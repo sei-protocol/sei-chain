@@ -6,7 +6,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/cosmos/cosmos-sdk/x/ibc/core/02-client/types"
+	"github.com/cosmos/ibc-go/core/02-client/types"
 )
 
 func TestZeroHeight(t *testing.T) {

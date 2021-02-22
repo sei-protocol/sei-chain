@@ -1,11 +1,11 @@
 package keeper_test
 
 import (
-	"github.com/cosmos/cosmos-sdk/x/ibc/core/02-client/types"
-	clienttypes "github.com/cosmos/cosmos-sdk/x/ibc/core/02-client/types"
-	"github.com/cosmos/cosmos-sdk/x/ibc/core/exported"
-	ibctmtypes "github.com/cosmos/cosmos-sdk/x/ibc/light-clients/07-tendermint/types"
-	ibctesting "github.com/cosmos/cosmos-sdk/x/ibc/testing"
+	"github.com/cosmos/ibc-go/core/02-client/types"
+	clienttypes "github.com/cosmos/ibc-go/core/02-client/types"
+	"github.com/cosmos/ibc-go/core/exported"
+	ibctmtypes "github.com/cosmos/ibc-go/light-clients/07-tendermint/types"
+	ibctesting "github.com/cosmos/ibc-go/testing"
 )
 
 func (suite *KeeperTestSuite) TestClientUpdateProposal() {

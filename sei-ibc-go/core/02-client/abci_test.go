@@ -5,11 +5,11 @@ import (
 
 	"github.com/stretchr/testify/suite"
 
-	client "github.com/cosmos/cosmos-sdk/x/ibc/core/02-client"
-	"github.com/cosmos/cosmos-sdk/x/ibc/core/02-client/types"
-	"github.com/cosmos/cosmos-sdk/x/ibc/core/exported"
-	localhosttypes "github.com/cosmos/cosmos-sdk/x/ibc/light-clients/09-localhost/types"
-	ibctesting "github.com/cosmos/cosmos-sdk/x/ibc/testing"
+	client "github.com/cosmos/ibc-go/core/02-client"
+	"github.com/cosmos/ibc-go/core/02-client/types"
+	"github.com/cosmos/ibc-go/core/exported"
+	localhosttypes "github.com/cosmos/ibc-go/light-clients/09-localhost/types"
+	ibctesting "github.com/cosmos/ibc-go/testing"
 )
 
 type ClientTestSuite struct {

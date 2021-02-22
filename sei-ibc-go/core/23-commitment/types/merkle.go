@@ -10,7 +10,7 @@ import (
 	tmcrypto "github.com/tendermint/tendermint/proto/tendermint/crypto"
 
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
-	"github.com/cosmos/cosmos-sdk/x/ibc/core/exported"
+	"github.com/cosmos/ibc-go/core/exported"
 )
 
 // var representing the proofspecs for a SDK chain

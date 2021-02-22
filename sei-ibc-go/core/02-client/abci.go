@@ -2,8 +2,8 @@ package client
 
 import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
-	"github.com/cosmos/cosmos-sdk/x/ibc/core/02-client/keeper"
-	"github.com/cosmos/cosmos-sdk/x/ibc/core/exported"
+	"github.com/cosmos/ibc-go/core/02-client/keeper"
+	"github.com/cosmos/ibc-go/core/exported"
 )
 
 // BeginBlocker updates an existing localhost client with the latest block height.

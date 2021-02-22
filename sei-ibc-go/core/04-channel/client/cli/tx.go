@@ -10,10 +10,10 @@ import (
 	"github.com/cosmos/cosmos-sdk/client/flags"
 	"github.com/cosmos/cosmos-sdk/client/tx"
 	"github.com/cosmos/cosmos-sdk/types/msgservice"
-	ibctransfertypes "github.com/cosmos/cosmos-sdk/x/ibc/applications/transfer/types"
-	clienttypes "github.com/cosmos/cosmos-sdk/x/ibc/core/02-client/types"
-	connectionutils "github.com/cosmos/cosmos-sdk/x/ibc/core/03-connection/client/utils"
-	"github.com/cosmos/cosmos-sdk/x/ibc/core/04-channel/types"
+	ibctransfertypes "github.com/cosmos/ibc-go/apps/transfer/types"
+	clienttypes "github.com/cosmos/ibc-go/core/02-client/types"
+	connectionutils "github.com/cosmos/ibc-go/core/03-connection/client/utils"
+	"github.com/cosmos/ibc-go/core/04-channel/types"
 )
 
 // IBC Channel flags

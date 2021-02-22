@@ -5,7 +5,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/cosmos/cosmos-sdk/x/ibc/core/04-channel/types"
+	"github.com/cosmos/ibc-go/core/04-channel/types"
 )
 
 func TestChannelValidateBasic(t *testing.T) {

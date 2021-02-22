@@ -11,9 +11,9 @@ import (
 	codectypes "github.com/cosmos/cosmos-sdk/codec/types"
 	"github.com/cosmos/cosmos-sdk/types/module"
 	simtypes "github.com/cosmos/cosmos-sdk/types/simulation"
-	host "github.com/cosmos/cosmos-sdk/x/ibc/core/24-host"
-	"github.com/cosmos/cosmos-sdk/x/ibc/core/simulation"
-	"github.com/cosmos/cosmos-sdk/x/ibc/core/types"
+	host "github.com/cosmos/ibc-go/core/24-host"
+	"github.com/cosmos/ibc-go/core/simulation"
+	"github.com/cosmos/ibc-go/core/types"
 )
 
 // TestRandomizedGenState tests the normal scenario of applying RandomizedGenState.

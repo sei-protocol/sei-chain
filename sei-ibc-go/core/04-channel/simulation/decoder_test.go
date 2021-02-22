@@ -9,9 +9,9 @@ import (
 	"github.com/cosmos/cosmos-sdk/simapp"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/types/kv"
-	"github.com/cosmos/cosmos-sdk/x/ibc/core/04-channel/simulation"
-	"github.com/cosmos/cosmos-sdk/x/ibc/core/04-channel/types"
-	host "github.com/cosmos/cosmos-sdk/x/ibc/core/24-host"
+	"github.com/cosmos/ibc-go/core/04-channel/simulation"
+	"github.com/cosmos/ibc-go/core/04-channel/types"
+	host "github.com/cosmos/ibc-go/core/24-host"
 )
 
 func TestDecodeStore(t *testing.T) {

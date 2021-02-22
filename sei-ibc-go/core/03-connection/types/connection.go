@@ -2,9 +2,9 @@ package types
 
 import (
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
-	commitmenttypes "github.com/cosmos/cosmos-sdk/x/ibc/core/23-commitment/types"
-	host "github.com/cosmos/cosmos-sdk/x/ibc/core/24-host"
-	"github.com/cosmos/cosmos-sdk/x/ibc/core/exported"
+	commitmenttypes "github.com/cosmos/ibc-go/core/23-commitment/types"
+	host "github.com/cosmos/ibc-go/core/24-host"
+	"github.com/cosmos/ibc-go/core/exported"
 )
 
 var _ exported.ConnectionI = (*ConnectionEnd)(nil)

@@ -4,7 +4,7 @@ import (
 	"errors"
 	"fmt"
 
-	host "github.com/cosmos/cosmos-sdk/x/ibc/core/24-host"
+	host "github.com/cosmos/ibc-go/core/24-host"
 )
 
 // NewPacketState creates a new PacketState instance.

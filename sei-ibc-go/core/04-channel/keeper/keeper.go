@@ -12,12 +12,12 @@ import (
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	capabilitykeeper "github.com/cosmos/cosmos-sdk/x/capability/keeper"
 	capabilitytypes "github.com/cosmos/cosmos-sdk/x/capability/types"
-	clienttypes "github.com/cosmos/cosmos-sdk/x/ibc/core/02-client/types"
-	connectiontypes "github.com/cosmos/cosmos-sdk/x/ibc/core/03-connection/types"
-	"github.com/cosmos/cosmos-sdk/x/ibc/core/04-channel/types"
-	porttypes "github.com/cosmos/cosmos-sdk/x/ibc/core/05-port/types"
-	host "github.com/cosmos/cosmos-sdk/x/ibc/core/24-host"
-	"github.com/cosmos/cosmos-sdk/x/ibc/core/exported"
+	clienttypes "github.com/cosmos/ibc-go/core/02-client/types"
+	connectiontypes "github.com/cosmos/ibc-go/core/03-connection/types"
+	"github.com/cosmos/ibc-go/core/04-channel/types"
+	porttypes "github.com/cosmos/ibc-go/core/05-port/types"
+	host "github.com/cosmos/ibc-go/core/24-host"
+	"github.com/cosmos/ibc-go/core/exported"
 )
 
 // Keeper defines the IBC channel keeper

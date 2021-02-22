@@ -4,7 +4,7 @@ import (
 	"math/rand"
 
 	simtypes "github.com/cosmos/cosmos-sdk/types/simulation"
-	"github.com/cosmos/cosmos-sdk/x/ibc/core/02-client/types"
+	"github.com/cosmos/ibc-go/core/02-client/types"
 )
 
 // GenClientGenesis returns the default client genesis state.

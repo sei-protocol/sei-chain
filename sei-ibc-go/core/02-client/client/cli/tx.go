@@ -16,8 +16,8 @@ import (
 	"github.com/cosmos/cosmos-sdk/version"
 	govcli "github.com/cosmos/cosmos-sdk/x/gov/client/cli"
 	govtypes "github.com/cosmos/cosmos-sdk/x/gov/types"
-	"github.com/cosmos/cosmos-sdk/x/ibc/core/02-client/types"
-	"github.com/cosmos/cosmos-sdk/x/ibc/core/exported"
+	"github.com/cosmos/ibc-go/core/02-client/types"
+	"github.com/cosmos/ibc-go/core/exported"
 )
 
 // NewCreateClientCmd defines the command to create a new IBC light client.

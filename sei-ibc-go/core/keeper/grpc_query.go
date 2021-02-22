@@ -3,9 +3,9 @@ package keeper
 import (
 	"context"
 
-	clienttypes "github.com/cosmos/cosmos-sdk/x/ibc/core/02-client/types"
-	connectiontypes "github.com/cosmos/cosmos-sdk/x/ibc/core/03-connection/types"
-	channeltypes "github.com/cosmos/cosmos-sdk/x/ibc/core/04-channel/types"
+	clienttypes "github.com/cosmos/ibc-go/core/02-client/types"
+	connectiontypes "github.com/cosmos/ibc-go/core/03-connection/types"
+	channeltypes "github.com/cosmos/ibc-go/core/04-channel/types"
 )
 
 // ClientState implements the IBC QueryServer interface

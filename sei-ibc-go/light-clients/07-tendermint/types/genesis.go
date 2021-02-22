@@ -2,8 +2,8 @@ package types
 
 import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
-	clienttypes "github.com/cosmos/cosmos-sdk/x/ibc/core/02-client/types"
-	"github.com/cosmos/cosmos-sdk/x/ibc/core/exported"
+	clienttypes "github.com/cosmos/ibc-go/core/02-client/types"
+	"github.com/cosmos/ibc-go/core/exported"
 )
 
 // ExportMetadata exports all the processed times in the client store so they can be included in clients genesis

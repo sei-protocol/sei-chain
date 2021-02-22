@@ -7,12 +7,12 @@ import (
 	"github.com/tendermint/tendermint/crypto/tmhash"
 	tmtypes "github.com/tendermint/tendermint/types"
 
-	clienttypes "github.com/cosmos/cosmos-sdk/x/ibc/core/02-client/types"
-	commitmenttypes "github.com/cosmos/cosmos-sdk/x/ibc/core/23-commitment/types"
-	"github.com/cosmos/cosmos-sdk/x/ibc/core/exported"
-	"github.com/cosmos/cosmos-sdk/x/ibc/light-clients/07-tendermint/types"
-	ibctesting "github.com/cosmos/cosmos-sdk/x/ibc/testing"
-	ibctestingmock "github.com/cosmos/cosmos-sdk/x/ibc/testing/mock"
+	clienttypes "github.com/cosmos/ibc-go/core/02-client/types"
+	commitmenttypes "github.com/cosmos/ibc-go/core/23-commitment/types"
+	"github.com/cosmos/ibc-go/core/exported"
+	"github.com/cosmos/ibc-go/light-clients/07-tendermint/types"
+	ibctesting "github.com/cosmos/ibc-go/testing"
+	ibctestingmock "github.com/cosmos/ibc-go/testing/mock"
 )
 
 func (suite *TendermintTestSuite) TestCheckMisbehaviourAndUpdateState() {

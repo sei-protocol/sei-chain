@@ -3,11 +3,11 @@ package keeper_test
 import (
 	"time"
 
-	clienttypes "github.com/cosmos/cosmos-sdk/x/ibc/core/02-client/types"
-	"github.com/cosmos/cosmos-sdk/x/ibc/core/03-connection/types"
-	host "github.com/cosmos/cosmos-sdk/x/ibc/core/24-host"
-	"github.com/cosmos/cosmos-sdk/x/ibc/core/exported"
-	ibctmtypes "github.com/cosmos/cosmos-sdk/x/ibc/light-clients/07-tendermint/types"
+	clienttypes "github.com/cosmos/ibc-go/core/02-client/types"
+	"github.com/cosmos/ibc-go/core/03-connection/types"
+	host "github.com/cosmos/ibc-go/core/24-host"
+	"github.com/cosmos/ibc-go/core/exported"
+	ibctmtypes "github.com/cosmos/ibc-go/light-clients/07-tendermint/types"
 )
 
 // TestConnOpenInit - chainA initializes (INIT state) a connection with

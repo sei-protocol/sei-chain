@@ -3,10 +3,10 @@ package types_test
 import (
 	"time"
 
-	clienttypes "github.com/cosmos/cosmos-sdk/x/ibc/core/02-client/types"
-	"github.com/cosmos/cosmos-sdk/x/ibc/core/exported"
-	"github.com/cosmos/cosmos-sdk/x/ibc/light-clients/07-tendermint/types"
-	ibctesting "github.com/cosmos/cosmos-sdk/x/ibc/testing"
+	clienttypes "github.com/cosmos/ibc-go/core/02-client/types"
+	"github.com/cosmos/ibc-go/core/exported"
+	"github.com/cosmos/ibc-go/light-clients/07-tendermint/types"
+	ibctesting "github.com/cosmos/ibc-go/testing"
 )
 
 var (

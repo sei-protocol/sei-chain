@@ -9,12 +9,12 @@ import (
 
 	"github.com/cosmos/cosmos-sdk/codec"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
-	"github.com/cosmos/cosmos-sdk/x/ibc/core/02-client/types"
-	commitmenttypes "github.com/cosmos/cosmos-sdk/x/ibc/core/23-commitment/types"
-	host "github.com/cosmos/cosmos-sdk/x/ibc/core/24-host"
-	ibcclient "github.com/cosmos/cosmos-sdk/x/ibc/core/client"
-	"github.com/cosmos/cosmos-sdk/x/ibc/core/exported"
-	ibctmtypes "github.com/cosmos/cosmos-sdk/x/ibc/light-clients/07-tendermint/types"
+	"github.com/cosmos/ibc-go/core/02-client/types"
+	commitmenttypes "github.com/cosmos/ibc-go/core/23-commitment/types"
+	host "github.com/cosmos/ibc-go/core/24-host"
+	ibcclient "github.com/cosmos/ibc-go/core/client"
+	"github.com/cosmos/ibc-go/core/exported"
+	ibctmtypes "github.com/cosmos/ibc-go/light-clients/07-tendermint/types"
 )
 
 // QueryClientState returns a client state. If prove is true, it performs an ABCI store query

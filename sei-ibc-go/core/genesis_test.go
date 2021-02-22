@@ -9,16 +9,16 @@ import (
 
 	"github.com/cosmos/cosmos-sdk/codec"
 	"github.com/cosmos/cosmos-sdk/simapp"
-	ibc "github.com/cosmos/cosmos-sdk/x/ibc/core"
-	clienttypes "github.com/cosmos/cosmos-sdk/x/ibc/core/02-client/types"
-	connectiontypes "github.com/cosmos/cosmos-sdk/x/ibc/core/03-connection/types"
-	channeltypes "github.com/cosmos/cosmos-sdk/x/ibc/core/04-channel/types"
-	commitmenttypes "github.com/cosmos/cosmos-sdk/x/ibc/core/23-commitment/types"
-	"github.com/cosmos/cosmos-sdk/x/ibc/core/exported"
-	"github.com/cosmos/cosmos-sdk/x/ibc/core/types"
-	ibctmtypes "github.com/cosmos/cosmos-sdk/x/ibc/light-clients/07-tendermint/types"
-	localhosttypes "github.com/cosmos/cosmos-sdk/x/ibc/light-clients/09-localhost/types"
-	ibctesting "github.com/cosmos/cosmos-sdk/x/ibc/testing"
+	ibc "github.com/cosmos/ibc-go/core"
+	clienttypes "github.com/cosmos/ibc-go/core/02-client/types"
+	connectiontypes "github.com/cosmos/ibc-go/core/03-connection/types"
+	channeltypes "github.com/cosmos/ibc-go/core/04-channel/types"
+	commitmenttypes "github.com/cosmos/ibc-go/core/23-commitment/types"
+	"github.com/cosmos/ibc-go/core/exported"
+	"github.com/cosmos/ibc-go/core/types"
+	ibctmtypes "github.com/cosmos/ibc-go/light-clients/07-tendermint/types"
+	localhosttypes "github.com/cosmos/ibc-go/light-clients/09-localhost/types"
+	ibctesting "github.com/cosmos/ibc-go/testing"
 )
 
 const (

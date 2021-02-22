@@ -4,10 +4,10 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/cosmos/cosmos-sdk/client"
-	ibcclient "github.com/cosmos/cosmos-sdk/x/ibc/core/02-client"
-	connection "github.com/cosmos/cosmos-sdk/x/ibc/core/03-connection"
-	channel "github.com/cosmos/cosmos-sdk/x/ibc/core/04-channel"
-	host "github.com/cosmos/cosmos-sdk/x/ibc/core/24-host"
+	ibcclient "github.com/cosmos/ibc-go/core/02-client"
+	connection "github.com/cosmos/ibc-go/core/03-connection"
+	channel "github.com/cosmos/ibc-go/core/04-channel"
+	host "github.com/cosmos/ibc-go/core/24-host"
 )
 
 // GetTxCmd returns the transaction commands for this module

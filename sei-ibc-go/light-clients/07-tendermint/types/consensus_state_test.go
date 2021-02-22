@@ -3,9 +3,9 @@ package types_test
 import (
 	"time"
 
-	commitmenttypes "github.com/cosmos/cosmos-sdk/x/ibc/core/23-commitment/types"
-	"github.com/cosmos/cosmos-sdk/x/ibc/core/exported"
-	"github.com/cosmos/cosmos-sdk/x/ibc/light-clients/07-tendermint/types"
+	commitmenttypes "github.com/cosmos/ibc-go/core/23-commitment/types"
+	"github.com/cosmos/ibc-go/core/exported"
+	"github.com/cosmos/ibc-go/light-clients/07-tendermint/types"
 )
 
 func (suite *TendermintTestSuite) TestConsensusStateValidateBasic() {

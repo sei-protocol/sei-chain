@@ -2,11 +2,11 @@ package ibc
 
 import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
-	client "github.com/cosmos/cosmos-sdk/x/ibc/core/02-client"
-	connection "github.com/cosmos/cosmos-sdk/x/ibc/core/03-connection"
-	channel "github.com/cosmos/cosmos-sdk/x/ibc/core/04-channel"
-	"github.com/cosmos/cosmos-sdk/x/ibc/core/keeper"
-	"github.com/cosmos/cosmos-sdk/x/ibc/core/types"
+	client "github.com/cosmos/ibc-go/core/02-client"
+	connection "github.com/cosmos/ibc-go/core/03-connection"
+	channel "github.com/cosmos/ibc-go/core/04-channel"
+	"github.com/cosmos/ibc-go/core/keeper"
+	"github.com/cosmos/ibc-go/core/types"
 )
 
 // InitGenesis initializes the ibc state from a provided genesis
