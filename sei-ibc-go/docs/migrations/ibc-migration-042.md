@@ -11,6 +11,7 @@ The most obvious changes is import name changes. We need to change:
 On my GNU/Linux based machine I used the following commands, executed in order:
 
 `grep -RiIl 'cosmos-sdk\/x\/ibc\/applications' | xargs sed -i 's/cosmos-sdk\/x\/ibc\/applications/ibc-go\/apps/g'`
+
 `grep -RiIl 'cosmos-sdk\/x\/ibc' | xargs sed -i 's/cosmos-sdk\/x\/ibc/ibc-go/g'`
 
 Executing these commands out of order will cause issues. 
@@ -24,7 +25,7 @@ The new package naming begins with `ibcgo` instead of `ibc`.
 
 The gRPC querier service endpoints have changed slightly. The previous files used `v1beta1`, this has been updated to `v1`.
 
-## UpdateClient Proposal && IBC UpgradeProposal
+## Proposals
 
 ### UpdateClientProposal
 The `UpdateClient` has been modified to take in two client-identifiers and one initial height. Please see the [documentation](..//proposals.md) for more information. 
@@ -47,3 +48,7 @@ REST routes are not supported for these proposals.
 ### Proposal Handler Registration
 
 The `ClientUpdateProposalHandler` has been renamed to `ClientProposalHandler`. It handles both `UpdateClientProposal`s and `UpgradeProposal`s.
+
+Please ensure the governance module adds the following route:
+
+`AddRoute(ibcclienttypes.RouterKey, ibcclient.NewClientProposalHandler(app.IBCKeeper.ClientKeeper))`
