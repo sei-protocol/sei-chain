@@ -279,6 +279,10 @@
                   <a href="#ibcgo.core.client.v1.Params"><span class="badge">M</span>Params</a>
                 </li>
               
+                <li>
+                  <a href="#ibcgo.core.client.v1.UpgradeProposal"><span class="badge">M</span>UpgradeProposal</a>
+                </li>
+              
               
               
               
@@ -650,6 +654,14 @@
               
                 <li>
                   <a href="#ibcgo.core.client.v1.QueryConsensusStatesResponse"><span class="badge">M</span>QueryConsensusStatesResponse</a>
+                </li>
+              
+                <li>
+                  <a href="#ibcgo.core.client.v1.QueryUpgradedClientStateRequest"><span class="badge">M</span>QueryUpgradedClientStateRequest</a>
+                </li>
+              
+                <li>
+                  <a href="#ibcgo.core.client.v1.QueryUpgradedClientStateResponse"><span class="badge">M</span>QueryUpgradedClientStateResponse</a>
                 </li>
               
               
@@ -1642,6 +1654,56 @@ subject </p></td>
                   <td><a href="#string">string</a></td>
                   <td>repeated</td>
                   <td><p>allowed_clients defines the list of allowed client state types. </p></td>
+                </tr>
+              
+            </tbody>
+          </table>
+
+          
+
+        
+      
+        <h3 id="ibcgo.core.client.v1.UpgradeProposal">UpgradeProposal</h3>
+        <p>UpgradeProposal is a gov Content type for initiating an IBC breaking</p><p>upgrade.</p>
+
+        
+          <table class="field-table">
+            <thead>
+              <tr><td>Field</td><td>Type</td><td>Label</td><td>Description</td></tr>
+            </thead>
+            <tbody>
+              
+                <tr>
+                  <td>title</td>
+                  <td><a href="#string">string</a></td>
+                  <td></td>
+                  <td><p> </p></td>
+                </tr>
+              
+                <tr>
+                  <td>description</td>
+                  <td><a href="#string">string</a></td>
+                  <td></td>
+                  <td><p> </p></td>
+                </tr>
+              
+                <tr>
+                  <td>plan</td>
+                  <td><a href="#cosmos.upgrade.v1beta1.Plan">cosmos.upgrade.v1beta1.Plan</a></td>
+                  <td></td>
+                  <td><p> </p></td>
+                </tr>
+              
+                <tr>
+                  <td>upgraded_client_state</td>
+                  <td><a href="#google.protobuf.Any">google.protobuf.Any</a></td>
+                  <td></td>
+                  <td><p>An UpgradedClientState must be provided to perform an IBC breaking upgrade.
+This will make the chain commit to the correct upgraded (self) client state
+before the upgrade occurs, so that connecting chains can verify that the
+new upgraded client is valid by verifying a proof on the previous version
+of the chain. This will allow IBC connections to persist smoothly across
+planned chain upgrades </p></td>
                 </tr>
               
             </tbody>
@@ -4623,6 +4685,62 @@ ConsensusState </p></td>
 
         
       
+        <h3 id="ibcgo.core.client.v1.QueryUpgradedClientStateRequest">QueryUpgradedClientStateRequest</h3>
+        <p>QueryUpgradedClientStateRequest is the request type for the</p><p>Query/UpgradedClientState RPC method</p>
+
+        
+          <table class="field-table">
+            <thead>
+              <tr><td>Field</td><td>Type</td><td>Label</td><td>Description</td></tr>
+            </thead>
+            <tbody>
+              
+                <tr>
+                  <td>client_id</td>
+                  <td><a href="#string">string</a></td>
+                  <td></td>
+                  <td><p>client state unique identifier </p></td>
+                </tr>
+              
+                <tr>
+                  <td>plan_height</td>
+                  <td><a href="#int64">int64</a></td>
+                  <td></td>
+                  <td><p>plan height of the current chain must be sent in request
+as this is the height under which upgraded client state is stored </p></td>
+                </tr>
+              
+            </tbody>
+          </table>
+
+          
+
+        
+      
+        <h3 id="ibcgo.core.client.v1.QueryUpgradedClientStateResponse">QueryUpgradedClientStateResponse</h3>
+        <p>QueryUpgradedClientStateResponse is the response type for the</p><p>Query/UpgradedClientState RPC method.</p>
+
+        
+          <table class="field-table">
+            <thead>
+              <tr><td>Field</td><td>Type</td><td>Label</td><td>Description</td></tr>
+            </thead>
+            <tbody>
+              
+                <tr>
+                  <td>upgraded_client_state</td>
+                  <td><a href="#google.protobuf.Any">google.protobuf.Any</a></td>
+                  <td></td>
+                  <td><p>client state associated with the request identifier </p></td>
+                </tr>
+              
+            </tbody>
+          </table>
+
+          
+
+        
+      
 
       
 
@@ -4672,6 +4790,13 @@ client.</p></td>
                 <td><a href="#ibcgo.core.client.v1.QueryClientParamsRequest">QueryClientParamsRequest</a></td>
                 <td><a href="#ibcgo.core.client.v1.QueryClientParamsResponse">QueryClientParamsResponse</a></td>
                 <td><p>ClientParams queries all parameters of the ibc client.</p></td>
+              </tr>
+            
+              <tr>
+                <td>UpgradedClientState</td>
+                <td><a href="#ibcgo.core.client.v1.QueryUpgradedClientStateRequest">QueryUpgradedClientStateRequest</a></td>
+                <td><a href="#ibcgo.core.client.v1.QueryUpgradedClientStateResponse">QueryUpgradedClientStateResponse</a></td>
+                <td><p>UpgradedClientState queries an Upgraded IBC light client.</p></td>
               </tr>
             
           </tbody>
@@ -4738,6 +4863,16 @@ client.</p></td>
                 <td>ClientParams</td>
                 <td>GET</td>
                 <td>/ibc/client/v1/params</td>
+                <td></td>
+              </tr>
+              
+            
+              
+              
+              <tr>
+                <td>UpgradedClientState</td>
+                <td>GET</td>
+                <td>/ibc/core/client/v1/upgraded_client_states/{client_id}</td>
                 <td></td>
               </tr>
               

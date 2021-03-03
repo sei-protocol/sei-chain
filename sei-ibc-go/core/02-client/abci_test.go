@@ -4,10 +4,14 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/suite"
+	abci "github.com/tendermint/tendermint/abci/types"
+	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 
+	upgradetypes "github.com/cosmos/cosmos-sdk/x/upgrade/types"
 	client "github.com/cosmos/ibc-go/core/02-client"
 	"github.com/cosmos/ibc-go/core/02-client/types"
 	"github.com/cosmos/ibc-go/core/exported"
+	ibctmtypes "github.com/cosmos/ibc-go/light-clients/07-tendermint/types"
 	localhosttypes "github.com/cosmos/ibc-go/light-clients/09-localhost/types"
 	ibctesting "github.com/cosmos/ibc-go/testing"
 )
@@ -57,4 +61,34 @@ func (suite *ClientTestSuite) TestBeginBlocker() {
 		suite.Require().Equal(prevHeight.Increment(), localHostClient.GetLatestHeight())
 		prevHeight = localHostClient.GetLatestHeight().(types.Height)
 	}
+}
+
+func (suite *ClientTestSuite) TestBeginBlockerConsensusState() {
+	plan := &upgradetypes.Plan{
+		Name:   "test",
+		Height: suite.chainA.GetContext().BlockHeight() + 1,
+	}
+	// set upgrade plan in the upgrade store
+	store := suite.chainA.GetContext().KVStore(suite.chainA.App.GetKey(upgradetypes.StoreKey))
+	bz := suite.chainA.App.AppCodec().MustMarshalBinaryBare(plan)
+	store.Set(upgradetypes.PlanKey(), bz)
+
+	nextValsHash := []byte("nextValsHash")
+	newCtx := suite.chainA.GetContext().WithBlockHeader(tmproto.Header{
+		Height:             suite.chainA.GetContext().BlockHeight(),
+		NextValidatorsHash: nextValsHash,
+	})
+
+	err := suite.chainA.App.UpgradeKeeper.SetUpgradedClient(newCtx, plan.Height, []byte("client state"))
+	suite.Require().NoError(err)
+
+	req := abci.RequestBeginBlock{Header: newCtx.BlockHeader()}
+	suite.chainA.App.BeginBlock(req)
+
+	// plan Height is at ctx.BlockHeight+1
+	consState, found := suite.chainA.App.UpgradeKeeper.GetUpgradedConsensusState(newCtx, plan.Height)
+	suite.Require().True(found)
+	bz, err = types.MarshalConsensusState(suite.chainA.App.AppCodec(), &ibctmtypes.ConsensusState{Timestamp: newCtx.BlockTime(), NextValidatorsHash: nextValsHash})
+	suite.Require().NoError(err)
+	suite.Require().Equal(bz, consState)
 }

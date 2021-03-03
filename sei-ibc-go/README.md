@@ -28,6 +28,7 @@
   </a>
     <img alt="Lint Status" src="https://github.com/cosmos/cosmos-sdk/workflows/Lint/badge.svg" />
 </div>
+
 Interblockchain communication protocol (IBC) implementation in Golang built as a SDK module. 
 
 ## Components
@@ -51,4 +52,5 @@ The localhost client is currently non-functional.
 ## Docs
 
 Please see our [documentation](docs/README.md) for more information.
+
 

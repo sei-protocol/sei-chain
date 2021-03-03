@@ -12,13 +12,13 @@ import (
 	"github.com/cosmos/cosmos-sdk/store/prefix"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
+	paramtypes "github.com/cosmos/cosmos-sdk/x/params/types"
+	upgradetypes "github.com/cosmos/cosmos-sdk/x/upgrade/types"
 	"github.com/cosmos/ibc-go/core/02-client/types"
 	commitmenttypes "github.com/cosmos/ibc-go/core/23-commitment/types"
 	host "github.com/cosmos/ibc-go/core/24-host"
 	"github.com/cosmos/ibc-go/core/exported"
 	ibctmtypes "github.com/cosmos/ibc-go/light-clients/07-tendermint/types"
-	paramtypes "github.com/cosmos/cosmos-sdk/x/params/types"
-	upgradetypes "github.com/cosmos/cosmos-sdk/x/upgrade/types"
 )
 
 // Keeper represents a type that grants read and write permissions to any client
@@ -28,10 +28,11 @@ type Keeper struct {
 	cdc           codec.BinaryMarshaler
 	paramSpace    paramtypes.Subspace
 	stakingKeeper types.StakingKeeper
+	upgradeKeeper types.UpgradeKeeper
 }
 
 // NewKeeper creates a new NewKeeper instance
-func NewKeeper(cdc codec.BinaryMarshaler, key sdk.StoreKey, paramSpace paramtypes.Subspace, sk types.StakingKeeper) Keeper {
+func NewKeeper(cdc codec.BinaryMarshaler, key sdk.StoreKey, paramSpace paramtypes.Subspace, sk types.StakingKeeper, uk types.UpgradeKeeper) Keeper {
 	// set KeyTable if it has not already been set
 	if !paramSpace.HasKeyTable() {
 		paramSpace = paramSpace.WithKeyTable(types.ParamKeyTable())
@@ -42,6 +43,7 @@ func NewKeeper(cdc codec.BinaryMarshaler, key sdk.StoreKey, paramSpace paramtype
 		cdc:           cdc,
 		paramSpace:    paramSpace,
 		stakingKeeper: sk,
+		upgradeKeeper: uk,
 	}
 }
 
@@ -325,6 +327,21 @@ func (k Keeper) ValidateSelfClient(ctx sdk.Context, clientState exported.ClientS
 		}
 	}
 	return nil
+}
+
+// GetUpgradePlan executes the upgrade keeper GetUpgradePlan function.
+func (k Keeper) GetUpgradePlan(ctx sdk.Context) (plan upgradetypes.Plan, havePlan bool) {
+	return k.upgradeKeeper.GetUpgradePlan(ctx)
+}
+
+// GetUpgradedClient executes the upgrade keeper GetUpgradeClient function.
+func (k Keeper) GetUpgradedClient(ctx sdk.Context, planHeight int64) ([]byte, bool) {
+	return k.upgradeKeeper.GetUpgradedClient(ctx, planHeight)
+}
+
+// SetUpgradedConsensusState executes the upgrade keeper SetUpgradedConsensusState function.
+func (k Keeper) SetUpgradedConsensusState(ctx sdk.Context, planHeight int64, bz []byte) error {
+	return k.upgradeKeeper.SetUpgradedConsensusState(ctx, planHeight, bz)
 }
 
 // IterateClients provides an iterator over all stored light client State

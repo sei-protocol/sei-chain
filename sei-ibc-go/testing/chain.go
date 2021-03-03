@@ -19,12 +19,13 @@ import (
 	"github.com/cosmos/cosmos-sdk/codec"
 	"github.com/cosmos/cosmos-sdk/crypto/keys/secp256k1"
 	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
-	"github.com/cosmos/cosmos-sdk/simapp"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
 	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
 	capabilitytypes "github.com/cosmos/cosmos-sdk/x/capability/types"
+	"github.com/cosmos/cosmos-sdk/x/staking/teststaking"
+	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
 	ibctransfertypes "github.com/cosmos/ibc-go/apps/transfer/types"
 	clienttypes "github.com/cosmos/ibc-go/core/02-client/types"
 	connectiontypes "github.com/cosmos/ibc-go/core/03-connection/types"
@@ -35,8 +36,7 @@ import (
 	"github.com/cosmos/ibc-go/core/types"
 	ibctmtypes "github.com/cosmos/ibc-go/light-clients/07-tendermint/types"
 	"github.com/cosmos/ibc-go/testing/mock"
-	"github.com/cosmos/cosmos-sdk/x/staking/teststaking"
-	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
+	"github.com/cosmos/ibc-go/testing/simapp"
 )
 
 const (

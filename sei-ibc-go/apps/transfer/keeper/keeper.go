@@ -11,10 +11,10 @@ import (
 	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
 	capabilitykeeper "github.com/cosmos/cosmos-sdk/x/capability/keeper"
 	capabilitytypes "github.com/cosmos/cosmos-sdk/x/capability/types"
+	paramtypes "github.com/cosmos/cosmos-sdk/x/params/types"
 	"github.com/cosmos/ibc-go/apps/transfer/types"
 	channeltypes "github.com/cosmos/ibc-go/core/04-channel/types"
 	host "github.com/cosmos/ibc-go/core/24-host"
-	paramtypes "github.com/cosmos/cosmos-sdk/x/params/types"
 )
 
 // Keeper defines the IBC fungible transfer keeper

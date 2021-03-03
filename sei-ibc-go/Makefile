@@ -7,7 +7,7 @@ COMMIT := $(shell git log -1 --format='%H')
 LEDGER_ENABLED ?= true
 BINDIR ?= $(GOPATH)/bin
 BUILDDIR ?= $(CURDIR)/build
-SIMAPP = ./simapp
+SIMAPP = ./testing/simapp
 MOCKS_DIR = $(CURDIR)/tests/mocks
 HTTPS_GIT := https://github.com/cosmos/ibc-go.git
 DOCKER := $(shell which docker)
@@ -400,6 +400,7 @@ TM_P2P              = third_party/proto/tendermint/p2p
 
 SDK_QUERY 			= third_party/proto/cosmos/base/query/v1beta1
 SDK_BASE 			= third_party/proto/cosmos/base/v1beta1
+SDK_UPGRADE			= third_party/proto/cosmos/upgrade
 
 GOGO_PROTO_TYPES    = third_party/proto/gogoproto
 CONFIO_TYPES        = third_party/proto/confio
@@ -413,6 +414,9 @@ proto-update-deps:
 
 	@mkdir -p $(SDK_BASE)
 	@curl -sSL $(SDK_PROTO_URL)/base/v1beta1/coin.proto > $(SDK_BASE)/coin.proto
+
+	@mkdir -p $(SDK_UPGRADE)
+	@curl -sSL $(SDK_PROTO_URL)/upgrade/v1beta1/upgrade.proto > $(SDK_UPGRADE)/v1beta1/upgrade.proto
 
 ## Importing of tendermint protobuf definitions currently requires the
 ## use of `sed` in order to build properly with cosmos-sdk's proto file layout

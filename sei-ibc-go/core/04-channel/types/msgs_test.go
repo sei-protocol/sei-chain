@@ -9,7 +9,6 @@ import (
 	abci "github.com/tendermint/tendermint/abci/types"
 	dbm "github.com/tendermint/tm-db"
 
-	"github.com/cosmos/cosmos-sdk/simapp"
 	"github.com/cosmos/cosmos-sdk/store/iavl"
 	"github.com/cosmos/cosmos-sdk/store/rootmulti"
 	storetypes "github.com/cosmos/cosmos-sdk/store/types"
@@ -18,6 +17,7 @@ import (
 	"github.com/cosmos/ibc-go/core/04-channel/types"
 	commitmenttypes "github.com/cosmos/ibc-go/core/23-commitment/types"
 	"github.com/cosmos/ibc-go/core/exported"
+	"github.com/cosmos/ibc-go/testing/simapp"
 )
 
 const (

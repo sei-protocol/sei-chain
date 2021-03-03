@@ -6,10 +6,10 @@ import (
 	"github.com/cosmos/cosmos-sdk/codec"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
+	upgradetypes "github.com/cosmos/cosmos-sdk/x/upgrade/types"
 	clienttypes "github.com/cosmos/ibc-go/core/02-client/types"
 	commitmenttypes "github.com/cosmos/ibc-go/core/23-commitment/types"
 	"github.com/cosmos/ibc-go/core/exported"
-	upgradetypes "github.com/cosmos/cosmos-sdk/x/upgrade/types"
 )
 
 // VerifyUpgradeAndUpdateState checks if the upgraded client has been committed by the current client
@@ -40,8 +40,8 @@ func (cs ClientState) VerifyUpgradeAndUpdateState(
 			upgradedClient.GetLatestHeight(), lastHeight)
 	}
 
-	// counterparty chain must commit the upgraded client with all client-customizable fields zeroed out
-	// at the upgrade path specified by current client
+	// upgraded client state and consensus state must be IBC tendermint client state and consensus state
+	// this may be modified in the future to upgrade to a new IBC tendermint type
 	// counterparty must also commit to the upgraded consensus state at a sub-path under the upgrade path specified
 	tmUpgradeClient, ok := upgradedClient.(*ClientState)
 	if !ok {
