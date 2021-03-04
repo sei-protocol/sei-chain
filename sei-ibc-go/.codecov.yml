@@ -49,6 +49,7 @@ ignore:
   - "docs"
   - "*.md"
   - "**/*.pb.go"
+  - "**/*.pb.gw.go"
   - "core/**/*.pb.go"
   - "core/**/test_common.go"
   - "scripts/"

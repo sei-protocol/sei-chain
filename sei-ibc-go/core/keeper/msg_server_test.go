@@ -6,7 +6,6 @@ import (
 	"github.com/stretchr/testify/suite"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
-	upgradetypes "github.com/cosmos/cosmos-sdk/x/upgrade/types"
 	clienttypes "github.com/cosmos/ibc-go/core/02-client/types"
 	channeltypes "github.com/cosmos/ibc-go/core/04-channel/types"
 	commitmenttypes "github.com/cosmos/ibc-go/core/23-commitment/types"
@@ -16,6 +15,7 @@ import (
 	ibctmtypes "github.com/cosmos/ibc-go/light-clients/07-tendermint/types"
 	ibctesting "github.com/cosmos/ibc-go/testing"
 	ibcmock "github.com/cosmos/ibc-go/testing/mock"
+	upgradetypes "github.com/cosmos/cosmos-sdk/x/upgrade/types"
 )
 
 const height = 10

@@ -2,11 +2,11 @@ package keeper_test
 
 import (
 	govtypes "github.com/cosmos/cosmos-sdk/x/gov/types"
-	upgradetypes "github.com/cosmos/cosmos-sdk/x/upgrade/types"
 	"github.com/cosmos/ibc-go/core/02-client/types"
 	"github.com/cosmos/ibc-go/core/exported"
 	ibctmtypes "github.com/cosmos/ibc-go/light-clients/07-tendermint/types"
 	ibctesting "github.com/cosmos/ibc-go/testing"
+	upgradetypes "github.com/cosmos/cosmos-sdk/x/upgrade/types"
 )
 
 func (suite *KeeperTestSuite) TestClientUpdateProposal() {

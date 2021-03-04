@@ -8,6 +8,7 @@ import (
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 
 	"github.com/cosmos/cosmos-sdk/codec"
+	"github.com/cosmos/ibc-go/testing/simapp"
 	ibc "github.com/cosmos/ibc-go/core"
 	clienttypes "github.com/cosmos/ibc-go/core/02-client/types"
 	connectiontypes "github.com/cosmos/ibc-go/core/03-connection/types"
@@ -18,7 +19,6 @@ import (
 	ibctmtypes "github.com/cosmos/ibc-go/light-clients/07-tendermint/types"
 	localhosttypes "github.com/cosmos/ibc-go/light-clients/09-localhost/types"
 	ibctesting "github.com/cosmos/ibc-go/testing"
-	"github.com/cosmos/ibc-go/testing/simapp"
 )
 
 const (
