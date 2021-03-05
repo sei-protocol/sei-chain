@@ -39,7 +39,7 @@ flags:
   modules:
     paths:
       - "core/"
-      - "!core/**/client/" # ignore client package
+      - "!modules/core/**/client/" # ignore client package
   client:
     paths:
       - "client/"
@@ -50,6 +50,7 @@ ignore:
   - "*.md"
   - "**/*.pb.go"
   - "**/*.pb.gw.go"
-  - "core/**/*.pb.go"
-  - "core/**/test_common.go"
+  - "modules/**/**/**/*.pb.go"
+  - "modules/**/**/**/*.pb.gw.go"
+  - "modules/**/**/**/test_common.go"
   - "scripts/"

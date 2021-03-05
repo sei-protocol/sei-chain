@@ -12,11 +12,11 @@ import (
 	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
 	"github.com/cosmos/cosmos-sdk/crypto/types/multisig"
 	"github.com/cosmos/cosmos-sdk/types/tx/signing"
-	clienttypes "github.com/cosmos/ibc-go/core/02-client/types"
-	commitmenttypes "github.com/cosmos/ibc-go/core/23-commitment/types"
-	host "github.com/cosmos/ibc-go/core/24-host"
-	"github.com/cosmos/ibc-go/core/exported"
-	solomachinetypes "github.com/cosmos/ibc-go/light-clients/06-solomachine/types"
+	clienttypes "github.com/cosmos/ibc-go/modules/core/02-client/types"
+	commitmenttypes "github.com/cosmos/ibc-go/modules/core/23-commitment/types"
+	host "github.com/cosmos/ibc-go/modules/core/24-host"
+	"github.com/cosmos/ibc-go/modules/core/exported"
+	solomachinetypes "github.com/cosmos/ibc-go/modules/light-clients/06-solomachine/types"
 )
 
 var prefix = commitmenttypes.NewMerklePrefix([]byte("ibc"))

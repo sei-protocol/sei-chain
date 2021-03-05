@@ -28,8 +28,8 @@ import (
 	tmrand "github.com/tendermint/tendermint/libs/rand"
 	dbm "github.com/tendermint/tm-db"
 
-	ibcclientcli "github.com/cosmos/ibc-go/core/02-client/client/cli"
-	ibccli "github.com/cosmos/ibc-go/core/04-channel/client/cli"
+	ibcclientcli "github.com/cosmos/ibc-go/modules/core/02-client/client/cli"
+	ibccli "github.com/cosmos/ibc-go/modules/core/04-channel/client/cli"
 	"github.com/cosmos/ibc-go/testing/simapp"
 )
 

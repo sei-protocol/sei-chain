@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package ibcgo.apps.transfer.v1;
 
-option go_package = "github.com/cosmos/ibc-go/apps/transfer/types";
+option go_package = "github.com/cosmos/ibc-go/modules/apps/transfer/types";
 
 import "gogoproto/gogo.proto";
 

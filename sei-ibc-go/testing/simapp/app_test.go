@@ -30,8 +30,8 @@ import (
 	"github.com/cosmos/cosmos-sdk/x/slashing"
 	"github.com/cosmos/cosmos-sdk/x/staking"
 	"github.com/cosmos/cosmos-sdk/x/upgrade"
-	transfer "github.com/cosmos/ibc-go/apps/transfer"
-	ibc "github.com/cosmos/ibc-go/core"
+	transfer "github.com/cosmos/ibc-go/modules/apps/transfer"
+	ibc "github.com/cosmos/ibc-go/modules/core"
 )
 
 func TestSimAppExportAndBlockedAddrs(t *testing.T) {
