@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package ibcgo.core.types.v1;
 
-option go_package = "github.com/cosmos/ibc-go/core/types";
+option go_package = "github.com/cosmos/ibc-go/modules/core/types";
 
 import "gogoproto/gogo.proto";
 import "ibcgo/core/client/v1/genesis.proto";
