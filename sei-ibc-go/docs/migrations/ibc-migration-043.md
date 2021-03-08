@@ -1,6 +1,6 @@
 # Migrating to ibc-go
 
-This file contains information on how to migrate from the IBC module contained in the SDK 0.41.x line to the IBC module in the ibc-go repository based on the 0.42 SDK version. 
+This file contains information on how to migrate from the IBC module contained in the SDK 0.41.x line to the IBC module in the ibc-go repository based on the 0.43 SDK version. 
 
 ## Import Changes
 
@@ -10,9 +10,11 @@ The most obvious changes is import name changes. We need to change:
 
 On my GNU/Linux based machine I used the following commands, executed in order:
 
-`grep -RiIl 'cosmos-sdk\/x\/ibc\/applications' | xargs sed -i 's/cosmos-sdk\/x\/ibc\/applications/ibc-go\/apps/g'`
+`grep -RiIl 'cosmos-sdk\/x\/ibc\/applications' | xargs sed -i 's/cosmos-sdk\/x\/ibc\/applications/ibc-go\/modules\/apps/g'`
 
-`grep -RiIl 'cosmos-sdk\/x\/ibc' | xargs sed -i 's/cosmos-sdk\/x\/ibc/ibc-go/g'`
+`grep -RiIl 'cosmos-sdk\/x\/ibc' | xargs sed -i 's/cosmos-sdk\/x\/ibc/ibc-go\/modules/g'`
+
+ref: [explanation of the above commands](https://www.internalpointers.com/post/linux-find-and-replace-text-multiple-files)
 
 Executing these commands out of order will cause issues. 
 
