@@ -199,7 +199,7 @@ func (s *IntegrationTestSuite) TestLegacyRestErrMessages() {
 	// a solo machine client state
 	clientStateJSON := testutil.WriteToNewTempFile(
 		s.T(),
-		`{"@type":"/ibcgo.lightclients.solomachine.v1.ClientState","sequence":"1","frozen_sequence":"0","consensus_state":{"public_key":{"@type":"/cosmos.crypto.secp256k1.PubKey","key":"AtK50+5pJOoaa04qqAqrnyAqsYrwrR/INnA6UPIaYZlp"},"diversifier":"testing","timestamp":"10"},"allow_update_after_proposal":false}`,
+		`{"@type":"/ibc.lightclients.solomachine.v1.ClientState","sequence":"1","frozen_sequence":"0","consensus_state":{"public_key":{"@type":"/cosmos.crypto.secp256k1.PubKey","key":"AtK50+5pJOoaa04qqAqrnyAqsYrwrR/INnA6UPIaYZlp"},"diversifier":"testing","timestamp":"10"},"allow_update_after_proposal":false}`,
 	)
 
 	// Write consensus json to temp file, used for an IBC message.
@@ -207,7 +207,7 @@ func (s *IntegrationTestSuite) TestLegacyRestErrMessages() {
 	// a solo machine consensus state
 	consensusJSON := testutil.WriteToNewTempFile(
 		s.T(),
-		`{"@type":"/ibcgo.lightclients.solomachine.v1.ConsensusState","public_key":{"@type":"/cosmos.crypto.secp256k1.PubKey","key":"AtK50+5pJOoaa04qqAqrnyAqsYrwrR/INnA6UPIaYZlp"},"diversifier":"testing","timestamp":"10"}`,
+		`{"@type":"/ibc.lightclients.solomachine.v1.ConsensusState","public_key":{"@type":"/cosmos.crypto.secp256k1.PubKey","key":"AtK50+5pJOoaa04qqAqrnyAqsYrwrR/INnA6UPIaYZlp"},"diversifier":"testing","timestamp":"10"}`,
 	)
 
 	testCases := []struct {

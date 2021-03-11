@@ -12,17 +12,17 @@ import (
 // Any.
 func RegisterInterfaces(registry codectypes.InterfaceRegistry) {
 	registry.RegisterInterface(
-		"ibcgo.core.channel.v1.ChannelI",
+		"ibc.core.channel.v1.ChannelI",
 		(*exported.ChannelI)(nil),
 		&Channel{},
 	)
 	registry.RegisterInterface(
-		"ibcgo.core.channel.v1.CounterpartyChannelI",
+		"ibc.core.channel.v1.CounterpartyChannelI",
 		(*exported.CounterpartyChannelI)(nil),
 		&Counterparty{},
 	)
 	registry.RegisterInterface(
-		"ibcgo.core.channel.v1.PacketI",
+		"ibc.core.channel.v1.PacketI",
 		(*exported.PacketI)(nil),
 		&Packet{},
 	)

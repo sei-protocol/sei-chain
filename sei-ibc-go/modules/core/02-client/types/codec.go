@@ -14,24 +14,24 @@ import (
 // RegisterInterfaces registers the client interfaces to protobuf Any.
 func RegisterInterfaces(registry codectypes.InterfaceRegistry) {
 	registry.RegisterInterface(
-		"ibcgo.core.client.v1.ClientState",
+		"ibc.core.client.v1.ClientState",
 		(*exported.ClientState)(nil),
 	)
 	registry.RegisterInterface(
-		"ibcgo.core.client.v1.ConsensusState",
+		"ibc.core.client.v1.ConsensusState",
 		(*exported.ConsensusState)(nil),
 	)
 	registry.RegisterInterface(
-		"ibcgo.core.client.v1.Header",
+		"ibc.core.client.v1.Header",
 		(*exported.Header)(nil),
 	)
 	registry.RegisterInterface(
-		"ibcgo.core.client.v1.Height",
+		"ibc.core.client.v1.Height",
 		(*exported.Height)(nil),
 		&Height{},
 	)
 	registry.RegisterInterface(
-		"ibcgo.core.client.v1.Misbehaviour",
+		"ibc.core.client.v1.Misbehaviour",
 		(*exported.Misbehaviour)(nil),
 	)
 	registry.RegisterImplementations(
