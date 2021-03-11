@@ -8,19 +8,19 @@ import (
 // RegisterInterfaces registers the commitment interfaces to protobuf Any.
 func RegisterInterfaces(registry codectypes.InterfaceRegistry) {
 	registry.RegisterInterface(
-		"ibcgo.core.commitment.v1.Root",
+		"ibc.core.commitment.v1.Root",
 		(*exported.Root)(nil),
 	)
 	registry.RegisterInterface(
-		"ibcgo.core.commitment.v1.Prefix",
+		"ibc.core.commitment.v1.Prefix",
 		(*exported.Prefix)(nil),
 	)
 	registry.RegisterInterface(
-		"ibcgo.core.commitment.v1.Path",
+		"ibc.core.commitment.v1.Path",
 		(*exported.Path)(nil),
 	)
 	registry.RegisterInterface(
-		"ibcgo.core.commitment.v1.Proof",
+		"ibc.core.commitment.v1.Proof",
 		(*exported.Proof)(nil),
 	)
 

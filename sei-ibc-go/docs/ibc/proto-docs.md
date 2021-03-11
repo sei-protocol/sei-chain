@@ -175,19 +175,19 @@
         
           
           <li>
-            <a href="#ibcgo%2fapps%2ftransfer%2fv1%2ftransfer.proto">ibcgo/apps/transfer/v1/transfer.proto</a>
+            <a href="#ibc%2fapps%2ftransfer%2fv1%2ftransfer.proto">ibc/apps/transfer/v1/transfer.proto</a>
             <ul>
               
                 <li>
-                  <a href="#ibcgo.apps.transfer.v1.DenomTrace"><span class="badge">M</span>DenomTrace</a>
+                  <a href="#ibc.apps.transfer.v1.DenomTrace"><span class="badge">M</span>DenomTrace</a>
                 </li>
               
                 <li>
-                  <a href="#ibcgo.apps.transfer.v1.FungibleTokenPacketData"><span class="badge">M</span>FungibleTokenPacketData</a>
+                  <a href="#ibc.apps.transfer.v1.FungibleTokenPacketData"><span class="badge">M</span>FungibleTokenPacketData</a>
                 </li>
               
                 <li>
-                  <a href="#ibcgo.apps.transfer.v1.Params"><span class="badge">M</span>Params</a>
+                  <a href="#ibc.apps.transfer.v1.Params"><span class="badge">M</span>Params</a>
                 </li>
               
               
@@ -198,11 +198,11 @@
         
           
           <li>
-            <a href="#ibcgo%2fapps%2ftransfer%2fv1%2fgenesis.proto">ibcgo/apps/transfer/v1/genesis.proto</a>
+            <a href="#ibc%2fapps%2ftransfer%2fv1%2fgenesis.proto">ibc/apps/transfer/v1/genesis.proto</a>
             <ul>
               
                 <li>
-                  <a href="#ibcgo.apps.transfer.v1.GenesisState"><span class="badge">M</span>GenesisState</a>
+                  <a href="#ibc.apps.transfer.v1.GenesisState"><span class="badge">M</span>GenesisState</a>
                 </li>
               
               
@@ -213,38 +213,38 @@
         
           
           <li>
-            <a href="#ibcgo%2fapps%2ftransfer%2fv1%2fquery.proto">ibcgo/apps/transfer/v1/query.proto</a>
+            <a href="#ibc%2fapps%2ftransfer%2fv1%2fquery.proto">ibc/apps/transfer/v1/query.proto</a>
             <ul>
               
                 <li>
-                  <a href="#ibcgo.apps.transfer.v1.QueryDenomTraceRequest"><span class="badge">M</span>QueryDenomTraceRequest</a>
+                  <a href="#ibc.apps.transfer.v1.QueryDenomTraceRequest"><span class="badge">M</span>QueryDenomTraceRequest</a>
                 </li>
               
                 <li>
-                  <a href="#ibcgo.apps.transfer.v1.QueryDenomTraceResponse"><span class="badge">M</span>QueryDenomTraceResponse</a>
+                  <a href="#ibc.apps.transfer.v1.QueryDenomTraceResponse"><span class="badge">M</span>QueryDenomTraceResponse</a>
                 </li>
               
                 <li>
-                  <a href="#ibcgo.apps.transfer.v1.QueryDenomTracesRequest"><span class="badge">M</span>QueryDenomTracesRequest</a>
+                  <a href="#ibc.apps.transfer.v1.QueryDenomTracesRequest"><span class="badge">M</span>QueryDenomTracesRequest</a>
                 </li>
               
                 <li>
-                  <a href="#ibcgo.apps.transfer.v1.QueryDenomTracesResponse"><span class="badge">M</span>QueryDenomTracesResponse</a>
+                  <a href="#ibc.apps.transfer.v1.QueryDenomTracesResponse"><span class="badge">M</span>QueryDenomTracesResponse</a>
                 </li>
               
                 <li>
-                  <a href="#ibcgo.apps.transfer.v1.QueryParamsRequest"><span class="badge">M</span>QueryParamsRequest</a>
+                  <a href="#ibc.apps.transfer.v1.QueryParamsRequest"><span class="badge">M</span>QueryParamsRequest</a>
                 </li>
               
                 <li>
-                  <a href="#ibcgo.apps.transfer.v1.QueryParamsResponse"><span class="badge">M</span>QueryParamsResponse</a>
+                  <a href="#ibc.apps.transfer.v1.QueryParamsResponse"><span class="badge">M</span>QueryParamsResponse</a>
                 </li>
               
               
               
               
                 <li>
-                  <a href="#ibcgo.apps.transfer.v1.Query"><span class="badge">S</span>Query</a>
+                  <a href="#ibc.apps.transfer.v1.Query"><span class="badge">S</span>Query</a>
                 </li>
               
             </ul>
@@ -252,120 +252,35 @@
         
           
           <li>
-            <a href="#ibcgo%2fcore%2fclient%2fv1%2fclient.proto">ibcgo/core/client/v1/client.proto</a>
+            <a href="#ibc%2fcore%2fclient%2fv1%2fclient.proto">ibc/core/client/v1/client.proto</a>
             <ul>
               
                 <li>
-                  <a href="#ibcgo.core.client.v1.ClientConsensusStates"><span class="badge">M</span>ClientConsensusStates</a>
+                  <a href="#ibc.core.client.v1.ClientConsensusStates"><span class="badge">M</span>ClientConsensusStates</a>
                 </li>
               
                 <li>
-                  <a href="#ibcgo.core.client.v1.ClientUpdateProposal"><span class="badge">M</span>ClientUpdateProposal</a>
+                  <a href="#ibc.core.client.v1.ClientUpdateProposal"><span class="badge">M</span>ClientUpdateProposal</a>
                 </li>
               
                 <li>
-                  <a href="#ibcgo.core.client.v1.ConsensusStateWithHeight"><span class="badge">M</span>ConsensusStateWithHeight</a>
+                  <a href="#ibc.core.client.v1.ConsensusStateWithHeight"><span class="badge">M</span>ConsensusStateWithHeight</a>
                 </li>
               
                 <li>
-                  <a href="#ibcgo.core.client.v1.Height"><span class="badge">M</span>Height</a>
+                  <a href="#ibc.core.client.v1.Height"><span class="badge">M</span>Height</a>
                 </li>
               
                 <li>
-                  <a href="#ibcgo.core.client.v1.IdentifiedClientState"><span class="badge">M</span>IdentifiedClientState</a>
+                  <a href="#ibc.core.client.v1.IdentifiedClientState"><span class="badge">M</span>IdentifiedClientState</a>
                 </li>
               
                 <li>
-                  <a href="#ibcgo.core.client.v1.Params"><span class="badge">M</span>Params</a>
+                  <a href="#ibc.core.client.v1.Params"><span class="badge">M</span>Params</a>
                 </li>
               
                 <li>
-                  <a href="#ibcgo.core.client.v1.UpgradeProposal"><span class="badge">M</span>UpgradeProposal</a>
-                </li>
-              
-              
-              
-              
-            </ul>
-          </li>
-        
-          
-          <li>
-            <a href="#ibcgo%2fapps%2ftransfer%2fv1%2ftx.proto">ibcgo/apps/transfer/v1/tx.proto</a>
-            <ul>
-              
-                <li>
-                  <a href="#ibcgo.apps.transfer.v1.MsgTransfer"><span class="badge">M</span>MsgTransfer</a>
-                </li>
-              
-                <li>
-                  <a href="#ibcgo.apps.transfer.v1.MsgTransferResponse"><span class="badge">M</span>MsgTransferResponse</a>
-                </li>
-              
-              
-              
-              
-                <li>
-                  <a href="#ibcgo.apps.transfer.v1.Msg"><span class="badge">S</span>Msg</a>
-                </li>
-              
-            </ul>
-          </li>
-        
-          
-          <li>
-            <a href="#ibcgo%2fcore%2fchannel%2fv1%2fchannel.proto">ibcgo/core/channel/v1/channel.proto</a>
-            <ul>
-              
-                <li>
-                  <a href="#ibcgo.core.channel.v1.Acknowledgement"><span class="badge">M</span>Acknowledgement</a>
-                </li>
-              
-                <li>
-                  <a href="#ibcgo.core.channel.v1.Channel"><span class="badge">M</span>Channel</a>
-                </li>
-              
-                <li>
-                  <a href="#ibcgo.core.channel.v1.Counterparty"><span class="badge">M</span>Counterparty</a>
-                </li>
-              
-                <li>
-                  <a href="#ibcgo.core.channel.v1.IdentifiedChannel"><span class="badge">M</span>IdentifiedChannel</a>
-                </li>
-              
-                <li>
-                  <a href="#ibcgo.core.channel.v1.Packet"><span class="badge">M</span>Packet</a>
-                </li>
-              
-                <li>
-                  <a href="#ibcgo.core.channel.v1.PacketState"><span class="badge">M</span>PacketState</a>
-                </li>
-              
-              
-                <li>
-                  <a href="#ibcgo.core.channel.v1.Order"><span class="badge">E</span>Order</a>
-                </li>
-              
-                <li>
-                  <a href="#ibcgo.core.channel.v1.State"><span class="badge">E</span>State</a>
-                </li>
-              
-              
-              
-            </ul>
-          </li>
-        
-          
-          <li>
-            <a href="#ibcgo%2fcore%2fchannel%2fv1%2fgenesis.proto">ibcgo/core/channel/v1/genesis.proto</a>
-            <ul>
-              
-                <li>
-                  <a href="#ibcgo.core.channel.v1.GenesisState"><span class="badge">M</span>GenesisState</a>
-                </li>
-              
-                <li>
-                  <a href="#ibcgo.core.channel.v1.PacketSequence"><span class="badge">M</span>PacketSequence</a>
+                  <a href="#ibc.core.client.v1.UpgradeProposal"><span class="badge">M</span>UpgradeProposal</a>
                 </li>
               
               
@@ -376,118 +291,22 @@
         
           
           <li>
-            <a href="#ibcgo%2fcore%2fchannel%2fv1%2fquery.proto">ibcgo/core/channel/v1/query.proto</a>
+            <a href="#ibc%2fapps%2ftransfer%2fv1%2ftx.proto">ibc/apps/transfer/v1/tx.proto</a>
             <ul>
               
                 <li>
-                  <a href="#ibcgo.core.channel.v1.QueryChannelClientStateRequest"><span class="badge">M</span>QueryChannelClientStateRequest</a>
+                  <a href="#ibc.apps.transfer.v1.MsgTransfer"><span class="badge">M</span>MsgTransfer</a>
                 </li>
               
                 <li>
-                  <a href="#ibcgo.core.channel.v1.QueryChannelClientStateResponse"><span class="badge">M</span>QueryChannelClientStateResponse</a>
-                </li>
-              
-                <li>
-                  <a href="#ibcgo.core.channel.v1.QueryChannelConsensusStateRequest"><span class="badge">M</span>QueryChannelConsensusStateRequest</a>
-                </li>
-              
-                <li>
-                  <a href="#ibcgo.core.channel.v1.QueryChannelConsensusStateResponse"><span class="badge">M</span>QueryChannelConsensusStateResponse</a>
-                </li>
-              
-                <li>
-                  <a href="#ibcgo.core.channel.v1.QueryChannelRequest"><span class="badge">M</span>QueryChannelRequest</a>
-                </li>
-              
-                <li>
-                  <a href="#ibcgo.core.channel.v1.QueryChannelResponse"><span class="badge">M</span>QueryChannelResponse</a>
-                </li>
-              
-                <li>
-                  <a href="#ibcgo.core.channel.v1.QueryChannelsRequest"><span class="badge">M</span>QueryChannelsRequest</a>
-                </li>
-              
-                <li>
-                  <a href="#ibcgo.core.channel.v1.QueryChannelsResponse"><span class="badge">M</span>QueryChannelsResponse</a>
-                </li>
-              
-                <li>
-                  <a href="#ibcgo.core.channel.v1.QueryConnectionChannelsRequest"><span class="badge">M</span>QueryConnectionChannelsRequest</a>
-                </li>
-              
-                <li>
-                  <a href="#ibcgo.core.channel.v1.QueryConnectionChannelsResponse"><span class="badge">M</span>QueryConnectionChannelsResponse</a>
-                </li>
-              
-                <li>
-                  <a href="#ibcgo.core.channel.v1.QueryNextSequenceReceiveRequest"><span class="badge">M</span>QueryNextSequenceReceiveRequest</a>
-                </li>
-              
-                <li>
-                  <a href="#ibcgo.core.channel.v1.QueryNextSequenceReceiveResponse"><span class="badge">M</span>QueryNextSequenceReceiveResponse</a>
-                </li>
-              
-                <li>
-                  <a href="#ibcgo.core.channel.v1.QueryPacketAcknowledgementRequest"><span class="badge">M</span>QueryPacketAcknowledgementRequest</a>
-                </li>
-              
-                <li>
-                  <a href="#ibcgo.core.channel.v1.QueryPacketAcknowledgementResponse"><span class="badge">M</span>QueryPacketAcknowledgementResponse</a>
-                </li>
-              
-                <li>
-                  <a href="#ibcgo.core.channel.v1.QueryPacketAcknowledgementsRequest"><span class="badge">M</span>QueryPacketAcknowledgementsRequest</a>
-                </li>
-              
-                <li>
-                  <a href="#ibcgo.core.channel.v1.QueryPacketAcknowledgementsResponse"><span class="badge">M</span>QueryPacketAcknowledgementsResponse</a>
-                </li>
-              
-                <li>
-                  <a href="#ibcgo.core.channel.v1.QueryPacketCommitmentRequest"><span class="badge">M</span>QueryPacketCommitmentRequest</a>
-                </li>
-              
-                <li>
-                  <a href="#ibcgo.core.channel.v1.QueryPacketCommitmentResponse"><span class="badge">M</span>QueryPacketCommitmentResponse</a>
-                </li>
-              
-                <li>
-                  <a href="#ibcgo.core.channel.v1.QueryPacketCommitmentsRequest"><span class="badge">M</span>QueryPacketCommitmentsRequest</a>
-                </li>
-              
-                <li>
-                  <a href="#ibcgo.core.channel.v1.QueryPacketCommitmentsResponse"><span class="badge">M</span>QueryPacketCommitmentsResponse</a>
-                </li>
-              
-                <li>
-                  <a href="#ibcgo.core.channel.v1.QueryPacketReceiptRequest"><span class="badge">M</span>QueryPacketReceiptRequest</a>
-                </li>
-              
-                <li>
-                  <a href="#ibcgo.core.channel.v1.QueryPacketReceiptResponse"><span class="badge">M</span>QueryPacketReceiptResponse</a>
-                </li>
-              
-                <li>
-                  <a href="#ibcgo.core.channel.v1.QueryUnreceivedAcksRequest"><span class="badge">M</span>QueryUnreceivedAcksRequest</a>
-                </li>
-              
-                <li>
-                  <a href="#ibcgo.core.channel.v1.QueryUnreceivedAcksResponse"><span class="badge">M</span>QueryUnreceivedAcksResponse</a>
-                </li>
-              
-                <li>
-                  <a href="#ibcgo.core.channel.v1.QueryUnreceivedPacketsRequest"><span class="badge">M</span>QueryUnreceivedPacketsRequest</a>
-                </li>
-              
-                <li>
-                  <a href="#ibcgo.core.channel.v1.QueryUnreceivedPacketsResponse"><span class="badge">M</span>QueryUnreceivedPacketsResponse</a>
+                  <a href="#ibc.apps.transfer.v1.MsgTransferResponse"><span class="badge">M</span>MsgTransferResponse</a>
                 </li>
               
               
               
               
                 <li>
-                  <a href="#ibcgo.core.channel.v1.Query"><span class="badge">S</span>Query</a>
+                  <a href="#ibc.apps.transfer.v1.Msg"><span class="badge">S</span>Msg</a>
                 </li>
               
             </ul>
@@ -495,114 +314,58 @@
         
           
           <li>
-            <a href="#ibcgo%2fcore%2fchannel%2fv1%2ftx.proto">ibcgo/core/channel/v1/tx.proto</a>
+            <a href="#ibc%2fcore%2fchannel%2fv1%2fchannel.proto">ibc/core/channel/v1/channel.proto</a>
             <ul>
               
                 <li>
-                  <a href="#ibcgo.core.channel.v1.MsgAcknowledgement"><span class="badge">M</span>MsgAcknowledgement</a>
+                  <a href="#ibc.core.channel.v1.Acknowledgement"><span class="badge">M</span>Acknowledgement</a>
                 </li>
               
                 <li>
-                  <a href="#ibcgo.core.channel.v1.MsgAcknowledgementResponse"><span class="badge">M</span>MsgAcknowledgementResponse</a>
+                  <a href="#ibc.core.channel.v1.Channel"><span class="badge">M</span>Channel</a>
                 </li>
               
                 <li>
-                  <a href="#ibcgo.core.channel.v1.MsgChannelCloseConfirm"><span class="badge">M</span>MsgChannelCloseConfirm</a>
+                  <a href="#ibc.core.channel.v1.Counterparty"><span class="badge">M</span>Counterparty</a>
                 </li>
               
                 <li>
-                  <a href="#ibcgo.core.channel.v1.MsgChannelCloseConfirmResponse"><span class="badge">M</span>MsgChannelCloseConfirmResponse</a>
+                  <a href="#ibc.core.channel.v1.IdentifiedChannel"><span class="badge">M</span>IdentifiedChannel</a>
                 </li>
               
                 <li>
-                  <a href="#ibcgo.core.channel.v1.MsgChannelCloseInit"><span class="badge">M</span>MsgChannelCloseInit</a>
+                  <a href="#ibc.core.channel.v1.Packet"><span class="badge">M</span>Packet</a>
                 </li>
               
                 <li>
-                  <a href="#ibcgo.core.channel.v1.MsgChannelCloseInitResponse"><span class="badge">M</span>MsgChannelCloseInitResponse</a>
+                  <a href="#ibc.core.channel.v1.PacketState"><span class="badge">M</span>PacketState</a>
                 </li>
-              
-                <li>
-                  <a href="#ibcgo.core.channel.v1.MsgChannelOpenAck"><span class="badge">M</span>MsgChannelOpenAck</a>
-                </li>
-              
-                <li>
-                  <a href="#ibcgo.core.channel.v1.MsgChannelOpenAckResponse"><span class="badge">M</span>MsgChannelOpenAckResponse</a>
-                </li>
-              
-                <li>
-                  <a href="#ibcgo.core.channel.v1.MsgChannelOpenConfirm"><span class="badge">M</span>MsgChannelOpenConfirm</a>
-                </li>
-              
-                <li>
-                  <a href="#ibcgo.core.channel.v1.MsgChannelOpenConfirmResponse"><span class="badge">M</span>MsgChannelOpenConfirmResponse</a>
-                </li>
-              
-                <li>
-                  <a href="#ibcgo.core.channel.v1.MsgChannelOpenInit"><span class="badge">M</span>MsgChannelOpenInit</a>
-                </li>
-              
-                <li>
-                  <a href="#ibcgo.core.channel.v1.MsgChannelOpenInitResponse"><span class="badge">M</span>MsgChannelOpenInitResponse</a>
-                </li>
-              
-                <li>
-                  <a href="#ibcgo.core.channel.v1.MsgChannelOpenTry"><span class="badge">M</span>MsgChannelOpenTry</a>
-                </li>
-              
-                <li>
-                  <a href="#ibcgo.core.channel.v1.MsgChannelOpenTryResponse"><span class="badge">M</span>MsgChannelOpenTryResponse</a>
-                </li>
-              
-                <li>
-                  <a href="#ibcgo.core.channel.v1.MsgRecvPacket"><span class="badge">M</span>MsgRecvPacket</a>
-                </li>
-              
-                <li>
-                  <a href="#ibcgo.core.channel.v1.MsgRecvPacketResponse"><span class="badge">M</span>MsgRecvPacketResponse</a>
-                </li>
-              
-                <li>
-                  <a href="#ibcgo.core.channel.v1.MsgTimeout"><span class="badge">M</span>MsgTimeout</a>
-                </li>
-              
-                <li>
-                  <a href="#ibcgo.core.channel.v1.MsgTimeoutOnClose"><span class="badge">M</span>MsgTimeoutOnClose</a>
-                </li>
-              
-                <li>
-                  <a href="#ibcgo.core.channel.v1.MsgTimeoutOnCloseResponse"><span class="badge">M</span>MsgTimeoutOnCloseResponse</a>
-                </li>
-              
-                <li>
-                  <a href="#ibcgo.core.channel.v1.MsgTimeoutResponse"><span class="badge">M</span>MsgTimeoutResponse</a>
-                </li>
-              
-              
               
               
                 <li>
-                  <a href="#ibcgo.core.channel.v1.Msg"><span class="badge">S</span>Msg</a>
+                  <a href="#ibc.core.channel.v1.Order"><span class="badge">E</span>Order</a>
                 </li>
+              
+                <li>
+                  <a href="#ibc.core.channel.v1.State"><span class="badge">E</span>State</a>
+                </li>
+              
+              
               
             </ul>
           </li>
         
           
           <li>
-            <a href="#ibcgo%2fcore%2fclient%2fv1%2fgenesis.proto">ibcgo/core/client/v1/genesis.proto</a>
+            <a href="#ibc%2fcore%2fchannel%2fv1%2fgenesis.proto">ibc/core/channel/v1/genesis.proto</a>
             <ul>
               
                 <li>
-                  <a href="#ibcgo.core.client.v1.GenesisMetadata"><span class="badge">M</span>GenesisMetadata</a>
+                  <a href="#ibc.core.channel.v1.GenesisState"><span class="badge">M</span>GenesisState</a>
                 </li>
               
                 <li>
-                  <a href="#ibcgo.core.client.v1.GenesisState"><span class="badge">M</span>GenesisState</a>
-                </li>
-              
-                <li>
-                  <a href="#ibcgo.core.client.v1.IdentifiedGenesisMetadata"><span class="badge">M</span>IdentifiedGenesisMetadata</a>
+                  <a href="#ibc.core.channel.v1.PacketSequence"><span class="badge">M</span>PacketSequence</a>
                 </li>
               
               
@@ -613,62 +376,118 @@
         
           
           <li>
-            <a href="#ibcgo%2fcore%2fclient%2fv1%2fquery.proto">ibcgo/core/client/v1/query.proto</a>
+            <a href="#ibc%2fcore%2fchannel%2fv1%2fquery.proto">ibc/core/channel/v1/query.proto</a>
             <ul>
               
                 <li>
-                  <a href="#ibcgo.core.client.v1.QueryClientParamsRequest"><span class="badge">M</span>QueryClientParamsRequest</a>
+                  <a href="#ibc.core.channel.v1.QueryChannelClientStateRequest"><span class="badge">M</span>QueryChannelClientStateRequest</a>
                 </li>
               
                 <li>
-                  <a href="#ibcgo.core.client.v1.QueryClientParamsResponse"><span class="badge">M</span>QueryClientParamsResponse</a>
+                  <a href="#ibc.core.channel.v1.QueryChannelClientStateResponse"><span class="badge">M</span>QueryChannelClientStateResponse</a>
                 </li>
               
                 <li>
-                  <a href="#ibcgo.core.client.v1.QueryClientStateRequest"><span class="badge">M</span>QueryClientStateRequest</a>
+                  <a href="#ibc.core.channel.v1.QueryChannelConsensusStateRequest"><span class="badge">M</span>QueryChannelConsensusStateRequest</a>
                 </li>
               
                 <li>
-                  <a href="#ibcgo.core.client.v1.QueryClientStateResponse"><span class="badge">M</span>QueryClientStateResponse</a>
+                  <a href="#ibc.core.channel.v1.QueryChannelConsensusStateResponse"><span class="badge">M</span>QueryChannelConsensusStateResponse</a>
                 </li>
               
                 <li>
-                  <a href="#ibcgo.core.client.v1.QueryClientStatesRequest"><span class="badge">M</span>QueryClientStatesRequest</a>
+                  <a href="#ibc.core.channel.v1.QueryChannelRequest"><span class="badge">M</span>QueryChannelRequest</a>
                 </li>
               
                 <li>
-                  <a href="#ibcgo.core.client.v1.QueryClientStatesResponse"><span class="badge">M</span>QueryClientStatesResponse</a>
+                  <a href="#ibc.core.channel.v1.QueryChannelResponse"><span class="badge">M</span>QueryChannelResponse</a>
                 </li>
               
                 <li>
-                  <a href="#ibcgo.core.client.v1.QueryConsensusStateRequest"><span class="badge">M</span>QueryConsensusStateRequest</a>
+                  <a href="#ibc.core.channel.v1.QueryChannelsRequest"><span class="badge">M</span>QueryChannelsRequest</a>
                 </li>
               
                 <li>
-                  <a href="#ibcgo.core.client.v1.QueryConsensusStateResponse"><span class="badge">M</span>QueryConsensusStateResponse</a>
+                  <a href="#ibc.core.channel.v1.QueryChannelsResponse"><span class="badge">M</span>QueryChannelsResponse</a>
                 </li>
               
                 <li>
-                  <a href="#ibcgo.core.client.v1.QueryConsensusStatesRequest"><span class="badge">M</span>QueryConsensusStatesRequest</a>
+                  <a href="#ibc.core.channel.v1.QueryConnectionChannelsRequest"><span class="badge">M</span>QueryConnectionChannelsRequest</a>
                 </li>
               
                 <li>
-                  <a href="#ibcgo.core.client.v1.QueryConsensusStatesResponse"><span class="badge">M</span>QueryConsensusStatesResponse</a>
+                  <a href="#ibc.core.channel.v1.QueryConnectionChannelsResponse"><span class="badge">M</span>QueryConnectionChannelsResponse</a>
                 </li>
               
                 <li>
-                  <a href="#ibcgo.core.client.v1.QueryUpgradedClientStateRequest"><span class="badge">M</span>QueryUpgradedClientStateRequest</a>
+                  <a href="#ibc.core.channel.v1.QueryNextSequenceReceiveRequest"><span class="badge">M</span>QueryNextSequenceReceiveRequest</a>
                 </li>
               
                 <li>
-                  <a href="#ibcgo.core.client.v1.QueryUpgradedClientStateResponse"><span class="badge">M</span>QueryUpgradedClientStateResponse</a>
+                  <a href="#ibc.core.channel.v1.QueryNextSequenceReceiveResponse"><span class="badge">M</span>QueryNextSequenceReceiveResponse</a>
+                </li>
+              
+                <li>
+                  <a href="#ibc.core.channel.v1.QueryPacketAcknowledgementRequest"><span class="badge">M</span>QueryPacketAcknowledgementRequest</a>
+                </li>
+              
+                <li>
+                  <a href="#ibc.core.channel.v1.QueryPacketAcknowledgementResponse"><span class="badge">M</span>QueryPacketAcknowledgementResponse</a>
+                </li>
+              
+                <li>
+                  <a href="#ibc.core.channel.v1.QueryPacketAcknowledgementsRequest"><span class="badge">M</span>QueryPacketAcknowledgementsRequest</a>
+                </li>
+              
+                <li>
+                  <a href="#ibc.core.channel.v1.QueryPacketAcknowledgementsResponse"><span class="badge">M</span>QueryPacketAcknowledgementsResponse</a>
+                </li>
+              
+                <li>
+                  <a href="#ibc.core.channel.v1.QueryPacketCommitmentRequest"><span class="badge">M</span>QueryPacketCommitmentRequest</a>
+                </li>
+              
+                <li>
+                  <a href="#ibc.core.channel.v1.QueryPacketCommitmentResponse"><span class="badge">M</span>QueryPacketCommitmentResponse</a>
+                </li>
+              
+                <li>
+                  <a href="#ibc.core.channel.v1.QueryPacketCommitmentsRequest"><span class="badge">M</span>QueryPacketCommitmentsRequest</a>
+                </li>
+              
+                <li>
+                  <a href="#ibc.core.channel.v1.QueryPacketCommitmentsResponse"><span class="badge">M</span>QueryPacketCommitmentsResponse</a>
+                </li>
+              
+                <li>
+                  <a href="#ibc.core.channel.v1.QueryPacketReceiptRequest"><span class="badge">M</span>QueryPacketReceiptRequest</a>
+                </li>
+              
+                <li>
+                  <a href="#ibc.core.channel.v1.QueryPacketReceiptResponse"><span class="badge">M</span>QueryPacketReceiptResponse</a>
+                </li>
+              
+                <li>
+                  <a href="#ibc.core.channel.v1.QueryUnreceivedAcksRequest"><span class="badge">M</span>QueryUnreceivedAcksRequest</a>
+                </li>
+              
+                <li>
+                  <a href="#ibc.core.channel.v1.QueryUnreceivedAcksResponse"><span class="badge">M</span>QueryUnreceivedAcksResponse</a>
+                </li>
+              
+                <li>
+                  <a href="#ibc.core.channel.v1.QueryUnreceivedPacketsRequest"><span class="badge">M</span>QueryUnreceivedPacketsRequest</a>
+                </li>
+              
+                <li>
+                  <a href="#ibc.core.channel.v1.QueryUnreceivedPacketsResponse"><span class="badge">M</span>QueryUnreceivedPacketsResponse</a>
                 </li>
               
               
               
               
                 <li>
-                  <a href="#ibcgo.core.client.v1.Query"><span class="badge">S</span>Query</a>
+                  <a href="#ibc.core.channel.v1.Query"><span class="badge">S</span>Query</a>
                 </li>
               
             </ul>
@@ -676,46 +495,94 @@
         
           
           <li>
-            <a href="#ibcgo%2fcore%2fclient%2fv1%2ftx.proto">ibcgo/core/client/v1/tx.proto</a>
+            <a href="#ibc%2fcore%2fchannel%2fv1%2ftx.proto">ibc/core/channel/v1/tx.proto</a>
             <ul>
               
                 <li>
-                  <a href="#ibcgo.core.client.v1.MsgCreateClient"><span class="badge">M</span>MsgCreateClient</a>
+                  <a href="#ibc.core.channel.v1.MsgAcknowledgement"><span class="badge">M</span>MsgAcknowledgement</a>
                 </li>
               
                 <li>
-                  <a href="#ibcgo.core.client.v1.MsgCreateClientResponse"><span class="badge">M</span>MsgCreateClientResponse</a>
+                  <a href="#ibc.core.channel.v1.MsgAcknowledgementResponse"><span class="badge">M</span>MsgAcknowledgementResponse</a>
                 </li>
               
                 <li>
-                  <a href="#ibcgo.core.client.v1.MsgSubmitMisbehaviour"><span class="badge">M</span>MsgSubmitMisbehaviour</a>
+                  <a href="#ibc.core.channel.v1.MsgChannelCloseConfirm"><span class="badge">M</span>MsgChannelCloseConfirm</a>
                 </li>
               
                 <li>
-                  <a href="#ibcgo.core.client.v1.MsgSubmitMisbehaviourResponse"><span class="badge">M</span>MsgSubmitMisbehaviourResponse</a>
+                  <a href="#ibc.core.channel.v1.MsgChannelCloseConfirmResponse"><span class="badge">M</span>MsgChannelCloseConfirmResponse</a>
                 </li>
               
                 <li>
-                  <a href="#ibcgo.core.client.v1.MsgUpdateClient"><span class="badge">M</span>MsgUpdateClient</a>
+                  <a href="#ibc.core.channel.v1.MsgChannelCloseInit"><span class="badge">M</span>MsgChannelCloseInit</a>
                 </li>
               
                 <li>
-                  <a href="#ibcgo.core.client.v1.MsgUpdateClientResponse"><span class="badge">M</span>MsgUpdateClientResponse</a>
+                  <a href="#ibc.core.channel.v1.MsgChannelCloseInitResponse"><span class="badge">M</span>MsgChannelCloseInitResponse</a>
                 </li>
               
                 <li>
-                  <a href="#ibcgo.core.client.v1.MsgUpgradeClient"><span class="badge">M</span>MsgUpgradeClient</a>
+                  <a href="#ibc.core.channel.v1.MsgChannelOpenAck"><span class="badge">M</span>MsgChannelOpenAck</a>
                 </li>
               
                 <li>
-                  <a href="#ibcgo.core.client.v1.MsgUpgradeClientResponse"><span class="badge">M</span>MsgUpgradeClientResponse</a>
+                  <a href="#ibc.core.channel.v1.MsgChannelOpenAckResponse"><span class="badge">M</span>MsgChannelOpenAckResponse</a>
+                </li>
+              
+                <li>
+                  <a href="#ibc.core.channel.v1.MsgChannelOpenConfirm"><span class="badge">M</span>MsgChannelOpenConfirm</a>
+                </li>
+              
+                <li>
+                  <a href="#ibc.core.channel.v1.MsgChannelOpenConfirmResponse"><span class="badge">M</span>MsgChannelOpenConfirmResponse</a>
+                </li>
+              
+                <li>
+                  <a href="#ibc.core.channel.v1.MsgChannelOpenInit"><span class="badge">M</span>MsgChannelOpenInit</a>
+                </li>
+              
+                <li>
+                  <a href="#ibc.core.channel.v1.MsgChannelOpenInitResponse"><span class="badge">M</span>MsgChannelOpenInitResponse</a>
+                </li>
+              
+                <li>
+                  <a href="#ibc.core.channel.v1.MsgChannelOpenTry"><span class="badge">M</span>MsgChannelOpenTry</a>
+                </li>
+              
+                <li>
+                  <a href="#ibc.core.channel.v1.MsgChannelOpenTryResponse"><span class="badge">M</span>MsgChannelOpenTryResponse</a>
+                </li>
+              
+                <li>
+                  <a href="#ibc.core.channel.v1.MsgRecvPacket"><span class="badge">M</span>MsgRecvPacket</a>
+                </li>
+              
+                <li>
+                  <a href="#ibc.core.channel.v1.MsgRecvPacketResponse"><span class="badge">M</span>MsgRecvPacketResponse</a>
+                </li>
+              
+                <li>
+                  <a href="#ibc.core.channel.v1.MsgTimeout"><span class="badge">M</span>MsgTimeout</a>
+                </li>
+              
+                <li>
+                  <a href="#ibc.core.channel.v1.MsgTimeoutOnClose"><span class="badge">M</span>MsgTimeoutOnClose</a>
+                </li>
+              
+                <li>
+                  <a href="#ibc.core.channel.v1.MsgTimeoutOnCloseResponse"><span class="badge">M</span>MsgTimeoutOnCloseResponse</a>
+                </li>
+              
+                <li>
+                  <a href="#ibc.core.channel.v1.MsgTimeoutResponse"><span class="badge">M</span>MsgTimeoutResponse</a>
                 </li>
               
               
               
               
                 <li>
-                  <a href="#ibcgo.core.client.v1.Msg"><span class="badge">S</span>Msg</a>
+                  <a href="#ibc.core.channel.v1.Msg"><span class="badge">S</span>Msg</a>
                 </li>
               
             </ul>
@@ -723,194 +590,19 @@
         
           
           <li>
-            <a href="#ibcgo%2fcore%2fcommitment%2fv1%2fcommitment.proto">ibcgo/core/commitment/v1/commitment.proto</a>
+            <a href="#ibc%2fcore%2fclient%2fv1%2fgenesis.proto">ibc/core/client/v1/genesis.proto</a>
             <ul>
               
                 <li>
-                  <a href="#ibcgo.core.commitment.v1.MerklePath"><span class="badge">M</span>MerklePath</a>
+                  <a href="#ibc.core.client.v1.GenesisMetadata"><span class="badge">M</span>GenesisMetadata</a>
                 </li>
               
                 <li>
-                  <a href="#ibcgo.core.commitment.v1.MerklePrefix"><span class="badge">M</span>MerklePrefix</a>
+                  <a href="#ibc.core.client.v1.GenesisState"><span class="badge">M</span>GenesisState</a>
                 </li>
               
                 <li>
-                  <a href="#ibcgo.core.commitment.v1.MerkleProof"><span class="badge">M</span>MerkleProof</a>
-                </li>
-              
-                <li>
-                  <a href="#ibcgo.core.commitment.v1.MerkleRoot"><span class="badge">M</span>MerkleRoot</a>
-                </li>
-              
-              
-              
-              
-            </ul>
-          </li>
-        
-          
-          <li>
-            <a href="#ibcgo%2fcore%2fconnection%2fv1%2fconnection.proto">ibcgo/core/connection/v1/connection.proto</a>
-            <ul>
-              
-                <li>
-                  <a href="#ibcgo.core.connection.v1.ClientPaths"><span class="badge">M</span>ClientPaths</a>
-                </li>
-              
-                <li>
-                  <a href="#ibcgo.core.connection.v1.ConnectionEnd"><span class="badge">M</span>ConnectionEnd</a>
-                </li>
-              
-                <li>
-                  <a href="#ibcgo.core.connection.v1.ConnectionPaths"><span class="badge">M</span>ConnectionPaths</a>
-                </li>
-              
-                <li>
-                  <a href="#ibcgo.core.connection.v1.Counterparty"><span class="badge">M</span>Counterparty</a>
-                </li>
-              
-                <li>
-                  <a href="#ibcgo.core.connection.v1.IdentifiedConnection"><span class="badge">M</span>IdentifiedConnection</a>
-                </li>
-              
-                <li>
-                  <a href="#ibcgo.core.connection.v1.Version"><span class="badge">M</span>Version</a>
-                </li>
-              
-              
-                <li>
-                  <a href="#ibcgo.core.connection.v1.State"><span class="badge">E</span>State</a>
-                </li>
-              
-              
-              
-            </ul>
-          </li>
-        
-          
-          <li>
-            <a href="#ibcgo%2fcore%2fconnection%2fv1%2fgenesis.proto">ibcgo/core/connection/v1/genesis.proto</a>
-            <ul>
-              
-                <li>
-                  <a href="#ibcgo.core.connection.v1.GenesisState"><span class="badge">M</span>GenesisState</a>
-                </li>
-              
-              
-              
-              
-            </ul>
-          </li>
-        
-          
-          <li>
-            <a href="#ibcgo%2fcore%2fconnection%2fv1%2fquery.proto">ibcgo/core/connection/v1/query.proto</a>
-            <ul>
-              
-                <li>
-                  <a href="#ibcgo.core.connection.v1.QueryClientConnectionsRequest"><span class="badge">M</span>QueryClientConnectionsRequest</a>
-                </li>
-              
-                <li>
-                  <a href="#ibcgo.core.connection.v1.QueryClientConnectionsResponse"><span class="badge">M</span>QueryClientConnectionsResponse</a>
-                </li>
-              
-                <li>
-                  <a href="#ibcgo.core.connection.v1.QueryConnectionClientStateRequest"><span class="badge">M</span>QueryConnectionClientStateRequest</a>
-                </li>
-              
-                <li>
-                  <a href="#ibcgo.core.connection.v1.QueryConnectionClientStateResponse"><span class="badge">M</span>QueryConnectionClientStateResponse</a>
-                </li>
-              
-                <li>
-                  <a href="#ibcgo.core.connection.v1.QueryConnectionConsensusStateRequest"><span class="badge">M</span>QueryConnectionConsensusStateRequest</a>
-                </li>
-              
-                <li>
-                  <a href="#ibcgo.core.connection.v1.QueryConnectionConsensusStateResponse"><span class="badge">M</span>QueryConnectionConsensusStateResponse</a>
-                </li>
-              
-                <li>
-                  <a href="#ibcgo.core.connection.v1.QueryConnectionRequest"><span class="badge">M</span>QueryConnectionRequest</a>
-                </li>
-              
-                <li>
-                  <a href="#ibcgo.core.connection.v1.QueryConnectionResponse"><span class="badge">M</span>QueryConnectionResponse</a>
-                </li>
-              
-                <li>
-                  <a href="#ibcgo.core.connection.v1.QueryConnectionsRequest"><span class="badge">M</span>QueryConnectionsRequest</a>
-                </li>
-              
-                <li>
-                  <a href="#ibcgo.core.connection.v1.QueryConnectionsResponse"><span class="badge">M</span>QueryConnectionsResponse</a>
-                </li>
-              
-              
-              
-              
-                <li>
-                  <a href="#ibcgo.core.connection.v1.Query"><span class="badge">S</span>Query</a>
-                </li>
-              
-            </ul>
-          </li>
-        
-          
-          <li>
-            <a href="#ibcgo%2fcore%2fconnection%2fv1%2ftx.proto">ibcgo/core/connection/v1/tx.proto</a>
-            <ul>
-              
-                <li>
-                  <a href="#ibcgo.core.connection.v1.MsgConnectionOpenAck"><span class="badge">M</span>MsgConnectionOpenAck</a>
-                </li>
-              
-                <li>
-                  <a href="#ibcgo.core.connection.v1.MsgConnectionOpenAckResponse"><span class="badge">M</span>MsgConnectionOpenAckResponse</a>
-                </li>
-              
-                <li>
-                  <a href="#ibcgo.core.connection.v1.MsgConnectionOpenConfirm"><span class="badge">M</span>MsgConnectionOpenConfirm</a>
-                </li>
-              
-                <li>
-                  <a href="#ibcgo.core.connection.v1.MsgConnectionOpenConfirmResponse"><span class="badge">M</span>MsgConnectionOpenConfirmResponse</a>
-                </li>
-              
-                <li>
-                  <a href="#ibcgo.core.connection.v1.MsgConnectionOpenInit"><span class="badge">M</span>MsgConnectionOpenInit</a>
-                </li>
-              
-                <li>
-                  <a href="#ibcgo.core.connection.v1.MsgConnectionOpenInitResponse"><span class="badge">M</span>MsgConnectionOpenInitResponse</a>
-                </li>
-              
-                <li>
-                  <a href="#ibcgo.core.connection.v1.MsgConnectionOpenTry"><span class="badge">M</span>MsgConnectionOpenTry</a>
-                </li>
-              
-                <li>
-                  <a href="#ibcgo.core.connection.v1.MsgConnectionOpenTryResponse"><span class="badge">M</span>MsgConnectionOpenTryResponse</a>
-                </li>
-              
-              
-              
-              
-                <li>
-                  <a href="#ibcgo.core.connection.v1.Msg"><span class="badge">S</span>Msg</a>
-                </li>
-              
-            </ul>
-          </li>
-        
-          
-          <li>
-            <a href="#ibcgo%2fcore%2ftypes%2fv1%2fgenesis.proto">ibcgo/core/types/v1/genesis.proto</a>
-            <ul>
-              
-                <li>
-                  <a href="#ibcgo.core.types.v1.GenesisState"><span class="badge">M</span>GenesisState</a>
+                  <a href="#ibc.core.client.v1.IdentifiedGenesisMetadata"><span class="badge">M</span>IdentifiedGenesisMetadata</a>
                 </li>
               
               
@@ -921,11 +613,133 @@
         
           
           <li>
-            <a href="#ibcgo%2flightclients%2flocalhost%2fv1%2flocalhost.proto">ibcgo/lightclients/localhost/v1/localhost.proto</a>
+            <a href="#ibc%2fcore%2fclient%2fv1%2fquery.proto">ibc/core/client/v1/query.proto</a>
             <ul>
               
                 <li>
-                  <a href="#ibcgo.lightclients.localhost.v1.ClientState"><span class="badge">M</span>ClientState</a>
+                  <a href="#ibc.core.client.v1.QueryClientParamsRequest"><span class="badge">M</span>QueryClientParamsRequest</a>
+                </li>
+              
+                <li>
+                  <a href="#ibc.core.client.v1.QueryClientParamsResponse"><span class="badge">M</span>QueryClientParamsResponse</a>
+                </li>
+              
+                <li>
+                  <a href="#ibc.core.client.v1.QueryClientStateRequest"><span class="badge">M</span>QueryClientStateRequest</a>
+                </li>
+              
+                <li>
+                  <a href="#ibc.core.client.v1.QueryClientStateResponse"><span class="badge">M</span>QueryClientStateResponse</a>
+                </li>
+              
+                <li>
+                  <a href="#ibc.core.client.v1.QueryClientStatesRequest"><span class="badge">M</span>QueryClientStatesRequest</a>
+                </li>
+              
+                <li>
+                  <a href="#ibc.core.client.v1.QueryClientStatesResponse"><span class="badge">M</span>QueryClientStatesResponse</a>
+                </li>
+              
+                <li>
+                  <a href="#ibc.core.client.v1.QueryConsensusStateRequest"><span class="badge">M</span>QueryConsensusStateRequest</a>
+                </li>
+              
+                <li>
+                  <a href="#ibc.core.client.v1.QueryConsensusStateResponse"><span class="badge">M</span>QueryConsensusStateResponse</a>
+                </li>
+              
+                <li>
+                  <a href="#ibc.core.client.v1.QueryConsensusStatesRequest"><span class="badge">M</span>QueryConsensusStatesRequest</a>
+                </li>
+              
+                <li>
+                  <a href="#ibc.core.client.v1.QueryConsensusStatesResponse"><span class="badge">M</span>QueryConsensusStatesResponse</a>
+                </li>
+              
+                <li>
+                  <a href="#ibc.core.client.v1.QueryUpgradedClientStateRequest"><span class="badge">M</span>QueryUpgradedClientStateRequest</a>
+                </li>
+              
+                <li>
+                  <a href="#ibc.core.client.v1.QueryUpgradedClientStateResponse"><span class="badge">M</span>QueryUpgradedClientStateResponse</a>
+                </li>
+              
+              
+              
+              
+                <li>
+                  <a href="#ibc.core.client.v1.Query"><span class="badge">S</span>Query</a>
+                </li>
+              
+            </ul>
+          </li>
+        
+          
+          <li>
+            <a href="#ibc%2fcore%2fclient%2fv1%2ftx.proto">ibc/core/client/v1/tx.proto</a>
+            <ul>
+              
+                <li>
+                  <a href="#ibc.core.client.v1.MsgCreateClient"><span class="badge">M</span>MsgCreateClient</a>
+                </li>
+              
+                <li>
+                  <a href="#ibc.core.client.v1.MsgCreateClientResponse"><span class="badge">M</span>MsgCreateClientResponse</a>
+                </li>
+              
+                <li>
+                  <a href="#ibc.core.client.v1.MsgSubmitMisbehaviour"><span class="badge">M</span>MsgSubmitMisbehaviour</a>
+                </li>
+              
+                <li>
+                  <a href="#ibc.core.client.v1.MsgSubmitMisbehaviourResponse"><span class="badge">M</span>MsgSubmitMisbehaviourResponse</a>
+                </li>
+              
+                <li>
+                  <a href="#ibc.core.client.v1.MsgUpdateClient"><span class="badge">M</span>MsgUpdateClient</a>
+                </li>
+              
+                <li>
+                  <a href="#ibc.core.client.v1.MsgUpdateClientResponse"><span class="badge">M</span>MsgUpdateClientResponse</a>
+                </li>
+              
+                <li>
+                  <a href="#ibc.core.client.v1.MsgUpgradeClient"><span class="badge">M</span>MsgUpgradeClient</a>
+                </li>
+              
+                <li>
+                  <a href="#ibc.core.client.v1.MsgUpgradeClientResponse"><span class="badge">M</span>MsgUpgradeClientResponse</a>
+                </li>
+              
+              
+              
+              
+                <li>
+                  <a href="#ibc.core.client.v1.Msg"><span class="badge">S</span>Msg</a>
+                </li>
+              
+            </ul>
+          </li>
+        
+          
+          <li>
+            <a href="#ibc%2fcore%2fcommitment%2fv1%2fcommitment.proto">ibc/core/commitment/v1/commitment.proto</a>
+            <ul>
+              
+                <li>
+                  <a href="#ibc.core.commitment.v1.MerklePath"><span class="badge">M</span>MerklePath</a>
+                </li>
+              
+                <li>
+                  <a href="#ibc.core.commitment.v1.MerklePrefix"><span class="badge">M</span>MerklePrefix</a>
+                </li>
+              
+                <li>
+                  <a href="#ibc.core.commitment.v1.MerkleProof"><span class="badge">M</span>MerkleProof</a>
+                </li>
+              
+                <li>
+                  <a href="#ibc.core.commitment.v1.MerkleRoot"><span class="badge">M</span>MerkleRoot</a>
                 </li>
               
               
@@ -936,76 +750,36 @@
         
           
           <li>
-            <a href="#ibcgo%2flightclients%2fsolomachine%2fv1%2fsolomachine.proto">ibcgo/lightclients/solomachine/v1/solomachine.proto</a>
+            <a href="#ibc%2fcore%2fconnection%2fv1%2fconnection.proto">ibc/core/connection/v1/connection.proto</a>
             <ul>
               
                 <li>
-                  <a href="#ibcgo.lightclients.solomachine.v1.ChannelStateData"><span class="badge">M</span>ChannelStateData</a>
+                  <a href="#ibc.core.connection.v1.ClientPaths"><span class="badge">M</span>ClientPaths</a>
                 </li>
               
                 <li>
-                  <a href="#ibcgo.lightclients.solomachine.v1.ClientState"><span class="badge">M</span>ClientState</a>
+                  <a href="#ibc.core.connection.v1.ConnectionEnd"><span class="badge">M</span>ConnectionEnd</a>
                 </li>
               
                 <li>
-                  <a href="#ibcgo.lightclients.solomachine.v1.ClientStateData"><span class="badge">M</span>ClientStateData</a>
+                  <a href="#ibc.core.connection.v1.ConnectionPaths"><span class="badge">M</span>ConnectionPaths</a>
                 </li>
               
                 <li>
-                  <a href="#ibcgo.lightclients.solomachine.v1.ConnectionStateData"><span class="badge">M</span>ConnectionStateData</a>
+                  <a href="#ibc.core.connection.v1.Counterparty"><span class="badge">M</span>Counterparty</a>
                 </li>
               
                 <li>
-                  <a href="#ibcgo.lightclients.solomachine.v1.ConsensusState"><span class="badge">M</span>ConsensusState</a>
+                  <a href="#ibc.core.connection.v1.IdentifiedConnection"><span class="badge">M</span>IdentifiedConnection</a>
                 </li>
               
                 <li>
-                  <a href="#ibcgo.lightclients.solomachine.v1.ConsensusStateData"><span class="badge">M</span>ConsensusStateData</a>
-                </li>
-              
-                <li>
-                  <a href="#ibcgo.lightclients.solomachine.v1.Header"><span class="badge">M</span>Header</a>
-                </li>
-              
-                <li>
-                  <a href="#ibcgo.lightclients.solomachine.v1.HeaderData"><span class="badge">M</span>HeaderData</a>
-                </li>
-              
-                <li>
-                  <a href="#ibcgo.lightclients.solomachine.v1.Misbehaviour"><span class="badge">M</span>Misbehaviour</a>
-                </li>
-              
-                <li>
-                  <a href="#ibcgo.lightclients.solomachine.v1.NextSequenceRecvData"><span class="badge">M</span>NextSequenceRecvData</a>
-                </li>
-              
-                <li>
-                  <a href="#ibcgo.lightclients.solomachine.v1.PacketAcknowledgementData"><span class="badge">M</span>PacketAcknowledgementData</a>
-                </li>
-              
-                <li>
-                  <a href="#ibcgo.lightclients.solomachine.v1.PacketCommitmentData"><span class="badge">M</span>PacketCommitmentData</a>
-                </li>
-              
-                <li>
-                  <a href="#ibcgo.lightclients.solomachine.v1.PacketReceiptAbsenceData"><span class="badge">M</span>PacketReceiptAbsenceData</a>
-                </li>
-              
-                <li>
-                  <a href="#ibcgo.lightclients.solomachine.v1.SignBytes"><span class="badge">M</span>SignBytes</a>
-                </li>
-              
-                <li>
-                  <a href="#ibcgo.lightclients.solomachine.v1.SignatureAndData"><span class="badge">M</span>SignatureAndData</a>
-                </li>
-              
-                <li>
-                  <a href="#ibcgo.lightclients.solomachine.v1.TimestampedSignatureData"><span class="badge">M</span>TimestampedSignatureData</a>
+                  <a href="#ibc.core.connection.v1.Version"><span class="badge">M</span>Version</a>
                 </li>
               
               
                 <li>
-                  <a href="#ibcgo.lightclients.solomachine.v1.DataType"><span class="badge">E</span>DataType</a>
+                  <a href="#ibc.core.connection.v1.State"><span class="badge">E</span>State</a>
                 </li>
               
               
@@ -1015,27 +789,253 @@
         
           
           <li>
-            <a href="#ibcgo%2flightclients%2ftendermint%2fv1%2ftendermint.proto">ibcgo/lightclients/tendermint/v1/tendermint.proto</a>
+            <a href="#ibc%2fcore%2fconnection%2fv1%2fgenesis.proto">ibc/core/connection/v1/genesis.proto</a>
             <ul>
               
                 <li>
-                  <a href="#ibcgo.lightclients.tendermint.v1.ClientState"><span class="badge">M</span>ClientState</a>
+                  <a href="#ibc.core.connection.v1.GenesisState"><span class="badge">M</span>GenesisState</a>
+                </li>
+              
+              
+              
+              
+            </ul>
+          </li>
+        
+          
+          <li>
+            <a href="#ibc%2fcore%2fconnection%2fv1%2fquery.proto">ibc/core/connection/v1/query.proto</a>
+            <ul>
+              
+                <li>
+                  <a href="#ibc.core.connection.v1.QueryClientConnectionsRequest"><span class="badge">M</span>QueryClientConnectionsRequest</a>
                 </li>
               
                 <li>
-                  <a href="#ibcgo.lightclients.tendermint.v1.ConsensusState"><span class="badge">M</span>ConsensusState</a>
+                  <a href="#ibc.core.connection.v1.QueryClientConnectionsResponse"><span class="badge">M</span>QueryClientConnectionsResponse</a>
                 </li>
               
                 <li>
-                  <a href="#ibcgo.lightclients.tendermint.v1.Fraction"><span class="badge">M</span>Fraction</a>
+                  <a href="#ibc.core.connection.v1.QueryConnectionClientStateRequest"><span class="badge">M</span>QueryConnectionClientStateRequest</a>
                 </li>
               
                 <li>
-                  <a href="#ibcgo.lightclients.tendermint.v1.Header"><span class="badge">M</span>Header</a>
+                  <a href="#ibc.core.connection.v1.QueryConnectionClientStateResponse"><span class="badge">M</span>QueryConnectionClientStateResponse</a>
                 </li>
               
                 <li>
-                  <a href="#ibcgo.lightclients.tendermint.v1.Misbehaviour"><span class="badge">M</span>Misbehaviour</a>
+                  <a href="#ibc.core.connection.v1.QueryConnectionConsensusStateRequest"><span class="badge">M</span>QueryConnectionConsensusStateRequest</a>
+                </li>
+              
+                <li>
+                  <a href="#ibc.core.connection.v1.QueryConnectionConsensusStateResponse"><span class="badge">M</span>QueryConnectionConsensusStateResponse</a>
+                </li>
+              
+                <li>
+                  <a href="#ibc.core.connection.v1.QueryConnectionRequest"><span class="badge">M</span>QueryConnectionRequest</a>
+                </li>
+              
+                <li>
+                  <a href="#ibc.core.connection.v1.QueryConnectionResponse"><span class="badge">M</span>QueryConnectionResponse</a>
+                </li>
+              
+                <li>
+                  <a href="#ibc.core.connection.v1.QueryConnectionsRequest"><span class="badge">M</span>QueryConnectionsRequest</a>
+                </li>
+              
+                <li>
+                  <a href="#ibc.core.connection.v1.QueryConnectionsResponse"><span class="badge">M</span>QueryConnectionsResponse</a>
+                </li>
+              
+              
+              
+              
+                <li>
+                  <a href="#ibc.core.connection.v1.Query"><span class="badge">S</span>Query</a>
+                </li>
+              
+            </ul>
+          </li>
+        
+          
+          <li>
+            <a href="#ibc%2fcore%2fconnection%2fv1%2ftx.proto">ibc/core/connection/v1/tx.proto</a>
+            <ul>
+              
+                <li>
+                  <a href="#ibc.core.connection.v1.MsgConnectionOpenAck"><span class="badge">M</span>MsgConnectionOpenAck</a>
+                </li>
+              
+                <li>
+                  <a href="#ibc.core.connection.v1.MsgConnectionOpenAckResponse"><span class="badge">M</span>MsgConnectionOpenAckResponse</a>
+                </li>
+              
+                <li>
+                  <a href="#ibc.core.connection.v1.MsgConnectionOpenConfirm"><span class="badge">M</span>MsgConnectionOpenConfirm</a>
+                </li>
+              
+                <li>
+                  <a href="#ibc.core.connection.v1.MsgConnectionOpenConfirmResponse"><span class="badge">M</span>MsgConnectionOpenConfirmResponse</a>
+                </li>
+              
+                <li>
+                  <a href="#ibc.core.connection.v1.MsgConnectionOpenInit"><span class="badge">M</span>MsgConnectionOpenInit</a>
+                </li>
+              
+                <li>
+                  <a href="#ibc.core.connection.v1.MsgConnectionOpenInitResponse"><span class="badge">M</span>MsgConnectionOpenInitResponse</a>
+                </li>
+              
+                <li>
+                  <a href="#ibc.core.connection.v1.MsgConnectionOpenTry"><span class="badge">M</span>MsgConnectionOpenTry</a>
+                </li>
+              
+                <li>
+                  <a href="#ibc.core.connection.v1.MsgConnectionOpenTryResponse"><span class="badge">M</span>MsgConnectionOpenTryResponse</a>
+                </li>
+              
+              
+              
+              
+                <li>
+                  <a href="#ibc.core.connection.v1.Msg"><span class="badge">S</span>Msg</a>
+                </li>
+              
+            </ul>
+          </li>
+        
+          
+          <li>
+            <a href="#ibc%2fcore%2ftypes%2fv1%2fgenesis.proto">ibc/core/types/v1/genesis.proto</a>
+            <ul>
+              
+                <li>
+                  <a href="#ibc.core.types.v1.GenesisState"><span class="badge">M</span>GenesisState</a>
+                </li>
+              
+              
+              
+              
+            </ul>
+          </li>
+        
+          
+          <li>
+            <a href="#ibc%2flightclients%2flocalhost%2fv1%2flocalhost.proto">ibc/lightclients/localhost/v1/localhost.proto</a>
+            <ul>
+              
+                <li>
+                  <a href="#ibc.lightclients.localhost.v1.ClientState"><span class="badge">M</span>ClientState</a>
+                </li>
+              
+              
+              
+              
+            </ul>
+          </li>
+        
+          
+          <li>
+            <a href="#ibc%2flightclients%2fsolomachine%2fv1%2fsolomachine.proto">ibc/lightclients/solomachine/v1/solomachine.proto</a>
+            <ul>
+              
+                <li>
+                  <a href="#ibc.lightclients.solomachine.v1.ChannelStateData"><span class="badge">M</span>ChannelStateData</a>
+                </li>
+              
+                <li>
+                  <a href="#ibc.lightclients.solomachine.v1.ClientState"><span class="badge">M</span>ClientState</a>
+                </li>
+              
+                <li>
+                  <a href="#ibc.lightclients.solomachine.v1.ClientStateData"><span class="badge">M</span>ClientStateData</a>
+                </li>
+              
+                <li>
+                  <a href="#ibc.lightclients.solomachine.v1.ConnectionStateData"><span class="badge">M</span>ConnectionStateData</a>
+                </li>
+              
+                <li>
+                  <a href="#ibc.lightclients.solomachine.v1.ConsensusState"><span class="badge">M</span>ConsensusState</a>
+                </li>
+              
+                <li>
+                  <a href="#ibc.lightclients.solomachine.v1.ConsensusStateData"><span class="badge">M</span>ConsensusStateData</a>
+                </li>
+              
+                <li>
+                  <a href="#ibc.lightclients.solomachine.v1.Header"><span class="badge">M</span>Header</a>
+                </li>
+              
+                <li>
+                  <a href="#ibc.lightclients.solomachine.v1.HeaderData"><span class="badge">M</span>HeaderData</a>
+                </li>
+              
+                <li>
+                  <a href="#ibc.lightclients.solomachine.v1.Misbehaviour"><span class="badge">M</span>Misbehaviour</a>
+                </li>
+              
+                <li>
+                  <a href="#ibc.lightclients.solomachine.v1.NextSequenceRecvData"><span class="badge">M</span>NextSequenceRecvData</a>
+                </li>
+              
+                <li>
+                  <a href="#ibc.lightclients.solomachine.v1.PacketAcknowledgementData"><span class="badge">M</span>PacketAcknowledgementData</a>
+                </li>
+              
+                <li>
+                  <a href="#ibc.lightclients.solomachine.v1.PacketCommitmentData"><span class="badge">M</span>PacketCommitmentData</a>
+                </li>
+              
+                <li>
+                  <a href="#ibc.lightclients.solomachine.v1.PacketReceiptAbsenceData"><span class="badge">M</span>PacketReceiptAbsenceData</a>
+                </li>
+              
+                <li>
+                  <a href="#ibc.lightclients.solomachine.v1.SignBytes"><span class="badge">M</span>SignBytes</a>
+                </li>
+              
+                <li>
+                  <a href="#ibc.lightclients.solomachine.v1.SignatureAndData"><span class="badge">M</span>SignatureAndData</a>
+                </li>
+              
+                <li>
+                  <a href="#ibc.lightclients.solomachine.v1.TimestampedSignatureData"><span class="badge">M</span>TimestampedSignatureData</a>
+                </li>
+              
+              
+                <li>
+                  <a href="#ibc.lightclients.solomachine.v1.DataType"><span class="badge">E</span>DataType</a>
+                </li>
+              
+              
+              
+            </ul>
+          </li>
+        
+          
+          <li>
+            <a href="#ibc%2flightclients%2ftendermint%2fv1%2ftendermint.proto">ibc/lightclients/tendermint/v1/tendermint.proto</a>
+            <ul>
+              
+                <li>
+                  <a href="#ibc.lightclients.tendermint.v1.ClientState"><span class="badge">M</span>ClientState</a>
+                </li>
+              
+                <li>
+                  <a href="#ibc.lightclients.tendermint.v1.ConsensusState"><span class="badge">M</span>ConsensusState</a>
+                </li>
+              
+                <li>
+                  <a href="#ibc.lightclients.tendermint.v1.Fraction"><span class="badge">M</span>Fraction</a>
+                </li>
+              
+                <li>
+                  <a href="#ibc.lightclients.tendermint.v1.Header"><span class="badge">M</span>Header</a>
+                </li>
+              
+                <li>
+                  <a href="#ibc.lightclients.tendermint.v1.Misbehaviour"><span class="badge">M</span>Misbehaviour</a>
                 </li>
               
               
@@ -1051,12 +1051,12 @@
     
       
       <div class="file-heading">
-        <h2 id="ibcgo/apps/transfer/v1/transfer.proto">ibcgo/apps/transfer/v1/transfer.proto</h2><a href="#title">Top</a>
+        <h2 id="ibc/apps/transfer/v1/transfer.proto">ibc/apps/transfer/v1/transfer.proto</h2><a href="#title">Top</a>
       </div>
       <p></p>
 
       
-        <h3 id="ibcgo.apps.transfer.v1.DenomTrace">DenomTrace</h3>
+        <h3 id="ibc.apps.transfer.v1.DenomTrace">DenomTrace</h3>
         <p>DenomTrace contains the base denomination for ICS20 fungible tokens and the</p><p>source tracing information path.</p>
 
         
@@ -1088,7 +1088,7 @@ source of the fungible token. </p></td>
 
         
       
-        <h3 id="ibcgo.apps.transfer.v1.FungibleTokenPacketData">FungibleTokenPacketData</h3>
+        <h3 id="ibc.apps.transfer.v1.FungibleTokenPacketData">FungibleTokenPacketData</h3>
         <p>FungibleTokenPacketData defines a struct for the packet payload</p><p>See FungibleTokenPacketData spec:</p><p>https://github.com/cosmos/ics/tree/master/spec/ics-020-fungible-token-transfer#data-structures</p>
 
         
@@ -1133,7 +1133,7 @@ source of the fungible token. </p></td>
 
         
       
-        <h3 id="ibcgo.apps.transfer.v1.Params">Params</h3>
+        <h3 id="ibc.apps.transfer.v1.Params">Params</h3>
         <p>Params defines the set of IBC transfer parameters.</p><p>NOTE: To prevent a single token from being transferred, set the</p><p>TransfersEnabled parameter to true and then set the bank module's SendEnabled</p><p>parameter for the denomination to false.</p>
 
         
@@ -1175,12 +1175,12 @@ chain. </p></td>
     
       
       <div class="file-heading">
-        <h2 id="ibcgo/apps/transfer/v1/genesis.proto">ibcgo/apps/transfer/v1/genesis.proto</h2><a href="#title">Top</a>
+        <h2 id="ibc/apps/transfer/v1/genesis.proto">ibc/apps/transfer/v1/genesis.proto</h2><a href="#title">Top</a>
       </div>
       <p></p>
 
       
-        <h3 id="ibcgo.apps.transfer.v1.GenesisState">GenesisState</h3>
+        <h3 id="ibc.apps.transfer.v1.GenesisState">GenesisState</h3>
         <p>GenesisState defines the ibc-transfer genesis state</p>
 
         
@@ -1199,14 +1199,14 @@ chain. </p></td>
               
                 <tr>
                   <td>denom_traces</td>
-                  <td><a href="#ibcgo.apps.transfer.v1.DenomTrace">DenomTrace</a></td>
+                  <td><a href="#ibc.apps.transfer.v1.DenomTrace">DenomTrace</a></td>
                   <td>repeated</td>
                   <td><p> </p></td>
                 </tr>
               
                 <tr>
                   <td>params</td>
-                  <td><a href="#ibcgo.apps.transfer.v1.Params">Params</a></td>
+                  <td><a href="#ibc.apps.transfer.v1.Params">Params</a></td>
                   <td></td>
                   <td><p> </p></td>
                 </tr>
@@ -1227,12 +1227,12 @@ chain. </p></td>
     
       
       <div class="file-heading">
-        <h2 id="ibcgo/apps/transfer/v1/query.proto">ibcgo/apps/transfer/v1/query.proto</h2><a href="#title">Top</a>
+        <h2 id="ibc/apps/transfer/v1/query.proto">ibc/apps/transfer/v1/query.proto</h2><a href="#title">Top</a>
       </div>
       <p></p>
 
       
-        <h3 id="ibcgo.apps.transfer.v1.QueryDenomTraceRequest">QueryDenomTraceRequest</h3>
+        <h3 id="ibc.apps.transfer.v1.QueryDenomTraceRequest">QueryDenomTraceRequest</h3>
         <p>QueryDenomTraceRequest is the request type for the Query/DenomTrace RPC</p><p>method</p>
 
         
@@ -1256,7 +1256,7 @@ chain. </p></td>
 
         
       
-        <h3 id="ibcgo.apps.transfer.v1.QueryDenomTraceResponse">QueryDenomTraceResponse</h3>
+        <h3 id="ibc.apps.transfer.v1.QueryDenomTraceResponse">QueryDenomTraceResponse</h3>
         <p>QueryDenomTraceResponse is the response type for the Query/DenomTrace RPC</p><p>method.</p>
 
         
@@ -1268,7 +1268,7 @@ chain. </p></td>
               
                 <tr>
                   <td>denom_trace</td>
-                  <td><a href="#ibcgo.apps.transfer.v1.DenomTrace">DenomTrace</a></td>
+                  <td><a href="#ibc.apps.transfer.v1.DenomTrace">DenomTrace</a></td>
                   <td></td>
                   <td><p>denom_trace returns the requested denomination trace information. </p></td>
                 </tr>
@@ -1280,7 +1280,7 @@ chain. </p></td>
 
         
       
-        <h3 id="ibcgo.apps.transfer.v1.QueryDenomTracesRequest">QueryDenomTracesRequest</h3>
+        <h3 id="ibc.apps.transfer.v1.QueryDenomTracesRequest">QueryDenomTracesRequest</h3>
         <p>QueryConnectionsRequest is the request type for the Query/DenomTraces RPC</p><p>method</p>
 
         
@@ -1304,7 +1304,7 @@ chain. </p></td>
 
         
       
-        <h3 id="ibcgo.apps.transfer.v1.QueryDenomTracesResponse">QueryDenomTracesResponse</h3>
+        <h3 id="ibc.apps.transfer.v1.QueryDenomTracesResponse">QueryDenomTracesResponse</h3>
         <p>QueryConnectionsResponse is the response type for the Query/DenomTraces RPC</p><p>method.</p>
 
         
@@ -1316,7 +1316,7 @@ chain. </p></td>
               
                 <tr>
                   <td>denom_traces</td>
-                  <td><a href="#ibcgo.apps.transfer.v1.DenomTrace">DenomTrace</a></td>
+                  <td><a href="#ibc.apps.transfer.v1.DenomTrace">DenomTrace</a></td>
                   <td>repeated</td>
                   <td><p>denom_traces returns all denominations trace information. </p></td>
                 </tr>
@@ -1335,14 +1335,14 @@ chain. </p></td>
 
         
       
-        <h3 id="ibcgo.apps.transfer.v1.QueryParamsRequest">QueryParamsRequest</h3>
+        <h3 id="ibc.apps.transfer.v1.QueryParamsRequest">QueryParamsRequest</h3>
         <p>QueryParamsRequest is the request type for the Query/Params RPC method.</p>
 
         
 
         
       
-        <h3 id="ibcgo.apps.transfer.v1.QueryParamsResponse">QueryParamsResponse</h3>
+        <h3 id="ibc.apps.transfer.v1.QueryParamsResponse">QueryParamsResponse</h3>
         <p>QueryParamsResponse is the response type for the Query/Params RPC method.</p>
 
         
@@ -1354,7 +1354,7 @@ chain. </p></td>
               
                 <tr>
                   <td>params</td>
-                  <td><a href="#ibcgo.apps.transfer.v1.Params">Params</a></td>
+                  <td><a href="#ibc.apps.transfer.v1.Params">Params</a></td>
                   <td></td>
                   <td><p>params defines the parameters of the module. </p></td>
                 </tr>
@@ -1372,7 +1372,7 @@ chain. </p></td>
       
 
       
-        <h3 id="ibcgo.apps.transfer.v1.Query">Query</h3>
+        <h3 id="ibc.apps.transfer.v1.Query">Query</h3>
         <p>Query provides defines the gRPC querier service.</p>
         <table class="enum-table">
           <thead>
@@ -1382,22 +1382,22 @@ chain. </p></td>
             
               <tr>
                 <td>DenomTrace</td>
-                <td><a href="#ibcgo.apps.transfer.v1.QueryDenomTraceRequest">QueryDenomTraceRequest</a></td>
-                <td><a href="#ibcgo.apps.transfer.v1.QueryDenomTraceResponse">QueryDenomTraceResponse</a></td>
+                <td><a href="#ibc.apps.transfer.v1.QueryDenomTraceRequest">QueryDenomTraceRequest</a></td>
+                <td><a href="#ibc.apps.transfer.v1.QueryDenomTraceResponse">QueryDenomTraceResponse</a></td>
                 <td><p>DenomTrace queries a denomination trace information.</p></td>
               </tr>
             
               <tr>
                 <td>DenomTraces</td>
-                <td><a href="#ibcgo.apps.transfer.v1.QueryDenomTracesRequest">QueryDenomTracesRequest</a></td>
-                <td><a href="#ibcgo.apps.transfer.v1.QueryDenomTracesResponse">QueryDenomTracesResponse</a></td>
+                <td><a href="#ibc.apps.transfer.v1.QueryDenomTracesRequest">QueryDenomTracesRequest</a></td>
+                <td><a href="#ibc.apps.transfer.v1.QueryDenomTracesResponse">QueryDenomTracesResponse</a></td>
                 <td><p>DenomTraces queries all denomination traces.</p></td>
               </tr>
             
               <tr>
                 <td>Params</td>
-                <td><a href="#ibcgo.apps.transfer.v1.QueryParamsRequest">QueryParamsRequest</a></td>
-                <td><a href="#ibcgo.apps.transfer.v1.QueryParamsResponse">QueryParamsResponse</a></td>
+                <td><a href="#ibc.apps.transfer.v1.QueryParamsRequest">QueryParamsRequest</a></td>
+                <td><a href="#ibc.apps.transfer.v1.QueryParamsResponse">QueryParamsResponse</a></td>
                 <td><p>Params queries all parameters of the ibc-transfer module.</p></td>
               </tr>
             
@@ -1456,12 +1456,12 @@ chain. </p></td>
     
       
       <div class="file-heading">
-        <h2 id="ibcgo/core/client/v1/client.proto">ibcgo/core/client/v1/client.proto</h2><a href="#title">Top</a>
+        <h2 id="ibc/core/client/v1/client.proto">ibc/core/client/v1/client.proto</h2><a href="#title">Top</a>
       </div>
       <p></p>
 
       
-        <h3 id="ibcgo.core.client.v1.ClientConsensusStates">ClientConsensusStates</h3>
+        <h3 id="ibc.core.client.v1.ClientConsensusStates">ClientConsensusStates</h3>
         <p>ClientConsensusStates defines all the stored consensus states for a given</p><p>client.</p>
 
         
@@ -1480,7 +1480,7 @@ chain. </p></td>
               
                 <tr>
                   <td>consensus_states</td>
-                  <td><a href="#ibcgo.core.client.v1.ConsensusStateWithHeight">ConsensusStateWithHeight</a></td>
+                  <td><a href="#ibc.core.client.v1.ConsensusStateWithHeight">ConsensusStateWithHeight</a></td>
                   <td>repeated</td>
                   <td><p>consensus states and their heights associated with the client </p></td>
                 </tr>
@@ -1492,7 +1492,7 @@ chain. </p></td>
 
         
       
-        <h3 id="ibcgo.core.client.v1.ClientUpdateProposal">ClientUpdateProposal</h3>
+        <h3 id="ibc.core.client.v1.ClientUpdateProposal">ClientUpdateProposal</h3>
         <p>ClientUpdateProposal is a governance proposal. If it passes, the substitute</p><p>client's consensus states starting from the 'initial height' are copied over</p><p>to the subjects client state. The proposal handler may fail if the subject</p><p>and the substitute do not match in client and chain parameters (with</p><p>exception to latest height, frozen height, and chain-id). The updated client</p><p>must also be valid (cannot be expired).</p>
 
         
@@ -1533,7 +1533,7 @@ client </p></td>
               
                 <tr>
                   <td>initial_height</td>
-                  <td><a href="#ibcgo.core.client.v1.Height">Height</a></td>
+                  <td><a href="#ibc.core.client.v1.Height">Height</a></td>
                   <td></td>
                   <td><p>the intital height to copy consensus states from the substitute to the
 subject </p></td>
@@ -1546,7 +1546,7 @@ subject </p></td>
 
         
       
-        <h3 id="ibcgo.core.client.v1.ConsensusStateWithHeight">ConsensusStateWithHeight</h3>
+        <h3 id="ibc.core.client.v1.ConsensusStateWithHeight">ConsensusStateWithHeight</h3>
         <p>ConsensusStateWithHeight defines a consensus state with an additional height</p><p>field.</p>
 
         
@@ -1558,7 +1558,7 @@ subject </p></td>
               
                 <tr>
                   <td>height</td>
-                  <td><a href="#ibcgo.core.client.v1.Height">Height</a></td>
+                  <td><a href="#ibc.core.client.v1.Height">Height</a></td>
                   <td></td>
                   <td><p>consensus state height </p></td>
                 </tr>
@@ -1577,7 +1577,7 @@ subject </p></td>
 
         
       
-        <h3 id="ibcgo.core.client.v1.Height">Height</h3>
+        <h3 id="ibc.core.client.v1.Height">Height</h3>
         <p>Height is a monotonically increasing data type</p><p>that can be compared against another Height for the purposes of updating and</p><p>freezing clients</p><p>Normally the RevisionHeight is incremented at each height while keeping</p><p>RevisionNumber the same. However some consensus algorithms may choose to</p><p>reset the height in certain conditions e.g. hard forks, state-machine</p><p>breaking changes In these cases, the RevisionNumber is incremented so that</p><p>height continues to be monitonically increasing even as the RevisionHeight</p><p>gets reset</p>
 
         
@@ -1608,7 +1608,7 @@ subject </p></td>
 
         
       
-        <h3 id="ibcgo.core.client.v1.IdentifiedClientState">IdentifiedClientState</h3>
+        <h3 id="ibc.core.client.v1.IdentifiedClientState">IdentifiedClientState</h3>
         <p>IdentifiedClientState defines a client state with an additional client</p><p>identifier field.</p>
 
         
@@ -1639,7 +1639,7 @@ subject </p></td>
 
         
       
-        <h3 id="ibcgo.core.client.v1.Params">Params</h3>
+        <h3 id="ibc.core.client.v1.Params">Params</h3>
         <p>Params defines the set of IBC light client parameters.</p>
 
         
@@ -1663,7 +1663,7 @@ subject </p></td>
 
         
       
-        <h3 id="ibcgo.core.client.v1.UpgradeProposal">UpgradeProposal</h3>
+        <h3 id="ibc.core.client.v1.UpgradeProposal">UpgradeProposal</h3>
         <p>UpgradeProposal is a gov Content type for initiating an IBC breaking</p><p>upgrade.</p>
 
         
@@ -1722,12 +1722,12 @@ planned chain upgrades </p></td>
     
       
       <div class="file-heading">
-        <h2 id="ibcgo/apps/transfer/v1/tx.proto">ibcgo/apps/transfer/v1/tx.proto</h2><a href="#title">Top</a>
+        <h2 id="ibc/apps/transfer/v1/tx.proto">ibc/apps/transfer/v1/tx.proto</h2><a href="#title">Top</a>
       </div>
       <p></p>
 
       
-        <h3 id="ibcgo.apps.transfer.v1.MsgTransfer">MsgTransfer</h3>
+        <h3 id="ibc.apps.transfer.v1.MsgTransfer">MsgTransfer</h3>
         <p>MsgTransfer defines a msg to transfer fungible tokens (i.e Coins) between</p><p>ICS20 enabled chains. See ICS Spec here:</p><p>https://github.com/cosmos/ics/tree/master/spec/ics-020-fungible-token-transfer#data-structures</p>
 
         
@@ -1774,7 +1774,7 @@ planned chain upgrades </p></td>
               
                 <tr>
                   <td>timeout_height</td>
-                  <td><a href="#ibcgo.core.client.v1.Height">ibcgo.core.client.v1.Height</a></td>
+                  <td><a href="#ibc.core.client.v1.Height">ibc.core.client.v1.Height</a></td>
                   <td></td>
                   <td><p>Timeout height relative to the current block height.
 The timeout is disabled when set to 0. </p></td>
@@ -1795,7 +1795,7 @@ The timeout is disabled when set to 0. </p></td>
 
         
       
-        <h3 id="ibcgo.apps.transfer.v1.MsgTransferResponse">MsgTransferResponse</h3>
+        <h3 id="ibc.apps.transfer.v1.MsgTransferResponse">MsgTransferResponse</h3>
         <p>MsgTransferResponse defines the Msg/Transfer response type.</p>
 
         
@@ -1808,7 +1808,7 @@ The timeout is disabled when set to 0. </p></td>
       
 
       
-        <h3 id="ibcgo.apps.transfer.v1.Msg">Msg</h3>
+        <h3 id="ibc.apps.transfer.v1.Msg">Msg</h3>
         <p>Msg defines the ibc/transfer Msg service.</p>
         <table class="enum-table">
           <thead>
@@ -1818,8 +1818,8 @@ The timeout is disabled when set to 0. </p></td>
             
               <tr>
                 <td>Transfer</td>
-                <td><a href="#ibcgo.apps.transfer.v1.MsgTransfer">MsgTransfer</a></td>
-                <td><a href="#ibcgo.apps.transfer.v1.MsgTransferResponse">MsgTransferResponse</a></td>
+                <td><a href="#ibc.apps.transfer.v1.MsgTransfer">MsgTransfer</a></td>
+                <td><a href="#ibc.apps.transfer.v1.MsgTransferResponse">MsgTransferResponse</a></td>
                 <td><p>Transfer defines a rpc handler method for MsgTransfer.</p></td>
               </tr>
             
@@ -1830,12 +1830,12 @@ The timeout is disabled when set to 0. </p></td>
     
       
       <div class="file-heading">
-        <h2 id="ibcgo/core/channel/v1/channel.proto">ibcgo/core/channel/v1/channel.proto</h2><a href="#title">Top</a>
+        <h2 id="ibc/core/channel/v1/channel.proto">ibc/core/channel/v1/channel.proto</h2><a href="#title">Top</a>
       </div>
       <p></p>
 
       
-        <h3 id="ibcgo.core.channel.v1.Acknowledgement">Acknowledgement</h3>
+        <h3 id="ibc.core.channel.v1.Acknowledgement">Acknowledgement</h3>
         <p>Acknowledgement is the recommended acknowledgement format to be used by</p><p>app-specific protocols.</p><p>NOTE: The field numbers 21 and 22 were explicitly chosen to avoid accidental</p><p>conflicts with other protobuf message formats used for acknowledgements.</p><p>The first byte of any message with this format will be the non-ASCII values</p><p>`0xaa` (result) or `0xb2` (error). Implemented as defined by ICS:</p><p>https://github.com/cosmos/ics/tree/master/spec/ics-004-channel-and-packet-semantics#acknowledgement-envelope</p>
 
         
@@ -1866,7 +1866,7 @@ The timeout is disabled when set to 0. </p></td>
 
         
       
-        <h3 id="ibcgo.core.channel.v1.Channel">Channel</h3>
+        <h3 id="ibc.core.channel.v1.Channel">Channel</h3>
         <p>Channel defines pipeline for exactly-once packet delivery between specific</p><p>modules on separate blockchains, which has at least one end capable of</p><p>sending packets and one end capable of receiving packets.</p>
 
         
@@ -1878,21 +1878,21 @@ The timeout is disabled when set to 0. </p></td>
               
                 <tr>
                   <td>state</td>
-                  <td><a href="#ibcgo.core.channel.v1.State">State</a></td>
+                  <td><a href="#ibc.core.channel.v1.State">State</a></td>
                   <td></td>
                   <td><p>current state of the channel end </p></td>
                 </tr>
               
                 <tr>
                   <td>ordering</td>
-                  <td><a href="#ibcgo.core.channel.v1.Order">Order</a></td>
+                  <td><a href="#ibc.core.channel.v1.Order">Order</a></td>
                   <td></td>
                   <td><p>whether the channel is ordered or unordered </p></td>
                 </tr>
               
                 <tr>
                   <td>counterparty</td>
-                  <td><a href="#ibcgo.core.channel.v1.Counterparty">Counterparty</a></td>
+                  <td><a href="#ibc.core.channel.v1.Counterparty">Counterparty</a></td>
                   <td></td>
                   <td><p>counterparty channel end </p></td>
                 </tr>
@@ -1919,7 +1919,7 @@ this channel will travel </p></td>
 
         
       
-        <h3 id="ibcgo.core.channel.v1.Counterparty">Counterparty</h3>
+        <h3 id="ibc.core.channel.v1.Counterparty">Counterparty</h3>
         <p>Counterparty defines a channel end counterparty</p>
 
         
@@ -1950,7 +1950,7 @@ this channel will travel </p></td>
 
         
       
-        <h3 id="ibcgo.core.channel.v1.IdentifiedChannel">IdentifiedChannel</h3>
+        <h3 id="ibc.core.channel.v1.IdentifiedChannel">IdentifiedChannel</h3>
         <p>IdentifiedChannel defines a channel with additional port and channel</p><p>identifier fields.</p>
 
         
@@ -1962,21 +1962,21 @@ this channel will travel </p></td>
               
                 <tr>
                   <td>state</td>
-                  <td><a href="#ibcgo.core.channel.v1.State">State</a></td>
+                  <td><a href="#ibc.core.channel.v1.State">State</a></td>
                   <td></td>
                   <td><p>current state of the channel end </p></td>
                 </tr>
               
                 <tr>
                   <td>ordering</td>
-                  <td><a href="#ibcgo.core.channel.v1.Order">Order</a></td>
+                  <td><a href="#ibc.core.channel.v1.Order">Order</a></td>
                   <td></td>
                   <td><p>whether the channel is ordered or unordered </p></td>
                 </tr>
               
                 <tr>
                   <td>counterparty</td>
-                  <td><a href="#ibcgo.core.channel.v1.Counterparty">Counterparty</a></td>
+                  <td><a href="#ibc.core.channel.v1.Counterparty">Counterparty</a></td>
                   <td></td>
                   <td><p>counterparty channel end </p></td>
                 </tr>
@@ -2017,7 +2017,7 @@ this channel will travel </p></td>
 
         
       
-        <h3 id="ibcgo.core.channel.v1.Packet">Packet</h3>
+        <h3 id="ibc.core.channel.v1.Packet">Packet</h3>
         <p>Packet defines a type that carries data across different chains through IBC</p>
 
         
@@ -2073,7 +2073,7 @@ with a later sequence number. </p></td>
               
                 <tr>
                   <td>timeout_height</td>
-                  <td><a href="#ibcgo.core.client.v1.Height">ibcgo.core.client.v1.Height</a></td>
+                  <td><a href="#ibc.core.client.v1.Height">ibc.core.client.v1.Height</a></td>
                   <td></td>
                   <td><p>block height after which the packet times out </p></td>
                 </tr>
@@ -2092,7 +2092,7 @@ with a later sequence number. </p></td>
 
         
       
-        <h3 id="ibcgo.core.channel.v1.PacketState">PacketState</h3>
+        <h3 id="ibc.core.channel.v1.PacketState">PacketState</h3>
         <p>PacketState defines the generic type necessary to retrieve and store</p><p>packet commitments, acknowledgements, and receipts.</p><p>Caller is responsible for knowing the context necessary to interpret this</p><p>state as a commitment, acknowledgement, or a receipt.</p>
 
         
@@ -2139,7 +2139,7 @@ with a later sequence number. </p></td>
       
 
       
-        <h3 id="ibcgo.core.channel.v1.Order">Order</h3>
+        <h3 id="ibc.core.channel.v1.Order">Order</h3>
         <p>Order defines if a channel is ORDERED or UNORDERED</p>
         <table class="enum-table">
           <thead>
@@ -2169,7 +2169,7 @@ which they were sent.</p></td>
           </tbody>
         </table>
       
-        <h3 id="ibcgo.core.channel.v1.State">State</h3>
+        <h3 id="ibc.core.channel.v1.State">State</h3>
         <p>State defines if a channel is in one of the following states:</p><p>CLOSED, INIT, TRYOPEN, OPEN or UNINITIALIZED.</p>
         <table class="enum-table">
           <thead>
@@ -2219,12 +2219,12 @@ packets.</p></td>
     
       
       <div class="file-heading">
-        <h2 id="ibcgo/core/channel/v1/genesis.proto">ibcgo/core/channel/v1/genesis.proto</h2><a href="#title">Top</a>
+        <h2 id="ibc/core/channel/v1/genesis.proto">ibc/core/channel/v1/genesis.proto</h2><a href="#title">Top</a>
       </div>
       <p></p>
 
       
-        <h3 id="ibcgo.core.channel.v1.GenesisState">GenesisState</h3>
+        <h3 id="ibc.core.channel.v1.GenesisState">GenesisState</h3>
         <p>GenesisState defines the ibc channel submodule's genesis state.</p>
 
         
@@ -2236,49 +2236,49 @@ packets.</p></td>
               
                 <tr>
                   <td>channels</td>
-                  <td><a href="#ibcgo.core.channel.v1.IdentifiedChannel">IdentifiedChannel</a></td>
+                  <td><a href="#ibc.core.channel.v1.IdentifiedChannel">IdentifiedChannel</a></td>
                   <td>repeated</td>
                   <td><p> </p></td>
                 </tr>
               
                 <tr>
                   <td>acknowledgements</td>
-                  <td><a href="#ibcgo.core.channel.v1.PacketState">PacketState</a></td>
+                  <td><a href="#ibc.core.channel.v1.PacketState">PacketState</a></td>
                   <td>repeated</td>
                   <td><p> </p></td>
                 </tr>
               
                 <tr>
                   <td>commitments</td>
-                  <td><a href="#ibcgo.core.channel.v1.PacketState">PacketState</a></td>
+                  <td><a href="#ibc.core.channel.v1.PacketState">PacketState</a></td>
                   <td>repeated</td>
                   <td><p> </p></td>
                 </tr>
               
                 <tr>
                   <td>receipts</td>
-                  <td><a href="#ibcgo.core.channel.v1.PacketState">PacketState</a></td>
+                  <td><a href="#ibc.core.channel.v1.PacketState">PacketState</a></td>
                   <td>repeated</td>
                   <td><p> </p></td>
                 </tr>
               
                 <tr>
                   <td>send_sequences</td>
-                  <td><a href="#ibcgo.core.channel.v1.PacketSequence">PacketSequence</a></td>
+                  <td><a href="#ibc.core.channel.v1.PacketSequence">PacketSequence</a></td>
                   <td>repeated</td>
                   <td><p> </p></td>
                 </tr>
               
                 <tr>
                   <td>recv_sequences</td>
-                  <td><a href="#ibcgo.core.channel.v1.PacketSequence">PacketSequence</a></td>
+                  <td><a href="#ibc.core.channel.v1.PacketSequence">PacketSequence</a></td>
                   <td>repeated</td>
                   <td><p> </p></td>
                 </tr>
               
                 <tr>
                   <td>ack_sequences</td>
-                  <td><a href="#ibcgo.core.channel.v1.PacketSequence">PacketSequence</a></td>
+                  <td><a href="#ibc.core.channel.v1.PacketSequence">PacketSequence</a></td>
                   <td>repeated</td>
                   <td><p> </p></td>
                 </tr>
@@ -2297,7 +2297,7 @@ packets.</p></td>
 
         
       
-        <h3 id="ibcgo.core.channel.v1.PacketSequence">PacketSequence</h3>
+        <h3 id="ibc.core.channel.v1.PacketSequence">PacketSequence</h3>
         <p>PacketSequence defines the genesis type necessary to retrieve and store</p><p>next send and receive sequences.</p>
 
         
@@ -2344,12 +2344,12 @@ packets.</p></td>
     
       
       <div class="file-heading">
-        <h2 id="ibcgo/core/channel/v1/query.proto">ibcgo/core/channel/v1/query.proto</h2><a href="#title">Top</a>
+        <h2 id="ibc/core/channel/v1/query.proto">ibc/core/channel/v1/query.proto</h2><a href="#title">Top</a>
       </div>
       <p></p>
 
       
-        <h3 id="ibcgo.core.channel.v1.QueryChannelClientStateRequest">QueryChannelClientStateRequest</h3>
+        <h3 id="ibc.core.channel.v1.QueryChannelClientStateRequest">QueryChannelClientStateRequest</h3>
         <p>QueryChannelClientStateRequest is the request type for the Query/ClientState</p><p>RPC method</p>
 
         
@@ -2380,7 +2380,7 @@ packets.</p></td>
 
         
       
-        <h3 id="ibcgo.core.channel.v1.QueryChannelClientStateResponse">QueryChannelClientStateResponse</h3>
+        <h3 id="ibc.core.channel.v1.QueryChannelClientStateResponse">QueryChannelClientStateResponse</h3>
         <p>QueryChannelClientStateResponse is the Response type for the</p><p>Query/QueryChannelClientState RPC method</p>
 
         
@@ -2392,7 +2392,7 @@ packets.</p></td>
               
                 <tr>
                   <td>identified_client_state</td>
-                  <td><a href="#ibcgo.core.client.v1.IdentifiedClientState">ibcgo.core.client.v1.IdentifiedClientState</a></td>
+                  <td><a href="#ibc.core.client.v1.IdentifiedClientState">ibc.core.client.v1.IdentifiedClientState</a></td>
                   <td></td>
                   <td><p>client state associated with the channel </p></td>
                 </tr>
@@ -2406,7 +2406,7 @@ packets.</p></td>
               
                 <tr>
                   <td>proof_height</td>
-                  <td><a href="#ibcgo.core.client.v1.Height">ibcgo.core.client.v1.Height</a></td>
+                  <td><a href="#ibc.core.client.v1.Height">ibc.core.client.v1.Height</a></td>
                   <td></td>
                   <td><p>height at which the proof was retrieved </p></td>
                 </tr>
@@ -2418,7 +2418,7 @@ packets.</p></td>
 
         
       
-        <h3 id="ibcgo.core.channel.v1.QueryChannelConsensusStateRequest">QueryChannelConsensusStateRequest</h3>
+        <h3 id="ibc.core.channel.v1.QueryChannelConsensusStateRequest">QueryChannelConsensusStateRequest</h3>
         <p>QueryChannelConsensusStateRequest is the request type for the</p><p>Query/ConsensusState RPC method</p>
 
         
@@ -2463,7 +2463,7 @@ packets.</p></td>
 
         
       
-        <h3 id="ibcgo.core.channel.v1.QueryChannelConsensusStateResponse">QueryChannelConsensusStateResponse</h3>
+        <h3 id="ibc.core.channel.v1.QueryChannelConsensusStateResponse">QueryChannelConsensusStateResponse</h3>
         <p>QueryChannelClientStateResponse is the Response type for the</p><p>Query/QueryChannelClientState RPC method</p>
 
         
@@ -2496,7 +2496,7 @@ packets.</p></td>
               
                 <tr>
                   <td>proof_height</td>
-                  <td><a href="#ibcgo.core.client.v1.Height">ibcgo.core.client.v1.Height</a></td>
+                  <td><a href="#ibc.core.client.v1.Height">ibc.core.client.v1.Height</a></td>
                   <td></td>
                   <td><p>height at which the proof was retrieved </p></td>
                 </tr>
@@ -2508,7 +2508,7 @@ packets.</p></td>
 
         
       
-        <h3 id="ibcgo.core.channel.v1.QueryChannelRequest">QueryChannelRequest</h3>
+        <h3 id="ibc.core.channel.v1.QueryChannelRequest">QueryChannelRequest</h3>
         <p>QueryChannelRequest is the request type for the Query/Channel RPC method</p>
 
         
@@ -2539,7 +2539,7 @@ packets.</p></td>
 
         
       
-        <h3 id="ibcgo.core.channel.v1.QueryChannelResponse">QueryChannelResponse</h3>
+        <h3 id="ibc.core.channel.v1.QueryChannelResponse">QueryChannelResponse</h3>
         <p>QueryChannelResponse is the response type for the Query/Channel RPC method.</p><p>Besides the Channel end, it includes a proof and the height from which the</p><p>proof was retrieved.</p>
 
         
@@ -2551,7 +2551,7 @@ packets.</p></td>
               
                 <tr>
                   <td>channel</td>
-                  <td><a href="#ibcgo.core.channel.v1.Channel">Channel</a></td>
+                  <td><a href="#ibc.core.channel.v1.Channel">Channel</a></td>
                   <td></td>
                   <td><p>channel associated with the request identifiers </p></td>
                 </tr>
@@ -2565,7 +2565,7 @@ packets.</p></td>
               
                 <tr>
                   <td>proof_height</td>
-                  <td><a href="#ibcgo.core.client.v1.Height">ibcgo.core.client.v1.Height</a></td>
+                  <td><a href="#ibc.core.client.v1.Height">ibc.core.client.v1.Height</a></td>
                   <td></td>
                   <td><p>height at which the proof was retrieved </p></td>
                 </tr>
@@ -2577,7 +2577,7 @@ packets.</p></td>
 
         
       
-        <h3 id="ibcgo.core.channel.v1.QueryChannelsRequest">QueryChannelsRequest</h3>
+        <h3 id="ibc.core.channel.v1.QueryChannelsRequest">QueryChannelsRequest</h3>
         <p>QueryChannelsRequest is the request type for the Query/Channels RPC method</p>
 
         
@@ -2601,7 +2601,7 @@ packets.</p></td>
 
         
       
-        <h3 id="ibcgo.core.channel.v1.QueryChannelsResponse">QueryChannelsResponse</h3>
+        <h3 id="ibc.core.channel.v1.QueryChannelsResponse">QueryChannelsResponse</h3>
         <p>QueryChannelsResponse is the response type for the Query/Channels RPC method.</p>
 
         
@@ -2613,7 +2613,7 @@ packets.</p></td>
               
                 <tr>
                   <td>channels</td>
-                  <td><a href="#ibcgo.core.channel.v1.IdentifiedChannel">IdentifiedChannel</a></td>
+                  <td><a href="#ibc.core.channel.v1.IdentifiedChannel">IdentifiedChannel</a></td>
                   <td>repeated</td>
                   <td><p>list of stored channels of the chain. </p></td>
                 </tr>
@@ -2627,7 +2627,7 @@ packets.</p></td>
               
                 <tr>
                   <td>height</td>
-                  <td><a href="#ibcgo.core.client.v1.Height">ibcgo.core.client.v1.Height</a></td>
+                  <td><a href="#ibc.core.client.v1.Height">ibc.core.client.v1.Height</a></td>
                   <td></td>
                   <td><p>query block height </p></td>
                 </tr>
@@ -2639,7 +2639,7 @@ packets.</p></td>
 
         
       
-        <h3 id="ibcgo.core.channel.v1.QueryConnectionChannelsRequest">QueryConnectionChannelsRequest</h3>
+        <h3 id="ibc.core.channel.v1.QueryConnectionChannelsRequest">QueryConnectionChannelsRequest</h3>
         <p>QueryConnectionChannelsRequest is the request type for the</p><p>Query/QueryConnectionChannels RPC method</p>
 
         
@@ -2670,7 +2670,7 @@ packets.</p></td>
 
         
       
-        <h3 id="ibcgo.core.channel.v1.QueryConnectionChannelsResponse">QueryConnectionChannelsResponse</h3>
+        <h3 id="ibc.core.channel.v1.QueryConnectionChannelsResponse">QueryConnectionChannelsResponse</h3>
         <p>QueryConnectionChannelsResponse is the Response type for the</p><p>Query/QueryConnectionChannels RPC method</p>
 
         
@@ -2682,7 +2682,7 @@ packets.</p></td>
               
                 <tr>
                   <td>channels</td>
-                  <td><a href="#ibcgo.core.channel.v1.IdentifiedChannel">IdentifiedChannel</a></td>
+                  <td><a href="#ibc.core.channel.v1.IdentifiedChannel">IdentifiedChannel</a></td>
                   <td>repeated</td>
                   <td><p>list of channels associated with a connection. </p></td>
                 </tr>
@@ -2696,7 +2696,7 @@ packets.</p></td>
               
                 <tr>
                   <td>height</td>
-                  <td><a href="#ibcgo.core.client.v1.Height">ibcgo.core.client.v1.Height</a></td>
+                  <td><a href="#ibc.core.client.v1.Height">ibc.core.client.v1.Height</a></td>
                   <td></td>
                   <td><p>query block height </p></td>
                 </tr>
@@ -2708,7 +2708,7 @@ packets.</p></td>
 
         
       
-        <h3 id="ibcgo.core.channel.v1.QueryNextSequenceReceiveRequest">QueryNextSequenceReceiveRequest</h3>
+        <h3 id="ibc.core.channel.v1.QueryNextSequenceReceiveRequest">QueryNextSequenceReceiveRequest</h3>
         <p>QueryNextSequenceReceiveRequest is the request type for the</p><p>Query/QueryNextSequenceReceiveRequest RPC method</p>
 
         
@@ -2739,7 +2739,7 @@ packets.</p></td>
 
         
       
-        <h3 id="ibcgo.core.channel.v1.QueryNextSequenceReceiveResponse">QueryNextSequenceReceiveResponse</h3>
+        <h3 id="ibc.core.channel.v1.QueryNextSequenceReceiveResponse">QueryNextSequenceReceiveResponse</h3>
         <p>QuerySequenceResponse is the request type for the</p><p>Query/QueryNextSequenceReceiveResponse RPC method</p>
 
         
@@ -2765,7 +2765,7 @@ packets.</p></td>
               
                 <tr>
                   <td>proof_height</td>
-                  <td><a href="#ibcgo.core.client.v1.Height">ibcgo.core.client.v1.Height</a></td>
+                  <td><a href="#ibc.core.client.v1.Height">ibc.core.client.v1.Height</a></td>
                   <td></td>
                   <td><p>height at which the proof was retrieved </p></td>
                 </tr>
@@ -2777,7 +2777,7 @@ packets.</p></td>
 
         
       
-        <h3 id="ibcgo.core.channel.v1.QueryPacketAcknowledgementRequest">QueryPacketAcknowledgementRequest</h3>
+        <h3 id="ibc.core.channel.v1.QueryPacketAcknowledgementRequest">QueryPacketAcknowledgementRequest</h3>
         <p>QueryPacketAcknowledgementRequest is the request type for the</p><p>Query/PacketAcknowledgement RPC method</p>
 
         
@@ -2815,7 +2815,7 @@ packets.</p></td>
 
         
       
-        <h3 id="ibcgo.core.channel.v1.QueryPacketAcknowledgementResponse">QueryPacketAcknowledgementResponse</h3>
+        <h3 id="ibc.core.channel.v1.QueryPacketAcknowledgementResponse">QueryPacketAcknowledgementResponse</h3>
         <p>QueryPacketAcknowledgementResponse defines the client query response for a</p><p>packet which also includes a proof and the height from which the</p><p>proof was retrieved</p>
 
         
@@ -2841,7 +2841,7 @@ packets.</p></td>
               
                 <tr>
                   <td>proof_height</td>
-                  <td><a href="#ibcgo.core.client.v1.Height">ibcgo.core.client.v1.Height</a></td>
+                  <td><a href="#ibc.core.client.v1.Height">ibc.core.client.v1.Height</a></td>
                   <td></td>
                   <td><p>height at which the proof was retrieved </p></td>
                 </tr>
@@ -2853,7 +2853,7 @@ packets.</p></td>
 
         
       
-        <h3 id="ibcgo.core.channel.v1.QueryPacketAcknowledgementsRequest">QueryPacketAcknowledgementsRequest</h3>
+        <h3 id="ibc.core.channel.v1.QueryPacketAcknowledgementsRequest">QueryPacketAcknowledgementsRequest</h3>
         <p>QueryPacketAcknowledgementsRequest is the request type for the</p><p>Query/QueryPacketCommitments RPC method</p>
 
         
@@ -2891,7 +2891,7 @@ packets.</p></td>
 
         
       
-        <h3 id="ibcgo.core.channel.v1.QueryPacketAcknowledgementsResponse">QueryPacketAcknowledgementsResponse</h3>
+        <h3 id="ibc.core.channel.v1.QueryPacketAcknowledgementsResponse">QueryPacketAcknowledgementsResponse</h3>
         <p>QueryPacketAcknowledgemetsResponse is the request type for the</p><p>Query/QueryPacketAcknowledgements RPC method</p>
 
         
@@ -2903,7 +2903,7 @@ packets.</p></td>
               
                 <tr>
                   <td>acknowledgements</td>
-                  <td><a href="#ibcgo.core.channel.v1.PacketState">PacketState</a></td>
+                  <td><a href="#ibc.core.channel.v1.PacketState">PacketState</a></td>
                   <td>repeated</td>
                   <td><p> </p></td>
                 </tr>
@@ -2917,7 +2917,7 @@ packets.</p></td>
               
                 <tr>
                   <td>height</td>
-                  <td><a href="#ibcgo.core.client.v1.Height">ibcgo.core.client.v1.Height</a></td>
+                  <td><a href="#ibc.core.client.v1.Height">ibc.core.client.v1.Height</a></td>
                   <td></td>
                   <td><p>query block height </p></td>
                 </tr>
@@ -2929,7 +2929,7 @@ packets.</p></td>
 
         
       
-        <h3 id="ibcgo.core.channel.v1.QueryPacketCommitmentRequest">QueryPacketCommitmentRequest</h3>
+        <h3 id="ibc.core.channel.v1.QueryPacketCommitmentRequest">QueryPacketCommitmentRequest</h3>
         <p>QueryPacketCommitmentRequest is the request type for the</p><p>Query/PacketCommitment RPC method</p>
 
         
@@ -2967,7 +2967,7 @@ packets.</p></td>
 
         
       
-        <h3 id="ibcgo.core.channel.v1.QueryPacketCommitmentResponse">QueryPacketCommitmentResponse</h3>
+        <h3 id="ibc.core.channel.v1.QueryPacketCommitmentResponse">QueryPacketCommitmentResponse</h3>
         <p>QueryPacketCommitmentResponse defines the client query response for a packet</p><p>which also includes a proof and the height from which the proof was</p><p>retrieved</p>
 
         
@@ -2993,7 +2993,7 @@ packets.</p></td>
               
                 <tr>
                   <td>proof_height</td>
-                  <td><a href="#ibcgo.core.client.v1.Height">ibcgo.core.client.v1.Height</a></td>
+                  <td><a href="#ibc.core.client.v1.Height">ibc.core.client.v1.Height</a></td>
                   <td></td>
                   <td><p>height at which the proof was retrieved </p></td>
                 </tr>
@@ -3005,7 +3005,7 @@ packets.</p></td>
 
         
       
-        <h3 id="ibcgo.core.channel.v1.QueryPacketCommitmentsRequest">QueryPacketCommitmentsRequest</h3>
+        <h3 id="ibc.core.channel.v1.QueryPacketCommitmentsRequest">QueryPacketCommitmentsRequest</h3>
         <p>QueryPacketCommitmentsRequest is the request type for the</p><p>Query/QueryPacketCommitments RPC method</p>
 
         
@@ -3043,7 +3043,7 @@ packets.</p></td>
 
         
       
-        <h3 id="ibcgo.core.channel.v1.QueryPacketCommitmentsResponse">QueryPacketCommitmentsResponse</h3>
+        <h3 id="ibc.core.channel.v1.QueryPacketCommitmentsResponse">QueryPacketCommitmentsResponse</h3>
         <p>QueryPacketCommitmentsResponse is the request type for the</p><p>Query/QueryPacketCommitments RPC method</p>
 
         
@@ -3055,7 +3055,7 @@ packets.</p></td>
               
                 <tr>
                   <td>commitments</td>
-                  <td><a href="#ibcgo.core.channel.v1.PacketState">PacketState</a></td>
+                  <td><a href="#ibc.core.channel.v1.PacketState">PacketState</a></td>
                   <td>repeated</td>
                   <td><p> </p></td>
                 </tr>
@@ -3069,7 +3069,7 @@ packets.</p></td>
               
                 <tr>
                   <td>height</td>
-                  <td><a href="#ibcgo.core.client.v1.Height">ibcgo.core.client.v1.Height</a></td>
+                  <td><a href="#ibc.core.client.v1.Height">ibc.core.client.v1.Height</a></td>
                   <td></td>
                   <td><p>query block height </p></td>
                 </tr>
@@ -3081,7 +3081,7 @@ packets.</p></td>
 
         
       
-        <h3 id="ibcgo.core.channel.v1.QueryPacketReceiptRequest">QueryPacketReceiptRequest</h3>
+        <h3 id="ibc.core.channel.v1.QueryPacketReceiptRequest">QueryPacketReceiptRequest</h3>
         <p>QueryPacketReceiptRequest is the request type for the</p><p>Query/PacketReceipt RPC method</p>
 
         
@@ -3119,7 +3119,7 @@ packets.</p></td>
 
         
       
-        <h3 id="ibcgo.core.channel.v1.QueryPacketReceiptResponse">QueryPacketReceiptResponse</h3>
+        <h3 id="ibc.core.channel.v1.QueryPacketReceiptResponse">QueryPacketReceiptResponse</h3>
         <p>QueryPacketReceiptResponse defines the client query response for a packet</p><p>receipt which also includes a proof, and the height from which the proof was</p><p>retrieved</p>
 
         
@@ -3145,7 +3145,7 @@ packets.</p></td>
               
                 <tr>
                   <td>proof_height</td>
-                  <td><a href="#ibcgo.core.client.v1.Height">ibcgo.core.client.v1.Height</a></td>
+                  <td><a href="#ibc.core.client.v1.Height">ibc.core.client.v1.Height</a></td>
                   <td></td>
                   <td><p>height at which the proof was retrieved </p></td>
                 </tr>
@@ -3157,7 +3157,7 @@ packets.</p></td>
 
         
       
-        <h3 id="ibcgo.core.channel.v1.QueryUnreceivedAcksRequest">QueryUnreceivedAcksRequest</h3>
+        <h3 id="ibc.core.channel.v1.QueryUnreceivedAcksRequest">QueryUnreceivedAcksRequest</h3>
         <p>QueryUnreceivedAcks is the request type for the</p><p>Query/UnreceivedAcks RPC method</p>
 
         
@@ -3195,7 +3195,7 @@ packets.</p></td>
 
         
       
-        <h3 id="ibcgo.core.channel.v1.QueryUnreceivedAcksResponse">QueryUnreceivedAcksResponse</h3>
+        <h3 id="ibc.core.channel.v1.QueryUnreceivedAcksResponse">QueryUnreceivedAcksResponse</h3>
         <p>QueryUnreceivedAcksResponse is the response type for the</p><p>Query/UnreceivedAcks RPC method</p>
 
         
@@ -3214,7 +3214,7 @@ packets.</p></td>
               
                 <tr>
                   <td>height</td>
-                  <td><a href="#ibcgo.core.client.v1.Height">ibcgo.core.client.v1.Height</a></td>
+                  <td><a href="#ibc.core.client.v1.Height">ibc.core.client.v1.Height</a></td>
                   <td></td>
                   <td><p>query block height </p></td>
                 </tr>
@@ -3226,7 +3226,7 @@ packets.</p></td>
 
         
       
-        <h3 id="ibcgo.core.channel.v1.QueryUnreceivedPacketsRequest">QueryUnreceivedPacketsRequest</h3>
+        <h3 id="ibc.core.channel.v1.QueryUnreceivedPacketsRequest">QueryUnreceivedPacketsRequest</h3>
         <p>QueryUnreceivedPacketsRequest is the request type for the</p><p>Query/UnreceivedPackets RPC method</p>
 
         
@@ -3264,7 +3264,7 @@ packets.</p></td>
 
         
       
-        <h3 id="ibcgo.core.channel.v1.QueryUnreceivedPacketsResponse">QueryUnreceivedPacketsResponse</h3>
+        <h3 id="ibc.core.channel.v1.QueryUnreceivedPacketsResponse">QueryUnreceivedPacketsResponse</h3>
         <p>QueryUnreceivedPacketsResponse is the response type for the</p><p>Query/UnreceivedPacketCommitments RPC method</p>
 
         
@@ -3283,7 +3283,7 @@ packets.</p></td>
               
                 <tr>
                   <td>height</td>
-                  <td><a href="#ibcgo.core.client.v1.Height">ibcgo.core.client.v1.Height</a></td>
+                  <td><a href="#ibc.core.client.v1.Height">ibc.core.client.v1.Height</a></td>
                   <td></td>
                   <td><p>query block height </p></td>
                 </tr>
@@ -3301,7 +3301,7 @@ packets.</p></td>
       
 
       
-        <h3 id="ibcgo.core.channel.v1.Query">Query</h3>
+        <h3 id="ibc.core.channel.v1.Query">Query</h3>
         <p>Query provides defines the gRPC querier service</p>
         <table class="enum-table">
           <thead>
@@ -3311,100 +3311,100 @@ packets.</p></td>
             
               <tr>
                 <td>Channel</td>
-                <td><a href="#ibcgo.core.channel.v1.QueryChannelRequest">QueryChannelRequest</a></td>
-                <td><a href="#ibcgo.core.channel.v1.QueryChannelResponse">QueryChannelResponse</a></td>
+                <td><a href="#ibc.core.channel.v1.QueryChannelRequest">QueryChannelRequest</a></td>
+                <td><a href="#ibc.core.channel.v1.QueryChannelResponse">QueryChannelResponse</a></td>
                 <td><p>Channel queries an IBC Channel.</p></td>
               </tr>
             
               <tr>
                 <td>Channels</td>
-                <td><a href="#ibcgo.core.channel.v1.QueryChannelsRequest">QueryChannelsRequest</a></td>
-                <td><a href="#ibcgo.core.channel.v1.QueryChannelsResponse">QueryChannelsResponse</a></td>
+                <td><a href="#ibc.core.channel.v1.QueryChannelsRequest">QueryChannelsRequest</a></td>
+                <td><a href="#ibc.core.channel.v1.QueryChannelsResponse">QueryChannelsResponse</a></td>
                 <td><p>Channels queries all the IBC channels of a chain.</p></td>
               </tr>
             
               <tr>
                 <td>ConnectionChannels</td>
-                <td><a href="#ibcgo.core.channel.v1.QueryConnectionChannelsRequest">QueryConnectionChannelsRequest</a></td>
-                <td><a href="#ibcgo.core.channel.v1.QueryConnectionChannelsResponse">QueryConnectionChannelsResponse</a></td>
+                <td><a href="#ibc.core.channel.v1.QueryConnectionChannelsRequest">QueryConnectionChannelsRequest</a></td>
+                <td><a href="#ibc.core.channel.v1.QueryConnectionChannelsResponse">QueryConnectionChannelsResponse</a></td>
                 <td><p>ConnectionChannels queries all the channels associated with a connection
 end.</p></td>
               </tr>
             
               <tr>
                 <td>ChannelClientState</td>
-                <td><a href="#ibcgo.core.channel.v1.QueryChannelClientStateRequest">QueryChannelClientStateRequest</a></td>
-                <td><a href="#ibcgo.core.channel.v1.QueryChannelClientStateResponse">QueryChannelClientStateResponse</a></td>
+                <td><a href="#ibc.core.channel.v1.QueryChannelClientStateRequest">QueryChannelClientStateRequest</a></td>
+                <td><a href="#ibc.core.channel.v1.QueryChannelClientStateResponse">QueryChannelClientStateResponse</a></td>
                 <td><p>ChannelClientState queries for the client state for the channel associated
 with the provided channel identifiers.</p></td>
               </tr>
             
               <tr>
                 <td>ChannelConsensusState</td>
-                <td><a href="#ibcgo.core.channel.v1.QueryChannelConsensusStateRequest">QueryChannelConsensusStateRequest</a></td>
-                <td><a href="#ibcgo.core.channel.v1.QueryChannelConsensusStateResponse">QueryChannelConsensusStateResponse</a></td>
+                <td><a href="#ibc.core.channel.v1.QueryChannelConsensusStateRequest">QueryChannelConsensusStateRequest</a></td>
+                <td><a href="#ibc.core.channel.v1.QueryChannelConsensusStateResponse">QueryChannelConsensusStateResponse</a></td>
                 <td><p>ChannelConsensusState queries for the consensus state for the channel
 associated with the provided channel identifiers.</p></td>
               </tr>
             
               <tr>
                 <td>PacketCommitment</td>
-                <td><a href="#ibcgo.core.channel.v1.QueryPacketCommitmentRequest">QueryPacketCommitmentRequest</a></td>
-                <td><a href="#ibcgo.core.channel.v1.QueryPacketCommitmentResponse">QueryPacketCommitmentResponse</a></td>
+                <td><a href="#ibc.core.channel.v1.QueryPacketCommitmentRequest">QueryPacketCommitmentRequest</a></td>
+                <td><a href="#ibc.core.channel.v1.QueryPacketCommitmentResponse">QueryPacketCommitmentResponse</a></td>
                 <td><p>PacketCommitment queries a stored packet commitment hash.</p></td>
               </tr>
             
               <tr>
                 <td>PacketCommitments</td>
-                <td><a href="#ibcgo.core.channel.v1.QueryPacketCommitmentsRequest">QueryPacketCommitmentsRequest</a></td>
-                <td><a href="#ibcgo.core.channel.v1.QueryPacketCommitmentsResponse">QueryPacketCommitmentsResponse</a></td>
+                <td><a href="#ibc.core.channel.v1.QueryPacketCommitmentsRequest">QueryPacketCommitmentsRequest</a></td>
+                <td><a href="#ibc.core.channel.v1.QueryPacketCommitmentsResponse">QueryPacketCommitmentsResponse</a></td>
                 <td><p>PacketCommitments returns all the packet commitments hashes associated
 with a channel.</p></td>
               </tr>
             
               <tr>
                 <td>PacketReceipt</td>
-                <td><a href="#ibcgo.core.channel.v1.QueryPacketReceiptRequest">QueryPacketReceiptRequest</a></td>
-                <td><a href="#ibcgo.core.channel.v1.QueryPacketReceiptResponse">QueryPacketReceiptResponse</a></td>
+                <td><a href="#ibc.core.channel.v1.QueryPacketReceiptRequest">QueryPacketReceiptRequest</a></td>
+                <td><a href="#ibc.core.channel.v1.QueryPacketReceiptResponse">QueryPacketReceiptResponse</a></td>
                 <td><p>PacketReceipt queries if a given packet sequence has been received on the
 queried chain</p></td>
               </tr>
             
               <tr>
                 <td>PacketAcknowledgement</td>
-                <td><a href="#ibcgo.core.channel.v1.QueryPacketAcknowledgementRequest">QueryPacketAcknowledgementRequest</a></td>
-                <td><a href="#ibcgo.core.channel.v1.QueryPacketAcknowledgementResponse">QueryPacketAcknowledgementResponse</a></td>
+                <td><a href="#ibc.core.channel.v1.QueryPacketAcknowledgementRequest">QueryPacketAcknowledgementRequest</a></td>
+                <td><a href="#ibc.core.channel.v1.QueryPacketAcknowledgementResponse">QueryPacketAcknowledgementResponse</a></td>
                 <td><p>PacketAcknowledgement queries a stored packet acknowledgement hash.</p></td>
               </tr>
             
               <tr>
                 <td>PacketAcknowledgements</td>
-                <td><a href="#ibcgo.core.channel.v1.QueryPacketAcknowledgementsRequest">QueryPacketAcknowledgementsRequest</a></td>
-                <td><a href="#ibcgo.core.channel.v1.QueryPacketAcknowledgementsResponse">QueryPacketAcknowledgementsResponse</a></td>
+                <td><a href="#ibc.core.channel.v1.QueryPacketAcknowledgementsRequest">QueryPacketAcknowledgementsRequest</a></td>
+                <td><a href="#ibc.core.channel.v1.QueryPacketAcknowledgementsResponse">QueryPacketAcknowledgementsResponse</a></td>
                 <td><p>PacketAcknowledgements returns all the packet acknowledgements associated
 with a channel.</p></td>
               </tr>
             
               <tr>
                 <td>UnreceivedPackets</td>
-                <td><a href="#ibcgo.core.channel.v1.QueryUnreceivedPacketsRequest">QueryUnreceivedPacketsRequest</a></td>
-                <td><a href="#ibcgo.core.channel.v1.QueryUnreceivedPacketsResponse">QueryUnreceivedPacketsResponse</a></td>
+                <td><a href="#ibc.core.channel.v1.QueryUnreceivedPacketsRequest">QueryUnreceivedPacketsRequest</a></td>
+                <td><a href="#ibc.core.channel.v1.QueryUnreceivedPacketsResponse">QueryUnreceivedPacketsResponse</a></td>
                 <td><p>UnreceivedPackets returns all the unreceived IBC packets associated with a
 channel and sequences.</p></td>
               </tr>
             
               <tr>
                 <td>UnreceivedAcks</td>
-                <td><a href="#ibcgo.core.channel.v1.QueryUnreceivedAcksRequest">QueryUnreceivedAcksRequest</a></td>
-                <td><a href="#ibcgo.core.channel.v1.QueryUnreceivedAcksResponse">QueryUnreceivedAcksResponse</a></td>
+                <td><a href="#ibc.core.channel.v1.QueryUnreceivedAcksRequest">QueryUnreceivedAcksRequest</a></td>
+                <td><a href="#ibc.core.channel.v1.QueryUnreceivedAcksResponse">QueryUnreceivedAcksResponse</a></td>
                 <td><p>UnreceivedAcks returns all the unreceived IBC acknowledgements associated
 with a channel and sequences.</p></td>
               </tr>
             
               <tr>
                 <td>NextSequenceReceive</td>
-                <td><a href="#ibcgo.core.channel.v1.QueryNextSequenceReceiveRequest">QueryNextSequenceReceiveRequest</a></td>
-                <td><a href="#ibcgo.core.channel.v1.QueryNextSequenceReceiveResponse">QueryNextSequenceReceiveResponse</a></td>
+                <td><a href="#ibc.core.channel.v1.QueryNextSequenceReceiveRequest">QueryNextSequenceReceiveRequest</a></td>
+                <td><a href="#ibc.core.channel.v1.QueryNextSequenceReceiveResponse">QueryNextSequenceReceiveResponse</a></td>
                 <td><p>NextSequenceReceive returns the next receive sequence for a given channel.</p></td>
               </tr>
             
@@ -3563,12 +3563,12 @@ with a channel and sequences.</p></td>
     
       
       <div class="file-heading">
-        <h2 id="ibcgo/core/channel/v1/tx.proto">ibcgo/core/channel/v1/tx.proto</h2><a href="#title">Top</a>
+        <h2 id="ibc/core/channel/v1/tx.proto">ibc/core/channel/v1/tx.proto</h2><a href="#title">Top</a>
       </div>
       <p></p>
 
       
-        <h3 id="ibcgo.core.channel.v1.MsgAcknowledgement">MsgAcknowledgement</h3>
+        <h3 id="ibc.core.channel.v1.MsgAcknowledgement">MsgAcknowledgement</h3>
         <p>MsgAcknowledgement receives incoming IBC acknowledgement</p>
 
         
@@ -3580,7 +3580,7 @@ with a channel and sequences.</p></td>
               
                 <tr>
                   <td>packet</td>
-                  <td><a href="#ibcgo.core.channel.v1.Packet">Packet</a></td>
+                  <td><a href="#ibc.core.channel.v1.Packet">Packet</a></td>
                   <td></td>
                   <td><p> </p></td>
                 </tr>
@@ -3601,7 +3601,7 @@ with a channel and sequences.</p></td>
               
                 <tr>
                   <td>proof_height</td>
-                  <td><a href="#ibcgo.core.client.v1.Height">ibcgo.core.client.v1.Height</a></td>
+                  <td><a href="#ibc.core.client.v1.Height">ibc.core.client.v1.Height</a></td>
                   <td></td>
                   <td><p> </p></td>
                 </tr>
@@ -3620,14 +3620,14 @@ with a channel and sequences.</p></td>
 
         
       
-        <h3 id="ibcgo.core.channel.v1.MsgAcknowledgementResponse">MsgAcknowledgementResponse</h3>
+        <h3 id="ibc.core.channel.v1.MsgAcknowledgementResponse">MsgAcknowledgementResponse</h3>
         <p>MsgAcknowledgementResponse defines the Msg/Acknowledgement response type.</p>
 
         
 
         
       
-        <h3 id="ibcgo.core.channel.v1.MsgChannelCloseConfirm">MsgChannelCloseConfirm</h3>
+        <h3 id="ibc.core.channel.v1.MsgChannelCloseConfirm">MsgChannelCloseConfirm</h3>
         <p>MsgChannelCloseConfirm defines a msg sent by a Relayer to Chain B</p><p>to acknowledge the change of channel state to CLOSED on Chain A.</p>
 
         
@@ -3660,7 +3660,7 @@ with a channel and sequences.</p></td>
               
                 <tr>
                   <td>proof_height</td>
-                  <td><a href="#ibcgo.core.client.v1.Height">ibcgo.core.client.v1.Height</a></td>
+                  <td><a href="#ibc.core.client.v1.Height">ibc.core.client.v1.Height</a></td>
                   <td></td>
                   <td><p> </p></td>
                 </tr>
@@ -3679,14 +3679,14 @@ with a channel and sequences.</p></td>
 
         
       
-        <h3 id="ibcgo.core.channel.v1.MsgChannelCloseConfirmResponse">MsgChannelCloseConfirmResponse</h3>
+        <h3 id="ibc.core.channel.v1.MsgChannelCloseConfirmResponse">MsgChannelCloseConfirmResponse</h3>
         <p>MsgChannelCloseConfirmResponse defines the Msg/ChannelCloseConfirm response</p><p>type.</p>
 
         
 
         
       
-        <h3 id="ibcgo.core.channel.v1.MsgChannelCloseInit">MsgChannelCloseInit</h3>
+        <h3 id="ibc.core.channel.v1.MsgChannelCloseInit">MsgChannelCloseInit</h3>
         <p>MsgChannelCloseInit defines a msg sent by a Relayer to Chain A</p><p>to close a channel with Chain B.</p>
 
         
@@ -3724,14 +3724,14 @@ with a channel and sequences.</p></td>
 
         
       
-        <h3 id="ibcgo.core.channel.v1.MsgChannelCloseInitResponse">MsgChannelCloseInitResponse</h3>
+        <h3 id="ibc.core.channel.v1.MsgChannelCloseInitResponse">MsgChannelCloseInitResponse</h3>
         <p>MsgChannelCloseInitResponse defines the Msg/ChannelCloseInit response type.</p>
 
         
 
         
       
-        <h3 id="ibcgo.core.channel.v1.MsgChannelOpenAck">MsgChannelOpenAck</h3>
+        <h3 id="ibc.core.channel.v1.MsgChannelOpenAck">MsgChannelOpenAck</h3>
         <p>MsgChannelOpenAck defines a msg sent by a Relayer to Chain A to acknowledge</p><p>the change of channel state to TRYOPEN on Chain B.</p>
 
         
@@ -3778,7 +3778,7 @@ with a channel and sequences.</p></td>
               
                 <tr>
                   <td>proof_height</td>
-                  <td><a href="#ibcgo.core.client.v1.Height">ibcgo.core.client.v1.Height</a></td>
+                  <td><a href="#ibc.core.client.v1.Height">ibc.core.client.v1.Height</a></td>
                   <td></td>
                   <td><p> </p></td>
                 </tr>
@@ -3797,14 +3797,14 @@ with a channel and sequences.</p></td>
 
         
       
-        <h3 id="ibcgo.core.channel.v1.MsgChannelOpenAckResponse">MsgChannelOpenAckResponse</h3>
+        <h3 id="ibc.core.channel.v1.MsgChannelOpenAckResponse">MsgChannelOpenAckResponse</h3>
         <p>MsgChannelOpenAckResponse defines the Msg/ChannelOpenAck response type.</p>
 
         
 
         
       
-        <h3 id="ibcgo.core.channel.v1.MsgChannelOpenConfirm">MsgChannelOpenConfirm</h3>
+        <h3 id="ibc.core.channel.v1.MsgChannelOpenConfirm">MsgChannelOpenConfirm</h3>
         <p>MsgChannelOpenConfirm defines a msg sent by a Relayer to Chain B to</p><p>acknowledge the change of channel state to OPEN on Chain A.</p>
 
         
@@ -3837,7 +3837,7 @@ with a channel and sequences.</p></td>
               
                 <tr>
                   <td>proof_height</td>
-                  <td><a href="#ibcgo.core.client.v1.Height">ibcgo.core.client.v1.Height</a></td>
+                  <td><a href="#ibc.core.client.v1.Height">ibc.core.client.v1.Height</a></td>
                   <td></td>
                   <td><p> </p></td>
                 </tr>
@@ -3856,14 +3856,14 @@ with a channel and sequences.</p></td>
 
         
       
-        <h3 id="ibcgo.core.channel.v1.MsgChannelOpenConfirmResponse">MsgChannelOpenConfirmResponse</h3>
+        <h3 id="ibc.core.channel.v1.MsgChannelOpenConfirmResponse">MsgChannelOpenConfirmResponse</h3>
         <p>MsgChannelOpenConfirmResponse defines the Msg/ChannelOpenConfirm response</p><p>type.</p>
 
         
 
         
       
-        <h3 id="ibcgo.core.channel.v1.MsgChannelOpenInit">MsgChannelOpenInit</h3>
+        <h3 id="ibc.core.channel.v1.MsgChannelOpenInit">MsgChannelOpenInit</h3>
         <p>MsgChannelOpenInit defines an sdk.Msg to initialize a channel handshake. It</p><p>is called by a relayer on Chain A.</p>
 
         
@@ -3882,7 +3882,7 @@ with a channel and sequences.</p></td>
               
                 <tr>
                   <td>channel</td>
-                  <td><a href="#ibcgo.core.channel.v1.Channel">Channel</a></td>
+                  <td><a href="#ibc.core.channel.v1.Channel">Channel</a></td>
                   <td></td>
                   <td><p> </p></td>
                 </tr>
@@ -3901,14 +3901,14 @@ with a channel and sequences.</p></td>
 
         
       
-        <h3 id="ibcgo.core.channel.v1.MsgChannelOpenInitResponse">MsgChannelOpenInitResponse</h3>
+        <h3 id="ibc.core.channel.v1.MsgChannelOpenInitResponse">MsgChannelOpenInitResponse</h3>
         <p>MsgChannelOpenInitResponse defines the Msg/ChannelOpenInit response type.</p>
 
         
 
         
       
-        <h3 id="ibcgo.core.channel.v1.MsgChannelOpenTry">MsgChannelOpenTry</h3>
+        <h3 id="ibc.core.channel.v1.MsgChannelOpenTry">MsgChannelOpenTry</h3>
         <p>MsgChannelOpenInit defines a msg sent by a Relayer to try to open a channel</p><p>on Chain B.</p>
 
         
@@ -3935,7 +3935,7 @@ the channel identifier of the previous channel in state INIT </p></td>
               
                 <tr>
                   <td>channel</td>
-                  <td><a href="#ibcgo.core.channel.v1.Channel">Channel</a></td>
+                  <td><a href="#ibc.core.channel.v1.Channel">Channel</a></td>
                   <td></td>
                   <td><p> </p></td>
                 </tr>
@@ -3956,7 +3956,7 @@ the channel identifier of the previous channel in state INIT </p></td>
               
                 <tr>
                   <td>proof_height</td>
-                  <td><a href="#ibcgo.core.client.v1.Height">ibcgo.core.client.v1.Height</a></td>
+                  <td><a href="#ibc.core.client.v1.Height">ibc.core.client.v1.Height</a></td>
                   <td></td>
                   <td><p> </p></td>
                 </tr>
@@ -3975,14 +3975,14 @@ the channel identifier of the previous channel in state INIT </p></td>
 
         
       
-        <h3 id="ibcgo.core.channel.v1.MsgChannelOpenTryResponse">MsgChannelOpenTryResponse</h3>
+        <h3 id="ibc.core.channel.v1.MsgChannelOpenTryResponse">MsgChannelOpenTryResponse</h3>
         <p>MsgChannelOpenTryResponse defines the Msg/ChannelOpenTry response type.</p>
 
         
 
         
       
-        <h3 id="ibcgo.core.channel.v1.MsgRecvPacket">MsgRecvPacket</h3>
+        <h3 id="ibc.core.channel.v1.MsgRecvPacket">MsgRecvPacket</h3>
         <p>MsgRecvPacket receives incoming IBC packet</p>
 
         
@@ -3994,7 +3994,7 @@ the channel identifier of the previous channel in state INIT </p></td>
               
                 <tr>
                   <td>packet</td>
-                  <td><a href="#ibcgo.core.channel.v1.Packet">Packet</a></td>
+                  <td><a href="#ibc.core.channel.v1.Packet">Packet</a></td>
                   <td></td>
                   <td><p> </p></td>
                 </tr>
@@ -4008,7 +4008,7 @@ the channel identifier of the previous channel in state INIT </p></td>
               
                 <tr>
                   <td>proof_height</td>
-                  <td><a href="#ibcgo.core.client.v1.Height">ibcgo.core.client.v1.Height</a></td>
+                  <td><a href="#ibc.core.client.v1.Height">ibc.core.client.v1.Height</a></td>
                   <td></td>
                   <td><p> </p></td>
                 </tr>
@@ -4027,14 +4027,14 @@ the channel identifier of the previous channel in state INIT </p></td>
 
         
       
-        <h3 id="ibcgo.core.channel.v1.MsgRecvPacketResponse">MsgRecvPacketResponse</h3>
+        <h3 id="ibc.core.channel.v1.MsgRecvPacketResponse">MsgRecvPacketResponse</h3>
         <p>MsgRecvPacketResponse defines the Msg/RecvPacket response type.</p>
 
         
 
         
       
-        <h3 id="ibcgo.core.channel.v1.MsgTimeout">MsgTimeout</h3>
+        <h3 id="ibc.core.channel.v1.MsgTimeout">MsgTimeout</h3>
         <p>MsgTimeout receives timed-out packet</p>
 
         
@@ -4046,7 +4046,7 @@ the channel identifier of the previous channel in state INIT </p></td>
               
                 <tr>
                   <td>packet</td>
-                  <td><a href="#ibcgo.core.channel.v1.Packet">Packet</a></td>
+                  <td><a href="#ibc.core.channel.v1.Packet">Packet</a></td>
                   <td></td>
                   <td><p> </p></td>
                 </tr>
@@ -4060,7 +4060,7 @@ the channel identifier of the previous channel in state INIT </p></td>
               
                 <tr>
                   <td>proof_height</td>
-                  <td><a href="#ibcgo.core.client.v1.Height">ibcgo.core.client.v1.Height</a></td>
+                  <td><a href="#ibc.core.client.v1.Height">ibc.core.client.v1.Height</a></td>
                   <td></td>
                   <td><p> </p></td>
                 </tr>
@@ -4086,7 +4086,7 @@ the channel identifier of the previous channel in state INIT </p></td>
 
         
       
-        <h3 id="ibcgo.core.channel.v1.MsgTimeoutOnClose">MsgTimeoutOnClose</h3>
+        <h3 id="ibc.core.channel.v1.MsgTimeoutOnClose">MsgTimeoutOnClose</h3>
         <p>MsgTimeoutOnClose timed-out packet upon counterparty channel closure.</p>
 
         
@@ -4098,7 +4098,7 @@ the channel identifier of the previous channel in state INIT </p></td>
               
                 <tr>
                   <td>packet</td>
-                  <td><a href="#ibcgo.core.channel.v1.Packet">Packet</a></td>
+                  <td><a href="#ibc.core.channel.v1.Packet">Packet</a></td>
                   <td></td>
                   <td><p> </p></td>
                 </tr>
@@ -4119,7 +4119,7 @@ the channel identifier of the previous channel in state INIT </p></td>
               
                 <tr>
                   <td>proof_height</td>
-                  <td><a href="#ibcgo.core.client.v1.Height">ibcgo.core.client.v1.Height</a></td>
+                  <td><a href="#ibc.core.client.v1.Height">ibc.core.client.v1.Height</a></td>
                   <td></td>
                   <td><p> </p></td>
                 </tr>
@@ -4145,14 +4145,14 @@ the channel identifier of the previous channel in state INIT </p></td>
 
         
       
-        <h3 id="ibcgo.core.channel.v1.MsgTimeoutOnCloseResponse">MsgTimeoutOnCloseResponse</h3>
+        <h3 id="ibc.core.channel.v1.MsgTimeoutOnCloseResponse">MsgTimeoutOnCloseResponse</h3>
         <p>MsgTimeoutOnCloseResponse defines the Msg/TimeoutOnClose response type.</p>
 
         
 
         
       
-        <h3 id="ibcgo.core.channel.v1.MsgTimeoutResponse">MsgTimeoutResponse</h3>
+        <h3 id="ibc.core.channel.v1.MsgTimeoutResponse">MsgTimeoutResponse</h3>
         <p>MsgTimeoutResponse defines the Msg/Timeout response type.</p>
 
         
@@ -4165,7 +4165,7 @@ the channel identifier of the previous channel in state INIT </p></td>
       
 
       
-        <h3 id="ibcgo.core.channel.v1.Msg">Msg</h3>
+        <h3 id="ibc.core.channel.v1.Msg">Msg</h3>
         <p>Msg defines the ibc/channel Msg service.</p>
         <table class="enum-table">
           <thead>
@@ -4175,72 +4175,72 @@ the channel identifier of the previous channel in state INIT </p></td>
             
               <tr>
                 <td>ChannelOpenInit</td>
-                <td><a href="#ibcgo.core.channel.v1.MsgChannelOpenInit">MsgChannelOpenInit</a></td>
-                <td><a href="#ibcgo.core.channel.v1.MsgChannelOpenInitResponse">MsgChannelOpenInitResponse</a></td>
+                <td><a href="#ibc.core.channel.v1.MsgChannelOpenInit">MsgChannelOpenInit</a></td>
+                <td><a href="#ibc.core.channel.v1.MsgChannelOpenInitResponse">MsgChannelOpenInitResponse</a></td>
                 <td><p>ChannelOpenInit defines a rpc handler method for MsgChannelOpenInit.</p></td>
               </tr>
             
               <tr>
                 <td>ChannelOpenTry</td>
-                <td><a href="#ibcgo.core.channel.v1.MsgChannelOpenTry">MsgChannelOpenTry</a></td>
-                <td><a href="#ibcgo.core.channel.v1.MsgChannelOpenTryResponse">MsgChannelOpenTryResponse</a></td>
+                <td><a href="#ibc.core.channel.v1.MsgChannelOpenTry">MsgChannelOpenTry</a></td>
+                <td><a href="#ibc.core.channel.v1.MsgChannelOpenTryResponse">MsgChannelOpenTryResponse</a></td>
                 <td><p>ChannelOpenTry defines a rpc handler method for MsgChannelOpenTry.</p></td>
               </tr>
             
               <tr>
                 <td>ChannelOpenAck</td>
-                <td><a href="#ibcgo.core.channel.v1.MsgChannelOpenAck">MsgChannelOpenAck</a></td>
-                <td><a href="#ibcgo.core.channel.v1.MsgChannelOpenAckResponse">MsgChannelOpenAckResponse</a></td>
+                <td><a href="#ibc.core.channel.v1.MsgChannelOpenAck">MsgChannelOpenAck</a></td>
+                <td><a href="#ibc.core.channel.v1.MsgChannelOpenAckResponse">MsgChannelOpenAckResponse</a></td>
                 <td><p>ChannelOpenAck defines a rpc handler method for MsgChannelOpenAck.</p></td>
               </tr>
             
               <tr>
                 <td>ChannelOpenConfirm</td>
-                <td><a href="#ibcgo.core.channel.v1.MsgChannelOpenConfirm">MsgChannelOpenConfirm</a></td>
-                <td><a href="#ibcgo.core.channel.v1.MsgChannelOpenConfirmResponse">MsgChannelOpenConfirmResponse</a></td>
+                <td><a href="#ibc.core.channel.v1.MsgChannelOpenConfirm">MsgChannelOpenConfirm</a></td>
+                <td><a href="#ibc.core.channel.v1.MsgChannelOpenConfirmResponse">MsgChannelOpenConfirmResponse</a></td>
                 <td><p>ChannelOpenConfirm defines a rpc handler method for MsgChannelOpenConfirm.</p></td>
               </tr>
             
               <tr>
                 <td>ChannelCloseInit</td>
-                <td><a href="#ibcgo.core.channel.v1.MsgChannelCloseInit">MsgChannelCloseInit</a></td>
-                <td><a href="#ibcgo.core.channel.v1.MsgChannelCloseInitResponse">MsgChannelCloseInitResponse</a></td>
+                <td><a href="#ibc.core.channel.v1.MsgChannelCloseInit">MsgChannelCloseInit</a></td>
+                <td><a href="#ibc.core.channel.v1.MsgChannelCloseInitResponse">MsgChannelCloseInitResponse</a></td>
                 <td><p>ChannelCloseInit defines a rpc handler method for MsgChannelCloseInit.</p></td>
               </tr>
             
               <tr>
                 <td>ChannelCloseConfirm</td>
-                <td><a href="#ibcgo.core.channel.v1.MsgChannelCloseConfirm">MsgChannelCloseConfirm</a></td>
-                <td><a href="#ibcgo.core.channel.v1.MsgChannelCloseConfirmResponse">MsgChannelCloseConfirmResponse</a></td>
+                <td><a href="#ibc.core.channel.v1.MsgChannelCloseConfirm">MsgChannelCloseConfirm</a></td>
+                <td><a href="#ibc.core.channel.v1.MsgChannelCloseConfirmResponse">MsgChannelCloseConfirmResponse</a></td>
                 <td><p>ChannelCloseConfirm defines a rpc handler method for
 MsgChannelCloseConfirm.</p></td>
               </tr>
             
               <tr>
                 <td>RecvPacket</td>
-                <td><a href="#ibcgo.core.channel.v1.MsgRecvPacket">MsgRecvPacket</a></td>
-                <td><a href="#ibcgo.core.channel.v1.MsgRecvPacketResponse">MsgRecvPacketResponse</a></td>
+                <td><a href="#ibc.core.channel.v1.MsgRecvPacket">MsgRecvPacket</a></td>
+                <td><a href="#ibc.core.channel.v1.MsgRecvPacketResponse">MsgRecvPacketResponse</a></td>
                 <td><p>RecvPacket defines a rpc handler method for MsgRecvPacket.</p></td>
               </tr>
             
               <tr>
                 <td>Timeout</td>
-                <td><a href="#ibcgo.core.channel.v1.MsgTimeout">MsgTimeout</a></td>
-                <td><a href="#ibcgo.core.channel.v1.MsgTimeoutResponse">MsgTimeoutResponse</a></td>
+                <td><a href="#ibc.core.channel.v1.MsgTimeout">MsgTimeout</a></td>
+                <td><a href="#ibc.core.channel.v1.MsgTimeoutResponse">MsgTimeoutResponse</a></td>
                 <td><p>Timeout defines a rpc handler method for MsgTimeout.</p></td>
               </tr>
             
               <tr>
                 <td>TimeoutOnClose</td>
-                <td><a href="#ibcgo.core.channel.v1.MsgTimeoutOnClose">MsgTimeoutOnClose</a></td>
-                <td><a href="#ibcgo.core.channel.v1.MsgTimeoutOnCloseResponse">MsgTimeoutOnCloseResponse</a></td>
+                <td><a href="#ibc.core.channel.v1.MsgTimeoutOnClose">MsgTimeoutOnClose</a></td>
+                <td><a href="#ibc.core.channel.v1.MsgTimeoutOnCloseResponse">MsgTimeoutOnCloseResponse</a></td>
                 <td><p>TimeoutOnClose defines a rpc handler method for MsgTimeoutOnClose.</p></td>
               </tr>
             
               <tr>
                 <td>Acknowledgement</td>
-                <td><a href="#ibcgo.core.channel.v1.MsgAcknowledgement">MsgAcknowledgement</a></td>
-                <td><a href="#ibcgo.core.channel.v1.MsgAcknowledgementResponse">MsgAcknowledgementResponse</a></td>
+                <td><a href="#ibc.core.channel.v1.MsgAcknowledgement">MsgAcknowledgement</a></td>
+                <td><a href="#ibc.core.channel.v1.MsgAcknowledgementResponse">MsgAcknowledgementResponse</a></td>
                 <td><p>Acknowledgement defines a rpc handler method for MsgAcknowledgement.</p></td>
               </tr>
             
@@ -4251,12 +4251,12 @@ MsgChannelCloseConfirm.</p></td>
     
       
       <div class="file-heading">
-        <h2 id="ibcgo/core/client/v1/genesis.proto">ibcgo/core/client/v1/genesis.proto</h2><a href="#title">Top</a>
+        <h2 id="ibc/core/client/v1/genesis.proto">ibc/core/client/v1/genesis.proto</h2><a href="#title">Top</a>
       </div>
       <p></p>
 
       
-        <h3 id="ibcgo.core.client.v1.GenesisMetadata">GenesisMetadata</h3>
+        <h3 id="ibc.core.client.v1.GenesisMetadata">GenesisMetadata</h3>
         <p>GenesisMetadata defines the genesis type for metadata that clients may return</p><p>with ExportMetadata</p>
 
         
@@ -4287,7 +4287,7 @@ MsgChannelCloseConfirm.</p></td>
 
         
       
-        <h3 id="ibcgo.core.client.v1.GenesisState">GenesisState</h3>
+        <h3 id="ibc.core.client.v1.GenesisState">GenesisState</h3>
         <p>GenesisState defines the ibc client submodule's genesis state.</p>
 
         
@@ -4299,28 +4299,28 @@ MsgChannelCloseConfirm.</p></td>
               
                 <tr>
                   <td>clients</td>
-                  <td><a href="#ibcgo.core.client.v1.IdentifiedClientState">IdentifiedClientState</a></td>
+                  <td><a href="#ibc.core.client.v1.IdentifiedClientState">IdentifiedClientState</a></td>
                   <td>repeated</td>
                   <td><p>client states with their corresponding identifiers </p></td>
                 </tr>
               
                 <tr>
                   <td>clients_consensus</td>
-                  <td><a href="#ibcgo.core.client.v1.ClientConsensusStates">ClientConsensusStates</a></td>
+                  <td><a href="#ibc.core.client.v1.ClientConsensusStates">ClientConsensusStates</a></td>
                   <td>repeated</td>
                   <td><p>consensus states from each client </p></td>
                 </tr>
               
                 <tr>
                   <td>clients_metadata</td>
-                  <td><a href="#ibcgo.core.client.v1.IdentifiedGenesisMetadata">IdentifiedGenesisMetadata</a></td>
+                  <td><a href="#ibc.core.client.v1.IdentifiedGenesisMetadata">IdentifiedGenesisMetadata</a></td>
                   <td>repeated</td>
                   <td><p>metadata from each client </p></td>
                 </tr>
               
                 <tr>
                   <td>params</td>
-                  <td><a href="#ibcgo.core.client.v1.Params">Params</a></td>
+                  <td><a href="#ibc.core.client.v1.Params">Params</a></td>
                   <td></td>
                   <td><p> </p></td>
                 </tr>
@@ -4346,7 +4346,7 @@ MsgChannelCloseConfirm.</p></td>
 
         
       
-        <h3 id="ibcgo.core.client.v1.IdentifiedGenesisMetadata">IdentifiedGenesisMetadata</h3>
+        <h3 id="ibc.core.client.v1.IdentifiedGenesisMetadata">IdentifiedGenesisMetadata</h3>
         <p>IdentifiedGenesisMetadata has the client metadata with the corresponding</p><p>client id.</p>
 
         
@@ -4365,7 +4365,7 @@ MsgChannelCloseConfirm.</p></td>
               
                 <tr>
                   <td>client_metadata</td>
-                  <td><a href="#ibcgo.core.client.v1.GenesisMetadata">GenesisMetadata</a></td>
+                  <td><a href="#ibc.core.client.v1.GenesisMetadata">GenesisMetadata</a></td>
                   <td>repeated</td>
                   <td><p> </p></td>
                 </tr>
@@ -4386,19 +4386,19 @@ MsgChannelCloseConfirm.</p></td>
     
       
       <div class="file-heading">
-        <h2 id="ibcgo/core/client/v1/query.proto">ibcgo/core/client/v1/query.proto</h2><a href="#title">Top</a>
+        <h2 id="ibc/core/client/v1/query.proto">ibc/core/client/v1/query.proto</h2><a href="#title">Top</a>
       </div>
       <p></p>
 
       
-        <h3 id="ibcgo.core.client.v1.QueryClientParamsRequest">QueryClientParamsRequest</h3>
+        <h3 id="ibc.core.client.v1.QueryClientParamsRequest">QueryClientParamsRequest</h3>
         <p>QueryClientParamsRequest is the request type for the Query/ClientParams RPC</p><p>method.</p>
 
         
 
         
       
-        <h3 id="ibcgo.core.client.v1.QueryClientParamsResponse">QueryClientParamsResponse</h3>
+        <h3 id="ibc.core.client.v1.QueryClientParamsResponse">QueryClientParamsResponse</h3>
         <p>QueryClientParamsResponse is the response type for the Query/ClientParams RPC</p><p>method.</p>
 
         
@@ -4410,7 +4410,7 @@ MsgChannelCloseConfirm.</p></td>
               
                 <tr>
                   <td>params</td>
-                  <td><a href="#ibcgo.core.client.v1.Params">Params</a></td>
+                  <td><a href="#ibc.core.client.v1.Params">Params</a></td>
                   <td></td>
                   <td><p>params defines the parameters of the module. </p></td>
                 </tr>
@@ -4422,7 +4422,7 @@ MsgChannelCloseConfirm.</p></td>
 
         
       
-        <h3 id="ibcgo.core.client.v1.QueryClientStateRequest">QueryClientStateRequest</h3>
+        <h3 id="ibc.core.client.v1.QueryClientStateRequest">QueryClientStateRequest</h3>
         <p>QueryClientStateRequest is the request type for the Query/ClientState RPC</p><p>method</p>
 
         
@@ -4446,7 +4446,7 @@ MsgChannelCloseConfirm.</p></td>
 
         
       
-        <h3 id="ibcgo.core.client.v1.QueryClientStateResponse">QueryClientStateResponse</h3>
+        <h3 id="ibc.core.client.v1.QueryClientStateResponse">QueryClientStateResponse</h3>
         <p>QueryClientStateResponse is the response type for the Query/ClientState RPC</p><p>method. Besides the client state, it includes a proof and the height from</p><p>which the proof was retrieved.</p>
 
         
@@ -4472,7 +4472,7 @@ MsgChannelCloseConfirm.</p></td>
               
                 <tr>
                   <td>proof_height</td>
-                  <td><a href="#ibcgo.core.client.v1.Height">Height</a></td>
+                  <td><a href="#ibc.core.client.v1.Height">Height</a></td>
                   <td></td>
                   <td><p>height at which the proof was retrieved </p></td>
                 </tr>
@@ -4484,7 +4484,7 @@ MsgChannelCloseConfirm.</p></td>
 
         
       
-        <h3 id="ibcgo.core.client.v1.QueryClientStatesRequest">QueryClientStatesRequest</h3>
+        <h3 id="ibc.core.client.v1.QueryClientStatesRequest">QueryClientStatesRequest</h3>
         <p>QueryClientStatesRequest is the request type for the Query/ClientStates RPC</p><p>method</p>
 
         
@@ -4508,7 +4508,7 @@ MsgChannelCloseConfirm.</p></td>
 
         
       
-        <h3 id="ibcgo.core.client.v1.QueryClientStatesResponse">QueryClientStatesResponse</h3>
+        <h3 id="ibc.core.client.v1.QueryClientStatesResponse">QueryClientStatesResponse</h3>
         <p>QueryClientStatesResponse is the response type for the Query/ClientStates RPC</p><p>method.</p>
 
         
@@ -4520,7 +4520,7 @@ MsgChannelCloseConfirm.</p></td>
               
                 <tr>
                   <td>client_states</td>
-                  <td><a href="#ibcgo.core.client.v1.IdentifiedClientState">IdentifiedClientState</a></td>
+                  <td><a href="#ibc.core.client.v1.IdentifiedClientState">IdentifiedClientState</a></td>
                   <td>repeated</td>
                   <td><p>list of stored ClientStates of the chain. </p></td>
                 </tr>
@@ -4539,7 +4539,7 @@ MsgChannelCloseConfirm.</p></td>
 
         
       
-        <h3 id="ibcgo.core.client.v1.QueryConsensusStateRequest">QueryConsensusStateRequest</h3>
+        <h3 id="ibc.core.client.v1.QueryConsensusStateRequest">QueryConsensusStateRequest</h3>
         <p>QueryConsensusStateRequest is the request type for the Query/ConsensusState</p><p>RPC method. Besides the consensus state, it includes a proof and the height</p><p>from which the proof was retrieved.</p>
 
         
@@ -4585,7 +4585,7 @@ ConsensusState </p></td>
 
         
       
-        <h3 id="ibcgo.core.client.v1.QueryConsensusStateResponse">QueryConsensusStateResponse</h3>
+        <h3 id="ibc.core.client.v1.QueryConsensusStateResponse">QueryConsensusStateResponse</h3>
         <p>QueryConsensusStateResponse is the response type for the Query/ConsensusState</p><p>RPC method</p>
 
         
@@ -4611,7 +4611,7 @@ ConsensusState </p></td>
               
                 <tr>
                   <td>proof_height</td>
-                  <td><a href="#ibcgo.core.client.v1.Height">Height</a></td>
+                  <td><a href="#ibc.core.client.v1.Height">Height</a></td>
                   <td></td>
                   <td><p>height at which the proof was retrieved </p></td>
                 </tr>
@@ -4623,7 +4623,7 @@ ConsensusState </p></td>
 
         
       
-        <h3 id="ibcgo.core.client.v1.QueryConsensusStatesRequest">QueryConsensusStatesRequest</h3>
+        <h3 id="ibc.core.client.v1.QueryConsensusStatesRequest">QueryConsensusStatesRequest</h3>
         <p>QueryConsensusStatesRequest is the request type for the Query/ConsensusStates</p><p>RPC method.</p>
 
         
@@ -4654,7 +4654,7 @@ ConsensusState </p></td>
 
         
       
-        <h3 id="ibcgo.core.client.v1.QueryConsensusStatesResponse">QueryConsensusStatesResponse</h3>
+        <h3 id="ibc.core.client.v1.QueryConsensusStatesResponse">QueryConsensusStatesResponse</h3>
         <p>QueryConsensusStatesResponse is the response type for the</p><p>Query/ConsensusStates RPC method</p>
 
         
@@ -4666,7 +4666,7 @@ ConsensusState </p></td>
               
                 <tr>
                   <td>consensus_states</td>
-                  <td><a href="#ibcgo.core.client.v1.ConsensusStateWithHeight">ConsensusStateWithHeight</a></td>
+                  <td><a href="#ibc.core.client.v1.ConsensusStateWithHeight">ConsensusStateWithHeight</a></td>
                   <td>repeated</td>
                   <td><p>consensus states associated with the identifier </p></td>
                 </tr>
@@ -4685,7 +4685,7 @@ ConsensusState </p></td>
 
         
       
-        <h3 id="ibcgo.core.client.v1.QueryUpgradedClientStateRequest">QueryUpgradedClientStateRequest</h3>
+        <h3 id="ibc.core.client.v1.QueryUpgradedClientStateRequest">QueryUpgradedClientStateRequest</h3>
         <p>QueryUpgradedClientStateRequest is the request type for the</p><p>Query/UpgradedClientState RPC method</p>
 
         
@@ -4717,7 +4717,7 @@ as this is the height under which upgraded client state is stored </p></td>
 
         
       
-        <h3 id="ibcgo.core.client.v1.QueryUpgradedClientStateResponse">QueryUpgradedClientStateResponse</h3>
+        <h3 id="ibc.core.client.v1.QueryUpgradedClientStateResponse">QueryUpgradedClientStateResponse</h3>
         <p>QueryUpgradedClientStateResponse is the response type for the</p><p>Query/UpgradedClientState RPC method.</p>
 
         
@@ -4747,7 +4747,7 @@ as this is the height under which upgraded client state is stored </p></td>
       
 
       
-        <h3 id="ibcgo.core.client.v1.Query">Query</h3>
+        <h3 id="ibc.core.client.v1.Query">Query</h3>
         <p>Query provides defines the gRPC querier service</p>
         <table class="enum-table">
           <thead>
@@ -4757,45 +4757,45 @@ as this is the height under which upgraded client state is stored </p></td>
             
               <tr>
                 <td>ClientState</td>
-                <td><a href="#ibcgo.core.client.v1.QueryClientStateRequest">QueryClientStateRequest</a></td>
-                <td><a href="#ibcgo.core.client.v1.QueryClientStateResponse">QueryClientStateResponse</a></td>
+                <td><a href="#ibc.core.client.v1.QueryClientStateRequest">QueryClientStateRequest</a></td>
+                <td><a href="#ibc.core.client.v1.QueryClientStateResponse">QueryClientStateResponse</a></td>
                 <td><p>ClientState queries an IBC light client.</p></td>
               </tr>
             
               <tr>
                 <td>ClientStates</td>
-                <td><a href="#ibcgo.core.client.v1.QueryClientStatesRequest">QueryClientStatesRequest</a></td>
-                <td><a href="#ibcgo.core.client.v1.QueryClientStatesResponse">QueryClientStatesResponse</a></td>
+                <td><a href="#ibc.core.client.v1.QueryClientStatesRequest">QueryClientStatesRequest</a></td>
+                <td><a href="#ibc.core.client.v1.QueryClientStatesResponse">QueryClientStatesResponse</a></td>
                 <td><p>ClientStates queries all the IBC light clients of a chain.</p></td>
               </tr>
             
               <tr>
                 <td>ConsensusState</td>
-                <td><a href="#ibcgo.core.client.v1.QueryConsensusStateRequest">QueryConsensusStateRequest</a></td>
-                <td><a href="#ibcgo.core.client.v1.QueryConsensusStateResponse">QueryConsensusStateResponse</a></td>
+                <td><a href="#ibc.core.client.v1.QueryConsensusStateRequest">QueryConsensusStateRequest</a></td>
+                <td><a href="#ibc.core.client.v1.QueryConsensusStateResponse">QueryConsensusStateResponse</a></td>
                 <td><p>ConsensusState queries a consensus state associated with a client state at
 a given height.</p></td>
               </tr>
             
               <tr>
                 <td>ConsensusStates</td>
-                <td><a href="#ibcgo.core.client.v1.QueryConsensusStatesRequest">QueryConsensusStatesRequest</a></td>
-                <td><a href="#ibcgo.core.client.v1.QueryConsensusStatesResponse">QueryConsensusStatesResponse</a></td>
+                <td><a href="#ibc.core.client.v1.QueryConsensusStatesRequest">QueryConsensusStatesRequest</a></td>
+                <td><a href="#ibc.core.client.v1.QueryConsensusStatesResponse">QueryConsensusStatesResponse</a></td>
                 <td><p>ConsensusStates queries all the consensus state associated with a given
 client.</p></td>
               </tr>
             
               <tr>
                 <td>ClientParams</td>
-                <td><a href="#ibcgo.core.client.v1.QueryClientParamsRequest">QueryClientParamsRequest</a></td>
-                <td><a href="#ibcgo.core.client.v1.QueryClientParamsResponse">QueryClientParamsResponse</a></td>
+                <td><a href="#ibc.core.client.v1.QueryClientParamsRequest">QueryClientParamsRequest</a></td>
+                <td><a href="#ibc.core.client.v1.QueryClientParamsResponse">QueryClientParamsResponse</a></td>
                 <td><p>ClientParams queries all parameters of the ibc client.</p></td>
               </tr>
             
               <tr>
                 <td>UpgradedClientState</td>
-                <td><a href="#ibcgo.core.client.v1.QueryUpgradedClientStateRequest">QueryUpgradedClientStateRequest</a></td>
-                <td><a href="#ibcgo.core.client.v1.QueryUpgradedClientStateResponse">QueryUpgradedClientStateResponse</a></td>
+                <td><a href="#ibc.core.client.v1.QueryUpgradedClientStateRequest">QueryUpgradedClientStateRequest</a></td>
+                <td><a href="#ibc.core.client.v1.QueryUpgradedClientStateResponse">QueryUpgradedClientStateResponse</a></td>
                 <td><p>UpgradedClientState queries an Upgraded IBC light client.</p></td>
               </tr>
             
@@ -4884,12 +4884,12 @@ client.</p></td>
     
       
       <div class="file-heading">
-        <h2 id="ibcgo/core/client/v1/tx.proto">ibcgo/core/client/v1/tx.proto</h2><a href="#title">Top</a>
+        <h2 id="ibc/core/client/v1/tx.proto">ibc/core/client/v1/tx.proto</h2><a href="#title">Top</a>
       </div>
       <p></p>
 
       
-        <h3 id="ibcgo.core.client.v1.MsgCreateClient">MsgCreateClient</h3>
+        <h3 id="ibc.core.client.v1.MsgCreateClient">MsgCreateClient</h3>
         <p>MsgCreateClient defines a message to create an IBC client</p>
 
         
@@ -4928,14 +4928,14 @@ height. </p></td>
 
         
       
-        <h3 id="ibcgo.core.client.v1.MsgCreateClientResponse">MsgCreateClientResponse</h3>
+        <h3 id="ibc.core.client.v1.MsgCreateClientResponse">MsgCreateClientResponse</h3>
         <p>MsgCreateClientResponse defines the Msg/CreateClient response type.</p>
 
         
 
         
       
-        <h3 id="ibcgo.core.client.v1.MsgSubmitMisbehaviour">MsgSubmitMisbehaviour</h3>
+        <h3 id="ibc.core.client.v1.MsgSubmitMisbehaviour">MsgSubmitMisbehaviour</h3>
         <p>MsgSubmitMisbehaviour defines an sdk.Msg type that submits Evidence for</p><p>light client misbehaviour.</p>
 
         
@@ -4973,14 +4973,14 @@ height. </p></td>
 
         
       
-        <h3 id="ibcgo.core.client.v1.MsgSubmitMisbehaviourResponse">MsgSubmitMisbehaviourResponse</h3>
+        <h3 id="ibc.core.client.v1.MsgSubmitMisbehaviourResponse">MsgSubmitMisbehaviourResponse</h3>
         <p>MsgSubmitMisbehaviourResponse defines the Msg/SubmitMisbehaviour response</p><p>type.</p>
 
         
 
         
       
-        <h3 id="ibcgo.core.client.v1.MsgUpdateClient">MsgUpdateClient</h3>
+        <h3 id="ibc.core.client.v1.MsgUpdateClient">MsgUpdateClient</h3>
         <p>MsgUpdateClient defines an sdk.Msg to update a IBC client state using</p><p>the given header.</p>
 
         
@@ -5018,14 +5018,14 @@ height. </p></td>
 
         
       
-        <h3 id="ibcgo.core.client.v1.MsgUpdateClientResponse">MsgUpdateClientResponse</h3>
+        <h3 id="ibc.core.client.v1.MsgUpdateClientResponse">MsgUpdateClientResponse</h3>
         <p>MsgUpdateClientResponse defines the Msg/UpdateClient response type.</p>
 
         
 
         
       
-        <h3 id="ibcgo.core.client.v1.MsgUpgradeClient">MsgUpgradeClient</h3>
+        <h3 id="ibc.core.client.v1.MsgUpgradeClient">MsgUpgradeClient</h3>
         <p>MsgUpgradeClient defines an sdk.Msg to upgrade an IBC client to a new client</p><p>state</p>
 
         
@@ -5085,7 +5085,7 @@ basis of trust in update logic </p></td>
 
         
       
-        <h3 id="ibcgo.core.client.v1.MsgUpgradeClientResponse">MsgUpgradeClientResponse</h3>
+        <h3 id="ibc.core.client.v1.MsgUpgradeClientResponse">MsgUpgradeClientResponse</h3>
         <p>MsgUpgradeClientResponse defines the Msg/UpgradeClient response type.</p>
 
         
@@ -5098,7 +5098,7 @@ basis of trust in update logic </p></td>
       
 
       
-        <h3 id="ibcgo.core.client.v1.Msg">Msg</h3>
+        <h3 id="ibc.core.client.v1.Msg">Msg</h3>
         <p>Msg defines the ibc/client Msg service.</p>
         <table class="enum-table">
           <thead>
@@ -5108,29 +5108,29 @@ basis of trust in update logic </p></td>
             
               <tr>
                 <td>CreateClient</td>
-                <td><a href="#ibcgo.core.client.v1.MsgCreateClient">MsgCreateClient</a></td>
-                <td><a href="#ibcgo.core.client.v1.MsgCreateClientResponse">MsgCreateClientResponse</a></td>
+                <td><a href="#ibc.core.client.v1.MsgCreateClient">MsgCreateClient</a></td>
+                <td><a href="#ibc.core.client.v1.MsgCreateClientResponse">MsgCreateClientResponse</a></td>
                 <td><p>CreateClient defines a rpc handler method for MsgCreateClient.</p></td>
               </tr>
             
               <tr>
                 <td>UpdateClient</td>
-                <td><a href="#ibcgo.core.client.v1.MsgUpdateClient">MsgUpdateClient</a></td>
-                <td><a href="#ibcgo.core.client.v1.MsgUpdateClientResponse">MsgUpdateClientResponse</a></td>
+                <td><a href="#ibc.core.client.v1.MsgUpdateClient">MsgUpdateClient</a></td>
+                <td><a href="#ibc.core.client.v1.MsgUpdateClientResponse">MsgUpdateClientResponse</a></td>
                 <td><p>UpdateClient defines a rpc handler method for MsgUpdateClient.</p></td>
               </tr>
             
               <tr>
                 <td>UpgradeClient</td>
-                <td><a href="#ibcgo.core.client.v1.MsgUpgradeClient">MsgUpgradeClient</a></td>
-                <td><a href="#ibcgo.core.client.v1.MsgUpgradeClientResponse">MsgUpgradeClientResponse</a></td>
+                <td><a href="#ibc.core.client.v1.MsgUpgradeClient">MsgUpgradeClient</a></td>
+                <td><a href="#ibc.core.client.v1.MsgUpgradeClientResponse">MsgUpgradeClientResponse</a></td>
                 <td><p>UpgradeClient defines a rpc handler method for MsgUpgradeClient.</p></td>
               </tr>
             
               <tr>
                 <td>SubmitMisbehaviour</td>
-                <td><a href="#ibcgo.core.client.v1.MsgSubmitMisbehaviour">MsgSubmitMisbehaviour</a></td>
-                <td><a href="#ibcgo.core.client.v1.MsgSubmitMisbehaviourResponse">MsgSubmitMisbehaviourResponse</a></td>
+                <td><a href="#ibc.core.client.v1.MsgSubmitMisbehaviour">MsgSubmitMisbehaviour</a></td>
+                <td><a href="#ibc.core.client.v1.MsgSubmitMisbehaviourResponse">MsgSubmitMisbehaviourResponse</a></td>
                 <td><p>SubmitMisbehaviour defines a rpc handler method for MsgSubmitMisbehaviour.</p></td>
               </tr>
             
@@ -5141,12 +5141,12 @@ basis of trust in update logic </p></td>
     
       
       <div class="file-heading">
-        <h2 id="ibcgo/core/commitment/v1/commitment.proto">ibcgo/core/commitment/v1/commitment.proto</h2><a href="#title">Top</a>
+        <h2 id="ibc/core/commitment/v1/commitment.proto">ibc/core/commitment/v1/commitment.proto</h2><a href="#title">Top</a>
       </div>
       <p></p>
 
       
-        <h3 id="ibcgo.core.commitment.v1.MerklePath">MerklePath</h3>
+        <h3 id="ibc.core.commitment.v1.MerklePath">MerklePath</h3>
         <p>MerklePath is the path used to verify commitment proofs, which can be an</p><p>arbitrary structured object (defined by a commitment type).</p><p>MerklePath is represented from root-to-leaf</p>
 
         
@@ -5170,7 +5170,7 @@ basis of trust in update logic </p></td>
 
         
       
-        <h3 id="ibcgo.core.commitment.v1.MerklePrefix">MerklePrefix</h3>
+        <h3 id="ibc.core.commitment.v1.MerklePrefix">MerklePrefix</h3>
         <p>MerklePrefix is merkle path prefixed to the key.</p><p>The constructed key from the Path and the key will be append(Path.KeyPath,</p><p>append(Path.KeyPrefix, key...))</p>
 
         
@@ -5194,7 +5194,7 @@ basis of trust in update logic </p></td>
 
         
       
-        <h3 id="ibcgo.core.commitment.v1.MerkleProof">MerkleProof</h3>
+        <h3 id="ibc.core.commitment.v1.MerkleProof">MerkleProof</h3>
         <p>MerkleProof is a wrapper type over a chain of CommitmentProofs.</p><p>It demonstrates membership or non-membership for an element or set of</p><p>elements, verifiable in conjunction with a known commitment root. Proofs</p><p>should be succinct.</p><p>MerkleProofs are ordered from leaf-to-root</p>
 
         
@@ -5218,7 +5218,7 @@ basis of trust in update logic </p></td>
 
         
       
-        <h3 id="ibcgo.core.commitment.v1.MerkleRoot">MerkleRoot</h3>
+        <h3 id="ibc.core.commitment.v1.MerkleRoot">MerkleRoot</h3>
         <p>MerkleRoot defines a merkle root hash.</p><p>In the Cosmos SDK, the AppHash of a block header becomes the root.</p>
 
         
@@ -5251,12 +5251,12 @@ basis of trust in update logic </p></td>
     
       
       <div class="file-heading">
-        <h2 id="ibcgo/core/connection/v1/connection.proto">ibcgo/core/connection/v1/connection.proto</h2><a href="#title">Top</a>
+        <h2 id="ibc/core/connection/v1/connection.proto">ibc/core/connection/v1/connection.proto</h2><a href="#title">Top</a>
       </div>
       <p></p>
 
       
-        <h3 id="ibcgo.core.connection.v1.ClientPaths">ClientPaths</h3>
+        <h3 id="ibc.core.connection.v1.ClientPaths">ClientPaths</h3>
         <p>ClientPaths define all the connection paths for a client state.</p>
 
         
@@ -5280,7 +5280,7 @@ basis of trust in update logic </p></td>
 
         
       
-        <h3 id="ibcgo.core.connection.v1.ConnectionEnd">ConnectionEnd</h3>
+        <h3 id="ibc.core.connection.v1.ConnectionEnd">ConnectionEnd</h3>
         <p>ConnectionEnd defines a stateful object on a chain connected to another</p><p>separate one.</p><p>NOTE: there must only be 2 defined ConnectionEnds to establish</p><p>a connection between two chains.</p>
 
         
@@ -5299,7 +5299,7 @@ basis of trust in update logic </p></td>
               
                 <tr>
                   <td>versions</td>
-                  <td><a href="#ibcgo.core.connection.v1.Version">Version</a></td>
+                  <td><a href="#ibc.core.connection.v1.Version">Version</a></td>
                   <td>repeated</td>
                   <td><p>IBC version which can be utilised to determine encodings or protocols for
 channels or packets utilising this connection. </p></td>
@@ -5307,14 +5307,14 @@ channels or packets utilising this connection. </p></td>
               
                 <tr>
                   <td>state</td>
-                  <td><a href="#ibcgo.core.connection.v1.State">State</a></td>
+                  <td><a href="#ibc.core.connection.v1.State">State</a></td>
                   <td></td>
                   <td><p>current state of the connection end. </p></td>
                 </tr>
               
                 <tr>
                   <td>counterparty</td>
-                  <td><a href="#ibcgo.core.connection.v1.Counterparty">Counterparty</a></td>
+                  <td><a href="#ibc.core.connection.v1.Counterparty">Counterparty</a></td>
                   <td></td>
                   <td><p>counterparty chain associated with this connection. </p></td>
                 </tr>
@@ -5335,7 +5335,7 @@ clients. </p></td>
 
         
       
-        <h3 id="ibcgo.core.connection.v1.ConnectionPaths">ConnectionPaths</h3>
+        <h3 id="ibc.core.connection.v1.ConnectionPaths">ConnectionPaths</h3>
         <p>ConnectionPaths define all the connection paths for a given client state.</p>
 
         
@@ -5366,7 +5366,7 @@ clients. </p></td>
 
         
       
-        <h3 id="ibcgo.core.connection.v1.Counterparty">Counterparty</h3>
+        <h3 id="ibc.core.connection.v1.Counterparty">Counterparty</h3>
         <p>Counterparty defines the counterparty chain associated with a connection end.</p>
 
         
@@ -5394,7 +5394,7 @@ given connection. </p></td>
               
                 <tr>
                   <td>prefix</td>
-                  <td><a href="#ibcgo.core.commitment.v1.MerklePrefix">ibcgo.core.commitment.v1.MerklePrefix</a></td>
+                  <td><a href="#ibc.core.commitment.v1.MerklePrefix">ibc.core.commitment.v1.MerklePrefix</a></td>
                   <td></td>
                   <td><p>commitment merkle prefix of the counterparty chain. </p></td>
                 </tr>
@@ -5406,7 +5406,7 @@ given connection. </p></td>
 
         
       
-        <h3 id="ibcgo.core.connection.v1.IdentifiedConnection">IdentifiedConnection</h3>
+        <h3 id="ibc.core.connection.v1.IdentifiedConnection">IdentifiedConnection</h3>
         <p>IdentifiedConnection defines a connection with additional connection</p><p>identifier field.</p>
 
         
@@ -5432,7 +5432,7 @@ given connection. </p></td>
               
                 <tr>
                   <td>versions</td>
-                  <td><a href="#ibcgo.core.connection.v1.Version">Version</a></td>
+                  <td><a href="#ibc.core.connection.v1.Version">Version</a></td>
                   <td>repeated</td>
                   <td><p>IBC version which can be utilised to determine encodings or protocols for
 channels or packets utilising this connection </p></td>
@@ -5440,14 +5440,14 @@ channels or packets utilising this connection </p></td>
               
                 <tr>
                   <td>state</td>
-                  <td><a href="#ibcgo.core.connection.v1.State">State</a></td>
+                  <td><a href="#ibc.core.connection.v1.State">State</a></td>
                   <td></td>
                   <td><p>current state of the connection end. </p></td>
                 </tr>
               
                 <tr>
                   <td>counterparty</td>
-                  <td><a href="#ibcgo.core.connection.v1.Counterparty">Counterparty</a></td>
+                  <td><a href="#ibc.core.connection.v1.Counterparty">Counterparty</a></td>
                   <td></td>
                   <td><p>counterparty chain associated with this connection. </p></td>
                 </tr>
@@ -5466,7 +5466,7 @@ channels or packets utilising this connection </p></td>
 
         
       
-        <h3 id="ibcgo.core.connection.v1.Version">Version</h3>
+        <h3 id="ibc.core.connection.v1.Version">Version</h3>
         <p>Version defines the versioning scheme used to negotiate the IBC verison in</p><p>the connection handshake.</p>
 
         
@@ -5499,7 +5499,7 @@ channels or packets utilising this connection </p></td>
       
 
       
-        <h3 id="ibcgo.core.connection.v1.State">State</h3>
+        <h3 id="ibc.core.connection.v1.State">State</h3>
         <p>State defines if a connection is in one of the following states:</p><p>INIT, TRYOPEN, OPEN or UNINITIALIZED.</p>
         <table class="enum-table">
           <thead>
@@ -5542,12 +5542,12 @@ chain.</p></td>
     
       
       <div class="file-heading">
-        <h2 id="ibcgo/core/connection/v1/genesis.proto">ibcgo/core/connection/v1/genesis.proto</h2><a href="#title">Top</a>
+        <h2 id="ibc/core/connection/v1/genesis.proto">ibc/core/connection/v1/genesis.proto</h2><a href="#title">Top</a>
       </div>
       <p></p>
 
       
-        <h3 id="ibcgo.core.connection.v1.GenesisState">GenesisState</h3>
+        <h3 id="ibc.core.connection.v1.GenesisState">GenesisState</h3>
         <p>GenesisState defines the ibc connection submodule's genesis state.</p>
 
         
@@ -5559,14 +5559,14 @@ chain.</p></td>
               
                 <tr>
                   <td>connections</td>
-                  <td><a href="#ibcgo.core.connection.v1.IdentifiedConnection">IdentifiedConnection</a></td>
+                  <td><a href="#ibc.core.connection.v1.IdentifiedConnection">IdentifiedConnection</a></td>
                   <td>repeated</td>
                   <td><p> </p></td>
                 </tr>
               
                 <tr>
                   <td>client_connection_paths</td>
-                  <td><a href="#ibcgo.core.connection.v1.ConnectionPaths">ConnectionPaths</a></td>
+                  <td><a href="#ibc.core.connection.v1.ConnectionPaths">ConnectionPaths</a></td>
                   <td>repeated</td>
                   <td><p> </p></td>
                 </tr>
@@ -5594,12 +5594,12 @@ chain.</p></td>
     
       
       <div class="file-heading">
-        <h2 id="ibcgo/core/connection/v1/query.proto">ibcgo/core/connection/v1/query.proto</h2><a href="#title">Top</a>
+        <h2 id="ibc/core/connection/v1/query.proto">ibc/core/connection/v1/query.proto</h2><a href="#title">Top</a>
       </div>
       <p></p>
 
       
-        <h3 id="ibcgo.core.connection.v1.QueryClientConnectionsRequest">QueryClientConnectionsRequest</h3>
+        <h3 id="ibc.core.connection.v1.QueryClientConnectionsRequest">QueryClientConnectionsRequest</h3>
         <p>QueryClientConnectionsRequest is the request type for the</p><p>Query/ClientConnections RPC method</p>
 
         
@@ -5623,7 +5623,7 @@ chain.</p></td>
 
         
       
-        <h3 id="ibcgo.core.connection.v1.QueryClientConnectionsResponse">QueryClientConnectionsResponse</h3>
+        <h3 id="ibc.core.connection.v1.QueryClientConnectionsResponse">QueryClientConnectionsResponse</h3>
         <p>QueryClientConnectionsResponse is the response type for the</p><p>Query/ClientConnections RPC method</p>
 
         
@@ -5649,7 +5649,7 @@ chain.</p></td>
               
                 <tr>
                   <td>proof_height</td>
-                  <td><a href="#ibcgo.core.client.v1.Height">ibcgo.core.client.v1.Height</a></td>
+                  <td><a href="#ibc.core.client.v1.Height">ibc.core.client.v1.Height</a></td>
                   <td></td>
                   <td><p>height at which the proof was generated </p></td>
                 </tr>
@@ -5661,7 +5661,7 @@ chain.</p></td>
 
         
       
-        <h3 id="ibcgo.core.connection.v1.QueryConnectionClientStateRequest">QueryConnectionClientStateRequest</h3>
+        <h3 id="ibc.core.connection.v1.QueryConnectionClientStateRequest">QueryConnectionClientStateRequest</h3>
         <p>QueryConnectionClientStateRequest is the request type for the</p><p>Query/ConnectionClientState RPC method</p>
 
         
@@ -5685,7 +5685,7 @@ chain.</p></td>
 
         
       
-        <h3 id="ibcgo.core.connection.v1.QueryConnectionClientStateResponse">QueryConnectionClientStateResponse</h3>
+        <h3 id="ibc.core.connection.v1.QueryConnectionClientStateResponse">QueryConnectionClientStateResponse</h3>
         <p>QueryConnectionClientStateResponse is the response type for the</p><p>Query/ConnectionClientState RPC method</p>
 
         
@@ -5697,7 +5697,7 @@ chain.</p></td>
               
                 <tr>
                   <td>identified_client_state</td>
-                  <td><a href="#ibcgo.core.client.v1.IdentifiedClientState">ibcgo.core.client.v1.IdentifiedClientState</a></td>
+                  <td><a href="#ibc.core.client.v1.IdentifiedClientState">ibc.core.client.v1.IdentifiedClientState</a></td>
                   <td></td>
                   <td><p>client state associated with the channel </p></td>
                 </tr>
@@ -5711,7 +5711,7 @@ chain.</p></td>
               
                 <tr>
                   <td>proof_height</td>
-                  <td><a href="#ibcgo.core.client.v1.Height">ibcgo.core.client.v1.Height</a></td>
+                  <td><a href="#ibc.core.client.v1.Height">ibc.core.client.v1.Height</a></td>
                   <td></td>
                   <td><p>height at which the proof was retrieved </p></td>
                 </tr>
@@ -5723,7 +5723,7 @@ chain.</p></td>
 
         
       
-        <h3 id="ibcgo.core.connection.v1.QueryConnectionConsensusStateRequest">QueryConnectionConsensusStateRequest</h3>
+        <h3 id="ibc.core.connection.v1.QueryConnectionConsensusStateRequest">QueryConnectionConsensusStateRequest</h3>
         <p>QueryConnectionConsensusStateRequest is the request type for the</p><p>Query/ConnectionConsensusState RPC method</p>
 
         
@@ -5761,7 +5761,7 @@ chain.</p></td>
 
         
       
-        <h3 id="ibcgo.core.connection.v1.QueryConnectionConsensusStateResponse">QueryConnectionConsensusStateResponse</h3>
+        <h3 id="ibc.core.connection.v1.QueryConnectionConsensusStateResponse">QueryConnectionConsensusStateResponse</h3>
         <p>QueryConnectionConsensusStateResponse is the response type for the</p><p>Query/ConnectionConsensusState RPC method</p>
 
         
@@ -5794,7 +5794,7 @@ chain.</p></td>
               
                 <tr>
                   <td>proof_height</td>
-                  <td><a href="#ibcgo.core.client.v1.Height">ibcgo.core.client.v1.Height</a></td>
+                  <td><a href="#ibc.core.client.v1.Height">ibc.core.client.v1.Height</a></td>
                   <td></td>
                   <td><p>height at which the proof was retrieved </p></td>
                 </tr>
@@ -5806,7 +5806,7 @@ chain.</p></td>
 
         
       
-        <h3 id="ibcgo.core.connection.v1.QueryConnectionRequest">QueryConnectionRequest</h3>
+        <h3 id="ibc.core.connection.v1.QueryConnectionRequest">QueryConnectionRequest</h3>
         <p>QueryConnectionRequest is the request type for the Query/Connection RPC</p><p>method</p>
 
         
@@ -5830,7 +5830,7 @@ chain.</p></td>
 
         
       
-        <h3 id="ibcgo.core.connection.v1.QueryConnectionResponse">QueryConnectionResponse</h3>
+        <h3 id="ibc.core.connection.v1.QueryConnectionResponse">QueryConnectionResponse</h3>
         <p>QueryConnectionResponse is the response type for the Query/Connection RPC</p><p>method. Besides the connection end, it includes a proof and the height from</p><p>which the proof was retrieved.</p>
 
         
@@ -5842,7 +5842,7 @@ chain.</p></td>
               
                 <tr>
                   <td>connection</td>
-                  <td><a href="#ibcgo.core.connection.v1.ConnectionEnd">ConnectionEnd</a></td>
+                  <td><a href="#ibc.core.connection.v1.ConnectionEnd">ConnectionEnd</a></td>
                   <td></td>
                   <td><p>connection associated with the request identifier </p></td>
                 </tr>
@@ -5856,7 +5856,7 @@ chain.</p></td>
               
                 <tr>
                   <td>proof_height</td>
-                  <td><a href="#ibcgo.core.client.v1.Height">ibcgo.core.client.v1.Height</a></td>
+                  <td><a href="#ibc.core.client.v1.Height">ibc.core.client.v1.Height</a></td>
                   <td></td>
                   <td><p>height at which the proof was retrieved </p></td>
                 </tr>
@@ -5868,7 +5868,7 @@ chain.</p></td>
 
         
       
-        <h3 id="ibcgo.core.connection.v1.QueryConnectionsRequest">QueryConnectionsRequest</h3>
+        <h3 id="ibc.core.connection.v1.QueryConnectionsRequest">QueryConnectionsRequest</h3>
         <p>QueryConnectionsRequest is the request type for the Query/Connections RPC</p><p>method</p>
 
         
@@ -5892,7 +5892,7 @@ chain.</p></td>
 
         
       
-        <h3 id="ibcgo.core.connection.v1.QueryConnectionsResponse">QueryConnectionsResponse</h3>
+        <h3 id="ibc.core.connection.v1.QueryConnectionsResponse">QueryConnectionsResponse</h3>
         <p>QueryConnectionsResponse is the response type for the Query/Connections RPC</p><p>method.</p>
 
         
@@ -5904,7 +5904,7 @@ chain.</p></td>
               
                 <tr>
                   <td>connections</td>
-                  <td><a href="#ibcgo.core.connection.v1.IdentifiedConnection">IdentifiedConnection</a></td>
+                  <td><a href="#ibc.core.connection.v1.IdentifiedConnection">IdentifiedConnection</a></td>
                   <td>repeated</td>
                   <td><p>list of stored connections of the chain. </p></td>
                 </tr>
@@ -5918,7 +5918,7 @@ chain.</p></td>
               
                 <tr>
                   <td>height</td>
-                  <td><a href="#ibcgo.core.client.v1.Height">ibcgo.core.client.v1.Height</a></td>
+                  <td><a href="#ibc.core.client.v1.Height">ibc.core.client.v1.Height</a></td>
                   <td></td>
                   <td><p>query block height </p></td>
                 </tr>
@@ -5936,7 +5936,7 @@ chain.</p></td>
       
 
       
-        <h3 id="ibcgo.core.connection.v1.Query">Query</h3>
+        <h3 id="ibc.core.connection.v1.Query">Query</h3>
         <p>Query provides defines the gRPC querier service</p>
         <table class="enum-table">
           <thead>
@@ -5946,38 +5946,38 @@ chain.</p></td>
             
               <tr>
                 <td>Connection</td>
-                <td><a href="#ibcgo.core.connection.v1.QueryConnectionRequest">QueryConnectionRequest</a></td>
-                <td><a href="#ibcgo.core.connection.v1.QueryConnectionResponse">QueryConnectionResponse</a></td>
+                <td><a href="#ibc.core.connection.v1.QueryConnectionRequest">QueryConnectionRequest</a></td>
+                <td><a href="#ibc.core.connection.v1.QueryConnectionResponse">QueryConnectionResponse</a></td>
                 <td><p>Connection queries an IBC connection end.</p></td>
               </tr>
             
               <tr>
                 <td>Connections</td>
-                <td><a href="#ibcgo.core.connection.v1.QueryConnectionsRequest">QueryConnectionsRequest</a></td>
-                <td><a href="#ibcgo.core.connection.v1.QueryConnectionsResponse">QueryConnectionsResponse</a></td>
+                <td><a href="#ibc.core.connection.v1.QueryConnectionsRequest">QueryConnectionsRequest</a></td>
+                <td><a href="#ibc.core.connection.v1.QueryConnectionsResponse">QueryConnectionsResponse</a></td>
                 <td><p>Connections queries all the IBC connections of a chain.</p></td>
               </tr>
             
               <tr>
                 <td>ClientConnections</td>
-                <td><a href="#ibcgo.core.connection.v1.QueryClientConnectionsRequest">QueryClientConnectionsRequest</a></td>
-                <td><a href="#ibcgo.core.connection.v1.QueryClientConnectionsResponse">QueryClientConnectionsResponse</a></td>
+                <td><a href="#ibc.core.connection.v1.QueryClientConnectionsRequest">QueryClientConnectionsRequest</a></td>
+                <td><a href="#ibc.core.connection.v1.QueryClientConnectionsResponse">QueryClientConnectionsResponse</a></td>
                 <td><p>ClientConnections queries the connection paths associated with a client
 state.</p></td>
               </tr>
             
               <tr>
                 <td>ConnectionClientState</td>
-                <td><a href="#ibcgo.core.connection.v1.QueryConnectionClientStateRequest">QueryConnectionClientStateRequest</a></td>
-                <td><a href="#ibcgo.core.connection.v1.QueryConnectionClientStateResponse">QueryConnectionClientStateResponse</a></td>
+                <td><a href="#ibc.core.connection.v1.QueryConnectionClientStateRequest">QueryConnectionClientStateRequest</a></td>
+                <td><a href="#ibc.core.connection.v1.QueryConnectionClientStateResponse">QueryConnectionClientStateResponse</a></td>
                 <td><p>ConnectionClientState queries the client state associated with the
 connection.</p></td>
               </tr>
             
               <tr>
                 <td>ConnectionConsensusState</td>
-                <td><a href="#ibcgo.core.connection.v1.QueryConnectionConsensusStateRequest">QueryConnectionConsensusStateRequest</a></td>
-                <td><a href="#ibcgo.core.connection.v1.QueryConnectionConsensusStateResponse">QueryConnectionConsensusStateResponse</a></td>
+                <td><a href="#ibc.core.connection.v1.QueryConnectionConsensusStateRequest">QueryConnectionConsensusStateRequest</a></td>
+                <td><a href="#ibc.core.connection.v1.QueryConnectionConsensusStateResponse">QueryConnectionConsensusStateResponse</a></td>
                 <td><p>ConnectionConsensusState queries the consensus state associated with the
 connection.</p></td>
               </tr>
@@ -6057,12 +6057,12 @@ connection.</p></td>
     
       
       <div class="file-heading">
-        <h2 id="ibcgo/core/connection/v1/tx.proto">ibcgo/core/connection/v1/tx.proto</h2><a href="#title">Top</a>
+        <h2 id="ibc/core/connection/v1/tx.proto">ibc/core/connection/v1/tx.proto</h2><a href="#title">Top</a>
       </div>
       <p></p>
 
       
-        <h3 id="ibcgo.core.connection.v1.MsgConnectionOpenAck">MsgConnectionOpenAck</h3>
+        <h3 id="ibc.core.connection.v1.MsgConnectionOpenAck">MsgConnectionOpenAck</h3>
         <p>MsgConnectionOpenAck defines a msg sent by a Relayer to Chain A to</p><p>acknowledge the change of connection state to TRYOPEN on Chain B.</p>
 
         
@@ -6088,7 +6088,7 @@ connection.</p></td>
               
                 <tr>
                   <td>version</td>
-                  <td><a href="#ibcgo.core.connection.v1.Version">Version</a></td>
+                  <td><a href="#ibc.core.connection.v1.Version">Version</a></td>
                   <td></td>
                   <td><p> </p></td>
                 </tr>
@@ -6102,7 +6102,7 @@ connection.</p></td>
               
                 <tr>
                   <td>proof_height</td>
-                  <td><a href="#ibcgo.core.client.v1.Height">ibcgo.core.client.v1.Height</a></td>
+                  <td><a href="#ibc.core.client.v1.Height">ibc.core.client.v1.Height</a></td>
                   <td></td>
                   <td><p> </p></td>
                 </tr>
@@ -6131,7 +6131,7 @@ TRYOPEN` </p></td>
               
                 <tr>
                   <td>consensus_height</td>
-                  <td><a href="#ibcgo.core.client.v1.Height">ibcgo.core.client.v1.Height</a></td>
+                  <td><a href="#ibc.core.client.v1.Height">ibc.core.client.v1.Height</a></td>
                   <td></td>
                   <td><p> </p></td>
                 </tr>
@@ -6150,14 +6150,14 @@ TRYOPEN` </p></td>
 
         
       
-        <h3 id="ibcgo.core.connection.v1.MsgConnectionOpenAckResponse">MsgConnectionOpenAckResponse</h3>
+        <h3 id="ibc.core.connection.v1.MsgConnectionOpenAckResponse">MsgConnectionOpenAckResponse</h3>
         <p>MsgConnectionOpenAckResponse defines the Msg/ConnectionOpenAck response type.</p>
 
         
 
         
       
-        <h3 id="ibcgo.core.connection.v1.MsgConnectionOpenConfirm">MsgConnectionOpenConfirm</h3>
+        <h3 id="ibc.core.connection.v1.MsgConnectionOpenConfirm">MsgConnectionOpenConfirm</h3>
         <p>MsgConnectionOpenConfirm defines a msg sent by a Relayer to Chain B to</p><p>acknowledge the change of connection state to OPEN on Chain A.</p>
 
         
@@ -6183,7 +6183,7 @@ TRYOPEN` </p></td>
               
                 <tr>
                   <td>proof_height</td>
-                  <td><a href="#ibcgo.core.client.v1.Height">ibcgo.core.client.v1.Height</a></td>
+                  <td><a href="#ibc.core.client.v1.Height">ibc.core.client.v1.Height</a></td>
                   <td></td>
                   <td><p> </p></td>
                 </tr>
@@ -6202,14 +6202,14 @@ TRYOPEN` </p></td>
 
         
       
-        <h3 id="ibcgo.core.connection.v1.MsgConnectionOpenConfirmResponse">MsgConnectionOpenConfirmResponse</h3>
+        <h3 id="ibc.core.connection.v1.MsgConnectionOpenConfirmResponse">MsgConnectionOpenConfirmResponse</h3>
         <p>MsgConnectionOpenConfirmResponse defines the Msg/ConnectionOpenConfirm</p><p>response type.</p>
 
         
 
         
       
-        <h3 id="ibcgo.core.connection.v1.MsgConnectionOpenInit">MsgConnectionOpenInit</h3>
+        <h3 id="ibc.core.connection.v1.MsgConnectionOpenInit">MsgConnectionOpenInit</h3>
         <p>MsgConnectionOpenInit defines the msg sent by an account on Chain A to</p><p>initialize a connection with Chain B.</p>
 
         
@@ -6228,14 +6228,14 @@ TRYOPEN` </p></td>
               
                 <tr>
                   <td>counterparty</td>
-                  <td><a href="#ibcgo.core.connection.v1.Counterparty">Counterparty</a></td>
+                  <td><a href="#ibc.core.connection.v1.Counterparty">Counterparty</a></td>
                   <td></td>
                   <td><p> </p></td>
                 </tr>
               
                 <tr>
                   <td>version</td>
-                  <td><a href="#ibcgo.core.connection.v1.Version">Version</a></td>
+                  <td><a href="#ibc.core.connection.v1.Version">Version</a></td>
                   <td></td>
                   <td><p> </p></td>
                 </tr>
@@ -6261,14 +6261,14 @@ TRYOPEN` </p></td>
 
         
       
-        <h3 id="ibcgo.core.connection.v1.MsgConnectionOpenInitResponse">MsgConnectionOpenInitResponse</h3>
+        <h3 id="ibc.core.connection.v1.MsgConnectionOpenInitResponse">MsgConnectionOpenInitResponse</h3>
         <p>MsgConnectionOpenInitResponse defines the Msg/ConnectionOpenInit response</p><p>type.</p>
 
         
 
         
       
-        <h3 id="ibcgo.core.connection.v1.MsgConnectionOpenTry">MsgConnectionOpenTry</h3>
+        <h3 id="ibc.core.connection.v1.MsgConnectionOpenTry">MsgConnectionOpenTry</h3>
         <p>MsgConnectionOpenTry defines a msg sent by a Relayer to try to open a</p><p>connection on Chain B.</p>
 
         
@@ -6302,7 +6302,7 @@ the connection identifier of the previous connection in state INIT </p></td>
               
                 <tr>
                   <td>counterparty</td>
-                  <td><a href="#ibcgo.core.connection.v1.Counterparty">Counterparty</a></td>
+                  <td><a href="#ibc.core.connection.v1.Counterparty">Counterparty</a></td>
                   <td></td>
                   <td><p> </p></td>
                 </tr>
@@ -6316,14 +6316,14 @@ the connection identifier of the previous connection in state INIT </p></td>
               
                 <tr>
                   <td>counterparty_versions</td>
-                  <td><a href="#ibcgo.core.connection.v1.Version">Version</a></td>
+                  <td><a href="#ibc.core.connection.v1.Version">Version</a></td>
                   <td>repeated</td>
                   <td><p> </p></td>
                 </tr>
               
                 <tr>
                   <td>proof_height</td>
-                  <td><a href="#ibcgo.core.client.v1.Height">ibcgo.core.client.v1.Height</a></td>
+                  <td><a href="#ibc.core.client.v1.Height">ibc.core.client.v1.Height</a></td>
                   <td></td>
                   <td><p> </p></td>
                 </tr>
@@ -6352,7 +6352,7 @@ INIT` </p></td>
               
                 <tr>
                   <td>consensus_height</td>
-                  <td><a href="#ibcgo.core.client.v1.Height">ibcgo.core.client.v1.Height</a></td>
+                  <td><a href="#ibc.core.client.v1.Height">ibc.core.client.v1.Height</a></td>
                   <td></td>
                   <td><p> </p></td>
                 </tr>
@@ -6371,7 +6371,7 @@ INIT` </p></td>
 
         
       
-        <h3 id="ibcgo.core.connection.v1.MsgConnectionOpenTryResponse">MsgConnectionOpenTryResponse</h3>
+        <h3 id="ibc.core.connection.v1.MsgConnectionOpenTryResponse">MsgConnectionOpenTryResponse</h3>
         <p>MsgConnectionOpenTryResponse defines the Msg/ConnectionOpenTry response type.</p>
 
         
@@ -6384,7 +6384,7 @@ INIT` </p></td>
       
 
       
-        <h3 id="ibcgo.core.connection.v1.Msg">Msg</h3>
+        <h3 id="ibc.core.connection.v1.Msg">Msg</h3>
         <p>Msg defines the ibc/connection Msg service.</p>
         <table class="enum-table">
           <thead>
@@ -6394,29 +6394,29 @@ INIT` </p></td>
             
               <tr>
                 <td>ConnectionOpenInit</td>
-                <td><a href="#ibcgo.core.connection.v1.MsgConnectionOpenInit">MsgConnectionOpenInit</a></td>
-                <td><a href="#ibcgo.core.connection.v1.MsgConnectionOpenInitResponse">MsgConnectionOpenInitResponse</a></td>
+                <td><a href="#ibc.core.connection.v1.MsgConnectionOpenInit">MsgConnectionOpenInit</a></td>
+                <td><a href="#ibc.core.connection.v1.MsgConnectionOpenInitResponse">MsgConnectionOpenInitResponse</a></td>
                 <td><p>ConnectionOpenInit defines a rpc handler method for MsgConnectionOpenInit.</p></td>
               </tr>
             
               <tr>
                 <td>ConnectionOpenTry</td>
-                <td><a href="#ibcgo.core.connection.v1.MsgConnectionOpenTry">MsgConnectionOpenTry</a></td>
-                <td><a href="#ibcgo.core.connection.v1.MsgConnectionOpenTryResponse">MsgConnectionOpenTryResponse</a></td>
+                <td><a href="#ibc.core.connection.v1.MsgConnectionOpenTry">MsgConnectionOpenTry</a></td>
+                <td><a href="#ibc.core.connection.v1.MsgConnectionOpenTryResponse">MsgConnectionOpenTryResponse</a></td>
                 <td><p>ConnectionOpenTry defines a rpc handler method for MsgConnectionOpenTry.</p></td>
               </tr>
             
               <tr>
                 <td>ConnectionOpenAck</td>
-                <td><a href="#ibcgo.core.connection.v1.MsgConnectionOpenAck">MsgConnectionOpenAck</a></td>
-                <td><a href="#ibcgo.core.connection.v1.MsgConnectionOpenAckResponse">MsgConnectionOpenAckResponse</a></td>
+                <td><a href="#ibc.core.connection.v1.MsgConnectionOpenAck">MsgConnectionOpenAck</a></td>
+                <td><a href="#ibc.core.connection.v1.MsgConnectionOpenAckResponse">MsgConnectionOpenAckResponse</a></td>
                 <td><p>ConnectionOpenAck defines a rpc handler method for MsgConnectionOpenAck.</p></td>
               </tr>
             
               <tr>
                 <td>ConnectionOpenConfirm</td>
-                <td><a href="#ibcgo.core.connection.v1.MsgConnectionOpenConfirm">MsgConnectionOpenConfirm</a></td>
-                <td><a href="#ibcgo.core.connection.v1.MsgConnectionOpenConfirmResponse">MsgConnectionOpenConfirmResponse</a></td>
+                <td><a href="#ibc.core.connection.v1.MsgConnectionOpenConfirm">MsgConnectionOpenConfirm</a></td>
+                <td><a href="#ibc.core.connection.v1.MsgConnectionOpenConfirmResponse">MsgConnectionOpenConfirmResponse</a></td>
                 <td><p>ConnectionOpenConfirm defines a rpc handler method for
 MsgConnectionOpenConfirm.</p></td>
               </tr>
@@ -6428,12 +6428,12 @@ MsgConnectionOpenConfirm.</p></td>
     
       
       <div class="file-heading">
-        <h2 id="ibcgo/core/types/v1/genesis.proto">ibcgo/core/types/v1/genesis.proto</h2><a href="#title">Top</a>
+        <h2 id="ibc/core/types/v1/genesis.proto">ibc/core/types/v1/genesis.proto</h2><a href="#title">Top</a>
       </div>
       <p></p>
 
       
-        <h3 id="ibcgo.core.types.v1.GenesisState">GenesisState</h3>
+        <h3 id="ibc.core.types.v1.GenesisState">GenesisState</h3>
         <p>GenesisState defines the ibc module's genesis state.</p>
 
         
@@ -6445,21 +6445,21 @@ MsgConnectionOpenConfirm.</p></td>
               
                 <tr>
                   <td>client_genesis</td>
-                  <td><a href="#ibcgo.core.client.v1.GenesisState">ibcgo.core.client.v1.GenesisState</a></td>
+                  <td><a href="#ibc.core.client.v1.GenesisState">ibc.core.client.v1.GenesisState</a></td>
                   <td></td>
                   <td><p>ICS002 - Clients genesis state </p></td>
                 </tr>
               
                 <tr>
                   <td>connection_genesis</td>
-                  <td><a href="#ibcgo.core.connection.v1.GenesisState">ibcgo.core.connection.v1.GenesisState</a></td>
+                  <td><a href="#ibc.core.connection.v1.GenesisState">ibc.core.connection.v1.GenesisState</a></td>
                   <td></td>
                   <td><p>ICS003 - Connections genesis state </p></td>
                 </tr>
               
                 <tr>
                   <td>channel_genesis</td>
-                  <td><a href="#ibcgo.core.channel.v1.GenesisState">ibcgo.core.channel.v1.GenesisState</a></td>
+                  <td><a href="#ibc.core.channel.v1.GenesisState">ibc.core.channel.v1.GenesisState</a></td>
                   <td></td>
                   <td><p>ICS004 - Channel genesis state </p></td>
                 </tr>
@@ -6480,12 +6480,12 @@ MsgConnectionOpenConfirm.</p></td>
     
       
       <div class="file-heading">
-        <h2 id="ibcgo/lightclients/localhost/v1/localhost.proto">ibcgo/lightclients/localhost/v1/localhost.proto</h2><a href="#title">Top</a>
+        <h2 id="ibc/lightclients/localhost/v1/localhost.proto">ibc/lightclients/localhost/v1/localhost.proto</h2><a href="#title">Top</a>
       </div>
       <p></p>
 
       
-        <h3 id="ibcgo.lightclients.localhost.v1.ClientState">ClientState</h3>
+        <h3 id="ibc.lightclients.localhost.v1.ClientState">ClientState</h3>
         <p>ClientState defines a loopback (localhost) client. It requires (read-only)</p><p>access to keys outside the client prefix.</p>
 
         
@@ -6504,7 +6504,7 @@ MsgConnectionOpenConfirm.</p></td>
               
                 <tr>
                   <td>height</td>
-                  <td><a href="#ibcgo.core.client.v1.Height">ibcgo.core.client.v1.Height</a></td>
+                  <td><a href="#ibc.core.client.v1.Height">ibc.core.client.v1.Height</a></td>
                   <td></td>
                   <td><p>self latest block height </p></td>
                 </tr>
@@ -6525,12 +6525,12 @@ MsgConnectionOpenConfirm.</p></td>
     
       
       <div class="file-heading">
-        <h2 id="ibcgo/lightclients/solomachine/v1/solomachine.proto">ibcgo/lightclients/solomachine/v1/solomachine.proto</h2><a href="#title">Top</a>
+        <h2 id="ibc/lightclients/solomachine/v1/solomachine.proto">ibc/lightclients/solomachine/v1/solomachine.proto</h2><a href="#title">Top</a>
       </div>
       <p></p>
 
       
-        <h3 id="ibcgo.lightclients.solomachine.v1.ChannelStateData">ChannelStateData</h3>
+        <h3 id="ibc.lightclients.solomachine.v1.ChannelStateData">ChannelStateData</h3>
         <p>ChannelStateData returns the SignBytes data for channel state</p><p>verification.</p>
 
         
@@ -6549,7 +6549,7 @@ MsgConnectionOpenConfirm.</p></td>
               
                 <tr>
                   <td>channel</td>
-                  <td><a href="#ibcgo.core.channel.v1.Channel">ibcgo.core.channel.v1.Channel</a></td>
+                  <td><a href="#ibc.core.channel.v1.Channel">ibc.core.channel.v1.Channel</a></td>
                   <td></td>
                   <td><p> </p></td>
                 </tr>
@@ -6561,7 +6561,7 @@ MsgConnectionOpenConfirm.</p></td>
 
         
       
-        <h3 id="ibcgo.lightclients.solomachine.v1.ClientState">ClientState</h3>
+        <h3 id="ibc.lightclients.solomachine.v1.ClientState">ClientState</h3>
         <p>ClientState defines a solo machine client that tracks the current consensus</p><p>state and if the client is frozen.</p>
 
         
@@ -6587,7 +6587,7 @@ MsgConnectionOpenConfirm.</p></td>
               
                 <tr>
                   <td>consensus_state</td>
-                  <td><a href="#ibcgo.lightclients.solomachine.v1.ConsensusState">ConsensusState</a></td>
+                  <td><a href="#ibc.lightclients.solomachine.v1.ConsensusState">ConsensusState</a></td>
                   <td></td>
                   <td><p> </p></td>
                 </tr>
@@ -6607,7 +6607,7 @@ The client will be unfrozen if it is frozen. </p></td>
 
         
       
-        <h3 id="ibcgo.lightclients.solomachine.v1.ClientStateData">ClientStateData</h3>
+        <h3 id="ibc.lightclients.solomachine.v1.ClientStateData">ClientStateData</h3>
         <p>ClientStateData returns the SignBytes data for client state verification.</p>
 
         
@@ -6638,7 +6638,7 @@ The client will be unfrozen if it is frozen. </p></td>
 
         
       
-        <h3 id="ibcgo.lightclients.solomachine.v1.ConnectionStateData">ConnectionStateData</h3>
+        <h3 id="ibc.lightclients.solomachine.v1.ConnectionStateData">ConnectionStateData</h3>
         <p>ConnectionStateData returns the SignBytes data for connection state</p><p>verification.</p>
 
         
@@ -6657,7 +6657,7 @@ The client will be unfrozen if it is frozen. </p></td>
               
                 <tr>
                   <td>connection</td>
-                  <td><a href="#ibcgo.core.connection.v1.ConnectionEnd">ibcgo.core.connection.v1.ConnectionEnd</a></td>
+                  <td><a href="#ibc.core.connection.v1.ConnectionEnd">ibc.core.connection.v1.ConnectionEnd</a></td>
                   <td></td>
                   <td><p> </p></td>
                 </tr>
@@ -6669,7 +6669,7 @@ The client will be unfrozen if it is frozen. </p></td>
 
         
       
-        <h3 id="ibcgo.lightclients.solomachine.v1.ConsensusState">ConsensusState</h3>
+        <h3 id="ibc.lightclients.solomachine.v1.ConsensusState">ConsensusState</h3>
         <p>ConsensusState defines a solo machine consensus state. The sequence of a</p><p>consensus state is contained in the "height" key used in storing the</p><p>consensus state.</p>
 
         
@@ -6709,7 +6709,7 @@ misbehaviour. </p></td>
 
         
       
-        <h3 id="ibcgo.lightclients.solomachine.v1.ConsensusStateData">ConsensusStateData</h3>
+        <h3 id="ibc.lightclients.solomachine.v1.ConsensusStateData">ConsensusStateData</h3>
         <p>ConsensusStateData returns the SignBytes data for consensus state</p><p>verification.</p>
 
         
@@ -6740,7 +6740,7 @@ misbehaviour. </p></td>
 
         
       
-        <h3 id="ibcgo.lightclients.solomachine.v1.Header">Header</h3>
+        <h3 id="ibc.lightclients.solomachine.v1.Header">Header</h3>
         <p>Header defines a solo machine consensus header</p>
 
         
@@ -6792,7 +6792,7 @@ misbehaviour. </p></td>
 
         
       
-        <h3 id="ibcgo.lightclients.solomachine.v1.HeaderData">HeaderData</h3>
+        <h3 id="ibc.lightclients.solomachine.v1.HeaderData">HeaderData</h3>
         <p>HeaderData returns the SignBytes data for update verification.</p>
 
         
@@ -6823,7 +6823,7 @@ misbehaviour. </p></td>
 
         
       
-        <h3 id="ibcgo.lightclients.solomachine.v1.Misbehaviour">Misbehaviour</h3>
+        <h3 id="ibc.lightclients.solomachine.v1.Misbehaviour">Misbehaviour</h3>
         <p>Misbehaviour defines misbehaviour for a solo machine which consists</p><p>of a sequence and two signatures over different messages at that sequence.</p>
 
         
@@ -6849,14 +6849,14 @@ misbehaviour. </p></td>
               
                 <tr>
                   <td>signature_one</td>
-                  <td><a href="#ibcgo.lightclients.solomachine.v1.SignatureAndData">SignatureAndData</a></td>
+                  <td><a href="#ibc.lightclients.solomachine.v1.SignatureAndData">SignatureAndData</a></td>
                   <td></td>
                   <td><p> </p></td>
                 </tr>
               
                 <tr>
                   <td>signature_two</td>
-                  <td><a href="#ibcgo.lightclients.solomachine.v1.SignatureAndData">SignatureAndData</a></td>
+                  <td><a href="#ibc.lightclients.solomachine.v1.SignatureAndData">SignatureAndData</a></td>
                   <td></td>
                   <td><p> </p></td>
                 </tr>
@@ -6868,7 +6868,7 @@ misbehaviour. </p></td>
 
         
       
-        <h3 id="ibcgo.lightclients.solomachine.v1.NextSequenceRecvData">NextSequenceRecvData</h3>
+        <h3 id="ibc.lightclients.solomachine.v1.NextSequenceRecvData">NextSequenceRecvData</h3>
         <p>NextSequenceRecvData returns the SignBytes data for verification of the next</p><p>sequence to be received.</p>
 
         
@@ -6899,7 +6899,7 @@ misbehaviour. </p></td>
 
         
       
-        <h3 id="ibcgo.lightclients.solomachine.v1.PacketAcknowledgementData">PacketAcknowledgementData</h3>
+        <h3 id="ibc.lightclients.solomachine.v1.PacketAcknowledgementData">PacketAcknowledgementData</h3>
         <p>PacketAcknowledgementData returns the SignBytes data for acknowledgement</p><p>verification.</p>
 
         
@@ -6930,7 +6930,7 @@ misbehaviour. </p></td>
 
         
       
-        <h3 id="ibcgo.lightclients.solomachine.v1.PacketCommitmentData">PacketCommitmentData</h3>
+        <h3 id="ibc.lightclients.solomachine.v1.PacketCommitmentData">PacketCommitmentData</h3>
         <p>PacketCommitmentData returns the SignBytes data for packet commitment</p><p>verification.</p>
 
         
@@ -6961,7 +6961,7 @@ misbehaviour. </p></td>
 
         
       
-        <h3 id="ibcgo.lightclients.solomachine.v1.PacketReceiptAbsenceData">PacketReceiptAbsenceData</h3>
+        <h3 id="ibc.lightclients.solomachine.v1.PacketReceiptAbsenceData">PacketReceiptAbsenceData</h3>
         <p>PacketReceiptAbsenceData returns the SignBytes data for</p><p>packet receipt absence verification.</p>
 
         
@@ -6985,7 +6985,7 @@ misbehaviour. </p></td>
 
         
       
-        <h3 id="ibcgo.lightclients.solomachine.v1.SignBytes">SignBytes</h3>
+        <h3 id="ibc.lightclients.solomachine.v1.SignBytes">SignBytes</h3>
         <p>SignBytes defines the signed bytes used for signature verification.</p>
 
         
@@ -7018,7 +7018,7 @@ misbehaviour. </p></td>
               
                 <tr>
                   <td>data_type</td>
-                  <td><a href="#ibcgo.lightclients.solomachine.v1.DataType">DataType</a></td>
+                  <td><a href="#ibc.lightclients.solomachine.v1.DataType">DataType</a></td>
                   <td></td>
                   <td><p>type of the data used </p></td>
                 </tr>
@@ -7037,7 +7037,7 @@ misbehaviour. </p></td>
 
         
       
-        <h3 id="ibcgo.lightclients.solomachine.v1.SignatureAndData">SignatureAndData</h3>
+        <h3 id="ibc.lightclients.solomachine.v1.SignatureAndData">SignatureAndData</h3>
         <p>SignatureAndData contains a signature and the data signed over to create that</p><p>signature.</p>
 
         
@@ -7056,7 +7056,7 @@ misbehaviour. </p></td>
               
                 <tr>
                   <td>data_type</td>
-                  <td><a href="#ibcgo.lightclients.solomachine.v1.DataType">DataType</a></td>
+                  <td><a href="#ibc.lightclients.solomachine.v1.DataType">DataType</a></td>
                   <td></td>
                   <td><p> </p></td>
                 </tr>
@@ -7082,7 +7082,7 @@ misbehaviour. </p></td>
 
         
       
-        <h3 id="ibcgo.lightclients.solomachine.v1.TimestampedSignatureData">TimestampedSignatureData</h3>
+        <h3 id="ibc.lightclients.solomachine.v1.TimestampedSignatureData">TimestampedSignatureData</h3>
         <p>TimestampedSignatureData contains the signature data and the timestamp of the</p><p>signature.</p>
 
         
@@ -7115,7 +7115,7 @@ misbehaviour. </p></td>
       
 
       
-        <h3 id="ibcgo.lightclients.solomachine.v1.DataType">DataType</h3>
+        <h3 id="ibc.lightclients.solomachine.v1.DataType">DataType</h3>
         <p>DataType defines the type of solo machine proof being created. This is done</p><p>to preserve uniqueness of different data sign byte encodings.</p>
         <table class="enum-table">
           <thead>
@@ -7193,12 +7193,12 @@ misbehaviour. </p></td>
     
       
       <div class="file-heading">
-        <h2 id="ibcgo/lightclients/tendermint/v1/tendermint.proto">ibcgo/lightclients/tendermint/v1/tendermint.proto</h2><a href="#title">Top</a>
+        <h2 id="ibc/lightclients/tendermint/v1/tendermint.proto">ibc/lightclients/tendermint/v1/tendermint.proto</h2><a href="#title">Top</a>
       </div>
       <p></p>
 
       
-        <h3 id="ibcgo.lightclients.tendermint.v1.ClientState">ClientState</h3>
+        <h3 id="ibc.lightclients.tendermint.v1.ClientState">ClientState</h3>
         <p>ClientState from Tendermint tracks the current validator set, latest height,</p><p>and a possible frozen height.</p>
 
         
@@ -7217,7 +7217,7 @@ misbehaviour. </p></td>
               
                 <tr>
                   <td>trust_level</td>
-                  <td><a href="#ibcgo.lightclients.tendermint.v1.Fraction">Fraction</a></td>
+                  <td><a href="#ibc.lightclients.tendermint.v1.Fraction">Fraction</a></td>
                   <td></td>
                   <td><p> </p></td>
                 </tr>
@@ -7246,14 +7246,14 @@ submitted headers are valid for upgrade </p></td>
               
                 <tr>
                   <td>frozen_height</td>
-                  <td><a href="#ibcgo.core.client.v1.Height">ibcgo.core.client.v1.Height</a></td>
+                  <td><a href="#ibc.core.client.v1.Height">ibc.core.client.v1.Height</a></td>
                   <td></td>
                   <td><p>Block height when the client was frozen due to a misbehaviour </p></td>
                 </tr>
               
                 <tr>
                   <td>latest_height</td>
-                  <td><a href="#ibcgo.core.client.v1.Height">ibcgo.core.client.v1.Height</a></td>
+                  <td><a href="#ibc.core.client.v1.Height">ibc.core.client.v1.Height</a></td>
                   <td></td>
                   <td><p>Latest height the client was updated to </p></td>
                 </tr>
@@ -7301,7 +7301,7 @@ whose chain has experienced a misbehaviour event </p></td>
 
         
       
-        <h3 id="ibcgo.lightclients.tendermint.v1.ConsensusState">ConsensusState</h3>
+        <h3 id="ibc.lightclients.tendermint.v1.ConsensusState">ConsensusState</h3>
         <p>ConsensusState defines the consensus state from Tendermint.</p>
 
         
@@ -7321,7 +7321,7 @@ was stored. </p></td>
               
                 <tr>
                   <td>root</td>
-                  <td><a href="#ibcgo.core.commitment.v1.MerkleRoot">ibcgo.core.commitment.v1.MerkleRoot</a></td>
+                  <td><a href="#ibc.core.commitment.v1.MerkleRoot">ibc.core.commitment.v1.MerkleRoot</a></td>
                   <td></td>
                   <td><p>commitment root (i.e app hash) </p></td>
                 </tr>
@@ -7340,7 +7340,7 @@ was stored. </p></td>
 
         
       
-        <h3 id="ibcgo.lightclients.tendermint.v1.Fraction">Fraction</h3>
+        <h3 id="ibc.lightclients.tendermint.v1.Fraction">Fraction</h3>
         <p>Fraction defines the protobuf message type for tmmath.Fraction that only</p><p>supports positive values.</p>
 
         
@@ -7371,7 +7371,7 @@ was stored. </p></td>
 
         
       
-        <h3 id="ibcgo.lightclients.tendermint.v1.Header">Header</h3>
+        <h3 id="ibc.lightclients.tendermint.v1.Header">Header</h3>
         <p>Header defines the Tendermint client consensus Header.</p><p>It encapsulates all the information necessary to update from a trusted</p><p>Tendermint ConsensusState. The inclusion of TrustedHeight and</p><p>TrustedValidators allows this update to process correctly, so long as the</p><p>ConsensusState for the TrustedHeight exists, this removes race conditions</p><p>among relayers The SignedHeader and ValidatorSet are the new untrusted update</p><p>fields for the client. The TrustedHeight is the height of a stored</p><p>ConsensusState on the client that will be used to verify the new untrusted</p><p>header. The Trusted ConsensusState must be within the unbonding period of</p><p>current time in order to correctly verify, and the TrustedValidators must</p><p>hash to TrustedConsensusState.NextValidatorsHash since that is the last</p><p>trusted validator set at the TrustedHeight.</p>
 
         
@@ -7397,7 +7397,7 @@ was stored. </p></td>
               
                 <tr>
                   <td>trusted_height</td>
-                  <td><a href="#ibcgo.core.client.v1.Height">ibcgo.core.client.v1.Height</a></td>
+                  <td><a href="#ibc.core.client.v1.Height">ibc.core.client.v1.Height</a></td>
                   <td></td>
                   <td><p> </p></td>
                 </tr>
@@ -7416,7 +7416,7 @@ was stored. </p></td>
 
         
       
-        <h3 id="ibcgo.lightclients.tendermint.v1.Misbehaviour">Misbehaviour</h3>
+        <h3 id="ibc.lightclients.tendermint.v1.Misbehaviour">Misbehaviour</h3>
         <p>Misbehaviour is a wrapper over two conflicting Headers</p><p>that implements Misbehaviour interface expected by ICS-02</p>
 
         
@@ -7435,14 +7435,14 @@ was stored. </p></td>
               
                 <tr>
                   <td>header_1</td>
-                  <td><a href="#ibcgo.lightclients.tendermint.v1.Header">Header</a></td>
+                  <td><a href="#ibc.lightclients.tendermint.v1.Header">Header</a></td>
                   <td></td>
                   <td><p> </p></td>
                 </tr>
               
                 <tr>
                   <td>header_2</td>
-                  <td><a href="#ibcgo.lightclients.tendermint.v1.Header">Header</a></td>
+                  <td><a href="#ibc.lightclients.tendermint.v1.Header">Header</a></td>
                   <td></td>
                   <td><p> </p></td>
                 </tr>

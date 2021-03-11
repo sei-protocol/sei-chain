@@ -90,7 +90,4 @@ REST routes are not supported for these proposals.
 
 ## Proto file changes
 
-The protobuf files have change package naming. 
-The new package naming begins with `ibcgo` instead of `ibc`.
-
 The gRPC querier service endpoints have changed slightly. The previous files used `v1beta1`, this has been updated to `v1`.
