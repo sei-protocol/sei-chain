@@ -3,6 +3,7 @@ package cli
 import (
 	"fmt"
 	"io/ioutil"
+	"strconv"
 
 	"github.com/pkg/errors"
 	"github.com/spf13/cobra"
@@ -16,9 +17,9 @@ import (
 	"github.com/cosmos/cosmos-sdk/version"
 	govcli "github.com/cosmos/cosmos-sdk/x/gov/client/cli"
 	govtypes "github.com/cosmos/cosmos-sdk/x/gov/types"
+	upgradetypes "github.com/cosmos/cosmos-sdk/x/upgrade/types"
 	"github.com/cosmos/ibc-go/modules/core/02-client/types"
 	"github.com/cosmos/ibc-go/modules/core/exported"
-	upgradetypes "github.com/cosmos/cosmos-sdk/x/upgrade/types"
 )
 
 // NewCreateClientCmd defines the command to create a new IBC light client.
@@ -335,7 +336,17 @@ func NewCmdSubmitUpgradeProposal() *cobra.Command {
 		Args:  cobra.ExactArgs(3),
 		Short: "Submit an IBC upgrade proposal",
 		Long: "Submit an IBC client breaking upgrade proposal along with an initial deposit.\n" +
-			"The client state specified is the upgraded client state representing the upgraded chain",
+			"The client state specified is the upgraded client state representing the upgraded chain\n" +
+			`Example Upgraded Client State JSON: 
+{
+	"@type":"/ibc.lightclients.tendermint.v1.ClientState",
+ 	"chain_id":"testchain1",
+	"unbonding_period":"1814400s",
+	"latest_height":{"revision_number":"0","revision_height":"2"},
+	"proof_specs":[{"leaf_spec":{"hash":"SHA256","prehash_key":"NO_HASH","prehash_value":"SHA256","length":"VAR_PROTO","prefix":"AA=="},"inner_spec":{"child_order":[0,1],"child_size":33,"min_prefix_length":4,"max_prefix_length":12,"empty_child":null,"hash":"SHA256"},"max_depth":0,"min_depth":0},{"leaf_spec":{"hash":"SHA256","prehash_key":"NO_HASH","prehash_value":"SHA256","length":"VAR_PROTO","prefix":"AA=="},"inner_spec":{"child_order":[0,1],"child_size":32,"min_prefix_length":1,"max_prefix_length":1,"empty_child":null,"hash":"SHA256"},"max_depth":0,"min_depth":0}],
+	"upgrade_path":["upgrade","upgradedIBCState"],
+}
+			`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			clientCtx, err := client.GetClientTxContext(cmd)
 			if err != nil {
@@ -355,7 +366,7 @@ func NewCmdSubmitUpgradeProposal() *cobra.Command {
 
 			name := args[0]
 
-			height, err := cmd.Flags().GetInt64(args[1])
+			height, err := strconv.ParseInt(args[1], 10, 64)
 			if err != nil {
 				return err
 			}
