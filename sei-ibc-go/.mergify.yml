@@ -1,7 +1,7 @@
 pull_request_rules:
   - name: automerge to main with label automerge and branch protection passing
     conditions:
-      - "#approved-reviews-by>1"
+      - "#approved-reviews-by>=1"
       - base=main
       - label=automerge
     actions:
