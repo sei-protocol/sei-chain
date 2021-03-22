@@ -204,11 +204,8 @@ func (q Keeper) UpgradedClientState(c context.Context, req *types.QueryUpgradedC
 		return nil, status.Error(codes.InvalidArgument, "empty request")
 	}
 
-	if err := host.ClientIdentifierValidator(req.ClientId); err != nil {
-		return nil, status.Error(codes.InvalidArgument, err.Error())
-	}
-
 	ctx := sdk.UnwrapSDKContext(c)
+
 	plan, found := q.GetUpgradePlan(ctx)
 	if !found {
 		return nil, status.Error(
@@ -218,10 +215,7 @@ func (q Keeper) UpgradedClientState(c context.Context, req *types.QueryUpgradedC
 
 	bz, found := q.GetUpgradedClient(ctx, plan.Height)
 	if !found {
-		return nil, status.Error(
-			codes.NotFound,
-			sdkerrors.Wrap(types.ErrClientNotFound, req.ClientId).Error(),
-		)
+		return nil, status.Error(codes.NotFound, types.ErrClientNotFound.Error())
 	}
 
 	clientState, err := types.UnmarshalClientState(q.cdc, bz)
@@ -238,5 +232,35 @@ func (q Keeper) UpgradedClientState(c context.Context, req *types.QueryUpgradedC
 
 	return &types.QueryUpgradedClientStateResponse{
 		UpgradedClientState: any,
+	}, nil
+}
+
+// UpgradedConsensusState implements the Query/UpgradedConsensusState gRPC method
+func (q Keeper) UpgradedConsensusState(c context.Context, req *types.QueryUpgradedConsensusStateRequest) (*types.QueryUpgradedConsensusStateResponse, error) {
+	if req == nil {
+		return nil, status.Error(codes.InvalidArgument, "empty request")
+	}
+
+	ctx := sdk.UnwrapSDKContext(c)
+
+	bz, found := q.GetUpgradedConsensusState(ctx, ctx.BlockHeight())
+	if !found {
+		return nil, status.Errorf(codes.NotFound, "%s, height %d", types.ErrConsensusStateNotFound.Error(), ctx.BlockHeight())
+	}
+
+	consensusState, err := types.UnmarshalConsensusState(q.cdc, bz)
+	if err != nil {
+		return nil, status.Error(
+			codes.Internal, err.Error(),
+		)
+	}
+
+	any, err := types.PackConsensusState(consensusState)
+	if err != nil {
+		return nil, status.Error(codes.Internal, err.Error())
+	}
+
+	return &types.QueryUpgradedConsensusStateResponse{
+		UpgradedConsensusState: any,
 	}, nil
 }

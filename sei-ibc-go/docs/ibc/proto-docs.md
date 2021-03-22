@@ -664,6 +664,14 @@
                   <a href="#ibc.core.client.v1.QueryUpgradedClientStateResponse"><span class="badge">M</span>QueryUpgradedClientStateResponse</a>
                 </li>
               
+                <li>
+                  <a href="#ibc.core.client.v1.QueryUpgradedConsensusStateRequest"><span class="badge">M</span>QueryUpgradedConsensusStateRequest</a>
+                </li>
+              
+                <li>
+                  <a href="#ibc.core.client.v1.QueryUpgradedConsensusStateResponse"><span class="badge">M</span>QueryUpgradedConsensusStateResponse</a>
+                </li>
+              
               
               
               
@@ -4689,31 +4697,6 @@ ConsensusState </p></td>
         <p>QueryUpgradedClientStateRequest is the request type for the</p><p>Query/UpgradedClientState RPC method</p>
 
         
-          <table class="field-table">
-            <thead>
-              <tr><td>Field</td><td>Type</td><td>Label</td><td>Description</td></tr>
-            </thead>
-            <tbody>
-              
-                <tr>
-                  <td>client_id</td>
-                  <td><a href="#string">string</a></td>
-                  <td></td>
-                  <td><p>client state unique identifier </p></td>
-                </tr>
-              
-                <tr>
-                  <td>plan_height</td>
-                  <td><a href="#int64">int64</a></td>
-                  <td></td>
-                  <td><p>plan height of the current chain must be sent in request
-as this is the height under which upgraded client state is stored </p></td>
-                </tr>
-              
-            </tbody>
-          </table>
-
-          
 
         
       
@@ -4732,6 +4715,37 @@ as this is the height under which upgraded client state is stored </p></td>
                   <td><a href="#google.protobuf.Any">google.protobuf.Any</a></td>
                   <td></td>
                   <td><p>client state associated with the request identifier </p></td>
+                </tr>
+              
+            </tbody>
+          </table>
+
+          
+
+        
+      
+        <h3 id="ibc.core.client.v1.QueryUpgradedConsensusStateRequest">QueryUpgradedConsensusStateRequest</h3>
+        <p>QueryUpgradedConsensusStateRequest is the request type for the</p><p>Query/UpgradedConsensusState RPC method</p>
+
+        
+
+        
+      
+        <h3 id="ibc.core.client.v1.QueryUpgradedConsensusStateResponse">QueryUpgradedConsensusStateResponse</h3>
+        <p>QueryUpgradedConsensusStateResponse is the response type for the</p><p>Query/UpgradedConsensusState RPC method.</p>
+
+        
+          <table class="field-table">
+            <thead>
+              <tr><td>Field</td><td>Type</td><td>Label</td><td>Description</td></tr>
+            </thead>
+            <tbody>
+              
+                <tr>
+                  <td>upgraded_consensus_state</td>
+                  <td><a href="#google.protobuf.Any">google.protobuf.Any</a></td>
+                  <td></td>
+                  <td><p>Consensus state associated with the request identifier </p></td>
                 </tr>
               
             </tbody>
@@ -4797,6 +4811,13 @@ client.</p></td>
                 <td><a href="#ibc.core.client.v1.QueryUpgradedClientStateRequest">QueryUpgradedClientStateRequest</a></td>
                 <td><a href="#ibc.core.client.v1.QueryUpgradedClientStateResponse">QueryUpgradedClientStateResponse</a></td>
                 <td><p>UpgradedClientState queries an Upgraded IBC light client.</p></td>
+              </tr>
+            
+              <tr>
+                <td>UpgradedConsensusState</td>
+                <td><a href="#ibc.core.client.v1.QueryUpgradedConsensusStateRequest">QueryUpgradedConsensusStateRequest</a></td>
+                <td><a href="#ibc.core.client.v1.QueryUpgradedConsensusStateResponse">QueryUpgradedConsensusStateResponse</a></td>
+                <td><p>UpgradedConsensusState queries an Upgraded IBC consensus state.</p></td>
               </tr>
             
           </tbody>
@@ -4872,7 +4893,17 @@ client.</p></td>
               <tr>
                 <td>UpgradedClientState</td>
                 <td>GET</td>
-                <td>/ibc/core/client/v1/upgraded_client_states/{client_id}</td>
+                <td>/ibc/core/client/v1/upgraded_client_states</td>
+                <td></td>
+              </tr>
+              
+            
+              
+              
+              <tr>
+                <td>UpgradedConsensusState</td>
+                <td>GET</td>
+                <td>/ibc/core/client/v1/upgraded_consensus_states</td>
                 <td></td>
               </tr>
               

@@ -51,7 +51,14 @@ service Query {
   rpc UpgradedClientState(QueryUpgradedClientStateRequest)
       returns (QueryUpgradedClientStateResponse) {
     option (google.api.http).get =
-        "/ibc/core/client/v1/upgraded_client_states/{client_id}";
+        "/ibc/core/client/v1/upgraded_client_states";
+  }
+
+  // UpgradedConsensusState queries an Upgraded IBC consensus state.
+  rpc UpgradedConsensusState(QueryUpgradedConsensusStateRequest)
+      returns (QueryUpgradedConsensusStateResponse) {
+    option (google.api.http).get =
+        "/ibc/core/client/v1/upgraded_consensus_states";
   }
 }
 
@@ -148,19 +155,25 @@ message QueryClientParamsResponse {
   // params defines the parameters of the module.
   Params params = 1;
 }
+
 // QueryUpgradedClientStateRequest is the request type for the
 // Query/UpgradedClientState RPC method
-message QueryUpgradedClientStateRequest {
-  // client state unique identifier
-  string client_id = 1;
-  // plan height of the current chain must be sent in request
-  // as this is the height under which upgraded client state is stored
-  int64 plan_height = 2;
-}
+message QueryUpgradedClientStateRequest { }
 
 // QueryUpgradedClientStateResponse is the response type for the
 // Query/UpgradedClientState RPC method.
 message QueryUpgradedClientStateResponse {
   // client state associated with the request identifier
   google.protobuf.Any upgraded_client_state = 1;
+}
+
+// QueryUpgradedConsensusStateRequest is the request type for the
+// Query/UpgradedConsensusState RPC method
+message QueryUpgradedConsensusStateRequest { }
+
+// QueryUpgradedConsensusStateResponse is the response type for the
+// Query/UpgradedConsensusState RPC method.
+message QueryUpgradedConsensusStateResponse {
+  // Consensus state associated with the request identifier
+  google.protobuf.Any upgraded_consensus_state = 1;
 }

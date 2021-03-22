@@ -19,7 +19,8 @@ type UpgradeKeeper interface {
 	ClearIBCState(ctx sdk.Context, lastHeight int64)
 	GetUpgradePlan(ctx sdk.Context) (plan upgradetypes.Plan, havePlan bool)
 	GetUpgradedClient(ctx sdk.Context, height int64) ([]byte, bool)
-	SetUpgradedConsensusState(ctx sdk.Context, planHeight int64, bz []byte) error
 	SetUpgradedClient(ctx sdk.Context, planHeight int64, bz []byte) error
+	GetUpgradedConsensusState(ctx sdk.Context, lastHeight int64) ([]byte, bool)
+	SetUpgradedConsensusState(ctx sdk.Context, planHeight int64, bz []byte) error
 	ScheduleUpgrade(ctx sdk.Context, plan upgradetypes.Plan) error
 }

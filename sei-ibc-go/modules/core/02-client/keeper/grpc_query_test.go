@@ -6,8 +6,10 @@ import (
 
 	codectypes "github.com/cosmos/cosmos-sdk/codec/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
-
+	grpctypes "github.com/cosmos/cosmos-sdk/types/grpc"
 	"github.com/cosmos/cosmos-sdk/types/query"
+	"google.golang.org/grpc/metadata"
+
 	"github.com/cosmos/ibc-go/modules/core/02-client/types"
 	commitmenttypes "github.com/cosmos/ibc-go/modules/core/23-commitment/types"
 	"github.com/cosmos/ibc-go/modules/core/exported"
@@ -366,6 +368,62 @@ func (suite *KeeperTestSuite) TestQueryConsensusStates() {
 					cachedValue := res.ConsensusStates[i].ConsensusState.GetCachedValue()
 					suite.Require().NotNil(cachedValue)
 				}
+			} else {
+				suite.Require().Error(err)
+			}
+		})
+	}
+}
+
+func (suite *KeeperTestSuite) TestQueryUpgradedConsensusStates() {
+	var (
+		req               *types.QueryUpgradedConsensusStateRequest
+		expConsensusState *codectypes.Any
+		height            int64
+	)
+
+	testCases := []struct {
+		msg      string
+		malleate func()
+		expPass  bool
+	}{
+		{
+			"no plan",
+			func() {
+				req = &types.QueryUpgradedConsensusStateRequest{}
+			},
+			false,
+		},
+		{
+			"valid consensus state",
+			func() {
+				req = &types.QueryUpgradedConsensusStateRequest{}
+				lastHeight := types.NewHeight(0, uint64(suite.ctx.BlockHeight()))
+				height = int64(lastHeight.GetRevisionHeight())
+				suite.ctx = suite.ctx.WithBlockHeight(height)
+
+				expConsensusState = types.MustPackConsensusState(suite.consensusState)
+				bz := types.MustMarshalConsensusState(suite.cdc, suite.consensusState)
+				err := suite.keeper.SetUpgradedConsensusState(suite.ctx, height, bz)
+				suite.Require().NoError(err)
+			},
+			true,
+		},
+	}
+
+	for _, tc := range testCases {
+		suite.Run(fmt.Sprintf("Case %s", tc.msg), func() {
+			suite.SetupTest() // reset
+
+			tc.malleate()
+
+			ctx := sdk.WrapSDKContext(suite.ctx)
+			ctx = metadata.AppendToOutgoingContext(ctx, grpctypes.GRPCBlockHeightHeader, fmt.Sprintf("%d", height))
+
+			res, err := suite.queryClient.UpgradedConsensusState(ctx, req)
+			if tc.expPass {
+				suite.Require().NoError(err)
+				suite.Require().True(expConsensusState.Equal(res.UpgradedConsensusState))
 			} else {
 				suite.Require().Error(err)
 			}
