@@ -53,4 +53,4 @@ The localhost client is currently non-functional.
 
 Please see our [documentation](docs/README.md) for more information.
 
-
+Checkout the [IBC website](https://ibcprotocol.org/). 
