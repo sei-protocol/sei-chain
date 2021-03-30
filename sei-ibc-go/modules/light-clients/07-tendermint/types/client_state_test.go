@@ -21,6 +21,7 @@ const (
 	testPortID       = "testportid"
 	testChannelID    = "testchannelid"
 	testSequence     = 1
+	longChainID      = "Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum."
 )
 
 var (
@@ -46,6 +47,11 @@ func (suite *TendermintTestSuite) TestValidate() {
 		{
 			name:        "invalid chainID",
 			clientState: types.NewClientState("  ", types.DefaultTrustLevel, trustingPeriod, ubdPeriod, maxClockDrift, height, commitmenttypes.GetSDKSpecs(), upgradePath, false, false),
+			expPass:     false,
+		},
+		{
+			name:        "invalid chainID - chainID is above maximum character length",
+			clientState: types.NewClientState(longChainID, types.DefaultTrustLevel, trustingPeriod, ubdPeriod, maxClockDrift, height, commitmenttypes.GetSDKSpecs(), upgradePath, false, false),
 			expPass:     false,
 		},
 		{
