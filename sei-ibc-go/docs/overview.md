@@ -56,7 +56,7 @@ of a handshake, or a packet intended to be relayed to a module on the counterpar
 process monitors for updates to these paths, and will relay messages, by submitting the data stored
 under the path along with a proof to the counterparty chain. The paths that all IBC implementations
 must use for committing IBC messages is defined in
-[ICS-24](https://github.com/cosmos/ics/tree/master/spec/ics-024-host-requirements) and the proof
+[ICS-24](https://github.com/cosmos/ics/tree/master/spec/core/ics-024-host-requirements) and the proof
 format that all implementations must be able to produce and verify is defined in this [ICS-23 implementation](https://github.com/confio/ics23).
 
 ### [Capabilities](./ocap.md)
