@@ -3,7 +3,6 @@ package cli
 import (
 	"github.com/spf13/cobra"
 
-	"github.com/cosmos/cosmos-sdk/client"
 	"github.com/cosmos/ibc-go/modules/core/03-connection/types"
 )
 
@@ -23,24 +22,4 @@ func GetQueryCmd() *cobra.Command {
 	)
 
 	return queryCmd
-}
-
-// NewTxCmd returns a CLI command handler for all x/ibc connection transaction commands.
-func NewTxCmd() *cobra.Command {
-	txCmd := &cobra.Command{
-		Use:                        types.SubModuleName,
-		Short:                      "IBC connection transaction subcommands",
-		DisableFlagParsing:         true,
-		SuggestionsMinimumDistance: 2,
-		RunE:                       client.ValidateCmd,
-	}
-
-	txCmd.AddCommand(
-		NewConnectionOpenInitCmd(),
-		NewConnectionOpenTryCmd(),
-		NewConnectionOpenAckCmd(),
-		NewConnectionOpenConfirmCmd(),
-	)
-
-	return txCmd
 }

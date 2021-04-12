@@ -22,7 +22,6 @@ func GetTxCmd() *cobra.Command {
 
 	ibcTxCmd.AddCommand(
 		ibcclient.GetTxCmd(),
-		connection.GetTxCmd(),
 		channel.GetTxCmd(),
 	)
 

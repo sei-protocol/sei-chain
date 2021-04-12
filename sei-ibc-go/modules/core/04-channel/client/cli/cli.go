@@ -45,14 +45,7 @@ func NewTxCmd() *cobra.Command {
 		RunE:                       client.ValidateCmd,
 	}
 
-	txCmd.AddCommand(
-		NewChannelOpenInitCmd(),
-		NewChannelOpenTryCmd(),
-		NewChannelOpenAckCmd(),
-		NewChannelOpenConfirmCmd(),
-		NewChannelCloseInitCmd(),
-		NewChannelCloseConfirmCmd(),
-	)
+	txCmd.AddCommand()
 
 	return txCmd
 }
