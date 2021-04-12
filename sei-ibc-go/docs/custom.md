@@ -295,49 +295,46 @@ invoked by the IBC module after the packet has been proved valid and correctly p
 keepers. Thus, the `OnRecvPacket` callback only needs to worry about making the appropriate state
 changes given the packet data without worrying about whether the packet is valid or not.
 
-Modules may return an acknowledgement as a byte string and return it to the IBC handler.
+Modules may return to the IBC handler an acknowledgement which implements the Acknowledgement interface.
 The IBC handler will then commit this acknowledgement of the packet so that a relayer may relay the
 acknowledgement back to the sender module.
+
+The state changes that occurred during this callback will only be written if:
+- the acknowledgement was successful as indicated by the `Success()` function of the acknowledgement
+- if the acknowledgement returned is nil indicating that an asynchronous process is occurring
+
+NOTE: Applications which process asynchronous acknowledgements must handle reverting state changes
+when appropriate. Any state changes that occurred during the `OnRecvPacket` callback will be written 
+for asynchronous acknowledgements. 
 
 ```go
 OnRecvPacket(
     ctx sdk.Context,
     packet channeltypes.Packet,
-) (res *sdk.Result, ack []byte, abort error) {
+) ibcexported.Acknowledgement {
     // Decode the packet data
     packetData := DecodePacketData(packet.Data)
 
-    // do application state changes based on packet data
-    // and return result, acknowledgement and abortErr
-    // Note: abortErr is only not nil if we need to abort the entire receive packet, and allow a replay of the receive.
-    // If the application state change failed but we do not want to replay the packet,
-    // simply encode this failure with relevant information in ack and return nil error
-    res, ack, abortErr := processPacket(ctx, packet, packetData)
+    // do application state changes based on packet data and return the acknowledgement
+    // NOTE: The acknowledgement will indicate to the IBC handler if the application 
+    // state changes should be written via the `Success()` function. Application state
+    // changes are only written if the acknowledgement is successful or the acknowledgement
+    // returned is nil indicating that an asynchronous acknowledgement will occur.
+    ack := processPacket(ctx, packet, packetData)
 
-    // if we need to abort the entire receive packet, return error
-    if abortErr != nil {
-        return nil, nil, abortErr
-    }
-
-    // Encode the ack since IBC expects acknowledgement bytes
-    ackBytes := EncodeAcknowledgement(ack)
-
-    return res, ackBytes, nil
+    return ack
 }
 ```
 
-::: warning
-`OnRecvPacket` should **only** return an error if we want the entire receive packet execution
-(including the IBC handling) to be reverted. This will allow the packet to be replayed in the case
-that some mistake in the relaying caused the packet processing to fail.
-
-If some application-level error happened while processing the packet data, in most cases, we will
-not want the packet processing to revert. Instead, we may want to encode this failure into the
-acknowledgement and finish processing the packet. This will ensure the packet cannot be replayed,
-and will also allow the sender module to potentially remediate the situation upon receiving the
-acknowledgement. An example of this technique is in the `ibc-transfer` module's
-[`OnRecvPacket`](https://github.com/cosmos/ibc-go/tree/main/modules/apps/transfer/module.go).
-:::
+The Acknowledgement interface:
+```go
+// Acknowledgement defines the interface used to return
+// acknowledgements in the OnRecvPacket callback.
+type Acknowledgement interface {
+	Success() bool
+	Acknowledgement() []byte
+}
+```
 
 ### Acknowledgements
 

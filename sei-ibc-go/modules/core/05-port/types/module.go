@@ -5,6 +5,7 @@ import (
 
 	capabilitytypes "github.com/cosmos/cosmos-sdk/x/capability/types"
 	channeltypes "github.com/cosmos/ibc-go/modules/core/04-channel/types"
+	"github.com/cosmos/ibc-go/modules/core/exported"
 )
 
 // IBCModule defines an interface that implements all the callbacks
@@ -58,12 +59,15 @@ type IBCModule interface {
 		channelID string,
 	) error
 
-	// OnRecvPacket must return the acknowledgement bytes
+	// OnRecvPacket must return an acknowledgement that implements the Acknowledgement interface.
 	// In the case of an asynchronous acknowledgement, nil should be returned.
+	// If the acknowledgement returned is successful, the state changes on callback are written,
+	// otherwise the application state changes are discarded. In either case the packet is received
+	// and the acknowledgement is written (in synchronous cases).
 	OnRecvPacket(
 		ctx sdk.Context,
 		packet channeltypes.Packet,
-	) (*sdk.Result, []byte, error)
+	) exported.Acknowledgement
 
 	OnAcknowledgementPacket(
 		ctx sdk.Context,

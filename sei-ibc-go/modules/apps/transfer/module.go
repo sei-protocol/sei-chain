@@ -7,13 +7,6 @@ import (
 	"math"
 	"math/rand"
 
-	"github.com/grpc-ecosystem/grpc-gateway/runtime"
-
-	"github.com/gorilla/mux"
-	"github.com/spf13/cobra"
-
-	abci "github.com/tendermint/tendermint/abci/types"
-
 	"github.com/cosmos/cosmos-sdk/client"
 	"github.com/cosmos/cosmos-sdk/codec"
 	codectypes "github.com/cosmos/cosmos-sdk/codec/types"
@@ -22,6 +15,11 @@ import (
 	"github.com/cosmos/cosmos-sdk/types/module"
 	simtypes "github.com/cosmos/cosmos-sdk/types/simulation"
 	capabilitytypes "github.com/cosmos/cosmos-sdk/x/capability/types"
+	"github.com/gorilla/mux"
+	"github.com/grpc-ecosystem/grpc-gateway/runtime"
+	"github.com/spf13/cobra"
+	abci "github.com/tendermint/tendermint/abci/types"
+
 	"github.com/cosmos/ibc-go/modules/apps/transfer/client/cli"
 	"github.com/cosmos/ibc-go/modules/apps/transfer/keeper"
 	"github.com/cosmos/ibc-go/modules/apps/transfer/simulation"
@@ -29,6 +27,7 @@ import (
 	channeltypes "github.com/cosmos/ibc-go/modules/core/04-channel/types"
 	porttypes "github.com/cosmos/ibc-go/modules/core/05-port/types"
 	host "github.com/cosmos/ibc-go/modules/core/24-host"
+	ibcexported "github.com/cosmos/ibc-go/modules/core/exported"
 )
 
 var (
@@ -318,21 +317,27 @@ func (am AppModule) OnChanCloseConfirm(
 	return nil
 }
 
-// OnRecvPacket implements the IBCModule interface
+// OnRecvPacket implements the IBCModule interface. A successful acknowledgement
+// is returned if the packet data is succesfully decoded and the receive application
+// logic returns without error.
 func (am AppModule) OnRecvPacket(
 	ctx sdk.Context,
 	packet channeltypes.Packet,
-) (*sdk.Result, []byte, error) {
+) ibcexported.Acknowledgement {
+	ack := channeltypes.NewResultAcknowledgement([]byte{byte(1)})
+
 	var data types.FungibleTokenPacketData
 	if err := types.ModuleCdc.UnmarshalJSON(packet.GetData(), &data); err != nil {
-		return nil, nil, sdkerrors.Wrapf(sdkerrors.ErrUnknownRequest, "cannot unmarshal ICS-20 transfer packet data: %s", err.Error())
+		ack = channeltypes.NewErrorAcknowledgement(fmt.Sprintf("cannot unmarshal ICS-20 transfer packet data: %s", err.Error()))
 	}
 
-	acknowledgement := channeltypes.NewResultAcknowledgement([]byte{byte(1)})
-
-	err := am.keeper.OnRecvPacket(ctx, packet, data)
-	if err != nil {
-		acknowledgement = channeltypes.NewErrorAcknowledgement(err.Error())
+	// only attempt the application logic if the packet data
+	// was successfully decoded
+	if ack.Success() {
+		err := am.keeper.OnRecvPacket(ctx, packet, data)
+		if err != nil {
+			ack = channeltypes.NewErrorAcknowledgement(err.Error())
+		}
 	}
 
 	ctx.EventManager().EmitEvent(
@@ -342,14 +347,12 @@ func (am AppModule) OnRecvPacket(
 			sdk.NewAttribute(types.AttributeKeyReceiver, data.Receiver),
 			sdk.NewAttribute(types.AttributeKeyDenom, data.Denom),
 			sdk.NewAttribute(types.AttributeKeyAmount, fmt.Sprintf("%d", data.Amount)),
-			sdk.NewAttribute(types.AttributeKeyAckSuccess, fmt.Sprintf("%t", err != nil)),
+			sdk.NewAttribute(types.AttributeKeyAckSuccess, fmt.Sprintf("%t", ack.Success())),
 		),
 	)
 
 	// NOTE: acknowledgement will be written synchronously during IBC handler execution.
-	return &sdk.Result{
-		Events: ctx.EventManager().Events().ToABCIEvents(),
-	}, acknowledgement.GetBytes(), nil
+	return ack
 }
 
 // OnAcknowledgementPacket implements the IBCModule interface

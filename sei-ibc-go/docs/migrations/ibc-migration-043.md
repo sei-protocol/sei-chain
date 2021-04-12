@@ -91,3 +91,11 @@ REST routes are not supported for these proposals.
 ## Proto file changes
 
 The gRPC querier service endpoints have changed slightly. The previous files used `v1beta1`, this has been updated to `v1`.
+
+## IBC callback changes
+
+### OnRecvPacket
+
+Application developers need to update their `OnRecvPacket` callback logic. 
+
+The `OnRecvPacket` callback has been modified to only return the acknowledgement. The acknowledgement returned must implement the `Acknowledgement` interface. The acknowledgement should indicate if it represents a successful processing of a packet by returning true on `Success()` and false in all other cases. A return value of false on `Success()` will result in all state changes which occurred in the callback being discarded. More information can be found in the [documentation](https://github.com/cosmos/ibc-go/blob/main/docs/custom.md#receiving-packets).
