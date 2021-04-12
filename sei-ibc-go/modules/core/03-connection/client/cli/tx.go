@@ -74,7 +74,7 @@ func NewConnectionOpenInitCmd() *cobra.Command {
 
 			msg := types.NewMsgConnectionOpenInit(
 				clientID, counterpartyClientID,
-				counterpartyPrefix, version, delayPeriod, clientCtx.GetFromAddress(),
+				counterpartyPrefix, version, delayPeriod, clientCtx.GetFromAddress().String(),
 			)
 
 			svcMsgClientConn := &msgservice.ServiceMsgClientConn{}
@@ -190,7 +190,7 @@ func NewConnectionOpenTryCmd() *cobra.Command {
 				connectionID, clientID, counterpartyConnectionID, counterpartyClientID,
 				counterpartyClient, counterpartyPrefix, counterpartyVersions, delayPeriod,
 				proofInit, proofClient, proofConsensus, proofHeight,
-				consensusHeight, clientCtx.GetFromAddress(),
+				consensusHeight, clientCtx.GetFromAddress().String(),
 			)
 
 			svcMsgClientConn := &msgservice.ServiceMsgClientConn{}
@@ -280,7 +280,7 @@ func NewConnectionOpenAckCmd() *cobra.Command {
 
 			msg := types.NewMsgConnectionOpenAck(
 				connectionID, counterpartyConnectionID, counterpartyClient, proofTry, proofClient, proofConsensus, proofHeight,
-				consensusHeight, version, clientCtx.GetFromAddress(),
+				consensusHeight, version, clientCtx.GetFromAddress().String(),
 			)
 
 			svcMsgClientConn := &msgservice.ServiceMsgClientConn{}
@@ -328,7 +328,7 @@ func NewConnectionOpenConfirmCmd() *cobra.Command {
 			}
 
 			msg := types.NewMsgConnectionOpenConfirm(
-				connectionID, proofAck, proofHeight, clientCtx.GetFromAddress(),
+				connectionID, proofAck, proofHeight, clientCtx.GetFromAddress().String(),
 			)
 
 			svcMsgClientConn := &msgservice.ServiceMsgClientConn{}

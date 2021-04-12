@@ -25,9 +25,9 @@ const (
 )
 
 var (
-	addr1     = sdk.AccAddress(secp256k1.GenPrivKey().PubKey().Address())
+	addr1     = sdk.AccAddress(secp256k1.GenPrivKey().PubKey().Address()).String()
 	addr2     = sdk.AccAddress("testaddr2").String()
-	emptyAddr sdk.AccAddress
+	emptyAddr string
 
 	coin             = sdk.NewCoin("atom", sdk.NewInt(100))
 	ibcCoin          = sdk.NewCoin("ibc/7F1D3FCF4AE79E1554D670D1AD949A9BA4E4A3C76C63093E17E446A46061A7A2", sdk.NewInt(100))
@@ -96,8 +96,10 @@ func TestMsgTransferValidation(t *testing.T) {
 
 // TestMsgTransferGetSigners tests GetSigners for MsgTransfer
 func TestMsgTransferGetSigners(t *testing.T) {
-	msg := NewMsgTransfer(validPort, validChannel, coin, addr1, addr2, timeoutHeight, 0)
+	addr := sdk.AccAddress(secp256k1.GenPrivKey().PubKey().Address())
+
+	msg := NewMsgTransfer(validPort, validChannel, coin, addr.String(), addr2, timeoutHeight, 0)
 	res := msg.GetSigners()
 
-	require.Equal(t, []sdk.AccAddress{addr1}, res)
+	require.Equal(t, []sdk.AccAddress{addr}, res)
 }

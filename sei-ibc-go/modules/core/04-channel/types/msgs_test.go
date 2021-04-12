@@ -9,7 +9,6 @@ import (
 	abci "github.com/tendermint/tendermint/abci/types"
 	dbm "github.com/tendermint/tm-db"
 
-	"github.com/cosmos/ibc-go/testing/simapp"
 	"github.com/cosmos/cosmos-sdk/store/iavl"
 	"github.com/cosmos/cosmos-sdk/store/rootmulti"
 	storetypes "github.com/cosmos/cosmos-sdk/store/types"
@@ -18,6 +17,7 @@ import (
 	"github.com/cosmos/ibc-go/modules/core/04-channel/types"
 	commitmenttypes "github.com/cosmos/ibc-go/modules/core/23-commitment/types"
 	"github.com/cosmos/ibc-go/modules/core/exported"
+	"github.com/cosmos/ibc-go/testing/simapp"
 )
 
 const (
@@ -59,8 +59,8 @@ var (
 	invalidProofs1 = exported.Proof(nil)
 	invalidProofs2 = emptyProof
 
-	addr      = sdk.AccAddress("testaddr111111111111")
-	emptyAddr sdk.AccAddress
+	addr      = sdk.AccAddress("testaddr111111111111").String()
+	emptyAddr string
 
 	connHops             = []string{"testconnection"}
 	invalidConnHops      = []string{"testconnection", "testconnection"}
@@ -125,7 +125,7 @@ func (suite *TypesTestSuite) TestMsgChannelOpenInitValidateBasic() {
 		{"connection id contains non-alpha", types.NewMsgChannelOpenInit(portid, version, types.UNORDERED, []string{invalidConnection}, cpportid, addr), false},
 		{"", types.NewMsgChannelOpenInit(portid, "", types.UNORDERED, connHops, cpportid, addr), true},
 		{"invalid counterparty port id", types.NewMsgChannelOpenInit(portid, version, types.UNORDERED, connHops, invalidPort, addr), false},
-		{"channel not in INIT state", &types.MsgChannelOpenInit{portid, tryOpenChannel, addr.String()}, false},
+		{"channel not in INIT state", &types.MsgChannelOpenInit{portid, tryOpenChannel, addr}, false},
 	}
 
 	for _, tc := range testCases {
@@ -169,7 +169,7 @@ func (suite *TypesTestSuite) TestMsgChannelOpenTryValidateBasic() {
 		{"invalid counterparty port id", types.NewMsgChannelOpenTry(portid, chanid, version, types.UNORDERED, connHops, invalidPort, cpchanid, version, suite.proof, height, addr), false},
 		{"invalid counterparty channel id", types.NewMsgChannelOpenTry(portid, chanid, version, types.UNORDERED, connHops, cpportid, invalidChannel, version, suite.proof, height, addr), false},
 		{"empty proof", types.NewMsgChannelOpenTry(portid, chanid, version, types.UNORDERED, connHops, cpportid, cpchanid, version, emptyProof, height, addr), false},
-		{"channel not in TRYOPEN state", &types.MsgChannelOpenTry{portid, chanid, initChannel, version, suite.proof, height, addr.String()}, false},
+		{"channel not in TRYOPEN state", &types.MsgChannelOpenTry{portid, chanid, initChannel, version, suite.proof, height, addr}, false},
 	}
 
 	for _, tc := range testCases {

@@ -40,7 +40,7 @@ to the counterparty channel. Any timeout set to 0 is disabled.`),
 			if err != nil {
 				return err
 			}
-			sender := clientCtx.GetFromAddress()
+			sender := clientCtx.GetFromAddress().String()
 			srcPort := args[0]
 			srcChannel := args[1]
 			receiver := args[2]

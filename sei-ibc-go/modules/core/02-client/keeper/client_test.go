@@ -7,6 +7,7 @@ import (
 
 	tmtypes "github.com/tendermint/tendermint/types"
 
+	upgradetypes "github.com/cosmos/cosmos-sdk/x/upgrade/types"
 	"github.com/cosmos/ibc-go/modules/core/02-client/types"
 	clienttypes "github.com/cosmos/ibc-go/modules/core/02-client/types"
 	commitmenttypes "github.com/cosmos/ibc-go/modules/core/23-commitment/types"
@@ -15,7 +16,6 @@ import (
 	localhosttypes "github.com/cosmos/ibc-go/modules/light-clients/09-localhost/types"
 	ibctesting "github.com/cosmos/ibc-go/testing"
 	ibctestingmock "github.com/cosmos/ibc-go/testing/mock"
-	upgradetypes "github.com/cosmos/cosmos-sdk/x/upgrade/types"
 )
 
 func (suite *KeeperTestSuite) TestCreateClient() {
@@ -598,7 +598,7 @@ func (suite *KeeperTestSuite) TestUpdateClientEventEmission() {
 
 	msg, err := clienttypes.NewMsgUpdateClient(
 		clientID, header,
-		suite.chainA.SenderAccount.GetAddress(),
+		suite.chainA.SenderAccount.GetAddress().String(),
 	)
 
 	result, err := suite.chainA.SendMsgs(msg)

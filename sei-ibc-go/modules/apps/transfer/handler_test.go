@@ -43,7 +43,7 @@ func (suite *TransferTestSuite) TestHandleMsgTransfer() {
 	coinToSendToB := sdk.NewCoin(sdk.DefaultBondDenom, sdk.NewInt(100))
 
 	// send from chainA to chainB
-	msg := types.NewMsgTransfer(channelA.PortID, channelA.ID, coinToSendToB, suite.chainA.SenderAccount.GetAddress(), suite.chainB.SenderAccount.GetAddress().String(), timeoutHeight, 0)
+	msg := types.NewMsgTransfer(channelA.PortID, channelA.ID, coinToSendToB, suite.chainA.SenderAccount.GetAddress().String(), suite.chainB.SenderAccount.GetAddress().String(), timeoutHeight, 0)
 
 	err := suite.coordinator.SendMsg(suite.chainA, suite.chainB, clientB, msg)
 	suite.Require().NoError(err) // message committed
@@ -67,7 +67,7 @@ func (suite *TransferTestSuite) TestHandleMsgTransfer() {
 	channelOnBForC, channelOnCForB := suite.coordinator.CreateTransferChannels(suite.chainB, suite.chainC, connOnBForC, connOnCForB, channeltypes.UNORDERED)
 
 	// send from chainB to chainC
-	msg = types.NewMsgTransfer(channelOnBForC.PortID, channelOnBForC.ID, coinSentFromAToB, suite.chainB.SenderAccount.GetAddress(), suite.chainC.SenderAccount.GetAddress().String(), timeoutHeight, 0)
+	msg = types.NewMsgTransfer(channelOnBForC.PortID, channelOnBForC.ID, coinSentFromAToB, suite.chainB.SenderAccount.GetAddress().String(), suite.chainC.SenderAccount.GetAddress().String(), timeoutHeight, 0)
 
 	err = suite.coordinator.SendMsg(suite.chainB, suite.chainC, clientOnCForB, msg)
 	suite.Require().NoError(err) // message committed
@@ -91,7 +91,7 @@ func (suite *TransferTestSuite) TestHandleMsgTransfer() {
 	suite.Require().Zero(balance.Amount.Int64())
 
 	// send from chainC back to chainB
-	msg = types.NewMsgTransfer(channelOnCForB.PortID, channelOnCForB.ID, coinSentFromBToC, suite.chainC.SenderAccount.GetAddress(), suite.chainB.SenderAccount.GetAddress().String(), timeoutHeight, 0)
+	msg = types.NewMsgTransfer(channelOnCForB.PortID, channelOnCForB.ID, coinSentFromBToC, suite.chainC.SenderAccount.GetAddress().String(), suite.chainB.SenderAccount.GetAddress().String(), timeoutHeight, 0)
 
 	err = suite.coordinator.SendMsg(suite.chainC, suite.chainB, clientOnBForC, msg)
 	suite.Require().NoError(err) // message committed

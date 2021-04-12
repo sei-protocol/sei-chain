@@ -26,7 +26,7 @@ var (
 func NewMsgConnectionOpenInit(
 	clientID, counterpartyClientID string,
 	counterpartyPrefix commitmenttypes.MerklePrefix,
-	version *Version, delayPeriod uint64, signer sdk.AccAddress,
+	version *Version, delayPeriod uint64, signer string,
 ) *MsgConnectionOpenInit {
 	// counterparty must have the same delay period
 	counterparty := NewCounterparty(counterpartyClientID, "", counterpartyPrefix)
@@ -35,7 +35,7 @@ func NewMsgConnectionOpenInit(
 		Counterparty: counterparty,
 		Version:      version,
 		DelayPeriod:  delayPeriod,
-		Signer:       signer.String(),
+		Signer:       signer,
 	}
 }
 
@@ -94,7 +94,7 @@ func NewMsgConnectionOpenTry(
 	counterpartyPrefix commitmenttypes.MerklePrefix,
 	counterpartyVersions []*Version, delayPeriod uint64,
 	proofInit, proofClient, proofConsensus []byte,
-	proofHeight, consensusHeight clienttypes.Height, signer sdk.AccAddress,
+	proofHeight, consensusHeight clienttypes.Height, signer string,
 ) *MsgConnectionOpenTry {
 	counterparty := NewCounterparty(counterpartyClientID, counterpartyConnectionID, counterpartyPrefix)
 	csAny, _ := clienttypes.PackClientState(counterpartyClient)
@@ -110,7 +110,7 @@ func NewMsgConnectionOpenTry(
 		ProofConsensus:       proofConsensus,
 		ProofHeight:          proofHeight,
 		ConsensusHeight:      consensusHeight,
-		Signer:               signer.String(),
+		Signer:               signer,
 	}
 }
 
@@ -206,7 +206,7 @@ func NewMsgConnectionOpenAck(
 	proofTry, proofClient, proofConsensus []byte,
 	proofHeight, consensusHeight clienttypes.Height,
 	version *Version,
-	signer sdk.AccAddress,
+	signer string,
 ) *MsgConnectionOpenAck {
 	csAny, _ := clienttypes.PackClientState(counterpartyClient)
 	return &MsgConnectionOpenAck{
@@ -219,7 +219,7 @@ func NewMsgConnectionOpenAck(
 		ProofHeight:              proofHeight,
 		ConsensusHeight:          consensusHeight,
 		Version:                  version,
-		Signer:                   signer.String(),
+		Signer:                   signer,
 	}
 }
 
@@ -300,13 +300,13 @@ func (msg MsgConnectionOpenAck) GetSigners() []sdk.AccAddress {
 //nolint:interfacer
 func NewMsgConnectionOpenConfirm(
 	connectionID string, proofAck []byte, proofHeight clienttypes.Height,
-	signer sdk.AccAddress,
+	signer string,
 ) *MsgConnectionOpenConfirm {
 	return &MsgConnectionOpenConfirm{
 		ConnectionId: connectionID,
 		ProofAck:     proofAck,
 		ProofHeight:  proofHeight,
-		Signer:       signer.String(),
+		Signer:       signer,
 	}
 }
 

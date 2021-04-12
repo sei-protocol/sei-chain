@@ -41,7 +41,7 @@ func NewChannelOpenInitCmd() *cobra.Command {
 
 			msg := types.NewMsgChannelOpenInit(
 				portID, version, order, hops,
-				counterpartyPortID, clientCtx.GetFromAddress(),
+				counterpartyPortID, clientCtx.GetFromAddress().String(),
 			)
 			svcMsgClientConn := &msgservice.ServiceMsgClientConn{}
 			msgClient := types.NewMsgClient(svcMsgClientConn)
@@ -95,7 +95,7 @@ func NewChannelOpenTryCmd() *cobra.Command {
 			msg := types.NewMsgChannelOpenTry(
 				portID, channelID, version, order, hops,
 				counterpartyPortID, counterpartyChannelID, version,
-				proofInit, proofHeight, clientCtx.GetFromAddress(),
+				proofInit, proofHeight, clientCtx.GetFromAddress().String(),
 			)
 			svcMsgClientConn := &msgservice.ServiceMsgClientConn{}
 			msgClient := types.NewMsgClient(svcMsgClientConn)
@@ -144,7 +144,7 @@ func NewChannelOpenAckCmd() *cobra.Command {
 			}
 
 			msg := types.NewMsgChannelOpenAck(
-				portID, channelID, counterpartyChannelID, version, proofTry, proofHeight, clientCtx.GetFromAddress(),
+				portID, channelID, counterpartyChannelID, version, proofTry, proofHeight, clientCtx.GetFromAddress().String(),
 			)
 			svcMsgClientConn := &msgservice.ServiceMsgClientConn{}
 			msgClient := types.NewMsgClient(svcMsgClientConn)
@@ -187,7 +187,7 @@ func NewChannelOpenConfirmCmd() *cobra.Command {
 			}
 
 			msg := types.NewMsgChannelOpenConfirm(
-				portID, channelID, proofAck, proofHeight, clientCtx.GetFromAddress(),
+				portID, channelID, proofAck, proofHeight, clientCtx.GetFromAddress().String(),
 			)
 			svcMsgClientConn := &msgservice.ServiceMsgClientConn{}
 			msgClient := types.NewMsgClient(svcMsgClientConn)
@@ -219,7 +219,7 @@ func NewChannelCloseInitCmd() *cobra.Command {
 			portID := args[0]
 			channelID := args[1]
 
-			msg := types.NewMsgChannelCloseInit(portID, channelID, clientCtx.GetFromAddress())
+			msg := types.NewMsgChannelCloseInit(portID, channelID, clientCtx.GetFromAddress().String())
 			svcMsgClientConn := &msgservice.ServiceMsgClientConn{}
 			msgClient := types.NewMsgClient(svcMsgClientConn)
 			_, err = msgClient.ChannelCloseInit(cmd.Context(), msg)
@@ -261,7 +261,7 @@ func NewChannelCloseConfirmCmd() *cobra.Command {
 			}
 
 			msg := types.NewMsgChannelCloseConfirm(
-				portID, channelID, proofInit, proofHeight, clientCtx.GetFromAddress(),
+				portID, channelID, proofInit, proofHeight, clientCtx.GetFromAddress().String(),
 			)
 			svcMsgClientConn := &msgservice.ServiceMsgClientConn{}
 			msgClient := types.NewMsgClient(svcMsgClientConn)

@@ -18,14 +18,14 @@ const (
 //nolint:interfacer
 func NewMsgTransfer(
 	sourcePort, sourceChannel string,
-	token sdk.Coin, sender sdk.AccAddress, receiver string,
+	token sdk.Coin, sender, receiver string,
 	timeoutHeight clienttypes.Height, timeoutTimestamp uint64,
 ) *MsgTransfer {
 	return &MsgTransfer{
 		SourcePort:       sourcePort,
 		SourceChannel:    sourceChannel,
 		Token:            token,
-		Sender:           sender.String(),
+		Sender:           sender,
 		Receiver:         receiver,
 		TimeoutHeight:    timeoutHeight,
 		TimeoutTimestamp: timeoutTimestamp,
@@ -77,9 +77,9 @@ func (msg MsgTransfer) GetSignBytes() []byte {
 
 // GetSigners implements sdk.Msg
 func (msg MsgTransfer) GetSigners() []sdk.AccAddress {
-	valAddr, err := sdk.AccAddressFromBech32(msg.Sender)
+	signer, err := sdk.AccAddressFromBech32(msg.Sender)
 	if err != nil {
 		panic(err)
 	}
-	return []sdk.AccAddress{valAddr}
+	return []sdk.AccAddress{signer}
 }

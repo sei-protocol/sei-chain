@@ -103,7 +103,7 @@ func (suite *KeeperTestSuite) TestSendTransfer() {
 			if !tc.sendFromSource {
 				// send coin from chainB to chainA
 				coinFromBToA := sdk.NewCoin(sdk.DefaultBondDenom, sdk.NewInt(100))
-				transferMsg := types.NewMsgTransfer(channelB.PortID, channelB.ID, coinFromBToA, suite.chainB.SenderAccount.GetAddress(), suite.chainA.SenderAccount.GetAddress().String(), clienttypes.NewHeight(0, 110), 0)
+				transferMsg := types.NewMsgTransfer(channelB.PortID, channelB.ID, coinFromBToA, suite.chainB.SenderAccount.GetAddress().String(), suite.chainA.SenderAccount.GetAddress().String(), clienttypes.NewHeight(0, 110), 0)
 				err = suite.coordinator.SendMsg(suite.chainB, suite.chainA, channelA.ClientID, transferMsg)
 				suite.Require().NoError(err) // message committed
 
@@ -115,7 +115,7 @@ func (suite *KeeperTestSuite) TestSendTransfer() {
 				packetKey := host.PacketCommitmentKey(packet.GetSourcePort(), packet.GetSourceChannel(), packet.GetSequence())
 				proof, proofHeight := suite.chainB.QueryProof(packetKey)
 
-				recvMsg := channeltypes.NewMsgRecvPacket(packet, proof, proofHeight, suite.chainA.SenderAccount.GetAddress())
+				recvMsg := channeltypes.NewMsgRecvPacket(packet, proof, proofHeight, suite.chainA.SenderAccount.GetAddress().String())
 				err = suite.coordinator.SendMsg(suite.chainA, suite.chainB, channelB.ClientID, recvMsg)
 				suite.Require().NoError(err) // message committed
 			}
@@ -190,7 +190,7 @@ func (suite *KeeperTestSuite) TestOnRecvPacket() {
 			if tc.recvIsSource {
 				// send coin from chainB to chainA, receive them, acknowledge them, and send back to chainB
 				coinFromBToA := sdk.NewCoin(sdk.DefaultBondDenom, sdk.NewInt(100))
-				transferMsg := types.NewMsgTransfer(channelB.PortID, channelB.ID, coinFromBToA, suite.chainB.SenderAccount.GetAddress(), suite.chainA.SenderAccount.GetAddress().String(), clienttypes.NewHeight(0, 110), 0)
+				transferMsg := types.NewMsgTransfer(channelB.PortID, channelB.ID, coinFromBToA, suite.chainB.SenderAccount.GetAddress().String(), suite.chainA.SenderAccount.GetAddress().String(), clienttypes.NewHeight(0, 110), 0)
 				err := suite.coordinator.SendMsg(suite.chainB, suite.chainA, channelA.ClientID, transferMsg)
 				suite.Require().NoError(err) // message committed
 
@@ -210,7 +210,7 @@ func (suite *KeeperTestSuite) TestOnRecvPacket() {
 			}
 
 			// send coin from chainA to chainB
-			transferMsg := types.NewMsgTransfer(channelA.PortID, channelA.ID, sdk.NewCoin(trace.IBCDenom(), amount), suite.chainA.SenderAccount.GetAddress(), receiver, clienttypes.NewHeight(0, 110), 0)
+			transferMsg := types.NewMsgTransfer(channelA.PortID, channelA.ID, sdk.NewCoin(trace.IBCDenom(), amount), suite.chainA.SenderAccount.GetAddress().String(), receiver, clienttypes.NewHeight(0, 110), 0)
 			err := suite.coordinator.SendMsg(suite.chainA, suite.chainB, channelB.ClientID, transferMsg)
 			suite.Require().NoError(err) // message committed
 

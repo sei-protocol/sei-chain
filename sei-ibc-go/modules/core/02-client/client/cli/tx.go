@@ -71,7 +71,7 @@ func NewCreateClientCmd() *cobra.Command {
 				}
 			}
 
-			msg, err := types.NewMsgCreateClient(clientState, consensusState, clientCtx.GetFromAddress())
+			msg, err := types.NewMsgCreateClient(clientState, consensusState, clientCtx.GetFromAddress().String())
 			if err != nil {
 				return err
 			}
@@ -124,7 +124,7 @@ func NewUpdateClientCmd() *cobra.Command {
 				}
 			}
 
-			msg, err := types.NewMsgUpdateClient(clientID, header, clientCtx.GetFromAddress())
+			msg, err := types.NewMsgUpdateClient(clientID, header, clientCtx.GetFromAddress().String())
 			if err != nil {
 				return err
 			}
@@ -172,7 +172,7 @@ func NewSubmitMisbehaviourCmd() *cobra.Command {
 				}
 			}
 
-			msg, err := types.NewMsgSubmitMisbehaviour(misbehaviour.GetClientID(), misbehaviour, clientCtx.GetFromAddress())
+			msg, err := types.NewMsgSubmitMisbehaviour(misbehaviour.GetClientID(), misbehaviour, clientCtx.GetFromAddress().String())
 			if err != nil {
 				return err
 			}
@@ -242,7 +242,7 @@ func NewUpgradeClientCmd() *cobra.Command {
 			proofUpgradeClient := []byte(args[3])
 			proofUpgradeConsensus := []byte(args[4])
 
-			msg, err := types.NewMsgUpgradeClient(clientID, clientState, consensusState, proofUpgradeClient, proofUpgradeConsensus, clientCtx.GetFromAddress())
+			msg, err := types.NewMsgUpgradeClient(clientID, clientState, consensusState, proofUpgradeClient, proofUpgradeConsensus, clientCtx.GetFromAddress().String())
 			if err != nil {
 				return err
 			}
