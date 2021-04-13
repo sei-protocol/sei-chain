@@ -29,28 +29,38 @@
     <img alt="Lint Status" src="https://github.com/cosmos/cosmos-sdk/workflows/Lint/badge.svg" />
 </div>
 
-Interblockchain communication protocol (IBC) implementation in Golang built as a SDK module. 
+Interblockchain communication protocol (IBC) implementation in Golang built as a SDK module.
 
-## Components
+## Contents
 
-### Core
+1. **[Core IBC Implementation](https://github.com/cosmos/ibc-go/tree/main/modules/core)**
 
-The `core/` directory contains the SDK IBC module that SDK based chains must integrate in order to utilize this implementation of IBC.
-It handles the core components of IBC including clients, connection, channels, packets, acknowledgements, and timeouts. 
+    1.1 [ICS 02 Client](https://github.com/cosmos/ibc-go/tree/main/modules/core/02-client)
 
-### Applications
+    1.2 [ICS 03 Connection](https://github.com/cosmos/ibc-go/tree/main/modules/core/03-connection)
 
-Applications can be built as modules to utilize core IBC by fulfilling a set of callbacks. 
-Fungible Token Transfers is currently the only supported application module. 
+    1.3 [ICS 04 Channel](https://github.com/cosmos/ibc-go/tree/main/modules/core/04-channel)
 
-### IBC Light Clients
+    1.4 [ICS 05 Port](https://github.com/cosmos/ibc-go/tree/main/modules/core/05-port)
 
-IBC light clients are on-chain implementations of an off-chain light clients.
-This repository currently supports tendermint and solo-machine light clients. 
-The localhost client is currently non-functional. 
+    1.5 [ICS 23 Commitment](https://github.com/cosmos/ibc-go/tree/main/modules/core/23-commitment/types)
 
-## Docs
+    1.6 [ICS 24 Host](https://github.com/cosmos/ibc-go/tree/main/modules/core/24-host)
 
-Please see our [documentation](docs/README.md) for more information.
+2. **Applications**
 
-Checkout the [IBC website](https://ibcprotocol.org/). 
+    2.1 [ICS 20 Fungible Token Transfers](https://github.com/cosmos/ibc-go/tree/main/modules/apps/transfer)
+
+3. **Light Clients**
+
+    3.1 [ICS 07 Tendermint](https://github.com/cosmos/ibc-go/tree/main/modules/light-clients/07-tendermint)
+
+    3.2 [ICS 06 Solo Machine](https://github.com/cosmos/ibc-go/tree/main/modules/light-clients/06-solomachine)
+
+Note: The localhost client is currently non-functional. 
+
+## Resources
+
+- [IBC Website](https://ibcprotocol.org/)
+- [IBC Specification](https://github.com/cosmos/ibc)
+- [Documentation](docs/README.md)
