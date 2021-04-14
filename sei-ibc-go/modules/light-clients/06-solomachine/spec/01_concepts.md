@@ -108,6 +108,9 @@ timestampedSignatureData := &types.TimestampedSignatureData{
 proof, err := cdc.MarshalBinaryBare(timestampedSignatureData)
 ```
 
+NOTE: At the end of this process, the sequence associated with the key needs to be updated. 
+The sequence must be incremented each time proof is generated. 
+
 ## Updates By Header
 
 An update by a header will only succeed if:

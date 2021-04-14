@@ -19,7 +19,9 @@ const (
 )
 
 var (
-	prefix          = commitmenttypes.NewMerklePrefix([]byte("ibc"))
+	prefix = &commitmenttypes.MerklePrefix{
+		KeyPrefix: []byte("ibc"),
+	}
 	consensusHeight = clienttypes.ZeroHeight()
 )
 
@@ -387,7 +389,7 @@ func (suite *SoloMachineTestSuite) TestVerifyClientConsensusState() {
 }
 
 func (suite *SoloMachineTestSuite) TestVerifyConnectionState() {
-	counterparty := connectiontypes.NewCounterparty("clientB", testConnectionID, prefix)
+	counterparty := connectiontypes.NewCounterparty("clientB", testConnectionID, *prefix)
 	conn := connectiontypes.NewConnectionEnd(connectiontypes.OPEN, "clientA", counterparty, connectiontypes.ExportedVersionsToProto(connectiontypes.GetCompatibleVersions()), 0)
 
 	path := suite.solomachine.GetConnectionStatePath(testConnectionID)
