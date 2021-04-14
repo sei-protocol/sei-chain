@@ -100,7 +100,7 @@ func (cs ClientState) VerifyUpgradeAndUpdateState(
 
 // VerifyClientState verifies a proof of the client state of the running chain
 // stored on the solo machine.
-func (cs ClientState) VerifyClientState(
+func (cs *ClientState) VerifyClientState(
 	store sdk.KVStore,
 	cdc codec.BinaryMarshaler,
 	height exported.Height,
@@ -131,13 +131,13 @@ func (cs ClientState) VerifyClientState(
 
 	cs.Sequence++
 	cs.ConsensusState.Timestamp = timestamp
-	setClientState(store, cdc, &cs)
+	setClientState(store, cdc, cs)
 	return nil
 }
 
 // VerifyClientConsensusState verifies a proof of the consensus state of the
 // running chain stored on the solo machine.
-func (cs ClientState) VerifyClientConsensusState(
+func (cs *ClientState) VerifyClientConsensusState(
 	store sdk.KVStore,
 	cdc codec.BinaryMarshaler,
 	height exported.Height,
@@ -169,13 +169,13 @@ func (cs ClientState) VerifyClientConsensusState(
 
 	cs.Sequence++
 	cs.ConsensusState.Timestamp = timestamp
-	setClientState(store, cdc, &cs)
+	setClientState(store, cdc, cs)
 	return nil
 }
 
 // VerifyConnectionState verifies a proof of the connection state of the
 // specified connection end stored on the target machine.
-func (cs ClientState) VerifyConnectionState(
+func (cs *ClientState) VerifyConnectionState(
 	store sdk.KVStore,
 	cdc codec.BinaryMarshaler,
 	height exported.Height,
@@ -206,13 +206,13 @@ func (cs ClientState) VerifyConnectionState(
 
 	cs.Sequence++
 	cs.ConsensusState.Timestamp = timestamp
-	setClientState(store, cdc, &cs)
+	setClientState(store, cdc, cs)
 	return nil
 }
 
 // VerifyChannelState verifies a proof of the channel state of the specified
 // channel end, under the specified port, stored on the target machine.
-func (cs ClientState) VerifyChannelState(
+func (cs *ClientState) VerifyChannelState(
 	store sdk.KVStore,
 	cdc codec.BinaryMarshaler,
 	height exported.Height,
@@ -244,13 +244,13 @@ func (cs ClientState) VerifyChannelState(
 
 	cs.Sequence++
 	cs.ConsensusState.Timestamp = timestamp
-	setClientState(store, cdc, &cs)
+	setClientState(store, cdc, cs)
 	return nil
 }
 
 // VerifyPacketCommitment verifies a proof of an outgoing packet commitment at
 // the specified port, specified channel, and specified sequence.
-func (cs ClientState) VerifyPacketCommitment(
+func (cs *ClientState) VerifyPacketCommitment(
 	store sdk.KVStore,
 	cdc codec.BinaryMarshaler,
 	height exported.Height,
@@ -285,13 +285,13 @@ func (cs ClientState) VerifyPacketCommitment(
 
 	cs.Sequence++
 	cs.ConsensusState.Timestamp = timestamp
-	setClientState(store, cdc, &cs)
+	setClientState(store, cdc, cs)
 	return nil
 }
 
 // VerifyPacketAcknowledgement verifies a proof of an incoming packet
 // acknowledgement at the specified port, specified channel, and specified sequence.
-func (cs ClientState) VerifyPacketAcknowledgement(
+func (cs *ClientState) VerifyPacketAcknowledgement(
 	store sdk.KVStore,
 	cdc codec.BinaryMarshaler,
 	height exported.Height,
@@ -326,14 +326,14 @@ func (cs ClientState) VerifyPacketAcknowledgement(
 
 	cs.Sequence++
 	cs.ConsensusState.Timestamp = timestamp
-	setClientState(store, cdc, &cs)
+	setClientState(store, cdc, cs)
 	return nil
 }
 
 // VerifyPacketReceiptAbsence verifies a proof of the absence of an
 // incoming packet receipt at the specified port, specified channel, and
 // specified sequence.
-func (cs ClientState) VerifyPacketReceiptAbsence(
+func (cs *ClientState) VerifyPacketReceiptAbsence(
 	store sdk.KVStore,
 	cdc codec.BinaryMarshaler,
 	height exported.Height,
@@ -367,13 +367,13 @@ func (cs ClientState) VerifyPacketReceiptAbsence(
 
 	cs.Sequence++
 	cs.ConsensusState.Timestamp = timestamp
-	setClientState(store, cdc, &cs)
+	setClientState(store, cdc, cs)
 	return nil
 }
 
 // VerifyNextSequenceRecv verifies a proof of the next sequence number to be
 // received of the specified channel at the specified port.
-func (cs ClientState) VerifyNextSequenceRecv(
+func (cs *ClientState) VerifyNextSequenceRecv(
 	store sdk.KVStore,
 	cdc codec.BinaryMarshaler,
 	height exported.Height,
@@ -407,7 +407,7 @@ func (cs ClientState) VerifyNextSequenceRecv(
 
 	cs.Sequence++
 	cs.ConsensusState.Timestamp = timestamp
-	setClientState(store, cdc, &cs)
+	setClientState(store, cdc, cs)
 	return nil
 }
 
@@ -417,7 +417,7 @@ func (cs ClientState) VerifyNextSequenceRecv(
 // along with the solo-machine sequence encoded in the proofHeight.
 func produceVerificationArgs(
 	cdc codec.BinaryMarshaler,
-	cs ClientState,
+	cs *ClientState,
 	height exported.Height,
 	prefix exported.Prefix,
 	proof []byte,
