@@ -242,7 +242,7 @@ func (suite *TendermintTestSuite) TestCheckHeaderAndUpdateState() {
 		ctx := suite.chainA.GetContext().WithBlockTime(currentTime)
 
 		// Set trusted consensus state in client store
-		suite.chainA.App.IBCKeeper.ClientKeeper.SetClientConsensusState(ctx, clientID, consStateHeight, consensusState)
+		suite.chainA.App.GetIBCKeeper().ClientKeeper.SetClientConsensusState(ctx, clientID, consStateHeight, consensusState)
 
 		height := newHeader.GetHeight()
 		expectedConsensus := &types.ConsensusState{
@@ -254,7 +254,7 @@ func (suite *TendermintTestSuite) TestCheckHeaderAndUpdateState() {
 		newClientState, consensusState, err := clientState.CheckHeaderAndUpdateState(
 			ctx,
 			suite.cdc,
-			suite.chainA.App.IBCKeeper.ClientKeeper.ClientStore(suite.chainA.GetContext(), clientID), // pass in clientID prefixed clientStore
+			suite.chainA.App.GetIBCKeeper().ClientKeeper.ClientStore(suite.chainA.GetContext(), clientID), // pass in clientID prefixed clientStore
 			newHeader,
 		)
 

@@ -7,13 +7,13 @@ import (
 	abci "github.com/tendermint/tendermint/abci/types"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 
+	upgradetypes "github.com/cosmos/cosmos-sdk/x/upgrade/types"
 	client "github.com/cosmos/ibc-go/modules/core/02-client"
 	"github.com/cosmos/ibc-go/modules/core/02-client/types"
 	"github.com/cosmos/ibc-go/modules/core/exported"
 	ibctmtypes "github.com/cosmos/ibc-go/modules/light-clients/07-tendermint/types"
 	localhosttypes "github.com/cosmos/ibc-go/modules/light-clients/09-localhost/types"
 	ibctesting "github.com/cosmos/ibc-go/testing"
-	upgradetypes "github.com/cosmos/cosmos-sdk/x/upgrade/types"
 )
 
 type ClientTestSuite struct {
@@ -36,7 +36,7 @@ func (suite *ClientTestSuite) SetupTest() {
 	localHostClient := localhosttypes.NewClientState(
 		suite.chainA.GetContext().ChainID(), types.NewHeight(revision, uint64(suite.chainA.GetContext().BlockHeight())),
 	)
-	suite.chainA.App.IBCKeeper.ClientKeeper.SetClientState(suite.chainA.GetContext(), exported.Localhost, localHostClient)
+	suite.chainA.App.GetIBCKeeper().ClientKeeper.SetClientState(suite.chainA.GetContext(), exported.Localhost, localHostClient)
 }
 
 func TestClientTestSuite(t *testing.T) {
@@ -54,7 +54,7 @@ func (suite *ClientTestSuite) TestBeginBlocker() {
 		suite.coordinator.CommitBlock(suite.chainA, suite.chainB)
 
 		suite.Require().NotPanics(func() {
-			client.BeginBlocker(suite.chainA.GetContext(), suite.chainA.App.IBCKeeper.ClientKeeper)
+			client.BeginBlocker(suite.chainA.GetContext(), suite.chainA.App.GetIBCKeeper().ClientKeeper)
 		}, "BeginBlocker shouldn't panic")
 
 		localHostClient = suite.chainA.GetClientState(exported.Localhost)
@@ -69,7 +69,7 @@ func (suite *ClientTestSuite) TestBeginBlockerConsensusState() {
 		Height: suite.chainA.GetContext().BlockHeight() + 1,
 	}
 	// set upgrade plan in the upgrade store
-	store := suite.chainA.GetContext().KVStore(suite.chainA.App.GetKey(upgradetypes.StoreKey))
+	store := suite.chainA.GetContext().KVStore(suite.chainA.GetSimApp().GetKey(upgradetypes.StoreKey))
 	bz := suite.chainA.App.AppCodec().MustMarshalBinaryBare(plan)
 	store.Set(upgradetypes.PlanKey(), bz)
 
@@ -79,14 +79,14 @@ func (suite *ClientTestSuite) TestBeginBlockerConsensusState() {
 		NextValidatorsHash: nextValsHash,
 	})
 
-	err := suite.chainA.App.UpgradeKeeper.SetUpgradedClient(newCtx, plan.Height, []byte("client state"))
+	err := suite.chainA.GetSimApp().UpgradeKeeper.SetUpgradedClient(newCtx, plan.Height, []byte("client state"))
 	suite.Require().NoError(err)
 
 	req := abci.RequestBeginBlock{Header: newCtx.BlockHeader()}
 	suite.chainA.App.BeginBlock(req)
 
 	// plan Height is at ctx.BlockHeight+1
-	consState, found := suite.chainA.App.UpgradeKeeper.GetUpgradedConsensusState(newCtx, plan.Height)
+	consState, found := suite.chainA.GetSimApp().UpgradeKeeper.GetUpgradedConsensusState(newCtx, plan.Height)
 	suite.Require().True(found)
 	bz, err = types.MarshalConsensusState(suite.chainA.App.AppCodec(), &ibctmtypes.ConsensusState{Timestamp: newCtx.BlockTime(), NextValidatorsHash: nextValsHash})
 	suite.Require().NoError(err)

@@ -131,6 +131,7 @@ var (
 		upgrade.AppModuleBasic{},
 		evidence.AppModuleBasic{},
 		transfer.AppModuleBasic{},
+		ibcmock.AppModuleBasic{},
 		authz.AppModuleBasic{},
 		vesting.AppModuleBasic{},
 	)
@@ -328,7 +329,7 @@ func NewSimApp(
 
 	// NOTE: the IBC mock keeper and application module is used only for testing core IBC. Do
 	// note replicate if you do not need to test core IBC or light clients.
-	mockModule := ibcmock.NewAppModule(scopedIBCMockKeeper)
+	mockModule := ibcmock.NewAppModule(scopedIBCMockKeeper, &app.IBCKeeper.PortKeeper)
 
 	// Create static IBC router, add transfer route, then set and seal it
 	ibcRouter := porttypes.NewRouter()
@@ -373,6 +374,7 @@ func NewSimApp(
 		params.NewAppModule(app.ParamsKeeper),
 		authz.NewAppModule(appCodec, app.AuthzKeeper, app.AccountKeeper, app.BankKeeper, app.interfaceRegistry),
 		transferModule,
+		mockModule,
 	)
 
 	// During begin block slashing happens after distr.BeginBlocker so that
@@ -394,7 +396,7 @@ func NewSimApp(
 		capabilitytypes.ModuleName, authtypes.ModuleName, banktypes.ModuleName, distrtypes.ModuleName, stakingtypes.ModuleName,
 		slashingtypes.ModuleName, govtypes.ModuleName, minttypes.ModuleName, crisistypes.ModuleName,
 		ibchost.ModuleName, genutiltypes.ModuleName, evidencetypes.ModuleName, authztypes.ModuleName, ibctransfertypes.ModuleName,
-		feegranttypes.ModuleName,
+		ibcmock.ModuleName, feegranttypes.ModuleName,
 	)
 
 	app.mm.RegisterInvariants(&app.CrisisKeeper)
@@ -566,6 +568,33 @@ func (app *SimApp) GetMemKey(storeKey string) *sdk.MemoryStoreKey {
 func (app *SimApp) GetSubspace(moduleName string) paramstypes.Subspace {
 	subspace, _ := app.ParamsKeeper.GetSubspace(moduleName)
 	return subspace
+}
+
+// TestingApp functions
+
+// GetBaseApp implements the TestingApp interface.
+func (app *SimApp) GetBaseApp() *baseapp.BaseApp {
+	return app.BaseApp
+}
+
+// GetStakingKeeper implements the TestingApp interface.
+func (app *SimApp) GetStakingKeeper() stakingkeeper.Keeper {
+	return app.StakingKeeper
+}
+
+// GetIBCKeeper implements the TestingApp interface.
+func (app *SimApp) GetIBCKeeper() *ibckeeper.Keeper {
+	return app.IBCKeeper
+}
+
+// GetScopedIBCKeeper implements the TestingApp interface.
+func (app *SimApp) GetScopedIBCKeeper() capabilitykeeper.ScopedKeeper {
+	return app.ScopedIBCKeeper
+}
+
+// GetTxConfig implements the TestingApp interface.
+func (app *SimApp) GetTxConfig() client.TxConfig {
+	return MakeTestEncodingConfig().TxConfig
 }
 
 // SimulationManager implements the SimulationApp interface

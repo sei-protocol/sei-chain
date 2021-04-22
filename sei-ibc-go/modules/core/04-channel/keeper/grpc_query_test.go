@@ -62,16 +62,19 @@ func (suite *KeeperTestSuite) TestQueryChannel() {
 		{
 			"success",
 			func() {
-				_, _, connA, connB := suite.coordinator.SetupClientConnections(suite.chainA, suite.chainB, exported.Tendermint)
+				path := ibctesting.NewPath(suite.chainA, suite.chainB)
+				suite.coordinator.SetupConnections(path)
+				path.SetChannelOrdered()
+
 				// init channel
-				channelA, _, err := suite.coordinator.ChanOpenInit(suite.chainA, suite.chainB, connA, connB, ibctesting.MockPort, ibctesting.MockPort, types.ORDERED)
+				err := path.EndpointA.ChanOpenInit()
 				suite.Require().NoError(err)
 
-				expChannel = suite.chainA.GetChannel(channelA)
+				expChannel = path.EndpointA.GetChannel()
 
 				req = &types.QueryChannelRequest{
-					PortId:    channelA.PortID,
-					ChannelId: channelA.ID,
+					PortId:    path.EndpointA.ChannelConfig.PortID,
+					ChannelId: path.EndpointA.ChannelID,
 				}
 			},
 			true,
@@ -126,31 +129,39 @@ func (suite *KeeperTestSuite) TestQueryChannels() {
 		{
 			"success",
 			func() {
-				_, _, connA0, connB0, testchannel0, _ := suite.coordinator.Setup(suite.chainA, suite.chainB, types.UNORDERED)
+				path := ibctesting.NewPath(suite.chainA, suite.chainB)
+				suite.coordinator.Setup(path)
 				// channel0 on first connection on chainA
 				counterparty0 := types.Counterparty{
-					PortId:    connB0.Channels[0].PortID,
-					ChannelId: connB0.Channels[0].ID,
+					PortId:    path.EndpointB.ChannelConfig.PortID,
+					ChannelId: path.EndpointB.ChannelID,
 				}
 
-				// channel1 is second channel on first connection on chainA
-				testchannel1, _ := suite.coordinator.CreateMockChannels(suite.chainA, suite.chainB, connA0, connB0, types.ORDERED)
+				// path1 creates a second channel on first connection on chainA
+				path1 := ibctesting.NewPath(suite.chainA, suite.chainB)
+				path1.SetChannelOrdered()
+				path1.EndpointA.ClientID = path.EndpointA.ClientID
+				path1.EndpointB.ClientID = path.EndpointB.ClientID
+				path1.EndpointA.ConnectionID = path.EndpointA.ConnectionID
+				path1.EndpointB.ConnectionID = path.EndpointB.ConnectionID
+
+				suite.coordinator.CreateMockChannels(path1)
 				counterparty1 := types.Counterparty{
-					PortId:    connB0.Channels[1].PortID,
-					ChannelId: connB0.Channels[1].ID,
+					PortId:    path1.EndpointB.ChannelConfig.PortID,
+					ChannelId: path1.EndpointB.ChannelID,
 				}
 
 				channel0 := types.NewChannel(
 					types.OPEN, types.UNORDERED,
-					counterparty0, []string{connA0.ID}, testchannel0.Version,
+					counterparty0, []string{path.EndpointA.ConnectionID}, path.EndpointA.ChannelConfig.Version,
 				)
 				channel1 := types.NewChannel(
 					types.OPEN, types.ORDERED,
-					counterparty1, []string{connA0.ID}, testchannel1.Version,
+					counterparty1, []string{path.EndpointA.ConnectionID}, path1.EndpointA.ChannelConfig.Version,
 				)
 
-				idCh0 := types.NewIdentifiedChannel(testchannel0.PortID, testchannel0.ID, channel0)
-				idCh1 := types.NewIdentifiedChannel(testchannel1.PortID, testchannel1.ID, channel1)
+				idCh0 := types.NewIdentifiedChannel(path.EndpointA.ChannelConfig.PortID, path.EndpointA.ChannelID, channel0)
+				idCh1 := types.NewIdentifiedChannel(path1.EndpointA.ChannelConfig.PortID, path1.EndpointA.ChannelID, channel1)
 
 				expChannels = []*types.IdentifiedChannel{&idCh0, &idCh1}
 
@@ -217,36 +228,44 @@ func (suite *KeeperTestSuite) TestQueryConnectionChannels() {
 		{
 			"success",
 			func() {
-				_, _, connA0, connB0, testchannel0, _ := suite.coordinator.Setup(suite.chainA, suite.chainB, types.UNORDERED)
+				path := ibctesting.NewPath(suite.chainA, suite.chainB)
+				suite.coordinator.Setup(path)
 				// channel0 on first connection on chainA
 				counterparty0 := types.Counterparty{
-					PortId:    connB0.Channels[0].PortID,
-					ChannelId: connB0.Channels[0].ID,
+					PortId:    path.EndpointB.ChannelConfig.PortID,
+					ChannelId: path.EndpointB.ChannelID,
 				}
 
-				// channel1 is second channel on first connection on chainA
-				testchannel1, _ := suite.coordinator.CreateMockChannels(suite.chainA, suite.chainB, connA0, connB0, types.ORDERED)
+				// path1 creates a second channel on first connection on chainA
+				path1 := ibctesting.NewPath(suite.chainA, suite.chainB)
+				path1.SetChannelOrdered()
+				path1.EndpointA.ClientID = path.EndpointA.ClientID
+				path1.EndpointB.ClientID = path.EndpointB.ClientID
+				path1.EndpointA.ConnectionID = path.EndpointA.ConnectionID
+				path1.EndpointB.ConnectionID = path.EndpointB.ConnectionID
+
+				suite.coordinator.CreateMockChannels(path1)
 				counterparty1 := types.Counterparty{
-					PortId:    connB0.Channels[1].PortID,
-					ChannelId: connB0.Channels[1].ID,
+					PortId:    path1.EndpointB.ChannelConfig.PortID,
+					ChannelId: path1.EndpointB.ChannelID,
 				}
 
 				channel0 := types.NewChannel(
 					types.OPEN, types.UNORDERED,
-					counterparty0, []string{connA0.ID}, testchannel0.Version,
+					counterparty0, []string{path.EndpointA.ConnectionID}, path.EndpointA.ChannelConfig.Version,
 				)
 				channel1 := types.NewChannel(
 					types.OPEN, types.ORDERED,
-					counterparty1, []string{connA0.ID}, testchannel1.Version,
+					counterparty1, []string{path.EndpointA.ConnectionID}, path.EndpointA.ChannelConfig.Version,
 				)
 
-				idCh0 := types.NewIdentifiedChannel(testchannel0.PortID, testchannel0.ID, channel0)
-				idCh1 := types.NewIdentifiedChannel(testchannel1.PortID, testchannel1.ID, channel1)
+				idCh0 := types.NewIdentifiedChannel(path.EndpointA.ChannelConfig.PortID, path.EndpointA.ChannelID, channel0)
+				idCh1 := types.NewIdentifiedChannel(path1.EndpointA.ChannelConfig.PortID, path1.EndpointA.ChannelID, channel1)
 
 				expChannels = []*types.IdentifiedChannel{&idCh0, &idCh1}
 
 				req = &types.QueryConnectionChannelsRequest{
-					Connection: connA0.ID,
+					Connection: path.EndpointA.ConnectionID,
 					Pagination: &query.PageRequest{
 						Key:        nil,
 						Limit:      2,
@@ -259,7 +278,8 @@ func (suite *KeeperTestSuite) TestQueryConnectionChannels() {
 		{
 			"success, empty response",
 			func() {
-				suite.coordinator.Setup(suite.chainA, suite.chainB, types.UNORDERED)
+				path := ibctesting.NewPath(suite.chainA, suite.chainB)
+				suite.coordinator.Setup(path)
 				expChannels = []*types.IdentifiedChannel{}
 				req = &types.QueryConnectionChannelsRequest{
 					Connection: "externalConnID",
@@ -345,49 +365,54 @@ func (suite *KeeperTestSuite) TestQueryChannelClientState() {
 		{
 			"connection not found",
 			func() {
-				_, _, _, _, channelA, _ := suite.coordinator.Setup(suite.chainA, suite.chainB, types.UNORDERED)
+				path := ibctesting.NewPath(suite.chainA, suite.chainB)
+				suite.coordinator.Setup(path)
 
-				channel := suite.chainA.GetChannel(channelA)
+				channel := path.EndpointA.GetChannel()
 				// update channel to reference a connection that does not exist
 				channel.ConnectionHops[0] = "doesnotexist"
 
 				// set connection hops to wrong connection ID
-				suite.chainA.App.IBCKeeper.ChannelKeeper.SetChannel(suite.chainA.GetContext(), channelA.PortID, channelA.ID, channel)
+				suite.chainA.App.GetIBCKeeper().ChannelKeeper.SetChannel(suite.chainA.GetContext(), path.EndpointA.ChannelConfig.PortID, path.EndpointA.ChannelID, channel)
 
 				req = &types.QueryChannelClientStateRequest{
-					PortId:    channelA.PortID,
-					ChannelId: channelA.ID,
+					PortId:    path.EndpointA.ChannelConfig.PortID,
+					ChannelId: path.EndpointA.ChannelID,
 				}
 			}, false,
 		},
 		{
 			"client state for channel's connection not found",
 			func() {
-				_, _, connA, _, channelA, _ := suite.coordinator.Setup(suite.chainA, suite.chainB, types.UNORDERED)
+				path := ibctesting.NewPath(suite.chainA, suite.chainB)
+				suite.coordinator.Setup(path)
 
 				// set connection to empty so clientID is empty
-				suite.chainA.App.IBCKeeper.ConnectionKeeper.SetConnection(suite.chainA.GetContext(), connA.ID, connectiontypes.ConnectionEnd{})
+				suite.chainA.App.GetIBCKeeper().ConnectionKeeper.SetConnection(suite.chainA.GetContext(), path.EndpointA.ConnectionID, connectiontypes.ConnectionEnd{})
 
 				req = &types.QueryChannelClientStateRequest{
-					PortId:    channelA.PortID,
-					ChannelId: channelA.ID,
+					PortId:    path.EndpointA.ChannelConfig.PortID,
+					ChannelId: path.EndpointA.ChannelID,
 				}
 			}, false,
 		},
 		{
 			"success",
 			func() {
-				clientA, _, connA, connB := suite.coordinator.SetupClientConnections(suite.chainA, suite.chainB, exported.Tendermint)
+				path := ibctesting.NewPath(suite.chainA, suite.chainB)
+				suite.coordinator.SetupConnections(path)
+				path.SetChannelOrdered()
+
 				// init channel
-				channelA, _, err := suite.coordinator.ChanOpenInit(suite.chainA, suite.chainB, connA, connB, ibctesting.MockPort, ibctesting.MockPort, types.ORDERED)
+				err := path.EndpointA.ChanOpenInit()
 				suite.Require().NoError(err)
 
-				expClientState := suite.chainA.GetClientState(clientA)
-				expIdentifiedClientState = clienttypes.NewIdentifiedClientState(clientA, expClientState)
+				expClientState := suite.chainA.GetClientState(path.EndpointA.ClientID)
+				expIdentifiedClientState = clienttypes.NewIdentifiedClientState(path.EndpointA.ClientID, expClientState)
 
 				req = &types.QueryChannelClientStateRequest{
-					PortId:    channelA.PortID,
-					ChannelId: channelA.ID,
+					PortId:    path.EndpointA.ChannelConfig.PortID,
+					ChannelId: path.EndpointA.ChannelID,
 				}
 			},
 			true,
@@ -476,18 +501,19 @@ func (suite *KeeperTestSuite) TestQueryChannelConsensusState() {
 		{
 			"connection not found",
 			func() {
-				_, _, _, _, channelA, _ := suite.coordinator.Setup(suite.chainA, suite.chainB, types.UNORDERED)
+				path := ibctesting.NewPath(suite.chainA, suite.chainB)
+				suite.coordinator.Setup(path)
 
-				channel := suite.chainA.GetChannel(channelA)
+				channel := path.EndpointA.GetChannel()
 				// update channel to reference a connection that does not exist
 				channel.ConnectionHops[0] = "doesnotexist"
 
 				// set connection hops to wrong connection ID
-				suite.chainA.App.IBCKeeper.ChannelKeeper.SetChannel(suite.chainA.GetContext(), channelA.PortID, channelA.ID, channel)
+				suite.chainA.App.GetIBCKeeper().ChannelKeeper.SetChannel(suite.chainA.GetContext(), path.EndpointA.ChannelConfig.PortID, path.EndpointA.ChannelID, channel)
 
 				req = &types.QueryChannelConsensusStateRequest{
-					PortId:         channelA.PortID,
-					ChannelId:      channelA.ID,
+					PortId:         path.EndpointA.ChannelConfig.PortID,
+					ChannelId:      path.EndpointA.ChannelID,
 					RevisionNumber: 0,
 					RevisionHeight: 1,
 				}
@@ -496,11 +522,12 @@ func (suite *KeeperTestSuite) TestQueryChannelConsensusState() {
 		{
 			"consensus state for channel's connection not found",
 			func() {
-				_, _, _, _, channelA, _ := suite.coordinator.Setup(suite.chainA, suite.chainB, types.UNORDERED)
+				path := ibctesting.NewPath(suite.chainA, suite.chainB)
+				suite.coordinator.Setup(path)
 
 				req = &types.QueryChannelConsensusStateRequest{
-					PortId:         channelA.PortID,
-					ChannelId:      channelA.ID,
+					PortId:         path.EndpointA.ChannelConfig.PortID,
+					ChannelId:      path.EndpointA.ChannelID,
 					RevisionNumber: 0,
 					RevisionHeight: uint64(suite.chainA.GetContext().BlockHeight()), // use current height
 				}
@@ -509,19 +536,22 @@ func (suite *KeeperTestSuite) TestQueryChannelConsensusState() {
 		{
 			"success",
 			func() {
-				clientA, _, connA, connB := suite.coordinator.SetupClientConnections(suite.chainA, suite.chainB, exported.Tendermint)
+				path := ibctesting.NewPath(suite.chainA, suite.chainB)
+				suite.coordinator.SetupConnections(path)
+				path.SetChannelOrdered()
+
 				// init channel
-				channelA, _, err := suite.coordinator.ChanOpenInit(suite.chainA, suite.chainB, connA, connB, ibctesting.MockPort, ibctesting.MockPort, types.ORDERED)
+				err := path.EndpointA.ChanOpenInit()
 				suite.Require().NoError(err)
 
-				clientState := suite.chainA.GetClientState(clientA)
-				expConsensusState, _ = suite.chainA.GetConsensusState(clientA, clientState.GetLatestHeight())
+				clientState := suite.chainA.GetClientState(path.EndpointA.ClientID)
+				expConsensusState, _ = suite.chainA.GetConsensusState(path.EndpointA.ClientID, clientState.GetLatestHeight())
 				suite.Require().NotNil(expConsensusState)
-				expClientID = clientA
+				expClientID = path.EndpointA.ClientID
 
 				req = &types.QueryChannelConsensusStateRequest{
-					PortId:         channelA.PortID,
-					ChannelId:      channelA.ID,
+					PortId:         path.EndpointA.ChannelConfig.PortID,
+					ChannelId:      path.EndpointA.ChannelID,
 					RevisionNumber: clientState.GetLatestHeight().GetRevisionNumber(),
 					RevisionHeight: clientState.GetLatestHeight().GetRevisionHeight(),
 				}
@@ -620,13 +650,14 @@ func (suite *KeeperTestSuite) TestQueryPacketCommitment() {
 		{
 			"success",
 			func() {
-				_, _, _, _, channelA, _ := suite.coordinator.Setup(suite.chainA, suite.chainB, types.UNORDERED)
+				path := ibctesting.NewPath(suite.chainA, suite.chainB)
+				suite.coordinator.Setup(path)
 				expCommitment = []byte("hash")
-				suite.chainA.App.IBCKeeper.ChannelKeeper.SetPacketCommitment(suite.chainA.GetContext(), channelA.PortID, channelA.ID, 1, expCommitment)
+				suite.chainA.App.GetIBCKeeper().ChannelKeeper.SetPacketCommitment(suite.chainA.GetContext(), path.EndpointA.ChannelConfig.PortID, path.EndpointA.ChannelID, 1, expCommitment)
 
 				req = &types.QueryPacketCommitmentRequest{
-					PortId:    channelA.PortID,
-					ChannelId: channelA.ID,
+					PortId:    path.EndpointA.ChannelConfig.PortID,
+					ChannelId: path.EndpointA.ChannelID,
 					Sequence:  1,
 				}
 			},
@@ -702,19 +733,20 @@ func (suite *KeeperTestSuite) TestQueryPacketCommitments() {
 		{
 			"success",
 			func() {
-				_, _, _, _, channelA, _ := suite.coordinator.Setup(suite.chainA, suite.chainB, types.UNORDERED)
+				path := ibctesting.NewPath(suite.chainA, suite.chainB)
+				suite.coordinator.Setup(path)
 
 				expCommitments = make([]*types.PacketState, 9)
 
 				for i := uint64(0); i < 9; i++ {
-					commitment := types.NewPacketState(channelA.PortID, channelA.ID, i, []byte(fmt.Sprintf("hash_%d", i)))
-					suite.chainA.App.IBCKeeper.ChannelKeeper.SetPacketCommitment(suite.chainA.GetContext(), commitment.PortId, commitment.ChannelId, commitment.Sequence, commitment.Data)
+					commitment := types.NewPacketState(path.EndpointA.ChannelConfig.PortID, path.EndpointA.ChannelID, i, []byte(fmt.Sprintf("hash_%d", i)))
+					suite.chainA.App.GetIBCKeeper().ChannelKeeper.SetPacketCommitment(suite.chainA.GetContext(), commitment.PortId, commitment.ChannelId, commitment.Sequence, commitment.Data)
 					expCommitments[i] = &commitment
 				}
 
 				req = &types.QueryPacketCommitmentsRequest{
-					PortId:    channelA.PortID,
-					ChannelId: channelA.ID,
+					PortId:    path.EndpointA.ChannelConfig.PortID,
+					ChannelId: path.EndpointA.ChannelID,
 					Pagination: &query.PageRequest{
 						Key:        nil,
 						Limit:      11,
@@ -799,12 +831,13 @@ func (suite *KeeperTestSuite) TestQueryPacketReceipt() {
 		{
 			"success: receipt not found",
 			func() {
-				_, _, _, _, channelA, _ := suite.coordinator.Setup(suite.chainA, suite.chainB, types.UNORDERED)
-				suite.chainA.App.IBCKeeper.ChannelKeeper.SetPacketReceipt(suite.chainA.GetContext(), channelA.PortID, channelA.ID, 1)
+				path := ibctesting.NewPath(suite.chainA, suite.chainB)
+				suite.coordinator.Setup(path)
+				suite.chainA.App.GetIBCKeeper().ChannelKeeper.SetPacketReceipt(suite.chainA.GetContext(), path.EndpointA.ChannelConfig.PortID, path.EndpointA.ChannelID, 1)
 
 				req = &types.QueryPacketReceiptRequest{
-					PortId:    channelA.PortID,
-					ChannelId: channelA.ID,
+					PortId:    path.EndpointA.ChannelConfig.PortID,
+					ChannelId: path.EndpointA.ChannelID,
 					Sequence:  3,
 				}
 				expReceived = false
@@ -814,12 +847,13 @@ func (suite *KeeperTestSuite) TestQueryPacketReceipt() {
 		{
 			"success: receipt found",
 			func() {
-				_, _, _, _, channelA, _ := suite.coordinator.Setup(suite.chainA, suite.chainB, types.UNORDERED)
-				suite.chainA.App.IBCKeeper.ChannelKeeper.SetPacketReceipt(suite.chainA.GetContext(), channelA.PortID, channelA.ID, 1)
+				path := ibctesting.NewPath(suite.chainA, suite.chainB)
+				suite.coordinator.Setup(path)
+				suite.chainA.App.GetIBCKeeper().ChannelKeeper.SetPacketReceipt(suite.chainA.GetContext(), path.EndpointA.ChannelConfig.PortID, path.EndpointA.ChannelID, 1)
 
 				req = &types.QueryPacketReceiptRequest{
-					PortId:    channelA.PortID,
-					ChannelId: channelA.ID,
+					PortId:    path.EndpointA.ChannelConfig.PortID,
+					ChannelId: path.EndpointA.ChannelID,
 					Sequence:  1,
 				}
 				expReceived = true
@@ -911,13 +945,14 @@ func (suite *KeeperTestSuite) TestQueryPacketAcknowledgement() {
 		{
 			"success",
 			func() {
-				_, _, _, _, channelA, _ := suite.coordinator.Setup(suite.chainA, suite.chainB, types.UNORDERED)
+				path := ibctesting.NewPath(suite.chainA, suite.chainB)
+				suite.coordinator.Setup(path)
 				expAck = []byte("hash")
-				suite.chainA.App.IBCKeeper.ChannelKeeper.SetPacketAcknowledgement(suite.chainA.GetContext(), channelA.PortID, channelA.ID, 1, expAck)
+				suite.chainA.App.GetIBCKeeper().ChannelKeeper.SetPacketAcknowledgement(suite.chainA.GetContext(), path.EndpointA.ChannelConfig.PortID, path.EndpointA.ChannelID, 1, expAck)
 
 				req = &types.QueryPacketAcknowledgementRequest{
-					PortId:    channelA.PortID,
-					ChannelId: channelA.ID,
+					PortId:    path.EndpointA.ChannelConfig.PortID,
+					ChannelId: path.EndpointA.ChannelID,
 					Sequence:  1,
 				}
 			},
@@ -993,19 +1028,20 @@ func (suite *KeeperTestSuite) TestQueryPacketAcknowledgements() {
 		{
 			"success",
 			func() {
-				_, _, _, _, channelA, _ := suite.coordinator.Setup(suite.chainA, suite.chainB, types.UNORDERED)
+				path := ibctesting.NewPath(suite.chainA, suite.chainB)
+				suite.coordinator.Setup(path)
 
 				expAcknowledgements = make([]*types.PacketState, 9)
 
 				for i := uint64(0); i < 9; i++ {
-					ack := types.NewPacketState(channelA.PortID, channelA.ID, i, []byte(fmt.Sprintf("hash_%d", i)))
-					suite.chainA.App.IBCKeeper.ChannelKeeper.SetPacketAcknowledgement(suite.chainA.GetContext(), ack.PortId, ack.ChannelId, ack.Sequence, ack.Data)
+					ack := types.NewPacketState(path.EndpointA.ChannelConfig.PortID, path.EndpointA.ChannelID, i, []byte(fmt.Sprintf("hash_%d", i)))
+					suite.chainA.App.GetIBCKeeper().ChannelKeeper.SetPacketAcknowledgement(suite.chainA.GetContext(), ack.PortId, ack.ChannelId, ack.Sequence, ack.Data)
 					expAcknowledgements[i] = &ack
 				}
 
 				req = &types.QueryPacketAcknowledgementsRequest{
-					PortId:    channelA.PortID,
-					ChannelId: channelA.ID,
+					PortId:    path.EndpointA.ChannelConfig.PortID,
+					ChannelId: path.EndpointA.ChannelID,
 					Pagination: &query.PageRequest{
 						Key:        nil,
 						Limit:      11,
@@ -1089,14 +1125,15 @@ func (suite *KeeperTestSuite) TestQueryUnreceivedPackets() {
 		{
 			"basic success unreceived packet commitments",
 			func() {
-				_, _, _, _, channelA, _ := suite.coordinator.Setup(suite.chainA, suite.chainB, types.UNORDERED)
+				path := ibctesting.NewPath(suite.chainA, suite.chainB)
+				suite.coordinator.Setup(path)
 
 				// no ack exists
 
 				expSeq = []uint64{1}
 				req = &types.QueryUnreceivedPacketsRequest{
-					PortId:                    channelA.PortID,
-					ChannelId:                 channelA.ID,
+					PortId:                    path.EndpointA.ChannelConfig.PortID,
+					ChannelId:                 path.EndpointA.ChannelID,
 					PacketCommitmentSequences: []uint64{1},
 				}
 			},
@@ -1105,14 +1142,15 @@ func (suite *KeeperTestSuite) TestQueryUnreceivedPackets() {
 		{
 			"basic success unreceived packet commitments, nothing to relay",
 			func() {
-				_, _, _, _, channelA, _ := suite.coordinator.Setup(suite.chainA, suite.chainB, types.UNORDERED)
+				path := ibctesting.NewPath(suite.chainA, suite.chainB)
+				suite.coordinator.Setup(path)
 
-				suite.chainA.App.IBCKeeper.ChannelKeeper.SetPacketReceipt(suite.chainA.GetContext(), channelA.PortID, channelA.ID, 1)
+				suite.chainA.App.GetIBCKeeper().ChannelKeeper.SetPacketReceipt(suite.chainA.GetContext(), path.EndpointA.ChannelConfig.PortID, path.EndpointA.ChannelID, 1)
 
 				expSeq = []uint64{}
 				req = &types.QueryUnreceivedPacketsRequest{
-					PortId:                    channelA.PortID,
-					ChannelId:                 channelA.ID,
+					PortId:                    path.EndpointA.ChannelConfig.PortID,
+					ChannelId:                 path.EndpointA.ChannelID,
 					PacketCommitmentSequences: []uint64{1},
 				}
 			},
@@ -1121,7 +1159,8 @@ func (suite *KeeperTestSuite) TestQueryUnreceivedPackets() {
 		{
 			"success multiple unreceived packet commitments",
 			func() {
-				_, _, _, _, channelA, _ := suite.coordinator.Setup(suite.chainA, suite.chainB, types.UNORDERED)
+				path := ibctesting.NewPath(suite.chainA, suite.chainB)
+				suite.coordinator.Setup(path)
 				expSeq = []uint64{} // reset
 				packetCommitments := []uint64{}
 
@@ -1130,15 +1169,15 @@ func (suite *KeeperTestSuite) TestQueryUnreceivedPackets() {
 					packetCommitments = append(packetCommitments, seq)
 
 					if seq%2 == 0 {
-						suite.chainA.App.IBCKeeper.ChannelKeeper.SetPacketReceipt(suite.chainA.GetContext(), channelA.PortID, channelA.ID, seq)
+						suite.chainA.App.GetIBCKeeper().ChannelKeeper.SetPacketReceipt(suite.chainA.GetContext(), path.EndpointA.ChannelConfig.PortID, path.EndpointA.ChannelID, seq)
 					} else {
 						expSeq = append(expSeq, seq)
 					}
 				}
 
 				req = &types.QueryUnreceivedPacketsRequest{
-					PortId:                    channelA.PortID,
-					ChannelId:                 channelA.ID,
+					PortId:                    path.EndpointA.ChannelConfig.PortID,
+					ChannelId:                 path.EndpointA.ChannelID,
 					PacketCommitmentSequences: packetCommitments,
 				}
 			},
@@ -1218,14 +1257,15 @@ func (suite *KeeperTestSuite) TestQueryUnreceivedAcks() {
 		{
 			"basic success unreceived packet acks",
 			func() {
-				_, _, _, _, channelA, _ := suite.coordinator.Setup(suite.chainA, suite.chainB, types.UNORDERED)
+				path := ibctesting.NewPath(suite.chainA, suite.chainB)
+				suite.coordinator.Setup(path)
 
-				suite.chainA.App.IBCKeeper.ChannelKeeper.SetPacketCommitment(suite.chainA.GetContext(), channelA.PortID, channelA.ID, 1, []byte("commitment"))
+				suite.chainA.App.GetIBCKeeper().ChannelKeeper.SetPacketCommitment(suite.chainA.GetContext(), path.EndpointA.ChannelConfig.PortID, path.EndpointA.ChannelID, 1, []byte("commitment"))
 
 				expSeq = []uint64{1}
 				req = &types.QueryUnreceivedAcksRequest{
-					PortId:             channelA.PortID,
-					ChannelId:          channelA.ID,
+					PortId:             path.EndpointA.ChannelConfig.PortID,
+					ChannelId:          path.EndpointA.ChannelID,
 					PacketAckSequences: []uint64{1},
 				}
 			},
@@ -1234,12 +1274,13 @@ func (suite *KeeperTestSuite) TestQueryUnreceivedAcks() {
 		{
 			"basic success unreceived packet acknowledgements, nothing to relay",
 			func() {
-				_, _, _, _, channelA, _ := suite.coordinator.Setup(suite.chainA, suite.chainB, types.UNORDERED)
+				path := ibctesting.NewPath(suite.chainA, suite.chainB)
+				suite.coordinator.Setup(path)
 
 				expSeq = []uint64{}
 				req = &types.QueryUnreceivedAcksRequest{
-					PortId:             channelA.PortID,
-					ChannelId:          channelA.ID,
+					PortId:             path.EndpointA.ChannelConfig.PortID,
+					ChannelId:          path.EndpointA.ChannelID,
 					PacketAckSequences: []uint64{1},
 				}
 			},
@@ -1248,7 +1289,8 @@ func (suite *KeeperTestSuite) TestQueryUnreceivedAcks() {
 		{
 			"success multiple unreceived packet acknowledgements",
 			func() {
-				_, _, _, _, channelA, _ := suite.coordinator.Setup(suite.chainA, suite.chainB, types.UNORDERED)
+				path := ibctesting.NewPath(suite.chainA, suite.chainB)
+				suite.coordinator.Setup(path)
 				expSeq = []uint64{} // reset
 				packetAcks := []uint64{}
 
@@ -1257,14 +1299,14 @@ func (suite *KeeperTestSuite) TestQueryUnreceivedAcks() {
 					packetAcks = append(packetAcks, seq)
 
 					if seq%2 == 0 {
-						suite.chainA.App.IBCKeeper.ChannelKeeper.SetPacketCommitment(suite.chainA.GetContext(), channelA.PortID, channelA.ID, seq, []byte("commitement"))
+						suite.chainA.App.GetIBCKeeper().ChannelKeeper.SetPacketCommitment(suite.chainA.GetContext(), path.EndpointA.ChannelConfig.PortID, path.EndpointA.ChannelID, seq, []byte("commitement"))
 						expSeq = append(expSeq, seq)
 					}
 				}
 
 				req = &types.QueryUnreceivedAcksRequest{
-					PortId:             channelA.PortID,
-					ChannelId:          channelA.ID,
+					PortId:             path.EndpointA.ChannelConfig.PortID,
+					ChannelId:          path.EndpointA.ChannelID,
 					PacketAckSequences: packetAcks,
 				}
 			},
@@ -1342,13 +1384,14 @@ func (suite *KeeperTestSuite) TestQueryNextSequenceReceive() {
 		{
 			"success",
 			func() {
-				_, _, _, _, channelA, _ := suite.coordinator.Setup(suite.chainA, suite.chainB, types.UNORDERED)
+				path := ibctesting.NewPath(suite.chainA, suite.chainB)
+				suite.coordinator.Setup(path)
 				expSeq = 1
-				suite.chainA.App.IBCKeeper.ChannelKeeper.SetNextSequenceRecv(suite.chainA.GetContext(), channelA.PortID, channelA.ID, expSeq)
+				suite.chainA.App.GetIBCKeeper().ChannelKeeper.SetNextSequenceRecv(suite.chainA.GetContext(), path.EndpointA.ChannelConfig.PortID, path.EndpointA.ChannelID, expSeq)
 
 				req = &types.QueryNextSequenceReceiveRequest{
-					PortId:    channelA.PortID,
-					ChannelId: channelA.ID,
+					PortId:    path.EndpointA.ChannelConfig.PortID,
+					ChannelId: path.EndpointA.ChannelID,
 				}
 			},
 			true,

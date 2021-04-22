@@ -16,6 +16,7 @@ import (
 // verification must specify which proof to use using the ordered bool.
 func (suite *KeeperTestSuite) TestTimeoutPacket() {
 	var (
+		path        *ibctesting.Path
 		packet      types.Packet
 		nextSeqRecv uint64
 		ordered     bool
@@ -24,92 +25,98 @@ func (suite *KeeperTestSuite) TestTimeoutPacket() {
 	testCases := []testCase{
 		{"success: ORDERED", func() {
 			ordered = true
+			path.SetChannelOrdered()
 
-			clientA, clientB, _, _, channelA, channelB := suite.coordinator.Setup(suite.chainA, suite.chainB, types.ORDERED)
-			packet = types.NewPacket(ibctesting.MockPacketData, 1, channelA.PortID, channelA.ID, channelB.PortID, channelB.ID, clienttypes.GetSelfHeight(suite.chainB.GetContext()), uint64(suite.chainB.GetContext().BlockTime().UnixNano()))
-			suite.coordinator.SendPacket(suite.chainA, suite.chainB, packet, clientB)
+			suite.coordinator.Setup(path)
+			packet = types.NewPacket(ibctesting.MockPacketData, 1, path.EndpointA.ChannelConfig.PortID, path.EndpointA.ChannelID, path.EndpointB.ChannelConfig.PortID, path.EndpointB.ChannelID, clienttypes.GetSelfHeight(suite.chainB.GetContext()), uint64(suite.chainB.GetContext().BlockTime().UnixNano()))
+			path.EndpointA.SendPacket(packet)
 			// need to update chainA's client representing chainB to prove missing ack
-			suite.coordinator.UpdateClient(suite.chainA, suite.chainB, clientA, exported.Tendermint)
+			path.EndpointA.UpdateClient()
 		}, true},
 		{"success: UNORDERED", func() {
 			ordered = false
 
-			clientA, clientB, _, _, channelA, channelB := suite.coordinator.Setup(suite.chainA, suite.chainB, types.UNORDERED)
-			packet = types.NewPacket(ibctesting.MockPacketData, 1, channelA.PortID, channelA.ID, channelB.PortID, channelB.ID, clienttypes.GetSelfHeight(suite.chainB.GetContext()), disabledTimeoutTimestamp)
-			suite.coordinator.SendPacket(suite.chainA, suite.chainB, packet, clientB)
+			suite.coordinator.Setup(path)
+			packet = types.NewPacket(ibctesting.MockPacketData, 1, path.EndpointA.ChannelConfig.PortID, path.EndpointA.ChannelID, path.EndpointB.ChannelConfig.PortID, path.EndpointB.ChannelID, clienttypes.GetSelfHeight(suite.chainB.GetContext()), disabledTimeoutTimestamp)
+			path.EndpointA.SendPacket(packet)
 			// need to update chainA's client representing chainB to prove missing ack
-			suite.coordinator.UpdateClient(suite.chainA, suite.chainB, clientA, exported.Tendermint)
+			path.EndpointA.UpdateClient()
 		}, true},
 		{"channel not found", func() {
 			// use wrong channel naming
-			_, _, _, _, _, channelB := suite.coordinator.Setup(suite.chainA, suite.chainB, types.UNORDERED)
-			packet = types.NewPacket(ibctesting.MockPacketData, 1, ibctesting.InvalidID, ibctesting.InvalidID, channelB.PortID, channelB.ID, timeoutHeight, disabledTimeoutTimestamp)
+			suite.coordinator.Setup(path)
+			packet = types.NewPacket(ibctesting.MockPacketData, 1, ibctesting.InvalidID, ibctesting.InvalidID, path.EndpointB.ChannelConfig.PortID, path.EndpointB.ChannelID, timeoutHeight, disabledTimeoutTimestamp)
 		}, false},
 		{"channel not open", func() {
-			_, _, _, _, channelA, channelB := suite.coordinator.Setup(suite.chainA, suite.chainB, types.UNORDERED)
-			packet = types.NewPacket(ibctesting.MockPacketData, 1, channelA.PortID, channelA.ID, channelB.PortID, channelB.ID, timeoutHeight, disabledTimeoutTimestamp)
+			suite.coordinator.Setup(path)
+			packet = types.NewPacket(ibctesting.MockPacketData, 1, path.EndpointA.ChannelConfig.PortID, path.EndpointA.ChannelID, path.EndpointB.ChannelConfig.PortID, path.EndpointB.ChannelID, timeoutHeight, disabledTimeoutTimestamp)
 
-			err := suite.coordinator.SetChannelClosed(suite.chainA, suite.chainB, channelA)
+			err := path.EndpointA.SetChannelClosed()
 			suite.Require().NoError(err)
 		}, false},
 		{"packet destination port ≠ channel counterparty port", func() {
-			_, _, _, _, channelA, channelB := suite.coordinator.Setup(suite.chainA, suite.chainB, types.UNORDERED)
+			suite.coordinator.Setup(path)
 			// use wrong port for dest
-			packet = types.NewPacket(ibctesting.MockPacketData, 1, channelA.PortID, channelA.ID, ibctesting.InvalidID, channelB.ID, timeoutHeight, disabledTimeoutTimestamp)
+			packet = types.NewPacket(ibctesting.MockPacketData, 1, path.EndpointA.ChannelConfig.PortID, path.EndpointA.ChannelID, ibctesting.InvalidID, path.EndpointB.ChannelID, timeoutHeight, disabledTimeoutTimestamp)
 		}, false},
 		{"packet destination channel ID ≠ channel counterparty channel ID", func() {
-			_, _, _, _, channelA, channelB := suite.coordinator.Setup(suite.chainA, suite.chainB, types.UNORDERED)
+			suite.coordinator.Setup(path)
 			// use wrong channel for dest
-			packet = types.NewPacket(ibctesting.MockPacketData, 1, channelA.PortID, channelA.ID, channelB.PortID, ibctesting.InvalidID, timeoutHeight, disabledTimeoutTimestamp)
+			packet = types.NewPacket(ibctesting.MockPacketData, 1, path.EndpointA.ChannelConfig.PortID, path.EndpointA.ChannelID, path.EndpointB.ChannelConfig.PortID, ibctesting.InvalidID, timeoutHeight, disabledTimeoutTimestamp)
 		}, false},
 		{"connection not found", func() {
-			channelA := ibctesting.TestChannel{PortID: portID, ID: channelIDA}
-			channelB := ibctesting.TestChannel{PortID: portID, ID: channelIDB}
 			// pass channel check
-			suite.chainA.App.IBCKeeper.ChannelKeeper.SetChannel(
+			suite.chainA.App.GetIBCKeeper().ChannelKeeper.SetChannel(
 				suite.chainA.GetContext(),
-				channelA.PortID, channelA.ID,
-				types.NewChannel(types.OPEN, types.ORDERED, types.NewCounterparty(channelB.PortID, channelB.ID), []string{connIDA}, channelA.Version),
+				path.EndpointA.ChannelConfig.PortID, path.EndpointA.ChannelID,
+				types.NewChannel(types.OPEN, types.ORDERED, types.NewCounterparty(path.EndpointB.ChannelConfig.PortID, path.EndpointB.ChannelID), []string{connIDA}, path.EndpointA.ChannelConfig.Version),
 			)
-			packet = types.NewPacket(ibctesting.MockPacketData, 1, channelA.PortID, channelA.ID, channelB.PortID, channelB.ID, timeoutHeight, disabledTimeoutTimestamp)
+			packet = types.NewPacket(ibctesting.MockPacketData, 1, path.EndpointA.ChannelConfig.PortID, path.EndpointA.ChannelID, path.EndpointB.ChannelConfig.PortID, path.EndpointB.ChannelID, timeoutHeight, disabledTimeoutTimestamp)
 		}, false},
 		{"timeout", func() {
-			clientA, clientB, _, _, channelA, channelB := suite.coordinator.Setup(suite.chainA, suite.chainB, types.ORDERED)
-			packet = types.NewPacket(ibctesting.MockPacketData, 1, channelA.PortID, channelA.ID, channelB.PortID, channelB.ID, timeoutHeight, disabledTimeoutTimestamp)
-			suite.coordinator.SendPacket(suite.chainA, suite.chainB, packet, clientB)
-			suite.coordinator.UpdateClient(suite.chainA, suite.chainB, clientA, exported.Tendermint)
+			suite.coordinator.Setup(path)
+			packet = types.NewPacket(ibctesting.MockPacketData, 1, path.EndpointA.ChannelConfig.PortID, path.EndpointA.ChannelID, path.EndpointB.ChannelConfig.PortID, path.EndpointB.ChannelID, timeoutHeight, disabledTimeoutTimestamp)
+			path.EndpointA.SendPacket(packet)
+			path.EndpointA.UpdateClient()
 		}, false},
 		{"packet already received ", func() {
 			ordered = true
+			path.SetChannelOrdered()
+
 			nextSeqRecv = 2
 
-			clientA, clientB, _, _, channelA, channelB := suite.coordinator.Setup(suite.chainA, suite.chainB, types.ORDERED)
-			packet = types.NewPacket(ibctesting.MockPacketData, 1, channelA.PortID, channelA.ID, channelB.PortID, channelB.ID, timeoutHeight, uint64(suite.chainB.GetContext().BlockTime().UnixNano()))
-			suite.coordinator.SendPacket(suite.chainA, suite.chainB, packet, clientB)
-			suite.coordinator.UpdateClient(suite.chainA, suite.chainB, clientA, exported.Tendermint)
+			suite.coordinator.Setup(path)
+			packet = types.NewPacket(ibctesting.MockPacketData, 1, path.EndpointA.ChannelConfig.PortID, path.EndpointA.ChannelID, path.EndpointB.ChannelConfig.PortID, path.EndpointB.ChannelID, timeoutHeight, uint64(suite.chainB.GetContext().BlockTime().UnixNano()))
+			path.EndpointA.SendPacket(packet)
+			path.EndpointA.UpdateClient()
 		}, false},
 		{"packet hasn't been sent", func() {
-			clientA, _, _, _, channelA, channelB := suite.coordinator.Setup(suite.chainA, suite.chainB, types.ORDERED)
-			packet = types.NewPacket(ibctesting.MockPacketData, 1, channelA.PortID, channelA.ID, channelB.PortID, channelB.ID, timeoutHeight, uint64(suite.chainB.GetContext().BlockTime().UnixNano()))
-			suite.coordinator.UpdateClient(suite.chainA, suite.chainB, clientA, exported.Tendermint)
+			ordered = true
+			path.SetChannelOrdered()
+
+			suite.coordinator.Setup(path)
+			packet = types.NewPacket(ibctesting.MockPacketData, 1, path.EndpointA.ChannelConfig.PortID, path.EndpointA.ChannelID, path.EndpointB.ChannelConfig.PortID, path.EndpointB.ChannelID, timeoutHeight, uint64(suite.chainB.GetContext().BlockTime().UnixNano()))
+			path.EndpointA.UpdateClient()
 		}, false},
 		{"next seq receive verification failed", func() {
 			// set ordered to false resulting in wrong proof provided
 			ordered = false
 
-			clientA, clientB, _, _, channelA, channelB := suite.coordinator.Setup(suite.chainA, suite.chainB, types.ORDERED)
-			packet = types.NewPacket(ibctesting.MockPacketData, 1, channelA.PortID, channelA.ID, channelB.PortID, channelB.ID, clienttypes.GetSelfHeight(suite.chainB.GetContext()), disabledTimeoutTimestamp)
-			suite.coordinator.SendPacket(suite.chainA, suite.chainB, packet, clientB)
-			suite.coordinator.UpdateClient(suite.chainA, suite.chainB, clientA, exported.Tendermint)
+			path.SetChannelOrdered()
+
+			suite.coordinator.Setup(path)
+			packet = types.NewPacket(ibctesting.MockPacketData, 1, path.EndpointA.ChannelConfig.PortID, path.EndpointA.ChannelID, path.EndpointB.ChannelConfig.PortID, path.EndpointB.ChannelID, clienttypes.GetSelfHeight(suite.chainB.GetContext()), disabledTimeoutTimestamp)
+			path.EndpointA.SendPacket(packet)
+			path.EndpointA.UpdateClient()
 		}, false},
 		{"packet ack verification failed", func() {
 			// set ordered to true resulting in wrong proof provided
 			ordered = true
 
-			clientA, clientB, _, _, channelA, channelB := suite.coordinator.Setup(suite.chainA, suite.chainB, types.UNORDERED)
-			packet = types.NewPacket(ibctesting.MockPacketData, 1, channelA.PortID, channelA.ID, channelB.PortID, channelB.ID, clienttypes.GetSelfHeight(suite.chainB.GetContext()), disabledTimeoutTimestamp)
-			suite.coordinator.SendPacket(suite.chainA, suite.chainB, packet, clientB)
-			suite.coordinator.UpdateClient(suite.chainA, suite.chainB, clientA, exported.Tendermint)
+			suite.coordinator.Setup(path)
+			packet = types.NewPacket(ibctesting.MockPacketData, 1, path.EndpointA.ChannelConfig.PortID, path.EndpointA.ChannelID, path.EndpointB.ChannelConfig.PortID, path.EndpointB.ChannelID, clienttypes.GetSelfHeight(suite.chainB.GetContext()), disabledTimeoutTimestamp)
+			path.EndpointA.SendPacket(packet)
+			path.EndpointA.UpdateClient()
 		}, false},
 	}
 
@@ -123,6 +130,8 @@ func (suite *KeeperTestSuite) TestTimeoutPacket() {
 
 			suite.SetupTest() // reset
 			nextSeqRecv = 1   // must be explicitly changed
+			path = ibctesting.NewPath(suite.chainA, suite.chainB)
+
 			tc.malleate()
 
 			orderedPacketKey := host.NextSequenceRecvKey(packet.GetDestPort(), packet.GetDestChannel())
@@ -134,7 +143,7 @@ func (suite *KeeperTestSuite) TestTimeoutPacket() {
 				proof, proofHeight = suite.chainB.QueryProof(unorderedPacketKey)
 			}
 
-			err := suite.chainA.App.IBCKeeper.ChannelKeeper.TimeoutPacket(suite.chainA.GetContext(), packet, proof, proofHeight, nextSeqRecv)
+			err := suite.chainA.App.GetIBCKeeper().ChannelKeeper.TimeoutPacket(suite.chainA.GetContext(), packet, proof, proofHeight, nextSeqRecv)
 
 			if tc.expPass {
 				suite.Require().NoError(err)
@@ -149,27 +158,32 @@ func (suite *KeeperTestSuite) TestTimeoutPacket() {
 // channel capabilities are verified.
 func (suite *KeeperTestSuite) TestTimeoutExecuted() {
 	var (
+		path    *ibctesting.Path
 		packet  types.Packet
 		chanCap *capabilitytypes.Capability
 	)
 
 	testCases := []testCase{
 		{"success ORDERED", func() {
-			_, clientB, _, _, channelA, channelB := suite.coordinator.Setup(suite.chainA, suite.chainB, types.ORDERED)
-			packet = types.NewPacket(ibctesting.MockPacketData, 1, channelA.PortID, channelA.ID, channelB.PortID, channelB.ID, clienttypes.GetSelfHeight(suite.chainB.GetContext()), uint64(suite.chainB.GetContext().BlockTime().UnixNano()))
-			suite.coordinator.SendPacket(suite.chainA, suite.chainB, packet, clientB)
+			path.SetChannelOrdered()
+			suite.coordinator.Setup(path)
 
-			chanCap = suite.chainA.GetChannelCapability(channelA.PortID, channelA.ID)
+			packet = types.NewPacket(ibctesting.MockPacketData, 1, path.EndpointA.ChannelConfig.PortID, path.EndpointA.ChannelID, path.EndpointB.ChannelConfig.PortID, path.EndpointB.ChannelID, clienttypes.GetSelfHeight(suite.chainB.GetContext()), uint64(suite.chainB.GetContext().BlockTime().UnixNano()))
+			path.EndpointA.SendPacket(packet)
+
+			chanCap = suite.chainA.GetChannelCapability(path.EndpointA.ChannelConfig.PortID, path.EndpointA.ChannelID)
 		}, true},
 		{"channel not found", func() {
 			// use wrong channel naming
-			_, _, _, _, _, channelB := suite.coordinator.Setup(suite.chainA, suite.chainB, types.UNORDERED)
-			packet = types.NewPacket(ibctesting.MockPacketData, 1, ibctesting.InvalidID, ibctesting.InvalidID, channelB.PortID, channelB.ID, timeoutHeight, disabledTimeoutTimestamp)
+			suite.coordinator.Setup(path)
+			packet = types.NewPacket(ibctesting.MockPacketData, 1, ibctesting.InvalidID, ibctesting.InvalidID, path.EndpointB.ChannelConfig.PortID, path.EndpointB.ChannelID, timeoutHeight, disabledTimeoutTimestamp)
 		}, false},
-		{"incorrect capability", func() {
-			_, clientB, _, _, channelA, channelB := suite.coordinator.Setup(suite.chainA, suite.chainB, types.ORDERED)
-			packet = types.NewPacket(ibctesting.MockPacketData, 1, channelA.PortID, channelA.ID, channelB.PortID, channelB.ID, clienttypes.GetSelfHeight(suite.chainB.GetContext()), uint64(suite.chainB.GetContext().BlockTime().UnixNano()))
-			suite.coordinator.SendPacket(suite.chainA, suite.chainB, packet, clientB)
+		{"incorrect capability ORDERED", func() {
+			path.SetChannelOrdered()
+			suite.coordinator.Setup(path)
+
+			packet = types.NewPacket(ibctesting.MockPacketData, 1, path.EndpointA.ChannelConfig.PortID, path.EndpointA.ChannelID, path.EndpointB.ChannelConfig.PortID, path.EndpointB.ChannelID, clienttypes.GetSelfHeight(suite.chainB.GetContext()), uint64(suite.chainB.GetContext().BlockTime().UnixNano()))
+			path.EndpointA.SendPacket(packet)
 
 			chanCap = capabilitytypes.NewCapability(100)
 		}, false},
@@ -179,11 +193,12 @@ func (suite *KeeperTestSuite) TestTimeoutExecuted() {
 		tc := tc
 		suite.Run(fmt.Sprintf("Case %s, %d/%d tests", tc.msg, i, len(testCases)), func() {
 			suite.SetupTest() // reset
+			path = ibctesting.NewPath(suite.chainA, suite.chainB)
 
 			tc.malleate()
 
-			err := suite.chainA.App.IBCKeeper.ChannelKeeper.TimeoutExecuted(suite.chainA.GetContext(), chanCap, packet)
-			pc := suite.chainA.App.IBCKeeper.ChannelKeeper.GetPacketCommitment(suite.chainA.GetContext(), packet.GetSourcePort(), packet.GetSourceChannel(), packet.GetSequence())
+			err := suite.chainA.App.GetIBCKeeper().ChannelKeeper.TimeoutExecuted(suite.chainA.GetContext(), chanCap, packet)
+			pc := suite.chainA.App.GetIBCKeeper().ChannelKeeper.GetPacketCommitment(suite.chainA.GetContext(), packet.GetSourcePort(), packet.GetSourceChannel(), packet.GetSequence())
 
 			if tc.expPass {
 				suite.NoError(err)
@@ -199,6 +214,7 @@ func (suite *KeeperTestSuite) TestTimeoutExecuted() {
 // channel on chainB after the packet commitment has been created.
 func (suite *KeeperTestSuite) TestTimeoutOnClose() {
 	var (
+		path        *ibctesting.Path
 		packet      types.Packet
 		chanCap     *capabilitytypes.Capability
 		nextSeqRecv uint64
@@ -208,110 +224,119 @@ func (suite *KeeperTestSuite) TestTimeoutOnClose() {
 	testCases := []testCase{
 		{"success: ORDERED", func() {
 			ordered = true
-			clientA, clientB, _, _, channelA, channelB := suite.coordinator.Setup(suite.chainA, suite.chainB, types.ORDERED)
-			packet = types.NewPacket(ibctesting.MockPacketData, 1, channelA.PortID, channelA.ID, channelB.PortID, channelB.ID, clienttypes.GetSelfHeight(suite.chainB.GetContext()), uint64(suite.chainB.GetContext().BlockTime().UnixNano()))
-			suite.coordinator.SendPacket(suite.chainA, suite.chainB, packet, clientB)
-			suite.coordinator.SetChannelClosed(suite.chainB, suite.chainA, channelB)
-			// need to update chainA's client representing chainB to prove missing ack
-			suite.coordinator.UpdateClient(suite.chainA, suite.chainB, clientA, exported.Tendermint)
+			path.SetChannelOrdered()
+			suite.coordinator.Setup(path)
 
-			chanCap = suite.chainA.GetChannelCapability(channelA.PortID, channelA.ID)
+			packet = types.NewPacket(ibctesting.MockPacketData, 1, path.EndpointA.ChannelConfig.PortID, path.EndpointA.ChannelID, path.EndpointB.ChannelConfig.PortID, path.EndpointB.ChannelID, clienttypes.GetSelfHeight(suite.chainB.GetContext()), uint64(suite.chainB.GetContext().BlockTime().UnixNano()))
+			path.EndpointA.SendPacket(packet)
+			path.EndpointB.SetChannelClosed()
+			// need to update chainA's client representing chainB to prove missing ack
+			path.EndpointA.UpdateClient()
+
+			chanCap = suite.chainA.GetChannelCapability(path.EndpointA.ChannelConfig.PortID, path.EndpointA.ChannelID)
 		}, true},
 		{"success: UNORDERED", func() {
 			ordered = false
-			clientA, clientB, _, _, channelA, channelB := suite.coordinator.Setup(suite.chainA, suite.chainB, types.UNORDERED)
-			packet = types.NewPacket(ibctesting.MockPacketData, 1, channelA.PortID, channelA.ID, channelB.PortID, channelB.ID, clienttypes.GetSelfHeight(suite.chainB.GetContext()), disabledTimeoutTimestamp)
-			suite.coordinator.SendPacket(suite.chainA, suite.chainB, packet, clientB)
-			suite.coordinator.SetChannelClosed(suite.chainB, suite.chainA, channelB)
+			suite.coordinator.Setup(path)
+			packet = types.NewPacket(ibctesting.MockPacketData, 1, path.EndpointA.ChannelConfig.PortID, path.EndpointA.ChannelID, path.EndpointB.ChannelConfig.PortID, path.EndpointB.ChannelID, clienttypes.GetSelfHeight(suite.chainB.GetContext()), disabledTimeoutTimestamp)
+			path.EndpointA.SendPacket(packet)
+			path.EndpointB.SetChannelClosed()
 			// need to update chainA's client representing chainB to prove missing ack
-			suite.coordinator.UpdateClient(suite.chainA, suite.chainB, clientA, exported.Tendermint)
+			path.EndpointA.UpdateClient()
 
-			chanCap = suite.chainA.GetChannelCapability(channelA.PortID, channelA.ID)
+			chanCap = suite.chainA.GetChannelCapability(path.EndpointA.ChannelConfig.PortID, path.EndpointA.ChannelID)
 		}, true},
 		{"channel not found", func() {
 			// use wrong channel naming
-			_, _, _, _, _, channelB := suite.coordinator.Setup(suite.chainA, suite.chainB, types.UNORDERED)
-			packet = types.NewPacket(ibctesting.MockPacketData, 1, ibctesting.InvalidID, ibctesting.InvalidID, channelB.PortID, channelB.ID, timeoutHeight, disabledTimeoutTimestamp)
+			suite.coordinator.Setup(path)
+			packet = types.NewPacket(ibctesting.MockPacketData, 1, ibctesting.InvalidID, ibctesting.InvalidID, path.EndpointB.ChannelConfig.PortID, path.EndpointB.ChannelID, timeoutHeight, disabledTimeoutTimestamp)
 		}, false},
 		{"packet dest port ≠ channel counterparty port", func() {
-			_, _, _, _, channelA, channelB := suite.coordinator.Setup(suite.chainA, suite.chainB, types.UNORDERED)
+			suite.coordinator.Setup(path)
 			// use wrong port for dest
-			packet = types.NewPacket(ibctesting.MockPacketData, 1, channelA.PortID, channelA.ID, ibctesting.InvalidID, channelB.ID, timeoutHeight, disabledTimeoutTimestamp)
-			chanCap = suite.chainA.GetChannelCapability(channelA.PortID, channelA.ID)
+			packet = types.NewPacket(ibctesting.MockPacketData, 1, path.EndpointA.ChannelConfig.PortID, path.EndpointA.ChannelID, ibctesting.InvalidID, path.EndpointB.ChannelID, timeoutHeight, disabledTimeoutTimestamp)
+			chanCap = suite.chainA.GetChannelCapability(path.EndpointA.ChannelConfig.PortID, path.EndpointA.ChannelID)
 		}, false},
 		{"packet dest channel ID ≠ channel counterparty channel ID", func() {
-			_, _, _, _, channelA, channelB := suite.coordinator.Setup(suite.chainA, suite.chainB, types.UNORDERED)
+			suite.coordinator.Setup(path)
 			// use wrong channel for dest
-			packet = types.NewPacket(ibctesting.MockPacketData, 1, channelA.PortID, channelA.ID, channelB.PortID, ibctesting.InvalidID, timeoutHeight, disabledTimeoutTimestamp)
-			chanCap = suite.chainA.GetChannelCapability(channelA.PortID, channelA.ID)
+			packet = types.NewPacket(ibctesting.MockPacketData, 1, path.EndpointA.ChannelConfig.PortID, path.EndpointA.ChannelID, path.EndpointB.ChannelConfig.PortID, ibctesting.InvalidID, timeoutHeight, disabledTimeoutTimestamp)
+			chanCap = suite.chainA.GetChannelCapability(path.EndpointA.ChannelConfig.PortID, path.EndpointA.ChannelID)
 		}, false},
 		{"connection not found", func() {
-			channelA := ibctesting.TestChannel{PortID: portID, ID: channelIDA}
-			channelB := ibctesting.TestChannel{PortID: portID, ID: channelIDB}
 			// pass channel check
-			suite.chainA.App.IBCKeeper.ChannelKeeper.SetChannel(
+			suite.chainA.App.GetIBCKeeper().ChannelKeeper.SetChannel(
 				suite.chainA.GetContext(),
-				channelA.PortID, channelA.ID,
-				types.NewChannel(types.OPEN, types.ORDERED, types.NewCounterparty(channelB.PortID, channelB.ID), []string{connIDA}, channelA.Version),
+				path.EndpointA.ChannelConfig.PortID, path.EndpointA.ChannelID,
+				types.NewChannel(types.OPEN, types.ORDERED, types.NewCounterparty(path.EndpointB.ChannelConfig.PortID, path.EndpointB.ChannelID), []string{connIDA}, path.EndpointA.ChannelConfig.Version),
 			)
-			packet = types.NewPacket(ibctesting.MockPacketData, 1, channelA.PortID, channelA.ID, channelB.PortID, channelB.ID, timeoutHeight, disabledTimeoutTimestamp)
+			packet = types.NewPacket(ibctesting.MockPacketData, 1, path.EndpointA.ChannelConfig.PortID, path.EndpointA.ChannelID, path.EndpointB.ChannelConfig.PortID, path.EndpointB.ChannelID, timeoutHeight, disabledTimeoutTimestamp)
 
 			// create chancap
-			suite.chainA.CreateChannelCapability(channelA.PortID, channelA.ID)
-			chanCap = suite.chainA.GetChannelCapability(channelA.PortID, channelA.ID)
+			suite.chainA.CreateChannelCapability(suite.chainA.GetSimApp().ScopedIBCMockKeeper, path.EndpointA.ChannelConfig.PortID, path.EndpointA.ChannelID)
+			chanCap = suite.chainA.GetChannelCapability(path.EndpointA.ChannelConfig.PortID, path.EndpointA.ChannelID)
 		}, false},
-		{"packet hasn't been sent", func() {
-			_, _, _, _, channelA, channelB := suite.coordinator.Setup(suite.chainA, suite.chainB, types.ORDERED)
-			packet = types.NewPacket(ibctesting.MockPacketData, 1, channelA.PortID, channelA.ID, channelB.PortID, channelB.ID, clienttypes.GetSelfHeight(suite.chainB.GetContext()), uint64(suite.chainB.GetContext().BlockTime().UnixNano()))
-			chanCap = suite.chainA.GetChannelCapability(channelA.PortID, channelA.ID)
+		{"packet hasn't been sent ORDERED", func() {
+			path.SetChannelOrdered()
+			suite.coordinator.Setup(path)
+
+			packet = types.NewPacket(ibctesting.MockPacketData, 1, path.EndpointA.ChannelConfig.PortID, path.EndpointA.ChannelID, path.EndpointB.ChannelConfig.PortID, path.EndpointB.ChannelID, clienttypes.GetSelfHeight(suite.chainB.GetContext()), uint64(suite.chainB.GetContext().BlockTime().UnixNano()))
+			chanCap = suite.chainA.GetChannelCapability(path.EndpointA.ChannelConfig.PortID, path.EndpointA.ChannelID)
 		}, false},
-		{"packet already received", func() {
+		{"packet already received ORDERED", func() {
+			path.SetChannelOrdered()
 			nextSeqRecv = 2
 			ordered = true
-			clientA, clientB, _, _, channelA, channelB := suite.coordinator.Setup(suite.chainA, suite.chainB, types.ORDERED)
-			packet = types.NewPacket(ibctesting.MockPacketData, 1, channelA.PortID, channelA.ID, channelB.PortID, channelB.ID, clienttypes.GetSelfHeight(suite.chainB.GetContext()), uint64(suite.chainB.GetContext().BlockTime().UnixNano()))
-			suite.coordinator.SendPacket(suite.chainA, suite.chainB, packet, clientB)
-			suite.coordinator.SetChannelClosed(suite.chainB, suite.chainA, channelB)
-			// need to update chainA's client representing chainB to prove missing ack
-			suite.coordinator.UpdateClient(suite.chainA, suite.chainB, clientA, exported.Tendermint)
+			suite.coordinator.Setup(path)
 
-			chanCap = suite.chainA.GetChannelCapability(channelA.PortID, channelA.ID)
+			packet = types.NewPacket(ibctesting.MockPacketData, 1, path.EndpointA.ChannelConfig.PortID, path.EndpointA.ChannelID, path.EndpointB.ChannelConfig.PortID, path.EndpointB.ChannelID, clienttypes.GetSelfHeight(suite.chainB.GetContext()), uint64(suite.chainB.GetContext().BlockTime().UnixNano()))
+			path.EndpointA.SendPacket(packet)
+			path.EndpointB.SetChannelClosed()
+			// need to update chainA's client representing chainB to prove missing ack
+			path.EndpointA.UpdateClient()
+
+			chanCap = suite.chainA.GetChannelCapability(path.EndpointA.ChannelConfig.PortID, path.EndpointA.ChannelID)
 		}, false},
-		{"channel verification failed", func() {
+		{"channel verification failed ORDERED", func() {
 			ordered = true
-			_, clientB, _, _, channelA, channelB := suite.coordinator.Setup(suite.chainA, suite.chainB, types.ORDERED)
-			packet = types.NewPacket(ibctesting.MockPacketData, 1, channelA.PortID, channelA.ID, channelB.PortID, channelB.ID, clienttypes.GetSelfHeight(suite.chainB.GetContext()), uint64(suite.chainB.GetContext().BlockTime().UnixNano()))
-			suite.coordinator.SendPacket(suite.chainA, suite.chainB, packet, clientB)
-			chanCap = suite.chainA.GetChannelCapability(channelA.PortID, channelA.ID)
+			path.SetChannelOrdered()
+			suite.coordinator.Setup(path)
+			packet = types.NewPacket(ibctesting.MockPacketData, 1, path.EndpointA.ChannelConfig.PortID, path.EndpointA.ChannelID, path.EndpointB.ChannelConfig.PortID, path.EndpointB.ChannelID, clienttypes.GetSelfHeight(suite.chainB.GetContext()), uint64(suite.chainB.GetContext().BlockTime().UnixNano()))
+			path.EndpointA.SendPacket(packet)
+			chanCap = suite.chainA.GetChannelCapability(path.EndpointA.ChannelConfig.PortID, path.EndpointA.ChannelID)
 		}, false},
-		{"next seq receive verification failed", func() {
+		{"next seq receive verification failed ORDERED", func() {
 			// set ordered to false providing the wrong proof for ORDERED case
 			ordered = false
-			clientA, clientB, _, _, channelA, channelB := suite.coordinator.Setup(suite.chainA, suite.chainB, types.ORDERED)
-			packet = types.NewPacket(ibctesting.MockPacketData, 1, channelA.PortID, channelA.ID, channelB.PortID, channelB.ID, clienttypes.GetSelfHeight(suite.chainB.GetContext()), uint64(suite.chainB.GetContext().BlockTime().UnixNano()))
-			suite.coordinator.SendPacket(suite.chainA, suite.chainB, packet, clientB)
-			suite.coordinator.SetChannelClosed(suite.chainB, suite.chainA, channelB)
-			suite.coordinator.UpdateClient(suite.chainA, suite.chainB, clientA, exported.Tendermint)
-			chanCap = suite.chainA.GetChannelCapability(channelA.PortID, channelA.ID)
+
+			path.SetChannelOrdered()
+			suite.coordinator.Setup(path)
+			packet = types.NewPacket(ibctesting.MockPacketData, 1, path.EndpointA.ChannelConfig.PortID, path.EndpointA.ChannelID, path.EndpointB.ChannelConfig.PortID, path.EndpointB.ChannelID, clienttypes.GetSelfHeight(suite.chainB.GetContext()), uint64(suite.chainB.GetContext().BlockTime().UnixNano()))
+			path.EndpointA.SendPacket(packet)
+			path.EndpointB.SetChannelClosed()
+			path.EndpointA.UpdateClient()
+			chanCap = suite.chainA.GetChannelCapability(path.EndpointA.ChannelConfig.PortID, path.EndpointA.ChannelID)
 		}, false},
 		{"packet ack verification failed", func() {
 			// set ordered to true providing the wrong proof for UNORDERED case
 			ordered = true
-			clientA, clientB, _, _, channelA, channelB := suite.coordinator.Setup(suite.chainA, suite.chainB, types.UNORDERED)
-			packet = types.NewPacket(ibctesting.MockPacketData, 1, channelA.PortID, channelA.ID, channelB.PortID, channelB.ID, clienttypes.GetSelfHeight(suite.chainB.GetContext()), disabledTimeoutTimestamp)
-			suite.coordinator.SendPacket(suite.chainA, suite.chainB, packet, clientB)
-			suite.coordinator.SetChannelClosed(suite.chainB, suite.chainA, channelB)
-			suite.coordinator.UpdateClient(suite.chainA, suite.chainB, clientA, exported.Tendermint)
-			chanCap = suite.chainA.GetChannelCapability(channelA.PortID, channelA.ID)
+			suite.coordinator.Setup(path)
+			packet = types.NewPacket(ibctesting.MockPacketData, 1, path.EndpointA.ChannelConfig.PortID, path.EndpointA.ChannelID, path.EndpointB.ChannelConfig.PortID, path.EndpointB.ChannelID, clienttypes.GetSelfHeight(suite.chainB.GetContext()), disabledTimeoutTimestamp)
+			path.EndpointA.SendPacket(packet)
+			path.EndpointB.SetChannelClosed()
+			path.EndpointA.UpdateClient()
+			chanCap = suite.chainA.GetChannelCapability(path.EndpointA.ChannelConfig.PortID, path.EndpointA.ChannelID)
 		}, false},
-		{"channel capability not found", func() {
+		{"channel capability not found ORDERED", func() {
 			ordered = true
-			clientA, clientB, _, _, channelA, channelB := suite.coordinator.Setup(suite.chainA, suite.chainB, types.ORDERED)
-			packet = types.NewPacket(ibctesting.MockPacketData, 1, channelA.PortID, channelA.ID, channelB.PortID, channelB.ID, clienttypes.GetSelfHeight(suite.chainB.GetContext()), uint64(suite.chainB.GetContext().BlockTime().UnixNano()))
-			suite.coordinator.SendPacket(suite.chainA, suite.chainB, packet, clientB)
-			suite.coordinator.SetChannelClosed(suite.chainB, suite.chainA, channelB)
+			path.SetChannelOrdered()
+			suite.coordinator.Setup(path)
+
+			packet = types.NewPacket(ibctesting.MockPacketData, 1, path.EndpointA.ChannelConfig.PortID, path.EndpointA.ChannelID, path.EndpointB.ChannelConfig.PortID, path.EndpointB.ChannelID, clienttypes.GetSelfHeight(suite.chainB.GetContext()), uint64(suite.chainB.GetContext().BlockTime().UnixNano()))
+			path.EndpointA.SendPacket(packet)
+			path.EndpointB.SetChannelClosed()
 			// need to update chainA's client representing chainB to prove missing ack
-			suite.coordinator.UpdateClient(suite.chainA, suite.chainB, clientA, exported.Tendermint)
+			path.EndpointA.UpdateClient()
 
 			chanCap = capabilitytypes.NewCapability(100)
 		}, false},
@@ -324,6 +349,8 @@ func (suite *KeeperTestSuite) TestTimeoutOnClose() {
 
 			suite.SetupTest() // reset
 			nextSeqRecv = 1   // must be explicitly changed
+			path = ibctesting.NewPath(suite.chainA, suite.chainB)
+
 			tc.malleate()
 
 			channelKey := host.ChannelKey(packet.GetDestPort(), packet.GetDestChannel())
@@ -338,7 +365,7 @@ func (suite *KeeperTestSuite) TestTimeoutOnClose() {
 				proof, _ = suite.chainB.QueryProof(unorderedPacketKey)
 			}
 
-			err := suite.chainA.App.IBCKeeper.ChannelKeeper.TimeoutOnClose(suite.chainA.GetContext(), chanCap, packet, proof, proofClosed, proofHeight, nextSeqRecv)
+			err := suite.chainA.App.GetIBCKeeper().ChannelKeeper.TimeoutOnClose(suite.chainA.GetContext(), chanCap, packet, proof, proofClosed, proofHeight, nextSeqRecv)
 
 			if tc.expPass {
 				suite.Require().NoError(err)

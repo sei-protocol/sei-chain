@@ -25,15 +25,15 @@ func (suite *KeeperTestSuite) TestGenesis() {
 			Path:      path,
 		}
 		traces = append(types.Traces{denomTrace}, traces...)
-		suite.chainA.App.TransferKeeper.SetDenomTrace(suite.chainA.GetContext(), denomTrace)
+		suite.chainA.GetSimApp().TransferKeeper.SetDenomTrace(suite.chainA.GetContext(), denomTrace)
 	}
 
-	genesis := suite.chainA.App.TransferKeeper.ExportGenesis(suite.chainA.GetContext())
+	genesis := suite.chainA.GetSimApp().TransferKeeper.ExportGenesis(suite.chainA.GetContext())
 
 	suite.Require().Equal(types.PortID, genesis.PortId)
 	suite.Require().Equal(traces.Sort(), genesis.DenomTraces)
 
 	suite.Require().NotPanics(func() {
-		suite.chainA.App.TransferKeeper.InitGenesis(suite.chainA.GetContext(), *genesis)
+		suite.chainA.GetSimApp().TransferKeeper.InitGenesis(suite.chainA.GetContext(), *genesis)
 	})
 }

@@ -19,8 +19,6 @@ import (
 	solomachinetypes "github.com/cosmos/ibc-go/modules/light-clients/06-solomachine/types"
 )
 
-var prefix = commitmenttypes.NewMerklePrefix([]byte("ibc"))
-
 // Solomachine is a testing helper used to simulate a counterparty
 // solo machine client.
 type Solomachine struct {

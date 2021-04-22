@@ -7,7 +7,6 @@ import (
 	"github.com/cosmos/cosmos-sdk/types/query"
 	clienttypes "github.com/cosmos/ibc-go/modules/core/02-client/types"
 	"github.com/cosmos/ibc-go/modules/core/03-connection/types"
-	channeltypes "github.com/cosmos/ibc-go/modules/core/04-channel/types"
 	"github.com/cosmos/ibc-go/modules/core/exported"
 	ibctesting "github.com/cosmos/ibc-go/testing"
 )
@@ -47,16 +46,17 @@ func (suite *KeeperTestSuite) TestQueryConnection() {
 		{
 			"success",
 			func() {
-				clientA, clientB := suite.coordinator.SetupClients(suite.chainA, suite.chainB, exported.Tendermint)
-				connA := suite.chainA.GetFirstTestConnection(clientA, clientB)
-				connB := suite.chainB.GetFirstTestConnection(clientB, clientA)
+				path := ibctesting.NewPath(suite.chainA, suite.chainB)
+				suite.coordinator.SetupClients(path)
+				err := path.EndpointA.ConnOpenInit()
+				suite.Require().NoError(err)
 
-				counterparty := types.NewCounterparty(clientB, connB.ID, suite.chainB.GetPrefix())
-				expConnection = types.NewConnectionEnd(types.INIT, clientA, counterparty, types.ExportedVersionsToProto(types.GetCompatibleVersions()), 500)
-				suite.chainA.App.IBCKeeper.ConnectionKeeper.SetConnection(suite.chainA.GetContext(), connA.ID, expConnection)
+				counterparty := types.NewCounterparty(path.EndpointB.ClientID, "", suite.chainB.GetPrefix())
+				expConnection = types.NewConnectionEnd(types.INIT, path.EndpointA.ClientID, counterparty, types.ExportedVersionsToProto(types.GetCompatibleVersions()), 500)
+				suite.chainA.App.GetIBCKeeper().ConnectionKeeper.SetConnection(suite.chainA.GetContext(), path.EndpointA.ConnectionID, expConnection)
 
 				req = &types.QueryConnectionRequest{
-					ConnectionId: connA.ID,
+					ConnectionId: path.EndpointA.ConnectionID,
 				}
 			},
 			true,
@@ -111,23 +111,28 @@ func (suite *KeeperTestSuite) TestQueryConnections() {
 		{
 			"success",
 			func() {
-				clientA, clientB, connA0, connB0 := suite.coordinator.SetupClientConnections(suite.chainA, suite.chainB, exported.Tendermint)
-				clientA1, clientB1, connA1, connB1 := suite.coordinator.SetupClientConnections(suite.chainA, suite.chainB, exported.Tendermint)
-				connA2, _, err := suite.coordinator.ConnOpenInit(suite.chainA, suite.chainB, clientA, clientB)
+				path1 := ibctesting.NewPath(suite.chainA, suite.chainB)
+				path2 := ibctesting.NewPath(suite.chainA, suite.chainB)
+				path3 := ibctesting.NewPath(suite.chainA, suite.chainB)
+				suite.coordinator.SetupConnections(path1)
+				suite.coordinator.SetupConnections(path2)
+				suite.coordinator.SetupClients(path3)
+
+				err := path3.EndpointA.ConnOpenInit()
 				suite.Require().NoError(err)
 
-				counterparty1 := types.NewCounterparty(clientB, connB0.ID, suite.chainB.GetPrefix())
-				counterparty2 := types.NewCounterparty(clientB1, connB1.ID, suite.chainB.GetPrefix())
+				counterparty1 := types.NewCounterparty(path1.EndpointB.ClientID, path1.EndpointB.ConnectionID, suite.chainB.GetPrefix())
+				counterparty2 := types.NewCounterparty(path2.EndpointB.ClientID, path2.EndpointB.ConnectionID, suite.chainB.GetPrefix())
 				// counterparty connection id is blank after open init
-				counterparty3 := types.NewCounterparty(clientB, "", suite.chainB.GetPrefix())
+				counterparty3 := types.NewCounterparty(path3.EndpointB.ClientID, "", suite.chainB.GetPrefix())
 
-				conn1 := types.NewConnectionEnd(types.OPEN, clientA, counterparty1, types.ExportedVersionsToProto(types.GetCompatibleVersions()), 0)
-				conn2 := types.NewConnectionEnd(types.OPEN, clientA1, counterparty2, types.ExportedVersionsToProto(types.GetCompatibleVersions()), 0)
-				conn3 := types.NewConnectionEnd(types.INIT, clientA, counterparty3, types.ExportedVersionsToProto(types.GetCompatibleVersions()), 0)
+				conn1 := types.NewConnectionEnd(types.OPEN, path1.EndpointA.ClientID, counterparty1, types.ExportedVersionsToProto(types.GetCompatibleVersions()), 0)
+				conn2 := types.NewConnectionEnd(types.OPEN, path2.EndpointA.ClientID, counterparty2, types.ExportedVersionsToProto(types.GetCompatibleVersions()), 0)
+				conn3 := types.NewConnectionEnd(types.INIT, path3.EndpointA.ClientID, counterparty3, types.ExportedVersionsToProto(types.GetCompatibleVersions()), 0)
 
-				iconn1 := types.NewIdentifiedConnection(connA0.ID, conn1)
-				iconn2 := types.NewIdentifiedConnection(connA1.ID, conn2)
-				iconn3 := types.NewIdentifiedConnection(connA2.ID, conn3)
+				iconn1 := types.NewIdentifiedConnection(path1.EndpointA.ConnectionID, conn1)
+				iconn2 := types.NewIdentifiedConnection(path2.EndpointA.ConnectionID, conn2)
+				iconn3 := types.NewIdentifiedConnection(path3.EndpointA.ConnectionID, conn3)
 
 				expConnections = []*types.IdentifiedConnection{&iconn1, &iconn2, &iconn3}
 
@@ -197,13 +202,21 @@ func (suite *KeeperTestSuite) TestQueryClientConnections() {
 		{
 			"success",
 			func() {
-				clientA, clientB, connA0, _ := suite.coordinator.SetupClientConnections(suite.chainA, suite.chainB, exported.Tendermint)
-				connA1, _ := suite.coordinator.CreateConnection(suite.chainA, suite.chainB, clientA, clientB)
-				expPaths = []string{connA0.ID, connA1.ID}
-				suite.chainA.App.IBCKeeper.ConnectionKeeper.SetClientConnectionPaths(suite.chainA.GetContext(), clientA, expPaths)
+				path1 := ibctesting.NewPath(suite.chainA, suite.chainB)
+				suite.coordinator.SetupConnections(path1)
+
+				// create another connection using same underlying clients
+				path2 := ibctesting.NewPath(suite.chainA, suite.chainB)
+				path2.EndpointA.ClientID = path1.EndpointA.ClientID
+				path2.EndpointB.ClientID = path1.EndpointB.ClientID
+
+				suite.coordinator.CreateConnections(path2)
+
+				expPaths = []string{path1.EndpointA.ConnectionID, path2.EndpointA.ConnectionID}
+				suite.chainA.App.GetIBCKeeper().ConnectionKeeper.SetClientConnectionPaths(suite.chainA.GetContext(), path1.EndpointA.ClientID, expPaths)
 
 				req = &types.QueryClientConnectionsRequest{
-					ClientId: clientA,
+					ClientId: path1.EndpointA.ClientID,
 				}
 			},
 			true,
@@ -269,26 +282,28 @@ func (suite *KeeperTestSuite) TestQueryConnectionClientState() {
 		{
 			"client state not found",
 			func() {
-				_, _, connA, _, _, _ := suite.coordinator.Setup(suite.chainA, suite.chainB, channeltypes.UNORDERED)
+				path := ibctesting.NewPath(suite.chainA, suite.chainB)
+				suite.coordinator.Setup(path)
 
 				// set connection to empty so clientID is empty
-				suite.chainA.App.IBCKeeper.ConnectionKeeper.SetConnection(suite.chainA.GetContext(), connA.ID, types.ConnectionEnd{})
+				suite.chainA.App.GetIBCKeeper().ConnectionKeeper.SetConnection(suite.chainA.GetContext(), path.EndpointA.ConnectionID, types.ConnectionEnd{})
 
 				req = &types.QueryConnectionClientStateRequest{
-					ConnectionId: connA.ID,
+					ConnectionId: path.EndpointA.ConnectionID,
 				}
 			}, false,
 		},
 		{
 			"success",
 			func() {
-				clientA, _, connA, _ := suite.coordinator.SetupClientConnections(suite.chainA, suite.chainB, exported.Tendermint)
+				path := ibctesting.NewPath(suite.chainA, suite.chainB)
+				suite.coordinator.SetupConnections(path)
 
-				expClientState := suite.chainA.GetClientState(clientA)
-				expIdentifiedClientState = clienttypes.NewIdentifiedClientState(clientA, expClientState)
+				expClientState := suite.chainA.GetClientState(path.EndpointA.ClientID)
+				expIdentifiedClientState = clienttypes.NewIdentifiedClientState(path.EndpointA.ClientID, expClientState)
 
 				req = &types.QueryConnectionClientStateRequest{
-					ConnectionId: connA.ID,
+					ConnectionId: path.EndpointA.ConnectionID,
 				}
 			},
 			true,
@@ -363,10 +378,11 @@ func (suite *KeeperTestSuite) TestQueryConnectionConsensusState() {
 		{
 			"consensus state not found",
 			func() {
-				_, _, connA, _, _, _ := suite.coordinator.Setup(suite.chainA, suite.chainB, channeltypes.UNORDERED)
+				path := ibctesting.NewPath(suite.chainA, suite.chainB)
+				suite.coordinator.Setup(path)
 
 				req = &types.QueryConnectionConsensusStateRequest{
-					ConnectionId:   connA.ID,
+					ConnectionId:   path.EndpointA.ConnectionID,
 					RevisionNumber: 0,
 					RevisionHeight: uint64(suite.chainA.GetContext().BlockHeight()), // use current height
 				}
@@ -375,15 +391,16 @@ func (suite *KeeperTestSuite) TestQueryConnectionConsensusState() {
 		{
 			"success",
 			func() {
-				clientA, _, connA, _ := suite.coordinator.SetupClientConnections(suite.chainA, suite.chainB, exported.Tendermint)
+				path := ibctesting.NewPath(suite.chainA, suite.chainB)
+				suite.coordinator.SetupConnections(path)
 
-				clientState := suite.chainA.GetClientState(clientA)
-				expConsensusState, _ = suite.chainA.GetConsensusState(clientA, clientState.GetLatestHeight())
+				clientState := suite.chainA.GetClientState(path.EndpointA.ClientID)
+				expConsensusState, _ = suite.chainA.GetConsensusState(path.EndpointA.ClientID, clientState.GetLatestHeight())
 				suite.Require().NotNil(expConsensusState)
-				expClientID = clientA
+				expClientID = path.EndpointA.ClientID
 
 				req = &types.QueryConnectionConsensusStateRequest{
-					ConnectionId:   connA.ID,
+					ConnectionId:   path.EndpointA.ConnectionID,
 					RevisionNumber: clientState.GetLatestHeight().GetRevisionNumber(),
 					RevisionHeight: clientState.GetLatestHeight().GetRevisionHeight(),
 				}

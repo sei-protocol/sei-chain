@@ -7,17 +7,23 @@ import (
 	"github.com/cosmos/cosmos-sdk/codec"
 	codectypes "github.com/cosmos/cosmos-sdk/codec/types"
 	govtypes "github.com/cosmos/cosmos-sdk/x/gov/types"
+	upgradetypes "github.com/cosmos/cosmos-sdk/x/upgrade/types"
+
 	"github.com/cosmos/ibc-go/modules/core/02-client/types"
-	"github.com/cosmos/ibc-go/modules/core/exported"
 	ibctmtypes "github.com/cosmos/ibc-go/modules/light-clients/07-tendermint/types"
 	ibctesting "github.com/cosmos/ibc-go/testing"
-	upgradetypes "github.com/cosmos/cosmos-sdk/x/upgrade/types"
 )
 
 func (suite *TypesTestSuite) TestValidateBasic() {
-	subject, _ := suite.coordinator.SetupClients(suite.chainA, suite.chainB, exported.Tendermint)
+	subjectPath := ibctesting.NewPath(suite.chainA, suite.chainB)
+	suite.coordinator.SetupClients(subjectPath)
+	subject := subjectPath.EndpointA.ClientID
 	subjectClientState := suite.chainA.GetClientState(subject)
-	substitute, _ := suite.coordinator.SetupClients(suite.chainA, suite.chainB, exported.Tendermint)
+
+	substitutePath := ibctesting.NewPath(suite.chainA, suite.chainB)
+	suite.coordinator.SetupClients(substitutePath)
+	substitute := substitutePath.EndpointA.ClientID
+
 	initialHeight := types.NewHeight(subjectClientState.GetLatestHeight().GetRevisionNumber(), subjectClientState.GetLatestHeight().GetRevisionHeight()+1)
 
 	testCases := []struct {
@@ -97,8 +103,9 @@ func (suite *TypesTestSuite) TestUpgradeProposalValidateBasic() {
 		err      error
 	)
 
-	client, _ := suite.coordinator.SetupClients(suite.chainA, suite.chainB, exported.Tendermint)
-	cs := suite.chainA.GetClientState(client)
+	path := ibctesting.NewPath(suite.chainA, suite.chainB)
+	suite.coordinator.SetupClients(path)
+	cs := suite.chainA.GetClientState(path.EndpointA.ClientID)
 	plan := upgradetypes.Plan{
 		Name:   "ibc upgrade",
 		Height: 1000,

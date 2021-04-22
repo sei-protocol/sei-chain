@@ -15,9 +15,9 @@ var (
 
 func (suite *TendermintTestSuite) TestCheckSubstituteUpdateStateBasic() {
 	var (
-		substitute            string
 		substituteClientState exported.ClientState
 		initialHeight         clienttypes.Height
+		substitutePath        *ibctesting.Path
 	)
 	testCases := []struct {
 		name     string
@@ -35,8 +35,8 @@ func (suite *TendermintTestSuite) TestCheckSubstituteUpdateStateBasic() {
 		},
 		{
 			"non-matching substitute", func() {
-				substitute, _ := suite.coordinator.SetupClients(suite.chainA, suite.chainB, exported.Tendermint)
-				substituteClientState = suite.chainA.GetClientState(substitute).(*types.ClientState)
+				suite.coordinator.SetupClients(substitutePath)
+				substituteClientState = suite.chainA.GetClientState(substitutePath.EndpointA.ClientID).(*types.ClientState)
 				tmClientState, ok := substituteClientState.(*types.ClientState)
 				suite.Require().True(ok)
 
@@ -45,8 +45,8 @@ func (suite *TendermintTestSuite) TestCheckSubstituteUpdateStateBasic() {
 		},
 		{
 			"updated client is invalid - revision height is zero", func() {
-				substitute, _ := suite.coordinator.SetupClients(suite.chainA, suite.chainB, exported.Tendermint)
-				substituteClientState = suite.chainA.GetClientState(substitute).(*types.ClientState)
+				suite.coordinator.SetupClients(substitutePath)
+				substituteClientState = suite.chainA.GetClientState(substitutePath.EndpointA.ClientID).(*types.ClientState)
 				tmClientState, ok := substituteClientState.(*types.ClientState)
 				suite.Require().True(ok)
 				// match subject
@@ -60,8 +60,8 @@ func (suite *TendermintTestSuite) TestCheckSubstituteUpdateStateBasic() {
 		},
 		{
 			"updated client is expired", func() {
-				substitute, _ = suite.coordinator.SetupClients(suite.chainA, suite.chainB, exported.Tendermint)
-				substituteClientState = suite.chainA.GetClientState(substitute).(*types.ClientState)
+				suite.coordinator.SetupClients(substitutePath)
+				substituteClientState = suite.chainA.GetClientState(substitutePath.EndpointA.ClientID).(*types.ClientState)
 				tmClientState, ok := substituteClientState.(*types.ClientState)
 				suite.Require().True(ok)
 				initialHeight = tmClientState.LatestHeight
@@ -69,21 +69,21 @@ func (suite *TendermintTestSuite) TestCheckSubstituteUpdateStateBasic() {
 				// match subject
 				tmClientState.AllowUpdateAfterMisbehaviour = true
 				tmClientState.AllowUpdateAfterExpiry = true
-				suite.chainA.App.IBCKeeper.ClientKeeper.SetClientState(suite.chainA.GetContext(), substitute, tmClientState)
+				suite.chainA.App.GetIBCKeeper().ClientKeeper.SetClientState(suite.chainA.GetContext(), substitutePath.EndpointA.ClientID, tmClientState)
 
 				// update substitute a few times
-				err := suite.coordinator.UpdateClient(suite.chainA, suite.chainB, substitute, exported.Tendermint)
+				err := substitutePath.EndpointA.UpdateClient()
 				suite.Require().NoError(err)
-				substituteClientState = suite.chainA.GetClientState(substitute)
+				substituteClientState = suite.chainA.GetClientState(substitutePath.EndpointA.ClientID)
 
-				err = suite.coordinator.UpdateClient(suite.chainA, suite.chainB, substitute, exported.Tendermint)
+				err = substitutePath.EndpointA.UpdateClient()
 				suite.Require().NoError(err)
 
-				suite.chainA.ExpireClient(tmClientState.TrustingPeriod)
-				suite.chainB.ExpireClient(tmClientState.TrustingPeriod)
+				// expire client
+				suite.coordinator.IncrementTimeBy(tmClientState.TrustingPeriod)
 				suite.coordinator.CommitBlock(suite.chainA, suite.chainB)
 
-				substituteClientState = suite.chainA.GetClientState(substitute)
+				substituteClientState = suite.chainA.GetClientState(substitutePath.EndpointA.ClientID)
 			},
 		},
 	}
@@ -94,21 +94,22 @@ func (suite *TendermintTestSuite) TestCheckSubstituteUpdateStateBasic() {
 		suite.Run(tc.name, func() {
 
 			suite.SetupTest() // reset
+			subjectPath := ibctesting.NewPath(suite.chainA, suite.chainB)
+			substitutePath = ibctesting.NewPath(suite.chainA, suite.chainB)
 
-			subject, _ := suite.coordinator.SetupClients(suite.chainA, suite.chainB, exported.Tendermint)
-			subjectClientState := suite.chainA.GetClientState(subject).(*types.ClientState)
+			suite.coordinator.SetupClients(subjectPath)
+			subjectClientState := suite.chainA.GetClientState(subjectPath.EndpointA.ClientID).(*types.ClientState)
 			subjectClientState.AllowUpdateAfterMisbehaviour = true
 			subjectClientState.AllowUpdateAfterExpiry = true
 
-			// expire subject
-			suite.chainA.ExpireClient(subjectClientState.TrustingPeriod)
-			suite.chainB.ExpireClient(subjectClientState.TrustingPeriod)
+			// expire subject client
+			suite.coordinator.IncrementTimeBy(subjectClientState.TrustingPeriod)
 			suite.coordinator.CommitBlock(suite.chainA, suite.chainB)
 
 			tc.malleate()
 
-			subjectClientStore := suite.chainA.App.IBCKeeper.ClientKeeper.ClientStore(suite.chainA.GetContext(), subject)
-			substituteClientStore := suite.chainA.App.IBCKeeper.ClientKeeper.ClientStore(suite.chainA.GetContext(), substitute)
+			subjectClientStore := suite.chainA.App.GetIBCKeeper().ClientKeeper.ClientStore(suite.chainA.GetContext(), subjectPath.EndpointA.ClientID)
+			substituteClientStore := suite.chainA.App.GetIBCKeeper().ClientKeeper.ClientStore(suite.chainA.GetContext(), substitutePath.EndpointA.ClientID)
 
 			updatedClient, err := subjectClientState.CheckSubstituteAndUpdateState(suite.chainA.GetContext(), suite.chainA.App.AppCodec(), subjectClientStore, substituteClientStore, substituteClientState, initialHeight)
 			suite.Require().Error(err)
@@ -270,8 +271,9 @@ func (suite *TendermintTestSuite) TestCheckSubstituteAndUpdateState() {
 			suite.SetupTest() // reset
 
 			// construct subject using test case parameters
-			subject, _ := suite.coordinator.SetupClients(suite.chainA, suite.chainB, exported.Tendermint)
-			subjectClientState := suite.chainA.GetClientState(subject).(*types.ClientState)
+			subjectPath := ibctesting.NewPath(suite.chainA, suite.chainB)
+			suite.coordinator.SetupClients(subjectPath)
+			subjectClientState := suite.chainA.GetClientState(subjectPath.EndpointA.ClientID).(*types.ClientState)
 			subjectClientState.AllowUpdateAfterExpiry = tc.AllowUpdateAfterExpiry
 			subjectClientState.AllowUpdateAfterMisbehaviour = tc.AllowUpdateAfterMisbehaviour
 
@@ -280,8 +282,8 @@ func (suite *TendermintTestSuite) TestCheckSubstituteAndUpdateState() {
 				subjectClientState.FrozenHeight = frozenHeight
 			}
 			if tc.ExpireClient {
-				suite.chainA.ExpireClient(subjectClientState.TrustingPeriod)
-				suite.chainB.ExpireClient(subjectClientState.TrustingPeriod)
+				// expire subject client
+				suite.coordinator.IncrementTimeBy(subjectClientState.TrustingPeriod)
 				suite.coordinator.CommitBlock(suite.chainA, suite.chainB)
 			}
 
@@ -291,27 +293,28 @@ func (suite *TendermintTestSuite) TestCheckSubstituteAndUpdateState() {
 			// the natural flow of events in practice. The subject will become frozen/expired
 			// and a substitute will be created along with a governance proposal as a response
 
-			substitute, _ := suite.coordinator.SetupClients(suite.chainA, suite.chainB, exported.Tendermint)
-			substituteClientState := suite.chainA.GetClientState(substitute).(*types.ClientState)
+			substitutePath := ibctesting.NewPath(suite.chainA, suite.chainB)
+			suite.coordinator.SetupClients(substitutePath)
+			substituteClientState := suite.chainA.GetClientState(substitutePath.EndpointA.ClientID).(*types.ClientState)
 			substituteClientState.AllowUpdateAfterExpiry = tc.AllowUpdateAfterExpiry
 			substituteClientState.AllowUpdateAfterMisbehaviour = tc.AllowUpdateAfterMisbehaviour
-			suite.chainA.App.IBCKeeper.ClientKeeper.SetClientState(suite.chainA.GetContext(), substitute, substituteClientState)
+			suite.chainA.App.GetIBCKeeper().ClientKeeper.SetClientState(suite.chainA.GetContext(), substitutePath.EndpointA.ClientID, substituteClientState)
 
 			initialHeight := substituteClientState.GetLatestHeight()
 
 			// update substitute a few times
 			for i := 0; i < 3; i++ {
-				err := suite.coordinator.UpdateClient(suite.chainA, suite.chainB, substitute, exported.Tendermint)
+				err := substitutePath.EndpointA.UpdateClient()
 				suite.Require().NoError(err)
 				// skip a block
 				suite.coordinator.CommitBlock(suite.chainA, suite.chainB)
 			}
 
 			// get updated substitute
-			substituteClientState = suite.chainA.GetClientState(substitute).(*types.ClientState)
+			substituteClientState = suite.chainA.GetClientState(substitutePath.EndpointA.ClientID).(*types.ClientState)
 
-			subjectClientStore := suite.chainA.App.IBCKeeper.ClientKeeper.ClientStore(suite.chainA.GetContext(), subject)
-			substituteClientStore := suite.chainA.App.IBCKeeper.ClientKeeper.ClientStore(suite.chainA.GetContext(), substitute)
+			subjectClientStore := suite.chainA.App.GetIBCKeeper().ClientKeeper.ClientStore(suite.chainA.GetContext(), subjectPath.EndpointA.ClientID)
+			substituteClientStore := suite.chainA.App.GetIBCKeeper().ClientKeeper.ClientStore(suite.chainA.GetContext(), substitutePath.EndpointA.ClientID)
 			updatedClient, err := subjectClientState.CheckSubstituteAndUpdateState(suite.chainA.GetContext(), suite.chainA.App.AppCodec(), subjectClientStore, substituteClientStore, substituteClientState, initialHeight)
 
 			if tc.expPass {
@@ -328,7 +331,7 @@ func (suite *TendermintTestSuite) TestCheckSubstituteAndUpdateState() {
 
 func (suite *TendermintTestSuite) TestIsMatchingClientState() {
 	var (
-		subject, substitute                       string
+		subjectPath, substitutePath               *ibctesting.Path
 		subjectClientState, substituteClientState *types.ClientState
 	)
 
@@ -339,8 +342,8 @@ func (suite *TendermintTestSuite) TestIsMatchingClientState() {
 	}{
 		{
 			"matching clients", func() {
-				subjectClientState = suite.chainA.GetClientState(subject).(*types.ClientState)
-				substituteClientState = suite.chainA.GetClientState(substitute).(*types.ClientState)
+				subjectClientState = suite.chainA.GetClientState(subjectPath.EndpointA.ClientID).(*types.ClientState)
+				substituteClientState = suite.chainA.GetClientState(substitutePath.EndpointA.ClientID).(*types.ClientState)
 			}, true,
 		},
 		{
@@ -375,8 +378,10 @@ func (suite *TendermintTestSuite) TestIsMatchingClientState() {
 		suite.Run(tc.name, func() {
 			suite.SetupTest() // reset
 
-			subject, _ = suite.coordinator.SetupClients(suite.chainA, suite.chainB, exported.Tendermint)
-			substitute, _ = suite.coordinator.SetupClients(suite.chainA, suite.chainB, exported.Tendermint)
+			subjectPath = ibctesting.NewPath(suite.chainA, suite.chainB)
+			substitutePath = ibctesting.NewPath(suite.chainA, suite.chainB)
+			suite.coordinator.SetupClients(subjectPath)
+			suite.coordinator.SetupClients(substitutePath)
 
 			tc.malleate()
 

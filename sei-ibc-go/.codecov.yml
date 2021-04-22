@@ -53,4 +53,5 @@ ignore:
   - "modules/**/**/**/*.pb.go"
   - "modules/**/**/**/*.pb.gw.go"
   - "modules/**/**/**/test_common.go"
+  - "testing/"
   - "scripts/"

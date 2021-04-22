@@ -34,6 +34,12 @@ var (
 	MockCanaryCapabilityName = "mock canary capability name"
 )
 
+// Expected Interface
+// PortKeeper defines the expected IBC port keeper
+type PortKeeper interface {
+	BindPort(ctx sdk.Context, portID string) *capabilitytypes.Capability
+}
+
 // AppModuleBasic is the mock AppModuleBasic.
 type AppModuleBasic struct{}
 
@@ -78,12 +84,14 @@ func (AppModuleBasic) GetQueryCmd() *cobra.Command {
 type AppModule struct {
 	AppModuleBasic
 	scopedKeeper capabilitykeeper.ScopedKeeper
+	portKeeper   PortKeeper
 }
 
 // NewAppModule returns a mock AppModule instance.
-func NewAppModule(sk capabilitykeeper.ScopedKeeper) AppModule {
+func NewAppModule(sk capabilitykeeper.ScopedKeeper, pk PortKeeper) AppModule {
 	return AppModule{
 		scopedKeeper: sk,
+		portKeeper:   pk,
 	}
 }
 
@@ -110,6 +118,10 @@ func (am AppModule) RegisterServices(module.Configurator) {}
 
 // InitGenesis implements the AppModule interface.
 func (am AppModule) InitGenesis(ctx sdk.Context, cdc codec.JSONMarshaler, data json.RawMessage) []abci.ValidatorUpdate {
+	// bind mock port ID
+	cap := am.portKeeper.BindPort(ctx, ModuleName)
+	am.scopedKeeper.ClaimCapability(ctx, cap, host.PortPath(ModuleName))
+
 	return []abci.ValidatorUpdate{}
 }
 
@@ -117,6 +129,9 @@ func (am AppModule) InitGenesis(ctx sdk.Context, cdc codec.JSONMarshaler, data j
 func (am AppModule) ExportGenesis(ctx sdk.Context, cdc codec.JSONMarshaler) json.RawMessage {
 	return nil
 }
+
+// ConsensusVersion implements AppModule/ConsensusVersion.
+func (AppModule) ConsensusVersion() uint64 { return 1 }
 
 // BeginBlock implements the AppModule interface
 func (am AppModule) BeginBlock(ctx sdk.Context, req abci.RequestBeginBlock) {

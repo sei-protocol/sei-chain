@@ -8,7 +8,6 @@ import (
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 
 	"github.com/cosmos/cosmos-sdk/codec"
-	"github.com/cosmos/ibc-go/testing/simapp"
 	ibc "github.com/cosmos/ibc-go/modules/core"
 	clienttypes "github.com/cosmos/ibc-go/modules/core/02-client/types"
 	connectiontypes "github.com/cosmos/ibc-go/modules/core/03-connection/types"
@@ -19,6 +18,7 @@ import (
 	ibctmtypes "github.com/cosmos/ibc-go/modules/light-clients/07-tendermint/types"
 	localhosttypes "github.com/cosmos/ibc-go/modules/light-clients/09-localhost/types"
 	ibctesting "github.com/cosmos/ibc-go/testing"
+	"github.com/cosmos/ibc-go/testing/simapp"
 )
 
 const (
@@ -331,10 +331,10 @@ func (suite *IBCTestSuite) TestExportGenesis() {
 			"success",
 			func() {
 				// creates clients
-				suite.coordinator.Setup(suite.chainA, suite.chainB, channeltypes.UNORDERED)
+				suite.coordinator.Setup(ibctesting.NewPath(suite.chainA, suite.chainB))
 				// create extra clients
-				suite.coordinator.CreateClient(suite.chainA, suite.chainB, exported.Tendermint)
-				suite.coordinator.CreateClient(suite.chainA, suite.chainB, exported.Tendermint)
+				suite.coordinator.SetupClients(ibctesting.NewPath(suite.chainA, suite.chainB))
+				suite.coordinator.SetupClients(ibctesting.NewPath(suite.chainA, suite.chainB))
 			},
 		},
 	}
@@ -347,23 +347,23 @@ func (suite *IBCTestSuite) TestExportGenesis() {
 
 			var gs *types.GenesisState
 			suite.NotPanics(func() {
-				gs = ibc.ExportGenesis(suite.chainA.GetContext(), *suite.chainA.App.IBCKeeper)
+				gs = ibc.ExportGenesis(suite.chainA.GetContext(), *suite.chainA.App.GetIBCKeeper())
 			})
 
 			// init genesis based on export
 			suite.NotPanics(func() {
-				ibc.InitGenesis(suite.chainA.GetContext(), *suite.chainA.App.IBCKeeper, true, gs)
+				ibc.InitGenesis(suite.chainA.GetContext(), *suite.chainA.App.GetIBCKeeper(), true, gs)
 			})
 
 			suite.NotPanics(func() {
-				cdc := codec.NewProtoCodec(suite.chainA.App.InterfaceRegistry())
+				cdc := codec.NewProtoCodec(suite.chainA.GetSimApp().InterfaceRegistry())
 				genState := cdc.MustMarshalJSON(gs)
 				cdc.MustUnmarshalJSON(genState, gs)
 			})
 
 			// init genesis based on marshal and unmarshal
 			suite.NotPanics(func() {
-				ibc.InitGenesis(suite.chainA.GetContext(), *suite.chainA.App.IBCKeeper, true, gs)
+				ibc.InitGenesis(suite.chainA.GetContext(), *suite.chainA.App.GetIBCKeeper(), true, gs)
 			})
 		})
 	}

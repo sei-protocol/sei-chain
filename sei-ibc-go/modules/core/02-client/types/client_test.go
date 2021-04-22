@@ -6,7 +6,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/cosmos/ibc-go/modules/core/02-client/types"
-	"github.com/cosmos/ibc-go/modules/core/exported"
 	ibctesting "github.com/cosmos/ibc-go/testing"
 )
 
@@ -27,9 +26,10 @@ func (suite *TypesTestSuite) TestMarshalConsensusStateWithHeight() {
 		},
 		{
 			"tendermint client", func() {
-				clientA, _ := suite.coordinator.SetupClients(suite.chainA, suite.chainB, exported.Tendermint)
-				clientState := suite.chainA.GetClientState(clientA)
-				consensusState, ok := suite.chainA.GetConsensusState(clientA, clientState.GetLatestHeight())
+				path := ibctesting.NewPath(suite.chainA, suite.chainB)
+				suite.coordinator.SetupClients(path)
+				clientState := suite.chainA.GetClientState(path.EndpointA.ClientID)
+				consensusState, ok := suite.chainA.GetConsensusState(path.EndpointA.ClientID, clientState.GetLatestHeight())
 				suite.Require().True(ok)
 
 				cswh = types.NewConsensusStateWithHeight(clientState.GetLatestHeight().(types.Height), consensusState)

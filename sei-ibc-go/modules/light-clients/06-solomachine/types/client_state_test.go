@@ -119,7 +119,7 @@ func (suite *SoloMachineTestSuite) TestInitialize() {
 		for _, tc := range testCases {
 			err := solomachine.ClientState().Initialize(
 				suite.chainA.GetContext(), suite.chainA.Codec,
-				suite.chainA.App.IBCKeeper.ClientKeeper.ClientStore(suite.chainA.GetContext(), "solomachine"),
+				suite.chainA.App.GetIBCKeeper().ClientKeeper.ClientStore(suite.chainA.GetContext(), "solomachine"),
 				tc.consState,
 			)
 
@@ -134,8 +134,9 @@ func (suite *SoloMachineTestSuite) TestInitialize() {
 
 func (suite *SoloMachineTestSuite) TestVerifyClientState() {
 	// create client for tendermint so we can use client state for verification
-	clientA, _ := suite.coordinator.SetupClients(suite.chainA, suite.chainB, exported.Tendermint)
-	clientState := suite.chainA.GetClientState(clientA)
+	tmPath := ibctesting.NewPath(suite.chainA, suite.chainB)
+	suite.coordinator.SetupClients(tmPath)
+	clientState := suite.chainA.GetClientState(tmPath.EndpointA.ClientID)
 	path := suite.solomachine.GetClientStatePath(counterpartyClientIdentifier)
 
 	// test singlesig and multisig public keys
@@ -261,9 +262,10 @@ func (suite *SoloMachineTestSuite) TestVerifyClientState() {
 
 func (suite *SoloMachineTestSuite) TestVerifyClientConsensusState() {
 	// create client for tendermint so we can use consensus state for verification
-	clientA, _ := suite.coordinator.SetupClients(suite.chainA, suite.chainB, exported.Tendermint)
-	clientState := suite.chainA.GetClientState(clientA)
-	consensusState, found := suite.chainA.GetConsensusState(clientA, clientState.GetLatestHeight())
+	tmPath := ibctesting.NewPath(suite.chainA, suite.chainB)
+	suite.coordinator.SetupClients(tmPath)
+	clientState := suite.chainA.GetClientState(tmPath.EndpointA.ClientID)
+	consensusState, found := suite.chainA.GetConsensusState(tmPath.EndpointA.ClientID, clientState.GetLatestHeight())
 	suite.Require().True(found)
 
 	path := suite.solomachine.GetConsensusStatePath(counterpartyClientIdentifier, consensusHeight)

@@ -11,12 +11,12 @@ import (
 
 func (suite *TendermintTestSuite) TestExportMetadata() {
 	clientState := types.NewClientState(chainID, types.DefaultTrustLevel, trustingPeriod, ubdPeriod, maxClockDrift, height, commitmenttypes.GetSDKSpecs(), upgradePath, false, false)
-	suite.chainA.App.IBCKeeper.ClientKeeper.SetClientState(suite.chainA.GetContext(), "clientA", clientState)
+	suite.chainA.App.GetIBCKeeper().ClientKeeper.SetClientState(suite.chainA.GetContext(), "clientA", clientState)
 
-	gm := clientState.ExportMetadata(suite.chainA.App.IBCKeeper.ClientKeeper.ClientStore(suite.chainA.GetContext(), "clientA"))
+	gm := clientState.ExportMetadata(suite.chainA.App.GetIBCKeeper().ClientKeeper.ClientStore(suite.chainA.GetContext(), "clientA"))
 	suite.Require().Nil(gm, "client with no metadata returned non-nil exported metadata")
 
-	clientStore := suite.chainA.App.IBCKeeper.ClientKeeper.ClientStore(suite.chainA.GetContext(), "clientA")
+	clientStore := suite.chainA.App.GetIBCKeeper().ClientKeeper.ClientStore(suite.chainA.GetContext(), "clientA")
 
 	// set some processed times
 	timestamp1 := uint64(time.Now().UnixNano())
@@ -26,7 +26,7 @@ func (suite *TendermintTestSuite) TestExportMetadata() {
 	types.SetProcessedTime(clientStore, clienttypes.NewHeight(0, 1), timestamp1)
 	types.SetProcessedTime(clientStore, clienttypes.NewHeight(0, 2), timestamp2)
 
-	gm = clientState.ExportMetadata(suite.chainA.App.IBCKeeper.ClientKeeper.ClientStore(suite.chainA.GetContext(), "clientA"))
+	gm = clientState.ExportMetadata(suite.chainA.App.GetIBCKeeper().ClientKeeper.ClientStore(suite.chainA.GetContext(), "clientA"))
 	suite.Require().NotNil(gm, "client with metadata returned nil exported metadata")
 	suite.Require().Len(gm, 2, "exported metadata has unexpected length")
 

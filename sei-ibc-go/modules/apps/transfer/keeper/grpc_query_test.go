@@ -44,7 +44,7 @@ func (suite *KeeperTestSuite) TestQueryDenomTrace() {
 			func() {
 				expTrace.Path = "transfer/channelToA/transfer/channelToB"
 				expTrace.BaseDenom = "uatom"
-				suite.chainA.App.TransferKeeper.SetDenomTrace(suite.chainA.GetContext(), expTrace)
+				suite.chainA.GetSimApp().TransferKeeper.SetDenomTrace(suite.chainA.GetContext(), expTrace)
 
 				req = &types.QueryDenomTraceRequest{
 					Hash: expTrace.Hash().String(),
@@ -100,7 +100,7 @@ func (suite *KeeperTestSuite) TestQueryDenomTraces() {
 				expTraces = append(expTraces, types.DenomTrace{Path: "transfer/channelToA/transfer/channelToB", BaseDenom: "uatom"})
 
 				for _, trace := range expTraces {
-					suite.chainA.App.TransferKeeper.SetDenomTrace(suite.chainA.GetContext(), trace)
+					suite.chainA.GetSimApp().TransferKeeper.SetDenomTrace(suite.chainA.GetContext(), trace)
 				}
 
 				req = &types.QueryDenomTracesRequest{

@@ -18,7 +18,6 @@ import (
 	"github.com/cosmos/ibc-go/modules/apps/transfer/types"
 	clienttypes "github.com/cosmos/ibc-go/modules/core/02-client/types"
 	channeltypes "github.com/cosmos/ibc-go/modules/core/04-channel/types"
-	"github.com/cosmos/ibc-go/modules/core/exported"
 	ibctesting "github.com/cosmos/ibc-go/testing"
 )
 
@@ -251,10 +250,10 @@ func (bank *Bank) NonZeroString() string {
 // Construct a bank out of the chain bank
 func BankOfChain(chain *ibctesting.TestChain) Bank {
 	bank := MakeBank()
-	chain.App.BankKeeper.IterateAllBalances(chain.GetContext(), func(address sdk.AccAddress, coin sdk.Coin) (stop bool) {
+	chain.GetSimApp().BankKeeper.IterateAllBalances(chain.GetContext(), func(address sdk.AccAddress, coin sdk.Coin) (stop bool) {
 		fullDenom := coin.Denom
 		if strings.HasPrefix(coin.Denom, "ibc/") {
-			fullDenom, _ = chain.App.TransferKeeper.DenomPathFromHash(chain.GetContext(), coin.Denom)
+			fullDenom, _ = chain.GetSimApp().TransferKeeper.DenomPathFromHash(chain.GetContext(), coin.Denom)
 		}
 		bank.SetBalance(address.String(), fullDenom, coin.Amount)
 		return false
@@ -295,18 +294,18 @@ func (suite *KeeperTestSuite) TestModelBasedRelay() {
 		}
 
 		suite.SetupTest()
-		_, _, connAB, connBA := suite.coordinator.SetupClientConnections(suite.chainA, suite.chainB, exported.Tendermint)
-		_, _, connBC, connCB := suite.coordinator.SetupClientConnections(suite.chainB, suite.chainC, exported.Tendermint)
-		suite.coordinator.CreateTransferChannels(suite.chainA, suite.chainB, connAB, connBA, channeltypes.UNORDERED)
-		suite.coordinator.CreateTransferChannels(suite.chainB, suite.chainC, connBC, connCB, channeltypes.UNORDERED)
+		pathAtoB := NewTransferPath(suite.chainA, suite.chainB)
+		pathBtoC := NewTransferPath(suite.chainB, suite.chainC)
+		suite.coordinator.Setup(pathAtoB)
+		suite.coordinator.Setup(pathBtoC)
 
 		for i, tlaTc := range tlaTestCases {
 			tc := OnRecvPacketTestCaseFromTla(tlaTc)
 			registerDenom := func() {
 				denomTrace := types.ParseDenomTrace(tc.packet.Data.Denom)
 				traceHash := denomTrace.Hash()
-				if !suite.chainB.App.TransferKeeper.HasDenomTrace(suite.chainB.GetContext(), traceHash) {
-					suite.chainB.App.TransferKeeper.SetDenomTrace(suite.chainB.GetContext(), denomTrace)
+				if !suite.chainB.GetSimApp().TransferKeeper.HasDenomTrace(suite.chainB.GetContext(), traceHash) {
+					suite.chainB.GetSimApp().TransferKeeper.SetDenomTrace(suite.chainB.GetContext(), denomTrace)
 				}
 			}
 
@@ -334,7 +333,7 @@ func (suite *KeeperTestSuite) TestModelBasedRelay() {
 					denom := denomTrace.IBCDenom()
 					err = sdk.ValidateDenom(denom)
 					if err == nil {
-						err = suite.chainB.App.TransferKeeper.SendTransfer(
+						err = suite.chainB.GetSimApp().TransferKeeper.SendTransfer(
 							suite.chainB.GetContext(),
 							tc.packet.SourcePort,
 							tc.packet.SourceChannel,
@@ -345,17 +344,17 @@ func (suite *KeeperTestSuite) TestModelBasedRelay() {
 							0)
 					}
 				case "OnRecvPacket":
-					err = suite.chainB.App.TransferKeeper.OnRecvPacket(suite.chainB.GetContext(), packet, tc.packet.Data)
+					err = suite.chainB.GetSimApp().TransferKeeper.OnRecvPacket(suite.chainB.GetContext(), packet, tc.packet.Data)
 				case "OnTimeoutPacket":
 					registerDenom()
-					err = suite.chainB.App.TransferKeeper.OnTimeoutPacket(suite.chainB.GetContext(), packet, tc.packet.Data)
+					err = suite.chainB.GetSimApp().TransferKeeper.OnTimeoutPacket(suite.chainB.GetContext(), packet, tc.packet.Data)
 				case "OnRecvAcknowledgementResult":
-					err = suite.chainB.App.TransferKeeper.OnAcknowledgementPacket(
+					err = suite.chainB.GetSimApp().TransferKeeper.OnAcknowledgementPacket(
 						suite.chainB.GetContext(), packet, tc.packet.Data,
 						channeltypes.NewResultAcknowledgement(nil))
 				case "OnRecvAcknowledgementError":
 					registerDenom()
-					err = suite.chainB.App.TransferKeeper.OnAcknowledgementPacket(
+					err = suite.chainB.GetSimApp().TransferKeeper.OnAcknowledgementPacket(
 						suite.chainB.GetContext(), packet, tc.packet.Data,
 						channeltypes.NewErrorAcknowledgement("MBT Error Acknowledgement"))
 				default:

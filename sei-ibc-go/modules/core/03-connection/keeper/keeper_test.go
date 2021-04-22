@@ -7,7 +7,6 @@ import (
 	"github.com/stretchr/testify/suite"
 
 	"github.com/cosmos/ibc-go/modules/core/03-connection/types"
-	"github.com/cosmos/ibc-go/modules/core/exported"
 	ibctesting "github.com/cosmos/ibc-go/testing"
 )
 
@@ -32,62 +31,80 @@ func TestKeeperTestSuite(t *testing.T) {
 }
 
 func (suite *KeeperTestSuite) TestSetAndGetConnection() {
-	clientA, clientB := suite.coordinator.SetupClients(suite.chainA, suite.chainB, exported.Tendermint)
-	connA := suite.chainA.GetFirstTestConnection(clientA, clientB)
-	_, existed := suite.chainA.App.IBCKeeper.ConnectionKeeper.GetConnection(suite.chainA.GetContext(), connA.ID)
+	path := ibctesting.NewPath(suite.chainA, suite.chainB)
+	suite.coordinator.SetupClients(path)
+	firstConnection := "connection-0"
+
+	// check first connection does not exist
+	_, existed := suite.chainA.App.GetIBCKeeper().ConnectionKeeper.GetConnection(suite.chainA.GetContext(), firstConnection)
 	suite.Require().False(existed)
 
-	suite.coordinator.CreateConnection(suite.chainA, suite.chainB, clientA, clientB)
-	_, existed = suite.chainA.App.IBCKeeper.ConnectionKeeper.GetConnection(suite.chainA.GetContext(), connA.ID)
+	suite.coordinator.CreateConnections(path)
+	_, existed = suite.chainA.App.GetIBCKeeper().ConnectionKeeper.GetConnection(suite.chainA.GetContext(), firstConnection)
 	suite.Require().True(existed)
 }
 
 func (suite *KeeperTestSuite) TestSetAndGetClientConnectionPaths() {
-	clientA, _ := suite.coordinator.SetupClients(suite.chainA, suite.chainB, exported.Tendermint)
-	_, existed := suite.chainA.App.IBCKeeper.ConnectionKeeper.GetClientConnectionPaths(suite.chainA.GetContext(), clientA)
+
+	path := ibctesting.NewPath(suite.chainA, suite.chainB)
+	suite.coordinator.SetupClients(path)
+
+	_, existed := suite.chainA.App.GetIBCKeeper().ConnectionKeeper.GetClientConnectionPaths(suite.chainA.GetContext(), path.EndpointA.ClientID)
 	suite.False(existed)
 
 	connections := []string{"connectionA", "connectionB"}
-	suite.chainA.App.IBCKeeper.ConnectionKeeper.SetClientConnectionPaths(suite.chainA.GetContext(), clientA, connections)
-	paths, existed := suite.chainA.App.IBCKeeper.ConnectionKeeper.GetClientConnectionPaths(suite.chainA.GetContext(), clientA)
+	suite.chainA.App.GetIBCKeeper().ConnectionKeeper.SetClientConnectionPaths(suite.chainA.GetContext(), path.EndpointA.ClientID, connections)
+	paths, existed := suite.chainA.App.GetIBCKeeper().ConnectionKeeper.GetClientConnectionPaths(suite.chainA.GetContext(), path.EndpointA.ClientID)
 	suite.True(existed)
 	suite.EqualValues(connections, paths)
 }
 
 // create 2 connections: A0 - B0, A1 - B1
 func (suite KeeperTestSuite) TestGetAllConnections() {
-	clientA, clientB, connA0, connB0 := suite.coordinator.SetupClientConnections(suite.chainA, suite.chainB, exported.Tendermint)
-	connA1, connB1 := suite.coordinator.CreateConnection(suite.chainA, suite.chainB, clientA, clientB)
+	path1 := ibctesting.NewPath(suite.chainA, suite.chainB)
+	suite.coordinator.SetupConnections(path1)
 
-	counterpartyB0 := types.NewCounterparty(clientB, connB0.ID, suite.chainB.GetPrefix()) // connection B0
-	counterpartyB1 := types.NewCounterparty(clientB, connB1.ID, suite.chainB.GetPrefix()) // connection B1
+	path2 := ibctesting.NewPath(suite.chainA, suite.chainB)
+	path2.EndpointA.ClientID = path1.EndpointA.ClientID
+	path2.EndpointB.ClientID = path1.EndpointB.ClientID
 
-	conn1 := types.NewConnectionEnd(types.OPEN, clientA, counterpartyB0, types.ExportedVersionsToProto(types.GetCompatibleVersions()), 0) // A0 - B0
-	conn2 := types.NewConnectionEnd(types.OPEN, clientA, counterpartyB1, types.ExportedVersionsToProto(types.GetCompatibleVersions()), 0) // A1 - B1
+	suite.coordinator.CreateConnections(path2)
 
-	iconn1 := types.NewIdentifiedConnection(connA0.ID, conn1)
-	iconn2 := types.NewIdentifiedConnection(connA1.ID, conn2)
+	counterpartyB0 := types.NewCounterparty(path1.EndpointB.ClientID, path1.EndpointB.ConnectionID, suite.chainB.GetPrefix()) // connection B0
+	counterpartyB1 := types.NewCounterparty(path2.EndpointB.ClientID, path2.EndpointB.ConnectionID, suite.chainB.GetPrefix()) // connection B1
+
+	conn1 := types.NewConnectionEnd(types.OPEN, path1.EndpointA.ClientID, counterpartyB0, types.ExportedVersionsToProto(types.GetCompatibleVersions()), 0) // A0 - B0
+	conn2 := types.NewConnectionEnd(types.OPEN, path2.EndpointA.ClientID, counterpartyB1, types.ExportedVersionsToProto(types.GetCompatibleVersions()), 0) // A1 - B1
+
+	iconn1 := types.NewIdentifiedConnection(path1.EndpointA.ConnectionID, conn1)
+	iconn2 := types.NewIdentifiedConnection(path2.EndpointA.ConnectionID, conn2)
 
 	expConnections := []types.IdentifiedConnection{iconn1, iconn2}
 
-	connections := suite.chainA.App.IBCKeeper.ConnectionKeeper.GetAllConnections(suite.chainA.GetContext())
+	connections := suite.chainA.App.GetIBCKeeper().ConnectionKeeper.GetAllConnections(suite.chainA.GetContext())
 	suite.Require().Len(connections, len(expConnections))
 	suite.Require().Equal(expConnections, connections)
 }
 
-// the test creates 2 clients clientA0 and clientA1. clientA0 has a single
-// connection and clientA1 has 2 connections.
+// the test creates 2 clients path.EndpointA.ClientID0 and path.EndpointA.ClientID1. path.EndpointA.ClientID0 has a single
+// connection and path.EndpointA.ClientID1 has 2 connections.
 func (suite KeeperTestSuite) TestGetAllClientConnectionPaths() {
-	clientA0, _, connA0, _ := suite.coordinator.SetupClientConnections(suite.chainA, suite.chainB, exported.Tendermint)
-	clientA1, clientB1, connA1, _ := suite.coordinator.SetupClientConnections(suite.chainA, suite.chainB, exported.Tendermint)
-	connA2, _ := suite.coordinator.CreateConnection(suite.chainA, suite.chainB, clientA1, clientB1)
+	path1 := ibctesting.NewPath(suite.chainA, suite.chainB)
+	path2 := ibctesting.NewPath(suite.chainA, suite.chainB)
+	suite.coordinator.SetupConnections(path1)
+	suite.coordinator.SetupConnections(path2)
+
+	path3 := ibctesting.NewPath(suite.chainA, suite.chainB)
+	path3.EndpointA.ClientID = path2.EndpointA.ClientID
+	path3.EndpointB.ClientID = path2.EndpointB.ClientID
+	suite.coordinator.CreateConnections(path3)
 
 	expPaths := []types.ConnectionPaths{
-		types.NewConnectionPaths(clientA0, []string{connA0.ID}),
-		types.NewConnectionPaths(clientA1, []string{connA1.ID, connA2.ID}),
+		types.NewConnectionPaths(path1.EndpointA.ClientID, []string{path1.EndpointA.ConnectionID}),
+		types.NewConnectionPaths(path2.EndpointA.ClientID, []string{path2.EndpointA.ConnectionID, path3.EndpointA.ConnectionID}),
 	}
 
-	connPaths := suite.chainA.App.IBCKeeper.ConnectionKeeper.GetAllClientConnectionPaths(suite.chainA.GetContext())
+	connPaths := suite.chainA.App.GetIBCKeeper().ConnectionKeeper.GetAllClientConnectionPaths(suite.chainA.GetContext())
 	suite.Require().Len(connPaths, 2)
 	suite.Require().Equal(expPaths, connPaths)
 }
@@ -103,8 +120,9 @@ func (suite *KeeperTestSuite) TestGetTimestampAtHeight() {
 		expPass  bool
 	}{
 		{"verification success", func() {
-			_, _, connA, _ := suite.coordinator.SetupClientConnections(suite.chainA, suite.chainB, exported.Tendermint)
-			connection = suite.chainA.GetConnection(connA)
+			path := ibctesting.NewPath(suite.chainA, suite.chainB)
+			suite.coordinator.SetupConnections(path)
+			connection = path.EndpointA.GetConnection()
 		}, true},
 		{"consensus state not found", func() {
 			// any non-nil value of connection is valid
@@ -118,7 +136,7 @@ func (suite *KeeperTestSuite) TestGetTimestampAtHeight() {
 
 			tc.malleate()
 
-			actualTimestamp, err := suite.chainA.App.IBCKeeper.ConnectionKeeper.GetTimestampAtHeight(
+			actualTimestamp, err := suite.chainA.App.GetIBCKeeper().ConnectionKeeper.GetTimestampAtHeight(
 				suite.chainA.GetContext(), connection, suite.chainB.LastHeader.GetHeight(),
 			)
 
