@@ -37,6 +37,11 @@ import (
 // number must be the same. To update to a new revision, use a separate upgrade path
 // Tendermint client validity checking uses the bisection algorithm described
 // in the [Tendermint spec](https://github.com/tendermint/spec/blob/master/spec/consensus/light-client.md).
+//
+// Pruning:
+// UpdateClient will additionally retrieve the earliest consensus state for this clientID and check if it is expired. If it is,
+// that consensus state will be pruned from store along with all associated metadata. This will prevent the client store from
+// becoming bloated with expired consensus states that can no longer be used for updates and packet verification.
 func (cs ClientState) CheckHeaderAndUpdateState(
 	ctx sdk.Context, cdc codec.BinaryMarshaler, clientStore sdk.KVStore,
 	header exported.Header,
@@ -58,6 +63,35 @@ func (cs ClientState) CheckHeaderAndUpdateState(
 
 	if err := checkValidity(&cs, tmConsState, tmHeader, ctx.BlockTime()); err != nil {
 		return nil, nil, err
+	}
+
+	// Check the earliest consensus state to see if it is expired, if so then set the prune height
+	// so that we can delete consensus state and all associated metadata.
+	var (
+		pruneHeight exported.Height
+		pruneError  error
+	)
+	pruneCb := func(height exported.Height) bool {
+		consState, err := GetConsensusState(clientStore, cdc, height)
+		// this error should never occur
+		if err != nil {
+			pruneError = err
+			return true
+		}
+		if cs.IsExpired(consState.Timestamp, ctx.BlockTime()) {
+			pruneHeight = height
+		}
+		return true
+	}
+	IterateConsensusStateAscending(clientStore, pruneCb)
+	if pruneError != nil {
+		return nil, nil, pruneError
+	}
+	// if pruneHeight is set, delete consensus state and metadata
+	if pruneHeight != nil {
+		deleteConsensusState(clientStore, pruneHeight)
+		deleteProcessedTime(clientStore, pruneHeight)
+		deleteIterationKey(clientStore, pruneHeight)
 	}
 
 	newClientState, consensusState := update(ctx, clientStore, &cs, tmHeader)
@@ -180,7 +214,9 @@ func update(ctx sdk.Context, clientStore sdk.KVStore, clientState *ClientState, 
 
 	// set context time as processed time as this is state internal to tendermint client logic.
 	// client state and consensus state will be set by client keeper
+	// set iteration key to provide ability for efficient ordered iteration of consensus states.
 	SetProcessedTime(clientStore, header.GetHeight(), uint64(ctx.BlockTime().UnixNano()))
+	SetIterationKey(clientStore, header.GetHeight())
 
 	return clientState, consensusState
 }

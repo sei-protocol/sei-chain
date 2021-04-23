@@ -1,7 +1,11 @@
 package types_test
 
 import (
+	"math"
+	"time"
+
 	clienttypes "github.com/cosmos/ibc-go/modules/core/02-client/types"
+	commitmenttypes "github.com/cosmos/ibc-go/modules/core/23-commitment/types"
 	host "github.com/cosmos/ibc-go/modules/core/24-host"
 	"github.com/cosmos/ibc-go/modules/core/exported"
 	solomachinetypes "github.com/cosmos/ibc-go/modules/light-clients/06-solomachine/types"
@@ -115,4 +119,76 @@ func (suite *TendermintTestSuite) TestGetProcessedTime() {
 	// try to get processed time for height that doesn't exist in store
 	_, ok = types.GetProcessedTime(store, clienttypes.NewHeight(1, 1))
 	suite.Require().False(ok, "retrieved processed time for a non-existent consensus state")
+}
+
+func (suite *TendermintTestSuite) TestIterationKey() {
+	testHeights := []exported.Height{
+		clienttypes.NewHeight(0, 1),
+		clienttypes.NewHeight(0, 1234),
+		clienttypes.NewHeight(7890, 4321),
+		clienttypes.NewHeight(math.MaxUint64, math.MaxUint64),
+	}
+	for _, h := range testHeights {
+		k := types.IterationKey(h)
+		retrievedHeight := types.GetHeightFromIterationKey(k)
+		suite.Require().Equal(h, retrievedHeight, "retrieving height from iteration key failed")
+	}
+}
+
+func (suite *TendermintTestSuite) TestIterateConsensusStates() {
+	nextValsHash := []byte("nextVals")
+
+	// Set iteration keys and consensus states
+	types.SetIterationKey(suite.chainA.App.GetIBCKeeper().ClientKeeper.ClientStore(suite.chainA.GetContext(), "testClient"), clienttypes.NewHeight(0, 1))
+	suite.chainA.App.GetIBCKeeper().ClientKeeper.SetClientConsensusState(suite.chainA.GetContext(), "testClient", clienttypes.NewHeight(0, 1), types.NewConsensusState(time.Now(), commitmenttypes.NewMerkleRoot([]byte("hash0-1")), nextValsHash))
+	types.SetIterationKey(suite.chainA.App.GetIBCKeeper().ClientKeeper.ClientStore(suite.chainA.GetContext(), "testClient"), clienttypes.NewHeight(4, 9))
+	suite.chainA.App.GetIBCKeeper().ClientKeeper.SetClientConsensusState(suite.chainA.GetContext(), "testClient", clienttypes.NewHeight(4, 9), types.NewConsensusState(time.Now(), commitmenttypes.NewMerkleRoot([]byte("hash4-9")), nextValsHash))
+	types.SetIterationKey(suite.chainA.App.GetIBCKeeper().ClientKeeper.ClientStore(suite.chainA.GetContext(), "testClient"), clienttypes.NewHeight(0, 10))
+	suite.chainA.App.GetIBCKeeper().ClientKeeper.SetClientConsensusState(suite.chainA.GetContext(), "testClient", clienttypes.NewHeight(0, 10), types.NewConsensusState(time.Now(), commitmenttypes.NewMerkleRoot([]byte("hash0-10")), nextValsHash))
+	types.SetIterationKey(suite.chainA.App.GetIBCKeeper().ClientKeeper.ClientStore(suite.chainA.GetContext(), "testClient"), clienttypes.NewHeight(0, 4))
+	suite.chainA.App.GetIBCKeeper().ClientKeeper.SetClientConsensusState(suite.chainA.GetContext(), "testClient", clienttypes.NewHeight(0, 4), types.NewConsensusState(time.Now(), commitmenttypes.NewMerkleRoot([]byte("hash0-4")), nextValsHash))
+	types.SetIterationKey(suite.chainA.App.GetIBCKeeper().ClientKeeper.ClientStore(suite.chainA.GetContext(), "testClient"), clienttypes.NewHeight(40, 1))
+	suite.chainA.App.GetIBCKeeper().ClientKeeper.SetClientConsensusState(suite.chainA.GetContext(), "testClient", clienttypes.NewHeight(40, 1), types.NewConsensusState(time.Now(), commitmenttypes.NewMerkleRoot([]byte("hash40-1")), nextValsHash))
+
+	var testArr []string
+	cb := func(height exported.Height) bool {
+		testArr = append(testArr, height.String())
+		return false
+	}
+
+	types.IterateConsensusStateAscending(suite.chainA.App.GetIBCKeeper().ClientKeeper.ClientStore(suite.chainA.GetContext(), "testClient"), cb)
+	expectedArr := []string{"0-1", "0-4", "0-10", "4-9", "40-1"}
+	suite.Require().Equal(expectedArr, testArr)
+}
+
+func (suite *TendermintTestSuite) TestGetNeighboringConsensusStates() {
+	nextValsHash := []byte("nextVals")
+	cs01 := types.NewConsensusState(time.Now().UTC(), commitmenttypes.NewMerkleRoot([]byte("hash0-1")), nextValsHash)
+	cs04 := types.NewConsensusState(time.Now().UTC(), commitmenttypes.NewMerkleRoot([]byte("hash0-4")), nextValsHash)
+	cs49 := types.NewConsensusState(time.Now().UTC(), commitmenttypes.NewMerkleRoot([]byte("hash4-9")), nextValsHash)
+	height01 := clienttypes.NewHeight(0, 1)
+	height04 := clienttypes.NewHeight(0, 4)
+	height49 := clienttypes.NewHeight(4, 9)
+
+	// Set iteration keys and consensus states
+	types.SetIterationKey(suite.chainA.App.GetIBCKeeper().ClientKeeper.ClientStore(suite.chainA.GetContext(), "testClient"), height01)
+	suite.chainA.App.GetIBCKeeper().ClientKeeper.SetClientConsensusState(suite.chainA.GetContext(), "testClient", height01, cs01)
+	types.SetIterationKey(suite.chainA.App.GetIBCKeeper().ClientKeeper.ClientStore(suite.chainA.GetContext(), "testClient"), height04)
+	suite.chainA.App.GetIBCKeeper().ClientKeeper.SetClientConsensusState(suite.chainA.GetContext(), "testClient", height04, cs04)
+	types.SetIterationKey(suite.chainA.App.GetIBCKeeper().ClientKeeper.ClientStore(suite.chainA.GetContext(), "testClient"), height49)
+	suite.chainA.App.GetIBCKeeper().ClientKeeper.SetClientConsensusState(suite.chainA.GetContext(), "testClient", height49, cs49)
+
+	prevCs01, ok := types.GetPreviousConsensusState(suite.chainA.App.GetIBCKeeper().ClientKeeper.ClientStore(suite.chainA.GetContext(), "testClient"), suite.chainA.Codec, height01)
+	suite.Require().Nil(prevCs01, "consensus state exists before lowest consensus state")
+	suite.Require().False(ok)
+	prevCs49, ok := types.GetPreviousConsensusState(suite.chainA.App.GetIBCKeeper().ClientKeeper.ClientStore(suite.chainA.GetContext(), "testClient"), suite.chainA.Codec, height49)
+	suite.Require().Equal(cs04, prevCs49, "previous consensus state is not returned correctly")
+	suite.Require().True(ok)
+
+	nextCs01, ok := types.GetNextConsensusState(suite.chainA.App.GetIBCKeeper().ClientKeeper.ClientStore(suite.chainA.GetContext(), "testClient"), suite.chainA.Codec, height01)
+	suite.Require().Equal(cs04, nextCs01, "next consensus state not returned correctly")
+	suite.Require().True(ok)
+	nextCs49, ok := types.GetNextConsensusState(suite.chainA.App.GetIBCKeeper().ClientKeeper.ClientStore(suite.chainA.GetContext(), "testClient"), suite.chainA.Codec, height49)
+	suite.Require().Nil(nextCs49, "next consensus state exists after highest consensus state")
+	suite.Require().False(ok)
 }

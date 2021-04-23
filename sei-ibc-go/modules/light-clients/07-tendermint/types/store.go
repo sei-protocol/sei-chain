@@ -1,9 +1,11 @@
 package types
 
 import (
+	"encoding/binary"
 	"strings"
 
 	"github.com/cosmos/cosmos-sdk/codec"
+	"github.com/cosmos/cosmos-sdk/store/prefix"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	clienttypes "github.com/cosmos/ibc-go/modules/core/02-client/types"
@@ -11,8 +13,30 @@ import (
 	"github.com/cosmos/ibc-go/modules/core/exported"
 )
 
-// KeyProcessedTime is appended to consensus state key to store the processed time
-var KeyProcessedTime = []byte("/processedTime")
+/*
+This file contains the logic for storage and iteration over `IterationKey` metadata that is stored
+for each consensus state. The consensus state key specified in ICS-24 and expected by counterparty chains
+stores the consensus state under the key: `consensusStates/{revision_number}-{revision_height}`, with each number
+represented as a string.
+While this works fine for IBC proof verification, it makes efficient iteration difficult since the lexicographic order
+of the consensus state keys do not match the height order of consensus states. This makes consensus state pruning and
+monotonic time enforcement difficult since it is inefficient to find the earliest consensus state or to find the neigboring
+consensus states given a consensus state height.
+Changing the ICS-24 representation will be a major breaking change that requires counterparty chains to accept a new key format.
+Thus to avoid breaking IBC, we can store a lookup from a more efficiently formatted key: `iterationKey` to the consensus state key which
+stores the underlying consensus state. This efficient iteration key will be formatted like so: `iterateConsensusStates{BigEndianRevisionBytes}{BigEndianHeightBytes}`.
+This ensures that the lexicographic order of iteration keys match the height order of the consensus states. Thus, we can use the SDK store's
+Iterators to iterate over the consensus states in ascending/descending order by providing a mapping from `iterationKey -> consensusStateKey -> ConsensusState`.
+A future version of IBC may choose to replace the ICS24 ConsensusState path with the more efficient format and make this indirection unnecessary.
+*/
+
+const KeyIterateConsensusStatePrefix = "iterateConsensusStates"
+
+var (
+	// KeyProcessedTime is appended to consensus state key to store the processed time
+	KeyProcessedTime = []byte("/processedTime")
+	KeyIteration     = []byte("/iterationKey")
+)
 
 // SetConsensusState stores the consensus state at the given height.
 func SetConsensusState(clientStore sdk.KVStore, cdc codec.BinaryMarshaler, consensusState *ConsensusState, height exported.Height) {
@@ -46,6 +70,12 @@ func GetConsensusState(store sdk.KVStore, cdc codec.BinaryMarshaler, height expo
 	}
 
 	return consensusState, nil
+}
+
+// deleteConsensusState deletes the consensus state at the given height
+func deleteConsensusState(clientStore sdk.KVStore, height exported.Height) {
+	key := host.ConsensusStateKey(height)
+	clientStore.Delete(key)
 }
 
 // IterateProcessedTime iterates through the prefix store and applies the callback.
@@ -93,4 +123,124 @@ func GetProcessedTime(clientStore sdk.KVStore, height exported.Height) (uint64, 
 		return 0, false
 	}
 	return sdk.BigEndianToUint64(bz), true
+}
+
+// deleteProcessedTime deletes the processedTime for a given height
+func deleteProcessedTime(clientStore sdk.KVStore, height exported.Height) {
+	key := ProcessedTimeKey(height)
+	clientStore.Delete(key)
+}
+
+// Iteration Code
+
+// IterationKey returns the key under which the consensus state key will be stored.
+// The iteration key is a BigEndian representation of the consensus state key to support efficient iteration.
+func IterationKey(height exported.Height) []byte {
+	heightBytes := bigEndianHeightBytes(height)
+	return append([]byte(KeyIterateConsensusStatePrefix), heightBytes...)
+}
+
+// SetIterationKey stores the consensus state key under a key that is more efficient for ordered iteration
+func SetIterationKey(clientStore sdk.KVStore, height exported.Height) {
+	key := IterationKey(height)
+	val := host.ConsensusStateKey(height)
+	clientStore.Set(key, val)
+}
+
+// GetIterationKey returns the consensus state key stored under the efficient iteration key.
+// NOTE: This function is currently only used for testing purposes
+func GetIterationKey(clientStore sdk.KVStore, height exported.Height) []byte {
+	key := IterationKey(height)
+	return clientStore.Get(key)
+}
+
+// deleteIterationKey deletes the iteration key for a given height
+func deleteIterationKey(clientStore sdk.KVStore, height exported.Height) {
+	key := IterationKey(height)
+	clientStore.Delete(key)
+}
+
+// GetHeightFromIterationKey takes an iteration key and returns the height that it references
+func GetHeightFromIterationKey(iterKey []byte) exported.Height {
+	bigEndianBytes := iterKey[len([]byte(KeyIterateConsensusStatePrefix)):]
+	revisionBytes := bigEndianBytes[0:8]
+	heightBytes := bigEndianBytes[8:]
+	revision := binary.BigEndian.Uint64(revisionBytes)
+	height := binary.BigEndian.Uint64(heightBytes)
+	return clienttypes.NewHeight(revision, height)
+}
+
+func IterateConsensusStateAscending(clientStore sdk.KVStore, cb func(height exported.Height) (stop bool)) error {
+	iterator := sdk.KVStorePrefixIterator(clientStore, []byte(KeyIterateConsensusStatePrefix))
+	defer iterator.Close()
+
+	for ; iterator.Valid(); iterator.Next() {
+		iterKey := iterator.Key()
+		height := GetHeightFromIterationKey(iterKey)
+		if cb(height) {
+			return nil
+		}
+	}
+	return nil
+}
+
+// GetNextConsensusState returns the lowest consensus state that is larger than the given height.
+// The Iterator returns a storetypes.Iterator which iterates from start (inclusive) to end (exclusive).
+// Thus, to get the next consensus state, we must first call iterator.Next() and then get the value.
+func GetNextConsensusState(clientStore sdk.KVStore, cdc codec.BinaryMarshaler, height exported.Height) (*ConsensusState, bool) {
+	iterateStore := prefix.NewStore(clientStore, []byte(KeyIterateConsensusStatePrefix))
+	iterator := iterateStore.Iterator(bigEndianHeightBytes(height), nil)
+	defer iterator.Close()
+	// ignore the consensus state at current height and get next height
+	iterator.Next()
+	if !iterator.Valid() {
+		return nil, false
+	}
+
+	csKey := iterator.Value()
+
+	return getTmConsensusState(clientStore, cdc, csKey)
+}
+
+// GetPreviousConsensusState returns the highest consensus state that is lower than the given height.
+// The Iterator returns a storetypes.Iterator which iterates from the end (exclusive) to start (inclusive).
+// Thus to get previous consensus state we call iterator.Value() immediately.
+func GetPreviousConsensusState(clientStore sdk.KVStore, cdc codec.BinaryMarshaler, height exported.Height) (*ConsensusState, bool) {
+	iterateStore := prefix.NewStore(clientStore, []byte(KeyIterateConsensusStatePrefix))
+	iterator := iterateStore.ReverseIterator(nil, bigEndianHeightBytes(height))
+	defer iterator.Close()
+
+	if !iterator.Valid() {
+		return nil, false
+	}
+
+	csKey := iterator.Value()
+
+	return getTmConsensusState(clientStore, cdc, csKey)
+}
+
+// Helper function for GetNextConsensusState and GetPreviousConsensusState
+func getTmConsensusState(clientStore sdk.KVStore, cdc codec.BinaryMarshaler, key []byte) (*ConsensusState, bool) {
+	bz := clientStore.Get(key)
+	if bz == nil {
+		return nil, false
+	}
+
+	consensusStateI, err := clienttypes.UnmarshalConsensusState(cdc, bz)
+	if err != nil {
+		return nil, false
+	}
+
+	consensusState, ok := consensusStateI.(*ConsensusState)
+	if !ok {
+		return nil, false
+	}
+	return consensusState, true
+}
+
+func bigEndianHeightBytes(height exported.Height) []byte {
+	heightBytes := make([]byte, 16)
+	binary.BigEndian.PutUint64(heightBytes, height.GetRevisionNumber())
+	binary.BigEndian.PutUint64(heightBytes[8:], height.GetRevisionHeight())
+	return heightBytes
 }
