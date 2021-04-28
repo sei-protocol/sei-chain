@@ -20,7 +20,10 @@ const (
 	EventTypeAcknowledgePacket = "acknowledge_packet"
 	EventTypeTimeoutPacket     = "timeout_packet"
 
-	AttributeKeyData             = "packet_data"
+	// NOTE: DEPRECATED in favor of AttributeKeyDataHex
+	AttributeKeyData = "packet_data"
+
+	AttributeKeyDataHex          = "packet_data_hex"
 	AttributeKeyAck              = "packet_ack"
 	AttributeKeyTimeoutHeight    = "packet_timeout_height"
 	AttributeKeyTimeoutTimestamp = "packet_timeout_timestamp"
