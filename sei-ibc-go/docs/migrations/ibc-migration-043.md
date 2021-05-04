@@ -10,9 +10,13 @@ The most obvious changes is import name changes. We need to change:
 
 On my GNU/Linux based machine I used the following commands, executed in order:
 
-`grep -RiIl 'cosmos-sdk\/x\/ibc\/applications' | xargs sed -i 's/cosmos-sdk\/x\/ibc\/applications/ibc-go\/modules\/apps/g'`
+```
+grep -RiIl 'cosmos-sdk\/x\/ibc\/applications' | xargs sed -i 's/cosmos-sdk\/x\/ibc\/applications/ibc-go\/modules\/apps/g'
+```
 
-`grep -RiIl 'cosmos-sdk\/x\/ibc' | xargs sed -i 's/cosmos-sdk\/x\/ibc/ibc-go\/modules/g'`
+```
+grep -RiIl 'cosmos-sdk\/x\/ibc' | xargs sed -i 's/cosmos-sdk\/x\/ibc/ibc-go\/modules/g'
+```
 
 ref: [explanation of the above commands](https://www.internalpointers.com/post/linux-find-and-replace-text-multiple-files)
 
