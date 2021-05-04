@@ -14,20 +14,17 @@ import "gogoproto/gogo.proto";
 service Query {
   // ClientState queries an IBC light client.
   rpc ClientState(QueryClientStateRequest) returns (QueryClientStateResponse) {
-    option (google.api.http).get =
-        "/ibc/core/client/v1/client_states/{client_id}";
+    option (google.api.http).get = "/ibc/core/client/v1/client_states/{client_id}";
   }
 
   // ClientStates queries all the IBC light clients of a chain.
-  rpc ClientStates(QueryClientStatesRequest)
-      returns (QueryClientStatesResponse) {
+  rpc ClientStates(QueryClientStatesRequest) returns (QueryClientStatesResponse) {
     option (google.api.http).get = "/ibc/core/client/v1/client_states";
   }
 
   // ConsensusState queries a consensus state associated with a client state at
   // a given height.
-  rpc ConsensusState(QueryConsensusStateRequest)
-      returns (QueryConsensusStateResponse) {
+  rpc ConsensusState(QueryConsensusStateRequest) returns (QueryConsensusStateResponse) {
     option (google.api.http).get = "/ibc/core/client/v1/consensus_states/"
                                    "{client_id}/revision/{revision_number}/"
                                    "height/{revision_height}";
@@ -35,30 +32,28 @@ service Query {
 
   // ConsensusStates queries all the consensus state associated with a given
   // client.
-  rpc ConsensusStates(QueryConsensusStatesRequest)
-      returns (QueryConsensusStatesResponse) {
-    option (google.api.http).get =
-        "/ibc/core/client/v1/consensus_states/{client_id}";
+  rpc ConsensusStates(QueryConsensusStatesRequest) returns (QueryConsensusStatesResponse) {
+    option (google.api.http).get = "/ibc/core/client/v1/consensus_states/{client_id}";
+  }
+
+  // Status queries the status of an IBC client.
+  rpc ClientStatus(QueryClientStatusRequest) returns (QueryClientStatusResponse) {
+    option (google.api.http).get = "/ibc/core/client/v1/client_status/{client_id}";
   }
 
   // ClientParams queries all parameters of the ibc client.
-  rpc ClientParams(QueryClientParamsRequest)
-      returns (QueryClientParamsResponse) {
+  rpc ClientParams(QueryClientParamsRequest) returns (QueryClientParamsResponse) {
     option (google.api.http).get = "/ibc/client/v1/params";
   }
 
   // UpgradedClientState queries an Upgraded IBC light client.
-  rpc UpgradedClientState(QueryUpgradedClientStateRequest)
-      returns (QueryUpgradedClientStateResponse) {
-    option (google.api.http).get =
-        "/ibc/core/client/v1/upgraded_client_states";
+  rpc UpgradedClientState(QueryUpgradedClientStateRequest) returns (QueryUpgradedClientStateResponse) {
+    option (google.api.http).get = "/ibc/core/client/v1/upgraded_client_states";
   }
 
   // UpgradedConsensusState queries an Upgraded IBC consensus state.
-  rpc UpgradedConsensusState(QueryUpgradedConsensusStateRequest)
-      returns (QueryUpgradedConsensusStateResponse) {
-    option (google.api.http).get =
-        "/ibc/core/client/v1/upgraded_consensus_states";
+  rpc UpgradedConsensusState(QueryUpgradedConsensusStateRequest) returns (QueryUpgradedConsensusStateResponse) {
+    option (google.api.http).get = "/ibc/core/client/v1/upgraded_consensus_states";
   }
 }
 
@@ -78,7 +73,7 @@ message QueryClientStateResponse {
   // merkle proof of existence
   bytes proof = 2;
   // height at which the proof was retrieved
-  ibc.core.client.v1.Height proof_height = 3 [ (gogoproto.nullable) = false ];
+  ibc.core.client.v1.Height proof_height = 3 [(gogoproto.nullable) = false];
 }
 
 // QueryClientStatesRequest is the request type for the Query/ClientStates RPC
@@ -92,10 +87,8 @@ message QueryClientStatesRequest {
 // method.
 message QueryClientStatesResponse {
   // list of stored ClientStates of the chain.
-  repeated IdentifiedClientState client_states = 1 [
-    (gogoproto.nullable) = false,
-    (gogoproto.castrepeated) = "IdentifiedClientStates"
-  ];
+  repeated IdentifiedClientState client_states = 1
+      [(gogoproto.nullable) = false, (gogoproto.castrepeated) = "IdentifiedClientStates"];
   // pagination response
   cosmos.base.query.v1beta1.PageResponse pagination = 2;
 }
@@ -123,7 +116,7 @@ message QueryConsensusStateResponse {
   // merkle proof of existence
   bytes proof = 2;
   // height at which the proof was retrieved
-  ibc.core.client.v1.Height proof_height = 3 [ (gogoproto.nullable) = false ];
+  ibc.core.client.v1.Height proof_height = 3 [(gogoproto.nullable) = false];
 }
 
 // QueryConsensusStatesRequest is the request type for the Query/ConsensusStates
@@ -139,10 +132,22 @@ message QueryConsensusStatesRequest {
 // Query/ConsensusStates RPC method
 message QueryConsensusStatesResponse {
   // consensus states associated with the identifier
-  repeated ConsensusStateWithHeight consensus_states = 1
-      [ (gogoproto.nullable) = false ];
+  repeated ConsensusStateWithHeight consensus_states = 1 [(gogoproto.nullable) = false];
   // pagination response
   cosmos.base.query.v1beta1.PageResponse pagination = 2;
+}
+
+// QueryClientStatusRequest is the request type for the Query/ClientStatus RPC
+// method
+message QueryClientStatusRequest {
+  // client unique identifier
+  string client_id = 1;
+}
+
+// QueryClientStatusResponse is the response type for the Query/ClientStatus RPC
+// method. It returns the current status of the IBC client.
+message QueryClientStatusResponse {
+  string status = 1;
 }
 
 // QueryClientParamsRequest is the request type for the Query/ClientParams RPC
@@ -158,7 +163,7 @@ message QueryClientParamsResponse {
 
 // QueryUpgradedClientStateRequest is the request type for the
 // Query/UpgradedClientState RPC method
-message QueryUpgradedClientStateRequest { }
+message QueryUpgradedClientStateRequest {}
 
 // QueryUpgradedClientStateResponse is the response type for the
 // Query/UpgradedClientState RPC method.
@@ -169,7 +174,7 @@ message QueryUpgradedClientStateResponse {
 
 // QueryUpgradedConsensusStateRequest is the request type for the
 // Query/UpgradedConsensusState RPC method
-message QueryUpgradedConsensusStateRequest { }
+message QueryUpgradedConsensusStateRequest {}
 
 // QueryUpgradedConsensusStateResponse is the response type for the
 // Query/UpgradedConsensusState RPC method.

@@ -19,6 +19,14 @@ const (
 	testSequence     = 1
 )
 
+func (suite *LocalhostTestSuite) TestStatus() {
+	clientState := types.NewClientState("chainID", clienttypes.NewHeight(3, 10))
+
+	// localhost should always return active
+	status := clientState.Status(suite.ctx, nil, nil)
+	suite.Require().Equal(exported.Active, status)
+}
+
 func (suite *LocalhostTestSuite) TestValidate() {
 	testCases := []struct {
 		name        string

@@ -28,6 +28,46 @@ var (
 	invalidProof = []byte("invalid proof")
 )
 
+func (suite *TendermintTestSuite) TestStatus() {
+	var (
+		path        *ibctesting.Path
+		clientState *types.ClientState
+	)
+
+	testCases := []struct {
+		name      string
+		malleate  func()
+		expStatus exported.Status
+	}{
+		{"client is active", func() {}, exported.Active},
+		{"client is frozen", func() {
+			clientState.FrozenHeight = clienttypes.NewHeight(0, 1)
+			path.EndpointA.SetClientState(clientState)
+		}, exported.Frozen},
+		{"client status is unknown", func() {
+			clientState.LatestHeight = clientState.LatestHeight.Increment().(clienttypes.Height)
+			path.EndpointA.SetClientState(clientState)
+		}, exported.Unknown},
+		{"client status is expired", func() {
+			suite.coordinator.IncrementTimeBy(clientState.TrustingPeriod)
+		}, exported.Expired},
+	}
+
+	for _, tc := range testCases {
+		path = ibctesting.NewPath(suite.chainA, suite.chainB)
+		suite.coordinator.SetupClients(path)
+
+		clientStore := suite.chainA.App.GetIBCKeeper().ClientKeeper.ClientStore(suite.chainA.GetContext(), path.EndpointA.ClientID)
+		clientState = path.EndpointA.GetClientState().(*types.ClientState)
+
+		tc.malleate()
+
+		status := clientState.Status(suite.chainA.GetContext(), clientStore, suite.chainA.App.AppCodec())
+		suite.Require().Equal(tc.expStatus, status)
+
+	}
+}
+
 func (suite *TendermintTestSuite) TestValidate() {
 	testCases := []struct {
 		name        string
@@ -180,15 +220,6 @@ func (suite *TendermintTestSuite) TestVerifyClientConsensusState() {
 			expPass: false,
 		},
 		{
-			name:        "client is frozen",
-			clientState: &types.ClientState{LatestHeight: height, FrozenHeight: clienttypes.NewHeight(height.RevisionNumber, height.RevisionHeight-1)},
-			consensusState: &types.ConsensusState{
-				Root: commitmenttypes.NewMerkleRoot(suite.header.Header.GetAppHash()),
-			},
-			prefix:  commitmenttypes.NewMerklePrefix([]byte("ibc")),
-			expPass: false,
-		},
-		{
 			name:        "proof verification failed",
 			clientState: types.NewClientState(chainID, types.DefaultTrustLevel, trustingPeriod, ubdPeriod, maxClockDrift, height, commitmenttypes.GetSDKSpecs(), upgradePath, false, false),
 			consensusState: &types.ConsensusState{
@@ -242,11 +273,6 @@ func (suite *TendermintTestSuite) TestVerifyConnectionState() {
 		{
 			"latest client height < height", func() {
 				proofHeight = clientState.LatestHeight.Increment()
-			}, false,
-		},
-		{
-			"client is frozen", func() {
-				clientState.FrozenHeight = clienttypes.NewHeight(0, 1)
 			}, false,
 		},
 		{
@@ -321,11 +347,6 @@ func (suite *TendermintTestSuite) TestVerifyChannelState() {
 		{
 			"latest client height < height", func() {
 				proofHeight = clientState.LatestHeight.Increment()
-			}, false,
-		},
-		{
-			"client is frozen", func() {
-				clientState.FrozenHeight = clienttypes.NewHeight(0, 1)
 			}, false,
 		},
 		{
@@ -416,11 +437,6 @@ func (suite *TendermintTestSuite) TestVerifyPacketCommitment() {
 		{
 			"latest client height < height", func() {
 				proofHeight = clientState.LatestHeight.Increment()
-			}, false,
-		},
-		{
-			"client is frozen", func() {
-				clientState.FrozenHeight = clienttypes.NewHeight(0, 1)
 			}, false,
 		},
 		{
@@ -516,11 +532,6 @@ func (suite *TendermintTestSuite) TestVerifyPacketAcknowledgement() {
 		{
 			"latest client height < height", func() {
 				proofHeight = clientState.LatestHeight.Increment()
-			}, false,
-		},
-		{
-			"client is frozen", func() {
-				clientState.FrozenHeight = clienttypes.NewHeight(0, 1)
 			}, false,
 		},
 		{
@@ -624,11 +635,6 @@ func (suite *TendermintTestSuite) TestVerifyPacketReceiptAbsence() {
 			}, false,
 		},
 		{
-			"client is frozen", func() {
-				clientState.FrozenHeight = clienttypes.NewHeight(0, 1)
-			}, false,
-		},
-		{
 			"proof verification failed", func() {
 				proof = invalidProof
 			}, false,
@@ -722,11 +728,6 @@ func (suite *TendermintTestSuite) TestVerifyNextSeqRecv() {
 		{
 			"latest client height < height", func() {
 				proofHeight = clientState.LatestHeight.Increment()
-			}, false,
-		},
-		{
-			"client is frozen", func() {
-				clientState.FrozenHeight = clienttypes.NewHeight(0, 1)
 			}, false,
 		},
 		{

@@ -61,12 +61,13 @@ func (k Keeper) UpdateClient(ctx sdk.Context, clientID string, header exported.H
 		return sdkerrors.Wrapf(types.ErrClientNotFound, "cannot update client with ID %s", clientID)
 	}
 
-	// prevent update if the client is frozen before or at header height
-	if clientState.IsFrozen() && clientState.GetFrozenHeight().LTE(header.GetHeight()) {
-		return sdkerrors.Wrapf(types.ErrClientFrozen, "cannot update client with ID %s", clientID)
+	clientStore := k.ClientStore(ctx, clientID)
+
+	if status := clientState.Status(ctx, clientStore, k.cdc); status != exported.Active {
+		return sdkerrors.Wrapf(types.ErrClientNotActive, "cannot update client (%s) with status %s", clientID, status)
 	}
 
-	clientState, consensusState, err := clientState.CheckHeaderAndUpdateState(ctx, k.cdc, k.ClientStore(ctx, clientID), header)
+	clientState, consensusState, err := clientState.CheckHeaderAndUpdateState(ctx, k.cdc, clientStore, header)
 	if err != nil {
 		return sdkerrors.Wrapf(err, "cannot update client with ID %s", clientID)
 	}
@@ -130,12 +131,13 @@ func (k Keeper) UpgradeClient(ctx sdk.Context, clientID string, upgradedClient e
 		return sdkerrors.Wrapf(types.ErrClientNotFound, "cannot update client with ID %s", clientID)
 	}
 
-	// prevent upgrade if current client is frozen
-	if clientState.IsFrozen() {
-		return sdkerrors.Wrapf(types.ErrClientFrozen, "cannot update client with ID %s", clientID)
+	clientStore := k.ClientStore(ctx, clientID)
+
+	if status := clientState.Status(ctx, clientStore, k.cdc); status != exported.Active {
+		return sdkerrors.Wrapf(types.ErrClientNotActive, "cannot upgrade client (%s) with status %s", clientID, status)
 	}
 
-	updatedClientState, updatedConsState, err := clientState.VerifyUpgradeAndUpdateState(ctx, k.cdc, k.ClientStore(ctx, clientID),
+	updatedClientState, updatedConsState, err := clientState.VerifyUpgradeAndUpdateState(ctx, k.cdc, clientStore,
 		upgradedClient, upgradedConsState, proofUpgradeClient, proofUpgradeConsState)
 	if err != nil {
 		return sdkerrors.Wrapf(err, "cannot upgrade client with ID %s", clientID)
@@ -178,11 +180,13 @@ func (k Keeper) CheckMisbehaviourAndUpdateState(ctx sdk.Context, misbehaviour ex
 		return sdkerrors.Wrapf(types.ErrClientNotFound, "cannot check misbehaviour for client with ID %s", misbehaviour.GetClientID())
 	}
 
-	if clientState.IsFrozen() && clientState.GetFrozenHeight().LTE(misbehaviour.GetHeight()) {
-		return sdkerrors.Wrapf(types.ErrInvalidMisbehaviour, "client is already frozen at height ≤ misbehaviour height (%s ≤ %s)", clientState.GetFrozenHeight(), misbehaviour.GetHeight())
+	clientStore := k.ClientStore(ctx, misbehaviour.GetClientID())
+
+	if status := clientState.Status(ctx, clientStore, k.cdc); status != exported.Active {
+		return sdkerrors.Wrapf(types.ErrClientNotActive, "cannot process misbehaviour for client (%s) with status %s", misbehaviour.GetClientID(), status)
 	}
 
-	clientState, err := clientState.CheckMisbehaviourAndUpdateState(ctx, k.cdc, k.ClientStore(ctx, misbehaviour.GetClientID()), misbehaviour)
+	clientState, err := clientState.CheckMisbehaviourAndUpdateState(ctx, k.cdc, clientStore, misbehaviour)
 	if err != nil {
 		return err
 	}

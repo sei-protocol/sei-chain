@@ -25,6 +25,18 @@ var (
 	consensusHeight = clienttypes.ZeroHeight()
 )
 
+func (suite *SoloMachineTestSuite) TestStatus() {
+	clientState := suite.solomachine.ClientState()
+	// solo machine discards arguements
+	status := clientState.Status(suite.chainA.GetContext(), nil, nil)
+	suite.Require().Equal(exported.Active, status)
+
+	// freeze solo machine
+	clientState.FrozenSequence = 1
+	status = clientState.Status(suite.chainA.GetContext(), nil, nil)
+	suite.Require().Equal(exported.Frozen, status)
+}
+
 func (suite *SoloMachineTestSuite) TestClientStateValidateBasic() {
 	// test singlesig and multisig public keys
 	for _, solomachine := range []*ibctesting.Solomachine{suite.solomachine, suite.solomachineMulti} {

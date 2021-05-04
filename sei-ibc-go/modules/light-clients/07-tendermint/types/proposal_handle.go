@@ -61,7 +61,7 @@ func (cs ClientState) CheckSubstituteAndUpdateState(
 
 	switch {
 
-	case cs.IsFrozen():
+	case !cs.FrozenHeight.IsZero():
 		if !cs.AllowUpdateAfterMisbehaviour {
 			return nil, sdkerrors.Wrap(clienttypes.ErrUpdateClientFailed, "client is not allowed to be unfrozen")
 		}

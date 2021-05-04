@@ -641,6 +641,14 @@
                 </li>
               
                 <li>
+                  <a href="#ibc.core.client.v1.QueryClientStatusRequest"><span class="badge">M</span>QueryClientStatusRequest</a>
+                </li>
+              
+                <li>
+                  <a href="#ibc.core.client.v1.QueryClientStatusResponse"><span class="badge">M</span>QueryClientStatusResponse</a>
+                </li>
+              
+                <li>
                   <a href="#ibc.core.client.v1.QueryConsensusStateRequest"><span class="badge">M</span>QueryConsensusStateRequest</a>
                 </li>
               
@@ -4547,6 +4555,54 @@ MsgChannelCloseConfirm.</p></td>
 
         
       
+        <h3 id="ibc.core.client.v1.QueryClientStatusRequest">QueryClientStatusRequest</h3>
+        <p>QueryClientStatusRequest is the request type for the Query/ClientStatus RPC</p><p>method</p>
+
+        
+          <table class="field-table">
+            <thead>
+              <tr><td>Field</td><td>Type</td><td>Label</td><td>Description</td></tr>
+            </thead>
+            <tbody>
+              
+                <tr>
+                  <td>client_id</td>
+                  <td><a href="#string">string</a></td>
+                  <td></td>
+                  <td><p>client unique identifier </p></td>
+                </tr>
+              
+            </tbody>
+          </table>
+
+          
+
+        
+      
+        <h3 id="ibc.core.client.v1.QueryClientStatusResponse">QueryClientStatusResponse</h3>
+        <p>QueryClientStatusResponse is the response type for the Query/ClientStatus RPC</p><p>method. It returns the current status of the IBC client.</p>
+
+        
+          <table class="field-table">
+            <thead>
+              <tr><td>Field</td><td>Type</td><td>Label</td><td>Description</td></tr>
+            </thead>
+            <tbody>
+              
+                <tr>
+                  <td>status</td>
+                  <td><a href="#string">string</a></td>
+                  <td></td>
+                  <td><p> </p></td>
+                </tr>
+              
+            </tbody>
+          </table>
+
+          
+
+        
+      
         <h3 id="ibc.core.client.v1.QueryConsensusStateRequest">QueryConsensusStateRequest</h3>
         <p>QueryConsensusStateRequest is the request type for the Query/ConsensusState</p><p>RPC method. Besides the consensus state, it includes a proof and the height</p><p>from which the proof was retrieved.</p>
 
@@ -4800,6 +4856,13 @@ client.</p></td>
               </tr>
             
               <tr>
+                <td>ClientStatus</td>
+                <td><a href="#ibc.core.client.v1.QueryClientStatusRequest">QueryClientStatusRequest</a></td>
+                <td><a href="#ibc.core.client.v1.QueryClientStatusResponse">QueryClientStatusResponse</a></td>
+                <td><p>Status queries the status of an IBC client.</p></td>
+              </tr>
+            
+              <tr>
                 <td>ClientParams</td>
                 <td><a href="#ibc.core.client.v1.QueryClientParamsRequest">QueryClientParamsRequest</a></td>
                 <td><a href="#ibc.core.client.v1.QueryClientParamsResponse">QueryClientParamsResponse</a></td>
@@ -4874,6 +4937,16 @@ client.</p></td>
                 <td>ConsensusStates</td>
                 <td>GET</td>
                 <td>/ibc/core/client/v1/consensus_states/{client_id}</td>
+                <td></td>
+              </tr>
+              
+            
+              
+              
+              <tr>
+                <td>ClientStatus</td>
+                <td>GET</td>
+                <td>/ibc/core/client/v1/client_status/{client_id}</td>
                 <td></td>
               </tr>
               

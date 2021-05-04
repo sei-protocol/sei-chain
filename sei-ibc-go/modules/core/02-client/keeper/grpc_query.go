@@ -188,6 +188,33 @@ func (q Keeper) ConsensusStates(c context.Context, req *types.QueryConsensusStat
 	}, nil
 }
 
+// ClientStatus implements the Query/ClientStatus gRPC method
+func (q Keeper) ClientStatus(c context.Context, req *types.QueryClientStatusRequest) (*types.QueryClientStatusResponse, error) {
+	if req == nil {
+		return nil, status.Error(codes.InvalidArgument, "empty request")
+	}
+
+	if err := host.ClientIdentifierValidator(req.ClientId); err != nil {
+		return nil, status.Error(codes.InvalidArgument, err.Error())
+	}
+
+	ctx := sdk.UnwrapSDKContext(c)
+	clientState, found := q.GetClientState(ctx, req.ClientId)
+	if !found {
+		return nil, status.Error(
+			codes.NotFound,
+			sdkerrors.Wrap(types.ErrClientNotFound, req.ClientId).Error(),
+		)
+	}
+
+	clientStore := q.ClientStore(ctx, req.ClientId)
+	status := clientState.Status(ctx, clientStore, q.cdc)
+
+	return &types.QueryClientStatusResponse{
+		Status: status.String(),
+	}, nil
+}
+
 // ClientParams implements the Query/ClientParams gRPC method
 func (q Keeper) ClientParams(c context.Context, _ *types.QueryClientParamsRequest) (*types.QueryClientParamsResponse, error) {
 	ctx := sdk.UnwrapSDKContext(c)

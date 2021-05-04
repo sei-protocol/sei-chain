@@ -43,9 +43,10 @@ func (cs ClientState) GetLatestHeight() exported.Height {
 	return cs.Height
 }
 
-// IsFrozen returns false.
-func (cs ClientState) IsFrozen() bool {
-	return false
+// Status always returns Active. The localhost status cannot be changed.
+func (cs ClientState) Status(_ sdk.Context, _ sdk.KVStore, _ codec.BinaryMarshaler,
+) exported.Status {
+	return exported.Active
 }
 
 // GetFrozenHeight returns an uninitialized IBC Height.

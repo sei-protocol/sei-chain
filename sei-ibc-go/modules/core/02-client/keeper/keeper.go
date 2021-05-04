@@ -274,7 +274,7 @@ func (k Keeper) ValidateSelfClient(ctx sdk.Context, clientState exported.ClientS
 			&ibctmtypes.ClientState{}, tmClient)
 	}
 
-	if clientState.IsFrozen() {
+	if !tmClient.FrozenHeight.IsZero() {
 		return types.ErrClientFrozen
 	}
 

@@ -66,6 +66,7 @@ type KeeperTestSuite struct {
 	now            time.Time
 	past           time.Time
 
+	// TODO: deprecate
 	queryClient types.QueryClient
 }
 
@@ -122,6 +123,7 @@ func (suite *KeeperTestSuite) SetupTest() {
 	)
 	suite.chainA.App.GetIBCKeeper().ClientKeeper.SetClientState(suite.chainA.GetContext(), exported.Localhost, localHostClient)
 
+	// TODO: deprecate
 	queryHelper := baseapp.NewQueryServerTestHelper(suite.ctx, app.InterfaceRegistry())
 	types.RegisterQueryServer(queryHelper, app.IBCKeeper.ClientKeeper)
 	suite.queryClient = types.NewQueryClient(queryHelper)

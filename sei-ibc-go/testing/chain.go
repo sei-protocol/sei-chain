@@ -313,9 +313,17 @@ func (chain *TestChain) GetPrefix() commitmenttypes.MerklePrefix {
 // ConstructUpdateTMClientHeader will construct a valid 07-tendermint Header to update the
 // light client on the source chain.
 func (chain *TestChain) ConstructUpdateTMClientHeader(counterparty *TestChain, clientID string) (*ibctmtypes.Header, error) {
+	return chain.ConstructUpdateTMClientHeaderWithTrustedHeight(counterparty, clientID, clienttypes.ZeroHeight())
+}
+
+// ConstructUpdateTMClientHeader will construct a valid 07-tendermint Header to update the
+// light client on the source chain.
+func (chain *TestChain) ConstructUpdateTMClientHeaderWithTrustedHeight(counterparty *TestChain, clientID string, trustedHeight clienttypes.Height) (*ibctmtypes.Header, error) {
 	header := counterparty.LastHeader
-	// Relayer must query for LatestHeight on client to get TrustedHeight
-	trustedHeight := chain.GetClientState(clientID).GetLatestHeight().(clienttypes.Height)
+	// Relayer must query for LatestHeight on client to get TrustedHeight if the trusted height is not set
+	if trustedHeight.IsZero() {
+		trustedHeight = chain.GetClientState(clientID).GetLatestHeight().(clienttypes.Height)
+	}
 	var (
 		tmTrustedVals *tmtypes.ValidatorSet
 		ok            bool

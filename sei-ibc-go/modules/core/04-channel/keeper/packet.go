@@ -69,8 +69,9 @@ func (k Keeper) SendPacket(
 	}
 
 	// prevent accidental sends with clients that cannot be updated
-	if clientState.IsFrozen() {
-		return sdkerrors.Wrapf(clienttypes.ErrClientFrozen, "cannot send packet on a frozen client with ID %s", connectionEnd.GetClientID())
+	clientStore := k.clientKeeper.ClientStore(ctx, connectionEnd.GetClientID())
+	if status := clientState.Status(ctx, clientStore, k.cdc); status != exported.Active {
+		return sdkerrors.Wrapf(clienttypes.ErrClientNotActive, "cannot send packet using client (%s) with status %s", connectionEnd.GetClientID(), status)
 	}
 
 	// check if packet timeouted on the receiving chain

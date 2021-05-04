@@ -28,6 +28,12 @@ func (suite *KeeperTestSuite) TestQueryClientState() {
 		malleate func()
 		expPass  bool
 	}{
+		{"req is nil",
+			func() {
+				req = nil
+			},
+			false,
+		},
 		{"invalid clientID",
 			func() {
 				req = &types.QueryClientStateRequest{}
@@ -45,15 +51,15 @@ func (suite *KeeperTestSuite) TestQueryClientState() {
 		{
 			"success",
 			func() {
-				clientState := ibctmtypes.NewClientState(testChainID, ibctmtypes.DefaultTrustLevel, trustingPeriod, ubdPeriod, maxClockDrift, types.ZeroHeight(), commitmenttypes.GetSDKSpecs(), ibctesting.UpgradePath, false, false)
-				suite.keeper.SetClientState(suite.ctx, testClientID, clientState)
+				path := ibctesting.NewPath(suite.chainA, suite.chainB)
+				suite.coordinator.SetupClients(path)
 
 				var err error
-				expClientState, err = types.PackClientState(clientState)
+				expClientState, err = types.PackClientState(path.EndpointA.GetClientState())
 				suite.Require().NoError(err)
 
 				req = &types.QueryClientStateRequest{
-					ClientId: testClientID,
+					ClientId: path.EndpointA.ClientID,
 				}
 			},
 			true,
@@ -65,8 +71,8 @@ func (suite *KeeperTestSuite) TestQueryClientState() {
 			suite.SetupTest() // reset
 
 			tc.malleate()
-			ctx := sdk.WrapSDKContext(suite.ctx)
-			res, err := suite.queryClient.ClientState(ctx, req)
+			ctx := sdk.WrapSDKContext(suite.chainA.GetContext())
+			res, err := suite.chainA.QueryServer.ClientState(ctx, req)
 
 			if tc.expPass {
 				suite.Require().NoError(err)
@@ -94,6 +100,12 @@ func (suite *KeeperTestSuite) TestQueryClientStates() {
 		malleate func()
 		expPass  bool
 	}{
+		{"req is nil",
+			func() {
+				req = nil
+			},
+			false,
+		},
 		{
 			"empty pagination",
 			func() {
@@ -179,6 +191,12 @@ func (suite *KeeperTestSuite) TestQueryConsensusState() {
 		malleate func()
 		expPass  bool
 	}{
+		{"req is nil",
+			func() {
+				req = nil
+			},
+			false,
+		},
 		{
 			"invalid clientID",
 			func() {
@@ -202,7 +220,7 @@ func (suite *KeeperTestSuite) TestQueryConsensusState() {
 			"consensus state not found",
 			func() {
 				req = &types.QueryConsensusStateRequest{
-					ClientId:     testClientID,
+					ClientId:     ibctesting.FirstClientID,
 					LatestHeight: true,
 				}
 			},
@@ -211,19 +229,16 @@ func (suite *KeeperTestSuite) TestQueryConsensusState() {
 		{
 			"success latest height",
 			func() {
-				clientState := ibctmtypes.NewClientState(testChainID, ibctmtypes.DefaultTrustLevel, trustingPeriod, ubdPeriod, maxClockDrift, testClientHeight, commitmenttypes.GetSDKSpecs(), ibctesting.UpgradePath, false, false)
-				cs := ibctmtypes.NewConsensusState(
-					suite.consensusState.Timestamp, commitmenttypes.NewMerkleRoot([]byte("hash1")), nil,
-				)
-				suite.keeper.SetClientState(suite.ctx, testClientID, clientState)
-				suite.keeper.SetClientConsensusState(suite.ctx, testClientID, testClientHeight, cs)
+				path := ibctesting.NewPath(suite.chainA, suite.chainB)
+				suite.coordinator.SetupClients(path)
+				cs := path.EndpointA.GetConsensusState(path.EndpointA.GetClientState().GetLatestHeight())
 
 				var err error
 				expConsensusState, err = types.PackConsensusState(cs)
 				suite.Require().NoError(err)
 
 				req = &types.QueryConsensusStateRequest{
-					ClientId:     testClientID,
+					ClientId:     path.EndpointA.ClientID,
 					LatestHeight: true,
 				}
 			},
@@ -232,19 +247,22 @@ func (suite *KeeperTestSuite) TestQueryConsensusState() {
 		{
 			"success with height",
 			func() {
-				cs := ibctmtypes.NewConsensusState(
-					suite.consensusState.Timestamp, commitmenttypes.NewMerkleRoot([]byte("hash1")), nil,
-				)
-				suite.keeper.SetClientConsensusState(suite.ctx, testClientID, testClientHeight, cs)
+				path := ibctesting.NewPath(suite.chainA, suite.chainB)
+				suite.coordinator.SetupClients(path)
+				height := path.EndpointA.GetClientState().GetLatestHeight()
+				cs := path.EndpointA.GetConsensusState(height)
 
 				var err error
 				expConsensusState, err = types.PackConsensusState(cs)
 				suite.Require().NoError(err)
 
+				// update client to new height
+				path.EndpointA.UpdateClient()
+
 				req = &types.QueryConsensusStateRequest{
-					ClientId:       testClientID,
-					RevisionNumber: 0,
-					RevisionHeight: height,
+					ClientId:       path.EndpointA.ClientID,
+					RevisionNumber: height.GetRevisionNumber(),
+					RevisionHeight: height.GetRevisionHeight(),
 				}
 			},
 			true,
@@ -256,8 +274,8 @@ func (suite *KeeperTestSuite) TestQueryConsensusState() {
 			suite.SetupTest() // reset
 
 			tc.malleate()
-			ctx := sdk.WrapSDKContext(suite.ctx)
-			res, err := suite.queryClient.ConsensusState(ctx, req)
+			ctx := sdk.WrapSDKContext(suite.chainA.GetContext())
+			res, err := suite.chainA.QueryServer.ConsensusState(ctx, req)
 
 			if tc.expPass {
 				suite.Require().NoError(err)
@@ -378,6 +396,102 @@ func (suite *KeeperTestSuite) TestQueryConsensusStates() {
 	}
 }
 
+func (suite *KeeperTestSuite) TestQueryClientStatus() {
+	var (
+		req *types.QueryClientStatusRequest
+	)
+
+	testCases := []struct {
+		msg       string
+		malleate  func()
+		expPass   bool
+		expStatus string
+	}{
+		{"req is nil",
+			func() {
+				req = nil
+			},
+			false, "",
+		},
+		{"invalid clientID",
+			func() {
+				req = &types.QueryClientStatusRequest{}
+			},
+			false, "",
+		},
+		{"client not found",
+			func() {
+				req = &types.QueryClientStatusRequest{
+					ClientId: ibctesting.InvalidID,
+				}
+			},
+			false, "",
+		},
+		{
+			"Active client status",
+			func() {
+				path := ibctesting.NewPath(suite.chainA, suite.chainB)
+				suite.coordinator.SetupClients(path)
+				req = &types.QueryClientStatusRequest{
+					ClientId: path.EndpointA.ClientID,
+				}
+			},
+			true, exported.Active.String(),
+		},
+		{
+			"Unknown client status",
+			func() {
+				path := ibctesting.NewPath(suite.chainA, suite.chainB)
+				suite.coordinator.SetupClients(path)
+				clientState := path.EndpointA.GetClientState().(*ibctmtypes.ClientState)
+
+				// increment latest height so no consensus state is stored
+				clientState.LatestHeight = clientState.LatestHeight.Increment().(types.Height)
+				path.EndpointA.SetClientState(clientState)
+
+				req = &types.QueryClientStatusRequest{
+					ClientId: path.EndpointA.ClientID,
+				}
+			},
+			true, exported.Unknown.String(),
+		},
+		{
+			"Frozen client status",
+			func() {
+				path := ibctesting.NewPath(suite.chainA, suite.chainB)
+				suite.coordinator.SetupClients(path)
+				clientState := path.EndpointA.GetClientState().(*ibctmtypes.ClientState)
+
+				clientState.FrozenHeight = types.NewHeight(0, 1)
+				path.EndpointA.SetClientState(clientState)
+
+				req = &types.QueryClientStatusRequest{
+					ClientId: path.EndpointA.ClientID,
+				}
+			},
+			true, exported.Frozen.String(),
+		},
+	}
+
+	for _, tc := range testCases {
+		suite.Run(fmt.Sprintf("Case %s", tc.msg), func() {
+			suite.SetupTest() // reset
+
+			tc.malleate()
+			ctx := sdk.WrapSDKContext(suite.chainA.GetContext())
+			res, err := suite.chainA.QueryServer.ClientStatus(ctx, req)
+
+			if tc.expPass {
+				suite.Require().NoError(err)
+				suite.Require().NotNil(res)
+				suite.Require().Equal(tc.expStatus, res.Status)
+			} else {
+				suite.Require().Error(err)
+			}
+		})
+	}
+}
+
 func (suite *KeeperTestSuite) TestQueryUpgradedConsensusStates() {
 	var (
 		req               *types.QueryUpgradedConsensusStateRequest
@@ -390,6 +504,12 @@ func (suite *KeeperTestSuite) TestQueryUpgradedConsensusStates() {
 		malleate func()
 		expPass  bool
 	}{
+		{"req is nil",
+			func() {
+				req = nil
+			},
+			false,
+		},
 		{
 			"no plan",
 			func() {
@@ -437,6 +557,6 @@ func (suite *KeeperTestSuite) TestQueryUpgradedConsensusStates() {
 func (suite *KeeperTestSuite) TestQueryParams() {
 	ctx := sdk.WrapSDKContext(suite.chainA.GetContext())
 	expParams := types.DefaultParams()
-	res, _ := suite.queryClient.ClientParams(ctx, &types.QueryClientParamsRequest{})
+	res, _ := suite.chainA.QueryServer.ClientParams(ctx, &types.QueryClientParamsRequest{})
 	suite.Require().Equal(&expParams, res.Params)
 }

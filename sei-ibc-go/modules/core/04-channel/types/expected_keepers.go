@@ -11,6 +11,7 @@ import (
 type ClientKeeper interface {
 	GetClientState(ctx sdk.Context, clientID string) (exported.ClientState, bool)
 	GetClientConsensusState(ctx sdk.Context, clientID string, height exported.Height) (exported.ConsensusState, bool)
+	ClientStore(ctx sdk.Context, clientID string) sdk.KVStore
 }
 
 // ConnectionKeeper expected account IBC connection keeper

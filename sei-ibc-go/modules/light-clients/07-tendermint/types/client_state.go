@@ -58,9 +58,34 @@ func (cs ClientState) GetLatestHeight() exported.Height {
 	return cs.LatestHeight
 }
 
-// IsFrozen returns true if the frozen height has been set.
-func (cs ClientState) IsFrozen() bool {
-	return !cs.FrozenHeight.IsZero()
+// Status returns the status of the tendermint client.
+// The client may be:
+// - Active: FrozenHeight is zero and client is not expired
+// - Frozen: Frozen Height is not zero
+// - Expired: the latest consensus state timestamp + trusting period <= current time
+//
+// A frozen client will become expired, so the Frozen status
+// has higher precedence.
+func (cs ClientState) Status(
+	ctx sdk.Context,
+	clientStore sdk.KVStore,
+	cdc codec.BinaryMarshaler,
+) exported.Status {
+	if !cs.FrozenHeight.IsZero() {
+		return exported.Frozen
+	}
+
+	// get latest consensus state from clientStore to check for expiry
+	consState, err := GetConsensusState(clientStore, cdc, cs.GetLatestHeight())
+	if err != nil {
+		return exported.Unknown
+	}
+
+	if cs.IsExpired(consState.Timestamp, ctx.BlockTime()) {
+		return exported.Expired
+	}
+
+	return exported.Active
 }
 
 // GetFrozenHeight returns the height at which client is frozen
@@ -505,10 +530,6 @@ func produceVerificationArgs(
 			sdkerrors.ErrInvalidHeight,
 			"client state height < proof height (%d < %d)", cs.GetLatestHeight(), height,
 		)
-	}
-
-	if cs.IsFrozen() && !cs.FrozenHeight.GT(height) {
-		return commitmenttypes.MerkleProof{}, nil, clienttypes.ErrClientFrozen
 	}
 
 	if prefix == nil {

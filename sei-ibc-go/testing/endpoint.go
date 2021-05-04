@@ -433,6 +433,25 @@ func (endpoint *Endpoint) GetClientState() exported.ClientState {
 	return endpoint.Chain.GetClientState(endpoint.ClientID)
 }
 
+// SetClientState sets the client state for this endpoint.
+func (endpoint *Endpoint) SetClientState(clientState exported.ClientState) {
+	endpoint.Chain.App.GetIBCKeeper().ClientKeeper.SetClientState(endpoint.Chain.GetContext(), endpoint.ClientID, clientState)
+}
+
+// GetConsensusState retrieves the Consensus State for this endpoint at the provided height.
+// The consensus state is expected to exist otherwise testing will fail.
+func (endpoint *Endpoint) GetConsensusState(height exported.Height) exported.ConsensusState {
+	consensusState, found := endpoint.Chain.GetConsensusState(endpoint.ClientID, height)
+	require.True(endpoint.Chain.t, found)
+
+	return consensusState
+}
+
+// SetConsensusState sets the consensus state for this endpoint.
+func (endpoint *Endpoint) SetConsensusState(consensusState exported.ConsensusState, height exported.Height) {
+	endpoint.Chain.App.GetIBCKeeper().ClientKeeper.SetClientConsensusState(endpoint.Chain.GetContext(), endpoint.ClientID, height, consensusState)
+}
+
 // GetConnection retrieves an IBC Connection for the endpoint. The
 // connection is expected to exist otherwise testing will fail.
 func (endpoint *Endpoint) GetConnection() connectiontypes.ConnectionEnd {
@@ -442,6 +461,11 @@ func (endpoint *Endpoint) GetConnection() connectiontypes.ConnectionEnd {
 	return connection
 }
 
+// SetConnection sets the connection for this endpoint.
+func (endpoint *Endpoint) SetConnection(connection connectiontypes.ConnectionEnd) {
+	endpoint.Chain.App.GetIBCKeeper().ConnectionKeeper.SetConnection(endpoint.Chain.GetContext(), endpoint.ConnectionID, connection)
+}
+
 // GetChannel retrieves an IBC Channel for the endpoint. The channel
 // is expected to exist otherwise testing will fail.
 func (endpoint *Endpoint) GetChannel() channeltypes.Channel {
@@ -449,6 +473,11 @@ func (endpoint *Endpoint) GetChannel() channeltypes.Channel {
 	require.True(endpoint.Chain.t, found)
 
 	return channel
+}
+
+// SetChannel sets the channel for this endpoint.
+func (endpoint *Endpoint) SetChannel(channel channeltypes.Channel) {
+	endpoint.Chain.App.GetIBCKeeper().ChannelKeeper.SetChannel(endpoint.Chain.GetContext(), endpoint.ChannelConfig.PortID, endpoint.ChannelID, channel)
 }
 
 // QueryClientStateProof performs and abci query for a client stat associated

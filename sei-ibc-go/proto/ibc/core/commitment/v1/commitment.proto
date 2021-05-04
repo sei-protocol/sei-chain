@@ -19,7 +19,7 @@ message MerkleRoot {
 // The constructed key from the Path and the key will be append(Path.KeyPath,
 // append(Path.KeyPrefix, key...))
 message MerklePrefix {
-  bytes key_prefix = 1 [ (gogoproto.moretags) = "yaml:\"key_prefix\"" ];
+  bytes key_prefix = 1 [(gogoproto.moretags) = "yaml:\"key_prefix\""];
 }
 
 // MerklePath is the path used to verify commitment proofs, which can be an
@@ -28,7 +28,7 @@ message MerklePrefix {
 message MerklePath {
   option (gogoproto.goproto_stringer) = false;
 
-  repeated string key_path = 1 [ (gogoproto.moretags) = "yaml:\"key_path\"" ];
+  repeated string key_path = 1 [(gogoproto.moretags) = "yaml:\"key_path\""];
 }
 
 // MerkleProof is a wrapper type over a chain of CommitmentProofs.
@@ -36,4 +36,6 @@ message MerklePath {
 // elements, verifiable in conjunction with a known commitment root. Proofs
 // should be succinct.
 // MerkleProofs are ordered from leaf-to-root
-message MerkleProof { repeated ics23.CommitmentProof proofs = 1; }
+message MerkleProof {
+  repeated ics23.CommitmentProof proofs = 1;
+}
