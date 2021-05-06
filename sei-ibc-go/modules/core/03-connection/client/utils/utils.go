@@ -53,7 +53,7 @@ func queryConnectionABCI(clientCtx client.Context, connectionID string) (*types.
 	cdc := codec.NewProtoCodec(clientCtx.InterfaceRegistry)
 
 	var connection types.ConnectionEnd
-	if err := cdc.UnmarshalBinaryBare(value, &connection); err != nil {
+	if err := cdc.Unmarshal(value, &connection); err != nil {
 		return nil, err
 	}
 
@@ -92,7 +92,7 @@ func queryClientConnectionsABCI(clientCtx client.Context, clientID string) (*typ
 	}
 
 	var paths []string
-	if err := clientCtx.LegacyAmino.UnmarshalBinaryBare(value, &paths); err != nil {
+	if err := clientCtx.LegacyAmino.Unmarshal(value, &paths); err != nil {
 		return nil, err
 	}
 
@@ -215,5 +215,5 @@ func ParseProof(cdc *codec.LegacyAmino, arg string) ([]byte, error) {
 		}
 	}
 
-	return cdc.MarshalBinaryBare(&merkleProof)
+	return cdc.Marshal(&merkleProof)
 }

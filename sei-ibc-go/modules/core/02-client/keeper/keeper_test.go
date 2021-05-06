@@ -55,7 +55,7 @@ type KeeperTestSuite struct {
 	chainA *ibctesting.TestChain
 	chainB *ibctesting.TestChain
 
-	cdc            codec.Marshaler
+	cdc            codec.Codec
 	ctx            sdk.Context
 	keeper         *keeper.Keeper
 	consensusState *ibctmtypes.ConsensusState
@@ -112,7 +112,7 @@ func (suite *KeeperTestSuite) SetupTest() {
 		val.Tokens = sdk.NewInt(rand.Int63())
 		validators = append(validators, val)
 
-		hi := stakingtypes.NewHistoricalInfo(suite.ctx.BlockHeader(), validators)
+		hi := stakingtypes.NewHistoricalInfo(suite.ctx.BlockHeader(), validators, sdk.DefaultPowerReduction)
 		app.StakingKeeper.SetHistoricalInfo(suite.ctx, int64(i), &hi)
 	}
 

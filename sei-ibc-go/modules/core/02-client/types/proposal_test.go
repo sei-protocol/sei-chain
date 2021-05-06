@@ -2,7 +2,6 @@ package types_test
 
 import (
 	"fmt"
-	"time"
 
 	"github.com/cosmos/cosmos-sdk/codec"
 	codectypes "github.com/cosmos/cosmos-sdk/codec/types"
@@ -130,22 +129,8 @@ func (suite *TypesTestSuite) TestUpgradeProposalValidateBasic() {
 			}, false,
 		},
 		{
-			"fails plan validate basic, height and time is 0", func() {
-				invalidPlan := upgradetypes.Plan{Name: "ibc upgrade"}
-				proposal, err = types.NewUpgradeProposal(ibctesting.Title, ibctesting.Description, invalidPlan, cs)
-				suite.Require().NoError(err)
-			}, false,
-		},
-		{
 			"plan height is zero", func() {
 				invalidPlan := upgradetypes.Plan{Name: "ibc upgrade", Height: 0}
-				proposal, err = types.NewUpgradeProposal(ibctesting.Title, ibctesting.Description, invalidPlan, cs)
-				suite.Require().NoError(err)
-			}, false,
-		},
-		{
-			"plan time is not set to 0", func() {
-				invalidPlan := upgradetypes.Plan{Name: "ibc upgrade", Time: time.Now()}
 				proposal, err = types.NewUpgradeProposal(ibctesting.Title, ibctesting.Description, invalidPlan, cs)
 				suite.Require().NoError(err)
 			}, false,

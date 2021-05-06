@@ -32,11 +32,11 @@ func TestDecodeStore(t *testing.T) {
 		Pairs: []kv.Pair{
 			{
 				Key:   host.ClientConnectionsKey(connection.ClientId),
-				Value: cdc.MustMarshalBinaryBare(&paths),
+				Value: cdc.MustMarshal(&paths),
 			},
 			{
 				Key:   host.ConnectionKey(connectionID),
-				Value: cdc.MustMarshalBinaryBare(&connection),
+				Value: cdc.MustMarshal(&connection),
 			},
 			{
 				Key:   []byte{0x99},

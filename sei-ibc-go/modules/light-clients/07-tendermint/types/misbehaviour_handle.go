@@ -21,7 +21,7 @@ import (
 // to misbehaviour.Header2
 func (cs ClientState) CheckMisbehaviourAndUpdateState(
 	ctx sdk.Context,
-	cdc codec.BinaryMarshaler,
+	cdc codec.BinaryCodec,
 	clientStore sdk.KVStore,
 	misbehaviour exported.Misbehaviour,
 ) (exported.ClientState, error) {

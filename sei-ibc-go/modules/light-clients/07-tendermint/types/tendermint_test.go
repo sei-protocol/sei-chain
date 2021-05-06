@@ -45,7 +45,7 @@ type TendermintTestSuite struct {
 
 	// TODO: deprecate usage in favor of testing package
 	ctx        sdk.Context
-	cdc        codec.Marshaler
+	cdc        codec.Codec
 	privVal    tmtypes.PrivValidator
 	valSet     *tmtypes.ValidatorSet
 	valsHash   tmbytes.HexBytes

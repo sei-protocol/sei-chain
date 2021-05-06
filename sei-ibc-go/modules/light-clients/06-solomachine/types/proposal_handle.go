@@ -18,7 +18,7 @@ import (
 // the substitute is not a solo machine, or the current public key equals
 // the new public key.
 func (cs ClientState) CheckSubstituteAndUpdateState(
-	ctx sdk.Context, cdc codec.BinaryMarshaler, subjectClientStore,
+	ctx sdk.Context, cdc codec.BinaryCodec, subjectClientStore,
 	_ sdk.KVStore, substituteClient exported.ClientState,
 	_ exported.Height,
 ) (exported.ClientState, error) {

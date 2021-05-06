@@ -44,7 +44,7 @@ func (cs ClientState) GetLatestHeight() exported.Height {
 // The client may be:
 // - Active: if frozen sequence is 0
 // - Frozen: otherwise solo machine is frozen
-func (cs ClientState) Status(_ sdk.Context, _ sdk.KVStore, _ codec.BinaryMarshaler) exported.Status {
+func (cs ClientState) Status(_ sdk.Context, _ sdk.KVStore, _ codec.BinaryCodec) exported.Status {
 	if cs.FrozenSequence != 0 {
 		return exported.Frozen
 	}
@@ -89,7 +89,7 @@ func (cs ClientState) ZeroCustomFields() exported.ClientState {
 }
 
 // Initialize will check that initial consensus state is equal to the latest consensus state of the initial client.
-func (cs ClientState) Initialize(_ sdk.Context, _ codec.BinaryMarshaler, _ sdk.KVStore, consState exported.ConsensusState) error {
+func (cs ClientState) Initialize(_ sdk.Context, _ codec.BinaryCodec, _ sdk.KVStore, consState exported.ConsensusState) error {
 	if !reflect.DeepEqual(cs.ConsensusState, consState) {
 		return sdkerrors.Wrapf(clienttypes.ErrInvalidConsensus, "consensus state in initial client does not equal initial consensus state. expected: %s, got: %s",
 			cs.ConsensusState, consState)
@@ -104,7 +104,7 @@ func (cs ClientState) ExportMetadata(_ sdk.KVStore) []exported.GenesisMetadata {
 
 // VerifyUpgradeAndUpdateState returns an error since solomachine client does not support upgrades
 func (cs ClientState) VerifyUpgradeAndUpdateState(
-	_ sdk.Context, _ codec.BinaryMarshaler, _ sdk.KVStore,
+	_ sdk.Context, _ codec.BinaryCodec, _ sdk.KVStore,
 	_ exported.ClientState, _ exported.ConsensusState, _, _ []byte,
 ) (exported.ClientState, exported.ConsensusState, error) {
 	return nil, nil, sdkerrors.Wrap(clienttypes.ErrInvalidUpgradeClient, "cannot upgrade solomachine client")
@@ -114,7 +114,7 @@ func (cs ClientState) VerifyUpgradeAndUpdateState(
 // stored on the solo machine.
 func (cs *ClientState) VerifyClientState(
 	store sdk.KVStore,
-	cdc codec.BinaryMarshaler,
+	cdc codec.BinaryCodec,
 	height exported.Height,
 	prefix exported.Prefix,
 	counterpartyClientIdentifier string,
@@ -151,7 +151,7 @@ func (cs *ClientState) VerifyClientState(
 // running chain stored on the solo machine.
 func (cs *ClientState) VerifyClientConsensusState(
 	store sdk.KVStore,
-	cdc codec.BinaryMarshaler,
+	cdc codec.BinaryCodec,
 	height exported.Height,
 	counterpartyClientIdentifier string,
 	consensusHeight exported.Height,
@@ -189,7 +189,7 @@ func (cs *ClientState) VerifyClientConsensusState(
 // specified connection end stored on the target machine.
 func (cs *ClientState) VerifyConnectionState(
 	store sdk.KVStore,
-	cdc codec.BinaryMarshaler,
+	cdc codec.BinaryCodec,
 	height exported.Height,
 	prefix exported.Prefix,
 	proof []byte,
@@ -226,7 +226,7 @@ func (cs *ClientState) VerifyConnectionState(
 // channel end, under the specified port, stored on the target machine.
 func (cs *ClientState) VerifyChannelState(
 	store sdk.KVStore,
-	cdc codec.BinaryMarshaler,
+	cdc codec.BinaryCodec,
 	height exported.Height,
 	prefix exported.Prefix,
 	proof []byte,
@@ -264,7 +264,7 @@ func (cs *ClientState) VerifyChannelState(
 // the specified port, specified channel, and specified sequence.
 func (cs *ClientState) VerifyPacketCommitment(
 	store sdk.KVStore,
-	cdc codec.BinaryMarshaler,
+	cdc codec.BinaryCodec,
 	height exported.Height,
 	_ uint64,
 	_ uint64,
@@ -305,7 +305,7 @@ func (cs *ClientState) VerifyPacketCommitment(
 // acknowledgement at the specified port, specified channel, and specified sequence.
 func (cs *ClientState) VerifyPacketAcknowledgement(
 	store sdk.KVStore,
-	cdc codec.BinaryMarshaler,
+	cdc codec.BinaryCodec,
 	height exported.Height,
 	_ uint64,
 	_ uint64,
@@ -347,7 +347,7 @@ func (cs *ClientState) VerifyPacketAcknowledgement(
 // specified sequence.
 func (cs *ClientState) VerifyPacketReceiptAbsence(
 	store sdk.KVStore,
-	cdc codec.BinaryMarshaler,
+	cdc codec.BinaryCodec,
 	height exported.Height,
 	_ uint64,
 	_ uint64,
@@ -387,7 +387,7 @@ func (cs *ClientState) VerifyPacketReceiptAbsence(
 // received of the specified channel at the specified port.
 func (cs *ClientState) VerifyNextSequenceRecv(
 	store sdk.KVStore,
-	cdc codec.BinaryMarshaler,
+	cdc codec.BinaryCodec,
 	height exported.Height,
 	_ uint64,
 	_ uint64,
@@ -428,7 +428,7 @@ func (cs *ClientState) VerifyNextSequenceRecv(
 // consensus state, the unmarshalled proof representing the signature and timestamp
 // along with the solo-machine sequence encoded in the proofHeight.
 func produceVerificationArgs(
-	cdc codec.BinaryMarshaler,
+	cdc codec.BinaryCodec,
 	cs *ClientState,
 	height exported.Height,
 	prefix exported.Prefix,
@@ -457,7 +457,7 @@ func produceVerificationArgs(
 	}
 
 	timestampedSigData := &TimestampedSignatureData{}
-	if err := cdc.UnmarshalBinaryBare(proof, timestampedSigData); err != nil {
+	if err := cdc.Unmarshal(proof, timestampedSigData); err != nil {
 		return nil, nil, 0, 0, sdkerrors.Wrapf(err, "failed to unmarshal proof into type %T", timestampedSigData)
 	}
 
@@ -497,7 +497,7 @@ func produceVerificationArgs(
 }
 
 // sets the client state to the store
-func setClientState(store sdk.KVStore, cdc codec.BinaryMarshaler, clientState exported.ClientState) {
+func setClientState(store sdk.KVStore, cdc codec.BinaryCodec, clientState exported.ClientState) {
 	bz := clienttypes.MustMarshalClientState(cdc, clientState)
 	store.Set([]byte(host.KeyClientState), bz)
 }

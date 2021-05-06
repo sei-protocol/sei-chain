@@ -50,7 +50,7 @@ func queryChannelABCI(clientCtx client.Context, portID, channelID string) (*type
 	cdc := codec.NewProtoCodec(clientCtx.InterfaceRegistry)
 
 	var channel types.Channel
-	if err := cdc.UnmarshalBinaryBare(value, &channel); err != nil {
+	if err := cdc.Unmarshal(value, &channel); err != nil {
 		return nil, err
 	}
 

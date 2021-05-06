@@ -56,7 +56,7 @@ func (q Keeper) Channels(c context.Context, req *types.QueryChannelsRequest) (*t
 
 	pageRes, err := query.Paginate(store, req.Pagination, func(key, value []byte) error {
 		var result types.Channel
-		if err := q.cdc.UnmarshalBinaryBare(value, &result); err != nil {
+		if err := q.cdc.Unmarshal(value, &result); err != nil {
 			return err
 		}
 
@@ -99,7 +99,7 @@ func (q Keeper) ConnectionChannels(c context.Context, req *types.QueryConnection
 
 	pageRes, err := query.Paginate(store, req.Pagination, func(key, value []byte) error {
 		var result types.Channel
-		if err := q.cdc.UnmarshalBinaryBare(value, &result); err != nil {
+		if err := q.cdc.Unmarshal(value, &result); err != nil {
 			return err
 		}
 

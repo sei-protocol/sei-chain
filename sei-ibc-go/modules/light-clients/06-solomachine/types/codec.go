@@ -30,9 +30,9 @@ func RegisterInterfaces(registry codectypes.InterfaceRegistry) {
 	)
 }
 
-func UnmarshalSignatureData(cdc codec.BinaryMarshaler, data []byte) (signing.SignatureData, error) {
+func UnmarshalSignatureData(cdc codec.BinaryCodec, data []byte) (signing.SignatureData, error) {
 	protoSigData := &signing.SignatureDescriptor_Data{}
-	if err := cdc.UnmarshalBinaryBare(data, protoSigData); err != nil {
+	if err := cdc.Unmarshal(data, protoSigData); err != nil {
 		return nil, sdkerrors.Wrapf(err, "failed to unmarshal proof into type %T", protoSigData)
 	}
 
@@ -43,7 +43,7 @@ func UnmarshalSignatureData(cdc codec.BinaryMarshaler, data []byte) (signing.Sig
 
 // UnmarshalDataByType attempts to unmarshal the data to the specified type. An error is
 // return if it fails.
-func UnmarshalDataByType(cdc codec.BinaryMarshaler, dataType DataType, data []byte) (Data, error) {
+func UnmarshalDataByType(cdc codec.BinaryCodec, dataType DataType, data []byte) (Data, error) {
 	if len(data) == 0 {
 		return nil, sdkerrors.Wrap(ErrInvalidSignatureAndData, "data cannot be empty")
 	}
@@ -54,7 +54,7 @@ func UnmarshalDataByType(cdc codec.BinaryMarshaler, dataType DataType, data []by
 
 	case CLIENT:
 		clientData := &ClientStateData{}
-		if err := cdc.UnmarshalBinaryBare(data, clientData); err != nil {
+		if err := cdc.Unmarshal(data, clientData); err != nil {
 			return nil, err
 		}
 
@@ -66,7 +66,7 @@ func UnmarshalDataByType(cdc codec.BinaryMarshaler, dataType DataType, data []by
 
 	case CONSENSUS:
 		consensusData := &ConsensusStateData{}
-		if err := cdc.UnmarshalBinaryBare(data, consensusData); err != nil {
+		if err := cdc.Unmarshal(data, consensusData); err != nil {
 			return nil, err
 		}
 
@@ -78,7 +78,7 @@ func UnmarshalDataByType(cdc codec.BinaryMarshaler, dataType DataType, data []by
 
 	case CONNECTION:
 		connectionData := &ConnectionStateData{}
-		if err := cdc.UnmarshalBinaryBare(data, connectionData); err != nil {
+		if err := cdc.Unmarshal(data, connectionData); err != nil {
 			return nil, err
 		}
 
@@ -86,7 +86,7 @@ func UnmarshalDataByType(cdc codec.BinaryMarshaler, dataType DataType, data []by
 
 	case CHANNEL:
 		channelData := &ChannelStateData{}
-		if err := cdc.UnmarshalBinaryBare(data, channelData); err != nil {
+		if err := cdc.Unmarshal(data, channelData); err != nil {
 			return nil, err
 		}
 
@@ -94,7 +94,7 @@ func UnmarshalDataByType(cdc codec.BinaryMarshaler, dataType DataType, data []by
 
 	case PACKETCOMMITMENT:
 		commitmentData := &PacketCommitmentData{}
-		if err := cdc.UnmarshalBinaryBare(data, commitmentData); err != nil {
+		if err := cdc.Unmarshal(data, commitmentData); err != nil {
 			return nil, err
 		}
 
@@ -102,7 +102,7 @@ func UnmarshalDataByType(cdc codec.BinaryMarshaler, dataType DataType, data []by
 
 	case PACKETACKNOWLEDGEMENT:
 		ackData := &PacketAcknowledgementData{}
-		if err := cdc.UnmarshalBinaryBare(data, ackData); err != nil {
+		if err := cdc.Unmarshal(data, ackData); err != nil {
 			return nil, err
 		}
 
@@ -110,7 +110,7 @@ func UnmarshalDataByType(cdc codec.BinaryMarshaler, dataType DataType, data []by
 
 	case PACKETRECEIPTABSENCE:
 		receiptAbsenceData := &PacketReceiptAbsenceData{}
-		if err := cdc.UnmarshalBinaryBare(data, receiptAbsenceData); err != nil {
+		if err := cdc.Unmarshal(data, receiptAbsenceData); err != nil {
 			return nil, err
 		}
 
@@ -118,7 +118,7 @@ func UnmarshalDataByType(cdc codec.BinaryMarshaler, dataType DataType, data []by
 
 	case NEXTSEQUENCERECV:
 		nextSeqRecvData := &NextSequenceRecvData{}
-		if err := cdc.UnmarshalBinaryBare(data, nextSeqRecvData); err != nil {
+		if err := cdc.Unmarshal(data, nextSeqRecvData); err != nil {
 			return nil, err
 		}
 

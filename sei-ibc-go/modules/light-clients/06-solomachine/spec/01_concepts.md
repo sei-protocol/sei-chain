@@ -53,7 +53,7 @@ data := &ClientStateData{
   ClientState: any,
 }
 
-dataBz, err := cdc.MarshalBinaryBare(data)
+dataBz, err := cdc.Marshal(data)
 ```
 
 The helper functions `...DataBytes()` in [proofs.go](../types/proofs.go) handle this
@@ -72,7 +72,7 @@ signBytes := &SignBytes{
   Data:        dataBz,
 }
 
-signBz, err := cdc.MarshalBinaryBare(signBytes)
+signBz, err := cdc.Marshal(signBytes)
 ```
 
 The helper functions `...SignBytes()` in [proofs.go](../types/proofs.go) handle this functionality.
@@ -91,7 +91,7 @@ sigData := &signing.SingleSignatureData{
 }
 
 protoSigData := signing.SignatureDataToProto(sigData)
-bz, err := cdc.MarshalBinaryBare(protoSigData)
+bz, err := cdc.Marshal(protoSigData)
 ```
 
 4. Construct a `TimestampedSignatureData` and marshal it. The marshaled result can be passed in 
@@ -105,7 +105,7 @@ timestampedSignatureData := &types.TimestampedSignatureData{
   Timestamp: solomachine.Time,
 }
 
-proof, err := cdc.MarshalBinaryBare(timestampedSignatureData)
+proof, err := cdc.Marshal(timestampedSignatureData)
 ```
 
 NOTE: At the end of this process, the sequence associated with the key needs to be updated. 

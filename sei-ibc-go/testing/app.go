@@ -40,7 +40,7 @@ type TestingApp interface {
 	GetTxConfig() client.TxConfig
 
 	// Implemented by SimApp
-	AppCodec() codec.Marshaler
+	AppCodec() codec.Codec
 
 	// Implemented by BaseApp
 	LastCommitID() sdk.CommitID

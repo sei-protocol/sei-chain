@@ -57,7 +57,7 @@ func QueryTendermintProof(clientCtx client.Context, key []byte) ([]byte, []byte,
 
 	cdc := codec.NewProtoCodec(clientCtx.InterfaceRegistry)
 
-	proofBz, err := cdc.MarshalBinaryBare(&merkleProof)
+	proofBz, err := cdc.Marshal(&merkleProof)
 	if err != nil {
 		return nil, nil, clienttypes.Height{}, err
 	}

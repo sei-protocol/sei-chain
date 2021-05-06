@@ -120,7 +120,7 @@ func (suite *SoloMachineTestSuite) TestCheckMisbehaviourAndUpdateState() {
 						Data:        msg,
 					}
 
-					data, err := suite.chainA.Codec.MarshalBinaryBare(signBytes)
+					data, err := suite.chainA.Codec.Marshal(signBytes)
 					suite.Require().NoError(err)
 
 					sig := solomachine.GenerateSignature(data)
@@ -148,7 +148,7 @@ func (suite *SoloMachineTestSuite) TestCheckMisbehaviourAndUpdateState() {
 						Data:        msg,
 					}
 
-					data, err := suite.chainA.Codec.MarshalBinaryBare(signBytes)
+					data, err := suite.chainA.Codec.Marshal(signBytes)
 					suite.Require().NoError(err)
 
 					sig := solomachine.GenerateSignature(data)
@@ -209,7 +209,7 @@ func (suite *SoloMachineTestSuite) TestCheckMisbehaviourAndUpdateState() {
 						Data:        msg,
 					}
 
-					data, err := suite.chainA.Codec.MarshalBinaryBare(signBytes)
+					data, err := suite.chainA.Codec.Marshal(signBytes)
 					suite.Require().NoError(err)
 
 					sig := solomachine.GenerateSignature(data)
@@ -228,7 +228,7 @@ func (suite *SoloMachineTestSuite) TestCheckMisbehaviourAndUpdateState() {
 						DataType:    types.CLIENT,
 						Data:        msg,
 					}
-					data, err = suite.chainA.Codec.MarshalBinaryBare(signBytes)
+					data, err = suite.chainA.Codec.Marshal(signBytes)
 					suite.Require().NoError(err)
 
 					sig = solomachine.GenerateSignature(data)

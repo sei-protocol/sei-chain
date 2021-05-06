@@ -6,8 +6,8 @@ import (
 	codectypes "github.com/cosmos/cosmos-sdk/codec/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	govtypes "github.com/cosmos/cosmos-sdk/x/gov/types"
-	"github.com/cosmos/ibc-go/modules/core/exported"
 	upgradetypes "github.com/cosmos/cosmos-sdk/x/upgrade/types"
+	"github.com/cosmos/ibc-go/modules/core/exported"
 )
 
 const (
@@ -109,10 +109,6 @@ func (up *UpgradeProposal) ValidateBasic() error {
 
 	if err := up.Plan.ValidateBasic(); err != nil {
 		return err
-	}
-
-	if up.Plan.Time.Unix() > 0 {
-		return sdkerrors.Wrap(ErrInvalidUpgradeProposal, "IBC chain upgrades must only set height")
 	}
 
 	if up.Plan.Height <= 0 {

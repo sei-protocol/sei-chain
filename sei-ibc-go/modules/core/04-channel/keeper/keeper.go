@@ -26,7 +26,7 @@ type Keeper struct {
 	types.QueryServer
 
 	storeKey         sdk.StoreKey
-	cdc              codec.BinaryMarshaler
+	cdc              codec.BinaryCodec
 	clientKeeper     types.ClientKeeper
 	connectionKeeper types.ConnectionKeeper
 	portKeeper       types.PortKeeper
@@ -35,7 +35,7 @@ type Keeper struct {
 
 // NewKeeper creates a new IBC channel Keeper instance
 func NewKeeper(
-	cdc codec.BinaryMarshaler, key sdk.StoreKey,
+	cdc codec.BinaryCodec, key sdk.StoreKey,
 	clientKeeper types.ClientKeeper, connectionKeeper types.ConnectionKeeper,
 	portKeeper types.PortKeeper, scopedKeeper capabilitykeeper.ScopedKeeper,
 ) Keeper {
@@ -73,14 +73,14 @@ func (k Keeper) GetChannel(ctx sdk.Context, portID, channelID string) (types.Cha
 	}
 
 	var channel types.Channel
-	k.cdc.MustUnmarshalBinaryBare(bz, &channel)
+	k.cdc.MustUnmarshal(bz, &channel)
 	return channel, true
 }
 
 // SetChannel sets a channel to the store
 func (k Keeper) SetChannel(ctx sdk.Context, portID, channelID string, channel types.Channel) {
 	store := ctx.KVStore(k.storeKey)
-	bz := k.cdc.MustMarshalBinaryBare(&channel)
+	bz := k.cdc.MustMarshal(&channel)
 	store.Set(host.ChannelKey(portID, channelID), bz)
 }
 
@@ -362,7 +362,7 @@ func (k Keeper) IterateChannels(ctx sdk.Context, cb func(types.IdentifiedChannel
 	defer iterator.Close()
 	for ; iterator.Valid(); iterator.Next() {
 		var channel types.Channel
-		k.cdc.MustUnmarshalBinaryBare(iterator.Value(), &channel)
+		k.cdc.MustUnmarshal(iterator.Value(), &channel)
 
 		portID, channelID := host.MustParseChannelPath(string(iterator.Key()))
 		identifiedChannel := types.NewIdentifiedChannel(portID, channelID, channel)

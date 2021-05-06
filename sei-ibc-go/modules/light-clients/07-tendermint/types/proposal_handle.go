@@ -26,7 +26,7 @@ import (
 // Note, that even if the subject is updated to the state of the substitute, an error may be
 // returned if the updated client state is invalid or the client is expired.
 func (cs ClientState) CheckSubstituteAndUpdateState(
-	ctx sdk.Context, cdc codec.BinaryMarshaler, subjectClientStore,
+	ctx sdk.Context, cdc codec.BinaryCodec, subjectClientStore,
 	substituteClientStore sdk.KVStore, substituteClient exported.ClientState,
 	initialHeight exported.Height,
 ) (exported.ClientState, error) {

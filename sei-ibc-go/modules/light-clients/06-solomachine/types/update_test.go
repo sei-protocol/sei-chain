@@ -100,7 +100,7 @@ func (suite *SoloMachineTestSuite) TestCheckHeaderAndUpdateState() {
 						NewDiversifier: h.NewDiversifier,
 					}
 
-					dataBz, err := suite.chainA.Codec.MarshalBinaryBare(data)
+					dataBz, err := suite.chainA.Codec.Marshal(data)
 					suite.Require().NoError(err)
 
 					// generate invalid signature
@@ -112,7 +112,7 @@ func (suite *SoloMachineTestSuite) TestCheckHeaderAndUpdateState() {
 						Data:        dataBz,
 					}
 
-					signBz, err := suite.chainA.Codec.MarshalBinaryBare(signBytes)
+					signBz, err := suite.chainA.Codec.Marshal(signBytes)
 					suite.Require().NoError(err)
 
 					sig := solomachine.GenerateSignature(signBz)

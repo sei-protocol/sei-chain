@@ -54,7 +54,7 @@ type TestingApp interface {
 	GetTxConfig() client.TxConfig
 
 	// Implemented by SimApp
-	AppCodec() codec.Marshaler
+	AppCodec() codec.Codec
 
 	// Implemented by BaseApp
 	LastCommitID() sdk.CommitID
@@ -102,7 +102,7 @@ Your application may need to define `AppCodec()` if it does not already exist:
 //
 // NOTE: This is solely to be used for testing purposes as it may be desirable
 // for modules to register their own custom testing types.
-func (app *SimApp) AppCodec() codec.Marshaler {
+func (app *SimApp) AppCodec() codec.Codec {
 	return app.appCodec
 }
 ```

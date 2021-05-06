@@ -58,7 +58,7 @@ func (suite *SoloMachineTestSuite) GetSequenceFromStore() uint64 {
 }
 
 func (suite *SoloMachineTestSuite) GetInvalidProof() []byte {
-	invalidProof, err := suite.chainA.Codec.MarshalBinaryBare(&types.TimestampedSignatureData{Timestamp: suite.solomachine.Time})
+	invalidProof, err := suite.chainA.Codec.Marshal(&types.TimestampedSignatureData{Timestamp: suite.solomachine.Time})
 	suite.Require().NoError(err)
 
 	return invalidProof

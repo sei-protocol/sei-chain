@@ -55,7 +55,7 @@ func (q Keeper) Connections(c context.Context, req *types.QueryConnectionsReques
 
 	pageRes, err := query.Paginate(store, req.Pagination, func(key, value []byte) error {
 		var result types.ConnectionEnd
-		if err := q.cdc.UnmarshalBinaryBare(value, &result); err != nil {
+		if err := q.cdc.Unmarshal(value, &result); err != nil {
 			return err
 		}
 

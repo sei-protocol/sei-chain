@@ -24,7 +24,7 @@ import (
 // - any Tendermint chain specified parameter in upgraded client such as ChainID, UnbondingPeriod,
 //   and ProofSpecs do not match parameters set by committed client
 func (cs ClientState) VerifyUpgradeAndUpdateState(
-	ctx sdk.Context, cdc codec.BinaryMarshaler, clientStore sdk.KVStore,
+	ctx sdk.Context, cdc codec.BinaryCodec, clientStore sdk.KVStore,
 	upgradedClient exported.ClientState, upgradedConsState exported.ConsensusState,
 	proofUpgradeClient, proofUpgradeConsState []byte,
 ) (exported.ClientState, exported.ConsensusState, error) {
@@ -56,10 +56,10 @@ func (cs ClientState) VerifyUpgradeAndUpdateState(
 
 	// unmarshal proofs
 	var merkleProofClient, merkleProofConsState commitmenttypes.MerkleProof
-	if err := cdc.UnmarshalBinaryBare(proofUpgradeClient, &merkleProofClient); err != nil {
+	if err := cdc.Unmarshal(proofUpgradeClient, &merkleProofClient); err != nil {
 		return nil, nil, sdkerrors.Wrapf(commitmenttypes.ErrInvalidProof, "could not unmarshal client merkle proof: %v", err)
 	}
-	if err := cdc.UnmarshalBinaryBare(proofUpgradeConsState, &merkleProofConsState); err != nil {
+	if err := cdc.Unmarshal(proofUpgradeConsState, &merkleProofConsState); err != nil {
 		return nil, nil, sdkerrors.Wrapf(commitmenttypes.ErrInvalidProof, "could not unmarshal consensus state merkle proof: %v", err)
 	}
 

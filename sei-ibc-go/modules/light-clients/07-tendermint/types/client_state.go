@@ -69,7 +69,7 @@ func (cs ClientState) GetLatestHeight() exported.Height {
 func (cs ClientState) Status(
 	ctx sdk.Context,
 	clientStore sdk.KVStore,
-	cdc codec.BinaryMarshaler,
+	cdc codec.BinaryCodec,
 ) exported.Status {
 	if !cs.FrozenHeight.IsZero() {
 		return exported.Frozen
@@ -172,7 +172,7 @@ func (cs ClientState) ZeroCustomFields() exported.ClientState {
 
 // Initialize will check that initial consensus state is a Tendermint consensus state
 // and will store ProcessedTime for initial consensus state as ctx.BlockTime()
-func (cs ClientState) Initialize(ctx sdk.Context, _ codec.BinaryMarshaler, clientStore sdk.KVStore, consState exported.ConsensusState) error {
+func (cs ClientState) Initialize(ctx sdk.Context, _ codec.BinaryCodec, clientStore sdk.KVStore, consState exported.ConsensusState) error {
 	if _, ok := consState.(*ConsensusState); !ok {
 		return sdkerrors.Wrapf(clienttypes.ErrInvalidConsensus, "invalid initial consensus state. expected type: %T, got: %T",
 			&ConsensusState{}, consState)
@@ -186,7 +186,7 @@ func (cs ClientState) Initialize(ctx sdk.Context, _ codec.BinaryMarshaler, clien
 // stored on the target machine
 func (cs ClientState) VerifyClientState(
 	store sdk.KVStore,
-	cdc codec.BinaryMarshaler,
+	cdc codec.BinaryCodec,
 	height exported.Height,
 	prefix exported.Prefix,
 	counterpartyClientIdentifier string,
@@ -225,7 +225,7 @@ func (cs ClientState) VerifyClientState(
 // Tendermint client stored on the target machine.
 func (cs ClientState) VerifyClientConsensusState(
 	store sdk.KVStore,
-	cdc codec.BinaryMarshaler,
+	cdc codec.BinaryCodec,
 	height exported.Height,
 	counterpartyClientIdentifier string,
 	consensusHeight exported.Height,
@@ -269,7 +269,7 @@ func (cs ClientState) VerifyClientConsensusState(
 // specified connection end stored on the target machine.
 func (cs ClientState) VerifyConnectionState(
 	store sdk.KVStore,
-	cdc codec.BinaryMarshaler,
+	cdc codec.BinaryCodec,
 	height exported.Height,
 	prefix exported.Prefix,
 	proof []byte,
@@ -292,7 +292,7 @@ func (cs ClientState) VerifyConnectionState(
 		return sdkerrors.Wrapf(sdkerrors.ErrInvalidType, "invalid connection type %T", connectionEnd)
 	}
 
-	bz, err := cdc.MarshalBinaryBare(&connection)
+	bz, err := cdc.Marshal(&connection)
 	if err != nil {
 		return err
 	}
@@ -308,7 +308,7 @@ func (cs ClientState) VerifyConnectionState(
 // channel end, under the specified port, stored on the target machine.
 func (cs ClientState) VerifyChannelState(
 	store sdk.KVStore,
-	cdc codec.BinaryMarshaler,
+	cdc codec.BinaryCodec,
 	height exported.Height,
 	prefix exported.Prefix,
 	proof []byte,
@@ -332,7 +332,7 @@ func (cs ClientState) VerifyChannelState(
 		return sdkerrors.Wrapf(sdkerrors.ErrInvalidType, "invalid channel type %T", channel)
 	}
 
-	bz, err := cdc.MarshalBinaryBare(&channelEnd)
+	bz, err := cdc.Marshal(&channelEnd)
 	if err != nil {
 		return err
 	}
@@ -348,7 +348,7 @@ func (cs ClientState) VerifyChannelState(
 // the specified port, specified channel, and specified sequence.
 func (cs ClientState) VerifyPacketCommitment(
 	store sdk.KVStore,
-	cdc codec.BinaryMarshaler,
+	cdc codec.BinaryCodec,
 	height exported.Height,
 	currentTimestamp uint64,
 	delayPeriod uint64,
@@ -386,7 +386,7 @@ func (cs ClientState) VerifyPacketCommitment(
 // acknowledgement at the specified port, specified channel, and specified sequence.
 func (cs ClientState) VerifyPacketAcknowledgement(
 	store sdk.KVStore,
-	cdc codec.BinaryMarshaler,
+	cdc codec.BinaryCodec,
 	height exported.Height,
 	currentTimestamp uint64,
 	delayPeriod uint64,
@@ -425,7 +425,7 @@ func (cs ClientState) VerifyPacketAcknowledgement(
 // specified sequence.
 func (cs ClientState) VerifyPacketReceiptAbsence(
 	store sdk.KVStore,
-	cdc codec.BinaryMarshaler,
+	cdc codec.BinaryCodec,
 	height exported.Height,
 	currentTimestamp uint64,
 	delayPeriod uint64,
@@ -462,7 +462,7 @@ func (cs ClientState) VerifyPacketReceiptAbsence(
 // received of the specified channel at the specified port.
 func (cs ClientState) VerifyNextSequenceRecv(
 	store sdk.KVStore,
-	cdc codec.BinaryMarshaler,
+	cdc codec.BinaryCodec,
 	height exported.Height,
 	currentTimestamp uint64,
 	delayPeriod uint64,
@@ -519,7 +519,7 @@ func verifyDelayPeriodPassed(store sdk.KVStore, proofHeight exported.Height, cur
 // merkle proof, the consensus state and an error if one occurred.
 func produceVerificationArgs(
 	store sdk.KVStore,
-	cdc codec.BinaryMarshaler,
+	cdc codec.BinaryCodec,
 	cs ClientState,
 	height exported.Height,
 	prefix exported.Prefix,
@@ -545,7 +545,7 @@ func produceVerificationArgs(
 		return commitmenttypes.MerkleProof{}, nil, sdkerrors.Wrap(commitmenttypes.ErrInvalidProof, "proof cannot be empty")
 	}
 
-	if err = cdc.UnmarshalBinaryBare(proof, &merkleProof); err != nil {
+	if err = cdc.Unmarshal(proof, &merkleProof); err != nil {
 		return commitmenttypes.MerkleProof{}, nil, sdkerrors.Wrap(commitmenttypes.ErrInvalidProof, "failed to unmarshal proof into commitment merkle proof")
 	}
 

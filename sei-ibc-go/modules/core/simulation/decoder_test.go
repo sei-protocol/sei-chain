@@ -45,11 +45,11 @@ func TestDecodeStore(t *testing.T) {
 			},
 			{
 				Key:   host.ConnectionKey(connectionID),
-				Value: app.IBCKeeper.Codec().MustMarshalBinaryBare(&connection),
+				Value: app.IBCKeeper.Codec().MustMarshal(&connection),
 			},
 			{
 				Key:   host.ChannelKey(portID, channelID),
-				Value: app.IBCKeeper.Codec().MustMarshalBinaryBare(&channel),
+				Value: app.IBCKeeper.Codec().MustMarshal(&channel),
 			},
 			{
 				Key:   []byte{0x99},

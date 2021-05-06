@@ -70,7 +70,7 @@ func (suite *ClientTestSuite) TestBeginBlockerConsensusState() {
 	}
 	// set upgrade plan in the upgrade store
 	store := suite.chainA.GetContext().KVStore(suite.chainA.GetSimApp().GetKey(upgradetypes.StoreKey))
-	bz := suite.chainA.App.AppCodec().MustMarshalBinaryBare(plan)
+	bz := suite.chainA.App.AppCodec().MustMarshal(plan)
 	store.Set(upgradetypes.PlanKey(), bz)
 
 	nextValsHash := []byte("nextValsHash")
