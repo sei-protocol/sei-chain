@@ -4,23 +4,23 @@
 
 ## Table of Contents
 
-- [ibc/apps/transfer/v1/transfer.proto](#ibc/apps/transfer/v1/transfer.proto)
-    - [DenomTrace](#ibc.apps.transfer.v1.DenomTrace)
-    - [FungibleTokenPacketData](#ibc.apps.transfer.v1.FungibleTokenPacketData)
-    - [Params](#ibc.apps.transfer.v1.Params)
+- [ibc/applications/transfer/v1/transfer.proto](#ibc/applications/transfer/v1/transfer.proto)
+    - [DenomTrace](#ibc.applications.transfer.v1.DenomTrace)
+    - [FungibleTokenPacketData](#ibc.applications.transfer.v1.FungibleTokenPacketData)
+    - [Params](#ibc.applications.transfer.v1.Params)
   
-- [ibc/apps/transfer/v1/genesis.proto](#ibc/apps/transfer/v1/genesis.proto)
-    - [GenesisState](#ibc.apps.transfer.v1.GenesisState)
+- [ibc/applications/transfer/v1/genesis.proto](#ibc/applications/transfer/v1/genesis.proto)
+    - [GenesisState](#ibc.applications.transfer.v1.GenesisState)
   
-- [ibc/apps/transfer/v1/query.proto](#ibc/apps/transfer/v1/query.proto)
-    - [QueryDenomTraceRequest](#ibc.apps.transfer.v1.QueryDenomTraceRequest)
-    - [QueryDenomTraceResponse](#ibc.apps.transfer.v1.QueryDenomTraceResponse)
-    - [QueryDenomTracesRequest](#ibc.apps.transfer.v1.QueryDenomTracesRequest)
-    - [QueryDenomTracesResponse](#ibc.apps.transfer.v1.QueryDenomTracesResponse)
-    - [QueryParamsRequest](#ibc.apps.transfer.v1.QueryParamsRequest)
-    - [QueryParamsResponse](#ibc.apps.transfer.v1.QueryParamsResponse)
+- [ibc/applications/transfer/v1/query.proto](#ibc/applications/transfer/v1/query.proto)
+    - [QueryDenomTraceRequest](#ibc.applications.transfer.v1.QueryDenomTraceRequest)
+    - [QueryDenomTraceResponse](#ibc.applications.transfer.v1.QueryDenomTraceResponse)
+    - [QueryDenomTracesRequest](#ibc.applications.transfer.v1.QueryDenomTracesRequest)
+    - [QueryDenomTracesResponse](#ibc.applications.transfer.v1.QueryDenomTracesResponse)
+    - [QueryParamsRequest](#ibc.applications.transfer.v1.QueryParamsRequest)
+    - [QueryParamsResponse](#ibc.applications.transfer.v1.QueryParamsResponse)
   
-    - [Query](#ibc.apps.transfer.v1.Query)
+    - [Query](#ibc.applications.transfer.v1.Query)
   
 - [ibc/core/client/v1/client.proto](#ibc/core/client/v1/client.proto)
     - [ClientConsensusStates](#ibc.core.client.v1.ClientConsensusStates)
@@ -31,11 +31,11 @@
     - [Params](#ibc.core.client.v1.Params)
     - [UpgradeProposal](#ibc.core.client.v1.UpgradeProposal)
   
-- [ibc/apps/transfer/v1/tx.proto](#ibc/apps/transfer/v1/tx.proto)
-    - [MsgTransfer](#ibc.apps.transfer.v1.MsgTransfer)
-    - [MsgTransferResponse](#ibc.apps.transfer.v1.MsgTransferResponse)
+- [ibc/applications/transfer/v1/tx.proto](#ibc/applications/transfer/v1/tx.proto)
+    - [MsgTransfer](#ibc.applications.transfer.v1.MsgTransfer)
+    - [MsgTransferResponse](#ibc.applications.transfer.v1.MsgTransferResponse)
   
-    - [Msg](#ibc.apps.transfer.v1.Msg)
+    - [Msg](#ibc.applications.transfer.v1.Msg)
   
 - [ibc/core/channel/v1/channel.proto](#ibc/core/channel/v1/channel.proto)
     - [Acknowledgement](#ibc.core.channel.v1.Acknowledgement)
@@ -225,14 +225,14 @@
 
 
 
-<a name="ibc/apps/transfer/v1/transfer.proto"></a>
+<a name="ibc/applications/transfer/v1/transfer.proto"></a>
 <p align="right"><a href="#top">Top</a></p>
 
-## ibc/apps/transfer/v1/transfer.proto
+## ibc/applications/transfer/v1/transfer.proto
 
 
 
-<a name="ibc.apps.transfer.v1.DenomTrace"></a>
+<a name="ibc.applications.transfer.v1.DenomTrace"></a>
 
 ### DenomTrace
 DenomTrace contains the base denomination for ICS20 fungible tokens and the
@@ -249,7 +249,7 @@ source tracing information path.
 
 
 
-<a name="ibc.apps.transfer.v1.FungibleTokenPacketData"></a>
+<a name="ibc.applications.transfer.v1.FungibleTokenPacketData"></a>
 
 ### FungibleTokenPacketData
 FungibleTokenPacketData defines a struct for the packet payload
@@ -269,7 +269,7 @@ https://github.com/cosmos/ics/tree/master/spec/ics-020-fungible-token-transfer#d
 
 
 
-<a name="ibc.apps.transfer.v1.Params"></a>
+<a name="ibc.applications.transfer.v1.Params"></a>
 
 ### Params
 Params defines the set of IBC transfer parameters.
@@ -297,14 +297,14 @@ parameter for the denomination to false.
 
 
 
-<a name="ibc/apps/transfer/v1/genesis.proto"></a>
+<a name="ibc/applications/transfer/v1/genesis.proto"></a>
 <p align="right"><a href="#top">Top</a></p>
 
-## ibc/apps/transfer/v1/genesis.proto
+## ibc/applications/transfer/v1/genesis.proto
 
 
 
-<a name="ibc.apps.transfer.v1.GenesisState"></a>
+<a name="ibc.applications.transfer.v1.GenesisState"></a>
 
 ### GenesisState
 GenesisState defines the ibc-transfer genesis state
@@ -313,8 +313,8 @@ GenesisState defines the ibc-transfer genesis state
 | Field | Type | Label | Description |
 | ----- | ---- | ----- | ----------- |
 | `port_id` | [string](#string) |  |  |
-| `denom_traces` | [DenomTrace](#ibc.apps.transfer.v1.DenomTrace) | repeated |  |
-| `params` | [Params](#ibc.apps.transfer.v1.Params) |  |  |
+| `denom_traces` | [DenomTrace](#ibc.applications.transfer.v1.DenomTrace) | repeated |  |
+| `params` | [Params](#ibc.applications.transfer.v1.Params) |  |  |
 
 
 
@@ -330,14 +330,14 @@ GenesisState defines the ibc-transfer genesis state
 
 
 
-<a name="ibc/apps/transfer/v1/query.proto"></a>
+<a name="ibc/applications/transfer/v1/query.proto"></a>
 <p align="right"><a href="#top">Top</a></p>
 
-## ibc/apps/transfer/v1/query.proto
+## ibc/applications/transfer/v1/query.proto
 
 
 
-<a name="ibc.apps.transfer.v1.QueryDenomTraceRequest"></a>
+<a name="ibc.applications.transfer.v1.QueryDenomTraceRequest"></a>
 
 ### QueryDenomTraceRequest
 QueryDenomTraceRequest is the request type for the Query/DenomTrace RPC
@@ -353,7 +353,7 @@ method
 
 
 
-<a name="ibc.apps.transfer.v1.QueryDenomTraceResponse"></a>
+<a name="ibc.applications.transfer.v1.QueryDenomTraceResponse"></a>
 
 ### QueryDenomTraceResponse
 QueryDenomTraceResponse is the response type for the Query/DenomTrace RPC
@@ -362,14 +362,14 @@ method.
 
 | Field | Type | Label | Description |
 | ----- | ---- | ----- | ----------- |
-| `denom_trace` | [DenomTrace](#ibc.apps.transfer.v1.DenomTrace) |  | denom_trace returns the requested denomination trace information. |
+| `denom_trace` | [DenomTrace](#ibc.applications.transfer.v1.DenomTrace) |  | denom_trace returns the requested denomination trace information. |
 
 
 
 
 
 
-<a name="ibc.apps.transfer.v1.QueryDenomTracesRequest"></a>
+<a name="ibc.applications.transfer.v1.QueryDenomTracesRequest"></a>
 
 ### QueryDenomTracesRequest
 QueryConnectionsRequest is the request type for the Query/DenomTraces RPC
@@ -385,7 +385,7 @@ method
 
 
 
-<a name="ibc.apps.transfer.v1.QueryDenomTracesResponse"></a>
+<a name="ibc.applications.transfer.v1.QueryDenomTracesResponse"></a>
 
 ### QueryDenomTracesResponse
 QueryConnectionsResponse is the response type for the Query/DenomTraces RPC
@@ -394,7 +394,7 @@ method.
 
 | Field | Type | Label | Description |
 | ----- | ---- | ----- | ----------- |
-| `denom_traces` | [DenomTrace](#ibc.apps.transfer.v1.DenomTrace) | repeated | denom_traces returns all denominations trace information. |
+| `denom_traces` | [DenomTrace](#ibc.applications.transfer.v1.DenomTrace) | repeated | denom_traces returns all denominations trace information. |
 | `pagination` | [cosmos.base.query.v1beta1.PageResponse](#cosmos.base.query.v1beta1.PageResponse) |  | pagination defines the pagination in the response. |
 
 
@@ -402,7 +402,7 @@ method.
 
 
 
-<a name="ibc.apps.transfer.v1.QueryParamsRequest"></a>
+<a name="ibc.applications.transfer.v1.QueryParamsRequest"></a>
 
 ### QueryParamsRequest
 QueryParamsRequest is the request type for the Query/Params RPC method.
@@ -412,7 +412,7 @@ QueryParamsRequest is the request type for the Query/Params RPC method.
 
 
 
-<a name="ibc.apps.transfer.v1.QueryParamsResponse"></a>
+<a name="ibc.applications.transfer.v1.QueryParamsResponse"></a>
 
 ### QueryParamsResponse
 QueryParamsResponse is the response type for the Query/Params RPC method.
@@ -420,7 +420,7 @@ QueryParamsResponse is the response type for the Query/Params RPC method.
 
 | Field | Type | Label | Description |
 | ----- | ---- | ----- | ----------- |
-| `params` | [Params](#ibc.apps.transfer.v1.Params) |  | params defines the parameters of the module. |
+| `params` | [Params](#ibc.applications.transfer.v1.Params) |  | params defines the parameters of the module. |
 
 
 
@@ -433,16 +433,16 @@ QueryParamsResponse is the response type for the Query/Params RPC method.
  <!-- end HasExtensions -->
 
 
-<a name="ibc.apps.transfer.v1.Query"></a>
+<a name="ibc.applications.transfer.v1.Query"></a>
 
 ### Query
 Query provides defines the gRPC querier service.
 
 | Method Name | Request Type | Response Type | Description | HTTP Verb | Endpoint |
 | ----------- | ------------ | ------------- | ------------| ------- | -------- |
-| `DenomTrace` | [QueryDenomTraceRequest](#ibc.apps.transfer.v1.QueryDenomTraceRequest) | [QueryDenomTraceResponse](#ibc.apps.transfer.v1.QueryDenomTraceResponse) | DenomTrace queries a denomination trace information. | GET|/ibc/apps/transfer/v1/denom_traces/{hash}|
-| `DenomTraces` | [QueryDenomTracesRequest](#ibc.apps.transfer.v1.QueryDenomTracesRequest) | [QueryDenomTracesResponse](#ibc.apps.transfer.v1.QueryDenomTracesResponse) | DenomTraces queries all denomination traces. | GET|/ibc/apps/transfer/v1/denom_traces|
-| `Params` | [QueryParamsRequest](#ibc.apps.transfer.v1.QueryParamsRequest) | [QueryParamsResponse](#ibc.apps.transfer.v1.QueryParamsResponse) | Params queries all parameters of the ibc-transfer module. | GET|/ibc/apps/transfer/v1/params|
+| `DenomTrace` | [QueryDenomTraceRequest](#ibc.applications.transfer.v1.QueryDenomTraceRequest) | [QueryDenomTraceResponse](#ibc.applications.transfer.v1.QueryDenomTraceResponse) | DenomTrace queries a denomination trace information. | GET|/ibc/apps/transfer/v1/denom_traces/{hash}|
+| `DenomTraces` | [QueryDenomTracesRequest](#ibc.applications.transfer.v1.QueryDenomTracesRequest) | [QueryDenomTracesResponse](#ibc.applications.transfer.v1.QueryDenomTracesResponse) | DenomTraces queries all denomination traces. | GET|/ibc/apps/transfer/v1/denom_traces|
+| `Params` | [QueryParamsRequest](#ibc.applications.transfer.v1.QueryParamsRequest) | [QueryParamsResponse](#ibc.applications.transfer.v1.QueryParamsResponse) | Params queries all parameters of the ibc-transfer module. | GET|/ibc/apps/transfer/v1/params|
 
  <!-- end services -->
 
@@ -598,14 +598,14 @@ upgrade.
 
 
 
-<a name="ibc/apps/transfer/v1/tx.proto"></a>
+<a name="ibc/applications/transfer/v1/tx.proto"></a>
 <p align="right"><a href="#top">Top</a></p>
 
-## ibc/apps/transfer/v1/tx.proto
+## ibc/applications/transfer/v1/tx.proto
 
 
 
-<a name="ibc.apps.transfer.v1.MsgTransfer"></a>
+<a name="ibc.applications.transfer.v1.MsgTransfer"></a>
 
 ### MsgTransfer
 MsgTransfer defines a msg to transfer fungible tokens (i.e Coins) between
@@ -628,7 +628,7 @@ https://github.com/cosmos/ics/tree/master/spec/ics-020-fungible-token-transfer#d
 
 
 
-<a name="ibc.apps.transfer.v1.MsgTransferResponse"></a>
+<a name="ibc.applications.transfer.v1.MsgTransferResponse"></a>
 
 ### MsgTransferResponse
 MsgTransferResponse defines the Msg/Transfer response type.
@@ -644,14 +644,14 @@ MsgTransferResponse defines the Msg/Transfer response type.
  <!-- end HasExtensions -->
 
 
-<a name="ibc.apps.transfer.v1.Msg"></a>
+<a name="ibc.applications.transfer.v1.Msg"></a>
 
 ### Msg
 Msg defines the ibc/transfer Msg service.
 
 | Method Name | Request Type | Response Type | Description | HTTP Verb | Endpoint |
 | ----------- | ------------ | ------------- | ------------| ------- | -------- |
-| `Transfer` | [MsgTransfer](#ibc.apps.transfer.v1.MsgTransfer) | [MsgTransferResponse](#ibc.apps.transfer.v1.MsgTransferResponse) | Transfer defines a rpc handler method for MsgTransfer. | |
+| `Transfer` | [MsgTransfer](#ibc.applications.transfer.v1.MsgTransfer) | [MsgTransferResponse](#ibc.applications.transfer.v1.MsgTransferResponse) | Transfer defines a rpc handler method for MsgTransfer. | |
 
  <!-- end services -->
 

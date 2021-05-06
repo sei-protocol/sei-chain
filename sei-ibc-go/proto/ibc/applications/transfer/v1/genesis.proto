@@ -1,10 +1,10 @@
 syntax = "proto3";
 
-package ibc.apps.transfer.v1;
+package ibc.applications.transfer.v1;
 
 option go_package = "github.com/cosmos/ibc-go/modules/apps/transfer/types";
 
-import "ibc/apps/transfer/v1/transfer.proto";
+import "ibc/applications/transfer/v1/transfer.proto";
 import "gogoproto/gogo.proto";
 
 // GenesisState defines the ibc-transfer genesis state
