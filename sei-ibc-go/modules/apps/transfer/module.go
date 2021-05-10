@@ -109,7 +109,7 @@ func (AppModule) RegisterInvariants(ir sdk.InvariantRegistry) {
 
 // Route implements the AppModule interface
 func (am AppModule) Route() sdk.Route {
-	return sdk.NewRoute(types.RouterKey, NewHandler(am.keeper))
+	return sdk.Route{}
 }
 
 // QuerierRoute implements the AppModule interface

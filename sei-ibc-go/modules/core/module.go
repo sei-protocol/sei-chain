@@ -117,7 +117,7 @@ func (am AppModule) RegisterInvariants(ir sdk.InvariantRegistry) {
 
 // Route returns the message routing key for the ibc module.
 func (am AppModule) Route() sdk.Route {
-	return sdk.NewRoute(host.RouterKey, NewHandler(*am.keeper))
+	return sdk.Route{}
 }
 
 // QuerierRoute returns the ibc module's querier route name.
