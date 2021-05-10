@@ -43,8 +43,8 @@ func (suite *TendermintTestSuite) TestHeaderValidateBasic() {
 			header = suite.chainA.LastHeader
 			header.SignedHeader.Commit = nil
 		}, false},
-		{"trusted height is greater than header height", func() {
-			header.TrustedHeight = header.GetHeight().(clienttypes.Height).Increment().(clienttypes.Height)
+		{"trusted height is equal to header height", func() {
+			header.TrustedHeight = header.GetHeight().(clienttypes.Height)
 		}, false},
 		{"validator set nil", func() {
 			header.ValidatorSet = nil

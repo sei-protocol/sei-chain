@@ -1,6 +1,7 @@
 package types
 
 import (
+	"bytes"
 	"encoding/binary"
 	"strings"
 
@@ -170,6 +171,8 @@ func GetHeightFromIterationKey(iterKey []byte) exported.Height {
 	return clienttypes.NewHeight(revision, height)
 }
 
+// IterateConsensusStateAscending iterates through the consensus states in ascending order. It calls the provided
+// callback on each height, until stop=true is returned.
 func IterateConsensusStateAscending(clientStore sdk.KVStore, cb func(height exported.Height) (stop bool)) error {
 	iterator := sdk.KVStorePrefixIterator(clientStore, []byte(KeyIterateConsensusStatePrefix))
 	defer iterator.Close()
@@ -186,15 +189,23 @@ func IterateConsensusStateAscending(clientStore sdk.KVStore, cb func(height expo
 
 // GetNextConsensusState returns the lowest consensus state that is larger than the given height.
 // The Iterator returns a storetypes.Iterator which iterates from start (inclusive) to end (exclusive).
-// Thus, to get the next consensus state, we must first call iterator.Next() and then get the value.
+// If the starting height exists in store, we need to call iterator.Next() to get the next consenus state.
+// Otherwise, the iterator is already at the next consensus state so we can call iterator.Value() immediately.
 func GetNextConsensusState(clientStore sdk.KVStore, cdc codec.BinaryCodec, height exported.Height) (*ConsensusState, bool) {
 	iterateStore := prefix.NewStore(clientStore, []byte(KeyIterateConsensusStatePrefix))
 	iterator := iterateStore.Iterator(bigEndianHeightBytes(height), nil)
 	defer iterator.Close()
-	// ignore the consensus state at current height and get next height
-	iterator.Next()
 	if !iterator.Valid() {
 		return nil, false
+	}
+
+	// if iterator is at current height, ignore the consensus state at current height and get next height
+	// if iterator value is not at current height, it is already at next height.
+	if bytes.Equal(iterator.Value(), host.ConsensusStateKey(height)) {
+		iterator.Next()
+		if !iterator.Valid() {
+			return nil, false
+		}
 	}
 
 	csKey := iterator.Value()

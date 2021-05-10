@@ -1,7 +1,6 @@
 package types
 
 import (
-	"bytes"
 	"time"
 
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
@@ -14,6 +13,9 @@ import (
 )
 
 var _ exported.Misbehaviour = &Misbehaviour{}
+
+// Use the same FrozenHeight for all misbehaviour
+var FrozenHeight = clienttypes.NewHeight(0, 1)
 
 // NewMisbehaviour creates a new Misbehaviour instance.
 func NewMisbehaviour(clientID string, header1, header2 *Header) *Misbehaviour {
@@ -35,8 +37,6 @@ func (misbehaviour Misbehaviour) GetClientID() string {
 }
 
 // GetHeight returns the height at which misbehaviour occurred
-//
-// NOTE: assumes that misbehaviour headers have the same height
 func (misbehaviour Misbehaviour) GetHeight() exported.Height {
 	return misbehaviour.Header1.GetHeight()
 }
@@ -93,9 +93,9 @@ func (misbehaviour Misbehaviour) ValidateBasic() error {
 			sdkerrors.Wrap(err, "header 2 failed validation").Error(),
 		)
 	}
-	// Ensure that Heights are the same
-	if misbehaviour.Header1.GetHeight() != misbehaviour.Header2.GetHeight() {
-		return sdkerrors.Wrapf(clienttypes.ErrInvalidMisbehaviour, "headers in misbehaviour are on different heights (%d ≠ %d)", misbehaviour.Header1.GetHeight(), misbehaviour.Header2.GetHeight())
+	// Ensure that Height1 is greater than or equal to Height2
+	if misbehaviour.Header1.GetHeight().LT(misbehaviour.Header2.GetHeight()) {
+		return sdkerrors.Wrapf(clienttypes.ErrInvalidMisbehaviour, "Header1 height is less than Header2 height (%s < %s)", misbehaviour.Header1.GetHeight(), misbehaviour.Header2.GetHeight())
 	}
 
 	blockID1, err := tmtypes.BlockIDFromProto(&misbehaviour.Header1.SignedHeader.Commit.BlockID)
@@ -107,10 +107,6 @@ func (misbehaviour Misbehaviour) ValidateBasic() error {
 		return sdkerrors.Wrap(err, "invalid block ID from header 2 in misbehaviour")
 	}
 
-	// Ensure that Commit Hashes are different
-	if bytes.Equal(blockID1.Hash, blockID2.Hash) {
-		return sdkerrors.Wrap(clienttypes.ErrInvalidMisbehaviour, "headers block hashes are equal")
-	}
 	if err := validCommit(misbehaviour.Header1.Header.ChainID, *blockID1,
 		misbehaviour.Header1.Commit, misbehaviour.Header1.ValidatorSet); err != nil {
 		return err

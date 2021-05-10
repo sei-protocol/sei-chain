@@ -10,12 +10,12 @@ import (
 	tmtypes "github.com/tendermint/tendermint/types"
 
 	"github.com/cosmos/cosmos-sdk/codec"
-	"github.com/cosmos/ibc-go/testing/simapp"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	clienttypes "github.com/cosmos/ibc-go/modules/core/02-client/types"
 	ibctmtypes "github.com/cosmos/ibc-go/modules/light-clients/07-tendermint/types"
 	ibctesting "github.com/cosmos/ibc-go/testing"
 	ibctestingmock "github.com/cosmos/ibc-go/testing/mock"
+	"github.com/cosmos/ibc-go/testing/simapp"
 )
 
 const (
@@ -88,6 +88,19 @@ func (suite *TendermintTestSuite) SetupTest() {
 	suite.valsHash = suite.valSet.Hash()
 	suite.header = suite.chainA.CreateTMClientHeader(chainID, int64(height.RevisionHeight), heightMinus1, suite.now, suite.valSet, suite.valSet, []tmtypes.PrivValidator{suite.privVal})
 	suite.ctx = app.BaseApp.NewContext(checkTx, tmproto.Header{Height: 1, Time: suite.now})
+}
+
+func getSuiteSigners(suite *TendermintTestSuite) []tmtypes.PrivValidator {
+	return []tmtypes.PrivValidator{suite.privVal}
+}
+
+func getBothSigners(suite *TendermintTestSuite, altVal *tmtypes.Validator, altPrivVal tmtypes.PrivValidator) (*tmtypes.ValidatorSet, []tmtypes.PrivValidator) {
+	// Create bothValSet with both suite validator and altVal. Would be valid update
+	bothValSet := tmtypes.NewValidatorSet(append(suite.valSet.Validators, altVal))
+	// Create signer array and ensure it is in same order as bothValSet
+	_, suiteVal := suite.valSet.GetByIndex(0)
+	bothSigners := ibctesting.CreateSortedSignerArray(altPrivVal, suite.privVal, altVal, suiteVal)
+	return bothValSet, bothSigners
 }
 
 func TestTendermintTestSuite(t *testing.T) {
