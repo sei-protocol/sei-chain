@@ -256,8 +256,11 @@ func (suite *SoloMachineTestSuite) TestVerifyClientState() {
 					expSeq = tc.clientState.Sequence + 1
 				}
 
+				// NOTE: to replicate the ordering of connection handshake, we must decrement proof height by 1
+				height := clienttypes.NewHeight(solomachine.GetHeight().GetRevisionNumber(), solomachine.GetHeight().GetRevisionHeight()-1)
+
 				err := tc.clientState.VerifyClientState(
-					suite.store, suite.chainA.Codec, solomachine.GetHeight(), tc.prefix, counterpartyClientIdentifier, tc.proof, clientState,
+					suite.store, suite.chainA.Codec, height, tc.prefix, counterpartyClientIdentifier, tc.proof, clientState,
 				)
 
 				if tc.expPass {
@@ -386,8 +389,11 @@ func (suite *SoloMachineTestSuite) TestVerifyClientConsensusState() {
 					expSeq = tc.clientState.Sequence + 1
 				}
 
+				// NOTE: to replicate the ordering of connection handshake, we must decrement proof height by 1
+				height := clienttypes.NewHeight(solomachine.GetHeight().GetRevisionNumber(), solomachine.GetHeight().GetRevisionHeight()-2)
+
 				err := tc.clientState.VerifyClientConsensusState(
-					suite.store, suite.chainA.Codec, solomachine.GetHeight(), counterpartyClientIdentifier, consensusHeight, tc.prefix, tc.proof, consensusState,
+					suite.store, suite.chainA.Codec, height, counterpartyClientIdentifier, consensusHeight, tc.prefix, tc.proof, consensusState,
 				)
 
 				if tc.expPass {
