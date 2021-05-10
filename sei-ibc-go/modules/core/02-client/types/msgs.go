@@ -51,16 +51,6 @@ func NewMsgCreateClient(
 	}, nil
 }
 
-// Route implements sdk.Msg
-func (msg MsgCreateClient) Route() string {
-	return host.RouterKey
-}
-
-// Type implements sdk.Msg
-func (msg MsgCreateClient) Type() string {
-	return TypeMsgCreateClient
-}
-
 // ValidateBasic implements sdk.Msg
 func (msg MsgCreateClient) ValidateBasic() error {
 	_, err := sdk.AccAddressFromBech32(msg.Signer)
@@ -88,12 +78,6 @@ func (msg MsgCreateClient) ValidateBasic() error {
 		return sdkerrors.Wrap(err, "client type does not meet naming constraints")
 	}
 	return consensusState.ValidateBasic()
-}
-
-// GetSignBytes implements sdk.Msg. The function will panic since it is used
-// for amino transaction verification which IBC does not support.
-func (msg MsgCreateClient) GetSignBytes() []byte {
-	panic("IBC messages do not support amino")
 }
 
 // GetSigners implements sdk.Msg
@@ -132,16 +116,6 @@ func NewMsgUpdateClient(id string, header exported.Header, signer string) (*MsgU
 	}, nil
 }
 
-// Route implements sdk.Msg
-func (msg MsgUpdateClient) Route() string {
-	return host.RouterKey
-}
-
-// Type implements sdk.Msg
-func (msg MsgUpdateClient) Type() string {
-	return TypeMsgUpdateClient
-}
-
 // ValidateBasic implements sdk.Msg
 func (msg MsgUpdateClient) ValidateBasic() error {
 	_, err := sdk.AccAddressFromBech32(msg.Signer)
@@ -159,12 +133,6 @@ func (msg MsgUpdateClient) ValidateBasic() error {
 		return sdkerrors.Wrap(ErrInvalidClient, "localhost client is only updated on ABCI BeginBlock")
 	}
 	return host.ClientIdentifierValidator(msg.ClientId)
-}
-
-// GetSignBytes implements sdk.Msg. The function will panic since it is used
-// for amino transaction verification which IBC does not support.
-func (msg MsgUpdateClient) GetSignBytes() []byte {
-	panic("IBC messages do not support amino")
 }
 
 // GetSigners implements sdk.Msg
@@ -205,16 +173,6 @@ func NewMsgUpgradeClient(clientID string, clientState exported.ClientState, cons
 	}, nil
 }
 
-// Route implements sdk.Msg
-func (msg MsgUpgradeClient) Route() string {
-	return host.RouterKey
-}
-
-// Type implements sdk.Msg
-func (msg MsgUpgradeClient) Type() string {
-	return TypeMsgUpgradeClient
-}
-
 // ValidateBasic implements sdk.Msg
 func (msg MsgUpgradeClient) ValidateBasic() error {
 	// will not validate client state as committed client may not form a valid client state.
@@ -245,12 +203,6 @@ func (msg MsgUpgradeClient) ValidateBasic() error {
 		return sdkerrors.Wrapf(sdkerrors.ErrInvalidAddress, "string could not be parsed as address: %v", err)
 	}
 	return host.ClientIdentifierValidator(msg.ClientId)
-}
-
-// GetSignBytes implements sdk.Msg. The function will panic since it is used
-// for amino transaction verification which IBC does not support.
-func (msg MsgUpgradeClient) GetSignBytes() []byte {
-	panic("IBC messages do not support amino")
 }
 
 // GetSigners implements sdk.Msg
@@ -289,14 +241,6 @@ func NewMsgSubmitMisbehaviour(clientID string, misbehaviour exported.Misbehaviou
 	}, nil
 }
 
-// Route returns the MsgSubmitClientMisbehaviour's route.
-func (msg MsgSubmitMisbehaviour) Route() string { return host.RouterKey }
-
-// Type returns the MsgSubmitMisbehaviour's type.
-func (msg MsgSubmitMisbehaviour) Type() string {
-	return TypeMsgSubmitMisbehaviour
-}
-
 // ValidateBasic performs basic (non-state-dependant) validation on a MsgSubmitMisbehaviour.
 func (msg MsgSubmitMisbehaviour) ValidateBasic() error {
 	_, err := sdk.AccAddressFromBech32(msg.Signer)
@@ -319,12 +263,6 @@ func (msg MsgSubmitMisbehaviour) ValidateBasic() error {
 	}
 
 	return host.ClientIdentifierValidator(msg.ClientId)
-}
-
-// GetSignBytes implements sdk.Msg. The function will panic since it is used
-// for amino transaction verification which IBC does not support.
-func (msg MsgSubmitMisbehaviour) GetSignBytes() []byte {
-	panic("IBC messages do not support amino")
 }
 
 // GetSigners returns the single expected signer for a MsgSubmitMisbehaviour.

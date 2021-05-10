@@ -16,10 +16,10 @@ const (
 
 // IBC connection events vars
 var (
-	EventTypeConnectionOpenInit    = MsgConnectionOpenInit{}.Type()
-	EventTypeConnectionOpenTry     = MsgConnectionOpenTry{}.Type()
-	EventTypeConnectionOpenAck     = MsgConnectionOpenAck{}.Type()
-	EventTypeConnectionOpenConfirm = MsgConnectionOpenConfirm{}.Type()
+	EventTypeConnectionOpenInit    = "connection_open_init"
+	EventTypeConnectionOpenTry     = "connection_open_try"
+	EventTypeConnectionOpenAck     = "connection_open_ack"
+	EventTypeConnectionOpenConfirm = "connection_open_confirm"
 
 	AttributeValueCategory = fmt.Sprintf("%s_%s", host.ModuleName, SubModuleName)
 )

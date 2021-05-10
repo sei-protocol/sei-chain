@@ -462,7 +462,7 @@ func (k Keeper) RecvPacket(goCtx context.Context, msg *channeltypes.MsgRecvPacke
 
 	defer func() {
 		telemetry.IncrCounterWithLabels(
-			[]string{"tx", "msg", "ibc", msg.Type()},
+			[]string{"tx", "msg", "ibc", channeltypes.EventTypeRecvPacket},
 			1,
 			[]metrics.Label{
 				telemetry.NewLabel("source-port", msg.Packet.SourcePort),
@@ -604,7 +604,7 @@ func (k Keeper) Acknowledgement(goCtx context.Context, msg *channeltypes.MsgAckn
 
 	defer func() {
 		telemetry.IncrCounterWithLabels(
-			[]string{"tx", "msg", "ibc", msg.Type()},
+			[]string{"tx", "msg", "ibc", channeltypes.EventTypeAcknowledgePacket},
 			1,
 			[]metrics.Label{
 				telemetry.NewLabel("source-port", msg.Packet.SourcePort),
