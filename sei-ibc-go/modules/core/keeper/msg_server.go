@@ -123,7 +123,6 @@ func (k Keeper) SubmitMisbehaviour(goCtx context.Context, msg *clienttypes.MsgSu
 			clienttypes.EventTypeSubmitMisbehaviour,
 			sdk.NewAttribute(clienttypes.AttributeKeyClientID, msg.ClientId),
 			sdk.NewAttribute(clienttypes.AttributeKeyClientType, misbehaviour.ClientType()),
-			sdk.NewAttribute(clienttypes.AttributeKeyConsensusHeight, misbehaviour.GetHeight().String()),
 		),
 	)
 

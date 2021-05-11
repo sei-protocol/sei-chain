@@ -201,9 +201,6 @@ type Misbehaviour interface {
 	ClientType() string
 	GetClientID() string
 	ValidateBasic() error
-
-	// Height at which the infraction occurred
-	GetHeight() Height
 }
 
 // Header is the consensus state update information

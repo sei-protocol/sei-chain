@@ -108,6 +108,8 @@ The `OnRecvPacket` callback has been modified to only return the acknowledgement
 
 The `packet_data` attribute has been deprecated in favor of `packet_data_hex`, in order to provide standardized encoding/decoding of packet data in events. While the `packet_data` event still exists, all relayers and IBC Event consumers are strongly encouraged to switch over to using `packet_data_hex` as soon as possible.
 
+The `consensus_height` attribute has been removed in the Misbehaviour event emitted. IBC clients no longer have a frozen height and misbehaviour does not necessarily have an associated height.
+
 ## Relevant SDK changes
 
 * (codec) [\#9226](https://github.com/cosmos/cosmos-sdk/pull/9226) Rename codec interfaces and methods, to follow a general Go interfaces:

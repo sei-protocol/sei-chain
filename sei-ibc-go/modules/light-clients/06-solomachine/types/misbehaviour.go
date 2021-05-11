@@ -26,13 +26,6 @@ func (misbehaviour Misbehaviour) Type() string {
 	return exported.TypeClientMisbehaviour
 }
 
-// GetHeight returns the sequence at which misbehaviour occurred.
-// Return exported.Height to satisfy interface
-// Revision number is always 0 for a solo-machine
-func (misbehaviour Misbehaviour) GetHeight() exported.Height {
-	return clienttypes.NewHeight(0, misbehaviour.Sequence)
-}
-
 // ValidateBasic implements Evidence interface.
 func (misbehaviour Misbehaviour) ValidateBasic() error {
 	if err := host.ClientIdentifierValidator(misbehaviour.ClientId); err != nil {

@@ -36,11 +36,6 @@ func (misbehaviour Misbehaviour) GetClientID() string {
 	return misbehaviour.ClientId
 }
 
-// GetHeight returns the height at which misbehaviour occurred
-func (misbehaviour Misbehaviour) GetHeight() exported.Height {
-	return misbehaviour.Header1.GetHeight()
-}
-
 // GetTime returns the timestamp at which misbehaviour occurred. It uses the
 // maximum value from both headers to prevent producing an invalid header outside
 // of the misbehaviour age range.

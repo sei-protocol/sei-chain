@@ -122,7 +122,7 @@ func (k Keeper) UpdateClient(ctx sdk.Context, clientID string, header exported.H
 		// set eventType to SubmitMisbehaviour
 		eventType = types.EventTypeSubmitMisbehaviour
 
-		k.Logger(ctx).Info("client frozen due to misbehaviour", "client-id", clientID, "height", header.GetHeight().String())
+		k.Logger(ctx).Info("client frozen due to misbehaviour", "client-id", clientID)
 
 		defer func() {
 			telemetry.IncrCounterWithLabels(
@@ -224,7 +224,7 @@ func (k Keeper) CheckMisbehaviourAndUpdateState(ctx sdk.Context, misbehaviour ex
 	}
 
 	k.SetClientState(ctx, misbehaviour.GetClientID(), clientState)
-	k.Logger(ctx).Info("client frozen due to misbehaviour", "client-id", misbehaviour.GetClientID(), "height", misbehaviour.GetHeight().String())
+	k.Logger(ctx).Info("client frozen due to misbehaviour", "client-id", misbehaviour.GetClientID())
 
 	defer func() {
 		telemetry.IncrCounterWithLabels(
