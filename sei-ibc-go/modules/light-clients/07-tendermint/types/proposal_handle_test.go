@@ -319,7 +319,7 @@ func (suite *TendermintTestSuite) TestCheckSubstituteAndUpdateState() {
 
 			if tc.expPass {
 				suite.Require().NoError(err)
-				suite.Require().Equal(clienttypes.ZeroHeight(), updatedClient.GetFrozenHeight())
+				suite.Require().Equal(clienttypes.ZeroHeight(), updatedClient.(*types.ClientState).FrozenHeight)
 			} else {
 				suite.Require().Error(err)
 				suite.Require().Nil(updatedClient)

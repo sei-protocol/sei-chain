@@ -57,13 +57,6 @@ func (cs ClientState) IsFrozen() bool {
 	return cs.FrozenSequence != 0
 }
 
-// GetFrozenHeight returns the frozen sequence of the client.
-// Return exported.Height to satisfy interface
-// Revision number is always 0 for a solo-machine
-func (cs ClientState) GetFrozenHeight() exported.Height {
-	return clienttypes.NewHeight(0, cs.FrozenSequence)
-}
-
 // GetProofSpecs returns nil proof specs since client state verification uses signatures.
 func (cs ClientState) GetProofSpecs() []*ics23.ProofSpec {
 	return nil

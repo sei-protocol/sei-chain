@@ -49,11 +49,6 @@ func (cs ClientState) Status(_ sdk.Context, _ sdk.KVStore, _ codec.BinaryCodec,
 	return exported.Active
 }
 
-// GetFrozenHeight returns an uninitialized IBC Height.
-func (cs ClientState) GetFrozenHeight() exported.Height {
-	return clienttypes.ZeroHeight()
-}
-
 // Validate performs a basic validation of the client state fields.
 func (cs ClientState) Validate() error {
 	if strings.TrimSpace(cs.ChainId) == "" {

@@ -88,12 +88,6 @@ func (cs ClientState) Status(
 	return exported.Active
 }
 
-// GetFrozenHeight returns the height at which client is frozen
-// NOTE: FrozenHeight is zero if client is unfrozen
-func (cs ClientState) GetFrozenHeight() exported.Height {
-	return cs.FrozenHeight
-}
-
 // IsExpired returns whether or not the client has passed the trusting period since the last
 // update (in which case no headers are considered valid).
 func (cs ClientState) IsExpired(latestTimestamp, now time.Time) bool {
