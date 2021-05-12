@@ -58,7 +58,7 @@ func (cs ClientState) CheckSubstituteAndUpdateState(
 	// update to substitute parameters
 	clientState.Sequence = substituteClientState.Sequence
 	clientState.ConsensusState = substituteClientState.ConsensusState
-	clientState.FrozenSequence = 0
+	clientState.IsFrozen = false
 
 	return clientState, nil
 }

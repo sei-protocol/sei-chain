@@ -32,7 +32,7 @@ func (suite *SoloMachineTestSuite) TestStatus() {
 	suite.Require().Equal(exported.Active, status)
 
 	// freeze solo machine
-	clientState.FrozenSequence = 1
+	clientState.IsFrozen = true
 	status = clientState.Status(suite.chainA.GetContext(), nil, nil)
 	suite.Require().Equal(exported.Frozen, status)
 }
@@ -189,18 +189,6 @@ func (suite *SoloMachineTestSuite) TestVerifyClientState() {
 				false,
 			},
 			{
-				"client is frozen",
-				&types.ClientState{
-					Sequence:                 1,
-					FrozenSequence:           1,
-					ConsensusState:           solomachine.ConsensusState(),
-					AllowUpdateAfterProposal: false,
-				},
-				prefix,
-				proof,
-				false,
-			},
-			{
 				"consensus state in client state is nil",
 				types.NewClientState(1, nil, false),
 				prefix,
@@ -322,18 +310,6 @@ func (suite *SoloMachineTestSuite) TestVerifyClientConsensusState() {
 				false,
 			},
 			{
-				"client is frozen",
-				&types.ClientState{
-					Sequence:                 1,
-					FrozenSequence:           1,
-					ConsensusState:           solomachine.ConsensusState(),
-					AllowUpdateAfterProposal: false,
-				},
-				prefix,
-				proof,
-				false,
-			},
-			{
 				"consensus state in client state is nil",
 				types.NewClientState(1, nil, false),
 				prefix,
@@ -451,18 +427,6 @@ func (suite *SoloMachineTestSuite) TestVerifyConnectionState() {
 				false,
 			},
 			{
-				"client is frozen",
-				&types.ClientState{
-					Sequence:                 1,
-					FrozenSequence:           1,
-					ConsensusState:           solomachine.ConsensusState(),
-					AllowUpdateAfterProposal: false,
-				},
-				prefix,
-				proof,
-				false,
-			},
-			{
 				"proof is nil",
 				solomachine.ClientState(),
 				prefix,
@@ -537,18 +501,6 @@ func (suite *SoloMachineTestSuite) TestVerifyChannelState() {
 				"ApplyPrefix failed",
 				solomachine.ClientState(),
 				nil,
-				proof,
-				false,
-			},
-			{
-				"client is frozen",
-				&types.ClientState{
-					Sequence:                 1,
-					FrozenSequence:           1,
-					ConsensusState:           solomachine.ConsensusState(),
-					AllowUpdateAfterProposal: false,
-				},
-				prefix,
 				proof,
 				false,
 			},
@@ -630,18 +582,6 @@ func (suite *SoloMachineTestSuite) TestVerifyPacketCommitment() {
 				false,
 			},
 			{
-				"client is frozen",
-				&types.ClientState{
-					Sequence:                 1,
-					FrozenSequence:           1,
-					ConsensusState:           solomachine.ConsensusState(),
-					AllowUpdateAfterProposal: false,
-				},
-				prefix,
-				proof,
-				false,
-			},
-			{
 				"proof is nil",
 				solomachine.ClientState(),
 				prefix,
@@ -713,18 +653,6 @@ func (suite *SoloMachineTestSuite) TestVerifyPacketAcknowledgement() {
 				"ApplyPrefix failed",
 				solomachine.ClientState(),
 				commitmenttypes.NewMerklePrefix([]byte{}),
-				proof,
-				false,
-			},
-			{
-				"client is frozen",
-				&types.ClientState{
-					Sequence:                 1,
-					FrozenSequence:           1,
-					ConsensusState:           solomachine.ConsensusState(),
-					AllowUpdateAfterProposal: false,
-				},
-				prefix,
 				proof,
 				false,
 			},
@@ -804,18 +732,6 @@ func (suite *SoloMachineTestSuite) TestVerifyPacketReceiptAbsence() {
 				false,
 			},
 			{
-				"client is frozen",
-				&types.ClientState{
-					Sequence:                 1,
-					FrozenSequence:           1,
-					ConsensusState:           solomachine.ConsensusState(),
-					AllowUpdateAfterProposal: false,
-				},
-				prefix,
-				proof,
-				false,
-			},
-			{
 				"proof is nil",
 				solomachine.ClientState(),
 				prefix,
@@ -887,18 +803,6 @@ func (suite *SoloMachineTestSuite) TestVerifyNextSeqRecv() {
 				"ApplyPrefix failed",
 				solomachine.ClientState(),
 				commitmenttypes.NewMerklePrefix([]byte{}),
-				proof,
-				false,
-			},
-			{
-				"client is frozen",
-				&types.ClientState{
-					Sequence:                 1,
-					FrozenSequence:           1,
-					ConsensusState:           solomachine.ConsensusState(),
-					AllowUpdateAfterProposal: false,
-				},
-				prefix,
 				proof,
 				false,
 			},

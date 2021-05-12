@@ -167,7 +167,7 @@ func (suite *SoloMachineTestSuite) TestCheckHeaderAndUpdateState() {
 				if tc.expPass {
 					suite.Require().NoError(err)
 					suite.Require().Equal(header.(*types.Header).NewPublicKey, clientState.(*types.ClientState).ConsensusState.PublicKey)
-					suite.Require().Equal(uint64(0), clientState.(*types.ClientState).FrozenSequence)
+					suite.Require().Equal(false, clientState.(*types.ClientState).IsFrozen)
 					suite.Require().Equal(header.(*types.Header).Sequence+1, clientState.(*types.ClientState).Sequence)
 					suite.Require().Equal(consensusState, clientState.(*types.ClientState).ConsensusState)
 				} else {

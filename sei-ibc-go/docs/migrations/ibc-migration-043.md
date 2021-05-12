@@ -94,7 +94,9 @@ REST routes are not supported for these proposals.
 
 ## Proto file changes
 
-The gRPC querier service endpoints have changed slightly. The previous files used `v1beta1`, this has been updated to `v1`.
+The gRPC querier service endpoints have changed slightly. The previous files used `v1beta1` gRPC route, this has been updated to `v1`.
+
+The solo machine has replaced the FrozenSequence uint64 field with a IsFrozen boolean field. The package has been bumped from `v1` to `v2`
 
 ## IBC callback changes
 

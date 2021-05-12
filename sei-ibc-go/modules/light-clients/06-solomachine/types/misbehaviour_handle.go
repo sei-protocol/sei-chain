@@ -29,10 +29,6 @@ func (cs ClientState) CheckMisbehaviourAndUpdateState(
 		)
 	}
 
-	if cs.IsFrozen() {
-		return nil, sdkerrors.Wrapf(clienttypes.ErrClientFrozen, "client is already frozen")
-	}
-
 	// NOTE: a check that the misbehaviour message data are not equal is done by
 	// misbehaviour.ValidateBasic which is called by the 02-client keeper.
 
@@ -46,7 +42,7 @@ func (cs ClientState) CheckMisbehaviourAndUpdateState(
 		return nil, sdkerrors.Wrap(err, "failed to verify signature two")
 	}
 
-	cs.FrozenSequence = soloMisbehaviour.Sequence
+	cs.IsFrozen = true
 	return &cs, nil
 }
 

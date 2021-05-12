@@ -1,6 +1,6 @@
 syntax = "proto3";
 
-package ibc.lightclients.solomachine.v1;
+package ibc.lightclients.solomachine.v2;
 
 option go_package = "github.com/cosmos/ibc-go/modules/light-clients/06-solomachine/types";
 
@@ -16,7 +16,7 @@ message ClientState {
   // latest sequence of the client state
   uint64 sequence = 1;
   // frozen sequence of the solo machine
-  uint64         frozen_sequence = 2 [(gogoproto.moretags) = "yaml:\"frozen_sequence\""];
+  bool           is_frozen       = 2 [(gogoproto.moretags) = "yaml:\"is_frozen\""];
   ConsensusState consensus_state = 3 [(gogoproto.moretags) = "yaml:\"consensus_state\""];
   // when set to true, will allow governance to update a solo machine client.
   // The client will be unfrozen if it is frozen.

@@ -194,25 +194,25 @@
 - [ibc/lightclients/localhost/v1/localhost.proto](#ibc/lightclients/localhost/v1/localhost.proto)
     - [ClientState](#ibc.lightclients.localhost.v1.ClientState)
   
-- [ibc/lightclients/solomachine/v1/solomachine.proto](#ibc/lightclients/solomachine/v1/solomachine.proto)
-    - [ChannelStateData](#ibc.lightclients.solomachine.v1.ChannelStateData)
-    - [ClientState](#ibc.lightclients.solomachine.v1.ClientState)
-    - [ClientStateData](#ibc.lightclients.solomachine.v1.ClientStateData)
-    - [ConnectionStateData](#ibc.lightclients.solomachine.v1.ConnectionStateData)
-    - [ConsensusState](#ibc.lightclients.solomachine.v1.ConsensusState)
-    - [ConsensusStateData](#ibc.lightclients.solomachine.v1.ConsensusStateData)
-    - [Header](#ibc.lightclients.solomachine.v1.Header)
-    - [HeaderData](#ibc.lightclients.solomachine.v1.HeaderData)
-    - [Misbehaviour](#ibc.lightclients.solomachine.v1.Misbehaviour)
-    - [NextSequenceRecvData](#ibc.lightclients.solomachine.v1.NextSequenceRecvData)
-    - [PacketAcknowledgementData](#ibc.lightclients.solomachine.v1.PacketAcknowledgementData)
-    - [PacketCommitmentData](#ibc.lightclients.solomachine.v1.PacketCommitmentData)
-    - [PacketReceiptAbsenceData](#ibc.lightclients.solomachine.v1.PacketReceiptAbsenceData)
-    - [SignBytes](#ibc.lightclients.solomachine.v1.SignBytes)
-    - [SignatureAndData](#ibc.lightclients.solomachine.v1.SignatureAndData)
-    - [TimestampedSignatureData](#ibc.lightclients.solomachine.v1.TimestampedSignatureData)
+- [ibc/lightclients/solomachine/v2/solomachine.proto](#ibc/lightclients/solomachine/v2/solomachine.proto)
+    - [ChannelStateData](#ibc.lightclients.solomachine.v2.ChannelStateData)
+    - [ClientState](#ibc.lightclients.solomachine.v2.ClientState)
+    - [ClientStateData](#ibc.lightclients.solomachine.v2.ClientStateData)
+    - [ConnectionStateData](#ibc.lightclients.solomachine.v2.ConnectionStateData)
+    - [ConsensusState](#ibc.lightclients.solomachine.v2.ConsensusState)
+    - [ConsensusStateData](#ibc.lightclients.solomachine.v2.ConsensusStateData)
+    - [Header](#ibc.lightclients.solomachine.v2.Header)
+    - [HeaderData](#ibc.lightclients.solomachine.v2.HeaderData)
+    - [Misbehaviour](#ibc.lightclients.solomachine.v2.Misbehaviour)
+    - [NextSequenceRecvData](#ibc.lightclients.solomachine.v2.NextSequenceRecvData)
+    - [PacketAcknowledgementData](#ibc.lightclients.solomachine.v2.PacketAcknowledgementData)
+    - [PacketCommitmentData](#ibc.lightclients.solomachine.v2.PacketCommitmentData)
+    - [PacketReceiptAbsenceData](#ibc.lightclients.solomachine.v2.PacketReceiptAbsenceData)
+    - [SignBytes](#ibc.lightclients.solomachine.v2.SignBytes)
+    - [SignatureAndData](#ibc.lightclients.solomachine.v2.SignatureAndData)
+    - [TimestampedSignatureData](#ibc.lightclients.solomachine.v2.TimestampedSignatureData)
   
-    - [DataType](#ibc.lightclients.solomachine.v1.DataType)
+    - [DataType](#ibc.lightclients.solomachine.v2.DataType)
   
 - [ibc/lightclients/tendermint/v1/tendermint.proto](#ibc/lightclients/tendermint/v1/tendermint.proto)
     - [ClientState](#ibc.lightclients.tendermint.v1.ClientState)
@@ -2905,14 +2905,14 @@ access to keys outside the client prefix.
 
 
 
-<a name="ibc/lightclients/solomachine/v1/solomachine.proto"></a>
+<a name="ibc/lightclients/solomachine/v2/solomachine.proto"></a>
 <p align="right"><a href="#top">Top</a></p>
 
-## ibc/lightclients/solomachine/v1/solomachine.proto
+## ibc/lightclients/solomachine/v2/solomachine.proto
 
 
 
-<a name="ibc.lightclients.solomachine.v1.ChannelStateData"></a>
+<a name="ibc.lightclients.solomachine.v2.ChannelStateData"></a>
 
 ### ChannelStateData
 ChannelStateData returns the SignBytes data for channel state
@@ -2929,7 +2929,7 @@ verification.
 
 
 
-<a name="ibc.lightclients.solomachine.v1.ClientState"></a>
+<a name="ibc.lightclients.solomachine.v2.ClientState"></a>
 
 ### ClientState
 ClientState defines a solo machine client that tracks the current consensus
@@ -2939,8 +2939,8 @@ state and if the client is frozen.
 | Field | Type | Label | Description |
 | ----- | ---- | ----- | ----------- |
 | `sequence` | [uint64](#uint64) |  | latest sequence of the client state |
-| `frozen_sequence` | [uint64](#uint64) |  | frozen sequence of the solo machine |
-| `consensus_state` | [ConsensusState](#ibc.lightclients.solomachine.v1.ConsensusState) |  |  |
+| `is_frozen` | [bool](#bool) |  | frozen sequence of the solo machine |
+| `consensus_state` | [ConsensusState](#ibc.lightclients.solomachine.v2.ConsensusState) |  |  |
 | `allow_update_after_proposal` | [bool](#bool) |  | when set to true, will allow governance to update a solo machine client. The client will be unfrozen if it is frozen. |
 
 
@@ -2948,7 +2948,7 @@ state and if the client is frozen.
 
 
 
-<a name="ibc.lightclients.solomachine.v1.ClientStateData"></a>
+<a name="ibc.lightclients.solomachine.v2.ClientStateData"></a>
 
 ### ClientStateData
 ClientStateData returns the SignBytes data for client state verification.
@@ -2964,7 +2964,7 @@ ClientStateData returns the SignBytes data for client state verification.
 
 
 
-<a name="ibc.lightclients.solomachine.v1.ConnectionStateData"></a>
+<a name="ibc.lightclients.solomachine.v2.ConnectionStateData"></a>
 
 ### ConnectionStateData
 ConnectionStateData returns the SignBytes data for connection state
@@ -2981,7 +2981,7 @@ verification.
 
 
 
-<a name="ibc.lightclients.solomachine.v1.ConsensusState"></a>
+<a name="ibc.lightclients.solomachine.v2.ConsensusState"></a>
 
 ### ConsensusState
 ConsensusState defines a solo machine consensus state. The sequence of a
@@ -3000,7 +3000,7 @@ consensus state.
 
 
 
-<a name="ibc.lightclients.solomachine.v1.ConsensusStateData"></a>
+<a name="ibc.lightclients.solomachine.v2.ConsensusStateData"></a>
 
 ### ConsensusStateData
 ConsensusStateData returns the SignBytes data for consensus state
@@ -3017,7 +3017,7 @@ verification.
 
 
 
-<a name="ibc.lightclients.solomachine.v1.Header"></a>
+<a name="ibc.lightclients.solomachine.v2.Header"></a>
 
 ### Header
 Header defines a solo machine consensus header
@@ -3036,7 +3036,7 @@ Header defines a solo machine consensus header
 
 
 
-<a name="ibc.lightclients.solomachine.v1.HeaderData"></a>
+<a name="ibc.lightclients.solomachine.v2.HeaderData"></a>
 
 ### HeaderData
 HeaderData returns the SignBytes data for update verification.
@@ -3052,7 +3052,7 @@ HeaderData returns the SignBytes data for update verification.
 
 
 
-<a name="ibc.lightclients.solomachine.v1.Misbehaviour"></a>
+<a name="ibc.lightclients.solomachine.v2.Misbehaviour"></a>
 
 ### Misbehaviour
 Misbehaviour defines misbehaviour for a solo machine which consists
@@ -3063,15 +3063,15 @@ of a sequence and two signatures over different messages at that sequence.
 | ----- | ---- | ----- | ----------- |
 | `client_id` | [string](#string) |  |  |
 | `sequence` | [uint64](#uint64) |  |  |
-| `signature_one` | [SignatureAndData](#ibc.lightclients.solomachine.v1.SignatureAndData) |  |  |
-| `signature_two` | [SignatureAndData](#ibc.lightclients.solomachine.v1.SignatureAndData) |  |  |
+| `signature_one` | [SignatureAndData](#ibc.lightclients.solomachine.v2.SignatureAndData) |  |  |
+| `signature_two` | [SignatureAndData](#ibc.lightclients.solomachine.v2.SignatureAndData) |  |  |
 
 
 
 
 
 
-<a name="ibc.lightclients.solomachine.v1.NextSequenceRecvData"></a>
+<a name="ibc.lightclients.solomachine.v2.NextSequenceRecvData"></a>
 
 ### NextSequenceRecvData
 NextSequenceRecvData returns the SignBytes data for verification of the next
@@ -3088,7 +3088,7 @@ sequence to be received.
 
 
 
-<a name="ibc.lightclients.solomachine.v1.PacketAcknowledgementData"></a>
+<a name="ibc.lightclients.solomachine.v2.PacketAcknowledgementData"></a>
 
 ### PacketAcknowledgementData
 PacketAcknowledgementData returns the SignBytes data for acknowledgement
@@ -3105,7 +3105,7 @@ verification.
 
 
 
-<a name="ibc.lightclients.solomachine.v1.PacketCommitmentData"></a>
+<a name="ibc.lightclients.solomachine.v2.PacketCommitmentData"></a>
 
 ### PacketCommitmentData
 PacketCommitmentData returns the SignBytes data for packet commitment
@@ -3122,7 +3122,7 @@ verification.
 
 
 
-<a name="ibc.lightclients.solomachine.v1.PacketReceiptAbsenceData"></a>
+<a name="ibc.lightclients.solomachine.v2.PacketReceiptAbsenceData"></a>
 
 ### PacketReceiptAbsenceData
 PacketReceiptAbsenceData returns the SignBytes data for
@@ -3138,7 +3138,7 @@ packet receipt absence verification.
 
 
 
-<a name="ibc.lightclients.solomachine.v1.SignBytes"></a>
+<a name="ibc.lightclients.solomachine.v2.SignBytes"></a>
 
 ### SignBytes
 SignBytes defines the signed bytes used for signature verification.
@@ -3149,7 +3149,7 @@ SignBytes defines the signed bytes used for signature verification.
 | `sequence` | [uint64](#uint64) |  |  |
 | `timestamp` | [uint64](#uint64) |  |  |
 | `diversifier` | [string](#string) |  |  |
-| `data_type` | [DataType](#ibc.lightclients.solomachine.v1.DataType) |  | type of the data used |
+| `data_type` | [DataType](#ibc.lightclients.solomachine.v2.DataType) |  | type of the data used |
 | `data` | [bytes](#bytes) |  | marshaled data |
 
 
@@ -3157,7 +3157,7 @@ SignBytes defines the signed bytes used for signature verification.
 
 
 
-<a name="ibc.lightclients.solomachine.v1.SignatureAndData"></a>
+<a name="ibc.lightclients.solomachine.v2.SignatureAndData"></a>
 
 ### SignatureAndData
 SignatureAndData contains a signature and the data signed over to create that
@@ -3167,7 +3167,7 @@ signature.
 | Field | Type | Label | Description |
 | ----- | ---- | ----- | ----------- |
 | `signature` | [bytes](#bytes) |  |  |
-| `data_type` | [DataType](#ibc.lightclients.solomachine.v1.DataType) |  |  |
+| `data_type` | [DataType](#ibc.lightclients.solomachine.v2.DataType) |  |  |
 | `data` | [bytes](#bytes) |  |  |
 | `timestamp` | [uint64](#uint64) |  |  |
 
@@ -3176,7 +3176,7 @@ signature.
 
 
 
-<a name="ibc.lightclients.solomachine.v1.TimestampedSignatureData"></a>
+<a name="ibc.lightclients.solomachine.v2.TimestampedSignatureData"></a>
 
 ### TimestampedSignatureData
 TimestampedSignatureData contains the signature data and the timestamp of the
@@ -3195,7 +3195,7 @@ signature.
  <!-- end messages -->
 
 
-<a name="ibc.lightclients.solomachine.v1.DataType"></a>
+<a name="ibc.lightclients.solomachine.v2.DataType"></a>
 
 ### DataType
 DataType defines the type of solo machine proof being created. This is done
