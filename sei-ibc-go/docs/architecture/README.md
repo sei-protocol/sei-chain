@@ -31,4 +31,6 @@ To suggest an ADR, please make use of the [ADR template](./adr-template.md) prov
 | [015](./adr-015-ibc-packet-receiver.md) | IBC Packet Routing | Accepted |
 | [025](./adr-025-ibc-passive-channels.md) | IBC passive channels | Deprecated |
 | [026](./adr-026-ibc-client-recovery-mechanisms.md) | IBC client recovery mechansisms | Accepted |
+| [027](./adr-027-ibc-wasm.md) | Wasm based light clients | Accepted |
+
 

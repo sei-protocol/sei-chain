@@ -68,6 +68,7 @@ consensus states in order to verify their membership in the counterparty clients
 * [ADR 020 - Protocol Buffer Transaction Encoding](./../../docs/architecture/adr-020-protobuf-transaction-encoding.md): Client side migration to Protobuf.
 * [ADR 021 - Protocol Buffer Query Encoding](../../../docs/architecture/adr-020-protobuf-query-encoding.md): Queries migration to Protobuf.
 * [ADR 026 - IBC Client Recovery Mechanisms](../../../docs/architecture/adr-026-ibc-client-recovery-mechanisms.md): Allows IBC Clients to be recovered after freezing or expiry.
+* [ADR 027 - IBC WASM Client](../../../docs/architecture/adr-027-ibc-wasm.md)
 
 ### SDK Modules
 
