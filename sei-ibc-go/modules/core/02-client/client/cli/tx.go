@@ -13,7 +13,6 @@ import (
 	"github.com/cosmos/cosmos-sdk/client/tx"
 	"github.com/cosmos/cosmos-sdk/codec"
 	sdk "github.com/cosmos/cosmos-sdk/types"
-	"github.com/cosmos/cosmos-sdk/types/msgservice"
 	"github.com/cosmos/cosmos-sdk/version"
 	govcli "github.com/cosmos/cosmos-sdk/x/gov/client/cli"
 	govtypes "github.com/cosmos/cosmos-sdk/x/gov/types"
@@ -76,14 +75,7 @@ func NewCreateClientCmd() *cobra.Command {
 				return err
 			}
 
-			svcMsgClientConn := &msgservice.ServiceMsgClientConn{}
-			msgClient := types.NewMsgClient(svcMsgClientConn)
-			_, err = msgClient.CreateClient(cmd.Context(), msg)
-			if err != nil {
-				return err
-			}
-
-			return tx.GenerateOrBroadcastTxCLI(clientCtx, cmd.Flags(), svcMsgClientConn.GetMsgs()...)
+			return tx.GenerateOrBroadcastTxCLI(clientCtx, cmd.Flags(), msg)
 		},
 	}
 
@@ -129,14 +121,7 @@ func NewUpdateClientCmd() *cobra.Command {
 				return err
 			}
 
-			svcMsgClientConn := &msgservice.ServiceMsgClientConn{}
-			msgClient := types.NewMsgClient(svcMsgClientConn)
-			_, err = msgClient.UpdateClient(cmd.Context(), msg)
-			if err != nil {
-				return err
-			}
-
-			return tx.GenerateOrBroadcastTxCLI(clientCtx, cmd.Flags(), svcMsgClientConn.GetMsgs()...)
+			return tx.GenerateOrBroadcastTxCLI(clientCtx, cmd.Flags(), msg)
 		},
 	}
 }
@@ -177,14 +162,7 @@ func NewSubmitMisbehaviourCmd() *cobra.Command {
 				return err
 			}
 
-			svcMsgClientConn := &msgservice.ServiceMsgClientConn{}
-			msgClient := types.NewMsgClient(svcMsgClientConn)
-			_, err = msgClient.SubmitMisbehaviour(cmd.Context(), msg)
-			if err != nil {
-				return err
-			}
-
-			return tx.GenerateOrBroadcastTxCLI(clientCtx, cmd.Flags(), svcMsgClientConn.GetMsgs()...)
+			return tx.GenerateOrBroadcastTxCLI(clientCtx, cmd.Flags(), msg)
 		},
 	}
 }
@@ -247,14 +225,7 @@ func NewUpgradeClientCmd() *cobra.Command {
 				return err
 			}
 
-			svcMsgClientConn := &msgservice.ServiceMsgClientConn{}
-			msgClient := types.NewMsgClient(svcMsgClientConn)
-			_, err = msgClient.UpgradeClient(cmd.Context(), msg)
-			if err != nil {
-				return err
-			}
-
-			return tx.GenerateOrBroadcastTxCLI(clientCtx, cmd.Flags(), svcMsgClientConn.GetMsgs()...)
+			return tx.GenerateOrBroadcastTxCLI(clientCtx, cmd.Flags(), msg)
 		},
 	}
 

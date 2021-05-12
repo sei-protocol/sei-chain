@@ -10,7 +10,6 @@ import (
 	"github.com/cosmos/cosmos-sdk/client/flags"
 	"github.com/cosmos/cosmos-sdk/client/tx"
 	sdk "github.com/cosmos/cosmos-sdk/types"
-	"github.com/cosmos/cosmos-sdk/types/msgservice"
 	"github.com/cosmos/cosmos-sdk/version"
 	"github.com/cosmos/ibc-go/modules/apps/transfer/types"
 	clienttypes "github.com/cosmos/ibc-go/modules/core/02-client/types"
@@ -97,14 +96,7 @@ to the counterparty channel. Any timeout set to 0 is disabled.`),
 			msg := types.NewMsgTransfer(
 				srcPort, srcChannel, coin, sender, receiver, timeoutHeight, timeoutTimestamp,
 			)
-			svcMsgClientConn := &msgservice.ServiceMsgClientConn{}
-			msgClient := types.NewMsgClient(svcMsgClientConn)
-			_, err = msgClient.Transfer(cmd.Context(), msg)
-			if err != nil {
-				return err
-			}
-
-			return tx.GenerateOrBroadcastTxCLI(clientCtx, cmd.Flags(), svcMsgClientConn.GetMsgs()...)
+			return tx.GenerateOrBroadcastTxCLI(clientCtx, cmd.Flags(), msg)
 		},
 	}
 
