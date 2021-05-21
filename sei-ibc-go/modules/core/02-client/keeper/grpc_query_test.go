@@ -144,7 +144,7 @@ func (suite *KeeperTestSuite) TestQueryClientStates() {
 				expClientStates = types.IdentifiedClientStates{idcs, idcs2}.Sort()
 				req = &types.QueryClientStatesRequest{
 					Pagination: &query.PageRequest{
-						Limit:      7,
+						Limit:      20,
 						CountTotal: true,
 					},
 				}
@@ -159,7 +159,6 @@ func (suite *KeeperTestSuite) TestQueryClientStates() {
 			expClientStates = nil
 
 			tc.malleate()
-
 			// always add localhost which is created by default in init genesis
 			localhostClientState := suite.chainA.GetClientState(exported.Localhost)
 			identifiedLocalhost := types.NewIdentifiedClientState(exported.Localhost, localhostClientState)

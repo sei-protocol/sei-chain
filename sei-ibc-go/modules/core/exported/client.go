@@ -126,11 +126,12 @@ type ClientState interface {
 		channel ChannelI,
 	) error
 	VerifyPacketCommitment(
+		ctx sdk.Context,
 		store sdk.KVStore,
 		cdc codec.BinaryCodec,
 		height Height,
-		currentTimestamp uint64,
-		delayPeriod uint64,
+		delayTimePeriod uint64,
+		delayBlockPeriod uint64,
 		prefix Prefix,
 		proof []byte,
 		portID,
@@ -139,11 +140,12 @@ type ClientState interface {
 		commitmentBytes []byte,
 	) error
 	VerifyPacketAcknowledgement(
+		ctx sdk.Context,
 		store sdk.KVStore,
 		cdc codec.BinaryCodec,
 		height Height,
-		currentTimestamp uint64,
-		delayPeriod uint64,
+		delayTimePeriod uint64,
+		delayBlockPeriod uint64,
 		prefix Prefix,
 		proof []byte,
 		portID,
@@ -152,11 +154,12 @@ type ClientState interface {
 		acknowledgement []byte,
 	) error
 	VerifyPacketReceiptAbsence(
+		ctx sdk.Context,
 		store sdk.KVStore,
 		cdc codec.BinaryCodec,
 		height Height,
-		currentTimestamp uint64,
-		delayPeriod uint64,
+		delayTimePeriod uint64,
+		delayBlockPeriod uint64,
 		prefix Prefix,
 		proof []byte,
 		portID,
@@ -164,11 +167,12 @@ type ClientState interface {
 		sequence uint64,
 	) error
 	VerifyNextSequenceRecv(
+		ctx sdk.Context,
 		store sdk.KVStore,
 		cdc codec.BinaryCodec,
 		height Height,
-		currentTimestamp uint64,
-		delayPeriod uint64,
+		delayTimePeriod uint64,
+		delayBlockPeriod uint64,
 		prefix Prefix,
 		proof []byte,
 		portID,

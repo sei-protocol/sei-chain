@@ -376,7 +376,7 @@ func (suite *LocalhostTestSuite) TestVerifyPacketCommitment() {
 			tc.malleate()
 
 			err := tc.clientState.VerifyPacketCommitment(
-				suite.store, suite.cdc, clientHeight, 0, 0, nil, []byte{}, testPortID, testChannelID, testSequence, tc.commitment,
+				suite.ctx, suite.store, suite.cdc, clientHeight, 0, 0, nil, []byte{}, testPortID, testChannelID, testSequence, tc.commitment,
 			)
 
 			if tc.expPass {
@@ -435,7 +435,7 @@ func (suite *LocalhostTestSuite) TestVerifyPacketAcknowledgement() {
 			tc.malleate()
 
 			err := tc.clientState.VerifyPacketAcknowledgement(
-				suite.store, suite.cdc, clientHeight, 0, 0, nil, []byte{}, testPortID, testChannelID, testSequence, tc.ack,
+				suite.ctx, suite.store, suite.cdc, clientHeight, 0, 0, nil, []byte{}, testPortID, testChannelID, testSequence, tc.ack,
 			)
 
 			if tc.expPass {
@@ -451,7 +451,7 @@ func (suite *LocalhostTestSuite) TestVerifyPacketReceiptAbsence() {
 	clientState := types.NewClientState("chainID", clientHeight)
 
 	err := clientState.VerifyPacketReceiptAbsence(
-		suite.store, suite.cdc, clientHeight, 0, 0, nil, nil, testPortID, testChannelID, testSequence,
+		suite.ctx, suite.store, suite.cdc, clientHeight, 0, 0, nil, nil, testPortID, testChannelID, testSequence,
 	)
 
 	suite.Require().NoError(err, "receipt absence failed")
@@ -459,7 +459,7 @@ func (suite *LocalhostTestSuite) TestVerifyPacketReceiptAbsence() {
 	suite.store.Set(host.PacketReceiptKey(testPortID, testChannelID, testSequence), []byte("receipt"))
 
 	err = clientState.VerifyPacketReceiptAbsence(
-		suite.store, suite.cdc, clientHeight, 0, 0, nil, nil, testPortID, testChannelID, testSequence,
+		suite.ctx, suite.store, suite.cdc, clientHeight, 0, 0, nil, nil, testPortID, testChannelID, testSequence,
 	)
 	suite.Require().Error(err, "receipt exists in store")
 }
@@ -515,7 +515,7 @@ func (suite *LocalhostTestSuite) TestVerifyNextSeqRecv() {
 			tc.malleate()
 
 			err := tc.clientState.VerifyNextSequenceRecv(
-				suite.store, suite.cdc, clientHeight, 0, 0, nil, []byte{}, testPortID, testChannelID, nextSeqRecv,
+				suite.ctx, suite.store, suite.cdc, clientHeight, 0, 0, nil, []byte{}, testPortID, testChannelID, nextSeqRecv,
 			)
 
 			if tc.expPass {

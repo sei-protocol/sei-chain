@@ -155,6 +155,7 @@
     - [ConnectionPaths](#ibc.core.connection.v1.ConnectionPaths)
     - [Counterparty](#ibc.core.connection.v1.Counterparty)
     - [IdentifiedConnection](#ibc.core.connection.v1.IdentifiedConnection)
+    - [Params](#ibc.core.connection.v1.Params)
     - [Version](#ibc.core.connection.v1.Version)
   
     - [State](#ibc.core.connection.v1.State)
@@ -2399,6 +2400,21 @@ identifier field.
 
 
 
+<a name="ibc.core.connection.v1.Params"></a>
+
+### Params
+Params defines the set of Connection parameters.
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| `max_expected_time_per_block` | [uint64](#uint64) |  | maximum expected time per block, used to enforce block delay. This parameter should reflect the largest amount of time that the chain might reasonably take to produce the next block under normal operating conditions. A safe choice is 3-5x the expected time per block. |
+
+
+
+
+
+
 <a name="ibc.core.connection.v1.Version"></a>
 
 ### Version
@@ -2458,6 +2474,7 @@ GenesisState defines the ibc connection submodule's genesis state.
 | `connections` | [IdentifiedConnection](#ibc.core.connection.v1.IdentifiedConnection) | repeated |  |
 | `client_connection_paths` | [ConnectionPaths](#ibc.core.connection.v1.ConnectionPaths) | repeated |  |
 | `next_connection_sequence` | [uint64](#uint64) |  | the sequence for the next generated connection identifier |
+| `params` | [Params](#ibc.core.connection.v1.Params) |  |  |
 
 
 

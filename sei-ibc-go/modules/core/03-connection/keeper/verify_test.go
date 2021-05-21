@@ -290,10 +290,11 @@ func (suite *KeeperTestSuite) TestVerifyChannelState() {
 // packet is sent from chainA to chainB, but has not been received.
 func (suite *KeeperTestSuite) TestVerifyPacketCommitment() {
 	var (
-		path        *ibctesting.Path
-		packet      channeltypes.Packet
-		heightDiff  uint64
-		delayPeriod uint64
+		path            *ibctesting.Path
+		packet          channeltypes.Packet
+		heightDiff      uint64
+		delayTimePeriod uint64
+		timePerBlock    uint64
 	)
 	cases := []struct {
 		name     string
@@ -302,10 +303,16 @@ func (suite *KeeperTestSuite) TestVerifyPacketCommitment() {
 	}{
 		{"verification success", func() {}, true},
 		{"verification success: delay period passed", func() {
-			delayPeriod = uint64(1 * time.Second.Nanoseconds())
+			delayTimePeriod = uint64(1 * time.Second.Nanoseconds())
 		}, true},
-		{"delay period has not passed", func() {
-			delayPeriod = uint64(1 * time.Hour.Nanoseconds())
+		{"delay time period has not passed", func() {
+			delayTimePeriod = uint64(1 * time.Hour.Nanoseconds())
+		}, false},
+		{"delay block period has not passed", func() {
+			// make timePerBlock 1 nanosecond so that block delay is not passed.
+			// must also set a non-zero time delay to ensure block delay is enforced.
+			delayTimePeriod = uint64(1 * time.Second.Nanoseconds())
+			timePerBlock = 1
 		}, false},
 		{"client state not found- changed client ID", func() {
 			connection := path.EndpointB.GetConnection()
@@ -338,12 +345,21 @@ func (suite *KeeperTestSuite) TestVerifyPacketCommitment() {
 			err := path.EndpointA.SendPacket(packet)
 			suite.Require().NoError(err)
 
+			// reset variables
+			heightDiff = 0
+			delayTimePeriod = 0
+			timePerBlock = 0
 			tc.malleate()
 
 			connection := path.EndpointB.GetConnection()
-			connection.DelayPeriod = delayPeriod
+			connection.DelayPeriod = delayTimePeriod
 			commitmentKey := host.PacketCommitmentKey(packet.GetSourcePort(), packet.GetSourceChannel(), packet.GetSequence())
 			proof, proofHeight := suite.chainA.QueryProof(commitmentKey)
+
+			// set time per block param
+			if timePerBlock != 0 {
+				suite.chainB.App.GetIBCKeeper().ConnectionKeeper.SetParams(suite.chainB.GetContext(), types.NewParams(timePerBlock))
+			}
 
 			commitment := channeltypes.CommitPacket(suite.chainB.App.GetIBCKeeper().Codec(), packet)
 			err = suite.chainB.App.GetIBCKeeper().ConnectionKeeper.VerifyPacketCommitment(
@@ -365,10 +381,11 @@ func (suite *KeeperTestSuite) TestVerifyPacketCommitment() {
 // is sent from chainA to chainB and received.
 func (suite *KeeperTestSuite) TestVerifyPacketAcknowledgement() {
 	var (
-		path        *ibctesting.Path
-		ack         exported.Acknowledgement
-		heightDiff  uint64
-		delayPeriod uint64
+		path            *ibctesting.Path
+		ack             exported.Acknowledgement
+		heightDiff      uint64
+		delayTimePeriod uint64
+		timePerBlock    uint64
 	)
 
 	cases := []struct {
@@ -378,10 +395,16 @@ func (suite *KeeperTestSuite) TestVerifyPacketAcknowledgement() {
 	}{
 		{"verification success", func() {}, true},
 		{"verification success: delay period passed", func() {
-			delayPeriod = uint64(1 * time.Second.Nanoseconds())
+			delayTimePeriod = uint64(1 * time.Second.Nanoseconds())
 		}, true},
-		{"delay period has not passed", func() {
-			delayPeriod = uint64(1 * time.Hour.Nanoseconds())
+		{"delay time period has not passed", func() {
+			delayTimePeriod = uint64(1 * time.Hour.Nanoseconds())
+		}, false},
+		{"delay block period has not passed", func() {
+			// make timePerBlock 1 nanosecond so that block delay is not passed.
+			// must also set a non-zero time delay to ensure block delay is enforced.
+			delayTimePeriod = uint64(1 * time.Second.Nanoseconds())
+			timePerBlock = 1
 		}, false},
 		{"client state not found- changed client ID", func() {
 			connection := path.EndpointA.GetConnection()
@@ -426,10 +449,19 @@ func (suite *KeeperTestSuite) TestVerifyPacketAcknowledgement() {
 			packetAckKey := host.PacketAcknowledgementKey(packet.GetDestPort(), packet.GetDestChannel(), packet.GetSequence())
 			proof, proofHeight := suite.chainB.QueryProof(packetAckKey)
 
+			// reset variables
+			heightDiff = 0
+			delayTimePeriod = 0
+			timePerBlock = 0
 			tc.malleate()
 
 			connection := path.EndpointA.GetConnection()
-			connection.DelayPeriod = delayPeriod
+			connection.DelayPeriod = delayTimePeriod
+
+			// set time per block param
+			if timePerBlock != 0 {
+				suite.chainA.App.GetIBCKeeper().ConnectionKeeper.SetParams(suite.chainA.GetContext(), types.NewParams(timePerBlock))
+			}
 
 			err = suite.chainA.App.GetIBCKeeper().ConnectionKeeper.VerifyPacketAcknowledgement(
 				suite.chainA.GetContext(), connection, malleateHeight(proofHeight, heightDiff), proof,
@@ -450,10 +482,11 @@ func (suite *KeeperTestSuite) TestVerifyPacketAcknowledgement() {
 // a packet is sent from chainA to chainB and not received.
 func (suite *KeeperTestSuite) TestVerifyPacketReceiptAbsence() {
 	var (
-		path        *ibctesting.Path
-		packet      channeltypes.Packet
-		heightDiff  uint64
-		delayPeriod uint64
+		path            *ibctesting.Path
+		packet          channeltypes.Packet
+		heightDiff      uint64
+		delayTimePeriod uint64
+		timePerBlock    uint64
 	)
 
 	cases := []struct {
@@ -463,10 +496,16 @@ func (suite *KeeperTestSuite) TestVerifyPacketReceiptAbsence() {
 	}{
 		{"verification success", func() {}, true},
 		{"verification success: delay period passed", func() {
-			delayPeriod = uint64(1 * time.Second.Nanoseconds())
+			delayTimePeriod = uint64(1 * time.Second.Nanoseconds())
 		}, true},
-		{"delay period has not passed", func() {
-			delayPeriod = uint64(1 * time.Hour.Nanoseconds())
+		{"delay time period has not passed", func() {
+			delayTimePeriod = uint64(1 * time.Hour.Nanoseconds())
+		}, false},
+		{"delay block period has not passed", func() {
+			// make timePerBlock 1 nanosecond so that block delay is not passed.
+			// must also set a non-zero time delay to ensure block delay is enforced.
+			delayTimePeriod = uint64(1 * time.Second.Nanoseconds())
+			timePerBlock = 1
 		}, false},
 		{"client state not found - changed client ID", func() {
 			connection := path.EndpointA.GetConnection()
@@ -505,10 +544,14 @@ func (suite *KeeperTestSuite) TestVerifyPacketReceiptAbsence() {
 			err := path.EndpointA.SendPacket(packet)
 			suite.Require().NoError(err)
 
+			// reset variables
+			heightDiff = 0
+			delayTimePeriod = 0
+			timePerBlock = 0
 			tc.malleate()
 
 			connection := path.EndpointA.GetConnection()
-			connection.DelayPeriod = delayPeriod
+			connection.DelayPeriod = delayTimePeriod
 
 			clientState := path.EndpointA.GetClientState().(*ibctmtypes.ClientState)
 			if clientState.FrozenHeight.IsZero() {
@@ -519,6 +562,11 @@ func (suite *KeeperTestSuite) TestVerifyPacketReceiptAbsence() {
 
 			packetReceiptKey := host.PacketReceiptKey(packet.GetDestPort(), packet.GetDestChannel(), packet.GetSequence())
 			proof, proofHeight := suite.chainB.QueryProof(packetReceiptKey)
+
+			// set time per block param
+			if timePerBlock != 0 {
+				suite.chainA.App.GetIBCKeeper().ConnectionKeeper.SetParams(suite.chainA.GetContext(), types.NewParams(timePerBlock))
+			}
 
 			err = suite.chainA.App.GetIBCKeeper().ConnectionKeeper.VerifyPacketReceiptAbsence(
 				suite.chainA.GetContext(), connection, malleateHeight(proofHeight, heightDiff), proof,
@@ -539,10 +587,11 @@ func (suite *KeeperTestSuite) TestVerifyPacketReceiptAbsence() {
 // is sent from chainA to chainB and received.
 func (suite *KeeperTestSuite) TestVerifyNextSequenceRecv() {
 	var (
-		path        *ibctesting.Path
-		heightDiff  uint64
-		delayPeriod uint64
-		offsetSeq   uint64
+		path            *ibctesting.Path
+		heightDiff      uint64
+		delayTimePeriod uint64
+		timePerBlock    uint64
+		offsetSeq       uint64
 	)
 
 	cases := []struct {
@@ -552,10 +601,16 @@ func (suite *KeeperTestSuite) TestVerifyNextSequenceRecv() {
 	}{
 		{"verification success", func() {}, true},
 		{"verification success: delay period passed", func() {
-			delayPeriod = uint64(1 * time.Second.Nanoseconds())
+			delayTimePeriod = uint64(1 * time.Second.Nanoseconds())
 		}, true},
-		{"delay period has not passed", func() {
-			delayPeriod = uint64(1 * time.Hour.Nanoseconds())
+		{"delay time period has not passed", func() {
+			delayTimePeriod = uint64(1 * time.Hour.Nanoseconds())
+		}, false},
+		{"delay block period has not passed", func() {
+			// make timePerBlock 1 nanosecond so that block delay is not passed.
+			// must also set a non-zero time delay to ensure block delay is enforced.
+			delayTimePeriod = uint64(1 * time.Second.Nanoseconds())
+			timePerBlock = 1
 		}, false},
 		{"client state not found- changed client ID", func() {
 			connection := path.EndpointA.GetConnection()
@@ -599,10 +654,19 @@ func (suite *KeeperTestSuite) TestVerifyNextSequenceRecv() {
 			nextSeqRecvKey := host.NextSequenceRecvKey(packet.GetDestPort(), packet.GetDestChannel())
 			proof, proofHeight := suite.chainB.QueryProof(nextSeqRecvKey)
 
+			// reset variables
+			heightDiff = 0
+			delayTimePeriod = 0
+			timePerBlock = 0
 			tc.malleate()
 
+			// set time per block param
+			if timePerBlock != 0 {
+				suite.chainA.App.GetIBCKeeper().ConnectionKeeper.SetParams(suite.chainA.GetContext(), types.NewParams(timePerBlock))
+			}
+
 			connection := path.EndpointA.GetConnection()
-			connection.DelayPeriod = delayPeriod
+			connection.DelayPeriod = delayTimePeriod
 			err = suite.chainA.App.GetIBCKeeper().ConnectionKeeper.VerifyNextSequenceRecv(
 				suite.chainA.GetContext(), connection, malleateHeight(proofHeight, heightDiff), proof,
 				packet.GetDestPort(), packet.GetDestChannel(), packet.GetSequence()+offsetSeq,

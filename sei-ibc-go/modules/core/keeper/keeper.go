@@ -4,14 +4,15 @@ import (
 	"github.com/cosmos/cosmos-sdk/codec"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	capabilitykeeper "github.com/cosmos/cosmos-sdk/x/capability/keeper"
+	paramtypes "github.com/cosmos/cosmos-sdk/x/params/types"
 	clientkeeper "github.com/cosmos/ibc-go/modules/core/02-client/keeper"
 	clienttypes "github.com/cosmos/ibc-go/modules/core/02-client/types"
 	connectionkeeper "github.com/cosmos/ibc-go/modules/core/03-connection/keeper"
+	connectiontypes "github.com/cosmos/ibc-go/modules/core/03-connection/types"
 	channelkeeper "github.com/cosmos/ibc-go/modules/core/04-channel/keeper"
 	portkeeper "github.com/cosmos/ibc-go/modules/core/05-port/keeper"
 	porttypes "github.com/cosmos/ibc-go/modules/core/05-port/types"
 	"github.com/cosmos/ibc-go/modules/core/types"
-	paramtypes "github.com/cosmos/cosmos-sdk/x/params/types"
 )
 
 var _ types.QueryServer = (*Keeper)(nil)
@@ -36,8 +37,16 @@ func NewKeeper(
 	stakingKeeper clienttypes.StakingKeeper, upgradeKeeper clienttypes.UpgradeKeeper,
 	scopedKeeper capabilitykeeper.ScopedKeeper,
 ) *Keeper {
+	// register paramSpace at top level keeper
+	// set KeyTable if it has not already been set
+	if !paramSpace.HasKeyTable() {
+		keyTable := clienttypes.ParamKeyTable()
+		keyTable.RegisterParamSet(&connectiontypes.Params{})
+		paramSpace = paramSpace.WithKeyTable(keyTable)
+	}
+
 	clientKeeper := clientkeeper.NewKeeper(cdc, key, paramSpace, stakingKeeper, upgradeKeeper)
-	connectionKeeper := connectionkeeper.NewKeeper(cdc, key, clientKeeper)
+	connectionKeeper := connectionkeeper.NewKeeper(cdc, key, paramSpace, clientKeeper)
 	portKeeper := portkeeper.NewKeeper(scopedKeeper)
 	channelKeeper := channelkeeper.NewKeeper(cdc, key, clientKeeper, connectionKeeper, portKeeper, scopedKeeper)
 

@@ -8,6 +8,7 @@ import (
 
 	clienttypes "github.com/cosmos/ibc-go/modules/core/02-client/types"
 	commitmenttypes "github.com/cosmos/ibc-go/modules/core/23-commitment/types"
+	"github.com/cosmos/ibc-go/modules/core/exported"
 	types "github.com/cosmos/ibc-go/modules/light-clients/07-tendermint/types"
 	ibctesting "github.com/cosmos/ibc-go/testing"
 	ibctestingmock "github.com/cosmos/ibc-go/testing/mock"
@@ -377,10 +378,16 @@ func (suite *TendermintTestSuite) TestPruneConsensusState() {
 	path := ibctesting.NewPath(suite.chainA, suite.chainB)
 	suite.coordinator.SetupClients(path)
 
-	// call update client twice. When pruning occurs, only first consensus state should be pruned.
-	// this height will be pruned
-	path.EndpointA.UpdateClient()
-	pruneHeight := path.EndpointA.GetClientState().GetLatestHeight()
+	// get the first height as it will be pruned first.
+	var pruneHeight exported.Height
+	getFirstHeightCb := func(height exported.Height) bool {
+		pruneHeight = height
+		return true
+	}
+	ctx := path.EndpointA.Chain.GetContext()
+	clientStore := path.EndpointA.Chain.App.GetIBCKeeper().ClientKeeper.ClientStore(ctx, path.EndpointA.ClientID)
+	err := types.IterateConsensusStateAscending(clientStore, getFirstHeightCb)
+	suite.Require().Nil(err)
 
 	// this height will be expired but not pruned
 	path.EndpointA.UpdateClient()
@@ -389,8 +396,8 @@ func (suite *TendermintTestSuite) TestPruneConsensusState() {
 	// expected values that must still remain in store after pruning
 	expectedConsState, ok := path.EndpointA.Chain.GetConsensusState(path.EndpointA.ClientID, expiredHeight)
 	suite.Require().True(ok)
-	ctx := path.EndpointA.Chain.GetContext()
-	clientStore := path.EndpointA.Chain.App.GetIBCKeeper().ClientKeeper.ClientStore(ctx, path.EndpointA.ClientID)
+	ctx = path.EndpointA.Chain.GetContext()
+	clientStore = path.EndpointA.Chain.App.GetIBCKeeper().ClientKeeper.ClientStore(ctx, path.EndpointA.ClientID)
 	expectedProcessTime, ok := types.GetProcessedTime(clientStore, expiredHeight)
 	suite.Require().True(ok)
 	expectedConsKey := types.GetIterationKey(clientStore, expiredHeight)

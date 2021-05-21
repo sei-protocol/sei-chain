@@ -90,12 +90,8 @@ func (cs ClientState) CheckSubstituteAndUpdateState(
 		}
 		SetConsensusState(subjectClientStore, cdc, consensusState, height)
 
-		processedTime, found := GetProcessedTime(substituteClientStore, height)
-		if !found {
-			continue
-		}
-		SetProcessedTime(subjectClientStore, height, processedTime)
-
+		// set metadata for this consensus state
+		setConsensusMetadata(ctx, subjectClientStore, height)
 	}
 
 	cs.LatestHeight = substituteClientState.LatestHeight

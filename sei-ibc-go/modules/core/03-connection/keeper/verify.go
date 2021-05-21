@@ -1,6 +1,8 @@
 package keeper
 
 import (
+	"math"
+
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	clienttypes "github.com/cosmos/ibc-go/modules/core/02-client/types"
@@ -159,9 +161,13 @@ func (k Keeper) VerifyPacketCommitment(
 		return sdkerrors.Wrapf(clienttypes.ErrClientNotActive, "client (%s) status is %s", clientID, status)
 	}
 
+	// get time and block delays
+	timeDelay := connection.GetDelayPeriod()
+	blockDelay := k.getBlockDelay(ctx, connection)
+
 	if err := clientState.VerifyPacketCommitment(
-		clientStore, k.cdc, height,
-		uint64(ctx.BlockTime().UnixNano()), connection.GetDelayPeriod(),
+		ctx, clientStore, k.cdc, height,
+		timeDelay, blockDelay,
 		connection.GetCounterparty().GetPrefix(), proof, portID, channelID,
 		sequence, commitmentBytes,
 	); err != nil {
@@ -195,9 +201,13 @@ func (k Keeper) VerifyPacketAcknowledgement(
 		return sdkerrors.Wrapf(clienttypes.ErrClientNotActive, "client (%s) status is %s", clientID, status)
 	}
 
+	// get time and block delays
+	timeDelay := connection.GetDelayPeriod()
+	blockDelay := k.getBlockDelay(ctx, connection)
+
 	if err := clientState.VerifyPacketAcknowledgement(
-		clientStore, k.cdc, height,
-		uint64(ctx.BlockTime().UnixNano()), connection.GetDelayPeriod(),
+		ctx, clientStore, k.cdc, height,
+		timeDelay, blockDelay,
 		connection.GetCounterparty().GetPrefix(), proof, portID, channelID,
 		sequence, acknowledgement,
 	); err != nil {
@@ -231,9 +241,13 @@ func (k Keeper) VerifyPacketReceiptAbsence(
 		return sdkerrors.Wrapf(clienttypes.ErrClientNotActive, "client (%s) status is %s", clientID, status)
 	}
 
+	// get time and block delays
+	timeDelay := connection.GetDelayPeriod()
+	blockDelay := k.getBlockDelay(ctx, connection)
+
 	if err := clientState.VerifyPacketReceiptAbsence(
-		clientStore, k.cdc, height,
-		uint64(ctx.BlockTime().UnixNano()), connection.GetDelayPeriod(),
+		ctx, clientStore, k.cdc, height,
+		timeDelay, blockDelay,
 		connection.GetCounterparty().GetPrefix(), proof, portID, channelID,
 		sequence,
 	); err != nil {
@@ -266,9 +280,13 @@ func (k Keeper) VerifyNextSequenceRecv(
 		return sdkerrors.Wrapf(clienttypes.ErrClientNotActive, "client (%s) status is %s", clientID, status)
 	}
 
+	// get time and block delays
+	timeDelay := connection.GetDelayPeriod()
+	blockDelay := k.getBlockDelay(ctx, connection)
+
 	if err := clientState.VerifyNextSequenceRecv(
-		clientStore, k.cdc, height,
-		uint64(ctx.BlockTime().UnixNano()), connection.GetDelayPeriod(),
+		ctx, clientStore, k.cdc, height,
+		timeDelay, blockDelay,
 		connection.GetCounterparty().GetPrefix(), proof, portID, channelID,
 		nextSequenceRecv,
 	); err != nil {
@@ -276,4 +294,19 @@ func (k Keeper) VerifyNextSequenceRecv(
 	}
 
 	return nil
+}
+
+// getBlockDelay calculates the block delay period from the time delay of the connection
+// and the maximum expected time per block.
+func (k Keeper) getBlockDelay(ctx sdk.Context, connection exported.ConnectionI) uint64 {
+	// expectedTimePerBlock should never be zero, however if it is then return a 0 blcok delay for safety
+	// as the expectedTimePerBlock parameter was not set.
+	expectedTimePerBlock := k.GetMaxExpectedTimePerBlock(ctx)
+	if expectedTimePerBlock == 0 {
+		return 0
+	}
+	// calculate minimum block delay by dividing time delay period
+	// by the expected time per block. Round up the block delay.
+	timeDelay := connection.GetDelayPeriod()
+	return uint64(math.Ceil(float64(timeDelay) / float64(expectedTimePerBlock)))
 }

@@ -17,6 +17,7 @@ func InitGenesis(ctx sdk.Context, k keeper.Keeper, gs types.GenesisState) {
 		k.SetClientConnectionPaths(ctx, connPaths.ClientId, connPaths.Paths)
 	}
 	k.SetNextConnectionSequence(ctx, gs.NextConnectionSequence)
+	k.SetParams(ctx, gs.Params)
 }
 
 // ExportGenesis returns the ibc connection submodule's exported genesis.
