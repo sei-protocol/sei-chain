@@ -71,10 +71,6 @@ func (cs ClientState) VerifyUpgradeAndUpdateState(
 		return nil, nil, sdkerrors.Wrap(err, "could not retrieve consensus state for lastHeight")
 	}
 
-	if cs.IsExpired(consState.Timestamp, ctx.BlockTime()) {
-		return nil, nil, sdkerrors.Wrap(clienttypes.ErrInvalidClient, "cannot upgrade an expired client")
-	}
-
 	// Verify client proof
 	bz, err := cdc.MarshalInterface(upgradedClient)
 	if err != nil {
