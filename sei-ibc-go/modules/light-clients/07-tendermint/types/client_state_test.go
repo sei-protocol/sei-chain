@@ -21,7 +21,10 @@ const (
 	testPortID       = "testportid"
 	testChannelID    = "testchannelid"
 	testSequence     = 1
-	longChainID      = "Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum."
+
+	// Do not change the length of these variables
+	fiftyCharChainID    = "12345678901234567890123456789012345678901234567890"
+	fiftyOneCharChainID = "123456789012345678901234567890123456789012345678901"
 )
 
 var (
@@ -90,8 +93,19 @@ func (suite *TendermintTestSuite) TestValidate() {
 			expPass:     false,
 		},
 		{
-			name:        "invalid chainID - chainID is above maximum character length",
-			clientState: types.NewClientState(longChainID, types.DefaultTrustLevel, trustingPeriod, ubdPeriod, maxClockDrift, height, commitmenttypes.GetSDKSpecs(), upgradePath, false, false),
+			// NOTE: if this test fails, the code must account for the change in chainID length across tendermint versions!
+			// Do not only fix the test, fix the code!
+			// https://github.com/cosmos/ibc-go/issues/177
+			name:        "valid chainID - chainID validation failed for chainID of length 50! ",
+			clientState: types.NewClientState(fiftyCharChainID, types.DefaultTrustLevel, trustingPeriod, ubdPeriod, maxClockDrift, height, commitmenttypes.GetSDKSpecs(), upgradePath, false, false),
+			expPass:     true,
+		},
+		{
+			// NOTE: if this test fails, the code must account for the change in chainID length across tendermint versions!
+			// Do not only fix the test, fix the code!
+			// https://github.com/cosmos/ibc-go/issues/177
+			name:        "invalid chainID - chainID validation did not fail for chainID of length 51! ",
+			clientState: types.NewClientState(fiftyOneCharChainID, types.DefaultTrustLevel, trustingPeriod, ubdPeriod, maxClockDrift, height, commitmenttypes.GetSDKSpecs(), upgradePath, false, false),
 			expPass:     false,
 		},
 		{

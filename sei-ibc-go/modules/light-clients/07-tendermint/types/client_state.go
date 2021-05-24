@@ -100,6 +100,12 @@ func (cs ClientState) Validate() error {
 	if strings.TrimSpace(cs.ChainId) == "" {
 		return sdkerrors.Wrap(ErrInvalidChainID, "chain id cannot be empty string")
 	}
+
+	// NOTE: the value of tmtypes.MaxChainIDLen may change in the future.
+	// If this occurs, the code here must account for potential difference
+	// between the tendermint version being run by the counterparty chain
+	// and the tendermint version used by this light client.
+	// https://github.com/cosmos/ibc-go/issues/177
 	if len(cs.ChainId) > tmtypes.MaxChainIDLen {
 		return sdkerrors.Wrapf(ErrInvalidChainID, "chainID is too long; got: %d, max: %d", len(cs.ChainId), tmtypes.MaxChainIDLen)
 	}
