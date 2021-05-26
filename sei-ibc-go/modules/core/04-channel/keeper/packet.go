@@ -381,6 +381,7 @@ func (k Keeper) WriteAcknowledgement(
 			sdk.NewAttribute(types.AttributeKeyDstPort, packet.GetDestPort()),
 			sdk.NewAttribute(types.AttributeKeyDstChannel, packet.GetDestChannel()),
 			sdk.NewAttribute(types.AttributeKeyAck, string(acknowledgement)),
+			sdk.NewAttribute(types.AttributeKeyAckHex, hex.EncodeToString(acknowledgement)),
 			// we only support 1-hop packets now, and that is the most important hop for a relayer
 			// (is it going to a chain I am connected to)
 			sdk.NewAttribute(types.AttributeKeyConnection, channel.ConnectionHops[0]),

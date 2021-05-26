@@ -70,6 +70,7 @@ Ref: https://keepachangelog.com/en/1.0.0/
 * (07-tendermint) [\#182](https://github.com/cosmos/ibc-go/pull/182) Remove duplicate checks in upgrade logic.
 * (modules/core/04-channel) [\#7949](https://github.com/cosmos/cosmos-sdk/issues/7949) Standardized channel `Acknowledgement` moved to its own file. Codec registration redundancy removed.
 * (modules/core/04-channel) [\#144](https://github.com/cosmos/ibc-go/pull/144) Introduced a `packet_data_hex` attribute to emit the hex-encoded packet data in events. This allows for raw binary (proto-encoded message) to be sent over events and decoded correctly on relayer. Original `packet_data` is DEPRECATED. All relayers and IBC event consumers are encouraged to switch to `packet_data_hex` as soon as possible.
+* (core/04-channel) [\#197](https://github.com/cosmos/ibc-go/pull/197) Introduced a `packet_ack_hex` attribute to emit the hex-encoded acknowledgement in events. This allows for raw binary (proto-encoded message) to be sent over events and decoded correctly on relayer. Original `packet_ack` is DEPRECATED. All relayers and IBC event consumers are encouraged to switch to `packet_ack_hex` as soon as possible.
 * (modules/light-clients/07-tendermint) [\#125](https://github.com/cosmos/ibc-go/pull/125) Implement efficient iteration of consensus states and pruning of earliest expired consensus state on UpdateClient.
 * (modules/light-clients/07-tendermint) [\#141](https://github.com/cosmos/ibc-go/pull/141) Return early in case there's a duplicate update call to save Gas.
 

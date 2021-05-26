@@ -23,9 +23,11 @@ const (
 
 	// NOTE: DEPRECATED in favor of AttributeKeyDataHex
 	AttributeKeyData = "packet_data"
+	// NOTE: DEPRECATED in favor of AttributeKeyAckHex
+	AttributeKeyAck = "packet_ack"
 
 	AttributeKeyDataHex          = "packet_data_hex"
-	AttributeKeyAck              = "packet_ack"
+	AttributeKeyAckHex           = "packet_ack_hex"
 	AttributeKeyTimeoutHeight    = "packet_timeout_height"
 	AttributeKeyTimeoutTimestamp = "packet_timeout_timestamp"
 	AttributeKeySequence         = "packet_sequence"
