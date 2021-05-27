@@ -206,21 +206,20 @@ func GetCmdQueryHeader() *cobra.Command {
 	return cmd
 }
 
-// GetCmdNodeConsensusState defines the command to query the latest consensus state of a node
-// The result is feed to client creation
-func GetCmdNodeConsensusState() *cobra.Command {
+// GetCmdSelfConsensusState defines the command to query the self consensus state of a chain
+func GetCmdSelfConsensusState() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:     "node-state",
-		Short:   "Query a node consensus state",
-		Long:    "Query a node consensus state. This result is feed to the client creation transaction.",
-		Example: fmt.Sprintf("%s query %s %s node-state", version.AppName, host.ModuleName, types.SubModuleName),
+		Use:     "self-consensus-state",
+		Short:   "Query the self consensus state for this chain",
+		Long:    "Query the self consensus state for this chain. This result may be used for verifying IBC clients representing this chain which are hosted on counterparty chains.",
+		Example: fmt.Sprintf("%s query %s %s self-consensus-state", version.AppName, host.ModuleName, types.SubModuleName),
 		Args:    cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			clientCtx, err := client.GetClientQueryContext(cmd)
 			if err != nil {
 				return err
 			}
-			state, _, err := utils.QueryNodeConsensusState(clientCtx)
+			state, _, err := utils.QuerySelfConsensusState(clientCtx)
 			if err != nil {
 				return err
 			}

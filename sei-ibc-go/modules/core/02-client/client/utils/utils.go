@@ -165,9 +165,9 @@ func QueryTendermintHeader(clientCtx client.Context) (ibctmtypes.Header, int64, 
 	return header, height, nil
 }
 
-// QueryNodeConsensusState takes a client context and returns the appropriate
+// QuerySelfConsensusState takes a client context and returns the appropriate
 // tendermint consensus state
-func QueryNodeConsensusState(clientCtx client.Context) (*ibctmtypes.ConsensusState, int64, error) {
+func QuerySelfConsensusState(clientCtx client.Context) (*ibctmtypes.ConsensusState, int64, error) {
 	node, err := clientCtx.GetNode()
 	if err != nil {
 		return &ibctmtypes.ConsensusState{}, 0, err
