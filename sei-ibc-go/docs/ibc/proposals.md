@@ -32,11 +32,10 @@ ultimately lead the on-chain light client to become expired.
 
 In the case that a highly valued light client is frozen, expired, or rendered non-updateable, a
 governance proposal may be submitted to update this client, known as the subject client. The 
-proposal includes the client identifier for the subject, the client identifier for a substitute
-client, and an initial height to reference the substitute client from. Light client implementations
-may implement custom updating logic, but in most cases, the subject will be updated with information
-from the substitute client, if the proposal passes. The substitute client is used as a "stand in"
-while the subject is on trial. It is best practice to create a substitute client *after* the subject
-has become frozen to avoid the substitute from also becoming frozen. An active substitute client
-allows headers to be submitted during the voting period to prevent accidental expiry once the proposal
-passes. 
+proposal includes the client identifier for the subject and the client identifier for a substitute
+client. Light client implementations may implement custom updating logic, but in most cases, 
+the subject will be updated to the latest consensus state of the substitute client, if the proposal passes.
+The substitute client is used as a "stand in" while the subject is on trial. It is best practice to create 
+a substitute client *after* the subject has become frozen to avoid the substitute from also becoming frozen. 
+An active substitute client allows headers to be submitted during the voting period to prevent accidental expiry 
+once the proposal passes. 

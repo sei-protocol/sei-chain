@@ -107,7 +107,7 @@ func (cs ClientState) CheckMisbehaviourAndUpdateState(
 // proposals.
 func (cs ClientState) CheckSubstituteAndUpdateState(
 	ctx sdk.Context, _ codec.BinaryCodec, _, _ sdk.KVStore,
-	_ exported.ClientState, _ exported.Height,
+	_ exported.ClientState,
 ) (exported.ClientState, error) {
 	return nil, sdkerrors.Wrap(clienttypes.ErrUpdateClientFailed, "cannot update localhost client with a proposal")
 }

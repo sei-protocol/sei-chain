@@ -17,13 +17,10 @@ func (suite *TypesTestSuite) TestValidateBasic() {
 	subjectPath := ibctesting.NewPath(suite.chainA, suite.chainB)
 	suite.coordinator.SetupClients(subjectPath)
 	subject := subjectPath.EndpointA.ClientID
-	subjectClientState := suite.chainA.GetClientState(subject)
 
 	substitutePath := ibctesting.NewPath(suite.chainA, suite.chainB)
 	suite.coordinator.SetupClients(substitutePath)
 	substitute := substitutePath.EndpointA.ClientID
-
-	initialHeight := types.NewHeight(subjectClientState.GetLatestHeight().GetRevisionNumber(), subjectClientState.GetLatestHeight().GetRevisionHeight()+1)
 
 	testCases := []struct {
 		name     string
@@ -32,32 +29,27 @@ func (suite *TypesTestSuite) TestValidateBasic() {
 	}{
 		{
 			"success",
-			types.NewClientUpdateProposal(ibctesting.Title, ibctesting.Description, subject, substitute, initialHeight),
+			types.NewClientUpdateProposal(ibctesting.Title, ibctesting.Description, subject, substitute),
 			true,
 		},
 		{
 			"fails validate abstract - empty title",
-			types.NewClientUpdateProposal("", ibctesting.Description, subject, substitute, initialHeight),
+			types.NewClientUpdateProposal("", ibctesting.Description, subject, substitute),
 			false,
 		},
 		{
 			"subject and substitute use the same identifier",
-			types.NewClientUpdateProposal(ibctesting.Title, ibctesting.Description, subject, subject, initialHeight),
+			types.NewClientUpdateProposal(ibctesting.Title, ibctesting.Description, subject, subject),
 			false,
 		},
 		{
 			"invalid subject clientID",
-			types.NewClientUpdateProposal(ibctesting.Title, ibctesting.Description, ibctesting.InvalidID, substitute, initialHeight),
+			types.NewClientUpdateProposal(ibctesting.Title, ibctesting.Description, ibctesting.InvalidID, substitute),
 			false,
 		},
 		{
 			"invalid substitute clientID",
-			types.NewClientUpdateProposal(ibctesting.Title, ibctesting.Description, subject, ibctesting.InvalidID, initialHeight),
-			false,
-		},
-		{
-			"initial height is zero",
-			types.NewClientUpdateProposal(ibctesting.Title, ibctesting.Description, subject, substitute, types.ZeroHeight()),
+			types.NewClientUpdateProposal(ibctesting.Title, ibctesting.Description, subject, ibctesting.InvalidID),
 			false,
 		},
 	}
@@ -77,7 +69,7 @@ func (suite *TypesTestSuite) TestValidateBasic() {
 // tests a client update proposal can be marshaled and unmarshaled
 func (suite *TypesTestSuite) TestMarshalClientUpdateProposalProposal() {
 	// create proposal
-	proposal := types.NewClientUpdateProposal("update IBC client", "description", "subject", "substitute", types.NewHeight(1, 0))
+	proposal := types.NewClientUpdateProposal("update IBC client", "description", "subject", "substitute")
 
 	// create codec
 	ir := codectypes.NewInterfaceRegistry()

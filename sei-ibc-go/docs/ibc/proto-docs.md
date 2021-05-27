@@ -477,11 +477,9 @@ client.
 
 ### ClientUpdateProposal
 ClientUpdateProposal is a governance proposal. If it passes, the substitute
-client's consensus states starting from the 'initial height' are copied over
-to the subjects client state. The proposal handler may fail if the subject
-and the substitute do not match in client and chain parameters (with
-exception to latest height, frozen height, and chain-id). The updated client
-must also be valid (cannot be expired).
+client's latest consensus state is copied over to the subject client. The proposal
+handler may fail if the subject and the substitute do not match in client and
+chain parameters (with exception to latest height, frozen height, and chain-id).
 
 
 | Field | Type | Label | Description |
@@ -490,7 +488,6 @@ must also be valid (cannot be expired).
 | `description` | [string](#string) |  | the description of the proposal |
 | `subject_client_id` | [string](#string) |  | the client identifier for the client to be updated if the proposal passes |
 | `substitute_client_id` | [string](#string) |  | the substitute client identifier for the client standing in for the subject client |
-| `initial_height` | [Height](#ibc.core.client.v1.Height) |  | the intital height to copy consensus states from the substitute to the subject |
 
 
 

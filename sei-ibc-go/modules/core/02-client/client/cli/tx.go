@@ -237,12 +237,12 @@ func NewUpgradeClientCmd() *cobra.Command {
 // NewCmdSubmitUpdateClientProposal implements a command handler for submitting an update IBC client proposal transaction.
 func NewCmdSubmitUpdateClientProposal() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "update-client [subject-client-id] [substitute-client-id] [initial-height] [flags]",
+		Use:   "update-client [subject-client-id] [substitute-client-id] [flags]",
 		Args:  cobra.ExactArgs(3),
 		Short: "Submit an update IBC client proposal",
 		Long: "Submit an update IBC client proposal along with an initial deposit.\n" +
 			"Please specify a subject client identifier you want to update..\n" +
-			"Please specify the substitute client the subject client will use and the initial height to reference the substitute client's state.",
+			"Please specify the substitute client the subject client will be updated to.",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			clientCtx, err := client.GetClientTxContext(cmd)
 			if err != nil {
@@ -262,12 +262,7 @@ func NewCmdSubmitUpdateClientProposal() *cobra.Command {
 			subjectClientID := args[0]
 			substituteClientID := args[1]
 
-			initialHeight, err := types.ParseHeight(args[2])
-			if err != nil {
-				return err
-			}
-
-			content := types.NewClientUpdateProposal(title, description, subjectClientID, substituteClientID, initialHeight)
+			content := types.NewClientUpdateProposal(title, description, subjectClientID, substituteClientID)
 
 			from := clientCtx.GetFromAddress()
 

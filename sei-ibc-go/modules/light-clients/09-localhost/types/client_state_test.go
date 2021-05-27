@@ -178,7 +178,7 @@ func (suite *LocalhostTestSuite) TestMisbehaviourAndUpdateState() {
 
 func (suite *LocalhostTestSuite) TestProposedHeaderAndUpdateState() {
 	clientState := types.NewClientState("chainID", clientHeight)
-	cs, err := clientState.CheckSubstituteAndUpdateState(suite.ctx, nil, nil, nil, nil, nil)
+	cs, err := clientState.CheckSubstituteAndUpdateState(suite.ctx, nil, nil, nil, nil)
 	suite.Require().Error(err)
 	suite.Require().Nil(cs)
 }

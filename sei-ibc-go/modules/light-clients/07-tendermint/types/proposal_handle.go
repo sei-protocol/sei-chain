@@ -13,8 +13,8 @@ import (
 // CheckSubstituteAndUpdateState will try to update the client with the state of the
 // substitute if and only if the proposal passes and one of the following conditions are
 // satisfied:
-//	1) AllowUpdateAfterMisbehaviour and IsFrozen() = true
-// 	2) AllowUpdateAfterExpiry=true and Expire(ctx.BlockTime) = true
+//	1) AllowUpdateAfterMisbehaviour and Status() == Frozen
+// 	2) AllowUpdateAfterExpiry=true and Status() == Expired
 //
 // The following must always be true:
 //	- The substitute client is the same type as the subject client
@@ -23,12 +23,9 @@ import (
 // In case 1) before updating the client, the client will be unfrozen by resetting
 // the FrozenHeight to the zero Height. If a client is frozen and AllowUpdateAfterMisbehaviour
 // is set to true, the client will be unexpired even if AllowUpdateAfterExpiry is set to false.
-// Note, that even if the subject is updated to the state of the substitute, an error may be
-// returned if the updated client state is invalid or the client is expired.
 func (cs ClientState) CheckSubstituteAndUpdateState(
 	ctx sdk.Context, cdc codec.BinaryCodec, subjectClientStore,
 	substituteClientStore sdk.KVStore, substituteClient exported.ClientState,
-	initialHeight exported.Height,
 ) (exported.ClientState, error) {
 	substituteClientState, ok := substituteClient.(*ClientState)
 	if !ok {
@@ -37,31 +34,13 @@ func (cs ClientState) CheckSubstituteAndUpdateState(
 		)
 	}
 
-	// substitute clients are not allowed to be upgraded during the voting period
-	// If an upgrade passes before the subject client has been updated, a new proposal must be created
-	// with an initial height that contains the new revision number.
-	if substituteClientState.GetLatestHeight().GetRevisionNumber() != initialHeight.GetRevisionNumber() {
-		return nil, sdkerrors.Wrapf(
-			clienttypes.ErrInvalidHeight, "substitute client revision number must equal initial height revision number (%d != %d)",
-			substituteClientState.GetLatestHeight().GetRevisionNumber(), initialHeight.GetRevisionNumber(),
-		)
-	}
-
 	if !IsMatchingClientState(cs, *substituteClientState) {
 		return nil, sdkerrors.Wrap(clienttypes.ErrInvalidSubstitute, "subject client state does not match substitute client state")
 	}
 
-	// get consensus state corresponding to client state to check if the client is expired
-	consensusState, err := GetConsensusState(subjectClientStore, cdc, cs.GetLatestHeight())
-	if err != nil {
-		return nil, sdkerrors.Wrapf(
-			err, "unexpected error: could not get consensus state from clientstore at height: %d", cs.GetLatestHeight(),
-		)
-	}
+	switch cs.Status(ctx, subjectClientStore, cdc) {
 
-	switch {
-
-	case !cs.FrozenHeight.IsZero():
+	case exported.Frozen:
 		if !cs.AllowUpdateAfterMisbehaviour {
 			return nil, sdkerrors.Wrap(clienttypes.ErrUpdateClientFailed, "client is not allowed to be unfrozen")
 		}
@@ -69,7 +48,7 @@ func (cs ClientState) CheckSubstituteAndUpdateState(
 		// unfreeze the client
 		cs.FrozenHeight = clienttypes.ZeroHeight()
 
-	case cs.IsExpired(consensusState.Timestamp, ctx.BlockTime()):
+	case exported.Expired:
 		if !cs.AllowUpdateAfterExpiry {
 			return nil, sdkerrors.Wrap(clienttypes.ErrUpdateClientFailed, "client is not allowed to be unexpired")
 		}
@@ -80,37 +59,33 @@ func (cs ClientState) CheckSubstituteAndUpdateState(
 
 	// copy consensus states and processed time from substitute to subject
 	// starting from initial height and ending on the latest height (inclusive)
-	for i := initialHeight.GetRevisionHeight(); i <= substituteClientState.GetLatestHeight().GetRevisionHeight(); i++ {
-		height := clienttypes.NewHeight(substituteClientState.GetLatestHeight().GetRevisionNumber(), i)
+	height := substituteClientState.GetLatestHeight()
 
-		consensusState, err := GetConsensusState(substituteClientStore, cdc, height)
-		if err != nil {
-			// not all consensus states will be filled in
-			continue
-		}
-		SetConsensusState(subjectClientStore, cdc, consensusState, height)
-
-		// set metadata for this consensus state
-		setConsensusMetadata(ctx, subjectClientStore, height)
+	consensusState, err := GetConsensusState(substituteClientStore, cdc, height)
+	if err != nil {
+		return nil, sdkerrors.Wrap(err, "unable to retrieve latest consensus state for substitute client")
 	}
+
+	SetConsensusState(subjectClientStore, cdc, consensusState, height)
+
+	// set metadata stored for the substitute consensus state
+	processedHeight, found := GetProcessedHeight(substituteClientStore, height)
+	if !found {
+		return nil, sdkerrors.Wrap(clienttypes.ErrUpdateClientFailed, "unable to retrieve processed height for substitute client latest height")
+	}
+
+	processedTime, found := GetProcessedTime(substituteClientStore, height)
+	if !found {
+		return nil, sdkerrors.Wrap(clienttypes.ErrUpdateClientFailed, "unable to retrieve processed time for substitute client latest height")
+	}
+
+	setConsensusMetadataWithValues(subjectClientStore, height, processedHeight, processedTime)
 
 	cs.LatestHeight = substituteClientState.LatestHeight
+	cs.ChainId = substituteClientState.ChainId
 
-	// validate the updated client and ensure it isn't expired
-	if err := cs.Validate(); err != nil {
-		return nil, sdkerrors.Wrap(err, "unexpected error: updated subject client state is invalid")
-	}
-
-	latestConsensusState, err := GetConsensusState(subjectClientStore, cdc, cs.GetLatestHeight())
-	if err != nil {
-		return nil, sdkerrors.Wrapf(
-			err, "unexpected error: could not get consensus state for updated subject client from clientstore at height: %d", cs.GetLatestHeight(),
-		)
-	}
-
-	if cs.IsExpired(latestConsensusState.Timestamp, ctx.BlockTime()) {
-		return nil, sdkerrors.Wrap(clienttypes.ErrInvalidClient, "updated subject client is expired")
-	}
+	// no validation is necessary since the substitute is verified to be Active
+	// in 02-client.
 
 	return &cs, nil
 }

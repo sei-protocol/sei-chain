@@ -295,8 +295,17 @@ func bigEndianHeightBytes(height exported.Height) []byte {
 // client state and consensus state will be set by client keeper
 // set iteration key to provide ability for efficient ordered iteration of consensus states.
 func setConsensusMetadata(ctx sdk.Context, clientStore sdk.KVStore, height exported.Height) {
-	SetProcessedTime(clientStore, height, uint64(ctx.BlockTime().UnixNano()))
-	SetProcessedHeight(clientStore, height, clienttypes.GetSelfHeight(ctx))
+	setConsensusMetadataWithValues(clientStore, height, clienttypes.GetSelfHeight(ctx), uint64(ctx.BlockTime().UnixNano()))
+}
+
+// setConsensusMetadataWithValues sets the consensus metadata with the provided values
+func setConsensusMetadataWithValues(
+	clientStore sdk.KVStore, height,
+	processedHeight exported.Height,
+	processedTime uint64,
+) {
+	SetProcessedTime(clientStore, height, processedTime)
+	SetProcessedHeight(clientStore, height, processedHeight)
 	SetIterationKey(clientStore, height)
 }
 

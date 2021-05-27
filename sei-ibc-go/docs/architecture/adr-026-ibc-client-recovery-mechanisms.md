@@ -5,6 +5,7 @@
 - 2020/06/23: Initial version
 - 2020/08/06: Revisions per review & to reference version
 - 2021/01/15: Revision to support substitute clients for unfreezing
+- 2021/05/20: Revision to simplify consensus state copying, remove initial height
 
 ## Status
 
@@ -42,11 +43,10 @@ We elect not to deal with chains which have actually halted, which is necessaril
 1. Require Tendermint light clients (ICS 07) to expose the following additional state mutation functions
     1. `Unfreeze()`, which unfreezes a light client after misbehaviour and clears any frozen height previously set
 1. Add a new governance proposal type, `ClientUpdateProposal`, in the `x/ibc` module
-    1. Extend the base `Proposal` with two client identifiers (`string`) and an initial height ('exported.Height'). 
+    1. Extend the base `Proposal` with two client identifiers (`string`). 
     1. The first client identifier is the proposed client to be updated. This client must be either frozen or expired.
     1. The second client is a substitute client. It carries all the state for the client which may be updated. It must have identitical client and chain parameters to the client which may be updated (except for latest height, frozen height, and chain-id). It should be continually updated during the voting period. 
-    1. The initial height represents the starting height consensus states which will be copied from the substitute client to the frozen/expired client.
-    1. If this governance proposal passes, the client on trial will be updated with all the state of the substitute, if and only if:
+    1. If this governance proposal passes, the client on trial will be updated to the latest state of the substitute, if and only if:
         1. `allow_governance_override_after_expiry` is true and the client has expired (`Expired()` returns true)
         1. `allow_governance_override_after_misbehaviour` is true and the client has been frozen (`Frozen()` returns true)
             1. In this case, additionally, the client is unfrozen by calling `Unfreeze()`

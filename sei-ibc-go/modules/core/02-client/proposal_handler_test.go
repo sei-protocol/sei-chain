@@ -29,7 +29,6 @@ func (suite *ClientTestSuite) TestNewClientUpdateProposalHandler() {
 
 				substitutePath := ibctesting.NewPath(suite.chainA, suite.chainB)
 				suite.coordinator.SetupClients(substitutePath)
-				initialHeight := clienttypes.NewHeight(subjectClientState.GetLatestHeight().GetRevisionNumber(), subjectClientState.GetLatestHeight().GetRevisionHeight()+1)
 
 				// update substitute twice
 				err = substitutePath.EndpointA.UpdateClient()
@@ -50,7 +49,7 @@ func (suite *ClientTestSuite) TestNewClientUpdateProposalHandler() {
 				tmClientState.AllowUpdateAfterMisbehaviour = true
 				suite.chainA.App.GetIBCKeeper().ClientKeeper.SetClientState(suite.chainA.GetContext(), substitutePath.EndpointA.ClientID, tmClientState)
 
-				content = clienttypes.NewClientUpdateProposal(ibctesting.Title, ibctesting.Description, subjectPath.EndpointA.ClientID, substitutePath.EndpointA.ClientID, initialHeight)
+				content = clienttypes.NewClientUpdateProposal(ibctesting.Title, ibctesting.Description, subjectPath.EndpointA.ClientID, substitutePath.EndpointA.ClientID)
 			}, true,
 		},
 		{

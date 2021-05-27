@@ -13,7 +13,6 @@ func (suite *KeeperTestSuite) TestClientUpdateProposal() {
 	var (
 		subject, substitute                       string
 		subjectClientState, substituteClientState exported.ClientState
-		initialHeight                             types.Height
 		content                                   govtypes.Content
 		err                                       error
 	)
@@ -25,7 +24,7 @@ func (suite *KeeperTestSuite) TestClientUpdateProposal() {
 	}{
 		{
 			"valid update client proposal", func() {
-				content = types.NewClientUpdateProposal(ibctesting.Title, ibctesting.Description, subject, substitute, initialHeight)
+				content = types.NewClientUpdateProposal(ibctesting.Title, ibctesting.Description, subject, substitute)
 			}, true,
 		},
 		{
@@ -37,31 +36,43 @@ func (suite *KeeperTestSuite) TestClientUpdateProposal() {
 				newRevisionNumber := tmClientState.GetLatestHeight().GetRevisionNumber() + 1
 
 				tmClientState.LatestHeight = types.NewHeight(newRevisionNumber, tmClientState.GetLatestHeight().GetRevisionHeight())
-				initialHeight = types.NewHeight(newRevisionNumber, initialHeight.GetRevisionHeight())
+
 				suite.chainA.App.GetIBCKeeper().ClientKeeper.SetClientConsensusState(suite.chainA.GetContext(), substitute, tmClientState.LatestHeight, consState)
+				clientStore := suite.chainA.App.GetIBCKeeper().ClientKeeper.ClientStore(suite.chainA.GetContext(), substitute)
+				ibctmtypes.SetProcessedTime(clientStore, tmClientState.LatestHeight, 100)
+				ibctmtypes.SetProcessedHeight(clientStore, tmClientState.LatestHeight, types.NewHeight(0, 1))
 				suite.chainA.App.GetIBCKeeper().ClientKeeper.SetClientState(suite.chainA.GetContext(), substitute, tmClientState)
 
-				content = types.NewClientUpdateProposal(ibctesting.Title, ibctesting.Description, subject, substitute, initialHeight)
+				content = types.NewClientUpdateProposal(ibctesting.Title, ibctesting.Description, subject, substitute)
 			}, true,
 		},
 		{
 			"cannot use localhost as subject", func() {
-				content = types.NewClientUpdateProposal(ibctesting.Title, ibctesting.Description, exported.Localhost, substitute, initialHeight)
+				content = types.NewClientUpdateProposal(ibctesting.Title, ibctesting.Description, exported.Localhost, substitute)
 			}, false,
 		},
 		{
 			"cannot use localhost as substitute", func() {
-				content = types.NewClientUpdateProposal(ibctesting.Title, ibctesting.Description, subject, exported.Localhost, initialHeight)
+				content = types.NewClientUpdateProposal(ibctesting.Title, ibctesting.Description, subject, exported.Localhost)
+			}, false,
+		},
+		{
+			"cannot use solomachine as substitute for tendermint client", func() {
+				solomachine := ibctesting.NewSolomachine(suite.T(), suite.cdc, "solo machine", "", 1)
+				solomachine.Sequence = subjectClientState.GetLatestHeight().GetRevisionHeight() + 1
+				substituteClientState = solomachine.ClientState()
+				suite.chainA.App.GetIBCKeeper().ClientKeeper.SetClientState(suite.chainA.GetContext(), substitute, substituteClientState)
+				content = types.NewClientUpdateProposal(ibctesting.Title, ibctesting.Description, subject, substitute)
 			}, false,
 		},
 		{
 			"subject client does not exist", func() {
-				content = types.NewClientUpdateProposal(ibctesting.Title, ibctesting.Description, ibctesting.InvalidID, substitute, initialHeight)
+				content = types.NewClientUpdateProposal(ibctesting.Title, ibctesting.Description, ibctesting.InvalidID, substitute)
 			}, false,
 		},
 		{
 			"substitute client does not exist", func() {
-				content = types.NewClientUpdateProposal(ibctesting.Title, ibctesting.Description, subject, ibctesting.InvalidID, initialHeight)
+				content = types.NewClientUpdateProposal(ibctesting.Title, ibctesting.Description, subject, ibctesting.InvalidID)
 			}, false,
 		},
 		{
@@ -71,7 +82,7 @@ func (suite *KeeperTestSuite) TestClientUpdateProposal() {
 				tmClientState.LatestHeight = substituteClientState.GetLatestHeight().(types.Height)
 				suite.chainA.App.GetIBCKeeper().ClientKeeper.SetClientState(suite.chainA.GetContext(), subject, tmClientState)
 
-				content = types.NewClientUpdateProposal(ibctesting.Title, ibctesting.Description, subject, substitute, initialHeight)
+				content = types.NewClientUpdateProposal(ibctesting.Title, ibctesting.Description, subject, substitute)
 			}, false,
 		},
 		{
@@ -81,7 +92,17 @@ func (suite *KeeperTestSuite) TestClientUpdateProposal() {
 				tmClientState.FrozenHeight = types.ZeroHeight()
 				suite.chainA.App.GetIBCKeeper().ClientKeeper.SetClientState(suite.chainA.GetContext(), subject, tmClientState)
 
-				content = types.NewClientUpdateProposal(ibctesting.Title, ibctesting.Description, subject, substitute, initialHeight)
+				content = types.NewClientUpdateProposal(ibctesting.Title, ibctesting.Description, subject, substitute)
+			}, false,
+		},
+		{
+			"substitute is frozen", func() {
+				tmClientState, ok := substituteClientState.(*ibctmtypes.ClientState)
+				suite.Require().True(ok)
+				tmClientState.FrozenHeight = types.NewHeight(0, 1)
+				suite.chainA.App.GetIBCKeeper().ClientKeeper.SetClientState(suite.chainA.GetContext(), substitute, tmClientState)
+
+				content = types.NewClientUpdateProposal(ibctesting.Title, ibctesting.Description, subject, substitute)
 			}, false,
 		},
 	}
@@ -100,7 +121,6 @@ func (suite *KeeperTestSuite) TestClientUpdateProposal() {
 			substitutePath := ibctesting.NewPath(suite.chainA, suite.chainB)
 			suite.coordinator.SetupClients(substitutePath)
 			substitute = substitutePath.EndpointA.ClientID
-			initialHeight = types.NewHeight(subjectClientState.GetLatestHeight().GetRevisionNumber(), subjectClientState.GetLatestHeight().GetRevisionHeight()+1)
 
 			// update substitute twice
 			substitutePath.EndpointA.UpdateClient()
@@ -118,7 +138,6 @@ func (suite *KeeperTestSuite) TestClientUpdateProposal() {
 			suite.Require().True(ok)
 			tmClientState.AllowUpdateAfterMisbehaviour = true
 			tmClientState.AllowUpdateAfterExpiry = true
-			tmClientState.FrozenHeight = tmClientState.LatestHeight
 			suite.chainA.App.GetIBCKeeper().ClientKeeper.SetClientState(suite.chainA.GetContext(), substitute, tmClientState)
 
 			tc.malleate()
