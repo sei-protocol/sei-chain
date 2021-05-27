@@ -253,8 +253,8 @@ func verifyChainedMembershipProof(root []byte, specs []*ics23.ProofSpec, proofs 
 			value = subroot
 		case *ics23.CommitmentProof_Nonexist:
 			return sdkerrors.Wrapf(ErrInvalidProof,
-				"chained membership proof contains nonexistence proof at index %d. If this is unexpected, please ensure that proof was queried from the height that contained the value in store and was queried with the correct key.",
-				i)
+				"chained membership proof contains nonexistence proof at index %d. If this is unexpected, please ensure that proof was queried from a height that contained the value in store and was queried with the correct key. The key used: %s",
+				i, keys)
 		default:
 			return sdkerrors.Wrapf(ErrInvalidProof,
 				"expected proof type: %T, got: %T", &ics23.CommitmentProof_Exist{}, proofs[i].Proof)

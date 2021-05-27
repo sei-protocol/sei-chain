@@ -241,8 +241,8 @@ func (k Keeper) RecvPacket(
 		_, found := k.GetPacketReceipt(ctx, packet.GetDestPort(), packet.GetDestChannel(), packet.GetSequence())
 		if found {
 			return sdkerrors.Wrapf(
-				types.ErrInvalidPacket,
-				"packet sequence (%d) already has been received", packet.GetSequence(),
+				types.ErrPacketReceived,
+				"packet sequence (%d)", packet.GetSequence(),
 			)
 		}
 
@@ -262,9 +262,17 @@ func (k Keeper) RecvPacket(
 			)
 		}
 
+		// helpful error message for relayers
+		if packet.GetSequence() < nextSequenceRecv {
+			return sdkerrors.Wrapf(
+				types.ErrPacketReceived,
+				"packet sequence (%d), next sequence receive (%d)", packet.GetSequence(), nextSequenceRecv,
+			)
+		}
+
 		if packet.GetSequence() != nextSequenceRecv {
 			return sdkerrors.Wrapf(
-				types.ErrInvalidPacket,
+				types.ErrPacketSequenceOutOfOrder,
 				"packet sequence ≠ next receive sequence (%d ≠ %d)", packet.GetSequence(), nextSequenceRecv,
 			)
 		}
@@ -462,6 +470,10 @@ func (k Keeper) AcknowledgePacket(
 
 	commitment := k.GetPacketCommitment(ctx, packet.GetSourcePort(), packet.GetSourceChannel(), packet.GetSequence())
 
+	if len(commitment) == 0 {
+		return sdkerrors.Wrapf(types.ErrPacketCommitmentNotFound, "packet with sequence (%d) has been acknowledged, or timed out. In rare cases the packet was never sent or the packet sequence is incorrect", packet.GetSequence())
+	}
+
 	packetCommitment := types.CommitPacket(k.cdc, packet)
 
 	// verify we sent the packet and haven't cleared it out yet
@@ -473,7 +485,7 @@ func (k Keeper) AcknowledgePacket(
 		ctx, connectionEnd, proofHeight, proof, packet.GetDestPort(), packet.GetDestChannel(),
 		packet.GetSequence(), acknowledgement,
 	); err != nil {
-		return sdkerrors.Wrap(err, "packet acknowledgement verification failed")
+		return err
 	}
 
 	// assert packets acknowledged in order
@@ -488,7 +500,7 @@ func (k Keeper) AcknowledgePacket(
 
 		if packet.GetSequence() != nextSequenceAck {
 			return sdkerrors.Wrapf(
-				sdkerrors.ErrInvalidSequence,
+				types.ErrPacketSequenceOutOfOrder,
 				"packet sequence ≠ next ack sequence (%d ≠ %d)", packet.GetSequence(), nextSequenceAck,
 			)
 		}

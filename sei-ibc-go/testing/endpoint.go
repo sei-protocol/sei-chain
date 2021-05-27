@@ -403,8 +403,6 @@ func (endpoint *Endpoint) WriteAcknowledgement(ack exported.Acknowledgement, pac
 }
 
 // AcknowledgePacket sends a MsgAcknowledgement to the channel associated with the endpoint.
-// TODO: add a query for the acknowledgement by events
-// - https://github.com/cosmos/cosmos-sdk/issues/6509
 func (endpoint *Endpoint) AcknowledgePacket(packet channeltypes.Packet, ack []byte) error {
 	// get proof of acknowledgement on counterparty
 	packetKey := host.PacketAcknowledgementKey(packet.GetDestPort(), packet.GetDestChannel(), packet.GetSequence())
@@ -413,6 +411,32 @@ func (endpoint *Endpoint) AcknowledgePacket(packet channeltypes.Packet, ack []by
 	ackMsg := channeltypes.NewMsgAcknowledgement(packet, ack, proof, proofHeight, endpoint.Chain.SenderAccount.GetAddress().String())
 
 	return endpoint.Chain.sendMsgs(ackMsg)
+}
+
+// TimeoutPacket sends a MsgTimeout to the channel associated with the endpoint.
+func (endpoint *Endpoint) TimeoutPacket(packet channeltypes.Packet) error {
+	// get proof for timeout based on channel order
+	var packetKey []byte
+
+	switch endpoint.ChannelConfig.Order {
+	case channeltypes.ORDERED:
+		packetKey = host.NextSequenceRecvKey(packet.GetDestPort(), packet.GetDestChannel())
+	case channeltypes.UNORDERED:
+		packetKey = host.PacketReceiptKey(packet.GetDestPort(), packet.GetDestChannel(), packet.GetSequence())
+	default:
+		return fmt.Errorf("unsupported order type %s", endpoint.ChannelConfig.Order)
+	}
+
+	proof, proofHeight := endpoint.Counterparty.QueryProof(packetKey)
+	nextSeqRecv, found := endpoint.Counterparty.Chain.App.GetIBCKeeper().ChannelKeeper.GetNextSequenceRecv(endpoint.Counterparty.Chain.GetContext(), endpoint.ChannelConfig.PortID, endpoint.ChannelID)
+	require.True(endpoint.Chain.t, found)
+
+	timeoutMsg := channeltypes.NewMsgTimeout(
+		packet, nextSeqRecv,
+		proof, proofHeight, endpoint.Chain.SenderAccount.GetAddress().String(),
+	)
+
+	return endpoint.Chain.sendMsgs(timeoutMsg)
 }
 
 // SetChannelClosed sets a channel state to CLOSED.

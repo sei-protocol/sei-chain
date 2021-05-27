@@ -545,7 +545,7 @@ func produceVerificationArgs(
 	if cs.GetLatestHeight().LT(height) {
 		return commitmenttypes.MerkleProof{}, nil, sdkerrors.Wrapf(
 			sdkerrors.ErrInvalidHeight,
-			"client state height < proof height (%d < %d)", cs.GetLatestHeight(), height,
+			"client state height < proof height (%d < %d), please ensure the client has been updated", cs.GetLatestHeight(), height,
 		)
 	}
 

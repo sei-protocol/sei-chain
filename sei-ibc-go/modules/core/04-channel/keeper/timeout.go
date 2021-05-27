@@ -80,6 +80,10 @@ func (k Keeper) TimeoutPacket(
 
 	commitment := k.GetPacketCommitment(ctx, packet.GetSourcePort(), packet.GetSourceChannel(), packet.GetSequence())
 
+	if len(commitment) == 0 {
+		return sdkerrors.Wrapf(types.ErrPacketCommitmentNotFound, "packet with sequence (%d) has been acknowledged or timed out. In rare cases the packet was never sent or the packet sequence is incorrect", packet.GetSequence())
+	}
+
 	packetCommitment := types.CommitPacket(k.cdc, packet)
 
 	// verify we sent the packet and haven't cleared it out yet
@@ -92,7 +96,7 @@ func (k Keeper) TimeoutPacket(
 		// check that packet has not been received
 		if nextSequenceRecv > packet.GetSequence() {
 			return sdkerrors.Wrapf(
-				types.ErrInvalidPacket,
+				types.ErrPacketReceived,
 				"packet already received, next sequence receive > packet sequence (%d > %d)", nextSequenceRecv, packet.GetSequence(),
 			)
 		}
