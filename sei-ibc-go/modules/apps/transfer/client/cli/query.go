@@ -106,3 +106,28 @@ func GetCmdParams() *cobra.Command {
 
 	return cmd
 }
+
+// GetCmdParams returns the command handler for ibc-transfer parameter querying.
+func GetCmdQueryEscrowAddress() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:     "escrow-address",
+		Short:   "Get the escrow address for a channel",
+		Long:    "Get the escrow address for a channel",
+		Args:    cobra.ExactArgs(2),
+		Example: fmt.Sprintf("%s query ibc-transfer escrow-address [port] [channel-id]", version.AppName),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			clientCtx, err := client.GetClientQueryContext(cmd)
+			if err != nil {
+				return err
+			}
+			port := args[0]
+			channel := args[1]
+			addr := types.GetEscrowAddress(port, channel)
+			return clientCtx.PrintString(fmt.Sprintf("%s\n", addr.String()))
+		},
+	}
+
+	flags.AddQueryFlagsToCmd(cmd)
+
+	return cmd
+}
