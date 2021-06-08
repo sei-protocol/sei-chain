@@ -82,20 +82,37 @@ func deleteConsensusState(clientStore sdk.KVStore, height exported.Height) {
 	clientStore.Delete(key)
 }
 
-// IterateProcessedTime iterates through the prefix store and applies the callback.
+// IterateConsensusMetadata iterates through the prefix store and applies the callback.
 // If the cb returns true, then iterator will close and stop.
-func IterateProcessedTime(store sdk.KVStore, cb func(key, val []byte) bool) {
+func IterateConsensusMetadata(store sdk.KVStore, cb func(key, val []byte) bool) {
 	iterator := sdk.KVStorePrefixIterator(store, []byte(host.KeyConsensusStatePrefix))
 
+	// iterate over processed time and processed height
 	defer iterator.Close()
 	for ; iterator.Valid(); iterator.Next() {
 		keySplit := strings.Split(string(iterator.Key()), "/")
 		// processed time key in prefix store has format: "consensusState/<height>/processedTime"
-		if len(keySplit) != 3 || keySplit[2] != "processedTime" {
+		if len(keySplit) != 3 {
 			// ignore all consensus state keys
+			continue
+
+		}
+
+		if keySplit[2] != "processedTime" && keySplit[2] != "processedHeight" {
+			// only perform callback on consensus metadata
 			continue
 		}
 
+		if cb(iterator.Key(), iterator.Value()) {
+			break
+		}
+	}
+
+	// iterate over iteration keys
+	iterator = sdk.KVStorePrefixIterator(store, []byte(KeyIterateConsensusStatePrefix))
+
+	defer iterator.Close()
+	for ; iterator.Valid(); iterator.Next() {
 		if cb(iterator.Key(), iterator.Value()) {
 			break
 		}
