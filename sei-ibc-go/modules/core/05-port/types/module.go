@@ -67,16 +67,19 @@ type IBCModule interface {
 	OnRecvPacket(
 		ctx sdk.Context,
 		packet channeltypes.Packet,
+		relayer sdk.AccAddress,
 	) exported.Acknowledgement
 
 	OnAcknowledgementPacket(
 		ctx sdk.Context,
 		packet channeltypes.Packet,
 		acknowledgement []byte,
+		relayer sdk.AccAddress,
 	) (*sdk.Result, error)
 
 	OnTimeoutPacket(
 		ctx sdk.Context,
 		packet channeltypes.Packet,
+		relayer sdk.AccAddress,
 	) (*sdk.Result, error)
 }

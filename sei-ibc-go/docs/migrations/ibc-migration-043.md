@@ -106,6 +106,8 @@ Application developers need to update their `OnRecvPacket` callback logic.
 
 The `OnRecvPacket` callback has been modified to only return the acknowledgement. The acknowledgement returned must implement the `Acknowledgement` interface. The acknowledgement should indicate if it represents a successful processing of a packet by returning true on `Success()` and false in all other cases. A return value of false on `Success()` will result in all state changes which occurred in the callback being discarded. More information can be found in the [documentation](https://github.com/cosmos/ibc-go/blob/main/docs/custom.md#receiving-packets).
 
+The `OnRecvPacket`, `OnAcknowledgementPacket`, and `OnTimeoutPacket` callbacks are now passed the `sdk.AccAddress` of the relayer who relayed the IBC packet. Applications may use or ignore this information. 
+
 ## IBC Event changes
 
 The `packet_data` attribute has been deprecated in favor of `packet_data_hex`, in order to provide standardized encoding/decoding of packet data in events. While the `packet_data` event still exists, all relayers and IBC Event consumers are strongly encouraged to switch over to using `packet_data_hex` as soon as possible.

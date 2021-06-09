@@ -323,6 +323,7 @@ func (am AppModule) OnChanCloseConfirm(
 func (am AppModule) OnRecvPacket(
 	ctx sdk.Context,
 	packet channeltypes.Packet,
+	relayer sdk.AccAddress,
 ) ibcexported.Acknowledgement {
 	ack := channeltypes.NewResultAcknowledgement([]byte{byte(1)})
 
@@ -360,6 +361,7 @@ func (am AppModule) OnAcknowledgementPacket(
 	ctx sdk.Context,
 	packet channeltypes.Packet,
 	acknowledgement []byte,
+	relayer sdk.AccAddress,
 ) (*sdk.Result, error) {
 	var ack channeltypes.Acknowledgement
 	if err := types.ModuleCdc.UnmarshalJSON(acknowledgement, &ack); err != nil {
@@ -411,6 +413,7 @@ func (am AppModule) OnAcknowledgementPacket(
 func (am AppModule) OnTimeoutPacket(
 	ctx sdk.Context,
 	packet channeltypes.Packet,
+	relayer sdk.AccAddress,
 ) (*sdk.Result, error) {
 	var data types.FungibleTokenPacketData
 	if err := types.ModuleCdc.UnmarshalJSON(packet.GetData(), &data); err != nil {

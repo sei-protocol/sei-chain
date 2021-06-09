@@ -424,6 +424,11 @@ func (k Keeper) ChannelCloseConfirm(goCtx context.Context, msg *channeltypes.Msg
 func (k Keeper) RecvPacket(goCtx context.Context, msg *channeltypes.MsgRecvPacket) (*channeltypes.MsgRecvPacketResponse, error) {
 	ctx := sdk.UnwrapSDKContext(goCtx)
 
+	relayer, err := sdk.AccAddressFromBech32(msg.Signer)
+	if err != nil {
+		return nil, sdkerrors.Wrap(err, "Invalid address for msg Signer")
+	}
+
 	// Lookup module by channel capability
 	module, cap, err := k.ChannelKeeper.LookupModuleByChannel(ctx, msg.Packet.DestinationPort, msg.Packet.DestinationChannel)
 	if err != nil {
@@ -444,7 +449,7 @@ func (k Keeper) RecvPacket(goCtx context.Context, msg *channeltypes.MsgRecvPacke
 	// Perform application logic callback
 	// Cache context so that we may discard state changes from callback if the acknowledgement is unsuccessful.
 	cacheCtx, writeFn := ctx.CacheContext()
-	ack := cbs.OnRecvPacket(cacheCtx, msg.Packet)
+	ack := cbs.OnRecvPacket(cacheCtx, msg.Packet, relayer)
 	if ack == nil || ack.Success() {
 		// write application state changes for asynchronous and successful acknowledgements
 		writeFn()
@@ -478,6 +483,12 @@ func (k Keeper) RecvPacket(goCtx context.Context, msg *channeltypes.MsgRecvPacke
 // Timeout defines a rpc handler method for MsgTimeout.
 func (k Keeper) Timeout(goCtx context.Context, msg *channeltypes.MsgTimeout) (*channeltypes.MsgTimeoutResponse, error) {
 	ctx := sdk.UnwrapSDKContext(goCtx)
+
+	relayer, err := sdk.AccAddressFromBech32(msg.Signer)
+	if err != nil {
+		return nil, sdkerrors.Wrap(err, "Invalid address for msg Signer")
+	}
+
 	// Lookup module by channel capability
 	module, cap, err := k.ChannelKeeper.LookupModuleByChannel(ctx, msg.Packet.SourcePort, msg.Packet.SourceChannel)
 	if err != nil {
@@ -496,7 +507,7 @@ func (k Keeper) Timeout(goCtx context.Context, msg *channeltypes.MsgTimeout) (*c
 	}
 
 	// Perform application logic callback
-	_, err = cbs.OnTimeoutPacket(ctx, msg.Packet)
+	_, err = cbs.OnTimeoutPacket(ctx, msg.Packet, relayer)
 	if err != nil {
 		return nil, sdkerrors.Wrap(err, "timeout packet callback failed")
 	}
@@ -527,6 +538,11 @@ func (k Keeper) Timeout(goCtx context.Context, msg *channeltypes.MsgTimeout) (*c
 func (k Keeper) TimeoutOnClose(goCtx context.Context, msg *channeltypes.MsgTimeoutOnClose) (*channeltypes.MsgTimeoutOnCloseResponse, error) {
 	ctx := sdk.UnwrapSDKContext(goCtx)
 
+	relayer, err := sdk.AccAddressFromBech32(msg.Signer)
+	if err != nil {
+		return nil, sdkerrors.Wrap(err, "Invalid address for msg Signer")
+	}
+
 	// Lookup module by channel capability
 	module, cap, err := k.ChannelKeeper.LookupModuleByChannel(ctx, msg.Packet.SourcePort, msg.Packet.SourceChannel)
 	if err != nil {
@@ -547,7 +563,7 @@ func (k Keeper) TimeoutOnClose(goCtx context.Context, msg *channeltypes.MsgTimeo
 	// Perform application logic callback
 	// NOTE: MsgTimeout and MsgTimeoutOnClose use the same "OnTimeoutPacket"
 	// application logic callback.
-	_, err = cbs.OnTimeoutPacket(ctx, msg.Packet)
+	_, err = cbs.OnTimeoutPacket(ctx, msg.Packet, relayer)
 	if err != nil {
 		return nil, sdkerrors.Wrap(err, "timeout packet callback failed")
 	}
@@ -578,6 +594,11 @@ func (k Keeper) TimeoutOnClose(goCtx context.Context, msg *channeltypes.MsgTimeo
 func (k Keeper) Acknowledgement(goCtx context.Context, msg *channeltypes.MsgAcknowledgement) (*channeltypes.MsgAcknowledgementResponse, error) {
 	ctx := sdk.UnwrapSDKContext(goCtx)
 
+	relayer, err := sdk.AccAddressFromBech32(msg.Signer)
+	if err != nil {
+		return nil, sdkerrors.Wrap(err, "Invalid address for msg Signer")
+	}
+
 	// Lookup module by channel capability
 	module, cap, err := k.ChannelKeeper.LookupModuleByChannel(ctx, msg.Packet.SourcePort, msg.Packet.SourceChannel)
 	if err != nil {
@@ -596,7 +617,7 @@ func (k Keeper) Acknowledgement(goCtx context.Context, msg *channeltypes.MsgAckn
 	}
 
 	// Perform application logic callback
-	_, err = cbs.OnAcknowledgementPacket(ctx, msg.Packet, msg.Acknowledgement)
+	_, err = cbs.OnAcknowledgementPacket(ctx, msg.Packet, msg.Acknowledgement, relayer)
 	if err != nil {
 		return nil, sdkerrors.Wrap(err, "acknowledge packet callback failed")
 	}
