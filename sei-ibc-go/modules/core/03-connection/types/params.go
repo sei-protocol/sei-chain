@@ -7,7 +7,7 @@ import (
 	paramtypes "github.com/cosmos/cosmos-sdk/x/params/types"
 )
 
-// DefaultTimePerBlock is the default value for maximum expected time per block.
+// DefaultTimePerBlock is the default value for maximum expected time per block (in nanoseconds).
 const DefaultTimePerBlock = 30 * time.Second
 
 // KeyMaxExpectedTimePerBlock is store's key for MaxExpectedTimePerBlock parameter

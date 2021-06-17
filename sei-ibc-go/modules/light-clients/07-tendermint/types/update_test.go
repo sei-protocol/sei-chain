@@ -400,6 +400,8 @@ func (suite *TendermintTestSuite) TestPruneConsensusState() {
 	clientStore = path.EndpointA.Chain.App.GetIBCKeeper().ClientKeeper.ClientStore(ctx, path.EndpointA.ClientID)
 	expectedProcessTime, ok := types.GetProcessedTime(clientStore, expiredHeight)
 	suite.Require().True(ok)
+	expectedProcessHeight, ok := types.GetProcessedHeight(clientStore, expiredHeight)
+	suite.Require().True(ok)
 	expectedConsKey := types.GetIterationKey(clientStore, expiredHeight)
 	suite.Require().NotNil(expectedConsKey)
 
@@ -425,6 +427,10 @@ func (suite *TendermintTestSuite) TestPruneConsensusState() {
 	processTime, ok := types.GetProcessedTime(clientStore, pruneHeight)
 	suite.Require().Equal(uint64(0), processTime, "processed time metadata not pruned")
 	suite.Require().False(ok)
+	processHeight, ok := types.GetProcessedHeight(clientStore, pruneHeight)
+	suite.Require().Nil(processHeight, "processed height metadata not pruned")
+	suite.Require().False(ok)
+
 	// check iteration key metadata is pruned
 	consKey := types.GetIterationKey(clientStore, pruneHeight)
 	suite.Require().Nil(consKey, "iteration key not pruned")
@@ -438,6 +444,12 @@ func (suite *TendermintTestSuite) TestPruneConsensusState() {
 	processTime, ok = types.GetProcessedTime(clientStore, expiredHeight)
 	suite.Require().Equal(expectedProcessTime, processTime, "processed time metadata incorrectly pruned")
 	suite.Require().True(ok)
+
+	// check processed height metadata is not pruned
+	processHeight, ok = types.GetProcessedHeight(clientStore, expiredHeight)
+	suite.Require().Equal(expectedProcessHeight, processHeight, "processed height metadata incorrectly pruned")
+	suite.Require().True(ok)
+
 	// check iteration key metadata is not pruned
 	consKey = types.GetIterationKey(clientStore, expiredHeight)
 	suite.Require().Equal(expectedConsKey, consKey, "iteration key incorrectly pruned")

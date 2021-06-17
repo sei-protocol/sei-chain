@@ -281,6 +281,42 @@ func GetPreviousConsensusState(clientStore sdk.KVStore, cdc codec.BinaryCodec, h
 	return getTmConsensusState(clientStore, cdc, csKey)
 }
 
+// PruneAllExpiredConsensusStates iterates over all consensus states for a given
+// client store. If a consensus state is expired, it is deleted and its metadata
+// is deleted.
+func PruneAllExpiredConsensusStates(
+	ctx sdk.Context, clientStore sdk.KVStore,
+	cdc codec.BinaryCodec, clientState *ClientState,
+) (err error) {
+	var heights []exported.Height
+
+	pruneCb := func(height exported.Height) bool {
+		consState, err := GetConsensusState(clientStore, cdc, height)
+		// this error should never occur
+		if err != nil {
+			return true
+		}
+
+		if clientState.IsExpired(consState.Timestamp, ctx.BlockTime()) {
+			heights = append(heights, height)
+		}
+
+		return false
+	}
+
+	IterateConsensusStateAscending(clientStore, pruneCb)
+	if err != nil {
+		return err
+	}
+
+	for _, height := range heights {
+		deleteConsensusState(clientStore, height)
+		deleteConsensusMetadata(clientStore, height)
+	}
+
+	return nil
+}
+
 // Helper function for GetNextConsensusState and GetPreviousConsensusState
 func getTmConsensusState(clientStore sdk.KVStore, cdc codec.BinaryCodec, key []byte) (*ConsensusState, bool) {
 	bz := clientStore.Get(key)

@@ -134,7 +134,6 @@ func (cs ClientState) CheckHeaderAndUpdateState(
 	}
 	// if pruneHeight is set, delete consensus state and metadata
 	if pruneHeight != nil {
-
 		deleteConsensusState(clientStore, pruneHeight)
 		deleteConsensusMetadata(clientStore, pruneHeight)
 	}

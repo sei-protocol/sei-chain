@@ -356,9 +356,9 @@ var xxx_messageInfo_Version proto.InternalMessageInfo
 
 // Params defines the set of Connection parameters.
 type Params struct {
-	// maximum expected time per block, used to enforce block delay. This parameter should reflect the largest amount of
-	// time that the chain might reasonably take to produce the next block under normal operating conditions. A safe
-	// choice is 3-5x the expected time per block.
+	// maximum expected time per block (in nanoseconds), used to enforce block delay. This parameter should reflect the
+	// largest amount of time that the chain might reasonably take to produce the next block under normal operating
+	// conditions. A safe choice is 3-5x the expected time per block.
 	MaxExpectedTimePerBlock uint64 `protobuf:"varint,1,opt,name=max_expected_time_per_block,json=maxExpectedTimePerBlock,proto3" json:"max_expected_time_per_block,omitempty" yaml:"max_expected_time_per_block"`
 }
 
