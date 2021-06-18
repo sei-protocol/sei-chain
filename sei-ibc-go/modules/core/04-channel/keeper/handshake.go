@@ -91,6 +91,17 @@ func (k Keeper) ChanOpenInit(
 		telemetry.IncrCounter(1, "ibc", "channel", "open-init")
 	}()
 
+	ctx.EventManager().EmitEvents(sdk.Events{
+		sdk.NewEvent(
+			types.EventTypeChannelOpenInit,
+			sdk.NewAttribute(types.AttributeKeyPortID, portID),
+			sdk.NewAttribute(types.AttributeKeyChannelID, channelID),
+			sdk.NewAttribute(types.AttributeCounterpartyPortID, counterparty.PortId),
+			sdk.NewAttribute(types.AttributeCounterpartyChannelID, counterparty.ChannelId),
+			sdk.NewAttribute(types.AttributeKeyConnectionID, connectionHops[0]),
+		),
+	})
+
 	return channelID, capKey, nil
 }
 
@@ -232,6 +243,17 @@ func (k Keeper) ChanOpenTry(
 		telemetry.IncrCounter(1, "ibc", "channel", "open-try")
 	}()
 
+	ctx.EventManager().EmitEvents(sdk.Events{
+		sdk.NewEvent(
+			types.EventTypeChannelOpenTry,
+			sdk.NewAttribute(types.AttributeKeyPortID, portID),
+			sdk.NewAttribute(types.AttributeKeyChannelID, channelID),
+			sdk.NewAttribute(types.AttributeCounterpartyPortID, channel.Counterparty.PortId),
+			sdk.NewAttribute(types.AttributeCounterpartyChannelID, channel.Counterparty.ChannelId),
+			sdk.NewAttribute(types.AttributeKeyConnectionID, channel.ConnectionHops[0]),
+		),
+	})
+
 	return channelID, capKey, nil
 }
 
@@ -307,6 +329,17 @@ func (k Keeper) ChanOpenAck(
 	channel.Counterparty.ChannelId = counterpartyChannelID
 	k.SetChannel(ctx, portID, channelID, channel)
 
+	ctx.EventManager().EmitEvents(sdk.Events{
+		sdk.NewEvent(
+			types.EventTypeChannelOpenAck,
+			sdk.NewAttribute(types.AttributeKeyPortID, portID),
+			sdk.NewAttribute(types.AttributeKeyChannelID, channelID),
+			sdk.NewAttribute(types.AttributeCounterpartyPortID, channel.Counterparty.PortId),
+			sdk.NewAttribute(types.AttributeCounterpartyChannelID, channel.Counterparty.ChannelId),
+			sdk.NewAttribute(types.AttributeKeyConnectionID, channel.ConnectionHops[0]),
+		),
+	})
+
 	return nil
 }
 
@@ -375,6 +408,18 @@ func (k Keeper) ChanOpenConfirm(
 	defer func() {
 		telemetry.IncrCounter(1, "ibc", "channel", "open-confirm")
 	}()
+
+	ctx.EventManager().EmitEvents(sdk.Events{
+		sdk.NewEvent(
+			types.EventTypeChannelOpenConfirm,
+			sdk.NewAttribute(types.AttributeKeyPortID, portID),
+			sdk.NewAttribute(types.AttributeKeyChannelID, channelID),
+			sdk.NewAttribute(types.AttributeCounterpartyPortID, channel.Counterparty.PortId),
+			sdk.NewAttribute(types.AttributeCounterpartyChannelID, channel.Counterparty.ChannelId),
+			sdk.NewAttribute(types.AttributeKeyConnectionID, channel.ConnectionHops[0]),
+		),
+	})
+
 	return nil
 }
 
@@ -424,6 +469,17 @@ func (k Keeper) ChanCloseInit(
 
 	channel.State = types.CLOSED
 	k.SetChannel(ctx, portID, channelID, channel)
+
+	ctx.EventManager().EmitEvents(sdk.Events{
+		sdk.NewEvent(
+			types.EventTypeChannelCloseInit,
+			sdk.NewAttribute(types.AttributeKeyPortID, portID),
+			sdk.NewAttribute(types.AttributeKeyChannelID, channelID),
+			sdk.NewAttribute(types.AttributeCounterpartyPortID, channel.Counterparty.PortId),
+			sdk.NewAttribute(types.AttributeCounterpartyChannelID, channel.Counterparty.ChannelId),
+			sdk.NewAttribute(types.AttributeKeyConnectionID, channel.ConnectionHops[0]),
+		),
+	})
 
 	return nil
 }
@@ -491,6 +547,17 @@ func (k Keeper) ChanCloseConfirm(
 
 	channel.State = types.CLOSED
 	k.SetChannel(ctx, portID, channelID, channel)
+
+	ctx.EventManager().EmitEvents(sdk.Events{
+		sdk.NewEvent(
+			types.EventTypeChannelCloseConfirm,
+			sdk.NewAttribute(types.AttributeKeyPortID, portID),
+			sdk.NewAttribute(types.AttributeKeyChannelID, channelID),
+			sdk.NewAttribute(types.AttributeCounterpartyPortID, channel.Counterparty.PortId),
+			sdk.NewAttribute(types.AttributeCounterpartyChannelID, channel.Counterparty.ChannelId),
+			sdk.NewAttribute(types.AttributeKeyConnectionID, channel.ConnectionHops[0]),
+		),
+	})
 
 	return nil
 }
