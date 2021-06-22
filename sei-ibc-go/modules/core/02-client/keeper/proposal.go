@@ -62,9 +62,9 @@ func (k Keeper) ClientUpdateProposal(ctx sdk.Context, p *types.ClientUpdatePropo
 			[]string{"ibc", "client", "update"},
 			1,
 			[]metrics.Label{
-				telemetry.NewLabel("client-type", clientState.ClientType()),
-				telemetry.NewLabel("client-id", p.SubjectClientId),
-				telemetry.NewLabel("update-type", "proposal"),
+				telemetry.NewLabel(types.LabelClientType, clientState.ClientType()),
+				telemetry.NewLabel(types.LabelClientID, p.SubjectClientId),
+				telemetry.NewLabel(types.LabelUpdateType, "proposal"),
 			},
 		)
 	}()
