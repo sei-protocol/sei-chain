@@ -205,11 +205,11 @@ func (am AppModule) OnRecvPacket(ctx sdk.Context, packet channeltypes.Packet, re
 }
 
 // OnAcknowledgementPacket implements the IBCModule interface.
-func (am AppModule) OnAcknowledgementPacket(sdk.Context, channeltypes.Packet, []byte, sdk.AccAddress) (*sdk.Result, error) {
-	return nil, nil
+func (am AppModule) OnAcknowledgementPacket(sdk.Context, channeltypes.Packet, []byte, sdk.AccAddress) error {
+	return nil
 }
 
 // OnTimeoutPacket implements the IBCModule interface.
-func (am AppModule) OnTimeoutPacket(sdk.Context, channeltypes.Packet, sdk.AccAddress) (*sdk.Result, error) {
-	return nil, nil
+func (am AppModule) OnTimeoutPacket(sdk.Context, channeltypes.Packet, sdk.AccAddress) error {
+	return nil
 }

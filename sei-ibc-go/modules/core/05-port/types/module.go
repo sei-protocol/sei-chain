@@ -75,11 +75,11 @@ type IBCModule interface {
 		packet channeltypes.Packet,
 		acknowledgement []byte,
 		relayer sdk.AccAddress,
-	) (*sdk.Result, error)
+	) error
 
 	OnTimeoutPacket(
 		ctx sdk.Context,
 		packet channeltypes.Packet,
 		relayer sdk.AccAddress,
-	) (*sdk.Result, error)
+	) error
 }
