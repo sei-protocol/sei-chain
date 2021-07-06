@@ -21,6 +21,13 @@ func (suite *TendermintTestSuite) TestConsensusStateValidateBasic() {
 				NextValidatorsHash: suite.valsHash,
 			},
 			true},
+		{"success with sentinel",
+			&types.ConsensusState{
+				Timestamp:          suite.now,
+				Root:               commitmenttypes.NewMerkleRoot([]byte(types.SentinelRoot)),
+				NextValidatorsHash: suite.valsHash,
+			},
+			true},
 		{"root is nil",
 			&types.ConsensusState{
 				Timestamp:          suite.now,
