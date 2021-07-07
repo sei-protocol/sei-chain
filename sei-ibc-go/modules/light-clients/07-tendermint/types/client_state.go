@@ -122,8 +122,14 @@ func (cs ClientState) Validate() error {
 	if cs.MaxClockDrift == 0 {
 		return sdkerrors.Wrap(ErrInvalidMaxClockDrift, "max clock drift cannot be zero")
 	}
+
+	// the latest height revision number must match the chain id revision number
+	if cs.LatestHeight.RevisionNumber != clienttypes.ParseChainID(cs.ChainId) {
+		return sdkerrors.Wrapf(ErrInvalidHeaderHeight,
+			"latest height revision number must match chain id revision number (%d != %d)", cs.LatestHeight.RevisionNumber, clienttypes.ParseChainID(cs.ChainId))
+	}
 	if cs.LatestHeight.RevisionHeight == 0 {
-		return sdkerrors.Wrapf(ErrInvalidHeaderHeight, "tendermint revision height cannot be zero")
+		return sdkerrors.Wrapf(ErrInvalidHeaderHeight, "tendermint client's latest height revision height cannot be zero")
 	}
 	if cs.TrustingPeriod >= cs.UnbondingPeriod {
 		return sdkerrors.Wrapf(

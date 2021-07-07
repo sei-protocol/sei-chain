@@ -129,7 +129,12 @@ func (suite *TendermintTestSuite) TestValidate() {
 			expPass:     false,
 		},
 		{
-			name:        "invalid height",
+			name:        "invalid revision number",
+			clientState: types.NewClientState(chainID, types.DefaultTrustLevel, trustingPeriod, ubdPeriod, maxClockDrift, clienttypes.NewHeight(1, 1), commitmenttypes.GetSDKSpecs(), upgradePath, false, false),
+			expPass:     false,
+		},
+		{
+			name:        "invalid revision height",
 			clientState: types.NewClientState(chainID, types.DefaultTrustLevel, trustingPeriod, ubdPeriod, maxClockDrift, clienttypes.ZeroHeight(), commitmenttypes.GetSDKSpecs(), upgradePath, false, false),
 			expPass:     false,
 		},

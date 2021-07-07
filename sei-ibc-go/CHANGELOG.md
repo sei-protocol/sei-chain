@@ -43,6 +43,7 @@ Ref: https://keepachangelog.com/en/1.0.0/
 
 ### Bug Fixes
 
+* (07-tendermint) [\#241](https://github.com/cosmos/ibc-go/pull/241) Ensure tendermint client state latest height revision number matches chain id revision number.
 * (07-tendermint) [\#234](https://github.com/cosmos/ibc-go/pull/234) Use sentinel value for the consensus state root set during a client upgrade. This prevents genesis validation from failing.
 * (modules) [\#223](https://github.com/cosmos/ibc-go/pull/223) Use correct Prometheus format for metric labels.
 * (06-solomachine) [\#214](https://github.com/cosmos/ibc-go/pull/214) Disable defensive timestamp check in SendPacket for solo machine clients.
