@@ -26,5 +26,6 @@ func ExportGenesis(ctx sdk.Context, k keeper.Keeper) types.GenesisState {
 		Connections:            k.GetAllConnections(ctx),
 		ClientConnectionPaths:  k.GetAllClientConnectionPaths(ctx),
 		NextConnectionSequence: k.GetNextConnectionSequence(ctx),
+		Params:                 k.GetParams(ctx),
 	}
 }
