@@ -164,7 +164,7 @@ The solo machine has replaced the FrozenSequence uint64 field with a IsFrozen bo
 
 Application developers need to update their `OnRecvPacket` callback logic. 
 
-The `OnRecvPacket` callback has been modified to only return the acknowledgement. The acknowledgement returned must implement the `Acknowledgement` interface. The acknowledgement should indicate if it represents a successful processing of a packet by returning true on `Success()` and false in all other cases. A return value of false on `Success()` will result in all state changes which occurred in the callback being discarded. More information can be found in the [documentation](https://github.com/cosmos/ibc-go/blob/main/docs/custom.md#receiving-packets).
+The `OnRecvPacket` callback has been modified to only return the acknowledgement. The acknowledgement returned must implement the `Acknowledgement` interface. The acknowledgement should indicate if it represents a successful processing of a packet by returning true on `Success()` and false in all other cases. A return value of false on `Success()` will result in all state changes which occurred in the callback being discarded. More information can be found in the [documentation](https://github.com/cosmos/ibc-go/blob/main/docs/ibc/apps.md#receiving-packets).
 
 The `OnRecvPacket`, `OnAcknowledgementPacket`, and `OnTimeoutPacket` callbacks are now passed the `sdk.AccAddress` of the relayer who relayed the IBC packet. Applications may use or ignore this information. 
 
