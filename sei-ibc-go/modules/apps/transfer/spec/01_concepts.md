@@ -31,7 +31,7 @@ acting as the "source zone". When the token is sent back to the chain it previou
 prefix is removed. This is a backwards movement in the token's timeline and the sender chain is
 acting as the "sink zone".
 
-It is strongly recommended to read the full details of [ADR 001: Coin Source Tracing](./../../../../../docs/architecture/adr-001-coin-source-tracing.md) to understand the implications and context of the IBC token representations.
+It is strongly recommended to read the full details of [ADR 001: Coin Source Tracing](https://github.com/cosmos/ibc-go/blob/main/docs/architecture/adr-001-coin-source-tracing.md) to understand the implications and context of the IBC token representations.
 
 ### UX suggestions for clients
 
@@ -96,7 +96,7 @@ The only viable alternative for clients (at the time of writing) to tokens with 
 
 ## Locked Funds
 
-In some [exceptional cases](./../../../../../docs/architecture/adr-026-ibc-client-recovery-mechanisms.md#exceptional-cases), a client state associated with a given channel cannot be updated. This causes that funds from fungible tokens in that channel will be permanently locked and thus can no longer be transferred.
+In some [exceptional cases](https://github.com/cosmos/ibc-go/blob/main/docs/architecture/adr-026-ibc-client-recovery-mechanisms.md#exceptional-cases), a client state associated with a given channel cannot be updated. This causes that funds from fungible tokens in that channel will be permanently locked and thus can no longer be transferred.
 
 To mitigate this, a client update governance proposal can be submitted to update the frozen client
 with a new valid header. Once the proposal passes the client state will be unfrozen and the funds
