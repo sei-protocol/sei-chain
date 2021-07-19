@@ -30,4 +30,7 @@ var (
 
 	// ORDERED channel error
 	ErrPacketSequenceOutOfOrder = sdkerrors.Register(SubModuleName, 21, "packet sequence is out of order")
+
+	// Antehandler error
+	ErrRedundantTx = sdkerrors.Register(SubModuleName, 22, "packet messages are redundant")
 )
