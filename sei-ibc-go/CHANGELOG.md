@@ -37,7 +37,6 @@ Ref: https://keepachangelog.com/en/1.0.0/
 ## [Unreleased]
 
 * (core) [\#227](https://github.com/cosmos/ibc-go/pull/227) Remove sdk.Result from application callbacks
-* (core) [\#268](https://github.com/cosmos/ibc-go/pull/268) Perform a no-op on redundant relay messages. Previous behaviour returned an error. Now no state change will occur and no error will be returned.
 
 
 ## [v1.0.0-rc0](https://github.com/cosmos/ibc-go/releases/tag/v1.0.0-rc0) - 2021-07-07
@@ -69,6 +68,7 @@ Ref: https://keepachangelog.com/en/1.0.0/
 * (modules/core) [\#109](https://github.com/cosmos/ibc-go/pull/109) Remove connection and channel handshake CLI commands.
 * (modules) [\#107](https://github.com/cosmos/ibc-go/pull/107) Modify OnRecvPacket callback to return an acknowledgement which indicates if it is successful or not. Callback state changes are discarded for unsuccessful acknowledgements only. 
 * (modules) [\#108](https://github.com/cosmos/ibc-go/pull/108) All message constructors take the signer as a string to prevent upstream bugs. The `String()` function for an SDK Acc Address relies on external context.
+* (transfer) [\#275](https://github.com/cosmos/ibc-go/pull/275) Remove 'ChanCloseInit' function from transfer keeper. ICS20 does not close channels.
 
 ### State Machine Breaking
 
@@ -78,6 +78,7 @@ Ref: https://keepachangelog.com/en/1.0.0/
 * (modules/core/02-client) [\#8405](https://github.com/cosmos/cosmos-sdk/pull/8405) Refactor IBC client update governance proposals to use a substitute client to update a frozen or expired client.
 * (modules/core/02-client) [\#8673](https://github.com/cosmos/cosmos-sdk/pull/8673) IBC upgrade logic moved to 02-client and an IBC UpgradeProposal is added.
 * (modules/core/03-connection) [\#171](https://github.com/cosmos/ibc-go/pull/171) Introduces a new parameter `MaxExpectedTimePerBlock` to allow connections to calculate and enforce a block delay that is proportional to time delay set by connection.
+* (core) [\#268](https://github.com/cosmos/ibc-go/pull/268) Perform a no-op on redundant relay messages. Previous behaviour returned an error. Now no state change will occur and no error will be returned.
 
 ### Improvements
 
