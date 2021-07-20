@@ -37,6 +37,7 @@ Ref: https://keepachangelog.com/en/1.0.0/
 ## [Unreleased]
 
 * (core) [\#227](https://github.com/cosmos/ibc-go/pull/227) Remove sdk.Result from application callbacks
+* (core) [\#268](https://github.com/cosmos/ibc-go/pull/268) Perform a no-op on redundant relay messages. Previous behaviour returned an error. Now no state change will occur and no error will be returned.
 
 
 ## [v1.0.0-rc0](https://github.com/cosmos/ibc-go/releases/tag/v1.0.0-rc0) - 2021-07-07

@@ -5,12 +5,14 @@
 package ibctesting
 
 import (
+	"strconv"
 	"time"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 
 	ibctransfertypes "github.com/cosmos/ibc-go/modules/apps/transfer/types"
 	connectiontypes "github.com/cosmos/ibc-go/modules/core/03-connection/types"
+	channeltypes "github.com/cosmos/ibc-go/modules/core/04-channel/types"
 	commitmenttypes "github.com/cosmos/ibc-go/modules/core/23-commitment/types"
 	ibctmtypes "github.com/cosmos/ibc-go/modules/light-clients/07-tendermint/types"
 	"github.com/cosmos/ibc-go/testing/mock"
@@ -50,10 +52,14 @@ var (
 
 	ConnectionVersion = connectiontypes.ExportedVersionsToProto(connectiontypes.GetCompatibleVersions())[0]
 
-	MockAcknowledgement      = mock.MockAcknowledgement.Acknowledgement()
-	MockPacketData           = mock.MockPacketData
-	MockFailPacketData       = mock.MockFailPacketData
-	MockCanaryCapabilityName = mock.MockCanaryCapabilityName
+	MockAcknowledgement          = mock.MockAcknowledgement.Acknowledgement()
+	MockPacketData               = mock.MockPacketData
+	MockFailPacketData           = mock.MockFailPacketData
+	MockRecvCanaryCapabilityName = mock.MockRecvCanaryCapabilityName
 
 	prefix = commitmenttypes.NewMerklePrefix([]byte("ibc"))
 )
+
+func GetMockRecvCanaryCapabilityName(packet channeltypes.Packet) string {
+	return MockRecvCanaryCapabilityName + strconv.Itoa(int(packet.GetSequence()))
+}

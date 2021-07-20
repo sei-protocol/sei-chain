@@ -48,7 +48,7 @@ func (suite *KeeperTestSuite) TestTimeoutPacket() {
 			path.EndpointA.UpdateClient()
 		}, true},
 		{"packet already timed out: ORDERED", func() {
-			expError = types.ErrInvalidChannelState
+			expError = types.ErrNoOpMsg
 			ordered = true
 			path.SetChannelOrdered()
 
@@ -62,7 +62,7 @@ func (suite *KeeperTestSuite) TestTimeoutPacket() {
 			suite.Require().NoError(err)
 		}, false},
 		{"packet already timed out: UNORDERED", func() {
-			expError = types.ErrPacketCommitmentNotFound
+			expError = types.ErrNoOpMsg
 			ordered = false
 
 			suite.coordinator.Setup(path)
@@ -83,9 +83,13 @@ func (suite *KeeperTestSuite) TestTimeoutPacket() {
 		{"channel not open", func() {
 			expError = types.ErrInvalidChannelState
 			suite.coordinator.Setup(path)
-			packet = types.NewPacket(ibctesting.MockPacketData, 1, path.EndpointA.ChannelConfig.PortID, path.EndpointA.ChannelID, path.EndpointB.ChannelConfig.PortID, path.EndpointB.ChannelID, timeoutHeight, disabledTimeoutTimestamp)
+			packet = types.NewPacket(ibctesting.MockPacketData, 1, path.EndpointA.ChannelConfig.PortID, path.EndpointA.ChannelID, path.EndpointB.ChannelConfig.PortID, path.EndpointB.ChannelID, path.EndpointA.GetClientState().GetLatestHeight().Increment().(clienttypes.Height), disabledTimeoutTimestamp)
+			err := path.EndpointA.SendPacket(packet)
+			suite.Require().NoError(err)
+			// need to update chainA's client representing chainB to prove missing ack
+			path.EndpointA.UpdateClient()
 
-			err := path.EndpointA.SetChannelClosed()
+			err = path.EndpointA.SetChannelClosed()
 			suite.Require().NoError(err)
 		}, false},
 		{"packet destination port ≠ channel counterparty port", func() {
@@ -130,7 +134,7 @@ func (suite *KeeperTestSuite) TestTimeoutPacket() {
 			path.EndpointA.UpdateClient()
 		}, false},
 		{"packet hasn't been sent", func() {
-			expError = types.ErrPacketCommitmentNotFound
+			expError = types.ErrNoOpMsg
 			ordered = true
 			path.SetChannelOrdered()
 
@@ -182,10 +186,12 @@ func (suite *KeeperTestSuite) TestTimeoutPacket() {
 			orderedPacketKey := host.NextSequenceRecvKey(packet.GetDestPort(), packet.GetDestChannel())
 			unorderedPacketKey := host.PacketReceiptKey(packet.GetDestPort(), packet.GetDestChannel(), packet.GetSequence())
 
-			if ordered {
-				proof, proofHeight = suite.chainB.QueryProof(orderedPacketKey)
-			} else {
-				proof, proofHeight = suite.chainB.QueryProof(unorderedPacketKey)
+			if path.EndpointB.ConnectionID != "" {
+				if ordered {
+					proof, proofHeight = path.EndpointB.QueryProof(orderedPacketKey)
+				} else {
+					proof, proofHeight = path.EndpointB.QueryProof(unorderedPacketKey)
+				}
 			}
 
 			err := suite.chainA.App.GetIBCKeeper().ChannelKeeper.TimeoutPacket(suite.chainA.GetContext(), packet, proof, proofHeight, nextSeqRecv)

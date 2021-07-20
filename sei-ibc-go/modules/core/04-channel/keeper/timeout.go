@@ -34,13 +34,6 @@ func (k Keeper) TimeoutPacket(
 		)
 	}
 
-	if channel.State != types.OPEN {
-		return sdkerrors.Wrapf(
-			types.ErrInvalidChannelState,
-			"channel state is not OPEN (got %s)", channel.State.String(),
-		)
-	}
-
 	// NOTE: TimeoutPacket is called by the AnteHandler which acts upon the packet.Route(),
 	// so the capability authentication can be omitted here
 
@@ -81,7 +74,19 @@ func (k Keeper) TimeoutPacket(
 	commitment := k.GetPacketCommitment(ctx, packet.GetSourcePort(), packet.GetSourceChannel(), packet.GetSequence())
 
 	if len(commitment) == 0 {
-		return sdkerrors.Wrapf(types.ErrPacketCommitmentNotFound, "packet with sequence (%d) has been acknowledged or timed out. In rare cases, the packet referenced was never sent, likely due to the relayer being misconfigured", packet.GetSequence())
+		EmitTimeoutPacketEvent(ctx, packet, channel)
+		// This error indicates that the timeout has already been relayed
+		// or there is a misconfigured relayer attempting to prove a timeout
+		// for a packet never sent. Core IBC will treat this error as a no-op in order to
+		// prevent an entire relay transaction from failing and consuming unnecessary fees.
+		return types.ErrNoOpMsg
+	}
+
+	if channel.State != types.OPEN {
+		return sdkerrors.Wrapf(
+			types.ErrInvalidChannelState,
+			"channel state is not OPEN (got %s)", channel.State.String(),
+		)
 	}
 
 	packetCommitment := types.CommitPacket(k.cdc, packet)
@@ -155,23 +160,7 @@ func (k Keeper) TimeoutExecuted(
 	k.Logger(ctx).Info("packet timed-out", "packet", fmt.Sprintf("%v", packet))
 
 	// emit an event marking that we have processed the timeout
-	ctx.EventManager().EmitEvents(sdk.Events{
-		sdk.NewEvent(
-			types.EventTypeTimeoutPacket,
-			sdk.NewAttribute(types.AttributeKeyTimeoutHeight, packet.GetTimeoutHeight().String()),
-			sdk.NewAttribute(types.AttributeKeyTimeoutTimestamp, fmt.Sprintf("%d", packet.GetTimeoutTimestamp())),
-			sdk.NewAttribute(types.AttributeKeySequence, fmt.Sprintf("%d", packet.GetSequence())),
-			sdk.NewAttribute(types.AttributeKeySrcPort, packet.GetSourcePort()),
-			sdk.NewAttribute(types.AttributeKeySrcChannel, packet.GetSourceChannel()),
-			sdk.NewAttribute(types.AttributeKeyDstPort, packet.GetDestPort()),
-			sdk.NewAttribute(types.AttributeKeyDstChannel, packet.GetDestChannel()),
-			sdk.NewAttribute(types.AttributeKeyChannelOrdering, channel.Ordering.String()),
-		),
-		sdk.NewEvent(
-			sdk.EventTypeMessage,
-			sdk.NewAttribute(sdk.AttributeKeyModule, types.AttributeValueCategory),
-		),
-	})
+	EmitTimeoutPacketEvent(ctx, packet, channel)
 
 	return nil
 }
@@ -221,6 +210,15 @@ func (k Keeper) TimeoutOnClose(
 	}
 
 	commitment := k.GetPacketCommitment(ctx, packet.GetSourcePort(), packet.GetSourceChannel(), packet.GetSequence())
+
+	if len(commitment) == 0 {
+		EmitTimeoutPacketEvent(ctx, packet, channel)
+		// This error indicates that the timeout has already been relayed
+		// or there is a misconfigured relayer attempting to prove a timeout
+		// for a packet never sent. Core IBC will treat this error as a no-op in order to
+		// prevent an entire relay transaction from failing and consuming unnecessary fees.
+		return types.ErrNoOpMsg
+	}
 
 	packetCommitment := types.CommitPacket(k.cdc, packet)
 

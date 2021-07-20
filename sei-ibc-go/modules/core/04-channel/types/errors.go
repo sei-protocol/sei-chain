@@ -33,4 +33,7 @@ var (
 
 	// Antehandler error
 	ErrRedundantTx = sdkerrors.Register(SubModuleName, 22, "packet messages are redundant")
+
+	// Perform a no-op on the current Msg
+	ErrNoOpMsg = sdkerrors.Register(SubModuleName, 23, "message is redundant, no-op will be performed")
 )

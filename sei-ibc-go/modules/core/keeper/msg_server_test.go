@@ -141,7 +141,8 @@ func (suite *KeeperTestSuite) TestHandleRecvPacket() {
 			suite.coordinator.Setup(path)
 			packet = channeltypes.NewPacket(ibctesting.MockPacketData, 1, path.EndpointA.ChannelConfig.PortID, path.EndpointA.ChannelID, path.EndpointB.ChannelConfig.PortID, path.EndpointB.ChannelID, timeoutHeight, 0)
 		}, false, false},
-		{"ORDERED: packet already received (replay)", func() {
+		{"successful no-op: ORDERED - packet already received (replay)", func() {
+			// mock will panic if application callback is called twice on the same packet
 			path.SetChannelOrdered()
 			suite.coordinator.Setup(path)
 			packet = channeltypes.NewPacket(ibctesting.MockPacketData, 1, path.EndpointA.ChannelConfig.PortID, path.EndpointA.ChannelID, path.EndpointB.ChannelConfig.PortID, path.EndpointB.ChannelID, timeoutHeight, 0)
@@ -151,8 +152,9 @@ func (suite *KeeperTestSuite) TestHandleRecvPacket() {
 
 			err = path.EndpointB.RecvPacket(packet)
 			suite.Require().NoError(err)
-		}, false, false},
-		{"UNORDERED: packet already received (replay)", func() {
+		}, true, false},
+		{"successful no-op: UNORDERED - packet already received (replay)", func() {
+			// mock will panic if application callback is called twice on the same packet
 			suite.coordinator.Setup(path)
 			packet = channeltypes.NewPacket(ibctesting.MockPacketData, 1, path.EndpointA.ChannelConfig.PortID, path.EndpointA.ChannelID, path.EndpointB.ChannelConfig.PortID, path.EndpointB.ChannelID, timeoutHeight, 0)
 
@@ -161,7 +163,7 @@ func (suite *KeeperTestSuite) TestHandleRecvPacket() {
 
 			err = path.EndpointB.RecvPacket(packet)
 			suite.Require().NoError(err)
-		}, false, false},
+		}, true, false},
 	}
 
 	for _, tc := range testCases {
@@ -174,9 +176,16 @@ func (suite *KeeperTestSuite) TestHandleRecvPacket() {
 
 			tc.malleate()
 
+			var (
+				proof       []byte
+				proofHeight clienttypes.Height
+			)
+
 			// get proof of packet commitment from chainA
 			packetKey := host.PacketCommitmentKey(packet.GetSourcePort(), packet.GetSourceChannel(), packet.GetSequence())
-			proof, proofHeight := suite.chainA.QueryProof(packetKey)
+			if path.EndpointA.ChannelID != "" {
+				proof, proofHeight = path.EndpointA.QueryProof(packetKey)
+			}
 
 			msg := channeltypes.NewMsgRecvPacket(packet, proof, proofHeight, suite.chainB.SenderAccount.GetAddress().String())
 
@@ -185,12 +194,12 @@ func (suite *KeeperTestSuite) TestHandleRecvPacket() {
 			if tc.expPass {
 				suite.Require().NoError(err)
 
-				// replay should fail since state changes occur
+				// replay should not fail since it will be treated as a no-op
 				_, err := keeper.Keeper.RecvPacket(*suite.chainB.App.GetIBCKeeper(), sdk.WrapSDKContext(suite.chainB.GetContext()), msg)
-				suite.Require().Error(err)
+				suite.Require().NoError(err)
 
 				// check that callback state was handled correctly
-				_, exists := suite.chainB.GetSimApp().ScopedIBCMockKeeper.GetCapability(suite.chainB.GetContext(), ibctesting.MockCanaryCapabilityName)
+				_, exists := suite.chainB.GetSimApp().ScopedIBCMockKeeper.GetCapability(suite.chainB.GetContext(), ibctesting.GetMockRecvCanaryCapabilityName(packet))
 				if tc.expRevert {
 					suite.Require().False(exists, "capability exists in store even after callback reverted")
 				} else {
@@ -293,7 +302,7 @@ func (suite *KeeperTestSuite) TestHandleAcknowledgePacket() {
 			err := path.EndpointA.SendPacket(packet)
 			suite.Require().NoError(err)
 		}, false},
-		{"ORDERED: packet already acknowledged (replay)", func() {
+		{"successful no-op: ORDERED - packet already acknowledged (replay)", func() {
 			suite.coordinator.Setup(path)
 			packet = channeltypes.NewPacket(ibctesting.MockPacketData, 1, path.EndpointA.ChannelConfig.PortID, path.EndpointA.ChannelID, path.EndpointB.ChannelConfig.PortID, path.EndpointB.ChannelID, timeoutHeight, 0)
 
@@ -305,8 +314,8 @@ func (suite *KeeperTestSuite) TestHandleAcknowledgePacket() {
 
 			err = path.EndpointA.AcknowledgePacket(packet, ibctesting.MockAcknowledgement)
 			suite.Require().NoError(err)
-		}, false},
-		{"UNORDERED: packet already acknowledged (replay)", func() {
+		}, true},
+		{"successful no-op: UNORDERED - packet already acknowledged (replay)", func() {
 			suite.coordinator.Setup(path)
 
 			packet = channeltypes.NewPacket(ibctesting.MockPacketData, 1, path.EndpointA.ChannelConfig.PortID, path.EndpointA.ChannelID, path.EndpointB.ChannelConfig.PortID, path.EndpointB.ChannelID, timeoutHeight, 0)
@@ -319,7 +328,7 @@ func (suite *KeeperTestSuite) TestHandleAcknowledgePacket() {
 
 			err = path.EndpointA.AcknowledgePacket(packet, ibctesting.MockAcknowledgement)
 			suite.Require().NoError(err)
-		}, false},
+		}, true},
 	}
 
 	for _, tc := range testCases {
@@ -331,8 +340,14 @@ func (suite *KeeperTestSuite) TestHandleAcknowledgePacket() {
 
 			tc.malleate()
 
+			var (
+				proof       []byte
+				proofHeight clienttypes.Height
+			)
 			packetKey := host.PacketAcknowledgementKey(packet.GetDestPort(), packet.GetDestChannel(), packet.GetSequence())
-			proof, proofHeight := suite.chainB.QueryProof(packetKey)
+			if path.EndpointB.ChannelID != "" {
+				proof, proofHeight = path.EndpointB.QueryProof(packetKey)
+			}
 
 			msg := channeltypes.NewMsgAcknowledgement(packet, ibcmock.MockAcknowledgement.Acknowledgement(), proof, proofHeight, suite.chainA.SenderAccount.GetAddress().String())
 
@@ -341,14 +356,13 @@ func (suite *KeeperTestSuite) TestHandleAcknowledgePacket() {
 			if tc.expPass {
 				suite.Require().NoError(err)
 
-				// replay should an error
-				_, err := keeper.Keeper.Acknowledgement(*suite.chainA.App.GetIBCKeeper(), sdk.WrapSDKContext(suite.chainA.GetContext()), msg)
-				suite.Require().Error(err)
-
 				// verify packet commitment was deleted on source chain
 				has := suite.chainA.App.GetIBCKeeper().ChannelKeeper.HasPacketCommitment(suite.chainA.GetContext(), packet.GetSourcePort(), packet.GetSourceChannel(), packet.GetSequence())
 				suite.Require().False(has)
 
+				// replay should not error as it is treated as a no-op
+				_, err := keeper.Keeper.Acknowledgement(*suite.chainA.App.GetIBCKeeper(), sdk.WrapSDKContext(suite.chainA.GetContext()), msg)
+				suite.Require().NoError(err)
 			} else {
 				suite.Require().Error(err)
 			}
@@ -441,11 +455,11 @@ func (suite *KeeperTestSuite) TestHandleTimeoutPacket() {
 
 			packetKey = host.NextSequenceRecvKey(packet.GetDestPort(), packet.GetDestChannel())
 		}, false},
-		{"UNORDERED: packet not sent", func() {
+		{"successful no-op: UNORDERED - packet not sent", func() {
 			suite.coordinator.Setup(path)
-			packet = channeltypes.NewPacket(ibctesting.MockPacketData, 1, path.EndpointA.ChannelConfig.PortID, path.EndpointA.ChannelID, path.EndpointB.ChannelConfig.PortID, path.EndpointB.ChannelID, timeoutHeight, 0)
+			packet = channeltypes.NewPacket(ibctesting.MockPacketData, 1, path.EndpointA.ChannelConfig.PortID, path.EndpointA.ChannelID, path.EndpointB.ChannelConfig.PortID, path.EndpointB.ChannelID, clienttypes.NewHeight(0, 1), 0)
 			packetKey = host.PacketReceiptKey(packet.GetDestPort(), packet.GetDestChannel(), packet.GetSequence())
-		}, false},
+		}, true},
 	}
 
 	for _, tc := range testCases {
@@ -457,7 +471,13 @@ func (suite *KeeperTestSuite) TestHandleTimeoutPacket() {
 
 			tc.malleate()
 
-			proof, proofHeight := suite.chainB.QueryProof(packetKey)
+			var (
+				proof       []byte
+				proofHeight clienttypes.Height
+			)
+			if path.EndpointB.ChannelID != "" {
+				proof, proofHeight = path.EndpointB.QueryProof(packetKey)
+			}
 
 			msg := channeltypes.NewMsgTimeout(packet, 1, proof, proofHeight, suite.chainA.SenderAccount.GetAddress().String())
 
@@ -466,9 +486,9 @@ func (suite *KeeperTestSuite) TestHandleTimeoutPacket() {
 			if tc.expPass {
 				suite.Require().NoError(err)
 
-				// replay should return an error
+				// replay should not return an error as it is treated as a no-op
 				_, err := keeper.Keeper.Timeout(*suite.chainA.App.GetIBCKeeper(), sdk.WrapSDKContext(suite.chainA.GetContext()), msg)
-				suite.Require().Error(err)
+				suite.Require().NoError(err)
 
 				// verify packet commitment was deleted on source chain
 				has := suite.chainA.App.GetIBCKeeper().ChannelKeeper.HasPacketCommitment(suite.chainA.GetContext(), packet.GetSourcePort(), packet.GetSourceChannel(), packet.GetSequence())
@@ -577,14 +597,14 @@ func (suite *KeeperTestSuite) TestHandleTimeoutOnClosePacket() {
 
 			packetKey = host.NextSequenceRecvKey(packet.GetDestPort(), packet.GetDestChannel())
 		}, false},
-		{"UNORDERED: packet not sent", func() {
+		{"successful no-op: UNORDERED - packet not sent", func() {
 			suite.coordinator.Setup(path)
-			packet = channeltypes.NewPacket(ibctesting.MockPacketData, 1, path.EndpointA.ChannelConfig.PortID, path.EndpointA.ChannelID, path.EndpointB.ChannelConfig.PortID, path.EndpointB.ChannelID, timeoutHeight, 0)
+			packet = channeltypes.NewPacket(ibctesting.MockPacketData, 1, path.EndpointA.ChannelConfig.PortID, path.EndpointA.ChannelID, path.EndpointB.ChannelConfig.PortID, path.EndpointB.ChannelID, clienttypes.NewHeight(0, 1), 0)
 			packetKey = host.PacketAcknowledgementKey(packet.GetDestPort(), packet.GetDestChannel(), packet.GetSequence())
 
 			// close counterparty channel
 			path.EndpointB.SetChannelClosed()
-		}, false},
+		}, true},
 		{"ORDERED: channel not closed", func() {
 			path.SetChannelOrdered()
 			suite.coordinator.Setup(path)
@@ -622,9 +642,9 @@ func (suite *KeeperTestSuite) TestHandleTimeoutOnClosePacket() {
 			if tc.expPass {
 				suite.Require().NoError(err)
 
-				// replay should return an error
+				// replay should not return an error as it will be treated as a no-op
 				_, err := keeper.Keeper.TimeoutOnClose(*suite.chainA.App.GetIBCKeeper(), sdk.WrapSDKContext(suite.chainA.GetContext()), msg)
-				suite.Require().Error(err)
+				suite.Require().NoError(err)
 
 				// verify packet commitment was deleted on source chain
 				has := suite.chainA.App.GetIBCKeeper().ChannelKeeper.HasPacketCommitment(suite.chainA.GetContext(), packet.GetSourcePort(), packet.GetSourceChannel(), packet.GetSequence())
