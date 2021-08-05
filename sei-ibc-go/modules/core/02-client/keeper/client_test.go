@@ -678,9 +678,8 @@ func (suite *KeeperTestSuite) TestUpdateClientEventEmission() {
 
 	result, err := suite.chainA.SendMsgs(msg)
 	suite.Require().NoError(err)
-	// first event type is "message"
-	updateEvent := result.Events[1]
-
+	// first event type is "message", followed by 2 "tx" events in ante
+	updateEvent := result.Events[3]
 	suite.Require().Equal(clienttypes.EventTypeUpdateClient, updateEvent.Type)
 
 	// use a boolean to ensure the update event contains the header
