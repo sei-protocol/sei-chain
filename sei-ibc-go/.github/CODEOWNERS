@@ -1,3 +1,12 @@
 # CODEOWNERS: https://help.github.com/articles/about-codeowners/
 
 *       @colin-axner @fedekunze @AdityaSripal 
+
+# Order is important; the last matching pattern takes the most
+# precedence. When someone opens a pull request that only
+# modifies 27-interchain-accounts files, only the interchain account owners 
+# and not the global owner(s) will be requested for a review.
+
+# CODEOWNERS for interchain-accounts module
+
+/modules/apps/27-interchain-accounts/ @seantking @colin-axner @AdityaSripal
