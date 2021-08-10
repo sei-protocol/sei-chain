@@ -151,7 +151,14 @@ func (k Keeper) SendPacket(
 		),
 	})
 
-	k.Logger(ctx).Info("packet sent", "packet", fmt.Sprintf("%v", packet))
+	k.Logger(ctx).Info(
+		"packet sent",
+		"sequence", packet.GetSequence(),
+		"src_port", packet.GetSourcePort(),
+		"src_channel", packet.GetSourceChannel(),
+		"dst_port", packet.GetDestPort(),
+		"dst_channel", packet.GetDestChannel(),
+	)
 	return nil
 }
 
