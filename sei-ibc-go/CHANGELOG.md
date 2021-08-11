@@ -39,7 +39,7 @@ Ref: https://keepachangelog.com/en/1.0.0/
 * (core) [\#227](https://github.com/cosmos/ibc-go/pull/227) Remove sdk.Result from application callbacks
 
 
-## [v1.0.0-rc0](https://github.com/cosmos/ibc-go/releases/tag/v1.0.0-rc0) - 2021-07-07
+## [v1.0.0](https://github.com/cosmos/ibc-go/releases/tag/v1.0.0) - 2021-08-10
 
 ### Bug Fixes
 
