@@ -8,6 +8,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// 195 characters
+var longId = "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Duis eros neque, ultricies vel ligula ac, convallis porttitor elit. Maecenas tincidunt turpis elit, vel faucibus nisl pellentesque sodales"
+
 type testCase struct {
 	msg     string
 	id      string
@@ -46,6 +49,33 @@ func TestDefaultIdentifierValidator(t *testing.T) {
 			require.Error(t, err1, tc.msg)
 			require.Error(t, err2, tc.msg)
 			require.Error(t, err3, tc.msg)
+		}
+	}
+}
+
+func TestPortIdentifierValidator(t *testing.T) {
+	testCases := []testCase{
+		{"valid lowercase", "transfer", true},
+		{"valid id special chars", "._+-#[]<>._+-#[]<>", true},
+		{"valid id lower and special chars", "lower._+-#[]<>", true},
+		{"numeric id", "1234567890", true},
+		{"uppercase id", "NOTLOWERCASE", true},
+		{"numeric id", "1234567890", true},
+		{"blank id", "               ", false},
+		{"id length out of range", "1", false},
+		{"id is too long", longId, false},
+		{"path-like id", "lower/case/id", false},
+		{"invalid id", "(clientid)", false},
+		{"empty string", "", false},
+	}
+
+	for _, tc := range testCases {
+
+		err := PortIdentifierValidator(tc.id)
+		if tc.expPass {
+			require.NoError(t, err, tc.msg)
+		} else {
+			require.Error(t, err, tc.msg)
 		}
 	}
 }

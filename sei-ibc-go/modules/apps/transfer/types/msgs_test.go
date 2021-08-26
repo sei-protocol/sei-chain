@@ -16,7 +16,8 @@ const (
 	validPort        = "testportid"
 	invalidPort      = "(invalidport1)"
 	invalidShortPort = "p"
-	invalidLongPort  = "invalidlongportinvalidlongportinvalidlongportinvalidlongportinvalid"
+	// 195 characters
+	invalidLongPort = "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Duis eros neque, ultricies vel ligula ac, convallis porttitor elit. Maecenas tincidunt turpis elit, vel faucibus nisl pellentesque sodales"
 
 	validChannel        = "testchannel"
 	invalidChannel      = "(invalidchannel1)"

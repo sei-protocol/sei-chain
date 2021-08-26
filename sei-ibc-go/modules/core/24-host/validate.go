@@ -16,6 +16,10 @@ import (
 // adjusting this restriction.
 const DefaultMaxCharacterLength = 64
 
+// DefaultMaxPortCharacterLength defines the default maximum character length used
+// in validation of port identifiers.
+var DefaultMaxPortCharacterLength = 128
+
 // IsValidID defines regular expression to check if the string consist of
 // characters in one of the following categories only:
 // - Alphanumeric
@@ -80,7 +84,7 @@ func ChannelIdentifierValidator(id string) error {
 // A valid Identifier must be between 2-64 characters and only contain alphanumeric and some allowed
 // special characters (see IsValidID).
 func PortIdentifierValidator(id string) error {
-	return defaultIdentifierValidator(id, 2, DefaultMaxCharacterLength)
+	return defaultIdentifierValidator(id, 2, DefaultMaxPortCharacterLength)
 }
 
 // NewPathValidator takes in a Identifier Validator function and returns
