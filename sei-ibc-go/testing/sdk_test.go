@@ -126,65 +126,6 @@ func (s *IntegrationTestSuite) TearDownSuite() {
 	s.network.Cleanup()
 }
 
-// Create an IBC tx that's encoded as amino-JSON. Since we can't amino-marshal
-// a tx with "cosmos-sdk/MsgTransfer" using the SDK, we just hardcode the tx
-// here. But external clients might, see https://github.com/cosmos/cosmos-sdk/issues/8022.
-func mkIBCStdTx() []byte {
-	ibcTx := `{
-		"account_number": "68",
-		"chain_id": "stargate-4",
-		"fee": {
-		  "amount": [
-			{
-			  "amount": "3500",
-			  "denom": "umuon"
-			}
-		  ],
-		  "gas": "350000"
-		},
-		"memo": "",
-		"msg": [
-		  {
-			"type": "cosmos-sdk/MsgTransfer",
-			"value": {
-			  "receiver": "cosmos1q9wtnlwdjrhwtcjmt2uq77jrgx7z3usrq2yz7z",
-			  "sender": "cosmos1q9wtnlwdjrhwtcjmt2uq77jrgx7z3usrq2yz7z",
-			  "source_channel": "channel-0",
-			  "source_port": "transfer",
-			  "token": {
-				"amount": "1000000",
-				"denom": "umuon"
-			  }
-			}
-		  }
-		],
-		"sequence": "24"
-	  }`
-	req := fmt.Sprintf(`{"tx":%s,"mode":"async"}`, ibcTx)
-
-	return []byte(req)
-}
-
-func (s *IntegrationTestSuite) TestEncodeIBCTx() {
-	val := s.network.Validators[0]
-
-	req := mkIBCStdTx()
-	res, err := rest.PostRequest(fmt.Sprintf("%s/txs/encode", val.APIAddress), "application/json", []byte(req))
-	s.Require().NoError(err)
-
-	s.Require().Contains(string(res), authrest.ErrEncodeDecode.Error())
-}
-
-func (s *IntegrationTestSuite) TestBroadcastIBCTxRequest() {
-	val := s.network.Validators[0]
-
-	req := mkIBCStdTx()
-	res, err := rest.PostRequest(fmt.Sprintf("%s/txs", val.APIAddress), "application/json", []byte(req))
-	s.Require().NoError(err)
-
-	s.Require().NotContains(string(res), "this transaction cannot be broadcasted via legacy REST endpoints", string(res))
-}
-
 // TestLegacyRestErrMessages creates two IBC txs, one that fails, one that
 // succeeds, and make sure we cannot query any of them (with pretty error msg).
 // Our intension is to test the error message of querying a message which is
