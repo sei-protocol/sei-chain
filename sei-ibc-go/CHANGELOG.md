@@ -102,6 +102,7 @@ Ref: https://keepachangelog.com/en/1.0.0/
 ### Features
 
 * [\#198](https://github.com/cosmos/ibc-go/pull/198) New CLI command `query ibc-transfer escrow-address <port> <channel id>` to get the escrow address for a channel; can be used to then query balance of escrowed tokens
+* [\#372](https://github.com/cosmos/ibc-go/pull/372) New CLI command `query ibc client status <client id>` to get the current activity status of a client
 
 ### Client Breaking Changes
 

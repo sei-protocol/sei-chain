@@ -89,6 +89,39 @@ func GetCmdQueryClientState() *cobra.Command {
 	return cmd
 }
 
+// GetCmdQueryClientStatus defines the command to query the status of a client with a given id
+func GetCmdQueryClientStatus() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:     "status [client-id]",
+		Short:   "Query client status",
+		Long:    "Query client activity status. Any client without an 'Active' status is considered inactive",
+		Example: fmt.Sprintf("%s query %s %s status [client-id]", version.AppName, host.ModuleName, types.SubModuleName),
+		Args:    cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			clientCtx, err := client.GetClientQueryContext(cmd)
+			if err != nil {
+				return err
+			}
+
+			clientID := args[0]
+			queryClient := types.NewQueryClient(clientCtx)
+
+			req := &types.QueryClientStatusRequest{
+				ClientId: clientID,
+			}
+
+			clientStatusRes, err := queryClient.ClientStatus(cmd.Context(), req)
+			if err != nil {
+				return err
+			}
+
+			return clientCtx.PrintProto(clientStatusRes)
+		},
+	}
+
+	return cmd
+}
+
 // GetCmdQueryConsensusStates defines the command to query all the consensus states from a given
 // client state.
 func GetCmdQueryConsensusStates() *cobra.Command {

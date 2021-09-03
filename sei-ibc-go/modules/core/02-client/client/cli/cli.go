@@ -20,6 +20,7 @@ func GetQueryCmd() *cobra.Command {
 	queryCmd.AddCommand(
 		GetCmdQueryClientStates(),
 		GetCmdQueryClientState(),
+		GetCmdQueryClientStatus(),
 		GetCmdQueryConsensusStates(),
 		GetCmdQueryConsensusState(),
 		GetCmdQueryHeader(),
