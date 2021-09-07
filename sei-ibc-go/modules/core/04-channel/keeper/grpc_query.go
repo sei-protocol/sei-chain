@@ -327,6 +327,27 @@ func (q Keeper) PacketAcknowledgements(c context.Context, req *types.QueryPacket
 	acks := []*types.PacketState{}
 	store := prefix.NewStore(ctx.KVStore(q.storeKey), []byte(host.PacketAcknowledgementPrefixPath(req.PortId, req.ChannelId)))
 
+	// if a list of packet sequences is provided then query for each specific ack and return a list <= len(req.PacketCommitmentSequences)
+	// otherwise, maintain previous behaviour and perform paginated query
+	for _, seq := range req.PacketCommitmentSequences {
+		acknowledgementBz, found := q.GetPacketAcknowledgement(ctx, req.PortId, req.ChannelId, seq)
+		if !found || len(acknowledgementBz) == 0 {
+			continue
+		}
+
+		ack := types.NewPacketState(req.PortId, req.ChannelId, seq, acknowledgementBz)
+		acks = append(acks, &ack)
+	}
+
+	if len(req.PacketCommitmentSequences) > 0 {
+		selfHeight := clienttypes.GetSelfHeight(ctx)
+		return &types.QueryPacketAcknowledgementsResponse{
+			Acknowledgements: acks,
+			Pagination:       nil,
+			Height:           selfHeight,
+		}, nil
+	}
+
 	pageRes, err := query.Paginate(store, req.Pagination, func(key, value []byte) error {
 		keySplit := strings.Split(string(key), "/")
 
@@ -337,6 +358,7 @@ func (q Keeper) PacketAcknowledgements(c context.Context, req *types.QueryPacket
 
 		ack := types.NewPacketState(req.PortId, req.ChannelId, sequence, value)
 		acks = append(acks, &ack)
+
 		return nil
 	})
 

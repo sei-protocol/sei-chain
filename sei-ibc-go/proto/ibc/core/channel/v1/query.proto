@@ -301,6 +301,8 @@ message QueryPacketAcknowledgementsRequest {
   string channel_id = 2;
   // pagination request
   cosmos.base.query.v1beta1.PageRequest pagination = 3;
+  // list of packet sequences
+  repeated uint64 packet_commitment_sequences = 4;
 }
 
 // QueryPacketAcknowledgemetsResponse is the request type for the
