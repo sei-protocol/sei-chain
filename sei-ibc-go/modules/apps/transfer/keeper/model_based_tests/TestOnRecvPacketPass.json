@@ -8,7 +8,7 @@
       "data": {
         "sender": "",
         "receiver": "a2",
-        "amount": 1,
+        "amount": "1",
         "denom": [
           "",
           "",

@@ -8,7 +8,7 @@
       "data": {
         "sender": "a1",
         "receiver": "a3",
-        "amount": 5,
+        "amount": "5",
         "denom": [
           "",
           "",
@@ -79,7 +79,7 @@
       "data": {
         "sender": "a3",
         "receiver": "a1",
-        "amount": 3,
+        "amount": "3",
         "denom": [
           "",
           "",
@@ -180,7 +180,7 @@
       "data": {
         "sender": "a1",
         "receiver": "a1",
-        "amount": 1,
+        "amount": "1",
         "denom": [
           "transfer",
           "channel-0",

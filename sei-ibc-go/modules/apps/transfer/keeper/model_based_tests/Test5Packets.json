@@ -8,7 +8,7 @@
       "data": {
         "sender": "a3",
         "receiver": "a3",
-        "amount": 2,
+        "amount": "2",
         "denom": [
           "",
           "",
@@ -79,7 +79,7 @@
       "data": {
         "sender": "a1",
         "receiver": "a3",
-        "amount": 1,
+        "amount": "1",
         "denom": [
           "cosmos-hub",
           "",
@@ -165,7 +165,7 @@
       "data": {
         "sender": "a2",
         "receiver": "a2",
-        "amount": 4,
+        "amount": "4",
         "denom": [
           "",
           "",
@@ -266,7 +266,7 @@
       "data": {
         "sender": "",
         "receiver": "a2",
-        "amount": 4,
+        "amount": "4",
         "denom": [
           "",
           "",
@@ -382,7 +382,7 @@
       "data": {
         "sender": "a1",
         "receiver": "",
-        "amount": 1,
+        "amount": "1",
         "denom": [
           "transfer",
           "channel-0",

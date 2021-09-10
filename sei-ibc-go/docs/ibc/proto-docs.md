@@ -6,7 +6,6 @@
 
 - [ibc/applications/transfer/v1/transfer.proto](#ibc/applications/transfer/v1/transfer.proto)
     - [DenomTrace](#ibc.applications.transfer.v1.DenomTrace)
-    - [FungibleTokenPacketData](#ibc.applications.transfer.v1.FungibleTokenPacketData)
     - [Params](#ibc.applications.transfer.v1.Params)
   
 - [ibc/applications/transfer/v1/genesis.proto](#ibc/applications/transfer/v1/genesis.proto)
@@ -36,6 +35,9 @@
     - [MsgTransferResponse](#ibc.applications.transfer.v1.MsgTransferResponse)
   
     - [Msg](#ibc.applications.transfer.v1.Msg)
+  
+- [ibc/applications/transfer/v2/packet.proto](#ibc/applications/transfer/v2/packet.proto)
+    - [FungibleTokenPacketData](#ibc.applications.transfer.v2.FungibleTokenPacketData)
   
 - [ibc/core/channel/v1/channel.proto](#ibc/core/channel/v1/channel.proto)
     - [Acknowledgement](#ibc.core.channel.v1.Acknowledgement)
@@ -264,26 +266,6 @@ source tracing information path.
 | ----- | ---- | ----- | ----------- |
 | `path` | [string](#string) |  | path defines the chain of port/channel identifiers used for tracing the source of the fungible token. |
 | `base_denom` | [string](#string) |  | base denomination of the relayed fungible token. |
-
-
-
-
-
-
-<a name="ibc.applications.transfer.v1.FungibleTokenPacketData"></a>
-
-### FungibleTokenPacketData
-FungibleTokenPacketData defines a struct for the packet payload
-See FungibleTokenPacketData spec:
-https://github.com/cosmos/ics/tree/master/spec/ics-020-fungible-token-transfer#data-structures
-
-
-| Field | Type | Label | Description |
-| ----- | ---- | ----- | ----------- |
-| `denom` | [string](#string) |  | the token denomination to be transferred |
-| `amount` | [uint64](#uint64) |  | the token amount to be transferred |
-| `sender` | [string](#string) |  | the sender address |
-| `receiver` | [string](#string) |  | the recipient address on the destination chain |
 
 
 
@@ -670,6 +652,42 @@ Msg defines the ibc/transfer Msg service.
 | Method Name | Request Type | Response Type | Description | HTTP Verb | Endpoint |
 | ----------- | ------------ | ------------- | ------------| ------- | -------- |
 | `Transfer` | [MsgTransfer](#ibc.applications.transfer.v1.MsgTransfer) | [MsgTransferResponse](#ibc.applications.transfer.v1.MsgTransferResponse) | Transfer defines a rpc handler method for MsgTransfer. | |
+
+ <!-- end services -->
+
+
+
+<a name="ibc/applications/transfer/v2/packet.proto"></a>
+<p align="right"><a href="#top">Top</a></p>
+
+## ibc/applications/transfer/v2/packet.proto
+
+
+
+<a name="ibc.applications.transfer.v2.FungibleTokenPacketData"></a>
+
+### FungibleTokenPacketData
+FungibleTokenPacketData defines a struct for the packet payload
+See FungibleTokenPacketData spec:
+https://github.com/cosmos/ics/tree/master/spec/ics-020-fungible-token-transfer#data-structures
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| `denom` | [string](#string) |  | the token denomination to be transferred |
+| `amount` | [string](#string) |  | the token amount to be transferred |
+| `sender` | [string](#string) |  | the sender address |
+| `receiver` | [string](#string) |  | the recipient address on the destination chain |
+
+
+
+
+
+ <!-- end messages -->
+
+ <!-- end enums -->
+
+ <!-- end HasExtensions -->
 
  <!-- end services -->
 

@@ -42,7 +42,7 @@ func GetPrefixedDenom(portID, channelID, baseDenom string) string {
 
 // GetTransferCoin creates a transfer coin with the port ID and channel ID
 // prefixed to the base denom.
-func GetTransferCoin(portID, channelID, baseDenom string, amount int64) sdk.Coin {
+func GetTransferCoin(portID, channelID, baseDenom string, amount sdk.Int) sdk.Coin {
 	denomTrace := ParseDenomTrace(GetPrefixedDenom(portID, channelID, baseDenom))
-	return sdk.NewInt64Coin(denomTrace.IBCDenom(), amount)
+	return sdk.NewCoin(denomTrace.IBCDenom(), amount)
 }

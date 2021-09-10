@@ -30,7 +30,7 @@ type TlaBalance struct {
 type TlaFungibleTokenPacketData struct {
 	Sender   string   `json:"sender"`
 	Receiver string   `json:"receiver"`
-	Amount   int      `json:"amount"`
+	Amount   string   `json:"amount"`
 	Denom    []string `json:"denom"`
 }
 
@@ -143,7 +143,7 @@ func FungibleTokenPacketFromTla(packet TlaFungibleTokenPacket) FungibleTokenPack
 		DestPort:      packet.DestPort,
 		Data: types.NewFungibleTokenPacketData(
 			DenomFromTla(packet.Data.Denom),
-			uint64(packet.Data.Amount),
+			packet.Data.Amount,
 			AddressFromString(packet.Data.Sender),
 			AddressFromString(packet.Data.Receiver)),
 	}
@@ -333,11 +333,15 @@ func (suite *KeeperTestSuite) TestModelBasedRelay() {
 					denom := denomTrace.IBCDenom()
 					err = sdk.ValidateDenom(denom)
 					if err == nil {
+						amount, ok := sdk.NewIntFromString(tc.packet.Data.Amount)
+						if !ok {
+							panic("MBT failed to parse amount from string")
+						}
 						err = suite.chainB.GetSimApp().TransferKeeper.SendTransfer(
 							suite.chainB.GetContext(),
 							tc.packet.SourcePort,
 							tc.packet.SourceChannel,
-							sdk.NewCoin(denom, sdk.NewIntFromUint64(tc.packet.Data.Amount)),
+							sdk.NewCoin(denom, amount),
 							sender,
 							tc.packet.Data.Receiver,
 							clienttypes.NewHeight(0, 110),
