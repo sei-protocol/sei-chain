@@ -1,7 +1,7 @@
 {
   "name": "docs",
   "version": "1.0.0",
-  "description": "IBC-GO Documentation",
+  "description": "IBC-Go Documentation",
   "main": "index.js",
   "scripts": {
     "serve": "trap 'exit 0' SIGINT; vuepress dev --no-cache",
@@ -14,5 +14,8 @@
   "license": "ISC",
   "dependencies": {
     "vuepress-theme-cosmos": "^1.0.182"
+  },
+  "devDependencies": {
+    "watchpack": "^2.2.0"
   }
 }

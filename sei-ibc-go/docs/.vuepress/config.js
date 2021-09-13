@@ -7,13 +7,22 @@ module.exports = {
     },
   },
   base: process.env.VUEPRESS_BASE || "/",
+  head: [
+    ['link', { rel: "apple-touch-icon", sizes: "180x180", href: "/apple-touch-icon.png" }],
+    ['link', { rel: "icon", type: "image/png", sizes: "32x32", href: "/favicon-32x32.png" }],
+    ['link', { rel: "icon", type: "image/png", sizes: "16x16", href: "/favicon-16x16.png" }],
+    ['link', { rel: "manifest", href: "/site.webmanifest" }],
+    ['meta', { name: "msapplication-TileColor", content: "#2e3148" }],
+    ['meta', { name: "theme-color", content: "#ffffff" }],
+    ['link', { rel: "icon", type: "image/svg+xml", href: "/favicon-svg.svg" }],
+    ['link', { rel: "apple-touch-icon-precomposed", href: "/apple-touch-icon-precomposed.png" }],
+  ],
   themeConfig: {
     repo: "cosmos/ibc-go",
     docsRepo: "cosmos/ibc-go",
     docsDir: "docs",
     editLinks: true,
     label: "ibc",
-    //  label: "ibc-go",
     // TODO
     //algolia: {
     //  id: "BH4D9OD16A",
@@ -24,8 +33,19 @@ module.exports = {
       {
         "label": "main",
         "key": "main"
-      }
+      },
+      {
+        "label": "v1.1.0",
+        "key": "v1.1.0"
+      },
+      {
+        "label": "v1.2.0",
+        "key": "v1.2.0"
+      }      
     ],
+    topbar: {
+      banner: true
+    },
     sidebar: { 
       auto: false,
       nav: [
@@ -105,11 +125,41 @@ module.exports = {
       }
     },
     footer: {
-      logo: "/logo-bw.svg",
+      question: {
+        text: "Chat with IBC developers in <a href='https://discord.gg/W8trcGV' target='_blank'>Discord</a>."
+      },
       textLink: {
         text: "ibcprotocol.org",
         url: "https://ibcprotocol.org"
       },
+      services: [
+        {
+          service: "medium",
+          url: "https://blog.cosmos.network/"
+        },
+        {
+          service: "twitter",
+          url: "https://twitter.com/cosmos"
+        },
+        {
+          service: "linkedin",
+          url: "https://www.linkedin.com/company/interchain-gmbh"
+        },
+        {
+          service: "reddit",
+          url: "https://reddit.com/r/cosmosnetwork"
+        },
+        {
+          service: "telegram",
+          url: "https://t.me/cosmosproject"
+        },
+        {
+          service: "youtube",
+          url: "https://www.youtube.com/c/CosmosProject"
+        }
+      ],
+      smallprint:
+        "The development of IBC-Go is led primarily by [Interchain GmbH](https://interchain.berlin/). Funding for this development comes primarily from the Interchain Foundation, a Swiss non-profit.",
       links: [
         {
           title: "Documentation",
