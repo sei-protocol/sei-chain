@@ -70,6 +70,8 @@ func (k *Keeper) SetRouter(rtr *porttypes.Router) {
 	if k.Router != nil && k.Router.Sealed() {
 		panic("cannot reset a sealed router")
 	}
+
+	k.PortKeeper.Router = rtr
 	k.Router = rtr
 	k.Router.Seal()
 }

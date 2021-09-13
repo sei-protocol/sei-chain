@@ -4,7 +4,7 @@ import (
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 )
 
-// IBC channel sentinel errors
+// IBC transfer sentinel errors
 var (
 	ErrInvalidPacketTimeout    = sdkerrors.Register(ModuleName, 2, "invalid packet timeout")
 	ErrInvalidDenomForTransfer = sdkerrors.Register(ModuleName, 3, "invalid denomination for cross-chain transfer")

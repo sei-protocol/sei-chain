@@ -3,6 +3,7 @@ package mock
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"strconv"
 
 	"github.com/cosmos/cosmos-sdk/client"
@@ -25,6 +26,8 @@ import (
 
 const (
 	ModuleName = "mock"
+
+	Version = "mock-version"
 )
 
 var (
@@ -234,4 +237,20 @@ func (am AppModule) OnTimeoutPacket(ctx sdk.Context, packet channeltypes.Packet,
 	}
 
 	return nil
+}
+
+// NegotiateAppVersion implements the IBCModule interface.
+func (am AppModule) NegotiateAppVersion(
+	ctx sdk.Context,
+	order channeltypes.Order,
+	connectionID string,
+	portID string,
+	counterparty channeltypes.Counterparty,
+	proposedVersion string,
+) (string, error) {
+	if proposedVersion != Version { // allow testing of error scenarios
+		return "", errors.New("failed to negotiate app version")
+	}
+
+	return Version, nil
 }
