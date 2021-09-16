@@ -8,8 +8,8 @@ import (
 
 	"github.com/cosmos/cosmos-sdk/baseapp"
 	sdk "github.com/cosmos/cosmos-sdk/types"
-	"github.com/cosmos/ibc-go/modules/apps/transfer/types"
-	ibctesting "github.com/cosmos/ibc-go/testing"
+	"github.com/cosmos/ibc-go/v2/modules/apps/transfer/types"
+	ibctesting "github.com/cosmos/ibc-go/v2/testing"
 )
 
 type KeeperTestSuite struct {

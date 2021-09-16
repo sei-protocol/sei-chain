@@ -7,14 +7,14 @@ import (
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	capabilitytypes "github.com/cosmos/cosmos-sdk/x/capability/types"
 
-	clienttypes "github.com/cosmos/ibc-go/modules/core/02-client/types"
-	connectiontypes "github.com/cosmos/ibc-go/modules/core/03-connection/types"
-	"github.com/cosmos/ibc-go/modules/core/04-channel/types"
-	host "github.com/cosmos/ibc-go/modules/core/24-host"
-	"github.com/cosmos/ibc-go/modules/core/exported"
-	ibctmtypes "github.com/cosmos/ibc-go/modules/light-clients/07-tendermint/types"
-	ibctesting "github.com/cosmos/ibc-go/testing"
-	ibcmock "github.com/cosmos/ibc-go/testing/mock"
+	clienttypes "github.com/cosmos/ibc-go/v2/modules/core/02-client/types"
+	connectiontypes "github.com/cosmos/ibc-go/v2/modules/core/03-connection/types"
+	"github.com/cosmos/ibc-go/v2/modules/core/04-channel/types"
+	host "github.com/cosmos/ibc-go/v2/modules/core/24-host"
+	"github.com/cosmos/ibc-go/v2/modules/core/exported"
+	ibctmtypes "github.com/cosmos/ibc-go/v2/modules/light-clients/07-tendermint/types"
+	ibctesting "github.com/cosmos/ibc-go/v2/testing"
+	ibcmock "github.com/cosmos/ibc-go/v2/testing/mock"
 )
 
 var (

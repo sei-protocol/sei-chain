@@ -9,11 +9,11 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 
-	"github.com/cosmos/ibc-go/modules/apps/transfer/types"
-	clienttypes "github.com/cosmos/ibc-go/modules/core/02-client/types"
-	channeltypes "github.com/cosmos/ibc-go/modules/core/04-channel/types"
-	host "github.com/cosmos/ibc-go/modules/core/24-host"
-	coretypes "github.com/cosmos/ibc-go/modules/core/types"
+	"github.com/cosmos/ibc-go/v2/modules/apps/transfer/types"
+	clienttypes "github.com/cosmos/ibc-go/v2/modules/core/02-client/types"
+	channeltypes "github.com/cosmos/ibc-go/v2/modules/core/04-channel/types"
+	host "github.com/cosmos/ibc-go/v2/modules/core/24-host"
+	coretypes "github.com/cosmos/ibc-go/v2/modules/core/types"
 )
 
 // SendTransfer handles transfer sending logic. There are 2 possible cases:

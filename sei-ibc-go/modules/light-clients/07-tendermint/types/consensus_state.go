@@ -7,9 +7,9 @@ import (
 	tmtypes "github.com/tendermint/tendermint/types"
 
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
-	clienttypes "github.com/cosmos/ibc-go/modules/core/02-client/types"
-	commitmenttypes "github.com/cosmos/ibc-go/modules/core/23-commitment/types"
-	"github.com/cosmos/ibc-go/modules/core/exported"
+	clienttypes "github.com/cosmos/ibc-go/v2/modules/core/02-client/types"
+	commitmenttypes "github.com/cosmos/ibc-go/v2/modules/core/23-commitment/types"
+	"github.com/cosmos/ibc-go/v2/modules/core/exported"
 )
 
 // SentinelRoot is used as a stand-in root value for the consensus state set at the upgrade height

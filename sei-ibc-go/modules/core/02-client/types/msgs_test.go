@@ -7,12 +7,12 @@ import (
 	"github.com/golang/protobuf/proto"
 	"github.com/stretchr/testify/suite"
 
-	"github.com/cosmos/ibc-go/modules/core/02-client/types"
-	commitmenttypes "github.com/cosmos/ibc-go/modules/core/23-commitment/types"
-	"github.com/cosmos/ibc-go/modules/core/exported"
-	solomachinetypes "github.com/cosmos/ibc-go/modules/light-clients/06-solomachine/types"
-	ibctmtypes "github.com/cosmos/ibc-go/modules/light-clients/07-tendermint/types"
-	ibctesting "github.com/cosmos/ibc-go/testing"
+	"github.com/cosmos/ibc-go/v2/modules/core/02-client/types"
+	commitmenttypes "github.com/cosmos/ibc-go/v2/modules/core/23-commitment/types"
+	"github.com/cosmos/ibc-go/v2/modules/core/exported"
+	solomachinetypes "github.com/cosmos/ibc-go/v2/modules/light-clients/06-solomachine/types"
+	ibctmtypes "github.com/cosmos/ibc-go/v2/modules/light-clients/07-tendermint/types"
+	ibctesting "github.com/cosmos/ibc-go/v2/testing"
 )
 
 type TypesTestSuite struct {

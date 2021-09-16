@@ -8,8 +8,8 @@ import (
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
-	"github.com/cosmos/ibc-go/modules/core/05-port/keeper"
-	"github.com/cosmos/ibc-go/testing/simapp"
+	"github.com/cosmos/ibc-go/v2/modules/core/05-port/keeper"
+	"github.com/cosmos/ibc-go/v2/testing/simapp"
 )
 
 var (

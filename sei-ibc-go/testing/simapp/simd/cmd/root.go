@@ -30,8 +30,8 @@ import (
 	"github.com/tendermint/tendermint/libs/log"
 	dbm "github.com/tendermint/tm-db"
 
-	"github.com/cosmos/ibc-go/testing/simapp"
-	"github.com/cosmos/ibc-go/testing/simapp/params"
+	"github.com/cosmos/ibc-go/v2/testing/simapp"
+	"github.com/cosmos/ibc-go/v2/testing/simapp/params"
 )
 
 // NewRootCmd creates a new root command for simd. It is called once in the

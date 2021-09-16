@@ -10,9 +10,9 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	"github.com/cosmos/cosmos-sdk/types/query"
-	clienttypes "github.com/cosmos/ibc-go/modules/core/02-client/types"
-	"github.com/cosmos/ibc-go/modules/core/03-connection/types"
-	host "github.com/cosmos/ibc-go/modules/core/24-host"
+	clienttypes "github.com/cosmos/ibc-go/v2/modules/core/02-client/types"
+	"github.com/cosmos/ibc-go/v2/modules/core/03-connection/types"
+	host "github.com/cosmos/ibc-go/v2/modules/core/24-host"
 )
 
 var _ types.QueryServer = Keeper{}

@@ -8,7 +8,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/client"
 	"github.com/cosmos/cosmos-sdk/client/flags"
 	"github.com/cosmos/cosmos-sdk/version"
-	"github.com/cosmos/ibc-go/modules/apps/transfer/types"
+	"github.com/cosmos/ibc-go/v2/modules/apps/transfer/types"
 )
 
 // GetCmdQueryDenomTrace defines the command to query a a denomination trace from a given hash.

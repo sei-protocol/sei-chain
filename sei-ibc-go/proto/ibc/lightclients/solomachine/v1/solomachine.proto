@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package ibc.lightclients.solomachine.v1;
 
-option go_package = "github.com/cosmos/ibc-go/modules/core/02-client/legacy/v100";
+option go_package = "github.com/cosmos/ibc-go/v2/modules/core/02-client/legacy/v100";
 
 import "ibc/core/connection/v1/connection.proto";
 import "ibc/core/channel/v1/channel.proto";

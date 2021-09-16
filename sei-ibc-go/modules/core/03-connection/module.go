@@ -4,8 +4,8 @@ import (
 	"github.com/gogo/protobuf/grpc"
 	"github.com/spf13/cobra"
 
-	"github.com/cosmos/ibc-go/modules/core/03-connection/client/cli"
-	"github.com/cosmos/ibc-go/modules/core/03-connection/types"
+	"github.com/cosmos/ibc-go/v2/modules/core/03-connection/client/cli"
+	"github.com/cosmos/ibc-go/v2/modules/core/03-connection/types"
 )
 
 // Name returns the IBC connection ICS name.

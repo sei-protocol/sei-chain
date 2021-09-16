@@ -20,14 +20,14 @@ import (
 	"github.com/spf13/cobra"
 	abci "github.com/tendermint/tendermint/abci/types"
 
-	"github.com/cosmos/ibc-go/modules/apps/transfer/client/cli"
-	"github.com/cosmos/ibc-go/modules/apps/transfer/keeper"
-	"github.com/cosmos/ibc-go/modules/apps/transfer/simulation"
-	"github.com/cosmos/ibc-go/modules/apps/transfer/types"
-	channeltypes "github.com/cosmos/ibc-go/modules/core/04-channel/types"
-	porttypes "github.com/cosmos/ibc-go/modules/core/05-port/types"
-	host "github.com/cosmos/ibc-go/modules/core/24-host"
-	ibcexported "github.com/cosmos/ibc-go/modules/core/exported"
+	"github.com/cosmos/ibc-go/v2/modules/apps/transfer/client/cli"
+	"github.com/cosmos/ibc-go/v2/modules/apps/transfer/keeper"
+	"github.com/cosmos/ibc-go/v2/modules/apps/transfer/simulation"
+	"github.com/cosmos/ibc-go/v2/modules/apps/transfer/types"
+	channeltypes "github.com/cosmos/ibc-go/v2/modules/core/04-channel/types"
+	porttypes "github.com/cosmos/ibc-go/v2/modules/core/05-port/types"
+	host "github.com/cosmos/ibc-go/v2/modules/core/24-host"
+	ibcexported "github.com/cosmos/ibc-go/v2/modules/core/exported"
 )
 
 var (

@@ -16,8 +16,8 @@ import (
 	"github.com/cosmos/cosmos-sdk/types/module"
 	"github.com/cosmos/cosmos-sdk/x/genutil"
 	genutiltest "github.com/cosmos/cosmos-sdk/x/genutil/client/testutil"
-	"github.com/cosmos/ibc-go/testing/simapp"
-	simcmd "github.com/cosmos/ibc-go/testing/simapp/simd/cmd"
+	"github.com/cosmos/ibc-go/v2/testing/simapp"
+	simcmd "github.com/cosmos/ibc-go/v2/testing/simapp/simd/cmd"
 )
 
 var testMbm = module.NewBasicManager(genutil.AppModuleBasic{})

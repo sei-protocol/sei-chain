@@ -9,7 +9,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/x/simulation"
 
 	simtypes "github.com/cosmos/cosmos-sdk/types/simulation"
-	"github.com/cosmos/ibc-go/modules/apps/transfer/types"
+	"github.com/cosmos/ibc-go/v2/modules/apps/transfer/types"
 )
 
 // ParamChanges defines the parameters that can be modified by param change proposals

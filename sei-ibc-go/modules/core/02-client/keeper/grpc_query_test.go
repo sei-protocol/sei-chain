@@ -10,11 +10,11 @@ import (
 	"github.com/cosmos/cosmos-sdk/types/query"
 	"google.golang.org/grpc/metadata"
 
-	"github.com/cosmos/ibc-go/modules/core/02-client/types"
-	commitmenttypes "github.com/cosmos/ibc-go/modules/core/23-commitment/types"
-	"github.com/cosmos/ibc-go/modules/core/exported"
-	ibctmtypes "github.com/cosmos/ibc-go/modules/light-clients/07-tendermint/types"
-	ibctesting "github.com/cosmos/ibc-go/testing"
+	"github.com/cosmos/ibc-go/v2/modules/core/02-client/types"
+	commitmenttypes "github.com/cosmos/ibc-go/v2/modules/core/23-commitment/types"
+	"github.com/cosmos/ibc-go/v2/modules/core/exported"
+	ibctmtypes "github.com/cosmos/ibc-go/v2/modules/light-clients/07-tendermint/types"
+	ibctesting "github.com/cosmos/ibc-go/v2/testing"
 )
 
 func (suite *KeeperTestSuite) TestQueryClientState() {

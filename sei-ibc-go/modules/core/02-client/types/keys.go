@@ -7,7 +7,7 @@ import (
 	"strings"
 
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
-	host "github.com/cosmos/ibc-go/modules/core/24-host"
+	host "github.com/cosmos/ibc-go/v2/modules/core/24-host"
 )
 
 const (

@@ -4,10 +4,10 @@ import (
 	"math"
 
 	capabilitytypes "github.com/cosmos/cosmos-sdk/x/capability/types"
-	"github.com/cosmos/ibc-go/modules/apps/transfer/types"
-	channeltypes "github.com/cosmos/ibc-go/modules/core/04-channel/types"
-	host "github.com/cosmos/ibc-go/modules/core/24-host"
-	ibctesting "github.com/cosmos/ibc-go/testing"
+	"github.com/cosmos/ibc-go/v2/modules/apps/transfer/types"
+	channeltypes "github.com/cosmos/ibc-go/v2/modules/core/04-channel/types"
+	host "github.com/cosmos/ibc-go/v2/modules/core/24-host"
+	ibctesting "github.com/cosmos/ibc-go/v2/testing"
 )
 
 func (suite *TransferTestSuite) TestOnChanOpenInit() {

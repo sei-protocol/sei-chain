@@ -8,7 +8,7 @@ import (
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	"github.com/cosmos/cosmos-sdk/types/msgservice"
 	govtypes "github.com/cosmos/cosmos-sdk/x/gov/types"
-	"github.com/cosmos/ibc-go/modules/core/exported"
+	"github.com/cosmos/ibc-go/v2/modules/core/exported"
 )
 
 // RegisterInterfaces registers the client interfaces to protobuf Any.

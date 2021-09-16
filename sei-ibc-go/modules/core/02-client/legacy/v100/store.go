@@ -10,12 +10,12 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 
-	"github.com/cosmos/ibc-go/modules/core/02-client/types"
-	clienttypes "github.com/cosmos/ibc-go/modules/core/02-client/types"
-	host "github.com/cosmos/ibc-go/modules/core/24-host"
-	"github.com/cosmos/ibc-go/modules/core/exported"
-	smtypes "github.com/cosmos/ibc-go/modules/light-clients/06-solomachine/types"
-	ibctmtypes "github.com/cosmos/ibc-go/modules/light-clients/07-tendermint/types"
+	"github.com/cosmos/ibc-go/v2/modules/core/02-client/types"
+	clienttypes "github.com/cosmos/ibc-go/v2/modules/core/02-client/types"
+	host "github.com/cosmos/ibc-go/v2/modules/core/24-host"
+	"github.com/cosmos/ibc-go/v2/modules/core/exported"
+	smtypes "github.com/cosmos/ibc-go/v2/modules/light-clients/06-solomachine/types"
+	ibctmtypes "github.com/cosmos/ibc-go/v2/modules/light-clients/07-tendermint/types"
 )
 
 // MigrateStore performs in-place store migrations from SDK v0.40 of the IBC module to v1.0.0 of ibc-go.

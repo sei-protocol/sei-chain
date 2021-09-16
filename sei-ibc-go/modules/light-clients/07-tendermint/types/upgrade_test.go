@@ -3,11 +3,11 @@ package types_test
 import (
 	upgradetypes "github.com/cosmos/cosmos-sdk/x/upgrade/types"
 
-	clienttypes "github.com/cosmos/ibc-go/modules/core/02-client/types"
-	commitmenttypes "github.com/cosmos/ibc-go/modules/core/23-commitment/types"
-	"github.com/cosmos/ibc-go/modules/core/exported"
-	"github.com/cosmos/ibc-go/modules/light-clients/07-tendermint/types"
-	ibctesting "github.com/cosmos/ibc-go/testing"
+	clienttypes "github.com/cosmos/ibc-go/v2/modules/core/02-client/types"
+	commitmenttypes "github.com/cosmos/ibc-go/v2/modules/core/23-commitment/types"
+	"github.com/cosmos/ibc-go/v2/modules/core/exported"
+	"github.com/cosmos/ibc-go/v2/modules/light-clients/07-tendermint/types"
+	ibctesting "github.com/cosmos/ibc-go/v2/testing"
 )
 
 var (

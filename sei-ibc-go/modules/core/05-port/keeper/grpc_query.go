@@ -8,8 +8,8 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	"github.com/cosmos/ibc-go/modules/core/05-port/types"
-	host "github.com/cosmos/ibc-go/modules/core/24-host"
+	"github.com/cosmos/ibc-go/v2/modules/core/05-port/types"
+	host "github.com/cosmos/ibc-go/v2/modules/core/24-host"
 )
 
 var _ types.QueryServer = (*Keeper)(nil)

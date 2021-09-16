@@ -6,7 +6,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/cosmos/ibc-go/modules/core/03-connection/types"
+	"github.com/cosmos/ibc-go/v2/modules/core/03-connection/types"
 )
 
 // tests ParseConnectionSequence and IsValidConnectionID

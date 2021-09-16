@@ -8,12 +8,12 @@ import (
 	"github.com/cosmos/cosmos-sdk/telemetry"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
-	clienttypes "github.com/cosmos/ibc-go/modules/core/02-client/types"
-	connectiontypes "github.com/cosmos/ibc-go/modules/core/03-connection/types"
-	"github.com/cosmos/ibc-go/modules/core/04-channel/types"
-	channeltypes "github.com/cosmos/ibc-go/modules/core/04-channel/types"
-	porttypes "github.com/cosmos/ibc-go/modules/core/05-port/types"
-	coretypes "github.com/cosmos/ibc-go/modules/core/types"
+	clienttypes "github.com/cosmos/ibc-go/v2/modules/core/02-client/types"
+	connectiontypes "github.com/cosmos/ibc-go/v2/modules/core/03-connection/types"
+	"github.com/cosmos/ibc-go/v2/modules/core/04-channel/types"
+	channeltypes "github.com/cosmos/ibc-go/v2/modules/core/04-channel/types"
+	porttypes "github.com/cosmos/ibc-go/v2/modules/core/05-port/types"
+	coretypes "github.com/cosmos/ibc-go/v2/modules/core/types"
 )
 
 var _ clienttypes.MsgServer = Keeper{}
