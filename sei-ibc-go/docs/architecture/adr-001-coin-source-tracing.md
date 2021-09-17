@@ -12,7 +12,7 @@ Accepted, Implemented
 ## Context
 
 The specification for IBC cross-chain fungible token transfers
-([ICS20](https://github.com/cosmos/ics/tree/master/spec/ics-020-fungible-token-transfer)), needs to
+([ICS20](https://github.com/cosmos/ibc/tree/master/spec/app/ics-020-fungible-token-transfer)), needs to
 be aware of the origin of any token denomination in order to relay a `Packet` which contains the sender
 and recipient addressed in the
 [`FungibleTokenPacketData`](https://github.com/cosmos/ibc/tree/master/spec/app/ics-020-fungible-token-transfer#data-structures).
@@ -199,7 +199,7 @@ func (msg MsgTransfer) ValidateBasic() error {
 // ValidateIBCDenom validates that the given denomination is either:
 //
 //  - A valid base denomination (eg: 'uatom')
-//  - A valid fungible token representation (i.e 'ibc/{hash}') per ADR 001 https://github.com/cosmos/cosmos-sdk/blob/master/docs/architecture/adr-001-coin-source-tracing.md
+//  - A valid fungible token representation (i.e 'ibc/{hash}') per ADR 001 https://github.com/cosmos/ibc-go/blob/main/docs/architecture/adr-001-coin-source-tracing.md
 func ValidateIBCDenom(denom string) error {
   denomSplit := strings.SplitN(denom, "/", 2)
 

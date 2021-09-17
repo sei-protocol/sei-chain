@@ -10,7 +10,7 @@ parent:
 ## Abstract
 
 This paper defines the implementation of the ICS06 protocol on the Cosmos SDK. For the general
-specification please refer to the [ICS06 Specification](https://github.com/cosmos/ics/tree/master/spec/ics-006-solo-machine-client).
+specification please refer to the [ICS06 Specification](https://github.com/cosmos/ibc/tree/master/spec/client/ics-006-solo-machine-client).
 
 This implementation of a solo machine light client supports single and multi-signature public
 keys. The client is capable of handling public key updates by header and governance proposals.

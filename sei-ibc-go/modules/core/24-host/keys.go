@@ -56,7 +56,7 @@ func FullClientKey(clientID string, path []byte) []byte {
 }
 
 // ICS02
-// The following paths are the keys to the store as defined in https://github.com/cosmos/ics/tree/master/spec/ics-002-client-semantics#path-space
+// The following paths are the keys to the store as defined in https://github.com/cosmos/ibc/tree/master/spec/core/ics-002-client-semantics#path-space
 
 // FullClientStatePath takes a client identifier and returns a Path under which to store a
 // particular client state
@@ -101,7 +101,7 @@ func ConsensusStateKey(height exported.Height) []byte {
 }
 
 // ICS03
-// The following paths are the keys to the store as defined in https://github.com/cosmos/ics/tree/master/spec/ics-003-connection-semantics#store-paths
+// The following paths are the keys to the store as defined in https://github.com/cosmos/ibc/blob/master/spec/core/ics-003-connection-semantics#store-paths
 
 // ClientConnectionsPath defines a reverse mapping from clients to a set of connections
 func ClientConnectionsPath(clientID string) string {
@@ -124,7 +124,7 @@ func ConnectionKey(connectionID string) []byte {
 }
 
 // ICS04
-// The following paths are the keys to the store as defined in https://github.com/cosmos/ics/tree/master/spec/ics-004-channel-and-packet-semantics#store-paths
+// The following paths are the keys to the store as defined in https://github.com/cosmos/ibc/tree/master/spec/core/ics-004-channel-and-packet-semantics#store-paths
 
 // ChannelPath defines the path under which channels are stored
 func ChannelPath(portID, channelID string) string {
@@ -227,7 +227,7 @@ func sequencePath(sequence uint64) string {
 }
 
 // ICS05
-// The following paths are the keys to the store as defined in https://github.com/cosmos/ics/tree/master/spec/ics-005-port-allocation#store-paths
+// The following paths are the keys to the store as defined in https://github.com/cosmos/ibc/tree/master/spec/core/ics-005-port-allocation#store-paths
 
 // PortPath defines the path under which ports paths are stored on the capability module
 func PortPath(portID string) string {

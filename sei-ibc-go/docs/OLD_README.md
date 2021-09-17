@@ -5,6 +5,7 @@ parent:
   title: "ibc"
 -->
 
+<!-- markdown-link-check-disable -->
 # `ibc`
 
 ## Abstract
@@ -113,3 +114,4 @@ x/ibc
 │   └── 09-localhost/
 └── testing/
 ```
+<!-- markdown-link-check-enable-->

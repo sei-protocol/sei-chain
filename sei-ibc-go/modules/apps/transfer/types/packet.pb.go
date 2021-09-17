@@ -24,7 +24,7 @@ const _ = proto.GoGoProtoPackageIsVersion3 // please upgrade the proto package
 
 // FungibleTokenPacketData defines a struct for the packet payload
 // See FungibleTokenPacketData spec:
-// https://github.com/cosmos/ics/tree/master/spec/ics-020-fungible-token-transfer#data-structures
+// https://github.com/cosmos/ibc/tree/master/spec/app/ics-020-fungible-token-transfer#data-structures
 type FungibleTokenPacketData struct {
 	// the token denomination to be transferred
 	Denom string `protobuf:"bytes,1,opt,name=denom,proto3" json:"denom,omitempty"`

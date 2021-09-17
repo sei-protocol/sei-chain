@@ -4,7 +4,7 @@ order: 2
 
 # State
 
-The paths for the values stored in state is defined [here](https://github.com/cosmos/ics/blob/master/spec/ics-024-host-requirements/README.md#path-space).
+The paths for the values stored in state is defined [here](https://github.com/cosmos/ibc/blob/master/spec/core/ics-024-host-requirements#path-space).
 Additionally, the SDK adds a prefix to the path to be able to aggregate the values for querying purposes.
 The client type is not stored since it can be obtained through the client state. 
 

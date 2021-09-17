@@ -104,7 +104,7 @@ The IBC Keeper now takes in the Upgrade Keeper. Please add the chains' Upgrade K
 
 ### UpdateClientProposal
 
-The `UpdateClient` has been modified to take in two client-identifiers and one initial height. Please see the [documentation](../proposals.md) for more information. 
+The `UpdateClient` has been modified to take in two client-identifiers and one initial height. Please see the [documentation](../ibc/proposals.md) for more information. 
 
 ### UpgradeProposal
 

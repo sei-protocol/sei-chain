@@ -7,7 +7,7 @@ order: 3
 Learn how to configure your application to use IBC and send data packets to other chains. {synopsis}
 
 This document serves as a guide for developers who want to write their own Inter-blockchain
-Communication Protocol (IBC) applications for custom [use-cases](https://github.com/cosmos/ics/blob/master/ibc/4_IBC_USECASES.md).
+Communication Protocol (IBC) applications for custom use cases.
 
 Due to the modular design of the IBC protocol, IBC
 application developers do not need to concern themselves with the low-level details of clients,
@@ -255,7 +255,7 @@ to implement callbacks for handling the packet flow through a channel.
 Once a module A and module B are connected to each other, relayers can start relaying packets and
 acknowledgements back and forth on the channel.
 
-![IBC packet flow diagram](https://media.githubusercontent.com/media/cosmos/ics/master/spec/ics-004-channel-and-packet-semantics/packet-state-machine.png)
+![IBC packet flow diagram](https://media.githubusercontent.com/media/cosmos/ibc/old/spec/ics-004-channel-and-packet-semantics/channel-state-machine.png)
 
 Briefly, a successful packet flow works as follows:
 
@@ -353,7 +353,7 @@ receive acknowledegments with the IBC modules as byte strings.
 
 Thus, modules must agree on how to encode/decode acknowledgements. The process of creating an
 acknowledgement struct along with encoding and decoding it, is very similar to the packet data
-example above. [ICS 04](https://github.com/cosmos/ics/tree/master/spec/ics-004-channel-and-packet-semantics#acknowledgement-envelope)
+example above. [ICS 04](https://github.com/cosmos/ibc/blob/master/spec/core/ics-004-channel-and-packet-semantics#acknowledgement-envelope)
 specifies a recommended format for acknowledgements. This acknowledgement type can be imported from
 [channel types](https://github.com/cosmos/ibc-go/tree/main/modules/core/04-channel/types).
 
@@ -366,7 +366,7 @@ While modules may choose arbitrary acknowledgement structs, a default acknowledg
 // conflicts with other protobuf message formats used for acknowledgements.
 // The first byte of any message with this format will be the non-ASCII values
 // `0xaa` (result) or `0xb2` (error). Implemented as defined by ICS:
-// https://github.com/cosmos/ics/tree/master/spec/ics-004-channel-and-packet-semantics#acknowledgement-envelope
+// https://github.com/cosmos/ibc/tree/master/spec/core/ics-004-channel-and-packet-semantics#acknowledgement-envelope
 message Acknowledgement {
   // response contains either a result or an error and must be non-empty
   oneof response {

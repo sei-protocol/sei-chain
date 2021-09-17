@@ -426,7 +426,7 @@ func (k Keeper) ChanOpenConfirm(
 // Closing Handshake
 //
 // This section defines the set of functions required to close a channel handshake
-// as defined in https://github.com/cosmos/ics/tree/master/spec/ics-004-channel-and-packet-semantics#closing-handshake
+// as defined in https://github.com/cosmos/ibc/tree/master/spec/core/ics-004-channel-and-packet-semantics#closing-handshake
 //
 // ChanCloseInit is called by either module to close their end of the channel. Once
 // closed, channels cannot be reopened.

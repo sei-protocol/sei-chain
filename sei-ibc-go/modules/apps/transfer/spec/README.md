@@ -11,7 +11,7 @@ parent:
 
 This paper defines the implementation of the ICS20 protocol on the Cosmos SDK.
 
-For the general specification please refer to the [ICS20 Specification](https://github.com/cosmos/ics/tree/master/spec/ics-020-fungible-token-transfer).
+For the general specification please refer to the [ICS20 Specification](https://github.com/cosmos/ibc/tree/master/spec/app/ics-020-fungible-token-transfer).
 
 ## Contents
 

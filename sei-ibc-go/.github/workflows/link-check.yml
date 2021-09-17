@@ -6,3 +6,5 @@ jobs:
     steps:
     - uses: actions/checkout@v2
     - uses: gaurav-nelson/github-action-markdown-link-check@v1
+      with:
+        config-file: '.github/workflows/link-check-config.json'

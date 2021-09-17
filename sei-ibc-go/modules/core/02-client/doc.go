@@ -1,6 +1,6 @@
 /*
 Package client implements the ICS 02 - Client Semantics specification
-https://github.com/cosmos/ics/tree/master/spec/ics-002-client-semantics.  This
+https://github.com/cosmos/ibc/tree/master/spec/core/ics-002-client-semantics. This
 concrete implementations defines types and method to store and update light
 clients which tracks on other chain's state.
 

@@ -296,4 +296,4 @@ Proposed
 ## References
 
 - Relevant comment: [cosmos/ics#289](https://github.com/cosmos/ics/issues/289#issuecomment-544533583)
-- [ICS26 - Routing Module](https://github.com/cosmos/ics/blob/master/spec/ics-026-routing-module)
+- [ICS26 - Routing Module](https://github.com/cosmos/ibc/tree/master/spec/core/ics-026-routing-module)

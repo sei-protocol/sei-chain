@@ -5,7 +5,7 @@ import ics23 "github.com/confio/ics23/go"
 // ICS 023 Types Implementation
 //
 // This file includes types defined under
-// https://github.com/cosmos/ics/tree/master/spec/ics-023-vector-commitments
+// https://github.com/cosmos/ibc/tree/master/spec/core/ics-023-vector-commitments
 
 // spec:Path and spec:Value are defined as bytestring
 

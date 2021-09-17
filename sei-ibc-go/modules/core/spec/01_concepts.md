@@ -4,9 +4,6 @@ order: 1
 
 # Concepts
 
-> NOTE: if you are not familiar with the IBC terminology and concepts, please read
-this [document](https://github.com/cosmos/ics/blob/master/ibc/1_IBC_TERMINOLOGY.md) as prerequisite reading.
-
 ## Client Creation, Updates, and Upgrades
 
 IBC clients are on chain light clients. The light client is responsible for verifying
@@ -140,7 +137,7 @@ The IBC interfaces expect an `ibcexported.Height` interface, however all clients
 
 ## Connection Handshake
 
-The connection handshake occurs in 4 steps as defined in [ICS 03](https://github.com/cosmos/ics/tree/master/spec/ics-003-connection-semantics).
+The connection handshake occurs in 4 steps as defined in [ICS 03](https://github.com/cosmos/ibc/blob/master/spec/core/ics-003-connection-semantics).
 
 `ConnOpenInit` is the first attempt to initialize a connection on the executing chain. 
 The handshake is expected to succeed if the version selected is supported. The connection 
@@ -219,7 +216,7 @@ versions should have a unique version identifier.
 
 ## Channel Handshake
 
-The channel handshake occurs in 4 steps as defined in [ICS 04](https://github.com/cosmos/ics/tree/master/spec/ics-004-channel-and-packet-semantics).
+The channel handshake occurs in 4 steps as defined in [ICS 04](https://github.com/cosmos/ibc/tree/master/spec/core/ics-004-channel-and-packet-semantics).
 
 `ChanOpenInit` is the first attempt to initialize a channel on top of an existing connection. 
 The handshake is expected to succeed if the version selected for the existing connection is a 
@@ -367,7 +364,7 @@ Each packet is required to have at least one valid timeout field.
 
 ## Closing Channels
 
-Closing a channel occurs in occurs in 2 handshake steps as defined in [ICS 04](https://github.com/cosmos/ics/tree/master/spec/ics-004-channel-and-packet-semantics).
+Closing a channel occurs in occurs in 2 handshake steps as defined in [ICS 04](https://github.com/cosmos/ibc/tree/master/spec/core/ics-004-channel-and-packet-semantics).
 
 `ChanCloseInit` will close a channel on the executing chain if the channel exists, it is not 
 already closed and the connection it exists upon is OPEN. Channels can only be closed by a 
@@ -382,7 +379,7 @@ that the counterparty channel has been closed.
 
 ## Hostname Validation
 
-Hostname validation is implemented as defined in [ICS 24](https://github.com/cosmos/ics/tree/master/spec/ics-024-host-requirements).
+Hostname validation is implemented as defined in [ICS 24](https://github.com/cosmos/ibc/tree/master/spec/core/ics-024-host-requirements).
 
 The 24-host sub-module parses and validates identifiers. It also builds 
 the key paths used to store IBC related information. 

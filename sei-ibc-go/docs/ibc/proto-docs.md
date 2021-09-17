@@ -616,7 +616,7 @@ upgrade.
 ### MsgTransfer
 MsgTransfer defines a msg to transfer fungible tokens (i.e Coins) between
 ICS20 enabled chains. See ICS Spec here:
-https://github.com/cosmos/ics/tree/master/spec/ics-020-fungible-token-transfer#data-structures
+https://github.com/cosmos/ibc/tree/master/spec/app/ics-020-fungible-token-transfer#data-structures
 
 
 | Field | Type | Label | Description |
@@ -675,7 +675,7 @@ Msg defines the ibc/transfer Msg service.
 ### FungibleTokenPacketData
 FungibleTokenPacketData defines a struct for the packet payload
 See FungibleTokenPacketData spec:
-https://github.com/cosmos/ics/tree/master/spec/ics-020-fungible-token-transfer#data-structures
+https://github.com/cosmos/ibc/tree/master/spec/app/ics-020-fungible-token-transfer#data-structures
 
 
 | Field | Type | Label | Description |
@@ -715,7 +715,7 @@ NOTE: The field numbers 21 and 22 were explicitly chosen to avoid accidental
 conflicts with other protobuf message formats used for acknowledgements.
 The first byte of any message with this format will be the non-ASCII values
 `0xaa` (result) or `0xb2` (error). Implemented as defined by ICS:
-https://github.com/cosmos/ics/tree/master/spec/ics-004-channel-and-packet-semantics#acknowledgement-envelope
+https://github.com/cosmos/ibc/tree/master/spec/core/ics-004-channel-and-packet-semantics#acknowledgement-envelope
 
 
 | Field | Type | Label | Description |

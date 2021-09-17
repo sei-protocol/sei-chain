@@ -10,7 +10,7 @@ If you want to update the documentation please open a pr on ibc-go.
 
 ## Docs Build Workflow
 
-The documentation for the Cosmos SDK is hosted at https://ibc.cosmos.network/
+The documentation for IBC-Go is hosted at https://ibc.cosmos.network.
 
 built from the files in this (`/docs`) directory for
 [main](https://github.com/cosmos/ibc-go/tree/main/docs).
@@ -86,16 +86,6 @@ npm run serve
 Run `pre` and `post` hooks and start a hot-reloading web-server. See output of this command for the URL (it is often https://localhost:8080).
 
 To build documentation as a static website run `npm run build`. You will find the website in `.vuepress/dist` directory.
-
-## Build RPC Docs
-
-TODO: is this still true?
-
-First, run `make tools` from the root of repo, to install the swagger-ui tool.
-
-Then, edit the `swagger.yaml` manually; it is found [here](https://github.com/cosmos/cosmos-sdk/blob/master/client/lcd/swagger-ui/swagger.yaml)
-
-Finally, run `make update_gaia_lite_docs` from the root of the repo.
 
 ## Search
 
