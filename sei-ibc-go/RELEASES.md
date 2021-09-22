@@ -31,14 +31,12 @@ The decision tree above was generated with the following code:
     }
 }%%
 flowchart TD
-    A(Change):::c --> B{state-machine breaking?}
-    B:::c --> |Yes| C{API breaking?}
-    B:::c --> |No| D{API breaking?}
-    C:::c --> |Yes| E(Increase major version):::c
-    C:::c --> |No| F(Increase minor version):::c
-    D:::c --> |Yes| G(Increase major version):::c
+    A(Change):::c --> B{API breaking?}
+    B:::c --> |Yes| C(Increase major version):::c
+    B:::c --> |No| D{state-machine breaking?}
+    D:::c --> |Yes| G(Increase minor version):::c
     D:::c --> |No| H(Increase patch version):::c
     classDef c fill:#eee,stroke:#aaa
 ```
 
-using [Mermaid's live editor](https://mermaid-js.github.io/).
+using [Mermaid](https://mermaid-js.github.io)'s [live editor](https://mermaid.live).
