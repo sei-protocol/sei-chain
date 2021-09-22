@@ -31,8 +31,8 @@ func (k Keeper) Logger(ctx sdk.Context) log.Logger {
 	return ctx.Logger().With("module", "x/"+host.ModuleName+"/"+types.SubModuleName)
 }
 
-// isBounded checks a given port ID is already bounded.
-func (k Keeper) isBound(ctx sdk.Context, portID string) bool {
+// IsBound checks a given port ID is already bounded.
+func (k Keeper) IsBound(ctx sdk.Context, portID string) bool {
 	_, ok := k.scopedKeeper.GetCapability(ctx, host.PortPath(portID))
 	return ok
 }
@@ -46,7 +46,7 @@ func (k *Keeper) BindPort(ctx sdk.Context, portID string) *capabilitytypes.Capab
 		panic(err.Error())
 	}
 
-	if k.isBound(ctx, portID) {
+	if k.IsBound(ctx, portID) {
 		panic(fmt.Sprintf("port %s is already bound", portID))
 	}
 
