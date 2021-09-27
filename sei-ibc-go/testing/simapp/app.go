@@ -578,6 +578,11 @@ func (app *SimApp) GetScopedIBCKeeper() capabilitykeeper.ScopedKeeper {
 	return app.ScopedIBCKeeper
 }
 
+// GetMockModule returns the mock module in the testing application
+func (app *SimApp) GetMockModule() ibcmock.AppModule {
+	return app.mm.Modules[ibcmock.ModuleName].(ibcmock.AppModule)
+}
+
 // GetTxConfig implements the TestingApp interface.
 func (app *SimApp) GetTxConfig() client.TxConfig {
 	return MakeTestEncodingConfig().TxConfig
