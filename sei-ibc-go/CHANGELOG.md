@@ -36,6 +36,10 @@ Ref: https://keepachangelog.com/en/1.0.0/
 
 ## [Unreleased]
 
+### Dependencies
+
+* [\#455](https://github.com/cosmos/ibc-go/pull/455) Bump SDK version to v0.44.1
+
 ### API Breaking
 
 * (core) [\#227](https://github.com/cosmos/ibc-go/pull/227) Remove sdk.Result from application callbacks
