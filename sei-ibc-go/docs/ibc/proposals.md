@@ -39,3 +39,50 @@ The substitute client is used as a "stand in" while the subject is on trial. It 
 a substitute client *after* the subject has become frozen to avoid the substitute from also becoming frozen. 
 An active substitute client allows headers to be submitted during the voting period to prevent accidental expiry 
 once the proposal passes. 
+
+# How to recover an expired client with a governance proposal
+
+See also the relevant documentation: [ADR-026, IBC client recovery mechanisms](../architecture/adr-026-ibc-client-recovery-mechanisms.md)
+
+### Preconditions 
+- The chain is updated with ibc-go >= v1.1.0.
+- Recovery parameters are set to `true` for the Tendermint light client (this determines if a governance proposal can be used). If the recovery parameters are set to `false`, recovery will require custom migration code.
+- The client identifier of an active client for the same counterparty chain.
+- The governance deposit.
+
+## Steps
+
+### Step 1
+
+Check if the client is attached to the expected `chain-id`. For example, for an expired Tendermint client representing the Akash chain the client state looks like this on querying the client state:
+
+```
+{
+  client_id: 07-tendermint-146
+  client_state:
+  '@type': /ibc.lightclients.tendermint.v1.ClientState
+  allow_update_after_expiry: true
+  allow_update_after_misbehaviour: true
+  chain_id: akashnet-2
+}
+```
+
+The client is attached to the expected Akash `chain-id` and the recovery parameters (`allow_update_after_expiry` and `allow_update_after_misbehaviour`) are set to `true`.
+
+### Step 2
+
+If the chain has been updated to ibc-go >= v1.1.0, anyone can submit the governance proposal to recover the client by executing this via cli:
+
+```
+<binary> tx gov submit-proposal update-client <expired-client-id> <active-client-id>
+```
+
+The `<active-client-id>` should be a client identifier on the same chain as the expired or frozen client. This client identifier should connect to the same chain as the expired or frozen client. This means: use the active client that is currently being used to relay packets between the two chains as the replacement client.
+
+After this, it is just a question of who funds the governance deposit and if the chain in question votes yes.
+
+## Important considerations 
+
+Please note that from v1.0.0 of ibc-go it will not be allowed for transactions to go to expired clients anymore, so please update to at least this version to prevent similar issues in the future.
+
+Please also note that if the client on the other end of the transaction is also expired, that client will also need to update. This process updates only one client.
