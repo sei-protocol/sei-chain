@@ -1,6 +1,6 @@
 # Migrating to ibc-go
 
-This file contains information on how to migrate from the IBC module contained in the SDK 0.41.x line to the IBC module in the ibc-go repository based on the 0.43 SDK version. 
+This file contains information on how to migrate from the IBC module contained in the SDK 0.41.x and 0.42.x lines to the IBC module in the ibc-go repository based on the 0.44 SDK version. 
 
 ## Import Changes
 
@@ -24,7 +24,7 @@ Executing these commands out of order will cause issues.
 
 Feel free to use your own method for modifying import names.
 
-NOTE: Updating to the `v0.43.0` SDK release and then running `go mod tidy` will cause a downgrade to `v0.42.0` in order to support the old IBC import paths.
+NOTE: Updating to the `v0.44.0` SDK release and then running `go mod tidy` will cause a downgrade to `v0.42.0` in order to support the old IBC import paths.
 Update the import paths before running `go mod tidy`.  
 
 ## Chain Upgrades
