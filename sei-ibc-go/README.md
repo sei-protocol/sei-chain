@@ -63,4 +63,4 @@ Note: The localhost client is currently non-functional.
 
 - [IBC Website](https://ibcprotocol.org/)
 - [IBC Specification](https://github.com/cosmos/ibc)
-- [Documentation](docs/README.md)
+- [Documentation](https://ibc.cosmos.network/main/ibc/overview.html)
