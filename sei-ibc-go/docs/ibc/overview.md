@@ -32,8 +32,8 @@ module correctly.
 
 IBC Clients are light clients (identified by a unique client-id) that track the consensus states of
 other blockchains, along with the proof spec necessary to properly verify proofs against the
-client's consensus state. A client may be associated with any number of connections to multiple
-chains. The supported IBC clients are:
+client's consensus state. A client may be associated with any number of connections to the counterparty
+chain. The supported IBC clients are:
 
 * [Solo Machine light client](https://github.com/cosmos/ibc-go/blob/main/modules/light-clients/06-solomachine): devices such as phones, browsers, or laptops.
 * [Tendermint light client](https://github.com/cosmos/ibc-go/blob/main/modules/light-clients/07-tendermint): The default for SDK-based chains,
