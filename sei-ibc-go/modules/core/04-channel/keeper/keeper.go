@@ -20,6 +20,8 @@ import (
 	"github.com/cosmos/ibc-go/v2/modules/core/exported"
 )
 
+var _ porttypes.ICS4Wrapper = Keeper{}
+
 // Keeper defines the IBC channel keeper
 type Keeper struct {
 	// implements gRPC QueryServer interface

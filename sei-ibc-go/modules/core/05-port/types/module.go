@@ -95,3 +95,26 @@ type IBCModule interface {
 		proposedVersion string,
 	) (version string, err error)
 }
+
+// ICS4Wrapper implements the ICS4 interfaces that IBC applications use to send packets and acknolwedgements.
+type ICS4Wrapper interface {
+	SendPacket(
+		ctx sdk.Context,
+		chanCap *capabilitytypes.Capability,
+		packet exported.PacketI,
+	) error
+
+	WriteAcknowledgement(
+		ctx sdk.Context,
+		chanCap *capabilitytypes.Capability,
+		packet exported.PacketI,
+		ack []byte,
+	) error
+}
+
+// Middleware must implement IBCModule to wrap communication from core IBC to underlying application
+// and ICS4Wrapper to wrap communication from underlying application to core IBC.
+type Middleware interface {
+	IBCModule
+	ICS4Wrapper
+}
