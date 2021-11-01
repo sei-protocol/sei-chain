@@ -68,6 +68,11 @@ module.exports = {
               path: "/ibc/apps.html"
             },
             {
+              title: "Middleware",
+              directory: true,
+              path: "/ibc/middleware"
+            },
+            {
               title: "Upgrades",
               directory: true,
               path: "/ibc/upgrades"
