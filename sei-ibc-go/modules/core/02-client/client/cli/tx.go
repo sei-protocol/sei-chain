@@ -237,8 +237,8 @@ func NewUpgradeClientCmd() *cobra.Command {
 // NewCmdSubmitUpdateClientProposal implements a command handler for submitting an update IBC client proposal transaction.
 func NewCmdSubmitUpdateClientProposal() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "update-client [subject-client-id] [substitute-client-id] [flags]",
-		Args:  cobra.ExactArgs(3),
+		Use:   "update-client [subject-client-id] [substitute-client-id]",
+		Args:  cobra.ExactArgs(2),
 		Short: "Submit an update IBC client proposal",
 		Long: "Submit an update IBC client proposal along with an initial deposit.\n" +
 			"Please specify a subject client identifier you want to update..\n" +
