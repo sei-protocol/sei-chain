@@ -1,10 +1,7 @@
 package mock
 
 import (
-	"bytes"
 	"encoding/json"
-	"errors"
-	"strconv"
 
 	"github.com/cosmos/cosmos-sdk/client"
 	"github.com/cosmos/cosmos-sdk/codec"
@@ -21,7 +18,6 @@ import (
 	channeltypes "github.com/cosmos/ibc-go/v2/modules/core/04-channel/types"
 	porttypes "github.com/cosmos/ibc-go/v2/modules/core/05-port/types"
 	host "github.com/cosmos/ibc-go/v2/modules/core/24-host"
-	"github.com/cosmos/ibc-go/v2/modules/core/exported"
 )
 
 const (
@@ -41,7 +37,7 @@ var (
 	MockTimeoutCanaryCapabilityName = "mock timeout canary capability name"
 )
 
-var _ porttypes.IBCModule = AppModule{}
+var _ porttypes.IBCModule = IBCModule{}
 
 // Expected Interface
 // PortKeeper defines the expected IBC port keeper
@@ -94,7 +90,6 @@ type AppModule struct {
 	AppModuleBasic
 	scopedKeeper capabilitykeeper.ScopedKeeper
 	portKeeper   PortKeeper
-	IBCApp       MockIBCApp // base application of an IBC middleware stack
 }
 
 // NewAppModule returns a mock AppModule instance.
@@ -150,149 +145,4 @@ func (am AppModule) BeginBlock(ctx sdk.Context, req abci.RequestBeginBlock) {
 // EndBlock implements the AppModule interface
 func (am AppModule) EndBlock(ctx sdk.Context, req abci.RequestEndBlock) []abci.ValidatorUpdate {
 	return []abci.ValidatorUpdate{}
-}
-
-// OnChanOpenInit implements the IBCModule interface.
-func (am AppModule) OnChanOpenInit(
-	ctx sdk.Context, order channeltypes.Order, connectionHops []string, portID string,
-	channelID string, chanCap *capabilitytypes.Capability, counterparty channeltypes.Counterparty, version string,
-) error {
-	if am.IBCApp.OnChanOpenInit != nil {
-		return am.IBCApp.OnChanOpenInit(ctx, order, connectionHops, portID, channelID, chanCap, counterparty, version)
-
-	}
-
-	// Claim channel capability passed back by IBC module
-	if err := am.scopedKeeper.ClaimCapability(ctx, chanCap, host.ChannelCapabilityPath(portID, channelID)); err != nil {
-		return err
-	}
-
-	return nil
-}
-
-// OnChanOpenTry implements the IBCModule interface.
-func (am AppModule) OnChanOpenTry(
-	ctx sdk.Context, order channeltypes.Order, connectionHops []string, portID string,
-	channelID string, chanCap *capabilitytypes.Capability, counterparty channeltypes.Counterparty, version, counterpartyVersion string,
-) error {
-	if am.IBCApp.OnChanOpenTry != nil {
-		return am.IBCApp.OnChanOpenTry(ctx, order, connectionHops, portID, channelID, chanCap, counterparty, version, counterpartyVersion)
-
-	}
-	// Claim channel capability passed back by IBC module
-	if err := am.scopedKeeper.ClaimCapability(ctx, chanCap, host.ChannelCapabilityPath(portID, channelID)); err != nil {
-		return err
-	}
-
-	return nil
-}
-
-// OnChanOpenAck implements the IBCModule interface.
-func (am AppModule) OnChanOpenAck(ctx sdk.Context, portID string, channelID string, counterpartyVersion string) error {
-	if am.IBCApp.OnChanOpenAck != nil {
-		return am.IBCApp.OnChanOpenAck(ctx, portID, channelID, counterpartyVersion)
-	}
-
-	return nil
-}
-
-// OnChanOpenConfirm implements the IBCModule interface.
-func (am AppModule) OnChanOpenConfirm(ctx sdk.Context, portID, channelID string) error {
-	if am.IBCApp.OnChanOpenConfirm != nil {
-		return am.IBCApp.OnChanOpenConfirm(ctx, portID, channelID)
-	}
-
-	return nil
-}
-
-// OnChanCloseInit implements the IBCModule interface.
-func (am AppModule) OnChanCloseInit(ctx sdk.Context, portID, channelID string) error {
-	if am.IBCApp.OnChanCloseInit != nil {
-		return am.IBCApp.OnChanCloseInit(ctx, portID, channelID)
-	}
-
-	return nil
-}
-
-// OnChanCloseConfirm implements the IBCModule interface.
-func (am AppModule) OnChanCloseConfirm(ctx sdk.Context, portID, channelID string) error {
-	if am.IBCApp.OnChanCloseConfirm != nil {
-		return am.IBCApp.OnChanCloseConfirm(ctx, portID, channelID)
-	}
-
-	return nil
-}
-
-// OnRecvPacket implements the IBCModule interface.
-func (am AppModule) OnRecvPacket(ctx sdk.Context, packet channeltypes.Packet, relayer sdk.AccAddress) exported.Acknowledgement {
-	if am.IBCApp.OnRecvPacket != nil {
-		return am.IBCApp.OnRecvPacket(ctx, packet, relayer)
-	}
-
-	// set state by claiming capability to check if revert happens return
-	_, err := am.scopedKeeper.NewCapability(ctx, MockRecvCanaryCapabilityName+strconv.Itoa(int(packet.GetSequence())))
-	if err != nil {
-		// application callback called twice on same packet sequence
-		// must never occur
-		panic(err)
-	}
-	if bytes.Equal(MockPacketData, packet.GetData()) {
-		return MockAcknowledgement
-	} else if bytes.Equal(MockAsyncPacketData, packet.GetData()) {
-		return nil
-	}
-
-	return MockFailAcknowledgement
-}
-
-// OnAcknowledgementPacket implements the IBCModule interface.
-func (am AppModule) OnAcknowledgementPacket(ctx sdk.Context, packet channeltypes.Packet, acknowledgement []byte, relayer sdk.AccAddress) error {
-	if am.IBCApp.OnAcknowledgementPacket != nil {
-		return am.IBCApp.OnAcknowledgementPacket(ctx, packet, acknowledgement, relayer)
-	}
-
-	_, err := am.scopedKeeper.NewCapability(ctx, MockAckCanaryCapabilityName+strconv.Itoa(int(packet.GetSequence())))
-	if err != nil {
-		// application callback called twice on same packet sequence
-		// must never occur
-		panic(err)
-	}
-
-	return nil
-}
-
-// OnTimeoutPacket implements the IBCModule interface.
-func (am AppModule) OnTimeoutPacket(ctx sdk.Context, packet channeltypes.Packet, relayer sdk.AccAddress) error {
-	if am.IBCApp.OnTimeoutPacket != nil {
-		return am.IBCApp.OnTimeoutPacket(ctx, packet, relayer)
-	}
-
-	_, err := am.scopedKeeper.NewCapability(ctx, MockTimeoutCanaryCapabilityName+strconv.Itoa(int(packet.GetSequence())))
-	if err != nil {
-		// application callback called twice on same packet sequence
-		// must never occur
-		panic(err)
-	}
-
-	return nil
-}
-
-// NegotiateAppVersion implements the IBCModule interface.
-func (am AppModule) NegotiateAppVersion(
-	ctx sdk.Context,
-	order channeltypes.Order,
-	connectionID string,
-	portID string,
-	counterparty channeltypes.Counterparty,
-	proposedVersion string,
-) (string, error) {
-	if am.IBCApp.NegotiateAppVersion != nil {
-		return am.IBCApp.NegotiateAppVersion(ctx, order, connectionID, portID, counterparty, proposedVersion)
-	}
-
-	if proposedVersion != Version { // allow testing of error scenarios
-		return "", errors.New("failed to negotiate app version")
-	}
-
-	return Version, nil
 }
