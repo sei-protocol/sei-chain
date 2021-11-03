@@ -45,6 +45,7 @@ Ref: https://keepachangelog.com/en/1.0.0/
 
 * (core) [\#227](https://github.com/cosmos/ibc-go/pull/227) Remove sdk.Result from application callbacks
 * (transfer) [\#350](https://github.com/cosmos/ibc-go/pull/350) Change FungibleTokenPacketData to use a string for the Amount field. This enables token transfers with amounts previously restricted by uint64. Up to the maximum uint256 value is supported. 
+* (transfer) [\#517](https://github.com/cosmos/ibc-go/pull/517) Separates the ICS 26 callback functions from `AppModule` into a new type `IBCModule` for ICS 20 transfer.
 
 ### State Machine Breaking
 
