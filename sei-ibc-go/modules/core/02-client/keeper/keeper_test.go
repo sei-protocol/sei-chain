@@ -306,12 +306,12 @@ func (suite KeeperTestSuite) TestGetConsensusState() {
 
 	for i, tc := range cases {
 		tc := tc
-		cs, found := suite.keeper.GetSelfConsensusState(suite.ctx, tc.height)
+		cs, err := suite.keeper.GetSelfConsensusState(suite.ctx, tc.height)
 		if tc.expPass {
-			suite.Require().True(found, "Case %d should have passed: %s", i, tc.name)
+			suite.Require().NoError(err, "Case %d should have passed: %s", i, tc.name)
 			suite.Require().NotNil(cs, "Case %d should have passed: %s", i, tc.name)
 		} else {
-			suite.Require().False(found, "Case %d should have failed: %s", i, tc.name)
+			suite.Require().Error(err, "Case %d should have failed: %s", i, tc.name)
 			suite.Require().Nil(cs, "Case %d should have failed: %s", i, tc.name)
 		}
 	}

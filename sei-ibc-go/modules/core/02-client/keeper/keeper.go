@@ -241,19 +241,19 @@ func (k Keeper) GetLatestClientConsensusState(ctx sdk.Context, clientID string) 
 // GetSelfConsensusState introspects the (self) past historical info at a given height
 // and returns the expected consensus state at that height.
 // For now, can only retrieve self consensus states for the current revision
-func (k Keeper) GetSelfConsensusState(ctx sdk.Context, height exported.Height) (exported.ConsensusState, bool) {
+func (k Keeper) GetSelfConsensusState(ctx sdk.Context, height exported.Height) (exported.ConsensusState, error) {
 	selfHeight, ok := height.(types.Height)
 	if !ok {
-		return nil, false
+		return nil, sdkerrors.Wrapf(sdkerrors.ErrInvalidType, "expected %T, got %T", types.Height{}, height)
 	}
 	// check that height revision matches chainID revision
 	revision := types.ParseChainID(ctx.ChainID())
 	if revision != height.GetRevisionNumber() {
-		return nil, false
+		return nil, sdkerrors.Wrapf(types.ErrInvalidHeight, "chainID revision number does not match height revision number: expected %d, got %d", revision, height.GetRevisionNumber())
 	}
 	histInfo, found := k.stakingKeeper.GetHistoricalInfo(ctx, int64(selfHeight.RevisionHeight))
 	if !found {
-		return nil, false
+		return nil, sdkerrors.Wrapf(sdkerrors.ErrNotFound, "no historical info found at height %d", selfHeight.RevisionHeight)
 	}
 
 	consensusState := &ibctmtypes.ConsensusState{
@@ -261,7 +261,7 @@ func (k Keeper) GetSelfConsensusState(ctx sdk.Context, height exported.Height) (
 		Root:               commitmenttypes.NewMerkleRoot(histInfo.Header.GetAppHash()),
 		NextValidatorsHash: histInfo.Header.NextValidatorsHash,
 	}
-	return consensusState, true
+	return consensusState, nil
 }
 
 // ValidateSelfClient validates the client parameters for a client of the running chain

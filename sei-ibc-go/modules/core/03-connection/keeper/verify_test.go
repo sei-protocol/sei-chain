@@ -139,10 +139,10 @@ func (suite *KeeperTestSuite) TestVerifyClientConsensusState() {
 
 			proof, consensusHeight := suite.chainB.QueryConsensusStateProof(path.EndpointB.ClientID)
 			proofHeight := clienttypes.NewHeight(0, uint64(suite.chainB.GetContext().BlockHeight()-1))
-			consensusState, found := suite.chainA.App.GetIBCKeeper().ClientKeeper.GetSelfConsensusState(suite.chainA.GetContext(), consensusHeight)
-			suite.Require().True(found)
+			consensusState, err := suite.chainA.App.GetIBCKeeper().ClientKeeper.GetSelfConsensusState(suite.chainA.GetContext(), consensusHeight)
+			suite.Require().NoError(err)
 
-			err := suite.chainA.App.GetIBCKeeper().ConnectionKeeper.VerifyClientConsensusState(
+			err = suite.chainA.App.GetIBCKeeper().ConnectionKeeper.VerifyClientConsensusState(
 				suite.chainA.GetContext(), connection,
 				malleateHeight(proofHeight, heightDiff), consensusHeight, proof, consensusState,
 			)
