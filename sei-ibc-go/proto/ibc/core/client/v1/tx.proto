@@ -6,7 +6,6 @@ option go_package = "github.com/cosmos/ibc-go/v2/modules/core/02-client/types";
 
 import "gogoproto/gogo.proto";
 import "google/protobuf/any.proto";
-import "ibc/core/client/v1/client.proto";
 
 // Msg defines the ibc/client Msg service.
 service Msg {
