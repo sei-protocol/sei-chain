@@ -160,6 +160,36 @@ Application modules are expected to verify versioning used during the channel ha
 * `ChanOpenTry` callback should verify that the `MsgChanOpenTry.Version` is valid and that `MsgChanOpenTry.CounterpartyVersion` is valid.
 * `ChanOpenAck` callback should verify that the `MsgChanOpenAck.CounterpartyVersion` is valid and supported.
 
+IBC expects application modules to implement the `NegotiateAppVersion` method from the `IBCModule`
+interface. This method performs application version negotiation and returns the negotiated version.
+If the version cannot be negotiated, an error should be returned.
+
+```go
+// NegotiateAppVersion performs application version negotiation given the provided channel ordering, connectionID, portID, counterparty and proposed version.
+// An error is returned if version negotiation cannot be performed. For example, an application module implementing this interface
+// may decide to return an error in the event of the proposed version being incompatible with it's own
+NegotiateAppVersion(
+    ctx sdk.Context,
+    order channeltypes.Order,
+    connectionID string,
+    portID string,
+    counterparty channeltypes.Counterparty,
+    proposedVersion string,
+) (version string, err error) {
+    // do custom application version negotiation logic
+}
+```
+
+This function `NegotiateAppVersion` returns the version to be used in the `ChanOpenTry` step
+(`MsgChanOpenTry.Version`). The relayer chooses the initial version in the `ChanOpenInit` step
+(this will likely be chosen by the user controlling the relayer or by the application that
+triggers the `ChanOpenInit` step).
+
+The version submitted in the `ChanOpenInit` step (`MsgChanOpenInit.Version`) is passed as an
+argument (`proposedVersion`) to the function `NegotiateAppVersion`. This function looks at
+the `proposedVersion` and returns the matching version to be used in the `ChanOpenTry` step.
+Applications can choose to implement this in however fashion they choose.
+
 Versions must be strings but can implement any versioning structure. If your application plans to
 have linear releases then semantic versioning is recommended. If your application plans to release
 various features in between major releases then it is advised to use the same versioning scheme
