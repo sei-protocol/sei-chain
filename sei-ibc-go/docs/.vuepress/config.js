@@ -41,6 +41,10 @@ module.exports = {
       {
         "label": "v1.2.0",
         "key": "v1.2.0"
+      },
+      {
+        "label": "v2.0.0",
+        "key": "v2.0.0"
       }      
     ],
     topbar: {
