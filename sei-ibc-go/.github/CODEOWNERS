@@ -28,5 +28,5 @@
 
 # CODEOWNERS for interchain-accounts module
 
-/modules/apps/27-interchain-accounts/ @seantking @colin-axner @AdityaSripal
-/proto/applications/interchain_accounts/ @seantking @colin-axner @AdityaSripal
+/modules/apps/27-interchain-accounts/ @seantking @colin-axner @AdityaSripal @damiannolan
+/proto/applications/interchain_accounts/ @seantking @colin-axner @AdityaSripal @damiannolan

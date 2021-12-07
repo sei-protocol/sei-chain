@@ -36,4 +36,6 @@ var (
 
 	// Perform a no-op on the current Msg
 	ErrNoOpMsg = sdkerrors.Register(SubModuleName, 23, "message is redundant, no-op will be performed")
+
+	ErrInvalidChannelVersion = sdkerrors.Register(SubModuleName, 24, "invalid channel version")
 )
