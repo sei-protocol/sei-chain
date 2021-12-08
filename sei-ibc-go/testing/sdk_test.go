@@ -22,14 +22,14 @@ import (
 	authcli "github.com/cosmos/cosmos-sdk/x/auth/client/cli"
 	authrest "github.com/cosmos/cosmos-sdk/x/auth/client/rest"
 	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
-	"github.com/cosmos/ibc-go/v2/testing/simapp/params"
+	"github.com/cosmos/ibc-go/v3/testing/simapp/params"
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/suite"
 	tmrand "github.com/tendermint/tendermint/libs/rand"
 	dbm "github.com/tendermint/tm-db"
 
-	ibcclientcli "github.com/cosmos/ibc-go/v2/modules/core/02-client/client/cli"
-	"github.com/cosmos/ibc-go/v2/testing/simapp"
+	ibcclientcli "github.com/cosmos/ibc-go/v3/modules/core/02-client/client/cli"
+	"github.com/cosmos/ibc-go/v3/testing/simapp"
 )
 
 /*

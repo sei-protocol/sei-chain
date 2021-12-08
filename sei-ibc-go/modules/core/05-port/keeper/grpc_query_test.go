@@ -5,9 +5,9 @@ import (
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 
-	channeltypes "github.com/cosmos/ibc-go/v2/modules/core/04-channel/types"
-	"github.com/cosmos/ibc-go/v2/modules/core/05-port/types"
-	"github.com/cosmos/ibc-go/v2/testing/mock"
+	channeltypes "github.com/cosmos/ibc-go/v3/modules/core/04-channel/types"
+	"github.com/cosmos/ibc-go/v3/modules/core/05-port/types"
+	"github.com/cosmos/ibc-go/v3/testing/mock"
 )
 
 func (suite *KeeperTestSuite) TestAppVersion() {

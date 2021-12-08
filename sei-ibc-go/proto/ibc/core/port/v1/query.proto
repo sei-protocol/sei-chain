@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package ibc.core.port.v1;
 
-option go_package = "github.com/cosmos/ibc-go/v2/modules/core/05-port/types";
+option go_package = "github.com/cosmos/ibc-go/v3/modules/core/05-port/types";
 
 import "ibc/core/channel/v1/channel.proto";
 

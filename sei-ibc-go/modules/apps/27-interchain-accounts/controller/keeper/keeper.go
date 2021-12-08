@@ -12,9 +12,9 @@ import (
 	paramtypes "github.com/cosmos/cosmos-sdk/x/params/types"
 	"github.com/tendermint/tendermint/libs/log"
 
-	"github.com/cosmos/ibc-go/v2/modules/apps/27-interchain-accounts/controller/types"
-	icatypes "github.com/cosmos/ibc-go/v2/modules/apps/27-interchain-accounts/types"
-	host "github.com/cosmos/ibc-go/v2/modules/core/24-host"
+	"github.com/cosmos/ibc-go/v3/modules/apps/27-interchain-accounts/controller/types"
+	icatypes "github.com/cosmos/ibc-go/v3/modules/apps/27-interchain-accounts/types"
+	host "github.com/cosmos/ibc-go/v3/modules/core/24-host"
 )
 
 // Keeper defines the IBC interchain accounts controller keeper

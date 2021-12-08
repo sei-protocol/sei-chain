@@ -1,6 +1,6 @@
 package types_test
 
-import "github.com/cosmos/ibc-go/v2/modules/core/04-channel/types"
+import "github.com/cosmos/ibc-go/v3/modules/core/04-channel/types"
 
 // tests acknowledgement.ValidateBasic and acknowledgement.GetBytes
 func (suite TypesTestSuite) TestAcknowledgement() {

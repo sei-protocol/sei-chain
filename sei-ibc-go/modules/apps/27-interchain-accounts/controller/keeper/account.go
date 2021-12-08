@@ -4,9 +4,9 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 
-	icatypes "github.com/cosmos/ibc-go/v2/modules/apps/27-interchain-accounts/types"
-	channeltypes "github.com/cosmos/ibc-go/v2/modules/core/04-channel/types"
-	host "github.com/cosmos/ibc-go/v2/modules/core/24-host"
+	icatypes "github.com/cosmos/ibc-go/v3/modules/apps/27-interchain-accounts/types"
+	channeltypes "github.com/cosmos/ibc-go/v3/modules/core/04-channel/types"
+	host "github.com/cosmos/ibc-go/v3/modules/core/24-host"
 )
 
 // InitInterchainAccount is the entry point to registering an interchain account.

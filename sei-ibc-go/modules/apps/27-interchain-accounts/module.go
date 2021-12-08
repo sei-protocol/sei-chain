@@ -16,15 +16,15 @@ import (
 	"github.com/grpc-ecosystem/grpc-gateway/runtime"
 	abci "github.com/tendermint/tendermint/abci/types"
 
-	"github.com/cosmos/ibc-go/v2/modules/apps/27-interchain-accounts/client/cli"
-	"github.com/cosmos/ibc-go/v2/modules/apps/27-interchain-accounts/controller"
-	controllerkeeper "github.com/cosmos/ibc-go/v2/modules/apps/27-interchain-accounts/controller/keeper"
-	controllertypes "github.com/cosmos/ibc-go/v2/modules/apps/27-interchain-accounts/controller/types"
-	"github.com/cosmos/ibc-go/v2/modules/apps/27-interchain-accounts/host"
-	hostkeeper "github.com/cosmos/ibc-go/v2/modules/apps/27-interchain-accounts/host/keeper"
-	hosttypes "github.com/cosmos/ibc-go/v2/modules/apps/27-interchain-accounts/host/types"
-	"github.com/cosmos/ibc-go/v2/modules/apps/27-interchain-accounts/types"
-	porttypes "github.com/cosmos/ibc-go/v2/modules/core/05-port/types"
+	"github.com/cosmos/ibc-go/v3/modules/apps/27-interchain-accounts/client/cli"
+	"github.com/cosmos/ibc-go/v3/modules/apps/27-interchain-accounts/controller"
+	controllerkeeper "github.com/cosmos/ibc-go/v3/modules/apps/27-interchain-accounts/controller/keeper"
+	controllertypes "github.com/cosmos/ibc-go/v3/modules/apps/27-interchain-accounts/controller/types"
+	"github.com/cosmos/ibc-go/v3/modules/apps/27-interchain-accounts/host"
+	hostkeeper "github.com/cosmos/ibc-go/v3/modules/apps/27-interchain-accounts/host/keeper"
+	hosttypes "github.com/cosmos/ibc-go/v3/modules/apps/27-interchain-accounts/host/types"
+	"github.com/cosmos/ibc-go/v3/modules/apps/27-interchain-accounts/types"
+	porttypes "github.com/cosmos/ibc-go/v3/modules/core/05-port/types"
 )
 
 var (

@@ -10,13 +10,13 @@ import (
 	"github.com/stretchr/testify/suite"
 	"github.com/tendermint/tendermint/crypto"
 
-	"github.com/cosmos/ibc-go/v2/modules/apps/27-interchain-accounts/host/types"
-	icatypes "github.com/cosmos/ibc-go/v2/modules/apps/27-interchain-accounts/types"
-	clienttypes "github.com/cosmos/ibc-go/v2/modules/core/02-client/types"
-	channeltypes "github.com/cosmos/ibc-go/v2/modules/core/04-channel/types"
-	host "github.com/cosmos/ibc-go/v2/modules/core/24-host"
-	"github.com/cosmos/ibc-go/v2/modules/core/exported"
-	ibctesting "github.com/cosmos/ibc-go/v2/testing"
+	"github.com/cosmos/ibc-go/v3/modules/apps/27-interchain-accounts/host/types"
+	icatypes "github.com/cosmos/ibc-go/v3/modules/apps/27-interchain-accounts/types"
+	clienttypes "github.com/cosmos/ibc-go/v3/modules/core/02-client/types"
+	channeltypes "github.com/cosmos/ibc-go/v3/modules/core/04-channel/types"
+	host "github.com/cosmos/ibc-go/v3/modules/core/24-host"
+	"github.com/cosmos/ibc-go/v3/modules/core/exported"
+	ibctesting "github.com/cosmos/ibc-go/v3/testing"
 )
 
 var (

@@ -8,12 +8,12 @@ import (
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	capabilitytypes "github.com/cosmos/cosmos-sdk/x/capability/types"
 
-	"github.com/cosmos/ibc-go/v2/modules/apps/transfer/keeper"
-	"github.com/cosmos/ibc-go/v2/modules/apps/transfer/types"
-	channeltypes "github.com/cosmos/ibc-go/v2/modules/core/04-channel/types"
-	porttypes "github.com/cosmos/ibc-go/v2/modules/core/05-port/types"
-	host "github.com/cosmos/ibc-go/v2/modules/core/24-host"
-	ibcexported "github.com/cosmos/ibc-go/v2/modules/core/exported"
+	"github.com/cosmos/ibc-go/v3/modules/apps/transfer/keeper"
+	"github.com/cosmos/ibc-go/v3/modules/apps/transfer/types"
+	channeltypes "github.com/cosmos/ibc-go/v3/modules/core/04-channel/types"
+	porttypes "github.com/cosmos/ibc-go/v3/modules/core/05-port/types"
+	host "github.com/cosmos/ibc-go/v3/modules/core/24-host"
+	ibcexported "github.com/cosmos/ibc-go/v3/modules/core/exported"
 )
 
 // IBCModule implements the ICS26 interface for transfer given the transfer keeper.

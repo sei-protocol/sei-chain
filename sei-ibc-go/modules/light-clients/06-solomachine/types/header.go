@@ -5,8 +5,8 @@ import (
 
 	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
-	clienttypes "github.com/cosmos/ibc-go/v2/modules/core/02-client/types"
-	"github.com/cosmos/ibc-go/v2/modules/core/exported"
+	clienttypes "github.com/cosmos/ibc-go/v3/modules/core/02-client/types"
+	"github.com/cosmos/ibc-go/v3/modules/core/exported"
 )
 
 var _ exported.Header = &Header{}

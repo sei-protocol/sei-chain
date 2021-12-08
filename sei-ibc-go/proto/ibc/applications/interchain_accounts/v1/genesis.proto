@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package ibc.applications.interchain_accounts.v1;
 
-option go_package = "github.com/cosmos/ibc-go/v2/modules/apps/27-interchain-accounts/types";
+option go_package = "github.com/cosmos/ibc-go/v3/modules/apps/27-interchain-accounts/types";
 
 import "gogoproto/gogo.proto";
 import "ibc/applications/interchain_accounts/controller/v1/controller.proto";

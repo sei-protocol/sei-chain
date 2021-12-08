@@ -12,10 +12,10 @@ import (
 	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
 	"github.com/cosmos/cosmos-sdk/testutil/testdata"
 	sdk "github.com/cosmos/cosmos-sdk/types"
-	host "github.com/cosmos/ibc-go/v2/modules/core/24-host"
-	"github.com/cosmos/ibc-go/v2/modules/core/exported"
-	"github.com/cosmos/ibc-go/v2/modules/light-clients/06-solomachine/types"
-	ibctesting "github.com/cosmos/ibc-go/v2/testing"
+	host "github.com/cosmos/ibc-go/v3/modules/core/24-host"
+	"github.com/cosmos/ibc-go/v3/modules/core/exported"
+	"github.com/cosmos/ibc-go/v3/modules/light-clients/06-solomachine/types"
+	ibctesting "github.com/cosmos/ibc-go/v3/testing"
 )
 
 type SoloMachineTestSuite struct {

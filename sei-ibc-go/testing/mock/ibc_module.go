@@ -9,9 +9,9 @@ import (
 	capabilitykeeper "github.com/cosmos/cosmos-sdk/x/capability/keeper"
 	capabilitytypes "github.com/cosmos/cosmos-sdk/x/capability/types"
 
-	channeltypes "github.com/cosmos/ibc-go/v2/modules/core/04-channel/types"
-	host "github.com/cosmos/ibc-go/v2/modules/core/24-host"
-	"github.com/cosmos/ibc-go/v2/modules/core/exported"
+	channeltypes "github.com/cosmos/ibc-go/v3/modules/core/04-channel/types"
+	host "github.com/cosmos/ibc-go/v3/modules/core/24-host"
+	"github.com/cosmos/ibc-go/v3/modules/core/exported"
 )
 
 // IBCModule implements the ICS26 callbacks for testing/mock.

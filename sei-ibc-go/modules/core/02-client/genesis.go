@@ -4,9 +4,9 @@ import (
 	"fmt"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
-	"github.com/cosmos/ibc-go/v2/modules/core/02-client/keeper"
-	"github.com/cosmos/ibc-go/v2/modules/core/02-client/types"
-	"github.com/cosmos/ibc-go/v2/modules/core/exported"
+	"github.com/cosmos/ibc-go/v3/modules/core/02-client/keeper"
+	"github.com/cosmos/ibc-go/v3/modules/core/02-client/types"
+	"github.com/cosmos/ibc-go/v3/modules/core/exported"
 )
 
 // InitGenesis initializes the ibc client submodule's state from a provided genesis

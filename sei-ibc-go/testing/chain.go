@@ -26,14 +26,14 @@ import (
 	tmtypes "github.com/tendermint/tendermint/types"
 	tmversion "github.com/tendermint/tendermint/version"
 
-	clienttypes "github.com/cosmos/ibc-go/v2/modules/core/02-client/types"
-	commitmenttypes "github.com/cosmos/ibc-go/v2/modules/core/23-commitment/types"
-	host "github.com/cosmos/ibc-go/v2/modules/core/24-host"
-	"github.com/cosmos/ibc-go/v2/modules/core/exported"
-	"github.com/cosmos/ibc-go/v2/modules/core/types"
-	ibctmtypes "github.com/cosmos/ibc-go/v2/modules/light-clients/07-tendermint/types"
-	"github.com/cosmos/ibc-go/v2/testing/mock"
-	"github.com/cosmos/ibc-go/v2/testing/simapp"
+	clienttypes "github.com/cosmos/ibc-go/v3/modules/core/02-client/types"
+	commitmenttypes "github.com/cosmos/ibc-go/v3/modules/core/23-commitment/types"
+	host "github.com/cosmos/ibc-go/v3/modules/core/24-host"
+	"github.com/cosmos/ibc-go/v3/modules/core/exported"
+	"github.com/cosmos/ibc-go/v3/modules/core/types"
+	ibctmtypes "github.com/cosmos/ibc-go/v3/modules/light-clients/07-tendermint/types"
+	"github.com/cosmos/ibc-go/v3/testing/mock"
+	"github.com/cosmos/ibc-go/v3/testing/simapp"
 )
 
 // TestChain is a testing struct that wraps a simapp with the last TM Header, the current ABCI

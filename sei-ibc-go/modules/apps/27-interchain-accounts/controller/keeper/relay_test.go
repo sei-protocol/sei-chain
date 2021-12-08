@@ -5,11 +5,11 @@ import (
 	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
 	capabilitytypes "github.com/cosmos/cosmos-sdk/x/capability/types"
 
-	icatypes "github.com/cosmos/ibc-go/v2/modules/apps/27-interchain-accounts/types"
-	clienttypes "github.com/cosmos/ibc-go/v2/modules/core/02-client/types"
-	channeltypes "github.com/cosmos/ibc-go/v2/modules/core/04-channel/types"
-	host "github.com/cosmos/ibc-go/v2/modules/core/24-host"
-	ibctesting "github.com/cosmos/ibc-go/v2/testing"
+	icatypes "github.com/cosmos/ibc-go/v3/modules/apps/27-interchain-accounts/types"
+	clienttypes "github.com/cosmos/ibc-go/v3/modules/core/02-client/types"
+	channeltypes "github.com/cosmos/ibc-go/v3/modules/core/04-channel/types"
+	host "github.com/cosmos/ibc-go/v3/modules/core/24-host"
+	ibctesting "github.com/cosmos/ibc-go/v3/testing"
 )
 
 func (suite *KeeperTestSuite) TestTrySendTx() {

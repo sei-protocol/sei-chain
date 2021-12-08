@@ -5,11 +5,11 @@ import (
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	capabilitytypes "github.com/cosmos/cosmos-sdk/x/capability/types"
 
-	"github.com/cosmos/ibc-go/v2/modules/apps/27-interchain-accounts/host/keeper"
-	"github.com/cosmos/ibc-go/v2/modules/apps/27-interchain-accounts/host/types"
-	icatypes "github.com/cosmos/ibc-go/v2/modules/apps/27-interchain-accounts/types"
-	channeltypes "github.com/cosmos/ibc-go/v2/modules/core/04-channel/types"
-	ibcexported "github.com/cosmos/ibc-go/v2/modules/core/exported"
+	"github.com/cosmos/ibc-go/v3/modules/apps/27-interchain-accounts/host/keeper"
+	"github.com/cosmos/ibc-go/v3/modules/apps/27-interchain-accounts/host/types"
+	icatypes "github.com/cosmos/ibc-go/v3/modules/apps/27-interchain-accounts/types"
+	channeltypes "github.com/cosmos/ibc-go/v3/modules/core/04-channel/types"
+	ibcexported "github.com/cosmos/ibc-go/v3/modules/core/exported"
 )
 
 // IBCModule implements the ICS26 interface for interchain accounts host chains

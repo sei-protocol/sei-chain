@@ -1,8 +1,8 @@
 package keeper_test
 
 import (
-	icatypes "github.com/cosmos/ibc-go/v2/modules/apps/27-interchain-accounts/types"
-	ibctesting "github.com/cosmos/ibc-go/v2/testing"
+	icatypes "github.com/cosmos/ibc-go/v3/modules/apps/27-interchain-accounts/types"
+	ibctesting "github.com/cosmos/ibc-go/v3/testing"
 )
 
 func (suite *KeeperTestSuite) TestInitInterchainAccount() {

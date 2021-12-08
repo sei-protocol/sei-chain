@@ -9,15 +9,15 @@ import (
 	"github.com/stretchr/testify/suite"
 	tmtypes "github.com/tendermint/tendermint/types"
 
-	ibcclient "github.com/cosmos/ibc-go/v2/modules/core/02-client"
-	clientv100 "github.com/cosmos/ibc-go/v2/modules/core/02-client/legacy/v100"
-	clienttypes "github.com/cosmos/ibc-go/v2/modules/core/02-client/types"
-	connectiontypes "github.com/cosmos/ibc-go/v2/modules/core/03-connection/types"
-	host "github.com/cosmos/ibc-go/v2/modules/core/24-host"
-	"github.com/cosmos/ibc-go/v2/modules/core/legacy/v100"
-	"github.com/cosmos/ibc-go/v2/modules/core/types"
-	ibctesting "github.com/cosmos/ibc-go/v2/testing"
-	"github.com/cosmos/ibc-go/v2/testing/simapp"
+	ibcclient "github.com/cosmos/ibc-go/v3/modules/core/02-client"
+	clientv100 "github.com/cosmos/ibc-go/v3/modules/core/02-client/legacy/v100"
+	clienttypes "github.com/cosmos/ibc-go/v3/modules/core/02-client/types"
+	connectiontypes "github.com/cosmos/ibc-go/v3/modules/core/03-connection/types"
+	host "github.com/cosmos/ibc-go/v3/modules/core/24-host"
+	"github.com/cosmos/ibc-go/v3/modules/core/legacy/v100"
+	"github.com/cosmos/ibc-go/v3/modules/core/types"
+	ibctesting "github.com/cosmos/ibc-go/v3/testing"
+	"github.com/cosmos/ibc-go/v3/testing/simapp"
 )
 
 type LegacyTestSuite struct {

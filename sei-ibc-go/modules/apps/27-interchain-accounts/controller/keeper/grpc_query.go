@@ -3,7 +3,7 @@ package keeper
 import (
 	"context"
 	sdk "github.com/cosmos/cosmos-sdk/types"
-	"github.com/cosmos/ibc-go/v2/modules/apps/27-interchain-accounts/controller/types"
+	"github.com/cosmos/ibc-go/v3/modules/apps/27-interchain-accounts/controller/types"
 )
 
 var _ types.QueryServer = Keeper{}

@@ -6,8 +6,8 @@ import (
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 
-	"github.com/cosmos/ibc-go/v2/modules/core/04-channel/types"
-	"github.com/cosmos/ibc-go/v2/modules/core/exported"
+	"github.com/cosmos/ibc-go/v3/modules/core/04-channel/types"
+	"github.com/cosmos/ibc-go/v3/modules/core/exported"
 )
 
 // EmitSendPacketEvent emits an event with packet data along with other packet information for relayer

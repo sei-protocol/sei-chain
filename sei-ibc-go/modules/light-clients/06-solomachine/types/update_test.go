@@ -3,10 +3,10 @@ package types_test
 import (
 	codectypes "github.com/cosmos/cosmos-sdk/codec/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
-	"github.com/cosmos/ibc-go/v2/modules/core/exported"
-	"github.com/cosmos/ibc-go/v2/modules/light-clients/06-solomachine/types"
-	ibctmtypes "github.com/cosmos/ibc-go/v2/modules/light-clients/07-tendermint/types"
-	ibctesting "github.com/cosmos/ibc-go/v2/testing"
+	"github.com/cosmos/ibc-go/v3/modules/core/exported"
+	"github.com/cosmos/ibc-go/v3/modules/light-clients/06-solomachine/types"
+	ibctmtypes "github.com/cosmos/ibc-go/v3/modules/light-clients/07-tendermint/types"
+	ibctesting "github.com/cosmos/ibc-go/v3/testing"
 )
 
 func (suite *SoloMachineTestSuite) TestCheckHeaderAndUpdateState() {

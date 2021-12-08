@@ -5,11 +5,11 @@ import (
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/types/query"
-	clienttypes "github.com/cosmos/ibc-go/v2/modules/core/02-client/types"
-	connectiontypes "github.com/cosmos/ibc-go/v2/modules/core/03-connection/types"
-	"github.com/cosmos/ibc-go/v2/modules/core/04-channel/types"
-	"github.com/cosmos/ibc-go/v2/modules/core/exported"
-	ibctesting "github.com/cosmos/ibc-go/v2/testing"
+	clienttypes "github.com/cosmos/ibc-go/v3/modules/core/02-client/types"
+	connectiontypes "github.com/cosmos/ibc-go/v3/modules/core/03-connection/types"
+	"github.com/cosmos/ibc-go/v3/modules/core/04-channel/types"
+	"github.com/cosmos/ibc-go/v3/modules/core/exported"
+	ibctesting "github.com/cosmos/ibc-go/v3/testing"
 )
 
 func (suite *KeeperTestSuite) TestQueryChannel() {

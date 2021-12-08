@@ -14,11 +14,11 @@ import (
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	paramtypes "github.com/cosmos/cosmos-sdk/x/params/types"
 	upgradetypes "github.com/cosmos/cosmos-sdk/x/upgrade/types"
-	"github.com/cosmos/ibc-go/v2/modules/core/02-client/types"
-	commitmenttypes "github.com/cosmos/ibc-go/v2/modules/core/23-commitment/types"
-	host "github.com/cosmos/ibc-go/v2/modules/core/24-host"
-	"github.com/cosmos/ibc-go/v2/modules/core/exported"
-	ibctmtypes "github.com/cosmos/ibc-go/v2/modules/light-clients/07-tendermint/types"
+	"github.com/cosmos/ibc-go/v3/modules/core/02-client/types"
+	commitmenttypes "github.com/cosmos/ibc-go/v3/modules/core/23-commitment/types"
+	host "github.com/cosmos/ibc-go/v3/modules/core/24-host"
+	"github.com/cosmos/ibc-go/v3/modules/core/exported"
+	ibctmtypes "github.com/cosmos/ibc-go/v3/modules/light-clients/07-tendermint/types"
 )
 
 // Keeper represents a type that grants read and write permissions to any client

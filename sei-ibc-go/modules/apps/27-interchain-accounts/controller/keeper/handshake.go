@@ -5,10 +5,10 @@ import (
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	capabilitytypes "github.com/cosmos/cosmos-sdk/x/capability/types"
 
-	icatypes "github.com/cosmos/ibc-go/v2/modules/apps/27-interchain-accounts/types"
-	connectiontypes "github.com/cosmos/ibc-go/v2/modules/core/03-connection/types"
-	channeltypes "github.com/cosmos/ibc-go/v2/modules/core/04-channel/types"
-	porttypes "github.com/cosmos/ibc-go/v2/modules/core/05-port/types"
+	icatypes "github.com/cosmos/ibc-go/v3/modules/apps/27-interchain-accounts/types"
+	connectiontypes "github.com/cosmos/ibc-go/v3/modules/core/03-connection/types"
+	channeltypes "github.com/cosmos/ibc-go/v3/modules/core/04-channel/types"
+	porttypes "github.com/cosmos/ibc-go/v3/modules/core/05-port/types"
 )
 
 // OnChanOpenInit performs basic validation of channel initialization.

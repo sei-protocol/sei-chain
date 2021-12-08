@@ -7,7 +7,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/crypto/keys/secp256k1"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
-	"github.com/cosmos/ibc-go/v2/testing/simapp"
+	"github.com/cosmos/ibc-go/v3/testing/simapp"
 
 	"github.com/stretchr/testify/require"
 	"github.com/tendermint/tendermint/crypto"

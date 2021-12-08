@@ -3,8 +3,8 @@ package types_test
 import (
 	"fmt"
 
-	"github.com/cosmos/ibc-go/v2/modules/apps/27-interchain-accounts/types"
-	ibctesting "github.com/cosmos/ibc-go/v2/testing"
+	"github.com/cosmos/ibc-go/v3/modules/apps/27-interchain-accounts/types"
+	ibctesting "github.com/cosmos/ibc-go/v3/testing"
 )
 
 func (suite *TypesTestSuite) TestGeneratePortID() {

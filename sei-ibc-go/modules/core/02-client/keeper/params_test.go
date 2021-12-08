@@ -1,7 +1,7 @@
 package keeper_test
 
 import (
-	"github.com/cosmos/ibc-go/v2/modules/core/02-client/types"
+	"github.com/cosmos/ibc-go/v3/modules/core/02-client/types"
 )
 
 func (suite *KeeperTestSuite) TestParams() {

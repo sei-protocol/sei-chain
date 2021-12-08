@@ -13,12 +13,12 @@ import (
 	"github.com/cosmos/cosmos-sdk/store/iavl"
 	"github.com/cosmos/cosmos-sdk/store/rootmulti"
 	storetypes "github.com/cosmos/cosmos-sdk/store/types"
-	clienttypes "github.com/cosmos/ibc-go/v2/modules/core/02-client/types"
-	"github.com/cosmos/ibc-go/v2/modules/core/03-connection/types"
-	commitmenttypes "github.com/cosmos/ibc-go/v2/modules/core/23-commitment/types"
-	ibctmtypes "github.com/cosmos/ibc-go/v2/modules/light-clients/07-tendermint/types"
-	ibctesting "github.com/cosmos/ibc-go/v2/testing"
-	"github.com/cosmos/ibc-go/v2/testing/simapp"
+	clienttypes "github.com/cosmos/ibc-go/v3/modules/core/02-client/types"
+	"github.com/cosmos/ibc-go/v3/modules/core/03-connection/types"
+	commitmenttypes "github.com/cosmos/ibc-go/v3/modules/core/23-commitment/types"
+	ibctmtypes "github.com/cosmos/ibc-go/v3/modules/light-clients/07-tendermint/types"
+	ibctesting "github.com/cosmos/ibc-go/v3/testing"
+	"github.com/cosmos/ibc-go/v3/testing/simapp"
 )
 
 var (

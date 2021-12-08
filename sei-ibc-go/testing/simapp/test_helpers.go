@@ -25,7 +25,7 @@ import (
 	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
 	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
 	minttypes "github.com/cosmos/cosmos-sdk/x/mint/types"
-	"github.com/cosmos/ibc-go/v2/testing/simapp/helpers"
+	"github.com/cosmos/ibc-go/v3/testing/simapp/helpers"
 )
 
 // DefaultConsensusParams defines the default Tendermint consensus params used in
