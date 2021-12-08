@@ -234,6 +234,7 @@ Ref: https://keepachangelog.com/en/1.0.0/
 ### Features
 
 * [\#198](https://github.com/cosmos/ibc-go/pull/198) New CLI command `query ibc-transfer escrow-address <port> <channel id>` to get the escrow address for a channel; can be used to then query balance of escrowed tokens
+* [\#380](https://github.com/cosmos/ibc-go/pull/380) Adding the Interchain Accounts module v1
 
 ### Client Breaking Changes
 
