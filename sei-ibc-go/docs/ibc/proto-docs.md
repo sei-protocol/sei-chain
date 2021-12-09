@@ -14,7 +14,7 @@
     - [HostGenesisState](#ibc.applications.interchain_accounts.v1.HostGenesisState)
     - [RegisteredInterchainAccount](#ibc.applications.interchain_accounts.v1.RegisteredInterchainAccount)
   
-- [ibc/applications/interchain_accounts/v1/types.proto](#ibc/applications/interchain_accounts/v1/types.proto)
+- [ibc/applications/interchain_accounts/v1/packet.proto](#ibc/applications/interchain_accounts/v1/packet.proto)
     - [CosmosTx](#ibc.applications.interchain_accounts.v1.CosmosTx)
     - [InterchainAccountPacketData](#ibc.applications.interchain_accounts.v1.InterchainAccountPacketData)
   
@@ -402,10 +402,10 @@ RegisteredInterchainAccount contains a pairing of controller port ID and associa
 
 
 
-<a name="ibc/applications/interchain_accounts/v1/types.proto"></a>
+<a name="ibc/applications/interchain_accounts/v1/packet.proto"></a>
 <p align="right"><a href="#top">Top</a></p>
 
-## ibc/applications/interchain_accounts/v1/types.proto
+## ibc/applications/interchain_accounts/v1/packet.proto
 
 
 
