@@ -26,7 +26,6 @@ type Keeper struct {
 	ics4Wrapper   icatypes.ICS4Wrapper
 	channelKeeper icatypes.ChannelKeeper
 	portKeeper    icatypes.PortKeeper
-	accountKeeper icatypes.AccountKeeper
 
 	scopedKeeper capabilitykeeper.ScopedKeeper
 
@@ -37,7 +36,7 @@ type Keeper struct {
 func NewKeeper(
 	cdc codec.BinaryCodec, key sdk.StoreKey, paramSpace paramtypes.Subspace,
 	ics4Wrapper icatypes.ICS4Wrapper, channelKeeper icatypes.ChannelKeeper, portKeeper icatypes.PortKeeper,
-	accountKeeper icatypes.AccountKeeper, scopedKeeper capabilitykeeper.ScopedKeeper, msgRouter *baseapp.MsgServiceRouter,
+	scopedKeeper capabilitykeeper.ScopedKeeper, msgRouter *baseapp.MsgServiceRouter,
 ) Keeper {
 
 	// set KeyTable if it has not already been set
@@ -52,7 +51,6 @@ func NewKeeper(
 		ics4Wrapper:   ics4Wrapper,
 		channelKeeper: channelKeeper,
 		portKeeper:    portKeeper,
-		accountKeeper: accountKeeper,
 		scopedKeeper:  scopedKeeper,
 		msgRouter:     msgRouter,
 	}
