@@ -99,6 +99,28 @@ module.exports = {
           ]
         },
         {
+          title: "IBC Application Modules",
+          children: [
+            {
+              title: "Interchain Accounts",
+              directory: true,
+              path: "/app_modules",
+              children: [
+                {
+                    title: "Overview",
+                    directory: false,
+                    path: "/app_modules/interchain-accounts/overview.html"
+                }, 
+                {
+                    title: "Integration",
+                    directory: false,
+                    path: "/app_modules/interchain-accounts/integration.html"
+                },
+            ]
+            },
+          ]
+        },
+        {
           title: "Migrations",
           children: [
             {
