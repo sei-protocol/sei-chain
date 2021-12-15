@@ -42,6 +42,7 @@ Ref: https://keepachangelog.com/en/1.0.0/
 
 ### API Breaking
  
+* (core) [\#629](https://github.com/cosmos/ibc-go/pull/629) Removes the GetProofSpecs from the ClientState interface. This function was previously unused by core IBC.
 * (transfer) [\#517](https://github.com/cosmos/ibc-go/pull/517) Separates the ICS 26 callback functions from `AppModule` into a new type `IBCModule` for ICS 20 transfer.
 * (modules/core/02-client) [\#536](https://github.com/cosmos/ibc-go/pull/536) GetSelfConsensusState return type changed from bool to error.
 

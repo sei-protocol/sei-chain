@@ -38,4 +38,5 @@ Please review the [mock](../../testing/mock/ibc_module.go) and [transfer](../../
 
 ## IBC Light Clients
 
-- No relevant changes were made in this release.
+The `GetProofSpecs` function has been removed from the `ClientState` interface. This function was previously unused by core IBC. Light clients which don't use this function may remove it. 
+

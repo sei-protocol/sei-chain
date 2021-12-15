@@ -1,7 +1,6 @@
 package exported
 
 import (
-	ics23 "github.com/confio/ics23/go"
 	"github.com/cosmos/cosmos-sdk/codec"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	proto "github.com/gogo/protobuf/proto"
@@ -44,7 +43,6 @@ type ClientState interface {
 	ClientType() string
 	GetLatestHeight() Height
 	Validate() error
-	GetProofSpecs() []*ics23.ProofSpec
 
 	// Initialization function
 	// Clients must validate the initial consensus state, and may store any client-specific metadata

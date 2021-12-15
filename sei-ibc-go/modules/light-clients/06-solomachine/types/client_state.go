@@ -3,8 +3,6 @@ package types
 import (
 	"reflect"
 
-	ics23 "github.com/confio/ics23/go"
-
 	"github.com/cosmos/cosmos-sdk/codec"
 	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -50,11 +48,6 @@ func (cs ClientState) Status(_ sdk.Context, _ sdk.KVStore, _ codec.BinaryCodec) 
 	}
 
 	return exported.Active
-}
-
-// GetProofSpecs returns nil proof specs since client state verification uses signatures.
-func (cs ClientState) GetProofSpecs() []*ics23.ProofSpec {
-	return nil
 }
 
 // Validate performs basic validation of the client state fields.
