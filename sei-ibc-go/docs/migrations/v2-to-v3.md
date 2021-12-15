@@ -1,4 +1,4 @@
-# Migrating from v2.0.0 to v3.0.0
+# Migrating from ibc-go v2 to v3
 
 This document is intended to highlight significant changes which may require more information than presented in the CHANGELOG.
 Any changes that must be done by a user of ibc-go should be documented here.

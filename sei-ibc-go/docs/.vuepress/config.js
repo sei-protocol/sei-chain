@@ -124,9 +124,19 @@ module.exports = {
           title: "Migrations",
           children: [
             {
-              title: "v0.43 SDK to IBC-Go v1.0.0",
+              title: "SDK v0.43 to IBC-Go v1",
               directory: false,
-              path: "/migrations/ibc-migration-043.html"
+              path: "/migrations/sdk-to-v1.html"
+            },
+            {
+              title: "IBC-Go v1 to v2",
+              directory: false,
+              path: "/migrations/v1-to-v2.html"
+            },
+            {
+              title: "IBC-Go v2 to v3",
+              directory: false,
+              path: "/migrations/v2-to-v3.html"
             },
           ]
         },
