@@ -403,6 +403,23 @@ func (k Keeper) GetChannelClientState(ctx sdk.Context, portID, channelID string)
 	return connection.ClientId, clientState, nil
 }
 
+// GetChannelConnection returns the connection ID and state associated with the given port and channel identifier.
+func (k Keeper) GetChannelConnection(ctx sdk.Context, portID, channelID string) (string, exported.ConnectionI, error) {
+	channel, found := k.GetChannel(ctx, portID, channelID)
+	if !found {
+		return "", nil, sdkerrors.Wrapf(types.ErrChannelNotFound, "port-id: %s, channel-id: %s", portID, channelID)
+	}
+
+	connectionID := channel.ConnectionHops[0]
+
+	connection, found := k.connectionKeeper.GetConnection(ctx, connectionID)
+	if !found {
+		return "", nil, sdkerrors.Wrapf(connectiontypes.ErrConnectionNotFound, "connection-id: %s", connectionID)
+	}
+
+	return connectionID, connection, nil
+}
+
 // LookupModuleByChannel will return the IBCModule along with the capability associated with a given channel defined by its portID and channelID
 func (k Keeper) LookupModuleByChannel(ctx sdk.Context, portID, channelID string) (string, *capabilitytypes.Capability, error) {
 	modules, cap, err := k.scopedKeeper.LookupModules(ctx, host.ChannelCapabilityPath(portID, channelID))
