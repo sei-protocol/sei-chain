@@ -1,0 +1,221 @@
+<!--
+order: 3
+-->
+
+# Building an ICA authentication module
+
+The controller module is used for account registration and packet sending. 
+It executes only logic required of all controllers of interchain accounts. 
+The type of authentication used to manage the interchain accounts remains unspecified. 
+There may exist many different types of authentication which are desirable for different use cases. 
+Thus the purpose of the authentication module is to wrap the controller module with custom authentication logic.
+
+In ibc-go, authentication modules are connected to the controller chain via a middleware stack.
+The controller module is implemented as [middleware](https://github.com/cosmos/ibc/tree/master/spec/app/ics-030-middleware) and the authentication module is connected to the controller module as the base application of the middleware stack. 
+To implement an authentication module, the `IBCModule` interface must be fulfilled. 
+By implementing the controller module as middleware, any amount of authentication modules can be created and connected to the controller module without writing redundant code. 
+
+The authentication module must:
+- Authenticate interchain account owners
+- Track the associated interchain account address for an owner
+- Claim the channel capability in `OnChanOpenInit`
+- Send packets on behalf of an owner (after authentication)
+
+### IBCModule implementation
+
+The following `IBCModule` callbacks must be implemented with appropriate custom logic:
+
+```go
+// OnChanOpenInit implements the IBCModule interface
+func (im IBCModule) OnChanOpenInit(
+    ctx sdk.Context,
+    order channeltypes.Order,
+    connectionHops []string,
+    portID string,
+    channelID string,
+    chanCap *capabilitytypes.Capability,
+    counterparty channeltypes.Counterparty,
+    version string,
+) error {
+    // the authentication module *must* claim the channel capability on OnChanOpenInit
+    if err := im.keeper.ClaimCapability(ctx, chanCap, host.ChannelCapabilityPath(portID, channelID)); err != nil {
+        return err
+    }
+
+    // perform custom logic
+
+    return nil
+}
+
+// OnChanOpenAck implements the IBCModule interface
+func (im IBCModule) OnChanOpenAck(
+    ctx sdk.Context,
+    portID,
+    channelID string,
+    counterpartyVersion string,
+) error {
+    // perform custom logic
+
+    return nil
+}
+
+// OnChanCloseConfirm implements the IBCModule interface
+func (im IBCModule) OnChanCloseConfirm(
+    ctx sdk.Context,
+    portID,
+    channelID string,
+) error {
+    // perform custom logic
+
+    return nil
+}
+
+// OnAcknowledgementPacket implements the IBCModule interface
+func (im IBCModule) OnAcknowledgementPacket(
+    ctx sdk.Context,
+    packet channeltypes.Packet,
+    acknowledgement []byte,
+    relayer sdk.AccAddress,
+) error {
+    // perform custom logic
+
+    return nil
+}
+
+// OnTimeoutPacket implements the IBCModule interface.
+func (im IBCModule) OnTimeoutPacket(
+    ctx sdk.Context,
+    packet channeltypes.Packet,
+    relayer sdk.AccAddress,
+) error {
+    // perform custom logic
+
+    return nil
+}
+```
+
+**Note**: The channel capability must be claimed by the authentication module in `OnChanOpenInit` otherwise the authentication module will not be able to send packets on the channel created for the associated interchain account. 
+
+The following functions must be defined to fulfill the `IBCModule` interface, but they will never be called by the controller module so they may error or panic.
+
+```go
+// OnChanOpenTry implements the IBCModule interface
+func (im IBCModule) OnChanOpenTry(
+    ctx sdk.Context,
+    order channeltypes.Order,
+    connectionHops []string,
+    portID,
+    channelID string,
+    chanCap *capabilitytypes.Capability,
+    counterparty channeltypes.Counterparty,
+    version,
+    counterpartyVersion string,
+) error {
+    panic("UNIMPLEMENTED")
+}
+
+// OnChanOpenConfirm implements the IBCModule interface
+func (im IBCModule) OnChanOpenConfirm(
+    ctx sdk.Context,
+    portID,
+    channelID string,
+) error {
+    panic("UNIMPLEMENTED")
+}
+
+// OnChanCloseInit implements the IBCModule interface
+func (im IBCModule) OnChanCloseInit(
+    ctx sdk.Context,
+    portID,
+    channelID string,
+) error {
+    panic("UNIMPLEMENTED")
+}
+
+// OnRecvPacket implements the IBCModule interface. A successful acknowledgement
+// is returned if the packet data is succesfully decoded and the receive application
+// logic returns without error.
+func (im IBCModule) OnRecvPacket(
+    ctx sdk.Context,
+    packet channeltypes.Packet,
+    relayer sdk.AccAddress,
+) ibcexported.Acknowledgement {
+    panic("UNIMPLEMENTED")
+}
+
+// NegotiateAppVersion implements the IBCModule interface
+func (im IBCModule) NegotiateAppVersion(
+    ctx sdk.Context,
+    order channeltypes.Order,
+    connectionID string,
+    portID string,
+    counterparty channeltypes.Counterparty,
+    proposedVersion string,
+) (string, error) {
+    panic("UNIMPLEMENTED")
+}
+```
+
+## `InitInterchainAccount`
+
+The authentication module can begin registering interchain accounts by calling `InitInterchainAccount`:
+
+```go
+if err := keeper.icaControllerKeeper.InitInterchainAccount(ctx, connectionID, counterpartyConnectionID, owner.String()); err != nil {
+    return err
+}
+
+return nil
+```
+
+## `TrySendTx`
+
+The authentication module can attempt to send a packet by calling `TrySendTx`:
+```go
+
+// Authenticate owner
+// perform custom logic
+    
+// Lookup portID based on interchain account owner address
+portID, err := icatypes.GeneratePortID(owner.String(), connectionID, counterpartyConnectionID)
+if err != nil {
+    return err
+}
+
+channelID, found := keeper.icaControllerKeeper.GetActiveChannelID(ctx, portID)
+if !found {
+    return sdkerrors.Wrapf(icatypes.ErrActiveChannelNotFound, "failed to retrieve active channel for port %s", portId)
+}
+    
+// Obtain the channel capability. 
+// The channel capability should have been claimed by the authentication module in OnChanOpenInit
+chanCap, found := keeper.scopedKeeper.GetCapability(ctx, host.ChannelCapabilityPath(portID, channelID))
+if !found {
+    return sdkerrors.Wrap(channeltypes.ErrChannelCapabilityNotFound, "module does not own channel capability")
+}
+    
+// Obtain data to be sent to the host chain. 
+// In this example, the owner of the interchain account would like to send a bank MsgSend to the host chain. 
+// The appropriate serialization function should be called. The host chain must be able to deserialize the transaction. 
+// If the host chain is using the ibc-go host module, `SerializeCosmosTx` should be used. 
+msg := &banktypes.MsgSend{FromAddress: fromAddr, ToAddress: toAddr, Amount: amt}
+data, err := icatypes.SerializeCosmosTx(keeper.cdc, []sdk.Msg{msg})
+if err != nil {
+    return err
+}
+
+// Construct packet data
+packetData := icatypes.InterchainAccountPacketData{
+    Type: icatypes.EXECUTE_TX,
+    Data: data,
+}
+
+_, err = keeper.icaControllerKeeper.TrySendTx(ctx, chanCap, p, packetData)
+```
+
+The data within an `InterchainAccountPacketData` must be serialized using a format supported by the host chain. 
+If the host chain is using the ibc-go host chain submodule, `SerializeCosmosTx` should be used. If the `InterchainAccountPacketData.Data` is serialized using a format not support by the host chain, the packet will not be successfully received.  
+
+### Integration into `app.go` file
+
+To integrate the authentication module into your chain, please follow the steps outlined above in [app.go integration](./integration.md#example-integration).
