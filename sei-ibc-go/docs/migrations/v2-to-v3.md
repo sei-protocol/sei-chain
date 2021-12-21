@@ -22,6 +22,14 @@ ICS27 Interchain Accounts has been added as a supported IBC application of ibc-g
 
 ## IBC Apps
 
+### Channel state will not be set before application callback
+
+The channel handshake logic has been reorganized within core IBC. 
+Channel state will not be set in state after the application callback is performed.
+Applications must rely only on the passed in channel parameters instead of querying the channel keeper for channel state.
+
+### IBC application callbacks moved from `AppModule` to `IBCModule`
+
 Previously, IBC module callbacks were apart of the `AppModule` type. 
 The recommended approach is to create an `IBCModule` type and move the IBC module callbacks from `AppModule` to `IBCModule` in a separate file `ibc_module.go`. 
 

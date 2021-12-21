@@ -52,13 +52,6 @@ func (suite *KeeperTestSuite) TestOnChanOpenTry() {
 			false,
 		},
 		{
-			"channel not found",
-			func() {
-				path.EndpointB.ChannelID = "invalid-channel-id"
-			},
-			false,
-		},
-		{
 			"connection not found",
 			func() {
 				channel.ConnectionHops = []string{"invalid-connnection-id"}

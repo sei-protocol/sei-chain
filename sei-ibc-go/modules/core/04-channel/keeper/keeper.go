@@ -403,6 +403,16 @@ func (k Keeper) GetChannelClientState(ctx sdk.Context, portID, channelID string)
 	return connection.ClientId, clientState, nil
 }
 
+// GetConnection wraps the conenction keeper's GetConnection function.
+func (k Keeper) GetConnection(ctx sdk.Context, connectionID string) (exported.ConnectionI, error) {
+	connection, found := k.connectionKeeper.GetConnection(ctx, connectionID)
+	if !found {
+		return nil, sdkerrors.Wrapf(connectiontypes.ErrConnectionNotFound, "connection-id: %s", connectionID)
+	}
+
+	return connection, nil
+}
+
 // GetChannelConnection returns the connection ID and state associated with the given port and channel identifier.
 func (k Keeper) GetChannelConnection(ctx sdk.Context, portID, channelID string) (string, exported.ConnectionI, error) {
 	channel, found := k.GetChannel(ctx, portID, channelID)
