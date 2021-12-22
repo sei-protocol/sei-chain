@@ -4,28 +4,6 @@ order: 1
 
 # Concepts
 
-## Client Creation, Updates, and Upgrades
-
-IBC clients are on chain light clients. The light client is responsible for verifying
-counterparty state. A light client can be created by any user submitting a valid initial 
-`ClientState` and `ConsensusState`. The client identifier is auto generated using the
-client type and the global client counter appended in the format: `{client-type}-{N}`.
-Clients are given a client identifier prefixed store to store their associated client 
-state and consensus states. Consensus states are stored using their associated height. 
-
-Clients can be updated by any user submitting a valid `Header`. The client state callback
-to `CheckHeaderAndUpdateState` is responsible for verifying the header against previously
-stored state. The function should also return the updated client state and consensus state 
-if the header is considered a valid update. A light client, such as Tendermint, may have
-client specific parameters like `TrustLevel` which must be considered valid in relation
-to the `Header`. The update height is not necessarily the lastest height of the light
-client. Updates may fill in missing consensus state heights.
-
-Clients may be upgraded. The upgrade should be verified using `VerifyUpgrade`. It is not
-a requirement to allow for light client upgrades. For example, the solo machine client 
-will simply return an error on `VerifyUpgrade`. Clients which implement upgrades
-are expected to account for, but not necessarily support, planned and unplanned upgrades.
-
 ## Client Misbehaviour
 
 IBC clients must freeze when the counterparty chain becomes byzantine and 
@@ -47,93 +25,6 @@ to the IBC client can no longer be trusted and the client must freeze.
 Governance may then choose to override a frozen client and provide the correct, 
 canonical Header so that the client can continue operating after the Misbehaviour 
 submission.
-
-## ClientUpdateProposal
-
-A governance proposal may be passed to update a specified client using another client
-known as the "substitute client". This is useful in unfreezing clients or updating 
-expired clients, thereby making the effected channels active again. Each client is 
-expected to implement this functionality. A client may choose to disallow an update 
-by a governance proposal by returning an error in the client state function 'CheckSubstituteAndUpdateState'.
-
-The localhost client cannot be updated by a governance proposal. 
-
-The solo machine client requires the boolean flag 'AllowUpdateAfterProposal' to be set
-to true in order to be updated by a proposal. This is set upon client creation and cannot 
-be updated later.
-
-The tendermint client has two flags update flags, 'AllowUpdateAfterExpiry' and 
-'AllowUpdateAfterMisbehaviour'. The former flag can only be used to unexpire clients. The
-latter flag can be used to unfreeze a client and if necessary it will also unexpire the client.
-It is best practice to initialize a new substitute client instead of using an existing one
-This avoids potential issues of the substitute becoming frozen due to misbehaviour or the 
-subject client becoming refrozen due to misbehaviour not being expired at the time the
-proposal passes. These boolean flags are set upon client creation and cannot be updated later.
-
-The `CheckSubstituteAndUpdateState` function provides the light client with its own client 
-store, the client store of the substitute, the substitute client state, and the intitial 
-height that should be used when referring to the substitute client. Most light client
-implementations should copy consensus states from the substitute to the subject, but
-are not required to do so. Light clients may copy informationa as they deem necessary.
-
-It is not recommended to use a substitute client in normal operations since the subject
-light client will be given unrestricted access to the substitute client store. Governance
-should not pass votes which enable byzantine light client modules from modifying the state
-of the substitute. 
-
-## IBC Client Heights
-
-IBC Client Heights are represented by the struct:
-
-```go
-type Height struct {
-   RevisionNumber uint64
-   RevisionHeight  uint64
-}
-```
-
-The `RevisionNumber` represents the revision of the chain that the height is representing.
-An revision typically represents a continuous, monotonically increasing range of block-heights.
-The `RevisionHeight` represents the height of the chain within the given revision.
-
-On any reset of the `RevisionHeight`, for example, when hard-forking a Tendermint chain,
-the `RevisionNumber` will get incremented. This allows IBC clients to distinguish between a
-block-height `n` of a previous revision of the chain (at revision `p`) and block-height `n` of the current
-revision of the chain (at revision `e`).
-
-`Heights` that share the same revision number can be compared by simply comparing their respective `RevisionHeights`.
-Heights that do not share the same revision number will only be compared using their respective `RevisionNumbers`.
-Thus a height `h` with revision number `e+1` will always be greater than a height `g` with revision number `e`,
-**REGARDLESS** of the difference in revision heights.
-
-Ex:
-
-```go
-Height{RevisionNumber: 3, RevisionHeight: 0} > Height{RevisionNumber: 2, RevisionHeight: 100000000000}
-```
-
-When a Tendermint chain is running a particular revision, relayers can simply submit headers and proofs with the revision number
-given by the chain's chainID, and the revision height given by the Tendermint block height. When a chain updates using a hard-fork 
-and resets its block-height, it is responsible for updating its chain-id to increment the revision number.
-IBC Tendermint clients then verifies the revision number against their `ChainId` and treat the `RevisionHeight` as the Tendermint block-height.
-
-Tendermint chains wishing to use revisions to maintain persistent IBC connections even across height-resetting upgrades must format their chain-ids
-in the following manner: `{chainID}-{revision_number}`. On any height-resetting upgrade, the chainID **MUST** be updated with a higher revision number
-than the previous value.
-
-Ex:
-
-- Before upgrade ChainID: `gaiamainnet-3`
-- After upgrade ChainID: `gaiamainnet-4`
-
-Clients that do not require revisions, such as the solo-machine client, simply hardcode `0` into the revision number whenever they
-need to return an IBC height when implementing IBC interfaces and use the `RevisionHeight` exclusively.
-
-Other client-types may implement their own logic to verify the IBC Heights that relayers provide in their `Update`, `Misbehavior`, and
-`Verify` functions respectively.
-
-The IBC interfaces expect an `ibcexported.Height` interface, however all clients should use the concrete implementation provided in
-`02-client/types` and reproduced above.
 
 ## Connection Handshake
 
@@ -214,40 +105,6 @@ with regards to version selection in `ConnOpenTry`. Each version in a set of
 versions should have a unique version identifier.
 :::
 
-## Channel Handshake
-
-The channel handshake occurs in 4 steps as defined in [ICS 04](https://github.com/cosmos/ibc/tree/master/spec/core/ics-004-channel-and-packet-semantics).
-
-`ChanOpenInit` is the first attempt to initialize a channel on top of an existing connection. 
-The handshake is expected to succeed if the version selected for the existing connection is a 
-supported IBC version. The portID must correspond to a port already binded upon `InitChain`. 
-The channel identifier for the counterparty channel must be left empty indicating that the 
-counterparty must select its own identifier. The channel identifier is auto derived in the
-format: `channel{N}` where N is the next sequence to be used. The channel is set and stored 
-in the INIT state upon success. The channel parameters `NextSequenceSend`, `NextSequenceRecv`, 
-and `NextSequenceAck` are all set to 1 and a channel capability is created for the given 
-portID and channelID path. 
-
-`ChanOpenTry` is a response to a chain executing `ChanOpenInit`. If the executing chain is calling
-`ChanOpenTry` after previously executing `ChanOpenInit` then the provided channel parameters must
-match the previously selected parameters. If the previous channel does not exist then a channel
-identifier is generated in the same format as done in `ChanOpenInit`. The connection the channel 
-is created on top of must be an OPEN state and its IBC version must support the desired channel 
-type being created (ORDERED, UNORDERED, etc). The executing chain will verify that the channel 
-state of the counterparty is in INIT. The executing chain will set and store the channel state 
-in TRYOPEN. The channel parameters `NextSequenceSend`, `NextSequenceRecv`, and `NextSequenceAck` 
-are all set to 1 and a channel capability is created for the given portID and channelID path only 
-if the channel did not previously exist. 
-
-`ChanOpenAck` may be called on a chain when the counterparty channel has entered TRYOPEN. A
-previous channel on the executing chain must exist be in either INIT or TRYOPEN state. If the 
-counterparty selected its own channel identifier, it will be validated in the basic validation 
-of `MsgChanOpenAck`. The executing chain verifies that the counterparty channel state is in 
-TRYOPEN. The channel is set and stored in the OPEN state upon success.
-
-`ChanOpenConfirm` is a response to a chain executing `ChanOpenAck`. The executing chain's 
-previous channel state must be in TRYOPEN. The executing chain verifies that the counterparty 
-channel state is OPEN. The channel is set and stored in the OPEN state upon success.
 
 ## Channel Version Negotiation
 
@@ -346,14 +203,6 @@ commitments could be removed from channels which do not write
 packet acknowledgements and acknowledgements could be removed
 when a packet has completed its life cycle.
 
-## Timing out Packets
-
-A packet may be timed out on the receiving chain if the packet timeout height or timestamp has
-been surpassed on the receving chain or the channel has closed. A timed out
-packet can only occur if the packet has never been received on the receiving 
-chain. ORDERED channels will verify that the packet sequence is greater than 
-the `NextSequenceRecv` on the receiving chain. UNORDERED channels will verify 
-that the packet receipt has not been written on the receiving chain. A timeout
 on channel closure will additionally verify that the counterparty channel has 
 been closed. A successful timeout may execute application logic as appropriate.
 
@@ -362,41 +211,4 @@ surpassed on the receiving chain for a timeout to be valid. A timeout timestamp
 or timeout height with a 0 value indicates the timeout field may be ignored. 
 Each packet is required to have at least one valid timeout field. 
 
-## Closing Channels
 
-Closing a channel occurs in occurs in 2 handshake steps as defined in [ICS 04](https://github.com/cosmos/ibc/tree/master/spec/core/ics-004-channel-and-packet-semantics).
-
-`ChanCloseInit` will close a channel on the executing chain if the channel exists, it is not 
-already closed and the connection it exists upon is OPEN. Channels can only be closed by a 
-calling module or in the case of a packet timeout on an ORDERED channel.
-
-`ChanCloseConfirm` is a response to a counterparty channel executing `ChanCloseInit`. The channel
-on the executing chain will be closed if the channel exists, the channel is not already closed, 
-the connection the channel exists upon is OPEN and the executing chain successfully verifies
-that the counterparty channel has been closed.
-
-## Port and Channel Capabilities
-
-## Hostname Validation
-
-Hostname validation is implemented as defined in [ICS 24](https://github.com/cosmos/ibc/tree/master/spec/core/ics-024-host-requirements).
-
-The 24-host sub-module parses and validates identifiers. It also builds 
-the key paths used to store IBC related information. 
-
-A valid identifier must conatin only alphanumeric characters or the 
-following list of allowed characters: 
-".", "\_", "+", "-", "#", "[", "]", "<", ">" 
-
-- Client identifiers must contain between 9 and 64 characters.
-- Connection identifiers must contain between 10 and 64 characters.
-- Channel identifiers must contain between 10 and 64 characters.
-- Port identifiers must contain between 2 and 64 characters.
-
-## Proofs
-
-Proofs for counterparty state validation are provided as bytes. These bytes 
-can be unmarshaled into proto definitions as necessary by light clients.
-For example, the Tendermint light client will use the bytes as a merkle 
-proof where as the solo machine client will unmarshal the proof into
-several layers proto definitions used for signature verficiation. 
