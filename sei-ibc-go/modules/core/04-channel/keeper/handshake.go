@@ -118,7 +118,6 @@ func (k Keeper) ChanOpenTry(
 	previousChannelID string,
 	portCap *capabilitytypes.Capability,
 	counterparty types.Counterparty,
-	version,
 	counterpartyVersion string,
 	proofInit []byte,
 	proofHeight exported.Height,
@@ -148,7 +147,7 @@ func (k Keeper) ChanOpenTry(
 			previousChannel.Counterparty.PortId == counterparty.PortId &&
 			previousChannel.Counterparty.ChannelId == "" &&
 			previousChannel.ConnectionHops[0] == connectionHops[0] && // ChanOpenInit will only set a single connection hop
-			previousChannel.Version == version) {
+			previousChannel.Version == counterpartyVersion) {
 			return "", nil, sdkerrors.Wrap(types.ErrInvalidChannel, "channel fields mismatch previous channel fields")
 		}
 

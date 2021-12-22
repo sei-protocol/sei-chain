@@ -57,7 +57,8 @@ message MsgChannelOpenInit {
 message MsgChannelOpenInitResponse {}
 
 // MsgChannelOpenInit defines a msg sent by a Relayer to try to open a channel
-// on Chain B.
+// on Chain B. The version field within the Channel field has been deprecated. Its
+// value will be ignored by core IBC.
 message MsgChannelOpenTry {
   option (gogoproto.equal)           = false;
   option (gogoproto.goproto_getters) = false;
@@ -65,7 +66,8 @@ message MsgChannelOpenTry {
   string port_id = 1 [(gogoproto.moretags) = "yaml:\"port_id\""];
   // in the case of crossing hello's, when both chains call OpenInit, we need
   // the channel identifier of the previous channel in state INIT
-  string                    previous_channel_id  = 2 [(gogoproto.moretags) = "yaml:\"previous_channel_id\""];
+  string previous_channel_id = 2 [(gogoproto.moretags) = "yaml:\"previous_channel_id\""];
+  // NOTE: the version field within the channel has been deprecated. Its value will be ignored by core IBC.
   Channel                   channel              = 3 [(gogoproto.nullable) = false];
   string                    counterparty_version = 4 [(gogoproto.moretags) = "yaml:\"counterparty_version\""];
   bytes                     proof_init           = 5 [(gogoproto.moretags) = "yaml:\"proof_init\""];

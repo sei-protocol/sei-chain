@@ -50,7 +50,7 @@ func NewICAPath(chainA, chainB *ibctesting.TestChain) *ibctesting.Path {
 	path.EndpointA.ChannelConfig.Order = channeltypes.ORDERED
 	path.EndpointB.ChannelConfig.Order = channeltypes.ORDERED
 	path.EndpointA.ChannelConfig.Version = icatypes.VersionPrefix
-	path.EndpointB.ChannelConfig.Version = TestVersion
+	path.EndpointB.ChannelConfig.Version = icatypes.VersionPrefix
 
 	return path
 }

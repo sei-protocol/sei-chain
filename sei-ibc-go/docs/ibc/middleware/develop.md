@@ -103,29 +103,32 @@ func OnChanOpenTry(
     channelID string,
     channelCap *capabilitytypes.Capability,
     counterparty channeltypes.Counterparty,
-    version,
     counterpartyVersion string,
-) error {
-      // core/04-channel/types contains a helper function to split middleware and underlying app version
-      cpMiddlewareVersion, cpAppVersion = channeltypes.SplitChannelVersion(counterpartyVersion)
-      middlewareVersion, appVersion = channeltypes.SplitChannelVersion(version)
-      if !isCompatible(cpMiddlewareVersion, middlewareVersion) {
-          return error
-      }
-      doCustomLogic()
+) (string, error) {
+    doCustomLogic()
 
-      // call the underlying applications OnChanOpenTry callback
-      app.OnChanOpenTry(
-          ctx,
-          order,
-          connectionHops,
-          portID,
-          channelID,
-          channelCap,
-          counterparty,
-          cpAppVersion, // note we only pass counterparty app version here
-          appVersion, // only pass app version
-      )
+    // core/04-channel/types contains a helper function to split middleware and underlying app version
+    cpMiddlewareVersion, cpAppVersion = channeltypes.SplitChannelVersion(counterpartyVersion)
+
+    // call the underlying applications OnChanOpenTry callback
+    appVersion, err := app.OnChanOpenTry(
+        ctx,
+        order,
+        connectionHops,
+        portID,
+        channelID,
+        channelCap,
+        counterparty,
+        cpAppVersion, // note we only pass counterparty app version here
+    )
+    if err != nil {
+        return err
+    }
+    
+    middlewareVersion := negotiateMiddlewareVersion(cpMiddlewareVersion)
+    version := constructVersion(middlewareVersion, appVersion)
+
+    return version
 }
 
 func OnChanOpenAck(
@@ -134,15 +137,15 @@ func OnChanOpenAck(
     channelID string,
     counterpartyVersion string,
 ) error {
-      // core/04-channel/types contains a helper function to split middleware and underlying app version
-      middlewareVersion, appVersion = channeltypes.SplitChannelVersion(version)
-      if !isCompatible(middlewareVersion) {
-          return error
-      }
-      doCustomLogic()
+    // core/04-channel/types contains a helper function to split middleware and underlying app version
+    middlewareVersion, appVersion = channeltypes.SplitChannelVersion(version)
+    if !isCompatible(middlewareVersion) {
+        return error
+    }
+    doCustomLogic()
       
-      // call the underlying applications OnChanOpenTry callback
-      app.OnChanOpenAck(ctx, portID, channelID, appVersion)
+    // call the underlying applications OnChanOpenTry callback
+    app.OnChanOpenAck(ctx, portID, channelID, appVersion)
 }
 
 func OnChanOpenConfirm(

@@ -147,16 +147,16 @@ func (suite *InterchainAccountsTestSuite) TestOnChanOpenTry() {
 				// mock module callback should not be called on host side
 				suite.chainB.GetSimApp().ICAAuthModule.IBCApp.OnChanOpenTry = func(ctx sdk.Context, order channeltypes.Order, connectionHops []string,
 					portID, channelID string, chanCap *capabilitytypes.Capability,
-					counterparty channeltypes.Counterparty, version, counterpartyVersion string,
-				) error {
-					return fmt.Errorf("mock ica auth fails")
+					counterparty channeltypes.Counterparty, counterpartyVersion string,
+				) (string, error) {
+					return "", fmt.Errorf("mock ica auth fails")
 				}
 
 			}, true,
 		},
 		{
-			"ICA callback fails - invalid version", func() {
-				channel.Version = icatypes.VersionPrefix
+			"ICA callback fails - invalid channel order", func() {
+				channel.Ordering = channeltypes.UNORDERED
 			}, false,
 		},
 	}
@@ -181,7 +181,7 @@ func (suite *InterchainAccountsTestSuite) TestOnChanOpenTry() {
 				Ordering:       channeltypes.ORDERED,
 				Counterparty:   counterparty,
 				ConnectionHops: []string{path.EndpointB.ConnectionID},
-				Version:        TestVersion,
+				Version:        "",
 			}
 
 			tc.malleate()
@@ -198,14 +198,16 @@ func (suite *InterchainAccountsTestSuite) TestOnChanOpenTry() {
 			cbs, ok := suite.chainB.App.GetIBCKeeper().Router.GetRoute(module)
 			suite.Require().True(ok)
 
-			err = cbs.OnChanOpenTry(suite.chainB.GetContext(), channel.Ordering, channel.GetConnectionHops(),
-				path.EndpointB.ChannelConfig.PortID, path.EndpointB.ChannelID, chanCap, channel.Counterparty, channel.GetVersion(), path.EndpointA.ChannelConfig.Version,
+			version, err := cbs.OnChanOpenTry(suite.chainB.GetContext(), channel.Ordering, channel.GetConnectionHops(),
+				path.EndpointB.ChannelConfig.PortID, path.EndpointB.ChannelID, chanCap, channel.Counterparty, path.EndpointA.ChannelConfig.Version,
 			)
 
 			if tc.expPass {
 				suite.Require().NoError(err)
+				suite.Require().Equal(TestVersion, version)
 			} else {
 				suite.Require().Error(err)
+				suite.Require().Equal("", version)
 			}
 
 		})
@@ -580,64 +582,6 @@ func (suite *InterchainAccountsTestSuite) TestOnTimeoutPacket() {
 				suite.Require().NoError(err)
 			} else {
 				suite.Require().Error(err)
-			}
-		})
-	}
-}
-
-func (suite *InterchainAccountsTestSuite) TestNegotiateAppVersion() {
-	var (
-		proposedVersion string
-	)
-	testCases := []struct {
-		name     string
-		malleate func()
-		expPass  bool
-	}{
-		{
-			"success", func() {}, true,
-		},
-		{
-			"invalid proposed version", func() {
-				proposedVersion = "invalid version"
-			}, false,
-		},
-	}
-
-	for _, tc := range testCases {
-		tc := tc
-
-		suite.Run(tc.name, func() {
-			suite.SetupTest()
-			path := NewICAPath(suite.chainA, suite.chainB)
-			suite.coordinator.SetupConnections(path)
-
-			module, _, err := suite.chainA.GetSimApp().GetIBCKeeper().PortKeeper.LookupModuleByPort(suite.chainA.GetContext(), icatypes.PortID)
-			suite.Require().NoError(err)
-
-			cbs, ok := suite.chainA.GetSimApp().GetIBCKeeper().Router.GetRoute(module)
-			suite.Require().True(ok)
-
-			counterpartyPortID, err := icatypes.GeneratePortID(TestOwnerAddress, path.EndpointA.ConnectionID, path.EndpointB.ConnectionID)
-			suite.Require().NoError(err)
-
-			counterparty := &channeltypes.Counterparty{
-				PortId:    counterpartyPortID,
-				ChannelId: path.EndpointB.ChannelID,
-			}
-
-			proposedVersion = icatypes.VersionPrefix
-
-			tc.malleate()
-
-			version, err := cbs.NegotiateAppVersion(suite.chainA.GetContext(), channeltypes.ORDERED, path.EndpointA.ConnectionID, icatypes.PortID, *counterparty, proposedVersion)
-			if tc.expPass {
-				suite.Require().NoError(err)
-				suite.Require().NoError(icatypes.ValidateVersion(version))
-				suite.Require().Equal(TestVersion, version)
-			} else {
-				suite.Require().Error(err)
-				suite.Require().Empty(version)
 			}
 		})
 	}

@@ -306,6 +306,10 @@ func (endpoint *Endpoint) ChanOpenTry() error {
 		require.NoError(endpoint.Chain.t, err)
 	}
 
+	// update version to selected app version
+	// NOTE: this update must be performed after the endpoint channelID is set
+	endpoint.ChannelConfig.Version = endpoint.GetChannel().Version
+
 	return nil
 }
 

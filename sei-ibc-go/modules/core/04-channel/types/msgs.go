@@ -61,6 +61,8 @@ func (msg MsgChannelOpenInit) GetSigners() []sdk.AccAddress {
 var _ sdk.Msg = &MsgChannelOpenTry{}
 
 // NewMsgChannelOpenTry creates a new MsgChannelOpenTry instance
+// The version string is deprecated and will be ignored by core IBC.
+// It is left as an argument for go API backwards compatibility.
 // nolint:interfacer
 func NewMsgChannelOpenTry(
 	portID, previousChannelID, version string, channelOrder Order, connectionHops []string,

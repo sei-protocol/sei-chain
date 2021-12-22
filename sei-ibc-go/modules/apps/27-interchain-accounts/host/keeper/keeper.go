@@ -7,7 +7,6 @@ import (
 	baseapp "github.com/cosmos/cosmos-sdk/baseapp"
 	"github.com/cosmos/cosmos-sdk/codec"
 	sdk "github.com/cosmos/cosmos-sdk/types"
-	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	capabilitykeeper "github.com/cosmos/cosmos-sdk/x/capability/keeper"
 	capabilitytypes "github.com/cosmos/cosmos-sdk/x/capability/types"
 	paramtypes "github.com/cosmos/cosmos-sdk/x/params/types"
@@ -15,7 +14,6 @@ import (
 
 	"github.com/cosmos/ibc-go/v3/modules/apps/27-interchain-accounts/host/types"
 	icatypes "github.com/cosmos/ibc-go/v3/modules/apps/27-interchain-accounts/types"
-	channeltypes "github.com/cosmos/ibc-go/v3/modules/core/04-channel/types"
 	host "github.com/cosmos/ibc-go/v3/modules/core/24-host"
 )
 
@@ -179,23 +177,4 @@ func (k Keeper) GetAllInterchainAccounts(ctx sdk.Context) []icatypes.RegisteredI
 func (k Keeper) SetInterchainAccountAddress(ctx sdk.Context, portID string, address string) {
 	store := ctx.KVStore(k.storeKey)
 	store.Set(icatypes.KeyOwnerAccount(portID), []byte(address))
-}
-
-// NegotiateAppVersion handles application version negotation for the IBC interchain accounts module
-func (k Keeper) NegotiateAppVersion(
-	ctx sdk.Context,
-	order channeltypes.Order,
-	connectionID string,
-	portID string,
-	counterparty channeltypes.Counterparty,
-	proposedVersion string,
-) (string, error) {
-	if proposedVersion != icatypes.VersionPrefix {
-		return "", sdkerrors.Wrapf(icatypes.ErrInvalidVersion, "failed to negotiate app version: expected %s, got %s", icatypes.VersionPrefix, proposedVersion)
-	}
-
-	moduleAccAddr := k.accountKeeper.GetModuleAddress(icatypes.ModuleName)
-	accAddr := icatypes.GenerateAddress(moduleAccAddr, counterparty.PortId)
-
-	return icatypes.NewAppVersion(icatypes.VersionPrefix, accAddr.String()), nil
 }

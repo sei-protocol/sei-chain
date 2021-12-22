@@ -82,14 +82,6 @@ func (suite *KeeperTestSuite) TestOnChanOpenTry() {
 			false,
 		},
 		{
-			"invalid version",
-			func() {
-				channel.Version = "version"
-				path.EndpointB.SetChannel(*channel)
-			},
-			false,
-		},
-		{
 			"invalid counterparty version",
 			func() {
 				counterpartyVersion = "version"
@@ -103,17 +95,6 @@ func (suite *KeeperTestSuite) TestOnChanOpenTry() {
 				path.EndpointB.SetChannel(*channel)
 				err := suite.chainB.GetSimApp().ScopedICAHostKeeper.ClaimCapability(suite.chainB.GetContext(), chanCap, host.ChannelCapabilityPath(path.EndpointB.ChannelConfig.PortID, path.EndpointB.ChannelID))
 				suite.Require().NoError(err)
-			},
-			false,
-		},
-		{
-			"invalid account address",
-			func() {
-				portID, err := icatypes.GeneratePortID("invalid-owner-addr", "connection-0", "connection-0")
-				suite.Require().NoError(err)
-
-				channel.Counterparty.PortId = portID
-				path.EndpointB.SetChannel(*channel)
 			},
 			false,
 		},
@@ -151,15 +132,16 @@ func (suite *KeeperTestSuite) TestOnChanOpenTry() {
 
 			tc.malleate() // malleate mutates test data
 
-			err = suite.chainB.GetSimApp().ICAHostKeeper.OnChanOpenTry(suite.chainB.GetContext(), channel.Ordering, channel.GetConnectionHops(),
-				path.EndpointB.ChannelConfig.PortID, path.EndpointB.ChannelID, chanCap, channel.Counterparty, channel.GetVersion(),
-				counterpartyVersion,
+			version, err := suite.chainB.GetSimApp().ICAHostKeeper.OnChanOpenTry(suite.chainB.GetContext(), channel.Ordering, channel.GetConnectionHops(),
+				path.EndpointB.ChannelConfig.PortID, path.EndpointB.ChannelID, chanCap, channel.Counterparty, counterpartyVersion,
 			)
 
 			if tc.expPass {
 				suite.Require().NoError(err)
+				suite.Require().Equal(TestVersion, version)
 			} else {
 				suite.Require().Error(err)
+				suite.Require().Equal("", version)
 			}
 		})
 	}
