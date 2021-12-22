@@ -13,6 +13,7 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "vue": "^2.6.14",
     "vuepress-theme-cosmos": "^1.0.182"
   },
   "devDependencies": {
