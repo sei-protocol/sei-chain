@@ -18,6 +18,13 @@ No genesis or in-place migrations are required when upgrading from v1 or v2 of i
 
 ## Chains
 
+### ICS20
+
+The `transferkeeper.NewKeeper(...)` now takes in an ICS4Wrapper. 
+The ICS4Wrapper should be the IBC Channel Keeper unless ICS 20 is being connected to a middleware application.
+
+### ICS27
+
 ICS27 Interchain Accounts has been added as a supported IBC application of ibc-go.
 Please see the [ICS27 documentation](../app_modules/interchain-accounts/overview.md) for more information.
 
