@@ -23,10 +23,11 @@ func RegisterLegacyAminoCodec(cdc *codec.LegacyAmino) {
 	cdc.RegisterConcrete(&InterchainAccount{}, "27-interchain-accounts/InterchainAccount", nil)
 }
 
-// RegisterInterface associates protoName with AccountI interface
-// and creates a registry of it's concrete implementations
+// RegisterInterfaces registers the concrete InterchainAccount implementation against the associated
+// x/auth AccountI and GenesisAccount interfaces
 func RegisterInterfaces(registry codectypes.InterfaceRegistry) {
 	registry.RegisterImplementations((*authtypes.AccountI)(nil), &InterchainAccount{})
+	registry.RegisterImplementations((*authtypes.GenesisAccount)(nil), &InterchainAccount{})
 }
 
 // SerializeCosmosTx serializes a slice of sdk.Msg's using the CosmosTx type. The sdk.Msg's are
