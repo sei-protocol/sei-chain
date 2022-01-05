@@ -236,12 +236,13 @@ func (suite *InterchainAccountsTestSuite) TestChanOpenTry() {
 	chanCap, found := suite.chainA.App.GetScopedIBCKeeper().GetCapability(suite.chainA.GetContext(), host.ChannelCapabilityPath(path.EndpointA.ChannelConfig.PortID, path.EndpointA.ChannelID))
 	suite.Require().True(found)
 
-	err = cbs.OnChanOpenTry(
+	version, err := cbs.OnChanOpenTry(
 		suite.chainA.GetContext(), path.EndpointA.ChannelConfig.Order, []string{path.EndpointA.ConnectionID},
 		path.EndpointA.ChannelConfig.PortID, path.EndpointA.ChannelID, chanCap,
-		counterparty, path.EndpointA.ChannelConfig.Version, path.EndpointB.ChannelConfig.Version,
+		counterparty, path.EndpointB.ChannelConfig.Version,
 	)
 	suite.Require().Error(err)
+	suite.Require().Equal("", version)
 }
 
 func (suite *InterchainAccountsTestSuite) TestOnChanOpenAck() {
@@ -626,62 +627,6 @@ func (suite *InterchainAccountsTestSuite) TestOnTimeoutPacket() {
 				suite.Require().False(found)
 			} else {
 				suite.Require().Error(err)
-			}
-		})
-	}
-}
-
-func (suite *InterchainAccountsTestSuite) TestNegotiateAppVersion() {
-	var (
-		proposedVersion string
-	)
-	testCases := []struct {
-		name     string
-		malleate func()
-		expPass  bool
-	}{
-		{
-			"ICA OnRecvPacket fails with ErrInvalidChannelFlow", func() {}, false,
-		},
-	}
-
-	for _, tc := range testCases {
-		tc := tc
-
-		suite.Run(tc.name, func() {
-			suite.SetupTest()
-			path := NewICAPath(suite.chainA, suite.chainB)
-			suite.coordinator.SetupConnections(path)
-
-			err := InitInterchainAccount(path.EndpointA, TestOwnerAddress)
-			suite.Require().NoError(err)
-
-			module, _, err := suite.chainA.GetSimApp().GetIBCKeeper().PortKeeper.LookupModuleByPort(suite.chainA.GetContext(), path.EndpointA.ChannelConfig.PortID)
-			suite.Require().NoError(err)
-
-			cbs, ok := suite.chainA.GetSimApp().GetIBCKeeper().Router.GetRoute(module)
-			suite.Require().True(ok)
-
-			counterpartyPortID, err := icatypes.GeneratePortID(TestOwnerAddress, path.EndpointA.ConnectionID, path.EndpointB.ConnectionID)
-			suite.Require().NoError(err)
-
-			counterparty := channeltypes.Counterparty{
-				PortId:    counterpartyPortID,
-				ChannelId: path.EndpointB.ChannelID,
-			}
-
-			proposedVersion = icatypes.VersionPrefix
-
-			tc.malleate()
-
-			version, err := cbs.NegotiateAppVersion(suite.chainA.GetContext(), channeltypes.ORDERED, path.EndpointA.ConnectionID, path.EndpointA.ChannelConfig.PortID, counterparty, proposedVersion)
-			if tc.expPass {
-				suite.Require().NoError(err)
-				suite.Require().NoError(icatypes.ValidateVersion(version))
-				suite.Require().Equal(TestVersion, version)
-			} else {
-				suite.Require().Error(err)
-				suite.Require().Empty(version)
 			}
 		})
 	}

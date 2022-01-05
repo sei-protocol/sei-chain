@@ -130,6 +130,8 @@ func (am AppModule) LegacyQuerierHandler(legacyQuerierCdc *codec.LegacyAmino) sd
 
 // RegisterServices registers module services
 func (am AppModule) RegisterServices(cfg module.Configurator) {
+	controllertypes.RegisterQueryServer(cfg.QueryServer(), am.controllerKeeper)
+	hosttypes.RegisterQueryServer(cfg.QueryServer(), am.hostKeeper)
 }
 
 // InitGenesis performs genesis initialization for the interchain accounts module.

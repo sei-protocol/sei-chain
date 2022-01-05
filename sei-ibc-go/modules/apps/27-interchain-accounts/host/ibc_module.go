@@ -47,14 +47,13 @@ func (im IBCModule) OnChanOpenTry(
 	channelID string,
 	chanCap *capabilitytypes.Capability,
 	counterparty channeltypes.Counterparty,
-	version,
 	counterpartyVersion string,
-) error {
+) (string, error) {
 	if !im.keeper.IsHostEnabled(ctx) {
-		return types.ErrHostSubModuleDisabled
+		return "", types.ErrHostSubModuleDisabled
 	}
 
-	return im.keeper.OnChanOpenTry(ctx, order, connectionHops, portID, channelID, chanCap, counterparty, version, counterpartyVersion)
+	return im.keeper.OnChanOpenTry(ctx, order, connectionHops, portID, channelID, chanCap, counterparty, counterpartyVersion)
 }
 
 // OnChanOpenAck implements the IBCModule interface
@@ -136,16 +135,4 @@ func (im IBCModule) OnTimeoutPacket(
 	relayer sdk.AccAddress,
 ) error {
 	return sdkerrors.Wrap(icatypes.ErrInvalidChannelFlow, "cannot cause a packet timeout on a host channel end, a host chain does not send a packet over the channel")
-}
-
-// NegotiateAppVersion implements the IBCModule interface
-func (im IBCModule) NegotiateAppVersion(
-	ctx sdk.Context,
-	order channeltypes.Order,
-	connectionID string,
-	portID string,
-	counterparty channeltypes.Counterparty,
-	proposedVersion string,
-) (string, error) {
-	return im.keeper.NegotiateAppVersion(ctx, order, connectionID, portID, counterparty, proposedVersion)
 }

@@ -250,6 +250,8 @@ func (suite *KeeperTestSuite) TestOnRecvPacket() {
 				transferPath := ibctesting.NewPath(suite.chainB, suite.chainC)
 				transferPath.EndpointA.ChannelConfig.PortID = ibctesting.TransferPort
 				transferPath.EndpointB.ChannelConfig.PortID = ibctesting.TransferPort
+				transferPath.EndpointA.ChannelConfig.Version = transfertypes.Version
+				transferPath.EndpointB.ChannelConfig.Version = transfertypes.Version
 
 				suite.coordinator.Setup(transferPath)
 

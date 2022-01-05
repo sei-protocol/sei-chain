@@ -1,12 +1,12 @@
 <!--
-order: 7
+order: 4
 -->
 
 # Parameters
 
-## Clients
+## 02-Client
 
-The ibc clients contain the following parameters:
+The 02-client submodule contains the following parameters:
 
 | Key              | Type | Default Value |
 |------------------|------|---------------|

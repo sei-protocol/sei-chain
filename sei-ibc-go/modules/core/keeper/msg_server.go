@@ -255,6 +255,8 @@ func (k Keeper) ConnectionOpenConfirm(goCtx context.Context, msg *connectiontype
 }
 
 // ChannelOpenInit defines a rpc handler method for MsgChannelOpenInit.
+// ChannelOpenInit will perform 04-channel checks, route to the application
+// callback, and write an OpenInit channel into state upon successful exection.
 func (k Keeper) ChannelOpenInit(goCtx context.Context, msg *channeltypes.MsgChannelOpenInit) (*channeltypes.MsgChannelOpenInitResponse, error) {
 	ctx := sdk.UnwrapSDKContext(goCtx)
 
@@ -264,6 +266,13 @@ func (k Keeper) ChannelOpenInit(goCtx context.Context, msg *channeltypes.MsgChan
 		return nil, sdkerrors.Wrap(err, "could not retrieve module from port-id")
 	}
 
+	// Retrieve application callbacks from router
+	cbs, ok := k.Router.GetRoute(module)
+	if !ok {
+		return nil, sdkerrors.Wrapf(porttypes.ErrInvalidRoute, "route not found to module: %s", module)
+	}
+
+	// Perform 04-channel verification
 	channelID, cap, err := k.ChannelKeeper.ChanOpenInit(
 		ctx, msg.Channel.Ordering, msg.Channel.ConnectionHops, msg.PortId,
 		portCap, msg.Channel.Counterparty, msg.Channel.Version,
@@ -272,63 +281,58 @@ func (k Keeper) ChannelOpenInit(goCtx context.Context, msg *channeltypes.MsgChan
 		return nil, sdkerrors.Wrap(err, "channel handshake open init failed")
 	}
 
-	// Retrieve callbacks from router
-	cbs, ok := k.Router.GetRoute(module)
-	if !ok {
-		return nil, sdkerrors.Wrapf(porttypes.ErrInvalidRoute, "route not found to module: %s", module)
-	}
-
+	// Perform application logic callback
 	if err = cbs.OnChanOpenInit(ctx, msg.Channel.Ordering, msg.Channel.ConnectionHops, msg.PortId, channelID, cap, msg.Channel.Counterparty, msg.Channel.Version); err != nil {
 		return nil, sdkerrors.Wrap(err, "channel open init callback failed")
 	}
 
-	ctx.EventManager().EmitEvents(sdk.Events{
-		sdk.NewEvent(
-			sdk.EventTypeMessage,
-			sdk.NewAttribute(sdk.AttributeKeyModule, channeltypes.AttributeValueCategory),
-		),
-	})
+	// Write channel into state
+	k.ChannelKeeper.WriteOpenInitChannel(ctx, msg.PortId, channelID, msg.Channel.Ordering, msg.Channel.ConnectionHops, msg.Channel.Counterparty, msg.Channel.Version)
 
 	return &channeltypes.MsgChannelOpenInitResponse{}, nil
 }
 
 // ChannelOpenTry defines a rpc handler method for MsgChannelOpenTry.
+// ChannelOpenTry will perform 04-channel checks, route to the application
+// callback, and write an OpenTry channel into state upon successful exection.
 func (k Keeper) ChannelOpenTry(goCtx context.Context, msg *channeltypes.MsgChannelOpenTry) (*channeltypes.MsgChannelOpenTryResponse, error) {
 	ctx := sdk.UnwrapSDKContext(goCtx)
+
 	// Lookup module by port capability
 	module, portCap, err := k.PortKeeper.LookupModuleByPort(ctx, msg.PortId)
 	if err != nil {
 		return nil, sdkerrors.Wrap(err, "could not retrieve module from port-id")
 	}
 
-	channelID, cap, err := k.ChannelKeeper.ChanOpenTry(ctx, msg.Channel.Ordering, msg.Channel.ConnectionHops, msg.PortId, msg.PreviousChannelId,
-		portCap, msg.Channel.Counterparty, msg.Channel.Version, msg.CounterpartyVersion, msg.ProofInit, msg.ProofHeight,
-	)
-	if err != nil {
-		return nil, sdkerrors.Wrap(err, "channel handshake open try failed")
-	}
-
-	// Retrieve callbacks from router
+	// Retrieve application callbacks from router
 	cbs, ok := k.Router.GetRoute(module)
 	if !ok {
 		return nil, sdkerrors.Wrapf(porttypes.ErrInvalidRoute, "route not found to module: %s", module)
 	}
 
-	if err = cbs.OnChanOpenTry(ctx, msg.Channel.Ordering, msg.Channel.ConnectionHops, msg.PortId, channelID, cap, msg.Channel.Counterparty, msg.Channel.Version, msg.CounterpartyVersion); err != nil {
+	// Perform 04-channel verification
+	channelID, cap, err := k.ChannelKeeper.ChanOpenTry(ctx, msg.Channel.Ordering, msg.Channel.ConnectionHops, msg.PortId, msg.PreviousChannelId,
+		portCap, msg.Channel.Counterparty, msg.CounterpartyVersion, msg.ProofInit, msg.ProofHeight,
+	)
+	if err != nil {
+		return nil, sdkerrors.Wrap(err, "channel handshake open try failed")
+	}
+
+	// Perform application logic callback
+	version, err := cbs.OnChanOpenTry(ctx, msg.Channel.Ordering, msg.Channel.ConnectionHops, msg.PortId, channelID, cap, msg.Channel.Counterparty, msg.CounterpartyVersion)
+	if err != nil {
 		return nil, sdkerrors.Wrap(err, "channel open try callback failed")
 	}
 
-	ctx.EventManager().EmitEvents(sdk.Events{
-		sdk.NewEvent(
-			sdk.EventTypeMessage,
-			sdk.NewAttribute(sdk.AttributeKeyModule, channeltypes.AttributeValueCategory),
-		),
-	})
+	// Write channel into state
+	k.ChannelKeeper.WriteOpenTryChannel(ctx, msg.PortId, channelID, msg.Channel.Ordering, msg.Channel.ConnectionHops, msg.Channel.Counterparty, version)
 
 	return &channeltypes.MsgChannelOpenTryResponse{}, nil
 }
 
 // ChannelOpenAck defines a rpc handler method for MsgChannelOpenAck.
+// ChannelOpenAck will perform 04-channel checks, route to the application
+// callback, and write an OpenAck channel into state upon successful exection.
 func (k Keeper) ChannelOpenAck(goCtx context.Context, msg *channeltypes.MsgChannelOpenAck) (*channeltypes.MsgChannelOpenAckResponse, error) {
 	ctx := sdk.UnwrapSDKContext(goCtx)
 
@@ -338,34 +342,33 @@ func (k Keeper) ChannelOpenAck(goCtx context.Context, msg *channeltypes.MsgChann
 		return nil, sdkerrors.Wrap(err, "could not retrieve module from port-id")
 	}
 
-	// Retrieve callbacks from router
+	// Retrieve application callbacks from router
 	cbs, ok := k.Router.GetRoute(module)
 	if !ok {
 		return nil, sdkerrors.Wrapf(porttypes.ErrInvalidRoute, "route not found to module: %s", module)
 	}
 
-	err = k.ChannelKeeper.ChanOpenAck(
+	// Perform 04-channel verification
+	if err = k.ChannelKeeper.ChanOpenAck(
 		ctx, msg.PortId, msg.ChannelId, cap, msg.CounterpartyVersion, msg.CounterpartyChannelId, msg.ProofTry, msg.ProofHeight,
-	)
-	if err != nil {
+	); err != nil {
 		return nil, sdkerrors.Wrap(err, "channel handshake open ack failed")
 	}
 
+	// Perform application logic callback
 	if err = cbs.OnChanOpenAck(ctx, msg.PortId, msg.ChannelId, msg.CounterpartyVersion); err != nil {
 		return nil, sdkerrors.Wrap(err, "channel open ack callback failed")
 	}
 
-	ctx.EventManager().EmitEvents(sdk.Events{
-		sdk.NewEvent(
-			sdk.EventTypeMessage,
-			sdk.NewAttribute(sdk.AttributeKeyModule, channeltypes.AttributeValueCategory),
-		),
-	})
+	// Write channel into state
+	k.ChannelKeeper.WriteOpenAckChannel(ctx, msg.PortId, msg.ChannelId, msg.CounterpartyVersion, msg.CounterpartyChannelId)
 
 	return &channeltypes.MsgChannelOpenAckResponse{}, nil
 }
 
 // ChannelOpenConfirm defines a rpc handler method for MsgChannelOpenConfirm.
+// ChannelOpenConfirm will perform 04-channel checks, route to the application
+// callback, and write an OpenConfirm channel into state upon successful exection.
 func (k Keeper) ChannelOpenConfirm(goCtx context.Context, msg *channeltypes.MsgChannelOpenConfirm) (*channeltypes.MsgChannelOpenConfirmResponse, error) {
 	ctx := sdk.UnwrapSDKContext(goCtx)
 
@@ -375,27 +378,24 @@ func (k Keeper) ChannelOpenConfirm(goCtx context.Context, msg *channeltypes.MsgC
 		return nil, sdkerrors.Wrap(err, "could not retrieve module from port-id")
 	}
 
-	// Retrieve callbacks from router
+	// Retrieve application callbacks from router
 	cbs, ok := k.Router.GetRoute(module)
 	if !ok {
 		return nil, sdkerrors.Wrapf(porttypes.ErrInvalidRoute, "route not found to module: %s", module)
 	}
 
-	err = k.ChannelKeeper.ChanOpenConfirm(ctx, msg.PortId, msg.ChannelId, cap, msg.ProofAck, msg.ProofHeight)
-	if err != nil {
+	// Perform 04-channel verification
+	if err = k.ChannelKeeper.ChanOpenConfirm(ctx, msg.PortId, msg.ChannelId, cap, msg.ProofAck, msg.ProofHeight); err != nil {
 		return nil, sdkerrors.Wrap(err, "channel handshake open confirm failed")
 	}
 
+	// Perform application logic callback
 	if err = cbs.OnChanOpenConfirm(ctx, msg.PortId, msg.ChannelId); err != nil {
 		return nil, sdkerrors.Wrap(err, "channel open confirm callback failed")
 	}
 
-	ctx.EventManager().EmitEvents(sdk.Events{
-		sdk.NewEvent(
-			sdk.EventTypeMessage,
-			sdk.NewAttribute(sdk.AttributeKeyModule, channeltypes.AttributeValueCategory),
-		),
-	})
+	// Write channel into state
+	k.ChannelKeeper.WriteOpenConfirmChannel(ctx, msg.PortId, msg.ChannelId)
 
 	return &channeltypes.MsgChannelOpenConfirmResponse{}, nil
 }

@@ -207,12 +207,6 @@
   
     - [Msg](#ibc.core.connection.v1.Msg)
   
-- [ibc/core/port/v1/query.proto](#ibc/core/port/v1/query.proto)
-    - [QueryAppVersionRequest](#ibc.core.port.v1.QueryAppVersionRequest)
-    - [QueryAppVersionResponse](#ibc.core.port.v1.QueryAppVersionResponse)
-  
-    - [Query](#ibc.core.port.v1.Query)
-  
 - [ibc/core/types/v1/genesis.proto](#ibc/core/types/v1/genesis.proto)
     - [GenesisState](#ibc.core.types.v1.GenesisState)
   
@@ -1825,14 +1819,15 @@ MsgChannelOpenInitResponse defines the Msg/ChannelOpenInit response type.
 
 ### MsgChannelOpenTry
 MsgChannelOpenInit defines a msg sent by a Relayer to try to open a channel
-on Chain B.
+on Chain B. The version field within the Channel field has been deprecated. Its
+value will be ignored by core IBC.
 
 
 | Field | Type | Label | Description |
 | ----- | ---- | ----- | ----------- |
 | `port_id` | [string](#string) |  |  |
 | `previous_channel_id` | [string](#string) |  | in the case of crossing hello's, when both chains call OpenInit, we need the channel identifier of the previous channel in state INIT |
-| `channel` | [Channel](#ibc.core.channel.v1.Channel) |  |  |
+| `channel` | [Channel](#ibc.core.channel.v1.Channel) |  | NOTE: the version field within the channel has been deprecated. Its value will be ignored by core IBC. |
 | `counterparty_version` | [string](#string) |  |  |
 | `proof_init` | [bytes](#bytes) |  |  |
 | `proof_height` | [ibc.core.client.v1.Height](#ibc.core.client.v1.Height) |  |  |
@@ -3102,67 +3097,6 @@ Msg defines the ibc/connection Msg service.
 | `ConnectionOpenTry` | [MsgConnectionOpenTry](#ibc.core.connection.v1.MsgConnectionOpenTry) | [MsgConnectionOpenTryResponse](#ibc.core.connection.v1.MsgConnectionOpenTryResponse) | ConnectionOpenTry defines a rpc handler method for MsgConnectionOpenTry. | |
 | `ConnectionOpenAck` | [MsgConnectionOpenAck](#ibc.core.connection.v1.MsgConnectionOpenAck) | [MsgConnectionOpenAckResponse](#ibc.core.connection.v1.MsgConnectionOpenAckResponse) | ConnectionOpenAck defines a rpc handler method for MsgConnectionOpenAck. | |
 | `ConnectionOpenConfirm` | [MsgConnectionOpenConfirm](#ibc.core.connection.v1.MsgConnectionOpenConfirm) | [MsgConnectionOpenConfirmResponse](#ibc.core.connection.v1.MsgConnectionOpenConfirmResponse) | ConnectionOpenConfirm defines a rpc handler method for MsgConnectionOpenConfirm. | |
-
- <!-- end services -->
-
-
-
-<a name="ibc/core/port/v1/query.proto"></a>
-<p align="right"><a href="#top">Top</a></p>
-
-## ibc/core/port/v1/query.proto
-
-
-
-<a name="ibc.core.port.v1.QueryAppVersionRequest"></a>
-
-### QueryAppVersionRequest
-QueryAppVersionRequest is the request type for the Query/AppVersion RPC method
-
-
-| Field | Type | Label | Description |
-| ----- | ---- | ----- | ----------- |
-| `port_id` | [string](#string) |  | port unique identifier |
-| `connection_id` | [string](#string) |  | connection unique identifier |
-| `ordering` | [ibc.core.channel.v1.Order](#ibc.core.channel.v1.Order) |  | whether the channel is ordered or unordered |
-| `counterparty` | [ibc.core.channel.v1.Counterparty](#ibc.core.channel.v1.Counterparty) |  | counterparty channel end |
-| `proposed_version` | [string](#string) |  | proposed version |
-
-
-
-
-
-
-<a name="ibc.core.port.v1.QueryAppVersionResponse"></a>
-
-### QueryAppVersionResponse
-QueryAppVersionResponse is the response type for the Query/AppVersion RPC method.
-
-
-| Field | Type | Label | Description |
-| ----- | ---- | ----- | ----------- |
-| `port_id` | [string](#string) |  | port id associated with the request identifiers |
-| `version` | [string](#string) |  | supported app version |
-
-
-
-
-
- <!-- end messages -->
-
- <!-- end enums -->
-
- <!-- end HasExtensions -->
-
-
-<a name="ibc.core.port.v1.Query"></a>
-
-### Query
-Query defines the gRPC querier service
-
-| Method Name | Request Type | Response Type | Description | HTTP Verb | Endpoint |
-| ----------- | ------------ | ------------- | ------------| ------- | -------- |
-| `AppVersion` | [QueryAppVersionRequest](#ibc.core.port.v1.QueryAppVersionRequest) | [QueryAppVersionResponse](#ibc.core.port.v1.QueryAppVersionResponse) | AppVersion queries an IBC Port and determines the appropriate application version to be used | |
 
  <!-- end services -->
 

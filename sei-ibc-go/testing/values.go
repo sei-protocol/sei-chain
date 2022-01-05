@@ -29,7 +29,7 @@ const (
 	MaxClockDrift      time.Duration = time.Second * 10
 	DefaultDelayPeriod uint64        = 0
 
-	DefaultChannelVersion = ibctransfertypes.Version
+	DefaultChannelVersion = mock.Version
 	InvalidID             = "IDisInvalid"
 
 	// Application Ports

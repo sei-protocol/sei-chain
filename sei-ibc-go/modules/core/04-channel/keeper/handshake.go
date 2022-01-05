@@ -1,6 +1,8 @@
 package keeper
 
 import (
+	"fmt"
+
 	"github.com/cosmos/cosmos-sdk/telemetry"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
@@ -53,13 +55,29 @@ func (k Keeper) ChanOpenInit(
 	}
 
 	channelID := k.GenerateChannelIdentifier(ctx)
-	channel := types.NewChannel(types.INIT, order, counterparty, connectionHops, version)
-	k.SetChannel(ctx, portID, channelID, channel)
 
 	capKey, err := k.scopedKeeper.NewCapability(ctx, host.ChannelCapabilityPath(portID, channelID))
 	if err != nil {
 		return "", nil, sdkerrors.Wrapf(err, "could not create channel capability for port ID %s and channel ID %s", portID, channelID)
 	}
+
+	return channelID, capKey, nil
+}
+
+// WriteOpenInitChannel writes a channel which has successfully passed the OpenInit handshake step.
+// The channel is set in state and all the associated Send and Recv sequences are set to 1.
+// An event is emitted for the handshake step.
+func (k Keeper) WriteOpenInitChannel(
+	ctx sdk.Context,
+	portID,
+	channelID string,
+	order types.Order,
+	connectionHops []string,
+	counterparty types.Counterparty,
+	version string,
+) {
+	channel := types.NewChannel(types.INIT, order, counterparty, connectionHops, version)
+	k.SetChannel(ctx, portID, channelID, channel)
 
 	k.SetNextSequenceSend(ctx, portID, channelID, 1)
 	k.SetNextSequenceRecv(ctx, portID, channelID, 1)
@@ -82,7 +100,12 @@ func (k Keeper) ChanOpenInit(
 		),
 	})
 
-	return channelID, capKey, nil
+	ctx.EventManager().EmitEvents(sdk.Events{
+		sdk.NewEvent(
+			sdk.EventTypeMessage,
+			sdk.NewAttribute(sdk.AttributeKeyModule, types.AttributeValueCategory),
+		),
+	})
 }
 
 // ChanOpenTry is called by a module to accept the first step of a channel opening
@@ -95,7 +118,6 @@ func (k Keeper) ChanOpenTry(
 	previousChannelID string,
 	portCap *capabilitytypes.Capability,
 	counterparty types.Counterparty,
-	version,
 	counterpartyVersion string,
 	proofInit []byte,
 	proofHeight exported.Height,
@@ -125,7 +147,7 @@ func (k Keeper) ChanOpenTry(
 			previousChannel.Counterparty.PortId == counterparty.PortId &&
 			previousChannel.Counterparty.ChannelId == "" &&
 			previousChannel.ConnectionHops[0] == connectionHops[0] && // ChanOpenInit will only set a single connection hop
-			previousChannel.Version == version) {
+			previousChannel.Version == counterpartyVersion) {
 			return "", nil, sdkerrors.Wrap(types.ErrInvalidChannel, "channel fields mismatch previous channel fields")
 		}
 
@@ -171,16 +193,13 @@ func (k Keeper) ChanOpenTry(
 		)
 	}
 
-	// NOTE: this step has been switched with the one below to reverse the connection
-	// hops
-	channel := types.NewChannel(types.TRYOPEN, order, counterparty, connectionHops, version)
 	counterpartyHops := []string{connectionEnd.GetCounterparty().GetConnectionID()}
 
 	// expectedCounterpaty is the counterparty of the counterparty's channel end
 	// (i.e self)
 	expectedCounterparty := types.NewCounterparty(portID, "")
 	expectedChannel := types.NewChannel(
-		types.INIT, channel.Ordering, expectedCounterparty,
+		types.INIT, order, expectedCounterparty,
 		counterpartyHops, counterpartyVersion,
 	)
 
@@ -202,9 +221,6 @@ func (k Keeper) ChanOpenTry(
 			return "", nil, sdkerrors.Wrapf(err, "could not create channel capability for port ID %s and channel ID %s", portID, channelID)
 		}
 
-		k.SetNextSequenceSend(ctx, portID, channelID, 1)
-		k.SetNextSequenceRecv(ctx, portID, channelID, 1)
-		k.SetNextSequenceAck(ctx, portID, channelID, 1)
 	} else {
 		// capability initialized in ChanOpenInit
 		capKey, found = k.scopedKeeper.GetCapability(ctx, host.ChannelCapabilityPath(portID, channelID))
@@ -214,6 +230,30 @@ func (k Keeper) ChanOpenTry(
 			)
 		}
 	}
+
+	return channelID, capKey, nil
+}
+
+// WriteOpenTryChannel writes a channel which has successfully passed the OpenTry handshake step.
+// The channel is set in state. If a previous channel state did not exist, all the Send and Recv
+// sequences are set to 1. An event is emitted for the handshake step.
+func (k Keeper) WriteOpenTryChannel(
+	ctx sdk.Context,
+	portID,
+	channelID string,
+	order types.Order,
+	connectionHops []string,
+	counterparty types.Counterparty,
+	version string,
+) {
+	previousChannel, previousChannelFound := k.GetChannel(ctx, portID, channelID)
+	if !previousChannelFound {
+		k.SetNextSequenceSend(ctx, portID, channelID, 1)
+		k.SetNextSequenceRecv(ctx, portID, channelID, 1)
+		k.SetNextSequenceAck(ctx, portID, channelID, 1)
+	}
+
+	channel := types.NewChannel(types.TRYOPEN, order, counterparty, connectionHops, version)
 
 	k.SetChannel(ctx, portID, channelID, channel)
 
@@ -233,8 +273,12 @@ func (k Keeper) ChanOpenTry(
 			sdk.NewAttribute(types.AttributeKeyConnectionID, channel.ConnectionHops[0]),
 		),
 	})
-
-	return channelID, capKey, nil
+	ctx.EventManager().EmitEvents(sdk.Events{
+		sdk.NewEvent(
+			sdk.EventTypeMessage,
+			sdk.NewAttribute(sdk.AttributeKeyModule, types.AttributeValueCategory),
+		),
+	})
 }
 
 // ChanOpenAck is called by the handshake-originating module to acknowledge the
@@ -294,16 +338,33 @@ func (k Keeper) ChanOpenAck(
 		return err
 	}
 
-	k.Logger(ctx).Info("channel state updated", "port-id", portID, "channel-id", channelID, "previous-state", channel.State.String(), "new-state", "OPEN")
+	return nil
+}
 
-	defer func() {
-		telemetry.IncrCounter(1, "ibc", "channel", "open-ack")
-	}()
+// WriteOpenAckChannel writes an updated channel state for the successful OpenAck handshake step.
+// An event is emitted for the handshake step.
+func (k Keeper) WriteOpenAckChannel(
+	ctx sdk.Context,
+	portID,
+	channelID,
+	counterpartyVersion,
+	counterpartyChannelID string,
+) {
+	channel, found := k.GetChannel(ctx, portID, channelID)
+	if !found {
+		panic(fmt.Sprintf("could not find existing channel when updating channel state in successful ChanOpenAck step, channelID: %s, portID: %s", channelID, portID))
+	}
 
 	channel.State = types.OPEN
 	channel.Version = counterpartyVersion
 	channel.Counterparty.ChannelId = counterpartyChannelID
 	k.SetChannel(ctx, portID, channelID, channel)
+
+	k.Logger(ctx).Info("channel state updated", "port-id", portID, "channel-id", channelID, "previous-state", channel.State.String(), "new-state", "OPEN")
+
+	defer func() {
+		telemetry.IncrCounter(1, "ibc", "channel", "open-ack")
+	}()
 
 	ctx.EventManager().EmitEvents(sdk.Events{
 		sdk.NewEvent(
@@ -315,8 +376,13 @@ func (k Keeper) ChanOpenAck(
 			sdk.NewAttribute(types.AttributeKeyConnectionID, channel.ConnectionHops[0]),
 		),
 	})
+	ctx.EventManager().EmitEvents(sdk.Events{
+		sdk.NewEvent(
+			sdk.EventTypeMessage,
+			sdk.NewAttribute(sdk.AttributeKeyModule, types.AttributeValueCategory),
+		),
+	})
 
-	return nil
 }
 
 // ChanOpenConfirm is called by the counterparty module to close their end of the
@@ -373,6 +439,21 @@ func (k Keeper) ChanOpenConfirm(
 		return err
 	}
 
+	return nil
+}
+
+// WriteOpenConfirmChannel writes an updated channel state for the successful OpenConfirm handshake step.
+// An event is emitted for the handshake step.
+func (k Keeper) WriteOpenConfirmChannel(
+	ctx sdk.Context,
+	portID,
+	channelID string,
+) {
+	channel, found := k.GetChannel(ctx, portID, channelID)
+	if !found {
+		panic(fmt.Sprintf("could not find existing channel when updating channel state in successful ChanOpenConfirm step, channelID: %s, portID: %s", channelID, portID))
+	}
+
 	channel.State = types.OPEN
 	k.SetChannel(ctx, portID, channelID, channel)
 	k.Logger(ctx).Info("channel state updated", "port-id", portID, "channel-id", channelID, "previous-state", "TRYOPEN", "new-state", "OPEN")
@@ -391,8 +472,12 @@ func (k Keeper) ChanOpenConfirm(
 			sdk.NewAttribute(types.AttributeKeyConnectionID, channel.ConnectionHops[0]),
 		),
 	})
-
-	return nil
+	ctx.EventManager().EmitEvents(sdk.Events{
+		sdk.NewEvent(
+			sdk.EventTypeMessage,
+			sdk.NewAttribute(sdk.AttributeKeyModule, types.AttributeValueCategory),
+		),
+	})
 }
 
 // Closing Handshake

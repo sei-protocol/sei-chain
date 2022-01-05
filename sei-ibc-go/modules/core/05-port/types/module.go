@@ -2,8 +2,8 @@ package types
 
 import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
-
 	capabilitytypes "github.com/cosmos/cosmos-sdk/x/capability/types"
+
 	channeltypes "github.com/cosmos/ibc-go/v3/modules/core/04-channel/types"
 	"github.com/cosmos/ibc-go/v3/modules/core/exported"
 )
@@ -11,6 +11,10 @@ import (
 // IBCModule defines an interface that implements all the callbacks
 // that modules must define as specified in ICS-26
 type IBCModule interface {
+	// OnChanOpenInit will verify that the relayer-chosen parameters are
+	// valid and perform any custom INIT logic.It may return an error if
+	// the chosen parameters are invalid in which case the handshake is aborted.
+	// OnChanOpenInit should return an error if the provided version is invalid.
 	OnChanOpenInit(
 		ctx sdk.Context,
 		order channeltypes.Order,
@@ -22,6 +26,14 @@ type IBCModule interface {
 		version string,
 	) error
 
+	// OnChanOpenTry will verify the relayer-chosen parameters along with the
+	// counterparty-chosen version string and perform custom TRY logic.
+	// If the relayer-chosen parameters are invalid, the callback must return
+	// an error to abort the handshake. If the counterparty-chosen version is not
+	// compatible with this modules supported versions, the callback must return
+	// an error to abort the handshake. If the versions are compatible, the try callback
+	// must select the final version string and return it to core IBC.
+	// OnChanOpenTry may also perform custom initialization logic
 	OnChanOpenTry(
 		ctx sdk.Context,
 		order channeltypes.Order,
@@ -30,10 +42,11 @@ type IBCModule interface {
 		channelID string,
 		channelCap *capabilitytypes.Capability,
 		counterparty channeltypes.Counterparty,
-		version,
 		counterpartyVersion string,
-	) error
+	) (version string, err error)
 
+	// OnChanOpenAck will error if the counterparty selected version string
+	// is invalid to abort the handshake. It may also perform custom ACK logic.
 	OnChanOpenAck(
 		ctx sdk.Context,
 		portID,
@@ -41,6 +54,7 @@ type IBCModule interface {
 		counterpartyVersion string,
 	) error
 
+	// OnChanOpenConfirm will perform custom CONFIRM logic and may error to abort the handshake.
 	OnChanOpenConfirm(
 		ctx sdk.Context,
 		portID,
@@ -82,18 +96,6 @@ type IBCModule interface {
 		packet channeltypes.Packet,
 		relayer sdk.AccAddress,
 	) error
-
-	// NegotiateAppVersion performs application version negotiation given the provided channel ordering, connectionID, portID, counterparty and proposed version.
-	// An error is returned if version negotiation cannot be performed. For example, an application module implementing this interface
-	// may decide to return an error in the event of the proposed version being incompatible with it's own
-	NegotiateAppVersion(
-		ctx sdk.Context,
-		order channeltypes.Order,
-		connectionID string,
-		portID string,
-		counterparty channeltypes.Counterparty,
-		proposedVersion string,
-	) (version string, err error)
 }
 
 // ICS4Wrapper implements the ICS4 interfaces that IBC applications use to send packets and acknolwedgements.

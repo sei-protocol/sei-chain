@@ -14,6 +14,8 @@ import (
 
 // OnChanOpenTry performs basic validation of the ICA channel
 // and registers a new interchain account (if it doesn't exist).
+// The version returned will include the registered interchain
+// account address.
 func (k Keeper) OnChanOpenTry(
 	ctx sdk.Context,
 	order channeltypes.Order,
@@ -22,60 +24,47 @@ func (k Keeper) OnChanOpenTry(
 	channelID string,
 	chanCap *capabilitytypes.Capability,
 	counterparty channeltypes.Counterparty,
-	version,
 	counterpartyVersion string,
-) error {
+) (string, error) {
 	if order != channeltypes.ORDERED {
-		return sdkerrors.Wrapf(channeltypes.ErrInvalidChannelOrdering, "expected %s channel, got %s", channeltypes.ORDERED, order)
+		return "", sdkerrors.Wrapf(channeltypes.ErrInvalidChannelOrdering, "expected %s channel, got %s", channeltypes.ORDERED, order)
 	}
 
 	if portID != icatypes.PortID {
-		return sdkerrors.Wrapf(porttypes.ErrInvalidPort, "expected %s, got %s", icatypes.PortID, portID)
+		return "", sdkerrors.Wrapf(porttypes.ErrInvalidPort, "expected %s, got %s", icatypes.PortID, portID)
 	}
 
 	connSequence, err := icatypes.ParseHostConnSequence(counterparty.PortId)
 	if err != nil {
-		return sdkerrors.Wrapf(err, "expected format %s, got %s", icatypes.ControllerPortFormat, counterparty.PortId)
+		return "", sdkerrors.Wrapf(err, "expected format %s, got %s", icatypes.ControllerPortFormat, counterparty.PortId)
 	}
 
 	counterpartyConnSequence, err := icatypes.ParseControllerConnSequence(counterparty.PortId)
 	if err != nil {
-		return sdkerrors.Wrapf(err, "expected format %s, got %s", icatypes.ControllerPortFormat, counterparty.PortId)
+		return "", sdkerrors.Wrapf(err, "expected format %s, got %s", icatypes.ControllerPortFormat, counterparty.PortId)
 	}
 
-	if err := k.validateControllerPortParams(ctx, channelID, portID, connSequence, counterpartyConnSequence); err != nil {
-		return sdkerrors.Wrapf(err, "failed to validate controller port %s", counterparty.PortId)
-	}
-
-	if err := icatypes.ValidateVersion(version); err != nil {
-		return sdkerrors.Wrap(err, "version validation failed")
+	if err := k.validateControllerPortParams(ctx, connectionHops, connSequence, counterpartyConnSequence); err != nil {
+		return "", sdkerrors.Wrapf(err, "failed to validate controller port %s", counterparty.PortId)
 	}
 
 	if counterpartyVersion != icatypes.VersionPrefix {
-		return sdkerrors.Wrapf(icatypes.ErrInvalidVersion, "expected %s, got %s", icatypes.VersionPrefix, version)
+		return "", sdkerrors.Wrapf(icatypes.ErrInvalidVersion, "expected %s, got %s", icatypes.VersionPrefix, counterpartyVersion)
 	}
 
 	// On the host chain the capability may only be claimed during the OnChanOpenTry
 	// The capability being claimed in OpenInit is for a controller chain (the port is different)
 	if err := k.ClaimCapability(ctx, chanCap, host.ChannelCapabilityPath(portID, channelID)); err != nil {
-		return sdkerrors.Wrapf(err, "failed to claim capability for channel %s on port %s", channelID, portID)
+		return "", sdkerrors.Wrapf(err, "failed to claim capability for channel %s on port %s", channelID, portID)
 	}
 
-	// Check to ensure that the version string contains the expected address generated from the Counterparty portID
 	accAddr := icatypes.GenerateAddress(k.accountKeeper.GetModuleAddress(icatypes.ModuleName), counterparty.PortId)
-	parsedAddr, err := icatypes.ParseAddressFromVersion(version)
-	if err != nil {
-		return sdkerrors.Wrapf(err, "expected format <app-version%saccount-address>, got %s", icatypes.Delimiter, version)
-	}
-
-	if parsedAddr != accAddr.String() {
-		return sdkerrors.Wrapf(icatypes.ErrInvalidVersion, "version contains invalid account address: expected %s, got %s", parsedAddr, accAddr)
-	}
 
 	// Register interchain account if it does not already exist
 	k.RegisterInterchainAccount(ctx, accAddr, counterparty.PortId)
+	version := icatypes.NewAppVersion(icatypes.VersionPrefix, accAddr.String())
 
-	return nil
+	return version, nil
 }
 
 // OnChanOpenConfirm completes the handshake process by setting the active channel in state on the host chain
@@ -104,8 +93,9 @@ func (k Keeper) OnChanCloseConfirm(
 
 // validateControllerPortParams asserts the provided connection sequence and counterparty connection sequence
 // match that of the associated connection stored in state
-func (k Keeper) validateControllerPortParams(ctx sdk.Context, channelID, portID string, connectionSeq, counterpartyConnectionSeq uint64) error {
-	connectionID, connection, err := k.channelKeeper.GetChannelConnection(ctx, portID, channelID)
+func (k Keeper) validateControllerPortParams(ctx sdk.Context, connectionHops []string, connectionSeq, counterpartyConnectionSeq uint64) error {
+	connectionID := connectionHops[0]
+	connection, err := k.channelKeeper.GetConnection(ctx, connectionID)
 	if err != nil {
 		return err
 	}

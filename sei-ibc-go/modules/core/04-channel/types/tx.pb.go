@@ -108,12 +108,14 @@ func (m *MsgChannelOpenInitResponse) XXX_DiscardUnknown() {
 var xxx_messageInfo_MsgChannelOpenInitResponse proto.InternalMessageInfo
 
 // MsgChannelOpenInit defines a msg sent by a Relayer to try to open a channel
-// on Chain B.
+// on Chain B. The version field within the Channel field has been deprecated. Its
+// value will be ignored by core IBC.
 type MsgChannelOpenTry struct {
 	PortId string `protobuf:"bytes,1,opt,name=port_id,json=portId,proto3" json:"port_id,omitempty" yaml:"port_id"`
 	// in the case of crossing hello's, when both chains call OpenInit, we need
 	// the channel identifier of the previous channel in state INIT
-	PreviousChannelId   string       `protobuf:"bytes,2,opt,name=previous_channel_id,json=previousChannelId,proto3" json:"previous_channel_id,omitempty" yaml:"previous_channel_id"`
+	PreviousChannelId string `protobuf:"bytes,2,opt,name=previous_channel_id,json=previousChannelId,proto3" json:"previous_channel_id,omitempty" yaml:"previous_channel_id"`
+	// NOTE: the version field within the channel has been deprecated. Its value will be ignored by core IBC.
 	Channel             Channel      `protobuf:"bytes,3,opt,name=channel,proto3" json:"channel"`
 	CounterpartyVersion string       `protobuf:"bytes,4,opt,name=counterparty_version,json=counterpartyVersion,proto3" json:"counterparty_version,omitempty" yaml:"counterparty_version"`
 	ProofInit           []byte       `protobuf:"bytes,5,opt,name=proof_init,json=proofInit,proto3" json:"proof_init,omitempty" yaml:"proof_init"`

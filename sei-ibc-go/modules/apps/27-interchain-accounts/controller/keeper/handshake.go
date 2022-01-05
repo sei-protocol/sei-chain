@@ -42,7 +42,7 @@ func (k Keeper) OnChanOpenInit(
 		return sdkerrors.Wrapf(err, "expected format %s, got %s", icatypes.ControllerPortFormat, portID)
 	}
 
-	if err := k.validateControllerPortParams(ctx, channelID, portID, connSequence, counterpartyConnSequence); err != nil {
+	if err := k.validateControllerPortParams(ctx, connectionHops, connSequence, counterpartyConnSequence); err != nil {
 		return sdkerrors.Wrapf(err, "failed to validate controller port %s", portID)
 	}
 
@@ -104,8 +104,9 @@ func (k Keeper) OnChanCloseConfirm(
 
 // validateControllerPortParams asserts the provided connection sequence and counterparty connection sequence
 // match that of the associated connection stored in state
-func (k Keeper) validateControllerPortParams(ctx sdk.Context, channelID, portID string, connectionSeq, counterpartyConnectionSeq uint64) error {
-	connectionID, connection, err := k.channelKeeper.GetChannelConnection(ctx, portID, channelID)
+func (k Keeper) validateControllerPortParams(ctx sdk.Context, connectionHops []string, connectionSeq, counterpartyConnectionSeq uint64) error {
+	connectionID := connectionHops[0]
+	connection, err := k.channelKeeper.GetConnection(ctx, connectionID)
 	if err != nil {
 		return err
 	}
