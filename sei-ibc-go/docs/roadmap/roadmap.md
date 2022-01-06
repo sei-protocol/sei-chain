@@ -14,52 +14,11 @@ The release tags and timelines are educated guesses based on the information at 
 
 Let's assume that the planned release schedule looks like the following:
 - At time `t0`:
-  - The first patch release for the `v2.0.x` release series with release tag `v2.0.a`. The placeholder is `a` since this is the first patch release.
-  - The first minor release for the `v2.x` release series with release tag `v2.a.0`. The placeholder is `a` since this is the first minor release.
+  - The first planned patch release for the `v2.0.x` release series with release tag `v2.0.a`. The placeholder is `a` since this is the first patch release in the given quarter.
+  - The first planned minor release for the `v2.x` release series with release tag `v2.a.0`. The placeholder is `a` since this is the first minor release in the given quarter.
 - At time `t0 + delta`:
-  - The second patch release for the `v2.0.x` release series with release tag `v2.0.b`. The placehoder is `b` since this is the next patch release of this release series after `v2.0.a`.
-  - The first patch release for the new `v2.a.x` release series with release tag `v2.a.a`. The patch version placeholder is `a` because this is the first patch release of the series.
-
-## Q4 - 2021
-
-### Interchain accounts
-
-- Finalize the issues raised during the internal audit.
-- Prepare codebase & specification for two external audits.
-- Write developer documentation.
-- Integration with hermes relayer and end-2-end testing.
-- Create alpha release.
-
-### Relayer incentivisation
-
-- Finalize implementation.
-- Update specification and write documentation.
-- Do internal audit and write issues that may arise.
-
-### Align implementation with ICS02
-
-We will work to bring the ibc-go implementation in line with [ICS02](https://github.com/cosmos/ibc/tree/master/spec/core/ics-002-client-semantics): [#284](https://github.com/cosmos/ibc-go/issues/284), [#285](https://github.com/cosmos/ibc-go/issues/285), [#286](https://github.com/cosmos/ibc-go/issues/286), [#594](https://github.com/cosmos/ibc-go/issues/594) and [#599](https://github.com/cosmos/ibc-go/issues/599). The support for Wasm-based light clients relies on these issues as well. 
-
-### Release schedule
-
-|Release|Milestone|Date|
-|-------|---------|----|
-|[`v1.1.0`](https://github.com/cosmos/ibc-go/releases/tag/v1.1.1)||Oct 04, 2021|
-|[`v1.2.1`](https://github.com/cosmos/ibc-go/releases/tag/v1.2.1)||Oct 04, 2021|
-|[`v2.0.0-rc0`](https://github.com/cosmos/ibc-go/releases/tag/v2.0.0-rc0)|[Link](https://github.com/cosmos/ibc-go/milestone/3)|Oct 05, 2021|
-|[`v1.1.2`](https://github.com/cosmos/ibc-go/releases/tag/v1.1.2)||Oct 15, 2021|
-|[`v1.2.2`](https://github.com/cosmos/ibc-go/releases/tag/v1.2.2)||Oct 15, 2021|
-|[`v1.1.3`](https://github.com/cosmos/ibc-go/releases/tag/v1.1.3)||Nov 09, 2021|
-|[`v1.2.3`](https://github.com/cosmos/ibc-go/releases/tag/v1.2.3)||Nov 09, 2021|
-|[`v2.0.0`](https://github.com/cosmos/ibc-go/releases/tag/v2.0.0)|[Link](https://github.com/cosmos/ibc-go/milestone/3)|Nov 09, 2021|
-|[`v1.1.4`](https://github.com/cosmos/ibc-go/releases/tag/v1.1.5)||Dec 06, 2021|
-|[`v1.2.4`](https://github.com/cosmos/ibc-go/releases/tag/v1.2.4)||Dec 06, 2021|
-|[`v2.0.1`](https://github.com/cosmos/ibc-go/releases/tag/v2.0.1)|[Link](https://github.com/cosmos/ibc-go/milestone/11)|Dec 06, 2021|
-|[`v1.1.5`](https://github.com/cosmos/ibc-go/releases/tag/v1.1.5)||Dec 15, 2021|
-|[`v1.2.5`](https://github.com/cosmos/ibc-go/releases/tag/v1.2.5)||Dec 15, 2021|
-|[`v2.0.2`](https://github.com/cosmos/ibc-go/releases/tag/v2.0.2)|[Link](https://github.com/cosmos/ibc-go/milestone/20)|Dec 15, 2021|
-|[`v3.0.0-alpha1`](https://github.com/cosmos/ibc-go/releases/tag/v3.0.0-alpha1)|[Link](https://github.com/cosmos/ibc-go/milestone/12)|Dec 21, 2021|
-
+  - The second planned patch release for the `v2.0.x` release series with release tag `v2.0.b`. The placehoder is `b` since this is the next patch release of this release series after `v2.0.a` in the given quarter.
+  - The first planned patch release for the new `v2.a.x` release series with release tag `v2.a.a`. The patch version placeholder is `a` because this is the first planned patch release of the series in the given quarter.
 ## Q1 - 2022
 
 ### Interchain accounts 
@@ -118,10 +77,10 @@ There is an open [PR](https://github.com/cosmos/ibc-go/pull/208) that implements
 #### H2 March
 
 - [`v4.0.0`](https://github.com/cosmos/ibc-go/milestone/16): Final release of `v4.0.0` including Relayer Incentivisation and the issues to bring ibc-go implementation in line with ICS02 (which are Go-API breaking changes).
-- [`v1.a.0`](https://github.com/cosmos/ibc-go/milestone/17): Minor release in `v1.x` seires including the update of Cosmos SDK to [`v0.45`](https://github.com/cosmos/cosmos-sdk/milestone/46) and Tendermint to [`v0.35`](https://github.com/tendermint/tendermint/releases/tag/v0.35.0).
-- [`v2.a.0`](https://github.com/cosmos/ibc-go/milestone/18): Minor release in `v2.x` series including the update of Cosmos SDK to [`v0.45`](https://github.com/cosmos/cosmos-sdk/milestone/46) and Tendermint to [`v0.35`](https://github.com/tendermint/tendermint/releases/tag/v0.35.0).
-- [`v3.a.0`](https://github.com/cosmos/ibc-go/milestone/19): Minor release in `v3.x` series including the update of Cosmos SDK to [v0.45](https://github.com/cosmos/cosmos-sdk/milestone/46) and Tendermint to [`v0.35`](https://github.com/tendermint/tendermint/releases/tag/v0.35.0).
-- [`v4.a.0`](https://github.com/cosmos/ibc-go/milestone/22): Minor release in `v4.x` series including the update of Cosmos SDK to [`v0.45`](https://github.com/cosmos/cosmos-sdk/milestone/46) and Tendermint to [`v0.35`](https://github.com/tendermint/tendermint/releases/tag/v0.35.0).
+- [`v1.a.0`](https://github.com/cosmos/ibc-go/milestone/17): Minor release in `v1.x` seires including the update of Cosmos SDK to [`v0.46`](https://github.com/cosmos/cosmos-sdk/milestone/46) and Tendermint to [`v0.35`](https://github.com/tendermint/tendermint/releases/tag/v0.35.0).
+- [`v2.a.0`](https://github.com/cosmos/ibc-go/milestone/18): Minor release in `v2.x` series including the update of Cosmos SDK to [`v0.46`](https://github.com/cosmos/cosmos-sdk/milestone/46) and Tendermint to [`v0.35`](https://github.com/tendermint/tendermint/releases/tag/v0.35.0).
+- [`v3.a.0`](https://github.com/cosmos/ibc-go/milestone/19): Minor release in `v3.x` series including the update of Cosmos SDK to [`v0.46`](https://github.com/cosmos/cosmos-sdk/milestone/46) and Tendermint to [`v0.35`](https://github.com/tendermint/tendermint/releases/tag/v0.35.0).
+- [`v4.a.0`](https://github.com/cosmos/ibc-go/milestone/22): Minor release in `v4.x` series including the update of Cosmos SDK to [`v0.46`](https://github.com/cosmos/cosmos-sdk/milestone/46) and Tendermint to [`v0.35`](https://github.com/tendermint/tendermint/releases/tag/v0.35.0).
 
 ## Q2 - 2022
 
@@ -131,8 +90,8 @@ Scope is still TBD.
 
 #### H1 April
 
-- [`v5.0.0-rc0`](https://github.com/cosmos/ibc-go/milestone/21): Release candidate that includes the update of Cosmos SDK from `v0.45` to [`v1.0`](https://github.com/cosmos/cosmos-sdk/milestone/52) and that will support the migration to SMT storage.
+- [`v5.0.0-rc0`](https://github.com/cosmos/ibc-go/milestone/21): Release candidate that includes the update of Cosmos SDK from `v0.46` to [`v1.0`](https://github.com/cosmos/cosmos-sdk/milestone/52) and that will support the migration to SMT storage.
 
 #### H2 April
 
-- [`v5.0.0`](https://github.com/cosmos/ibc-go/milestone/21): Final release that includes the update of Cosmos SDK from `v0.45` to [v1.0](https://github.com/cosmos/cosmos-sdk/milestone/52) and that will support the migration to SMT storage.
+- [`v5.0.0`](https://github.com/cosmos/ibc-go/milestone/21): Final release that includes the update of Cosmos SDK from `v0.46` to [v1.0](https://github.com/cosmos/cosmos-sdk/milestone/52) and that will support the migration to SMT storage.
