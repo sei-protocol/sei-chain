@@ -2,7 +2,6 @@ package keeper
 
 import (
 	"bytes"
-	"fmt"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
@@ -157,7 +156,14 @@ func (k Keeper) TimeoutExecuted(
 		k.SetChannel(ctx, packet.GetSourcePort(), packet.GetSourceChannel(), channel)
 	}
 
-	k.Logger(ctx).Info("packet timed-out", "packet", fmt.Sprintf("%v", packet))
+	k.Logger(ctx).Info(
+		"packet timed-out",
+		"sequence", packet.GetSequence(),
+		"src_port", packet.GetSourcePort(),
+		"src_channel", packet.GetSourceChannel(),
+		"dst_port", packet.GetDestPort(),
+		"dst_channel", packet.GetDestChannel(),
+	)
 
 	// emit an event marking that we have processed the timeout
 	EmitTimeoutPacketEvent(ctx, packet, channel)
