@@ -4,6 +4,54 @@ info:
   description: A REST interface for state queries
   version: 1.0.0
 paths:
+  '/ibc/apps/transfer/v1/denom_hashes/{trace}':
+    get:
+      summary: DenomHash queries a denomination hash information.
+      operationId: DenomHash
+      responses:
+        '200':
+          description: A successful response.
+          schema:
+            type: object
+            properties:
+              hash:
+                type: string
+                description: hash (in hex format) of the denomination trace information.
+            description: >-
+              QueryDenomHashResponse is the response type for the
+              Query/DenomHash RPC
+
+              method.
+        default:
+          description: An unexpected error response
+          schema:
+            type: object
+            properties:
+              error:
+                type: string
+              code:
+                type: integer
+                format: int32
+              message:
+                type: string
+              details:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    type_url:
+                      type: string
+                    value:
+                      type: string
+                      format: byte
+      parameters:
+        - name: trace
+          description: 'The denomination trace ([port_id]/[channel_id])+/[denom]'
+          in: path
+          required: true
+          type: string
+      tags:
+        - Query
   /ibc/apps/transfer/v1/denom_traces:
     get:
       summary: DenomTraces queries all denomination traces.
@@ -7326,6 +7374,15 @@ paths:
           required: false
           type: boolean
           format: boolean
+        - name: packet_commitment_sequences
+          description: list of packet sequences.
+          in: query
+          required: false
+          type: array
+          items:
+            type: string
+            format: uint64
+          collectionFormat: multi
       tags:
         - Query
   '/ibc/core/channel/v1/channels/{channel_id}/ports/{port_id}/packet_acks/{sequence}':
@@ -9839,6 +9896,15 @@ definitions:
       SendEnabled
 
       parameter for the denomination to false.
+  ibc.applications.transfer.v1.QueryDenomHashResponse:
+    type: object
+    properties:
+      hash:
+        type: string
+        description: hash (in hex format) of the denomination trace information.
+    description: |-
+      QueryDenomHashResponse is the response type for the Query/DenomHash RPC
+      method.
   ibc.applications.transfer.v1.QueryDenomTraceResponse:
     type: object
     properties:

@@ -25,6 +25,11 @@ service Query {
   rpc Params(QueryParamsRequest) returns (QueryParamsResponse) {
     option (google.api.http).get = "/ibc/apps/transfer/v1/params";
   }
+
+  // DenomHash queries a denomination hash information.
+  rpc DenomHash(QueryDenomHashRequest) returns (QueryDenomHashResponse) {
+    option (google.api.http).get = "/ibc/apps/transfer/v1/denom_hashes/{trace}";
+  }
 }
 
 // QueryDenomTraceRequest is the request type for the Query/DenomTrace RPC
@@ -64,4 +69,18 @@ message QueryParamsRequest {}
 message QueryParamsResponse {
   // params defines the parameters of the module.
   Params params = 1;
+}
+
+// QueryDenomHashRequest is the request type for the Query/DenomHash RPC
+// method
+message QueryDenomHashRequest {
+  // The denomination trace ([port_id]/[channel_id])+/[denom]
+  string trace = 1;
+}
+
+// QueryDenomHashResponse is the response type for the Query/DenomHash RPC
+// method.
+message QueryDenomHashResponse {
+  // hash (in hex format) of the denomination trace information.
+  string hash = 1;
 }
