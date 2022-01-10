@@ -5,12 +5,12 @@ import (
 	"math/rand"
 	"testing"
 
-	"github.com/stretchr/testify/require"
-
 	"github.com/cosmos/cosmos-sdk/codec"
 	codectypes "github.com/cosmos/cosmos-sdk/codec/types"
 	"github.com/cosmos/cosmos-sdk/types/module"
 	simtypes "github.com/cosmos/cosmos-sdk/types/simulation"
+	"github.com/stretchr/testify/require"
+
 	"github.com/cosmos/ibc-go/v3/modules/apps/transfer/simulation"
 	"github.com/cosmos/ibc-go/v3/modules/apps/transfer/types"
 )

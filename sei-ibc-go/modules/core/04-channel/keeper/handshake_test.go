@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	capabilitytypes "github.com/cosmos/cosmos-sdk/x/capability/types"
+
 	clienttypes "github.com/cosmos/ibc-go/v3/modules/core/02-client/types"
 	connectiontypes "github.com/cosmos/ibc-go/v3/modules/core/03-connection/types"
 	"github.com/cosmos/ibc-go/v3/modules/core/04-channel/types"

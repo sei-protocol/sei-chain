@@ -5,6 +5,7 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	capabilitykeeper "github.com/cosmos/cosmos-sdk/x/capability/keeper"
 	paramtypes "github.com/cosmos/cosmos-sdk/x/params/types"
+
 	clientkeeper "github.com/cosmos/ibc-go/v3/modules/core/02-client/keeper"
 	clienttypes "github.com/cosmos/ibc-go/v3/modules/core/02-client/types"
 	connectionkeeper "github.com/cosmos/ibc-go/v3/modules/core/03-connection/keeper"

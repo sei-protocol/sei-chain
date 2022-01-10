@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
+
 	connectiontypes "github.com/cosmos/ibc-go/v3/modules/core/03-connection/types"
 	porttypes "github.com/cosmos/ibc-go/v3/modules/core/05-port/types"
 )

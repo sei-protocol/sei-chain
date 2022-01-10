@@ -5,9 +5,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/cosmos/cosmos-sdk/types/kv"
 	"github.com/stretchr/testify/require"
 
-	"github.com/cosmos/cosmos-sdk/types/kv"
 	"github.com/cosmos/ibc-go/v3/modules/core/02-client/simulation"
 	"github.com/cosmos/ibc-go/v3/modules/core/02-client/types"
 	host "github.com/cosmos/ibc-go/v3/modules/core/24-host"

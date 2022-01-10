@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
+
 	host "github.com/cosmos/ibc-go/v3/modules/core/24-host"
 )
 
