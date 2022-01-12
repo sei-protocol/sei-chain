@@ -4,7 +4,6 @@ package ibc.applications.interchain_accounts.host.v1;
 
 option go_package = "github.com/cosmos/ibc-go/v3/modules/apps/27-interchain-accounts/host/types";
 
-import "google/protobuf/any.proto";
 import "gogoproto/gogo.proto";
 
 // Params defines the set of on-chain interchain accounts parameters.
