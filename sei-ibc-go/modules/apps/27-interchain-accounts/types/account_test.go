@@ -50,6 +50,52 @@ func (suite *TypesTestSuite) TestGenerateAddress() {
 	suite.Require().NotEmpty(accAddr)
 }
 
+func (suite *TypesTestSuite) TestValidateAccountAddress() {
+	testCases := []struct {
+		name    string
+		address string
+		expPass bool
+	}{
+		{
+			"success",
+			TestOwnerAddress,
+			true,
+		},
+		{
+			"success with single character",
+			"a",
+			true,
+		},
+		{
+			"empty string",
+			"",
+			false,
+		},
+		{
+			"only spaces",
+			"     ",
+			false,
+		},
+		{
+			"address is too long",
+			ibctesting.LongString,
+			false,
+		},
+	}
+
+	for _, tc := range testCases {
+		suite.Run(tc.name, func() {
+			err := types.ValidateAccountAddress(tc.address)
+
+			if tc.expPass {
+				suite.Require().NoError(err, tc.name)
+			} else {
+				suite.Require().Error(err, tc.name)
+			}
+		})
+	}
+}
+
 func (suite *TypesTestSuite) TestInterchainAccount() {
 	pubkey := secp256k1.GenPrivKey().PubKey()
 	addr := sdk.AccAddress(pubkey.Address())
