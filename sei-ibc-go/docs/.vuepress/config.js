@@ -121,6 +121,11 @@ module.exports = {
                     directory: false,
                     path: "/app_modules/interchain-accounts/integration.html"
                 },
+                {
+                    title: "Authentication module development",
+                    directory: false,
+                    path: "/app_modules/interchain-accounts/ica_auth.html"
+                },
             ]
             },
           ]

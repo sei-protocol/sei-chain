@@ -19,4 +19,5 @@ var (
 	ErrUnsupported                 = sdkerrors.Register(ModuleName, 13, "interchain account does not support this action")
 	ErrInvalidControllerPort       = sdkerrors.Register(ModuleName, 14, "invalid controller port")
 	ErrInvalidHostPort             = sdkerrors.Register(ModuleName, 15, "invalid host port")
+	ErrInvalidTimeoutTimestamp     = sdkerrors.Register(ModuleName, 16, "timeout timestamp must be in the future")
 )

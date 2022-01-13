@@ -14,9 +14,10 @@ import (
 
 func (suite *KeeperTestSuite) TestTrySendTx() {
 	var (
-		path       *ibctesting.Path
-		packetData icatypes.InterchainAccountPacketData
-		chanCap    *capabilitytypes.Capability
+		path             *ibctesting.Path
+		packetData       icatypes.InterchainAccountPacketData
+		chanCap          *capabilitytypes.Capability
+		timeoutTimestamp uint64
 	)
 
 	testCases := []struct {
@@ -114,13 +115,38 @@ func (suite *KeeperTestSuite) TestTrySendTx() {
 			},
 			false,
 		},
+		{
+			"timeout timestamp is not in the future",
+			func() {
+				interchainAccountAddr, found := suite.chainA.GetSimApp().ICAControllerKeeper.GetInterchainAccountAddress(suite.chainA.GetContext(), path.EndpointA.ChannelConfig.PortID)
+				suite.Require().True(found)
+
+				msg := &banktypes.MsgSend{
+					FromAddress: interchainAccountAddr,
+					ToAddress:   suite.chainB.SenderAccount.GetAddress().String(),
+					Amount:      sdk.NewCoins(sdk.NewCoin(sdk.DefaultBondDenom, sdk.NewInt(100))),
+				}
+
+				data, err := icatypes.SerializeCosmosTx(suite.chainB.GetSimApp().AppCodec(), []sdk.Msg{msg})
+				suite.Require().NoError(err)
+
+				packetData = icatypes.InterchainAccountPacketData{
+					Type: icatypes.EXECUTE_TX,
+					Data: data,
+				}
+
+				timeoutTimestamp = uint64(suite.chainA.GetContext().BlockTime().UnixNano())
+			},
+			false,
+		},
 	}
 
 	for _, tc := range testCases {
 		tc := tc
 
 		suite.Run(tc.msg, func() {
-			suite.SetupTest() // reset
+			suite.SetupTest()             // reset
+			timeoutTimestamp = ^uint64(0) // default
 
 			path = NewICAPath(suite.chainA, suite.chainB)
 			suite.coordinator.SetupConnections(path)
@@ -134,7 +160,7 @@ func (suite *KeeperTestSuite) TestTrySendTx() {
 
 			tc.malleate() // malleate mutates test data
 
-			_, err = suite.chainA.GetSimApp().ICAControllerKeeper.TrySendTx(suite.chainA.GetContext(), chanCap, path.EndpointA.ChannelConfig.PortID, packetData)
+			_, err = suite.chainA.GetSimApp().ICAControllerKeeper.TrySendTx(suite.chainA.GetContext(), chanCap, path.EndpointA.ChannelConfig.PortID, packetData, timeoutTimestamp)
 
 			if tc.expPass {
 				suite.Require().NoError(err)
