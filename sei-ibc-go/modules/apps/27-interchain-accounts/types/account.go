@@ -2,6 +2,7 @@ package types
 
 import (
 	"encoding/json"
+	"regexp"
 	"strings"
 
 	crypto "github.com/cosmos/cosmos-sdk/crypto/types"
@@ -16,6 +17,13 @@ var (
 	_ authtypes.GenesisAccount = (*InterchainAccount)(nil)
 	_ InterchainAccountI       = (*InterchainAccount)(nil)
 )
+
+// DefaultMaxAddrLength defines the default maximum character length used in validation of addresses
+var DefaultMaxAddrLength = 128
+
+// IsValidAddr defines a regular expression to check if the provided string consists of
+// strictly alphanumeric characters
+var IsValidAddr = regexp.MustCompile("^[a-zA-Z0-9]*$").MatchString
 
 // InterchainAccountI wraps the authtypes.AccountI interface
 type InterchainAccountI interface {
@@ -35,6 +43,20 @@ type interchainAccountPretty struct {
 // The sdk.AccAddress returned is a sub-address of the module account, using the controller chain's port identifier as the derivation key
 func GenerateAddress(moduleAccAddr sdk.AccAddress, portID string) sdk.AccAddress {
 	return sdk.AccAddress(sdkaddress.Derive(moduleAccAddr, []byte(portID)))
+}
+
+// ValidateAccountAddress performs basic validation of interchain account addresses, enforcing constraints
+// on address length and character set
+func ValidateAccountAddress(addr string) error {
+	if !IsValidAddr(addr) || len(addr) == 0 || len(addr) > DefaultMaxAddrLength {
+		return sdkerrors.Wrapf(
+			ErrInvalidAccountAddress,
+			"address must contain strictly alphanumeric characters, not exceeding %d characters in length",
+			DefaultMaxAddrLength,
+		)
+	}
+
+	return nil
 }
 
 // NewInterchainAccount creates and returns a new InterchainAccount type

@@ -14,6 +14,9 @@
     - [HostGenesisState](#ibc.applications.interchain_accounts.v1.HostGenesisState)
     - [RegisteredInterchainAccount](#ibc.applications.interchain_accounts.v1.RegisteredInterchainAccount)
   
+- [ibc/applications/interchain_accounts/v1/metadata.proto](#ibc/applications/interchain_accounts/v1/metadata.proto)
+    - [Metadata](#ibc.applications.interchain_accounts.v1.Metadata)
+  
 - [ibc/applications/interchain_accounts/v1/packet.proto](#ibc/applications/interchain_accounts/v1/packet.proto)
     - [CosmosTx](#ibc.applications.interchain_accounts.v1.CosmosTx)
     - [InterchainAccountPacketData](#ibc.applications.interchain_accounts.v1.InterchainAccountPacketData)
@@ -383,6 +386,41 @@ RegisteredInterchainAccount contains a pairing of controller port ID and associa
 | ----- | ---- | ----- | ----------- |
 | `port_id` | [string](#string) |  |  |
 | `account_address` | [string](#string) |  |  |
+
+
+
+
+
+ <!-- end messages -->
+
+ <!-- end enums -->
+
+ <!-- end HasExtensions -->
+
+ <!-- end services -->
+
+
+
+<a name="ibc/applications/interchain_accounts/v1/metadata.proto"></a>
+<p align="right"><a href="#top">Top</a></p>
+
+## ibc/applications/interchain_accounts/v1/metadata.proto
+
+
+
+<a name="ibc.applications.interchain_accounts.v1.Metadata"></a>
+
+### Metadata
+Metadata defines a set of protocol specific data encoded into the ICS27 channel version bytestring
+See ICS004: https://github.com/cosmos/ibc/tree/master/spec/core/ics-004-channel-and-packet-semantics#Versioning
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| `version` | [string](#string) |  | version defines the ICS27 protocol version |
+| `controller_connection_id` | [string](#string) |  | controller_connection_id is the connection identifier associated with the controller chain |
+| `host_connection_id` | [string](#string) |  | host_connection_id is the connection identifier associated with the host chain |
+| `address` | [string](#string) |  | address defines the interchain account address to be fulfilled upon the OnChanOpenTry handshake step NOTE: the address field is empty on the OnChanOpenInit handshake step |
 
 
 

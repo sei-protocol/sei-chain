@@ -8,11 +8,14 @@ const (
 	// ModuleName defines the interchain accounts module name
 	ModuleName = "interchainaccounts"
 
-	// VersionPrefix defines the current version for interchain accounts
-	VersionPrefix = "ics27-1"
-
-	// PortID is the default port id that the interchain accounts module binds to
+	// PortID is the default port id that the interchain accounts host submodule binds to
 	PortID = "interchain-account"
+
+	// PortPrefix is the default port prefix that the interchain accounts controller submodule binds to
+	PortPrefix = "ics27-"
+
+	// Version defines the current version for interchain accounts
+	Version = "ics27-1"
 
 	// StoreKey is the store key string for interchain accounts
 	StoreKey = ModuleName
@@ -22,9 +25,6 @@ const (
 
 	// QuerierRoute is the querier route for interchain accounts
 	QuerierRoute = ModuleName
-
-	// Delimiter is the delimiter used for the interchain accounts version string
-	Delimiter = "."
 )
 
 var (

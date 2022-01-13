@@ -17,4 +17,6 @@ var (
 	ErrInvalidVersion              = sdkerrors.Register(ModuleName, 11, "invalid interchain accounts version")
 	ErrInvalidAccountAddress       = sdkerrors.Register(ModuleName, 12, "invalid account address")
 	ErrUnsupported                 = sdkerrors.Register(ModuleName, 13, "interchain account does not support this action")
+	ErrInvalidControllerPort       = sdkerrors.Register(ModuleName, 14, "invalid controller port")
+	ErrInvalidHostPort             = sdkerrors.Register(ModuleName, 15, "invalid host port")
 )
