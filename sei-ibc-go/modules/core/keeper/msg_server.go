@@ -161,7 +161,7 @@ func (k Keeper) ConnectionOpenTry(goCtx context.Context, msg *connectiontypes.Ms
 
 	targetClient, err := clienttypes.UnpackClientState(msg.ClientState)
 	if err != nil {
-		return nil, sdkerrors.Wrapf(err, "client in msg is not exported.ClientState. invalid client: %v.", targetClient)
+		return nil, err
 	}
 
 	connectionID, err := k.ConnectionKeeper.ConnOpenTry(
@@ -195,7 +195,7 @@ func (k Keeper) ConnectionOpenAck(goCtx context.Context, msg *connectiontypes.Ms
 	ctx := sdk.UnwrapSDKContext(goCtx)
 	targetClient, err := clienttypes.UnpackClientState(msg.ClientState)
 	if err != nil {
-		return nil, sdkerrors.Wrapf(err, "client in msg is not exported.ClientState. invalid client: %v", targetClient)
+		return nil, err
 	}
 
 	if err := k.ConnectionKeeper.ConnOpenAck(
