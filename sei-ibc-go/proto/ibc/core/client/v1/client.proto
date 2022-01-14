@@ -23,7 +23,7 @@ message ConsensusStateWithHeight {
   // consensus state height
   Height height = 1 [(gogoproto.nullable) = false];
   // consensus state
-  google.protobuf.Any consensus_state = 2 [(gogoproto.moretags) = "yaml\"consensus_state\""];
+  google.protobuf.Any consensus_state = 2 [(gogoproto.moretags) = "yaml:\"consensus_state\""];
 }
 
 // ClientConsensusStates defines all the stored consensus states for a given
