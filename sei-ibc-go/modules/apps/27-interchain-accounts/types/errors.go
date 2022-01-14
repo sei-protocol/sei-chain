@@ -20,4 +20,5 @@ var (
 	ErrInvalidControllerPort       = sdkerrors.Register(ModuleName, 14, "invalid controller port")
 	ErrInvalidHostPort             = sdkerrors.Register(ModuleName, 15, "invalid host port")
 	ErrInvalidTimeoutTimestamp     = sdkerrors.Register(ModuleName, 16, "timeout timestamp must be in the future")
+	ErrInvalidCodec                = sdkerrors.Register(ModuleName, 17, "codec is not supported")
 )
