@@ -224,6 +224,18 @@ func (suite *KeeperTestSuite) TestOnChanOpenAck() {
 			false,
 		},
 		{
+			"empty account address",
+			func() {
+				metadata.Address = ""
+
+				versionBytes, err := icatypes.ModuleCdc.MarshalJSON(&metadata)
+				suite.Require().NoError(err)
+
+				path.EndpointA.Counterparty.ChannelConfig.Version = string(versionBytes)
+			},
+			false,
+		},
+		{
 			"invalid counterparty version",
 			func() {
 				metadata.Version = "invalid-version"

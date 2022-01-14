@@ -8,7 +8,6 @@ import (
 	capabilitytypes "github.com/cosmos/cosmos-sdk/x/capability/types"
 
 	icatypes "github.com/cosmos/ibc-go/v3/modules/apps/27-interchain-accounts/types"
-	connectiontypes "github.com/cosmos/ibc-go/v3/modules/core/03-connection/types"
 	channeltypes "github.com/cosmos/ibc-go/v3/modules/core/04-channel/types"
 	porttypes "github.com/cosmos/ibc-go/v3/modules/core/05-port/types"
 )
@@ -47,12 +46,8 @@ func (k Keeper) OnChanOpenInit(
 		return sdkerrors.Wrapf(icatypes.ErrUnknownDataType, "cannot unmarshal ICS-27 interchain accounts metadata")
 	}
 
-	if err := k.validateConnectionParams(ctx, connectionHops, metadata.ControllerConnectionId, metadata.HostConnectionId); err != nil {
+	if err := icatypes.ValidateControllerMetadata(ctx, k.channelKeeper, connectionHops, metadata); err != nil {
 		return err
-	}
-
-	if metadata.Version != icatypes.Version {
-		return sdkerrors.Wrapf(icatypes.ErrInvalidVersion, "expected %s, got %s", icatypes.Version, metadata.Version)
 	}
 
 	activeChannelID, found := k.GetOpenActiveChannel(ctx, portID)
@@ -84,12 +79,17 @@ func (k Keeper) OnChanOpenAck(
 		return sdkerrors.Wrapf(icatypes.ErrUnknownDataType, "cannot unmarshal ICS-27 interchain accounts metadata")
 	}
 
-	if err := icatypes.ValidateAccountAddress(metadata.Address); err != nil {
+	channel, found := k.channelKeeper.GetChannel(ctx, portID, channelID)
+	if !found {
+		return sdkerrors.Wrapf(channeltypes.ErrChannelNotFound, "failed to retrieve channel %s on port %s", channelID, portID)
+	}
+
+	if err := icatypes.ValidateControllerMetadata(ctx, k.channelKeeper, channel.ConnectionHops, metadata); err != nil {
 		return err
 	}
 
-	if metadata.Version != icatypes.Version {
-		return sdkerrors.Wrapf(icatypes.ErrInvalidVersion, "expected %s, got %s", icatypes.Version, metadata.Version)
+	if strings.TrimSpace(metadata.Address) == "" {
+		return sdkerrors.Wrap(icatypes.ErrInvalidAccountAddress, "interchain account address cannot be empty")
 	}
 
 	k.SetActiveChannelID(ctx, portID, channelID)
@@ -104,25 +104,6 @@ func (k Keeper) OnChanCloseConfirm(
 	portID,
 	channelID string,
 ) error {
-
-	return nil
-}
-
-// validateConnectionParams asserts the provided controller and host connection identifiers match that of the associated connection stored in state
-func (k Keeper) validateConnectionParams(ctx sdk.Context, connectionHops []string, controllerConnectionID, hostConnectionID string) error {
-	connectionID := connectionHops[0]
-	connection, err := k.channelKeeper.GetConnection(ctx, connectionID)
-	if err != nil {
-		return err
-	}
-
-	if controllerConnectionID != connectionID {
-		return sdkerrors.Wrapf(connectiontypes.ErrInvalidConnection, "expected %s, got %s", connectionID, controllerConnectionID)
-	}
-
-	if hostConnectionID != connection.GetCounterparty().GetConnectionID() {
-		return sdkerrors.Wrapf(connectiontypes.ErrInvalidConnection, "expected %s, got %s", connection.GetCounterparty().GetConnectionID(), hostConnectionID)
-	}
 
 	return nil
 }

@@ -8,7 +8,6 @@ import (
 	capabilitytypes "github.com/cosmos/cosmos-sdk/x/capability/types"
 
 	icatypes "github.com/cosmos/ibc-go/v3/modules/apps/27-interchain-accounts/types"
-	connectiontypes "github.com/cosmos/ibc-go/v3/modules/core/03-connection/types"
 	channeltypes "github.com/cosmos/ibc-go/v3/modules/core/04-channel/types"
 	host "github.com/cosmos/ibc-go/v3/modules/core/24-host"
 )
@@ -44,12 +43,8 @@ func (k Keeper) OnChanOpenTry(
 		return "", sdkerrors.Wrapf(icatypes.ErrUnknownDataType, "cannot unmarshal ICS-27 interchain accounts metadata")
 	}
 
-	if err := k.validateConnectionParams(ctx, connectionHops, metadata.ControllerConnectionId, metadata.HostConnectionId); err != nil {
+	if err := icatypes.ValidateHostMetadata(ctx, k.channelKeeper, connectionHops, metadata); err != nil {
 		return "", err
-	}
-
-	if metadata.Version != icatypes.Version {
-		return "", sdkerrors.Wrapf(icatypes.ErrInvalidVersion, "expected %s, got %s", icatypes.Version, metadata.Version)
 	}
 
 	// On the host chain the capability may only be claimed during the OnChanOpenTry
@@ -90,25 +85,6 @@ func (k Keeper) OnChanCloseConfirm(
 	portID,
 	channelID string,
 ) error {
-
-	return nil
-}
-
-// validateConnectionParams asserts the provided controller and host connection identifiers match that of the associated connection stored in state
-func (k Keeper) validateConnectionParams(ctx sdk.Context, connectionHops []string, controllerConnectionID, hostConnectionID string) error {
-	connectionID := connectionHops[0]
-	connection, err := k.channelKeeper.GetConnection(ctx, connectionID)
-	if err != nil {
-		return err
-	}
-
-	if hostConnectionID != connectionID {
-		return sdkerrors.Wrapf(connectiontypes.ErrInvalidConnection, "expected %s, got %s", connectionID, controllerConnectionID)
-	}
-
-	if controllerConnectionID != connection.GetCounterparty().GetConnectionID() {
-		return sdkerrors.Wrapf(connectiontypes.ErrInvalidConnection, "expected %s, got %s", connection.GetCounterparty().GetConnectionID(), hostConnectionID)
-	}
 
 	return nil
 }
