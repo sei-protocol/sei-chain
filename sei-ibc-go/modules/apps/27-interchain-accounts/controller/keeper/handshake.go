@@ -55,7 +55,7 @@ func (k Keeper) OnChanOpenInit(
 		return sdkerrors.Wrapf(icatypes.ErrInvalidVersion, "expected %s, got %s", icatypes.Version, metadata.Version)
 	}
 
-	activeChannelID, found := k.GetActiveChannelID(ctx, portID)
+	activeChannelID, found := k.GetOpenActiveChannel(ctx, portID)
 	if found {
 		return sdkerrors.Wrapf(porttypes.ErrInvalidPort, "existing active channel %s for portID %s", activeChannelID, portID)
 	}
@@ -104,8 +104,6 @@ func (k Keeper) OnChanCloseConfirm(
 	portID,
 	channelID string,
 ) error {
-
-	k.DeleteActiveChannelID(ctx, portID)
 
 	return nil
 }

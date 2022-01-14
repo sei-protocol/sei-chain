@@ -381,12 +381,8 @@ func (suite *InterchainAccountsTestSuite) TestOnChanCloseConfirm() {
 			err = cbs.OnChanCloseConfirm(
 				suite.chainB.GetContext(), path.EndpointB.ChannelConfig.PortID, path.EndpointB.ChannelID)
 
-			activeChannelID, found := suite.chainB.GetSimApp().ICAHostKeeper.GetActiveChannelID(suite.chainB.GetContext(), path.EndpointB.ChannelConfig.PortID)
-
 			if tc.expPass {
 				suite.Require().NoError(err)
-				suite.Require().False(found)
-				suite.Require().Empty(activeChannelID)
 			} else {
 				suite.Require().Error(err)
 			}

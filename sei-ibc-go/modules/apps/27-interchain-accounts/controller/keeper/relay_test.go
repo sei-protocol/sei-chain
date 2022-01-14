@@ -213,12 +213,8 @@ func (suite *KeeperTestSuite) TestOnTimeoutPacket() {
 
 			err = suite.chainA.GetSimApp().ICAControllerKeeper.OnTimeoutPacket(suite.chainA.GetContext(), packet)
 
-			activeChannelID, found := suite.chainA.GetSimApp().ICAControllerKeeper.GetActiveChannelID(suite.chainA.GetContext(), path.EndpointA.ChannelConfig.PortID)
-
 			if tc.expPass {
 				suite.Require().NoError(err)
-				suite.Require().Empty(activeChannelID)
-				suite.Require().False(found)
 			} else {
 				suite.Require().Error(err)
 			}

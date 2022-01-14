@@ -14,6 +14,7 @@ import (
 
 	"github.com/cosmos/ibc-go/v3/modules/apps/27-interchain-accounts/controller/types"
 	icatypes "github.com/cosmos/ibc-go/v3/modules/apps/27-interchain-accounts/types"
+	channeltypes "github.com/cosmos/ibc-go/v3/modules/core/04-channel/types"
 	host "github.com/cosmos/ibc-go/v3/modules/core/24-host"
 )
 
@@ -101,7 +102,7 @@ func (k Keeper) ClaimCapability(ctx sdk.Context, cap *capabilitytypes.Capability
 	return k.scopedKeeper.ClaimCapability(ctx, cap, name)
 }
 
-// GetActiveChannelID retrieves the active channelID from the store keyed by the provided portID
+// GetActiveChannelID retrieves the active channelID from the store, keyed by the provided portID
 func (k Keeper) GetActiveChannelID(ctx sdk.Context, portID string) (string, bool) {
 	store := ctx.KVStore(k.storeKey)
 	key := icatypes.KeyActiveChannel(portID)
@@ -111,6 +112,22 @@ func (k Keeper) GetActiveChannelID(ctx sdk.Context, portID string) (string, bool
 	}
 
 	return string(store.Get(key)), true
+}
+
+// GetOpenActiveChannel retrieves the active channelID from the store, keyed by the provided portID & checks if the channel in question is in state OPEN
+func (k Keeper) GetOpenActiveChannel(ctx sdk.Context, portID string) (string, bool) {
+	channelID, found := k.GetActiveChannelID(ctx, portID)
+	if !found {
+		return "", false
+	}
+
+	channel, found := k.channelKeeper.GetChannel(ctx, portID, channelID)
+
+	if found && channel.State == channeltypes.OPEN {
+		return channelID, true
+	}
+
+	return "", false
 }
 
 // GetAllActiveChannels returns a list of all active interchain accounts controller channels and their associated port identifiers
@@ -138,12 +155,6 @@ func (k Keeper) GetAllActiveChannels(ctx sdk.Context) []icatypes.ActiveChannel {
 func (k Keeper) SetActiveChannelID(ctx sdk.Context, portID, channelID string) {
 	store := ctx.KVStore(k.storeKey)
 	store.Set(icatypes.KeyActiveChannel(portID), []byte(channelID))
-}
-
-// DeleteActiveChannelID removes the active channel keyed by the provided portID stored in state
-func (k Keeper) DeleteActiveChannelID(ctx sdk.Context, portID string) {
-	store := ctx.KVStore(k.storeKey)
-	store.Delete(icatypes.KeyActiveChannel(portID))
 }
 
 // IsActiveChannel returns true if there exists an active channel for the provided portID, otherwise false
