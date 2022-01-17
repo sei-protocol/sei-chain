@@ -27,6 +27,8 @@ func TestParseClientIdentifier(t *testing.T) {
 		{"invalid uint64", "tendermint-18446744073709551616", "tendermint", 0, false},
 		// uint64 == 20 characters
 		{"invalid large sequence", "tendermint-2345682193567182931243", "tendermint", 0, false},
+		{"invalid newline in clientID", "tendermin\nt-1", "tendermin\nt", 0, false},
+		{"invalid newline character before dash", "tendermint\n-1", "tendermint", 0, false},
 		{"missing dash", "tendermint0", "tendermint", 0, false},
 		{"blank id", "               ", "    ", 0, false},
 		{"empty id", "", "", 0, false},
