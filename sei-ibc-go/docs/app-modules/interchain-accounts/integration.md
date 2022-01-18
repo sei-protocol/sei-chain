@@ -1,10 +1,10 @@
 <!--
-order: 2
+order: 3
 -->
 
-# Integrating Interchain Accounts into a Chain
+# Integration
 
-Learn how to integrate Interchain Accounts host and controller functionality to your chain. The following document only applies for Cosmos SDK chains.
+Learn how to integrate Interchain Accounts host and controller functionality to your chain. The following document only applies for Cosmos SDK chains. {synopsis}
 
 The Interchain Accounts module contains two submodules. Each submodule has its own IBC application. The Interchain Accounts module should be registered as an `AppModule` in the same way all SDK modules are registered on a chain, but each submodule should create its own `IBCModule` as necessary. A route should be added to the IBC router for each submodule which will be used. 
 
@@ -122,51 +122,4 @@ app.mm.SetOrderInitGenesis(
     icatypes.ModuleName,
     ...
 )
-```
-
-## Parameters
-
-The Interchain Accounts module contains the following on-chain parameters, logically separated for each distinct submodule:
-
-### Controller Submodule Parameters
-
-| Key                    | Type | Default Value |
-|------------------------|------|---------------|
-| `ControllerEnabled`    | bool | `true`        |
-
-#### ControllerEnabled
-
-The `ControllerEnabled` parameter controls a chains ability to service ICS-27 controller specific logic. This includes the sending of Interchain Accounts packet data as well as the following ICS-26 callback handlers:
-- `OnChanOpenInit`
-- `OnChanOpenAck`
-- `OnChanCloseConfirm`
-- `OnAcknowledgementPacket`
-- `OnTimeoutPacket`
-
-### Host Submodule Parameters
-
-| Key                    | Type     | Default Value |
-|------------------------|----------|---------------|
-| `HostEnabled`          | bool     | `true`        |
-| `AllowMessages`        | []string | `[]`          |
-
-#### HostEnabled
-
-The `HostEnabled` parameter controls a chains ability to service ICS27 host specific logic. This includes the following ICS-26 callback handlers:
-- `OnChanOpenTry`
-- `OnChanOpenConfirm`
-- `OnChanCloseConfirm`
-- `OnRecvPacket`
-
-#### AllowMessages
-
-The `AllowMessages` parameter provides the ability for a chain to limit the types of messages or transactions that it chooses to facilitate by defining an allowlist using the Protobuf message TypeURL format.
-
-For example, a Cosmos SDK based chain that elects to provide hosted Interchain Accounts with the ability of governance voting and staking delegations will define its parameters as follows:
-
-```
-"params": {
-    "host_enabled": true,
-    "allow_messages": ["/cosmos.staking.v1beta1.MsgDelegate", "/cosmos.gov.v1beta1.MsgVote"]
-}
 ```
