@@ -14,12 +14,15 @@ The release tags and timelines are educated guesses based on the information at 
 
 Let's assume that the planned release schedule looks like the following:
 - At time `t0`:
-  - The first planned patch release for the `v2.0.x` release series with release tag `v2.0.a`. The placeholder is `a` since this is the first patch release in the given quarter.
-  - The first planned minor release for the `v2.x` release series with release tag `v2.a.0`. The placeholder is `a` since this is the first minor release in the given quarter.
+  - The first planned patch release for the `v2.0.x` release series with release tag `v2.0.a`. The placeholder is `a` since this is the first patch release in the planning.
+  - The first planned minor release for the `v2.x` release series with release tag `v2.a.0`. The placeholder is `a` since this is the first minor release in the planning.
 - At time `t0 + delta`:
-  - The second planned patch release for the `v2.0.x` release series with release tag `v2.0.b`. The placehoder is `b` since this is the next patch release of this release series after `v2.0.a` in the given quarter.
-  - The first planned patch release for the new `v2.a.x` release series with release tag `v2.a.a`. The patch version placeholder is `a` because this is the first planned patch release of the series in the given quarter.
+  - The second planned patch release for the `v2.0.x` release series with release tag `v2.0.b`. The placehoder is `b` since this is the next patch release of this release series after `v2.0.a` in the planning.
+  - The first planned patch release for the new `v2.a.x` release series with release tag `v2.a.a`. The patch version placeholder is `a` because this is the first planned patch release of the `v2.a.x` release series.
+
 ## Q1 - 2022
+
+## Features 
 
 ### Interchain accounts 
 
@@ -31,10 +34,6 @@ Let's assume that the planned release schedule looks like the following:
 - Work on issues that may arise from internal audit.
 - External audit (issues may arise that we need to work on before release).
 - Create alpha, beta, release candidate and final release.
-
-### Support for Wasm-based light clients
-
-There is an open [PR](https://github.com/cosmos/ibc-go/pull/208) that implements support for Wasm-based light clients, but it needs to be updated after the finalization of the [ICS28](https://github.com/cosmos/ibc/tree/master/spec/client/ics-008-wasm-client) specification. The PR will also need a final review from ibc-go core team members.
  
 ### Align implementation with ICS02
 
@@ -50,48 +49,57 @@ There is an open [PR](https://github.com/cosmos/ibc-go/pull/208) that implements
 - [#559](https://github.com/cosmos/ibc-go/issues/559): Changes needed to support the migration to SMT storage. This is basically adding a new proof spec that will be used during connection handshake with a chain that has migrated to SMT to verify that the light client of the counterparty chain uses the correct proof specs to be able to verify proofs for that chain.
 - And more to be added later!
 
-### Release schedule
+## Release schedule
 
-#### H1 January
+|Release|Milestone|Date|
+|-------|---------|----|
+|[`v3.0.0-alpha2`](https://github.com/cosmos/ibc-go/releases/tag/v3.0.0-alpha2)||Jan 07, 2021|
 
-- [`v3.0.0-beta`](https://github.com/cosmos/ibc-go/milestone/12): Beta release of `v3.0.0` including Interchain Accounts, an update of Golang from `v1.15` to `v1.17`, and some core improvements. This is a Go-API breaking change because of [#472](https://github.com/cosmos/ibc-go/issues/472).
+During this quarter we will also probably release versions that bump the Cosmos SDK to `v0.45` and Tendermint to `v0.35`, but at the moment of writing it is difficult to estimate when. Check our roadmap regularly for updates.
 
-#### H2 January
+### H2 January
 
 - [`v2.0.a`](https://github.com/cosmos/ibc-go/milestone/14)
-- [`v3.0.0-rc0`](https://github.com/cosmos/ibc-go/milestone/12): Release candidate 0 of `v3.0.0` including Interchain Accounts, an update of Golang from `v1.15` to `v1.17`, and some core improvements. This is a Go-API breaking change because of [#472](https://github.com/cosmos/ibc-go/issues/472).
-- [`v4.0.0-alpha`](https://github.com/cosmos/ibc-go/milestone/16): Alpha release of `v4.0.0` including Relayer Incentivisation and the issues to bring ibc-go implementation in line with ICS02 (which are Go-API breaking changes). This release will include fixes to issues that surfaced during internal audit.
+- [`v3.0.0-beta1`](https://github.com/cosmos/ibc-go/milestone/12): Beta 1 release of `v3.0.0` including Interchain Accounts, an update of Golang from `v1.15` to `v1.17`, and some core improvements. This is a Go-API breaking release because of [#472](https://github.com/cosmos/ibc-go/issues/472) and [#675](https://github.com/cosmos/ibc-go/pull/675).
 
-#### H1 February
+### H1 February
 
-- [`v3.0.0`](https://github.com/cosmos/ibc-go/milestone/12): Final release of `v3.0.0` including Interchain Accounts, an update of Golang from `v1.15` to `v1.17`, and some core improvements. This is a Go-API breaking change because of [#472](https://github.com/cosmos/ibc-go/issues/472).
+- [`v3.0.0-rc0`](https://github.com/cosmos/ibc-go/milestone/12): Release candidate 0 of `v3.0.0` including Interchain Accounts, an update of Golang from `v1.15` to `v1.17`, and some core improvements. This is a Go-API breaking release because of [#472](https://github.com/cosmos/ibc-go/issues/472) and [#675](https://github.com/cosmos/ibc-go/pull/675).
 
-#### H2 February
+### H2 February
 
-- [`v4.0.0-beta`](https://github.com/cosmos/ibc-go/milestone/16): Beta release of `v4.0.0` including Relayer Incentivisation and the issues to bring ibc-go implementation in line with ICS02 (which are Go-API breaking changes). This release will include fixes to issues that surfaced during external audit.
+- [`v3.a.0-alpha1`](https://github.com/cosmos/ibc-go/milestone/16): Alpha release of `v3.a.0` including Relayer Incentivisation. This release will include fixes to issues that surfaced during the internal audit.
 
-#### H1 March
+### H1 March
 
-- [`v4.0.0-rc0`](https://github.com/cosmos/ibc-go/milestone/16): Release candidate 0 of `v4.0.0` including Relayer Incentivisation and the issues to bring ibc-go implementation in line with ICS02 (which are Go-API breaking changes).
+- [`v3.0.0`](https://github.com/cosmos/ibc-go/milestone/12): Final release of `v3.0.0` including Interchain Accounts, an update of Golang from `v1.15` to `v1.17`, and some core improvements. This is a Go-API breaking release because of [#472](https://github.com/cosmos/ibc-go/issues/472) and [#675](https://github.com/cosmos/ibc-go/pull/675).
+- [`v3.a.0-beta1`](https://github.com/cosmos/ibc-go/milestone/16): Beta release of `v3.a.0` including Relayer Incentivisation. This release will include fixes to issues that surfaced during the external audit.
 
-#### H2 March
+### H2 March
 
-- [`v4.0.0`](https://github.com/cosmos/ibc-go/milestone/16): Final release of `v4.0.0` including Relayer Incentivisation and the issues to bring ibc-go implementation in line with ICS02 (which are Go-API breaking changes).
-- [`v1.a.0`](https://github.com/cosmos/ibc-go/milestone/17): Minor release in `v1.x` seires including the update of Cosmos SDK to [`v0.46`](https://github.com/cosmos/cosmos-sdk/milestone/46) and Tendermint to [`v0.35`](https://github.com/tendermint/tendermint/releases/tag/v0.35.0).
-- [`v2.a.0`](https://github.com/cosmos/ibc-go/milestone/18): Minor release in `v2.x` series including the update of Cosmos SDK to [`v0.46`](https://github.com/cosmos/cosmos-sdk/milestone/46) and Tendermint to [`v0.35`](https://github.com/tendermint/tendermint/releases/tag/v0.35.0).
-- [`v3.a.0`](https://github.com/cosmos/ibc-go/milestone/19): Minor release in `v3.x` series including the update of Cosmos SDK to [`v0.46`](https://github.com/cosmos/cosmos-sdk/milestone/46) and Tendermint to [`v0.35`](https://github.com/tendermint/tendermint/releases/tag/v0.35.0).
-- [`v4.a.0`](https://github.com/cosmos/ibc-go/milestone/22): Minor release in `v4.x` series including the update of Cosmos SDK to [`v0.46`](https://github.com/cosmos/cosmos-sdk/milestone/46) and Tendermint to [`v0.35`](https://github.com/tendermint/tendermint/releases/tag/v0.35.0).
+- [`v3.a.0-rc0`](https://github.com/cosmos/ibc-go/milestone/16): Release candiate 0 `v3.1.0` including Relayer Incentivisation.
 
 ## Q2 - 2022
 
-Scope is still TBD.
+### Features
 
-### Release schedule
+> Full scope still TBD.
 
-#### H1 April
+### Support for Wasm-based light clients
 
-- [`v5.0.0-rc0`](https://github.com/cosmos/ibc-go/milestone/21): Release candidate that includes the update of Cosmos SDK from `v0.46` to [`v1.0`](https://github.com/cosmos/cosmos-sdk/milestone/52) and that will support the migration to SMT storage.
+There is an open [PR](https://github.com/cosmos/ibc-go/pull/208) that implements support for Wasm-based light clients, but it needs to be updated after the finalization of the [ICS28](https://github.com/cosmos/ibc/tree/master/spec/client/ics-008-wasm-client) specification. The PR need thorough review, more tests and potentially implementation changes.
 
-#### H2 April
+## Release schedule
 
-- [`v5.0.0`](https://github.com/cosmos/ibc-go/milestone/21): Final release that includes the update of Cosmos SDK from `v0.46` to [v1.0](https://github.com/cosmos/cosmos-sdk/milestone/52) and that will support the migration to SMT storage.
+During this quarter we will also probably release versions that bump the Cosmos SDK to `v0.46` and to `v1.0`, but at the moment of writing it is difficult to estimate when. Check our roadmap regularly for updates.
+
+### H1 April
+
+- [`v3.a.0`](https://github.com/cosmos/ibc-go/milestone/16): Final release of `v3.a.0` including Relayer Incentivisation.
+- [`v4.0.0-rc0`](https://github.com/cosmos/ibc-go/milestone/16): Release candidate 0 of `v4.0.0` including the work for the issues to bring ibc-go implementation in line with ICS02 (which are Go-API breaking changes).
+
+### H2 April
+
+- [`v4.0.0`](https://github.com/cosmos/ibc-go/milestone/16): Release candidate 0 of `v4.0.0` including the work for the issues to bring ibc-go implementation in line with ICS02 (which are Go-API breaking changes).
+
+
