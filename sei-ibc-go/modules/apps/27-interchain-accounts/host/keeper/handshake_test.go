@@ -122,7 +122,7 @@ func (suite *KeeperTestSuite) TestOnChanOpenTry() {
 			path = NewICAPath(suite.chainA, suite.chainB)
 			suite.coordinator.SetupConnections(path)
 
-			err := InitInterchainAccount(path.EndpointA, TestOwnerAddress)
+			err := RegisterInterchainAccount(path.EndpointA, TestOwnerAddress)
 			suite.Require().NoError(err)
 
 			// set the channel id on host
@@ -187,7 +187,7 @@ func (suite *KeeperTestSuite) TestOnChanOpenConfirm() {
 			path = NewICAPath(suite.chainA, suite.chainB)
 			suite.coordinator.SetupConnections(path)
 
-			err := InitInterchainAccount(path.EndpointA, TestOwnerAddress)
+			err := RegisterInterchainAccount(path.EndpointA, TestOwnerAddress)
 			suite.Require().NoError(err)
 
 			err = path.EndpointB.ChanOpenTry()

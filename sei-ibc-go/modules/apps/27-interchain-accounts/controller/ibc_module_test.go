@@ -70,7 +70,7 @@ func NewICAPath(chainA, chainB *ibctesting.TestChain) *ibctesting.Path {
 	return path
 }
 
-func InitInterchainAccount(endpoint *ibctesting.Endpoint, owner string) error {
+func RegisterInterchainAccount(endpoint *ibctesting.Endpoint, owner string) error {
 	portID, err := icatypes.NewControllerPortID(owner)
 	if err != nil {
 		return err
@@ -78,7 +78,7 @@ func InitInterchainAccount(endpoint *ibctesting.Endpoint, owner string) error {
 
 	channelSequence := endpoint.Chain.App.GetIBCKeeper().ChannelKeeper.GetNextChannelSequence(endpoint.Chain.GetContext())
 
-	if err := endpoint.Chain.GetSimApp().ICAControllerKeeper.InitInterchainAccount(endpoint.Chain.GetContext(), endpoint.ConnectionID, owner); err != nil {
+	if err := endpoint.Chain.GetSimApp().ICAControllerKeeper.RegisterInterchainAccount(endpoint.Chain.GetContext(), endpoint.ConnectionID, owner); err != nil {
 		return err
 	}
 
@@ -95,7 +95,7 @@ func InitInterchainAccount(endpoint *ibctesting.Endpoint, owner string) error {
 
 // SetupICAPath invokes the InterchainAccounts entrypoint and subsequent channel handshake handlers
 func SetupICAPath(path *ibctesting.Path, owner string) error {
-	if err := InitInterchainAccount(path.EndpointA, owner); err != nil {
+	if err := RegisterInterchainAccount(path.EndpointA, owner); err != nil {
 		return err
 	}
 
@@ -216,11 +216,11 @@ func (suite *InterchainAccountsTestSuite) TestChanOpenTry() {
 	path := NewICAPath(suite.chainA, suite.chainB)
 	suite.coordinator.SetupConnections(path)
 
-	err := InitInterchainAccount(path.EndpointA, TestOwnerAddress)
+	err := RegisterInterchainAccount(path.EndpointA, TestOwnerAddress)
 	suite.Require().NoError(err)
 
 	// chainB also creates a controller port
-	err = InitInterchainAccount(path.EndpointB, TestOwnerAddress)
+	err = RegisterInterchainAccount(path.EndpointB, TestOwnerAddress)
 	suite.Require().NoError(err)
 
 	path.EndpointA.UpdateClient()
@@ -297,7 +297,7 @@ func (suite *InterchainAccountsTestSuite) TestOnChanOpenAck() {
 			path = NewICAPath(suite.chainA, suite.chainB)
 			suite.coordinator.SetupConnections(path)
 
-			err := InitInterchainAccount(path.EndpointA, TestOwnerAddress)
+			err := RegisterInterchainAccount(path.EndpointA, TestOwnerAddress)
 			suite.Require().NoError(err)
 
 			err = path.EndpointB.ChanOpenTry()
@@ -334,7 +334,7 @@ func (suite *InterchainAccountsTestSuite) TestChanOpenConfirm() {
 	path := NewICAPath(suite.chainA, suite.chainB)
 	suite.coordinator.SetupConnections(path)
 
-	err := InitInterchainAccount(path.EndpointA, TestOwnerAddress)
+	err := RegisterInterchainAccount(path.EndpointA, TestOwnerAddress)
 	suite.Require().NoError(err)
 
 	err = path.EndpointB.ChanOpenTry()

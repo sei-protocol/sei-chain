@@ -145,21 +145,21 @@ func (im IBCModule) OnRecvPacket(
 }
 ```
 
-## `InitInterchainAccount`
+## `RegisterInterchainAccount`
 
-The authentication module can begin registering interchain accounts by calling `InitInterchainAccount`:
+The authentication module can begin registering interchain accounts by calling `RegisterInterchainAccount`:
 
 ```go
-if err := keeper.icaControllerKeeper.InitInterchainAccount(ctx, connectionID, owner.String()); err != nil {
+if err := keeper.icaControllerKeeper.RegisterInterchainAccount(ctx, connectionID, owner.String()); err != nil {
     return err
 }
 
 return nil
 ```
 
-## `TrySendTx`
+## `SendTx`
 
-The authentication module can attempt to send a packet by calling `TrySendTx`:
+The authentication module can attempt to send a packet by calling `SendTx`:
 ```go
 
 // Authenticate owner
@@ -204,7 +204,7 @@ packetData := icatypes.InterchainAccountPacketData{
 timeoutTimestamp := obtainTimeoutTimestamp()
 
 // Send the interchain accounts packet, returning the packet sequence
-seq, err = keeper.icaControllerKeeper.TrySendTx(ctx, chanCap, portID, packetData, timeoutTimestamp)
+seq, err = keeper.icaControllerKeeper.SendTx(ctx, chanCap, portID, packetData, timeoutTimestamp)
 ```
 
 The data within an `InterchainAccountPacketData` must be serialized using a format supported by the host chain. 

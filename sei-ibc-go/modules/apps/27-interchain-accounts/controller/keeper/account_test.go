@@ -6,7 +6,7 @@ import (
 	ibctesting "github.com/cosmos/ibc-go/v3/testing"
 )
 
-func (suite *KeeperTestSuite) TestInitInterchainAccount() {
+func (suite *KeeperTestSuite) TestRegisterInterchainAccount() {
 	var (
 		owner string
 		path  *ibctesting.Path
@@ -70,7 +70,7 @@ func (suite *KeeperTestSuite) TestInitInterchainAccount() {
 
 			tc.malleate() // malleate mutates test data
 
-			err = suite.chainA.GetSimApp().ICAControllerKeeper.InitInterchainAccount(suite.chainA.GetContext(), path.EndpointA.ConnectionID, owner)
+			err = suite.chainA.GetSimApp().ICAControllerKeeper.RegisterInterchainAccount(suite.chainA.GetContext(), path.EndpointA.ConnectionID, owner)
 
 			if tc.expPass {
 				suite.Require().NoError(err)

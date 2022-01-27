@@ -12,7 +12,7 @@ func (suite *KeeperTestSuite) TestRegisterInterchainAccount() {
 	path := NewICAPath(suite.chainA, suite.chainB)
 	suite.coordinator.SetupConnections(path)
 
-	// InitInterchainAccount
+	//RegisterInterchainAccount 
 	err := SetupICAPath(path, TestOwnerAddress)
 	suite.Require().NoError(err)
 

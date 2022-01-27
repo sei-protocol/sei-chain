@@ -12,7 +12,7 @@ import (
 	ibctesting "github.com/cosmos/ibc-go/v3/testing"
 )
 
-func (suite *KeeperTestSuite) TestTrySendTx() {
+func (suite *KeeperTestSuite) TestSendTx() {
 	var (
 		path             *ibctesting.Path
 		packetData       icatypes.InterchainAccountPacketData
@@ -160,7 +160,7 @@ func (suite *KeeperTestSuite) TestTrySendTx() {
 
 			tc.malleate() // malleate mutates test data
 
-			_, err = suite.chainA.GetSimApp().ICAControllerKeeper.TrySendTx(suite.chainA.GetContext(), chanCap, path.EndpointA.ChannelConfig.PortID, packetData, timeoutTimestamp)
+			_, err = suite.chainA.GetSimApp().ICAControllerKeeper.SendTx(suite.chainA.GetContext(), chanCap, path.EndpointA.ChannelConfig.PortID, packetData, timeoutTimestamp)
 
 			if tc.expPass {
 				suite.Require().NoError(err)

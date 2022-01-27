@@ -72,7 +72,7 @@ func NewICAPath(chainA, chainB *ibctesting.TestChain) *ibctesting.Path {
 	return path
 }
 
-func InitInterchainAccount(endpoint *ibctesting.Endpoint, owner string) error {
+func RegisterInterchainAccount(endpoint *ibctesting.Endpoint, owner string) error {
 	portID, err := icatypes.NewControllerPortID(owner)
 	if err != nil {
 		return err
@@ -80,7 +80,7 @@ func InitInterchainAccount(endpoint *ibctesting.Endpoint, owner string) error {
 
 	channelSequence := endpoint.Chain.App.GetIBCKeeper().ChannelKeeper.GetNextChannelSequence(endpoint.Chain.GetContext())
 
-	if err := endpoint.Chain.GetSimApp().ICAControllerKeeper.InitInterchainAccount(endpoint.Chain.GetContext(), endpoint.ConnectionID, owner); err != nil {
+	if err := endpoint.Chain.GetSimApp().ICAControllerKeeper.RegisterInterchainAccount(endpoint.Chain.GetContext(), endpoint.ConnectionID, owner); err != nil {
 		return err
 	}
 
@@ -97,7 +97,7 @@ func InitInterchainAccount(endpoint *ibctesting.Endpoint, owner string) error {
 
 // SetupICAPath invokes the InterchainAccounts entrypoint and subsequent channel handshake handlers
 func SetupICAPath(path *ibctesting.Path, owner string) error {
-	if err := InitInterchainAccount(path.EndpointA, owner); err != nil {
+	if err := RegisterInterchainAccount(path.EndpointA, owner); err != nil {
 		return err
 	}
 
@@ -179,7 +179,7 @@ func (suite *InterchainAccountsTestSuite) TestOnChanOpenTry() {
 			path = NewICAPath(suite.chainA, suite.chainB)
 			suite.coordinator.SetupConnections(path)
 
-			err := InitInterchainAccount(path.EndpointA, TestOwnerAddress)
+			err := RegisterInterchainAccount(path.EndpointA, TestOwnerAddress)
 			suite.Require().NoError(err)
 			path.EndpointB.ChannelID = ibctesting.FirstChannelID
 
@@ -230,7 +230,7 @@ func (suite *InterchainAccountsTestSuite) TestChanOpenAck() {
 	path := NewICAPath(suite.chainA, suite.chainB)
 	suite.coordinator.SetupConnections(path)
 
-	err := InitInterchainAccount(path.EndpointA, TestOwnerAddress)
+	err := RegisterInterchainAccount(path.EndpointA, TestOwnerAddress)
 	suite.Require().NoError(err)
 
 	err = path.EndpointB.ChanOpenTry()
@@ -294,7 +294,7 @@ func (suite *InterchainAccountsTestSuite) TestOnChanOpenConfirm() {
 			path := NewICAPath(suite.chainA, suite.chainB)
 			suite.coordinator.SetupConnections(path)
 
-			err := InitInterchainAccount(path.EndpointA, TestOwnerAddress)
+			err := RegisterInterchainAccount(path.EndpointA, TestOwnerAddress)
 			suite.Require().NoError(err)
 
 			err = path.EndpointB.ChanOpenTry()
@@ -641,7 +641,7 @@ func (suite *InterchainAccountsTestSuite) TestControlAccountAfterChannelClose() 
 	chanCap, ok := suite.chainA.GetSimApp().ScopedICAMockKeeper.GetCapability(path.EndpointA.Chain.GetContext(), host.ChannelCapabilityPath(path.EndpointA.ChannelConfig.PortID, path.EndpointA.ChannelID))
 	suite.Require().True(ok)
 
-	_, err = suite.chainA.GetSimApp().ICAControllerKeeper.TrySendTx(suite.chainA.GetContext(), chanCap, path.EndpointA.ChannelConfig.PortID, icaPacketData, ^uint64(0))
+	_, err = suite.chainA.GetSimApp().ICAControllerKeeper.SendTx(suite.chainA.GetContext(), chanCap, path.EndpointA.ChannelConfig.PortID, icaPacketData, ^uint64(0))
 	suite.Require().NoError(err)
 	path.EndpointB.UpdateClient()
 
@@ -673,7 +673,7 @@ func (suite *InterchainAccountsTestSuite) TestControlAccountAfterChannelClose() 
 	chanCap, ok = suite.chainA.GetSimApp().ScopedICAMockKeeper.GetCapability(path.EndpointA.Chain.GetContext(), host.ChannelCapabilityPath(path.EndpointA.ChannelConfig.PortID, path.EndpointA.ChannelID))
 	suite.Require().True(ok)
 
-	_, err = suite.chainA.GetSimApp().ICAControllerKeeper.TrySendTx(suite.chainA.GetContext(), chanCap, path.EndpointA.ChannelConfig.PortID, icaPacketData, ^uint64(0))
+	_, err = suite.chainA.GetSimApp().ICAControllerKeeper.SendTx(suite.chainA.GetContext(), chanCap, path.EndpointA.ChannelConfig.PortID, icaPacketData, ^uint64(0))
 	suite.Require().NoError(err)
 	path.EndpointB.UpdateClient()
 

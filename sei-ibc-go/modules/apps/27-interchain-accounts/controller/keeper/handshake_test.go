@@ -258,7 +258,7 @@ func (suite *KeeperTestSuite) TestOnChanOpenAck() {
 			path = NewICAPath(suite.chainA, suite.chainB)
 			suite.coordinator.SetupConnections(path)
 
-			err := InitInterchainAccount(path.EndpointA, TestOwnerAddress)
+			err := RegisterInterchainAccount(path.EndpointA, TestOwnerAddress)
 			suite.Require().NoError(err)
 
 			err = path.EndpointB.ChanOpenTry()
