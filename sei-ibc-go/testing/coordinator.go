@@ -10,9 +10,8 @@ import (
 	abci "github.com/tendermint/tendermint/abci/types"
 )
 
-const ChainIDPrefix = "testchain"
-
 var (
+	ChainIDPrefix   = "testchain"
 	globalStartTime = time.Date(2020, 1, 2, 0, 0, 0, 0, time.UTC)
 	TimeIncrement   = time.Second * 5
 )
@@ -34,7 +33,7 @@ func NewCoordinator(t *testing.T, n int) *Coordinator {
 		CurrentTime: globalStartTime,
 	}
 
-	for i := 0; i < n; i++ {
+	for i := 1; i <= n; i++ {
 		chainID := GetChainID(i)
 		chains[chainID] = NewTestChain(t, coord, chainID)
 	}
