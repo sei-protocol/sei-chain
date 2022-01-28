@@ -647,8 +647,7 @@ func (suite *InterchainAccountsTestSuite) TestControlAccountAfterChannelClose() 
 
 	// relay the packet
 	packetRelay := channeltypes.NewPacket(icaPacketData.GetBytes(), 1, path.EndpointA.ChannelConfig.PortID, path.EndpointA.ChannelID, path.EndpointB.ChannelConfig.PortID, path.EndpointB.ChannelID, clienttypes.ZeroHeight(), ^uint64(0))
-	ack := channeltypes.NewResultAcknowledgement([]byte{byte(1)})
-	err = path.RelayPacket(packetRelay, ack.Acknowledgement())
+	err = path.RelayPacket(packetRelay)
 	suite.Require().NoError(err) // relay committed
 
 	// check that the ica balance is updated
@@ -679,8 +678,7 @@ func (suite *InterchainAccountsTestSuite) TestControlAccountAfterChannelClose() 
 
 	// relay the packet
 	packetRelay = channeltypes.NewPacket(icaPacketData.GetBytes(), 1, path.EndpointA.ChannelConfig.PortID, path.EndpointA.ChannelID, path.EndpointB.ChannelConfig.PortID, path.EndpointB.ChannelID, clienttypes.ZeroHeight(), ^uint64(0))
-	ack = channeltypes.NewResultAcknowledgement([]byte{byte(1)})
-	err = path.RelayPacket(packetRelay, ack.Acknowledgement())
+	err = path.RelayPacket(packetRelay)
 	suite.Require().NoError(err) // relay committed
 
 	// check that the ica balance is updated
