@@ -94,7 +94,7 @@ app.ICAAuthKeeper = icaauthkeeper.NewKeeper(appCodec, keys[icaauthtypes.StoreKey
 icaAuthModule := icaauth.NewAppModule(appCodec, app.ICAAuthKeeper)
 
 // ICA auth IBC Module
-ICAAuthIBCModule := icaauth.NewIBCModule(app.ICAAuthKeeper)
+icaAuthIBCModule := icaauth.NewIBCModule(app.ICAAuthKeeper)
 
 // Create host and controller IBC Modules as desired
 icaControllerIBCModule := icacontroller.NewIBCModule(app.ICAControllerKeeper, icaAuthIBCModule)
@@ -122,4 +122,44 @@ app.mm.SetOrderInitGenesis(
     icatypes.ModuleName,
     ...
 )
+```
+
+### Using submodules exclusively
+
+As described above, the Interchain Accounts application module is structured to support the ability of exclusively enabling controller or host functionality.
+This can be achieved by simply omitting either controller or host `Keeper` from the Interchain Accounts `NewAppModule` constructor function, and mounting only the desired submodule via the `IBCRouter`.
+Alternatively, submodules can be enabled and disabled dynamically using [on-chain parameters](./parameters.md).
+
+The following snippets show basic examples of statically disabling submodules using `app.go`.
+
+#### Disabling controller chain functionality
+
+```go
+// Create Interchain Accounts AppModule omitting the controller keeper
+icaModule := ica.NewAppModule(nil, &app.ICAHostKeeper)
+
+// Create host IBC Module
+icaHostIBCModule := icahost.NewIBCModule(app.ICAHostKeeper)
+
+// Register host route
+ibcRouter.AddRoute(icahosttypes.SubModuleName, icaHostIBCModule)
+```
+
+#### Disabling host chain functionality
+
+```go
+// Create Interchain Accounts AppModule omitting the host keeper
+icaModule := ica.NewAppModule(&app.ICAControllerKeeper, nil)
+
+// Create your Interchain Accounts authentication module, setting up the Keeper, AppModule and IBCModule appropriately
+app.ICAAuthKeeper = icaauthkeeper.NewKeeper(appCodec, keys[icaauthtypes.StoreKey], app.ICAControllerKeeper, scopedICAAuthKeeper)
+icaAuthModule := icaauth.NewAppModule(appCodec, app.ICAAuthKeeper)
+icaAuthIBCModule := icaauth.NewIBCModule(app.ICAAuthKeeper)
+
+// Create controller IBC Module
+icaControllerIBCModule := icacontroller.NewIBCModule(app.ICAControllerKeeper, icaAuthIBCModule)
+
+// Register controller and authentication routes
+ibcRouter.AddRoute(icacontrollertypes.SubModuleName, icaControllerIBCModule)
+ibcRouter.AddRoute(icaauthtypes.ModuleName, icaControllerIBCModule) // Note, the authentication module is routed to the top level of the middleware stack
 ```
