@@ -111,7 +111,7 @@ func (im IBCModule) OnRecvPacket(
 	ack := channeltypes.NewResultAcknowledgement([]byte{byte(1)})
 
 	if err := im.keeper.OnRecvPacket(ctx, packet); err != nil {
-		ack = channeltypes.NewErrorAcknowledgement(icatypes.AcknowledgementError)
+		ack = types.NewErrorAcknowledgement(err)
 
 		// Emit an event including the error msg
 		keeper.EmitWriteErrorAcknowledgementEvent(ctx, packet, err)
