@@ -122,6 +122,11 @@ module.exports = {
                   path: "/app-modules/interchain-accounts/auth-modules.html"
                 },
                 {
+                  title: "Active Channels",
+                  directory: false,
+                  path: "/app-modules/interchain-accounts/active-channels.html"
+                },
+                {
                     title: "Integration",
                     directory: false,
                     path: "/app-modules/interchain-accounts/integration.html"
