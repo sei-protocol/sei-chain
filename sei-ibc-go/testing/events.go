@@ -55,3 +55,18 @@ func ParseChannelIDFromEvents(events sdk.Events) (string, error) {
 	}
 	return "", fmt.Errorf("channel identifier event attribute not found")
 }
+
+// ParseAckFromEvents parses events emitted from a MsgRecvPacket and returns the
+// acknowledgement.
+func ParseAckFromEvents(events sdk.Events) ([]byte, error) {
+	for _, ev := range events {
+		if ev.Type == channeltypes.EventTypeWriteAck {
+			for _, attr := range ev.Attributes {
+				if string(attr.Key) == channeltypes.AttributeKeyAck {
+					return attr.Value, nil
+				}
+			}
+		}
+	}
+	return nil, fmt.Errorf("acknowledgement event attribute not found")
+}
