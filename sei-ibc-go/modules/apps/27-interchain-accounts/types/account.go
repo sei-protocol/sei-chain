@@ -39,10 +39,10 @@ type interchainAccountPretty struct {
 	AccountOwner  string         `json:"account_owner" yaml:"account_owner"`
 }
 
-// GenerateAddress returns an sdk.AccAddress derived using the provided module account address and port identifier.
-// The sdk.AccAddress returned is a sub-address of the module account, using the controller chain's port identifier as the derivation key
-func GenerateAddress(moduleAccAddr sdk.AccAddress, portID string) sdk.AccAddress {
-	return sdk.AccAddress(sdkaddress.Derive(moduleAccAddr, []byte(portID)))
+// GenerateAddress returns an sdk.AccAddress derived using the provided module account address and connection and port identifiers.
+// The sdk.AccAddress returned is a sub-address of the module account, using the host chain connection ID and controller chain's port ID as the derivation key
+func GenerateAddress(moduleAccAddr sdk.AccAddress, connectionID, portID string) sdk.AccAddress {
+	return sdk.AccAddress(sdkaddress.Derive(moduleAccAddr, []byte(connectionID+portID)))
 }
 
 // ValidateAccountAddress performs basic validation of interchain account addresses, enforcing constraints

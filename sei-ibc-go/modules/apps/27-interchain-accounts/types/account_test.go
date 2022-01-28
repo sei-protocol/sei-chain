@@ -43,7 +43,7 @@ func TestTypesTestSuite(t *testing.T) {
 }
 
 func (suite *TypesTestSuite) TestGenerateAddress() {
-	addr := types.GenerateAddress([]byte{}, "test-port-id")
+	addr := types.GenerateAddress([]byte{}, "test-connection-id", "test-port-id")
 	accAddr, err := sdk.AccAddressFromBech32(addr.String())
 
 	suite.Require().NoError(err, "TestGenerateAddress failed")
