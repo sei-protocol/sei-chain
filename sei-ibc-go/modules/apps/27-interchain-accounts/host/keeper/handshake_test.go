@@ -176,6 +176,14 @@ func (suite *KeeperTestSuite) TestOnChanOpenConfirm() {
 		{
 			"success", func() {}, true,
 		},
+		{
+			"channel not found",
+			func() {
+				path.EndpointB.ChannelID = "invalid-channel-id"
+				path.EndpointB.ChannelConfig.PortID = "invalid-port-id"
+			},
+			false,
+		},
 	}
 
 	for _, tc := range testCases {
@@ -199,7 +207,7 @@ func (suite *KeeperTestSuite) TestOnChanOpenConfirm() {
 			tc.malleate() // malleate mutates test data
 
 			err = suite.chainB.GetSimApp().ICAHostKeeper.OnChanOpenConfirm(suite.chainB.GetContext(),
-				path.EndpointA.ChannelConfig.PortID, path.EndpointA.ChannelID)
+				path.EndpointB.ChannelConfig.PortID, path.EndpointB.ChannelID)
 
 			if tc.expPass {
 				suite.Require().NoError(err)

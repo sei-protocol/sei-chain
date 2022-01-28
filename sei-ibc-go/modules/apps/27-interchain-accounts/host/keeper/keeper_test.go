@@ -138,11 +138,11 @@ func (suite *KeeperTestSuite) TestGetInterchainAccountAddress() {
 	counterpartyPortID := path.EndpointA.ChannelConfig.PortID
 	expectedAddr := authtypes.NewBaseAccountWithAddress(icatypes.GenerateAddress(suite.chainA.GetSimApp().AccountKeeper.GetModuleAddress(icatypes.ModuleName), counterpartyPortID)).GetAddress()
 
-	retrievedAddr, found := suite.chainB.GetSimApp().ICAHostKeeper.GetInterchainAccountAddress(suite.chainB.GetContext(), counterpartyPortID)
+	retrievedAddr, found := suite.chainB.GetSimApp().ICAHostKeeper.GetInterchainAccountAddress(suite.chainB.GetContext(), ibctesting.FirstConnectionID, counterpartyPortID)
 	suite.Require().True(found)
 	suite.Require().Equal(expectedAddr.String(), retrievedAddr)
 
-	retrievedAddr, found = suite.chainB.GetSimApp().ICAHostKeeper.GetInterchainAccountAddress(suite.chainB.GetContext(), "invalid port")
+	retrievedAddr, found = suite.chainB.GetSimApp().ICAHostKeeper.GetInterchainAccountAddress(suite.chainB.GetContext(), ibctesting.FirstConnectionID, "invalid port")
 	suite.Require().False(found)
 	suite.Require().Empty(retrievedAddr)
 }
@@ -161,16 +161,18 @@ func (suite *KeeperTestSuite) TestGetAllActiveChannels() {
 	err := SetupICAPath(path, TestOwnerAddress)
 	suite.Require().NoError(err)
 
-	suite.chainB.GetSimApp().ICAHostKeeper.SetActiveChannelID(suite.chainB.GetContext(), expectedPortID, expectedChannelID)
+	suite.chainB.GetSimApp().ICAHostKeeper.SetActiveChannelID(suite.chainB.GetContext(), ibctesting.FirstConnectionID, expectedPortID, expectedChannelID)
 
 	expectedChannels := []icatypes.ActiveChannel{
 		{
-			PortId:    path.EndpointB.ChannelConfig.PortID,
-			ChannelId: path.EndpointB.ChannelID,
+			ConnectionId: ibctesting.FirstConnectionID,
+			PortId:       path.EndpointB.ChannelConfig.PortID,
+			ChannelId:    path.EndpointB.ChannelID,
 		},
 		{
-			PortId:    expectedPortID,
-			ChannelId: expectedChannelID,
+			ConnectionId: ibctesting.FirstConnectionID,
+			PortId:       expectedPortID,
+			ChannelId:    expectedChannelID,
 		},
 	}
 
@@ -193,14 +195,16 @@ func (suite *KeeperTestSuite) TestGetAllInterchainAccounts() {
 	err := SetupICAPath(path, TestOwnerAddress)
 	suite.Require().NoError(err)
 
-	suite.chainB.GetSimApp().ICAHostKeeper.SetInterchainAccountAddress(suite.chainB.GetContext(), expectedPortID, expectedAccAddr)
+	suite.chainB.GetSimApp().ICAHostKeeper.SetInterchainAccountAddress(suite.chainB.GetContext(), ibctesting.FirstConnectionID, expectedPortID, expectedAccAddr)
 
 	expectedAccounts := []icatypes.RegisteredInterchainAccount{
 		{
+			ConnectionId:   ibctesting.FirstConnectionID,
 			PortId:         TestPortID,
 			AccountAddress: TestAccAddress.String(),
 		},
 		{
+			ConnectionId:   ibctesting.FirstConnectionID,
 			PortId:         expectedPortID,
 			AccountAddress: expectedAccAddr,
 		},
@@ -220,7 +224,7 @@ func (suite *KeeperTestSuite) TestIsActiveChannel() {
 	err := SetupICAPath(path, TestOwnerAddress)
 	suite.Require().NoError(err)
 
-	isActive := suite.chainB.GetSimApp().ICAHostKeeper.IsActiveChannel(suite.chainB.GetContext(), path.EndpointB.ChannelConfig.PortID)
+	isActive := suite.chainB.GetSimApp().ICAHostKeeper.IsActiveChannel(suite.chainB.GetContext(), ibctesting.FirstConnectionID, path.EndpointB.ChannelConfig.PortID)
 	suite.Require().True(isActive)
 }
 
@@ -230,9 +234,9 @@ func (suite *KeeperTestSuite) TestSetInterchainAccountAddress() {
 		expectedPortID  string = "test-port"
 	)
 
-	suite.chainB.GetSimApp().ICAHostKeeper.SetInterchainAccountAddress(suite.chainB.GetContext(), expectedPortID, expectedAccAddr)
+	suite.chainB.GetSimApp().ICAHostKeeper.SetInterchainAccountAddress(suite.chainB.GetContext(), ibctesting.FirstConnectionID, expectedPortID, expectedAccAddr)
 
-	retrievedAddr, found := suite.chainB.GetSimApp().ICAHostKeeper.GetInterchainAccountAddress(suite.chainB.GetContext(), expectedPortID)
+	retrievedAddr, found := suite.chainB.GetSimApp().ICAHostKeeper.GetInterchainAccountAddress(suite.chainB.GetContext(), ibctesting.FirstConnectionID, expectedPortID)
 	suite.Require().True(found)
 	suite.Require().Equal(expectedAccAddr, retrievedAddr)
 }

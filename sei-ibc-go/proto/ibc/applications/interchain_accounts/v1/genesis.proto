@@ -36,14 +36,16 @@ message HostGenesisState {
   ibc.applications.interchain_accounts.host.v1.Params params = 4 [(gogoproto.nullable) = false];
 }
 
-// ActiveChannel contains a pairing of port ID and channel ID for an active interchain accounts channel
+// ActiveChannel contains a connection ID, port ID and associated active channel ID
 message ActiveChannel {
-  string port_id    = 1 [(gogoproto.moretags) = "yaml:\"port_id\""];
-  string channel_id = 2 [(gogoproto.moretags) = "yaml:\"channel_id\""];
+  string connection_id = 1 [(gogoproto.moretags) = "yaml:\"connection_id\""];
+  string port_id       = 2 [(gogoproto.moretags) = "yaml:\"port_id\""];
+  string channel_id    = 3 [(gogoproto.moretags) = "yaml:\"channel_id\""];
 }
 
-// RegisteredInterchainAccount contains a pairing of controller port ID and associated interchain account address
+// RegisteredInterchainAccount contains a connection ID, port ID and associated interchain account address
 message RegisteredInterchainAccount {
-  string port_id         = 1 [(gogoproto.moretags) = "yaml:\"port_id\""];
-  string account_address = 2 [(gogoproto.moretags) = "yaml:\"account_address\""];
+  string connection_id   = 1 [(gogoproto.moretags) = "yaml:\"connection_id\""];
+  string port_id         = 2 [(gogoproto.moretags) = "yaml:\"port_id\""];
+  string account_address = 3 [(gogoproto.moretags) = "yaml:\"account_address\""];
 }

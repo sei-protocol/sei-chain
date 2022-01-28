@@ -50,7 +50,7 @@ func (k Keeper) OnChanOpenInit(
 		return err
 	}
 
-	activeChannelID, found := k.GetOpenActiveChannel(ctx, portID)
+	activeChannelID, found := k.GetOpenActiveChannel(ctx, connectionHops[0], portID)
 	if found {
 		return sdkerrors.Wrapf(porttypes.ErrInvalidPort, "existing active channel %s for portID %s", activeChannelID, portID)
 	}
@@ -92,8 +92,8 @@ func (k Keeper) OnChanOpenAck(
 		return sdkerrors.Wrap(icatypes.ErrInvalidAccountAddress, "interchain account address cannot be empty")
 	}
 
-	k.SetActiveChannelID(ctx, portID, channelID)
-	k.SetInterchainAccountAddress(ctx, portID, metadata.Address)
+	k.SetActiveChannelID(ctx, metadata.ControllerConnectionId, portID, channelID)
+	k.SetInterchainAccountAddress(ctx, metadata.ControllerConnectionId, portID, metadata.Address)
 
 	return nil
 }
