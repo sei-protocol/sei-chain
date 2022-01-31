@@ -1,14 +1,14 @@
 package keeper
 
 import (
+	"strings"
+
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	capabilitytypes "github.com/cosmos/cosmos-sdk/x/capability/types"
 
 	icatypes "github.com/cosmos/ibc-go/v3/modules/apps/27-interchain-accounts/types"
-	connectiontypes "github.com/cosmos/ibc-go/v3/modules/core/03-connection/types"
 	channeltypes "github.com/cosmos/ibc-go/v3/modules/core/04-channel/types"
-	porttypes "github.com/cosmos/ibc-go/v3/modules/core/05-port/types"
 	host "github.com/cosmos/ibc-go/v3/modules/core/24-host"
 )
 
@@ -31,25 +31,20 @@ func (k Keeper) OnChanOpenTry(
 	}
 
 	if portID != icatypes.PortID {
-		return "", sdkerrors.Wrapf(porttypes.ErrInvalidPort, "expected %s, got %s", icatypes.PortID, portID)
+		return "", sdkerrors.Wrapf(icatypes.ErrInvalidHostPort, "expected %s, got %s", icatypes.PortID, portID)
 	}
 
-	connSequence, err := icatypes.ParseHostConnSequence(counterparty.PortId)
-	if err != nil {
-		return "", sdkerrors.Wrapf(err, "expected format %s, got %s", icatypes.ControllerPortFormat, counterparty.PortId)
+	if !strings.HasPrefix(counterparty.PortId, icatypes.PortPrefix) {
+		return "", sdkerrors.Wrapf(icatypes.ErrInvalidControllerPort, "expected %s{owner-account-address}, got %s", icatypes.PortPrefix, counterparty.PortId)
 	}
 
-	counterpartyConnSequence, err := icatypes.ParseControllerConnSequence(counterparty.PortId)
-	if err != nil {
-		return "", sdkerrors.Wrapf(err, "expected format %s, got %s", icatypes.ControllerPortFormat, counterparty.PortId)
+	var metadata icatypes.Metadata
+	if err := icatypes.ModuleCdc.UnmarshalJSON([]byte(counterpartyVersion), &metadata); err != nil {
+		return "", sdkerrors.Wrapf(icatypes.ErrUnknownDataType, "cannot unmarshal ICS-27 interchain accounts metadata")
 	}
 
-	if err := k.validateControllerPortParams(ctx, connectionHops, connSequence, counterpartyConnSequence); err != nil {
-		return "", sdkerrors.Wrapf(err, "failed to validate controller port %s", counterparty.PortId)
-	}
-
-	if counterpartyVersion != icatypes.VersionPrefix {
-		return "", sdkerrors.Wrapf(icatypes.ErrInvalidVersion, "expected %s, got %s", icatypes.VersionPrefix, counterpartyVersion)
+	if err := icatypes.ValidateHostMetadata(ctx, k.channelKeeper, connectionHops, metadata); err != nil {
+		return "", err
 	}
 
 	// On the host chain the capability may only be claimed during the OnChanOpenTry
@@ -58,13 +53,18 @@ func (k Keeper) OnChanOpenTry(
 		return "", sdkerrors.Wrapf(err, "failed to claim capability for channel %s on port %s", channelID, portID)
 	}
 
-	accAddr := icatypes.GenerateAddress(k.accountKeeper.GetModuleAddress(icatypes.ModuleName), counterparty.PortId)
+	accAddress := icatypes.GenerateAddress(k.accountKeeper.GetModuleAddress(icatypes.ModuleName), metadata.HostConnectionId, counterparty.PortId)
 
 	// Register interchain account if it does not already exist
-	k.RegisterInterchainAccount(ctx, accAddr, counterparty.PortId)
-	version := icatypes.NewAppVersion(icatypes.VersionPrefix, accAddr.String())
+	k.RegisterInterchainAccount(ctx, metadata.HostConnectionId, counterparty.PortId, accAddress)
 
-	return version, nil
+	metadata.Address = accAddress.String()
+	versionBytes, err := icatypes.ModuleCdc.MarshalJSON(&metadata)
+	if err != nil {
+		return "", err
+	}
+
+	return string(versionBytes), nil
 }
 
 // OnChanOpenConfirm completes the handshake process by setting the active channel in state on the host chain
@@ -73,8 +73,12 @@ func (k Keeper) OnChanOpenConfirm(
 	portID,
 	channelID string,
 ) error {
+	channel, found := k.channelKeeper.GetChannel(ctx, portID, channelID)
+	if !found {
+		return sdkerrors.Wrapf(channeltypes.ErrChannelNotFound, "failed to retrieve channel %s on port %s", channelID, portID)
+	}
 
-	k.SetActiveChannelID(ctx, portID, channelID)
+	k.SetActiveChannelID(ctx, channel.ConnectionHops[0], portID, channelID)
 
 	return nil
 }
@@ -85,38 +89,6 @@ func (k Keeper) OnChanCloseConfirm(
 	portID,
 	channelID string,
 ) error {
-
-	k.DeleteActiveChannelID(ctx, portID)
-
-	return nil
-}
-
-// validateControllerPortParams asserts the provided connection sequence and counterparty connection sequence
-// match that of the associated connection stored in state
-func (k Keeper) validateControllerPortParams(ctx sdk.Context, connectionHops []string, connectionSeq, counterpartyConnectionSeq uint64) error {
-	connectionID := connectionHops[0]
-	connection, err := k.channelKeeper.GetConnection(ctx, connectionID)
-	if err != nil {
-		return err
-	}
-
-	connSeq, err := connectiontypes.ParseConnectionSequence(connectionID)
-	if err != nil {
-		return sdkerrors.Wrapf(err, "failed to parse connection sequence %s", connectionID)
-	}
-
-	counterpartyConnSeq, err := connectiontypes.ParseConnectionSequence(connection.GetCounterparty().GetConnectionID())
-	if err != nil {
-		return sdkerrors.Wrapf(err, "failed to parse counterparty connection sequence %s", connection.GetCounterparty().GetConnectionID())
-	}
-
-	if connSeq != connectionSeq {
-		return sdkerrors.Wrapf(connectiontypes.ErrInvalidConnection, "sequence mismatch, expected %d, got %d", connSeq, connectionSeq)
-	}
-
-	if counterpartyConnSeq != counterpartyConnectionSeq {
-		return sdkerrors.Wrapf(connectiontypes.ErrInvalidConnection, "counterparty sequence mismatch, expected %d, got %d", counterpartyConnSeq, counterpartyConnectionSeq)
-	}
 
 	return nil
 }

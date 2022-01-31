@@ -5,9 +5,6 @@ import (
 	"io/ioutil"
 	"strconv"
 
-	"github.com/pkg/errors"
-	"github.com/spf13/cobra"
-
 	"github.com/cosmos/cosmos-sdk/client"
 	"github.com/cosmos/cosmos-sdk/client/flags"
 	"github.com/cosmos/cosmos-sdk/client/tx"
@@ -17,6 +14,8 @@ import (
 	govcli "github.com/cosmos/cosmos-sdk/x/gov/client/cli"
 	govtypes "github.com/cosmos/cosmos-sdk/x/gov/types"
 	upgradetypes "github.com/cosmos/cosmos-sdk/x/upgrade/types"
+	"github.com/spf13/cobra"
+
 	"github.com/cosmos/ibc-go/v3/modules/core/02-client/types"
 	"github.com/cosmos/ibc-go/v3/modules/core/exported"
 )
@@ -46,11 +45,11 @@ func NewCreateClientCmd() *cobra.Command {
 				// check for file path if JSON input is not provided
 				contents, err := ioutil.ReadFile(clientContentOrFileName)
 				if err != nil {
-					return errors.Wrap(err, "neither JSON input nor path to .json file for client state were provided")
+					return fmt.Errorf("neither JSON input nor path to .json file for client state were provided: %w", err)
 				}
 
 				if err := cdc.UnmarshalInterfaceJSON(contents, &clientState); err != nil {
-					return errors.Wrap(err, "error unmarshalling client state file")
+					return fmt.Errorf("error unmarshalling client state file: %w", err)
 				}
 			}
 
@@ -62,11 +61,11 @@ func NewCreateClientCmd() *cobra.Command {
 				// check for file path if JSON input is not provided
 				contents, err := ioutil.ReadFile(consensusContentOrFileName)
 				if err != nil {
-					return errors.Wrap(err, "neither JSON input nor path to .json file for consensus state were provided")
+					return fmt.Errorf("neither JSON input nor path to .json file for consensus state were provided: %w", err)
 				}
 
 				if err := cdc.UnmarshalInterfaceJSON(contents, &consensusState); err != nil {
-					return errors.Wrap(err, "error unmarshalling consensus state file")
+					return fmt.Errorf("error unmarshalling consensus state file: %w", err)
 				}
 			}
 
@@ -108,11 +107,11 @@ func NewUpdateClientCmd() *cobra.Command {
 				// check for file path if JSON input is not provided
 				contents, err := ioutil.ReadFile(headerContentOrFileName)
 				if err != nil {
-					return errors.Wrap(err, "neither JSON input nor path to .json file for header were provided")
+					return fmt.Errorf("neither JSON input nor path to .json file for header were provided: %w", err)
 				}
 
 				if err := cdc.UnmarshalInterfaceJSON(contents, &header); err != nil {
-					return errors.Wrap(err, "error unmarshalling header file")
+					return fmt.Errorf("error unmarshalling header file: %w", err)
 				}
 			}
 
@@ -149,11 +148,11 @@ func NewSubmitMisbehaviourCmd() *cobra.Command {
 				// check for file path if JSON input is not provided
 				contents, err := ioutil.ReadFile(misbehaviourContentOrFileName)
 				if err != nil {
-					return errors.Wrap(err, "neither JSON input nor path to .json file for misbehaviour were provided")
+					return fmt.Errorf("neither JSON input nor path to .json file for misbehaviour were provided: %w", err)
 				}
 
 				if err := cdc.UnmarshalInterfaceJSON(contents, misbehaviour); err != nil {
-					return errors.Wrap(err, "error unmarshalling misbehaviour file")
+					return fmt.Errorf("error unmarshalling misbehaviour file: %w", err)
 				}
 			}
 
@@ -193,11 +192,11 @@ func NewUpgradeClientCmd() *cobra.Command {
 				// check for file path if JSON input is not provided
 				contents, err := ioutil.ReadFile(clientContentOrFileName)
 				if err != nil {
-					return errors.Wrap(err, "neither JSON input nor path to .json file for client state were provided")
+					return fmt.Errorf("neither JSON input nor path to .json file for client state were provided: %w", err)
 				}
 
 				if err := cdc.UnmarshalInterfaceJSON(contents, &clientState); err != nil {
-					return errors.Wrap(err, "error unmarshalling client state file")
+					return fmt.Errorf("error unmarshalling client state file: %w", err)
 				}
 			}
 
@@ -209,11 +208,11 @@ func NewUpgradeClientCmd() *cobra.Command {
 				// check for file path if JSON input is not provided
 				contents, err := ioutil.ReadFile(consensusContentOrFileName)
 				if err != nil {
-					return errors.Wrap(err, "neither JSON input nor path to .json file for consensus state were provided")
+					return fmt.Errorf("neither JSON input nor path to .json file for consensus state were provided: %w", err)
 				}
 
 				if err := cdc.UnmarshalInterfaceJSON(contents, &consensusState); err != nil {
-					return errors.Wrap(err, "error unmarshalling consensus state file")
+					return fmt.Errorf("error unmarshalling consensus state file: %w", err)
 				}
 			}
 
@@ -350,11 +349,11 @@ func NewCmdSubmitUpgradeProposal() *cobra.Command {
 				// check for file path if JSON input is not provided
 				contents, err := ioutil.ReadFile(clientContentOrFileName)
 				if err != nil {
-					return errors.Wrap(err, "neither JSON input nor path to .json file for client state were provided")
+					return fmt.Errorf("neither JSON input nor path to .json file for client state were provided: %w", err)
 				}
 
 				if err := cdc.UnmarshalInterfaceJSON(contents, &clientState); err != nil {
-					return errors.Wrap(err, "error unmarshalling client state file")
+					return fmt.Errorf("error unmarshalling client state file: %w", err)
 				}
 			}
 

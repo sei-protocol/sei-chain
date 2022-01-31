@@ -3,11 +3,11 @@ package cli
 import (
 	"fmt"
 
-	"github.com/spf13/cobra"
-
 	"github.com/cosmos/cosmos-sdk/client"
 	"github.com/cosmos/cosmos-sdk/client/flags"
 	"github.com/cosmos/cosmos-sdk/version"
+	"github.com/spf13/cobra"
+
 	"github.com/cosmos/ibc-go/v3/modules/core/03-connection/client/utils"
 	"github.com/cosmos/ibc-go/v3/modules/core/03-connection/types"
 	host "github.com/cosmos/ibc-go/v3/modules/core/24-host"

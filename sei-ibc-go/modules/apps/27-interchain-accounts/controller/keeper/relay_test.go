@@ -12,11 +12,12 @@ import (
 	ibctesting "github.com/cosmos/ibc-go/v3/testing"
 )
 
-func (suite *KeeperTestSuite) TestTrySendTx() {
+func (suite *KeeperTestSuite) TestSendTx() {
 	var (
-		path       *ibctesting.Path
-		packetData icatypes.InterchainAccountPacketData
-		chanCap    *capabilitytypes.Capability
+		path             *ibctesting.Path
+		packetData       icatypes.InterchainAccountPacketData
+		chanCap          *capabilitytypes.Capability
+		timeoutTimestamp uint64
 	)
 
 	testCases := []struct {
@@ -27,7 +28,7 @@ func (suite *KeeperTestSuite) TestTrySendTx() {
 		{
 			"success",
 			func() {
-				interchainAccountAddr, found := suite.chainA.GetSimApp().ICAControllerKeeper.GetInterchainAccountAddress(suite.chainA.GetContext(), path.EndpointA.ChannelConfig.PortID)
+				interchainAccountAddr, found := suite.chainA.GetSimApp().ICAControllerKeeper.GetInterchainAccountAddress(suite.chainA.GetContext(), ibctesting.FirstConnectionID, path.EndpointA.ChannelConfig.PortID)
 				suite.Require().True(found)
 
 				msg := &banktypes.MsgSend{
@@ -49,7 +50,7 @@ func (suite *KeeperTestSuite) TestTrySendTx() {
 		{
 			"success with multiple sdk.Msg",
 			func() {
-				interchainAccountAddr, found := suite.chainA.GetSimApp().ICAControllerKeeper.GetInterchainAccountAddress(suite.chainA.GetContext(), path.EndpointA.ChannelConfig.PortID)
+				interchainAccountAddr, found := suite.chainA.GetSimApp().ICAControllerKeeper.GetInterchainAccountAddress(suite.chainA.GetContext(), ibctesting.FirstConnectionID, path.EndpointA.ChannelConfig.PortID)
 				suite.Require().True(found)
 
 				msgsBankSend := []sdk.Msg{
@@ -95,7 +96,7 @@ func (suite *KeeperTestSuite) TestTrySendTx() {
 		{
 			"channel does not exist",
 			func() {
-				suite.chainA.GetSimApp().ICAControllerKeeper.SetActiveChannelID(suite.chainA.GetContext(), path.EndpointA.ChannelConfig.PortID, "channel-100")
+				suite.chainA.GetSimApp().ICAControllerKeeper.SetActiveChannelID(suite.chainA.GetContext(), ibctesting.FirstConnectionID, path.EndpointA.ChannelConfig.PortID, "channel-100")
 			},
 			false,
 		},
@@ -114,13 +115,38 @@ func (suite *KeeperTestSuite) TestTrySendTx() {
 			},
 			false,
 		},
+		{
+			"timeout timestamp is not in the future",
+			func() {
+				interchainAccountAddr, found := suite.chainA.GetSimApp().ICAControllerKeeper.GetInterchainAccountAddress(suite.chainA.GetContext(), ibctesting.FirstConnectionID, path.EndpointA.ChannelConfig.PortID)
+				suite.Require().True(found)
+
+				msg := &banktypes.MsgSend{
+					FromAddress: interchainAccountAddr,
+					ToAddress:   suite.chainB.SenderAccount.GetAddress().String(),
+					Amount:      sdk.NewCoins(sdk.NewCoin(sdk.DefaultBondDenom, sdk.NewInt(100))),
+				}
+
+				data, err := icatypes.SerializeCosmosTx(suite.chainB.GetSimApp().AppCodec(), []sdk.Msg{msg})
+				suite.Require().NoError(err)
+
+				packetData = icatypes.InterchainAccountPacketData{
+					Type: icatypes.EXECUTE_TX,
+					Data: data,
+				}
+
+				timeoutTimestamp = uint64(suite.chainA.GetContext().BlockTime().UnixNano())
+			},
+			false,
+		},
 	}
 
 	for _, tc := range testCases {
 		tc := tc
 
 		suite.Run(tc.msg, func() {
-			suite.SetupTest() // reset
+			suite.SetupTest()             // reset
+			timeoutTimestamp = ^uint64(0) // default
 
 			path = NewICAPath(suite.chainA, suite.chainB)
 			suite.coordinator.SetupConnections(path)
@@ -134,7 +160,7 @@ func (suite *KeeperTestSuite) TestTrySendTx() {
 
 			tc.malleate() // malleate mutates test data
 
-			_, err = suite.chainA.GetSimApp().ICAControllerKeeper.TrySendTx(suite.chainA.GetContext(), chanCap, path.EndpointA.ChannelConfig.PortID, packetData)
+			_, err = suite.chainA.GetSimApp().ICAControllerKeeper.SendTx(suite.chainA.GetContext(), chanCap, ibctesting.FirstConnectionID, path.EndpointA.ChannelConfig.PortID, packetData, timeoutTimestamp)
 
 			if tc.expPass {
 				suite.Require().NoError(err)
@@ -187,12 +213,8 @@ func (suite *KeeperTestSuite) TestOnTimeoutPacket() {
 
 			err = suite.chainA.GetSimApp().ICAControllerKeeper.OnTimeoutPacket(suite.chainA.GetContext(), packet)
 
-			activeChannelID, found := suite.chainA.GetSimApp().ICAControllerKeeper.GetActiveChannelID(suite.chainA.GetContext(), path.EndpointA.ChannelConfig.PortID)
-
 			if tc.expPass {
 				suite.Require().NoError(err)
-				suite.Require().Empty(activeChannelID)
-				suite.Require().False(found)
 			} else {
 				suite.Require().Error(err)
 			}

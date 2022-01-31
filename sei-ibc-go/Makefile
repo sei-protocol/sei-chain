@@ -203,6 +203,10 @@ build-docs:
 		cp ~/output/$${path_prefix}/index.html ~/output ; \
 	done < versions ;
 
+view-docs: 
+		@cd docs && \
+    npm install && npm run serve
+
 .PHONY: build-docs
 
 ###############################################################################

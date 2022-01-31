@@ -3,14 +3,14 @@ package keeper_test
 import (
 	"fmt"
 
-	"github.com/cosmos/ibc-go/v3/testing/simapp"
-
 	sdk "github.com/cosmos/cosmos-sdk/types"
+
 	"github.com/cosmos/ibc-go/v3/modules/apps/transfer/types"
 	clienttypes "github.com/cosmos/ibc-go/v3/modules/core/02-client/types"
 	channeltypes "github.com/cosmos/ibc-go/v3/modules/core/04-channel/types"
 	host "github.com/cosmos/ibc-go/v3/modules/core/24-host"
 	ibctesting "github.com/cosmos/ibc-go/v3/testing"
+	"github.com/cosmos/ibc-go/v3/testing/simapp"
 )
 
 // test sending from chainA to chainB using both coin that orignate on
@@ -192,8 +192,7 @@ func (suite *KeeperTestSuite) TestOnRecvPacket() {
 				// relay send packet
 				fungibleTokenPacket := types.NewFungibleTokenPacketData(coinFromBToA.Denom, coinFromBToA.Amount.String(), suite.chainB.SenderAccount.GetAddress().String(), suite.chainA.SenderAccount.GetAddress().String())
 				packet := channeltypes.NewPacket(fungibleTokenPacket.GetBytes(), 1, path.EndpointB.ChannelConfig.PortID, path.EndpointB.ChannelID, path.EndpointA.ChannelConfig.PortID, path.EndpointA.ChannelID, clienttypes.NewHeight(0, 110), 0)
-				ack := channeltypes.NewResultAcknowledgement([]byte{byte(1)})
-				err = path.RelayPacket(packet, ack.Acknowledgement())
+				err = path.RelayPacket(packet)
 				suite.Require().NoError(err) // relay committed
 
 				seq++

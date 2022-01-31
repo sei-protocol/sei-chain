@@ -15,7 +15,7 @@
   "dependencies": {
     "glob-parent": "^5.1.2",
     "vue": "^2.6.14",
-    "vuepress-theme-cosmos": "^1.0.182"
+    "vuepress-theme-cosmos": "^1.0.183"
   },
   "devDependencies": {
     "watchpack": "^2.2.0"

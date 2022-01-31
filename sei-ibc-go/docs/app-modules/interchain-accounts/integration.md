@@ -1,10 +1,10 @@
 <!--
-order: 2
+order: 3
 -->
 
-# Integrating Interchain Accounts into a Chain
+# Integration
 
-Learn how to integrate Interchain Accounts host and controller functionality to your chain. The following document only applies for Cosmos SDK chains.
+Learn how to integrate Interchain Accounts host and controller functionality to your chain. The following document only applies for Cosmos SDK chains. {synopsis}
 
 The Interchain Accounts module contains two submodules. Each submodule has its own IBC application. The Interchain Accounts module should be registered as an `AppModule` in the same way all SDK modules are registered on a chain, but each submodule should create its own `IBCModule` as necessary. A route should be added to the IBC router for each submodule which will be used. 
 
@@ -94,7 +94,7 @@ app.ICAAuthKeeper = icaauthkeeper.NewKeeper(appCodec, keys[icaauthtypes.StoreKey
 icaAuthModule := icaauth.NewAppModule(appCodec, app.ICAAuthKeeper)
 
 // ICA auth IBC Module
-ICAAuthIBCModule := icaauth.NewIBCModule(app.ICAAuthKeeper)
+icaAuthIBCModule := icaauth.NewIBCModule(app.ICAAuthKeeper)
 
 // Create host and controller IBC Modules as desired
 icaControllerIBCModule := icacontroller.NewIBCModule(app.ICAControllerKeeper, icaAuthIBCModule)
@@ -124,49 +124,42 @@ app.mm.SetOrderInitGenesis(
 )
 ```
 
-## Parameters
+### Using submodules exclusively
 
-The Interchain Accounts module contains the following on-chain parameters, logically separated for each distinct submodule:
+As described above, the Interchain Accounts application module is structured to support the ability of exclusively enabling controller or host functionality.
+This can be achieved by simply omitting either controller or host `Keeper` from the Interchain Accounts `NewAppModule` constructor function, and mounting only the desired submodule via the `IBCRouter`.
+Alternatively, submodules can be enabled and disabled dynamically using [on-chain parameters](./parameters.md).
 
-### Controller Submodule Parameters
+The following snippets show basic examples of statically disabling submodules using `app.go`.
 
-| Key                    | Type | Default Value |
-|------------------------|------|---------------|
-| `ControllerEnabled`    | bool | `true`        |
+#### Disabling controller chain functionality
 
-#### ControllerEnabled
+```go
+// Create Interchain Accounts AppModule omitting the controller keeper
+icaModule := ica.NewAppModule(nil, &app.ICAHostKeeper)
 
-The `ControllerEnabled` parameter controls a chains ability to service ICS-27 controller specific logic. This includes the sending of Interchain Accounts packet data as well as the following ICS-26 callback handlers:
-- `OnChanOpenInit`
-- `OnChanOpenAck`
-- `OnChanCloseConfirm`
-- `OnAcknowledgementPacket`
-- `OnTimeoutPacket`
+// Create host IBC Module
+icaHostIBCModule := icahost.NewIBCModule(app.ICAHostKeeper)
 
-### Host Submodule Parameters
-
-| Key                    | Type     | Default Value |
-|------------------------|----------|---------------|
-| `HostEnabled`          | bool     | `true`        |
-| `AllowMessages`        | []string | `[]`          |
-
-#### HostEnabled
-
-The `HostEnabled` parameter controls a chains ability to service ICS27 host specific logic. This includes the following ICS-26 callback handlers:
-- `OnChanOpenTry`
-- `OnChanOpenConfirm`
-- `OnChanCloseConfirm`
-- `OnRecvPacket`
-
-#### AllowMessages
-
-The `AllowMessages` parameter provides the ability for a chain to limit the types of messages or transactions that it chooses to facilitate by defining an allowlist using the Protobuf message TypeURL format.
-
-For example, a Cosmos SDK based chain that elects to provide hosted Interchain Accounts with the ability of governance voting and staking delegations will define its parameters as follows:
-
+// Register host route
+ibcRouter.AddRoute(icahosttypes.SubModuleName, icaHostIBCModule)
 ```
-"params": {
-    "host_enabled": true,
-    "allow_messages": ["/cosmos.staking.v1beta1.MsgDelegate", "/cosmos.gov.v1beta1.MsgVote"]
-}
+
+#### Disabling host chain functionality
+
+```go
+// Create Interchain Accounts AppModule omitting the host keeper
+icaModule := ica.NewAppModule(&app.ICAControllerKeeper, nil)
+
+// Create your Interchain Accounts authentication module, setting up the Keeper, AppModule and IBCModule appropriately
+app.ICAAuthKeeper = icaauthkeeper.NewKeeper(appCodec, keys[icaauthtypes.StoreKey], app.ICAControllerKeeper, scopedICAAuthKeeper)
+icaAuthModule := icaauth.NewAppModule(appCodec, app.ICAAuthKeeper)
+icaAuthIBCModule := icaauth.NewIBCModule(app.ICAAuthKeeper)
+
+// Create controller IBC Module
+icaControllerIBCModule := icacontroller.NewIBCModule(app.ICAControllerKeeper, icaAuthIBCModule)
+
+// Register controller and authentication routes
+ibcRouter.AddRoute(icacontrollertypes.SubModuleName, icaControllerIBCModule)
+ibcRouter.AddRoute(icaauthtypes.ModuleName, icaControllerIBCModule) // Note, the authentication module is routed to the top level of the middleware stack
 ```

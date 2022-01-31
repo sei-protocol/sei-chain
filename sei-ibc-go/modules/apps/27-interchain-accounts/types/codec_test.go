@@ -1,6 +1,7 @@
 package types_test
 
 import (
+	"github.com/cosmos/cosmos-sdk/codec"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
 	govtypes "github.com/cosmos/cosmos-sdk/x/gov/types"
@@ -42,8 +43,7 @@ func (mockSdkMsg) GetSigners() []sdk.AccAddress {
 	return []sdk.AccAddress{}
 }
 
-func (suite *TypesTestSuite) TestSerializeCosmosTx() {
-
+func (suite *TypesTestSuite) TestSerializeAndDeserializeCosmosTx() {
 	testCases := []struct {
 		name    string
 		msgs    []sdk.Msg
@@ -127,4 +127,26 @@ func (suite *TypesTestSuite) TestSerializeCosmosTx() {
 			suite.Require().Error(err, tc.name)
 		}
 	}
+
+	// test deserializing unknown bytes
+	msgs, err := types.DeserializeCosmosTx(simapp.MakeTestEncodingConfig().Marshaler, []byte("invalid"))
+	suite.Require().Error(err)
+	suite.Require().Empty(msgs)
+}
+
+// unregistered bytes causes amino to panic.
+// test that DeserializeCosmosTx gracefully returns an error on
+// unsupported amino codec.
+func (suite *TypesTestSuite) TestDeserializeAndSerializeCosmosTxWithAmino() {
+	cdc := codec.NewLegacyAmino()
+	marshaler := codec.NewAminoCodec(cdc)
+
+	msgs, err := types.SerializeCosmosTx(marshaler, []sdk.Msg{&banktypes.MsgSend{}})
+	suite.Require().Error(err)
+	suite.Require().Empty(msgs)
+
+	bz, err := types.DeserializeCosmosTx(marshaler, []byte{0x10, 0})
+	suite.Require().Error(err)
+	suite.Require().Empty(bz)
+
 }

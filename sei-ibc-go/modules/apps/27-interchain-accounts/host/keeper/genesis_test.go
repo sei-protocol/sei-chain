@@ -13,12 +13,14 @@ func (suite *KeeperTestSuite) TestInitGenesis() {
 	genesisState := icatypes.HostGenesisState{
 		ActiveChannels: []icatypes.ActiveChannel{
 			{
-				PortId:    TestPortID,
-				ChannelId: ibctesting.FirstChannelID,
+				ConnectionId: ibctesting.FirstConnectionID,
+				PortId:       TestPortID,
+				ChannelId:    ibctesting.FirstChannelID,
 			},
 		},
 		InterchainAccounts: []icatypes.RegisteredInterchainAccount{
 			{
+				ConnectionId:   ibctesting.FirstConnectionID,
 				PortId:         TestPortID,
 				AccountAddress: TestAccAddress.String(),
 			},
@@ -28,11 +30,11 @@ func (suite *KeeperTestSuite) TestInitGenesis() {
 
 	keeper.InitGenesis(suite.chainA.GetContext(), suite.chainA.GetSimApp().ICAHostKeeper, genesisState)
 
-	channelID, found := suite.chainA.GetSimApp().ICAHostKeeper.GetActiveChannelID(suite.chainA.GetContext(), TestPortID)
+	channelID, found := suite.chainA.GetSimApp().ICAHostKeeper.GetActiveChannelID(suite.chainA.GetContext(), ibctesting.FirstConnectionID, TestPortID)
 	suite.Require().True(found)
 	suite.Require().Equal(ibctesting.FirstChannelID, channelID)
 
-	accountAdrr, found := suite.chainA.GetSimApp().ICAHostKeeper.GetInterchainAccountAddress(suite.chainA.GetContext(), TestPortID)
+	accountAdrr, found := suite.chainA.GetSimApp().ICAHostKeeper.GetInterchainAccountAddress(suite.chainA.GetContext(), ibctesting.FirstConnectionID, TestPortID)
 	suite.Require().True(found)
 	suite.Require().Equal(TestAccAddress.String(), accountAdrr)
 

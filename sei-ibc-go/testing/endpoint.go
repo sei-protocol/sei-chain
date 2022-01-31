@@ -3,7 +3,7 @@ package ibctesting
 import (
 	"fmt"
 
-	//	sdk "github.com/cosmos/cosmos-sdk/types"
+	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/stretchr/testify/require"
 
 	clienttypes "github.com/cosmos/ibc-go/v3/modules/core/02-client/types"
@@ -375,6 +375,17 @@ func (endpoint *Endpoint) SendPacket(packet exported.PacketI) error {
 // RecvPacket receives a packet on the associated endpoint.
 // The counterparty client is updated.
 func (endpoint *Endpoint) RecvPacket(packet channeltypes.Packet) error {
+	_, err := endpoint.RecvPacketWithResult(packet)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// RecvPacketWithResult receives a packet on the associated endpoint and the result
+// of the transaction is returned. The counterparty client is updated.
+func (endpoint *Endpoint) RecvPacketWithResult(packet channeltypes.Packet) (*sdk.Result, error) {
 	// get proof of packet commitment on source
 	packetKey := host.PacketCommitmentKey(packet.GetSourcePort(), packet.GetSourceChannel(), packet.GetSequence())
 	proof, proofHeight := endpoint.Counterparty.Chain.QueryProof(packetKey)
@@ -382,11 +393,16 @@ func (endpoint *Endpoint) RecvPacket(packet channeltypes.Packet) error {
 	recvMsg := channeltypes.NewMsgRecvPacket(packet, proof, proofHeight, endpoint.Chain.SenderAccount.GetAddress().String())
 
 	// receive on counterparty and update source client
-	if err := endpoint.Chain.sendMsgs(recvMsg); err != nil {
-		return err
+	res, err := endpoint.Chain.SendMsgs(recvMsg)
+	if err != nil {
+		return nil, err
 	}
 
-	return endpoint.Counterparty.UpdateClient()
+	if err := endpoint.Counterparty.UpdateClient(); err != nil {
+		return nil, err
+	}
+
+	return res, nil
 }
 
 // WriteAcknowledgement writes an acknowledgement on the channel associated with the endpoint.

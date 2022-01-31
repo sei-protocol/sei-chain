@@ -13,15 +13,15 @@ func (suite *KeeperTestSuite) TestRegisterInterchainAccount() {
 	path := NewICAPath(suite.chainA, suite.chainB)
 	suite.coordinator.SetupConnections(path)
 
-	// InitInterchainAccount
+	//RegisterInterchainAccount 
 	err := SetupICAPath(path, TestOwnerAddress)
 	suite.Require().NoError(err)
 
-	portID, err := icatypes.GeneratePortID(TestOwnerAddress, ibctesting.FirstConnectionID, ibctesting.FirstConnectionID)
+	portID, err := icatypes.NewControllerPortID(TestOwnerAddress)
 	suite.Require().NoError(err)
 
 	// Get the address of the interchain account stored in state during handshake step
-	storedAddr, found := suite.chainB.GetSimApp().ICAHostKeeper.GetInterchainAccountAddress(suite.chainB.GetContext(), portID)
+	storedAddr, found := suite.chainB.GetSimApp().ICAHostKeeper.GetInterchainAccountAddress(suite.chainB.GetContext(), ibctesting.FirstConnectionID, portID)
 	suite.Require().True(found)
 
 	icaAddr, err := sdk.AccAddressFromBech32(storedAddr)

@@ -109,17 +109,42 @@ module.exports = {
             {
               title: "Interchain Accounts",
               directory: true,
-              path: "/app_modules",
+              path: "/app-modules",
               children: [
                 {
                     title: "Overview",
                     directory: false,
-                    path: "/app_modules/interchain-accounts/overview.html"
+                    path: "/app-modules/interchain-accounts/overview.html"
                 }, 
+                {
+                  title: "Authentication Modules",
+                  directory: false,
+                  path: "/app-modules/interchain-accounts/auth-modules.html"
+                },
+                {
+                  title: "Active Channels",
+                  directory: false,
+                  path: "/app-modules/interchain-accounts/active-channels.html"
+                },
                 {
                     title: "Integration",
                     directory: false,
-                    path: "/app_modules/interchain-accounts/integration.html"
+                    path: "/app-modules/interchain-accounts/integration.html"
+                },
+                {
+                  title: "Parameters",
+                  directory: false,
+                  path: "/app-modules/interchain-accounts/parameters.html"
+                },
+                {
+                  title: "Transactions",
+                  directory: false,
+                  path: "/app-modules/interchain-accounts/transactions.html"
+                },
+                {
+                    title: "Authentication module development",
+                    directory: false,
+                    path: "/app_modules/interchain-accounts/ica_auth.html"
                 },
             ]
             },

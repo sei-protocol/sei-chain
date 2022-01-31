@@ -5,14 +5,12 @@
 package ibctesting
 
 import (
-	"strconv"
 	"time"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 
 	ibctransfertypes "github.com/cosmos/ibc-go/v3/modules/apps/transfer/types"
 	connectiontypes "github.com/cosmos/ibc-go/v3/modules/core/03-connection/types"
-	channeltypes "github.com/cosmos/ibc-go/v3/modules/core/04-channel/types"
 	commitmenttypes "github.com/cosmos/ibc-go/v3/modules/core/23-commitment/types"
 	ibctmtypes "github.com/cosmos/ibc-go/v3/modules/light-clients/07-tendermint/types"
 	"github.com/cosmos/ibc-go/v3/testing/mock"
@@ -39,6 +37,8 @@ const (
 	// used for testing proposals
 	Title       = "title"
 	Description = "description"
+
+	LongString = "LoremipsumdolorsitameconsecteturadipiscingeliseddoeiusmodtemporincididuntutlaboreetdoloremagnaaliquUtenimadminimveniamquisnostrudexercitationullamcolaborisnisiutaliquipexeacommodoconsequDuisauteiruredolorinreprehenderitinvoluptateelitsseillumoloreufugiatnullaariaturEcepteurintoccaectupidatatonroidentuntnulpauifficiaeseruntmollitanimidestlaborum"
 )
 
 var (
@@ -59,7 +59,3 @@ var (
 
 	prefix = commitmenttypes.NewMerklePrefix([]byte("ibc"))
 )
-
-func GetMockRecvCanaryCapabilityName(packet channeltypes.Packet) string {
-	return MockRecvCanaryCapabilityName + strconv.Itoa(int(packet.GetSequence()))
-}

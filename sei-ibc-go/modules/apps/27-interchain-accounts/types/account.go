@@ -2,6 +2,7 @@ package types
 
 import (
 	"encoding/json"
+	"regexp"
 	"strings"
 
 	crypto "github.com/cosmos/cosmos-sdk/crypto/types"
@@ -17,6 +18,13 @@ var (
 	_ InterchainAccountI       = (*InterchainAccount)(nil)
 )
 
+// DefaultMaxAddrLength defines the default maximum character length used in validation of addresses
+var DefaultMaxAddrLength = 128
+
+// isValidAddr defines a regular expression to check if the provided string consists of
+// strictly alphanumeric characters and is non empty.
+var isValidAddr = regexp.MustCompile("^[a-zA-Z0-9]+$").MatchString
+
 // InterchainAccountI wraps the authtypes.AccountI interface
 type InterchainAccountI interface {
 	authtypes.AccountI
@@ -31,10 +39,24 @@ type interchainAccountPretty struct {
 	AccountOwner  string         `json:"account_owner" yaml:"account_owner"`
 }
 
-// GenerateAddress returns an sdk.AccAddress derived using the provided module account address and port identifier.
-// The sdk.AccAddress returned is a sub-address of the module account, using the controller chain's port identifier as the derivation key
-func GenerateAddress(moduleAccAddr sdk.AccAddress, portID string) sdk.AccAddress {
-	return sdk.AccAddress(sdkaddress.Derive(moduleAccAddr, []byte(portID)))
+// GenerateAddress returns an sdk.AccAddress derived using the provided module account address and connection and port identifiers.
+// The sdk.AccAddress returned is a sub-address of the module account, using the host chain connection ID and controller chain's port ID as the derivation key
+func GenerateAddress(moduleAccAddr sdk.AccAddress, connectionID, portID string) sdk.AccAddress {
+	return sdk.AccAddress(sdkaddress.Derive(moduleAccAddr, []byte(connectionID+portID)))
+}
+
+// ValidateAccountAddress performs basic validation of interchain account addresses, enforcing constraints
+// on address length and character set
+func ValidateAccountAddress(addr string) error {
+	if !isValidAddr(addr) || len(addr) > DefaultMaxAddrLength {
+		return sdkerrors.Wrapf(
+			ErrInvalidAccountAddress,
+			"address must contain strictly alphanumeric characters, not exceeding %d characters in length",
+			DefaultMaxAddrLength,
+		)
+	}
+
+	return nil
 }
 
 // NewInterchainAccount creates and returns a new InterchainAccount type

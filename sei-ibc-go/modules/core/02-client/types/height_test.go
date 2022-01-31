@@ -112,16 +112,19 @@ func TestParseChainID(t *testing.T) {
 		{"gaiamainnet--4", 0, false},
 		{"gaiamainnet-3.4", 0, false},
 		{"gaiamainnet", 0, false},
+		{"gaiamain\nnet-1", 0, false}, // newlines not allowed in chainID
+		{"gaiamainnet-1\n", 0, false}, // newlines not allowed after dash
+		{"gaiamainnet\n-3", 0, false}, // newlines not allowed before revision number
 		{"a--1", 0, false},
 		{"-1", 0, false},
 		{"--1", 0, false},
 	}
 
-	for i, tc := range cases {
+	for _, tc := range cases {
 		require.Equal(t, tc.formatted, types.IsRevisionFormat(tc.chainID), "id %s does not match expected format", tc.chainID)
 
 		revision := types.ParseChainID(tc.chainID)
-		require.Equal(t, tc.revision, revision, "case %d returns incorrect revision", i)
+		require.Equal(t, tc.revision, revision, "chainID %s returns incorrect revision", tc.chainID)
 	}
 
 }

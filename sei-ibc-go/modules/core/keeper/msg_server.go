@@ -4,10 +4,10 @@ import (
 	"context"
 
 	"github.com/armon/go-metrics"
-
 	"github.com/cosmos/cosmos-sdk/telemetry"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
+
 	clienttypes "github.com/cosmos/ibc-go/v3/modules/core/02-client/types"
 	connectiontypes "github.com/cosmos/ibc-go/v3/modules/core/03-connection/types"
 	channeltypes "github.com/cosmos/ibc-go/v3/modules/core/04-channel/types"
@@ -161,7 +161,7 @@ func (k Keeper) ConnectionOpenTry(goCtx context.Context, msg *connectiontypes.Ms
 
 	targetClient, err := clienttypes.UnpackClientState(msg.ClientState)
 	if err != nil {
-		return nil, sdkerrors.Wrapf(err, "client in msg is not exported.ClientState. invalid client: %v.", targetClient)
+		return nil, err
 	}
 
 	connectionID, err := k.ConnectionKeeper.ConnOpenTry(
@@ -195,7 +195,7 @@ func (k Keeper) ConnectionOpenAck(goCtx context.Context, msg *connectiontypes.Ms
 	ctx := sdk.UnwrapSDKContext(goCtx)
 	targetClient, err := clienttypes.UnpackClientState(msg.ClientState)
 	if err != nil {
-		return nil, sdkerrors.Wrapf(err, "client in msg is not exported.ClientState. invalid client: %v", targetClient)
+		return nil, err
 	}
 
 	if err := k.ConnectionKeeper.ConnOpenAck(

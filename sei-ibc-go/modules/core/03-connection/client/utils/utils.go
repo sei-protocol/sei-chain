@@ -2,14 +2,14 @@ package utils
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io/ioutil"
-
-	"github.com/pkg/errors"
 
 	"github.com/cosmos/cosmos-sdk/client"
 	"github.com/cosmos/cosmos-sdk/codec"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
+
 	clientutils "github.com/cosmos/ibc-go/v3/modules/core/02-client/client/utils"
 	clienttypes "github.com/cosmos/ibc-go/v3/modules/core/02-client/types"
 	"github.com/cosmos/ibc-go/v3/modules/core/03-connection/types"
@@ -176,7 +176,7 @@ func ParseClientState(cdc *codec.LegacyAmino, arg string) (exported.ClientState,
 			return nil, errors.New("either JSON input nor path to .json file were provided")
 		}
 		if err := cdc.UnmarshalJSON(contents, &clientState); err != nil {
-			return nil, errors.Wrap(err, "error unmarshalling client state")
+			return nil, fmt.Errorf("error unmarshalling client state: %w", err)
 		}
 	}
 	return clientState, nil
@@ -193,7 +193,7 @@ func ParsePrefix(cdc *codec.LegacyAmino, arg string) (commitmenttypes.MerklePref
 			return commitmenttypes.MerklePrefix{}, errors.New("neither JSON input nor path to .json file were provided")
 		}
 		if err := cdc.UnmarshalJSON(contents, &prefix); err != nil {
-			return commitmenttypes.MerklePrefix{}, errors.Wrap(err, "error unmarshalling commitment prefix")
+			return commitmenttypes.MerklePrefix{}, fmt.Errorf("error unmarshalling commitment prefix: %w", err)
 		}
 	}
 	return prefix, nil

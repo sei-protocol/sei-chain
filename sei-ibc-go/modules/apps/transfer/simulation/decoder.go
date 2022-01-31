@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/cosmos/cosmos-sdk/types/kv"
+
 	"github.com/cosmos/ibc-go/v3/modules/apps/transfer/types"
 )
 

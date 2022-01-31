@@ -19,11 +19,11 @@ func InitGenesis(ctx sdk.Context, keeper Keeper, state icatypes.HostGenesisState
 	}
 
 	for _, ch := range state.ActiveChannels {
-		keeper.SetActiveChannelID(ctx, ch.PortId, ch.ChannelId)
+		keeper.SetActiveChannelID(ctx, ch.ConnectionId, ch.PortId, ch.ChannelId)
 	}
 
 	for _, acc := range state.InterchainAccounts {
-		keeper.SetInterchainAccountAddress(ctx, acc.PortId, acc.AccountAddress)
+		keeper.SetInterchainAccountAddress(ctx, acc.ConnectionId, acc.PortId, acc.AccountAddress)
 	}
 
 	keeper.SetParams(ctx, state.Params)

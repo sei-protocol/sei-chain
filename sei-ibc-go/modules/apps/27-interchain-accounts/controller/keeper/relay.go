@@ -10,13 +10,15 @@ import (
 	channeltypes "github.com/cosmos/ibc-go/v3/modules/core/04-channel/types"
 )
 
-// TrySendTx takes in a transaction from an authentication module and attempts to send the packet
-// if the base application has the capability to send on the provided portID
-func (k Keeper) TrySendTx(ctx sdk.Context, chanCap *capabilitytypes.Capability, portID string, icaPacketData icatypes.InterchainAccountPacketData) (uint64, error) {
-	// Check for the active channel
-	activeChannelID, found := k.GetActiveChannelID(ctx, portID)
+// SendTx takes pre-built packet data containing messages to be executed on the host chain from an authentication module and attempts to send the packet.
+// The packet sequence for the outgoing packet is returned as a result.
+// If the base application has the capability to send on the provided portID. An appropriate
+// absolute timeoutTimestamp must be provided. If the packet is timed out, the channel will be closed.
+// In the case of channel closure, a new channel may be reopened to reconnect to the host chain.
+func (k Keeper) SendTx(ctx sdk.Context, chanCap *capabilitytypes.Capability, connectionID, portID string, icaPacketData icatypes.InterchainAccountPacketData, timeoutTimestamp uint64) (uint64, error) {
+	activeChannelID, found := k.GetActiveChannelID(ctx, connectionID, portID)
 	if !found {
-		return 0, sdkerrors.Wrapf(icatypes.ErrActiveChannelNotFound, "failed to retrieve active channel for port %s", portID)
+		return 0, sdkerrors.Wrapf(icatypes.ErrActiveChannelNotFound, "failed to retrieve active channel on connection %s for port %s", connectionID, portID)
 	}
 
 	sourceChannelEnd, found := k.channelKeeper.GetChannel(ctx, portID, activeChannelID)
@@ -27,7 +29,11 @@ func (k Keeper) TrySendTx(ctx sdk.Context, chanCap *capabilitytypes.Capability, 
 	destinationPort := sourceChannelEnd.GetCounterparty().GetPortID()
 	destinationChannel := sourceChannelEnd.GetCounterparty().GetChannelID()
 
-	return k.createOutgoingPacket(ctx, portID, activeChannelID, destinationPort, destinationChannel, chanCap, icaPacketData)
+	if uint64(ctx.BlockTime().UnixNano()) >= timeoutTimestamp {
+		return 0, icatypes.ErrInvalidTimeoutTimestamp
+	}
+
+	return k.createOutgoingPacket(ctx, portID, activeChannelID, destinationPort, destinationChannel, chanCap, icaPacketData, timeoutTimestamp)
 }
 
 func (k Keeper) createOutgoingPacket(
@@ -38,6 +44,7 @@ func (k Keeper) createOutgoingPacket(
 	destinationChannel string,
 	chanCap *capabilitytypes.Capability,
 	icaPacketData icatypes.InterchainAccountPacketData,
+	timeoutTimestamp uint64,
 ) (uint64, error) {
 	if err := icaPacketData.ValidateBasic(); err != nil {
 		return 0, sdkerrors.Wrap(err, "invalid interchain account packet data")
@@ -48,10 +55,6 @@ func (k Keeper) createOutgoingPacket(
 	if !found {
 		return 0, sdkerrors.Wrapf(channeltypes.ErrSequenceSendNotFound, "failed to retrieve next sequence send for channel %s on port %s", sourceChannel, sourcePort)
 	}
-
-	// timeoutTimestamp is set to be a max number here so that we never recieve a timeout
-	// ics-27-1 uses ordered channels which can close upon recieving a timeout, which is an undesired effect
-	const timeoutTimestamp = ^uint64(0) >> 1 // Shift the unsigned bit to satisfy hermes relayer timestamp conversion
 
 	packet := channeltypes.NewPacket(
 		icaPacketData.GetBytes(),
@@ -74,7 +77,5 @@ func (k Keeper) createOutgoingPacket(
 // OnTimeoutPacket removes the active channel associated with the provided packet, the underlying channel end is closed
 // due to the semantics of ORDERED channels
 func (k Keeper) OnTimeoutPacket(ctx sdk.Context, packet channeltypes.Packet) error {
-	k.DeleteActiveChannelID(ctx, packet.SourcePort)
-
 	return nil
 }

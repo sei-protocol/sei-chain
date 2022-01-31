@@ -47,7 +47,7 @@ type MsgTransfer struct {
 	// Timeout height relative to the current block height.
 	// The timeout is disabled when set to 0.
 	TimeoutHeight types1.Height `protobuf:"bytes,6,opt,name=timeout_height,json=timeoutHeight,proto3" json:"timeout_height" yaml:"timeout_height"`
-	// Timeout timestamp (in nanoseconds) relative to the current block timestamp.
+	// Timeout timestamp in absolute nanoseconds since unix epoch.
 	// The timeout is disabled when set to 0.
 	TimeoutTimestamp uint64 `protobuf:"varint,7,opt,name=timeout_timestamp,json=timeoutTimestamp,proto3" json:"timeout_timestamp,omitempty" yaml:"timeout_timestamp"`
 }

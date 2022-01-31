@@ -3,8 +3,9 @@ package types_test
 import (
 	"testing"
 
-	"github.com/cosmos/ibc-go/v3/modules/core/03-connection/types"
 	"github.com/stretchr/testify/require"
+
+	"github.com/cosmos/ibc-go/v3/modules/core/03-connection/types"
 )
 
 func TestValidateParams(t *testing.T) {

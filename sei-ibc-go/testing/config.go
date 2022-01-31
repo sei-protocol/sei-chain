@@ -58,7 +58,7 @@ type ChannelConfig struct {
 
 func NewChannelConfig() *ChannelConfig {
 	return &ChannelConfig{
-		PortID:  mock.ModuleName,
+		PortID:  mock.PortID,
 		Version: DefaultChannelVersion,
 		Order:   channeltypes.UNORDERED,
 	}

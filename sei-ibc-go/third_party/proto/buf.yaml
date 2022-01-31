@@ -11,7 +11,7 @@ breaking:
   use:
     - FILE
   ignore:
-    - confio
+    - proofs.proto # confio/ics23
     - gogoproto
     - google
     - tendermint
@@ -27,7 +27,7 @@ lint:
     - PACKAGE_VERSION_SUFFIX
     - RPC_REQUEST_STANDARD_NAME
   ignore:
-    - confio
+    - proofs.proto # confio/ics23
     - gogoproto
     - google
     - tendermint
