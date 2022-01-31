@@ -9,7 +9,6 @@ import (
 
 	icatypes "github.com/cosmos/ibc-go/v3/modules/apps/27-interchain-accounts/types"
 	channeltypes "github.com/cosmos/ibc-go/v3/modules/core/04-channel/types"
-	porttypes "github.com/cosmos/ibc-go/v3/modules/core/05-port/types"
 )
 
 // OnChanOpenInit performs basic validation of channel initialization.
@@ -52,7 +51,7 @@ func (k Keeper) OnChanOpenInit(
 
 	activeChannelID, found := k.GetOpenActiveChannel(ctx, connectionHops[0], portID)
 	if found {
-		return sdkerrors.Wrapf(porttypes.ErrInvalidPort, "existing active channel %s for portID %s", activeChannelID, portID)
+		return sdkerrors.Wrapf(icatypes.ErrActiveChannelAlreadySet, "existing active channel %s for portID %s", activeChannelID, portID)
 	}
 
 	return nil
@@ -77,6 +76,10 @@ func (k Keeper) OnChanOpenAck(
 	var metadata icatypes.Metadata
 	if err := icatypes.ModuleCdc.UnmarshalJSON([]byte(counterpartyVersion), &metadata); err != nil {
 		return sdkerrors.Wrapf(icatypes.ErrUnknownDataType, "cannot unmarshal ICS-27 interchain accounts metadata")
+	}
+
+	if activeChannelID, found := k.GetOpenActiveChannel(ctx, metadata.ControllerConnectionId, portID); found {
+		return sdkerrors.Wrapf(icatypes.ErrActiveChannelAlreadySet, "existing active channel %s for portID %s", activeChannelID, portID)
 	}
 
 	channel, found := k.channelKeeper.GetChannel(ctx, portID, channelID)
