@@ -111,6 +111,17 @@ func (suite *KeeperTestSuite) TestOnChanOpenTry() {
 			},
 			false,
 		},
+		{
+			"active channel already set",
+			func() {
+				// create a new channel and set it in state
+				ch := channeltypes.NewChannel(channeltypes.OPEN, channeltypes.ORDERED, channeltypes.NewCounterparty(path.EndpointA.ChannelConfig.PortID, path.EndpointA.ChannelID), []string{path.EndpointA.ConnectionID}, ibctesting.DefaultChannelVersion)
+				suite.chainB.GetSimApp().GetIBCKeeper().ChannelKeeper.SetChannel(suite.chainB.GetContext(), path.EndpointA.ChannelConfig.PortID, path.EndpointB.ChannelID, ch)
+
+				// set the active channelID in state
+				suite.chainB.GetSimApp().ICAHostKeeper.SetActiveChannelID(suite.chainB.GetContext(), ibctesting.FirstConnectionID, path.EndpointA.ChannelConfig.PortID, path.EndpointB.ChannelID)
+			}, false,
+		},
 	}
 
 	for _, tc := range testCases {

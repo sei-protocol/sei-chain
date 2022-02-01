@@ -165,7 +165,7 @@ func (suite *KeeperTestSuite) TestGetAllActiveChannels() {
 	expectedChannels := []icatypes.ActiveChannel{
 		{
 			ConnectionId: ibctesting.FirstConnectionID,
-			PortId:       path.EndpointB.ChannelConfig.PortID,
+			PortId:       path.EndpointA.ChannelConfig.PortID,
 			ChannelId:    path.EndpointB.ChannelID,
 		},
 		{
@@ -223,7 +223,7 @@ func (suite *KeeperTestSuite) TestIsActiveChannel() {
 	err := SetupICAPath(path, TestOwnerAddress)
 	suite.Require().NoError(err)
 
-	isActive := suite.chainB.GetSimApp().ICAHostKeeper.IsActiveChannel(suite.chainB.GetContext(), ibctesting.FirstConnectionID, path.EndpointB.ChannelConfig.PortID)
+	isActive := suite.chainB.GetSimApp().ICAHostKeeper.IsActiveChannel(suite.chainB.GetContext(), ibctesting.FirstConnectionID, path.EndpointA.ChannelConfig.PortID)
 	suite.Require().True(isActive)
 }
 
