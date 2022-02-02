@@ -7,8 +7,12 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
 	capabilitytypes "github.com/cosmos/cosmos-sdk/x/capability/types"
+	"github.com/gogo/protobuf/proto"
 	"github.com/stretchr/testify/suite"
+	abcitypes "github.com/tendermint/tendermint/abci/types"
 	"github.com/tendermint/tendermint/crypto"
+	tmprotostate "github.com/tendermint/tendermint/proto/tendermint/state"
+	tmstate "github.com/tendermint/tendermint/state"
 
 	"github.com/cosmos/ibc-go/v3/modules/apps/27-interchain-accounts/host/types"
 	icatypes "github.com/cosmos/ibc-go/v3/modules/apps/27-interchain-accounts/types"
@@ -460,6 +464,22 @@ func (suite *InterchainAccountsTestSuite) TestOnRecvPacket() {
 			}
 			packetData = icaPacketData.GetBytes()
 
+			// build expected ack
+			msgResponseBz, err := proto.Marshal(&banktypes.MsgSendResponse{})
+			suite.Require().NoError(err)
+
+			msgData := &sdk.MsgData{
+				MsgType: sdk.MsgTypeURL(msg),
+				Data:    msgResponseBz,
+			}
+
+			expectedTxResponse, err := proto.Marshal(&sdk.TxMsgData{
+				Data: []*sdk.MsgData{msgData},
+			})
+			suite.Require().NoError(err)
+
+			expectedAck := channeltypes.NewResultAcknowledgement(expectedTxResponse)
+
 			params := types.NewParams(true, []string{sdk.MsgTypeURL(msg)})
 			suite.chainB.GetSimApp().ICAHostKeeper.SetParams(suite.chainB.GetContext(), params)
 
@@ -478,7 +498,12 @@ func (suite *InterchainAccountsTestSuite) TestOnRecvPacket() {
 			suite.Require().True(ok)
 
 			ack := cbs.OnRecvPacket(suite.chainB.GetContext(), packet, nil)
-			suite.Require().Equal(tc.expAckSuccess, ack.Success())
+			if tc.expAckSuccess {
+				suite.Require().True(ack.Success())
+				suite.Require().Equal(expectedAck, ack)
+			} else {
+				suite.Require().False(ack.Success())
+			}
 
 		})
 	}
@@ -686,4 +711,64 @@ func (suite *InterchainAccountsTestSuite) TestControlAccountAfterChannelClose() 
 	// check that the ica balance is updated
 	hasBalance = suite.chainB.GetSimApp().BankKeeper.HasBalance(suite.chainB.GetContext(), icaAddr, sdk.Coin{Denom: sdk.DefaultBondDenom, Amount: sdk.NewInt(0)})
 	suite.Require().True(hasBalance)
+}
+
+// The safety of including SDK MsgResponses in the acknowledgement rests
+// on the inclusion of the abcitypes.ResponseDeliverTx.Data in the
+// abcitypes.ResposneDeliverTx hash. If the abcitypes.ResponseDeliverTx.Data
+// gets removed from consensus they must no longer be used in the packet
+// acknowledgement.
+//
+// This test acts as an indicator that the abcitypes.ResponseDeliverTx.Data
+// may no longer be deterministic.
+func (suite *InterchainAccountsTestSuite) TestABCICodeDeterminism() {
+	msgResponseBz, err := proto.Marshal(&channeltypes.MsgChannelOpenInitResponse{})
+	suite.Require().NoError(err)
+
+	msgData := &sdk.MsgData{
+		MsgType: sdk.MsgTypeURL(&channeltypes.MsgChannelOpenInit{}),
+		Data:    msgResponseBz,
+	}
+
+	txResponse, err := proto.Marshal(&sdk.TxMsgData{
+		Data: []*sdk.MsgData{msgData},
+	})
+	suite.Require().NoError(err)
+
+	deliverTx := abcitypes.ResponseDeliverTx{
+		Data: txResponse,
+	}
+	responses := tmprotostate.ABCIResponses{
+		DeliverTxs: []*abcitypes.ResponseDeliverTx{
+			&deliverTx,
+		},
+	}
+
+	differentMsgResponseBz, err := proto.Marshal(&channeltypes.MsgRecvPacketResponse{})
+	suite.Require().NoError(err)
+
+	differentMsgData := &sdk.MsgData{
+		MsgType: sdk.MsgTypeURL(&channeltypes.MsgRecvPacket{}),
+		Data:    differentMsgResponseBz,
+	}
+
+	differentTxResponse, err := proto.Marshal(&sdk.TxMsgData{
+		Data: []*sdk.MsgData{differentMsgData},
+	})
+	suite.Require().NoError(err)
+
+	differentDeliverTx := abcitypes.ResponseDeliverTx{
+		Data: differentTxResponse,
+	}
+
+	differentResponses := tmprotostate.ABCIResponses{
+		DeliverTxs: []*abcitypes.ResponseDeliverTx{
+			&differentDeliverTx,
+		},
+	}
+
+	hash := tmstate.ABCIResponsesResultsHash(&responses)
+	differentHash := tmstate.ABCIResponsesResultsHash(&differentResponses)
+
+	suite.Require().NotEqual(hash, differentHash)
 }

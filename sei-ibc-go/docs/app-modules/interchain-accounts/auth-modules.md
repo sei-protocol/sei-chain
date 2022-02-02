@@ -210,6 +210,123 @@ seq, err = keeper.icaControllerKeeper.SendTx(ctx, chanCap, portID, packetData, t
 The data within an `InterchainAccountPacketData` must be serialized using a format supported by the host chain. 
 If the host chain is using the ibc-go host chain submodule, `SerializeCosmosTx` should be used. If the `InterchainAccountPacketData.Data` is serialized using a format not support by the host chain, the packet will not be successfully received.  
 
+## `OnAcknowledgementPacket`
+
+Controller chains will be able to access the acknowledgement written into the host chain state once a relayer relays the acknowledgement. 
+The acknowledgement bytes will be passed to the auth module via the `OnAcknowledgementPacket` callback. 
+Auth modules are expected to know how to decode the acknowledgement. 
+
+If the controller chain is connected to a host chain using the host module on ibc-go, it may interpret the acknowledgement bytes as follows:
+
+Begin by unmarshaling the acknowledgement into sdk.TxMsgData:
+```go
+txMsgData := &sdk.TxMsgData{}
+if err := proto.Unmarshal(ack.Acknowledgement(), txMsgData); err != nil {
+    return err
+}
+```
+
+If the txMsgData.Data field is non nil, the host chain is using SDK version <= v0.45. 
+The auth module should interpret the txMsgData.Data as follows:
+
+```go
+switch len(txMsgData.Data) {
+case 0:
+    for _, msgData := range txMsgData.Data {
+        if err := handler(msgData); err != nil {
+            return err
+        }
+    }
+...
+}            
+```
+
+A handler will be needed to interpret what actions to perform based on the message type sent.
+A router could be used, or more simply a switch statement.
+
+```go
+func handler(msgData sdk.MsgData) error {
+switch msgData.TypeURL {
+case banktypes.MsgSend:
+    msgResponse := &banktypes.MsgSendResponse{}
+    if err := proto.Unmarshal(msgData.Data, msgResponse}; err != nil {
+        return err
+    }
+
+    handleBankSendMsg(msgResponse)
+
+case stakingtypes.MsgDelegate:
+    msgResponse := &stakingtypes.MsgDelegateResponse{}
+    if err := proto.Unmarshal(msgData.Data, msgResponse}; err != nil {
+        return err
+    }
+
+    handleStakingDelegateMsg(msgResponse)
+
+case transfertypes.MsgTransfer:
+    msgResponse := &transfertypes.MsgTransferResponse{}
+    if err := proto.Unmarshal(msgData.Data, msgResponse}; err != nil {
+        return err
+    }
+
+    handleIBCTransferMsg(msgResponse)
+ 
+default:
+    return
+}
+```
+
+If the txMsgData.Data is empty, the host chain is using SDK version > v0.45.
+The auth module should interpret the txMsgData.Responses as follows:
+
+```go
+...
+// switch statement from above continued
+default:
+    for _, any := range txMsgData.MsgResponses {
+        if err := handleAny(any); err != nil {
+            return err
+        }
+    }
+}
+``` 
+
+A handler will be needed to interpret what actions to perform based on the type url of the Any. 
+A router could be used, or more simply a switch statement. 
+It may be possible to deduplicate logic between `handler` and `handleAny`.
+
+```go
+func handleAny(any *codectypes.Any) error {
+switch any.TypeURL {
+case banktypes.MsgSend:
+    msgResponse, err := unpackBankMsgSendResponse(any)
+    if err != nil {
+        return err
+    }
+
+    handleBankSendMsg(msgResponse)
+
+case stakingtypes.MsgDelegate:
+    msgResponse, err := unpackStakingDelegateResponse(any)
+    if err != nil {
+        return err
+    }
+
+    handleStakingDelegateMsg(msgResponse)
+
+    case transfertypes.MsgTransfer:
+    msgResponse, err := unpackIBCTransferMsgResponse(any)
+    if err != nil {
+        return err
+    }
+
+    handleIBCTransferMsg(msgResponse)
+ 
+default:
+    return
+}
+```
+
 ### Integration into `app.go` file
 
 To integrate the authentication module into your chain, please follow the steps outlined above in [app.go integration](./integration.md#example-integration).
