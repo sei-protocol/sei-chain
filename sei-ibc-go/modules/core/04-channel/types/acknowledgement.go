@@ -20,6 +20,8 @@ func NewResultAcknowledgement(result []byte) Acknowledgement {
 
 // NewErrorAcknowledgement returns a new instance of Acknowledgement using an Acknowledgement_Error
 // type in the Response field.
+// NOTE: Acknowledgements are written into state and thus, changes made to error strings included in packet acknowledgements
+// risk an app hash divergence when nodes in a network are running different patch versions of software.
 func NewErrorAcknowledgement(err string) Acknowledgement {
 	return Acknowledgement{
 		Response: &Acknowledgement_Error{

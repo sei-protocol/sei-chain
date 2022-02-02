@@ -181,7 +181,7 @@ func (im IBCModule) OnRecvPacket(
 	if ack.Success() {
 		err := im.keeper.OnRecvPacket(ctx, packet, data)
 		if err != nil {
-			ack = channeltypes.NewErrorAcknowledgement(err.Error())
+			ack = types.NewErrorAcknowledgement(err)
 		}
 	}
 
