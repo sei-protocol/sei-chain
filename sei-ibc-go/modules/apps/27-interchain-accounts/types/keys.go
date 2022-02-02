@@ -9,10 +9,10 @@ const (
 	ModuleName = "interchainaccounts"
 
 	// PortID is the default port id that the interchain accounts host submodule binds to
-	PortID = "interchain-account"
+	PortID = "icahost"
 
 	// PortPrefix is the default port prefix that the interchain accounts controller submodule binds to
-	PortPrefix = "ics27-"
+	PortPrefix = "icacontroller-"
 
 	// Version defines the current version for interchain accounts
 	Version = "ics27-1"
