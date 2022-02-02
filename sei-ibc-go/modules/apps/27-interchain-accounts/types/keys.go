@@ -39,8 +39,8 @@ var (
 )
 
 // KeyActiveChannel creates and returns a new key used for active channels store operations
-func KeyActiveChannel(connectionID, portID string) []byte {
-	return []byte(fmt.Sprintf("%s/%s/%s", ActiveChannelKeyPrefix, connectionID, portID))
+func KeyActiveChannel(portID, connectionID string) []byte {
+	return []byte(fmt.Sprintf("%s/%s/%s", ActiveChannelKeyPrefix, portID, connectionID))
 }
 
 // KeyOwnerAccount creates and returns a new key used for interchain account store operations
