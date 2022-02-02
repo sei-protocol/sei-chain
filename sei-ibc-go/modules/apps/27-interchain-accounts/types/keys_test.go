@@ -10,6 +10,6 @@ func (suite *TypesTestSuite) TestKeyActiveChannel() {
 }
 
 func (suite *TypesTestSuite) TestKeyOwnerAccount() {
-	key := types.KeyOwnerAccount("connection-id", "port-id")
-	suite.Require().Equal("owner/connection-id/port-id", string(key))
+	key := types.KeyOwnerAccount("port-id", "connection-id")
+	suite.Require().Equal("owner/port-id/connection-id", string(key))
 }

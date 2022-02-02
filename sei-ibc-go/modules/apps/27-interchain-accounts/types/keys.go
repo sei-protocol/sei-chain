@@ -44,8 +44,8 @@ func KeyActiveChannel(portID, connectionID string) []byte {
 }
 
 // KeyOwnerAccount creates and returns a new key used for interchain account store operations
-func KeyOwnerAccount(connectionID, portID string) []byte {
-	return []byte(fmt.Sprintf("%s/%s/%s", OwnerKeyPrefix, connectionID, portID))
+func KeyOwnerAccount(portID, connectionID string) []byte {
+	return []byte(fmt.Sprintf("%s/%s/%s", OwnerKeyPrefix, portID, connectionID))
 }
 
 // KeyPort creates and returns a new key used for port store operations

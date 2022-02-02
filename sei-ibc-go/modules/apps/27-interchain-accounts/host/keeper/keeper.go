@@ -156,7 +156,7 @@ func (k Keeper) IsActiveChannel(ctx sdk.Context, connectionID, portID string) bo
 // GetInterchainAccountAddress retrieves the InterchainAccount address from the store associated with the provided connectionID and portID
 func (k Keeper) GetInterchainAccountAddress(ctx sdk.Context, connectionID, portID string) (string, bool) {
 	store := ctx.KVStore(k.storeKey)
-	key := icatypes.KeyOwnerAccount(connectionID, portID)
+	key := icatypes.KeyOwnerAccount(portID, connectionID)
 
 	if !store.Has(key) {
 		return "", false
@@ -175,8 +175,8 @@ func (k Keeper) GetAllInterchainAccounts(ctx sdk.Context) []icatypes.RegisteredI
 		keySplit := strings.Split(string(iterator.Key()), "/")
 
 		acc := icatypes.RegisteredInterchainAccount{
-			ConnectionId:   keySplit[1],
-			PortId:         keySplit[2],
+			ConnectionId:   keySplit[2],
+			PortId:         keySplit[1],
 			AccountAddress: string(iterator.Value()),
 		}
 
@@ -189,5 +189,5 @@ func (k Keeper) GetAllInterchainAccounts(ctx sdk.Context) []icatypes.RegisteredI
 // SetInterchainAccountAddress stores the InterchainAccount address, keyed by the associated connectionID and portID
 func (k Keeper) SetInterchainAccountAddress(ctx sdk.Context, connectionID, portID, address string) {
 	store := ctx.KVStore(k.storeKey)
-	store.Set(icatypes.KeyOwnerAccount(connectionID, portID), []byte(address))
+	store.Set(icatypes.KeyOwnerAccount(portID, connectionID), []byte(address))
 }
