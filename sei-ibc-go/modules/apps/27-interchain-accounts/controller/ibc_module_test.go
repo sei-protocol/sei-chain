@@ -46,6 +46,7 @@ type InterchainAccountsTestSuite struct {
 	// testing chains used for convenience and readability
 	chainA *ibctesting.TestChain
 	chainB *ibctesting.TestChain
+	chainC *ibctesting.TestChain
 }
 
 func TestICATestSuite(t *testing.T) {
@@ -53,9 +54,10 @@ func TestICATestSuite(t *testing.T) {
 }
 
 func (suite *InterchainAccountsTestSuite) SetupTest() {
-	suite.coordinator = ibctesting.NewCoordinator(suite.T(), 2)
+	suite.coordinator = ibctesting.NewCoordinator(suite.T(), 3)
 	suite.chainA = suite.coordinator.GetChain(ibctesting.GetChainID(1))
 	suite.chainB = suite.coordinator.GetChain(ibctesting.GetChainID(2))
+	suite.chainC = suite.coordinator.GetChain(ibctesting.GetChainID(3))
 }
 
 func NewICAPath(chainA, chainB *ibctesting.TestChain) *ibctesting.Path {
@@ -89,6 +91,7 @@ func RegisterInterchainAccount(endpoint *ibctesting.Endpoint, owner string) erro
 	// update port/channel ids
 	endpoint.ChannelID = channeltypes.FormatChannelIdentifier(channelSequence)
 	endpoint.ChannelConfig.PortID = portID
+	endpoint.ChannelConfig.Version = TestVersion
 
 	return nil
 }
@@ -629,6 +632,71 @@ func (suite *InterchainAccountsTestSuite) TestOnTimeoutPacket() {
 			} else {
 				suite.Require().Error(err)
 			}
+		})
+	}
+}
+
+func (suite *InterchainAccountsTestSuite) TestSingleHostMultipleControllers() {
+	var (
+		pathAToB *ibctesting.Path
+		pathCToB *ibctesting.Path
+	)
+
+	testCases := []struct {
+		msg      string
+		malleate func()
+		expPass  bool
+	}{
+		{
+			"success",
+			func() {},
+			true,
+		},
+	}
+
+	for _, tc := range testCases {
+		suite.Run(tc.msg, func() {
+			suite.SetupTest() // reset
+
+			// Setup a new path from A(controller) -> B(host)
+			pathAToB = NewICAPath(suite.chainA, suite.chainB)
+			suite.coordinator.SetupConnections(pathAToB)
+
+			err := SetupICAPath(pathAToB, TestOwnerAddress)
+			suite.Require().NoError(err)
+
+			// Setup a new path from C(controller) -> B(host)
+			pathCToB = NewICAPath(suite.chainC, suite.chainB)
+			suite.coordinator.SetupConnections(pathCToB)
+
+			// NOTE: Here the version metadata is overridden to include to the next host connection sequence (i.e. chainB's connection to chainC)
+			// SetupICAPath() will set endpoint.ChannelConfig.Version to TestVersion
+			TestVersion = string(icatypes.ModuleCdc.MustMarshalJSON(&icatypes.Metadata{
+				Version:                icatypes.Version,
+				ControllerConnectionId: pathCToB.EndpointA.ConnectionID,
+				HostConnectionId:       pathCToB.EndpointB.ConnectionID,
+			}))
+
+			err = SetupICAPath(pathCToB, TestOwnerAddress)
+			suite.Require().NoError(err)
+
+			tc.malleate() // malleate mutates test data
+
+			accAddressChainA, found := suite.chainB.GetSimApp().ICAHostKeeper.GetInterchainAccountAddress(suite.chainB.GetContext(), pathAToB.EndpointB.ConnectionID, pathAToB.EndpointA.ChannelConfig.PortID)
+			suite.Require().True(found)
+
+			accAddressChainC, found := suite.chainB.GetSimApp().ICAHostKeeper.GetInterchainAccountAddress(suite.chainB.GetContext(), pathCToB.EndpointB.ConnectionID, pathCToB.EndpointA.ChannelConfig.PortID)
+			suite.Require().True(found)
+
+			suite.Require().NotEqual(accAddressChainA, accAddressChainC)
+
+			chainAChannelID, found := suite.chainB.GetSimApp().ICAHostKeeper.GetActiveChannelID(suite.chainB.GetContext(), pathAToB.EndpointB.ConnectionID, pathAToB.EndpointA.ChannelConfig.PortID)
+			suite.Require().True(found)
+
+			chainCChannelID, found := suite.chainB.GetSimApp().ICAHostKeeper.GetActiveChannelID(suite.chainB.GetContext(), pathCToB.EndpointB.ConnectionID, pathCToB.EndpointA.ChannelConfig.PortID)
+			suite.Require().True(found)
+
+			suite.Require().NotEqual(chainAChannelID, chainCChannelID)
 		})
 	}
 }
