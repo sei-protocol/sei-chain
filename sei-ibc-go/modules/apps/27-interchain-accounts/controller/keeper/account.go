@@ -43,7 +43,15 @@ func (k Keeper) RegisterInterchainAccount(ctx sdk.Context, connectionID, owner s
 	}
 
 	// NOTE: An empty string is provided for accAddress, to be fulfilled upon OnChanOpenTry handshake step
-	metadata := icatypes.NewMetadata(icatypes.Version, connectionID, connectionEnd.GetCounterparty().GetConnectionID(), "")
+	metadata := icatypes.NewMetadata(
+		icatypes.Version,
+		connectionID,
+		connectionEnd.GetCounterparty().GetConnectionID(),
+		"",
+		icatypes.EncodingProtobuf,
+		icatypes.TxTypeSDKMultiMsg,
+	)
+
 	versionBytes, err := icatypes.ModuleCdc.MarshalJSON(&metadata)
 	if err != nil {
 		return err

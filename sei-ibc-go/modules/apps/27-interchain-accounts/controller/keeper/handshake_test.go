@@ -61,6 +61,32 @@ func (suite *KeeperTestSuite) TestOnChanOpenInit() {
 			false,
 		},
 		{
+			"unsupported encoding format",
+			func() {
+				metadata.Encoding = "invalid-encoding-format"
+
+				versionBytes, err := icatypes.ModuleCdc.MarshalJSON(&metadata)
+				suite.Require().NoError(err)
+
+				channel.Version = string(versionBytes)
+				path.EndpointA.SetChannel(*channel)
+			},
+			false,
+		},
+		{
+			"unsupported transaction type",
+			func() {
+				metadata.TxType = "invalid-tx-types"
+
+				versionBytes, err := icatypes.ModuleCdc.MarshalJSON(&metadata)
+				suite.Require().NoError(err)
+
+				channel.Version = string(versionBytes)
+				path.EndpointA.SetChannel(*channel)
+			},
+			false,
+		},
+		{
 			"connection not found",
 			func() {
 				channel.ConnectionHops = []string{"invalid-connnection-id"}
@@ -144,7 +170,7 @@ func (suite *KeeperTestSuite) TestOnChanOpenInit() {
 			path.EndpointA.ChannelConfig.PortID = portID
 
 			// default values
-			metadata = icatypes.NewMetadata(icatypes.Version, ibctesting.FirstConnectionID, ibctesting.FirstConnectionID, "")
+			metadata = icatypes.NewMetadata(icatypes.Version, ibctesting.FirstConnectionID, ibctesting.FirstConnectionID, "", icatypes.EncodingProtobuf, icatypes.TxTypeSDKMultiMsg)
 			versionBytes, err := icatypes.ModuleCdc.MarshalJSON(&metadata)
 			suite.Require().NoError(err)
 
@@ -212,6 +238,30 @@ func (suite *KeeperTestSuite) TestOnChanOpenAck() {
 			false,
 		},
 		{
+			"unsupported encoding format",
+			func() {
+				metadata.Encoding = "invalid-encoding-format"
+
+				versionBytes, err := icatypes.ModuleCdc.MarshalJSON(&metadata)
+				suite.Require().NoError(err)
+
+				path.EndpointA.Counterparty.ChannelConfig.Version = string(versionBytes)
+			},
+			false,
+		},
+		{
+			"unsupported transaction type",
+			func() {
+				metadata.TxType = "invalid-tx-types"
+
+				versionBytes, err := icatypes.ModuleCdc.MarshalJSON(&metadata)
+				suite.Require().NoError(err)
+
+				path.EndpointA.Counterparty.ChannelConfig.Version = string(versionBytes)
+			},
+			false,
+		},
+		{
 			"invalid account address",
 			func() {
 				metadata.Address = "invalid-account-address"
@@ -275,7 +325,7 @@ func (suite *KeeperTestSuite) TestOnChanOpenAck() {
 			err = path.EndpointB.ChanOpenTry()
 			suite.Require().NoError(err)
 
-			metadata = icatypes.NewMetadata(icatypes.Version, ibctesting.FirstConnectionID, ibctesting.FirstConnectionID, TestAccAddress.String())
+			metadata = icatypes.NewMetadata(icatypes.Version, ibctesting.FirstConnectionID, ibctesting.FirstConnectionID, TestAccAddress.String(), icatypes.EncodingProtobuf, icatypes.TxTypeSDKMultiMsg)
 			versionBytes, err := icatypes.ModuleCdc.MarshalJSON(&metadata)
 			suite.Require().NoError(err)
 

@@ -7,18 +7,36 @@ import (
 	connectiontypes "github.com/cosmos/ibc-go/v3/modules/core/03-connection/types"
 )
 
+const (
+	// EncodingProtobuf defines the protocol buffers proto3 encoding format
+	EncodingProtobuf = "proto3"
+
+	// TxTypeSDKMultiMsg defines the multi message transaction type supported by the Cosmos SDK
+	TxTypeSDKMultiMsg = "sdk_multi_msg"
+)
+
 // NewMetadata creates and returns a new ICS27 Metadata instance
-func NewMetadata(version, controllerConnectionID, hostConnectionID, accAddress string) Metadata {
+func NewMetadata(version, controllerConnectionID, hostConnectionID, accAddress, encoding, txType string) Metadata {
 	return Metadata{
 		Version:                version,
 		ControllerConnectionId: controllerConnectionID,
 		HostConnectionId:       hostConnectionID,
 		Address:                accAddress,
+		Encoding:               encoding,
+		TxType:                 txType,
 	}
 }
 
 // ValidateControllerMetadata performs validation of the provided ICS27 controller metadata parameters
 func ValidateControllerMetadata(ctx sdk.Context, channelKeeper ChannelKeeper, connectionHops []string, metadata Metadata) error {
+	if !isSupportedEncoding(metadata.Encoding) {
+		return sdkerrors.Wrapf(ErrInvalidCodec, "unsupported encoding format %s", metadata.Encoding)
+	}
+
+	if !isSupportedTxType(metadata.TxType) {
+		return sdkerrors.Wrapf(ErrUnknownDataType, "unsupported transaction type %s", metadata.TxType)
+	}
+
 	connection, err := channelKeeper.GetConnection(ctx, connectionHops[0])
 	if err != nil {
 		return err
@@ -43,6 +61,14 @@ func ValidateControllerMetadata(ctx sdk.Context, channelKeeper ChannelKeeper, co
 
 // ValidateHostMetadata performs validation of the provided ICS27 host metadata parameters
 func ValidateHostMetadata(ctx sdk.Context, channelKeeper ChannelKeeper, connectionHops []string, metadata Metadata) error {
+	if !isSupportedEncoding(metadata.Encoding) {
+		return sdkerrors.Wrapf(ErrInvalidCodec, "unsupported encoding format %s", metadata.Encoding)
+	}
+
+	if !isSupportedTxType(metadata.TxType) {
+		return sdkerrors.Wrapf(ErrUnknownDataType, "unsupported transaction type %s", metadata.TxType)
+	}
+
 	connection, err := channelKeeper.GetConnection(ctx, connectionHops[0])
 	if err != nil {
 		return err
@@ -63,6 +89,38 @@ func ValidateHostMetadata(ctx sdk.Context, channelKeeper ChannelKeeper, connecti
 	}
 
 	return nil
+}
+
+// isSupportedEncoding returns true if the provided encoding is supported, otherwise false
+func isSupportedEncoding(encoding string) bool {
+	for _, enc := range getSupportedEncoding() {
+		if enc == encoding {
+			return true
+		}
+	}
+
+	return false
+}
+
+// getSupportedEncoding returns a string slice of supported encoding formats
+func getSupportedEncoding() []string {
+	return []string{EncodingProtobuf}
+}
+
+// isSupportedTxType returns true if the provided transaction type is supported, otherwise false
+func isSupportedTxType(txType string) bool {
+	for _, t := range getSupportedTxTypes() {
+		if t == txType {
+			return true
+		}
+	}
+
+	return false
+}
+
+// getSupportedTxTypes returns a string slice of supported transaction types
+func getSupportedTxTypes() []string {
+	return []string{TxTypeSDKMultiMsg}
 }
 
 // validateConnectionParams compares the given the controller and host connection IDs to those set in the provided ICS27 Metadata

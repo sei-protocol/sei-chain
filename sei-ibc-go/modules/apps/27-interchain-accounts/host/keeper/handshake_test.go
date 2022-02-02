@@ -67,6 +67,30 @@ func (suite *KeeperTestSuite) TestOnChanOpenTry() {
 			false,
 		},
 		{
+			"unsupported encoding format",
+			func() {
+				metadata.Encoding = "invalid-encoding-format"
+
+				versionBytes, err := icatypes.ModuleCdc.MarshalJSON(&metadata)
+				suite.Require().NoError(err)
+
+				path.EndpointA.ChannelConfig.Version = string(versionBytes)
+			},
+			false,
+		},
+		{
+			"unsupported transaction type",
+			func() {
+				metadata.TxType = "invalid-tx-types"
+
+				versionBytes, err := icatypes.ModuleCdc.MarshalJSON(&metadata)
+				suite.Require().NoError(err)
+
+				path.EndpointA.ChannelConfig.Version = string(versionBytes)
+			},
+			false,
+		},
+		{
 			"invalid controller connection ID",
 			func() {
 				metadata.ControllerConnectionId = "invalid-connnection-id"
@@ -141,7 +165,7 @@ func (suite *KeeperTestSuite) TestOnChanOpenTry() {
 			path.EndpointB.ChannelID = channeltypes.FormatChannelIdentifier(channelSequence)
 
 			// default values
-			metadata = icatypes.NewMetadata(icatypes.Version, ibctesting.FirstConnectionID, ibctesting.FirstConnectionID, "")
+			metadata = icatypes.NewMetadata(icatypes.Version, ibctesting.FirstConnectionID, ibctesting.FirstConnectionID, "", icatypes.EncodingProtobuf, icatypes.TxTypeSDKMultiMsg)
 			versionBytes, err := icatypes.ModuleCdc.MarshalJSON(&metadata)
 			suite.Require().NoError(err)
 

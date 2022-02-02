@@ -27,9 +27,39 @@ func (suite *TypesTestSuite) TestValidateControllerMetadata() {
 					ControllerConnectionId: ibctesting.FirstConnectionID,
 					HostConnectionId:       ibctesting.FirstConnectionID,
 					Address:                "",
+					Encoding:               types.EncodingProtobuf,
+					TxType:                 types.TxTypeSDKMultiMsg,
 				}
 			},
 			true,
+		},
+		{
+			"unsupported encoding format",
+			func() {
+				metadata = types.Metadata{
+					Version:                types.Version,
+					ControllerConnectionId: ibctesting.FirstConnectionID,
+					HostConnectionId:       ibctesting.FirstConnectionID,
+					Address:                TestOwnerAddress,
+					Encoding:               "invalid-encoding-format",
+					TxType:                 types.TxTypeSDKMultiMsg,
+				}
+			},
+			false,
+		},
+		{
+			"unsupported transaction type",
+			func() {
+				metadata = types.Metadata{
+					Version:                types.Version,
+					ControllerConnectionId: ibctesting.FirstConnectionID,
+					HostConnectionId:       ibctesting.FirstConnectionID,
+					Address:                TestOwnerAddress,
+					Encoding:               types.EncodingProtobuf,
+					TxType:                 "invalid-tx-type",
+				}
+			},
+			false,
 		},
 		{
 			"invalid controller connection",
@@ -39,6 +69,8 @@ func (suite *TypesTestSuite) TestValidateControllerMetadata() {
 					ControllerConnectionId: "connection-10",
 					HostConnectionId:       ibctesting.FirstConnectionID,
 					Address:                TestOwnerAddress,
+					Encoding:               types.EncodingProtobuf,
+					TxType:                 types.TxTypeSDKMultiMsg,
 				}
 			},
 			false,
@@ -51,6 +83,8 @@ func (suite *TypesTestSuite) TestValidateControllerMetadata() {
 					ControllerConnectionId: ibctesting.FirstConnectionID,
 					HostConnectionId:       "connection-10",
 					Address:                TestOwnerAddress,
+					Encoding:               types.EncodingProtobuf,
+					TxType:                 types.TxTypeSDKMultiMsg,
 				}
 			},
 			false,
@@ -63,6 +97,8 @@ func (suite *TypesTestSuite) TestValidateControllerMetadata() {
 					ControllerConnectionId: ibctesting.FirstConnectionID,
 					HostConnectionId:       ibctesting.FirstConnectionID,
 					Address:                " ",
+					Encoding:               types.EncodingProtobuf,
+					TxType:                 types.TxTypeSDKMultiMsg,
 				}
 			},
 			false,
@@ -75,6 +111,8 @@ func (suite *TypesTestSuite) TestValidateControllerMetadata() {
 					ControllerConnectionId: ibctesting.FirstConnectionID,
 					HostConnectionId:       ibctesting.FirstConnectionID,
 					Address:                TestOwnerAddress,
+					Encoding:               types.EncodingProtobuf,
+					TxType:                 types.TxTypeSDKMultiMsg,
 				}
 			},
 			false,
@@ -89,7 +127,7 @@ func (suite *TypesTestSuite) TestValidateControllerMetadata() {
 			path := ibctesting.NewPath(suite.chainA, suite.chainB)
 			suite.coordinator.SetupConnections(path)
 
-			metadata = types.NewMetadata(types.Version, ibctesting.FirstConnectionID, ibctesting.FirstConnectionID, TestOwnerAddress)
+			metadata = types.NewMetadata(types.Version, ibctesting.FirstConnectionID, ibctesting.FirstConnectionID, TestOwnerAddress, types.EncodingProtobuf, types.TxTypeSDKMultiMsg)
 
 			tc.malleate() // malleate mutates test data
 
@@ -131,9 +169,39 @@ func (suite *TypesTestSuite) TestValidateHostMetadata() {
 					ControllerConnectionId: ibctesting.FirstConnectionID,
 					HostConnectionId:       ibctesting.FirstConnectionID,
 					Address:                "",
+					Encoding:               types.EncodingProtobuf,
+					TxType:                 types.TxTypeSDKMultiMsg,
 				}
 			},
 			true,
+		},
+		{
+			"unsupported encoding format",
+			func() {
+				metadata = types.Metadata{
+					Version:                types.Version,
+					ControllerConnectionId: ibctesting.FirstConnectionID,
+					HostConnectionId:       ibctesting.FirstConnectionID,
+					Address:                TestOwnerAddress,
+					Encoding:               "invalid-encoding-format",
+					TxType:                 types.TxTypeSDKMultiMsg,
+				}
+			},
+			false,
+		},
+		{
+			"unsupported transaction type",
+			func() {
+				metadata = types.Metadata{
+					Version:                types.Version,
+					ControllerConnectionId: ibctesting.FirstConnectionID,
+					HostConnectionId:       ibctesting.FirstConnectionID,
+					Address:                TestOwnerAddress,
+					Encoding:               types.EncodingProtobuf,
+					TxType:                 "invalid-tx-type",
+				}
+			},
+			false,
 		},
 		{
 			"invalid controller connection",
@@ -143,6 +211,8 @@ func (suite *TypesTestSuite) TestValidateHostMetadata() {
 					ControllerConnectionId: "connection-10",
 					HostConnectionId:       ibctesting.FirstConnectionID,
 					Address:                TestOwnerAddress,
+					Encoding:               types.EncodingProtobuf,
+					TxType:                 types.TxTypeSDKMultiMsg,
 				}
 			},
 			false,
@@ -155,6 +225,8 @@ func (suite *TypesTestSuite) TestValidateHostMetadata() {
 					ControllerConnectionId: ibctesting.FirstConnectionID,
 					HostConnectionId:       "connection-10",
 					Address:                TestOwnerAddress,
+					Encoding:               types.EncodingProtobuf,
+					TxType:                 types.TxTypeSDKMultiMsg,
 				}
 			},
 			false,
@@ -167,6 +239,8 @@ func (suite *TypesTestSuite) TestValidateHostMetadata() {
 					ControllerConnectionId: ibctesting.FirstConnectionID,
 					HostConnectionId:       ibctesting.FirstConnectionID,
 					Address:                " ",
+					Encoding:               types.EncodingProtobuf,
+					TxType:                 types.TxTypeSDKMultiMsg,
 				}
 			},
 			false,
@@ -179,6 +253,8 @@ func (suite *TypesTestSuite) TestValidateHostMetadata() {
 					ControllerConnectionId: ibctesting.FirstConnectionID,
 					HostConnectionId:       ibctesting.FirstConnectionID,
 					Address:                TestOwnerAddress,
+					Encoding:               types.EncodingProtobuf,
+					TxType:                 types.TxTypeSDKMultiMsg,
 				}
 			},
 			false,
@@ -193,7 +269,7 @@ func (suite *TypesTestSuite) TestValidateHostMetadata() {
 			path := ibctesting.NewPath(suite.chainA, suite.chainB)
 			suite.coordinator.SetupConnections(path)
 
-			metadata = types.NewMetadata(types.Version, ibctesting.FirstConnectionID, ibctesting.FirstConnectionID, TestOwnerAddress)
+			metadata = types.NewMetadata(types.Version, ibctesting.FirstConnectionID, ibctesting.FirstConnectionID, TestOwnerAddress, types.EncodingProtobuf, types.TxTypeSDKMultiMsg)
 
 			tc.malleate() // malleate mutates test data
 

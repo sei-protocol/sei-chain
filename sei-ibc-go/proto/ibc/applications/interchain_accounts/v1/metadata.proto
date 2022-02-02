@@ -18,4 +18,8 @@ message Metadata {
   // address defines the interchain account address to be fulfilled upon the OnChanOpenTry handshake step
   // NOTE: the address field is empty on the OnChanOpenInit handshake step
   string address = 4;
+  // encoding defines the supported codec format
+  string encoding = 5;
+  // tx_type defines the type of transactions the interchain account can execute
+  string tx_type = 6;
 }
