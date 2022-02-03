@@ -29,4 +29,10 @@ Regular accounts use a private key to sign transactions on-chain. Interchain Acc
 
 `Interchain Account`: An account on a host chain. An interchain account has all the capabilities of a normal account. However, rather than signing transactions with a private key, a controller chain's authentication module will send IBC packets to the host chain which signals what transactions the interchain account should execute.
 	
+## SDK Security Model
 
+SDK modules on a chain are assumed to be trustworthy.  For example, there are no checks to prevent an untrustworthy module from accessing the bank keeper.
+
+The implementation of ICS27 on ibc-go uses this assumption in its security considerations. The implementation assumes the authentication module will not try to open channels on owner addresses it does not control. 
+
+The implementation assumes other IBC application modules will not bind to ports within the ICS27 namespace. 
