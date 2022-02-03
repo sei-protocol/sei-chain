@@ -29,6 +29,7 @@ To suggest an ADR, please make use of the [ADR template](./adr-template.md) prov
 | ------ | ----------- | ------ |
 | [001](./adr-001-coin-source-tracing.md) | ICS-20 coin denomination format | Accepted, Implemented |
 | [002](./adr-002-go-module-versioning.md) | Go module versioning | Accepted |
+| [003](./adr-003-ics27-acknowledgement.md) | ICS27 acknowledgement format | Accepted |
 | [015](./adr-015-ibc-packet-receiver.md) | IBC Packet Routing | Accepted |
 | [025](./adr-025-ibc-passive-channels.md) | IBC passive channels | Deprecated |
 | [026](./adr-026-ibc-client-recovery-mechanisms.md) | IBC client recovery mechansisms | Accepted |
