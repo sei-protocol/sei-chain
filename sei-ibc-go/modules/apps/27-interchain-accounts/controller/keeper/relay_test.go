@@ -101,6 +101,17 @@ func (suite *KeeperTestSuite) TestSendTx() {
 			false,
 		},
 		{
+			"channel in INIT state - optimistic packet sends fail",
+			func() {
+				channel, found := suite.chainA.GetSimApp().IBCKeeper.ChannelKeeper.GetChannel(suite.chainA.GetContext(), path.EndpointA.ChannelConfig.PortID, path.EndpointA.ChannelID)
+				suite.Require().True(found)
+
+				channel.State = channeltypes.INIT
+				suite.chainA.GetSimApp().IBCKeeper.ChannelKeeper.SetChannel(suite.chainA.GetContext(), path.EndpointA.ChannelConfig.PortID, path.EndpointA.ChannelID, channel)
+			},
+			false,
+		},
+		{
 			"sendPacket fails - channel closed",
 			func() {
 				err := path.EndpointA.SetChannelClosed()
