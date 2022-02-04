@@ -82,3 +82,21 @@ func (suite *KeeperTestSuite) TestRegisterInterchainAccount() {
 		})
 	}
 }
+
+func (suite *KeeperTestSuite) TestRegisterSameOwnerMultipleConnections() {
+	suite.SetupTest()
+
+	owner := TestOwnerAddress
+
+	path := NewICAPath(suite.chainA, suite.chainB)
+	suite.coordinator.SetupConnections(path)
+
+	path2 := NewICAPath(suite.chainA, suite.chainC)
+	suite.coordinator.SetupConnections(path2)
+
+	err := suite.chainA.GetSimApp().ICAControllerKeeper.RegisterInterchainAccount(suite.chainA.GetContext(), path.EndpointA.ConnectionID, owner)
+	suite.Require().NoError(err)
+
+	err = suite.chainA.GetSimApp().ICAControllerKeeper.RegisterInterchainAccount(suite.chainA.GetContext(), path2.EndpointA.ConnectionID, owner)
+	suite.Require().NoError(err)
+}
