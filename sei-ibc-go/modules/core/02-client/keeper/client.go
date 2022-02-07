@@ -51,6 +51,8 @@ func (k Keeper) CreateClient(
 		)
 	}()
 
+	EmitCreateClientEvent(ctx, clientID, clientState)
+
 	return clientID, nil
 }
 
@@ -66,8 +68,6 @@ func (k Keeper) UpdateClient(ctx sdk.Context, clientID string, header exported.H
 	if status := clientState.Status(ctx, clientStore, k.cdc); status != exported.Active {
 		return sdkerrors.Wrapf(types.ErrClientNotActive, "cannot update client (%s) with status %s", clientID, status)
 	}
-
-	eventType := types.EventTypeUpdateClient
 
 	// Any writes made in CheckHeaderAndUpdateState are persisted on both valid updates and misbehaviour updates.
 	// Light client implementations are responsible for writing the correct metadata (if any) in either case.
@@ -118,9 +118,10 @@ func (k Keeper) UpdateClient(ctx sdk.Context, clientID string, header exported.H
 				},
 			)
 		}()
+
+		// emitting events in the keeper emits for both begin block and handler client updates
+		EmitUpdateClientEvent(ctx, clientID, newClientState, consensusHeight, headerStr)
 	} else {
-		// set eventType to SubmitMisbehaviour
-		eventType = types.EventTypeSubmitMisbehaviour
 
 		k.Logger(ctx).Info("client frozen due to misbehaviour", "client-id", clientID)
 
@@ -135,18 +136,10 @@ func (k Keeper) UpdateClient(ctx sdk.Context, clientID string, header exported.H
 				},
 			)
 		}()
+
+		EmitSubmitMisbehaviourEventOnUpdate(ctx, clientID, newClientState, consensusHeight, headerStr)
 	}
 
-	// emitting events in the keeper emits for both begin block and handler client updates
-	ctx.EventManager().EmitEvent(
-		sdk.NewEvent(
-			eventType,
-			sdk.NewAttribute(types.AttributeKeyClientID, clientID),
-			sdk.NewAttribute(types.AttributeKeyClientType, clientState.ClientType()),
-			sdk.NewAttribute(types.AttributeKeyConsensusHeight, consensusHeight.String()),
-			sdk.NewAttribute(types.AttributeKeyHeader, headerStr),
-		),
-	)
 	return nil
 }
 
@@ -188,14 +181,7 @@ func (k Keeper) UpgradeClient(ctx sdk.Context, clientID string, upgradedClient e
 	}()
 
 	// emitting events in the keeper emits for client upgrades
-	ctx.EventManager().EmitEvent(
-		sdk.NewEvent(
-			types.EventTypeUpgradeClient,
-			sdk.NewAttribute(types.AttributeKeyClientID, clientID),
-			sdk.NewAttribute(types.AttributeKeyClientType, updatedClientState.ClientType()),
-			sdk.NewAttribute(types.AttributeKeyConsensusHeight, updatedClientState.GetLatestHeight().String()),
-		),
-	)
+	EmitUpgradeClientEvent(ctx, clientID, updatedClientState)
 
 	return nil
 }
@@ -236,6 +222,8 @@ func (k Keeper) CheckMisbehaviourAndUpdateState(ctx sdk.Context, misbehaviour ex
 			},
 		)
 	}()
+
+	EmitSubmitMisbehaviourEvent(ctx, misbehaviour.GetClientID(), clientState)
 
 	return nil
 }

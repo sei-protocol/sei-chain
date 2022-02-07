@@ -89,23 +89,7 @@ func (k Keeper) WriteOpenInitChannel(
 		telemetry.IncrCounter(1, "ibc", "channel", "open-init")
 	}()
 
-	ctx.EventManager().EmitEvents(sdk.Events{
-		sdk.NewEvent(
-			types.EventTypeChannelOpenInit,
-			sdk.NewAttribute(types.AttributeKeyPortID, portID),
-			sdk.NewAttribute(types.AttributeKeyChannelID, channelID),
-			sdk.NewAttribute(types.AttributeCounterpartyPortID, counterparty.PortId),
-			sdk.NewAttribute(types.AttributeCounterpartyChannelID, counterparty.ChannelId),
-			sdk.NewAttribute(types.AttributeKeyConnectionID, connectionHops[0]),
-		),
-	})
-
-	ctx.EventManager().EmitEvents(sdk.Events{
-		sdk.NewEvent(
-			sdk.EventTypeMessage,
-			sdk.NewAttribute(sdk.AttributeKeyModule, types.AttributeValueCategory),
-		),
-	})
+	EmitChannelOpenInitEvent(ctx, portID, channelID, channel)
 }
 
 // ChanOpenTry is called by a module to accept the first step of a channel opening
@@ -263,22 +247,7 @@ func (k Keeper) WriteOpenTryChannel(
 		telemetry.IncrCounter(1, "ibc", "channel", "open-try")
 	}()
 
-	ctx.EventManager().EmitEvents(sdk.Events{
-		sdk.NewEvent(
-			types.EventTypeChannelOpenTry,
-			sdk.NewAttribute(types.AttributeKeyPortID, portID),
-			sdk.NewAttribute(types.AttributeKeyChannelID, channelID),
-			sdk.NewAttribute(types.AttributeCounterpartyPortID, channel.Counterparty.PortId),
-			sdk.NewAttribute(types.AttributeCounterpartyChannelID, channel.Counterparty.ChannelId),
-			sdk.NewAttribute(types.AttributeKeyConnectionID, channel.ConnectionHops[0]),
-		),
-	})
-	ctx.EventManager().EmitEvents(sdk.Events{
-		sdk.NewEvent(
-			sdk.EventTypeMessage,
-			sdk.NewAttribute(sdk.AttributeKeyModule, types.AttributeValueCategory),
-		),
-	})
+	EmitChannelOpenTryEvent(ctx, portID, channelID, channel)
 }
 
 // ChanOpenAck is called by the handshake-originating module to acknowledge the
@@ -366,23 +335,7 @@ func (k Keeper) WriteOpenAckChannel(
 		telemetry.IncrCounter(1, "ibc", "channel", "open-ack")
 	}()
 
-	ctx.EventManager().EmitEvents(sdk.Events{
-		sdk.NewEvent(
-			types.EventTypeChannelOpenAck,
-			sdk.NewAttribute(types.AttributeKeyPortID, portID),
-			sdk.NewAttribute(types.AttributeKeyChannelID, channelID),
-			sdk.NewAttribute(types.AttributeCounterpartyPortID, channel.Counterparty.PortId),
-			sdk.NewAttribute(types.AttributeCounterpartyChannelID, channel.Counterparty.ChannelId),
-			sdk.NewAttribute(types.AttributeKeyConnectionID, channel.ConnectionHops[0]),
-		),
-	})
-	ctx.EventManager().EmitEvents(sdk.Events{
-		sdk.NewEvent(
-			sdk.EventTypeMessage,
-			sdk.NewAttribute(sdk.AttributeKeyModule, types.AttributeValueCategory),
-		),
-	})
-
+	EmitChannelOpenAckEvent(ctx, portID, channelID, channel)
 }
 
 // ChanOpenConfirm is called by the counterparty module to close their end of the
@@ -462,22 +415,7 @@ func (k Keeper) WriteOpenConfirmChannel(
 		telemetry.IncrCounter(1, "ibc", "channel", "open-confirm")
 	}()
 
-	ctx.EventManager().EmitEvents(sdk.Events{
-		sdk.NewEvent(
-			types.EventTypeChannelOpenConfirm,
-			sdk.NewAttribute(types.AttributeKeyPortID, portID),
-			sdk.NewAttribute(types.AttributeKeyChannelID, channelID),
-			sdk.NewAttribute(types.AttributeCounterpartyPortID, channel.Counterparty.PortId),
-			sdk.NewAttribute(types.AttributeCounterpartyChannelID, channel.Counterparty.ChannelId),
-			sdk.NewAttribute(types.AttributeKeyConnectionID, channel.ConnectionHops[0]),
-		),
-	})
-	ctx.EventManager().EmitEvents(sdk.Events{
-		sdk.NewEvent(
-			sdk.EventTypeMessage,
-			sdk.NewAttribute(sdk.AttributeKeyModule, types.AttributeValueCategory),
-		),
-	})
+	EmitChannelOpenConfirmEvent(ctx, portID, channelID, channel)
 }
 
 // Closing Handshake
@@ -527,16 +465,7 @@ func (k Keeper) ChanCloseInit(
 	channel.State = types.CLOSED
 	k.SetChannel(ctx, portID, channelID, channel)
 
-	ctx.EventManager().EmitEvents(sdk.Events{
-		sdk.NewEvent(
-			types.EventTypeChannelCloseInit,
-			sdk.NewAttribute(types.AttributeKeyPortID, portID),
-			sdk.NewAttribute(types.AttributeKeyChannelID, channelID),
-			sdk.NewAttribute(types.AttributeCounterpartyPortID, channel.Counterparty.PortId),
-			sdk.NewAttribute(types.AttributeCounterpartyChannelID, channel.Counterparty.ChannelId),
-			sdk.NewAttribute(types.AttributeKeyConnectionID, channel.ConnectionHops[0]),
-		),
-	})
+	EmitChannelCloseInitEvent(ctx, portID, channelID, channel)
 
 	return nil
 }
@@ -601,16 +530,7 @@ func (k Keeper) ChanCloseConfirm(
 	channel.State = types.CLOSED
 	k.SetChannel(ctx, portID, channelID, channel)
 
-	ctx.EventManager().EmitEvents(sdk.Events{
-		sdk.NewEvent(
-			types.EventTypeChannelCloseConfirm,
-			sdk.NewAttribute(types.AttributeKeyPortID, portID),
-			sdk.NewAttribute(types.AttributeKeyChannelID, channelID),
-			sdk.NewAttribute(types.AttributeCounterpartyPortID, channel.Counterparty.PortId),
-			sdk.NewAttribute(types.AttributeCounterpartyChannelID, channel.Counterparty.ChannelId),
-			sdk.NewAttribute(types.AttributeKeyConnectionID, channel.ConnectionHops[0]),
-		),
-	})
+	EmitChannelCloseConfirmEvent(ctx, portID, channelID, channel)
 
 	return nil
 }
