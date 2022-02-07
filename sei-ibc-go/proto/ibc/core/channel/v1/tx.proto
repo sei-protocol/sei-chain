@@ -54,7 +54,9 @@ message MsgChannelOpenInit {
 }
 
 // MsgChannelOpenInitResponse defines the Msg/ChannelOpenInit response type.
-message MsgChannelOpenInitResponse {}
+message MsgChannelOpenInitResponse {
+  string channel_id = 1 [(gogoproto.moretags) = "yaml:\"channel_id\""];
+}
 
 // MsgChannelOpenInit defines a msg sent by a Relayer to try to open a channel
 // on Chain B. The version field within the Channel field has been deprecated. Its

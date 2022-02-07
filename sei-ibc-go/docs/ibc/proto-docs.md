@@ -1888,6 +1888,11 @@ is called by a relayer on Chain A.
 MsgChannelOpenInitResponse defines the Msg/ChannelOpenInit response type.
 
 
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| `channel_id` | [string](#string) |  |  |
+
+
 
 
 

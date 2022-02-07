@@ -3,7 +3,8 @@ package keeper
 import (
 	"context"
 
-	"github.com/armon/go-metrics"
+	metrics "github.com/armon/go-metrics"
+
 	"github.com/cosmos/cosmos-sdk/telemetry"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
@@ -191,7 +192,9 @@ func (k Keeper) ChannelOpenInit(goCtx context.Context, msg *channeltypes.MsgChan
 	// Write channel into state
 	k.ChannelKeeper.WriteOpenInitChannel(ctx, msg.PortId, channelID, msg.Channel.Ordering, msg.Channel.ConnectionHops, msg.Channel.Counterparty, msg.Channel.Version)
 
-	return &channeltypes.MsgChannelOpenInitResponse{}, nil
+	return &channeltypes.MsgChannelOpenInitResponse{
+		ChannelId: channelID,
+	}, nil
 }
 
 // ChannelOpenTry defines a rpc handler method for MsgChannelOpenTry.
