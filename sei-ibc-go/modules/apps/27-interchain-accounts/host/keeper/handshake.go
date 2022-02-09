@@ -1,6 +1,7 @@
 package keeper
 
 import (
+	"fmt"
 	"strings"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -47,8 +48,20 @@ func (k Keeper) OnChanOpenTry(
 		return "", err
 	}
 
-	if activeChannelID, found := k.GetOpenActiveChannel(ctx, connectionHops[0], counterparty.PortId); found {
-		return "", sdkerrors.Wrapf(icatypes.ErrActiveChannelAlreadySet, "existing active channel %s for portID %s", activeChannelID, portID)
+	activeChannelID, found := k.GetActiveChannelID(ctx, connectionHops[0], counterparty.PortId)
+	if found {
+		channel, found := k.channelKeeper.GetChannel(ctx, portID, activeChannelID)
+		if !found {
+			panic(fmt.Sprintf("active channel mapping set for %s but channel does not exist in channel store", activeChannelID))
+		}
+
+		if channel.State == channeltypes.OPEN {
+			return "", sdkerrors.Wrapf(icatypes.ErrActiveChannelAlreadySet, "existing active channel %s for portID %s is already OPEN", activeChannelID, portID)
+		}
+
+		if !icatypes.IsPreviousMetadataEqual(channel.Version, metadata) {
+			return "", sdkerrors.Wrap(icatypes.ErrInvalidVersion, "previous active channel metadata does not match provided version")
+		}
 	}
 
 	// On the host chain the capability may only be claimed during the OnChanOpenTry
@@ -83,9 +96,9 @@ func (k Keeper) OnChanOpenConfirm(
 	}
 
 	// It is assumed the controller chain will not allow multiple active channels to be created for the same connectionID/portID
-	// If the controller chain does allow multiple active channels to be created for the same connectionID/portID, 
+	// If the controller chain does allow multiple active channels to be created for the same connectionID/portID,
 	// disallowing overwriting the current active channel guarantees the channel can no longer be used as the controller
-	// and host will disagree on what the currently active channel is 
+	// and host will disagree on what the currently active channel is
 	k.SetActiveChannelID(ctx, channel.ConnectionHops[0], channel.Counterparty.PortId, channelID)
 
 	return nil

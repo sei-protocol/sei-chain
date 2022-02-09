@@ -31,6 +31,51 @@ func (suite *KeeperTestSuite) TestOnChanOpenInit() {
 			true,
 		},
 		{
+			"success - previous active channel closed",
+			func() {
+				suite.chainA.GetSimApp().ICAControllerKeeper.SetActiveChannelID(suite.chainA.GetContext(), ibctesting.FirstConnectionID, path.EndpointA.ChannelConfig.PortID, path.EndpointA.ChannelID)
+
+				counterparty := channeltypes.NewCounterparty(path.EndpointB.ChannelConfig.PortID, path.EndpointB.ChannelID)
+				channel := channeltypes.Channel{
+					State:          channeltypes.CLOSED,
+					Ordering:       channeltypes.ORDERED,
+					Counterparty:   counterparty,
+					ConnectionHops: []string{path.EndpointA.ConnectionID},
+					Version:        TestVersion,
+				}
+
+				path.EndpointA.SetChannel(channel)
+			},
+			true,
+		},
+		{
+			"invalid metadata -  previous metadata is different",
+			func() {
+				// set active channel to closed
+				suite.chainA.GetSimApp().ICAControllerKeeper.SetActiveChannelID(suite.chainA.GetContext(), ibctesting.FirstConnectionID, path.EndpointA.ChannelConfig.PortID, path.EndpointA.ChannelID)
+
+				counterparty := channeltypes.NewCounterparty(path.EndpointB.ChannelConfig.PortID, path.EndpointB.ChannelID)
+				closedChannel := channeltypes.Channel{
+					State:          channeltypes.CLOSED,
+					Ordering:       channeltypes.ORDERED,
+					Counterparty:   counterparty,
+					ConnectionHops: []string{path.EndpointA.ConnectionID},
+					Version:        TestVersion,
+				}
+
+				path.EndpointA.SetChannel(closedChannel)
+
+				// modify metadata
+				metadata.Version = "ics27-2"
+
+				versionBytes, err := icatypes.ModuleCdc.MarshalJSON(&metadata)
+				suite.Require().NoError(err)
+
+				channel.Version = string(versionBytes)
+			},
+			false,
+		},
+		{
 			"invalid order - UNORDERED",
 			func() {
 				channel.Ordering = channeltypes.UNORDERED

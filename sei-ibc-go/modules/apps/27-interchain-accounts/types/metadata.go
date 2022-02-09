@@ -27,6 +27,21 @@ func NewMetadata(version, controllerConnectionID, hostConnectionID, accAddress, 
 	}
 }
 
+// IsPreviousMetadataEqual compares a metadata to a previous version string set in a channel struct.
+// It ensures all fields are equal except the Address string
+func IsPreviousMetadataEqual(previousVersion string, metadata Metadata) bool {
+	var previousMetadata Metadata
+	if err := ModuleCdc.UnmarshalJSON([]byte(previousVersion), &previousMetadata); err != nil {
+		return false
+	}
+
+	return (previousMetadata.Version == metadata.Version &&
+		previousMetadata.ControllerConnectionId == metadata.ControllerConnectionId &&
+		previousMetadata.HostConnectionId == metadata.HostConnectionId &&
+		previousMetadata.Encoding == metadata.Encoding &&
+		previousMetadata.TxType == metadata.TxType)
+}
+
 // ValidateControllerMetadata performs validation of the provided ICS27 controller metadata parameters
 func ValidateControllerMetadata(ctx sdk.Context, channelKeeper ChannelKeeper, connectionHops []string, metadata Metadata) error {
 	if !isSupportedEncoding(metadata.Encoding) {

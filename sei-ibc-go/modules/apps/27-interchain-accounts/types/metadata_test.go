@@ -5,6 +5,127 @@ import (
 	ibctesting "github.com/cosmos/ibc-go/v3/testing"
 )
 
+// use TestVersion as metadata being compared against
+func (suite *TypesTestSuite) TestIsPreviousMetadataEqual() {
+
+	var (
+		metadata        types.Metadata
+		previousVersion string
+	)
+
+	testCases := []struct {
+		name     string
+		malleate func()
+		expEqual bool
+	}{
+		{
+			"success",
+			func() {
+				versionBytes, err := types.ModuleCdc.MarshalJSON(&metadata)
+				suite.Require().NoError(err)
+				previousVersion = string(versionBytes)
+			},
+			true,
+		},
+		{
+			"success with empty account address",
+			func() {
+				metadata.Address = ""
+
+				versionBytes, err := types.ModuleCdc.MarshalJSON(&metadata)
+				suite.Require().NoError(err)
+				previousVersion = string(versionBytes)
+			},
+			true,
+		},
+		{
+			"cannot decode previous version",
+			func() {
+				previousVersion = "invalid previous version"
+			},
+			false,
+		},
+		{
+			"unequal encoding format",
+			func() {
+				metadata.Encoding = "invalid-encoding-format"
+
+				versionBytes, err := types.ModuleCdc.MarshalJSON(&metadata)
+				suite.Require().NoError(err)
+				previousVersion = string(versionBytes)
+			},
+			false,
+		},
+		{
+			"unequal transaction type",
+			func() {
+				metadata.TxType = "invalid-tx-type"
+
+				versionBytes, err := types.ModuleCdc.MarshalJSON(&metadata)
+				suite.Require().NoError(err)
+				previousVersion = string(versionBytes)
+			},
+			false,
+		},
+		{
+			"unequal controller connection",
+			func() {
+				metadata.ControllerConnectionId = "connection-10"
+
+				versionBytes, err := types.ModuleCdc.MarshalJSON(&metadata)
+				suite.Require().NoError(err)
+				previousVersion = string(versionBytes)
+			},
+			false,
+		},
+		{
+			"unequal host connection",
+			func() {
+				metadata.HostConnectionId = "connection-10"
+
+				versionBytes, err := types.ModuleCdc.MarshalJSON(&metadata)
+				suite.Require().NoError(err)
+				previousVersion = string(versionBytes)
+			},
+			false,
+		},
+		{
+			"unequal version",
+			func() {
+				metadata.Version = "invalid version"
+
+				versionBytes, err := types.ModuleCdc.MarshalJSON(&metadata)
+				suite.Require().NoError(err)
+				previousVersion = string(versionBytes)
+			},
+			false,
+		},
+	}
+
+	for _, tc := range testCases {
+		tc := tc
+		suite.Run(tc.name, func() {
+			suite.SetupTest() // reset
+
+			path := ibctesting.NewPath(suite.chainA, suite.chainB)
+			suite.coordinator.SetupConnections(path)
+
+			expectedMetadata := types.NewMetadata(types.Version, ibctesting.FirstConnectionID, ibctesting.FirstConnectionID, TestOwnerAddress, types.EncodingProtobuf, types.TxTypeSDKMultiMsg)
+			metadata = expectedMetadata // default success case
+
+			tc.malleate() // malleate mutates test data
+
+			equal := types.IsPreviousMetadataEqual(previousVersion, expectedMetadata)
+
+			if tc.expEqual {
+				suite.Require().True(equal)
+			} else {
+				suite.Require().False(equal)
+			}
+		})
+	}
+}
+
 func (suite *TypesTestSuite) TestValidateControllerMetadata() {
 
 	var metadata types.Metadata

@@ -1,6 +1,7 @@
 package keeper
 
 import (
+	"fmt"
 	"strings"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -49,9 +50,20 @@ func (k Keeper) OnChanOpenInit(
 		return err
 	}
 
-	activeChannelID, found := k.GetOpenActiveChannel(ctx, connectionHops[0], portID)
+	activeChannelID, found := k.GetActiveChannelID(ctx, connectionHops[0], portID)
 	if found {
-		return sdkerrors.Wrapf(icatypes.ErrActiveChannelAlreadySet, "existing active channel %s for portID %s", activeChannelID, portID)
+		channel, found := k.channelKeeper.GetChannel(ctx, portID, activeChannelID)
+		if !found {
+			panic(fmt.Sprintf("active channel mapping set for %s but channel does not exist in channel store", activeChannelID))
+		}
+
+		if channel.State == channeltypes.OPEN {
+			return sdkerrors.Wrapf(icatypes.ErrActiveChannelAlreadySet, "existing active channel %s for portID %s is already OPEN", activeChannelID, portID)
+		}
+
+		if !icatypes.IsPreviousMetadataEqual(channel.Version, metadata) {
+			return sdkerrors.Wrap(icatypes.ErrInvalidVersion, "previous active channel metadata does not match provided version")
+		}
 	}
 
 	return nil
