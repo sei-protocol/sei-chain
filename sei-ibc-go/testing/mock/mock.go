@@ -8,7 +8,6 @@ import (
 	codectypes "github.com/cosmos/cosmos-sdk/codec/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/types/module"
-	capabilitykeeper "github.com/cosmos/cosmos-sdk/x/capability/keeper"
 	capabilitytypes "github.com/cosmos/cosmos-sdk/x/capability/types"
 	"github.com/gorilla/mux"
 	"github.com/grpc-ecosystem/grpc-gateway/runtime"
@@ -89,15 +88,14 @@ func (AppModuleBasic) GetQueryCmd() *cobra.Command {
 // AppModule represents the AppModule for the mock module.
 type AppModule struct {
 	AppModuleBasic
-	scopedKeeper capabilitykeeper.ScopedKeeper
-	portKeeper   PortKeeper
+	ibcApps    []*MockIBCApp
+	portKeeper PortKeeper
 }
 
 // NewAppModule returns a mock AppModule instance.
-func NewAppModule(sk capabilitykeeper.ScopedKeeper, pk PortKeeper) AppModule {
+func NewAppModule(pk PortKeeper) AppModule {
 	return AppModule{
-		scopedKeeper: sk,
-		portKeeper:   pk,
+		portKeeper: pk,
 	}
 }
 
@@ -124,9 +122,13 @@ func (am AppModule) RegisterServices(module.Configurator) {}
 
 // InitGenesis implements the AppModule interface.
 func (am AppModule) InitGenesis(ctx sdk.Context, cdc codec.JSONCodec, data json.RawMessage) []abci.ValidatorUpdate {
-	// bind mock port ID
-	cap := am.portKeeper.BindPort(ctx, ModuleName)
-	am.scopedKeeper.ClaimCapability(ctx, cap, host.PortPath(ModuleName))
+	for _, ibcApp := range am.ibcApps {
+		if ibcApp.PortID != "" {
+			// bind mock portID
+			cap := am.portKeeper.BindPort(ctx, ibcApp.PortID)
+			ibcApp.ScopedKeeper.ClaimCapability(ctx, cap, host.PortPath(ModuleName))
+		}
+	}
 
 	return []abci.ValidatorUpdate{}
 }

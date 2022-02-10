@@ -296,6 +296,7 @@ The mock module may also be leveraged to act as a base application in the instan
 
 The mock IBC module contains a `MockIBCApp`. This struct contains a function field for every IBC App Module callback. 
 Each of these functions can be individually set to mock expected behaviour of a base application. 
+The portID and scoped keeper for the `MockIBCApp` should be set within `MockIBCApp` before calling `NewIBCModule`.
 
 For example, if one wanted to test that the base application cannot affect the outcome of the `OnChanOpenTry` callback, the mock module base application callback could be updated as such:
 ```go

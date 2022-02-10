@@ -53,7 +53,7 @@ Ref: https://keepachangelog.com/en/1.0.0/
 * (modules/core/02-client) [\#536](https://github.com/cosmos/ibc-go/pull/536) `GetSelfConsensusState` return type changed from bool to error.
 * (channel) [\#644](https://github.com/cosmos/ibc-go/pull/644) Removes `CounterpartyHops` function from the ChannelKeeper.
 * (testing) [\#776](https://github.com/cosmos/ibc-go/pull/776) Adding helper fn to generate capability name for testing callbacks 
-
+* (testing) [\#892](https://github.com/cosmos/ibc-go/pull/892) IBC Mock modules store the scoped keeper and portID within the IBCMockApp. They also maintain reference to the AppModule to update the AppModule's list of IBC applications it references. Allows for the mock module to be reused as a base application in middleware stacks.
 
 ### State Machine Breaking
 
