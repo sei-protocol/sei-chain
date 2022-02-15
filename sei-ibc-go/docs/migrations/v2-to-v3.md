@@ -28,6 +28,33 @@ The ICS4Wrapper should be the IBC Channel Keeper unless ICS 20 is being connecte
 ICS27 Interchain Accounts has been added as a supported IBC application of ibc-go.
 Please see the [ICS27 documentation](../app-modules/interchain-accounts/overview.md) for more information.
 
+### Upgrade Proposal
+
+If the chain will adopt ICS27, it must set the appropriate params during the execution of the upgrade handler in `app.go`: 
+```go
+app.UpgradeKeeper.SetUpgradeHandler("v3",
+    func(ctx sdk.Context, _ upgradetypes.Plan, vm module.VersionMap) (module.VersionMap, error) {
+        // set ICS27 Host submodule params
+        app.ICAHostKeeper.SetParams(ctx, icahosttypes.Params{
+            HostEnabled: true, 
+            AllowMessages: []string{"/cosmos.bank.v1beta1.MsgSend", ...], 
+        })
+
+        // set ICS27 Controller submodule params
+        app.ICAControllerKeeper.SetParams(ctx, icacontrollertypes.Params{
+            ControllerEnabled: true, 
+        })
+        
+        ...
+
+        return app.mm.RunMigrations(ctx, app.configurator, fromVM)
+    })
+
+```
+
+The host and controller submodule params only need to be set if you integrate those submodules. 
+For example, if a chain chooses not to integrate a controller submodule, it does not need to set the controller params. 
+
 ## IBC Apps
 
 
