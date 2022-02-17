@@ -312,7 +312,7 @@ func (k Keeper) WriteAcknowledgement(
 	ctx sdk.Context,
 	chanCap *capabilitytypes.Capability,
 	packet exported.PacketI,
-	acknowledgement []byte,
+	acknowledgement exported.Acknowledgement,
 ) error {
 	channel, found := k.GetChannel(ctx, packet.GetDestPort(), packet.GetDestChannel())
 	if !found {
@@ -342,14 +342,19 @@ func (k Keeper) WriteAcknowledgement(
 		return types.ErrAcknowledgementExists
 	}
 
-	if len(acknowledgement) == 0 {
+	if acknowledgement == nil {
+		return sdkerrors.Wrap(types.ErrInvalidAcknowledgement, "acknowledgement cannot be nil")
+	}
+
+	bz := acknowledgement.Acknowledgement()
+	if len(bz) == 0 {
 		return sdkerrors.Wrap(types.ErrInvalidAcknowledgement, "acknowledgement cannot be empty")
 	}
 
 	// set the acknowledgement so that it can be verified on the other side
 	k.SetPacketAcknowledgement(
 		ctx, packet.GetDestPort(), packet.GetDestChannel(), packet.GetSequence(),
-		types.CommitAcknowledgement(acknowledgement),
+		types.CommitAcknowledgement(bz),
 	)
 
 	// log that a packet acknowledgement has been written
@@ -362,7 +367,7 @@ func (k Keeper) WriteAcknowledgement(
 		"dst_channel", packet.GetDestChannel(),
 	)
 
-	EmitWriteAcknowledgementEvent(ctx, packet, channel, acknowledgement)
+	EmitWriteAcknowledgementEvent(ctx, packet, channel, bz)
 
 	return nil
 }

@@ -18,6 +18,12 @@ No genesis or in-place migrations are required when upgrading from v1 or v2 of i
 
 ## Chains
 
+### IS04 - Channel 
+
+The `WriteAcknowledgement` API now takes the `exported.Acknowledgement` type instead of passing in the acknowledgement byte array directly. 
+This is an API breaking change and as such IBC application developers will have to update any calls to `WriteAcknowledgement`. 
+
+
 ### ICS20
 
 The `transferkeeper.NewKeeper(...)` now takes in an ICS4Wrapper. 

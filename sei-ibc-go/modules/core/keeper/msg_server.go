@@ -417,7 +417,7 @@ func (k Keeper) RecvPacket(goCtx context.Context, msg *channeltypes.MsgRecvPacke
 	// NOTE: IBC applications modules may call the WriteAcknowledgement asynchronously if the
 	// acknowledgement is nil.
 	if ack != nil {
-		if err := k.ChannelKeeper.WriteAcknowledgement(ctx, cap, msg.Packet, ack.Acknowledgement()); err != nil {
+		if err := k.ChannelKeeper.WriteAcknowledgement(ctx, cap, msg.Packet, ack); err != nil {
 			return nil, err
 		}
 	}

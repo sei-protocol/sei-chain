@@ -110,7 +110,7 @@ type ICS4Wrapper interface {
 		ctx sdk.Context,
 		chanCap *capabilitytypes.Capability,
 		packet exported.PacketI,
-		ack []byte,
+		ack exported.Acknowledgement,
 	) error
 }
 

@@ -493,7 +493,7 @@ func (suite *KeeperTestSuite) TestRecvPacket() {
 func (suite *KeeperTestSuite) TestWriteAcknowledgement() {
 	var (
 		path       *ibctesting.Path
-		ack        []byte
+		ack        exported.Acknowledgement
 		packet     exported.PacketI
 		channelCap *capabilitytypes.Capability
 	)
@@ -504,7 +504,7 @@ func (suite *KeeperTestSuite) TestWriteAcknowledgement() {
 			func() {
 				suite.coordinator.Setup(path)
 				packet = types.NewPacket(ibctesting.MockPacketData, 1, path.EndpointA.ChannelConfig.PortID, path.EndpointA.ChannelID, path.EndpointB.ChannelConfig.PortID, path.EndpointB.ChannelID, timeoutHeight, disabledTimeoutTimestamp)
-				ack = ibctesting.MockAcknowledgement
+				ack = ibcmock.MockAcknowledgement
 				channelCap = suite.chainB.GetChannelCapability(path.EndpointB.ChannelConfig.PortID, path.EndpointB.ChannelID)
 			},
 			true,
@@ -513,13 +513,13 @@ func (suite *KeeperTestSuite) TestWriteAcknowledgement() {
 			// use wrong channel naming
 			suite.coordinator.Setup(path)
 			packet = types.NewPacket(ibctesting.MockPacketData, 1, path.EndpointA.ChannelConfig.PortID, path.EndpointA.ChannelID, ibctesting.InvalidID, ibctesting.InvalidID, timeoutHeight, disabledTimeoutTimestamp)
-			ack = ibctesting.MockAcknowledgement
+			ack = ibcmock.MockAcknowledgement
 			channelCap = suite.chainB.GetChannelCapability(path.EndpointB.ChannelConfig.PortID, path.EndpointB.ChannelID)
 		}, false},
 		{"channel not open", func() {
 			suite.coordinator.Setup(path)
 			packet = types.NewPacket(ibctesting.MockPacketData, 1, path.EndpointA.ChannelConfig.PortID, path.EndpointA.ChannelID, path.EndpointB.ChannelConfig.PortID, path.EndpointB.ChannelID, timeoutHeight, disabledTimeoutTimestamp)
-			ack = ibctesting.MockAcknowledgement
+			ack = ibcmock.MockAcknowledgement
 
 			err := path.EndpointB.SetChannelClosed()
 			suite.Require().NoError(err)
@@ -530,7 +530,7 @@ func (suite *KeeperTestSuite) TestWriteAcknowledgement() {
 			func() {
 				suite.coordinator.Setup(path)
 				packet = types.NewPacket(ibctesting.MockPacketData, 1, path.EndpointA.ChannelConfig.PortID, path.EndpointA.ChannelID, path.EndpointB.ChannelConfig.PortID, path.EndpointB.ChannelID, timeoutHeight, disabledTimeoutTimestamp)
-				ack = ibctesting.MockAcknowledgement
+				ack = ibcmock.MockAcknowledgement
 				channelCap = capabilitytypes.NewCapability(3)
 			},
 			false,
@@ -540,14 +540,24 @@ func (suite *KeeperTestSuite) TestWriteAcknowledgement() {
 			func() {
 				suite.coordinator.Setup(path)
 				packet = types.NewPacket(ibctesting.MockPacketData, 1, path.EndpointA.ChannelConfig.PortID, path.EndpointA.ChannelID, path.EndpointB.ChannelConfig.PortID, path.EndpointB.ChannelID, timeoutHeight, disabledTimeoutTimestamp)
-				ack = ibctesting.MockAcknowledgement
-				suite.chainB.App.GetIBCKeeper().ChannelKeeper.SetPacketAcknowledgement(suite.chainB.GetContext(), packet.GetDestPort(), packet.GetDestChannel(), packet.GetSequence(), ack)
+				ack = ibcmock.MockAcknowledgement
+				suite.chainB.App.GetIBCKeeper().ChannelKeeper.SetPacketAcknowledgement(suite.chainB.GetContext(), packet.GetDestPort(), packet.GetDestChannel(), packet.GetSequence(), ack.Acknowledgement())
 				channelCap = suite.chainB.GetChannelCapability(path.EndpointB.ChannelConfig.PortID, path.EndpointB.ChannelID)
 			},
 			false,
 		},
 		{
 			"empty acknowledgement",
+			func() {
+				suite.coordinator.Setup(path)
+				packet = types.NewPacket(ibctesting.MockPacketData, 1, path.EndpointA.ChannelConfig.PortID, path.EndpointA.ChannelID, path.EndpointB.ChannelConfig.PortID, path.EndpointB.ChannelID, timeoutHeight, disabledTimeoutTimestamp)
+				ack = ibcmock.NewMockEmptyAcknowledgement()
+				channelCap = suite.chainB.GetChannelCapability(path.EndpointB.ChannelConfig.PortID, path.EndpointB.ChannelID)
+			},
+			false,
+		},
+		{
+			"acknowledgement is nil",
 			func() {
 				suite.coordinator.Setup(path)
 				packet = types.NewPacket(ibctesting.MockPacketData, 1, path.EndpointA.ChannelConfig.PortID, path.EndpointA.ChannelID, path.EndpointB.ChannelConfig.PortID, path.EndpointB.ChannelID, timeoutHeight, disabledTimeoutTimestamp)
