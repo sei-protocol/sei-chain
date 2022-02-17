@@ -26,7 +26,7 @@ The ICS4Wrapper should be the IBC Channel Keeper unless ICS 20 is being connecte
 ### ICS27
 
 ICS27 Interchain Accounts has been added as a supported IBC application of ibc-go.
-Please see the [ICS27 documentation](../app-modules/interchain-accounts/overview.md) for more information.
+Please see the [ICS27 documentation](../apps/interchain-accounts/overview.md) for more information.
 
 ### Upgrade Proposal
 
