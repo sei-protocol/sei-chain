@@ -452,7 +452,7 @@ func (suite *KeeperTestSuite) TestQueryClientStatus() {
 					ClientId: path.EndpointA.ClientID,
 				}
 			},
-			true, exported.Unknown.String(),
+			true, exported.Expired.String(),
 		},
 		{
 			"Frozen client status",

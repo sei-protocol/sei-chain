@@ -47,10 +47,10 @@ func (suite *TendermintTestSuite) TestStatus() {
 			clientState.FrozenHeight = clienttypes.NewHeight(0, 1)
 			path.EndpointA.SetClientState(clientState)
 		}, exported.Frozen},
-		{"client status is unknown", func() {
+		{"client status without consensus state", func() {
 			clientState.LatestHeight = clientState.LatestHeight.Increment().(clienttypes.Height)
 			path.EndpointA.SetClientState(clientState)
-		}, exported.Unknown},
+		}, exported.Expired},
 		{"client status is expired", func() {
 			suite.coordinator.IncrementTimeBy(clientState.TrustingPeriod)
 		}, exported.Expired},
