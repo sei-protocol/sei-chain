@@ -61,6 +61,32 @@ app.UpgradeKeeper.SetUpgradeHandler("v3",
 The host and controller submodule params only need to be set if you integrate those submodules. 
 For example, if a chain chooses not to integrate a controller submodule, it does not need to set the controller params. 
 
+### Genesis migrations
+
+If the chain will adopt ICS27 and chooses to upgrade via a genesis export, then the ICS27 parameters must be set during genesis migration. 
+
+The migration code required may look like:
+
+```go
+    controllerGenesisState := icatypes.DefaultControllerGenesis()
+    // overwrite parameters as desired
+    controllerGenesisState.Params = icacontrollertypes.Params{
+        ControllerEnabled: true, 
+    } 
+
+    hostGenesisState := icatypes.DefaultHostGenesis()
+    // overwrite parameters as desired
+    hostGenesisState.Params = icahosttypes.Params{
+        HostEnabled: true, 
+        AllowMessages: []string{"/cosmos.bank.v1beta1.MsgSend", ...], 
+    }
+
+    icaGenesisState := icatypes.NewGenesisState(controllerGenesisState, hostGenesisState)
+
+    // set new ics27 genesis state
+    appState[icatypes.ModuleName] = clientCtx.JSONCodec.MustMarshalJSON(icaGenesisState)
+```
+
 ## IBC Apps
 
 
@@ -96,6 +122,10 @@ The IBC module callbacks have been moved from the mock modules `AppModule` into 
 As apart of this release, the mock module now supports middleware testing. Please see the [README](../../testing/README.md#middleware-testing) for more information.
 
 Please review the [mock](../../testing/mock/ibc_module.go) and [transfer](../../modules/apps/transfer/ibc_module.go) modules as examples. Additionally, [simapp](../../testing/simapp/app.go) provides an example of how `IBCModule` types should now be added to the IBC router in favour of `AppModule`.
+
+### IBC testing package
+
+`TestChain`s are now created with chainID's beginning from an index of 1. Any calls to `GetChainID(0)` will now fail. Please increment all calls to `GetChainID` by 1. 
 
 ## Relayers
 
