@@ -19,7 +19,7 @@ var (
 // Coordinator is a testing struct which contains N TestChain's. It handles keeping all chains
 // in sync with regards to time.
 type Coordinator struct {
-	t *testing.T
+	*testing.T
 
 	CurrentTime time.Time
 	Chains      map[string]*TestChain
@@ -29,7 +29,7 @@ type Coordinator struct {
 func NewCoordinator(t *testing.T, n int) *Coordinator {
 	chains := make(map[string]*TestChain)
 	coord := &Coordinator{
-		t:           t,
+		T:           t,
 		CurrentTime: globalStartTime,
 	}
 
@@ -84,10 +84,10 @@ func (coord *Coordinator) Setup(path *Path) {
 // caller does not anticipate any errors.
 func (coord *Coordinator) SetupClients(path *Path) {
 	err := path.EndpointA.CreateClient()
-	require.NoError(coord.t, err)
+	require.NoError(coord.T, err)
 
 	err = path.EndpointB.CreateClient()
-	require.NoError(coord.t, err)
+	require.NoError(coord.T, err)
 }
 
 // SetupClientConnections is a helper function to create clients and the appropriate
@@ -105,16 +105,16 @@ func (coord *Coordinator) SetupConnections(path *Path) {
 // successfully opened otherwise testing will fail.
 func (coord *Coordinator) CreateConnections(path *Path) {
 	err := path.EndpointA.ConnOpenInit()
-	require.NoError(coord.t, err)
+	require.NoError(coord.T, err)
 
 	err = path.EndpointB.ConnOpenTry()
-	require.NoError(coord.t, err)
+	require.NoError(coord.T, err)
 
 	err = path.EndpointA.ConnOpenAck()
-	require.NoError(coord.t, err)
+	require.NoError(coord.T, err)
 
 	err = path.EndpointB.ConnOpenConfirm()
-	require.NoError(coord.t, err)
+	require.NoError(coord.T, err)
 
 	// ensure counterparty is up to date
 	path.EndpointA.UpdateClient()
@@ -146,16 +146,16 @@ func (coord *Coordinator) CreateTransferChannels(path *Path) {
 // opened otherwise testing will fail.
 func (coord *Coordinator) CreateChannels(path *Path) {
 	err := path.EndpointA.ChanOpenInit()
-	require.NoError(coord.t, err)
+	require.NoError(coord.T, err)
 
 	err = path.EndpointB.ChanOpenTry()
-	require.NoError(coord.t, err)
+	require.NoError(coord.T, err)
 
 	err = path.EndpointA.ChanOpenAck()
-	require.NoError(coord.t, err)
+	require.NoError(coord.T, err)
 
 	err = path.EndpointB.ChanOpenConfirm()
-	require.NoError(coord.t, err)
+	require.NoError(coord.T, err)
 
 	// ensure counterparty is up to date
 	path.EndpointA.UpdateClient()
@@ -165,7 +165,7 @@ func (coord *Coordinator) CreateChannels(path *Path) {
 // not exist.
 func (coord *Coordinator) GetChain(chainID string) *TestChain {
 	chain, found := coord.Chains[chainID]
-	require.True(coord.t, found, fmt.Sprintf("%s chain does not exist", chainID))
+	require.True(coord.T, found, fmt.Sprintf("%s chain does not exist", chainID))
 	return chain
 }
 
