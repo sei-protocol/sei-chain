@@ -162,7 +162,7 @@ func ValidatePrefixedDenom(denom string) error {
 
 // ValidateIBCDenom validates that the given denomination is either:
 //
-//  - A valid base denomination (eg: 'uatom')
+//  - A valid base denomination (eg: 'uatom' or 'gamm/pool/1' as in https://github.com/cosmos/ibc-go/issues/894)
 //  - A valid fungible token representation (i.e 'ibc/{hash}') per ADR 001 https://github.com/cosmos/ibc-go/blob/main/docs/architecture/adr-001-coin-source-tracing.md
 func ValidateIBCDenom(denom string) error {
 	if err := sdk.ValidateDenom(denom); err != nil {
@@ -172,17 +172,17 @@ func ValidateIBCDenom(denom string) error {
 	denomSplit := strings.SplitN(denom, "/", 2)
 
 	switch {
-	case strings.TrimSpace(denom) == "",
-		len(denomSplit) == 1 && denomSplit[0] == DenomPrefix,
-		len(denomSplit) == 2 && (denomSplit[0] != DenomPrefix || strings.TrimSpace(denomSplit[1]) == ""):
+	case denom == DenomPrefix:
 		return sdkerrors.Wrapf(ErrInvalidDenomForTransfer, "denomination should be prefixed with the format 'ibc/{hash(trace + \"/\" + %s)}'", denom)
 
-	case denomSplit[0] == denom && strings.TrimSpace(denom) != "":
-		return nil
-	}
+	case len(denomSplit) == 2 && denomSplit[0] == DenomPrefix:
+		if strings.TrimSpace(denomSplit[1]) == "" {
+			return sdkerrors.Wrapf(ErrInvalidDenomForTransfer, "denomination should be prefixed with the format 'ibc/{hash(trace + \"/\" + %s)}'", denom)
+		}
 
-	if _, err := ParseHexHash(denomSplit[1]); err != nil {
-		return sdkerrors.Wrapf(err, "invalid denom trace hash %s", denomSplit[1])
+		if _, err := ParseHexHash(denomSplit[1]); err != nil {
+			return sdkerrors.Wrapf(err, "invalid denom trace hash %s", denomSplit[1])
+		}
 	}
 
 	return nil

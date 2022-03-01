@@ -131,11 +131,12 @@ func TestValidateIBCDenom(t *testing.T) {
 	}{
 		{"denom with trace hash", "ibc/7F1D3FCF4AE79E1554D670D1AD949A9BA4E4A3C76C63093E17E446A46061A7A2", false},
 		{"base denom", "uatom", false},
+		{"base denom with single '/'s", "gamm/pool/1", false},
+		{"base denom with double '/'s", "gamm//pool//1", false},
+		{"non-ibc prefix with hash", "notibc/7F1D3FCF4AE79E1554D670D1AD949A9BA4E4A3C76C63093E17E446A46061A7A2", false},
 		{"empty denom", "", true},
-		{"invalid prefixed denom", "transfer/channelToA/uatom", true},
 		{"denom 'ibc'", "ibc", true},
 		{"denom 'ibc/'", "ibc/", true},
-		{"invald prefix", "notibc/7F1D3FCF4AE79E1554D670D1AD949A9BA4E4A3C76C63093E17E446A46061A7A2", true},
 		{"invald hash", "ibc/!@#$!@#", true},
 	}
 
