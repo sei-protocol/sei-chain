@@ -39,17 +39,24 @@ Please see the [ICS27 documentation](../apps/interchain-accounts/overview.md) fo
 If the chain will adopt ICS27, it must set the appropriate params during the execution of the upgrade handler in `app.go`: 
 ```go
 app.UpgradeKeeper.SetUpgradeHandler("v3",
-    func(ctx sdk.Context, _ upgradetypes.Plan, vm module.VersionMap) (module.VersionMap, error) {
-        // set ICS27 Host submodule params
-        app.ICAHostKeeper.SetParams(ctx, icahosttypes.Params{
+    func(ctx sdk.Context, _ upgradetypes.Plan, fromVM module.VersionMap) (module.VersionMap, error) {
+        // set the ICS27 consensus version so InitGenesis is not run
+        fromVM[icatypes.ModuleName] = icamodule.ConsensusVersion()
+
+        
+        // create ICS27 Controller submodule params
+        controllerParams := icacontrollertypes.Params{
+            ControllerEnabled: true, 
+        }
+
+        // create ICS27 Host submodule params
+        hostParams := icahosttypes.Params{
             HostEnabled: true, 
             AllowMessages: []string{"/cosmos.bank.v1beta1.MsgSend", ...], 
-        })
-
-        // set ICS27 Controller submodule params
-        app.ICAControllerKeeper.SetParams(ctx, icacontrollertypes.Params{
-            ControllerEnabled: true, 
-        })
+        }
+        
+        // initialize ICS27 module
+        icamodule.InitModule(ctx, controllerParams, hostParams)
         
         ...
 

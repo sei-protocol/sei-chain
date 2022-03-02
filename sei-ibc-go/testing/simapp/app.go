@@ -571,6 +571,12 @@ func (app *SimApp) ModuleAccountAddrs() map[string]bool {
 	return modAccAddrs
 }
 
+// GetModuleManager returns the app module manager
+// NOTE: used for testing purposes
+func (app *SimApp) GetModuleManager() *module.Manager {
+	return app.mm
+}
+
 // LegacyAmino returns SimApp's amino codec.
 //
 // NOTE: This is solely to be used for testing purposes as it may be desirable
