@@ -403,7 +403,7 @@ func (k Keeper) GetChannelClientState(ctx sdk.Context, portID, channelID string)
 	return connection.ClientId, clientState, nil
 }
 
-// GetConnection wraps the conenction keeper's GetConnection function.
+// GetConnection wraps the connection keeper's GetConnection function.
 func (k Keeper) GetConnection(ctx sdk.Context, connectionID string) (exported.ConnectionI, error) {
 	connection, found := k.connectionKeeper.GetConnection(ctx, connectionID)
 	if !found {
