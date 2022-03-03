@@ -92,13 +92,13 @@ func NewApp(...args) *App {
 
   // Create IBC Keeper
   app.IBCKeeper = ibckeeper.NewKeeper(
-  appCodec, keys[ibchost.StoreKey], app.StakingKeeper, scopedIBCKeeper,
+    appCodec, keys[ibchost.StoreKey], app.GetSubspace(ibchost.ModuleName), app.StakingKeeper, app.UpgradeKeeper, scopedIBCKeeper,
   )
 
   // Create Transfer Keepers
   app.TransferKeeper = ibctransferkeeper.NewKeeper(
-    appCodec, keys[ibctransfertypes.StoreKey],
-    app.IBCKeeper.ChannelKeeper, &app.IBCKeeper.PortKeeper,
+    appCodec, keys[ibctransfertypes.StoreKey], app.GetSubspace(ibctransfertypes.ModuleName),
+    app.IBCKeeper.ChannelKeeper, app.IBCKeeper.ChannelKeeper, &app.IBCKeeper.PortKeeper,
     app.AccountKeeper, app.BankKeeper, scopedTransferKeeper,
   )
   transferModule := transfer.NewAppModule(app.TransferKeeper)
