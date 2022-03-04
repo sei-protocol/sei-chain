@@ -42,7 +42,6 @@ app.UpgradeKeeper.SetUpgradeHandler("v3",
     func(ctx sdk.Context, _ upgradetypes.Plan, fromVM module.VersionMap) (module.VersionMap, error) {
         // set the ICS27 consensus version so InitGenesis is not run
         fromVM[icatypes.ModuleName] = icamodule.ConsensusVersion()
-
         
         // create ICS27 Controller submodule params
         controllerParams := icacontrollertypes.Params{
@@ -52,7 +51,7 @@ app.UpgradeKeeper.SetUpgradeHandler("v3",
         // create ICS27 Host submodule params
         hostParams := icahosttypes.Params{
             HostEnabled: true, 
-            AllowMessages: []string{"/cosmos.bank.v1beta1.MsgSend", ...], 
+            AllowMessages: []string{"/cosmos.bank.v1beta1.MsgSend", ...}, 
         }
         
         // initialize ICS27 module
@@ -67,6 +66,22 @@ app.UpgradeKeeper.SetUpgradeHandler("v3",
 
 The host and controller submodule params only need to be set if you integrate those submodules. 
 For example, if a chain chooses not to integrate a controller submodule, it does not need to set the controller params. 
+
+#### Add `StoreUpgrades` for ICS27 module
+
+For ICS27 it is also necessary to [manually add store upgrades](https://docs.cosmos.network/v0.44/core/upgrade.html#add-storeupgrades-for-new-modules) for the new ICS27 module and then configure the store loader to apply those upgrades in `app.go`:
+
+```go
+if upgradeInfo.Name == "v3" && !app.UpgradeKeeper.IsSkipHeight(upgradeInfo.Height) {
+    storeUpgrades := store.StoreUpgrades{
+        Added: []string{icatypes.ModuleName},
+    }
+
+    app.SetStoreLoader(upgradetypes.UpgradeStoreLoader(upgradeInfo.Height, &storeUpgrades))
+}
+```
+
+This ensures that the new module's stores are added to the multistore before the migrations begin. 
 
 ### Genesis migrations
 
@@ -85,7 +100,7 @@ The migration code required may look like:
     // overwrite parameters as desired
     hostGenesisState.Params = icahosttypes.Params{
         HostEnabled: true, 
-        AllowMessages: []string{"/cosmos.bank.v1beta1.MsgSend", ...], 
+        AllowMessages: []string{"/cosmos.bank.v1beta1.MsgSend", ...}, 
     }
 
     icaGenesisState := icatypes.NewGenesisState(controllerGenesisState, hostGenesisState)
