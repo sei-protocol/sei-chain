@@ -64,9 +64,9 @@ func (im IBCModule) OnChanOpenTry(
 }
 
 // OnChanOpenAck implements the IBCModule interface.
-func (im IBCModule) OnChanOpenAck(ctx sdk.Context, portID string, channelID string, counterpartyVersion string) error {
+func (im IBCModule) OnChanOpenAck(ctx sdk.Context, portID string, channelID string, counterpartyChannelID string, counterpartyVersion string) error {
 	if im.IBCApp.OnChanOpenAck != nil {
-		return im.IBCApp.OnChanOpenAck(ctx, portID, channelID, counterpartyVersion)
+		return im.IBCApp.OnChanOpenAck(ctx, portID, channelID, counterpartyChannelID, counterpartyVersion)
 	}
 
 	return nil

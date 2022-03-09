@@ -285,7 +285,7 @@ func (suite *InterchainAccountsTestSuite) TestOnChanOpenAck() {
 		{
 			"ICA auth module callback fails", func() {
 				suite.chainA.GetSimApp().ICAAuthModule.IBCApp.OnChanOpenAck = func(
-					ctx sdk.Context, portID, channelID string, counterpartyVersion string,
+					ctx sdk.Context, portID, channelID string, counterpartyChannelID string, counterpartyVersion string,
 				) error {
 					return fmt.Errorf("mock ica auth fails")
 				}
@@ -316,7 +316,7 @@ func (suite *InterchainAccountsTestSuite) TestOnChanOpenAck() {
 			cbs, ok := suite.chainA.App.GetIBCKeeper().Router.GetRoute(module)
 			suite.Require().True(ok)
 
-			err = cbs.OnChanOpenAck(suite.chainA.GetContext(), path.EndpointA.ChannelConfig.PortID, path.EndpointA.ChannelID, path.EndpointB.ChannelConfig.Version)
+			err = cbs.OnChanOpenAck(suite.chainA.GetContext(), path.EndpointA.ChannelConfig.PortID, path.EndpointA.ChannelID, path.EndpointB.ChannelID, path.EndpointB.ChannelConfig.Version)
 
 			if tc.expPass {
 				suite.Require().NoError(err)

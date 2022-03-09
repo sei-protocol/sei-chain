@@ -80,6 +80,7 @@ func (im IBCModule) OnChanOpenAck(
 	ctx sdk.Context,
 	portID,
 	channelID string,
+	counterpartyChannelID string,
 	counterpartyVersion string,
 ) error {
 	if !im.keeper.IsControllerEnabled(ctx) {
@@ -91,7 +92,7 @@ func (im IBCModule) OnChanOpenAck(
 	}
 
 	// call underlying app's OnChanOpenAck callback with the counterparty app version.
-	return im.app.OnChanOpenAck(ctx, portID, channelID, counterpartyVersion)
+	return im.app.OnChanOpenAck(ctx, portID, channelID, counterpartyChannelID, counterpartyVersion)
 }
 
 // OnChanOpenAck implements the IBCModule interface

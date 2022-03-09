@@ -120,6 +120,10 @@ IBC applications must perform application version negoitation in `OnChanOpenTry`
 The negotiated application version then must be returned in `OnChanOpenTry` to core IBC.
 Core IBC will set this version in the TRYOPEN channel.
 
+### `OnChanOpenAck` will take additional `counterpartyChannelID` argument
+The `OnChanOpenAck` application callback has been modified.
+The arguments now include the counterparty channel id.
+
 ### `NegotiateAppVersion` removed from `IBCModule` interface
 
 Previously this logic was handled by the `NegotiateAppVersion` function.

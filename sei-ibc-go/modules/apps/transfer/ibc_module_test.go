@@ -228,7 +228,7 @@ func (suite *TransferTestSuite) TestOnChanOpenAck() {
 
 			tc.malleate() // explicitly change fields in channel and testChannel
 
-			err = cbs.OnChanOpenAck(suite.chainA.GetContext(), path.EndpointA.ChannelConfig.PortID, path.EndpointA.ChannelID, counterpartyVersion)
+			err = cbs.OnChanOpenAck(suite.chainA.GetContext(), path.EndpointA.ChannelConfig.PortID, path.EndpointA.ChannelID, path.EndpointA.Counterparty.ChannelID, counterpartyVersion)
 
 			if tc.expPass {
 				suite.Require().NoError(err)

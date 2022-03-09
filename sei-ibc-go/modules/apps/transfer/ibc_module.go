@@ -125,6 +125,7 @@ func (im IBCModule) OnChanOpenAck(
 	ctx sdk.Context,
 	portID,
 	channelID string,
+	_ string,
 	counterpartyVersion string,
 ) error {
 	if counterpartyVersion != types.Version {

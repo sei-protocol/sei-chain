@@ -261,7 +261,7 @@ func (k Keeper) ChannelOpenAck(goCtx context.Context, msg *channeltypes.MsgChann
 	}
 
 	// Perform application logic callback
-	if err = cbs.OnChanOpenAck(ctx, msg.PortId, msg.ChannelId, msg.CounterpartyVersion); err != nil {
+	if err = cbs.OnChanOpenAck(ctx, msg.PortId, msg.ChannelId, msg.CounterpartyChannelId, msg.CounterpartyVersion); err != nil {
 		return nil, sdkerrors.Wrap(err, "channel open ack callback failed")
 	}
 
