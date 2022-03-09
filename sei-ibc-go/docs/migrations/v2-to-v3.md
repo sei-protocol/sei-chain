@@ -74,7 +74,7 @@ For ICS27 it is also necessary to [manually add store upgrades](https://docs.cos
 ```go
 if upgradeInfo.Name == "v3" && !app.UpgradeKeeper.IsSkipHeight(upgradeInfo.Height) {
     storeUpgrades := store.StoreUpgrades{
-        Added: []string{icatypes.ModuleName},
+        Added: []string{icacontrollertypes.StoreKey, icahosttypes.StoreKey},
     }
 
     app.SetStoreLoader(upgradetypes.UpgradeStoreLoader(upgradeInfo.Height, &storeUpgrades))
