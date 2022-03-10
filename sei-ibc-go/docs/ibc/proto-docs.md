@@ -127,6 +127,8 @@
     - [MsgTimeoutOnCloseResponse](#ibc.core.channel.v1.MsgTimeoutOnCloseResponse)
     - [MsgTimeoutResponse](#ibc.core.channel.v1.MsgTimeoutResponse)
   
+    - [ResponseResultType](#ibc.core.channel.v1.ResponseResultType)
+  
     - [Msg](#ibc.core.channel.v1.Msg)
   
 - [ibc/core/client/v1/genesis.proto](#ibc/core/client/v1/genesis.proto)
@@ -1738,6 +1740,11 @@ MsgAcknowledgement receives incoming IBC acknowledgement
 MsgAcknowledgementResponse defines the Msg/Acknowledgement response type.
 
 
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| `result` | [ResponseResultType](#ibc.core.channel.v1.ResponseResultType) |  |  |
+
+
 
 
 
@@ -1954,6 +1961,11 @@ MsgRecvPacket receives incoming IBC packet
 MsgRecvPacketResponse defines the Msg/RecvPacket response type.
 
 
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| `result` | [ResponseResultType](#ibc.core.channel.v1.ResponseResultType) |  |  |
+
+
 
 
 
@@ -2003,6 +2015,11 @@ MsgTimeoutOnClose timed-out packet upon counterparty channel closure.
 MsgTimeoutOnCloseResponse defines the Msg/TimeoutOnClose response type.
 
 
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| `result` | [ResponseResultType](#ibc.core.channel.v1.ResponseResultType) |  |  |
+
+
 
 
 
@@ -2013,10 +2030,28 @@ MsgTimeoutOnCloseResponse defines the Msg/TimeoutOnClose response type.
 MsgTimeoutResponse defines the Msg/Timeout response type.
 
 
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| `result` | [ResponseResultType](#ibc.core.channel.v1.ResponseResultType) |  |  |
+
+
 
 
 
  <!-- end messages -->
+
+
+<a name="ibc.core.channel.v1.ResponseResultType"></a>
+
+### ResponseResultType
+ResponseResultType defines the possible outcomes of the execution of a message
+
+| Name | Number | Description |
+| ---- | ------ | ----------- |
+| RESPONSE_RESULT_UNSPECIFIED | 0 | Default zero value enumeration |
+| RESPONSE_RESULT_NOOP | 1 | The message did not call the IBC application callbacks (because, for example, the packet had already been relayed) |
+| RESPONSE_RESULT_SUCCESS | 2 | The message was executed successfully |
+
 
  <!-- end enums -->
 

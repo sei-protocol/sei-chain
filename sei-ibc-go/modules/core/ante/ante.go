@@ -4,22 +4,23 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 
 	clienttypes "github.com/cosmos/ibc-go/v3/modules/core/02-client/types"
-	channelkeeper "github.com/cosmos/ibc-go/v3/modules/core/04-channel/keeper"
 	channeltypes "github.com/cosmos/ibc-go/v3/modules/core/04-channel/types"
+	"github.com/cosmos/ibc-go/v3/modules/core/keeper"
 )
 
 type AnteDecorator struct {
-	k channelkeeper.Keeper
+	k *keeper.Keeper
 }
 
-func NewAnteDecorator(k channelkeeper.Keeper) AnteDecorator {
+func NewAnteDecorator(k *keeper.Keeper) AnteDecorator {
 	return AnteDecorator{k: k}
 }
 
-// AnteDecorator returns an error if a multiMsg tx only contains packet messages (Recv, Ack, Timeout) and additional update messages and all packet messages
-// are redundant. If the transaction is just a single UpdateClient message, or the multimsg transaction contains some other message type, then the antedecorator returns no error
-// and continues processing to ensure these transactions are included.
-// This will ensure that relayers do not waste fees on multiMsg transactions when another relayer has already submitted all packets, by rejecting the tx at the mempool layer.
+// AnteDecorator returns an error if a multiMsg tx only contains packet messages (Recv, Ack, Timeout) and additional update messages
+// and all packet messages are redundant. If the transaction is just a single UpdateClient message, or the multimsg transaction
+// contains some other message type, then the antedecorator returns no error and continues processing to ensure these transactions
+// are included. This will ensure that relayers do not waste fees on multiMsg transactions when another relayer has already submitted
+// all packets, by rejecting the tx at the mempool layer.
 func (ad AnteDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool, next sdk.AnteHandler) (sdk.Context, error) {
 	// do not run redundancy check on DeliverTx or simulate
 	if (ctx.IsCheckTx() || ctx.IsReCheckTx()) && !simulate {
@@ -29,31 +30,50 @@ func (ad AnteDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool, ne
 		for _, m := range tx.GetMsgs() {
 			switch msg := m.(type) {
 			case *channeltypes.MsgRecvPacket:
-				if _, found := ad.k.GetPacketReceipt(ctx, msg.Packet.GetDestPort(), msg.Packet.GetDestChannel(), msg.Packet.GetSequence()); found {
+				response, err := ad.k.RecvPacket(sdk.WrapSDKContext(ctx), msg)
+				if err != nil {
+					return ctx, err
+				}
+				if response.Result == channeltypes.NOOP {
 					redundancies += 1
 				}
 				packetMsgs += 1
 
 			case *channeltypes.MsgAcknowledgement:
-				if commitment := ad.k.GetPacketCommitment(ctx, msg.Packet.GetSourcePort(), msg.Packet.GetSourceChannel(), msg.Packet.GetSequence()); len(commitment) == 0 {
+				response, err := ad.k.Acknowledgement(sdk.WrapSDKContext(ctx), msg)
+				if err != nil {
+					return ctx, err
+				}
+				if response.Result == channeltypes.NOOP {
 					redundancies += 1
 				}
 				packetMsgs += 1
 
 			case *channeltypes.MsgTimeout:
-				if commitment := ad.k.GetPacketCommitment(ctx, msg.Packet.GetSourcePort(), msg.Packet.GetSourceChannel(), msg.Packet.GetSequence()); len(commitment) == 0 {
+				response, err := ad.k.Timeout(sdk.WrapSDKContext(ctx), msg)
+				if err != nil {
+					return ctx, err
+				}
+				if response.Result == channeltypes.NOOP {
 					redundancies += 1
 				}
 				packetMsgs += 1
 
 			case *channeltypes.MsgTimeoutOnClose:
-				if commitment := ad.k.GetPacketCommitment(ctx, msg.Packet.GetSourcePort(), msg.Packet.GetSourceChannel(), msg.Packet.GetSequence()); len(commitment) == 0 {
+				response, err := ad.k.TimeoutOnClose(sdk.WrapSDKContext(ctx), msg)
+				if err != nil {
+					return ctx, err
+				}
+				if response.Result == channeltypes.NOOP {
 					redundancies += 1
 				}
 				packetMsgs += 1
 
 			case *clienttypes.MsgUpdateClient:
-				// do nothing here, as we want to avoid updating clients if it is batched with only redundant messages
+				_, err := ad.k.UpdateClient(sdk.WrapSDKContext(ctx), msg)
+				if err != nil {
+					return ctx, err
+				}
 
 			default:
 				// if the multiMsg tx has a msg that is not a packet msg or update msg, then we will not return error
@@ -61,7 +81,6 @@ func (ad AnteDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool, ne
 				// even if they get batched with redundant packet messages.
 				return next(ctx, tx, simulate)
 			}
-
 		}
 
 		// only return error if all packet messages are redundant

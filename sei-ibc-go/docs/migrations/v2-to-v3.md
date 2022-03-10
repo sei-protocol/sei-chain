@@ -109,6 +109,22 @@ The migration code required may look like:
     appState[icatypes.ModuleName] = clientCtx.JSONCodec.MustMarshalJSON(icaGenesisState)
 ```
 
+### Ante decorator
+
+The field of type `channelkeeper.Keeper` in the `AnteDecorator` structure has been replaced with a field of type `*keeper.Keeper`:
+
+```diff
+type AnteDecorator struct {
+-    k channelkeeper.Keeper
++    k *keeper.Keeper
+}
+
+- func NewAnteDecorator(k channelkeeper.Keeper) AnteDecorator {
++ func NewAnteDecorator(k *keeper.Keeper) AnteDecorator {
+    return AnteDecorator{k: k}
+}
+```
+
 ## IBC Apps
 
 

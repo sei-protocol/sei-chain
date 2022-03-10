@@ -462,6 +462,36 @@ func (endpoint *Endpoint) TimeoutPacket(packet channeltypes.Packet) error {
 	return endpoint.Chain.sendMsgs(timeoutMsg)
 }
 
+// TimeoutOnClose sends a MsgTimeoutOnClose to the channel associated with the endpoint.
+func (endpoint *Endpoint) TimeoutOnClose(packet channeltypes.Packet) error {
+	// get proof for timeout based on channel order
+	var packetKey []byte
+
+	switch endpoint.ChannelConfig.Order {
+	case channeltypes.ORDERED:
+		packetKey = host.NextSequenceRecvKey(packet.GetDestPort(), packet.GetDestChannel())
+	case channeltypes.UNORDERED:
+		packetKey = host.PacketReceiptKey(packet.GetDestPort(), packet.GetDestChannel(), packet.GetSequence())
+	default:
+		return fmt.Errorf("unsupported order type %s", endpoint.ChannelConfig.Order)
+	}
+
+	proof, proofHeight := endpoint.Counterparty.QueryProof(packetKey)
+
+	channelKey := host.ChannelKey(packet.GetDestPort(), packet.GetDestChannel())
+	proofClosed, _ := endpoint.Counterparty.QueryProof(channelKey)
+
+	nextSeqRecv, found := endpoint.Counterparty.Chain.App.GetIBCKeeper().ChannelKeeper.GetNextSequenceRecv(endpoint.Counterparty.Chain.GetContext(), endpoint.ChannelConfig.PortID, endpoint.ChannelID)
+	require.True(endpoint.Chain.T, found)
+
+	timeoutOnCloseMsg := channeltypes.NewMsgTimeoutOnClose(
+		packet, nextSeqRecv,
+		proof, proofClosed, proofHeight, endpoint.Chain.SenderAccount.GetAddress().String(),
+	)
+
+	return endpoint.Chain.sendMsgs(timeoutOnCloseMsg)
+}
+
 // SetChannelClosed sets a channel state to CLOSED.
 func (endpoint *Endpoint) SetChannelClosed() error {
 	channel := endpoint.GetChannel()

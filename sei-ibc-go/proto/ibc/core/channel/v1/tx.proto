@@ -42,6 +42,18 @@ service Msg {
   rpc Acknowledgement(MsgAcknowledgement) returns (MsgAcknowledgementResponse);
 }
 
+// ResponseResultType defines the possible outcomes of the execution of a message
+enum ResponseResultType {
+  option (gogoproto.goproto_enum_prefix) = false;
+
+  // Default zero value enumeration
+  RESPONSE_RESULT_UNSPECIFIED = 0 [(gogoproto.enumvalue_customname) = "UNSPECIFIED"];
+  // The message did not call the IBC application callbacks (because, for example, the packet had already been relayed)
+  RESPONSE_RESULT_NOOP = 1 [(gogoproto.enumvalue_customname) = "NOOP"];
+  // The message was executed successfully
+  RESPONSE_RESULT_SUCCESS = 2 [(gogoproto.enumvalue_customname) = "SUCCESS"];
+}
+
 // MsgChannelOpenInit defines an sdk.Msg to initialize a channel handshake. It
 // is called by a relayer on Chain A.
 message MsgChannelOpenInit {
@@ -163,7 +175,11 @@ message MsgRecvPacket {
 }
 
 // MsgRecvPacketResponse defines the Msg/RecvPacket response type.
-message MsgRecvPacketResponse {}
+message MsgRecvPacketResponse {
+  option (gogoproto.goproto_getters) = false;
+
+  ResponseResultType result = 1;
+}
 
 // MsgTimeout receives timed-out packet
 message MsgTimeout {
@@ -179,7 +195,11 @@ message MsgTimeout {
 }
 
 // MsgTimeoutResponse defines the Msg/Timeout response type.
-message MsgTimeoutResponse {}
+message MsgTimeoutResponse {
+  option (gogoproto.goproto_getters) = false;
+
+  ResponseResultType result = 1;
+}
 
 // MsgTimeoutOnClose timed-out packet upon counterparty channel closure.
 message MsgTimeoutOnClose {
@@ -196,7 +216,11 @@ message MsgTimeoutOnClose {
 }
 
 // MsgTimeoutOnCloseResponse defines the Msg/TimeoutOnClose response type.
-message MsgTimeoutOnCloseResponse {}
+message MsgTimeoutOnCloseResponse {
+  option (gogoproto.goproto_getters) = false;
+
+  ResponseResultType result = 1;
+}
 
 // MsgAcknowledgement receives incoming IBC acknowledgement
 message MsgAcknowledgement {
@@ -212,4 +236,8 @@ message MsgAcknowledgement {
 }
 
 // MsgAcknowledgementResponse defines the Msg/Acknowledgement response type.
-message MsgAcknowledgementResponse {}
+message MsgAcknowledgementResponse {
+  option (gogoproto.goproto_getters) = false;
+
+  ResponseResultType result = 1;
+}
