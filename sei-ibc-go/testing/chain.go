@@ -113,7 +113,7 @@ func NewTestChainWithValSet(t *testing.T, coord *Coordinator, chainID string, va
 		senderAccs = append(senderAccs, senderAcc)
 	}
 
-	app := SetupWithGenesisValSet(t, valSet, genAccs, chainID, genBals...)
+	app := SetupWithGenesisValSet(t, valSet, genAccs, chainID, sdk.DefaultPowerReduction, genBals...)
 
 	// create current header and call begin block
 	header := tmproto.Header{
@@ -453,6 +453,7 @@ func (chain *TestChain) CreateTMClientHeader(chainID string, blockHeight int64, 
 		EvidenceHash:       tmhash.Sum([]byte("evidence_hash")),
 		ProposerAddress:    tmValSet.Proposer.Address, //nolint:staticcheck
 	}
+
 	hhash := tmHeader.Hash()
 	blockID := MakeBlockID(hhash, 3, tmhash.Sum([]byte("part_set")))
 	voteSet := tmtypes.NewVoteSet(chainID, blockHeight, 1, tmproto.PrecommitType, tmValSet)
@@ -467,16 +468,12 @@ func (chain *TestChain) CreateTMClientHeader(chainID string, blockHeight int64, 
 
 	if tmValSet != nil {
 		valSet, err = tmValSet.ToProto()
-		if err != nil {
-			panic(err)
-		}
+		require.NoError(chain.T, err)
 	}
 
 	if tmTrustedVals != nil {
 		trustedVals, err = tmTrustedVals.ToProto()
-		if err != nil {
-			panic(err)
-		}
+		require.NoError(chain.T, err)
 	}
 
 	// The trusted fields may be nil. They may be filled before relaying messages to a client.
@@ -505,8 +502,8 @@ func MakeBlockID(hash []byte, partSetSize uint32, partSetHash []byte) tmtypes.Bl
 // sorting of ValidatorSet.
 // The sorting is first by .VotingPower (descending), with secondary index of .Address (ascending).
 func CreateSortedSignerArray(altPrivVal, suitePrivVal tmtypes.PrivValidator,
-	altVal, suiteVal *tmtypes.Validator) []tmtypes.PrivValidator {
-
+	altVal, suiteVal *tmtypes.Validator,
+) []tmtypes.PrivValidator {
 	switch {
 	case altVal.VotingPower > suiteVal.VotingPower:
 		return []tmtypes.PrivValidator{altPrivVal, suitePrivVal}

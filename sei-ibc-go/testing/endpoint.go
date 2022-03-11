@@ -67,7 +67,7 @@ func (endpoint *Endpoint) QueryProof(key []byte) ([]byte, clienttypes.Height) {
 }
 
 // QueryProofAtHeight queries proof associated with this endpoint using the proof height
-// providied
+// provided
 func (endpoint *Endpoint) QueryProofAtHeight(key []byte, height uint64) ([]byte, clienttypes.Height) {
 	// query proof on the counterparty using the latest height of the IBC client
 	return endpoint.Chain.QueryProofAtHeight(key, int64(height))
@@ -98,7 +98,7 @@ func (endpoint *Endpoint) CreateClient() (err error) {
 		consensusState = endpoint.Counterparty.Chain.LastHeader.ConsensusState()
 	case exported.Solomachine:
 		// TODO
-		//		solo := NewSolomachine(Chain.T, endpoint.Chain.Codec, clientID, "", 1)
+		//		solo := NewSolomachine(endpoint.Chain.T, endpoint.Chain.Codec, clientID, "", 1)
 		//		clientState = solo.ClientState()
 		//		consensusState = solo.ConsensusState()
 
