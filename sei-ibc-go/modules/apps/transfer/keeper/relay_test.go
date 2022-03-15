@@ -167,6 +167,16 @@ func (suite *KeeperTestSuite) TestOnRecvPacket() {
 		{"tries to unescrow more tokens than allowed", func() {
 			amount = sdk.NewInt(1000000)
 		}, true, false},
+
+		// - coin being sent to module address on chainA
+		{"failure: receive on module account", func() {
+			receiver = suite.chainA.GetSimApp().AccountKeeper.GetModuleAddress(types.ModuleName).String()
+		}, false, false},
+
+		// - coin being sent back to original chain (chainB) to module address
+		{"failure: receive on module account on source chain", func() {
+			receiver = suite.chainB.GetSimApp().AccountKeeper.GetModuleAddress(types.ModuleName).String()
+		}, true, false},
 	}
 
 	for _, tc := range testCases {
