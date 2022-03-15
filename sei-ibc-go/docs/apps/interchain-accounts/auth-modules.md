@@ -220,8 +220,13 @@ If the controller chain is connected to a host chain using the host module on ib
 
 Begin by unmarshaling the acknowledgement into sdk.TxMsgData:
 ```go
+var ack channeltypes.Acknowledgement
+if err := channeltypes.SubModuleCdc.UnmarshalJSON(acknowledgement, &ack); err != nil {
+    return err
+}
+
 txMsgData := &sdk.TxMsgData{}
-if err := proto.Unmarshal(ack.Acknowledgement(), txMsgData); err != nil {
+if err := proto.Unmarshal(ack.GetResult(), txMsgData); err != nil {
     return err
 }
 ```
@@ -232,6 +237,8 @@ The auth module should interpret the txMsgData.Data as follows:
 ```go
 switch len(txMsgData.Data) {
 case 0:
+    // see documentation below for SDK 0.46.x or greater
+default:
     for _, msgData := range txMsgData.Data {
         if err := handler(msgData); err != nil {
             return err
@@ -246,8 +253,8 @@ A router could be used, or more simply a switch statement.
 
 ```go
 func handler(msgData sdk.MsgData) error {
-switch msgData.TypeURL {
-case banktypes.MsgSend:
+switch msgData.MsgType {
+case sdk.MsgTypeURL(&banktypes.MsgSend{}):
     msgResponse := &banktypes.MsgSendResponse{}
     if err := proto.Unmarshal(msgData.Data, msgResponse}; err != nil {
         return err
@@ -255,7 +262,7 @@ case banktypes.MsgSend:
 
     handleBankSendMsg(msgResponse)
 
-case stakingtypes.MsgDelegate:
+case sdk.MsgTypeURL(&stakingtypes.MsgDelegate{}):
     msgResponse := &stakingtypes.MsgDelegateResponse{}
     if err := proto.Unmarshal(msgData.Data, msgResponse}; err != nil {
         return err
@@ -263,7 +270,7 @@ case stakingtypes.MsgDelegate:
 
     handleStakingDelegateMsg(msgResponse)
 
-case transfertypes.MsgTransfer:
+case sdk.MsgTypeURL(&transfertypes.MsgTransfer{}):
     msgResponse := &transfertypes.MsgTransferResponse{}
     if err := proto.Unmarshal(msgData.Data, msgResponse}; err != nil {
         return err
@@ -281,8 +288,8 @@ The auth module should interpret the txMsgData.Responses as follows:
 
 ```go
 ...
-// switch statement from above continued
-default:
+// switch statement from above
+case 0:
     for _, any := range txMsgData.MsgResponses {
         if err := handleAny(any); err != nil {
             return err
