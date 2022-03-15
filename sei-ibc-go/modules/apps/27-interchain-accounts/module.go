@@ -105,12 +105,17 @@ func NewAppModule(controllerKeeper *controllerkeeper.Keeper, hostKeeper *hostkee
 // InitModule will initialize the interchain accounts moudule. It should only be
 // called once and as an alternative to InitGenesis.
 func (am AppModule) InitModule(ctx sdk.Context, controllerParams controllertypes.Params, hostParams hosttypes.Params) {
-	am.controllerKeeper.SetParams(ctx, controllerParams)
-	am.hostKeeper.SetParams(ctx, hostParams)
+	if am.controllerKeeper != nil {
+		am.controllerKeeper.SetParams(ctx, controllerParams)
+	}
 
-	cap := am.hostKeeper.BindPort(ctx, types.PortID)
-	if err := am.hostKeeper.ClaimCapability(ctx, cap, ibchost.PortPath(types.PortID)); err != nil {
-		panic(fmt.Sprintf("could not claim port capability: %v", err))
+	if am.hostKeeper != nil {
+		am.hostKeeper.SetParams(ctx, hostParams)
+
+		cap := am.hostKeeper.BindPort(ctx, types.PortID)
+		if err := am.hostKeeper.ClaimCapability(ctx, cap, ibchost.PortPath(types.PortID)); err != nil {
+			panic(fmt.Sprintf("could not claim port capability: %v", err))
+		}
 	}
 }
 

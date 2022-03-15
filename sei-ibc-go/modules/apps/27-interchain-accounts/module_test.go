@@ -31,8 +31,9 @@ func (suite *InterchainAccountsTestSuite) SetupTest() {
 }
 
 func (suite *InterchainAccountsTestSuite) TestInitModule() {
+	// setup and basic testing
 	app := simapp.NewSimApp(log.NewNopLogger(), dbm.NewMemDB(), nil, true, map[int64]bool{}, simapp.DefaultNodeHome, 5, simapp.MakeTestEncodingConfig(), simapp.EmptyAppOptions{})
-	icamodule, ok := app.GetModuleManager().Modules[types.ModuleName].(ica.AppModule)
+	appModule, ok := app.GetModuleManager().Modules[types.ModuleName].(ica.AppModule)
 	suite.Require().True(ok)
 
 	header := tmproto.Header{
@@ -58,17 +59,74 @@ func (suite *InterchainAccountsTestSuite) TestInitModule() {
 	expAllowMessages := []string{"sdk.Msg"}
 	hostParams.HostEnabled = true
 	hostParams.AllowMessages = expAllowMessages
-
 	suite.Require().False(app.IBCKeeper.PortKeeper.IsBound(ctx, types.PortID))
 
-	icamodule.InitModule(ctx, controllerParams, hostParams)
+	testCases := []struct {
+		name              string
+		malleate          func()
+		expControllerPass bool
+		expHostPass       bool
+	}{
+		{
+			"both controller and host set", func() {
+				var ok bool
+				appModule, ok = app.GetModuleManager().Modules[types.ModuleName].(ica.AppModule)
+				suite.Require().True(ok)
+			}, true, true,
+		},
+		{
+			"neither controller or host is set", func() {
+				appModule = ica.NewAppModule(nil, nil)
+			}, false, false,
+		},
+		{
+			"only controller is set", func() {
+				appModule = ica.NewAppModule(&app.ICAControllerKeeper, nil)
+			}, true, false,
+		},
+		{
+			"only host is set", func() {
+				appModule = ica.NewAppModule(nil, &app.ICAHostKeeper)
+			}, false, true,
+		},
+	}
 
-	controllerParams = app.ICAControllerKeeper.GetParams(ctx)
-	suite.Require().True(controllerParams.ControllerEnabled)
+	for _, tc := range testCases {
+		tc := tc
 
-	hostParams = app.ICAHostKeeper.GetParams(ctx)
-	suite.Require().True(hostParams.HostEnabled)
-	suite.Require().Equal(expAllowMessages, hostParams.AllowMessages)
+		suite.Run(tc.name, func() {
+			suite.SetupTest() // reset
 
-	suite.Require().True(app.IBCKeeper.PortKeeper.IsBound(ctx, types.PortID))
+			// reset app state
+			app = simapp.NewSimApp(log.NewNopLogger(), dbm.NewMemDB(), nil, true, map[int64]bool{}, simapp.DefaultNodeHome, 5, simapp.MakeTestEncodingConfig(), simapp.EmptyAppOptions{})
+			header := tmproto.Header{
+				ChainID: "testchain",
+				Height:  1,
+				Time:    suite.coordinator.CurrentTime.UTC(),
+			}
+
+			ctx := app.GetBaseApp().NewContext(true, header)
+
+			tc.malleate()
+
+			suite.Require().NotPanics(func() {
+				appModule.InitModule(ctx, controllerParams, hostParams)
+			})
+
+			if tc.expControllerPass {
+				controllerParams = app.ICAControllerKeeper.GetParams(ctx)
+				suite.Require().True(controllerParams.ControllerEnabled)
+			}
+
+			if tc.expHostPass {
+				hostParams = app.ICAHostKeeper.GetParams(ctx)
+				suite.Require().True(hostParams.HostEnabled)
+				suite.Require().Equal(expAllowMessages, hostParams.AllowMessages)
+
+				suite.Require().True(app.IBCKeeper.PortKeeper.IsBound(ctx, types.PortID))
+			}
+
+		})
+	}
+
 }

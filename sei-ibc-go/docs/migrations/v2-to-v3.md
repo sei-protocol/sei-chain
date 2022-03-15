@@ -64,8 +64,8 @@ app.UpgradeKeeper.SetUpgradeHandler("v3",
 
 ```
 
-The host and controller submodule params only need to be set if you integrate those submodules. 
-For example, if a chain chooses not to integrate a controller submodule, it does not need to set the controller params. 
+The host and controller submodule params only need to be set if the chain integrates those submodules. 
+For example, if a chain chooses not to integrate a controller submodule, it may pass empty params into `InitModule`.
 
 #### Add `StoreUpgrades` for ICS27 module
 
@@ -82,6 +82,9 @@ if upgradeInfo.Name == "v3" && !app.UpgradeKeeper.IsSkipHeight(upgradeInfo.Heigh
 ```
 
 This ensures that the new module's stores are added to the multistore before the migrations begin. 
+The host and controller submodule keys only need to be added if the chain integrates those submodules.
+For example, if a chain chooses not to integrate a controller submodule, it does not need to add the controller key to the `Added` field.
+
 
 ### Genesis migrations
 
