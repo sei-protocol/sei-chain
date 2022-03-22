@@ -24,6 +24,7 @@ checksum:
 
 release:
   mode: keep-existing
+  prerelease: auto
 
 archives:
   - name_template: "{{ .ProjectName }}_simd_v{{ .Version }}_{{ .Os }}_{{ .Arch }}"
