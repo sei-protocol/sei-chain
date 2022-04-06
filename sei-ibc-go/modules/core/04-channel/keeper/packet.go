@@ -2,6 +2,7 @@ package keeper
 
 import (
 	"bytes"
+	"strconv"
 	"time"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -129,7 +130,7 @@ func (k Keeper) SendPacket(
 
 	k.Logger(ctx).Info(
 		"packet sent",
-		"sequence", packet.GetSequence(),
+		"sequence", strconv.FormatUint(packet.GetSequence(), 10),
 		"src_port", packet.GetSourcePort(),
 		"src_channel", packet.GetSourceChannel(),
 		"dst_port", packet.GetDestPort(),
@@ -284,7 +285,7 @@ func (k Keeper) RecvPacket(
 	// log that a packet has been received & executed
 	k.Logger(ctx).Info(
 		"packet received",
-		"sequence", packet.GetSequence(),
+		"sequence", strconv.FormatUint(packet.GetSequence(), 10),
 		"src_port", packet.GetSourcePort(),
 		"src_channel", packet.GetSourceChannel(),
 		"dst_port", packet.GetDestPort(),
@@ -494,7 +495,7 @@ func (k Keeper) AcknowledgePacket(
 	// log that a packet has been acknowledged
 	k.Logger(ctx).Info(
 		"packet acknowledged",
-		"sequence", packet.GetSequence(),
+		"sequence", strconv.FormatUint(packet.GetSequence(), 10),
 		"src_port", packet.GetSourcePort(),
 		"src_channel", packet.GetSourceChannel(),
 		"dst_port", packet.GetDestPort(),
