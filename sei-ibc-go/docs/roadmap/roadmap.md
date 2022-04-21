@@ -59,7 +59,6 @@ During this quarter we will also probably release versions that bump the Cosmos 
 
 ### H2 January
 
-- [`v2.0.a`](https://github.com/cosmos/ibc-go/milestone/14)
 - [`v3.0.0-beta1`](https://github.com/cosmos/ibc-go/milestone/12): Beta 1 release of `v3.0.0` including Interchain Accounts, an update of Golang from `v1.15` to `v1.17`, and some core improvements. This is a Go-API breaking release because of [#472](https://github.com/cosmos/ibc-go/issues/472) and [#675](https://github.com/cosmos/ibc-go/pull/675).
 
 ### H1 February
