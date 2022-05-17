@@ -20,6 +20,7 @@ module.exports = {
   themeConfig: {
     repo: "cosmos/ibc-go",
     docsRepo: "cosmos/ibc-go",
+    docsBranch: "main",
     docsDir: "docs",
     editLinks: true,
     label: "ibc",
