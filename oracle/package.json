@@ -1,0 +1,19 @@
+{
+  "dependencies": {
+    "@kava-labs/javascript-sdk": "^9.0.0-beta-5",
+    "@cosmjs/proto-signing": "^0.28.0",
+    "@cosmjs/stargate": "^0.28.0",
+    "@cosmjs/cosmwasm-stargate": "^0.28.0",
+    "axios": "^0.27.2",
+    "coingecko-api": "^1.0.10",
+    "dotenv": "^8.2.0",
+    "log-timestamp": "^0.3.0",
+    "node-cron": "^2.0.3"
+  },
+  "devDependencies": {
+    "eslint": "^8.14.0",
+    "eslint-config-airbnb-base": "^15.0.0",
+    "eslint-plugin-import": "^2.26.0",
+    "prettier": "2.0.5"
+  }
+}

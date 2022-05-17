@@ -1,0 +1,22 @@
+vue/node_modules
+vue/dist
+release/
+.idea/
+.vscode/
+.DS_Store
+build/
+
+Local .terraform directories
+**/.terraform
+
+# .tfstate files
+*terraform.lock.hcl
+*.tfstate
+*.tfstate.*
+
+yarn.lock
+# node ignores
+oracle/node_modules/
+node_modules/
+package-lock.json
+*/package-lock.json

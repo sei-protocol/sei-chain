@@ -1,0 +1,12 @@
+syntax = "proto3";
+package seiprotocol.seichain.dex;
+
+import "gogoproto/gogo.proto";
+
+option go_package = "github.com/sei-protocol/sei-chain/x/dex/types";
+
+// Params defines the parameters for the module.
+message Params {
+  option (gogoproto.goproto_stringer) = false;
+  
+}

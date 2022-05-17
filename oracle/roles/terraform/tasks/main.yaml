@@ -1,0 +1,35 @@
+---
+# Use the Terraform module to invoke terraform and parse its
+# output to create a dynamic inventory
+# Note that the module will first run terraform plan and only run
+# terraform apply if this indicates a change, otherwise it will fall
+# back to terraform output. Thus if you change your Terraform configuration,
+# you might have to run terraform apply manually once to refresh the
+# output stored in the state.
+# The Terraform script will return a pre-built inventory, i.e. a list
+# of dictionaries, each entry describing one server. We loop over this
+# list and add one entry to the inventory for each item
+# Of course we could also move this into a role
+
+- name: Run Terraform
+  terraform:
+    project_path: '{{ playbook_dir }}/terraform/'
+    state: present
+    workspace: default
+    # Here we can override variables defined within the Terraform modules
+    # Note that all variables that we want to override need to be present
+    # in main.tf, even though they might be defined in a module
+    # variables:
+    #   do_token: "{{ lookup('env', 'DO_TOKEN') }}"
+  register: tf_results
+# Now iterate over the list returned by Terraform and build
+# the inventory accordingly.
+- name: Add entries to inventory
+  add_host:
+    name: '{{ item.name }}'
+    ansible_ssh_host: '{{ item.ip }}'
+    ansible_ssh_user: '{{item.ansible_ssh_user}}'
+    ansible_ssh_private_key_file: '{{item.private_key_file}}'
+    host_key_checking: no
+    groups: '{{ item.groups }}'
+  loop: '{{ tf_results.outputs.inventory.value }}'

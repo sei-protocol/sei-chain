@@ -1,0 +1,28 @@
+---
+- name: Install nodejs
+  apt:
+    name: nodejs
+    state: latest
+    update_cache: yes
+
+- name: Install npm
+  apt:
+    name: npm
+    state: latest
+    update_cache: yes
+
+- name: Install yarn
+  npm:
+    name: yarn
+    global: yes
+
+- name: Clone repo and checkout latest branch #confirmed
+  ansible.builtin.git:
+    repo: "https://{{ lookup('env', 'GIT_USER') }}:{{ lookup('env', 'GIT_ACCESS_TOKEN') }}@github.com/sei-protocol/sei-chain.git"
+    dest: /home/ubuntu/sei-chain/
+    single_branch: yes
+    version: latest
+    force: yes
+
+- name: Start Oracle process
+  shell: cd /home/ubuntu/sei-chain/oracle; nohup node main.js > /var/log/oracle.log 2>&1 &

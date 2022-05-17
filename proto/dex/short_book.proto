@@ -1,0 +1,11 @@
+syntax = "proto3";
+package seiprotocol.seichain.dex;
+
+option go_package = "github.com/sei-protocol/sei-chain/x/dex/types";
+import "dex/order_entry.proto"; 
+
+message ShortBook {
+  uint64 id = 1;
+  OrderEntry entry = 2; 
+  
+}
