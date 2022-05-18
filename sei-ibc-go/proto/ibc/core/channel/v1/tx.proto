@@ -47,11 +47,11 @@ enum ResponseResultType {
   option (gogoproto.goproto_enum_prefix) = false;
 
   // Default zero value enumeration
-  RESPONSE_RESULT_UNSPECIFIED = 0 [(gogoproto.enumvalue_customname) = "UNSPECIFIED"];
+  RESPONSE_RESULT_TYPE_UNSPECIFIED = 0 [(gogoproto.enumvalue_customname) = "UNSPECIFIED"];
   // The message did not call the IBC application callbacks (because, for example, the packet had already been relayed)
-  RESPONSE_RESULT_NOOP = 1 [(gogoproto.enumvalue_customname) = "NOOP"];
+  RESPONSE_RESULT_TYPE_NOOP = 1 [(gogoproto.enumvalue_customname) = "NOOP"];
   // The message was executed successfully
-  RESPONSE_RESULT_SUCCESS = 2 [(gogoproto.enumvalue_customname) = "SUCCESS"];
+  RESPONSE_RESULT_TYPE_SUCCESS = 2 [(gogoproto.enumvalue_customname) = "SUCCESS"];
 }
 
 // MsgChannelOpenInit defines an sdk.Msg to initialize a channel handshake. It
