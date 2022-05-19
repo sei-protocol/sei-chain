@@ -1898,6 +1898,7 @@ MsgChannelOpenInitResponse defines the Msg/ChannelOpenInit response type.
 | Field | Type | Label | Description |
 | ----- | ---- | ----- | ----------- |
 | `channel_id` | [string](#string) |  |  |
+| `version` | [string](#string) |  |  |
 
 
 
@@ -1931,6 +1932,11 @@ value will be ignored by core IBC.
 
 ### MsgChannelOpenTryResponse
 MsgChannelOpenTryResponse defines the Msg/ChannelOpenTry response type.
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| `version` | [string](#string) |  |  |
 
 
 

@@ -20,6 +20,7 @@ func EmitChannelOpenInitEvent(ctx sdk.Context, portID string, channelID string, 
 			sdk.NewAttribute(types.AttributeCounterpartyPortID, channel.Counterparty.PortId),
 			sdk.NewAttribute(types.AttributeCounterpartyChannelID, channel.Counterparty.ChannelId),
 			sdk.NewAttribute(types.AttributeKeyConnectionID, channel.ConnectionHops[0]),
+			sdk.NewAttribute(types.AttributeVersion, channel.Version),
 		),
 	})
 
@@ -41,6 +42,7 @@ func EmitChannelOpenTryEvent(ctx sdk.Context, portID string, channelID string, c
 			sdk.NewAttribute(types.AttributeCounterpartyPortID, channel.Counterparty.PortId),
 			sdk.NewAttribute(types.AttributeCounterpartyChannelID, channel.Counterparty.ChannelId),
 			sdk.NewAttribute(types.AttributeKeyConnectionID, channel.ConnectionHops[0]),
+			sdk.NewAttribute(types.AttributeVersion, channel.Version),
 		),
 	})
 	ctx.EventManager().EmitEvents(sdk.Events{

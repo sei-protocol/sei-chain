@@ -11,6 +11,7 @@ const (
 	AttributeKeyConnectionID       = "connection_id"
 	AttributeKeyPortID             = "port_id"
 	AttributeKeyChannelID          = "channel_id"
+	AttributeVersion               = "version"
 	AttributeCounterpartyPortID    = "counterparty_port_id"
 	AttributeCounterpartyChannelID = "counterparty_channel_id"
 
