@@ -3,11 +3,11 @@ package seiprotocol.seichain.dex;
 
 option go_package = "github.com/sei-protocol/sei-chain/x/dex/types";
 
-message Twap {
+message Price {
   
-  uint64 lastEpoch = 1; 
-  repeated uint64 prices = 2; 
-  uint64 twapPrice = 3; 
+  uint64 epoch = 1; 
+  uint64 oraclePrice = 2;
+  uint64 exchangePrice = 3; 
   string priceDenom = 4;
   string assetDenom = 5;
 }

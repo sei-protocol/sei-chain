@@ -5,7 +5,7 @@ import "gogoproto/gogo.proto";
 import "dex/params.proto";
 import "dex/long_book.proto";
 import "dex/short_book.proto";
-import "dex/twap.proto";
+import "dex/price.proto";
 // this line is used by starport scaffolding # genesis/proto/import
 
 option go_package = "github.com/sei-protocol/sei-chain/x/dex/types";
@@ -15,7 +15,6 @@ message GenesisState {
   Params params = 1 [(gogoproto.nullable) = false];
   repeated LongBook longBookList = 2 [(gogoproto.nullable) = false];
   repeated ShortBook shortBookList = 3 [(gogoproto.nullable) = false];
-  repeated Twap twapList = 4;
-  uint64 lastEpoch = 5;
+  uint64 lastEpoch = 4;
   // this line is used by starport scaffolding # genesis/proto/state
 }
