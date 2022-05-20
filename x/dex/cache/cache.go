@@ -9,13 +9,15 @@ import (
 	"github.com/sei-protocol/sei-chain/x/dex/types"
 )
 
-const LIMIT_BUY_EVENT_TYPE = "dex_lb"
-const LIMIT_SELL_EVENT_TYPE = "dex_ls"
-const MARKET_BUY_EVENT_TYPE = "dex_mb"
-const MARKET_SELL_EVENT_TYPE = "dex_ms"
-const CREATOR_ATTR = "creator"
-const PRICE_ATTR = "price"
-const QUANTITY_ATTR = "quantity"
+const (
+	LIMIT_BUY_EVENT_TYPE   = "dex_lb"
+	LIMIT_SELL_EVENT_TYPE  = "dex_ls"
+	MARKET_BUY_EVENT_TYPE  = "dex_mb"
+	MARKET_SELL_EVENT_TYPE = "dex_ms"
+	CREATOR_ATTR           = "creator"
+	PRICE_ATTR             = "price"
+	QUANTITY_ATTR          = "quantity"
+)
 
 type LimitOrder struct {
 	Price    uint64

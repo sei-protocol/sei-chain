@@ -32,7 +32,6 @@ func (k Keeper) LongBookAll(c context.Context, req *types.QueryAllLongBookReques
 		longBooks = append(longBooks, longBook)
 		return nil
 	})
-
 	if err != nil {
 		return nil, status.Error(codes.Internal, err.Error())
 	}

@@ -2,8 +2,10 @@ package types
 
 import "fmt"
 
-const LimitOrderType string = "Limit"
-const MarketOrderType string = "Market"
+const (
+	LimitOrderType  string = "Limit"
+	MarketOrderType string = "Market"
+)
 
 type SudoOrderPlacementMsg struct {
 	OrderPlacements OrderPlacementMsgDetails `json:"bulk_order_placements"`

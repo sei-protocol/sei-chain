@@ -6,10 +6,12 @@ import (
 	"strings"
 )
 
-const LongPositionDirection string = "Long"
-const ShortPositionDirection string = "Short"
-const OpenPositionEffect string = "Open"
-const ClosePositionEffect string = "Close"
+const (
+	LongPositionDirection  string = "Long"
+	ShortPositionDirection string = "Short"
+	OpenPositionEffect     string = "Open"
+	ClosePositionEffect    string = "Close"
+)
 
 type SudoSettlementMsg struct {
 	Settlement Settlements `json:"settlement"`
