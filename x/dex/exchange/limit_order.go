@@ -24,7 +24,7 @@ func MatchLimitOrders(
 		addOrderToOrderBook(order, shortBook, pair, shortDirtyOrderIds)
 	}
 	var totalExecuted, totalPrice uint64 = 0, 0
-	var longPtr, shortPtr = len(*longBook) - 1, 0
+	longPtr, shortPtr := len(*longBook)-1, 0
 
 	for longPtr >= 0 && shortPtr < len(*shortBook) && (*longBook)[longPtr].GetEntry().Price >= (*shortBook)[shortPtr].GetEntry().Price {
 		var executed uint64

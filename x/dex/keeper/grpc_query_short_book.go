@@ -32,7 +32,6 @@ func (k Keeper) ShortBookAll(c context.Context, req *types.QueryAllShortBookRequ
 		shortBooks = append(shortBooks, shortBook)
 		return nil
 	})
-
 	if err != nil {
 		return nil, status.Error(codes.Internal, err.Error())
 	}

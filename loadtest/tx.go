@@ -16,10 +16,12 @@ import (
 	typestx "github.com/cosmos/cosmos-sdk/types/tx"
 )
 
-const LONG = "Long"
-const SHORT = "Short"
-const OPEN = "Open"
-const CLOSE = "Close"
+const (
+	LONG  = "Long"
+	SHORT = "Short"
+	OPEN  = "Open"
+	CLOSE = "Close"
+)
 
 func SendTx(
 	key cryptotypes.PrivKey,

@@ -28,7 +28,6 @@ func CmdGetTwap() *cobra.Command {
 			queryClient := types.NewQueryClient(clientCtx)
 
 			params := &types.QueryGetTwapRequest{
-
 				PriceDenom: reqPriceDenom,
 				AssetDenom: reqAssetDenom,
 			}

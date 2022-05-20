@@ -11,9 +11,11 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-const TEST_CONTRACT = "tc"
-const TEST_PRICE_DENOM = "ust"
-const TEST_ASSET_DENOM = "luna"
+const (
+	TEST_CONTRACT    = "tc"
+	TEST_PRICE_DENOM = "ust"
+	TEST_ASSET_DENOM = "luna"
+)
 
 func createNShortBook(keeper *keeper.Keeper, ctx sdk.Context, n int) []types.ShortBook {
 	items := make([]types.ShortBook, n)

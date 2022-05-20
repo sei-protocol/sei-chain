@@ -28,10 +28,12 @@ type EncodingConfig struct {
 	Amino     *codec.LegacyAmino
 }
 
-var TEST_CONFIG EncodingConfig
-var TX_CLIENT typestx.ServiceClient
-var TX_HASH_FILE *os.File
-var CHAIN_ID string
+var (
+	TEST_CONFIG  EncodingConfig
+	TX_CLIENT    typestx.ServiceClient
+	TX_HASH_FILE *os.File
+	CHAIN_ID     string
+)
 
 const BATCH_SIZE = 100
 

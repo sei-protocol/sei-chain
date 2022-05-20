@@ -374,7 +374,6 @@ func (a appCreator) appExport(
 	jailAllowedAddrs []string,
 	appOpts servertypes.AppOptions,
 ) (servertypes.ExportedApp, error) {
-
 	var exportableApp cosmoscmd.ExportableApp
 
 	homePath, ok := appOpts.Get(flags.FlagHome).(string)

@@ -90,5 +90,7 @@ const SettlementEntryKey = "SettlementEntry-"
 
 const NextOrderIdKey = "noid"
 
-const RegisteredPairKey = "rp"
-const RegisteredPairCount = "rpcnt"
+const (
+	RegisteredPairKey   = "rp"
+	RegisteredPairCount = "rpcnt"
+)

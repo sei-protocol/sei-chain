@@ -37,14 +37,12 @@ func NewPlainKeeper(
 	storeKey,
 	memKey sdk.StoreKey,
 	ps paramtypes.Subspace,
-
 ) *Keeper {
 	// set KeyTable if it has not already been set
 	if !ps.HasKeyTable() {
 		ps = ps.WithKeyTable(types.ParamKeyTable())
 	}
 	return &Keeper{
-
 		cdc:                 cdc,
 		storeKey:            storeKey,
 		memKey:              memKey,
@@ -71,7 +69,6 @@ func NewKeeper(
 		ps = ps.WithKeyTable(types.ParamKeyTable())
 	}
 	return &Keeper{
-
 		cdc:                 cdc,
 		storeKey:            storeKey,
 		memKey:              memKey,
