@@ -152,25 +152,21 @@ func TestApplyWhitelist(t *testing.T) {
 	// no update
 	input.OracleKeeper.ApplyWhitelist(input.Ctx, types.DenomList{
 		types.Denom{
-			Name:     "uusd",
-			TobinTax: sdk.OneDec(),
+			Name: "uusd",
 		},
 		types.Denom{
-			Name:     "ukrw",
-			TobinTax: sdk.OneDec(),
+			Name: "ukrw",
 		},
-	}, map[string]sdk.Dec{
-		"uusd": sdk.ZeroDec(),
-		"ukrw": sdk.ZeroDec(),
+	}, map[string]types.Denom{
+		"uusd": types.Denom{"uusd"},
+		"ukrw": types.Denom{"ukrw"},
 	})
 
-	price, err := input.OracleKeeper.GetTobinTax(input.Ctx, "uusd")
+	_, err := input.OracleKeeper.GetVoteTarget(input.Ctx, "uusd")
 	require.NoError(t, err)
-	require.Equal(t, price, sdk.OneDec())
 
-	price, err = input.OracleKeeper.GetTobinTax(input.Ctx, "ukrw")
+	_, err = input.OracleKeeper.GetVoteTarget(input.Ctx, "ukrw")
 	require.NoError(t, err)
-	require.Equal(t, price, sdk.OneDec())
 
 	metadata, ok := input.BankKeeper.GetDenomMetaData(input.Ctx, "uusd")
 	require.True(t, ok)

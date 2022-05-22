@@ -237,7 +237,7 @@ func CreateTestInput(t *testing.T) TestInput {
 	keeper.SetParams(ctx, defaults)
 
 	for _, denom := range defaults.Whitelist {
-		keeper.SetTobinTax(ctx, denom.Name, denom.TobinTax)
+		keeper.SetVoteTarget(ctx, denom.Name)
 	}
 
 	return TestInput{ctx, legacyAmino, accountKeeper, bankKeeper, keeper, stakingKeeper, distrKeeper}

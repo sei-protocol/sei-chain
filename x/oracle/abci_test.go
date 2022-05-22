@@ -232,9 +232,9 @@ func TestOracleTallyTiming(t *testing.T) {
 func TestInvalidVotesSlashing(t *testing.T) {
 	input, h := setup(t)
 	params := input.OracleKeeper.GetParams(input.Ctx)
-	params.Whitelist = types.DenomList{{Name: utils.MicroAtomDenom, TobinTax: types.DefaultTobinTax}}
+	params.Whitelist = types.DenomList{{Name: utils.MicroAtomDenom}}
 	input.OracleKeeper.SetParams(input.Ctx, params)
-	input.OracleKeeper.SetTobinTax(input.Ctx, utils.MicroAtomDenom, types.DefaultTobinTax)
+	input.OracleKeeper.SetVoteTarget(input.Ctx, utils.MicroAtomDenom)
 
 	votePeriodsPerWindow := sdk.NewDec(int64(input.OracleKeeper.SlashWindow(input.Ctx))).QuoInt64(int64(input.OracleKeeper.VotePeriod(input.Ctx))).TruncateInt64()
 	slashFraction := input.OracleKeeper.SlashFraction(input.Ctx)
@@ -313,12 +313,11 @@ func TestWhitelistSlashing(t *testing.T) {
 func TestNotPassedBallotSlashing(t *testing.T) {
 	input, h := setup(t)
 	params := input.OracleKeeper.GetParams(input.Ctx)
-	params.Whitelist = types.DenomList{{Name: utils.MicroAtomDenom, TobinTax: types.DefaultTobinTax}}
+	params.Whitelist = types.DenomList{{Name: utils.MicroAtomDenom}}
 	input.OracleKeeper.SetParams(input.Ctx, params)
 
-	// clear tobin tax to reset vote targets
-	input.OracleKeeper.ClearTobinTaxes(input.Ctx)
-	input.OracleKeeper.SetTobinTax(input.Ctx, utils.MicroAtomDenom, types.DefaultTobinTax)
+	input.OracleKeeper.ClearVoteTargets(input.Ctx)
+	input.OracleKeeper.SetVoteTarget(input.Ctx, utils.MicroAtomDenom)
 
 	input.Ctx = input.Ctx.WithBlockHeight(input.Ctx.BlockHeight() + 1)
 
@@ -334,12 +333,11 @@ func TestNotPassedBallotSlashing(t *testing.T) {
 func TestAbstainSlashing(t *testing.T) {
 	input, h := setup(t)
 	params := input.OracleKeeper.GetParams(input.Ctx)
-	params.Whitelist = types.DenomList{{Name: utils.MicroAtomDenom, TobinTax: types.DefaultTobinTax}}
+	params.Whitelist = types.DenomList{{Name: utils.MicroAtomDenom}}
 	input.OracleKeeper.SetParams(input.Ctx, params)
 
-	// clear tobin tax to reset vote targets
-	input.OracleKeeper.ClearTobinTaxes(input.Ctx)
-	input.OracleKeeper.SetTobinTax(input.Ctx, utils.MicroAtomDenom, types.DefaultTobinTax)
+	input.OracleKeeper.ClearVoteTargets(input.Ctx)
+	input.OracleKeeper.SetVoteTarget(input.Ctx, utils.MicroAtomDenom)
 
 	votePeriodsPerWindow := sdk.NewDec(int64(input.OracleKeeper.SlashWindow(input.Ctx))).QuoInt64(int64(input.OracleKeeper.VotePeriod(input.Ctx))).TruncateInt64()
 	minValidPerWindow := input.OracleKeeper.MinValidPerWindow(input.Ctx)
@@ -367,12 +365,11 @@ func TestAbstainSlashing(t *testing.T) {
 func TestVoteTargets(t *testing.T) {
 	input, h := setup(t)
 	params := input.OracleKeeper.GetParams(input.Ctx)
-	params.Whitelist = types.DenomList{{Name: utils.MicroAtomDenom, TobinTax: types.DefaultTobinTax}, {Name: utils.MicroAtomDenom, TobinTax: types.DefaultTobinTax}}
+	params.Whitelist = types.DenomList{{Name: utils.MicroAtomDenom}, {Name: utils.MicroAtomDenom}}
 	input.OracleKeeper.SetParams(input.Ctx, params)
 
-	// clear tobin tax to reset vote targets
-	input.OracleKeeper.ClearTobinTaxes(input.Ctx)
-	input.OracleKeeper.SetTobinTax(input.Ctx, utils.MicroAtomDenom, types.DefaultTobinTax)
+	input.OracleKeeper.ClearVoteTargets(input.Ctx)
+	input.OracleKeeper.SetVoteTarget(input.Ctx, utils.MicroAtomDenom)
 
 	// KRW
 	makeAggregatePrevoteAndVote(t, input, h, 0, sdk.DecCoins{{Denom: utils.MicroAtomDenom, Amount: randomExchangeRate}}, 0)
@@ -389,13 +386,11 @@ func TestVoteTargets(t *testing.T) {
 	// vote targets are {KRW, SDR}
 	require.Equal(t, []string{utils.MicroAtomDenom}, input.OracleKeeper.GetVoteTargets(input.Ctx))
 
-	// tobin tax must be exists for SDR
-	sdrTobinTax, err := input.OracleKeeper.GetTobinTax(input.Ctx, utils.MicroAtomDenom)
+	_, err := input.OracleKeeper.GetVoteTarget(input.Ctx, utils.MicroAtomDenom)
 	require.NoError(t, err)
-	require.Equal(t, types.DefaultTobinTax, sdrTobinTax)
 
 	// delete SDR
-	params.Whitelist = types.DenomList{{Name: utils.MicroAtomDenom, TobinTax: types.DefaultTobinTax}}
+	params.Whitelist = types.DenomList{{Name: utils.MicroAtomDenom}}
 	input.OracleKeeper.SetParams(input.Ctx, params)
 
 	// KRW, missing
@@ -412,11 +407,10 @@ func TestVoteTargets(t *testing.T) {
 	// SDR must be deleted
 	require.Equal(t, []string{utils.MicroAtomDenom}, input.OracleKeeper.GetVoteTargets(input.Ctx))
 
-	_, err = input.OracleKeeper.GetTobinTax(input.Ctx, "undefined")
+	_, err = input.OracleKeeper.GetVoteTarget(input.Ctx, "undefined")
 	require.Error(t, err)
 
-	// change KRW tobin tax
-	params.Whitelist = types.DenomList{{Name: utils.MicroAtomDenom, TobinTax: sdk.ZeroDec()}}
+	params.Whitelist = types.DenomList{{Name: utils.MicroAtomDenom}}
 	input.OracleKeeper.SetParams(input.Ctx, params)
 
 	// KRW, no missing
@@ -430,18 +424,15 @@ func TestVoteTargets(t *testing.T) {
 	require.Equal(t, uint64(0), input.OracleKeeper.GetMissCounter(input.Ctx, keeper.ValAddrs[1]))
 	require.Equal(t, uint64(0), input.OracleKeeper.GetMissCounter(input.Ctx, keeper.ValAddrs[2]))
 
-	// KRW tobin tax must be 0
-	tobinTax, err := input.OracleKeeper.GetTobinTax(input.Ctx, utils.MicroAtomDenom)
+	_, err = input.OracleKeeper.GetVoteTarget(input.Ctx, utils.MicroAtomDenom)
 	require.NoError(t, err)
-	require.True(t, sdk.ZeroDec().Equal(tobinTax))
 }
 
 func TestAbstainWithSmallStakingPower(t *testing.T) {
 	input, h := setupWithSmallVotingPower(t)
 
-	// clear tobin tax to reset vote targets
-	input.OracleKeeper.ClearTobinTaxes(input.Ctx)
-	input.OracleKeeper.SetTobinTax(input.Ctx, utils.MicroAtomDenom, types.DefaultTobinTax)
+	input.OracleKeeper.ClearVoteTargets(input.Ctx)
+	input.OracleKeeper.SetVoteTarget(input.Ctx, utils.MicroAtomDenom)
 	makeAggregatePrevoteAndVote(t, input, h, 0, sdk.DecCoins{{Denom: utils.MicroAtomDenom, Amount: sdk.ZeroDec()}}, 0)
 
 	oracle.EndBlocker(input.Ctx, input.OracleKeeper)

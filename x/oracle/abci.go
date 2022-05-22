@@ -11,7 +11,6 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 )
 
-// EndBlocker is called at the end of every block
 func EndBlocker(ctx sdk.Context, k keeper.Keeper) {
 	defer telemetry.ModuleMeasureSince(types.ModuleName, time.Now(), telemetry.MetricKeyEndBlocker)
 
@@ -39,10 +38,9 @@ func EndBlocker(ctx sdk.Context, k keeper.Keeper) {
 			}
 		}
 
-		// Denom-TobinTax map
-		voteTargets := make(map[string]sdk.Dec)
-		k.IterateTobinTaxes(ctx, func(denom string, tobinTax sdk.Dec) bool {
-			voteTargets[denom] = tobinTax
+		voteTargets := make(map[string]types.Denom)
+		k.IterateVoteTargets(ctx, func(denom string, denomInfo types.Denom) bool {
+			voteTargets[denom] = denomInfo
 			return false
 		})
 
@@ -57,30 +55,30 @@ func EndBlocker(ctx sdk.Context, k keeper.Keeper) {
 		// NOTE: **Make abstain votes to have zero vote power**
 		voteMap := k.OrganizeBallotByDenom(ctx, validatorClaimMap)
 
-		if referenceTerra := pickReferenceTerra(ctx, k, voteTargets, voteMap); referenceTerra != "" {
-			// make voteMap of Reference Terra to calculate cross exchange rates
-			ballotRT := voteMap[referenceTerra]
-			voteMapRT := ballotRT.ToMap()
+		if referenceDenom := pickReferenceDenom(ctx, k, voteTargets, voteMap); referenceDenom != "" {
+			// make voteMap of Reference denom to calculate cross exchange rates
+			ballotRD := voteMap[referenceDenom]
+			voteMapRD := ballotRD.ToMap()
 
-			var exchangeRateRT sdk.Dec
+			var exchangeRateRD sdk.Dec
 
-			exchangeRateRT = ballotRT.WeightedMedianWithAssertion()
+			exchangeRateRD = ballotRD.WeightedMedianWithAssertion()
 
 			// Iterate through ballots and update exchange rates; drop if not enough votes have been achieved.
 			for denom, ballot := range voteMap {
 
 				// Convert ballot to cross exchange rates
-				if denom != referenceTerra {
+				if denom != referenceDenom {
 
-					ballot = ballot.ToCrossRateWithSort(voteMapRT)
+					ballot = ballot.ToCrossRateWithSort(voteMapRD)
 				}
 
 				// Get weighted median of cross exchange rates
 				exchangeRate := Tally(ctx, ballot, params.RewardBand, validatorClaimMap)
 
-				// Transform into the original form uluna/stablecoin
-				if denom != referenceTerra {
-					exchangeRate = exchangeRateRT.Quo(exchangeRate)
+				// Transform into the original form base/quote
+				if denom != referenceDenom {
+					exchangeRate = exchangeRateRD.Quo(exchangeRate)
 				}
 
 				// Set the exchange rate, emit ABCI event
@@ -104,7 +102,7 @@ func EndBlocker(ctx sdk.Context, k keeper.Keeper) {
 		// Clear the ballot
 		k.ClearBallots(ctx, params.VotePeriod)
 
-		// Update vote targets and tobin tax
+		// Update vote targets
 		k.ApplyWhitelist(ctx, params.Whitelist, voteTargets)
 	}
 

@@ -118,8 +118,8 @@ func TestParams(t *testing.T) {
 	slashWindow := uint64(1000)
 	minValidPerWindow := sdk.NewDecWithPrec(1, 4)
 	whitelist := types.DenomList{
-		{Name: utils.MicroEthDenom, TobinTax: types.DefaultTobinTax},
-		{Name: utils.MicroAtomDenom, TobinTax: types.DefaultTobinTax},
+		{Name: utils.MicroEthDenom},
+		{Name: utils.MicroAtomDenom},
 	}
 
 	// Should really test validateParams, but skipping because obvious
@@ -311,31 +311,26 @@ func TestAggregateVoteIterate(t *testing.T) {
 	})
 }
 
-func TestTobinTaxGetSet(t *testing.T) {
+func TestVoteTargetGetSet(t *testing.T) {
 	input := CreateTestInput(t)
 
-	tobinTaxes := map[string]sdk.Dec{
-		utils.MicroEthDenom:  sdk.NewDec(1),
-		utils.MicroUsdcDenom: sdk.NewDecWithPrec(1, 3),
-		utils.MicroAtomDenom: sdk.NewDecWithPrec(123, 3),
-		utils.MicroSeiDenom:  sdk.NewDecWithPrec(1423, 4),
+	voteTargets := map[string]types.Denom{
+		utils.MicroEthDenom:  types.Denom{utils.MicroEthDenom},
+		utils.MicroUsdcDenom: types.Denom{utils.MicroUsdcDenom},
+		utils.MicroAtomDenom: types.Denom{utils.MicroAtomDenom},
+		utils.MicroSeiDenom:  types.Denom{utils.MicroSeiDenom},
 	}
 
-	for denom, tobinTax := range tobinTaxes {
-		input.OracleKeeper.SetTobinTax(input.Ctx, denom, tobinTax)
-		factor, err := input.OracleKeeper.GetTobinTax(input.Ctx, denom)
+	for denom := range voteTargets {
+		input.OracleKeeper.SetVoteTarget(input.Ctx, denom)
+		denomInfo, err := input.OracleKeeper.GetVoteTarget(input.Ctx, denom)
 		require.NoError(t, err)
-		require.Equal(t, tobinTaxes[denom], factor)
+		require.Equal(t, voteTargets[denom], denomInfo)
 	}
 
-	input.OracleKeeper.IterateTobinTaxes(input.Ctx, func(denom string, tobinTax sdk.Dec) (stop bool) {
-		require.Equal(t, tobinTaxes[denom], tobinTax)
-		return false
-	})
-
-	input.OracleKeeper.ClearTobinTaxes(input.Ctx)
-	for denom := range tobinTaxes {
-		_, err := input.OracleKeeper.GetTobinTax(input.Ctx, denom)
+	input.OracleKeeper.ClearVoteTargets(input.Ctx)
+	for denom := range voteTargets {
+		_, err := input.OracleKeeper.GetVoteTarget(input.Ctx, denom)
 		require.Error(t, err)
 	}
 }

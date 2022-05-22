@@ -176,55 +176,14 @@ func TestQueryVoteTargets(t *testing.T) {
 	ctx := sdk.WrapSDKContext(input.Ctx)
 	querier := NewQuerier(input.OracleKeeper)
 
-	// clear tobin taxes
-	input.OracleKeeper.ClearTobinTaxes(input.Ctx)
+	input.OracleKeeper.ClearVoteTargets(input.Ctx)
 
 	voteTargets := []string{"denom", "denom2", "denom3"}
 	for _, target := range voteTargets {
-		input.OracleKeeper.SetTobinTax(input.Ctx, target, sdk.OneDec())
+		input.OracleKeeper.SetVoteTarget(input.Ctx, target)
 	}
 
 	res, err := querier.VoteTargets(ctx, &types.QueryVoteTargetsRequest{})
 	require.NoError(t, err)
 	require.Equal(t, voteTargets, res.VoteTargets)
-}
-
-func TestQueryTobinTaxes(t *testing.T) {
-	input := CreateTestInput(t)
-	ctx := sdk.WrapSDKContext(input.Ctx)
-	querier := NewQuerier(input.OracleKeeper)
-
-	// clear tobin taxes
-	input.OracleKeeper.ClearTobinTaxes(input.Ctx)
-
-	tobinTaxes := types.DenomList{{
-		Name:     utils.MicroAtomDenom,
-		TobinTax: sdk.OneDec(),
-	}, {
-		Name:     utils.MicroSeiDenom,
-		TobinTax: sdk.NewDecWithPrec(123, 2),
-	}}
-	for _, item := range tobinTaxes {
-		input.OracleKeeper.SetTobinTax(input.Ctx, item.Name, item.TobinTax)
-	}
-
-	res, err := querier.TobinTaxes(ctx, &types.QueryTobinTaxesRequest{})
-	require.NoError(t, err)
-	require.Equal(t, tobinTaxes, res.TobinTaxes)
-}
-
-func TestQueryTobinTax(t *testing.T) {
-	input := CreateTestInput(t)
-	ctx := sdk.WrapSDKContext(input.Ctx)
-	querier := NewQuerier(input.OracleKeeper)
-
-	denom := types.Denom{Name: utils.MicroSeiDenom, TobinTax: sdk.OneDec()}
-	input.OracleKeeper.SetTobinTax(input.Ctx, denom.Name, denom.TobinTax)
-
-	res, err := querier.TobinTax(ctx, &types.QueryTobinTaxRequest{
-		Denom: utils.MicroSeiDenom,
-	})
-	require.NoError(t, err)
-
-	require.Equal(t, denom.TobinTax, res.TobinTax)
 }

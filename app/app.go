@@ -101,6 +101,10 @@ import (
 	dexmodulekeeper "github.com/sei-protocol/sei-chain/x/dex/keeper"
 	dexmoduletypes "github.com/sei-protocol/sei-chain/x/dex/types"
 
+	oraclemodule "github.com/sei-protocol/sei-chain/x/oracle"
+	oraclekeeper "github.com/sei-protocol/sei-chain/x/oracle/keeper"
+	oracletypes "github.com/sei-protocol/sei-chain/x/oracle/types"
+
 	epochmodule "github.com/sei-protocol/sei-chain/x/epoch"
 	epochmodulekeeper "github.com/sei-protocol/sei-chain/x/epoch/keeper"
 	epochmoduletypes "github.com/sei-protocol/sei-chain/x/epoch/types"
@@ -159,6 +163,7 @@ var (
 		evidence.AppModuleBasic{},
 		transfer.AppModuleBasic{},
 		vesting.AppModuleBasic{},
+		oraclemodule.AppModuleBasic{},
 		wasm.AppModuleBasic{},
 		dexmodule.AppModuleBasic{},
 		epochmodule.AppModuleBasic{},
@@ -174,8 +179,14 @@ var (
 		stakingtypes.NotBondedPoolName: {authtypes.Burner, authtypes.Staking},
 		govtypes.ModuleName:            {authtypes.Burner},
 		ibctransfertypes.ModuleName:    {authtypes.Minter, authtypes.Burner},
+		oracletypes.ModuleName:         nil,
 		wasm.ModuleName:                {authtypes.Burner},
+		dexmoduletypes.ModuleName:      nil,
 		// this line is used by starport scaffolding # stargate/app/maccPerms
+	}
+
+	allowedReceivingModAcc = map[string]bool{
+		oracletypes.ModuleName: true,
 	}
 )
 
@@ -228,6 +239,7 @@ type App struct {
 	TransferKeeper   ibctransferkeeper.Keeper
 	FeeGrantKeeper   feegrantkeeper.Keeper
 	WasmKeeper       wasm.Keeper
+	OracleKeeper     oraclekeeper.Keeper
 
 	// make scoped keepers public for test purposes
 	ScopedIBCKeeper      capabilitykeeper.ScopedKeeper
@@ -276,7 +288,7 @@ func New(
 		authtypes.StoreKey, banktypes.StoreKey, stakingtypes.StoreKey,
 		minttypes.StoreKey, distrtypes.StoreKey, slashingtypes.StoreKey,
 		govtypes.StoreKey, paramstypes.StoreKey, ibchost.StoreKey, upgradetypes.StoreKey, feegrant.StoreKey,
-		evidencetypes.StoreKey, ibctransfertypes.StoreKey, capabilitytypes.StoreKey, wasm.StoreKey,
+		evidencetypes.StoreKey, ibctransfertypes.StoreKey, capabilitytypes.StoreKey, oracletypes.StoreKey, wasm.StoreKey,
 		dexmoduletypes.StoreKey,
 		epochmoduletypes.StoreKey,
 		// this line is used by starport scaffolding # stargate/app/storeKey
@@ -398,6 +410,11 @@ func New(
 		&stakingKeeper, govRouter,
 	)
 
+	app.OracleKeeper = oraclekeeper.NewKeeper(
+		appCodec, keys[oracletypes.StoreKey], app.GetSubspace(oracletypes.ModuleName),
+		app.AccountKeeper, app.BankKeeper, app.DistrKeeper, &stakingKeeper, distrtypes.ModuleName,
+	)
+
 	wasmDir := filepath.Join(homePath, "wasm")
 	wasmConfig, err := wasm.ReadWasmConfig(appOpts)
 	if err != nil {
@@ -483,6 +500,7 @@ func New(
 		evidence.NewAppModule(app.EvidenceKeeper),
 		ibc.NewAppModule(app.IBCKeeper),
 		params.NewAppModule(app.ParamsKeeper),
+		oraclemodule.NewAppModule(appCodec, app.OracleKeeper, app.AccountKeeper, app.BankKeeper),
 		wasm.NewAppModule(appCodec, &app.WasmKeeper, app.StakingKeeper, app.AccountKeeper, app.BankKeeper),
 		transferModule,
 		dexModule,
@@ -512,6 +530,7 @@ func New(
 		evidencetypes.ModuleName,
 		ibctransfertypes.ModuleName,
 		feegrant.ModuleName,
+		oracletypes.ModuleName,
 		epochmoduletypes.ModuleName,
 		dexmoduletypes.ModuleName,
 		wasm.ModuleName,
@@ -535,6 +554,7 @@ func New(
 		evidencetypes.ModuleName,
 		ibctransfertypes.ModuleName,
 		feegrant.ModuleName,
+		oracletypes.ModuleName,
 		epochmoduletypes.ModuleName,
 		dexmoduletypes.ModuleName,
 		wasm.ModuleName,
@@ -563,6 +583,7 @@ func New(
 		evidencetypes.ModuleName,
 		ibctransfertypes.ModuleName,
 		feegrant.ModuleName,
+		oracletypes.ModuleName,
 		epochmoduletypes.ModuleName,
 		dexmoduletypes.ModuleName,
 		wasm.ModuleName,
@@ -586,6 +607,7 @@ func New(
 		slashing.NewAppModule(appCodec, app.SlashingKeeper, app.AccountKeeper, app.BankKeeper, app.StakingKeeper),
 		params.NewAppModule(app.ParamsKeeper),
 		evidence.NewAppModule(app.EvidenceKeeper),
+		oraclemodule.NewAppModule(appCodec, app.OracleKeeper, app.AccountKeeper, app.BankKeeper),
 		wasm.NewAppModule(appCodec, &app.WasmKeeper, app.StakingKeeper, app.AccountKeeper, app.BankKeeper),
 		ibc.NewAppModule(app.IBCKeeper),
 		transferModule,
@@ -616,6 +638,7 @@ func New(
 			IBCKeeper:         app.IBCKeeper,
 			TXCounterStoreKey: keys[wasm.StoreKey],
 			WasmConfig:        &wasmConfig,
+			OracleKeeper:      &app.OracleKeeper,
 		},
 	)
 	if err != nil {
@@ -793,6 +816,7 @@ func initParamsKeeper(appCodec codec.BinaryCodec, legacyAmino *codec.LegacyAmino
 	paramsKeeper.Subspace(crisistypes.ModuleName)
 	paramsKeeper.Subspace(ibctransfertypes.ModuleName)
 	paramsKeeper.Subspace(ibchost.ModuleName)
+	paramsKeeper.Subspace(oracletypes.ModuleName)
 	paramsKeeper.Subspace(wasm.ModuleName)
 	paramsKeeper.Subspace(dexmoduletypes.ModuleName)
 	paramsKeeper.Subspace(epochmoduletypes.ModuleName)
@@ -804,4 +828,13 @@ func initParamsKeeper(appCodec codec.BinaryCodec, legacyAmino *codec.LegacyAmino
 // SimulationManager implements the SimulationApp interface
 func (app *App) SimulationManager() *module.SimulationManager {
 	return app.sm
+}
+
+func (app *App) BlacklistedAccAddrs() map[string]bool {
+	blacklistedAddrs := make(map[string]bool)
+	for acc := range maccPerms {
+		blacklistedAddrs[authtypes.NewModuleAddress(acc).String()] = !allowedReceivingModAcc[acc]
+	}
+
+	return blacklistedAddrs
 }

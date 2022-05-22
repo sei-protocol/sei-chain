@@ -57,16 +57,6 @@ func InitGenesis(ctx sdk.Context, keeper keeper.Keeper, data *types.GenesisState
 		keeper.SetAggregateExchangeRateVote(ctx, valAddr, av)
 	}
 
-	if len(data.TobinTaxes) > 0 {
-		for _, tt := range data.TobinTaxes {
-			keeper.SetTobinTax(ctx, tt.Denom, tt.TobinTax)
-		}
-	} else {
-		for _, item := range data.Params.Whitelist {
-			keeper.SetTobinTax(ctx, item.Name, item.TobinTax)
-		}
-	}
-
 	keeper.SetParams(ctx, data.Params)
 
 	// check if the module account exists
@@ -117,17 +107,10 @@ func ExportGenesis(ctx sdk.Context, keeper keeper.Keeper) *types.GenesisState {
 		return false
 	})
 
-	tobinTaxes := []types.TobinTax{}
-	keeper.IterateTobinTaxes(ctx, func(denom string, tobinTax sdk.Dec) (stop bool) {
-		tobinTaxes = append(tobinTaxes, types.TobinTax{Denom: denom, TobinTax: tobinTax})
-		return false
-	})
-
 	return types.NewGenesisState(params,
 		exchangeRates,
 		feederDelegations,
 		missCounters,
 		aggregateExchangeRatePrevotes,
-		aggregateExchangeRateVotes,
-		tobinTaxes)
+		aggregateExchangeRateVotes)
 }

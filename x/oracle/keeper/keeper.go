@@ -294,48 +294,44 @@ func (k Keeper) IterateAggregateExchangeRateVotes(ctx sdk.Context, handler func(
 	}
 }
 
-// GetTobinTax return tobin tax for the denom
-func (k Keeper) GetTobinTax(ctx sdk.Context, denom string) (sdk.Dec, error) {
+func (k Keeper) GetVoteTarget(ctx sdk.Context, denom string) (types.Denom, error) {
 	store := ctx.KVStore(k.storeKey)
-	bz := store.Get(types.GetTobinTaxKey(denom))
+	bz := store.Get(types.GetVoteTargetKey(denom))
 	if bz == nil {
-		err := sdkerrors.Wrap(types.ErrNoTobinTax, denom)
-		return sdk.Dec{}, err
+		err := sdkerrors.Wrap(types.ErrNoVoteTarget, denom)
+		return types.Denom{}, err
 	}
 
-	tobinTax := sdk.DecProto{}
-	k.cdc.MustUnmarshal(bz, &tobinTax)
+	voteTarget := types.Denom{}
+	k.cdc.MustUnmarshal(bz, &voteTarget)
 
-	return tobinTax.Dec, nil
+	return voteTarget, nil
 }
 
-// SetTobinTax updates tobin tax for the denom
-func (k Keeper) SetTobinTax(ctx sdk.Context, denom string, tobinTax sdk.Dec) {
+func (k Keeper) SetVoteTarget(ctx sdk.Context, denom string) {
 	store := ctx.KVStore(k.storeKey)
-	bz := k.cdc.MustMarshal(&sdk.DecProto{Dec: tobinTax})
-	store.Set(types.GetTobinTaxKey(denom), bz)
+	bz := k.cdc.MustMarshal(&types.Denom{Name: denom})
+	store.Set(types.GetVoteTargetKey(denom), bz)
 }
 
-// IterateTobinTaxes iterates rate over tobin taxes in the store
-func (k Keeper) IterateTobinTaxes(ctx sdk.Context, handler func(denom string, tobinTax sdk.Dec) (stop bool)) {
+func (k Keeper) IterateVoteTargets(ctx sdk.Context, handler func(denom string, denomInfo types.Denom) (stop bool)) {
 	store := ctx.KVStore(k.storeKey)
-	iter := sdk.KVStorePrefixIterator(store, types.TobinTaxKey)
+	iter := sdk.KVStorePrefixIterator(store, types.VoteTargetKey)
 	defer iter.Close()
 	for ; iter.Valid(); iter.Next() {
-		denom := types.ExtractDenomFromTobinTaxKey(iter.Key())
+		denom := types.ExtractDenomFromVoteTargetKey(iter.Key())
 
-		var tobinTax sdk.DecProto
-		k.cdc.MustUnmarshal(iter.Value(), &tobinTax)
-		if handler(denom, tobinTax.Dec) {
+		var denomInfo types.Denom
+		k.cdc.MustUnmarshal(iter.Value(), &denomInfo)
+		if handler(denom, denomInfo) {
 			break
 		}
 	}
 }
 
-// ClearTobinTaxes clears tobin taxes
-func (k Keeper) ClearTobinTaxes(ctx sdk.Context) {
+func (k Keeper) ClearVoteTargets(ctx sdk.Context) {
 	store := ctx.KVStore(k.storeKey)
-	iter := sdk.KVStorePrefixIterator(store, types.TobinTaxKey)
+	iter := sdk.KVStorePrefixIterator(store, types.VoteTargetKey)
 	defer iter.Close()
 	for ; iter.Valid(); iter.Next() {
 		store.Delete(iter.Key())

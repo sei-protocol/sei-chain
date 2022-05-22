@@ -93,9 +93,3 @@ type AggregateExchangeRateVote struct {
 	Voter              sdk.ValAddress     // voter val address of validator
 }
 ```
-
-## TobinTax
-
-`sdk.Dec` that stores spread tax for the denom whose ballot is passed, which is used by the [Market](../../market/spec/README.md) module for spot-converting Terra<>Terra.
-
-- TobinTax: `0x08<denom_Bytes> -> amino(sdk.Dec)`

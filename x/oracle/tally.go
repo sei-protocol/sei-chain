@@ -43,12 +43,12 @@ func ballotIsPassing(ballot types.ExchangeRateBallot, thresholdVotes sdk.Int) (s
 	return ballotPower, !ballotPower.IsZero() && ballotPower.GTE(thresholdVotes)
 }
 
-// choose Reference Terra with the highest voter turnout
+// choose reference denom with the highest voter turnout
 // If the voting power of the two denominations is the same,
-// select reference Terra in alphabetical order.
-func pickReferenceTerra(ctx sdk.Context, k keeper.Keeper, voteTargets map[string]sdk.Dec, voteMap map[string]types.ExchangeRateBallot) string {
+// select reference denom in alphabetical order.
+func pickReferenceDenom(ctx sdk.Context, k keeper.Keeper, voteTargets map[string]types.Denom, voteMap map[string]types.ExchangeRateBallot) string {
 	largestBallotPower := int64(0)
-	referenceTerra := ""
+	referenceDenom := ""
 
 	totalBondedPower := sdk.TokensToConsensusPower(k.StakingKeeper.TotalBondedTokens(ctx), k.StakingKeeper.PowerReduction(ctx))
 	voteThreshold := k.VoteThreshold(ctx)
@@ -75,12 +75,12 @@ func pickReferenceTerra(ctx sdk.Context, k keeper.Keeper, voteTargets map[string
 		}
 
 		if ballotPower > largestBallotPower || largestBallotPower == 0 {
-			referenceTerra = denom
+			referenceDenom = denom
 			largestBallotPower = ballotPower
-		} else if largestBallotPower == ballotPower && referenceTerra > denom {
-			referenceTerra = denom
+		} else if largestBallotPower == ballotPower && referenceDenom > denom {
+			referenceDenom = denom
 		}
 	}
 
-	return referenceTerra
+	return referenceDenom
 }

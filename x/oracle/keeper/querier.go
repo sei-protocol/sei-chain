@@ -65,41 +65,6 @@ func (q querier) ExchangeRates(c context.Context, req *types.QueryExchangeRatesR
 	return &types.QueryExchangeRatesResponse{ExchangeRates: exchangeRates}, nil
 }
 
-// TobinTax queries tobin tax of a denom
-func (q querier) TobinTax(c context.Context, req *types.QueryTobinTaxRequest) (*types.QueryTobinTaxResponse, error) {
-	if req == nil {
-		return nil, status.Error(codes.InvalidArgument, "invalid request")
-	}
-
-	if len(req.Denom) == 0 {
-		return nil, status.Error(codes.InvalidArgument, "empty denom")
-	}
-
-	ctx := sdk.UnwrapSDKContext(c)
-	tobinTax, err := q.GetTobinTax(ctx, req.Denom)
-	if err != nil {
-		return nil, err
-	}
-
-	return &types.QueryTobinTaxResponse{TobinTax: tobinTax}, nil
-}
-
-// TobinTaxes queries tobin taxes of all denoms
-func (q querier) TobinTaxes(c context.Context, req *types.QueryTobinTaxesRequest) (*types.QueryTobinTaxesResponse, error) {
-	ctx := sdk.UnwrapSDKContext(c)
-
-	var tobinTaxes types.DenomList
-	q.IterateTobinTaxes(ctx, func(denom string, rate sdk.Dec) (stop bool) {
-		tobinTaxes = append(tobinTaxes, types.Denom{
-			Name:     denom,
-			TobinTax: rate,
-		})
-		return false
-	})
-
-	return &types.QueryTobinTaxesResponse{TobinTaxes: tobinTaxes}, nil
-}
-
 // Actives queries all denoms for which exchange rates exist
 func (q querier) Actives(c context.Context, req *types.QueryActivesRequest) (*types.QueryActivesResponse, error) {
 	ctx := sdk.UnwrapSDKContext(c)

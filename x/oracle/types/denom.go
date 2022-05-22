@@ -14,7 +14,7 @@ func (d Denom) String() string {
 
 // Equal implements equal interface
 func (d Denom) Equal(d1 *Denom) bool {
-	return d.Name == d1.Name && d.TobinTax.Equal(d1.TobinTax)
+	return d.Name == d1.Name
 }
 
 // DenomList is array of Denom

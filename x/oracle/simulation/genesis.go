@@ -112,8 +112,8 @@ func RandomizedGenState(simState *module.SimulationState) {
 			RewardBand:               rewardBand,
 			RewardDistributionWindow: rewardDistributionWindow,
 			Whitelist: types.DenomList{
-				{Name: utils.MicroSeiDenom, TobinTax: types.DefaultTobinTax},
-				{Name: utils.MicroAtomDenom, TobinTax: types.DefaultTobinTax},
+				{Name: utils.MicroSeiDenom},
+				{Name: utils.MicroAtomDenom},
 			},
 			SlashFraction:     slashFraction,
 			SlashWindow:       slashWindow,
@@ -124,7 +124,6 @@ func RandomizedGenState(simState *module.SimulationState) {
 		[]types.MissCounter{},
 		[]types.AggregateExchangeRatePrevote{},
 		[]types.AggregateExchangeRateVote{},
-		[]types.TobinTax{},
 	)
 
 	bz, err := json.MarshalIndent(&oracleGenesis.Params, "", " ")

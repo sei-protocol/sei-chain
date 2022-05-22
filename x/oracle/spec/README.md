@@ -21,7 +21,6 @@ As price information is extrinsic to the blockchain, the Terra network relies on
     - [MissCounter](02_state.md#MissCounter)
     - [AggregateExchangeRatePrevote](02_state.md#AggregateExchangeRatePrevote)
     - [AggregateExchangeRateVote](02_state.md#AggregateExchangeRateVote)
-    - [TobinTax](02_state.md#TobinTax)
 3. **[EndBlock](03_end_block.md)**
     - [Tally Exchange Rate Votes](03_end_block.md#Tally-Exchange-Rate-Votes)
 4. **[Messages](04_messages.md)**
