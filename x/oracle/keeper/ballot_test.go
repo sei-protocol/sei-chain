@@ -149,36 +149,32 @@ func TestClearBallots(t *testing.T) {
 func TestApplyWhitelist(t *testing.T) {
 	input := CreateTestInput(t)
 
-	// no update
 	input.OracleKeeper.ApplyWhitelist(input.Ctx, types.DenomList{
 		types.Denom{
-			Name: "uusd",
+			Name: "uatom",
 		},
 		types.Denom{
-			Name: "ukrw",
+			Name: "uusdc",
 		},
-	}, map[string]types.Denom{
-		"uusd": types.Denom{"uusd"},
-		"ukrw": types.Denom{"ukrw"},
-	})
+	}, map[string]types.Denom{})
 
-	_, err := input.OracleKeeper.GetVoteTarget(input.Ctx, "uusd")
+	_, err := input.OracleKeeper.GetVoteTarget(input.Ctx, "uatom")
 	require.NoError(t, err)
 
-	_, err = input.OracleKeeper.GetVoteTarget(input.Ctx, "ukrw")
+	_, err = input.OracleKeeper.GetVoteTarget(input.Ctx, "uusdc")
 	require.NoError(t, err)
 
-	metadata, ok := input.BankKeeper.GetDenomMetaData(input.Ctx, "uusd")
+	metadata, ok := input.BankKeeper.GetDenomMetaData(input.Ctx, "uatom")
 	require.True(t, ok)
-	require.Equal(t, metadata.Base, "uusd")
-	require.Equal(t, metadata.Display, "usd")
+	require.Equal(t, metadata.Base, "uatom")
+	require.Equal(t, metadata.Display, "atom")
 	require.Equal(t, len(metadata.DenomUnits), 3)
-	require.Equal(t, metadata.Description, "The native stable token of the Terra Columbus.")
+	require.Equal(t, metadata.Description, "atom")
 
-	metadata, ok = input.BankKeeper.GetDenomMetaData(input.Ctx, "ukrw")
+	metadata, ok = input.BankKeeper.GetDenomMetaData(input.Ctx, "uusdc")
 	require.True(t, ok)
-	require.Equal(t, metadata.Base, "ukrw")
-	require.Equal(t, metadata.Display, "krw")
+	require.Equal(t, metadata.Base, "uusdc")
+	require.Equal(t, metadata.Display, "usdc")
 	require.Equal(t, len(metadata.DenomUnits), 3)
-	require.Equal(t, metadata.Description, "The native stable token of the Terra Columbus.")
+	require.Equal(t, metadata.Description, "usdc")
 }

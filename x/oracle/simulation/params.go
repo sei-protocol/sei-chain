@@ -31,11 +31,6 @@ func ParamChanges(r *rand.Rand) []simtypes.ParamChange {
 				return fmt.Sprintf("\"%s\"", GenRewardBand(r))
 			},
 		),
-		simulation.NewSimParamChange(types.ModuleName, string(types.KeyRewardDistributionWindow),
-			func(r *rand.Rand) string {
-				return fmt.Sprintf("\"%d\"", GenRewardDistributionWindow(r))
-			},
-		),
 		simulation.NewSimParamChange(types.ModuleName, string(types.KeySlashFraction),
 			func(r *rand.Rand) string {
 				return fmt.Sprintf("\"%s\"", GenSlashFraction(r))

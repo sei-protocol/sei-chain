@@ -41,7 +41,7 @@ func NewDecodeStore(cdc codec.Codec) func(kvA, kvB kv.Pair) string {
 			cdc.MustUnmarshal(kvB.Value, &voteB)
 			return fmt.Sprintf("%v\n%v", voteA, voteB)
 		case bytes.Equal(kvA.Key[:1], types.VoteTargetKey):
-			var voteTargetA, voteTargetB sdk.DecProto
+			var voteTargetA, voteTargetB types.Denom
 			cdc.MustUnmarshal(kvA.Value, &voteTargetA)
 			cdc.MustUnmarshal(kvB.Value, &voteTargetB)
 			return fmt.Sprintf("%v\n%v", voteTargetA, voteTargetB)

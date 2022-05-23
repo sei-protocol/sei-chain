@@ -40,11 +40,6 @@ func GenRewardBand(r *rand.Rand) sdk.Dec {
 	return sdk.ZeroDec().Add(sdk.NewDecWithPrec(int64(r.Intn(100)), 3))
 }
 
-// GenRewardDistributionWindow randomized RewardDistributionWindow
-func GenRewardDistributionWindow(r *rand.Rand) uint64 {
-	return uint64(100 + r.Intn(100000))
-}
-
 // GenSlashFraction randomized SlashFraction
 func GenSlashFraction(r *rand.Rand) sdk.Dec {
 	return sdk.ZeroDec().Add(sdk.NewDecWithPrec(int64(r.Intn(100)), 3))
@@ -81,12 +76,6 @@ func RandomizedGenState(simState *module.SimulationState) {
 		func(r *rand.Rand) { rewardBand = GenRewardBand(r) },
 	)
 
-	var rewardDistributionWindow uint64
-	simState.AppParams.GetOrGenerate(
-		simState.Cdc, rewardDistributionWindowKey, &rewardDistributionWindow, simState.Rand,
-		func(r *rand.Rand) { rewardDistributionWindow = GenRewardDistributionWindow(r) },
-	)
-
 	var slashFraction sdk.Dec
 	simState.AppParams.GetOrGenerate(
 		simState.Cdc, slashFractionKey, &slashFraction, simState.Rand,
@@ -107,10 +96,9 @@ func RandomizedGenState(simState *module.SimulationState) {
 
 	oracleGenesis := types.NewGenesisState(
 		types.Params{
-			VotePeriod:               votePeriod,
-			VoteThreshold:            voteThreshold,
-			RewardBand:               rewardBand,
-			RewardDistributionWindow: rewardDistributionWindow,
+			VotePeriod:    votePeriod,
+			VoteThreshold: voteThreshold,
+			RewardBand:    rewardBand,
 			Whitelist: types.DenomList{
 				{Name: utils.MicroSeiDenom},
 				{Name: utils.MicroAtomDenom},

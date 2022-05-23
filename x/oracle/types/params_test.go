@@ -48,19 +48,13 @@ func TestParamsEqual(t *testing.T) {
 	err = p6.Validate()
 	require.Error(t, err)
 
-	// small distribution window
+	// empty name
 	p7 := DefaultParams()
-	p7.RewardDistributionWindow = 0
+	p7.Whitelist[0].Name = ""
 	err = p7.Validate()
 	require.Error(t, err)
 
-	// empty name
-	p9 := DefaultParams()
-	p9.Whitelist[0].Name = ""
-	err = p9.Validate()
-	require.Error(t, err)
-
-	p10 := DefaultParams()
-	require.NotNil(t, p10.ParamSetPairs())
-	require.NotNil(t, p10.String())
+	p8 := DefaultParams()
+	require.NotNil(t, p8.ParamSetPairs())
+	require.NotNil(t, p8.String())
 }

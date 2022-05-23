@@ -26,7 +26,6 @@ func setupWithSmallVotingPower(t *testing.T) (keeper.TestInput, sdk.Handler) {
 	params := input.OracleKeeper.GetParams(input.Ctx)
 	params.VotePeriod = 1
 	params.SlashWindow = 100
-	params.RewardDistributionWindow = 100
 	input.OracleKeeper.SetParams(input.Ctx, params)
 	h := oracle.NewHandler(input.OracleKeeper)
 
@@ -44,7 +43,6 @@ func setup(t *testing.T) (keeper.TestInput, sdk.Handler) {
 	params := input.OracleKeeper.GetParams(input.Ctx)
 	params.VotePeriod = 1
 	params.SlashWindow = 100
-	params.RewardDistributionWindow = 100
 	input.OracleKeeper.SetParams(input.Ctx, params)
 	h := oracle.NewHandler(input.OracleKeeper)
 
@@ -67,7 +65,6 @@ func setupVal5(t *testing.T) (keeper.TestInput, sdk.Handler) {
 	params := input.OracleKeeper.GetParams(input.Ctx)
 	params.VotePeriod = 1
 	params.SlashWindow = 100
-	params.RewardDistributionWindow = 100
 	input.OracleKeeper.SetParams(input.Ctx, params)
 	h := oracle.NewHandler(input.OracleKeeper)
 

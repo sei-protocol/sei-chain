@@ -24,12 +24,6 @@ func (k Keeper) RewardBand(ctx sdk.Context) (res sdk.Dec) {
 	return
 }
 
-// RewardDistributionWindow returns the number of vote periods during which seigiornage reward comes in and then is distributed.
-func (k Keeper) RewardDistributionWindow(ctx sdk.Context) (res uint64) {
-	k.paramSpace.Get(ctx, types.KeyRewardDistributionWindow, &res)
-	return
-}
-
 // Whitelist returns the denom list that can be activated
 func (k Keeper) Whitelist(ctx sdk.Context) (res types.DenomList) {
 	k.paramSpace.Get(ctx, types.KeyWhitelist, &res)

@@ -101,7 +101,7 @@ func (k Keeper) ApplyWhitelist(ctx sdk.Context, whitelist types.DenomList, voteT
 				display := base[1:]
 
 				k.bankKeeper.SetDenomMetaData(ctx, banktypes.Metadata{
-					Description: "The native stable token of the Terra Columbus.",
+					Description: display,
 					DenomUnits: []*banktypes.DenomUnit{
 						{Denom: "u" + display, Exponent: uint32(0), Aliases: []string{"micro" + display}},
 						{Denom: "m" + display, Exponent: uint32(3), Aliases: []string{"milli" + display}},

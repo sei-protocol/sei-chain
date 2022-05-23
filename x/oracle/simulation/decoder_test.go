@@ -59,7 +59,7 @@ func TestDecodeDistributionStore(t *testing.T) {
 		{"MissCounter", fmt.Sprintf("%v\n%v", missCounter, missCounter)},
 		{"AggregatePrevote", fmt.Sprintf("%v\n%v", aggregatePrevote, aggregatePrevote)},
 		{"AggregateVote", fmt.Sprintf("%v\n%v", aggregateVote, aggregateVote)},
-		{"VoteTarget", fmt.Sprintf("%v\n%v", denom, denom)},
+		{"VoteTarget", fmt.Sprintf("name: %v\n\nname: %v\n", denom, denom)},
 		{"other", ""},
 	}
 
