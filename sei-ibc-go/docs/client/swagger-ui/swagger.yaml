@@ -298,6 +298,105 @@ paths:
                       format: byte
       tags:
         - Query
+  /ibc/apps/interchain_accounts/controller/v1/params:
+    get:
+      summary: Params queries all parameters of the ICA controller submodule.
+      operationId: InterchainAccountsControllerParams
+      responses:
+        '200':
+          description: A successful response.
+          schema:
+            type: object
+            properties:
+              params:
+                description: params defines the parameters of the module.
+                type: object
+                properties:
+                  controller_enabled:
+                    type: boolean
+                    format: boolean
+                    description: >-
+                      controller_enabled enables or disables the controller
+                      submodule.
+            description: >-
+              QueryParamsResponse is the response type for the Query/Params RPC
+              method.
+        default:
+          description: An unexpected error response
+          schema:
+            type: object
+            properties:
+              error:
+                type: string
+              code:
+                type: integer
+                format: int32
+              message:
+                type: string
+              details:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    type_url:
+                      type: string
+                    value:
+                      type: string
+                      format: byte
+      tags:
+        - Query
+  /ibc/apps/interchain_accounts/host/v1/params:
+    get:
+      summary: Params queries all parameters of the ICA host submodule.
+      operationId: InterchainAccountsHostParams
+      responses:
+        '200':
+          description: A successful response.
+          schema:
+            type: object
+            properties:
+              params:
+                description: params defines the parameters of the module.
+                type: object
+                properties:
+                  host_enabled:
+                    type: boolean
+                    format: boolean
+                    description: host_enabled enables or disables the host submodule.
+                  allow_messages:
+                    type: array
+                    items:
+                      type: string
+                    description: >-
+                      allow_messages defines a list of sdk message typeURLs
+                      allowed to be executed on a host chain.
+            description: >-
+              QueryParamsResponse is the response type for the Query/Params RPC
+              method.
+        default:
+          description: An unexpected error response
+          schema:
+            type: object
+            properties:
+              error:
+                type: string
+              code:
+                type: integer
+                format: int32
+              message:
+                type: string
+              details:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    type_url:
+                      type: string
+                    value:
+                      type: string
+                      format: byte
+      tags:
+        - Query
   /ibc/client/v1/params:
     get:
       summary: ClientParams queries all parameters of the ibc client.
@@ -9999,6 +10098,64 @@ definitions:
               transfers to this
 
               chain.
+    description: QueryParamsResponse is the response type for the Query/Params RPC method.
+  ibc.applications.interchain_accounts.controller.v1.Params:
+    type: object
+    properties:
+      controller_enabled:
+        type: boolean
+        format: boolean
+        description: controller_enabled enables or disables the controller submodule.
+    description: |-
+      Params defines the set of on-chain interchain accounts parameters.
+      The following parameters may be used to disable the controller submodule.
+  ibc.applications.interchain_accounts.controller.v1.QueryParamsResponse:
+    type: object
+    properties:
+      params:
+        description: params defines the parameters of the module.
+        type: object
+        properties:
+          controller_enabled:
+            type: boolean
+            format: boolean
+            description: controller_enabled enables or disables the controller submodule.
+    description: QueryParamsResponse is the response type for the Query/Params RPC method.
+  ibc.applications.interchain_accounts.host.v1.Params:
+    type: object
+    properties:
+      host_enabled:
+        type: boolean
+        format: boolean
+        description: host_enabled enables or disables the host submodule.
+      allow_messages:
+        type: array
+        items:
+          type: string
+        description: >-
+          allow_messages defines a list of sdk message typeURLs allowed to be
+          executed on a host chain.
+    description: |-
+      Params defines the set of on-chain interchain accounts parameters.
+      The following parameters may be used to disable the host submodule.
+  ibc.applications.interchain_accounts.host.v1.QueryParamsResponse:
+    type: object
+    properties:
+      params:
+        description: params defines the parameters of the module.
+        type: object
+        properties:
+          host_enabled:
+            type: boolean
+            format: boolean
+            description: host_enabled enables or disables the host submodule.
+          allow_messages:
+            type: array
+            items:
+              type: string
+            description: >-
+              allow_messages defines a list of sdk message typeURLs allowed to
+              be executed on a host chain.
     description: QueryParamsResponse is the response type for the Query/Params RPC method.
   ibc.core.client.v1.ConsensusStateWithHeight:
     type: object
