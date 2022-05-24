@@ -85,3 +85,25 @@ func setupVal5(t *testing.T) (keeper.TestInput, sdk.Handler) {
 
 	return input, h
 }
+
+func setupN(t *testing.T, num int) (keeper.TestInput, sdk.Handler) {
+	input := keeper.CreateTestInput(t)
+	params := input.OracleKeeper.GetParams(input.Ctx)
+	params.VotePeriod = 1
+	params.SlashWindow = 100
+	input.OracleKeeper.SetParams(input.Ctx, params)
+	h := oracle.NewHandler(input.OracleKeeper)
+
+	sh := staking.NewHandler(input.StakingKeeper)
+
+	require.LessOrEqual(t, num, len(keeper.ValAddrs))
+
+	// Validator created
+	for i := 0; i < num; i++ {
+		_, err := sh(input.Ctx, keeper.NewTestMsgCreateValidator(keeper.ValAddrs[i], keeper.ValPubKeys[i], stakingAmt))
+		require.NoError(t, err)
+	}
+	staking.EndBlocker(input.Ctx, input.StakingKeeper)
+
+	return input, h
+}

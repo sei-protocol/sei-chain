@@ -83,9 +83,11 @@ func MakeEncodingConfig(_ *testing.T) simparams.EncodingConfig {
 
 // Test addresses
 var (
-	ValPubKeys = simapp.CreateTestPubKeys(5)
+	ValPubKeys = simapp.CreateTestPubKeys(7)
 
 	pubKeys = []crypto.PubKey{
+		secp256k1.GenPrivKey().PubKey(),
+		secp256k1.GenPrivKey().PubKey(),
 		secp256k1.GenPrivKey().PubKey(),
 		secp256k1.GenPrivKey().PubKey(),
 		secp256k1.GenPrivKey().PubKey(),
@@ -99,6 +101,8 @@ var (
 		sdk.AccAddress(pubKeys[2].Address()),
 		sdk.AccAddress(pubKeys[3].Address()),
 		sdk.AccAddress(pubKeys[4].Address()),
+		sdk.AccAddress(pubKeys[5].Address()),
+		sdk.AccAddress(pubKeys[6].Address()),
 	}
 
 	ValAddrs = []sdk.ValAddress{
@@ -107,6 +111,8 @@ var (
 		sdk.ValAddress(pubKeys[2].Address()),
 		sdk.ValAddress(pubKeys[3].Address()),
 		sdk.ValAddress(pubKeys[4].Address()),
+		sdk.ValAddress(pubKeys[5].Address()),
+		sdk.ValAddress(pubKeys[6].Address()),
 	}
 
 	InitTokens = sdk.TokensFromConsensusPower(200, sdk.DefaultPowerReduction)
