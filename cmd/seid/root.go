@@ -131,7 +131,7 @@ func NewRootCmd(
 		WithViper(rootOptions.envPrefix)
 
 	rootCmd := &cobra.Command{
-		Use:   "seid",
+		Use:   appName + "d",
 		Short: "Stargate Sei App",
 		PersistentPreRunE: func(cmd *cobra.Command, _ []string) error {
 			// set the default command outputs
