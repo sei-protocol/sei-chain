@@ -257,7 +257,8 @@ type App struct {
 	// sm is the simulation manager
 	sm *module.SimulationManager
 
-	tracingInfo *tracing.TracingInfo
+	configurator module.Configurator
+	tracingInfo  *tracing.TracingInfo
 }
 
 // New returns a reference to an initialized blockchain app
@@ -592,7 +593,8 @@ func New(
 
 	app.mm.RegisterInvariants(&app.CrisisKeeper)
 	app.mm.RegisterRoutes(app.Router(), app.QueryRouter(), encodingConfig.Amino)
-	app.mm.RegisterServices(module.NewConfigurator(app.appCodec, app.MsgServiceRouter(), app.GRPCQueryRouter()))
+	app.configurator = module.NewConfigurator(app.appCodec, app.MsgServiceRouter(), app.GRPCQueryRouter())
+	app.mm.RegisterServices(app.configurator)
 
 	// create the simulation manager and define the order of the modules for deterministic simulations
 	app.sm = module.NewSimulationManager(
@@ -616,6 +618,7 @@ func New(
 		// this line is used by starport scaffolding # stargate/app/appModule
 	)
 	app.sm.RegisterStoreDecoders()
+	app.RegisterUpgradeHandlers()
 
 	// initialize stores
 	app.MountKVStores(keys)
