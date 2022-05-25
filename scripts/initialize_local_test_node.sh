@@ -26,7 +26,7 @@ docker run -d --name jaeger \
   jaegertracing/all-in-one:1.33
 
 echo "Building..."
-go build -o build/seid ./cmd/sei-chaind/
+go build -o build/seid ./cmd/seid/
 echo $password | sudo -S rm -r ~/.sei-chain/
 echo $password | sudo -S rm -r ~/test_accounts/
 ./build/seid unsafe-reset-all

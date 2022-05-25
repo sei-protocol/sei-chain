@@ -14,22 +14,22 @@ starport chain serve
 ### Internal tool
 First build the tool
 ```
-go build -o build/seid ./cmd/sei-chaind/
+make install
 ```
 
 If you've run the chain before, you may have leftover cruft. Run the following to reset the state.
 ```
-./build/seid unsafe-reset-all
+seid unsafe-reset-all
 ```
 
 Next, initialize the chain. This creates the genesis field:
 ```
-./build/seid init demo --chain-id sei-chain
+seid init {moniker} --chain-id sei-chain
 ```
 
 Finally, start the chain:
 ```
-./build/seid start
+seid start
 ```
 
 
