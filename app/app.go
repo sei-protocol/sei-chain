@@ -113,11 +113,6 @@ import (
 	"go.opentelemetry.io/otel"
 )
 
-const (
-	AccountAddressPrefix = "cosmos"
-	Name                 = "sei"
-)
-
 // this line is used by starport scaffolding # stargate/wasm/app/enabledProposals
 
 func getGovProposalHandlers() []govclient.ProposalHandler {
@@ -191,7 +186,7 @@ func init() {
 		panic(err)
 	}
 
-	DefaultNodeHome = filepath.Join(userHomeDir, "."+Name)
+	DefaultNodeHome = filepath.Join(userHomeDir, "."+AppName)
 }
 
 // App extends an ABCI application, but with most of its parameters exported.
@@ -267,7 +262,7 @@ func New(
 	cdc := encodingConfig.Amino
 	interfaceRegistry := encodingConfig.InterfaceRegistry
 
-	bApp := baseapp.NewBaseApp(Name, logger, db, encodingConfig.TxConfig.TxDecoder(), baseAppOptions...)
+	bApp := baseapp.NewBaseApp(AppName, logger, db, encodingConfig.TxConfig.TxDecoder(), baseAppOptions...)
 	bApp.SetCommitMultiStoreTracer(traceStore)
 	bApp.SetVersion(version.Version)
 	bApp.SetInterfaceRegistry(interfaceRegistry)
@@ -644,7 +639,7 @@ func New(
 	return app
 }
 
-// Name returns the name of the App
+// AppName returns the name of the App
 func (app *App) Name() string { return app.BaseApp.Name() }
 
 // GetBaseApp returns the base app of the application
@@ -757,7 +752,7 @@ func (app *App) RegisterAPIRoutes(apiSvr *api.Server, apiConfig config.APIConfig
 
 	// register app's OpenAPI routes.
 	apiSvr.Router.Handle("/static/openapi.yml", http.FileServer(http.FS(docs.Docs)))
-	apiSvr.Router.HandleFunc("/", openapiconsole.Handler(Name, "/static/openapi.yml"))
+	apiSvr.Router.HandleFunc("/", openapiconsole.Handler(AppName, "/static/openapi.yml"))
 }
 
 // RegisterTxService implements the Application.RegisterTxService method.
