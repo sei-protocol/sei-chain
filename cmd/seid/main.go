@@ -12,7 +12,7 @@ func main() {
 		app.AppName,
 		app.AccountAddressPrefix,
 		app.DefaultNodeHome,
-		app.AppName,
+		app.AppName+"-chain",
 		app.ModuleBasics,
 		app.New,
 		// this line is used by starport scaffolding # root/arguments
