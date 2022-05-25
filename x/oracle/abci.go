@@ -39,14 +39,17 @@ func EndBlocker(ctx sdk.Context, k keeper.Keeper) {
 		}
 
 		voteTargets := make(map[string]types.Denom)
+		totalTargets := 0
 		k.IterateVoteTargets(ctx, func(denom string, denomInfo types.Denom) bool {
 			voteTargets[denom] = denomInfo
+			totalTargets++
 			return false
 		})
 
 		// Clear all exchange rates
 		k.IterateBaseExchangeRates(ctx, func(denom string, _ sdk.Dec) (stop bool) {
-			k.DeleteBaseExchangeRate(ctx, denom)
+			// TODO: replace this with an indicator of staleness
+			// k.DeleteBaseExchangeRate(ctx, denom)
 			return false
 		})
 
@@ -54,15 +57,15 @@ func EndBlocker(ctx sdk.Context, k keeper.Keeper) {
 		// NOTE: **Filter out inactive or jailed validators**
 		// NOTE: **Make abstain votes to have zero vote power**
 		voteMap := k.OrganizeBallotByDenom(ctx, validatorClaimMap)
+		// belowThresholdVoteMap has assets that failed to meet threshold
+		referenceDenom, belowThresholdVoteMap := pickReferenceDenom(ctx, k, voteTargets, voteMap)
 
-		if referenceDenom := pickReferenceDenom(ctx, k, voteTargets, voteMap); referenceDenom != "" {
+		if referenceDenom != "" {
 			// make voteMap of Reference denom to calculate cross exchange rates
 			ballotRD := voteMap[referenceDenom]
 			voteMapRD := ballotRD.ToMap()
 
-			var exchangeRateRD sdk.Dec
-
-			exchangeRateRD = ballotRD.WeightedMedianWithAssertion()
+			var exchangeRateRD sdk.Dec = ballotRD.WeightedMedianWithAssertion()
 
 			// Iterate through ballots and update exchange rates; drop if not enough votes have been achieved.
 			for denom, ballot := range voteMap {
@@ -84,14 +87,26 @@ func EndBlocker(ctx sdk.Context, k keeper.Keeper) {
 				// Set the exchange rate, emit ABCI event
 				k.SetBaseExchangeRateWithEvent(ctx, denom, exchangeRate)
 			}
+
+			for _, ballot := range belowThresholdVoteMap {
+				// perform tally for below threshold assets to calculate total win count
+				Tally(ctx, ballot, params.RewardBand, validatorClaimMap)
+			}
+		} else {
+			// in this case, all assets would be in the belowThresholdVoteMap
+			for _, ballot := range belowThresholdVoteMap {
+				// perform tally for below threshold assets to calculate total win count
+				Tally(ctx, ballot, params.RewardBand, validatorClaimMap)
+			}
 		}
 
 		//---------------------------
 		// Do miss counting & slashing
-		voteTargetsLen := len(voteTargets)
 		for _, claim := range validatorClaimMap {
 			// Skip abstain & valid voters
-			if int(claim.WinCount) == voteTargetsLen {
+			// we require validator to have submitted in-range data
+			// for all assets to not be counted as a miss
+			if int(claim.WinCount) == totalTargets {
 				continue
 			}
 
@@ -111,6 +126,4 @@ func EndBlocker(ctx sdk.Context, k keeper.Keeper) {
 	if utils.IsPeriodLastBlock(ctx, params.SlashWindow) {
 		k.SlashAndResetMissCounters(ctx)
 	}
-
-	return
 }

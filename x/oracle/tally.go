@@ -21,10 +21,10 @@ func Tally(ctx sdk.Context, pb types.ExchangeRateBallot, rewardBand sdk.Dec, val
 	}
 
 	for _, vote := range pb {
-		// Filter ballot winners & abstain voters
-		if (vote.ExchangeRate.GTE(weightedMedian.Sub(rewardSpread)) &&
-			vote.ExchangeRate.LTE(weightedMedian.Add(rewardSpread))) ||
-			!vote.ExchangeRate.IsPositive() {
+		// Filter ballot winners
+		// abstaining counts as out of range and will be eventually penalized
+		if vote.ExchangeRate.GTE(weightedMedian.Sub(rewardSpread)) &&
+			vote.ExchangeRate.LTE(weightedMedian.Add(rewardSpread)) {
 
 			key := vote.Voter.String()
 			claim := validatorClaimMap[key]
@@ -46,9 +46,10 @@ func ballotIsPassing(ballot types.ExchangeRateBallot, thresholdVotes sdk.Int) (s
 // choose reference denom with the highest voter turnout
 // If the voting power of the two denominations is the same,
 // select reference denom in alphabetical order.
-func pickReferenceDenom(ctx sdk.Context, k keeper.Keeper, voteTargets map[string]types.Denom, voteMap map[string]types.ExchangeRateBallot) string {
+func pickReferenceDenom(ctx sdk.Context, k keeper.Keeper, voteTargets map[string]types.Denom, voteMap map[string]types.ExchangeRateBallot) (referenceDenom string, belowThresholdVoteMap map[string]types.ExchangeRateBallot) {
 	largestBallotPower := int64(0)
-	referenceDenom := ""
+	referenceDenom = ""
+	belowThresholdVoteMap = map[string]types.ExchangeRateBallot{}
 
 	totalBondedPower := sdk.TokensToConsensusPower(k.StakingKeeper.TotalBondedTokens(ctx), k.StakingKeeper.PowerReduction(ctx))
 	voteThreshold := k.VoteThreshold(ctx)
@@ -69,6 +70,8 @@ func pickReferenceDenom(ctx sdk.Context, k keeper.Keeper, voteTargets map[string
 		if power, ok := ballotIsPassing(ballot, thresholdVotes); ok {
 			ballotPower = power.Int64()
 		} else {
+			// add assets below threshold to separate map for tally evaluation
+			belowThresholdVoteMap[denom] = voteMap[denom]
 			delete(voteTargets, denom)
 			delete(voteMap, denom)
 			continue
@@ -82,5 +85,5 @@ func pickReferenceDenom(ctx sdk.Context, k keeper.Keeper, voteTargets map[string
 		}
 	}
 
-	return referenceDenom
+	return
 }
