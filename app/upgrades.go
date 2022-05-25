@@ -7,13 +7,16 @@ import (
 )
 
 // Set this to the name of your upgrade
-const UpgradeName = "test1"
+const UpgradeName = "upgrade-1.0.0"
 
 func (app App) RegisterUpgradeHandlers() {
 	app.UpgradeKeeper.SetUpgradeHandler(UpgradeName, func(ctx sdk.Context, plan upgradetypes.Plan, fromVM module.VersionMap) (module.VersionMap, error) {
 		// Upgrade specific logic goes here
+		// For now, remove dex, epoch and oracle from the version map since
+		// they do not yet have upgrade logic
 		delete(fromVM, "dex")
 		delete(fromVM, "epoch")
+		delete(fromVM, "oracle")
 		return app.mm.RunMigrations(ctx, app.configurator, fromVM)
 	})
 }
