@@ -25,30 +25,38 @@ func TestExchangeRate(t *testing.T) {
 
 	// Set & get rates
 	input.OracleKeeper.SetBaseExchangeRate(input.Ctx, utils.MicroSeiDenom, cnyExchangeRate)
-	rate, err := input.OracleKeeper.GetBaseExchangeRate(input.Ctx, utils.MicroSeiDenom)
+	rate, lastUpdate, err := input.OracleKeeper.GetBaseExchangeRate(input.Ctx, utils.MicroSeiDenom)
 	require.NoError(t, err)
 	require.Equal(t, cnyExchangeRate, rate)
+	require.Equal(t, sdk.ZeroInt(), lastUpdate)
+
+	input.Ctx = input.Ctx.WithBlockHeight(3)
 
 	input.OracleKeeper.SetBaseExchangeRate(input.Ctx, utils.MicroEthDenom, gbpExchangeRate)
-	rate, err = input.OracleKeeper.GetBaseExchangeRate(input.Ctx, utils.MicroEthDenom)
+	rate, lastUpdate, err = input.OracleKeeper.GetBaseExchangeRate(input.Ctx, utils.MicroEthDenom)
 	require.NoError(t, err)
 	require.Equal(t, gbpExchangeRate, rate)
+	require.Equal(t, sdk.NewInt(3), lastUpdate)
+
+	input.Ctx = input.Ctx.WithBlockHeight(5)
 
 	input.OracleKeeper.SetBaseExchangeRate(input.Ctx, utils.MicroAtomDenom, krwExchangeRate)
-	rate, err = input.OracleKeeper.GetBaseExchangeRate(input.Ctx, utils.MicroAtomDenom)
+	rate, lastUpdate, err = input.OracleKeeper.GetBaseExchangeRate(input.Ctx, utils.MicroAtomDenom)
 	require.NoError(t, err)
 	require.Equal(t, krwExchangeRate, rate)
+	require.Equal(t, sdk.NewInt(5), lastUpdate)
 
 	input.OracleKeeper.SetBaseExchangeRate(input.Ctx, utils.MicroBaseDenom, lunaExchangeRate)
-	rate, _ = input.OracleKeeper.GetBaseExchangeRate(input.Ctx, utils.MicroBaseDenom)
+	rate, lastUpdate, _ = input.OracleKeeper.GetBaseExchangeRate(input.Ctx, utils.MicroBaseDenom)
 	require.Equal(t, sdk.OneDec(), rate)
+	require.Equal(t, sdk.ZeroInt(), lastUpdate)
 
 	input.OracleKeeper.DeleteBaseExchangeRate(input.Ctx, utils.MicroAtomDenom)
-	_, err = input.OracleKeeper.GetBaseExchangeRate(input.Ctx, utils.MicroAtomDenom)
+	_, _, err = input.OracleKeeper.GetBaseExchangeRate(input.Ctx, utils.MicroAtomDenom)
 	require.Error(t, err)
 
 	numExchangeRates := 0
-	handler := func(denom string, exchangeRate sdk.Dec) (stop bool) {
+	handler := func(denom string, exchangeRate types.OracleExchangeRate) (stop bool) {
 		numExchangeRates = numExchangeRates + 1
 		return false
 	}
@@ -71,16 +79,16 @@ func TestIterateLunaExchangeRates(t *testing.T) {
 	input.OracleKeeper.SetBaseExchangeRate(input.Ctx, utils.MicroAtomDenom, krwExchangeRate)
 	input.OracleKeeper.SetBaseExchangeRate(input.Ctx, utils.MicroBaseDenom, lunaExchangeRate)
 
-	input.OracleKeeper.IterateBaseExchangeRates(input.Ctx, func(denom string, rate sdk.Dec) (stop bool) {
+	input.OracleKeeper.IterateBaseExchangeRates(input.Ctx, func(denom string, rate types.OracleExchangeRate) (stop bool) {
 		switch denom {
 		case utils.MicroSeiDenom:
-			require.Equal(t, cnyExchangeRate, rate)
+			require.Equal(t, cnyExchangeRate, rate.ExchangeRate)
 		case utils.MicroEthDenom:
-			require.Equal(t, gbpExchangeRate, rate)
+			require.Equal(t, gbpExchangeRate, rate.ExchangeRate)
 		case utils.MicroAtomDenom:
-			require.Equal(t, krwExchangeRate, rate)
+			require.Equal(t, krwExchangeRate, rate.ExchangeRate)
 		case utils.MicroBaseDenom:
-			require.Equal(t, lunaExchangeRate, rate)
+			require.Equal(t, lunaExchangeRate, rate.ExchangeRate)
 		}
 		return false
 	})

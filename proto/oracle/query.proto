@@ -4,7 +4,6 @@ package seiprotocol.seichain.oracle;
 import "gogoproto/gogo.proto";
 import "google/api/annotations.proto";
 import "oracle/oracle.proto";
-import "cosmos/base/v1beta1/coin.proto";
 
 option go_package = "github.com/sei-protocol/sei-chain/x/oracle/types";
 
@@ -79,19 +78,23 @@ message QueryExchangeRateRequest {
 // Query/ExchangeRate RPC method.
 message QueryExchangeRateResponse {
   // exchange_rate defines the exchange rate of Luna denominated in various Terra
-  string exchange_rate = 1
-      [(gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Dec", (gogoproto.nullable) = false];
+  OracleExchangeRate oracle_exchange_rate = 1 [(gogoproto.nullable) = false];
 }
 
 // QueryExchangeRatesRequest is the request type for the Query/ExchangeRates RPC method.
 message QueryExchangeRatesRequest {}
 
+message DenomOracleExchangeRatePair {
+  string denom = 1;
+  OracleExchangeRate oracle_exchange_rate = 2 [(gogoproto.nullable) = false];
+}
+
 // QueryExchangeRatesResponse is response type for the
 // Query/ExchangeRates RPC method.
 message QueryExchangeRatesResponse {
   // exchange_rates defines a list of the exchange rate for all whitelisted denoms.
-  repeated cosmos.base.v1beta1.DecCoin exchange_rates = 1
-      [(gogoproto.castrepeated) = "github.com/cosmos/cosmos-sdk/types.DecCoins", (gogoproto.nullable) = false];
+  repeated DenomOracleExchangeRatePair denom_oracle_exchange_rate_pairs = 1
+    [(gogoproto.castrepeated) = "DenomOracleExchangeRatePairs", (gogoproto.nullable) = false];
 }
 
 // QueryActivesRequest is the request type for the Query/Actives RPC method.

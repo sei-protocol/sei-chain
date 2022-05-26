@@ -67,25 +67,27 @@ func (k Keeper) Logger(ctx sdk.Context) log.Logger {
 //-----------------------------------
 // ExchangeRate logic
 
-func (k Keeper) GetBaseExchangeRate(ctx sdk.Context, denom string) (sdk.Dec, error) {
+func (k Keeper) GetBaseExchangeRate(ctx sdk.Context, denom string) (sdk.Dec, sdk.Int, error) {
 	if denom == utils.MicroBaseDenom {
-		return sdk.OneDec(), nil
+		return sdk.OneDec(), sdk.ZeroInt(), nil
 	}
 
 	store := ctx.KVStore(k.storeKey)
 	b := store.Get(types.GetExchangeRateKey(denom))
 	if b == nil {
-		return sdk.ZeroDec(), sdkerrors.Wrap(types.ErrUnknownDenom, denom)
+		return sdk.ZeroDec(), sdk.ZeroInt(), sdkerrors.Wrap(types.ErrUnknownDenom, denom)
 	}
 
-	dp := sdk.DecProto{}
-	k.cdc.MustUnmarshal(b, &dp)
-	return dp.Dec, nil
+	exchangeRate := types.OracleExchangeRate{}
+	k.cdc.MustUnmarshal(b, &exchangeRate)
+	return exchangeRate.ExchangeRate, exchangeRate.LastUpdate, nil
 }
 
 func (k Keeper) SetBaseExchangeRate(ctx sdk.Context, denom string, exchangeRate sdk.Dec) {
 	store := ctx.KVStore(k.storeKey)
-	bz := k.cdc.MustMarshal(&sdk.DecProto{Dec: exchangeRate})
+	currHeight := sdk.NewInt(ctx.BlockHeight())
+	rate := types.OracleExchangeRate{ExchangeRate: exchangeRate, LastUpdate: currHeight}
+	bz := k.cdc.MustMarshal(&rate)
 	store.Set(types.GetExchangeRateKey(denom), bz)
 }
 
@@ -104,15 +106,15 @@ func (k Keeper) DeleteBaseExchangeRate(ctx sdk.Context, denom string) {
 	store.Delete(types.GetExchangeRateKey(denom))
 }
 
-func (k Keeper) IterateBaseExchangeRates(ctx sdk.Context, handler func(denom string, exchangeRate sdk.Dec) (stop bool)) {
+func (k Keeper) IterateBaseExchangeRates(ctx sdk.Context, handler func(denom string, exchangeRate types.OracleExchangeRate) (stop bool)) {
 	store := ctx.KVStore(k.storeKey)
 	iter := sdk.KVStorePrefixIterator(store, types.ExchangeRateKey)
 	defer iter.Close()
 	for ; iter.Valid(); iter.Next() {
 		denom := string(iter.Key()[len(types.ExchangeRateKey):])
-		dp := sdk.DecProto{}
-		k.cdc.MustUnmarshal(iter.Value(), &dp)
-		if handler(denom, dp.Dec) {
+		rate := types.OracleExchangeRate{}
+		k.cdc.MustUnmarshal(iter.Value(), &rate)
+		if handler(denom, rate) {
 			break
 		}
 	}

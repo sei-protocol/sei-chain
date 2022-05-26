@@ -35,7 +35,7 @@ func TestOracleThreshold(t *testing.T) {
 
 	oracle.EndBlocker(input.Ctx.WithBlockHeight(1), input.OracleKeeper)
 
-	_, err := input.OracleKeeper.GetBaseExchangeRate(input.Ctx.WithBlockHeight(1), utils.MicroAtomDenom)
+	_, _, err := input.OracleKeeper.GetBaseExchangeRate(input.Ctx.WithBlockHeight(1), utils.MicroAtomDenom)
 	require.Error(t, err)
 
 	// Case 2.
@@ -72,9 +72,10 @@ func TestOracleThreshold(t *testing.T) {
 
 	oracle.EndBlocker(input.Ctx.WithBlockHeight(1), input.OracleKeeper)
 
-	rate, err := input.OracleKeeper.GetBaseExchangeRate(input.Ctx.WithBlockHeight(1), utils.MicroAtomDenom)
+	rate, lastUpdate, err := input.OracleKeeper.GetBaseExchangeRate(input.Ctx.WithBlockHeight(1), utils.MicroAtomDenom)
 	require.NoError(t, err)
 	require.Equal(t, randomExchangeRate, rate)
+	require.Equal(t, int64(1), lastUpdate.Int64())
 
 	// Case 3.
 	// Increase voting power of absent validator, exchange rate consensus fails
@@ -96,17 +97,18 @@ func TestOracleThreshold(t *testing.T) {
 	prevoteMsg = types.NewMsgAggregateExchangeRatePrevote(hash, keeper.Addrs[1], keeper.ValAddrs[1])
 	voteMsg = types.NewMsgAggregateExchangeRateVote(salt, exchangeRateStr, keeper.Addrs[1], keeper.ValAddrs[1])
 
-	_, err1 = h(input.Ctx.WithBlockHeight(0), prevoteMsg)
-	_, err2 = h(input.Ctx.WithBlockHeight(1), voteMsg)
+	_, err1 = h(input.Ctx.WithBlockHeight(2), prevoteMsg)
+	_, err2 = h(input.Ctx.WithBlockHeight(3), voteMsg)
 	require.NoError(t, err1)
 	require.NoError(t, err2)
 
-	oracle.EndBlocker(input.Ctx.WithBlockHeight(1), input.OracleKeeper)
+	oracle.EndBlocker(input.Ctx.WithBlockHeight(3), input.OracleKeeper)
 
-	_, err = input.OracleKeeper.GetBaseExchangeRate(input.Ctx.WithBlockHeight(1), utils.MicroAtomDenom)
+	rate, lastUpdate, err = input.OracleKeeper.GetBaseExchangeRate(input.Ctx.WithBlockHeight(3), utils.MicroAtomDenom)
 	require.NoError(t, err)
 	require.Equal(t, randomExchangeRate, rate)
-	// TODO: add check for staleness
+	// This should still be an older value due to staleness
+	require.Equal(t, int64(1), lastUpdate.Int64())
 }
 
 func TestOracleDrop(t *testing.T) {
@@ -120,10 +122,11 @@ func TestOracleDrop(t *testing.T) {
 	// Immediately swap halt after an illiquid oracle vote
 	oracle.EndBlocker(input.Ctx, input.OracleKeeper)
 
-	rate, err := input.OracleKeeper.GetBaseExchangeRate(input.Ctx, utils.MicroAtomDenom)
+	rate, lastUpdate, err := input.OracleKeeper.GetBaseExchangeRate(input.Ctx, utils.MicroAtomDenom)
 	require.NoError(t, err)
 	require.Equal(t, randomExchangeRate, rate)
-	// TODO: add check for staleness
+	// The value should have a stale height
+	require.Equal(t, sdk.ZeroInt(), lastUpdate)
 }
 
 func TestOracleTally(t *testing.T) {
@@ -223,13 +226,13 @@ func TestOracleTallyTiming(t *testing.T) {
 	require.Equal(t, 0, int(input.Ctx.BlockHeight()))
 
 	oracle.EndBlocker(input.Ctx, input.OracleKeeper)
-	_, err := input.OracleKeeper.GetBaseExchangeRate(input.Ctx, utils.MicroAtomDenom)
+	_, _, err := input.OracleKeeper.GetBaseExchangeRate(input.Ctx, utils.MicroAtomDenom)
 	require.Error(t, err)
 
 	input.Ctx = input.Ctx.WithBlockHeight(int64(params.VotePeriod - 1))
 
 	oracle.EndBlocker(input.Ctx, input.OracleKeeper)
-	_, err = input.OracleKeeper.GetBaseExchangeRate(input.Ctx, utils.MicroAtomDenom)
+	_, _, err = input.OracleKeeper.GetBaseExchangeRate(input.Ctx, utils.MicroAtomDenom)
 	require.NoError(t, err)
 }
 
@@ -391,6 +394,7 @@ func TestInvalidVoteOnAssetUnderThresholdMisses(t *testing.T) {
 	makeAggregatePrevoteAndVote(t, input, h, 0, sdk.DecCoins{{Denom: utils.MicroAtomDenom, Amount: randomExchangeRate}}, 6)
 
 	oracle.EndBlocker(input.Ctx, input.OracleKeeper)
+	endBlockerHeight := input.Ctx.BlockHeight()
 
 	// 6 and 7 should be missed due to not voting on second asset
 	require.Equal(t, uint64(0), input.OracleKeeper.GetMissCounter(input.Ctx, keeper.ValAddrs[0]))
@@ -403,13 +407,15 @@ func TestInvalidVoteOnAssetUnderThresholdMisses(t *testing.T) {
 
 	input.Ctx = input.Ctx.WithBlockHeight(input.Ctx.BlockHeight() + 1)
 
-	rate, err := input.OracleKeeper.GetBaseExchangeRate(input.Ctx, utils.MicroAtomDenom)
+	rate, lastUpdate, err := input.OracleKeeper.GetBaseExchangeRate(input.Ctx, utils.MicroAtomDenom)
 	require.NoError(t, err)
 	require.Equal(t, randomExchangeRate, rate)
+	require.Equal(t, endBlockerHeight, lastUpdate.Int64())
 
-	rate, err = input.OracleKeeper.GetBaseExchangeRate(input.Ctx, utils.MicroEthDenom)
+	rate, lastUpdate, err = input.OracleKeeper.GetBaseExchangeRate(input.Ctx, utils.MicroEthDenom)
 	require.NoError(t, err)
 	require.Equal(t, randomExchangeRate, rate)
+	require.Equal(t, endBlockerHeight, lastUpdate.Int64())
 
 	input.Ctx = input.Ctx.WithBlockHeight(input.Ctx.BlockHeight() + 1)
 
@@ -427,6 +433,7 @@ func TestInvalidVoteOnAssetUnderThresholdMisses(t *testing.T) {
 	makeAggregatePrevoteAndVote(t, input, h, 0, sdk.DecCoins{{Denom: utils.MicroAtomDenom, Amount: anotherRandomExchangeRate}}, 6)
 
 	oracle.EndBlocker(input.Ctx, input.OracleKeeper)
+	newEndBlockerHeight := input.Ctx.BlockHeight()
 
 	// 4-7 should be missed due to not voting on second asset
 	// 3 should have missed due to out of bounds value even though it didnt meet voting threshold
@@ -440,14 +447,17 @@ func TestInvalidVoteOnAssetUnderThresholdMisses(t *testing.T) {
 
 	input.Ctx = input.Ctx.WithBlockHeight(input.Ctx.BlockHeight() + 1)
 
-	rate, err = input.OracleKeeper.GetBaseExchangeRate(input.Ctx, utils.MicroAtomDenom)
+	rate, lastUpdate, err = input.OracleKeeper.GetBaseExchangeRate(input.Ctx, utils.MicroAtomDenom)
 	require.NoError(t, err)
 	require.Equal(t, anotherRandomExchangeRate, rate)
+	require.Equal(t, newEndBlockerHeight, lastUpdate.Int64())
 
 	// the old value should be persisted because asset didnt meet ballot threshold
-	rate, err = input.OracleKeeper.GetBaseExchangeRate(input.Ctx, utils.MicroEthDenom)
+	rate, lastUpdate, err = input.OracleKeeper.GetBaseExchangeRate(input.Ctx, utils.MicroEthDenom)
 	require.NoError(t, err)
 	require.Equal(t, randomExchangeRate, rate)
+	// block height should be old
+	require.Equal(t, endBlockerHeight, lastUpdate.Int64())
 }
 
 func TestAbstainSlashing(t *testing.T) {
@@ -560,7 +570,7 @@ func TestAbstainWithSmallStakingPower(t *testing.T) {
 	makeAggregatePrevoteAndVote(t, input, h, 0, sdk.DecCoins{{Denom: utils.MicroAtomDenom, Amount: sdk.ZeroDec()}}, 0)
 
 	oracle.EndBlocker(input.Ctx, input.OracleKeeper)
-	_, err := input.OracleKeeper.GetBaseExchangeRate(input.Ctx, utils.MicroAtomDenom)
+	_, _, err := input.OracleKeeper.GetBaseExchangeRate(input.Ctx, utils.MicroAtomDenom)
 	require.Error(t, err)
 }
 

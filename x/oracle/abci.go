@@ -46,13 +46,6 @@ func EndBlocker(ctx sdk.Context, k keeper.Keeper) {
 			return false
 		})
 
-		// Clear all exchange rates
-		k.IterateBaseExchangeRates(ctx, func(denom string, _ sdk.Dec) (stop bool) {
-			// TODO: replace this with an indicator of staleness
-			// k.DeleteBaseExchangeRate(ctx, denom)
-			return false
-		})
-
 		// Organize votes to ballot by denom
 		// NOTE: **Filter out inactive or jailed validators**
 		// NOTE: **Make abstain votes to have zero vote power**
