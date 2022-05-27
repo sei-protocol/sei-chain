@@ -2,6 +2,7 @@ package keeper
 
 import (
 	"bytes"
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -18,6 +19,9 @@ import (
 func TestExchangeRate(t *testing.T) {
 	input := CreateTestInput(t)
 
+	params := input.OracleKeeper.GetParams(input.Ctx)
+	fmt.Println(params.VotePeriod)
+
 	cnyExchangeRate := sdk.NewDecWithPrec(839, int64(OracleDecPrecision)).MulInt64(utils.MicroUnit)
 	gbpExchangeRate := sdk.NewDecWithPrec(4995, int64(OracleDecPrecision)).MulInt64(utils.MicroUnit)
 	krwExchangeRate := sdk.NewDecWithPrec(2838, int64(OracleDecPrecision)).MulInt64(utils.MicroUnit)
@@ -32,24 +36,30 @@ func TestExchangeRate(t *testing.T) {
 
 	input.Ctx = input.Ctx.WithBlockHeight(3)
 
+	rate, lastUpdate, _ = input.OracleKeeper.GetBaseExchangeRate(input.Ctx, utils.MicroBaseDenom)
+	require.Equal(t, sdk.OneDec(), rate)
+	// because we haven't reached end of a vote period, we should return 0
+	require.Equal(t, sdk.ZeroInt(), lastUpdate)
+
 	input.OracleKeeper.SetBaseExchangeRate(input.Ctx, utils.MicroEthDenom, gbpExchangeRate)
 	rate, lastUpdate, err = input.OracleKeeper.GetBaseExchangeRate(input.Ctx, utils.MicroEthDenom)
 	require.NoError(t, err)
 	require.Equal(t, gbpExchangeRate, rate)
 	require.Equal(t, sdk.NewInt(3), lastUpdate)
 
-	input.Ctx = input.Ctx.WithBlockHeight(5)
+	input.Ctx = input.Ctx.WithBlockHeight(15)
 
 	input.OracleKeeper.SetBaseExchangeRate(input.Ctx, utils.MicroAtomDenom, krwExchangeRate)
 	rate, lastUpdate, err = input.OracleKeeper.GetBaseExchangeRate(input.Ctx, utils.MicroAtomDenom)
 	require.NoError(t, err)
 	require.Equal(t, krwExchangeRate, rate)
-	require.Equal(t, sdk.NewInt(5), lastUpdate)
+	require.Equal(t, sdk.NewInt(15), lastUpdate)
 
 	input.OracleKeeper.SetBaseExchangeRate(input.Ctx, utils.MicroBaseDenom, lunaExchangeRate)
 	rate, lastUpdate, _ = input.OracleKeeper.GetBaseExchangeRate(input.Ctx, utils.MicroBaseDenom)
 	require.Equal(t, sdk.OneDec(), rate)
-	require.Equal(t, sdk.ZeroInt(), lastUpdate)
+	// with votePeriod == 10 blocks, the last end of vote period is 9
+	require.Equal(t, sdk.NewInt(9), lastUpdate)
 
 	input.OracleKeeper.DeleteBaseExchangeRate(input.Ctx, utils.MicroAtomDenom)
 	_, _, err = input.OracleKeeper.GetBaseExchangeRate(input.Ctx, utils.MicroAtomDenom)

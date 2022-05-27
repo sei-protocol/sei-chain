@@ -69,7 +69,12 @@ func (k Keeper) Logger(ctx sdk.Context) log.Logger {
 
 func (k Keeper) GetBaseExchangeRate(ctx sdk.Context, denom string) (sdk.Dec, sdk.Int, error) {
 	if denom == utils.MicroBaseDenom {
-		return sdk.OneDec(), sdk.ZeroInt(), nil
+		votePeriod := k.GetParams(ctx).VotePeriod
+		lastVotingBlockHeight := ((ctx.BlockHeight() / int64(votePeriod)) * int64(votePeriod)) - 1
+		if lastVotingBlockHeight < 0 {
+			lastVotingBlockHeight = 0
+		}
+		return sdk.OneDec(), sdk.NewInt(lastVotingBlockHeight), nil
 	}
 
 	store := ctx.KVStore(k.storeKey)
