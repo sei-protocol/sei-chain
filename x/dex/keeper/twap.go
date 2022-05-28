@@ -20,25 +20,6 @@ func (k Keeper) SetTwap(ctx sdk.Context, twap types.Twap, contractAddr string) {
 	store.Set(types.PairPrefix(priceDenom, assetDenom), b)
 }
 
-func (k Keeper) GetTwapState(ctx sdk.Context, contractAddr string, priceDenom types.Denom, assetDenom types.Denom) types.Twap {
-	store := prefix.NewStore(ctx.KVStore(k.storeKey), types.TwapPrefix(contractAddr))
-	b := store.Get(types.PairPrefix(priceDenom, assetDenom))
-	res := types.Twap{}
-	k.Cdc.MustUnmarshal(b, &res)
-	return res
-}
-
-func (k Keeper) GetAllTwaps(ctx sdk.Context, contractAddr string) (list []types.Twap) {
-	store := prefix.NewStore(ctx.KVStore(k.storeKey), types.TwapPrefix(contractAddr))
-	iterator := sdk.KVStorePrefixIterator(store, []byte{})
-
-	defer iterator.Close()
-
-	for ; iterator.Valid(); iterator.Next() {
-		var val types.Twap
-		k.Cdc.MustUnmarshal(iterator.Value(), &val)
-		list = append(list, val)
-	}
-
-	return
+func GetKeyForTwap(priceDenom string, assetDenom string) []byte {
+	return append([]byte(priceDenom), []byte(assetDenom)...)
 }
