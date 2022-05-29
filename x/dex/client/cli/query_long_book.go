@@ -12,8 +12,9 @@ import (
 
 func CmdListLongBook() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "list-long-book",
+		Use:   "list-long-book [contract address] [price denom] [asset denom]",
 		Short: "list all longBook",
+		Args:  cobra.ExactArgs(3),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			clientCtx := client.GetClientContextFromCmd(cmd)
 
@@ -25,7 +26,10 @@ func CmdListLongBook() *cobra.Command {
 			queryClient := types.NewQueryClient(clientCtx)
 
 			params := &types.QueryAllLongBookRequest{
-				Pagination: pageReq,
+				Pagination:   pageReq,
+				ContractAddr: args[0],
+				PriceDenom:   args[1],
+				AssetDenom:   args[2],
 			}
 
 			res, err := queryClient.LongBookAll(context.Background(), params)

@@ -107,6 +107,7 @@ func TestListShortBook(t *testing.T) {
 	ctx := net.Validators[0].ClientCtx
 	request := func(next []byte, offset, limit uint64, total bool) []string {
 		args := []string{
+			"genesis", TEST_PAIR().PriceDenom, TEST_PAIR().AssetDenom,
 			fmt.Sprintf("--%s=json", tmcli.OutputFlag),
 		}
 		if next == nil {
