@@ -42,4 +42,5 @@ cat ~/.sei-chain/config/genesis.json | jq '.app_state["crisis"]["constant_fee"][
 cat ~/.sei-chain/config/genesis.json | jq '.app_state["gov"]["deposit_params"]["min_deposit"][0]["denom"]="ust"' > ~/.sei-chain/config/tmp_genesis.json && mv ~/.sei-chain/config/tmp_genesis.json ~/.sei-chain/config/genesis.json
 cat ~/.sei-chain/config/genesis.json | jq '.app_state["mint"]["params"]["mint_denom"]="ust"' > ~/.sei-chain/config/tmp_genesis.json && mv ~/.sei-chain/config/tmp_genesis.json ~/.sei-chain/config/genesis.json
 cat ~/.sei-chain/config/genesis.json | jq '.app_state["staking"]["params"]["bond_denom"]="ust"' > ~/.sei-chain/config/tmp_genesis.json && mv ~/.sei-chain/config/tmp_genesis.json ~/.sei-chain/config/genesis.json
+cat ~/.sei-chain/config/genesis.json | jq '.consensus_params["block"]["max_gas"]="100000000"' > ~/.sei-chain/config/tmp_genesis.json && mv ~/.sei-chain/config/tmp_genesis.json ~/.sei-chain/config/genesis.json
 ./build/seid start --trace
