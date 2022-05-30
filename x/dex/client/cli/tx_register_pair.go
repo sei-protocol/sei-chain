@@ -19,8 +19,8 @@ func CmdRegisterPair() *cobra.Command {
 		Args:  cobra.ExactArgs(3),
 		RunE: func(cmd *cobra.Command, args []string) (err error) {
 			argContractAddr := args[0]
-			argPriceDenom := args[1]
-			argAssetDenom := args[2]
+			argPriceDenom := types.Denom(types.Denom_value[args[1]])
+			argAssetDenom := types.Denom(types.Denom_value[args[2]])
 
 			clientCtx, err := client.GetClientTxContext(cmd)
 			if err != nil {

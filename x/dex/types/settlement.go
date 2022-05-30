@@ -2,8 +2,9 @@ package types
 
 import (
 	"fmt"
-	"strconv"
 	"strings"
+
+	sdk "github.com/cosmos/cosmos-sdk/types"
 )
 
 const (
@@ -18,43 +19,44 @@ type SudoSettlementMsg struct {
 }
 
 type Settlement struct {
-	Long                   bool
-	PriceSymbol            string
-	AssetSymbol            string
-	Quantity               uint64
-	ExecutionCostOrProceed uint64
-	ExpectedCostOrProceed  uint64
+	Direction              PositionDirection
+	PriceSymbol            Denom
+	AssetSymbol            Denom
+	Quantity               sdk.Dec
+	ExecutionCostOrProceed sdk.Dec
+	ExpectedCostOrProceed  sdk.Dec
 	Account                string
-	Open                   bool
-	Leverage               string
+	Effect                 PositionEffect
+	Leverage               sdk.Dec
 }
 
 func NewSettlement(
 	formattedAccount string,
-	long bool,
-	priceDenom string,
-	assetDenom string,
-	quantity uint64,
-	executionCostOrProceed uint64,
-	expectedCostOrProceed uint64,
+	direction PositionDirection,
+	priceDenom Denom,
+	assetDenom Denom,
+	quantity sdk.Dec,
+	executionCostOrProceed sdk.Dec,
+	expectedCostOrProceed sdk.Dec,
 ) *Settlement {
 	parts := strings.Split(formattedAccount, FORMATTED_ACCOUNT_DELIMITER)
+	leverage, _ := sdk.NewDecFromStr(parts[2])
 	return &Settlement{
-		Long:                   long,
+		Direction:              direction,
 		PriceSymbol:            priceDenom,
 		AssetSymbol:            assetDenom,
 		Quantity:               quantity,
 		ExecutionCostOrProceed: executionCostOrProceed,
 		ExpectedCostOrProceed:  expectedCostOrProceed,
 		Account:                parts[0],
-		Open:                   parts[1] == OPEN_ORDER_CREATOR_SUFFIX,
-		Leverage:               parts[2],
+		Effect:                 SUFFIX_TO_POSITION_EFFECT[OPEN_ORDER_CREATOR_SUFFIX],
+		Leverage:               leverage,
 	}
 }
 
 func (s *Settlement) String() string {
 	return fmt.Sprintf(
-		"%s %t %s/%s: %d at %d/%d - %s", s.Account, s.Long, s.PriceSymbol, s.AssetSymbol, s.Quantity, s.ExecutionCostOrProceed, s.ExpectedCostOrProceed, s.Leverage)
+		"%s %t %s/%s: %d at %d/%d - %s", s.Account, s.Direction, s.PriceSymbol, s.AssetSymbol, s.Quantity, s.ExecutionCostOrProceed, s.ExpectedCostOrProceed, s.Leverage)
 }
 
 func (s *Settlement) ToEntry() SettlementEntry {
@@ -62,25 +64,11 @@ func (s *Settlement) ToEntry() SettlementEntry {
 		Account:                s.Account,
 		PriceDenom:             s.PriceSymbol,
 		AssetDenom:             s.AssetSymbol,
-		Quantity:               strconv.FormatUint(s.Quantity, 10),
-		ExecutionCostOrProceed: strconv.FormatUint(s.ExecutionCostOrProceed, 10),
-		ExpectedCostOrProceed:  strconv.FormatUint(s.ExpectedCostOrProceed, 10),
-		PositionDirection:      GetPositionDirection(s.Long),
-		PositionEffect:         GetPositionEffect(s.Open),
+		Quantity:               s.Quantity,
+		ExecutionCostOrProceed: s.ExecutionCostOrProceed,
+		ExpectedCostOrProceed:  s.ExpectedCostOrProceed,
+		PositionDirection:      s.Direction,
+		PositionEffect:         s.Effect,
 		Leverage:               s.Leverage,
 	}
-}
-
-func GetPositionDirection(long bool) string {
-	if long {
-		return LongPositionDirection
-	}
-	return ShortPositionDirection
-}
-
-func GetPositionEffect(open bool) string {
-	if open {
-		return OpenPositionEffect
-	}
-	return ClosePositionEffect
 }

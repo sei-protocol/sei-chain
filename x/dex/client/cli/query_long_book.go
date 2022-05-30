@@ -2,10 +2,10 @@ package cli
 
 import (
 	"context"
-	"strconv"
 
 	"github.com/cosmos/cosmos-sdk/client"
 	"github.com/cosmos/cosmos-sdk/client/flags"
+	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
 	"github.com/spf13/cobra"
 )
@@ -49,7 +49,7 @@ func CmdListLongBook() *cobra.Command {
 
 func CmdShowLongBook() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "show-long-book [contract address] [id] [price denom] [asset denom]",
+		Use:   "show-long-book [contract address] [price] [price denom] [asset denom]",
 		Short: "shows a longBook",
 		Args:  cobra.ExactArgs(4),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -57,15 +57,15 @@ func CmdShowLongBook() *cobra.Command {
 
 			queryClient := types.NewQueryClient(clientCtx)
 			contractAddr := args[0]
-			id, err := strconv.ParseUint(args[1], 10, 64)
+			price, err := sdk.NewDecFromStr(args[1])
 			if err != nil {
 				return err
 			}
-			priceDenom := args[2]
-			assetDenom := args[3]
+			priceDenom := types.Denom(types.Denom_value[args[2]])
+			assetDenom := types.Denom(types.Denom_value[args[3]])
 
 			params := &types.QueryGetLongBookRequest{
-				Id:           id,
+				Price:        price,
 				ContractAddr: contractAddr,
 				PriceDenom:   priceDenom,
 				AssetDenom:   assetDenom,

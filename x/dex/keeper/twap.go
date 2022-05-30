@@ -9,12 +9,13 @@ import (
 func (k Keeper) SetTwap(ctx sdk.Context, twap types.Twap, contractAddr string) {
 	store := prefix.NewStore(ctx.KVStore(k.storeKey), types.TwapPrefix(contractAddr))
 	b := k.cdc.MustMarshal(&twap)
-	store.Set(GetKeyForTwap(twap.PriceDenom, twap.AssetDenom), b)
+	store.Set(types.PairPrefix(
+		types.Denom(types.Denom_value[twap.PriceDenom]), types.Denom(types.Denom_value[twap.AssetDenom])), b)
 }
 
-func (k Keeper) GetTwapState(ctx sdk.Context, contractAddr string, priceDenom string, assetDenom string) types.Twap {
+func (k Keeper) GetTwapState(ctx sdk.Context, contractAddr string, priceDenom types.Denom, assetDenom types.Denom) types.Twap {
 	store := prefix.NewStore(ctx.KVStore(k.storeKey), types.TwapPrefix(contractAddr))
-	b := store.Get(GetKeyForTwap(priceDenom, assetDenom))
+	b := store.Get(types.PairPrefix(priceDenom, assetDenom))
 	res := types.Twap{}
 	k.cdc.MustUnmarshal(b, &res)
 	return res
@@ -33,8 +34,4 @@ func (k Keeper) GetAllTwaps(ctx sdk.Context, contractAddr string) (list []types.
 	}
 
 	return
-}
-
-func GetKeyForTwap(priceDenom string, assetDenom string) []byte {
-	return append([]byte(priceDenom), []byte(assetDenom)...)
 }

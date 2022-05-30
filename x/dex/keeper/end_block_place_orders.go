@@ -24,24 +24,27 @@ func (k *Keeper) HandleEBPlaceOrders(ctx context.Context, sdkCtx sdk.Context, tr
 	for pair, orderPlacements := range k.OrderPlacements[contractAddr] {
 		orderPlacements.FilterOutIds(response.UnsuccessfulOrderIds)
 		for _, orderPlacement := range orderPlacements.Orders {
-			if orderPlacement.Limit {
+			switch orderPlacement.OrderType {
+			case types.OrderType_LIMIT:
 				k.Orders[contractAddr][pair].AddLimitOrder(dexcache.LimitOrder{
-					Creator:  orderPlacement.Creator,
-					Price:    orderPlacement.Price,
-					Quantity: orderPlacement.Quantity,
-					Long:     orderPlacement.Long,
-					Open:     orderPlacement.Open,
-					Leverage: orderPlacement.Leverage,
+					Creator:   orderPlacement.Creator,
+					Price:     orderPlacement.Price,
+					Quantity:  orderPlacement.Quantity,
+					Direction: orderPlacement.Direction,
+					Effect:    orderPlacement.Effect,
+					Leverage:  orderPlacement.Leverage,
 				})
-			} else {
+			case types.OrderType_MARKET:
 				k.Orders[contractAddr][pair].AddMarketOrder(dexcache.MarketOrder{
 					Creator:    orderPlacement.Creator,
 					WorstPrice: orderPlacement.Price,
 					Quantity:   orderPlacement.Quantity,
-					Long:       orderPlacement.Long,
-					Open:       orderPlacement.Open,
+					Direction:  orderPlacement.Direction,
+					Effect:     orderPlacement.Effect,
 					Leverage:   orderPlacement.Leverage,
 				})
+			default:
+				panic("Unknown order type")
 			}
 		}
 	}

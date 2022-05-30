@@ -13,13 +13,11 @@ func NewMsgCancelOrders(
 	creator string,
 	orderCancellations []*OrderCancellation,
 	contractAddr string,
-	nonce uint64,
 ) *MsgCancelOrders {
 	return &MsgCancelOrders{
 		Creator:            creator,
 		OrderCancellations: orderCancellations,
 		ContractAddr:       contractAddr,
-		Nonce:              nonce,
 	}
 }
 

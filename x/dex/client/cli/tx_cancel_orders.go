@@ -8,42 +8,50 @@ import (
 	"github.com/cosmos/cosmos-sdk/client/flags"
 	"github.com/cosmos/cosmos-sdk/client/tx"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
-	"github.com/spf13/cast"
 	"github.com/spf13/cobra"
+
+	sdk "github.com/cosmos/cosmos-sdk/types"
 )
 
 var _ = strconv.Itoa(0)
 
 func CmdCancelOrders() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "cancel-orders [contract address] [nonce] [orders...]",
+		Use:   "cancel-orders [contract address] [orders...]",
 		Short: "Bulk cancel orders",
-		Args:  cobra.MinimumNArgs(3),
+		Args:  cobra.MinimumNArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) (err error) {
 			argContractAddr := args[0]
-			argNonce, err := cast.ToUint64E(args[1])
 			if err != nil {
 				return err
 			}
 			orderCancellations := []*types.OrderCancellation{}
-			for _, order := range args[2:] {
+			for _, order := range args[1:] {
 				orderCancellation := types.OrderCancellation{}
 				orderDetails := strings.Split(order, ",")
-				orderCancellation.Long = orderDetails[0] == "Long"
-				argPrice, err := cast.ToUint64E(orderDetails[1])
+				orderCancellation.PositionDirection = types.PositionDirection(
+					types.PositionDirection_value[orderDetails[0]],
+				)
+				argPrice, err := sdk.NewDecFromStr(orderDetails[1])
 				if err != nil {
 					return err
 				}
 				orderCancellation.Price = argPrice
-				argQuantity, err := cast.ToUint64E(orderDetails[2])
+				argQuantity, err := sdk.NewDecFromStr(orderDetails[2])
 				if err != nil {
 					return err
 				}
 				orderCancellation.Quantity = argQuantity
-				orderCancellation.PriceDenom = orderDetails[3]
-				orderCancellation.AssetDenom = orderDetails[4]
-				orderCancellation.Open = orderDetails[5] == "Open"
-				orderCancellation.Leverage = orderDetails[6]
+				orderCancellation.PriceDenom = types.Denom(types.Denom_value[orderDetails[3]])
+				orderCancellation.AssetDenom = types.Denom(types.Denom_value[orderDetails[4]])
+				orderCancellation.PositionEffect = types.PositionEffect(
+					types.PositionEffect_value[orderDetails[5]],
+				)
+				argLeverage, err := sdk.NewDecFromStr(orderDetails[6])
+				if err != nil {
+					return err
+				}
+				orderCancellation.Leverage = argLeverage
 				orderCancellations = append(orderCancellations, &orderCancellation)
 			}
 
@@ -56,7 +64,6 @@ func CmdCancelOrders() *cobra.Command {
 				clientCtx.GetFromAddress().String(),
 				orderCancellations,
 				argContractAddr,
-				argNonce,
 			)
 			if err := msg.ValidateBasic(); err != nil {
 				return err

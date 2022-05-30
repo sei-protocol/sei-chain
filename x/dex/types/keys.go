@@ -27,11 +27,15 @@ func ContractKeyPrefix(p string, contractAddr string) []byte {
 	return append([]byte(p), []byte(contractAddr)...)
 }
 
-func PairPrefix(priceDenom string, assetDenom string) []byte {
-	return append([]byte(priceDenom), []byte(assetDenom)...)
+func PairPrefix(priceDenom Denom, assetDenom Denom) []byte {
+	key1 := make([]byte, 4)
+	binary.BigEndian.PutUint32(key1, uint32(priceDenom))
+	key2 := make([]byte, 4)
+	binary.BigEndian.PutUint32(key2, uint32(assetDenom))
+	return append(key1, key2...)
 }
 
-func OrderBookPrefix(long bool, contractAddr string, priceDenom string, assetDenom string) []byte {
+func OrderBookPrefix(long bool, contractAddr string, priceDenom Denom, assetDenom Denom) []byte {
 	var prefix []byte
 	if long {
 		prefix = KeyPrefix(LongBookKey)

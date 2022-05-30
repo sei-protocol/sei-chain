@@ -1,8 +1,6 @@
 package keeper
 
 import (
-	"encoding/binary"
-
 	"github.com/cosmos/cosmos-sdk/store/prefix"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/types/query"
@@ -21,7 +19,7 @@ func (k Keeper) SetLongBook(ctx sdk.Context, contractAddr string, longBook types
 	store.Set(GetKeyForLongBook(longBook), b)
 }
 
-func (k Keeper) GetLongBookByPrice(ctx sdk.Context, contractAddr string, price uint64, priceDenom string, assetDenom string) (val types.LongBook, found bool) {
+func (k Keeper) GetLongBookByPrice(ctx sdk.Context, contractAddr string, price sdk.Dec, priceDenom types.Denom, assetDenom types.Denom) (val types.LongBook, found bool) {
 	store := prefix.NewStore(
 		ctx.KVStore(k.storeKey),
 		types.OrderBookPrefix(
@@ -36,7 +34,7 @@ func (k Keeper) GetLongBookByPrice(ctx sdk.Context, contractAddr string, price u
 	return val, true
 }
 
-func (k Keeper) RemoveLongBookByPrice(ctx sdk.Context, contractAddr string, price uint64, priceDenom string, assetDenom string) {
+func (k Keeper) RemoveLongBookByPrice(ctx sdk.Context, contractAddr string, price sdk.Dec, priceDenom types.Denom, assetDenom types.Denom) {
 	store := prefix.NewStore(
 		ctx.KVStore(k.storeKey),
 		types.OrderBookPrefix(
@@ -62,7 +60,7 @@ func (k Keeper) GetAllLongBook(ctx sdk.Context, contractAddr string) (list []typ
 	return
 }
 
-func (k Keeper) GetAllLongBookForPair(ctx sdk.Context, contractAddr string, priceDenom string, assetDenom string) (list []types.OrderBook) {
+func (k Keeper) GetAllLongBookForPair(ctx sdk.Context, contractAddr string, priceDenom types.Denom, assetDenom types.Denom) (list []types.OrderBook) {
 	store := prefix.NewStore(ctx.KVStore(k.storeKey), types.OrderBookPrefix(true, contractAddr, priceDenom, assetDenom))
 	iterator := sdk.KVStorePrefixIterator(store, []byte{})
 
@@ -97,8 +95,10 @@ func GetKeyForLongBook(longBook types.LongBook) []byte {
 	return GetKeyForPrice(longBook.Entry.Price)
 }
 
-func GetKeyForPrice(price uint64) []byte {
-	key := make([]byte, 8)
-	binary.BigEndian.PutUint64(key, price)
+func GetKeyForPrice(price sdk.Dec) []byte {
+	key, err := price.Marshal()
+	if err != nil {
+		panic(err)
+	}
 	return key
 }

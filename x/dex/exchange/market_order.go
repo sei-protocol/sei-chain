@@ -11,39 +11,41 @@ func MatchMarketOrders(
 	marketOrders []dexcache.MarketOrder,
 	orderBook []types.OrderBook,
 	pair types.Pair,
-	buy bool,
-	dirtyOrderIds map[uint64]bool,
+	direction types.PositionDirection,
+	dirtyPrices *DirtyPrices,
 	settlements *[]*types.Settlement,
-) (uint64, uint64) {
-	var totalExecuted, totalPrice uint64 = 0, 0
+) (sdk.Dec, sdk.Dec) {
+	var totalExecuted, totalPrice sdk.Dec = sdk.ZeroDec(), sdk.ZeroDec()
 	for idx, marketOrder := range marketOrders {
 		for i := range orderBook {
 			var existingOrder types.OrderBook
-			if buy {
+			if direction == types.PositionDirection_LONG {
 				existingOrder = orderBook[i]
 			} else {
 				existingOrder = orderBook[len(orderBook)-i-1]
 			}
-			if existingOrder.GetEntry().Quantity == 0 {
+			if existingOrder.GetEntry().Quantity.Equal(sdk.ZeroDec()) {
 				continue
 			}
-			if (buy && marketOrder.WorstPrice < existingOrder.GetEntry().Price) ||
-				(!buy && marketOrder.WorstPrice > existingOrder.GetEntry().Price) {
+			if (direction == types.PositionDirection_LONG && marketOrder.WorstPrice.LT(existingOrder.GetPrice())) ||
+				(direction == types.PositionDirection_SHORT && marketOrder.WorstPrice.GT(existingOrder.GetPrice())) {
 				break
 			}
-			var executed uint64
-			if marketOrder.Quantity <= existingOrder.GetEntry().Quantity {
+			var executed sdk.Dec
+			if marketOrder.Quantity.LTE(existingOrder.GetEntry().Quantity) {
 				executed = marketOrder.Quantity
 			} else {
 				executed = existingOrder.GetEntry().Quantity
 			}
-			marketOrder.Quantity -= executed
-			totalExecuted += executed
-			totalPrice += executed * (existingOrder.GetEntry().Price + marketOrder.WorstPrice) / 2
-			dirtyOrderIds[existingOrder.GetId()] = true
-			newSettlements := Settle(marketOrder.FormattedCreatorWithSuffix(), executed, existingOrder, buy, marketOrder.WorstPrice)
+			marketOrder.Quantity = marketOrder.Quantity.Sub(executed)
+			totalExecuted = totalExecuted.Add(executed)
+			totalPrice = totalPrice.Add(
+				executed.Mul(existingOrder.GetPrice().Add(marketOrder.WorstPrice)).Quo(sdk.NewDec(2)),
+			)
+			dirtyPrices.Add(existingOrder.GetPrice())
+			newSettlements := Settle(marketOrder.FormattedCreatorWithSuffix(), executed, existingOrder, direction, marketOrder.WorstPrice)
 			*settlements = append(*settlements, newSettlements...)
-			if marketOrder.Quantity == 0 {
+			if marketOrder.Quantity.Equal(sdk.ZeroDec()) {
 				break
 			}
 		}

@@ -39,8 +39,8 @@ func (k msgServer) transferFunds(goCtx context.Context, msg *types.MsgPlaceOrder
 	for _, fund := range msg.Funds {
 		di.DepositInfoList = append(di.DepositInfoList, dexcache.DepositInfoEntry{
 			Creator: msg.Creator,
-			Denom:   fund.Denom,
-			Amount:  fund.Amount.Uint64(),
+			Denom:   types.Denom(types.Denom_value[fund.Denom]),
+			Amount:  sdk.NewDec(fund.Amount.Int64()),
 		})
 	}
 	return nil
@@ -71,9 +71,9 @@ func (k msgServer) PlaceOrders(goCtx context.Context, msg *types.MsgPlaceOrders)
 				Creator:     msg.Creator,
 				PriceDenom:  orderPlacement.PriceDenom,
 				AssetDenom:  orderPlacement.AssetDenom,
-				Limit:       orderPlacement.Limit,
-				Long:        orderPlacement.Long,
-				Open:        orderPlacement.Open,
+				OrderType:   orderPlacement.OrderType,
+				Direction:   orderPlacement.PositionDirection,
+				Effect:      orderPlacement.PositionEffect,
 				Leverage:    orderPlacement.Leverage,
 				Liquidation: false,
 			},

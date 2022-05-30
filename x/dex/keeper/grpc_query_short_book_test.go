@@ -27,17 +27,17 @@ func TestShortBookQuerySingle(t *testing.T) {
 	}{
 		{
 			desc:     "First",
-			request:  &types.QueryGetShortBookRequest{Id: msgs[0].Id, ContractAddr: TEST_CONTRACT, PriceDenom: TEST_PRICE_DENOM, AssetDenom: TEST_ASSET_DENOM},
+			request:  &types.QueryGetShortBookRequest{Price: msgs[0].Price, ContractAddr: TEST_CONTRACT, PriceDenom: TEST_PRICE_DENOM, AssetDenom: TEST_ASSET_DENOM},
 			response: &types.QueryGetShortBookResponse{ShortBook: msgs[0]},
 		},
 		{
 			desc:     "Second",
-			request:  &types.QueryGetShortBookRequest{Id: msgs[1].Id, ContractAddr: TEST_CONTRACT, PriceDenom: TEST_PRICE_DENOM, AssetDenom: TEST_ASSET_DENOM},
+			request:  &types.QueryGetShortBookRequest{Price: msgs[1].Price, ContractAddr: TEST_CONTRACT, PriceDenom: TEST_PRICE_DENOM, AssetDenom: TEST_ASSET_DENOM},
 			response: &types.QueryGetShortBookResponse{ShortBook: msgs[1]},
 		},
 		{
 			desc:    "KeyNotFound",
-			request: &types.QueryGetShortBookRequest{Id: uint64(len(msgs)), ContractAddr: TEST_CONTRACT, PriceDenom: TEST_PRICE_DENOM, AssetDenom: TEST_ASSET_DENOM},
+			request: &types.QueryGetShortBookRequest{Price: sdk.ZeroDec(), ContractAddr: TEST_CONTRACT, PriceDenom: TEST_PRICE_DENOM, AssetDenom: TEST_ASSET_DENOM},
 			err:     sdkerrors.ErrKeyNotFound,
 		},
 		{

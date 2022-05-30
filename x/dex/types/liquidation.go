@@ -1,6 +1,10 @@
 package types
 
-import "fmt"
+import (
+	"fmt"
+
+	sdk "github.com/cosmos/cosmos-sdk/types"
+)
 
 type SudoLiquidationMsg struct {
 	Liquidation ContractLiquidationDetails `json:"liquidation"`
@@ -21,12 +25,12 @@ type SudoLiquidationResponse struct {
 }
 
 type LiquidationOrder struct {
-	Account    string `json:"account"`
-	PriceDenom string `json:"price_denom"`
-	AssetDenom string `json:"asset_denom"`
-	Quantity   string `json:"quantity"`
-	Long       bool   `json:"long"`
-	Leverage   string `json:"leverage"`
+	Account    string  `json:"account"`
+	PriceDenom string  `json:"price_denom"`
+	AssetDenom string  `json:"asset_denom"`
+	Quantity   sdk.Dec `json:"quantity"`
+	Long       bool    `json:"long"`
+	Leverage   sdk.Dec `json:"leverage"`
 }
 
 func (r SudoLiquidationResponse) String() string {
