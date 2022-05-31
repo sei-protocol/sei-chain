@@ -9,6 +9,7 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 
 	"github.com/sei-protocol/sei-chain/x/oracle/types"
+	"github.com/sei-protocol/sei-chain/x/oracle/utils"
 )
 
 // querier is used as Keeper will have duplicate methods if used directly, and gRPC names take precedence over q
@@ -58,6 +59,17 @@ func (q querier) ExchangeRates(c context.Context, req *types.QueryExchangeRatesR
 
 	var exchangeRates types.DenomOracleExchangeRatePairs
 	q.IterateBaseExchangeRates(ctx, func(denom string, rate types.OracleExchangeRate) (stop bool) {
+		if denom == utils.MicroBaseDenom {
+			votePeriod := q.Keeper.GetParams(ctx).VotePeriod
+			lastVotingBlockHeight := ((ctx.BlockHeight() / int64(votePeriod)) * int64(votePeriod)) - 1
+			if lastVotingBlockHeight < 0 {
+				lastVotingBlockHeight = 0
+			}
+			baseDenomRate := types.OracleExchangeRate{ExchangeRate: sdk.OneDec(), LastUpdate: sdk.NewInt(lastVotingBlockHeight)}
+			exchangeRates = append(exchangeRates, types.DenomOracleExchangeRatePair{Denom: denom, OracleExchangeRate: baseDenomRate})
+			return false
+		}
+
 		exchangeRates = append(exchangeRates, types.DenomOracleExchangeRatePair{Denom: denom, OracleExchangeRate: rate})
 		return false
 	})
