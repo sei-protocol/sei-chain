@@ -29,7 +29,7 @@ func Settle(
 			amount:  order.GetEntry().Allocation[i].Sub(newAllocations[creator]),
 			creator: creator,
 		})
-		if newAllocations[creator].GT(sdk.ZeroDec()) {
+		if newAllocations[creator].IsPositive() {
 			nonZeroNewAllocations = append(nonZeroNewAllocations, newAllocations[creator])
 			nonZeroNewCreators = append(nonZeroNewCreators, creator)
 		}
@@ -79,7 +79,7 @@ func SettleFromBook(
 			amount:  longOrder.GetEntry().Allocation[i].Sub(newLongAllocations[creator]),
 			creator: creator,
 		})
-		if newLongAllocations[creator].GT(sdk.ZeroDec()) {
+		if newLongAllocations[creator].IsPositive() {
 			nonZeroNewLongAllocations = append(nonZeroNewLongAllocations, newLongAllocations[creator])
 			nonZeroNewLongCreators = append(nonZeroNewLongCreators, creator)
 		}
@@ -92,7 +92,7 @@ func SettleFromBook(
 			amount:  shortOrder.GetEntry().Allocation[i].Sub(newShortAllocations[creator]),
 			creator: creator,
 		})
-		if newShortAllocations[creator].GT(sdk.ZeroDec()) {
+		if newShortAllocations[creator].IsPositive() {
 			nonZeroNewShortAllocations = append(nonZeroNewShortAllocations, newShortAllocations[creator])
 			nonZeroNewShortCreators = append(nonZeroNewShortCreators, creator)
 		}
@@ -129,10 +129,10 @@ func SettleFromBook(
 		))
 		newLongToSettle[longPtr] = ToSettle{creator: longToSettle.creator, amount: longToSettle.amount.Sub(quantity)}
 		newShortToSettle[shortPtr] = ToSettle{creator: shortToSettle.creator, amount: shortToSettle.amount.Sub(quantity)}
-		if newLongToSettle[longPtr].amount.Equal(sdk.ZeroDec()) {
+		if newLongToSettle[longPtr].amount.IsZero() {
 			longPtr++
 		}
-		if newShortToSettle[shortPtr].amount.Equal(sdk.ZeroDec()) {
+		if newShortToSettle[shortPtr].amount.IsZero() {
 			shortPtr++
 		}
 	}

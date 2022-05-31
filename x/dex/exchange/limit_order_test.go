@@ -53,25 +53,12 @@ func TestMatchSingleOrder(t *testing.T) {
 	assert.Equal(t, dirtyShortPrices.Has(sdk.NewDec(100)), true)
 	assert.Equal(t, len(longBook), 1)
 	assert.Equal(t, longBook[0].GetPrice(), sdk.NewDec(100))
-	assert.Equal(t, sdk.NewDec(2).Sub(sdk.NewDec(2)), longBook[0].GetEntry().Quantity)
-	assert.Equal(t, *longBook[0].GetEntry(), types.OrderEntry{
-		Price:             sdk.NewDec(100),
-		Quantity:          sdk.NewDec(0),
-		AllocationCreator: []string{},
-		Allocation:        []sdk.Dec{},
-		PriceDenom:        TEST_PAIR().PriceDenom,
-		AssetDenom:        TEST_PAIR().AssetDenom,
-	})
+	assert.Equal(t, longBook[0].GetEntry().Price, sdk.NewDec(100))
+	assert.Equal(t, longBook[0].GetEntry().Quantity.IsZero(), true)
 	assert.Equal(t, len(shortBook), 1)
 	assert.Equal(t, shortBook[0].GetPrice(), sdk.NewDec(100))
-	assert.Equal(t, *shortBook[0].GetEntry(), types.OrderEntry{
-		Price:             sdk.NewDec(100),
-		Quantity:          sdk.NewDec(0),
-		AllocationCreator: []string{},
-		Allocation:        []sdk.Dec{},
-		PriceDenom:        TEST_PAIR().PriceDenom,
-		AssetDenom:        TEST_PAIR().AssetDenom,
-	})
+	assert.Equal(t, shortBook[0].GetEntry().Price, sdk.NewDec(100))
+	assert.Equal(t, shortBook[0].GetEntry().Quantity.IsZero(), true)
 	assert.Equal(t, len(settlements), 2)
 	assert.Equal(t, *settlements[0], types.Settlement{
 		Direction:              types.PositionDirection_LONG,
@@ -101,12 +88,14 @@ func TestAddOrders(t *testing.T) {
 			Quantity:  sdk.NewDec(5),
 			Creator:   "def",
 			Direction: types.PositionDirection_LONG,
+			Effect:    types.PositionEffect_CLOSE,
 		},
 		{
 			Price:     sdk.NewDec(95),
 			Quantity:  sdk.NewDec(3),
 			Creator:   "def",
 			Direction: types.PositionDirection_LONG,
+			Effect:    types.PositionEffect_CLOSE,
 		},
 	}
 	shortOrders := []dexcache.LimitOrder{
@@ -115,6 +104,7 @@ func TestAddOrders(t *testing.T) {
 			Quantity:  sdk.NewDec(10),
 			Creator:   "ghi",
 			Direction: types.PositionDirection_SHORT,
+			Effect:    types.PositionEffect_CLOSE,
 			Leverage:  sdk.NewDec(2),
 		},
 		{
@@ -122,6 +112,7 @@ func TestAddOrders(t *testing.T) {
 			Quantity:  sdk.NewDec(2),
 			Creator:   "mno",
 			Direction: types.PositionDirection_SHORT,
+			Effect:    types.PositionEffect_CLOSE,
 		},
 	}
 	longBook := []types.OrderBook{
@@ -130,7 +121,7 @@ func TestAddOrders(t *testing.T) {
 			Entry: &types.OrderEntry{
 				Price:             sdk.NewDec(98),
 				Quantity:          sdk.NewDec(5),
-				AllocationCreator: []string{"abc|c|"},
+				AllocationCreator: []string{"abc|c|<nil>"},
 				Allocation:        []sdk.Dec{sdk.NewDec(5)},
 				PriceDenom:        TEST_PAIR().PriceDenom,
 				AssetDenom:        TEST_PAIR().AssetDenom,
@@ -141,7 +132,7 @@ func TestAddOrders(t *testing.T) {
 			Entry: &types.OrderEntry{
 				Price:             sdk.NewDec(100),
 				Quantity:          sdk.NewDec(3),
-				AllocationCreator: []string{"def|c|"},
+				AllocationCreator: []string{"def|c|<nil>"},
 				Allocation:        []sdk.Dec{sdk.NewDec(3)},
 				PriceDenom:        TEST_PAIR().PriceDenom,
 				AssetDenom:        TEST_PAIR().AssetDenom,
@@ -154,7 +145,7 @@ func TestAddOrders(t *testing.T) {
 			Entry: &types.OrderEntry{
 				Price:             sdk.NewDec(101),
 				Quantity:          sdk.NewDec(5),
-				AllocationCreator: []string{"abc|c|"},
+				AllocationCreator: []string{"abc|c|<nil>"},
 				Allocation:        []sdk.Dec{sdk.NewDec(5)},
 				PriceDenom:        TEST_PAIR().PriceDenom,
 				AssetDenom:        TEST_PAIR().AssetDenom,
@@ -165,7 +156,7 @@ func TestAddOrders(t *testing.T) {
 			Entry: &types.OrderEntry{
 				Price:             sdk.NewDec(115),
 				Quantity:          sdk.NewDec(3),
-				AllocationCreator: []string{"def|c|"},
+				AllocationCreator: []string{"def|c|<nil>"},
 				Allocation:        []sdk.Dec{sdk.NewDec(3)},
 				PriceDenom:        TEST_PAIR().PriceDenom,
 				AssetDenom:        TEST_PAIR().AssetDenom,
@@ -186,12 +177,12 @@ func TestAddOrders(t *testing.T) {
 	assert.Equal(t, dirtyLongPrices.Has(sdk.NewDec(100)), true)
 	assert.Equal(t, dirtyShortPrices.Has(sdk.NewDec(105)), true)
 	assert.Equal(t, dirtyShortPrices.Has(sdk.NewDec(115)), true)
-	assert.Equal(t, len(longBook), sdk.NewDec(3))
+	assert.Equal(t, len(longBook), 3)
 	assert.Equal(t, longBook[0].GetPrice(), sdk.NewDec(95))
 	assert.Equal(t, *longBook[0].GetEntry(), types.OrderEntry{
 		Price:             sdk.NewDec(95),
 		Quantity:          sdk.NewDec(3),
-		AllocationCreator: []string{"def|c|"},
+		AllocationCreator: []string{"def|c|<nil>"},
 		Allocation:        []sdk.Dec{sdk.NewDec(3)},
 		PriceDenom:        TEST_PAIR().PriceDenom,
 		AssetDenom:        TEST_PAIR().AssetDenom,
@@ -200,7 +191,7 @@ func TestAddOrders(t *testing.T) {
 	assert.Equal(t, *longBook[1].GetEntry(), types.OrderEntry{
 		Price:             sdk.NewDec(98),
 		Quantity:          sdk.NewDec(5),
-		AllocationCreator: []string{"abc|c|"},
+		AllocationCreator: []string{"abc|c|<nil>"},
 		Allocation:        []sdk.Dec{sdk.NewDec(5)},
 		PriceDenom:        TEST_PAIR().PriceDenom,
 		AssetDenom:        TEST_PAIR().AssetDenom,
@@ -209,17 +200,17 @@ func TestAddOrders(t *testing.T) {
 	assert.Equal(t, *longBook[2].GetEntry(), types.OrderEntry{
 		Price:             sdk.NewDec(100),
 		Quantity:          sdk.NewDec(8),
-		AllocationCreator: []string{"def|c|"},
+		AllocationCreator: []string{"def|c|<nil>"},
 		Allocation:        []sdk.Dec{sdk.NewDec(8)},
 		PriceDenom:        TEST_PAIR().PriceDenom,
 		AssetDenom:        TEST_PAIR().AssetDenom,
 	})
-	assert.Equal(t, len(shortBook), sdk.NewDec(3))
+	assert.Equal(t, len(shortBook), 3)
 	assert.Equal(t, shortBook[0].GetPrice(), sdk.NewDec(101))
 	assert.Equal(t, *shortBook[0].GetEntry(), types.OrderEntry{
 		Price:             sdk.NewDec(101),
 		Quantity:          sdk.NewDec(5),
-		AllocationCreator: []string{"abc|c|"},
+		AllocationCreator: []string{"abc|c|<nil>"},
 		Allocation:        []sdk.Dec{sdk.NewDec(5)},
 		PriceDenom:        TEST_PAIR().PriceDenom,
 		AssetDenom:        TEST_PAIR().AssetDenom,
@@ -228,7 +219,7 @@ func TestAddOrders(t *testing.T) {
 	assert.Equal(t, *shortBook[1].GetEntry(), types.OrderEntry{
 		Price:             sdk.NewDec(105),
 		Quantity:          sdk.NewDec(10),
-		AllocationCreator: []string{"ghi|c|2"},
+		AllocationCreator: []string{"ghi|c|2.000000000000000000"},
 		Allocation:        []sdk.Dec{sdk.NewDec(10)},
 		PriceDenom:        TEST_PAIR().PriceDenom,
 		AssetDenom:        TEST_PAIR().AssetDenom,
@@ -237,7 +228,7 @@ func TestAddOrders(t *testing.T) {
 	assert.Equal(t, *shortBook[2].GetEntry(), types.OrderEntry{
 		Price:             sdk.NewDec(115),
 		Quantity:          sdk.NewDec(5),
-		AllocationCreator: []string{"def|c|", "mno|c|"},
+		AllocationCreator: []string{"def|c|<nil>", "mno|c|<nil>"},
 		Allocation:        []sdk.Dec{sdk.NewDec(3), sdk.NewDec(2)},
 		PriceDenom:        TEST_PAIR().PriceDenom,
 		AssetDenom:        TEST_PAIR().AssetDenom,
@@ -284,24 +275,12 @@ func TestMatchSingleOrderFromShortBook(t *testing.T) {
 	assert.Equal(t, dirtyShortPrices.Has(sdk.NewDec(100)), true)
 	assert.Equal(t, len(longBook), 1)
 	assert.Equal(t, longBook[0].GetPrice(), sdk.NewDec(100))
-	assert.Equal(t, *longBook[0].GetEntry(), types.OrderEntry{
-		Price:             sdk.NewDec(100),
-		Quantity:          sdk.NewDec(0),
-		AllocationCreator: []string{},
-		Allocation:        []sdk.Dec{},
-		PriceDenom:        TEST_PAIR().PriceDenom,
-		AssetDenom:        TEST_PAIR().AssetDenom,
-	})
+	assert.Equal(t, longBook[0].GetEntry().Price, sdk.NewDec(100))
+	assert.Equal(t, longBook[0].GetEntry().Quantity.IsZero(), true)
 	assert.Equal(t, len(shortBook), 1)
 	assert.Equal(t, shortBook[0].GetPrice(), sdk.NewDec(100))
-	assert.Equal(t, *shortBook[0].GetEntry(), types.OrderEntry{
-		Price:             sdk.NewDec(100),
-		Quantity:          sdk.NewDec(0),
-		AllocationCreator: []string{},
-		Allocation:        []sdk.Dec{},
-		PriceDenom:        TEST_PAIR().PriceDenom,
-		AssetDenom:        TEST_PAIR().AssetDenom,
-	})
+	assert.Equal(t, shortBook[0].GetEntry().Price, sdk.NewDec(100))
+	assert.Equal(t, shortBook[0].GetEntry().Quantity.IsZero(), true)
 	assert.Equal(t, len(settlements), 2)
 	assert.Equal(t, *settlements[0], types.Settlement{
 		Direction:              types.PositionDirection_LONG,
@@ -362,24 +341,12 @@ func TestMatchSingleOrderFromLongBook(t *testing.T) {
 	assert.Equal(t, dirtyShortPrices.Has(sdk.NewDec(100)), true)
 	assert.Equal(t, len(longBook), 1)
 	assert.Equal(t, longBook[0].GetPrice(), sdk.NewDec(100))
-	assert.Equal(t, *longBook[0].GetEntry(), types.OrderEntry{
-		Price:             sdk.NewDec(100),
-		Quantity:          sdk.NewDec(0),
-		AllocationCreator: []string{},
-		Allocation:        []sdk.Dec{},
-		PriceDenom:        TEST_PAIR().PriceDenom,
-		AssetDenom:        TEST_PAIR().AssetDenom,
-	})
+	assert.Equal(t, longBook[0].GetEntry().Price, sdk.NewDec(100))
+	assert.Equal(t, longBook[0].GetEntry().Quantity.IsZero(), true)
 	assert.Equal(t, len(shortBook), 1)
 	assert.Equal(t, shortBook[0].GetPrice(), sdk.NewDec(100))
-	assert.Equal(t, *shortBook[0].GetEntry(), types.OrderEntry{
-		Price:             sdk.NewDec(100),
-		Quantity:          sdk.NewDec(0),
-		AllocationCreator: []string{},
-		Allocation:        []sdk.Dec{},
-		PriceDenom:        TEST_PAIR().PriceDenom,
-		AssetDenom:        TEST_PAIR().AssetDenom,
-	})
+	assert.Equal(t, shortBook[0].GetEntry().Price, sdk.NewDec(100))
+	assert.Equal(t, shortBook[0].GetEntry().Quantity.IsZero(), true)
 	assert.Equal(t, len(settlements), 2)
 	assert.Equal(t, *settlements[0], types.Settlement{
 		Direction:              types.PositionDirection_LONG,
@@ -452,24 +419,12 @@ func TestMatchSingleOrderFromMultipleShortBook(t *testing.T) {
 	assert.Equal(t, dirtyShortPrices.Has(sdk.NewDec(100)), true)
 	assert.Equal(t, len(longBook), 1)
 	assert.Equal(t, longBook[0].GetPrice(), sdk.NewDec(100))
-	assert.Equal(t, *longBook[0].GetEntry(), types.OrderEntry{
-		Price:             sdk.NewDec(100),
-		Quantity:          sdk.NewDec(0),
-		AllocationCreator: []string{},
-		Allocation:        []sdk.Dec{},
-		PriceDenom:        TEST_PAIR().PriceDenom,
-		AssetDenom:        TEST_PAIR().AssetDenom,
-	})
+	assert.Equal(t, longBook[0].GetEntry().Price, sdk.NewDec(100))
+	assert.Equal(t, longBook[0].GetEntry().Quantity.IsZero(), true)
 	assert.Equal(t, len(shortBook), 2)
 	assert.Equal(t, shortBook[0].GetPrice(), sdk.NewDec(90))
-	assert.Equal(t, *shortBook[0].GetEntry(), types.OrderEntry{
-		Price:             sdk.NewDec(90),
-		Quantity:          sdk.NewDec(0),
-		AllocationCreator: []string{},
-		Allocation:        []sdk.Dec{},
-		PriceDenom:        TEST_PAIR().PriceDenom,
-		AssetDenom:        TEST_PAIR().AssetDenom,
-	})
+	assert.Equal(t, shortBook[0].GetEntry().Price, sdk.NewDec(90))
+	assert.Equal(t, shortBook[0].GetEntry().Quantity.IsZero(), true)
 	assert.Equal(t, shortBook[1].GetPrice(), sdk.NewDec(100))
 	assert.Equal(t, *shortBook[1].GetEntry(), types.OrderEntry{
 		Price:             sdk.NewDec(100),
@@ -596,24 +551,12 @@ func TestMatchSingleOrderFromMultipleLongBook(t *testing.T) {
 		AssetDenom:        TEST_PAIR().AssetDenom,
 	})
 	assert.Equal(t, longBook[1].GetPrice(), sdk.NewDec(110))
-	assert.Equal(t, *longBook[1].GetEntry(), types.OrderEntry{
-		Price:             sdk.NewDec(110),
-		Quantity:          sdk.NewDec(0),
-		AllocationCreator: []string{},
-		Allocation:        []sdk.Dec{},
-		PriceDenom:        TEST_PAIR().PriceDenom,
-		AssetDenom:        TEST_PAIR().AssetDenom,
-	})
+	assert.Equal(t, longBook[1].GetEntry().Price, sdk.NewDec(110))
+	assert.Equal(t, longBook[1].GetEntry().Quantity.IsZero(), true)
 	assert.Equal(t, len(shortBook), 1)
 	assert.Equal(t, shortBook[0].GetPrice(), sdk.NewDec(100))
-	assert.Equal(t, *shortBook[0].GetEntry(), types.OrderEntry{
-		Price:             sdk.NewDec(100),
-		Quantity:          sdk.NewDec(0),
-		AllocationCreator: []string{},
-		Allocation:        []sdk.Dec{},
-		PriceDenom:        TEST_PAIR().PriceDenom,
-		AssetDenom:        TEST_PAIR().AssetDenom,
-	})
+	assert.Equal(t, shortBook[0].GetEntry().Price, sdk.NewDec(100))
+	assert.Equal(t, shortBook[0].GetEntry().Quantity.IsZero(), true)
 	assert.Equal(t, len(settlements), 6)
 	assert.Equal(t, *settlements[0], types.Settlement{
 		Direction:              types.PositionDirection_LONG,
@@ -679,18 +622,21 @@ func TestMatchMultipleOrderFromMultipleShortBook(t *testing.T) {
 			Quantity:  sdk.NewDec(5),
 			Creator:   "abc",
 			Direction: types.PositionDirection_LONG,
+			Effect:    types.PositionEffect_CLOSE,
 		},
 		{
 			Price:     sdk.NewDec(104),
 			Quantity:  sdk.NewDec(1),
 			Creator:   "jkl",
 			Direction: types.PositionDirection_LONG,
+			Effect:    types.PositionEffect_CLOSE,
 		},
 		{
 			Price:     sdk.NewDec(98),
 			Quantity:  sdk.NewDec(2),
 			Creator:   "mno",
 			Direction: types.PositionDirection_LONG,
+			Effect:    types.PositionEffect_CLOSE,
 		},
 	}
 	shortOrders := []dexcache.LimitOrder{}
@@ -739,45 +685,27 @@ func TestMatchMultipleOrderFromMultipleShortBook(t *testing.T) {
 	assert.Equal(t, *longBook[0].GetEntry(), types.OrderEntry{
 		Price:             sdk.NewDec(98),
 		Quantity:          sdk.NewDec(2),
-		AllocationCreator: []string{"mno|c|"},
+		AllocationCreator: []string{"mno|c|<nil>"},
 		Allocation:        []sdk.Dec{sdk.NewDec(2)},
 		PriceDenom:        TEST_PAIR().PriceDenom,
 		AssetDenom:        TEST_PAIR().AssetDenom,
 	})
 	assert.Equal(t, longBook[1].GetPrice(), sdk.NewDec(100))
-	assert.Equal(t, *longBook[1].GetEntry(), types.OrderEntry{
-		Price:             sdk.NewDec(100),
-		Quantity:          sdk.NewDec(0),
-		AllocationCreator: []string{},
-		Allocation:        []sdk.Dec{},
-		PriceDenom:        TEST_PAIR().PriceDenom,
-		AssetDenom:        TEST_PAIR().AssetDenom,
-	})
+	assert.Equal(t, longBook[1].GetEntry().Price, sdk.NewDec(100))
+	assert.Equal(t, longBook[1].GetEntry().Quantity.IsZero(), true)
 	assert.Equal(t, longBook[2].GetPrice(), sdk.NewDec(104))
-	assert.Equal(t, *longBook[2].GetEntry(), types.OrderEntry{
-		Price:             sdk.NewDec(104),
-		Quantity:          sdk.NewDec(0),
-		AllocationCreator: []string{},
-		Allocation:        []sdk.Dec{},
-		PriceDenom:        TEST_PAIR().PriceDenom,
-		AssetDenom:        TEST_PAIR().AssetDenom,
-	})
+	assert.Equal(t, longBook[2].GetEntry().Price, sdk.NewDec(104))
+	assert.Equal(t, longBook[2].GetEntry().Quantity.IsZero(), true)
 	assert.Equal(t, len(shortBook), 2)
 	assert.Equal(t, shortBook[0].GetPrice(), sdk.NewDec(90))
-	assert.Equal(t, *shortBook[0].GetEntry(), types.OrderEntry{
-		Price:             sdk.NewDec(90),
-		Quantity:          sdk.NewDec(0),
-		AllocationCreator: []string{},
-		Allocation:        []sdk.Dec{},
-		PriceDenom:        TEST_PAIR().PriceDenom,
-		AssetDenom:        TEST_PAIR().AssetDenom,
-	})
+	assert.Equal(t, shortBook[0].GetEntry().Price, sdk.NewDec(90))
+	assert.Equal(t, shortBook[0].GetEntry().Quantity.IsZero(), true)
 	assert.Equal(t, shortBook[1].GetPrice(), sdk.NewDec(100))
 	assert.Equal(t, *shortBook[1].GetEntry(), types.OrderEntry{
 		Price:             sdk.NewDec(100),
 		Quantity:          sdk.NewDec(2),
-		AllocationCreator: []string{"def|c|"},
-		Allocation:        []sdk.Dec{sdk.NewDec(2)},
+		AllocationCreator: []string{"def|c|", "ghi|c|"},
+		Allocation:        []sdk.Dec{sdk.NewDec(4).Quo(sdk.NewDec(3)), sdk.NewDec(2).Quo(sdk.NewDec(3))},
 		PriceDenom:        TEST_PAIR().PriceDenom,
 		AssetDenom:        TEST_PAIR().AssetDenom,
 	})
@@ -822,7 +750,7 @@ func TestMatchMultipleOrderFromMultipleShortBook(t *testing.T) {
 		Direction:              types.PositionDirection_LONG,
 		PriceSymbol:            TEST_PAIR().PriceDenom,
 		AssetSymbol:            TEST_PAIR().AssetDenom,
-		Quantity:               sdk.NewDec(2),
+		Quantity:               sdk.NewDec(8).Quo(sdk.NewDec(3)),
 		ExecutionCostOrProceed: sdk.NewDec(100),
 		ExpectedCostOrProceed:  sdk.NewDec(100),
 		Account:                "abc",
@@ -831,7 +759,7 @@ func TestMatchMultipleOrderFromMultipleShortBook(t *testing.T) {
 		Direction:              types.PositionDirection_SHORT,
 		PriceSymbol:            TEST_PAIR().PriceDenom,
 		AssetSymbol:            TEST_PAIR().AssetDenom,
-		Quantity:               sdk.NewDec(2),
+		Quantity:               sdk.NewDec(8).Quo(sdk.NewDec(3)),
 		ExecutionCostOrProceed: sdk.NewDec(100),
 		ExpectedCostOrProceed:  sdk.NewDec(100),
 		Account:                "def",
@@ -840,7 +768,7 @@ func TestMatchMultipleOrderFromMultipleShortBook(t *testing.T) {
 		Direction:              types.PositionDirection_LONG,
 		PriceSymbol:            TEST_PAIR().PriceDenom,
 		AssetSymbol:            TEST_PAIR().AssetDenom,
-		Quantity:               sdk.NewDec(2),
+		Quantity:               sdk.NewDec(4).Quo(sdk.NewDec(3)),
 		ExecutionCostOrProceed: sdk.NewDec(100),
 		ExpectedCostOrProceed:  sdk.NewDec(100),
 		Account:                "abc",
@@ -849,7 +777,7 @@ func TestMatchMultipleOrderFromMultipleShortBook(t *testing.T) {
 		Direction:              types.PositionDirection_SHORT,
 		PriceSymbol:            TEST_PAIR().PriceDenom,
 		AssetSymbol:            TEST_PAIR().AssetDenom,
-		Quantity:               sdk.NewDec(2),
+		Quantity:               sdk.NewDec(4).Quo(sdk.NewDec(3)),
 		ExecutionCostOrProceed: sdk.NewDec(100),
 		ExpectedCostOrProceed:  sdk.NewDec(100),
 		Account:                "ghi",
@@ -865,18 +793,21 @@ func TestMatchMultipleOrderFromMultipleLongBook(t *testing.T) {
 			Quantity:  sdk.NewDec(5),
 			Creator:   "abc",
 			Direction: types.PositionDirection_SHORT,
+			Effect:    types.PositionEffect_CLOSE,
 		},
 		{
 			Price:     sdk.NewDec(96),
 			Quantity:  sdk.NewDec(1),
 			Creator:   "jkl",
 			Direction: types.PositionDirection_SHORT,
+			Effect:    types.PositionEffect_CLOSE,
 		},
 		{
 			Price:     sdk.NewDec(102),
 			Quantity:  sdk.NewDec(2),
 			Creator:   "mno",
 			Direction: types.PositionDirection_SHORT,
+			Effect:    types.PositionEffect_CLOSE,
 		},
 	}
 	longBook := []types.OrderBook{
@@ -924,44 +855,26 @@ func TestMatchMultipleOrderFromMultipleLongBook(t *testing.T) {
 	assert.Equal(t, *longBook[0].GetEntry(), types.OrderEntry{
 		Price:             sdk.NewDec(100),
 		Quantity:          sdk.NewDec(2),
-		AllocationCreator: []string{"abc|c|"},
-		Allocation:        []sdk.Dec{sdk.NewDec(2)},
+		AllocationCreator: []string{"abc|c|", "ghi|c|"},
+		Allocation:        []sdk.Dec{sdk.NewDec(4).Quo(sdk.NewDec(3)), sdk.NewDec(2).Quo(sdk.NewDec(3))},
 		PriceDenom:        TEST_PAIR().PriceDenom,
 		AssetDenom:        TEST_PAIR().AssetDenom,
 	})
 	assert.Equal(t, longBook[1].GetPrice(), sdk.NewDec(110))
-	assert.Equal(t, *longBook[1].GetEntry(), types.OrderEntry{
-		Price:             sdk.NewDec(110),
-		Quantity:          sdk.NewDec(0),
-		AllocationCreator: []string{},
-		Allocation:        []sdk.Dec{},
-		PriceDenom:        TEST_PAIR().PriceDenom,
-		AssetDenom:        TEST_PAIR().AssetDenom,
-	})
-	assert.Equal(t, len(shortBook), sdk.NewDec(3))
+	assert.Equal(t, longBook[1].GetEntry().Price, sdk.NewDec(110))
+	assert.Equal(t, longBook[1].GetEntry().Quantity.IsZero(), true)
+	assert.Equal(t, len(shortBook), 3)
 	assert.Equal(t, shortBook[0].GetPrice(), sdk.NewDec(96))
-	assert.Equal(t, *shortBook[0].GetEntry(), types.OrderEntry{
-		Price:             sdk.NewDec(96),
-		Quantity:          sdk.NewDec(0),
-		AllocationCreator: []string{},
-		Allocation:        []sdk.Dec{},
-		PriceDenom:        TEST_PAIR().PriceDenom,
-		AssetDenom:        TEST_PAIR().AssetDenom,
-	})
+	assert.Equal(t, shortBook[0].GetEntry().Price, sdk.NewDec(96))
+	assert.Equal(t, shortBook[0].GetEntry().Quantity.IsZero(), true)
 	assert.Equal(t, shortBook[1].GetPrice(), sdk.NewDec(100))
-	assert.Equal(t, *shortBook[1].GetEntry(), types.OrderEntry{
-		Price:             sdk.NewDec(100),
-		Quantity:          sdk.NewDec(0),
-		AllocationCreator: []string{},
-		Allocation:        []sdk.Dec{},
-		PriceDenom:        TEST_PAIR().PriceDenom,
-		AssetDenom:        TEST_PAIR().AssetDenom,
-	})
+	assert.Equal(t, shortBook[1].GetEntry().Price, sdk.NewDec(100))
+	assert.Equal(t, shortBook[1].GetEntry().Quantity.IsZero(), true)
 	assert.Equal(t, shortBook[2].GetPrice(), sdk.NewDec(102))
 	assert.Equal(t, *shortBook[2].GetEntry(), types.OrderEntry{
 		Price:             sdk.NewDec(102),
 		Quantity:          sdk.NewDec(2),
-		AllocationCreator: []string{"mno|c|"},
+		AllocationCreator: []string{"mno|c|<nil>"},
 		Allocation:        []sdk.Dec{sdk.NewDec(2)},
 		PriceDenom:        TEST_PAIR().PriceDenom,
 		AssetDenom:        TEST_PAIR().AssetDenom,
@@ -1007,7 +920,7 @@ func TestMatchMultipleOrderFromMultipleLongBook(t *testing.T) {
 		Direction:              types.PositionDirection_LONG,
 		PriceSymbol:            TEST_PAIR().PriceDenom,
 		AssetSymbol:            TEST_PAIR().AssetDenom,
-		Quantity:               sdk.NewDec(2),
+		Quantity:               sdk.NewDec(8).Quo(sdk.NewDec(3)),
 		ExecutionCostOrProceed: sdk.NewDec(100),
 		ExpectedCostOrProceed:  sdk.NewDec(100),
 		Account:                "abc",
@@ -1016,7 +929,7 @@ func TestMatchMultipleOrderFromMultipleLongBook(t *testing.T) {
 		Direction:              types.PositionDirection_SHORT,
 		PriceSymbol:            TEST_PAIR().PriceDenom,
 		AssetSymbol:            TEST_PAIR().AssetDenom,
-		Quantity:               sdk.NewDec(2),
+		Quantity:               sdk.NewDec(8).Quo(sdk.NewDec(3)),
 		ExecutionCostOrProceed: sdk.NewDec(100),
 		ExpectedCostOrProceed:  sdk.NewDec(100),
 		Account:                "abc",
@@ -1025,7 +938,7 @@ func TestMatchMultipleOrderFromMultipleLongBook(t *testing.T) {
 		Direction:              types.PositionDirection_LONG,
 		PriceSymbol:            TEST_PAIR().PriceDenom,
 		AssetSymbol:            TEST_PAIR().AssetDenom,
-		Quantity:               sdk.NewDec(2),
+		Quantity:               sdk.NewDec(4).Quo(sdk.NewDec(3)),
 		ExecutionCostOrProceed: sdk.NewDec(100),
 		ExpectedCostOrProceed:  sdk.NewDec(100),
 		Account:                "ghi",
@@ -1034,7 +947,7 @@ func TestMatchMultipleOrderFromMultipleLongBook(t *testing.T) {
 		Direction:              types.PositionDirection_SHORT,
 		PriceSymbol:            TEST_PAIR().PriceDenom,
 		AssetSymbol:            TEST_PAIR().AssetDenom,
-		Quantity:               sdk.NewDec(2),
+		Quantity:               sdk.NewDec(4).Quo(sdk.NewDec(3)),
 		ExecutionCostOrProceed: sdk.NewDec(100),
 		ExpectedCostOrProceed:  sdk.NewDec(100),
 		Account:                "abc",

@@ -340,7 +340,7 @@ func (am AppModule) endBlockForContract(ctx sdk.Context, contractAddr string) {
 			&settlements,
 		)
 		var avgPrice sdk.Dec
-		if marketBuyTotalQuantity.Add(marketSellTotalQuantity).Add(limitTotalQuantity) == sdk.ZeroDec() {
+		if marketBuyTotalQuantity.Add(marketSellTotalQuantity).Add(limitTotalQuantity).IsZero() {
 			avgPrice = sdk.ZeroDec()
 		} else {
 			avgPrice = (marketBuyTotalPrice.Add(marketSellTotalPrice).Add(limitTotalPrice)).Quo(marketBuyTotalQuantity.Add(marketSellTotalQuantity).Add(limitTotalQuantity))
@@ -410,7 +410,7 @@ func (am AppModule) endBlockForContract(ctx sdk.Context, contractAddr string) {
 		am.callClearingHouseContractSudo(ctx, wasmMsg, contractAddr)
 
 		for _, marketOrder := range orders.MarketBuys {
-			if marketOrder.Quantity.GT(sdk.ZeroDec()) {
+			if marketOrder.Quantity.IsPositive() {
 				am.keeper.OrderCancellations[contractAddr][pair.String()].OrderCancellations = append(
 					am.keeper.OrderCancellations[contractAddr][pair.String()].OrderCancellations,
 					dexcache.OrderCancellation{
@@ -427,7 +427,7 @@ func (am AppModule) endBlockForContract(ctx sdk.Context, contractAddr string) {
 			}
 		}
 		for _, marketOrder := range orders.MarketSells {
-			if marketOrder.Quantity.GT(sdk.ZeroDec()) {
+			if marketOrder.Quantity.IsPositive() {
 				am.keeper.OrderCancellations[contractAddr][pair.String()].OrderCancellations = append(
 					am.keeper.OrderCancellations[contractAddr][pair.String()].OrderCancellations,
 					dexcache.OrderCancellation{

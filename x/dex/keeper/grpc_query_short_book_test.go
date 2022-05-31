@@ -37,7 +37,7 @@ func TestShortBookQuerySingle(t *testing.T) {
 		},
 		{
 			desc:    "KeyNotFound",
-			request: &types.QueryGetShortBookRequest{Price: sdk.ZeroDec(), ContractAddr: TEST_CONTRACT, PriceDenom: TEST_PRICE_DENOM, AssetDenom: TEST_ASSET_DENOM},
+			request: &types.QueryGetShortBookRequest{Price: sdk.NewDec(10000), ContractAddr: TEST_CONTRACT, PriceDenom: TEST_PRICE_DENOM, AssetDenom: TEST_ASSET_DENOM},
 			err:     sdkerrors.ErrKeyNotFound,
 		},
 		{

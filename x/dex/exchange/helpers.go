@@ -53,14 +53,14 @@ func RemoveAllocations(
 			newQuantity = newQuantity.Add(orderEntry.Allocation[i])
 		} else {
 			var newAllocation sdk.Dec
-			if quantity.Equal(sdk.ZeroDec()) {
+			if quantity.IsZero() {
 				newAllocation = sdk.ZeroDec() // 0 quantity in the cancel request indicates that the entirety of outstanding order should be cancelled
 			} else if quantity.LTE(orderEntry.Allocation[i]) {
 				newAllocation = orderEntry.Allocation[i].Sub(quantity)
 			} else {
 				newAllocation = sdk.ZeroDec()
 			}
-			if newAllocation.GT(sdk.ZeroDec()) {
+			if newAllocation.IsPositive() {
 				newAllocationCreators = append(newAllocationCreators, allocationCreator)
 				newAllocations = append(newAllocations, newAllocation)
 				newQuantity = newQuantity.Add(newAllocation)

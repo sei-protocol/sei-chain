@@ -48,10 +48,10 @@ func MatchLimitOrders(
 			executed,
 		)...)
 
-		if (*longBook)[longPtr].GetEntry().Quantity.Equal(sdk.ZeroDec()) {
+		if (*longBook)[longPtr].GetEntry().Quantity.IsZero() {
 			longPtr -= 1
 		}
-		if (*shortBook)[shortPtr].GetEntry().Quantity.Equal(sdk.ZeroDec()) {
+		if (*shortBook)[shortPtr].GetEntry().Quantity.IsZero() {
 			shortPtr += 1
 		}
 	}

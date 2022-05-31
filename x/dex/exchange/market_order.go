@@ -24,7 +24,7 @@ func MatchMarketOrders(
 			} else {
 				existingOrder = orderBook[len(orderBook)-i-1]
 			}
-			if existingOrder.GetEntry().Quantity.Equal(sdk.ZeroDec()) {
+			if existingOrder.GetEntry().Quantity.IsZero() {
 				continue
 			}
 			if (direction == types.PositionDirection_LONG && marketOrder.WorstPrice.LT(existingOrder.GetPrice())) ||
@@ -45,7 +45,7 @@ func MatchMarketOrders(
 			dirtyPrices.Add(existingOrder.GetPrice())
 			newSettlements := Settle(marketOrder.FormattedCreatorWithSuffix(), executed, existingOrder, direction, marketOrder.WorstPrice)
 			*settlements = append(*settlements, newSettlements...)
-			if marketOrder.Quantity.Equal(sdk.ZeroDec()) {
+			if marketOrder.Quantity.IsZero() {
 				break
 			}
 		}

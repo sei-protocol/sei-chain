@@ -56,7 +56,7 @@ func NewSettlement(
 
 func (s *Settlement) String() string {
 	return fmt.Sprintf(
-		"%s %t %s/%s: %d at %d/%d - %s", s.Account, s.Direction, s.PriceSymbol, s.AssetSymbol, s.Quantity, s.ExecutionCostOrProceed, s.ExpectedCostOrProceed, s.Leverage)
+		"%s %d %s/%s: %d at %d/%d - %s", s.Account, s.Direction, s.PriceSymbol, s.AssetSymbol, s.Quantity, s.ExecutionCostOrProceed, s.ExpectedCostOrProceed, s.Leverage)
 }
 
 func (s *Settlement) ToEntry() SettlementEntry {

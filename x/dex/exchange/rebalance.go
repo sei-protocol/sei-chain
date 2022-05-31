@@ -13,7 +13,7 @@ func RebalanceAllocations(order types.OrderBook) map[string]sdk.Dec {
 	}
 	ratio := newTotal.Quo(oldTotal)
 	res := map[string]sdk.Dec{}
-	if oldTotal.Equal(sdk.ZeroDec()) {
+	if oldTotal.IsZero() {
 		return res
 	}
 	var acc sdk.Dec = sdk.ZeroDec()

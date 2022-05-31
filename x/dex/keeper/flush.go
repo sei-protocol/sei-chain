@@ -6,7 +6,7 @@ import (
 )
 
 func (k Keeper) FlushDirtyLongBook(ctx sdk.Context, contractAddr string, order types.OrderBook) {
-	if order.GetEntry().Quantity.Equal(sdk.ZeroDec()) {
+	if order.GetEntry().Quantity.IsZero() {
 		k.RemoveLongBookByPrice(ctx, contractAddr, order.GetEntry().Price, order.GetEntry().PriceDenom, order.GetEntry().AssetDenom)
 	} else {
 		longOrder := order.(*types.LongBook)
@@ -15,7 +15,7 @@ func (k Keeper) FlushDirtyLongBook(ctx sdk.Context, contractAddr string, order t
 }
 
 func (k Keeper) FlushDirtyShortBook(ctx sdk.Context, contractAddr string, order types.OrderBook) {
-	if order.GetEntry().Quantity.Equal(sdk.ZeroDec()) {
+	if order.GetEntry().Quantity.IsZero() {
 		k.RemoveShortBookByPrice(ctx, contractAddr, order.GetEntry().Price, order.GetEntry().PriceDenom, order.GetEntry().AssetDenom)
 	} else {
 		shortOrder := order.(*types.ShortBook)
