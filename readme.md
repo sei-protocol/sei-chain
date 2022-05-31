@@ -1,5 +1,7 @@
 # Sei
 
+![Banner!](assets/SeiLogo.png)
+
 Sei Network is the first orderbook-specific L1 blockchain. The chain emphasizes reliability, security and high throughput above all else, enabling an entirely new echelon of ultra-high performance DeFi products built on top. Sei's on-chain CLOB and matching engine provides deep liquidity and price-time-priority matching for traders and apps. Apps built on Sei benefit from built-in orderbook infrastructure, deep liquidity, and a fully decentralized matching service. Users benefit from this exchange model with the ability to select price, size, and direction of their trades coupled with MEV protection.
 
 # seichain
