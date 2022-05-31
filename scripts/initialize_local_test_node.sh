@@ -27,7 +27,7 @@ docker run -d --name jaeger \
 
 echo "Building..."
 go build -o build/seid ./cmd/seid/
-echo $password | sudo -S rm -r ~/.sei-chain/
+echo $password | sudo -S rm -r ~/.sei/
 echo $password | sudo -S rm -r ~/test_accounts/
 ./build/seid unsafe-reset-all
 ./build/seid init demo --chain-id sei-chain
@@ -38,8 +38,8 @@ yes | ./build/seid keys add faucet
 python ./loadtest/scripts/populate_genesis_accounts.py $numtestaccount loc
 ./build/seid gentx $keyname 70000000000000000000ust --chain-id sei-chain
 ./build/seid collect-gentxs
-cat ~/.sei-chain/config/genesis.json | jq '.app_state["crisis"]["constant_fee"]["denom"]="ust"' > ~/.sei-chain/config/tmp_genesis.json && mv ~/.sei-chain/config/tmp_genesis.json ~/.sei-chain/config/genesis.json
-cat ~/.sei-chain/config/genesis.json | jq '.app_state["gov"]["deposit_params"]["min_deposit"][0]["denom"]="ust"' > ~/.sei-chain/config/tmp_genesis.json && mv ~/.sei-chain/config/tmp_genesis.json ~/.sei-chain/config/genesis.json
-cat ~/.sei-chain/config/genesis.json | jq '.app_state["mint"]["params"]["mint_denom"]="ust"' > ~/.sei-chain/config/tmp_genesis.json && mv ~/.sei-chain/config/tmp_genesis.json ~/.sei-chain/config/genesis.json
-cat ~/.sei-chain/config/genesis.json | jq '.app_state["staking"]["params"]["bond_denom"]="ust"' > ~/.sei-chain/config/tmp_genesis.json && mv ~/.sei-chain/config/tmp_genesis.json ~/.sei-chain/config/genesis.json
+cat ~/.sei/config/genesis.json | jq '.app_state["crisis"]["constant_fee"]["denom"]="ust"' > ~/.sei/config/tmp_genesis.json && mv ~/.sei/config/tmp_genesis.json ~/.sei/config/genesis.json
+cat ~/.sei/config/genesis.json | jq '.app_state["gov"]["deposit_params"]["min_deposit"][0]["denom"]="ust"' > ~/.sei/config/tmp_genesis.json && mv ~/.sei/config/tmp_genesis.json ~/.sei/config/genesis.json
+cat ~/.sei/config/genesis.json | jq '.app_state["mint"]["params"]["mint_denom"]="ust"' > ~/.sei/config/tmp_genesis.json && mv ~/.sei/config/tmp_genesis.json ~/.sei/config/genesis.json
+cat ~/.sei/config/genesis.json | jq '.app_state["staking"]["params"]["bond_denom"]="ust"' > ~/.sei/config/tmp_genesis.json && mv ~/.sei/config/tmp_genesis.json ~/.sei/config/genesis.json
 ./build/seid start --trace
