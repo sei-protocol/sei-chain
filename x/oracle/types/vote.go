@@ -91,3 +91,28 @@ func ParseExchangeRateTuples(tuplesStr string) (ExchangeRateTuples, error) {
 
 	return tuples, nil
 }
+
+// String implement stringify
+func (ex OracleExchangeRate) String() string {
+	out, _ := yaml.Marshal(ex)
+	return string(out)
+}
+
+// OracleExchangeRates - array of OracleExchangeRate
+type DenomOracleExchangeRatePairs []DenomOracleExchangeRatePair
+
+// String implements fmt.Stringer interface
+func (rates DenomOracleExchangeRatePairs) String() string {
+	out, _ := yaml.Marshal(rates)
+	return string(out)
+}
+
+func NewDenomOracleExchangeRatePair(denom string, exchangeRate sdk.Dec, lastUpdate sdk.Int) DenomOracleExchangeRatePair {
+	return DenomOracleExchangeRatePair{
+		Denom: denom,
+		OracleExchangeRate: OracleExchangeRate{
+			ExchangeRate: exchangeRate,
+			LastUpdate:   lastUpdate,
+		},
+	}
+}

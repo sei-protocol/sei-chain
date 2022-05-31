@@ -9,6 +9,7 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 
 	"github.com/sei-protocol/sei-chain/x/oracle/types"
+	"github.com/sei-protocol/sei-chain/x/oracle/utils"
 )
 
 // querier is used as Keeper will have duplicate methods if used directly, and gRPC names take precedence over q
@@ -44,25 +45,36 @@ func (q querier) ExchangeRate(c context.Context, req *types.QueryExchangeRateReq
 	}
 
 	ctx := sdk.UnwrapSDKContext(c)
-	exchangeRate, err := q.GetBaseExchangeRate(ctx, req.Denom)
+	exchangeRate, lastUpdate, err := q.GetBaseExchangeRate(ctx, req.Denom)
 	if err != nil {
 		return nil, err
 	}
 
-	return &types.QueryExchangeRateResponse{ExchangeRate: exchangeRate}, nil
+	return &types.QueryExchangeRateResponse{OracleExchangeRate: types.OracleExchangeRate{ExchangeRate: exchangeRate, LastUpdate: lastUpdate}}, nil
 }
 
 // ExchangeRates queries exchange rates of all denoms
 func (q querier) ExchangeRates(c context.Context, req *types.QueryExchangeRatesRequest) (*types.QueryExchangeRatesResponse, error) {
 	ctx := sdk.UnwrapSDKContext(c)
 
-	var exchangeRates sdk.DecCoins
-	q.IterateBaseExchangeRates(ctx, func(denom string, rate sdk.Dec) (stop bool) {
-		exchangeRates = append(exchangeRates, sdk.NewDecCoinFromDec(denom, rate))
+	var exchangeRates types.DenomOracleExchangeRatePairs
+	q.IterateBaseExchangeRates(ctx, func(denom string, rate types.OracleExchangeRate) (stop bool) {
+		if denom == utils.MicroBaseDenom {
+			votePeriod := q.Keeper.GetParams(ctx).VotePeriod
+			lastVotingBlockHeight := ((ctx.BlockHeight() / int64(votePeriod)) * int64(votePeriod)) - 1
+			if lastVotingBlockHeight < 0 {
+				lastVotingBlockHeight = 0
+			}
+			baseDenomRate := types.OracleExchangeRate{ExchangeRate: sdk.OneDec(), LastUpdate: sdk.NewInt(lastVotingBlockHeight)}
+			exchangeRates = append(exchangeRates, types.DenomOracleExchangeRatePair{Denom: denom, OracleExchangeRate: baseDenomRate})
+			return false
+		}
+
+		exchangeRates = append(exchangeRates, types.DenomOracleExchangeRatePair{Denom: denom, OracleExchangeRate: rate})
 		return false
 	})
 
-	return &types.QueryExchangeRatesResponse{ExchangeRates: exchangeRates}, nil
+	return &types.QueryExchangeRatesResponse{DenomOracleExchangeRatePairs: exchangeRates}, nil
 }
 
 // Actives queries all denoms for which exchange rates exist
@@ -70,7 +82,7 @@ func (q querier) Actives(c context.Context, req *types.QueryActivesRequest) (*ty
 	ctx := sdk.UnwrapSDKContext(c)
 
 	denoms := []string{}
-	q.IterateBaseExchangeRates(ctx, func(denom string, rate sdk.Dec) (stop bool) {
+	q.IterateBaseExchangeRates(ctx, func(denom string, rate types.OracleExchangeRate) (stop bool) {
 		denoms = append(denoms, denom)
 		return false
 	})

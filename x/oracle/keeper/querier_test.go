@@ -37,7 +37,7 @@ func TestQueryExchangeRate(t *testing.T) {
 		Denom: utils.MicroAtomDenom,
 	})
 	require.NoError(t, err)
-	require.Equal(t, rate, res.ExchangeRate)
+	require.Equal(t, rate, res.OracleExchangeRate.ExchangeRate)
 }
 
 func TestQueryExchangeRates(t *testing.T) {
@@ -52,10 +52,10 @@ func TestQueryExchangeRates(t *testing.T) {
 	res, err := querier.ExchangeRates(ctx, &types.QueryExchangeRatesRequest{})
 	require.NoError(t, err)
 
-	require.Equal(t, sdk.DecCoins{
-		sdk.NewDecCoinFromDec(utils.MicroAtomDenom, rate),
-		sdk.NewDecCoinFromDec(utils.MicroSeiDenom, rate),
-	}, res.ExchangeRates)
+	require.Equal(t, types.DenomOracleExchangeRatePairs{
+		types.NewDenomOracleExchangeRatePair(utils.MicroAtomDenom, rate, sdk.ZeroInt()),
+		types.NewDenomOracleExchangeRatePair(utils.MicroSeiDenom, rate, sdk.ZeroInt()),
+	}, res.DenomOracleExchangeRatePairs)
 }
 
 func TestQueryFeederDelegation(t *testing.T) {
