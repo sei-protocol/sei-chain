@@ -73,6 +73,9 @@ func TestShortBookQueryPaginated(t *testing.T) {
 				Limit:      limit,
 				CountTotal: total,
 			},
+			ContractAddr: TEST_CONTRACT,
+			PriceDenom:   TEST_PRICE_DENOM,
+			AssetDenom:   TEST_ASSET_DENOM,
 		}
 	}
 	t.Run("ByOffset", func(t *testing.T) {

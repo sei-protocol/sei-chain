@@ -3,6 +3,7 @@ package keeper
 import (
 	"github.com/cosmos/cosmos-sdk/store/prefix"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/cosmos/cosmos-sdk/types/query"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
 )
 
@@ -55,6 +56,22 @@ func (k Keeper) GetAllShortBookForPair(ctx sdk.Context, contractAddr string, pri
 		k.cdc.MustUnmarshal(iterator.Value(), &val)
 		list = append(list, &val)
 	}
+
+	return
+}
+
+func (k Keeper) GetAllShortBookForPairPaginated(ctx sdk.Context, contractAddr string, priceDenom string, assetDenom string, page *query.PageRequest) (list []types.ShortBook, pageRes *query.PageResponse, err error) {
+	store := prefix.NewStore(ctx.KVStore(k.storeKey), types.OrderBookPrefix(false, contractAddr, priceDenom, assetDenom))
+
+	pageRes, err = query.Paginate(store, page, func(key []byte, value []byte) error {
+		var shortBook types.ShortBook
+		if err := k.cdc.Unmarshal(value, &shortBook); err != nil {
+			return err
+		}
+
+		list = append(list, shortBook)
+		return nil
+	})
 
 	return
 }
