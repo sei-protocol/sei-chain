@@ -48,7 +48,6 @@ func RegisterDenoms() {
 }
 
 func SetAddressPrefixes() {
-	println("-------set")
 	config := sdk.GetConfig()
 	config.SetBech32PrefixForAccount(Bech32PrefixAccAddr, Bech32PrefixAccPub)
 	config.SetBech32PrefixForValidator(Bech32PrefixValAddr, Bech32PrefixValPub)
