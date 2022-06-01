@@ -181,13 +181,13 @@ func ToContractOrderPlacement(orderPlacement OrderPlacement) types.ContractOrder
 	return types.ContractOrderPlacement{
 		Id:                orderPlacement.Id,
 		Account:           orderPlacement.Creator,
-		PriceDenom:        types.Denom_name[int32(orderPlacement.PriceDenom)],
-		AssetDenom:        types.Denom_name[int32(orderPlacement.AssetDenom)],
+		PriceDenom:        types.GetContractDenomName(orderPlacement.PriceDenom),
+		AssetDenom:        types.GetContractDenomName(orderPlacement.AssetDenom),
 		Price:             orderPlacement.Price,
 		Quantity:          orderPlacement.Quantity,
-		OrderType:         types.OrderType_name[int32(orderPlacement.OrderType)],
-		PositionDirection: types.OrderType_name[int32(orderPlacement.Direction)],
-		PositionEffect:    types.OrderType_name[int32(orderPlacement.Effect)],
+		OrderType:         types.GetContractOrderType(orderPlacement.OrderType),
+		PositionDirection: types.GetContractPositionDirection(orderPlacement.Direction),
+		PositionEffect:    types.GetContractPositionEffect(orderPlacement.Effect),
 		Leverage:          orderPlacement.Leverage,
 	}
 }
@@ -202,6 +202,14 @@ func FromLiquidationOrder(liquidationOrder types.LiquidationOrder, orderId uint6
 		price = sdk.ZeroDec()
 		direction = types.PositionDirection_SHORT
 	}
+	priceDenom, err := types.GetDenomFromStr(liquidationOrder.PriceDenom)
+	if err != nil {
+		panic(err)
+	}
+	assetDenom, err := types.GetDenomFromStr(liquidationOrder.AssetDenom)
+	if err != nil {
+		panic(err)
+	}
 	return OrderPlacement{
 		Id:          orderId,
 		Price:       price,
@@ -210,8 +218,8 @@ func FromLiquidationOrder(liquidationOrder types.LiquidationOrder, orderId uint6
 		OrderType:   types.OrderType_MARKET,
 		Direction:   direction,
 		Effect:      types.PositionEffect_CLOSE,
-		PriceDenom:  types.Denom(types.Denom_value[liquidationOrder.PriceDenom]),
-		AssetDenom:  types.Denom(types.Denom_value[liquidationOrder.AssetDenom]),
+		PriceDenom:  priceDenom,
+		AssetDenom:  assetDenom,
 		Leverage:    liquidationOrder.Leverage,
 		Liquidation: true,
 	}
@@ -258,7 +266,7 @@ func NewDepositInfo() *DepositInfo {
 func ToContractDepositInfo(depositInfo DepositInfoEntry) types.ContractDepositInfo {
 	return types.ContractDepositInfo{
 		Account: depositInfo.Creator,
-		Denom:   types.Denom_name[int32(depositInfo.Denom)],
+		Denom:   types.GetContractDenomName(depositInfo.Denom),
 		Amount:  depositInfo.Amount,
 	}
 }
@@ -293,12 +301,12 @@ func NewOrderCancellations() *OrderCancellations {
 func ToContractOrderCancellation(orderCancellation OrderCancellation) types.ContractOrderCancellation {
 	return types.ContractOrderCancellation{
 		Account:           orderCancellation.Creator,
-		PriceDenom:        types.Denom_name[int32(orderCancellation.PriceDenom)],
-		AssetDenom:        types.Denom_name[int32(orderCancellation.AssetDenom)],
+		PriceDenom:        types.GetContractDenomName(orderCancellation.PriceDenom),
+		AssetDenom:        types.GetContractDenomName(orderCancellation.AssetDenom),
 		Price:             orderCancellation.Price,
 		Quantity:          orderCancellation.Quantity,
-		PositionDirection: types.PositionDirection_name[int32(orderCancellation.Direction)],
-		PositionEffect:    types.PositionEffect_name[int32(orderCancellation.Effect)],
+		PositionDirection: types.GetContractPositionDirection(orderCancellation.Direction),
+		PositionEffect:    types.GetContractPositionEffect(orderCancellation.Effect),
 		Leverage:          orderCancellation.Leverage,
 	}
 }

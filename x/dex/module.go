@@ -24,6 +24,7 @@ import (
 	"github.com/sei-protocol/sei-chain/x/dex/client/cli"
 	"github.com/sei-protocol/sei-chain/x/dex/exchange"
 	"github.com/sei-protocol/sei-chain/x/dex/keeper"
+	"github.com/sei-protocol/sei-chain/x/dex/migrations"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
 )
 
@@ -155,7 +156,7 @@ func (am AppModule) RegisterServices(cfg module.Configurator) {
 	types.RegisterQueryServer(cfg.QueryServer(), am.keeper)
 
 	cfg.RegisterMigration(types.ModuleName, 1, func(ctx sdk.Context) error { return nil })
-	cfg.RegisterMigration(types.ModuleName, 2, func(ctx sdk.Context) error { return nil })
+	cfg.RegisterMigration(types.ModuleName, 2, func(ctx sdk.Context) error { return migrations.DataTypeUpdate(ctx, am.keeper.Cdc) })
 }
 
 // RegisterInvariants registers the capability module's invariants.
@@ -380,9 +381,11 @@ func (am AppModule) endBlockForContract(ctx sdk.Context, contractAddr string) {
 		for _, s := range settlements {
 			ctx.Logger().Info(s.String())
 			settlementEntry := s.ToEntry()
+			priceDenom, _ := types.GetDenomFromStr(settlementEntry.PriceDenom)
+			assetDenom, _ := types.GetDenomFromStr(settlementEntry.AssetDenom)
 			pair := types.Pair{
-				PriceDenom: settlementEntry.PriceDenom,
-				AssetDenom: settlementEntry.AssetDenom,
+				PriceDenom: priceDenom,
+				AssetDenom: assetDenom,
 			}
 			if settlements, ok := settlementMap[pair]; ok {
 				settlements.Entries = append(settlements.Entries, &settlementEntry)

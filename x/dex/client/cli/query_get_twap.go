@@ -17,8 +17,14 @@ func CmdGetTwap() *cobra.Command {
 		Short: "Query getTwap",
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) (err error) {
-			reqPriceDenom := types.Denom(types.Denom_value[args[0]])
-			reqAssetDenom := types.Denom(types.Denom_value[args[1]])
+			reqPriceDenom, err := types.GetDenomFromStr(args[0])
+			if err != nil {
+				return err
+			}
+			reqAssetDenom, err := types.GetDenomFromStr(args[1])
+			if err != nil {
+				return err
+			}
 
 			clientCtx, err := client.GetClientTxContext(cmd)
 			if err != nil {

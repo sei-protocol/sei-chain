@@ -37,9 +37,13 @@ func (k msgServer) transferFunds(goCtx context.Context, msg *types.MsgPlaceOrder
 
 	di := k.DepositInfo[msg.GetContractAddr()]
 	for _, fund := range msg.Funds {
+		fundDenom, err := types.GetDenomFromStr(fund.Denom)
+		if err != nil {
+			panic(err)
+		}
 		di.DepositInfoList = append(di.DepositInfoList, dexcache.DepositInfoEntry{
 			Creator: msg.Creator,
-			Denom:   types.Denom(types.Denom_value[fund.Denom]),
+			Denom:   fundDenom,
 			Amount:  sdk.NewDec(fund.Amount.Int64()),
 		})
 	}

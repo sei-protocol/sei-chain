@@ -62,13 +62,13 @@ func (s *Settlement) String() string {
 func (s *Settlement) ToEntry() SettlementEntry {
 	return SettlementEntry{
 		Account:                s.Account,
-		PriceDenom:             s.PriceSymbol,
-		AssetDenom:             s.AssetSymbol,
+		PriceDenom:             GetContractDenomName(s.PriceSymbol),
+		AssetDenom:             GetContractDenomName(s.AssetSymbol),
 		Quantity:               s.Quantity,
 		ExecutionCostOrProceed: s.ExecutionCostOrProceed,
 		ExpectedCostOrProceed:  s.ExpectedCostOrProceed,
-		PositionDirection:      s.Direction,
-		PositionEffect:         s.Effect,
+		PositionDirection:      GetContractPositionDirection(s.Direction),
+		PositionEffect:         GetContractPositionEffect(s.Effect),
 		Leverage:               s.Leverage,
 	}
 }

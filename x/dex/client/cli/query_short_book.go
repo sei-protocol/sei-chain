@@ -62,14 +62,20 @@ func CmdShowShortBook() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			priceDenom := types.Denom(types.Denom_value[args[2]])
-			assetDenom := types.Denom(types.Denom_value[args[3]])
+			reqPriceDenom, err := types.GetDenomFromStr(args[2])
+			if err != nil {
+				return err
+			}
+			reqAssetDenom, err := types.GetDenomFromStr(args[3])
+			if err != nil {
+				return err
+			}
 
 			params := &types.QueryGetShortBookRequest{
 				Price:        price,
 				ContractAddr: contractAddr,
-				PriceDenom:   priceDenom,
-				AssetDenom:   assetDenom,
+				PriceDenom:   reqPriceDenom,
+				AssetDenom:   reqAssetDenom,
 			}
 
 			res, err := queryClient.ShortBook(context.Background(), params)

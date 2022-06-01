@@ -79,8 +79,8 @@ message QueryGetLongBookResponse {
 message QueryAllLongBookRequest {
 	cosmos.base.query.v1beta1.PageRequest pagination = 1;
 	string contractAddr = 2;
-	string priceDenom = 3;
-	string assetDenom = 4;
+	Denom priceDenom = 3;
+	Denom assetDenom = 4;
 }
 
 message QueryAllLongBookResponse {
@@ -106,8 +106,8 @@ message QueryGetShortBookResponse {
 message QueryAllShortBookRequest {
 	cosmos.base.query.v1beta1.PageRequest pagination = 1;
 	string contractAddr = 2;
-	string priceDenom = 3;
-	string assetDenom = 4;
+	Denom priceDenom = 3;
+	Denom assetDenom = 4;
 }
 
 message QueryAllShortBookResponse {

@@ -8,8 +8,8 @@ import "dex/enums.proto";
 
 message SettlementEntry {
   string account = 1;
-  Denom priceDenom = 2 [(gogoproto.jsontag) = "price_denom"];
-  Denom assetDenom = 3 [(gogoproto.jsontag) = "asset_denom"];
+  string priceDenom = 2 [(gogoproto.jsontag) = "price_denom"];
+  string assetDenom = 3 [(gogoproto.jsontag) = "asset_denom"];
   string quantity = 4 [
 		(gogoproto.moretags)   = "yaml:\"quantity\"",
 		(gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Dec",
@@ -28,8 +28,8 @@ message SettlementEntry {
 		(gogoproto.nullable)   = false,
     (gogoproto.jsontag) = "expected_cost_or_proceed"
 	];
-  PositionDirection positionDirection = 7 [(gogoproto.jsontag) = "position_direction"];
-  PositionEffect positionEffect = 8 [(gogoproto.jsontag) = "position_effect"];
+  string positionDirection = 7 [(gogoproto.jsontag) = "position_direction"];
+  string positionEffect = 8 [(gogoproto.jsontag) = "position_effect"];
   string leverage = 9 [
 		(gogoproto.moretags)   = "yaml:\"leverage\"",
 		(gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Dec",

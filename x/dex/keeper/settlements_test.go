@@ -16,8 +16,8 @@ func createNSettlements(keeper *keeper.Keeper, ctx sdk.Context, n int) []types.S
 		ad := types.Denom(2*i + 1)
 		entry := types.SettlementEntry{
 			Account:    acct,
-			PriceDenom: pd,
-			AssetDenom: ad,
+			PriceDenom: types.GetContractDenomName(pd),
+			AssetDenom: types.GetContractDenomName(ad),
 		}
 		entries := []*types.SettlementEntry{&entry}
 		items[i].Entries = entries

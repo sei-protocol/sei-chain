@@ -25,7 +25,7 @@ func (k Keeper) SettlementsAll(c context.Context, req *types.QueryAllSettlements
 
 	pageRes, err := query.Paginate(settlementStore, req.Pagination, func(key []byte, value []byte) error {
 		var settlement types.Settlements
-		if err := k.cdc.Unmarshal(value, &settlement); err != nil {
+		if err := k.Cdc.Unmarshal(value, &settlement); err != nil {
 			return err
 		}
 

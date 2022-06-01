@@ -10,7 +10,7 @@ import (
 // SetShortBook set a specific shortBook in the store
 func (k Keeper) SetShortBook(ctx sdk.Context, contractAddr string, shortBook types.ShortBook) {
 	store := prefix.NewStore(ctx.KVStore(k.storeKey), types.OrderBookPrefix(false, contractAddr, shortBook.Entry.PriceDenom, shortBook.Entry.AssetDenom))
-	b := k.cdc.MustMarshal(&shortBook)
+	b := k.Cdc.MustMarshal(&shortBook)
 	store.Set(GetKeyForShortBook(shortBook), b)
 }
 
@@ -20,7 +20,7 @@ func (k Keeper) GetShortBookByPrice(ctx sdk.Context, contractAddr string, price 
 	if b == nil {
 		return val, false
 	}
-	k.cdc.MustUnmarshal(b, &val)
+	k.Cdc.MustUnmarshal(b, &val)
 	return val, true
 }
 
@@ -38,7 +38,7 @@ func (k Keeper) GetAllShortBook(ctx sdk.Context, contractAddr string) (list []ty
 
 	for ; iterator.Valid(); iterator.Next() {
 		var val types.ShortBook
-		k.cdc.MustUnmarshal(iterator.Value(), &val)
+		k.Cdc.MustUnmarshal(iterator.Value(), &val)
 		list = append(list, val)
 	}
 
@@ -53,7 +53,7 @@ func (k Keeper) GetAllShortBookForPair(ctx sdk.Context, contractAddr string, pri
 
 	for ; iterator.Valid(); iterator.Next() {
 		var val types.ShortBook
-		k.cdc.MustUnmarshal(iterator.Value(), &val)
+		k.Cdc.MustUnmarshal(iterator.Value(), &val)
 		list = append(list, &val)
 	}
 

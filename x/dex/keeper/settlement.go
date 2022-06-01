@@ -8,7 +8,7 @@ import (
 
 func (k Keeper) SetSettlements(ctx sdk.Context, contractAddr string, priceDenom types.Denom, assetDenom types.Denom, settlements types.Settlements) {
 	store := prefix.NewStore(ctx.KVStore(k.storeKey), types.SettlementEntryPrefix(contractAddr, uint64(ctx.BlockHeight())))
-	b := k.cdc.MustMarshal(&settlements)
+	b := k.Cdc.MustMarshal(&settlements)
 	store.Set(types.PairPrefix(priceDenom, assetDenom), b)
 }
 
@@ -19,7 +19,7 @@ func (k Keeper) GetSettlements(ctx sdk.Context, contractAddr string, blockHeight
 	if b == nil {
 		return val, false
 	}
-	k.cdc.MustUnmarshal(b, &val)
+	k.Cdc.MustUnmarshal(b, &val)
 	return val, true
 }
 
@@ -31,7 +31,7 @@ func (k Keeper) GetAllSettlements(ctx sdk.Context, contractAddr string, blockHei
 
 	for ; iterator.Valid(); iterator.Next() {
 		var val types.SettlementEntry
-		k.cdc.MustUnmarshal(iterator.Value(), &val)
+		k.Cdc.MustUnmarshal(iterator.Value(), &val)
 		list = append(list, val)
 	}
 

@@ -1,0 +1,131 @@
+syntax = "proto3";
+package seiprotocol.seichain.legacy.dex.v0;
+
+import "gogoproto/gogo.proto";
+import "google/api/annotations.proto";
+import "cosmos/base/query/v1beta1/pagination.proto";
+import "legacy/dex/v0/params.proto";
+import "legacy/dex/v0/long_book.proto";
+import "legacy/dex/v0/short_book.proto";
+import "legacy/dex/v0/settlement.proto";
+import "legacy/dex/v0/twap.proto";
+// this line is used by starport scaffolding # 1
+
+option go_package = "github.com/sei-protocol/sei-chain/x/dex/types/legacy/v0";
+
+// Query defines the gRPC querier service.
+service Query {
+  // Parameters queries the parameters of the module.
+  rpc Params(QueryParamsRequest) returns (QueryParamsResponse) {
+    option (google.api.http).get = "/sei-protocol/seichain/dex/params";
+  }
+  // Queries a LongBook by id.
+	rpc LongBook(QueryGetLongBookRequest) returns (QueryGetLongBookResponse) {
+		option (google.api.http).get = "/sei-protocol/seichain/dex/long_book/{id}";
+	}
+
+	// Queries a list of LongBook items.
+	rpc LongBookAll(QueryAllLongBookRequest) returns (QueryAllLongBookResponse) {
+		option (google.api.http).get = "/sei-protocol/seichain/dex/long_book";
+	}
+
+// Queries a ShortBook by id.
+	rpc ShortBook(QueryGetShortBookRequest) returns (QueryGetShortBookResponse) {
+		option (google.api.http).get = "/sei-protocol/seichain/dex/short_book/{id}";
+	}
+
+	// Queries a list of ShortBook items.
+	rpc ShortBookAll(QueryAllShortBookRequest) returns (QueryAllShortBookResponse) {
+		option (google.api.http).get = "/sei-protocol/seichain/dex/short_book";
+	}
+
+	rpc SettlementsAll(QueryAllSettlementsRequest) returns (QueryAllSettlementsResponse) {
+		option (google.api.http).get = "/sei-protocol/seichain/dex/settlement";
+	}
+
+// Queries a list of GetTwap items.
+	rpc GetTwap(QueryGetTwapRequest) returns (QueryGetTwapResponse) {
+		option (google.api.http).get = "/sei-protocol/seichain/dex/get_twap/{priceDenom}/{assetDenom}";
+	}
+
+// this line is used by starport scaffolding # 2
+}
+
+// QueryParamsRequest is request type for the Query/Params RPC method.
+message QueryParamsRequest {}
+
+// QueryParamsResponse is response type for the Query/Params RPC method.
+message QueryParamsResponse {
+  // params holds all the parameters of this module.
+  Params params = 1 [(gogoproto.nullable) = false];
+}
+
+message QueryGetLongBookRequest {
+	uint64 id = 1;
+	string contractAddr = 2;
+	string priceDenom = 3;
+	string assetDenom = 4;
+}
+
+message QueryGetLongBookResponse {
+	LongBook LongBook = 1 [(gogoproto.nullable) = false];
+}
+
+message QueryAllLongBookRequest {
+	cosmos.base.query.v1beta1.PageRequest pagination = 1;
+}
+
+message QueryAllLongBookResponse {
+	repeated LongBook LongBook = 1 [(gogoproto.nullable) = false];
+	cosmos.base.query.v1beta1.PageResponse pagination = 2;
+}
+
+message QueryGetShortBookRequest {
+	uint64 id = 1;
+	string contractAddr = 2;
+	string priceDenom = 3;
+	string assetDenom = 4;
+}
+
+message QueryGetShortBookResponse {
+	ShortBook ShortBook = 1 [(gogoproto.nullable) = false];
+}
+
+message QueryAllShortBookRequest {
+	cosmos.base.query.v1beta1.PageRequest pagination = 1;
+}
+
+message QueryAllShortBookResponse {
+	repeated ShortBook ShortBook = 1 [(gogoproto.nullable) = false];
+	cosmos.base.query.v1beta1.PageResponse pagination = 2;
+}
+
+message QueryGetSettlementsRequest {
+	string contractAddr = 1;
+	uint64 blockHeight = 2;
+	string priceDenom = 3;
+	string assetDenom = 4;
+}
+
+message QueryGetSettlementsResponse {
+	Settlements Settlements = 1 [(gogoproto.nullable) = false];
+}
+
+message QueryAllSettlementsRequest {
+	cosmos.base.query.v1beta1.PageRequest pagination = 1;
+}
+
+message QueryAllSettlementsResponse {
+	repeated Settlements Settlements = 1 [(gogoproto.nullable) = false];
+	cosmos.base.query.v1beta1.PageResponse pagination = 2;
+}
+
+message QueryGetTwapRequest {
+  string priceDenom = 1;
+  string assetDenom = 2;
+  string contractAddr = 3;
+}
+
+message QueryGetTwapResponse {
+	Twap twaps = 1;
+}

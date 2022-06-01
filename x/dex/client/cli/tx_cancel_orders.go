@@ -29,9 +29,11 @@ func CmdCancelOrders() *cobra.Command {
 			for _, order := range args[1:] {
 				orderCancellation := types.OrderCancellation{}
 				orderDetails := strings.Split(order, ",")
-				orderCancellation.PositionDirection = types.PositionDirection(
-					types.PositionDirection_value[orderDetails[0]],
-				)
+				argPositionDir, err := types.GetPositionDirectionFromStr(orderDetails[0])
+				if err != nil {
+					return err
+				}
+				orderCancellation.PositionDirection = argPositionDir
 				argPrice, err := sdk.NewDecFromStr(orderDetails[1])
 				if err != nil {
 					return err
@@ -42,11 +44,21 @@ func CmdCancelOrders() *cobra.Command {
 					return err
 				}
 				orderCancellation.Quantity = argQuantity
-				orderCancellation.PriceDenom = types.Denom(types.Denom_value[orderDetails[3]])
-				orderCancellation.AssetDenom = types.Denom(types.Denom_value[orderDetails[4]])
-				orderCancellation.PositionEffect = types.PositionEffect(
-					types.PositionEffect_value[orderDetails[5]],
-				)
+				reqPriceDenom, err := types.GetDenomFromStr(orderDetails[3])
+				if err != nil {
+					return err
+				}
+				reqAssetDenom, err := types.GetDenomFromStr(orderDetails[4])
+				if err != nil {
+					return err
+				}
+				orderCancellation.PriceDenom = reqPriceDenom
+				orderCancellation.AssetDenom = reqAssetDenom
+				argPositionEffect, err := types.GetPositionEffectFromStr(orderDetails[5])
+				if err != nil {
+					return err
+				}
+				orderCancellation.PositionEffect = argPositionEffect
 				argLeverage, err := sdk.NewDecFromStr(orderDetails[6])
 				if err != nil {
 					return err

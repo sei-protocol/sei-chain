@@ -1,11 +1,10 @@
 syntax = "proto3";
 package seiprotocol.seichain.dex;
 
-import "gogoproto/gogo.proto";
-
 option go_package = "github.com/sei-protocol/sei-chain/x/dex/types";
 
 message ContractInfo {
   uint64 codeId = 1;
   string contractAddr = 2;
+
 }

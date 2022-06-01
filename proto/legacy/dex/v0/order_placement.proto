@@ -1,0 +1,15 @@
+syntax = "proto3";
+package seiprotocol.seichain.legacy.dex.v0;
+
+option go_package = "github.com/sei-protocol/sei-chain/x/dex/types/legacy/v0";
+
+message OrderPlacement {
+    bool long = 1;
+    uint64 price = 2;
+    uint64 quantity = 3;
+    string priceDenom = 4;
+    string assetDenom = 5;
+    bool open = 6;
+    bool limit = 7;
+    string leverage = 8;
+}

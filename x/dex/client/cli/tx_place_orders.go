@@ -22,16 +22,18 @@ func CmdPlaceOrders() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "place-orders [contract address] [orders...] --amount [coins,optional]",
 		Short: "Bulk place orders",
-		Args:  cobra.MinimumNArgs(3),
+		Args:  cobra.MinimumNArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) (err error) {
 			argContractAddr := args[0]
 			orderPlacements := []*types.OrderPlacement{}
 			for _, order := range args[1:] {
 				orderPlacement := types.OrderPlacement{}
 				orderDetails := strings.Split(order, ",")
-				orderPlacement.PositionDirection = types.PositionDirection(
-					types.PositionDirection_value[orderDetails[0]],
-				)
+				argPositionDir, err := types.GetPositionDirectionFromStr(orderDetails[0])
+				if err != nil {
+					return err
+				}
+				orderPlacement.PositionDirection = argPositionDir
 				argPrice, err := sdk.NewDecFromStr(orderDetails[1])
 				if err != nil {
 					return err
@@ -42,14 +44,26 @@ func CmdPlaceOrders() *cobra.Command {
 					return err
 				}
 				orderPlacement.Quantity = argQuantity
-				orderPlacement.PriceDenom = types.Denom(types.Denom_value[orderDetails[3]])
-				orderPlacement.AssetDenom = types.Denom(types.Denom_value[orderDetails[4]])
-				orderPlacement.PositionEffect = types.PositionEffect(
-					types.PositionEffect_value[orderDetails[5]],
-				)
-				orderPlacement.OrderType = types.OrderType(
-					types.OrderType_value[orderDetails[6]],
-				)
+				reqPriceDenom, err := types.GetDenomFromStr(orderDetails[3])
+				if err != nil {
+					return err
+				}
+				reqAssetDenom, err := types.GetDenomFromStr(orderDetails[4])
+				if err != nil {
+					return err
+				}
+				orderPlacement.PriceDenom = reqPriceDenom
+				orderPlacement.AssetDenom = reqAssetDenom
+				argPositionEffect, err := types.GetPositionEffectFromStr(orderDetails[5])
+				if err != nil {
+					return err
+				}
+				orderPlacement.PositionEffect = argPositionEffect
+				argOrderType, err := types.GetOrderTypeFromStr(orderDetails[6])
+				if err != nil {
+					return err
+				}
+				orderPlacement.OrderType = argOrderType
 				argLeverage, err := sdk.NewDecFromStr(orderDetails[7])
 				if err != nil {
 					return err
