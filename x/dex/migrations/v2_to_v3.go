@@ -1,8 +1,6 @@
 package migrations
 
 import (
-	"encoding/binary"
-
 	"github.com/cosmos/cosmos-sdk/codec"
 	"github.com/cosmos/cosmos-sdk/store/prefix"
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -13,21 +11,18 @@ import (
 
 const CONTRACT_ADDRESS_LENGTH = 62
 
-func getDexStore(ctx sdk.Context) sdk.KVStore {
-	return ctx.KVStore(sdk.NewKVStoreKey(types.StoreKey))
-}
-
-func DataTypeUpdate(ctx sdk.Context, cdc codec.BinaryCodec) error {
-	MigrateLongBooks(ctx, cdc)
-	MigrateShortBooks(ctx, cdc)
-	MigrateSettlements(ctx, cdc)
-	MigrateTwap(ctx, cdc)
+func DataTypeUpdate(ctx sdk.Context, storeKey sdk.StoreKey, cdc codec.BinaryCodec) error {
+	MigrateLongBooks(ctx, storeKey, cdc)
+	MigrateShortBooks(ctx, storeKey, cdc)
+	MigrateSettlements(ctx, storeKey, cdc)
+	MigrateTwap(ctx, storeKey, cdc)
+	MigrateRegisteredPairs(ctx, storeKey, cdc)
 	return nil
 }
 
-func MigrateLongBooks(ctx sdk.Context, cdc codec.BinaryCodec) error {
+func MigrateLongBooks(ctx sdk.Context, storeKey sdk.StoreKey, cdc codec.BinaryCodec) error {
 	longBookKey := types.KeyPrefix(types.LongBookKey)
-	store := prefix.NewStore(getDexStore(ctx), longBookKey)
+	store := prefix.NewStore(ctx.KVStore(storeKey), longBookKey)
 	iterator := sdk.KVStorePrefixIterator(store, []byte{})
 
 	defer iterator.Close()
@@ -36,7 +31,6 @@ func MigrateLongBooks(ctx sdk.Context, cdc codec.BinaryCodec) error {
 		cdc.MustUnmarshal(iterator.Value(), &val)
 		key := iterator.Key()
 		store.Delete(key)
-		contractAddr := string(key[len(longBookKey) : len(longBookKey)+CONTRACT_ADDRESS_LENGTH])
 		priceDenom, err := types.GetDenomFromStr(val.Entry.PriceDenom)
 		if err != nil {
 			continue
@@ -50,9 +44,13 @@ func MigrateLongBooks(ctx sdk.Context, cdc codec.BinaryCodec) error {
 		for _, allo := range val.Entry.Allocation {
 			allocations = append(allocations, newDecFromUint64(allo))
 		}
-		newKey := append(types.OrderBookPrefix(
-			true, contractAddr, priceDenom, assetDenom,
-		), keeper.GetKeyForPrice(price)...)
+		newKey := append(
+			key[:CONTRACT_ADDRESS_LENGTH],
+			append(
+				types.PairPrefix(priceDenom, assetDenom),
+				keeper.GetKeyForPrice(price)...,
+			)...,
+		)
 		newVal := types.LongBook{
 			Price: price,
 			Entry: &types.OrderEntry{
@@ -69,9 +67,9 @@ func MigrateLongBooks(ctx sdk.Context, cdc codec.BinaryCodec) error {
 	return nil
 }
 
-func MigrateShortBooks(ctx sdk.Context, cdc codec.BinaryCodec) error {
+func MigrateShortBooks(ctx sdk.Context, storeKey sdk.StoreKey, cdc codec.BinaryCodec) error {
 	shortBookKey := types.KeyPrefix(types.ShortBookKey)
-	store := prefix.NewStore(getDexStore(ctx), shortBookKey)
+	store := prefix.NewStore(ctx.KVStore(storeKey), shortBookKey)
 	iterator := sdk.KVStorePrefixIterator(store, []byte{})
 
 	defer iterator.Close()
@@ -80,7 +78,6 @@ func MigrateShortBooks(ctx sdk.Context, cdc codec.BinaryCodec) error {
 		cdc.MustUnmarshal(iterator.Value(), &val)
 		key := iterator.Key()
 		store.Delete(key)
-		contractAddr := string(key[len(shortBookKey) : len(shortBookKey)+CONTRACT_ADDRESS_LENGTH])
 		priceDenom, err := types.GetDenomFromStr(val.Entry.PriceDenom)
 		if err != nil {
 			continue
@@ -94,9 +91,13 @@ func MigrateShortBooks(ctx sdk.Context, cdc codec.BinaryCodec) error {
 		for _, allo := range val.Entry.Allocation {
 			allocations = append(allocations, newDecFromUint64(allo))
 		}
-		newKey := append(types.OrderBookPrefix(
-			false, contractAddr, priceDenom, assetDenom,
-		), keeper.GetKeyForPrice(price)...)
+		newKey := append(
+			key[:CONTRACT_ADDRESS_LENGTH],
+			append(
+				types.PairPrefix(priceDenom, assetDenom),
+				keeper.GetKeyForPrice(price)...,
+			)...,
+		)
 		newVal := types.ShortBook{
 			Price: price,
 			Entry: &types.OrderEntry{
@@ -113,9 +114,9 @@ func MigrateShortBooks(ctx sdk.Context, cdc codec.BinaryCodec) error {
 	return nil
 }
 
-func MigrateSettlements(ctx sdk.Context, cdc codec.BinaryCodec) error {
+func MigrateSettlements(ctx sdk.Context, storeKey sdk.StoreKey, cdc codec.BinaryCodec) error {
 	settlementKey := types.KeyPrefix(types.SettlementEntryKey)
-	store := prefix.NewStore(getDexStore(ctx), settlementKey)
+	store := prefix.NewStore(ctx.KVStore(storeKey), settlementKey)
 	iterator := sdk.KVStorePrefixIterator(store, []byte{})
 
 	defer iterator.Close()
@@ -127,9 +128,6 @@ func MigrateSettlements(ctx sdk.Context, cdc codec.BinaryCodec) error {
 		if len(val.Entries) == 0 {
 			continue
 		}
-		contractAddr := string(key[len(settlementKey) : len(settlementKey)+CONTRACT_ADDRESS_LENGTH])
-		heightBytes := key[len(settlementKey)+CONTRACT_ADDRESS_LENGTH : len(settlementKey)+CONTRACT_ADDRESS_LENGTH+8]
-		height := binary.BigEndian.Uint64(heightBytes)
 		priceDenom, err := types.GetDenomFromStr(val.Entries[0].PriceDenom)
 		if err != nil {
 			continue
@@ -138,9 +136,10 @@ func MigrateSettlements(ctx sdk.Context, cdc codec.BinaryCodec) error {
 		if err != nil {
 			continue
 		}
-		newKey := append(types.SettlementEntryPrefix(
-			contractAddr, height,
-		), types.PairPrefix(priceDenom, assetDenom)...)
+		newKey := append(
+			key[:CONTRACT_ADDRESS_LENGTH+8],
+			types.PairPrefix(priceDenom, assetDenom)...,
+		)
 		newVal := types.Settlements{
 			Epoch:   val.Epoch,
 			Entries: []*types.SettlementEntry{},
@@ -163,16 +162,47 @@ func MigrateSettlements(ctx sdk.Context, cdc codec.BinaryCodec) error {
 	return nil
 }
 
-func MigrateTwap(ctx sdk.Context, cdc codec.BinaryCodec) error {
+func MigrateTwap(ctx sdk.Context, storeKey sdk.StoreKey, cdc codec.BinaryCodec) error {
 	// module-level twap will be deprecated, so simply deleting here
 	twapKey := types.KeyPrefix(types.TwapKey)
-	store := prefix.NewStore(getDexStore(ctx), twapKey)
+	store := prefix.NewStore(ctx.KVStore(storeKey), twapKey)
 	iterator := sdk.KVStorePrefixIterator(store, []byte{})
 
 	defer iterator.Close()
 	for ; iterator.Valid(); iterator.Next() {
 		key := iterator.Key()
 		store.Delete(key)
+	}
+	return nil
+}
+
+func MigrateRegisteredPairs(ctx sdk.Context, storeKey sdk.StoreKey, cdc codec.BinaryCodec) error {
+	pairKey := types.KeyPrefix(types.RegisteredPairKey)
+	store := prefix.NewStore(ctx.KVStore(storeKey), pairKey)
+	iterator := sdk.KVStorePrefixIterator(store, []byte{})
+
+	defer iterator.Close()
+	for ; iterator.Valid(); iterator.Next() {
+		key := iterator.Key()
+		if string(key[:3]) == "cnt" {
+			continue
+		}
+		var val legacytypes.Pair
+		cdc.MustUnmarshal(iterator.Value(), &val)
+		store.Delete(key)
+		priceDenom, err := types.GetDenomFromStr(val.PriceDenom)
+		if err != nil {
+			continue
+		}
+		assetDenom, err := types.GetDenomFromStr(val.AssetDenom)
+		if err != nil {
+			continue
+		}
+		newVal := types.Pair{
+			PriceDenom: priceDenom,
+			AssetDenom: assetDenom,
+		}
+		store.Set(key, cdc.MustMarshal(&newVal))
 	}
 	return nil
 }

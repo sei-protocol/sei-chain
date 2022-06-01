@@ -156,7 +156,9 @@ func (am AppModule) RegisterServices(cfg module.Configurator) {
 	types.RegisterQueryServer(cfg.QueryServer(), am.keeper)
 
 	cfg.RegisterMigration(types.ModuleName, 1, func(ctx sdk.Context) error { return nil })
-	cfg.RegisterMigration(types.ModuleName, 2, func(ctx sdk.Context) error { return migrations.DataTypeUpdate(ctx, am.keeper.Cdc) })
+	cfg.RegisterMigration(types.ModuleName, 2, func(ctx sdk.Context) error {
+		return migrations.DataTypeUpdate(ctx, am.keeper.GetStoreKey(), am.keeper.Cdc)
+	})
 }
 
 // RegisterInvariants registers the capability module's invariants.
