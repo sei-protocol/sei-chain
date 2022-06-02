@@ -9,6 +9,22 @@ Sei Network is the first orderbook-specific L1 blockchain. The chain emphasizes 
 
 Designed with developers and users in mind, Sei serves as the infrastructure and shared liquidity hub for the next generation of DeFi. Apps can easily plug-and-play to trade on Sei orderbook infrastructure and access pooled liquidity from other apps. To prioritize developer experience, Sei Network has integrated the wasmd module to support CosmWasm smart contracts.
 
+# Documentation
+For the most up to date documentation please visit https://docs.seinetwork.io
+
+# Central Limit Orderbook
+Most financial applications in traditional finance make use of CLOBs to create markets. This works well if you have cheap transaction fees and large amounts of liquidity. In decentralized finance however, the automated market-maker (AMM) model is more popular because it doesn't require constantly updating orders and works with lower amounts of liquidity. 
+
+Sei offers cheap transaction fees and works with market makers to have large amounts of liquidity. As a result, it can offer the orderbook based trading experience in a decentralized, permissionless manner. This unlocks many use cases that previously didn't work with the AMM model. 
+
+# Sei Ecosystem
+Sei Network is an L1 blockchain with a built-in on-chain orderbook that allows smart contracts easy access to shared liquidity. Sei architecture enables composable apps that maintain modularity.
+
+Sei Network serves as the matching core of the ecosystem, offering superior reliability and ultra-high transaction speed to ecosystem partners, each with their own functionality and user experience. Anyone can create a DeFi application that leverages Sei's liquidity and the entire ecosystem benefits.
+
+Developers, traders, and users can all connect to Sei as ecosystem partners benefiting from shared liquidity and decentralized financial primitives.
+
+# Testnet
 ## Get started
 **How to validate on the Sei Testnet**
 *This is the Sei Testnet-1 (sei-testnet-1)*
@@ -119,4 +135,7 @@ seid tx staking create-validator \
 --amount <token delegation>usei \
 --node localhost:26657
 ```
-
+# Build with Us!
+If you are interested in building with Sei Network: 
+Email us at team@seinetwork.io 
+DM us on Twitter https://twitter.com/SeiNetwork
