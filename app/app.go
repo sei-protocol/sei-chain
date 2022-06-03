@@ -625,6 +625,8 @@ func New(
 	)
 	app.sm.RegisterStoreDecoders()
 
+	app.RegisterUpgradeHandlers()
+
 	// initialize stores
 	app.MountKVStores(keys)
 	app.MountTransientStores(tkeys)

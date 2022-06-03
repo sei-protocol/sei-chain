@@ -140,6 +140,8 @@ func (am AppModule) LegacyQuerierHandler(legacyQuerierCdc *codec.LegacyAmino) sd
 // module-specific GRPC queries.
 func (am AppModule) RegisterServices(cfg module.Configurator) {
 	types.RegisterQueryServer(cfg.QueryServer(), am.keeper)
+
+	cfg.RegisterMigration(types.ModuleName, 1, func(ctx sdk.Context) error { return nil })
 }
 
 // RegisterInvariants registers the capability module's invariants.
