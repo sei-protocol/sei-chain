@@ -88,7 +88,6 @@ func InitCmd(mbm module.BasicManager, defaultNodeHome string) *cobra.Command {
 			config.Mempool.Size = 500
 			config.StateSync.TrustPeriod = 168 * time.Hour
 			config.FastSync.Version = "v0"
-			app.Minimum.Gas.Prices = "0.01usei"
 
 			config.SetRoot(clientCtx.HomeDir)
 
