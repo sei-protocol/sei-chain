@@ -1,7 +1,10 @@
-package main
+package cmd
 
 import (
 	"errors"
+	"github.com/cosmos/cosmos-sdk/codec"
+	"github.com/sei-protocol/sei-chain/app"
+	"github.com/sei-protocol/sei-chain/app/params"
 	"io"
 	"os"
 	"path/filepath"
@@ -21,7 +24,6 @@ import (
 	"github.com/cosmos/cosmos-sdk/snapshots"
 	"github.com/cosmos/cosmos-sdk/store"
 	sdk "github.com/cosmos/cosmos-sdk/types"
-	"github.com/cosmos/cosmos-sdk/types/module"
 	authcmd "github.com/cosmos/cosmos-sdk/x/auth/client/cli"
 	"github.com/cosmos/cosmos-sdk/x/auth/types"
 	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
@@ -29,35 +31,9 @@ import (
 	genutilcli "github.com/cosmos/cosmos-sdk/x/genutil/client/cli"
 	"github.com/spf13/cast"
 	"github.com/spf13/cobra"
-	"github.com/spf13/pflag"
-	"github.com/tendermint/starport/starport/pkg/cosmoscmd"
 	tmcli "github.com/tendermint/tendermint/libs/cli"
 	"github.com/tendermint/tendermint/libs/log"
 	dbm "github.com/tendermint/tm-db"
-)
-
-type (
-	// AppBuilder is a method that allows to build an app
-	AppBuilder func(
-		logger log.Logger,
-		db dbm.DB,
-		traceStore io.Writer,
-		loadLatest bool,
-		skipUpgradeHeights map[int64]bool,
-		homePath string,
-		invCheckPeriod uint,
-		encodingConfig cosmoscmd.EncodingConfig,
-		enabledProposals []wasm.ProposalType,
-		appOpts servertypes.AppOptions,
-		wasmOpts []wasm.Option,
-		baseAppOptions ...func(*baseapp.BaseApp),
-	) cosmoscmd.App
-
-	// appCreator is an app creator
-	appCreator struct {
-		encodingConfig cosmoscmd.EncodingConfig
-		buildApp       AppBuilder
-	}
 )
 
 // Option configures root command option.
@@ -70,55 +46,15 @@ type rootOptions struct {
 	envPrefix          string
 }
 
-func newRootOptions(options ...Option) rootOptions {
-	opts := rootOptions{}
-	opts.apply(options...)
-	return opts
-}
-
 func (s *rootOptions) apply(options ...Option) {
 	for _, o := range options {
 		o(s)
 	}
 }
 
-// AddSubCmd adds sub commands.
-func AddSubCmd(cmd ...*cobra.Command) Option {
-	return func(o *rootOptions) {
-		o.addSubCmds = append(o.addSubCmds, cmd...)
-	}
-}
-
-// CustomizeStartCmd accepts a handler to customize the start command.
-func CustomizeStartCmd(h func(startCmd *cobra.Command)) Option {
-	return func(o *rootOptions) {
-		o.startCmdCustomizer = h
-	}
-}
-
-// WithEnvPrefix accepts a new prefix for environment variables.
-func WithEnvPrefix(envPrefix string) Option {
-	return func(o *rootOptions) {
-		o.envPrefix = envPrefix
-	}
-}
-
 // NewRootCmd creates a new root command for a Cosmos SDK application
-func NewRootCmd(
-	appName,
-	accountAddressPrefix,
-	defaultNodeHome,
-	defaultChainID string,
-	moduleBasics module.BasicManager,
-	buildApp AppBuilder,
-	options ...Option,
-) (*cobra.Command, cosmoscmd.EncodingConfig) {
-	rootOptions := newRootOptions(options...)
-
-	// Set config for prefixes
-	cosmoscmd.SetPrefixes(accountAddressPrefix)
-
-	encodingConfig := cosmoscmd.MakeEncodingConfig(moduleBasics)
+func NewRootCmd() (*cobra.Command, params.EncodingConfig) {
+	encodingConfig := app.MakeEncodingConfig()
 	initClientCtx := client.Context{}.
 		WithCodec(encodingConfig.Marshaler).
 		WithInterfaceRegistry(encodingConfig.InterfaceRegistry).
@@ -127,12 +63,12 @@ func NewRootCmd(
 		WithInput(os.Stdin).
 		WithAccountRetriever(types.AccountRetriever{}).
 		WithBroadcastMode(flags.BroadcastBlock).
-		WithHomeDir(defaultNodeHome).
-		WithViper(rootOptions.envPrefix)
+		WithHomeDir(app.DefaultNodeHome).
+		WithViper("SEI")
 
 	rootCmd := &cobra.Command{
-		Use:   appName + "d",
-		Short: "Stargate Sei App",
+		Use:   "seid",
+		Short: "Start sei app",
 		PersistentPreRunE: func(cmd *cobra.Command, _ []string) error {
 			// set the default command outputs
 			cmd.SetOut(cmd.OutOrStdout())
@@ -159,80 +95,54 @@ func NewRootCmd(
 	initRootCmd(
 		rootCmd,
 		encodingConfig,
-		defaultNodeHome,
-		moduleBasics,
-		buildApp,
-		rootOptions,
 	)
-	overwriteFlagDefaults(rootCmd, map[string]string{
-		flags.FlagChainID:        defaultChainID,
-		flags.FlagKeyringBackend: "test",
-	})
-
 	return rootCmd, encodingConfig
 }
 
 func initRootCmd(
 	rootCmd *cobra.Command,
-	encodingConfig cosmoscmd.EncodingConfig,
-	defaultNodeHome string,
-	moduleBasics module.BasicManager,
-	buildApp AppBuilder,
-	options rootOptions,
+	encodingConfig params.EncodingConfig,
 ) {
+	cfg := sdk.GetConfig()
+	cfg.Seal()
+
 	rootCmd.AddCommand(
-		genutilcli.InitCmd(moduleBasics, defaultNodeHome),
-		genutilcli.CollectGenTxsCmd(banktypes.GenesisBalancesIterator{}, defaultNodeHome),
+		InitCmd(app.ModuleBasics, app.DefaultNodeHome),
+		genutilcli.CollectGenTxsCmd(banktypes.GenesisBalancesIterator{}, app.DefaultNodeHome),
 		genutilcli.MigrateGenesisCmd(),
 		genutilcli.GenTxCmd(
-			moduleBasics,
+			app.ModuleBasics,
 			encodingConfig.TxConfig,
 			banktypes.GenesisBalancesIterator{},
-			defaultNodeHome,
+			app.DefaultNodeHome,
 		),
-		genutilcli.ValidateGenesisCmd(moduleBasics),
-		cosmoscmd.AddGenesisAccountCmd(defaultNodeHome),
+		genutilcli.ValidateGenesisCmd(app.ModuleBasics),
+		AddGenesisAccountCmd(app.DefaultNodeHome),
 		tmcli.NewCompletionCmd(rootCmd, true),
 		debug.Cmd(),
 		config.Cmd(),
 	)
 
-	a := appCreator{
-		encodingConfig,
-		buildApp,
-	}
-
 	// add server commands
 	server.AddCommands(
 		rootCmd,
-		defaultNodeHome,
-		a.newApp,
-		a.appExport,
-		func(cmd *cobra.Command) {
-			addModuleInitFlags(cmd)
-
-			if options.startCmdCustomizer != nil {
-				options.startCmdCustomizer(cmd)
-			}
-		},
+		app.DefaultNodeHome,
+		newApp,
+		appExport,
+		addModuleInitFlags,
 	)
 
 	// add keybase, auxiliary RPC, query, and tx child commands
 	rootCmd.AddCommand(
 		rpc.StatusCommand(),
-		queryCommand(moduleBasics),
-		txCommand(moduleBasics),
-		keys.Commands(defaultNodeHome),
+		queryCommand(),
+		txCommand(),
+		keys.Commands(app.DefaultNodeHome),
 	)
-
-	// add user given sub commands.
-	for _, cmd := range options.addSubCmds {
-		rootCmd.AddCommand(cmd)
-	}
 }
 
 // queryCommand returns the sub-command to send queries to the app
-func queryCommand(moduleBasics module.BasicManager) *cobra.Command {
+func queryCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:                        "query",
 		Aliases:                    []string{"q"},
@@ -250,14 +160,14 @@ func queryCommand(moduleBasics module.BasicManager) *cobra.Command {
 		authcmd.QueryTxCmd(),
 	)
 
-	moduleBasics.AddQueryCommands(cmd)
+	app.ModuleBasics.AddQueryCommands(cmd)
 	cmd.PersistentFlags().String(flags.FlagChainID, "", "The network chain ID")
 
 	return cmd
 }
 
 // txCommand returns the sub-command to send transactions to the app
-func txCommand(moduleBasics module.BasicManager) *cobra.Command {
+func txCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:                        "tx",
 		Short:                      "Transactions subcommands",
@@ -277,7 +187,7 @@ func txCommand(moduleBasics module.BasicManager) *cobra.Command {
 		authcmd.GetDecodeCommand(),
 	)
 
-	moduleBasics.AddTxCommands(cmd)
+	app.ModuleBasics.AddTxCommands(cmd)
 	cmd.PersistentFlags().String(flags.FlagChainID, "", "The network chain ID")
 
 	return cmd
@@ -287,24 +197,8 @@ func addModuleInitFlags(startCmd *cobra.Command) {
 	crisis.AddModuleInitFlags(startCmd)
 }
 
-func overwriteFlagDefaults(c *cobra.Command, defaults map[string]string) {
-	set := func(s *pflag.FlagSet, key, val string) {
-		if f := s.Lookup(key); f != nil {
-			f.DefValue = val
-			f.Value.Set(val)
-		}
-	}
-	for key, val := range defaults {
-		set(c.Flags(), key, val)
-		set(c.PersistentFlags(), key, val)
-	}
-	for _, c := range c.Commands() {
-		overwriteFlagDefaults(c, defaults)
-	}
-}
-
 // newApp creates a new Cosmos SDK app
-func (a appCreator) newApp(
+func newApp(
 	logger log.Logger,
 	db dbm.DB,
 	traceStore io.Writer,
@@ -338,7 +232,7 @@ func (a appCreator) newApp(
 
 	wasmopts := []wasm.Option{wasmkeeper.WithMessageEncoders(&wasmkeeper.MessageEncoders{})}
 
-	return a.buildApp(
+	return app.New(
 		logger,
 		db,
 		traceStore,
@@ -346,7 +240,7 @@ func (a appCreator) newApp(
 		skipUpgradeHeights,
 		cast.ToString(appOpts.Get(flags.FlagHome)),
 		cast.ToUint(appOpts.Get(server.FlagInvCheckPeriod)),
-		a.encodingConfig,
+		app.MakeEncodingConfig(),
 		wasm.EnableAllProposals,
 		appOpts,
 		wasmopts,
@@ -365,7 +259,7 @@ func (a appCreator) newApp(
 }
 
 // appExport creates a new simapp (optionally at a given height)
-func (a appCreator) appExport(
+func appExport(
 	logger log.Logger,
 	db dbm.DB,
 	traceStore io.Writer,
@@ -374,31 +268,23 @@ func (a appCreator) appExport(
 	jailAllowedAddrs []string,
 	appOpts servertypes.AppOptions,
 ) (servertypes.ExportedApp, error) {
-	var exportableApp cosmoscmd.ExportableApp
+	encCfg := app.MakeEncodingConfig()
+	encCfg.Marshaler = codec.NewProtoCodec(encCfg.InterfaceRegistry)
+
+	var exportableApp *app.App
 
 	homePath, ok := appOpts.Get(flags.FlagHome).(string)
 	if !ok || homePath == "" {
 		return servertypes.ExportedApp{}, errors.New("application home not set")
 	}
 
-	exportableApp = a.buildApp(
-		logger,
-		db,
-		traceStore,
-		height == -1, // -1: no height provided
-		map[int64]bool{},
-		homePath,
-		uint(1),
-		a.encodingConfig,
-		wasm.EnableAllProposals,
-		appOpts,
-		nil,
-	)
-
 	if height != -1 {
+		exportableApp = app.New(logger, db, traceStore, false, map[int64]bool{}, "", uint(1), encCfg, app.GetWasmEnabledProposals(), appOpts, app.EmptyWasmOpts)
 		if err := exportableApp.LoadHeight(height); err != nil {
 			return servertypes.ExportedApp{}, err
 		}
+	} else {
+		exportableApp = app.New(logger, db, traceStore, true, map[int64]bool{}, "", uint(1), encCfg, app.GetWasmEnabledProposals(), appOpts, app.EmptyWasmOpts)
 	}
 
 	return exportableApp.ExportAppStateAndValidators(forZeroHeight, jailAllowedAddrs)
@@ -439,7 +325,7 @@ func initAppConfig() (string, interface{}) {
 	//   own app.toml to override, or use this default value.
 	//
 	// In simapp, we set the min gas prices to 0.
-	srvCfg.MinGasPrices = "0stake"
+	srvCfg.MinGasPrices = "0.01usei"
 	srvCfg.API.Enable = true
 
 	customAppConfig := CustomAppConfig{
