@@ -1,6 +1,8 @@
 package main
 
 import (
+	"github.com/sei-protocol/sei-chain/app/params"
+	"github.com/sei-protocol/sei-chain/cmd/seid/cmd"
 	"os"
 
 	svrcmd "github.com/cosmos/cosmos-sdk/server/cmd"
@@ -8,15 +10,8 @@ import (
 )
 
 func main() {
-	rootCmd, _ := NewRootCmd(
-		app.AppName,
-		app.AccountAddressPrefix,
-		app.DefaultNodeHome,
-		app.AppName,
-		app.ModuleBasics,
-		app.New,
-		// this line is used by starport scaffolding # root/arguments
-	)
+	params.SetAddressPrefixes()
+	rootCmd, _ := cmd.NewRootCmd()
 	if err := svrcmd.Execute(rootCmd, app.DefaultNodeHome); err != nil {
 		os.Exit(1)
 	}
