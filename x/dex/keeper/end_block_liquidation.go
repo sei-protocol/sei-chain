@@ -37,11 +37,11 @@ func (k *Keeper) HandleEBLiquidation(ctx context.Context, sdkCtx sdk.Context, tr
 func (k *Keeper) placeLiquidationOrders(ctx sdk.Context, contractAddr string, liquidationOrders []types.LiquidationOrder) {
 	nextId := k.GetNextOrderId(ctx)
 	for _, order := range liquidationOrders {
-		priceDenom, err := types.GetDenomFromStr(order.PriceDenom)
+		priceDenom, _, err := types.GetDenomFromStr(order.PriceDenom)
 		if err != nil {
 			panic(err)
 		}
-		assetDenom, err := types.GetDenomFromStr(order.AssetDenom)
+		assetDenom, _, err := types.GetDenomFromStr(order.AssetDenom)
 		if err != nil {
 			panic(err)
 		}

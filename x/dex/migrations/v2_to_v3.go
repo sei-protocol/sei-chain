@@ -31,18 +31,18 @@ func MigrateLongBooks(ctx sdk.Context, storeKey sdk.StoreKey, cdc codec.BinaryCo
 		cdc.MustUnmarshal(iterator.Value(), &val)
 		key := iterator.Key()
 		store.Delete(key)
-		priceDenom, err := types.GetDenomFromStr(val.Entry.PriceDenom)
+		priceDenom, priceUnit, err := types.GetDenomFromStr(val.Entry.PriceDenom)
 		if err != nil {
 			continue
 		}
-		assetDenom, err := types.GetDenomFromStr(val.Entry.AssetDenom)
+		assetDenom, assetUnit, err := types.GetDenomFromStr(val.Entry.AssetDenom)
 		if err != nil {
 			continue
 		}
-		price := newDecFromUint64(val.Entry.Price)
+		price := types.ConvertDecToStandard(priceUnit, newDecFromUint64(val.Entry.Price))
 		allocations := []sdk.Dec{}
 		for _, allo := range val.Entry.Allocation {
-			allocations = append(allocations, newDecFromUint64(allo))
+			allocations = append(allocations, types.ConvertDecToStandard(assetUnit, newDecFromUint64(allo)))
 		}
 		newKey := append(
 			key[:CONTRACT_ADDRESS_LENGTH],
@@ -55,7 +55,7 @@ func MigrateLongBooks(ctx sdk.Context, storeKey sdk.StoreKey, cdc codec.BinaryCo
 			Price: price,
 			Entry: &types.OrderEntry{
 				Price:             price,
-				Quantity:          newDecFromUint64(val.Entry.Quantity),
+				Quantity:          types.ConvertDecToStandard(assetUnit, newDecFromUint64(val.Entry.Quantity)),
 				AllocationCreator: val.Entry.AllocationCreator,
 				Allocation:        allocations,
 				PriceDenom:        priceDenom,
@@ -78,18 +78,18 @@ func MigrateShortBooks(ctx sdk.Context, storeKey sdk.StoreKey, cdc codec.BinaryC
 		cdc.MustUnmarshal(iterator.Value(), &val)
 		key := iterator.Key()
 		store.Delete(key)
-		priceDenom, err := types.GetDenomFromStr(val.Entry.PriceDenom)
+		priceDenom, priceUnit, err := types.GetDenomFromStr(val.Entry.PriceDenom)
 		if err != nil {
 			continue
 		}
-		assetDenom, err := types.GetDenomFromStr(val.Entry.AssetDenom)
+		assetDenom, assetUnit, err := types.GetDenomFromStr(val.Entry.AssetDenom)
 		if err != nil {
 			continue
 		}
-		price := newDecFromUint64(val.Entry.Price)
+		price := types.ConvertDecToStandard(priceUnit, newDecFromUint64(val.Entry.Price))
 		allocations := []sdk.Dec{}
 		for _, allo := range val.Entry.Allocation {
-			allocations = append(allocations, newDecFromUint64(allo))
+			allocations = append(allocations, types.ConvertDecToStandard(assetUnit, newDecFromUint64(allo)))
 		}
 		newKey := append(
 			key[:CONTRACT_ADDRESS_LENGTH],
@@ -102,7 +102,7 @@ func MigrateShortBooks(ctx sdk.Context, storeKey sdk.StoreKey, cdc codec.BinaryC
 			Price: price,
 			Entry: &types.OrderEntry{
 				Price:             price,
-				Quantity:          newDecFromUint64(val.Entry.Quantity),
+				Quantity:          types.ConvertDecToStandard(assetUnit, newDecFromUint64(val.Entry.Quantity)),
 				AllocationCreator: val.Entry.AllocationCreator,
 				Allocation:        allocations,
 				PriceDenom:        priceDenom,
@@ -128,11 +128,11 @@ func MigrateSettlements(ctx sdk.Context, storeKey sdk.StoreKey, cdc codec.Binary
 		if len(val.Entries) == 0 {
 			continue
 		}
-		priceDenom, err := types.GetDenomFromStr(val.Entries[0].PriceDenom)
+		priceDenom, priceUnit, err := types.GetDenomFromStr(val.Entries[0].PriceDenom)
 		if err != nil {
 			continue
 		}
-		assetDenom, err := types.GetDenomFromStr(val.Entries[0].AssetDenom)
+		assetDenom, assetUnit, err := types.GetDenomFromStr(val.Entries[0].AssetDenom)
 		if err != nil {
 			continue
 		}
@@ -149,9 +149,9 @@ func MigrateSettlements(ctx sdk.Context, storeKey sdk.StoreKey, cdc codec.Binary
 				Account:                entry.Account,
 				PriceDenom:             entry.PriceDenom,
 				AssetDenom:             entry.AssetDenom,
-				Quantity:               sdk.MustNewDecFromStr(entry.Quantity),
-				ExecutionCostOrProceed: sdk.MustNewDecFromStr(entry.ExecutionCostOrProceed),
-				ExpectedCostOrProceed:  sdk.MustNewDecFromStr(entry.ExpectedCostOrProceed),
+				Quantity:               types.ConvertDecToStandard(assetUnit, sdk.MustNewDecFromStr(entry.Quantity)),
+				ExecutionCostOrProceed: types.ConvertDecToStandard(priceUnit, sdk.MustNewDecFromStr(entry.ExecutionCostOrProceed)),
+				ExpectedCostOrProceed:  types.ConvertDecToStandard(priceUnit, sdk.MustNewDecFromStr(entry.ExpectedCostOrProceed)),
 				PositionDirection:      entry.PositionDirection,
 				PositionEffect:         entry.PositionEffect,
 				Leverage:               sdk.MustNewDecFromStr(entry.Leverage),
@@ -190,11 +190,11 @@ func MigrateRegisteredPairs(ctx sdk.Context, storeKey sdk.StoreKey, cdc codec.Bi
 		var val legacytypes.Pair
 		cdc.MustUnmarshal(iterator.Value(), &val)
 		store.Delete(key)
-		priceDenom, err := types.GetDenomFromStr(val.PriceDenom)
+		priceDenom, _, err := types.GetDenomFromStr(val.PriceDenom)
 		if err != nil {
 			continue
 		}
-		assetDenom, err := types.GetDenomFromStr(val.AssetDenom)
+		assetDenom, _, err := types.GetDenomFromStr(val.AssetDenom)
 		if err != nil {
 			continue
 		}

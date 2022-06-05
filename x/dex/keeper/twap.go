@@ -9,11 +9,11 @@ import (
 func (k Keeper) SetTwap(ctx sdk.Context, twap types.Twap, contractAddr string) {
 	store := prefix.NewStore(ctx.KVStore(k.storeKey), types.TwapPrefix(contractAddr))
 	b := k.Cdc.MustMarshal(&twap)
-	priceDenom, err := types.GetDenomFromStr(twap.PriceDenom)
+	priceDenom, _, err := types.GetDenomFromStr(twap.PriceDenom)
 	if err != nil {
 		panic(err)
 	}
-	assetDenom, err := types.GetDenomFromStr(twap.AssetDenom)
+	assetDenom, _, err := types.GetDenomFromStr(twap.AssetDenom)
 	if err != nil {
 		panic(err)
 	}

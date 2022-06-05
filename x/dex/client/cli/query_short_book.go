@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"errors"
 
 	"github.com/cosmos/cosmos-sdk/client"
 	"github.com/cosmos/cosmos-sdk/client/flags"
@@ -23,13 +24,28 @@ func CmdListShortBook() *cobra.Command {
 				return err
 			}
 
+			reqPriceDenom, unit, err := types.GetDenomFromStr(args[1])
+			if err != nil {
+				return err
+			}
+			if unit != types.Unit_STANDARD {
+				return errors.New("Denom must be in standard/whole unit (e.g. sei instead of usei)")
+			}
+			reqAssetDenom, unit, err := types.GetDenomFromStr(args[2])
+			if err != nil {
+				return err
+			}
+			if unit != types.Unit_STANDARD {
+				return errors.New("Denom must be in standard/whole unit (e.g. sei instead of usei)")
+			}
+
 			queryClient := types.NewQueryClient(clientCtx)
 
 			params := &types.QueryAllShortBookRequest{
 				Pagination:   pageReq,
 				ContractAddr: args[0],
-				PriceDenom:   args[1],
-				AssetDenom:   args[2],
+				PriceDenom:   reqPriceDenom,
+				AssetDenom:   reqAssetDenom,
 			}
 
 			res, err := queryClient.ShortBookAll(context.Background(), params)
@@ -62,13 +78,19 @@ func CmdShowShortBook() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			reqPriceDenom, err := types.GetDenomFromStr(args[2])
+			reqPriceDenom, unit, err := types.GetDenomFromStr(args[2])
 			if err != nil {
 				return err
 			}
-			reqAssetDenom, err := types.GetDenomFromStr(args[3])
+			if unit != types.Unit_STANDARD {
+				return errors.New("Denom must be in standard/whole unit (e.g. sei instead of usei)")
+			}
+			reqAssetDenom, unit, err := types.GetDenomFromStr(args[3])
 			if err != nil {
 				return err
+			}
+			if unit != types.Unit_STANDARD {
+				return errors.New("Denom must be in standard/whole unit (e.g. sei instead of usei)")
 			}
 
 			params := &types.QueryGetShortBookRequest{

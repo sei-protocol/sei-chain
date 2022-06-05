@@ -202,18 +202,18 @@ func FromLiquidationOrder(liquidationOrder types.LiquidationOrder, orderId uint6
 		price = sdk.ZeroDec()
 		direction = types.PositionDirection_SHORT
 	}
-	priceDenom, err := types.GetDenomFromStr(liquidationOrder.PriceDenom)
+	priceDenom, priceUnit, err := types.GetDenomFromStr(liquidationOrder.PriceDenom)
 	if err != nil {
 		panic(err)
 	}
-	assetDenom, err := types.GetDenomFromStr(liquidationOrder.AssetDenom)
+	assetDenom, assetUnit, err := types.GetDenomFromStr(liquidationOrder.AssetDenom)
 	if err != nil {
 		panic(err)
 	}
 	return OrderPlacement{
 		Id:          orderId,
-		Price:       price,
-		Quantity:    liquidationOrder.Quantity,
+		Price:       types.ConvertDecToStandard(priceUnit, price),
+		Quantity:    types.ConvertDecToStandard(assetUnit, liquidationOrder.Quantity),
 		Creator:     liquidationOrder.Account,
 		OrderType:   types.OrderType_MARKET,
 		Direction:   direction,

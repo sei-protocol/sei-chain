@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"errors"
 	"strconv"
 
 	"github.com/cosmos/cosmos-sdk/client"
@@ -19,13 +20,19 @@ func CmdRegisterPair() *cobra.Command {
 		Args:  cobra.ExactArgs(3),
 		RunE: func(cmd *cobra.Command, args []string) (err error) {
 			argContractAddr := args[0]
-			reqPriceDenom, err := types.GetDenomFromStr(args[1])
+			reqPriceDenom, unit, err := types.GetDenomFromStr(args[1])
 			if err != nil {
 				return err
 			}
-			reqAssetDenom, err := types.GetDenomFromStr(args[2])
+			if unit != types.Unit_STANDARD {
+				return errors.New("Denom must be in standard/whole unit (e.g. sei instead of usei)")
+			}
+			reqAssetDenom, unit, err := types.GetDenomFromStr(args[2])
 			if err != nil {
 				return err
+			}
+			if unit != types.Unit_STANDARD {
+				return errors.New("Denom must be in standard/whole unit (e.g. sei instead of usei)")
 			}
 
 			clientCtx, err := client.GetClientTxContext(cmd)

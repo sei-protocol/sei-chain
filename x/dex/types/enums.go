@@ -6,9 +6,19 @@ import (
 	"strings"
 )
 
-func GetDenomFromStr(str string) (Denom, error) {
+const MICRO_PREFIX = byte('u')
+
+func GetDenomFromStr(str string) (Denom, Unit, error) {
 	val, err := getEnumFromStr(str, Denom_value)
-	return Denom(val), err
+	if err != nil {
+		if str[0] == MICRO_PREFIX {
+			microVal, microErr := getEnumFromStr(str, Denom_value)
+			if microErr == nil {
+				return Denom(microVal), Unit_MICRO, nil
+			}
+		}
+	}
+	return Denom(val), Unit_STANDARD, err
 }
 
 func GetPositionEffectFromStr(str string) (PositionEffect, error) {

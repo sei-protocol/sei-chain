@@ -75,12 +75,12 @@ func (k Keeper) GetAllLongBookForPair(ctx sdk.Context, contractAddr string, pric
 	return
 }
 
-func (k Keeper) GetAllLongBookForPairPaginated(ctx sdk.Context, contractAddr string, priceDenom string, assetDenom string, page *query.PageRequest) (list []types.LongBook, pageRes *query.PageResponse, err error) {
+func (k Keeper) GetAllLongBookForPairPaginated(ctx sdk.Context, contractAddr string, priceDenom types.Denom, assetDenom types.Denom, page *query.PageRequest) (list []types.LongBook, pageRes *query.PageResponse, err error) {
 	store := prefix.NewStore(ctx.KVStore(k.storeKey), types.OrderBookPrefix(true, contractAddr, priceDenom, assetDenom))
 
 	pageRes, err = query.Paginate(store, page, func(key []byte, value []byte) error {
 		var longBook types.LongBook
-		if err := k.cdc.Unmarshal(value, &longBook); err != nil {
+		if err := k.Cdc.Unmarshal(value, &longBook); err != nil {
 			return err
 		}
 

@@ -29,3 +29,10 @@ enum Denom {
     NEAR = 7;
     OSMO = 8;
 }
+
+enum Unit {
+    STANDARD = 0;
+    MILLI = 1;
+    MICRO = 2;
+    NANO = 3;
+}
