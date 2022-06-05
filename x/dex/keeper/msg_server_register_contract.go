@@ -21,7 +21,7 @@ func (k msgServer) RegisterContract(goCtx context.Context, msg *types.MsgRegiste
 	k.OrderPlacements[contractAddr] = map[string]*dexcache.OrderPlacements{}
 	k.OrderCancellations[contractAddr] = map[string]*dexcache.OrderCancellations{}
 	k.DepositInfo[contractAddr] = dexcache.NewDepositInfo()
-	k.LiquidationRequests[contractAddr] = map[string]string{}
+	k.LiquidationRequests[contractAddr] = &dexcache.LiquidationRequests{}
 
 	return &types.MsgRegisterContractResponse{}, nil
 }

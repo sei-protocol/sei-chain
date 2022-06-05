@@ -326,3 +326,29 @@ func (o *OrderCancellations) UpdateForLiquidation(liquidatedAccounts []string) {
 		})
 	}
 }
+
+type LiquidationRequest struct {
+	Requestor          string
+	AccountToLiquidate string
+}
+
+type LiquidationRequests []LiquidationRequest
+
+func (lrs *LiquidationRequests) IsAccountLiquidating(accountToLiquidate string) bool {
+	for _, lr := range *lrs {
+		if lr.AccountToLiquidate == accountToLiquidate {
+			return true
+		}
+	}
+	return false
+}
+
+func (lrs *LiquidationRequests) AddNewLiquidationRequest(requestor string, accountToLiquidate string) {
+	if lrs.IsAccountLiquidating(accountToLiquidate) {
+		return
+	}
+	*lrs = append(*lrs, LiquidationRequest{
+		Requestor:          requestor,
+		AccountToLiquidate: accountToLiquidate,
+	})
+}

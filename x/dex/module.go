@@ -218,7 +218,7 @@ func (am AppModule) beginBlockForContract(ctx sdk.Context, contractAddr string) 
 	am.keeper.OrderPlacements[contractAddr] = map[string]*dexcache.OrderPlacements{}
 	am.keeper.OrderCancellations[contractAddr] = map[string]*dexcache.OrderCancellations{}
 	am.keeper.DepositInfo[contractAddr] = dexcache.NewDepositInfo()
-	am.keeper.LiquidationRequests[contractAddr] = map[string]string{}
+	am.keeper.LiquidationRequests[contractAddr] = &dexcache.LiquidationRequests{}
 	for _, pair := range am.keeper.GetAllRegisteredPairs(ctx, contractAddr) {
 		ctx.Logger().Info(pair.String())
 		am.keeper.Orders[contractAddr][pair.String()] = dexcache.NewOrders()
@@ -291,12 +291,13 @@ func (am AppModule) endBlockForContract(ctx sdk.Context, contractAddr string) {
 	span.SetAttributes(attribute.String("contract", contractAddr))
 	defer span.End()
 
-	am.keeper.HandleEBLiquidation(spanCtx, ctx, am.tracingInfo.Tracer, contractAddr)
-	am.keeper.HandleEBCancelOrders(spanCtx, ctx, am.tracingInfo.Tracer, contractAddr)
-	am.keeper.HandleEBPlaceOrders(spanCtx, ctx, am.tracingInfo.Tracer, contractAddr)
+	registeredPairs := am.keeper.GetAllRegisteredPairs(ctx, contractAddr)
+	am.keeper.HandleEBLiquidation(spanCtx, ctx, am.tracingInfo.Tracer, contractAddr, registeredPairs)
+	am.keeper.HandleEBCancelOrders(spanCtx, ctx, am.tracingInfo.Tracer, contractAddr, registeredPairs)
+	am.keeper.HandleEBPlaceOrders(spanCtx, ctx, am.tracingInfo.Tracer, contractAddr, registeredPairs)
 
 	am.keeper.OrderCancellations[contractAddr] = map[string]*dexcache.OrderCancellations{}
-	for _, pair := range am.keeper.GetAllRegisteredPairs(ctx, contractAddr) {
+	for _, pair := range registeredPairs {
 		am.keeper.OrderCancellations[contractAddr][pair.String()] = dexcache.NewOrderCancellations()
 		orders := am.keeper.Orders[contractAddr][pair.String()]
 		ctx.Logger().Info(pair.String())
@@ -378,7 +379,7 @@ func (am AppModule) endBlockForContract(ctx sdk.Context, contractAddr string) {
 			Epoch:   int64(currentEpoch),
 			Entries: []*types.SettlementEntry{},
 		}
-		settlementMap := map[types.Pair]*types.Settlements{}
+		settlementMap := map[string]*types.Settlements{}
 
 		for _, s := range settlements {
 			ctx.Logger().Info(s.String())
@@ -389,18 +390,20 @@ func (am AppModule) endBlockForContract(ctx sdk.Context, contractAddr string) {
 				PriceDenom: priceDenom,
 				AssetDenom: assetDenom,
 			}
-			if settlements, ok := settlementMap[pair]; ok {
+			if settlements, ok := settlementMap[pair.String()]; ok {
 				settlements.Entries = append(settlements.Entries, &settlementEntry)
 			} else {
-				settlementMap[pair] = &types.Settlements{
+				settlementMap[pair.String()] = &types.Settlements{
 					Epoch:   int64(currentEpoch),
 					Entries: []*types.SettlementEntry{&settlementEntry},
 				}
 			}
 			allSettlements.Entries = append(allSettlements.Entries, &settlementEntry)
 		}
-		for s, settlementEntries := range settlementMap {
-			am.keeper.SetSettlements(ctx, contractAddr, s.PriceDenom, s.AssetDenom, *settlementEntries)
+		for _, pair := range registeredPairs {
+			if settlementEntries, ok := settlementMap[pair.String()]; ok {
+				am.keeper.SetSettlements(ctx, contractAddr, pair.PriceDenom, pair.AssetDenom, *settlementEntries)
+			}
 		}
 
 		nativeSettlementMsg := types.SudoSettlementMsg{
@@ -450,7 +453,7 @@ func (am AppModule) endBlockForContract(ctx sdk.Context, contractAddr string) {
 		}
 	}
 	// Cancel unfilled market orders
-	am.keeper.HandleEBCancelOrders(spanCtx, ctx, am.tracingInfo.Tracer, contractAddr)
+	am.keeper.HandleEBCancelOrders(spanCtx, ctx, am.tracingInfo.Tracer, contractAddr, registeredPairs)
 }
 
 func getTwapPrice(prices []uint64) uint64 {

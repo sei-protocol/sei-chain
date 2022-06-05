@@ -27,7 +27,7 @@ type (
 		DepositInfo         map[string]*dexcache.DepositInfo
 		BankKeeper          bankkeeper.Keeper
 		OrderCancellations  map[string]map[string]*dexcache.OrderCancellations
-		LiquidationRequests map[string]map[string]string
+		LiquidationRequests map[string]*dexcache.LiquidationRequests
 		WasmKeeper          wasm.Keeper
 	}
 )
@@ -51,7 +51,7 @@ func NewPlainKeeper(
 		OrderPlacements:     map[string]map[string]*dexcache.OrderPlacements{},
 		DepositInfo:         map[string]*dexcache.DepositInfo{},
 		OrderCancellations:  map[string]map[string]*dexcache.OrderCancellations{},
-		LiquidationRequests: map[string]map[string]string{},
+		LiquidationRequests: map[string]*dexcache.LiquidationRequests{},
 	}
 }
 
@@ -79,7 +79,7 @@ func NewKeeper(
 		DepositInfo:         map[string]*dexcache.DepositInfo{},
 		BankKeeper:          bankKeeper,
 		OrderCancellations:  map[string]map[string]*dexcache.OrderCancellations{},
-		LiquidationRequests: map[string]map[string]string{},
+		LiquidationRequests: map[string]*dexcache.LiquidationRequests{},
 		WasmKeeper:          wasmKeeper,
 	}
 }
