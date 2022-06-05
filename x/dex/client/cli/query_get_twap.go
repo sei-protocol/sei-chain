@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"errors"
 	"strconv"
 
 	"github.com/cosmos/cosmos-sdk/client"
@@ -17,8 +18,21 @@ func CmdGetTwap() *cobra.Command {
 		Short: "Query getTwap",
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) (err error) {
-			reqPriceDenom := args[0]
-			reqAssetDenom := args[1]
+			reqPriceDenom, unit, err := types.GetDenomFromStr(args[0])
+			if err != nil {
+				return err
+			}
+			if unit != types.Unit_STANDARD {
+				return errors.New("Denom must be in standard/whole unit (e.g. sei instead of usei)")
+			}
+
+			reqAssetDenom, unit, err := types.GetDenomFromStr(args[1])
+			if err != nil {
+				return err
+			}
+			if unit != types.Unit_STANDARD {
+				return errors.New("Denom must be in standard/whole unit (e.g. sei instead of usei)")
+			}
 
 			clientCtx, err := client.GetClientTxContext(cmd)
 			if err != nil {

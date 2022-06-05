@@ -13,13 +13,11 @@ func NewMsgLiquidation(
 	creator string,
 	contractAddr string,
 	accountToLiquidate string,
-	nonce uint64,
 ) *MsgLiquidation {
 	return &MsgLiquidation{
 		Creator:            creator,
 		ContractAddr:       contractAddr,
 		AccountToLiquidate: accountToLiquidate,
-		Nonce:              nonce,
 	}
 }
 

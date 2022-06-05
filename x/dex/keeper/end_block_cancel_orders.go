@@ -19,12 +19,12 @@ func (k *Keeper) HandleEBCancelOrders(ctx context.Context, sdkCtx sdk.Context, t
 	for pair, orderCancellations := range k.OrderCancellations[contractAddr] {
 		for _, orderCancellation := range orderCancellations.OrderCancellations {
 			k.Orders[contractAddr][pair].AddCancelOrder(dexcache.CancelOrder{
-				Creator:  orderCancellation.Creator,
-				Price:    orderCancellation.Price,
-				Quantity: orderCancellation.Quantity,
-				Long:     orderCancellation.Long,
-				Open:     orderCancellation.Open,
-				Leverage: orderCancellation.Leverage,
+				Creator:   orderCancellation.Creator,
+				Price:     orderCancellation.Price,
+				Quantity:  orderCancellation.Quantity,
+				Direction: orderCancellation.Direction,
+				Effect:    orderCancellation.Effect,
+				Leverage:  orderCancellation.Leverage,
 			})
 		}
 	}

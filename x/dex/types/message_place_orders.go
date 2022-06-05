@@ -13,14 +13,12 @@ func NewMsgPlaceOrders(
 	creator string,
 	orders []*OrderPlacement,
 	contractAddr string,
-	nonce uint64,
 	fund sdk.Coins,
 ) *MsgPlaceOrders {
 	return &MsgPlaceOrders{
 		Creator:      creator,
 		Orders:       orders,
 		ContractAddr: contractAddr,
-		Nonce:        nonce,
 		Funds:        fund,
 	}
 }

@@ -10,21 +10,21 @@ import (
 // SetShortBook set a specific shortBook in the store
 func (k Keeper) SetShortBook(ctx sdk.Context, contractAddr string, shortBook types.ShortBook) {
 	store := prefix.NewStore(ctx.KVStore(k.storeKey), types.OrderBookPrefix(false, contractAddr, shortBook.Entry.PriceDenom, shortBook.Entry.AssetDenom))
-	b := k.cdc.MustMarshal(&shortBook)
+	b := k.Cdc.MustMarshal(&shortBook)
 	store.Set(GetKeyForShortBook(shortBook), b)
 }
 
-func (k Keeper) GetShortBookByPrice(ctx sdk.Context, contractAddr string, price uint64, priceDenom string, assetDenom string) (val types.ShortBook, found bool) {
+func (k Keeper) GetShortBookByPrice(ctx sdk.Context, contractAddr string, price sdk.Dec, priceDenom types.Denom, assetDenom types.Denom) (val types.ShortBook, found bool) {
 	store := prefix.NewStore(ctx.KVStore(k.storeKey), types.OrderBookPrefix(false, contractAddr, priceDenom, assetDenom))
 	b := store.Get(GetKeyForPrice(price))
 	if b == nil {
 		return val, false
 	}
-	k.cdc.MustUnmarshal(b, &val)
+	k.Cdc.MustUnmarshal(b, &val)
 	return val, true
 }
 
-func (k Keeper) RemoveShortBookByPrice(ctx sdk.Context, contractAddr string, price uint64, priceDenom string, assetDenom string) {
+func (k Keeper) RemoveShortBookByPrice(ctx sdk.Context, contractAddr string, price sdk.Dec, priceDenom types.Denom, assetDenom types.Denom) {
 	store := prefix.NewStore(ctx.KVStore(k.storeKey), types.OrderBookPrefix(false, contractAddr, priceDenom, assetDenom))
 	store.Delete(GetKeyForPrice(price))
 }
@@ -38,14 +38,14 @@ func (k Keeper) GetAllShortBook(ctx sdk.Context, contractAddr string) (list []ty
 
 	for ; iterator.Valid(); iterator.Next() {
 		var val types.ShortBook
-		k.cdc.MustUnmarshal(iterator.Value(), &val)
+		k.Cdc.MustUnmarshal(iterator.Value(), &val)
 		list = append(list, val)
 	}
 
 	return
 }
 
-func (k Keeper) GetAllShortBookForPair(ctx sdk.Context, contractAddr string, priceDenom string, assetDenom string) (list []types.OrderBook) {
+func (k Keeper) GetAllShortBookForPair(ctx sdk.Context, contractAddr string, priceDenom types.Denom, assetDenom types.Denom) (list []types.OrderBook) {
 	store := prefix.NewStore(ctx.KVStore(k.storeKey), types.OrderBookPrefix(false, contractAddr, priceDenom, assetDenom))
 	iterator := sdk.KVStorePrefixIterator(store, []byte{})
 
@@ -53,19 +53,19 @@ func (k Keeper) GetAllShortBookForPair(ctx sdk.Context, contractAddr string, pri
 
 	for ; iterator.Valid(); iterator.Next() {
 		var val types.ShortBook
-		k.cdc.MustUnmarshal(iterator.Value(), &val)
+		k.Cdc.MustUnmarshal(iterator.Value(), &val)
 		list = append(list, &val)
 	}
 
 	return
 }
 
-func (k Keeper) GetAllShortBookForPairPaginated(ctx sdk.Context, contractAddr string, priceDenom string, assetDenom string, page *query.PageRequest) (list []types.ShortBook, pageRes *query.PageResponse, err error) {
+func (k Keeper) GetAllShortBookForPairPaginated(ctx sdk.Context, contractAddr string, priceDenom types.Denom, assetDenom types.Denom, page *query.PageRequest) (list []types.ShortBook, pageRes *query.PageResponse, err error) {
 	store := prefix.NewStore(ctx.KVStore(k.storeKey), types.OrderBookPrefix(false, contractAddr, priceDenom, assetDenom))
 
 	pageRes, err = query.Paginate(store, page, func(key []byte, value []byte) error {
 		var shortBook types.ShortBook
-		if err := k.cdc.Unmarshal(value, &shortBook); err != nil {
+		if err := k.Cdc.Unmarshal(value, &shortBook); err != nil {
 			return err
 		}
 

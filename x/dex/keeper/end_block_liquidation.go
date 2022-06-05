@@ -37,7 +37,15 @@ func (k *Keeper) HandleEBLiquidation(ctx context.Context, sdkCtx sdk.Context, tr
 func (k *Keeper) placeLiquidationOrders(ctx sdk.Context, contractAddr string, liquidationOrders []types.LiquidationOrder) {
 	nextId := k.GetNextOrderId(ctx)
 	for _, order := range liquidationOrders {
-		pair := types.Pair{PriceDenom: order.PriceDenom, AssetDenom: order.AssetDenom}
+		priceDenom, _, err := types.GetDenomFromStr(order.PriceDenom)
+		if err != nil {
+			panic(err)
+		}
+		assetDenom, _, err := types.GetDenomFromStr(order.AssetDenom)
+		if err != nil {
+			panic(err)
+		}
+		pair := types.Pair{PriceDenom: priceDenom, AssetDenom: assetDenom}
 		orderPlacements := k.OrderPlacements[contractAddr][pair.String()]
 		orderPlacements.Orders = append(orderPlacements.Orders, dexcache.FromLiquidationOrder(order, nextId))
 		nextId += 1

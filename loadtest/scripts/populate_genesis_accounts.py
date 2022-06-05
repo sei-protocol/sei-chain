@@ -17,9 +17,9 @@ def add_genesis_account(account_name, local=False):
     address = splitted_outputs[3].split(': ')[1]
     mnemonic = splitted_outputs[11]
     if local:
-        add_account_cmd = f"./build/seid add-genesis-account {address} 1000000000ust"
+        add_account_cmd = f"./build/seid add-genesis-account {address} 1000000000usei"
     else:
-        add_account_cmd = f"printf '12345678\n' | ./build/seid add-genesis-account {address} 1000000000ust"
+        add_account_cmd = f"printf '12345678\n' | ./build/seid add-genesis-account {address} 1000000000usei"
 
     home_path = os.path.expanduser('~')
     filename = f"{home_path}/test_accounts/{account_name}.json"

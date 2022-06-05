@@ -2,11 +2,11 @@ package cli_test
 
 import (
 	"fmt"
-	"strconv"
 	"testing"
 
 	"github.com/cosmos/cosmos-sdk/client/flags"
 	clitestutil "github.com/cosmos/cosmos-sdk/testutil/cli"
+	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/sei-protocol/sei-chain/testutil/network"
 	"github.com/sei-protocol/sei-chain/testutil/nullify"
 	"github.com/sei-protocol/sei-chain/x/dex/client/cli"
@@ -19,8 +19,8 @@ import (
 
 func TEST_PAIR() types.Pair {
 	return types.Pair{
-		PriceDenom: "ust",
-		AssetDenom: "luna",
+		PriceDenom: types.Denom_USDC,
+		AssetDenom: types.Denom_ATOM,
 	}
 }
 
@@ -32,12 +32,12 @@ func networkWithShortBookObjects(t *testing.T, n int) (*network.Network, []types
 
 	for i := 0; i < n; i++ {
 		shortBook := types.ShortBook{
-			Id: uint64(i),
+			Price: sdk.NewDec(int64(1 + i)),
 			Entry: &types.OrderEntry{
-				Price:             uint64(1 + i),
-				Quantity:          1,
+				Price:             sdk.NewDec(int64(1 + i)),
+				Quantity:          sdk.NewDec(int64(i)),
 				AllocationCreator: []string{"abc|c|"},
-				Allocation:        []uint64{1},
+				Allocation:        []sdk.Dec{sdk.NewDec(int64(1))},
 				PriceDenom:        TEST_PAIR().PriceDenom,
 				AssetDenom:        TEST_PAIR().AssetDenom,
 			},
@@ -59,28 +59,28 @@ func TestShowShortBook(t *testing.T) {
 		fmt.Sprintf("--%s=json", tmcli.OutputFlag),
 	}
 	for _, tc := range []struct {
-		desc string
-		id   string
-		args []string
-		err  error
-		obj  types.ShortBook
+		desc  string
+		price string
+		args  []string
+		err   error
+		obj   types.ShortBook
 	}{
 		{
-			desc: "found",
-			id:   strconv.FormatUint(objs[1].Entry.Price, 10),
-			args: common,
-			obj:  objs[1],
+			desc:  "found",
+			price: objs[1].Entry.Price.String(),
+			args:  common,
+			obj:   objs[1],
 		},
 		{
-			desc: "not found",
-			id:   "not_found",
-			args: common,
-			err:  status.Error(codes.InvalidArgument, "not found"),
+			desc:  "not found",
+			price: "not_found",
+			args:  common,
+			err:   status.Error(codes.InvalidArgument, "not found"),
 		},
 	} {
 		tc := tc
 		t.Run(tc.desc, func(t *testing.T) {
-			args := []string{"genesis", tc.id, TEST_PAIR().PriceDenom, TEST_PAIR().AssetDenom}
+			args := []string{"genesis", tc.price, TEST_PAIR().PriceDenom.String(), TEST_PAIR().AssetDenom.String()}
 			args = append(args, tc.args...)
 			out, err := clitestutil.ExecTestCLICmd(ctx, cli.CmdShowShortBook(), args)
 			if tc.err != nil {
@@ -107,7 +107,7 @@ func TestListShortBook(t *testing.T) {
 	ctx := net.Validators[0].ClientCtx
 	request := func(next []byte, offset, limit uint64, total bool) []string {
 		args := []string{
-			"genesis", TEST_PAIR().PriceDenom, TEST_PAIR().AssetDenom,
+			"genesis", TEST_PAIR().PriceDenom.String(), TEST_PAIR().AssetDenom.String(),
 			fmt.Sprintf("--%s=json", tmcli.OutputFlag),
 		}
 		if next == nil {

@@ -24,6 +24,7 @@ import (
 	"github.com/sei-protocol/sei-chain/x/dex/client/cli"
 	"github.com/sei-protocol/sei-chain/x/dex/exchange"
 	"github.com/sei-protocol/sei-chain/x/dex/keeper"
+	"github.com/sei-protocol/sei-chain/x/dex/migrations"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
 )
 
@@ -155,6 +156,9 @@ func (am AppModule) RegisterServices(cfg module.Configurator) {
 	types.RegisterQueryServer(cfg.QueryServer(), am.keeper)
 
 	cfg.RegisterMigration(types.ModuleName, 1, func(ctx sdk.Context) error { return nil })
+	cfg.RegisterMigration(types.ModuleName, 2, func(ctx sdk.Context) error {
+		return migrations.DataTypeUpdate(ctx, am.keeper.GetStoreKey(), am.keeper.Cdc)
+	})
 }
 
 // RegisterInvariants registers the capability module's invariants.
@@ -179,7 +183,7 @@ func (am AppModule) ExportGenesis(ctx sdk.Context, cdc codec.JSONCodec) json.Raw
 }
 
 // ConsensusVersion implements ConsensusVersion.
-func (AppModule) ConsensusVersion() uint64 { return 2 }
+func (AppModule) ConsensusVersion() uint64 { return 3 }
 
 func (am AppModule) getAllContractAddresses(ctx sdk.Context) []string {
 	return am.keeper.GetAllContractAddresses(ctx)
@@ -301,12 +305,12 @@ func (am AppModule) endBlockForContract(ctx sdk.Context, contractAddr string) {
 		allExistingBuys := am.keeper.GetAllLongBookForPair(ctx, contractAddr, pair.PriceDenom, pair.AssetDenom)
 		allExistingSells := am.keeper.GetAllShortBookForPair(ctx, contractAddr, pair.PriceDenom, pair.AssetDenom)
 
-		longDirtyOrderIds, shortDirtyOrderIds := map[uint64]bool{}, map[uint64]bool{}
+		longDirtyPrices, shortDirtyPrices := exchange.NewDirtyPrices(), exchange.NewDirtyPrices()
 		liquidationCancels := am.keeper.OrderCancellations[contractAddr][pair.String()].LiquidationCancellations
-		exchange.CancelForLiquidation(ctx, liquidationCancels, allExistingBuys, longDirtyOrderIds)
-		exchange.CancelForLiquidation(ctx, liquidationCancels, allExistingSells, shortDirtyOrderIds)
-		exchange.CancelOrders(ctx, orders.CancelBuys, allExistingBuys, true, longDirtyOrderIds)
-		exchange.CancelOrders(ctx, orders.CancelBuys, allExistingSells, false, shortDirtyOrderIds)
+		exchange.CancelForLiquidation(ctx, liquidationCancels, allExistingBuys, &longDirtyPrices)
+		exchange.CancelForLiquidation(ctx, liquidationCancels, allExistingSells, &shortDirtyPrices)
+		exchange.CancelOrders(ctx, orders.CancelBuys, allExistingBuys, types.PositionDirection_LONG, &longDirtyPrices)
+		exchange.CancelOrders(ctx, orders.CancelBuys, allExistingSells, types.PositionDirection_SHORT, &shortDirtyPrices)
 
 		settlements := []*types.Settlement{}
 		marketBuyTotalPrice, marketBuyTotalQuantity := exchange.MatchMarketOrders(
@@ -314,8 +318,8 @@ func (am AppModule) endBlockForContract(ctx sdk.Context, contractAddr string) {
 			orders.MarketBuys,
 			allExistingSells,
 			pair,
-			true,
-			longDirtyOrderIds,
+			types.PositionDirection_LONG,
+			&longDirtyPrices,
 			&settlements,
 		)
 		marketSellTotalPrice, marketSellTotalQuantity := exchange.MatchMarketOrders(
@@ -323,8 +327,8 @@ func (am AppModule) endBlockForContract(ctx sdk.Context, contractAddr string) {
 			orders.MarketSells,
 			allExistingBuys,
 			pair,
-			false,
-			shortDirtyOrderIds,
+			types.PositionDirection_SHORT,
+			&shortDirtyPrices,
 			&settlements,
 		)
 		limitTotalPrice, limitTotalQuantity := exchange.MatchLimitOrders(
@@ -334,38 +338,38 @@ func (am AppModule) endBlockForContract(ctx sdk.Context, contractAddr string) {
 			&allExistingBuys,
 			&allExistingSells,
 			pair,
-			longDirtyOrderIds,
-			shortDirtyOrderIds,
+			&longDirtyPrices,
+			&shortDirtyPrices,
 			&settlements,
 		)
-		var avgPrice uint64
-		if marketBuyTotalQuantity+marketSellTotalQuantity+limitTotalQuantity == 0 {
-			avgPrice = 0
+		var avgPrice sdk.Dec
+		if marketBuyTotalQuantity.Add(marketSellTotalQuantity).Add(limitTotalQuantity).IsZero() {
+			avgPrice = sdk.ZeroDec()
 		} else {
-			avgPrice = (marketBuyTotalPrice + marketSellTotalPrice + limitTotalPrice) / (marketBuyTotalQuantity + marketSellTotalQuantity + limitTotalQuantity)
+			avgPrice = (marketBuyTotalPrice.Add(marketSellTotalPrice).Add(limitTotalPrice)).Quo(marketBuyTotalQuantity.Add(marketSellTotalQuantity).Add(limitTotalQuantity))
 			twap := am.keeper.GetTwapState(ctx, contractAddr, pair.PriceDenom, pair.AssetDenom)
 			newPrices := twap.Prices
 			if len(newPrices) == 0 {
-				newPrices = []uint64{avgPrice}
+				newPrices = []uint64{avgPrice.BigInt().Uint64()}
 			} else {
-				newPrices[len(newPrices)-1] = avgPrice
+				newPrices[len(newPrices)-1] = avgPrice.BigInt().Uint64()
 			}
 			am.keeper.SetTwap(ctx, types.Twap{
 				LastEpoch:  am.keeper.EpochKeeper.GetEpoch(ctx).CurrentEpoch,
 				Prices:     newPrices,
 				TwapPrice:  getTwapPrice(newPrices),
-				PriceDenom: pair.PriceDenom,
-				AssetDenom: pair.AssetDenom,
+				PriceDenom: pair.PriceDenom.String(),
+				AssetDenom: pair.AssetDenom.String(),
 			}, contractAddr)
 		}
 		ctx.Logger().Info(fmt.Sprintf("Average price for %s/%s: %d", pair.PriceDenom, pair.AssetDenom, avgPrice))
 		for _, buy := range allExistingBuys {
-			if _, ok := longDirtyOrderIds[buy.GetId()]; ok {
+			if longDirtyPrices.Has(buy.GetPrice()) {
 				am.keeper.FlushDirtyLongBook(ctx, contractAddr, buy)
 			}
 		}
 		for _, sell := range allExistingSells {
-			if _, ok := shortDirtyOrderIds[sell.GetId()]; ok {
+			if shortDirtyPrices.Has(sell.GetPrice()) {
 				am.keeper.FlushDirtyShortBook(ctx, contractAddr, sell)
 			}
 		}
@@ -379,9 +383,11 @@ func (am AppModule) endBlockForContract(ctx sdk.Context, contractAddr string) {
 		for _, s := range settlements {
 			ctx.Logger().Info(s.String())
 			settlementEntry := s.ToEntry()
+			priceDenom, _, _ := types.GetDenomFromStr(settlementEntry.PriceDenom)
+			assetDenom, _, _ := types.GetDenomFromStr(settlementEntry.AssetDenom)
 			pair := types.Pair{
-				PriceDenom: settlementEntry.PriceDenom,
-				AssetDenom: settlementEntry.AssetDenom,
+				PriceDenom: priceDenom,
+				AssetDenom: assetDenom,
 			}
 			if settlements, ok := settlementMap[pair]; ok {
 				settlements.Entries = append(settlements.Entries, &settlementEntry)
@@ -409,15 +415,15 @@ func (am AppModule) endBlockForContract(ctx sdk.Context, contractAddr string) {
 		am.callClearingHouseContractSudo(ctx, wasmMsg, contractAddr)
 
 		for _, marketOrder := range orders.MarketBuys {
-			if marketOrder.Quantity > 0 {
+			if marketOrder.Quantity.IsPositive() {
 				am.keeper.OrderCancellations[contractAddr][pair.String()].OrderCancellations = append(
 					am.keeper.OrderCancellations[contractAddr][pair.String()].OrderCancellations,
 					dexcache.OrderCancellation{
 						Price:      marketOrder.WorstPrice,
 						Quantity:   marketOrder.Quantity,
 						Creator:    marketOrder.Creator,
-						Long:       marketOrder.Long,
-						Open:       marketOrder.Long,
+						Direction:  marketOrder.Direction,
+						Effect:     marketOrder.Effect,
 						PriceDenom: pair.PriceDenom,
 						AssetDenom: pair.AssetDenom,
 						Leverage:   marketOrder.Leverage,
@@ -426,15 +432,15 @@ func (am AppModule) endBlockForContract(ctx sdk.Context, contractAddr string) {
 			}
 		}
 		for _, marketOrder := range orders.MarketSells {
-			if marketOrder.Quantity > 0 {
+			if marketOrder.Quantity.IsPositive() {
 				am.keeper.OrderCancellations[contractAddr][pair.String()].OrderCancellations = append(
 					am.keeper.OrderCancellations[contractAddr][pair.String()].OrderCancellations,
 					dexcache.OrderCancellation{
 						Price:      marketOrder.WorstPrice,
 						Quantity:   marketOrder.Quantity,
 						Creator:    marketOrder.Creator,
-						Long:       marketOrder.Long,
-						Open:       marketOrder.Long,
+						Direction:  marketOrder.Direction,
+						Effect:     marketOrder.Effect,
 						PriceDenom: pair.PriceDenom,
 						AssetDenom: pair.AssetDenom,
 						Leverage:   marketOrder.Leverage,

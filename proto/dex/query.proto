@@ -9,6 +9,7 @@ import "dex/long_book.proto";
 import "dex/short_book.proto";
 import "dex/settlement.proto";
 import "dex/twap.proto";
+import "dex/enums.proto";
 // this line is used by starport scaffolding # 1
 
 option go_package = "github.com/sei-protocol/sei-chain/x/dex/types";
@@ -21,7 +22,7 @@ service Query {
   }
   // Queries a LongBook by id.
 	rpc LongBook(QueryGetLongBookRequest) returns (QueryGetLongBookResponse) {
-		option (google.api.http).get = "/sei-protocol/seichain/dex/long_book/{id}";
+		option (google.api.http).get = "/sei-protocol/seichain/dex/long_book/{contractAddr}/{priceDenom}/{assetDenom}";
 	}
 
 	// Queries a list of LongBook items.
@@ -31,7 +32,7 @@ service Query {
 
 // Queries a ShortBook by id.
 	rpc ShortBook(QueryGetShortBookRequest) returns (QueryGetShortBookResponse) {
-		option (google.api.http).get = "/sei-protocol/seichain/dex/short_book/{id}";
+		option (google.api.http).get = "/sei-protocol/seichain/dex/short_book/{contractAddr}/{priceDenom}/{assetDenom}";
 	}
 
 	// Queries a list of ShortBook items.
@@ -61,10 +62,14 @@ message QueryParamsResponse {
 }
 
 message QueryGetLongBookRequest {
-	uint64 id = 1;
+	string price = 1 [
+      (gogoproto.moretags)   = "yaml:\"price\"",
+      (gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Dec",
+      (gogoproto.nullable)   = false
+  ];
 	string contractAddr = 2;
-	string priceDenom = 3;
-	string assetDenom = 4;
+	Denom priceDenom = 3;
+	Denom assetDenom = 4;
 }
 
 message QueryGetLongBookResponse {
@@ -74,8 +79,8 @@ message QueryGetLongBookResponse {
 message QueryAllLongBookRequest {
 	cosmos.base.query.v1beta1.PageRequest pagination = 1;
 	string contractAddr = 2;
-	string priceDenom = 3;
-	string assetDenom = 4;
+	Denom priceDenom = 3;
+	Denom assetDenom = 4;
 }
 
 message QueryAllLongBookResponse {
@@ -84,10 +89,14 @@ message QueryAllLongBookResponse {
 }
 
 message QueryGetShortBookRequest {
-	uint64 id = 1;
+	string price = 1 [
+      (gogoproto.moretags)   = "yaml:\"price\"",
+      (gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Dec",
+      (gogoproto.nullable)   = false
+  ];
 	string contractAddr = 2;
-	string priceDenom = 3;
-	string assetDenom = 4;
+	Denom priceDenom = 3;
+	Denom assetDenom = 4;
 }
 
 message QueryGetShortBookResponse {
@@ -97,8 +106,8 @@ message QueryGetShortBookResponse {
 message QueryAllShortBookRequest {
 	cosmos.base.query.v1beta1.PageRequest pagination = 1;
 	string contractAddr = 2;
-	string priceDenom = 3;
-	string assetDenom = 4;
+	Denom priceDenom = 3;
+	Denom assetDenom = 4;
 }
 
 message QueryAllShortBookResponse {
@@ -109,8 +118,8 @@ message QueryAllShortBookResponse {
 message QueryGetSettlementsRequest {
 	string contractAddr = 1;
 	uint64 blockHeight = 2;
-	string priceDenom = 3;
-	string assetDenom = 4;
+	Denom priceDenom = 3;
+	Denom assetDenom = 4;
 }
 
 message QueryGetSettlementsResponse {
@@ -127,8 +136,8 @@ message QueryAllSettlementsResponse {
 }
 
 message QueryGetTwapRequest {
-  string priceDenom = 1;
-  string assetDenom = 2;
+	Denom priceDenom = 1;
+	Denom assetDenom = 2;
   string contractAddr = 3;
 }
 

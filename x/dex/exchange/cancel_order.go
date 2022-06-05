@@ -11,29 +11,19 @@ func CancelOrders(
 	ctx sdk.Context,
 	cancels []dexcache.CancelOrder,
 	book []types.OrderBook,
-	long bool,
-	dirtyOrderIds map[uint64]bool,
+	direction types.PositionDirection,
+	dirtyPrices *DirtyPrices,
 ) {
-	priceToCreatorsToQuantities := map[uint64]map[string]uint64{}
 	for _, cancel := range cancels {
-		if _, ok := priceToCreatorsToQuantities[uint64(cancel.Price)]; !ok {
-			priceToCreatorsToQuantities[uint64(cancel.Price)] = map[string]uint64{}
-		}
-		creatorsToQuantities := priceToCreatorsToQuantities[uint64(cancel.Price)]
-		if _, ok := creatorsToQuantities[cancel.FormattedCreatorWithSuffix()]; !ok {
-			creatorsToQuantities[cancel.FormattedCreatorWithSuffix()] = 0
-		}
-		creatorsToQuantities[cancel.FormattedCreatorWithSuffix()] += uint64(cancel.Quantity)
-	}
-	for _, order := range book {
-		var creatorsToQuantities map[string]uint64
-		if val, ok := priceToCreatorsToQuantities[uint64(order.GetEntry().Price)]; !ok {
-			creatorsToQuantities = map[string]uint64{}
-		} else {
-			creatorsToQuantities = val
-		}
-		if RemoveAllocations(order.GetEntry(), creatorsToQuantities) {
-			dirtyOrderIds[order.GetId()] = true
+		for _, order := range book {
+			if !cancel.Price.Equal(order.GetPrice()) {
+				continue
+			}
+			if RemoveAllocations(order.GetEntry(), map[string]sdk.Dec{
+				cancel.FormattedCreatorWithSuffix(): cancel.Quantity,
+			}) {
+				dirtyPrices.Add(order.GetPrice())
+			}
 		}
 	}
 }
@@ -42,7 +32,7 @@ func CancelForLiquidation(
 	ctx sdk.Context,
 	liquidationCancels []dexcache.CancellationFromLiquidation,
 	book []types.OrderBook,
-	dirtyOrderIds map[uint64]bool,
+	dirtyPrices *DirtyPrices,
 ) {
 	liquidatedAccountSet := utils.NewStringSet([]string{})
 	for _, lc := range liquidationCancels {
@@ -50,7 +40,7 @@ func CancelForLiquidation(
 	}
 	for _, order := range book {
 		if RemoveEntireAllocations(order.GetEntry(), liquidatedAccountSet) {
-			dirtyOrderIds[order.GetId()] = true
+			dirtyPrices.Add(order.GetPrice())
 		}
 	}
 }

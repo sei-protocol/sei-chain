@@ -17,7 +17,7 @@ import (
 
 type (
 	Keeper struct {
-		cdc                 codec.BinaryCodec
+		Cdc                 codec.BinaryCodec
 		storeKey            sdk.StoreKey
 		memKey              sdk.StoreKey
 		paramstore          paramtypes.Subspace
@@ -43,7 +43,7 @@ func NewPlainKeeper(
 		ps = ps.WithKeyTable(types.ParamKeyTable())
 	}
 	return &Keeper{
-		cdc:                 cdc,
+		Cdc:                 cdc,
 		storeKey:            storeKey,
 		memKey:              memKey,
 		paramstore:          ps,
@@ -69,7 +69,7 @@ func NewKeeper(
 		ps = ps.WithKeyTable(types.ParamKeyTable())
 	}
 	return &Keeper{
-		cdc:                 cdc,
+		Cdc:                 cdc,
 		storeKey:            storeKey,
 		memKey:              memKey,
 		paramstore:          ps,
@@ -86,4 +86,8 @@ func NewKeeper(
 
 func (k Keeper) Logger(ctx sdk.Context) log.Logger {
 	return ctx.Logger().With("module", fmt.Sprintf("x/%s", types.ModuleName))
+}
+
+func (k Keeper) GetStoreKey() sdk.StoreKey {
+	return k.storeKey
 }

@@ -1,0 +1,38 @@
+syntax = "proto3";
+package seiprotocol.seichain.dex;
+
+option go_package = "github.com/sei-protocol/sei-chain/x/dex/types";
+
+enum PositionDirection {
+    LONG = 0;
+    SHORT = 1;
+}
+
+enum PositionEffect {
+    OPEN = 0;
+    CLOSE = 1;
+}
+
+enum OrderType {
+    LIMIT = 0;
+    MARKET = 1;
+}
+
+enum Denom {
+    SEI = 0;
+    ATOM = 1;
+    BTC = 2;
+    ETH = 3;
+    SOL = 4;
+    AVAX = 5;
+    USDC = 6;
+    NEAR = 7;
+    OSMO = 8;
+}
+
+enum Unit {
+    STANDARD = 0;
+    MILLI = 1;
+    MICRO = 2;
+    NANO = 3;
+}

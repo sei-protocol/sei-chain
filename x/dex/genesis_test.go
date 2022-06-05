@@ -8,12 +8,14 @@ import (
 	"github.com/sei-protocol/sei-chain/x/dex"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
 	"github.com/stretchr/testify/require"
+
+	sdk "github.com/cosmos/cosmos-sdk/types"
 )
 
 func TEST_PAIR() types.Pair {
 	return types.Pair{
-		PriceDenom: "ust",
-		AssetDenom: "luna",
+		PriceDenom: types.Denom_USDC,
+		AssetDenom: types.Denom_ATOM,
 	}
 }
 
@@ -23,29 +25,29 @@ func TestGenesis(t *testing.T) {
 
 		LongBookList: []types.LongBook{
 			{
-				Id: 0,
+				Price: sdk.ZeroDec(),
 				Entry: &types.OrderEntry{
-					Price: 0,
+					Price: sdk.ZeroDec(),
 				},
 			},
 			{
-				Id: 1,
+				Price: sdk.NewDec(1),
 				Entry: &types.OrderEntry{
-					Price: 0,
+					Price: sdk.ZeroDec(),
 				},
 			},
 		},
 		ShortBookList: []types.ShortBook{
 			{
-				Id: 0,
+				Price: sdk.ZeroDec(),
 				Entry: &types.OrderEntry{
-					Price: 0,
+					Price: sdk.ZeroDec(),
 				},
 			},
 			{
-				Id: 1,
+				Price: sdk.NewDec(1),
 				Entry: &types.OrderEntry{
-					Price: 0,
+					Price: sdk.ZeroDec(),
 				},
 			},
 		},

@@ -2,10 +2,11 @@ package cli
 
 import (
 	"context"
-	"strconv"
+	"errors"
 
 	"github.com/cosmos/cosmos-sdk/client"
 	"github.com/cosmos/cosmos-sdk/client/flags"
+	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
 	"github.com/spf13/cobra"
 )
@@ -25,11 +26,26 @@ func CmdListLongBook() *cobra.Command {
 
 			queryClient := types.NewQueryClient(clientCtx)
 
+			reqPriceDenom, unit, err := types.GetDenomFromStr(args[1])
+			if err != nil {
+				return err
+			}
+			if unit != types.Unit_STANDARD {
+				return errors.New("Denom must be in standard/whole unit (e.g. sei instead of usei)")
+			}
+			reqAssetDenom, unit, err := types.GetDenomFromStr(args[2])
+			if err != nil {
+				return err
+			}
+			if unit != types.Unit_STANDARD {
+				return errors.New("Denom must be in standard/whole unit (e.g. sei instead of usei)")
+			}
+
 			params := &types.QueryAllLongBookRequest{
 				Pagination:   pageReq,
 				ContractAddr: args[0],
-				PriceDenom:   args[1],
-				AssetDenom:   args[2],
+				PriceDenom:   reqPriceDenom,
+				AssetDenom:   reqAssetDenom,
 			}
 
 			res, err := queryClient.LongBookAll(context.Background(), params)
@@ -49,7 +65,7 @@ func CmdListLongBook() *cobra.Command {
 
 func CmdShowLongBook() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "show-long-book [contract address] [id] [price denom] [asset denom]",
+		Use:   "show-long-book [contract address] [price] [price denom] [asset denom]",
 		Short: "shows a longBook",
 		Args:  cobra.ExactArgs(4),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -57,18 +73,30 @@ func CmdShowLongBook() *cobra.Command {
 
 			queryClient := types.NewQueryClient(clientCtx)
 			contractAddr := args[0]
-			id, err := strconv.ParseUint(args[1], 10, 64)
+			price, err := sdk.NewDecFromStr(args[1])
 			if err != nil {
 				return err
 			}
-			priceDenom := args[2]
-			assetDenom := args[3]
+			reqPriceDenom, unit, err := types.GetDenomFromStr(args[2])
+			if err != nil {
+				return err
+			}
+			if unit != types.Unit_STANDARD {
+				return errors.New("Denom must be in standard/whole unit (e.g. sei instead of usei)")
+			}
+			reqAssetDenom, unit, err := types.GetDenomFromStr(args[3])
+			if err != nil {
+				return err
+			}
+			if unit != types.Unit_STANDARD {
+				return errors.New("Denom must be in standard/whole unit (e.g. sei instead of usei)")
+			}
 
 			params := &types.QueryGetLongBookRequest{
-				Id:           id,
+				Price:        price,
 				ContractAddr: contractAddr,
-				PriceDenom:   priceDenom,
-				AssetDenom:   assetDenom,
+				PriceDenom:   reqPriceDenom,
+				AssetDenom:   reqAssetDenom,
 			}
 			res, err := queryClient.LongBook(context.Background(), params)
 			if err != nil {

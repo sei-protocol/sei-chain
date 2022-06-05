@@ -33,13 +33,13 @@ echo $password | sudo -S rm -r ~/test_accounts/
 ./build/seid init demo --chain-id sei-chain
 yes | ./build/seid keys add $keyname
 yes | ./build/seid keys add faucet
-./build/seid add-genesis-account $(./build/seid keys show $keyname -a) 100000000000000000000ust
-./build/seid add-genesis-account $(./build/seid keys show faucet -a) 100000000000000000000ust
+./build/seid add-genesis-account $(./build/seid keys show $keyname -a) 100000000000000000000usei
+./build/seid add-genesis-account $(./build/seid keys show faucet -a) 100000000000000000000usei
 python ./loadtest/scripts/populate_genesis_accounts.py $numtestaccount loc
-./build/seid gentx $keyname 70000000000000000000ust --chain-id sei-chain
+./build/seid gentx $keyname 70000000000000000000usei --chain-id sei-chain
 ./build/seid collect-gentxs
-cat ~/.sei/config/genesis.json | jq '.app_state["crisis"]["constant_fee"]["denom"]="ust"' > ~/.sei/config/tmp_genesis.json && mv ~/.sei/config/tmp_genesis.json ~/.sei/config/genesis.json
-cat ~/.sei/config/genesis.json | jq '.app_state["gov"]["deposit_params"]["min_deposit"][0]["denom"]="ust"' > ~/.sei/config/tmp_genesis.json && mv ~/.sei/config/tmp_genesis.json ~/.sei/config/genesis.json
-cat ~/.sei/config/genesis.json | jq '.app_state["mint"]["params"]["mint_denom"]="ust"' > ~/.sei/config/tmp_genesis.json && mv ~/.sei/config/tmp_genesis.json ~/.sei/config/genesis.json
-cat ~/.sei/config/genesis.json | jq '.app_state["staking"]["params"]["bond_denom"]="ust"' > ~/.sei/config/tmp_genesis.json && mv ~/.sei/config/tmp_genesis.json ~/.sei/config/genesis.json
+cat ~/.sei/config/genesis.json | jq '.app_state["crisis"]["constant_fee"]["denom"]="usei"' > ~/.sei/config/tmp_genesis.json && mv ~/.sei/config/tmp_genesis.json ~/.sei/config/genesis.json
+cat ~/.sei/config/genesis.json | jq '.app_state["gov"]["deposit_params"]["min_deposit"][0]["denom"]="usei"' > ~/.sei/config/tmp_genesis.json && mv ~/.sei/config/tmp_genesis.json ~/.sei/config/genesis.json
+cat ~/.sei/config/genesis.json | jq '.app_state["mint"]["params"]["mint_denom"]="usei"' > ~/.sei/config/tmp_genesis.json && mv ~/.sei/config/tmp_genesis.json ~/.sei/config/genesis.json
+cat ~/.sei/config/genesis.json | jq '.app_state["staking"]["params"]["bond_denom"]="usei"' > ~/.sei/config/tmp_genesis.json && mv ~/.sei/config/tmp_genesis.json ~/.sei/config/genesis.json
 ./build/seid start --trace

@@ -28,8 +28,7 @@ message MsgPlaceOrders {
   string creator = 1;
   repeated OrderPlacement orders = 2;
   string contractAddr = 3;
-  uint64 nonce = 4;
-  repeated cosmos.base.v1beta1.Coin funds = 5 [
+  repeated cosmos.base.v1beta1.Coin funds = 4 [
     (gogoproto.nullable) = false,
     (gogoproto.castrepeated) = "github.com/cosmos/cosmos-sdk/types.Coins"
   ];
@@ -43,7 +42,6 @@ message MsgCancelOrders {
   string creator = 1;
   repeated OrderCancellation orderCancellations = 2;
   string contractAddr = 3;
-  uint64 nonce = 4;
 }
 
 message MsgCancelOrdersResponse {}
@@ -52,7 +50,6 @@ message MsgLiquidation {
   string creator = 1;
   string accountToLiquidate = 2;
   string contractAddr = 3;
-  uint64 nonce = 4;
 }
 
 message MsgLiquidationResponse {}

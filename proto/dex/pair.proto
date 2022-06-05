@@ -1,9 +1,11 @@
 syntax = "proto3";
 package seiprotocol.seichain.dex;
 
+import "dex/enums.proto";
+
 option go_package = "github.com/sei-protocol/sei-chain/x/dex/types";
 
 message Pair {
-    string priceDenom = 1;
-    string assetDenom = 2;
+    Denom priceDenom = 1;
+    Denom assetDenom = 2;
 }

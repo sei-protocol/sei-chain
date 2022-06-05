@@ -12,8 +12,8 @@ var _ sdk.Msg = &MsgRegisterPair{}
 func NewMsgRegisterPair(
 	creator string,
 	contractAddr string,
-	priceDenom string,
-	assetDenom string,
+	priceDenom Denom,
+	assetDenom Denom,
 ) *MsgRegisterPair {
 	return &MsgRegisterPair{
 		Creator:      creator,

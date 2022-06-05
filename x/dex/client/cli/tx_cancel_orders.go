@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"errors"
 	"strconv"
 	"strings"
 
@@ -8,42 +9,68 @@ import (
 	"github.com/cosmos/cosmos-sdk/client/flags"
 	"github.com/cosmos/cosmos-sdk/client/tx"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
-	"github.com/spf13/cast"
 	"github.com/spf13/cobra"
+
+	sdk "github.com/cosmos/cosmos-sdk/types"
 )
 
 var _ = strconv.Itoa(0)
 
 func CmdCancelOrders() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "cancel-orders [contract address] [nonce] [orders...]",
+		Use:   "cancel-orders [contract address] [orders...]",
 		Short: "Bulk cancel orders",
-		Args:  cobra.MinimumNArgs(3),
+		Args:  cobra.MinimumNArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) (err error) {
 			argContractAddr := args[0]
-			argNonce, err := cast.ToUint64E(args[1])
 			if err != nil {
 				return err
 			}
 			orderCancellations := []*types.OrderCancellation{}
-			for _, order := range args[2:] {
+			for _, order := range args[1:] {
 				orderCancellation := types.OrderCancellation{}
 				orderDetails := strings.Split(order, ",")
-				orderCancellation.Long = orderDetails[0] == "Long"
-				argPrice, err := cast.ToUint64E(orderDetails[1])
+				argPositionDir, err := types.GetPositionDirectionFromStr(orderDetails[0])
+				if err != nil {
+					return err
+				}
+				orderCancellation.PositionDirection = argPositionDir
+				argPrice, err := sdk.NewDecFromStr(orderDetails[1])
 				if err != nil {
 					return err
 				}
 				orderCancellation.Price = argPrice
-				argQuantity, err := cast.ToUint64E(orderDetails[2])
+				argQuantity, err := sdk.NewDecFromStr(orderDetails[2])
 				if err != nil {
 					return err
 				}
 				orderCancellation.Quantity = argQuantity
-				orderCancellation.PriceDenom = orderDetails[3]
-				orderCancellation.AssetDenom = orderDetails[4]
-				orderCancellation.Open = orderDetails[5] == "Open"
-				orderCancellation.Leverage = orderDetails[6]
+				reqPriceDenom, unit, err := types.GetDenomFromStr(orderDetails[3])
+				if err != nil {
+					return err
+				}
+				if unit != types.Unit_STANDARD {
+					return errors.New("Denom must be in standard/whole unit (e.g. sei instead of usei)")
+				}
+				reqAssetDenom, unit, err := types.GetDenomFromStr(orderDetails[4])
+				if err != nil {
+					return err
+				}
+				if unit != types.Unit_STANDARD {
+					return errors.New("Denom must be in standard/whole unit (e.g. sei instead of usei)")
+				}
+				orderCancellation.PriceDenom = reqPriceDenom
+				orderCancellation.AssetDenom = reqAssetDenom
+				argPositionEffect, err := types.GetPositionEffectFromStr(orderDetails[5])
+				if err != nil {
+					return err
+				}
+				orderCancellation.PositionEffect = argPositionEffect
+				argLeverage, err := sdk.NewDecFromStr(orderDetails[6])
+				if err != nil {
+					return err
+				}
+				orderCancellation.Leverage = argLeverage
 				orderCancellations = append(orderCancellations, &orderCancellation)
 			}
 
@@ -56,7 +83,6 @@ func CmdCancelOrders() *cobra.Command {
 				clientCtx.GetFromAddress().String(),
 				orderCancellations,
 				argContractAddr,
-				argNonce,
 			)
 			if err := msg.ValidateBasic(); err != nil {
 				return err
