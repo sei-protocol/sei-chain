@@ -12,7 +12,7 @@ func GetDenomFromStr(str string) (Denom, Unit, error) {
 	val, err := getEnumFromStr(str, Denom_value)
 	if err != nil {
 		if str[0] == MICRO_PREFIX {
-			microVal, microErr := getEnumFromStr(str, Denom_value)
+			microVal, microErr := getEnumFromStr(str[1:], Denom_value)
 			if microErr == nil {
 				return Denom(microVal), Unit_MICRO, nil
 			}

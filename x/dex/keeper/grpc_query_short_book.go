@@ -31,7 +31,11 @@ func (k Keeper) ShortBook(c context.Context, req *types.QueryGetShortBookRequest
 	}
 
 	ctx := sdk.UnwrapSDKContext(c)
-	shortBook, found := k.GetShortBookByPrice(ctx, req.ContractAddr, req.Price, req.PriceDenom, req.AssetDenom)
+	price, err := sdk.NewDecFromStr(req.Price)
+	if err != nil {
+		return nil, err
+	}
+	shortBook, found := k.GetShortBookByPrice(ctx, req.ContractAddr, price, req.PriceDenom, req.AssetDenom)
 	if !found {
 		return nil, sdkerrors.ErrKeyNotFound
 	}
