@@ -3,11 +3,12 @@ package app
 import (
 	"context"
 	"fmt"
-	appparams "github.com/sei-protocol/sei-chain/app/params"
 	"io"
 	"os"
 	"path/filepath"
 	"strings"
+
+	appparams "github.com/sei-protocol/sei-chain/app/params"
 
 	"github.com/cosmos/cosmos-sdk/baseapp"
 	"github.com/cosmos/cosmos-sdk/client"
