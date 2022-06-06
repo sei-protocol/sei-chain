@@ -12,52 +12,54 @@ import (
 	otrace "go.opentelemetry.io/otel/trace"
 )
 
-func (k *Keeper) HandleEBPlaceOrders(ctx context.Context, sdkCtx sdk.Context, tracer *otrace.Tracer, contractAddr string) {
+func (k *Keeper) HandleEBPlaceOrders(ctx context.Context, sdkCtx sdk.Context, tracer *otrace.Tracer, contractAddr string, registeredPairs []types.Pair) {
 	_, span := (*tracer).Start(ctx, "SudoPlaceOrders")
 	span.SetAttributes(attribute.String("contractAddr", contractAddr))
 
-	msg := k.getPlaceSudoMsg(contractAddr)
+	msg := k.getPlaceSudoMsg(contractAddr, registeredPairs)
 	data := k.CallContractSudo(sdkCtx, contractAddr, msg)
 	response := types.SudoOrderPlacementResponse{}
 	json.Unmarshal(data, &response)
 	sdkCtx.Logger().Info(fmt.Sprintf("Sudo response data: %s", response))
-	for pair, orderPlacements := range k.OrderPlacements[contractAddr] {
-		orderPlacements.FilterOutIds(response.UnsuccessfulOrderIds)
-		for _, orderPlacement := range orderPlacements.Orders {
-			switch orderPlacement.OrderType {
-			case types.OrderType_LIMIT:
-				k.Orders[contractAddr][pair].AddLimitOrder(dexcache.LimitOrder{
-					Creator:   orderPlacement.Creator,
-					Price:     orderPlacement.Price,
-					Quantity:  orderPlacement.Quantity,
-					Direction: orderPlacement.Direction,
-					Effect:    orderPlacement.Effect,
-					Leverage:  orderPlacement.Leverage,
-				})
-			case types.OrderType_MARKET:
-				k.Orders[contractAddr][pair].AddMarketOrder(dexcache.MarketOrder{
-					Creator:    orderPlacement.Creator,
-					WorstPrice: orderPlacement.Price,
-					Quantity:   orderPlacement.Quantity,
-					Direction:  orderPlacement.Direction,
-					Effect:     orderPlacement.Effect,
-					Leverage:   orderPlacement.Leverage,
-				})
-			default:
-				panic("Unknown order type")
+	for _, pair := range registeredPairs {
+		pairStr := pair.String()
+		if orderPlacements, ok := k.OrderPlacements[contractAddr][pairStr]; ok {
+			orderPlacements.FilterOutIds(response.UnsuccessfulOrderIds)
+			for _, orderPlacement := range orderPlacements.Orders {
+				switch orderPlacement.OrderType {
+				case types.OrderType_LIMIT:
+					k.Orders[contractAddr][pairStr].AddLimitOrder(dexcache.LimitOrder{
+						Creator:   orderPlacement.Creator,
+						Price:     orderPlacement.Price,
+						Quantity:  orderPlacement.Quantity,
+						Direction: orderPlacement.Direction,
+						Effect:    orderPlacement.Effect,
+						Leverage:  orderPlacement.Leverage,
+					})
+				case types.OrderType_MARKET:
+					k.Orders[contractAddr][pairStr].AddMarketOrder(dexcache.MarketOrder{
+						Creator:    orderPlacement.Creator,
+						WorstPrice: orderPlacement.Price,
+						Quantity:   orderPlacement.Quantity,
+						Direction:  orderPlacement.Direction,
+						Effect:     orderPlacement.Effect,
+						Leverage:   orderPlacement.Leverage,
+					})
+				}
 			}
 		}
 	}
 	span.End()
 }
 
-func (k *Keeper) getPlaceSudoMsg(contractAddr string) types.SudoOrderPlacementMsg {
-	pairToOrderPlacements := k.OrderPlacements[contractAddr]
+func (k *Keeper) getPlaceSudoMsg(contractAddr string, registeredPairs []types.Pair) types.SudoOrderPlacementMsg {
 	contractOrderPlacements := []types.ContractOrderPlacement{}
-	for _, orderPlacements := range pairToOrderPlacements {
-		for _, orderPlacement := range orderPlacements.Orders {
-			if !orderPlacement.Liquidation {
-				contractOrderPlacements = append(contractOrderPlacements, dexcache.ToContractOrderPlacement(orderPlacement))
+	for _, pair := range registeredPairs {
+		if orderPlacements, ok := k.OrderPlacements[contractAddr][pair.String()]; ok {
+			for _, orderPlacement := range orderPlacements.Orders {
+				if !orderPlacement.Liquidation {
+					contractOrderPlacements = append(contractOrderPlacements, dexcache.ToContractOrderPlacement(orderPlacement))
+				}
 			}
 		}
 	}

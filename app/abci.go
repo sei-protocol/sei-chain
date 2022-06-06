@@ -39,7 +39,9 @@ func (app *App) DeliverTx(req abci.RequestDeliverTx) abci.ResponseDeliverTx {
 }
 
 func (app *App) Commit() (res abci.ResponseCommit) {
-	defer (*app.tracingInfo.BlockSpan).End()
+	if app.tracingInfo.BlockSpan != nil {
+		defer (*app.tracingInfo.BlockSpan).End()
+	}
 	_, span := (*app.tracingInfo.Tracer).Start(app.tracingInfo.TracerContext, "Commit")
 	defer span.End()
 	app.tracingInfo.TracerContext = context.Background()
