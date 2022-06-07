@@ -51,10 +51,6 @@ func local_request_Query_Params_0(ctx context.Context, marshaler runtime.Marshal
 
 }
 
-var (
-	filter_Query_LongBook_0 = &utilities.DoubleArray{Encoding: map[string]int{"contractAddr": 0, "priceDenom": 1, "assetDenom": 2}, Base: []int{1, 1, 2, 3, 0, 0, 0}, Check: []int{0, 1, 1, 1, 2, 3, 4}}
-)
-
 func request_Query_LongBook_0(ctx context.Context, marshaler runtime.Marshaler, client QueryClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
 	var protoReq QueryGetLongBookRequest
 	var metadata runtime.ServerMetadata
@@ -104,11 +100,15 @@ func request_Query_LongBook_0(ctx context.Context, marshaler runtime.Marshaler, 
 
 	protoReq.AssetDenom = Denom(e)
 
-	if err := req.ParseForm(); err != nil {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
+	val, ok = pathParams["price"]
+	if !ok {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "price")
 	}
-	if err := runtime.PopulateQueryParameters(&protoReq, req.Form, filter_Query_LongBook_0); err != nil {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
+
+	protoReq.Price, err = runtime.String(val)
+
+	if err != nil {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "price", err)
 	}
 
 	msg, err := client.LongBook(ctx, &protoReq, grpc.Header(&metadata.HeaderMD), grpc.Trailer(&metadata.TrailerMD))
@@ -165,11 +165,15 @@ func local_request_Query_LongBook_0(ctx context.Context, marshaler runtime.Marsh
 
 	protoReq.AssetDenom = Denom(e)
 
-	if err := req.ParseForm(); err != nil {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
+	val, ok = pathParams["price"]
+	if !ok {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "price")
 	}
-	if err := runtime.PopulateQueryParameters(&protoReq, req.Form, filter_Query_LongBook_0); err != nil {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
+
+	protoReq.Price, err = runtime.String(val)
+
+	if err != nil {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "price", err)
 	}
 
 	msg, err := server.LongBook(ctx, &protoReq)
@@ -178,47 +182,11 @@ func local_request_Query_LongBook_0(ctx context.Context, marshaler runtime.Marsh
 }
 
 var (
-	filter_Query_LongBookAll_0 = &utilities.DoubleArray{Encoding: map[string]int{}, Base: []int(nil), Check: []int(nil)}
+	filter_Query_LongBookAll_0 = &utilities.DoubleArray{Encoding: map[string]int{"contractAddr": 0, "priceDenom": 1, "assetDenom": 2}, Base: []int{1, 1, 2, 3, 0, 0, 0}, Check: []int{0, 1, 1, 1, 2, 3, 4}}
 )
 
 func request_Query_LongBookAll_0(ctx context.Context, marshaler runtime.Marshaler, client QueryClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
 	var protoReq QueryAllLongBookRequest
-	var metadata runtime.ServerMetadata
-
-	if err := req.ParseForm(); err != nil {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
-	}
-	if err := runtime.PopulateQueryParameters(&protoReq, req.Form, filter_Query_LongBookAll_0); err != nil {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
-	}
-
-	msg, err := client.LongBookAll(ctx, &protoReq, grpc.Header(&metadata.HeaderMD), grpc.Trailer(&metadata.TrailerMD))
-	return msg, metadata, err
-
-}
-
-func local_request_Query_LongBookAll_0(ctx context.Context, marshaler runtime.Marshaler, server QueryServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
-	var protoReq QueryAllLongBookRequest
-	var metadata runtime.ServerMetadata
-
-	if err := req.ParseForm(); err != nil {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
-	}
-	if err := runtime.PopulateQueryParameters(&protoReq, req.Form, filter_Query_LongBookAll_0); err != nil {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
-	}
-
-	msg, err := server.LongBookAll(ctx, &protoReq)
-	return msg, metadata, err
-
-}
-
-var (
-	filter_Query_ShortBook_0 = &utilities.DoubleArray{Encoding: map[string]int{"contractAddr": 0, "priceDenom": 1, "assetDenom": 2}, Base: []int{1, 1, 2, 3, 0, 0, 0}, Check: []int{0, 1, 1, 1, 2, 3, 4}}
-)
-
-func request_Query_ShortBook_0(ctx context.Context, marshaler runtime.Marshaler, client QueryClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
-	var protoReq QueryGetShortBookRequest
 	var metadata runtime.ServerMetadata
 
 	var (
@@ -269,8 +237,134 @@ func request_Query_ShortBook_0(ctx context.Context, marshaler runtime.Marshaler,
 	if err := req.ParseForm(); err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
-	if err := runtime.PopulateQueryParameters(&protoReq, req.Form, filter_Query_ShortBook_0); err != nil {
+	if err := runtime.PopulateQueryParameters(&protoReq, req.Form, filter_Query_LongBookAll_0); err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
+	}
+
+	msg, err := client.LongBookAll(ctx, &protoReq, grpc.Header(&metadata.HeaderMD), grpc.Trailer(&metadata.TrailerMD))
+	return msg, metadata, err
+
+}
+
+func local_request_Query_LongBookAll_0(ctx context.Context, marshaler runtime.Marshaler, server QueryServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+	var protoReq QueryAllLongBookRequest
+	var metadata runtime.ServerMetadata
+
+	var (
+		val string
+		e   int32
+		ok  bool
+		err error
+		_   = err
+	)
+
+	val, ok = pathParams["contractAddr"]
+	if !ok {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "contractAddr")
+	}
+
+	protoReq.ContractAddr, err = runtime.String(val)
+
+	if err != nil {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "contractAddr", err)
+	}
+
+	val, ok = pathParams["priceDenom"]
+	if !ok {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "priceDenom")
+	}
+
+	e, err = runtime.Enum(val, Denom_value)
+
+	if err != nil {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "priceDenom", err)
+	}
+
+	protoReq.PriceDenom = Denom(e)
+
+	val, ok = pathParams["assetDenom"]
+	if !ok {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "assetDenom")
+	}
+
+	e, err = runtime.Enum(val, Denom_value)
+
+	if err != nil {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "assetDenom", err)
+	}
+
+	protoReq.AssetDenom = Denom(e)
+
+	if err := req.ParseForm(); err != nil {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
+	}
+	if err := runtime.PopulateQueryParameters(&protoReq, req.Form, filter_Query_LongBookAll_0); err != nil {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
+	}
+
+	msg, err := server.LongBookAll(ctx, &protoReq)
+	return msg, metadata, err
+
+}
+
+func request_Query_ShortBook_0(ctx context.Context, marshaler runtime.Marshaler, client QueryClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+	var protoReq QueryGetShortBookRequest
+	var metadata runtime.ServerMetadata
+
+	var (
+		val string
+		e   int32
+		ok  bool
+		err error
+		_   = err
+	)
+
+	val, ok = pathParams["contractAddr"]
+	if !ok {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "contractAddr")
+	}
+
+	protoReq.ContractAddr, err = runtime.String(val)
+
+	if err != nil {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "contractAddr", err)
+	}
+
+	val, ok = pathParams["priceDenom"]
+	if !ok {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "priceDenom")
+	}
+
+	e, err = runtime.Enum(val, Denom_value)
+
+	if err != nil {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "priceDenom", err)
+	}
+
+	protoReq.PriceDenom = Denom(e)
+
+	val, ok = pathParams["assetDenom"]
+	if !ok {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "assetDenom")
+	}
+
+	e, err = runtime.Enum(val, Denom_value)
+
+	if err != nil {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "assetDenom", err)
+	}
+
+	protoReq.AssetDenom = Denom(e)
+
+	val, ok = pathParams["price"]
+	if !ok {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "price")
+	}
+
+	protoReq.Price, err = runtime.String(val)
+
+	if err != nil {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "price", err)
 	}
 
 	msg, err := client.ShortBook(ctx, &protoReq, grpc.Header(&metadata.HeaderMD), grpc.Trailer(&metadata.TrailerMD))
@@ -327,11 +421,15 @@ func local_request_Query_ShortBook_0(ctx context.Context, marshaler runtime.Mars
 
 	protoReq.AssetDenom = Denom(e)
 
-	if err := req.ParseForm(); err != nil {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
+	val, ok = pathParams["price"]
+	if !ok {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "price")
 	}
-	if err := runtime.PopulateQueryParameters(&protoReq, req.Form, filter_Query_ShortBook_0); err != nil {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
+
+	protoReq.Price, err = runtime.String(val)
+
+	if err != nil {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "price", err)
 	}
 
 	msg, err := server.ShortBook(ctx, &protoReq)
@@ -340,12 +438,57 @@ func local_request_Query_ShortBook_0(ctx context.Context, marshaler runtime.Mars
 }
 
 var (
-	filter_Query_ShortBookAll_0 = &utilities.DoubleArray{Encoding: map[string]int{}, Base: []int(nil), Check: []int(nil)}
+	filter_Query_ShortBookAll_0 = &utilities.DoubleArray{Encoding: map[string]int{"contractAddr": 0, "priceDenom": 1, "assetDenom": 2}, Base: []int{1, 1, 2, 3, 0, 0, 0}, Check: []int{0, 1, 1, 1, 2, 3, 4}}
 )
 
 func request_Query_ShortBookAll_0(ctx context.Context, marshaler runtime.Marshaler, client QueryClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
 	var protoReq QueryAllShortBookRequest
 	var metadata runtime.ServerMetadata
+
+	var (
+		val string
+		e   int32
+		ok  bool
+		err error
+		_   = err
+	)
+
+	val, ok = pathParams["contractAddr"]
+	if !ok {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "contractAddr")
+	}
+
+	protoReq.ContractAddr, err = runtime.String(val)
+
+	if err != nil {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "contractAddr", err)
+	}
+
+	val, ok = pathParams["priceDenom"]
+	if !ok {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "priceDenom")
+	}
+
+	e, err = runtime.Enum(val, Denom_value)
+
+	if err != nil {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "priceDenom", err)
+	}
+
+	protoReq.PriceDenom = Denom(e)
+
+	val, ok = pathParams["assetDenom"]
+	if !ok {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "assetDenom")
+	}
+
+	e, err = runtime.Enum(val, Denom_value)
+
+	if err != nil {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "assetDenom", err)
+	}
+
+	protoReq.AssetDenom = Denom(e)
 
 	if err := req.ParseForm(); err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
@@ -362,6 +505,51 @@ func request_Query_ShortBookAll_0(ctx context.Context, marshaler runtime.Marshal
 func local_request_Query_ShortBookAll_0(ctx context.Context, marshaler runtime.Marshaler, server QueryServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
 	var protoReq QueryAllShortBookRequest
 	var metadata runtime.ServerMetadata
+
+	var (
+		val string
+		e   int32
+		ok  bool
+		err error
+		_   = err
+	)
+
+	val, ok = pathParams["contractAddr"]
+	if !ok {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "contractAddr")
+	}
+
+	protoReq.ContractAddr, err = runtime.String(val)
+
+	if err != nil {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "contractAddr", err)
+	}
+
+	val, ok = pathParams["priceDenom"]
+	if !ok {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "priceDenom")
+	}
+
+	e, err = runtime.Enum(val, Denom_value)
+
+	if err != nil {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "priceDenom", err)
+	}
+
+	protoReq.PriceDenom = Denom(e)
+
+	val, ok = pathParams["assetDenom"]
+	if !ok {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "assetDenom")
+	}
+
+	e, err = runtime.Enum(val, Denom_value)
+
+	if err != nil {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "assetDenom", err)
+	}
+
+	protoReq.AssetDenom = Denom(e)
 
 	if err := req.ParseForm(); err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
@@ -869,13 +1057,13 @@ func RegisterQueryHandlerClient(ctx context.Context, mux *runtime.ServeMux, clie
 var (
 	pattern_Query_Params_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3}, []string{"sei-protocol", "seichain", "dex", "params"}, "", runtime.AssumeColonVerbOpt(true)))
 
-	pattern_Query_LongBook_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3, 1, 0, 4, 1, 5, 4, 1, 0, 4, 1, 5, 5, 1, 0, 4, 1, 5, 6}, []string{"sei-protocol", "seichain", "dex", "long_book", "contractAddr", "priceDenom", "assetDenom"}, "", runtime.AssumeColonVerbOpt(true)))
+	pattern_Query_LongBook_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3, 1, 0, 4, 1, 5, 4, 1, 0, 4, 1, 5, 5, 1, 0, 4, 1, 5, 6, 1, 0, 4, 1, 5, 7}, []string{"sei-protocol", "seichain", "dex", "long_book", "contractAddr", "priceDenom", "assetDenom", "price"}, "", runtime.AssumeColonVerbOpt(true)))
 
-	pattern_Query_LongBookAll_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3}, []string{"sei-protocol", "seichain", "dex", "long_book"}, "", runtime.AssumeColonVerbOpt(true)))
+	pattern_Query_LongBookAll_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3, 1, 0, 4, 1, 5, 4, 1, 0, 4, 1, 5, 5, 1, 0, 4, 1, 5, 6}, []string{"sei-protocol", "seichain", "dex", "long_book", "contractAddr", "priceDenom", "assetDenom"}, "", runtime.AssumeColonVerbOpt(true)))
 
-	pattern_Query_ShortBook_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3, 1, 0, 4, 1, 5, 4, 1, 0, 4, 1, 5, 5, 1, 0, 4, 1, 5, 6}, []string{"sei-protocol", "seichain", "dex", "short_book", "contractAddr", "priceDenom", "assetDenom"}, "", runtime.AssumeColonVerbOpt(true)))
+	pattern_Query_ShortBook_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3, 1, 0, 4, 1, 5, 4, 1, 0, 4, 1, 5, 5, 1, 0, 4, 1, 5, 6, 1, 0, 4, 1, 5, 7}, []string{"sei-protocol", "seichain", "dex", "short_book", "contractAddr", "priceDenom", "assetDenom", "price"}, "", runtime.AssumeColonVerbOpt(true)))
 
-	pattern_Query_ShortBookAll_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3}, []string{"sei-protocol", "seichain", "dex", "short_book"}, "", runtime.AssumeColonVerbOpt(true)))
+	pattern_Query_ShortBookAll_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3, 1, 0, 4, 1, 5, 4, 1, 0, 4, 1, 5, 5, 1, 0, 4, 1, 5, 6}, []string{"sei-protocol", "seichain", "dex", "short_book", "contractAddr", "priceDenom", "assetDenom"}, "", runtime.AssumeColonVerbOpt(true)))
 
 	pattern_Query_SettlementsAll_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3}, []string{"sei-protocol", "seichain", "dex", "settlement"}, "", runtime.AssumeColonVerbOpt(true)))
 

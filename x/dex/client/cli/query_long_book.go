@@ -6,7 +6,6 @@ import (
 
 	"github.com/cosmos/cosmos-sdk/client"
 	"github.com/cosmos/cosmos-sdk/client/flags"
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
 	"github.com/spf13/cobra"
 )
@@ -73,10 +72,6 @@ func CmdShowLongBook() *cobra.Command {
 
 			queryClient := types.NewQueryClient(clientCtx)
 			contractAddr := args[0]
-			price, err := sdk.NewDecFromStr(args[1])
-			if err != nil {
-				return err
-			}
 			reqPriceDenom, unit, err := types.GetDenomFromStr(args[2])
 			if err != nil {
 				return err
@@ -93,7 +88,7 @@ func CmdShowLongBook() *cobra.Command {
 			}
 
 			params := &types.QueryGetLongBookRequest{
-				Price:        price,
+				Price:        args[1],
 				ContractAddr: contractAddr,
 				PriceDenom:   reqPriceDenom,
 				AssetDenom:   reqAssetDenom,

@@ -22,22 +22,22 @@ service Query {
   }
   // Queries a LongBook by id.
 	rpc LongBook(QueryGetLongBookRequest) returns (QueryGetLongBookResponse) {
-		option (google.api.http).get = "/sei-protocol/seichain/dex/long_book/{contractAddr}/{priceDenom}/{assetDenom}";
+		option (google.api.http).get = "/sei-protocol/seichain/dex/long_book/{contractAddr}/{priceDenom}/{assetDenom}/{price}";
 	}
 
 	// Queries a list of LongBook items.
 	rpc LongBookAll(QueryAllLongBookRequest) returns (QueryAllLongBookResponse) {
-		option (google.api.http).get = "/sei-protocol/seichain/dex/long_book";
+		option (google.api.http).get = "/sei-protocol/seichain/dex/long_book/{contractAddr}/{priceDenom}/{assetDenom}";
 	}
 
 // Queries a ShortBook by id.
 	rpc ShortBook(QueryGetShortBookRequest) returns (QueryGetShortBookResponse) {
-		option (google.api.http).get = "/sei-protocol/seichain/dex/short_book/{contractAddr}/{priceDenom}/{assetDenom}";
+		option (google.api.http).get = "/sei-protocol/seichain/dex/short_book/{contractAddr}/{priceDenom}/{assetDenom}/{price}";
 	}
 
 	// Queries a list of ShortBook items.
 	rpc ShortBookAll(QueryAllShortBookRequest) returns (QueryAllShortBookResponse) {
-		option (google.api.http).get = "/sei-protocol/seichain/dex/short_book";
+		option (google.api.http).get = "/sei-protocol/seichain/dex/short_book/{contractAddr}/{priceDenom}/{assetDenom}";
 	}
 
 	rpc SettlementsAll(QueryAllSettlementsRequest) returns (QueryAllSettlementsResponse) {
@@ -62,11 +62,7 @@ message QueryParamsResponse {
 }
 
 message QueryGetLongBookRequest {
-	string price = 1 [
-      (gogoproto.moretags)   = "yaml:\"price\"",
-      (gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Dec",
-      (gogoproto.nullable)   = false
-  ];
+	string price = 1;
 	string contractAddr = 2;
 	Denom priceDenom = 3;
 	Denom assetDenom = 4;
@@ -89,11 +85,7 @@ message QueryAllLongBookResponse {
 }
 
 message QueryGetShortBookRequest {
-	string price = 1 [
-      (gogoproto.moretags)   = "yaml:\"price\"",
-      (gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Dec",
-      (gogoproto.nullable)   = false
-  ];
+	string price = 1;
 	string contractAddr = 2;
 	Denom priceDenom = 3;
 	Denom assetDenom = 4;

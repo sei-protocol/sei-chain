@@ -27,17 +27,17 @@ func TestLongBookQuerySingle(t *testing.T) {
 	}{
 		{
 			desc:     "First",
-			request:  &types.QueryGetLongBookRequest{Price: msgs[0].Price, ContractAddr: TEST_CONTRACT, PriceDenom: TEST_PRICE_DENOM, AssetDenom: TEST_ASSET_DENOM},
+			request:  &types.QueryGetLongBookRequest{Price: msgs[0].Price.String(), ContractAddr: TEST_CONTRACT, PriceDenom: TEST_PRICE_DENOM, AssetDenom: TEST_ASSET_DENOM},
 			response: &types.QueryGetLongBookResponse{LongBook: msgs[0]},
 		},
 		{
 			desc:     "Second",
-			request:  &types.QueryGetLongBookRequest{Price: msgs[1].Price, ContractAddr: TEST_CONTRACT, PriceDenom: TEST_PRICE_DENOM, AssetDenom: TEST_ASSET_DENOM},
+			request:  &types.QueryGetLongBookRequest{Price: msgs[1].Price.String(), ContractAddr: TEST_CONTRACT, PriceDenom: TEST_PRICE_DENOM, AssetDenom: TEST_ASSET_DENOM},
 			response: &types.QueryGetLongBookResponse{LongBook: msgs[1]},
 		},
 		{
 			desc:    "KeyNotFound",
-			request: &types.QueryGetLongBookRequest{Price: sdk.NewDec(100000), ContractAddr: TEST_CONTRACT, PriceDenom: TEST_PRICE_DENOM, AssetDenom: TEST_ASSET_DENOM},
+			request: &types.QueryGetLongBookRequest{Price: "100000", ContractAddr: TEST_CONTRACT, PriceDenom: TEST_PRICE_DENOM, AssetDenom: TEST_ASSET_DENOM},
 			err:     sdkerrors.ErrKeyNotFound,
 		},
 		{
