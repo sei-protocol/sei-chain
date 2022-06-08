@@ -108,3 +108,16 @@ func (q Keeper) DenomHash(c context.Context, req *types.QueryDenomHashRequest) (
 		Hash: denomHash.String(),
 	}, nil
 }
+
+// EscrowAddress implements the EscrowAddress gRPC method
+func (q Keeper) EscrowAddress(c context.Context, req *types.QueryEscrowAddressRequest) (*types.QueryEscrowAddressResponse, error) {
+	if req == nil {
+		return nil, status.Error(codes.InvalidArgument, "empty request")
+	}
+
+	addr := types.GetEscrowAddress(req.PortId, req.ChannelId)
+
+	return &types.QueryEscrowAddressResponse{
+		EscrowAddress: addr.String(),
+	}, nil
+}

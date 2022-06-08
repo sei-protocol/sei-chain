@@ -56,6 +56,8 @@ Ref: https://keepachangelog.com/en/1.0.0/
 
 ### Features
 
+* (modules/apps/transfer) [\#1416](https://github.com/cosmos/ibc-go/pull/1416) Adding gRPC endpoint for getting an escrow account for a given port-id and channel-id.
+
 ### Bug Fixes
 
 * (modules/core/04-channel) [\#1130](https://github.com/cosmos/ibc-go/pull/1130) Call `packet.GetSequence()` rather than passing func in `WriteAcknowledgement` log output
