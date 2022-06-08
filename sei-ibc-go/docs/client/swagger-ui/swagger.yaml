@@ -4,6 +4,59 @@ info:
   description: A REST interface for state queries
   version: 1.0.0
 paths:
+  '/ibc/apps/transfer/v1/channels/{channel_id}/ports/{port_id}/escrow_address':
+    get:
+      summary: >-
+        EscrowAddress returns the escrow address for a particular port and
+        channel id.
+      operationId: EscrowAddress
+      responses:
+        '200':
+          description: A successful response.
+          schema:
+            type: object
+            properties:
+              escrow_address:
+                type: string
+                title: the escrow account address
+            description: >-
+              QueryEscrowAddressResponse is the response type of the
+              EscrowAddress RPC method.
+        default:
+          description: An unexpected error response
+          schema:
+            type: object
+            properties:
+              error:
+                type: string
+              code:
+                type: integer
+                format: int32
+              message:
+                type: string
+              details:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    type_url:
+                      type: string
+                    value:
+                      type: string
+                      format: byte
+      parameters:
+        - name: channel_id
+          description: unique channel identifier
+          in: path
+          required: true
+          type: string
+        - name: port_id
+          description: unique port identifier
+          in: path
+          required: true
+          type: string
+      tags:
+        - Query
   '/ibc/apps/transfer/v1/denom_hashes/{trace}':
     get:
       summary: DenomHash queries a denomination hash information.
@@ -10074,6 +10127,15 @@ definitions:
       QueryConnectionsResponse is the response type for the Query/DenomTraces
       RPC
 
+      method.
+  ibc.applications.transfer.v1.QueryEscrowAddressResponse:
+    type: object
+    properties:
+      escrow_address:
+        type: string
+        title: the escrow account address
+    description: >-
+      QueryEscrowAddressResponse is the response type of the EscrowAddress RPC
       method.
   ibc.applications.transfer.v1.QueryParamsResponse:
     type: object
