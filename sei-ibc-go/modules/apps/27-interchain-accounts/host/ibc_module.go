@@ -110,15 +110,16 @@ func (im IBCModule) OnRecvPacket(
 	}
 
 	txResponse, err := im.keeper.OnRecvPacket(ctx, packet)
+	ack := channeltypes.NewResultAcknowledgement(txResponse)
 	if err != nil {
-		// Emit an event including the error msg
-		keeper.EmitWriteErrorAcknowledgementEvent(ctx, packet, err)
-
-		return types.NewErrorAcknowledgement(err)
+		ack = types.NewErrorAcknowledgement(err)
 	}
 
+	// Emit an event indicating a successful or failed acknowledgement.
+	keeper.EmitAcknowledgementEvent(ctx, packet, ack, err)
+
 	// NOTE: acknowledgement will be written synchronously during IBC handler execution.
-	return channeltypes.NewResultAcknowledgement(txResponse)
+	return ack
 }
 
 // OnAcknowledgementPacket implements the IBCModule interface
