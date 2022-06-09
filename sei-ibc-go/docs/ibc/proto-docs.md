@@ -638,7 +638,7 @@ method
 
 | Field | Type | Label | Description |
 | ----- | ---- | ----- | ----------- |
-| `hash` | [string](#string) |  | hash (in hex format) of the denomination trace information. |
+| `hash` | [string](#string) |  | hash (in hex format) or denom (full denom with ibc prefix) of the denomination trace information. |
 
 
 

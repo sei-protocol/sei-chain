@@ -33,7 +33,7 @@ const _ = proto.GoGoProtoPackageIsVersion3 // please upgrade the proto package
 // QueryDenomTraceRequest is the request type for the Query/DenomTrace RPC
 // method
 type QueryDenomTraceRequest struct {
-	// hash (in hex format) of the denomination trace information.
+	// hash (in hex format) or denom (full denom with ibc prefix) of the denomination trace information.
 	Hash string `protobuf:"bytes,1,opt,name=hash,proto3" json:"hash,omitempty"`
 }
 

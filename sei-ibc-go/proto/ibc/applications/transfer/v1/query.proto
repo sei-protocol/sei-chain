@@ -40,7 +40,7 @@ service Query {
 // QueryDenomTraceRequest is the request type for the Query/DenomTrace RPC
 // method
 message QueryDenomTraceRequest {
-  // hash (in hex format) of the denomination trace information.
+  // hash (in hex format) or denom (full denom with ibc prefix) of the denomination trace information.
   string hash = 1;
 }
 
