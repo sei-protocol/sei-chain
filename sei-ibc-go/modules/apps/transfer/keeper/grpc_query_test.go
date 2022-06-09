@@ -22,27 +22,20 @@ func (suite *KeeperTestSuite) TestQueryDenomTrace() {
 		expPass  bool
 	}{
 		{
-			"invalid hex hash",
-			func() {
-				req = &types.QueryDenomTraceRequest{
-					Hash: "!@#!@#!",
-				}
-			},
-			false,
-		},
-		{
-			"not found denom trace",
+			"success: correct ibc denom",
 			func() {
 				expTrace.Path = "transfer/channelToA/transfer/channelToB"
 				expTrace.BaseDenom = "uatom"
+				suite.chainA.GetSimApp().TransferKeeper.SetDenomTrace(suite.chainA.GetContext(), expTrace)
+
 				req = &types.QueryDenomTraceRequest{
-					Hash: expTrace.Hash().String(),
+					Hash: expTrace.IBCDenom(),
 				}
 			},
-			false,
+			true,
 		},
 		{
-			"success",
+			"success: correct hex hash",
 			func() {
 				expTrace.Path = "transfer/channelToA/transfer/channelToB"
 				expTrace.BaseDenom = "uatom"
@@ -53,6 +46,26 @@ func (suite *KeeperTestSuite) TestQueryDenomTrace() {
 				}
 			},
 			true,
+		},
+		{
+			"failure: invalid hash",
+			func() {
+				req = &types.QueryDenomTraceRequest{
+					Hash: "!@#!@#!",
+				}
+			},
+			false,
+		},
+		{
+			"failure: not found denom trace",
+			func() {
+				expTrace.Path = "transfer/channelToA/transfer/channelToB"
+				expTrace.BaseDenom = "uatom"
+				req = &types.QueryDenomTraceRequest{
+					Hash: expTrace.IBCDenom(),
+				}
+			},
+			false,
 		},
 	}
 
