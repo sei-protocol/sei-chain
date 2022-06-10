@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"strconv"
 
 	"github.com/CosmWasm/wasmd/x/wasm"
 	"github.com/gorilla/mux"
@@ -236,50 +235,23 @@ func (am AppModule) beginBlockForContract(ctx sdk.Context, contractAddr string) 
 
 	if isNewEpoch, currentEpoch := am.keeper.IsNewEpoch(ctx); isNewEpoch {
 		ctx.Logger().Info(fmt.Sprintf("Updating price for epoch %d", currentEpoch))
-		setPrices := []types.SetPrice{}
+		priceRetention := am.keeper.GetParams(ctx).PriceSnapshotRetention
 		for _, pair := range am.keeper.GetAllRegisteredPairs(ctx, contractAddr) {
-			lastEpochPrice, exist := am.keeper.GetPriceState(ctx, contractAddr, currentEpoch-1, pair.PriceDenom, pair.AssetDenom)
-			if exist {
-				setPrices = append(setPrices, types.SetPrice{
-					Epoch:         currentEpoch - 1,
-					PriceDenom:    pair.PriceDenom,
-					AssetDenom:    pair.AssetDenom,
-					ExchangePrice: strconv.FormatUint(lastEpochPrice.ExchangePrice, 10),
-					OraclePrice:   strconv.FormatUint(lastEpochPrice.OraclePrice, 10),
-				})
+			lastEpochPrice, exists := am.keeper.GetPriceState(ctx, contractAddr, currentEpoch-1, pair)
+			if exists {
+				newEpochPrice := types.Price{
+					SnapshotTimestampInSeconds: uint64(ctx.BlockTime().Unix()),
+					Pair:                       &pair,
+					Price:                      lastEpochPrice.Price,
+				}
+				am.keeper.SetPriceState(ctx, newEpochPrice, contractAddr, currentEpoch)
 			}
-			newEpochPrice := types.Price{
-				Epoch:         currentEpoch,
-				PriceDenom:    pair.PriceDenom,
-				AssetDenom:    pair.AssetDenom,
-				ExchangePrice: lastEpochPrice.ExchangePrice,
-				OraclePrice:   lastEpochPrice.OraclePrice,
-			}
-			am.keeper.SetPriceState(ctx, newEpochPrice, contractAddr)
-		}
-		nativeSetFPRMsg := types.SudoSetPricesMsg{
-			SetPrices: types.SetPrices{
-				Prices: setPrices,
-			},
-		}
-		wasmMsg, err := json.Marshal(nativeSetFPRMsg)
-		if err != nil {
-			ctx.Logger().Info(err.Error())
-		}
 
-		am.callClearingHouseContractSudo(ctx, wasmMsg, contractAddr)
-	} else {
-		for _, pair := range am.keeper.GetAllRegisteredPairs(ctx, contractAddr) {
-			lastEpochPrice, _ := am.keeper.GetPriceState(ctx, contractAddr, currentEpoch, pair.PriceDenom, pair.AssetDenom)
-			oraclePriceDenom1, error1 := am.oracleKeeper.GetBaseExchangeRate(ctx, pair.PriceDenom)
-			oraclePriceDenom2, error2 := am.oracleKeeper.GetBaseExchangeRate(ctx, pair.AssetDenom)
-			if error1 == nil && error2 == nil {
-				lastEpochPrice.OraclePrice = oraclePriceDenom2.Quo(oraclePriceDenom1).TruncateInt().Uint64()
-			} else {
-				// if oracle price is not set, use exchange price as oracle price
-				lastEpochPrice.OraclePrice = lastEpochPrice.ExchangePrice
+			// condition to prevent unsigned integer overflow
+			if currentEpoch >= priceRetention {
+				// this will no-op if price snapshot for the target epoch doesn't exist
+				am.keeper.DeletePriceState(ctx, contractAddr, currentEpoch-priceRetention, pair)
 			}
-			am.keeper.SetPriceState(ctx, lastEpochPrice, contractAddr)
 		}
 	}
 }
@@ -302,9 +274,9 @@ func (am AppModule) endBlockForContract(ctx sdk.Context, contractAddr string) {
 	registeredPairs := am.keeper.GetAllRegisteredPairs(ctx, contractAddr)
 	_, currentEpoch := am.keeper.IsNewEpoch(ctx)
 
-	am.keeper.HandleEBLiquidation(spanCtx, ctx, am.tracingInfo.Tracer, contractAddr)
-	am.keeper.HandleEBCancelOrders(spanCtx, ctx, am.tracingInfo.Tracer, contractAddr)
-	am.keeper.HandleEBPlaceOrders(spanCtx, ctx, am.tracingInfo.Tracer, contractAddr)
+	am.keeper.HandleEBLiquidation(spanCtx, ctx, am.tracingInfo.Tracer, contractAddr, registeredPairs)
+	am.keeper.HandleEBCancelOrders(spanCtx, ctx, am.tracingInfo.Tracer, contractAddr, registeredPairs)
+	am.keeper.HandleEBPlaceOrders(spanCtx, ctx, am.tracingInfo.Tracer, contractAddr, registeredPairs)
 
 	am.keeper.OrderCancellations[contractAddr] = map[string]*dexcache.OrderCancellations{}
 	for _, pair := range registeredPairs {
@@ -358,9 +330,10 @@ func (am AppModule) endBlockForContract(ctx sdk.Context, contractAddr string) {
 			avgPrice = sdk.ZeroDec()
 		} else {
 			avgPrice = (marketBuyTotalPrice.Add(marketSellTotalPrice).Add(limitTotalPrice)).Quo(marketBuyTotalQuantity.Add(marketSellTotalQuantity).Add(limitTotalQuantity))
-			priceState, _ := am.keeper.GetPriceState(ctx, contractAddr, currentEpoch, pair.PriceDenom, pair.AssetDenom)
-			priceState.ExchangePrice = avgPrice
-			am.keeper.SetPriceState(ctx, priceState, contractAddr)
+			priceState, _ := am.keeper.GetPriceState(ctx, contractAddr, currentEpoch, pair)
+			priceState.SnapshotTimestampInSeconds = uint64(ctx.BlockTime().Unix())
+			priceState.Price = avgPrice
+			am.keeper.SetPriceState(ctx, priceState, contractAddr, currentEpoch)
 		}
 		ctx.Logger().Info(fmt.Sprintf("Average price for %s/%s: %d", pair.PriceDenom, pair.AssetDenom, avgPrice))
 		for _, buy := range allExistingBuys {

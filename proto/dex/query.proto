@@ -10,6 +10,7 @@ import "dex/short_book.proto";
 import "dex/settlement.proto";
 import "dex/enums.proto";
 import "dex/price.proto";
+import "dex/twap.proto";
 // this line is used by starport scaffolding # 1
 
 option go_package = "github.com/sei-protocol/sei-chain/x/dex/types";
@@ -44,9 +45,12 @@ service Query {
 		option (google.api.http).get = "/sei-protocol/seichain/dex/settlement";
 	}
 
-// Queries a list of GetPrice items.
-	rpc GetPrice(QueryGetPriceRequest) returns (QueryGetPriceResponse) {
-		option (google.api.http).get = "/sei-protocol/seichain/dex/get_price/{priceDenom}/{assetDenom}/{epoch}";
+	rpc GetPrices(QueryGetPricesRequest) returns (QueryGetPricesResponse) {
+		option (google.api.http).get = "/sei-protocol/seichain/dex/get_prices/{contractAddr}/{priceDenom}/{assetDenom}";
+	}
+
+	rpc GetTwaps(QueryGetTwapsRequest) returns (QueryGetTwapsResponse) {
+		option (google.api.http).get = "/sei-protocol/seichain/dex/get_twaps/{contractAddr}/{lookbackSeconds}";
 	}
 
 // this line is used by starport scaffolding # 2
@@ -127,15 +131,23 @@ message QueryAllSettlementsResponse {
 	cosmos.base.query.v1beta1.PageResponse pagination = 2;
 }
 
-message QueryGetPriceRequest {
-  string priceDenom = 1;
-  string assetDenom = 2;
+message QueryGetPricesRequest {
+  Denom priceDenom = 1;
+  Denom assetDenom = 2;
   string contractAddr = 3;
-  uint64 epoch = 4;
 }
 
-message QueryGetPriceResponse {
-	Price price = 1;
+message QueryGetPricesResponse {
+	repeated Price prices = 1;
 }
+
+message QueryGetTwapsRequest {
+	string contractAddr = 1;
+	uint64 lookbackSeconds = 2;
+  }
+  
+  message QueryGetTwapsResponse {
+	  repeated Twap twaps = 1;
+  }
 
 // this line is used by starport scaffolding # 3

@@ -5,6 +5,8 @@ package types
 
 import (
 	fmt "fmt"
+	github_com_cosmos_cosmos_sdk_types "github.com/cosmos/cosmos-sdk/types"
+	_ "github.com/gogo/protobuf/gogoproto"
 	proto "github.com/gogo/protobuf/proto"
 	io "io"
 	math "math"
@@ -23,11 +25,9 @@ var _ = math.Inf
 const _ = proto.GoGoProtoPackageIsVersion3 // please upgrade the proto package
 
 type Price struct {
-	Epoch         uint64 `protobuf:"varint,1,opt,name=epoch,proto3" json:"epoch,omitempty"`
-	OraclePrice   uint64 `protobuf:"varint,2,opt,name=oraclePrice,proto3" json:"oraclePrice,omitempty"`
-	ExchangePrice uint64 `protobuf:"varint,3,opt,name=exchangePrice,proto3" json:"exchangePrice,omitempty"`
-	PriceDenom    string `protobuf:"bytes,4,opt,name=priceDenom,proto3" json:"priceDenom,omitempty"`
-	AssetDenom    string `protobuf:"bytes,5,opt,name=assetDenom,proto3" json:"assetDenom,omitempty"`
+	SnapshotTimestampInSeconds uint64                                 `protobuf:"varint,1,opt,name=snapshotTimestampInSeconds,proto3" json:"snapshotTimestampInSeconds,omitempty"`
+	Price                      github_com_cosmos_cosmos_sdk_types.Dec `protobuf:"bytes,2,opt,name=price,proto3,customtype=github.com/cosmos/cosmos-sdk/types.Dec" json:"price" yaml:"price"`
+	Pair                       *Pair                                  `protobuf:"bytes,3,opt,name=pair,proto3" json:"pair,omitempty"`
 }
 
 func (m *Price) Reset()         { *m = Price{} }
@@ -63,39 +63,18 @@ func (m *Price) XXX_DiscardUnknown() {
 
 var xxx_messageInfo_Price proto.InternalMessageInfo
 
-func (m *Price) GetEpoch() uint64 {
+func (m *Price) GetSnapshotTimestampInSeconds() uint64 {
 	if m != nil {
-		return m.Epoch
+		return m.SnapshotTimestampInSeconds
 	}
 	return 0
 }
 
-func (m *Price) GetOraclePrice() uint64 {
+func (m *Price) GetPair() *Pair {
 	if m != nil {
-		return m.OraclePrice
+		return m.Pair
 	}
-	return 0
-}
-
-func (m *Price) GetExchangePrice() uint64 {
-	if m != nil {
-		return m.ExchangePrice
-	}
-	return 0
-}
-
-func (m *Price) GetPriceDenom() string {
-	if m != nil {
-		return m.PriceDenom
-	}
-	return ""
-}
-
-func (m *Price) GetAssetDenom() string {
-	if m != nil {
-		return m.AssetDenom
-	}
-	return ""
+	return nil
 }
 
 func init() {
@@ -105,22 +84,25 @@ func init() {
 func init() { proto.RegisterFile("dex/price.proto", fileDescriptor_bd5d1c9d490efb8c) }
 
 var fileDescriptor_bd5d1c9d490efb8c = []byte{
-	// 225 bytes of a gzipped FileDescriptorProto
+	// 285 bytes of a gzipped FileDescriptorProto
 	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0xe2, 0xe2, 0x4f, 0x49, 0xad, 0xd0,
 	0x2f, 0x28, 0xca, 0x4c, 0x4e, 0xd5, 0x2b, 0x28, 0xca, 0x2f, 0xc9, 0x17, 0x92, 0x28, 0x4e, 0xcd,
 	0x04, 0xb3, 0x92, 0xf3, 0x73, 0xf4, 0x8a, 0x53, 0x33, 0x93, 0x33, 0x12, 0x33, 0xf3, 0xf4, 0x52,
-	0x52, 0x2b, 0x94, 0x96, 0x32, 0x72, 0xb1, 0x06, 0x80, 0x54, 0x0a, 0x89, 0x70, 0xb1, 0xa6, 0x16,
-	0xe4, 0x27, 0x67, 0x48, 0x30, 0x2a, 0x30, 0x6a, 0xb0, 0x04, 0x41, 0x38, 0x42, 0x0a, 0x5c, 0xdc,
-	0xf9, 0x45, 0x89, 0xc9, 0x39, 0xa9, 0x60, 0x45, 0x12, 0x4c, 0x60, 0x39, 0x64, 0x21, 0x21, 0x15,
-	0x2e, 0xde, 0xd4, 0x8a, 0xe4, 0x8c, 0xc4, 0xbc, 0x74, 0xa8, 0x1a, 0x66, 0xb0, 0x1a, 0x54, 0x41,
-	0x21, 0x39, 0x2e, 0x2e, 0xb0, 0x83, 0x5c, 0x52, 0xf3, 0xf2, 0x73, 0x25, 0x58, 0x14, 0x18, 0x35,
-	0x38, 0x83, 0x90, 0x44, 0x40, 0xf2, 0x89, 0xc5, 0xc5, 0xa9, 0x25, 0x10, 0x79, 0x56, 0x88, 0x3c,
-	0x42, 0xc4, 0xc9, 0xfd, 0xc4, 0x23, 0x39, 0xc6, 0x0b, 0x8f, 0xe4, 0x18, 0x1f, 0x3c, 0x92, 0x63,
-	0x9c, 0xf0, 0x58, 0x8e, 0xe1, 0xc2, 0x63, 0x39, 0x86, 0x1b, 0x8f, 0xe5, 0x18, 0xa2, 0x74, 0xd3,
-	0x33, 0x4b, 0x32, 0x4a, 0x93, 0xf4, 0x92, 0xf3, 0x73, 0xf5, 0x8b, 0x53, 0x33, 0x75, 0x61, 0xfe,
-	0x04, 0x73, 0xc0, 0x1e, 0xd5, 0xaf, 0xd0, 0x07, 0x05, 0x48, 0x49, 0x65, 0x41, 0x6a, 0x71, 0x12,
-	0x1b, 0x58, 0xde, 0x18, 0x10, 0x00, 0x00, 0xff, 0xff, 0x82, 0x27, 0xad, 0xb3, 0x24, 0x01, 0x00,
-	0x00,
+	0x52, 0x2b, 0xa4, 0x44, 0xd2, 0xf3, 0xd3, 0xf3, 0xc1, 0x52, 0xfa, 0x20, 0x16, 0x44, 0xbd, 0x14,
+	0x1f, 0xd8, 0x80, 0xc4, 0xcc, 0x22, 0x08, 0x5f, 0xe9, 0x22, 0x23, 0x17, 0x6b, 0x00, 0xc8, 0x3c,
+	0x21, 0x3b, 0x2e, 0xa9, 0xe2, 0xbc, 0xc4, 0x82, 0xe2, 0x8c, 0xfc, 0x92, 0x90, 0xcc, 0xdc, 0xd4,
+	0xe2, 0x92, 0xc4, 0xdc, 0x02, 0xcf, 0xbc, 0xe0, 0xd4, 0xe4, 0xfc, 0xbc, 0x94, 0x62, 0x09, 0x46,
+	0x05, 0x46, 0x0d, 0x96, 0x20, 0x3c, 0x2a, 0x84, 0x42, 0xb8, 0x58, 0xc1, 0x0e, 0x93, 0x60, 0x52,
+	0x60, 0xd4, 0xe0, 0x74, 0xb2, 0x3b, 0x71, 0x4f, 0x9e, 0xe1, 0xd6, 0x3d, 0x79, 0xb5, 0xf4, 0xcc,
+	0x92, 0x8c, 0xd2, 0x24, 0xbd, 0xe4, 0xfc, 0x5c, 0xfd, 0xe4, 0xfc, 0xe2, 0xdc, 0xfc, 0x62, 0x28,
+	0xa5, 0x5b, 0x9c, 0x92, 0xad, 0x5f, 0x52, 0x59, 0x90, 0x5a, 0xac, 0xe7, 0x92, 0x9a, 0xfc, 0xe9,
+	0x9e, 0x3c, 0x4f, 0x65, 0x62, 0x6e, 0x8e, 0x95, 0x12, 0xd8, 0x10, 0xa5, 0x20, 0x88, 0x61, 0x42,
+	0x46, 0x5c, 0x2c, 0x20, 0xd7, 0x4a, 0x30, 0x2b, 0x30, 0x6a, 0x70, 0x1b, 0xc9, 0xe9, 0xe1, 0xf2,
+	0xae, 0x5e, 0x40, 0x62, 0x66, 0x51, 0x10, 0x58, 0xad, 0x93, 0xfb, 0x89, 0x47, 0x72, 0x8c, 0x17,
+	0x1e, 0xc9, 0x31, 0x3e, 0x78, 0x24, 0xc7, 0x38, 0xe1, 0xb1, 0x1c, 0xc3, 0x85, 0xc7, 0x72, 0x0c,
+	0x37, 0x1e, 0xcb, 0x31, 0x44, 0xe9, 0x22, 0x39, 0xa6, 0x38, 0x35, 0x53, 0x17, 0x66, 0x14, 0x98,
+	0x03, 0x36, 0x4b, 0xbf, 0x42, 0x1f, 0x14, 0x42, 0x60, 0x77, 0x25, 0xb1, 0x81, 0xe5, 0x8d, 0x01,
+	0x01, 0x00, 0x00, 0xff, 0xff, 0x55, 0x90, 0xf5, 0xec, 0x76, 0x01, 0x00, 0x00,
 }
 
 func (m *Price) Marshal() (dAtA []byte, err error) {
@@ -143,32 +125,30 @@ func (m *Price) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	_ = i
 	var l int
 	_ = l
-	if len(m.AssetDenom) > 0 {
-		i -= len(m.AssetDenom)
-		copy(dAtA[i:], m.AssetDenom)
-		i = encodeVarintPrice(dAtA, i, uint64(len(m.AssetDenom)))
+	if m.Pair != nil {
+		{
+			size, err := m.Pair.MarshalToSizedBuffer(dAtA[:i])
+			if err != nil {
+				return 0, err
+			}
+			i -= size
+			i = encodeVarintPrice(dAtA, i, uint64(size))
+		}
 		i--
-		dAtA[i] = 0x2a
+		dAtA[i] = 0x1a
 	}
-	if len(m.PriceDenom) > 0 {
-		i -= len(m.PriceDenom)
-		copy(dAtA[i:], m.PriceDenom)
-		i = encodeVarintPrice(dAtA, i, uint64(len(m.PriceDenom)))
-		i--
-		dAtA[i] = 0x22
+	{
+		size := m.Price.Size()
+		i -= size
+		if _, err := m.Price.MarshalTo(dAtA[i:]); err != nil {
+			return 0, err
+		}
+		i = encodeVarintPrice(dAtA, i, uint64(size))
 	}
-	if m.ExchangePrice != 0 {
-		i = encodeVarintPrice(dAtA, i, uint64(m.ExchangePrice))
-		i--
-		dAtA[i] = 0x18
-	}
-	if m.OraclePrice != 0 {
-		i = encodeVarintPrice(dAtA, i, uint64(m.OraclePrice))
-		i--
-		dAtA[i] = 0x10
-	}
-	if m.Epoch != 0 {
-		i = encodeVarintPrice(dAtA, i, uint64(m.Epoch))
+	i--
+	dAtA[i] = 0x12
+	if m.SnapshotTimestampInSeconds != 0 {
+		i = encodeVarintPrice(dAtA, i, uint64(m.SnapshotTimestampInSeconds))
 		i--
 		dAtA[i] = 0x8
 	}
@@ -192,21 +172,13 @@ func (m *Price) Size() (n int) {
 	}
 	var l int
 	_ = l
-	if m.Epoch != 0 {
-		n += 1 + sovPrice(uint64(m.Epoch))
+	if m.SnapshotTimestampInSeconds != 0 {
+		n += 1 + sovPrice(uint64(m.SnapshotTimestampInSeconds))
 	}
-	if m.OraclePrice != 0 {
-		n += 1 + sovPrice(uint64(m.OraclePrice))
-	}
-	if m.ExchangePrice != 0 {
-		n += 1 + sovPrice(uint64(m.ExchangePrice))
-	}
-	l = len(m.PriceDenom)
-	if l > 0 {
-		n += 1 + l + sovPrice(uint64(l))
-	}
-	l = len(m.AssetDenom)
-	if l > 0 {
+	l = m.Price.Size()
+	n += 1 + l + sovPrice(uint64(l))
+	if m.Pair != nil {
+		l = m.Pair.Size()
 		n += 1 + l + sovPrice(uint64(l))
 	}
 	return n
@@ -249,9 +221,9 @@ func (m *Price) Unmarshal(dAtA []byte) error {
 		switch fieldNum {
 		case 1:
 			if wireType != 0 {
-				return fmt.Errorf("proto: wrong wireType = %d for field Epoch", wireType)
+				return fmt.Errorf("proto: wrong wireType = %d for field SnapshotTimestampInSeconds", wireType)
 			}
-			m.Epoch = 0
+			m.SnapshotTimestampInSeconds = 0
 			for shift := uint(0); ; shift += 7 {
 				if shift >= 64 {
 					return ErrIntOverflowPrice
@@ -261,52 +233,14 @@ func (m *Price) Unmarshal(dAtA []byte) error {
 				}
 				b := dAtA[iNdEx]
 				iNdEx++
-				m.Epoch |= uint64(b&0x7F) << shift
+				m.SnapshotTimestampInSeconds |= uint64(b&0x7F) << shift
 				if b < 0x80 {
 					break
 				}
 			}
 		case 2:
-			if wireType != 0 {
-				return fmt.Errorf("proto: wrong wireType = %d for field OraclePrice", wireType)
-			}
-			m.OraclePrice = 0
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return ErrIntOverflowPrice
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				m.OraclePrice |= uint64(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-		case 3:
-			if wireType != 0 {
-				return fmt.Errorf("proto: wrong wireType = %d for field ExchangePrice", wireType)
-			}
-			m.ExchangePrice = 0
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return ErrIntOverflowPrice
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				m.ExchangePrice |= uint64(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-		case 4:
 			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field PriceDenom", wireType)
+				return fmt.Errorf("proto: wrong wireType = %d for field Price", wireType)
 			}
 			var stringLen uint64
 			for shift := uint(0); ; shift += 7 {
@@ -334,13 +268,15 @@ func (m *Price) Unmarshal(dAtA []byte) error {
 			if postIndex > l {
 				return io.ErrUnexpectedEOF
 			}
-			m.PriceDenom = string(dAtA[iNdEx:postIndex])
+			if err := m.Price.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
 			iNdEx = postIndex
-		case 5:
+		case 3:
 			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field AssetDenom", wireType)
+				return fmt.Errorf("proto: wrong wireType = %d for field Pair", wireType)
 			}
-			var stringLen uint64
+			var msglen int
 			for shift := uint(0); ; shift += 7 {
 				if shift >= 64 {
 					return ErrIntOverflowPrice
@@ -350,23 +286,27 @@ func (m *Price) Unmarshal(dAtA []byte) error {
 				}
 				b := dAtA[iNdEx]
 				iNdEx++
-				stringLen |= uint64(b&0x7F) << shift
+				msglen |= int(b&0x7F) << shift
 				if b < 0x80 {
 					break
 				}
 			}
-			intStringLen := int(stringLen)
-			if intStringLen < 0 {
+			if msglen < 0 {
 				return ErrInvalidLengthPrice
 			}
-			postIndex := iNdEx + intStringLen
+			postIndex := iNdEx + msglen
 			if postIndex < 0 {
 				return ErrInvalidLengthPrice
 			}
 			if postIndex > l {
 				return io.ErrUnexpectedEOF
 			}
-			m.AssetDenom = string(dAtA[iNdEx:postIndex])
+			if m.Pair == nil {
+				m.Pair = &Pair{}
+			}
+			if err := m.Pair.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
 			iNdEx = postIndex
 		default:
 			iNdEx = preIndex

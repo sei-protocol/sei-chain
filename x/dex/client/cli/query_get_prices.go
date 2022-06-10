@@ -13,17 +13,19 @@ var _ = strconv.Itoa(0)
 
 func CmdGetPrice() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "get-price [contract-address] [epoch] [price-denom] [asset-denom]",
-		Short: "Query getPrice",
-		Args:  cobra.ExactArgs(4),
+		Use:   "get-prices [contract-address] [price-denom] [asset-denom]",
+		Short: "Query getPrices",
+		Args:  cobra.ExactArgs(3),
 		RunE: func(cmd *cobra.Command, args []string) (err error) {
 			reqContractAddr := args[0]
-			reqEpoch, err := strconv.ParseUint(args[1], 10, 64)
+			reqPriceDenom, _, err := types.GetDenomFromStr(args[1])
 			if err != nil {
 				return err
 			}
-			reqPriceDenom := args[2]
-			reqAssetDenom := args[3]
+			reqAssetDenom, _, err := types.GetDenomFromStr(args[2])
+			if err != nil {
+				return err
+			}
 
 			clientCtx, err := client.GetClientTxContext(cmd)
 			if err != nil {
@@ -32,14 +34,13 @@ func CmdGetPrice() *cobra.Command {
 
 			queryClient := types.NewQueryClient(clientCtx)
 
-			params := &types.QueryGetPriceRequest{
+			params := &types.QueryGetPricesRequest{
 				ContractAddr: reqContractAddr,
-				Epoch:        reqEpoch,
 				PriceDenom:   reqPriceDenom,
 				AssetDenom:   reqAssetDenom,
 			}
 
-			res, err := queryClient.GetPrice(cmd.Context(), params)
+			res, err := queryClient.GetPrices(cmd.Context(), params)
 			if err != nil {
 				return err
 			}

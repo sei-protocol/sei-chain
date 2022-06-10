@@ -22,12 +22,6 @@ func InitGenesis(ctx sdk.Context, k keeper.Keeper, genState types.GenesisState) 
 	// this line is used by starport scaffolding # genesis/module/init
 	k.SetParams(ctx, genState.Params)
 
-	for _, twap := range genState.TwapList {
-		twap.LastEpoch = 0
-		twap.TwapPrice = twap.Prices[0]
-		k.SetTwap(ctx, *twap, "genesis")
-	}
-
 	k.SetEpoch(ctx, genState.LastEpoch)
 }
 

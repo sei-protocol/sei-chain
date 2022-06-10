@@ -8,37 +8,40 @@ import (
 	"github.com/sei-protocol/sei-chain/x/dex/types"
 )
 
-func (k Keeper) SetPriceState(ctx sdk.Context, price types.Price, contractAddr string) {
+func (k Keeper) SetPriceState(ctx sdk.Context, price types.Price, contractAddr string, epoch uint64) {
 	store := prefix.NewStore(ctx.KVStore(k.storeKey), types.PricePrefix(contractAddr))
-	b := k.cdc.MustMarshal(&price)
-	store.Set(GetKeyForPriceState(price.Epoch, price.PriceDenom, price.AssetDenom), b)
+	b := k.Cdc.MustMarshal(&price)
+	store.Set(GetKeyForPriceState(epoch, *price.Pair), b)
 }
 
-func (k Keeper) GetPriceState(ctx sdk.Context, contractAddr string, epoch uint64, priceDenom string, assetDenom string) (types.Price, bool) {
+func (k Keeper) DeletePriceState(ctx sdk.Context, contractAddr string, epoch uint64, pair types.Pair) {
+	store := prefix.NewStore(ctx.KVStore(k.storeKey), types.PricePrefix(contractAddr))
+	store.Delete(GetKeyForPriceState(epoch, pair))
+}
+
+func (k Keeper) GetPriceState(ctx sdk.Context, contractAddr string, epoch uint64, pair types.Pair) (types.Price, bool) {
 	store := prefix.NewStore(ctx.KVStore(k.storeKey), types.PricePrefix(contractAddr))
 	res := types.Price{}
-	key := GetKeyForPriceState(epoch, priceDenom, assetDenom)
+	key := GetKeyForPriceState(epoch, pair)
 	if !store.Has(key) {
-		res.Epoch = epoch
-		res.PriceDenom = priceDenom
-		res.AssetDenom = assetDenom
+		res.Pair = &pair
 		return res, false
 	}
 	b := store.Get(key)
-	k.cdc.MustUnmarshal(b, &res)
+	k.Cdc.MustUnmarshal(b, &res)
 	return res, true
 }
 
-func (k Keeper) GetAllPrices(ctx sdk.Context, contractAddr string, epoch uint64) (list []types.Price) {
+func (k Keeper) GetAllPrices(ctx sdk.Context, contractAddr string, pair types.Pair) (list []*types.Price) {
 	store := prefix.NewStore(ctx.KVStore(k.storeKey), types.PricePrefix(contractAddr))
-	iterator := sdk.KVStorePrefixIterator(store, GetKeyForEpoch(epoch))
+	iterator := sdk.KVStorePrefixIterator(store, types.PairPrefix(pair.PriceDenom, pair.AssetDenom))
 
 	defer iterator.Close()
 
 	for ; iterator.Valid(); iterator.Next() {
 		var val types.Price
-		k.cdc.MustUnmarshal(iterator.Value(), &val)
-		list = append(list, val)
+		k.Cdc.MustUnmarshal(iterator.Value(), &val)
+		list = append(list, &val)
 	}
 
 	return
@@ -50,9 +53,9 @@ func GetKeyForEpoch(epoch uint64) []byte {
 	return epochKey
 }
 
-func GetKeyForPriceState(epoch uint64, priceDenom string, assetDenom string) []byte {
+func GetKeyForPriceState(epoch uint64, pair types.Pair) []byte {
 	return append(
-		GetKeyForEpoch(epoch),
-		append([]byte(priceDenom), []byte(assetDenom)...)...,
+		types.PairPrefix(pair.PriceDenom, pair.AssetDenom),
+		GetKeyForEpoch(epoch)...,
 	)
 }

@@ -5,6 +5,8 @@ package types
 
 import (
 	fmt "fmt"
+	github_com_cosmos_cosmos_sdk_types "github.com/cosmos/cosmos-sdk/types"
+	_ "github.com/gogo/protobuf/gogoproto"
 	proto "github.com/gogo/protobuf/proto"
 	io "io"
 	math "math"
@@ -22,13 +24,10 @@ var _ = math.Inf
 // proto package needs to be updated.
 const _ = proto.GoGoProtoPackageIsVersion3 // please upgrade the proto package
 
-// deprecated
 type Twap struct {
-	LastEpoch  uint64   `protobuf:"varint,1,opt,name=lastEpoch,proto3" json:"lastEpoch,omitempty"`
-	Prices     []uint64 `protobuf:"varint,2,rep,packed,name=prices,proto3" json:"prices,omitempty"`
-	TwapPrice  uint64   `protobuf:"varint,3,opt,name=twapPrice,proto3" json:"twapPrice,omitempty"`
-	PriceDenom string   `protobuf:"bytes,4,opt,name=priceDenom,proto3" json:"priceDenom,omitempty"`
-	AssetDenom string   `protobuf:"bytes,5,opt,name=assetDenom,proto3" json:"assetDenom,omitempty"`
+	Pair            *Pair                                  `protobuf:"bytes,1,opt,name=pair,proto3" json:"pair,omitempty"`
+	Twap            github_com_cosmos_cosmos_sdk_types.Dec `protobuf:"bytes,2,opt,name=twap,proto3,customtype=github.com/cosmos/cosmos-sdk/types.Dec" json:"twap" yaml:"twap"`
+	LookbackSeconds uint64                                 `protobuf:"varint,3,opt,name=lookbackSeconds,proto3" json:"lookbackSeconds,omitempty"`
 }
 
 func (m *Twap) Reset()         { *m = Twap{} }
@@ -64,39 +63,18 @@ func (m *Twap) XXX_DiscardUnknown() {
 
 var xxx_messageInfo_Twap proto.InternalMessageInfo
 
-func (m *Twap) GetLastEpoch() uint64 {
+func (m *Twap) GetPair() *Pair {
 	if m != nil {
-		return m.LastEpoch
-	}
-	return 0
-}
-
-func (m *Twap) GetPrices() []uint64 {
-	if m != nil {
-		return m.Prices
+		return m.Pair
 	}
 	return nil
 }
 
-func (m *Twap) GetTwapPrice() uint64 {
+func (m *Twap) GetLookbackSeconds() uint64 {
 	if m != nil {
-		return m.TwapPrice
+		return m.LookbackSeconds
 	}
 	return 0
-}
-
-func (m *Twap) GetPriceDenom() string {
-	if m != nil {
-		return m.PriceDenom
-	}
-	return ""
-}
-
-func (m *Twap) GetAssetDenom() string {
-	if m != nil {
-		return m.AssetDenom
-	}
-	return ""
 }
 
 func init() {
@@ -106,21 +84,25 @@ func init() {
 func init() { proto.RegisterFile("dex/twap.proto", fileDescriptor_10aa4b136085207a) }
 
 var fileDescriptor_10aa4b136085207a = []byte{
-	// 224 bytes of a gzipped FileDescriptorProto
+	// 273 bytes of a gzipped FileDescriptorProto
 	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0xe2, 0xe2, 0x4b, 0x49, 0xad, 0xd0,
 	0x2f, 0x29, 0x4f, 0x2c, 0xd0, 0x2b, 0x28, 0xca, 0x2f, 0xc9, 0x17, 0x92, 0x28, 0x4e, 0xcd, 0x04,
 	0xb3, 0x92, 0xf3, 0x73, 0xf4, 0x8a, 0x53, 0x33, 0x93, 0x33, 0x12, 0x33, 0xf3, 0xf4, 0x52, 0x52,
-	0x2b, 0x94, 0x66, 0x31, 0x72, 0xb1, 0x84, 0x94, 0x27, 0x16, 0x08, 0xc9, 0x70, 0x71, 0xe6, 0x24,
-	0x16, 0x97, 0xb8, 0x16, 0xe4, 0x27, 0x67, 0x48, 0x30, 0x2a, 0x30, 0x6a, 0xb0, 0x04, 0x21, 0x04,
-	0x84, 0xc4, 0xb8, 0xd8, 0x0a, 0x8a, 0x32, 0x93, 0x53, 0x8b, 0x25, 0x98, 0x14, 0x98, 0x35, 0x58,
-	0x82, 0xa0, 0x3c, 0x90, 0x2e, 0x90, 0x35, 0x01, 0x20, 0x9e, 0x04, 0x33, 0x44, 0x17, 0x5c, 0x40,
-	0x48, 0x8e, 0x8b, 0x0b, 0xac, 0xce, 0x25, 0x35, 0x2f, 0x3f, 0x57, 0x82, 0x45, 0x81, 0x51, 0x83,
-	0x33, 0x08, 0x49, 0x04, 0x24, 0x9f, 0x58, 0x5c, 0x9c, 0x5a, 0x02, 0x91, 0x67, 0x85, 0xc8, 0x23,
-	0x44, 0x9c, 0xdc, 0x4f, 0x3c, 0x92, 0x63, 0xbc, 0xf0, 0x48, 0x8e, 0xf1, 0xc1, 0x23, 0x39, 0xc6,
-	0x09, 0x8f, 0xe5, 0x18, 0x2e, 0x3c, 0x96, 0x63, 0xb8, 0xf1, 0x58, 0x8e, 0x21, 0x4a, 0x37, 0x3d,
-	0xb3, 0x24, 0xa3, 0x34, 0x49, 0x2f, 0x39, 0x3f, 0x57, 0xbf, 0x38, 0x35, 0x53, 0x17, 0xe6, 0x39,
-	0x30, 0x07, 0xec, 0x3b, 0xfd, 0x0a, 0x7d, 0x70, 0x20, 0x54, 0x16, 0xa4, 0x16, 0x27, 0xb1, 0x81,
-	0xe5, 0x8d, 0x01, 0x01, 0x00, 0x00, 0xff, 0xff, 0x98, 0x40, 0x0f, 0xa7, 0x18, 0x01, 0x00, 0x00,
+	0x2b, 0xa4, 0x44, 0xd2, 0xf3, 0xd3, 0xf3, 0xc1, 0x52, 0xfa, 0x20, 0x16, 0x44, 0xbd, 0x14, 0x58,
+	0x7f, 0x41, 0x62, 0x66, 0x11, 0x84, 0xaf, 0xb4, 0x9d, 0x91, 0x8b, 0x25, 0xa4, 0x3c, 0xb1, 0x40,
+	0xc8, 0x88, 0x8b, 0x05, 0x24, 0x2c, 0xc1, 0xa8, 0xc0, 0xa8, 0xc1, 0x6d, 0x24, 0xa7, 0x87, 0xcb,
+	0x5c, 0xbd, 0x80, 0xc4, 0xcc, 0xa2, 0x20, 0xb0, 0x5a, 0xa1, 0x40, 0x2e, 0x16, 0x90, 0x53, 0x24,
+	0x98, 0x14, 0x18, 0x35, 0x38, 0x9d, 0x6c, 0x4f, 0xdc, 0x93, 0x67, 0xb8, 0x75, 0x4f, 0x5e, 0x2d,
+	0x3d, 0xb3, 0x24, 0xa3, 0x34, 0x49, 0x2f, 0x39, 0x3f, 0x57, 0x3f, 0x39, 0xbf, 0x38, 0x37, 0xbf,
+	0x18, 0x4a, 0xe9, 0x16, 0xa7, 0x64, 0xeb, 0x97, 0x54, 0x16, 0xa4, 0x16, 0xeb, 0xb9, 0xa4, 0x26,
+	0x7f, 0xba, 0x27, 0xcf, 0x5d, 0x99, 0x98, 0x9b, 0x63, 0xa5, 0x04, 0x32, 0x43, 0x29, 0x08, 0x6c,
+	0x94, 0x90, 0x06, 0x17, 0x7f, 0x4e, 0x7e, 0x7e, 0x76, 0x52, 0x62, 0x72, 0x76, 0x70, 0x6a, 0x72,
+	0x7e, 0x5e, 0x4a, 0xb1, 0x04, 0xb3, 0x02, 0xa3, 0x06, 0x4b, 0x10, 0xba, 0xb0, 0x93, 0xfb, 0x89,
+	0x47, 0x72, 0x8c, 0x17, 0x1e, 0xc9, 0x31, 0x3e, 0x78, 0x24, 0xc7, 0x38, 0xe1, 0xb1, 0x1c, 0xc3,
+	0x85, 0xc7, 0x72, 0x0c, 0x37, 0x1e, 0xcb, 0x31, 0x44, 0xe9, 0x22, 0x39, 0xa0, 0x38, 0x35, 0x53,
+	0x17, 0xe6, 0x0f, 0x30, 0x07, 0xec, 0x11, 0xfd, 0x0a, 0x7d, 0x70, 0x38, 0x82, 0xdc, 0x92, 0xc4,
+	0x06, 0x96, 0x37, 0x06, 0x04, 0x00, 0x00, 0xff, 0xff, 0x99, 0x67, 0x7b, 0xff, 0x5b, 0x01, 0x00,
+	0x00,
 }
 
 func (m *Twap) Marshal() (dAtA []byte, err error) {
@@ -143,47 +125,32 @@ func (m *Twap) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	_ = i
 	var l int
 	_ = l
-	if len(m.AssetDenom) > 0 {
-		i -= len(m.AssetDenom)
-		copy(dAtA[i:], m.AssetDenom)
-		i = encodeVarintTwap(dAtA, i, uint64(len(m.AssetDenom)))
-		i--
-		dAtA[i] = 0x2a
-	}
-	if len(m.PriceDenom) > 0 {
-		i -= len(m.PriceDenom)
-		copy(dAtA[i:], m.PriceDenom)
-		i = encodeVarintTwap(dAtA, i, uint64(len(m.PriceDenom)))
-		i--
-		dAtA[i] = 0x22
-	}
-	if m.TwapPrice != 0 {
-		i = encodeVarintTwap(dAtA, i, uint64(m.TwapPrice))
+	if m.LookbackSeconds != 0 {
+		i = encodeVarintTwap(dAtA, i, uint64(m.LookbackSeconds))
 		i--
 		dAtA[i] = 0x18
 	}
-	if len(m.Prices) > 0 {
-		dAtA2 := make([]byte, len(m.Prices)*10)
-		var j1 int
-		for _, num := range m.Prices {
-			for num >= 1<<7 {
-				dAtA2[j1] = uint8(uint64(num)&0x7f | 0x80)
-				num >>= 7
-				j1++
-			}
-			dAtA2[j1] = uint8(num)
-			j1++
+	{
+		size := m.Twap.Size()
+		i -= size
+		if _, err := m.Twap.MarshalTo(dAtA[i:]); err != nil {
+			return 0, err
 		}
-		i -= j1
-		copy(dAtA[i:], dAtA2[:j1])
-		i = encodeVarintTwap(dAtA, i, uint64(j1))
-		i--
-		dAtA[i] = 0x12
+		i = encodeVarintTwap(dAtA, i, uint64(size))
 	}
-	if m.LastEpoch != 0 {
-		i = encodeVarintTwap(dAtA, i, uint64(m.LastEpoch))
+	i--
+	dAtA[i] = 0x12
+	if m.Pair != nil {
+		{
+			size, err := m.Pair.MarshalToSizedBuffer(dAtA[:i])
+			if err != nil {
+				return 0, err
+			}
+			i -= size
+			i = encodeVarintTwap(dAtA, i, uint64(size))
+		}
 		i--
-		dAtA[i] = 0x8
+		dAtA[i] = 0xa
 	}
 	return len(dAtA) - i, nil
 }
@@ -205,26 +172,14 @@ func (m *Twap) Size() (n int) {
 	}
 	var l int
 	_ = l
-	if m.LastEpoch != 0 {
-		n += 1 + sovTwap(uint64(m.LastEpoch))
-	}
-	if len(m.Prices) > 0 {
-		l = 0
-		for _, e := range m.Prices {
-			l += sovTwap(uint64(e))
-		}
-		n += 1 + sovTwap(uint64(l)) + l
-	}
-	if m.TwapPrice != 0 {
-		n += 1 + sovTwap(uint64(m.TwapPrice))
-	}
-	l = len(m.PriceDenom)
-	if l > 0 {
+	if m.Pair != nil {
+		l = m.Pair.Size()
 		n += 1 + l + sovTwap(uint64(l))
 	}
-	l = len(m.AssetDenom)
-	if l > 0 {
-		n += 1 + l + sovTwap(uint64(l))
+	l = m.Twap.Size()
+	n += 1 + l + sovTwap(uint64(l))
+	if m.LookbackSeconds != 0 {
+		n += 1 + sovTwap(uint64(m.LookbackSeconds))
 	}
 	return n
 }
@@ -265,10 +220,10 @@ func (m *Twap) Unmarshal(dAtA []byte) error {
 		}
 		switch fieldNum {
 		case 1:
-			if wireType != 0 {
-				return fmt.Errorf("proto: wrong wireType = %d for field LastEpoch", wireType)
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Pair", wireType)
 			}
-			m.LastEpoch = 0
+			var msglen int
 			for shift := uint(0); ; shift += 7 {
 				if shift >= 64 {
 					return ErrIntOverflowTwap
@@ -278,92 +233,67 @@ func (m *Twap) Unmarshal(dAtA []byte) error {
 				}
 				b := dAtA[iNdEx]
 				iNdEx++
-				m.LastEpoch |= uint64(b&0x7F) << shift
+				msglen |= int(b&0x7F) << shift
 				if b < 0x80 {
 					break
 				}
 			}
+			if msglen < 0 {
+				return ErrInvalidLengthTwap
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthTwap
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if m.Pair == nil {
+				m.Pair = &Pair{}
+			}
+			if err := m.Pair.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
 		case 2:
-			if wireType == 0 {
-				var v uint64
-				for shift := uint(0); ; shift += 7 {
-					if shift >= 64 {
-						return ErrIntOverflowTwap
-					}
-					if iNdEx >= l {
-						return io.ErrUnexpectedEOF
-					}
-					b := dAtA[iNdEx]
-					iNdEx++
-					v |= uint64(b&0x7F) << shift
-					if b < 0x80 {
-						break
-					}
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Twap", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowTwap
 				}
-				m.Prices = append(m.Prices, v)
-			} else if wireType == 2 {
-				var packedLen int
-				for shift := uint(0); ; shift += 7 {
-					if shift >= 64 {
-						return ErrIntOverflowTwap
-					}
-					if iNdEx >= l {
-						return io.ErrUnexpectedEOF
-					}
-					b := dAtA[iNdEx]
-					iNdEx++
-					packedLen |= int(b&0x7F) << shift
-					if b < 0x80 {
-						break
-					}
-				}
-				if packedLen < 0 {
-					return ErrInvalidLengthTwap
-				}
-				postIndex := iNdEx + packedLen
-				if postIndex < 0 {
-					return ErrInvalidLengthTwap
-				}
-				if postIndex > l {
+				if iNdEx >= l {
 					return io.ErrUnexpectedEOF
 				}
-				var elementCount int
-				var count int
-				for _, integer := range dAtA[iNdEx:postIndex] {
-					if integer < 128 {
-						count++
-					}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
 				}
-				elementCount = count
-				if elementCount != 0 && len(m.Prices) == 0 {
-					m.Prices = make([]uint64, 0, elementCount)
-				}
-				for iNdEx < postIndex {
-					var v uint64
-					for shift := uint(0); ; shift += 7 {
-						if shift >= 64 {
-							return ErrIntOverflowTwap
-						}
-						if iNdEx >= l {
-							return io.ErrUnexpectedEOF
-						}
-						b := dAtA[iNdEx]
-						iNdEx++
-						v |= uint64(b&0x7F) << shift
-						if b < 0x80 {
-							break
-						}
-					}
-					m.Prices = append(m.Prices, v)
-				}
-			} else {
-				return fmt.Errorf("proto: wrong wireType = %d for field Prices", wireType)
 			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLengthTwap
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return ErrInvalidLengthTwap
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if err := m.Twap.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
 		case 3:
 			if wireType != 0 {
-				return fmt.Errorf("proto: wrong wireType = %d for field TwapPrice", wireType)
+				return fmt.Errorf("proto: wrong wireType = %d for field LookbackSeconds", wireType)
 			}
-			m.TwapPrice = 0
+			m.LookbackSeconds = 0
 			for shift := uint(0); ; shift += 7 {
 				if shift >= 64 {
 					return ErrIntOverflowTwap
@@ -373,75 +303,11 @@ func (m *Twap) Unmarshal(dAtA []byte) error {
 				}
 				b := dAtA[iNdEx]
 				iNdEx++
-				m.TwapPrice |= uint64(b&0x7F) << shift
+				m.LookbackSeconds |= uint64(b&0x7F) << shift
 				if b < 0x80 {
 					break
 				}
 			}
-		case 4:
-			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field PriceDenom", wireType)
-			}
-			var stringLen uint64
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return ErrIntOverflowTwap
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				stringLen |= uint64(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-			intStringLen := int(stringLen)
-			if intStringLen < 0 {
-				return ErrInvalidLengthTwap
-			}
-			postIndex := iNdEx + intStringLen
-			if postIndex < 0 {
-				return ErrInvalidLengthTwap
-			}
-			if postIndex > l {
-				return io.ErrUnexpectedEOF
-			}
-			m.PriceDenom = string(dAtA[iNdEx:postIndex])
-			iNdEx = postIndex
-		case 5:
-			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field AssetDenom", wireType)
-			}
-			var stringLen uint64
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return ErrIntOverflowTwap
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				stringLen |= uint64(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-			intStringLen := int(stringLen)
-			if intStringLen < 0 {
-				return ErrInvalidLengthTwap
-			}
-			postIndex := iNdEx + intStringLen
-			if postIndex < 0 {
-				return ErrInvalidLengthTwap
-			}
-			if postIndex > l {
-				return io.ErrUnexpectedEOF
-			}
-			m.AssetDenom = string(dAtA[iNdEx:postIndex])
-			iNdEx = postIndex
 		default:
 			iNdEx = preIndex
 			skippy, err := skipTwap(dAtA[iNdEx:])
