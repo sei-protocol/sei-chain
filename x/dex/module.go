@@ -25,7 +25,6 @@ import (
 	"github.com/sei-protocol/sei-chain/x/dex/keeper"
 	"github.com/sei-protocol/sei-chain/x/dex/migrations"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
-	oraclekeeper "github.com/sei-protocol/sei-chain/x/oracle/keeper"
 )
 
 var (
@@ -109,7 +108,6 @@ type AppModule struct {
 	accountKeeper types.AccountKeeper
 	bankKeeper    types.BankKeeper
 	wasmKeeper    wasm.Keeper
-	oracleKeeper  oraclekeeper.Keeper
 
 	tracingInfo *tracing.TracingInfo
 }
@@ -120,7 +118,6 @@ func NewAppModule(
 	accountKeeper types.AccountKeeper,
 	bankKeeper types.BankKeeper,
 	wasmKeeper wasm.Keeper,
-	oracleKeeper oraclekeeper.Keeper,
 	tracingInfo *tracing.TracingInfo,
 ) AppModule {
 	return AppModule{
@@ -129,7 +126,6 @@ func NewAppModule(
 		accountKeeper:  accountKeeper,
 		bankKeeper:     bankKeeper,
 		wasmKeeper:     wasmKeeper,
-		oracleKeeper:   oracleKeeper,
 		tracingInfo:    tracingInfo,
 	}
 }
