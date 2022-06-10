@@ -32,7 +32,11 @@ func (k Keeper) LongBook(c context.Context, req *types.QueryGetLongBookRequest) 
 	}
 
 	ctx := sdk.UnwrapSDKContext(c)
-	longBook, found := k.GetLongBookByPrice(ctx, req.ContractAddr, req.Price, req.PriceDenom, req.AssetDenom)
+	price, err := sdk.NewDecFromStr(req.Price)
+	if err != nil {
+		return nil, err
+	}
+	longBook, found := k.GetLongBookByPrice(ctx, req.ContractAddr, price, req.PriceDenom, req.AssetDenom)
 	if !found {
 		return nil, sdkerrors.ErrKeyNotFound
 	}
