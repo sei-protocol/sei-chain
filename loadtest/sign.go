@@ -49,9 +49,10 @@ func GetKey(accountIdx uint64) cryptotypes.PrivKey {
 	return algo.Generate()(derivedPriv)
 }
 
-func SignTx(txBuilder *client.TxBuilder, privKey cryptotypes.PrivKey) {
+func SignTx(txBuilder *client.TxBuilder, privKey cryptotypes.PrivKey, seqDelta uint64) {
 	var sigsV2 []signing.SignatureV2
 	accountNum, seqNum := GetAccountNumberSequenceNumber(privKey)
+	seqNum += seqDelta
 	sigV2 := signing.SignatureV2{
 		PubKey: privKey.PubKey(),
 		Data: &signing.SingleSignatureData{
