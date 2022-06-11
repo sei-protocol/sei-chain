@@ -18,7 +18,7 @@ func (k *Keeper) HandleEBPlaceOrders(ctx context.Context, sdkCtx sdk.Context, tr
 	_, span := (*tracer).Start(ctx, "SudoPlaceOrders")
 	span.SetAttributes(attribute.String("contractAddr", contractAddr))
 
-	msgs := k.getPlaceSudoMsg(contractAddr, registeredPairs)
+	msgs := k.GetPlaceSudoMsg(contractAddr, registeredPairs)
 	k.CallContractSudo(sdkCtx, contractAddr, msgs[0]) // deposit
 
 	responses := []types.SudoOrderPlacementResponse{}
@@ -62,7 +62,7 @@ func (k *Keeper) HandleEBPlaceOrders(ctx context.Context, sdkCtx sdk.Context, tr
 	span.End()
 }
 
-func (k *Keeper) getPlaceSudoMsg(contractAddr string, registeredPairs []types.Pair) []types.SudoOrderPlacementMsg {
+func (k *Keeper) GetPlaceSudoMsg(contractAddr string, registeredPairs []types.Pair) []types.SudoOrderPlacementMsg {
 	contractDepositInfo := []types.ContractDepositInfo{}
 	for _, depositInfo := range k.DepositInfo[contractAddr].DepositInfoList {
 		contractDepositInfo = append(contractDepositInfo, dexcache.ToContractDepositInfo(depositInfo))
