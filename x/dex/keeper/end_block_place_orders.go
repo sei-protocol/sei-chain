@@ -12,19 +12,29 @@ import (
 	otrace "go.opentelemetry.io/otel/trace"
 )
 
+const MAX_ORDERS_PER_SUDO_CALL = 50000
+
 func (k *Keeper) HandleEBPlaceOrders(ctx context.Context, sdkCtx sdk.Context, tracer *otrace.Tracer, contractAddr string, registeredPairs []types.Pair) {
 	_, span := (*tracer).Start(ctx, "SudoPlaceOrders")
 	span.SetAttributes(attribute.String("contractAddr", contractAddr))
 
-	msg := k.getPlaceSudoMsg(contractAddr, registeredPairs)
-	data := k.CallContractSudo(sdkCtx, contractAddr, msg)
-	response := types.SudoOrderPlacementResponse{}
-	json.Unmarshal(data, &response)
-	sdkCtx.Logger().Info(fmt.Sprintf("Sudo response data: %s", response))
+	msgs := k.getPlaceSudoMsg(contractAddr, registeredPairs)
+	k.CallContractSudo(sdkCtx, contractAddr, msgs[0]) // deposit
+
+	responses := []types.SudoOrderPlacementResponse{}
+	for _, msg := range msgs[1:] {
+		data := k.CallContractSudo(sdkCtx, contractAddr, msg)
+		response := types.SudoOrderPlacementResponse{}
+		json.Unmarshal(data, &response)
+		sdkCtx.Logger().Info(fmt.Sprintf("Sudo response data: %s", response))
+		responses = append(responses, response)
+	}
 	for _, pair := range registeredPairs {
 		pairStr := pair.String()
 		if orderPlacements, ok := k.OrderPlacements[contractAddr][pairStr]; ok {
-			orderPlacements.FilterOutIds(response.UnsuccessfulOrderIds)
+			for _, response := range responses {
+				orderPlacements.FilterOutIds(response.UnsuccessfulOrderIds)
+			}
 			for _, orderPlacement := range orderPlacements.Orders {
 				switch orderPlacement.OrderType {
 				case types.OrderType_LIMIT:
@@ -52,25 +62,43 @@ func (k *Keeper) HandleEBPlaceOrders(ctx context.Context, sdkCtx sdk.Context, tr
 	span.End()
 }
 
-func (k *Keeper) getPlaceSudoMsg(contractAddr string, registeredPairs []types.Pair) types.SudoOrderPlacementMsg {
+func (k *Keeper) getPlaceSudoMsg(contractAddr string, registeredPairs []types.Pair) []types.SudoOrderPlacementMsg {
+	contractDepositInfo := []types.ContractDepositInfo{}
+	for _, depositInfo := range k.DepositInfo[contractAddr].DepositInfoList {
+		contractDepositInfo = append(contractDepositInfo, dexcache.ToContractDepositInfo(depositInfo))
+	}
 	contractOrderPlacements := []types.ContractOrderPlacement{}
+	msgs := []types.SudoOrderPlacementMsg{
+		{
+			OrderPlacements: types.OrderPlacementMsgDetails{
+				Orders:   []types.ContractOrderPlacement{},
+				Deposits: contractDepositInfo,
+			},
+		},
+	}
 	for _, pair := range registeredPairs {
 		if orderPlacements, ok := k.OrderPlacements[contractAddr][pair.String()]; ok {
 			for _, orderPlacement := range orderPlacements.Orders {
 				if !orderPlacement.Liquidation {
 					contractOrderPlacements = append(contractOrderPlacements, dexcache.ToContractOrderPlacement(orderPlacement))
+					if len(contractOrderPlacements) == MAX_ORDERS_PER_SUDO_CALL {
+						msgs = append(msgs, types.SudoOrderPlacementMsg{
+							OrderPlacements: types.OrderPlacementMsgDetails{
+								Orders:   contractOrderPlacements,
+								Deposits: []types.ContractDepositInfo{},
+							},
+						})
+						contractOrderPlacements = []types.ContractOrderPlacement{}
+					}
 				}
 			}
 		}
 	}
-	contractDepositInfo := []types.ContractDepositInfo{}
-	for _, depositInfo := range k.DepositInfo[contractAddr].DepositInfoList {
-		contractDepositInfo = append(contractDepositInfo, dexcache.ToContractDepositInfo(depositInfo))
-	}
-	return types.SudoOrderPlacementMsg{
+	msgs = append(msgs, types.SudoOrderPlacementMsg{
 		OrderPlacements: types.OrderPlacementMsgDetails{
 			Orders:   contractOrderPlacements,
-			Deposits: contractDepositInfo,
+			Deposits: []types.ContractDepositInfo{},
 		},
-	}
+	})
+	return msgs
 }
