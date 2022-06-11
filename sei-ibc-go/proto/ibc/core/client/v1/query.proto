@@ -36,6 +36,11 @@ service Query {
     option (google.api.http).get = "/ibc/core/client/v1/consensus_states/{client_id}";
   }
 
+  // ConsensusStateHeights queries the height of every consensus states associated with a given client.
+  rpc ConsensusStateHeights(QueryConsensusStateHeightsRequest) returns (QueryConsensusStateHeightsResponse) {
+    option (google.api.http).get = "/ibc/core/client/v1/consensus_states/{client_id}/heights";
+  }
+
   // Status queries the status of an IBC client.
   rpc ClientStatus(QueryClientStatusRequest) returns (QueryClientStatusResponse) {
     option (google.api.http).get = "/ibc/core/client/v1/client_status/{client_id}";
@@ -133,6 +138,24 @@ message QueryConsensusStatesRequest {
 message QueryConsensusStatesResponse {
   // consensus states associated with the identifier
   repeated ConsensusStateWithHeight consensus_states = 1 [(gogoproto.nullable) = false];
+  // pagination response
+  cosmos.base.query.v1beta1.PageResponse pagination = 2;
+}
+
+// QueryConsensusStateHeightsRequest is the request type for Query/ConsensusStateHeights
+// RPC method.
+message QueryConsensusStateHeightsRequest {
+  // client identifier
+  string client_id = 1;
+  // pagination request
+  cosmos.base.query.v1beta1.PageRequest pagination = 2;
+}
+
+// QueryConsensusStateHeightsResponse is the response type for the
+// Query/ConsensusStateHeights RPC method
+message QueryConsensusStateHeightsResponse {
+  // consensus state heights
+  repeated Height consensus_state_heights = 1 [(gogoproto.nullable) = false];
   // pagination response
   cosmos.base.query.v1beta1.PageResponse pagination = 2;
 }

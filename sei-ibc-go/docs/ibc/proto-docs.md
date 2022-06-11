@@ -147,6 +147,8 @@
     - [QueryClientStatesResponse](#ibc.core.client.v1.QueryClientStatesResponse)
     - [QueryClientStatusRequest](#ibc.core.client.v1.QueryClientStatusRequest)
     - [QueryClientStatusResponse](#ibc.core.client.v1.QueryClientStatusResponse)
+    - [QueryConsensusStateHeightsRequest](#ibc.core.client.v1.QueryConsensusStateHeightsRequest)
+    - [QueryConsensusStateHeightsResponse](#ibc.core.client.v1.QueryConsensusStateHeightsResponse)
     - [QueryConsensusStateRequest](#ibc.core.client.v1.QueryConsensusStateRequest)
     - [QueryConsensusStateResponse](#ibc.core.client.v1.QueryConsensusStateResponse)
     - [QueryConsensusStatesRequest](#ibc.core.client.v1.QueryConsensusStatesRequest)
@@ -2324,6 +2326,40 @@ method. It returns the current status of the IBC client.
 
 
 
+<a name="ibc.core.client.v1.QueryConsensusStateHeightsRequest"></a>
+
+### QueryConsensusStateHeightsRequest
+QueryConsensusStateHeightsRequest is the request type for Query/ConsensusStateHeights
+RPC method.
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| `client_id` | [string](#string) |  | client identifier |
+| `pagination` | [cosmos.base.query.v1beta1.PageRequest](#cosmos.base.query.v1beta1.PageRequest) |  | pagination request |
+
+
+
+
+
+
+<a name="ibc.core.client.v1.QueryConsensusStateHeightsResponse"></a>
+
+### QueryConsensusStateHeightsResponse
+QueryConsensusStateHeightsResponse is the response type for the
+Query/ConsensusStateHeights RPC method
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| `consensus_state_heights` | [Height](#ibc.core.client.v1.Height) | repeated | consensus state heights |
+| `pagination` | [cosmos.base.query.v1beta1.PageResponse](#cosmos.base.query.v1beta1.PageResponse) |  | pagination response |
+
+
+
+
+
+
 <a name="ibc.core.client.v1.QueryConsensusStateRequest"></a>
 
 ### QueryConsensusStateRequest
@@ -2467,6 +2503,7 @@ Query provides defines the gRPC querier service
 | `ClientStates` | [QueryClientStatesRequest](#ibc.core.client.v1.QueryClientStatesRequest) | [QueryClientStatesResponse](#ibc.core.client.v1.QueryClientStatesResponse) | ClientStates queries all the IBC light clients of a chain. | GET|/ibc/core/client/v1/client_states|
 | `ConsensusState` | [QueryConsensusStateRequest](#ibc.core.client.v1.QueryConsensusStateRequest) | [QueryConsensusStateResponse](#ibc.core.client.v1.QueryConsensusStateResponse) | ConsensusState queries a consensus state associated with a client state at a given height. | GET|/ibc/core/client/v1/consensus_states/{client_id}/revision/{revision_number}/height/{revision_height}|
 | `ConsensusStates` | [QueryConsensusStatesRequest](#ibc.core.client.v1.QueryConsensusStatesRequest) | [QueryConsensusStatesResponse](#ibc.core.client.v1.QueryConsensusStatesResponse) | ConsensusStates queries all the consensus state associated with a given client. | GET|/ibc/core/client/v1/consensus_states/{client_id}|
+| `ConsensusStateHeights` | [QueryConsensusStateHeightsRequest](#ibc.core.client.v1.QueryConsensusStateHeightsRequest) | [QueryConsensusStateHeightsResponse](#ibc.core.client.v1.QueryConsensusStateHeightsResponse) | ConsensusStateHeights queries the height of every consensus states associated with a given client. | GET|/ibc/core/client/v1/consensus_states/{client_id}/heights|
 | `ClientStatus` | [QueryClientStatusRequest](#ibc.core.client.v1.QueryClientStatusRequest) | [QueryClientStatusResponse](#ibc.core.client.v1.QueryClientStatusResponse) | Status queries the status of an IBC client. | GET|/ibc/core/client/v1/client_status/{client_id}|
 | `ClientParams` | [QueryClientParamsRequest](#ibc.core.client.v1.QueryClientParamsRequest) | [QueryClientParamsResponse](#ibc.core.client.v1.QueryClientParamsResponse) | ClientParams queries all parameters of the ibc client. | GET|/ibc/client/v1/params|
 | `UpgradedClientState` | [QueryUpgradedClientStateRequest](#ibc.core.client.v1.QueryUpgradedClientStateRequest) | [QueryUpgradedClientStateResponse](#ibc.core.client.v1.QueryUpgradedClientStateResponse) | UpgradedClientState queries an Upgraded IBC light client. | GET|/ibc/core/client/v1/upgraded_client_states|

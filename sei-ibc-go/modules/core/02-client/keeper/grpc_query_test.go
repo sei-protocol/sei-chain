@@ -2,7 +2,6 @@ package keeper_test
 
 import (
 	"fmt"
-	"time"
 
 	codectypes "github.com/cosmos/cosmos-sdk/codec/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -11,7 +10,6 @@ import (
 	"google.golang.org/grpc/metadata"
 
 	"github.com/cosmos/ibc-go/v3/modules/core/02-client/types"
-	commitmenttypes "github.com/cosmos/ibc-go/v3/modules/core/23-commitment/types"
 	"github.com/cosmos/ibc-go/v3/modules/core/exported"
 	ibctmtypes "github.com/cosmos/ibc-go/v3/modules/light-clients/07-tendermint/types"
 	ibctesting "github.com/cosmos/ibc-go/v3/testing"
@@ -294,7 +292,7 @@ func (suite *KeeperTestSuite) TestQueryConsensusState() {
 func (suite *KeeperTestSuite) TestQueryConsensusStates() {
 	var (
 		req                *types.QueryConsensusStatesRequest
-		expConsensusStates = []types.ConsensusStateWithHeight{}
+		expConsensusStates []types.ConsensusStateWithHeight
 	)
 
 	testCases := []struct {
@@ -303,14 +301,7 @@ func (suite *KeeperTestSuite) TestQueryConsensusStates() {
 		expPass  bool
 	}{
 		{
-			"invalid client identifier",
-			func() {
-				req = &types.QueryConsensusStatesRequest{}
-			},
-			false,
-		},
-		{
-			"empty pagination",
+			"success: without pagination",
 			func() {
 				req = &types.QueryConsensusStatesRequest{
 					ClientId: testClientID,
@@ -334,29 +325,30 @@ func (suite *KeeperTestSuite) TestQueryConsensusStates() {
 		{
 			"success",
 			func() {
-				cs := ibctmtypes.NewConsensusState(
-					suite.consensusState.Timestamp, commitmenttypes.NewMerkleRoot([]byte("hash1")), nil,
-				)
-				cs2 := ibctmtypes.NewConsensusState(
-					suite.consensusState.Timestamp.Add(time.Second), commitmenttypes.NewMerkleRoot([]byte("hash2")), nil,
-				)
+				path := ibctesting.NewPath(suite.chainA, suite.chainB)
+				suite.coordinator.SetupClients(path)
 
-				clientState := ibctmtypes.NewClientState(
-					testChainID, ibctmtypes.DefaultTrustLevel, trustingPeriod, ubdPeriod, maxClockDrift, testClientHeight, commitmenttypes.GetSDKSpecs(), ibctesting.UpgradePath, false, false,
-				)
+				height1 := path.EndpointA.GetClientState().GetLatestHeight().(types.Height)
+				expConsensusStates = append(
+					expConsensusStates,
+					types.NewConsensusStateWithHeight(
+						height1,
+						path.EndpointA.GetConsensusState(height1),
+					))
 
-				// Use CreateClient to ensure that processedTime metadata gets stored.
-				clientId, err := suite.keeper.CreateClient(suite.ctx, clientState, cs)
+				err := path.EndpointA.UpdateClient()
 				suite.Require().NoError(err)
-				suite.keeper.SetClientConsensusState(suite.ctx, clientId, testClientHeight.Increment(), cs2)
 
-				// order is swapped because the res is sorted by client id
-				expConsensusStates = []types.ConsensusStateWithHeight{
-					types.NewConsensusStateWithHeight(testClientHeight, cs),
-					types.NewConsensusStateWithHeight(testClientHeight.Increment().(types.Height), cs2),
-				}
+				height2 := path.EndpointA.GetClientState().GetLatestHeight().(types.Height)
+				expConsensusStates = append(
+					expConsensusStates,
+					types.NewConsensusStateWithHeight(
+						height2,
+						path.EndpointA.GetConsensusState(height2),
+					))
+
 				req = &types.QueryConsensusStatesRequest{
-					ClientId: clientId,
+					ClientId: path.EndpointA.ClientID,
 					Pagination: &query.PageRequest{
 						Limit:      3,
 						CountTotal: true,
@@ -365,6 +357,13 @@ func (suite *KeeperTestSuite) TestQueryConsensusStates() {
 			},
 			true,
 		},
+		{
+			"invalid client identifier",
+			func() {
+				req = &types.QueryConsensusStatesRequest{}
+			},
+			false,
+		},
 	}
 
 	for _, tc := range testCases {
@@ -372,9 +371,8 @@ func (suite *KeeperTestSuite) TestQueryConsensusStates() {
 			suite.SetupTest() // reset
 
 			tc.malleate()
-			ctx := sdk.WrapSDKContext(suite.ctx)
-
-			res, err := suite.queryClient.ConsensusStates(ctx, req)
+			ctx := sdk.WrapSDKContext(suite.chainA.GetContext())
+			res, err := suite.chainA.QueryServer.ConsensusStates(ctx, req)
 
 			if tc.expPass {
 				suite.Require().NoError(err)
@@ -387,6 +385,94 @@ func (suite *KeeperTestSuite) TestQueryConsensusStates() {
 					// ensure UnpackInterfaces is defined
 					cachedValue := res.ConsensusStates[i].ConsensusState.GetCachedValue()
 					suite.Require().NotNil(cachedValue)
+				}
+			} else {
+				suite.Require().Error(err)
+			}
+		})
+	}
+}
+
+func (suite *KeeperTestSuite) TestQueryConsensusStateHeights() {
+	var (
+		req                      *types.QueryConsensusStateHeightsRequest
+		expConsensusStateHeights []types.Height
+	)
+
+	testCases := []struct {
+		msg      string
+		malleate func()
+		expPass  bool
+	}{
+		{
+			"success: without pagination",
+			func() {
+				req = &types.QueryConsensusStateHeightsRequest{
+					ClientId: testClientID,
+				}
+			},
+			true,
+		},
+		{
+			"success: response contains no results",
+			func() {
+				req = &types.QueryConsensusStateHeightsRequest{
+					ClientId: testClientID,
+					Pagination: &query.PageRequest{
+						Limit:      3,
+						CountTotal: true,
+					},
+				}
+			},
+			true,
+		},
+		{
+			"success: returns consensus heights",
+			func() {
+				path := ibctesting.NewPath(suite.chainA, suite.chainB)
+				suite.coordinator.SetupClients(path)
+
+				expConsensusStateHeights = append(expConsensusStateHeights, path.EndpointA.GetClientState().GetLatestHeight().(types.Height))
+
+				err := path.EndpointA.UpdateClient()
+				suite.Require().NoError(err)
+
+				expConsensusStateHeights = append(expConsensusStateHeights, path.EndpointA.GetClientState().GetLatestHeight().(types.Height))
+
+				req = &types.QueryConsensusStateHeightsRequest{
+					ClientId: path.EndpointA.ClientID,
+					Pagination: &query.PageRequest{
+						Limit:      3,
+						CountTotal: true,
+					},
+				}
+			},
+			true,
+		},
+		{
+			"invalid client identifier",
+			func() {
+				req = &types.QueryConsensusStateHeightsRequest{}
+			},
+			false,
+		},
+	}
+
+	for _, tc := range testCases {
+		suite.Run(fmt.Sprintf("Case %s", tc.msg), func() {
+			suite.SetupTest() // reset
+
+			tc.malleate()
+			ctx := sdk.WrapSDKContext(suite.chainA.GetContext())
+			res, err := suite.chainA.QueryServer.ConsensusStateHeights(ctx, req)
+
+			if tc.expPass {
+				suite.Require().NoError(err)
+				suite.Require().NotNil(res)
+				suite.Require().Equal(len(expConsensusStateHeights), len(res.ConsensusStateHeights))
+				for i := range expConsensusStateHeights {
+					suite.Require().NotNil(res.ConsensusStateHeights[i])
+					suite.Require().Equal(expConsensusStateHeights[i], res.ConsensusStateHeights[i])
 				}
 			} else {
 				suite.Require().Error(err)
