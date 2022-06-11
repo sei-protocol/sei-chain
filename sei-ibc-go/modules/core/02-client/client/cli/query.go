@@ -164,6 +164,49 @@ func GetCmdQueryConsensusStates() *cobra.Command {
 	return cmd
 }
 
+// GetCmdQueryConsensusStateHeights defines the command to query the heights of all client consensus states associated with the
+// provided client ID.
+func GetCmdQueryConsensusStateHeights() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:     "consensus-state-heights [client-id]",
+		Short:   "Query the heights of all consensus states of a client.",
+		Long:    "Query the heights of all consensus states associated with the provided client ID.",
+		Example: fmt.Sprintf("%s query %s %s consensus-state-heights [client-id]", version.AppName, host.ModuleName, types.SubModuleName),
+		Args:    cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			clientCtx, err := client.GetClientQueryContext(cmd)
+			if err != nil {
+				return err
+			}
+
+			clientID := args[0]
+
+			queryClient := types.NewQueryClient(clientCtx)
+
+			pageReq, err := client.ReadPageRequest(cmd.Flags())
+			if err != nil {
+				return err
+			}
+
+			req := &types.QueryConsensusStateHeightsRequest{
+				ClientId:   clientID,
+				Pagination: pageReq,
+			}
+
+			res, err := queryClient.ConsensusStateHeights(cmd.Context(), req)
+			if err != nil {
+				return err
+			}
+
+			return clientCtx.PrintProto(res)
+		},
+	}
+	flags.AddQueryFlagsToCmd(cmd)
+	flags.AddPaginationFlagsToCmd(cmd, "consensus state heights")
+
+	return cmd
+}
+
 // GetCmdQueryConsensusState defines the command to query the consensus state of
 // the chain as defined in https://github.com/cosmos/ibc/tree/master/spec/core/ics-002-client-semantics#query
 func GetCmdQueryConsensusState() *cobra.Command {
