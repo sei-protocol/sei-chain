@@ -86,36 +86,74 @@ func run(
 	}
 	TX_HASH_FILE = file
 	var mu sync.Mutex
-	var senders []func()
 
-	for i := uint64(0); i < numberOfOrders/BATCH_SIZE; i++ {
-		fmt.Println(fmt.Sprintf("Preparing %d-th order", i))
-		accountIdx := i % numberOfAccounts
-		key := GetKey(accountIdx)
-		orderPlacements := []*dextypes.OrderPlacement{}
-		longPrice := i%(longPriceCeiling-longPriceFloor) + longPriceFloor
-		longQuantity := uint64(rand.Intn(int(quantityCeiling)-int(quantityFloor))) + quantityFloor
-		shortPrice := i%(shortPriceCeiling-shortPriceFloor) + shortPriceFloor
-		shortQuantity := uint64(rand.Intn(int(quantityCeiling)-int(quantityFloor))) + quantityFloor
-		for j := 0; j < BATCH_SIZE; j++ {
-			orderPlacements = append(orderPlacements, &dextypes.OrderPlacement{
-				Long:       true,
-				Price:      longPrice,
-				Quantity:   longQuantity,
-				PriceDenom: "ust",
-				AssetDenom: "luna",
-				Open:       true,
-				Limit:      true,
-				Leverage:   "1",
-			}, &dextypes.OrderPlacement{
-				Long:       false,
-				Price:      shortPrice,
-				Quantity:   shortQuantity,
-				PriceDenom: "ust",
-				AssetDenom: "luna",
-				Open:       true,
-				Limit:      true,
-				Leverage:   "1",
+	var activeAccounts = []int{}
+	var inactiveAccounts = []int{}
+	for i := 0; i < int(numberOfAccounts); i++ {
+		if i%2 == 0 {
+			activeAccounts = append(activeAccounts, i)
+		} else {
+			inactiveAccounts = append(inactiveAccounts, i)
+		}
+	}
+	wgs := []*sync.WaitGroup{}
+	sendersList := [][]func(){}
+	for i := 0; i < int(numberOfBlocks); i++ {
+		fmt.Println(fmt.Sprintf("Preparing %d-th block", i))
+		var wg *sync.WaitGroup = &sync.WaitGroup{}
+		var senders []func()
+		wgs = append(wgs, wg)
+		for j, account := range activeAccounts {
+			key := GetKey(uint64(account))
+			orderPlacements := []*dextypes.OrderPlacement{}
+			longPrice := uint64(j)%(longPriceCeiling-longPriceFloor) + longPriceFloor
+			longQuantity := uint64(rand.Intn(int(quantityCeiling)-int(quantityFloor))) + quantityFloor
+			shortPrice := uint64(j)%(shortPriceCeiling-shortPriceFloor) + shortPriceFloor
+			shortQuantity := uint64(rand.Intn(int(quantityCeiling)-int(quantityFloor))) + quantityFloor
+			for j := 0; j < BATCH_SIZE; j++ {
+				orderPlacements = append(orderPlacements, &dextypes.OrderPlacement{
+					PositionDirection: dextypes.PositionDirection_LONG,
+					Price:             sdk.NewDec(int64(longPrice)).Quo(FROM_MILI),
+					Quantity:          sdk.NewDec(int64(longQuantity)).Quo(FROM_MILI),
+					PriceDenom:        dextypes.Denom_USDC,
+					AssetDenom:        dextypes.Denom_SEI,
+					PositionEffect:    dextypes.PositionEffect_OPEN,
+					OrderType:         dextypes.OrderType_LIMIT,
+					Leverage:          sdk.NewDec(1),
+				}, &dextypes.OrderPlacement{
+					PositionDirection: dextypes.PositionDirection_SHORT,
+					Price:             sdk.NewDec(int64(shortPrice)).Quo(FROM_MILI),
+					Quantity:          sdk.NewDec(int64(shortQuantity)).Quo(FROM_MILI),
+					PriceDenom:        dextypes.Denom_USDC,
+					AssetDenom:        dextypes.Denom_SEI,
+					PositionEffect:    dextypes.PositionEffect_OPEN,
+					OrderType:         dextypes.OrderType_LIMIT,
+					Leverage:          sdk.NewDec(1),
+				})
+			}
+			amount, err := sdk.ParseCoinsNormalized(fmt.Sprintf("%d%s", longPrice*longQuantity+shortPrice*shortQuantity, "usei"))
+			if err != nil {
+				panic(err)
+			}
+			msg := dextypes.MsgPlaceOrders{
+				Creator:      sdk.AccAddress(key.PubKey().Address()).String(),
+				Orders:       orderPlacements,
+				ContractAddr: contractAddress,
+				Funds:        amount,
+			}
+			txBuilder := TEST_CONFIG.TxConfig.NewTxBuilder()
+			_ = txBuilder.SetMsgs(&msg)
+			seqDelta := uint64(i / 2)
+			SignTx(&txBuilder, key, seqDelta)
+			mode := typestx.BroadcastMode_BROADCAST_MODE_SYNC
+			if j == len(activeAccounts)-1 {
+				mode = typestx.BroadcastMode_BROADCAST_MODE_BLOCK
+			}
+			sender := SendTx(key, &txBuilder, mode, seqDelta, &mu)
+			wg.Add(1)
+			senders = append(senders, func() {
+				defer wg.Done()
+				sender()
 			})
 		}
 		sendersList = append(sendersList, senders)
@@ -140,15 +178,7 @@ func run(
 		for _, sender := range senders {
 			go sender()
 		}
-		txBuilder := TEST_CONFIG.TxConfig.NewTxBuilder()
-		_ = txBuilder.SetMsgs(&msg)
-		SignTx(&txBuilder, key)
-		sender := SendTx(key, &txBuilder, &mu)
-		wg.Add(1)
-		senders = append(senders, func() {
-			defer wg.Done()
-			sender()
-		})
+		wg.Wait()
 	}
 }
 
