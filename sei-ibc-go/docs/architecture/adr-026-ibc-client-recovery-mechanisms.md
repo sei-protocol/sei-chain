@@ -6,6 +6,7 @@
 - 2020/08/06: Revisions per review & to reference version
 - 2021/01/15: Revision to support substitute clients for unfreezing
 - 2021/05/20: Revision to simplify consensus state copying, remove initial height
+- 2022/04/08: Revision to deprecate AllowUpdateAfterExpiry and AllowUpdateAfterMisbehaviour
 
 ## Status
 
@@ -35,21 +36,20 @@ Two-thirds of the validator set (the quorum for governance, module participation
 We elect not to deal with chains which have actually halted, which is necessarily Byzantine behaviour and in which case token recovery is not likely possible anyways (in-flight packets cannot be timed-out, but the relative impact of that is minor).
 
 1. Require Tendermint light clients (ICS 07) to be created with the following additional flags
-    1. `allow_governance_override_after_expiry` (boolean, default false)
+    1. `allow_update_after_expiry` (boolean, default true). Note that this flag has been deprecated, it remains to signal intent but checks against this value will not be enforced.
 1. Require Tendermint light clients (ICS 07) to expose the following additional internal query functions
     1. `Expired() boolean`, which returns whether or not the client has passed the trusting period since the last update (in which case no headers can be validated)
 1. Require Tendermint light clients (ICS 07) & solo machine clients (ICS 06) to be created with the following additional flags
-    1. `allow_governance_override_after_misbehaviour` (boolean, default false)
+    1. `allow_update_after_misbehaviour` (boolean, default true). Note that this flag has been deprecated, it remains to signal intent but checks against this value will not be enforced.
 1. Require Tendermint light clients (ICS 07) to expose the following additional state mutation functions
     1. `Unfreeze()`, which unfreezes a light client after misbehaviour and clears any frozen height previously set
 1. Add a new governance proposal type, `ClientUpdateProposal`, in the `x/ibc` module
     1. Extend the base `Proposal` with two client identifiers (`string`). 
     1. The first client identifier is the proposed client to be updated. This client must be either frozen or expired.
     1. The second client is a substitute client. It carries all the state for the client which may be updated. It must have identitical client and chain parameters to the client which may be updated (except for latest height, frozen height, and chain-id). It should be continually updated during the voting period. 
-    1. If this governance proposal passes, the client on trial will be updated to the latest state of the substitute, if and only if:
-        1. `allow_governance_override_after_expiry` is true and the client has expired (`Expired()` returns true)
-        1. `allow_governance_override_after_misbehaviour` is true and the client has been frozen (`Frozen()` returns true)
-            1. In this case, additionally, the client is unfrozen by calling `Unfreeze()`
+    1. If this governance proposal passes, the client on trial will be updated to the latest state of the substitute.
+
+    Previously, `AllowUpdateAfterExpiry` and `AllowUpdateAfterMisbehaviour` were used to signal the recovery options for an expired or frozen client, and governance proposals were not allowed to overwrite the client if these parameters were set to false. However, this has now been deprecated because a code migration can overwrite the client and consensus states regardless of the value of these parameters. If governance would vote to overwrite a client or consensus state, it is likely that governance would also be willing to perform a code migration to do the same.
 
 
 Note that clients frozen due to misbehaviour must wait for the evidence to expire to avoid becoming refrozen. 
@@ -62,7 +62,6 @@ This ADR does not address planned upgrades, which are handled separately as per 
 
 - Establishes a mechanism for client recovery in the case of expiry
 - Establishes a mechanism for client recovery in the case of misbehaviour
-- Clients can elect to disallow this recovery mechanism if they do not wish to allow for it
 - Constructing an ClientUpdate Proposal is as difficult as creating a new client
 
 ### Negative

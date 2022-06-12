@@ -52,12 +52,11 @@ message ClientState {
   // "upgradedIBCState"}`
   repeated string upgrade_path = 9 [(gogoproto.moretags) = "yaml:\"upgrade_path\""];
 
-  // This flag, when set to true, will allow governance to recover a client
-  // which has expired
-  bool allow_update_after_expiry = 10 [(gogoproto.moretags) = "yaml:\"allow_update_after_expiry\""];
-  // This flag, when set to true, will allow governance to unfreeze a client
-  // whose chain has experienced a misbehaviour event
-  bool allow_update_after_misbehaviour = 11 [(gogoproto.moretags) = "yaml:\"allow_update_after_misbehaviour\""];
+  // allow_update_after_expiry is deprecated
+  bool allow_update_after_expiry = 10 [deprecated = true, (gogoproto.moretags) = "yaml:\"allow_update_after_expiry\""];
+  // allow_update_after_misbehaviour is deprecated
+  bool allow_update_after_misbehaviour = 11
+      [deprecated = true, (gogoproto.moretags) = "yaml:\"allow_update_after_misbehaviour\""];
 }
 
 // ConsensusState defines the consensus state from Tendermint.

@@ -46,7 +46,6 @@ See also the relevant documentation: [ADR-026, IBC client recovery mechanisms](.
 
 ### Preconditions 
 - The chain is updated with ibc-go >= v1.1.0.
-- Recovery parameters are set to `true` for the Tendermint light client (this determines if a governance proposal can be used). If the recovery parameters are set to `false`, recovery will require custom migration code.
 - The client identifier of an active client for the same counterparty chain.
 - The governance deposit.
 
@@ -67,7 +66,7 @@ Check if the client is attached to the expected `chain-id`. For example, for an 
 }
 ```
 
-The client is attached to the expected Akash `chain-id` and the recovery parameters (`allow_update_after_expiry` and `allow_update_after_misbehaviour`) are set to `true`.
+The client is attached to the expected Akash `chain-id`. Note that although the parameters (`allow_update_after_expiry` and `allow_update_after_misbehaviour`) exist to signal intent, these parameters have been deprecated and will not enforce any checks on the revival of client. See ADR-026 for more context on this deprecation.
 
 ### Step 2
 
