@@ -4,7 +4,8 @@ import requests
 from pathlib import Path
 import sys
 
-CMD = str(Path.home()) + "/go/bin/seid"
+# for internal loadtest only
+CMD = "printf '12345678\n' | " + str(Path.home()) + "/go/bin/seid"
 PREVOTE_TMPL = (
     " tx oracle aggregate-prevote abc 100uusdc,50uatom {val_addr} --from={key} "
     "--chain-id={chain_id} --fees=100000usei --gas=100000 -y --broadcast-mode=sync"
