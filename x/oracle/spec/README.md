@@ -1,35 +1,39 @@
 ## Abstract
 
-The Oracle module provides the Terra blockchain with an up-to-date and accurate price feed of exchange rates of Luna against various Terra pegs so that the [Market](../../market/spec/README.md) may provide fair exchanges between Terra<>Terra currency pairs, as well as Terra<>Luna.
+Sei Network has an `oracle` module to support asset exchange rate pricing for use by other modules and contracts. When validating for the network, participation as an Oracle is expected and required in order to ensure the most reliable and accurate pricing for assets.
 
-As price information is extrinsic to the blockchain, the Terra network relies on validators to periodically vote on the current Luna exchange rate, with the protocol tallying up the results once per `VotePeriod` and updating the on-chain exchange rate as the weighted median of the ballot.
+For oracle pricing, the voting rounds have several steps to ensure integrity and consensus of pricing data prior to accepting the exchange rates as the source of truth. In each voting period, there are two aggregation steps that oracles must participate in.
 
-> Since the Oracle service is powered by validators, you may find it interesting to look at the [Staking](https://github.com/cosmos/cosmos-sdk/tree/master/x/staking/spec/README.md) module, which covers the logic for staking and validators.
+The prevote step is a step where a validator provides their oracle pricing submission during voting window X for the next voting window X+1. In this prevote step, the validator hashes their proposed exchange rates to prevent other validators from simply copying that validator's votes.
+
+In the vote step for window X, the validator provides their proposed exchange rates for the current window. These are hashed and compared with the prevotes from window X-1 to ensure that the voted values haven't changed across the voting window. At the end of the voting period, all of the exchange rate votes are accumulated and a weighted median is computed (weighted by validator voting power) to determine the true exchange rate for each asset.
+
+There are penalties for non-participation and participation with bad data. Validators have a miss count that tracks the number of voting windows in which a validator has either not provided data or provided data that deviated too much from the weighted median. In a given number of voting periods, if a validators miss count is too high, they are slashed as a penalty for misbehaving over an extended period of time.
+
+TODO: Populate Oracle README Contents below.
 
 ## Contents
 
-1. **[Concepts](01_concepts.md)**
-    - [Voting Procedure](01_concepts.md#Voting-Procedure)
-    - [Reward Band](01_concepts.md#Reward-Band)
-    - [Slashing](01_concepts.md#Slashing)
-    - [Abstaining from Voting](01_concepts.md#Abstaining-from-Voting)
-2. **[State](02_state.md)**
-    - [ExchangeRatePrevote](02_state.md#ExchangeRatePrevote)
-    - [ExchangeRateVote](02_state.md#ExchangeRateVote)
-    - [ExchangeRate](02_state.md#ExchangeRate)
-    - [FeederDelegation](02_state.md#FeederDelegation)
-    - [MissCounter](02_state.md#MissCounter)
-    - [AggregateExchangeRatePrevote](02_state.md#AggregateExchangeRatePrevote)
-    - [AggregateExchangeRateVote](02_state.md#AggregateExchangeRateVote)
-3. **[EndBlock](03_end_block.md)**
-    - [Tally Exchange Rate Votes](03_end_block.md#Tally-Exchange-Rate-Votes)
-4. **[Messages](04_messages.md)**
-    - [MsgExchangeRatePrevote](04_messages.md#MsgExchangeRatePrevote)
-    - [MsgExchangeRatePrevote](04_messages.md#MsgExchangeRatePrevote)
-    - [MsgDelegateFeedConsent](04_messages.md#MsgDelegateFeedConsent)
-    - [MsgAggregateExchangeRatePrevote](04_messages.md#MsgAggregateExchangeRatePrevote)
-    - [MsgAggregateExchangeRateVote](04_messages.md#MsgAggregateExchangeRateVote)
-5. **[Events](05_events.md)**
-    - [EndBlocker](05_events.md#EndBlocker)
-    - [Handlers](05_events.md#Handlers)
-6. **[Parameters](06_params.md)**
+## Concepts
+
+### Voting Procedure
+
+### Reward Band
+
+### Slashing
+
+### Abstaining from Voting
+
+## State
+
+## Messages
+
+## Events
+
+## Hooks
+
+## Parameters
+
+## Transactions
+
+## Queries
