@@ -30,6 +30,45 @@ func (suite *KeeperTestSuite) TestOnRecvPacket() {
 		expPass  bool
 	}{
 		{
+			"interchain account successfully executes an arbitrary message type using the * (allow all message types) param",
+			func() {
+				interchainAccountAddr, found := suite.chainB.GetSimApp().ICAHostKeeper.GetInterchainAccountAddress(suite.chainB.GetContext(), ibctesting.FirstConnectionID, path.EndpointA.ChannelConfig.PortID)
+				suite.Require().True(found)
+
+				// Populate the gov keeper in advance with an active proposal
+				testProposal := &govtypes.TextProposal{
+					Title:       "IBC Gov Proposal",
+					Description: "tokens for all!",
+				}
+
+				proposal, err := govtypes.NewProposal(testProposal, govtypes.DefaultStartingProposalID, time.Now(), time.Now().Add(time.Hour))
+				suite.Require().NoError(err)
+
+				suite.chainB.GetSimApp().GovKeeper.SetProposal(suite.chainB.GetContext(), proposal)
+				suite.chainB.GetSimApp().GovKeeper.ActivateVotingPeriod(suite.chainB.GetContext(), proposal)
+
+				msg := &govtypes.MsgVote{
+					ProposalId: govtypes.DefaultStartingProposalID,
+					Voter:      interchainAccountAddr,
+					Option:     govtypes.OptionYes,
+				}
+
+				data, err := icatypes.SerializeCosmosTx(suite.chainA.GetSimApp().AppCodec(), []sdk.Msg{msg})
+				suite.Require().NoError(err)
+
+				icaPacketData := icatypes.InterchainAccountPacketData{
+					Type: icatypes.EXECUTE_TX,
+					Data: data,
+				}
+
+				packetData = icaPacketData.GetBytes()
+
+				params := types.NewParams(true, []string{"*"})
+				suite.chainB.GetSimApp().ICAHostKeeper.SetParams(suite.chainB.GetContext(), params)
+			},
+			true,
+		},
+		{
 			"interchain account successfully executes banktypes.MsgSend",
 			func() {
 				interchainAccountAddr, found := suite.chainB.GetSimApp().ICAHostKeeper.GetInterchainAccountAddress(suite.chainB.GetContext(), ibctesting.FirstConnectionID, path.EndpointA.ChannelConfig.PortID)
