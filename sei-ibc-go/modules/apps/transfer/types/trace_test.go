@@ -14,10 +14,23 @@ func TestParseDenomTrace(t *testing.T) {
 	}{
 		{"empty denom", "", DenomTrace{}},
 		{"base denom", "uatom", DenomTrace{BaseDenom: "uatom"}},
+		{"base denom ending with '/'", "uatom/", DenomTrace{BaseDenom: "uatom/"}},
+		{"base denom with single '/'s", "gamm/pool/1", DenomTrace{BaseDenom: "gamm/pool/1"}},
+		{"base denom with double '/'s", "gamm//pool//1", DenomTrace{BaseDenom: "gamm//pool//1"}},
 		{"trace info", "transfer/channelToA/uatom", DenomTrace{BaseDenom: "uatom", Path: "transfer/channelToA"}},
-		{"incomplete path", "transfer/uatom", DenomTrace{BaseDenom: "uatom", Path: "transfer"}},
+		{"trace info with base denom ending in '/'", "transfer/channelToA/uatom/", DenomTrace{BaseDenom: "uatom/", Path: "transfer/channelToA"}},
+		{"trace info with single '/' in base denom", "transfer/channelToA/erc20/0x85bcBCd7e79Ec36f4fBBDc54F90C643d921151AA", DenomTrace{BaseDenom: "erc20/0x85bcBCd7e79Ec36f4fBBDc54F90C643d921151AA", Path: "transfer/channelToA"}},
+		{"trace info with multiple '/'s in base denom", "transfer/channelToA/gamm/pool/1", DenomTrace{BaseDenom: "gamm/pool/1", Path: "transfer/channelToA"}},
+		{"trace info with multiple double '/'s in base denom", "transfer/channelToA/gamm//pool//1", DenomTrace{BaseDenom: "gamm//pool//1", Path: "transfer/channelToA"}},
+		{"trace info with multiple port/channel pairs", "transfer/channelToA/transfer/channelToB/uatom", DenomTrace{BaseDenom: "uatom", Path: "transfer/channelToA/transfer/channelToB"}},
+		{"incomplete path", "transfer/uatom", DenomTrace{BaseDenom: "transfer/uatom"}},
 		{"invalid path (1)", "transfer//uatom", DenomTrace{BaseDenom: "uatom", Path: "transfer/"}},
-		{"invalid path (2)", "transfer/channelToA/uatom/", DenomTrace{BaseDenom: "", Path: "transfer/channelToA/uatom"}},
+		{"invalid path (2)", "channelToA/transfer/uatom", DenomTrace{BaseDenom: "channelToA/transfer/uatom"}},
+		{"invalid path (3)", "uatom/transfer", DenomTrace{BaseDenom: "uatom/transfer"}},
+		{"invalid path (4)", "transfer/channelToA", DenomTrace{BaseDenom: "transfer/channelToA"}},
+		{"invalid path (5)", "transfer/channelToA/", DenomTrace{Path: "transfer/channelToA"}},
+		{"invalid path (6)", "transfer/channelToA/transfer", DenomTrace{BaseDenom: "transfer", Path: "transfer/channelToA"}},
+		{"invalid path (7)", "transfer/channelToA/transfer/channelToB", DenomTrace{Path: "transfer/channelToA/transfer/channelToB"}},
 	}
 
 	for _, tc := range testCases {
@@ -49,6 +62,8 @@ func TestDenomTrace_Validate(t *testing.T) {
 		expError bool
 	}{
 		{"base denom only", DenomTrace{BaseDenom: "uatom"}, false},
+		{"base denom only with single '/'", DenomTrace{BaseDenom: "erc20/0x85bcBCd7e79Ec36f4fBBDc54F90C643d921151AA"}, false},
+		{"base denom only with multiple '/'s", DenomTrace{BaseDenom: "gamm/pool/1"}, false},
 		{"empty DenomTrace", DenomTrace{}, true},
 		{"valid single trace info", DenomTrace{BaseDenom: "uatom", Path: "transfer/channelToA"}, false},
 		{"valid multiple trace info", DenomTrace{BaseDenom: "uatom", Path: "transfer/channelToA/transfer/channelToB"}, false},
@@ -104,12 +119,15 @@ func TestValidatePrefixedDenom(t *testing.T) {
 		expError bool
 	}{
 		{"prefixed denom", "transfer/channelToA/uatom", false},
+		{"prefixed denom with '/'", "transfer/channelToA/gamm/pool/1", false},
+		{"empty prefix", "/uatom", false},
+		{"empty identifiers", "//uatom", false},
 		{"base denom", "uatom", false},
+		{"base denom with single '/'", "erc20/0x85bcBCd7e79Ec36f4fBBDc54F90C643d921151AA", false},
+		{"base denom with multiple '/'s", "gamm/pool/1", false},
+		{"invalid port ID", "(transfer)/channelToA/uatom", false},
 		{"empty denom", "", true},
-		{"empty prefix", "/uatom", true},
-		{"empty identifiers", "//uatom", true},
 		{"single trace identifier", "transfer/", true},
-		{"invalid port ID", "(transfer)/channelToA/uatom", true},
 		{"invalid channel ID", "transfer/(channelToA)/uatom", true},
 	}
 
@@ -131,6 +149,7 @@ func TestValidateIBCDenom(t *testing.T) {
 	}{
 		{"denom with trace hash", "ibc/7F1D3FCF4AE79E1554D670D1AD949A9BA4E4A3C76C63093E17E446A46061A7A2", false},
 		{"base denom", "uatom", false},
+		{"base denom ending with '/'", "uatom/", false},
 		{"base denom with single '/'s", "gamm/pool/1", false},
 		{"base denom with double '/'s", "gamm//pool//1", false},
 		{"non-ibc prefix with hash", "notibc/7F1D3FCF4AE79E1554D670D1AD949A9BA4E4A3C76C63093E17E446A46061A7A2", false},
