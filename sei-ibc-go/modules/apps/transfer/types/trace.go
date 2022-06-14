@@ -20,8 +20,11 @@ import (
 //
 // Examples:
 //
-// 	- "portidone/channelidone/uatom" => DenomTrace{Path: "portidone/channelidone", BaseDenom: "uatom"}
-// 	- "uatom" => DenomTrace{Path: "", BaseDenom: "uatom"}
+// - "transfer/channelidone/uatom" => DenomTrace{Path: "transfer/channelidone", BaseDenom: "uatom"}
+// - "transfer/channelidone/transfer/channelidtwo/uatom" => DenomTrace{Path: "transfer/channelidone/transfer/channelidtwo", BaseDenom: "uatom"}
+// - "transfer/channelidone/gamm/pool/1" => DenomTrace{Path: "transfer/channelidone", BaseDenom: "gamm/pool/1"}
+// - "gamm/pool/1" => DenomTrace{Path: "", BaseDenom: "gamm/pool/1"}
+// - "uatom" => DenomTrace{Path: "", BaseDenom: "uatom"}
 func ParseDenomTrace(rawDenom string) DenomTrace {
 	denomSplit := strings.Split(rawDenom, "/")
 
@@ -32,9 +35,10 @@ func ParseDenomTrace(rawDenom string) DenomTrace {
 		}
 	}
 
+	path, baseDenom := extractPathAndBaseFromFullDenom(denomSplit)
 	return DenomTrace{
-		Path:      strings.Join(denomSplit[:len(denomSplit)-1], "/"),
-		BaseDenom: denomSplit[len(denomSplit)-1],
+		Path:      path,
+		BaseDenom: baseDenom,
 	}
 }
 
@@ -68,6 +72,24 @@ func (dt DenomTrace) GetFullDenomPath() string {
 		return dt.BaseDenom
 	}
 	return dt.GetPrefix() + dt.BaseDenom
+}
+
+// extractPathAndBaseFromFullDenom returns the trace path and the base denom from
+// the elements that constitute the complete denom.
+func extractPathAndBaseFromFullDenom(fullDenomItems []string) (string, string) {
+	var path []string
+	var baseDenom []string
+	length := len(fullDenomItems)
+	for i := 0; i < length; i = i + 2 {
+		if i < length-1 && length > 2 && fullDenomItems[i] == PortID {
+			path = append(path, fullDenomItems[i], fullDenomItems[i+1])
+		} else {
+			baseDenom = fullDenomItems[i:]
+			break
+		}
+	}
+
+	return strings.Join(path, "/"), strings.Join(baseDenom, "/")
 }
 
 func validateTraceIdentifiers(identifiers []string) error {
@@ -143,8 +165,10 @@ func (t Traces) Sort() Traces {
 // ValidatePrefixedDenom checks that the denomination for an IBC fungible token packet denom is correctly prefixed.
 // The function will return no error if the given string follows one of the two formats:
 //
-//  - Prefixed denomination: '{portIDN}/{channelIDN}/.../{portID0}/{channelID0}/baseDenom'
+//  - Prefixed denomination: 'transfer/{channelIDN}/.../transfer/{channelID0}/baseDenom'
 //  - Unprefixed denomination: 'baseDenom'
+//
+// 'baseDenom' may or may not contain '/'s
 func ValidatePrefixedDenom(denom string) error {
 	denomSplit := strings.Split(denom, "/")
 	if denomSplit[0] == denom && strings.TrimSpace(denom) != "" {
@@ -156,7 +180,13 @@ func ValidatePrefixedDenom(denom string) error {
 		return sdkerrors.Wrap(ErrInvalidDenomForTransfer, "base denomination cannot be blank")
 	}
 
-	identifiers := denomSplit[:len(denomSplit)-1]
+	path, _ := extractPathAndBaseFromFullDenom(denomSplit)
+	if path == "" {
+		// NOTE: base denom contains slashes, so no base denomination validation
+		return nil
+	}
+
+	identifiers := strings.Split(path, "/")
 	return validateTraceIdentifiers(identifiers)
 }
 
