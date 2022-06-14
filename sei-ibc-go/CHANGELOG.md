@@ -247,7 +247,7 @@ Official patch: https://github.com/cosmos/ibc-go/pull/3346
 * (transfer) [\#978](https://github.com/cosmos/ibc-go/pull/978) Support base denoms with slashes in denom validation
 * (channel) [\#995](https://github.com/cosmos/ibc-go/pull/995) Call `packet.GetSequence()` rather than passing func in `AcknowledgePacket` log output
 
-## [v2.0.3](https://github.com/cosmos/ibc-go/releases/tag/v2.0.2) - 2022-02-03
+## [v2.0.3](https://github.com/cosmos/ibc-go/releases/tag/v2.0.3) - 2022-02-03
 
 ### Improvements
 
