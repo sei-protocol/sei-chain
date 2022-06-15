@@ -41,6 +41,7 @@ var (
 	AggregateExchangeRatePrevoteKey = []byte{0x04} // prefix for each key to a aggregate prevote
 	AggregateExchangeRateVoteKey    = []byte{0x05} // prefix for each key to a aggregate vote
 	VoteTargetKey                   = []byte{0x06} // prefix for each key to a vote target
+	PriceSnapshotsKey               = []byte{0x07} // key for price snapshots history
 )
 
 // GetExchangeRateKey - stored by *denom*
@@ -75,4 +76,8 @@ func GetVoteTargetKey(d string) []byte {
 func ExtractDenomFromVoteTargetKey(key []byte) (denom string) {
 	denom = string(key[1:])
 	return
+}
+
+func GetPriceSnapshotsKey() []byte {
+	return PriceSnapshotsKey
 }

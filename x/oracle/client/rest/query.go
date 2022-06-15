@@ -15,6 +15,7 @@ import (
 
 func registerQueryRoutes(cliCtx client.Context, rtr *mux.Router) {
 	rtr.HandleFunc(fmt.Sprintf("/oracle/denoms/{%s}/exchange_rate", RestDenom), queryExchangeRateHandlerFunction(cliCtx)).Methods("GET")
+	rtr.HandleFunc("/oracle/denoms/price_snapshot_history", queryPriceSnapshotHistoryHandlerFunction(cliCtx)).Methods("GET")
 	rtr.HandleFunc("/oracle/denoms/actives", queryActivesHandlerFunction(cliCtx)).Methods("GET")
 	rtr.HandleFunc("/oracle/denoms/exchange_rates", queryExchangeRatesHandlerFunction(cliCtx)).Methods("GET")
 	rtr.HandleFunc("/oracle/denoms/vote_targets", queryVoteTargetsHandlerFunction(cliCtx)).Methods("GET")
@@ -62,6 +63,23 @@ func queryExchangeRatesHandlerFunction(cliCtx client.Context) http.HandlerFunc {
 		}
 
 		res, height, err := cliCtx.QueryWithData(fmt.Sprintf("custom/%s/%s", types.QuerierRoute, types.QueryExchangeRates), nil)
+		if rest.CheckInternalServerError(w, err) {
+			return
+		}
+
+		cliCtx = cliCtx.WithHeight(height)
+		rest.PostProcessResponse(w, cliCtx, res)
+	}
+}
+
+func queryPriceSnapshotHistoryHandlerFunction(cliCtx client.Context) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		cliCtx, ok := rest.ParseQueryHeightOrReturnBadRequest(w, cliCtx, r)
+		if !ok {
+			return
+		}
+
+		res, height, err := cliCtx.QueryWithData(fmt.Sprintf("custom/%s/%s", types.QuerierRoute, types.QueryPriceSnapshotHistory), nil)
 		if rest.CheckInternalServerError(w, err) {
 			return
 		}

@@ -5,6 +5,7 @@ import (
 	"math"
 	"sort"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -572,6 +573,49 @@ func TestAbstainWithSmallStakingPower(t *testing.T) {
 	oracle.EndBlocker(input.Ctx, input.OracleKeeper)
 	_, _, err := input.OracleKeeper.GetBaseExchangeRate(input.Ctx, utils.MicroAtomDenom)
 	require.Error(t, err)
+}
+
+func TestOraclePriceSnapshot(t *testing.T) {
+	input, h := setup(t)
+
+	require.Equal(t, types.PriceSnapshotHistory{}, input.OracleKeeper.GetPriceSnapshots(input.Ctx))
+
+	input.Ctx = input.Ctx.WithBlockTime(time.Unix(100, 0))
+
+	input.OracleKeeper.SetBaseExchangeRate(input.Ctx, utils.MicroAtomDenom, randomExchangeRate)
+
+	makeAggregatePrevoteAndVote(t, input, h, 0, sdk.DecCoins{{Denom: utils.MicroAtomDenom, Amount: randomExchangeRate}}, 0)
+	makeAggregatePrevoteAndVote(t, input, h, 0, sdk.DecCoins{{Denom: utils.MicroAtomDenom, Amount: randomExchangeRate}}, 1)
+	makeAggregatePrevoteAndVote(t, input, h, 0, sdk.DecCoins{{Denom: utils.MicroAtomDenom, Amount: randomExchangeRate}}, 2)
+
+	oracle.EndBlocker(input.Ctx, input.OracleKeeper)
+
+	rate, lastUpdate, err := input.OracleKeeper.GetBaseExchangeRate(input.Ctx, utils.MicroAtomDenom)
+	require.NoError(t, err)
+	require.Equal(t, randomExchangeRate, rate)
+	// The value should have a stale height
+	require.Equal(t, sdk.ZeroInt(), lastUpdate)
+
+	latest, err := input.OracleKeeper.GetLatestPriceSnapshot(input.Ctx)
+	require.NoError(t, err)
+	expected := types.PriceSnapshot{
+		SnapshotTimestamp: 100,
+		PriceSnapshotItems: []types.PriceSnapshotItem{
+			{
+				Denom: utils.MicroAtomDenom,
+				OracleExchangeRate: types.OracleExchangeRate{
+					ExchangeRate: randomExchangeRate,
+					LastUpdate:   sdk.NewInt(input.Ctx.BlockHeight()),
+				},
+			},
+		},
+	}
+	require.Equal(t, expected, latest)
+	require.Equal(t, 1, len(input.OracleKeeper.GetPriceSnapshots(input.Ctx).PriceSnapshots))
+
+	input.Ctx = input.Ctx.WithBlockTime(time.Unix(200, 0))
+	oracle.EndBlocker(input.Ctx, input.OracleKeeper)
+	require.Equal(t, 2, len(input.OracleKeeper.GetPriceSnapshots(input.Ctx).PriceSnapshots))
 }
 
 func makeAggregatePrevoteAndVote(t *testing.T, input keeper.TestInput, h sdk.Handler, height int64, rates sdk.DecCoins, idx int) {

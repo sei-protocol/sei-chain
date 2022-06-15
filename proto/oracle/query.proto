@@ -26,7 +26,12 @@ service Query {
 
   // VoteTargets returns all vote target denoms
   rpc VoteTargets(QueryVoteTargetsRequest) returns (QueryVoteTargetsResponse) {
-    option (google.api.http).get = "/sei-protocol/sei-chain/oracle/enoms/vote_targets";
+    option (google.api.http).get = "/sei-protocol/sei-chain/oracle/denoms/vote_targets";
+  }
+
+  // PriceSnapshotHistory returns the history of price snapshots for all assets
+  rpc PriceSnapshotHistory(QueryPriceSnapshotHistoryRequest) returns (QueryPriceSnapshotHistoryResponse) {
+    option (google.api.http).get = "/sei-protocol/sei-chain/oracle/denoms/price_snapshot_history";
   }
 
   // FeederDelegation returns feeder delegation of a validator
@@ -51,7 +56,7 @@ service Query {
 
   // AggregateVote returns an aggregate vote of a validator
   rpc AggregateVote(QueryAggregateVoteRequest) returns (QueryAggregateVoteResponse) {
-    option (google.api.http).get = "/sei-protocol/sei-chain/oracle/valdiators/{validator_addr}/aggregate_vote";
+    option (google.api.http).get = "/sei-protocol/sei-chain/oracle/validators/{validator_addr}/aggregate_vote";
   }
 
   // AggregateVotes returns aggregate votes of all validators
@@ -116,6 +121,13 @@ message QueryVoteTargetsResponse {
   // vote_targets defines a list of the denomination in which everyone
   // should vote in the current vote period.
   repeated string vote_targets = 1;
+}
+
+// request type for price snapshot history RPC method
+message QueryPriceSnapshotHistoryRequest {}
+
+message QueryPriceSnapshotHistoryResponse {
+  PriceSnapshotHistory price_snapshot_history = 1 [(gogoproto.nullable) = false];
 }
 
 // QueryFeederDelegationRequest is the request type for the Query/FeederDelegation RPC method.

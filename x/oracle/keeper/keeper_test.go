@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -392,4 +393,179 @@ func TestValidateFeeder(t *testing.T) {
 	validator.Status = stakingtypes.Unbonded
 	input.StakingKeeper.SetValidator(input.Ctx, validator)
 	require.Error(t, input.OracleKeeper.ValidateFeeder(input.Ctx, sdk.AccAddress(addr1), sdk.ValAddress(addr)))
+}
+
+func TestPriceSnapshotGetSet(t *testing.T) {
+	input := CreateTestInput(t)
+
+	priceSnapshots := types.PriceSnapshots{
+		types.NewPriceSnapshot(types.PriceSnapshotItems{
+			types.NewPriceSnapshotItem(utils.MicroEthDenom, types.OracleExchangeRate{
+				ExchangeRate: sdk.NewDec(11),
+				LastUpdate:   sdk.NewInt(20),
+			}),
+			types.NewPriceSnapshotItem(utils.MicroAtomDenom, types.OracleExchangeRate{
+				ExchangeRate: sdk.NewDec(12),
+				LastUpdate:   sdk.NewInt(20),
+			}),
+		}, 1),
+		types.NewPriceSnapshot(types.PriceSnapshotItems{
+			types.NewPriceSnapshotItem(utils.MicroEthDenom, types.OracleExchangeRate{
+				ExchangeRate: sdk.NewDec(21),
+				LastUpdate:   sdk.NewInt(30),
+			}),
+			types.NewPriceSnapshotItem(utils.MicroAtomDenom, types.OracleExchangeRate{
+				ExchangeRate: sdk.NewDec(22),
+				LastUpdate:   sdk.NewInt(30),
+			}),
+		}, 2),
+	}
+
+	input.OracleKeeper.SetPriceSnapshots(input.Ctx, priceSnapshots)
+
+	expectedSnapshots := types.NewPriceSnapshotHistory(priceSnapshots)
+	snapshots := input.OracleKeeper.GetPriceSnapshots(input.Ctx)
+	require.Equal(t, expectedSnapshots, snapshots)
+}
+
+func TestPriceSnapshotAdd(t *testing.T) {
+	input := CreateTestInput(t)
+
+	input.Ctx = input.Ctx.WithBlockTime(time.Unix(3500, 0))
+	priceSnapshots := types.PriceSnapshots{
+		types.NewPriceSnapshot(types.PriceSnapshotItems{
+			types.NewPriceSnapshotItem(utils.MicroEthDenom, types.OracleExchangeRate{
+				ExchangeRate: sdk.NewDec(11),
+				LastUpdate:   sdk.NewInt(20),
+			}),
+			types.NewPriceSnapshotItem(utils.MicroAtomDenom, types.OracleExchangeRate{
+				ExchangeRate: sdk.NewDec(12),
+				LastUpdate:   sdk.NewInt(20),
+			}),
+		}, 50),
+		types.NewPriceSnapshot(types.PriceSnapshotItems{
+			types.NewPriceSnapshotItem(utils.MicroEthDenom, types.OracleExchangeRate{
+				ExchangeRate: sdk.NewDec(21),
+				LastUpdate:   sdk.NewInt(30),
+			}),
+			types.NewPriceSnapshotItem(utils.MicroAtomDenom, types.OracleExchangeRate{
+				ExchangeRate: sdk.NewDec(22),
+				LastUpdate:   sdk.NewInt(30),
+			}),
+		}, 100),
+	}
+
+	for i := range priceSnapshots {
+		input.OracleKeeper.AddPriceSnapshot(input.Ctx, priceSnapshots[i])
+	}
+	snapshots := input.OracleKeeper.GetPriceSnapshots(input.Ctx)
+	expectedSnapshots := types.NewPriceSnapshotHistory(priceSnapshots)
+	require.Equal(t, expectedSnapshots, snapshots)
+	input.Ctx = input.Ctx.WithBlockTime(time.Unix(3660, 0))
+
+	input.OracleKeeper.AddPriceSnapshot(
+		input.Ctx,
+		types.NewPriceSnapshot(
+			types.PriceSnapshotItems{
+				types.NewPriceSnapshotItem(utils.MicroEthDenom, types.OracleExchangeRate{
+					ExchangeRate: sdk.NewDec(31),
+					LastUpdate:   sdk.NewInt(40),
+				}),
+				types.NewPriceSnapshotItem(utils.MicroAtomDenom, types.OracleExchangeRate{
+					ExchangeRate: sdk.NewDec(32),
+					LastUpdate:   sdk.NewInt(40),
+				}),
+			},
+			3660,
+		),
+	)
+
+	snapshots = input.OracleKeeper.GetPriceSnapshots(input.Ctx)
+	require.Equal(t, 2, len(snapshots.PriceSnapshots))
+
+	input.Ctx = input.Ctx.WithBlockTime(time.Unix(10000, 0))
+	input.OracleKeeper.AddPriceSnapshot(
+		input.Ctx,
+		types.NewPriceSnapshot(
+			types.PriceSnapshotItems{
+				types.NewPriceSnapshotItem(utils.MicroEthDenom, types.OracleExchangeRate{
+					ExchangeRate: sdk.NewDec(41),
+					LastUpdate:   sdk.NewInt(50),
+				}),
+				types.NewPriceSnapshotItem(utils.MicroAtomDenom, types.OracleExchangeRate{
+					ExchangeRate: sdk.NewDec(42),
+					LastUpdate:   sdk.NewInt(50),
+				}),
+			},
+			10000,
+		),
+	)
+
+	snapshots = input.OracleKeeper.GetPriceSnapshots(input.Ctx)
+	require.Equal(t, 1, len(snapshots.PriceSnapshots))
+}
+
+func TestGetLatestPriceSnapshot(t *testing.T) {
+	input := CreateTestInput(t)
+	latestPriceSnapshot, err := input.OracleKeeper.GetLatestPriceSnapshot(input.Ctx)
+	require.Error(t, err)
+	require.Equal(t, types.ErrNoLatestPriceSnapshot, err)
+	require.Equal(t, types.PriceSnapshot{}, latestPriceSnapshot)
+
+	priceSnapshots := types.PriceSnapshots{
+		types.NewPriceSnapshot(types.PriceSnapshotItems{
+			types.NewPriceSnapshotItem(utils.MicroEthDenom, types.OracleExchangeRate{
+				ExchangeRate: sdk.NewDec(11),
+				LastUpdate:   sdk.NewInt(20),
+			}),
+			types.NewPriceSnapshotItem(utils.MicroAtomDenom, types.OracleExchangeRate{
+				ExchangeRate: sdk.NewDec(12),
+				LastUpdate:   sdk.NewInt(20),
+			}),
+		}, 1),
+		types.NewPriceSnapshot(types.PriceSnapshotItems{
+			types.NewPriceSnapshotItem(utils.MicroEthDenom, types.OracleExchangeRate{
+				ExchangeRate: sdk.NewDec(21),
+				LastUpdate:   sdk.NewInt(30),
+			}),
+			types.NewPriceSnapshotItem(utils.MicroAtomDenom, types.OracleExchangeRate{
+				ExchangeRate: sdk.NewDec(22),
+				LastUpdate:   sdk.NewInt(30),
+			}),
+		}, 2),
+	}
+
+	input.OracleKeeper.SetPriceSnapshots(input.Ctx, priceSnapshots)
+
+	expectedLatest := types.NewPriceSnapshot(types.PriceSnapshotItems{
+		types.NewPriceSnapshotItem(utils.MicroEthDenom, types.OracleExchangeRate{
+			ExchangeRate: sdk.NewDec(21),
+			LastUpdate:   sdk.NewInt(30),
+		}),
+		types.NewPriceSnapshotItem(utils.MicroAtomDenom, types.OracleExchangeRate{
+			ExchangeRate: sdk.NewDec(22),
+			LastUpdate:   sdk.NewInt(30),
+		}),
+	}, 2)
+
+	latestPriceSnapshot, err = input.OracleKeeper.GetLatestPriceSnapshot(input.Ctx)
+	require.NoError(t, err)
+	require.Equal(t, expectedLatest, latestPriceSnapshot)
+
+	newExpectedPriceSnapshot := types.NewPriceSnapshot(types.PriceSnapshotItems{
+		types.NewPriceSnapshotItem(utils.MicroEthDenom, types.OracleExchangeRate{
+			ExchangeRate: sdk.NewDec(31),
+			LastUpdate:   sdk.NewInt(40),
+		}),
+		types.NewPriceSnapshotItem(utils.MicroAtomDenom, types.OracleExchangeRate{
+			ExchangeRate: sdk.NewDec(32),
+			LastUpdate:   sdk.NewInt(40),
+		}),
+	}, 2)
+
+	input.OracleKeeper.AddPriceSnapshot(input.Ctx, newExpectedPriceSnapshot)
+
+	latestPriceSnapshot2, err := input.OracleKeeper.GetLatestPriceSnapshot(input.Ctx)
+	require.NoError(t, err)
+	require.Equal(t, newExpectedPriceSnapshot, latestPriceSnapshot2)
 }

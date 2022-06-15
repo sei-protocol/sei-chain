@@ -187,3 +187,39 @@ func TestQueryVoteTargets(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, voteTargets, res.VoteTargets)
 }
+
+func TestQueryPriceSnapshotHistory(t *testing.T) {
+	input := CreateTestInput(t)
+	ctx := sdk.WrapSDKContext(input.Ctx)
+	querier := NewQuerier(input.OracleKeeper)
+
+	priceSnapshots := types.PriceSnapshots{
+		types.NewPriceSnapshot(types.PriceSnapshotItems{
+			types.NewPriceSnapshotItem(utils.MicroEthDenom, types.OracleExchangeRate{
+				ExchangeRate: sdk.NewDec(11),
+				LastUpdate:   sdk.NewInt(20),
+			}),
+			types.NewPriceSnapshotItem(utils.MicroAtomDenom, types.OracleExchangeRate{
+				ExchangeRate: sdk.NewDec(12),
+				LastUpdate:   sdk.NewInt(20),
+			}),
+		}, 1),
+		types.NewPriceSnapshot(types.PriceSnapshotItems{
+			types.NewPriceSnapshotItem(utils.MicroEthDenom, types.OracleExchangeRate{
+				ExchangeRate: sdk.NewDec(21),
+				LastUpdate:   sdk.NewInt(30),
+			}),
+			types.NewPriceSnapshotItem(utils.MicroAtomDenom, types.OracleExchangeRate{
+				ExchangeRate: sdk.NewDec(22),
+				LastUpdate:   sdk.NewInt(30),
+			}),
+		}, 2),
+	}
+
+	input.OracleKeeper.SetPriceSnapshots(input.Ctx, priceSnapshots)
+
+	res, err := querier.PriceSnapshotHistory(ctx, &types.QueryPriceSnapshotHistoryRequest{})
+	require.NoError(t, err)
+
+	require.Equal(t, types.NewPriceSnapshotHistory(priceSnapshots), res.PriceSnapshotHistory)
+}

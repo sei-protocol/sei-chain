@@ -361,3 +361,66 @@ func (k Keeper) ValidateFeeder(ctx sdk.Context, feederAddr sdk.AccAddress, valid
 
 	return nil
 }
+
+func (k Keeper) GetPriceSnapshots(ctx sdk.Context) types.PriceSnapshotHistory {
+	store := ctx.KVStore(k.storeKey)
+	snapshotsBytes := store.Get(types.GetPriceSnapshotsKey())
+	if snapshotsBytes == nil {
+		return types.PriceSnapshotHistory{}
+	}
+
+	priceSnapshots := types.PriceSnapshotHistory{}
+	k.cdc.MustUnmarshal(snapshotsBytes, &priceSnapshots)
+	return priceSnapshots
+}
+
+func (k Keeper) SetPriceSnapshots(ctx sdk.Context, snapshots types.PriceSnapshots) {
+	// shouldn't be used directly, use "add" instead for individual price snapshots
+	store := ctx.KVStore(k.storeKey)
+	priceSnapshots := types.PriceSnapshotHistory{PriceSnapshots: snapshots}
+	bz := k.cdc.MustMarshal(&priceSnapshots)
+	store.Set(types.GetPriceSnapshotsKey(), bz)
+}
+
+func (k Keeper) AddPriceSnapshot(ctx sdk.Context, snapshot types.PriceSnapshot) {
+	params := k.GetParams(ctx)
+	lookbackDuration := params.LookbackDuration
+	snapshotHistory := k.GetPriceSnapshots(ctx)
+	snapshots := snapshotHistory.PriceSnapshots
+	snapshots = append(snapshots, snapshot)
+	var indexToSliceBefore int
+	indexToSliceBefore = 0
+	for i, snapshot := range snapshots {
+		if snapshot.SnapshotTimestamp+lookbackDuration >= ctx.BlockTime().Unix() {
+			indexToSliceBefore = i
+			break
+		}
+	}
+	snapshots = snapshots[indexToSliceBefore:]
+	k.SetPriceSnapshots(ctx, snapshots)
+}
+
+func (k Keeper) IteratePriceSnapshots(ctx sdk.Context, handler func(snapshot types.PriceSnapshot) (stop bool)) {
+	snapshotHistory := k.GetPriceSnapshots(ctx)
+	snapshots := snapshotHistory.PriceSnapshots
+	for i := 0; i < len(snapshots); i++ {
+		if handler(snapshots[i]) {
+			break
+		}
+	}
+}
+
+func (k Keeper) DeletePriceSnapshots(ctx sdk.Context) {
+	store := ctx.KVStore(k.storeKey)
+	store.Delete(types.GetPriceSnapshotsKey())
+}
+
+func (k Keeper) GetLatestPriceSnapshot(ctx sdk.Context) (snapshot types.PriceSnapshot, err error) {
+	snapshots := k.GetPriceSnapshots(ctx)
+	if len(snapshots.PriceSnapshots) > 0 {
+		snapshot = snapshots.PriceSnapshots[len(snapshots.PriceSnapshots)-1]
+		return
+	}
+	err = types.ErrNoLatestPriceSnapshot
+	return
+}
