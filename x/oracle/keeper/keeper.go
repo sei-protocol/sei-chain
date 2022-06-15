@@ -392,7 +392,13 @@ func (k Keeper) AddPriceSnapshot(ctx sdk.Context, snapshot types.PriceSnapshot) 
 	indexToSliceBefore = 0
 	for i, snapshot := range snapshots {
 		if snapshot.SnapshotTimestamp+lookbackDuration >= ctx.BlockTime().Unix() {
-			indexToSliceBefore = i
+			// we want to keep one data point that is outside of the lookback duration
+			// so that we can calculate the TWAP for the first interval
+			indexToSliceBefore = i - 1
+			if indexToSliceBefore < 0 {
+				// if there is no datapoint outside of range, we simply keep all of data
+				indexToSliceBefore = 0
+			}
 			break
 		}
 	}

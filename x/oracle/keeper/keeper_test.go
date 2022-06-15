@@ -481,7 +481,7 @@ func TestPriceSnapshotAdd(t *testing.T) {
 	)
 
 	snapshots = input.OracleKeeper.GetPriceSnapshots(input.Ctx)
-	require.Equal(t, 2, len(snapshots.PriceSnapshots))
+	require.Equal(t, 3, len(snapshots.PriceSnapshots))
 
 	input.Ctx = input.Ctx.WithBlockTime(time.Unix(10000, 0))
 	input.OracleKeeper.AddPriceSnapshot(
@@ -502,7 +502,9 @@ func TestPriceSnapshotAdd(t *testing.T) {
 	)
 
 	snapshots = input.OracleKeeper.GetPriceSnapshots(input.Ctx)
-	require.Equal(t, 1, len(snapshots.PriceSnapshots))
+	require.Equal(t, 2, len(snapshots.PriceSnapshots))
+	require.Equal(t, snapshots.PriceSnapshots[0].SnapshotTimestamp, int64(3660))
+	require.Equal(t, snapshots.PriceSnapshots[1].SnapshotTimestamp, int64(10000))
 }
 
 func TestGetLatestPriceSnapshot(t *testing.T) {
