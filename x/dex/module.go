@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"strconv"
 
 	"github.com/CosmWasm/wasmd/x/wasm"
 	"github.com/gorilla/mux"
@@ -207,6 +206,9 @@ func (am AppModule) BeginBlock(ctx sdk.Context, _ abci.RequestBeginBlock) {
 	for _, contractAddr := range am.getAllContractAddresses(ctx) {
 		am.beginBlockForContract(ctx, contractAddr)
 	}
+	if isNewEpoch, currentEpoch := am.keeper.IsNewEpoch(ctx); isNewEpoch {
+		am.keeper.SetEpoch(ctx, currentEpoch)
+	}
 }
 
 func (am AppModule) beginBlockForContract(ctx sdk.Context, contractAddr string) {
@@ -228,51 +230,25 @@ func (am AppModule) beginBlockForContract(ctx sdk.Context, contractAddr string) 
 	ctx.Logger().Info(fmt.Sprintf("Orders %s, %s", am.keeper.Orders, contractAddr))
 
 	if isNewEpoch, currentEpoch := am.keeper.IsNewEpoch(ctx); isNewEpoch {
-		ctx.Logger().Info(fmt.Sprintf("Updating funding payment rate for epoch %d", currentEpoch))
-		for _, twap := range am.keeper.GetAllTwaps(ctx, contractAddr) {
-			dexPrice := twap.TwapPrice
-			ctx.Logger().Info(fmt.Sprintf("%s/%s: %d", twap.PriceDenom, twap.AssetDenom, dexPrice))
-			oraclePrice := uint64(100) // TODO: replace with oracle call
-			var diff uint64
-			var negative bool
-			if dexPrice < oraclePrice {
-				diff = oraclePrice - dexPrice
-				negative = true
-			} else {
-				diff = dexPrice - oraclePrice
-				negative = false
-			}
-			nativeSetFPRMsg := types.SudoSetFundingPaymentRateMsg{
-				SetFundingPaymentRate: types.SetFundingPaymentRate{
-					Epoch:      currentEpoch,
-					AssetDenom: twap.AssetDenom,
-					PriceDiff:  strconv.FormatUint(diff, 10),
-					Negative:   negative,
-				},
-			}
-			wasmMsg, err := json.Marshal(nativeSetFPRMsg)
-			if err != nil {
-				ctx.Logger().Info(err.Error())
+		ctx.Logger().Info(fmt.Sprintf("Updating price for epoch %d", currentEpoch))
+		priceRetention := am.keeper.GetParams(ctx).PriceSnapshotRetention
+		for _, pair := range am.keeper.GetAllRegisteredPairs(ctx, contractAddr) {
+			lastEpochPrice, exists := am.keeper.GetPriceState(ctx, contractAddr, currentEpoch-1, pair)
+			if exists {
+				newEpochPrice := types.Price{
+					SnapshotTimestampInSeconds: uint64(ctx.BlockTime().Unix()),
+					Pair:                       &pair,
+					Price:                      lastEpochPrice.Price,
+				}
+				am.keeper.SetPriceState(ctx, newEpochPrice, contractAddr, currentEpoch)
 			}
 
-			ctx.Logger().Info("Setting funding payment rate")
-			am.callClearingHouseContractSudo(ctx, wasmMsg, contractAddr)
-
-			var newPrices []uint64
-			if len(twap.Prices) == 24 { // replace with config
-				newPrices = append(twap.Prices[1:], twap.Prices[len(twap.Prices)-1])
-			} else {
-				newPrices = append(twap.Prices, twap.Prices[len(twap.Prices)-1])
+			// condition to prevent unsigned integer overflow
+			if currentEpoch >= priceRetention {
+				// this will no-op if price snapshot for the target epoch doesn't exist
+				am.keeper.DeletePriceState(ctx, contractAddr, currentEpoch-priceRetention, pair)
 			}
-			am.keeper.SetTwap(ctx, types.Twap{
-				LastEpoch:  currentEpoch,
-				Prices:     newPrices,
-				TwapPrice:  getTwapPrice(newPrices),
-				PriceDenom: twap.PriceDenom,
-				AssetDenom: twap.AssetDenom,
-			}, contractAddr)
 		}
-		am.keeper.SetEpoch(ctx, currentEpoch)
 	}
 }
 
@@ -292,6 +268,8 @@ func (am AppModule) endBlockForContract(ctx sdk.Context, contractAddr string) {
 	defer span.End()
 
 	registeredPairs := am.keeper.GetAllRegisteredPairs(ctx, contractAddr)
+	_, currentEpoch := am.keeper.IsNewEpoch(ctx)
+
 	am.keeper.HandleEBLiquidation(spanCtx, ctx, am.tracingInfo.Tracer, contractAddr, registeredPairs)
 	am.keeper.HandleEBCancelOrders(spanCtx, ctx, am.tracingInfo.Tracer, contractAddr, registeredPairs)
 	am.keeper.HandleEBPlaceOrders(spanCtx, ctx, am.tracingInfo.Tracer, contractAddr, registeredPairs)
@@ -348,20 +326,10 @@ func (am AppModule) endBlockForContract(ctx sdk.Context, contractAddr string) {
 			avgPrice = sdk.ZeroDec()
 		} else {
 			avgPrice = (marketBuyTotalPrice.Add(marketSellTotalPrice).Add(limitTotalPrice)).Quo(marketBuyTotalQuantity.Add(marketSellTotalQuantity).Add(limitTotalQuantity))
-			twap := am.keeper.GetTwapState(ctx, contractAddr, pair.PriceDenom, pair.AssetDenom)
-			newPrices := twap.Prices
-			if len(newPrices) == 0 {
-				newPrices = []uint64{avgPrice.BigInt().Uint64()}
-			} else {
-				newPrices[len(newPrices)-1] = avgPrice.BigInt().Uint64()
-			}
-			am.keeper.SetTwap(ctx, types.Twap{
-				LastEpoch:  am.keeper.EpochKeeper.GetEpoch(ctx).CurrentEpoch,
-				Prices:     newPrices,
-				TwapPrice:  getTwapPrice(newPrices),
-				PriceDenom: pair.PriceDenom.String(),
-				AssetDenom: pair.AssetDenom.String(),
-			}, contractAddr)
+			priceState, _ := am.keeper.GetPriceState(ctx, contractAddr, currentEpoch, pair)
+			priceState.SnapshotTimestampInSeconds = uint64(ctx.BlockTime().Unix())
+			priceState.Price = avgPrice
+			am.keeper.SetPriceState(ctx, priceState, contractAddr, currentEpoch)
 		}
 		ctx.Logger().Info(fmt.Sprintf("Average price for %s/%s: %d", pair.PriceDenom, pair.AssetDenom, avgPrice))
 		for _, buy := range allExistingBuys {
@@ -454,12 +422,4 @@ func (am AppModule) endBlockForContract(ctx sdk.Context, contractAddr string) {
 	}
 	// Cancel unfilled market orders
 	am.keeper.HandleEBCancelOrders(spanCtx, ctx, am.tracingInfo.Tracer, contractAddr, registeredPairs)
-}
-
-func getTwapPrice(prices []uint64) uint64 {
-	var total uint64 = 0
-	for _, price := range prices {
-		total += price
-	}
-	return total / uint64(len(prices))
 }

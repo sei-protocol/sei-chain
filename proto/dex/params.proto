@@ -7,6 +7,8 @@ option go_package = "github.com/sei-protocol/sei-chain/x/dex/types";
 
 // Params defines the parameters for the module.
 message Params {
+  option (gogoproto.equal)            = true;
   option (gogoproto.goproto_stringer) = false;
-  
+
+  uint64 price_snapshot_retention    = 1 [(gogoproto.moretags) = "yaml:\"price_snapshot_retention\""];
 }
