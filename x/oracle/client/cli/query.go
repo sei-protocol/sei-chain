@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"strconv"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -108,6 +109,45 @@ $ seid query oracle price-snapshot-history
 			queryClient := types.NewQueryClient(clientCtx)
 
 			res, err := queryClient.PriceSnapshotHistory(context.Background(), &types.QueryPriceSnapshotHistoryRequest{})
+			if err != nil {
+				return err
+			}
+
+			return clientCtx.PrintProto(res)
+		},
+	}
+
+	flags.AddQueryFlagsToCmd(cmd)
+	return cmd
+}
+
+func GetCmdQueryTwaps() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "twaps [lookback-seconds]",
+		Args:  cobra.ExactArgs(1),
+		Short: "Query the time weighted average prices for denoms with price snapshot data",
+		Long: strings.TrimSpace(`
+Query the time weighted average prices for denoms with price snapshot data
+Example:
+
+$ seid query oracle twaps
+`),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			clientCtx, err := client.GetClientQueryContext(cmd)
+			if err != nil {
+				return err
+			}
+			queryClient := types.NewQueryClient(clientCtx)
+
+			lookbackSeconds, err := strconv.ParseInt(args[0], 10, 64)
+			if err != nil {
+				return err
+			}
+
+			res, err := queryClient.Twaps(
+				context.Background(),
+				&types.QueryTwapsRequest{LookbackSeconds: lookbackSeconds},
+			)
 			if err != nil {
 				return err
 			}

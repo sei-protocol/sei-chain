@@ -34,6 +34,10 @@ service Query {
     option (google.api.http).get = "/sei-protocol/sei-chain/oracle/denoms/price_snapshot_history";
   }
 
+  rpc Twaps(QueryTwapsRequest) returns (QueryTwapsResponse) {
+    option (google.api.http).get = "/sei-protocol/sei-chain/oracle/denoms/twap";
+  }
+
   // FeederDelegation returns feeder delegation of a validator
   rpc FeederDelegation(QueryFeederDelegationRequest) returns (QueryFeederDelegationResponse) {
     option (google.api.http).get = "/sei-protocol/sei-chain/oracle/validators/{validator_addr}/feeder";
@@ -130,6 +134,18 @@ message QueryPriceSnapshotHistoryResponse {
   repeated PriceSnapshot price_snapshots = 1 [
     (gogoproto.nullable) = false,
     (gogoproto.castrepeated) = "PriceSnapshots"
+  ];
+}
+
+// request type for twap RPC method
+message QueryTwapsRequest {
+  int64 lookback_seconds = 1;
+}
+
+message QueryTwapsResponse {
+  repeated OracleTwap oracle_twaps = 1 [
+    (gogoproto.nullable) = false,
+    (gogoproto.castrepeated) = "OracleTwaps"
   ];
 }
 

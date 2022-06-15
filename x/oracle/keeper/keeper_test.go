@@ -3,6 +3,7 @@ package keeper
 import (
 	"bytes"
 	"fmt"
+	"sort"
 	"testing"
 	"time"
 
@@ -509,6 +510,15 @@ func TestPriceSnapshotAdd(t *testing.T) {
 		return false
 	})
 
+	// test iterate reverse
+	expectedTimestampsReverse := []int64{3660, 100, 50}
+	input.OracleKeeper.IteratePriceSnapshotsReverse(input.Ctx, func(snapshot types.PriceSnapshot) (stop bool) {
+		// assert that all the timestamps are correct
+		require.Equal(t, expectedTimestampsReverse[0], snapshot.SnapshotTimestamp)
+		expectedTimestampsReverse = expectedTimestampsReverse[1:]
+		return false
+	})
+
 	input.Ctx = input.Ctx.WithBlockTime(time.Unix(10000, 0))
 
 	newSnapshot2 := types.NewPriceSnapshot(
@@ -539,4 +549,132 @@ func TestPriceSnapshotAdd(t *testing.T) {
 		return false
 	})
 	require.Equal(t, 2, totalSnapshots)
+}
+
+func TestCalculateTwaps(t *testing.T) {
+	input := CreateTestInput(t)
+
+	_, err := input.OracleKeeper.CalculateTwaps(input.Ctx, 3600)
+	require.Error(t, err)
+	require.Equal(t, types.ErrNoTwapData, err)
+
+	priceSnapshots := types.PriceSnapshots{
+		types.NewPriceSnapshot(types.PriceSnapshotItems{
+			types.NewPriceSnapshotItem(utils.MicroAtomDenom, types.OracleExchangeRate{
+				ExchangeRate: sdk.NewDec(40),
+				LastUpdate:   sdk.NewInt(1800),
+			}),
+		}, 1200),
+		types.NewPriceSnapshot(types.PriceSnapshotItems{
+			types.NewPriceSnapshotItem(utils.MicroEthDenom, types.OracleExchangeRate{
+				ExchangeRate: sdk.NewDec(10),
+				LastUpdate:   sdk.NewInt(3600),
+			}),
+			types.NewPriceSnapshotItem(utils.MicroAtomDenom, types.OracleExchangeRate{
+				ExchangeRate: sdk.NewDec(20),
+				LastUpdate:   sdk.NewInt(3600),
+			}),
+		}, 3600),
+		types.NewPriceSnapshot(types.PriceSnapshotItems{
+			types.NewPriceSnapshotItem(utils.MicroEthDenom, types.OracleExchangeRate{
+				ExchangeRate: sdk.NewDec(20),
+				LastUpdate:   sdk.NewInt(4500),
+			}),
+			types.NewPriceSnapshotItem(utils.MicroAtomDenom, types.OracleExchangeRate{
+				ExchangeRate: sdk.NewDec(40),
+				LastUpdate:   sdk.NewInt(4500),
+			}),
+		}, 4500),
+	}
+	for _, snap := range priceSnapshots {
+		input.OracleKeeper.SetPriceSnapshot(input.Ctx, snap)
+	}
+	input.Ctx = input.Ctx.WithBlockTime(time.Unix(5400, 0))
+	twaps, err := input.OracleKeeper.CalculateTwaps(input.Ctx, 3600)
+	require.NoError(t, err)
+	require.Equal(t, 2, len(twaps))
+	sort.Slice(twaps, func(i, j int) bool {
+		return twaps[i].Denom < twaps[j].Denom
+	})
+	atomTwap := twaps[0]
+	ethTwap := twaps[1]
+	require.Equal(t, utils.MicroAtomDenom, atomTwap.Denom)
+	require.Equal(t, int64(3600), atomTwap.LookbackSeconds)
+	require.Equal(t, sdk.NewDec(35), atomTwap.Twap)
+
+	require.Equal(t, utils.MicroEthDenom, ethTwap.Denom)
+	// we expect each to have a lookback of 1800 instead of 3600 because the first interval data is missing
+	require.Equal(t, int64(1800), ethTwap.LookbackSeconds)
+	require.Equal(t, sdk.NewDec(15), ethTwap.Twap)
+
+	input.Ctx = input.Ctx.WithBlockTime(time.Unix(6000, 0))
+
+	// we still expect the out of range data point from 1200 to be kept for calculating TWAP for the full interval
+	input.OracleKeeper.AddPriceSnapshot(input.Ctx, types.NewPriceSnapshot(types.PriceSnapshotItems{
+		types.NewPriceSnapshotItem(utils.MicroAtomDenom, types.OracleExchangeRate{
+			ExchangeRate: sdk.NewDec(30),
+			LastUpdate:   sdk.NewInt(6000),
+		}),
+	}, 6000))
+
+	input.Ctx = input.Ctx.WithBlockTime(time.Unix(6600, 0))
+
+	twaps, err = input.OracleKeeper.CalculateTwaps(input.Ctx, 3600)
+	require.NoError(t, err)
+	require.Equal(t, 2, len(twaps))
+	sort.Slice(twaps, func(i, j int) bool {
+		return twaps[i].Denom < twaps[j].Denom
+	})
+	atomTwap = twaps[0]
+	ethTwap = twaps[1]
+	require.Equal(t, utils.MicroAtomDenom, atomTwap.Denom)
+	require.Equal(t, int64(3600), atomTwap.LookbackSeconds)
+
+	expectedTwap, _ := sdk.NewDecFromStr("33.333333333333333333")
+	require.Equal(t, expectedTwap, atomTwap.Twap)
+
+	// microeth is included even though its not in the latest snapshot because its in one of the intermediate ones
+	require.Equal(t, utils.MicroEthDenom, ethTwap.Denom)
+	// we expect each to have a lookback of 3000 instead of 3600 because the first interval data is missing
+	require.Equal(t, int64(3000), ethTwap.LookbackSeconds)
+	require.Equal(t, sdk.NewDec(17), ethTwap.Twap)
+
+	// test with shorter lookback
+	// microeth is not in this one because it's not in the snapshot used for TWAP calculation
+	twaps, err = input.OracleKeeper.CalculateTwaps(input.Ctx, 300)
+	require.NoError(t, err)
+	require.Equal(t, 1, len(twaps))
+	atomTwap = twaps[0]
+	require.Equal(t, utils.MicroAtomDenom, atomTwap.Denom)
+	require.Equal(t, int64(300), atomTwap.LookbackSeconds)
+	require.Equal(t, sdk.NewDec(30), atomTwap.Twap)
+
+	input.OracleKeeper.AddPriceSnapshot(input.Ctx, types.NewPriceSnapshot(types.PriceSnapshotItems{
+		types.NewPriceSnapshotItem(utils.MicroAtomDenom, types.OracleExchangeRate{
+			ExchangeRate: sdk.NewDec(20),
+			LastUpdate:   sdk.NewInt(6000),
+		}),
+	}, 6600))
+
+	input.Ctx = input.Ctx.WithBlockTime(time.Unix(6900, 0))
+
+	// the older interval weight should be appropriately shorted to the start of the lookback interval,
+	// so the TWAP should be 25 instead of 26.666 because the 20 and 30 are weighted 50-50 instead of 33.3-66.6
+	twaps, err = input.OracleKeeper.CalculateTwaps(input.Ctx, 600)
+	require.NoError(t, err)
+	require.Equal(t, 1, len(twaps))
+	atomTwap = twaps[0]
+	require.Equal(t, utils.MicroAtomDenom, atomTwap.Denom)
+	require.Equal(t, int64(600), atomTwap.LookbackSeconds)
+	require.Equal(t, sdk.NewDec(25), atomTwap.Twap)
+
+	// test error when lookback too large
+	twaps, err = input.OracleKeeper.CalculateTwaps(input.Ctx, 3700)
+	require.Error(t, err)
+	require.Equal(t, types.ErrInvalidTwapLookback, err)
+
+	// test error when lookback is negative
+	twaps, err = input.OracleKeeper.CalculateTwaps(input.Ctx, -10)
+	require.Error(t, err)
+	require.Equal(t, types.ErrInvalidTwapLookback, err)
 }

@@ -417,7 +417,102 @@ func (k Keeper) IteratePriceSnapshots(ctx sdk.Context, handler func(snapshot typ
 	}
 }
 
+func (k Keeper) IteratePriceSnapshotsReverse(ctx sdk.Context, handler func(snapshot types.PriceSnapshot) (stop bool)) {
+	store := ctx.KVStore(k.storeKey)
+	iterator := sdk.KVStoreReversePrefixIterator(store, types.PriceSnapshotKey)
+	defer iterator.Close()
+
+	for ; iterator.Valid(); iterator.Next() {
+		var val types.PriceSnapshot
+		k.cdc.MustUnmarshal(iterator.Value(), &val)
+		if handler(val) {
+			break
+		}
+	}
+}
+
 func (k Keeper) DeletePriceSnapshot(ctx sdk.Context, timestamp int64) {
 	store := ctx.KVStore(k.storeKey)
 	store.Delete(types.GetPriceSnapshotKey(uint64(timestamp)))
+}
+
+func (k Keeper) CalculateTwaps(ctx sdk.Context, lookbackSeconds int64) (types.OracleTwaps, error) {
+	oracleTwaps := types.OracleTwaps{}
+	currentTime := ctx.BlockTime().Unix()
+	err := k.ValidateLookbackSeconds(ctx, lookbackSeconds)
+	if err != nil {
+		return oracleTwaps, err
+	}
+	var timeTraversed int64 = 0
+	denomToTimeWeightedMap := make(map[string]sdk.Dec)
+	denomDurationMap := make(map[string]int64)
+
+	k.IteratePriceSnapshotsReverse(ctx, func(snapshot types.PriceSnapshot) (stop bool) {
+		stop = false
+		snapshotTimestamp := snapshot.SnapshotTimestamp
+		if currentTime-lookbackSeconds > snapshotTimestamp {
+			snapshotTimestamp = currentTime - lookbackSeconds
+			stop = true
+		}
+		// update time traversed to represent current snapshot
+		// replace SnapshotTimestamp with lookback duration bounding
+		timeTraversed = currentTime - snapshotTimestamp
+
+		// iterate through denoms in the snapshot
+		// if we find a new one, we have to setup the TWAP calc for that one
+		snapshotPriceItems := snapshot.PriceSnapshotItems
+		for _, priceItem := range snapshotPriceItems {
+			denom := priceItem.Denom
+
+			_, exists := denomToTimeWeightedMap[denom]
+			if !exists {
+				// set up the TWAP info for a denom
+				denomToTimeWeightedMap[denom] = sdk.ZeroDec()
+				denomDurationMap[denom] = 0
+			}
+			// get the denom specific TWAP data
+			denomTimeWeightedSum := denomToTimeWeightedMap[denom]
+			denomDuration := denomDurationMap[denom]
+
+			// calculate the new Time Weighted Sum for the denom exchange rate
+			durationDifference := timeTraversed - denomDuration
+			exchangeRate := priceItem.OracleExchangeRate.ExchangeRate
+			denomTimeWeightedSum = denomTimeWeightedSum.Add(exchangeRate.MulInt64(durationDifference))
+
+			// set the denom TWAP data
+			denomToTimeWeightedMap[denom] = denomTimeWeightedSum
+			denomDurationMap[denom] = timeTraversed
+		}
+		return
+	})
+
+	// iterate over all denoms with TWAP data
+	for denomKey := range denomToTimeWeightedMap {
+		// divide the denom time weighed sum by denom duration
+		denomTimeWeightedSum := denomToTimeWeightedMap[denomKey]
+		denomDuration := denomDurationMap[denomKey]
+		denomTwap := denomTimeWeightedSum.QuoInt64(denomDuration)
+
+		denomOracleTwap := types.OracleTwap{
+			Denom:           denomKey,
+			Twap:            denomTwap,
+			LookbackSeconds: denomDuration,
+		}
+		oracleTwaps = append(oracleTwaps, denomOracleTwap)
+	}
+
+	if len(oracleTwaps) == 0 {
+		return oracleTwaps, types.ErrNoTwapData
+	}
+
+	return oracleTwaps, nil
+}
+
+func (k Keeper) ValidateLookbackSeconds(ctx sdk.Context, lookbackSeconds int64) error {
+	lookbackDuration := k.LookbackDuration(ctx)
+	if lookbackSeconds > lookbackDuration || lookbackSeconds <= 0 {
+		return types.ErrInvalidTwapLookback
+	}
+
+	return nil
 }

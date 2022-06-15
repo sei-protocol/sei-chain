@@ -24,4 +24,6 @@ var (
 	ErrNoVoteTarget          = sdkerrors.Register(ModuleName, 13, "no vote target")
 	ErrUnknownDenom          = sdkerrors.Register(ModuleName, 14, "unknown denom")
 	ErrNoLatestPriceSnapshot = sdkerrors.Register(ModuleName, 15, "no latest snapshot")
+	ErrInvalidTwapLookback   = sdkerrors.Register(ModuleName, 16, "Twap lookback seconds is greater than max lookback duration or <= 0")
+	ErrNoTwapData            = sdkerrors.Register(ModuleName, 17, "No data for the twap calculation")
 )

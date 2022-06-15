@@ -119,3 +119,13 @@ message PriceSnapshot {
     (gogoproto.nullable)     = false
   ];
 }
+
+message OracleTwap {
+  string denom = 1;
+  string twap = 2 [
+      (gogoproto.moretags)   = "yaml:\"twap\"",
+      (gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Dec",
+      (gogoproto.nullable)   = false
+  ];
+	int64 lookbackSeconds = 3;
+}
