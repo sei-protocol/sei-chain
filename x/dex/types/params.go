@@ -12,7 +12,7 @@ var (
 )
 
 const (
-	DefaultPriceSnapshotRetention = 60 // default epoch interval is one minute so this results in a one-hour retention
+	DefaultPriceSnapshotRetention = 1440 // default epoch interval is one minute so this results in a one-day retention
 )
 
 var _ paramtypes.ParamSet = (*Params)(nil)

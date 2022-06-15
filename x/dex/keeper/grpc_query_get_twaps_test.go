@@ -84,12 +84,12 @@ func TestGetTwapsOnePriceSnapshot(t *testing.T) {
 		Twaps: []*types.Twap{
 			{
 				Pair:            &TEST_PAIR,
-				Twap:            sdk.ZeroDec(),
+				Twap:            snapshotPrice,
 				LookbackSeconds: lookback,
 			},
 		},
 	}
-	t.Run("One snapshot too old", func(t *testing.T) {
+	t.Run("One old snapshot", func(t *testing.T) {
 		response, err := keeper.GetTwaps(wctx, &request)
 		require.NoError(t, err)
 		require.Equal(t, expectedResponse, *response)
