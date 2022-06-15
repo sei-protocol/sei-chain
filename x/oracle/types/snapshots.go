@@ -33,9 +33,3 @@ func NewPriceSnapshot(priceSnapshotItems PriceSnapshotItems, snapshotTimestamp i
 		PriceSnapshotItems: priceSnapshotItems,
 	}
 }
-
-func NewPriceSnapshotHistory(snapshots PriceSnapshots) PriceSnapshotHistory {
-	return PriceSnapshotHistory{
-		PriceSnapshots: snapshots,
-	}
-}

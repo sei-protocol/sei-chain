@@ -127,7 +127,10 @@ message QueryVoteTargetsResponse {
 message QueryPriceSnapshotHistoryRequest {}
 
 message QueryPriceSnapshotHistoryResponse {
-  PriceSnapshotHistory price_snapshot_history = 1 [(gogoproto.nullable) = false];
+  repeated PriceSnapshot price_snapshots = 1 [
+    (gogoproto.nullable) = false,
+    (gogoproto.castrepeated) = "PriceSnapshots"
+  ];
 }
 
 // QueryFeederDelegationRequest is the request type for the Query/FeederDelegation RPC method.

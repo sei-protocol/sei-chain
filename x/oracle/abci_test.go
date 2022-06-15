@@ -578,7 +578,7 @@ func TestAbstainWithSmallStakingPower(t *testing.T) {
 func TestOraclePriceSnapshot(t *testing.T) {
 	input, h := setup(t)
 
-	require.Equal(t, types.PriceSnapshotHistory{}, input.OracleKeeper.GetPriceSnapshots(input.Ctx))
+	require.Equal(t, types.PriceSnapshot{}, input.OracleKeeper.GetPriceSnapshot(input.Ctx, 123))
 
 	input.Ctx = input.Ctx.WithBlockTime(time.Unix(100, 0))
 
@@ -596,7 +596,7 @@ func TestOraclePriceSnapshot(t *testing.T) {
 	// The value should have a stale height
 	require.Equal(t, sdk.ZeroInt(), lastUpdate)
 
-	latest, err := input.OracleKeeper.GetLatestPriceSnapshot(input.Ctx)
+	snapshot := input.OracleKeeper.GetPriceSnapshot(input.Ctx, 100)
 	require.NoError(t, err)
 	expected := types.PriceSnapshot{
 		SnapshotTimestamp: 100,
@@ -610,12 +610,23 @@ func TestOraclePriceSnapshot(t *testing.T) {
 			},
 		},
 	}
-	require.Equal(t, expected, latest)
-	require.Equal(t, 1, len(input.OracleKeeper.GetPriceSnapshots(input.Ctx).PriceSnapshots))
+	require.Equal(t, expected, snapshot)
 
 	input.Ctx = input.Ctx.WithBlockTime(time.Unix(200, 0))
 	oracle.EndBlocker(input.Ctx, input.OracleKeeper)
-	require.Equal(t, 2, len(input.OracleKeeper.GetPriceSnapshots(input.Ctx).PriceSnapshots))
+	expected2 := types.PriceSnapshot{
+		SnapshotTimestamp: 200,
+		PriceSnapshotItems: []types.PriceSnapshotItem{
+			{
+				Denom: utils.MicroAtomDenom,
+				OracleExchangeRate: types.OracleExchangeRate{
+					ExchangeRate: randomExchangeRate,
+					LastUpdate:   sdk.NewInt(input.Ctx.BlockHeight()),
+				},
+			},
+		},
+	}
+	require.Equal(t, expected2, input.OracleKeeper.GetPriceSnapshot(input.Ctx, 200))
 }
 
 func makeAggregatePrevoteAndVote(t *testing.T, input keeper.TestInput, h sdk.Handler, height int64, rates sdk.DecCoins, idx int) {

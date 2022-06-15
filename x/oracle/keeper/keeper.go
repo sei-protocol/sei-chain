@@ -362,71 +362,62 @@ func (k Keeper) ValidateFeeder(ctx sdk.Context, feederAddr sdk.AccAddress, valid
 	return nil
 }
 
-func (k Keeper) GetPriceSnapshots(ctx sdk.Context) types.PriceSnapshotHistory {
+func (k Keeper) GetPriceSnapshot(ctx sdk.Context, timestamp int64) types.PriceSnapshot {
 	store := ctx.KVStore(k.storeKey)
-	snapshotsBytes := store.Get(types.GetPriceSnapshotsKey())
-	if snapshotsBytes == nil {
-		return types.PriceSnapshotHistory{}
+	snapshotBytes := store.Get(types.GetPriceSnapshotKey(uint64(timestamp)))
+	if snapshotBytes == nil {
+		return types.PriceSnapshot{}
 	}
 
-	priceSnapshots := types.PriceSnapshotHistory{}
-	k.cdc.MustUnmarshal(snapshotsBytes, &priceSnapshots)
-	return priceSnapshots
+	priceSnapshot := types.PriceSnapshot{}
+	k.cdc.MustUnmarshal(snapshotBytes, &priceSnapshot)
+	return priceSnapshot
 }
 
-func (k Keeper) SetPriceSnapshots(ctx sdk.Context, snapshots types.PriceSnapshots) {
+func (k Keeper) SetPriceSnapshot(ctx sdk.Context, snapshot types.PriceSnapshot) {
 	// shouldn't be used directly, use "add" instead for individual price snapshots
 	store := ctx.KVStore(k.storeKey)
-	priceSnapshots := types.PriceSnapshotHistory{PriceSnapshots: snapshots}
-	bz := k.cdc.MustMarshal(&priceSnapshots)
-	store.Set(types.GetPriceSnapshotsKey(), bz)
+	bz := k.cdc.MustMarshal(&snapshot)
+	store.Set(types.GetPriceSnapshotKey(uint64(snapshot.SnapshotTimestamp)), bz)
 }
 
 func (k Keeper) AddPriceSnapshot(ctx sdk.Context, snapshot types.PriceSnapshot) {
 	params := k.GetParams(ctx)
 	lookbackDuration := params.LookbackDuration
-	snapshotHistory := k.GetPriceSnapshots(ctx)
-	snapshots := snapshotHistory.PriceSnapshots
-	snapshots = append(snapshots, snapshot)
-	var indexToSliceBefore int
-	indexToSliceBefore = 0
-	for i, snapshot := range snapshots {
+	k.SetPriceSnapshot(ctx, snapshot)
+
+	var lastOutOfRangeSnapshotTimestamp int64 = -1
+	// we need to evict old snapshots (except for one that is out of range)
+	k.IteratePriceSnapshots(ctx, func(snapshot types.PriceSnapshot) (stop bool) {
 		if snapshot.SnapshotTimestamp+lookbackDuration >= ctx.BlockTime().Unix() {
-			// we want to keep one data point that is outside of the lookback duration
-			// so that we can calculate the TWAP for the first interval
-			indexToSliceBefore = i - 1
-			if indexToSliceBefore < 0 {
-				// if there is no datapoint outside of range, we simply keep all of data
-				indexToSliceBefore = 0
+			return true
+		} else {
+			// delete the previous out of range snapshot
+			if lastOutOfRangeSnapshotTimestamp >= 0 {
+				k.DeletePriceSnapshot(ctx, lastOutOfRangeSnapshotTimestamp)
 			}
-			break
+			// update last out of range snapshot
+			lastOutOfRangeSnapshotTimestamp = snapshot.SnapshotTimestamp
+			return false
 		}
-	}
-	snapshots = snapshots[indexToSliceBefore:]
-	k.SetPriceSnapshots(ctx, snapshots)
+	})
 }
 
 func (k Keeper) IteratePriceSnapshots(ctx sdk.Context, handler func(snapshot types.PriceSnapshot) (stop bool)) {
-	snapshotHistory := k.GetPriceSnapshots(ctx)
-	snapshots := snapshotHistory.PriceSnapshots
-	for i := 0; i < len(snapshots); i++ {
-		if handler(snapshots[i]) {
+	store := ctx.KVStore(k.storeKey)
+	iterator := sdk.KVStorePrefixIterator(store, types.PriceSnapshotKey)
+	defer iterator.Close()
+
+	for ; iterator.Valid(); iterator.Next() {
+		var val types.PriceSnapshot
+		k.cdc.MustUnmarshal(iterator.Value(), &val)
+		if handler(val) {
 			break
 		}
 	}
 }
 
-func (k Keeper) DeletePriceSnapshots(ctx sdk.Context) {
+func (k Keeper) DeletePriceSnapshot(ctx sdk.Context, timestamp int64) {
 	store := ctx.KVStore(k.storeKey)
-	store.Delete(types.GetPriceSnapshotsKey())
-}
-
-func (k Keeper) GetLatestPriceSnapshot(ctx sdk.Context) (snapshot types.PriceSnapshot, err error) {
-	snapshots := k.GetPriceSnapshots(ctx)
-	if len(snapshots.PriceSnapshots) > 0 {
-		snapshot = snapshots.PriceSnapshots[len(snapshots.PriceSnapshots)-1]
-		return
-	}
-	err = types.ErrNoLatestPriceSnapshot
-	return
+	store.Delete(types.GetPriceSnapshotKey(uint64(timestamp)))
 }

@@ -119,11 +119,3 @@ message PriceSnapshot {
     (gogoproto.nullable)     = false
   ];
 }
-
-message PriceSnapshotHistory {
-  repeated PriceSnapshot price_snapshots = 2 [
-    (gogoproto.moretags)     = "yaml:\"price_snapshots\"",
-    (gogoproto.castrepeated) = "PriceSnapshots",
-    (gogoproto.nullable)     = false
-  ];
-}

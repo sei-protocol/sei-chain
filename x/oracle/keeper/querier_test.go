@@ -216,10 +216,11 @@ func TestQueryPriceSnapshotHistory(t *testing.T) {
 		}, 2),
 	}
 
-	input.OracleKeeper.SetPriceSnapshots(input.Ctx, priceSnapshots)
+	input.OracleKeeper.SetPriceSnapshot(input.Ctx, priceSnapshots[0])
+	input.OracleKeeper.SetPriceSnapshot(input.Ctx, priceSnapshots[1])
 
 	res, err := querier.PriceSnapshotHistory(ctx, &types.QueryPriceSnapshotHistoryRequest{})
 	require.NoError(t, err)
 
-	require.Equal(t, types.NewPriceSnapshotHistory(priceSnapshots), res.PriceSnapshotHistory)
+	require.Equal(t, priceSnapshots, res.PriceSnapshots)
 }
