@@ -483,6 +483,15 @@ func TestPriceSnapshotAdd(t *testing.T) {
 	snapshots = input.OracleKeeper.GetPriceSnapshots(input.Ctx)
 	require.Equal(t, 3, len(snapshots.PriceSnapshots))
 
+	// test iterate
+	expectedTimestamps := []int64{50, 100, 3660}
+	input.OracleKeeper.IteratePriceSnapshots(input.Ctx, func(snapshot types.PriceSnapshot) (stop bool) {
+		// assert that all the timestamps are correct
+		require.Equal(t, expectedTimestamps[0], snapshot.SnapshotTimestamp)
+		expectedTimestamps = expectedTimestamps[1:]
+		return false
+	})
+
 	input.Ctx = input.Ctx.WithBlockTime(time.Unix(10000, 0))
 	input.OracleKeeper.AddPriceSnapshot(
 		input.Ctx,
