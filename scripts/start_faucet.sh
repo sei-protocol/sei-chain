@@ -6,4 +6,4 @@ echo
 
 curl "https://get.starport.network/faucet!" > /tmp/faucet_install.sh
 echo $password | sudo -S bash /tmp/faucet_install.sh
-faucet --cli-name ./build/newd --denoms ust
+faucet --cli-name ./build/newd --denoms usei

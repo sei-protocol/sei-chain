@@ -1,12 +1,15 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"math/rand"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"sync"
+	"time"
 
 	"github.com/cosmos/cosmos-sdk/client"
 	"github.com/cosmos/cosmos-sdk/codec"
@@ -37,6 +40,8 @@ var (
 
 const BATCH_SIZE = 100
 
+var FROM_MILI = sdk.NewDec(1000000)
+
 func init() {
 	cdc := codec.NewLegacyAmino()
 	interfaceRegistry := types.NewInterfaceRegistry()
@@ -57,7 +62,7 @@ func init() {
 func run(
 	contractAddress string,
 	numberOfAccounts uint64,
-	numberOfOrders uint64,
+	numberOfBlocks uint64,
 	longPriceFloor uint64,
 	longPriceCeiling uint64,
 	shortPriceFloor uint64,
@@ -80,75 +85,125 @@ func run(
 		return
 	}
 	TX_HASH_FILE = file
-
-	var wg sync.WaitGroup
 	var mu sync.Mutex
-	var senders []func()
 
-	for i := uint64(0); i < numberOfOrders/BATCH_SIZE; i++ {
-		fmt.Println(fmt.Sprintf("Preparing %d-th order", i))
-		accountIdx := i % numberOfAccounts
-		key := GetKey(accountIdx)
-		orderPlacements := []*dextypes.OrderPlacement{}
-		longPrice := i%(longPriceCeiling-longPriceFloor) + longPriceFloor
-		longQuantity := uint64(rand.Intn(int(quantityCeiling)-int(quantityFloor))) + quantityFloor
-		shortPrice := i%(shortPriceCeiling-shortPriceFloor) + shortPriceFloor
-		shortQuantity := uint64(rand.Intn(int(quantityCeiling)-int(quantityFloor))) + quantityFloor
-		for j := 0; j < BATCH_SIZE; j++ {
-			orderPlacements = append(orderPlacements, &dextypes.OrderPlacement{
-				Long:       true,
-				Price:      longPrice,
-				Quantity:   longQuantity,
-				PriceDenom: "ust",
-				AssetDenom: "luna",
-				Open:       true,
-				Limit:      true,
-				Leverage:   "1",
-			}, &dextypes.OrderPlacement{
-				Long:       false,
-				Price:      shortPrice,
-				Quantity:   shortQuantity,
-				PriceDenom: "ust",
-				AssetDenom: "luna",
-				Open:       true,
-				Limit:      true,
-				Leverage:   "1",
+	var activeAccounts = []int{}
+	var inactiveAccounts = []int{}
+	for i := 0; i < int(numberOfAccounts); i++ {
+		if i%2 == 0 {
+			activeAccounts = append(activeAccounts, i)
+		} else {
+			inactiveAccounts = append(inactiveAccounts, i)
+		}
+	}
+	wgs := []*sync.WaitGroup{}
+	sendersList := [][]func(){}
+	for i := 0; i < int(numberOfBlocks); i++ {
+		fmt.Println(fmt.Sprintf("Preparing %d-th block", i))
+		var wg *sync.WaitGroup = &sync.WaitGroup{}
+		var senders []func()
+		wgs = append(wgs, wg)
+		for j, account := range activeAccounts {
+			key := GetKey(uint64(account))
+			orderPlacements := []*dextypes.OrderPlacement{}
+			longPrice := uint64(j)%(longPriceCeiling-longPriceFloor) + longPriceFloor
+			longQuantity := uint64(rand.Intn(int(quantityCeiling)-int(quantityFloor))) + quantityFloor
+			shortPrice := uint64(j)%(shortPriceCeiling-shortPriceFloor) + shortPriceFloor
+			shortQuantity := uint64(rand.Intn(int(quantityCeiling)-int(quantityFloor))) + quantityFloor
+			for j := 0; j < BATCH_SIZE; j++ {
+				orderPlacements = append(orderPlacements, &dextypes.OrderPlacement{
+					PositionDirection: dextypes.PositionDirection_LONG,
+					Price:             sdk.NewDec(int64(longPrice)).Quo(FROM_MILI),
+					Quantity:          sdk.NewDec(int64(longQuantity)).Quo(FROM_MILI),
+					PriceDenom:        dextypes.Denom_USDC,
+					AssetDenom:        dextypes.Denom_SEI,
+					PositionEffect:    dextypes.PositionEffect_OPEN,
+					OrderType:         dextypes.OrderType_LIMIT,
+					Leverage:          sdk.NewDec(1),
+				}, &dextypes.OrderPlacement{
+					PositionDirection: dextypes.PositionDirection_SHORT,
+					Price:             sdk.NewDec(int64(shortPrice)).Quo(FROM_MILI),
+					Quantity:          sdk.NewDec(int64(shortQuantity)).Quo(FROM_MILI),
+					PriceDenom:        dextypes.Denom_USDC,
+					AssetDenom:        dextypes.Denom_SEI,
+					PositionEffect:    dextypes.PositionEffect_OPEN,
+					OrderType:         dextypes.OrderType_LIMIT,
+					Leverage:          sdk.NewDec(1),
+				})
+			}
+			amount, err := sdk.ParseCoinsNormalized(fmt.Sprintf("%d%s", longPrice*longQuantity+shortPrice*shortQuantity, "usei"))
+			if err != nil {
+				panic(err)
+			}
+			msg := dextypes.MsgPlaceOrders{
+				Creator:      sdk.AccAddress(key.PubKey().Address()).String(),
+				Orders:       orderPlacements,
+				ContractAddr: contractAddress,
+				Funds:        amount,
+			}
+			txBuilder := TEST_CONFIG.TxConfig.NewTxBuilder()
+			_ = txBuilder.SetMsgs(&msg)
+			seqDelta := uint64(i / 2)
+			SignTx(&txBuilder, key, seqDelta)
+			mode := typestx.BroadcastMode_BROADCAST_MODE_SYNC
+			if j == len(activeAccounts)-1 {
+				mode = typestx.BroadcastMode_BROADCAST_MODE_BLOCK
+			}
+			sender := SendTx(key, &txBuilder, mode, seqDelta, &mu)
+			wg.Add(1)
+			senders = append(senders, func() {
+				defer wg.Done()
+				sender()
 			})
 		}
-		amount, err := sdk.ParseCoinsNormalized(fmt.Sprintf("%d%s", longPrice*longQuantity+shortPrice*shortQuantity, "ust"))
-		if err != nil {
-			panic(err)
-		}
-		msg := dextypes.MsgPlaceOrders{
-			Creator:      sdk.AccAddress(key.PubKey().Address()).String(),
-			Orders:       orderPlacements,
-			ContractAddr: contractAddress,
-			Nonce:        i,
-			Funds:        amount,
-		}
-		txBuilder := TEST_CONFIG.TxConfig.NewTxBuilder()
-		_ = txBuilder.SetMsgs(&msg)
-		SignTx(&txBuilder, key)
-		sender := SendTx(key, &txBuilder, &mu)
-		wg.Add(1)
-		senders = append(senders, func() {
-			defer wg.Done()
-			sender()
-		})
+		sendersList = append(sendersList, senders)
+
+		tmp := inactiveAccounts
+		inactiveAccounts = activeAccounts
+		activeAccounts = tmp
 	}
 
-	for _, sender := range senders {
-		go sender()
-	}
+	lastHeight := getLastHeight()
+	for i := 0; i < int(numberOfBlocks); i++ {
+		newHeight := getLastHeight()
+		for newHeight == lastHeight {
+			time.Sleep(50 * time.Millisecond)
+			newHeight = getLastHeight()
+		}
+		fmt.Println(fmt.Sprintf("Sending %d-th block", i))
 
-	wg.Wait()
+		senders := sendersList[i]
+		wg := wgs[i]
+
+		for _, sender := range senders {
+			go sender()
+		}
+		wg.Wait()
+	}
+}
+
+func getLastHeight() int {
+	out, err := exec.Command("curl", "http://localhost:26657/blockchain").Output()
+	if err != nil {
+		panic(err)
+	}
+	var dat map[string]interface{}
+	if err := json.Unmarshal(out, &dat); err != nil {
+		panic(err)
+	}
+	result := dat["result"].(map[string]interface{})
+	height, err := strconv.Atoi(result["last_height"].(string))
+	if err != nil {
+		panic(err)
+	}
+	return height
 }
 
 func main() {
 	args := os.Args[1:]
 	contractAddress := args[0]
 	numberOfAccounts, _ := strconv.ParseUint(args[1], 10, 64)
-	numberOfOrders, _ := strconv.ParseUint(args[2], 10, 64)
+	numberOfBlocks, _ := strconv.ParseUint(args[2], 10, 64)
 	longPriceFloor, _ := strconv.ParseUint(args[3], 10, 64)
 	longPriceCeiling, _ := strconv.ParseUint(args[4], 10, 64)
 	shortPriceFloor, _ := strconv.ParseUint(args[5], 10, 64)
@@ -160,7 +215,7 @@ func main() {
 	run(
 		contractAddress,
 		numberOfAccounts,
-		numberOfOrders,
+		numberOfBlocks,
 		longPriceFloor,
 		longPriceCeiling,
 		shortPriceFloor,

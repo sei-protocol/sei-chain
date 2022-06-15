@@ -26,19 +26,21 @@ const (
 func SendTx(
 	key cryptotypes.PrivKey,
 	txBuilder *client.TxBuilder,
+	mode typestx.BroadcastMode,
+	seqDelta uint64,
 	mu *sync.Mutex,
 ) func() {
 	(*txBuilder).SetGasLimit(2000000)
 	(*txBuilder).SetFeeAmount([]sdk.Coin{
-		sdk.NewCoin("ust", sdk.NewInt(1000)),
+		sdk.NewCoin("usei", sdk.NewInt(100000)),
 	})
-	SignTx(txBuilder, key)
+	SignTx(txBuilder, key, seqDelta)
 	txBytes, _ := TEST_CONFIG.TxConfig.TxEncoder()((*txBuilder).GetTx())
 	return func() {
 		grpcRes, err := TX_CLIENT.BroadcastTx(
 			context.Background(),
 			&typestx.BroadcastTxRequest{
-				Mode:    typestx.BroadcastMode_BROADCAST_MODE_SYNC,
+				Mode:    mode,
 				TxBytes: txBytes,
 			},
 		)
@@ -52,7 +54,7 @@ func SendTx(
 			grpcRes, err = TX_CLIENT.BroadcastTx(
 				context.Background(),
 				&typestx.BroadcastTxRequest{
-					Mode:    typestx.BroadcastMode_BROADCAST_MODE_SYNC,
+					Mode:    mode,
 					TxBytes: txBytes,
 				},
 			)
