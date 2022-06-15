@@ -59,36 +59,3 @@ func TestNewPriceSnapshot(t *testing.T) {
 
 	require.Equal(t, expected, snapshot)
 }
-
-func TestNewPriceSnapshotHistory(t *testing.T) {
-	priceSnapshots := []PriceSnapshot{
-		NewPriceSnapshot([]PriceSnapshotItem{
-			NewPriceSnapshotItem(utils.MicroEthDenom, OracleExchangeRate{
-				ExchangeRate: sdk.NewDec(11),
-				LastUpdate:   sdk.NewInt(20),
-			}),
-			NewPriceSnapshotItem(utils.MicroAtomDenom, OracleExchangeRate{
-				ExchangeRate: sdk.NewDec(12),
-				LastUpdate:   sdk.NewInt(20),
-			}),
-		}, 1),
-		NewPriceSnapshot([]PriceSnapshotItem{
-			NewPriceSnapshotItem(utils.MicroEthDenom, OracleExchangeRate{
-				ExchangeRate: sdk.NewDec(21),
-				LastUpdate:   sdk.NewInt(30),
-			}),
-			NewPriceSnapshotItem(utils.MicroAtomDenom, OracleExchangeRate{
-				ExchangeRate: sdk.NewDec(22),
-				LastUpdate:   sdk.NewInt(30),
-			}),
-		}, 2),
-	}
-
-	priceSnapshotHistory := NewPriceSnapshotHistory(priceSnapshots)
-
-	expected := PriceSnapshotHistory{
-		PriceSnapshots: priceSnapshots,
-	}
-
-	require.Equal(t, expected, priceSnapshotHistory)
-}
