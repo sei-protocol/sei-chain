@@ -96,6 +96,17 @@ func (q querier) VoteTargets(c context.Context, req *types.QueryVoteTargetsReque
 	return &types.QueryVoteTargetsResponse{VoteTargets: q.GetVoteTargets(ctx)}, nil
 }
 
+func (q querier) PriceSnapshotHistory(c context.Context, req *types.QueryPriceSnapshotHistoryRequest) (*types.QueryPriceSnapshotHistoryResponse, error) {
+	ctx := sdk.UnwrapSDKContext(c)
+	priceSnapshots := types.PriceSnapshots{}
+	q.IteratePriceSnapshots(ctx, func(snapshot types.PriceSnapshot) (stop bool) {
+		priceSnapshots = append(priceSnapshots, snapshot)
+		return false
+	})
+	response := types.QueryPriceSnapshotHistoryResponse{PriceSnapshots: priceSnapshots}
+	return &response, nil
+}
+
 // FeederDelegation queries the account address that the validator operator delegated oracle vote rights to
 func (q querier) FeederDelegation(c context.Context, req *types.QueryFeederDelegationRequest) (*types.QueryFeederDelegationResponse, error) {
 	if req == nil {

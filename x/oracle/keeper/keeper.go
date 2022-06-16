@@ -361,3 +361,63 @@ func (k Keeper) ValidateFeeder(ctx sdk.Context, feederAddr sdk.AccAddress, valid
 
 	return nil
 }
+
+func (k Keeper) GetPriceSnapshot(ctx sdk.Context, timestamp int64) types.PriceSnapshot {
+	store := ctx.KVStore(k.storeKey)
+	snapshotBytes := store.Get(types.GetPriceSnapshotKey(uint64(timestamp)))
+	if snapshotBytes == nil {
+		return types.PriceSnapshot{}
+	}
+
+	priceSnapshot := types.PriceSnapshot{}
+	k.cdc.MustUnmarshal(snapshotBytes, &priceSnapshot)
+	return priceSnapshot
+}
+
+func (k Keeper) SetPriceSnapshot(ctx sdk.Context, snapshot types.PriceSnapshot) {
+	// shouldn't be used directly, use "add" instead for individual price snapshots
+	store := ctx.KVStore(k.storeKey)
+	bz := k.cdc.MustMarshal(&snapshot)
+	store.Set(types.GetPriceSnapshotKey(uint64(snapshot.SnapshotTimestamp)), bz)
+}
+
+func (k Keeper) AddPriceSnapshot(ctx sdk.Context, snapshot types.PriceSnapshot) {
+	params := k.GetParams(ctx)
+	lookbackDuration := params.LookbackDuration
+	k.SetPriceSnapshot(ctx, snapshot)
+
+	var lastOutOfRangeSnapshotTimestamp int64 = -1
+	// we need to evict old snapshots (except for one that is out of range)
+	k.IteratePriceSnapshots(ctx, func(snapshot types.PriceSnapshot) (stop bool) {
+		if snapshot.SnapshotTimestamp+lookbackDuration >= ctx.BlockTime().Unix() {
+			return true
+		} else {
+			// delete the previous out of range snapshot
+			if lastOutOfRangeSnapshotTimestamp >= 0 {
+				k.DeletePriceSnapshot(ctx, lastOutOfRangeSnapshotTimestamp)
+			}
+			// update last out of range snapshot
+			lastOutOfRangeSnapshotTimestamp = snapshot.SnapshotTimestamp
+			return false
+		}
+	})
+}
+
+func (k Keeper) IteratePriceSnapshots(ctx sdk.Context, handler func(snapshot types.PriceSnapshot) (stop bool)) {
+	store := ctx.KVStore(k.storeKey)
+	iterator := sdk.KVStorePrefixIterator(store, types.PriceSnapshotKey)
+	defer iterator.Close()
+
+	for ; iterator.Valid(); iterator.Next() {
+		var val types.PriceSnapshot
+		k.cdc.MustUnmarshal(iterator.Value(), &val)
+		if handler(val) {
+			break
+		}
+	}
+}
+
+func (k Keeper) DeletePriceSnapshot(ctx sdk.Context, timestamp int64) {
+	store := ctx.KVStore(k.storeKey)
+	store.Delete(types.GetPriceSnapshotKey(uint64(timestamp)))
+}

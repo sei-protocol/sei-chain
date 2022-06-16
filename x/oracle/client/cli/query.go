@@ -25,6 +25,7 @@ func GetQueryCmd() *cobra.Command {
 
 	oracleQueryCmd.AddCommand(
 		GetCmdQueryExchangeRates(),
+		GetCmdQueryPriceSnapshotHistory(),
 		GetCmdQueryActives(),
 		GetCmdQueryParams(),
 		GetCmdQueryFeederDelegation(),
@@ -45,10 +46,10 @@ func GetCmdQueryExchangeRates() *cobra.Command {
 		Args:  cobra.RangeArgs(0, 1),
 		Short: "Query the current Luna exchange rate w.r.t an asset",
 		Long: strings.TrimSpace(`
-Query the current exchange rate of Luna with an asset. 
+Query the current exchange rate of Luna with an asset.
 You can find the current list of active denoms by running
 
-$ terrad query oracle exchange-rates 
+$ terrad query oracle exchange-rates
 
 Or, can filter with denom
 
@@ -81,6 +82,37 @@ $ terrad query oracle exchange-rates ukrw
 
 			return clientCtx.PrintProto(res)
 
+		},
+	}
+
+	flags.AddQueryFlagsToCmd(cmd)
+	return cmd
+}
+
+func GetCmdQueryPriceSnapshotHistory() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "price-snapshot-history",
+		Args:  cobra.NoArgs,
+		Short: "Query the history for oracle price snapshots",
+		Long: strings.TrimSpace(`
+Query the history for oracle price snapshots.
+Example:
+
+$ seid query oracle price-snapshot-history
+`),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			clientCtx, err := client.GetClientQueryContext(cmd)
+			if err != nil {
+				return err
+			}
+			queryClient := types.NewQueryClient(clientCtx)
+
+			res, err := queryClient.PriceSnapshotHistory(context.Background(), &types.QueryPriceSnapshotHistoryRequest{})
+			if err != nil {
+				return err
+			}
+
+			return clientCtx.PrintProto(res)
 		},
 	}
 
@@ -291,7 +323,7 @@ func GetCmdQueryAggregateVote() *cobra.Command {
 		Long: strings.TrimSpace(`
 Query outstanding oracle aggregate vote.
 
-$ terrad query oracle aggregate-votes 
+$ terrad query oracle aggregate-votes
 
 Or, can filter with voter address
 
