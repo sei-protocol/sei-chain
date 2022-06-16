@@ -6,14 +6,13 @@ import "dex/pair.proto";
 
 option go_package = "github.com/sei-protocol/sei-chain/x/dex/types";
 
-
-message Twap {
-
-  Pair pair = 1;
-  string twap = 2 [
-      (gogoproto.moretags)   = "yaml:\"twap\"",
+message Price {
+  
+  uint64 snapshotTimestampInSeconds = 1;
+  string price = 2 [
+      (gogoproto.moretags)   = "yaml:\"price\"",
       (gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Dec",
       (gogoproto.nullable)   = false
   ];
-	uint64 lookbackSeconds = 3;
+  Pair pair = 3;
 }

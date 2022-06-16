@@ -112,6 +112,23 @@ func EndBlocker(ctx sdk.Context, k keeper.Keeper) {
 
 		// Update vote targets
 		k.ApplyWhitelist(ctx, params.Whitelist, voteTargets)
+
+		priceSnapshotItems := []types.PriceSnapshotItem{}
+		k.IterateBaseExchangeRates(ctx, func(denom string, exchangeRate types.OracleExchangeRate) bool {
+			priceSnapshotItem := types.PriceSnapshotItem{
+				Denom:              denom,
+				OracleExchangeRate: exchangeRate,
+			}
+			priceSnapshotItems = append(priceSnapshotItems, priceSnapshotItem)
+			return false
+		})
+		if len(priceSnapshotItems) > 0 {
+			priceSnapshot := types.PriceSnapshot{
+				SnapshotTimestamp:  ctx.BlockTime().Unix(),
+				PriceSnapshotItems: priceSnapshotItems,
+			}
+			k.AddPriceSnapshot(ctx, priceSnapshot)
+		}
 	}
 
 	// Do slash who did miss voting over threshold and

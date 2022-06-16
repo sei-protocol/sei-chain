@@ -3,6 +3,7 @@ package rest
 import (
 	"fmt"
 	"net/http"
+	"strconv"
 
 	"github.com/gorilla/mux"
 
@@ -15,8 +16,10 @@ import (
 
 func registerQueryRoutes(cliCtx client.Context, rtr *mux.Router) {
 	rtr.HandleFunc(fmt.Sprintf("/oracle/denoms/{%s}/exchange_rate", RestDenom), queryExchangeRateHandlerFunction(cliCtx)).Methods("GET")
+	rtr.HandleFunc("/oracle/denoms/price_snapshot_history", queryPriceSnapshotHistoryHandlerFunction(cliCtx)).Methods("GET")
 	rtr.HandleFunc("/oracle/denoms/actives", queryActivesHandlerFunction(cliCtx)).Methods("GET")
 	rtr.HandleFunc("/oracle/denoms/exchange_rates", queryExchangeRatesHandlerFunction(cliCtx)).Methods("GET")
+	rtr.HandleFunc("/oracle/denoms/twaps", queryTwapsHandlerFunction(cliCtx)).Methods("GET")
 	rtr.HandleFunc("/oracle/denoms/vote_targets", queryVoteTargetsHandlerFunction(cliCtx)).Methods("GET")
 	rtr.HandleFunc(fmt.Sprintf("/oracle/voters/{%s}/feeder", RestVoter), queryFeederDelegationHandlerFunction(cliCtx)).Methods("GET")
 	rtr.HandleFunc(fmt.Sprintf("/oracle/voters/{%s}/miss", RestVoter), queryMissHandlerFunction(cliCtx)).Methods("GET")
@@ -62,6 +65,51 @@ func queryExchangeRatesHandlerFunction(cliCtx client.Context) http.HandlerFunc {
 		}
 
 		res, height, err := cliCtx.QueryWithData(fmt.Sprintf("custom/%s/%s", types.QuerierRoute, types.QueryExchangeRates), nil)
+		if rest.CheckInternalServerError(w, err) {
+			return
+		}
+
+		cliCtx = cliCtx.WithHeight(height)
+		rest.PostProcessResponse(w, cliCtx, res)
+	}
+}
+
+func queryPriceSnapshotHistoryHandlerFunction(cliCtx client.Context) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		cliCtx, ok := rest.ParseQueryHeightOrReturnBadRequest(w, cliCtx, r)
+		if !ok {
+			return
+		}
+
+		res, height, err := cliCtx.QueryWithData(fmt.Sprintf("custom/%s/%s", types.QuerierRoute, types.QueryPriceSnapshotHistory), nil)
+		if rest.CheckInternalServerError(w, err) {
+			return
+		}
+
+		cliCtx = cliCtx.WithHeight(height)
+		rest.PostProcessResponse(w, cliCtx, res)
+	}
+}
+
+func queryTwapsHandlerFunction(cliCtx client.Context) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		cliCtx, ok := rest.ParseQueryHeightOrReturnBadRequest(w, cliCtx, r)
+		if !ok {
+			return
+		}
+
+		lookbackSeconds, ok := checkLookbackSecondsVar(w, r)
+		if !ok {
+			return
+		}
+
+		params := types.NewQueryTwapsParams(lookbackSeconds)
+		bz, err := cliCtx.LegacyAmino.MarshalJSON(params)
+		if rest.CheckBadRequestError(w, err) {
+			return
+		}
+
+		res, height, err := cliCtx.QueryWithData(fmt.Sprintf("custom/%s/%s", types.QuerierRoute, types.QueryTwaps), bz)
 		if rest.CheckInternalServerError(w, err) {
 			return
 		}
@@ -272,6 +320,18 @@ func checkDenomVar(w http.ResponseWriter, r *http.Request) (string, bool) {
 	}
 
 	return denom, true
+}
+
+func checkLookbackSecondsVar(w http.ResponseWriter, r *http.Request) (int64, bool) {
+	lookbackSecondsStr := mux.Vars(r)[RestLookbackSeconds]
+	lookbackSeconds, err := strconv.ParseInt(lookbackSecondsStr, 10, 64)
+	if err != nil {
+		return 0, false
+	}
+	if lookbackSeconds <= 0 {
+		return 0, false
+	}
+	return lookbackSeconds, true
 }
 
 func checkVoterAddressVar(w http.ResponseWriter, r *http.Request) (sdk.ValAddress, bool) {

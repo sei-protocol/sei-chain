@@ -16,6 +16,7 @@ func MatchMarketOrders(
 	settlements *[]*types.Settlement,
 ) (sdk.Dec, sdk.Dec) {
 	var totalExecuted, totalPrice sdk.Dec = sdk.ZeroDec(), sdk.ZeroDec()
+	allTakerSettlements := []*types.Settlement{}
 	for idx, marketOrder := range marketOrders {
 		for i := range orderBook {
 			var existingOrder types.OrderBook
@@ -40,16 +41,25 @@ func MatchMarketOrders(
 			marketOrder.Quantity = marketOrder.Quantity.Sub(executed)
 			totalExecuted = totalExecuted.Add(executed)
 			totalPrice = totalPrice.Add(
-				executed.Mul(existingOrder.GetPrice().Add(marketOrder.WorstPrice)).Quo(sdk.NewDec(2)),
+				executed.Mul(existingOrder.GetPrice()),
 			)
 			dirtyPrices.Add(existingOrder.GetPrice())
-			newSettlements := Settle(marketOrder.FormattedCreatorWithSuffix(), executed, existingOrder, direction, marketOrder.WorstPrice)
-			*settlements = append(*settlements, newSettlements...)
+			takerSettlements, makerSettlements := Settle(marketOrder.FormattedCreatorWithSuffix(), executed, existingOrder, direction, marketOrder.WorstPrice)
+			*settlements = append(*settlements, makerSettlements...)
+			// taker settlements' clearing price will need to be adjusted after all market order executions finish
+			allTakerSettlements = append(allTakerSettlements, takerSettlements...)
 			if marketOrder.Quantity.IsZero() {
 				break
 			}
 		}
 		marketOrders[idx].Quantity = marketOrder.Quantity
+	}
+	if totalExecuted.IsPositive() {
+		clearingPrice := totalPrice.Quo(totalExecuted)
+		for _, settlement := range allTakerSettlements {
+			settlement.ExecutionCostOrProceed = clearingPrice
+		}
+		*settlements = append(*settlements, allTakerSettlements...)
 	}
 	return totalPrice, totalExecuted
 }

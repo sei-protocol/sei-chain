@@ -37,6 +37,9 @@ message Params {
     (gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Dec",
     (gogoproto.nullable)   = false
   ];
+  int64 lookback_duration = 9 [
+    (gogoproto.moretags)   = "yaml:\"lookback_duration\""
+  ];
 }
 
 message Denom {
@@ -99,4 +102,30 @@ message OracleExchangeRate {
     (gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Int",
     (gogoproto.nullable)   = false
   ];
+}
+
+message PriceSnapshotItem {
+  string denom = 1;
+  OracleExchangeRate oracle_exchange_rate = 2 [(gogoproto.nullable) = false];
+}
+
+message PriceSnapshot {
+  int64 snapshotTimestamp = 1 [
+    (gogoproto.moretags)     = "yaml:\"snapshot_timestamp\""
+  ];
+  repeated PriceSnapshotItem price_snapshot_items = 2 [
+    (gogoproto.moretags)     = "yaml:\"price_snapshot_items\"",
+    (gogoproto.castrepeated) = "PriceSnapshotItems",
+    (gogoproto.nullable)     = false
+  ];
+}
+
+message OracleTwap {
+  string denom = 1;
+  string twap = 2 [
+      (gogoproto.moretags)   = "yaml:\"twap\"",
+      (gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Dec",
+      (gogoproto.nullable)   = false
+  ];
+	int64 lookbackSeconds = 3;
 }

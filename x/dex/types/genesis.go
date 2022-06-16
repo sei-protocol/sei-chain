@@ -15,22 +15,6 @@ func DefaultGenesis() *GenesisState {
 		// this line is used by starport scaffolding # genesis/types/default
 		Params:    DefaultParams(),
 		LastEpoch: 0,
-		TwapList: []*Twap{
-			{
-				LastEpoch:  0,
-				Prices:     []uint64{105},
-				TwapPrice:  105,
-				PriceDenom: "usdc",
-				AssetDenom: "sei",
-			},
-			{
-				LastEpoch:  0,
-				Prices:     []uint64{105},
-				TwapPrice:  105,
-				PriceDenom: "usdc",
-				AssetDenom: "atom",
-			},
-		},
 	}
 }
 

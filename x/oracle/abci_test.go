@@ -5,6 +5,7 @@ import (
 	"math"
 	"sort"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -572,6 +573,60 @@ func TestAbstainWithSmallStakingPower(t *testing.T) {
 	oracle.EndBlocker(input.Ctx, input.OracleKeeper)
 	_, _, err := input.OracleKeeper.GetBaseExchangeRate(input.Ctx, utils.MicroAtomDenom)
 	require.Error(t, err)
+}
+
+func TestOraclePriceSnapshot(t *testing.T) {
+	input, h := setup(t)
+
+	require.Equal(t, types.PriceSnapshot{}, input.OracleKeeper.GetPriceSnapshot(input.Ctx, 123))
+
+	input.Ctx = input.Ctx.WithBlockTime(time.Unix(100, 0))
+
+	input.OracleKeeper.SetBaseExchangeRate(input.Ctx, utils.MicroAtomDenom, randomExchangeRate)
+
+	makeAggregatePrevoteAndVote(t, input, h, 0, sdk.DecCoins{{Denom: utils.MicroAtomDenom, Amount: randomExchangeRate}}, 0)
+	makeAggregatePrevoteAndVote(t, input, h, 0, sdk.DecCoins{{Denom: utils.MicroAtomDenom, Amount: randomExchangeRate}}, 1)
+	makeAggregatePrevoteAndVote(t, input, h, 0, sdk.DecCoins{{Denom: utils.MicroAtomDenom, Amount: randomExchangeRate}}, 2)
+
+	oracle.EndBlocker(input.Ctx, input.OracleKeeper)
+
+	rate, lastUpdate, err := input.OracleKeeper.GetBaseExchangeRate(input.Ctx, utils.MicroAtomDenom)
+	require.NoError(t, err)
+	require.Equal(t, randomExchangeRate, rate)
+	// The value should have a stale height
+	require.Equal(t, sdk.ZeroInt(), lastUpdate)
+
+	snapshot := input.OracleKeeper.GetPriceSnapshot(input.Ctx, 100)
+	require.NoError(t, err)
+	expected := types.PriceSnapshot{
+		SnapshotTimestamp: 100,
+		PriceSnapshotItems: []types.PriceSnapshotItem{
+			{
+				Denom: utils.MicroAtomDenom,
+				OracleExchangeRate: types.OracleExchangeRate{
+					ExchangeRate: randomExchangeRate,
+					LastUpdate:   sdk.NewInt(input.Ctx.BlockHeight()),
+				},
+			},
+		},
+	}
+	require.Equal(t, expected, snapshot)
+
+	input.Ctx = input.Ctx.WithBlockTime(time.Unix(200, 0))
+	oracle.EndBlocker(input.Ctx, input.OracleKeeper)
+	expected2 := types.PriceSnapshot{
+		SnapshotTimestamp: 200,
+		PriceSnapshotItems: []types.PriceSnapshotItem{
+			{
+				Denom: utils.MicroAtomDenom,
+				OracleExchangeRate: types.OracleExchangeRate{
+					ExchangeRate: randomExchangeRate,
+					LastUpdate:   sdk.NewInt(input.Ctx.BlockHeight()),
+				},
+			},
+		},
+	}
+	require.Equal(t, expected2, input.OracleKeeper.GetPriceSnapshot(input.Ctx, 200))
 }
 
 func makeAggregatePrevoteAndVote(t *testing.T, input keeper.TestInput, h sdk.Handler, height int64, rates sdk.DecCoins, idx int) {

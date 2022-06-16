@@ -1,6 +1,8 @@
 package types
 
 import (
+	"encoding/binary"
+
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/types/address"
 )
@@ -41,6 +43,7 @@ var (
 	AggregateExchangeRatePrevoteKey = []byte{0x04} // prefix for each key to a aggregate prevote
 	AggregateExchangeRateVoteKey    = []byte{0x05} // prefix for each key to a aggregate vote
 	VoteTargetKey                   = []byte{0x06} // prefix for each key to a vote target
+	PriceSnapshotKey                = []byte{0x07} // key for price snapshots history
 )
 
 // GetExchangeRateKey - stored by *denom*
@@ -75,4 +78,14 @@ func GetVoteTargetKey(d string) []byte {
 func ExtractDenomFromVoteTargetKey(key []byte) (denom string) {
 	denom = string(key[1:])
 	return
+}
+
+func GetKeyForTimestamp(timestamp uint64) []byte {
+	timestampKey := make([]byte, 8)
+	binary.BigEndian.PutUint64(timestampKey, timestamp)
+	return timestampKey
+}
+
+func GetPriceSnapshotKey(timestamp uint64) []byte {
+	return append(PriceSnapshotKey, GetKeyForTimestamp(timestamp)...)
 }

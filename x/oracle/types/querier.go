@@ -6,17 +6,19 @@ import (
 
 // Defines the prefix of each query path
 const (
-	QueryParameters        = "parameters"
-	QueryExchangeRate      = "exchangeRate"
-	QueryExchangeRates     = "exchangeRates"
-	QueryActives           = "actives"
-	QueryFeederDelegation  = "feederDelegation"
-	QueryMissCounter       = "missCounter"
-	QueryAggregatePrevote  = "aggregatePrevote"
-	QueryAggregatePrevotes = "aggregatePrevotes"
-	QueryAggregateVote     = "aggregateVote"
-	QueryAggregateVotes    = "aggregateVotes"
-	QueryVoteTargets       = "voteTargets"
+	QueryParameters           = "parameters"
+	QueryExchangeRate         = "exchangeRate"
+	QueryExchangeRates        = "exchangeRates"
+	QueryPriceSnapshotHistory = "priceSnapshotHistory"
+	QueryTwaps                = "twaps"
+	QueryActives              = "actives"
+	QueryFeederDelegation     = "feederDelegation"
+	QueryMissCounter          = "missCounter"
+	QueryAggregatePrevote     = "aggregatePrevote"
+	QueryAggregatePrevotes    = "aggregatePrevotes"
+	QueryAggregateVote        = "aggregateVote"
+	QueryAggregateVotes       = "aggregateVotes"
+	QueryVoteTargets          = "voteTargets"
 )
 
 // QueryExchangeRateParams defines the params for the following queries:
@@ -28,6 +30,17 @@ type QueryExchangeRateParams struct {
 // NewQueryExchangeRateParams returns params for exchange_rate query
 func NewQueryExchangeRateParams(denom string) QueryExchangeRateParams {
 	return QueryExchangeRateParams{denom}
+}
+
+// QueryTwapParams defines the params for the following queries:
+// - 'custom/oracle/twap'
+type QueryTwapsParams struct {
+	LookbackSeconds int64
+}
+
+// NewQueryExchangeRateParams returns params for exchange_rate query
+func NewQueryTwapsParams(lookbackSeconds int64) QueryTwapsParams {
+	return QueryTwapsParams{lookbackSeconds}
 }
 
 // QueryPrevotesParams defines the params for the following queries:
