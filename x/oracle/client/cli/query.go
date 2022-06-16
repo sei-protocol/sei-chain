@@ -27,6 +27,7 @@ func GetQueryCmd() *cobra.Command {
 	oracleQueryCmd.AddCommand(
 		GetCmdQueryExchangeRates(),
 		GetCmdQueryPriceSnapshotHistory(),
+		GetCmdQueryTwaps(),
 		GetCmdQueryActives(),
 		GetCmdQueryParams(),
 		GetCmdQueryFeederDelegation(),
