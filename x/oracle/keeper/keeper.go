@@ -2,6 +2,7 @@ package keeper
 
 import (
 	"fmt"
+	"sort"
 
 	"github.com/tendermint/tendermint/libs/log"
 
@@ -475,6 +476,8 @@ func (k Keeper) CalculateTwaps(ctx sdk.Context, lookbackSeconds int64) (types.Or
 			denomDuration := denomDurationMap[denom]
 
 			// calculate the new Time Weighted Sum for the denom exchange rate
+			// we calculate a weighted sum of exchange rates previously by multiplying each exchange rate by time interval that it was active
+			// then we divide by the overall time in the lookback window, which gives us the time weighted average
 			durationDifference := timeTraversed - denomDuration
 			exchangeRate := priceItem.OracleExchangeRate.ExchangeRate
 			denomTimeWeightedSum = denomTimeWeightedSum.Add(exchangeRate.MulInt64(durationDifference))
@@ -486,8 +489,14 @@ func (k Keeper) CalculateTwaps(ctx sdk.Context, lookbackSeconds int64) (types.Or
 		return
 	})
 
+	denomKeys := make([]string, 0, len(denomToTimeWeightedMap))
+	for k := range denomToTimeWeightedMap {
+		denomKeys = append(denomKeys, k)
+	}
+	sort.Strings(denomKeys)
+
 	// iterate over all denoms with TWAP data
-	for denomKey := range denomToTimeWeightedMap {
+	for _, denomKey := range denomKeys {
 		// divide the denom time weighed sum by denom duration
 		denomTimeWeightedSum := denomToTimeWeightedMap[denomKey]
 		denomDuration := denomDurationMap[denomKey]

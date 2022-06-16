@@ -3,7 +3,6 @@ package keeper
 import (
 	"bytes"
 	"fmt"
-	"sort"
 	"testing"
 	"time"
 
@@ -593,9 +592,6 @@ func TestCalculateTwaps(t *testing.T) {
 	twaps, err := input.OracleKeeper.CalculateTwaps(input.Ctx, 3600)
 	require.NoError(t, err)
 	require.Equal(t, 2, len(twaps))
-	sort.Slice(twaps, func(i, j int) bool {
-		return twaps[i].Denom < twaps[j].Denom
-	})
 	atomTwap := twaps[0]
 	ethTwap := twaps[1]
 	require.Equal(t, utils.MicroAtomDenom, atomTwap.Denom)
@@ -622,9 +618,6 @@ func TestCalculateTwaps(t *testing.T) {
 	twaps, err = input.OracleKeeper.CalculateTwaps(input.Ctx, 3600)
 	require.NoError(t, err)
 	require.Equal(t, 2, len(twaps))
-	sort.Slice(twaps, func(i, j int) bool {
-		return twaps[i].Denom < twaps[j].Denom
-	})
 	atomTwap = twaps[0]
 	ethTwap = twaps[1]
 	require.Equal(t, utils.MicroAtomDenom, atomTwap.Denom)

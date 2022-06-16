@@ -269,9 +269,6 @@ func TestQueryTwaps(t *testing.T) {
 	require.NoError(t, err)
 	oracleTwaps := twaps.OracleTwaps
 	require.Equal(t, 2, len(oracleTwaps))
-	sort.Slice(oracleTwaps, func(i, j int) bool {
-		return oracleTwaps[i].Denom < oracleTwaps[j].Denom
-	})
 	atomTwap := oracleTwaps[0]
 	ethTwap := oracleTwaps[1]
 	require.Equal(t, utils.MicroAtomDenom, atomTwap.Denom)
