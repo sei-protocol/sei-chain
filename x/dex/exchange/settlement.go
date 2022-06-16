@@ -16,8 +16,9 @@ func Settle(
 	order types.OrderBook,
 	takerDirection types.PositionDirection,
 	worstPrice sdk.Dec,
-) []*types.Settlement {
-	settlements := []*types.Settlement{}
+) ([]*types.Settlement, []*types.Settlement) {
+	takerSettlements := []*types.Settlement{}
+	makerSettlements := []*types.Settlement{}
 	order.GetEntry().Quantity = order.GetEntry().Quantity.Sub(quantityTaken)
 	newAllocations := RebalanceAllocations(order)
 	newToSettle := []ToSettle{}
@@ -36,27 +37,27 @@ func Settle(
 	}
 	order.GetEntry().Allocation = nonZeroNewAllocations
 	order.GetEntry().AllocationCreator = nonZeroNewCreators
-	avgPrice := worstPrice.Add(order.GetPrice()).Quo(sdk.NewDec(2))
 	for _, toSettle := range newToSettle {
-		settlements = append(settlements, types.NewSettlement(
+		takerSettlements = append(takerSettlements, types.NewSettlement(
 			taker,
 			takerDirection,
 			order.GetEntry().GetPriceDenom(),
 			order.GetEntry().GetAssetDenom(),
 			toSettle.amount,
-			avgPrice,
 			worstPrice,
-		), types.NewSettlement(
+			worstPrice,
+		))
+		makerSettlements = append(makerSettlements, types.NewSettlement(
 			toSettle.creator,
 			types.OPPOSITE_POSITION_DIRECTION[takerDirection],
 			order.GetEntry().GetPriceDenom(),
 			order.GetEntry().GetAssetDenom(),
 			toSettle.amount,
-			avgPrice,
+			order.GetEntry().Price,
 			order.GetEntry().Price,
 		))
 	}
-	return settlements
+	return takerSettlements, makerSettlements
 }
 
 func SettleFromBook(
