@@ -107,6 +107,27 @@ func (q querier) PriceSnapshotHistory(c context.Context, req *types.QueryPriceSn
 	return &response, nil
 }
 
+func (q querier) Twaps(c context.Context, req *types.QueryTwapsRequest) (*types.QueryTwapsResponse, error) {
+	if req == nil {
+		return nil, status.Error(codes.InvalidArgument, "invalid request")
+	}
+
+	ctx := sdk.UnwrapSDKContext(c)
+	twaps, err := q.CalculateTwaps(ctx, req.LookbackSeconds)
+	if err != nil {
+		if err == types.ErrInvalidTwapLookback {
+			return nil, status.Error(codes.InvalidArgument, err.Error())
+		}
+		if err == types.ErrNoTwapData {
+			return nil, status.Error(codes.FailedPrecondition, err.Error())
+		}
+		// we shouldnt get this
+		return nil, status.Error(codes.Unknown, err.Error())
+	}
+	response := types.QueryTwapsResponse{OracleTwaps: twaps}
+	return &response, nil
+}
+
 // FeederDelegation queries the account address that the validator operator delegated oracle vote rights to
 func (q querier) FeederDelegation(c context.Context, req *types.QueryFeederDelegationRequest) (*types.QueryFeederDelegationResponse, error) {
 	if req == nil {

@@ -122,11 +122,13 @@ func EndBlocker(ctx sdk.Context, k keeper.Keeper) {
 			priceSnapshotItems = append(priceSnapshotItems, priceSnapshotItem)
 			return false
 		})
-		priceSnapshot := types.PriceSnapshot{
-			SnapshotTimestamp:  ctx.BlockTime().Unix(),
-			PriceSnapshotItems: priceSnapshotItems,
+		if len(priceSnapshotItems) > 0 {
+			priceSnapshot := types.PriceSnapshot{
+				SnapshotTimestamp:  ctx.BlockTime().Unix(),
+				PriceSnapshotItems: priceSnapshotItems,
+			}
+			k.AddPriceSnapshot(ctx, priceSnapshot)
 		}
-		k.AddPriceSnapshot(ctx, priceSnapshot)
 	}
 
 	// Do slash who did miss voting over threshold and
