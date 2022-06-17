@@ -52,6 +52,10 @@ module.exports = {
         "key": "v1.4.0"
       },
       {
+        "label": "v1.5.0",
+        "key": "v1.5.0"
+      },
+      {
         "label": "v2.0.0",
         "key": "v2.0.0"
       } ,
@@ -63,9 +67,17 @@ module.exports = {
         "label": "v2.2.0",
         "key": "v2.2.0"
       },
+      { 
+        "label": "v2.3.0",
+        "key": "v2.3.0"
+      },
       {
         "label": "v3.0.0",
         "key": "v3.0.0"
+      },
+      {
+        "label": "v3.1.0",
+        "key": "v3.1.0"
       }
     ],
     topbar: {
