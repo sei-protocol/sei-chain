@@ -2,6 +2,7 @@ package keeper
 
 import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	gogotypes "github.com/gogo/protobuf/types"
 
 	"github.com/sei-protocol/sei-chain/x/oracle/types"
 )
@@ -29,6 +30,27 @@ func (m Migrator) Migrate2to3(ctx sdk.Context) error {
 		// because we don't have a lastUpdate, we set it to 0
 		rate := types.OracleExchangeRate{ExchangeRate: dp.Dec, LastUpdate: sdk.ZeroInt()}
 		bz := m.keeper.cdc.MustMarshal(&rate)
+		store.Set(iter.Key(), bz)
+	}
+
+	return nil
+}
+
+// Migrate3to3 migrates from version 3 to 4
+func (m Migrator) Migrate3to4(ctx sdk.Context) error {
+	// we need to migrate the miss counters to be stored as VotePenaltyCounter to introduce abstain count logic
+	store := ctx.KVStore(m.keeper.storeKey)
+
+	// previously the data was stored as uint64, now it is VotePenaltyCounter proto
+	iter := sdk.KVStorePrefixIterator(store, types.VotePenaltyCounterKey)
+	defer iter.Close()
+	for ; iter.Valid(); iter.Next() {
+		var missCounter gogotypes.UInt64Value
+		m.keeper.cdc.MustUnmarshal(iter.Value(), &missCounter)
+		// create proto for new data value
+		// because we don't have a lastUpdate, we set it to 0
+		votePenaltyCounter := types.VotePenaltyCounter{MissCount: missCounter.Value, AbstainCount: 0}
+		bz := m.keeper.cdc.MustMarshal(&votePenaltyCounter)
 		store.Set(iter.Key(), bz)
 	}
 
