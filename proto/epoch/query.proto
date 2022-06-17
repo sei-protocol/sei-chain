@@ -5,12 +5,17 @@ import "gogoproto/gogo.proto";
 import "google/api/annotations.proto";
 import "cosmos/base/query/v1beta1/pagination.proto";
 import "epoch/params.proto";
+import "epoch/epoch.proto";
 // this line is used by starport scaffolding # 1
 
 option go_package = "github.com/sei-protocol/sei-chain/x/epoch/types";
 
 // Query defines the gRPC querier service.
 service Query {
+  // Query the epoch in the chain
+  rpc Epoch(QueryEpochRequest) returns (QueryEpochResponse) {
+    option (google.api.http).get = "/sei-protocol/seichain/epoch/epoch";
+  }
   // Parameters queries the parameters of the module.
   rpc Params(QueryParamsRequest) returns (QueryParamsResponse) {
     option (google.api.http).get = "/sei-protocol/seichain/epoch/params";
@@ -27,4 +32,9 @@ message QueryParamsResponse {
   Params params = 1 [(gogoproto.nullable) = false];
 }
 
+message QueryEpochRequest {}
+
+message QueryEpochResponse {
+  Epoch epoch = 11 [(gogoproto.nullable) = false];
+}
 // this line is used by starport scaffolding # 3
