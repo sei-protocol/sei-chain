@@ -30,13 +30,13 @@ func InitGenesis(ctx sdk.Context, keeper keeper.Keeper, data *types.GenesisState
 		keeper.SetBaseExchangeRate(ctx, ex.Denom, ex.ExchangeRate)
 	}
 
-	for _, mc := range data.MissCounters {
-		operator, err := sdk.ValAddressFromBech32(mc.ValidatorAddress)
+	for _, pc := range data.PenaltyCounters {
+		operator, err := sdk.ValAddressFromBech32(pc.ValidatorAddress)
 		if err != nil {
 			panic(err)
 		}
 
-		keeper.SetVotePenaltyCounter(ctx, operator, mc.MissCounter, 0)
+		keeper.SetVotePenaltyCounter(ctx, operator, pc.VotePenaltyCounter.MissCount, pc.VotePenaltyCounter.AbstainCount)
 	}
 
 	for _, ap := range data.AggregateExchangeRatePrevotes {
@@ -86,11 +86,11 @@ func ExportGenesis(ctx sdk.Context, keeper keeper.Keeper) *types.GenesisState {
 		return false
 	})
 
-	missCounters := []types.MissCounter{}
+	penaltyCounters := []types.PenaltyCounter{}
 	keeper.IterateVotePenaltyCounters(ctx, func(operator sdk.ValAddress, votePenaltyCounter types.VotePenaltyCounter) (stop bool) {
-		missCounters = append(missCounters, types.MissCounter{
-			ValidatorAddress: operator.String(),
-			MissCounter:      votePenaltyCounter.MissCount,
+		penaltyCounters = append(penaltyCounters, types.PenaltyCounter{
+			ValidatorAddress:   operator.String(),
+			VotePenaltyCounter: &votePenaltyCounter,
 		})
 		return false
 	})
@@ -110,7 +110,7 @@ func ExportGenesis(ctx sdk.Context, keeper keeper.Keeper) *types.GenesisState {
 	return types.NewGenesisState(params,
 		exchangeRates,
 		feederDelegations,
-		missCounters,
+		penaltyCounters,
 		aggregateExchangeRatePrevotes,
 		aggregateExchangeRateVotes)
 }
