@@ -6,8 +6,6 @@ import (
 
 	"github.com/tendermint/tendermint/libs/log"
 
-	gogotypes "github.com/gogo/protobuf/types"
-
 	"github.com/cosmos/cosmos-sdk/codec"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
@@ -167,47 +165,67 @@ func (k Keeper) IterateFeederDelegations(ctx sdk.Context,
 //-----------------------------------
 // Miss counter logic
 
-// GetMissCounter retrieves the # of vote periods missed in this oracle slash window
-func (k Keeper) GetMissCounter(ctx sdk.Context, operator sdk.ValAddress) uint64 {
+// GetVotePenaltyCounter retrieves the # of vote periods missed and abstained in this oracle slash window
+func (k Keeper) GetVotePenaltyCounter(ctx sdk.Context, operator sdk.ValAddress) types.VotePenaltyCounter {
 	store := ctx.KVStore(k.storeKey)
-	bz := store.Get(types.GetMissCounterKey(operator))
+	bz := store.Get(types.GetVotePenaltyCounterKey(operator))
 	if bz == nil {
-		// By default the counter is zero
-		return 0
+		// By default the empty counter has values of 0
+		return types.VotePenaltyCounter{}
 	}
 
-	var missCounter gogotypes.UInt64Value
-	k.cdc.MustUnmarshal(bz, &missCounter)
-	return missCounter.Value
+	var votePenaltyCounter types.VotePenaltyCounter
+	k.cdc.MustUnmarshal(bz, &votePenaltyCounter)
+	return votePenaltyCounter
 }
 
-// SetMissCounter updates the # of vote periods missed in this oracle slash window
-func (k Keeper) SetMissCounter(ctx sdk.Context, operator sdk.ValAddress, missCounter uint64) {
+// SetVotePenaltyCounter updates the # of vote periods missed in this oracle slash window
+func (k Keeper) SetVotePenaltyCounter(ctx sdk.Context, operator sdk.ValAddress, missCount uint64, abstainCount uint64) {
 	store := ctx.KVStore(k.storeKey)
-	bz := k.cdc.MustMarshal(&gogotypes.UInt64Value{Value: missCounter})
-	store.Set(types.GetMissCounterKey(operator), bz)
+	bz := k.cdc.MustMarshal(&types.VotePenaltyCounter{MissCount: missCount, AbstainCount: abstainCount})
+	store.Set(types.GetVotePenaltyCounterKey(operator), bz)
 }
 
-// DeleteMissCounter removes miss counter for the validator
-func (k Keeper) DeleteMissCounter(ctx sdk.Context, operator sdk.ValAddress) {
-	store := ctx.KVStore(k.storeKey)
-	store.Delete(types.GetMissCounterKey(operator))
+func (k Keeper) IncrementMissCount(ctx sdk.Context, operator sdk.ValAddress) {
+	votePenaltyCounter := k.GetVotePenaltyCounter(ctx, operator)
+	k.SetVotePenaltyCounter(ctx, operator, votePenaltyCounter.MissCount+1, votePenaltyCounter.AbstainCount)
 }
 
-// IterateMissCounters iterates over the miss counters and performs a callback function.
-func (k Keeper) IterateMissCounters(ctx sdk.Context,
-	handler func(operator sdk.ValAddress, missCounter uint64) (stop bool)) {
+func (k Keeper) IncrementAbstainCount(ctx sdk.Context, operator sdk.ValAddress) {
+	votePenaltyCounter := k.GetVotePenaltyCounter(ctx, operator)
+	k.SetVotePenaltyCounter(ctx, operator, votePenaltyCounter.MissCount, votePenaltyCounter.AbstainCount+1)
+}
+
+func (k Keeper) GetMissCount(ctx sdk.Context, operator sdk.ValAddress) uint64 {
+	votePenaltyCounter := k.GetVotePenaltyCounter(ctx, operator)
+	return votePenaltyCounter.MissCount
+}
+
+func (k Keeper) GetAbstainCount(ctx sdk.Context, operator sdk.ValAddress) uint64 {
+	votePenaltyCounter := k.GetVotePenaltyCounter(ctx, operator)
+	return votePenaltyCounter.AbstainCount
+}
+
+// DeleteVotePenaltyCounter removes miss counter for the validator
+func (k Keeper) DeleteVotePenaltyCounter(ctx sdk.Context, operator sdk.ValAddress) {
+	store := ctx.KVStore(k.storeKey)
+	store.Delete(types.GetVotePenaltyCounterKey(operator))
+}
+
+// IterateVotePenaltyCounters iterates over the miss counters and performs a callback function.
+func (k Keeper) IterateVotePenaltyCounters(ctx sdk.Context,
+	handler func(operator sdk.ValAddress, votePenaltyCounter types.VotePenaltyCounter) (stop bool)) {
 
 	store := ctx.KVStore(k.storeKey)
-	iter := sdk.KVStorePrefixIterator(store, types.MissCounterKey)
+	iter := sdk.KVStorePrefixIterator(store, types.VotePenaltyCounterKey)
 	defer iter.Close()
 	for ; iter.Valid(); iter.Next() {
 		operator := sdk.ValAddress(iter.Key()[2:])
 
-		var missCounter gogotypes.UInt64Value
-		k.cdc.MustUnmarshal(iter.Value(), &missCounter)
+		var votePenaltyCounter types.VotePenaltyCounter
+		k.cdc.MustUnmarshal(iter.Value(), &votePenaltyCounter)
 
-		if handler(operator, missCounter.Value) {
+		if handler(operator, votePenaltyCounter) {
 			break
 		}
 	}

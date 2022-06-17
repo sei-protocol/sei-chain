@@ -116,3 +116,6 @@ func NewDenomOracleExchangeRatePair(denom string, exchangeRate sdk.Dec, lastUpda
 		},
 	}
 }
+
+// VotePenaltyCounter - array of VotePenaltyCounter
+type VotePenaltyCounters []VotePenaltyCounter

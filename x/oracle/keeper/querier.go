@@ -146,7 +146,7 @@ func (q querier) FeederDelegation(c context.Context, req *types.QueryFeederDeleg
 }
 
 // MissCounter queries oracle miss counter of a validator
-func (q querier) MissCounter(c context.Context, req *types.QueryMissCounterRequest) (*types.QueryMissCounterResponse, error) {
+func (q querier) VotePenaltyCounter(c context.Context, req *types.QueryVotePenaltyCounterRequest) (*types.QueryVotePenaltyCounterResponse, error) {
 	if req == nil {
 		return nil, status.Error(codes.InvalidArgument, "invalid request")
 	}
@@ -157,8 +157,11 @@ func (q querier) MissCounter(c context.Context, req *types.QueryMissCounterReque
 	}
 
 	ctx := sdk.UnwrapSDKContext(c)
-	return &types.QueryMissCounterResponse{
-		MissCounter: q.GetMissCounter(ctx, valAddr),
+	return &types.QueryVotePenaltyCounterResponse{
+		VotePenaltyCounter: &types.VotePenaltyCounter{
+			MissCount:    q.GetMissCount(ctx, valAddr),
+			AbstainCount: q.GetMissCount(ctx, valAddr),
+		},
 	}, nil
 }
 
