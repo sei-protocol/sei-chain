@@ -160,7 +160,7 @@ func (q querier) VotePenaltyCounter(c context.Context, req *types.QueryVotePenal
 	return &types.QueryVotePenaltyCounterResponse{
 		VotePenaltyCounter: &types.VotePenaltyCounter{
 			MissCount:    q.GetMissCount(ctx, valAddr),
-			AbstainCount: q.GetMissCount(ctx, valAddr),
+			AbstainCount: q.GetAbstainCount(ctx, valAddr),
 		},
 	}, nil
 }
