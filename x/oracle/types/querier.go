@@ -13,7 +13,7 @@ const (
 	QueryTwaps                = "twaps"
 	QueryActives              = "actives"
 	QueryFeederDelegation     = "feederDelegation"
-	QueryMissCounter          = "missCounter"
+	QueryVotePenaltyCounter   = "votePenaltyCounter"
 	QueryAggregatePrevote     = "aggregatePrevote"
 	QueryAggregatePrevotes    = "aggregatePrevotes"
 	QueryAggregateVote        = "aggregateVote"
@@ -80,13 +80,13 @@ func NewQueryFeederDelegationParams(validator sdk.ValAddress) QueryFeederDelegat
 
 // QueryMissCounterParams defines the params for the following queries:
 // - 'custom/oracle/missCounter'
-type QueryMissCounterParams struct {
+type QueryVotePenaltyCounterParams struct {
 	Validator sdk.ValAddress
 }
 
-// NewQueryMissCounterParams returns params for feeder delegation query
-func NewQueryMissCounterParams(validator sdk.ValAddress) QueryMissCounterParams {
-	return QueryMissCounterParams{validator}
+// NewQueryVotePenaltyCounterParams returns params for feeder delegation query
+func NewQueryVotePenaltyCounterParams(validator sdk.ValAddress) QueryVotePenaltyCounterParams {
+	return QueryVotePenaltyCounterParams{validator}
 }
 
 // QueryAggregatePrevoteParams defines the params for the following queries:

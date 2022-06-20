@@ -39,7 +39,7 @@ var (
 	// Keys for store prefixes
 	ExchangeRateKey                 = []byte{0x01} // prefix for each key to a rate
 	FeederDelegationKey             = []byte{0x02} // prefix for each key to a feeder delegation
-	MissCounterKey                  = []byte{0x03} // prefix for each key to a miss counter
+	VotePenaltyCounterKey           = []byte{0x03} // prefix for each key to a miss counter
 	AggregateExchangeRatePrevoteKey = []byte{0x04} // prefix for each key to a aggregate prevote
 	AggregateExchangeRateVoteKey    = []byte{0x05} // prefix for each key to a aggregate vote
 	VoteTargetKey                   = []byte{0x06} // prefix for each key to a vote target
@@ -56,9 +56,9 @@ func GetFeederDelegationKey(v sdk.ValAddress) []byte {
 	return append(FeederDelegationKey, address.MustLengthPrefix(v)...)
 }
 
-// GetMissCounterKey - stored by *Validator* address
-func GetMissCounterKey(v sdk.ValAddress) []byte {
-	return append(MissCounterKey, address.MustLengthPrefix(v)...)
+// GetVotePenaltyCounterKey - stored by *Validator* address
+func GetVotePenaltyCounterKey(v sdk.ValAddress) []byte {
+	return append(VotePenaltyCounterKey, address.MustLengthPrefix(v)...)
 }
 
 // GetAggregateExchangeRatePrevoteKey - stored by *Validator* address

@@ -141,6 +141,7 @@ func (am AppModule) RegisterServices(cfg module.Configurator) {
 	m := keeper.NewMigrator(am.keeper)
 	cfg.RegisterMigration(types.ModuleName, 1, func(ctx sdk.Context) error { return nil })
 	cfg.RegisterMigration(types.ModuleName, 2, m.Migrate2to3)
+	cfg.RegisterMigration(types.ModuleName, 3, m.Migrate3to4)
 }
 
 // InitGenesis performs genesis initialization for the oracle module. It returns
@@ -161,7 +162,7 @@ func (am AppModule) ExportGenesis(ctx sdk.Context, cdc codec.JSONCodec) json.Raw
 }
 
 // ConsensusVersion implements AppModule/ConsensusVersion.
-func (AppModule) ConsensusVersion() uint64 { return 3 }
+func (AppModule) ConsensusVersion() uint64 { return 4 }
 
 // BeginBlock returns the begin blocker for the oracle module.
 func (AppModule) BeginBlock(_ sdk.Context, _ abci.RequestBeginBlock) {}

@@ -31,7 +31,7 @@ func GetQueryCmd() *cobra.Command {
 		GetCmdQueryActives(),
 		GetCmdQueryParams(),
 		GetCmdQueryFeederDelegation(),
-		GetCmdQueryMissCounter(),
+		GetCmdQueryVotePenaltyCounter(),
 		GetCmdQueryAggregatePrevote(),
 		GetCmdQueryAggregateVote(),
 		GetCmdQueryVoteTargets(),
@@ -259,16 +259,16 @@ $ terrad query oracle feeder terravaloper...
 	return cmd
 }
 
-// GetCmdQueryMissCounter implements the query miss counter of the validator command
-func GetCmdQueryMissCounter() *cobra.Command {
+// GetCmdQueryVotePenaltyCounter implements the query vote penalty counter of the validator command
+func GetCmdQueryVotePenaltyCounter() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "miss [validator]",
+		Use:   "vote-penalty-counter [validator]",
 		Args:  cobra.ExactArgs(1),
-		Short: "Query the # of the miss count",
+		Short: "Query the # of the miss count and abstain count",
 		Long: strings.TrimSpace(`
-Query the # of vote periods missed in this oracle slash window.
+Query the # of vote periods missed and abstained in this oracle slash window.
 
-$ terrad query oracle miss terravaloper...
+$ seid query oracle miss seivaloper...
 `),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			clientCtx, err := client.GetClientQueryContext(cmd)
@@ -283,9 +283,9 @@ $ terrad query oracle miss terravaloper...
 				return err
 			}
 
-			res, err := queryClient.MissCounter(
+			res, err := queryClient.VotePenaltyCounter(
 				context.Background(),
-				&types.QueryMissCounterRequest{ValidatorAddr: validator.String()},
+				&types.QueryVotePenaltyCounterRequest{ValidatorAddr: validator.String()},
 			)
 			if err != nil {
 				return err

@@ -192,45 +192,62 @@ func TestIterateFeederDelegations(t *testing.T) {
 	require.Equal(t, Addrs[1], delegates[0])
 }
 
-func TestMissCounter(t *testing.T) {
+func TestVotePenaltyCounter(t *testing.T) {
 	input := CreateTestInput(t)
 
 	// Test default getters and setters
-	counter := input.OracleKeeper.GetMissCounter(input.Ctx, ValAddrs[0])
-	require.Equal(t, uint64(0), counter)
+	counter := input.OracleKeeper.GetVotePenaltyCounter(input.Ctx, ValAddrs[0])
+	require.Equal(t, uint64(0), counter.MissCount)
+	require.Equal(t, uint64(0), counter.AbstainCount)
+	require.Equal(t, uint64(0), input.OracleKeeper.GetMissCount(input.Ctx, ValAddrs[0]))
+	require.Equal(t, uint64(0), input.OracleKeeper.GetAbstainCount(input.Ctx, ValAddrs[0]))
 
 	missCounter := uint64(10)
-	input.OracleKeeper.SetMissCounter(input.Ctx, ValAddrs[0], missCounter)
-	counter = input.OracleKeeper.GetMissCounter(input.Ctx, ValAddrs[0])
-	require.Equal(t, missCounter, counter)
+	input.OracleKeeper.SetVotePenaltyCounter(input.Ctx, ValAddrs[0], missCounter, 0)
+	counter = input.OracleKeeper.GetVotePenaltyCounter(input.Ctx, ValAddrs[0])
+	require.Equal(t, missCounter, counter.MissCount)
+	require.Equal(t, uint64(0), counter.AbstainCount)
+	require.Equal(t, missCounter, input.OracleKeeper.GetMissCount(input.Ctx, ValAddrs[0]))
+	require.Equal(t, uint64(0), input.OracleKeeper.GetAbstainCount(input.Ctx, ValAddrs[0]))
 
-	input.OracleKeeper.DeleteMissCounter(input.Ctx, ValAddrs[0])
-	counter = input.OracleKeeper.GetMissCounter(input.Ctx, ValAddrs[0])
-	require.Equal(t, uint64(0), counter)
+	input.OracleKeeper.SetVotePenaltyCounter(input.Ctx, ValAddrs[0], missCounter, missCounter)
+	counter = input.OracleKeeper.GetVotePenaltyCounter(input.Ctx, ValAddrs[0])
+	require.Equal(t, missCounter, counter.MissCount)
+	require.Equal(t, missCounter, counter.AbstainCount)
+	require.Equal(t, missCounter, input.OracleKeeper.GetMissCount(input.Ctx, ValAddrs[0]))
+	require.Equal(t, missCounter, input.OracleKeeper.GetAbstainCount(input.Ctx, ValAddrs[0]))
+
+	input.OracleKeeper.DeleteVotePenaltyCounter(input.Ctx, ValAddrs[0])
+	counter = input.OracleKeeper.GetVotePenaltyCounter(input.Ctx, ValAddrs[0])
+	require.Equal(t, uint64(0), counter.MissCount)
+	require.Equal(t, uint64(0), counter.AbstainCount)
+	require.Equal(t, uint64(0), input.OracleKeeper.GetMissCount(input.Ctx, ValAddrs[0]))
+	require.Equal(t, uint64(0), input.OracleKeeper.GetAbstainCount(input.Ctx, ValAddrs[0]))
 }
 
 func TestIterateMissCounters(t *testing.T) {
 	input := CreateTestInput(t)
 
 	// Test default getters and setters
-	counter := input.OracleKeeper.GetMissCounter(input.Ctx, ValAddrs[0])
-	require.Equal(t, uint64(0), counter)
+	counter := input.OracleKeeper.GetVotePenaltyCounter(input.Ctx, ValAddrs[0])
+	require.Equal(t, uint64(0), counter.MissCount)
+	require.Equal(t, uint64(0), counter.MissCount)
 
 	missCounter := uint64(10)
-	input.OracleKeeper.SetMissCounter(input.Ctx, ValAddrs[1], missCounter)
+	input.OracleKeeper.SetVotePenaltyCounter(input.Ctx, ValAddrs[1], missCounter, missCounter)
 
 	var operators []sdk.ValAddress
-	var missCounters []uint64
-	input.OracleKeeper.IterateMissCounters(input.Ctx, func(delegator sdk.ValAddress, missCounter uint64) (stop bool) {
+	var votePenaltyCounters types.VotePenaltyCounters
+	input.OracleKeeper.IterateVotePenaltyCounters(input.Ctx, func(delegator sdk.ValAddress, votePenaltyCounter types.VotePenaltyCounter) (stop bool) {
 		operators = append(operators, delegator)
-		missCounters = append(missCounters, missCounter)
+		votePenaltyCounters = append(votePenaltyCounters, votePenaltyCounter)
 		return false
 	})
 
 	require.Equal(t, 1, len(operators))
-	require.Equal(t, 1, len(missCounters))
+	require.Equal(t, 1, len(votePenaltyCounters))
 	require.Equal(t, ValAddrs[1], operators[0])
-	require.Equal(t, missCounter, missCounters[0])
+	require.Equal(t, missCounter, votePenaltyCounters[0].MissCount)
 }
 
 func TestAggregatePrevoteAddDelete(t *testing.T) {

@@ -33,7 +33,7 @@ func EndBlocker(ctx sdk.Context, k keeper.Keeper) {
 			// Exclude not bonded validator
 			if validator.IsBonded() {
 				valAddr := validator.GetOperator()
-				validatorClaimMap[valAddr.String()] = types.NewClaim(validator.GetConsensusPower(powerReduction), 0, 0, valAddr)
+				validatorClaimMap[valAddr.String()] = types.NewClaim(validator.GetConsensusPower(powerReduction), 0, 0, 0, valAddr)
 				i++
 			}
 		}
@@ -96,15 +96,20 @@ func EndBlocker(ctx sdk.Context, k keeper.Keeper) {
 		//---------------------------
 		// Do miss counting & slashing
 		for _, claim := range validatorClaimMap {
-			// Skip abstain & valid voters
 			// we require validator to have submitted in-range data
 			// for all assets to not be counted as a miss
 			if int(claim.WinCount) == totalTargets {
 				continue
 			}
 
+			if int(claim.WinCount+claim.AbstainCount) == totalTargets {
+				// if win count + abstain count == total targets then we increment abstain count instead of miss count
+				k.IncrementAbstainCount(ctx, claim.Recipient)
+				continue
+			}
+
 			// Increase miss counter
-			k.SetMissCounter(ctx, claim.Recipient, k.GetMissCounter(ctx, claim.Recipient)+1)
+			k.IncrementMissCount(ctx, claim.Recipient)
 		}
 
 		// Clear the ballot
@@ -134,6 +139,6 @@ func EndBlocker(ctx sdk.Context, k keeper.Keeper) {
 	// Do slash who did miss voting over threshold and
 	// reset miss counters of all validators at the last block of slash window
 	if utils.IsPeriodLastBlock(ctx, params.SlashWindow) {
-		k.SlashAndResetMissCounters(ctx)
+		k.SlashAndResetCounters(ctx)
 	}
 }
