@@ -1,13 +1,13 @@
 package migrations
 
 import (
-	"github.com/cosmos/cosmos-sdk/codec"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	paramtypes "github.com/cosmos/cosmos-sdk/x/params/types"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
 )
 
-func PriceSnapshotUpdate(ctx sdk.Context, storeKey sdk.StoreKey, cdc codec.BinaryCodec, paramStore paramtypes.Subspace) error {
+func PriceSnapshotUpdate(ctx sdk.Context, paramStore paramtypes.Subspace) error {
+	migratePriceSnapshotParam(ctx, paramStore)
 	return nil
 }
 

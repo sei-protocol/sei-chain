@@ -159,7 +159,7 @@ func (am AppModule) RegisterServices(cfg module.Configurator) {
 		return migrations.DataTypeUpdate(ctx, am.keeper.GetStoreKey(), am.keeper.Cdc)
 	})
 	cfg.RegisterMigration(types.ModuleName, 3, func(ctx sdk.Context) error {
-		return migrations.PriceSnapshotUpdate(ctx, am.keeper.GetStoreKey(), am.keeper.Cdc, am.keeper.Paramstore)
+		return migrations.PriceSnapshotUpdate(ctx, am.keeper.Paramstore)
 	})
 }
 
