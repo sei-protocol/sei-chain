@@ -129,3 +129,8 @@ message OracleTwap {
   ];
 	int64 lookbackSeconds = 3;
 }
+
+message VotePenaltyCounter {
+  uint64 miss_count = 1;
+  uint64 abstain_count = 2;
+}

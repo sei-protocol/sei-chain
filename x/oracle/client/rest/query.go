@@ -22,7 +22,7 @@ func registerQueryRoutes(cliCtx client.Context, rtr *mux.Router) {
 	rtr.HandleFunc("/oracle/denoms/twaps", queryTwapsHandlerFunction(cliCtx)).Methods("GET")
 	rtr.HandleFunc("/oracle/denoms/vote_targets", queryVoteTargetsHandlerFunction(cliCtx)).Methods("GET")
 	rtr.HandleFunc(fmt.Sprintf("/oracle/voters/{%s}/feeder", RestVoter), queryFeederDelegationHandlerFunction(cliCtx)).Methods("GET")
-	rtr.HandleFunc(fmt.Sprintf("/oracle/voters/{%s}/miss", RestVoter), queryMissHandlerFunction(cliCtx)).Methods("GET")
+	rtr.HandleFunc(fmt.Sprintf("/oracle/voters/{%s}/vote_penalty_counter", RestVoter), queryVotePenaltyCounterHandlerFunction(cliCtx)).Methods("GET")
 	rtr.HandleFunc(fmt.Sprintf("/oracle/voters/{%s}/aggregate_prevote", RestVoter), queryAggregatePrevoteHandlerFunction(cliCtx)).Methods("GET")
 	rtr.HandleFunc(fmt.Sprintf("/oracle/voters/{%s}/aggregate_vote", RestVoter), queryAggregateVoteHandlerFunction(cliCtx)).Methods("GET")
 	rtr.HandleFunc("/oracle/voters/aggregate_prevotes", queryAggregatePrevotesHandlerFunction(cliCtx)).Methods("GET")
@@ -180,7 +180,7 @@ func queryFeederDelegationHandlerFunction(cliCtx client.Context) http.HandlerFun
 	}
 }
 
-func queryMissHandlerFunction(cliCtx client.Context) http.HandlerFunc {
+func queryVotePenaltyCounterHandlerFunction(cliCtx client.Context) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		cliCtx, ok := rest.ParseQueryHeightOrReturnBadRequest(w, cliCtx, r)
 		if !ok {
@@ -192,12 +192,12 @@ func queryMissHandlerFunction(cliCtx client.Context) http.HandlerFunc {
 			return
 		}
 
-		params := types.NewQueryMissCounterParams(voterAddr)
+		params := types.NewQueryVotePenaltyCounterParams(voterAddr)
 		bz, err := cliCtx.LegacyAmino.MarshalJSON(params)
 		if rest.CheckBadRequestError(w, err) {
 			return
 		}
-		res, height, err := cliCtx.QueryWithData(fmt.Sprintf("custom/%s/%s", types.QuerierRoute, types.QueryMissCounter), bz)
+		res, height, err := cliCtx.QueryWithData(fmt.Sprintf("custom/%s/%s", types.QuerierRoute, types.QueryVotePenaltyCounter), bz)
 		if rest.CheckInternalServerError(w, err) {
 			return
 		}

@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"testing"
 
-	gogotypes "github.com/gogo/protobuf/types"
 	"github.com/stretchr/testify/require"
 
 	"github.com/tendermint/tendermint/crypto/ed25519"
@@ -30,11 +29,13 @@ func TestDecodeDistributionStore(t *testing.T) {
 
 	exchangeRate := sdk.NewDecWithPrec(1234, 1)
 	missCounter := uint64(23)
+	abstainCounter := uint64(21)
 
 	aggregatePrevote := types.NewAggregateExchangeRatePrevote(types.AggregateVoteHash([]byte("12345")), valAddr, 123)
 	aggregateVote := types.NewAggregateExchangeRateVote(types.ExchangeRateTuples{
 		{Denom: utils.MicroAtomDenom, ExchangeRate: sdk.NewDecWithPrec(1234, 1)},
 	}, valAddr)
+	votePenaltyCounter := types.VotePenaltyCounter{MissCount: missCounter, AbstainCount: abstainCounter}
 
 	denom := "usei"
 
@@ -42,7 +43,7 @@ func TestDecodeDistributionStore(t *testing.T) {
 		Pairs: []kv.Pair{
 			{Key: types.ExchangeRateKey, Value: cdc.MustMarshal(&sdk.DecProto{Dec: exchangeRate})},
 			{Key: types.FeederDelegationKey, Value: feederAddr.Bytes()},
-			{Key: types.MissCounterKey, Value: cdc.MustMarshal(&gogotypes.UInt64Value{Value: missCounter})},
+			{Key: types.VotePenaltyCounterKey, Value: cdc.MustMarshal(&votePenaltyCounter)},
 			{Key: types.AggregateExchangeRatePrevoteKey, Value: cdc.MustMarshal(&aggregatePrevote)},
 			{Key: types.AggregateExchangeRateVoteKey, Value: cdc.MustMarshal(&aggregateVote)},
 			{Key: types.VoteTargetKey, Value: cdc.MustMarshal(&types.Denom{Name: denom})},
@@ -56,7 +57,7 @@ func TestDecodeDistributionStore(t *testing.T) {
 	}{
 		{"ExchangeRate", fmt.Sprintf("%v\n%v", exchangeRate, exchangeRate)},
 		{"FeederDelegation", fmt.Sprintf("%v\n%v", feederAddr, feederAddr)},
-		{"MissCounter", fmt.Sprintf("%v\n%v", missCounter, missCounter)},
+		{"VotePenaltyCounter", fmt.Sprintf("%v\n%v", votePenaltyCounter, votePenaltyCounter)},
 		{"AggregatePrevote", fmt.Sprintf("%v\n%v", aggregatePrevote, aggregatePrevote)},
 		{"AggregateVote", fmt.Sprintf("%v\n%v", aggregateVote, aggregateVote)},
 		{"VoteTarget", fmt.Sprintf("name: %v\n\nname: %v\n", denom, denom)},

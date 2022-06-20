@@ -3,6 +3,7 @@ package keeper
 import (
 	"testing"
 
+	gogotypes "github.com/gogo/protobuf/types"
 	"github.com/stretchr/testify/require"
 
 	"github.com/sei-protocol/sei-chain/x/oracle/types"
@@ -49,4 +50,46 @@ func TestMigrate2to3(t *testing.T) {
 	input.OracleKeeper.IterateBaseExchangeRates(input.Ctx, handler)
 
 	require.True(t, numExchangeRates == 1)
+}
+
+func TestMigrate3to4(t *testing.T) {
+	input := CreateTestInput(t)
+
+	addr := ValAddrs[0]
+
+	missCounter := uint64(12)
+
+	// store the value with legacy proto
+	store := input.Ctx.KVStore(input.OracleKeeper.storeKey)
+	bz := input.OracleKeeper.cdc.MustMarshal(&gogotypes.UInt64Value{Value: missCounter})
+	store.Set(types.GetVotePenaltyCounterKey(addr), bz)
+
+	// set for second validator
+	store.Set(types.GetVotePenaltyCounterKey(ValAddrs[1]), bz)
+
+	// confirm legacy store value
+	b := store.Get(types.GetVotePenaltyCounterKey(addr))
+	mc := gogotypes.UInt64Value{}
+	input.OracleKeeper.cdc.MustUnmarshal(b, &mc)
+	require.Equal(t, missCounter, mc.Value)
+
+	// Migrate store
+	m := NewMigrator(input.OracleKeeper)
+	m.Migrate3to4(input.Ctx)
+
+	// Get rate
+	votePenaltyCounter := input.OracleKeeper.GetVotePenaltyCounter(input.Ctx, addr)
+	require.Equal(t, types.VotePenaltyCounter{MissCount: missCounter, AbstainCount: 0}, votePenaltyCounter)
+
+	input.OracleKeeper.DeleteVotePenaltyCounter(input.Ctx, addr)
+	votePenaltyCounter = input.OracleKeeper.GetVotePenaltyCounter(input.Ctx, addr)
+
+	numPenaltyCounters := 0
+	handler := func(operators sdk.ValAddress, votePenaltyCounter types.VotePenaltyCounter) (stop bool) {
+		numPenaltyCounters++
+		return false
+	}
+	input.OracleKeeper.IterateVotePenaltyCounters(input.Ctx, handler)
+
+	require.True(t, numPenaltyCounters == 1)
 }

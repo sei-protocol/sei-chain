@@ -44,8 +44,8 @@ service Query {
   }
 
   // MissCounter returns oracle miss counter of a validator
-  rpc MissCounter(QueryMissCounterRequest) returns (QueryMissCounterResponse) {
-    option (google.api.http).get = "/sei-protocol/sei-chain/oracle/validators/{validator_addr}/miss";
+  rpc VotePenaltyCounter(QueryVotePenaltyCounterRequest) returns (QueryVotePenaltyCounterResponse) {
+    option (google.api.http).get = "/sei-protocol/sei-chain/oracle/validators/{validator_addr}/vote_penalty_counter";
   }
 
   // AggregatePrevote returns an aggregate prevote of a validator
@@ -165,8 +165,8 @@ message QueryFeederDelegationResponse {
   string feeder_addr = 1;
 }
 
-// QueryMissCounterRequest is the request type for the Query/MissCounter RPC method.
-message QueryMissCounterRequest {
+// QueryVotePenaltyCounterRequest is the request type for the Query/MissCounter RPC method.
+message QueryVotePenaltyCounterRequest {
   option (gogoproto.equal)           = false;
   option (gogoproto.goproto_getters) = false;
 
@@ -174,11 +174,10 @@ message QueryMissCounterRequest {
   string validator_addr = 1;
 }
 
-// QueryMissCounterResponse is response type for the
-// Query/MissCounter RPC method.
-message QueryMissCounterResponse {
-  // miss_counter defines the oracle miss counter of a validator
-  uint64 miss_counter = 1;
+// QueryVotePenaltyCounterResponse is response type for the
+// Query/VotePenaltyCounter RPC method.
+message QueryVotePenaltyCounterResponse {
+  VotePenaltyCounter vote_penalty_counter = 1;
 }
 
 // QueryAggregatePrevoteRequest is the request type for the Query/AggregatePrevote RPC method.
@@ -195,7 +194,6 @@ message QueryAggregatePrevoteRequest {
 message QueryAggregatePrevoteResponse {
   // aggregate_prevote defines oracle aggregate prevote submitted by a validator in the current vote period
   AggregateExchangeRatePrevote aggregate_prevote = 1 [(gogoproto.nullable) = false];
-  ;
 }
 
 // QueryAggregatePrevotesRequest is the request type for the Query/AggregatePrevotes RPC method.

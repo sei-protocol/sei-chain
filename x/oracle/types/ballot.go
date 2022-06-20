@@ -179,18 +179,20 @@ func (pb ExchangeRateBallot) Swap(i, j int) {
 
 // Claim is an interface that directs its rewards to an attached bank account.
 type Claim struct {
-	Power     int64
-	Weight    int64
-	WinCount  int64
-	Recipient sdk.ValAddress
+	Power        int64
+	Weight       int64
+	WinCount     int64
+	AbstainCount int64
+	Recipient    sdk.ValAddress
 }
 
 // NewClaim generates a Claim instance.
-func NewClaim(power, weight, winCount int64, recipient sdk.ValAddress) Claim {
+func NewClaim(power, weight, winCount int64, abstainCount int64, recipient sdk.ValAddress) Claim {
 	return Claim{
-		Power:     power,
-		Weight:    weight,
-		WinCount:  winCount,
-		Recipient: recipient,
+		Power:        power,
+		Weight:       weight,
+		WinCount:     winCount,
+		AbstainCount: abstainCount,
+		Recipient:    recipient,
 	}
 }
