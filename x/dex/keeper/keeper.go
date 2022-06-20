@@ -20,7 +20,7 @@ type (
 		Cdc                 codec.BinaryCodec
 		storeKey            sdk.StoreKey
 		memKey              sdk.StoreKey
-		paramstore          paramtypes.Subspace
+		Paramstore          paramtypes.Subspace
 		Orders              map[string]map[string]*dexcache.Orders
 		EpochKeeper         epochkeeper.Keeper
 		OrderPlacements     map[string]map[string]*dexcache.OrderPlacements
@@ -46,7 +46,7 @@ func NewPlainKeeper(
 		Cdc:                 cdc,
 		storeKey:            storeKey,
 		memKey:              memKey,
-		paramstore:          ps,
+		Paramstore:          ps,
 		Orders:              map[string]map[string]*dexcache.Orders{},
 		OrderPlacements:     map[string]map[string]*dexcache.OrderPlacements{},
 		DepositInfo:         map[string]*dexcache.DepositInfo{},
@@ -72,7 +72,7 @@ func NewKeeper(
 		Cdc:                 cdc,
 		storeKey:            storeKey,
 		memKey:              memKey,
-		paramstore:          ps,
+		Paramstore:          ps,
 		Orders:              map[string]map[string]*dexcache.Orders{},
 		EpochKeeper:         epochKeeper,
 		OrderPlacements:     map[string]map[string]*dexcache.OrderPlacements{},
