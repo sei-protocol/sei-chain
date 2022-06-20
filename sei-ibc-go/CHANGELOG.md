@@ -40,6 +40,8 @@ Ref: https://keepachangelog.com/en/1.0.0/
 
 ### Dependencies
 
+* [\#1525](https://github.com/cosmos/ibc-go/pull/1525) Bump SDK version to v0.45.5
+
 ### API Breaking
 
 ### State Machine Breaking
