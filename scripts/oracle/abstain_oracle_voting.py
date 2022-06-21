@@ -7,12 +7,12 @@ import sys
 # for internal loadtest only
 CMD_TMPL = "printf '{password}\n' | " + str(Path.home()) + "/go/bin/seid"
 PREVOTE_TMPL = (
-    " tx oracle aggregate-prevote abc 0uusdc,00uatom {val_addr} --from={key} "
-    "--chain-id={chain_id} --fees=1000usei --gas=2000 -y --broadcast-mode=sync"
+    " tx oracle aggregate-prevote abc 0uusdc,0uatom {val_addr} --from={key} "
+    "--chain-id={chain_id} --fees=2000usei -y --broadcast-mode=sync"
 )
 VOTE_TMPL = (
     " tx oracle aggregate-vote abc 0uusdc,0uatom {val_addr} --from={key} "
-    "--chain-id={chain_id} --fees=1000usei --gas=2000 -y --broadcast-mode=sync"
+    "--chain-id={chain_id} --fees=2000usei -y --broadcast-mode=sync"
 )
 
 KEY = "default_account"
