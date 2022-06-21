@@ -16,7 +16,7 @@ VOTE_TMPL = (
 )
 
 KEY = "default_account"
-CHAIN_ID = "sei-internal-testnet"
+CHAIN_ID = "sei-testnet-2"
 PASSWORD = ""
 ADDR = ""
 VAL_ADDR = ""
@@ -66,19 +66,13 @@ def main():
     PASSWORD = args[2]
     VAL_ADDR = args[3]
 
-    print(args)
-
     # fetch validator address if not provided
     if not VAL_ADDR:
-        ADDR = subprocess.check_output([CMD_TMPL.format(password=PASSWORD) + f" keys show {KEY} -a"], stderr=subprocess.STDOUT,
-            shell=True,).decode()[:-1]
-
         VAL_ADDR = subprocess.check_output(
-            [CMD_TMPL.format(password=PASSWORD) + f" query staking delegations {ADDR} | grep validator_address | cut -d':' -f2 | xargs"],
+            [CMD_TMPL.format(password=PASSWORD) + f" keys show {KEY} --bech val | grep address | cut -d':' -f2 | xargs"],
             stderr=subprocess.STDOUT,
             shell=True,
         ).decode()[:-1]
-
     vote_loop()
 
 if __name__ == "__main__":
