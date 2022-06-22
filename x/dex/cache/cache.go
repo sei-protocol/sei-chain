@@ -154,17 +154,16 @@ func NewOrders() *Orders {
 }
 
 type OrderPlacement struct {
-	Id          uint64
-	Price       sdk.Dec
-	Quantity    sdk.Dec
-	Creator     string
-	OrderType   types.OrderType
-	Direction   types.PositionDirection
-	Effect      types.PositionEffect
-	PriceDenom  types.Denom
-	AssetDenom  types.Denom
-	Leverage    sdk.Dec
-	Liquidation bool
+	Id         uint64
+	Price      sdk.Dec
+	Quantity   sdk.Dec
+	Creator    string
+	OrderType  types.OrderType
+	Direction  types.PositionDirection
+	Effect     types.PositionEffect
+	PriceDenom types.Denom
+	AssetDenom types.Denom
+	Leverage   sdk.Dec
 }
 
 type OrderPlacements struct {
@@ -211,17 +210,16 @@ func FromLiquidationOrder(liquidationOrder types.LiquidationOrder, orderId uint6
 		panic(err)
 	}
 	return OrderPlacement{
-		Id:          orderId,
-		Price:       types.ConvertDecToStandard(priceUnit, price),
-		Quantity:    types.ConvertDecToStandard(assetUnit, liquidationOrder.Quantity),
-		Creator:     liquidationOrder.Account,
-		OrderType:   types.OrderType_MARKET,
-		Direction:   direction,
-		Effect:      types.PositionEffect_CLOSE,
-		PriceDenom:  priceDenom,
-		AssetDenom:  assetDenom,
-		Leverage:    liquidationOrder.Leverage,
-		Liquidation: true,
+		Id:         orderId,
+		Price:      types.ConvertDecToStandard(priceUnit, price),
+		Quantity:   types.ConvertDecToStandard(assetUnit, liquidationOrder.Quantity),
+		Creator:    liquidationOrder.Account,
+		OrderType:  types.OrderType_LIQUIDATION,
+		Direction:  direction,
+		Effect:     types.PositionEffect_CLOSE,
+		PriceDenom: priceDenom,
+		AssetDenom: assetDenom,
+		Leverage:   liquidationOrder.Leverage,
 	}
 }
 

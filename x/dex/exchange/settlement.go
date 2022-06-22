@@ -16,6 +16,7 @@ func Settle(
 	order types.OrderBook,
 	takerDirection types.PositionDirection,
 	worstPrice sdk.Dec,
+	isTakerLiquidation bool,
 ) ([]*types.Settlement, []*types.Settlement) {
 	takerSettlements := []*types.Settlement{}
 	makerSettlements := []*types.Settlement{}
@@ -38,6 +39,12 @@ func Settle(
 	order.GetEntry().Allocation = nonZeroNewAllocations
 	order.GetEntry().AllocationCreator = nonZeroNewCreators
 	for _, toSettle := range newToSettle {
+		var takerOrderType types.OrderType
+		if isTakerLiquidation {
+			takerOrderType = types.OrderType_LIQUIDATION
+		} else {
+			takerOrderType = types.OrderType_MARKET
+		}
 		takerSettlements = append(takerSettlements, types.NewSettlement(
 			taker,
 			takerDirection,
@@ -46,6 +53,7 @@ func Settle(
 			toSettle.amount,
 			worstPrice,
 			worstPrice,
+			takerOrderType,
 		))
 		makerSettlements = append(makerSettlements, types.NewSettlement(
 			toSettle.creator,
@@ -55,6 +63,7 @@ func Settle(
 			toSettle.amount,
 			order.GetEntry().Price,
 			order.GetEntry().Price,
+			types.OrderType_LIMIT,
 		))
 	}
 	return takerSettlements, makerSettlements
@@ -119,6 +128,7 @@ func SettleFromBook(
 			quantity,
 			avgPrice,
 			longOrder.GetPrice(),
+			types.OrderType_LIMIT,
 		), types.NewSettlement(
 			shortToSettle.creator,
 			types.PositionDirection_SHORT,
@@ -127,6 +137,7 @@ func SettleFromBook(
 			quantity,
 			avgPrice,
 			shortOrder.GetPrice(),
+			types.OrderType_LIMIT,
 		))
 		newLongToSettle[longPtr] = ToSettle{creator: longToSettle.creator, amount: longToSettle.amount.Sub(quantity)}
 		newShortToSettle[shortPtr] = ToSettle{creator: shortToSettle.creator, amount: shortToSettle.amount.Sub(quantity)}
