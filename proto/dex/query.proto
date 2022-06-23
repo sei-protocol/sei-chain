@@ -8,6 +8,8 @@ import "dex/params.proto";
 import "dex/long_book.proto";
 import "dex/short_book.proto";
 import "dex/settlement.proto";
+import "dex/enums.proto";
+import "dex/price.proto";
 import "dex/twap.proto";
 // this line is used by starport scaffolding # 1
 
@@ -21,31 +23,34 @@ service Query {
   }
   // Queries a LongBook by id.
 	rpc LongBook(QueryGetLongBookRequest) returns (QueryGetLongBookResponse) {
-		option (google.api.http).get = "/sei-protocol/seichain/dex/long_book/{id}";
+		option (google.api.http).get = "/sei-protocol/seichain/dex/long_book/{contractAddr}/{priceDenom}/{assetDenom}/{price}";
 	}
 
 	// Queries a list of LongBook items.
 	rpc LongBookAll(QueryAllLongBookRequest) returns (QueryAllLongBookResponse) {
-		option (google.api.http).get = "/sei-protocol/seichain/dex/long_book";
+		option (google.api.http).get = "/sei-protocol/seichain/dex/long_book/{contractAddr}/{priceDenom}/{assetDenom}";
 	}
 
 // Queries a ShortBook by id.
 	rpc ShortBook(QueryGetShortBookRequest) returns (QueryGetShortBookResponse) {
-		option (google.api.http).get = "/sei-protocol/seichain/dex/short_book/{id}";
+		option (google.api.http).get = "/sei-protocol/seichain/dex/short_book/{contractAddr}/{priceDenom}/{assetDenom}/{price}";
 	}
 
 	// Queries a list of ShortBook items.
 	rpc ShortBookAll(QueryAllShortBookRequest) returns (QueryAllShortBookResponse) {
-		option (google.api.http).get = "/sei-protocol/seichain/dex/short_book";
+		option (google.api.http).get = "/sei-protocol/seichain/dex/short_book/{contractAddr}/{priceDenom}/{assetDenom}";
 	}
 
 	rpc SettlementsAll(QueryAllSettlementsRequest) returns (QueryAllSettlementsResponse) {
 		option (google.api.http).get = "/sei-protocol/seichain/dex/settlement";
 	}
 
-// Queries a list of GetTwap items.
-	rpc GetTwap(QueryGetTwapRequest) returns (QueryGetTwapResponse) {
-		option (google.api.http).get = "/sei-protocol/seichain/dex/get_twap/{priceDenom}/{assetDenom}";
+	rpc GetPrices(QueryGetPricesRequest) returns (QueryGetPricesResponse) {
+		option (google.api.http).get = "/sei-protocol/seichain/dex/get_prices/{contractAddr}/{priceDenom}/{assetDenom}";
+	}
+
+	rpc GetTwaps(QueryGetTwapsRequest) returns (QueryGetTwapsResponse) {
+		option (google.api.http).get = "/sei-protocol/seichain/dex/get_twaps/{contractAddr}/{lookbackSeconds}";
 	}
 
 // this line is used by starport scaffolding # 2
@@ -61,10 +66,10 @@ message QueryParamsResponse {
 }
 
 message QueryGetLongBookRequest {
-	uint64 id = 1;
+	string price = 1;
 	string contractAddr = 2;
-	string priceDenom = 3;
-	string assetDenom = 4;
+	Denom priceDenom = 3;
+	Denom assetDenom = 4;
 }
 
 message QueryGetLongBookResponse {
@@ -73,6 +78,9 @@ message QueryGetLongBookResponse {
 
 message QueryAllLongBookRequest {
 	cosmos.base.query.v1beta1.PageRequest pagination = 1;
+	string contractAddr = 2;
+	Denom priceDenom = 3;
+	Denom assetDenom = 4;
 }
 
 message QueryAllLongBookResponse {
@@ -81,10 +89,10 @@ message QueryAllLongBookResponse {
 }
 
 message QueryGetShortBookRequest {
-	uint64 id = 1;
+	string price = 1;
 	string contractAddr = 2;
-	string priceDenom = 3;
-	string assetDenom = 4;
+	Denom priceDenom = 3;
+	Denom assetDenom = 4;
 }
 
 message QueryGetShortBookResponse {
@@ -93,6 +101,9 @@ message QueryGetShortBookResponse {
 
 message QueryAllShortBookRequest {
 	cosmos.base.query.v1beta1.PageRequest pagination = 1;
+	string contractAddr = 2;
+	Denom priceDenom = 3;
+	Denom assetDenom = 4;
 }
 
 message QueryAllShortBookResponse {
@@ -103,8 +114,8 @@ message QueryAllShortBookResponse {
 message QueryGetSettlementsRequest {
 	string contractAddr = 1;
 	uint64 blockHeight = 2;
-	string priceDenom = 3;
-	string assetDenom = 4;
+	Denom priceDenom = 3;
+	Denom assetDenom = 4;
 }
 
 message QueryGetSettlementsResponse {
@@ -120,14 +131,23 @@ message QueryAllSettlementsResponse {
 	cosmos.base.query.v1beta1.PageResponse pagination = 2;
 }
 
-message QueryGetTwapRequest {
-  string priceDenom = 1;
-  string assetDenom = 2;
+message QueryGetPricesRequest {
+  Denom priceDenom = 1;
+  Denom assetDenom = 2;
   string contractAddr = 3;
 }
 
-message QueryGetTwapResponse {
-	Twap twaps = 1;
+message QueryGetPricesResponse {
+	repeated Price prices = 1;
 }
+
+message QueryGetTwapsRequest {
+	string contractAddr = 1;
+	uint64 lookbackSeconds = 2;
+  }
+  
+  message QueryGetTwapsResponse {
+	  repeated Twap twaps = 1;
+  }
 
 // this line is used by starport scaffolding # 3

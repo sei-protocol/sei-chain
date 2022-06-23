@@ -27,17 +27,17 @@ func TestSettlementsQuerySingle(t *testing.T) {
 	}{
 		{
 			desc:     "First",
-			request:  &types.QueryGetSettlementsRequest{ContractAddr: TEST_CONTRACT, PriceDenom: TEST_PRICE_DENOM + "0", AssetDenom: TEST_ASSET_DENOM + "0", BlockHeight: uint64(ctx.BlockHeight())},
+			request:  &types.QueryGetSettlementsRequest{ContractAddr: TEST_CONTRACT, PriceDenom: types.Denom_SEI, AssetDenom: types.Denom_ATOM, BlockHeight: uint64(ctx.BlockHeight())},
 			response: &types.QueryGetSettlementsResponse{Settlements: msgs[0]},
 		},
 		{
 			desc:     "Second",
-			request:  &types.QueryGetSettlementsRequest{ContractAddr: TEST_CONTRACT, PriceDenom: TEST_PRICE_DENOM + "1", AssetDenom: TEST_ASSET_DENOM + "1", BlockHeight: uint64(ctx.BlockHeight())},
+			request:  &types.QueryGetSettlementsRequest{ContractAddr: TEST_CONTRACT, PriceDenom: types.Denom_BTC, AssetDenom: types.Denom_ETH, BlockHeight: uint64(ctx.BlockHeight())},
 			response: &types.QueryGetSettlementsResponse{Settlements: msgs[1]},
 		},
 		{
 			desc:    "KeyNotFound",
-			request: &types.QueryGetSettlementsRequest{ContractAddr: TEST_CONTRACT, PriceDenom: TEST_PRICE_DENOM + "2", AssetDenom: TEST_ASSET_DENOM + "2", BlockHeight: uint64(ctx.BlockHeight())},
+			request: &types.QueryGetSettlementsRequest{ContractAddr: TEST_CONTRACT, PriceDenom: types.Denom_SOL, AssetDenom: types.Denom_AVAX, BlockHeight: uint64(ctx.BlockHeight())},
 			err:     sdkerrors.ErrKeyNotFound,
 		},
 		{

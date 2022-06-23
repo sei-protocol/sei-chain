@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"strconv"
 
 	"github.com/CosmWasm/wasmd/x/wasm"
 	"github.com/gorilla/mux"
@@ -24,6 +23,7 @@ import (
 	"github.com/sei-protocol/sei-chain/x/dex/client/cli"
 	"github.com/sei-protocol/sei-chain/x/dex/exchange"
 	"github.com/sei-protocol/sei-chain/x/dex/keeper"
+	"github.com/sei-protocol/sei-chain/x/dex/migrations"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
 )
 
@@ -155,6 +155,12 @@ func (am AppModule) RegisterServices(cfg module.Configurator) {
 	types.RegisterQueryServer(cfg.QueryServer(), am.keeper)
 
 	cfg.RegisterMigration(types.ModuleName, 1, func(ctx sdk.Context) error { return nil })
+	cfg.RegisterMigration(types.ModuleName, 2, func(ctx sdk.Context) error {
+		return migrations.DataTypeUpdate(ctx, am.keeper.GetStoreKey(), am.keeper.Cdc)
+	})
+	cfg.RegisterMigration(types.ModuleName, 3, func(ctx sdk.Context) error {
+		return migrations.PriceSnapshotUpdate(ctx, am.keeper.Paramstore)
+	})
 }
 
 // RegisterInvariants registers the capability module's invariants.
@@ -179,7 +185,7 @@ func (am AppModule) ExportGenesis(ctx sdk.Context, cdc codec.JSONCodec) json.Raw
 }
 
 // ConsensusVersion implements ConsensusVersion.
-func (AppModule) ConsensusVersion() uint64 { return 2 }
+func (AppModule) ConsensusVersion() uint64 { return 4 }
 
 func (am AppModule) getAllContractAddresses(ctx sdk.Context) []string {
 	return am.keeper.GetAllContractAddresses(ctx)
@@ -203,6 +209,9 @@ func (am AppModule) BeginBlock(ctx sdk.Context, _ abci.RequestBeginBlock) {
 	for _, contractAddr := range am.getAllContractAddresses(ctx) {
 		am.beginBlockForContract(ctx, contractAddr)
 	}
+	if isNewEpoch, currentEpoch := am.keeper.IsNewEpoch(ctx); isNewEpoch {
+		am.keeper.SetEpoch(ctx, currentEpoch)
+	}
 }
 
 func (am AppModule) beginBlockForContract(ctx sdk.Context, contractAddr string) {
@@ -214,7 +223,7 @@ func (am AppModule) beginBlockForContract(ctx sdk.Context, contractAddr string) 
 	am.keeper.OrderPlacements[contractAddr] = map[string]*dexcache.OrderPlacements{}
 	am.keeper.OrderCancellations[contractAddr] = map[string]*dexcache.OrderCancellations{}
 	am.keeper.DepositInfo[contractAddr] = dexcache.NewDepositInfo()
-	am.keeper.LiquidationRequests[contractAddr] = map[string]string{}
+	am.keeper.LiquidationRequests[contractAddr] = &dexcache.LiquidationRequests{}
 	for _, pair := range am.keeper.GetAllRegisteredPairs(ctx, contractAddr) {
 		ctx.Logger().Info(pair.String())
 		am.keeper.Orders[contractAddr][pair.String()] = dexcache.NewOrders()
@@ -224,51 +233,25 @@ func (am AppModule) beginBlockForContract(ctx sdk.Context, contractAddr string) 
 	ctx.Logger().Info(fmt.Sprintf("Orders %s, %s", am.keeper.Orders, contractAddr))
 
 	if isNewEpoch, currentEpoch := am.keeper.IsNewEpoch(ctx); isNewEpoch {
-		ctx.Logger().Info(fmt.Sprintf("Updating funding payment rate for epoch %d", currentEpoch))
-		for _, twap := range am.keeper.GetAllTwaps(ctx, contractAddr) {
-			dexPrice := twap.TwapPrice
-			ctx.Logger().Info(fmt.Sprintf("%s/%s: %d", twap.PriceDenom, twap.AssetDenom, dexPrice))
-			oraclePrice := uint64(100) // TODO: replace with oracle call
-			var diff uint64
-			var negative bool
-			if dexPrice < oraclePrice {
-				diff = oraclePrice - dexPrice
-				negative = true
-			} else {
-				diff = dexPrice - oraclePrice
-				negative = false
-			}
-			nativeSetFPRMsg := types.SudoSetFundingPaymentRateMsg{
-				SetFundingPaymentRate: types.SetFundingPaymentRate{
-					Epoch:      currentEpoch,
-					AssetDenom: twap.AssetDenom,
-					PriceDiff:  strconv.FormatUint(diff, 10),
-					Negative:   negative,
-				},
-			}
-			wasmMsg, err := json.Marshal(nativeSetFPRMsg)
-			if err != nil {
-				ctx.Logger().Info(err.Error())
+		ctx.Logger().Info(fmt.Sprintf("Updating price for epoch %d", currentEpoch))
+		priceRetention := am.keeper.GetParams(ctx).PriceSnapshotRetention
+		for _, pair := range am.keeper.GetAllRegisteredPairs(ctx, contractAddr) {
+			lastEpochPrice, exists := am.keeper.GetPriceState(ctx, contractAddr, currentEpoch-1, pair)
+			if exists {
+				newEpochPrice := types.Price{
+					SnapshotTimestampInSeconds: uint64(ctx.BlockTime().Unix()),
+					Pair:                       &pair,
+					Price:                      lastEpochPrice.Price,
+				}
+				am.keeper.SetPriceState(ctx, newEpochPrice, contractAddr, currentEpoch)
 			}
 
-			ctx.Logger().Info("Setting funding payment rate")
-			am.callClearingHouseContractSudo(ctx, wasmMsg, contractAddr)
-
-			var newPrices []uint64
-			if len(twap.Prices) == 24 { // replace with config
-				newPrices = append(twap.Prices[1:], twap.Prices[len(twap.Prices)-1])
-			} else {
-				newPrices = append(twap.Prices, twap.Prices[len(twap.Prices)-1])
+			// condition to prevent unsigned integer overflow
+			if currentEpoch >= priceRetention {
+				// this will no-op if price snapshot for the target epoch doesn't exist
+				am.keeper.DeletePriceState(ctx, contractAddr, currentEpoch-priceRetention, pair)
 			}
-			am.keeper.SetTwap(ctx, types.Twap{
-				LastEpoch:  currentEpoch,
-				Prices:     newPrices,
-				TwapPrice:  getTwapPrice(newPrices),
-				PriceDenom: twap.PriceDenom,
-				AssetDenom: twap.AssetDenom,
-			}, contractAddr)
 		}
-		am.keeper.SetEpoch(ctx, currentEpoch)
 	}
 }
 
@@ -287,12 +270,15 @@ func (am AppModule) endBlockForContract(ctx sdk.Context, contractAddr string) {
 	span.SetAttributes(attribute.String("contract", contractAddr))
 	defer span.End()
 
-	am.keeper.HandleEBLiquidation(spanCtx, ctx, am.tracingInfo.Tracer, contractAddr)
-	am.keeper.HandleEBCancelOrders(spanCtx, ctx, am.tracingInfo.Tracer, contractAddr)
-	am.keeper.HandleEBPlaceOrders(spanCtx, ctx, am.tracingInfo.Tracer, contractAddr)
+	registeredPairs := am.keeper.GetAllRegisteredPairs(ctx, contractAddr)
+	_, currentEpoch := am.keeper.IsNewEpoch(ctx)
+
+	am.keeper.HandleEBLiquidation(spanCtx, ctx, am.tracingInfo.Tracer, contractAddr, registeredPairs)
+	am.keeper.HandleEBCancelOrders(spanCtx, ctx, am.tracingInfo.Tracer, contractAddr, registeredPairs)
+	am.keeper.HandleEBPlaceOrders(spanCtx, ctx, am.tracingInfo.Tracer, contractAddr, registeredPairs)
 
 	am.keeper.OrderCancellations[contractAddr] = map[string]*dexcache.OrderCancellations{}
-	for _, pair := range am.keeper.GetAllRegisteredPairs(ctx, contractAddr) {
+	for _, pair := range registeredPairs {
 		am.keeper.OrderCancellations[contractAddr][pair.String()] = dexcache.NewOrderCancellations()
 		orders := am.keeper.Orders[contractAddr][pair.String()]
 		ctx.Logger().Info(pair.String())
@@ -301,12 +287,12 @@ func (am AppModule) endBlockForContract(ctx sdk.Context, contractAddr string) {
 		allExistingBuys := am.keeper.GetAllLongBookForPair(ctx, contractAddr, pair.PriceDenom, pair.AssetDenom)
 		allExistingSells := am.keeper.GetAllShortBookForPair(ctx, contractAddr, pair.PriceDenom, pair.AssetDenom)
 
-		longDirtyOrderIds, shortDirtyOrderIds := map[uint64]bool{}, map[uint64]bool{}
+		longDirtyPrices, shortDirtyPrices := exchange.NewDirtyPrices(), exchange.NewDirtyPrices()
 		liquidationCancels := am.keeper.OrderCancellations[contractAddr][pair.String()].LiquidationCancellations
-		exchange.CancelForLiquidation(ctx, liquidationCancels, allExistingBuys, longDirtyOrderIds)
-		exchange.CancelForLiquidation(ctx, liquidationCancels, allExistingSells, shortDirtyOrderIds)
-		exchange.CancelOrders(ctx, orders.CancelBuys, allExistingBuys, true, longDirtyOrderIds)
-		exchange.CancelOrders(ctx, orders.CancelBuys, allExistingSells, false, shortDirtyOrderIds)
+		exchange.CancelForLiquidation(ctx, liquidationCancels, allExistingBuys, &longDirtyPrices)
+		exchange.CancelForLiquidation(ctx, liquidationCancels, allExistingSells, &shortDirtyPrices)
+		exchange.CancelOrders(ctx, orders.CancelBuys, allExistingBuys, types.PositionDirection_LONG, &longDirtyPrices)
+		exchange.CancelOrders(ctx, orders.CancelBuys, allExistingSells, types.PositionDirection_SHORT, &shortDirtyPrices)
 
 		settlements := []*types.Settlement{}
 		marketBuyTotalPrice, marketBuyTotalQuantity := exchange.MatchMarketOrders(
@@ -314,8 +300,8 @@ func (am AppModule) endBlockForContract(ctx sdk.Context, contractAddr string) {
 			orders.MarketBuys,
 			allExistingSells,
 			pair,
-			true,
-			longDirtyOrderIds,
+			types.PositionDirection_LONG,
+			&longDirtyPrices,
 			&settlements,
 		)
 		marketSellTotalPrice, marketSellTotalQuantity := exchange.MatchMarketOrders(
@@ -323,8 +309,8 @@ func (am AppModule) endBlockForContract(ctx sdk.Context, contractAddr string) {
 			orders.MarketSells,
 			allExistingBuys,
 			pair,
-			false,
-			shortDirtyOrderIds,
+			types.PositionDirection_SHORT,
+			&shortDirtyPrices,
 			&settlements,
 		)
 		limitTotalPrice, limitTotalQuantity := exchange.MatchLimitOrders(
@@ -334,38 +320,28 @@ func (am AppModule) endBlockForContract(ctx sdk.Context, contractAddr string) {
 			&allExistingBuys,
 			&allExistingSells,
 			pair,
-			longDirtyOrderIds,
-			shortDirtyOrderIds,
+			&longDirtyPrices,
+			&shortDirtyPrices,
 			&settlements,
 		)
-		var avgPrice uint64
-		if marketBuyTotalQuantity+marketSellTotalQuantity+limitTotalQuantity == 0 {
-			avgPrice = 0
+		var avgPrice sdk.Dec
+		if marketBuyTotalQuantity.Add(marketSellTotalQuantity).Add(limitTotalQuantity).IsZero() {
+			avgPrice = sdk.ZeroDec()
 		} else {
-			avgPrice = (marketBuyTotalPrice + marketSellTotalPrice + limitTotalPrice) / (marketBuyTotalQuantity + marketSellTotalQuantity + limitTotalQuantity)
-			twap := am.keeper.GetTwapState(ctx, contractAddr, pair.PriceDenom, pair.AssetDenom)
-			newPrices := twap.Prices
-			if len(newPrices) == 0 {
-				newPrices = []uint64{avgPrice}
-			} else {
-				newPrices[len(newPrices)-1] = avgPrice
-			}
-			am.keeper.SetTwap(ctx, types.Twap{
-				LastEpoch:  am.keeper.EpochKeeper.GetEpoch(ctx).CurrentEpoch,
-				Prices:     newPrices,
-				TwapPrice:  getTwapPrice(newPrices),
-				PriceDenom: pair.PriceDenom,
-				AssetDenom: pair.AssetDenom,
-			}, contractAddr)
+			avgPrice = (marketBuyTotalPrice.Add(marketSellTotalPrice).Add(limitTotalPrice)).Quo(marketBuyTotalQuantity.Add(marketSellTotalQuantity).Add(limitTotalQuantity))
+			priceState, _ := am.keeper.GetPriceState(ctx, contractAddr, currentEpoch, pair)
+			priceState.SnapshotTimestampInSeconds = uint64(ctx.BlockTime().Unix())
+			priceState.Price = avgPrice
+			am.keeper.SetPriceState(ctx, priceState, contractAddr, currentEpoch)
 		}
 		ctx.Logger().Info(fmt.Sprintf("Average price for %s/%s: %d", pair.PriceDenom, pair.AssetDenom, avgPrice))
 		for _, buy := range allExistingBuys {
-			if _, ok := longDirtyOrderIds[buy.GetId()]; ok {
+			if longDirtyPrices.Has(buy.GetPrice()) {
 				am.keeper.FlushDirtyLongBook(ctx, contractAddr, buy)
 			}
 		}
 		for _, sell := range allExistingSells {
-			if _, ok := shortDirtyOrderIds[sell.GetId()]; ok {
+			if shortDirtyPrices.Has(sell.GetPrice()) {
 				am.keeper.FlushDirtyShortBook(ctx, contractAddr, sell)
 			}
 		}
@@ -374,27 +350,31 @@ func (am AppModule) endBlockForContract(ctx sdk.Context, contractAddr string) {
 			Epoch:   int64(currentEpoch),
 			Entries: []*types.SettlementEntry{},
 		}
-		settlementMap := map[types.Pair]*types.Settlements{}
+		settlementMap := map[string]*types.Settlements{}
 
 		for _, s := range settlements {
 			ctx.Logger().Info(s.String())
 			settlementEntry := s.ToEntry()
+			priceDenom, _, _ := types.GetDenomFromStr(settlementEntry.PriceDenom)
+			assetDenom, _, _ := types.GetDenomFromStr(settlementEntry.AssetDenom)
 			pair := types.Pair{
-				PriceDenom: settlementEntry.PriceDenom,
-				AssetDenom: settlementEntry.AssetDenom,
+				PriceDenom: priceDenom,
+				AssetDenom: assetDenom,
 			}
-			if settlements, ok := settlementMap[pair]; ok {
+			if settlements, ok := settlementMap[pair.String()]; ok {
 				settlements.Entries = append(settlements.Entries, &settlementEntry)
 			} else {
-				settlementMap[pair] = &types.Settlements{
+				settlementMap[pair.String()] = &types.Settlements{
 					Epoch:   int64(currentEpoch),
 					Entries: []*types.SettlementEntry{&settlementEntry},
 				}
 			}
 			allSettlements.Entries = append(allSettlements.Entries, &settlementEntry)
 		}
-		for s, settlementEntries := range settlementMap {
-			am.keeper.SetSettlements(ctx, contractAddr, s.PriceDenom, s.AssetDenom, *settlementEntries)
+		for _, pair := range registeredPairs {
+			if settlementEntries, ok := settlementMap[pair.String()]; ok {
+				am.keeper.SetSettlements(ctx, contractAddr, pair.PriceDenom, pair.AssetDenom, *settlementEntries)
+			}
 		}
 
 		nativeSettlementMsg := types.SudoSettlementMsg{
@@ -409,15 +389,15 @@ func (am AppModule) endBlockForContract(ctx sdk.Context, contractAddr string) {
 		am.callClearingHouseContractSudo(ctx, wasmMsg, contractAddr)
 
 		for _, marketOrder := range orders.MarketBuys {
-			if marketOrder.Quantity > 0 {
+			if marketOrder.Quantity.IsPositive() {
 				am.keeper.OrderCancellations[contractAddr][pair.String()].OrderCancellations = append(
 					am.keeper.OrderCancellations[contractAddr][pair.String()].OrderCancellations,
 					dexcache.OrderCancellation{
 						Price:      marketOrder.WorstPrice,
 						Quantity:   marketOrder.Quantity,
 						Creator:    marketOrder.Creator,
-						Long:       marketOrder.Long,
-						Open:       marketOrder.Long,
+						Direction:  marketOrder.Direction,
+						Effect:     marketOrder.Effect,
 						PriceDenom: pair.PriceDenom,
 						AssetDenom: pair.AssetDenom,
 						Leverage:   marketOrder.Leverage,
@@ -426,15 +406,15 @@ func (am AppModule) endBlockForContract(ctx sdk.Context, contractAddr string) {
 			}
 		}
 		for _, marketOrder := range orders.MarketSells {
-			if marketOrder.Quantity > 0 {
+			if marketOrder.Quantity.IsPositive() {
 				am.keeper.OrderCancellations[contractAddr][pair.String()].OrderCancellations = append(
 					am.keeper.OrderCancellations[contractAddr][pair.String()].OrderCancellations,
 					dexcache.OrderCancellation{
 						Price:      marketOrder.WorstPrice,
 						Quantity:   marketOrder.Quantity,
 						Creator:    marketOrder.Creator,
-						Long:       marketOrder.Long,
-						Open:       marketOrder.Long,
+						Direction:  marketOrder.Direction,
+						Effect:     marketOrder.Effect,
 						PriceDenom: pair.PriceDenom,
 						AssetDenom: pair.AssetDenom,
 						Leverage:   marketOrder.Leverage,
@@ -444,13 +424,5 @@ func (am AppModule) endBlockForContract(ctx sdk.Context, contractAddr string) {
 		}
 	}
 	// Cancel unfilled market orders
-	am.keeper.HandleEBCancelOrders(spanCtx, ctx, am.tracingInfo.Tracer, contractAddr)
-}
-
-func getTwapPrice(prices []uint64) uint64 {
-	var total uint64 = 0
-	for _, price := range prices {
-		total += price
-	}
-	return total / uint64(len(prices))
+	am.keeper.HandleEBCancelOrders(spanCtx, ctx, am.tracingInfo.Tracer, contractAddr, registeredPairs)
 }

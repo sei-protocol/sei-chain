@@ -23,8 +23,8 @@ func (k msgServer) CancelOrders(goCtx context.Context, msg *types.MsgCancelOrder
 				Creator:    msg.Creator,
 				PriceDenom: orderCancellation.PriceDenom,
 				AssetDenom: orderCancellation.AssetDenom,
-				Long:       orderCancellation.Long,
-				Open:       orderCancellation.Open,
+				Direction:  orderCancellation.PositionDirection,
+				Effect:     orderCancellation.PositionEffect,
 				Leverage:   orderCancellation.Leverage,
 			},
 		)

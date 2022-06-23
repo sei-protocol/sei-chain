@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"strconv"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -25,10 +26,12 @@ func GetQueryCmd() *cobra.Command {
 
 	oracleQueryCmd.AddCommand(
 		GetCmdQueryExchangeRates(),
+		GetCmdQueryPriceSnapshotHistory(),
+		GetCmdQueryTwaps(),
 		GetCmdQueryActives(),
 		GetCmdQueryParams(),
 		GetCmdQueryFeederDelegation(),
-		GetCmdQueryMissCounter(),
+		GetCmdQueryVotePenaltyCounter(),
 		GetCmdQueryAggregatePrevote(),
 		GetCmdQueryAggregateVote(),
 		GetCmdQueryVoteTargets(),
@@ -45,10 +48,10 @@ func GetCmdQueryExchangeRates() *cobra.Command {
 		Args:  cobra.RangeArgs(0, 1),
 		Short: "Query the current Luna exchange rate w.r.t an asset",
 		Long: strings.TrimSpace(`
-Query the current exchange rate of Luna with an asset. 
+Query the current exchange rate of Luna with an asset.
 You can find the current list of active denoms by running
 
-$ terrad query oracle exchange-rates 
+$ terrad query oracle exchange-rates
 
 Or, can filter with denom
 
@@ -81,6 +84,76 @@ $ terrad query oracle exchange-rates ukrw
 
 			return clientCtx.PrintProto(res)
 
+		},
+	}
+
+	flags.AddQueryFlagsToCmd(cmd)
+	return cmd
+}
+
+func GetCmdQueryPriceSnapshotHistory() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "price-snapshot-history",
+		Args:  cobra.NoArgs,
+		Short: "Query the history for oracle price snapshots",
+		Long: strings.TrimSpace(`
+Query the history for oracle price snapshots.
+Example:
+
+$ seid query oracle price-snapshot-history
+`),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			clientCtx, err := client.GetClientQueryContext(cmd)
+			if err != nil {
+				return err
+			}
+			queryClient := types.NewQueryClient(clientCtx)
+
+			res, err := queryClient.PriceSnapshotHistory(context.Background(), &types.QueryPriceSnapshotHistoryRequest{})
+			if err != nil {
+				return err
+			}
+
+			return clientCtx.PrintProto(res)
+		},
+	}
+
+	flags.AddQueryFlagsToCmd(cmd)
+	return cmd
+}
+
+func GetCmdQueryTwaps() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "twaps [lookback-seconds]",
+		Args:  cobra.ExactArgs(1),
+		Short: "Query the time weighted average prices for denoms with price snapshot data",
+		Long: strings.TrimSpace(`
+Query the time weighted average prices for denoms with price snapshot data
+Example:
+
+$ seid query oracle twaps
+`),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			clientCtx, err := client.GetClientQueryContext(cmd)
+			if err != nil {
+				return err
+			}
+			queryClient := types.NewQueryClient(clientCtx)
+
+			lookbackSeconds, err := strconv.ParseInt(args[0], 10, 64)
+			if err != nil {
+				return err
+			}
+
+			res, err := queryClient.Twaps(
+				context.Background(),
+				&types.QueryTwapsRequest{LookbackSeconds: lookbackSeconds},
+			)
+			if err != nil {
+				return err
+			}
+
+			return clientCtx.PrintProto(res)
 		},
 	}
 
@@ -186,16 +259,16 @@ $ terrad query oracle feeder terravaloper...
 	return cmd
 }
 
-// GetCmdQueryMissCounter implements the query miss counter of the validator command
-func GetCmdQueryMissCounter() *cobra.Command {
+// GetCmdQueryVotePenaltyCounter implements the query vote penalty counter of the validator command
+func GetCmdQueryVotePenaltyCounter() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "miss [validator]",
+		Use:   "vote-penalty-counter [validator]",
 		Args:  cobra.ExactArgs(1),
-		Short: "Query the # of the miss count",
+		Short: "Query the # of the miss count and abstain count",
 		Long: strings.TrimSpace(`
-Query the # of vote periods missed in this oracle slash window.
+Query the # of vote periods missed and abstained in this oracle slash window.
 
-$ terrad query oracle miss terravaloper...
+$ seid query oracle miss seivaloper...
 `),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			clientCtx, err := client.GetClientQueryContext(cmd)
@@ -210,9 +283,9 @@ $ terrad query oracle miss terravaloper...
 				return err
 			}
 
-			res, err := queryClient.MissCounter(
+			res, err := queryClient.VotePenaltyCounter(
 				context.Background(),
-				&types.QueryMissCounterRequest{ValidatorAddr: validator.String()},
+				&types.QueryVotePenaltyCounterRequest{ValidatorAddr: validator.String()},
 			)
 			if err != nil {
 				return err
@@ -291,7 +364,7 @@ func GetCmdQueryAggregateVote() *cobra.Command {
 		Long: strings.TrimSpace(`
 Query outstanding oracle aggregate vote.
 
-$ terrad query oracle aggregate-votes 
+$ terrad query oracle aggregate-votes
 
 Or, can filter with voter address
 

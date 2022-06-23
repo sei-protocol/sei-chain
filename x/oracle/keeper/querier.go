@@ -9,6 +9,7 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 
 	"github.com/sei-protocol/sei-chain/x/oracle/types"
+	"github.com/sei-protocol/sei-chain/x/oracle/utils"
 )
 
 // querier is used as Keeper will have duplicate methods if used directly, and gRPC names take precedence over q
@@ -44,25 +45,36 @@ func (q querier) ExchangeRate(c context.Context, req *types.QueryExchangeRateReq
 	}
 
 	ctx := sdk.UnwrapSDKContext(c)
-	exchangeRate, err := q.GetBaseExchangeRate(ctx, req.Denom)
+	exchangeRate, lastUpdate, err := q.GetBaseExchangeRate(ctx, req.Denom)
 	if err != nil {
 		return nil, err
 	}
 
-	return &types.QueryExchangeRateResponse{ExchangeRate: exchangeRate}, nil
+	return &types.QueryExchangeRateResponse{OracleExchangeRate: types.OracleExchangeRate{ExchangeRate: exchangeRate, LastUpdate: lastUpdate}}, nil
 }
 
 // ExchangeRates queries exchange rates of all denoms
 func (q querier) ExchangeRates(c context.Context, req *types.QueryExchangeRatesRequest) (*types.QueryExchangeRatesResponse, error) {
 	ctx := sdk.UnwrapSDKContext(c)
 
-	var exchangeRates sdk.DecCoins
-	q.IterateBaseExchangeRates(ctx, func(denom string, rate sdk.Dec) (stop bool) {
-		exchangeRates = append(exchangeRates, sdk.NewDecCoinFromDec(denom, rate))
+	var exchangeRates types.DenomOracleExchangeRatePairs
+	q.IterateBaseExchangeRates(ctx, func(denom string, rate types.OracleExchangeRate) (stop bool) {
+		if denom == utils.MicroBaseDenom {
+			votePeriod := q.Keeper.GetParams(ctx).VotePeriod
+			lastVotingBlockHeight := ((ctx.BlockHeight() / int64(votePeriod)) * int64(votePeriod)) - 1
+			if lastVotingBlockHeight < 0 {
+				lastVotingBlockHeight = 0
+			}
+			baseDenomRate := types.OracleExchangeRate{ExchangeRate: sdk.OneDec(), LastUpdate: sdk.NewInt(lastVotingBlockHeight)}
+			exchangeRates = append(exchangeRates, types.DenomOracleExchangeRatePair{Denom: denom, OracleExchangeRate: baseDenomRate})
+			return false
+		}
+
+		exchangeRates = append(exchangeRates, types.DenomOracleExchangeRatePair{Denom: denom, OracleExchangeRate: rate})
 		return false
 	})
 
-	return &types.QueryExchangeRatesResponse{ExchangeRates: exchangeRates}, nil
+	return &types.QueryExchangeRatesResponse{DenomOracleExchangeRatePairs: exchangeRates}, nil
 }
 
 // Actives queries all denoms for which exchange rates exist
@@ -70,7 +82,7 @@ func (q querier) Actives(c context.Context, req *types.QueryActivesRequest) (*ty
 	ctx := sdk.UnwrapSDKContext(c)
 
 	denoms := []string{}
-	q.IterateBaseExchangeRates(ctx, func(denom string, rate sdk.Dec) (stop bool) {
+	q.IterateBaseExchangeRates(ctx, func(denom string, rate types.OracleExchangeRate) (stop bool) {
 		denoms = append(denoms, denom)
 		return false
 	})
@@ -82,6 +94,38 @@ func (q querier) Actives(c context.Context, req *types.QueryActivesRequest) (*ty
 func (q querier) VoteTargets(c context.Context, req *types.QueryVoteTargetsRequest) (*types.QueryVoteTargetsResponse, error) {
 	ctx := sdk.UnwrapSDKContext(c)
 	return &types.QueryVoteTargetsResponse{VoteTargets: q.GetVoteTargets(ctx)}, nil
+}
+
+func (q querier) PriceSnapshotHistory(c context.Context, req *types.QueryPriceSnapshotHistoryRequest) (*types.QueryPriceSnapshotHistoryResponse, error) {
+	ctx := sdk.UnwrapSDKContext(c)
+	priceSnapshots := types.PriceSnapshots{}
+	q.IteratePriceSnapshots(ctx, func(snapshot types.PriceSnapshot) (stop bool) {
+		priceSnapshots = append(priceSnapshots, snapshot)
+		return false
+	})
+	response := types.QueryPriceSnapshotHistoryResponse{PriceSnapshots: priceSnapshots}
+	return &response, nil
+}
+
+func (q querier) Twaps(c context.Context, req *types.QueryTwapsRequest) (*types.QueryTwapsResponse, error) {
+	if req == nil {
+		return nil, status.Error(codes.InvalidArgument, "invalid request")
+	}
+
+	ctx := sdk.UnwrapSDKContext(c)
+	twaps, err := q.CalculateTwaps(ctx, req.LookbackSeconds)
+	if err != nil {
+		if err == types.ErrInvalidTwapLookback {
+			return nil, status.Error(codes.InvalidArgument, err.Error())
+		}
+		if err == types.ErrNoTwapData {
+			return nil, status.Error(codes.FailedPrecondition, err.Error())
+		}
+		// we shouldnt get this
+		return nil, status.Error(codes.Unknown, err.Error())
+	}
+	response := types.QueryTwapsResponse{OracleTwaps: twaps}
+	return &response, nil
 }
 
 // FeederDelegation queries the account address that the validator operator delegated oracle vote rights to
@@ -102,7 +146,7 @@ func (q querier) FeederDelegation(c context.Context, req *types.QueryFeederDeleg
 }
 
 // MissCounter queries oracle miss counter of a validator
-func (q querier) MissCounter(c context.Context, req *types.QueryMissCounterRequest) (*types.QueryMissCounterResponse, error) {
+func (q querier) VotePenaltyCounter(c context.Context, req *types.QueryVotePenaltyCounterRequest) (*types.QueryVotePenaltyCounterResponse, error) {
 	if req == nil {
 		return nil, status.Error(codes.InvalidArgument, "invalid request")
 	}
@@ -113,8 +157,11 @@ func (q querier) MissCounter(c context.Context, req *types.QueryMissCounterReque
 	}
 
 	ctx := sdk.UnwrapSDKContext(c)
-	return &types.QueryMissCounterResponse{
-		MissCounter: q.GetMissCounter(ctx, valAddr),
+	return &types.QueryVotePenaltyCounterResponse{
+		VotePenaltyCounter: &types.VotePenaltyCounter{
+			MissCount:    q.GetMissCount(ctx, valAddr),
+			AbstainCount: q.GetAbstainCount(ctx, valAddr),
+		},
 	}, nil
 }
 

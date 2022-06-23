@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"sort"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -37,7 +38,7 @@ func TestQueryExchangeRate(t *testing.T) {
 		Denom: utils.MicroAtomDenom,
 	})
 	require.NoError(t, err)
-	require.Equal(t, rate, res.ExchangeRate)
+	require.Equal(t, rate, res.OracleExchangeRate.ExchangeRate)
 }
 
 func TestQueryExchangeRates(t *testing.T) {
@@ -52,10 +53,10 @@ func TestQueryExchangeRates(t *testing.T) {
 	res, err := querier.ExchangeRates(ctx, &types.QueryExchangeRatesRequest{})
 	require.NoError(t, err)
 
-	require.Equal(t, sdk.DecCoins{
-		sdk.NewDecCoinFromDec(utils.MicroAtomDenom, rate),
-		sdk.NewDecCoinFromDec(utils.MicroSeiDenom, rate),
-	}, res.ExchangeRates)
+	require.Equal(t, types.DenomOracleExchangeRatePairs{
+		types.NewDenomOracleExchangeRatePair(utils.MicroAtomDenom, rate, sdk.ZeroInt()),
+		types.NewDenomOracleExchangeRatePair(utils.MicroSeiDenom, rate, sdk.ZeroInt()),
+	}, res.DenomOracleExchangeRatePairs)
 }
 
 func TestQueryFeederDelegation(t *testing.T) {
@@ -186,4 +187,95 @@ func TestQueryVoteTargets(t *testing.T) {
 	res, err := querier.VoteTargets(ctx, &types.QueryVoteTargetsRequest{})
 	require.NoError(t, err)
 	require.Equal(t, voteTargets, res.VoteTargets)
+}
+
+func TestQueryPriceSnapshotHistory(t *testing.T) {
+	input := CreateTestInput(t)
+	ctx := sdk.WrapSDKContext(input.Ctx)
+	querier := NewQuerier(input.OracleKeeper)
+
+	priceSnapshots := types.PriceSnapshots{
+		types.NewPriceSnapshot(types.PriceSnapshotItems{
+			types.NewPriceSnapshotItem(utils.MicroEthDenom, types.OracleExchangeRate{
+				ExchangeRate: sdk.NewDec(11),
+				LastUpdate:   sdk.NewInt(20),
+			}),
+			types.NewPriceSnapshotItem(utils.MicroAtomDenom, types.OracleExchangeRate{
+				ExchangeRate: sdk.NewDec(12),
+				LastUpdate:   sdk.NewInt(20),
+			}),
+		}, 1),
+		types.NewPriceSnapshot(types.PriceSnapshotItems{
+			types.NewPriceSnapshotItem(utils.MicroEthDenom, types.OracleExchangeRate{
+				ExchangeRate: sdk.NewDec(21),
+				LastUpdate:   sdk.NewInt(30),
+			}),
+			types.NewPriceSnapshotItem(utils.MicroAtomDenom, types.OracleExchangeRate{
+				ExchangeRate: sdk.NewDec(22),
+				LastUpdate:   sdk.NewInt(30),
+			}),
+		}, 2),
+	}
+
+	input.OracleKeeper.SetPriceSnapshot(input.Ctx, priceSnapshots[0])
+	input.OracleKeeper.SetPriceSnapshot(input.Ctx, priceSnapshots[1])
+
+	res, err := querier.PriceSnapshotHistory(ctx, &types.QueryPriceSnapshotHistoryRequest{})
+	require.NoError(t, err)
+
+	require.Equal(t, priceSnapshots, res.PriceSnapshots)
+}
+
+func TestQueryTwaps(t *testing.T) {
+	input := CreateTestInput(t)
+	input.Ctx = input.Ctx.WithBlockTime(time.Unix(5400, 0))
+	ctx := sdk.WrapSDKContext(input.Ctx)
+	querier := NewQuerier(input.OracleKeeper)
+	_, err := querier.Twaps(ctx, &types.QueryTwapsRequest{LookbackSeconds: 3600})
+	require.Error(t, err)
+
+	priceSnapshots := types.PriceSnapshots{
+		types.NewPriceSnapshot(types.PriceSnapshotItems{
+			types.NewPriceSnapshotItem(utils.MicroAtomDenom, types.OracleExchangeRate{
+				ExchangeRate: sdk.NewDec(40),
+				LastUpdate:   sdk.NewInt(1800),
+			}),
+		}, 1200),
+		types.NewPriceSnapshot(types.PriceSnapshotItems{
+			types.NewPriceSnapshotItem(utils.MicroEthDenom, types.OracleExchangeRate{
+				ExchangeRate: sdk.NewDec(10),
+				LastUpdate:   sdk.NewInt(3600),
+			}),
+			types.NewPriceSnapshotItem(utils.MicroAtomDenom, types.OracleExchangeRate{
+				ExchangeRate: sdk.NewDec(20),
+				LastUpdate:   sdk.NewInt(3600),
+			}),
+		}, 3600),
+		types.NewPriceSnapshot(types.PriceSnapshotItems{
+			types.NewPriceSnapshotItem(utils.MicroEthDenom, types.OracleExchangeRate{
+				ExchangeRate: sdk.NewDec(20),
+				LastUpdate:   sdk.NewInt(4500),
+			}),
+			types.NewPriceSnapshotItem(utils.MicroAtomDenom, types.OracleExchangeRate{
+				ExchangeRate: sdk.NewDec(40),
+				LastUpdate:   sdk.NewInt(4500),
+			}),
+		}, 4500),
+	}
+	for _, snap := range priceSnapshots {
+		input.OracleKeeper.SetPriceSnapshot(input.Ctx, snap)
+	}
+	twaps, err := querier.Twaps(ctx, &types.QueryTwapsRequest{LookbackSeconds: 3600})
+	require.NoError(t, err)
+	oracleTwaps := twaps.OracleTwaps
+	require.Equal(t, 2, len(oracleTwaps))
+	atomTwap := oracleTwaps[0]
+	ethTwap := oracleTwaps[1]
+	require.Equal(t, utils.MicroAtomDenom, atomTwap.Denom)
+	require.Equal(t, int64(3600), atomTwap.LookbackSeconds)
+	require.Equal(t, sdk.NewDec(35), atomTwap.Twap)
+
+	require.Equal(t, utils.MicroEthDenom, ethTwap.Denom)
+	require.Equal(t, int64(1800), ethTwap.LookbackSeconds)
+	require.Equal(t, sdk.NewDec(15), ethTwap.Twap)
 }

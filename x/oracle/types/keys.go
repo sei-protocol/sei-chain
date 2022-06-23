@@ -1,6 +1,8 @@
 package types
 
 import (
+	"encoding/binary"
+
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/types/address"
 )
@@ -37,10 +39,11 @@ var (
 	// Keys for store prefixes
 	ExchangeRateKey                 = []byte{0x01} // prefix for each key to a rate
 	FeederDelegationKey             = []byte{0x02} // prefix for each key to a feeder delegation
-	MissCounterKey                  = []byte{0x03} // prefix for each key to a miss counter
+	VotePenaltyCounterKey           = []byte{0x03} // prefix for each key to a miss counter
 	AggregateExchangeRatePrevoteKey = []byte{0x04} // prefix for each key to a aggregate prevote
 	AggregateExchangeRateVoteKey    = []byte{0x05} // prefix for each key to a aggregate vote
 	VoteTargetKey                   = []byte{0x06} // prefix for each key to a vote target
+	PriceSnapshotKey                = []byte{0x07} // key for price snapshots history
 )
 
 // GetExchangeRateKey - stored by *denom*
@@ -53,9 +56,9 @@ func GetFeederDelegationKey(v sdk.ValAddress) []byte {
 	return append(FeederDelegationKey, address.MustLengthPrefix(v)...)
 }
 
-// GetMissCounterKey - stored by *Validator* address
-func GetMissCounterKey(v sdk.ValAddress) []byte {
-	return append(MissCounterKey, address.MustLengthPrefix(v)...)
+// GetVotePenaltyCounterKey - stored by *Validator* address
+func GetVotePenaltyCounterKey(v sdk.ValAddress) []byte {
+	return append(VotePenaltyCounterKey, address.MustLengthPrefix(v)...)
 }
 
 // GetAggregateExchangeRatePrevoteKey - stored by *Validator* address
@@ -75,4 +78,14 @@ func GetVoteTargetKey(d string) []byte {
 func ExtractDenomFromVoteTargetKey(key []byte) (denom string) {
 	denom = string(key[1:])
 	return
+}
+
+func GetKeyForTimestamp(timestamp uint64) []byte {
+	timestampKey := make([]byte, 8)
+	binary.BigEndian.PutUint64(timestampKey, timestamp)
+	return timestampKey
+}
+
+func GetPriceSnapshotKey(timestamp uint64) []byte {
+	return append(PriceSnapshotKey, GetKeyForTimestamp(timestamp)...)
 }

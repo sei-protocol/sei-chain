@@ -17,17 +17,17 @@ import (
 
 type (
 	Keeper struct {
-		cdc                 codec.BinaryCodec
+		Cdc                 codec.BinaryCodec
 		storeKey            sdk.StoreKey
 		memKey              sdk.StoreKey
-		paramstore          paramtypes.Subspace
+		Paramstore          paramtypes.Subspace
 		Orders              map[string]map[string]*dexcache.Orders
 		EpochKeeper         epochkeeper.Keeper
 		OrderPlacements     map[string]map[string]*dexcache.OrderPlacements
 		DepositInfo         map[string]*dexcache.DepositInfo
 		BankKeeper          bankkeeper.Keeper
 		OrderCancellations  map[string]map[string]*dexcache.OrderCancellations
-		LiquidationRequests map[string]map[string]string
+		LiquidationRequests map[string]*dexcache.LiquidationRequests
 		WasmKeeper          wasm.Keeper
 	}
 )
@@ -43,15 +43,15 @@ func NewPlainKeeper(
 		ps = ps.WithKeyTable(types.ParamKeyTable())
 	}
 	return &Keeper{
-		cdc:                 cdc,
+		Cdc:                 cdc,
 		storeKey:            storeKey,
 		memKey:              memKey,
-		paramstore:          ps,
+		Paramstore:          ps,
 		Orders:              map[string]map[string]*dexcache.Orders{},
 		OrderPlacements:     map[string]map[string]*dexcache.OrderPlacements{},
 		DepositInfo:         map[string]*dexcache.DepositInfo{},
 		OrderCancellations:  map[string]map[string]*dexcache.OrderCancellations{},
-		LiquidationRequests: map[string]map[string]string{},
+		LiquidationRequests: map[string]*dexcache.LiquidationRequests{},
 	}
 }
 
@@ -69,21 +69,25 @@ func NewKeeper(
 		ps = ps.WithKeyTable(types.ParamKeyTable())
 	}
 	return &Keeper{
-		cdc:                 cdc,
+		Cdc:                 cdc,
 		storeKey:            storeKey,
 		memKey:              memKey,
-		paramstore:          ps,
+		Paramstore:          ps,
 		Orders:              map[string]map[string]*dexcache.Orders{},
 		EpochKeeper:         epochKeeper,
 		OrderPlacements:     map[string]map[string]*dexcache.OrderPlacements{},
 		DepositInfo:         map[string]*dexcache.DepositInfo{},
 		BankKeeper:          bankKeeper,
 		OrderCancellations:  map[string]map[string]*dexcache.OrderCancellations{},
-		LiquidationRequests: map[string]map[string]string{},
+		LiquidationRequests: map[string]*dexcache.LiquidationRequests{},
 		WasmKeeper:          wasmKeeper,
 	}
 }
 
 func (k Keeper) Logger(ctx sdk.Context) log.Logger {
 	return ctx.Logger().With("module", fmt.Sprintf("x/%s", types.ModuleName))
+}
+
+func (k Keeper) GetStoreKey() sdk.StoreKey {
+	return k.storeKey
 }

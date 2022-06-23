@@ -1,76 +1,141 @@
+# Sei
+
+![Banner!](assets/SeiLogo.png)
+
+Sei Network is the first orderbook-specific L1 blockchain. The chain emphasizes reliability, security and high throughput above all else, enabling an entirely new echelon of ultra-high performance DeFi products built on top. Sei's on-chain CLOB and matching engine provides deep liquidity and price-time-priority matching for traders and apps. Apps built on Sei benefit from built-in orderbook infrastructure, deep liquidity, and a fully decentralized matching service. Users benefit from this exchange model with the ability to select price, size, and direction of their trades coupled with MEV protection.
+
 # seichain
-**seichain** is a blockchain built using Cosmos SDK and Tendermint and created with [Starport](https://starport.com).
+**seichain** is a blockchain built using Cosmos SDK and Tendermint. It is built using the Cosmos SDK and Tendermint core, and features a built-in central limit orderbook (CLOB) module. Decentralized applications building on Sei can build on top of the CLOB, and other Cosmos-based blockchains can leverage Sei's CLOB as a shared liquidity hub and create markets for any asset. Sei Shared Liquidity Model
 
+Designed with developers and users in mind, Sei serves as the infrastructure and shared liquidity hub for the next generation of DeFi. Apps can easily plug-and-play to trade on Sei orderbook infrastructure and access pooled liquidity from other apps. To prioritize developer experience, Sei Network has integrated the wasmd module to support CosmWasm smart contracts.
+
+# Documentation
+For the most up to date documentation please visit https://docs.seinetwork.io
+
+# Central Limit Orderbook
+Most financial applications in traditional finance make use of CLOBs to create markets. This works well if you have cheap transaction fees and large amounts of liquidity. In decentralized finance however, the automated market-maker (AMM) model is more popular because it doesn't require constantly updating orders and works with lower amounts of liquidity. 
+
+Sei offers cheap transaction fees and works with market makers to have large amounts of liquidity. As a result, it can offer the orderbook based trading experience in a decentralized, permissionless manner. This unlocks many use cases that previously didn't work with the AMM model. 
+
+# Sei Ecosystem
+Sei Network is an L1 blockchain with a built-in on-chain orderbook that allows smart contracts easy access to shared liquidity. Sei architecture enables composable apps that maintain modularity.
+
+Sei Network serves as the matching core of the ecosystem, offering superior reliability and ultra-high transaction speed to ecosystem partners, each with their own functionality and user experience. Anyone can create a DeFi application that leverages Sei's liquidity and the entire ecosystem benefits.
+
+Developers, traders, and users can all connect to Sei as ecosystem partners benefiting from shared liquidity and decentralized financial primitives.
+
+# Testnet
 ## Get started
-You may use starport to run the chain, but typically we have our own customizations that require using an internal tool (seid). Both methods are shown below.
-### Starport
+**How to validate on the Sei Testnet**
+*This is the Sei Testnet-1 (sei-testnet-1)*
 
-```
-starport chain serve
-```
+> Genesis [Published](https://github.com/sei-protocol/testnet/blob/main/sei-testnet-1/genesis.json)
 
-`serve` command installs dependencies, builds, initializes, and starts your blockchain in development.
+> Peers [Published](https://github.com/sei-protocol/testnet/blob/main/sei-testnet-1/addrbook.json)
 
-### Internal tool
-First build the tool
-```
+## Hardware Requirements
+**Minimum**
+* 8 GB RAM
+* 100 GB NVME SSD
+* 3.2 GHz x4 CPU
+
+**Recommended**
+* 16 GB RAM
+* 500 GB NVME SSD
+* 4.2 GHz x6 CPU 
+
+## Operating System 
+
+> Linux (x86_64) or Linux (amd64) Reccomended Arch Linux
+
+**Dependencies**
+> Prerequisite: go1.18+ required.
+* Arch Linux: `pacman -S go`
+* Ubuntu: `sudo snap install go --classic`
+
+> Prerequisite: git. 
+* Arch Linux: `pacman -S git`
+* Ubuntu: `sudo apt-get install git`
+
+> Optional requirement: GNU make. 
+* Arch Linux: `pacman -S make`
+* Ubuntu: `sudo apt-get install make`
+
+## Seid Installation Steps
+
+**Clone git repository**
+
+```bash
+git clone https://github.com/sei-protocol/sei-chain
+cd sei-chain
+git checkout origin/1.0.1beta-upgrade
 make install
+mv $HOME/go/bin/seid /usr/bin/
 ```
+**Generate keys**
 
-If you've run the chain before, you may have leftover cruft. Run the following to reset the state.
+* `seid keys add [key_name]`
+
+* `seid keys add [key_name] --recover` to regenerate keys with your mnemonic
+
+* `seid keys add [key_name] --ledger` to generate keys with ledger device
+
+## Validator setup instructions
+
+* Install seid binary
+
+* Initialize node: `seid init <moniker> --chain-id sei-testnet-1`
+
+* Download the Genesis file: `https://github.com/sei-protocol/testnet/raw/main/sei-testnet-1/genesis.json -P $HOME/.sei/config/`
+ 
+* Edit the minimum-gas-prices in ${HOME}/.sei/config/app.toml: `sed -i 's/minimum-gas-prices = ""/minimum-gas-prices = "0.01usei"/g' $HOME/.sei/config/app.toml`
+
+* Start seid by creating a systemd service to run the node in the background
+`nano /etc/systemd/system/seid.service`
+> Copy and paste the following text into your service file. Be sure to edit as you see fit.
+
+```bash
+[Unit]
+Description=Sei-Network Node
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/root/
+ExecStart=/root/go/bin/seid start
+Restart=on-failure
+StartLimitInterval=0
+RestartSec=3
+LimitNOFILE=65535
+LimitMEMLOCK=209715200
+
+[Install]
+WantedBy=multi-user.target
 ```
-seid unsafe-reset-all
+## Start the node
+* Reload the service files: `sudo systemctl daemon-reload` 
+* Create the symlinlk: `sudo systemctl enable seid.service` 
+* Start the node sudo: `systemctl start seid && journalctl -u seid -f`
+
+### Create Validator Transaction
+```bash
+seid tx staking create-validator \
+--from {{KEY_NAME}} \
+--chain-id  \
+--moniker="<VALIDATOR_NAME>" \
+--commission-max-change-rate=0.01 \
+--commission-max-rate=1.0 \
+--commission-rate=0.05 \
+--details="<description>" \
+--security-contact="<contact_information>" \
+--website="<your_website>" \
+--pubkey $(seid tendermint show-validator) \
+--min-self-delegation="1" \
+--amount <token delegation>usei \
+--node localhost:26657
 ```
-
-Next, initialize the chain. This creates the genesis field:
-```
-seid init {moniker} --chain-id sei-chain
-```
-
-Finally, start the chain:
-```
-seid start
-```
-
-
-### Configure
-
-Your blockchain in development can be configured with `config.yml`. To learn more, see the [Starport docs](https://docs.starport.com).
-
-### Web Frontend
-
-Starport has scaffolded a Vue.js-based web app in the `vue` directory. Run the following commands to install dependencies and start the app:
-
-```
-cd vue
-npm install
-npm run serve
-```
-
-The frontend app is built using the `@starport/vue` and `@starport/vuex` packages. For details, see the [monorepo for Starport front-end development](https://github.com/tendermint/vue).
-
-## Release
-To release a new version of your blockchain, create and push a new tag with `v` prefix. A new draft release with the configured targets will be created.
-
-```
-git tag v0.1
-git push origin v0.1
-```
-
-After a draft release is created, make your final changes from the release page and publish it.
-
-### Install
-To install the latest version of your blockchain node's binary, execute the following command on your machine:
-
-```
-curl https://get.starport.com/sei-protocol/sei-chain@latest! | sudo bash
-```
-`sei-protocol/sei-chain` should match the `username` and `repo_name` of the Github repository to which the source code was pushed. Learn more about [the install process](https://github.com/allinbits/starport-installer).
-
-## Learn more
-
-- [Starport](https://starport.com)
-- [Tutorials](https://docs.starport.com/guide)
-- [Starport docs](https://docs.starport.com)
-- [Cosmos SDK docs](https://docs.cosmos.network)
-- [Developer Chat](https://discord.gg/H6wGTY8sxw)
+# Build with Us!
+If you are interested in building with Sei Network: 
+Email us at team@seinetwork.io 
+DM us on Twitter https://twitter.com/SeiNetwork

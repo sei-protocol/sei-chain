@@ -1,10 +1,9 @@
 package types
 
-import "fmt"
+import (
+	"fmt"
 
-const (
-	LimitOrderType  string = "Limit"
-	MarketOrderType string = "Market"
+	sdk "github.com/cosmos/cosmos-sdk/types"
 )
 
 type SudoOrderPlacementMsg struct {
@@ -17,29 +16,22 @@ type OrderPlacementMsgDetails struct {
 }
 
 type ContractOrderPlacement struct {
-	Id                uint64 `json:"id"`
-	Account           string `json:"account"`
-	PriceDenom        string `json:"price_denom"`
-	AssetDenom        string `json:"asset_denom"`
-	Price             string `json:"price"`
-	Quantity          string `json:"quantity"`
-	OrderType         string `json:"order_type"`
-	PositionDirection string `json:"position_direction"`
-	PositionEffect    string `json:"position_effect"`
-	Leverage          string `json:"leverage"`
+	Id                uint64  `json:"id"`
+	Account           string  `json:"account"`
+	PriceDenom        string  `json:"price_denom"`
+	AssetDenom        string  `json:"asset_denom"`
+	Price             sdk.Dec `json:"price"`
+	Quantity          sdk.Dec `json:"quantity"`
+	OrderType         string  `json:"order_type"`
+	PositionDirection string  `json:"position_direction"`
+	PositionEffect    string  `json:"position_effect"`
+	Leverage          sdk.Dec `json:"leverage"`
 }
 
 type ContractDepositInfo struct {
-	Account string `json:"account"`
-	Denom   string `json:"denom"`
-	Amount  string `json:"amount"`
-}
-
-func GetOrderType(limit bool) string {
-	if limit {
-		return LimitOrderType
-	}
-	return MarketOrderType
+	Account string  `json:"account"`
+	Denom   string  `json:"denom"`
+	Amount  sdk.Dec `json:"amount"`
 }
 
 type SudoOrderPlacementResponse struct {

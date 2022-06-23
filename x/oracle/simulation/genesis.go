@@ -109,7 +109,7 @@ func RandomizedGenState(simState *module.SimulationState) {
 		},
 		[]types.ExchangeRateTuple{},
 		[]types.FeederDelegation{},
-		[]types.MissCounter{},
+		[]types.PenaltyCounter{},
 		[]types.AggregateExchangeRatePrevote{},
 		[]types.AggregateExchangeRateVote{},
 	)

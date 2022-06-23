@@ -3,9 +3,14 @@ package seiprotocol.seichain.dex;
 
 option go_package = "github.com/sei-protocol/sei-chain/x/dex/types";
 import "dex/order_entry.proto"; 
+import "gogoproto/gogo.proto";
 
 message LongBook {
-  uint64 id = 1;
+  string price = 1 [
+      (gogoproto.moretags)   = "yaml:\"price\"",
+      (gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Dec",
+      (gogoproto.nullable)   = false
+  ];
   OrderEntry entry = 2; 
   
 }

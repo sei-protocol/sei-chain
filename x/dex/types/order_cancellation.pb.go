@@ -5,6 +5,8 @@ package types
 
 import (
 	fmt "fmt"
+	github_com_cosmos_cosmos_sdk_types "github.com/cosmos/cosmos-sdk/types"
+	_ "github.com/gogo/protobuf/gogoproto"
 	proto "github.com/gogo/protobuf/proto"
 	io "io"
 	math "math"
@@ -23,13 +25,13 @@ var _ = math.Inf
 const _ = proto.GoGoProtoPackageIsVersion3 // please upgrade the proto package
 
 type OrderCancellation struct {
-	Long       bool   `protobuf:"varint,1,opt,name=long,proto3" json:"long,omitempty"`
-	Price      uint64 `protobuf:"varint,2,opt,name=price,proto3" json:"price,omitempty"`
-	Quantity   uint64 `protobuf:"varint,3,opt,name=quantity,proto3" json:"quantity,omitempty"`
-	PriceDenom string `protobuf:"bytes,4,opt,name=priceDenom,proto3" json:"priceDenom,omitempty"`
-	AssetDenom string `protobuf:"bytes,5,opt,name=assetDenom,proto3" json:"assetDenom,omitempty"`
-	Open       bool   `protobuf:"varint,6,opt,name=open,proto3" json:"open,omitempty"`
-	Leverage   string `protobuf:"bytes,7,opt,name=leverage,proto3" json:"leverage,omitempty"`
+	PositionDirection PositionDirection                      `protobuf:"varint,1,opt,name=positionDirection,proto3,enum=seiprotocol.seichain.dex.PositionDirection" json:"positionDirection,omitempty"`
+	Price             github_com_cosmos_cosmos_sdk_types.Dec `protobuf:"bytes,2,opt,name=price,proto3,customtype=github.com/cosmos/cosmos-sdk/types.Dec" json:"price" yaml:"price"`
+	Quantity          github_com_cosmos_cosmos_sdk_types.Dec `protobuf:"bytes,3,opt,name=quantity,proto3,customtype=github.com/cosmos/cosmos-sdk/types.Dec" json:"quantity" yaml:"quantity"`
+	PriceDenom        Denom                                  `protobuf:"varint,4,opt,name=priceDenom,proto3,enum=seiprotocol.seichain.dex.Denom" json:"priceDenom,omitempty"`
+	AssetDenom        Denom                                  `protobuf:"varint,5,opt,name=assetDenom,proto3,enum=seiprotocol.seichain.dex.Denom" json:"assetDenom,omitempty"`
+	PositionEffect    PositionEffect                         `protobuf:"varint,6,opt,name=positionEffect,proto3,enum=seiprotocol.seichain.dex.PositionEffect" json:"positionEffect,omitempty"`
+	Leverage          github_com_cosmos_cosmos_sdk_types.Dec `protobuf:"bytes,7,opt,name=leverage,proto3,customtype=github.com/cosmos/cosmos-sdk/types.Dec" json:"leverage" yaml:"leverage"`
 }
 
 func (m *OrderCancellation) Reset()         { *m = OrderCancellation{} }
@@ -65,53 +67,32 @@ func (m *OrderCancellation) XXX_DiscardUnknown() {
 
 var xxx_messageInfo_OrderCancellation proto.InternalMessageInfo
 
-func (m *OrderCancellation) GetLong() bool {
+func (m *OrderCancellation) GetPositionDirection() PositionDirection {
 	if m != nil {
-		return m.Long
+		return m.PositionDirection
 	}
-	return false
+	return PositionDirection_LONG
 }
 
-func (m *OrderCancellation) GetPrice() uint64 {
-	if m != nil {
-		return m.Price
-	}
-	return 0
-}
-
-func (m *OrderCancellation) GetQuantity() uint64 {
-	if m != nil {
-		return m.Quantity
-	}
-	return 0
-}
-
-func (m *OrderCancellation) GetPriceDenom() string {
+func (m *OrderCancellation) GetPriceDenom() Denom {
 	if m != nil {
 		return m.PriceDenom
 	}
-	return ""
+	return Denom_SEI
 }
 
-func (m *OrderCancellation) GetAssetDenom() string {
+func (m *OrderCancellation) GetAssetDenom() Denom {
 	if m != nil {
 		return m.AssetDenom
 	}
-	return ""
+	return Denom_SEI
 }
 
-func (m *OrderCancellation) GetOpen() bool {
+func (m *OrderCancellation) GetPositionEffect() PositionEffect {
 	if m != nil {
-		return m.Open
+		return m.PositionEffect
 	}
-	return false
-}
-
-func (m *OrderCancellation) GetLeverage() string {
-	if m != nil {
-		return m.Leverage
-	}
-	return ""
+	return PositionEffect_OPEN
 }
 
 func init() {
@@ -121,24 +102,31 @@ func init() {
 func init() { proto.RegisterFile("dex/order_cancellation.proto", fileDescriptor_6f5370cb3f8b430b) }
 
 var fileDescriptor_6f5370cb3f8b430b = []byte{
-	// 259 bytes of a gzipped FileDescriptorProto
-	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0x4c, 0x90, 0xb1, 0x4e, 0xc3, 0x30,
-	0x18, 0x84, 0x63, 0x48, 0x4b, 0xf1, 0x86, 0xc5, 0x60, 0x21, 0x64, 0x45, 0x4c, 0x59, 0x9a, 0x0c,
-	0xbc, 0x01, 0x20, 0x31, 0x22, 0x65, 0x64, 0x41, 0xae, 0xf3, 0x2b, 0xb5, 0x94, 0xfa, 0x0f, 0xb6,
-	0x8b, 0xd2, 0xb7, 0xe0, 0xb1, 0x60, 0xeb, 0xc8, 0x88, 0x92, 0x17, 0x41, 0x76, 0x44, 0xdb, 0xed,
-	0xee, 0xff, 0x7c, 0xf2, 0xe9, 0xe8, 0x6d, 0x0d, 0x7d, 0x89, 0xb6, 0x06, 0xfb, 0xa6, 0xa4, 0x51,
-	0xd0, 0xb6, 0xd2, 0x6b, 0x34, 0x45, 0x67, 0xd1, 0x23, 0xe3, 0x0e, 0x74, 0x54, 0x0a, 0xdb, 0xc2,
-	0x81, 0x56, 0x6b, 0xa9, 0x4d, 0x51, 0x43, 0x7f, 0xf7, 0x4d, 0xe8, 0xd5, 0x4b, 0x88, 0x3d, 0x9e,
-	0xa4, 0x18, 0xa3, 0x69, 0x8b, 0xa6, 0xe1, 0x24, 0x23, 0xf9, 0xa2, 0x8a, 0x9a, 0x5d, 0xd3, 0x59,
-	0x67, 0xb5, 0x02, 0x7e, 0x96, 0x91, 0x3c, 0xad, 0x26, 0xc3, 0x6e, 0xe8, 0xe2, 0x7d, 0x2b, 0x8d,
-	0xd7, 0x7e, 0xc7, 0xcf, 0x23, 0x38, 0x78, 0x26, 0x28, 0x8d, 0x8f, 0x9e, 0xc0, 0xe0, 0x86, 0xa7,
-	0x19, 0xc9, 0x2f, 0xab, 0x93, 0x4b, 0xe0, 0xd2, 0x39, 0xf0, 0x13, 0x9f, 0x4d, 0xfc, 0x78, 0x09,
-	0x2d, 0xb0, 0x03, 0xc3, 0xe7, 0x53, 0x8b, 0xa0, 0xc3, 0x7f, 0x2d, 0x7c, 0x80, 0x95, 0x0d, 0xf0,
-	0x8b, 0x98, 0x38, 0xf8, 0x87, 0xe7, 0xaf, 0x41, 0x90, 0xfd, 0x20, 0xc8, 0xef, 0x20, 0xc8, 0xe7,
-	0x28, 0x92, 0xfd, 0x28, 0x92, 0x9f, 0x51, 0x24, 0xaf, 0xcb, 0x46, 0xfb, 0xf5, 0x76, 0x55, 0x28,
-	0xdc, 0x94, 0x0e, 0xf4, 0xf2, 0x7f, 0x8b, 0x68, 0xe2, 0x18, 0x65, 0x5f, 0x86, 0x05, 0xfd, 0xae,
-	0x03, 0xb7, 0x9a, 0x47, 0x7e, 0xff, 0x17, 0x00, 0x00, 0xff, 0xff, 0xc3, 0xc9, 0xb5, 0x6b, 0x55,
-	0x01, 0x00, 0x00,
+	// 383 bytes of a gzipped FileDescriptorProto
+	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0xa4, 0xd2, 0xc1, 0x4a, 0xeb, 0x40,
+	0x14, 0x06, 0xe0, 0xe4, 0xde, 0xb6, 0xf7, 0x3a, 0x48, 0x4b, 0x83, 0x8b, 0x50, 0x24, 0x29, 0x59,
+	0x48, 0x41, 0x9a, 0x80, 0xee, 0x5c, 0x28, 0xd6, 0x8a, 0x4b, 0x4b, 0x70, 0xa3, 0x20, 0x92, 0x4e,
+	0x4e, 0xd3, 0xc1, 0x24, 0x13, 0x33, 0x53, 0x69, 0xdf, 0xc2, 0xc7, 0xea, 0xb2, 0x2b, 0x11, 0x17,
+	0x45, 0xda, 0x37, 0xf0, 0x09, 0x64, 0x26, 0xa6, 0x96, 0x4a, 0x51, 0x71, 0xd5, 0xd3, 0xcc, 0x39,
+	0xdf, 0x19, 0xfe, 0x04, 0x6d, 0xfb, 0x30, 0x74, 0x68, 0xea, 0x43, 0x7a, 0x83, 0xbd, 0x18, 0x43,
+	0x18, 0x7a, 0x9c, 0xd0, 0xd8, 0x4e, 0x52, 0xca, 0xa9, 0xa6, 0x33, 0x20, 0xb2, 0xc2, 0x34, 0xb4,
+	0x19, 0x10, 0xdc, 0xf7, 0x48, 0x6c, 0xfb, 0x30, 0xac, 0x6d, 0x05, 0x34, 0xa0, 0xf2, 0xc8, 0x11,
+	0x55, 0xd6, 0x5f, 0xab, 0x08, 0x0d, 0xe2, 0x41, 0xc4, 0xb2, 0x07, 0xd6, 0x63, 0x01, 0x55, 0xcf,
+	0x85, 0x7e, 0xb2, 0x84, 0x6b, 0x97, 0xa8, 0x9a, 0x50, 0x46, 0x44, 0xdd, 0x26, 0x29, 0x60, 0x51,
+	0xe8, 0x6a, 0x5d, 0x6d, 0x94, 0xf7, 0x76, 0xed, 0x75, 0x2b, 0xed, 0xce, 0xea, 0x88, 0xfb, 0x59,
+	0xd1, 0x2e, 0x50, 0x31, 0x49, 0x09, 0x06, 0xfd, 0x4f, 0x5d, 0x6d, 0x6c, 0xb4, 0x0e, 0xc7, 0x53,
+	0x53, 0x79, 0x9e, 0x9a, 0x3b, 0x01, 0xe1, 0xfd, 0x41, 0xd7, 0xc6, 0x34, 0x72, 0x30, 0x65, 0x11,
+	0x65, 0xef, 0x3f, 0x4d, 0xe6, 0xdf, 0x3a, 0x7c, 0x94, 0x00, 0xb3, 0xdb, 0x80, 0x5f, 0xa7, 0xe6,
+	0xe6, 0xc8, 0x8b, 0xc2, 0x03, 0x4b, 0x22, 0x96, 0x9b, 0x61, 0xda, 0x35, 0xfa, 0x7f, 0x37, 0xf0,
+	0x62, 0x4e, 0xf8, 0x48, 0xff, 0x2b, 0xe1, 0xe3, 0x1f, 0xc3, 0x95, 0x0c, 0xce, 0x1d, 0xcb, 0x5d,
+	0x90, 0xda, 0x11, 0x42, 0x72, 0x4f, 0x1b, 0x62, 0x1a, 0xe9, 0x05, 0x19, 0x84, 0xb9, 0x3e, 0x08,
+	0xd9, 0xe6, 0x2e, 0x8d, 0x08, 0xc0, 0x63, 0x0c, 0x78, 0x06, 0x14, 0xbf, 0x09, 0x7c, 0x8c, 0x68,
+	0x1d, 0x54, 0xce, 0xb3, 0x3c, 0xed, 0xf5, 0x00, 0x73, 0xbd, 0x24, 0x91, 0xc6, 0xd7, 0xaf, 0x23,
+	0xeb, 0x77, 0x57, 0xe6, 0x45, 0x64, 0x21, 0xdc, 0x43, 0xea, 0x05, 0xa0, 0xff, 0xfb, 0x5d, 0x64,
+	0xb9, 0x63, 0xb9, 0x0b, 0xb2, 0x75, 0x36, 0x9e, 0x19, 0xea, 0x64, 0x66, 0xa8, 0x2f, 0x33, 0x43,
+	0x7d, 0x98, 0x1b, 0xca, 0x64, 0x6e, 0x28, 0x4f, 0x73, 0x43, 0xb9, 0x6a, 0x2e, 0xf1, 0x0c, 0x48,
+	0x33, 0xbf, 0xbd, 0xfc, 0x23, 0xaf, 0xef, 0x0c, 0x1d, 0xf1, 0x9d, 0xca, 0x4d, 0xdd, 0x92, 0x3c,
+	0xdf, 0x7f, 0x0b, 0x00, 0x00, 0xff, 0xff, 0x6c, 0xb4, 0xc1, 0x89, 0x09, 0x03, 0x00, 0x00,
 }
 
 func (m *OrderCancellation) Marshal() (dAtA []byte, err error) {
@@ -161,54 +149,53 @@ func (m *OrderCancellation) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	_ = i
 	var l int
 	_ = l
-	if len(m.Leverage) > 0 {
-		i -= len(m.Leverage)
-		copy(dAtA[i:], m.Leverage)
-		i = encodeVarintOrderCancellation(dAtA, i, uint64(len(m.Leverage)))
-		i--
-		dAtA[i] = 0x3a
-	}
-	if m.Open {
-		i--
-		if m.Open {
-			dAtA[i] = 1
-		} else {
-			dAtA[i] = 0
+	{
+		size := m.Leverage.Size()
+		i -= size
+		if _, err := m.Leverage.MarshalTo(dAtA[i:]); err != nil {
+			return 0, err
 		}
+		i = encodeVarintOrderCancellation(dAtA, i, uint64(size))
+	}
+	i--
+	dAtA[i] = 0x3a
+	if m.PositionEffect != 0 {
+		i = encodeVarintOrderCancellation(dAtA, i, uint64(m.PositionEffect))
 		i--
 		dAtA[i] = 0x30
 	}
-	if len(m.AssetDenom) > 0 {
-		i -= len(m.AssetDenom)
-		copy(dAtA[i:], m.AssetDenom)
-		i = encodeVarintOrderCancellation(dAtA, i, uint64(len(m.AssetDenom)))
+	if m.AssetDenom != 0 {
+		i = encodeVarintOrderCancellation(dAtA, i, uint64(m.AssetDenom))
 		i--
-		dAtA[i] = 0x2a
+		dAtA[i] = 0x28
 	}
-	if len(m.PriceDenom) > 0 {
-		i -= len(m.PriceDenom)
-		copy(dAtA[i:], m.PriceDenom)
-		i = encodeVarintOrderCancellation(dAtA, i, uint64(len(m.PriceDenom)))
+	if m.PriceDenom != 0 {
+		i = encodeVarintOrderCancellation(dAtA, i, uint64(m.PriceDenom))
 		i--
-		dAtA[i] = 0x22
+		dAtA[i] = 0x20
 	}
-	if m.Quantity != 0 {
-		i = encodeVarintOrderCancellation(dAtA, i, uint64(m.Quantity))
-		i--
-		dAtA[i] = 0x18
-	}
-	if m.Price != 0 {
-		i = encodeVarintOrderCancellation(dAtA, i, uint64(m.Price))
-		i--
-		dAtA[i] = 0x10
-	}
-	if m.Long {
-		i--
-		if m.Long {
-			dAtA[i] = 1
-		} else {
-			dAtA[i] = 0
+	{
+		size := m.Quantity.Size()
+		i -= size
+		if _, err := m.Quantity.MarshalTo(dAtA[i:]); err != nil {
+			return 0, err
 		}
+		i = encodeVarintOrderCancellation(dAtA, i, uint64(size))
+	}
+	i--
+	dAtA[i] = 0x1a
+	{
+		size := m.Price.Size()
+		i -= size
+		if _, err := m.Price.MarshalTo(dAtA[i:]); err != nil {
+			return 0, err
+		}
+		i = encodeVarintOrderCancellation(dAtA, i, uint64(size))
+	}
+	i--
+	dAtA[i] = 0x12
+	if m.PositionDirection != 0 {
+		i = encodeVarintOrderCancellation(dAtA, i, uint64(m.PositionDirection))
 		i--
 		dAtA[i] = 0x8
 	}
@@ -232,30 +219,24 @@ func (m *OrderCancellation) Size() (n int) {
 	}
 	var l int
 	_ = l
-	if m.Long {
-		n += 2
+	if m.PositionDirection != 0 {
+		n += 1 + sovOrderCancellation(uint64(m.PositionDirection))
 	}
-	if m.Price != 0 {
-		n += 1 + sovOrderCancellation(uint64(m.Price))
+	l = m.Price.Size()
+	n += 1 + l + sovOrderCancellation(uint64(l))
+	l = m.Quantity.Size()
+	n += 1 + l + sovOrderCancellation(uint64(l))
+	if m.PriceDenom != 0 {
+		n += 1 + sovOrderCancellation(uint64(m.PriceDenom))
 	}
-	if m.Quantity != 0 {
-		n += 1 + sovOrderCancellation(uint64(m.Quantity))
+	if m.AssetDenom != 0 {
+		n += 1 + sovOrderCancellation(uint64(m.AssetDenom))
 	}
-	l = len(m.PriceDenom)
-	if l > 0 {
-		n += 1 + l + sovOrderCancellation(uint64(l))
+	if m.PositionEffect != 0 {
+		n += 1 + sovOrderCancellation(uint64(m.PositionEffect))
 	}
-	l = len(m.AssetDenom)
-	if l > 0 {
-		n += 1 + l + sovOrderCancellation(uint64(l))
-	}
-	if m.Open {
-		n += 2
-	}
-	l = len(m.Leverage)
-	if l > 0 {
-		n += 1 + l + sovOrderCancellation(uint64(l))
-	}
+	l = m.Leverage.Size()
+	n += 1 + l + sovOrderCancellation(uint64(l))
 	return n
 }
 
@@ -296,9 +277,9 @@ func (m *OrderCancellation) Unmarshal(dAtA []byte) error {
 		switch fieldNum {
 		case 1:
 			if wireType != 0 {
-				return fmt.Errorf("proto: wrong wireType = %d for field Long", wireType)
+				return fmt.Errorf("proto: wrong wireType = %d for field PositionDirection", wireType)
 			}
-			var v int
+			m.PositionDirection = 0
 			for shift := uint(0); ; shift += 7 {
 				if shift >= 64 {
 					return ErrIntOverflowOrderCancellation
@@ -308,17 +289,16 @@ func (m *OrderCancellation) Unmarshal(dAtA []byte) error {
 				}
 				b := dAtA[iNdEx]
 				iNdEx++
-				v |= int(b&0x7F) << shift
+				m.PositionDirection |= PositionDirection(b&0x7F) << shift
 				if b < 0x80 {
 					break
 				}
 			}
-			m.Long = bool(v != 0)
 		case 2:
-			if wireType != 0 {
+			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field Price", wireType)
 			}
-			m.Price = 0
+			var stringLen uint64
 			for shift := uint(0); ; shift += 7 {
 				if shift >= 64 {
 					return ErrIntOverflowOrderCancellation
@@ -328,16 +308,31 @@ func (m *OrderCancellation) Unmarshal(dAtA []byte) error {
 				}
 				b := dAtA[iNdEx]
 				iNdEx++
-				m.Price |= uint64(b&0x7F) << shift
+				stringLen |= uint64(b&0x7F) << shift
 				if b < 0x80 {
 					break
 				}
 			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLengthOrderCancellation
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return ErrInvalidLengthOrderCancellation
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if err := m.Price.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
 		case 3:
-			if wireType != 0 {
+			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field Quantity", wireType)
 			}
-			m.Quantity = 0
+			var stringLen uint64
 			for shift := uint(0); ; shift += 7 {
 				if shift >= 64 {
 					return ErrIntOverflowOrderCancellation
@@ -347,16 +342,31 @@ func (m *OrderCancellation) Unmarshal(dAtA []byte) error {
 				}
 				b := dAtA[iNdEx]
 				iNdEx++
-				m.Quantity |= uint64(b&0x7F) << shift
+				stringLen |= uint64(b&0x7F) << shift
 				if b < 0x80 {
 					break
 				}
 			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLengthOrderCancellation
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return ErrInvalidLengthOrderCancellation
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if err := m.Quantity.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
 		case 4:
-			if wireType != 2 {
+			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field PriceDenom", wireType)
 			}
-			var stringLen uint64
+			m.PriceDenom = 0
 			for shift := uint(0); ; shift += 7 {
 				if shift >= 64 {
 					return ErrIntOverflowOrderCancellation
@@ -366,29 +376,16 @@ func (m *OrderCancellation) Unmarshal(dAtA []byte) error {
 				}
 				b := dAtA[iNdEx]
 				iNdEx++
-				stringLen |= uint64(b&0x7F) << shift
+				m.PriceDenom |= Denom(b&0x7F) << shift
 				if b < 0x80 {
 					break
 				}
 			}
-			intStringLen := int(stringLen)
-			if intStringLen < 0 {
-				return ErrInvalidLengthOrderCancellation
-			}
-			postIndex := iNdEx + intStringLen
-			if postIndex < 0 {
-				return ErrInvalidLengthOrderCancellation
-			}
-			if postIndex > l {
-				return io.ErrUnexpectedEOF
-			}
-			m.PriceDenom = string(dAtA[iNdEx:postIndex])
-			iNdEx = postIndex
 		case 5:
-			if wireType != 2 {
+			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field AssetDenom", wireType)
 			}
-			var stringLen uint64
+			m.AssetDenom = 0
 			for shift := uint(0); ; shift += 7 {
 				if shift >= 64 {
 					return ErrIntOverflowOrderCancellation
@@ -398,29 +395,16 @@ func (m *OrderCancellation) Unmarshal(dAtA []byte) error {
 				}
 				b := dAtA[iNdEx]
 				iNdEx++
-				stringLen |= uint64(b&0x7F) << shift
+				m.AssetDenom |= Denom(b&0x7F) << shift
 				if b < 0x80 {
 					break
 				}
 			}
-			intStringLen := int(stringLen)
-			if intStringLen < 0 {
-				return ErrInvalidLengthOrderCancellation
-			}
-			postIndex := iNdEx + intStringLen
-			if postIndex < 0 {
-				return ErrInvalidLengthOrderCancellation
-			}
-			if postIndex > l {
-				return io.ErrUnexpectedEOF
-			}
-			m.AssetDenom = string(dAtA[iNdEx:postIndex])
-			iNdEx = postIndex
 		case 6:
 			if wireType != 0 {
-				return fmt.Errorf("proto: wrong wireType = %d for field Open", wireType)
+				return fmt.Errorf("proto: wrong wireType = %d for field PositionEffect", wireType)
 			}
-			var v int
+			m.PositionEffect = 0
 			for shift := uint(0); ; shift += 7 {
 				if shift >= 64 {
 					return ErrIntOverflowOrderCancellation
@@ -430,12 +414,11 @@ func (m *OrderCancellation) Unmarshal(dAtA []byte) error {
 				}
 				b := dAtA[iNdEx]
 				iNdEx++
-				v |= int(b&0x7F) << shift
+				m.PositionEffect |= PositionEffect(b&0x7F) << shift
 				if b < 0x80 {
 					break
 				}
 			}
-			m.Open = bool(v != 0)
 		case 7:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field Leverage", wireType)
@@ -466,7 +449,9 @@ func (m *OrderCancellation) Unmarshal(dAtA []byte) error {
 			if postIndex > l {
 				return io.ErrUnexpectedEOF
 			}
-			m.Leverage = string(dAtA[iNdEx:postIndex])
+			if err := m.Leverage.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
 			iNdEx = postIndex
 		default:
 			iNdEx = preIndex

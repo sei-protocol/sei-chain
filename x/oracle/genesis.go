@@ -30,13 +30,13 @@ func InitGenesis(ctx sdk.Context, keeper keeper.Keeper, data *types.GenesisState
 		keeper.SetBaseExchangeRate(ctx, ex.Denom, ex.ExchangeRate)
 	}
 
-	for _, mc := range data.MissCounters {
-		operator, err := sdk.ValAddressFromBech32(mc.ValidatorAddress)
+	for _, pc := range data.PenaltyCounters {
+		operator, err := sdk.ValAddressFromBech32(pc.ValidatorAddress)
 		if err != nil {
 			panic(err)
 		}
 
-		keeper.SetMissCounter(ctx, operator, mc.MissCounter)
+		keeper.SetVotePenaltyCounter(ctx, operator, pc.VotePenaltyCounter.MissCount, pc.VotePenaltyCounter.AbstainCount)
 	}
 
 	for _, ap := range data.AggregateExchangeRatePrevotes {
@@ -81,16 +81,16 @@ func ExportGenesis(ctx sdk.Context, keeper keeper.Keeper) *types.GenesisState {
 	})
 
 	exchangeRates := []types.ExchangeRateTuple{}
-	keeper.IterateBaseExchangeRates(ctx, func(denom string, rate sdk.Dec) (stop bool) {
-		exchangeRates = append(exchangeRates, types.ExchangeRateTuple{Denom: denom, ExchangeRate: rate})
+	keeper.IterateBaseExchangeRates(ctx, func(denom string, rate types.OracleExchangeRate) (stop bool) {
+		exchangeRates = append(exchangeRates, types.ExchangeRateTuple{Denom: denom, ExchangeRate: rate.ExchangeRate})
 		return false
 	})
 
-	missCounters := []types.MissCounter{}
-	keeper.IterateMissCounters(ctx, func(operator sdk.ValAddress, missCounter uint64) (stop bool) {
-		missCounters = append(missCounters, types.MissCounter{
-			ValidatorAddress: operator.String(),
-			MissCounter:      missCounter,
+	penaltyCounters := []types.PenaltyCounter{}
+	keeper.IterateVotePenaltyCounters(ctx, func(operator sdk.ValAddress, votePenaltyCounter types.VotePenaltyCounter) (stop bool) {
+		penaltyCounters = append(penaltyCounters, types.PenaltyCounter{
+			ValidatorAddress:   operator.String(),
+			VotePenaltyCounter: &votePenaltyCounter,
 		})
 		return false
 	})
@@ -110,7 +110,7 @@ func ExportGenesis(ctx sdk.Context, keeper keeper.Keeper) *types.GenesisState {
 	return types.NewGenesisState(params,
 		exchangeRates,
 		feederDelegations,
-		missCounters,
+		penaltyCounters,
 		aggregateExchangeRatePrevotes,
 		aggregateExchangeRateVotes)
 }

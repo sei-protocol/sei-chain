@@ -4,8 +4,6 @@ import (
 	"bytes"
 	"fmt"
 
-	gogotypes "github.com/gogo/protobuf/types"
-
 	"github.com/cosmos/cosmos-sdk/codec"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/types/kv"
@@ -25,11 +23,11 @@ func NewDecodeStore(cdc codec.Codec) func(kvA, kvB kv.Pair) string {
 			return fmt.Sprintf("%v\n%v", exchangeRateA, exchangeRateB)
 		case bytes.Equal(kvA.Key[:1], types.FeederDelegationKey):
 			return fmt.Sprintf("%v\n%v", sdk.AccAddress(kvA.Value), sdk.AccAddress(kvB.Value))
-		case bytes.Equal(kvA.Key[:1], types.MissCounterKey):
-			var counterA, counterB gogotypes.UInt64Value
+		case bytes.Equal(kvA.Key[:1], types.VotePenaltyCounterKey):
+			var counterA, counterB types.VotePenaltyCounter
 			cdc.MustUnmarshal(kvA.Value, &counterA)
 			cdc.MustUnmarshal(kvB.Value, &counterB)
-			return fmt.Sprintf("%v\n%v", counterA.Value, counterB.Value)
+			return fmt.Sprintf("%v\n%v", counterA, counterB)
 		case bytes.Equal(kvA.Key[:1], types.AggregateExchangeRatePrevoteKey):
 			var prevoteA, prevoteB types.AggregateExchangeRatePrevote
 			cdc.MustUnmarshal(kvA.Value, &prevoteA)

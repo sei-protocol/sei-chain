@@ -2,9 +2,8 @@ package dex
 
 import (
 	"fmt"
-	"math"
-	"strconv"
 
+	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/sei-protocol/sei-chain/utils"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
 )
@@ -20,60 +19,45 @@ const (
 )
 
 type LimitOrder struct {
-	Price    uint64
-	Quantity uint64
-	Creator  string
-	Long     bool
-	Open     bool
-	Leverage string
+	Price     sdk.Dec
+	Quantity  sdk.Dec
+	Creator   string
+	Direction types.PositionDirection
+	Effect    types.PositionEffect
+	Leverage  sdk.Dec
 }
 
 func (o *LimitOrder) FormattedCreatorWithSuffix() string {
-	var suffix string
-	if o.Open {
-		suffix = types.OPEN_ORDER_CREATOR_SUFFIX
-	} else {
-		suffix = types.CLOSE_ORDER_CREATOR_SUFFIX
-	}
+	suffix := types.POSITION_EFFECT_TO_SUFFIX[o.Effect]
 	return fmt.Sprintf("%s%s%s%s%s", o.Creator, types.FORMATTED_ACCOUNT_DELIMITER, suffix, types.FORMATTED_ACCOUNT_DELIMITER, o.Leverage)
 }
 
 type MarketOrder struct {
-	Quantity      uint64
+	Quantity      sdk.Dec
 	Creator       string
-	Long          bool
-	WorstPrice    uint64
+	Direction     types.PositionDirection
+	WorstPrice    sdk.Dec
 	IsLiquidation bool
-	Open          bool
-	Leverage      string
+	Effect        types.PositionEffect
+	Leverage      sdk.Dec
 }
 
 func (o *MarketOrder) FormattedCreatorWithSuffix() string {
-	var suffix string
-	if o.Open {
-		suffix = "o"
-	} else {
-		suffix = "c"
-	}
+	suffix := types.POSITION_EFFECT_TO_SUFFIX[o.Effect]
 	return fmt.Sprintf("%s%s%s%s%s", o.Creator, types.FORMATTED_ACCOUNT_DELIMITER, suffix, types.FORMATTED_ACCOUNT_DELIMITER, o.Leverage)
 }
 
 type CancelOrder struct {
-	Price    uint64
-	Creator  string
-	Long     bool
-	Quantity uint64
-	Open     bool
-	Leverage string
+	Price     sdk.Dec
+	Creator   string
+	Direction types.PositionDirection
+	Quantity  sdk.Dec
+	Effect    types.PositionEffect
+	Leverage  sdk.Dec
 }
 
 func (o *CancelOrder) FormattedCreatorWithSuffix() string {
-	var suffix string
-	if o.Open {
-		suffix = "o"
-	} else {
-		suffix = "c"
-	}
+	suffix := types.POSITION_EFFECT_TO_SUFFIX[o.Effect]
 	return fmt.Sprintf("%s%s%s%s%s", o.Creator, types.FORMATTED_ACCOUNT_DELIMITER, suffix, types.FORMATTED_ACCOUNT_DELIMITER, o.Leverage)
 }
 
@@ -93,9 +77,10 @@ type Orders struct {
 
 func (o *Orders) AddMarketOrder(order MarketOrder) {
 	idx := -1
-	if order.Long {
+	switch order.Direction {
+	case types.PositionDirection_LONG:
 		for i, existingOrder := range o.MarketBuys {
-			if existingOrder.WorstPrice < order.WorstPrice {
+			if existingOrder.WorstPrice.LT(order.WorstPrice) {
 				idx = i
 				break
 			}
@@ -106,9 +91,9 @@ func (o *Orders) AddMarketOrder(order MarketOrder) {
 			newMarketBuys[idx] = order
 		}
 		o.MarketBuys = newMarketBuys
-	} else {
+	case types.PositionDirection_SHORT:
 		for i, existingOrder := range o.MarketSells {
-			if existingOrder.WorstPrice > order.WorstPrice {
+			if existingOrder.WorstPrice.GT(order.WorstPrice) {
 				idx = i
 				break
 			}
@@ -119,22 +104,30 @@ func (o *Orders) AddMarketOrder(order MarketOrder) {
 			newMarketSells[idx] = order
 		}
 		o.MarketSells = newMarketSells
+	default:
+		panic("Unknown direction")
 	}
 }
 
 func (o *Orders) AddLimitOrder(order LimitOrder) {
-	if order.Long {
+	switch order.Direction {
+	case types.PositionDirection_LONG:
 		o.LimitBuys = append(o.LimitBuys, order)
-	} else {
+	case types.PositionDirection_SHORT:
 		o.LimitSells = append(o.LimitSells, order)
+	default:
+		panic("Unknown direction")
 	}
 }
 
 func (o *Orders) AddCancelOrder(order CancelOrder) {
-	if order.Long {
+	switch order.Direction {
+	case types.PositionDirection_LONG:
 		o.CancelBuys = append(o.CancelBuys, order)
-	} else {
+	case types.PositionDirection_SHORT:
 		o.CancelSells = append(o.CancelSells, order)
+	default:
+		panic("Unknown direction")
 	}
 }
 
@@ -161,17 +154,16 @@ func NewOrders() *Orders {
 }
 
 type OrderPlacement struct {
-	Id          uint64
-	Price       uint64
-	Quantity    uint64
-	Creator     string
-	Limit       bool
-	Long        bool
-	Open        bool
-	PriceDenom  string
-	AssetDenom  string
-	Leverage    string
-	Liquidation bool
+	Id         uint64
+	Price      sdk.Dec
+	Quantity   sdk.Dec
+	Creator    string
+	OrderType  types.OrderType
+	Direction  types.PositionDirection
+	Effect     types.PositionEffect
+	PriceDenom types.Denom
+	AssetDenom types.Denom
+	Leverage   sdk.Dec
 }
 
 type OrderPlacements struct {
@@ -188,40 +180,46 @@ func ToContractOrderPlacement(orderPlacement OrderPlacement) types.ContractOrder
 	return types.ContractOrderPlacement{
 		Id:                orderPlacement.Id,
 		Account:           orderPlacement.Creator,
-		PriceDenom:        orderPlacement.PriceDenom,
-		AssetDenom:        orderPlacement.AssetDenom,
-		Price:             strconv.FormatUint(orderPlacement.Price, 10),
-		Quantity:          strconv.FormatUint(orderPlacement.Quantity, 10),
-		OrderType:         types.GetOrderType(orderPlacement.Limit),
-		PositionDirection: types.GetPositionDirection(orderPlacement.Long),
-		PositionEffect:    types.GetPositionEffect(orderPlacement.Open),
+		PriceDenom:        types.GetContractDenomName(orderPlacement.PriceDenom),
+		AssetDenom:        types.GetContractDenomName(orderPlacement.AssetDenom),
+		Price:             orderPlacement.Price,
+		Quantity:          orderPlacement.Quantity,
+		OrderType:         types.GetContractOrderType(orderPlacement.OrderType),
+		PositionDirection: types.GetContractPositionDirection(orderPlacement.Direction),
+		PositionEffect:    types.GetContractPositionEffect(orderPlacement.Effect),
 		Leverage:          orderPlacement.Leverage,
 	}
 }
 
 func FromLiquidationOrder(liquidationOrder types.LiquidationOrder, orderId uint64) OrderPlacement {
-	quantity, err := strconv.ParseUint(liquidationOrder.Quantity, 10, 64)
+	var price sdk.Dec
+	var direction types.PositionDirection
+	if liquidationOrder.Long {
+		price = sdk.MaxSortableDec
+		direction = types.PositionDirection_LONG
+	} else {
+		price = sdk.ZeroDec()
+		direction = types.PositionDirection_SHORT
+	}
+	priceDenom, priceUnit, err := types.GetDenomFromStr(liquidationOrder.PriceDenom)
 	if err != nil {
 		panic(err)
 	}
-	var price uint64
-	if liquidationOrder.Long {
-		price = math.MaxUint64
-	} else {
-		price = 0
+	assetDenom, assetUnit, err := types.GetDenomFromStr(liquidationOrder.AssetDenom)
+	if err != nil {
+		panic(err)
 	}
 	return OrderPlacement{
-		Id:          orderId,
-		Price:       price,
-		Quantity:    quantity,
-		Creator:     liquidationOrder.Account,
-		Limit:       false,
-		Long:        liquidationOrder.Long,
-		Open:        false,
-		PriceDenom:  liquidationOrder.PriceDenom,
-		AssetDenom:  liquidationOrder.AssetDenom,
-		Leverage:    liquidationOrder.Leverage,
-		Liquidation: true,
+		Id:         orderId,
+		Price:      types.ConvertDecToStandard(priceUnit, price),
+		Quantity:   types.ConvertDecToStandard(assetUnit, liquidationOrder.Quantity),
+		Creator:    liquidationOrder.Account,
+		OrderType:  types.OrderType_LIQUIDATION,
+		Direction:  direction,
+		Effect:     types.PositionEffect_CLOSE,
+		PriceDenom: priceDenom,
+		AssetDenom: assetDenom,
+		Leverage:   liquidationOrder.Leverage,
 	}
 }
 
@@ -249,8 +247,8 @@ func (o *OrderPlacements) FilterOutIds(badIds []uint64) {
 
 type DepositInfoEntry struct {
 	Creator string
-	Denom   string
-	Amount  uint64
+	Denom   types.Denom
+	Amount  sdk.Dec
 }
 
 type DepositInfo struct {
@@ -266,20 +264,20 @@ func NewDepositInfo() *DepositInfo {
 func ToContractDepositInfo(depositInfo DepositInfoEntry) types.ContractDepositInfo {
 	return types.ContractDepositInfo{
 		Account: depositInfo.Creator,
-		Denom:   depositInfo.Denom,
-		Amount:  strconv.FormatUint(depositInfo.Amount, 10),
+		Denom:   types.GetContractDenomName(depositInfo.Denom),
+		Amount:  depositInfo.Amount,
 	}
 }
 
 type OrderCancellation struct {
-	Price      uint64
-	Quantity   uint64
+	Price      sdk.Dec
+	Quantity   sdk.Dec
 	Creator    string
-	Long       bool
-	Open       bool
-	PriceDenom string
-	AssetDenom string
-	Leverage   string
+	Direction  types.PositionDirection
+	Effect     types.PositionEffect
+	PriceDenom types.Denom
+	AssetDenom types.Denom
+	Leverage   sdk.Dec
 }
 
 type CancellationFromLiquidation struct {
@@ -301,12 +299,12 @@ func NewOrderCancellations() *OrderCancellations {
 func ToContractOrderCancellation(orderCancellation OrderCancellation) types.ContractOrderCancellation {
 	return types.ContractOrderCancellation{
 		Account:           orderCancellation.Creator,
-		PriceDenom:        orderCancellation.PriceDenom,
-		AssetDenom:        orderCancellation.AssetDenom,
-		Price:             strconv.FormatUint(orderCancellation.Price, 10),
-		Quantity:          strconv.FormatUint(orderCancellation.Quantity, 10),
-		PositionDirection: types.GetPositionDirection(orderCancellation.Long),
-		PositionEffect:    types.GetPositionEffect(orderCancellation.Open),
+		PriceDenom:        types.GetContractDenomName(orderCancellation.PriceDenom),
+		AssetDenom:        types.GetContractDenomName(orderCancellation.AssetDenom),
+		Price:             orderCancellation.Price,
+		Quantity:          orderCancellation.Quantity,
+		PositionDirection: types.GetContractPositionDirection(orderCancellation.Direction),
+		PositionEffect:    types.GetContractPositionEffect(orderCancellation.Effect),
 		Leverage:          orderCancellation.Leverage,
 	}
 }
@@ -325,4 +323,30 @@ func (o *OrderCancellations) UpdateForLiquidation(liquidatedAccounts []string) {
 			Creator: account,
 		})
 	}
+}
+
+type LiquidationRequest struct {
+	Requestor          string
+	AccountToLiquidate string
+}
+
+type LiquidationRequests []LiquidationRequest
+
+func (lrs *LiquidationRequests) IsAccountLiquidating(accountToLiquidate string) bool {
+	for _, lr := range *lrs {
+		if lr.AccountToLiquidate == accountToLiquidate {
+			return true
+		}
+	}
+	return false
+}
+
+func (lrs *LiquidationRequests) AddNewLiquidationRequest(requestor string, accountToLiquidate string) {
+	if lrs.IsAccountLiquidating(accountToLiquidate) {
+		return
+	}
+	*lrs = append(*lrs, LiquidationRequest{
+		Requestor:          requestor,
+		AccountToLiquidate: accountToLiquidate,
+	})
 }

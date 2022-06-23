@@ -3,6 +3,7 @@ package types_test
 import (
 	"testing"
 
+	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
 	"github.com/stretchr/testify/require"
 )
@@ -23,18 +24,18 @@ func TestGenesisState_Validate(t *testing.T) {
 			genState: &types.GenesisState{
 				LongBookList: []types.LongBook{
 					{
-						Id: 0,
+						Price: sdk.NewDec(0),
 					},
 					{
-						Id: 1,
+						Price: sdk.NewDec(1),
 					},
 				},
 				ShortBookList: []types.ShortBook{
 					{
-						Id: 0,
+						Price: sdk.NewDec(0),
 					},
 					{
-						Id: 1,
+						Price: sdk.NewDec(1),
 					},
 				},
 				// this line is used by starport scaffolding # types/genesis/validField
@@ -46,10 +47,10 @@ func TestGenesisState_Validate(t *testing.T) {
 			genState: &types.GenesisState{
 				LongBookList: []types.LongBook{
 					{
-						Id: 0,
+						Price: sdk.NewDec(0),
 					},
 					{
-						Id: 0,
+						Price: sdk.NewDec(0),
 					},
 				},
 			},
@@ -60,10 +61,10 @@ func TestGenesisState_Validate(t *testing.T) {
 			genState: &types.GenesisState{
 				ShortBookList: []types.ShortBook{
 					{
-						Id: 0,
+						Price: sdk.NewDec(0),
 					},
 					{
-						Id: 0,
+						Price: sdk.NewDec(0),
 					},
 				},
 			},

@@ -49,23 +49,25 @@ func GetKey(accountIdx uint64) cryptotypes.PrivKey {
 	return algo.Generate()(derivedPriv)
 }
 
-func SignTx(txBuilder *client.TxBuilder, privKey cryptotypes.PrivKey) {
+func SignTx(txBuilder *client.TxBuilder, privKey cryptotypes.PrivKey, seqDelta uint64) {
 	var sigsV2 []signing.SignatureV2
+	accountNum, seqNum := GetAccountNumberSequenceNumber(privKey)
+	seqNum += seqDelta
 	sigV2 := signing.SignatureV2{
 		PubKey: privKey.PubKey(),
 		Data: &signing.SingleSignatureData{
 			SignMode:  TEST_CONFIG.TxConfig.SignModeHandler().DefaultMode(),
 			Signature: nil,
 		},
-		Sequence: 0,
+		Sequence: seqNum,
 	}
 	sigsV2 = append(sigsV2, sigV2)
 	_ = (*txBuilder).SetSignatures(sigsV2...)
 	sigsV2 = []signing.SignatureV2{}
 	signerData := xauthsigning.SignerData{
 		ChainID:       CHAIN_ID,
-		AccountNumber: GetAccountNumber(privKey),
-		Sequence:      0,
+		AccountNumber: accountNum,
+		Sequence:      seqNum,
 	}
 	sigV2, _ = clienttx.SignWithPrivKey(
 		TEST_CONFIG.TxConfig.SignModeHandler().DefaultMode(),
@@ -73,13 +75,13 @@ func SignTx(txBuilder *client.TxBuilder, privKey cryptotypes.PrivKey) {
 		*txBuilder,
 		privKey,
 		TEST_CONFIG.TxConfig,
-		0,
+		seqNum,
 	)
 	sigsV2 = append(sigsV2, sigV2)
 	_ = (*txBuilder).SetSignatures(sigsV2...)
 }
 
-func GetAccountNumber(privKey cryptotypes.PrivKey) uint64 {
+func GetAccountNumberSequenceNumber(privKey cryptotypes.PrivKey) (uint64, uint64) {
 	hexAccount := privKey.PubKey().Address()
 	address, err := sdk.AccAddressFromHex(hexAccount.String())
 	if err != nil {
@@ -94,14 +96,14 @@ func GetAccountNumber(privKey cryptotypes.PrivKey) uint64 {
 	context = context.WithNodeURI(NODE_URI)
 	context = context.WithClient(cl)
 	context = context.WithInterfaceRegistry(TEST_CONFIG.InterfaceRegistry)
-	account, err := accountRetriever.GetAccount(context, address)
+	account, seq, err := accountRetriever.GetAccountNumberSequence(context, address)
 	if err != nil {
 		time.Sleep(5 * time.Second)
 		// retry once after 5 seconds
-		account, err = accountRetriever.GetAccount(context, address)
+		account, seq, err = accountRetriever.GetAccountNumberSequence(context, address)
 		if err != nil {
 			panic(err)
 		}
 	}
-	return account.GetAccountNumber()
+	return account, seq
 }

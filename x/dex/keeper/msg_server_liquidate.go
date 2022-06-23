@@ -11,9 +11,7 @@ func (k msgServer) Liquidate(goCtx context.Context, msg *types.MsgLiquidation) (
 	defer span.End()
 
 	liquidationRequestorToAccount := k.LiquidationRequests[msg.GetContractAddr()]
-	if _, ok := liquidationRequestorToAccount[msg.GetAccountToLiquidate()]; !ok {
-		liquidationRequestorToAccount[msg.GetAccountToLiquidate()] = msg.GetAccountToLiquidate()
-	}
+	liquidationRequestorToAccount.AddNewLiquidationRequest(msg.Creator, msg.AccountToLiquidate)
 
 	return &types.MsgLiquidationResponse{}, nil
 }

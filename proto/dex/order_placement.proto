@@ -1,15 +1,30 @@
 syntax = "proto3";
 package seiprotocol.seichain.dex;
 
+import "gogoproto/gogo.proto";
+import "dex/enums.proto";
+
 option go_package = "github.com/sei-protocol/sei-chain/x/dex/types";
 
 message OrderPlacement {
-    bool long = 1;
-    uint64 price = 2;
-    uint64 quantity = 3;
-    string priceDenom = 4;
-    string assetDenom = 5;
-    bool open = 6;
-    bool limit = 7;
-    string leverage = 8;
+    PositionDirection positionDirection = 1;
+    string price = 2 [
+        (gogoproto.moretags)   = "yaml:\"price\"",
+        (gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Dec",
+        (gogoproto.nullable)   = false
+    ];
+    string quantity = 3 [
+        (gogoproto.moretags)   = "yaml:\"quantity\"",
+        (gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Dec",
+        (gogoproto.nullable)   = false
+    ];
+    Denom priceDenom = 4;
+    Denom assetDenom = 5;
+    PositionEffect positionEffect = 6;
+    OrderType orderType = 7;
+    string leverage = 8 [
+        (gogoproto.moretags)   = "yaml:\"leverage\"",
+        (gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Dec",
+        (gogoproto.nullable)   = false
+    ];
 }

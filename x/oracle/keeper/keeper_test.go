@@ -2,7 +2,9 @@ package keeper
 
 import (
 	"bytes"
+	"fmt"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -18,6 +20,9 @@ import (
 func TestExchangeRate(t *testing.T) {
 	input := CreateTestInput(t)
 
+	params := input.OracleKeeper.GetParams(input.Ctx)
+	fmt.Println(params.VotePeriod)
+
 	cnyExchangeRate := sdk.NewDecWithPrec(839, int64(OracleDecPrecision)).MulInt64(utils.MicroUnit)
 	gbpExchangeRate := sdk.NewDecWithPrec(4995, int64(OracleDecPrecision)).MulInt64(utils.MicroUnit)
 	krwExchangeRate := sdk.NewDecWithPrec(2838, int64(OracleDecPrecision)).MulInt64(utils.MicroUnit)
@@ -25,30 +30,44 @@ func TestExchangeRate(t *testing.T) {
 
 	// Set & get rates
 	input.OracleKeeper.SetBaseExchangeRate(input.Ctx, utils.MicroSeiDenom, cnyExchangeRate)
-	rate, err := input.OracleKeeper.GetBaseExchangeRate(input.Ctx, utils.MicroSeiDenom)
+	rate, lastUpdate, err := input.OracleKeeper.GetBaseExchangeRate(input.Ctx, utils.MicroSeiDenom)
 	require.NoError(t, err)
 	require.Equal(t, cnyExchangeRate, rate)
+	require.Equal(t, sdk.ZeroInt(), lastUpdate)
+
+	input.Ctx = input.Ctx.WithBlockHeight(3)
+
+	rate, lastUpdate, _ = input.OracleKeeper.GetBaseExchangeRate(input.Ctx, utils.MicroBaseDenom)
+	require.Equal(t, sdk.OneDec(), rate)
+	// because we haven't reached end of a vote period, we should return 0
+	require.Equal(t, sdk.ZeroInt(), lastUpdate)
 
 	input.OracleKeeper.SetBaseExchangeRate(input.Ctx, utils.MicroEthDenom, gbpExchangeRate)
-	rate, err = input.OracleKeeper.GetBaseExchangeRate(input.Ctx, utils.MicroEthDenom)
+	rate, lastUpdate, err = input.OracleKeeper.GetBaseExchangeRate(input.Ctx, utils.MicroEthDenom)
 	require.NoError(t, err)
 	require.Equal(t, gbpExchangeRate, rate)
+	require.Equal(t, sdk.NewInt(3), lastUpdate)
+
+	input.Ctx = input.Ctx.WithBlockHeight(15)
 
 	input.OracleKeeper.SetBaseExchangeRate(input.Ctx, utils.MicroAtomDenom, krwExchangeRate)
-	rate, err = input.OracleKeeper.GetBaseExchangeRate(input.Ctx, utils.MicroAtomDenom)
+	rate, lastUpdate, err = input.OracleKeeper.GetBaseExchangeRate(input.Ctx, utils.MicroAtomDenom)
 	require.NoError(t, err)
 	require.Equal(t, krwExchangeRate, rate)
+	require.Equal(t, sdk.NewInt(15), lastUpdate)
 
 	input.OracleKeeper.SetBaseExchangeRate(input.Ctx, utils.MicroBaseDenom, lunaExchangeRate)
-	rate, _ = input.OracleKeeper.GetBaseExchangeRate(input.Ctx, utils.MicroBaseDenom)
+	rate, lastUpdate, _ = input.OracleKeeper.GetBaseExchangeRate(input.Ctx, utils.MicroBaseDenom)
 	require.Equal(t, sdk.OneDec(), rate)
+	// with votePeriod == 10 blocks, the last end of vote period is 9
+	require.Equal(t, sdk.NewInt(9), lastUpdate)
 
 	input.OracleKeeper.DeleteBaseExchangeRate(input.Ctx, utils.MicroAtomDenom)
-	_, err = input.OracleKeeper.GetBaseExchangeRate(input.Ctx, utils.MicroAtomDenom)
+	_, _, err = input.OracleKeeper.GetBaseExchangeRate(input.Ctx, utils.MicroAtomDenom)
 	require.Error(t, err)
 
 	numExchangeRates := 0
-	handler := func(denom string, exchangeRate sdk.Dec) (stop bool) {
+	handler := func(denom string, exchangeRate types.OracleExchangeRate) (stop bool) {
 		numExchangeRates = numExchangeRates + 1
 		return false
 	}
@@ -71,16 +90,16 @@ func TestIterateLunaExchangeRates(t *testing.T) {
 	input.OracleKeeper.SetBaseExchangeRate(input.Ctx, utils.MicroAtomDenom, krwExchangeRate)
 	input.OracleKeeper.SetBaseExchangeRate(input.Ctx, utils.MicroBaseDenom, lunaExchangeRate)
 
-	input.OracleKeeper.IterateBaseExchangeRates(input.Ctx, func(denom string, rate sdk.Dec) (stop bool) {
+	input.OracleKeeper.IterateBaseExchangeRates(input.Ctx, func(denom string, rate types.OracleExchangeRate) (stop bool) {
 		switch denom {
 		case utils.MicroSeiDenom:
-			require.Equal(t, cnyExchangeRate, rate)
+			require.Equal(t, cnyExchangeRate, rate.ExchangeRate)
 		case utils.MicroEthDenom:
-			require.Equal(t, gbpExchangeRate, rate)
+			require.Equal(t, gbpExchangeRate, rate.ExchangeRate)
 		case utils.MicroAtomDenom:
-			require.Equal(t, krwExchangeRate, rate)
+			require.Equal(t, krwExchangeRate, rate.ExchangeRate)
 		case utils.MicroBaseDenom:
-			require.Equal(t, lunaExchangeRate, rate)
+			require.Equal(t, lunaExchangeRate, rate.ExchangeRate)
 		}
 		return false
 	})
@@ -173,45 +192,62 @@ func TestIterateFeederDelegations(t *testing.T) {
 	require.Equal(t, Addrs[1], delegates[0])
 }
 
-func TestMissCounter(t *testing.T) {
+func TestVotePenaltyCounter(t *testing.T) {
 	input := CreateTestInput(t)
 
 	// Test default getters and setters
-	counter := input.OracleKeeper.GetMissCounter(input.Ctx, ValAddrs[0])
-	require.Equal(t, uint64(0), counter)
+	counter := input.OracleKeeper.GetVotePenaltyCounter(input.Ctx, ValAddrs[0])
+	require.Equal(t, uint64(0), counter.MissCount)
+	require.Equal(t, uint64(0), counter.AbstainCount)
+	require.Equal(t, uint64(0), input.OracleKeeper.GetMissCount(input.Ctx, ValAddrs[0]))
+	require.Equal(t, uint64(0), input.OracleKeeper.GetAbstainCount(input.Ctx, ValAddrs[0]))
 
 	missCounter := uint64(10)
-	input.OracleKeeper.SetMissCounter(input.Ctx, ValAddrs[0], missCounter)
-	counter = input.OracleKeeper.GetMissCounter(input.Ctx, ValAddrs[0])
-	require.Equal(t, missCounter, counter)
+	input.OracleKeeper.SetVotePenaltyCounter(input.Ctx, ValAddrs[0], missCounter, 0)
+	counter = input.OracleKeeper.GetVotePenaltyCounter(input.Ctx, ValAddrs[0])
+	require.Equal(t, missCounter, counter.MissCount)
+	require.Equal(t, uint64(0), counter.AbstainCount)
+	require.Equal(t, missCounter, input.OracleKeeper.GetMissCount(input.Ctx, ValAddrs[0]))
+	require.Equal(t, uint64(0), input.OracleKeeper.GetAbstainCount(input.Ctx, ValAddrs[0]))
 
-	input.OracleKeeper.DeleteMissCounter(input.Ctx, ValAddrs[0])
-	counter = input.OracleKeeper.GetMissCounter(input.Ctx, ValAddrs[0])
-	require.Equal(t, uint64(0), counter)
+	input.OracleKeeper.SetVotePenaltyCounter(input.Ctx, ValAddrs[0], missCounter, missCounter)
+	counter = input.OracleKeeper.GetVotePenaltyCounter(input.Ctx, ValAddrs[0])
+	require.Equal(t, missCounter, counter.MissCount)
+	require.Equal(t, missCounter, counter.AbstainCount)
+	require.Equal(t, missCounter, input.OracleKeeper.GetMissCount(input.Ctx, ValAddrs[0]))
+	require.Equal(t, missCounter, input.OracleKeeper.GetAbstainCount(input.Ctx, ValAddrs[0]))
+
+	input.OracleKeeper.DeleteVotePenaltyCounter(input.Ctx, ValAddrs[0])
+	counter = input.OracleKeeper.GetVotePenaltyCounter(input.Ctx, ValAddrs[0])
+	require.Equal(t, uint64(0), counter.MissCount)
+	require.Equal(t, uint64(0), counter.AbstainCount)
+	require.Equal(t, uint64(0), input.OracleKeeper.GetMissCount(input.Ctx, ValAddrs[0]))
+	require.Equal(t, uint64(0), input.OracleKeeper.GetAbstainCount(input.Ctx, ValAddrs[0]))
 }
 
 func TestIterateMissCounters(t *testing.T) {
 	input := CreateTestInput(t)
 
 	// Test default getters and setters
-	counter := input.OracleKeeper.GetMissCounter(input.Ctx, ValAddrs[0])
-	require.Equal(t, uint64(0), counter)
+	counter := input.OracleKeeper.GetVotePenaltyCounter(input.Ctx, ValAddrs[0])
+	require.Equal(t, uint64(0), counter.MissCount)
+	require.Equal(t, uint64(0), counter.MissCount)
 
 	missCounter := uint64(10)
-	input.OracleKeeper.SetMissCounter(input.Ctx, ValAddrs[1], missCounter)
+	input.OracleKeeper.SetVotePenaltyCounter(input.Ctx, ValAddrs[1], missCounter, missCounter)
 
 	var operators []sdk.ValAddress
-	var missCounters []uint64
-	input.OracleKeeper.IterateMissCounters(input.Ctx, func(delegator sdk.ValAddress, missCounter uint64) (stop bool) {
+	var votePenaltyCounters types.VotePenaltyCounters
+	input.OracleKeeper.IterateVotePenaltyCounters(input.Ctx, func(delegator sdk.ValAddress, votePenaltyCounter types.VotePenaltyCounter) (stop bool) {
 		operators = append(operators, delegator)
-		missCounters = append(missCounters, missCounter)
+		votePenaltyCounters = append(votePenaltyCounters, votePenaltyCounter)
 		return false
 	})
 
 	require.Equal(t, 1, len(operators))
-	require.Equal(t, 1, len(missCounters))
+	require.Equal(t, 1, len(votePenaltyCounters))
 	require.Equal(t, ValAddrs[1], operators[0])
-	require.Equal(t, missCounter, missCounters[0])
+	require.Equal(t, missCounter, votePenaltyCounters[0].MissCount)
 }
 
 func TestAggregatePrevoteAddDelete(t *testing.T) {
@@ -374,4 +410,281 @@ func TestValidateFeeder(t *testing.T) {
 	validator.Status = stakingtypes.Unbonded
 	input.StakingKeeper.SetValidator(input.Ctx, validator)
 	require.Error(t, input.OracleKeeper.ValidateFeeder(input.Ctx, sdk.AccAddress(addr1), sdk.ValAddress(addr)))
+}
+
+func TestPriceSnapshotGetSet(t *testing.T) {
+	input := CreateTestInput(t)
+
+	priceSnapshots := types.PriceSnapshots{
+		types.NewPriceSnapshot(types.PriceSnapshotItems{
+			types.NewPriceSnapshotItem(utils.MicroEthDenom, types.OracleExchangeRate{
+				ExchangeRate: sdk.NewDec(11),
+				LastUpdate:   sdk.NewInt(20),
+			}),
+			types.NewPriceSnapshotItem(utils.MicroAtomDenom, types.OracleExchangeRate{
+				ExchangeRate: sdk.NewDec(12),
+				LastUpdate:   sdk.NewInt(20),
+			}),
+		}, 1),
+		types.NewPriceSnapshot(types.PriceSnapshotItems{
+			types.NewPriceSnapshotItem(utils.MicroEthDenom, types.OracleExchangeRate{
+				ExchangeRate: sdk.NewDec(21),
+				LastUpdate:   sdk.NewInt(30),
+			}),
+			types.NewPriceSnapshotItem(utils.MicroAtomDenom, types.OracleExchangeRate{
+				ExchangeRate: sdk.NewDec(22),
+				LastUpdate:   sdk.NewInt(30),
+			}),
+		}, 2),
+	}
+
+	input.OracleKeeper.SetPriceSnapshot(input.Ctx, priceSnapshots[0])
+	input.OracleKeeper.SetPriceSnapshot(input.Ctx, priceSnapshots[1])
+
+	snapshot := input.OracleKeeper.GetPriceSnapshot(input.Ctx, 1)
+	require.Equal(t, priceSnapshots[0], snapshot)
+
+	snapshot = input.OracleKeeper.GetPriceSnapshot(input.Ctx, 2)
+	require.Equal(t, priceSnapshots[1], snapshot)
+}
+
+func TestPriceSnapshotAdd(t *testing.T) {
+	input := CreateTestInput(t)
+
+	input.Ctx = input.Ctx.WithBlockTime(time.Unix(3500, 0))
+	priceSnapshots := types.PriceSnapshots{
+		types.NewPriceSnapshot(types.PriceSnapshotItems{
+			types.NewPriceSnapshotItem(utils.MicroEthDenom, types.OracleExchangeRate{
+				ExchangeRate: sdk.NewDec(11),
+				LastUpdate:   sdk.NewInt(20),
+			}),
+			types.NewPriceSnapshotItem(utils.MicroAtomDenom, types.OracleExchangeRate{
+				ExchangeRate: sdk.NewDec(12),
+				LastUpdate:   sdk.NewInt(20),
+			}),
+		}, 50),
+		types.NewPriceSnapshot(types.PriceSnapshotItems{
+			types.NewPriceSnapshotItem(utils.MicroEthDenom, types.OracleExchangeRate{
+				ExchangeRate: sdk.NewDec(21),
+				LastUpdate:   sdk.NewInt(30),
+			}),
+			types.NewPriceSnapshotItem(utils.MicroAtomDenom, types.OracleExchangeRate{
+				ExchangeRate: sdk.NewDec(22),
+				LastUpdate:   sdk.NewInt(30),
+			}),
+		}, 100),
+	}
+	expectedSnapshots := priceSnapshots
+
+	for i := range priceSnapshots {
+		input.OracleKeeper.AddPriceSnapshot(input.Ctx, priceSnapshots[i])
+	}
+	totalSnapshots := 0
+	input.OracleKeeper.IteratePriceSnapshots(input.Ctx, func(snapshot types.PriceSnapshot) (stop bool) {
+		// assert that all the timestamps are correct
+		require.Equal(t, expectedSnapshots[totalSnapshots], snapshot)
+		totalSnapshots++
+		return false
+	})
+	require.Equal(t, 2, totalSnapshots)
+
+	input.Ctx = input.Ctx.WithBlockTime(time.Unix(3660, 0))
+
+	newSnapshot := types.NewPriceSnapshot(
+		types.PriceSnapshotItems{
+			types.NewPriceSnapshotItem(utils.MicroEthDenom, types.OracleExchangeRate{
+				ExchangeRate: sdk.NewDec(31),
+				LastUpdate:   sdk.NewInt(40),
+			}),
+			types.NewPriceSnapshotItem(utils.MicroAtomDenom, types.OracleExchangeRate{
+				ExchangeRate: sdk.NewDec(32),
+				LastUpdate:   sdk.NewInt(40),
+			}),
+		},
+		3660,
+	)
+
+	input.OracleKeeper.AddPriceSnapshot(input.Ctx, newSnapshot)
+
+	expectedSnapshots = append(expectedSnapshots, newSnapshot)
+
+	totalSnapshots = 0
+	input.OracleKeeper.IteratePriceSnapshots(input.Ctx, func(snapshot types.PriceSnapshot) (stop bool) {
+		// assert that all the timestamps are correct
+		require.Equal(t, expectedSnapshots[totalSnapshots], snapshot)
+		totalSnapshots++
+		return false
+	})
+	require.Equal(t, 3, totalSnapshots)
+
+	// test iterate
+	expectedTimestamps := []int64{50, 100, 3660}
+	input.OracleKeeper.IteratePriceSnapshots(input.Ctx, func(snapshot types.PriceSnapshot) (stop bool) {
+		// assert that all the timestamps are correct
+		require.Equal(t, expectedTimestamps[0], snapshot.SnapshotTimestamp)
+		expectedTimestamps = expectedTimestamps[1:]
+		return false
+	})
+
+	// test iterate reverse
+	expectedTimestampsReverse := []int64{3660, 100, 50}
+	input.OracleKeeper.IteratePriceSnapshotsReverse(input.Ctx, func(snapshot types.PriceSnapshot) (stop bool) {
+		// assert that all the timestamps are correct
+		require.Equal(t, expectedTimestampsReverse[0], snapshot.SnapshotTimestamp)
+		expectedTimestampsReverse = expectedTimestampsReverse[1:]
+		return false
+	})
+
+	input.Ctx = input.Ctx.WithBlockTime(time.Unix(10000, 0))
+
+	newSnapshot2 := types.NewPriceSnapshot(
+		types.PriceSnapshotItems{
+			types.NewPriceSnapshotItem(utils.MicroEthDenom, types.OracleExchangeRate{
+				ExchangeRate: sdk.NewDec(41),
+				LastUpdate:   sdk.NewInt(50),
+			}),
+			types.NewPriceSnapshotItem(utils.MicroAtomDenom, types.OracleExchangeRate{
+				ExchangeRate: sdk.NewDec(42),
+				LastUpdate:   sdk.NewInt(50),
+			}),
+		},
+		10000,
+	)
+	input.OracleKeeper.AddPriceSnapshot(input.Ctx, newSnapshot2)
+
+	expectedSnapshots = append(expectedSnapshots, newSnapshot2)
+	expectedSnapshots = expectedSnapshots[2:]
+	expectedTimestamps = []int64{3660, 10000}
+
+	totalSnapshots = 0
+	input.OracleKeeper.IteratePriceSnapshots(input.Ctx, func(snapshot types.PriceSnapshot) (stop bool) {
+		// assert that all the timestamps are correct
+		require.Equal(t, expectedSnapshots[totalSnapshots], snapshot)
+		require.Equal(t, expectedTimestamps[totalSnapshots], snapshot.SnapshotTimestamp)
+		totalSnapshots++
+		return false
+	})
+	require.Equal(t, 2, totalSnapshots)
+}
+
+func TestCalculateTwaps(t *testing.T) {
+	input := CreateTestInput(t)
+
+	_, err := input.OracleKeeper.CalculateTwaps(input.Ctx, 3600)
+	require.Error(t, err)
+	require.Equal(t, types.ErrNoTwapData, err)
+
+	priceSnapshots := types.PriceSnapshots{
+		types.NewPriceSnapshot(types.PriceSnapshotItems{
+			types.NewPriceSnapshotItem(utils.MicroAtomDenom, types.OracleExchangeRate{
+				ExchangeRate: sdk.NewDec(40),
+				LastUpdate:   sdk.NewInt(1800),
+			}),
+		}, 1200),
+		types.NewPriceSnapshot(types.PriceSnapshotItems{
+			types.NewPriceSnapshotItem(utils.MicroEthDenom, types.OracleExchangeRate{
+				ExchangeRate: sdk.NewDec(10),
+				LastUpdate:   sdk.NewInt(3600),
+			}),
+			types.NewPriceSnapshotItem(utils.MicroAtomDenom, types.OracleExchangeRate{
+				ExchangeRate: sdk.NewDec(20),
+				LastUpdate:   sdk.NewInt(3600),
+			}),
+		}, 3600),
+		types.NewPriceSnapshot(types.PriceSnapshotItems{
+			types.NewPriceSnapshotItem(utils.MicroEthDenom, types.OracleExchangeRate{
+				ExchangeRate: sdk.NewDec(20),
+				LastUpdate:   sdk.NewInt(4500),
+			}),
+			types.NewPriceSnapshotItem(utils.MicroAtomDenom, types.OracleExchangeRate{
+				ExchangeRate: sdk.NewDec(40),
+				LastUpdate:   sdk.NewInt(4500),
+			}),
+		}, 4500),
+	}
+	for _, snap := range priceSnapshots {
+		input.OracleKeeper.SetPriceSnapshot(input.Ctx, snap)
+	}
+	input.Ctx = input.Ctx.WithBlockTime(time.Unix(5400, 0))
+	twaps, err := input.OracleKeeper.CalculateTwaps(input.Ctx, 3600)
+	require.NoError(t, err)
+	require.Equal(t, 2, len(twaps))
+	atomTwap := twaps[0]
+	ethTwap := twaps[1]
+	require.Equal(t, utils.MicroAtomDenom, atomTwap.Denom)
+	require.Equal(t, int64(3600), atomTwap.LookbackSeconds)
+	require.Equal(t, sdk.NewDec(35), atomTwap.Twap)
+
+	require.Equal(t, utils.MicroEthDenom, ethTwap.Denom)
+	// we expect each to have a lookback of 1800 instead of 3600 because the first interval data is missing
+	require.Equal(t, int64(1800), ethTwap.LookbackSeconds)
+	require.Equal(t, sdk.NewDec(15), ethTwap.Twap)
+
+	input.Ctx = input.Ctx.WithBlockTime(time.Unix(6000, 0))
+
+	// we still expect the out of range data point from 1200 to be kept for calculating TWAP for the full interval
+	input.OracleKeeper.AddPriceSnapshot(input.Ctx, types.NewPriceSnapshot(types.PriceSnapshotItems{
+		types.NewPriceSnapshotItem(utils.MicroAtomDenom, types.OracleExchangeRate{
+			ExchangeRate: sdk.NewDec(30),
+			LastUpdate:   sdk.NewInt(6000),
+		}),
+	}, 6000))
+
+	input.Ctx = input.Ctx.WithBlockTime(time.Unix(6600, 0))
+
+	twaps, err = input.OracleKeeper.CalculateTwaps(input.Ctx, 3600)
+	require.NoError(t, err)
+	require.Equal(t, 2, len(twaps))
+	atomTwap = twaps[0]
+	ethTwap = twaps[1]
+	require.Equal(t, utils.MicroAtomDenom, atomTwap.Denom)
+	require.Equal(t, int64(3600), atomTwap.LookbackSeconds)
+
+	expectedTwap, _ := sdk.NewDecFromStr("33.333333333333333333")
+	require.Equal(t, expectedTwap, atomTwap.Twap)
+
+	// microeth is included even though its not in the latest snapshot because its in one of the intermediate ones
+	require.Equal(t, utils.MicroEthDenom, ethTwap.Denom)
+	// we expect each to have a lookback of 3000 instead of 3600 because the first interval data is missing
+	require.Equal(t, int64(3000), ethTwap.LookbackSeconds)
+	require.Equal(t, sdk.NewDec(17), ethTwap.Twap)
+
+	// test with shorter lookback
+	// microeth is not in this one because it's not in the snapshot used for TWAP calculation
+	twaps, err = input.OracleKeeper.CalculateTwaps(input.Ctx, 300)
+	require.NoError(t, err)
+	require.Equal(t, 1, len(twaps))
+	atomTwap = twaps[0]
+	require.Equal(t, utils.MicroAtomDenom, atomTwap.Denom)
+	require.Equal(t, int64(300), atomTwap.LookbackSeconds)
+	require.Equal(t, sdk.NewDec(30), atomTwap.Twap)
+
+	input.OracleKeeper.AddPriceSnapshot(input.Ctx, types.NewPriceSnapshot(types.PriceSnapshotItems{
+		types.NewPriceSnapshotItem(utils.MicroAtomDenom, types.OracleExchangeRate{
+			ExchangeRate: sdk.NewDec(20),
+			LastUpdate:   sdk.NewInt(6000),
+		}),
+	}, 6600))
+
+	input.Ctx = input.Ctx.WithBlockTime(time.Unix(6900, 0))
+
+	// the older interval weight should be appropriately shorted to the start of the lookback interval,
+	// so the TWAP should be 25 instead of 26.666 because the 20 and 30 are weighted 50-50 instead of 33.3-66.6
+	twaps, err = input.OracleKeeper.CalculateTwaps(input.Ctx, 600)
+	require.NoError(t, err)
+	require.Equal(t, 1, len(twaps))
+	atomTwap = twaps[0]
+	require.Equal(t, utils.MicroAtomDenom, atomTwap.Denom)
+	require.Equal(t, int64(600), atomTwap.LookbackSeconds)
+	require.Equal(t, sdk.NewDec(25), atomTwap.Twap)
+
+	// test error when lookback too large
+	twaps, err = input.OracleKeeper.CalculateTwaps(input.Ctx, 3700)
+	require.Error(t, err)
+	require.Equal(t, types.ErrInvalidTwapLookback, err)
+
+	// test error when lookback is negative
+	twaps, err = input.OracleKeeper.CalculateTwaps(input.Ctx, -10)
+	require.Error(t, err)
+	require.Equal(t, types.ErrInvalidTwapLookback, err)
 }

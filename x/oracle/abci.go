@@ -33,7 +33,7 @@ func EndBlocker(ctx sdk.Context, k keeper.Keeper) {
 			// Exclude not bonded validator
 			if validator.IsBonded() {
 				valAddr := validator.GetOperator()
-				validatorClaimMap[valAddr.String()] = types.NewClaim(validator.GetConsensusPower(powerReduction), 0, 0, valAddr)
+				validatorClaimMap[valAddr.String()] = types.NewClaim(validator.GetConsensusPower(powerReduction), 0, 0, 0, valAddr)
 				i++
 			}
 		}
@@ -43,13 +43,6 @@ func EndBlocker(ctx sdk.Context, k keeper.Keeper) {
 		k.IterateVoteTargets(ctx, func(denom string, denomInfo types.Denom) bool {
 			voteTargets[denom] = denomInfo
 			totalTargets++
-			return false
-		})
-
-		// Clear all exchange rates
-		k.IterateBaseExchangeRates(ctx, func(denom string, _ sdk.Dec) (stop bool) {
-			// TODO: replace this with an indicator of staleness
-			// k.DeleteBaseExchangeRate(ctx, denom)
 			return false
 		})
 
@@ -103,15 +96,20 @@ func EndBlocker(ctx sdk.Context, k keeper.Keeper) {
 		//---------------------------
 		// Do miss counting & slashing
 		for _, claim := range validatorClaimMap {
-			// Skip abstain & valid voters
 			// we require validator to have submitted in-range data
 			// for all assets to not be counted as a miss
 			if int(claim.WinCount) == totalTargets {
 				continue
 			}
 
+			if int(claim.WinCount+claim.AbstainCount) == totalTargets {
+				// if win count + abstain count == total targets then we increment abstain count instead of miss count
+				k.IncrementAbstainCount(ctx, claim.Recipient)
+				continue
+			}
+
 			// Increase miss counter
-			k.SetMissCounter(ctx, claim.Recipient, k.GetMissCounter(ctx, claim.Recipient)+1)
+			k.IncrementMissCount(ctx, claim.Recipient)
 		}
 
 		// Clear the ballot
@@ -119,11 +117,28 @@ func EndBlocker(ctx sdk.Context, k keeper.Keeper) {
 
 		// Update vote targets
 		k.ApplyWhitelist(ctx, params.Whitelist, voteTargets)
+
+		priceSnapshotItems := []types.PriceSnapshotItem{}
+		k.IterateBaseExchangeRates(ctx, func(denom string, exchangeRate types.OracleExchangeRate) bool {
+			priceSnapshotItem := types.PriceSnapshotItem{
+				Denom:              denom,
+				OracleExchangeRate: exchangeRate,
+			}
+			priceSnapshotItems = append(priceSnapshotItems, priceSnapshotItem)
+			return false
+		})
+		if len(priceSnapshotItems) > 0 {
+			priceSnapshot := types.PriceSnapshot{
+				SnapshotTimestamp:  ctx.BlockTime().Unix(),
+				PriceSnapshotItems: priceSnapshotItems,
+			}
+			k.AddPriceSnapshot(ctx, priceSnapshot)
+		}
 	}
 
 	// Do slash who did miss voting over threshold and
 	// reset miss counters of all validators at the last block of slash window
 	if utils.IsPeriodLastBlock(ctx, params.SlashWindow) {
-		k.SlashAndResetMissCounters(ctx)
+		k.SlashAndResetCounters(ctx)
 	}
 }

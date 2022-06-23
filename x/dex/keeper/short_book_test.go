@@ -13,20 +13,20 @@ import (
 
 const (
 	TEST_CONTRACT    = "tc"
-	TEST_PRICE_DENOM = "ust"
-	TEST_ASSET_DENOM = "luna"
+	TEST_PRICE_DENOM = types.Denom_USDC
+	TEST_ASSET_DENOM = types.Denom_ATOM
 )
 
 func createNShortBook(keeper *keeper.Keeper, ctx sdk.Context, n int) []types.ShortBook {
 	items := make([]types.ShortBook, n)
 	for i := range items {
 		items[i].Entry = &types.OrderEntry{
-			Price:      uint64(i),
-			Quantity:   uint64(i),
+			Price:      sdk.NewDec(int64(i)),
+			Quantity:   sdk.NewDec(int64(i)),
 			PriceDenom: TEST_PRICE_DENOM,
 			AssetDenom: TEST_ASSET_DENOM,
 		}
-		items[i].Id = uint64(i)
+		items[i].Price = sdk.NewDec(int64(i))
 		keeper.SetShortBook(ctx, TEST_CONTRACT, items[i])
 	}
 	return items
@@ -36,7 +36,7 @@ func TestShortBookGet(t *testing.T) {
 	keeper, ctx := keepertest.DexKeeper(t)
 	items := createNShortBook(keeper, ctx, 10)
 	for i, item := range items {
-		got, found := keeper.GetShortBookByPrice(ctx, TEST_CONTRACT, uint64(i), TEST_PRICE_DENOM, TEST_ASSET_DENOM)
+		got, found := keeper.GetShortBookByPrice(ctx, TEST_CONTRACT, sdk.NewDec(int64(i)), TEST_PRICE_DENOM, TEST_ASSET_DENOM)
 		require.True(t, found)
 		require.Equal(t,
 			nullify.Fill(&item),
@@ -49,8 +49,8 @@ func TestShortBookRemove(t *testing.T) {
 	keeper, ctx := keepertest.DexKeeper(t)
 	items := createNShortBook(keeper, ctx, 10)
 	for i := range items {
-		keeper.RemoveShortBookByPrice(ctx, TEST_CONTRACT, uint64(i), TEST_PRICE_DENOM, TEST_ASSET_DENOM)
-		_, found := keeper.GetShortBookByPrice(ctx, TEST_CONTRACT, uint64(i), TEST_PRICE_DENOM, TEST_ASSET_DENOM)
+		keeper.RemoveShortBookByPrice(ctx, TEST_CONTRACT, sdk.NewDec(int64(i)), TEST_PRICE_DENOM, TEST_ASSET_DENOM)
+		_, found := keeper.GetShortBookByPrice(ctx, TEST_CONTRACT, sdk.NewDec(int64(i)), TEST_PRICE_DENOM, TEST_ASSET_DENOM)
 		require.False(t, found)
 	}
 }

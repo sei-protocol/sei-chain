@@ -5,4 +5,14 @@ const (
 	CLOSE_ORDER_CREATOR_SUFFIX = "c"
 )
 
+var SUFFIX_TO_POSITION_EFFECT = map[string]PositionEffect{
+	OPEN_ORDER_CREATOR_SUFFIX:  PositionEffect_OPEN,
+	CLOSE_ORDER_CREATOR_SUFFIX: PositionEffect_CLOSE,
+}
+
+var POSITION_EFFECT_TO_SUFFIX = map[PositionEffect]string{
+	PositionEffect_OPEN:  OPEN_ORDER_CREATOR_SUFFIX,
+	PositionEffect_CLOSE: CLOSE_ORDER_CREATOR_SUFFIX,
+}
+
 const FORMATTED_ACCOUNT_DELIMITER = "|"

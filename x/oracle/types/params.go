@@ -20,6 +20,7 @@ var (
 	KeySlashFraction     = []byte("SlashFraction")
 	KeySlashWindow       = []byte("SlashWindow")
 	KeyMinValidPerWindow = []byte("MinValidPerWindow")
+	KeyLookbackDuration  = []byte("LookbackDuration")
 )
 
 // Default parameter values
@@ -38,6 +39,7 @@ var (
 	}
 	DefaultSlashFraction     = sdk.NewDecWithPrec(1, 4) // 0.01%
 	DefaultMinValidPerWindow = sdk.NewDecWithPrec(5, 2) // 5%
+	DefaultLookbackDuration  = int64(3600)              // in seconds
 )
 
 var _ paramstypes.ParamSet = &Params{}
@@ -52,6 +54,7 @@ func DefaultParams() Params {
 		SlashFraction:     DefaultSlashFraction,
 		SlashWindow:       DefaultSlashWindow,
 		MinValidPerWindow: DefaultMinValidPerWindow,
+		LookbackDuration:  DefaultLookbackDuration,
 	}
 }
 
@@ -71,6 +74,7 @@ func (p *Params) ParamSetPairs() paramstypes.ParamSetPairs {
 		paramstypes.NewParamSetPair(KeySlashFraction, &p.SlashFraction, validateSlashFraction),
 		paramstypes.NewParamSetPair(KeySlashWindow, &p.SlashWindow, validateSlashWindow),
 		paramstypes.NewParamSetPair(KeyMinValidPerWindow, &p.MinValidPerWindow, validateMinValidPerWindow),
+		paramstypes.NewParamSetPair(KeyLookbackDuration, &p.LookbackDuration, validateLookbackDuration),
 	}
 }
 
@@ -217,6 +221,15 @@ func validateMinValidPerWindow(i interface{}) error {
 
 	if v.GT(sdk.OneDec()) {
 		return fmt.Errorf("min valid per window is too large: %s", v)
+	}
+
+	return nil
+}
+
+func validateLookbackDuration(i interface{}) error {
+	_, ok := i.(int64)
+	if !ok {
+		return fmt.Errorf("invalid parameter type: %T", i)
 	}
 
 	return nil

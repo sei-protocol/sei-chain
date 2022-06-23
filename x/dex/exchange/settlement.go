@@ -1,81 +1,95 @@
 package exchange
 
 import (
+	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
 )
 
 type ToSettle struct {
 	creator string
-	amount  uint64
+	amount  sdk.Dec
 }
 
 func Settle(
 	taker string,
-	quantityTaken uint64,
+	quantityTaken sdk.Dec,
 	order types.OrderBook,
-	takerLong bool,
-	worstPrice uint64,
-) []*types.Settlement {
-	settlements := []*types.Settlement{}
-	order.GetEntry().Quantity -= quantityTaken
+	takerDirection types.PositionDirection,
+	worstPrice sdk.Dec,
+	takerOrderType types.OrderType,
+) ([]*types.Settlement, []*types.Settlement) {
+	// settlement of one liquidity taker's order is allocated to all liquidity
+	// providers at the matched price level, propotional to the amount of liquidity
+	// provided by each LP.
+	takerSettlements := []*types.Settlement{}
+	makerSettlements := []*types.Settlement{}
+	order.GetEntry().Quantity = order.GetEntry().Quantity.Sub(quantityTaken)
 	newAllocations := RebalanceAllocations(order)
 	newToSettle := []ToSettle{}
-	nonZeroNewAllocations := []uint64{}
+	nonZeroNewAllocations := []sdk.Dec{}
 	nonZeroNewCreators := []string{}
 	for i := 0; i < len(order.GetEntry().Allocation); i++ {
 		creator := order.GetEntry().AllocationCreator[i]
 		newToSettle = append(newToSettle, ToSettle{
-			amount:  order.GetEntry().Allocation[i] - newAllocations[creator],
+			amount:  order.GetEntry().Allocation[i].Sub(newAllocations[creator]),
 			creator: creator,
 		})
-		if newAllocations[creator] > 0 {
+		if newAllocations[creator].IsPositive() {
 			nonZeroNewAllocations = append(nonZeroNewAllocations, newAllocations[creator])
 			nonZeroNewCreators = append(nonZeroNewCreators, creator)
 		}
 	}
 	order.GetEntry().Allocation = nonZeroNewAllocations
 	order.GetEntry().AllocationCreator = nonZeroNewCreators
-	avgPrice := (worstPrice + order.GetEntry().Price) / 2
 	for _, toSettle := range newToSettle {
-		settlements = append(settlements, types.NewSettlement(
+		takerSettlements = append(takerSettlements, types.NewSettlement(
 			taker,
-			takerLong,
+			takerDirection,
 			order.GetEntry().GetPriceDenom(),
 			order.GetEntry().GetAssetDenom(),
 			toSettle.amount,
-			avgPrice,
 			worstPrice,
-		), types.NewSettlement(
+			worstPrice,
+			takerOrderType,
+		))
+		makerSettlements = append(makerSettlements, types.NewSettlement(
 			toSettle.creator,
-			!takerLong,
+			types.OPPOSITE_POSITION_DIRECTION[takerDirection],
 			order.GetEntry().GetPriceDenom(),
 			order.GetEntry().GetAssetDenom(),
 			toSettle.amount,
-			avgPrice,
 			order.GetEntry().Price,
+			order.GetEntry().Price,
+			types.OrderType_LIMIT,
 		))
 	}
-	return settlements
+	return takerSettlements, makerSettlements
 }
 
 func SettleFromBook(
 	longOrder types.OrderBook,
 	shortOrder types.OrderBook,
-	executedQuantity uint64,
+	executedQuantity sdk.Dec,
 ) []*types.Settlement {
+	// settlement from within the order book is also allocated to all liquidity
+	// providers at the matched price level on both sides, propotional to the
+	// amount of liquidity provided by each LP.
 	settlements := []*types.Settlement{}
-	longOrder.GetEntry().Quantity -= executedQuantity
-	shortOrder.GetEntry().Quantity -= executedQuantity
+	longOrder.GetEntry().Quantity = longOrder.GetEntry().Quantity.Sub(executedQuantity)
+	shortOrder.GetEntry().Quantity = shortOrder.GetEntry().Quantity.Sub(executedQuantity)
 	newLongAllocations := RebalanceAllocations(longOrder)
 	newShortAllocations := RebalanceAllocations(shortOrder)
 	newLongToSettle := []ToSettle{}
 	newShortToSettle := []ToSettle{}
-	nonZeroNewLongAllocations, nonZeroNewShortAllocations := []uint64{}, []uint64{}
+	nonZeroNewLongAllocations, nonZeroNewShortAllocations := []sdk.Dec{}, []sdk.Dec{}
 	nonZeroNewLongCreators, nonZeroNewShortCreators := []string{}, []string{}
 	for i := 0; i < len(longOrder.GetEntry().Allocation); i++ {
 		creator := longOrder.GetEntry().AllocationCreator[i]
-		newLongToSettle = append(newLongToSettle, ToSettle{amount: longOrder.GetEntry().Allocation[i] - newLongAllocations[creator], creator: creator})
-		if newLongAllocations[creator] > 0 {
+		newLongToSettle = append(newLongToSettle, ToSettle{
+			amount:  longOrder.GetEntry().Allocation[i].Sub(newLongAllocations[creator]),
+			creator: creator,
+		})
+		if newLongAllocations[creator].IsPositive() {
 			nonZeroNewLongAllocations = append(nonZeroNewLongAllocations, newLongAllocations[creator])
 			nonZeroNewLongCreators = append(nonZeroNewLongCreators, creator)
 		}
@@ -84,8 +98,11 @@ func SettleFromBook(
 	longOrder.GetEntry().AllocationCreator = nonZeroNewLongCreators
 	for i := 0; i < len(shortOrder.GetEntry().Allocation); i++ {
 		creator := shortOrder.GetEntry().AllocationCreator[i]
-		newShortToSettle = append(newShortToSettle, ToSettle{amount: shortOrder.GetEntry().Allocation[i] - newShortAllocations[creator], creator: creator})
-		if newShortAllocations[creator] > 0 {
+		newShortToSettle = append(newShortToSettle, ToSettle{
+			amount:  shortOrder.GetEntry().Allocation[i].Sub(newShortAllocations[creator]),
+			creator: creator,
+		})
+		if newShortAllocations[creator].IsPositive() {
 			nonZeroNewShortAllocations = append(nonZeroNewShortAllocations, newShortAllocations[creator])
 			nonZeroNewShortCreators = append(nonZeroNewShortCreators, creator)
 		}
@@ -93,39 +110,41 @@ func SettleFromBook(
 	shortOrder.GetEntry().Allocation = nonZeroNewShortAllocations
 	shortOrder.GetEntry().AllocationCreator = nonZeroNewShortCreators
 	longPtr, shortPtr := 0, 0
-	avgPrice := (longOrder.GetEntry().Price + shortOrder.GetEntry().Price) / 2
+	avgPrice := longOrder.GetPrice().Add(shortOrder.GetPrice()).Quo(sdk.NewDec(2))
 	for longPtr < len(newLongToSettle) && shortPtr < len(newShortToSettle) {
 		longToSettle := newLongToSettle[longPtr]
 		shortToSettle := newShortToSettle[shortPtr]
-		var quantity uint64
-		if longToSettle.amount < shortToSettle.amount {
+		var quantity sdk.Dec
+		if longToSettle.amount.LT(shortToSettle.amount) {
 			quantity = longToSettle.amount
 		} else {
 			quantity = shortToSettle.amount
 		}
 		settlements = append(settlements, types.NewSettlement(
 			longToSettle.creator,
-			true,
+			types.PositionDirection_LONG,
 			longOrder.GetEntry().PriceDenom,
 			longOrder.GetEntry().AssetDenom,
 			quantity,
 			avgPrice,
-			longOrder.GetEntry().Price,
+			longOrder.GetPrice(),
+			types.OrderType_LIMIT,
 		), types.NewSettlement(
 			shortToSettle.creator,
-			false,
+			types.PositionDirection_SHORT,
 			shortOrder.GetEntry().PriceDenom,
 			shortOrder.GetEntry().AssetDenom,
 			quantity,
 			avgPrice,
-			shortOrder.GetEntry().Price,
+			shortOrder.GetPrice(),
+			types.OrderType_LIMIT,
 		))
-		newLongToSettle[longPtr] = ToSettle{creator: longToSettle.creator, amount: longToSettle.amount - quantity}
-		newShortToSettle[shortPtr] = ToSettle{creator: shortToSettle.creator, amount: shortToSettle.amount - quantity}
-		if newLongToSettle[longPtr].amount == 0 {
+		newLongToSettle[longPtr] = ToSettle{creator: longToSettle.creator, amount: longToSettle.amount.Sub(quantity)}
+		newShortToSettle[shortPtr] = ToSettle{creator: shortToSettle.creator, amount: shortToSettle.amount.Sub(quantity)}
+		if newLongToSettle[longPtr].amount.IsZero() {
 			longPtr++
 		}
-		if newShortToSettle[shortPtr].amount == 0 {
+		if newShortToSettle[shortPtr].amount.IsZero() {
 			shortPtr++
 		}
 	}

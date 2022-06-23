@@ -11,28 +11,30 @@ import (
 
 var _ = strconv.Itoa(0)
 
-func CmdGetTwap() *cobra.Command {
+func CmdGetTwaps() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "get-twap [price-denom] [asset-denom]",
-		Short: "Query getTwap",
+		Use:   "get-twaps [contract-address] [lookback]",
+		Short: "Query getPrice",
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) (err error) {
-			reqPriceDenom := args[0]
-			reqAssetDenom := args[1]
+			reqContractAddr := args[0]
+			reqLookback, err := strconv.ParseUint(args[1], 10, 64)
+			if err != nil {
+				return err
+			}
 
 			clientCtx, err := client.GetClientTxContext(cmd)
 			if err != nil {
 				return err
 			}
-
 			queryClient := types.NewQueryClient(clientCtx)
 
-			params := &types.QueryGetTwapRequest{
-				PriceDenom: reqPriceDenom,
-				AssetDenom: reqAssetDenom,
+			params := &types.QueryGetTwapsRequest{
+				ContractAddr:    reqContractAddr,
+				LookbackSeconds: reqLookback,
 			}
 
-			res, err := queryClient.GetTwap(cmd.Context(), params)
+			res, err := queryClient.GetTwaps(cmd.Context(), params)
 			if err != nil {
 				return err
 			}

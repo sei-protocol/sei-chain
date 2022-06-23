@@ -114,10 +114,10 @@ func (m *QueryParamsResponse) GetParams() Params {
 }
 
 type QueryGetLongBookRequest struct {
-	Id           uint64 `protobuf:"varint,1,opt,name=id,proto3" json:"id,omitempty"`
+	Price        string `protobuf:"bytes,1,opt,name=price,proto3" json:"price,omitempty"`
 	ContractAddr string `protobuf:"bytes,2,opt,name=contractAddr,proto3" json:"contractAddr,omitempty"`
-	PriceDenom   string `protobuf:"bytes,3,opt,name=priceDenom,proto3" json:"priceDenom,omitempty"`
-	AssetDenom   string `protobuf:"bytes,4,opt,name=assetDenom,proto3" json:"assetDenom,omitempty"`
+	PriceDenom   Denom  `protobuf:"varint,3,opt,name=priceDenom,proto3,enum=seiprotocol.seichain.dex.Denom" json:"priceDenom,omitempty"`
+	AssetDenom   Denom  `protobuf:"varint,4,opt,name=assetDenom,proto3,enum=seiprotocol.seichain.dex.Denom" json:"assetDenom,omitempty"`
 }
 
 func (m *QueryGetLongBookRequest) Reset()         { *m = QueryGetLongBookRequest{} }
@@ -153,11 +153,11 @@ func (m *QueryGetLongBookRequest) XXX_DiscardUnknown() {
 
 var xxx_messageInfo_QueryGetLongBookRequest proto.InternalMessageInfo
 
-func (m *QueryGetLongBookRequest) GetId() uint64 {
+func (m *QueryGetLongBookRequest) GetPrice() string {
 	if m != nil {
-		return m.Id
+		return m.Price
 	}
-	return 0
+	return ""
 }
 
 func (m *QueryGetLongBookRequest) GetContractAddr() string {
@@ -167,18 +167,18 @@ func (m *QueryGetLongBookRequest) GetContractAddr() string {
 	return ""
 }
 
-func (m *QueryGetLongBookRequest) GetPriceDenom() string {
+func (m *QueryGetLongBookRequest) GetPriceDenom() Denom {
 	if m != nil {
 		return m.PriceDenom
 	}
-	return ""
+	return Denom_SEI
 }
 
-func (m *QueryGetLongBookRequest) GetAssetDenom() string {
+func (m *QueryGetLongBookRequest) GetAssetDenom() Denom {
 	if m != nil {
 		return m.AssetDenom
 	}
-	return ""
+	return Denom_SEI
 }
 
 type QueryGetLongBookResponse struct {
@@ -226,7 +226,10 @@ func (m *QueryGetLongBookResponse) GetLongBook() LongBook {
 }
 
 type QueryAllLongBookRequest struct {
-	Pagination *query.PageRequest `protobuf:"bytes,1,opt,name=pagination,proto3" json:"pagination,omitempty"`
+	Pagination   *query.PageRequest `protobuf:"bytes,1,opt,name=pagination,proto3" json:"pagination,omitempty"`
+	ContractAddr string             `protobuf:"bytes,2,opt,name=contractAddr,proto3" json:"contractAddr,omitempty"`
+	PriceDenom   Denom              `protobuf:"varint,3,opt,name=priceDenom,proto3,enum=seiprotocol.seichain.dex.Denom" json:"priceDenom,omitempty"`
+	AssetDenom   Denom              `protobuf:"varint,4,opt,name=assetDenom,proto3,enum=seiprotocol.seichain.dex.Denom" json:"assetDenom,omitempty"`
 }
 
 func (m *QueryAllLongBookRequest) Reset()         { *m = QueryAllLongBookRequest{} }
@@ -267,6 +270,27 @@ func (m *QueryAllLongBookRequest) GetPagination() *query.PageRequest {
 		return m.Pagination
 	}
 	return nil
+}
+
+func (m *QueryAllLongBookRequest) GetContractAddr() string {
+	if m != nil {
+		return m.ContractAddr
+	}
+	return ""
+}
+
+func (m *QueryAllLongBookRequest) GetPriceDenom() Denom {
+	if m != nil {
+		return m.PriceDenom
+	}
+	return Denom_SEI
+}
+
+func (m *QueryAllLongBookRequest) GetAssetDenom() Denom {
+	if m != nil {
+		return m.AssetDenom
+	}
+	return Denom_SEI
 }
 
 type QueryAllLongBookResponse struct {
@@ -322,10 +346,10 @@ func (m *QueryAllLongBookResponse) GetPagination() *query.PageResponse {
 }
 
 type QueryGetShortBookRequest struct {
-	Id           uint64 `protobuf:"varint,1,opt,name=id,proto3" json:"id,omitempty"`
+	Price        string `protobuf:"bytes,1,opt,name=price,proto3" json:"price,omitempty"`
 	ContractAddr string `protobuf:"bytes,2,opt,name=contractAddr,proto3" json:"contractAddr,omitempty"`
-	PriceDenom   string `protobuf:"bytes,3,opt,name=priceDenom,proto3" json:"priceDenom,omitempty"`
-	AssetDenom   string `protobuf:"bytes,4,opt,name=assetDenom,proto3" json:"assetDenom,omitempty"`
+	PriceDenom   Denom  `protobuf:"varint,3,opt,name=priceDenom,proto3,enum=seiprotocol.seichain.dex.Denom" json:"priceDenom,omitempty"`
+	AssetDenom   Denom  `protobuf:"varint,4,opt,name=assetDenom,proto3,enum=seiprotocol.seichain.dex.Denom" json:"assetDenom,omitempty"`
 }
 
 func (m *QueryGetShortBookRequest) Reset()         { *m = QueryGetShortBookRequest{} }
@@ -361,11 +385,11 @@ func (m *QueryGetShortBookRequest) XXX_DiscardUnknown() {
 
 var xxx_messageInfo_QueryGetShortBookRequest proto.InternalMessageInfo
 
-func (m *QueryGetShortBookRequest) GetId() uint64 {
+func (m *QueryGetShortBookRequest) GetPrice() string {
 	if m != nil {
-		return m.Id
+		return m.Price
 	}
-	return 0
+	return ""
 }
 
 func (m *QueryGetShortBookRequest) GetContractAddr() string {
@@ -375,18 +399,18 @@ func (m *QueryGetShortBookRequest) GetContractAddr() string {
 	return ""
 }
 
-func (m *QueryGetShortBookRequest) GetPriceDenom() string {
+func (m *QueryGetShortBookRequest) GetPriceDenom() Denom {
 	if m != nil {
 		return m.PriceDenom
 	}
-	return ""
+	return Denom_SEI
 }
 
-func (m *QueryGetShortBookRequest) GetAssetDenom() string {
+func (m *QueryGetShortBookRequest) GetAssetDenom() Denom {
 	if m != nil {
 		return m.AssetDenom
 	}
-	return ""
+	return Denom_SEI
 }
 
 type QueryGetShortBookResponse struct {
@@ -434,7 +458,10 @@ func (m *QueryGetShortBookResponse) GetShortBook() ShortBook {
 }
 
 type QueryAllShortBookRequest struct {
-	Pagination *query.PageRequest `protobuf:"bytes,1,opt,name=pagination,proto3" json:"pagination,omitempty"`
+	Pagination   *query.PageRequest `protobuf:"bytes,1,opt,name=pagination,proto3" json:"pagination,omitempty"`
+	ContractAddr string             `protobuf:"bytes,2,opt,name=contractAddr,proto3" json:"contractAddr,omitempty"`
+	PriceDenom   Denom              `protobuf:"varint,3,opt,name=priceDenom,proto3,enum=seiprotocol.seichain.dex.Denom" json:"priceDenom,omitempty"`
+	AssetDenom   Denom              `protobuf:"varint,4,opt,name=assetDenom,proto3,enum=seiprotocol.seichain.dex.Denom" json:"assetDenom,omitempty"`
 }
 
 func (m *QueryAllShortBookRequest) Reset()         { *m = QueryAllShortBookRequest{} }
@@ -475,6 +502,27 @@ func (m *QueryAllShortBookRequest) GetPagination() *query.PageRequest {
 		return m.Pagination
 	}
 	return nil
+}
+
+func (m *QueryAllShortBookRequest) GetContractAddr() string {
+	if m != nil {
+		return m.ContractAddr
+	}
+	return ""
+}
+
+func (m *QueryAllShortBookRequest) GetPriceDenom() Denom {
+	if m != nil {
+		return m.PriceDenom
+	}
+	return Denom_SEI
+}
+
+func (m *QueryAllShortBookRequest) GetAssetDenom() Denom {
+	if m != nil {
+		return m.AssetDenom
+	}
+	return Denom_SEI
 }
 
 type QueryAllShortBookResponse struct {
@@ -532,8 +580,8 @@ func (m *QueryAllShortBookResponse) GetPagination() *query.PageResponse {
 type QueryGetSettlementsRequest struct {
 	ContractAddr string `protobuf:"bytes,1,opt,name=contractAddr,proto3" json:"contractAddr,omitempty"`
 	BlockHeight  uint64 `protobuf:"varint,2,opt,name=blockHeight,proto3" json:"blockHeight,omitempty"`
-	PriceDenom   string `protobuf:"bytes,3,opt,name=priceDenom,proto3" json:"priceDenom,omitempty"`
-	AssetDenom   string `protobuf:"bytes,4,opt,name=assetDenom,proto3" json:"assetDenom,omitempty"`
+	PriceDenom   Denom  `protobuf:"varint,3,opt,name=priceDenom,proto3,enum=seiprotocol.seichain.dex.Denom" json:"priceDenom,omitempty"`
+	AssetDenom   Denom  `protobuf:"varint,4,opt,name=assetDenom,proto3,enum=seiprotocol.seichain.dex.Denom" json:"assetDenom,omitempty"`
 }
 
 func (m *QueryGetSettlementsRequest) Reset()         { *m = QueryGetSettlementsRequest{} }
@@ -583,18 +631,18 @@ func (m *QueryGetSettlementsRequest) GetBlockHeight() uint64 {
 	return 0
 }
 
-func (m *QueryGetSettlementsRequest) GetPriceDenom() string {
+func (m *QueryGetSettlementsRequest) GetPriceDenom() Denom {
 	if m != nil {
 		return m.PriceDenom
 	}
-	return ""
+	return Denom_SEI
 }
 
-func (m *QueryGetSettlementsRequest) GetAssetDenom() string {
+func (m *QueryGetSettlementsRequest) GetAssetDenom() Denom {
 	if m != nil {
 		return m.AssetDenom
 	}
-	return ""
+	return Denom_SEI
 }
 
 type QueryGetSettlementsResponse struct {
@@ -737,24 +785,24 @@ func (m *QueryAllSettlementsResponse) GetPagination() *query.PageResponse {
 	return nil
 }
 
-type QueryGetTwapRequest struct {
-	PriceDenom   string `protobuf:"bytes,1,opt,name=priceDenom,proto3" json:"priceDenom,omitempty"`
-	AssetDenom   string `protobuf:"bytes,2,opt,name=assetDenom,proto3" json:"assetDenom,omitempty"`
+type QueryGetPricesRequest struct {
+	PriceDenom   Denom  `protobuf:"varint,1,opt,name=priceDenom,proto3,enum=seiprotocol.seichain.dex.Denom" json:"priceDenom,omitempty"`
+	AssetDenom   Denom  `protobuf:"varint,2,opt,name=assetDenom,proto3,enum=seiprotocol.seichain.dex.Denom" json:"assetDenom,omitempty"`
 	ContractAddr string `protobuf:"bytes,3,opt,name=contractAddr,proto3" json:"contractAddr,omitempty"`
 }
 
-func (m *QueryGetTwapRequest) Reset()         { *m = QueryGetTwapRequest{} }
-func (m *QueryGetTwapRequest) String() string { return proto.CompactTextString(m) }
-func (*QueryGetTwapRequest) ProtoMessage()    {}
-func (*QueryGetTwapRequest) Descriptor() ([]byte, []int) {
+func (m *QueryGetPricesRequest) Reset()         { *m = QueryGetPricesRequest{} }
+func (m *QueryGetPricesRequest) String() string { return proto.CompactTextString(m) }
+func (*QueryGetPricesRequest) ProtoMessage()    {}
+func (*QueryGetPricesRequest) Descriptor() ([]byte, []int) {
 	return fileDescriptor_d8e98105e6e08a59, []int{14}
 }
-func (m *QueryGetTwapRequest) XXX_Unmarshal(b []byte) error {
+func (m *QueryGetPricesRequest) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
 }
-func (m *QueryGetTwapRequest) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+func (m *QueryGetPricesRequest) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
 	if deterministic {
-		return xxx_messageInfo_QueryGetTwapRequest.Marshal(b, m, deterministic)
+		return xxx_messageInfo_QueryGetPricesRequest.Marshal(b, m, deterministic)
 	} else {
 		b = b[:cap(b)]
 		n, err := m.MarshalToSizedBuffer(b)
@@ -764,55 +812,55 @@ func (m *QueryGetTwapRequest) XXX_Marshal(b []byte, deterministic bool) ([]byte,
 		return b[:n], nil
 	}
 }
-func (m *QueryGetTwapRequest) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_QueryGetTwapRequest.Merge(m, src)
+func (m *QueryGetPricesRequest) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_QueryGetPricesRequest.Merge(m, src)
 }
-func (m *QueryGetTwapRequest) XXX_Size() int {
+func (m *QueryGetPricesRequest) XXX_Size() int {
 	return m.Size()
 }
-func (m *QueryGetTwapRequest) XXX_DiscardUnknown() {
-	xxx_messageInfo_QueryGetTwapRequest.DiscardUnknown(m)
+func (m *QueryGetPricesRequest) XXX_DiscardUnknown() {
+	xxx_messageInfo_QueryGetPricesRequest.DiscardUnknown(m)
 }
 
-var xxx_messageInfo_QueryGetTwapRequest proto.InternalMessageInfo
+var xxx_messageInfo_QueryGetPricesRequest proto.InternalMessageInfo
 
-func (m *QueryGetTwapRequest) GetPriceDenom() string {
+func (m *QueryGetPricesRequest) GetPriceDenom() Denom {
 	if m != nil {
 		return m.PriceDenom
 	}
-	return ""
+	return Denom_SEI
 }
 
-func (m *QueryGetTwapRequest) GetAssetDenom() string {
+func (m *QueryGetPricesRequest) GetAssetDenom() Denom {
 	if m != nil {
 		return m.AssetDenom
 	}
-	return ""
+	return Denom_SEI
 }
 
-func (m *QueryGetTwapRequest) GetContractAddr() string {
+func (m *QueryGetPricesRequest) GetContractAddr() string {
 	if m != nil {
 		return m.ContractAddr
 	}
 	return ""
 }
 
-type QueryGetTwapResponse struct {
-	Twaps *Twap `protobuf:"bytes,1,opt,name=twaps,proto3" json:"twaps,omitempty"`
+type QueryGetPricesResponse struct {
+	Prices []*Price `protobuf:"bytes,1,rep,name=prices,proto3" json:"prices,omitempty"`
 }
 
-func (m *QueryGetTwapResponse) Reset()         { *m = QueryGetTwapResponse{} }
-func (m *QueryGetTwapResponse) String() string { return proto.CompactTextString(m) }
-func (*QueryGetTwapResponse) ProtoMessage()    {}
-func (*QueryGetTwapResponse) Descriptor() ([]byte, []int) {
+func (m *QueryGetPricesResponse) Reset()         { *m = QueryGetPricesResponse{} }
+func (m *QueryGetPricesResponse) String() string { return proto.CompactTextString(m) }
+func (*QueryGetPricesResponse) ProtoMessage()    {}
+func (*QueryGetPricesResponse) Descriptor() ([]byte, []int) {
 	return fileDescriptor_d8e98105e6e08a59, []int{15}
 }
-func (m *QueryGetTwapResponse) XXX_Unmarshal(b []byte) error {
+func (m *QueryGetPricesResponse) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
 }
-func (m *QueryGetTwapResponse) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+func (m *QueryGetPricesResponse) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
 	if deterministic {
-		return xxx_messageInfo_QueryGetTwapResponse.Marshal(b, m, deterministic)
+		return xxx_messageInfo_QueryGetPricesResponse.Marshal(b, m, deterministic)
 	} else {
 		b = b[:cap(b)]
 		n, err := m.MarshalToSizedBuffer(b)
@@ -822,19 +870,115 @@ func (m *QueryGetTwapResponse) XXX_Marshal(b []byte, deterministic bool) ([]byte
 		return b[:n], nil
 	}
 }
-func (m *QueryGetTwapResponse) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_QueryGetTwapResponse.Merge(m, src)
+func (m *QueryGetPricesResponse) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_QueryGetPricesResponse.Merge(m, src)
 }
-func (m *QueryGetTwapResponse) XXX_Size() int {
+func (m *QueryGetPricesResponse) XXX_Size() int {
 	return m.Size()
 }
-func (m *QueryGetTwapResponse) XXX_DiscardUnknown() {
-	xxx_messageInfo_QueryGetTwapResponse.DiscardUnknown(m)
+func (m *QueryGetPricesResponse) XXX_DiscardUnknown() {
+	xxx_messageInfo_QueryGetPricesResponse.DiscardUnknown(m)
 }
 
-var xxx_messageInfo_QueryGetTwapResponse proto.InternalMessageInfo
+var xxx_messageInfo_QueryGetPricesResponse proto.InternalMessageInfo
 
-func (m *QueryGetTwapResponse) GetTwaps() *Twap {
+func (m *QueryGetPricesResponse) GetPrices() []*Price {
+	if m != nil {
+		return m.Prices
+	}
+	return nil
+}
+
+type QueryGetTwapsRequest struct {
+	ContractAddr    string `protobuf:"bytes,1,opt,name=contractAddr,proto3" json:"contractAddr,omitempty"`
+	LookbackSeconds uint64 `protobuf:"varint,2,opt,name=lookbackSeconds,proto3" json:"lookbackSeconds,omitempty"`
+}
+
+func (m *QueryGetTwapsRequest) Reset()         { *m = QueryGetTwapsRequest{} }
+func (m *QueryGetTwapsRequest) String() string { return proto.CompactTextString(m) }
+func (*QueryGetTwapsRequest) ProtoMessage()    {}
+func (*QueryGetTwapsRequest) Descriptor() ([]byte, []int) {
+	return fileDescriptor_d8e98105e6e08a59, []int{16}
+}
+func (m *QueryGetTwapsRequest) XXX_Unmarshal(b []byte) error {
+	return m.Unmarshal(b)
+}
+func (m *QueryGetTwapsRequest) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	if deterministic {
+		return xxx_messageInfo_QueryGetTwapsRequest.Marshal(b, m, deterministic)
+	} else {
+		b = b[:cap(b)]
+		n, err := m.MarshalToSizedBuffer(b)
+		if err != nil {
+			return nil, err
+		}
+		return b[:n], nil
+	}
+}
+func (m *QueryGetTwapsRequest) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_QueryGetTwapsRequest.Merge(m, src)
+}
+func (m *QueryGetTwapsRequest) XXX_Size() int {
+	return m.Size()
+}
+func (m *QueryGetTwapsRequest) XXX_DiscardUnknown() {
+	xxx_messageInfo_QueryGetTwapsRequest.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_QueryGetTwapsRequest proto.InternalMessageInfo
+
+func (m *QueryGetTwapsRequest) GetContractAddr() string {
+	if m != nil {
+		return m.ContractAddr
+	}
+	return ""
+}
+
+func (m *QueryGetTwapsRequest) GetLookbackSeconds() uint64 {
+	if m != nil {
+		return m.LookbackSeconds
+	}
+	return 0
+}
+
+type QueryGetTwapsResponse struct {
+	Twaps []*Twap `protobuf:"bytes,1,rep,name=twaps,proto3" json:"twaps,omitempty"`
+}
+
+func (m *QueryGetTwapsResponse) Reset()         { *m = QueryGetTwapsResponse{} }
+func (m *QueryGetTwapsResponse) String() string { return proto.CompactTextString(m) }
+func (*QueryGetTwapsResponse) ProtoMessage()    {}
+func (*QueryGetTwapsResponse) Descriptor() ([]byte, []int) {
+	return fileDescriptor_d8e98105e6e08a59, []int{17}
+}
+func (m *QueryGetTwapsResponse) XXX_Unmarshal(b []byte) error {
+	return m.Unmarshal(b)
+}
+func (m *QueryGetTwapsResponse) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	if deterministic {
+		return xxx_messageInfo_QueryGetTwapsResponse.Marshal(b, m, deterministic)
+	} else {
+		b = b[:cap(b)]
+		n, err := m.MarshalToSizedBuffer(b)
+		if err != nil {
+			return nil, err
+		}
+		return b[:n], nil
+	}
+}
+func (m *QueryGetTwapsResponse) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_QueryGetTwapsResponse.Merge(m, src)
+}
+func (m *QueryGetTwapsResponse) XXX_Size() int {
+	return m.Size()
+}
+func (m *QueryGetTwapsResponse) XXX_DiscardUnknown() {
+	xxx_messageInfo_QueryGetTwapsResponse.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_QueryGetTwapsResponse proto.InternalMessageInfo
+
+func (m *QueryGetTwapsResponse) GetTwaps() []*Twap {
 	if m != nil {
 		return m.Twaps
 	}
@@ -856,71 +1000,81 @@ func init() {
 	proto.RegisterType((*QueryGetSettlementsResponse)(nil), "seiprotocol.seichain.dex.QueryGetSettlementsResponse")
 	proto.RegisterType((*QueryAllSettlementsRequest)(nil), "seiprotocol.seichain.dex.QueryAllSettlementsRequest")
 	proto.RegisterType((*QueryAllSettlementsResponse)(nil), "seiprotocol.seichain.dex.QueryAllSettlementsResponse")
-	proto.RegisterType((*QueryGetTwapRequest)(nil), "seiprotocol.seichain.dex.QueryGetTwapRequest")
-	proto.RegisterType((*QueryGetTwapResponse)(nil), "seiprotocol.seichain.dex.QueryGetTwapResponse")
+	proto.RegisterType((*QueryGetPricesRequest)(nil), "seiprotocol.seichain.dex.QueryGetPricesRequest")
+	proto.RegisterType((*QueryGetPricesResponse)(nil), "seiprotocol.seichain.dex.QueryGetPricesResponse")
+	proto.RegisterType((*QueryGetTwapsRequest)(nil), "seiprotocol.seichain.dex.QueryGetTwapsRequest")
+	proto.RegisterType((*QueryGetTwapsResponse)(nil), "seiprotocol.seichain.dex.QueryGetTwapsResponse")
 }
 
 func init() { proto.RegisterFile("dex/query.proto", fileDescriptor_d8e98105e6e08a59) }
 
 var fileDescriptor_d8e98105e6e08a59 = []byte{
-	// 904 bytes of a gzipped FileDescriptorProto
-	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0xc4, 0x56, 0xcf, 0x4f, 0xe3, 0x46,
-	0x14, 0xce, 0x24, 0x81, 0x96, 0x09, 0xa2, 0xd5, 0x10, 0xa9, 0xa9, 0x5b, 0xb9, 0xa9, 0x29, 0x3f,
-	0x4b, 0x6c, 0x25, 0xd0, 0x63, 0x5b, 0x81, 0x68, 0xd3, 0x03, 0x95, 0x68, 0xda, 0x5e, 0x7a, 0xa1,
-	0x8e, 0x3d, 0x72, 0x2c, 0x1c, 0x8f, 0x89, 0x87, 0x02, 0x42, 0x5c, 0x7a, 0x6f, 0x85, 0xb4, 0xc7,
-	0xbd, 0xa1, 0xd5, 0x6a, 0x57, 0xda, 0xd5, 0x9e, 0xf6, 0x7f, 0xe0, 0x88, 0xb4, 0x97, 0x3d, 0xad,
-	0x56, 0xb0, 0x7f, 0xc8, 0xca, 0xe3, 0xf1, 0xaf, 0x38, 0x3f, 0x21, 0xd2, 0xde, 0x92, 0x37, 0xf3,
-	0xcd, 0xfb, 0xbe, 0xef, 0x3d, 0xbd, 0x67, 0xf8, 0x89, 0x8e, 0x4f, 0x94, 0xc3, 0x23, 0xdc, 0x39,
-	0x95, 0x9d, 0x0e, 0xa1, 0x04, 0x95, 0x5c, 0x6c, 0xb2, 0x5f, 0x1a, 0xb1, 0x64, 0x17, 0x9b, 0x5a,
-	0x4b, 0x35, 0x6d, 0x59, 0xc7, 0x27, 0x42, 0xd1, 0x20, 0x06, 0x61, 0x47, 0x8a, 0xf7, 0xcb, 0xbf,
-	0x2f, 0x7c, 0x69, 0x10, 0x62, 0x58, 0x58, 0x51, 0x1d, 0x53, 0x51, 0x6d, 0x9b, 0x50, 0x95, 0x9a,
-	0xc4, 0x76, 0xf9, 0xe9, 0x9a, 0x46, 0xdc, 0x36, 0x71, 0x95, 0xa6, 0xea, 0x62, 0x3f, 0x8d, 0xf2,
-	0x4f, 0xb5, 0x89, 0xa9, 0x5a, 0x55, 0x1c, 0xd5, 0x30, 0x6d, 0x76, 0x99, 0xdf, 0xfd, 0xd4, 0xa3,
-	0xe2, 0xa8, 0x1d, 0xb5, 0x1d, 0xa0, 0xe7, 0xbd, 0x88, 0x45, 0x6c, 0x63, 0xbf, 0x49, 0xc8, 0x01,
-	0x0f, 0x16, 0xbd, 0xa0, 0xdb, 0x22, 0x1d, 0x9a, 0x8e, 0x62, 0x4a, 0x2d, 0xdc, 0xc6, 0x36, 0xe5,
-	0xd1, 0x39, 0x2f, 0x4a, 0x8f, 0x55, 0xc7, 0xff, 0x2f, 0x15, 0x21, 0xfa, 0xcd, 0x23, 0xb1, 0xc7,
-	0xb2, 0x34, 0xf0, 0xe1, 0x11, 0x76, 0xa9, 0xf4, 0x27, 0x9c, 0x4f, 0x44, 0x5d, 0x87, 0xd8, 0x2e,
-	0x46, 0x3f, 0xc0, 0x69, 0x9f, 0x4d, 0x09, 0x94, 0xc1, 0x4a, 0xa1, 0x56, 0x96, 0xfb, 0x59, 0x23,
-	0xfb, 0xc8, 0xed, 0xfc, 0xd5, 0x9b, 0xaf, 0x32, 0x0d, 0x8e, 0x92, 0xfe, 0x03, 0xf0, 0x33, 0xf6,
-	0x6e, 0x1d, 0xd3, 0x5d, 0x62, 0x1b, 0xdb, 0x84, 0x1c, 0xf0, 0x94, 0x68, 0x0e, 0x66, 0x4d, 0x9d,
-	0xbd, 0x9b, 0x6f, 0x64, 0x4d, 0x1d, 0x49, 0x70, 0x56, 0x23, 0x36, 0xed, 0xa8, 0x1a, 0xdd, 0xd2,
-	0xf5, 0x4e, 0x29, 0x5b, 0x06, 0x2b, 0x33, 0x8d, 0x44, 0x0c, 0x89, 0x10, 0x3a, 0x1d, 0x53, 0xc3,
-	0x3b, 0xd8, 0x26, 0xed, 0x52, 0x8e, 0xdd, 0x88, 0x45, 0xbc, 0x73, 0xd5, 0x75, 0x31, 0xf5, 0xcf,
-	0xf3, 0xfe, 0x79, 0x14, 0x91, 0xfe, 0x86, 0xa5, 0x34, 0x1d, 0xae, 0x75, 0x07, 0x7e, 0x1c, 0xc4,
-	0xb8, 0x5a, 0xa9, 0xbf, 0xda, 0xe0, 0x26, 0xd7, 0x1b, 0x22, 0x25, 0x95, 0x0b, 0xde, 0xb2, 0xac,
-	0x6e, 0xc1, 0x3f, 0x43, 0x18, 0x15, 0x9c, 0xa7, 0x58, 0x92, 0xfd, 0xee, 0x90, 0xbd, 0xee, 0x90,
-	0xfd, 0x26, 0xe4, 0xdd, 0x21, 0xef, 0xa9, 0x06, 0xe6, 0xd8, 0x46, 0x0c, 0x29, 0x3d, 0x05, 0x5c,
-	0x45, 0x22, 0x47, 0x4f, 0x15, 0xb9, 0xbb, 0xa9, 0x40, 0xf5, 0x04, 0xd5, 0x2c, 0xa3, 0xba, 0x3c,
-	0x94, 0xaa, 0x4f, 0x21, 0xc1, 0xf5, 0x7f, 0x10, 0x39, 0xfe, 0xbb, 0xd7, 0xb0, 0x1f, 0xba, 0x03,
-	0x74, 0xf8, 0x79, 0x0f, 0x3e, 0xdc, 0xbc, 0x3a, 0x9c, 0x09, 0x83, 0xbc, 0x40, 0x0b, 0xfd, 0xdd,
-	0x0b, 0xaf, 0x72, 0xfb, 0x22, 0xac, 0xd4, 0x8c, 0x2a, 0x94, 0x52, 0x3d, 0xa9, 0x36, 0x78, 0x0e,
-	0xb8, 0x94, 0x64, 0x92, 0xde, 0x52, 0x72, 0x77, 0x95, 0x32, 0xb9, 0x56, 0xb8, 0x04, 0x50, 0x08,
-	0xad, 0x0f, 0xa7, 0x54, 0x30, 0x81, 0x52, 0xc5, 0x07, 0x3d, 0x8a, 0x5f, 0x86, 0x85, 0xa6, 0x45,
-	0xb4, 0x83, 0x5f, 0xb0, 0x69, 0xb4, 0x28, 0x23, 0x93, 0x6f, 0xc4, 0x43, 0xf7, 0x6e, 0x0f, 0x0b,
-	0x7e, 0xd1, 0x93, 0x23, 0x77, 0xf5, 0x57, 0x58, 0x88, 0x85, 0x79, 0xf1, 0x16, 0x07, 0xf8, 0x1a,
-	0x5d, 0xe6, 0xce, 0xc6, 0xf1, 0x92, 0xce, 0x1d, 0xf1, 0x2a, 0x98, 0x76, 0x64, 0x52, 0x8d, 0xf2,
-	0x12, 0x70, 0x51, 0xdd, 0x69, 0xfa, 0x89, 0xca, 0xdd, 0x47, 0xd4, 0xe4, 0x1a, 0xe6, 0x94, 0xef,
-	0xa4, 0x3a, 0xa6, 0x7f, 0x1c, 0xab, 0x4e, 0x60, 0x4b, 0xb2, 0xc4, 0x60, 0x48, 0x89, 0xb3, 0xdd,
-	0x25, 0x4e, 0x35, 0x5a, 0x2e, 0xdd, 0x68, 0xd2, 0x2e, 0x2c, 0x26, 0x53, 0x73, 0xab, 0x36, 0xe1,
-	0x94, 0xb7, 0x4a, 0x83, 0xca, 0x8b, 0xfd, 0x4d, 0x62, 0x30, 0xff, 0x72, 0xed, 0xe1, 0x0c, 0x9c,
-	0x62, 0xcf, 0xa1, 0x0b, 0x00, 0xa7, 0xfd, 0x45, 0x89, 0xd6, 0xfb, 0x63, 0xd3, 0xfb, 0x59, 0xa8,
-	0x8c, 0x78, 0xdb, 0xe7, 0x29, 0xad, 0xfe, 0xfb, 0xea, 0xdd, 0x83, 0xec, 0x02, 0xfa, 0x5a, 0x71,
-	0xb1, 0x59, 0x09, 0x70, 0x4a, 0x80, 0x53, 0xa2, 0xcf, 0x0c, 0xf4, 0x08, 0x44, 0x1b, 0x03, 0x55,
-	0x87, 0xa4, 0x49, 0xaf, 0x71, 0xa1, 0x36, 0x0e, 0x84, 0xd3, 0xab, 0x32, 0x7a, 0xdf, 0xa2, 0xd5,
-	0x01, 0xf4, 0xc2, 0x6f, 0x1e, 0xe5, 0xcc, 0xd4, 0xcf, 0xd1, 0x25, 0x80, 0x85, 0xe0, 0x9d, 0x2d,
-	0xcb, 0x1a, 0xca, 0x34, 0xbd, 0x7f, 0x87, 0x32, 0xed, 0xb1, 0x4e, 0xa5, 0x75, 0xc6, 0x74, 0x09,
-	0x7d, 0x33, 0x0a, 0x53, 0xf4, 0x04, 0xc4, 0xa6, 0x2e, 0x1a, 0xc1, 0x99, 0xee, 0xe5, 0x20, 0x6c,
-	0x8c, 0x85, 0xe1, 0x24, 0x6b, 0x8c, 0xe4, 0x3a, 0x5a, 0x1b, 0x40, 0x32, 0xfa, 0x5a, 0xf4, 0xfd,
-	0x7c, 0x0c, 0xe0, 0x6c, 0xf8, 0x92, 0x67, 0xe8, 0x08, 0xee, 0x8c, 0xcd, 0xb6, 0xd7, 0x66, 0x92,
-	0x2a, 0x8c, 0xed, 0x32, 0x5a, 0x1c, 0x89, 0x2d, 0x7a, 0x06, 0xe0, 0x5c, 0x6c, 0xbc, 0x78, 0x54,
-	0x37, 0x47, 0x48, 0x9b, 0x1a, 0xa7, 0xc2, 0x77, 0x63, 0xa2, 0xc6, 0xa1, 0x1b, 0xe2, 0xd0, 0x0b,
-	0x00, 0x3f, 0xe2, 0x53, 0x03, 0x55, 0x86, 0x17, 0x33, 0x36, 0xd8, 0x04, 0x79, 0xd4, 0xeb, 0x9c,
-	0xd9, 0x4f, 0x8c, 0xd9, 0x8f, 0xe8, 0xfb, 0x01, 0xcc, 0x0c, 0x4c, 0xf7, 0xbd, 0x21, 0xa4, 0x9c,
-	0x45, 0x13, 0xf2, 0x5c, 0x39, 0x8b, 0xc6, 0xe1, 0xf9, 0x76, 0xfd, 0xea, 0x46, 0x04, 0xd7, 0x37,
-	0x22, 0x78, 0x7b, 0x23, 0x82, 0x8b, 0x5b, 0x31, 0x73, 0x7d, 0x2b, 0x66, 0x5e, 0xdf, 0x8a, 0x99,
-	0xbf, 0x2a, 0x86, 0x49, 0x5b, 0x47, 0x4d, 0x59, 0x23, 0xed, 0x54, 0x8a, 0x8a, 0x9f, 0xe3, 0x84,
-	0x65, 0xa1, 0xa7, 0x0e, 0x76, 0x9b, 0xd3, 0xec, 0x7c, 0xe3, 0x7d, 0x00, 0x00, 0x00, 0xff, 0xff,
-	0x7f, 0xac, 0xba, 0xae, 0x50, 0x0d, 0x00, 0x00,
+	// 1033 bytes of a gzipped FileDescriptorProto
+	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0xe4, 0x57, 0xcf, 0x6f, 0x1b, 0x45,
+	0x14, 0xce, 0xd8, 0x49, 0xd4, 0xbc, 0x44, 0x29, 0x9a, 0x1a, 0x30, 0x0b, 0x72, 0xc3, 0x54, 0xa5,
+	0x01, 0xe1, 0x5d, 0x92, 0x16, 0x71, 0x03, 0x25, 0x2a, 0x98, 0x03, 0x81, 0xd4, 0x25, 0x05, 0x21,
+	0x41, 0x59, 0xaf, 0x47, 0x9b, 0x95, 0xd7, 0x3b, 0x5b, 0xef, 0x84, 0xa6, 0x8a, 0x7c, 0xe1, 0x02,
+	0xc7, 0x4a, 0x9c, 0xf8, 0x13, 0x90, 0xe0, 0xc8, 0x05, 0x89, 0x2b, 0xaa, 0xc4, 0x81, 0x48, 0xfc,
+	0x10, 0x27, 0x84, 0x92, 0xfe, 0x21, 0x68, 0x67, 0xdf, 0xfe, 0xb0, 0xd7, 0x3f, 0x1b, 0x1f, 0x80,
+	0xde, 0xec, 0x37, 0xef, 0x9b, 0xf7, 0xbe, 0xef, 0x7d, 0xbb, 0x33, 0x0b, 0xe7, 0x9b, 0xfc, 0xd0,
+	0xb8, 0x73, 0xc0, 0x3b, 0xf7, 0x74, 0xbf, 0x23, 0xa4, 0xa0, 0xe5, 0x80, 0x3b, 0xea, 0x97, 0x25,
+	0x5c, 0x3d, 0xe0, 0x8e, 0xb5, 0x6f, 0x3a, 0x9e, 0xde, 0xe4, 0x87, 0x5a, 0xc9, 0x16, 0xb6, 0x50,
+	0x4b, 0x46, 0xf8, 0x2b, 0xca, 0xd7, 0x9e, 0xb3, 0x85, 0xb0, 0x5d, 0x6e, 0x98, 0xbe, 0x63, 0x98,
+	0x9e, 0x27, 0xa4, 0x29, 0x1d, 0xe1, 0x05, 0xb8, 0xfa, 0x92, 0x25, 0x82, 0xb6, 0x08, 0x8c, 0x86,
+	0x19, 0xf0, 0xa8, 0x8c, 0xf1, 0xd9, 0x46, 0x83, 0x4b, 0x73, 0xc3, 0xf0, 0x4d, 0xdb, 0xf1, 0x54,
+	0x32, 0xe6, 0x3e, 0x11, 0xb6, 0xe2, 0x9b, 0x1d, 0xb3, 0x1d, 0xa3, 0x2f, 0x84, 0x11, 0x57, 0x78,
+	0xf6, 0xed, 0x86, 0x10, 0x2d, 0x0c, 0x96, 0xc2, 0x60, 0xb0, 0x2f, 0x3a, 0x32, 0x1f, 0xe5, 0x52,
+	0xba, 0xbc, 0xcd, 0x3d, 0x89, 0x51, 0xc5, 0x8e, 0x7b, 0x07, 0xc9, 0x8e, 0x2a, 0xe0, 0x77, 0x1c,
+	0x8b, 0x63, 0x60, 0x35, 0x0c, 0xc8, 0xbb, 0xa6, 0x1f, 0xfd, 0x67, 0x25, 0xa0, 0x37, 0xc2, 0x36,
+	0x77, 0x55, 0x1f, 0x75, 0x7e, 0xe7, 0x80, 0x07, 0x92, 0xed, 0xc1, 0x85, 0x9e, 0x68, 0xe0, 0x0b,
+	0x2f, 0xe0, 0xf4, 0x75, 0x58, 0x8c, 0xfa, 0x2d, 0x93, 0x35, 0xb2, 0xbe, 0xbc, 0xb9, 0xa6, 0x0f,
+	0x13, 0x4f, 0x8f, 0x90, 0xdb, 0xf3, 0x0f, 0xfe, 0xba, 0x38, 0x57, 0x47, 0x14, 0xfb, 0x9d, 0xc0,
+	0xd3, 0x6a, 0xdf, 0x1a, 0x97, 0xef, 0x08, 0xcf, 0xde, 0x16, 0xa2, 0x85, 0x25, 0x69, 0x09, 0x16,
+	0x54, 0x9f, 0x6a, 0xeb, 0xa5, 0x7a, 0xf4, 0x87, 0x32, 0x58, 0xb1, 0x84, 0x27, 0x3b, 0xa6, 0x25,
+	0xb7, 0x9a, 0xcd, 0x4e, 0xb9, 0xa0, 0x16, 0x7b, 0x62, 0xf4, 0x0d, 0x00, 0x95, 0x7c, 0x9d, 0x7b,
+	0xa2, 0x5d, 0x2e, 0xae, 0x91, 0xf5, 0xd5, 0xcd, 0x8b, 0xc3, 0x3b, 0x53, 0x69, 0xf5, 0x0c, 0x24,
+	0xdc, 0xc0, 0x0c, 0x02, 0x2e, 0xa3, 0x0d, 0xe6, 0x27, 0xdc, 0x20, 0x85, 0xb0, 0x4f, 0xa1, 0x9c,
+	0xa7, 0x85, 0x9a, 0x5d, 0x87, 0x73, 0x71, 0x0c, 0x55, 0x63, 0xc3, 0xb7, 0x8e, 0x33, 0x51, 0xb7,
+	0x04, 0xc9, 0xbe, 0x28, 0xa0, 0x72, 0x5b, 0xae, 0xdb, 0xaf, 0xdc, 0x5b, 0x00, 0xa9, 0xb7, 0xb0,
+	0xc6, 0x0b, 0x7a, 0x64, 0x44, 0x3d, 0x34, 0xa2, 0x1e, 0xf9, 0x1d, 0x8d, 0xa8, 0xef, 0x9a, 0x36,
+	0x47, 0x6c, 0x3d, 0x83, 0xfc, 0x8f, 0x68, 0xfd, 0x0d, 0x41, 0xb1, 0x7b, 0x94, 0x18, 0x28, 0x76,
+	0xf1, 0xd1, 0xc4, 0xa6, 0xb5, 0x1e, 0x41, 0x0b, 0x4a, 0xd0, 0x2b, 0x63, 0x05, 0x8d, 0x5a, 0xc8,
+	0x2a, 0xca, 0xfe, 0x20, 0xa9, 0x31, 0x6e, 0x86, 0x4f, 0xf0, 0xff, 0xc5, 0xf0, 0x4d, 0x78, 0x66,
+	0x00, 0x2f, 0x1c, 0x42, 0x0d, 0x96, 0x92, 0x20, 0xda, 0xf1, 0xd2, 0xf0, 0xcd, 0x93, 0x54, 0x1c,
+	0x43, 0x8a, 0x65, 0x5f, 0x16, 0xd2, 0x51, 0xe7, 0xe4, 0x7b, 0xbc, 0x5c, 0xff, 0x1d, 0x41, 0xc5,
+	0x7b, 0xa5, 0x18, 0xac, 0x78, 0xf1, 0x51, 0x15, 0x9f, 0x9d, 0xf3, 0x1f, 0x12, 0xd0, 0x12, 0x87,
+	0x24, 0xa7, 0x54, 0x7c, 0xbe, 0xe4, 0x44, 0x27, 0x03, 0x44, 0x5f, 0x83, 0xe5, 0x86, 0x2b, 0xac,
+	0xd6, 0xdb, 0xdc, 0xb1, 0xf7, 0xa5, 0x6a, 0x66, 0xbe, 0x9e, 0x0d, 0xfd, 0x0b, 0xc6, 0xe2, 0xc2,
+	0xb3, 0x03, 0x59, 0xe2, 0x5c, 0x76, 0x60, 0x39, 0x13, 0x46, 0x93, 0x5e, 0x1e, 0x31, 0x99, 0x34,
+	0x19, 0x67, 0x93, 0xc5, 0xb3, 0x26, 0x6a, 0x1a, 0x7a, 0x20, 0xaf, 0xe9, 0x8c, 0x1e, 0x08, 0xf6,
+	0x3d, 0x41, 0x52, 0xfd, 0x65, 0x86, 0x91, 0x2a, 0x9e, 0x85, 0xd4, 0xec, 0x2c, 0xf7, 0x23, 0x81,
+	0x27, 0xe3, 0x61, 0xec, 0x86, 0x33, 0x4e, 0x94, 0xe9, 0xf5, 0x09, 0x39, 0xab, 0x4f, 0x0a, 0x53,
+	0xfb, 0x24, 0xe7, 0xf7, 0x62, 0xde, 0xef, 0xec, 0x06, 0x3c, 0xd5, 0xdf, 0x3e, 0x2a, 0xfe, 0x1a,
+	0x2c, 0xaa, 0x66, 0x62, 0xb1, 0x47, 0x94, 0x56, 0xc8, 0x3a, 0xa6, 0xb3, 0x26, 0x94, 0xe2, 0x2d,
+	0xdf, 0xbf, 0x6b, 0xfa, 0x53, 0x3d, 0x7e, 0xeb, 0x70, 0xde, 0x15, 0xa2, 0xd5, 0x30, 0xad, 0xd6,
+	0x4d, 0x6e, 0x09, 0xaf, 0x19, 0xe0, 0x23, 0xd8, 0x1f, 0x66, 0x3b, 0xa9, 0xee, 0x58, 0x05, 0xfb,
+	0xbe, 0x06, 0x0b, 0xe1, 0x4d, 0x33, 0x6e, 0xbb, 0x32, 0xbc, 0xed, 0x10, 0x57, 0x8f, 0x92, 0x37,
+	0xbf, 0x5e, 0x81, 0x05, 0xb5, 0x1f, 0xbd, 0x4f, 0x60, 0x31, 0xba, 0x47, 0xd2, 0x97, 0x87, 0x63,
+	0xf3, 0xd7, 0x57, 0xad, 0x3a, 0x61, 0x76, 0xd4, 0x27, 0x7b, 0xf1, 0xf3, 0x5f, 0x1f, 0x7e, 0x55,
+	0xb8, 0x44, 0x9f, 0x37, 0x02, 0xee, 0x54, 0x63, 0x9c, 0x11, 0xe3, 0x8c, 0xf4, 0x9e, 0x4e, 0x8f,
+	0x49, 0x7a, 0xc3, 0xa0, 0x1b, 0x63, 0xca, 0xe4, 0x6f, 0xb9, 0xda, 0xe6, 0x34, 0x10, 0x6c, 0xef,
+	0x63, 0xd5, 0xde, 0x07, 0x74, 0x6f, 0x44, 0x7b, 0xc9, 0x47, 0x83, 0x71, 0x94, 0x9d, 0x62, 0xd7,
+	0x38, 0x4a, 0x6d, 0xdc, 0x35, 0x8e, 0x52, 0x4b, 0xc6, 0x2b, 0x5d, 0xfa, 0x33, 0x81, 0xe5, 0xb8,
+	0xe6, 0x96, 0xeb, 0x8e, 0x65, 0x95, 0xbf, 0x81, 0x8e, 0x65, 0x35, 0xe0, 0xaa, 0xc6, 0xf6, 0x14,
+	0xab, 0xf7, 0xe8, 0xce, 0x4c, 0x59, 0xd1, 0xdf, 0x48, 0xe6, 0x2c, 0xa4, 0x13, 0xc8, 0xdd, 0x7f,
+	0xb1, 0xd0, 0xae, 0x4e, 0x85, 0x41, 0x36, 0x9f, 0x28, 0x36, 0x1f, 0xd2, 0x5b, 0x23, 0xd8, 0xa4,
+	0xdf, 0x70, 0xd3, 0x0f, 0xe9, 0x17, 0x02, 0x2b, 0x49, 0xd5, 0x70, 0x4a, 0x13, 0x48, 0x3e, 0x35,
+	0xb3, 0x41, 0x77, 0x0b, 0x76, 0x4b, 0x31, 0xdb, 0xa5, 0xef, 0xce, 0x96, 0x19, 0xfd, 0x96, 0xc0,
+	0x6a, 0xe6, 0x1c, 0x08, 0x39, 0x5d, 0x9b, 0xa0, 0xbf, 0xdc, 0xb9, 0xa7, 0xbd, 0x3a, 0x25, 0x0a,
+	0x79, 0x55, 0x15, 0xaf, 0x2b, 0xf4, 0xf2, 0x28, 0x5e, 0x09, 0x8e, 0xfe, 0x44, 0x60, 0x29, 0x79,
+	0x33, 0x53, 0x63, 0xbc, 0x47, 0x7a, 0x8e, 0x20, 0xed, 0x95, 0xc9, 0x01, 0x53, 0xe8, 0x6e, 0x73,
+	0x79, 0x3b, 0x7a, 0xd5, 0x4f, 0xae, 0xfb, 0x0f, 0x04, 0xce, 0xc5, 0x6f, 0x6a, 0xaa, 0x8f, 0x6f,
+	0x2b, 0x7b, 0x70, 0x68, 0xc6, 0xc4, 0xf9, 0xc8, 0x62, 0x47, 0xb1, 0xa8, 0xd1, 0x37, 0xc7, 0xb0,
+	0x50, 0xaf, 0xfe, 0x1c, 0x89, 0xbe, 0x93, 0xa6, 0xbb, 0x5d, 0x7b, 0x70, 0x52, 0x21, 0xc7, 0x27,
+	0x15, 0xf2, 0xf7, 0x49, 0x85, 0xdc, 0x3f, 0xad, 0xcc, 0x1d, 0x9f, 0x56, 0xe6, 0xfe, 0x3c, 0xad,
+	0xcc, 0x7d, 0x54, 0xb5, 0x1d, 0xb9, 0x7f, 0xd0, 0xd0, 0x2d, 0xd1, 0xce, 0x95, 0xaa, 0x46, 0xb5,
+	0x0e, 0x55, 0x35, 0x79, 0xcf, 0xe7, 0x41, 0x63, 0x51, 0xad, 0x5f, 0xfd, 0x27, 0x00, 0x00, 0xff,
+	0xff, 0x49, 0xf8, 0x5a, 0x39, 0x0f, 0x12, 0x00, 0x00,
 }
 
 // Reference imports to suppress errors if they are not otherwise used.
@@ -946,8 +1100,8 @@ type QueryClient interface {
 	// Queries a list of ShortBook items.
 	ShortBookAll(ctx context.Context, in *QueryAllShortBookRequest, opts ...grpc.CallOption) (*QueryAllShortBookResponse, error)
 	SettlementsAll(ctx context.Context, in *QueryAllSettlementsRequest, opts ...grpc.CallOption) (*QueryAllSettlementsResponse, error)
-	// Queries a list of GetTwap items.
-	GetTwap(ctx context.Context, in *QueryGetTwapRequest, opts ...grpc.CallOption) (*QueryGetTwapResponse, error)
+	GetPrices(ctx context.Context, in *QueryGetPricesRequest, opts ...grpc.CallOption) (*QueryGetPricesResponse, error)
+	GetTwaps(ctx context.Context, in *QueryGetTwapsRequest, opts ...grpc.CallOption) (*QueryGetTwapsResponse, error)
 }
 
 type queryClient struct {
@@ -1012,9 +1166,18 @@ func (c *queryClient) SettlementsAll(ctx context.Context, in *QueryAllSettlement
 	return out, nil
 }
 
-func (c *queryClient) GetTwap(ctx context.Context, in *QueryGetTwapRequest, opts ...grpc.CallOption) (*QueryGetTwapResponse, error) {
-	out := new(QueryGetTwapResponse)
-	err := c.cc.Invoke(ctx, "/seiprotocol.seichain.dex.Query/GetTwap", in, out, opts...)
+func (c *queryClient) GetPrices(ctx context.Context, in *QueryGetPricesRequest, opts ...grpc.CallOption) (*QueryGetPricesResponse, error) {
+	out := new(QueryGetPricesResponse)
+	err := c.cc.Invoke(ctx, "/seiprotocol.seichain.dex.Query/GetPrices", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *queryClient) GetTwaps(ctx context.Context, in *QueryGetTwapsRequest, opts ...grpc.CallOption) (*QueryGetTwapsResponse, error) {
+	out := new(QueryGetTwapsResponse)
+	err := c.cc.Invoke(ctx, "/seiprotocol.seichain.dex.Query/GetTwaps", in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -1034,8 +1197,8 @@ type QueryServer interface {
 	// Queries a list of ShortBook items.
 	ShortBookAll(context.Context, *QueryAllShortBookRequest) (*QueryAllShortBookResponse, error)
 	SettlementsAll(context.Context, *QueryAllSettlementsRequest) (*QueryAllSettlementsResponse, error)
-	// Queries a list of GetTwap items.
-	GetTwap(context.Context, *QueryGetTwapRequest) (*QueryGetTwapResponse, error)
+	GetPrices(context.Context, *QueryGetPricesRequest) (*QueryGetPricesResponse, error)
+	GetTwaps(context.Context, *QueryGetTwapsRequest) (*QueryGetTwapsResponse, error)
 }
 
 // UnimplementedQueryServer can be embedded to have forward compatible implementations.
@@ -1060,8 +1223,11 @@ func (*UnimplementedQueryServer) ShortBookAll(ctx context.Context, req *QueryAll
 func (*UnimplementedQueryServer) SettlementsAll(ctx context.Context, req *QueryAllSettlementsRequest) (*QueryAllSettlementsResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method SettlementsAll not implemented")
 }
-func (*UnimplementedQueryServer) GetTwap(ctx context.Context, req *QueryGetTwapRequest) (*QueryGetTwapResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method GetTwap not implemented")
+func (*UnimplementedQueryServer) GetPrices(ctx context.Context, req *QueryGetPricesRequest) (*QueryGetPricesResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetPrices not implemented")
+}
+func (*UnimplementedQueryServer) GetTwaps(ctx context.Context, req *QueryGetTwapsRequest) (*QueryGetTwapsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetTwaps not implemented")
 }
 
 func RegisterQueryServer(s grpc1.Server, srv QueryServer) {
@@ -1176,20 +1342,38 @@ func _Query_SettlementsAll_Handler(srv interface{}, ctx context.Context, dec fun
 	return interceptor(ctx, in, info, handler)
 }
 
-func _Query_GetTwap_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(QueryGetTwapRequest)
+func _Query_GetPrices_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(QueryGetPricesRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(QueryServer).GetTwap(ctx, in)
+		return srv.(QueryServer).GetPrices(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: "/seiprotocol.seichain.dex.Query/GetTwap",
+		FullMethod: "/seiprotocol.seichain.dex.Query/GetPrices",
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(QueryServer).GetTwap(ctx, req.(*QueryGetTwapRequest))
+		return srv.(QueryServer).GetPrices(ctx, req.(*QueryGetPricesRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Query_GetTwaps_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(QueryGetTwapsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(QueryServer).GetTwaps(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/seiprotocol.seichain.dex.Query/GetTwaps",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(QueryServer).GetTwaps(ctx, req.(*QueryGetTwapsRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -1223,8 +1407,12 @@ var _Query_serviceDesc = grpc.ServiceDesc{
 			Handler:    _Query_SettlementsAll_Handler,
 		},
 		{
-			MethodName: "GetTwap",
-			Handler:    _Query_GetTwap_Handler,
+			MethodName: "GetPrices",
+			Handler:    _Query_GetPrices_Handler,
+		},
+		{
+			MethodName: "GetTwaps",
+			Handler:    _Query_GetTwaps_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
@@ -1307,19 +1495,15 @@ func (m *QueryGetLongBookRequest) MarshalToSizedBuffer(dAtA []byte) (int, error)
 	_ = i
 	var l int
 	_ = l
-	if len(m.AssetDenom) > 0 {
-		i -= len(m.AssetDenom)
-		copy(dAtA[i:], m.AssetDenom)
-		i = encodeVarintQuery(dAtA, i, uint64(len(m.AssetDenom)))
+	if m.AssetDenom != 0 {
+		i = encodeVarintQuery(dAtA, i, uint64(m.AssetDenom))
 		i--
-		dAtA[i] = 0x22
+		dAtA[i] = 0x20
 	}
-	if len(m.PriceDenom) > 0 {
-		i -= len(m.PriceDenom)
-		copy(dAtA[i:], m.PriceDenom)
-		i = encodeVarintQuery(dAtA, i, uint64(len(m.PriceDenom)))
+	if m.PriceDenom != 0 {
+		i = encodeVarintQuery(dAtA, i, uint64(m.PriceDenom))
 		i--
-		dAtA[i] = 0x1a
+		dAtA[i] = 0x18
 	}
 	if len(m.ContractAddr) > 0 {
 		i -= len(m.ContractAddr)
@@ -1328,10 +1512,12 @@ func (m *QueryGetLongBookRequest) MarshalToSizedBuffer(dAtA []byte) (int, error)
 		i--
 		dAtA[i] = 0x12
 	}
-	if m.Id != 0 {
-		i = encodeVarintQuery(dAtA, i, uint64(m.Id))
+	if len(m.Price) > 0 {
+		i -= len(m.Price)
+		copy(dAtA[i:], m.Price)
+		i = encodeVarintQuery(dAtA, i, uint64(len(m.Price)))
 		i--
-		dAtA[i] = 0x8
+		dAtA[i] = 0xa
 	}
 	return len(dAtA) - i, nil
 }
@@ -1389,6 +1575,23 @@ func (m *QueryAllLongBookRequest) MarshalToSizedBuffer(dAtA []byte) (int, error)
 	_ = i
 	var l int
 	_ = l
+	if m.AssetDenom != 0 {
+		i = encodeVarintQuery(dAtA, i, uint64(m.AssetDenom))
+		i--
+		dAtA[i] = 0x20
+	}
+	if m.PriceDenom != 0 {
+		i = encodeVarintQuery(dAtA, i, uint64(m.PriceDenom))
+		i--
+		dAtA[i] = 0x18
+	}
+	if len(m.ContractAddr) > 0 {
+		i -= len(m.ContractAddr)
+		copy(dAtA[i:], m.ContractAddr)
+		i = encodeVarintQuery(dAtA, i, uint64(len(m.ContractAddr)))
+		i--
+		dAtA[i] = 0x12
+	}
 	if m.Pagination != nil {
 		{
 			size, err := m.Pagination.MarshalToSizedBuffer(dAtA[:i])
@@ -1473,19 +1676,15 @@ func (m *QueryGetShortBookRequest) MarshalToSizedBuffer(dAtA []byte) (int, error
 	_ = i
 	var l int
 	_ = l
-	if len(m.AssetDenom) > 0 {
-		i -= len(m.AssetDenom)
-		copy(dAtA[i:], m.AssetDenom)
-		i = encodeVarintQuery(dAtA, i, uint64(len(m.AssetDenom)))
+	if m.AssetDenom != 0 {
+		i = encodeVarintQuery(dAtA, i, uint64(m.AssetDenom))
 		i--
-		dAtA[i] = 0x22
+		dAtA[i] = 0x20
 	}
-	if len(m.PriceDenom) > 0 {
-		i -= len(m.PriceDenom)
-		copy(dAtA[i:], m.PriceDenom)
-		i = encodeVarintQuery(dAtA, i, uint64(len(m.PriceDenom)))
+	if m.PriceDenom != 0 {
+		i = encodeVarintQuery(dAtA, i, uint64(m.PriceDenom))
 		i--
-		dAtA[i] = 0x1a
+		dAtA[i] = 0x18
 	}
 	if len(m.ContractAddr) > 0 {
 		i -= len(m.ContractAddr)
@@ -1494,10 +1693,12 @@ func (m *QueryGetShortBookRequest) MarshalToSizedBuffer(dAtA []byte) (int, error
 		i--
 		dAtA[i] = 0x12
 	}
-	if m.Id != 0 {
-		i = encodeVarintQuery(dAtA, i, uint64(m.Id))
+	if len(m.Price) > 0 {
+		i -= len(m.Price)
+		copy(dAtA[i:], m.Price)
+		i = encodeVarintQuery(dAtA, i, uint64(len(m.Price)))
 		i--
-		dAtA[i] = 0x8
+		dAtA[i] = 0xa
 	}
 	return len(dAtA) - i, nil
 }
@@ -1555,6 +1756,23 @@ func (m *QueryAllShortBookRequest) MarshalToSizedBuffer(dAtA []byte) (int, error
 	_ = i
 	var l int
 	_ = l
+	if m.AssetDenom != 0 {
+		i = encodeVarintQuery(dAtA, i, uint64(m.AssetDenom))
+		i--
+		dAtA[i] = 0x20
+	}
+	if m.PriceDenom != 0 {
+		i = encodeVarintQuery(dAtA, i, uint64(m.PriceDenom))
+		i--
+		dAtA[i] = 0x18
+	}
+	if len(m.ContractAddr) > 0 {
+		i -= len(m.ContractAddr)
+		copy(dAtA[i:], m.ContractAddr)
+		i = encodeVarintQuery(dAtA, i, uint64(len(m.ContractAddr)))
+		i--
+		dAtA[i] = 0x12
+	}
 	if m.Pagination != nil {
 		{
 			size, err := m.Pagination.MarshalToSizedBuffer(dAtA[:i])
@@ -1639,19 +1857,15 @@ func (m *QueryGetSettlementsRequest) MarshalToSizedBuffer(dAtA []byte) (int, err
 	_ = i
 	var l int
 	_ = l
-	if len(m.AssetDenom) > 0 {
-		i -= len(m.AssetDenom)
-		copy(dAtA[i:], m.AssetDenom)
-		i = encodeVarintQuery(dAtA, i, uint64(len(m.AssetDenom)))
+	if m.AssetDenom != 0 {
+		i = encodeVarintQuery(dAtA, i, uint64(m.AssetDenom))
 		i--
-		dAtA[i] = 0x22
+		dAtA[i] = 0x20
 	}
-	if len(m.PriceDenom) > 0 {
-		i -= len(m.PriceDenom)
-		copy(dAtA[i:], m.PriceDenom)
-		i = encodeVarintQuery(dAtA, i, uint64(len(m.PriceDenom)))
+	if m.PriceDenom != 0 {
+		i = encodeVarintQuery(dAtA, i, uint64(m.PriceDenom))
 		i--
-		dAtA[i] = 0x1a
+		dAtA[i] = 0x18
 	}
 	if m.BlockHeight != 0 {
 		i = encodeVarintQuery(dAtA, i, uint64(m.BlockHeight))
@@ -1785,7 +1999,7 @@ func (m *QueryAllSettlementsResponse) MarshalToSizedBuffer(dAtA []byte) (int, er
 	return len(dAtA) - i, nil
 }
 
-func (m *QueryGetTwapRequest) Marshal() (dAtA []byte, err error) {
+func (m *QueryGetPricesRequest) Marshal() (dAtA []byte, err error) {
 	size := m.Size()
 	dAtA = make([]byte, size)
 	n, err := m.MarshalToSizedBuffer(dAtA[:size])
@@ -1795,12 +2009,12 @@ func (m *QueryGetTwapRequest) Marshal() (dAtA []byte, err error) {
 	return dAtA[:n], nil
 }
 
-func (m *QueryGetTwapRequest) MarshalTo(dAtA []byte) (int, error) {
+func (m *QueryGetPricesRequest) MarshalTo(dAtA []byte) (int, error) {
 	size := m.Size()
 	return m.MarshalToSizedBuffer(dAtA[:size])
 }
 
-func (m *QueryGetTwapRequest) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+func (m *QueryGetPricesRequest) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	i := len(dAtA)
 	_ = i
 	var l int
@@ -1812,24 +2026,20 @@ func (m *QueryGetTwapRequest) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 		i--
 		dAtA[i] = 0x1a
 	}
-	if len(m.AssetDenom) > 0 {
-		i -= len(m.AssetDenom)
-		copy(dAtA[i:], m.AssetDenom)
-		i = encodeVarintQuery(dAtA, i, uint64(len(m.AssetDenom)))
+	if m.AssetDenom != 0 {
+		i = encodeVarintQuery(dAtA, i, uint64(m.AssetDenom))
 		i--
-		dAtA[i] = 0x12
+		dAtA[i] = 0x10
 	}
-	if len(m.PriceDenom) > 0 {
-		i -= len(m.PriceDenom)
-		copy(dAtA[i:], m.PriceDenom)
-		i = encodeVarintQuery(dAtA, i, uint64(len(m.PriceDenom)))
+	if m.PriceDenom != 0 {
+		i = encodeVarintQuery(dAtA, i, uint64(m.PriceDenom))
 		i--
-		dAtA[i] = 0xa
+		dAtA[i] = 0x8
 	}
 	return len(dAtA) - i, nil
 }
 
-func (m *QueryGetTwapResponse) Marshal() (dAtA []byte, err error) {
+func (m *QueryGetPricesResponse) Marshal() (dAtA []byte, err error) {
 	size := m.Size()
 	dAtA = make([]byte, size)
 	n, err := m.MarshalToSizedBuffer(dAtA[:size])
@@ -1839,27 +2049,101 @@ func (m *QueryGetTwapResponse) Marshal() (dAtA []byte, err error) {
 	return dAtA[:n], nil
 }
 
-func (m *QueryGetTwapResponse) MarshalTo(dAtA []byte) (int, error) {
+func (m *QueryGetPricesResponse) MarshalTo(dAtA []byte) (int, error) {
 	size := m.Size()
 	return m.MarshalToSizedBuffer(dAtA[:size])
 }
 
-func (m *QueryGetTwapResponse) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+func (m *QueryGetPricesResponse) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	i := len(dAtA)
 	_ = i
 	var l int
 	_ = l
-	if m.Twaps != nil {
-		{
-			size, err := m.Twaps.MarshalToSizedBuffer(dAtA[:i])
-			if err != nil {
-				return 0, err
+	if len(m.Prices) > 0 {
+		for iNdEx := len(m.Prices) - 1; iNdEx >= 0; iNdEx-- {
+			{
+				size, err := m.Prices[iNdEx].MarshalToSizedBuffer(dAtA[:i])
+				if err != nil {
+					return 0, err
+				}
+				i -= size
+				i = encodeVarintQuery(dAtA, i, uint64(size))
 			}
-			i -= size
-			i = encodeVarintQuery(dAtA, i, uint64(size))
+			i--
+			dAtA[i] = 0xa
 		}
+	}
+	return len(dAtA) - i, nil
+}
+
+func (m *QueryGetTwapsRequest) Marshal() (dAtA []byte, err error) {
+	size := m.Size()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalToSizedBuffer(dAtA[:size])
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *QueryGetTwapsRequest) MarshalTo(dAtA []byte) (int, error) {
+	size := m.Size()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *QueryGetTwapsRequest) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
+	_ = i
+	var l int
+	_ = l
+	if m.LookbackSeconds != 0 {
+		i = encodeVarintQuery(dAtA, i, uint64(m.LookbackSeconds))
+		i--
+		dAtA[i] = 0x10
+	}
+	if len(m.ContractAddr) > 0 {
+		i -= len(m.ContractAddr)
+		copy(dAtA[i:], m.ContractAddr)
+		i = encodeVarintQuery(dAtA, i, uint64(len(m.ContractAddr)))
 		i--
 		dAtA[i] = 0xa
+	}
+	return len(dAtA) - i, nil
+}
+
+func (m *QueryGetTwapsResponse) Marshal() (dAtA []byte, err error) {
+	size := m.Size()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalToSizedBuffer(dAtA[:size])
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *QueryGetTwapsResponse) MarshalTo(dAtA []byte) (int, error) {
+	size := m.Size()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *QueryGetTwapsResponse) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
+	_ = i
+	var l int
+	_ = l
+	if len(m.Twaps) > 0 {
+		for iNdEx := len(m.Twaps) - 1; iNdEx >= 0; iNdEx-- {
+			{
+				size, err := m.Twaps[iNdEx].MarshalToSizedBuffer(dAtA[:i])
+				if err != nil {
+					return 0, err
+				}
+				i -= size
+				i = encodeVarintQuery(dAtA, i, uint64(size))
+			}
+			i--
+			dAtA[i] = 0xa
+		}
 	}
 	return len(dAtA) - i, nil
 }
@@ -1901,20 +2185,19 @@ func (m *QueryGetLongBookRequest) Size() (n int) {
 	}
 	var l int
 	_ = l
-	if m.Id != 0 {
-		n += 1 + sovQuery(uint64(m.Id))
+	l = len(m.Price)
+	if l > 0 {
+		n += 1 + l + sovQuery(uint64(l))
 	}
 	l = len(m.ContractAddr)
 	if l > 0 {
 		n += 1 + l + sovQuery(uint64(l))
 	}
-	l = len(m.PriceDenom)
-	if l > 0 {
-		n += 1 + l + sovQuery(uint64(l))
+	if m.PriceDenom != 0 {
+		n += 1 + sovQuery(uint64(m.PriceDenom))
 	}
-	l = len(m.AssetDenom)
-	if l > 0 {
-		n += 1 + l + sovQuery(uint64(l))
+	if m.AssetDenom != 0 {
+		n += 1 + sovQuery(uint64(m.AssetDenom))
 	}
 	return n
 }
@@ -1939,6 +2222,16 @@ func (m *QueryAllLongBookRequest) Size() (n int) {
 	if m.Pagination != nil {
 		l = m.Pagination.Size()
 		n += 1 + l + sovQuery(uint64(l))
+	}
+	l = len(m.ContractAddr)
+	if l > 0 {
+		n += 1 + l + sovQuery(uint64(l))
+	}
+	if m.PriceDenom != 0 {
+		n += 1 + sovQuery(uint64(m.PriceDenom))
+	}
+	if m.AssetDenom != 0 {
+		n += 1 + sovQuery(uint64(m.AssetDenom))
 	}
 	return n
 }
@@ -1968,20 +2261,19 @@ func (m *QueryGetShortBookRequest) Size() (n int) {
 	}
 	var l int
 	_ = l
-	if m.Id != 0 {
-		n += 1 + sovQuery(uint64(m.Id))
+	l = len(m.Price)
+	if l > 0 {
+		n += 1 + l + sovQuery(uint64(l))
 	}
 	l = len(m.ContractAddr)
 	if l > 0 {
 		n += 1 + l + sovQuery(uint64(l))
 	}
-	l = len(m.PriceDenom)
-	if l > 0 {
-		n += 1 + l + sovQuery(uint64(l))
+	if m.PriceDenom != 0 {
+		n += 1 + sovQuery(uint64(m.PriceDenom))
 	}
-	l = len(m.AssetDenom)
-	if l > 0 {
-		n += 1 + l + sovQuery(uint64(l))
+	if m.AssetDenom != 0 {
+		n += 1 + sovQuery(uint64(m.AssetDenom))
 	}
 	return n
 }
@@ -2006,6 +2298,16 @@ func (m *QueryAllShortBookRequest) Size() (n int) {
 	if m.Pagination != nil {
 		l = m.Pagination.Size()
 		n += 1 + l + sovQuery(uint64(l))
+	}
+	l = len(m.ContractAddr)
+	if l > 0 {
+		n += 1 + l + sovQuery(uint64(l))
+	}
+	if m.PriceDenom != 0 {
+		n += 1 + sovQuery(uint64(m.PriceDenom))
+	}
+	if m.AssetDenom != 0 {
+		n += 1 + sovQuery(uint64(m.AssetDenom))
 	}
 	return n
 }
@@ -2042,13 +2344,11 @@ func (m *QueryGetSettlementsRequest) Size() (n int) {
 	if m.BlockHeight != 0 {
 		n += 1 + sovQuery(uint64(m.BlockHeight))
 	}
-	l = len(m.PriceDenom)
-	if l > 0 {
-		n += 1 + l + sovQuery(uint64(l))
+	if m.PriceDenom != 0 {
+		n += 1 + sovQuery(uint64(m.PriceDenom))
 	}
-	l = len(m.AssetDenom)
-	if l > 0 {
-		n += 1 + l + sovQuery(uint64(l))
+	if m.AssetDenom != 0 {
+		n += 1 + sovQuery(uint64(m.AssetDenom))
 	}
 	return n
 }
@@ -2096,19 +2396,17 @@ func (m *QueryAllSettlementsResponse) Size() (n int) {
 	return n
 }
 
-func (m *QueryGetTwapRequest) Size() (n int) {
+func (m *QueryGetPricesRequest) Size() (n int) {
 	if m == nil {
 		return 0
 	}
 	var l int
 	_ = l
-	l = len(m.PriceDenom)
-	if l > 0 {
-		n += 1 + l + sovQuery(uint64(l))
+	if m.PriceDenom != 0 {
+		n += 1 + sovQuery(uint64(m.PriceDenom))
 	}
-	l = len(m.AssetDenom)
-	if l > 0 {
-		n += 1 + l + sovQuery(uint64(l))
+	if m.AssetDenom != 0 {
+		n += 1 + sovQuery(uint64(m.AssetDenom))
 	}
 	l = len(m.ContractAddr)
 	if l > 0 {
@@ -2117,15 +2415,48 @@ func (m *QueryGetTwapRequest) Size() (n int) {
 	return n
 }
 
-func (m *QueryGetTwapResponse) Size() (n int) {
+func (m *QueryGetPricesResponse) Size() (n int) {
 	if m == nil {
 		return 0
 	}
 	var l int
 	_ = l
-	if m.Twaps != nil {
-		l = m.Twaps.Size()
+	if len(m.Prices) > 0 {
+		for _, e := range m.Prices {
+			l = e.Size()
+			n += 1 + l + sovQuery(uint64(l))
+		}
+	}
+	return n
+}
+
+func (m *QueryGetTwapsRequest) Size() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	l = len(m.ContractAddr)
+	if l > 0 {
 		n += 1 + l + sovQuery(uint64(l))
+	}
+	if m.LookbackSeconds != 0 {
+		n += 1 + sovQuery(uint64(m.LookbackSeconds))
+	}
+	return n
+}
+
+func (m *QueryGetTwapsResponse) Size() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	if len(m.Twaps) > 0 {
+		for _, e := range m.Twaps {
+			l = e.Size()
+			n += 1 + l + sovQuery(uint64(l))
+		}
 	}
 	return n
 }
@@ -2299,10 +2630,10 @@ func (m *QueryGetLongBookRequest) Unmarshal(dAtA []byte) error {
 		}
 		switch fieldNum {
 		case 1:
-			if wireType != 0 {
-				return fmt.Errorf("proto: wrong wireType = %d for field Id", wireType)
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Price", wireType)
 			}
-			m.Id = 0
+			var stringLen uint64
 			for shift := uint(0); ; shift += 7 {
 				if shift >= 64 {
 					return ErrIntOverflowQuery
@@ -2312,11 +2643,24 @@ func (m *QueryGetLongBookRequest) Unmarshal(dAtA []byte) error {
 				}
 				b := dAtA[iNdEx]
 				iNdEx++
-				m.Id |= uint64(b&0x7F) << shift
+				stringLen |= uint64(b&0x7F) << shift
 				if b < 0x80 {
 					break
 				}
 			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLengthQuery
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return ErrInvalidLengthQuery
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.Price = string(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
 		case 2:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field ContractAddr", wireType)
@@ -2350,10 +2694,10 @@ func (m *QueryGetLongBookRequest) Unmarshal(dAtA []byte) error {
 			m.ContractAddr = string(dAtA[iNdEx:postIndex])
 			iNdEx = postIndex
 		case 3:
-			if wireType != 2 {
+			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field PriceDenom", wireType)
 			}
-			var stringLen uint64
+			m.PriceDenom = 0
 			for shift := uint(0); ; shift += 7 {
 				if shift >= 64 {
 					return ErrIntOverflowQuery
@@ -2363,29 +2707,16 @@ func (m *QueryGetLongBookRequest) Unmarshal(dAtA []byte) error {
 				}
 				b := dAtA[iNdEx]
 				iNdEx++
-				stringLen |= uint64(b&0x7F) << shift
+				m.PriceDenom |= Denom(b&0x7F) << shift
 				if b < 0x80 {
 					break
 				}
 			}
-			intStringLen := int(stringLen)
-			if intStringLen < 0 {
-				return ErrInvalidLengthQuery
-			}
-			postIndex := iNdEx + intStringLen
-			if postIndex < 0 {
-				return ErrInvalidLengthQuery
-			}
-			if postIndex > l {
-				return io.ErrUnexpectedEOF
-			}
-			m.PriceDenom = string(dAtA[iNdEx:postIndex])
-			iNdEx = postIndex
 		case 4:
-			if wireType != 2 {
+			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field AssetDenom", wireType)
 			}
-			var stringLen uint64
+			m.AssetDenom = 0
 			for shift := uint(0); ; shift += 7 {
 				if shift >= 64 {
 					return ErrIntOverflowQuery
@@ -2395,24 +2726,11 @@ func (m *QueryGetLongBookRequest) Unmarshal(dAtA []byte) error {
 				}
 				b := dAtA[iNdEx]
 				iNdEx++
-				stringLen |= uint64(b&0x7F) << shift
+				m.AssetDenom |= Denom(b&0x7F) << shift
 				if b < 0x80 {
 					break
 				}
 			}
-			intStringLen := int(stringLen)
-			if intStringLen < 0 {
-				return ErrInvalidLengthQuery
-			}
-			postIndex := iNdEx + intStringLen
-			if postIndex < 0 {
-				return ErrInvalidLengthQuery
-			}
-			if postIndex > l {
-				return io.ErrUnexpectedEOF
-			}
-			m.AssetDenom = string(dAtA[iNdEx:postIndex])
-			iNdEx = postIndex
 		default:
 			iNdEx = preIndex
 			skippy, err := skipQuery(dAtA[iNdEx:])
@@ -2582,6 +2900,76 @@ func (m *QueryAllLongBookRequest) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
+		case 2:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field ContractAddr", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowQuery
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLengthQuery
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return ErrInvalidLengthQuery
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.ContractAddr = string(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
+		case 3:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field PriceDenom", wireType)
+			}
+			m.PriceDenom = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowQuery
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.PriceDenom |= Denom(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		case 4:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field AssetDenom", wireType)
+			}
+			m.AssetDenom = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowQuery
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.AssetDenom |= Denom(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
 		default:
 			iNdEx = preIndex
 			skippy, err := skipQuery(dAtA[iNdEx:])
@@ -2753,10 +3141,10 @@ func (m *QueryGetShortBookRequest) Unmarshal(dAtA []byte) error {
 		}
 		switch fieldNum {
 		case 1:
-			if wireType != 0 {
-				return fmt.Errorf("proto: wrong wireType = %d for field Id", wireType)
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Price", wireType)
 			}
-			m.Id = 0
+			var stringLen uint64
 			for shift := uint(0); ; shift += 7 {
 				if shift >= 64 {
 					return ErrIntOverflowQuery
@@ -2766,11 +3154,24 @@ func (m *QueryGetShortBookRequest) Unmarshal(dAtA []byte) error {
 				}
 				b := dAtA[iNdEx]
 				iNdEx++
-				m.Id |= uint64(b&0x7F) << shift
+				stringLen |= uint64(b&0x7F) << shift
 				if b < 0x80 {
 					break
 				}
 			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLengthQuery
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return ErrInvalidLengthQuery
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.Price = string(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
 		case 2:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field ContractAddr", wireType)
@@ -2804,10 +3205,10 @@ func (m *QueryGetShortBookRequest) Unmarshal(dAtA []byte) error {
 			m.ContractAddr = string(dAtA[iNdEx:postIndex])
 			iNdEx = postIndex
 		case 3:
-			if wireType != 2 {
+			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field PriceDenom", wireType)
 			}
-			var stringLen uint64
+			m.PriceDenom = 0
 			for shift := uint(0); ; shift += 7 {
 				if shift >= 64 {
 					return ErrIntOverflowQuery
@@ -2817,29 +3218,16 @@ func (m *QueryGetShortBookRequest) Unmarshal(dAtA []byte) error {
 				}
 				b := dAtA[iNdEx]
 				iNdEx++
-				stringLen |= uint64(b&0x7F) << shift
+				m.PriceDenom |= Denom(b&0x7F) << shift
 				if b < 0x80 {
 					break
 				}
 			}
-			intStringLen := int(stringLen)
-			if intStringLen < 0 {
-				return ErrInvalidLengthQuery
-			}
-			postIndex := iNdEx + intStringLen
-			if postIndex < 0 {
-				return ErrInvalidLengthQuery
-			}
-			if postIndex > l {
-				return io.ErrUnexpectedEOF
-			}
-			m.PriceDenom = string(dAtA[iNdEx:postIndex])
-			iNdEx = postIndex
 		case 4:
-			if wireType != 2 {
+			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field AssetDenom", wireType)
 			}
-			var stringLen uint64
+			m.AssetDenom = 0
 			for shift := uint(0); ; shift += 7 {
 				if shift >= 64 {
 					return ErrIntOverflowQuery
@@ -2849,24 +3237,11 @@ func (m *QueryGetShortBookRequest) Unmarshal(dAtA []byte) error {
 				}
 				b := dAtA[iNdEx]
 				iNdEx++
-				stringLen |= uint64(b&0x7F) << shift
+				m.AssetDenom |= Denom(b&0x7F) << shift
 				if b < 0x80 {
 					break
 				}
 			}
-			intStringLen := int(stringLen)
-			if intStringLen < 0 {
-				return ErrInvalidLengthQuery
-			}
-			postIndex := iNdEx + intStringLen
-			if postIndex < 0 {
-				return ErrInvalidLengthQuery
-			}
-			if postIndex > l {
-				return io.ErrUnexpectedEOF
-			}
-			m.AssetDenom = string(dAtA[iNdEx:postIndex])
-			iNdEx = postIndex
 		default:
 			iNdEx = preIndex
 			skippy, err := skipQuery(dAtA[iNdEx:])
@@ -3036,6 +3411,76 @@ func (m *QueryAllShortBookRequest) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
+		case 2:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field ContractAddr", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowQuery
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLengthQuery
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return ErrInvalidLengthQuery
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.ContractAddr = string(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
+		case 3:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field PriceDenom", wireType)
+			}
+			m.PriceDenom = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowQuery
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.PriceDenom |= Denom(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		case 4:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field AssetDenom", wireType)
+			}
+			m.AssetDenom = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowQuery
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.AssetDenom |= Denom(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
 		default:
 			iNdEx = preIndex
 			skippy, err := skipQuery(dAtA[iNdEx:])
@@ -3258,10 +3703,10 @@ func (m *QueryGetSettlementsRequest) Unmarshal(dAtA []byte) error {
 				}
 			}
 		case 3:
-			if wireType != 2 {
+			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field PriceDenom", wireType)
 			}
-			var stringLen uint64
+			m.PriceDenom = 0
 			for shift := uint(0); ; shift += 7 {
 				if shift >= 64 {
 					return ErrIntOverflowQuery
@@ -3271,29 +3716,16 @@ func (m *QueryGetSettlementsRequest) Unmarshal(dAtA []byte) error {
 				}
 				b := dAtA[iNdEx]
 				iNdEx++
-				stringLen |= uint64(b&0x7F) << shift
+				m.PriceDenom |= Denom(b&0x7F) << shift
 				if b < 0x80 {
 					break
 				}
 			}
-			intStringLen := int(stringLen)
-			if intStringLen < 0 {
-				return ErrInvalidLengthQuery
-			}
-			postIndex := iNdEx + intStringLen
-			if postIndex < 0 {
-				return ErrInvalidLengthQuery
-			}
-			if postIndex > l {
-				return io.ErrUnexpectedEOF
-			}
-			m.PriceDenom = string(dAtA[iNdEx:postIndex])
-			iNdEx = postIndex
 		case 4:
-			if wireType != 2 {
+			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field AssetDenom", wireType)
 			}
-			var stringLen uint64
+			m.AssetDenom = 0
 			for shift := uint(0); ; shift += 7 {
 				if shift >= 64 {
 					return ErrIntOverflowQuery
@@ -3303,24 +3735,11 @@ func (m *QueryGetSettlementsRequest) Unmarshal(dAtA []byte) error {
 				}
 				b := dAtA[iNdEx]
 				iNdEx++
-				stringLen |= uint64(b&0x7F) << shift
+				m.AssetDenom |= Denom(b&0x7F) << shift
 				if b < 0x80 {
 					break
 				}
 			}
-			intStringLen := int(stringLen)
-			if intStringLen < 0 {
-				return ErrInvalidLengthQuery
-			}
-			postIndex := iNdEx + intStringLen
-			if postIndex < 0 {
-				return ErrInvalidLengthQuery
-			}
-			if postIndex > l {
-				return io.ErrUnexpectedEOF
-			}
-			m.AssetDenom = string(dAtA[iNdEx:postIndex])
-			iNdEx = postIndex
 		default:
 			iNdEx = preIndex
 			skippy, err := skipQuery(dAtA[iNdEx:])
@@ -3631,7 +4050,7 @@ func (m *QueryAllSettlementsResponse) Unmarshal(dAtA []byte) error {
 	}
 	return nil
 }
-func (m *QueryGetTwapRequest) Unmarshal(dAtA []byte) error {
+func (m *QueryGetPricesRequest) Unmarshal(dAtA []byte) error {
 	l := len(dAtA)
 	iNdEx := 0
 	for iNdEx < l {
@@ -3654,17 +4073,17 @@ func (m *QueryGetTwapRequest) Unmarshal(dAtA []byte) error {
 		fieldNum := int32(wire >> 3)
 		wireType := int(wire & 0x7)
 		if wireType == 4 {
-			return fmt.Errorf("proto: QueryGetTwapRequest: wiretype end group for non-group")
+			return fmt.Errorf("proto: QueryGetPricesRequest: wiretype end group for non-group")
 		}
 		if fieldNum <= 0 {
-			return fmt.Errorf("proto: QueryGetTwapRequest: illegal tag %d (wire type %d)", fieldNum, wire)
+			return fmt.Errorf("proto: QueryGetPricesRequest: illegal tag %d (wire type %d)", fieldNum, wire)
 		}
 		switch fieldNum {
 		case 1:
-			if wireType != 2 {
+			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field PriceDenom", wireType)
 			}
-			var stringLen uint64
+			m.PriceDenom = 0
 			for shift := uint(0); ; shift += 7 {
 				if shift >= 64 {
 					return ErrIntOverflowQuery
@@ -3674,29 +4093,16 @@ func (m *QueryGetTwapRequest) Unmarshal(dAtA []byte) error {
 				}
 				b := dAtA[iNdEx]
 				iNdEx++
-				stringLen |= uint64(b&0x7F) << shift
+				m.PriceDenom |= Denom(b&0x7F) << shift
 				if b < 0x80 {
 					break
 				}
 			}
-			intStringLen := int(stringLen)
-			if intStringLen < 0 {
-				return ErrInvalidLengthQuery
-			}
-			postIndex := iNdEx + intStringLen
-			if postIndex < 0 {
-				return ErrInvalidLengthQuery
-			}
-			if postIndex > l {
-				return io.ErrUnexpectedEOF
-			}
-			m.PriceDenom = string(dAtA[iNdEx:postIndex])
-			iNdEx = postIndex
 		case 2:
-			if wireType != 2 {
+			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field AssetDenom", wireType)
 			}
-			var stringLen uint64
+			m.AssetDenom = 0
 			for shift := uint(0); ; shift += 7 {
 				if shift >= 64 {
 					return ErrIntOverflowQuery
@@ -3706,24 +4112,11 @@ func (m *QueryGetTwapRequest) Unmarshal(dAtA []byte) error {
 				}
 				b := dAtA[iNdEx]
 				iNdEx++
-				stringLen |= uint64(b&0x7F) << shift
+				m.AssetDenom |= Denom(b&0x7F) << shift
 				if b < 0x80 {
 					break
 				}
 			}
-			intStringLen := int(stringLen)
-			if intStringLen < 0 {
-				return ErrInvalidLengthQuery
-			}
-			postIndex := iNdEx + intStringLen
-			if postIndex < 0 {
-				return ErrInvalidLengthQuery
-			}
-			if postIndex > l {
-				return io.ErrUnexpectedEOF
-			}
-			m.AssetDenom = string(dAtA[iNdEx:postIndex])
-			iNdEx = postIndex
 		case 3:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field ContractAddr", wireType)
@@ -3777,7 +4170,7 @@ func (m *QueryGetTwapRequest) Unmarshal(dAtA []byte) error {
 	}
 	return nil
 }
-func (m *QueryGetTwapResponse) Unmarshal(dAtA []byte) error {
+func (m *QueryGetPricesResponse) Unmarshal(dAtA []byte) error {
 	l := len(dAtA)
 	iNdEx := 0
 	for iNdEx < l {
@@ -3800,10 +4193,195 @@ func (m *QueryGetTwapResponse) Unmarshal(dAtA []byte) error {
 		fieldNum := int32(wire >> 3)
 		wireType := int(wire & 0x7)
 		if wireType == 4 {
-			return fmt.Errorf("proto: QueryGetTwapResponse: wiretype end group for non-group")
+			return fmt.Errorf("proto: QueryGetPricesResponse: wiretype end group for non-group")
 		}
 		if fieldNum <= 0 {
-			return fmt.Errorf("proto: QueryGetTwapResponse: illegal tag %d (wire type %d)", fieldNum, wire)
+			return fmt.Errorf("proto: QueryGetPricesResponse: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 1:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Prices", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowQuery
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthQuery
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthQuery
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.Prices = append(m.Prices, &Price{})
+			if err := m.Prices[len(m.Prices)-1].Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		default:
+			iNdEx = preIndex
+			skippy, err := skipQuery(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
+				return ErrInvalidLengthQuery
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+func (m *QueryGetTwapsRequest) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return ErrIntOverflowQuery
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= uint64(b&0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: QueryGetTwapsRequest: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: QueryGetTwapsRequest: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 1:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field ContractAddr", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowQuery
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLengthQuery
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return ErrInvalidLengthQuery
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.ContractAddr = string(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
+		case 2:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field LookbackSeconds", wireType)
+			}
+			m.LookbackSeconds = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowQuery
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.LookbackSeconds |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		default:
+			iNdEx = preIndex
+			skippy, err := skipQuery(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
+				return ErrInvalidLengthQuery
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+func (m *QueryGetTwapsResponse) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return ErrIntOverflowQuery
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= uint64(b&0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: QueryGetTwapsResponse: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: QueryGetTwapsResponse: illegal tag %d (wire type %d)", fieldNum, wire)
 		}
 		switch fieldNum {
 		case 1:
@@ -3835,10 +4413,8 @@ func (m *QueryGetTwapResponse) Unmarshal(dAtA []byte) error {
 			if postIndex > l {
 				return io.ErrUnexpectedEOF
 			}
-			if m.Twaps == nil {
-				m.Twaps = &Twap{}
-			}
-			if err := m.Twaps.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+			m.Twaps = append(m.Twaps, &Twap{})
+			if err := m.Twaps[len(m.Twaps)-1].Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
 				return err
 			}
 			iNdEx = postIndex

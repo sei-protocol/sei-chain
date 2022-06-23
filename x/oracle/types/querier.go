@@ -6,17 +6,19 @@ import (
 
 // Defines the prefix of each query path
 const (
-	QueryParameters        = "parameters"
-	QueryExchangeRate      = "exchangeRate"
-	QueryExchangeRates     = "exchangeRates"
-	QueryActives           = "actives"
-	QueryFeederDelegation  = "feederDelegation"
-	QueryMissCounter       = "missCounter"
-	QueryAggregatePrevote  = "aggregatePrevote"
-	QueryAggregatePrevotes = "aggregatePrevotes"
-	QueryAggregateVote     = "aggregateVote"
-	QueryAggregateVotes    = "aggregateVotes"
-	QueryVoteTargets       = "voteTargets"
+	QueryParameters           = "parameters"
+	QueryExchangeRate         = "exchangeRate"
+	QueryExchangeRates        = "exchangeRates"
+	QueryPriceSnapshotHistory = "priceSnapshotHistory"
+	QueryTwaps                = "twaps"
+	QueryActives              = "actives"
+	QueryFeederDelegation     = "feederDelegation"
+	QueryVotePenaltyCounter   = "votePenaltyCounter"
+	QueryAggregatePrevote     = "aggregatePrevote"
+	QueryAggregatePrevotes    = "aggregatePrevotes"
+	QueryAggregateVote        = "aggregateVote"
+	QueryAggregateVotes       = "aggregateVotes"
+	QueryVoteTargets          = "voteTargets"
 )
 
 // QueryExchangeRateParams defines the params for the following queries:
@@ -28,6 +30,17 @@ type QueryExchangeRateParams struct {
 // NewQueryExchangeRateParams returns params for exchange_rate query
 func NewQueryExchangeRateParams(denom string) QueryExchangeRateParams {
 	return QueryExchangeRateParams{denom}
+}
+
+// QueryTwapParams defines the params for the following queries:
+// - 'custom/oracle/twap'
+type QueryTwapsParams struct {
+	LookbackSeconds int64
+}
+
+// NewQueryExchangeRateParams returns params for exchange_rate query
+func NewQueryTwapsParams(lookbackSeconds int64) QueryTwapsParams {
+	return QueryTwapsParams{lookbackSeconds}
 }
 
 // QueryPrevotesParams defines the params for the following queries:
@@ -67,13 +80,13 @@ func NewQueryFeederDelegationParams(validator sdk.ValAddress) QueryFeederDelegat
 
 // QueryMissCounterParams defines the params for the following queries:
 // - 'custom/oracle/missCounter'
-type QueryMissCounterParams struct {
+type QueryVotePenaltyCounterParams struct {
 	Validator sdk.ValAddress
 }
 
-// NewQueryMissCounterParams returns params for feeder delegation query
-func NewQueryMissCounterParams(validator sdk.ValAddress) QueryMissCounterParams {
-	return QueryMissCounterParams{validator}
+// NewQueryVotePenaltyCounterParams returns params for feeder delegation query
+func NewQueryVotePenaltyCounterParams(validator sdk.ValAddress) QueryVotePenaltyCounterParams {
+	return QueryVotePenaltyCounterParams{validator}
 }
 
 // QueryAggregatePrevoteParams defines the params for the following queries:

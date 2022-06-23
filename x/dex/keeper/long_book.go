@@ -1,10 +1,9 @@
 package keeper
 
 import (
-	"encoding/binary"
-
 	"github.com/cosmos/cosmos-sdk/store/prefix"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/cosmos/cosmos-sdk/types/query"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
 )
 
@@ -16,11 +15,11 @@ func (k Keeper) SetLongBook(ctx sdk.Context, contractAddr string, longBook types
 			true, contractAddr, longBook.Entry.PriceDenom, longBook.Entry.AssetDenom,
 		),
 	)
-	b := k.cdc.MustMarshal(&longBook)
+	b := k.Cdc.MustMarshal(&longBook)
 	store.Set(GetKeyForLongBook(longBook), b)
 }
 
-func (k Keeper) GetLongBookByPrice(ctx sdk.Context, contractAddr string, price uint64, priceDenom string, assetDenom string) (val types.LongBook, found bool) {
+func (k Keeper) GetLongBookByPrice(ctx sdk.Context, contractAddr string, price sdk.Dec, priceDenom types.Denom, assetDenom types.Denom) (val types.LongBook, found bool) {
 	store := prefix.NewStore(
 		ctx.KVStore(k.storeKey),
 		types.OrderBookPrefix(
@@ -31,11 +30,11 @@ func (k Keeper) GetLongBookByPrice(ctx sdk.Context, contractAddr string, price u
 	if b == nil {
 		return val, false
 	}
-	k.cdc.MustUnmarshal(b, &val)
+	k.Cdc.MustUnmarshal(b, &val)
 	return val, true
 }
 
-func (k Keeper) RemoveLongBookByPrice(ctx sdk.Context, contractAddr string, price uint64, priceDenom string, assetDenom string) {
+func (k Keeper) RemoveLongBookByPrice(ctx sdk.Context, contractAddr string, price sdk.Dec, priceDenom types.Denom, assetDenom types.Denom) {
 	store := prefix.NewStore(
 		ctx.KVStore(k.storeKey),
 		types.OrderBookPrefix(
@@ -54,14 +53,14 @@ func (k Keeper) GetAllLongBook(ctx sdk.Context, contractAddr string) (list []typ
 
 	for ; iterator.Valid(); iterator.Next() {
 		var val types.LongBook
-		k.cdc.MustUnmarshal(iterator.Value(), &val)
+		k.Cdc.MustUnmarshal(iterator.Value(), &val)
 		list = append(list, val)
 	}
 
 	return
 }
 
-func (k Keeper) GetAllLongBookForPair(ctx sdk.Context, contractAddr string, priceDenom string, assetDenom string) (list []types.OrderBook) {
+func (k Keeper) GetAllLongBookForPair(ctx sdk.Context, contractAddr string, priceDenom types.Denom, assetDenom types.Denom) (list []types.OrderBook) {
 	store := prefix.NewStore(ctx.KVStore(k.storeKey), types.OrderBookPrefix(true, contractAddr, priceDenom, assetDenom))
 	iterator := sdk.KVStorePrefixIterator(store, []byte{})
 
@@ -69,9 +68,25 @@ func (k Keeper) GetAllLongBookForPair(ctx sdk.Context, contractAddr string, pric
 
 	for ; iterator.Valid(); iterator.Next() {
 		var val types.LongBook
-		k.cdc.MustUnmarshal(iterator.Value(), &val)
+		k.Cdc.MustUnmarshal(iterator.Value(), &val)
 		list = append(list, &val)
 	}
+
+	return
+}
+
+func (k Keeper) GetAllLongBookForPairPaginated(ctx sdk.Context, contractAddr string, priceDenom types.Denom, assetDenom types.Denom, page *query.PageRequest) (list []types.LongBook, pageRes *query.PageResponse, err error) {
+	store := prefix.NewStore(ctx.KVStore(k.storeKey), types.OrderBookPrefix(true, contractAddr, priceDenom, assetDenom))
+
+	pageRes, err = query.Paginate(store, page, func(key []byte, value []byte) error {
+		var longBook types.LongBook
+		if err := k.Cdc.Unmarshal(value, &longBook); err != nil {
+			return err
+		}
+
+		list = append(list, longBook)
+		return nil
+	})
 
 	return
 }
@@ -80,8 +95,10 @@ func GetKeyForLongBook(longBook types.LongBook) []byte {
 	return GetKeyForPrice(longBook.Entry.Price)
 }
 
-func GetKeyForPrice(price uint64) []byte {
-	key := make([]byte, 8)
-	binary.BigEndian.PutUint64(key, price)
+func GetKeyForPrice(price sdk.Dec) []byte {
+	key, err := price.Marshal()
+	if err != nil {
+		panic(err)
+	}
 	return key
 }
