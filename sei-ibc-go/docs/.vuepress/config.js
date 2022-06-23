@@ -182,6 +182,11 @@ module.exports = {
           title: "Migrations",
           children: [
             {
+              title: "Support transfer of coins whose base denom contains slashes",
+              directory: false,
+              path: "/migrations/support-denoms-with-slashes.html"
+            },
+            {
               title: "SDK v0.43 to IBC-Go v1",
               directory: false,
               path: "/migrations/sdk-to-v1.html"
