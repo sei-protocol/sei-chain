@@ -16,8 +16,11 @@ func Settle(
 	order types.OrderBook,
 	takerDirection types.PositionDirection,
 	worstPrice sdk.Dec,
-	isTakerLiquidation bool,
+	takerOrderType types.OrderType,
 ) ([]*types.Settlement, []*types.Settlement) {
+	// settlement of one liquidity taker's order is allocated to all liquidity
+	// providers at the matched price level, propotional to the amount of liquidity
+	// provided by each LP.
 	takerSettlements := []*types.Settlement{}
 	makerSettlements := []*types.Settlement{}
 	order.GetEntry().Quantity = order.GetEntry().Quantity.Sub(quantityTaken)
@@ -39,12 +42,6 @@ func Settle(
 	order.GetEntry().Allocation = nonZeroNewAllocations
 	order.GetEntry().AllocationCreator = nonZeroNewCreators
 	for _, toSettle := range newToSettle {
-		var takerOrderType types.OrderType
-		if isTakerLiquidation {
-			takerOrderType = types.OrderType_LIQUIDATION
-		} else {
-			takerOrderType = types.OrderType_MARKET
-		}
 		takerSettlements = append(takerSettlements, types.NewSettlement(
 			taker,
 			takerDirection,
@@ -74,6 +71,9 @@ func SettleFromBook(
 	shortOrder types.OrderBook,
 	executedQuantity sdk.Dec,
 ) []*types.Settlement {
+	// settlement from within the order book is also allocated to all liquidity
+	// providers at the matched price level on both sides, propotional to the
+	// amount of liquidity provided by each LP.
 	settlements := []*types.Settlement{}
 	longOrder.GetEntry().Quantity = longOrder.GetEntry().Quantity.Sub(executedQuantity)
 	shortOrder.GetEntry().Quantity = shortOrder.GetEntry().Quantity.Sub(executedQuantity)
