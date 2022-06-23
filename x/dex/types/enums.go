@@ -46,7 +46,7 @@ func getEnumFromStr(str string, enumMap map[string]int32) (int32, error) {
 }
 
 func GetContractDenomName(denom Denom) string {
-	return strings.ToLower(Denom_name[int32(denom)])
+	return strings.ToUpper(Denom_name[int32(denom)])
 }
 
 func GetContractPositionDirection(direction PositionDirection) string {

@@ -28,6 +28,7 @@ type Settlement struct {
 	Account                string
 	Effect                 PositionEffect
 	Leverage               sdk.Dec
+	OrderType              OrderType
 }
 
 func NewSettlement(
@@ -38,6 +39,7 @@ func NewSettlement(
 	quantity sdk.Dec,
 	executionCostOrProceed sdk.Dec,
 	expectedCostOrProceed sdk.Dec,
+	orderType OrderType,
 ) *Settlement {
 	parts := strings.Split(formattedAccount, FORMATTED_ACCOUNT_DELIMITER)
 	leverage, _ := sdk.NewDecFromStr(parts[2])
@@ -51,6 +53,7 @@ func NewSettlement(
 		Account:                parts[0],
 		Effect:                 SUFFIX_TO_POSITION_EFFECT[OPEN_ORDER_CREATOR_SUFFIX],
 		Leverage:               leverage,
+		OrderType:              orderType,
 	}
 }
 
@@ -70,5 +73,6 @@ func (s *Settlement) ToEntry() SettlementEntry {
 		PositionDirection:      GetContractPositionDirection(s.Direction),
 		PositionEffect:         GetContractPositionEffect(s.Effect),
 		Leverage:               s.Leverage,
+		OrderType:              GetContractOrderType(s.OrderType),
 	}
 }

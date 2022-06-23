@@ -16,7 +16,11 @@ func Settle(
 	order types.OrderBook,
 	takerDirection types.PositionDirection,
 	worstPrice sdk.Dec,
+	takerOrderType types.OrderType,
 ) ([]*types.Settlement, []*types.Settlement) {
+	// settlement of one liquidity taker's order is allocated to all liquidity
+	// providers at the matched price level, propotional to the amount of liquidity
+	// provided by each LP.
 	takerSettlements := []*types.Settlement{}
 	makerSettlements := []*types.Settlement{}
 	order.GetEntry().Quantity = order.GetEntry().Quantity.Sub(quantityTaken)
@@ -46,6 +50,7 @@ func Settle(
 			toSettle.amount,
 			worstPrice,
 			worstPrice,
+			takerOrderType,
 		))
 		makerSettlements = append(makerSettlements, types.NewSettlement(
 			toSettle.creator,
@@ -55,6 +60,7 @@ func Settle(
 			toSettle.amount,
 			order.GetEntry().Price,
 			order.GetEntry().Price,
+			types.OrderType_LIMIT,
 		))
 	}
 	return takerSettlements, makerSettlements
@@ -65,6 +71,9 @@ func SettleFromBook(
 	shortOrder types.OrderBook,
 	executedQuantity sdk.Dec,
 ) []*types.Settlement {
+	// settlement from within the order book is also allocated to all liquidity
+	// providers at the matched price level on both sides, propotional to the
+	// amount of liquidity provided by each LP.
 	settlements := []*types.Settlement{}
 	longOrder.GetEntry().Quantity = longOrder.GetEntry().Quantity.Sub(executedQuantity)
 	shortOrder.GetEntry().Quantity = shortOrder.GetEntry().Quantity.Sub(executedQuantity)
@@ -119,6 +128,7 @@ func SettleFromBook(
 			quantity,
 			avgPrice,
 			longOrder.GetPrice(),
+			types.OrderType_LIMIT,
 		), types.NewSettlement(
 			shortToSettle.creator,
 			types.PositionDirection_SHORT,
@@ -127,6 +137,7 @@ func SettleFromBook(
 			quantity,
 			avgPrice,
 			shortOrder.GetPrice(),
+			types.OrderType_LIMIT,
 		))
 		newLongToSettle[longPtr] = ToSettle{creator: longToSettle.creator, amount: longToSettle.amount.Sub(quantity)}
 		newShortToSettle[shortPtr] = ToSettle{creator: shortToSettle.creator, amount: shortToSettle.amount.Sub(quantity)}
