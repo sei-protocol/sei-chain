@@ -27,9 +27,6 @@ func NewHandler(k keeper.Keeper, tracingInfo *tracing.TracingInfo) sdk.Handler {
 		case *types.MsgLiquidation:
 			res, err := msgServer.Liquidate(sdk.WrapSDKContext(ctx), msg)
 			return sdk.WrapServiceResult(ctx, res, err)
-		case *types.MsgRegisterPair:
-			res, err := msgServer.RegisterPair(sdk.WrapSDKContext(ctx), msg)
-			return sdk.WrapServiceResult(ctx, res, err)
 		case *types.MsgRegisterContract:
 			res, err := msgServer.RegisterContract(sdk.WrapSDKContext(ctx), msg)
 			return sdk.WrapServiceResult(ctx, res, err)

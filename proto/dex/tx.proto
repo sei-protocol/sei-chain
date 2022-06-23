@@ -17,7 +17,6 @@ service Msg {
   rpc PlaceOrders(MsgPlaceOrders) returns (MsgPlaceOrdersResponse);
   rpc CancelOrders(MsgCancelOrders) returns (MsgCancelOrdersResponse);
   rpc Liquidate(MsgLiquidation) returns (MsgLiquidationResponse);
-  rpc RegisterPair(MsgRegisterPair) returns (MsgRegisterPairResponse);
   rpc RegisterContract(MsgRegisterContract) returns(MsgRegisterContractResponse);
   // privileged endpoints below
 
@@ -53,14 +52,6 @@ message MsgLiquidation {
 }
 
 message MsgLiquidationResponse {}
-
-message MsgRegisterPair {
-  string creator = 1;
-  string contractAddr = 2;
-  Pair pair = 3;
-}
-
-message MsgRegisterPairResponse {}
 
 message MsgRegisterContract {
   string creator = 1;
