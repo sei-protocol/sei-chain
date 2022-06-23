@@ -36,30 +36,45 @@ func (k *Keeper) HandleEBPlaceOrders(ctx context.Context, sdkCtx sdk.Context, tr
 				orderPlacements.FilterOutIds(response.UnsuccessfulOrderIds)
 			}
 			for _, orderPlacement := range orderPlacements.Orders {
-				switch orderPlacement.OrderType {
-				case types.OrderType_LIMIT:
-					k.Orders[contractAddr][pairStr].AddLimitOrder(dexcache.LimitOrder{
-						Creator:   orderPlacement.Creator,
-						Price:     orderPlacement.Price,
-						Quantity:  orderPlacement.Quantity,
-						Direction: orderPlacement.Direction,
-						Effect:    orderPlacement.Effect,
-						Leverage:  orderPlacement.Leverage,
-					})
-				case types.OrderType_MARKET:
-					k.Orders[contractAddr][pairStr].AddMarketOrder(dexcache.MarketOrder{
-						Creator:    orderPlacement.Creator,
-						WorstPrice: orderPlacement.Price,
-						Quantity:   orderPlacement.Quantity,
-						Direction:  orderPlacement.Direction,
-						Effect:     orderPlacement.Effect,
-						Leverage:   orderPlacement.Leverage,
-					})
-				}
+				k.AddOrderFromOrderPlacement(contractAddr, pairStr, orderPlacement)
 			}
 		}
 	}
 	span.End()
+}
+
+func (k *Keeper) AddOrderFromOrderPlacement(contractAddr string, pairStr string, orderPlacement dexcache.OrderPlacement) {
+	switch orderPlacement.OrderType {
+	case types.OrderType_LIMIT:
+		k.Orders[contractAddr][pairStr].AddLimitOrder(dexcache.LimitOrder{
+			Creator:   orderPlacement.Creator,
+			Price:     orderPlacement.Price,
+			Quantity:  orderPlacement.Quantity,
+			Direction: orderPlacement.Direction,
+			Effect:    orderPlacement.Effect,
+			Leverage:  orderPlacement.Leverage,
+		})
+	case types.OrderType_MARKET:
+		k.Orders[contractAddr][pairStr].AddMarketOrder(dexcache.MarketOrder{
+			Creator:       orderPlacement.Creator,
+			WorstPrice:    orderPlacement.Price,
+			Quantity:      orderPlacement.Quantity,
+			Direction:     orderPlacement.Direction,
+			Effect:        orderPlacement.Effect,
+			Leverage:      orderPlacement.Leverage,
+			IsLiquidation: false,
+		})
+	case types.OrderType_LIQUIDATION:
+		k.Orders[contractAddr][pairStr].AddMarketOrder(dexcache.MarketOrder{
+			Creator:       orderPlacement.Creator,
+			WorstPrice:    orderPlacement.Price,
+			Quantity:      orderPlacement.Quantity,
+			Direction:     orderPlacement.Direction,
+			Effect:        orderPlacement.Effect,
+			Leverage:      orderPlacement.Leverage,
+			IsLiquidation: true,
+		})
+	}
 }
 
 func (k *Keeper) GetPlaceSudoMsg(contractAddr string, registeredPairs []types.Pair) []types.SudoOrderPlacementMsg {
@@ -79,7 +94,7 @@ func (k *Keeper) GetPlaceSudoMsg(contractAddr string, registeredPairs []types.Pa
 	for _, pair := range registeredPairs {
 		if orderPlacements, ok := k.OrderPlacements[contractAddr][pair.String()]; ok {
 			for _, orderPlacement := range orderPlacements.Orders {
-				if !orderPlacement.Liquidation {
+				if orderPlacement.OrderType != types.OrderType_LIQUIDATION {
 					contractOrderPlacements = append(contractOrderPlacements, dexcache.ToContractOrderPlacement(orderPlacement))
 					if len(contractOrderPlacements) == MAX_ORDERS_PER_SUDO_CALL {
 						msgs = append(msgs, types.SudoOrderPlacementMsg{

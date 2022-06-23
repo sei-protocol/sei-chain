@@ -16,6 +16,7 @@ enum PositionEffect {
 enum OrderType {
     LIMIT = 0;
     MARKET = 1;
+    LIQUIDATION = 2;
 }
 
 enum Denom {

@@ -44,7 +44,21 @@ func MatchMarketOrders(
 				executed.Mul(existingOrder.GetPrice()),
 			)
 			dirtyPrices.Add(existingOrder.GetPrice())
-			takerSettlements, makerSettlements := Settle(marketOrder.FormattedCreatorWithSuffix(), executed, existingOrder, direction, marketOrder.WorstPrice)
+
+			var orderType types.OrderType
+			if marketOrder.IsLiquidation {
+				orderType = types.OrderType_LIQUIDATION
+			} else {
+				orderType = types.OrderType_MARKET
+			}
+			takerSettlements, makerSettlements := Settle(
+				marketOrder.FormattedCreatorWithSuffix(),
+				executed,
+				existingOrder,
+				direction,
+				marketOrder.WorstPrice,
+				orderType,
+			)
 			*settlements = append(*settlements, makerSettlements...)
 			// taker settlements' clearing price will need to be adjusted after all market order executions finish
 			allTakerSettlements = append(allTakerSettlements, takerSettlements...)

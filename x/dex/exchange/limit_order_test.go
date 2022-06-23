@@ -68,6 +68,7 @@ func TestMatchSingleOrder(t *testing.T) {
 		ExecutionCostOrProceed: sdk.NewDec(100),
 		ExpectedCostOrProceed:  sdk.NewDec(100),
 		Account:                "abc",
+		OrderType:              types.OrderType_LIMIT,
 	})
 	assert.Equal(t, *settlements[1], types.Settlement{
 		Direction:              types.PositionDirection_SHORT,
@@ -77,6 +78,7 @@ func TestMatchSingleOrder(t *testing.T) {
 		ExecutionCostOrProceed: sdk.NewDec(100),
 		ExpectedCostOrProceed:  sdk.NewDec(100),
 		Account:                "def",
+		OrderType:              types.OrderType_LIMIT,
 	})
 }
 
@@ -290,6 +292,7 @@ func TestMatchSingleOrderFromShortBook(t *testing.T) {
 		ExecutionCostOrProceed: sdk.NewDec(100),
 		ExpectedCostOrProceed:  sdk.NewDec(100),
 		Account:                "abc",
+		OrderType:              types.OrderType_LIMIT,
 	})
 	assert.Equal(t, *settlements[1], types.Settlement{
 		Direction:              types.PositionDirection_SHORT,
@@ -299,6 +302,7 @@ func TestMatchSingleOrderFromShortBook(t *testing.T) {
 		ExecutionCostOrProceed: sdk.NewDec(100),
 		ExpectedCostOrProceed:  sdk.NewDec(100),
 		Account:                "def",
+		OrderType:              types.OrderType_LIMIT,
 	})
 }
 
@@ -356,6 +360,7 @@ func TestMatchSingleOrderFromLongBook(t *testing.T) {
 		ExecutionCostOrProceed: sdk.NewDec(100),
 		ExpectedCostOrProceed:  sdk.NewDec(100),
 		Account:                "abc",
+		OrderType:              types.OrderType_LIMIT,
 	})
 	assert.Equal(t, *settlements[1], types.Settlement{
 		Direction:              types.PositionDirection_SHORT,
@@ -365,6 +370,7 @@ func TestMatchSingleOrderFromLongBook(t *testing.T) {
 		ExecutionCostOrProceed: sdk.NewDec(100),
 		ExpectedCostOrProceed:  sdk.NewDec(100),
 		Account:                "def",
+		OrderType:              types.OrderType_LIMIT,
 	})
 }
 
@@ -443,6 +449,7 @@ func TestMatchSingleOrderFromMultipleShortBook(t *testing.T) {
 		ExecutionCostOrProceed: sdk.NewDec(95),
 		ExpectedCostOrProceed:  sdk.NewDec(100),
 		Account:                "abc",
+		OrderType:              types.OrderType_LIMIT,
 	})
 	assert.Equal(t, *settlements[1], types.Settlement{
 		Direction:              types.PositionDirection_SHORT,
@@ -452,6 +459,7 @@ func TestMatchSingleOrderFromMultipleShortBook(t *testing.T) {
 		ExecutionCostOrProceed: sdk.NewDec(95),
 		ExpectedCostOrProceed:  sdk.NewDec(90),
 		Account:                "def",
+		OrderType:              types.OrderType_LIMIT,
 	})
 	assert.Equal(t, *settlements[2], types.Settlement{
 		Direction:              types.PositionDirection_LONG,
@@ -461,6 +469,7 @@ func TestMatchSingleOrderFromMultipleShortBook(t *testing.T) {
 		ExecutionCostOrProceed: sdk.NewDec(100),
 		ExpectedCostOrProceed:  sdk.NewDec(100),
 		Account:                "abc",
+		OrderType:              types.OrderType_LIMIT,
 	})
 	assert.Equal(t, *settlements[3], types.Settlement{
 		Direction:              types.PositionDirection_SHORT,
@@ -470,6 +479,7 @@ func TestMatchSingleOrderFromMultipleShortBook(t *testing.T) {
 		ExecutionCostOrProceed: sdk.NewDec(100),
 		ExpectedCostOrProceed:  sdk.NewDec(100),
 		Account:                "def",
+		OrderType:              types.OrderType_LIMIT,
 	})
 	assert.Equal(t, *settlements[4], types.Settlement{
 		Direction:              types.PositionDirection_LONG,
@@ -479,6 +489,7 @@ func TestMatchSingleOrderFromMultipleShortBook(t *testing.T) {
 		ExecutionCostOrProceed: sdk.NewDec(100),
 		ExpectedCostOrProceed:  sdk.NewDec(100),
 		Account:                "abc",
+		OrderType:              types.OrderType_LIMIT,
 	})
 	assert.Equal(t, *settlements[5], types.Settlement{
 		Direction:              types.PositionDirection_SHORT,
@@ -488,6 +499,7 @@ func TestMatchSingleOrderFromMultipleShortBook(t *testing.T) {
 		ExecutionCostOrProceed: sdk.NewDec(100),
 		ExpectedCostOrProceed:  sdk.NewDec(100),
 		Account:                "ghi",
+		OrderType:              types.OrderType_LIMIT,
 	})
 }
 
@@ -566,6 +578,7 @@ func TestMatchSingleOrderFromMultipleLongBook(t *testing.T) {
 		ExecutionCostOrProceed: sdk.NewDec(105),
 		ExpectedCostOrProceed:  sdk.NewDec(110),
 		Account:                "abc",
+		OrderType:              types.OrderType_LIMIT,
 	})
 	assert.Equal(t, *settlements[1], types.Settlement{
 		Direction:              types.PositionDirection_SHORT,
@@ -575,6 +588,7 @@ func TestMatchSingleOrderFromMultipleLongBook(t *testing.T) {
 		ExecutionCostOrProceed: sdk.NewDec(105),
 		ExpectedCostOrProceed:  sdk.NewDec(100),
 		Account:                "def",
+		OrderType:              types.OrderType_LIMIT,
 	})
 	assert.Equal(t, *settlements[2], types.Settlement{
 		Direction:              types.PositionDirection_LONG,
@@ -584,6 +598,7 @@ func TestMatchSingleOrderFromMultipleLongBook(t *testing.T) {
 		ExecutionCostOrProceed: sdk.NewDec(100),
 		ExpectedCostOrProceed:  sdk.NewDec(100),
 		Account:                "abc",
+		OrderType:              types.OrderType_LIMIT,
 	})
 	assert.Equal(t, *settlements[3], types.Settlement{
 		Direction:              types.PositionDirection_SHORT,
@@ -593,6 +608,7 @@ func TestMatchSingleOrderFromMultipleLongBook(t *testing.T) {
 		ExecutionCostOrProceed: sdk.NewDec(100),
 		ExpectedCostOrProceed:  sdk.NewDec(100),
 		Account:                "def",
+		OrderType:              types.OrderType_LIMIT,
 	})
 	assert.Equal(t, *settlements[4], types.Settlement{
 		Direction:              types.PositionDirection_LONG,
@@ -602,6 +618,7 @@ func TestMatchSingleOrderFromMultipleLongBook(t *testing.T) {
 		ExecutionCostOrProceed: sdk.NewDec(100),
 		ExpectedCostOrProceed:  sdk.NewDec(100),
 		Account:                "ghi",
+		OrderType:              types.OrderType_LIMIT,
 	})
 	assert.Equal(t, *settlements[5], types.Settlement{
 		Direction:              types.PositionDirection_SHORT,
@@ -611,6 +628,7 @@ func TestMatchSingleOrderFromMultipleLongBook(t *testing.T) {
 		ExecutionCostOrProceed: sdk.NewDec(100),
 		ExpectedCostOrProceed:  sdk.NewDec(100),
 		Account:                "def",
+		OrderType:              types.OrderType_LIMIT,
 	})
 }
 
@@ -718,6 +736,7 @@ func TestMatchMultipleOrderFromMultipleShortBook(t *testing.T) {
 		ExecutionCostOrProceed: sdk.NewDec(97),
 		ExpectedCostOrProceed:  sdk.NewDec(104),
 		Account:                "jkl",
+		OrderType:              types.OrderType_LIMIT,
 	})
 	assert.Equal(t, *settlements[1], types.Settlement{
 		Direction:              types.PositionDirection_SHORT,
@@ -727,6 +746,7 @@ func TestMatchMultipleOrderFromMultipleShortBook(t *testing.T) {
 		ExecutionCostOrProceed: sdk.NewDec(97),
 		ExpectedCostOrProceed:  sdk.NewDec(90),
 		Account:                "def",
+		OrderType:              types.OrderType_LIMIT,
 	})
 	assert.Equal(t, *settlements[2], types.Settlement{
 		Direction:              types.PositionDirection_LONG,
@@ -736,6 +756,7 @@ func TestMatchMultipleOrderFromMultipleShortBook(t *testing.T) {
 		ExecutionCostOrProceed: sdk.NewDec(95),
 		ExpectedCostOrProceed:  sdk.NewDec(100),
 		Account:                "abc",
+		OrderType:              types.OrderType_LIMIT,
 	})
 	assert.Equal(t, *settlements[3], types.Settlement{
 		Direction:              types.PositionDirection_SHORT,
@@ -745,6 +766,7 @@ func TestMatchMultipleOrderFromMultipleShortBook(t *testing.T) {
 		ExecutionCostOrProceed: sdk.NewDec(95),
 		ExpectedCostOrProceed:  sdk.NewDec(90),
 		Account:                "def",
+		OrderType:              types.OrderType_LIMIT,
 	})
 	assert.Equal(t, *settlements[4], types.Settlement{
 		Direction:              types.PositionDirection_LONG,
@@ -754,6 +776,7 @@ func TestMatchMultipleOrderFromMultipleShortBook(t *testing.T) {
 		ExecutionCostOrProceed: sdk.NewDec(100),
 		ExpectedCostOrProceed:  sdk.NewDec(100),
 		Account:                "abc",
+		OrderType:              types.OrderType_LIMIT,
 	})
 	assert.Equal(t, *settlements[5], types.Settlement{
 		Direction:              types.PositionDirection_SHORT,
@@ -763,6 +786,7 @@ func TestMatchMultipleOrderFromMultipleShortBook(t *testing.T) {
 		ExecutionCostOrProceed: sdk.NewDec(100),
 		ExpectedCostOrProceed:  sdk.NewDec(100),
 		Account:                "def",
+		OrderType:              types.OrderType_LIMIT,
 	})
 	assert.Equal(t, *settlements[6], types.Settlement{
 		Direction:              types.PositionDirection_LONG,
@@ -772,6 +796,7 @@ func TestMatchMultipleOrderFromMultipleShortBook(t *testing.T) {
 		ExecutionCostOrProceed: sdk.NewDec(100),
 		ExpectedCostOrProceed:  sdk.NewDec(100),
 		Account:                "abc",
+		OrderType:              types.OrderType_LIMIT,
 	})
 	assert.Equal(t, *settlements[7], types.Settlement{
 		Direction:              types.PositionDirection_SHORT,
@@ -781,6 +806,7 @@ func TestMatchMultipleOrderFromMultipleShortBook(t *testing.T) {
 		ExecutionCostOrProceed: sdk.NewDec(100),
 		ExpectedCostOrProceed:  sdk.NewDec(100),
 		Account:                "ghi",
+		OrderType:              types.OrderType_LIMIT,
 	})
 }
 
@@ -888,6 +914,7 @@ func TestMatchMultipleOrderFromMultipleLongBook(t *testing.T) {
 		ExecutionCostOrProceed: sdk.NewDec(103),
 		ExpectedCostOrProceed:  sdk.NewDec(110),
 		Account:                "abc",
+		OrderType:              types.OrderType_LIMIT,
 	})
 	assert.Equal(t, *settlements[1], types.Settlement{
 		Direction:              types.PositionDirection_SHORT,
@@ -897,6 +924,7 @@ func TestMatchMultipleOrderFromMultipleLongBook(t *testing.T) {
 		ExecutionCostOrProceed: sdk.NewDec(103),
 		ExpectedCostOrProceed:  sdk.NewDec(96),
 		Account:                "jkl",
+		OrderType:              types.OrderType_LIMIT,
 	})
 	assert.Equal(t, *settlements[2], types.Settlement{
 		Direction:              types.PositionDirection_LONG,
@@ -906,6 +934,7 @@ func TestMatchMultipleOrderFromMultipleLongBook(t *testing.T) {
 		ExecutionCostOrProceed: sdk.NewDec(105),
 		ExpectedCostOrProceed:  sdk.NewDec(110),
 		Account:                "abc",
+		OrderType:              types.OrderType_LIMIT,
 	})
 	assert.Equal(t, *settlements[3], types.Settlement{
 		Direction:              types.PositionDirection_SHORT,
@@ -915,6 +944,7 @@ func TestMatchMultipleOrderFromMultipleLongBook(t *testing.T) {
 		ExecutionCostOrProceed: sdk.NewDec(105),
 		ExpectedCostOrProceed:  sdk.NewDec(100),
 		Account:                "abc",
+		OrderType:              types.OrderType_LIMIT,
 	})
 	assert.Equal(t, *settlements[4], types.Settlement{
 		Direction:              types.PositionDirection_LONG,
@@ -924,6 +954,7 @@ func TestMatchMultipleOrderFromMultipleLongBook(t *testing.T) {
 		ExecutionCostOrProceed: sdk.NewDec(100),
 		ExpectedCostOrProceed:  sdk.NewDec(100),
 		Account:                "abc",
+		OrderType:              types.OrderType_LIMIT,
 	})
 	assert.Equal(t, *settlements[5], types.Settlement{
 		Direction:              types.PositionDirection_SHORT,
@@ -933,6 +964,7 @@ func TestMatchMultipleOrderFromMultipleLongBook(t *testing.T) {
 		ExecutionCostOrProceed: sdk.NewDec(100),
 		ExpectedCostOrProceed:  sdk.NewDec(100),
 		Account:                "abc",
+		OrderType:              types.OrderType_LIMIT,
 	})
 	assert.Equal(t, *settlements[6], types.Settlement{
 		Direction:              types.PositionDirection_LONG,
@@ -942,6 +974,7 @@ func TestMatchMultipleOrderFromMultipleLongBook(t *testing.T) {
 		ExecutionCostOrProceed: sdk.NewDec(100),
 		ExpectedCostOrProceed:  sdk.NewDec(100),
 		Account:                "ghi",
+		OrderType:              types.OrderType_LIMIT,
 	})
 	assert.Equal(t, *settlements[7], types.Settlement{
 		Direction:              types.PositionDirection_SHORT,
@@ -951,5 +984,6 @@ func TestMatchMultipleOrderFromMultipleLongBook(t *testing.T) {
 		ExecutionCostOrProceed: sdk.NewDec(100),
 		ExpectedCostOrProceed:  sdk.NewDec(100),
 		Account:                "abc",
+		OrderType:              types.OrderType_LIMIT,
 	})
 }

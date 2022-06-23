@@ -36,6 +36,7 @@ message SettlementEntry {
 		(gogoproto.nullable)   = false,
     (gogoproto.jsontag) = "leverage"
 	];
+  string orderType = 10 [(gogoproto.jsontag) = "order_type"];
 }
 
 message Settlements {

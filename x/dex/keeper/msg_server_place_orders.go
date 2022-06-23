@@ -69,17 +69,16 @@ func (k msgServer) PlaceOrders(goCtx context.Context, msg *types.MsgPlaceOrders)
 		(*pairToOrderPlacements[pair.String()]).Orders = append(
 			(*pairToOrderPlacements[pair.String()]).Orders,
 			dexcache.OrderPlacement{
-				Id:          nextId,
-				Price:       orderPlacement.Price,
-				Quantity:    orderPlacement.Quantity,
-				Creator:     msg.Creator,
-				PriceDenom:  orderPlacement.PriceDenom,
-				AssetDenom:  orderPlacement.AssetDenom,
-				OrderType:   orderPlacement.OrderType,
-				Direction:   orderPlacement.PositionDirection,
-				Effect:      orderPlacement.PositionEffect,
-				Leverage:    orderPlacement.Leverage,
-				Liquidation: false,
+				Id:         nextId,
+				Price:      orderPlacement.Price,
+				Quantity:   orderPlacement.Quantity,
+				Creator:    msg.Creator,
+				PriceDenom: orderPlacement.PriceDenom,
+				AssetDenom: orderPlacement.AssetDenom,
+				OrderType:  orderPlacement.OrderType,
+				Direction:  orderPlacement.PositionDirection,
+				Effect:     orderPlacement.PositionEffect,
+				Leverage:   orderPlacement.Leverage,
 			},
 		)
 		idsInResp = append(idsInResp, nextId)
