@@ -15,6 +15,9 @@ service Msg {
   // aggregate exchange rate vote
   rpc AggregateExchangeRateVote(MsgAggregateExchangeRateVote) returns (MsgAggregateExchangeRateVoteResponse);
 
+  // Aggregate vote and prevote combines the functionality of prevote and vote into one RPC
+  rpc AggregateExchangeRateCombinedVote(MsgAggregateExchangeRateCombinedVote) returns (MsgAggregateExchangeRateCombinedVoteResponse);
+
   // DelegateFeedConsent defines a method for setting the feeder delegation
   rpc DelegateFeedConsent(MsgDelegateFeedConsent) returns (MsgDelegateFeedConsentResponse);
 }
@@ -47,6 +50,22 @@ message MsgAggregateExchangeRateVote {
 
 // MsgAggregateExchangeRateVoteResponse defines the Msg/AggregateExchangeRateVote response type.
 message MsgAggregateExchangeRateVoteResponse {}
+
+// MsgAggregateExchangeRateVote represents a message to submit
+// aggregate exchange rate vote.
+message MsgAggregateExchangeRateCombinedVote {
+  option (gogoproto.equal)           = false;
+  option (gogoproto.goproto_getters) = false;
+
+  string vote_salt           = 1 [(gogoproto.moretags) = "yaml:\"vote_salt\""];
+  string vote_exchange_rates = 2 [(gogoproto.moretags) = "yaml:\"vote_exchange_rates\""];
+  string prevote_hash = 3 [(gogoproto.moretags) = "yaml:\"prevote_hash\""];
+  string feeder         = 4 [(gogoproto.moretags) = "yaml:\"feeder\""];
+  string validator      = 5 [(gogoproto.moretags) = "yaml:\"validator\""];
+}
+
+// MsgAggregateExchangeRateVoteResponse defines the Msg/AggregateExchangeRateVote response type.
+message MsgAggregateExchangeRateCombinedVoteResponse {}
 
 // MsgDelegateFeedConsent represents a message to
 // delegate oracle voting rights to another address.
