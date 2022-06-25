@@ -8,6 +8,7 @@ const (
 	EventTypeFeedDelegate       = "feed_delegate"
 	EventTypeAggregatePrevote   = "aggregate_prevote"
 	EventTypeAggregateVote      = "aggregate_vote"
+	EventTypeEndSlashWindow     = "end_slash_window"
 
 	AttributeKeyDenom         = "denom"
 	AttributeKeyVoter         = "voter"
@@ -15,6 +16,9 @@ const (
 	AttributeKeyExchangeRates = "exchange_rates"
 	AttributeKeyOperator      = "operator"
 	AttributeKeyFeeder        = "feeder"
+	AttributeKeyMissCount     = "miss_count"
+	AttributeKeyAbstainCount  = "abstain_count"
+	AttributeKeyWinCount      = "win_count"
 
 	AttributeValueCategory = ModuleName
 )

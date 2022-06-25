@@ -33,7 +33,7 @@ func EndBlocker(ctx sdk.Context, k keeper.Keeper) {
 			// Exclude not bonded validator
 			if validator.IsBonded() {
 				valAddr := validator.GetOperator()
-				validatorClaimMap[valAddr.String()] = types.NewClaim(validator.GetConsensusPower(powerReduction), 0, 0, 0, valAddr)
+				validatorClaimMap[valAddr.String()] = types.NewClaim(validator.GetConsensusPower(powerReduction), 0, 0, valAddr, false)
 				i++
 			}
 		}
@@ -101,9 +101,7 @@ func EndBlocker(ctx sdk.Context, k keeper.Keeper) {
 			if int(claim.WinCount) == totalTargets {
 				continue
 			}
-
-			if int(claim.WinCount+claim.AbstainCount) == totalTargets {
-				// if win count + abstain count == total targets then we increment abstain count instead of miss count
+			if !claim.DidVote {
 				k.IncrementAbstainCount(ctx, claim.Recipient)
 				continue
 			}
