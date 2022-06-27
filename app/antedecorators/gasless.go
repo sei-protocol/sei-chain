@@ -51,6 +51,11 @@ func isTxGasless(tx sdk.Tx, ctx sdk.Context, oracleKeeper oraclekeeper.Keeper) b
 				continue
 			}
 			return false
+		case *oracletypes.MsgAggregateExchangeRateCombinedVote:
+			if OracleCombinedVoteIsGasless(m, ctx, oracleKeeper) {
+				continue
+			}
+			return false
 		default:
 			return false
 		}
@@ -134,7 +139,6 @@ func OracleVoteIsGasless(msg *oracletypes.MsgAggregateExchangeRateVote, ctx sdk.
 		return false
 	}
 
-	ctx.Logger().Error("checking if vote exists")
 	// this returns an error IFF there is no vote present
 	// this also gets cleared out after every vote window, so if there is no vote present, we may want to allow gasless tx
 	_, err = keeper.GetAggregateExchangeRateVote(ctx, valAddr)
@@ -143,11 +147,8 @@ func OracleVoteIsGasless(msg *oracletypes.MsgAggregateExchangeRateVote, ctx sdk.
 		return false
 	}
 
-	ctx.Logger().Error("vote DNE")
-
 	currHeight := ctx.BlockHeight()
 	votePeriod := keeper.VotePeriod(ctx)
-	ctx.Logger().Error("checking for prevote existing")
 	// we expect a prevote from the previous window
 	lastPrevote, err := keeper.GetAggregateExchangeRatePrevote(ctx, valAddr)
 	if err != nil {
@@ -160,4 +161,9 @@ func OracleVoteIsGasless(msg *oracletypes.MsgAggregateExchangeRateVote, ctx sdk.
 
 	// we allow gasless tx if the difference is exactly 1, since then the prevote is in the valid window
 	return currPrevoteWindow-lastPrevoteWindow == 1
+}
+
+func OracleCombinedVoteIsGasless(msg *oracletypes.MsgAggregateExchangeRateCombinedVote, ctx sdk.Context, keeper oraclekeeper.Keeper) bool {
+	return (OraclePrevoteIsGasless(msg.GetPrevoteFromCombinedVote(), ctx, keeper) ||
+		OracleVoteIsGasless(msg.GetVoteFromCombinedVote(), ctx, keeper))
 }
