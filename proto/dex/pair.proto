@@ -9,3 +9,8 @@ message Pair {
     Denom priceDenom = 1;
     Denom assetDenom = 2;
 }
+
+message BatchContractPair {
+    string contractAddr = 1 [(gogoproto.jsontag) = "contractAddr"];
+    repeated Pair pairs = 2 [(gogoproto.jsontag) = "pairs"];
+}

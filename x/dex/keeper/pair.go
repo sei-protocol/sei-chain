@@ -30,13 +30,21 @@ func (k Keeper) GetPairCount(ctx sdk.Context, contractAddr string) uint64 {
 	return binary.BigEndian.Uint64(cnt)
 }
 
-func (k Keeper) AddRegisteredPair(ctx sdk.Context, contractAddr string, pair types.Pair) {
+func (k Keeper) AddRegisteredPair(ctx sdk.Context, contractAddr string, pair types.Pair) bool {
+	// Only add pairs that have not been added before
+	for _, prevPair := range k.GetAllRegisteredPairs(ctx, contractAddr) {
+		if pair == prevPair {
+			return false
+		}
+	}
 	oldPairCnt := k.GetPairCount(ctx, contractAddr)
 	store := prefix.NewStore(ctx.KVStore(k.storeKey), types.RegisteredPairPrefix(contractAddr))
 	keyBytes := make([]byte, 8)
 	binary.BigEndian.PutUint64(keyBytes, oldPairCnt)
 	store.Set(keyBytes, k.Cdc.MustMarshal(&pair))
 	k.SetPairCount(ctx, contractAddr, oldPairCnt+1)
+
+	return true
 }
 
 func (k Keeper) GetAllRegisteredPairs(ctx sdk.Context, contractAddr string) []types.Pair {

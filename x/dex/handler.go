@@ -5,6 +5,8 @@ import (
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
+	govtypes "github.com/cosmos/cosmos-sdk/x/gov/types"
+
 	"github.com/sei-protocol/sei-chain/utils/tracing"
 	"github.com/sei-protocol/sei-chain/x/dex/keeper"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
@@ -36,4 +38,19 @@ func NewHandler(k keeper.Keeper, tracingInfo *tracing.TracingInfo) sdk.Handler {
 			return nil, sdkerrors.Wrap(sdkerrors.ErrUnknownRequest, errMsg)
 		}
 	}
+}
+
+func NewRegisterPairsProposalHandler(k keeper.Keeper) govtypes.Handler {
+	return func(ctx sdk.Context, content govtypes.Content) error {
+		switch c := content.(type) {
+		case *types.RegisterPairsProposal:
+			return handleRegisterPairsProposal(ctx, k, c)
+		default:
+			return sdkerrors.Wrapf(sdkerrors.ErrUnknownRequest, "unrecognized dex proposal content type: %T", c)
+		}
+	}
+}
+
+func handleRegisterPairsProposal(ctx sdk.Context, k keeper.Keeper, p *types.RegisterPairsProposal) error {
+	return k.HandleUpdateFeeTokenProposal(ctx, p)
 }
