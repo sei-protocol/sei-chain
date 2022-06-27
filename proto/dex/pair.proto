@@ -2,6 +2,7 @@ syntax = "proto3";
 package seiprotocol.seichain.dex;
 
 import "dex/enums.proto";
+import "gogoproto/gogo.proto";
 
 option go_package = "github.com/sei-protocol/sei-chain/x/dex/types";
 

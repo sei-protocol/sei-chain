@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"strings"
 
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	govtypes "github.com/cosmos/cosmos-sdk/x/gov/types"
 )
 
@@ -23,7 +22,7 @@ func NewRegisterPairsProposal(title, description string, batchContractPair []Bat
 	return RegisterPairsProposal{
 		Title:       title,
 		Description: description,
-		BatchContractPair:    batchContractPair,
+		Batchcontractpair:    batchContractPair,
 	}
 }
 
@@ -37,13 +36,22 @@ func (p *RegisterPairsProposal) ProposalType() string {
 	return ProposalTypeRegisterPairs
 }
 
+func (p *RegisterPairsProposal) ValidateBasic() error {
+	err := govtypes.ValidateAbstract(p)
+	return err
+}
+
 // TODO: String support for register pair type
 func (p RegisterPairsProposal) String() string {
+	batchContractPairRecords := ""
+	for _, contractPair := range p.Batchcontractpair {
+		batchContractPairRecords += contractPair.String()
+	}
 	var b strings.Builder
 	b.WriteString(fmt.Sprintf(`Update Fee Token Proposal:
   Title:       %s
   Description: %s
   Records:     %s
-`, p.Title, p.Description, p.BatchContractPair.String()))
+`, p.Title, p.Description, batchContractPairRecords))
 	return b.String()
 }

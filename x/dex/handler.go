@@ -52,5 +52,5 @@ func NewRegisterPairsProposalHandler(k keeper.Keeper) govtypes.Handler {
 }
 
 func handleRegisterPairsProposal(ctx sdk.Context, k keeper.Keeper, p *types.RegisterPairsProposal) error {
-	return k.HandleUpdateFeeTokenProposal(ctx, p)
+	return k.HandleRegisterPairsProposal(ctx, p)
 }
