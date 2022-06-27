@@ -630,6 +630,37 @@ func TestOraclePriceSnapshot(t *testing.T) {
 	require.Equal(t, expected2, input.OracleKeeper.GetPriceSnapshot(input.Ctx, 200))
 }
 
+func TestOracleCombinedVote(t *testing.T) {
+	input, h := setup(t)
+
+	input.Ctx = input.Ctx.WithBlockHeight(1)
+	input.OracleKeeper.SetBaseExchangeRate(input.Ctx, utils.MicroAtomDenom, randomExchangeRate)
+
+	input.Ctx = input.Ctx.WithBlockHeight(2)
+	makeAggregateCombinedVote(t, input, h, sdk.DecCoins{{Denom: utils.MicroAtomDenom, Amount: sdk.NewDec(1)}}, sdk.DecCoins{{Denom: utils.MicroAtomDenom, Amount: sdk.NewDec(2)}}, 0)
+	makeAggregateCombinedVote(t, input, h, sdk.DecCoins{{Denom: utils.MicroAtomDenom, Amount: sdk.NewDec(1)}}, sdk.DecCoins{{Denom: utils.MicroAtomDenom, Amount: sdk.NewDec(2)}}, 1)
+	makeAggregateCombinedVote(t, input, h, sdk.DecCoins{{Denom: utils.MicroAtomDenom, Amount: sdk.NewDec(1)}}, sdk.DecCoins{{Denom: utils.MicroAtomDenom, Amount: sdk.NewDec(2)}}, 2)
+	oracle.EndBlocker(input.Ctx, input.OracleKeeper)
+
+	// we expect random exchange rate because the vote had no prevote
+	rate, height, err := input.OracleKeeper.GetBaseExchangeRate(input.Ctx, utils.MicroAtomDenom)
+	require.NoError(t, err)
+	require.Equal(t, randomExchangeRate, rate)
+	require.Equal(t, sdk.NewInt(1), height)
+
+	input.Ctx = input.Ctx.WithBlockHeight(3)
+	makeAggregateCombinedVote(t, input, h, sdk.DecCoins{{Denom: utils.MicroAtomDenom, Amount: sdk.NewDec(2)}}, sdk.DecCoins{{Denom: utils.MicroAtomDenom, Amount: sdk.NewDec(3)}}, 0)
+	makeAggregateCombinedVote(t, input, h, sdk.DecCoins{{Denom: utils.MicroAtomDenom, Amount: sdk.NewDec(2)}}, sdk.DecCoins{{Denom: utils.MicroAtomDenom, Amount: sdk.NewDec(3)}}, 1)
+	makeAggregateCombinedVote(t, input, h, sdk.DecCoins{{Denom: utils.MicroAtomDenom, Amount: sdk.NewDec(2)}}, sdk.DecCoins{{Denom: utils.MicroAtomDenom, Amount: sdk.NewDec(3)}}, 2)
+	oracle.EndBlocker(input.Ctx, input.OracleKeeper)
+
+	// we expect exchange rate of 2 because the vote had a previous prevote
+	rate, height, err = input.OracleKeeper.GetBaseExchangeRate(input.Ctx, utils.MicroAtomDenom)
+	require.NoError(t, err)
+	require.Equal(t, sdk.NewDec(2), rate)
+	require.Equal(t, sdk.NewInt(3), height)
+}
+
 func makeAggregatePrevoteAndVote(t *testing.T, input keeper.TestInput, h sdk.Handler, height int64, rates sdk.DecCoins, idx int) {
 	// Account 1, SDR
 	salt := "1"
@@ -641,5 +672,14 @@ func makeAggregatePrevoteAndVote(t *testing.T, input keeper.TestInput, h sdk.Han
 
 	voteMsg := types.NewMsgAggregateExchangeRateVote(salt, rates.String(), keeper.Addrs[idx], keeper.ValAddrs[idx])
 	_, err = h(input.Ctx.WithBlockHeight(height+1), voteMsg)
+	require.NoError(t, err)
+}
+
+func makeAggregateCombinedVote(t *testing.T, input keeper.TestInput, h sdk.Handler, vote_rates sdk.DecCoins, prevote_rates sdk.DecCoins, idx int) {
+	salt := "1"
+
+	hash := types.GetAggregateVoteHash(salt, prevote_rates.String(), keeper.ValAddrs[idx])
+	voteMsg := types.NewMsgAggregateExchangeRateCombinedVote(salt, vote_rates.String(), hash, keeper.Addrs[idx], keeper.ValAddrs[idx])
+	_, err := h(input.Ctx, voteMsg)
 	require.NoError(t, err)
 }
