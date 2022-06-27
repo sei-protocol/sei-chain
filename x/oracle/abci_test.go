@@ -196,15 +196,16 @@ func TestOracleTally(t *testing.T) {
 	}
 
 	for _, vote := range ballot {
+		key := vote.Voter.String()
+		claim := expectedValidatorClaimMap[key]
 		if (vote.ExchangeRate.GTE(weightedMedian.Sub(maxSpread)) &&
 			vote.ExchangeRate.LTE(weightedMedian.Add(maxSpread))) ||
 			!vote.ExchangeRate.IsPositive() {
-			key := vote.Voter.String()
-			claim := expectedValidatorClaimMap[key]
 			claim.Weight += vote.Power
 			claim.WinCount++
-			expectedValidatorClaimMap[key] = claim
 		}
+		claim.DidVote = true
+		expectedValidatorClaimMap[key] = claim
 	}
 
 	tallyMedian := oracle.Tally(input.Ctx, ballot, input.OracleKeeper.RewardBand(input.Ctx), validatorClaimMap)
@@ -261,6 +262,7 @@ func TestInvalidVotesSlashing(t *testing.T) {
 		makeAggregatePrevoteAndVote(t, input, h, 0, sdk.DecCoins{{Denom: utils.MicroAtomDenom, Amount: randomExchangeRate}}, 2)
 
 		oracle.EndBlocker(input.Ctx, input.OracleKeeper)
+		require.Equal(t, uint64(0), input.OracleKeeper.GetAbstainCount(input.Ctx, keeper.ValAddrs[1]))
 		require.Equal(t, i+1, input.OracleKeeper.GetMissCount(input.Ctx, keeper.ValAddrs[1]))
 	}
 
@@ -287,7 +289,6 @@ func TestWhitelistSlashing(t *testing.T) {
 	input, h := setup(t)
 
 	votePeriodsPerWindow := sdk.NewDec(int64(input.OracleKeeper.SlashWindow(input.Ctx))).QuoInt64(int64(input.OracleKeeper.VotePeriod(input.Ctx))).TruncateInt64()
-	slashFraction := input.OracleKeeper.SlashFraction(input.Ctx)
 	minValidPerWindow := input.OracleKeeper.MinValidPerWindow(input.Ctx)
 
 	for i := uint64(0); i < uint64(sdk.OneDec().Sub(minValidPerWindow).MulInt64(votePeriodsPerWindow).TruncateInt64()); i++ {
@@ -299,13 +300,14 @@ func TestWhitelistSlashing(t *testing.T) {
 		makeAggregatePrevoteAndVote(t, input, h, 0, sdk.DecCoins{{Denom: utils.MicroAtomDenom, Amount: randomExchangeRate}}, 2)
 
 		oracle.EndBlocker(input.Ctx, input.OracleKeeper)
-		require.Equal(t, i+1, input.OracleKeeper.GetMissCount(input.Ctx, keeper.ValAddrs[0]))
+		require.Equal(t, uint64(0), input.OracleKeeper.GetMissCount(input.Ctx, keeper.ValAddrs[0]))
+		require.Equal(t, i+1, input.OracleKeeper.GetAbstainCount(input.Ctx, keeper.ValAddrs[0]))
 	}
 
 	validator := input.StakingKeeper.Validator(input.Ctx, keeper.ValAddrs[0])
 	require.Equal(t, stakingAmt, validator.GetBondedTokens())
 
-	// one more miss vote will inccur Account 1 slashing
+	// one more miss vote will not incur in slashing because of implicit abstaining
 
 	// Account 2, KRW
 	makeAggregatePrevoteAndVote(t, input, h, 0, sdk.DecCoins{{Denom: utils.MicroAtomDenom, Amount: randomExchangeRate}}, 1)
@@ -315,7 +317,8 @@ func TestWhitelistSlashing(t *testing.T) {
 	input.Ctx = input.Ctx.WithBlockHeight(votePeriodsPerWindow - 1)
 	oracle.EndBlocker(input.Ctx, input.OracleKeeper)
 	validator = input.StakingKeeper.Validator(input.Ctx, keeper.ValAddrs[0])
-	require.Equal(t, sdk.OneDec().Sub(slashFraction).MulInt(stakingAmt).TruncateInt(), validator.GetBondedTokens())
+	// because of implicit abstaining there shouldnt be slashing here
+	require.Equal(t, stakingAmt, validator.GetBondedTokens())
 }
 
 func TestNotPassedBallotSlashing(t *testing.T) {
@@ -334,8 +337,12 @@ func TestNotPassedBallotSlashing(t *testing.T) {
 
 	oracle.EndBlocker(input.Ctx, input.OracleKeeper)
 	require.Equal(t, uint64(0), input.OracleKeeper.GetMissCount(input.Ctx, keeper.ValAddrs[0]))
-	require.Equal(t, uint64(1), input.OracleKeeper.GetMissCount(input.Ctx, keeper.ValAddrs[1]))
-	require.Equal(t, uint64(1), input.OracleKeeper.GetMissCount(input.Ctx, keeper.ValAddrs[2]))
+	require.Equal(t, uint64(0), input.OracleKeeper.GetMissCount(input.Ctx, keeper.ValAddrs[1]))
+	require.Equal(t, uint64(0), input.OracleKeeper.GetMissCount(input.Ctx, keeper.ValAddrs[2]))
+
+	require.Equal(t, uint64(0), input.OracleKeeper.GetAbstainCount(input.Ctx, keeper.ValAddrs[0]))
+	require.Equal(t, uint64(1), input.OracleKeeper.GetAbstainCount(input.Ctx, keeper.ValAddrs[1]))
+	require.Equal(t, uint64(1), input.OracleKeeper.GetAbstainCount(input.Ctx, keeper.ValAddrs[2]))
 }
 
 func TestNotPassedBallotSlashingInvalidVotes(t *testing.T) {
@@ -358,15 +365,23 @@ func TestNotPassedBallotSlashingInvalidVotes(t *testing.T) {
 
 	oracle.EndBlocker(input.Ctx, input.OracleKeeper)
 
-	// 4-7 should be missed due to not voting
+	// 4-7 should be counted as abstained due to not voting
 	// 3 should be missed due to out of bounds
 	require.Equal(t, uint64(0), input.OracleKeeper.GetMissCount(input.Ctx, keeper.ValAddrs[0]))
 	require.Equal(t, uint64(0), input.OracleKeeper.GetMissCount(input.Ctx, keeper.ValAddrs[1]))
 	require.Equal(t, uint64(1), input.OracleKeeper.GetMissCount(input.Ctx, keeper.ValAddrs[2]))
-	require.Equal(t, uint64(1), input.OracleKeeper.GetMissCount(input.Ctx, keeper.ValAddrs[3]))
-	require.Equal(t, uint64(1), input.OracleKeeper.GetMissCount(input.Ctx, keeper.ValAddrs[4]))
-	require.Equal(t, uint64(1), input.OracleKeeper.GetMissCount(input.Ctx, keeper.ValAddrs[5]))
-	require.Equal(t, uint64(1), input.OracleKeeper.GetMissCount(input.Ctx, keeper.ValAddrs[6]))
+	require.Equal(t, uint64(0), input.OracleKeeper.GetMissCount(input.Ctx, keeper.ValAddrs[3]))
+	require.Equal(t, uint64(0), input.OracleKeeper.GetMissCount(input.Ctx, keeper.ValAddrs[4]))
+	require.Equal(t, uint64(0), input.OracleKeeper.GetMissCount(input.Ctx, keeper.ValAddrs[5]))
+	require.Equal(t, uint64(0), input.OracleKeeper.GetMissCount(input.Ctx, keeper.ValAddrs[6]))
+
+	require.Equal(t, uint64(0), input.OracleKeeper.GetAbstainCount(input.Ctx, keeper.ValAddrs[0]))
+	require.Equal(t, uint64(0), input.OracleKeeper.GetAbstainCount(input.Ctx, keeper.ValAddrs[1]))
+	require.Equal(t, uint64(0), input.OracleKeeper.GetAbstainCount(input.Ctx, keeper.ValAddrs[2]))
+	require.Equal(t, uint64(1), input.OracleKeeper.GetAbstainCount(input.Ctx, keeper.ValAddrs[3]))
+	require.Equal(t, uint64(1), input.OracleKeeper.GetAbstainCount(input.Ctx, keeper.ValAddrs[4]))
+	require.Equal(t, uint64(1), input.OracleKeeper.GetAbstainCount(input.Ctx, keeper.ValAddrs[5]))
+	require.Equal(t, uint64(1), input.OracleKeeper.GetAbstainCount(input.Ctx, keeper.ValAddrs[6]))
 }
 
 func TestInvalidVoteOnAssetUnderThresholdMisses(t *testing.T) {
@@ -488,14 +503,16 @@ func TestAbstainSlashing(t *testing.T) {
 		makeAggregatePrevoteAndVote(t, input, h, 0, sdk.DecCoins{{Denom: utils.MicroAtomDenom, Amount: randomExchangeRate}}, 2)
 
 		oracle.EndBlocker(input.Ctx, input.OracleKeeper)
-		require.Equal(t, uint64(i+1%limit), input.OracleKeeper.GetAbstainCount(input.Ctx, keeper.ValAddrs[1]))
+		require.Equal(t, uint64(i+1%limit), input.OracleKeeper.GetMissCount(input.Ctx, keeper.ValAddrs[1]))
+		require.Equal(t, uint64(0), input.OracleKeeper.GetAbstainCount(input.Ctx, keeper.ValAddrs[1]))
 	}
 
 	input.Ctx = input.Ctx.WithBlockHeight(votePeriodsPerWindow - 1)
 	oracle.EndBlocker(input.Ctx, input.OracleKeeper)
 	validator := input.StakingKeeper.Validator(input.Ctx, keeper.ValAddrs[1])
+	// validator got slashed and jailed
 	require.Equal(t, sdk.OneDec().Sub(slashFraction).MulInt(stakingAmt).TruncateInt(), validator.GetBondedTokens())
-	require.False(t, validator.IsJailed())
+	require.True(t, validator.IsJailed())
 }
 
 func TestVoteTargets(t *testing.T) {

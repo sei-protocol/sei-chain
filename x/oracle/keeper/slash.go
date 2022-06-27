@@ -1,6 +1,8 @@
 package keeper
 
 import (
+	"strconv"
+
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/sei-protocol/sei-chain/x/oracle/types"
 )
@@ -27,11 +29,6 @@ func (k Keeper) SlashAndResetCounters(ctx sdk.Context) {
 			sdk.NewInt(int64(votePeriodsPerWindow - votePenaltyCounter.MissCount))).
 			QuoInt64(int64(votePeriodsPerWindow))
 
-		// Calculate valid vote rate; (SlashWindow - AbstainCounter)/SlashWindow
-		validNonAbstainVoteRate := sdk.NewDecFromInt(
-			sdk.NewInt(int64(votePeriodsPerWindow - votePenaltyCounter.AbstainCount))).
-			QuoInt64(int64(votePeriodsPerWindow))
-
 		// Penalize the validator whose the valid vote rate is smaller than min threshold
 		if validVoteRate.LT(minValidPerWindow) {
 			validator := k.StakingKeeper.Validator(ctx, operator)
@@ -47,22 +44,17 @@ func (k Keeper) SlashAndResetCounters(ctx sdk.Context) {
 				)
 				k.StakingKeeper.Jail(ctx, consAddr)
 			}
-		} else if validNonAbstainVoteRate.LT(minValidPerWindow) {
-			// if we dont slash + jail for missing, we still need to evaluate for abstaining
-			// this way, we dont penalize for both misses and abstaining in one vote period
-			validator := k.StakingKeeper.Validator(ctx, operator)
-			if validator.IsBonded() && !validator.IsJailed() {
-				consAddr, err := validator.GetConsAddr()
-				if err != nil {
-					panic(err)
-				}
-
-				k.StakingKeeper.Slash(
-					ctx, consAddr,
-					distributionHeight, validator.GetConsensusPower(powerReduction), slashFraction,
-				)
-			}
 		}
+
+		winCount := votePeriodsPerWindow - (votePenaltyCounter.MissCount + votePenaltyCounter.AbstainCount)
+		ctx.EventManager().EmitEvent(
+			sdk.NewEvent(types.EventTypeEndSlashWindow,
+				sdk.NewAttribute(types.AttributeKeyOperator, operator.String()),
+				sdk.NewAttribute(types.AttributeKeyMissCount, strconv.FormatUint(votePenaltyCounter.MissCount, 10)),
+				sdk.NewAttribute(types.AttributeKeyAbstainCount, strconv.FormatUint(votePenaltyCounter.AbstainCount, 10)),
+				sdk.NewAttribute(types.AttributeKeyWinCount, strconv.FormatUint(winCount, 10)),
+			),
+		)
 
 		k.DeleteVotePenaltyCounter(ctx, operator)
 		return false
