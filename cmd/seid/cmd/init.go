@@ -4,14 +4,13 @@ import (
 	"bufio"
 	"encoding/json"
 	"fmt"
+	"github.com/cosmos/go-bip39"
+	"github.com/pkg/errors"
+	"github.com/spf13/cobra"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
-
-	"github.com/cosmos/go-bip39"
-	"github.com/pkg/errors"
-	"github.com/spf13/cobra"
 
 	tmcfg "github.com/tendermint/tendermint/config"
 	"github.com/tendermint/tendermint/libs/cli"
@@ -79,17 +78,30 @@ func InitCmd(mbm module.BasicManager, defaultNodeHome string) *cobra.Command {
 			serverCtx := server.GetServerContextFromCmd(cmd)
 			config := serverCtx.Config
 
+			// Override default config.toml values with optimized values
 			// An easy way to run a lightweight seed node is to use tenderseed: github.com/binaryholdings/tenderseed
 			// TODO(psu) Add seeds for mainnet
 			seeds := []string{}
+			// P2P configs
 			config.P2P.Seeds = strings.Join(seeds, ",")
-			config.P2P.MaxNumInboundPeers = 40
-			config.P2P.MaxNumOutboundPeers = 10
-			config.Mempool.Size = 500
+			config.P2P.MaxNumInboundPeers = 100
+			config.P2P.MaxNumOutboundPeers = 100
+			config.P2P.SendRate = 20480000
+			config.P2P.RecvRate = 20480000
+			config.P2P.MaxPacketMsgPayloadSize = 10240
+			// Mempool configs
+			config.Mempool.Size = 5000
+			config.Mempool.MaxTxsBytes = 10737418240
+			config.Mempool.MaxTxBytes = 2048576
+			// Consensus Configs
+			config.Consensus.TimeoutPrevote = 100 * time.Millisecond
+			config.Consensus.TimeoutPrecommit = 100 * time.Millisecond
+			config.Consensus.TimeoutCommit = 100 * time.Millisecond
+			config.Consensus.SkipTimeoutCommit = true
+			// Statesync
+			config.StateSync.Enable = true
 			config.StateSync.TrustPeriod = 168 * time.Hour
 			config.FastSync.Version = "v0"
-			config.Consensus.TimeoutCommit = 1 * time.Second
-
 			config.SetRoot(clientCtx.HomeDir)
 
 			chainID, _ := cmd.Flags().GetString(flags.FlagChainID)
