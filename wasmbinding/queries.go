@@ -24,17 +24,17 @@ func NewQueryPlugin(oh *oraclewasm.OracleWasmQueryHandler) *QueryPlugin {
 func (qp QueryPlugin) HandleOracleQuery(ctx sdk.Context, queryData json.RawMessage) ([]byte, error) {
 	var parsedQuery oraclebindings.SeiOracleQuery
 	if err := json.Unmarshal(queryData, &parsedQuery); err != nil {
-		return nil, sdkerrors.Wrap(err, "sei oracle query")
+		return nil, sdkerrors.Wrap(err, "Error parsing SeiOracleQuery")
 	}
 	switch {
 	case parsedQuery.ExchangeRates != nil:
 		res, err := qp.oracleHandler.GetExchangeRates(ctx)
 		if err != nil {
-			return nil, sdkerrors.Wrap(err, "sei oracle GetExchangeRates query")
+			return nil, sdkerrors.Wrap(err, "Error while Exchange Rates")
 		}
 		bz, err := json.Marshal(res)
 		if err != nil {
-			return nil, sdkerrors.Wrap(err, "sei oracle GetExchangeRates response")
+			return nil, sdkerrors.Wrap(err, "Error encoding exchange rates as JSON")
 		}
 
 		return bz, nil

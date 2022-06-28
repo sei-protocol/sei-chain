@@ -22,17 +22,11 @@ type SeiQueryWrapper struct {
 func CustomQuerier(qp *QueryPlugin) func(ctx sdk.Context, request json.RawMessage) ([]byte, error) {
 	return func(ctx sdk.Context, request json.RawMessage) ([]byte, error) {
 		var contractQuery SeiQueryWrapper
-		// TODO: debugging, remove this
-		ctx.Logger().Error("received a custom query")
 		if err := json.Unmarshal(request, &contractQuery); err != nil {
-			return nil, sdkerrors.Wrap(err, "sei query")
+			return nil, sdkerrors.Wrap(err, "Error parsing request data")
 		}
 		switch contractQuery.Route {
 		case OracleRoute:
-			// TODO: debugging, remove this
-			ctx.Logger().Error("parse route: oracle query")
-			bz, _ := json.Marshal(contractQuery)
-			ctx.Logger().Error(string(bz))
 			return qp.HandleOracleQuery(ctx, contractQuery.QueryData)
 		default:
 			return nil, wasmvmtypes.UnsupportedRequest{Kind: "Unknown Sei Query Route"}
