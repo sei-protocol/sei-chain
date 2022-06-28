@@ -11,19 +11,28 @@ message OrderEntry {
   string price = 1 [
       (gogoproto.moretags)   = "yaml:\"price\"",
       (gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Dec",
-      (gogoproto.nullable)   = false
+      (gogoproto.nullable)   = false,
+      (gogoproto.jsontag) = "price"
   ];
   string quantity = 2 [
       (gogoproto.moretags)   = "yaml:\"quantity\"",
       (gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Dec",
-      (gogoproto.nullable)   = false
+      (gogoproto.nullable)   = false,
+      (gogoproto.jsontag) = "quantity"
   ];
-  repeated string allocationCreator = 3;
+  repeated string allocationCreator = 3 [
+    (gogoproto.jsontag) = "allocation_creator"
+  ];
   repeated string allocation = 4 [
       (gogoproto.moretags)   = "yaml:\"allocation\"",
       (gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Dec",
-      (gogoproto.nullable)   = false
+      (gogoproto.nullable)   = false,
+      (gogoproto.jsontag) = "allocation"
   ];
-  Denom priceDenom = 5;
-  Denom assetDenom = 6;
+  Denom priceDenom = 5 [
+    (gogoproto.jsontag) = "price_denom"
+  ];
+  Denom assetDenom = 6 [
+    (gogoproto.jsontag) = "asset_denom"
+  ];
 }

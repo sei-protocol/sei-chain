@@ -543,3 +543,12 @@ func (k Keeper) ValidateLookbackSeconds(ctx sdk.Context, lookbackSeconds int64) 
 
 	return nil
 }
+
+func (k Keeper) IsPrevoteFromPreviousWindow(ctx sdk.Context, valAddr sdk.ValAddress) bool {
+	votePeriod := k.VotePeriod(ctx)
+	prevote, err := k.GetAggregateExchangeRatePrevote(ctx, valAddr)
+	if err != nil {
+		return false
+	}
+	return (uint64(ctx.BlockHeight())/votePeriod)-(prevote.SubmitBlock/votePeriod) == 1
+}

@@ -8,11 +8,16 @@ option go_package = "github.com/sei-protocol/sei-chain/x/dex/types";
 
 message Price {
   
-  uint64 snapshotTimestampInSeconds = 1;
+  uint64 snapshotTimestampInSeconds = 1 [
+    (gogoproto.jsontag) = "snapshot_timestamp_in_seconds"
+  ];
   string price = 2 [
       (gogoproto.moretags)   = "yaml:\"price\"",
       (gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Dec",
-      (gogoproto.nullable)   = false
+      (gogoproto.nullable)   = false,
+      (gogoproto.jsontag) = "price"
   ];
-  Pair pair = 3;
+  Pair pair = 3 [
+    (gogoproto.jsontag) = "pair"
+  ];
 }

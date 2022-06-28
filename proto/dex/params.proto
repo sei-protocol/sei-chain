@@ -10,5 +10,8 @@ message Params {
   option (gogoproto.equal)            = true;
   option (gogoproto.goproto_stringer) = false;
 
-  uint64 price_snapshot_retention    = 1 [(gogoproto.moretags) = "yaml:\"price_snapshot_retention\""];
+  uint64 price_snapshot_retention    = 1 [
+    (gogoproto.moretags) = "yaml:\"price_snapshot_retention\"",
+    (gogoproto.jsontag) = "price_snapshot_retention"
+  ];
 }
