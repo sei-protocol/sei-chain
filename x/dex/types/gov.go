@@ -48,7 +48,7 @@ func (p RegisterPairsProposal) String() string {
 		batchContractPairRecords += contractPair.String()
 	}
 	var b strings.Builder
-	b.WriteString(fmt.Sprintf(`Update Fee Token Proposal:
+	b.WriteString(fmt.Sprintf(`Register Pairs Proposal:
   Title:       %s
   Description: %s
   Records:     %s

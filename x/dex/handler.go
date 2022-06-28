@@ -44,13 +44,9 @@ func NewRegisterPairsProposalHandler(k keeper.Keeper) govtypes.Handler {
 	return func(ctx sdk.Context, content govtypes.Content) error {
 		switch c := content.(type) {
 		case *types.RegisterPairsProposal:
-			return handleRegisterPairsProposal(ctx, k, c)
+			return k.HandleRegisterPairsProposal(ctx, c)
 		default:
 			return sdkerrors.Wrapf(sdkerrors.ErrUnknownRequest, "unrecognized dex proposal content type: %T", c)
 		}
 	}
-}
-
-func handleRegisterPairsProposal(ctx sdk.Context, k keeper.Keeper, p *types.RegisterPairsProposal) error {
-	return k.HandleRegisterPairsProposal(ctx, p)
 }
