@@ -77,7 +77,7 @@ func InitCmd(mbm module.BasicManager, defaultNodeHome string) *cobra.Command {
 			config := serverCtx.Config
 
 			// Override default config.toml values with optimized values
-			params.setTendermintConfigs(config)
+			params.SetTendermintConfigs(config)
 
 			config.SetRoot(clientCtx.HomeDir)
 

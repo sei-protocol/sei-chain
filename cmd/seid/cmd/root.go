@@ -5,6 +5,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/codec"
 	"github.com/sei-protocol/sei-chain/app"
 	"github.com/sei-protocol/sei-chain/app/params"
+	tmcfg "github.com/tendermint/tendermint/config"
 	"io"
 	"os"
 	"path/filepath"
@@ -88,7 +89,15 @@ func NewRootCmd() (*cobra.Command, params.EncodingConfig) {
 
 			customAppTemplate, customAppConfig := initAppConfig()
 
-			return server.InterceptConfigsPreRunHandler(cmd, customAppTemplate, customAppConfig)
+			preRunHandlerResults := server.InterceptConfigsPreRunHandler(cmd, customAppTemplate, customAppConfig)
+			serverCtx := server.GetServerContextFromCmd(cmd)
+			tmCfg := serverCtx.Config
+
+			// Override default config.toml values with optimized values
+			params.SetTendermintConfigs(tmCfg)
+			tmcfg.WriteConfigFile(filepath.Join(tmCfg.RootDir, "config", "config.toml"), tmCfg)
+
+			return preRunHandlerResults
 		},
 	}
 
