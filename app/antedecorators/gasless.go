@@ -10,18 +10,18 @@ import (
 )
 
 type GaslessDecorator struct {
-	wrapped      sdk.AnteDecorator
+	wrapped      []sdk.AnteDecorator
 	oracleKeeper oraclekeeper.Keeper
 }
 
-func NewGaslessDecorator(wrapped sdk.AnteDecorator, oracleKeeper oraclekeeper.Keeper) GaslessDecorator {
+func NewGaslessDecorator(wrapped []sdk.AnteDecorator, oracleKeeper oraclekeeper.Keeper) GaslessDecorator {
 	return GaslessDecorator{wrapped: wrapped, oracleKeeper: oracleKeeper}
 }
 
 func (gd GaslessDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool, next sdk.AnteHandler) (newCtx sdk.Context, err error) {
 	if !isTxGasless(tx, ctx, gd.oracleKeeper) {
-		// if not gasless, then we use the wrapper one
-		return gd.wrapped.AnteHandle(ctx, tx, simulate, next)
+		// if not gasless, then we use the wrappers
+		return sdk.ChainAnteDecorators(gd.wrapped...)(ctx, tx, simulate)
 	}
 	gaslessMeter := sdk.NewInfiniteGasMeter()
 
