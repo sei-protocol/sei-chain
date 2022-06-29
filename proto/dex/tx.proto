@@ -24,12 +24,19 @@ service Msg {
 }
 
 message MsgPlaceOrders {
-  string creator = 1;
-  repeated OrderPlacement orders = 2;
-  string contractAddr = 3;
+  string creator = 1 [
+      (gogoproto.jsontag) = "creator"
+  ];
+  repeated OrderPlacement orders = 2 [
+      (gogoproto.jsontag) = "orders"
+  ];
+  string contractAddr = 3 [
+      (gogoproto.jsontag) = "contract_address"
+  ];
   repeated cosmos.base.v1beta1.Coin funds = 4 [
     (gogoproto.nullable) = false,
-    (gogoproto.castrepeated) = "github.com/cosmos/cosmos-sdk/types.Coins"
+    (gogoproto.castrepeated) = "github.com/cosmos/cosmos-sdk/types.Coins",
+    (gogoproto.jsontag) = "funds"
   ];
 }
 
@@ -38,9 +45,15 @@ message MsgPlaceOrdersResponse {
 }
 
 message MsgCancelOrders {
-  string creator = 1;
-  repeated OrderCancellation orderCancellations = 2;
-  string contractAddr = 3;
+  string creator = 1 [
+      (gogoproto.jsontag) = "creator"
+  ];
+  repeated OrderCancellation orderCancellations = 2 [
+      (gogoproto.jsontag) = "order_cancellations"
+  ];
+  string contractAddr = 3 [
+      (gogoproto.jsontag) = "contract_address"
+  ];
 }
 
 message MsgCancelOrdersResponse {}
