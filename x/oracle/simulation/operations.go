@@ -166,13 +166,12 @@ func SimulateMsgAggregateExchangeRateVote(ak types.AccountKeeper, bk types.BankK
 		}
 
 		// get prevote
-		prevote, err := k.GetAggregateExchangeRatePrevote(ctx, address)
+		_, err := k.GetAggregateExchangeRatePrevote(ctx, address)
 		if err != nil {
 			return simtypes.NoOpMsg(types.ModuleName, types.TypeMsgAggregateExchangeRateVote, "prevote not found"), nil, nil
 		}
 
-		params := k.GetParams(ctx)
-		if (uint64(ctx.BlockHeight())/params.VotePeriod)-(prevote.SubmitBlock/params.VotePeriod) != 1 {
+		if !k.IsPrevoteFromPreviousWindow(ctx, address) {
 			return simtypes.NoOpMsg(types.ModuleName, types.TypeMsgAggregateExchangeRateVote, "reveal period of submitted vote do not match with registered prevote"), nil, nil
 		}
 

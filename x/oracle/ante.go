@@ -99,6 +99,28 @@ func (spd SpammingPreventionDecorator) CheckOracleSpamming(ctx sdk.Context, msgs
 
 			spd.oracleVoteMap[msg.Validator] = curHeight
 			continue
+		case *types.MsgAggregateExchangeRateCombinedVote:
+			feederAddr, err := sdk.AccAddressFromBech32(msg.Feeder)
+			if err != nil {
+				return err
+			}
+
+			valAddr, err := sdk.ValAddressFromBech32(msg.Validator)
+			if err != nil {
+				return err
+			}
+
+			err = spd.oracleKeeper.ValidateFeeder(ctx, feederAddr, valAddr)
+			if err != nil {
+				return err
+			}
+
+			if lastSubmittedHeight, ok := spd.oracleVoteMap[msg.Validator]; ok && lastSubmittedHeight == curHeight {
+				return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "the validator has already been submitted vote at the current height")
+			}
+
+			spd.oracleVoteMap[msg.Validator] = curHeight
+			continue
 		default:
 			return nil
 		}

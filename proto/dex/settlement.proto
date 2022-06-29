@@ -7,7 +7,7 @@ import "gogoproto/gogo.proto";
 import "dex/enums.proto";
 
 message SettlementEntry {
-  string account = 1;
+  string account = 1 [(gogoproto.jsontag) = "account"];
   string priceDenom = 2 [(gogoproto.jsontag) = "price_denom"];
   string assetDenom = 3 [(gogoproto.jsontag) = "asset_denom"];
   string quantity = 4 [

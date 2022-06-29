@@ -9,8 +9,11 @@ message LongBook {
   string price = 1 [
       (gogoproto.moretags)   = "yaml:\"price\"",
       (gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Dec",
-      (gogoproto.nullable)   = false
+      (gogoproto.nullable)   = false,
+      (gogoproto.jsontag) = "price"
   ];
-  OrderEntry entry = 2; 
+  OrderEntry entry = 2 [
+    (gogoproto.jsontag) = "entry"
+  ]; 
   
 }
