@@ -22,6 +22,9 @@ const Upgrade103 = "1.0.3beta"
 // this will introduce the oracle module as well
 const Upgrade104 = "1.0.4beta"
 
+// 1.0.5beta
+const Upgrade105 = "1.0.5beta"
+
 func (app App) RegisterUpgradeHandlers() {
 	app.UpgradeKeeper.SetUpgradeHandler(IgniteCLIRemovalUpgradeHandler, func(ctx sdk.Context, plan upgradetypes.Plan, fromVM module.VersionMap) (module.VersionMap, error) {
 		return app.mm.RunMigrations(ctx, app.configurator, fromVM)
@@ -36,6 +39,9 @@ func (app App) RegisterUpgradeHandlers() {
 		return app.mm.RunMigrations(ctx, app.configurator, fromVM)
 	})
 	app.UpgradeKeeper.SetUpgradeHandler(Upgrade104, func(ctx sdk.Context, plan upgradetypes.Plan, fromVM module.VersionMap) (module.VersionMap, error) {
+		return app.mm.RunMigrations(ctx, app.configurator, fromVM)
+	})
+	app.UpgradeKeeper.SetUpgradeHandler(Upgrade105, func(ctx sdk.Context, plan upgradetypes.Plan, fromVM module.VersionMap) (module.VersionMap, error) {
 		return app.mm.RunMigrations(ctx, app.configurator, fromVM)
 	})
 }
