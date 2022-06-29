@@ -1,4 +1,4 @@
-package wasm_test
+package wasmbinding
 
 import (
 	"encoding/base64"
@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
-	"github.com/sei-protocol/sei-chain/wasm"
+	"github.com/sei-protocol/sei-chain/wasmbinding"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
 	"github.com/stretchr/testify/require"
 )
@@ -34,17 +34,17 @@ func TestDecodeOrderPlacement(t *testing.T) {
 	}
 	serialized, _ := json.Marshal(msg)
 	encodedMsg := base64.StdEncoding.EncodeToString(serialized)
-	rawMsg := wasm.RawMessage{
+	rawMsg := wasmbinding.RawMessage{
 		MsgType: types.TypeMsgPlaceOrders,
 		Data:    encodedMsg,
 	}
-	rawMsgs := wasm.RawSdkMessages{Messages: []wasm.RawMessage{rawMsg}}
+	rawMsgs := wasmbinding.RawSdkMessages{Messages: []wasmbinding.RawMessage{rawMsg}}
 	serializedRawMsgs, _ := json.Marshal(rawMsgs)
 	encodedRawMsgs := base64.StdEncoding.EncodeToString(serializedRawMsgs)
-	customMsg := wasm.DexCustomMessage{Raw: encodedRawMsgs}
+	customMsg := wasmbinding.CustomMessage{Raw: encodedRawMsgs}
 	serializedMsg, _ := json.Marshal(customMsg)
 
-	decodedMsgs, err := wasm.DexCustomEncoder(nil, serializedMsg)
+	decodedMsgs, err := wasmbinding.CustomEncoder(nil, serializedMsg)
 	require.Nil(t, err)
 	require.Equal(t, 1, len(decodedMsgs))
 	typedDecodedMsg, ok := decodedMsgs[0].(*types.MsgPlaceOrders)
@@ -69,17 +69,17 @@ func TestDecodeOrderCancellation(t *testing.T) {
 	}
 	serialized, _ := json.Marshal(msg)
 	encodedMsg := base64.StdEncoding.EncodeToString(serialized)
-	rawMsg := wasm.RawMessage{
+	rawMsg := wasmbinding.RawMessage{
 		MsgType: types.TypeMsgCancelOrders,
 		Data:    encodedMsg,
 	}
-	rawMsgs := wasm.RawSdkMessages{Messages: []wasm.RawMessage{rawMsg}}
+	rawMsgs := wasmbinding.RawSdkMessages{Messages: []wasmbinding.RawMessage{rawMsg}}
 	serializedRawMsgs, _ := json.Marshal(rawMsgs)
 	encodedRawMsgs := base64.StdEncoding.EncodeToString(serializedRawMsgs)
-	customMsg := wasm.DexCustomMessage{Raw: encodedRawMsgs}
+	customMsg := wasmbinding.CustomMessage{Raw: encodedRawMsgs}
 	serializedMsg, _ := json.Marshal(customMsg)
 
-	decodedMsgs, err := wasm.DexCustomEncoder(nil, serializedMsg)
+	decodedMsgs, err := wasmbinding.CustomEncoder(nil, serializedMsg)
 	require.Nil(t, err)
 	require.Equal(t, 1, len(decodedMsgs))
 	typedDecodedMsg, ok := decodedMsgs[0].(*types.MsgCancelOrders)

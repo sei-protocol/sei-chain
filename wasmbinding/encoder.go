@@ -1,4 +1,4 @@
-package wasm
+package wasmbinding
 
 import (
 	"encoding/base64"
@@ -10,7 +10,7 @@ import (
 	"github.com/sei-protocol/sei-chain/x/dex/types"
 )
 
-type DexCustomMessage struct {
+type CustomMessage struct {
 	Raw string `json:"raw"`
 }
 
@@ -23,8 +23,8 @@ type RawMessage struct {
 	Data    string `json:"data"`
 }
 
-func DexCustomEncoder(sender sdk.AccAddress, msg json.RawMessage) ([]sdk.Msg, error) {
-	customMsg := DexCustomMessage{}
+func CustomEncoder(sender sdk.AccAddress, msg json.RawMessage) ([]sdk.Msg, error) {
+	customMsg := CustomMessage{}
 	if err := json.Unmarshal(msg, &customMsg); err != nil {
 		return []sdk.Msg{}, err
 	}
