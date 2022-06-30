@@ -30,11 +30,22 @@ func (qp QueryPlugin) HandleOracleQuery(ctx sdk.Context, queryData json.RawMessa
 	case parsedQuery.ExchangeRates != nil:
 		res, err := qp.oracleHandler.GetExchangeRates(ctx)
 		if err != nil {
-			return nil, sdkerrors.Wrap(err, "Error while Exchange Rates")
+			return nil, sdkerrors.Wrap(err, "Error while getting Exchange Rates")
 		}
 		bz, err := json.Marshal(res)
 		if err != nil {
 			return nil, sdkerrors.Wrap(err, "Error encoding exchange rates as JSON")
+		}
+
+		return bz, nil
+	case parsedQuery.OracleTwaps != nil:
+		res, err := qp.oracleHandler.GetOracleTwaps(ctx, parsedQuery.OracleTwaps)
+		if err != nil {
+			return nil, sdkerrors.Wrap(err, "Error while getting Oracle Twaps")
+		}
+		bz, err := json.Marshal(res)
+		if err != nil {
+			return nil, sdkerrors.Wrap(err, "Error encoding oracle twaps as JSON")
 		}
 
 		return bz, nil

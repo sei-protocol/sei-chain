@@ -21,3 +21,9 @@ func (handler OracleWasmQueryHandler) GetExchangeRates(ctx sdk.Context) (*types.
 	c := sdk.WrapSDKContext(ctx)
 	return querier.ExchangeRates(c, &types.QueryExchangeRatesRequest{})
 }
+
+func (handler OracleWasmQueryHandler) GetOracleTwaps(ctx sdk.Context, req *types.QueryTwapsRequest) (*types.QueryTwapsResponse, error) {
+	querier := oraclekeeper.NewQuerier(handler.oracleKeeper)
+	c := sdk.WrapSDKContext(ctx)
+	return querier.Twaps(c, req)
+}
