@@ -90,8 +90,4 @@ func SetTendermintConfigs(config *tmcfg.Config) {
 	config.Consensus.TimeoutPrecommit = 100 * time.Millisecond
 	config.Consensus.TimeoutCommit = 100 * time.Millisecond
 	config.Consensus.SkipTimeoutCommit = true
-	// Statesync
-	config.StateSync.Enable = true
-	config.StateSync.TrustPeriod = 168 * time.Hour
-	config.FastSync.Version = "v0"
 }
