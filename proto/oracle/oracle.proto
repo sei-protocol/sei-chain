@@ -127,7 +127,7 @@ message OracleTwap {
       (gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Dec",
       (gogoproto.nullable)   = false
   ];
-	int64 lookbackSeconds = 3;
+	int64 lookback_seconds = 3;
 }
 
 message VotePenaltyCounter {
