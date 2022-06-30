@@ -42,7 +42,7 @@ func TestWasmGetOracleExchangeRates(t *testing.T) {
 	var parsedRes oracletypes.QueryExchangeRatesResponse
 	err = json.Unmarshal(res, &parsedRes)
 	require.NoError(t, err)
-	require.Equal(t, oracletypes.QueryExchangeRatesResponse{DenomOracleExchangeRatePairs: oracletypes.DenomOracleExchangeRatePairs(nil)}, parsedRes)
+	require.Equal(t, oracletypes.QueryExchangeRatesResponse{DenomOracleExchangeRatePairs: oracletypes.DenomOracleExchangeRatePairs{}}, parsedRes)
 
 	testWrapper.Ctx = testWrapper.Ctx.WithBlockHeight(11)
 	testWrapper.App.OracleKeeper.SetBaseExchangeRate(testWrapper.Ctx, oracleutils.MicroAtomDenom, sdk.NewDec(12))

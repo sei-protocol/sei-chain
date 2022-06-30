@@ -57,7 +57,7 @@ func (q querier) ExchangeRate(c context.Context, req *types.QueryExchangeRateReq
 func (q querier) ExchangeRates(c context.Context, req *types.QueryExchangeRatesRequest) (*types.QueryExchangeRatesResponse, error) {
 	ctx := sdk.UnwrapSDKContext(c)
 
-	var exchangeRates types.DenomOracleExchangeRatePairs
+	exchangeRates := []types.DenomOracleExchangeRatePair{}
 	q.IterateBaseExchangeRates(ctx, func(denom string, rate types.OracleExchangeRate) (stop bool) {
 		if denom == utils.MicroBaseDenom {
 			votePeriod := q.Keeper.GetParams(ctx).VotePeriod
