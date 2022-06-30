@@ -22,7 +22,7 @@ func TestWasmGetOracleExchangeRates(t *testing.T) {
 
 	testWrapper := app.NewTestWrapper(t, tm, valPub)
 
-	req := oraclebinding.SeiOracleQuery{ExchangeRates: &oraclebinding.WasmQueryExchangeRatesRequest{}}
+	req := oraclebinding.SeiOracleQuery{ExchangeRates: &oracletypes.QueryExchangeRatesRequest{}}
 	queryData, err := json.Marshal(req)
 	require.NoError(t, err)
 	query := wasmbinding.SeiQueryWrapper{Route: "oracle", QueryData: queryData}
@@ -37,10 +37,10 @@ func TestWasmGetOracleExchangeRates(t *testing.T) {
 	res, err := customQuerier(testWrapper.Ctx, rawQuery)
 	require.NoError(t, err)
 
-	var parsedRes oraclebinding.WasmQueryExchangeRatesResponse
+	var parsedRes oracletypes.QueryExchangeRatesResponse
 	err = json.Unmarshal(res, &parsedRes)
 	require.NoError(t, err)
-	require.Equal(t, oraclebinding.WasmQueryExchangeRatesResponse{DenomOracleExchangeRatePairs: oracletypes.DenomOracleExchangeRatePairs(nil)}, parsedRes)
+	require.Equal(t, oracletypes.QueryExchangeRatesResponse{DenomOracleExchangeRatePairs: oracletypes.DenomOracleExchangeRatePairs(nil)}, parsedRes)
 
 	testWrapper.Ctx = testWrapper.Ctx.WithBlockHeight(11)
 	testWrapper.App.OracleKeeper.SetBaseExchangeRate(testWrapper.Ctx, oracleutils.MicroAtomDenom, sdk.NewDec(12))
@@ -48,8 +48,8 @@ func TestWasmGetOracleExchangeRates(t *testing.T) {
 	res, err = customQuerier(testWrapper.Ctx, rawQuery)
 	require.NoError(t, err)
 
-	var parsedRes2 oraclebinding.WasmQueryExchangeRatesResponse
+	var parsedRes2 oracletypes.QueryExchangeRatesResponse
 	err = json.Unmarshal(res, &parsedRes2)
 	require.NoError(t, err)
-	require.Equal(t, oraclebinding.WasmQueryExchangeRatesResponse{DenomOracleExchangeRatePairs: oracletypes.DenomOracleExchangeRatePairs{oracletypes.NewDenomOracleExchangeRatePair(oracleutils.MicroAtomDenom, sdk.NewDec(12), sdk.NewInt(11))}}, parsedRes2)
+	require.Equal(t, oracletypes.QueryExchangeRatesResponse{DenomOracleExchangeRatePairs: oracletypes.DenomOracleExchangeRatePairs{oracletypes.NewDenomOracleExchangeRatePair(oracleutils.MicroAtomDenom, sdk.NewDec(12), sdk.NewInt(11))}}, parsedRes2)
 }
