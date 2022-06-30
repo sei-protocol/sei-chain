@@ -23,7 +23,7 @@ const Upgrade103 = "1.0.3beta"
 const Upgrade104 = "1.0.4beta"
 
 // 1.0.5beta
-const Upgrade105 = "1.0.5beta"
+const Upgrade105 = "1.0.5beta upgrade"
 
 func (app App) RegisterUpgradeHandlers() {
 	app.UpgradeKeeper.SetUpgradeHandler(IgniteCLIRemovalUpgradeHandler, func(ctx sdk.Context, plan upgradetypes.Plan, fromVM module.VersionMap) (module.VersionMap, error) {
