@@ -14,3 +14,8 @@ message Pair {
         (gogoproto.jsontag) = "asset_denom"
     ];
 }
+
+message BatchContractPair {
+    string contractAddr = 1 [(gogoproto.jsontag) = "contract_addr"];
+    repeated Pair pairs = 2 [(gogoproto.jsontag) = "pairs"];
+}

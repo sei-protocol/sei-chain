@@ -75,14 +75,67 @@ func (m *Pair) GetAssetDenom() Denom {
 	return Denom_SEI
 }
 
+type BatchContractPair struct {
+	ContractAddr string  `protobuf:"bytes,1,opt,name=contractAddr,proto3" json:"contract_addr"`
+	Pairs        []*Pair `protobuf:"bytes,2,rep,name=pairs,proto3" json:"pairs"`
+}
+
+func (m *BatchContractPair) Reset()         { *m = BatchContractPair{} }
+func (m *BatchContractPair) String() string { return proto.CompactTextString(m) }
+func (*BatchContractPair) ProtoMessage()    {}
+func (*BatchContractPair) Descriptor() ([]byte, []int) {
+	return fileDescriptor_d4350ebee878f69a, []int{1}
+}
+func (m *BatchContractPair) XXX_Unmarshal(b []byte) error {
+	return m.Unmarshal(b)
+}
+func (m *BatchContractPair) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	if deterministic {
+		return xxx_messageInfo_BatchContractPair.Marshal(b, m, deterministic)
+	} else {
+		b = b[:cap(b)]
+		n, err := m.MarshalToSizedBuffer(b)
+		if err != nil {
+			return nil, err
+		}
+		return b[:n], nil
+	}
+}
+func (m *BatchContractPair) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_BatchContractPair.Merge(m, src)
+}
+func (m *BatchContractPair) XXX_Size() int {
+	return m.Size()
+}
+func (m *BatchContractPair) XXX_DiscardUnknown() {
+	xxx_messageInfo_BatchContractPair.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_BatchContractPair proto.InternalMessageInfo
+
+func (m *BatchContractPair) GetContractAddr() string {
+	if m != nil {
+		return m.ContractAddr
+	}
+	return ""
+}
+
+func (m *BatchContractPair) GetPairs() []*Pair {
+	if m != nil {
+		return m.Pairs
+	}
+	return nil
+}
+
 func init() {
 	proto.RegisterType((*Pair)(nil), "seiprotocol.seichain.dex.Pair")
+	proto.RegisterType((*BatchContractPair)(nil), "seiprotocol.seichain.dex.BatchContractPair")
 }
 
 func init() { proto.RegisterFile("dex/pair.proto", fileDescriptor_d4350ebee878f69a) }
 
 var fileDescriptor_d4350ebee878f69a = []byte{
-	// 224 bytes of a gzipped FileDescriptorProto
+	// 303 bytes of a gzipped FileDescriptorProto
 	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0xe2, 0xe2, 0x4b, 0x49, 0xad, 0xd0,
 	0x2f, 0x48, 0xcc, 0x2c, 0xd2, 0x2b, 0x28, 0xca, 0x2f, 0xc9, 0x17, 0x92, 0x28, 0x4e, 0xcd, 0x04,
 	0xb3, 0x92, 0xf3, 0x73, 0xf4, 0x8a, 0x53, 0x33, 0x93, 0x33, 0x12, 0x33, 0xf3, 0xf4, 0x52, 0x52,
@@ -92,11 +145,16 @@ var fileDescriptor_d4350ebee878f69a = []byte{
 	0x04, 0xa3, 0x02, 0xa3, 0x06, 0x9f, 0x91, 0xbc, 0x1e, 0x2e, 0xe3, 0xf5, 0xc0, 0xca, 0x9c, 0xf8,
 	0x5f, 0xdd, 0x93, 0xe7, 0x06, 0x6b, 0x8b, 0x4f, 0x01, 0x09, 0x04, 0x21, 0x99, 0x01, 0x32, 0x31,
 	0xb1, 0xb8, 0x38, 0xb5, 0x04, 0x62, 0x22, 0x13, 0x09, 0x26, 0x82, 0xb5, 0xc1, 0x4c, 0x44, 0x98,
-	0xe1, 0xe4, 0x7e, 0xe2, 0x91, 0x1c, 0xe3, 0x85, 0x47, 0x72, 0x8c, 0x0f, 0x1e, 0xc9, 0x31, 0x4e,
-	0x78, 0x2c, 0xc7, 0x70, 0xe1, 0xb1, 0x1c, 0xc3, 0x8d, 0xc7, 0x72, 0x0c, 0x51, 0xba, 0xe9, 0x99,
-	0x25, 0x19, 0xa5, 0x49, 0x7a, 0xc9, 0xf9, 0xb9, 0xfa, 0xc5, 0xa9, 0x99, 0xba, 0x30, 0x2b, 0xc0,
-	0x1c, 0xb0, 0x1d, 0xfa, 0x15, 0xfa, 0x20, 0xbf, 0x97, 0x54, 0x16, 0xa4, 0x16, 0x27, 0xb1, 0x81,
-	0xe5, 0x8d, 0x01, 0x01, 0x00, 0x00, 0xff, 0xff, 0x51, 0x4d, 0x02, 0xb7, 0x4f, 0x01, 0x00, 0x00,
+	0xa1, 0xd4, 0xcd, 0xc8, 0x25, 0xe8, 0x94, 0x58, 0x92, 0x9c, 0xe1, 0x9c, 0x9f, 0x57, 0x52, 0x94,
+	0x98, 0x5c, 0x02, 0x76, 0xb9, 0x29, 0x17, 0x4f, 0x32, 0x94, 0xef, 0x98, 0x92, 0x52, 0x04, 0x76,
+	0x3b, 0xa7, 0x93, 0xe0, 0xab, 0x7b, 0xf2, 0xbc, 0x30, 0xf1, 0xf8, 0xc4, 0x94, 0x94, 0xa2, 0x20,
+	0x14, 0x65, 0x42, 0xf6, 0x5c, 0xac, 0xa0, 0x80, 0x2c, 0x96, 0x60, 0x52, 0x60, 0xd6, 0xe0, 0x36,
+	0x92, 0xc3, 0xed, 0x32, 0x90, 0x2d, 0x4e, 0x9c, 0xaf, 0xee, 0xc9, 0x43, 0x34, 0x04, 0x41, 0x28,
+	0x27, 0xf7, 0x13, 0x8f, 0xe4, 0x18, 0x2f, 0x3c, 0x92, 0x63, 0x7c, 0xf0, 0x48, 0x8e, 0x71, 0xc2,
+	0x63, 0x39, 0x86, 0x0b, 0x8f, 0xe5, 0x18, 0x6e, 0x3c, 0x96, 0x63, 0x88, 0xd2, 0x4d, 0xcf, 0x2c,
+	0xc9, 0x28, 0x4d, 0xd2, 0x4b, 0xce, 0xcf, 0xd5, 0x2f, 0x4e, 0xcd, 0xd4, 0x85, 0x19, 0x0b, 0xe6,
+	0x80, 0xcd, 0xd5, 0xaf, 0xd0, 0x07, 0xc5, 0x44, 0x49, 0x65, 0x41, 0x6a, 0x71, 0x12, 0x1b, 0x58,
+	0xde, 0x18, 0x10, 0x00, 0x00, 0xff, 0xff, 0x7a, 0x6e, 0x21, 0x13, 0xdd, 0x01, 0x00, 0x00,
 }
 
 func (m *Pair) Marshal() (dAtA []byte, err error) {
@@ -132,6 +190,50 @@ func (m *Pair) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	return len(dAtA) - i, nil
 }
 
+func (m *BatchContractPair) Marshal() (dAtA []byte, err error) {
+	size := m.Size()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalToSizedBuffer(dAtA[:size])
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *BatchContractPair) MarshalTo(dAtA []byte) (int, error) {
+	size := m.Size()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *BatchContractPair) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
+	_ = i
+	var l int
+	_ = l
+	if len(m.Pairs) > 0 {
+		for iNdEx := len(m.Pairs) - 1; iNdEx >= 0; iNdEx-- {
+			{
+				size, err := m.Pairs[iNdEx].MarshalToSizedBuffer(dAtA[:i])
+				if err != nil {
+					return 0, err
+				}
+				i -= size
+				i = encodeVarintPair(dAtA, i, uint64(size))
+			}
+			i--
+			dAtA[i] = 0x12
+		}
+	}
+	if len(m.ContractAddr) > 0 {
+		i -= len(m.ContractAddr)
+		copy(dAtA[i:], m.ContractAddr)
+		i = encodeVarintPair(dAtA, i, uint64(len(m.ContractAddr)))
+		i--
+		dAtA[i] = 0xa
+	}
+	return len(dAtA) - i, nil
+}
+
 func encodeVarintPair(dAtA []byte, offset int, v uint64) int {
 	offset -= sovPair(v)
 	base := offset
@@ -154,6 +256,25 @@ func (m *Pair) Size() (n int) {
 	}
 	if m.AssetDenom != 0 {
 		n += 1 + sovPair(uint64(m.AssetDenom))
+	}
+	return n
+}
+
+func (m *BatchContractPair) Size() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	l = len(m.ContractAddr)
+	if l > 0 {
+		n += 1 + l + sovPair(uint64(l))
+	}
+	if len(m.Pairs) > 0 {
+		for _, e := range m.Pairs {
+			l = e.Size()
+			n += 1 + l + sovPair(uint64(l))
+		}
 	}
 	return n
 }
@@ -231,6 +352,122 @@ func (m *Pair) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
+		default:
+			iNdEx = preIndex
+			skippy, err := skipPair(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
+				return ErrInvalidLengthPair
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+func (m *BatchContractPair) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return ErrIntOverflowPair
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= uint64(b&0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: BatchContractPair: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: BatchContractPair: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 1:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field ContractAddr", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowPair
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLengthPair
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return ErrInvalidLengthPair
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.ContractAddr = string(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
+		case 2:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Pairs", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowPair
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthPair
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthPair
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.Pairs = append(m.Pairs, &Pair{})
+			if err := m.Pairs[len(m.Pairs)-1].Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
 		default:
 			iNdEx = preIndex
 			skippy, err := skipPair(dAtA[iNdEx:])
