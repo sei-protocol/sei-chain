@@ -41,6 +41,17 @@ func TestQueryExchangeRate(t *testing.T) {
 	require.Equal(t, rate, res.OracleExchangeRate.ExchangeRate)
 }
 
+func TestQueryEmptyExchangeRates(t *testing.T) {
+	input := CreateTestInput(t)
+	ctx := sdk.WrapSDKContext(input.Ctx)
+	querier := NewQuerier(input.OracleKeeper)
+
+	res, err := querier.ExchangeRates(ctx, &types.QueryExchangeRatesRequest{})
+	require.NoError(t, err)
+
+	require.Equal(t, types.DenomOracleExchangeRatePairs{}, res.DenomOracleExchangeRatePairs)
+}
+
 func TestQueryExchangeRates(t *testing.T) {
 	input := CreateTestInput(t)
 	ctx := sdk.WrapSDKContext(input.Ctx)

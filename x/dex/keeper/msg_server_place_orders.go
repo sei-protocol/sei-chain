@@ -62,6 +62,7 @@ func (k msgServer) PlaceOrders(goCtx context.Context, msg *types.MsgPlaceOrders)
 
 	pairToOrderPlacements := k.OrderPlacements[msg.GetContractAddr()]
 
+	
 	nextId := k.GetNextOrderId(ctx)
 	idsInResp := []uint64{}
 	for _, orderPlacement := range msg.GetOrders() {
