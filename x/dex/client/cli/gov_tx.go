@@ -1,10 +1,10 @@
 package cli
 
 import (
-
 	"github.com/sei-protocol/sei-chain/x/dex/types"
 
 	"github.com/cosmos/cosmos-sdk/client"
+	"github.com/cosmos/cosmos-sdk/client/flags"
 	"github.com/cosmos/cosmos-sdk/client/tx"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	govtypes "github.com/cosmos/cosmos-sdk/x/gov/types"
@@ -16,7 +16,7 @@ import (
 // NewSubmitParamChangeProposalTxCmd returns a CLI command handler for creating
 // a parameter change proposal governance transaction.
 func NewRegisterPairsProposalTxCmd() *cobra.Command {
-	return &cobra.Command{
+	cmd := &cobra.Command{
 		Use:   "register-pairs-proposal [proposal-file]",
 		Args:  cobra.ExactArgs(1),
 		Short: "Submit a register pairs proposal",
@@ -53,4 +53,8 @@ func NewRegisterPairsProposalTxCmd() *cobra.Command {
 			return tx.GenerateOrBroadcastTxCLI(clientCtx, cmd.Flags(), msg)
 		},
 	}
+
+	flags.AddTxFlagsToCmd(cmd)
+
+	return cmd
 }
