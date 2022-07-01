@@ -13,6 +13,9 @@ func DefaultGenesis() *GenesisState {
 		LongBookList:  []LongBook{},
 		ShortBookList: []ShortBook{},
 		// this line is used by starport scaffolding # genesis/types/default
+		TickSizeList: []*TickSize{
+			{Pair: &Pair{PriceDenom: Denom_ATOM, AssetDenom: Denom_SEI}, Ticksize: 2},
+		},
 		Params:    DefaultParams(),
 		LastEpoch: 0,
 	}
