@@ -23,4 +23,3 @@ cat ~/.sei/config/genesis.json | jq '.app_state["gov"]["deposit_params"]["max_de
 cat ~/.sei/config/genesis.json | jq '.app_state["gov"]["voting_params"]["voting_period"]="10s"' > ~/.sei/config/tmp_genesis.json && mv ~/.sei/config/tmp_genesis.json ~/.sei/config/genesis.json
 cat ~/.sei/config/genesis.json | jq '.consensus_params["block"]["time_iota_ms"]="50"' > ~/.sei/config/tmp_genesis.json && mv ~/.sei/config/tmp_genesis.json ~/.sei/config/genesis.json
 ./build/seid start --trace
-
