@@ -29,17 +29,20 @@ echo "Building..."
 make install
 echo $password | sudo -S rm -r ~/.sei/
 echo $password | sudo -S rm -r ~/test_accounts/
-~/go/bin/seid unsafe-reset-all
+~/go/bin/seid tendermint unsafe-reset-all
 ~/go/bin/seid init demo --chain-id sei-chain
 yes | ~/go/bin/seid keys add $keyname
 yes | ~/go/bin/seid keys add faucet
-~/go/bin/seid add-genesis-account $(~/go/bin/seid keys show $keyname -a) 100000000000000000000usei
-~/go/bin/seid add-genesis-account $(~/go/bin/seid keys show faucet -a) 100000000000000000000usei
+printf '12345678\n' | ~/go/bin/seid add-genesis-account $(~/go/bin/seid keys show $keyname -a) 100000000000000000000usei
+printf '12345678\n' | ~/go/bin/seid add-genesis-account $(~/go/bin/seid keys show faucet -a) 100000000000000000000usei
 python ./loadtest/scripts/populate_genesis_accounts.py $numtestaccount loc
-~/go/bin/seid gentx $keyname 70000000000000000000usei --chain-id sei-chain
+printf '12345678\n' | ~/go/bin/seid gentx $keyname 70000000000000000000usei --chain-id sei-chain
 ~/go/bin/seid collect-gentxs
 cat ~/.sei/config/genesis.json | jq '.app_state["crisis"]["constant_fee"]["denom"]="usei"' > ~/.sei/config/tmp_genesis.json && mv ~/.sei/config/tmp_genesis.json ~/.sei/config/genesis.json
 cat ~/.sei/config/genesis.json | jq '.app_state["gov"]["deposit_params"]["min_deposit"][0]["denom"]="usei"' > ~/.sei/config/tmp_genesis.json && mv ~/.sei/config/tmp_genesis.json ~/.sei/config/genesis.json
 cat ~/.sei/config/genesis.json | jq '.app_state["mint"]["params"]["mint_denom"]="usei"' > ~/.sei/config/tmp_genesis.json && mv ~/.sei/config/tmp_genesis.json ~/.sei/config/genesis.json
 cat ~/.sei/config/genesis.json | jq '.app_state["staking"]["params"]["bond_denom"]="usei"' > ~/.sei/config/tmp_genesis.json && mv ~/.sei/config/tmp_genesis.json ~/.sei/config/genesis.json
+cat ~/.sei/config/genesis.json | jq '.app_state["gov"]["deposit_params"]["max_deposit_period"]="300s"' > ~/.sei/config/tmp_genesis.json && mv ~/.sei/config/tmp_genesis.json ~/.sei/config/genesis.json
+cat ~/.sei/config/genesis.json | jq '.app_state["gov"]["voting_params"]["voting_period"]="300s"' > ~/.sei/config/tmp_genesis.json && mv ~/.sei/config/tmp_genesis.json ~/.sei/config/genesis.json
+cat ~/.sei/config/genesis.json | jq '.consensus_params["block"]["time_iota_ms"]="50"' > ~/.sei/config/tmp_genesis.json && mv ~/.sei/config/tmp_genesis.json ~/.sei/config/genesis.json
 ~/go/bin/seid start --trace
