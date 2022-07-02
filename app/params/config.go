@@ -86,8 +86,8 @@ func SetTendermintConfigs(config *tmcfg.Config) {
 	config.Mempool.MaxTxsBytes = 10737418240
 	config.Mempool.MaxTxBytes = 2048576
 	// Consensus Configs
-	config.Consensus.TimeoutPrevote = 100 * time.Millisecond
-	config.Consensus.TimeoutPrecommit = 100 * time.Millisecond
-	config.Consensus.TimeoutCommit = 100 * time.Millisecond
+	config.Consensus.TimeoutPrevote = 250 * time.Millisecond
+	config.Consensus.TimeoutPrecommit = 250 * time.Millisecond
+	config.Consensus.TimeoutCommit = 250 * time.Millisecond
 	config.Consensus.SkipTimeoutCommit = true
 }
