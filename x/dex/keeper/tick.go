@@ -26,8 +26,6 @@ func (k Keeper) GetTickSizeForPair(ctx sdk.Context, pair types.Pair) (float32, b
 	return float32frombytes(b), true
 }
 
-
-
 // use bigindian encoding for now
 func float32ToByte(f float32) []byte {
 	var buf [4]byte

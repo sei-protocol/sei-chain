@@ -7,19 +7,19 @@
         "sei14hj2tavq8fpesdwxxcu44rty3hh90vhujrvcmstl4zr3txmfvw9sh9m79m",
         "pairs": [
           {
-            "price_denom": "USDC",
-            "asset_denom": "SEI"
+            "price_denom": "usdc",
+            "asset_denom": "sei"
           },
           {
-            "price_denom": "USDC",
-            "asset_denom": "ATOM"
+            "price_denom": "usdc",
+            "asset_denom": "atom"
           },
           {
-            "price_denom": "ATOM",
-            "asset_denom": "SEI"
+            "price_denom": "atom",
+            "asset_denom": "sei"
           }
         ]
       }
     ],
-    "deposit": "10000000usei"
-  }
+    "deposit": "500000usei"
+}

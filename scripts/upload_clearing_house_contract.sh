@@ -8,6 +8,9 @@
 # contract_address highly possible is the same, if not replace
 ./build/seid tx dex register-contract sei14hj2tavq8fpesdwxxcu44rty3hh90vhujrvcmstl4zr3txmfvw9sh9m79m 1 -y --from=alice --chain-id=sei --fees=100000usei --gas=500000 --broadcast-mode=block
 # register a pair
-./build/seid tx dex register-pair sei14hj2tavq8fpesdwxxcu44rty3hh90vhujrvcmstl4zr3txmfvw9sh9m79m usdc sei -y --from=alice --chain-id=sei --fees=100000usei --gas=500000 --broadcast-mode=block
+./build/seid tx dex register-pairs-proposal ./x/dex/example/proposal.json -y --from=alice --chain-id=sei --fees=10000000usei --gas=500000 --broadcast-mode=block
+./build/seid tx gov deposit 1 10000000usei -y --from=alice --chain-id=sei --fees=10000000usei --gas=500000 --broadcast-mode=block
+./build/seid tx gov vote 1 yes -y --from=alice --chain-id=sei --fees=10000000usei --gas=500000 --broadcast-mode=block
 # order: (position_direction, price, quantity, price_denom, asset_denom, position_effect(open/close), order_type(limit, market,..), leverage) 
-./build/seid tx dex place-orders sei14hj2tavq8fpesdwxxcu44rty3hh90vhujrvcmstl4zr3txmfvw9sh9m79m Long,1.01,5,usdc,sei,Open,Limit,1 --amount=10000usei -y --from=alice --chain-id=sei --fees=10000usei --gas=50000000 --broadcast-mode=block
+# wait for vote period close to take effect, seem no early stop implemented for vote
+# ./build/seid tx dex place-orders sei14hj2tavq8fpesdwxxcu44rty3hh90vhujrvcmstl4zr3txmfvw9sh9m79m Long,1.01,5,usdc,sei,Open,Limit,1 --amount=10000usei -y --from=alice --chain-id=sei --fees=10000usei --gas=50000000 --broadcast-mode=block

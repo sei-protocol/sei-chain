@@ -21,5 +21,5 @@ node_modules/
 package-lock.json
 */package-lock.json
 
-# test coverage outputs
+# test coverage output
 c.out
