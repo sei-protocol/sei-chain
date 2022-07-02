@@ -21,7 +21,16 @@ func NewGaslessDecorator(wrapped []sdk.AnteDecorator, oracleKeeper oraclekeeper.
 func (gd GaslessDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool, next sdk.AnteHandler) (newCtx sdk.Context, err error) {
 	if !isTxGasless(tx, ctx, gd.oracleKeeper) {
 		// if not gasless, then we use the wrappers
-		return sdk.ChainAnteDecorators(gd.wrapped...)(ctx, tx, simulate)
+
+		// AnteHandle always takes a `next` so we need a no-op to execute only one handler at a time
+		terminatorHandler := func(ctx sdk.Context, _ sdk.Tx, _ bool) (sdk.Context, error) {
+			return ctx, nil
+		}
+		// iterating instead of recursing the handler for readability
+		for _, handler := range gd.wrapped {
+			ctx, err = handler.AnteHandle(ctx, tx, simulate, terminatorHandler)
+		}
+		return next(ctx, tx, simulate)
 	}
 	gaslessMeter := sdk.NewInfiniteGasMeter()
 
@@ -29,6 +38,10 @@ func (gd GaslessDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool,
 }
 
 func isTxGasless(tx sdk.Tx, ctx sdk.Context, oracleKeeper oraclekeeper.Keeper) bool {
+	if len(tx.GetMsgs()) == 0 {
+		// empty TX shouldn't be gasless
+		return false
+	}
 	for _, msg := range tx.GetMsgs() {
 		switch m := msg.(type) {
 		case *dextypes.MsgPlaceOrders:
