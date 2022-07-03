@@ -25,6 +25,9 @@ const Upgrade104 = "1.0.4beta"
 // 1.0.5beta
 const Upgrade105 = "1.0.5beta upgrade"
 
+// 1.0.6beta
+const Upgrade106 = "1.0.6beta"
+
 func (app App) RegisterUpgradeHandlers() {
 	app.UpgradeKeeper.SetUpgradeHandler(IgniteCLIRemovalUpgradeHandler, func(ctx sdk.Context, plan upgradetypes.Plan, fromVM module.VersionMap) (module.VersionMap, error) {
 		return app.mm.RunMigrations(ctx, app.configurator, fromVM)
@@ -42,6 +45,10 @@ func (app App) RegisterUpgradeHandlers() {
 		return app.mm.RunMigrations(ctx, app.configurator, fromVM)
 	})
 	app.UpgradeKeeper.SetUpgradeHandler(Upgrade105, func(ctx sdk.Context, plan upgradetypes.Plan, fromVM module.VersionMap) (module.VersionMap, error) {
+		return app.mm.RunMigrations(ctx, app.configurator, fromVM)
+	})
+
+	app.UpgradeKeeper.SetUpgradeHandler(Upgrade106, func(ctx sdk.Context, plan upgradetypes.Plan, fromVM module.VersionMap) (module.VersionMap, error) {
 		return app.mm.RunMigrations(ctx, app.configurator, fromVM)
 	})
 }
