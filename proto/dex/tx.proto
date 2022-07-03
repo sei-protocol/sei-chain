@@ -5,7 +5,6 @@ import "cosmos/base/v1beta1/coin.proto";
 import "gogoproto/gogo.proto";
 import "dex/order_placement.proto";
 import "dex/order_cancellation.proto";
-import "dex/pair.proto";
 import "dex/contract.proto";
 
 // this line is used by starport scaffolding # proto/tx/import

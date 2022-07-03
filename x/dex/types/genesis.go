@@ -2,6 +2,8 @@ package types
 
 import (
 	"fmt"
+
+	"github.com/cosmos/cosmos-sdk/types"
 )
 
 // DefaultIndex is the default capability global index
@@ -15,7 +17,7 @@ func DefaultGenesis() *GenesisState {
 	i := 0
 	for _, priceDenom := range Denom_value {
 		for _, assetDenom := range Denom_value {
-			ticksizes[i] = &TickSize{Pair: &Pair{PriceDenom: Denom(priceDenom), AssetDenom: Denom(assetDenom)}, Ticksize: 2}
+			ticksizes[i] = &TickSize{Pair: &Pair{PriceDenom: Denom(priceDenom), AssetDenom: Denom(assetDenom)}, Ticksize: types.NewDec(2)}
 			i += 1
 		}
 	}

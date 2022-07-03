@@ -2,7 +2,6 @@ package dex
 
 import (
 	"errors"
-	"math"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
@@ -51,12 +50,7 @@ func (tsmd TickSizeMultipleDecorator) CheckTickSizeMultiple(ctx sdk.Context, msg
 				if !found {
 					return sdkerrors.Wrapf(sdkerrors.ErrKeyNotFound, "the pair {price:%s,asset:%s} has no ticksize configured", order.PriceDenom.String(), order.AssetDenom.String())
 				}
-				val, err := order.Price.Float64()
-				if err != nil {
-					// todo put customized error together
-					return sdkerrors.Wrapf(errors.New("ErrParsePriceErr"), "fail to parse price of the order")
-				}
-				if val < float64(tickSize) || math.Mod(val, float64(tickSize)) != 0 {
+				if !IsDecimalMultipleOf(order.Price, tickSize){
 					return sdkerrors.Wrapf(errors.New("ErrPriceNotMultipleOfTickSize"), "price need to be multiple of tick size")
 				}
 			}
@@ -69,12 +63,7 @@ func (tsmd TickSizeMultipleDecorator) CheckTickSizeMultiple(ctx sdk.Context, msg
 				if !found {
 					return sdkerrors.Wrapf(sdkerrors.ErrKeyNotFound, "the pair {price:%s,asset:%s} has no ticksize configured", orderCancellation.PriceDenom.String(), orderCancellation.AssetDenom.String())
 				}
-				val, err := orderCancellation.Price.Float64()
-				if err != nil {
-					// todo put customized error together
-					return sdkerrors.Wrapf(errors.New("ErrParsePriceErr"), "fail to parse price of the order")
-				}
-				if val < float64(tickSize) || math.Mod(val, float64(tickSize)) != 0 {
+				if !IsDecimalMultipleOf(orderCancellation.Price, tickSize) {
 					return sdkerrors.Wrapf(errors.New("ErrPriceNotMultipleOfTickSize"), "price need to be multiple of tick size")
 				}
 			}
@@ -87,3 +76,13 @@ func (tsmd TickSizeMultipleDecorator) CheckTickSizeMultiple(ctx sdk.Context, msg
 
 	return nil
 }
+
+// check whether decimal a is multiple of decimal b
+func IsDecimalMultipleOf(a, b sdk.Dec) bool{
+	if a.LT(b) {
+		return false
+	}
+	quotient := sdk.NewDecFromBigInt(a.Quo(b).RoundInt().BigInt())
+	return quotient.Mul(b).Equal(a)
+}
+

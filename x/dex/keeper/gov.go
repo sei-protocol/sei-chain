@@ -1,6 +1,8 @@
 package keeper
 
 import (
+	"fmt"
+
 	sdk "github.com/cosmos/cosmos-sdk/types"
 
 	dexcache "github.com/sei-protocol/sei-chain/x/dex/cache"
@@ -20,5 +22,13 @@ func (k Keeper) HandleRegisterPairsProposal(ctx sdk.Context, p *types.RegisterPa
 		}
 	}
 
+	return nil
+}
+
+func (k Keeper) HandleUpdateTickSizeProposal(ctx sdk.Context, p *types.UpdateTickSizeProposal) error {
+	fmt.Println(p.Description)
+	for _, ticksize := range p.TickSizeList {
+		k.SetTickSizeForPair(ctx, *ticksize.Pair, ticksize.Ticksize)
+	}
 	return nil
 }

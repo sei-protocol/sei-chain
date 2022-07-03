@@ -5,7 +5,8 @@ import (
 	"io/ioutil"
 
 	"github.com/cosmos/cosmos-sdk/codec"
-	"github.com/sei-protocol/sei-chain/x/dex/types"
+	dextypes "github.com/sei-protocol/sei-chain/x/dex/types"
+	sdk "github.com/cosmos/cosmos-sdk/types"
 )
 
 type (
@@ -14,7 +15,13 @@ type (
 		AssetDenom string          `json:"asset_denom" yaml:"asset_denom"`
 	}
 
+	TickSizeJSON struct {
+		Pair PairJSON `json:"pair" yaml:"pair"`
+		TickSize sdk.Dec`json:"tick_size" yaml:"tick_size"`
+	}
+
 	PairsJSON []PairJSON
+	TickSizesJSON []TickSizeJSON
 
 	// ParamChangeJSON defines a parameter change used in JSON input. This
 	// allows values to be specified in raw JSON instead of being string encoded.
@@ -33,51 +40,94 @@ type (
 		BatchContractPair MultipleBatchContractPairJSON           `json:"batch_contract_pair" yaml:"batch_contract_pair"`
 		Deposit     string           `json:"deposit" yaml:"deposit"`
 	}
+
+	UpdateTickSizeProposalJSON struct {
+		Title       string           `json:"title" yaml:"title"`
+		Description string           `json:"description" yaml:"description"`
+		TickSizes TickSizesJSON     `json:"tick_size_list" yaml:"tick_size_list"`
+		Deposit     string           `json:"deposit" yaml:"deposit"`
+	}
 )
 
 // TODO: ADD utils to convert Each type to dex/type (string to denom)
-func NewPair(pair PairJSON) (types.Pair, error) {
+func NewPair(pair PairJSON) (dextypes.Pair, error) {
 
-	PriceDenom, unit, err := types.GetDenomFromStr(pair.PriceDenom)
+	PriceDenom, unit, err := dextypes.GetDenomFromStr(pair.PriceDenom)
 	if err != nil {
-		return types.Pair{}, err
+		return dextypes.Pair{}, err
 	}
-	if unit != types.Unit_STANDARD {
-		return types.Pair{}, errors.New("Denom must be in standard/whole unit (e.g. sei instead of usei)")
+	if unit != dextypes.Unit_STANDARD {
+		return dextypes.Pair{}, errors.New("Denom must be in standard/whole unit (e.g. sei instead of usei)")
 	}
-	AssetDenom, unit, err := types.GetDenomFromStr(pair.AssetDenom)
+	AssetDenom, unit, err := dextypes.GetDenomFromStr(pair.AssetDenom)
 	if err != nil {
-		return types.Pair{}, err
+		return dextypes.Pair{}, err
 	}
-	if unit != types.Unit_STANDARD {
-		return types.Pair{}, errors.New("Denom must be in standard/whole unit (e.g. sei instead of usei)")
+	if unit != dextypes.Unit_STANDARD {
+		return dextypes.Pair{}, errors.New("Denom must be in standard/whole unit (e.g. sei instead of usei)")
 	}
-	return types.Pair{PriceDenom, AssetDenom}, nil
+	return dextypes.Pair{PriceDenom, AssetDenom}, nil
 }
 
 // ToParamChange converts a ParamChangeJSON object to ParamChange.
-func (bcp BatchContractPairJSON) ToBatchContractPair() (types.BatchContractPair, error) {
-	pairs := make([]*types.Pair, len(bcp.Pairs))
+func (bcp BatchContractPairJSON) ToBatchContractPair() (dextypes.BatchContractPair, error) {
+	pairs := make([]*dextypes.Pair, len(bcp.Pairs))
 	for i, p := range bcp.Pairs {
 		new_pair, err := NewPair(p)
 		if err != nil {
-			return types.BatchContractPair{}, nil
+			return dextypes.BatchContractPair{}, nil
 		}
 		pairs[i] = &new_pair
 	}
-	return types.BatchContractPair{bcp.ContractAddr, pairs}, nil
+	return dextypes.BatchContractPair{bcp.ContractAddr, pairs}, nil
+}
+
+func (ts TickSizeJSON) ToTickSize() (dextypes.TickSize, error) {
+	pd, unit, err := dextypes.GetDenomFromStr(ts.Pair.PriceDenom)
+	if err != nil {
+		return dextypes.TickSize{}, err
+	}
+	if unit != dextypes.Unit_STANDARD {
+		return dextypes.TickSize{}, errors.New("Denom must be in standard/whole unit (e.g. sei instead of usei)")
+	}
+	ad, unit, err := dextypes.GetDenomFromStr(ts.Pair.AssetDenom)
+	if err != nil {
+		return dextypes.TickSize{}, err
+	}
+	if unit != dextypes.Unit_STANDARD {
+		return dextypes.TickSize{}, errors.New("Denom must be in standard/whole unit (e.g. sei instead of usei)")
+	}
+	return dextypes.TickSize {
+		Pair: &dextypes.Pair {
+			PriceDenom: pd, 
+			AssetDenom: ad,
+		},
+		Ticksize: ts.TickSize,
+	}, nil
 }
 
 // ToParamChanges converts a slice of ParamChangeJSON objects to a slice of
 // ParamChange.
-func (mbcp MultipleBatchContractPairJSON) ToMultipleBatchContractPair() ([]types.BatchContractPair, error) {
-	res := make([]types.BatchContractPair, len(mbcp))
+func (mbcp MultipleBatchContractPairJSON) ToMultipleBatchContractPair() ([]dextypes.BatchContractPair, error) {
+	res := make([]dextypes.BatchContractPair, len(mbcp))
 	for i, bcp := range mbcp {
 		new_batch, err := bcp.ToBatchContractPair()
 		if err != nil {
 			return res, nil
 		}
 		res[i] = new_batch
+	}
+	return res, nil
+}
+
+func (tss TickSizesJSON) ToTickSizes() ([]dextypes.TickSize, error) {
+	res := make([]dextypes.TickSize, len(tss))
+	for i, ts := range tss {
+		ticksize, err := ts.ToTickSize()
+		if err != nil {
+			return res, nil
+		}
+		res[i] = ticksize
 	}
 	return res, nil
 }
@@ -98,3 +148,22 @@ func ParseRegisterPairsProposalJSON(cdc *codec.LegacyAmino, proposalFile string)
 
 	return proposal, nil
 }
+
+// ParseRegisterPairsProposalJSON reads and parses a RegisterPairsProposalJSON from
+// a file.
+func ParseUpdateTickSizeProposalJSON(cdc *codec.LegacyAmino, proposalFile string) (UpdateTickSizeProposalJSON, error) {
+	proposal := UpdateTickSizeProposalJSON{}
+
+	contents, err := ioutil.ReadFile(proposalFile)
+	if err != nil {
+		return proposal, err
+	}
+
+	if err := cdc.UnmarshalJSON(contents, &proposal); err != nil {
+		return proposal, err
+	}
+
+	return proposal, nil
+}
+
+

@@ -9,7 +9,10 @@ message TickSize {
   Pair pair = 1 [
     (gogoproto.jsontag) = "pair"
   ];
-  float ticksize = 2 [
+  string ticksize = 2 [
+    (gogoproto.moretags)   = "yaml:\"tick_size\"",
+    (gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Dec",
+    (gogoproto.nullable)   = false,
     (gogoproto.jsontag) = "tick_size"
   ];
 }

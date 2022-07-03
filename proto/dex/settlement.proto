@@ -2,9 +2,7 @@ syntax = "proto3";
 package seiprotocol.seichain.dex;
 
 option go_package = "github.com/sei-protocol/sei-chain/x/dex/types";
-import "dex/order_entry.proto"; 
 import "gogoproto/gogo.proto";
-import "dex/enums.proto";
 
 message SettlementEntry {
   string account = 1 [(gogoproto.jsontag) = "account"];
