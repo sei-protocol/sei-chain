@@ -6,11 +6,6 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/cosmos/cosmos-sdk/codec"
-	"github.com/sei-protocol/sei-chain/app"
-	"github.com/sei-protocol/sei-chain/app/params"
-	tmcfg "github.com/tendermint/tendermint/config"
-
 	"github.com/CosmWasm/wasmd/x/wasm"
 	wasmkeeper "github.com/CosmWasm/wasmd/x/wasm/keeper"
 	"github.com/cosmos/cosmos-sdk/baseapp"
@@ -20,6 +15,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/client/flags"
 	"github.com/cosmos/cosmos-sdk/client/keys"
 	"github.com/cosmos/cosmos-sdk/client/rpc"
+	"github.com/cosmos/cosmos-sdk/codec"
 	"github.com/cosmos/cosmos-sdk/server"
 	serverconfig "github.com/cosmos/cosmos-sdk/server/config"
 	servertypes "github.com/cosmos/cosmos-sdk/server/types"
@@ -31,6 +27,8 @@ import (
 	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
 	"github.com/cosmos/cosmos-sdk/x/crisis"
 	genutilcli "github.com/cosmos/cosmos-sdk/x/genutil/client/cli"
+	"github.com/sei-protocol/sei-chain/app"
+	"github.com/sei-protocol/sei-chain/app/params"
 	"github.com/sei-protocol/sei-chain/wasmbinding"
 	"github.com/spf13/cast"
 	"github.com/spf13/cobra"
@@ -91,15 +89,7 @@ func NewRootCmd() (*cobra.Command, params.EncodingConfig) {
 
 			customAppTemplate, customAppConfig := initAppConfig()
 
-			preRunHandlerResults := server.InterceptConfigsPreRunHandler(cmd, customAppTemplate, customAppConfig)
-			serverCtx := server.GetServerContextFromCmd(cmd)
-			tmCfg := serverCtx.Config
-
-			// Override default config.toml values with optimized values
-			params.SetTendermintConfigs(tmCfg)
-			tmcfg.WriteConfigFile(filepath.Join(tmCfg.RootDir, "config", "config.toml"), tmCfg)
-
-			return preRunHandlerResults
+			return server.InterceptConfigsPreRunHandler(cmd, customAppTemplate, customAppConfig)
 		},
 	}
 
