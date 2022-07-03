@@ -9,13 +9,20 @@ const DefaultIndex uint64 = 1
 
 // DefaultGenesis returns the default Capability genesis state
 func DefaultGenesis() *GenesisState {
+	// set ticksize for each pair
+	n := len(Denom_name)
+	ticksizes := make([]*TickSize, n * n, n * n)
+	i := 0
+	for _, priceDenom := range Denom_value {
+		for _, assetDenom := range Denom_value {
+			ticksizes[i] = &TickSize{Pair: &Pair{PriceDenom: Denom(priceDenom), AssetDenom: Denom(assetDenom)}, Ticksize: 2}
+			i += 1
+		}
+	}
 	return &GenesisState{
 		LongBookList:  []LongBook{},
 		ShortBookList: []ShortBook{},
-		// this line is used by starport scaffolding # genesis/types/default
-		TickSizeList: []*TickSize{
-			{Pair: &Pair{PriceDenom: Denom_ATOM, AssetDenom: Denom_SEI}, Ticksize: 2},
-		},
+		TickSizeList: ticksizes,
 		Params:    DefaultParams(),
 		LastEpoch: 0,
 	}

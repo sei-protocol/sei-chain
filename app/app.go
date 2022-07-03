@@ -688,6 +688,7 @@ func New(
 			TXCounterStoreKey: keys[wasm.StoreKey],
 			WasmConfig:        &wasmConfig,
 			OracleKeeper:      &app.OracleKeeper,
+			DexKeeper: &app.DexKeeper,
 		},
 	)
 	if err != nil {
