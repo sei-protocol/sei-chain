@@ -142,8 +142,12 @@ message QueryGetPricesResponse {
 }
 
 message QueryGetTwapsRequest {
-	string contractAddr = 1;
-	uint64 lookbackSeconds = 2;
+	string contractAddr = 1 [
+		(gogoproto.jsontag) = "contract_address"
+	];
+	uint64 lookbackSeconds = 2 [
+		(gogoproto.jsontag) = "lookback_seconds"
+	];
   }
   
   message QueryGetTwapsResponse {
