@@ -1,8 +1,6 @@
 package keeper
 
 import (
-	"fmt"
-
 	sdk "github.com/cosmos/cosmos-sdk/types"
 
 	dexcache "github.com/sei-protocol/sei-chain/x/dex/cache"
