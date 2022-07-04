@@ -62,7 +62,6 @@ func NewKeeper(
 	ps paramtypes.Subspace,
 	epochKeeper epochkeeper.Keeper,
 	bankKeeper bankkeeper.Keeper,
-	wasmKeeper wasm.Keeper,
 ) *Keeper {
 	// set KeyTable if it has not already been set
 	if !ps.HasKeyTable() {
@@ -80,7 +79,6 @@ func NewKeeper(
 		BankKeeper:          bankKeeper,
 		OrderCancellations:  map[string]map[string]*dexcache.OrderCancellations{},
 		LiquidationRequests: map[string]*dexcache.LiquidationRequests{},
-		WasmKeeper:          wasmKeeper,
 	}
 }
 
@@ -90,4 +88,8 @@ func (k Keeper) Logger(ctx sdk.Context) log.Logger {
 
 func (k Keeper) GetStoreKey() sdk.StoreKey {
 	return k.storeKey
+}
+
+func (k *Keeper) SetWasmKeeper(wasmKeeper *wasm.Keeper) {
+	k.WasmKeeper = *wasmKeeper
 }
