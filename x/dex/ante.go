@@ -15,7 +15,7 @@ type TickSizeMultipleDecorator struct {
 	dexKeeper     keeper.Keeper
 }
 
-// NewSpammingPreventionDecorator returns new spamming prevention decorator instance
+// NewTickSizeMultipleDecorator returns new ticksize multiple check decorator instance
 func NewTickSizeMultipleDecorator(dexKeeper keeper.Keeper) TickSizeMultipleDecorator {
 	return TickSizeMultipleDecorator{
 		dexKeeper:     dexKeeper,
@@ -38,7 +38,7 @@ func (tsmd TickSizeMultipleDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, sim
 	return next(ctx, tx, simulate)
 }
 
-// CheckTickSizeMultiple checks whether the msgs are 
+// CheckTickSizeMultiple checks whether the msgs comply with ticksize
 func (tsmd TickSizeMultipleDecorator) CheckTickSizeMultiple(ctx sdk.Context, msgs []sdk.Msg) error {
 	for _, msg := range msgs {
 		switch msg.(type) {
@@ -77,7 +77,7 @@ func (tsmd TickSizeMultipleDecorator) CheckTickSizeMultiple(ctx sdk.Context, msg
 	return nil
 }
 
-// check whether decimal a is multiple of decimal b
+// Check whether decimal a is multiple of decimal b
 func IsDecimalMultipleOf(a, b sdk.Dec) bool{
 	if a.LT(b) {
 		return false
