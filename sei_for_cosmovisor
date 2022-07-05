@@ -1,5 +1,5 @@
 #!/bin/bash
-#v0.4alpha
+#v0.5alpha
 #snipeTR 2022 dscrd:snipeTR#8374
 #karboran 2022 dscrd:karboran#2719
 #Apache License Version 2.0
@@ -522,7 +522,8 @@ rm -rf /usr/local/bin/seid
 ln -s "$HOME"/.sei/cosmovisor/current/bin/seid /usr/local/bin/seid
 
 mkdir ~/bkup_cosmovisor_sei
-echo UNSAFE_SKIP_BACKUP=true DAEMON_HOME=~/.sei DAEMON_NAME=seid DAEMON_RESTART_AFTER_UPGRADE=true DAEMON_DATA_BACKUP_DIR=~/bkup_cosmovisor_sei cosmovisor run start --home ~/.sei>seid_start_with_cosmovisor.sh
+echo ulimit -n unlimited>seid_start_with_cosmovisor.sh
+echo UNSAFE_SKIP_BACKUP=true DAEMON_HOME=~/.sei DAEMON_NAME=seid DAEMON_RESTART_AFTER_UPGRADE=true DAEMON_DATA_BACKUP_DIR=~/bkup_cosmovisor_sei cosmovisor run start --home ~/.sei>>seid_start_with_cosmovisor.sh
 chmod +x seid_start_with_cosmovisor.sh
 
 echo -e "\e[1m\e[32m installation complete...installation complete...installation complete \e[0m"
