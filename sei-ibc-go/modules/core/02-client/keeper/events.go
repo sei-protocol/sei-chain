@@ -1,6 +1,8 @@
 package keeper
 
 import (
+	"fmt"
+
 	sdk "github.com/cosmos/cosmos-sdk/types"
 
 	"github.com/cosmos/ibc-go/v3/modules/core/02-client/types"
@@ -64,6 +66,17 @@ func EmitUpdateClientProposalEvent(ctx sdk.Context, clientID string, clientState
 			sdk.NewAttribute(types.AttributeKeySubjectClientID, clientID),
 			sdk.NewAttribute(types.AttributeKeyClientType, clientState.ClientType()),
 			sdk.NewAttribute(types.AttributeKeyConsensusHeight, clientState.GetLatestHeight().String()),
+		),
+	)
+}
+
+// EmitUpgradeClientProposalEvent emits an upgrade client proposal event
+func EmitUpgradeClientProposalEvent(ctx sdk.Context, title string, height int64) {
+	ctx.EventManager().EmitEvent(
+		sdk.NewEvent(
+			types.EventTypeUpgradeClientProposal,
+			sdk.NewAttribute(types.AttributeKeyUpgradePlanTitle, title),
+			sdk.NewAttribute(types.AttributeKeyUpgradePlanHeight, fmt.Sprintf("%d", height)),
 		),
 	)
 }
