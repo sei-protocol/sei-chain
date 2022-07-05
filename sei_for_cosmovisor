@@ -1,5 +1,5 @@
 #!/bin/bash
-#v0.1alpha
+#v0.2alpha
 #snipeTR 2022 dscrd:snipeTR#8374
 #karboran 2022 dscrd:karboran#2719
 #Apache License Version 2.0
@@ -112,7 +112,7 @@ echo -e "\e[1m\e[32m2. installing tools and libs... \e[0m" && sleep 1
 sudo apt install curl tar wget clang pkg-config libssl-dev jq build-essential bsdmainutils git make ncdu gcc git jq chrony tmux net-tools liblz4-tool -y
 
 sleep 1
-cd "$HOME" && echo "$HOME" dizinine girilemiyor && sleep 10 && exit 13
+cd "$HOME" || echo "$HOME" dizinine girilemiyor && sleep 10 && exit 13
 wget -O go1.18.1.linux-amd64.tar.gz https://golang.org/dl/go1.18.1.linux-amd64.tar.gz
 rm -rf /usr/local/go && tar -C /usr/local -xzf go1.18.1.linux-amd64.tar.gz && rm go1.18.1.linux-amd64.tar.gz
 echo 'export GOROOT=/usr/local/go' >> "$HOME"/.bash_profile
@@ -125,7 +125,7 @@ source "$HOME"/.bash_profile
 echo -e "\e[1m\e[32m3. sei-chain library download and install... \e[0m"
 
 # download binary
-cd "$HOME" && echo "$HOME" dizinine girilemiyor && sleep 10 && exit 13
+cd "$HOME" || echo "$HOME" dizinine girilemiyor && sleep 10 && exit 13
 echo git clone --depth 1 --branch "$SEIDVER" https://github.com/sei-protocol/sei-chain.git
 git clone --depth 1 --branch "$SEIDVER" https://github.com/sei-protocol/sei-chain.git
 cd sei-chain && make install
@@ -286,7 +286,7 @@ sudo systemctl daemon-reload
 #sudo systemctl restart seid
 
 #cosmovisor build
-cd "$HOME" && echo "$HOME" dizinine girilemiyor && sleep 10 && exit 13
+cd "$HOME" || echo "$HOME" dizinine girilemiyor && sleep 10 && exit 13
 rm -rf ./cosmos-sdk
 #git clone git@github.com:cosmos/cosmos-sdk
 git clone --depth 1 --branch main https://github.com/cosmos/cosmos-sdk
@@ -333,7 +333,7 @@ fi
 #################################################
 cp "$HOME"/cosmos-sdk/cosmovisor/cosmovisor /usr/local/bin/
 #Checkout the binary for genesis 1.0.2beta on cosmovisor
-cd "$HOME" && echo "$HOME" dizinine girilemiyor && sleep 10 && exit 13
+cd "$HOME" || echo "$HOME" dizinine girilemiyor && sleep 10 && exit 13
 mkdir -p "$DAEMON_HOME"/cosmovisor/genesis/bin
 cp "$HOME"/go/bin/seid "$DAEMON_HOME"/cosmovisor/genesis/bin
 #if not exist $DAEMON_HOME/cosmovisor/genesis/bin/seid write ERROR
@@ -351,7 +351,7 @@ fi
 #################################################
 #set version
 SEIDVER=1.0.3beta
-cd "$HOME" && echo "$HOME" dizinine girilemiyor && sleep 10 && exit 13
+cd "$HOME" || echo "$HOME" dizinine girilemiyor && sleep 10 && exit 13
 #remove old sei-chain directory
 rm -rf sei-chain
 #clone sei-chain
@@ -364,7 +364,7 @@ make install
 go build -o build/seid ./cmd/seid
 # Checkout the binary for 1.0.xbeta
 # if not right version exit script.
-cd "$HOME" && echo "$HOME" dizinine girilemiyor && sleep 10 && exit 13
+cd "$HOME" || echo "$HOME" dizinine girilemiyor && sleep 10 && exit 13
 #create cosmovisor upgrade directory
 mkdir -p "$DAEMON_HOME"/cosmovisor/upgrades/$SEIDVER/bin
 #copy new seid version correct upgrade cosmovisor directory
@@ -390,7 +390,7 @@ fi
 # Checkout the binary for 1.0.4beta
 #################################################
 SEIDVER=1.0.4beta
-cd "$HOME" && echo "$HOME" dizinine girilemiyor && sleep 10 && exit 13
+cd "$HOME" || echo "$HOME" dizinine girilemiyor && sleep 10 && exit 13
 #remove old sei-chain directory
 rm -rf sei-chain
 #clone sei-chain
@@ -403,7 +403,7 @@ make install
 go build -o build/seid ./cmd/seid
 # Checkout the binary for 1.0.xbeta
 # if not right version exit script.
-cd "$HOME" && echo "$HOME" dizinine girilemiyor && sleep 10 && exit 13
+cd "$HOME" || echo "$HOME" dizinine girilemiyor && sleep 10 && exit 13
 #create cosmovisor upgrade directory
 mkdir -p "$DAEMON_HOME"/cosmovisor/upgrades/$SEIDVER/bin
 #copy new seid version correct upgrade cosmovisor directory
@@ -429,7 +429,7 @@ fi
 # Checkout the binary for 1.0.5beta
 #################################################
 SEIDVER=1.0.5beta
-cd "$HOME" && echo "$HOME" dizinine girilemiyor && sleep 10 && exit 13
+cd "$HOME" || echo "$HOME" dizinine girilemiyor && sleep 10 && exit 13
 #remove old sei-chain directory
 rm -rf sei-chain
 #clone sei-chain
@@ -442,7 +442,7 @@ make install
 go build -o build/seid ./cmd/seid
 # Checkout the binary for 1.0.xbeta
 # if not right version exit script.
-cd "$HOME" && echo "$HOME" dizinine girilemiyor && sleep 10 && exit 13
+cd "$HOME" || echo "$HOME" dizinine girilemiyor && sleep 10 && exit 13
 #create cosmovisor upgrade directory
 mkdir -p "$DAEMON_HOME"/cosmovisor/upgrades/"$SEIDVER"%20upgrade/bin
 #copy new seid version correct upgrade cosmovisor directory
@@ -471,7 +471,7 @@ cp "$DAEMON_HOME"/cosmovisor/upgrades/"$SEIDVER"%20upgrade/bin/seid "$DAEMON_HOM
 # Checkout the binary for 1.0.6beta
 #################################################
 SEIDVER=1.0.6beta
-cd "$HOME" && echo "$HOME" dizinine girilemiyor && sleep 10 && exit 13
+cd "$HOME" || echo "$HOME" dizinine girilemiyor && sleep 10 && exit 13
 #remove old sei-chain directory
 rm -rf sei-chain
 #clone sei-chain
@@ -484,7 +484,7 @@ make install
 go build -o build/seid ./cmd/seid
 # Checkout the binary for 1.0.xbeta
 # if not right version exit script.
-cd "$HOME" && echo "$HOME" dizinine girilemiyor && sleep 10 && exit 13
+cd "$HOME" || echo "$HOME" dizinine girilemiyor && sleep 10 && exit 13
 #create cosmovisor upgrade directory
 mkdir -p "$DAEMON_HOME"/cosmovisor/upgrades/"$SEIDVER"/bin
 #copy new seid version correct upgrade cosmovisor directory
@@ -506,7 +506,7 @@ else
 fi
 #################################################
 
-cd "$HOME" && echo "$HOME" dizinine girilemiyor && sleep 10 && exit 13
+cd "$HOME" || echo "$HOME" dizinine girilemiyor && sleep 10 && exit 13
 #install helpsei command
 sudo wget https://raw.githubusercontent.com/snipeTR/sei_help/main/sei_help.sh && chmod +x ./sei_help.sh &&sudo mv ./sei_help.sh /usr/local/bin/helpsei
 
