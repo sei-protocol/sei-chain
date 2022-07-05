@@ -21,6 +21,8 @@ import (
 	dbm "github.com/tendermint/tm-db"
 )
 
+const TEST_CONTRACT = "TEST"
+
 type TestWrapper struct {
 	suite.Suite
 

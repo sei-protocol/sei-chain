@@ -9,6 +9,9 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/sei-protocol/sei-chain/app"
 	"github.com/sei-protocol/sei-chain/wasmbinding"
+	dexwasm "github.com/sei-protocol/sei-chain/x/dex/client/wasm"
+	dexbinding "github.com/sei-protocol/sei-chain/x/dex/client/wasm/bindings"
+	dextypes "github.com/sei-protocol/sei-chain/x/dex/types"
 	oraclewasm "github.com/sei-protocol/sei-chain/x/oracle/client/wasm"
 	oraclebinding "github.com/sei-protocol/sei-chain/x/oracle/client/wasm/bindings"
 	oracletypes "github.com/sei-protocol/sei-chain/x/oracle/types"
@@ -24,7 +27,8 @@ func TestWasmGetOracleExchangeRates(t *testing.T) {
 	testWrapper := app.NewTestWrapper(t, tm, valPub)
 
 	oh := oraclewasm.NewOracleWasmQueryHandler(&testWrapper.App.OracleKeeper)
-	qp := wasmbinding.NewQueryPlugin(oh)
+	dh := dexwasm.NewDexWasmQueryHandler(&testWrapper.App.DexKeeper)
+	qp := wasmbinding.NewQueryPlugin(oh, dh)
 	customQuerier := wasmbinding.CustomQuerier(qp)
 	// END SETUP
 
@@ -64,7 +68,8 @@ func TestWasmGetOracleTwaps(t *testing.T) {
 	testWrapper := app.NewTestWrapper(t, tm, valPub)
 
 	oh := oraclewasm.NewOracleWasmQueryHandler(&testWrapper.App.OracleKeeper)
-	qp := wasmbinding.NewQueryPlugin(oh)
+	dh := dexwasm.NewDexWasmQueryHandler(&testWrapper.App.DexKeeper)
+	qp := wasmbinding.NewQueryPlugin(oh, dh)
 	customQuerier := wasmbinding.CustomQuerier(qp)
 	// END SETUP
 
@@ -100,4 +105,55 @@ func TestWasmGetOracleTwaps(t *testing.T) {
 	require.Equal(t, oracletypes.QueryTwapsResponse{OracleTwaps: oracletypes.OracleTwaps{
 		oracletypes.OracleTwap{Denom: oracleutils.MicroAtomDenom, Twap: sdk.NewDec(20), LookbackSeconds: 100},
 	}}, parsedRes2)
+}
+
+func TestWasmGetDexTwaps(t *testing.T) {
+	// START SETUP
+	tm := time.Now().UTC()
+	valPub := secp256k1.GenPrivKey().PubKey()
+
+	testWrapper := app.NewTestWrapper(t, tm, valPub)
+
+	oh := oraclewasm.NewOracleWasmQueryHandler(&testWrapper.App.OracleKeeper)
+	dh := dexwasm.NewDexWasmQueryHandler(&testWrapper.App.DexKeeper)
+	qp := wasmbinding.NewQueryPlugin(oh, dh)
+	customQuerier := wasmbinding.CustomQuerier(qp)
+	// END SETUP
+
+	req := dexbinding.SeiDexQuery{DexTwaps: &dextypes.QueryGetTwapsRequest{
+		ContractAddr:    app.TEST_CONTRACT,
+		LookbackSeconds: 200,
+	}}
+	queryData, err := json.Marshal(req)
+	require.NoError(t, err)
+	query := wasmbinding.SeiQueryWrapper{Route: wasmbinding.DexRoute, QueryData: queryData}
+
+	rawQuery, err := json.Marshal(query)
+	require.NoError(t, err)
+
+	testWrapper.Ctx = testWrapper.Ctx.WithBlockHeight(11).WithBlockTime(time.Unix(3600, 0))
+	testWrapper.App.DexKeeper.AddRegisteredPair(
+		testWrapper.Ctx,
+		app.TEST_CONTRACT,
+		dextypes.Pair{PriceDenom: dextypes.Denom_SEI, AssetDenom: dextypes.Denom_ATOM},
+	)
+	testWrapper.App.DexKeeper.SetPriceState(testWrapper.Ctx, dextypes.Price{
+		SnapshotTimestampInSeconds: 3600,
+		Price:                      sdk.NewDec(20),
+		Pair:                       &dextypes.Pair{PriceDenom: dextypes.Denom_SEI, AssetDenom: dextypes.Denom_ATOM},
+	}, app.TEST_CONTRACT, 0)
+	testWrapper.App.OracleKeeper.SetBaseExchangeRate(testWrapper.Ctx, oracleutils.MicroAtomDenom, sdk.NewDec(12))
+	testWrapper.Ctx = testWrapper.Ctx.WithBlockHeight(14).WithBlockTime(time.Unix(3700, 0))
+
+	res, err := customQuerier(testWrapper.Ctx, rawQuery)
+	require.NoError(t, err)
+
+	var parsedRes dextypes.QueryGetTwapsResponse
+	err = json.Unmarshal(res, &parsedRes)
+	require.NoError(t, err)
+	require.Equal(t, 1, len(parsedRes.Twaps))
+	twap := *parsedRes.Twaps[0]
+	require.Equal(t, dextypes.Denom_SEI, twap.Pair.PriceDenom)
+	require.Equal(t, dextypes.Denom_ATOM, twap.Pair.AssetDenom)
+	require.Equal(t, sdk.NewDec(20), twap.Twap)
 }
