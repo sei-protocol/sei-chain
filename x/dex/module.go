@@ -187,8 +187,8 @@ func (am AppModule) ExportGenesis(ctx sdk.Context, cdc codec.JSONCodec) json.Raw
 // ConsensusVersion implements ConsensusVersion.
 func (AppModule) ConsensusVersion() uint64 { return 4 }
 
-func (am AppModule) getAllContractAddresses(ctx sdk.Context) []string {
-	return am.keeper.GetAllContractAddresses(ctx)
+func (am AppModule) getAllContractInfo(ctx sdk.Context) []types.ContractInfo {
+	return am.keeper.GetAllContractInfo(ctx)
 }
 
 func (am AppModule) callClearingHouseContractSudo(ctx sdk.Context, msg []byte, contractAddrStr string) {
@@ -206,18 +206,27 @@ func (am AppModule) callClearingHouseContractSudo(ctx sdk.Context, msg []byte, c
 
 // BeginBlock executes all ABCI BeginBlock logic respective to the capability module.
 func (am AppModule) BeginBlock(ctx sdk.Context, _ abci.RequestBeginBlock) {
-	for _, contractAddr := range am.getAllContractAddresses(ctx) {
-		am.beginBlockForContract(ctx, contractAddr)
-	}
-	if isNewEpoch, currentEpoch := am.keeper.IsNewEpoch(ctx); isNewEpoch {
+	isNewEpoch, currentEpoch := am.keeper.IsNewEpoch(ctx)
+	if isNewEpoch {
 		am.keeper.SetEpoch(ctx, currentEpoch)
+	}
+	for _, contract := range am.getAllContractInfo(ctx) {
+		am.beginBlockForContract(ctx, contract, int64(currentEpoch))
 	}
 }
 
-func (am AppModule) beginBlockForContract(ctx sdk.Context, contractAddr string) {
+func (am AppModule) beginBlockForContract(ctx sdk.Context, contract types.ContractInfo, epoch int64) {
 	_, span := (*am.tracingInfo.Tracer).Start(am.tracingInfo.TracerContext, "DexBeginBlock")
+	contractAddr := contract.ContractAddr
 	span.SetAttributes(attribute.String("contract", contractAddr))
 	defer span.End()
+
+	// call NewBlock sudo
+	am.keeper.HandleBBNewBlock(ctx, contractAddr, epoch)
+
+	if contract.HookOnly {
+		return
+	}
 
 	am.keeper.Orders[contractAddr] = map[string]*dexcache.Orders{}
 	am.keeper.OrderPlacements[contractAddr] = map[string]*dexcache.OrderPlacements{}
@@ -258,14 +267,20 @@ func (am AppModule) beginBlockForContract(ctx sdk.Context, contractAddr string) 
 // EndBlock executes all ABCI EndBlock logic respective to the capability module. It
 // returns no validator updates.
 func (am AppModule) EndBlock(ctx sdk.Context, _ abci.RequestEndBlock) []abci.ValidatorUpdate {
-	for _, contractAddr := range am.getAllContractAddresses(ctx) {
-		ctx.Logger().Info(fmt.Sprintf("End block for %s", contractAddr))
-		am.endBlockForContract(ctx, contractAddr)
+	for _, contract := range am.getAllContractInfo(ctx) {
+		ctx.Logger().Info(fmt.Sprintf("End block for %s", contract.ContractAddr))
+		am.endBlockForContract(ctx, contract)
 	}
 	return []abci.ValidatorUpdate{}
 }
 
-func (am AppModule) endBlockForContract(ctx sdk.Context, contractAddr string) {
+func (am AppModule) endBlockForContract(ctx sdk.Context, contract types.ContractInfo) {
+	// TODO: defer call FinalizeBlock
+	contractAddr := contract.ContractAddr
+	if contract.HookOnly {
+		return
+	}
+
 	spanCtx, span := (*am.tracingInfo.Tracer).Start(am.tracingInfo.TracerContext, "DexEndBlock")
 	span.SetAttributes(attribute.String("contract", contractAddr))
 	defer span.End()
