@@ -1,6 +1,8 @@
 package keeper
 
 import (
+	"fmt"
+
 	sdk "github.com/cosmos/cosmos-sdk/types"
 
 	dexcache "github.com/sei-protocol/sei-chain/x/dex/cache"
@@ -14,6 +16,10 @@ func (k Keeper) HandleRegisterPairsProposal(ctx sdk.Context, p *types.RegisterPa
 		var contractAddress string = batchContractPair.ContractAddr
 		for _, pair := range batchContractPair.Pairs {
 			k.AddRegisteredPair(ctx, contractAddress, *pair)
+			// todo allow ticksize to be optional, if not set, then use default
+			fmt.Println(*pair)
+			fmt.Println(*pair.Ticksize)
+			k.SetTickSizeForPair(ctx, contractAddress, *pair, *pair.Ticksize)
 			k.Orders[contractAddress][(*pair).String()] = dexcache.NewOrders()
 			k.OrderPlacements[contractAddress][(*pair).String()] = dexcache.NewOrderPlacements()
 			k.OrderCancellations[contractAddress][(*pair).String()] = dexcache.NewOrderCancellations()

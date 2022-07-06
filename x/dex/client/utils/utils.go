@@ -13,6 +13,7 @@ type (
 	PairJSON struct {
 		PriceDenom string          `json:"price_denom" yaml:"price_denom"`
 		AssetDenom string          `json:"asset_denom" yaml:"asset_denom"`
+		TickSize   string         `json:"tick_size" yaml:"tick_size"`
 	}
 
 	TickSizeJSON struct {
@@ -52,7 +53,6 @@ type (
 
 // TODO: ADD utils to convert Each type to dex/type (string to denom)
 func NewPair(pair PairJSON) (dextypes.Pair, error) {
-
 	PriceDenom, unit, err := dextypes.GetDenomFromStr(pair.PriceDenom)
 	if err != nil {
 		return dextypes.Pair{}, err
@@ -67,7 +67,12 @@ func NewPair(pair PairJSON) (dextypes.Pair, error) {
 	if unit != dextypes.Unit_STANDARD {
 		return dextypes.Pair{}, errors.New("Denom must be in standard/whole unit (e.g. sei instead of usei)")
 	}
-	return dextypes.Pair{PriceDenom, AssetDenom}, nil
+
+	ticksize, err :=sdk.NewDecFromStr(pair.TickSize)
+	if err != nil {
+		return dextypes.Pair{}, errors.New("ticksize: str to decimal conversion err")
+	}
+	return dextypes.Pair{PriceDenom, AssetDenom, &ticksize}, nil
 }
 
 // ToParamChange converts a ParamChangeJSON object to ParamChange.
