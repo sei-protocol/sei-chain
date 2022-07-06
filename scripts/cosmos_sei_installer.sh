@@ -1,5 +1,5 @@
 #!/bin/bash
-#v0.2beta
+#v0.3beta
 #snipeTR 2022 dscrd:snipeTR#8374
 #karboran 2022 dscrd:karboran#2719
 #Apache License Version 2.0
@@ -284,7 +284,7 @@ git clone --depth 1 --branch main https://github.com/cosmos/cosmos-sdk
 #$HOME/cosmos-sdk/cosmovisor/cmd/cosmovisor/version.go file, line 21 [Version = "1.1.0"] >>> change >>> [Version = "v1.1.0"]
 #sed -i -e "s/Version *=.*/Version = \"v1.1.0\"/" $HOME/cosmos-sdk/cosmovisor/cmd/cosmovisor/version.go
 
-cd cosmos-sdk && echo "cosmos-sdk" dizinine girilemiyor && sleep 10 && exit 13
+cd cosmos-sdk || echo "cosmos-sdk" dizinine girilemiyor && sleep 10 && exit 13
 #git checkout cosmovisor/$VISORVER
 make cosmovisor
 
@@ -343,7 +343,7 @@ Seid_On_Cosmovisor () {
    rm -rf sei-chain
    #clone sei-chain
    git clone --depth 1 https://github.com/sei-protocol/sei-chain.git
-   cd "sei-chai" && echo "sei-chai" dizinine girilemiyor && sleep 10 && exit 13
+   cd "sei-chai" || echo "sei-chai" dizinine girilemiyor && sleep 10 && exit 13
    git fetch --tags -f
    git checkout $SEIDVER
    # Build the new version
