@@ -15,4 +15,8 @@ message TickSize {
     (gogoproto.nullable)   = false,
     (gogoproto.jsontag) = "tick_size"
   ];
+  string contractAddr = 3 [
+    (gogoproto.moretags)   = "yaml:\"tick_size\"",
+    (gogoproto.jsontag) = "contract_addr"
+  ];
 }

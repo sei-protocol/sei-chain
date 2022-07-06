@@ -25,7 +25,7 @@ func (k Keeper) HandleRegisterPairsProposal(ctx sdk.Context, p *types.RegisterPa
 
 func (k Keeper) HandleUpdateTickSizeProposal(ctx sdk.Context, p *types.UpdateTickSizeProposal) error {
 	for _, ticksize := range p.TickSizeList {
-		k.SetTickSizeForPair(ctx, *ticksize.Pair, ticksize.Ticksize)
+		k.SetTickSizeForPair(ctx, ticksize.ContractAddr, *ticksize.Pair, ticksize.Ticksize)
 	}
 	return nil
 }

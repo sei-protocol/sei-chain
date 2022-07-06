@@ -18,6 +18,7 @@ type (
 	TickSizeJSON struct {
 		Pair PairJSON `json:"pair" yaml:"pair"`
 		TickSize sdk.Dec`json:"tick_size" yaml:"tick_size"`
+		ContractAddr string `json:"contract_addr" yaml:"contract_addr"`
 	}
 
 	PairsJSON []PairJSON
@@ -103,6 +104,7 @@ func (ts TickSizeJSON) ToTickSize() (dextypes.TickSize, error) {
 			AssetDenom: ad,
 		},
 		Ticksize: ts.TickSize,
+		ContractAddr: ts.ContractAddr,
 	}, nil
 }
 

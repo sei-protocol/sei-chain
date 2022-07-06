@@ -73,6 +73,10 @@ func RegisteredPairPrefix(contractAddr string) []byte {
 	return append(KeyPrefix(RegisteredPairKey), KeyPrefix(contractAddr)...)
 }
 
+func TickSizeKeyPrefix(contractAddr string) []byte {
+	return append(KeyPrefix(TickSizeKey), KeyPrefix(contractAddr)...)
+}
+
 func RegisteredPairCountPrefix() []byte {
 	return KeyPrefix(RegisteredPairCount)
 }
@@ -102,4 +106,5 @@ const NextOrderIdKey = "noid"
 const (
 	RegisteredPairKey   = "rp"
 	RegisteredPairCount = "rpcnt"
+	TickSizeKey         = "ticks"
 )

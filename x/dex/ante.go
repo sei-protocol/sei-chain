@@ -44,8 +44,9 @@ func (tsmd TickSizeMultipleDecorator) CheckTickSizeMultiple(ctx sdk.Context, msg
 		switch msg.(type) {
 		case *types.MsgPlaceOrders:
 			msgPlaceOrders := msg.(*types.MsgPlaceOrders)
+			contractAddr := msgPlaceOrders.ContractAddr
 			for _, order := range msgPlaceOrders.Orders {
-				tickSize, found := tsmd.dexKeeper.GetTickSizeForPair(ctx, types.Pair{PriceDenom: order.PriceDenom, AssetDenom: order.AssetDenom})
+				tickSize, found := tsmd.dexKeeper.GetTickSizeForPair(ctx, contractAddr, types.Pair{PriceDenom: order.PriceDenom, AssetDenom: order.AssetDenom})
 				// todo may not need to throw err if ticksize unfound?
 				if !found {
 					return sdkerrors.Wrapf(sdkerrors.ErrKeyNotFound, "the pair {price:%s,asset:%s} has no ticksize configured", order.PriceDenom.String(), order.AssetDenom.String())
@@ -57,8 +58,9 @@ func (tsmd TickSizeMultipleDecorator) CheckTickSizeMultiple(ctx sdk.Context, msg
 			continue
 		case *types.MsgCancelOrders:
 			msgCancelOrders := msg.(*types.MsgCancelOrders)
+			contractAddr := msgCancelOrders.ContractAddr
 			for _, orderCancellation := range msgCancelOrders.OrderCancellations {
-				tickSize, found := tsmd.dexKeeper.GetTickSizeForPair(ctx, types.Pair{PriceDenom: orderCancellation.PriceDenom, AssetDenom: orderCancellation.AssetDenom})
+				tickSize, found := tsmd.dexKeeper.GetTickSizeForPair(ctx, contractAddr, types.Pair{PriceDenom: orderCancellation.PriceDenom, AssetDenom: orderCancellation.AssetDenom})
 				// todo may not need to throw err if ticksize unfound?
 				if !found {
 					return sdkerrors.Wrapf(sdkerrors.ErrKeyNotFound, "the pair {price:%s,asset:%s} has no ticksize configured", orderCancellation.PriceDenom.String(), orderCancellation.AssetDenom.String())
