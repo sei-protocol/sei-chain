@@ -73,6 +73,10 @@ func RegisteredPairPrefix(contractAddr string) []byte {
 	return append(KeyPrefix(RegisteredPairKey), KeyPrefix(contractAddr)...)
 }
 
+func TickSizeKeyPrefix(contractAddr string) []byte {
+	return append(KeyPrefix(TickSizeKey), KeyPrefix(contractAddr)...)
+}
+
 func RegisteredPairCountPrefix() []byte {
 	return KeyPrefix(RegisteredPairCount)
 }
@@ -92,14 +96,14 @@ const (
 	ShortBookCountKey = "ShortBook-count-"
 )
 
-const TwapKey = "TWAP-"
-const PriceKey = "Price-"
 
-const SettlementEntryKey = "SettlementEntry-"
-
-const NextOrderIdKey = "noid"
 
 const (
+	TwapKey = "TWAP-"
+    PriceKey = "Price-"
+    SettlementEntryKey = "SettlementEntry-"
+    NextOrderIdKey = "noid"
 	RegisteredPairKey   = "rp"
 	RegisteredPairCount = "rpcnt"
+	TickSizeKey         = "ticks"
 )

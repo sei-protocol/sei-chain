@@ -9,7 +9,9 @@ import (
 	ibcante "github.com/cosmos/ibc-go/v3/modules/core/ante"
 	ibckeeper "github.com/cosmos/ibc-go/v3/modules/core/keeper"
 	"github.com/sei-protocol/sei-chain/app/antedecorators"
+	"github.com/sei-protocol/sei-chain/x/dex"
 	"github.com/sei-protocol/sei-chain/x/oracle"
+	dexkeeper "github.com/sei-protocol/sei-chain/x/dex/keeper"
 	oraclekeeper "github.com/sei-protocol/sei-chain/x/oracle/keeper"
 )
 
@@ -21,6 +23,7 @@ type HandlerOptions struct {
 	IBCKeeper         *ibckeeper.Keeper
 	WasmConfig        *wasmTypes.WasmConfig
 	OracleKeeper      *oraclekeeper.Keeper
+	DexKeeper		  *dexkeeper.Keeper
 	TXCounterStoreKey sdk.StoreKey
 }
 
@@ -70,6 +73,7 @@ func NewAnteHandler(options HandlerOptions) (sdk.AnteHandler, error) {
 		ante.NewSigVerificationDecorator(options.AccountKeeper, options.SignModeHandler),
 		ante.NewIncrementSequenceDecorator(options.AccountKeeper),
 		ibcante.NewAnteDecorator(options.IBCKeeper),
+		dex.NewTickSizeMultipleDecorator(*options.DexKeeper),
 	}
 
 	return sdk.ChainAnteDecorators(anteDecorators...), nil

@@ -13,6 +13,10 @@ message Pair {
     Denom assetDenom = 2 [
         (gogoproto.jsontag) = "asset_denom"
     ];
+    string ticksize = 3 [
+        (gogoproto.jsontag) = "tick_size",
+        (gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Dec"
+    ];
 }
 
 message BatchContractPair {

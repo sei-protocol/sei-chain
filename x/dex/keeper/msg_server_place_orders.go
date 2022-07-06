@@ -62,10 +62,15 @@ func (k msgServer) PlaceOrders(goCtx context.Context, msg *types.MsgPlaceOrders)
 
 	pairToOrderPlacements := k.OrderPlacements[msg.GetContractAddr()]
 
+	
 	nextId := k.GetNextOrderId(ctx)
 	idsInResp := []uint64{}
 	for _, orderPlacement := range msg.GetOrders() {
-		pair := types.Pair{PriceDenom: orderPlacement.PriceDenom, AssetDenom: orderPlacement.AssetDenom}
+		ticksize, found := k.Keeper.GetTickSizeForPair(ctx,msg.GetContractAddr(), types.Pair{PriceDenom: orderPlacement.PriceDenom, AssetDenom: orderPlacement.AssetDenom})
+		if !found {
+			return nil, sdkerrors.Wrapf(sdkerrors.ErrKeyNotFound, "the pair {price:%s,asset:%s} has no ticksize configured", orderPlacement.PriceDenom.String(), orderPlacement.AssetDenom.String())
+		}
+		pair := types.Pair{PriceDenom: orderPlacement.PriceDenom, AssetDenom: orderPlacement.AssetDenom, Ticksize: &ticksize}
 		(*pairToOrderPlacements[pair.String()]).Orders = append(
 			(*pairToOrderPlacements[pair.String()]).Orders,
 			dexcache.OrderPlacement{

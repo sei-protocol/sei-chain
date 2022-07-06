@@ -1,0 +1,28 @@
+{
+    "title": "Add sei/usdc, atom/usdc, sei/atom pair to contract",
+    "description": "gov proposal to update contract 1",
+    "batch_contract_pair": [
+      {
+        "contract_addr":  
+        "sei14hj2tavq8fpesdwxxcu44rty3hh90vhujrvcmstl4zr3txmfvw9sh9m79m",
+        "pairs": [
+          {
+            "price_denom": "usdc",
+            "asset_denom": "sei",
+            "tick_size": "0.2"
+          },
+          {
+            "price_denom": "usdc",
+            "asset_denom": "atom",
+            "tick_size": "1.1"
+          },
+          {
+            "price_denom": "atom",
+            "asset_denom": "sei",
+            "tick_size": "1.5"
+          }
+        ]
+      }
+    ],
+    "deposit": "500000usei"
+}
