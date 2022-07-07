@@ -7,6 +7,7 @@ import (
 
 func (k Keeper) SetAssetMetadata(ctx sdk.Context, assetMetadata types.AssetMetadata) {
 	store := ctx.KVStore(k.storeKey)
+	// We only allow one asset per base denom for now
 	// Even if asset exists already, overwrite the store with new metadata
 	b := k.Cdc.MustMarshal(&assetMetadata)
 

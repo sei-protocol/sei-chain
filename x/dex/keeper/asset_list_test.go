@@ -39,7 +39,7 @@ func createAssetMetadata(keeper *keeper.Keeper, ctx sdk.Context) types.AssetMeta
 	}
 
 	item := types.AssetMetadata{
-		IbcInfo: ibc_info,
+		IbcInfo: &ibc_info,
 		TypeAsset: "erc20",
 		Metadata: metadata,
 	}

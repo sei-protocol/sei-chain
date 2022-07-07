@@ -3,7 +3,6 @@ package seiprotocol.seichain.dex;
 
 import "cosmos/bank/v1beta1/bank.proto";
 import "gogoproto/gogo.proto";
-import "dex/enums.proto";
 
 option go_package = "github.com/sei-protocol/sei-chain/x/dex/types";
 
@@ -15,10 +14,7 @@ message AssetIBCInfo {
 }
 
 message AssetMetadata {
-    AssetIBCInfo ibcInfo = 1 [
-        (gogoproto.nullable) = false,
-        (gogoproto.jsontag) = "ibc_info"
-    ];
+    AssetIBCInfo ibcInfo = 1 [(gogoproto.jsontag) = "ibc_info"];
     string type_asset = 2 [(gogoproto.jsontag) = "type_asset"]; // Ex: cw20, ics20, erc20
     cosmos.bank.v1beta1.Metadata metadata = 3 [
         (gogoproto.nullable) = false,
