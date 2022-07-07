@@ -3,6 +3,7 @@ package seiprotocol.seichain.dex;
 
 import "gogoproto/gogo.proto";
 import "dex/pair.proto";
+import "dex/asset_list.proto";
 
 option go_package = "github.com/sei-protocol/sei-chain/x/dex/types";
 
@@ -20,4 +21,15 @@ message RegisterPairsProposal {
         (gogoproto.moretags) = "yaml:\"batch_contract_pair\"",
         (gogoproto.nullable) = false
     ];
-  }
+}
+
+// AddAssetMetadataProposal is a gov Content type for adding a new asset
+// to the dex module's asset list.
+message AddAssetMetadataProposal {
+    string title = 1 [ (gogoproto.moretags) = "yaml:\"title\"" ];
+    string description = 2 [ (gogoproto.moretags) = "yaml:\"description\"" ];
+    repeated AssetMetadata assetList = 3 [
+        (gogoproto.moretags) = "yaml:\"asset_list\"",
+        (gogoproto.nullable) = false
+    ];
+}

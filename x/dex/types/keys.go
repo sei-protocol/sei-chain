@@ -77,6 +77,10 @@ func RegisteredPairCountPrefix() []byte {
 	return KeyPrefix(RegisteredPairCount)
 }
 
+func AssetListPrefix(assetDenom string) []byte {
+	return append(KeyPrefix(AssetListKey), KeyPrefix(assetDenom)...)
+}
+
 const (
 	DefaultPriceDenom = "stake"
 	DefaultAssetDenom = "dummy"
@@ -103,3 +107,5 @@ const (
 	RegisteredPairKey   = "rp"
 	RegisteredPairCount = "rpcnt"
 )
+
+const AssetListKey = "AssetList-"
