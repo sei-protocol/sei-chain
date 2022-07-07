@@ -24,6 +24,7 @@ type (
 
 	PairsJSON []PairJSON
 	TickSizesJSON []TickSizeJSON
+	AssetListJSON []dextypes.AssetMetadata
 
 	// ParamChangeJSON defines a parameter change used in JSON input. This
 	// allows values to be specified in raw JSON instead of being string encoded.
@@ -47,6 +48,13 @@ type (
 		Title       string           `json:"title" yaml:"title"`
 		Description string           `json:"description" yaml:"description"`
 		TickSizes TickSizesJSON     `json:"tick_size_list" yaml:"tick_size_list"`
+		Deposit     string           `json:"deposit" yaml:"deposit"`
+	}
+
+	AddAssetMetadataProposalJSON struct {
+		Title       string           `json:"title" yaml:"title"`
+		Description string           `json:"description" yaml:"description"`
+		AssetList AssetListJSON     `json:"tick_size_list" yaml:"tick_size_list"`
 		Deposit     string           `json:"deposit" yaml:"deposit"`
 	}
 )
@@ -173,4 +181,27 @@ func ParseUpdateTickSizeProposalJSON(cdc *codec.LegacyAmino, proposalFile string
 	return proposal, nil
 }
 
+// ParseAddAssetMetadataProposalJSON reads and parses an AddAssetMetadataProposalJSON from
+// a file.
+func ParseAddAssetMetadataProposalJSON(cdc *codec.LegacyAmino, proposalFile string) (AddAssetMetadataProposalJSON, error) {
+	proposal := AddAssetMetadataProposalJSON{}
 
+	contents, err := ioutil.ReadFile(proposalFile)
+	if err != nil {
+		return proposal, err
+	}
+
+	if err := cdc.UnmarshalJSON(contents, &proposal); err != nil {
+		return proposal, err
+	}
+
+	// Verify base denoms specified in proposal are well formed
+	for _, asset := range proposal.AssetList {
+		err := sdk.ValidateDenom(asset.Metadata.Base)
+		if err != nil {
+			return AddAssetMetadataProposalJSON{}, err
+		}
+	}
+
+	return proposal, nil
+}
