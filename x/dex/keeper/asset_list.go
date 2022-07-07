@@ -5,12 +5,12 @@ import (
 	"github.com/sei-protocol/sei-chain/x/dex/types"
 )
 
-func (k Keeper) SetAssetMetadata(ctx sdk.Context, assetDenom string, assetMetadata types.AssetMetadata) {
+func (k Keeper) SetAssetMetadata(ctx sdk.Context, assetMetadata types.AssetMetadata) {
 	store := ctx.KVStore(k.storeKey)
 	// Even if asset exists already, overwrite the store with new metadata
 	b := k.Cdc.MustMarshal(&assetMetadata)
 
-	store.Set(types.AssetListPrefix(assetDenom), b)
+	store.Set(types.AssetListPrefix(assetMetadata.Metadata.Base), b)
 }
 
 func (k Keeper) GetAssetMetadataByDenom(ctx sdk.Context, assetDenom string) (val types.AssetMetadata, found bool) {

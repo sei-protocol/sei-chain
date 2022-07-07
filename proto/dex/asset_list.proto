@@ -11,11 +11,14 @@ message AssetIBCInfo {
     string sourceChannel = 1 [(gogoproto.jsontag) = "source_channel"];
     string dstChannel = 2 [(gogoproto.jsontag) = "dst_channel"];
     string sourceDenom = 3 [(gogoproto.jsontag) = "source_denom"];
-    string sourceChainID = 4 [(gogoproto.jsontag) = "source_denom"];
+    string sourceChainID = 4 [(gogoproto.jsontag) = "source_chain_id"];
 }
 
 message AssetMetadata {
-    AssetIBCInfo ibcInfo = 1 [(gogoproto.jsontag) = "ibc_info"];
+    AssetIBCInfo ibcInfo = 1 [
+        (gogoproto.nullable) = false,
+        (gogoproto.jsontag) = "ibc_info"
+    ];
     string type_asset = 2 [(gogoproto.jsontag) = "type_asset"]; // Ex: cw20, ics20, erc20
     cosmos.bank.v1beta1.Metadata metadata = 3 [
         (gogoproto.nullable) = false,

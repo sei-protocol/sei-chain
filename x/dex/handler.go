@@ -47,6 +47,8 @@ func NewProposalHandler(k keeper.Keeper) govtypes.Handler {
 			return k.HandleRegisterPairsProposal(ctx, c)
 		case *types.UpdateTickSizeProposal:
 			return k.HandleUpdateTickSizeProposal(ctx, c)
+		case *types.AddAssetMetadataProposal:
+			return k.HandleAddAssetMetadataProposal(ctx, c)
 		default:
 			return sdkerrors.Wrapf(sdkerrors.ErrUnknownRequest, "unrecognized dex proposal content type: %T", c)
 		}

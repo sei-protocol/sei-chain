@@ -110,6 +110,5 @@ const (
 	RegisteredPairKey   = "rp"
 	RegisteredPairCount = "rpcnt"
 	TickSizeKey         = "ticks"
+	AssetListKey = "AssetList-"
 )
-
-const AssetListKey = "AssetList-"
