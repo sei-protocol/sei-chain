@@ -21,13 +21,12 @@ type (
 		storeKey            sdk.StoreKey
 		memKey              sdk.StoreKey
 		Paramstore          paramtypes.Subspace
-		Orders              map[string]map[string]*dexcache.Orders
+		BlockOrders         map[types.ContractAddress]map[types.PairString]*dexcache.BlockOrders
+		BlockCancels        map[types.ContractAddress]map[types.PairString]*dexcache.BlockCancellations
+		DepositInfo         map[types.ContractAddress]*dexcache.DepositInfo
+		LiquidationRequests map[types.ContractAddress]*dexcache.LiquidationRequests
 		EpochKeeper         epochkeeper.Keeper
-		OrderPlacements     map[string]map[string]*dexcache.OrderPlacements
-		DepositInfo         map[string]*dexcache.DepositInfo
 		BankKeeper          bankkeeper.Keeper
-		OrderCancellations  map[string]map[string]*dexcache.OrderCancellations
-		LiquidationRequests map[string]*dexcache.LiquidationRequests
 		WasmKeeper          wasm.Keeper
 	}
 )
@@ -47,11 +46,10 @@ func NewPlainKeeper(
 		storeKey:            storeKey,
 		memKey:              memKey,
 		Paramstore:          ps,
-		Orders:              map[string]map[string]*dexcache.Orders{},
-		OrderPlacements:     map[string]map[string]*dexcache.OrderPlacements{},
-		DepositInfo:         map[string]*dexcache.DepositInfo{},
-		OrderCancellations:  map[string]map[string]*dexcache.OrderCancellations{},
-		LiquidationRequests: map[string]*dexcache.LiquidationRequests{},
+		BlockOrders:         map[types.ContractAddress]map[types.PairString]*dexcache.BlockOrders{},
+		BlockCancels:        map[types.ContractAddress]map[types.PairString]*dexcache.BlockCancellations{},
+		DepositInfo:         map[types.ContractAddress]*dexcache.DepositInfo{},
+		LiquidationRequests: map[types.ContractAddress]*dexcache.LiquidationRequests{},
 	}
 }
 
@@ -72,13 +70,12 @@ func NewKeeper(
 		storeKey:            storeKey,
 		memKey:              memKey,
 		Paramstore:          ps,
-		Orders:              map[string]map[string]*dexcache.Orders{},
+		BlockOrders:         map[types.ContractAddress]map[types.PairString]*dexcache.BlockOrders{},
+		BlockCancels:        map[types.ContractAddress]map[types.PairString]*dexcache.BlockCancellations{},
+		DepositInfo:         map[types.ContractAddress]*dexcache.DepositInfo{},
+		LiquidationRequests: map[types.ContractAddress]*dexcache.LiquidationRequests{},
 		EpochKeeper:         epochKeeper,
-		OrderPlacements:     map[string]map[string]*dexcache.OrderPlacements{},
-		DepositInfo:         map[string]*dexcache.DepositInfo{},
 		BankKeeper:          bankKeeper,
-		OrderCancellations:  map[string]map[string]*dexcache.OrderCancellations{},
-		LiquidationRequests: map[string]*dexcache.LiquidationRequests{},
 	}
 }
 

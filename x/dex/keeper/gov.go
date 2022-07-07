@@ -2,6 +2,7 @@ package keeper
 
 import (
 	"fmt"
+
 	sdk "github.com/cosmos/cosmos-sdk/types"
 
 	dexcache "github.com/sei-protocol/sei-chain/x/dex/cache"
@@ -9,7 +10,7 @@ import (
 )
 
 func (k Keeper) HandleRegisterPairsProposal(ctx sdk.Context, p *types.RegisterPairsProposal) error {
-	// Loop through each batch contract pair an individual contract pair, token pair 
+	// Loop through each batch contract pair an individual contract pair, token pair
 	// tuple and register them individually
 	for _, batchContractPair := range p.Batchcontractpair {
 		var contractAddress string = batchContractPair.ContractAddr
@@ -24,13 +25,13 @@ func (k Keeper) HandleRegisterPairsProposal(ctx sdk.Context, p *types.RegisterPa
 				fmt.Println("Asset Denom", pair.AssetDenom, "is not in the AssetList and can not be registered.")
 			}
 			k.AddRegisteredPair(ctx, contractAddress, *pair)
-			// todo allow ticksize to be optional, if not set, then use default
-			fmt.Println(*pair)
-			fmt.Println(*pair.Ticksize)
-			k.SetTickSizeForPair(ctx, contractAddress, *pair, *pair.Ticksize)
-			k.Orders[contractAddress][(*pair).String()] = dexcache.NewOrders()
-			k.OrderPlacements[contractAddress][(*pair).String()] = dexcache.NewOrderPlacements()
-			k.OrderCancellations[contractAddress][(*pair).String()] = dexcache.NewOrderCancellations()
+			k.SetTickSizeForPair(ctx, contractAddress, *pair, pair.Ticksize)
+			contractAddr := types.ContractAddress(contractAddress)
+			pairStr := types.PairString(pair.String())
+			newBlockOrders := dexcache.BlockOrders([]types.Order{})
+			k.BlockOrders[contractAddr][pairStr] = &newBlockOrders
+			newBlockCancels := dexcache.BlockCancellations([]types.Cancellation{})
+			k.BlockCancels[contractAddr][pairStr] = &newBlockCancels
 		}
 	}
 

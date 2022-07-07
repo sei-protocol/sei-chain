@@ -45,7 +45,7 @@ func (k Keeper) Settlements(c context.Context, req *types.QueryGetSettlementsReq
 	}
 
 	ctx := sdk.UnwrapSDKContext(c)
-	Settlements, found := k.GetSettlements(ctx, req.ContractAddr, req.BlockHeight, req.PriceDenom, req.AssetDenom)
+	Settlements, found := k.GetSettlements(ctx, req.ContractAddr, req.BlockHeight, types.GetContractDenomName(req.PriceDenom), types.GetContractDenomName(req.AssetDenom))
 	if !found {
 		return nil, sdkerrors.ErrKeyNotFound
 	}

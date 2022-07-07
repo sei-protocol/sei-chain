@@ -11,7 +11,7 @@ var _ sdk.Msg = &MsgPlaceOrders{}
 
 func NewMsgPlaceOrders(
 	creator string,
-	orders []*OrderPlacement,
+	orders []*Order,
 	contractAddr string,
 	fund sdk.Coins,
 ) *MsgPlaceOrders {

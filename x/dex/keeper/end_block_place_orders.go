@@ -12,13 +12,16 @@ import (
 	otrace "go.opentelemetry.io/otel/trace"
 )
 
+// There is a limit on how many bytes can be passed to wasm VM in a single call,
+// so we shouldn't bump this number unless there is an upgrade to wasm VM
 const MAX_ORDERS_PER_SUDO_CALL = 50000
 
 func (k *Keeper) HandleEBPlaceOrders(ctx context.Context, sdkCtx sdk.Context, tracer *otrace.Tracer, contractAddr string, registeredPairs []types.Pair) {
 	_, span := (*tracer).Start(ctx, "SudoPlaceOrders")
 	span.SetAttributes(attribute.String("contractAddr", contractAddr))
 
-	msgs := k.GetPlaceSudoMsg(contractAddr, registeredPairs)
+	typedContractAddr := types.ContractAddress(contractAddr)
+	msgs := k.GetPlaceSudoMsg(typedContractAddr, registeredPairs)
 	k.CallContractSudo(sdkCtx, contractAddr, msgs[0]) // deposit
 
 	responses := []types.SudoOrderPlacementResponse{}
@@ -29,73 +32,38 @@ func (k *Keeper) HandleEBPlaceOrders(ctx context.Context, sdkCtx sdk.Context, tr
 		sdkCtx.Logger().Info(fmt.Sprintf("Sudo response data: %s", response))
 		responses = append(responses, response)
 	}
+
 	for _, pair := range registeredPairs {
-		pairStr := pair.String()
-		if orderPlacements, ok := k.OrderPlacements[contractAddr][pairStr]; ok {
+		typedPairStr := types.PairString(pair.String())
+		if orders, ok := k.BlockOrders[typedContractAddr][typedPairStr]; ok {
 			for _, response := range responses {
-				orderPlacements.FilterOutIds(response.UnsuccessfulOrderIds)
-			}
-			for _, orderPlacement := range orderPlacements.Orders {
-				k.AddOrderFromOrderPlacement(contractAddr, pairStr, orderPlacement)
+				orders.MarkFailedToPlaceByIds(response.UnsuccessfulOrderIds)
 			}
 		}
 	}
 	span.End()
 }
 
-func (k *Keeper) AddOrderFromOrderPlacement(contractAddr string, pairStr string, orderPlacement dexcache.OrderPlacement) {
-	switch orderPlacement.OrderType {
-	case types.OrderType_LIMIT:
-		k.Orders[contractAddr][pairStr].AddLimitOrder(dexcache.LimitOrder{
-			Creator:   orderPlacement.Creator,
-			Price:     orderPlacement.Price,
-			Quantity:  orderPlacement.Quantity,
-			Direction: orderPlacement.Direction,
-			Effect:    orderPlacement.Effect,
-			Leverage:  orderPlacement.Leverage,
-		})
-	case types.OrderType_MARKET:
-		k.Orders[contractAddr][pairStr].AddMarketOrder(dexcache.MarketOrder{
-			Creator:       orderPlacement.Creator,
-			WorstPrice:    orderPlacement.Price,
-			Quantity:      orderPlacement.Quantity,
-			Direction:     orderPlacement.Direction,
-			Effect:        orderPlacement.Effect,
-			Leverage:      orderPlacement.Leverage,
-			IsLiquidation: false,
-		})
-	case types.OrderType_LIQUIDATION:
-		k.Orders[contractAddr][pairStr].AddMarketOrder(dexcache.MarketOrder{
-			Creator:       orderPlacement.Creator,
-			WorstPrice:    orderPlacement.Price,
-			Quantity:      orderPlacement.Quantity,
-			Direction:     orderPlacement.Direction,
-			Effect:        orderPlacement.Effect,
-			Leverage:      orderPlacement.Leverage,
-			IsLiquidation: true,
-		})
-	}
-}
-
-func (k *Keeper) GetPlaceSudoMsg(contractAddr string, registeredPairs []types.Pair) []types.SudoOrderPlacementMsg {
+func (k *Keeper) GetPlaceSudoMsg(typedContractAddr types.ContractAddress, registeredPairs []types.Pair) []types.SudoOrderPlacementMsg {
 	contractDepositInfo := []types.ContractDepositInfo{}
-	for _, depositInfo := range k.DepositInfo[contractAddr].DepositInfoList {
+	for _, depositInfo := range k.DepositInfo[typedContractAddr].DepositInfoList {
 		contractDepositInfo = append(contractDepositInfo, dexcache.ToContractDepositInfo(depositInfo))
 	}
-	contractOrderPlacements := []types.ContractOrderPlacement{}
+	contractOrderPlacements := []types.Order{}
 	msgs := []types.SudoOrderPlacementMsg{
 		{
 			OrderPlacements: types.OrderPlacementMsgDetails{
-				Orders:   []types.ContractOrderPlacement{},
+				Orders:   []types.Order{},
 				Deposits: contractDepositInfo,
 			},
 		},
 	}
 	for _, pair := range registeredPairs {
-		if orderPlacements, ok := k.OrderPlacements[contractAddr][pair.String()]; ok {
-			for _, orderPlacement := range orderPlacements.Orders {
-				if orderPlacement.OrderType != types.OrderType_LIQUIDATION {
-					contractOrderPlacements = append(contractOrderPlacements, dexcache.ToContractOrderPlacement(orderPlacement))
+		typedPairStr := types.PairString(pair.String())
+		if orders, ok := k.BlockOrders[typedContractAddr][typedPairStr]; ok {
+			for _, order := range *orders {
+				if order.OrderType != types.OrderType_LIQUIDATION {
+					contractOrderPlacements = append(contractOrderPlacements, order)
 					if len(contractOrderPlacements) == MAX_ORDERS_PER_SUDO_CALL {
 						msgs = append(msgs, types.SudoOrderPlacementMsg{
 							OrderPlacements: types.OrderPlacementMsgDetails{
@@ -103,7 +71,7 @@ func (k *Keeper) GetPlaceSudoMsg(contractAddr string, registeredPairs []types.Pa
 								Deposits: []types.ContractDepositInfo{},
 							},
 						})
-						contractOrderPlacements = []types.ContractOrderPlacement{}
+						contractOrderPlacements = []types.Order{}
 					}
 				}
 			}

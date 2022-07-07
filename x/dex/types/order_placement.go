@@ -11,21 +11,8 @@ type SudoOrderPlacementMsg struct {
 }
 
 type OrderPlacementMsgDetails struct {
-	Orders   []ContractOrderPlacement `json:"orders"`
-	Deposits []ContractDepositInfo    `json:"deposits"`
-}
-
-type ContractOrderPlacement struct {
-	Id                uint64  `json:"id"`
-	Account           string  `json:"account"`
-	PriceDenom        string  `json:"price_denom"`
-	AssetDenom        string  `json:"asset_denom"`
-	Price             sdk.Dec `json:"price"`
-	Quantity          sdk.Dec `json:"quantity"`
-	OrderType         string  `json:"order_type"`
-	PositionDirection string  `json:"position_direction"`
-	PositionEffect    string  `json:"position_effect"`
-	Leverage          sdk.Dec `json:"leverage"`
+	Orders   []Order               `json:"orders"`
+	Deposits []ContractDepositInfo `json:"deposits"`
 }
 
 type ContractDepositInfo struct {

@@ -15,6 +15,7 @@ const GENESIS_TIME uint64 = 3600
 var TEST_PAIR = types.Pair{
 	PriceDenom: TEST_PRICE_DENOM,
 	AssetDenom: TEST_ASSET_DENOM,
+	Ticksize:   sdk.OneDec(),
 }
 
 func TestGetTwapsNoPriceSnapshot(t *testing.T) {

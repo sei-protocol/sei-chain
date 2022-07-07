@@ -17,11 +17,11 @@ func (k msgServer) RegisterContract(goCtx context.Context, msg *types.MsgRegiste
 	}
 	contractAddr := msg.Contract.ContractAddr
 	k.SetContractAddress(ctx, contractAddr, msg.Contract.CodeId)
-	k.Orders[contractAddr] = map[string]*dexcache.Orders{}
-	k.OrderPlacements[contractAddr] = map[string]*dexcache.OrderPlacements{}
-	k.OrderCancellations[contractAddr] = map[string]*dexcache.OrderCancellations{}
-	k.DepositInfo[contractAddr] = dexcache.NewDepositInfo()
-	k.LiquidationRequests[contractAddr] = &dexcache.LiquidationRequests{}
+	typedContractAddr := types.ContractAddress(contractAddr)
+	k.BlockOrders[typedContractAddr] = map[types.PairString]*dexcache.BlockOrders{}
+	k.BlockCancels[typedContractAddr] = map[types.PairString]*dexcache.BlockCancellations{}
+	k.DepositInfo[typedContractAddr] = dexcache.NewDepositInfo()
+	k.LiquidationRequests[typedContractAddr] = &dexcache.LiquidationRequests{}
 
 	return &types.MsgRegisterContractResponse{}, nil
 }

@@ -28,12 +28,11 @@ func networkWithLongBookObjects(t *testing.T, n int) (*network.Network, []types.
 		longBook := types.LongBook{
 			Price: sdk.NewDec(int64(1 + i)),
 			Entry: &types.OrderEntry{
-				Price:             sdk.NewDec(int64(1 + i)),
-				Quantity:          sdk.NewDec(int64(i)),
-				AllocationCreator: []string{"abc|c|"},
-				Allocation:        []sdk.Dec{sdk.NewDec(int64(1))},
-				PriceDenom:        TEST_PAIR().PriceDenom,
-				AssetDenom:        TEST_PAIR().AssetDenom,
+				Price:       sdk.NewDec(int64(1 + i)),
+				Quantity:    sdk.NewDec(int64(i)),
+				Allocations: []*types.Allocation{{Account: "abc", Quantity: sdk.NewDec(int64(i)), OrderId: 1}},
+				PriceDenom:  "USDC",
+				AssetDenom:  "ATOM",
 			},
 		}
 		nullify.Fill(&longBook)

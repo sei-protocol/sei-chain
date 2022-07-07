@@ -2,20 +2,19 @@ package exchange
 
 import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
-	dexcache "github.com/sei-protocol/sei-chain/x/dex/cache"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
 )
 
 func MatchLimitOrders(
 	ctx sdk.Context,
-	longOrders []dexcache.LimitOrder,
-	shortOrders []dexcache.LimitOrder,
+	longOrders []types.Order,
+	shortOrders []types.Order,
 	longBook *[]types.OrderBook,
 	shortBook *[]types.OrderBook,
 	pair types.Pair,
 	longDirtyPrices *DirtyPrices,
 	shortDirtyPrices *DirtyPrices,
-	settlements *[]*types.Settlement,
+	settlements *[]*types.SettlementEntry,
 ) (sdk.Dec, sdk.Dec) {
 	for _, order := range longOrders {
 		addOrderToOrderBook(order, longBook, pair, longDirtyPrices)
@@ -59,28 +58,22 @@ func MatchLimitOrders(
 }
 
 func addOrderToOrderBook(
-	order dexcache.LimitOrder,
+	order types.Order,
 	orderBook *[]types.OrderBook,
 	pair types.Pair,
 	dirtyPrices *DirtyPrices,
 ) {
 	insertAt := -1
+	newAllocation := &types.Allocation{
+		OrderId:  order.Id,
+		Quantity: order.Quantity,
+		Account:  order.Account,
+	}
 	for i, ob := range *orderBook {
 		if ob.GetPrice().Equal(order.Price) {
 			dirtyPrices.Add(ob.GetPrice())
 			ob.GetEntry().Quantity = ob.GetEntry().Quantity.Add(order.Quantity)
-			existing := false
-			for j, allocation := range ob.GetEntry().AllocationCreator {
-				if allocation == order.FormattedCreatorWithSuffix() {
-					existing = true
-					ob.GetEntry().Allocation[j] = ob.GetEntry().Allocation[j].Add(order.Quantity)
-					break
-				}
-			}
-			if !existing {
-				ob.GetEntry().AllocationCreator = append(ob.GetEntry().AllocationCreator, order.FormattedCreatorWithSuffix())
-				ob.GetEntry().Allocation = append(ob.GetEntry().Allocation, order.Quantity)
-			}
+			ob.GetEntry().Allocations = append(ob.GetEntry().Allocations, newAllocation)
 			return
 		}
 		if order.Price.LT(ob.GetPrice()) {
@@ -89,29 +82,27 @@ func addOrderToOrderBook(
 		}
 	}
 	var newOrder types.OrderBook
-	switch order.Direction {
+	switch order.PositionDirection {
 	case types.PositionDirection_LONG:
 		newOrder = &types.LongBook{
 			Price: order.Price,
 			Entry: &types.OrderEntry{
-				Price:             order.Price,
-				Quantity:          order.Quantity,
-				AllocationCreator: []string{order.FormattedCreatorWithSuffix()},
-				Allocation:        []sdk.Dec{order.Quantity},
-				PriceDenom:        pair.PriceDenom,
-				AssetDenom:        pair.AssetDenom,
+				Price:       order.Price,
+				Quantity:    order.Quantity,
+				Allocations: []*types.Allocation{newAllocation},
+				PriceDenom:  order.PriceDenom,
+				AssetDenom:  order.AssetDenom,
 			},
 		}
 	case types.PositionDirection_SHORT:
 		newOrder = &types.ShortBook{
 			Price: order.Price,
 			Entry: &types.OrderEntry{
-				Price:             order.Price,
-				Quantity:          order.Quantity,
-				AllocationCreator: []string{order.FormattedCreatorWithSuffix()},
-				Allocation:        []sdk.Dec{order.Quantity},
-				PriceDenom:        pair.PriceDenom,
-				AssetDenom:        pair.AssetDenom,
+				Price:       order.Price,
+				Quantity:    order.Quantity,
+				Allocations: []*types.Allocation{newAllocation},
+				PriceDenom:  order.PriceDenom,
+				AssetDenom:  order.AssetDenom,
 			},
 		}
 	}

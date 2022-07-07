@@ -17,7 +17,10 @@ func (k Keeper) ShortBookAll(c context.Context, req *types.QueryAllShortBookRequ
 
 	ctx := sdk.UnwrapSDKContext(c)
 
-	shortBooks, pageRes, err := k.GetAllShortBookForPairPaginated(ctx, req.ContractAddr, req.PriceDenom, req.AssetDenom, req.Pagination)
+	shortBooks, pageRes, err := k.GetAllShortBookForPairPaginated(
+		ctx, req.ContractAddr, types.GetContractDenomName(req.PriceDenom),
+		types.GetContractDenomName(req.AssetDenom), req.Pagination,
+	)
 	if err != nil {
 		return nil, status.Error(codes.Internal, err.Error())
 	}
@@ -35,7 +38,7 @@ func (k Keeper) ShortBook(c context.Context, req *types.QueryGetShortBookRequest
 	if err != nil {
 		return nil, err
 	}
-	shortBook, found := k.GetShortBookByPrice(ctx, req.ContractAddr, price, req.PriceDenom, req.AssetDenom)
+	shortBook, found := k.GetShortBookByPrice(ctx, req.ContractAddr, price, types.GetContractDenomName(req.PriceDenom), types.GetContractDenomName(req.AssetDenom))
 	if !found {
 		return nil, sdkerrors.ErrKeyNotFound
 	}

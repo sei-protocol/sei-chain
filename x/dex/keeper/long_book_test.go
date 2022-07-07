@@ -17,8 +17,8 @@ func createNLongBook(keeper *keeper.Keeper, ctx sdk.Context, n int) []types.Long
 		items[i].Entry = &types.OrderEntry{
 			Price:      sdk.NewDec(int64(i)),
 			Quantity:   sdk.NewDec(int64(i)),
-			PriceDenom: TEST_PRICE_DENOM,
-			AssetDenom: TEST_ASSET_DENOM,
+			PriceDenom: "USDC",
+			AssetDenom: "ATOM",
 		}
 		items[i].Price = sdk.NewDec(int64(i))
 		keeper.SetLongBook(ctx, TEST_CONTRACT, items[i])
@@ -30,7 +30,7 @@ func TestLongBookGet(t *testing.T) {
 	keeper, ctx := keepertest.DexKeeper(t)
 	items := createNLongBook(keeper, ctx, 10)
 	for i, item := range items {
-		got, found := keeper.GetLongBookByPrice(ctx, TEST_CONTRACT, sdk.NewDec(int64(i)), TEST_PRICE_DENOM, TEST_ASSET_DENOM)
+		got, found := keeper.GetLongBookByPrice(ctx, TEST_CONTRACT, sdk.NewDec(int64(i)), "USDC", "ATOM")
 		require.True(t, found)
 		require.Equal(t,
 			nullify.Fill(&item),
@@ -43,8 +43,8 @@ func TestLongBookRemove(t *testing.T) {
 	keeper, ctx := keepertest.DexKeeper(t)
 	items := createNLongBook(keeper, ctx, 10)
 	for i := range items {
-		keeper.RemoveLongBookByPrice(ctx, TEST_CONTRACT, sdk.NewDec(int64(i)), TEST_PRICE_DENOM, TEST_ASSET_DENOM)
-		_, found := keeper.GetLongBookByPrice(ctx, TEST_CONTRACT, sdk.NewDec(int64(i)), TEST_PRICE_DENOM, TEST_ASSET_DENOM)
+		keeper.RemoveLongBookByPrice(ctx, TEST_CONTRACT, sdk.NewDec(int64(i)), "USDC", "ATOM")
+		_, found := keeper.GetLongBookByPrice(ctx, TEST_CONTRACT, sdk.NewDec(int64(i)), "USDC", "ATOM")
 		require.False(t, found)
 	}
 }

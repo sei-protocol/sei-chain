@@ -129,11 +129,63 @@ func (Unit) EnumDescriptor() ([]byte, []int) {
 	return fileDescriptor_b8c5bb23c6eb0b88, []int{3}
 }
 
+type OrderStatus int32
+
+const (
+	OrderStatus_PLACED          OrderStatus = 0
+	OrderStatus_FAILED_TO_PLACE OrderStatus = 1
+)
+
+var OrderStatus_name = map[int32]string{
+	0: "PLACED",
+	1: "FAILED_TO_PLACE",
+}
+
+var OrderStatus_value = map[string]int32{
+	"PLACED":          0,
+	"FAILED_TO_PLACE": 1,
+}
+
+func (x OrderStatus) String() string {
+	return proto.EnumName(OrderStatus_name, int32(x))
+}
+
+func (OrderStatus) EnumDescriptor() ([]byte, []int) {
+	return fileDescriptor_b8c5bb23c6eb0b88, []int{5}
+}
+
+type CancellationInitiator int32
+
+const (
+	CancellationInitiator_USER       CancellationInitiator = 0
+	CancellationInitiator_LIQUIDATED CancellationInitiator = 1
+)
+
+var CancellationInitiator_name = map[int32]string{
+	0: "USER",
+	1: "LIQUIDATED",
+}
+
+var CancellationInitiator_value = map[string]int32{
+	"USER":       0,
+	"LIQUIDATED": 1,
+}
+
+func (x CancellationInitiator) String() string {
+	return proto.EnumName(CancellationInitiator_name, int32(x))
+}
+
+func (CancellationInitiator) EnumDescriptor() ([]byte, []int) {
+	return fileDescriptor_b8c5bb23c6eb0b88, []int{6}
+}
+
 func init() {
 	proto.RegisterEnum("seiprotocol.seichain.dex.PositionDirection", PositionDirection_name, PositionDirection_value)
 	proto.RegisterEnum("seiprotocol.seichain.dex.PositionEffect", PositionEffect_name, PositionEffect_value)
 	proto.RegisterEnum("seiprotocol.seichain.dex.OrderType", OrderType_name, OrderType_value)
 	proto.RegisterEnum("seiprotocol.seichain.dex.Unit", Unit_name, Unit_value)
+	proto.RegisterEnum("seiprotocol.seichain.dex.OrderStatus", OrderStatus_name, OrderStatus_value)
+	proto.RegisterEnum("seiprotocol.seichain.dex.CancellationInitiator", CancellationInitiator_name, CancellationInitiator_value)
 }
 
 func init() { proto.RegisterFile("dex/enums.proto", fileDescriptor_b8c5bb23c6eb0b88) }

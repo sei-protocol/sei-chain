@@ -19,7 +19,7 @@ func createNSettlements(keeper *keeper.Keeper, ctx sdk.Context, n int) []types.S
 		}
 		entries := []*types.SettlementEntry{&entry}
 		items[i].Entries = entries
-		keeper.SetSettlements(ctx, TEST_CONTRACT, "usdc" + strconv.Itoa(i), "sei" + strconv.Itoa(i), items[i])
+		keeper.SetSettlements(ctx, TEST_CONTRACT, "usdc"+strconv.Itoa(i), "sei"+strconv.Itoa(i), items[i])
 	}
 	return items
 }

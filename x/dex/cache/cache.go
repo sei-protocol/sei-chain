@@ -1,7 +1,7 @@
 package dex
 
 import (
-	"fmt"
+	"sort"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/sei-protocol/sei-chain/utils"
@@ -18,225 +18,62 @@ const (
 	QUANTITY_ATTR          = "quantity"
 )
 
-type LimitOrder struct {
-	Price     sdk.Dec
-	Quantity  sdk.Dec
-	Creator   string
-	Direction types.PositionDirection
-	Effect    types.PositionEffect
-	Leverage  sdk.Dec
+// All new orders attempted to be placed in the current block
+type BlockOrders []types.Order
+
+func (o *BlockOrders) AddOrder(order types.Order) {
+	*o = append(*o, order)
 }
 
-func (o *LimitOrder) FormattedCreatorWithSuffix() string {
-	suffix := types.POSITION_EFFECT_TO_SUFFIX[o.Effect]
-	return fmt.Sprintf("%s%s%s%s%s", o.Creator, types.FORMATTED_ACCOUNT_DELIMITER, suffix, types.FORMATTED_ACCOUNT_DELIMITER, o.Leverage)
-}
-
-type MarketOrder struct {
-	Quantity      sdk.Dec
-	Creator       string
-	Direction     types.PositionDirection
-	WorstPrice    sdk.Dec
-	IsLiquidation bool
-	Effect        types.PositionEffect
-	Leverage      sdk.Dec
-}
-
-func (o *MarketOrder) FormattedCreatorWithSuffix() string {
-	suffix := types.POSITION_EFFECT_TO_SUFFIX[o.Effect]
-	return fmt.Sprintf("%s%s%s%s%s", o.Creator, types.FORMATTED_ACCOUNT_DELIMITER, suffix, types.FORMATTED_ACCOUNT_DELIMITER, o.Leverage)
-}
-
-type CancelOrder struct {
-	Price     sdk.Dec
-	Creator   string
-	Direction types.PositionDirection
-	Quantity  sdk.Dec
-	Effect    types.PositionEffect
-	Leverage  sdk.Dec
-}
-
-func (o *CancelOrder) FormattedCreatorWithSuffix() string {
-	suffix := types.POSITION_EFFECT_TO_SUFFIX[o.Effect]
-	return fmt.Sprintf("%s%s%s%s%s", o.Creator, types.FORMATTED_ACCOUNT_DELIMITER, suffix, types.FORMATTED_ACCOUNT_DELIMITER, o.Leverage)
-}
-
-type CancelAll struct {
-	Creator string
-}
-
-type Orders struct {
-	LimitBuys   []LimitOrder
-	LimitSells  []LimitOrder
-	MarketBuys  []MarketOrder
-	MarketSells []MarketOrder
-	CancelBuys  []CancelOrder
-	CancelSells []CancelOrder
-	CancelAlls  []CancelAll
-}
-
-func (o *Orders) AddMarketOrder(order MarketOrder) {
-	idx := -1
-	switch order.Direction {
-	case types.PositionDirection_LONG:
-		for i, existingOrder := range o.MarketBuys {
-			if existingOrder.WorstPrice.LT(order.WorstPrice) {
-				idx = i
-				break
-			}
-		}
-		newMarketBuys := append(o.MarketBuys, order)
-		if idx != -1 {
-			copy(newMarketBuys[idx+1:], newMarketBuys[idx:])
-			newMarketBuys[idx] = order
-		}
-		o.MarketBuys = newMarketBuys
-	case types.PositionDirection_SHORT:
-		for i, existingOrder := range o.MarketSells {
-			if existingOrder.WorstPrice.GT(order.WorstPrice) {
-				idx = i
-				break
-			}
-		}
-		newMarketSells := append(o.MarketSells, order)
-		if idx != -1 {
-			copy(newMarketSells[idx+1:], newMarketSells[idx:])
-			newMarketSells[idx] = order
-		}
-		o.MarketSells = newMarketSells
-	default:
-		panic("Unknown direction")
-	}
-}
-
-func (o *Orders) AddLimitOrder(order LimitOrder) {
-	switch order.Direction {
-	case types.PositionDirection_LONG:
-		o.LimitBuys = append(o.LimitBuys, order)
-	case types.PositionDirection_SHORT:
-		o.LimitSells = append(o.LimitSells, order)
-	default:
-		panic("Unknown direction")
-	}
-}
-
-func (o *Orders) AddCancelOrder(order CancelOrder) {
-	switch order.Direction {
-	case types.PositionDirection_LONG:
-		o.CancelBuys = append(o.CancelBuys, order)
-	case types.PositionDirection_SHORT:
-		o.CancelSells = append(o.CancelSells, order)
-	default:
-		panic("Unknown direction")
-	}
-}
-
-func (o Orders) String() string {
-	return fmt.Sprintf(
-		"Limit Buys: %d, Limit Sells: %d, Market Buys: %d, Market Sells: %d, Cancel Buys: %d, Cancel Sells: %d, Cancel Alls: %d",
-		len(o.LimitBuys), len(o.LimitSells),
-		len(o.MarketBuys), len(o.MarketSells),
-		len(o.CancelBuys), len(o.CancelSells),
-		len(o.CancelAlls),
-	)
-}
-
-func NewOrders() *Orders {
-	return &Orders{
-		LimitBuys:   []LimitOrder{},
-		LimitSells:  []LimitOrder{},
-		MarketBuys:  []MarketOrder{},
-		MarketSells: []MarketOrder{},
-		CancelBuys:  []CancelOrder{},
-		CancelSells: []CancelOrder{},
-		CancelAlls:  []CancelAll{},
-	}
-}
-
-type OrderPlacement struct {
-	Id         uint64
-	Price      sdk.Dec
-	Quantity   sdk.Dec
-	Creator    string
-	OrderType  types.OrderType
-	Direction  types.PositionDirection
-	Effect     types.PositionEffect
-	PriceDenom string
-	AssetDenom string
-	Leverage   sdk.Dec
-}
-
-type OrderPlacements struct {
-	Orders []OrderPlacement
-}
-
-func NewOrderPlacements() *OrderPlacements {
-	return &OrderPlacements{
-		Orders: []OrderPlacement{},
-	}
-}
-
-func ToContractOrderPlacement(orderPlacement OrderPlacement) types.ContractOrderPlacement {
-	return types.ContractOrderPlacement{
-		Id:                orderPlacement.Id,
-		Account:           orderPlacement.Creator,
-		PriceDenom:        orderPlacement.PriceDenom,
-		AssetDenom:        orderPlacement.AssetDenom,
-		Price:             orderPlacement.Price,
-		Quantity:          orderPlacement.Quantity,
-		OrderType:         types.GetContractOrderType(orderPlacement.OrderType),
-		PositionDirection: types.GetContractPositionDirection(orderPlacement.Direction),
-		PositionEffect:    types.GetContractPositionEffect(orderPlacement.Effect),
-		Leverage:          orderPlacement.Leverage,
-	}
-}
-
-func FromLiquidationOrder(liquidationOrder types.LiquidationOrder, orderId uint64) OrderPlacement {
-	var price sdk.Dec
-	var direction types.PositionDirection
-	if liquidationOrder.Long {
-		price = sdk.MaxSortableDec
-		direction = types.PositionDirection_LONG
-	} else {
-		price = sdk.ZeroDec()
-		direction = types.PositionDirection_SHORT
-	}
-	priceDenom := liquidationOrder.PriceDenom
-	assetDenom := liquidationOrder.AssetDenom
-	return OrderPlacement{
-		Id:         orderId,
-		Price:      price,
-		Quantity:   liquidationOrder.Quantity,
-		Creator:    liquidationOrder.Account,
-		OrderType:  types.OrderType_LIQUIDATION,
-		Direction:  direction,
-		Effect:     types.PositionEffect_CLOSE,
-		PriceDenom: priceDenom,
-		AssetDenom: assetDenom,
-		Leverage:   liquidationOrder.Leverage,
-	}
-}
-
-func (o *OrderPlacements) FilterOutAccounts(badAccounts []string) {
-	badAccountsSet := utils.NewStringSet(badAccounts)
-	newOrders := []OrderPlacement{}
-	for _, order := range o.Orders {
-		if !badAccountsSet.Contains(order.Creator) {
-			newOrders = append(newOrders, order)
+func (o *BlockOrders) MarkFailedToPlaceByAccounts(accounts []string) {
+	badAccountSet := utils.NewStringSet(accounts)
+	for _, order := range *o {
+		if badAccountSet.Contains(order.Account) {
+			order.Status = types.OrderStatus_FAILED_TO_PLACE
 		}
 	}
-	o.Orders = newOrders
 }
 
-func (o *OrderPlacements) FilterOutIds(badIds []uint64) {
-	badIdsSet := utils.NewUInt64Set(badIds)
-	newOrders := []OrderPlacement{}
-	for _, order := range o.Orders {
-		if !badIdsSet.Contains(order.Id) {
-			newOrders = append(newOrders, order)
+func (o *BlockOrders) MarkFailedToPlaceByIds(ids []uint64) {
+	badIdSet := utils.NewUInt64Set(ids)
+	for _, order := range *o {
+		if badIdSet.Contains(order.Id) {
+			order.Status = types.OrderStatus_FAILED_TO_PLACE
 		}
 	}
-	o.Orders = newOrders
+}
+
+func (o *BlockOrders) GetSortedMarketOrders(direction types.PositionDirection, includeLiquidationOrders bool) []types.Order {
+	res := o.getOrdersByCriteria(types.OrderType_MARKET, direction)
+	if includeLiquidationOrders {
+		res = append(res, o.getOrdersByCriteria(types.OrderType_LIQUIDATION, direction)...)
+	}
+	sort.Slice(res, func(i, j int) bool {
+		switch direction {
+		case types.PositionDirection_LONG:
+			return res[i].Price.GT(res[j].Price)
+		case types.PositionDirection_SHORT:
+			return res[i].Price.LT(res[j].Price)
+		default:
+			panic("Unknown direction")
+		}
+	})
+	return res
+}
+
+func (o *BlockOrders) GetLimitOrders(direction types.PositionDirection) []types.Order {
+	return o.getOrdersByCriteria(types.OrderType_LIMIT, direction)
+}
+
+func (o *BlockOrders) getOrdersByCriteria(orderType types.OrderType, direction types.PositionDirection) []types.Order {
+	res := []types.Order{}
+	for _, order := range *o {
+		if order.OrderType != orderType || order.PositionDirection != direction {
+			continue
+		}
+		res = append(res, order)
+	}
+	return res
 }
 
 type DepositInfoEntry struct {
@@ -263,60 +100,29 @@ func ToContractDepositInfo(depositInfo DepositInfoEntry) types.ContractDepositIn
 	}
 }
 
-type OrderCancellation struct {
-	Price      sdk.Dec
-	Quantity   sdk.Dec
-	Creator    string
-	Direction  types.PositionDirection
-	Effect     types.PositionEffect
-	PriceDenom string
-	AssetDenom string
-	Leverage   sdk.Dec
+type BlockCancellations []types.Cancellation
+
+func (c *BlockCancellations) AddOrderIdToCancel(id uint64, initiator types.CancellationInitiator) {
+	*c = append(*c, types.Cancellation{Id: id, Initiator: initiator})
 }
 
-type CancellationFromLiquidation struct {
-	Creator string
-}
-
-type OrderCancellations struct {
-	OrderCancellations       []OrderCancellation
-	LiquidationCancellations []CancellationFromLiquidation
-}
-
-func NewOrderCancellations() *OrderCancellations {
-	return &OrderCancellations{
-		OrderCancellations:       []OrderCancellation{},
-		LiquidationCancellations: []CancellationFromLiquidation{},
-	}
-}
-
-func ToContractOrderCancellation(orderCancellation OrderCancellation) types.ContractOrderCancellation {
-	return types.ContractOrderCancellation{
-		Account:           orderCancellation.Creator,
-		PriceDenom:        orderCancellation.PriceDenom,
-		AssetDenom:        orderCancellation.AssetDenom,
-		Price:             orderCancellation.Price,
-		Quantity:          orderCancellation.Quantity,
-		PositionDirection: types.GetContractPositionDirection(orderCancellation.Direction),
-		PositionEffect:    types.GetContractPositionEffect(orderCancellation.Effect),
-		Leverage:          orderCancellation.Leverage,
-	}
-}
-
-func (o *OrderCancellations) UpdateForLiquidation(liquidatedAccounts []string) {
-	badAccountsSet := utils.NewStringSet(liquidatedAccounts)
-	newOrderCancellations := []OrderCancellation{}
-	for _, order := range o.OrderCancellations {
-		if !badAccountsSet.Contains(order.Creator) {
-			newOrderCancellations = append(newOrderCancellations, order)
+func (c *BlockCancellations) FilterByIds(idsToRemove []uint64) {
+	tmp := c
+	*c = []types.Cancellation{}
+	badIdSet := utils.NewUInt64Set(idsToRemove)
+	for _, cancel := range *tmp {
+		if !badIdSet.Contains(cancel.Id) {
+			*c = append(*c, cancel)
 		}
 	}
-	o.OrderCancellations = newOrderCancellations
-	for _, account := range liquidatedAccounts {
-		o.LiquidationCancellations = append(o.LiquidationCancellations, CancellationFromLiquidation{
-			Creator: account,
-		})
+}
+
+func (c *BlockCancellations) GetIdsToCancel() []uint64 {
+	res := []uint64{}
+	for _, cancel := range *c {
+		res = append(res, cancel.Id)
 	}
+	return res
 }
 
 type LiquidationRequest struct {

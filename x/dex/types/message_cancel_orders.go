@@ -11,13 +11,13 @@ var _ sdk.Msg = &MsgCancelOrders{}
 
 func NewMsgCancelOrders(
 	creator string,
-	orderCancellations []*OrderCancellation,
+	orderIds []uint64,
 	contractAddr string,
 ) *MsgCancelOrders {
 	return &MsgCancelOrders{
-		Creator:            creator,
-		OrderCancellations: orderCancellations,
-		ContractAddr:       contractAddr,
+		Creator:      creator,
+		OrderIds:     orderIds,
+		ContractAddr: contractAddr,
 	}
 }
 

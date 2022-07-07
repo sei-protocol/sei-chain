@@ -10,7 +10,7 @@ func (k msgServer) Liquidate(goCtx context.Context, msg *types.MsgLiquidation) (
 	_, span := (*k.tracingInfo.Tracer).Start(goCtx, "PlaceOrders")
 	defer span.End()
 
-	liquidationRequestorToAccount := k.LiquidationRequests[msg.GetContractAddr()]
+	liquidationRequestorToAccount := k.LiquidationRequests[types.ContractAddress(msg.GetContractAddr())]
 	liquidationRequestorToAccount.AddNewLiquidationRequest(msg.Creator, msg.AccountToLiquidate)
 
 	return &types.MsgLiquidationResponse{}, nil

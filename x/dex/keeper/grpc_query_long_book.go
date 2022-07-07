@@ -17,7 +17,13 @@ func (k Keeper) LongBookAll(c context.Context, req *types.QueryAllLongBookReques
 
 	ctx := sdk.UnwrapSDKContext(c)
 
-	longBooks, pageRes, err := k.GetAllLongBookForPairPaginated(ctx, req.ContractAddr, req.PriceDenom, req.AssetDenom, req.Pagination)
+	longBooks, pageRes, err := k.GetAllLongBookForPairPaginated(
+		ctx,
+		req.ContractAddr,
+		types.GetContractDenomName(req.PriceDenom),
+		types.GetContractDenomName(req.AssetDenom),
+		req.Pagination,
+	)
 
 	if err != nil {
 		return nil, status.Error(codes.Internal, err.Error())
@@ -36,7 +42,7 @@ func (k Keeper) LongBook(c context.Context, req *types.QueryGetLongBookRequest) 
 	if err != nil {
 		return nil, err
 	}
-	longBook, found := k.GetLongBookByPrice(ctx, req.ContractAddr, price, req.PriceDenom, req.AssetDenom)
+	longBook, found := k.GetLongBookByPrice(ctx, req.ContractAddr, price, types.GetContractDenomName(req.PriceDenom), types.GetContractDenomName(req.AssetDenom))
 	if !found {
 		return nil, sdkerrors.ErrKeyNotFound
 	}

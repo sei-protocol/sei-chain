@@ -14,7 +14,8 @@ message Pair {
     ];
     string ticksize = 3 [
         (gogoproto.jsontag) = "tick_size",
-        (gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Dec"
+        (gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Dec",
+        (gogoproto.nullable)   = true
     ];
 }
 

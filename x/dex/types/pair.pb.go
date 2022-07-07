@@ -181,17 +181,13 @@ func (m *Pair) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	_ = i
 	var l int
 	_ = l
-	if m.Ticksize != nil {
-		{
-			size := m.Ticksize.Size()
-			i -= size
-			if _, err := m.Ticksize.MarshalTo(dAtA[i:]); err != nil {
-				return 0, err
-			}
-			i = encodeVarintPair(dAtA, i, uint64(size))
+	{
+		size := m.Ticksize.Size()
+		i -= size
+		if _, err := m.Ticksize.MarshalTo(dAtA[i:]); err != nil {
+			return 0, err
 		}
-		i--
-		dAtA[i] = 0x1a
+		i = encodeVarintPair(dAtA, i, uint64(size))
 	}
 	if len(m.AssetDenom) > 0 {
 		i -= len(m.AssetDenom)
@@ -279,10 +275,8 @@ func (m *Pair) Size() (n int) {
 	if l > 0 {
 		n += 1 + l + sovPair(uint64(l))
 	}
-	if m.Ticksize != nil {
-		l = m.Ticksize.Size()
-		n += 1 + l + sovPair(uint64(l))
-	}
+	l = m.Ticksize.Size()
+	n += 1 + l + sovPair(uint64(l))
 	return n
 }
 
@@ -434,8 +428,6 @@ func (m *Pair) Unmarshal(dAtA []byte) error {
 			if postIndex > l {
 				return io.ErrUnexpectedEOF
 			}
-			var v github_com_cosmos_cosmos_sdk_types.Dec
-			m.Ticksize = &v
 			if err := m.Ticksize.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
 				return err
 			}
