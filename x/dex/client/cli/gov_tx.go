@@ -59,39 +59,38 @@ func NewRegisterPairsProposalTxCmd() *cobra.Command {
 	return cmd
 }
 
-// NewAddAssetMetadataTxCmd returns a CLI command handler for creating
-// a assetlist change proposal governance transaction.
-func NewAddAssetMetadataTxCmd() *cobra.Command {
+// NewSubmitParamChangeProposalTxCmd returns a CLI command handler for creating
+// a parameter change proposal governance transaction.
+func NewUpdateTickSizeProposalTxCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "add-asset-metadata [proposal-file]",
+		Use:   "update-tick-size-proposal [proposal-file]",
 		Args:  cobra.ExactArgs(1),
-		Short: "Submit a add asset metadata proposal",
+		Short: "Submit a change to tick size proposal",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			clientCtx, err := client.GetClientTxContext(cmd)
 			if err != nil {
 				return err
 			}
-			proposal, err := cutils.ParseRegisterPairsProposalJSON(clientCtx.LegacyAmino, args[0])
+
+			proposal, err := cutils.ParseUpdateTickSizeProposalJSON(clientCtx.LegacyAmino, args[0])
 			if err != nil {
 				return err
 			}
 
-			// Convert proposal to RegisterPairsProposal Type
-			from := clientCtx.GetFromAddress()
-			proposal_batch_contract_pair, err := proposal.BatchContractPair.ToMultipleBatchContractPair()
+			// Convert proposal to UpdateTickSizeForPair Type
+			ticksizes, err := proposal.TickSizes.ToTickSizes()
 			if err != nil {
 				return err
 			}
-			content := types.NewRegisterPairsProposal(
-				proposal.Title, proposal.Description, proposal_batch_contract_pair,
-			)
+
+			content := types.NewUpdateTickSizeForPair(proposal.Title, proposal.Description,ticksizes)
 
 			deposit, err := sdk.ParseCoinsNormalized(proposal.Deposit)
 			if err != nil {
 				return err
 			}
-
-			msg, err := govtypes.NewMsgSubmitProposal(&content, deposit, from)
+		
+			msg, err := govtypes.NewMsgSubmitProposal(&content, deposit, clientCtx.GetFromAddress())
 			if err != nil {
 				return err
 			}

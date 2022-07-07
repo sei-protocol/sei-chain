@@ -44,6 +44,7 @@ func (msg *MsgPlaceOrders) GetSignBytes() []byte {
 	return sdk.MustSortJSON(bz)
 }
 
+// perform statelss check on basic property of msg like sig verification
 func (msg *MsgPlaceOrders) ValidateBasic() error {
 	_, err := sdk.AccAddressFromBech32(msg.Creator)
 	if err != nil {

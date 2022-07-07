@@ -2,6 +2,8 @@ package types
 
 import (
 	"fmt"
+
+	"github.com/cosmos/cosmos-sdk/types"
 )
 
 // DefaultIndex is the default capability global index
@@ -9,10 +11,20 @@ const DefaultIndex uint64 = 1
 
 // DefaultGenesis returns the default Capability genesis state
 func DefaultGenesis() *GenesisState {
+	// set ticksize for each pair
+	n := len(Denom_name)
+	ticksizes := make([]*TickSize, n * n, n * n)
+	i := 0
+	for _, priceDenom := range Denom_value {
+		for _, assetDenom := range Denom_value {
+			ticksizes[i] = &TickSize{Pair: &Pair{PriceDenom: Denom(priceDenom), AssetDenom: Denom(assetDenom)}, Ticksize: types.NewDec(2)}
+			i += 1
+		}
+	}
 	return &GenesisState{
 		LongBookList:  []LongBook{},
 		ShortBookList: []ShortBook{},
-		// this line is used by starport scaffolding # genesis/types/default
+		TickSizeList: ticksizes,
 		Params:    DefaultParams(),
 		LastEpoch: 0,
 	}

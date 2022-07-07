@@ -3,6 +3,8 @@ package keeper
 import (
 	"context"
 
+	sdk "github.com/cosmos/cosmos-sdk/types"
+	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	dexcache "github.com/sei-protocol/sei-chain/x/dex/cache"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
 )
@@ -11,10 +13,16 @@ func (k msgServer) CancelOrders(goCtx context.Context, msg *types.MsgCancelOrder
 	_, span := (*k.tracingInfo.Tracer).Start(goCtx, "CancelOrders")
 	defer span.End()
 
-	pairToOrderCancellations := k.OrderCancellations[msg.GetContractAddr()]
+	ctx := sdk.UnwrapSDKContext(goCtx)
 
+	pairToOrderCancellations := k.OrderCancellations[msg.GetContractAddr()]
+	
 	for _, orderCancellation := range msg.GetOrderCancellations() {
-		pair := types.Pair{PriceDenom: orderCancellation.PriceDenom, AssetDenom: orderCancellation.AssetDenom}
+		ticksize, found := k.Keeper.GetTickSizeForPair(ctx,msg.GetContractAddr(), types.Pair{PriceDenom: orderCancellation.PriceDenom, AssetDenom: orderCancellation.AssetDenom})
+		if !found {
+			return nil, sdkerrors.Wrapf(sdkerrors.ErrKeyNotFound, "the pair {price:%s,asset:%s} has no ticksize configured", orderCancellation.PriceDenom.String(), orderCancellation.AssetDenom.String())
+		}
+		pair := types.Pair{PriceDenom: orderCancellation.PriceDenom, AssetDenom: orderCancellation.AssetDenom, Ticksize: &ticksize}
 		(*pairToOrderCancellations[pair.String()]).OrderCancellations = append(
 			(*pairToOrderCancellations[pair.String()]).OrderCancellations,
 			dexcache.OrderCancellation{

@@ -18,7 +18,7 @@ func NewHandler(k keeper.Keeper, tracingInfo *tracing.TracingInfo) sdk.Handler {
 
 	return func(ctx sdk.Context, msg sdk.Msg) (*sdk.Result, error) {
 		ctx = ctx.WithEventManager(sdk.NewEventManager())
-
+		
 		switch msg := msg.(type) {
 		case *types.MsgPlaceOrders:
 			res, err := msgServer.PlaceOrders(sdk.WrapSDKContext(ctx), msg)
@@ -40,11 +40,13 @@ func NewHandler(k keeper.Keeper, tracingInfo *tracing.TracingInfo) sdk.Handler {
 	}
 }
 
-func NewRegisterPairsProposalHandler(k keeper.Keeper) govtypes.Handler {
+func NewProposalHandler(k keeper.Keeper) govtypes.Handler {
 	return func(ctx sdk.Context, content govtypes.Content) error {
 		switch c := content.(type) {
 		case *types.RegisterPairsProposal:
 			return k.HandleRegisterPairsProposal(ctx, c)
+		case *types.UpdateTickSizeProposal:
+			return k.HandleUpdateTickSizeProposal(ctx, c)
 		default:
 			return sdkerrors.Wrapf(sdkerrors.ErrUnknownRequest, "unrecognized dex proposal content type: %T", c)
 		}

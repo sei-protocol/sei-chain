@@ -4,6 +4,7 @@ package seiprotocol.seichain.dex;
 import "gogoproto/gogo.proto";
 import "dex/pair.proto";
 import "dex/asset_list.proto";
+import "dex/tick_size.proto";
 
 option go_package = "github.com/sei-protocol/sei-chain/x/dex/types";
 
@@ -15,11 +16,38 @@ message RegisterPairsProposal {
     option (gogoproto.goproto_getters) = false;
     option (gogoproto.goproto_stringer) = false;
   
-    string title = 1 [ (gogoproto.moretags) = "yaml:\"title\"" ];
-    string description = 2 [ (gogoproto.moretags) = "yaml:\"description\"" ];
+    string title = 1 [ 
+        (gogoproto.moretags) = "yaml:\"title\"",
+        (gogoproto.jsontag) = "title" 
+    ];
+    string description = 2 [ 
+        (gogoproto.moretags) = "yaml:\"description\"",
+        (gogoproto.jsontag) = "description"
+    ];
     repeated BatchContractPair batchcontractpair = 3 [
         (gogoproto.moretags) = "yaml:\"batch_contract_pair\"",
-        (gogoproto.nullable) = false
+        (gogoproto.nullable) = false,
+        (gogoproto.jsontag) = "batch_contract_pair"
+    ];
+}
+
+message UpdateTickSizeProposal {
+    option (gogoproto.equal) = false;
+    option (gogoproto.goproto_getters) = false;
+    option (gogoproto.goproto_stringer) = false;
+
+    string title = 1 [ 
+        (gogoproto.moretags) = "yaml:\"title\"",  
+        (gogoproto.jsontag) = "title"
+    ];
+    string description = 2 [ 
+        (gogoproto.moretags) = "yaml:\"description\"",
+        (gogoproto.jsontag) = "description"
+     ];
+    repeated TickSize tickSizeList = 3 [
+        (gogoproto.moretags) = "yaml:\"tick_size_list\"",
+        (gogoproto.nullable) = false,
+        (gogoproto.jsontag) = "tick_size_list"
     ];
 }
 
