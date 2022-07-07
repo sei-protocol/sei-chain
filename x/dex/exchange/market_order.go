@@ -13,6 +13,7 @@ func MatchMarketOrders(
 	direction types.PositionDirection,
 	dirtyPrices *DirtyPrices,
 	settlements *[]*types.SettlementEntry,
+	zeroOrders *[]AccountOrderId,
 ) (sdk.Dec, sdk.Dec) {
 	var totalExecuted, totalPrice sdk.Dec = sdk.ZeroDec(), sdk.ZeroDec()
 	allTakerSettlements := []*types.SettlementEntry{}
@@ -44,13 +45,14 @@ func MatchMarketOrders(
 			)
 			dirtyPrices.Add(existingOrder.GetPrice())
 
-			takerSettlements, makerSettlements := Settle(
+			takerSettlements, makerSettlements, zeroAccountOrders := Settle(
 				marketOrder,
 				executed,
 				existingOrder,
 				marketOrder.Price,
 			)
 			*settlements = append(*settlements, makerSettlements...)
+			*zeroOrders = append(*zeroOrders, zeroAccountOrders...)
 			// taker settlements' clearing price will need to be adjusted after all market order executions finish
 			allTakerSettlements = append(allTakerSettlements, takerSettlements...)
 			if marketOrder.Quantity.IsZero() {

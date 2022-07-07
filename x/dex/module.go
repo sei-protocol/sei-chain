@@ -301,6 +301,7 @@ func (am AppModule) endBlockForContract(ctx sdk.Context, contractAddr string) {
 		exchange.CancelOrders(ctx, *cancels, allExistingSells, originalOrdersToCancel, &shortDirtyPrices)
 
 		settlements := []*types.SettlementEntry{}
+		zeroOrders := []exchange.AccountOrderId{}
 		marketBuyTotalPrice, marketBuyTotalQuantity := exchange.MatchMarketOrders(
 			ctx,
 			marketBuys,
@@ -309,6 +310,7 @@ func (am AppModule) endBlockForContract(ctx sdk.Context, contractAddr string) {
 			types.PositionDirection_LONG,
 			&longDirtyPrices,
 			&settlements,
+			&zeroOrders,
 		)
 		marketSellTotalPrice, marketSellTotalQuantity := exchange.MatchMarketOrders(
 			ctx,
@@ -318,6 +320,7 @@ func (am AppModule) endBlockForContract(ctx sdk.Context, contractAddr string) {
 			types.PositionDirection_SHORT,
 			&shortDirtyPrices,
 			&settlements,
+			&zeroOrders,
 		)
 		limitTotalPrice, limitTotalQuantity := exchange.MatchLimitOrders(
 			ctx,
@@ -329,6 +332,7 @@ func (am AppModule) endBlockForContract(ctx sdk.Context, contractAddr string) {
 			&longDirtyPrices,
 			&shortDirtyPrices,
 			&settlements,
+			&zeroOrders,
 		)
 		var avgPrice sdk.Dec
 		if marketBuyTotalQuantity.Add(marketSellTotalQuantity).Add(limitTotalQuantity).IsZero() {
@@ -397,6 +401,9 @@ func (am AppModule) endBlockForContract(ctx sdk.Context, contractAddr string) {
 		}
 		for _, cancel := range *cancels {
 			am.keeper.AddCancel(ctx, contractAddr, cancel)
+		}
+		for _, zeroAccountOrder := range zeroOrders {
+			am.keeper.RemoveAccountActiveOrder(ctx, zeroAccountOrder.OrderId, contractAddr, zeroAccountOrder.Account)
 		}
 
 		emptyBlockCancel := dexcache.BlockCancellations([]types.Cancellation{})

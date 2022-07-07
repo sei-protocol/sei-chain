@@ -40,7 +40,7 @@ func (k Keeper) addAccountActiveOrder(ctx sdk.Context, order types.Order) {
 func (k Keeper) AddCancel(ctx sdk.Context, contractAddr string, cancel types.Cancellation) {
 	originalOrder := k.GetOrdersByIds(ctx, contractAddr, []uint64{cancel.Id})[cancel.Id]
 	k.storeCancel(ctx, cancel, originalOrder)
-	k.removeAccountActiveOrder(ctx, cancel, originalOrder)
+	k.RemoveAccountActiveOrder(ctx, cancel.Id, originalOrder.ContractAddr, originalOrder.Account)
 }
 
 func (k Keeper) storeCancel(ctx sdk.Context, cancel types.Cancellation, originalOrder types.Order) {
@@ -54,14 +54,14 @@ func (k Keeper) storeCancel(ctx sdk.Context, cancel types.Cancellation, original
 	store.Set(idKey, b)
 }
 
-func (k Keeper) removeAccountActiveOrder(ctx sdk.Context, cancel types.Cancellation, originalOrder types.Order) {
-	activeOrders := k.GetAccountActiveOrders(ctx, originalOrder.ContractAddr, originalOrder.Account)
-	activeOrders.Ids = utils.FilterUInt64Slice(activeOrders.Ids, cancel.Id)
+func (k Keeper) RemoveAccountActiveOrder(ctx sdk.Context, orderId uint64, contractAddr string, account string) {
+	activeOrders := k.GetAccountActiveOrders(ctx, contractAddr, account)
+	activeOrders.Ids = utils.FilterUInt64Slice(activeOrders.Ids, orderId)
 	store := prefix.NewStore(
 		ctx.KVStore(k.storeKey),
-		types.AccountActiveOrdersPrefix(originalOrder.ContractAddr),
+		types.AccountActiveOrdersPrefix(contractAddr),
 	)
-	accountKey := []byte(originalOrder.Account)
+	accountKey := []byte(account)
 	b := k.Cdc.MustMarshal(activeOrders)
 	store.Set(accountKey, b)
 }

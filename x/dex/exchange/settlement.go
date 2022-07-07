@@ -11,12 +11,17 @@ type ToSettle struct {
 	account string
 }
 
+type AccountOrderId struct {
+	Account string
+	OrderId uint64
+}
+
 func Settle(
 	takerOrder types.Order,
 	quantityTaken sdk.Dec,
 	order types.OrderBook,
 	worstPrice sdk.Dec,
-) ([]*types.SettlementEntry, []*types.SettlementEntry) {
+) ([]*types.SettlementEntry, []*types.SettlementEntry, []AccountOrderId) {
 	// settlement of one liquidity taker's order is allocated to all liquidity
 	// providers at the matched price level, propotional to the amount of liquidity
 	// provided by each LP.
@@ -26,6 +31,7 @@ func Settle(
 	newAllocations := RebalanceAllocations(order)
 	newToSettle := []ToSettle{}
 	nonZeroNewAllocations := []*types.Allocation{}
+	zeroAccountOrderIds := []AccountOrderId{}
 	for _, allocation := range order.GetEntry().Allocations {
 		newToSettle = append(newToSettle, ToSettle{
 			amount:  allocation.Quantity.Sub(newAllocations[allocation.OrderId]),
@@ -37,6 +43,11 @@ func Settle(
 				OrderId:  allocation.OrderId,
 				Quantity: newAllocations[allocation.OrderId],
 				Account:  allocation.Account,
+			})
+		} else {
+			zeroAccountOrderIds = append(zeroAccountOrderIds, AccountOrderId{
+				Account: allocation.Account,
+				OrderId: allocation.OrderId,
 			})
 		}
 	}
@@ -65,14 +76,14 @@ func Settle(
 			types.OrderType_LIMIT,
 		))
 	}
-	return takerSettlements, makerSettlements
+	return takerSettlements, makerSettlements, zeroAccountOrderIds
 }
 
 func SettleFromBook(
 	longOrder types.OrderBook,
 	shortOrder types.OrderBook,
 	executedQuantity sdk.Dec,
-) []*types.SettlementEntry {
+) ([]*types.SettlementEntry, []AccountOrderId) {
 	// settlement from within the order book is also allocated to all liquidity
 	// providers at the matched price level on both sides, propotional to the
 	// amount of liquidity provided by each LP.
@@ -84,6 +95,7 @@ func SettleFromBook(
 	newLongToSettle := []ToSettle{}
 	newShortToSettle := []ToSettle{}
 	nonZeroNewLongAllocations, nonZeroNewShortAllocations := []*types.Allocation{}, []*types.Allocation{}
+	zeroAccountOrderIds := []AccountOrderId{}
 	for _, allocation := range longOrder.GetEntry().Allocations {
 		newLongToSettle = append(newLongToSettle, ToSettle{
 			amount:  allocation.Quantity.Sub(newLongAllocations[allocation.OrderId]),
@@ -95,6 +107,11 @@ func SettleFromBook(
 				OrderId:  allocation.OrderId,
 				Quantity: newLongAllocations[allocation.OrderId],
 				Account:  allocation.Account,
+			})
+		} else {
+			zeroAccountOrderIds = append(zeroAccountOrderIds, AccountOrderId{
+				Account: allocation.Account,
+				OrderId: allocation.OrderId,
 			})
 		}
 	}
@@ -110,6 +127,11 @@ func SettleFromBook(
 				OrderId:  allocation.OrderId,
 				Quantity: newShortAllocations[allocation.OrderId],
 				Account:  allocation.Account,
+			})
+		} else {
+			zeroAccountOrderIds = append(zeroAccountOrderIds, AccountOrderId{
+				Account: allocation.Account,
+				OrderId: allocation.OrderId,
 			})
 		}
 	}
@@ -155,5 +177,5 @@ func SettleFromBook(
 			shortPtr++
 		}
 	}
-	return settlements
+	return settlements, zeroAccountOrderIds
 }
