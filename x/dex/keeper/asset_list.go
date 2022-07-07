@@ -23,3 +23,19 @@ func (k Keeper) GetAssetMetadataByDenom(ctx sdk.Context, assetDenom string) (val
 	k.Cdc.MustUnmarshal(b, &metadata)
 	return metadata, true
 }
+
+func (k Keeper) GetAllAssetMetadata(ctx sdk.Context) []types.AssetMetadata {
+	store := ctx.KVStore(k.storeKey)
+	iterator := sdk.KVStorePrefixIterator(store, types.KeyPrefix(types.AssetListKey))
+
+	list := []types.AssetMetadata{}
+	defer iterator.Close()
+
+	for ; iterator.Valid(); iterator.Next() {
+		var val types.AssetMetadata
+		k.Cdc.MustUnmarshal(iterator.Value(), &val)
+		list = append(list, val)
+	}
+
+	return list
+}
