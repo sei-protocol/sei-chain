@@ -13,8 +13,8 @@ import (
 
 const (
 	TEST_CONTRACT    = "tc"
-	TEST_PRICE_DENOM = types.Denom_USDC
-	TEST_ASSET_DENOM = types.Denom_ATOM
+	TEST_PRICE_DENOM = "usdc"
+	TEST_ASSET_DENOM = "atom"
 )
 
 func createNShortBook(keeper *keeper.Keeper, ctx sdk.Context, n int) []types.ShortBook {

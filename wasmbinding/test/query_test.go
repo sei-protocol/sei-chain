@@ -135,12 +135,12 @@ func TestWasmGetDexTwaps(t *testing.T) {
 	testWrapper.App.DexKeeper.AddRegisteredPair(
 		testWrapper.Ctx,
 		app.TEST_CONTRACT,
-		dextypes.Pair{PriceDenom: dextypes.Denom_SEI, AssetDenom: dextypes.Denom_ATOM},
+		dextypes.Pair{PriceDenom: "sei", AssetDenom: "atom"},
 	)
 	testWrapper.App.DexKeeper.SetPriceState(testWrapper.Ctx, dextypes.Price{
 		SnapshotTimestampInSeconds: 3600,
 		Price:                      sdk.NewDec(20),
-		Pair:                       &dextypes.Pair{PriceDenom: dextypes.Denom_SEI, AssetDenom: dextypes.Denom_ATOM},
+		Pair:                       &dextypes.Pair{PriceDenom: "sei", AssetDenom: "atom"},
 	}, app.TEST_CONTRACT, 0)
 	testWrapper.App.OracleKeeper.SetBaseExchangeRate(testWrapper.Ctx, oracleutils.MicroAtomDenom, sdk.NewDec(12))
 	testWrapper.Ctx = testWrapper.Ctx.WithBlockHeight(14).WithBlockTime(time.Unix(3700, 0))
@@ -153,7 +153,7 @@ func TestWasmGetDexTwaps(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, 1, len(parsedRes.Twaps))
 	twap := *parsedRes.Twaps[0]
-	require.Equal(t, dextypes.Denom_SEI, twap.Pair.PriceDenom)
-	require.Equal(t, dextypes.Denom_ATOM, twap.Pair.AssetDenom)
+	require.Equal(t, "sei", twap.Pair.PriceDenom)
+	require.Equal(t, "atom", twap.Pair.AssetDenom)
 	require.Equal(t, sdk.NewDec(20), twap.Twap)
 }

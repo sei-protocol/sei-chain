@@ -6,21 +6,6 @@ import (
 	"strings"
 )
 
-const MICRO_PREFIX = byte('u')
-
-func GetDenomFromStr(str string) (Denom, Unit, error) {
-	val, err := getEnumFromStr(str, Denom_value)
-	if err != nil {
-		if str[0] == MICRO_PREFIX {
-			microVal, microErr := getEnumFromStr(str[1:], Denom_value)
-			if microErr == nil {
-				return Denom(microVal), Unit_MICRO, nil
-			}
-		}
-	}
-	return Denom(val), Unit_STANDARD, err
-}
-
 func GetPositionEffectFromStr(str string) (PositionEffect, error) {
 	val, err := getEnumFromStr(str, PositionEffect_value)
 	return PositionEffect(val), err
@@ -43,10 +28,6 @@ func getEnumFromStr(str string, enumMap map[string]int32) (int32, error) {
 	} else {
 		return 0, errors.New(fmt.Sprintf("Unknown enum literal: %s", str))
 	}
-}
-
-func GetContractDenomName(denom Denom) string {
-	return strings.ToUpper(Denom_name[int32(denom)])
 }
 
 func GetContractPositionDirection(direction PositionDirection) string {

@@ -14,7 +14,7 @@ func (k Keeper) SetShortBook(ctx sdk.Context, contractAddr string, shortBook typ
 	store.Set(GetKeyForShortBook(shortBook), b)
 }
 
-func (k Keeper) GetShortBookByPrice(ctx sdk.Context, contractAddr string, price sdk.Dec, priceDenom types.Denom, assetDenom types.Denom) (val types.ShortBook, found bool) {
+func (k Keeper) GetShortBookByPrice(ctx sdk.Context, contractAddr string, price sdk.Dec, priceDenom string, assetDenom string) (val types.ShortBook, found bool) {
 	store := prefix.NewStore(ctx.KVStore(k.storeKey), types.OrderBookPrefix(false, contractAddr, priceDenom, assetDenom))
 	b := store.Get(GetKeyForPrice(price))
 	if b == nil {
@@ -24,7 +24,7 @@ func (k Keeper) GetShortBookByPrice(ctx sdk.Context, contractAddr string, price 
 	return val, true
 }
 
-func (k Keeper) RemoveShortBookByPrice(ctx sdk.Context, contractAddr string, price sdk.Dec, priceDenom types.Denom, assetDenom types.Denom) {
+func (k Keeper) RemoveShortBookByPrice(ctx sdk.Context, contractAddr string, price sdk.Dec, priceDenom string, assetDenom string) {
 	store := prefix.NewStore(ctx.KVStore(k.storeKey), types.OrderBookPrefix(false, contractAddr, priceDenom, assetDenom))
 	store.Delete(GetKeyForPrice(price))
 }
@@ -45,7 +45,7 @@ func (k Keeper) GetAllShortBook(ctx sdk.Context, contractAddr string) (list []ty
 	return
 }
 
-func (k Keeper) GetAllShortBookForPair(ctx sdk.Context, contractAddr string, priceDenom types.Denom, assetDenom types.Denom) (list []types.OrderBook) {
+func (k Keeper) GetAllShortBookForPair(ctx sdk.Context, contractAddr string, priceDenom string, assetDenom string) (list []types.OrderBook) {
 	store := prefix.NewStore(ctx.KVStore(k.storeKey), types.OrderBookPrefix(false, contractAddr, priceDenom, assetDenom))
 	iterator := sdk.KVStorePrefixIterator(store, []byte{})
 
@@ -60,7 +60,7 @@ func (k Keeper) GetAllShortBookForPair(ctx sdk.Context, contractAddr string, pri
 	return
 }
 
-func (k Keeper) GetAllShortBookForPairPaginated(ctx sdk.Context, contractAddr string, priceDenom types.Denom, assetDenom types.Denom, page *query.PageRequest) (list []types.ShortBook, pageRes *query.PageResponse, err error) {
+func (k Keeper) GetAllShortBookForPairPaginated(ctx sdk.Context, contractAddr string, priceDenom string, assetDenom string, page *query.PageRequest) (list []types.ShortBook, pageRes *query.PageResponse, err error) {
 	store := prefix.NewStore(ctx.KVStore(k.storeKey), types.OrderBookPrefix(false, contractAddr, priceDenom, assetDenom))
 
 	pageRes, err = query.Paginate(store, page, func(key []byte, value []byte) error {

@@ -161,8 +161,8 @@ type OrderPlacement struct {
 	OrderType  types.OrderType
 	Direction  types.PositionDirection
 	Effect     types.PositionEffect
-	PriceDenom types.Denom
-	AssetDenom types.Denom
+	PriceDenom string
+	AssetDenom string
 	Leverage   sdk.Dec
 }
 
@@ -180,8 +180,8 @@ func ToContractOrderPlacement(orderPlacement OrderPlacement) types.ContractOrder
 	return types.ContractOrderPlacement{
 		Id:                orderPlacement.Id,
 		Account:           orderPlacement.Creator,
-		PriceDenom:        types.GetContractDenomName(orderPlacement.PriceDenom),
-		AssetDenom:        types.GetContractDenomName(orderPlacement.AssetDenom),
+		PriceDenom:        orderPlacement.PriceDenom,
+		AssetDenom:        orderPlacement.AssetDenom,
 		Price:             orderPlacement.Price,
 		Quantity:          orderPlacement.Quantity,
 		OrderType:         types.GetContractOrderType(orderPlacement.OrderType),
@@ -201,18 +201,12 @@ func FromLiquidationOrder(liquidationOrder types.LiquidationOrder, orderId uint6
 		price = sdk.ZeroDec()
 		direction = types.PositionDirection_SHORT
 	}
-	priceDenom, priceUnit, err := types.GetDenomFromStr(liquidationOrder.PriceDenom)
-	if err != nil {
-		panic(err)
-	}
-	assetDenom, assetUnit, err := types.GetDenomFromStr(liquidationOrder.AssetDenom)
-	if err != nil {
-		panic(err)
-	}
+	priceDenom := liquidationOrder.PriceDenom
+	assetDenom := liquidationOrder.AssetDenom
 	return OrderPlacement{
 		Id:         orderId,
-		Price:      types.ConvertDecToStandard(priceUnit, price),
-		Quantity:   types.ConvertDecToStandard(assetUnit, liquidationOrder.Quantity),
+		Price:      price,
+		Quantity:   liquidationOrder.Quantity,
 		Creator:    liquidationOrder.Account,
 		OrderType:  types.OrderType_LIQUIDATION,
 		Direction:  direction,
@@ -247,7 +241,7 @@ func (o *OrderPlacements) FilterOutIds(badIds []uint64) {
 
 type DepositInfoEntry struct {
 	Creator string
-	Denom   types.Denom
+	Denom   string
 	Amount  sdk.Dec
 }
 
@@ -264,7 +258,7 @@ func NewDepositInfo() *DepositInfo {
 func ToContractDepositInfo(depositInfo DepositInfoEntry) types.ContractDepositInfo {
 	return types.ContractDepositInfo{
 		Account: depositInfo.Creator,
-		Denom:   types.GetContractDenomName(depositInfo.Denom),
+		Denom:   depositInfo.Denom,
 		Amount:  depositInfo.Amount,
 	}
 }
@@ -275,8 +269,8 @@ type OrderCancellation struct {
 	Creator    string
 	Direction  types.PositionDirection
 	Effect     types.PositionEffect
-	PriceDenom types.Denom
-	AssetDenom types.Denom
+	PriceDenom string
+	AssetDenom string
 	Leverage   sdk.Dec
 }
 
@@ -299,8 +293,8 @@ func NewOrderCancellations() *OrderCancellations {
 func ToContractOrderCancellation(orderCancellation OrderCancellation) types.ContractOrderCancellation {
 	return types.ContractOrderCancellation{
 		Account:           orderCancellation.Creator,
-		PriceDenom:        types.GetContractDenomName(orderCancellation.PriceDenom),
-		AssetDenom:        types.GetContractDenomName(orderCancellation.AssetDenom),
+		PriceDenom:        orderCancellation.PriceDenom,
+		AssetDenom:        orderCancellation.AssetDenom,
 		Price:             orderCancellation.Price,
 		Quantity:          orderCancellation.Quantity,
 		PositionDirection: types.GetContractPositionDirection(orderCancellation.Direction),

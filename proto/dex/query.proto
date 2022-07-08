@@ -68,8 +68,8 @@ message QueryParamsResponse {
 message QueryGetLongBookRequest {
 	string price = 1;
 	string contractAddr = 2;
-	Denom priceDenom = 3;
-	Denom assetDenom = 4;
+	string priceDenom = 3;
+	string assetDenom = 4;
 }
 
 message QueryGetLongBookResponse {
@@ -79,8 +79,8 @@ message QueryGetLongBookResponse {
 message QueryAllLongBookRequest {
 	cosmos.base.query.v1beta1.PageRequest pagination = 1;
 	string contractAddr = 2;
-	Denom priceDenom = 3;
-	Denom assetDenom = 4;
+	string priceDenom = 3;
+	string assetDenom = 4;
 }
 
 message QueryAllLongBookResponse {
@@ -91,8 +91,8 @@ message QueryAllLongBookResponse {
 message QueryGetShortBookRequest {
 	string price = 1;
 	string contractAddr = 2;
-	Denom priceDenom = 3;
-	Denom assetDenom = 4;
+	string priceDenom = 3;
+	string assetDenom = 4;
 }
 
 message QueryGetShortBookResponse {
@@ -102,8 +102,8 @@ message QueryGetShortBookResponse {
 message QueryAllShortBookRequest {
 	cosmos.base.query.v1beta1.PageRequest pagination = 1;
 	string contractAddr = 2;
-	Denom priceDenom = 3;
-	Denom assetDenom = 4;
+	string priceDenom = 3;
+	string assetDenom = 4;
 }
 
 message QueryAllShortBookResponse {
@@ -114,8 +114,8 @@ message QueryAllShortBookResponse {
 message QueryGetSettlementsRequest {
 	string contractAddr = 1;
 	uint64 blockHeight = 2;
-	Denom priceDenom = 3;
-	Denom assetDenom = 4;
+	string priceDenom = 3;
+	string assetDenom = 4;
 }
 
 message QueryGetSettlementsResponse {
@@ -132,8 +132,8 @@ message QueryAllSettlementsResponse {
 }
 
 message QueryGetPricesRequest {
-  Denom priceDenom = 1;
-  Denom assetDenom = 2;
+  string priceDenom = 1;
+  string assetDenom = 2;
   string contractAddr = 3;
 }
 

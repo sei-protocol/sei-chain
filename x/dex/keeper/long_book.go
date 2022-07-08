@@ -19,7 +19,7 @@ func (k Keeper) SetLongBook(ctx sdk.Context, contractAddr string, longBook types
 	store.Set(GetKeyForLongBook(longBook), b)
 }
 
-func (k Keeper) GetLongBookByPrice(ctx sdk.Context, contractAddr string, price sdk.Dec, priceDenom types.Denom, assetDenom types.Denom) (val types.LongBook, found bool) {
+func (k Keeper) GetLongBookByPrice(ctx sdk.Context, contractAddr string, price sdk.Dec, priceDenom string, assetDenom string) (val types.LongBook, found bool) {
 	store := prefix.NewStore(
 		ctx.KVStore(k.storeKey),
 		types.OrderBookPrefix(
@@ -34,7 +34,7 @@ func (k Keeper) GetLongBookByPrice(ctx sdk.Context, contractAddr string, price s
 	return val, true
 }
 
-func (k Keeper) RemoveLongBookByPrice(ctx sdk.Context, contractAddr string, price sdk.Dec, priceDenom types.Denom, assetDenom types.Denom) {
+func (k Keeper) RemoveLongBookByPrice(ctx sdk.Context, contractAddr string, price sdk.Dec, priceDenom string, assetDenom string) {
 	store := prefix.NewStore(
 		ctx.KVStore(k.storeKey),
 		types.OrderBookPrefix(
@@ -60,7 +60,7 @@ func (k Keeper) GetAllLongBook(ctx sdk.Context, contractAddr string) (list []typ
 	return
 }
 
-func (k Keeper) GetAllLongBookForPair(ctx sdk.Context, contractAddr string, priceDenom types.Denom, assetDenom types.Denom) (list []types.OrderBook) {
+func (k Keeper) GetAllLongBookForPair(ctx sdk.Context, contractAddr string, priceDenom string, assetDenom string) (list []types.OrderBook) {
 	store := prefix.NewStore(ctx.KVStore(k.storeKey), types.OrderBookPrefix(true, contractAddr, priceDenom, assetDenom))
 	iterator := sdk.KVStorePrefixIterator(store, []byte{})
 
@@ -75,7 +75,7 @@ func (k Keeper) GetAllLongBookForPair(ctx sdk.Context, contractAddr string, pric
 	return
 }
 
-func (k Keeper) GetAllLongBookForPairPaginated(ctx sdk.Context, contractAddr string, priceDenom types.Denom, assetDenom types.Denom, page *query.PageRequest) (list []types.LongBook, pageRes *query.PageResponse, err error) {
+func (k Keeper) GetAllLongBookForPairPaginated(ctx sdk.Context, contractAddr string, priceDenom string, assetDenom string, page *query.PageRequest) (list []types.LongBook, pageRes *query.PageResponse, err error) {
 	store := prefix.NewStore(ctx.KVStore(k.storeKey), types.OrderBookPrefix(true, contractAddr, priceDenom, assetDenom))
 
 	pageRes, err = query.Paginate(store, page, func(key []byte, value []byte) error {

@@ -22,10 +22,10 @@ message OrderCancellation {
         (gogoproto.nullable)   = false,
         (gogoproto.jsontag) = "quantity"
     ];
-    Denom priceDenom = 4 [
+    string priceDenom = 4 [
         (gogoproto.jsontag) = "price_denom"
     ];
-    Denom assetDenom = 5 [
+    string assetDenom = 5 [
         (gogoproto.jsontag) = "asset_denom"
     ];
     PositionEffect positionEffect = 6 [

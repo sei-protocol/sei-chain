@@ -355,8 +355,8 @@ func (am AppModule) endBlockForContract(ctx sdk.Context, contractAddr string) {
 		for _, s := range settlements {
 			ctx.Logger().Info(s.String())
 			settlementEntry := s.ToEntry()
-			priceDenom, _, _ := types.GetDenomFromStr(settlementEntry.PriceDenom)
-			assetDenom, _, _ := types.GetDenomFromStr(settlementEntry.AssetDenom)
+			priceDenom := settlementEntry.PriceDenom
+			assetDenom := settlementEntry.AssetDenom
 			pair := types.Pair{
 				PriceDenom: priceDenom,
 				AssetDenom: assetDenom,

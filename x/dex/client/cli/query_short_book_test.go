@@ -19,8 +19,8 @@ import (
 
 func TEST_PAIR() types.Pair {
 	return types.Pair{
-		PriceDenom: types.Denom_USDC,
-		AssetDenom: types.Denom_ATOM,
+		PriceDenom: "usdc",
+		AssetDenom: "atom",
 	}
 }
 
@@ -80,7 +80,7 @@ func TestShowShortBook(t *testing.T) {
 	} {
 		tc := tc
 		t.Run(tc.desc, func(t *testing.T) {
-			args := []string{"genesis", tc.price, TEST_PAIR().PriceDenom.String(), TEST_PAIR().AssetDenom.String()}
+			args := []string{"genesis", tc.price, TEST_PAIR().PriceDenom, TEST_PAIR().AssetDenom}
 			args = append(args, tc.args...)
 			out, err := clitestutil.ExecTestCLICmd(ctx, cli.CmdShowShortBook(), args)
 			if tc.err != nil {
@@ -107,7 +107,7 @@ func TestListShortBook(t *testing.T) {
 	ctx := net.Validators[0].ClientCtx
 	request := func(next []byte, offset, limit uint64, total bool) []string {
 		args := []string{
-			"genesis", TEST_PAIR().PriceDenom.String(), TEST_PAIR().AssetDenom.String(),
+			"genesis", TEST_PAIR().PriceDenom, TEST_PAIR().AssetDenom,
 			fmt.Sprintf("--%s=json", tmcli.OutputFlag),
 		}
 		if next == nil {

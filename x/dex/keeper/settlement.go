@@ -6,13 +6,13 @@ import (
 	"github.com/sei-protocol/sei-chain/x/dex/types"
 )
 
-func (k Keeper) SetSettlements(ctx sdk.Context, contractAddr string, priceDenom types.Denom, assetDenom types.Denom, settlements types.Settlements) {
+func (k Keeper) SetSettlements(ctx sdk.Context, contractAddr string, priceDenom string, assetDenom string, settlements types.Settlements) {
 	store := prefix.NewStore(ctx.KVStore(k.storeKey), types.SettlementEntryPrefix(contractAddr, uint64(ctx.BlockHeight())))
 	b := k.Cdc.MustMarshal(&settlements)
 	store.Set(types.PairPrefix(priceDenom, assetDenom), b)
 }
 
-func (k Keeper) GetSettlements(ctx sdk.Context, contractAddr string, blockHeight uint64, priceDenom types.Denom, assetDenom types.Denom) (val types.Settlements, found bool) {
+func (k Keeper) GetSettlements(ctx sdk.Context, contractAddr string, blockHeight uint64, priceDenom string, assetDenom string) (val types.Settlements, found bool) {
 	store := prefix.NewStore(ctx.KVStore(k.storeKey), types.SettlementEntryPrefix(contractAddr, blockHeight))
 	b := store.Get(types.PairPrefix(priceDenom, assetDenom))
 	val = types.Settlements{}
