@@ -12,6 +12,7 @@ type ToSettle struct {
 
 func Settle(
 	taker string,
+	takerPositionEffect types.PositionEffect, 
 	quantityTaken sdk.Dec,
 	order types.OrderBook,
 	takerDirection types.PositionDirection,
@@ -51,6 +52,7 @@ func Settle(
 			worstPrice,
 			worstPrice,
 			takerOrderType,
+			takerPositionEffect,
 		))
 		makerSettlements = append(makerSettlements, types.NewSettlement(
 			toSettle.creator,
@@ -61,6 +63,7 @@ func Settle(
 			order.GetEntry().Price,
 			order.GetEntry().Price,
 			types.OrderType_LIMIT,
+			types.OPPOSITE_POSITION_EFFECT[takerPositionEffect],
 		))
 	}
 	return takerSettlements, makerSettlements

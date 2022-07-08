@@ -53,6 +53,7 @@ func MatchMarketOrders(
 			}
 			takerSettlements, makerSettlements := Settle(
 				marketOrder.FormattedCreatorWithSuffix(),
+				marketOrder.Effect,
 				executed,
 				existingOrder,
 				direction,

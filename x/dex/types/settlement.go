@@ -40,6 +40,7 @@ func NewSettlement(
 	executionCostOrProceed sdk.Dec,
 	expectedCostOrProceed sdk.Dec,
 	orderType OrderType,
+	positionEffect PositionEffect,
 ) *Settlement {
 	parts := strings.Split(formattedAccount, FORMATTED_ACCOUNT_DELIMITER)
 	leverage, _ := sdk.NewDecFromStr(parts[2])
@@ -51,7 +52,7 @@ func NewSettlement(
 		ExecutionCostOrProceed: executionCostOrProceed,
 		ExpectedCostOrProceed:  expectedCostOrProceed,
 		Account:                parts[0],
-		Effect:                 SUFFIX_TO_POSITION_EFFECT[OPEN_ORDER_CREATOR_SUFFIX],
+		Effect:                 positionEffect,
 		Leverage:               leverage,
 		OrderType:              orderType,
 	}

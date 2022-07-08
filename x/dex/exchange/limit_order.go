@@ -45,6 +45,7 @@ func MatchLimitOrders(
 		*settlements = append(*settlements, SettleFromBook(
 			(*longBook)[longPtr],
 			(*shortBook)[shortPtr],
+			longBook
 			executed,
 		)...)
 
