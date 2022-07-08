@@ -51,7 +51,7 @@ func (tsmd TickSizeMultipleDecorator) CheckTickSizeMultiple(ctx sdk.Context, msg
 				fmt.Println(contractAddr)
 				// todo may not need to throw err if ticksize unfound?
 				if !found {
-					return sdkerrors.Wrapf(sdkerrors.ErrKeyNotFound, "the pair {price:%s,asset:%s} has no ticksize configured", order.PriceDenom.String(), order.AssetDenom.String())
+					return sdkerrors.Wrapf(sdkerrors.ErrKeyNotFound, "the pair {price:%s,asset:%s} has no ticksize configured", order.PriceDenom, order.AssetDenom)
 				}
 				if !IsDecimalMultipleOf(order.Price, tickSize){
 					return sdkerrors.Wrapf(errors.New("ErrPriceNotMultipleOfTickSize"), "price need to be multiple of tick size")
@@ -65,7 +65,7 @@ func (tsmd TickSizeMultipleDecorator) CheckTickSizeMultiple(ctx sdk.Context, msg
 				tickSize, found := tsmd.dexKeeper.GetTickSizeForPair(ctx, contractAddr, types.Pair{PriceDenom: orderCancellation.PriceDenom, AssetDenom: orderCancellation.AssetDenom})
 				// todo may not need to throw err if ticksize unfound?
 				if !found {
-					return sdkerrors.Wrapf(sdkerrors.ErrKeyNotFound, "the pair {price:%s,asset:%s} has no ticksize configured", orderCancellation.PriceDenom.String(), orderCancellation.AssetDenom.String())
+					return sdkerrors.Wrapf(sdkerrors.ErrKeyNotFound, "the pair {price:%s,asset:%s} has no ticksize configured", orderCancellation.PriceDenom, orderCancellation.AssetDenom)
 				}
 				if !IsDecimalMultipleOf(orderCancellation.Price, tickSize) {
 					return sdkerrors.Wrapf(errors.New("ErrPriceNotMultipleOfTickSize"), "price need to be multiple of tick size")

@@ -20,8 +20,8 @@ type SudoSettlementMsg struct {
 
 type Settlement struct {
 	Direction              PositionDirection
-	PriceSymbol            Denom
-	AssetSymbol            Denom
+	PriceSymbol            string
+	AssetSymbol            string
 	Quantity               sdk.Dec
 	ExecutionCostOrProceed sdk.Dec
 	ExpectedCostOrProceed  sdk.Dec
@@ -34,8 +34,8 @@ type Settlement struct {
 func NewSettlement(
 	formattedAccount string,
 	direction PositionDirection,
-	priceDenom Denom,
-	assetDenom Denom,
+	priceDenom string,
+	assetDenom string,
 	quantity sdk.Dec,
 	executionCostOrProceed sdk.Dec,
 	expectedCostOrProceed sdk.Dec,
@@ -65,8 +65,8 @@ func (s *Settlement) String() string {
 func (s *Settlement) ToEntry() SettlementEntry {
 	return SettlementEntry{
 		Account:                s.Account,
-		PriceDenom:             GetContractDenomName(s.PriceSymbol),
-		AssetDenom:             GetContractDenomName(s.AssetSymbol),
+		PriceDenom:             s.PriceSymbol,
+		AssetDenom:             s.AssetSymbol,
 		Quantity:               s.Quantity,
 		ExecutionCostOrProceed: s.ExecutionCostOrProceed,
 		ExpectedCostOrProceed:  s.ExpectedCostOrProceed,

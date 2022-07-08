@@ -18,14 +18,8 @@ func CmdGetPrice() *cobra.Command {
 		Args:  cobra.ExactArgs(3),
 		RunE: func(cmd *cobra.Command, args []string) (err error) {
 			reqContractAddr := args[0]
-			reqPriceDenom, _, err := types.GetDenomFromStr(args[1])
-			if err != nil {
-				return err
-			}
-			reqAssetDenom, _, err := types.GetDenomFromStr(args[2])
-			if err != nil {
-				return err
-			}
+			reqPriceDenom := args[1]
+			reqAssetDenom := args[2]
 
 			clientCtx, err := client.GetClientTxContext(cmd)
 			if err != nil {

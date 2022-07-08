@@ -29,10 +29,10 @@ message OrderEntry {
       (gogoproto.nullable)   = false,
       (gogoproto.jsontag) = "allocation"
   ];
-  Denom priceDenom = 5 [
+  string priceDenom = 5 [
     (gogoproto.jsontag) = "price_denom"
   ];
-  Denom assetDenom = 6 [
+  string assetDenom = 6 [
     (gogoproto.jsontag) = "asset_denom"
   ];
 }

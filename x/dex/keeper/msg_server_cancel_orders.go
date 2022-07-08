@@ -20,7 +20,7 @@ func (k msgServer) CancelOrders(goCtx context.Context, msg *types.MsgCancelOrder
 	for _, orderCancellation := range msg.GetOrderCancellations() {
 		ticksize, found := k.Keeper.GetTickSizeForPair(ctx,msg.GetContractAddr(), types.Pair{PriceDenom: orderCancellation.PriceDenom, AssetDenom: orderCancellation.AssetDenom})
 		if !found {
-			return nil, sdkerrors.Wrapf(sdkerrors.ErrKeyNotFound, "the pair {price:%s,asset:%s} has no ticksize configured", orderCancellation.PriceDenom.String(), orderCancellation.AssetDenom.String())
+			return nil, sdkerrors.Wrapf(sdkerrors.ErrKeyNotFound, "the pair {price:%s,asset:%s} has no ticksize configured", orderCancellation.PriceDenom, orderCancellation.AssetDenom)
 		}
 		pair := types.Pair{PriceDenom: orderCancellation.PriceDenom, AssetDenom: orderCancellation.AssetDenom, Ticksize: &ticksize}
 		(*pairToOrderCancellations[pair.String()]).OrderCancellations = append(

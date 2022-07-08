@@ -61,21 +61,8 @@ type (
 
 // TODO: ADD utils to convert Each type to dex/type (string to denom)
 func NewPair(pair PairJSON) (dextypes.Pair, error) {
-	PriceDenom, unit, err := dextypes.GetDenomFromStr(pair.PriceDenom)
-	if err != nil {
-		return dextypes.Pair{}, err
-	}
-	if unit != dextypes.Unit_STANDARD {
-		return dextypes.Pair{}, errors.New("Denom must be in standard/whole unit (e.g. sei instead of usei)")
-	}
-	AssetDenom, unit, err := dextypes.GetDenomFromStr(pair.AssetDenom)
-	if err != nil {
-		return dextypes.Pair{}, err
-	}
-	if unit != dextypes.Unit_STANDARD {
-		return dextypes.Pair{}, errors.New("Denom must be in standard/whole unit (e.g. sei instead of usei)")
-	}
-
+	PriceDenom := pair.PriceDenom
+	AssetDenom := pair.AssetDenom
 	ticksize, err :=sdk.NewDecFromStr(pair.TickSize)
 	if err != nil {
 		return dextypes.Pair{}, errors.New("ticksize: str to decimal conversion err")
@@ -97,24 +84,10 @@ func (bcp BatchContractPairJSON) ToBatchContractPair() (dextypes.BatchContractPa
 }
 
 func (ts TickSizeJSON) ToTickSize() (dextypes.TickSize, error) {
-	pd, unit, err := dextypes.GetDenomFromStr(ts.Pair.PriceDenom)
-	if err != nil {
-		return dextypes.TickSize{}, err
-	}
-	if unit != dextypes.Unit_STANDARD {
-		return dextypes.TickSize{}, errors.New("Denom must be in standard/whole unit (e.g. sei instead of usei)")
-	}
-	ad, unit, err := dextypes.GetDenomFromStr(ts.Pair.AssetDenom)
-	if err != nil {
-		return dextypes.TickSize{}, err
-	}
-	if unit != dextypes.Unit_STANDARD {
-		return dextypes.TickSize{}, errors.New("Denom must be in standard/whole unit (e.g. sei instead of usei)")
-	}
 	return dextypes.TickSize {
 		Pair: &dextypes.Pair {
-			PriceDenom: pd, 
-			AssetDenom: ad,
+			PriceDenom: ts.Pair.PriceDenom, 
+			AssetDenom: ts.Pair.AssetDenom,
 		},
 		Ticksize: ts.TickSize,
 		ContractAddr: ts.ContractAddr,

@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"errors"
 	"strconv"
 	"strings"
 
@@ -45,20 +44,8 @@ func CmdCancelOrders() *cobra.Command {
 					return err
 				}
 				orderCancellation.Quantity = argQuantity
-				reqPriceDenom, unit, err := types.GetDenomFromStr(orderDetails[3])
-				if err != nil {
-					return err
-				}
-				if unit != types.Unit_STANDARD {
-					return errors.New("Denom must be in standard/whole unit (e.g. sei instead of usei)")
-				}
-				reqAssetDenom, unit, err := types.GetDenomFromStr(orderDetails[4])
-				if err != nil {
-					return err
-				}
-				if unit != types.Unit_STANDARD {
-					return errors.New("Denom must be in standard/whole unit (e.g. sei instead of usei)")
-				}
+				reqPriceDenom := orderDetails[3]
+				reqAssetDenom := orderDetails[4]
 				orderCancellation.PriceDenom = reqPriceDenom
 				orderCancellation.AssetDenom = reqAssetDenom
 				argPositionEffect, err := types.GetPositionEffectFromStr(orderDetails[5])

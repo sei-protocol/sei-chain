@@ -2,7 +2,6 @@ package cli
 
 import (
 	"context"
-	"errors"
 
 	"github.com/cosmos/cosmos-sdk/client"
 	"github.com/cosmos/cosmos-sdk/client/flags"
@@ -23,20 +22,8 @@ func CmdListShortBook() *cobra.Command {
 				return err
 			}
 
-			reqPriceDenom, unit, err := types.GetDenomFromStr(args[1])
-			if err != nil {
-				return err
-			}
-			if unit != types.Unit_STANDARD {
-				return errors.New("Denom must be in standard/whole unit (e.g. sei instead of usei)")
-			}
-			reqAssetDenom, unit, err := types.GetDenomFromStr(args[2])
-			if err != nil {
-				return err
-			}
-			if unit != types.Unit_STANDARD {
-				return errors.New("Denom must be in standard/whole unit (e.g. sei instead of usei)")
-			}
+			reqPriceDenom := args[1]
+			reqAssetDenom := args[2]
 
 			queryClient := types.NewQueryClient(clientCtx)
 
@@ -73,20 +60,8 @@ func CmdShowShortBook() *cobra.Command {
 			queryClient := types.NewQueryClient(clientCtx)
 
 			contractAddr := args[0]
-			reqPriceDenom, unit, err := types.GetDenomFromStr(args[2])
-			if err != nil {
-				return err
-			}
-			if unit != types.Unit_STANDARD {
-				return errors.New("Denom must be in standard/whole unit (e.g. sei instead of usei)")
-			}
-			reqAssetDenom, unit, err := types.GetDenomFromStr(args[3])
-			if err != nil {
-				return err
-			}
-			if unit != types.Unit_STANDARD {
-				return errors.New("Denom must be in standard/whole unit (e.g. sei instead of usei)")
-			}
+			reqPriceDenom := args[2]
+			reqAssetDenom := args[3]
 
 			params := &types.QueryGetShortBookRequest{
 				Price:        args[1],

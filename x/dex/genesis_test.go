@@ -14,8 +14,8 @@ import (
 
 func TEST_PAIR() types.Pair {
 	return types.Pair{
-		PriceDenom: types.Denom_USDC,
-		AssetDenom: types.Denom_ATOM,
+		PriceDenom: "usdc",
+		AssetDenom: "atom",
 	}
 }
 

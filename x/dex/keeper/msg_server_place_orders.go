@@ -37,14 +37,10 @@ func (k msgServer) transferFunds(goCtx context.Context, msg *types.MsgPlaceOrder
 
 	di := k.DepositInfo[msg.GetContractAddr()]
 	for _, fund := range msg.Funds {
-		fundDenom, unit, err := types.GetDenomFromStr(fund.Denom)
-		if err != nil {
-			panic(err)
-		}
 		di.DepositInfoList = append(di.DepositInfoList, dexcache.DepositInfoEntry{
 			Creator: msg.Creator,
-			Denom:   fundDenom,
-			Amount:  types.ConvertDecToStandard(unit, sdk.NewDec(fund.Amount.Int64())),
+			Denom:   fund.Denom,
+			Amount:  sdk.NewDec(fund.Amount.Int64()),
 		})
 	}
 	return nil
@@ -68,7 +64,7 @@ func (k msgServer) PlaceOrders(goCtx context.Context, msg *types.MsgPlaceOrders)
 	for _, orderPlacement := range msg.GetOrders() {
 		ticksize, found := k.Keeper.GetTickSizeForPair(ctx,msg.GetContractAddr(), types.Pair{PriceDenom: orderPlacement.PriceDenom, AssetDenom: orderPlacement.AssetDenom})
 		if !found {
-			return nil, sdkerrors.Wrapf(sdkerrors.ErrKeyNotFound, "the pair {price:%s,asset:%s} has no ticksize configured", orderPlacement.PriceDenom.String(), orderPlacement.AssetDenom.String())
+			return nil, sdkerrors.Wrapf(sdkerrors.ErrKeyNotFound, "the pair {price:%s,asset:%s} has no ticksize configured", orderPlacement.PriceDenom, orderPlacement.AssetDenom)
 		}
 		pair := types.Pair{PriceDenom: orderPlacement.PriceDenom, AssetDenom: orderPlacement.AssetDenom, Ticksize: &ticksize}
 		(*pairToOrderPlacements[pair.String()]).Orders = append(

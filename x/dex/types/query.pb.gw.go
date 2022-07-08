@@ -57,7 +57,6 @@ func request_Query_LongBook_0(ctx context.Context, marshaler runtime.Marshaler, 
 
 	var (
 		val string
-		e   int32
 		ok  bool
 		err error
 		_   = err
@@ -79,26 +78,22 @@ func request_Query_LongBook_0(ctx context.Context, marshaler runtime.Marshaler, 
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "priceDenom")
 	}
 
-	e, err = runtime.Enum(val, Denom_value)
+	protoReq.PriceDenom, err = runtime.String(val)
 
 	if err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "priceDenom", err)
 	}
-
-	protoReq.PriceDenom = Denom(e)
 
 	val, ok = pathParams["assetDenom"]
 	if !ok {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "assetDenom")
 	}
 
-	e, err = runtime.Enum(val, Denom_value)
+	protoReq.AssetDenom, err = runtime.String(val)
 
 	if err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "assetDenom", err)
 	}
-
-	protoReq.AssetDenom = Denom(e)
 
 	val, ok = pathParams["price"]
 	if !ok {
@@ -122,7 +117,6 @@ func local_request_Query_LongBook_0(ctx context.Context, marshaler runtime.Marsh
 
 	var (
 		val string
-		e   int32
 		ok  bool
 		err error
 		_   = err
@@ -144,26 +138,22 @@ func local_request_Query_LongBook_0(ctx context.Context, marshaler runtime.Marsh
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "priceDenom")
 	}
 
-	e, err = runtime.Enum(val, Denom_value)
+	protoReq.PriceDenom, err = runtime.String(val)
 
 	if err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "priceDenom", err)
 	}
-
-	protoReq.PriceDenom = Denom(e)
 
 	val, ok = pathParams["assetDenom"]
 	if !ok {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "assetDenom")
 	}
 
-	e, err = runtime.Enum(val, Denom_value)
+	protoReq.AssetDenom, err = runtime.String(val)
 
 	if err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "assetDenom", err)
 	}
-
-	protoReq.AssetDenom = Denom(e)
 
 	val, ok = pathParams["price"]
 	if !ok {
@@ -191,7 +181,6 @@ func request_Query_LongBookAll_0(ctx context.Context, marshaler runtime.Marshale
 
 	var (
 		val string
-		e   int32
 		ok  bool
 		err error
 		_   = err
@@ -213,26 +202,22 @@ func request_Query_LongBookAll_0(ctx context.Context, marshaler runtime.Marshale
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "priceDenom")
 	}
 
-	e, err = runtime.Enum(val, Denom_value)
+	protoReq.PriceDenom, err = runtime.String(val)
 
 	if err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "priceDenom", err)
 	}
-
-	protoReq.PriceDenom = Denom(e)
 
 	val, ok = pathParams["assetDenom"]
 	if !ok {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "assetDenom")
 	}
 
-	e, err = runtime.Enum(val, Denom_value)
+	protoReq.AssetDenom, err = runtime.String(val)
 
 	if err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "assetDenom", err)
 	}
-
-	protoReq.AssetDenom = Denom(e)
 
 	if err := req.ParseForm(); err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
@@ -252,7 +237,6 @@ func local_request_Query_LongBookAll_0(ctx context.Context, marshaler runtime.Ma
 
 	var (
 		val string
-		e   int32
 		ok  bool
 		err error
 		_   = err
@@ -274,26 +258,22 @@ func local_request_Query_LongBookAll_0(ctx context.Context, marshaler runtime.Ma
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "priceDenom")
 	}
 
-	e, err = runtime.Enum(val, Denom_value)
+	protoReq.PriceDenom, err = runtime.String(val)
 
 	if err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "priceDenom", err)
 	}
-
-	protoReq.PriceDenom = Denom(e)
 
 	val, ok = pathParams["assetDenom"]
 	if !ok {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "assetDenom")
 	}
 
-	e, err = runtime.Enum(val, Denom_value)
+	protoReq.AssetDenom, err = runtime.String(val)
 
 	if err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "assetDenom", err)
 	}
-
-	protoReq.AssetDenom = Denom(e)
 
 	if err := req.ParseForm(); err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
@@ -313,7 +293,6 @@ func request_Query_ShortBook_0(ctx context.Context, marshaler runtime.Marshaler,
 
 	var (
 		val string
-		e   int32
 		ok  bool
 		err error
 		_   = err
@@ -335,26 +314,22 @@ func request_Query_ShortBook_0(ctx context.Context, marshaler runtime.Marshaler,
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "priceDenom")
 	}
 
-	e, err = runtime.Enum(val, Denom_value)
+	protoReq.PriceDenom, err = runtime.String(val)
 
 	if err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "priceDenom", err)
 	}
-
-	protoReq.PriceDenom = Denom(e)
 
 	val, ok = pathParams["assetDenom"]
 	if !ok {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "assetDenom")
 	}
 
-	e, err = runtime.Enum(val, Denom_value)
+	protoReq.AssetDenom, err = runtime.String(val)
 
 	if err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "assetDenom", err)
 	}
-
-	protoReq.AssetDenom = Denom(e)
 
 	val, ok = pathParams["price"]
 	if !ok {
@@ -378,7 +353,6 @@ func local_request_Query_ShortBook_0(ctx context.Context, marshaler runtime.Mars
 
 	var (
 		val string
-		e   int32
 		ok  bool
 		err error
 		_   = err
@@ -400,26 +374,22 @@ func local_request_Query_ShortBook_0(ctx context.Context, marshaler runtime.Mars
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "priceDenom")
 	}
 
-	e, err = runtime.Enum(val, Denom_value)
+	protoReq.PriceDenom, err = runtime.String(val)
 
 	if err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "priceDenom", err)
 	}
-
-	protoReq.PriceDenom = Denom(e)
 
 	val, ok = pathParams["assetDenom"]
 	if !ok {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "assetDenom")
 	}
 
-	e, err = runtime.Enum(val, Denom_value)
+	protoReq.AssetDenom, err = runtime.String(val)
 
 	if err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "assetDenom", err)
 	}
-
-	protoReq.AssetDenom = Denom(e)
 
 	val, ok = pathParams["price"]
 	if !ok {
@@ -447,7 +417,6 @@ func request_Query_ShortBookAll_0(ctx context.Context, marshaler runtime.Marshal
 
 	var (
 		val string
-		e   int32
 		ok  bool
 		err error
 		_   = err
@@ -469,26 +438,22 @@ func request_Query_ShortBookAll_0(ctx context.Context, marshaler runtime.Marshal
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "priceDenom")
 	}
 
-	e, err = runtime.Enum(val, Denom_value)
+	protoReq.PriceDenom, err = runtime.String(val)
 
 	if err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "priceDenom", err)
 	}
-
-	protoReq.PriceDenom = Denom(e)
 
 	val, ok = pathParams["assetDenom"]
 	if !ok {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "assetDenom")
 	}
 
-	e, err = runtime.Enum(val, Denom_value)
+	protoReq.AssetDenom, err = runtime.String(val)
 
 	if err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "assetDenom", err)
 	}
-
-	protoReq.AssetDenom = Denom(e)
 
 	if err := req.ParseForm(); err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
@@ -508,7 +473,6 @@ func local_request_Query_ShortBookAll_0(ctx context.Context, marshaler runtime.M
 
 	var (
 		val string
-		e   int32
 		ok  bool
 		err error
 		_   = err
@@ -530,26 +494,22 @@ func local_request_Query_ShortBookAll_0(ctx context.Context, marshaler runtime.M
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "priceDenom")
 	}
 
-	e, err = runtime.Enum(val, Denom_value)
+	protoReq.PriceDenom, err = runtime.String(val)
 
 	if err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "priceDenom", err)
 	}
-
-	protoReq.PriceDenom = Denom(e)
 
 	val, ok = pathParams["assetDenom"]
 	if !ok {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "assetDenom")
 	}
 
-	e, err = runtime.Enum(val, Denom_value)
+	protoReq.AssetDenom, err = runtime.String(val)
 
 	if err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "assetDenom", err)
 	}
-
-	protoReq.AssetDenom = Denom(e)
 
 	if err := req.ParseForm(); err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
@@ -605,7 +565,6 @@ func request_Query_GetPrices_0(ctx context.Context, marshaler runtime.Marshaler,
 
 	var (
 		val string
-		e   int32
 		ok  bool
 		err error
 		_   = err
@@ -627,26 +586,22 @@ func request_Query_GetPrices_0(ctx context.Context, marshaler runtime.Marshaler,
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "priceDenom")
 	}
 
-	e, err = runtime.Enum(val, Denom_value)
+	protoReq.PriceDenom, err = runtime.String(val)
 
 	if err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "priceDenom", err)
 	}
-
-	protoReq.PriceDenom = Denom(e)
 
 	val, ok = pathParams["assetDenom"]
 	if !ok {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "assetDenom")
 	}
 
-	e, err = runtime.Enum(val, Denom_value)
+	protoReq.AssetDenom, err = runtime.String(val)
 
 	if err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "assetDenom", err)
 	}
-
-	protoReq.AssetDenom = Denom(e)
 
 	msg, err := client.GetPrices(ctx, &protoReq, grpc.Header(&metadata.HeaderMD), grpc.Trailer(&metadata.TrailerMD))
 	return msg, metadata, err
@@ -659,7 +614,6 @@ func local_request_Query_GetPrices_0(ctx context.Context, marshaler runtime.Mars
 
 	var (
 		val string
-		e   int32
 		ok  bool
 		err error
 		_   = err
@@ -681,26 +635,22 @@ func local_request_Query_GetPrices_0(ctx context.Context, marshaler runtime.Mars
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "priceDenom")
 	}
 
-	e, err = runtime.Enum(val, Denom_value)
+	protoReq.PriceDenom, err = runtime.String(val)
 
 	if err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "priceDenom", err)
 	}
-
-	protoReq.PriceDenom = Denom(e)
 
 	val, ok = pathParams["assetDenom"]
 	if !ok {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "assetDenom")
 	}
 
-	e, err = runtime.Enum(val, Denom_value)
+	protoReq.AssetDenom, err = runtime.String(val)
 
 	if err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "assetDenom", err)
 	}
-
-	protoReq.AssetDenom = Denom(e)
 
 	msg, err := server.GetPrices(ctx, &protoReq)
 	return msg, metadata, err

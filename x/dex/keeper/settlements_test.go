@@ -12,16 +12,14 @@ func createNSettlements(keeper *keeper.Keeper, ctx sdk.Context, n int) []types.S
 	items := make([]types.Settlements, n)
 	for i := range items {
 		acct := "test_account" + strconv.Itoa(i)
-		pd := types.Denom(2 * i)
-		ad := types.Denom(2*i + 1)
 		entry := types.SettlementEntry{
 			Account:    acct,
-			PriceDenom: types.GetContractDenomName(pd),
-			AssetDenom: types.GetContractDenomName(ad),
+			PriceDenom: "usdc" + strconv.Itoa(i),
+			AssetDenom: "sei" + strconv.Itoa(i),
 		}
 		entries := []*types.SettlementEntry{&entry}
 		items[i].Entries = entries
-		keeper.SetSettlements(ctx, TEST_CONTRACT, pd, ad, items[i])
+		keeper.SetSettlements(ctx, TEST_CONTRACT, "usdc" + strconv.Itoa(i), "sei" + strconv.Itoa(i), items[i])
 	}
 	return items
 }
