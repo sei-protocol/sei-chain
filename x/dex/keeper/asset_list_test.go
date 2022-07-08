@@ -69,7 +69,7 @@ func TestAssetListGet(t *testing.T) {
 	require.False(t, found)
 
 	// Test get specific Denom
-	val, found := keeper.GetAssetMetadataByDenom(ctx, "ibc/D189335C6E4A68B513C10AB227BF1C1D38C746766278BA3EEB4FB14124F1D858")
+	val, found := keeper.GetAssetMetadataByDenom(ctx, "axlusdc")
 	require.True(t, found)
 	require.Equal(t, item, val)
 }

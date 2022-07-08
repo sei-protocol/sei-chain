@@ -196,11 +196,27 @@ func ParseAddAssetMetadataProposalJSON(cdc *codec.LegacyAmino, proposalFile stri
 	}
 
 	// Verify base denoms specified in proposal are well formed
+	// Additionally verify that the asset "display" field is included in denom unit
 	for _, asset := range proposal.AssetList {
 		err := sdk.ValidateDenom(asset.Metadata.Base)
 		if err != nil {
 			return AddAssetMetadataProposalJSON{}, err
 		}
+
+		// The display denom must have an associated DenomUnit field
+		display := asset.Metadata.Display
+		found := false
+		for _, denomUnit := range asset.Metadata.DenomUnits {
+			if denomUnit.Denom == display {
+				found = true
+				break
+			}
+		}
+
+		if found == false {
+			return AddAssetMetadataProposalJSON{}, errors.New("Display denom " + display + " has no associated DenomUnit in Metadata.")
+		}
+
 	}
 
 	return proposal, nil
