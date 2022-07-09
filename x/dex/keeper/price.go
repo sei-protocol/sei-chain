@@ -34,10 +34,7 @@ func (k Keeper) GetPriceState(ctx sdk.Context, contractAddr string, epoch uint64
 
 func (k Keeper) GetAllPrices(ctx sdk.Context, contractAddr string, pair types.Pair) (list []*types.Price) {
 	store := prefix.NewStore(ctx.KVStore(k.storeKey), types.PricePrefix(contractAddr))
-	iterator := sdk.KVStorePrefixIterator(store, types.PairPrefix(
-		types.GetContractDenomName(pair.PriceDenom),
-		types.GetContractDenomName(pair.AssetDenom),
-	))
+	iterator := sdk.KVStorePrefixIterator(store, types.PairPrefix(pair.PriceDenom, pair.AssetDenom))
 
 	defer iterator.Close()
 
@@ -58,10 +55,7 @@ func GetKeyForEpoch(epoch uint64) []byte {
 
 func GetKeyForPriceState(epoch uint64, pair types.Pair) []byte {
 	return append(
-		types.PairPrefix(
-			types.GetContractDenomName(pair.PriceDenom),
-			types.GetContractDenomName(pair.AssetDenom),
-		),
+		types.PairPrefix(pair.PriceDenom, pair.AssetDenom),
 		GetKeyForEpoch(epoch)...,
 	)
 }

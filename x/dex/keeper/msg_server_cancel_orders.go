@@ -23,7 +23,7 @@ func (k msgServer) CancelOrders(goCtx context.Context, msg *types.MsgCancelOrder
 			continue
 		}
 		order := orderMap[orderIdToCancel]
-		pair := types.Pair{PriceDenom: types.MustGetStandardDenomFromStr(order.PriceDenom), AssetDenom: types.MustGetStandardDenomFromStr(order.AssetDenom)}
+		pair := types.Pair{PriceDenom: order.PriceDenom, AssetDenom: order.AssetDenom}
 		pairStr := types.GetPairString(&pair)
 		pairBlockCancellations := contractBlockCancellations[pairStr]
 		cancelledInCurrentBlock := false

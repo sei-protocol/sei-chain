@@ -289,8 +289,8 @@ func (am AppModule) endBlockForContract(ctx sdk.Context, contractAddr string) {
 		limitBuys := orders.GetLimitOrders(types.PositionDirection_LONG)
 		limitSells := orders.GetLimitOrders(types.PositionDirection_SHORT)
 		ctx.Logger().Info(fmt.Sprintf("Number of LB: %d, LS: %d, MB: %d, MS: %d", len(limitBuys), len(limitSells), len(marketBuys), len(marketSells)))
-		priceDenomStr := types.GetContractDenomName(pair.PriceDenom)
-		assetDenomStr := types.GetContractDenomName(pair.AssetDenom)
+		priceDenomStr := pair.PriceDenom
+		assetDenomStr := pair.AssetDenom
 		allExistingBuys := am.keeper.GetAllLongBookForPair(ctx, contractAddr, priceDenomStr, assetDenomStr)
 		allExistingSells := am.keeper.GetAllShortBookForPair(ctx, contractAddr, priceDenomStr, assetDenomStr)
 

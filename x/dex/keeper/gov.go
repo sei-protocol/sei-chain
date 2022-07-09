@@ -25,7 +25,7 @@ func (k Keeper) HandleRegisterPairsProposal(ctx sdk.Context, p *types.RegisterPa
 				fmt.Println("Asset Denom", pair.AssetDenom, "is not in the AssetList and can not be registered.")
 			}
 			k.AddRegisteredPair(ctx, contractAddress, *pair)
-			k.SetTickSizeForPair(ctx, contractAddress, *pair, pair.Ticksize)
+			k.SetTickSizeForPair(ctx, contractAddress, *pair, *pair.Ticksize)
 			contractAddr := types.ContractAddress(contractAddress)
 			pairStr := types.GetPairString(pair)
 			newBlockOrders := dexcache.BlockOrders([]types.Order{})

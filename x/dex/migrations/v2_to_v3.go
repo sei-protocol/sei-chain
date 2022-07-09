@@ -13,12 +13,21 @@ const CONTRACT_ADDRESS_LENGTH = 62
  * and therefore doesn't need this migration
  */
 func DataTypeUpdate(ctx sdk.Context, storeKey sdk.StoreKey, cdc codec.BinaryCodec) error {
-	// MigrateLongBooks(ctx, storeKey, cdc)
-	// MigrateShortBooks(ctx, storeKey, cdc)
-	// MigrateSettlements(ctx, storeKey, cdc)
-	// MigrateTwap(ctx, storeKey, cdc)
-	// MigrateRegisteredPairs(ctx, storeKey, cdc)
+	ClearStore(ctx, storeKey)
 	return nil
+}
+
+/**
+ * CAUTION: this function clears up the entire `dex` module store, so it should only ever
+ *          be used outside of a production setting.
+ */
+func ClearStore(ctx sdk.Context, storeKey sdk.StoreKey) {
+	store := ctx.KVStore(storeKey)
+	iterator := sdk.KVStorePrefixIterator(store, []byte{})
+	defer iterator.Close()
+	for ; iterator.Valid(); iterator.Next() {
+		store.Delete(iterator.Key())
+	}
 }
 
 // func MigrateLongBooks(ctx sdk.Context, storeKey sdk.StoreKey, cdc codec.BinaryCodec) error {

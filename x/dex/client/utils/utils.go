@@ -67,7 +67,7 @@ func NewPair(pair PairJSON) (dextypes.Pair, error) {
 	if err != nil {
 		return dextypes.Pair{}, errors.New("ticksize: str to decimal conversion err")
 	}
-	return dextypes.Pair{PriceDenom: PriceDenom, AssetDenom: AssetDenom, Ticksize: ticksize}, nil
+	return dextypes.Pair{PriceDenom: PriceDenom, AssetDenom: AssetDenom, Ticksize: &ticksize}, nil
 }
 
 // ToParamChange converts a ParamChangeJSON object to ParamChange.

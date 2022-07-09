@@ -3,7 +3,6 @@ package keeper_test
 import (
 	"testing"
 
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	keepertest "github.com/sei-protocol/sei-chain/testutil/keeper"
 	"github.com/sei-protocol/sei-chain/testutil/nullify"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
@@ -22,14 +21,14 @@ func TestAddGetPair(t *testing.T) {
 	keeper.AddRegisteredPair(ctx, TEST_CONTRACT, types.Pair{
 		PriceDenom: TEST_PRICE_DENOM,
 		AssetDenom: TEST_ASSET_DENOM,
-		Ticksize:   sdk.OneDec(),
+		Ticksize:   &TEST_TICKSIZE,
 	})
 	require.Equal(t, uint64(1), keeper.GetPairCount(ctx, TEST_CONTRACT))
 	require.ElementsMatch(t,
 		nullify.Fill([]types.Pair{{
 			PriceDenom: TEST_PRICE_DENOM,
 			AssetDenom: TEST_ASSET_DENOM,
-			Ticksize:   sdk.OneDec(),
+			Ticksize:   &TEST_TICKSIZE,
 		}}),
 		nullify.Fill(keeper.GetAllRegisteredPairs(ctx, TEST_CONTRACT)),
 	)

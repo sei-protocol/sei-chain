@@ -37,8 +37,8 @@ func networkWithShortBookObjects(t *testing.T, n int) (*network.Network, []types
 				Price:       sdk.NewDec(int64(1 + i)),
 				Quantity:    sdk.NewDec(int64(i)),
 				Allocations: []*types.Allocation{{Account: "abc", Quantity: sdk.NewDec(int64(i)), OrderId: 1}},
-				PriceDenom:  "USDC",
-				AssetDenom:  "ATOM",
+				PriceDenom:  TEST_PAIR().PriceDenom,
+				AssetDenom:  TEST_PAIR().AssetDenom,
 			},
 		}
 		nullify.Fill(&shortBook)
