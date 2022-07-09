@@ -28,7 +28,7 @@ func (k *Keeper) HandleEBLiquidation(ctx context.Context, sdkCtx sdk.Context, tr
 	}
 	// Clear up all user-initiated order activities in the current block
 	for _, pair := range registeredPairs {
-		typedPairStr := types.PairString(pair.String())
+		typedPairStr := types.GetPairString(&pair)
 		if cancellations, ok := k.BlockCancels[typedContractAddr][typedPairStr]; ok {
 			cancellations.FilterByIds(liquidatedAccountsActiveOrderIds)
 		}
@@ -39,7 +39,7 @@ func (k *Keeper) HandleEBLiquidation(ctx context.Context, sdkCtx sdk.Context, tr
 	// Cancel all outstanding orders of liquidated accounts, as denoted as cancelled via liquidation
 	for id, order := range k.GetOrdersByIds(sdkCtx, contractAddr, liquidatedAccountsActiveOrderIds) {
 		pair := types.Pair{PriceDenom: types.MustGetStandardDenomFromStr(order.PriceDenom), AssetDenom: types.MustGetStandardDenomFromStr(order.AssetDenom)}
-		typedPairStr := types.PairString(pair.String())
+		typedPairStr := types.GetPairString(&pair)
 		k.BlockCancels[typedContractAddr][typedPairStr].AddOrderIdToCancel(id, types.CancellationInitiator_LIQUIDATED)
 	}
 

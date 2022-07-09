@@ -107,10 +107,10 @@ func (c *BlockCancellations) AddOrderIdToCancel(id uint64, initiator types.Cance
 }
 
 func (c *BlockCancellations) FilterByIds(idsToRemove []uint64) {
-	tmp := c
+	tmp := *c
 	*c = []types.Cancellation{}
 	badIdSet := utils.NewUInt64Set(idsToRemove)
-	for _, cancel := range *tmp {
+	for _, cancel := range tmp {
 		if !badIdSet.Contains(cancel.Id) {
 			*c = append(*c, cancel)
 		}

@@ -34,7 +34,7 @@ func (k *Keeper) HandleEBPlaceOrders(ctx context.Context, sdkCtx sdk.Context, tr
 	}
 
 	for _, pair := range registeredPairs {
-		typedPairStr := types.PairString(pair.String())
+		typedPairStr := types.GetPairString(&pair)
 		if orders, ok := k.BlockOrders[typedContractAddr][typedPairStr]; ok {
 			for _, response := range responses {
 				orders.MarkFailedToPlaceByIds(response.UnsuccessfulOrderIds)
@@ -59,20 +59,18 @@ func (k *Keeper) GetPlaceSudoMsg(typedContractAddr types.ContractAddress, regist
 		},
 	}
 	for _, pair := range registeredPairs {
-		typedPairStr := types.PairString(pair.String())
+		typedPairStr := types.GetPairString(&pair)
 		if orders, ok := k.BlockOrders[typedContractAddr][typedPairStr]; ok {
 			for _, order := range *orders {
-				if order.OrderType != types.OrderType_LIQUIDATION {
-					contractOrderPlacements = append(contractOrderPlacements, order)
-					if len(contractOrderPlacements) == MAX_ORDERS_PER_SUDO_CALL {
-						msgs = append(msgs, types.SudoOrderPlacementMsg{
-							OrderPlacements: types.OrderPlacementMsgDetails{
-								Orders:   contractOrderPlacements,
-								Deposits: []types.ContractDepositInfo{},
-							},
-						})
-						contractOrderPlacements = []types.Order{}
-					}
+				contractOrderPlacements = append(contractOrderPlacements, order)
+				if len(contractOrderPlacements) == MAX_ORDERS_PER_SUDO_CALL {
+					msgs = append(msgs, types.SudoOrderPlacementMsg{
+						OrderPlacements: types.OrderPlacementMsgDetails{
+							Orders:   contractOrderPlacements,
+							Deposits: []types.ContractDepositInfo{},
+						},
+					})
+					contractOrderPlacements = []types.Order{}
 				}
 			}
 		}

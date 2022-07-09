@@ -226,7 +226,7 @@ func (am AppModule) beginBlockForContract(ctx sdk.Context, contractAddr string) 
 	am.keeper.LiquidationRequests[typedContractAddr] = &dexcache.LiquidationRequests{}
 	for _, pair := range am.keeper.GetAllRegisteredPairs(ctx, contractAddr) {
 		ctx.Logger().Info(pair.String())
-		typedPairStr := types.PairString(pair.String())
+		typedPairStr := types.GetPairString(&pair)
 		emptyBlockOrder := dexcache.BlockOrders([]types.Order{})
 		emptyBlockCancel := dexcache.BlockCancellations([]types.Cancellation{})
 		am.keeper.BlockOrders[typedContractAddr][typedPairStr] = &emptyBlockOrder
@@ -280,10 +280,10 @@ func (am AppModule) endBlockForContract(ctx sdk.Context, contractAddr string) {
 	am.keeper.HandleEBPlaceOrders(spanCtx, ctx, am.tracingInfo.Tracer, contractAddr, registeredPairs)
 
 	for _, pair := range registeredPairs {
-		typedPairStr := types.PairString(pair.String())
+		typedPairStr := types.GetPairString(&pair)
 		orders := am.keeper.BlockOrders[typedContractAddr][typedPairStr]
 		cancels := am.keeper.BlockCancels[typedContractAddr][typedPairStr]
-		ctx.Logger().Info(pair.String())
+		ctx.Logger().Info(string(typedPairStr))
 		marketBuys := orders.GetSortedMarketOrders(types.PositionDirection_LONG, true)
 		marketSells := orders.GetSortedMarketOrders(types.PositionDirection_SHORT, true)
 		limitBuys := orders.GetLimitOrders(types.PositionDirection_LONG)
@@ -344,9 +344,13 @@ func (am AppModule) endBlockForContract(ctx sdk.Context, contractAddr string) {
 			priceState.Price = avgPrice
 			am.keeper.SetPriceState(ctx, priceState, contractAddr, currentEpoch)
 		}
+		ctx.Logger().Info(fmt.Sprintf("Number of long books: %d", len(allExistingBuys)))
+		ctx.Logger().Info(fmt.Sprintf("Number of short books: %d", len(allExistingSells)))
 		ctx.Logger().Info(fmt.Sprintf("Average price for %s/%s: %d", pair.PriceDenom, pair.AssetDenom, avgPrice))
 		for _, buy := range allExistingBuys {
+			ctx.Logger().Info(fmt.Sprintf("Long book: %s, %s", buy.GetPrice(), buy.GetEntry().Quantity))
 			if longDirtyPrices.Has(buy.GetPrice()) {
+				ctx.Logger().Info("Long book is dirty")
 				am.keeper.FlushDirtyLongBook(ctx, contractAddr, buy)
 			}
 		}

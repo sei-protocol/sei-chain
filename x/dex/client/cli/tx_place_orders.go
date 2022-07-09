@@ -28,7 +28,7 @@ func CmdPlaceOrders() *cobra.Command {
 			orders := []*types.Order{}
 			for _, order := range args[1:] {
 				newOrder := types.Order{}
-				orderDetails := strings.Split(order, ",")
+				orderDetails := strings.Split(order, "?")
 				argPositionDir, err := types.GetPositionDirectionFromStr(orderDetails[0])
 				if err != nil {
 					return err

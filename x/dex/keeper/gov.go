@@ -27,7 +27,7 @@ func (k Keeper) HandleRegisterPairsProposal(ctx sdk.Context, p *types.RegisterPa
 			k.AddRegisteredPair(ctx, contractAddress, *pair)
 			k.SetTickSizeForPair(ctx, contractAddress, *pair, pair.Ticksize)
 			contractAddr := types.ContractAddress(contractAddress)
-			pairStr := types.PairString(pair.String())
+			pairStr := types.GetPairString(pair)
 			newBlockOrders := dexcache.BlockOrders([]types.Order{})
 			k.BlockOrders[contractAddr][pairStr] = &newBlockOrders
 			newBlockCancels := dexcache.BlockCancellations([]types.Cancellation{})

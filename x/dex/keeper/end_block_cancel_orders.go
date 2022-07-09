@@ -22,7 +22,7 @@ func (k *Keeper) HandleEBCancelOrders(ctx context.Context, sdkCtx sdk.Context, t
 func (k *Keeper) getCancelSudoMsg(typedContractAddr types.ContractAddress, registeredPairs []types.Pair) types.SudoOrderCancellationMsg {
 	idsToCancel := []uint64{}
 	for _, pair := range registeredPairs {
-		typedPairStr := types.PairString(pair.String())
+		typedPairStr := types.GetPairString(&pair)
 		if orderCancellations, ok := k.BlockCancels[typedContractAddr][typedPairStr]; ok {
 			for _, orderCancellation := range *orderCancellations {
 				idsToCancel = append(idsToCancel, orderCancellation.Id)

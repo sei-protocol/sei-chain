@@ -16,8 +16,8 @@ func TestGetPlaceSudoMsg(t *testing.T) {
 	keeper.DepositInfo[TEST_CONTRACT] = dex.NewDepositInfo()
 	keeper.BlockOrders[TEST_CONTRACT] = map[types.PairString]*dex.BlockOrders{}
 	emptyBlockOrder := dex.BlockOrders([]types.Order{})
-	keeper.BlockOrders[TEST_CONTRACT][types.PairString(pair.String())] = &emptyBlockOrder
-	keeper.BlockOrders[TEST_CONTRACT][types.PairString(pair.String())].AddOrder(
+	keeper.BlockOrders[TEST_CONTRACT][types.GetPairString(&pair)] = &emptyBlockOrder
+	keeper.BlockOrders[TEST_CONTRACT][types.GetPairString(&pair)].AddOrder(
 		types.Order{
 			Id:                1,
 			Price:             sdk.OneDec(),
