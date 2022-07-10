@@ -33,6 +33,10 @@ func (s *StringSet) ToSlice() []string {
 	return res
 }
 
+func (s *StringSet) Size() int {
+	return len(s.dict)
+}
+
 type UInt64Set struct {
 	dict map[uint64]bool
 }

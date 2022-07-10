@@ -18,6 +18,7 @@ import (
 	cdctypes "github.com/cosmos/cosmos-sdk/codec/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/types/module"
+	"github.com/sei-protocol/sei-chain/utils"
 	"github.com/sei-protocol/sei-chain/utils/tracing"
 	dexcache "github.com/sei-protocol/sei-chain/x/dex/cache"
 	"github.com/sei-protocol/sei-chain/x/dex/client/cli"
@@ -25,6 +26,7 @@ import (
 	"github.com/sei-protocol/sei-chain/x/dex/keeper"
 	"github.com/sei-protocol/sei-chain/x/dex/migrations"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
+	"github.com/sei-protocol/sei-chain/x/store"
 )
 
 var (
@@ -246,14 +248,39 @@ func (am AppModule) beginBlockForContract(ctx sdk.Context, contractAddr string) 
 // EndBlock executes all ABCI EndBlock logic respective to the capability module. It
 // returns no validator updates.
 func (am AppModule) EndBlock(ctx sdk.Context, _ abci.RequestEndBlock) []abci.ValidatorUpdate {
-	for _, contractAddr := range am.getAllContractAddresses(ctx) {
+	failedContractAddresses := utils.NewStringSet([]string{})
+	cachedCtx, msCached := store.GetCachedContext(ctx)
+	// TODO: cache keeper in-memory state
+	for _, contractAddr := range am.getAllContractAddresses(cachedCtx) {
 		ctx.Logger().Info(fmt.Sprintf("End block for %s", contractAddr))
-		am.endBlockForContract(ctx, contractAddr)
+		if am.endBlockForContract(cachedCtx, contractAddr) != nil {
+			ctx.Logger().Error(fmt.Sprintf("Error for EndBlock of %s", contractAddr))
+			failedContractAddresses.Add(contractAddr)
+		}
 	}
+	if failedContractAddresses.Size() == 0 {
+		msCached.Write()
+		return []abci.ValidatorUpdate{}
+	}
+	// TODO: restore keeper in-memory state
+	// TODO: exclude orders by failed contracts from in-memory state
+	cachedCtx, msCached = store.GetCachedContext(ctx)
+	for _, contractAddr := range am.getAllContractAddresses(cachedCtx) {
+		if failedContractAddresses.Contains(contractAddr) {
+			// Skip failed contracts
+			continue
+		}
+		ctx.Logger().Info(fmt.Sprintf("Retry end block for %s", contractAddr))
+		if am.endBlockForContract(cachedCtx, contractAddr) != nil {
+			// we only retry once
+			ctx.Logger().Error(fmt.Sprintf("Error for EndBlock retry of %s", contractAddr))
+		}
+	}
+	msCached.Write()
 	return []abci.ValidatorUpdate{}
 }
 
-func (am AppModule) endBlockForContract(ctx sdk.Context, contractAddr string) {
+func (am AppModule) endBlockForContract(ctx sdk.Context, contractAddr string) error {
 	spanCtx, span := (*am.tracingInfo.Tracer).Start(am.tracingInfo.TracerContext, "DexEndBlock")
 	span.SetAttributes(attribute.String("contract", contractAddr))
 	defer span.End()
@@ -413,4 +440,6 @@ func (am AppModule) endBlockForContract(ctx sdk.Context, contractAddr string) {
 	}
 	// Cancel unfilled market orders
 	am.keeper.HandleEBCancelOrders(spanCtx, ctx, am.tracingInfo.Tracer, contractAddr, registeredPairs)
+
+	return nil
 }
