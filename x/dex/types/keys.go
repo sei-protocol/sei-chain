@@ -104,20 +104,14 @@ const (
 const (
 	LongBookKey      = "LongBook-value-"
 	LongBookCountKey = "LongBook-count-"
-)
 
-const (
 	ShortBookKey      = "ShortBook-value-"
 	ShortBookCountKey = "ShortBook-count-"
-)
 
-const (
 	OrderKey               = "order"
 	AccountActiveOrdersKey = "account-active-orders"
 	CancelKey              = "cancel"
-)
 
-const (
 	TwapKey             = "TWAP-"
 	PriceKey            = "Price-"
 	SettlementEntryKey  = "SettlementEntry-"

@@ -25,6 +25,26 @@ type MemState struct {
 	LiquidationRequests map[types.ContractAddress]*LiquidationRequests
 }
 
+// All new orders attempted to be placed in the current block
+type BlockOrders []types.Order
+
+type DepositInfoEntry struct {
+	Creator string
+	Denom   string
+	Amount  sdk.Dec
+}
+
+type DepositInfo []DepositInfoEntry
+
+type BlockCancellations []types.Cancellation
+
+type LiquidationRequest struct {
+	Requestor          string
+	AccountToLiquidate string
+}
+
+type LiquidationRequests []LiquidationRequest
+
 func NewMemState() *MemState {
 	return &MemState{
 		BlockOrders:         map[types.ContractAddress]map[types.PairString]*BlockOrders{},
@@ -107,29 +127,32 @@ func (s *MemState) DeepCopy() *MemState {
 	return copy
 }
 
-// All new orders attempted to be placed in the current block
-type BlockOrders []types.Order
-
 func (o *BlockOrders) AddOrder(order types.Order) {
 	*o = append(*o, order)
 }
 
 func (o *BlockOrders) MarkFailedToPlaceByAccounts(accounts []string) {
 	badAccountSet := utils.NewStringSet(accounts)
+	newOrders := []types.Order{}
 	for _, order := range *o {
 		if badAccountSet.Contains(order.Account) {
 			order.Status = types.OrderStatus_FAILED_TO_PLACE
 		}
+		newOrders = append(newOrders, order)
 	}
+	*o = newOrders
 }
 
 func (o *BlockOrders) MarkFailedToPlaceByIds(ids []uint64) {
 	badIdSet := utils.NewUInt64Set(ids)
+	newOrders := []types.Order{}
 	for _, order := range *o {
 		if badIdSet.Contains(order.Id) {
 			order.Status = types.OrderStatus_FAILED_TO_PLACE
 		}
+		newOrders = append(newOrders, order)
 	}
+	*o = newOrders
 }
 
 func (o *BlockOrders) GetSortedMarketOrders(direction types.PositionDirection, includeLiquidationOrders bool) []types.Order {
@@ -172,14 +195,6 @@ func (o *BlockOrders) getOrdersByCriteria(orderType types.OrderType, direction t
 	return res
 }
 
-type DepositInfoEntry struct {
-	Creator string
-	Denom   string
-	Amount  sdk.Dec
-}
-
-type DepositInfo []DepositInfoEntry
-
 func NewDepositInfo() *DepositInfo {
 	emptyDepositInfo := DepositInfo([]DepositInfoEntry{})
 	return &emptyDepositInfo
@@ -196,8 +211,6 @@ func ToContractDepositInfo(depositInfo DepositInfoEntry) types.ContractDepositIn
 		Amount:  depositInfo.Amount,
 	}
 }
-
-type BlockCancellations []types.Cancellation
 
 func (c *BlockCancellations) AddOrderIdToCancel(id uint64, initiator types.CancellationInitiator) {
 	*c = append(*c, types.Cancellation{Id: id, Initiator: initiator})
@@ -221,13 +234,6 @@ func (c *BlockCancellations) GetIdsToCancel() []uint64 {
 	}
 	return res
 }
-
-type LiquidationRequest struct {
-	Requestor          string
-	AccountToLiquidate string
-}
-
-type LiquidationRequests []LiquidationRequest
 
 func (lrs *LiquidationRequests) IsAccountLiquidating(accountToLiquidate string) bool {
 	for _, lr := range *lrs {
