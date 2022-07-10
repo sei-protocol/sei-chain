@@ -18,6 +18,95 @@ const (
 	QUANTITY_ATTR          = "quantity"
 )
 
+type MemState struct {
+	BlockOrders         map[types.ContractAddress]map[types.PairString]*BlockOrders
+	BlockCancels        map[types.ContractAddress]map[types.PairString]*BlockCancellations
+	DepositInfo         map[types.ContractAddress]*DepositInfo
+	LiquidationRequests map[types.ContractAddress]*LiquidationRequests
+}
+
+func NewMemState() *MemState {
+	return &MemState{
+		BlockOrders:         map[types.ContractAddress]map[types.PairString]*BlockOrders{},
+		BlockCancels:        map[types.ContractAddress]map[types.PairString]*BlockCancellations{},
+		DepositInfo:         map[types.ContractAddress]*DepositInfo{},
+		LiquidationRequests: map[types.ContractAddress]*LiquidationRequests{},
+	}
+}
+
+func (s *MemState) GetBlockOrders(contractAddr types.ContractAddress, pair types.PairString) *BlockOrders {
+	if _, ok := s.BlockOrders[contractAddr]; !ok {
+		s.BlockOrders[contractAddr] = map[types.PairString]*BlockOrders{}
+	}
+	if _, ok := s.BlockOrders[contractAddr][pair]; !ok {
+		emptyBlockOrders := BlockOrders([]types.Order{})
+		s.BlockOrders[contractAddr][pair] = &emptyBlockOrders
+	}
+	return s.BlockOrders[contractAddr][pair]
+}
+
+func (s *MemState) GetBlockCancels(contractAddr types.ContractAddress, pair types.PairString) *BlockCancellations {
+	if _, ok := s.BlockCancels[contractAddr]; !ok {
+		s.BlockCancels[contractAddr] = map[types.PairString]*BlockCancellations{}
+	}
+	if _, ok := s.BlockCancels[contractAddr][pair]; !ok {
+		emptyBlockCancels := BlockCancellations([]types.Cancellation{})
+		s.BlockCancels[contractAddr][pair] = &emptyBlockCancels
+	}
+	return s.BlockCancels[contractAddr][pair]
+}
+
+func (s *MemState) GetDepositInfo(contractAddr types.ContractAddress) *DepositInfo {
+	if _, ok := s.DepositInfo[contractAddr]; !ok {
+		s.DepositInfo[contractAddr] = NewDepositInfo()
+	}
+	return s.DepositInfo[contractAddr]
+}
+
+func (s *MemState) GetLiquidationRequests(contractAddr types.ContractAddress) *LiquidationRequests {
+	if _, ok := s.LiquidationRequests[contractAddr]; !ok {
+		emptyRequests := LiquidationRequests([]LiquidationRequest{})
+		s.LiquidationRequests[contractAddr] = &emptyRequests
+	}
+	return s.LiquidationRequests[contractAddr]
+}
+
+func (s *MemState) Clear() {
+	s.BlockOrders = map[types.ContractAddress]map[types.PairString]*BlockOrders{}
+	s.BlockCancels = map[types.ContractAddress]map[types.PairString]*BlockCancellations{}
+	s.DepositInfo = map[types.ContractAddress]*DepositInfo{}
+	s.LiquidationRequests = map[types.ContractAddress]*LiquidationRequests{}
+}
+
+func (s *MemState) DeepCopy() *MemState {
+	copy := NewMemState()
+	for contractAddr, _map := range s.BlockOrders {
+		for pair, blockOrders := range _map {
+			for _, blockOrder := range *blockOrders {
+				copy.GetBlockOrders(contractAddr, pair).AddOrder(blockOrder)
+			}
+		}
+	}
+	for contractAddr, _map := range s.BlockCancels {
+		for pair, blockCancels := range _map {
+			for _, blockCancel := range *blockCancels {
+				copy.GetBlockCancels(contractAddr, pair).AddOrderIdToCancel(blockCancel.Id, blockCancel.Initiator)
+			}
+		}
+	}
+	for contractAddr, deposits := range s.DepositInfo {
+		for _, deposit := range *deposits {
+			copy.GetDepositInfo(contractAddr).AddDeposit(deposit)
+		}
+	}
+	for contractAddr, liquidations := range s.LiquidationRequests {
+		for _, liquidation := range *liquidations {
+			copy.GetLiquidationRequests(contractAddr).AddNewLiquidationRequest(liquidation.Requestor, liquidation.AccountToLiquidate)
+		}
+	}
+	return copy
+}
+
 // All new orders attempted to be placed in the current block
 type BlockOrders []types.Order
 
@@ -49,6 +138,13 @@ func (o *BlockOrders) GetSortedMarketOrders(direction types.PositionDirection, i
 		res = append(res, o.getOrdersByCriteria(types.OrderType_LIQUIDATION, direction)...)
 	}
 	sort.Slice(res, func(i, j int) bool {
+		// a price of 0 indicates that there is no worst price for the order, so it should
+		// always be ranked at the top.
+		if res[i].Price.IsZero() {
+			return true
+		} else if res[j].Price.IsZero() {
+			return false
+		}
 		switch direction {
 		case types.PositionDirection_LONG:
 			return res[i].Price.GT(res[j].Price)
@@ -82,14 +178,15 @@ type DepositInfoEntry struct {
 	Amount  sdk.Dec
 }
 
-type DepositInfo struct {
-	DepositInfoList []DepositInfoEntry
-}
+type DepositInfo []DepositInfoEntry
 
 func NewDepositInfo() *DepositInfo {
-	return &DepositInfo{
-		DepositInfoList: []DepositInfoEntry{},
-	}
+	emptyDepositInfo := DepositInfo([]DepositInfoEntry{})
+	return &emptyDepositInfo
+}
+
+func (d *DepositInfo) AddDeposit(deposit DepositInfoEntry) {
+	*d = append(*d, deposit)
 }
 
 func ToContractDepositInfo(depositInfo DepositInfoEntry) types.ContractDepositInfo {

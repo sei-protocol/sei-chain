@@ -21,7 +21,7 @@ func (k *Keeper) HandleEBPlaceOrders(ctx context.Context, sdkCtx sdk.Context, tr
 	span.SetAttributes(attribute.String("contractAddr", contractAddr))
 
 	typedContractAddr := types.ContractAddress(contractAddr)
-	msgs := k.GetPlaceSudoMsg(typedContractAddr, registeredPairs)
+	msgs := k.GetPlaceSudoMsg(sdkCtx, typedContractAddr, registeredPairs)
 	k.CallContractSudo(sdkCtx, contractAddr, msgs[0]) // deposit
 
 	responses := []types.SudoOrderPlacementResponse{}
@@ -35,43 +35,28 @@ func (k *Keeper) HandleEBPlaceOrders(ctx context.Context, sdkCtx sdk.Context, tr
 
 	for _, pair := range registeredPairs {
 		typedPairStr := types.GetPairString(&pair)
-		if orders, ok := k.BlockOrders[typedContractAddr][typedPairStr]; ok {
-			for _, response := range responses {
-				orders.MarkFailedToPlaceByIds(response.UnsuccessfulOrderIds)
-			}
+		for _, response := range responses {
+			k.MemState.GetBlockOrders(typedContractAddr, typedPairStr).MarkFailedToPlaceByIds(response.UnsuccessfulOrderIds)
 		}
 	}
 	span.End()
 }
 
-func (k *Keeper) GetPlaceSudoMsg(typedContractAddr types.ContractAddress, registeredPairs []types.Pair) []types.SudoOrderPlacementMsg {
-	contractDepositInfo := []types.ContractDepositInfo{}
-	for _, depositInfo := range k.DepositInfo[typedContractAddr].DepositInfoList {
-		contractDepositInfo = append(contractDepositInfo, dexcache.ToContractDepositInfo(depositInfo))
-	}
+func (k *Keeper) GetPlaceSudoMsg(ctx sdk.Context, typedContractAddr types.ContractAddress, registeredPairs []types.Pair) []types.SudoOrderPlacementMsg {
+	msgs := []types.SudoOrderPlacementMsg{k.GetDepositSudoMsg(ctx, typedContractAddr)}
 	contractOrderPlacements := []types.Order{}
-	msgs := []types.SudoOrderPlacementMsg{
-		{
-			OrderPlacements: types.OrderPlacementMsgDetails{
-				Orders:   []types.Order{},
-				Deposits: contractDepositInfo,
-			},
-		},
-	}
 	for _, pair := range registeredPairs {
 		typedPairStr := types.GetPairString(&pair)
-		if orders, ok := k.BlockOrders[typedContractAddr][typedPairStr]; ok {
-			for _, order := range *orders {
-				contractOrderPlacements = append(contractOrderPlacements, order)
-				if len(contractOrderPlacements) == MAX_ORDERS_PER_SUDO_CALL {
-					msgs = append(msgs, types.SudoOrderPlacementMsg{
-						OrderPlacements: types.OrderPlacementMsgDetails{
-							Orders:   contractOrderPlacements,
-							Deposits: []types.ContractDepositInfo{},
-						},
-					})
-					contractOrderPlacements = []types.Order{}
-				}
+		for _, order := range *k.MemState.GetBlockOrders(typedContractAddr, typedPairStr) {
+			contractOrderPlacements = append(contractOrderPlacements, order)
+			if len(contractOrderPlacements) == MAX_ORDERS_PER_SUDO_CALL {
+				msgs = append(msgs, types.SudoOrderPlacementMsg{
+					OrderPlacements: types.OrderPlacementMsgDetails{
+						Orders:   contractOrderPlacements,
+						Deposits: []types.ContractDepositInfo{},
+					},
+				})
+				contractOrderPlacements = []types.Order{}
 			}
 		}
 	}
@@ -82,4 +67,20 @@ func (k *Keeper) GetPlaceSudoMsg(typedContractAddr types.ContractAddress, regist
 		},
 	})
 	return msgs
+}
+
+func (k *Keeper) GetDepositSudoMsg(ctx sdk.Context, typedContractAddr types.ContractAddress) types.SudoOrderPlacementMsg {
+	contractDepositInfo := []types.ContractDepositInfo{}
+	for _, depositInfo := range *k.MemState.GetDepositInfo(typedContractAddr) {
+		fund := sdk.NewCoins(sdk.NewCoin(depositInfo.Denom, depositInfo.Amount.RoundInt()))
+		if k.BankKeeper.SendCoins(ctx, sdk.AccAddress(depositInfo.Creator), sdk.AccAddress(typedContractAddr), fund) == nil {
+			contractDepositInfo = append(contractDepositInfo, dexcache.ToContractDepositInfo(depositInfo))
+		}
+	}
+	return types.SudoOrderPlacementMsg{
+		OrderPlacements: types.OrderPlacementMsgDetails{
+			Orders:   []types.Order{},
+			Deposits: contractDepositInfo,
+		},
+	}
 }

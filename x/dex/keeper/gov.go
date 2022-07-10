@@ -5,7 +5,6 @@ import (
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 
-	dexcache "github.com/sei-protocol/sei-chain/x/dex/cache"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
 )
 
@@ -26,12 +25,6 @@ func (k Keeper) HandleRegisterPairsProposal(ctx sdk.Context, p *types.RegisterPa
 			}
 			k.AddRegisteredPair(ctx, contractAddress, *pair)
 			k.SetTickSizeForPair(ctx, contractAddress, *pair, *pair.Ticksize)
-			contractAddr := types.ContractAddress(contractAddress)
-			pairStr := types.GetPairString(pair)
-			newBlockOrders := dexcache.BlockOrders([]types.Order{})
-			k.BlockOrders[contractAddr][pairStr] = &newBlockOrders
-			newBlockCancels := dexcache.BlockCancellations([]types.Cancellation{})
-			k.BlockCancels[contractAddr][pairStr] = &newBlockCancels
 		}
 	}
 

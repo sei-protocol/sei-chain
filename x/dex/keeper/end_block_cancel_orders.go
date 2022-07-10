@@ -23,10 +23,8 @@ func (k *Keeper) getCancelSudoMsg(typedContractAddr types.ContractAddress, regis
 	idsToCancel := []uint64{}
 	for _, pair := range registeredPairs {
 		typedPairStr := types.GetPairString(&pair)
-		if orderCancellations, ok := k.BlockCancels[typedContractAddr][typedPairStr]; ok {
-			for _, orderCancellation := range *orderCancellations {
-				idsToCancel = append(idsToCancel, orderCancellation.Id)
-			}
+		for _, cancel := range *k.MemState.GetBlockCancels(typedContractAddr, typedPairStr) {
+			idsToCancel = append(idsToCancel, cancel.Id)
 		}
 	}
 	return types.SudoOrderCancellationMsg{

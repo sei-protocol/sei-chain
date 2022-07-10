@@ -29,18 +29,14 @@ func (k *Keeper) HandleEBLiquidation(ctx context.Context, sdkCtx sdk.Context, tr
 	// Clear up all user-initiated order activities in the current block
 	for _, pair := range registeredPairs {
 		typedPairStr := types.GetPairString(&pair)
-		if cancellations, ok := k.BlockCancels[typedContractAddr][typedPairStr]; ok {
-			cancellations.FilterByIds(liquidatedAccountsActiveOrderIds)
-		}
-		if orders, ok := k.BlockOrders[typedContractAddr][typedPairStr]; ok {
-			orders.MarkFailedToPlaceByAccounts(response.SuccessfulAccounts)
-		}
+		k.MemState.GetBlockCancels(typedContractAddr, typedPairStr).FilterByIds(liquidatedAccountsActiveOrderIds)
+		k.MemState.GetBlockOrders(typedContractAddr, typedPairStr).MarkFailedToPlaceByAccounts(response.SuccessfulAccounts)
 	}
 	// Cancel all outstanding orders of liquidated accounts, as denoted as cancelled via liquidation
 	for id, order := range k.GetOrdersByIds(sdkCtx, contractAddr, liquidatedAccountsActiveOrderIds) {
 		pair := types.Pair{PriceDenom: order.PriceDenom, AssetDenom: order.AssetDenom}
 		typedPairStr := types.GetPairString(&pair)
-		k.BlockCancels[typedContractAddr][typedPairStr].AddOrderIdToCancel(id, types.CancellationInitiator_LIQUIDATED)
+		k.MemState.GetBlockCancels(typedContractAddr, typedPairStr).AddOrderIdToCancel(id, types.CancellationInitiator_LIQUIDATED)
 	}
 
 	// Place liquidation orders
@@ -53,7 +49,7 @@ func (k *Keeper) placeLiquidationOrders(ctx sdk.Context, contractAddr string, li
 	nextId := k.GetNextOrderId(ctx)
 	for _, order := range liquidationOrders {
 		pair := types.Pair{PriceDenom: order.PriceDenom, AssetDenom: order.AssetDenom}
-		orders := k.BlockOrders[types.ContractAddress(contractAddr)][types.PairString(pair.String())]
+		orders := k.MemState.GetBlockOrders(types.ContractAddress(contractAddr), types.PairString(pair.String()))
 		order.Id = nextId
 		orders.AddOrder(order)
 		nextId += 1
@@ -62,7 +58,7 @@ func (k *Keeper) placeLiquidationOrders(ctx sdk.Context, contractAddr string, li
 }
 
 func (k *Keeper) getLiquidationSudoMsg(typedContractAddr types.ContractAddress) types.SudoLiquidationMsg {
-	cachedLiquidationRequests := k.LiquidationRequests[typedContractAddr]
+	cachedLiquidationRequests := k.MemState.GetLiquidationRequests(typedContractAddr)
 	liquidationRequests := []types.LiquidationRequest{}
 	for _, cachedLiquidationRequest := range *cachedLiquidationRequests {
 		liquidationRequests = append(liquidationRequests, types.LiquidationRequest{

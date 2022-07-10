@@ -206,6 +206,7 @@ func (am AppModule) callClearingHouseContractSudo(ctx sdk.Context, msg []byte, c
 
 // BeginBlock executes all ABCI BeginBlock logic respective to the capability module.
 func (am AppModule) BeginBlock(ctx sdk.Context, _ abci.RequestBeginBlock) {
+	am.keeper.MemState.Clear()
 	for _, contractAddr := range am.getAllContractAddresses(ctx) {
 		am.beginBlockForContract(ctx, contractAddr)
 	}
@@ -218,20 +219,6 @@ func (am AppModule) beginBlockForContract(ctx sdk.Context, contractAddr string) 
 	_, span := (*am.tracingInfo.Tracer).Start(am.tracingInfo.TracerContext, "DexBeginBlock")
 	span.SetAttributes(attribute.String("contract", contractAddr))
 	defer span.End()
-
-	typedContractAddr := types.ContractAddress(contractAddr)
-	am.keeper.BlockOrders[typedContractAddr] = map[types.PairString]*dexcache.BlockOrders{}
-	am.keeper.BlockCancels[typedContractAddr] = map[types.PairString]*dexcache.BlockCancellations{}
-	am.keeper.DepositInfo[typedContractAddr] = dexcache.NewDepositInfo()
-	am.keeper.LiquidationRequests[typedContractAddr] = &dexcache.LiquidationRequests{}
-	for _, pair := range am.keeper.GetAllRegisteredPairs(ctx, contractAddr) {
-		ctx.Logger().Info(pair.String())
-		typedPairStr := types.GetPairString(&pair)
-		emptyBlockOrder := dexcache.BlockOrders([]types.Order{})
-		emptyBlockCancel := dexcache.BlockCancellations([]types.Cancellation{})
-		am.keeper.BlockOrders[typedContractAddr][typedPairStr] = &emptyBlockOrder
-		am.keeper.BlockCancels[typedContractAddr][typedPairStr] = &emptyBlockCancel
-	}
 
 	if isNewEpoch, currentEpoch := am.keeper.IsNewEpoch(ctx); isNewEpoch {
 		ctx.Logger().Info(fmt.Sprintf("Updating price for epoch %d", currentEpoch))
@@ -281,8 +268,8 @@ func (am AppModule) endBlockForContract(ctx sdk.Context, contractAddr string) {
 
 	for _, pair := range registeredPairs {
 		typedPairStr := types.GetPairString(&pair)
-		orders := am.keeper.BlockOrders[typedContractAddr][typedPairStr]
-		cancels := am.keeper.BlockCancels[typedContractAddr][typedPairStr]
+		orders := am.keeper.MemState.GetBlockOrders(typedContractAddr, typedPairStr)
+		cancels := am.keeper.MemState.GetBlockCancels(typedContractAddr, typedPairStr)
 		ctx.Logger().Info(string(typedPairStr))
 		marketBuys := orders.GetSortedMarketOrders(types.PositionDirection_LONG, true)
 		marketSells := orders.GetSortedMarketOrders(types.PositionDirection_SHORT, true)
@@ -412,15 +399,15 @@ func (am AppModule) endBlockForContract(ctx sdk.Context, contractAddr string) {
 		}
 
 		emptyBlockCancel := dexcache.BlockCancellations([]types.Cancellation{})
-		am.keeper.BlockCancels[typedContractAddr][typedPairStr] = &emptyBlockCancel
+		am.keeper.MemState.BlockCancels[typedContractAddr][typedPairStr] = &emptyBlockCancel
 		for _, marketOrder := range marketBuys {
 			if marketOrder.Quantity.IsPositive() {
-				am.keeper.BlockCancels[typedContractAddr][typedPairStr].AddOrderIdToCancel(marketOrder.Id, types.CancellationInitiator_USER)
+				am.keeper.MemState.GetBlockCancels(typedContractAddr, typedPairStr).AddOrderIdToCancel(marketOrder.Id, types.CancellationInitiator_USER)
 			}
 		}
 		for _, marketOrder := range marketSells {
 			if marketOrder.Quantity.IsPositive() {
-				am.keeper.BlockCancels[typedContractAddr][typedPairStr].AddOrderIdToCancel(marketOrder.Id, types.CancellationInitiator_USER)
+				am.keeper.MemState.GetBlockCancels(typedContractAddr, typedPairStr).AddOrderIdToCancel(marketOrder.Id, types.CancellationInitiator_USER)
 			}
 		}
 	}

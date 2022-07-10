@@ -17,10 +17,6 @@ func (k msgServer) transferFunds(goCtx context.Context, msg *types.MsgPlaceOrder
 	defer span.End()
 
 	ctx := sdk.UnwrapSDKContext(goCtx)
-	callerAddr, err := sdk.AccAddressFromBech32(msg.Creator)
-	if err != nil {
-		return err
-	}
 	contractAddr, err := sdk.AccAddressFromBech32(msg.ContractAddr)
 	if err != nil {
 		return err
@@ -31,13 +27,9 @@ func (k msgServer) transferFunds(goCtx context.Context, msg *types.MsgPlaceOrder
 	if k.BankKeeper.BlockedAddr(contractAddr) {
 		return sdkerrors.Wrapf(sdkerrors.ErrUnauthorized, "%s is not allowed to receive funds", contractAddr.String())
 	}
-	if err := k.BankKeeper.SendCoins(ctx, callerAddr, contractAddr, msg.Funds); err != nil {
-		return err
-	}
 
-	di := k.DepositInfo[types.ContractAddress(msg.GetContractAddr())]
 	for _, fund := range msg.Funds {
-		di.DepositInfoList = append(di.DepositInfoList, dexcache.DepositInfoEntry{
+		k.MemState.GetDepositInfo(types.ContractAddress(msg.GetContractAddr())).AddDeposit(dexcache.DepositInfoEntry{
 			Creator: msg.Creator,
 			Denom:   fund.Denom,
 			Amount:  sdk.NewDec(fund.Amount.Int64()),
@@ -56,8 +48,6 @@ func (k msgServer) PlaceOrders(goCtx context.Context, msg *types.MsgPlaceOrders)
 		return nil, err
 	}
 
-	contractBlockOrders := k.BlockOrders[types.ContractAddress(msg.GetContractAddr())]
-
 	nextId := k.GetNextOrderId(ctx)
 	idsInResp := []uint64{}
 	for _, order := range msg.GetOrders() {
@@ -70,7 +60,7 @@ func (k msgServer) PlaceOrders(goCtx context.Context, msg *types.MsgPlaceOrders)
 		order.Id = nextId
 		order.Account = msg.Creator
 		order.ContractAddr = msg.GetContractAddr()
-		contractBlockOrders[pairStr].AddOrder(*order)
+		k.MemState.GetBlockOrders(types.ContractAddress(msg.GetContractAddr()), pairStr).AddOrder(*order)
 		idsInResp = append(idsInResp, nextId)
 		nextId += 1
 	}

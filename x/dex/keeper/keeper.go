@@ -17,17 +17,14 @@ import (
 
 type (
 	Keeper struct {
-		Cdc                 codec.BinaryCodec
-		storeKey            sdk.StoreKey
-		memKey              sdk.StoreKey
-		Paramstore          paramtypes.Subspace
-		BlockOrders         map[types.ContractAddress]map[types.PairString]*dexcache.BlockOrders
-		BlockCancels        map[types.ContractAddress]map[types.PairString]*dexcache.BlockCancellations
-		DepositInfo         map[types.ContractAddress]*dexcache.DepositInfo
-		LiquidationRequests map[types.ContractAddress]*dexcache.LiquidationRequests
-		EpochKeeper         epochkeeper.Keeper
-		BankKeeper          bankkeeper.Keeper
-		WasmKeeper          wasm.Keeper
+		Cdc         codec.BinaryCodec
+		storeKey    sdk.StoreKey
+		memKey      sdk.StoreKey
+		Paramstore  paramtypes.Subspace
+		EpochKeeper epochkeeper.Keeper
+		BankKeeper  bankkeeper.Keeper
+		WasmKeeper  wasm.Keeper
+		MemState    *dexcache.MemState
 	}
 )
 
@@ -42,14 +39,11 @@ func NewPlainKeeper(
 		ps = ps.WithKeyTable(types.ParamKeyTable())
 	}
 	return &Keeper{
-		Cdc:                 cdc,
-		storeKey:            storeKey,
-		memKey:              memKey,
-		Paramstore:          ps,
-		BlockOrders:         map[types.ContractAddress]map[types.PairString]*dexcache.BlockOrders{},
-		BlockCancels:        map[types.ContractAddress]map[types.PairString]*dexcache.BlockCancellations{},
-		DepositInfo:         map[types.ContractAddress]*dexcache.DepositInfo{},
-		LiquidationRequests: map[types.ContractAddress]*dexcache.LiquidationRequests{},
+		Cdc:        cdc,
+		storeKey:   storeKey,
+		memKey:     memKey,
+		Paramstore: ps,
+		MemState:   dexcache.NewMemState(),
 	}
 }
 
@@ -66,16 +60,13 @@ func NewKeeper(
 		ps = ps.WithKeyTable(types.ParamKeyTable())
 	}
 	return &Keeper{
-		Cdc:                 cdc,
-		storeKey:            storeKey,
-		memKey:              memKey,
-		Paramstore:          ps,
-		BlockOrders:         map[types.ContractAddress]map[types.PairString]*dexcache.BlockOrders{},
-		BlockCancels:        map[types.ContractAddress]map[types.PairString]*dexcache.BlockCancellations{},
-		DepositInfo:         map[types.ContractAddress]*dexcache.DepositInfo{},
-		LiquidationRequests: map[types.ContractAddress]*dexcache.LiquidationRequests{},
-		EpochKeeper:         epochKeeper,
-		BankKeeper:          bankKeeper,
+		Cdc:         cdc,
+		storeKey:    storeKey,
+		memKey:      memKey,
+		Paramstore:  ps,
+		EpochKeeper: epochKeeper,
+		BankKeeper:  bankKeeper,
+		MemState:    dexcache.NewMemState(),
 	}
 }
 
