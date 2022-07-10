@@ -301,6 +301,7 @@ func (am AppModule) endBlockForContract(ctx sdk.Context, contractAddr string) {
 		exchange.CancelOrders(ctx, *cancels, allExistingSells, originalOrdersToCancel, &shortDirtyPrices)
 
 		settlements := []*types.SettlementEntry{}
+		// orders that are fully executed during order matching and need to be removed from active order state
 		zeroOrders := []exchange.AccountOrderId{}
 		marketBuyTotalPrice, marketBuyTotalQuantity := exchange.MatchMarketOrders(
 			ctx,
