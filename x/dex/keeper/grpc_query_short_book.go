@@ -17,7 +17,9 @@ func (k Keeper) ShortBookAll(c context.Context, req *types.QueryAllShortBookRequ
 
 	ctx := sdk.UnwrapSDKContext(c)
 
-	shortBooks, pageRes, err := k.GetAllShortBookForPairPaginated(ctx, req.ContractAddr, req.PriceDenom, req.AssetDenom, req.Pagination)
+	shortBooks, pageRes, err := k.GetAllShortBookForPairPaginated(
+		ctx, req.ContractAddr, req.PriceDenom, req.AssetDenom, req.Pagination,
+	)
 	if err != nil {
 		return nil, status.Error(codes.Internal, err.Error())
 	}

@@ -21,12 +21,14 @@ func TestAddGetPair(t *testing.T) {
 	keeper.AddRegisteredPair(ctx, TEST_CONTRACT, types.Pair{
 		PriceDenom: TEST_PRICE_DENOM,
 		AssetDenom: TEST_ASSET_DENOM,
+		Ticksize:   &TEST_TICKSIZE,
 	})
 	require.Equal(t, uint64(1), keeper.GetPairCount(ctx, TEST_CONTRACT))
 	require.ElementsMatch(t,
 		nullify.Fill([]types.Pair{{
 			PriceDenom: TEST_PRICE_DENOM,
 			AssetDenom: TEST_ASSET_DENOM,
+			Ticksize:   &TEST_TICKSIZE,
 		}}),
 		nullify.Fill(keeper.GetAllRegisteredPairs(ctx, TEST_CONTRACT)),
 	)

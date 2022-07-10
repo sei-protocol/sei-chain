@@ -27,14 +27,8 @@ message SettlementEntry {
     (gogoproto.jsontag) = "expected_cost_or_proceed"
 	];
   string positionDirection = 7 [(gogoproto.jsontag) = "position_direction"];
-  string positionEffect = 8 [(gogoproto.jsontag) = "position_effect"];
-  string leverage = 9 [
-		(gogoproto.moretags)   = "yaml:\"leverage\"",
-		(gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Dec",
-		(gogoproto.nullable)   = false,
-    (gogoproto.jsontag) = "leverage"
-	];
-  string orderType = 10 [(gogoproto.jsontag) = "order_type"];
+  string orderType = 8 [(gogoproto.jsontag) = "order_type"];
+  uint64 orderId = 9 [(gogoproto.jsontag) = "order_id"];
 }
 
 message Settlements {

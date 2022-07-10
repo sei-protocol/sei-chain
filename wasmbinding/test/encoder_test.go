@@ -14,21 +14,20 @@ import (
 const TEST_TARGET_CONTRACT = "sei14hj2tavq8fpesdwxxcu44rty3hh90vhujrvcmstl4zr3txmfvw9sh9m79m"
 const TEST_CREATOR = "sei1nc5tatafv6eyq7llkr2gv50ff9e22mnf70qgjlv737ktmt4eswrqms7u8a"
 
-func TestDecodeOrderPlacement(t *testing.T) {
-	orderPlacement := types.OrderPlacement{
+func TestDecodeOrder(t *testing.T) {
+	order := types.Order{
 		PositionDirection: types.PositionDirection_LONG,
-		PositionEffect:    types.PositionEffect_OPEN,
 		OrderType:         types.OrderType_LIMIT,
-		PriceDenom:        "usdc",
-		AssetDenom:        "sei",
+		PriceDenom:        "USDC",
+		AssetDenom:        "SEI",
 		Price:             sdk.MustNewDecFromStr("10"),
 		Quantity:          sdk.OneDec(),
-		Leverage:          sdk.OneDec(),
+		Data:              "{\"position_effect\":\"OPEN\", \"leverage\":\"1\"}",
 	}
 	fund := sdk.NewCoin("usei", sdk.NewInt(1000000000))
 	msg := types.MsgPlaceOrders{
 		Creator:      TEST_CREATOR,
-		Orders:       []*types.OrderPlacement{&orderPlacement},
+		Orders:       []*types.Order{&order},
 		ContractAddr: TEST_TARGET_CONTRACT,
 		Funds:        []sdk.Coin{fund},
 	}
@@ -53,19 +52,10 @@ func TestDecodeOrderPlacement(t *testing.T) {
 }
 
 func TestDecodeOrderCancellation(t *testing.T) {
-	orderCancellation := types.OrderCancellation{
-		PositionDirection: types.PositionDirection_LONG,
-		PositionEffect:    types.PositionEffect_OPEN,
-		PriceDenom:        "usdc",
-		AssetDenom:        "sei",
-		Price:             sdk.MustNewDecFromStr("10"),
-		Quantity:          sdk.OneDec(),
-		Leverage:          sdk.OneDec(),
-	}
 	msg := types.MsgCancelOrders{
-		Creator:            TEST_CREATOR,
-		OrderCancellations: []*types.OrderCancellation{&orderCancellation},
-		ContractAddr:       TEST_TARGET_CONTRACT,
+		Creator:      TEST_CREATOR,
+		OrderIds:     []uint64{1},
+		ContractAddr: TEST_TARGET_CONTRACT,
 	}
 	serialized, _ := json.Marshal(msg)
 	encodedMsg := base64.StdEncoding.EncodeToString(serialized)

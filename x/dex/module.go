@@ -206,6 +206,7 @@ func (am AppModule) callClearingHouseContractSudo(ctx sdk.Context, msg []byte, c
 
 // BeginBlock executes all ABCI BeginBlock logic respective to the capability module.
 func (am AppModule) BeginBlock(ctx sdk.Context, _ abci.RequestBeginBlock) {
+	am.keeper.MemState.Clear()
 	for _, contractAddr := range am.getAllContractAddresses(ctx) {
 		am.beginBlockForContract(ctx, contractAddr)
 	}
@@ -218,19 +219,6 @@ func (am AppModule) beginBlockForContract(ctx sdk.Context, contractAddr string) 
 	_, span := (*am.tracingInfo.Tracer).Start(am.tracingInfo.TracerContext, "DexBeginBlock")
 	span.SetAttributes(attribute.String("contract", contractAddr))
 	defer span.End()
-
-	am.keeper.Orders[contractAddr] = map[string]*dexcache.Orders{}
-	am.keeper.OrderPlacements[contractAddr] = map[string]*dexcache.OrderPlacements{}
-	am.keeper.OrderCancellations[contractAddr] = map[string]*dexcache.OrderCancellations{}
-	am.keeper.DepositInfo[contractAddr] = dexcache.NewDepositInfo()
-	am.keeper.LiquidationRequests[contractAddr] = &dexcache.LiquidationRequests{}
-	for _, pair := range am.keeper.GetAllRegisteredPairs(ctx, contractAddr) {
-		ctx.Logger().Info(pair.String())
-		am.keeper.Orders[contractAddr][pair.String()] = dexcache.NewOrders()
-		am.keeper.OrderPlacements[contractAddr][pair.String()] = dexcache.NewOrderPlacements()
-		am.keeper.OrderCancellations[contractAddr][pair.String()] = dexcache.NewOrderCancellations()
-	}
-	ctx.Logger().Info(fmt.Sprintf("Orders %s, %s", am.keeper.Orders, contractAddr))
 
 	if isNewEpoch, currentEpoch := am.keeper.IsNewEpoch(ctx); isNewEpoch {
 		ctx.Logger().Info(fmt.Sprintf("Updating price for epoch %d", currentEpoch))
@@ -270,6 +258,7 @@ func (am AppModule) endBlockForContract(ctx sdk.Context, contractAddr string) {
 	span.SetAttributes(attribute.String("contract", contractAddr))
 	defer span.End()
 
+	typedContractAddr := types.ContractAddress(contractAddr)
 	registeredPairs := am.keeper.GetAllRegisteredPairs(ctx, contractAddr)
 	_, currentEpoch := am.keeper.IsNewEpoch(ctx)
 
@@ -277,52 +266,61 @@ func (am AppModule) endBlockForContract(ctx sdk.Context, contractAddr string) {
 	am.keeper.HandleEBCancelOrders(spanCtx, ctx, am.tracingInfo.Tracer, contractAddr, registeredPairs)
 	am.keeper.HandleEBPlaceOrders(spanCtx, ctx, am.tracingInfo.Tracer, contractAddr, registeredPairs)
 
-	am.keeper.OrderCancellations[contractAddr] = map[string]*dexcache.OrderCancellations{}
 	for _, pair := range registeredPairs {
-		am.keeper.OrderCancellations[contractAddr][pair.String()] = dexcache.NewOrderCancellations()
-		orders := am.keeper.Orders[contractAddr][pair.String()]
-		ctx.Logger().Info(pair.String())
-		ctx.Logger().Info(fmt.Sprintf("Orders %s", am.keeper.Orders))
-		ctx.Logger().Info(fmt.Sprintf("Number of LB: %d, LS: %d, MB: %d, MS: %d", len(orders.LimitBuys), len(orders.LimitSells), len(orders.MarketBuys), len(orders.MarketSells)))
-		allExistingBuys := am.keeper.GetAllLongBookForPair(ctx, contractAddr, pair.PriceDenom, pair.AssetDenom)
-		allExistingSells := am.keeper.GetAllShortBookForPair(ctx, contractAddr, pair.PriceDenom, pair.AssetDenom)
+		typedPairStr := types.GetPairString(&pair)
+		orders := am.keeper.MemState.GetBlockOrders(typedContractAddr, typedPairStr)
+		cancels := am.keeper.MemState.GetBlockCancels(typedContractAddr, typedPairStr)
+		ctx.Logger().Info(string(typedPairStr))
+		marketBuys := orders.GetSortedMarketOrders(types.PositionDirection_LONG, true)
+		marketSells := orders.GetSortedMarketOrders(types.PositionDirection_SHORT, true)
+		limitBuys := orders.GetLimitOrders(types.PositionDirection_LONG)
+		limitSells := orders.GetLimitOrders(types.PositionDirection_SHORT)
+		ctx.Logger().Info(fmt.Sprintf("Number of LB: %d, LS: %d, MB: %d, MS: %d", len(limitBuys), len(limitSells), len(marketBuys), len(marketSells)))
+		priceDenomStr := pair.PriceDenom
+		assetDenomStr := pair.AssetDenom
+		allExistingBuys := am.keeper.GetAllLongBookForPair(ctx, contractAddr, priceDenomStr, assetDenomStr)
+		allExistingSells := am.keeper.GetAllShortBookForPair(ctx, contractAddr, priceDenomStr, assetDenomStr)
 
 		longDirtyPrices, shortDirtyPrices := exchange.NewDirtyPrices(), exchange.NewDirtyPrices()
-		liquidationCancels := am.keeper.OrderCancellations[contractAddr][pair.String()].LiquidationCancellations
-		exchange.CancelForLiquidation(ctx, liquidationCancels, allExistingBuys, &longDirtyPrices)
-		exchange.CancelForLiquidation(ctx, liquidationCancels, allExistingSells, &shortDirtyPrices)
-		exchange.CancelOrders(ctx, orders.CancelBuys, allExistingBuys, types.PositionDirection_LONG, &longDirtyPrices)
-		exchange.CancelOrders(ctx, orders.CancelBuys, allExistingSells, types.PositionDirection_SHORT, &shortDirtyPrices)
 
-		settlements := []*types.Settlement{}
+		originalOrdersToCancel := am.keeper.GetOrdersByIds(ctx, contractAddr, cancels.GetIdsToCancel())
+		exchange.CancelOrders(ctx, *cancels, allExistingBuys, originalOrdersToCancel, &longDirtyPrices)
+		exchange.CancelOrders(ctx, *cancels, allExistingSells, originalOrdersToCancel, &shortDirtyPrices)
+
+		settlements := []*types.SettlementEntry{}
+		// orders that are fully executed during order matching and need to be removed from active order state
+		zeroOrders := []exchange.AccountOrderId{}
 		marketBuyTotalPrice, marketBuyTotalQuantity := exchange.MatchMarketOrders(
 			ctx,
-			orders.MarketBuys,
+			marketBuys,
 			allExistingSells,
 			pair,
 			types.PositionDirection_LONG,
 			&longDirtyPrices,
 			&settlements,
+			&zeroOrders,
 		)
 		marketSellTotalPrice, marketSellTotalQuantity := exchange.MatchMarketOrders(
 			ctx,
-			orders.MarketSells,
+			marketSells,
 			allExistingBuys,
 			pair,
 			types.PositionDirection_SHORT,
 			&shortDirtyPrices,
 			&settlements,
+			&zeroOrders,
 		)
 		limitTotalPrice, limitTotalQuantity := exchange.MatchLimitOrders(
 			ctx,
-			orders.LimitBuys,
-			orders.LimitSells,
+			limitBuys,
+			limitSells,
 			&allExistingBuys,
 			&allExistingSells,
 			pair,
 			&longDirtyPrices,
 			&shortDirtyPrices,
 			&settlements,
+			&zeroOrders,
 		)
 		var avgPrice sdk.Dec
 		if marketBuyTotalQuantity.Add(marketSellTotalQuantity).Add(limitTotalQuantity).IsZero() {
@@ -334,9 +332,13 @@ func (am AppModule) endBlockForContract(ctx sdk.Context, contractAddr string) {
 			priceState.Price = avgPrice
 			am.keeper.SetPriceState(ctx, priceState, contractAddr, currentEpoch)
 		}
+		ctx.Logger().Info(fmt.Sprintf("Number of long books: %d", len(allExistingBuys)))
+		ctx.Logger().Info(fmt.Sprintf("Number of short books: %d", len(allExistingSells)))
 		ctx.Logger().Info(fmt.Sprintf("Average price for %s/%s: %d", pair.PriceDenom, pair.AssetDenom, avgPrice))
 		for _, buy := range allExistingBuys {
+			ctx.Logger().Info(fmt.Sprintf("Long book: %s, %s", buy.GetPrice(), buy.GetEntry().Quantity))
 			if longDirtyPrices.Has(buy.GetPrice()) {
+				ctx.Logger().Info("Long book is dirty")
 				am.keeper.FlushDirtyLongBook(ctx, contractAddr, buy)
 			}
 		}
@@ -352,9 +354,7 @@ func (am AppModule) endBlockForContract(ctx sdk.Context, contractAddr string) {
 		}
 		settlementMap := map[string]*types.Settlements{}
 
-		for _, s := range settlements {
-			ctx.Logger().Info(s.String())
-			settlementEntry := s.ToEntry()
+		for _, settlementEntry := range settlements {
 			priceDenom := settlementEntry.PriceDenom
 			assetDenom := settlementEntry.AssetDenom
 			pair := types.Pair{
@@ -362,18 +362,18 @@ func (am AppModule) endBlockForContract(ctx sdk.Context, contractAddr string) {
 				AssetDenom: assetDenom,
 			}
 			if settlements, ok := settlementMap[pair.String()]; ok {
-				settlements.Entries = append(settlements.Entries, &settlementEntry)
+				settlements.Entries = append(settlements.Entries, settlementEntry)
 			} else {
 				settlementMap[pair.String()] = &types.Settlements{
 					Epoch:   int64(currentEpoch),
-					Entries: []*types.SettlementEntry{&settlementEntry},
+					Entries: []*types.SettlementEntry{settlementEntry},
 				}
 			}
-			allSettlements.Entries = append(allSettlements.Entries, &settlementEntry)
+			allSettlements.Entries = append(allSettlements.Entries, settlementEntry)
 		}
 		for _, pair := range registeredPairs {
-			if settlementEntries, ok := settlementMap[pair.String()]; ok {
-				am.keeper.SetSettlements(ctx, contractAddr, pair.PriceDenom, pair.AssetDenom, *settlementEntries)
+			if settlementEntries, ok := settlementMap[pair.String()]; ok && len(settlementEntries.Entries) > 0 {
+				am.keeper.SetSettlements(ctx, contractAddr, settlementEntries.Entries[0].PriceDenom, settlementEntries.Entries[0].AssetDenom, *settlementEntries)
 			}
 		}
 
@@ -388,38 +388,26 @@ func (am AppModule) endBlockForContract(ctx sdk.Context, contractAddr string) {
 
 		am.callClearingHouseContractSudo(ctx, wasmMsg, contractAddr)
 
-		for _, marketOrder := range orders.MarketBuys {
+		for _, order := range *orders {
+			am.keeper.AddNewOrder(ctx, order)
+		}
+		for _, cancel := range *cancels {
+			am.keeper.AddCancel(ctx, contractAddr, cancel)
+		}
+		for _, zeroAccountOrder := range zeroOrders {
+			am.keeper.RemoveAccountActiveOrder(ctx, zeroAccountOrder.OrderId, contractAddr, zeroAccountOrder.Account)
+		}
+
+		emptyBlockCancel := dexcache.BlockCancellations([]types.Cancellation{})
+		am.keeper.MemState.BlockCancels[typedContractAddr][typedPairStr] = &emptyBlockCancel
+		for _, marketOrder := range marketBuys {
 			if marketOrder.Quantity.IsPositive() {
-				am.keeper.OrderCancellations[contractAddr][pair.String()].OrderCancellations = append(
-					am.keeper.OrderCancellations[contractAddr][pair.String()].OrderCancellations,
-					dexcache.OrderCancellation{
-						Price:      marketOrder.WorstPrice,
-						Quantity:   marketOrder.Quantity,
-						Creator:    marketOrder.Creator,
-						Direction:  marketOrder.Direction,
-						Effect:     marketOrder.Effect,
-						PriceDenom: pair.PriceDenom,
-						AssetDenom: pair.AssetDenom,
-						Leverage:   marketOrder.Leverage,
-					},
-				)
+				am.keeper.MemState.GetBlockCancels(typedContractAddr, typedPairStr).AddOrderIdToCancel(marketOrder.Id, types.CancellationInitiator_USER)
 			}
 		}
-		for _, marketOrder := range orders.MarketSells {
+		for _, marketOrder := range marketSells {
 			if marketOrder.Quantity.IsPositive() {
-				am.keeper.OrderCancellations[contractAddr][pair.String()].OrderCancellations = append(
-					am.keeper.OrderCancellations[contractAddr][pair.String()].OrderCancellations,
-					dexcache.OrderCancellation{
-						Price:      marketOrder.WorstPrice,
-						Quantity:   marketOrder.Quantity,
-						Creator:    marketOrder.Creator,
-						Direction:  marketOrder.Direction,
-						Effect:     marketOrder.Effect,
-						PriceDenom: pair.PriceDenom,
-						AssetDenom: pair.AssetDenom,
-						Leverage:   marketOrder.Leverage,
-					},
-				)
+				am.keeper.MemState.GetBlockCancels(typedContractAddr, typedPairStr).AddOrderIdToCancel(marketOrder.Id, types.CancellationInitiator_USER)
 			}
 		}
 	}

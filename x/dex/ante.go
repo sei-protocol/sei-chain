@@ -13,13 +13,13 @@ import (
 // TickSizeMultipleDecorator check if the place order tx's price is multiple of
 // tick size
 type TickSizeMultipleDecorator struct {
-	dexKeeper     keeper.Keeper
+	dexKeeper keeper.Keeper
 }
 
 // NewTickSizeMultipleDecorator returns new ticksize multiple check decorator instance
 func NewTickSizeMultipleDecorator(dexKeeper keeper.Keeper) TickSizeMultipleDecorator {
 	return TickSizeMultipleDecorator{
-		dexKeeper:     dexKeeper,
+		dexKeeper: dexKeeper,
 	}
 }
 
@@ -47,27 +47,15 @@ func (tsmd TickSizeMultipleDecorator) CheckTickSizeMultiple(ctx sdk.Context, msg
 			msgPlaceOrders := msg.(*types.MsgPlaceOrders)
 			contractAddr := msgPlaceOrders.ContractAddr
 			for _, order := range msgPlaceOrders.Orders {
-				tickSize, found := tsmd.dexKeeper.GetTickSizeForPair(ctx, contractAddr, types.Pair{PriceDenom: order.PriceDenom, AssetDenom: order.AssetDenom})
+				tickSize, found := tsmd.dexKeeper.GetTickSizeForPair(ctx, contractAddr,
+					types.Pair{PriceDenom: order.PriceDenom,
+						AssetDenom: order.AssetDenom})
 				fmt.Println(contractAddr)
 				// todo may not need to throw err if ticksize unfound?
 				if !found {
 					return sdkerrors.Wrapf(sdkerrors.ErrKeyNotFound, "the pair {price:%s,asset:%s} has no ticksize configured", order.PriceDenom, order.AssetDenom)
 				}
-				if !IsDecimalMultipleOf(order.Price, tickSize){
-					return sdkerrors.Wrapf(errors.New("ErrPriceNotMultipleOfTickSize"), "price need to be multiple of tick size")
-				}
-			}
-			continue
-		case *types.MsgCancelOrders:
-			msgCancelOrders := msg.(*types.MsgCancelOrders)
-			contractAddr := msgCancelOrders.ContractAddr
-			for _, orderCancellation := range msgCancelOrders.OrderCancellations {
-				tickSize, found := tsmd.dexKeeper.GetTickSizeForPair(ctx, contractAddr, types.Pair{PriceDenom: orderCancellation.PriceDenom, AssetDenom: orderCancellation.AssetDenom})
-				// todo may not need to throw err if ticksize unfound?
-				if !found {
-					return sdkerrors.Wrapf(sdkerrors.ErrKeyNotFound, "the pair {price:%s,asset:%s} has no ticksize configured", orderCancellation.PriceDenom, orderCancellation.AssetDenom)
-				}
-				if !IsDecimalMultipleOf(orderCancellation.Price, tickSize) {
+				if !IsDecimalMultipleOf(order.Price, tickSize) {
 					return sdkerrors.Wrapf(errors.New("ErrPriceNotMultipleOfTickSize"), "price need to be multiple of tick size")
 				}
 			}
@@ -82,11 +70,10 @@ func (tsmd TickSizeMultipleDecorator) CheckTickSizeMultiple(ctx sdk.Context, msg
 }
 
 // Check whether decimal a is multiple of decimal b
-func IsDecimalMultipleOf(a, b sdk.Dec) bool{
+func IsDecimalMultipleOf(a, b sdk.Dec) bool {
 	if a.LT(b) {
 		return false
 	}
 	quotient := sdk.NewDecFromBigInt(a.Quo(b).RoundInt().BigInt())
 	return quotient.Mul(b).Equal(a)
 }
-

@@ -12,9 +12,11 @@ import (
 
 const GENESIS_TIME uint64 = 3600
 
+var TEST_TICKSIZE = sdk.OneDec()
 var TEST_PAIR = types.Pair{
 	PriceDenom: TEST_PRICE_DENOM,
 	AssetDenom: TEST_ASSET_DENOM,
+	Ticksize:   &TEST_TICKSIZE,
 }
 
 func TestGetTwapsNoPriceSnapshot(t *testing.T) {

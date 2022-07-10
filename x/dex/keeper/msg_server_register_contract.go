@@ -4,7 +4,6 @@ import (
 	"context"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
-	dexcache "github.com/sei-protocol/sei-chain/x/dex/cache"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
 )
 
@@ -17,11 +16,6 @@ func (k msgServer) RegisterContract(goCtx context.Context, msg *types.MsgRegiste
 	}
 	contractAddr := msg.Contract.ContractAddr
 	k.SetContractAddress(ctx, contractAddr, msg.Contract.CodeId)
-	k.Orders[contractAddr] = map[string]*dexcache.Orders{}
-	k.OrderPlacements[contractAddr] = map[string]*dexcache.OrderPlacements{}
-	k.OrderCancellations[contractAddr] = map[string]*dexcache.OrderCancellations{}
-	k.DepositInfo[contractAddr] = dexcache.NewDepositInfo()
-	k.LiquidationRequests[contractAddr] = &dexcache.LiquidationRequests{}
 
 	return &types.MsgRegisterContractResponse{}, nil
 }

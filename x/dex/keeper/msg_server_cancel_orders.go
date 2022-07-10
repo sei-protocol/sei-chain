@@ -4,8 +4,7 @@ import (
 	"context"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
-	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
-	dexcache "github.com/sei-protocol/sei-chain/x/dex/cache"
+	"github.com/sei-protocol/sei-chain/utils"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
 )
 
@@ -15,27 +14,28 @@ func (k msgServer) CancelOrders(goCtx context.Context, msg *types.MsgCancelOrder
 
 	ctx := sdk.UnwrapSDKContext(goCtx)
 
-	pairToOrderCancellations := k.OrderCancellations[msg.GetContractAddr()]
-	
-	for _, orderCancellation := range msg.GetOrderCancellations() {
-		ticksize, found := k.Keeper.GetTickSizeForPair(ctx,msg.GetContractAddr(), types.Pair{PriceDenom: orderCancellation.PriceDenom, AssetDenom: orderCancellation.AssetDenom})
-		if !found {
-			return nil, sdkerrors.Wrapf(sdkerrors.ErrKeyNotFound, "the pair {price:%s,asset:%s} has no ticksize configured", orderCancellation.PriceDenom, orderCancellation.AssetDenom)
+	activeOrderIdSet := utils.NewUInt64Set(k.GetAccountActiveOrders(ctx, msg.ContractAddr, msg.Creator).Ids)
+	orderMap := k.GetOrdersByIds(ctx, msg.ContractAddr, msg.GetOrderIds())
+	for _, orderIdToCancel := range msg.GetOrderIds() {
+		if !activeOrderIdSet.Contains(orderIdToCancel) {
+			// cannot cancel an order that doesn't exist or is inactive
+			continue
 		}
-		pair := types.Pair{PriceDenom: orderCancellation.PriceDenom, AssetDenom: orderCancellation.AssetDenom, Ticksize: &ticksize}
-		(*pairToOrderCancellations[pair.String()]).OrderCancellations = append(
-			(*pairToOrderCancellations[pair.String()]).OrderCancellations,
-			dexcache.OrderCancellation{
-				Price:      orderCancellation.Price,
-				Quantity:   orderCancellation.Quantity,
-				Creator:    msg.Creator,
-				PriceDenom: orderCancellation.PriceDenom,
-				AssetDenom: orderCancellation.AssetDenom,
-				Direction:  orderCancellation.PositionDirection,
-				Effect:     orderCancellation.PositionEffect,
-				Leverage:   orderCancellation.Leverage,
-			},
-		)
+		order := orderMap[orderIdToCancel]
+		pair := types.Pair{PriceDenom: order.PriceDenom, AssetDenom: order.AssetDenom}
+		pairStr := types.GetPairString(&pair)
+		pairBlockCancellations := k.MemState.GetBlockCancels(types.ContractAddress(msg.GetContractAddr()), pairStr)
+		cancelledInCurrentBlock := false
+		for _, cancelInCurrentBlock := range *pairBlockCancellations {
+			if cancelInCurrentBlock.Id == orderIdToCancel {
+				cancelledInCurrentBlock = true
+				break
+			}
+		}
+		if !cancelledInCurrentBlock {
+			// only cancel if it's not cancelled in a previous tx in the same block
+			pairBlockCancellations.AddOrderIdToCancel(orderIdToCancel, types.CancellationInitiator_USER)
+		}
 	}
 
 	return &types.MsgCancelOrdersResponse{}, nil

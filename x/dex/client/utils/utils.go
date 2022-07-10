@@ -5,32 +5,32 @@ import (
 	"io/ioutil"
 
 	"github.com/cosmos/cosmos-sdk/codec"
-	dextypes "github.com/sei-protocol/sei-chain/x/dex/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	dextypes "github.com/sei-protocol/sei-chain/x/dex/types"
 )
 
 type (
 	PairJSON struct {
-		PriceDenom string          `json:"price_denom" yaml:"price_denom"`
-		AssetDenom string          `json:"asset_denom" yaml:"asset_denom"`
-		TickSize   string         `json:"tick_size" yaml:"tick_size"`
+		PriceDenom string `json:"price_denom" yaml:"price_denom"`
+		AssetDenom string `json:"asset_denom" yaml:"asset_denom"`
+		TickSize   string `json:"tick_size" yaml:"tick_size"`
 	}
 
 	TickSizeJSON struct {
-		Pair PairJSON `json:"pair" yaml:"pair"`
-		TickSize sdk.Dec`json:"tick_size" yaml:"tick_size"`
-		ContractAddr string `json:"contract_addr" yaml:"contract_addr"`
+		Pair         PairJSON `json:"pair" yaml:"pair"`
+		TickSize     sdk.Dec  `json:"tick_size" yaml:"tick_size"`
+		ContractAddr string   `json:"contract_addr" yaml:"contract_addr"`
 	}
 
-	PairsJSON []PairJSON
+	PairsJSON     []PairJSON
 	TickSizesJSON []TickSizeJSON
 	AssetListJSON []dextypes.AssetMetadata
 
 	// ParamChangeJSON defines a parameter change used in JSON input. This
 	// allows values to be specified in raw JSON instead of being string encoded.
 	BatchContractPairJSON struct {
-		ContractAddr string          `json:"contract_addr" yaml:"contract_addr"`
-		Pairs PairsJSON          `json:"pairs" yaml:"pairs"`
+		ContractAddr string    `json:"contract_addr" yaml:"contract_addr"`
+		Pairs        PairsJSON `json:"pairs" yaml:"pairs"`
 	}
 
 	MultipleBatchContractPairJSON []BatchContractPairJSON
@@ -38,24 +38,24 @@ type (
 	// RegisterPairsProposalJSON defines a RegisterPairsProposal
 	// to parse register pair proposals from a JSON file.
 	RegisterPairsProposalJSON struct {
-		Title       string           `json:"title" yaml:"title"`
-		Description string           `json:"description" yaml:"description"`
-		BatchContractPair MultipleBatchContractPairJSON           `json:"batch_contract_pair" yaml:"batch_contract_pair"`
-		Deposit     string           `json:"deposit" yaml:"deposit"`
+		Title             string                        `json:"title" yaml:"title"`
+		Description       string                        `json:"description" yaml:"description"`
+		BatchContractPair MultipleBatchContractPairJSON `json:"batch_contract_pair" yaml:"batch_contract_pair"`
+		Deposit           string                        `json:"deposit" yaml:"deposit"`
 	}
 
 	UpdateTickSizeProposalJSON struct {
-		Title       string           `json:"title" yaml:"title"`
-		Description string           `json:"description" yaml:"description"`
-		TickSizes TickSizesJSON     `json:"tick_size_list" yaml:"tick_size_list"`
-		Deposit     string           `json:"deposit" yaml:"deposit"`
+		Title       string        `json:"title" yaml:"title"`
+		Description string        `json:"description" yaml:"description"`
+		TickSizes   TickSizesJSON `json:"tick_size_list" yaml:"tick_size_list"`
+		Deposit     string        `json:"deposit" yaml:"deposit"`
 	}
 
 	AddAssetMetadataProposalJSON struct {
-		Title       string           `json:"title" yaml:"title"`
-		Description string           `json:"description" yaml:"description"`
-		AssetList AssetListJSON     `json:"tick_size_list" yaml:"tick_size_list"`
-		Deposit     string           `json:"deposit" yaml:"deposit"`
+		Title       string        `json:"title" yaml:"title"`
+		Description string        `json:"description" yaml:"description"`
+		AssetList   AssetListJSON `json:"tick_size_list" yaml:"tick_size_list"`
+		Deposit     string        `json:"deposit" yaml:"deposit"`
 	}
 )
 
@@ -63,11 +63,11 @@ type (
 func NewPair(pair PairJSON) (dextypes.Pair, error) {
 	PriceDenom := pair.PriceDenom
 	AssetDenom := pair.AssetDenom
-	ticksize, err :=sdk.NewDecFromStr(pair.TickSize)
+	ticksize, err := sdk.NewDecFromStr(pair.TickSize)
 	if err != nil {
 		return dextypes.Pair{}, errors.New("ticksize: str to decimal conversion err")
 	}
-	return dextypes.Pair{PriceDenom, AssetDenom, &ticksize}, nil
+	return dextypes.Pair{PriceDenom: PriceDenom, AssetDenom: AssetDenom, Ticksize: &ticksize}, nil
 }
 
 // ToParamChange converts a ParamChangeJSON object to ParamChange.
@@ -80,16 +80,16 @@ func (bcp BatchContractPairJSON) ToBatchContractPair() (dextypes.BatchContractPa
 		}
 		pairs[i] = &new_pair
 	}
-	return dextypes.BatchContractPair{bcp.ContractAddr, pairs}, nil
+	return dextypes.BatchContractPair{ContractAddr: bcp.ContractAddr, Pairs: pairs}, nil
 }
 
 func (ts TickSizeJSON) ToTickSize() (dextypes.TickSize, error) {
-	return dextypes.TickSize {
-		Pair: &dextypes.Pair {
-			PriceDenom: ts.Pair.PriceDenom, 
+	return dextypes.TickSize{
+		Pair: &dextypes.Pair{
+			PriceDenom: ts.Pair.PriceDenom,
 			AssetDenom: ts.Pair.AssetDenom,
 		},
-		Ticksize: ts.TickSize,
+		Ticksize:     ts.TickSize,
 		ContractAddr: ts.ContractAddr,
 	}, nil
 }

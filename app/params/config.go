@@ -1,9 +1,10 @@
 package params
 
 import (
+	"time"
+
 	"github.com/cosmos/cosmos-sdk/types/address"
 	tmcfg "github.com/tendermint/tendermint/config"
-	"time"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"

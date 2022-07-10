@@ -3,9 +3,8 @@ package seiprotocol.seichain.dex;
 
 import "cosmos/base/v1beta1/coin.proto";
 import "gogoproto/gogo.proto";
-import "dex/order_placement.proto";
-import "dex/order_cancellation.proto";
 import "dex/contract.proto";
+import "dex/order.proto";
 
 // this line is used by starport scaffolding # proto/tx/import
 
@@ -26,7 +25,7 @@ message MsgPlaceOrders {
   string creator = 1 [
       (gogoproto.jsontag) = "creator"
   ];
-  repeated OrderPlacement orders = 2 [
+  repeated Order orders = 2 [
       (gogoproto.jsontag) = "orders"
   ];
   string contractAddr = 3 [
@@ -47,8 +46,8 @@ message MsgCancelOrders {
   string creator = 1 [
       (gogoproto.jsontag) = "creator"
   ];
-  repeated OrderCancellation orderCancellations = 2 [
-      (gogoproto.jsontag) = "order_cancellations"
+  repeated uint64 orderIds = 2 [
+      (gogoproto.jsontag) = "order_ids"
   ];
   string contractAddr = 3 [
       (gogoproto.jsontag) = "contract_address"

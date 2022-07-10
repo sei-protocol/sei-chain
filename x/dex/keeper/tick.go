@@ -1,8 +1,6 @@
 package keeper
 
 import (
-	"fmt"
-
 	"github.com/cosmos/cosmos-sdk/store/prefix"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 
@@ -36,7 +34,6 @@ func (k Keeper) GetTickSizeForPair(ctx sdk.Context, contractAddr string, pair ty
 	if b == nil {
 		return sdk.ZeroDec(), false
 	}
-	fmt.Println("isnide get")
 	res := sdk.Dec{}
 	err := res.Unmarshal(b)
 	if err != nil {

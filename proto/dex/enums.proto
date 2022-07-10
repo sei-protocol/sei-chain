@@ -25,3 +25,13 @@ enum Unit {
     MICRO = 2;
     NANO = 3;
 }
+
+enum OrderStatus {
+    PLACED = 0;
+    FAILED_TO_PLACE = 1;
+}
+
+enum CancellationInitiator {
+    USER = 0;
+    LIQUIDATED = 1;
+}
