@@ -33,6 +33,42 @@ func TestDeepCopy(t *testing.T) {
 	require.Equal(t, 2, len(*stateTwo.GetBlockOrders(types.ContractAddress(TEST_CONTRACT), types.PairString(TEST_PAIR))))
 }
 
+func TestDeepFilterAccounts(t *testing.T) {
+	stateOne := dex.NewMemState()
+	stateOne.GetBlockOrders(types.ContractAddress(TEST_CONTRACT), types.PairString(TEST_PAIR)).AddOrder(types.Order{
+		Id:           1,
+		Account:      "test",
+		ContractAddr: TEST_CONTRACT,
+	})
+	stateOne.GetBlockOrders(types.ContractAddress(TEST_CONTRACT), types.PairString(TEST_PAIR)).AddOrder(types.Order{
+		Id:           2,
+		Account:      "test2",
+		ContractAddr: TEST_CONTRACT,
+	})
+	stateOne.GetBlockCancels(types.ContractAddress(TEST_CONTRACT), types.PairString(TEST_PAIR)).AddCancel(types.Cancellation{
+		Id:      1,
+		Creator: "test",
+	})
+	stateOne.GetBlockCancels(types.ContractAddress(TEST_CONTRACT), types.PairString(TEST_PAIR)).AddCancel(types.Cancellation{
+		Id:      2,
+		Creator: "test2",
+	})
+	stateOne.GetDepositInfo(types.ContractAddress(TEST_CONTRACT)).AddDeposit(dex.DepositInfoEntry{
+		Creator: "test",
+	})
+	stateOne.GetDepositInfo(types.ContractAddress(TEST_CONTRACT)).AddDeposit(dex.DepositInfoEntry{
+		Creator: "test2",
+	})
+	stateOne.GetLiquidationRequests(types.ContractAddress(TEST_CONTRACT)).AddNewLiquidationRequest("test", "")
+	stateOne.GetLiquidationRequests(types.ContractAddress(TEST_CONTRACT)).AddNewLiquidationRequest("test2", "")
+
+	stateOne.DeepFilterAccount("test")
+	require.Equal(t, 1, len(stateOne.BlockOrders))
+	require.Equal(t, 1, len(stateOne.BlockCancels))
+	require.Equal(t, 1, len(stateOne.DepositInfo))
+	require.Equal(t, 1, len(stateOne.LiquidationRequests))
+}
+
 func TestClear(t *testing.T) {
 	stateOne := dex.NewMemState()
 	stateOne.GetBlockOrders(types.ContractAddress(TEST_CONTRACT), types.PairString(TEST_PAIR)).AddOrder(types.Order{

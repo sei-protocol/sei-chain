@@ -261,7 +261,7 @@ func (am AppModule) EndBlock(ctx sdk.Context, _ abci.RequestEndBlock) []abci.Val
 
 		for _, contractAddr := range validContractAddresses.ToSlice() {
 			ctx.Logger().Info(fmt.Sprintf("End block for %s", contractAddr))
-			if am.endBlockForContract(cachedCtx, contractAddr) != nil {
+			if err := am.endBlockForContract(cachedCtx, contractAddr); err != nil {
 				ctx.Logger().Error(fmt.Sprintf("Error for EndBlock of %s", contractAddr))
 				failedContractAddresses.Add(contractAddr)
 			}
