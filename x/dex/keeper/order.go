@@ -98,3 +98,22 @@ func (k Keeper) GetAccountActiveOrders(ctx sdk.Context, contractAddr string, acc
 	k.Cdc.MustUnmarshal(store.Get(accountKey), &res)
 	return &res
 }
+
+func (k Keeper) GetCancelsByIds(ctx sdk.Context, contractAddr string, ids []uint64) map[uint64]types.Cancellation {
+	store := prefix.NewStore(
+		ctx.KVStore(k.storeKey),
+		types.Cancel(contractAddr),
+	)
+	res := map[uint64]types.Cancellation{}
+	for _, id := range ids {
+		idKey := make([]byte, 8)
+		binary.BigEndian.PutUint64(idKey, id)
+		if !store.Has(idKey) {
+			continue
+		}
+		cancel := types.Cancellation{}
+		k.Cdc.MustUnmarshal(store.Get(idKey), &cancel)
+		res[id] = cancel
+	}
+	return res
+}

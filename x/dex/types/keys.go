@@ -55,10 +55,10 @@ func PricePrefix(contractAddr string) []byte {
 	return append(KeyPrefix(PriceKey), KeyPrefix(contractAddr)...)
 }
 
-func SettlementEntryPrefix(contractAddr string, blockHeight uint64) []byte {
+func SettlementEntryPrefix(contractAddr string, priceDenom string, assetDenom string) []byte {
 	return append(
 		append(KeyPrefix(SettlementEntryKey), KeyPrefix(contractAddr)...),
-		GetKeyForHeight(blockHeight)...,
+		PairPrefix(priceDenom, assetDenom)...,
 	)
 }
 

@@ -29,6 +29,8 @@ enum Unit {
 enum OrderStatus {
     PLACED = 0;
     FAILED_TO_PLACE = 1;
+    CANCELLED = 2;
+    FULFILLED = 3;
 }
 
 enum CancellationInitiator {
