@@ -248,35 +248,40 @@ func (am AppModule) beginBlockForContract(ctx sdk.Context, contractAddr string) 
 // EndBlock executes all ABCI EndBlock logic respective to the capability module. It
 // returns no validator updates.
 func (am AppModule) EndBlock(ctx sdk.Context, _ abci.RequestEndBlock) []abci.ValidatorUpdate {
-	failedContractAddresses := utils.NewStringSet([]string{})
-	cachedCtx, msCached := store.GetCachedContext(ctx)
-	// TODO: cache keeper in-memory state
-	for _, contractAddr := range am.getAllContractAddresses(cachedCtx) {
-		ctx.Logger().Info(fmt.Sprintf("End block for %s", contractAddr))
-		if am.endBlockForContract(cachedCtx, contractAddr) != nil {
-			ctx.Logger().Error(fmt.Sprintf("Error for EndBlock of %s", contractAddr))
-			failedContractAddresses.Add(contractAddr)
+	validContractAddresses := utils.NewStringSet(am.getAllContractAddresses(ctx))
+	// Each iteration is atomic. If an iteration finishes without any error, it will return,
+	// otherwise it will rollback any state change, filter out contracts that cause the error,
+	// and proceed to the next iteration. The loop is guaranteed to finish since
+	// `validContractAddresses` will always decrease in size every iteration.
+	for validContractAddresses.Size() > 0 {
+		failedContractAddresses := utils.NewStringSet([]string{})
+		cachedCtx, msCached := store.GetCachedContext(ctx)
+		// cache keeper in-memory state
+		memStateCopy := am.keeper.MemState.DeepCopy()
+
+		for _, contractAddr := range validContractAddresses.ToSlice() {
+			ctx.Logger().Info(fmt.Sprintf("End block for %s", contractAddr))
+			if am.endBlockForContract(cachedCtx, contractAddr) != nil {
+				ctx.Logger().Error(fmt.Sprintf("Error for EndBlock of %s", contractAddr))
+				failedContractAddresses.Add(contractAddr)
+			}
 		}
-	}
-	if failedContractAddresses.Size() == 0 {
-		msCached.Write()
-		return []abci.ValidatorUpdate{}
-	}
-	// TODO: restore keeper in-memory state
-	// TODO: exclude orders by failed contracts from in-memory state
-	cachedCtx, msCached = store.GetCachedContext(ctx)
-	for _, contractAddr := range am.getAllContractAddresses(cachedCtx) {
-		if failedContractAddresses.Contains(contractAddr) {
-			// Skip failed contracts
-			continue
+		// No error is thrown for any contract. This should happen most of the time.
+		if failedContractAddresses.Size() == 0 {
+			msCached.Write()
+			return []abci.ValidatorUpdate{}
 		}
-		ctx.Logger().Info(fmt.Sprintf("Retry end block for %s", contractAddr))
-		if am.endBlockForContract(cachedCtx, contractAddr) != nil {
-			// we only retry once
-			ctx.Logger().Error(fmt.Sprintf("Error for EndBlock retry of %s", contractAddr))
+		// restore keeper in-memory state
+		*am.keeper.MemState = *memStateCopy
+		// exclude orders by failed contracts from in-memory state
+		for _, failedContractAddress := range failedContractAddresses.ToSlice() {
+			am.keeper.MemState.DeepFilterAccount(failedContractAddress)
 		}
+		// update `validContractAddresses`
+		validContractAddresses.RemoveAll(failedContractAddresses.ToSlice())
 	}
-	msCached.Write()
+
+	// don't call `ctx.Write` if all contracts have error
 	return []abci.ValidatorUpdate{}
 }
 
@@ -289,9 +294,15 @@ func (am AppModule) endBlockForContract(ctx sdk.Context, contractAddr string) er
 	registeredPairs := am.keeper.GetAllRegisteredPairs(ctx, contractAddr)
 	_, currentEpoch := am.keeper.IsNewEpoch(ctx)
 
-	am.keeper.HandleEBLiquidation(spanCtx, ctx, am.tracingInfo.Tracer, contractAddr, registeredPairs)
-	am.keeper.HandleEBCancelOrders(spanCtx, ctx, am.tracingInfo.Tracer, contractAddr, registeredPairs)
-	am.keeper.HandleEBPlaceOrders(spanCtx, ctx, am.tracingInfo.Tracer, contractAddr, registeredPairs)
+	if err := am.keeper.HandleEBLiquidation(spanCtx, ctx, am.tracingInfo.Tracer, contractAddr, registeredPairs); err != nil {
+		return err
+	}
+	if err := am.keeper.HandleEBCancelOrders(spanCtx, ctx, am.tracingInfo.Tracer, contractAddr, registeredPairs); err != nil {
+		return err
+	}
+	if err := am.keeper.HandleEBPlaceOrders(spanCtx, ctx, am.tracingInfo.Tracer, contractAddr, registeredPairs); err != nil {
+		return err
+	}
 
 	for _, pair := range registeredPairs {
 		typedPairStr := types.GetPairString(&pair) //nolint:gosec // USING THE POINTER HERE COULD BE BAD, LET'S CHECK IT
@@ -408,12 +419,9 @@ func (am AppModule) endBlockForContract(ctx sdk.Context, contractAddr string) er
 			Settlement: allSettlements,
 		}
 		ctx.Logger().Info(nativeSettlementMsg.Settlement.String())
-		wasmMsg, err := json.Marshal(nativeSettlementMsg)
-		if err != nil {
-			ctx.Logger().Info(err.Error())
+		if _, err := am.keeper.CallContractSudo(ctx, contractAddr, nativeSettlementMsg); err != nil {
+			return err
 		}
-
-		am.callClearingHouseContractSudo(ctx, wasmMsg, contractAddr)
 
 		for _, order := range *orders {
 			am.keeper.AddNewOrder(ctx, order)
@@ -429,17 +437,25 @@ func (am AppModule) endBlockForContract(ctx sdk.Context, contractAddr string) er
 		am.keeper.MemState.BlockCancels[typedContractAddr][typedPairStr] = &emptyBlockCancel
 		for _, marketOrder := range marketBuys {
 			if marketOrder.Quantity.IsPositive() {
-				am.keeper.MemState.GetBlockCancels(typedContractAddr, typedPairStr).AddOrderIDToCancel(marketOrder.Id, types.CancellationInitiator_USER)
+				am.keeper.MemState.GetBlockCancels(typedContractAddr, typedPairStr).AddCancel(types.Cancellation{
+					Id:        marketOrder.Id,
+					Initiator: types.CancellationInitiator_USER,
+				})
 			}
 		}
 		for _, marketOrder := range marketSells {
 			if marketOrder.Quantity.IsPositive() {
-				am.keeper.MemState.GetBlockCancels(typedContractAddr, typedPairStr).AddOrderIDToCancel(marketOrder.Id, types.CancellationInitiator_USER)
+				am.keeper.MemState.GetBlockCancels(typedContractAddr, typedPairStr).AddCancel(types.Cancellation{
+					Id:        marketOrder.Id,
+					Initiator: types.CancellationInitiator_USER,
+				})
 			}
 		}
 	}
 	// Cancel unfilled market orders
-	am.keeper.HandleEBCancelOrders(spanCtx, ctx, am.tracingInfo.Tracer, contractAddr, registeredPairs)
+	if err := am.keeper.HandleEBCancelOrders(spanCtx, ctx, am.tracingInfo.Tracer, contractAddr, registeredPairs); err != nil {
+		return err
+	}
 
 	return nil
 }

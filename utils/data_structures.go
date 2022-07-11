@@ -20,6 +20,12 @@ func (s *StringSet) Remove(val string) {
 	delete(s.dict, val)
 }
 
+func (s *StringSet) RemoveAll(vals []string) {
+	for _, val := range vals {
+		s.Remove(val)
+	}
+}
+
 func (s *StringSet) Contains(val string) bool {
 	_, ok := s.dict[val]
 	return ok

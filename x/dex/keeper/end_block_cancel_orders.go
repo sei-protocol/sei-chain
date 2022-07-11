@@ -9,14 +9,17 @@ import (
 	otrace "go.opentelemetry.io/otel/trace"
 )
 
-func (k *Keeper) HandleEBCancelOrders(ctx context.Context, sdkCtx sdk.Context, tracer *otrace.Tracer, contractAddr string, registeredPairs []types.Pair) {
+func (k *Keeper) HandleEBCancelOrders(ctx context.Context, sdkCtx sdk.Context, tracer *otrace.Tracer, contractAddr string, registeredPairs []types.Pair) error {
 	_, span := (*tracer).Start(ctx, "SudoCancelOrders")
 	span.SetAttributes(attribute.String("contractAddr", contractAddr))
 
 	typedContractAddr := types.ContractAddress(contractAddr)
 	msg := k.getCancelSudoMsg(typedContractAddr, registeredPairs)
-	_ = k.CallContractSudo(sdkCtx, contractAddr, msg)
+	if _, err := k.CallContractSudo(sdkCtx, contractAddr, msg); err != nil {
+		return err
+	}
 	span.End()
+	return nil
 }
 
 func (k *Keeper) getCancelSudoMsg(typedContractAddr types.ContractAddress, registeredPairs []types.Pair) types.SudoOrderCancellationMsg {
