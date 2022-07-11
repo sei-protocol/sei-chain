@@ -73,8 +73,18 @@ func (k *Keeper) GetDepositSudoMsg(ctx sdk.Context, typedContractAddr types.Cont
 	contractDepositInfo := []types.ContractDepositInfo{}
 	for _, depositInfo := range *k.MemState.GetDepositInfo(typedContractAddr) {
 		fund := sdk.NewCoins(sdk.NewCoin(depositInfo.Denom, depositInfo.Amount.RoundInt()))
-		if k.BankKeeper.SendCoins(ctx, sdk.AccAddress(depositInfo.Creator), sdk.AccAddress(typedContractAddr), fund) == nil {
+		sender, err := sdk.AccAddressFromBech32(depositInfo.Creator)
+		if err != nil {
+			ctx.Logger().Error("Invalid deposit creator")
+		}
+		receiver, err := sdk.AccAddressFromBech32(string(typedContractAddr))
+		if err != nil {
+			ctx.Logger().Error("Invalid deposit contract")
+		}
+		if err := k.BankKeeper.SendCoins(ctx, sender, receiver, fund); err == nil {
 			contractDepositInfo = append(contractDepositInfo, dexcache.ToContractDepositInfo(depositInfo))
+		} else {
+			ctx.Logger().Error(err.Error())
 		}
 	}
 	return types.SudoOrderPlacementMsg{
