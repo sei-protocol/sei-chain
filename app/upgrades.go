@@ -23,7 +23,7 @@ const Upgrade103 = "1.0.3beta"
 const Upgrade104 = "1.0.4beta"
 
 // 1.0.5beta
-const Upgrade105 = "1.0.5beta upgrade"
+const Upgrade105 = "1.0.5beta"
 
 // 1.0.6beta
 const Upgrade106 = "1.0.6beta"
