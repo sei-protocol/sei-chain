@@ -2,13 +2,12 @@ package types
 
 import (
 	"encoding/hex"
+	"testing"
 
 	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v2"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
-
-	"testing"
 )
 
 func TestAggregateVoteHash(t *testing.T) {

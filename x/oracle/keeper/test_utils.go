@@ -3,12 +3,11 @@ package keeper
 
 import (
 	"testing"
+	"time"
 
 	"github.com/sei-protocol/sei-chain/x/oracle/types"
 	"github.com/sei-protocol/sei-chain/x/oracle/utils"
 	"github.com/stretchr/testify/require"
-
-	"time"
 
 	"github.com/tendermint/tendermint/crypto"
 	"github.com/tendermint/tendermint/crypto/secp256k1"

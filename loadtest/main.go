@@ -79,7 +79,7 @@ func run(
 	userHomeDir, _ := os.UserHomeDir()
 	filename := filepath.Join(userHomeDir, "outputs", "test_tx_hash")
 	_ = os.Remove(filename)
-	file, err := os.OpenFile(filename, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	file, err := os.OpenFile(filename, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
 	if err != nil {
 		fmt.Printf("Error opening file %s", err)
 		return
@@ -87,8 +87,8 @@ func run(
 	TX_HASH_FILE = file
 	var mu sync.Mutex
 
-	var activeAccounts = []int{}
-	var inactiveAccounts = []int{}
+	activeAccounts := []int{}
+	inactiveAccounts := []int{}
 	for i := 0; i < int(numberOfAccounts); i++ {
 		if i%2 == 0 {
 			activeAccounts = append(activeAccounts, i)

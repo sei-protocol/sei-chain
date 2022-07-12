@@ -65,7 +65,6 @@ func EndBlocker(ctx sdk.Context, k keeper.Keeper) {
 
 				// Convert ballot to cross exchange rates
 				if denom != referenceDenom {
-
 					ballot = ballot.ToCrossRateWithSort(voteMapRD)
 				}
 

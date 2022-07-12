@@ -24,7 +24,6 @@ func (k Keeper) LongBookAll(c context.Context, req *types.QueryAllLongBookReques
 		req.AssetDenom,
 		req.Pagination,
 	)
-
 	if err != nil {
 		return nil, status.Error(codes.Internal, err.Error())
 	}
