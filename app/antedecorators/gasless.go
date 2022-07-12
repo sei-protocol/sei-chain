@@ -136,7 +136,6 @@ func OraclePrevoteIsGasless(msg *oracletypes.MsgAggregateExchangeRatePrevote, ct
 }
 
 func OracleVoteIsGasless(msg *oracletypes.MsgAggregateExchangeRateVote, ctx sdk.Context, keeper oraclekeeper.Keeper) bool {
-
 	feederAddr, err := sdk.AccAddressFromBech32(msg.Feeder)
 	if err != nil {
 		return false

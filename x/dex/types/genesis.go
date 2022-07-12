@@ -12,8 +12,8 @@ func DefaultGenesis() *GenesisState {
 	return &GenesisState{
 		LongBookList:  []LongBook{},
 		ShortBookList: []ShortBook{},
-		Params:    DefaultParams(),
-		LastEpoch: 0,
+		Params:        DefaultParams(),
+		LastEpoch:     0,
 	}
 }
 

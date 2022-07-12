@@ -5,7 +5,6 @@ import (
 	"math"
 	"sort"
 	"strconv"
-
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -23,10 +22,8 @@ func TestToMap(t *testing.T) {
 		votes   []VoteForTally
 		isValid []bool
 	}{
-
 		[]VoteForTally{
 			{
-
 				Voter:        sdk.ValAddress(secp256k1.GenPrivKey().PubKey().Address()),
 				Denom:        utils.MicroAtomDenom,
 				ExchangeRate: sdk.NewDec(1600),
@@ -109,7 +106,6 @@ func TestSqrt(t *testing.T) {
 }
 
 func TestPBPower(t *testing.T) {
-
 	ctx := sdk.NewContext(nil, tmproto.Header{}, false, nil)
 	_, valAccAddrs, sk := GenerateRandomTestCase()
 	pb := ExchangeRateBallot{}

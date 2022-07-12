@@ -17,14 +17,16 @@ import (
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 )
 
-const TEST_ACCOUNT = "accnt"
-const GOOD_CONTRACT_INSTANTIATE = `{"whitelist": ["sei1h9yjz89tl0dl6zu65dpxcqnxfhq60wxx8s5kag"],
+const (
+	TEST_ACCOUNT              = "accnt"
+	GOOD_CONTRACT_INSTANTIATE = `{"whitelist": ["sei1h9yjz89tl0dl6zu65dpxcqnxfhq60wxx8s5kag"],
     "use_whitelist":false,"admin":"sei1h9yjz89tl0dl6zu65dpxcqnxfhq60wxx8s5kag",
 	"limit_order_fee":{"decimal":"0.0001","negative":false},
 	"market_order_fee":{"decimal":"0.0001","negative":false},
 	"liquidation_order_fee":{"decimal":"0.0001","negative":false},
 	"margin_ratio":{"decimal":"0.0625","negative":false},
 	"max_leverage":{"decimal":"4","negative":false}}`
+)
 
 func TestEndBlockMarketOrder(t *testing.T) {
 	testApp := keepertest.TestApp()

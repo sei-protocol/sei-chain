@@ -48,8 +48,10 @@ func (tsmd TickSizeMultipleDecorator) CheckTickSizeMultiple(ctx sdk.Context, msg
 			contractAddr := msgPlaceOrders.ContractAddr
 			for _, order := range msgPlaceOrders.Orders {
 				tickSize, found := tsmd.dexKeeper.GetTickSizeForPair(ctx, contractAddr,
-					types.Pair{PriceDenom: order.PriceDenom,
-						AssetDenom: order.AssetDenom})
+					types.Pair{
+						PriceDenom: order.PriceDenom,
+						AssetDenom: order.AssetDenom,
+					})
 				fmt.Println(contractAddr)
 				// todo may not need to throw err if ticksize unfound?
 				if !found {

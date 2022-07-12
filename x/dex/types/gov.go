@@ -4,13 +4,13 @@ import (
 	"fmt"
 	"strings"
 
-	govtypes "github.com/cosmos/cosmos-sdk/x/gov/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	govtypes "github.com/cosmos/cosmos-sdk/x/gov/types"
 )
 
 const (
-	ProposalTypeRegisterPairs = "RegisterPairs"
-	ProposalTypeUpdateTickSize = "UpdateTickSize"
+	ProposalTypeRegisterPairs    = "RegisterPairs"
+	ProposalTypeUpdateTickSize   = "UpdateTickSize"
 	ProposalTypeAddAssetMetadata = "AddAssetMetadata"
 )
 
@@ -25,14 +25,16 @@ func init() {
 	govtypes.RegisterProposalTypeCodec(&AddAssetMetadataProposal{}, "dex/AddAssetMetadataProposal")
 }
 
-var _ govtypes.Content = &RegisterPairsProposal{}
-var _ govtypes.Content = &UpdateTickSizeProposal{}
+var (
+	_ govtypes.Content = &RegisterPairsProposal{}
+	_ govtypes.Content = &UpdateTickSizeProposal{}
+)
 
 func NewRegisterPairsProposal(title, description string, batchContractPair []BatchContractPair) RegisterPairsProposal {
 	return RegisterPairsProposal{
-		Title:       title,
-		Description: description,
-		Batchcontractpair:    batchContractPair,
+		Title:             title,
+		Description:       description,
+		Batchcontractpair: batchContractPair,
 	}
 }
 
@@ -68,9 +70,9 @@ func (p RegisterPairsProposal) String() string {
 
 // todo might be good to separate to different file when # of governance proposal increases
 func NewUpdateTickSizeForPair(title, description string, tickSizeList []TickSize) UpdateTickSizeProposal {
-	return UpdateTickSizeProposal {
-		Title: title,
-		Description: description,
+	return UpdateTickSizeProposal{
+		Title:        title,
+		Description:  description,
 		TickSizeList: tickSizeList,
 	}
 }
@@ -106,10 +108,10 @@ func (p UpdateTickSizeProposal) String() string {
 
 // todo might be good to separate to different file when # of governance proposal increases
 func NewAddAssetMetadata(title, description string, assetList []AssetMetadata) AddAssetMetadataProposal {
-	return AddAssetMetadataProposal {
-		Title: title,
+	return AddAssetMetadataProposal{
+		Title:       title,
 		Description: description,
-		AssetList: assetList,
+		AssetList:   assetList,
 	}
 }
 
