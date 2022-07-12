@@ -14,7 +14,7 @@ import (
 
 // There is a limit on how many bytes can be passed to wasm VM in a single call,
 // so we shouldn't bump this number unless there is an upgrade to wasm VM
-const MAX_ORDERS_PER_SUDO_CALL = 50000
+const MaxOrdersPerSudoCall = 50000
 
 func (k *Keeper) HandleEBPlaceOrders(ctx context.Context, sdkCtx sdk.Context, tracer *otrace.Tracer, contractAddr string, registeredPairs []types.Pair) {
 	_, span := (*tracer).Start(ctx, "SudoPlaceOrders")
@@ -28,13 +28,13 @@ func (k *Keeper) HandleEBPlaceOrders(ctx context.Context, sdkCtx sdk.Context, tr
 	for _, msg := range msgs[1:] {
 		data := k.CallContractSudo(sdkCtx, contractAddr, msg)
 		response := types.SudoOrderPlacementResponse{}
-		json.Unmarshal(data, &response)
+		json.Unmarshal(data, &response) //nolint:errcheck // ignore error
 		sdkCtx.Logger().Info(fmt.Sprintf("Sudo response data: %s", response))
 		responses = append(responses, response)
 	}
 
 	for _, pair := range registeredPairs {
-		typedPairStr := types.GetPairString(&pair)
+		typedPairStr := types.GetPairString(&pair) //nolint:gosec // USING THE POINTER HERE COULD BE BAD, LET'S CHECK IT.
 		for _, response := range responses {
 			k.MemState.GetBlockOrders(typedContractAddr, typedPairStr).MarkFailedToPlaceByIds(response.UnsuccessfulOrderIds)
 		}
@@ -46,10 +46,10 @@ func (k *Keeper) GetPlaceSudoMsg(ctx sdk.Context, typedContractAddr types.Contra
 	msgs := []types.SudoOrderPlacementMsg{k.GetDepositSudoMsg(ctx, typedContractAddr)}
 	contractOrderPlacements := []types.Order{}
 	for _, pair := range registeredPairs {
-		typedPairStr := types.GetPairString(&pair)
+		typedPairStr := types.GetPairString(&pair) //nolint:gosec // USING THE POINTER HERE COULD BE BAD, LET'S CHECK IT.
 		for _, order := range *k.MemState.GetBlockOrders(typedContractAddr, typedPairStr) {
 			contractOrderPlacements = append(contractOrderPlacements, order)
-			if len(contractOrderPlacements) == MAX_ORDERS_PER_SUDO_CALL {
+			if len(contractOrderPlacements) == MaxOrdersPerSudoCall {
 				msgs = append(msgs, types.SudoOrderPlacementMsg{
 					OrderPlacements: types.OrderPlacementMsgDetails{
 						Orders:   contractOrderPlacements,

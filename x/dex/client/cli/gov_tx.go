@@ -32,12 +32,12 @@ func NewRegisterPairsProposalTxCmd() *cobra.Command {
 
 			// Convert proposal to RegisterPairsProposal Type
 			from := clientCtx.GetFromAddress()
-			proposal_batch_contract_pair, err := proposal.BatchContractPair.ToMultipleBatchContractPair()
+			proposalBatchContractPair, err := proposal.BatchContractPair.ToMultipleBatchContractPair()
 			if err != nil {
 				return err
 			}
 			content := types.NewRegisterPairsProposal(
-				proposal.Title, proposal.Description, proposal_batch_contract_pair,
+				proposal.Title, proposal.Description, proposalBatchContractPair,
 			)
 
 			deposit, err := sdk.ParseCoinsNormalized(proposal.Deposit)
@@ -124,7 +124,7 @@ func NewAddAssetProposalTxCmd() *cobra.Command {
 			// Convert proposal to RegisterPairsProposal Type
 			from := clientCtx.GetFromAddress()
 
-			content := types.AddAssetMetadataProposal{proposal.Title, proposal.Description, proposal.AssetList}
+			content := types.AddAssetMetadataProposal{Title: proposal.Title, Description: proposal.Description, AssetList: proposal.AssetList}
 
 			deposit, err := sdk.ParseCoinsNormalized(proposal.Deposit)
 			if err != nil {

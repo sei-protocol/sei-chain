@@ -27,7 +27,7 @@ func CmdCancelOrders() *cobra.Command {
 			for _, idStr := range args[1:] {
 				id, err := strconv.ParseUint(idStr, 10, 64)
 				if err != nil {
-					return errors.New("Invalid order ID")
+					return errors.New("invalid order ID")
 				}
 				idsToCancel = append(idsToCancel, id)
 			}

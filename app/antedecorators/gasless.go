@@ -27,8 +27,9 @@ func (gd GaslessDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool,
 			return ctx, nil
 		}
 		// iterating instead of recursing the handler for readability
+		// we use blank here because we shouldn't handle the error
 		for _, handler := range gd.wrapped {
-			ctx, err = handler.AnteHandle(ctx, tx, simulate, terminatorHandler)
+			ctx, _ = handler.AnteHandle(ctx, tx, simulate, terminatorHandler)
 		}
 		return next(ctx, tx, simulate)
 	}
@@ -80,22 +81,18 @@ func DexPlaceOrdersIsGasless(msg *dextypes.MsgPlaceOrders) bool {
 	return true
 }
 
-// TODO: migrate this into params state
-var WHITELISTED_GASLESS_CANCELLATION_ADDRS = []sdk.AccAddress{}
+// WhitelistedGaslessCancellationAddrs TODO: migrate this into params state
+var WhitelistedGaslessCancellationAddrs = []sdk.AccAddress{}
 
 func DexCancelOrdersIsGasless(msg *dextypes.MsgCancelOrders) bool {
-	if allSignersWhitelisted(msg) {
-		return true
-	} else {
-		return false
-	}
+	return allSignersWhitelisted(msg)
 }
 
 func allSignersWhitelisted(msg *dextypes.MsgCancelOrders) bool {
 	for _, signer := range msg.GetSigners() {
 		isWhitelisted := false
-		for _, whitelisted := range WHITELISTED_GASLESS_CANCELLATION_ADDRS {
-			if bytes.Compare(signer, whitelisted) == 0 {
+		for _, whitelisted := range WhitelistedGaslessCancellationAddrs {
+			if bytes.Compare(signer, whitelisted) == 0 { //nolint:gosimple
 				isWhitelisted = true
 				break
 			}

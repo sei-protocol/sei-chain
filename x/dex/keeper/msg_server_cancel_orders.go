@@ -14,27 +14,27 @@ func (k msgServer) CancelOrders(goCtx context.Context, msg *types.MsgCancelOrder
 
 	ctx := sdk.UnwrapSDKContext(goCtx)
 
-	activeOrderIdSet := utils.NewUInt64Set(k.GetAccountActiveOrders(ctx, msg.ContractAddr, msg.Creator).Ids)
+	activeOrderIDSet := utils.NewUInt64Set(k.GetAccountActiveOrders(ctx, msg.ContractAddr, msg.Creator).Ids)
 	orderMap := k.GetOrdersByIds(ctx, msg.ContractAddr, msg.GetOrderIds())
-	for _, orderIdToCancel := range msg.GetOrderIds() {
-		if !activeOrderIdSet.Contains(orderIdToCancel) {
+	for _, orderIDToCancel := range msg.GetOrderIds() {
+		if !activeOrderIDSet.Contains(orderIDToCancel) {
 			// cannot cancel an order that doesn't exist or is inactive
 			continue
 		}
-		order := orderMap[orderIdToCancel]
+		order := orderMap[orderIDToCancel]
 		pair := types.Pair{PriceDenom: order.PriceDenom, AssetDenom: order.AssetDenom}
 		pairStr := types.GetPairString(&pair)
 		pairBlockCancellations := k.MemState.GetBlockCancels(types.ContractAddress(msg.GetContractAddr()), pairStr)
 		cancelledInCurrentBlock := false
 		for _, cancelInCurrentBlock := range *pairBlockCancellations {
-			if cancelInCurrentBlock.Id == orderIdToCancel {
+			if cancelInCurrentBlock.Id == orderIDToCancel {
 				cancelledInCurrentBlock = true
 				break
 			}
 		}
 		if !cancelledInCurrentBlock {
 			// only cancel if it's not cancelled in a previous tx in the same block
-			pairBlockCancellations.AddOrderIdToCancel(orderIdToCancel, types.CancellationInitiator_USER)
+			pairBlockCancellations.AddOrderIDToCancel(orderIDToCancel, types.CancellationInitiator_USER)
 		}
 	}
 

@@ -115,7 +115,7 @@ const (
 	TwapKey             = "TWAP-"
 	PriceKey            = "Price-"
 	SettlementEntryKey  = "SettlementEntry-"
-	NextOrderIdKey      = "noid"
+	NextOrderIDKey      = "noid"
 	RegisteredPairKey   = "rp"
 	RegisteredPairCount = "rpcnt"
 	TickSizeKey         = "ticks"

@@ -13,5 +13,5 @@ import (
 
 func setupMsgServer(t testing.TB) (types.MsgServer, context.Context) {
 	k, ctx := keepertest.DexKeeper(t)
-	return keeper.NewMsgServerImpl(*k, &tracing.TracingInfo{}), sdk.WrapSDKContext(ctx)
+	return keeper.NewMsgServerImpl(*k, &tracing.Info{}), sdk.WrapSDKContext(ctx)
 }

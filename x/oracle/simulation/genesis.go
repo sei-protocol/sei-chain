@@ -19,7 +19,7 @@ const (
 	votePeriodKey               = "vote_period"
 	voteThresholdKey            = "vote_threshold"
 	rewardBandKey               = "reward_band"
-	rewardDistributionWindowKey = "reward_distribution_window"
+	rewardDistributionWindowKey = "reward_distribution_window" //nolint:deadcode // we will use this later
 	slashFractionKey            = "slash_fraction"
 	slashWindowKey              = "slash_window"
 	minValidPerWindowKey        = "min_valid_per_window"

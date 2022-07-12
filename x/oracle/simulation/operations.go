@@ -20,6 +20,7 @@ import (
 )
 
 // Simulation operation weights constants
+//nolint:gosec // these aren't hard coded credentials.
 const (
 	OpWeightMsgAggregateExchangeRatePrevote = "op_weight_msg_exchange_rate_aggregate_prevote"
 	OpWeightMsgAggregateExchangeRateVote    = "op_weight_msg_exchange_rate_aggregate_vote"
@@ -29,8 +30,8 @@ const (
 )
 
 var (
-	whitelist                     = []string{utils.MicroAtomDenom}
-	voteHashMap map[string]string = make(map[string]string)
+	whitelist   = []string{utils.MicroAtomDenom}
+	voteHashMap = make(map[string]string)
 )
 
 // WeightedOperations returns all the operations from the module with their respective weights

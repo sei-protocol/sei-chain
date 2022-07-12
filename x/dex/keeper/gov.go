@@ -12,15 +12,15 @@ func (k Keeper) HandleRegisterPairsProposal(ctx sdk.Context, p *types.RegisterPa
 	// Loop through each batch contract pair an individual contract pair, token pair
 	// tuple and register them individually
 	for _, batchContractPair := range p.Batchcontractpair {
-		var contractAddress string = batchContractPair.ContractAddr
+		contractAddress := batchContractPair.ContractAddr
 		for _, pair := range batchContractPair.Pairs {
 			// Only add registered pairs whose denoms are in AssetList
 			_, found := k.GetAssetMetadataByDenom(ctx, pair.PriceDenom)
-			if found == false {
+			if !found {
 				fmt.Println("Price Denom", pair.PriceDenom, "is not in the AssetList and can not be registered.")
 			}
 			_, found = k.GetAssetMetadataByDenom(ctx, pair.AssetDenom)
-			if found == false {
+			if !found {
 				fmt.Println("Asset Denom", pair.AssetDenom, "is not in the AssetList and can not be registered.")
 			}
 			k.AddRegisteredPair(ctx, contractAddress, *pair)

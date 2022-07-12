@@ -121,7 +121,7 @@ func TestWasmGetDexTwaps(t *testing.T) {
 	// END SETUP
 
 	req := dexbinding.SeiDexQuery{DexTwaps: &dextypes.QueryGetTwapsRequest{
-		ContractAddr:    app.TEST_CONTRACT,
+		ContractAddr:    app.TestContract,
 		LookbackSeconds: 200,
 	}}
 	queryData, err := json.Marshal(req)
@@ -134,14 +134,14 @@ func TestWasmGetDexTwaps(t *testing.T) {
 	testWrapper.Ctx = testWrapper.Ctx.WithBlockHeight(11).WithBlockTime(time.Unix(3600, 0))
 	testWrapper.App.DexKeeper.AddRegisteredPair(
 		testWrapper.Ctx,
-		app.TEST_CONTRACT,
+		app.TestContract,
 		dextypes.Pair{PriceDenom: "sei", AssetDenom: "atom"},
 	)
 	testWrapper.App.DexKeeper.SetPriceState(testWrapper.Ctx, dextypes.Price{
 		SnapshotTimestampInSeconds: 3600,
 		Price:                      sdk.NewDec(20),
 		Pair:                       &dextypes.Pair{PriceDenom: "sei", AssetDenom: "atom"},
-	}, app.TEST_CONTRACT, 0)
+	}, app.TestContract, 0)
 	testWrapper.App.OracleKeeper.SetBaseExchangeRate(testWrapper.Ctx, oracleutils.MicroAtomDenom, sdk.NewDec(12))
 	testWrapper.Ctx = testWrapper.Ctx.WithBlockHeight(14).WithBlockTime(time.Unix(3700, 0))
 

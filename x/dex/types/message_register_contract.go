@@ -11,13 +11,13 @@ var _ sdk.Msg = &MsgRegisterContract{}
 
 func NewMsgRegisterContract(
 	creator string,
-	codeId uint64,
+	codeID uint64,
 	contractAddr string,
 ) *MsgRegisterContract {
 	return &MsgRegisterContract{
 		Creator: creator,
 		Contract: &ContractInfo{
-			CodeId:       codeId,
+			CodeId:       codeID,
 			ContractAddr: contractAddr,
 		},
 	}

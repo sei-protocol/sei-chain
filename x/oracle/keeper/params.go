@@ -34,7 +34,6 @@ func (k Keeper) Whitelist(ctx sdk.Context) (res types.DenomList) {
 // this function is only for test purpose
 func (k Keeper) SetWhitelist(ctx sdk.Context, whitelist types.DenomList) {
 	k.paramSpace.Set(ctx, types.KeyWhitelist, whitelist)
-	return
 }
 
 // SlashFraction returns oracle voting penalty rate

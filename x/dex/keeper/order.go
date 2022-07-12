@@ -54,9 +54,9 @@ func (k Keeper) storeCancel(ctx sdk.Context, cancel types.Cancellation, original
 	store.Set(idKey, b)
 }
 
-func (k Keeper) RemoveAccountActiveOrder(ctx sdk.Context, orderId uint64, contractAddr string, account string) {
+func (k Keeper) RemoveAccountActiveOrder(ctx sdk.Context, orderID uint64, contractAddr string, account string) {
 	activeOrders := k.GetAccountActiveOrders(ctx, contractAddr, account)
-	activeOrders.Ids = utils.FilterUInt64Slice(activeOrders.Ids, orderId)
+	activeOrders.Ids = utils.FilterUInt64Slice(activeOrders.Ids, orderID)
 	store := prefix.NewStore(
 		ctx.KVStore(k.storeKey),
 		types.AccountActiveOrdersPrefix(contractAddr),

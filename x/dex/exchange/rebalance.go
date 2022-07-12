@@ -7,7 +7,7 @@ import (
 
 func RebalanceAllocations(order types.OrderBook) map[uint64]sdk.Dec {
 	newTotal := order.GetEntry().Quantity
-	var oldTotal sdk.Dec = sdk.ZeroDec()
+	oldTotal := sdk.ZeroDec()
 	for _, allo := range order.GetEntry().Allocations {
 		oldTotal = oldTotal.Add(allo.Quantity)
 	}
@@ -16,23 +16,23 @@ func RebalanceAllocations(order types.OrderBook) map[uint64]sdk.Dec {
 	if oldTotal.IsZero() {
 		return res
 	}
-	var acc sdk.Dec = sdk.ZeroDec()
+	acc := sdk.ZeroDec()
 	for _, allocation := range order.GetEntry().Allocations {
 		res[allocation.OrderId] = allocation.Quantity.Mul(ratio)
 		acc = acc.Add(res[allocation.OrderId])
 	}
 	numOrders := uint64(len(order.GetEntry().Allocations))
-	var ptr uint64 = 0
+	var ptr uint64
 	for acc.LT(newTotal) {
-		orderId := order.GetEntry().Allocations[ptr%numOrders].OrderId
-		res[orderId] = res[orderId].Add(sdk.SmallestDec())
-		ptr += 1
+		orderID := order.GetEntry().Allocations[ptr%numOrders].OrderId
+		res[orderID] = res[orderID].Add(sdk.SmallestDec())
+		ptr++
 		acc = acc.Add(sdk.SmallestDec())
 	}
 	for acc.GT(newTotal) {
-		orderId := order.GetEntry().Allocations[ptr%numOrders].OrderId
-		res[orderId] = res[orderId].Sub(sdk.SmallestDec())
-		ptr += 1
+		orderID := order.GetEntry().Allocations[ptr%numOrders].OrderId
+		res[orderID] = res[orderID].Sub(sdk.SmallestDec())
+		ptr++
 		acc = acc.Sub(sdk.SmallestDec())
 	}
 	return res

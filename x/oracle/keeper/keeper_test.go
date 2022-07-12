@@ -348,10 +348,10 @@ func TestVoteTargetGetSet(t *testing.T) {
 	input := CreateTestInput(t)
 
 	voteTargets := map[string]types.Denom{
-		utils.MicroEthDenom:  {utils.MicroEthDenom},
-		utils.MicroUsdcDenom: {utils.MicroUsdcDenom},
-		utils.MicroAtomDenom: {utils.MicroAtomDenom},
-		utils.MicroSeiDenom:  {utils.MicroSeiDenom},
+		utils.MicroEthDenom:  {Name: utils.MicroEthDenom},
+		utils.MicroUsdcDenom: {Name: utils.MicroUsdcDenom},
+		utils.MicroAtomDenom: {Name: utils.MicroAtomDenom},
+		utils.MicroSeiDenom:  {Name: utils.MicroSeiDenom},
 	}
 
 	for denom := range voteTargets {
@@ -678,12 +678,12 @@ func TestCalculateTwaps(t *testing.T) {
 	require.Equal(t, sdk.NewDec(25), atomTwap.Twap)
 
 	// test error when lookback too large
-	twaps, err = input.OracleKeeper.CalculateTwaps(input.Ctx, 3700)
+	twaps, err = input.OracleKeeper.CalculateTwaps(input.Ctx, 3700) //nolint:go-staticcheck // in testing there's no need to use twaps.
 	require.Error(t, err)
 	require.Equal(t, types.ErrInvalidTwapLookback, err)
 
 	// test error when lookback is negative
-	twaps, err = input.OracleKeeper.CalculateTwaps(input.Ctx, -10)
+	twaps, err = input.OracleKeeper.CalculateTwaps(input.Ctx, -10) //nolint:go-staticcheck // in testing there's no need to use twaps.
 	require.Error(t, err)
 	require.Equal(t, types.ErrInvalidTwapLookback, err)
 }

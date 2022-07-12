@@ -16,7 +16,7 @@ type SudoSettlementMsg struct {
 }
 
 func NewSettlementEntry(
-	orderId uint64,
+	orderID uint64,
 	account string,
 	direction PositionDirection,
 	priceDenom string,
@@ -27,7 +27,7 @@ func NewSettlementEntry(
 	orderType OrderType,
 ) *SettlementEntry {
 	return &SettlementEntry{
-		OrderId:                orderId,
+		OrderId:                orderID,
 		PositionDirection:      GetContractPositionDirection(direction),
 		PriceDenom:             priceDenom,
 		AssetDenom:             assetDenom,
