@@ -17,6 +17,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/types/tx/signing"
 	xauthsigning "github.com/cosmos/cosmos-sdk/x/auth/signing"
 	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
+	"github.com/sei-protocol/sei-chain/app"
 )
 
 const NODE_URI = "tcp://localhost:26657"
@@ -40,7 +41,8 @@ func GetKey(accountIdx uint64) cryptotypes.PrivKey {
 	}
 	jsonFile.Close()
 	json.Unmarshal(byteVal, &accountInfo)
-	kr, _ := keyring.New(sdk.KeyringServiceName(), "os", filepath.Join(userHomeDir, ".sei-chain"), os.Stdin)
+	kr, _ := keyring.New(sdk.KeyringServiceName(), keyring.BackendMemory, filepath.Join(userHomeDir, ".sei-chain"), nil, app.MakeEncodingConfig().Marshaler)
+
 	keyringAlgos, _ := kr.SupportedAlgorithms()
 	algoStr := string(hd.Secp256k1Type)
 	algo, _ := keyring.NewSigningAlgoFromString(algoStr, keyringAlgos)
