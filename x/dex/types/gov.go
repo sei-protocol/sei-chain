@@ -6,6 +6,7 @@ import (
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	govtypes "github.com/cosmos/cosmos-sdk/x/gov/types"
+	govv1beta1 "github.com/cosmos/cosmos-sdk/x/gov/types/v1beta1"
 )
 
 const (
@@ -16,9 +17,9 @@ const (
 
 func init() {
 	// for routing
-	govtypes.RegisterProposalType(ProposalTypeRegisterPairs)
-	govtypes.RegisterProposalType(ProposalTypeUpdateTickSize)
-	govtypes.RegisterProposalType(ProposalTypeAddAssetMetadata)
+	govv1beta1.RegisterProposalType(ProposalTypeRegisterPairs)
+	govv1beta1.RegisterProposalType(ProposalTypeUpdateTickSize)
+	govv1beta1.RegisterProposalType(ProposalTypeAddAssetMetadata)
 	// for marshal and unmarshal
 	govtypes.RegisterProposalTypeCodec(&RegisterPairsProposal{}, "dex/RegisterPairsProposal")
 	govtypes.RegisterProposalTypeCodec(&UpdateTickSizeProposal{}, "dex/UpdateTickSizeProposal")
@@ -26,8 +27,8 @@ func init() {
 }
 
 var (
-	_ govtypes.Content = &RegisterPairsProposal{}
-	_ govtypes.Content = &UpdateTickSizeProposal{}
+	_ govv1beta1.Content = &RegisterPairsProposal{}
+	_ govv1beta1.Content = &UpdateTickSizeProposal{}
 )
 
 func NewRegisterPairsProposal(title, description string, batchContractPair []BatchContractPair) RegisterPairsProposal {

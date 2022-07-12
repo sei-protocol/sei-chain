@@ -3,6 +3,7 @@ module github.com/sei-protocol/sei-chain
 go 1.18
 
 require (
+	cosmossdk.io/math v1.0.0-beta.2
 	github.com/CosmWasm/wasmd v0.27.0
 	github.com/CosmWasm/wasmvm v1.0.0
 	github.com/cosmos/cosmos-sdk v0.46.0-rc2.0.20220711184214-03022b9c6744
@@ -35,7 +36,6 @@ require (
 	cloud.google.com/go/storage v1.14.0 // indirect
 	cosmossdk.io/api v0.1.1-0.20220526150508-16badb17be9a // indirect
 	cosmossdk.io/errors v1.0.0-beta.7 // indirect
-	cosmossdk.io/math v1.0.0-beta.2 // indirect
 	filippo.io/edwards25519 v1.0.0-rc.1 // indirect
 	github.com/99designs/keyring v1.1.6 // indirect
 	github.com/ChainSafe/go-schnorrkel v0.0.0-20200405005733-88cbf1b4c40d // indirect

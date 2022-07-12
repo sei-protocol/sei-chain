@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	sdkmath "cosmossdk.io/math"
 	"gopkg.in/yaml.v2"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -107,7 +108,7 @@ func (rates DenomOracleExchangeRatePairs) String() string {
 	return string(out)
 }
 
-func NewDenomOracleExchangeRatePair(denom string, exchangeRate sdk.Dec, lastUpdate sdk.Int) DenomOracleExchangeRatePair {
+func NewDenomOracleExchangeRatePair(denom string, exchangeRate sdk.Dec, lastUpdate sdkmath.Int) DenomOracleExchangeRatePair {
 	return DenomOracleExchangeRatePair{
 		Denom: denom,
 		OracleExchangeRate: OracleExchangeRate{
