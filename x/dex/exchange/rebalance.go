@@ -26,13 +26,13 @@ func RebalanceAllocations(order types.OrderBook) map[uint64]sdk.Dec {
 	for acc.LT(newTotal) {
 		orderId := order.GetEntry().Allocations[ptr%numOrders].OrderId
 		res[orderId] = res[orderId].Add(sdk.SmallestDec())
-		ptr += 1
+		ptr++
 		acc = acc.Add(sdk.SmallestDec())
 	}
 	for acc.GT(newTotal) {
 		orderId := order.GetEntry().Allocations[ptr%numOrders].OrderId
 		res[orderId] = res[orderId].Sub(sdk.SmallestDec())
-		ptr += 1
+		ptr++
 		acc = acc.Sub(sdk.SmallestDec())
 	}
 	return res

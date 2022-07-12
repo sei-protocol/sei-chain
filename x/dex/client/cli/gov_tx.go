@@ -124,7 +124,7 @@ func NewAddAssetProposalTxCmd() *cobra.Command {
 			// Convert proposal to RegisterPairsProposal Type
 			from := clientCtx.GetFromAddress()
 
-			content := types.AddAssetMetadataProposal{proposal.Title, proposal.Description, proposal.AssetList}
+			content := types.AddAssetMetadataProposal{Title: proposal.Title, Description: proposal.Description, AssetList: proposal.AssetList}
 
 			deposit, err := sdk.ParseCoinsNormalized(proposal.Deposit)
 			if err != nil {

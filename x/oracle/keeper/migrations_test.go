@@ -82,7 +82,7 @@ func TestMigrate3to4(t *testing.T) {
 	require.Equal(t, types.VotePenaltyCounter{MissCount: missCounter, AbstainCount: 0}, votePenaltyCounter)
 
 	input.OracleKeeper.DeleteVotePenaltyCounter(input.Ctx, addr)
-	votePenaltyCounter = input.OracleKeeper.GetVotePenaltyCounter(input.Ctx, addr)
+	votePenaltyCounter = input.OracleKeeper.GetVotePenaltyCounter(input.Ctx, addr) //nolint:staticcheck // no need to use this.
 
 	numPenaltyCounters := 0
 	handler := func(operators sdk.ValAddress, votePenaltyCounter types.VotePenaltyCounter) (stop bool) {

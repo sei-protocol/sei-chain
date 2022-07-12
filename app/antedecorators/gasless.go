@@ -85,11 +85,7 @@ func DexPlaceOrdersIsGasless(msg *dextypes.MsgPlaceOrders) bool {
 var WHITELISTED_GASLESS_CANCELLATION_ADDRS = []sdk.AccAddress{}
 
 func DexCancelOrdersIsGasless(msg *dextypes.MsgCancelOrders) bool {
-	if allSignersWhitelisted(msg) {
-		return true
-	} else {
-		return false
-	}
+	return allSignersWhitelisted(msg)
 }
 
 func allSignersWhitelisted(msg *dextypes.MsgCancelOrders) bool {

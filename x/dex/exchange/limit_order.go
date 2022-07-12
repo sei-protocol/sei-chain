@@ -51,10 +51,10 @@ func MatchLimitOrders(
 		*zeroOrders = append(*zeroOrders, zeroAccountOrders...)
 
 		if (*longBook)[longPtr].GetEntry().Quantity.IsZero() {
-			longPtr -= 1
+			longPtr--
 		}
 		if (*shortBook)[shortPtr].GetEntry().Quantity.IsZero() {
-			shortPtr += 1
+			shortPtr++
 		}
 	}
 	return totalPrice, totalExecuted
