@@ -1,5 +1,4 @@
-//nolint:deadcode,unused
-//DONTCOVER
+// DONTCOVER
 package exported
 
 import "github.com/sei-protocol/sei-chain/x/oracle/types"

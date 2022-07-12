@@ -6,7 +6,7 @@ import (
 	"github.com/sei-protocol/sei-chain/x/epoch/types"
 )
 
-const EPOCH_KEY = "epoch"
+const EpochKey = "epoch"
 
 func (k Keeper) SetEpoch(ctx sdk.Context, epoch types.Epoch) {
 	store := ctx.KVStore(k.storeKey)
@@ -14,12 +14,12 @@ func (k Keeper) SetEpoch(ctx sdk.Context, epoch types.Epoch) {
 	if err != nil {
 		panic(err)
 	}
-	store.Set([]byte(EPOCH_KEY), value)
+	store.Set([]byte(EpochKey), value)
 }
 
 func (k Keeper) GetEpoch(ctx sdk.Context) (epoch types.Epoch) {
 	store := ctx.KVStore(k.storeKey)
-	b := store.Get([]byte(EPOCH_KEY))
+	b := store.Get([]byte(EpochKey))
 	k.cdc.MustUnmarshal(b, &epoch)
 	return epoch
 }

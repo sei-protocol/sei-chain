@@ -2,9 +2,8 @@ package oracle
 
 import (
 	"context"
-	"fmt"
-
 	"encoding/json"
+	"fmt"
 	"math/rand"
 
 	"github.com/gorilla/mux"
@@ -89,7 +88,7 @@ func (AppModuleBasic) GetQueryCmd() *cobra.Command {
 	return cli.GetQueryCmd()
 }
 
-//___________________________
+// ___________________________
 
 // AppModule implements an application module for the oracle module.
 type AppModule struct {
@@ -104,7 +103,8 @@ func NewAppModule(
 	cdc codec.Codec,
 	keeper keeper.Keeper,
 	accountKeeper types.AccountKeeper,
-	bankKeeper types.BankKeeper) AppModule {
+	bankKeeper types.BankKeeper,
+) AppModule {
 	return AppModule{
 		AppModuleBasic: AppModuleBasic{cdc},
 		keeper:         keeper,
@@ -139,9 +139,9 @@ func (am AppModule) RegisterServices(cfg module.Configurator) {
 	types.RegisterQueryServer(cfg.QueryServer(), querier)
 
 	m := keeper.NewMigrator(am.keeper)
-	cfg.RegisterMigration(types.ModuleName, 1, func(ctx sdk.Context) error { return nil })
-	cfg.RegisterMigration(types.ModuleName, 2, m.Migrate2to3)
-	cfg.RegisterMigration(types.ModuleName, 3, m.Migrate3to4)
+	_ = cfg.RegisterMigration(types.ModuleName, 1, func(ctx sdk.Context) error { return nil })
+	_ = cfg.RegisterMigration(types.ModuleName, 2, m.Migrate2to3)
+	_ = cfg.RegisterMigration(types.ModuleName, 3, m.Migrate3to4)
 }
 
 // InitGenesis performs genesis initialization for the oracle module. It returns
@@ -173,7 +173,7 @@ func (am AppModule) EndBlock(ctx sdk.Context, _ abci.RequestEndBlock) []abci.Val
 	return []abci.ValidatorUpdate{}
 }
 
-//____________________________________________________________________________
+// ____________________________________________________________________________
 
 // AppModuleSimulation functions
 

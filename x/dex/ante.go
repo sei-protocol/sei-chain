@@ -42,14 +42,16 @@ func (tsmd TickSizeMultipleDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, sim
 // CheckTickSizeMultiple checks whether the msgs comply with ticksize
 func (tsmd TickSizeMultipleDecorator) CheckTickSizeMultiple(ctx sdk.Context, msgs []sdk.Msg) error {
 	for _, msg := range msgs {
-		switch msg.(type) {
+		switch msg.(type) { //nolint:gocritic,gosimple // the linter is telling us we can make this faster, and this should be addressed later.
 		case *types.MsgPlaceOrders:
-			msgPlaceOrders := msg.(*types.MsgPlaceOrders)
+			msgPlaceOrders := msg.(*types.MsgPlaceOrders) //nolint:gosimple // the linter is telling us we can make this faster, and this should be addressed later.
 			contractAddr := msgPlaceOrders.ContractAddr
 			for _, order := range msgPlaceOrders.Orders {
 				tickSize, found := tsmd.dexKeeper.GetTickSizeForPair(ctx, contractAddr,
-					types.Pair{PriceDenom: order.PriceDenom,
-						AssetDenom: order.AssetDenom})
+					types.Pair{
+						PriceDenom: order.PriceDenom,
+						AssetDenom: order.AssetDenom,
+					})
 				fmt.Println(contractAddr)
 				// todo may not need to throw err if ticksize unfound?
 				if !found {

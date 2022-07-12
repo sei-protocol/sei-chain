@@ -74,11 +74,11 @@ func NewPair(pair PairJSON) (dextypes.Pair, error) {
 func (bcp BatchContractPairJSON) ToBatchContractPair() (dextypes.BatchContractPair, error) {
 	pairs := make([]*dextypes.Pair, len(bcp.Pairs))
 	for i, p := range bcp.Pairs {
-		new_pair, err := NewPair(p)
+		newPair, err := NewPair(p)
 		if err != nil {
 			return dextypes.BatchContractPair{}, nil
 		}
-		pairs[i] = &new_pair
+		pairs[i] = &newPair
 	}
 	return dextypes.BatchContractPair{ContractAddr: bcp.ContractAddr, Pairs: pairs}, nil
 }
@@ -99,11 +99,11 @@ func (ts TickSizeJSON) ToTickSize() (dextypes.TickSize, error) {
 func (mbcp MultipleBatchContractPairJSON) ToMultipleBatchContractPair() ([]dextypes.BatchContractPair, error) {
 	res := make([]dextypes.BatchContractPair, len(mbcp))
 	for i, bcp := range mbcp {
-		new_batch, err := bcp.ToBatchContractPair()
+		newBatch, err := bcp.ToBatchContractPair()
 		if err != nil {
 			return res, nil
 		}
-		res[i] = new_batch
+		res[i] = newBatch
 	}
 	return res, nil
 }
@@ -186,7 +186,7 @@ func ParseAddAssetMetadataProposalJSON(cdc *codec.LegacyAmino, proposalFile stri
 			}
 		}
 
-		if found == false {
+		if !found {
 			return AddAssetMetadataProposalJSON{}, errors.New("Display denom " + display + " has no associated DenomUnit in Metadata.")
 		}
 

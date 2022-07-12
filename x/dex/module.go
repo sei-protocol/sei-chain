@@ -83,7 +83,7 @@ func (AppModuleBasic) RegisterRESTRoutes(clientCtx client.Context, rtr *mux.Rout
 
 // RegisterGRPCGatewayRoutes registers the gRPC Gateway routes for the module.
 func (AppModuleBasic) RegisterGRPCGatewayRoutes(clientCtx client.Context, mux *runtime.ServeMux) {
-	types.RegisterQueryHandlerClient(context.Background(), mux, types.NewQueryClient(clientCtx))
+	types.RegisterQueryHandlerClient(context.Background(), mux, types.NewQueryClient(clientCtx)) //nolint:errcheck // this is inside a module, and the method doesn't return error.  Leave it alone.
 }
 
 // GetTxCmd returns the capability module's root tx command.
@@ -109,7 +109,7 @@ type AppModule struct {
 	bankKeeper    types.BankKeeper
 	wasmKeeper    wasm.Keeper
 
-	tracingInfo *tracing.TracingInfo
+	tracingInfo *tracing.Info
 }
 
 func NewAppModule(
@@ -118,7 +118,7 @@ func NewAppModule(
 	accountKeeper types.AccountKeeper,
 	bankKeeper types.BankKeeper,
 	wasmKeeper wasm.Keeper,
-	tracingInfo *tracing.TracingInfo,
+	tracingInfo *tracing.Info,
 ) AppModule {
 	return AppModule{
 		AppModuleBasic: NewAppModuleBasic(cdc),
@@ -154,11 +154,11 @@ func (am AppModule) RegisterServices(cfg module.Configurator) {
 	types.RegisterMsgServer(cfg.MsgServer(), keeper.NewMsgServerImpl(am.keeper, am.tracingInfo))
 	types.RegisterQueryServer(cfg.QueryServer(), am.keeper)
 
-	cfg.RegisterMigration(types.ModuleName, 1, func(ctx sdk.Context) error { return nil })
-	cfg.RegisterMigration(types.ModuleName, 2, func(ctx sdk.Context) error {
+	_ = cfg.RegisterMigration(types.ModuleName, 1, func(ctx sdk.Context) error { return nil })
+	_ = cfg.RegisterMigration(types.ModuleName, 2, func(ctx sdk.Context) error {
 		return migrations.DataTypeUpdate(ctx, am.keeper.GetStoreKey(), am.keeper.Cdc)
 	})
-	cfg.RegisterMigration(types.ModuleName, 3, func(ctx sdk.Context) error {
+	_ = cfg.RegisterMigration(types.ModuleName, 3, func(ctx sdk.Context) error {
 		return migrations.PriceSnapshotUpdate(ctx, am.keeper.Paramstore)
 	})
 }
@@ -228,7 +228,7 @@ func (am AppModule) beginBlockForContract(ctx sdk.Context, contractAddr string) 
 			if exists {
 				newEpochPrice := types.Price{
 					SnapshotTimestampInSeconds: uint64(ctx.BlockTime().Unix()),
-					Pair:                       &pair,
+					Pair:                       &pair, //nolint:gosec // USING THE POINTER HERE COULD BE BAD, LET'S CHECK IT
 					Price:                      lastEpochPrice.Price,
 				}
 				am.keeper.SetPriceState(ctx, newEpochPrice, contractAddr, currentEpoch)
@@ -267,7 +267,7 @@ func (am AppModule) endBlockForContract(ctx sdk.Context, contractAddr string) {
 	am.keeper.HandleEBPlaceOrders(spanCtx, ctx, am.tracingInfo.Tracer, contractAddr, registeredPairs)
 
 	for _, pair := range registeredPairs {
-		typedPairStr := types.GetPairString(&pair)
+		typedPairStr := types.GetPairString(&pair) //nolint:gosec // USING THE POINTER HERE COULD BE BAD, LET'S CHECK IT
 		orders := am.keeper.MemState.GetBlockOrders(typedContractAddr, typedPairStr)
 		cancels := am.keeper.MemState.GetBlockCancels(typedContractAddr, typedPairStr)
 		ctx.Logger().Info(string(typedPairStr))
@@ -289,7 +289,7 @@ func (am AppModule) endBlockForContract(ctx sdk.Context, contractAddr string) {
 
 		settlements := []*types.SettlementEntry{}
 		// orders that are fully executed during order matching and need to be removed from active order state
-		zeroOrders := []exchange.AccountOrderId{}
+		zeroOrders := []exchange.AccountOrderID{}
 		marketBuyTotalPrice, marketBuyTotalQuantity := exchange.MatchMarketOrders(
 			ctx,
 			marketBuys,
@@ -395,19 +395,19 @@ func (am AppModule) endBlockForContract(ctx sdk.Context, contractAddr string) {
 			am.keeper.AddCancel(ctx, contractAddr, cancel)
 		}
 		for _, zeroAccountOrder := range zeroOrders {
-			am.keeper.RemoveAccountActiveOrder(ctx, zeroAccountOrder.OrderId, contractAddr, zeroAccountOrder.Account)
+			am.keeper.RemoveAccountActiveOrder(ctx, zeroAccountOrder.OrderID, contractAddr, zeroAccountOrder.Account)
 		}
 
 		emptyBlockCancel := dexcache.BlockCancellations([]types.Cancellation{})
 		am.keeper.MemState.BlockCancels[typedContractAddr][typedPairStr] = &emptyBlockCancel
 		for _, marketOrder := range marketBuys {
 			if marketOrder.Quantity.IsPositive() {
-				am.keeper.MemState.GetBlockCancels(typedContractAddr, typedPairStr).AddOrderIdToCancel(marketOrder.Id, types.CancellationInitiator_USER)
+				am.keeper.MemState.GetBlockCancels(typedContractAddr, typedPairStr).AddOrderIDToCancel(marketOrder.Id, types.CancellationInitiator_USER)
 			}
 		}
 		for _, marketOrder := range marketSells {
 			if marketOrder.Quantity.IsPositive() {
-				am.keeper.MemState.GetBlockCancels(typedContractAddr, typedPairStr).AddOrderIdToCancel(marketOrder.Id, types.CancellationInitiator_USER)
+				am.keeper.MemState.GetBlockCancels(typedContractAddr, typedPairStr).AddOrderIDToCancel(marketOrder.Id, types.CancellationInitiator_USER)
 			}
 		}
 	}

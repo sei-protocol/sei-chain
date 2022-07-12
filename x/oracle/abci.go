@@ -58,14 +58,13 @@ func EndBlocker(ctx sdk.Context, k keeper.Keeper) {
 			ballotRD := voteMap[referenceDenom]
 			voteMapRD := ballotRD.ToMap()
 
-			var exchangeRateRD sdk.Dec = ballotRD.WeightedMedianWithAssertion()
+			exchangeRateRD := ballotRD.WeightedMedianWithAssertion()
 
 			// Iterate through ballots and update exchange rates; drop if not enough votes have been achieved.
 			for denom, ballot := range voteMap {
 
 				// Convert ballot to cross exchange rates
 				if denom != referenceDenom {
-
 					ballot = ballot.ToCrossRateWithSort(voteMapRD)
 				}
 

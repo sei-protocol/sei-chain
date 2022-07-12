@@ -52,7 +52,7 @@ func (k Keeper) OrganizeBallotByDenom(ctx sdk.Context, validatorClaimMap map[str
 		votes[denom] = ballot
 	}
 
-	return
+	return votes
 }
 
 // ClearBallots clears all tallied prevotes and votes from the store
@@ -75,7 +75,6 @@ func (k Keeper) ClearBallots(ctx sdk.Context, votePeriod uint64) {
 
 // ApplyWhitelist update vote target denom list with params whitelist
 func (k Keeper) ApplyWhitelist(ctx sdk.Context, whitelist types.DenomList, voteTargets map[string]types.Denom) {
-
 	// check is there any update in whitelist params
 	updateRequired := false
 	if len(voteTargets) != len(whitelist) {

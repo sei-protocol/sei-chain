@@ -10,13 +10,13 @@ import (
 
 const PrefixKey = "x-wasm-contract"
 
-func (k Keeper) SetContractAddress(ctx sdk.Context, contractAddr string, codeId uint64) {
+func (k Keeper) SetContractAddress(ctx sdk.Context, contractAddr string, codeID uint64) {
 	store := prefix.NewStore(
 		ctx.KVStore(k.storeKey),
 		[]byte(PrefixKey),
 	)
 	bz := make([]byte, 8)
-	binary.BigEndian.PutUint64(bz, codeId)
+	binary.BigEndian.PutUint64(bz, codeID)
 	ctx.Logger().Info(fmt.Sprintf("Setting contract address %s", contractAddr))
 	store.Set(contractKey(contractAddr), bz)
 }

@@ -1,18 +1,18 @@
 package types
 
 const (
-	OPEN_ORDER_CREATOR_SUFFIX  = "o"
-	CLOSE_ORDER_CREATOR_SUFFIX = "c"
+	OpenOrderCreatorSuffix  = "o"
+	CloseOrderCreatorSuffix = "c"
 )
 
-var SUFFIX_TO_POSITION_EFFECT = map[string]PositionEffect{
-	OPEN_ORDER_CREATOR_SUFFIX:  PositionEffect_OPEN,
-	CLOSE_ORDER_CREATOR_SUFFIX: PositionEffect_CLOSE,
+var SuffixToPositionEffect = map[string]PositionEffect{
+	OpenOrderCreatorSuffix:  PositionEffect_OPEN,
+	CloseOrderCreatorSuffix: PositionEffect_CLOSE,
 }
 
-var POSITION_EFFECT_TO_SUFFIX = map[PositionEffect]string{
-	PositionEffect_OPEN:  OPEN_ORDER_CREATOR_SUFFIX,
-	PositionEffect_CLOSE: CLOSE_ORDER_CREATOR_SUFFIX,
+var PositionEffectToSuffix = map[PositionEffect]string{
+	PositionEffect_OPEN:  OpenOrderCreatorSuffix,
+	PositionEffect_CLOSE: CloseOrderCreatorSuffix,
 }
 
-const FORMATTED_ACCOUNT_DELIMITER = "|"
+const FormattedAccountDelimiter = "|"

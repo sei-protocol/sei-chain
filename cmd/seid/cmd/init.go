@@ -4,6 +4,9 @@ import (
 	"bufio"
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
+
 	"github.com/cosmos/go-bip39"
 	"github.com/pkg/errors"
 	"github.com/sei-protocol/sei-chain/app/params"
@@ -12,8 +15,6 @@ import (
 	"github.com/tendermint/tendermint/libs/cli"
 	tmos "github.com/tendermint/tendermint/libs/os"
 	"github.com/tendermint/tendermint/types"
-	"os"
-	"path/filepath"
 
 	"github.com/cosmos/cosmos-sdk/client"
 	"github.com/cosmos/cosmos-sdk/client/flags"

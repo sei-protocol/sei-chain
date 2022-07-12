@@ -5,7 +5,7 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 )
 
-const CONTRACT_ADDRESS_LENGTH = 62
+const ContractAddressAddressLength = 62
 
 /**
  * No `dex` state exists in any public chain at the time this data type update happened.

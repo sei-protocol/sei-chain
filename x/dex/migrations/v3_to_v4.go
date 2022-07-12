@@ -7,8 +7,8 @@ import (
 )
 
 func PriceSnapshotUpdate(ctx sdk.Context, paramStore paramtypes.Subspace) error {
-	migratePriceSnapshotParam(ctx, paramStore)
-	return nil
+	err := migratePriceSnapshotParam(ctx, paramStore)
+	return err
 }
 
 func migratePriceSnapshotParam(ctx sdk.Context, paramStore paramtypes.Subspace) error {

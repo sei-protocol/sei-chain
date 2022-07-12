@@ -11,8 +11,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-const TEST_TARGET_CONTRACT = "sei14hj2tavq8fpesdwxxcu44rty3hh90vhujrvcmstl4zr3txmfvw9sh9m79m"
-const TEST_CREATOR = "sei1nc5tatafv6eyq7llkr2gv50ff9e22mnf70qgjlv737ktmt4eswrqms7u8a"
+const (
+	TEST_TARGET_CONTRACT = "sei14hj2tavq8fpesdwxxcu44rty3hh90vhujrvcmstl4zr3txmfvw9sh9m79m"
+	TEST_CREATOR         = "sei1nc5tatafv6eyq7llkr2gv50ff9e22mnf70qgjlv737ktmt4eswrqms7u8a"
+)
 
 func TestDecodeOrder(t *testing.T) {
 	order := types.Order{

@@ -23,6 +23,7 @@ var (
 	_ = baseapp.Paramspace
 )
 
+//nolint:deadcode,unused,gosec // Assume this will be used later, and gosec is nolint because there are no hard-coded credentials here.
 const (
 	opWeightMsgLimitBuy = "op_weight_msg_create_chain"
 	// TODO: Determine the simulation weight value

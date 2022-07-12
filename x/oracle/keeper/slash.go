@@ -23,7 +23,6 @@ func (k Keeper) SlashAndResetCounters(ctx sdk.Context) {
 	powerReduction := k.StakingKeeper.PowerReduction(ctx)
 
 	k.IterateVotePenaltyCounters(ctx, func(operator sdk.ValAddress, votePenaltyCounter types.VotePenaltyCounter) bool {
-
 		// Calculate valid vote rate; (SlashWindow - MissCounter)/SlashWindow
 		validVoteRate := sdk.NewDecFromInt(
 			sdk.NewInt(int64(votePeriodsPerWindow - votePenaltyCounter.MissCount))).

@@ -6,8 +6,11 @@ import (
 
 // OracleExchangeRates - array of OracleExchangeRate
 type PriceSnapshots []PriceSnapshot
-type PriceSnapshotItems []PriceSnapshotItem
-type OracleTwaps []OracleTwap
+
+type (
+	PriceSnapshotItems []PriceSnapshotItem
+	OracleTwaps        []OracleTwap
+)
 
 // String implements fmt.Stringer interface
 func (snapshots PriceSnapshots) String() string {

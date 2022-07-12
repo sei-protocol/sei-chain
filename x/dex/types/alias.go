@@ -2,8 +2,10 @@ package types
 
 import "fmt"
 
-type ContractAddress string
-type PairString string
+type (
+	ContractAddress string
+	PairString      string
+)
 
 func GetPairString(pair *Pair) PairString {
 	return PairString(

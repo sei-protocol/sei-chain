@@ -84,6 +84,5 @@ func pickReferenceDenom(ctx sdk.Context, k keeper.Keeper, voteTargets map[string
 			referenceDenom = denom
 		}
 	}
-
-	return
+	return referenceDenom, belowThresholdVoteMap
 }
