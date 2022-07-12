@@ -296,7 +296,7 @@ func (am AppModule) endBlockForContract(ctx sdk.Context, contractAddr string) {
 			allExistingSells,
 			pair,
 			types.PositionDirection_LONG,
-			&longDirtyPrices,
+			&shortDirtyPrices,
 			&settlements,
 			&zeroOrders,
 		)
@@ -306,7 +306,7 @@ func (am AppModule) endBlockForContract(ctx sdk.Context, contractAddr string) {
 			allExistingBuys,
 			pair,
 			types.PositionDirection_SHORT,
-			&shortDirtyPrices,
+			&longDirtyPrices,
 			&settlements,
 			&zeroOrders,
 		)
