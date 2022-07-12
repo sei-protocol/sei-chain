@@ -154,11 +154,11 @@ func (am AppModule) RegisterServices(cfg module.Configurator) {
 	types.RegisterMsgServer(cfg.MsgServer(), keeper.NewMsgServerImpl(am.keeper, am.tracingInfo))
 	types.RegisterQueryServer(cfg.QueryServer(), am.keeper)
 
-	cfg.RegisterMigration(types.ModuleName, 1, func(ctx sdk.Context) error { return nil })
-	cfg.RegisterMigration(types.ModuleName, 2, func(ctx sdk.Context) error {
+	_ = cfg.RegisterMigration(types.ModuleName, 1, func(ctx sdk.Context) error { return nil })
+	_ = cfg.RegisterMigration(types.ModuleName, 2, func(ctx sdk.Context) error {
 		return migrations.DataTypeUpdate(ctx, am.keeper.GetStoreKey(), am.keeper.Cdc)
 	})
-	cfg.RegisterMigration(types.ModuleName, 3, func(ctx sdk.Context) error {
+	_ = cfg.RegisterMigration(types.ModuleName, 3, func(ctx sdk.Context) error {
 		return migrations.PriceSnapshotUpdate(ctx, am.keeper.Paramstore)
 	})
 }
@@ -228,7 +228,7 @@ func (am AppModule) beginBlockForContract(ctx sdk.Context, contractAddr string) 
 			if exists {
 				newEpochPrice := types.Price{
 					SnapshotTimestampInSeconds: uint64(ctx.BlockTime().Unix()),
-					Pair:                       &pair,
+					Pair:                       &pair, //nolint:gosec // USING THE POINTER HERE COULD BE BAD, LET'S CHECK IT
 					Price:                      lastEpochPrice.Price,
 				}
 				am.keeper.SetPriceState(ctx, newEpochPrice, contractAddr, currentEpoch)
@@ -267,7 +267,7 @@ func (am AppModule) endBlockForContract(ctx sdk.Context, contractAddr string) {
 	am.keeper.HandleEBPlaceOrders(spanCtx, ctx, am.tracingInfo.Tracer, contractAddr, registeredPairs)
 
 	for _, pair := range registeredPairs {
-		typedPairStr := types.GetPairString(&pair)
+		typedPairStr := types.GetPairString(&pair) //nolint:gosec // USING THE POINTER HERE COULD BE BAD, LET'S CHECK IT
 		orders := am.keeper.MemState.GetBlockOrders(typedContractAddr, typedPairStr)
 		cancels := am.keeper.MemState.GetBlockCancels(typedContractAddr, typedPairStr)
 		ctx.Logger().Info(string(typedPairStr))

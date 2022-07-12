@@ -19,7 +19,7 @@ func (k *Keeper) HandleEBLiquidation(ctx context.Context, sdkCtx sdk.Context, tr
 	msg := k.getLiquidationSudoMsg(typedContractAddr)
 	data := k.CallContractSudo(sdkCtx, contractAddr, msg)
 	response := types.SudoLiquidationResponse{}
-	json.Unmarshal(data, &response)
+	json.Unmarshal(data, &response) //nolint:errcheck // ignore error
 	sdkCtx.Logger().Info(fmt.Sprintf("Sudo liquidate response data: %s", response))
 
 	liquidatedAccountsActiveOrderIds := []uint64{}
@@ -28,7 +28,7 @@ func (k *Keeper) HandleEBLiquidation(ctx context.Context, sdkCtx sdk.Context, tr
 	}
 	// Clear up all user-initiated order activities in the current block
 	for _, pair := range registeredPairs {
-		typedPairStr := types.GetPairString(&pair)
+		typedPairStr := types.GetPairString(&pair) //nolint:gosec // USING THE POINTER HERE COULD BE BAD LET'S CHECK IT.
 		k.MemState.GetBlockCancels(typedContractAddr, typedPairStr).FilterByIds(liquidatedAccountsActiveOrderIds)
 		k.MemState.GetBlockOrders(typedContractAddr, typedPairStr).MarkFailedToPlaceByAccounts(response.SuccessfulAccounts)
 	}
@@ -46,15 +46,15 @@ func (k *Keeper) HandleEBLiquidation(ctx context.Context, sdkCtx sdk.Context, tr
 }
 
 func (k *Keeper) placeLiquidationOrders(ctx sdk.Context, contractAddr string, liquidationOrders []types.Order) {
-	nextId := k.GetNextOrderID(ctx)
+	nextID := k.GetNextOrderID(ctx)
 	for _, order := range liquidationOrders {
 		pair := types.Pair{PriceDenom: order.PriceDenom, AssetDenom: order.AssetDenom}
 		orders := k.MemState.GetBlockOrders(types.ContractAddress(contractAddr), types.PairString(pair.String()))
-		order.Id = nextId
+		order.Id = nextID
 		orders.AddOrder(order)
-		nextId++
+		nextID++
 	}
-	k.SetNextOrderId(ctx, nextId)
+	k.SetNextOrderID(ctx, nextID)
 }
 
 func (k *Keeper) getLiquidationSudoMsg(typedContractAddr types.ContractAddress) types.SudoLiquidationMsg {

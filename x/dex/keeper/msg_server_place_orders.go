@@ -64,7 +64,7 @@ func (k msgServer) PlaceOrders(goCtx context.Context, msg *types.MsgPlaceOrders)
 		idsInResp = append(idsInResp, nextID)
 		nextID++
 	}
-	k.SetNextOrderId(ctx, nextID)
+	k.SetNextOrderID(ctx, nextID)
 
 	return &types.MsgPlaceOrdersResponse{
 		OrderIds: idsInResp,

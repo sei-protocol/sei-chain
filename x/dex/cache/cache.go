@@ -9,13 +9,13 @@ import (
 )
 
 const (
-	LIMIT_BUY_EVENT_TYPE   = "dex_lb"
-	LIMIT_SELL_EVENT_TYPE  = "dex_ls"
-	MARKET_BUY_EVENT_TYPE  = "dex_mb"
-	MARKET_SELL_EVENT_TYPE = "dex_ms"
-	CREATOR_ATTR           = "creator"
-	PRICE_ATTR             = "price"
-	QUANTITY_ATTR          = "quantity"
+	LimitBuyEventType   = "dex_lb"
+	LimitSellEventType  = "dex_ls"
+	MarketBuyEventType  = "dex_mb"
+	MarketSellEventType = "dex_ms"
+	CreatorAttr         = "creator"
+	PriceAttr           = "price"
+	QuantityAttr        = "quantity"
 )
 
 type MemState struct {

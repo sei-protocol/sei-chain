@@ -1,7 +1,6 @@
 package types
 
 import (
-	"errors"
 	"fmt"
 	"strings"
 )
@@ -25,19 +24,21 @@ func getEnumFromStr(str string, enumMap map[string]int32) (int32, error) {
 	upperStr := strings.ToUpper(str)
 	if val, ok := enumMap[upperStr]; ok {
 		return val, nil
-	} else {
-		return 0, errors.New(fmt.Sprintf("Unknown enum literal: %s", str))
 	}
+	return 0, fmt.Errorf("unknown enum literal: %s", str)
 }
 
+//nolint:staticcheck // following the linter here requires changes in the sdk, I reckon.
 func GetContractPositionDirection(direction PositionDirection) string {
 	return strings.Title(strings.ToLower(PositionDirection_name[int32(direction)]))
 }
 
+//nolint:staticcheck // following the linter here requires changes in the sdk, I reckon.
 func GetContractPositionEffect(effect PositionEffect) string {
 	return strings.Title(strings.ToLower(PositionEffect_name[int32(effect)]))
 }
 
+//nolint:staticcheck // following the linter here requires changes in the sdk, I reckon.
 func GetContractOrderType(orderType OrderType) string {
 	return strings.Title(strings.ToLower(OrderType_name[int32(orderType)]))
 }

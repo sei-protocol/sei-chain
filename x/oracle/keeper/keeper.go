@@ -410,15 +410,14 @@ func (k Keeper) AddPriceSnapshot(ctx sdk.Context, snapshot types.PriceSnapshot) 
 	k.IteratePriceSnapshots(ctx, func(snapshot types.PriceSnapshot) (stop bool) {
 		if snapshot.SnapshotTimestamp+lookbackDuration >= ctx.BlockTime().Unix() {
 			return true
-		} else {
-			// delete the previous out of range snapshot
-			if lastOutOfRangeSnapshotTimestamp >= 0 {
-				k.DeletePriceSnapshot(ctx, lastOutOfRangeSnapshotTimestamp)
-			}
-			// update last out of range snapshot
-			lastOutOfRangeSnapshotTimestamp = snapshot.SnapshotTimestamp
-			return false
 		}
+		// delete the previous out of range snapshot
+		if lastOutOfRangeSnapshotTimestamp >= 0 {
+			k.DeletePriceSnapshot(ctx, lastOutOfRangeSnapshotTimestamp)
+		}
+		// update last out of range snapshot
+		lastOutOfRangeSnapshotTimestamp = snapshot.SnapshotTimestamp
+		return false
 	})
 }
 
@@ -462,7 +461,7 @@ func (k Keeper) CalculateTwaps(ctx sdk.Context, lookbackSeconds int64) (types.Or
 	if err != nil {
 		return oracleTwaps, err
 	}
-	var timeTraversed int64 = 0
+	var timeTraversed int64
 	denomToTimeWeightedMap := make(map[string]sdk.Dec)
 	denomDurationMap := make(map[string]int64)
 
