@@ -14,6 +14,4 @@ func TestHandleBBNewBlock(t *testing.T) {
 	ctx, wasmkeepers := wasmkeeper.CreateTestInput(t, false, SupportedFeatures)
 	dexKeeper := keeper.Keeper{WasmKeeper: *wasmkeepers.WasmKeeper}
 	dexKeeper.HandleBBNewBlock(ctx, TestContract, 1)
-	// right now just to make sure this call doesn't crash.
-	// TODO: add a test wasm file to actually invoke the sudo call
 }

@@ -213,3 +213,38 @@ func TestEndBlockPartialRollback(t *testing.T) {
 	_, found = dexkeeper.GetLongBookByPrice(ctx, contractAddr.String(), sdk.MustNewDecFromStr("1"), pair.PriceDenom, pair.AssetDenom)
 	require.True(t, found)
 }
+
+func TestBeginBlock(t *testing.T) {
+	testApp := keepertest.TestApp()
+	ctx := testApp.BaseApp.NewContext(false, tmproto.Header{Time: time.Now()})
+	dexkeeper := testApp.DexKeeper
+
+	testAccount, _ := sdk.AccAddressFromBech32("sei1yezq49upxhunjjhudql2fnj5dgvcwjj87pn2wx")
+	amounts := sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(10000000)))
+	bankkeeper := testApp.BankKeeper
+	bankkeeper.MintCoins(ctx, minttypes.ModuleName, amounts)
+	bankkeeper.SendCoinsFromModuleToAccount(ctx, minttypes.ModuleName, testAccount, amounts)
+	wasm, err := ioutil.ReadFile("./testdata/clearing_house.wasm")
+	if err != nil {
+		panic(err)
+	}
+	wasmKeeper := testApp.WasmKeeper
+	contractKeeper := wasmkeeper.NewDefaultPermissionKeeper(&wasmKeeper)
+	var perm *wasmtypes.AccessConfig
+	codeId, err := contractKeeper.Create(ctx, testAccount, wasm, perm)
+	if err != nil {
+		panic(err)
+	}
+	contractAddr, _, err := contractKeeper.Instantiate(ctx, codeId, testAccount, testAccount, []byte(GOOD_CONTRACT_INSTANTIATE), "test",
+		sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(100000))))
+	if err != nil {
+		panic(err)
+	}
+	dexkeeper.SetContract(ctx, &types.ContractInfo{CodeId: 123, ContractAddr: contractAddr.String(), HookOnly: false})
+
+	// right now just make sure it doesn't crash since it doesn't register any state to be checked against
+	testApp.BeginBlocker(ctx, abci.RequestBeginBlock{})
+
+	err = testApp.DexKeeper.HandleBBNewBlock(ctx, contractAddr.String(), 1)
+	require.Nil(t, err)
+}
