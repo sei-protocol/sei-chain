@@ -13,12 +13,14 @@ func NewMsgRegisterContract(
 	creator string,
 	codeID uint64,
 	contractAddr string,
+	hookOnly bool,
 ) *MsgRegisterContract {
 	return &MsgRegisterContract{
 		Creator: creator,
 		Contract: &ContractInfo{
 			CodeId:       codeID,
 			ContractAddr: contractAddr,
+			HookOnly:     hookOnly,
 		},
 	}
 }

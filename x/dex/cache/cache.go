@@ -220,6 +220,9 @@ func (o *BlockOrders) getOrdersByCriteria(orderType types.OrderType, direction t
 		if order.OrderType != orderType || order.PositionDirection != direction {
 			continue
 		}
+		if order.Status == types.OrderStatus_FAILED_TO_PLACE {
+			continue
+		}
 		res = append(res, order)
 	}
 	return res

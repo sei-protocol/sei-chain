@@ -56,7 +56,7 @@ func TestEndBlockMarketOrder(t *testing.T) {
 	if err != nil {
 		panic(err)
 	}
-	dexkeeper.SetContractAddress(ctx, contractAddr.String(), 123)
+	dexkeeper.SetContract(ctx, &types.ContractInfo{CodeId: 123, ContractAddr: contractAddr.String(), HookOnly: false})
 	dexkeeper.AddRegisteredPair(ctx, contractAddr.String(), pair)
 	// place one order to a nonexistent contract
 	dexkeeper.MemState.GetBlockOrders(types.ContractAddress(contractAddr.String()), types.GetPairString(&pair)).AddOrder(
@@ -117,7 +117,7 @@ func TestEndBlockRollback(t *testing.T) {
 	dexkeeper := testApp.DexKeeper
 	pair := TEST_PAIR()
 	// register contract and pair
-	dexkeeper.SetContractAddress(ctx, TEST_CONTRACT, 123)
+	dexkeeper.SetContract(ctx, &types.ContractInfo{CodeId: 123, ContractAddr: TEST_CONTRACT, HookOnly: false})
 	dexkeeper.AddRegisteredPair(ctx, TEST_CONTRACT, pair)
 	// place one order to a nonexistent contract
 	dexkeeper.MemState.GetBlockOrders(types.ContractAddress(TEST_CONTRACT), types.GetPairString(&pair)).AddOrder(
@@ -147,7 +147,7 @@ func TestEndBlockPartialRollback(t *testing.T) {
 	dexkeeper := testApp.DexKeeper
 	pair := TEST_PAIR()
 	// register contract and pair
-	dexkeeper.SetContractAddress(ctx, TEST_CONTRACT, 123)
+	dexkeeper.SetContract(ctx, &types.ContractInfo{CodeId: 123, ContractAddr: TEST_CONTRACT, HookOnly: false})
 	dexkeeper.AddRegisteredPair(ctx, TEST_CONTRACT, pair)
 	// place one order to a nonexistent contract
 	dexkeeper.MemState.GetBlockOrders(types.ContractAddress(TEST_CONTRACT), types.GetPairString(&pair)).AddOrder(
@@ -185,7 +185,7 @@ func TestEndBlockPartialRollback(t *testing.T) {
 	if err != nil {
 		panic(err)
 	}
-	dexkeeper.SetContractAddress(ctx, contractAddr.String(), 123)
+	dexkeeper.SetContract(ctx, &types.ContractInfo{CodeId: 123, ContractAddr: contractAddr.String(), HookOnly: false})
 	dexkeeper.AddRegisteredPair(ctx, contractAddr.String(), pair)
 	// place one order to a nonexistent contract
 	dexkeeper.MemState.GetBlockOrders(types.ContractAddress(contractAddr.String()), types.GetPairString(&pair)).AddOrder(
@@ -199,6 +199,7 @@ func TestEndBlockPartialRollback(t *testing.T) {
 			AssetDenom:        pair.AssetDenom,
 			OrderType:         types.OrderType_LIMIT,
 			PositionDirection: types.PositionDirection_LONG,
+			Data:              "{\"position_effect\":\"Open\",\"leverage\":\"1\"}",
 		},
 	)
 
