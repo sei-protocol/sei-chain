@@ -83,7 +83,7 @@ func SignTx(txBuilder *client.TxBuilder, privKey cryptotypes.PrivKey, seqDelta u
 
 func GetAccountNumberSequenceNumber(privKey cryptotypes.PrivKey) (uint64, uint64) {
 	hexAccount := privKey.PubKey().Address()
-	address, err := sdk.AccAddressFromHex(hexAccount.String())
+	address, err := sdk.AccAddressFromHexUnsafe(hexAccount.String())
 	if err != nil {
 		panic(err)
 	}

@@ -2,6 +2,7 @@ package migrations
 
 import (
 	"github.com/cosmos/cosmos-sdk/codec"
+	storetypes "github.com/cosmos/cosmos-sdk/store/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 )
 
@@ -12,7 +13,7 @@ const CONTRACT_ADDRESS_LENGTH = 62
  * Any new chain (including local ones) should be based on a Sei version newer than this update
  * and therefore doesn't need this migration
  */
-func DataTypeUpdate(ctx sdk.Context, storeKey sdk.StoreKey, cdc codec.BinaryCodec) error {
+func DataTypeUpdate(ctx sdk.Context, storeKey storetypes.StoreKey, cdc codec.BinaryCodec) error {
 	ClearStore(ctx, storeKey)
 	return nil
 }
@@ -21,7 +22,7 @@ func DataTypeUpdate(ctx sdk.Context, storeKey sdk.StoreKey, cdc codec.BinaryCode
  * CAUTION: this function clears up the entire `dex` module store, so it should only ever
  *          be used outside of a production setting.
  */
-func ClearStore(ctx sdk.Context, storeKey sdk.StoreKey) {
+func ClearStore(ctx sdk.Context, storeKey storetypes.StoreKey) {
 	store := ctx.KVStore(storeKey)
 	iterator := sdk.KVStorePrefixIterator(store, []byte{})
 	defer iterator.Close()

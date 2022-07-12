@@ -7,7 +7,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/client/flags"
 	"github.com/cosmos/cosmos-sdk/client/tx"
 	sdk "github.com/cosmos/cosmos-sdk/types"
-	govtypes "github.com/cosmos/cosmos-sdk/x/gov/types"
+	govv1beta1 "github.com/cosmos/cosmos-sdk/x/gov/types/v1beta1"
 	cutils "github.com/sei-protocol/sei-chain/x/dex/client/utils"
 
 	"github.com/spf13/cobra"
@@ -45,7 +45,7 @@ func NewRegisterPairsProposalTxCmd() *cobra.Command {
 				return err
 			}
 
-			msg, err := govtypes.NewMsgSubmitProposal(&content, deposit, from)
+			msg, err := govv1beta1.NewMsgSubmitProposal(&content, deposit, from)
 			if err != nil {
 				return err
 			}
@@ -83,14 +83,14 @@ func NewUpdateTickSizeProposalTxCmd() *cobra.Command {
 				return err
 			}
 
-			content := types.NewUpdateTickSizeForPair(proposal.Title, proposal.Description,ticksizes)
+			content := types.NewUpdateTickSizeForPair(proposal.Title, proposal.Description, ticksizes)
 
 			deposit, err := sdk.ParseCoinsNormalized(proposal.Deposit)
 			if err != nil {
 				return err
 			}
-		
-			msg, err := govtypes.NewMsgSubmitProposal(&content, deposit, clientCtx.GetFromAddress())
+
+			msg, err := govv1beta1.NewMsgSubmitProposal(&content, deposit, clientCtx.GetFromAddress())
 			if err != nil {
 				return err
 			}
@@ -131,7 +131,7 @@ func NewAddAssetProposalTxCmd() *cobra.Command {
 				return err
 			}
 
-			msg, err := govtypes.NewMsgSubmitProposal(&content, deposit, from)
+			msg, err := govv1beta1.NewMsgSubmitProposal(&content, deposit, from)
 			if err != nil {
 				return err
 			}
