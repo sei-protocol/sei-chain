@@ -15,7 +15,7 @@ func MatchLimitOrders(
 	longDirtyPrices *DirtyPrices,
 	shortDirtyPrices *DirtyPrices,
 	settlements *[]*types.SettlementEntry,
-	zeroOrders *[]AccountOrderId,
+	zeroOrders *[]AccountOrderID,
 ) (sdk.Dec, sdk.Dec) {
 	for _, order := range longOrders {
 		addOrderToOrderBook(order, longBook, pair, longDirtyPrices)

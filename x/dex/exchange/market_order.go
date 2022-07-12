@@ -13,7 +13,7 @@ func MatchMarketOrders(
 	direction types.PositionDirection,
 	dirtyPrices *DirtyPrices,
 	settlements *[]*types.SettlementEntry,
-	zeroOrders *[]AccountOrderId,
+	zeroOrders *[]AccountOrderID,
 ) (sdk.Dec, sdk.Dec) {
 	totalExecuted, totalPrice := sdk.ZeroDec(), sdk.ZeroDec()
 	allTakerSettlements := []*types.SettlementEntry{}

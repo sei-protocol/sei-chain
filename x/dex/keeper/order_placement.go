@@ -10,7 +10,7 @@ import (
 
 func (k Keeper) GetNextOrderID(ctx sdk.Context) uint64 {
 	store := prefix.NewStore(ctx.KVStore(k.storeKey), []byte{})
-	byteKey := types.KeyPrefix(types.NextOrderIdKey)
+	byteKey := types.KeyPrefix(types.NextOrderIDKey)
 	bz := store.Get(byteKey)
 	if bz == nil {
 		return 0
@@ -20,7 +20,7 @@ func (k Keeper) GetNextOrderID(ctx sdk.Context) uint64 {
 
 func (k Keeper) SetNextOrderId(ctx sdk.Context, nextId uint64) {
 	store := prefix.NewStore(ctx.KVStore(k.storeKey), []byte{})
-	byteKey := types.KeyPrefix(types.NextOrderIdKey)
+	byteKey := types.KeyPrefix(types.NextOrderIDKey)
 	bz := make([]byte, 8)
 	binary.BigEndian.PutUint64(bz, nextId)
 	store.Set(byteKey, bz)

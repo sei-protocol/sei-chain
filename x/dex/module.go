@@ -83,7 +83,7 @@ func (AppModuleBasic) RegisterRESTRoutes(clientCtx client.Context, rtr *mux.Rout
 
 // RegisterGRPCGatewayRoutes registers the gRPC Gateway routes for the module.
 func (AppModuleBasic) RegisterGRPCGatewayRoutes(clientCtx client.Context, mux *runtime.ServeMux) {
-	types.RegisterQueryHandlerClient(context.Background(), mux, types.NewQueryClient(clientCtx))
+	types.RegisterQueryHandlerClient(context.Background(), mux, types.NewQueryClient(clientCtx)) //nolint:errcheck // this is inside a module, and the method doesn't return error.  Leave it alone.
 }
 
 // GetTxCmd returns the capability module's root tx command.
@@ -289,7 +289,7 @@ func (am AppModule) endBlockForContract(ctx sdk.Context, contractAddr string) {
 
 		settlements := []*types.SettlementEntry{}
 		// orders that are fully executed during order matching and need to be removed from active order state
-		zeroOrders := []exchange.AccountOrderId{}
+		zeroOrders := []exchange.AccountOrderID{}
 		marketBuyTotalPrice, marketBuyTotalQuantity := exchange.MatchMarketOrders(
 			ctx,
 			marketBuys,
@@ -402,12 +402,12 @@ func (am AppModule) endBlockForContract(ctx sdk.Context, contractAddr string) {
 		am.keeper.MemState.BlockCancels[typedContractAddr][typedPairStr] = &emptyBlockCancel
 		for _, marketOrder := range marketBuys {
 			if marketOrder.Quantity.IsPositive() {
-				am.keeper.MemState.GetBlockCancels(typedContractAddr, typedPairStr).AddOrderIdToCancel(marketOrder.Id, types.CancellationInitiator_USER)
+				am.keeper.MemState.GetBlockCancels(typedContractAddr, typedPairStr).AddOrderIDToCancel(marketOrder.Id, types.CancellationInitiator_USER)
 			}
 		}
 		for _, marketOrder := range marketSells {
 			if marketOrder.Quantity.IsPositive() {
-				am.keeper.MemState.GetBlockCancels(typedContractAddr, typedPairStr).AddOrderIdToCancel(marketOrder.Id, types.CancellationInitiator_USER)
+				am.keeper.MemState.GetBlockCancels(typedContractAddr, typedPairStr).AddOrderIDToCancel(marketOrder.Id, types.CancellationInitiator_USER)
 			}
 		}
 	}

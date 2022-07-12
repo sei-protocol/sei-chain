@@ -34,7 +34,7 @@ func (k msgServer) CancelOrders(goCtx context.Context, msg *types.MsgCancelOrder
 		}
 		if !cancelledInCurrentBlock {
 			// only cancel if it's not cancelled in a previous tx in the same block
-			pairBlockCancellations.AddOrderIdToCancel(orderIdToCancel, types.CancellationInitiator_USER)
+			pairBlockCancellations.AddOrderIDToCancel(orderIdToCancel, types.CancellationInitiator_USER)
 		}
 	}
 

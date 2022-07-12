@@ -45,7 +45,7 @@ func TestMatchSingleMarketOrderFromShortBook(t *testing.T) {
 	dirtyPrices := exchange.NewDirtyPrices()
 	settlements := []*types.SettlementEntry{}
 	totalPrice, totalExecuted := exchange.MatchMarketOrders(
-		ctx, longOrders, shortBook, TEST_PAIR(), types.PositionDirection_LONG, &dirtyPrices, &settlements, &[]exchange.AccountOrderId{},
+		ctx, longOrders, shortBook, TEST_PAIR(), types.PositionDirection_LONG, &dirtyPrices, &settlements, &[]exchange.AccountOrderID{},
 	)
 	assert.Equal(t, totalPrice, sdk.NewDec(500))
 	assert.Equal(t, totalExecuted, sdk.NewDec(5))
@@ -114,7 +114,7 @@ func TestMatchSingleMarketOrderFromLongBook(t *testing.T) {
 	dirtyPrices := exchange.NewDirtyPrices()
 	settlements := []*types.SettlementEntry{}
 	totalPrice, totalExecuted := exchange.MatchMarketOrders(
-		ctx, shortOrders, longBook, TEST_PAIR(), types.PositionDirection_SHORT, &dirtyPrices, &settlements, &[]exchange.AccountOrderId{},
+		ctx, shortOrders, longBook, TEST_PAIR(), types.PositionDirection_SHORT, &dirtyPrices, &settlements, &[]exchange.AccountOrderID{},
 	)
 	assert.Equal(t, totalPrice, sdk.NewDec(500))
 	assert.Equal(t, totalExecuted, sdk.NewDec(5))
@@ -201,7 +201,7 @@ func TestMatchSingleMarketOrderFromMultipleShortBook(t *testing.T) {
 	dirtyPrices := exchange.NewDirtyPrices()
 	settlements := []*types.SettlementEntry{}
 	totalPrice, totalExecuted := exchange.MatchMarketOrders(
-		ctx, longOrders, shortBook, TEST_PAIR(), types.PositionDirection_LONG, &dirtyPrices, &settlements, &[]exchange.AccountOrderId{},
+		ctx, longOrders, shortBook, TEST_PAIR(), types.PositionDirection_LONG, &dirtyPrices, &settlements, &[]exchange.AccountOrderID{},
 	)
 	assert.Equal(t, totalPrice, sdk.NewDec(480))
 	assert.Equal(t, totalExecuted, sdk.NewDec(5))
@@ -349,7 +349,7 @@ func TestMatchSingleMarketOrderFromMultipleLongBook(t *testing.T) {
 	dirtyPrices := exchange.NewDirtyPrices()
 	settlements := []*types.SettlementEntry{}
 	totalPrice, totalExecuted := exchange.MatchMarketOrders(
-		ctx, shortOrders, longBook, TEST_PAIR(), types.PositionDirection_SHORT, &dirtyPrices, &settlements, &[]exchange.AccountOrderId{},
+		ctx, shortOrders, longBook, TEST_PAIR(), types.PositionDirection_SHORT, &dirtyPrices, &settlements, &[]exchange.AccountOrderID{},
 	)
 	assert.Equal(t, totalPrice, sdk.NewDec(520))
 	assert.Equal(t, totalExecuted, sdk.NewDec(5))
@@ -519,7 +519,7 @@ func TestMatchMultipleMarketOrderFromMultipleShortBook(t *testing.T) {
 	dirtyPrices := exchange.NewDirtyPrices()
 	settlements := []*types.SettlementEntry{}
 	totalPrice, totalExecuted := exchange.MatchMarketOrders(
-		ctx, longOrders, shortBook, TEST_PAIR(), types.PositionDirection_LONG, &dirtyPrices, &settlements, &[]exchange.AccountOrderId{},
+		ctx, longOrders, shortBook, TEST_PAIR(), types.PositionDirection_LONG, &dirtyPrices, &settlements, &[]exchange.AccountOrderID{},
 	)
 	assert.Equal(t, totalPrice, sdk.NewDec(580))
 	assert.Equal(t, totalExecuted, sdk.NewDec(6))
@@ -711,7 +711,7 @@ func TestMatchMultipleMarketOrderFromMultipleLongBook(t *testing.T) {
 	dirtyPrices := exchange.NewDirtyPrices()
 	settlements := []*types.SettlementEntry{}
 	totalPrice, totalExecuted := exchange.MatchMarketOrders(
-		ctx, shortOrders, longBook, TEST_PAIR(), types.PositionDirection_SHORT, &dirtyPrices, &settlements, &[]exchange.AccountOrderId{},
+		ctx, shortOrders, longBook, TEST_PAIR(), types.PositionDirection_SHORT, &dirtyPrices, &settlements, &[]exchange.AccountOrderID{},
 	)
 	assert.Equal(t, totalPrice, sdk.NewDec(620))
 	assert.Equal(t, totalExecuted, sdk.NewDec(6))

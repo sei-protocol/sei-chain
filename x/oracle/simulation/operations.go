@@ -30,8 +30,8 @@ const (
 )
 
 var (
-	whitelist                     = []string{utils.MicroAtomDenom}
-	voteHashMap map[string]string = make(map[string]string)
+	whitelist   = []string{utils.MicroAtomDenom}
+	voteHashMap = make(map[string]string)
 )
 
 // WeightedOperations returns all the operations from the module with their respective weights

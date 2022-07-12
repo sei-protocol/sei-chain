@@ -110,7 +110,7 @@ func (s *MemState) DeepCopy() *MemState {
 	for contractAddr, _map := range s.BlockCancels {
 		for pair, blockCancels := range _map {
 			for _, blockCancel := range *blockCancels {
-				copy.GetBlockCancels(contractAddr, pair).AddOrderIdToCancel(blockCancel.Id, blockCancel.Initiator)
+				copy.GetBlockCancels(contractAddr, pair).AddOrderIDToCancel(blockCancel.Id, blockCancel.Initiator)
 			}
 		}
 	}
@@ -212,16 +212,16 @@ func ToContractDepositInfo(depositInfo DepositInfoEntry) types.ContractDepositIn
 	}
 }
 
-func (c *BlockCancellations) AddOrderIdToCancel(id uint64, initiator types.CancellationInitiator) {
+func (c *BlockCancellations) AddOrderIDToCancel(id uint64, initiator types.CancellationInitiator) {
 	*c = append(*c, types.Cancellation{Id: id, Initiator: initiator})
 }
 
 func (c *BlockCancellations) FilterByIds(idsToRemove []uint64) {
 	tmp := *c
 	*c = []types.Cancellation{}
-	badIdSet := utils.NewUInt64Set(idsToRemove)
+	badIDSet := utils.NewUInt64Set(idsToRemove)
 	for _, cancel := range tmp {
-		if !badIdSet.Contains(cancel.Id) {
+		if !badIDSet.Contains(cancel.Id) {
 			*c = append(*c, cancel)
 		}
 	}

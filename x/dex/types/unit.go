@@ -2,7 +2,7 @@ package types
 
 import sdk "github.com/cosmos/cosmos-sdk/types"
 
-var UNIT_TO_MULTIPLIER = map[Unit]sdk.Dec{
+var UnitToMultiplier = map[Unit]sdk.Dec{
 	Unit_STANDARD: sdk.OneDec(),
 	Unit_MILLI:    sdk.NewDec(1_000),
 	Unit_MICRO:    sdk.NewDec(1_000_000),
@@ -10,5 +10,5 @@ var UNIT_TO_MULTIPLIER = map[Unit]sdk.Dec{
 }
 
 func ConvertDecToStandard(unit Unit, dec sdk.Dec) sdk.Dec {
-	return dec.Quo(UNIT_TO_MULTIPLIER[unit])
+	return dec.Quo(UnitToMultiplier[unit])
 }

@@ -36,7 +36,7 @@ func (k *Keeper) HandleEBLiquidation(ctx context.Context, sdkCtx sdk.Context, tr
 	for id, order := range k.GetOrdersByIds(sdkCtx, contractAddr, liquidatedAccountsActiveOrderIds) {
 		pair := types.Pair{PriceDenom: order.PriceDenom, AssetDenom: order.AssetDenom}
 		typedPairStr := types.GetPairString(&pair)
-		k.MemState.GetBlockCancels(typedContractAddr, typedPairStr).AddOrderIdToCancel(id, types.CancellationInitiator_LIQUIDATED)
+		k.MemState.GetBlockCancels(typedContractAddr, typedPairStr).AddOrderIDToCancel(id, types.CancellationInitiator_LIQUIDATED)
 	}
 
 	// Place liquidation orders
