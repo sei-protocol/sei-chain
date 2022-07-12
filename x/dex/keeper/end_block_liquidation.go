@@ -46,13 +46,13 @@ func (k *Keeper) HandleEBLiquidation(ctx context.Context, sdkCtx sdk.Context, tr
 }
 
 func (k *Keeper) placeLiquidationOrders(ctx sdk.Context, contractAddr string, liquidationOrders []types.Order) {
-	nextId := k.GetNextOrderId(ctx)
+	nextId := k.GetNextOrderID(ctx)
 	for _, order := range liquidationOrders {
 		pair := types.Pair{PriceDenom: order.PriceDenom, AssetDenom: order.AssetDenom}
 		orders := k.MemState.GetBlockOrders(types.ContractAddress(contractAddr), types.PairString(pair.String()))
 		order.Id = nextId
 		orders.AddOrder(order)
-		nextId += 1
+		nextId++
 	}
 	k.SetNextOrderId(ctx, nextId)
 }

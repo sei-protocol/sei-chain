@@ -82,7 +82,7 @@ func DexPlaceOrdersIsGasless(msg *dextypes.MsgPlaceOrders) bool {
 }
 
 // TODO: migrate this into params state
-var WHITELISTED_GASLESS_CANCELLATION_ADDRS = []sdk.AccAddress{}
+var WhitelistedGaslessCancellationAddrs = []sdk.AccAddress{}
 
 func DexCancelOrdersIsGasless(msg *dextypes.MsgCancelOrders) bool {
 	return allSignersWhitelisted(msg)
@@ -92,7 +92,7 @@ func allSignersWhitelisted(msg *dextypes.MsgCancelOrders) bool {
 	for _, signer := range msg.GetSigners() {
 		isWhitelisted := false
 		for _, whitelisted := range WHITELISTED_GASLESS_CANCELLATION_ADDRS {
-			if bytes.Compare(signer, whitelisted) == 0 {
+			if bytes.Compare(signer, whitelisted) == 0 { //nolint:gosimple
 				isWhitelisted = true
 				break
 			}

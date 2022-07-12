@@ -20,6 +20,7 @@ import (
 )
 
 // Simulation operation weights constants
+//nolint:gosec // these aren't hard coded credentials.
 const (
 	OpWeightMsgAggregateExchangeRatePrevote = "op_weight_msg_exchange_rate_aggregate_prevote"
 	OpWeightMsgAggregateExchangeRateVote    = "op_weight_msg_exchange_rate_aggregate_vote"

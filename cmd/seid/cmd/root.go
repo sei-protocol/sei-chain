@@ -41,13 +41,14 @@ import (
 type Option func(*rootOptions)
 
 // scaffoldingOptions keeps set of options to apply scaffolding.
+// nolint:unused // preserving this becase don't know if it is needed.
 type rootOptions struct {
 	addSubCmds         []*cobra.Command
 	startCmdCustomizer func(*cobra.Command)
 	envPrefix          string
 }
 
-func (s *rootOptions) apply(options ...Option) {
+func (s *rootOptions) apply(options ...Option) { // nolint:unused // I figure this gets used later.
 	for _, o := range options {
 		o(s)
 	}

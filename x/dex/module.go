@@ -109,7 +109,7 @@ type AppModule struct {
 	bankKeeper    types.BankKeeper
 	wasmKeeper    wasm.Keeper
 
-	tracingInfo *tracing.TracingInfo
+	tracingInfo *tracing.Info
 }
 
 func NewAppModule(
@@ -118,7 +118,7 @@ func NewAppModule(
 	accountKeeper types.AccountKeeper,
 	bankKeeper types.BankKeeper,
 	wasmKeeper wasm.Keeper,
-	tracingInfo *tracing.TracingInfo,
+	tracingInfo *tracing.Info,
 ) AppModule {
 	return AppModule{
 		AppModuleBasic: NewAppModuleBasic(cdc),
@@ -395,7 +395,7 @@ func (am AppModule) endBlockForContract(ctx sdk.Context, contractAddr string) {
 			am.keeper.AddCancel(ctx, contractAddr, cancel)
 		}
 		for _, zeroAccountOrder := range zeroOrders {
-			am.keeper.RemoveAccountActiveOrder(ctx, zeroAccountOrder.OrderId, contractAddr, zeroAccountOrder.Account)
+			am.keeper.RemoveAccountActiveOrder(ctx, zeroAccountOrder.OrderID, contractAddr, zeroAccountOrder.Account)
 		}
 
 		emptyBlockCancel := dexcache.BlockCancellations([]types.Cancellation{})

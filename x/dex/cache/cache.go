@@ -144,10 +144,10 @@ func (o *BlockOrders) MarkFailedToPlaceByAccounts(accounts []string) {
 }
 
 func (o *BlockOrders) MarkFailedToPlaceByIds(ids []uint64) {
-	badIdSet := utils.NewUInt64Set(ids)
+	badIDSet := utils.NewUInt64Set(ids)
 	newOrders := []types.Order{}
 	for _, order := range *o {
-		if badIdSet.Contains(order.Id) {
+		if badIDSet.Contains(order.Id) {
 			order.Status = types.OrderStatus_FAILED_TO_PLACE
 		}
 		newOrders = append(newOrders, order)

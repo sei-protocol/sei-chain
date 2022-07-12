@@ -8,7 +8,7 @@ import (
 	"github.com/sei-protocol/sei-chain/x/dex/types"
 )
 
-func (k Keeper) GetNextOrderId(ctx sdk.Context) uint64 {
+func (k Keeper) GetNextOrderID(ctx sdk.Context) uint64 {
 	store := prefix.NewStore(ctx.KVStore(k.storeKey), []byte{})
 	byteKey := types.KeyPrefix(types.NextOrderIdKey)
 	bz := store.Get(byteKey)

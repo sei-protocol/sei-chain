@@ -7,12 +7,12 @@ import (
 
 type msgServer struct {
 	Keeper
-	tracingInfo *tracing.TracingInfo
+	tracingInfo *tracing.Info
 }
 
 // NewMsgServerImpl returns an implementation of the MsgServer interface
 // for the provided Keeper.
-func NewMsgServerImpl(keeper Keeper, tracingInfo *tracing.TracingInfo) types.MsgServer {
+func NewMsgServerImpl(keeper Keeper, tracingInfo *tracing.Info) types.MsgServer {
 	return &msgServer{Keeper: keeper, tracingInfo: tracingInfo}
 }
 

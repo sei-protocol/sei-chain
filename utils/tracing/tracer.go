@@ -10,10 +10,10 @@ import (
 	otrace "go.opentelemetry.io/otel/trace"
 )
 
-const DEFAULT_TRACING_URL = "http://localhost:14268/api/traces"
+const DefaultTracingURL = "http://localhost:14268/api/traces"
 
 func DefaultTracerProvider() (*trace.TracerProvider, error) {
-	return TracerProvider(DEFAULT_TRACING_URL)
+	return TracerProvider(DefaultTracingURL)
 }
 
 func TracerProvider(url string) (*trace.TracerProvider, error) {
@@ -36,7 +36,7 @@ func TracerProvider(url string) (*trace.TracerProvider, error) {
 	return tp, nil
 }
 
-type TracingInfo struct {
+type Info struct {
 	Tracer        *otrace.Tracer
 	TracerContext context.Context
 	BlockSpan     *otrace.Span

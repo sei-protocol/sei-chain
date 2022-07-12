@@ -48,7 +48,7 @@ func (k msgServer) PlaceOrders(goCtx context.Context, msg *types.MsgPlaceOrders)
 		return nil, err
 	}
 
-	nextID := k.GetNextOrderId(ctx)
+	nextID := k.GetNextOrderID(ctx)
 	idsInResp := []uint64{}
 	for _, order := range msg.GetOrders() {
 		ticksize, found := k.Keeper.GetTickSizeForPair(ctx, msg.GetContractAddr(), types.Pair{PriceDenom: order.PriceDenom, AssetDenom: order.AssetDenom})
