@@ -193,19 +193,6 @@ func (am AppModule) getAllContractInfo(ctx sdk.Context) []types.ContractInfo {
 	return am.keeper.GetAllContractInfo(ctx)
 }
 
-func (am AppModule) callClearingHouseContractSudo(ctx sdk.Context, msg []byte, contractAddrStr string) {
-	contractAddr, err := sdk.AccAddressFromBech32(contractAddrStr)
-	if err != nil {
-		ctx.Logger().Info(err.Error())
-	}
-	_, err = am.wasmKeeper.Sudo(
-		ctx, contractAddr, msg,
-	)
-	if err != nil {
-		ctx.Logger().Error(err.Error())
-	}
-}
-
 // BeginBlock executes all ABCI BeginBlock logic respective to the capability module.
 func (am AppModule) BeginBlock(ctx sdk.Context, _ abci.RequestBeginBlock) {
 	am.keeper.MemState.Clear()
@@ -224,7 +211,9 @@ func (am AppModule) beginBlockForContract(ctx sdk.Context, contract types.Contra
 	span.SetAttributes(attribute.String("contract", contractAddr))
 	defer span.End()
 
-	am.keeper.HandleBBNewBlock(ctx, contractAddr, epoch)
+	if err := am.keeper.HandleBBNewBlock(ctx, contractAddr, epoch); err != nil {
+		ctx.Logger().Error(fmt.Sprintf("New block hook error for %s: %s", contractAddr, err.Error()))
+	}
 
 	if contract.HookOnly {
 		return

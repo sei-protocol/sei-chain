@@ -28,7 +28,7 @@ func TestPopulateOrderPlacementResults(t *testing.T) {
 	require.Equal(t, 1, len(resultsMap))
 	require.Equal(t, contract, resultsMap[account].ContractAddr)
 	require.Equal(t, 1, len(resultsMap[account].OrderPlacementResults))
-	require.Equal(t, uint64(1), resultsMap[account].OrderPlacementResults[0].OrderId)
+	require.Equal(t, uint64(1), resultsMap[account].OrderPlacementResults[0].OrderID)
 }
 
 func TestPopulateOrderExecutionResults(t *testing.T) {
@@ -49,5 +49,5 @@ func TestPopulateOrderExecutionResults(t *testing.T) {
 	require.Equal(t, 1, len(resultsMap))
 	require.Equal(t, contract, resultsMap[account].ContractAddr)
 	require.Equal(t, 1, len(resultsMap[account].OrderExecutionResults))
-	require.Equal(t, uint64(1), resultsMap[account].OrderExecutionResults[0].OrderId)
+	require.Equal(t, uint64(1), resultsMap[account].OrderExecutionResults[0].OrderID)
 }

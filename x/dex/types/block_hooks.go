@@ -53,7 +53,7 @@ func PopulateOrderPlacementResults(contractAddr string, orders []Order, resultMa
 		}
 		resultsForAccount := resultMap[order.Account]
 		resultsForAccount.OrderPlacementResults = append(resultsForAccount.OrderPlacementResults, OrderPlacementResult{
-			OrderId: order.Id,
+			OrderID: order.Id,
 			Status:  order.Status,
 		},
 		)
@@ -69,7 +69,7 @@ func PopulateOrderExecutionResults(contractAddr string, settlements []*Settlemen
 		resultsForAccount := resultMap[settlement.Account]
 		resultsForAccount.OrderExecutionResults = append(resultsForAccount.OrderExecutionResults,
 			OrderExecutionResult{
-				OrderId:          settlement.OrderId,
+				OrderID:          settlement.OrderId,
 				ExecutionPrice:   settlement.ExecutionCostOrProceed,
 				ExecutedQuantity: settlement.Quantity,
 				TotalNotional:    settlement.ExecutionCostOrProceed.Mul(settlement.Quantity),
@@ -81,12 +81,12 @@ func PopulateOrderExecutionResults(contractAddr string, settlements []*Settlemen
 }
 
 type OrderPlacementResult struct {
-	OrderId uint64      `json:"order_id"`
+	OrderID uint64      `json:"order_id"`
 	Status  OrderStatus `json:"status_code"`
 }
 
 type OrderExecutionResult struct {
-	OrderId          uint64  `json:"order_id"`
+	OrderID          uint64  `json:"order_id"`
 	ExecutionPrice   sdk.Dec `json:"execution_price"`
 	ExecutedQuantity sdk.Dec `json:"executed_quantity"`
 	TotalNotional    sdk.Dec `json:"total_notional"`

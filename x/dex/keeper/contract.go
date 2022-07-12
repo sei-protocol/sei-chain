@@ -32,8 +32,9 @@ func (k Keeper) GetAllContractInfo(ctx sdk.Context) []types.ContractInfo {
 	list := []types.ContractInfo{}
 	for ; iterator.Valid(); iterator.Next() {
 		contract := types.ContractInfo{}
-		contract.Unmarshal(iterator.Value())
-		list = append(list, contract)
+		if err := contract.Unmarshal(iterator.Value()); err == nil {
+			list = append(list, contract)
+		}
 	}
 
 	return list
