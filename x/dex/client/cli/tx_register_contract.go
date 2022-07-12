@@ -20,7 +20,7 @@ func CmdRegisterContract() *cobra.Command {
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) (err error) {
 			argContractAddr := args[0]
-			argCodeId, err := cast.ToUint64E(args[1])
+			argCodeID, err := cast.ToUint64E(args[1])
 			if err != nil {
 				return err
 			}
@@ -32,7 +32,7 @@ func CmdRegisterContract() *cobra.Command {
 
 			msg := types.NewMsgRegisterContract(
 				clientCtx.GetFromAddress().String(),
-				argCodeId,
+				argCodeID,
 				argContractAddr,
 			)
 			if err := msg.ValidateBasic(); err != nil {

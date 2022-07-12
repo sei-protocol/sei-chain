@@ -10,5 +10,5 @@ import (
 var (
 	ErrSample                 = sdkerrors.Register(ModuleName, 1100, "sample error")
 	InsufficientAssetError    = sdkerrors.Register(ModuleName, 1101, "insufficient fund")
-	UnknownCustomMessageError = sdkerrors.Register(ModuleName, 1102, "unkown custom message")
+	UnknownCustomMessageError = sdkerrors.Register(ModuleName, 1102, "unknown custom message")
 )

@@ -21,7 +21,7 @@ func (k Keeper) GetTwaps(goCtx context.Context, req *types.QueryGetTwapsRequest)
 	for _, pair := range allRegisteredPairs {
 		prices := k.GetAllPrices(ctx, req.ContractAddr, pair)
 		twaps = append(twaps, &types.Twap{
-			Pair:            &pair,
+			Pair:            &pair, //nolint:gosec,exportloopref // USING THE POINTER HERE COULD BE BAD, LET'S CHECK IT.
 			Twap:            calculateTwap(ctx, prices, req.LookbackSeconds),
 			LookbackSeconds: req.LookbackSeconds,
 		})
@@ -37,8 +37,8 @@ func calculateTwap(ctx sdk.Context, prices []*types.Price, lookback uint64) sdk.
 	sort.Slice(prices, func(p1, p2 int) bool {
 		return prices[p1].SnapshotTimestampInSeconds > prices[p2].SnapshotTimestampInSeconds
 	})
-	var timeTraversed uint64 = 0
-	var weightedPriceSum sdk.Dec = sdk.ZeroDec()
+	var timeTraversed uint64
+	weightedPriceSum := sdk.ZeroDec()
 	for _, price := range prices {
 		newTimeTraversed := uint64(ctx.BlockTime().Unix()) - price.SnapshotTimestampInSeconds
 		if newTimeTraversed > lookback {
@@ -55,7 +55,6 @@ func calculateTwap(ctx sdk.Context, prices []*types.Price, lookback uint64) sdk.
 	}
 	if timeTraversed == 0 {
 		return sdk.ZeroDec()
-	} else {
-		return weightedPriceSum.QuoInt64(int64(timeTraversed))
 	}
+	return weightedPriceSum.QuoInt64(int64(timeTraversed))
 }

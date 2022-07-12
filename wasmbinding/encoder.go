@@ -3,7 +3,6 @@ package wasmbinding
 import (
 	"encoding/base64"
 	"encoding/json"
-	"errors"
 	"fmt"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -58,7 +57,7 @@ func decodeRawSdkMessage(message RawMessage) (sdk.Msg, error) {
 	case types.TypeMsgCancelOrders:
 		return decodeOrderCancellationMessage(message.Data)
 	default:
-		return nil, errors.New(fmt.Sprintf("Unknown message type %s", message.MsgType))
+		return nil, fmt.Errorf("unknown message type %s", message.MsgType)
 	}
 }
 

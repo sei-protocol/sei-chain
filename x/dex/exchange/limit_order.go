@@ -15,7 +15,7 @@ func MatchLimitOrders(
 	longDirtyPrices *DirtyPrices,
 	shortDirtyPrices *DirtyPrices,
 	settlements *[]*types.SettlementEntry,
-	zeroOrders *[]AccountOrderId,
+	zeroOrders *[]AccountOrderID,
 ) (sdk.Dec, sdk.Dec) {
 	for _, order := range longOrders {
 		addOrderToOrderBook(order, longBook, pair, longDirtyPrices)
@@ -23,7 +23,7 @@ func MatchLimitOrders(
 	for _, order := range shortOrders {
 		addOrderToOrderBook(order, shortBook, pair, shortDirtyPrices)
 	}
-	var totalExecuted, totalPrice sdk.Dec = sdk.ZeroDec(), sdk.ZeroDec()
+	totalExecuted, totalPrice := sdk.ZeroDec(), sdk.ZeroDec()
 	longPtr, shortPtr := len(*longBook)-1, 0
 
 	for longPtr >= 0 && shortPtr < len(*shortBook) && (*longBook)[longPtr].GetPrice().GTE((*shortBook)[shortPtr].GetPrice()) {
@@ -51,10 +51,10 @@ func MatchLimitOrders(
 		*zeroOrders = append(*zeroOrders, zeroAccountOrders...)
 
 		if (*longBook)[longPtr].GetEntry().Quantity.IsZero() {
-			longPtr -= 1
+			longPtr--
 		}
 		if (*shortBook)[shortPtr].GetEntry().Quantity.IsZero() {
-			shortPtr += 1
+			shortPtr++
 		}
 	}
 	return totalPrice, totalExecuted
@@ -117,5 +117,4 @@ func addOrderToOrderBook(
 		(*orderBook)[insertAt] = newOrder
 	}
 	dirtyPrices.Add(order.Price)
-	return
 }

@@ -52,7 +52,7 @@ func (k Keeper) OrganizeBallotByDenom(ctx sdk.Context, validatorClaimMap map[str
 		votes[denom] = ballot
 	}
 
-	return
+	return votes
 }
 
 // ClearBallots clears all tallied prevotes and votes from the store

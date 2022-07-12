@@ -21,20 +21,20 @@ func DefaultGenesis() *GenesisState {
 // failure.
 func (gs GenesisState) Validate() error {
 	// Check for duplicated ID in longBook
-	longBookIdMap := make(map[uint64]bool)
+	longBookIDMap := make(map[uint64]bool)
 	for _, elem := range gs.LongBookList {
-		if _, ok := longBookIdMap[elem.Price.BigInt().Uint64()]; ok {
+		if _, ok := longBookIDMap[elem.Price.BigInt().Uint64()]; ok {
 			return fmt.Errorf("duplicated price for longBook")
 		}
-		longBookIdMap[elem.Price.BigInt().Uint64()] = true
+		longBookIDMap[elem.Price.BigInt().Uint64()] = true
 	}
 	// Check for duplicated ID in shortBook
-	shortBookIdMap := make(map[uint64]bool)
+	shortBookIDMap := make(map[uint64]bool)
 	for _, elem := range gs.ShortBookList {
-		if _, ok := shortBookIdMap[elem.Price.BigInt().Uint64()]; ok {
+		if _, ok := shortBookIDMap[elem.Price.BigInt().Uint64()]; ok {
 			return fmt.Errorf("duplicated price for shortBook")
 		}
-		shortBookIdMap[elem.Price.BigInt().Uint64()] = true
+		shortBookIDMap[elem.Price.BigInt().Uint64()] = true
 	}
 	// this line is used by starport scaffolding # genesis/types/validate
 

@@ -9,13 +9,13 @@ import (
 )
 
 const (
-	LIMIT_BUY_EVENT_TYPE   = "dex_lb"
-	LIMIT_SELL_EVENT_TYPE  = "dex_ls"
-	MARKET_BUY_EVENT_TYPE  = "dex_mb"
-	MARKET_SELL_EVENT_TYPE = "dex_ms"
-	CREATOR_ATTR           = "creator"
-	PRICE_ATTR             = "price"
-	QUANTITY_ATTR          = "quantity"
+	LimitBuyEventType   = "dex_lb"
+	LimitSellEventType  = "dex_ls"
+	MarketBuyEventType  = "dex_mb"
+	MarketSellEventType = "dex_ms"
+	CreatorAttr         = "creator"
+	PriceAttr           = "price"
+	QuantityAttr        = "quantity"
 )
 
 type MemState struct {
@@ -110,7 +110,7 @@ func (s *MemState) DeepCopy() *MemState {
 	for contractAddr, _map := range s.BlockCancels {
 		for pair, blockCancels := range _map {
 			for _, blockCancel := range *blockCancels {
-				copy.GetBlockCancels(contractAddr, pair).AddOrderIdToCancel(blockCancel.Id, blockCancel.Initiator)
+				copy.GetBlockCancels(contractAddr, pair).AddOrderIDToCancel(blockCancel.Id, blockCancel.Initiator)
 			}
 		}
 	}
@@ -144,10 +144,10 @@ func (o *BlockOrders) MarkFailedToPlaceByAccounts(accounts []string) {
 }
 
 func (o *BlockOrders) MarkFailedToPlaceByIds(ids []uint64) {
-	badIdSet := utils.NewUInt64Set(ids)
+	badIDSet := utils.NewUInt64Set(ids)
 	newOrders := []types.Order{}
 	for _, order := range *o {
-		if badIdSet.Contains(order.Id) {
+		if badIDSet.Contains(order.Id) {
 			order.Status = types.OrderStatus_FAILED_TO_PLACE
 		}
 		newOrders = append(newOrders, order)
@@ -212,16 +212,16 @@ func ToContractDepositInfo(depositInfo DepositInfoEntry) types.ContractDepositIn
 	}
 }
 
-func (c *BlockCancellations) AddOrderIdToCancel(id uint64, initiator types.CancellationInitiator) {
+func (c *BlockCancellations) AddOrderIDToCancel(id uint64, initiator types.CancellationInitiator) {
 	*c = append(*c, types.Cancellation{Id: id, Initiator: initiator})
 }
 
 func (c *BlockCancellations) FilterByIds(idsToRemove []uint64) {
 	tmp := *c
 	*c = []types.Cancellation{}
-	badIdSet := utils.NewUInt64Set(idsToRemove)
+	badIDSet := utils.NewUInt64Set(idsToRemove)
 	for _, cancel := range tmp {
-		if !badIdSet.Contains(cancel.Id) {
+		if !badIDSet.Contains(cancel.Id) {
 			*c = append(*c, cancel)
 		}
 	}

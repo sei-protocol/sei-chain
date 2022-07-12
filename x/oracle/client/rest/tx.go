@@ -105,6 +105,7 @@ func newAggregatePrevoteHandlerFunction(clientCtx client.Context) http.HandlerFu
 		var hash types.AggregateVoteHash
 
 		// If hash is not given, then retrieve hash from exchange_rate and salt
+		//nolint:gocritic // ignore for now
 		if len(req.Hash) == 0 && (len(req.ExchangeRates) > 0 && len(req.Salt) > 0) {
 			_, err := types.ParseExchangeRateTuples(req.ExchangeRates)
 			if err != nil {
@@ -205,7 +206,7 @@ func newAggregateCombinedVoteHandlerFunction(clientCtx client.Context) http.Hand
 		var prevoteHash types.AggregateVoteHash
 
 		// If hash is not given, then retrieve hash from exchange_rate and salt
-		if len(req.PrevoteHash) == 0 && (len(req.PrevoteExchangeRates) > 0 && len(req.PrevoteSalt) > 0) {
+		if len(req.PrevoteHash) == 0 && (len(req.PrevoteExchangeRates) > 0 && len(req.PrevoteSalt) > 0) { //nolint:gocritic // ignore for now (possible performance gains here)
 			_, err := types.ParseExchangeRateTuples(req.PrevoteExchangeRates)
 			if err != nil {
 				rest.WriteErrorResponse(w, http.StatusBadRequest, err.Error())

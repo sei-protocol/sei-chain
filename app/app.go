@@ -118,9 +118,8 @@ import (
 )
 
 // this line is used by starport scaffolding # stargate/wasm/app/enabledProposals
-
 func getGovProposalHandlers() []govclient.ProposalHandler {
-	govProposalHandlers := append(wasmclient.ProposalHandlers,
+	govProposalHandlers := append(wasmclient.ProposalHandlers, //nolint:gocritic // ignore: appending to a slice is OK
 		paramsclient.ProposalHandler,
 		distrclient.ProposalHandler,
 		upgradeclient.ProposalHandler,
@@ -288,7 +287,7 @@ type App struct {
 	// sm is the simulation manager
 	sm *module.SimulationManager
 
-	tracingInfo  *tracing.TracingInfo
+	tracingInfo  *tracing.Info
 	configurator module.Configurator
 }
 
@@ -343,7 +342,7 @@ func New(
 		keys:              keys,
 		tkeys:             tkeys,
 		memKeys:           memKeys,
-		tracingInfo: &tracing.TracingInfo{
+		tracingInfo: &tracing.Info{
 			Tracer:        &tr,
 			TracerContext: context.Background(),
 		},

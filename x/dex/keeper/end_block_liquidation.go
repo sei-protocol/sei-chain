@@ -19,7 +19,7 @@ func (k *Keeper) HandleEBLiquidation(ctx context.Context, sdkCtx sdk.Context, tr
 	msg := k.getLiquidationSudoMsg(typedContractAddr)
 	data := k.CallContractSudo(sdkCtx, contractAddr, msg)
 	response := types.SudoLiquidationResponse{}
-	json.Unmarshal(data, &response)
+	json.Unmarshal(data, &response) //nolint:errcheck // ignore error
 	sdkCtx.Logger().Info(fmt.Sprintf("Sudo liquidate response data: %s", response))
 
 	liquidatedAccountsActiveOrderIds := []uint64{}
@@ -28,7 +28,7 @@ func (k *Keeper) HandleEBLiquidation(ctx context.Context, sdkCtx sdk.Context, tr
 	}
 	// Clear up all user-initiated order activities in the current block
 	for _, pair := range registeredPairs {
-		typedPairStr := types.GetPairString(&pair)
+		typedPairStr := types.GetPairString(&pair) //nolint:gosec // USING THE POINTER HERE COULD BE BAD LET'S CHECK IT.
 		k.MemState.GetBlockCancels(typedContractAddr, typedPairStr).FilterByIds(liquidatedAccountsActiveOrderIds)
 		k.MemState.GetBlockOrders(typedContractAddr, typedPairStr).MarkFailedToPlaceByAccounts(response.SuccessfulAccounts)
 	}
@@ -36,7 +36,7 @@ func (k *Keeper) HandleEBLiquidation(ctx context.Context, sdkCtx sdk.Context, tr
 	for id, order := range k.GetOrdersByIds(sdkCtx, contractAddr, liquidatedAccountsActiveOrderIds) {
 		pair := types.Pair{PriceDenom: order.PriceDenom, AssetDenom: order.AssetDenom}
 		typedPairStr := types.GetPairString(&pair)
-		k.MemState.GetBlockCancels(typedContractAddr, typedPairStr).AddOrderIdToCancel(id, types.CancellationInitiator_LIQUIDATED)
+		k.MemState.GetBlockCancels(typedContractAddr, typedPairStr).AddOrderIDToCancel(id, types.CancellationInitiator_LIQUIDATED)
 	}
 
 	// Place liquidation orders
@@ -46,15 +46,15 @@ func (k *Keeper) HandleEBLiquidation(ctx context.Context, sdkCtx sdk.Context, tr
 }
 
 func (k *Keeper) placeLiquidationOrders(ctx sdk.Context, contractAddr string, liquidationOrders []types.Order) {
-	nextId := k.GetNextOrderId(ctx)
+	nextID := k.GetNextOrderID(ctx)
 	for _, order := range liquidationOrders {
 		pair := types.Pair{PriceDenom: order.PriceDenom, AssetDenom: order.AssetDenom}
 		orders := k.MemState.GetBlockOrders(types.ContractAddress(contractAddr), types.PairString(pair.String()))
-		order.Id = nextId
+		order.Id = nextID
 		orders.AddOrder(order)
-		nextId += 1
+		nextID++
 	}
-	k.SetNextOrderId(ctx, nextId)
+	k.SetNextOrderID(ctx, nextID)
 }
 
 func (k *Keeper) getLiquidationSudoMsg(typedContractAddr types.ContractAddress) types.SudoLiquidationMsg {
