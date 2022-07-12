@@ -4,8 +4,9 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/cosmos/cosmos-sdk/codec"
 	sdk "github.com/cosmos/cosmos-sdk/types"
-	govtypes "github.com/cosmos/cosmos-sdk/x/gov/types"
+	govv1beta1 "github.com/cosmos/cosmos-sdk/x/gov/types/v1beta1"
 )
 
 const (
@@ -16,18 +17,24 @@ const (
 
 func init() {
 	// for routing
-	govtypes.RegisterProposalType(ProposalTypeRegisterPairs)
-	govtypes.RegisterProposalType(ProposalTypeUpdateTickSize)
-	govtypes.RegisterProposalType(ProposalTypeAddAssetMetadata)
+	govv1beta1.RegisterProposalType(ProposalTypeRegisterPairs)
+	govv1beta1.RegisterProposalType(ProposalTypeUpdateTickSize)
+	govv1beta1.RegisterProposalType(ProposalTypeAddAssetMetadata)
 	// for marshal and unmarshal
-	govtypes.RegisterProposalTypeCodec(&RegisterPairsProposal{}, "dex/RegisterPairsProposal")
-	govtypes.RegisterProposalTypeCodec(&UpdateTickSizeProposal{}, "dex/UpdateTickSizeProposal")
-	govtypes.RegisterProposalTypeCodec(&AddAssetMetadataProposal{}, "dex/AddAssetMetadataProposal")
+
+	RegisterLegacyAminoCodec(codec.NewLegacyAmino())
+}
+
+// RegisterLegacyAminoCodec registers the account types and interface
+func RegisterLegacyAminoCodec(cdc *codec.LegacyAmino) { //nolint:staticcheck
+	cdc.RegisterConcrete(&RegisterPairsProposal{}, "dex/RegisterPairsProposal", nil)
+	cdc.RegisterConcrete(&UpdateTickSizeProposal{}, "dex/UpdateTickSizeProposal", nil)
+	cdc.RegisterConcrete(&AddAssetMetadataProposal{}, "dex/AddAssetMetadataProposal", nil)
 }
 
 var (
-	_ govtypes.Content = &RegisterPairsProposal{}
-	_ govtypes.Content = &UpdateTickSizeProposal{}
+	_ govv1beta1.Content = &RegisterPairsProposal{}
+	_ govv1beta1.Content = &UpdateTickSizeProposal{}
 )
 
 func NewRegisterPairsProposal(title, description string, batchContractPair []BatchContractPair) RegisterPairsProposal {
@@ -49,7 +56,7 @@ func (p *RegisterPairsProposal) ProposalType() string {
 }
 
 func (p *RegisterPairsProposal) ValidateBasic() error {
-	err := govtypes.ValidateAbstract(p)
+	err := govv1beta1.ValidateAbstract(p)
 	return err
 }
 
@@ -88,7 +95,7 @@ func (p *UpdateTickSizeProposal) ProposalType() string {
 }
 
 func (p *UpdateTickSizeProposal) ValidateBasic() error {
-	err := govtypes.ValidateAbstract(p)
+	err := govv1beta1.ValidateAbstract(p)
 	return err
 }
 
@@ -134,7 +141,7 @@ func (p *AddAssetMetadataProposal) ValidateBasic() error {
 		}
 	}
 
-	err := govtypes.ValidateAbstract(p)
+	err := govv1beta1.ValidateAbstract(p)
 	return err
 }
 

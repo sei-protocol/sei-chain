@@ -7,6 +7,7 @@ import (
 
 	"github.com/CosmWasm/wasmd/x/wasm"
 	"github.com/cosmos/cosmos-sdk/codec"
+	storetypes "github.com/cosmos/cosmos-sdk/store/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	bankkeeper "github.com/cosmos/cosmos-sdk/x/bank/keeper"
 	paramtypes "github.com/cosmos/cosmos-sdk/x/params/types"
@@ -18,8 +19,8 @@ import (
 type (
 	Keeper struct {
 		Cdc         codec.BinaryCodec
-		storeKey    sdk.StoreKey
-		memKey      sdk.StoreKey
+		storeKey    storetypes.StoreKey
+		memKey      storetypes.StoreKey
 		Paramstore  paramtypes.Subspace
 		EpochKeeper epochkeeper.Keeper
 		BankKeeper  bankkeeper.Keeper
@@ -31,7 +32,7 @@ type (
 func NewPlainKeeper(
 	cdc codec.BinaryCodec,
 	storeKey,
-	memKey sdk.StoreKey,
+	memKey storetypes.StoreKey,
 	ps paramtypes.Subspace,
 ) *Keeper {
 	// set KeyTable if it has not already been set
@@ -50,7 +51,7 @@ func NewPlainKeeper(
 func NewKeeper(
 	cdc codec.BinaryCodec,
 	storeKey,
-	memKey sdk.StoreKey,
+	memKey storetypes.StoreKey,
 	ps paramtypes.Subspace,
 	epochKeeper epochkeeper.Keeper,
 	bankKeeper bankkeeper.Keeper,
@@ -74,7 +75,7 @@ func (k Keeper) Logger(ctx sdk.Context) log.Logger {
 	return ctx.Logger().With("module", fmt.Sprintf("x/%s", types.ModuleName))
 }
 
-func (k Keeper) GetStoreKey() sdk.StoreKey {
+func (k Keeper) GetStoreKey() storetypes.StoreKey {
 	return k.storeKey
 }
 
