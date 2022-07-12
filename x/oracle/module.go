@@ -2,9 +2,8 @@ package oracle
 
 import (
 	"context"
-	"fmt"
-
 	"encoding/json"
+	"fmt"
 	"math/rand"
 
 	"github.com/gorilla/mux"
@@ -104,7 +103,8 @@ func NewAppModule(
 	cdc codec.Codec,
 	keeper keeper.Keeper,
 	accountKeeper types.AccountKeeper,
-	bankKeeper types.BankKeeper) AppModule {
+	bankKeeper types.BankKeeper,
+) AppModule {
 	return AppModule{
 		AppModuleBasic: AppModuleBasic{cdc},
 		keeper:         keeper,

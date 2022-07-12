@@ -130,6 +130,7 @@ func (MockValidator) GetConsAddr() (sdk.ConsAddress, error) { return nil, nil }
 func (v MockValidator) GetTokens() sdk.Int {
 	return sdk.TokensFromConsensusPower(v.power, sdk.DefaultPowerReduction)
 }
+
 func (v MockValidator) GetBondedTokens() sdk.Int {
 	return sdk.TokensFromConsensusPower(v.power, sdk.DefaultPowerReduction)
 }

@@ -83,13 +83,13 @@ func NewUpdateTickSizeProposalTxCmd() *cobra.Command {
 				return err
 			}
 
-			content := types.NewUpdateTickSizeForPair(proposal.Title, proposal.Description,ticksizes)
+			content := types.NewUpdateTickSizeForPair(proposal.Title, proposal.Description, ticksizes)
 
 			deposit, err := sdk.ParseCoinsNormalized(proposal.Deposit)
 			if err != nil {
 				return err
 			}
-		
+
 			msg, err := govtypes.NewMsgSubmitProposal(&content, deposit, clientCtx.GetFromAddress())
 			if err != nil {
 				return err

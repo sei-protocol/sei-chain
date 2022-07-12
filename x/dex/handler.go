@@ -18,7 +18,7 @@ func NewHandler(k keeper.Keeper, tracingInfo *tracing.TracingInfo) sdk.Handler {
 
 	return func(ctx sdk.Context, msg sdk.Msg) (*sdk.Result, error) {
 		ctx = ctx.WithEventManager(sdk.NewEventManager())
-		
+
 		switch msg := msg.(type) {
 		case *types.MsgPlaceOrders:
 			res, err := msgServer.PlaceOrders(sdk.WrapSDKContext(ctx), msg)

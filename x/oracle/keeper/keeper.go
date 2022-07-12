@@ -34,8 +34,8 @@ type Keeper struct {
 func NewKeeper(cdc codec.BinaryCodec, storeKey sdk.StoreKey,
 	paramspace paramstypes.Subspace, accountKeeper types.AccountKeeper,
 	bankKeeper types.BankKeeper, distrKeeper types.DistributionKeeper,
-	stakingKeeper types.StakingKeeper, distrName string) Keeper {
-
+	stakingKeeper types.StakingKeeper, distrName string,
+) Keeper {
 	// ensure oracle module account is set
 	if addr := accountKeeper.GetModuleAddress(types.ModuleName); addr == nil {
 		panic(fmt.Sprintf("%s module account has not been set", types.ModuleName))
@@ -147,8 +147,8 @@ func (k Keeper) SetFeederDelegation(ctx sdk.Context, operator sdk.ValAddress, de
 
 // IterateFeederDelegations iterates over the feed delegates and performs a callback function.
 func (k Keeper) IterateFeederDelegations(ctx sdk.Context,
-	handler func(delegator sdk.ValAddress, delegate sdk.AccAddress) (stop bool)) {
-
+	handler func(delegator sdk.ValAddress, delegate sdk.AccAddress) (stop bool),
+) {
 	store := ctx.KVStore(k.storeKey)
 	iter := sdk.KVStorePrefixIterator(store, types.FeederDelegationKey)
 	defer iter.Close()
@@ -214,8 +214,8 @@ func (k Keeper) DeleteVotePenaltyCounter(ctx sdk.Context, operator sdk.ValAddres
 
 // IterateVotePenaltyCounters iterates over the miss counters and performs a callback function.
 func (k Keeper) IterateVotePenaltyCounters(ctx sdk.Context,
-	handler func(operator sdk.ValAddress, votePenaltyCounter types.VotePenaltyCounter) (stop bool)) {
-
+	handler func(operator sdk.ValAddress, votePenaltyCounter types.VotePenaltyCounter) (stop bool),
+) {
 	store := ctx.KVStore(k.storeKey)
 	iter := sdk.KVStorePrefixIterator(store, types.VotePenaltyCounterKey)
 	defer iter.Close()

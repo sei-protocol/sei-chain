@@ -9,8 +9,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-const TEST_CONTRACT = "test"
-const TEST_PAIR = "pair"
+const (
+	TEST_CONTRACT = "test"
+	TEST_PAIR     = "pair"
+)
 
 func TestDeepCopy(t *testing.T) {
 	stateOne := dex.NewMemState()

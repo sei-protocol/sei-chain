@@ -7,9 +7,7 @@ import (
 	"gopkg.in/yaml.v2"
 )
 
-var (
-	KeyPriceSnapshotRetention = []byte("PriceSnapshotRetention") // number of epochs to retain price snapshots for
-)
+var KeyPriceSnapshotRetention = []byte("PriceSnapshotRetention") // number of epochs to retain price snapshots for
 
 const (
 	DefaultPriceSnapshotRetention = 1440 // default epoch interval is one minute so this results in a one-day retention
