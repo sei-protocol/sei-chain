@@ -8,6 +8,8 @@ import (
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	dexwasm "github.com/sei-protocol/sei-chain/x/dex/client/wasm"
 	dexbindings "github.com/sei-protocol/sei-chain/x/dex/client/wasm/bindings"
+	epochwasm "github.com/sei-protocol/sei-chain/x/epoch/client/wasm"
+	epochbindings "github.com/sei-protocol/sei-chain/x/epoch/client/wasm/bindings"
 	oraclewasm "github.com/sei-protocol/sei-chain/x/oracle/client/wasm"
 	oraclebindings "github.com/sei-protocol/sei-chain/x/oracle/client/wasm/bindings"
 )
@@ -15,13 +17,15 @@ import (
 type QueryPlugin struct {
 	oracleHandler oraclewasm.OracleWasmQueryHandler
 	dexHandler    dexwasm.DexWasmQueryHandler
+	epochHandler  epochwasm.EpochWasmQueryHandler
 }
 
 // NewQueryPlugin returns a reference to a new QueryPlugin.
-func NewQueryPlugin(oh *oraclewasm.OracleWasmQueryHandler, dh *dexwasm.DexWasmQueryHandler) *QueryPlugin {
+func NewQueryPlugin(oh *oraclewasm.OracleWasmQueryHandler, dh *dexwasm.DexWasmQueryHandler, eh *epochwasm.EpochWasmQueryHandler) *QueryPlugin {
 	return &QueryPlugin{
 		oracleHandler: *oh,
 		dexHandler:    *dh,
+		epochHandler:  *eh,
 	}
 }
 
@@ -37,6 +41,9 @@ func (qp QueryPlugin) HandleOracleQuery(ctx sdk.Context, queryData json.RawMessa
 			return nil, sdkerrors.Wrap(err, "Error while getting Exchange Rates")
 		}
 		bz, err := json.Marshal(res)
+		//TODO: remove this debugging stuff
+		ctx.Logger().Error("Exchange Rates Result")
+		ctx.Logger().Error(string(bz))
 		if err != nil {
 			return nil, sdkerrors.Wrap(err, "Error encoding exchange rates as JSON")
 		}
@@ -77,5 +84,30 @@ func (qp QueryPlugin) HandleDexQuery(ctx sdk.Context, queryData json.RawMessage)
 		return bz, nil
 	default:
 		return nil, wasmvmtypes.UnsupportedRequest{Kind: "Unknown Sei Dex Query"}
+	}
+}
+
+func (qp QueryPlugin) HandleEpochQuery(ctx sdk.Context, queryData json.RawMessage) ([]byte, error) {
+	var parsedQuery epochbindings.SeiEpochQuery
+	if err := json.Unmarshal(queryData, &parsedQuery); err != nil {
+		return nil, sdkerrors.Wrap(err, "Error parsing SeiEpochQuery")
+	}
+	switch {
+	case parsedQuery.Epoch != nil:
+		res, err := qp.epochHandler.GetEpoch(ctx, parsedQuery.Epoch)
+		if err != nil {
+			return nil, sdkerrors.Wrap(err, "Error while getting epoch")
+		}
+		bz, err := json.Marshal(res)
+		//TODO: remove this debugging stuff
+		ctx.Logger().Error("Epoch Result")
+		ctx.Logger().Error(string(bz))
+		if err != nil {
+			return nil, sdkerrors.Wrap(err, "Error encoding epoch as JSON")
+		}
+
+		return bz, nil
+	default:
+		return nil, wasmvmtypes.UnsupportedRequest{Kind: "Unknown Sei Epoch Query"}
 	}
 }
