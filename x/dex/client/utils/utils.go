@@ -186,7 +186,7 @@ func ParseAddAssetMetadataProposalJSON(cdc *codec.LegacyAmino, proposalFile stri
 			}
 		}
 
-		if found == false {
+		if !found {
 			return AddAssetMetadataProposalJSON{}, errors.New("Display denom " + display + " has no associated DenomUnit in Metadata.")
 		}
 

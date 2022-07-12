@@ -27,8 +27,9 @@ func (gd GaslessDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool,
 			return ctx, nil
 		}
 		// iterating instead of recursing the handler for readability
+		// we use blank here because we shouldn't handle the error
 		for _, handler := range gd.wrapped {
-			ctx, err = handler.AnteHandle(ctx, tx, simulate, terminatorHandler)
+			ctx, _ = handler.AnteHandle(ctx, tx, simulate, terminatorHandler)
 		}
 		return next(ctx, tx, simulate)
 	}
@@ -136,7 +137,6 @@ func OraclePrevoteIsGasless(msg *oracletypes.MsgAggregateExchangeRatePrevote, ct
 }
 
 func OracleVoteIsGasless(msg *oracletypes.MsgAggregateExchangeRateVote, ctx sdk.Context, keeper oraclekeeper.Keeper) bool {
-
 	feederAddr, err := sdk.AccAddressFromBech32(msg.Feeder)
 	if err != nil {
 		return false

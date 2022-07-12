@@ -75,7 +75,6 @@ func (k Keeper) ClearBallots(ctx sdk.Context, votePeriod uint64) {
 
 // ApplyWhitelist update vote target denom list with params whitelist
 func (k Keeper) ApplyWhitelist(ctx sdk.Context, whitelist types.DenomList, voteTargets map[string]types.Denom) {
-
 	// check is there any update in whitelist params
 	updateRequired := false
 	if len(voteTargets) != len(whitelist) {

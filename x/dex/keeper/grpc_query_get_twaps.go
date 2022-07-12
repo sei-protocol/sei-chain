@@ -38,7 +38,7 @@ func calculateTwap(ctx sdk.Context, prices []*types.Price, lookback uint64) sdk.
 		return prices[p1].SnapshotTimestampInSeconds > prices[p2].SnapshotTimestampInSeconds
 	})
 	var timeTraversed uint64 = 0
-	var weightedPriceSum sdk.Dec = sdk.ZeroDec()
+	weightedPriceSum := sdk.ZeroDec()
 	for _, price := range prices {
 		newTimeTraversed := uint64(ctx.BlockTime().Unix()) - price.SnapshotTimestampInSeconds
 		if newTimeTraversed > lookback {

@@ -23,7 +23,7 @@ func MatchLimitOrders(
 	for _, order := range shortOrders {
 		addOrderToOrderBook(order, shortBook, pair, shortDirtyPrices)
 	}
-	var totalExecuted, totalPrice sdk.Dec = sdk.ZeroDec(), sdk.ZeroDec()
+	totalExecuted, totalPrice := sdk.ZeroDec(), sdk.ZeroDec()
 	longPtr, shortPtr := len(*longBook)-1, 0
 
 	for longPtr >= 0 && shortPtr < len(*shortBook) && (*longBook)[longPtr].GetPrice().GTE((*shortBook)[shortPtr].GetPrice()) {
@@ -117,5 +117,4 @@ func addOrderToOrderBook(
 		(*orderBook)[insertAt] = newOrder
 	}
 	dirtyPrices.Add(order.Price)
-	return
 }

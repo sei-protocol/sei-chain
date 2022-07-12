@@ -103,7 +103,6 @@ func TestIterateLunaExchangeRates(t *testing.T) {
 		}
 		return false
 	})
-
 }
 
 func TestRewardPool(t *testing.T) {
@@ -349,10 +348,10 @@ func TestVoteTargetGetSet(t *testing.T) {
 	input := CreateTestInput(t)
 
 	voteTargets := map[string]types.Denom{
-		utils.MicroEthDenom:  types.Denom{utils.MicroEthDenom},
-		utils.MicroUsdcDenom: types.Denom{utils.MicroUsdcDenom},
-		utils.MicroAtomDenom: types.Denom{utils.MicroAtomDenom},
-		utils.MicroSeiDenom:  types.Denom{utils.MicroSeiDenom},
+		utils.MicroEthDenom:  {utils.MicroEthDenom},
+		utils.MicroUsdcDenom: {utils.MicroUsdcDenom},
+		utils.MicroAtomDenom: {utils.MicroAtomDenom},
+		utils.MicroSeiDenom:  {utils.MicroSeiDenom},
 	}
 
 	for denom := range voteTargets {

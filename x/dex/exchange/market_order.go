@@ -15,7 +15,7 @@ func MatchMarketOrders(
 	settlements *[]*types.SettlementEntry,
 	zeroOrders *[]AccountOrderId,
 ) (sdk.Dec, sdk.Dec) {
-	var totalExecuted, totalPrice sdk.Dec = sdk.ZeroDec(), sdk.ZeroDec()
+	totalExecuted, totalPrice := sdk.ZeroDec(), sdk.ZeroDec()
 	allTakerSettlements := []*types.SettlementEntry{}
 	for idx, marketOrder := range marketOrders {
 		for i := range orderBook {
