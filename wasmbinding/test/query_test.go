@@ -12,6 +12,9 @@ import (
 	dexwasm "github.com/sei-protocol/sei-chain/x/dex/client/wasm"
 	dexbinding "github.com/sei-protocol/sei-chain/x/dex/client/wasm/bindings"
 	dextypes "github.com/sei-protocol/sei-chain/x/dex/types"
+	epochwasm "github.com/sei-protocol/sei-chain/x/epoch/client/wasm"
+	epochbinding "github.com/sei-protocol/sei-chain/x/epoch/client/wasm/bindings"
+	epochtypes "github.com/sei-protocol/sei-chain/x/epoch/types"
 	oraclewasm "github.com/sei-protocol/sei-chain/x/oracle/client/wasm"
 	oraclebinding "github.com/sei-protocol/sei-chain/x/oracle/client/wasm/bindings"
 	oracletypes "github.com/sei-protocol/sei-chain/x/oracle/types"
@@ -19,8 +22,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestWasmGetOracleExchangeRates(t *testing.T) {
-	// START SETUP
+func SetupWasmbindingTest(t *testing.T) (*app.TestWrapper, func(ctx sdk.Context, request json.RawMessage) ([]byte, error)) {
 	tm := time.Now().UTC()
 	valPub := secp256k1.GenPrivKey().PubKey()
 
@@ -28,9 +30,13 @@ func TestWasmGetOracleExchangeRates(t *testing.T) {
 
 	oh := oraclewasm.NewOracleWasmQueryHandler(&testWrapper.App.OracleKeeper)
 	dh := dexwasm.NewDexWasmQueryHandler(&testWrapper.App.DexKeeper)
-	qp := wasmbinding.NewQueryPlugin(oh, dh)
-	customQuerier := wasmbinding.CustomQuerier(qp)
-	// END SETUP
+	eh := epochwasm.NewEpochWasmQueryHandler(&testWrapper.App.EpochKeeper)
+	qp := wasmbinding.NewQueryPlugin(oh, dh, eh)
+	return testWrapper, wasmbinding.CustomQuerier(qp)
+}
+
+func TestWasmGetOracleExchangeRates(t *testing.T) {
+	testWrapper, customQuerier := SetupWasmbindingTest(t)
 
 	req := oraclebinding.SeiOracleQuery{ExchangeRates: &oracletypes.QueryExchangeRatesRequest{}}
 	queryData, err := json.Marshal(req)
@@ -61,17 +67,7 @@ func TestWasmGetOracleExchangeRates(t *testing.T) {
 }
 
 func TestWasmGetOracleTwaps(t *testing.T) {
-	// START SETUP
-	tm := time.Now().UTC()
-	valPub := secp256k1.GenPrivKey().PubKey()
-
-	testWrapper := app.NewTestWrapper(t, tm, valPub)
-
-	oh := oraclewasm.NewOracleWasmQueryHandler(&testWrapper.App.OracleKeeper)
-	dh := dexwasm.NewDexWasmQueryHandler(&testWrapper.App.DexKeeper)
-	qp := wasmbinding.NewQueryPlugin(oh, dh)
-	customQuerier := wasmbinding.CustomQuerier(qp)
-	// END SETUP
+	testWrapper, customQuerier := SetupWasmbindingTest(t)
 
 	req := oraclebinding.SeiOracleQuery{OracleTwaps: &oracletypes.QueryTwapsRequest{LookbackSeconds: 200}}
 	queryData, err := json.Marshal(req)
@@ -108,17 +104,7 @@ func TestWasmGetOracleTwaps(t *testing.T) {
 }
 
 func TestWasmGetDexTwaps(t *testing.T) {
-	// START SETUP
-	tm := time.Now().UTC()
-	valPub := secp256k1.GenPrivKey().PubKey()
-
-	testWrapper := app.NewTestWrapper(t, tm, valPub)
-
-	oh := oraclewasm.NewOracleWasmQueryHandler(&testWrapper.App.OracleKeeper)
-	dh := dexwasm.NewDexWasmQueryHandler(&testWrapper.App.DexKeeper)
-	qp := wasmbinding.NewQueryPlugin(oh, dh)
-	customQuerier := wasmbinding.CustomQuerier(qp)
-	// END SETUP
+	testWrapper, customQuerier := SetupWasmbindingTest(t)
 
 	req := dexbinding.SeiDexQuery{DexTwaps: &dextypes.QueryGetTwapsRequest{
 		ContractAddr:    app.TestContract,
@@ -156,4 +142,41 @@ func TestWasmGetDexTwaps(t *testing.T) {
 	require.Equal(t, "sei", twap.Pair.PriceDenom)
 	require.Equal(t, "atom", twap.Pair.AssetDenom)
 	require.Equal(t, sdk.NewDec(20), twap.Twap)
+}
+
+func TestWasmGetEpoch(t *testing.T) {
+	testWrapper, customQuerier := SetupWasmbindingTest(t)
+
+	req := epochbinding.SeiEpochQuery{
+		Epoch: &epochtypes.QueryEpochRequest{},
+	}
+
+	queryData, err := json.Marshal(req)
+	require.NoError(t, err)
+	query := wasmbinding.SeiQueryWrapper{Route: wasmbinding.EpochRoute, QueryData: queryData}
+
+	rawQuery, err := json.Marshal(query)
+	require.NoError(t, err)
+
+	testWrapper.Ctx = testWrapper.Ctx.WithBlockHeight(45).WithBlockTime(time.Unix(12500, 0))
+	testWrapper.App.EpochKeeper.SetEpoch(testWrapper.Ctx, epochtypes.Epoch{
+		GenesisTime:           time.Unix(1000, 0).UTC(),
+		EpochDuration:         time.Minute,
+		CurrentEpoch:          uint64(69),
+		CurrentEpochStartTime: time.Unix(12345, 0).UTC(),
+		CurrentEpochHeight:    int64(40),
+	})
+
+	res, err := customQuerier(testWrapper.Ctx, rawQuery)
+	require.NoError(t, err)
+
+	var parsedRes epochtypes.QueryEpochResponse
+	err = json.Unmarshal(res, &parsedRes)
+	require.NoError(t, err)
+	epoch := parsedRes.Epoch
+	require.Equal(t, time.Unix(1000, 0).UTC(), epoch.GenesisTime)
+	require.Equal(t, time.Minute, epoch.EpochDuration)
+	require.Equal(t, uint64(69), epoch.CurrentEpoch)
+	require.Equal(t, time.Unix(12345, 0).UTC(), epoch.CurrentEpochStartTime)
+	require.Equal(t, int64(40), epoch.CurrentEpochHeight)
 }
