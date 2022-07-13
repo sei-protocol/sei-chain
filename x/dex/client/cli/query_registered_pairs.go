@@ -25,7 +25,9 @@ func CmdGetRegisteredPairs() *cobra.Command {
 
 			queryClient := types.NewQueryClient(clientCtx)
 
-			params := &types.QueryRegisteredPairsRequest{contractAddr}
+			params := &types.QueryRegisteredPairsRequest{
+				ContractAddr: contractAddr,
+			}
 
 			res, err := queryClient.GetRegisteredPairs(cmd.Context(), params)
 			if err != nil {
