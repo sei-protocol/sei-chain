@@ -1,12 +1,12 @@
 package wasmbinding
 
 import (
-	"encoding/base64"
 	"encoding/json"
 	"testing"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/sei-protocol/sei-chain/wasmbinding"
+	dexwasm "github.com/sei-protocol/sei-chain/x/dex/client/wasm"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
 	"github.com/stretchr/testify/require"
 )
@@ -16,7 +16,7 @@ const (
 	TEST_CREATOR         = "sei1nc5tatafv6eyq7llkr2gv50ff9e22mnf70qgjlv737ktmt4eswrqms7u8a"
 )
 
-func TestDecodeOrder(t *testing.T) {
+func TestEncodePlaceOrder(t *testing.T) {
 	order := types.Order{
 		PositionDirection: types.PositionDirection_LONG,
 		OrderType:         types.OrderType_LIMIT,
@@ -34,19 +34,18 @@ func TestDecodeOrder(t *testing.T) {
 		Funds:        []sdk.Coin{fund},
 	}
 	serialized, _ := json.Marshal(msg)
-	encodedMsg := base64.StdEncoding.EncodeToString(serialized)
-	rawMsg := wasmbinding.RawMessage{
-		MsgType: types.TypeMsgPlaceOrders,
-		Data:    encodedMsg,
+	msgData := dexwasm.SeiDexWasmMessage{
+		PlaceOrders: serialized,
 	}
-	rawMsgs := wasmbinding.RawSdkMessages{Messages: []wasmbinding.RawMessage{rawMsg}}
-	serializedRawMsgs, _ := json.Marshal(rawMsgs)
-	encodedRawMsgs := base64.StdEncoding.EncodeToString(serializedRawMsgs)
-	customMsg := wasmbinding.CustomMessage{Raw: encodedRawMsgs}
+	serializedMsgData, _ := json.Marshal(msgData)
+	customMsg := wasmbinding.CustomMessage{
+		Route:       wasmbinding.DexRoute,
+		MessageData: serializedMsgData,
+	}
 	serializedMsg, _ := json.Marshal(customMsg)
 
 	decodedMsgs, err := wasmbinding.CustomEncoder(nil, serializedMsg)
-	require.Nil(t, err)
+	require.NoError(t, err)
 	require.Equal(t, 1, len(decodedMsgs))
 	typedDecodedMsg, ok := decodedMsgs[0].(*types.MsgPlaceOrders)
 	require.True(t, ok)
@@ -60,19 +59,18 @@ func TestDecodeOrderCancellation(t *testing.T) {
 		ContractAddr: TEST_TARGET_CONTRACT,
 	}
 	serialized, _ := json.Marshal(msg)
-	encodedMsg := base64.StdEncoding.EncodeToString(serialized)
-	rawMsg := wasmbinding.RawMessage{
-		MsgType: types.TypeMsgCancelOrders,
-		Data:    encodedMsg,
+	msgData := dexwasm.SeiDexWasmMessage{
+		CancelOrders: serialized,
 	}
-	rawMsgs := wasmbinding.RawSdkMessages{Messages: []wasmbinding.RawMessage{rawMsg}}
-	serializedRawMsgs, _ := json.Marshal(rawMsgs)
-	encodedRawMsgs := base64.StdEncoding.EncodeToString(serializedRawMsgs)
-	customMsg := wasmbinding.CustomMessage{Raw: encodedRawMsgs}
+	serializedMsgData, _ := json.Marshal(msgData)
+	customMsg := wasmbinding.CustomMessage{
+		Route:       wasmbinding.DexRoute,
+		MessageData: serializedMsgData,
+	}
 	serializedMsg, _ := json.Marshal(customMsg)
 
 	decodedMsgs, err := wasmbinding.CustomEncoder(nil, serializedMsg)
-	require.Nil(t, err)
+	require.NoError(t, err)
 	require.Equal(t, 1, len(decodedMsgs))
 	typedDecodedMsg, ok := decodedMsgs[0].(*types.MsgCancelOrders)
 	require.True(t, ok)
