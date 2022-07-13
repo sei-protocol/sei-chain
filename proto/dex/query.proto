@@ -166,9 +166,11 @@ message QueryGetTwapsRequest {
 		(gogoproto.jsontag) = "lookback_seconds"
 	];
   }
-  
+
 message QueryGetTwapsResponse {
-	repeated Twap twaps = 1;
+	repeated Twap twaps = 1 [
+		(gogoproto.jsontag) = "twaps"
+	];
 }
 
 message QueryAssetListRequest {}
