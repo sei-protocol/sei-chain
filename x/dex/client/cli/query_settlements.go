@@ -24,7 +24,7 @@ func CmdListSettlements() *cobra.Command {
 			contractAddr := args[0]
 			priceDenom := args[1]
 			assetDenom := args[2]
-			orderId, err := strconv.ParseUint(args[3], 10, 64)
+			orderID, err := strconv.ParseUint(args[3], 10, 64)
 			if err != nil {
 				return err
 			}
@@ -32,7 +32,7 @@ func CmdListSettlements() *cobra.Command {
 				ContractAddr: contractAddr,
 				PriceDenom:   priceDenom,
 				AssetDenom:   assetDenom,
-				OrderId:      orderId,
+				OrderId:      orderID,
 			}
 
 			res, err := queryClient.GetSettlements(cmd.Context(), query)

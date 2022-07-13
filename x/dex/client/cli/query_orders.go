@@ -46,7 +46,7 @@ func CmdGetOrders() *cobra.Command {
 	return cmd
 }
 
-func CmdGetOrdersById() *cobra.Command {
+func CmdGetOrdersByID() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "get-orders-by-id [contract-address] [price-denom] [asset-denom] [id]",
 		Short: "Query get order by ID",
@@ -55,7 +55,7 @@ func CmdGetOrdersById() *cobra.Command {
 			contractAddr := args[0]
 			priceDenom := args[1]
 			assetDenom := args[2]
-			orderId, err := strconv.ParseUint(args[3], 10, 64)
+			orderID, err := strconv.ParseUint(args[3], 10, 64)
 			if err != nil {
 				return err
 			}
@@ -71,7 +71,7 @@ func CmdGetOrdersById() *cobra.Command {
 				ContractAddr: contractAddr,
 				PriceDenom:   priceDenom,
 				AssetDenom:   assetDenom,
-				Id:           orderId,
+				Id:           orderID,
 			}
 
 			res, err := queryClient.GetOrderByID(cmd.Context(), params)
