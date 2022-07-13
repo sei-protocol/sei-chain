@@ -75,7 +75,7 @@ service Query {
 		option (google.api.http).get = "/sei-protocol/seichain/dex/get_orders/{contractAddr}/{account}";
 	}
 
-	rpc GetOrderById(QueryGetOrderByIdRequest) returns (QueryGetOrderByIdResponse) {
+	rpc GetOrderByID(QueryGetOrderByIDRequest) returns (QueryGetOrderByIDResponse) {
 		option (google.api.http).get = "/sei-protocol/seichain/dex/get_order_by_id/{contractAddr}/{priceDenom}/{assetDenom}/{id}";
 	}
 
@@ -223,7 +223,7 @@ message QueryGetOrdersResponse {
 	];
 }
 
-message QueryGetOrderByIdRequest{
+message QueryGetOrderByIDRequest{
 	string contractAddr = 1 [
 		(gogoproto.jsontag) = "contract_address"
 	];
@@ -238,7 +238,7 @@ message QueryGetOrderByIdRequest{
 	];
 }
 
-message QueryGetOrderByIdResponse {
+message QueryGetOrderByIDResponse {
 	Order order = 1 [
 		(gogoproto.jsontag) = "order"
 	];

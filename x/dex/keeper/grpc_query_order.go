@@ -9,19 +9,19 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-func (k Keeper) GetOrderById(c context.Context, req *types.QueryGetOrderByIdRequest) (*types.QueryGetOrderByIdResponse, error) {
+func (k Keeper) GetOrderByID(c context.Context, req *types.QueryGetOrderByIDRequest) (*types.QueryGetOrderByIDResponse, error) {
 	if req == nil {
 		return nil, status.Error(codes.InvalidArgument, "invalid request")
 	}
 	ctx := sdk.UnwrapSDKContext(c)
 	orders := k.GetOrdersByIds(ctx, req.ContractAddr, []uint64{req.Id})
-	if order, ok := orders[req.Id]; !ok {
-		return &types.QueryGetOrderByIdResponse{}, status.Error(codes.NotFound, "order not found")
-	} else {
-		return &types.QueryGetOrderByIdResponse{
-			Order: &order,
-		}, nil
+	order, ok := orders[req.Id]
+	if !ok {
+		return &types.QueryGetOrderByIDResponse{}, status.Error(codes.NotFound, "order not found")
 	}
+	return &types.QueryGetOrderByIDResponse{
+		Order: &order,
+	}, nil
 }
 
 func (k Keeper) GetOrders(c context.Context, req *types.QueryGetOrdersRequest) (*types.QueryGetOrdersResponse, error) {
@@ -33,6 +33,7 @@ func (k Keeper) GetOrders(c context.Context, req *types.QueryGetOrdersRequest) (
 	orders := k.GetOrdersByIds(ctx, req.ContractAddr, activeOrderIds.Ids)
 	response := &types.QueryGetOrdersResponse{Orders: []*types.Order{}}
 	for _, order := range orders {
+		order := order
 		response.Orders = append(response.Orders, &order)
 	}
 	return response, nil

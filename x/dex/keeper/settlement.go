@@ -18,18 +18,18 @@ func (k Keeper) SetSettlements(ctx sdk.Context, contractAddr string, priceDenom 
 			existing = settlements
 		}
 
-		orderIdBytes := make([]byte, 8)
-		binary.BigEndian.PutUint64(orderIdBytes, settlement.OrderId)
+		orderIDBytes := make([]byte, 8)
+		binary.BigEndian.PutUint64(orderIDBytes, settlement.OrderId)
 		b := k.Cdc.MustMarshal(&existing)
-		store.Set(orderIdBytes, b)
+		store.Set(orderIDBytes, b)
 	}
 }
 
-func (k Keeper) GetSettlementsState(ctx sdk.Context, contractAddr string, priceDenom string, assetDenom string, orderId uint64) (val types.Settlements, found bool) {
+func (k Keeper) GetSettlementsState(ctx sdk.Context, contractAddr string, priceDenom string, assetDenom string, orderID uint64) (val types.Settlements, found bool) {
 	store := prefix.NewStore(ctx.KVStore(k.storeKey), types.SettlementEntryPrefix(contractAddr, priceDenom, assetDenom))
-	orderIdBytes := make([]byte, 8)
-	binary.BigEndian.PutUint64(orderIdBytes, orderId)
-	b := store.Get(orderIdBytes)
+	orderIDBytes := make([]byte, 8)
+	binary.BigEndian.PutUint64(orderIDBytes, orderID)
+	b := store.Get(orderIDBytes)
 	val = types.Settlements{}
 	if b == nil {
 		return val, false

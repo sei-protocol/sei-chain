@@ -67,14 +67,14 @@ func CmdGetOrdersById() *cobra.Command {
 
 			queryClient := types.NewQueryClient(clientCtx)
 
-			params := &types.QueryGetOrderByIdRequest{
+			params := &types.QueryGetOrderByIDRequest{
 				ContractAddr: contractAddr,
 				PriceDenom:   priceDenom,
 				AssetDenom:   assetDenom,
 				Id:           orderId,
 			}
 
-			res, err := queryClient.GetOrderById(cmd.Context(), params)
+			res, err := queryClient.GetOrderByID(cmd.Context(), params)
 			if err != nil {
 				return err
 			}
