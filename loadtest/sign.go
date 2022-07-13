@@ -19,7 +19,7 @@ import (
 	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
 )
 
-const NODE_URI = "tcp://localhost:26657"
+const NodeURI = "tcp://localhost:26657"
 
 type AccountInfo struct {
 	Address  string `json:"address"`
@@ -39,7 +39,9 @@ func GetKey(accountIdx uint64) cryptotypes.PrivKey {
 		panic(err)
 	}
 	jsonFile.Close()
-	json.Unmarshal(byteVal, &accountInfo)
+	if err := json.Unmarshal(byteVal, &accountInfo); err != nil {
+		panic(err)
+	}
 	kr, _ := keyring.New(sdk.KeyringServiceName(), "os", filepath.Join(userHomeDir, ".sei-chain"), os.Stdin)
 	keyringAlgos, _ := kr.SupportedAlgorithms()
 	algoStr := string(hd.Secp256k1Type)
@@ -56,7 +58,7 @@ func SignTx(txBuilder *client.TxBuilder, privKey cryptotypes.PrivKey, seqDelta u
 	sigV2 := signing.SignatureV2{
 		PubKey: privKey.PubKey(),
 		Data: &signing.SingleSignatureData{
-			SignMode:  TEST_CONFIG.TxConfig.SignModeHandler().DefaultMode(),
+			SignMode:  TestConfig.TxConfig.SignModeHandler().DefaultMode(),
 			Signature: nil,
 		},
 		Sequence: seqNum,
@@ -65,16 +67,16 @@ func SignTx(txBuilder *client.TxBuilder, privKey cryptotypes.PrivKey, seqDelta u
 	_ = (*txBuilder).SetSignatures(sigsV2...)
 	sigsV2 = []signing.SignatureV2{}
 	signerData := xauthsigning.SignerData{
-		ChainID:       CHAIN_ID,
+		ChainID:       ChainID,
 		AccountNumber: accountNum,
 		Sequence:      seqNum,
 	}
 	sigV2, _ = clienttx.SignWithPrivKey(
-		TEST_CONFIG.TxConfig.SignModeHandler().DefaultMode(),
+		TestConfig.TxConfig.SignModeHandler().DefaultMode(),
 		signerData,
 		*txBuilder,
 		privKey,
-		TEST_CONFIG.TxConfig,
+		TestConfig.TxConfig,
 		seqNum,
 	)
 	sigsV2 = append(sigsV2, sigV2)
@@ -88,14 +90,14 @@ func GetAccountNumberSequenceNumber(privKey cryptotypes.PrivKey) (uint64, uint64
 		panic(err)
 	}
 	accountRetriever := authtypes.AccountRetriever{}
-	cl, err := client.NewClientFromNode(NODE_URI)
+	cl, err := client.NewClientFromNode(NodeURI)
 	if err != nil {
 		panic(err)
 	}
 	context := client.Context{}
-	context = context.WithNodeURI(NODE_URI)
+	context = context.WithNodeURI(NodeURI)
 	context = context.WithClient(cl)
-	context = context.WithInterfaceRegistry(TEST_CONFIG.InterfaceRegistry)
+	context = context.WithInterfaceRegistry(TestConfig.InterfaceRegistry)
 	account, seq, err := accountRetriever.GetAccountNumberSequence(context, address)
 	if err != nil {
 		time.Sleep(5 * time.Second)

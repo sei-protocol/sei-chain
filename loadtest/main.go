@@ -32,31 +32,34 @@ type EncodingConfig struct {
 }
 
 var (
-	TEST_CONFIG  EncodingConfig
-	TX_CLIENT    typestx.ServiceClient
-	TX_HASH_FILE *os.File
-	CHAIN_ID     string
+	TestConfig EncodingConfig
+	TxClient   typestx.ServiceClient
+	TxHashFile *os.File
+	ChainID    string
 )
 
-const BATCH_SIZE = 100
+const (
+	BatchSize  = 100
+	VortexData = "{\"position_effect\":\"Open\",\"leverage\":\"1\"}"
+)
 
-var FROM_MILI = sdk.NewDec(1000000)
+var FromMili = sdk.NewDec(1000000)
 
 func init() {
 	cdc := codec.NewLegacyAmino()
 	interfaceRegistry := types.NewInterfaceRegistry()
 	marshaler := codec.NewProtoCodec(interfaceRegistry)
 
-	TEST_CONFIG = EncodingConfig{
+	TestConfig = EncodingConfig{
 		InterfaceRegistry: interfaceRegistry,
 		Marshaler:         marshaler,
 		TxConfig:          tx.NewTxConfig(marshaler, tx.DefaultSignModes),
 		Amino:             cdc,
 	}
-	std.RegisterLegacyAminoCodec(TEST_CONFIG.Amino)
-	std.RegisterInterfaces(TEST_CONFIG.InterfaceRegistry)
-	app.ModuleBasics.RegisterLegacyAminoCodec(TEST_CONFIG.Amino)
-	app.ModuleBasics.RegisterInterfaces(TEST_CONFIG.InterfaceRegistry)
+	std.RegisterLegacyAminoCodec(TestConfig.Amino)
+	std.RegisterInterfaces(TestConfig.InterfaceRegistry)
+	app.ModuleBasics.RegisterLegacyAminoCodec(TestConfig.Amino)
+	app.ModuleBasics.RegisterInterfaces(TestConfig.InterfaceRegistry)
 }
 
 func run(
@@ -75,7 +78,7 @@ func run(
 		grpc.WithInsecure(),
 	)
 	defer grpcConn.Close()
-	TX_CLIENT = typestx.NewServiceClient(grpcConn)
+	TxClient = typestx.NewServiceClient(grpcConn)
 	userHomeDir, _ := os.UserHomeDir()
 	filename := filepath.Join(userHomeDir, "outputs", "test_tx_hash")
 	_ = os.Remove(filename)
@@ -84,7 +87,7 @@ func run(
 		fmt.Printf("Error opening file %s", err)
 		return
 	}
-	TX_HASH_FILE = file
+	TxHashFile = file
 	var mu sync.Mutex
 
 	activeAccounts := []int{}
@@ -99,36 +102,38 @@ func run(
 	wgs := []*sync.WaitGroup{}
 	sendersList := [][]func(){}
 	for i := 0; i < int(numberOfBlocks); i++ {
-		fmt.Println(fmt.Sprintf("Preparing %d-th block", i))
-		var wg *sync.WaitGroup = &sync.WaitGroup{}
+		fmt.Printf("Preparing %d-th block\n", i)
+		wg := &sync.WaitGroup{}
 		var senders []func()
 		wgs = append(wgs, wg)
 		for j, account := range activeAccounts {
 			key := GetKey(uint64(account))
-			orderPlacements := []*dextypes.OrderPlacement{}
+			orderPlacements := []*dextypes.Order{}
 			longPrice := uint64(j)%(longPriceCeiling-longPriceFloor) + longPriceFloor
 			longQuantity := uint64(rand.Intn(int(quantityCeiling)-int(quantityFloor))) + quantityFloor
 			shortPrice := uint64(j)%(shortPriceCeiling-shortPriceFloor) + shortPriceFloor
 			shortQuantity := uint64(rand.Intn(int(quantityCeiling)-int(quantityFloor))) + quantityFloor
-			for j := 0; j < BATCH_SIZE; j++ {
-				orderPlacements = append(orderPlacements, &dextypes.OrderPlacement{
+			for j := 0; j < BatchSize; j++ {
+				orderPlacements = append(orderPlacements, &dextypes.Order{
+					Account:           sdk.AccAddress(key.PubKey().Address()).String(),
+					ContractAddr:      contractAddress,
 					PositionDirection: dextypes.PositionDirection_LONG,
-					Price:             sdk.NewDec(int64(longPrice)).Quo(FROM_MILI),
-					Quantity:          sdk.NewDec(int64(longQuantity)).Quo(FROM_MILI),
-					PriceDenom:        "usdc",
-					AssetDenom:        "sei",
-					PositionEffect:    dextypes.PositionEffect_OPEN,
+					Price:             sdk.NewDec(int64(longPrice)).Quo(FromMili),
+					Quantity:          sdk.NewDec(int64(longQuantity)).Quo(FromMili),
+					PriceDenom:        "SEI",
+					AssetDenom:        "ATOM",
 					OrderType:         dextypes.OrderType_LIMIT,
-					Leverage:          sdk.NewDec(1),
-				}, &dextypes.OrderPlacement{
+					Data:              VortexData,
+				}, &dextypes.Order{
+					Account:           sdk.AccAddress(key.PubKey().Address()).String(),
+					ContractAddr:      contractAddress,
 					PositionDirection: dextypes.PositionDirection_SHORT,
-					Price:             sdk.NewDec(int64(shortPrice)).Quo(FROM_MILI),
-					Quantity:          sdk.NewDec(int64(shortQuantity)).Quo(FROM_MILI),
-					PriceDenom:        "usdc",
-					AssetDenom:        "sei",
-					PositionEffect:    dextypes.PositionEffect_OPEN,
+					Price:             sdk.NewDec(int64(shortPrice)).Quo(FromMili),
+					Quantity:          sdk.NewDec(int64(shortQuantity)).Quo(FromMili),
+					PriceDenom:        "SEI",
+					AssetDenom:        "ATOM",
 					OrderType:         dextypes.OrderType_LIMIT,
-					Leverage:          sdk.NewDec(1),
+					Data:              VortexData,
 				})
 			}
 			amount, err := sdk.ParseCoinsNormalized(fmt.Sprintf("%d%s", longPrice*longQuantity+shortPrice*shortQuantity, "usei"))
@@ -141,7 +146,7 @@ func run(
 				ContractAddr: contractAddress,
 				Funds:        amount,
 			}
-			txBuilder := TEST_CONFIG.TxConfig.NewTxBuilder()
+			txBuilder := TestConfig.TxConfig.NewTxBuilder()
 			_ = txBuilder.SetMsgs(&msg)
 			seqDelta := uint64(i / 2)
 			SignTx(&txBuilder, key, seqDelta)
@@ -158,9 +163,7 @@ func run(
 		}
 		sendersList = append(sendersList, senders)
 
-		tmp := inactiveAccounts
-		inactiveAccounts = activeAccounts
-		activeAccounts = tmp
+		inactiveAccounts, activeAccounts = activeAccounts, inactiveAccounts
 	}
 
 	lastHeight := getLastHeight()
@@ -170,7 +173,7 @@ func run(
 			time.Sleep(50 * time.Millisecond)
 			newHeight = getLastHeight()
 		}
-		fmt.Println(fmt.Sprintf("Sending %d-th block", i))
+		fmt.Printf("Sending %d-th block\n", i)
 
 		senders := sendersList[i]
 		wg := wgs[i]
@@ -210,8 +213,8 @@ func main() {
 	shortPriceCeiling, _ := strconv.ParseUint(args[6], 10, 64)
 	quantityFloor, _ := strconv.ParseUint(args[7], 10, 64)
 	quantityCeiling, _ := strconv.ParseUint(args[8], 10, 64)
-	chainId := args[9]
-	CHAIN_ID = chainId
+	chainID := args[9]
+	ChainID = chainID
 	run(
 		contractAddress,
 		numberOfAccounts,
