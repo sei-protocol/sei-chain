@@ -11,6 +11,8 @@ import "dex/settlement.proto";
 import "dex/enums.proto";
 import "dex/price.proto";
 import "dex/twap.proto";
+import "dex/asset_list.proto";
+import "dex/pair.proto";
 // this line is used by starport scaffolding # 1
 
 option go_package = "github.com/sei-protocol/sei-chain/x/dex/types";
@@ -51,6 +53,21 @@ service Query {
 
 	rpc GetTwaps(QueryGetTwapsRequest) returns (QueryGetTwapsResponse) {
 		option (google.api.http).get = "/sei-protocol/seichain/dex/get_twaps/{contractAddr}/{lookbackSeconds}";
+	}
+
+	// Returns the metadata for a specified denom / display type
+	rpc AssetMetadata(QueryAssetMetadataRequest) returns (QueryAssetMetadataResponse) {
+		option (google.api.http).get = "/sei-protocol/seichain/dex/asset_list/{denom}";
+	}
+
+	// Returns metadata for all the assets
+	rpc AssetList(QueryAssetListRequest) returns (QueryAssetListResponse) {
+		option (google.api.http).get = "/sei-protocol/seichain/dex/asset_list";
+	}
+
+	// Returns all registered pairs for specified contract address
+	rpc GetRegisteredPairs(QueryRegisteredPairsRequest) returns (QueryRegisteredPairsResponse) {
+		option (google.api.http).get = "/sei-protocol/seichain/dex/asset_list";
 	}
 
 // this line is used by starport scaffolding # 2
@@ -150,8 +167,32 @@ message QueryGetTwapsRequest {
 	];
   }
   
-  message QueryGetTwapsResponse {
-	  repeated Twap twaps = 1;
-  }
+message QueryGetTwapsResponse {
+	repeated Twap twaps = 1;
+}
+
+message QueryAssetListRequest {}
+
+message QueryAssetListResponse {
+	repeated AssetMetadata assetList = 1 [(gogoproto.nullable) = false];
+}
+
+message QueryAssetMetadataRequest {
+	string denom = 1;
+}
+
+message QueryAssetMetadataResponse {
+	AssetMetadata metadata = 1;
+}
+
+message QueryRegisteredPairsRequest {
+	string contractAddr = 1 [
+		(gogoproto.jsontag) = "contract_address"
+	];
+}
+
+message QueryRegisteredPairsResponse {
+	repeated Pair pairs = 1 [(gogoproto.nullable) = false];
+}
 
 // this line is used by starport scaffolding # 3
