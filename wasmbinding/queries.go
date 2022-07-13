@@ -41,9 +41,6 @@ func (qp QueryPlugin) HandleOracleQuery(ctx sdk.Context, queryData json.RawMessa
 			return nil, sdkerrors.Wrap(err, "Error while getting Exchange Rates")
 		}
 		bz, err := json.Marshal(res)
-		//TODO: remove this debugging stuff
-		ctx.Logger().Error("Exchange Rates Result")
-		ctx.Logger().Error(string(bz))
 		if err != nil {
 			return nil, sdkerrors.Wrap(err, "Error encoding exchange rates as JSON")
 		}
@@ -99,9 +96,6 @@ func (qp QueryPlugin) HandleEpochQuery(ctx sdk.Context, queryData json.RawMessag
 			return nil, sdkerrors.Wrap(err, "Error while getting epoch")
 		}
 		bz, err := json.Marshal(res)
-		//TODO: remove this debugging stuff
-		ctx.Logger().Error("Epoch Result")
-		ctx.Logger().Error(string(bz))
 		if err != nil {
 			return nil, sdkerrors.Wrap(err, "Error encoding epoch as JSON")
 		}
