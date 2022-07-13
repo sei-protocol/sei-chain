@@ -56,14 +56,6 @@ service Query {
 		option (google.api.http).get = "/sei-protocol/seichain/dex/get_twaps/{contractAddr}/{lookbackSeconds}";
 	}
 
-	rpc GetOrders(QueryGetOrdersRequest) returns (QueryGetOrdersResponse) {
-		option (google.api.http).get = "/sei-protocol/seichain/dex/get_orders/{contractAddr}/{account}";
-	}
-
-	rpc GetOrderById(QueryGetOrderByIdRequest) returns (QueryGetOrderByIdResponse) {
-		option (google.api.http).get = "/sei-protocol/seichain/dex/get_order_by_id/{contractAddr}/{priceDenom}/{assetDenom}/{id}";
-	}
-
 	// Returns the metadata for a specified denom / display type
 	rpc AssetMetadata(QueryAssetMetadataRequest) returns (QueryAssetMetadataResponse) {
 		option (google.api.http).get = "/sei-protocol/seichain/dex/asset_list/{denom}";
@@ -77,6 +69,14 @@ service Query {
 	// Returns all registered pairs for specified contract address
 	rpc GetRegisteredPairs(QueryRegisteredPairsRequest) returns (QueryRegisteredPairsResponse) {
 		option (google.api.http).get = "/sei-protocol/seichain/dex/asset_list";
+	}
+
+	rpc GetOrders(QueryGetOrdersRequest) returns (QueryGetOrdersResponse) {
+		option (google.api.http).get = "/sei-protocol/seichain/dex/get_orders/{contractAddr}/{account}";
+	}
+
+	rpc GetOrderById(QueryGetOrderByIdRequest) returns (QueryGetOrderByIdResponse) {
+		option (google.api.http).get = "/sei-protocol/seichain/dex/get_order_by_id/{contractAddr}/{priceDenom}/{assetDenom}/{id}";
 	}
 
 // this line is used by starport scaffolding # 2
