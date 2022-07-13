@@ -393,9 +393,11 @@ func (am AppModule) endBlockForContract(ctx sdk.Context, contractAddr string) {
 		}
 		for _, cancel := range *cancels {
 			am.keeper.AddCancel(ctx, contractAddr, cancel)
+			am.keeper.UpdateOrderStatus(ctx, contractAddr, cancel.Id, types.OrderStatus_CANCELLED)
 		}
 		for _, zeroAccountOrder := range zeroOrders {
 			am.keeper.RemoveAccountActiveOrder(ctx, zeroAccountOrder.OrderID, contractAddr, zeroAccountOrder.Account)
+			am.keeper.UpdateOrderStatus(ctx, contractAddr, zeroAccountOrder.OrderID, types.OrderStatus_FULFILLED)
 		}
 
 		emptyBlockCancel := dexcache.BlockCancellations([]types.Cancellation{})

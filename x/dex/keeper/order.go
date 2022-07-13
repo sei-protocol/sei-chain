@@ -66,6 +66,20 @@ func (k Keeper) RemoveAccountActiveOrder(ctx sdk.Context, orderID uint64, contra
 	store.Set(accountKey, b)
 }
 
+func (k Keeper) UpdateOrderStatus(ctx sdk.Context, contractAddr string, orderID uint64, newStatus types.OrderStatus) {
+	store := prefix.NewStore(
+		ctx.KVStore(k.storeKey),
+		types.OrderPrefix(contractAddr),
+	)
+	idKey := make([]byte, 8)
+	binary.BigEndian.PutUint64(idKey, orderID)
+	order := types.Order{}
+	k.Cdc.MustUnmarshal(store.Get(idKey), &order)
+	order.Status = newStatus
+	b := k.Cdc.MustMarshal(&order)
+	store.Set(idKey, b)
+}
+
 func (k Keeper) GetOrdersByIds(ctx sdk.Context, contractAddr string, ids []uint64) map[uint64]types.Order {
 	store := prefix.NewStore(
 		ctx.KVStore(k.storeKey),

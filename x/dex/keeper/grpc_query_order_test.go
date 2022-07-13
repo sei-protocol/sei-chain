@@ -34,6 +34,7 @@ func TestGetOrderById(t *testing.T) {
 	require.Equal(t, types.OrderStatus_PLACED, resp.Order.Status)
 
 	// settled order
+	keeper.UpdateOrderStatus(ctx, TEST_CONTRACT, 1, types.OrderStatus_FULFILLED)
 	keeper.SetSettlements(ctx, TEST_CONTRACT, TEST_PRICE_DENOM, TEST_ASSET_DENOM, types.Settlements{
 		Entries: []*types.SettlementEntry{
 			{
@@ -48,6 +49,7 @@ func TestGetOrderById(t *testing.T) {
 	require.Equal(t, types.OrderStatus_FULFILLED, resp.Order.Status)
 
 	// cancelled order
+	keeper.UpdateOrderStatus(ctx, TEST_CONTRACT, 1, types.OrderStatus_CANCELLED)
 	keeper.AddCancel(ctx, TEST_CONTRACT, types.Cancellation{Id: 1})
 	resp, err = keeper.GetOrderById(wctx, &query)
 	require.Nil(t, err)
