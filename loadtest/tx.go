@@ -63,7 +63,7 @@ func SendTx(
 			}
 		}
 		if grpcRes.TxResponse.Code != 0 {
-			fmt.Printf("Error: %d\n", grpcRes.TxResponse.Code)
+			fmt.Printf("Error: %d, %s\n", grpcRes.TxResponse.Code, grpcRes.TxResponse.RawLog)
 		} else {
 			mu.Lock()
 			defer mu.Unlock()
