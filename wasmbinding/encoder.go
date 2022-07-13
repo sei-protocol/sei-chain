@@ -5,25 +5,26 @@ import (
 
 	wasmvmtypes "github.com/CosmWasm/wasmvm/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	dexwasm "github.com/sei-protocol/sei-chain/x/dex/client/wasm"
 )
 
-type CustomMessage struct {
-	// specifies which module handler should handle the query
-	Route string `json:"route,omitempty"`
-	// The query data that should be parsed into the module query
-	MessageData json.RawMessage `json:"message_data,omitempty"`
+type SeiWasmMessage struct {
+	PlaceOrders  json.RawMessage `json:"place_orders,omitempty"`
+	CancelOrders json.RawMessage `json:"cancel_orders,omitempty"`
 }
 
 func CustomEncoder(sender sdk.AccAddress, msg json.RawMessage) ([]sdk.Msg, error) {
-	customMsg := CustomMessage{}
-	if err := json.Unmarshal(msg, &customMsg); err != nil {
-		return []sdk.Msg{}, err
+	var parsedMessage SeiWasmMessage
+	if err := json.Unmarshal(msg, &parsedMessage); err != nil {
+		return []sdk.Msg{}, sdkerrors.Wrap(err, "Error parsing Sei Wasm Message")
 	}
-	switch customMsg.Route {
-	case DexRoute:
-		return dexwasm.EncodeDexMsg(customMsg.MessageData)
+	switch {
+	case parsedMessage.PlaceOrders != nil:
+		return dexwasm.EncodeDexPlaceOrders(parsedMessage.PlaceOrders)
+	case parsedMessage.CancelOrders != nil:
+		return dexwasm.EncodeDexCancelOrders(parsedMessage.CancelOrders)
 	default:
-		return []sdk.Msg{}, wasmvmtypes.UnsupportedRequest{Kind: "Unknown Sei Message Route"}
+		return []sdk.Msg{}, wasmvmtypes.UnsupportedRequest{Kind: "Unknown Sei Wasm Message"}
 	}
 }

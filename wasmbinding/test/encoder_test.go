@@ -6,7 +6,6 @@ import (
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/sei-protocol/sei-chain/wasmbinding"
-	dexwasm "github.com/sei-protocol/sei-chain/x/dex/client/wasm"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
 	"github.com/stretchr/testify/require"
 )
@@ -34,15 +33,10 @@ func TestEncodePlaceOrder(t *testing.T) {
 		Funds:        []sdk.Coin{fund},
 	}
 	serialized, _ := json.Marshal(msg)
-	msgData := dexwasm.SeiDexWasmMessage{
+	msgData := wasmbinding.SeiWasmMessage{
 		PlaceOrders: serialized,
 	}
-	serializedMsgData, _ := json.Marshal(msgData)
-	customMsg := wasmbinding.CustomMessage{
-		Route:       wasmbinding.DexRoute,
-		MessageData: serializedMsgData,
-	}
-	serializedMsg, _ := json.Marshal(customMsg)
+	serializedMsg, _ := json.Marshal(msgData)
 
 	decodedMsgs, err := wasmbinding.CustomEncoder(nil, serializedMsg)
 	require.NoError(t, err)
@@ -59,15 +53,10 @@ func TestDecodeOrderCancellation(t *testing.T) {
 		ContractAddr: TEST_TARGET_CONTRACT,
 	}
 	serialized, _ := json.Marshal(msg)
-	msgData := dexwasm.SeiDexWasmMessage{
+	msgData := wasmbinding.SeiWasmMessage{
 		CancelOrders: serialized,
 	}
-	serializedMsgData, _ := json.Marshal(msgData)
-	customMsg := wasmbinding.CustomMessage{
-		Route:       wasmbinding.DexRoute,
-		MessageData: serializedMsgData,
-	}
-	serializedMsg, _ := json.Marshal(customMsg)
+	serializedMsg, _ := json.Marshal(msgData)
 
 	decodedMsgs, err := wasmbinding.CustomEncoder(nil, serializedMsg)
 	require.NoError(t, err)
