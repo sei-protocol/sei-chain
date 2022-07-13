@@ -12,6 +12,7 @@ import "dex/enums.proto";
 import "dex/price.proto";
 import "dex/twap.proto";
 import "dex/asset_list.proto";
+import "dex/pair.proto";
 // this line is used by starport scaffolding # 1
 
 option go_package = "github.com/sei-protocol/sei-chain/x/dex/types";
@@ -61,6 +62,11 @@ service Query {
 
 	// Returns metadata for all the assets
 	rpc AssetList(QueryAssetListRequest) returns (QueryAssetListResponse) {
+		option (google.api.http).get = "/sei-protocol/seichain/dex/asset_list";
+	}
+
+	// Returns all registered pairs for specified contract address
+	rpc GetRegisteredPairs(QueryRegisteredPairsRequest) returns (QueryRegisteredPairsResponse) {
 		option (google.api.http).get = "/sei-protocol/seichain/dex/asset_list";
 	}
 
@@ -177,6 +183,16 @@ message QueryAssetMetadataRequest {
 
 message QueryAssetMetadataResponse {
 	AssetMetadata metadata = 1;
+}
+
+message QueryRegisteredPairsRequest {
+	string contractAddr = 1 [
+		(gogoproto.jsontag) = "contract_address"
+	];
+}
+
+message QueryRegisteredPairsResponse {
+	repeated Pair pairs = 1 [(gogoproto.nullable) = false];
 }
 
 // this line is used by starport scaffolding # 3
