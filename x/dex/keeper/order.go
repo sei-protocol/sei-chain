@@ -66,6 +66,20 @@ func (k Keeper) RemoveAccountActiveOrder(ctx sdk.Context, orderID uint64, contra
 	store.Set(accountKey, b)
 }
 
+func (k Keeper) UpdateOrderStatus(ctx sdk.Context, contractAddr string, orderID uint64, newStatus types.OrderStatus) {
+	store := prefix.NewStore(
+		ctx.KVStore(k.storeKey),
+		types.OrderPrefix(contractAddr),
+	)
+	idKey := make([]byte, 8)
+	binary.BigEndian.PutUint64(idKey, orderID)
+	order := types.Order{}
+	k.Cdc.MustUnmarshal(store.Get(idKey), &order)
+	order.Status = newStatus
+	b := k.Cdc.MustMarshal(&order)
+	store.Set(idKey, b)
+}
+
 func (k Keeper) GetOrdersByIds(ctx sdk.Context, contractAddr string, ids []uint64) map[uint64]types.Order {
 	store := prefix.NewStore(
 		ctx.KVStore(k.storeKey),
@@ -97,4 +111,23 @@ func (k Keeper) GetAccountActiveOrders(ctx sdk.Context, contractAddr string, acc
 	res := types.ActiveOrders{}
 	k.Cdc.MustUnmarshal(store.Get(accountKey), &res)
 	return &res
+}
+
+func (k Keeper) GetCancelsByIds(ctx sdk.Context, contractAddr string, ids []uint64) map[uint64]types.Cancellation {
+	store := prefix.NewStore(
+		ctx.KVStore(k.storeKey),
+		types.Cancel(contractAddr),
+	)
+	res := map[uint64]types.Cancellation{}
+	for _, id := range ids {
+		idKey := make([]byte, 8)
+		binary.BigEndian.PutUint64(idKey, id)
+		if !store.Has(idKey) {
+			continue
+		}
+		cancel := types.Cancellation{}
+		k.Cdc.MustUnmarshal(store.Get(idKey), &cancel)
+		res[id] = cancel
+	}
+	return res
 }

@@ -13,23 +13,29 @@ var _ = strconv.Itoa(0)
 
 func CmdListSettlements() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "list-settlements",
-		Short: "list all settlements",
+		Use:   "get-settlements",
+		Short: "get settlements",
+		Args:  cobra.ExactArgs(4),
 		RunE: func(cmd *cobra.Command, args []string) (err error) {
 			clientCtx := client.GetClientContextFromCmd(cmd)
 
-			pageReq, err := client.ReadPageRequest(cmd.Flags())
+			queryClient := types.NewQueryClient(clientCtx)
+
+			contractAddr := args[0]
+			priceDenom := args[1]
+			assetDenom := args[2]
+			orderID, err := strconv.ParseUint(args[3], 10, 64)
 			if err != nil {
 				return err
 			}
-
-			queryClient := types.NewQueryClient(clientCtx)
-
-			params := &types.QueryAllSettlementsRequest{
-				Pagination: pageReq,
+			query := &types.QueryGetSettlementsRequest{
+				ContractAddr: contractAddr,
+				PriceDenom:   priceDenom,
+				AssetDenom:   assetDenom,
+				OrderId:      orderID,
 			}
 
-			res, err := queryClient.SettlementsAll(cmd.Context(), params)
+			res, err := queryClient.GetSettlements(cmd.Context(), query)
 			if err != nil {
 				return err
 			}
