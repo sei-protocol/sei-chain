@@ -1,6 +1,7 @@
 package keeper
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/cosmos/cosmos-sdk/store/prefix"
@@ -10,17 +11,18 @@ import (
 
 const PrefixKey = "x-wasm-contract"
 
-func (k Keeper) SetContract(ctx sdk.Context, contract *types.ContractInfo) {
+func (k Keeper) SetContract(ctx sdk.Context, contract *types.ContractInfo) error {
 	store := prefix.NewStore(
 		ctx.KVStore(k.storeKey),
 		[]byte(PrefixKey),
 	)
 	bz, err := contract.Marshal()
 	if err != nil {
-		panic(err)
+		return errors.New("failed to marshal contract info")
 	}
 	ctx.Logger().Info(fmt.Sprintf("Setting contract address %s", contract.ContractAddr))
 	store.Set(contractKey(contract.ContractAddr), bz)
+	return nil
 }
 
 func (k Keeper) GetAllContractInfo(ctx sdk.Context) []types.ContractInfo {

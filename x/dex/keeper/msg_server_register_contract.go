@@ -14,9 +14,8 @@ func (k msgServer) RegisterContract(goCtx context.Context, msg *types.MsgRegiste
 			return &types.MsgRegisterContractResponse{}, nil
 		}
 	}
-	k.SetContract(ctx, msg.Contract)
-	if msg.Contract.HookOnly {
-		return &types.MsgRegisterContractResponse{}, nil
+	if err := k.SetContract(ctx, msg.Contract); err != nil {
+		return &types.MsgRegisterContractResponse{}, err
 	}
 
 	return &types.MsgRegisterContractResponse{}, nil

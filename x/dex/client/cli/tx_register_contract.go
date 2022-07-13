@@ -35,6 +35,7 @@ func CmdRegisterContract() *cobra.Command {
 				argCodeID,
 				argContractAddr,
 				len(args) == 3 && args[2] == "true",
+				true,
 			)
 			if err := msg.ValidateBasic(); err != nil {
 				return err

@@ -56,7 +56,7 @@ func TestEndBlockMarketOrder(t *testing.T) {
 	if err != nil {
 		panic(err)
 	}
-	dexkeeper.SetContract(ctx, &types.ContractInfo{CodeId: 123, ContractAddr: contractAddr.String(), HookOnly: false})
+	dexkeeper.SetContract(ctx, &types.ContractInfo{CodeId: 123, ContractAddr: contractAddr.String(), NeedHook: true, NeedOrderMatching: true})
 	dexkeeper.AddRegisteredPair(ctx, contractAddr.String(), pair)
 	// place one order to a nonexistent contract
 	dexkeeper.MemState.GetBlockOrders(types.ContractAddress(contractAddr.String()), types.GetPairString(&pair)).AddOrder(
@@ -117,7 +117,7 @@ func TestEndBlockRollback(t *testing.T) {
 	dexkeeper := testApp.DexKeeper
 	pair := TEST_PAIR()
 	// register contract and pair
-	dexkeeper.SetContract(ctx, &types.ContractInfo{CodeId: 123, ContractAddr: TEST_CONTRACT, HookOnly: false})
+	dexkeeper.SetContract(ctx, &types.ContractInfo{CodeId: 123, ContractAddr: TEST_CONTRACT, NeedHook: true, NeedOrderMatching: true})
 	dexkeeper.AddRegisteredPair(ctx, TEST_CONTRACT, pair)
 	// place one order to a nonexistent contract
 	dexkeeper.MemState.GetBlockOrders(types.ContractAddress(TEST_CONTRACT), types.GetPairString(&pair)).AddOrder(
@@ -147,7 +147,7 @@ func TestEndBlockPartialRollback(t *testing.T) {
 	dexkeeper := testApp.DexKeeper
 	pair := TEST_PAIR()
 	// register contract and pair
-	dexkeeper.SetContract(ctx, &types.ContractInfo{CodeId: 123, ContractAddr: TEST_CONTRACT, HookOnly: false})
+	dexkeeper.SetContract(ctx, &types.ContractInfo{CodeId: 123, ContractAddr: TEST_CONTRACT, NeedHook: true, NeedOrderMatching: true})
 	dexkeeper.AddRegisteredPair(ctx, TEST_CONTRACT, pair)
 	// place one order to a nonexistent contract
 	dexkeeper.MemState.GetBlockOrders(types.ContractAddress(TEST_CONTRACT), types.GetPairString(&pair)).AddOrder(
@@ -185,7 +185,7 @@ func TestEndBlockPartialRollback(t *testing.T) {
 	if err != nil {
 		panic(err)
 	}
-	dexkeeper.SetContract(ctx, &types.ContractInfo{CodeId: 123, ContractAddr: contractAddr.String(), HookOnly: false})
+	dexkeeper.SetContract(ctx, &types.ContractInfo{CodeId: 123, ContractAddr: contractAddr.String(), NeedHook: true, NeedOrderMatching: true})
 	dexkeeper.AddRegisteredPair(ctx, contractAddr.String(), pair)
 	// place one order to a nonexistent contract
 	dexkeeper.MemState.GetBlockOrders(types.ContractAddress(contractAddr.String()), types.GetPairString(&pair)).AddOrder(
@@ -240,7 +240,7 @@ func TestBeginBlock(t *testing.T) {
 	if err != nil {
 		panic(err)
 	}
-	dexkeeper.SetContract(ctx, &types.ContractInfo{CodeId: 123, ContractAddr: contractAddr.String(), HookOnly: false})
+	dexkeeper.SetContract(ctx, &types.ContractInfo{CodeId: 123, ContractAddr: contractAddr.String(), NeedHook: true, NeedOrderMatching: true})
 
 	// right now just make sure it doesn't crash since it doesn't register any state to be checked against
 	testApp.BeginBlocker(ctx, abci.RequestBeginBlock{})

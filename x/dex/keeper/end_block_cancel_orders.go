@@ -2,6 +2,7 @@ package keeper
 
 import (
 	"context"
+	"fmt"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
@@ -16,6 +17,7 @@ func (k *Keeper) HandleEBCancelOrders(ctx context.Context, sdkCtx sdk.Context, t
 	typedContractAddr := types.ContractAddress(contractAddr)
 	msg := k.getCancelSudoMsg(typedContractAddr, registeredPairs)
 	if _, err := k.CallContractSudo(sdkCtx, contractAddr, msg); err != nil {
+		sdkCtx.Logger().Error(fmt.Sprintf("Error during cancellation: %s", err.Error()))
 		return err
 	}
 	span.End()

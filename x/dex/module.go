@@ -211,32 +211,32 @@ func (am AppModule) beginBlockForContract(ctx sdk.Context, contract types.Contra
 	span.SetAttributes(attribute.String("contract", contractAddr))
 	defer span.End()
 
-	if err := am.keeper.HandleBBNewBlock(ctx, contractAddr, epoch); err != nil {
-		ctx.Logger().Error(fmt.Sprintf("New block hook error for %s: %s", contractAddr, err.Error()))
+	if contract.NeedHook {
+		if err := am.keeper.HandleBBNewBlock(ctx, contractAddr, epoch); err != nil {
+			ctx.Logger().Error(fmt.Sprintf("New block hook error for %s: %s", contractAddr, err.Error()))
+		}
 	}
 
-	if contract.HookOnly {
-		return
-	}
-
-	if isNewEpoch, currentEpoch := am.keeper.IsNewEpoch(ctx); isNewEpoch {
-		ctx.Logger().Info(fmt.Sprintf("Updating price for epoch %d", currentEpoch))
-		priceRetention := am.keeper.GetParams(ctx).PriceSnapshotRetention
-		for _, pair := range am.keeper.GetAllRegisteredPairs(ctx, contractAddr) {
-			lastEpochPrice, exists := am.keeper.GetPriceState(ctx, contractAddr, currentEpoch-1, pair)
-			if exists {
-				newEpochPrice := types.Price{
-					SnapshotTimestampInSeconds: uint64(ctx.BlockTime().Unix()),
-					Pair:                       &pair, //nolint:gosec // USING THE POINTER HERE COULD BE BAD, LET'S CHECK IT
-					Price:                      lastEpochPrice.Price,
+	if contract.NeedOrderMatching {
+		if isNewEpoch, currentEpoch := am.keeper.IsNewEpoch(ctx); isNewEpoch {
+			ctx.Logger().Info(fmt.Sprintf("Updating price for epoch %d", currentEpoch))
+			priceRetention := am.keeper.GetParams(ctx).PriceSnapshotRetention
+			for _, pair := range am.keeper.GetAllRegisteredPairs(ctx, contractAddr) {
+				lastEpochPrice, exists := am.keeper.GetPriceState(ctx, contractAddr, currentEpoch-1, pair)
+				if exists {
+					newEpochPrice := types.Price{
+						SnapshotTimestampInSeconds: uint64(ctx.BlockTime().Unix()),
+						Pair:                       &pair, //nolint:gosec // USING THE POINTER HERE COULD BE BAD, LET'S CHECK IT
+						Price:                      lastEpochPrice.Price,
+					}
+					am.keeper.SetPriceState(ctx, newEpochPrice, contractAddr, currentEpoch)
 				}
-				am.keeper.SetPriceState(ctx, newEpochPrice, contractAddr, currentEpoch)
-			}
 
-			// condition to prevent unsigned integer overflow
-			if currentEpoch >= priceRetention {
-				// this will no-op if price snapshot for the target epoch doesn't exist
-				am.keeper.DeletePriceState(ctx, contractAddr, currentEpoch-priceRetention, pair)
+				// condition to prevent unsigned integer overflow
+				if currentEpoch >= priceRetention {
+					// this will no-op if price snapshot for the target epoch doesn't exist
+					am.keeper.DeletePriceState(ctx, contractAddr, currentEpoch-priceRetention, pair)
+				}
 			}
 		}
 	}
@@ -253,6 +253,7 @@ func (am AppModule) EndBlock(ctx sdk.Context, _ abci.RequestEndBlock) []abci.Val
 	// otherwise it will rollback any state change, filter out contracts that cause the error,
 	// and proceed to the next iteration. The loop is guaranteed to finish since
 	// `validContractAddresses` will always decrease in size every iteration.
+	iterCounter := len(validContractAddresses)
 	for len(validContractAddresses) > 0 {
 		failedContractAddresses := utils.NewStringSet([]string{})
 		cachedCtx, msCached := store.GetCachedContext(ctx)
@@ -264,7 +265,7 @@ func (am AppModule) EndBlock(ctx sdk.Context, _ abci.RequestEndBlock) []abci.Val
 		}
 
 		for contractAddr, contractInfo := range validContractAddresses {
-			if contractInfo.HookOnly {
+			if !contractInfo.NeedOrderMatching {
 				continue
 			}
 			ctx.Logger().Info(fmt.Sprintf("End block for %s", contractAddr))
@@ -282,6 +283,9 @@ func (am AppModule) EndBlock(ctx sdk.Context, _ abci.RequestEndBlock) []abci.Val
 		}
 
 		for contractAddr, finalizeBlockMsg := range finalizeBlockMessages {
+			if !validContractAddresses[contractAddr].NeedHook {
+				continue
+			}
 			if _, err := am.keeper.CallContractSudo(cachedCtx, contractAddr, finalizeBlockMsg); err != nil {
 				ctx.Logger().Error(fmt.Sprintf("Error calling FinalizeBlock of %s", contractAddr))
 				failedContractAddresses.Add(contractAddr)
@@ -300,6 +304,12 @@ func (am AppModule) EndBlock(ctx sdk.Context, _ abci.RequestEndBlock) []abci.Val
 		for _, failedContractAddress := range failedContractAddresses.ToSlice() {
 			am.keeper.MemState.DeepFilterAccount(failedContractAddress)
 			delete(validContractAddresses, failedContractAddress)
+		}
+
+		iterCounter--
+		if iterCounter == 0 {
+			ctx.Logger().Error("All contracts failed in dex EndBlock. Doing nothing.")
+			break
 		}
 	}
 

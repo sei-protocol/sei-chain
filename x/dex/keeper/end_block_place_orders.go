@@ -24,13 +24,15 @@ func (k *Keeper) HandleEBPlaceOrders(ctx context.Context, sdkCtx sdk.Context, tr
 	msgs := k.GetPlaceSudoMsg(sdkCtx, typedContractAddr, registeredPairs)
 	_, err := k.CallContractSudo(sdkCtx, contractAddr, msgs[0]) // deposit
 	if err != nil {
-		return nil
+		sdkCtx.Logger().Error(fmt.Sprintf("Error during deposit: %s", err.Error()))
+		return err
 	}
 
 	responses := []types.SudoOrderPlacementResponse{}
 	for _, msg := range msgs[1:] {
 		data, err := k.CallContractSudo(sdkCtx, contractAddr, msg)
 		if err != nil {
+			sdkCtx.Logger().Error(fmt.Sprintf("Error during order placement: %s", err.Error()))
 			return err
 		}
 		response := types.SudoOrderPlacementResponse{}
