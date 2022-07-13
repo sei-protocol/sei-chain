@@ -54,7 +54,9 @@ func CmdGetAssetMetadata() *cobra.Command {
 
 			queryClient := types.NewQueryClient(clientCtx)
 
-			params := &types.QueryAssetMetadataRequest{denom}
+			params := &types.QueryAssetMetadataRequest{
+				Denom: denom,
+			}
 
 			res, err := queryClient.AssetMetadata(cmd.Context(), params)
 			if err != nil {
