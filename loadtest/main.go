@@ -39,11 +39,11 @@ var (
 )
 
 const (
-	BATCH_SIZE  = 100
-	VORTEX_DATA = "{\"position_effect\":\"Open\",\"leverage\":\"1\"}"
+	BatchSize  = 100
+	VortexData = "{\"position_effect\":\"Open\",\"leverage\":\"1\"}"
 )
 
-var FROM_MILI = sdk.NewDec(1000000)
+var FromMili = sdk.NewDec(1000000)
 
 func init() {
 	cdc := codec.NewLegacyAmino()
@@ -103,7 +103,7 @@ func run(
 	sendersList := [][]func(){}
 	for i := 0; i < int(numberOfBlocks); i++ {
 		fmt.Printf("Preparing %d-th block\n", i)
-		var wg *sync.WaitGroup = &sync.WaitGroup{}
+		wg := &sync.WaitGroup{}
 		var senders []func()
 		wgs = append(wgs, wg)
 		for j, account := range activeAccounts {
@@ -113,27 +113,27 @@ func run(
 			longQuantity := uint64(rand.Intn(int(quantityCeiling)-int(quantityFloor))) + quantityFloor
 			shortPrice := uint64(j)%(shortPriceCeiling-shortPriceFloor) + shortPriceFloor
 			shortQuantity := uint64(rand.Intn(int(quantityCeiling)-int(quantityFloor))) + quantityFloor
-			for j := 0; j < BATCH_SIZE; j++ {
+			for j := 0; j < BatchSize; j++ {
 				orderPlacements = append(orderPlacements, &dextypes.Order{
 					Account:           sdk.AccAddress(key.PubKey().Address()).String(),
 					ContractAddr:      contractAddress,
 					PositionDirection: dextypes.PositionDirection_LONG,
-					Price:             sdk.NewDec(int64(longPrice)).Quo(FROM_MILI),
-					Quantity:          sdk.NewDec(int64(longQuantity)).Quo(FROM_MILI),
+					Price:             sdk.NewDec(int64(longPrice)).Quo(FromMili),
+					Quantity:          sdk.NewDec(int64(longQuantity)).Quo(FromMili),
 					PriceDenom:        "SEI",
 					AssetDenom:        "ATOM",
 					OrderType:         dextypes.OrderType_LIMIT,
-					Data:              VORTEX_DATA,
+					Data:              VortexData,
 				}, &dextypes.Order{
 					Account:           sdk.AccAddress(key.PubKey().Address()).String(),
 					ContractAddr:      contractAddress,
 					PositionDirection: dextypes.PositionDirection_SHORT,
-					Price:             sdk.NewDec(int64(shortPrice)).Quo(FROM_MILI),
-					Quantity:          sdk.NewDec(int64(shortQuantity)).Quo(FROM_MILI),
+					Price:             sdk.NewDec(int64(shortPrice)).Quo(FromMili),
+					Quantity:          sdk.NewDec(int64(shortQuantity)).Quo(FromMili),
 					PriceDenom:        "SEI",
 					AssetDenom:        "ATOM",
 					OrderType:         dextypes.OrderType_LIMIT,
-					Data:              VORTEX_DATA,
+					Data:              VortexData,
 				})
 			}
 			amount, err := sdk.ParseCoinsNormalized(fmt.Sprintf("%d%s", longPrice*longQuantity+shortPrice*shortQuantity, "usei"))
