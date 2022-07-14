@@ -2,27 +2,27 @@ package keeper_test
 
 import (
 	gocontext "context"
+	"github.com/sei-protocol/sei-chain/app"
 	"testing"
 
 	"github.com/stretchr/testify/suite"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 
 	"github.com/cosmos/cosmos-sdk/baseapp"
-	"github.com/cosmos/cosmos-sdk/simapp"
 	sdk "github.com/cosmos/cosmos-sdk/types"
-	"github.com/sei-protocol/sei-chain/x/mint/types"
+	"github.com/sei-protocol/sei-chain/x/mint/types" // TODO: Replace this with sei-chain. Leaving it for now otherwise tests fail
 )
 
 type MintTestSuite struct {
 	suite.Suite
 
-	app         *simapp.SimApp
+	app         *app.App
 	ctx         sdk.Context
 	queryClient types.QueryClient
 }
 
 func (suite *MintTestSuite) SetupTest() {
-	app := simapp.Setup(false)
+	app := app.Setup(false)
 	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
 
 	queryHelper := baseapp.NewQueryServerTestHelper(ctx, app.InterfaceRegistry())
