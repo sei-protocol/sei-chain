@@ -1,3 +1,4 @@
+//go:build norace
 // +build norace
 
 package rest_test
@@ -14,7 +15,7 @@ import (
 	"github.com/stretchr/testify/suite"
 
 	"github.com/cosmos/cosmos-sdk/testutil/network"
-	minttypes "github.com/cosmos/cosmos-sdk/x/mint/types"
+	minttypes "github.com/sei-protocol/sei-chain/x/mint/types"
 )
 
 type IntegrationTestSuite struct {
@@ -68,7 +69,7 @@ func (s *IntegrationTestSuite) TestQueryGRPC() {
 	}{
 		{
 			"gRPC request params",
-			fmt.Sprintf("%s/cosmos/mint/v1beta1/params", baseURL),
+			fmt.Sprintf("%s/seichain/mint/v1beta1/params", baseURL),
 			map[string]string{},
 			&minttypes.QueryParamsResponse{},
 			&minttypes.QueryParamsResponse{
@@ -78,7 +79,7 @@ func (s *IntegrationTestSuite) TestQueryGRPC() {
 		},
 		{
 			"gRPC request inflation",
-			fmt.Sprintf("%s/cosmos/mint/v1beta1/inflation", baseURL),
+			fmt.Sprintf("%s/seichain/mint/v1beta1/inflation", baseURL),
 			map[string]string{},
 			&minttypes.QueryInflationResponse{},
 			&minttypes.QueryInflationResponse{
@@ -87,7 +88,7 @@ func (s *IntegrationTestSuite) TestQueryGRPC() {
 		},
 		{
 			"gRPC request annual provisions",
-			fmt.Sprintf("%s/cosmos/mint/v1beta1/annual_provisions", baseURL),
+			fmt.Sprintf("%s/seichain/mint/v1beta1/annual_provisions", baseURL),
 			map[string]string{
 				grpctypes.GRPCBlockHeightHeader: "1",
 			},

@@ -17,11 +17,11 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/types/module"
 	simtypes "github.com/cosmos/cosmos-sdk/types/simulation"
-	"github.com/cosmos/cosmos-sdk/x/mint/client/cli"
-	"github.com/cosmos/cosmos-sdk/x/mint/client/rest"
-	"github.com/cosmos/cosmos-sdk/x/mint/keeper"
-	"github.com/cosmos/cosmos-sdk/x/mint/simulation"
-	"github.com/cosmos/cosmos-sdk/x/mint/types"
+	"github.com/sei-protocol/sei-chain/x/mint/client/cli"
+	"github.com/sei-protocol/sei-chain/x/mint/client/rest"
+	"github.com/sei-protocol/sei-chain/x/mint/keeper"
+	"github.com/sei-protocol/sei-chain/x/mint/simulation"
+	"github.com/sei-protocol/sei-chain/x/mint/types"
 )
 
 var (

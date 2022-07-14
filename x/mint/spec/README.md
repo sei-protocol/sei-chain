@@ -1,22 +1,7 @@
-<!--
-order: 0
-title: Mint Overview
-parent:
-  title: "mint"
--->
+# Mint
+The `mint` module is pretty similar to the native mint module from 
+Cosmos SDK, except that it allows for specifying a time-based token
+release schedule, similar to that of Osmosis. 
 
-# `mint`
+This module uses time-based epochs supported by the `epoch` module.
 
-## Contents
-
-1. **[Concept](01_concepts.md)**
-2. **[State](02_state.md)**
-    - [Minter](02_state.md#minter)
-    - [Params](02_state.md#params)
-3. **[Begin-Block](03_begin_block.md)**
-    - [NextInflationRate](03_begin_block.md#nextinflationrate)
-    - [NextAnnualProvisions](03_begin_block.md#nextannualprovisions)
-    - [BlockProvision](03_begin_block.md#blockprovision)
-4. **[Parameters](04_params.md)**
-5. **[Events](05_events.md)**
-    - [BeginBlocker](05_events.md#beginblocker)

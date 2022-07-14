@@ -13,12 +13,15 @@ import (
 
 // Parameter store keys
 var (
-	KeyMintDenom           = []byte("MintDenom")
-	KeyInflationRateChange = []byte("InflationRateChange")
-	KeyInflationMax        = []byte("InflationMax")
-	KeyInflationMin        = []byte("InflationMin")
-	KeyGoalBonded          = []byte("GoalBonded")
-	KeyBlocksPerYear       = []byte("BlocksPerYear")
+	KeyMintDenom               = []byte("MintDenom")
+	KeyInflationRateChange     = []byte("InflationRateChange")
+	KeyInflationMax            = []byte("InflationMax")
+	KeyInflationMin            = []byte("InflationMin")
+	KeyGoalBonded              = []byte("GoalBonded")
+	KeyBlocksPerYear           = []byte("BlocksPerYear")
+	KeyEpochIdentifier         = []byte("EpochIdentifier")
+	KeyReductionPeriodInEpochs = []byte("ReductionPeriodInEpochs")
+	KeyReductionFactor         = []byte("ReductionFactor")
 )
 
 // ParamTable for minting module.
@@ -28,27 +31,34 @@ func ParamKeyTable() paramtypes.KeyTable {
 
 func NewParams(
 	mintDenom string, inflationRateChange, inflationMax, inflationMin, goalBonded sdk.Dec, blocksPerYear uint64,
+	epochIdentifier string, reductionFactor sdk.Dec, reductionPeriodInEpochs int64,
 ) Params {
 
 	return Params{
-		MintDenom:           mintDenom,
-		InflationRateChange: inflationRateChange,
-		InflationMax:        inflationMax,
-		InflationMin:        inflationMin,
-		GoalBonded:          goalBonded,
-		BlocksPerYear:       blocksPerYear,
+		MintDenom:               mintDenom,
+		InflationRateChange:     inflationRateChange,
+		InflationMax:            inflationMax,
+		InflationMin:            inflationMin,
+		GoalBonded:              goalBonded,
+		BlocksPerYear:           blocksPerYear,
+		EpochIdentifier:         epochIdentifier,
+		ReductionPeriodInEpochs: reductionPeriodInEpochs,
+		ReductionFactor:         reductionFactor,
 	}
 }
 
 // default minting module parameters
 func DefaultParams() Params {
 	return Params{
-		MintDenom:           sdk.DefaultBondDenom,
-		InflationRateChange: sdk.NewDecWithPrec(13, 2),
-		InflationMax:        sdk.NewDecWithPrec(20, 2),
-		InflationMin:        sdk.NewDecWithPrec(7, 2),
-		GoalBonded:          sdk.NewDecWithPrec(67, 2),
-		BlocksPerYear:       uint64(60 * 60 * 8766 / 5), // assuming 5 second block times
+		MintDenom:               sdk.DefaultBondDenom,
+		InflationRateChange:     sdk.NewDecWithPrec(13, 2),
+		InflationMax:            sdk.NewDecWithPrec(20, 2),
+		InflationMin:            sdk.NewDecWithPrec(7, 2),
+		GoalBonded:              sdk.NewDecWithPrec(67, 2),
+		BlocksPerYear:           uint64(60 * 60 * 8766),   // assuming 1 second block times
+		EpochIdentifier:         "week",                   // 1 week
+		ReductionPeriodInEpochs: 156,                      // 3 years
+		ReductionFactor:         sdk.NewDecWithPrec(5, 1), // 0.5
 	}
 }
 
