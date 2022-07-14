@@ -61,10 +61,6 @@ Ref: https://keepachangelog.com/en/1.0.0/
 
 * [\#1300](https://github.com/cosmos/ibc-go/pull/1300) Bump SDK version to v0.45.4
 
-### API Breaking
-
-### State Machine Breaking
-
 ### Improvements
 
 * (transfer) [\#1342](https://github.com/cosmos/ibc-go/pull/1342) `DenomTrace` grpc now takes in either an `ibc denom` or a `hash` instead of only accepting a `hash`.
