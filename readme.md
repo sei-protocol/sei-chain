@@ -72,6 +72,8 @@ git checkout origin/1.0.1beta-upgrade
 make install
 mv $HOME/go/bin/seid /usr/bin/
 ```
+***If you start the validator with seid start, you may get stuck on the "ulimit -n" limit and get an error. Please increase this limit with the command "ulimit -n 655350".
+
 **Generate keys**
 
 * `seid keys add [key_name]`
