@@ -121,20 +121,6 @@ func (m *Params) GetReductionPeriodInEpochs() int64 {
 	return 0
 }
 
-func (m *Params) GetEpochIdentifier() string {
-	if m != nil {
-		return m.EpochIdentifier
-	}
-	return ""
-}
-
-func (m *Params) GetReductionPeriodInEpochs() int64 {
-	if m != nil {
-		return m.ReductionPeriodInEpochs
-	}
-	return 0
-}
-
 func init() {
 	proto.RegisterType((*Minter)(nil), "seiprotocol.seichain.mint.Minter")
 	proto.RegisterType((*Params)(nil), "seiprotocol.seichain.mint.Params")
