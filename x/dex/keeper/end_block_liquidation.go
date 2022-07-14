@@ -11,15 +11,21 @@ import (
 	otrace "go.opentelemetry.io/otel/trace"
 )
 
-func (k *Keeper) HandleEBLiquidation(ctx context.Context, sdkCtx sdk.Context, tracer *otrace.Tracer, contractAddr string, registeredPairs []types.Pair) {
+func (k *Keeper) HandleEBLiquidation(ctx context.Context, sdkCtx sdk.Context, tracer *otrace.Tracer, contractAddr string, registeredPairs []types.Pair) error {
 	_, liquidationSpan := (*tracer).Start(ctx, "SudoLiquidation")
 	liquidationSpan.SetAttributes(attribute.String("contractAddr", contractAddr))
 
 	typedContractAddr := types.ContractAddress(contractAddr)
 	msg := k.getLiquidationSudoMsg(typedContractAddr)
-	data := k.CallContractSudo(sdkCtx, contractAddr, msg)
+	data, err := k.CallContractSudo(sdkCtx, contractAddr, msg)
+	if err != nil {
+		return err
+	}
 	response := types.SudoLiquidationResponse{}
-	json.Unmarshal(data, &response) //nolint:errcheck // ignore error
+	if err := json.Unmarshal(data, &response); err != nil {
+		sdkCtx.Logger().Error("Failed to parse liquidation response")
+		return err
+	}
 	sdkCtx.Logger().Info(fmt.Sprintf("Sudo liquidate response data: %s", response))
 
 	liquidatedAccountsActiveOrderIds := []uint64{}
@@ -36,13 +42,17 @@ func (k *Keeper) HandleEBLiquidation(ctx context.Context, sdkCtx sdk.Context, tr
 	for id, order := range k.GetOrdersByIds(sdkCtx, contractAddr, liquidatedAccountsActiveOrderIds) {
 		pair := types.Pair{PriceDenom: order.PriceDenom, AssetDenom: order.AssetDenom}
 		typedPairStr := types.GetPairString(&pair)
-		k.MemState.GetBlockCancels(typedContractAddr, typedPairStr).AddOrderIDToCancel(id, types.CancellationInitiator_LIQUIDATED)
+		k.MemState.GetBlockCancels(typedContractAddr, typedPairStr).AddCancel(types.Cancellation{
+			Id:        id,
+			Initiator: types.CancellationInitiator_LIQUIDATED,
+		})
 	}
 
 	// Place liquidation orders
 	k.placeLiquidationOrders(sdkCtx, contractAddr, response.LiquidationOrders)
 
 	liquidationSpan.End()
+	return nil
 }
 
 func (k *Keeper) placeLiquidationOrders(ctx sdk.Context, contractAddr string, liquidationOrders []types.Order) {

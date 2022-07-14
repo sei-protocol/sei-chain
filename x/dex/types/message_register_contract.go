@@ -13,12 +13,16 @@ func NewMsgRegisterContract(
 	creator string,
 	codeID uint64,
 	contractAddr string,
+	needHook bool,
+	needOrderMatching bool,
 ) *MsgRegisterContract {
 	return &MsgRegisterContract{
 		Creator: creator,
 		Contract: &ContractInfo{
-			CodeId:       codeID,
-			ContractAddr: contractAddr,
+			CodeId:            codeID,
+			ContractAddr:      contractAddr,
+			NeedHook:          needHook,
+			NeedOrderMatching: needOrderMatching,
 		},
 	}
 }

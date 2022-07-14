@@ -59,6 +59,10 @@ message Cancellation {
     CancellationInitiator initiator = 2 [
         (gogoproto.jsontag) = "initiator"
     ];
+    string creator = 3 [
+        (gogoproto.jsontag)    = "creator",
+        (gogoproto.nullable)   = true
+    ];
 }
 
 message ActiveOrders {
