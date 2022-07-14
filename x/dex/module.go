@@ -18,6 +18,7 @@ import (
 	cdctypes "github.com/cosmos/cosmos-sdk/codec/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/types/module"
+	"github.com/sei-protocol/sei-chain/utils"
 	"github.com/sei-protocol/sei-chain/utils/tracing"
 	dexcache "github.com/sei-protocol/sei-chain/x/dex/cache"
 	"github.com/sei-protocol/sei-chain/x/dex/client/cli"
@@ -25,6 +26,7 @@ import (
 	"github.com/sei-protocol/sei-chain/x/dex/keeper"
 	"github.com/sei-protocol/sei-chain/x/dex/migrations"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
+	"github.com/sei-protocol/sei-chain/x/store"
 )
 
 var (
@@ -187,57 +189,54 @@ func (am AppModule) ExportGenesis(ctx sdk.Context, cdc codec.JSONCodec) json.Raw
 // ConsensusVersion implements ConsensusVersion.
 func (AppModule) ConsensusVersion() uint64 { return 4 }
 
-func (am AppModule) getAllContractAddresses(ctx sdk.Context) []string {
-	return am.keeper.GetAllContractAddresses(ctx)
-}
-
-func (am AppModule) callClearingHouseContractSudo(ctx sdk.Context, msg []byte, contractAddrStr string) {
-	contractAddr, err := sdk.AccAddressFromBech32(contractAddrStr)
-	if err != nil {
-		ctx.Logger().Info(err.Error())
-	}
-	_, err = am.wasmKeeper.Sudo(
-		ctx, contractAddr, msg,
-	)
-	if err != nil {
-		ctx.Logger().Error(err.Error())
-	}
+func (am AppModule) getAllContractInfo(ctx sdk.Context) []types.ContractInfo {
+	return am.keeper.GetAllContractInfo(ctx)
 }
 
 // BeginBlock executes all ABCI BeginBlock logic respective to the capability module.
 func (am AppModule) BeginBlock(ctx sdk.Context, _ abci.RequestBeginBlock) {
 	am.keeper.MemState.Clear()
-	for _, contractAddr := range am.getAllContractAddresses(ctx) {
-		am.beginBlockForContract(ctx, contractAddr)
-	}
-	if isNewEpoch, currentEpoch := am.keeper.IsNewEpoch(ctx); isNewEpoch {
+	isNewEpoch, currentEpoch := am.keeper.IsNewEpoch(ctx)
+	if isNewEpoch {
 		am.keeper.SetEpoch(ctx, currentEpoch)
+	}
+	for _, contract := range am.getAllContractInfo(ctx) {
+		am.beginBlockForContract(ctx, contract, int64(currentEpoch))
 	}
 }
 
-func (am AppModule) beginBlockForContract(ctx sdk.Context, contractAddr string) {
+func (am AppModule) beginBlockForContract(ctx sdk.Context, contract types.ContractInfo, epoch int64) {
 	_, span := (*am.tracingInfo.Tracer).Start(am.tracingInfo.TracerContext, "DexBeginBlock")
+	contractAddr := contract.ContractAddr
 	span.SetAttributes(attribute.String("contract", contractAddr))
 	defer span.End()
 
-	if isNewEpoch, currentEpoch := am.keeper.IsNewEpoch(ctx); isNewEpoch {
-		ctx.Logger().Info(fmt.Sprintf("Updating price for epoch %d", currentEpoch))
-		priceRetention := am.keeper.GetParams(ctx).PriceSnapshotRetention
-		for _, pair := range am.keeper.GetAllRegisteredPairs(ctx, contractAddr) {
-			lastEpochPrice, exists := am.keeper.GetPriceState(ctx, contractAddr, currentEpoch-1, pair)
-			if exists {
-				newEpochPrice := types.Price{
-					SnapshotTimestampInSeconds: uint64(ctx.BlockTime().Unix()),
-					Pair:                       &pair, //nolint:gosec // USING THE POINTER HERE COULD BE BAD, LET'S CHECK IT
-					Price:                      lastEpochPrice.Price,
-				}
-				am.keeper.SetPriceState(ctx, newEpochPrice, contractAddr, currentEpoch)
-			}
+	if contract.NeedHook {
+		if err := am.keeper.HandleBBNewBlock(ctx, contractAddr, epoch); err != nil {
+			ctx.Logger().Error(fmt.Sprintf("New block hook error for %s: %s", contractAddr, err.Error()))
+		}
+	}
 
-			// condition to prevent unsigned integer overflow
-			if currentEpoch >= priceRetention {
-				// this will no-op if price snapshot for the target epoch doesn't exist
-				am.keeper.DeletePriceState(ctx, contractAddr, currentEpoch-priceRetention, pair)
+	if contract.NeedOrderMatching {
+		if isNewEpoch, currentEpoch := am.keeper.IsNewEpoch(ctx); isNewEpoch {
+			ctx.Logger().Info(fmt.Sprintf("Updating price for epoch %d", currentEpoch))
+			priceRetention := am.keeper.GetParams(ctx).PriceSnapshotRetention
+			for _, pair := range am.keeper.GetAllRegisteredPairs(ctx, contractAddr) {
+				lastEpochPrice, exists := am.keeper.GetPriceState(ctx, contractAddr, currentEpoch-1, pair)
+				if exists {
+					newEpochPrice := types.Price{
+						SnapshotTimestampInSeconds: uint64(ctx.BlockTime().Unix()),
+						Pair:                       &pair, //nolint:gosec // USING THE POINTER HERE COULD BE BAD, LET'S CHECK IT
+						Price:                      lastEpochPrice.Price,
+					}
+					am.keeper.SetPriceState(ctx, newEpochPrice, contractAddr, currentEpoch)
+				}
+
+				// condition to prevent unsigned integer overflow
+				if currentEpoch >= priceRetention {
+					// this will no-op if price snapshot for the target epoch doesn't exist
+					am.keeper.DeletePriceState(ctx, contractAddr, currentEpoch-priceRetention, pair)
+				}
 			}
 		}
 	}
@@ -246,14 +245,80 @@ func (am AppModule) beginBlockForContract(ctx sdk.Context, contractAddr string) 
 // EndBlock executes all ABCI EndBlock logic respective to the capability module. It
 // returns no validator updates.
 func (am AppModule) EndBlock(ctx sdk.Context, _ abci.RequestEndBlock) []abci.ValidatorUpdate {
-	for _, contractAddr := range am.getAllContractAddresses(ctx) {
-		ctx.Logger().Info(fmt.Sprintf("End block for %s", contractAddr))
-		am.endBlockForContract(ctx, contractAddr)
+	validContractAddresses := map[string]types.ContractInfo{}
+	for _, contractInfo := range am.getAllContractInfo(ctx) {
+		validContractAddresses[contractInfo.ContractAddr] = contractInfo
 	}
+	// Each iteration is atomic. If an iteration finishes without any error, it will return,
+	// otherwise it will rollback any state change, filter out contracts that cause the error,
+	// and proceed to the next iteration. The loop is guaranteed to finish since
+	// `validContractAddresses` will always decrease in size every iteration.
+	iterCounter := len(validContractAddresses)
+	for len(validContractAddresses) > 0 {
+		failedContractAddresses := utils.NewStringSet([]string{})
+		cachedCtx, msCached := store.GetCachedContext(ctx)
+		// cache keeper in-memory state
+		memStateCopy := am.keeper.MemState.DeepCopy()
+		finalizeBlockMessages := map[string]*types.SudoFinalizeBlockMsg{}
+		for contractAddr := range validContractAddresses {
+			finalizeBlockMessages[contractAddr] = types.NewSudoFinalizeBlockMsg()
+		}
+
+		for contractAddr, contractInfo := range validContractAddresses {
+			if !contractInfo.NeedOrderMatching {
+				continue
+			}
+			ctx.Logger().Info(fmt.Sprintf("End block for %s", contractAddr))
+			if orderResultsMap, err := am.endBlockForContract(cachedCtx, contractInfo); err != nil {
+				ctx.Logger().Error(fmt.Sprintf("Error for EndBlock of %s", contractAddr))
+				failedContractAddresses.Add(contractAddr)
+			} else {
+				for account, orderResults := range orderResultsMap {
+					// only add to finalize message for contract addresses
+					if msg, ok := finalizeBlockMessages[account]; ok {
+						msg.AddContractResult(orderResults)
+					}
+				}
+			}
+		}
+
+		for contractAddr, finalizeBlockMsg := range finalizeBlockMessages {
+			if !validContractAddresses[contractAddr].NeedHook {
+				continue
+			}
+			if _, err := am.keeper.CallContractSudo(cachedCtx, contractAddr, finalizeBlockMsg); err != nil {
+				ctx.Logger().Error(fmt.Sprintf("Error calling FinalizeBlock of %s", contractAddr))
+				failedContractAddresses.Add(contractAddr)
+			}
+		}
+
+		// No error is thrown for any contract. This should happen most of the time.
+		if failedContractAddresses.Size() == 0 {
+			msCached.Write()
+			return []abci.ValidatorUpdate{}
+		}
+		// restore keeper in-memory state
+		*am.keeper.MemState = *memStateCopy
+		// exclude orders by failed contracts from in-memory state,
+		// then update `validContractAddresses`
+		for _, failedContractAddress := range failedContractAddresses.ToSlice() {
+			am.keeper.MemState.DeepFilterAccount(failedContractAddress)
+			delete(validContractAddresses, failedContractAddress)
+		}
+
+		iterCounter--
+		if iterCounter == 0 {
+			ctx.Logger().Error("All contracts failed in dex EndBlock. Doing nothing.")
+			break
+		}
+	}
+
+	// don't call `ctx.Write` if all contracts have error
 	return []abci.ValidatorUpdate{}
 }
 
-func (am AppModule) endBlockForContract(ctx sdk.Context, contractAddr string) {
+func (am AppModule) endBlockForContract(ctx sdk.Context, contract types.ContractInfo) (map[string]types.ContractOrderResult, error) {
+	contractAddr := contract.ContractAddr
 	spanCtx, span := (*am.tracingInfo.Tracer).Start(am.tracingInfo.TracerContext, "DexEndBlock")
 	span.SetAttributes(attribute.String("contract", contractAddr))
 	defer span.End()
@@ -261,10 +326,22 @@ func (am AppModule) endBlockForContract(ctx sdk.Context, contractAddr string) {
 	typedContractAddr := types.ContractAddress(contractAddr)
 	registeredPairs := am.keeper.GetAllRegisteredPairs(ctx, contractAddr)
 	_, currentEpoch := am.keeper.IsNewEpoch(ctx)
+	orderResults := map[string]types.ContractOrderResult{}
 
-	am.keeper.HandleEBLiquidation(spanCtx, ctx, am.tracingInfo.Tracer, contractAddr, registeredPairs)
-	am.keeper.HandleEBCancelOrders(spanCtx, ctx, am.tracingInfo.Tracer, contractAddr, registeredPairs)
-	am.keeper.HandleEBPlaceOrders(spanCtx, ctx, am.tracingInfo.Tracer, contractAddr, registeredPairs)
+	if err := am.keeper.HandleEBLiquidation(spanCtx, ctx, am.tracingInfo.Tracer, contractAddr, registeredPairs); err != nil {
+		return orderResults, err
+	}
+	if err := am.keeper.HandleEBCancelOrders(spanCtx, ctx, am.tracingInfo.Tracer, contractAddr, registeredPairs); err != nil {
+		return orderResults, err
+	}
+	if err := am.keeper.HandleEBPlaceOrders(spanCtx, ctx, am.tracingInfo.Tracer, contractAddr, registeredPairs); err != nil {
+		return orderResults, err
+	}
+
+	// populate order placement results for FinalizeBlock hook
+	for _, orders := range am.keeper.MemState.BlockOrders[typedContractAddr] {
+		types.PopulateOrderPlacementResults(contractAddr, *orders, orderResults)
+	}
 
 	for _, pair := range registeredPairs {
 		typedPairStr := types.GetPairString(&pair) //nolint:gosec // USING THE POINTER HERE COULD BE BAD, LET'S CHECK IT
@@ -376,17 +453,16 @@ func (am AppModule) endBlockForContract(ctx sdk.Context, contractAddr string) {
 				am.keeper.SetSettlements(ctx, contractAddr, settlementEntries.Entries[0].PriceDenom, settlementEntries.Entries[0].AssetDenom, *settlementEntries)
 			}
 		}
+		// populate execution results for FinalizeBlock hook
+		types.PopulateOrderExecutionResults(contractAddr, allSettlements.Entries, orderResults)
 
 		nativeSettlementMsg := types.SudoSettlementMsg{
 			Settlement: allSettlements,
 		}
 		ctx.Logger().Info(nativeSettlementMsg.Settlement.String())
-		wasmMsg, err := json.Marshal(nativeSettlementMsg)
-		if err != nil {
-			ctx.Logger().Info(err.Error())
+		if _, err := am.keeper.CallContractSudo(ctx, contractAddr, nativeSettlementMsg); err != nil {
+			return orderResults, err
 		}
-
-		am.callClearingHouseContractSudo(ctx, wasmMsg, contractAddr)
 
 		for _, order := range *orders {
 			am.keeper.AddNewOrder(ctx, order)
@@ -404,15 +480,25 @@ func (am AppModule) endBlockForContract(ctx sdk.Context, contractAddr string) {
 		am.keeper.MemState.BlockCancels[typedContractAddr][typedPairStr] = &emptyBlockCancel
 		for _, marketOrder := range marketBuys {
 			if marketOrder.Quantity.IsPositive() {
-				am.keeper.MemState.GetBlockCancels(typedContractAddr, typedPairStr).AddOrderIDToCancel(marketOrder.Id, types.CancellationInitiator_USER)
+				am.keeper.MemState.GetBlockCancels(typedContractAddr, typedPairStr).AddCancel(types.Cancellation{
+					Id:        marketOrder.Id,
+					Initiator: types.CancellationInitiator_USER,
+				})
 			}
 		}
 		for _, marketOrder := range marketSells {
 			if marketOrder.Quantity.IsPositive() {
-				am.keeper.MemState.GetBlockCancels(typedContractAddr, typedPairStr).AddOrderIDToCancel(marketOrder.Id, types.CancellationInitiator_USER)
+				am.keeper.MemState.GetBlockCancels(typedContractAddr, typedPairStr).AddCancel(types.Cancellation{
+					Id:        marketOrder.Id,
+					Initiator: types.CancellationInitiator_USER,
+				})
 			}
 		}
 	}
 	// Cancel unfilled market orders
-	am.keeper.HandleEBCancelOrders(spanCtx, ctx, am.tracingInfo.Tracer, contractAddr, registeredPairs)
+	if err := am.keeper.HandleEBCancelOrders(spanCtx, ctx, am.tracingInfo.Tracer, contractAddr, registeredPairs); err != nil {
+		return orderResults, err
+	}
+
+	return orderResults, nil
 }

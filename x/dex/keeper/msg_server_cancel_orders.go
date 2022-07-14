@@ -32,9 +32,19 @@ func (k msgServer) CancelOrders(goCtx context.Context, msg *types.MsgCancelOrder
 				break
 			}
 		}
+		if order.Account != msg.Creator {
+			// cannot cancel other's orders
+			// TODO: add error message in response
+			continue
+		}
 		if !cancelledInCurrentBlock {
 			// only cancel if it's not cancelled in a previous tx in the same block
-			pairBlockCancellations.AddOrderIDToCancel(orderIDToCancel, types.CancellationInitiator_USER)
+			cancel := types.Cancellation{
+				Id:        orderIDToCancel,
+				Initiator: types.CancellationInitiator_USER,
+				Creator:   msg.Creator,
+			}
+			pairBlockCancellations.AddCancel(cancel)
 		}
 	}
 

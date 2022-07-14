@@ -110,7 +110,7 @@ func (s *MemState) DeepCopy() *MemState {
 	for contractAddr, _map := range s.BlockCancels {
 		for pair, blockCancels := range _map {
 			for _, blockCancel := range *blockCancels {
-				copy.GetBlockCancels(contractAddr, pair).AddOrderIDToCancel(blockCancel.Id, blockCancel.Initiator)
+				copy.GetBlockCancels(contractAddr, pair).AddCancel(blockCancel)
 			}
 		}
 	}
@@ -125,6 +125,25 @@ func (s *MemState) DeepCopy() *MemState {
 		}
 	}
 	return copy
+}
+
+func (s *MemState) DeepFilterAccount(account string) {
+	for _, _map := range s.BlockOrders {
+		for _, blockOrders := range _map {
+			blockOrders.FilterByAccount(account)
+		}
+	}
+	for _, _map := range s.BlockCancels {
+		for _, blockCancels := range _map {
+			blockCancels.FilterByAccount(account)
+		}
+	}
+	for _, deposits := range s.DepositInfo {
+		deposits.FilterByAccount(account)
+	}
+	for _, liquidations := range s.LiquidationRequests {
+		liquidations.FilterByAccount(account)
+	}
 }
 
 func (o *BlockOrders) AddOrder(order types.Order) {
@@ -149,6 +168,17 @@ func (o *BlockOrders) MarkFailedToPlaceByIds(ids []uint64) {
 	for _, order := range *o {
 		if badIDSet.Contains(order.Id) {
 			order.Status = types.OrderStatus_FAILED_TO_PLACE
+		}
+		newOrders = append(newOrders, order)
+	}
+	*o = newOrders
+}
+
+func (o *BlockOrders) FilterByAccount(account string) {
+	newOrders := []types.Order{}
+	for _, order := range *o {
+		if order.Account == account {
+			continue
 		}
 		newOrders = append(newOrders, order)
 	}
@@ -190,6 +220,9 @@ func (o *BlockOrders) getOrdersByCriteria(orderType types.OrderType, direction t
 		if order.OrderType != orderType || order.PositionDirection != direction {
 			continue
 		}
+		if order.Status == types.OrderStatus_FAILED_TO_PLACE {
+			continue
+		}
 		res = append(res, order)
 	}
 	return res
@@ -204,6 +237,17 @@ func (d *DepositInfo) AddDeposit(deposit DepositInfoEntry) {
 	*d = append(*d, deposit)
 }
 
+func (d *DepositInfo) FilterByAccount(account string) {
+	newDeposits := []DepositInfoEntry{}
+	for _, deposit := range *d {
+		if deposit.Creator == account {
+			continue
+		}
+		newDeposits = append(newDeposits, deposit)
+	}
+	*d = newDeposits
+}
+
 func ToContractDepositInfo(depositInfo DepositInfoEntry) types.ContractDepositInfo {
 	return types.ContractDepositInfo{
 		Account: depositInfo.Creator,
@@ -212,8 +256,8 @@ func ToContractDepositInfo(depositInfo DepositInfoEntry) types.ContractDepositIn
 	}
 }
 
-func (c *BlockCancellations) AddOrderIDToCancel(id uint64, initiator types.CancellationInitiator) {
-	*c = append(*c, types.Cancellation{Id: id, Initiator: initiator})
+func (c *BlockCancellations) AddCancel(cancel types.Cancellation) {
+	*c = append(*c, cancel)
 }
 
 func (c *BlockCancellations) FilterByIds(idsToRemove []uint64) {
@@ -225,6 +269,17 @@ func (c *BlockCancellations) FilterByIds(idsToRemove []uint64) {
 			*c = append(*c, cancel)
 		}
 	}
+}
+
+func (c *BlockCancellations) FilterByAccount(account string) {
+	newCancels := []types.Cancellation{}
+	for _, cancel := range *c {
+		if cancel.Creator == account {
+			continue
+		}
+		newCancels = append(newCancels, cancel)
+	}
+	*c = newCancels
 }
 
 func (c *BlockCancellations) GetIdsToCancel() []uint64 {
@@ -252,4 +307,15 @@ func (lrs *LiquidationRequests) AddNewLiquidationRequest(requestor string, accou
 		Requestor:          requestor,
 		AccountToLiquidate: accountToLiquidate,
 	})
+}
+
+func (lrs *LiquidationRequests) FilterByAccount(account string) {
+	newRequests := []LiquidationRequest{}
+	for _, request := range *lrs {
+		if request.Requestor == account {
+			continue
+		}
+		newRequests = append(newRequests, request)
+	}
+	*lrs = newRequests
 }

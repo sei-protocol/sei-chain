@@ -15,9 +15,9 @@ var _ = strconv.Itoa(0)
 
 func CmdRegisterContract() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "register-contract [contract address] [code id]",
+		Use:   "register-contract [contract address] [code id] [hook only]",
 		Short: "Register exchange contract",
-		Args:  cobra.ExactArgs(2),
+		Args:  cobra.RangeArgs(2, 3),
 		RunE: func(cmd *cobra.Command, args []string) (err error) {
 			argContractAddr := args[0]
 			argCodeID, err := cast.ToUint64E(args[1])
@@ -34,6 +34,8 @@ func CmdRegisterContract() *cobra.Command {
 				clientCtx.GetFromAddress().String(),
 				argCodeID,
 				argContractAddr,
+				len(args) == 3 && args[2] == "true",
+				true,
 			)
 			if err := msg.ValidateBasic(); err != nil {
 				return err
