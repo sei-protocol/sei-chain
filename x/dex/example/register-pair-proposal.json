@@ -3,8 +3,7 @@
     "description": "gov proposal to update contract 1",
     "batch_contract_pair": [
       {
-        "contract_addr":  
-        "sei14hj2tavq8fpesdwxxcu44rty3hh90vhujrvcmstl4zr3txmfvw9sh9m79m",
+        "contract_addr": "sei14hj2tavq8fpesdwxxcu44rty3hh90vhujrvcmstl4zr3txmfvw9sh9m79m",
         "pairs": [
           {
             "price_denom": "usdc",

@@ -79,6 +79,28 @@ func (qp QueryPlugin) HandleDexQuery(ctx sdk.Context, queryData json.RawMessage)
 		}
 
 		return bz, nil
+	case parsedQuery.GetOrders != nil:
+		res, err := qp.dexHandler.GetOrders(ctx, parsedQuery.GetOrders)
+		if err != nil {
+			return nil, sdkerrors.Wrap(err, "Error while getting orders")
+		}
+		bz, err := json.Marshal(res)
+		if err != nil {
+			return nil, sdkerrors.Wrap(err, "Error encoding orders as JSON")
+		}
+
+		return bz, nil
+	case parsedQuery.GetOrderByID != nil:
+		res, err := qp.dexHandler.GetOrderByID(ctx, parsedQuery.GetOrderByID)
+		if err != nil {
+			return nil, sdkerrors.Wrap(err, "Error while getting order by ID")
+		}
+		bz, err := json.Marshal(res)
+		if err != nil {
+			return nil, sdkerrors.Wrap(err, "Error encoding order as JSON")
+		}
+
+		return bz, nil
 	default:
 		return nil, wasmvmtypes.UnsupportedRequest{Kind: "Unknown Sei Dex Query"}
 	}
