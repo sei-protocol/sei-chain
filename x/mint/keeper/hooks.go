@@ -9,8 +9,8 @@ func (k Keeper) BeforeEpochStart(ctx sdk.Context, epoch types.Epoch) {
 }
 
 func (k Keeper) AfterEpochEnd(ctx sdk.Context, epoch types.Epoch) {
-	//minter := k.GetMinter(ctx)
-	//params := k.GetParams(ctx)
-	//if epoch.CurrentEpochStartTime >= params.Red
+	// minter := k.GetMinter(ctx)
+	// params := k.GetParams(ctx)
+	// if epoch.CurrentEpochStartTime >= params.Red
 
 }

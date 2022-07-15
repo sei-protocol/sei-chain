@@ -2,8 +2,9 @@ package keeper_test
 
 import (
 	gocontext "context"
-	"github.com/sei-protocol/sei-chain/app"
 	"testing"
+
+	"github.com/sei-protocol/sei-chain/app"
 
 	"github.com/stretchr/testify/suite"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
