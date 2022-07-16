@@ -10,7 +10,7 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-var ZERO_PRICE = sdk.ZeroDec()
+var ZeroPrice = sdk.ZeroDec()
 
 func (k Keeper) GetHistoricalPrices(goCtx context.Context, req *types.QueryGetHistoricalPricesRequest) (*types.QueryGetHistoricalPricesResponse, error) {
 	if req == nil {
@@ -58,7 +58,7 @@ func (k Keeper) GetHistoricalPrices(goCtx context.Context, req *types.QueryGetHi
 			candlesticks[i].Open = &validPrices[pricePtr].Price
 		} else {
 			// this would happen if the earliest price point available is after the begin timestamp
-			candlesticks[i].Open = &ZERO_PRICE
+			candlesticks[i].Open = &ZeroPrice
 		}
 	}
 
@@ -72,7 +72,7 @@ func (k Keeper) GetHistoricalPrices(goCtx context.Context, req *types.QueryGetHi
 			candlesticks[i].Close = &validPrices[pricePtr].Price
 		} else {
 			// this would happen if the earliest price point available is after the first end timestamp
-			candlesticks[i].Close = &ZERO_PRICE
+			candlesticks[i].Close = &ZeroPrice
 		}
 	}
 

@@ -127,7 +127,7 @@ func TestWasmGetDexTwaps(t *testing.T) {
 		SnapshotTimestampInSeconds: 3600,
 		Price:                      sdk.NewDec(20),
 		Pair:                       &dextypes.Pair{PriceDenom: "sei", AssetDenom: "atom"},
-	}, app.TestContract, 0)
+	}, app.TestContract)
 	testWrapper.App.OracleKeeper.SetBaseExchangeRate(testWrapper.Ctx, oracleutils.MicroAtomDenom, sdk.NewDec(12))
 	testWrapper.Ctx = testWrapper.Ctx.WithBlockHeight(14).WithBlockTime(time.Unix(3700, 0))
 

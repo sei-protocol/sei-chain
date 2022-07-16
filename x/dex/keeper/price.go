@@ -31,8 +31,6 @@ func (k Keeper) DeletePriceStateBefore(ctx sdk.Context, contractAddr string, tim
 			break
 		}
 	}
-
-	return
 }
 
 func (k Keeper) GetPriceState(ctx sdk.Context, contractAddr string, timestamp uint64, pair types.Pair) (types.Price, bool) {
