@@ -56,7 +56,7 @@ func (k *Keeper) HandleEBLiquidation(ctx context.Context, sdkCtx sdk.Context, tr
 }
 
 func (k *Keeper) placeLiquidationOrders(ctx sdk.Context, contractAddr string, liquidationOrders []types.Order) {
-	ctx.Logger().Info(fmt.Sprintf("Placing liquidation orders..."))
+	ctx.Logger().Info("Placing liquidation orders...")
 	nextID := k.GetNextOrderID(ctx)
 	for _, order := range liquidationOrders {
 		ctx.Logger().Info(fmt.Sprintf("Liquidation order %s", order.String()))
