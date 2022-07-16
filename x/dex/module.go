@@ -218,26 +218,11 @@ func (am AppModule) beginBlockForContract(ctx sdk.Context, contract types.Contra
 	}
 
 	if contract.NeedOrderMatching {
-		if isNewEpoch, currentEpoch := am.keeper.IsNewEpoch(ctx); isNewEpoch {
-			ctx.Logger().Info(fmt.Sprintf("Updating price for epoch %d", currentEpoch))
-			priceRetention := am.keeper.GetParams(ctx).PriceSnapshotRetention
-			for _, pair := range am.keeper.GetAllRegisteredPairs(ctx, contractAddr) {
-				lastEpochPrice, exists := am.keeper.GetPriceState(ctx, contractAddr, currentEpoch-1, pair)
-				if exists {
-					newEpochPrice := types.Price{
-						SnapshotTimestampInSeconds: uint64(ctx.BlockTime().Unix()),
-						Pair:                       &pair, //nolint:gosec // USING THE POINTER HERE COULD BE BAD, LET'S CHECK IT
-						Price:                      lastEpochPrice.Price,
-					}
-					am.keeper.SetPriceState(ctx, newEpochPrice, contractAddr, currentEpoch)
-				}
-
-				// condition to prevent unsigned integer overflow
-				if currentEpoch >= priceRetention {
-					// this will no-op if price snapshot for the target epoch doesn't exist
-					am.keeper.DeletePriceState(ctx, contractAddr, currentEpoch-priceRetention, pair)
-				}
-			}
+		currentTimestamp := uint64(ctx.BlockTime().Unix())
+		ctx.Logger().Info(fmt.Sprintf("Removing stale prices for ts %d", currentTimestamp))
+		priceRetention := am.keeper.GetParams(ctx).PriceSnapshotRetention
+		for _, pair := range am.keeper.GetAllRegisteredPairs(ctx, contractAddr) {
+			am.keeper.DeletePriceStateBefore(ctx, contractAddr, currentTimestamp-priceRetention, pair)
 		}
 	}
 }
@@ -407,7 +392,7 @@ func (am AppModule) endBlockForContract(ctx sdk.Context, contract types.Contract
 			priceState, _ := am.keeper.GetPriceState(ctx, contractAddr, currentEpoch, pair)
 			priceState.SnapshotTimestampInSeconds = uint64(ctx.BlockTime().Unix())
 			priceState.Price = avgPrice
-			am.keeper.SetPriceState(ctx, priceState, contractAddr, currentEpoch)
+			am.keeper.SetPriceState(ctx, priceState, contractAddr)
 		}
 		ctx.Logger().Info(fmt.Sprintf("Number of long books: %d", len(allExistingBuys)))
 		ctx.Logger().Info(fmt.Sprintf("Number of short books: %d", len(allExistingSells)))

@@ -10,7 +10,7 @@ import (
 var KeyPriceSnapshotRetention = []byte("PriceSnapshotRetention") // number of epochs to retain price snapshots for
 
 const (
-	DefaultPriceSnapshotRetention = 1440 // default epoch interval is one minute so this results in a one-day retention
+	DefaultPriceSnapshotRetention = 24 * 3600 // default to one day
 )
 
 var _ paramtypes.ParamSet = (*Params)(nil)

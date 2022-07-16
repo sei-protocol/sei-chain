@@ -57,7 +57,7 @@ func TestGetTwapsOnePriceSnapshot(t *testing.T) {
 		SnapshotTimestampInSeconds: GENESIS_TIME,
 		Price:                      snapshotPrice,
 		Pair:                       &TEST_PAIR,
-	}, TEST_CONTRACT, 0)
+	}, TEST_CONTRACT)
 
 	var lookback uint64 = 10
 	request := types.QueryGetTwapsRequest{
@@ -117,7 +117,7 @@ func TestGetTwapsMultipleSnapshots(t *testing.T) {
 			SnapshotTimestampInSeconds: GENESIS_TIME + timestampDeltas[i],
 			Price:                      snapshotPrices[i],
 			Pair:                       &TEST_PAIR,
-		}, TEST_CONTRACT, uint64(i))
+		}, TEST_CONTRACT)
 	}
 
 	var lookback uint64 = 20
