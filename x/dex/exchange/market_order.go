@@ -28,9 +28,15 @@ func MatchMarketOrders(
 			if existingOrder.GetEntry().Quantity.IsZero() {
 				continue
 			}
-			if (direction == types.PositionDirection_LONG && marketOrder.Price.LT(existingOrder.GetPrice())) ||
-				(direction == types.PositionDirection_SHORT && marketOrder.Price.GT(existingOrder.GetPrice())) {
-				break
+			// If price is zero, it means the order sender
+			// doesn't want to specify a worst price, so
+			// we don't need to perform price check for such orders
+			if !marketOrder.Price.IsZero() {
+				// Check if worst price can be matched against order book
+				if (direction == types.PositionDirection_LONG && marketOrder.Price.LT(existingOrder.GetPrice())) ||
+					(direction == types.PositionDirection_SHORT && marketOrder.Price.GT(existingOrder.GetPrice())) {
+					break
+				}
 			}
 			var executed sdk.Dec
 			if marketOrder.Quantity.LTE(existingOrder.GetEntry().Quantity) {
