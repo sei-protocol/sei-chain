@@ -139,10 +139,10 @@ ordering of transactions.
 */
 export interface V1AbsoluteTxPosition {
   /** @format uint64 */
-  blockHeight?: string;
+  block_height?: string;
 
   /** @format uint64 */
-  txIndex?: string;
+  tx_index?: string;
 }
 
 /**
@@ -174,14 +174,14 @@ export enum V1AccessType {
 
 export interface V1CodeInfoResponse {
   /** @format uint64 */
-  codeId?: string;
+  code_id?: string;
   creator?: string;
 
   /** @format byte */
-  dataHash?: string;
+  data_hash?: string;
 
   /** AccessConfig access control type. */
-  instantiatePermission?: V1AccessConfig;
+  instantiate_permission?: V1AccessConfig;
 }
 
 /**
@@ -197,7 +197,7 @@ export interface V1ContractCodeHistoryEntry {
   operation?: V1ContractCodeHistoryOperationType;
 
   /** @format uint64 */
-  codeId?: string;
+  code_id?: string;
 
   /** Updated Tx position when the operation was executed. */
   updated?: V1AbsoluteTxPosition;
@@ -221,7 +221,7 @@ export enum V1ContractCodeHistoryOperationType {
 
 export interface V1ContractInfo {
   /** @format uint64 */
-  codeId?: string;
+  code_id?: string;
   creator?: string;
   admin?: string;
 
@@ -233,7 +233,7 @@ export interface V1ContractInfo {
    * ordering of transactions.
    */
   created?: V1AbsoluteTxPosition;
-  ibcPortId?: string;
+  ibc_port_id?: string;
 
   /**
    * Extension is an extension point to store custom metadata within the
@@ -281,7 +281,7 @@ export interface V1MsgMigrateContractResponse {
  */
 export interface V1MsgStoreCodeResponse {
   /** @format uint64 */
-  codeId?: string;
+  code_id?: string;
 }
 
 export type V1MsgUpdateAdminResponse = object;
@@ -294,14 +294,14 @@ export interface V1QueryAllContractStateResponse {
 }
 
 export interface V1QueryCodeResponse {
-  codeInfo?: V1CodeInfoResponse;
+  code_info?: V1CodeInfoResponse;
 
   /** @format byte */
   data?: string;
 }
 
 export interface V1QueryCodesResponse {
-  codeInfos?: V1CodeInfoResponse[];
+  code_infos?: V1CodeInfoResponse[];
 
   /** pagination defines the pagination in the response. */
   pagination?: V1Beta1PageResponse;
@@ -316,7 +316,7 @@ export interface V1QueryContractHistoryResponse {
 
 export interface V1QueryContractInfoResponse {
   address?: string;
-  contractInfo?: V1ContractInfo;
+  contract_info?: V1ContractInfo;
 }
 
 export interface V1QueryContractsByCodeResponse {
@@ -327,7 +327,7 @@ export interface V1QueryContractsByCodeResponse {
 }
 
 export interface V1QueryPinnedCodesResponse {
-  codeIds?: string[];
+  code_ids?: string[];
 
   /** pagination defines the pagination in the response. */
   pagination?: V1Beta1PageResponse;
@@ -390,7 +390,7 @@ export interface V1Beta1PageRequest {
    * count_total is only respected when offset is used. It is ignored when key
    * is set.
    */
-  countTotal?: boolean;
+  count_total?: boolean;
 
   /**
    * reverse is set to true if results are to be returned in the descending order.
@@ -411,7 +411,7 @@ corresponding request message has used PageRequest.
 */
 export interface V1Beta1PageResponse {
   /** @format byte */
-  nextKey?: string;
+  next_key?: string;
 
   /** @format uint64 */
   total?: string;
@@ -626,7 +626,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       "pagination.key"?: string;
       "pagination.offset"?: string;
       "pagination.limit"?: string;
-      "pagination.countTotal"?: boolean;
+      "pagination.count_total"?: boolean;
       "pagination.reverse"?: boolean;
     },
     params: RequestParams = {},
@@ -645,11 +645,11 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
    * @tags Query
    * @name QueryCode
    * @summary Code gets the binary code and metadata for a singe wasm code
-   * @request GET:/cosmwasm/wasm/v1/code/{codeId}
+   * @request GET:/cosmwasm/wasm/v1/code/{code_id}
    */
-  queryCode = (codeId: string, params: RequestParams = {}) =>
+  queryCode = (code_id: string, params: RequestParams = {}) =>
     this.request<V1QueryCodeResponse, RpcStatus>({
-      path: `/cosmwasm/wasm/v1/code/${codeId}`,
+      path: `/cosmwasm/wasm/v1/code/${code_id}`,
       method: "GET",
       format: "json",
       ...params,
@@ -661,21 +661,21 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
    * @tags Query
    * @name QueryContractsByCode
    * @summary ContractsByCode lists all smart contracts for a code id
-   * @request GET:/cosmwasm/wasm/v1/code/{codeId}/contracts
+   * @request GET:/cosmwasm/wasm/v1/code/{code_id}/contracts
    */
   queryContractsByCode = (
-    codeId: string,
+    code_id: string,
     query?: {
       "pagination.key"?: string;
       "pagination.offset"?: string;
       "pagination.limit"?: string;
-      "pagination.countTotal"?: boolean;
+      "pagination.count_total"?: boolean;
       "pagination.reverse"?: boolean;
     },
     params: RequestParams = {},
   ) =>
     this.request<V1QueryContractsByCodeResponse, RpcStatus>({
-      path: `/cosmwasm/wasm/v1/code/${codeId}/contracts`,
+      path: `/cosmwasm/wasm/v1/code/${code_id}/contracts`,
       method: "GET",
       query: query,
       format: "json",
@@ -695,7 +695,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       "pagination.key"?: string;
       "pagination.offset"?: string;
       "pagination.limit"?: string;
-      "pagination.countTotal"?: boolean;
+      "pagination.count_total"?: boolean;
       "pagination.reverse"?: boolean;
     },
     params: RequestParams = {},
@@ -738,7 +738,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       "pagination.key"?: string;
       "pagination.offset"?: string;
       "pagination.limit"?: string;
-      "pagination.countTotal"?: boolean;
+      "pagination.count_total"?: boolean;
       "pagination.reverse"?: boolean;
     },
     params: RequestParams = {},
@@ -757,11 +757,11 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
    * @tags Query
    * @name QueryRawContractState
    * @summary RawContractState gets single key from the raw store data of a contract
-   * @request GET:/cosmwasm/wasm/v1/contract/{address}/raw/{queryData}
+   * @request GET:/cosmwasm/wasm/v1/contract/{address}/raw/{query_data}
    */
-  queryRawContractState = (address: string, queryData: string, params: RequestParams = {}) =>
+  queryRawContractState = (address: string, query_data: string, params: RequestParams = {}) =>
     this.request<V1QueryRawContractStateResponse, RpcStatus>({
-      path: `/cosmwasm/wasm/v1/contract/${address}/raw/${queryData}`,
+      path: `/cosmwasm/wasm/v1/contract/${address}/raw/${query_data}`,
       method: "GET",
       format: "json",
       ...params,
@@ -773,11 +773,11 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
    * @tags Query
    * @name QuerySmartContractState
    * @summary SmartContractState get smart query result from the contract
-   * @request GET:/cosmwasm/wasm/v1/contract/{address}/smart/{queryData}
+   * @request GET:/cosmwasm/wasm/v1/contract/{address}/smart/{query_data}
    */
-  querySmartContractState = (address: string, queryData: string, params: RequestParams = {}) =>
+  querySmartContractState = (address: string, query_data: string, params: RequestParams = {}) =>
     this.request<V1QuerySmartContractStateResponse, RpcStatus>({
-      path: `/cosmwasm/wasm/v1/contract/${address}/smart/${queryData}`,
+      path: `/cosmwasm/wasm/v1/contract/${address}/smart/${query_data}`,
       method: "GET",
       format: "json",
       ...params,
@@ -797,7 +797,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       "pagination.key"?: string;
       "pagination.offset"?: string;
       "pagination.limit"?: string;
-      "pagination.countTotal"?: boolean;
+      "pagination.count_total"?: boolean;
       "pagination.reverse"?: boolean;
     },
     params: RequestParams = {},

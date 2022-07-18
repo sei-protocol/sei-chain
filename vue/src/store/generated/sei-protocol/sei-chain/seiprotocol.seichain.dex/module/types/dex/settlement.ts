@@ -12,9 +12,8 @@ export interface SettlementEntry {
   executionCostOrProceed: string;
   expectedCostOrProceed: string;
   positionDirection: string;
-  positionEffect: string;
-  leverage: string;
   orderType: string;
+  orderId: number;
 }
 
 export interface Settlements {
@@ -30,9 +29,8 @@ const baseSettlementEntry: object = {
   executionCostOrProceed: "",
   expectedCostOrProceed: "",
   positionDirection: "",
-  positionEffect: "",
-  leverage: "",
   orderType: "",
+  orderId: 0,
 };
 
 export const SettlementEntry = {
@@ -58,14 +56,11 @@ export const SettlementEntry = {
     if (message.positionDirection !== "") {
       writer.uint32(58).string(message.positionDirection);
     }
-    if (message.positionEffect !== "") {
-      writer.uint32(66).string(message.positionEffect);
-    }
-    if (message.leverage !== "") {
-      writer.uint32(74).string(message.leverage);
-    }
     if (message.orderType !== "") {
-      writer.uint32(82).string(message.orderType);
+      writer.uint32(66).string(message.orderType);
+    }
+    if (message.orderId !== 0) {
+      writer.uint32(72).uint64(message.orderId);
     }
     return writer;
   },
@@ -99,13 +94,10 @@ export const SettlementEntry = {
           message.positionDirection = reader.string();
           break;
         case 8:
-          message.positionEffect = reader.string();
+          message.orderType = reader.string();
           break;
         case 9:
-          message.leverage = reader.string();
-          break;
-        case 10:
-          message.orderType = reader.string();
+          message.orderId = longToNumber(reader.uint64() as Long);
           break;
         default:
           reader.skipType(tag & 7);
@@ -161,20 +153,15 @@ export const SettlementEntry = {
     } else {
       message.positionDirection = "";
     }
-    if (object.positionEffect !== undefined && object.positionEffect !== null) {
-      message.positionEffect = String(object.positionEffect);
-    } else {
-      message.positionEffect = "";
-    }
-    if (object.leverage !== undefined && object.leverage !== null) {
-      message.leverage = String(object.leverage);
-    } else {
-      message.leverage = "";
-    }
     if (object.orderType !== undefined && object.orderType !== null) {
       message.orderType = String(object.orderType);
     } else {
       message.orderType = "";
+    }
+    if (object.orderId !== undefined && object.orderId !== null) {
+      message.orderId = Number(object.orderId);
+    } else {
+      message.orderId = 0;
     }
     return message;
   },
@@ -191,10 +178,8 @@ export const SettlementEntry = {
       (obj.expectedCostOrProceed = message.expectedCostOrProceed);
     message.positionDirection !== undefined &&
       (obj.positionDirection = message.positionDirection);
-    message.positionEffect !== undefined &&
-      (obj.positionEffect = message.positionEffect);
-    message.leverage !== undefined && (obj.leverage = message.leverage);
     message.orderType !== undefined && (obj.orderType = message.orderType);
+    message.orderId !== undefined && (obj.orderId = message.orderId);
     return obj;
   },
 
@@ -244,20 +229,15 @@ export const SettlementEntry = {
     } else {
       message.positionDirection = "";
     }
-    if (object.positionEffect !== undefined && object.positionEffect !== null) {
-      message.positionEffect = object.positionEffect;
-    } else {
-      message.positionEffect = "";
-    }
-    if (object.leverage !== undefined && object.leverage !== null) {
-      message.leverage = object.leverage;
-    } else {
-      message.leverage = "";
-    }
     if (object.orderType !== undefined && object.orderType !== null) {
       message.orderType = object.orderType;
     } else {
       message.orderType = "";
+    }
+    if (object.orderId !== undefined && object.orderId !== null) {
+      message.orderId = object.orderId;
+    } else {
+      message.orderId = 0;
     }
     return message;
   },

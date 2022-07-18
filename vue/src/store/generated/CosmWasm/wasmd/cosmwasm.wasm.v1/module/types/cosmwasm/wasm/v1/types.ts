@@ -120,24 +120,24 @@ export interface AccessConfig {
 
 /** Params defines the set of wasm parameters. */
 export interface Params {
-  codeUploadAccess: AccessConfig | undefined;
-  instantiateDefaultPermission: AccessType;
+  code_upload_access: AccessConfig | undefined;
+  instantiate_default_permission: AccessType;
 }
 
 /** CodeInfo is data for the uploaded contract WASM code */
 export interface CodeInfo {
   /** CodeHash is the unique identifier created by wasmvm */
-  codeHash: Uint8Array;
+  code_hash: Uint8Array;
   /** Creator address who initially stored the code */
   creator: string;
   /** InstantiateConfig access control to apply on contract creation, optional */
-  instantiateConfig: AccessConfig | undefined;
+  instantiate_config: AccessConfig | undefined;
 }
 
 /** ContractInfo stores a WASM contract instance */
 export interface ContractInfo {
   /** CodeID is the reference to the stored Wasm code */
-  codeId: number;
+  code_id: number;
   /** Creator address who initially instantiated the contract */
   creator: string;
   /** Admin is an optional address that can execute migrations */
@@ -150,7 +150,7 @@ export interface ContractInfo {
    * use for sorting
    */
   created: AbsoluteTxPosition | undefined;
-  ibcPortId: string;
+  ibc_port_id: string;
   /**
    * Extension is an extension point to store custom metadata within the
    * persistence model.
@@ -162,7 +162,7 @@ export interface ContractInfo {
 export interface ContractCodeHistoryEntry {
   operation: ContractCodeHistoryOperationType;
   /** CodeID is the reference to the stored WASM code */
-  codeId: number;
+  code_id: number;
   /** Updated Tx position when the operation was executed. */
   updated: AbsoluteTxPosition | undefined;
   msg: Uint8Array;
@@ -174,12 +174,12 @@ export interface ContractCodeHistoryEntry {
  */
 export interface AbsoluteTxPosition {
   /** BlockHeight is the block the contract was created at */
-  blockHeight: number;
+  block_height: number;
   /**
    * TxIndex is a monotonic counter within the block (actual transaction index,
    * or gas consumed)
    */
-  txIndex: number;
+  tx_index: number;
 }
 
 /** Model is a struct that holds a KV pair */
@@ -319,18 +319,18 @@ export const AccessConfig = {
   },
 };
 
-const baseParams: object = { instantiateDefaultPermission: 0 };
+const baseParams: object = { instantiate_default_permission: 0 };
 
 export const Params = {
   encode(message: Params, writer: Writer = Writer.create()): Writer {
-    if (message.codeUploadAccess !== undefined) {
+    if (message.code_upload_access !== undefined) {
       AccessConfig.encode(
-        message.codeUploadAccess,
+        message.code_upload_access,
         writer.uint32(10).fork()
       ).ldelim();
     }
-    if (message.instantiateDefaultPermission !== 0) {
-      writer.uint32(16).int32(message.instantiateDefaultPermission);
+    if (message.instantiate_default_permission !== 0) {
+      writer.uint32(16).int32(message.instantiate_default_permission);
     }
     return writer;
   },
@@ -343,13 +343,13 @@ export const Params = {
       const tag = reader.uint32();
       switch (tag >>> 3) {
         case 1:
-          message.codeUploadAccess = AccessConfig.decode(
+          message.code_upload_access = AccessConfig.decode(
             reader,
             reader.uint32()
           );
           break;
         case 2:
-          message.instantiateDefaultPermission = reader.int32() as any;
+          message.instantiate_default_permission = reader.int32() as any;
           break;
         default:
           reader.skipType(tag & 7);
@@ -362,35 +362,37 @@ export const Params = {
   fromJSON(object: any): Params {
     const message = { ...baseParams } as Params;
     if (
-      object.codeUploadAccess !== undefined &&
-      object.codeUploadAccess !== null
+      object.code_upload_access !== undefined &&
+      object.code_upload_access !== null
     ) {
-      message.codeUploadAccess = AccessConfig.fromJSON(object.codeUploadAccess);
-    } else {
-      message.codeUploadAccess = undefined;
-    }
-    if (
-      object.instantiateDefaultPermission !== undefined &&
-      object.instantiateDefaultPermission !== null
-    ) {
-      message.instantiateDefaultPermission = accessTypeFromJSON(
-        object.instantiateDefaultPermission
+      message.code_upload_access = AccessConfig.fromJSON(
+        object.code_upload_access
       );
     } else {
-      message.instantiateDefaultPermission = 0;
+      message.code_upload_access = undefined;
+    }
+    if (
+      object.instantiate_default_permission !== undefined &&
+      object.instantiate_default_permission !== null
+    ) {
+      message.instantiate_default_permission = accessTypeFromJSON(
+        object.instantiate_default_permission
+      );
+    } else {
+      message.instantiate_default_permission = 0;
     }
     return message;
   },
 
   toJSON(message: Params): unknown {
     const obj: any = {};
-    message.codeUploadAccess !== undefined &&
-      (obj.codeUploadAccess = message.codeUploadAccess
-        ? AccessConfig.toJSON(message.codeUploadAccess)
+    message.code_upload_access !== undefined &&
+      (obj.code_upload_access = message.code_upload_access
+        ? AccessConfig.toJSON(message.code_upload_access)
         : undefined);
-    message.instantiateDefaultPermission !== undefined &&
-      (obj.instantiateDefaultPermission = accessTypeToJSON(
-        message.instantiateDefaultPermission
+    message.instantiate_default_permission !== undefined &&
+      (obj.instantiate_default_permission = accessTypeToJSON(
+        message.instantiate_default_permission
       ));
     return obj;
   },
@@ -398,23 +400,23 @@ export const Params = {
   fromPartial(object: DeepPartial<Params>): Params {
     const message = { ...baseParams } as Params;
     if (
-      object.codeUploadAccess !== undefined &&
-      object.codeUploadAccess !== null
+      object.code_upload_access !== undefined &&
+      object.code_upload_access !== null
     ) {
-      message.codeUploadAccess = AccessConfig.fromPartial(
-        object.codeUploadAccess
+      message.code_upload_access = AccessConfig.fromPartial(
+        object.code_upload_access
       );
     } else {
-      message.codeUploadAccess = undefined;
+      message.code_upload_access = undefined;
     }
     if (
-      object.instantiateDefaultPermission !== undefined &&
-      object.instantiateDefaultPermission !== null
+      object.instantiate_default_permission !== undefined &&
+      object.instantiate_default_permission !== null
     ) {
-      message.instantiateDefaultPermission =
-        object.instantiateDefaultPermission;
+      message.instantiate_default_permission =
+        object.instantiate_default_permission;
     } else {
-      message.instantiateDefaultPermission = 0;
+      message.instantiate_default_permission = 0;
     }
     return message;
   },
@@ -424,15 +426,15 @@ const baseCodeInfo: object = { creator: "" };
 
 export const CodeInfo = {
   encode(message: CodeInfo, writer: Writer = Writer.create()): Writer {
-    if (message.codeHash.length !== 0) {
-      writer.uint32(10).bytes(message.codeHash);
+    if (message.code_hash.length !== 0) {
+      writer.uint32(10).bytes(message.code_hash);
     }
     if (message.creator !== "") {
       writer.uint32(18).string(message.creator);
     }
-    if (message.instantiateConfig !== undefined) {
+    if (message.instantiate_config !== undefined) {
       AccessConfig.encode(
-        message.instantiateConfig,
+        message.instantiate_config,
         writer.uint32(42).fork()
       ).ldelim();
     }
@@ -447,13 +449,13 @@ export const CodeInfo = {
       const tag = reader.uint32();
       switch (tag >>> 3) {
         case 1:
-          message.codeHash = reader.bytes();
+          message.code_hash = reader.bytes();
           break;
         case 2:
           message.creator = reader.string();
           break;
         case 5:
-          message.instantiateConfig = AccessConfig.decode(
+          message.instantiate_config = AccessConfig.decode(
             reader,
             reader.uint32()
           );
@@ -468,8 +470,8 @@ export const CodeInfo = {
 
   fromJSON(object: any): CodeInfo {
     const message = { ...baseCodeInfo } as CodeInfo;
-    if (object.codeHash !== undefined && object.codeHash !== null) {
-      message.codeHash = bytesFromBase64(object.codeHash);
+    if (object.code_hash !== undefined && object.code_hash !== null) {
+      message.code_hash = bytesFromBase64(object.code_hash);
     }
     if (object.creator !== undefined && object.creator !== null) {
       message.creator = String(object.creator);
@@ -477,38 +479,38 @@ export const CodeInfo = {
       message.creator = "";
     }
     if (
-      object.instantiateConfig !== undefined &&
-      object.instantiateConfig !== null
+      object.instantiate_config !== undefined &&
+      object.instantiate_config !== null
     ) {
-      message.instantiateConfig = AccessConfig.fromJSON(
-        object.instantiateConfig
+      message.instantiate_config = AccessConfig.fromJSON(
+        object.instantiate_config
       );
     } else {
-      message.instantiateConfig = undefined;
+      message.instantiate_config = undefined;
     }
     return message;
   },
 
   toJSON(message: CodeInfo): unknown {
     const obj: any = {};
-    message.codeHash !== undefined &&
-      (obj.codeHash = base64FromBytes(
-        message.codeHash !== undefined ? message.codeHash : new Uint8Array()
+    message.code_hash !== undefined &&
+      (obj.code_hash = base64FromBytes(
+        message.code_hash !== undefined ? message.code_hash : new Uint8Array()
       ));
     message.creator !== undefined && (obj.creator = message.creator);
-    message.instantiateConfig !== undefined &&
-      (obj.instantiateConfig = message.instantiateConfig
-        ? AccessConfig.toJSON(message.instantiateConfig)
+    message.instantiate_config !== undefined &&
+      (obj.instantiate_config = message.instantiate_config
+        ? AccessConfig.toJSON(message.instantiate_config)
         : undefined);
     return obj;
   },
 
   fromPartial(object: DeepPartial<CodeInfo>): CodeInfo {
     const message = { ...baseCodeInfo } as CodeInfo;
-    if (object.codeHash !== undefined && object.codeHash !== null) {
-      message.codeHash = object.codeHash;
+    if (object.code_hash !== undefined && object.code_hash !== null) {
+      message.code_hash = object.code_hash;
     } else {
-      message.codeHash = new Uint8Array();
+      message.code_hash = new Uint8Array();
     }
     if (object.creator !== undefined && object.creator !== null) {
       message.creator = object.creator;
@@ -516,31 +518,31 @@ export const CodeInfo = {
       message.creator = "";
     }
     if (
-      object.instantiateConfig !== undefined &&
-      object.instantiateConfig !== null
+      object.instantiate_config !== undefined &&
+      object.instantiate_config !== null
     ) {
-      message.instantiateConfig = AccessConfig.fromPartial(
-        object.instantiateConfig
+      message.instantiate_config = AccessConfig.fromPartial(
+        object.instantiate_config
       );
     } else {
-      message.instantiateConfig = undefined;
+      message.instantiate_config = undefined;
     }
     return message;
   },
 };
 
 const baseContractInfo: object = {
-  codeId: 0,
+  code_id: 0,
   creator: "",
   admin: "",
   label: "",
-  ibcPortId: "",
+  ibc_port_id: "",
 };
 
 export const ContractInfo = {
   encode(message: ContractInfo, writer: Writer = Writer.create()): Writer {
-    if (message.codeId !== 0) {
-      writer.uint32(8).uint64(message.codeId);
+    if (message.code_id !== 0) {
+      writer.uint32(8).uint64(message.code_id);
     }
     if (message.creator !== "") {
       writer.uint32(18).string(message.creator);
@@ -557,8 +559,8 @@ export const ContractInfo = {
         writer.uint32(42).fork()
       ).ldelim();
     }
-    if (message.ibcPortId !== "") {
-      writer.uint32(50).string(message.ibcPortId);
+    if (message.ibc_port_id !== "") {
+      writer.uint32(50).string(message.ibc_port_id);
     }
     if (message.extension !== undefined) {
       Any.encode(message.extension, writer.uint32(58).fork()).ldelim();
@@ -574,7 +576,7 @@ export const ContractInfo = {
       const tag = reader.uint32();
       switch (tag >>> 3) {
         case 1:
-          message.codeId = longToNumber(reader.uint64() as Long);
+          message.code_id = longToNumber(reader.uint64() as Long);
           break;
         case 2:
           message.creator = reader.string();
@@ -589,7 +591,7 @@ export const ContractInfo = {
           message.created = AbsoluteTxPosition.decode(reader, reader.uint32());
           break;
         case 6:
-          message.ibcPortId = reader.string();
+          message.ibc_port_id = reader.string();
           break;
         case 7:
           message.extension = Any.decode(reader, reader.uint32());
@@ -604,10 +606,10 @@ export const ContractInfo = {
 
   fromJSON(object: any): ContractInfo {
     const message = { ...baseContractInfo } as ContractInfo;
-    if (object.codeId !== undefined && object.codeId !== null) {
-      message.codeId = Number(object.codeId);
+    if (object.code_id !== undefined && object.code_id !== null) {
+      message.code_id = Number(object.code_id);
     } else {
-      message.codeId = 0;
+      message.code_id = 0;
     }
     if (object.creator !== undefined && object.creator !== null) {
       message.creator = String(object.creator);
@@ -629,10 +631,10 @@ export const ContractInfo = {
     } else {
       message.created = undefined;
     }
-    if (object.ibcPortId !== undefined && object.ibcPortId !== null) {
-      message.ibcPortId = String(object.ibcPortId);
+    if (object.ibc_port_id !== undefined && object.ibc_port_id !== null) {
+      message.ibc_port_id = String(object.ibc_port_id);
     } else {
-      message.ibcPortId = "";
+      message.ibc_port_id = "";
     }
     if (object.extension !== undefined && object.extension !== null) {
       message.extension = Any.fromJSON(object.extension);
@@ -644,7 +646,7 @@ export const ContractInfo = {
 
   toJSON(message: ContractInfo): unknown {
     const obj: any = {};
-    message.codeId !== undefined && (obj.codeId = message.codeId);
+    message.code_id !== undefined && (obj.code_id = message.code_id);
     message.creator !== undefined && (obj.creator = message.creator);
     message.admin !== undefined && (obj.admin = message.admin);
     message.label !== undefined && (obj.label = message.label);
@@ -652,7 +654,8 @@ export const ContractInfo = {
       (obj.created = message.created
         ? AbsoluteTxPosition.toJSON(message.created)
         : undefined);
-    message.ibcPortId !== undefined && (obj.ibcPortId = message.ibcPortId);
+    message.ibc_port_id !== undefined &&
+      (obj.ibc_port_id = message.ibc_port_id);
     message.extension !== undefined &&
       (obj.extension = message.extension
         ? Any.toJSON(message.extension)
@@ -662,10 +665,10 @@ export const ContractInfo = {
 
   fromPartial(object: DeepPartial<ContractInfo>): ContractInfo {
     const message = { ...baseContractInfo } as ContractInfo;
-    if (object.codeId !== undefined && object.codeId !== null) {
-      message.codeId = object.codeId;
+    if (object.code_id !== undefined && object.code_id !== null) {
+      message.code_id = object.code_id;
     } else {
-      message.codeId = 0;
+      message.code_id = 0;
     }
     if (object.creator !== undefined && object.creator !== null) {
       message.creator = object.creator;
@@ -687,10 +690,10 @@ export const ContractInfo = {
     } else {
       message.created = undefined;
     }
-    if (object.ibcPortId !== undefined && object.ibcPortId !== null) {
-      message.ibcPortId = object.ibcPortId;
+    if (object.ibc_port_id !== undefined && object.ibc_port_id !== null) {
+      message.ibc_port_id = object.ibc_port_id;
     } else {
-      message.ibcPortId = "";
+      message.ibc_port_id = "";
     }
     if (object.extension !== undefined && object.extension !== null) {
       message.extension = Any.fromPartial(object.extension);
@@ -701,7 +704,7 @@ export const ContractInfo = {
   },
 };
 
-const baseContractCodeHistoryEntry: object = { operation: 0, codeId: 0 };
+const baseContractCodeHistoryEntry: object = { operation: 0, code_id: 0 };
 
 export const ContractCodeHistoryEntry = {
   encode(
@@ -711,8 +714,8 @@ export const ContractCodeHistoryEntry = {
     if (message.operation !== 0) {
       writer.uint32(8).int32(message.operation);
     }
-    if (message.codeId !== 0) {
-      writer.uint32(16).uint64(message.codeId);
+    if (message.code_id !== 0) {
+      writer.uint32(16).uint64(message.code_id);
     }
     if (message.updated !== undefined) {
       AbsoluteTxPosition.encode(
@@ -742,7 +745,7 @@ export const ContractCodeHistoryEntry = {
           message.operation = reader.int32() as any;
           break;
         case 2:
-          message.codeId = longToNumber(reader.uint64() as Long);
+          message.code_id = longToNumber(reader.uint64() as Long);
           break;
         case 3:
           message.updated = AbsoluteTxPosition.decode(reader, reader.uint32());
@@ -769,10 +772,10 @@ export const ContractCodeHistoryEntry = {
     } else {
       message.operation = 0;
     }
-    if (object.codeId !== undefined && object.codeId !== null) {
-      message.codeId = Number(object.codeId);
+    if (object.code_id !== undefined && object.code_id !== null) {
+      message.code_id = Number(object.code_id);
     } else {
-      message.codeId = 0;
+      message.code_id = 0;
     }
     if (object.updated !== undefined && object.updated !== null) {
       message.updated = AbsoluteTxPosition.fromJSON(object.updated);
@@ -791,7 +794,7 @@ export const ContractCodeHistoryEntry = {
       (obj.operation = contractCodeHistoryOperationTypeToJSON(
         message.operation
       ));
-    message.codeId !== undefined && (obj.codeId = message.codeId);
+    message.code_id !== undefined && (obj.code_id = message.code_id);
     message.updated !== undefined &&
       (obj.updated = message.updated
         ? AbsoluteTxPosition.toJSON(message.updated)
@@ -814,10 +817,10 @@ export const ContractCodeHistoryEntry = {
     } else {
       message.operation = 0;
     }
-    if (object.codeId !== undefined && object.codeId !== null) {
-      message.codeId = object.codeId;
+    if (object.code_id !== undefined && object.code_id !== null) {
+      message.code_id = object.code_id;
     } else {
-      message.codeId = 0;
+      message.code_id = 0;
     }
     if (object.updated !== undefined && object.updated !== null) {
       message.updated = AbsoluteTxPosition.fromPartial(object.updated);
@@ -833,18 +836,18 @@ export const ContractCodeHistoryEntry = {
   },
 };
 
-const baseAbsoluteTxPosition: object = { blockHeight: 0, txIndex: 0 };
+const baseAbsoluteTxPosition: object = { block_height: 0, tx_index: 0 };
 
 export const AbsoluteTxPosition = {
   encode(
     message: AbsoluteTxPosition,
     writer: Writer = Writer.create()
   ): Writer {
-    if (message.blockHeight !== 0) {
-      writer.uint32(8).uint64(message.blockHeight);
+    if (message.block_height !== 0) {
+      writer.uint32(8).uint64(message.block_height);
     }
-    if (message.txIndex !== 0) {
-      writer.uint32(16).uint64(message.txIndex);
+    if (message.tx_index !== 0) {
+      writer.uint32(16).uint64(message.tx_index);
     }
     return writer;
   },
@@ -857,10 +860,10 @@ export const AbsoluteTxPosition = {
       const tag = reader.uint32();
       switch (tag >>> 3) {
         case 1:
-          message.blockHeight = longToNumber(reader.uint64() as Long);
+          message.block_height = longToNumber(reader.uint64() as Long);
           break;
         case 2:
-          message.txIndex = longToNumber(reader.uint64() as Long);
+          message.tx_index = longToNumber(reader.uint64() as Long);
           break;
         default:
           reader.skipType(tag & 7);
@@ -872,38 +875,38 @@ export const AbsoluteTxPosition = {
 
   fromJSON(object: any): AbsoluteTxPosition {
     const message = { ...baseAbsoluteTxPosition } as AbsoluteTxPosition;
-    if (object.blockHeight !== undefined && object.blockHeight !== null) {
-      message.blockHeight = Number(object.blockHeight);
+    if (object.block_height !== undefined && object.block_height !== null) {
+      message.block_height = Number(object.block_height);
     } else {
-      message.blockHeight = 0;
+      message.block_height = 0;
     }
-    if (object.txIndex !== undefined && object.txIndex !== null) {
-      message.txIndex = Number(object.txIndex);
+    if (object.tx_index !== undefined && object.tx_index !== null) {
+      message.tx_index = Number(object.tx_index);
     } else {
-      message.txIndex = 0;
+      message.tx_index = 0;
     }
     return message;
   },
 
   toJSON(message: AbsoluteTxPosition): unknown {
     const obj: any = {};
-    message.blockHeight !== undefined &&
-      (obj.blockHeight = message.blockHeight);
-    message.txIndex !== undefined && (obj.txIndex = message.txIndex);
+    message.block_height !== undefined &&
+      (obj.block_height = message.block_height);
+    message.tx_index !== undefined && (obj.tx_index = message.tx_index);
     return obj;
   },
 
   fromPartial(object: DeepPartial<AbsoluteTxPosition>): AbsoluteTxPosition {
     const message = { ...baseAbsoluteTxPosition } as AbsoluteTxPosition;
-    if (object.blockHeight !== undefined && object.blockHeight !== null) {
-      message.blockHeight = object.blockHeight;
+    if (object.block_height !== undefined && object.block_height !== null) {
+      message.block_height = object.block_height;
     } else {
-      message.blockHeight = 0;
+      message.block_height = 0;
     }
-    if (object.txIndex !== undefined && object.txIndex !== null) {
-      message.txIndex = object.txIndex;
+    if (object.tx_index !== undefined && object.tx_index !== null) {
+      message.tx_index = object.tx_index;
     } else {
-      message.txIndex = 0;
+      message.tx_index = 0;
     }
     return message;
   },

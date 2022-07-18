@@ -5,14 +5,14 @@ import { util, configure, Writer, Reader } from "protobufjs/minimal";
 export const protobufPackage = "seiprotocol.seichain.oracle";
 
 export interface Params {
-  votePeriod: number;
-  voteThreshold: string;
-  rewardBand: string;
+  vote_period: number;
+  vote_threshold: string;
+  reward_band: string;
   whitelist: Denom[];
-  slashFraction: string;
-  slashWindow: number;
-  minValidPerWindow: string;
-  lookbackDuration: number;
+  slash_fraction: string;
+  slash_window: number;
+  min_valid_per_window: string;
+  lookback_duration: number;
 }
 
 export interface Denom {
@@ -22,80 +22,80 @@ export interface Denom {
 export interface AggregateExchangeRatePrevote {
   hash: string;
   voter: string;
-  submitBlock: number;
+  submit_block: number;
 }
 
 export interface AggregateExchangeRateVote {
-  exchangeRateTuples: ExchangeRateTuple[];
+  exchange_rate_tuples: ExchangeRateTuple[];
   voter: string;
 }
 
 export interface ExchangeRateTuple {
   denom: string;
-  exchangeRate: string;
+  exchange_rate: string;
 }
 
 export interface OracleExchangeRate {
-  exchangeRate: string;
-  lastUpdate: string;
+  exchange_rate: string;
+  last_update: string;
 }
 
 export interface PriceSnapshotItem {
   denom: string;
-  oracleExchangeRate: OracleExchangeRate | undefined;
+  oracle_exchange_rate: OracleExchangeRate | undefined;
 }
 
 export interface PriceSnapshot {
   snapshotTimestamp: number;
-  priceSnapshotItems: PriceSnapshotItem[];
+  price_snapshot_items: PriceSnapshotItem[];
 }
 
 export interface OracleTwap {
   denom: string;
   twap: string;
-  lookbackSeconds: number;
+  lookback_seconds: number;
 }
 
 export interface VotePenaltyCounter {
-  missCount: number;
-  abstainCount: number;
+  miss_count: number;
+  abstain_count: number;
 }
 
 const baseParams: object = {
-  votePeriod: 0,
-  voteThreshold: "",
-  rewardBand: "",
-  slashFraction: "",
-  slashWindow: 0,
-  minValidPerWindow: "",
-  lookbackDuration: 0,
+  vote_period: 0,
+  vote_threshold: "",
+  reward_band: "",
+  slash_fraction: "",
+  slash_window: 0,
+  min_valid_per_window: "",
+  lookback_duration: 0,
 };
 
 export const Params = {
   encode(message: Params, writer: Writer = Writer.create()): Writer {
-    if (message.votePeriod !== 0) {
-      writer.uint32(8).uint64(message.votePeriod);
+    if (message.vote_period !== 0) {
+      writer.uint32(8).uint64(message.vote_period);
     }
-    if (message.voteThreshold !== "") {
-      writer.uint32(18).string(message.voteThreshold);
+    if (message.vote_threshold !== "") {
+      writer.uint32(18).string(message.vote_threshold);
     }
-    if (message.rewardBand !== "") {
-      writer.uint32(26).string(message.rewardBand);
+    if (message.reward_band !== "") {
+      writer.uint32(26).string(message.reward_band);
     }
     for (const v of message.whitelist) {
       Denom.encode(v!, writer.uint32(34).fork()).ldelim();
     }
-    if (message.slashFraction !== "") {
-      writer.uint32(42).string(message.slashFraction);
+    if (message.slash_fraction !== "") {
+      writer.uint32(42).string(message.slash_fraction);
     }
-    if (message.slashWindow !== 0) {
-      writer.uint32(48).uint64(message.slashWindow);
+    if (message.slash_window !== 0) {
+      writer.uint32(48).uint64(message.slash_window);
     }
-    if (message.minValidPerWindow !== "") {
-      writer.uint32(58).string(message.minValidPerWindow);
+    if (message.min_valid_per_window !== "") {
+      writer.uint32(58).string(message.min_valid_per_window);
     }
-    if (message.lookbackDuration !== 0) {
-      writer.uint32(72).int64(message.lookbackDuration);
+    if (message.lookback_duration !== 0) {
+      writer.uint32(72).int64(message.lookback_duration);
     }
     return writer;
   },
@@ -109,28 +109,28 @@ export const Params = {
       const tag = reader.uint32();
       switch (tag >>> 3) {
         case 1:
-          message.votePeriod = longToNumber(reader.uint64() as Long);
+          message.vote_period = longToNumber(reader.uint64() as Long);
           break;
         case 2:
-          message.voteThreshold = reader.string();
+          message.vote_threshold = reader.string();
           break;
         case 3:
-          message.rewardBand = reader.string();
+          message.reward_band = reader.string();
           break;
         case 4:
           message.whitelist.push(Denom.decode(reader, reader.uint32()));
           break;
         case 5:
-          message.slashFraction = reader.string();
+          message.slash_fraction = reader.string();
           break;
         case 6:
-          message.slashWindow = longToNumber(reader.uint64() as Long);
+          message.slash_window = longToNumber(reader.uint64() as Long);
           break;
         case 7:
-          message.minValidPerWindow = reader.string();
+          message.min_valid_per_window = reader.string();
           break;
         case 9:
-          message.lookbackDuration = longToNumber(reader.int64() as Long);
+          message.lookback_duration = longToNumber(reader.int64() as Long);
           break;
         default:
           reader.skipType(tag & 7);
@@ -143,61 +143,63 @@ export const Params = {
   fromJSON(object: any): Params {
     const message = { ...baseParams } as Params;
     message.whitelist = [];
-    if (object.votePeriod !== undefined && object.votePeriod !== null) {
-      message.votePeriod = Number(object.votePeriod);
+    if (object.vote_period !== undefined && object.vote_period !== null) {
+      message.vote_period = Number(object.vote_period);
     } else {
-      message.votePeriod = 0;
+      message.vote_period = 0;
     }
-    if (object.voteThreshold !== undefined && object.voteThreshold !== null) {
-      message.voteThreshold = String(object.voteThreshold);
+    if (object.vote_threshold !== undefined && object.vote_threshold !== null) {
+      message.vote_threshold = String(object.vote_threshold);
     } else {
-      message.voteThreshold = "";
+      message.vote_threshold = "";
     }
-    if (object.rewardBand !== undefined && object.rewardBand !== null) {
-      message.rewardBand = String(object.rewardBand);
+    if (object.reward_band !== undefined && object.reward_band !== null) {
+      message.reward_band = String(object.reward_band);
     } else {
-      message.rewardBand = "";
+      message.reward_band = "";
     }
     if (object.whitelist !== undefined && object.whitelist !== null) {
       for (const e of object.whitelist) {
         message.whitelist.push(Denom.fromJSON(e));
       }
     }
-    if (object.slashFraction !== undefined && object.slashFraction !== null) {
-      message.slashFraction = String(object.slashFraction);
+    if (object.slash_fraction !== undefined && object.slash_fraction !== null) {
+      message.slash_fraction = String(object.slash_fraction);
     } else {
-      message.slashFraction = "";
+      message.slash_fraction = "";
     }
-    if (object.slashWindow !== undefined && object.slashWindow !== null) {
-      message.slashWindow = Number(object.slashWindow);
+    if (object.slash_window !== undefined && object.slash_window !== null) {
+      message.slash_window = Number(object.slash_window);
     } else {
-      message.slashWindow = 0;
-    }
-    if (
-      object.minValidPerWindow !== undefined &&
-      object.minValidPerWindow !== null
-    ) {
-      message.minValidPerWindow = String(object.minValidPerWindow);
-    } else {
-      message.minValidPerWindow = "";
+      message.slash_window = 0;
     }
     if (
-      object.lookbackDuration !== undefined &&
-      object.lookbackDuration !== null
+      object.min_valid_per_window !== undefined &&
+      object.min_valid_per_window !== null
     ) {
-      message.lookbackDuration = Number(object.lookbackDuration);
+      message.min_valid_per_window = String(object.min_valid_per_window);
     } else {
-      message.lookbackDuration = 0;
+      message.min_valid_per_window = "";
+    }
+    if (
+      object.lookback_duration !== undefined &&
+      object.lookback_duration !== null
+    ) {
+      message.lookback_duration = Number(object.lookback_duration);
+    } else {
+      message.lookback_duration = 0;
     }
     return message;
   },
 
   toJSON(message: Params): unknown {
     const obj: any = {};
-    message.votePeriod !== undefined && (obj.votePeriod = message.votePeriod);
-    message.voteThreshold !== undefined &&
-      (obj.voteThreshold = message.voteThreshold);
-    message.rewardBand !== undefined && (obj.rewardBand = message.rewardBand);
+    message.vote_period !== undefined &&
+      (obj.vote_period = message.vote_period);
+    message.vote_threshold !== undefined &&
+      (obj.vote_threshold = message.vote_threshold);
+    message.reward_band !== undefined &&
+      (obj.reward_band = message.reward_band);
     if (message.whitelist) {
       obj.whitelist = message.whitelist.map((e) =>
         e ? Denom.toJSON(e) : undefined
@@ -205,65 +207,65 @@ export const Params = {
     } else {
       obj.whitelist = [];
     }
-    message.slashFraction !== undefined &&
-      (obj.slashFraction = message.slashFraction);
-    message.slashWindow !== undefined &&
-      (obj.slashWindow = message.slashWindow);
-    message.minValidPerWindow !== undefined &&
-      (obj.minValidPerWindow = message.minValidPerWindow);
-    message.lookbackDuration !== undefined &&
-      (obj.lookbackDuration = message.lookbackDuration);
+    message.slash_fraction !== undefined &&
+      (obj.slash_fraction = message.slash_fraction);
+    message.slash_window !== undefined &&
+      (obj.slash_window = message.slash_window);
+    message.min_valid_per_window !== undefined &&
+      (obj.min_valid_per_window = message.min_valid_per_window);
+    message.lookback_duration !== undefined &&
+      (obj.lookback_duration = message.lookback_duration);
     return obj;
   },
 
   fromPartial(object: DeepPartial<Params>): Params {
     const message = { ...baseParams } as Params;
     message.whitelist = [];
-    if (object.votePeriod !== undefined && object.votePeriod !== null) {
-      message.votePeriod = object.votePeriod;
+    if (object.vote_period !== undefined && object.vote_period !== null) {
+      message.vote_period = object.vote_period;
     } else {
-      message.votePeriod = 0;
+      message.vote_period = 0;
     }
-    if (object.voteThreshold !== undefined && object.voteThreshold !== null) {
-      message.voteThreshold = object.voteThreshold;
+    if (object.vote_threshold !== undefined && object.vote_threshold !== null) {
+      message.vote_threshold = object.vote_threshold;
     } else {
-      message.voteThreshold = "";
+      message.vote_threshold = "";
     }
-    if (object.rewardBand !== undefined && object.rewardBand !== null) {
-      message.rewardBand = object.rewardBand;
+    if (object.reward_band !== undefined && object.reward_band !== null) {
+      message.reward_band = object.reward_band;
     } else {
-      message.rewardBand = "";
+      message.reward_band = "";
     }
     if (object.whitelist !== undefined && object.whitelist !== null) {
       for (const e of object.whitelist) {
         message.whitelist.push(Denom.fromPartial(e));
       }
     }
-    if (object.slashFraction !== undefined && object.slashFraction !== null) {
-      message.slashFraction = object.slashFraction;
+    if (object.slash_fraction !== undefined && object.slash_fraction !== null) {
+      message.slash_fraction = object.slash_fraction;
     } else {
-      message.slashFraction = "";
+      message.slash_fraction = "";
     }
-    if (object.slashWindow !== undefined && object.slashWindow !== null) {
-      message.slashWindow = object.slashWindow;
+    if (object.slash_window !== undefined && object.slash_window !== null) {
+      message.slash_window = object.slash_window;
     } else {
-      message.slashWindow = 0;
-    }
-    if (
-      object.minValidPerWindow !== undefined &&
-      object.minValidPerWindow !== null
-    ) {
-      message.minValidPerWindow = object.minValidPerWindow;
-    } else {
-      message.minValidPerWindow = "";
+      message.slash_window = 0;
     }
     if (
-      object.lookbackDuration !== undefined &&
-      object.lookbackDuration !== null
+      object.min_valid_per_window !== undefined &&
+      object.min_valid_per_window !== null
     ) {
-      message.lookbackDuration = object.lookbackDuration;
+      message.min_valid_per_window = object.min_valid_per_window;
     } else {
-      message.lookbackDuration = 0;
+      message.min_valid_per_window = "";
+    }
+    if (
+      object.lookback_duration !== undefined &&
+      object.lookback_duration !== null
+    ) {
+      message.lookback_duration = object.lookback_duration;
+    } else {
+      message.lookback_duration = 0;
     }
     return message;
   },
@@ -327,7 +329,7 @@ export const Denom = {
 const baseAggregateExchangeRatePrevote: object = {
   hash: "",
   voter: "",
-  submitBlock: 0,
+  submit_block: 0,
 };
 
 export const AggregateExchangeRatePrevote = {
@@ -341,8 +343,8 @@ export const AggregateExchangeRatePrevote = {
     if (message.voter !== "") {
       writer.uint32(18).string(message.voter);
     }
-    if (message.submitBlock !== 0) {
-      writer.uint32(24).uint64(message.submitBlock);
+    if (message.submit_block !== 0) {
+      writer.uint32(24).uint64(message.submit_block);
     }
     return writer;
   },
@@ -366,7 +368,7 @@ export const AggregateExchangeRatePrevote = {
           message.voter = reader.string();
           break;
         case 3:
-          message.submitBlock = longToNumber(reader.uint64() as Long);
+          message.submit_block = longToNumber(reader.uint64() as Long);
           break;
         default:
           reader.skipType(tag & 7);
@@ -390,10 +392,10 @@ export const AggregateExchangeRatePrevote = {
     } else {
       message.voter = "";
     }
-    if (object.submitBlock !== undefined && object.submitBlock !== null) {
-      message.submitBlock = Number(object.submitBlock);
+    if (object.submit_block !== undefined && object.submit_block !== null) {
+      message.submit_block = Number(object.submit_block);
     } else {
-      message.submitBlock = 0;
+      message.submit_block = 0;
     }
     return message;
   },
@@ -402,8 +404,8 @@ export const AggregateExchangeRatePrevote = {
     const obj: any = {};
     message.hash !== undefined && (obj.hash = message.hash);
     message.voter !== undefined && (obj.voter = message.voter);
-    message.submitBlock !== undefined &&
-      (obj.submitBlock = message.submitBlock);
+    message.submit_block !== undefined &&
+      (obj.submit_block = message.submit_block);
     return obj;
   },
 
@@ -423,10 +425,10 @@ export const AggregateExchangeRatePrevote = {
     } else {
       message.voter = "";
     }
-    if (object.submitBlock !== undefined && object.submitBlock !== null) {
-      message.submitBlock = object.submitBlock;
+    if (object.submit_block !== undefined && object.submit_block !== null) {
+      message.submit_block = object.submit_block;
     } else {
-      message.submitBlock = 0;
+      message.submit_block = 0;
     }
     return message;
   },
@@ -439,7 +441,7 @@ export const AggregateExchangeRateVote = {
     message: AggregateExchangeRateVote,
     writer: Writer = Writer.create()
   ): Writer {
-    for (const v of message.exchangeRateTuples) {
+    for (const v of message.exchange_rate_tuples) {
       ExchangeRateTuple.encode(v!, writer.uint32(10).fork()).ldelim();
     }
     if (message.voter !== "") {
@@ -457,12 +459,12 @@ export const AggregateExchangeRateVote = {
     const message = {
       ...baseAggregateExchangeRateVote,
     } as AggregateExchangeRateVote;
-    message.exchangeRateTuples = [];
+    message.exchange_rate_tuples = [];
     while (reader.pos < end) {
       const tag = reader.uint32();
       switch (tag >>> 3) {
         case 1:
-          message.exchangeRateTuples.push(
+          message.exchange_rate_tuples.push(
             ExchangeRateTuple.decode(reader, reader.uint32())
           );
           break;
@@ -481,13 +483,13 @@ export const AggregateExchangeRateVote = {
     const message = {
       ...baseAggregateExchangeRateVote,
     } as AggregateExchangeRateVote;
-    message.exchangeRateTuples = [];
+    message.exchange_rate_tuples = [];
     if (
-      object.exchangeRateTuples !== undefined &&
-      object.exchangeRateTuples !== null
+      object.exchange_rate_tuples !== undefined &&
+      object.exchange_rate_tuples !== null
     ) {
-      for (const e of object.exchangeRateTuples) {
-        message.exchangeRateTuples.push(ExchangeRateTuple.fromJSON(e));
+      for (const e of object.exchange_rate_tuples) {
+        message.exchange_rate_tuples.push(ExchangeRateTuple.fromJSON(e));
       }
     }
     if (object.voter !== undefined && object.voter !== null) {
@@ -500,12 +502,12 @@ export const AggregateExchangeRateVote = {
 
   toJSON(message: AggregateExchangeRateVote): unknown {
     const obj: any = {};
-    if (message.exchangeRateTuples) {
-      obj.exchangeRateTuples = message.exchangeRateTuples.map((e) =>
+    if (message.exchange_rate_tuples) {
+      obj.exchange_rate_tuples = message.exchange_rate_tuples.map((e) =>
         e ? ExchangeRateTuple.toJSON(e) : undefined
       );
     } else {
-      obj.exchangeRateTuples = [];
+      obj.exchange_rate_tuples = [];
     }
     message.voter !== undefined && (obj.voter = message.voter);
     return obj;
@@ -517,13 +519,13 @@ export const AggregateExchangeRateVote = {
     const message = {
       ...baseAggregateExchangeRateVote,
     } as AggregateExchangeRateVote;
-    message.exchangeRateTuples = [];
+    message.exchange_rate_tuples = [];
     if (
-      object.exchangeRateTuples !== undefined &&
-      object.exchangeRateTuples !== null
+      object.exchange_rate_tuples !== undefined &&
+      object.exchange_rate_tuples !== null
     ) {
-      for (const e of object.exchangeRateTuples) {
-        message.exchangeRateTuples.push(ExchangeRateTuple.fromPartial(e));
+      for (const e of object.exchange_rate_tuples) {
+        message.exchange_rate_tuples.push(ExchangeRateTuple.fromPartial(e));
       }
     }
     if (object.voter !== undefined && object.voter !== null) {
@@ -535,15 +537,15 @@ export const AggregateExchangeRateVote = {
   },
 };
 
-const baseExchangeRateTuple: object = { denom: "", exchangeRate: "" };
+const baseExchangeRateTuple: object = { denom: "", exchange_rate: "" };
 
 export const ExchangeRateTuple = {
   encode(message: ExchangeRateTuple, writer: Writer = Writer.create()): Writer {
     if (message.denom !== "") {
       writer.uint32(10).string(message.denom);
     }
-    if (message.exchangeRate !== "") {
-      writer.uint32(18).string(message.exchangeRate);
+    if (message.exchange_rate !== "") {
+      writer.uint32(18).string(message.exchange_rate);
     }
     return writer;
   },
@@ -559,7 +561,7 @@ export const ExchangeRateTuple = {
           message.denom = reader.string();
           break;
         case 2:
-          message.exchangeRate = reader.string();
+          message.exchange_rate = reader.string();
           break;
         default:
           reader.skipType(tag & 7);
@@ -576,10 +578,10 @@ export const ExchangeRateTuple = {
     } else {
       message.denom = "";
     }
-    if (object.exchangeRate !== undefined && object.exchangeRate !== null) {
-      message.exchangeRate = String(object.exchangeRate);
+    if (object.exchange_rate !== undefined && object.exchange_rate !== null) {
+      message.exchange_rate = String(object.exchange_rate);
     } else {
-      message.exchangeRate = "";
+      message.exchange_rate = "";
     }
     return message;
   },
@@ -587,8 +589,8 @@ export const ExchangeRateTuple = {
   toJSON(message: ExchangeRateTuple): unknown {
     const obj: any = {};
     message.denom !== undefined && (obj.denom = message.denom);
-    message.exchangeRate !== undefined &&
-      (obj.exchangeRate = message.exchangeRate);
+    message.exchange_rate !== undefined &&
+      (obj.exchange_rate = message.exchange_rate);
     return obj;
   },
 
@@ -599,27 +601,27 @@ export const ExchangeRateTuple = {
     } else {
       message.denom = "";
     }
-    if (object.exchangeRate !== undefined && object.exchangeRate !== null) {
-      message.exchangeRate = object.exchangeRate;
+    if (object.exchange_rate !== undefined && object.exchange_rate !== null) {
+      message.exchange_rate = object.exchange_rate;
     } else {
-      message.exchangeRate = "";
+      message.exchange_rate = "";
     }
     return message;
   },
 };
 
-const baseOracleExchangeRate: object = { exchangeRate: "", lastUpdate: "" };
+const baseOracleExchangeRate: object = { exchange_rate: "", last_update: "" };
 
 export const OracleExchangeRate = {
   encode(
     message: OracleExchangeRate,
     writer: Writer = Writer.create()
   ): Writer {
-    if (message.exchangeRate !== "") {
-      writer.uint32(10).string(message.exchangeRate);
+    if (message.exchange_rate !== "") {
+      writer.uint32(10).string(message.exchange_rate);
     }
-    if (message.lastUpdate !== "") {
-      writer.uint32(18).string(message.lastUpdate);
+    if (message.last_update !== "") {
+      writer.uint32(18).string(message.last_update);
     }
     return writer;
   },
@@ -632,10 +634,10 @@ export const OracleExchangeRate = {
       const tag = reader.uint32();
       switch (tag >>> 3) {
         case 1:
-          message.exchangeRate = reader.string();
+          message.exchange_rate = reader.string();
           break;
         case 2:
-          message.lastUpdate = reader.string();
+          message.last_update = reader.string();
           break;
         default:
           reader.skipType(tag & 7);
@@ -647,38 +649,39 @@ export const OracleExchangeRate = {
 
   fromJSON(object: any): OracleExchangeRate {
     const message = { ...baseOracleExchangeRate } as OracleExchangeRate;
-    if (object.exchangeRate !== undefined && object.exchangeRate !== null) {
-      message.exchangeRate = String(object.exchangeRate);
+    if (object.exchange_rate !== undefined && object.exchange_rate !== null) {
+      message.exchange_rate = String(object.exchange_rate);
     } else {
-      message.exchangeRate = "";
+      message.exchange_rate = "";
     }
-    if (object.lastUpdate !== undefined && object.lastUpdate !== null) {
-      message.lastUpdate = String(object.lastUpdate);
+    if (object.last_update !== undefined && object.last_update !== null) {
+      message.last_update = String(object.last_update);
     } else {
-      message.lastUpdate = "";
+      message.last_update = "";
     }
     return message;
   },
 
   toJSON(message: OracleExchangeRate): unknown {
     const obj: any = {};
-    message.exchangeRate !== undefined &&
-      (obj.exchangeRate = message.exchangeRate);
-    message.lastUpdate !== undefined && (obj.lastUpdate = message.lastUpdate);
+    message.exchange_rate !== undefined &&
+      (obj.exchange_rate = message.exchange_rate);
+    message.last_update !== undefined &&
+      (obj.last_update = message.last_update);
     return obj;
   },
 
   fromPartial(object: DeepPartial<OracleExchangeRate>): OracleExchangeRate {
     const message = { ...baseOracleExchangeRate } as OracleExchangeRate;
-    if (object.exchangeRate !== undefined && object.exchangeRate !== null) {
-      message.exchangeRate = object.exchangeRate;
+    if (object.exchange_rate !== undefined && object.exchange_rate !== null) {
+      message.exchange_rate = object.exchange_rate;
     } else {
-      message.exchangeRate = "";
+      message.exchange_rate = "";
     }
-    if (object.lastUpdate !== undefined && object.lastUpdate !== null) {
-      message.lastUpdate = object.lastUpdate;
+    if (object.last_update !== undefined && object.last_update !== null) {
+      message.last_update = object.last_update;
     } else {
-      message.lastUpdate = "";
+      message.last_update = "";
     }
     return message;
   },
@@ -691,9 +694,9 @@ export const PriceSnapshotItem = {
     if (message.denom !== "") {
       writer.uint32(10).string(message.denom);
     }
-    if (message.oracleExchangeRate !== undefined) {
+    if (message.oracle_exchange_rate !== undefined) {
       OracleExchangeRate.encode(
-        message.oracleExchangeRate,
+        message.oracle_exchange_rate,
         writer.uint32(18).fork()
       ).ldelim();
     }
@@ -711,7 +714,7 @@ export const PriceSnapshotItem = {
           message.denom = reader.string();
           break;
         case 2:
-          message.oracleExchangeRate = OracleExchangeRate.decode(
+          message.oracle_exchange_rate = OracleExchangeRate.decode(
             reader,
             reader.uint32()
           );
@@ -732,14 +735,14 @@ export const PriceSnapshotItem = {
       message.denom = "";
     }
     if (
-      object.oracleExchangeRate !== undefined &&
-      object.oracleExchangeRate !== null
+      object.oracle_exchange_rate !== undefined &&
+      object.oracle_exchange_rate !== null
     ) {
-      message.oracleExchangeRate = OracleExchangeRate.fromJSON(
-        object.oracleExchangeRate
+      message.oracle_exchange_rate = OracleExchangeRate.fromJSON(
+        object.oracle_exchange_rate
       );
     } else {
-      message.oracleExchangeRate = undefined;
+      message.oracle_exchange_rate = undefined;
     }
     return message;
   },
@@ -747,9 +750,9 @@ export const PriceSnapshotItem = {
   toJSON(message: PriceSnapshotItem): unknown {
     const obj: any = {};
     message.denom !== undefined && (obj.denom = message.denom);
-    message.oracleExchangeRate !== undefined &&
-      (obj.oracleExchangeRate = message.oracleExchangeRate
-        ? OracleExchangeRate.toJSON(message.oracleExchangeRate)
+    message.oracle_exchange_rate !== undefined &&
+      (obj.oracle_exchange_rate = message.oracle_exchange_rate
+        ? OracleExchangeRate.toJSON(message.oracle_exchange_rate)
         : undefined);
     return obj;
   },
@@ -762,14 +765,14 @@ export const PriceSnapshotItem = {
       message.denom = "";
     }
     if (
-      object.oracleExchangeRate !== undefined &&
-      object.oracleExchangeRate !== null
+      object.oracle_exchange_rate !== undefined &&
+      object.oracle_exchange_rate !== null
     ) {
-      message.oracleExchangeRate = OracleExchangeRate.fromPartial(
-        object.oracleExchangeRate
+      message.oracle_exchange_rate = OracleExchangeRate.fromPartial(
+        object.oracle_exchange_rate
       );
     } else {
-      message.oracleExchangeRate = undefined;
+      message.oracle_exchange_rate = undefined;
     }
     return message;
   },
@@ -782,7 +785,7 @@ export const PriceSnapshot = {
     if (message.snapshotTimestamp !== 0) {
       writer.uint32(8).int64(message.snapshotTimestamp);
     }
-    for (const v of message.priceSnapshotItems) {
+    for (const v of message.price_snapshot_items) {
       PriceSnapshotItem.encode(v!, writer.uint32(18).fork()).ldelim();
     }
     return writer;
@@ -792,7 +795,7 @@ export const PriceSnapshot = {
     const reader = input instanceof Uint8Array ? new Reader(input) : input;
     let end = length === undefined ? reader.len : reader.pos + length;
     const message = { ...basePriceSnapshot } as PriceSnapshot;
-    message.priceSnapshotItems = [];
+    message.price_snapshot_items = [];
     while (reader.pos < end) {
       const tag = reader.uint32();
       switch (tag >>> 3) {
@@ -800,7 +803,7 @@ export const PriceSnapshot = {
           message.snapshotTimestamp = longToNumber(reader.int64() as Long);
           break;
         case 2:
-          message.priceSnapshotItems.push(
+          message.price_snapshot_items.push(
             PriceSnapshotItem.decode(reader, reader.uint32())
           );
           break;
@@ -814,7 +817,7 @@ export const PriceSnapshot = {
 
   fromJSON(object: any): PriceSnapshot {
     const message = { ...basePriceSnapshot } as PriceSnapshot;
-    message.priceSnapshotItems = [];
+    message.price_snapshot_items = [];
     if (
       object.snapshotTimestamp !== undefined &&
       object.snapshotTimestamp !== null
@@ -824,11 +827,11 @@ export const PriceSnapshot = {
       message.snapshotTimestamp = 0;
     }
     if (
-      object.priceSnapshotItems !== undefined &&
-      object.priceSnapshotItems !== null
+      object.price_snapshot_items !== undefined &&
+      object.price_snapshot_items !== null
     ) {
-      for (const e of object.priceSnapshotItems) {
-        message.priceSnapshotItems.push(PriceSnapshotItem.fromJSON(e));
+      for (const e of object.price_snapshot_items) {
+        message.price_snapshot_items.push(PriceSnapshotItem.fromJSON(e));
       }
     }
     return message;
@@ -838,19 +841,19 @@ export const PriceSnapshot = {
     const obj: any = {};
     message.snapshotTimestamp !== undefined &&
       (obj.snapshotTimestamp = message.snapshotTimestamp);
-    if (message.priceSnapshotItems) {
-      obj.priceSnapshotItems = message.priceSnapshotItems.map((e) =>
+    if (message.price_snapshot_items) {
+      obj.price_snapshot_items = message.price_snapshot_items.map((e) =>
         e ? PriceSnapshotItem.toJSON(e) : undefined
       );
     } else {
-      obj.priceSnapshotItems = [];
+      obj.price_snapshot_items = [];
     }
     return obj;
   },
 
   fromPartial(object: DeepPartial<PriceSnapshot>): PriceSnapshot {
     const message = { ...basePriceSnapshot } as PriceSnapshot;
-    message.priceSnapshotItems = [];
+    message.price_snapshot_items = [];
     if (
       object.snapshotTimestamp !== undefined &&
       object.snapshotTimestamp !== null
@@ -860,18 +863,18 @@ export const PriceSnapshot = {
       message.snapshotTimestamp = 0;
     }
     if (
-      object.priceSnapshotItems !== undefined &&
-      object.priceSnapshotItems !== null
+      object.price_snapshot_items !== undefined &&
+      object.price_snapshot_items !== null
     ) {
-      for (const e of object.priceSnapshotItems) {
-        message.priceSnapshotItems.push(PriceSnapshotItem.fromPartial(e));
+      for (const e of object.price_snapshot_items) {
+        message.price_snapshot_items.push(PriceSnapshotItem.fromPartial(e));
       }
     }
     return message;
   },
 };
 
-const baseOracleTwap: object = { denom: "", twap: "", lookbackSeconds: 0 };
+const baseOracleTwap: object = { denom: "", twap: "", lookback_seconds: 0 };
 
 export const OracleTwap = {
   encode(message: OracleTwap, writer: Writer = Writer.create()): Writer {
@@ -881,8 +884,8 @@ export const OracleTwap = {
     if (message.twap !== "") {
       writer.uint32(18).string(message.twap);
     }
-    if (message.lookbackSeconds !== 0) {
-      writer.uint32(24).int64(message.lookbackSeconds);
+    if (message.lookback_seconds !== 0) {
+      writer.uint32(24).int64(message.lookback_seconds);
     }
     return writer;
   },
@@ -901,7 +904,7 @@ export const OracleTwap = {
           message.twap = reader.string();
           break;
         case 3:
-          message.lookbackSeconds = longToNumber(reader.int64() as Long);
+          message.lookback_seconds = longToNumber(reader.int64() as Long);
           break;
         default:
           reader.skipType(tag & 7);
@@ -924,12 +927,12 @@ export const OracleTwap = {
       message.twap = "";
     }
     if (
-      object.lookbackSeconds !== undefined &&
-      object.lookbackSeconds !== null
+      object.lookback_seconds !== undefined &&
+      object.lookback_seconds !== null
     ) {
-      message.lookbackSeconds = Number(object.lookbackSeconds);
+      message.lookback_seconds = Number(object.lookback_seconds);
     } else {
-      message.lookbackSeconds = 0;
+      message.lookback_seconds = 0;
     }
     return message;
   },
@@ -938,8 +941,8 @@ export const OracleTwap = {
     const obj: any = {};
     message.denom !== undefined && (obj.denom = message.denom);
     message.twap !== undefined && (obj.twap = message.twap);
-    message.lookbackSeconds !== undefined &&
-      (obj.lookbackSeconds = message.lookbackSeconds);
+    message.lookback_seconds !== undefined &&
+      (obj.lookback_seconds = message.lookback_seconds);
     return obj;
   },
 
@@ -956,29 +959,29 @@ export const OracleTwap = {
       message.twap = "";
     }
     if (
-      object.lookbackSeconds !== undefined &&
-      object.lookbackSeconds !== null
+      object.lookback_seconds !== undefined &&
+      object.lookback_seconds !== null
     ) {
-      message.lookbackSeconds = object.lookbackSeconds;
+      message.lookback_seconds = object.lookback_seconds;
     } else {
-      message.lookbackSeconds = 0;
+      message.lookback_seconds = 0;
     }
     return message;
   },
 };
 
-const baseVotePenaltyCounter: object = { missCount: 0, abstainCount: 0 };
+const baseVotePenaltyCounter: object = { miss_count: 0, abstain_count: 0 };
 
 export const VotePenaltyCounter = {
   encode(
     message: VotePenaltyCounter,
     writer: Writer = Writer.create()
   ): Writer {
-    if (message.missCount !== 0) {
-      writer.uint32(8).uint64(message.missCount);
+    if (message.miss_count !== 0) {
+      writer.uint32(8).uint64(message.miss_count);
     }
-    if (message.abstainCount !== 0) {
-      writer.uint32(16).uint64(message.abstainCount);
+    if (message.abstain_count !== 0) {
+      writer.uint32(16).uint64(message.abstain_count);
     }
     return writer;
   },
@@ -991,10 +994,10 @@ export const VotePenaltyCounter = {
       const tag = reader.uint32();
       switch (tag >>> 3) {
         case 1:
-          message.missCount = longToNumber(reader.uint64() as Long);
+          message.miss_count = longToNumber(reader.uint64() as Long);
           break;
         case 2:
-          message.abstainCount = longToNumber(reader.uint64() as Long);
+          message.abstain_count = longToNumber(reader.uint64() as Long);
           break;
         default:
           reader.skipType(tag & 7);
@@ -1006,38 +1009,38 @@ export const VotePenaltyCounter = {
 
   fromJSON(object: any): VotePenaltyCounter {
     const message = { ...baseVotePenaltyCounter } as VotePenaltyCounter;
-    if (object.missCount !== undefined && object.missCount !== null) {
-      message.missCount = Number(object.missCount);
+    if (object.miss_count !== undefined && object.miss_count !== null) {
+      message.miss_count = Number(object.miss_count);
     } else {
-      message.missCount = 0;
+      message.miss_count = 0;
     }
-    if (object.abstainCount !== undefined && object.abstainCount !== null) {
-      message.abstainCount = Number(object.abstainCount);
+    if (object.abstain_count !== undefined && object.abstain_count !== null) {
+      message.abstain_count = Number(object.abstain_count);
     } else {
-      message.abstainCount = 0;
+      message.abstain_count = 0;
     }
     return message;
   },
 
   toJSON(message: VotePenaltyCounter): unknown {
     const obj: any = {};
-    message.missCount !== undefined && (obj.missCount = message.missCount);
-    message.abstainCount !== undefined &&
-      (obj.abstainCount = message.abstainCount);
+    message.miss_count !== undefined && (obj.miss_count = message.miss_count);
+    message.abstain_count !== undefined &&
+      (obj.abstain_count = message.abstain_count);
     return obj;
   },
 
   fromPartial(object: DeepPartial<VotePenaltyCounter>): VotePenaltyCounter {
     const message = { ...baseVotePenaltyCounter } as VotePenaltyCounter;
-    if (object.missCount !== undefined && object.missCount !== null) {
-      message.missCount = object.missCount;
+    if (object.miss_count !== undefined && object.miss_count !== null) {
+      message.miss_count = object.miss_count;
     } else {
-      message.missCount = 0;
+      message.miss_count = 0;
     }
-    if (object.abstainCount !== undefined && object.abstainCount !== null) {
-      message.abstainCount = object.abstainCount;
+    if (object.abstain_count !== undefined && object.abstain_count !== null) {
+      message.abstain_count = object.abstain_count;
     } else {
-      message.abstainCount = 0;
+      message.abstain_count = 0;
     }
     return message;
   },

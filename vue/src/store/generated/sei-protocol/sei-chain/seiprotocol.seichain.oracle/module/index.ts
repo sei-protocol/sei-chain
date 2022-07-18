@@ -6,12 +6,14 @@ import { Registry, OfflineSigner, EncodeObject, DirectSecp256k1HdWallet } from "
 import { Api } from "./rest";
 import { MsgAggregateExchangeRatePrevote } from "./types/oracle/tx";
 import { MsgAggregateExchangeRateVote } from "./types/oracle/tx";
+import { MsgAggregateExchangeRateCombinedVote } from "./types/oracle/tx";
 import { MsgDelegateFeedConsent } from "./types/oracle/tx";
 
 
 const types = [
   ["/seiprotocol.seichain.oracle.MsgAggregateExchangeRatePrevote", MsgAggregateExchangeRatePrevote],
   ["/seiprotocol.seichain.oracle.MsgAggregateExchangeRateVote", MsgAggregateExchangeRateVote],
+  ["/seiprotocol.seichain.oracle.MsgAggregateExchangeRateCombinedVote", MsgAggregateExchangeRateCombinedVote],
   ["/seiprotocol.seichain.oracle.MsgDelegateFeedConsent", MsgDelegateFeedConsent],
   
 ];
@@ -47,6 +49,7 @@ const txClient = async (wallet: OfflineSigner, { addr: addr }: TxClientOptions =
     signAndBroadcast: (msgs: EncodeObject[], { fee, memo }: SignAndBroadcastOptions = {fee: defaultFee, memo: ""}) => client.signAndBroadcast(address, msgs, fee,memo),
     msgAggregateExchangeRatePrevote: (data: MsgAggregateExchangeRatePrevote): EncodeObject => ({ typeUrl: "/seiprotocol.seichain.oracle.MsgAggregateExchangeRatePrevote", value: MsgAggregateExchangeRatePrevote.fromPartial( data ) }),
     msgAggregateExchangeRateVote: (data: MsgAggregateExchangeRateVote): EncodeObject => ({ typeUrl: "/seiprotocol.seichain.oracle.MsgAggregateExchangeRateVote", value: MsgAggregateExchangeRateVote.fromPartial( data ) }),
+    msgAggregateExchangeRateCombinedVote: (data: MsgAggregateExchangeRateCombinedVote): EncodeObject => ({ typeUrl: "/seiprotocol.seichain.oracle.MsgAggregateExchangeRateCombinedVote", value: MsgAggregateExchangeRateCombinedVote.fromPartial( data ) }),
     msgDelegateFeedConsent: (data: MsgDelegateFeedConsent): EncodeObject => ({ typeUrl: "/seiprotocol.seichain.oracle.MsgDelegateFeedConsent", value: MsgDelegateFeedConsent.fromPartial( data ) }),
     
   };

@@ -5,6 +5,7 @@ import { Params } from "../dex/params";
 import { LongBook } from "../dex/long_book";
 import { ShortBook } from "../dex/short_book";
 import { Twap } from "../dex/twap";
+import { TickSize } from "../dex/tick_size";
 
 export const protobufPackage = "seiprotocol.seichain.dex";
 
@@ -14,6 +15,8 @@ export interface GenesisState {
   longBookList: LongBook[];
   shortBookList: ShortBook[];
   twapList: Twap[];
+  /** if null, then no restriction, todo(zw) should set it to not nullable? */
+  tickSizeList: TickSize[];
   /** this line is used by starport scaffolding # genesis/proto/state */
   lastEpoch: number;
 }
@@ -34,8 +37,11 @@ export const GenesisState = {
     for (const v of message.twapList) {
       Twap.encode(v!, writer.uint32(34).fork()).ldelim();
     }
+    for (const v of message.tickSizeList) {
+      TickSize.encode(v!, writer.uint32(42).fork()).ldelim();
+    }
     if (message.lastEpoch !== 0) {
-      writer.uint32(40).uint64(message.lastEpoch);
+      writer.uint32(48).uint64(message.lastEpoch);
     }
     return writer;
   },
@@ -47,6 +53,7 @@ export const GenesisState = {
     message.longBookList = [];
     message.shortBookList = [];
     message.twapList = [];
+    message.tickSizeList = [];
     while (reader.pos < end) {
       const tag = reader.uint32();
       switch (tag >>> 3) {
@@ -63,6 +70,9 @@ export const GenesisState = {
           message.twapList.push(Twap.decode(reader, reader.uint32()));
           break;
         case 5:
+          message.tickSizeList.push(TickSize.decode(reader, reader.uint32()));
+          break;
+        case 6:
           message.lastEpoch = longToNumber(reader.uint64() as Long);
           break;
         default:
@@ -78,6 +88,7 @@ export const GenesisState = {
     message.longBookList = [];
     message.shortBookList = [];
     message.twapList = [];
+    message.tickSizeList = [];
     if (object.params !== undefined && object.params !== null) {
       message.params = Params.fromJSON(object.params);
     } else {
@@ -96,6 +107,11 @@ export const GenesisState = {
     if (object.twapList !== undefined && object.twapList !== null) {
       for (const e of object.twapList) {
         message.twapList.push(Twap.fromJSON(e));
+      }
+    }
+    if (object.tickSizeList !== undefined && object.tickSizeList !== null) {
+      for (const e of object.tickSizeList) {
+        message.tickSizeList.push(TickSize.fromJSON(e));
       }
     }
     if (object.lastEpoch !== undefined && object.lastEpoch !== null) {
@@ -131,6 +147,13 @@ export const GenesisState = {
     } else {
       obj.twapList = [];
     }
+    if (message.tickSizeList) {
+      obj.tickSizeList = message.tickSizeList.map((e) =>
+        e ? TickSize.toJSON(e) : undefined
+      );
+    } else {
+      obj.tickSizeList = [];
+    }
     message.lastEpoch !== undefined && (obj.lastEpoch = message.lastEpoch);
     return obj;
   },
@@ -140,6 +163,7 @@ export const GenesisState = {
     message.longBookList = [];
     message.shortBookList = [];
     message.twapList = [];
+    message.tickSizeList = [];
     if (object.params !== undefined && object.params !== null) {
       message.params = Params.fromPartial(object.params);
     } else {
@@ -158,6 +182,11 @@ export const GenesisState = {
     if (object.twapList !== undefined && object.twapList !== null) {
       for (const e of object.twapList) {
         message.twapList.push(Twap.fromPartial(e));
+      }
+    }
+    if (object.tickSizeList !== undefined && object.tickSizeList !== null) {
+      for (const e of object.tickSizeList) {
+        message.tickSizeList.push(TickSize.fromPartial(e));
       }
     }
     if (object.lastEpoch !== undefined && object.lastEpoch !== null) {

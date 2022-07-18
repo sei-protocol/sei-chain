@@ -23,7 +23,7 @@ export interface Http {
    * The default behavior is to not decode RFC 6570 reserved characters in multi
    * segment matches.
    */
-  fullyDecodeReservedExpansion: boolean;
+  fully_decode_reserved_expansion: boolean;
 }
 
 /**
@@ -281,13 +281,13 @@ export interface HttpRule {
    * body of response. Other response fields are ignored. When
    * not set, the response message will be used as HTTP body of response.
    */
-  responseBody: string;
+  response_body: string;
   /**
    * Additional HTTP bindings for the selector. Nested bindings must
    * not contain an `additional_bindings` field themselves (that is,
    * the nesting may only be one level deep).
    */
-  additionalBindings: HttpRule[];
+  additional_bindings: HttpRule[];
 }
 
 /** A custom pattern is used for defining custom HTTP verb. */
@@ -298,15 +298,15 @@ export interface CustomHttpPattern {
   path: string;
 }
 
-const baseHttp: object = { fullyDecodeReservedExpansion: false };
+const baseHttp: object = { fully_decode_reserved_expansion: false };
 
 export const Http = {
   encode(message: Http, writer: Writer = Writer.create()): Writer {
     for (const v of message.rules) {
       HttpRule.encode(v!, writer.uint32(10).fork()).ldelim();
     }
-    if (message.fullyDecodeReservedExpansion === true) {
-      writer.uint32(16).bool(message.fullyDecodeReservedExpansion);
+    if (message.fully_decode_reserved_expansion === true) {
+      writer.uint32(16).bool(message.fully_decode_reserved_expansion);
     }
     return writer;
   },
@@ -323,7 +323,7 @@ export const Http = {
           message.rules.push(HttpRule.decode(reader, reader.uint32()));
           break;
         case 2:
-          message.fullyDecodeReservedExpansion = reader.bool();
+          message.fully_decode_reserved_expansion = reader.bool();
           break;
         default:
           reader.skipType(tag & 7);
@@ -342,14 +342,14 @@ export const Http = {
       }
     }
     if (
-      object.fullyDecodeReservedExpansion !== undefined &&
-      object.fullyDecodeReservedExpansion !== null
+      object.fully_decode_reserved_expansion !== undefined &&
+      object.fully_decode_reserved_expansion !== null
     ) {
-      message.fullyDecodeReservedExpansion = Boolean(
-        object.fullyDecodeReservedExpansion
+      message.fully_decode_reserved_expansion = Boolean(
+        object.fully_decode_reserved_expansion
       );
     } else {
-      message.fullyDecodeReservedExpansion = false;
+      message.fully_decode_reserved_expansion = false;
     }
     return message;
   },
@@ -363,8 +363,9 @@ export const Http = {
     } else {
       obj.rules = [];
     }
-    message.fullyDecodeReservedExpansion !== undefined &&
-      (obj.fullyDecodeReservedExpansion = message.fullyDecodeReservedExpansion);
+    message.fully_decode_reserved_expansion !== undefined &&
+      (obj.fully_decode_reserved_expansion =
+        message.fully_decode_reserved_expansion);
     return obj;
   },
 
@@ -377,19 +378,19 @@ export const Http = {
       }
     }
     if (
-      object.fullyDecodeReservedExpansion !== undefined &&
-      object.fullyDecodeReservedExpansion !== null
+      object.fully_decode_reserved_expansion !== undefined &&
+      object.fully_decode_reserved_expansion !== null
     ) {
-      message.fullyDecodeReservedExpansion =
-        object.fullyDecodeReservedExpansion;
+      message.fully_decode_reserved_expansion =
+        object.fully_decode_reserved_expansion;
     } else {
-      message.fullyDecodeReservedExpansion = false;
+      message.fully_decode_reserved_expansion = false;
     }
     return message;
   },
 };
 
-const baseHttpRule: object = { selector: "", body: "", responseBody: "" };
+const baseHttpRule: object = { selector: "", body: "", response_body: "" };
 
 export const HttpRule = {
   encode(message: HttpRule, writer: Writer = Writer.create()): Writer {
@@ -420,10 +421,10 @@ export const HttpRule = {
     if (message.body !== "") {
       writer.uint32(58).string(message.body);
     }
-    if (message.responseBody !== "") {
-      writer.uint32(98).string(message.responseBody);
+    if (message.response_body !== "") {
+      writer.uint32(98).string(message.response_body);
     }
-    for (const v of message.additionalBindings) {
+    for (const v of message.additional_bindings) {
       HttpRule.encode(v!, writer.uint32(90).fork()).ldelim();
     }
     return writer;
@@ -433,7 +434,7 @@ export const HttpRule = {
     const reader = input instanceof Uint8Array ? new Reader(input) : input;
     let end = length === undefined ? reader.len : reader.pos + length;
     const message = { ...baseHttpRule } as HttpRule;
-    message.additionalBindings = [];
+    message.additional_bindings = [];
     while (reader.pos < end) {
       const tag = reader.uint32();
       switch (tag >>> 3) {
@@ -462,10 +463,10 @@ export const HttpRule = {
           message.body = reader.string();
           break;
         case 12:
-          message.responseBody = reader.string();
+          message.response_body = reader.string();
           break;
         case 11:
-          message.additionalBindings.push(
+          message.additional_bindings.push(
             HttpRule.decode(reader, reader.uint32())
           );
           break;
@@ -479,7 +480,7 @@ export const HttpRule = {
 
   fromJSON(object: any): HttpRule {
     const message = { ...baseHttpRule } as HttpRule;
-    message.additionalBindings = [];
+    message.additional_bindings = [];
     if (object.selector !== undefined && object.selector !== null) {
       message.selector = String(object.selector);
     } else {
@@ -520,17 +521,17 @@ export const HttpRule = {
     } else {
       message.body = "";
     }
-    if (object.responseBody !== undefined && object.responseBody !== null) {
-      message.responseBody = String(object.responseBody);
+    if (object.response_body !== undefined && object.response_body !== null) {
+      message.response_body = String(object.response_body);
     } else {
-      message.responseBody = "";
+      message.response_body = "";
     }
     if (
-      object.additionalBindings !== undefined &&
-      object.additionalBindings !== null
+      object.additional_bindings !== undefined &&
+      object.additional_bindings !== null
     ) {
-      for (const e of object.additionalBindings) {
-        message.additionalBindings.push(HttpRule.fromJSON(e));
+      for (const e of object.additional_bindings) {
+        message.additional_bindings.push(HttpRule.fromJSON(e));
       }
     }
     return message;
@@ -549,21 +550,21 @@ export const HttpRule = {
         ? CustomHttpPattern.toJSON(message.custom)
         : undefined);
     message.body !== undefined && (obj.body = message.body);
-    message.responseBody !== undefined &&
-      (obj.responseBody = message.responseBody);
-    if (message.additionalBindings) {
-      obj.additionalBindings = message.additionalBindings.map((e) =>
+    message.response_body !== undefined &&
+      (obj.response_body = message.response_body);
+    if (message.additional_bindings) {
+      obj.additional_bindings = message.additional_bindings.map((e) =>
         e ? HttpRule.toJSON(e) : undefined
       );
     } else {
-      obj.additionalBindings = [];
+      obj.additional_bindings = [];
     }
     return obj;
   },
 
   fromPartial(object: DeepPartial<HttpRule>): HttpRule {
     const message = { ...baseHttpRule } as HttpRule;
-    message.additionalBindings = [];
+    message.additional_bindings = [];
     if (object.selector !== undefined && object.selector !== null) {
       message.selector = object.selector;
     } else {
@@ -604,17 +605,17 @@ export const HttpRule = {
     } else {
       message.body = "";
     }
-    if (object.responseBody !== undefined && object.responseBody !== null) {
-      message.responseBody = object.responseBody;
+    if (object.response_body !== undefined && object.response_body !== null) {
+      message.response_body = object.response_body;
     } else {
-      message.responseBody = "";
+      message.response_body = "";
     }
     if (
-      object.additionalBindings !== undefined &&
-      object.additionalBindings !== null
+      object.additional_bindings !== undefined &&
+      object.additional_bindings !== null
     ) {
-      for (const e of object.additionalBindings) {
-        message.additionalBindings.push(HttpRule.fromPartial(e));
+      for (const e of object.additional_bindings) {
+        message.additional_bindings.push(HttpRule.fromPartial(e));
       }
     }
     return message;

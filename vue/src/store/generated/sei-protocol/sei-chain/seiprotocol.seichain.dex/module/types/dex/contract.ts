@@ -7,9 +7,16 @@ export const protobufPackage = "seiprotocol.seichain.dex";
 export interface ContractInfo {
   codeId: number;
   contractAddr: string;
+  NeedHook: boolean;
+  NeedOrderMatching: boolean;
 }
 
-const baseContractInfo: object = { codeId: 0, contractAddr: "" };
+const baseContractInfo: object = {
+  codeId: 0,
+  contractAddr: "",
+  NeedHook: false,
+  NeedOrderMatching: false,
+};
 
 export const ContractInfo = {
   encode(message: ContractInfo, writer: Writer = Writer.create()): Writer {
@@ -18,6 +25,12 @@ export const ContractInfo = {
     }
     if (message.contractAddr !== "") {
       writer.uint32(18).string(message.contractAddr);
+    }
+    if (message.NeedHook === true) {
+      writer.uint32(24).bool(message.NeedHook);
+    }
+    if (message.NeedOrderMatching === true) {
+      writer.uint32(32).bool(message.NeedOrderMatching);
     }
     return writer;
   },
@@ -34,6 +47,12 @@ export const ContractInfo = {
           break;
         case 2:
           message.contractAddr = reader.string();
+          break;
+        case 3:
+          message.NeedHook = reader.bool();
+          break;
+        case 4:
+          message.NeedOrderMatching = reader.bool();
           break;
         default:
           reader.skipType(tag & 7);
@@ -55,6 +74,19 @@ export const ContractInfo = {
     } else {
       message.contractAddr = "";
     }
+    if (object.NeedHook !== undefined && object.NeedHook !== null) {
+      message.NeedHook = Boolean(object.NeedHook);
+    } else {
+      message.NeedHook = false;
+    }
+    if (
+      object.NeedOrderMatching !== undefined &&
+      object.NeedOrderMatching !== null
+    ) {
+      message.NeedOrderMatching = Boolean(object.NeedOrderMatching);
+    } else {
+      message.NeedOrderMatching = false;
+    }
     return message;
   },
 
@@ -63,6 +95,9 @@ export const ContractInfo = {
     message.codeId !== undefined && (obj.codeId = message.codeId);
     message.contractAddr !== undefined &&
       (obj.contractAddr = message.contractAddr);
+    message.NeedHook !== undefined && (obj.NeedHook = message.NeedHook);
+    message.NeedOrderMatching !== undefined &&
+      (obj.NeedOrderMatching = message.NeedOrderMatching);
     return obj;
   },
 
@@ -77,6 +112,19 @@ export const ContractInfo = {
       message.contractAddr = object.contractAddr;
     } else {
       message.contractAddr = "";
+    }
+    if (object.NeedHook !== undefined && object.NeedHook !== null) {
+      message.NeedHook = object.NeedHook;
+    } else {
+      message.NeedHook = false;
+    }
+    if (
+      object.NeedOrderMatching !== undefined &&
+      object.NeedOrderMatching !== null
+    ) {
+      message.NeedOrderMatching = object.NeedOrderMatching;
+    } else {
+      message.NeedOrderMatching = false;
     }
     return message;
   },

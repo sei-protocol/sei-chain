@@ -103,80 +103,6 @@ export function orderTypeToJSON(object: OrderType): string {
   }
 }
 
-export enum Denom {
-  SEI = 0,
-  ATOM = 1,
-  BTC = 2,
-  ETH = 3,
-  SOL = 4,
-  AVAX = 5,
-  USDC = 6,
-  NEAR = 7,
-  OSMO = 8,
-  UNRECOGNIZED = -1,
-}
-
-export function denomFromJSON(object: any): Denom {
-  switch (object) {
-    case 0:
-    case "SEI":
-      return Denom.SEI;
-    case 1:
-    case "ATOM":
-      return Denom.ATOM;
-    case 2:
-    case "BTC":
-      return Denom.BTC;
-    case 3:
-    case "ETH":
-      return Denom.ETH;
-    case 4:
-    case "SOL":
-      return Denom.SOL;
-    case 5:
-    case "AVAX":
-      return Denom.AVAX;
-    case 6:
-    case "USDC":
-      return Denom.USDC;
-    case 7:
-    case "NEAR":
-      return Denom.NEAR;
-    case 8:
-    case "OSMO":
-      return Denom.OSMO;
-    case -1:
-    case "UNRECOGNIZED":
-    default:
-      return Denom.UNRECOGNIZED;
-  }
-}
-
-export function denomToJSON(object: Denom): string {
-  switch (object) {
-    case Denom.SEI:
-      return "SEI";
-    case Denom.ATOM:
-      return "ATOM";
-    case Denom.BTC:
-      return "BTC";
-    case Denom.ETH:
-      return "ETH";
-    case Denom.SOL:
-      return "SOL";
-    case Denom.AVAX:
-      return "AVAX";
-    case Denom.USDC:
-      return "USDC";
-    case Denom.NEAR:
-      return "NEAR";
-    case Denom.OSMO:
-      return "OSMO";
-    default:
-      return "UNKNOWN";
-  }
-}
-
 export enum Unit {
   STANDARD = 0,
   MILLI = 1,
@@ -216,6 +142,86 @@ export function unitToJSON(object: Unit): string {
       return "MICRO";
     case Unit.NANO:
       return "NANO";
+    default:
+      return "UNKNOWN";
+  }
+}
+
+export enum OrderStatus {
+  PLACED = 0,
+  FAILED_TO_PLACE = 1,
+  CANCELLED = 2,
+  FULFILLED = 3,
+  UNRECOGNIZED = -1,
+}
+
+export function orderStatusFromJSON(object: any): OrderStatus {
+  switch (object) {
+    case 0:
+    case "PLACED":
+      return OrderStatus.PLACED;
+    case 1:
+    case "FAILED_TO_PLACE":
+      return OrderStatus.FAILED_TO_PLACE;
+    case 2:
+    case "CANCELLED":
+      return OrderStatus.CANCELLED;
+    case 3:
+    case "FULFILLED":
+      return OrderStatus.FULFILLED;
+    case -1:
+    case "UNRECOGNIZED":
+    default:
+      return OrderStatus.UNRECOGNIZED;
+  }
+}
+
+export function orderStatusToJSON(object: OrderStatus): string {
+  switch (object) {
+    case OrderStatus.PLACED:
+      return "PLACED";
+    case OrderStatus.FAILED_TO_PLACE:
+      return "FAILED_TO_PLACE";
+    case OrderStatus.CANCELLED:
+      return "CANCELLED";
+    case OrderStatus.FULFILLED:
+      return "FULFILLED";
+    default:
+      return "UNKNOWN";
+  }
+}
+
+export enum CancellationInitiator {
+  USER = 0,
+  LIQUIDATED = 1,
+  UNRECOGNIZED = -1,
+}
+
+export function cancellationInitiatorFromJSON(
+  object: any
+): CancellationInitiator {
+  switch (object) {
+    case 0:
+    case "USER":
+      return CancellationInitiator.USER;
+    case 1:
+    case "LIQUIDATED":
+      return CancellationInitiator.LIQUIDATED;
+    case -1:
+    case "UNRECOGNIZED":
+    default:
+      return CancellationInitiator.UNRECOGNIZED;
+  }
+}
+
+export function cancellationInitiatorToJSON(
+  object: CancellationInitiator
+): string {
+  switch (object) {
+    case CancellationInitiator.USER:
+      return "USER";
+    case CancellationInitiator.LIQUIDATED:
+      return "LIQUIDATED";
     default:
       return "UNKNOWN";
   }
