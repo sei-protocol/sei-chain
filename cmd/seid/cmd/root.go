@@ -332,6 +332,10 @@ func initAppConfig() (string, interface{}) {
 	srvCfg.MinGasPrices = "0.01usei"
 	srvCfg.API.Enable = true
 
+	// TODO: remove before mainnet launch
+	srvCfg.API.EnableUnsafeCORS = true
+	srvCfg.GRPCWeb.EnableUnsafeCORS = true
+
 	customAppConfig := CustomAppConfig{
 		Config: *srvCfg,
 		WASM: WASMConfig{
