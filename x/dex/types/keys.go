@@ -51,8 +51,15 @@ func TwapPrefix(contractAddr string) []byte {
 	return append(KeyPrefix(TwapKey), KeyPrefix(contractAddr)...)
 }
 
-func PricePrefix(contractAddr string) []byte {
-	return append(KeyPrefix(PriceKey), KeyPrefix(contractAddr)...)
+// `Price` constant + contract + price denom + asset denom
+func PricePrefix(contractAddr string, priceDenom string, assetDenom string) []byte {
+	return append(
+		append(
+			append(KeyPrefix(PriceKey), KeyPrefix(contractAddr)...),
+			KeyPrefix(priceDenom)...,
+		),
+		KeyPrefix(assetDenom)...,
+	)
 }
 
 func SettlementEntryPrefix(contractAddr string, priceDenom string, assetDenom string) []byte {
