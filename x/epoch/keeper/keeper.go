@@ -40,6 +40,17 @@ func NewKeeper(
 	}
 }
 
+// Set the gamm hooks.
+func (k *Keeper) SetHooks(eh types.EpochHooks) *Keeper {
+	if k.hooks != nil {
+		panic("cannot set epochs hooks twice")
+	}
+
+	k.hooks = eh
+
+	return k
+}
+
 func (k Keeper) Logger(ctx sdk.Context) log.Logger {
 	return ctx.Logger().With("module", fmt.Sprintf("x/%s", types.ModuleName))
 }
