@@ -333,6 +333,7 @@ func (am AppModule) endBlockForContract(ctx sdk.Context, contract types.Contract
 		orders := am.keeper.MemState.GetBlockOrders(typedContractAddr, typedPairStr)
 		cancels := am.keeper.MemState.GetBlockCancels(typedContractAddr, typedPairStr)
 		ctx.Logger().Info(string(typedPairStr))
+		ctx.Logger().Info(fmt.Sprintf("Order count: %d", len(*orders)))
 		marketBuys := orders.GetSortedMarketOrders(types.PositionDirection_LONG, true)
 		marketSells := orders.GetSortedMarketOrders(types.PositionDirection_SHORT, true)
 		limitBuys := orders.GetLimitOrders(types.PositionDirection_LONG)
