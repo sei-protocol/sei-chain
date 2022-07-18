@@ -2,6 +2,9 @@ package keeper
 
 import (
 	"context"
+	"math/big"
+
+	conversion "github.com/sei-protocol/sei-chain/utils"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
@@ -43,6 +46,27 @@ func (k msgServer) PlaceOrders(goCtx context.Context, msg *types.MsgPlaceOrders)
 	defer span.End()
 
 	ctx := sdk.UnwrapSDKContext(goCtx)
+
+	if msg.AutoCalculateDeposit {
+		calculatedCollateral := sdk.NewDecFromBigInt(big.NewInt(0))
+		for _, order := range msg.Orders {
+			calculatedCollateral = calculatedCollateral.Add(order.Price.Mul(order.Quantity))
+		}
+
+		// throw error if current funds amount is less than calculatedCollateral
+		if calculatedCollateral.GT(sdk.NewDecFromInt(k.Keeper.BankKeeper.GetBalance(ctx, sdk.AccAddress(msg.GetCreator()), msg.Orders[0].PriceDenom).Amount)) {
+			return nil, sdkerrors.Wrapf(sdkerrors.ErrInsufficientFunds, "insufficient funds to place order")
+		}
+
+		_, validDenom := k.Keeper.GetAssetMetadataByDenom(ctx, msg.Orders[0].PriceDenom)
+		if !validDenom {
+			return nil, sdkerrors.Wrapf(sdkerrors.ErrInvalidRequest, "invalid price denom")
+		}
+
+		newAmount, newDenom, _ := conversion.ConvertWholeToMicroDenom(calculatedCollateral, msg.Orders[0].PriceDenom)
+		msg.Funds[0].Amount = newAmount.RoundInt()
+		msg.Funds[0].Denom = newDenom
+	}
 
 	if err := k.transferFunds(spanCtx, msg); err != nil {
 		return nil, err

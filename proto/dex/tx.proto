@@ -36,6 +36,9 @@ message MsgPlaceOrders {
     (gogoproto.castrepeated) = "github.com/cosmos/cosmos-sdk/types.Coins",
     (gogoproto.jsontag) = "funds"
   ];
+  bool autoCalculateDeposit = 5 [
+      (gogoproto.jsontag) = "auto_calculate_deposit"
+  ];
 }
 
 message MsgPlaceOrdersResponse {
