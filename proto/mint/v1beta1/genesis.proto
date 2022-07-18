@@ -13,4 +13,8 @@ message GenesisState {
 
   // params defines all the paramaters of the module.
   Params params = 2 [(gogoproto.nullable) = false];
+
+  // current halven period start epoch
+  uint64 halven_started_epoch = 3
+  [ (gogoproto.moretags) = "yaml:\"halven_started_epoch\"" ];
 }
