@@ -1,8 +1,11 @@
 package migrations
 
 import (
+	"encoding/binary"
+
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	paramtypes "github.com/cosmos/cosmos-sdk/x/params/types"
+	"github.com/sei-protocol/sei-chain/x/dex/keeper"
 )
 
 /**
@@ -13,5 +16,11 @@ import (
 func V4ToV5(ctx sdk.Context, storeKey sdk.StoreKey, paramStore paramtypes.Subspace) error {
 	ClearStore(ctx, storeKey)
 	migratePriceSnapshotParam(ctx, paramStore)
+
+	// initialize epoch to 0
+	store := ctx.KVStore(storeKey)
+	bz := make([]byte, 8)
+	binary.BigEndian.PutUint64(bz, 0)
+	store.Set([]byte(keeper.EpochKey), bz)
 	return nil
 }

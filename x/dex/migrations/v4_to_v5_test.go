@@ -1,6 +1,7 @@
 package migrations_test
 
 import (
+	"encoding/binary"
 	"testing"
 
 	"github.com/cosmos/cosmos-sdk/codec"
@@ -9,6 +10,7 @@ import (
 	storetypes "github.com/cosmos/cosmos-sdk/store/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	typesparams "github.com/cosmos/cosmos-sdk/x/params/types"
+	"github.com/sei-protocol/sei-chain/x/dex/keeper"
 	"github.com/sei-protocol/sei-chain/x/dex/migrations"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
 	"github.com/stretchr/testify/require"
@@ -49,4 +51,8 @@ func TestMigrate4to5(t *testing.T) {
 	params := types.Params{}
 	paramsSubspace.GetParamSet(ctx, &params)
 	require.Equal(t, uint64(types.DefaultPriceSnapshotRetention), params.PriceSnapshotRetention)
+
+	epochBytes := store.Get([]byte(keeper.EpochKey))
+	epoch := binary.BigEndian.Uint64(epochBytes)
+	require.Equal(t, uint64(0), epoch)
 }
