@@ -6,15 +6,15 @@ export const protobufPackage = "seiprotocol.seichain.dex";
 
 /** Params defines the parameters for the module. */
 export interface Params {
-  priceSnapshotRetention: number;
+  price_snapshot_retention: number;
 }
 
-const baseParams: object = { priceSnapshotRetention: 0 };
+const baseParams: object = { price_snapshot_retention: 0 };
 
 export const Params = {
   encode(message: Params, writer: Writer = Writer.create()): Writer {
-    if (message.priceSnapshotRetention !== 0) {
-      writer.uint32(8).uint64(message.priceSnapshotRetention);
+    if (message.price_snapshot_retention !== 0) {
+      writer.uint32(8).uint64(message.price_snapshot_retention);
     }
     return writer;
   },
@@ -27,7 +27,7 @@ export const Params = {
       const tag = reader.uint32();
       switch (tag >>> 3) {
         case 1:
-          message.priceSnapshotRetention = longToNumber(
+          message.price_snapshot_retention = longToNumber(
             reader.uint64() as Long
           );
           break;
@@ -42,32 +42,34 @@ export const Params = {
   fromJSON(object: any): Params {
     const message = { ...baseParams } as Params;
     if (
-      object.priceSnapshotRetention !== undefined &&
-      object.priceSnapshotRetention !== null
+      object.price_snapshot_retention !== undefined &&
+      object.price_snapshot_retention !== null
     ) {
-      message.priceSnapshotRetention = Number(object.priceSnapshotRetention);
+      message.price_snapshot_retention = Number(
+        object.price_snapshot_retention
+      );
     } else {
-      message.priceSnapshotRetention = 0;
+      message.price_snapshot_retention = 0;
     }
     return message;
   },
 
   toJSON(message: Params): unknown {
     const obj: any = {};
-    message.priceSnapshotRetention !== undefined &&
-      (obj.priceSnapshotRetention = message.priceSnapshotRetention);
+    message.price_snapshot_retention !== undefined &&
+      (obj.price_snapshot_retention = message.price_snapshot_retention);
     return obj;
   },
 
   fromPartial(object: DeepPartial<Params>): Params {
     const message = { ...baseParams } as Params;
     if (
-      object.priceSnapshotRetention !== undefined &&
-      object.priceSnapshotRetention !== null
+      object.price_snapshot_retention !== undefined &&
+      object.price_snapshot_retention !== null
     ) {
-      message.priceSnapshotRetention = object.priceSnapshotRetention;
+      message.price_snapshot_retention = object.price_snapshot_retention;
     } else {
-      message.priceSnapshotRetention = 0;
+      message.price_snapshot_retention = 0;
     }
     return message;
   },

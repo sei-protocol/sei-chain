@@ -12,12 +12,12 @@ export interface MsgIBCSend {
    * Timeout height relative to the current block height.
    * The timeout is disabled when set to 0.
    */
-  timeoutHeight: number;
+  timeout_height: number;
   /**
    * Timeout timestamp (in nanoseconds) relative to the current block timestamp.
    * The timeout is disabled when set to 0.
    */
-  timeoutTimestamp: number;
+  timeout_timestamp: number;
   /**
    * Data is the payload to transfer. We must not make assumption what format or
    * content is in here.
@@ -32,8 +32,8 @@ export interface MsgIBCCloseChannel {
 
 const baseMsgIBCSend: object = {
   channel: "",
-  timeoutHeight: 0,
-  timeoutTimestamp: 0,
+  timeout_height: 0,
+  timeout_timestamp: 0,
 };
 
 export const MsgIBCSend = {
@@ -41,11 +41,11 @@ export const MsgIBCSend = {
     if (message.channel !== "") {
       writer.uint32(18).string(message.channel);
     }
-    if (message.timeoutHeight !== 0) {
-      writer.uint32(32).uint64(message.timeoutHeight);
+    if (message.timeout_height !== 0) {
+      writer.uint32(32).uint64(message.timeout_height);
     }
-    if (message.timeoutTimestamp !== 0) {
-      writer.uint32(40).uint64(message.timeoutTimestamp);
+    if (message.timeout_timestamp !== 0) {
+      writer.uint32(40).uint64(message.timeout_timestamp);
     }
     if (message.data.length !== 0) {
       writer.uint32(50).bytes(message.data);
@@ -64,10 +64,10 @@ export const MsgIBCSend = {
           message.channel = reader.string();
           break;
         case 4:
-          message.timeoutHeight = longToNumber(reader.uint64() as Long);
+          message.timeout_height = longToNumber(reader.uint64() as Long);
           break;
         case 5:
-          message.timeoutTimestamp = longToNumber(reader.uint64() as Long);
+          message.timeout_timestamp = longToNumber(reader.uint64() as Long);
           break;
         case 6:
           message.data = reader.bytes();
@@ -87,18 +87,18 @@ export const MsgIBCSend = {
     } else {
       message.channel = "";
     }
-    if (object.timeoutHeight !== undefined && object.timeoutHeight !== null) {
-      message.timeoutHeight = Number(object.timeoutHeight);
+    if (object.timeout_height !== undefined && object.timeout_height !== null) {
+      message.timeout_height = Number(object.timeout_height);
     } else {
-      message.timeoutHeight = 0;
+      message.timeout_height = 0;
     }
     if (
-      object.timeoutTimestamp !== undefined &&
-      object.timeoutTimestamp !== null
+      object.timeout_timestamp !== undefined &&
+      object.timeout_timestamp !== null
     ) {
-      message.timeoutTimestamp = Number(object.timeoutTimestamp);
+      message.timeout_timestamp = Number(object.timeout_timestamp);
     } else {
-      message.timeoutTimestamp = 0;
+      message.timeout_timestamp = 0;
     }
     if (object.data !== undefined && object.data !== null) {
       message.data = bytesFromBase64(object.data);
@@ -109,10 +109,10 @@ export const MsgIBCSend = {
   toJSON(message: MsgIBCSend): unknown {
     const obj: any = {};
     message.channel !== undefined && (obj.channel = message.channel);
-    message.timeoutHeight !== undefined &&
-      (obj.timeoutHeight = message.timeoutHeight);
-    message.timeoutTimestamp !== undefined &&
-      (obj.timeoutTimestamp = message.timeoutTimestamp);
+    message.timeout_height !== undefined &&
+      (obj.timeout_height = message.timeout_height);
+    message.timeout_timestamp !== undefined &&
+      (obj.timeout_timestamp = message.timeout_timestamp);
     message.data !== undefined &&
       (obj.data = base64FromBytes(
         message.data !== undefined ? message.data : new Uint8Array()
@@ -127,18 +127,18 @@ export const MsgIBCSend = {
     } else {
       message.channel = "";
     }
-    if (object.timeoutHeight !== undefined && object.timeoutHeight !== null) {
-      message.timeoutHeight = object.timeoutHeight;
+    if (object.timeout_height !== undefined && object.timeout_height !== null) {
+      message.timeout_height = object.timeout_height;
     } else {
-      message.timeoutHeight = 0;
+      message.timeout_height = 0;
     }
     if (
-      object.timeoutTimestamp !== undefined &&
-      object.timeoutTimestamp !== null
+      object.timeout_timestamp !== undefined &&
+      object.timeout_timestamp !== null
     ) {
-      message.timeoutTimestamp = object.timeoutTimestamp;
+      message.timeout_timestamp = object.timeout_timestamp;
     } else {
-      message.timeoutTimestamp = 0;
+      message.timeout_timestamp = 0;
     }
     if (object.data !== undefined && object.data !== null) {
       message.data = object.data;

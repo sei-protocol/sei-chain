@@ -25,7 +25,7 @@ export interface QueryParamsResponse {
  */
 export interface QuerySigningInfoRequest {
   /** cons_address is the address to query signing info of */
-  consAddress: string;
+  cons_address: string;
 }
 
 /**
@@ -34,7 +34,7 @@ export interface QuerySigningInfoRequest {
  */
 export interface QuerySigningInfoResponse {
   /** val_signing_info is the signing info of requested val cons address */
-  valSigningInfo: ValidatorSigningInfo | undefined;
+  val_signing_info: ValidatorSigningInfo | undefined;
 }
 
 /**
@@ -152,15 +152,15 @@ export const QueryParamsResponse = {
   },
 };
 
-const baseQuerySigningInfoRequest: object = { consAddress: "" };
+const baseQuerySigningInfoRequest: object = { cons_address: "" };
 
 export const QuerySigningInfoRequest = {
   encode(
     message: QuerySigningInfoRequest,
     writer: Writer = Writer.create()
   ): Writer {
-    if (message.consAddress !== "") {
-      writer.uint32(10).string(message.consAddress);
+    if (message.cons_address !== "") {
+      writer.uint32(10).string(message.cons_address);
     }
     return writer;
   },
@@ -175,7 +175,7 @@ export const QuerySigningInfoRequest = {
       const tag = reader.uint32();
       switch (tag >>> 3) {
         case 1:
-          message.consAddress = reader.string();
+          message.cons_address = reader.string();
           break;
         default:
           reader.skipType(tag & 7);
@@ -189,18 +189,18 @@ export const QuerySigningInfoRequest = {
     const message = {
       ...baseQuerySigningInfoRequest,
     } as QuerySigningInfoRequest;
-    if (object.consAddress !== undefined && object.consAddress !== null) {
-      message.consAddress = String(object.consAddress);
+    if (object.cons_address !== undefined && object.cons_address !== null) {
+      message.cons_address = String(object.cons_address);
     } else {
-      message.consAddress = "";
+      message.cons_address = "";
     }
     return message;
   },
 
   toJSON(message: QuerySigningInfoRequest): unknown {
     const obj: any = {};
-    message.consAddress !== undefined &&
-      (obj.consAddress = message.consAddress);
+    message.cons_address !== undefined &&
+      (obj.cons_address = message.cons_address);
     return obj;
   },
 
@@ -210,10 +210,10 @@ export const QuerySigningInfoRequest = {
     const message = {
       ...baseQuerySigningInfoRequest,
     } as QuerySigningInfoRequest;
-    if (object.consAddress !== undefined && object.consAddress !== null) {
-      message.consAddress = object.consAddress;
+    if (object.cons_address !== undefined && object.cons_address !== null) {
+      message.cons_address = object.cons_address;
     } else {
-      message.consAddress = "";
+      message.cons_address = "";
     }
     return message;
   },
@@ -226,9 +226,9 @@ export const QuerySigningInfoResponse = {
     message: QuerySigningInfoResponse,
     writer: Writer = Writer.create()
   ): Writer {
-    if (message.valSigningInfo !== undefined) {
+    if (message.val_signing_info !== undefined) {
       ValidatorSigningInfo.encode(
-        message.valSigningInfo,
+        message.val_signing_info,
         writer.uint32(10).fork()
       ).ldelim();
     }
@@ -248,7 +248,7 @@ export const QuerySigningInfoResponse = {
       const tag = reader.uint32();
       switch (tag >>> 3) {
         case 1:
-          message.valSigningInfo = ValidatorSigningInfo.decode(
+          message.val_signing_info = ValidatorSigningInfo.decode(
             reader,
             reader.uint32()
           );
@@ -265,21 +265,24 @@ export const QuerySigningInfoResponse = {
     const message = {
       ...baseQuerySigningInfoResponse,
     } as QuerySigningInfoResponse;
-    if (object.valSigningInfo !== undefined && object.valSigningInfo !== null) {
-      message.valSigningInfo = ValidatorSigningInfo.fromJSON(
-        object.valSigningInfo
+    if (
+      object.val_signing_info !== undefined &&
+      object.val_signing_info !== null
+    ) {
+      message.val_signing_info = ValidatorSigningInfo.fromJSON(
+        object.val_signing_info
       );
     } else {
-      message.valSigningInfo = undefined;
+      message.val_signing_info = undefined;
     }
     return message;
   },
 
   toJSON(message: QuerySigningInfoResponse): unknown {
     const obj: any = {};
-    message.valSigningInfo !== undefined &&
-      (obj.valSigningInfo = message.valSigningInfo
-        ? ValidatorSigningInfo.toJSON(message.valSigningInfo)
+    message.val_signing_info !== undefined &&
+      (obj.val_signing_info = message.val_signing_info
+        ? ValidatorSigningInfo.toJSON(message.val_signing_info)
         : undefined);
     return obj;
   },
@@ -290,12 +293,15 @@ export const QuerySigningInfoResponse = {
     const message = {
       ...baseQuerySigningInfoResponse,
     } as QuerySigningInfoResponse;
-    if (object.valSigningInfo !== undefined && object.valSigningInfo !== null) {
-      message.valSigningInfo = ValidatorSigningInfo.fromPartial(
-        object.valSigningInfo
+    if (
+      object.val_signing_info !== undefined &&
+      object.val_signing_info !== null
+    ) {
+      message.val_signing_info = ValidatorSigningInfo.fromPartial(
+        object.val_signing_info
       );
     } else {
-      message.valSigningInfo = undefined;
+      message.val_signing_info = undefined;
     }
     return message;
   },

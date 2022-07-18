@@ -14,11 +14,11 @@ export interface OracleAggregateExchangeRatePrevote {
   voter?: string;
 
   /** @format uint64 */
-  submitBlock?: string;
+  submit_block?: string;
 }
 
 export interface OracleAggregateExchangeRateVote {
-  exchangeRateTuples?: OracleExchangeRateTuple[];
+  exchange_rate_tuples?: OracleExchangeRateTuple[];
   voter?: string;
 }
 
@@ -28,13 +28,18 @@ export interface OracleDenom {
 
 export interface OracleDenomOracleExchangeRatePair {
   denom?: string;
-  oracleExchangeRate?: OracleOracleExchangeRate;
+  oracle_exchange_rate?: OracleOracleExchangeRate;
 }
 
 export interface OracleExchangeRateTuple {
   denom?: string;
-  exchangeRate?: string;
+  exchange_rate?: string;
 }
+
+/**
+ * MsgAggregateExchangeRateVoteResponse defines the Msg/AggregateExchangeRateVote response type.
+ */
+export type OracleMsgAggregateExchangeRateCombinedVoteResponse = object;
 
 /**
  * MsgAggregateExchangeRatePrevoteResponse defines the Msg/AggregateExchangeRatePrevote response type.
@@ -52,8 +57,8 @@ export type OracleMsgAggregateExchangeRateVoteResponse = object;
 export type OracleMsgDelegateFeedConsentResponse = object;
 
 export interface OracleOracleExchangeRate {
-  exchangeRate?: string;
-  lastUpdate?: string;
+  exchange_rate?: string;
+  last_update?: string;
 }
 
 export interface OracleOracleTwap {
@@ -61,34 +66,34 @@ export interface OracleOracleTwap {
   twap?: string;
 
   /** @format int64 */
-  lookbackSeconds?: string;
+  lookback_seconds?: string;
 }
 
 export interface OracleParams {
   /** @format uint64 */
-  votePeriod?: string;
-  voteThreshold?: string;
-  rewardBand?: string;
+  vote_period?: string;
+  vote_threshold?: string;
+  reward_band?: string;
   whitelist?: OracleDenom[];
-  slashFraction?: string;
+  slash_fraction?: string;
 
   /** @format uint64 */
-  slashWindow?: string;
-  minValidPerWindow?: string;
+  slash_window?: string;
+  min_valid_per_window?: string;
 
   /** @format int64 */
-  lookbackDuration?: string;
+  lookback_duration?: string;
 }
 
 export interface OraclePriceSnapshot {
   /** @format int64 */
   snapshotTimestamp?: string;
-  priceSnapshotItems?: OraclePriceSnapshotItem[];
+  price_snapshot_items?: OraclePriceSnapshotItem[];
 }
 
 export interface OraclePriceSnapshotItem {
   denom?: string;
-  oracleExchangeRate?: OracleOracleExchangeRate;
+  oracle_exchange_rate?: OracleOracleExchangeRate;
 }
 
 /**
@@ -105,7 +110,7 @@ export interface OracleQueryActivesResponse {
 Query/AggregatePrevote RPC method.
 */
 export interface OracleQueryAggregatePrevoteResponse {
-  aggregatePrevote?: OracleAggregateExchangeRatePrevote;
+  aggregate_prevote?: OracleAggregateExchangeRatePrevote;
 }
 
 /**
@@ -113,7 +118,7 @@ export interface OracleQueryAggregatePrevoteResponse {
 Query/AggregatePrevotes RPC method.
 */
 export interface OracleQueryAggregatePrevotesResponse {
-  aggregatePrevotes?: OracleAggregateExchangeRatePrevote[];
+  aggregate_prevotes?: OracleAggregateExchangeRatePrevote[];
 }
 
 /**
@@ -121,7 +126,7 @@ export interface OracleQueryAggregatePrevotesResponse {
 Query/AggregateVote RPC method.
 */
 export interface OracleQueryAggregateVoteResponse {
-  aggregateVote?: OracleAggregateExchangeRateVote;
+  aggregate_vote?: OracleAggregateExchangeRateVote;
 }
 
 /**
@@ -129,7 +134,7 @@ export interface OracleQueryAggregateVoteResponse {
 Query/AggregateVotes RPC method.
 */
 export interface OracleQueryAggregateVotesResponse {
-  aggregateVotes?: OracleAggregateExchangeRateVote[];
+  aggregate_votes?: OracleAggregateExchangeRateVote[];
 }
 
 /**
@@ -137,7 +142,7 @@ export interface OracleQueryAggregateVotesResponse {
 Query/ExchangeRate RPC method.
 */
 export interface OracleQueryExchangeRateResponse {
-  oracleExchangeRate?: OracleOracleExchangeRate;
+  oracle_exchange_rate?: OracleOracleExchangeRate;
 }
 
 /**
@@ -146,7 +151,7 @@ Query/ExchangeRates RPC method.
 */
 export interface OracleQueryExchangeRatesResponse {
   /** exchange_rates defines a list of the exchange rate for all whitelisted denoms. */
-  denomOracleExchangeRatePairs?: OracleDenomOracleExchangeRatePair[];
+  denom_oracle_exchange_rate_pairs?: OracleDenomOracleExchangeRatePair[];
 }
 
 /**
@@ -154,7 +159,7 @@ export interface OracleQueryExchangeRatesResponse {
 Query/FeederDelegation RPC method.
 */
 export interface OracleQueryFeederDelegationResponse {
-  feederAddr?: string;
+  feeder_addr?: string;
 }
 
 /**
@@ -166,11 +171,11 @@ export interface OracleQueryParamsResponse {
 }
 
 export interface OracleQueryPriceSnapshotHistoryResponse {
-  priceSnapshots?: OraclePriceSnapshot[];
+  price_snapshots?: OraclePriceSnapshot[];
 }
 
 export interface OracleQueryTwapsResponse {
-  oracleTwaps?: OracleOracleTwap[];
+  oracle_twaps?: OracleOracleTwap[];
 }
 
 /**
@@ -178,7 +183,7 @@ export interface OracleQueryTwapsResponse {
 Query/VotePenaltyCounter RPC method.
 */
 export interface OracleQueryVotePenaltyCounterResponse {
-  votePenaltyCounter?: OracleVotePenaltyCounter;
+  vote_penalty_counter?: OracleVotePenaltyCounter;
 }
 
 /**
@@ -190,15 +195,15 @@ export interface OracleQueryVoteTargetsResponse {
    * vote_targets defines a list of the denomination in which everyone
    * should vote in the current vote period.
    */
-  voteTargets?: string[];
+  vote_targets?: string[];
 }
 
 export interface OracleVotePenaltyCounter {
   /** @format uint64 */
-  missCount?: string;
+  miss_count?: string;
 
   /** @format uint64 */
-  abstainCount?: string;
+  abstain_count?: string;
 }
 
 export interface ProtobufAny {
@@ -463,7 +468,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
    * @name QueryTwaps
    * @request GET:/sei-protocol/sei-chain/oracle/denoms/twaps
    */
-  queryTwaps = (query?: { lookbackSeconds?: string }, params: RequestParams = {}) =>
+  queryTwaps = (query?: { lookback_seconds?: string }, params: RequestParams = {}) =>
     this.request<OracleQueryTwapsResponse, RpcStatus>({
       path: `/sei-protocol/sei-chain/oracle/denoms/twaps`,
       method: "GET",
@@ -558,11 +563,11 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
    * @tags Query
    * @name QueryAggregatePrevote
    * @summary AggregatePrevote returns an aggregate prevote of a validator
-   * @request GET:/sei-protocol/sei-chain/oracle/validators/{validatorAddr}/aggregate_prevote
+   * @request GET:/sei-protocol/sei-chain/oracle/validators/{validator_addr}/aggregate_prevote
    */
-  queryAggregatePrevote = (validatorAddr: string, params: RequestParams = {}) =>
+  queryAggregatePrevote = (validator_addr: string, params: RequestParams = {}) =>
     this.request<OracleQueryAggregatePrevoteResponse, RpcStatus>({
-      path: `/sei-protocol/sei-chain/oracle/validators/${validatorAddr}/aggregate_prevote`,
+      path: `/sei-protocol/sei-chain/oracle/validators/${validator_addr}/aggregate_prevote`,
       method: "GET",
       format: "json",
       ...params,
@@ -574,11 +579,11 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
    * @tags Query
    * @name QueryAggregateVote
    * @summary AggregateVote returns an aggregate vote of a validator
-   * @request GET:/sei-protocol/sei-chain/oracle/validators/{validatorAddr}/aggregate_vote
+   * @request GET:/sei-protocol/sei-chain/oracle/validators/{validator_addr}/aggregate_vote
    */
-  queryAggregateVote = (validatorAddr: string, params: RequestParams = {}) =>
+  queryAggregateVote = (validator_addr: string, params: RequestParams = {}) =>
     this.request<OracleQueryAggregateVoteResponse, RpcStatus>({
-      path: `/sei-protocol/sei-chain/oracle/validators/${validatorAddr}/aggregate_vote`,
+      path: `/sei-protocol/sei-chain/oracle/validators/${validator_addr}/aggregate_vote`,
       method: "GET",
       format: "json",
       ...params,
@@ -590,11 +595,11 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
    * @tags Query
    * @name QueryFeederDelegation
    * @summary FeederDelegation returns feeder delegation of a validator
-   * @request GET:/sei-protocol/sei-chain/oracle/validators/{validatorAddr}/feeder
+   * @request GET:/sei-protocol/sei-chain/oracle/validators/{validator_addr}/feeder
    */
-  queryFeederDelegation = (validatorAddr: string, params: RequestParams = {}) =>
+  queryFeederDelegation = (validator_addr: string, params: RequestParams = {}) =>
     this.request<OracleQueryFeederDelegationResponse, RpcStatus>({
-      path: `/sei-protocol/sei-chain/oracle/validators/${validatorAddr}/feeder`,
+      path: `/sei-protocol/sei-chain/oracle/validators/${validator_addr}/feeder`,
       method: "GET",
       format: "json",
       ...params,
@@ -606,11 +611,11 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
    * @tags Query
    * @name QueryVotePenaltyCounter
    * @summary MissCounter returns oracle miss counter of a validator
-   * @request GET:/sei-protocol/sei-chain/oracle/validators/{validatorAddr}/vote_penalty_counter
+   * @request GET:/sei-protocol/sei-chain/oracle/validators/{validator_addr}/vote_penalty_counter
    */
-  queryVotePenaltyCounter = (validatorAddr: string, params: RequestParams = {}) =>
+  queryVotePenaltyCounter = (validator_addr: string, params: RequestParams = {}) =>
     this.request<OracleQueryVotePenaltyCounterResponse, RpcStatus>({
-      path: `/sei-protocol/sei-chain/oracle/validators/${validatorAddr}/vote_penalty_counter`,
+      path: `/sei-protocol/sei-chain/oracle/validators/${validator_addr}/vote_penalty_counter`,
       method: "GET",
       format: "json",
       ...params,
