@@ -47,14 +47,14 @@ func (k msgServer) PlaceOrders(goCtx context.Context, msg *types.MsgPlaceOrders)
 
 	ctx := sdk.UnwrapSDKContext(goCtx)
 
-	calculatedCollateral := sdk.NewDecFromBigInt(big.NewInt(0))
-	for _, order := range msg.Orders {
-		calculatedCollateral = calculatedCollateral.Add(order.Price.Mul(order.Quantity))
-	}
-
 	if msg.AutoCalculateDeposit {
+		calculatedCollateral := sdk.NewDecFromBigInt(big.NewInt(0))
+		for _, order := range msg.Orders {
+			calculatedCollateral = calculatedCollateral.Add(order.Price.Mul(order.Quantity))
+		}
+
 		// throw error if current funds amount is less than calculatedCollateral
-		if msg.Funds[0].Amount.LT(k.Keeper.BankKeeper.GetBalance(ctx, sdk.AccAddress(msg.GetCreator()), msg.Orders[0].PriceDenom).Amount) {
+		if calculatedCollateral.GT(sdk.NewDecFromInt(k.Keeper.BankKeeper.GetBalance(ctx, sdk.AccAddress(msg.GetCreator()), msg.Orders[0].PriceDenom).Amount)) {
 			return nil, sdkerrors.Wrapf(sdkerrors.ErrInsufficientFunds, "insufficient funds to place order")
 		}
 
