@@ -49,13 +49,13 @@ func (k *Keeper) HandleEBLiquidation(ctx context.Context, sdkCtx sdk.Context, tr
 	}
 
 	// Place liquidation orders
-	k.placeLiquidationOrders(sdkCtx, contractAddr, response.LiquidationOrders)
+	k.PlaceLiquidationOrders(sdkCtx, contractAddr, response.LiquidationOrders)
 
 	liquidationSpan.End()
 	return nil
 }
 
-func (k *Keeper) placeLiquidationOrders(ctx sdk.Context, contractAddr string, liquidationOrders []types.Order) {
+func (k *Keeper) PlaceLiquidationOrders(ctx sdk.Context, contractAddr string, liquidationOrders []types.Order) {
 	ctx.Logger().Info("Placing liquidation orders...")
 	nextID := k.GetNextOrderID(ctx)
 	for _, order := range liquidationOrders {
