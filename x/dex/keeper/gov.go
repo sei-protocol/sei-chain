@@ -40,7 +40,6 @@ func (k Keeper) HandleUpdateTickSizeProposal(ctx sdk.Context, p *types.UpdateTic
 
 func (k Keeper) HandleAddAssetMetadataProposal(ctx sdk.Context, p *types.AddAssetMetadataProposal) error {
 	for _, asset := range p.AssetList {
-		fmt.Println(asset)
 		k.SetAssetMetadata(ctx, asset)
 	}
 	return nil

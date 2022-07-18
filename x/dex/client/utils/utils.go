@@ -168,13 +168,10 @@ func ParseAddAssetMetadataProposalJSON(cdc *codec.LegacyAmino, proposalFile stri
 	if err := cdc.UnmarshalJSON(contents, &proposal); err != nil {
 		return proposal, err
 	}
-
-	fmt.Println(proposal)
-
+	
 	// Verify base denoms specified in proposal are well formed
 	// Additionally verify that the asset "display" field is included in denom unit
 	for _, asset := range proposal.AssetList {
-		fmt.Println("base ", asset.Metadata.Base)
 		err := sdk.ValidateDenom(asset.Metadata.Base)
 		if err != nil {
 			return AddAssetMetadataProposalJSON{}, err
