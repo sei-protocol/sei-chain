@@ -3,9 +3,12 @@ package migrations_test
 import (
 	"testing"
 
+	"github.com/cosmos/cosmos-sdk/codec"
+	codectypes "github.com/cosmos/cosmos-sdk/codec/types"
 	"github.com/cosmos/cosmos-sdk/store"
 	storetypes "github.com/cosmos/cosmos-sdk/store/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	typesparams "github.com/cosmos/cosmos-sdk/x/params/types"
 	"github.com/sei-protocol/sei-chain/x/dex/migrations"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
 	"github.com/stretchr/testify/require"
@@ -24,10 +27,26 @@ func TestMigrate4to5(t *testing.T) {
 	stateStore.MountStoreWithDB(memStoreKey, sdk.StoreTypeMemory, nil)
 	require.NoError(t, stateStore.LoadLatestVersion())
 
+	registry := codectypes.NewInterfaceRegistry()
+	cdc := codec.NewProtoCodec(registry)
+
+	paramsSubspace := typesparams.NewSubspace(cdc,
+		types.Amino,
+		storeKey,
+		memStoreKey,
+		"DexParams",
+	)
 	ctx := sdk.NewContext(stateStore, tmproto.Header{}, false, log.NewNopLogger())
+	if !paramsSubspace.HasKeyTable() {
+		paramsSubspace = paramsSubspace.WithKeyTable(types.ParamKeyTable())
+	}
 	store := ctx.KVStore(storeKey)
 	store.Set([]byte("garbage key"), []byte("garbage value"))
-	err := migrations.V4ToV5(ctx, storeKey)
+	err := migrations.V4ToV5(ctx, storeKey, paramsSubspace)
 	require.Nil(t, err)
 	require.False(t, store.Has([]byte("garbage key")))
+
+	params := types.Params{}
+	paramsSubspace.GetParamSet(ctx, &params)
+	require.Equal(t, uint64(types.DefaultPriceSnapshotRetention), params.PriceSnapshotRetention)
 }

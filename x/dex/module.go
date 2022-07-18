@@ -164,7 +164,7 @@ func (am AppModule) RegisterServices(cfg module.Configurator) {
 		return migrations.PriceSnapshotUpdate(ctx, am.keeper.Paramstore)
 	})
 	_ = cfg.RegisterMigration(types.ModuleName, 4, func(ctx sdk.Context) error {
-		return migrations.V4ToV5(ctx, am.keeper.GetStoreKey())
+		return migrations.V4ToV5(ctx, am.keeper.GetStoreKey(), am.keeper.Paramstore)
 	})
 }
 
