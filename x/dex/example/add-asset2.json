@@ -1,0 +1,28 @@
+{
+    "title": "Add usdc asset to asset list",
+    "description": "gov proposal to update asset list",
+    "asset_list": [
+        {
+            "type_asset": "native",
+            "metadata": {
+                "description": "Circle's stablecoin on Axelar",
+                "denom_units": [
+                    {
+                      "denom": "usei",
+                      "exponent": 0,
+                      "aliases": ["usei"]
+                    },
+                    {
+                      "denom": "sei",
+                      "exponent": 6
+                    }
+                ],
+                "base": "SEI",
+                "name": "sei",
+                "display": "sei",
+                "symbol": "SEI"
+            }
+        }
+    ],
+    "deposit": "500000usei"
+}

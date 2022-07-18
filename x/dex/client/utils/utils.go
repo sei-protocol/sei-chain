@@ -2,6 +2,7 @@ package utils
 
 import (
 	"errors"
+	"fmt"
 	"io/ioutil"
 
 	"github.com/cosmos/cosmos-sdk/codec"
@@ -54,7 +55,7 @@ type (
 	AddAssetMetadataProposalJSON struct {
 		Title       string        `json:"title" yaml:"title"`
 		Description string        `json:"description" yaml:"description"`
-		AssetList   AssetListJSON `json:"tick_size_list" yaml:"tick_size_list"`
+		AssetList   AssetListJSON `json:"asset_list" yaml:"asset_list"`
 		Deposit     string        `json:"deposit" yaml:"deposit"`
 	}
 )
@@ -168,9 +169,12 @@ func ParseAddAssetMetadataProposalJSON(cdc *codec.LegacyAmino, proposalFile stri
 		return proposal, err
 	}
 
+	fmt.Println(proposal)
+
 	// Verify base denoms specified in proposal are well formed
 	// Additionally verify that the asset "display" field is included in denom unit
 	for _, asset := range proposal.AssetList {
+		fmt.Println("base ", asset.Metadata.Base)
 		err := sdk.ValidateDenom(asset.Metadata.Base)
 		if err != nil {
 			return AddAssetMetadataProposalJSON{}, err
