@@ -14,12 +14,7 @@ import (
 // Parameter store keys
 var (
 	KeyMintDenom               = []byte("MintDenom")
-	KeyInflationRateChange     = []byte("InflationRateChange")
-	KeyInflationMax            = []byte("InflationMax")
-	KeyInflationMin            = []byte("InflationMin")
-	KeyGoalBonded              = []byte("GoalBonded")
-	KeyBlocksPerYear           = []byte("BlocksPerYear")
-	KeyEpochIdentifier         = []byte("EpochIdentifier")
+	KeyGenesisEpochProvisions  = []byte("GenesisEpochProvisions")
 	KeyReductionPeriodInEpochs = []byte("ReductionPeriodInEpochs")
 	KeyReductionFactor         = []byte("ReductionFactor")
 )
@@ -30,27 +25,23 @@ func ParamKeyTable() paramtypes.KeyTable {
 }
 
 func NewParams(
-	mintDenom string, inflationRateChange, inflationMax, inflationMin, goalBonded sdk.Dec, blocksPerYear uint64,
+	mintDenom string, genesisEpochProvisions sdk.Dec, reductionFactor sdk.Dec, reductionPeriodInEpochs int64,
 ) Params {
 	return Params{
-		MintDenom:           mintDenom,
-		InflationRateChange: inflationRateChange,
-		InflationMax:        inflationMax,
-		InflationMin:        inflationMin,
-		GoalBonded:          goalBonded,
-		BlocksPerYear:       blocksPerYear,
+		MintDenom:               mintDenom,
+		GenesisEpochProvisions:  genesisEpochProvisions,
+		ReductionFactor:         reductionFactor,
+		ReductionPeriodInEpochs: reductionPeriodInEpochs,
 	}
 }
 
 // default minting module parameters
 func DefaultParams() Params {
 	return Params{
-		MintDenom:           sdk.DefaultBondDenom,
-		InflationRateChange: sdk.NewDecWithPrec(13, 2),
-		InflationMax:        sdk.NewDecWithPrec(20, 2),
-		InflationMin:        sdk.NewDecWithPrec(7, 2),
-		GoalBonded:          sdk.NewDecWithPrec(67, 2),
-		BlocksPerYear:       uint64(60 * 60 * 8766), // assuming 1 second block times
+		MintDenom:               sdk.DefaultBondDenom,
+		GenesisEpochProvisions:  sdk.NewDec(5000000),
+		ReductionPeriodInEpochs: 60 * 24 * 52 * 3,         // Epochs are 1 min - this is 3 years
+		ReductionFactor:         sdk.NewDecWithPrec(5, 1), // 0.5
 	}
 }
 
@@ -59,28 +50,15 @@ func (p Params) Validate() error {
 	if err := validateMintDenom(p.MintDenom); err != nil {
 		return err
 	}
-	if err := validateInflationRateChange(p.InflationRateChange); err != nil {
+	if err := validateGenesisEpochProvisions(p.GenesisEpochProvisions); err != nil {
 		return err
 	}
-	if err := validateInflationMax(p.InflationMax); err != nil {
+	if err := validateReductionPeriodInEpochs(p.ReductionPeriodInEpochs); err != nil {
 		return err
 	}
-	if err := validateInflationMin(p.InflationMin); err != nil {
+	if err := validateReductionFactor(p.ReductionFactor); err != nil {
 		return err
 	}
-	if err := validateGoalBonded(p.GoalBonded); err != nil {
-		return err
-	}
-	if err := validateBlocksPerYear(p.BlocksPerYear); err != nil {
-		return err
-	}
-	if p.InflationMax.LT(p.InflationMin) {
-		return fmt.Errorf(
-			"max inflation (%s) must be greater than or equal to min inflation (%s)",
-			p.InflationMax, p.InflationMin,
-		)
-	}
-
 	return nil
 }
 
@@ -94,11 +72,9 @@ func (p Params) String() string {
 func (p *Params) ParamSetPairs() paramtypes.ParamSetPairs {
 	return paramtypes.ParamSetPairs{
 		paramtypes.NewParamSetPair(KeyMintDenom, &p.MintDenom, validateMintDenom),
-		paramtypes.NewParamSetPair(KeyInflationRateChange, &p.InflationRateChange, validateInflationRateChange),
-		paramtypes.NewParamSetPair(KeyInflationMax, &p.InflationMax, validateInflationMax),
-		paramtypes.NewParamSetPair(KeyInflationMin, &p.InflationMin, validateInflationMin),
-		paramtypes.NewParamSetPair(KeyGoalBonded, &p.GoalBonded, validateGoalBonded),
-		paramtypes.NewParamSetPair(KeyBlocksPerYear, &p.BlocksPerYear, validateBlocksPerYear),
+		paramtypes.NewParamSetPair(KeyGenesisEpochProvisions, &p.GenesisEpochProvisions, validateGenesisEpochProvisions),
+		paramtypes.NewParamSetPair(KeyReductionPeriodInEpochs, &p.ReductionPeriodInEpochs, validateReductionPeriodInEpochs),
+		paramtypes.NewParamSetPair(KeyReductionFactor, &p.ReductionFactor, validateReductionFactor),
 	}
 }
 
@@ -118,78 +94,44 @@ func validateMintDenom(i interface{}) error {
 	return nil
 }
 
-func validateInflationRateChange(i interface{}) error {
+func validateGenesisEpochProvisions(i interface{}) error {
 	v, ok := i.(sdk.Dec)
 	if !ok {
 		return fmt.Errorf("invalid parameter type: %T", i)
 	}
 
-	if v.IsNegative() {
-		return fmt.Errorf("inflation rate change cannot be negative: %s", v)
-	}
-	if v.GT(sdk.OneDec()) {
-		return fmt.Errorf("inflation rate change too large: %s", v)
+	if v.LT(sdk.ZeroDec()) {
+		return fmt.Errorf("genesis epoch provision must be non-negative")
 	}
 
 	return nil
 }
 
-func validateInflationMax(i interface{}) error {
+func validateReductionPeriodInEpochs(i interface{}) error {
+	v, ok := i.(int64)
+	if !ok {
+		return fmt.Errorf("invalid parameter type: %T", i)
+	}
+
+	if v <= 0 {
+		return fmt.Errorf("max validators must be positive: %d", v)
+	}
+
+	return nil
+}
+
+func validateReductionFactor(i interface{}) error {
 	v, ok := i.(sdk.Dec)
 	if !ok {
 		return fmt.Errorf("invalid parameter type: %T", i)
 	}
 
-	if v.IsNegative() {
-		return fmt.Errorf("max inflation cannot be negative: %s", v)
-	}
-	if v.GT(sdk.OneDec()) {
-		return fmt.Errorf("max inflation too large: %s", v)
-	}
-
-	return nil
-}
-
-func validateInflationMin(i interface{}) error {
-	v, ok := i.(sdk.Dec)
-	if !ok {
-		return fmt.Errorf("invalid parameter type: %T", i)
+	if v.GT(sdk.NewDec(1)) {
+		return fmt.Errorf("reduction factor cannot be greater than 1")
 	}
 
 	if v.IsNegative() {
-		return fmt.Errorf("min inflation cannot be negative: %s", v)
-	}
-	if v.GT(sdk.OneDec()) {
-		return fmt.Errorf("min inflation too large: %s", v)
-	}
-
-	return nil
-}
-
-func validateGoalBonded(i interface{}) error {
-	v, ok := i.(sdk.Dec)
-	if !ok {
-		return fmt.Errorf("invalid parameter type: %T", i)
-	}
-
-	if v.IsNegative() {
-		return fmt.Errorf("goal bonded cannot be negative: %s", v)
-	}
-	if v.GT(sdk.OneDec()) {
-		return fmt.Errorf("goal bonded too large: %s", v)
-	}
-
-	return nil
-}
-
-func validateBlocksPerYear(i interface{}) error {
-	v, ok := i.(uint64)
-	if !ok {
-		return fmt.Errorf("invalid parameter type: %T", i)
-	}
-
-	if v == 0 {
-		return fmt.Errorf("blocks per year must be positive: %d", v)
+		return fmt.Errorf("reduction factor cannot be negative")
 	}
 
 	return nil

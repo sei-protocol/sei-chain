@@ -17,6 +17,7 @@ type (
 		storeKey   sdk.StoreKey
 		memKey     sdk.StoreKey
 		paramstore paramtypes.Subspace
+		hooks      types.EpochHooks
 	}
 )
 
