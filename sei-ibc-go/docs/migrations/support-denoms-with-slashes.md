@@ -1,4 +1,4 @@
-# Migrating from not supporing base denoms with slashes to supporting base denoms with slashes
+# Migrating from not supporting base denoms with slashes to supporting base denoms with slashes
 
 This document is intended to highlight significant changes which may require more information than presented in the CHANGELOG.
 Any changes that must be done by a user of ibc-go should be documented here.
