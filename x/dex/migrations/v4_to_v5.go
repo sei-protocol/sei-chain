@@ -15,7 +15,9 @@ import (
  */
 func V4ToV5(ctx sdk.Context, storeKey sdk.StoreKey, paramStore paramtypes.Subspace) error {
 	ClearStore(ctx, storeKey)
-	migratePriceSnapshotParam(ctx, paramStore)
+	if err := migratePriceSnapshotParam(ctx, paramStore); err != nil {
+		return err
+	}
 
 	// initialize epoch to 0
 	store := ctx.KVStore(storeKey)

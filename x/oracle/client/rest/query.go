@@ -98,7 +98,7 @@ func queryTwapsHandlerFunction(cliCtx client.Context) http.HandlerFunc {
 			return
 		}
 
-		lookbackSeconds, ok := checkLookbackSecondsVar(w, r)
+		lookbackSeconds, ok := checkLookbackSecondsVar(r)
 		if !ok {
 			return
 		}
@@ -322,7 +322,7 @@ func checkDenomVar(w http.ResponseWriter, r *http.Request) (string, bool) {
 	return denom, true
 }
 
-func checkLookbackSecondsVar(w http.ResponseWriter, r *http.Request) (int64, bool) {
+func checkLookbackSecondsVar(r *http.Request) (int64, bool) {
 	lookbackSecondsStr := mux.Vars(r)[RestLookbackSeconds]
 	lookbackSeconds, err := strconv.ParseInt(lookbackSecondsStr, 10, 64)
 	if err != nil {
