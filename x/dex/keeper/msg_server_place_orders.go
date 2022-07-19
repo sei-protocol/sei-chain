@@ -58,7 +58,6 @@ func (k msgServer) PlaceOrders(goCtx context.Context, msg *types.MsgPlaceOrders)
 			return nil, sdkerrors.Wrapf(sdkerrors.ErrInsufficientFunds, "insufficient funds to place order")
 		}
 
-		// TODO: Should we still do this check? We still want price denom (deposits) to be in asset list
 		_, validDenom := k.Keeper.GetAssetMetadataByDenom(ctx, msg.Orders[0].PriceDenom)
 		if !validDenom {
 			return nil, sdkerrors.Wrapf(sdkerrors.ErrInvalidRequest, "invalid price denom")
