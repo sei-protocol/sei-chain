@@ -2,8 +2,9 @@ package keeper_test
 
 import (
 	gocontext "context"
-	"github.com/sei-protocol/sei-chain/x/mint/keeper"
 	"testing"
+
+	"github.com/sei-protocol/sei-chain/x/mint/keeper"
 
 	"github.com/sei-protocol/sei-chain/app"
 
