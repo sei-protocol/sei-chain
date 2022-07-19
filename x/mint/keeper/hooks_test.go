@@ -1,13 +1,14 @@
 package keeper_test
 
 import (
+	"testing"
+	"time"
+
 	"github.com/sei-protocol/sei-chain/app"
 	"github.com/sei-protocol/sei-chain/x/epoch/types"
 	"github.com/stretchr/testify/require"
 	abci "github.com/tendermint/tendermint/abci/types"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
-	"testing"
-	"time"
 )
 
 func getEpoch(genesisTime time.Time, currTime time.Time) types.Epoch {
@@ -19,7 +20,6 @@ func getEpoch(genesisTime time.Time, currTime time.Time) types.Epoch {
 		CurrentEpochStartTime: currTime,
 		CurrentEpochHeight:    0,
 	}
-
 }
 
 func TestEndOfEpochMintedCoinDistribution(t *testing.T) {
@@ -31,10 +31,10 @@ func TestEndOfEpochMintedCoinDistribution(t *testing.T) {
 	mintParams := seiApp.MintKeeper.GetParams(ctx)
 	genesisEpochProvisions := mintParams.GenesisEpochProvisions
 	reductionFactor := mintParams.ReductionFactor
-	genesisTime := time.Date(2022, time.Month(7), 18, 10, 00, 00, 00, time.UTC)
+	genesisTime := time.Date(2022, time.Month(7), 18, 10, 0, 0, 0, time.UTC)
 
 	// Year 1
-	currTime := genesisTime.Add(60 * 24 * 7 * 52 * time.Minute)
+	currTime := genesisTime.Add(60 * 24 * 365 * time.Minute)
 	currEpoch := getEpoch(genesisTime, currTime)
 	presupply := seiApp.BankKeeper.GetSupply(ctx, mintParams.MintDenom)
 
@@ -55,7 +55,7 @@ func TestEndOfEpochMintedCoinDistribution(t *testing.T) {
 	require.True(t, mintedCoinYear1.Amount.Int64() == int64(expectedMintedYear1))
 
 	// Year 2
-	currTime = currTime.Add(60 * 24 * 7 * 52 * time.Minute)
+	currTime = currTime.Add(60 * 24 * 7 * 365 * time.Minute)
 	currEpoch = getEpoch(genesisTime, currTime)
 
 	// Run hooks
@@ -81,7 +81,7 @@ func TestNoEpochPassedNoDistribution(t *testing.T) {
 	seiApp.BeginBlock(abci.RequestBeginBlock{Header: header})
 	// Get mint params
 	mintParams := seiApp.MintKeeper.GetParams(ctx)
-	genesisTime := time.Date(2022, time.Month(7), 18, 10, 00, 00, 00, time.UTC)
+	genesisTime := time.Date(2022, time.Month(7), 18, 10, 0, 0, 0, time.UTC)
 	presupply := seiApp.BankKeeper.GetSupply(ctx, mintParams.MintDenom)
 	epochProvisions := seiApp.MintKeeper.GetMinter(ctx).EpochProvision(mintParams)
 	// Loops through epochs under a year
