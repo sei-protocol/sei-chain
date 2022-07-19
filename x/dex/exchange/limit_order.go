@@ -18,10 +18,10 @@ func MatchLimitOrders(
 	zeroOrders *[]AccountOrderID,
 ) (sdk.Dec, sdk.Dec) {
 	for _, order := range longOrders {
-		addOrderToOrderBook(order, longBook, pair, longDirtyPrices)
+		addOrderToOrderBook(order, longBook, longDirtyPrices)
 	}
 	for _, order := range shortOrders {
-		addOrderToOrderBook(order, shortBook, pair, shortDirtyPrices)
+		addOrderToOrderBook(order, shortBook, shortDirtyPrices)
 	}
 	totalExecuted, totalPrice := sdk.ZeroDec(), sdk.ZeroDec()
 	longPtr, shortPtr := len(*longBook)-1, 0
@@ -63,7 +63,6 @@ func MatchLimitOrders(
 func addOrderToOrderBook(
 	order types.Order,
 	orderBook *[]types.OrderBook,
-	pair types.Pair,
 	dirtyPrices *DirtyPrices,
 ) {
 	insertAt := -1
