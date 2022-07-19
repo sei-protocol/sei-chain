@@ -17,14 +17,14 @@ func (k Keeper) AfterEpochEnd(ctx sdk.Context, epoch epochTypes.Epoch) {
 	// Since epochs only update based on BFT time data, it is safe to store the "halvening period time"
 	// in terms of the number of epochs that have transpired
 	// If it's not time to mint coins, exit
-	if epoch.GetCurrentEpoch() < k.GetLastHalvenEpochNum(ctx)+uint64(params.ReductionPeriodInEpochs) {
+	if int64(epoch.GetCurrentEpoch()) < k.GetLastHalvenEpochNum(ctx)+params.ReductionPeriodInEpochs {
 		return
 	}
 	// Halven the reward per halven period
 	minter := k.GetMinter(ctx)
 	minter.EpochProvisions = minter.NextEpochProvisions(params)
 	k.SetMinter(ctx, minter)
-	k.SetLastHalvenEpochNum(ctx, epoch.GetCurrentEpoch())
+	k.SetLastHalvenEpochNum(ctx, int64(epoch.GetCurrentEpoch()))
 	// mint coins, update supply
 	mintedCoin := minter.EpochProvision(params)
 	mintedCoins := sdk.NewCoins(mintedCoin)
@@ -32,7 +32,6 @@ func (k Keeper) AfterEpochEnd(ctx sdk.Context, epoch epochTypes.Epoch) {
 		panic(err)
 	}
 	// send the minted coins to the fee collector account
-
 	if err := k.AddCollectedFees(ctx, mintedCoins); err != nil {
 		panic(err)
 	}

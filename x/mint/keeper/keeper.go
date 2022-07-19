@@ -63,20 +63,20 @@ func (k *Keeper) SetHooks(h types.MintHooks) *Keeper {
 }
 
 // GetLastHalvenEpochNum returns last halven epoch number.
-func (k Keeper) GetLastHalvenEpochNum(ctx sdk.Context) uint64 {
+func (k Keeper) GetLastHalvenEpochNum(ctx sdk.Context) int64 {
 	store := ctx.KVStore(k.storeKey)
 	b := store.Get(types.LastHalvenEpochKey)
 	if b == nil {
 		return 0
 	}
 
-	return sdk.BigEndianToUint64(b)
+	return int64(sdk.BigEndianToUint64(b))
 }
 
 // SetLastHalvenEpochNum set last halven epoch number.
-func (k Keeper) SetLastHalvenEpochNum(ctx sdk.Context, epochNum uint64) {
+func (k Keeper) SetLastHalvenEpochNum(ctx sdk.Context, epochNum int64) {
 	store := ctx.KVStore(k.storeKey)
-	store.Set(types.LastHalvenEpochKey, sdk.Uint64ToBigEndian(epochNum))
+	store.Set(types.LastHalvenEpochKey, sdk.Uint64ToBigEndian(uint64(epochNum)))
 }
 
 // get the minter
