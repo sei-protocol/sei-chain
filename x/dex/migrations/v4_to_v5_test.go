@@ -44,6 +44,7 @@ func TestMigrate4to5(t *testing.T) {
 	}
 	store := ctx.KVStore(storeKey)
 	store.Set([]byte("garbage key"), []byte("garbage value"))
+	require.True(t, store.Has([]byte("garbage key")))
 	err := migrations.V4ToV5(ctx, storeKey, paramsSubspace)
 	require.Nil(t, err)
 	require.False(t, store.Has([]byte("garbage key")))

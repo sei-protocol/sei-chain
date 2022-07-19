@@ -22,8 +22,14 @@ func DataTypeUpdate(ctx sdk.Context, storeKey sdk.StoreKey, cdc codec.BinaryCode
  *          be used outside of a production setting.
  */
 func ClearStore(ctx sdk.Context, storeKey sdk.StoreKey) {
+	for i := 0; i < 256; i++ {
+		clearStoreForByte(ctx, storeKey, byte(i))
+	}
+}
+
+func clearStoreForByte(ctx sdk.Context, storeKey sdk.StoreKey, b byte) {
 	store := ctx.KVStore(storeKey)
-	iterator := sdk.KVStorePrefixIterator(store, []byte{})
+	iterator := sdk.KVStorePrefixIterator(store, []byte{b})
 	defer iterator.Close()
 	for ; iterator.Valid(); iterator.Next() {
 		store.Delete(iterator.Key())
