@@ -2,7 +2,6 @@ package utils
 
 import (
 	"errors"
-	"fmt"
 	"io/ioutil"
 
 	"github.com/cosmos/cosmos-sdk/codec"
@@ -168,7 +167,7 @@ func ParseAddAssetMetadataProposalJSON(cdc *codec.LegacyAmino, proposalFile stri
 	if err := cdc.UnmarshalJSON(contents, &proposal); err != nil {
 		return proposal, err
 	}
-	
+
 	// Verify base denoms specified in proposal are well formed
 	// Additionally verify that the asset "display" field is included in denom unit
 	for _, asset := range proposal.AssetList {
