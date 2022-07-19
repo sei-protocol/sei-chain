@@ -2,6 +2,7 @@ package wasmbinding
 
 import (
 	"encoding/json"
+	"fmt"
 
 	wasmvmtypes "github.com/CosmWasm/wasmvm/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -47,8 +48,10 @@ func (qp QueryPlugin) HandleOracleQuery(ctx sdk.Context, queryData json.RawMessa
 
 		return bz, nil
 	case parsedQuery.OracleTwaps != nil:
+		ctx.Logger().Info(fmt.Sprintf("Handle oracle query: %s", parsedQuery.OracleTwaps.String()))
 		res, err := qp.oracleHandler.GetOracleTwaps(ctx, parsedQuery.OracleTwaps)
 		if err != nil {
+			ctx.Logger().Error(fmt.Sprintf("Oracle query error: %s", err.Error()))
 			return nil, sdkerrors.Wrap(err, "Error while getting Oracle Twaps")
 		}
 		bz, err := json.Marshal(res)
