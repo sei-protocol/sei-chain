@@ -1,5 +1,5 @@
 # ./scripts/initialize_local.sh to spawn chain locally, endpoint is default to localhost:9090
-# build the contract to wasm with `cargo build; docker run --rm -v "$(pwd)":/code   --mount type=volume,source="$(basename "$(pwd)")_cache",target=/code/target   --mount type=volume,source=registry_cache,target=/usr/local/cargo/registry   cosmwasm/rust-optimizer:0.12.5`
+# build the contract to wasm with `cargo build; sudo docker run --rm -v "$(pwd)":/code   --mount type=volume,source="$(basename "$(pwd)")_cache",target=/code/target   --mount type=volume,source=registry_cache,target=/usr/local/cargo/registry   cosmwasm/workspace-optimizer:0.12.6`
 
 # upload the code
 printf '00000000\n' | ./build/seid tx wasm store ../vortex-contract/artifacts/clearing_house.wasm -y --from=alice --chain-id=sei --gas=5003639 --fees=100000usei --broadcast-mode=block
@@ -23,8 +23,8 @@ sleep 30
 
 # register a pair
 printf '00000000\n' | ./build/seid tx dex register-pairs-proposal ./x/dex/example/register-pair-proposal.json -y --from=alice --chain-id=sei --fees=10000000usei --gas=500000 --broadcast-mode=block
-printf '00000000\n' | ./build/seid tx gov deposit 4 10000000usei -y --from=alice --chain-id=sei --fees=10000000usei --gas=500000 --broadcast-mode=block
-printf '00000000\n' | ./build/seid tx gov vote 4 yes -y --from=alice --chain-id=sei --fees=10000000usei --gas=500000 --broadcast-mode=block
+printf '00000000\n' | ./build/seid tx gov deposit 3 10000000usei -y --from=alice --chain-id=sei --fees=10000000usei --gas=500000 --broadcast-mode=block
+printf '00000000\n' | ./build/seid tx gov vote 3 yes -y --from=alice --chain-id=sei --fees=10000000usei --gas=500000 --broadcast-mode=block
 
 # sleep 5
 # printf '00000000\n' | ./build/seid tx dex update-tick-size-proposal ./x/dex/example/update-tick-size-proposal.json -y --from=alice --chain-id=sei --fees=10000000usei --gas=500000 --broadcast-mode=block
