@@ -72,10 +72,9 @@ func (k Keeper) getMatchedPriceQuantities(ctx sdk.Context, req *types.QueryOrder
 		if orderDirection == types.PositionDirection_SHORT {
 			// short order corresponds to long book which needs to be in descending order
 			return priceQuantities[i].price.GT(priceQuantities[j].price)
-		} else {
-			// long order corresponds to long book which needs to be in ascending order
-			return priceQuantities[i].price.LT(priceQuantities[j].price)
 		}
+		// long order corresponds to long book which needs to be in ascending order
+		return priceQuantities[i].price.LT(priceQuantities[j].price)
 	})
 
 	// exclude liquidity to be taken
