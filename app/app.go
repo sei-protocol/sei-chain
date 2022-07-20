@@ -728,6 +728,11 @@ func (app *App) BeginBlocker(ctx sdk.Context, req abci.RequestBeginBlock) abci.R
 	// 	context.WithValue(ctx.Context(), dexcache.GOCTX_KEY, dexcache.NewOrders()),
 	// )
 	// app.Logger().Info(fmt.Sprintf("BeginBlocker context %s", newCtx.Context().Value(dexcache.GOCTX_KEY).(dexcache.Orders)))
+	if ctx.BlockHeight() == 695725 || ctx.BlockHeight() == 695726 {
+		stakingParams := app.StakingKeeper.GetParams(ctx)
+		stakingParams.MaxValidators = 75
+		app.StakingKeeper.SetParams(ctx, stakingParams)
+	}
 	return app.mm.BeginBlock(ctx, req)
 }
 
