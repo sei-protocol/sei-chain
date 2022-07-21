@@ -12,8 +12,7 @@
           },
           {
             "price_denom": "axlusdc",
-            "asset_denom": "atom",
-            "tick_size": "1"
+            "asset_denom": "atom"
           },
           {
             "price_denom": "atom",

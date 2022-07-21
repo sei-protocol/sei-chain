@@ -13,7 +13,7 @@ type (
 	PairJSON struct {
 		PriceDenom string `json:"price_denom" yaml:"price_denom"`
 		AssetDenom string `json:"asset_denom" yaml:"asset_denom"`
-		TickSize   string `json:"tick_size" yaml:"tick_size"`
+		TickSize   *string `json:"tick_size" yaml:"tick_size"`
 	}
 
 	TickSizeJSON struct {
@@ -63,7 +63,7 @@ type (
 func NewPair(pair PairJSON) (dextypes.Pair, error) {
 	PriceDenom := pair.PriceDenom
 	AssetDenom := pair.AssetDenom
-	ticksize, err := sdk.NewDecFromStr(pair.TickSize)
+	ticksize, err := sdk.NewDecFromStr(*pair.TickSize)
 	if err != nil {
 		return dextypes.Pair{}, errors.New("ticksize: str to decimal conversion err")
 	}
@@ -131,6 +131,13 @@ func ParseRegisterPairsProposalJSON(cdc *codec.LegacyAmino, proposalFile string)
 	}
 
 	if err := cdc.UnmarshalJSON(contents, &proposal); err != nil {
+		for _, contractPair := range proposal.BatchContractPair {
+			for _, pair := range contractPair.Pairs {
+				if pair.TickSize == nil {
+					return proposal, errors.New("ticksize cannot be nil")
+				}
+			}
+		}
 		return proposal, err
 	}
 
