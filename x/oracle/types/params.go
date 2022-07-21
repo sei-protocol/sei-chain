@@ -37,6 +37,7 @@ var (
 		{Name: utils.MicroAtomDenom},
 		{Name: utils.MicroUsdcDenom},
 		{Name: utils.MicroSeiDenom},
+		{Name: utils.MicroEthDenom},
 	}
 	DefaultSlashFraction     = sdk.NewDecWithPrec(1, 4) // 0.01%
 	DefaultMinValidPerWindow = sdk.NewDecWithPrec(5, 2) // 5%
