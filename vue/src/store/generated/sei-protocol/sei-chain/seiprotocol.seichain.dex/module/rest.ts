@@ -25,7 +25,7 @@ export interface DexAssetIBCInfo {
 
 export interface DexAssetMetadata {
   ibcInfo?: DexAssetIBCInfo;
-  type_asset?: string;
+  typeAsset?: string;
 
   /**
    * Metadata represents a struct that describes
@@ -255,7 +255,7 @@ export interface RpcStatus {
  */
 export interface SeichaindexParams {
   /** @format uint64 */
-  price_snapshot_retention?: string;
+  priceSnapshotRetention?: string;
 }
 
 /**
@@ -295,7 +295,7 @@ a basic token.
 */
 export interface V1Beta1Metadata {
   description?: string;
-  denom_units?: V1Beta1DenomUnit[];
+  denomUnits?: V1Beta1DenomUnit[];
 
   /** base represents the base denom (should be the DenomUnit with exponent = 0). */
   base?: string;
@@ -354,7 +354,7 @@ export interface V1Beta1PageRequest {
    * count_total is only respected when offset is used. It is ignored when key
    * is set.
    */
-  count_total?: boolean;
+  countTotal?: boolean;
 
   /**
    * reverse is set to true if results are to be returned in the descending order.
@@ -375,7 +375,7 @@ corresponding request message has used PageRequest.
 */
 export interface V1Beta1PageResponse {
   /** @format byte */
-  next_key?: string;
+  nextKey?: string;
 
   /** @format uint64 */
   total?: string;
@@ -581,15 +581,14 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
    * No description
    *
    * @tags Query
-   * @name QueryGetRegisteredPairs
-   * @summary Returns all registered pairs for specified contract address
+   * @name QueryAssetList
+   * @summary Returns metadata for all the assets
    * @request GET:/sei-protocol/seichain/dex/asset_list
    */
-  queryGetRegisteredPairs = (query?: { contractAddr?: string }, params: RequestParams = {}) =>
-    this.request<DexQueryRegisteredPairsResponse, RpcStatus>({
+  queryAssetList = (params: RequestParams = {}) =>
+    this.request<DexQueryAssetListResponse, RpcStatus>({
       path: `/sei-protocol/seichain/dex/asset_list`,
       method: "GET",
-      query: query,
       format: "json",
       ...params,
     });
@@ -636,10 +635,10 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
    * No description
    *
    * @tags Query
-   * @name QueryGetOrderById
+   * @name QueryGetOrder
    * @request GET:/sei-protocol/seichain/dex/get_order_by_id/{contractAddr}/{priceDenom}/{assetDenom}/{id}
    */
-  queryGetOrderById = (
+  queryGetOrder = (
     contractAddr: string,
     priceDenom: string,
     assetDenom: string,
@@ -735,7 +734,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       "pagination.key"?: string;
       "pagination.offset"?: string;
       "pagination.limit"?: string;
-      "pagination.count_total"?: boolean;
+      "pagination.countTotal"?: boolean;
       "pagination.reverse"?: boolean;
     },
     params: RequestParams = {},
@@ -790,6 +789,23 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
    * No description
    *
    * @tags Query
+   * @name QueryGetRegisteredPairs
+   * @summary Returns all registered pairs for specified contract address
+   * @request GET:/sei-protocol/seichain/dex/registered_pairs
+   */
+  queryGetRegisteredPairs = (query?: { contractAddr?: string }, params: RequestParams = {}) =>
+    this.request<DexQueryRegisteredPairsResponse, RpcStatus>({
+      path: `/sei-protocol/seichain/dex/registered_pairs`,
+      method: "GET",
+      query: query,
+      format: "json",
+      ...params,
+    });
+
+  /**
+   * No description
+   *
+   * @tags Query
    * @name QueryShortBookAll
    * @summary Queries a list of ShortBook items.
    * @request GET:/sei-protocol/seichain/dex/short_book/{contractAddr}/{priceDenom}/{assetDenom}
@@ -802,7 +818,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       "pagination.key"?: string;
       "pagination.offset"?: string;
       "pagination.limit"?: string;
-      "pagination.count_total"?: boolean;
+      "pagination.countTotal"?: boolean;
       "pagination.reverse"?: boolean;
     },
     params: RequestParams = {},

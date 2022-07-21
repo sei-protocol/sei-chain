@@ -22,7 +22,7 @@ export interface MsgAggregateExchangeRatePrevoteResponse {}
  */
 export interface MsgAggregateExchangeRateVote {
   salt: string;
-  exchange_rates: string;
+  exchangeRates: string;
   feeder: string;
   validator: string;
 }
@@ -35,9 +35,9 @@ export interface MsgAggregateExchangeRateVoteResponse {}
  * aggregate exchange rate vote.
  */
 export interface MsgAggregateExchangeRateCombinedVote {
-  vote_salt: string;
-  vote_exchange_rates: string;
-  prevote_hash: string;
+  voteSalt: string;
+  voteExchangeRates: string;
+  prevoteHash: string;
   feeder: string;
   validator: string;
 }
@@ -218,7 +218,7 @@ export const MsgAggregateExchangeRatePrevoteResponse = {
 
 const baseMsgAggregateExchangeRateVote: object = {
   salt: "",
-  exchange_rates: "",
+  exchangeRates: "",
   feeder: "",
   validator: "",
 };
@@ -231,8 +231,8 @@ export const MsgAggregateExchangeRateVote = {
     if (message.salt !== "") {
       writer.uint32(10).string(message.salt);
     }
-    if (message.exchange_rates !== "") {
-      writer.uint32(18).string(message.exchange_rates);
+    if (message.exchangeRates !== "") {
+      writer.uint32(18).string(message.exchangeRates);
     }
     if (message.feeder !== "") {
       writer.uint32(26).string(message.feeder);
@@ -259,7 +259,7 @@ export const MsgAggregateExchangeRateVote = {
           message.salt = reader.string();
           break;
         case 2:
-          message.exchange_rates = reader.string();
+          message.exchangeRates = reader.string();
           break;
         case 3:
           message.feeder = reader.string();
@@ -284,10 +284,10 @@ export const MsgAggregateExchangeRateVote = {
     } else {
       message.salt = "";
     }
-    if (object.exchange_rates !== undefined && object.exchange_rates !== null) {
-      message.exchange_rates = String(object.exchange_rates);
+    if (object.exchangeRates !== undefined && object.exchangeRates !== null) {
+      message.exchangeRates = String(object.exchangeRates);
     } else {
-      message.exchange_rates = "";
+      message.exchangeRates = "";
     }
     if (object.feeder !== undefined && object.feeder !== null) {
       message.feeder = String(object.feeder);
@@ -305,8 +305,8 @@ export const MsgAggregateExchangeRateVote = {
   toJSON(message: MsgAggregateExchangeRateVote): unknown {
     const obj: any = {};
     message.salt !== undefined && (obj.salt = message.salt);
-    message.exchange_rates !== undefined &&
-      (obj.exchange_rates = message.exchange_rates);
+    message.exchangeRates !== undefined &&
+      (obj.exchangeRates = message.exchangeRates);
     message.feeder !== undefined && (obj.feeder = message.feeder);
     message.validator !== undefined && (obj.validator = message.validator);
     return obj;
@@ -323,10 +323,10 @@ export const MsgAggregateExchangeRateVote = {
     } else {
       message.salt = "";
     }
-    if (object.exchange_rates !== undefined && object.exchange_rates !== null) {
-      message.exchange_rates = object.exchange_rates;
+    if (object.exchangeRates !== undefined && object.exchangeRates !== null) {
+      message.exchangeRates = object.exchangeRates;
     } else {
-      message.exchange_rates = "";
+      message.exchangeRates = "";
     }
     if (object.feeder !== undefined && object.feeder !== null) {
       message.feeder = object.feeder;
@@ -395,9 +395,9 @@ export const MsgAggregateExchangeRateVoteResponse = {
 };
 
 const baseMsgAggregateExchangeRateCombinedVote: object = {
-  vote_salt: "",
-  vote_exchange_rates: "",
-  prevote_hash: "",
+  voteSalt: "",
+  voteExchangeRates: "",
+  prevoteHash: "",
   feeder: "",
   validator: "",
 };
@@ -407,14 +407,14 @@ export const MsgAggregateExchangeRateCombinedVote = {
     message: MsgAggregateExchangeRateCombinedVote,
     writer: Writer = Writer.create()
   ): Writer {
-    if (message.vote_salt !== "") {
-      writer.uint32(10).string(message.vote_salt);
+    if (message.voteSalt !== "") {
+      writer.uint32(10).string(message.voteSalt);
     }
-    if (message.vote_exchange_rates !== "") {
-      writer.uint32(18).string(message.vote_exchange_rates);
+    if (message.voteExchangeRates !== "") {
+      writer.uint32(18).string(message.voteExchangeRates);
     }
-    if (message.prevote_hash !== "") {
-      writer.uint32(26).string(message.prevote_hash);
+    if (message.prevoteHash !== "") {
+      writer.uint32(26).string(message.prevoteHash);
     }
     if (message.feeder !== "") {
       writer.uint32(34).string(message.feeder);
@@ -438,13 +438,13 @@ export const MsgAggregateExchangeRateCombinedVote = {
       const tag = reader.uint32();
       switch (tag >>> 3) {
         case 1:
-          message.vote_salt = reader.string();
+          message.voteSalt = reader.string();
           break;
         case 2:
-          message.vote_exchange_rates = reader.string();
+          message.voteExchangeRates = reader.string();
           break;
         case 3:
-          message.prevote_hash = reader.string();
+          message.prevoteHash = reader.string();
           break;
         case 4:
           message.feeder = reader.string();
@@ -464,23 +464,23 @@ export const MsgAggregateExchangeRateCombinedVote = {
     const message = {
       ...baseMsgAggregateExchangeRateCombinedVote,
     } as MsgAggregateExchangeRateCombinedVote;
-    if (object.vote_salt !== undefined && object.vote_salt !== null) {
-      message.vote_salt = String(object.vote_salt);
+    if (object.voteSalt !== undefined && object.voteSalt !== null) {
+      message.voteSalt = String(object.voteSalt);
     } else {
-      message.vote_salt = "";
+      message.voteSalt = "";
     }
     if (
-      object.vote_exchange_rates !== undefined &&
-      object.vote_exchange_rates !== null
+      object.voteExchangeRates !== undefined &&
+      object.voteExchangeRates !== null
     ) {
-      message.vote_exchange_rates = String(object.vote_exchange_rates);
+      message.voteExchangeRates = String(object.voteExchangeRates);
     } else {
-      message.vote_exchange_rates = "";
+      message.voteExchangeRates = "";
     }
-    if (object.prevote_hash !== undefined && object.prevote_hash !== null) {
-      message.prevote_hash = String(object.prevote_hash);
+    if (object.prevoteHash !== undefined && object.prevoteHash !== null) {
+      message.prevoteHash = String(object.prevoteHash);
     } else {
-      message.prevote_hash = "";
+      message.prevoteHash = "";
     }
     if (object.feeder !== undefined && object.feeder !== null) {
       message.feeder = String(object.feeder);
@@ -497,11 +497,11 @@ export const MsgAggregateExchangeRateCombinedVote = {
 
   toJSON(message: MsgAggregateExchangeRateCombinedVote): unknown {
     const obj: any = {};
-    message.vote_salt !== undefined && (obj.vote_salt = message.vote_salt);
-    message.vote_exchange_rates !== undefined &&
-      (obj.vote_exchange_rates = message.vote_exchange_rates);
-    message.prevote_hash !== undefined &&
-      (obj.prevote_hash = message.prevote_hash);
+    message.voteSalt !== undefined && (obj.voteSalt = message.voteSalt);
+    message.voteExchangeRates !== undefined &&
+      (obj.voteExchangeRates = message.voteExchangeRates);
+    message.prevoteHash !== undefined &&
+      (obj.prevoteHash = message.prevoteHash);
     message.feeder !== undefined && (obj.feeder = message.feeder);
     message.validator !== undefined && (obj.validator = message.validator);
     return obj;
@@ -513,23 +513,23 @@ export const MsgAggregateExchangeRateCombinedVote = {
     const message = {
       ...baseMsgAggregateExchangeRateCombinedVote,
     } as MsgAggregateExchangeRateCombinedVote;
-    if (object.vote_salt !== undefined && object.vote_salt !== null) {
-      message.vote_salt = object.vote_salt;
+    if (object.voteSalt !== undefined && object.voteSalt !== null) {
+      message.voteSalt = object.voteSalt;
     } else {
-      message.vote_salt = "";
+      message.voteSalt = "";
     }
     if (
-      object.vote_exchange_rates !== undefined &&
-      object.vote_exchange_rates !== null
+      object.voteExchangeRates !== undefined &&
+      object.voteExchangeRates !== null
     ) {
-      message.vote_exchange_rates = object.vote_exchange_rates;
+      message.voteExchangeRates = object.voteExchangeRates;
     } else {
-      message.vote_exchange_rates = "";
+      message.voteExchangeRates = "";
     }
-    if (object.prevote_hash !== undefined && object.prevote_hash !== null) {
-      message.prevote_hash = object.prevote_hash;
+    if (object.prevoteHash !== undefined && object.prevoteHash !== null) {
+      message.prevoteHash = object.prevoteHash;
     } else {
-      message.prevote_hash = "";
+      message.prevoteHash = "";
     }
     if (object.feeder !== undefined && object.feeder !== null) {
       message.feeder = object.feeder;

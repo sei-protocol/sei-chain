@@ -28,5 +28,5 @@ func (handler DexWasmQueryHandler) GetOrders(ctx sdk.Context, req *types.QueryGe
 
 func (handler DexWasmQueryHandler) GetOrderByID(ctx sdk.Context, req *types.QueryGetOrderByIDRequest) (*types.QueryGetOrderByIDResponse, error) {
 	c := sdk.WrapSDKContext(ctx)
-	return handler.dexKeeper.GetOrderByID(c, req)
+	return handler.dexKeeper.GetOrder(c, req)
 }

@@ -28,7 +28,7 @@ func TestGetOrderById(t *testing.T) {
 		AssetDenom:   TEST_ASSET_DENOM,
 		Id:           1,
 	}
-	resp, err := keeper.GetOrderByID(wctx, &query)
+	resp, err := keeper.GetOrder(wctx, &query)
 	require.Nil(t, err)
 	require.Equal(t, uint64(1), resp.Order.Id)
 	require.Equal(t, types.OrderStatus_PLACED, resp.Order.Status)
@@ -43,7 +43,7 @@ func TestGetOrderById(t *testing.T) {
 			},
 		},
 	})
-	resp, err = keeper.GetOrderByID(wctx, &query)
+	resp, err = keeper.GetOrder(wctx, &query)
 	require.Nil(t, err)
 	require.Equal(t, uint64(1), resp.Order.Id)
 	require.Equal(t, types.OrderStatus_FULFILLED, resp.Order.Status)
@@ -51,7 +51,7 @@ func TestGetOrderById(t *testing.T) {
 	// cancelled order
 	keeper.UpdateOrderStatus(ctx, TEST_CONTRACT, 1, types.OrderStatus_CANCELLED)
 	keeper.AddCancel(ctx, TEST_CONTRACT, types.Cancellation{Id: 1})
-	resp, err = keeper.GetOrderByID(wctx, &query)
+	resp, err = keeper.GetOrder(wctx, &query)
 	require.Nil(t, err)
 	require.Equal(t, uint64(1), resp.Order.Id)
 	require.Equal(t, types.OrderStatus_CANCELLED, resp.Order.Status)

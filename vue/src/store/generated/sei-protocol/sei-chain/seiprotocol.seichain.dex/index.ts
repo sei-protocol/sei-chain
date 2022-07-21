@@ -1,4 +1,6 @@
 import { txClient, queryClient, MissingWalletError , registry} from './module'
+// @ts-ignore
+import { SpVuexError } from '@starport/vuex'
 
 import { AssetIBCInfo } from "./module/types/dex/asset_list"
 import { AssetMetadata } from "./module/types/dex/asset_list"
@@ -74,7 +76,7 @@ const getDefaultState = () => {
 				AssetList: {},
 				GetRegisteredPairs: {},
 				GetOrders: {},
-				GetOrderByID: {},
+				GetOrder: {},
 				GetHistoricalPrices: {},
 				
 				_Structure: {
@@ -200,11 +202,11 @@ export default {
 					}
 			return state.GetOrders[JSON.stringify(params)] ?? {}
 		},
-				getGetOrderByID: (state) => (params = { params: {}}) => {
+				getGetOrder: (state) => (params = { params: {}}) => {
 					if (!(<any> params).query) {
 						(<any> params).query=null
 					}
-			return state.GetOrderByID[JSON.stringify(params)] ?? {}
+			return state.GetOrder[JSON.stringify(params)] ?? {}
 		},
 				getGetHistoricalPrices: (state) => (params = { params: {}}) => {
 					if (!(<any> params).query) {
@@ -241,7 +243,7 @@ export default {
 					const sub=JSON.parse(subscription)
 					await dispatch(sub.action, sub.payload)
 				}catch(e) {
-					throw new Error('Subscriptions: ' + e.message)
+					throw new SpVuexError('Subscriptions: ' + e.message)
 				}
 			})
 		},
@@ -262,7 +264,7 @@ export default {
 				if (subscribe) commit('SUBSCRIBE', { action: 'QueryParams', payload: { options: { all }, params: {...key},query }})
 				return getters['getParams']( { params: {...key}, query}) ?? {}
 			} catch (e) {
-				throw new Error('QueryClient:QueryParams API Node Unavailable. Could not perform query: ' + e.message)
+				throw new SpVuexError('QueryClient:QueryParams', 'API Node Unavailable. Could not perform query: ' + e.message)
 				
 			}
 		},
@@ -284,7 +286,7 @@ export default {
 				if (subscribe) commit('SUBSCRIBE', { action: 'QueryLongBook', payload: { options: { all }, params: {...key},query }})
 				return getters['getLongBook']( { params: {...key}, query}) ?? {}
 			} catch (e) {
-				throw new Error('QueryClient:QueryLongBook API Node Unavailable. Could not perform query: ' + e.message)
+				throw new SpVuexError('QueryClient:QueryLongBook', 'API Node Unavailable. Could not perform query: ' + e.message)
 				
 			}
 		},
@@ -310,7 +312,7 @@ export default {
 				if (subscribe) commit('SUBSCRIBE', { action: 'QueryLongBookAll', payload: { options: { all }, params: {...key},query }})
 				return getters['getLongBookAll']( { params: {...key}, query}) ?? {}
 			} catch (e) {
-				throw new Error('QueryClient:QueryLongBookAll API Node Unavailable. Could not perform query: ' + e.message)
+				throw new SpVuexError('QueryClient:QueryLongBookAll', 'API Node Unavailable. Could not perform query: ' + e.message)
 				
 			}
 		},
@@ -332,7 +334,7 @@ export default {
 				if (subscribe) commit('SUBSCRIBE', { action: 'QueryShortBook', payload: { options: { all }, params: {...key},query }})
 				return getters['getShortBook']( { params: {...key}, query}) ?? {}
 			} catch (e) {
-				throw new Error('QueryClient:QueryShortBook API Node Unavailable. Could not perform query: ' + e.message)
+				throw new SpVuexError('QueryClient:QueryShortBook', 'API Node Unavailable. Could not perform query: ' + e.message)
 				
 			}
 		},
@@ -358,7 +360,7 @@ export default {
 				if (subscribe) commit('SUBSCRIBE', { action: 'QueryShortBookAll', payload: { options: { all }, params: {...key},query }})
 				return getters['getShortBookAll']( { params: {...key}, query}) ?? {}
 			} catch (e) {
-				throw new Error('QueryClient:QueryShortBookAll API Node Unavailable. Could not perform query: ' + e.message)
+				throw new SpVuexError('QueryClient:QueryShortBookAll', 'API Node Unavailable. Could not perform query: ' + e.message)
 				
 			}
 		},
@@ -380,7 +382,7 @@ export default {
 				if (subscribe) commit('SUBSCRIBE', { action: 'QueryGetSettlements', payload: { options: { all }, params: {...key},query }})
 				return getters['getGetSettlements']( { params: {...key}, query}) ?? {}
 			} catch (e) {
-				throw new Error('QueryClient:QueryGetSettlements API Node Unavailable. Could not perform query: ' + e.message)
+				throw new SpVuexError('QueryClient:QueryGetSettlements', 'API Node Unavailable. Could not perform query: ' + e.message)
 				
 			}
 		},
@@ -402,7 +404,7 @@ export default {
 				if (subscribe) commit('SUBSCRIBE', { action: 'QueryGetPrices', payload: { options: { all }, params: {...key},query }})
 				return getters['getGetPrices']( { params: {...key}, query}) ?? {}
 			} catch (e) {
-				throw new Error('QueryClient:QueryGetPrices API Node Unavailable. Could not perform query: ' + e.message)
+				throw new SpVuexError('QueryClient:QueryGetPrices', 'API Node Unavailable. Could not perform query: ' + e.message)
 				
 			}
 		},
@@ -424,7 +426,7 @@ export default {
 				if (subscribe) commit('SUBSCRIBE', { action: 'QueryGetTwaps', payload: { options: { all }, params: {...key},query }})
 				return getters['getGetTwaps']( { params: {...key}, query}) ?? {}
 			} catch (e) {
-				throw new Error('QueryClient:QueryGetTwaps API Node Unavailable. Could not perform query: ' + e.message)
+				throw new SpVuexError('QueryClient:QueryGetTwaps', 'API Node Unavailable. Could not perform query: ' + e.message)
 				
 			}
 		},
@@ -446,7 +448,7 @@ export default {
 				if (subscribe) commit('SUBSCRIBE', { action: 'QueryAssetMetadata', payload: { options: { all }, params: {...key},query }})
 				return getters['getAssetMetadata']( { params: {...key}, query}) ?? {}
 			} catch (e) {
-				throw new Error('QueryClient:QueryAssetMetadata API Node Unavailable. Could not perform query: ' + e.message)
+				throw new SpVuexError('QueryClient:QueryAssetMetadata', 'API Node Unavailable. Could not perform query: ' + e.message)
 				
 			}
 		},
@@ -468,7 +470,7 @@ export default {
 				if (subscribe) commit('SUBSCRIBE', { action: 'QueryAssetList', payload: { options: { all }, params: {...key},query }})
 				return getters['getAssetList']( { params: {...key}, query}) ?? {}
 			} catch (e) {
-				throw new Error('QueryClient:QueryAssetList API Node Unavailable. Could not perform query: ' + e.message)
+				throw new SpVuexError('QueryClient:QueryAssetList', 'API Node Unavailable. Could not perform query: ' + e.message)
 				
 			}
 		},
@@ -494,7 +496,7 @@ export default {
 				if (subscribe) commit('SUBSCRIBE', { action: 'QueryGetRegisteredPairs', payload: { options: { all }, params: {...key},query }})
 				return getters['getGetRegisteredPairs']( { params: {...key}, query}) ?? {}
 			} catch (e) {
-				throw new Error('QueryClient:QueryGetRegisteredPairs API Node Unavailable. Could not perform query: ' + e.message)
+				throw new SpVuexError('QueryClient:QueryGetRegisteredPairs', 'API Node Unavailable. Could not perform query: ' + e.message)
 				
 			}
 		},
@@ -516,7 +518,7 @@ export default {
 				if (subscribe) commit('SUBSCRIBE', { action: 'QueryGetOrders', payload: { options: { all }, params: {...key},query }})
 				return getters['getGetOrders']( { params: {...key}, query}) ?? {}
 			} catch (e) {
-				throw new Error('QueryClient:QueryGetOrders API Node Unavailable. Could not perform query: ' + e.message)
+				throw new SpVuexError('QueryClient:QueryGetOrders', 'API Node Unavailable. Could not perform query: ' + e.message)
 				
 			}
 		},
@@ -527,18 +529,18 @@ export default {
 		 		
 		
 		
-		async QueryGetOrderByID({ commit, rootGetters, getters }, { options: { subscribe, all} = { subscribe:false, all:false}, params, query=null }) {
+		async QueryGetOrder({ commit, rootGetters, getters }, { options: { subscribe, all} = { subscribe:false, all:false}, params, query=null }) {
 			try {
 				const key = params ?? {};
 				const queryClient=await initQueryClient(rootGetters)
-				let value= (await queryClient.queryGetOrderById( key.contractAddr,  key.priceDenom,  key.assetDenom,  key.id)).data
+				let value= (await queryClient.queryGetOrder( key.contractAddr,  key.priceDenom,  key.assetDenom,  key.id)).data
 				
 					
-				commit('QUERY', { query: 'GetOrderByID', key: { params: {...key}, query}, value })
-				if (subscribe) commit('SUBSCRIBE', { action: 'QueryGetOrderByID', payload: { options: { all }, params: {...key},query }})
-				return getters['getGetOrderByID']( { params: {...key}, query}) ?? {}
+				commit('QUERY', { query: 'GetOrder', key: { params: {...key}, query}, value })
+				if (subscribe) commit('SUBSCRIBE', { action: 'QueryGetOrder', payload: { options: { all }, params: {...key},query }})
+				return getters['getGetOrder']( { params: {...key}, query}) ?? {}
 			} catch (e) {
-				throw new Error('QueryClient:QueryGetOrderByID API Node Unavailable. Could not perform query: ' + e.message)
+				throw new SpVuexError('QueryClient:QueryGetOrder', 'API Node Unavailable. Could not perform query: ' + e.message)
 				
 			}
 		},
@@ -560,24 +562,24 @@ export default {
 				if (subscribe) commit('SUBSCRIBE', { action: 'QueryGetHistoricalPrices', payload: { options: { all }, params: {...key},query }})
 				return getters['getGetHistoricalPrices']( { params: {...key}, query}) ?? {}
 			} catch (e) {
-				throw new Error('QueryClient:QueryGetHistoricalPrices API Node Unavailable. Could not perform query: ' + e.message)
+				throw new SpVuexError('QueryClient:QueryGetHistoricalPrices', 'API Node Unavailable. Could not perform query: ' + e.message)
 				
 			}
 		},
 		
 		
-		async sendMsgRegisterContract({ rootGetters }, { value, fee = [], memo = '' }) {
+		async sendMsgCancelOrders({ rootGetters }, { value, fee = [], memo = '' }) {
 			try {
 				const txClient=await initTxClient(rootGetters)
-				const msg = await txClient.msgRegisterContract(value)
+				const msg = await txClient.msgCancelOrders(value)
 				const result = await txClient.signAndBroadcast([msg], {fee: { amount: fee, 
 	gas: "200000" }, memo})
 				return result
 			} catch (e) {
 				if (e == MissingWalletError) {
-					throw new Error('TxClient:MsgRegisterContract:Init Could not initialize signing client. Wallet is required.')
+					throw new SpVuexError('TxClient:MsgCancelOrders:Init', 'Could not initialize signing client. Wallet is required.')
 				}else{
-					throw new Error('TxClient:MsgRegisterContract:Send Could not broadcast Tx: '+ e.message)
+					throw new SpVuexError('TxClient:MsgCancelOrders:Send', 'Could not broadcast Tx: '+ e.message)
 				}
 			}
 		},
@@ -590,9 +592,9 @@ export default {
 				return result
 			} catch (e) {
 				if (e == MissingWalletError) {
-					throw new Error('TxClient:MsgLiquidation:Init Could not initialize signing client. Wallet is required.')
+					throw new SpVuexError('TxClient:MsgLiquidation:Init', 'Could not initialize signing client. Wallet is required.')
 				}else{
-					throw new Error('TxClient:MsgLiquidation:Send Could not broadcast Tx: '+ e.message)
+					throw new SpVuexError('TxClient:MsgLiquidation:Send', 'Could not broadcast Tx: '+ e.message)
 				}
 			}
 		},
@@ -605,38 +607,39 @@ export default {
 				return result
 			} catch (e) {
 				if (e == MissingWalletError) {
-					throw new Error('TxClient:MsgPlaceOrders:Init Could not initialize signing client. Wallet is required.')
+					throw new SpVuexError('TxClient:MsgPlaceOrders:Init', 'Could not initialize signing client. Wallet is required.')
 				}else{
-					throw new Error('TxClient:MsgPlaceOrders:Send Could not broadcast Tx: '+ e.message)
+					throw new SpVuexError('TxClient:MsgPlaceOrders:Send', 'Could not broadcast Tx: '+ e.message)
 				}
 			}
 		},
-		async sendMsgCancelOrders({ rootGetters }, { value, fee = [], memo = '' }) {
+		async sendMsgRegisterContract({ rootGetters }, { value, fee = [], memo = '' }) {
 			try {
 				const txClient=await initTxClient(rootGetters)
-				const msg = await txClient.msgCancelOrders(value)
+				const msg = await txClient.msgRegisterContract(value)
 				const result = await txClient.signAndBroadcast([msg], {fee: { amount: fee, 
 	gas: "200000" }, memo})
 				return result
 			} catch (e) {
 				if (e == MissingWalletError) {
-					throw new Error('TxClient:MsgCancelOrders:Init Could not initialize signing client. Wallet is required.')
+					throw new SpVuexError('TxClient:MsgRegisterContract:Init', 'Could not initialize signing client. Wallet is required.')
 				}else{
-					throw new Error('TxClient:MsgCancelOrders:Send Could not broadcast Tx: '+ e.message)
+					throw new SpVuexError('TxClient:MsgRegisterContract:Send', 'Could not broadcast Tx: '+ e.message)
 				}
 			}
 		},
 		
-		async MsgRegisterContract({ rootGetters }, { value }) {
+		async MsgCancelOrders({ rootGetters }, { value }) {
 			try {
 				const txClient=await initTxClient(rootGetters)
-				const msg = await txClient.msgRegisterContract(value)
+				const msg = await txClient.msgCancelOrders(value)
 				return msg
 			} catch (e) {
 				if (e == MissingWalletError) {
-					throw new Error('TxClient:MsgRegisterContract:Init Could not initialize signing client. Wallet is required.')
-				} else{
-					throw new Error('TxClient:MsgRegisterContract:Create Could not create message: ' + e.message)
+					throw new SpVuexError('TxClient:MsgCancelOrders:Init', 'Could not initialize signing client. Wallet is required.')
+				}else{
+					throw new SpVuexError('TxClient:MsgCancelOrders:Create', 'Could not create message: ' + e.message)
+					
 				}
 			}
 		},
@@ -647,9 +650,10 @@ export default {
 				return msg
 			} catch (e) {
 				if (e == MissingWalletError) {
-					throw new Error('TxClient:MsgLiquidation:Init Could not initialize signing client. Wallet is required.')
-				} else{
-					throw new Error('TxClient:MsgLiquidation:Create Could not create message: ' + e.message)
+					throw new SpVuexError('TxClient:MsgLiquidation:Init', 'Could not initialize signing client. Wallet is required.')
+				}else{
+					throw new SpVuexError('TxClient:MsgLiquidation:Create', 'Could not create message: ' + e.message)
+					
 				}
 			}
 		},
@@ -660,22 +664,24 @@ export default {
 				return msg
 			} catch (e) {
 				if (e == MissingWalletError) {
-					throw new Error('TxClient:MsgPlaceOrders:Init Could not initialize signing client. Wallet is required.')
-				} else{
-					throw new Error('TxClient:MsgPlaceOrders:Create Could not create message: ' + e.message)
+					throw new SpVuexError('TxClient:MsgPlaceOrders:Init', 'Could not initialize signing client. Wallet is required.')
+				}else{
+					throw new SpVuexError('TxClient:MsgPlaceOrders:Create', 'Could not create message: ' + e.message)
+					
 				}
 			}
 		},
-		async MsgCancelOrders({ rootGetters }, { value }) {
+		async MsgRegisterContract({ rootGetters }, { value }) {
 			try {
 				const txClient=await initTxClient(rootGetters)
-				const msg = await txClient.msgCancelOrders(value)
+				const msg = await txClient.msgRegisterContract(value)
 				return msg
 			} catch (e) {
 				if (e == MissingWalletError) {
-					throw new Error('TxClient:MsgCancelOrders:Init Could not initialize signing client. Wallet is required.')
-				} else{
-					throw new Error('TxClient:MsgCancelOrders:Create Could not create message: ' + e.message)
+					throw new SpVuexError('TxClient:MsgRegisterContract:Init', 'Could not initialize signing client. Wallet is required.')
+				}else{
+					throw new SpVuexError('TxClient:MsgRegisterContract:Create', 'Could not create message: ' + e.message)
+					
 				}
 			}
 		},

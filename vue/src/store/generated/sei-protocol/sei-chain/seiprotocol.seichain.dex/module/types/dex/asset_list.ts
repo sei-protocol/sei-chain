@@ -14,7 +14,7 @@ export interface AssetIBCInfo {
 export interface AssetMetadata {
   ibcInfo: AssetIBCInfo | undefined;
   /** Ex: cw20, ics20, erc20 */
-  type_asset: string;
+  typeAsset: string;
   metadata: Metadata | undefined;
 }
 
@@ -132,15 +132,15 @@ export const AssetIBCInfo = {
   },
 };
 
-const baseAssetMetadata: object = { type_asset: "" };
+const baseAssetMetadata: object = { typeAsset: "" };
 
 export const AssetMetadata = {
   encode(message: AssetMetadata, writer: Writer = Writer.create()): Writer {
     if (message.ibcInfo !== undefined) {
       AssetIBCInfo.encode(message.ibcInfo, writer.uint32(10).fork()).ldelim();
     }
-    if (message.type_asset !== "") {
-      writer.uint32(18).string(message.type_asset);
+    if (message.typeAsset !== "") {
+      writer.uint32(18).string(message.typeAsset);
     }
     if (message.metadata !== undefined) {
       Metadata.encode(message.metadata, writer.uint32(26).fork()).ldelim();
@@ -159,7 +159,7 @@ export const AssetMetadata = {
           message.ibcInfo = AssetIBCInfo.decode(reader, reader.uint32());
           break;
         case 2:
-          message.type_asset = reader.string();
+          message.typeAsset = reader.string();
           break;
         case 3:
           message.metadata = Metadata.decode(reader, reader.uint32());
@@ -179,10 +179,10 @@ export const AssetMetadata = {
     } else {
       message.ibcInfo = undefined;
     }
-    if (object.type_asset !== undefined && object.type_asset !== null) {
-      message.type_asset = String(object.type_asset);
+    if (object.typeAsset !== undefined && object.typeAsset !== null) {
+      message.typeAsset = String(object.typeAsset);
     } else {
-      message.type_asset = "";
+      message.typeAsset = "";
     }
     if (object.metadata !== undefined && object.metadata !== null) {
       message.metadata = Metadata.fromJSON(object.metadata);
@@ -198,7 +198,7 @@ export const AssetMetadata = {
       (obj.ibcInfo = message.ibcInfo
         ? AssetIBCInfo.toJSON(message.ibcInfo)
         : undefined);
-    message.type_asset !== undefined && (obj.type_asset = message.type_asset);
+    message.typeAsset !== undefined && (obj.typeAsset = message.typeAsset);
     message.metadata !== undefined &&
       (obj.metadata = message.metadata
         ? Metadata.toJSON(message.metadata)
@@ -213,10 +213,10 @@ export const AssetMetadata = {
     } else {
       message.ibcInfo = undefined;
     }
-    if (object.type_asset !== undefined && object.type_asset !== null) {
-      message.type_asset = object.type_asset;
+    if (object.typeAsset !== undefined && object.typeAsset !== null) {
+      message.typeAsset = object.typeAsset;
     } else {
-      message.type_asset = "";
+      message.typeAsset = "";
     }
     if (object.metadata !== undefined && object.metadata !== null) {
       message.metadata = Metadata.fromPartial(object.metadata);

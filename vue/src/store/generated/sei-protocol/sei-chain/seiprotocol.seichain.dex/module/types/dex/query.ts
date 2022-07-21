@@ -2620,7 +2620,7 @@ export interface Query {
     request: QueryRegisteredPairsRequest
   ): Promise<QueryRegisteredPairsResponse>;
   GetOrders(request: QueryGetOrdersRequest): Promise<QueryGetOrdersResponse>;
-  GetOrderByID(
+  GetOrder(
     request: QueryGetOrderByIDRequest
   ): Promise<QueryGetOrderByIDResponse>;
   GetHistoricalPrices(
@@ -2789,13 +2789,13 @@ export class QueryClientImpl implements Query {
     );
   }
 
-  GetOrderByID(
+  GetOrder(
     request: QueryGetOrderByIDRequest
   ): Promise<QueryGetOrderByIDResponse> {
     const data = QueryGetOrderByIDRequest.encode(request).finish();
     const promise = this.rpc.request(
       "seiprotocol.seichain.dex.Query",
-      "GetOrderByID",
+      "GetOrder",
       data
     );
     return promise.then((data) =>

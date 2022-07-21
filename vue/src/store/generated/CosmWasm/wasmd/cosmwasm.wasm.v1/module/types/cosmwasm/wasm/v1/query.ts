@@ -30,7 +30,7 @@ export interface QueryContractInfoRequest {
 export interface QueryContractInfoResponse {
   /** address is the address of the contract */
   address: string;
-  contract_info: ContractInfo | undefined;
+  contractInfo: ContractInfo | undefined;
 }
 
 /**
@@ -60,7 +60,7 @@ export interface QueryContractHistoryResponse {
  */
 export interface QueryContractsByCodeRequest {
   /** grpc-gateway_out does not support Go style CodID */
-  code_id: number;
+  codeId: number;
   /** pagination defines an optional pagination for the request. */
   pagination: PageRequest | undefined;
 }
@@ -104,7 +104,7 @@ export interface QueryAllContractStateResponse {
 export interface QueryRawContractStateRequest {
   /** address is the address of the contract */
   address: string;
-  query_data: Uint8Array;
+  queryData: Uint8Array;
 }
 
 /**
@@ -124,7 +124,7 @@ export interface QuerySmartContractStateRequest {
   /** address is the address of the contract */
   address: string;
   /** QueryData contains the query data passed to the contract */
-  query_data: Uint8Array;
+  queryData: Uint8Array;
 }
 
 /**
@@ -139,21 +139,21 @@ export interface QuerySmartContractStateResponse {
 /** QueryCodeRequest is the request type for the Query/Code RPC method */
 export interface QueryCodeRequest {
   /** grpc-gateway_out does not support Go style CodID */
-  code_id: number;
+  codeId: number;
 }
 
 /** CodeInfoResponse contains code meta data from CodeInfo */
 export interface CodeInfoResponse {
   /** id for legacy support */
-  code_id: number;
+  codeId: number;
   creator: string;
-  data_hash: Uint8Array;
-  instantiate_permission: AccessConfig | undefined;
+  dataHash: Uint8Array;
+  instantiatePermission: AccessConfig | undefined;
 }
 
 /** QueryCodeResponse is the response type for the Query/Code RPC method */
 export interface QueryCodeResponse {
-  code_info: CodeInfoResponse | undefined;
+  codeInfo: CodeInfoResponse | undefined;
   data: Uint8Array;
 }
 
@@ -165,7 +165,7 @@ export interface QueryCodesRequest {
 
 /** QueryCodesResponse is the response type for the Query/Codes RPC method */
 export interface QueryCodesResponse {
-  code_infos: CodeInfoResponse[];
+  codeInfos: CodeInfoResponse[];
   /** pagination defines the pagination in the response. */
   pagination: PageResponse | undefined;
 }
@@ -184,7 +184,7 @@ export interface QueryPinnedCodesRequest {
  * Query/PinnedCodes RPC method
  */
 export interface QueryPinnedCodesResponse {
-  code_ids: number[];
+  codeIds: number[];
   /** pagination defines the pagination in the response. */
   pagination: PageResponse | undefined;
 }
@@ -268,9 +268,9 @@ export const QueryContractInfoResponse = {
     if (message.address !== "") {
       writer.uint32(10).string(message.address);
     }
-    if (message.contract_info !== undefined) {
+    if (message.contractInfo !== undefined) {
       ContractInfo.encode(
-        message.contract_info,
+        message.contractInfo,
         writer.uint32(18).fork()
       ).ldelim();
     }
@@ -293,7 +293,7 @@ export const QueryContractInfoResponse = {
           message.address = reader.string();
           break;
         case 2:
-          message.contract_info = ContractInfo.decode(reader, reader.uint32());
+          message.contractInfo = ContractInfo.decode(reader, reader.uint32());
           break;
         default:
           reader.skipType(tag & 7);
@@ -312,10 +312,10 @@ export const QueryContractInfoResponse = {
     } else {
       message.address = "";
     }
-    if (object.contract_info !== undefined && object.contract_info !== null) {
-      message.contract_info = ContractInfo.fromJSON(object.contract_info);
+    if (object.contractInfo !== undefined && object.contractInfo !== null) {
+      message.contractInfo = ContractInfo.fromJSON(object.contractInfo);
     } else {
-      message.contract_info = undefined;
+      message.contractInfo = undefined;
     }
     return message;
   },
@@ -323,9 +323,9 @@ export const QueryContractInfoResponse = {
   toJSON(message: QueryContractInfoResponse): unknown {
     const obj: any = {};
     message.address !== undefined && (obj.address = message.address);
-    message.contract_info !== undefined &&
-      (obj.contract_info = message.contract_info
-        ? ContractInfo.toJSON(message.contract_info)
+    message.contractInfo !== undefined &&
+      (obj.contractInfo = message.contractInfo
+        ? ContractInfo.toJSON(message.contractInfo)
         : undefined);
     return obj;
   },
@@ -341,10 +341,10 @@ export const QueryContractInfoResponse = {
     } else {
       message.address = "";
     }
-    if (object.contract_info !== undefined && object.contract_info !== null) {
-      message.contract_info = ContractInfo.fromPartial(object.contract_info);
+    if (object.contractInfo !== undefined && object.contractInfo !== null) {
+      message.contractInfo = ContractInfo.fromPartial(object.contractInfo);
     } else {
-      message.contract_info = undefined;
+      message.contractInfo = undefined;
     }
     return message;
   },
@@ -542,15 +542,15 @@ export const QueryContractHistoryResponse = {
   },
 };
 
-const baseQueryContractsByCodeRequest: object = { code_id: 0 };
+const baseQueryContractsByCodeRequest: object = { codeId: 0 };
 
 export const QueryContractsByCodeRequest = {
   encode(
     message: QueryContractsByCodeRequest,
     writer: Writer = Writer.create()
   ): Writer {
-    if (message.code_id !== 0) {
-      writer.uint32(8).uint64(message.code_id);
+    if (message.codeId !== 0) {
+      writer.uint32(8).uint64(message.codeId);
     }
     if (message.pagination !== undefined) {
       PageRequest.encode(message.pagination, writer.uint32(18).fork()).ldelim();
@@ -571,7 +571,7 @@ export const QueryContractsByCodeRequest = {
       const tag = reader.uint32();
       switch (tag >>> 3) {
         case 1:
-          message.code_id = longToNumber(reader.uint64() as Long);
+          message.codeId = longToNumber(reader.uint64() as Long);
           break;
         case 2:
           message.pagination = PageRequest.decode(reader, reader.uint32());
@@ -588,10 +588,10 @@ export const QueryContractsByCodeRequest = {
     const message = {
       ...baseQueryContractsByCodeRequest,
     } as QueryContractsByCodeRequest;
-    if (object.code_id !== undefined && object.code_id !== null) {
-      message.code_id = Number(object.code_id);
+    if (object.codeId !== undefined && object.codeId !== null) {
+      message.codeId = Number(object.codeId);
     } else {
-      message.code_id = 0;
+      message.codeId = 0;
     }
     if (object.pagination !== undefined && object.pagination !== null) {
       message.pagination = PageRequest.fromJSON(object.pagination);
@@ -603,7 +603,7 @@ export const QueryContractsByCodeRequest = {
 
   toJSON(message: QueryContractsByCodeRequest): unknown {
     const obj: any = {};
-    message.code_id !== undefined && (obj.code_id = message.code_id);
+    message.codeId !== undefined && (obj.codeId = message.codeId);
     message.pagination !== undefined &&
       (obj.pagination = message.pagination
         ? PageRequest.toJSON(message.pagination)
@@ -617,10 +617,10 @@ export const QueryContractsByCodeRequest = {
     const message = {
       ...baseQueryContractsByCodeRequest,
     } as QueryContractsByCodeRequest;
-    if (object.code_id !== undefined && object.code_id !== null) {
-      message.code_id = object.code_id;
+    if (object.codeId !== undefined && object.codeId !== null) {
+      message.codeId = object.codeId;
     } else {
-      message.code_id = 0;
+      message.codeId = 0;
     }
     if (object.pagination !== undefined && object.pagination !== null) {
       message.pagination = PageRequest.fromPartial(object.pagination);
@@ -928,8 +928,8 @@ export const QueryRawContractStateRequest = {
     if (message.address !== "") {
       writer.uint32(10).string(message.address);
     }
-    if (message.query_data.length !== 0) {
-      writer.uint32(18).bytes(message.query_data);
+    if (message.queryData.length !== 0) {
+      writer.uint32(18).bytes(message.queryData);
     }
     return writer;
   },
@@ -950,7 +950,7 @@ export const QueryRawContractStateRequest = {
           message.address = reader.string();
           break;
         case 2:
-          message.query_data = reader.bytes();
+          message.queryData = reader.bytes();
           break;
         default:
           reader.skipType(tag & 7);
@@ -969,8 +969,8 @@ export const QueryRawContractStateRequest = {
     } else {
       message.address = "";
     }
-    if (object.query_data !== undefined && object.query_data !== null) {
-      message.query_data = bytesFromBase64(object.query_data);
+    if (object.queryData !== undefined && object.queryData !== null) {
+      message.queryData = bytesFromBase64(object.queryData);
     }
     return message;
   },
@@ -978,9 +978,9 @@ export const QueryRawContractStateRequest = {
   toJSON(message: QueryRawContractStateRequest): unknown {
     const obj: any = {};
     message.address !== undefined && (obj.address = message.address);
-    message.query_data !== undefined &&
-      (obj.query_data = base64FromBytes(
-        message.query_data !== undefined ? message.query_data : new Uint8Array()
+    message.queryData !== undefined &&
+      (obj.queryData = base64FromBytes(
+        message.queryData !== undefined ? message.queryData : new Uint8Array()
       ));
     return obj;
   },
@@ -996,10 +996,10 @@ export const QueryRawContractStateRequest = {
     } else {
       message.address = "";
     }
-    if (object.query_data !== undefined && object.query_data !== null) {
-      message.query_data = object.query_data;
+    if (object.queryData !== undefined && object.queryData !== null) {
+      message.queryData = object.queryData;
     } else {
-      message.query_data = new Uint8Array();
+      message.queryData = new Uint8Array();
     }
     return message;
   },
@@ -1085,8 +1085,8 @@ export const QuerySmartContractStateRequest = {
     if (message.address !== "") {
       writer.uint32(10).string(message.address);
     }
-    if (message.query_data.length !== 0) {
-      writer.uint32(18).bytes(message.query_data);
+    if (message.queryData.length !== 0) {
+      writer.uint32(18).bytes(message.queryData);
     }
     return writer;
   },
@@ -1107,7 +1107,7 @@ export const QuerySmartContractStateRequest = {
           message.address = reader.string();
           break;
         case 2:
-          message.query_data = reader.bytes();
+          message.queryData = reader.bytes();
           break;
         default:
           reader.skipType(tag & 7);
@@ -1126,8 +1126,8 @@ export const QuerySmartContractStateRequest = {
     } else {
       message.address = "";
     }
-    if (object.query_data !== undefined && object.query_data !== null) {
-      message.query_data = bytesFromBase64(object.query_data);
+    if (object.queryData !== undefined && object.queryData !== null) {
+      message.queryData = bytesFromBase64(object.queryData);
     }
     return message;
   },
@@ -1135,9 +1135,9 @@ export const QuerySmartContractStateRequest = {
   toJSON(message: QuerySmartContractStateRequest): unknown {
     const obj: any = {};
     message.address !== undefined && (obj.address = message.address);
-    message.query_data !== undefined &&
-      (obj.query_data = base64FromBytes(
-        message.query_data !== undefined ? message.query_data : new Uint8Array()
+    message.queryData !== undefined &&
+      (obj.queryData = base64FromBytes(
+        message.queryData !== undefined ? message.queryData : new Uint8Array()
       ));
     return obj;
   },
@@ -1153,10 +1153,10 @@ export const QuerySmartContractStateRequest = {
     } else {
       message.address = "";
     }
-    if (object.query_data !== undefined && object.query_data !== null) {
-      message.query_data = object.query_data;
+    if (object.queryData !== undefined && object.queryData !== null) {
+      message.queryData = object.queryData;
     } else {
-      message.query_data = new Uint8Array();
+      message.queryData = new Uint8Array();
     }
     return message;
   },
@@ -1232,12 +1232,12 @@ export const QuerySmartContractStateResponse = {
   },
 };
 
-const baseQueryCodeRequest: object = { code_id: 0 };
+const baseQueryCodeRequest: object = { codeId: 0 };
 
 export const QueryCodeRequest = {
   encode(message: QueryCodeRequest, writer: Writer = Writer.create()): Writer {
-    if (message.code_id !== 0) {
-      writer.uint32(8).uint64(message.code_id);
+    if (message.codeId !== 0) {
+      writer.uint32(8).uint64(message.codeId);
     }
     return writer;
   },
@@ -1250,7 +1250,7 @@ export const QueryCodeRequest = {
       const tag = reader.uint32();
       switch (tag >>> 3) {
         case 1:
-          message.code_id = longToNumber(reader.uint64() as Long);
+          message.codeId = longToNumber(reader.uint64() as Long);
           break;
         default:
           reader.skipType(tag & 7);
@@ -1262,47 +1262,47 @@ export const QueryCodeRequest = {
 
   fromJSON(object: any): QueryCodeRequest {
     const message = { ...baseQueryCodeRequest } as QueryCodeRequest;
-    if (object.code_id !== undefined && object.code_id !== null) {
-      message.code_id = Number(object.code_id);
+    if (object.codeId !== undefined && object.codeId !== null) {
+      message.codeId = Number(object.codeId);
     } else {
-      message.code_id = 0;
+      message.codeId = 0;
     }
     return message;
   },
 
   toJSON(message: QueryCodeRequest): unknown {
     const obj: any = {};
-    message.code_id !== undefined && (obj.code_id = message.code_id);
+    message.codeId !== undefined && (obj.codeId = message.codeId);
     return obj;
   },
 
   fromPartial(object: DeepPartial<QueryCodeRequest>): QueryCodeRequest {
     const message = { ...baseQueryCodeRequest } as QueryCodeRequest;
-    if (object.code_id !== undefined && object.code_id !== null) {
-      message.code_id = object.code_id;
+    if (object.codeId !== undefined && object.codeId !== null) {
+      message.codeId = object.codeId;
     } else {
-      message.code_id = 0;
+      message.codeId = 0;
     }
     return message;
   },
 };
 
-const baseCodeInfoResponse: object = { code_id: 0, creator: "" };
+const baseCodeInfoResponse: object = { codeId: 0, creator: "" };
 
 export const CodeInfoResponse = {
   encode(message: CodeInfoResponse, writer: Writer = Writer.create()): Writer {
-    if (message.code_id !== 0) {
-      writer.uint32(8).uint64(message.code_id);
+    if (message.codeId !== 0) {
+      writer.uint32(8).uint64(message.codeId);
     }
     if (message.creator !== "") {
       writer.uint32(18).string(message.creator);
     }
-    if (message.data_hash.length !== 0) {
-      writer.uint32(26).bytes(message.data_hash);
+    if (message.dataHash.length !== 0) {
+      writer.uint32(26).bytes(message.dataHash);
     }
-    if (message.instantiate_permission !== undefined) {
+    if (message.instantiatePermission !== undefined) {
       AccessConfig.encode(
-        message.instantiate_permission,
+        message.instantiatePermission,
         writer.uint32(50).fork()
       ).ldelim();
     }
@@ -1317,16 +1317,16 @@ export const CodeInfoResponse = {
       const tag = reader.uint32();
       switch (tag >>> 3) {
         case 1:
-          message.code_id = longToNumber(reader.uint64() as Long);
+          message.codeId = longToNumber(reader.uint64() as Long);
           break;
         case 2:
           message.creator = reader.string();
           break;
         case 3:
-          message.data_hash = reader.bytes();
+          message.dataHash = reader.bytes();
           break;
         case 6:
-          message.instantiate_permission = AccessConfig.decode(
+          message.instantiatePermission = AccessConfig.decode(
             reader,
             reader.uint32()
           );
@@ -1341,73 +1341,73 @@ export const CodeInfoResponse = {
 
   fromJSON(object: any): CodeInfoResponse {
     const message = { ...baseCodeInfoResponse } as CodeInfoResponse;
-    if (object.code_id !== undefined && object.code_id !== null) {
-      message.code_id = Number(object.code_id);
+    if (object.codeId !== undefined && object.codeId !== null) {
+      message.codeId = Number(object.codeId);
     } else {
-      message.code_id = 0;
+      message.codeId = 0;
     }
     if (object.creator !== undefined && object.creator !== null) {
       message.creator = String(object.creator);
     } else {
       message.creator = "";
     }
-    if (object.data_hash !== undefined && object.data_hash !== null) {
-      message.data_hash = bytesFromBase64(object.data_hash);
+    if (object.dataHash !== undefined && object.dataHash !== null) {
+      message.dataHash = bytesFromBase64(object.dataHash);
     }
     if (
-      object.instantiate_permission !== undefined &&
-      object.instantiate_permission !== null
+      object.instantiatePermission !== undefined &&
+      object.instantiatePermission !== null
     ) {
-      message.instantiate_permission = AccessConfig.fromJSON(
-        object.instantiate_permission
+      message.instantiatePermission = AccessConfig.fromJSON(
+        object.instantiatePermission
       );
     } else {
-      message.instantiate_permission = undefined;
+      message.instantiatePermission = undefined;
     }
     return message;
   },
 
   toJSON(message: CodeInfoResponse): unknown {
     const obj: any = {};
-    message.code_id !== undefined && (obj.code_id = message.code_id);
+    message.codeId !== undefined && (obj.codeId = message.codeId);
     message.creator !== undefined && (obj.creator = message.creator);
-    message.data_hash !== undefined &&
-      (obj.data_hash = base64FromBytes(
-        message.data_hash !== undefined ? message.data_hash : new Uint8Array()
+    message.dataHash !== undefined &&
+      (obj.dataHash = base64FromBytes(
+        message.dataHash !== undefined ? message.dataHash : new Uint8Array()
       ));
-    message.instantiate_permission !== undefined &&
-      (obj.instantiate_permission = message.instantiate_permission
-        ? AccessConfig.toJSON(message.instantiate_permission)
+    message.instantiatePermission !== undefined &&
+      (obj.instantiatePermission = message.instantiatePermission
+        ? AccessConfig.toJSON(message.instantiatePermission)
         : undefined);
     return obj;
   },
 
   fromPartial(object: DeepPartial<CodeInfoResponse>): CodeInfoResponse {
     const message = { ...baseCodeInfoResponse } as CodeInfoResponse;
-    if (object.code_id !== undefined && object.code_id !== null) {
-      message.code_id = object.code_id;
+    if (object.codeId !== undefined && object.codeId !== null) {
+      message.codeId = object.codeId;
     } else {
-      message.code_id = 0;
+      message.codeId = 0;
     }
     if (object.creator !== undefined && object.creator !== null) {
       message.creator = object.creator;
     } else {
       message.creator = "";
     }
-    if (object.data_hash !== undefined && object.data_hash !== null) {
-      message.data_hash = object.data_hash;
+    if (object.dataHash !== undefined && object.dataHash !== null) {
+      message.dataHash = object.dataHash;
     } else {
-      message.data_hash = new Uint8Array();
+      message.dataHash = new Uint8Array();
     }
     if (
-      object.instantiate_permission !== undefined &&
-      object.instantiate_permission !== null
+      object.instantiatePermission !== undefined &&
+      object.instantiatePermission !== null
     ) {
-      message.instantiate_permission = AccessConfig.fromPartial(
-        object.instantiate_permission
+      message.instantiatePermission = AccessConfig.fromPartial(
+        object.instantiatePermission
       );
     } else {
-      message.instantiate_permission = undefined;
+      message.instantiatePermission = undefined;
     }
     return message;
   },
@@ -1417,9 +1417,9 @@ const baseQueryCodeResponse: object = {};
 
 export const QueryCodeResponse = {
   encode(message: QueryCodeResponse, writer: Writer = Writer.create()): Writer {
-    if (message.code_info !== undefined) {
+    if (message.codeInfo !== undefined) {
       CodeInfoResponse.encode(
-        message.code_info,
+        message.codeInfo,
         writer.uint32(10).fork()
       ).ldelim();
     }
@@ -1437,7 +1437,7 @@ export const QueryCodeResponse = {
       const tag = reader.uint32();
       switch (tag >>> 3) {
         case 1:
-          message.code_info = CodeInfoResponse.decode(reader, reader.uint32());
+          message.codeInfo = CodeInfoResponse.decode(reader, reader.uint32());
           break;
         case 2:
           message.data = reader.bytes();
@@ -1452,10 +1452,10 @@ export const QueryCodeResponse = {
 
   fromJSON(object: any): QueryCodeResponse {
     const message = { ...baseQueryCodeResponse } as QueryCodeResponse;
-    if (object.code_info !== undefined && object.code_info !== null) {
-      message.code_info = CodeInfoResponse.fromJSON(object.code_info);
+    if (object.codeInfo !== undefined && object.codeInfo !== null) {
+      message.codeInfo = CodeInfoResponse.fromJSON(object.codeInfo);
     } else {
-      message.code_info = undefined;
+      message.codeInfo = undefined;
     }
     if (object.data !== undefined && object.data !== null) {
       message.data = bytesFromBase64(object.data);
@@ -1465,9 +1465,9 @@ export const QueryCodeResponse = {
 
   toJSON(message: QueryCodeResponse): unknown {
     const obj: any = {};
-    message.code_info !== undefined &&
-      (obj.code_info = message.code_info
-        ? CodeInfoResponse.toJSON(message.code_info)
+    message.codeInfo !== undefined &&
+      (obj.codeInfo = message.codeInfo
+        ? CodeInfoResponse.toJSON(message.codeInfo)
         : undefined);
     message.data !== undefined &&
       (obj.data = base64FromBytes(
@@ -1478,10 +1478,10 @@ export const QueryCodeResponse = {
 
   fromPartial(object: DeepPartial<QueryCodeResponse>): QueryCodeResponse {
     const message = { ...baseQueryCodeResponse } as QueryCodeResponse;
-    if (object.code_info !== undefined && object.code_info !== null) {
-      message.code_info = CodeInfoResponse.fromPartial(object.code_info);
+    if (object.codeInfo !== undefined && object.codeInfo !== null) {
+      message.codeInfo = CodeInfoResponse.fromPartial(object.codeInfo);
     } else {
-      message.code_info = undefined;
+      message.codeInfo = undefined;
     }
     if (object.data !== undefined && object.data !== null) {
       message.data = object.data;
@@ -1557,7 +1557,7 @@ export const QueryCodesResponse = {
     message: QueryCodesResponse,
     writer: Writer = Writer.create()
   ): Writer {
-    for (const v of message.code_infos) {
+    for (const v of message.codeInfos) {
       CodeInfoResponse.encode(v!, writer.uint32(10).fork()).ldelim();
     }
     if (message.pagination !== undefined) {
@@ -1573,12 +1573,12 @@ export const QueryCodesResponse = {
     const reader = input instanceof Uint8Array ? new Reader(input) : input;
     let end = length === undefined ? reader.len : reader.pos + length;
     const message = { ...baseQueryCodesResponse } as QueryCodesResponse;
-    message.code_infos = [];
+    message.codeInfos = [];
     while (reader.pos < end) {
       const tag = reader.uint32();
       switch (tag >>> 3) {
         case 1:
-          message.code_infos.push(
+          message.codeInfos.push(
             CodeInfoResponse.decode(reader, reader.uint32())
           );
           break;
@@ -1595,10 +1595,10 @@ export const QueryCodesResponse = {
 
   fromJSON(object: any): QueryCodesResponse {
     const message = { ...baseQueryCodesResponse } as QueryCodesResponse;
-    message.code_infos = [];
-    if (object.code_infos !== undefined && object.code_infos !== null) {
-      for (const e of object.code_infos) {
-        message.code_infos.push(CodeInfoResponse.fromJSON(e));
+    message.codeInfos = [];
+    if (object.codeInfos !== undefined && object.codeInfos !== null) {
+      for (const e of object.codeInfos) {
+        message.codeInfos.push(CodeInfoResponse.fromJSON(e));
       }
     }
     if (object.pagination !== undefined && object.pagination !== null) {
@@ -1611,12 +1611,12 @@ export const QueryCodesResponse = {
 
   toJSON(message: QueryCodesResponse): unknown {
     const obj: any = {};
-    if (message.code_infos) {
-      obj.code_infos = message.code_infos.map((e) =>
+    if (message.codeInfos) {
+      obj.codeInfos = message.codeInfos.map((e) =>
         e ? CodeInfoResponse.toJSON(e) : undefined
       );
     } else {
-      obj.code_infos = [];
+      obj.codeInfos = [];
     }
     message.pagination !== undefined &&
       (obj.pagination = message.pagination
@@ -1627,10 +1627,10 @@ export const QueryCodesResponse = {
 
   fromPartial(object: DeepPartial<QueryCodesResponse>): QueryCodesResponse {
     const message = { ...baseQueryCodesResponse } as QueryCodesResponse;
-    message.code_infos = [];
-    if (object.code_infos !== undefined && object.code_infos !== null) {
-      for (const e of object.code_infos) {
-        message.code_infos.push(CodeInfoResponse.fromPartial(e));
+    message.codeInfos = [];
+    if (object.codeInfos !== undefined && object.codeInfos !== null) {
+      for (const e of object.codeInfos) {
+        message.codeInfos.push(CodeInfoResponse.fromPartial(e));
       }
     }
     if (object.pagination !== undefined && object.pagination !== null) {
@@ -1711,7 +1711,7 @@ export const QueryPinnedCodesRequest = {
   },
 };
 
-const baseQueryPinnedCodesResponse: object = { code_ids: 0 };
+const baseQueryPinnedCodesResponse: object = { codeIds: 0 };
 
 export const QueryPinnedCodesResponse = {
   encode(
@@ -1719,7 +1719,7 @@ export const QueryPinnedCodesResponse = {
     writer: Writer = Writer.create()
   ): Writer {
     writer.uint32(10).fork();
-    for (const v of message.code_ids) {
+    for (const v of message.codeIds) {
       writer.uint64(v);
     }
     writer.ldelim();
@@ -1741,7 +1741,7 @@ export const QueryPinnedCodesResponse = {
     const message = {
       ...baseQueryPinnedCodesResponse,
     } as QueryPinnedCodesResponse;
-    message.code_ids = [];
+    message.codeIds = [];
     while (reader.pos < end) {
       const tag = reader.uint32();
       switch (tag >>> 3) {
@@ -1749,10 +1749,10 @@ export const QueryPinnedCodesResponse = {
           if ((tag & 7) === 2) {
             const end2 = reader.uint32() + reader.pos;
             while (reader.pos < end2) {
-              message.code_ids.push(longToNumber(reader.uint64() as Long));
+              message.codeIds.push(longToNumber(reader.uint64() as Long));
             }
           } else {
-            message.code_ids.push(longToNumber(reader.uint64() as Long));
+            message.codeIds.push(longToNumber(reader.uint64() as Long));
           }
           break;
         case 2:
@@ -1770,10 +1770,10 @@ export const QueryPinnedCodesResponse = {
     const message = {
       ...baseQueryPinnedCodesResponse,
     } as QueryPinnedCodesResponse;
-    message.code_ids = [];
-    if (object.code_ids !== undefined && object.code_ids !== null) {
-      for (const e of object.code_ids) {
-        message.code_ids.push(Number(e));
+    message.codeIds = [];
+    if (object.codeIds !== undefined && object.codeIds !== null) {
+      for (const e of object.codeIds) {
+        message.codeIds.push(Number(e));
       }
     }
     if (object.pagination !== undefined && object.pagination !== null) {
@@ -1786,10 +1786,10 @@ export const QueryPinnedCodesResponse = {
 
   toJSON(message: QueryPinnedCodesResponse): unknown {
     const obj: any = {};
-    if (message.code_ids) {
-      obj.code_ids = message.code_ids.map((e) => e);
+    if (message.codeIds) {
+      obj.codeIds = message.codeIds.map((e) => e);
     } else {
-      obj.code_ids = [];
+      obj.codeIds = [];
     }
     message.pagination !== undefined &&
       (obj.pagination = message.pagination
@@ -1804,10 +1804,10 @@ export const QueryPinnedCodesResponse = {
     const message = {
       ...baseQueryPinnedCodesResponse,
     } as QueryPinnedCodesResponse;
-    message.code_ids = [];
-    if (object.code_ids !== undefined && object.code_ids !== null) {
-      for (const e of object.code_ids) {
-        message.code_ids.push(e);
+    message.codeIds = [];
+    if (object.codeIds !== undefined && object.codeIds !== null) {
+      for (const e of object.codeIds) {
+        message.codeIds.push(e);
       }
     }
     if (object.pagination !== undefined && object.pagination !== null) {

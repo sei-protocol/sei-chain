@@ -12,21 +12,21 @@ export const protobufPackage = "seiprotocol.seichain.oracle";
 
 export interface GenesisState {
   params: Params | undefined;
-  feeder_delegations: FeederDelegation[];
-  exchange_rates: ExchangeRateTuple[];
-  penalty_counters: PenaltyCounter[];
-  aggregate_exchange_rate_prevotes: AggregateExchangeRatePrevote[];
-  aggregate_exchange_rate_votes: AggregateExchangeRateVote[];
+  feederDelegations: FeederDelegation[];
+  exchangeRates: ExchangeRateTuple[];
+  penaltyCounters: PenaltyCounter[];
+  aggregateExchangeRatePrevotes: AggregateExchangeRatePrevote[];
+  aggregateExchangeRateVotes: AggregateExchangeRateVote[];
 }
 
 export interface FeederDelegation {
-  feeder_address: string;
-  validator_address: string;
+  feederAddress: string;
+  validatorAddress: string;
 }
 
 export interface PenaltyCounter {
-  validator_address: string;
-  vote_penalty_counter: VotePenaltyCounter | undefined;
+  validatorAddress: string;
+  votePenaltyCounter: VotePenaltyCounter | undefined;
 }
 
 const baseGenesisState: object = {};
@@ -36,22 +36,22 @@ export const GenesisState = {
     if (message.params !== undefined) {
       Params.encode(message.params, writer.uint32(10).fork()).ldelim();
     }
-    for (const v of message.feeder_delegations) {
+    for (const v of message.feederDelegations) {
       FeederDelegation.encode(v!, writer.uint32(18).fork()).ldelim();
     }
-    for (const v of message.exchange_rates) {
+    for (const v of message.exchangeRates) {
       ExchangeRateTuple.encode(v!, writer.uint32(26).fork()).ldelim();
     }
-    for (const v of message.penalty_counters) {
+    for (const v of message.penaltyCounters) {
       PenaltyCounter.encode(v!, writer.uint32(34).fork()).ldelim();
     }
-    for (const v of message.aggregate_exchange_rate_prevotes) {
+    for (const v of message.aggregateExchangeRatePrevotes) {
       AggregateExchangeRatePrevote.encode(
         v!,
         writer.uint32(42).fork()
       ).ldelim();
     }
-    for (const v of message.aggregate_exchange_rate_votes) {
+    for (const v of message.aggregateExchangeRateVotes) {
       AggregateExchangeRateVote.encode(v!, writer.uint32(50).fork()).ldelim();
     }
     return writer;
@@ -61,11 +61,11 @@ export const GenesisState = {
     const reader = input instanceof Uint8Array ? new Reader(input) : input;
     let end = length === undefined ? reader.len : reader.pos + length;
     const message = { ...baseGenesisState } as GenesisState;
-    message.feeder_delegations = [];
-    message.exchange_rates = [];
-    message.penalty_counters = [];
-    message.aggregate_exchange_rate_prevotes = [];
-    message.aggregate_exchange_rate_votes = [];
+    message.feederDelegations = [];
+    message.exchangeRates = [];
+    message.penaltyCounters = [];
+    message.aggregateExchangeRatePrevotes = [];
+    message.aggregateExchangeRateVotes = [];
     while (reader.pos < end) {
       const tag = reader.uint32();
       switch (tag >>> 3) {
@@ -73,27 +73,27 @@ export const GenesisState = {
           message.params = Params.decode(reader, reader.uint32());
           break;
         case 2:
-          message.feeder_delegations.push(
+          message.feederDelegations.push(
             FeederDelegation.decode(reader, reader.uint32())
           );
           break;
         case 3:
-          message.exchange_rates.push(
+          message.exchangeRates.push(
             ExchangeRateTuple.decode(reader, reader.uint32())
           );
           break;
         case 4:
-          message.penalty_counters.push(
+          message.penaltyCounters.push(
             PenaltyCounter.decode(reader, reader.uint32())
           );
           break;
         case 5:
-          message.aggregate_exchange_rate_prevotes.push(
+          message.aggregateExchangeRatePrevotes.push(
             AggregateExchangeRatePrevote.decode(reader, reader.uint32())
           );
           break;
         case 6:
-          message.aggregate_exchange_rate_votes.push(
+          message.aggregateExchangeRateVotes.push(
             AggregateExchangeRateVote.decode(reader, reader.uint32())
           );
           break;
@@ -107,53 +107,53 @@ export const GenesisState = {
 
   fromJSON(object: any): GenesisState {
     const message = { ...baseGenesisState } as GenesisState;
-    message.feeder_delegations = [];
-    message.exchange_rates = [];
-    message.penalty_counters = [];
-    message.aggregate_exchange_rate_prevotes = [];
-    message.aggregate_exchange_rate_votes = [];
+    message.feederDelegations = [];
+    message.exchangeRates = [];
+    message.penaltyCounters = [];
+    message.aggregateExchangeRatePrevotes = [];
+    message.aggregateExchangeRateVotes = [];
     if (object.params !== undefined && object.params !== null) {
       message.params = Params.fromJSON(object.params);
     } else {
       message.params = undefined;
     }
     if (
-      object.feeder_delegations !== undefined &&
-      object.feeder_delegations !== null
+      object.feederDelegations !== undefined &&
+      object.feederDelegations !== null
     ) {
-      for (const e of object.feeder_delegations) {
-        message.feeder_delegations.push(FeederDelegation.fromJSON(e));
+      for (const e of object.feederDelegations) {
+        message.feederDelegations.push(FeederDelegation.fromJSON(e));
       }
     }
-    if (object.exchange_rates !== undefined && object.exchange_rates !== null) {
-      for (const e of object.exchange_rates) {
-        message.exchange_rates.push(ExchangeRateTuple.fromJSON(e));
-      }
-    }
-    if (
-      object.penalty_counters !== undefined &&
-      object.penalty_counters !== null
-    ) {
-      for (const e of object.penalty_counters) {
-        message.penalty_counters.push(PenaltyCounter.fromJSON(e));
+    if (object.exchangeRates !== undefined && object.exchangeRates !== null) {
+      for (const e of object.exchangeRates) {
+        message.exchangeRates.push(ExchangeRateTuple.fromJSON(e));
       }
     }
     if (
-      object.aggregate_exchange_rate_prevotes !== undefined &&
-      object.aggregate_exchange_rate_prevotes !== null
+      object.penaltyCounters !== undefined &&
+      object.penaltyCounters !== null
     ) {
-      for (const e of object.aggregate_exchange_rate_prevotes) {
-        message.aggregate_exchange_rate_prevotes.push(
+      for (const e of object.penaltyCounters) {
+        message.penaltyCounters.push(PenaltyCounter.fromJSON(e));
+      }
+    }
+    if (
+      object.aggregateExchangeRatePrevotes !== undefined &&
+      object.aggregateExchangeRatePrevotes !== null
+    ) {
+      for (const e of object.aggregateExchangeRatePrevotes) {
+        message.aggregateExchangeRatePrevotes.push(
           AggregateExchangeRatePrevote.fromJSON(e)
         );
       }
     }
     if (
-      object.aggregate_exchange_rate_votes !== undefined &&
-      object.aggregate_exchange_rate_votes !== null
+      object.aggregateExchangeRateVotes !== undefined &&
+      object.aggregateExchangeRateVotes !== null
     ) {
-      for (const e of object.aggregate_exchange_rate_votes) {
-        message.aggregate_exchange_rate_votes.push(
+      for (const e of object.aggregateExchangeRateVotes) {
+        message.aggregateExchangeRateVotes.push(
           AggregateExchangeRateVote.fromJSON(e)
         );
       }
@@ -165,93 +165,93 @@ export const GenesisState = {
     const obj: any = {};
     message.params !== undefined &&
       (obj.params = message.params ? Params.toJSON(message.params) : undefined);
-    if (message.feeder_delegations) {
-      obj.feeder_delegations = message.feeder_delegations.map((e) =>
+    if (message.feederDelegations) {
+      obj.feederDelegations = message.feederDelegations.map((e) =>
         e ? FeederDelegation.toJSON(e) : undefined
       );
     } else {
-      obj.feeder_delegations = [];
+      obj.feederDelegations = [];
     }
-    if (message.exchange_rates) {
-      obj.exchange_rates = message.exchange_rates.map((e) =>
+    if (message.exchangeRates) {
+      obj.exchangeRates = message.exchangeRates.map((e) =>
         e ? ExchangeRateTuple.toJSON(e) : undefined
       );
     } else {
-      obj.exchange_rates = [];
+      obj.exchangeRates = [];
     }
-    if (message.penalty_counters) {
-      obj.penalty_counters = message.penalty_counters.map((e) =>
+    if (message.penaltyCounters) {
+      obj.penaltyCounters = message.penaltyCounters.map((e) =>
         e ? PenaltyCounter.toJSON(e) : undefined
       );
     } else {
-      obj.penalty_counters = [];
+      obj.penaltyCounters = [];
     }
-    if (message.aggregate_exchange_rate_prevotes) {
-      obj.aggregate_exchange_rate_prevotes = message.aggregate_exchange_rate_prevotes.map(
+    if (message.aggregateExchangeRatePrevotes) {
+      obj.aggregateExchangeRatePrevotes = message.aggregateExchangeRatePrevotes.map(
         (e) => (e ? AggregateExchangeRatePrevote.toJSON(e) : undefined)
       );
     } else {
-      obj.aggregate_exchange_rate_prevotes = [];
+      obj.aggregateExchangeRatePrevotes = [];
     }
-    if (message.aggregate_exchange_rate_votes) {
-      obj.aggregate_exchange_rate_votes = message.aggregate_exchange_rate_votes.map(
+    if (message.aggregateExchangeRateVotes) {
+      obj.aggregateExchangeRateVotes = message.aggregateExchangeRateVotes.map(
         (e) => (e ? AggregateExchangeRateVote.toJSON(e) : undefined)
       );
     } else {
-      obj.aggregate_exchange_rate_votes = [];
+      obj.aggregateExchangeRateVotes = [];
     }
     return obj;
   },
 
   fromPartial(object: DeepPartial<GenesisState>): GenesisState {
     const message = { ...baseGenesisState } as GenesisState;
-    message.feeder_delegations = [];
-    message.exchange_rates = [];
-    message.penalty_counters = [];
-    message.aggregate_exchange_rate_prevotes = [];
-    message.aggregate_exchange_rate_votes = [];
+    message.feederDelegations = [];
+    message.exchangeRates = [];
+    message.penaltyCounters = [];
+    message.aggregateExchangeRatePrevotes = [];
+    message.aggregateExchangeRateVotes = [];
     if (object.params !== undefined && object.params !== null) {
       message.params = Params.fromPartial(object.params);
     } else {
       message.params = undefined;
     }
     if (
-      object.feeder_delegations !== undefined &&
-      object.feeder_delegations !== null
+      object.feederDelegations !== undefined &&
+      object.feederDelegations !== null
     ) {
-      for (const e of object.feeder_delegations) {
-        message.feeder_delegations.push(FeederDelegation.fromPartial(e));
+      for (const e of object.feederDelegations) {
+        message.feederDelegations.push(FeederDelegation.fromPartial(e));
       }
     }
-    if (object.exchange_rates !== undefined && object.exchange_rates !== null) {
-      for (const e of object.exchange_rates) {
-        message.exchange_rates.push(ExchangeRateTuple.fromPartial(e));
-      }
-    }
-    if (
-      object.penalty_counters !== undefined &&
-      object.penalty_counters !== null
-    ) {
-      for (const e of object.penalty_counters) {
-        message.penalty_counters.push(PenaltyCounter.fromPartial(e));
+    if (object.exchangeRates !== undefined && object.exchangeRates !== null) {
+      for (const e of object.exchangeRates) {
+        message.exchangeRates.push(ExchangeRateTuple.fromPartial(e));
       }
     }
     if (
-      object.aggregate_exchange_rate_prevotes !== undefined &&
-      object.aggregate_exchange_rate_prevotes !== null
+      object.penaltyCounters !== undefined &&
+      object.penaltyCounters !== null
     ) {
-      for (const e of object.aggregate_exchange_rate_prevotes) {
-        message.aggregate_exchange_rate_prevotes.push(
+      for (const e of object.penaltyCounters) {
+        message.penaltyCounters.push(PenaltyCounter.fromPartial(e));
+      }
+    }
+    if (
+      object.aggregateExchangeRatePrevotes !== undefined &&
+      object.aggregateExchangeRatePrevotes !== null
+    ) {
+      for (const e of object.aggregateExchangeRatePrevotes) {
+        message.aggregateExchangeRatePrevotes.push(
           AggregateExchangeRatePrevote.fromPartial(e)
         );
       }
     }
     if (
-      object.aggregate_exchange_rate_votes !== undefined &&
-      object.aggregate_exchange_rate_votes !== null
+      object.aggregateExchangeRateVotes !== undefined &&
+      object.aggregateExchangeRateVotes !== null
     ) {
-      for (const e of object.aggregate_exchange_rate_votes) {
-        message.aggregate_exchange_rate_votes.push(
+      for (const e of object.aggregateExchangeRateVotes) {
+        message.aggregateExchangeRateVotes.push(
           AggregateExchangeRateVote.fromPartial(e)
         );
       }
@@ -261,17 +261,17 @@ export const GenesisState = {
 };
 
 const baseFeederDelegation: object = {
-  feeder_address: "",
-  validator_address: "",
+  feederAddress: "",
+  validatorAddress: "",
 };
 
 export const FeederDelegation = {
   encode(message: FeederDelegation, writer: Writer = Writer.create()): Writer {
-    if (message.feeder_address !== "") {
-      writer.uint32(10).string(message.feeder_address);
+    if (message.feederAddress !== "") {
+      writer.uint32(10).string(message.feederAddress);
     }
-    if (message.validator_address !== "") {
-      writer.uint32(18).string(message.validator_address);
+    if (message.validatorAddress !== "") {
+      writer.uint32(18).string(message.validatorAddress);
     }
     return writer;
   },
@@ -284,10 +284,10 @@ export const FeederDelegation = {
       const tag = reader.uint32();
       switch (tag >>> 3) {
         case 1:
-          message.feeder_address = reader.string();
+          message.feederAddress = reader.string();
           break;
         case 2:
-          message.validator_address = reader.string();
+          message.validatorAddress = reader.string();
           break;
         default:
           reader.skipType(tag & 7);
@@ -299,60 +299,60 @@ export const FeederDelegation = {
 
   fromJSON(object: any): FeederDelegation {
     const message = { ...baseFeederDelegation } as FeederDelegation;
-    if (object.feeder_address !== undefined && object.feeder_address !== null) {
-      message.feeder_address = String(object.feeder_address);
+    if (object.feederAddress !== undefined && object.feederAddress !== null) {
+      message.feederAddress = String(object.feederAddress);
     } else {
-      message.feeder_address = "";
+      message.feederAddress = "";
     }
     if (
-      object.validator_address !== undefined &&
-      object.validator_address !== null
+      object.validatorAddress !== undefined &&
+      object.validatorAddress !== null
     ) {
-      message.validator_address = String(object.validator_address);
+      message.validatorAddress = String(object.validatorAddress);
     } else {
-      message.validator_address = "";
+      message.validatorAddress = "";
     }
     return message;
   },
 
   toJSON(message: FeederDelegation): unknown {
     const obj: any = {};
-    message.feeder_address !== undefined &&
-      (obj.feeder_address = message.feeder_address);
-    message.validator_address !== undefined &&
-      (obj.validator_address = message.validator_address);
+    message.feederAddress !== undefined &&
+      (obj.feederAddress = message.feederAddress);
+    message.validatorAddress !== undefined &&
+      (obj.validatorAddress = message.validatorAddress);
     return obj;
   },
 
   fromPartial(object: DeepPartial<FeederDelegation>): FeederDelegation {
     const message = { ...baseFeederDelegation } as FeederDelegation;
-    if (object.feeder_address !== undefined && object.feeder_address !== null) {
-      message.feeder_address = object.feeder_address;
+    if (object.feederAddress !== undefined && object.feederAddress !== null) {
+      message.feederAddress = object.feederAddress;
     } else {
-      message.feeder_address = "";
+      message.feederAddress = "";
     }
     if (
-      object.validator_address !== undefined &&
-      object.validator_address !== null
+      object.validatorAddress !== undefined &&
+      object.validatorAddress !== null
     ) {
-      message.validator_address = object.validator_address;
+      message.validatorAddress = object.validatorAddress;
     } else {
-      message.validator_address = "";
+      message.validatorAddress = "";
     }
     return message;
   },
 };
 
-const basePenaltyCounter: object = { validator_address: "" };
+const basePenaltyCounter: object = { validatorAddress: "" };
 
 export const PenaltyCounter = {
   encode(message: PenaltyCounter, writer: Writer = Writer.create()): Writer {
-    if (message.validator_address !== "") {
-      writer.uint32(10).string(message.validator_address);
+    if (message.validatorAddress !== "") {
+      writer.uint32(10).string(message.validatorAddress);
     }
-    if (message.vote_penalty_counter !== undefined) {
+    if (message.votePenaltyCounter !== undefined) {
       VotePenaltyCounter.encode(
-        message.vote_penalty_counter,
+        message.votePenaltyCounter,
         writer.uint32(18).fork()
       ).ldelim();
     }
@@ -367,10 +367,10 @@ export const PenaltyCounter = {
       const tag = reader.uint32();
       switch (tag >>> 3) {
         case 1:
-          message.validator_address = reader.string();
+          message.validatorAddress = reader.string();
           break;
         case 2:
-          message.vote_penalty_counter = VotePenaltyCounter.decode(
+          message.votePenaltyCounter = VotePenaltyCounter.decode(
             reader,
             reader.uint32()
           );
@@ -386,33 +386,33 @@ export const PenaltyCounter = {
   fromJSON(object: any): PenaltyCounter {
     const message = { ...basePenaltyCounter } as PenaltyCounter;
     if (
-      object.validator_address !== undefined &&
-      object.validator_address !== null
+      object.validatorAddress !== undefined &&
+      object.validatorAddress !== null
     ) {
-      message.validator_address = String(object.validator_address);
+      message.validatorAddress = String(object.validatorAddress);
     } else {
-      message.validator_address = "";
+      message.validatorAddress = "";
     }
     if (
-      object.vote_penalty_counter !== undefined &&
-      object.vote_penalty_counter !== null
+      object.votePenaltyCounter !== undefined &&
+      object.votePenaltyCounter !== null
     ) {
-      message.vote_penalty_counter = VotePenaltyCounter.fromJSON(
-        object.vote_penalty_counter
+      message.votePenaltyCounter = VotePenaltyCounter.fromJSON(
+        object.votePenaltyCounter
       );
     } else {
-      message.vote_penalty_counter = undefined;
+      message.votePenaltyCounter = undefined;
     }
     return message;
   },
 
   toJSON(message: PenaltyCounter): unknown {
     const obj: any = {};
-    message.validator_address !== undefined &&
-      (obj.validator_address = message.validator_address);
-    message.vote_penalty_counter !== undefined &&
-      (obj.vote_penalty_counter = message.vote_penalty_counter
-        ? VotePenaltyCounter.toJSON(message.vote_penalty_counter)
+    message.validatorAddress !== undefined &&
+      (obj.validatorAddress = message.validatorAddress);
+    message.votePenaltyCounter !== undefined &&
+      (obj.votePenaltyCounter = message.votePenaltyCounter
+        ? VotePenaltyCounter.toJSON(message.votePenaltyCounter)
         : undefined);
     return obj;
   },
@@ -420,22 +420,22 @@ export const PenaltyCounter = {
   fromPartial(object: DeepPartial<PenaltyCounter>): PenaltyCounter {
     const message = { ...basePenaltyCounter } as PenaltyCounter;
     if (
-      object.validator_address !== undefined &&
-      object.validator_address !== null
+      object.validatorAddress !== undefined &&
+      object.validatorAddress !== null
     ) {
-      message.validator_address = object.validator_address;
+      message.validatorAddress = object.validatorAddress;
     } else {
-      message.validator_address = "";
+      message.validatorAddress = "";
     }
     if (
-      object.vote_penalty_counter !== undefined &&
-      object.vote_penalty_counter !== null
+      object.votePenaltyCounter !== undefined &&
+      object.votePenaltyCounter !== null
     ) {
-      message.vote_penalty_counter = VotePenaltyCounter.fromPartial(
-        object.vote_penalty_counter
+      message.votePenaltyCounter = VotePenaltyCounter.fromPartial(
+        object.votePenaltyCounter
       );
     } else {
-      message.vote_penalty_counter = undefined;
+      message.votePenaltyCounter = undefined;
     }
     return message;
   },

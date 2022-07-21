@@ -12,6 +12,7 @@ export interface MsgPlaceOrders {
   orders: Order[];
   contractAddr: string;
   funds: Coin[];
+  autoCalculateDeposit: boolean;
 }
 
 export interface MsgPlaceOrdersResponse {
@@ -41,7 +42,11 @@ export interface MsgRegisterContract {
 
 export interface MsgRegisterContractResponse {}
 
-const baseMsgPlaceOrders: object = { creator: "", contractAddr: "" };
+const baseMsgPlaceOrders: object = {
+  creator: "",
+  contractAddr: "",
+  autoCalculateDeposit: false,
+};
 
 export const MsgPlaceOrders = {
   encode(message: MsgPlaceOrders, writer: Writer = Writer.create()): Writer {
@@ -56,6 +61,9 @@ export const MsgPlaceOrders = {
     }
     for (const v of message.funds) {
       Coin.encode(v!, writer.uint32(34).fork()).ldelim();
+    }
+    if (message.autoCalculateDeposit === true) {
+      writer.uint32(40).bool(message.autoCalculateDeposit);
     }
     return writer;
   },
@@ -80,6 +88,9 @@ export const MsgPlaceOrders = {
           break;
         case 4:
           message.funds.push(Coin.decode(reader, reader.uint32()));
+          break;
+        case 5:
+          message.autoCalculateDeposit = reader.bool();
           break;
         default:
           reader.skipType(tag & 7);
@@ -113,6 +124,14 @@ export const MsgPlaceOrders = {
         message.funds.push(Coin.fromJSON(e));
       }
     }
+    if (
+      object.autoCalculateDeposit !== undefined &&
+      object.autoCalculateDeposit !== null
+    ) {
+      message.autoCalculateDeposit = Boolean(object.autoCalculateDeposit);
+    } else {
+      message.autoCalculateDeposit = false;
+    }
     return message;
   },
 
@@ -131,6 +150,8 @@ export const MsgPlaceOrders = {
     } else {
       obj.funds = [];
     }
+    message.autoCalculateDeposit !== undefined &&
+      (obj.autoCalculateDeposit = message.autoCalculateDeposit);
     return obj;
   },
 
@@ -157,6 +178,14 @@ export const MsgPlaceOrders = {
       for (const e of object.funds) {
         message.funds.push(Coin.fromPartial(e));
       }
+    }
+    if (
+      object.autoCalculateDeposit !== undefined &&
+      object.autoCalculateDeposit !== null
+    ) {
+      message.autoCalculateDeposit = object.autoCalculateDeposit;
+    } else {
+      message.autoCalculateDeposit = false;
     }
     return message;
   },

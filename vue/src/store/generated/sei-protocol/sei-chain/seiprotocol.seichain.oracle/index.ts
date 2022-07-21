@@ -1,4 +1,6 @@
 import { txClient, queryClient, MissingWalletError , registry} from './module'
+// @ts-ignore
+import { SpVuexError } from '@starport/vuex'
 
 import { FeederDelegation } from "./module/types/oracle/genesis"
 import { PenaltyCounter } from "./module/types/oracle/genesis"
@@ -216,7 +218,7 @@ export default {
 					const sub=JSON.parse(subscription)
 					await dispatch(sub.action, sub.payload)
 				}catch(e) {
-					throw new Error('Subscriptions: ' + e.message)
+					throw new SpVuexError('Subscriptions: ' + e.message)
 				}
 			})
 		},
@@ -237,7 +239,7 @@ export default {
 				if (subscribe) commit('SUBSCRIBE', { action: 'QueryExchangeRate', payload: { options: { all }, params: {...key},query }})
 				return getters['getExchangeRate']( { params: {...key}, query}) ?? {}
 			} catch (e) {
-				throw new Error('QueryClient:QueryExchangeRate API Node Unavailable. Could not perform query: ' + e.message)
+				throw new SpVuexError('QueryClient:QueryExchangeRate', 'API Node Unavailable. Could not perform query: ' + e.message)
 				
 			}
 		},
@@ -259,7 +261,7 @@ export default {
 				if (subscribe) commit('SUBSCRIBE', { action: 'QueryExchangeRates', payload: { options: { all }, params: {...key},query }})
 				return getters['getExchangeRates']( { params: {...key}, query}) ?? {}
 			} catch (e) {
-				throw new Error('QueryClient:QueryExchangeRates API Node Unavailable. Could not perform query: ' + e.message)
+				throw new SpVuexError('QueryClient:QueryExchangeRates', 'API Node Unavailable. Could not perform query: ' + e.message)
 				
 			}
 		},
@@ -281,7 +283,7 @@ export default {
 				if (subscribe) commit('SUBSCRIBE', { action: 'QueryActives', payload: { options: { all }, params: {...key},query }})
 				return getters['getActives']( { params: {...key}, query}) ?? {}
 			} catch (e) {
-				throw new Error('QueryClient:QueryActives API Node Unavailable. Could not perform query: ' + e.message)
+				throw new SpVuexError('QueryClient:QueryActives', 'API Node Unavailable. Could not perform query: ' + e.message)
 				
 			}
 		},
@@ -303,7 +305,7 @@ export default {
 				if (subscribe) commit('SUBSCRIBE', { action: 'QueryVoteTargets', payload: { options: { all }, params: {...key},query }})
 				return getters['getVoteTargets']( { params: {...key}, query}) ?? {}
 			} catch (e) {
-				throw new Error('QueryClient:QueryVoteTargets API Node Unavailable. Could not perform query: ' + e.message)
+				throw new SpVuexError('QueryClient:QueryVoteTargets', 'API Node Unavailable. Could not perform query: ' + e.message)
 				
 			}
 		},
@@ -325,7 +327,7 @@ export default {
 				if (subscribe) commit('SUBSCRIBE', { action: 'QueryPriceSnapshotHistory', payload: { options: { all }, params: {...key},query }})
 				return getters['getPriceSnapshotHistory']( { params: {...key}, query}) ?? {}
 			} catch (e) {
-				throw new Error('QueryClient:QueryPriceSnapshotHistory API Node Unavailable. Could not perform query: ' + e.message)
+				throw new SpVuexError('QueryClient:QueryPriceSnapshotHistory', 'API Node Unavailable. Could not perform query: ' + e.message)
 				
 			}
 		},
@@ -351,7 +353,7 @@ export default {
 				if (subscribe) commit('SUBSCRIBE', { action: 'QueryTwaps', payload: { options: { all }, params: {...key},query }})
 				return getters['getTwaps']( { params: {...key}, query}) ?? {}
 			} catch (e) {
-				throw new Error('QueryClient:QueryTwaps API Node Unavailable. Could not perform query: ' + e.message)
+				throw new SpVuexError('QueryClient:QueryTwaps', 'API Node Unavailable. Could not perform query: ' + e.message)
 				
 			}
 		},
@@ -373,7 +375,7 @@ export default {
 				if (subscribe) commit('SUBSCRIBE', { action: 'QueryFeederDelegation', payload: { options: { all }, params: {...key},query }})
 				return getters['getFeederDelegation']( { params: {...key}, query}) ?? {}
 			} catch (e) {
-				throw new Error('QueryClient:QueryFeederDelegation API Node Unavailable. Could not perform query: ' + e.message)
+				throw new SpVuexError('QueryClient:QueryFeederDelegation', 'API Node Unavailable. Could not perform query: ' + e.message)
 				
 			}
 		},
@@ -395,7 +397,7 @@ export default {
 				if (subscribe) commit('SUBSCRIBE', { action: 'QueryVotePenaltyCounter', payload: { options: { all }, params: {...key},query }})
 				return getters['getVotePenaltyCounter']( { params: {...key}, query}) ?? {}
 			} catch (e) {
-				throw new Error('QueryClient:QueryVotePenaltyCounter API Node Unavailable. Could not perform query: ' + e.message)
+				throw new SpVuexError('QueryClient:QueryVotePenaltyCounter', 'API Node Unavailable. Could not perform query: ' + e.message)
 				
 			}
 		},
@@ -417,7 +419,7 @@ export default {
 				if (subscribe) commit('SUBSCRIBE', { action: 'QueryAggregatePrevote', payload: { options: { all }, params: {...key},query }})
 				return getters['getAggregatePrevote']( { params: {...key}, query}) ?? {}
 			} catch (e) {
-				throw new Error('QueryClient:QueryAggregatePrevote API Node Unavailable. Could not perform query: ' + e.message)
+				throw new SpVuexError('QueryClient:QueryAggregatePrevote', 'API Node Unavailable. Could not perform query: ' + e.message)
 				
 			}
 		},
@@ -439,7 +441,7 @@ export default {
 				if (subscribe) commit('SUBSCRIBE', { action: 'QueryAggregatePrevotes', payload: { options: { all }, params: {...key},query }})
 				return getters['getAggregatePrevotes']( { params: {...key}, query}) ?? {}
 			} catch (e) {
-				throw new Error('QueryClient:QueryAggregatePrevotes API Node Unavailable. Could not perform query: ' + e.message)
+				throw new SpVuexError('QueryClient:QueryAggregatePrevotes', 'API Node Unavailable. Could not perform query: ' + e.message)
 				
 			}
 		},
@@ -461,7 +463,7 @@ export default {
 				if (subscribe) commit('SUBSCRIBE', { action: 'QueryAggregateVote', payload: { options: { all }, params: {...key},query }})
 				return getters['getAggregateVote']( { params: {...key}, query}) ?? {}
 			} catch (e) {
-				throw new Error('QueryClient:QueryAggregateVote API Node Unavailable. Could not perform query: ' + e.message)
+				throw new SpVuexError('QueryClient:QueryAggregateVote', 'API Node Unavailable. Could not perform query: ' + e.message)
 				
 			}
 		},
@@ -483,7 +485,7 @@ export default {
 				if (subscribe) commit('SUBSCRIBE', { action: 'QueryAggregateVotes', payload: { options: { all }, params: {...key},query }})
 				return getters['getAggregateVotes']( { params: {...key}, query}) ?? {}
 			} catch (e) {
-				throw new Error('QueryClient:QueryAggregateVotes API Node Unavailable. Could not perform query: ' + e.message)
+				throw new SpVuexError('QueryClient:QueryAggregateVotes', 'API Node Unavailable. Could not perform query: ' + e.message)
 				
 			}
 		},
@@ -505,7 +507,7 @@ export default {
 				if (subscribe) commit('SUBSCRIBE', { action: 'QueryParams', payload: { options: { all }, params: {...key},query }})
 				return getters['getParams']( { params: {...key}, query}) ?? {}
 			} catch (e) {
-				throw new Error('QueryClient:QueryParams API Node Unavailable. Could not perform query: ' + e.message)
+				throw new SpVuexError('QueryClient:QueryParams', 'API Node Unavailable. Could not perform query: ' + e.message)
 				
 			}
 		},
@@ -520,9 +522,9 @@ export default {
 				return result
 			} catch (e) {
 				if (e == MissingWalletError) {
-					throw new Error('TxClient:MsgAggregateExchangeRatePrevote:Init Could not initialize signing client. Wallet is required.')
+					throw new SpVuexError('TxClient:MsgAggregateExchangeRatePrevote:Init', 'Could not initialize signing client. Wallet is required.')
 				}else{
-					throw new Error('TxClient:MsgAggregateExchangeRatePrevote:Send Could not broadcast Tx: '+ e.message)
+					throw new SpVuexError('TxClient:MsgAggregateExchangeRatePrevote:Send', 'Could not broadcast Tx: '+ e.message)
 				}
 			}
 		},
@@ -535,9 +537,9 @@ export default {
 				return result
 			} catch (e) {
 				if (e == MissingWalletError) {
-					throw new Error('TxClient:MsgAggregateExchangeRateVote:Init Could not initialize signing client. Wallet is required.')
+					throw new SpVuexError('TxClient:MsgAggregateExchangeRateVote:Init', 'Could not initialize signing client. Wallet is required.')
 				}else{
-					throw new Error('TxClient:MsgAggregateExchangeRateVote:Send Could not broadcast Tx: '+ e.message)
+					throw new SpVuexError('TxClient:MsgAggregateExchangeRateVote:Send', 'Could not broadcast Tx: '+ e.message)
 				}
 			}
 		},
@@ -550,9 +552,9 @@ export default {
 				return result
 			} catch (e) {
 				if (e == MissingWalletError) {
-					throw new Error('TxClient:MsgAggregateExchangeRateCombinedVote:Init Could not initialize signing client. Wallet is required.')
+					throw new SpVuexError('TxClient:MsgAggregateExchangeRateCombinedVote:Init', 'Could not initialize signing client. Wallet is required.')
 				}else{
-					throw new Error('TxClient:MsgAggregateExchangeRateCombinedVote:Send Could not broadcast Tx: '+ e.message)
+					throw new SpVuexError('TxClient:MsgAggregateExchangeRateCombinedVote:Send', 'Could not broadcast Tx: '+ e.message)
 				}
 			}
 		},
@@ -565,9 +567,9 @@ export default {
 				return result
 			} catch (e) {
 				if (e == MissingWalletError) {
-					throw new Error('TxClient:MsgDelegateFeedConsent:Init Could not initialize signing client. Wallet is required.')
+					throw new SpVuexError('TxClient:MsgDelegateFeedConsent:Init', 'Could not initialize signing client. Wallet is required.')
 				}else{
-					throw new Error('TxClient:MsgDelegateFeedConsent:Send Could not broadcast Tx: '+ e.message)
+					throw new SpVuexError('TxClient:MsgDelegateFeedConsent:Send', 'Could not broadcast Tx: '+ e.message)
 				}
 			}
 		},
@@ -579,9 +581,10 @@ export default {
 				return msg
 			} catch (e) {
 				if (e == MissingWalletError) {
-					throw new Error('TxClient:MsgAggregateExchangeRatePrevote:Init Could not initialize signing client. Wallet is required.')
-				} else{
-					throw new Error('TxClient:MsgAggregateExchangeRatePrevote:Create Could not create message: ' + e.message)
+					throw new SpVuexError('TxClient:MsgAggregateExchangeRatePrevote:Init', 'Could not initialize signing client. Wallet is required.')
+				}else{
+					throw new SpVuexError('TxClient:MsgAggregateExchangeRatePrevote:Create', 'Could not create message: ' + e.message)
+					
 				}
 			}
 		},
@@ -592,9 +595,10 @@ export default {
 				return msg
 			} catch (e) {
 				if (e == MissingWalletError) {
-					throw new Error('TxClient:MsgAggregateExchangeRateVote:Init Could not initialize signing client. Wallet is required.')
-				} else{
-					throw new Error('TxClient:MsgAggregateExchangeRateVote:Create Could not create message: ' + e.message)
+					throw new SpVuexError('TxClient:MsgAggregateExchangeRateVote:Init', 'Could not initialize signing client. Wallet is required.')
+				}else{
+					throw new SpVuexError('TxClient:MsgAggregateExchangeRateVote:Create', 'Could not create message: ' + e.message)
+					
 				}
 			}
 		},
@@ -605,9 +609,10 @@ export default {
 				return msg
 			} catch (e) {
 				if (e == MissingWalletError) {
-					throw new Error('TxClient:MsgAggregateExchangeRateCombinedVote:Init Could not initialize signing client. Wallet is required.')
-				} else{
-					throw new Error('TxClient:MsgAggregateExchangeRateCombinedVote:Create Could not create message: ' + e.message)
+					throw new SpVuexError('TxClient:MsgAggregateExchangeRateCombinedVote:Init', 'Could not initialize signing client. Wallet is required.')
+				}else{
+					throw new SpVuexError('TxClient:MsgAggregateExchangeRateCombinedVote:Create', 'Could not create message: ' + e.message)
+					
 				}
 			}
 		},
@@ -618,9 +623,10 @@ export default {
 				return msg
 			} catch (e) {
 				if (e == MissingWalletError) {
-					throw new Error('TxClient:MsgDelegateFeedConsent:Init Could not initialize signing client. Wallet is required.')
-				} else{
-					throw new Error('TxClient:MsgDelegateFeedConsent:Create Could not create message: ' + e.message)
+					throw new SpVuexError('TxClient:MsgDelegateFeedConsent:Init', 'Could not initialize signing client. Wallet is required.')
+				}else{
+					throw new SpVuexError('TxClient:MsgDelegateFeedConsent:Create', 'Could not create message: ' + e.message)
+					
 				}
 			}
 		},

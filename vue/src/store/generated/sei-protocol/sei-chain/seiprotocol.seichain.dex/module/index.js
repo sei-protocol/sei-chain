@@ -4,15 +4,13 @@ import { Registry } from "@cosmjs/proto-signing";
 import { Api } from "./rest";
 import { MsgCancelOrders } from "./types/dex/tx";
 import { MsgLiquidation } from "./types/dex/tx";
-import { MsgRegisterPair } from "./types/dex/tx";
-import { MsgRegisterContract } from "./types/dex/tx";
 import { MsgPlaceOrders } from "./types/dex/tx";
+import { MsgRegisterContract } from "./types/dex/tx";
 const types = [
     ["/seiprotocol.seichain.dex.MsgCancelOrders", MsgCancelOrders],
     ["/seiprotocol.seichain.dex.MsgLiquidation", MsgLiquidation],
-    ["/seiprotocol.seichain.dex.MsgRegisterPair", MsgRegisterPair],
-    ["/seiprotocol.seichain.dex.MsgRegisterContract", MsgRegisterContract],
     ["/seiprotocol.seichain.dex.MsgPlaceOrders", MsgPlaceOrders],
+    ["/seiprotocol.seichain.dex.MsgRegisterContract", MsgRegisterContract],
 ];
 export const MissingWalletError = new Error("wallet is required");
 export const registry = new Registry(types);
@@ -35,9 +33,8 @@ const txClient = async (wallet, { addr: addr } = { addr: "http://localhost:26657
         signAndBroadcast: (msgs, { fee, memo } = { fee: defaultFee, memo: "" }) => client.signAndBroadcast(address, msgs, fee, memo),
         msgCancelOrders: (data) => ({ typeUrl: "/seiprotocol.seichain.dex.MsgCancelOrders", value: MsgCancelOrders.fromPartial(data) }),
         msgLiquidation: (data) => ({ typeUrl: "/seiprotocol.seichain.dex.MsgLiquidation", value: MsgLiquidation.fromPartial(data) }),
-        msgRegisterPair: (data) => ({ typeUrl: "/seiprotocol.seichain.dex.MsgRegisterPair", value: MsgRegisterPair.fromPartial(data) }),
-        msgRegisterContract: (data) => ({ typeUrl: "/seiprotocol.seichain.dex.MsgRegisterContract", value: MsgRegisterContract.fromPartial(data) }),
         msgPlaceOrders: (data) => ({ typeUrl: "/seiprotocol.seichain.dex.MsgPlaceOrders", value: MsgPlaceOrders.fromPartial(data) }),
+        msgRegisterContract: (data) => ({ typeUrl: "/seiprotocol.seichain.dex.MsgRegisterContract", value: MsgRegisterContract.fromPartial(data) }),
     };
 };
 const queryClient = async ({ addr: addr } = { addr: "http://localhost:1317" }) => {

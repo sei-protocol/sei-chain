@@ -13,15 +13,15 @@ export const protobufPackage = "cosmos.slashing.v1beta1";
 export interface ValidatorSigningInfo {
   address: string;
   /** Height at which validator was first a candidate OR was unjailed */
-  start_height: number;
+  startHeight: number;
   /**
    * Index which is incremented each time the validator was a bonded
    * in a block and may have signed a precommit or not. This in conjunction with the
    * `SignedBlocksWindow` param determines the index in the `MissedBlocksBitArray`.
    */
-  index_offset: number;
+  indexOffset: number;
   /** Timestamp until which the validator is jailed due to liveness downtime. */
-  jailed_until: Date | undefined;
+  jailedUntil: Date | undefined;
   /**
    * Whether or not a validator has been tombstoned (killed out of validator set). It is set
    * once the validator commits an equivocation or for any other configured misbehiavor.
@@ -31,24 +31,24 @@ export interface ValidatorSigningInfo {
    * A counter kept to avoid unnecessary array reads.
    * Note that `Sum(MissedBlocksBitArray)` always equals `MissedBlocksCounter`.
    */
-  missed_blocks_counter: number;
+  missedBlocksCounter: number;
 }
 
 /** Params represents the parameters used for by the slashing module. */
 export interface Params {
-  signed_blocks_window: number;
-  min_signed_per_window: Uint8Array;
-  downtime_jail_duration: Duration | undefined;
-  slash_fraction_double_sign: Uint8Array;
-  slash_fraction_downtime: Uint8Array;
+  signedBlocksWindow: number;
+  minSignedPerWindow: Uint8Array;
+  downtimeJailDuration: Duration | undefined;
+  slashFractionDoubleSign: Uint8Array;
+  slashFractionDowntime: Uint8Array;
 }
 
 const baseValidatorSigningInfo: object = {
   address: "",
-  start_height: 0,
-  index_offset: 0,
+  startHeight: 0,
+  indexOffset: 0,
   tombstoned: false,
-  missed_blocks_counter: 0,
+  missedBlocksCounter: 0,
 };
 
 export const ValidatorSigningInfo = {
@@ -59,23 +59,23 @@ export const ValidatorSigningInfo = {
     if (message.address !== "") {
       writer.uint32(10).string(message.address);
     }
-    if (message.start_height !== 0) {
-      writer.uint32(16).int64(message.start_height);
+    if (message.startHeight !== 0) {
+      writer.uint32(16).int64(message.startHeight);
     }
-    if (message.index_offset !== 0) {
-      writer.uint32(24).int64(message.index_offset);
+    if (message.indexOffset !== 0) {
+      writer.uint32(24).int64(message.indexOffset);
     }
-    if (message.jailed_until !== undefined) {
+    if (message.jailedUntil !== undefined) {
       Timestamp.encode(
-        toTimestamp(message.jailed_until),
+        toTimestamp(message.jailedUntil),
         writer.uint32(34).fork()
       ).ldelim();
     }
     if (message.tombstoned === true) {
       writer.uint32(40).bool(message.tombstoned);
     }
-    if (message.missed_blocks_counter !== 0) {
-      writer.uint32(48).int64(message.missed_blocks_counter);
+    if (message.missedBlocksCounter !== 0) {
+      writer.uint32(48).int64(message.missedBlocksCounter);
     }
     return writer;
   },
@@ -91,13 +91,13 @@ export const ValidatorSigningInfo = {
           message.address = reader.string();
           break;
         case 2:
-          message.start_height = longToNumber(reader.int64() as Long);
+          message.startHeight = longToNumber(reader.int64() as Long);
           break;
         case 3:
-          message.index_offset = longToNumber(reader.int64() as Long);
+          message.indexOffset = longToNumber(reader.int64() as Long);
           break;
         case 4:
-          message.jailed_until = fromTimestamp(
+          message.jailedUntil = fromTimestamp(
             Timestamp.decode(reader, reader.uint32())
           );
           break;
@@ -105,7 +105,7 @@ export const ValidatorSigningInfo = {
           message.tombstoned = reader.bool();
           break;
         case 6:
-          message.missed_blocks_counter = longToNumber(reader.int64() as Long);
+          message.missedBlocksCounter = longToNumber(reader.int64() as Long);
           break;
         default:
           reader.skipType(tag & 7);
@@ -122,20 +122,20 @@ export const ValidatorSigningInfo = {
     } else {
       message.address = "";
     }
-    if (object.start_height !== undefined && object.start_height !== null) {
-      message.start_height = Number(object.start_height);
+    if (object.startHeight !== undefined && object.startHeight !== null) {
+      message.startHeight = Number(object.startHeight);
     } else {
-      message.start_height = 0;
+      message.startHeight = 0;
     }
-    if (object.index_offset !== undefined && object.index_offset !== null) {
-      message.index_offset = Number(object.index_offset);
+    if (object.indexOffset !== undefined && object.indexOffset !== null) {
+      message.indexOffset = Number(object.indexOffset);
     } else {
-      message.index_offset = 0;
+      message.indexOffset = 0;
     }
-    if (object.jailed_until !== undefined && object.jailed_until !== null) {
-      message.jailed_until = fromJsonTimestamp(object.jailed_until);
+    if (object.jailedUntil !== undefined && object.jailedUntil !== null) {
+      message.jailedUntil = fromJsonTimestamp(object.jailedUntil);
     } else {
-      message.jailed_until = undefined;
+      message.jailedUntil = undefined;
     }
     if (object.tombstoned !== undefined && object.tombstoned !== null) {
       message.tombstoned = Boolean(object.tombstoned);
@@ -143,12 +143,12 @@ export const ValidatorSigningInfo = {
       message.tombstoned = false;
     }
     if (
-      object.missed_blocks_counter !== undefined &&
-      object.missed_blocks_counter !== null
+      object.missedBlocksCounter !== undefined &&
+      object.missedBlocksCounter !== null
     ) {
-      message.missed_blocks_counter = Number(object.missed_blocks_counter);
+      message.missedBlocksCounter = Number(object.missedBlocksCounter);
     } else {
-      message.missed_blocks_counter = 0;
+      message.missedBlocksCounter = 0;
     }
     return message;
   },
@@ -156,18 +156,18 @@ export const ValidatorSigningInfo = {
   toJSON(message: ValidatorSigningInfo): unknown {
     const obj: any = {};
     message.address !== undefined && (obj.address = message.address);
-    message.start_height !== undefined &&
-      (obj.start_height = message.start_height);
-    message.index_offset !== undefined &&
-      (obj.index_offset = message.index_offset);
-    message.jailed_until !== undefined &&
-      (obj.jailed_until =
-        message.jailed_until !== undefined
-          ? message.jailed_until.toISOString()
+    message.startHeight !== undefined &&
+      (obj.startHeight = message.startHeight);
+    message.indexOffset !== undefined &&
+      (obj.indexOffset = message.indexOffset);
+    message.jailedUntil !== undefined &&
+      (obj.jailedUntil =
+        message.jailedUntil !== undefined
+          ? message.jailedUntil.toISOString()
           : null);
     message.tombstoned !== undefined && (obj.tombstoned = message.tombstoned);
-    message.missed_blocks_counter !== undefined &&
-      (obj.missed_blocks_counter = message.missed_blocks_counter);
+    message.missedBlocksCounter !== undefined &&
+      (obj.missedBlocksCounter = message.missedBlocksCounter);
     return obj;
   },
 
@@ -178,20 +178,20 @@ export const ValidatorSigningInfo = {
     } else {
       message.address = "";
     }
-    if (object.start_height !== undefined && object.start_height !== null) {
-      message.start_height = object.start_height;
+    if (object.startHeight !== undefined && object.startHeight !== null) {
+      message.startHeight = object.startHeight;
     } else {
-      message.start_height = 0;
+      message.startHeight = 0;
     }
-    if (object.index_offset !== undefined && object.index_offset !== null) {
-      message.index_offset = object.index_offset;
+    if (object.indexOffset !== undefined && object.indexOffset !== null) {
+      message.indexOffset = object.indexOffset;
     } else {
-      message.index_offset = 0;
+      message.indexOffset = 0;
     }
-    if (object.jailed_until !== undefined && object.jailed_until !== null) {
-      message.jailed_until = object.jailed_until;
+    if (object.jailedUntil !== undefined && object.jailedUntil !== null) {
+      message.jailedUntil = object.jailedUntil;
     } else {
-      message.jailed_until = undefined;
+      message.jailedUntil = undefined;
     }
     if (object.tombstoned !== undefined && object.tombstoned !== null) {
       message.tombstoned = object.tombstoned;
@@ -199,38 +199,38 @@ export const ValidatorSigningInfo = {
       message.tombstoned = false;
     }
     if (
-      object.missed_blocks_counter !== undefined &&
-      object.missed_blocks_counter !== null
+      object.missedBlocksCounter !== undefined &&
+      object.missedBlocksCounter !== null
     ) {
-      message.missed_blocks_counter = object.missed_blocks_counter;
+      message.missedBlocksCounter = object.missedBlocksCounter;
     } else {
-      message.missed_blocks_counter = 0;
+      message.missedBlocksCounter = 0;
     }
     return message;
   },
 };
 
-const baseParams: object = { signed_blocks_window: 0 };
+const baseParams: object = { signedBlocksWindow: 0 };
 
 export const Params = {
   encode(message: Params, writer: Writer = Writer.create()): Writer {
-    if (message.signed_blocks_window !== 0) {
-      writer.uint32(8).int64(message.signed_blocks_window);
+    if (message.signedBlocksWindow !== 0) {
+      writer.uint32(8).int64(message.signedBlocksWindow);
     }
-    if (message.min_signed_per_window.length !== 0) {
-      writer.uint32(18).bytes(message.min_signed_per_window);
+    if (message.minSignedPerWindow.length !== 0) {
+      writer.uint32(18).bytes(message.minSignedPerWindow);
     }
-    if (message.downtime_jail_duration !== undefined) {
+    if (message.downtimeJailDuration !== undefined) {
       Duration.encode(
-        message.downtime_jail_duration,
+        message.downtimeJailDuration,
         writer.uint32(26).fork()
       ).ldelim();
     }
-    if (message.slash_fraction_double_sign.length !== 0) {
-      writer.uint32(34).bytes(message.slash_fraction_double_sign);
+    if (message.slashFractionDoubleSign.length !== 0) {
+      writer.uint32(34).bytes(message.slashFractionDoubleSign);
     }
-    if (message.slash_fraction_downtime.length !== 0) {
-      writer.uint32(42).bytes(message.slash_fraction_downtime);
+    if (message.slashFractionDowntime.length !== 0) {
+      writer.uint32(42).bytes(message.slashFractionDowntime);
     }
     return writer;
   },
@@ -243,22 +243,22 @@ export const Params = {
       const tag = reader.uint32();
       switch (tag >>> 3) {
         case 1:
-          message.signed_blocks_window = longToNumber(reader.int64() as Long);
+          message.signedBlocksWindow = longToNumber(reader.int64() as Long);
           break;
         case 2:
-          message.min_signed_per_window = reader.bytes();
+          message.minSignedPerWindow = reader.bytes();
           break;
         case 3:
-          message.downtime_jail_duration = Duration.decode(
+          message.downtimeJailDuration = Duration.decode(
             reader,
             reader.uint32()
           );
           break;
         case 4:
-          message.slash_fraction_double_sign = reader.bytes();
+          message.slashFractionDoubleSign = reader.bytes();
           break;
         case 5:
-          message.slash_fraction_downtime = reader.bytes();
+          message.slashFractionDowntime = reader.bytes();
           break;
         default:
           reader.skipType(tag & 7);
@@ -271,45 +271,43 @@ export const Params = {
   fromJSON(object: any): Params {
     const message = { ...baseParams } as Params;
     if (
-      object.signed_blocks_window !== undefined &&
-      object.signed_blocks_window !== null
+      object.signedBlocksWindow !== undefined &&
+      object.signedBlocksWindow !== null
     ) {
-      message.signed_blocks_window = Number(object.signed_blocks_window);
+      message.signedBlocksWindow = Number(object.signedBlocksWindow);
     } else {
-      message.signed_blocks_window = 0;
+      message.signedBlocksWindow = 0;
     }
     if (
-      object.min_signed_per_window !== undefined &&
-      object.min_signed_per_window !== null
+      object.minSignedPerWindow !== undefined &&
+      object.minSignedPerWindow !== null
     ) {
-      message.min_signed_per_window = bytesFromBase64(
-        object.min_signed_per_window
-      );
+      message.minSignedPerWindow = bytesFromBase64(object.minSignedPerWindow);
     }
     if (
-      object.downtime_jail_duration !== undefined &&
-      object.downtime_jail_duration !== null
+      object.downtimeJailDuration !== undefined &&
+      object.downtimeJailDuration !== null
     ) {
-      message.downtime_jail_duration = Duration.fromJSON(
-        object.downtime_jail_duration
+      message.downtimeJailDuration = Duration.fromJSON(
+        object.downtimeJailDuration
       );
     } else {
-      message.downtime_jail_duration = undefined;
+      message.downtimeJailDuration = undefined;
     }
     if (
-      object.slash_fraction_double_sign !== undefined &&
-      object.slash_fraction_double_sign !== null
+      object.slashFractionDoubleSign !== undefined &&
+      object.slashFractionDoubleSign !== null
     ) {
-      message.slash_fraction_double_sign = bytesFromBase64(
-        object.slash_fraction_double_sign
+      message.slashFractionDoubleSign = bytesFromBase64(
+        object.slashFractionDoubleSign
       );
     }
     if (
-      object.slash_fraction_downtime !== undefined &&
-      object.slash_fraction_downtime !== null
+      object.slashFractionDowntime !== undefined &&
+      object.slashFractionDowntime !== null
     ) {
-      message.slash_fraction_downtime = bytesFromBase64(
-        object.slash_fraction_downtime
+      message.slashFractionDowntime = bytesFromBase64(
+        object.slashFractionDowntime
       );
     }
     return message;
@@ -317,28 +315,28 @@ export const Params = {
 
   toJSON(message: Params): unknown {
     const obj: any = {};
-    message.signed_blocks_window !== undefined &&
-      (obj.signed_blocks_window = message.signed_blocks_window);
-    message.min_signed_per_window !== undefined &&
-      (obj.min_signed_per_window = base64FromBytes(
-        message.min_signed_per_window !== undefined
-          ? message.min_signed_per_window
+    message.signedBlocksWindow !== undefined &&
+      (obj.signedBlocksWindow = message.signedBlocksWindow);
+    message.minSignedPerWindow !== undefined &&
+      (obj.minSignedPerWindow = base64FromBytes(
+        message.minSignedPerWindow !== undefined
+          ? message.minSignedPerWindow
           : new Uint8Array()
       ));
-    message.downtime_jail_duration !== undefined &&
-      (obj.downtime_jail_duration = message.downtime_jail_duration
-        ? Duration.toJSON(message.downtime_jail_duration)
+    message.downtimeJailDuration !== undefined &&
+      (obj.downtimeJailDuration = message.downtimeJailDuration
+        ? Duration.toJSON(message.downtimeJailDuration)
         : undefined);
-    message.slash_fraction_double_sign !== undefined &&
-      (obj.slash_fraction_double_sign = base64FromBytes(
-        message.slash_fraction_double_sign !== undefined
-          ? message.slash_fraction_double_sign
+    message.slashFractionDoubleSign !== undefined &&
+      (obj.slashFractionDoubleSign = base64FromBytes(
+        message.slashFractionDoubleSign !== undefined
+          ? message.slashFractionDoubleSign
           : new Uint8Array()
       ));
-    message.slash_fraction_downtime !== undefined &&
-      (obj.slash_fraction_downtime = base64FromBytes(
-        message.slash_fraction_downtime !== undefined
-          ? message.slash_fraction_downtime
+    message.slashFractionDowntime !== undefined &&
+      (obj.slashFractionDowntime = base64FromBytes(
+        message.slashFractionDowntime !== undefined
+          ? message.slashFractionDowntime
           : new Uint8Array()
       ));
     return obj;
@@ -347,46 +345,46 @@ export const Params = {
   fromPartial(object: DeepPartial<Params>): Params {
     const message = { ...baseParams } as Params;
     if (
-      object.signed_blocks_window !== undefined &&
-      object.signed_blocks_window !== null
+      object.signedBlocksWindow !== undefined &&
+      object.signedBlocksWindow !== null
     ) {
-      message.signed_blocks_window = object.signed_blocks_window;
+      message.signedBlocksWindow = object.signedBlocksWindow;
     } else {
-      message.signed_blocks_window = 0;
+      message.signedBlocksWindow = 0;
     }
     if (
-      object.min_signed_per_window !== undefined &&
-      object.min_signed_per_window !== null
+      object.minSignedPerWindow !== undefined &&
+      object.minSignedPerWindow !== null
     ) {
-      message.min_signed_per_window = object.min_signed_per_window;
+      message.minSignedPerWindow = object.minSignedPerWindow;
     } else {
-      message.min_signed_per_window = new Uint8Array();
+      message.minSignedPerWindow = new Uint8Array();
     }
     if (
-      object.downtime_jail_duration !== undefined &&
-      object.downtime_jail_duration !== null
+      object.downtimeJailDuration !== undefined &&
+      object.downtimeJailDuration !== null
     ) {
-      message.downtime_jail_duration = Duration.fromPartial(
-        object.downtime_jail_duration
+      message.downtimeJailDuration = Duration.fromPartial(
+        object.downtimeJailDuration
       );
     } else {
-      message.downtime_jail_duration = undefined;
+      message.downtimeJailDuration = undefined;
     }
     if (
-      object.slash_fraction_double_sign !== undefined &&
-      object.slash_fraction_double_sign !== null
+      object.slashFractionDoubleSign !== undefined &&
+      object.slashFractionDoubleSign !== null
     ) {
-      message.slash_fraction_double_sign = object.slash_fraction_double_sign;
+      message.slashFractionDoubleSign = object.slashFractionDoubleSign;
     } else {
-      message.slash_fraction_double_sign = new Uint8Array();
+      message.slashFractionDoubleSign = new Uint8Array();
     }
     if (
-      object.slash_fraction_downtime !== undefined &&
-      object.slash_fraction_downtime !== null
+      object.slashFractionDowntime !== undefined &&
+      object.slashFractionDowntime !== null
     ) {
-      message.slash_fraction_downtime = object.slash_fraction_downtime;
+      message.slashFractionDowntime = object.slashFractionDowntime;
     } else {
-      message.slash_fraction_downtime = new Uint8Array();
+      message.slashFractionDowntime = new Uint8Array();
     }
     return message;
   },
