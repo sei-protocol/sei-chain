@@ -1,18 +1,30 @@
+export interface DexAllocation {
+    /** @format uint64 */
+    orderId?: string;
+    quantity?: string;
+    account?: string;
+}
+export interface DexAssetIBCInfo {
+    sourceChannel?: string;
+    dstChannel?: string;
+    sourceDenom?: string;
+    sourceChainID?: string;
+}
+export interface DexAssetMetadata {
+    ibcInfo?: DexAssetIBCInfo;
+    typeAsset?: string;
+    /**
+     * Metadata represents a struct that describes
+     * a basic token.
+     */
+    metadata?: V1Beta1Metadata;
+}
 export interface DexContractInfo {
     /** @format uint64 */
     codeId?: string;
     contractAddr?: string;
-}
-export declare enum DexDenom {
-    SEI = "SEI",
-    ATOM = "ATOM",
-    BTC = "BTC",
-    ETH = "ETH",
-    SOL = "SOL",
-    AVAX = "AVAX",
-    USDC = "USDC",
-    NEAR = "NEAR",
-    OSMO = "OSMO"
+    NeedHook?: boolean;
+    NeedOrderMatching?: boolean;
 }
 export interface DexLongBook {
     price?: string;
@@ -24,33 +36,32 @@ export interface DexMsgPlaceOrdersResponse {
     orderIds?: string[];
 }
 export declare type DexMsgRegisterContractResponse = object;
-export declare type DexMsgRegisterPairResponse = object;
-export interface DexOrderCancellation {
-    positionDirection?: DexPositionDirection;
+export interface DexOrder {
+    /** @format uint64 */
+    id?: string;
+    status?: DexOrderStatus;
+    account?: string;
+    contractAddr?: string;
     price?: string;
     quantity?: string;
-    priceDenom?: DexDenom;
-    assetDenom?: DexDenom;
-    positionEffect?: DexPositionEffect;
-    leverage?: string;
+    priceDenom?: string;
+    assetDenom?: string;
+    orderType?: DexOrderType;
+    positionDirection?: DexPositionDirection;
+    data?: string;
 }
 export interface DexOrderEntry {
     price?: string;
     quantity?: string;
-    allocationCreator?: string[];
-    allocation?: string[];
-    priceDenom?: DexDenom;
-    assetDenom?: DexDenom;
+    allocations?: DexAllocation[];
+    priceDenom?: string;
+    assetDenom?: string;
 }
-export interface DexOrderPlacement {
-    positionDirection?: DexPositionDirection;
-    price?: string;
-    quantity?: string;
-    priceDenom?: DexDenom;
-    assetDenom?: DexDenom;
-    positionEffect?: DexPositionEffect;
-    orderType?: DexOrderType;
-    leverage?: string;
+export declare enum DexOrderStatus {
+    PLACED = "PLACED",
+    FAILED_TO_PLACE = "FAILED_TO_PLACE",
+    CANCELLED = "CANCELLED",
+    FULFILLED = "FULFILLED"
 }
 export declare enum DexOrderType {
     LIMIT = "LIMIT",
@@ -58,23 +69,13 @@ export declare enum DexOrderType {
     LIQUIDATION = "LIQUIDATION"
 }
 export interface DexPair {
-    priceDenom?: DexDenom;
-    assetDenom?: DexDenom;
-}
-/**
- * Params defines the parameters for the module.
- */
-export interface DexParams {
-    /** @format uint64 */
-    priceSnapshotRetention?: string;
+    priceDenom?: string;
+    assetDenom?: string;
+    ticksize?: string;
 }
 export declare enum DexPositionDirection {
     LONG = "LONG",
     SHORT = "SHORT"
-}
-export declare enum DexPositionEffect {
-    OPEN = "OPEN",
-    CLOSE = "CLOSE"
 }
 export interface DexPrice {
     /** @format uint64 */
@@ -82,21 +83,19 @@ export interface DexPrice {
     price?: string;
     pair?: DexPair;
 }
+export interface DexPriceCandlestick {
+    /** @format uint64 */
+    beginTimestamp?: string;
+    /** @format uint64 */
+    endTimestamp?: string;
+    open?: string;
+    high?: string;
+    low?: string;
+    close?: string;
+    volume?: string;
+}
 export interface DexQueryAllLongBookResponse {
     LongBook?: DexLongBook[];
-    /**
-     * PageResponse is to be embedded in gRPC response messages where the
-     * corresponding request message has used PageRequest.
-     *
-     *  message SomeResponse {
-     *          repeated Bar results = 1;
-     *          PageResponse page = 2;
-     *  }
-     */
-    pagination?: V1Beta1PageResponse;
-}
-export interface DexQueryAllSettlementsResponse {
-    Settlements?: DexSettlements[];
     /**
      * PageResponse is to be embedded in gRPC response messages where the
      * corresponding request message has used PageRequest.
@@ -121,11 +120,29 @@ export interface DexQueryAllShortBookResponse {
      */
     pagination?: V1Beta1PageResponse;
 }
+export interface DexQueryAssetListResponse {
+    assetList?: DexAssetMetadata[];
+}
+export interface DexQueryAssetMetadataResponse {
+    metadata?: DexAssetMetadata;
+}
+export interface DexQueryGetHistoricalPricesResponse {
+    prices?: DexPriceCandlestick[];
+}
 export interface DexQueryGetLongBookResponse {
     LongBook?: DexLongBook;
 }
+export interface DexQueryGetOrderByIDResponse {
+    order?: DexOrder;
+}
+export interface DexQueryGetOrdersResponse {
+    orders?: DexOrder[];
+}
 export interface DexQueryGetPricesResponse {
     prices?: DexPrice[];
+}
+export interface DexQueryGetSettlementsResponse {
+    Settlements?: DexSettlements;
 }
 export interface DexQueryGetShortBookResponse {
     ShortBook?: DexShortBook;
@@ -138,7 +155,10 @@ export interface DexQueryGetTwapsResponse {
  */
 export interface DexQueryParamsResponse {
     /** params holds all the parameters of this module. */
-    params?: DexParams;
+    params?: SeichaindexParams;
+}
+export interface DexQueryRegisteredPairsResponse {
+    pairs?: DexPair[];
 }
 export interface DexSettlementEntry {
     account?: string;
@@ -148,9 +168,9 @@ export interface DexSettlementEntry {
     executionCostOrProceed?: string;
     expectedCostOrProceed?: string;
     positionDirection?: string;
-    positionEffect?: string;
-    leverage?: string;
     orderType?: string;
+    /** @format uint64 */
+    orderId?: string;
 }
 export interface DexSettlements {
     /** @format int64 */
@@ -177,6 +197,13 @@ export interface RpcStatus {
     details?: ProtobufAny[];
 }
 /**
+ * Params defines the parameters for the module.
+ */
+export interface SeichaindexParams {
+    /** @format uint64 */
+    priceSnapshotRetention?: string;
+}
+/**
 * Coin defines a token with a denomination and an amount.
 
 NOTE: The amount field is an Int which implements the custom method
@@ -185,6 +212,48 @@ signatures required by gogoproto.
 export interface V1Beta1Coin {
     denom?: string;
     amount?: string;
+}
+/**
+* DenomUnit represents a struct that describes a given
+denomination unit of the basic token.
+*/
+export interface V1Beta1DenomUnit {
+    /** denom represents the string name of the given denom unit (e.g uatom). */
+    denom?: string;
+    /**
+     * exponent represents power of 10 exponent that one must
+     * raise the base_denom to in order to equal the given DenomUnit's denom
+     * 1 denom = 1^exponent base_denom
+     * (e.g. with a base_denom of uatom, one can create a DenomUnit of 'atom' with
+     * exponent = 6, thus: 1 atom = 10^6 uatom).
+     * @format int64
+     */
+    exponent?: number;
+    aliases?: string[];
+}
+/**
+* Metadata represents a struct that describes
+a basic token.
+*/
+export interface V1Beta1Metadata {
+    description?: string;
+    denomUnits?: V1Beta1DenomUnit[];
+    /** base represents the base denom (should be the DenomUnit with exponent = 0). */
+    base?: string;
+    /**
+     * display indicates the suggested denom that should be
+     * displayed in clients.
+     */
+    display?: string;
+    /** Since: cosmos-sdk 0.43 */
+    name?: string;
+    /**
+     * symbol is the token symbol usually shown on exchanges (eg: ATOM). This can
+     * be the same as the display.
+     *
+     * Since: cosmos-sdk 0.43
+     */
+    symbol?: string;
 }
 /**
 * message SomeRequest {
@@ -296,7 +365,7 @@ export declare class HttpClient<SecurityDataType = unknown> {
     request: <T = any, E = any>({ body, secure, path, type, query, format, baseUrl, cancelToken, ...params }: FullRequestParams) => Promise<HttpResponse<T, E>>;
 }
 /**
- * @title dex/contract.proto
+ * @title dex/asset_list.proto
  * @version version not set
  */
 export declare class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDataType> {
@@ -304,10 +373,60 @@ export declare class Api<SecurityDataType extends unknown> extends HttpClient<Se
      * No description
      *
      * @tags Query
+     * @name QueryAssetList
+     * @summary Returns metadata for all the assets
+     * @request GET:/sei-protocol/seichain/dex/asset_list
+     */
+    queryAssetList: (params?: RequestParams) => Promise<HttpResponse<DexQueryAssetListResponse, RpcStatus>>;
+    /**
+     * No description
+     *
+     * @tags Query
+     * @name QueryAssetMetadata
+     * @summary Returns the metadata for a specified denom / display type
+     * @request GET:/sei-protocol/seichain/dex/asset_list/{denom}
+     */
+    queryAssetMetadata: (denom: string, params?: RequestParams) => Promise<HttpResponse<DexQueryAssetMetadataResponse, RpcStatus>>;
+    /**
+     * No description
+     *
+     * @tags Query
+     * @name QueryGetHistoricalPrices
+     * @request GET:/sei-protocol/seichain/dex/get_historical_prices/{contractAddr}/{priceDenom}/{assetDenom}/{periodLengthInSeconds}/{numOfPeriods}
+     */
+    queryGetHistoricalPrices: (contractAddr: string, priceDenom: string, assetDenom: string, periodLengthInSeconds: string, numOfPeriods: string, params?: RequestParams) => Promise<HttpResponse<DexQueryGetHistoricalPricesResponse, RpcStatus>>;
+    /**
+     * No description
+     *
+     * @tags Query
+     * @name QueryGetOrder
+     * @request GET:/sei-protocol/seichain/dex/get_order_by_id/{contractAddr}/{priceDenom}/{assetDenom}/{id}
+     */
+    queryGetOrder: (contractAddr: string, priceDenom: string, assetDenom: string, id: string, params?: RequestParams) => Promise<HttpResponse<DexQueryGetOrderByIDResponse, RpcStatus>>;
+    /**
+     * No description
+     *
+     * @tags Query
+     * @name QueryGetOrders
+     * @request GET:/sei-protocol/seichain/dex/get_orders/{contractAddr}/{account}
+     */
+    queryGetOrders: (contractAddr: string, account: string, params?: RequestParams) => Promise<HttpResponse<DexQueryGetOrdersResponse, RpcStatus>>;
+    /**
+     * No description
+     *
+     * @tags Query
      * @name QueryGetPrices
      * @request GET:/sei-protocol/seichain/dex/get_prices/{contractAddr}/{priceDenom}/{assetDenom}
      */
-    queryGetPrices: (contractAddr: string, priceDenom: "SEI" | "ATOM" | "BTC" | "ETH" | "SOL" | "AVAX" | "USDC" | "NEAR" | "OSMO", assetDenom: "SEI" | "ATOM" | "BTC" | "ETH" | "SOL" | "AVAX" | "USDC" | "NEAR" | "OSMO", params?: RequestParams) => Promise<HttpResponse<DexQueryGetPricesResponse, RpcStatus>>;
+    queryGetPrices: (contractAddr: string, priceDenom: string, assetDenom: string, params?: RequestParams) => Promise<HttpResponse<DexQueryGetPricesResponse, RpcStatus>>;
+    /**
+     * No description
+     *
+     * @tags Query
+     * @name QueryGetSettlements
+     * @request GET:/sei-protocol/seichain/dex/get_settlements/{contractAddr}/{priceDenom}/{assetDenom}/{orderId}
+     */
+    queryGetSettlements: (contractAddr: string, priceDenom: string, assetDenom: string, orderId: string, params?: RequestParams) => Promise<HttpResponse<DexQueryGetSettlementsResponse, RpcStatus>>;
     /**
      * No description
      *
@@ -324,7 +443,7 @@ export declare class Api<SecurityDataType extends unknown> extends HttpClient<Se
      * @summary Queries a list of LongBook items.
      * @request GET:/sei-protocol/seichain/dex/long_book/{contractAddr}/{priceDenom}/{assetDenom}
      */
-    queryLongBookAll: (contractAddr: string, priceDenom: "SEI" | "ATOM" | "BTC" | "ETH" | "SOL" | "AVAX" | "USDC" | "NEAR" | "OSMO", assetDenom: "SEI" | "ATOM" | "BTC" | "ETH" | "SOL" | "AVAX" | "USDC" | "NEAR" | "OSMO", query?: {
+    queryLongBookAll: (contractAddr: string, priceDenom: string, assetDenom: string, query?: {
         "pagination.key"?: string;
         "pagination.offset"?: string;
         "pagination.limit"?: string;
@@ -339,7 +458,7 @@ export declare class Api<SecurityDataType extends unknown> extends HttpClient<Se
      * @summary Queries a LongBook by id.
      * @request GET:/sei-protocol/seichain/dex/long_book/{contractAddr}/{priceDenom}/{assetDenom}/{price}
      */
-    queryLongBook: (contractAddr: string, priceDenom: "SEI" | "ATOM" | "BTC" | "ETH" | "SOL" | "AVAX" | "USDC" | "NEAR" | "OSMO", assetDenom: "SEI" | "ATOM" | "BTC" | "ETH" | "SOL" | "AVAX" | "USDC" | "NEAR" | "OSMO", price: string, params?: RequestParams) => Promise<HttpResponse<DexQueryGetLongBookResponse, RpcStatus>>;
+    queryLongBook: (contractAddr: string, priceDenom: string, assetDenom: string, price: string, params?: RequestParams) => Promise<HttpResponse<DexQueryGetLongBookResponse, RpcStatus>>;
     /**
      * No description
      *
@@ -353,16 +472,13 @@ export declare class Api<SecurityDataType extends unknown> extends HttpClient<Se
      * No description
      *
      * @tags Query
-     * @name QuerySettlementsAll
-     * @request GET:/sei-protocol/seichain/dex/settlement
+     * @name QueryGetRegisteredPairs
+     * @summary Returns all registered pairs for specified contract address
+     * @request GET:/sei-protocol/seichain/dex/registered_pairs
      */
-    querySettlementsAll: (query?: {
-        "pagination.key"?: string;
-        "pagination.offset"?: string;
-        "pagination.limit"?: string;
-        "pagination.countTotal"?: boolean;
-        "pagination.reverse"?: boolean;
-    }, params?: RequestParams) => Promise<HttpResponse<DexQueryAllSettlementsResponse, RpcStatus>>;
+    queryGetRegisteredPairs: (query?: {
+        contractAddr?: string;
+    }, params?: RequestParams) => Promise<HttpResponse<DexQueryRegisteredPairsResponse, RpcStatus>>;
     /**
      * No description
      *
@@ -371,7 +487,7 @@ export declare class Api<SecurityDataType extends unknown> extends HttpClient<Se
      * @summary Queries a list of ShortBook items.
      * @request GET:/sei-protocol/seichain/dex/short_book/{contractAddr}/{priceDenom}/{assetDenom}
      */
-    queryShortBookAll: (contractAddr: string, priceDenom: "SEI" | "ATOM" | "BTC" | "ETH" | "SOL" | "AVAX" | "USDC" | "NEAR" | "OSMO", assetDenom: "SEI" | "ATOM" | "BTC" | "ETH" | "SOL" | "AVAX" | "USDC" | "NEAR" | "OSMO", query?: {
+    queryShortBookAll: (contractAddr: string, priceDenom: string, assetDenom: string, query?: {
         "pagination.key"?: string;
         "pagination.offset"?: string;
         "pagination.limit"?: string;
@@ -386,6 +502,6 @@ export declare class Api<SecurityDataType extends unknown> extends HttpClient<Se
      * @summary Queries a ShortBook by id.
      * @request GET:/sei-protocol/seichain/dex/short_book/{contractAddr}/{priceDenom}/{assetDenom}/{price}
      */
-    queryShortBook: (contractAddr: string, priceDenom: "SEI" | "ATOM" | "BTC" | "ETH" | "SOL" | "AVAX" | "USDC" | "NEAR" | "OSMO", assetDenom: "SEI" | "ATOM" | "BTC" | "ETH" | "SOL" | "AVAX" | "USDC" | "NEAR" | "OSMO", price: string, params?: RequestParams) => Promise<HttpResponse<DexQueryGetShortBookResponse, RpcStatus>>;
+    queryShortBook: (contractAddr: string, priceDenom: string, assetDenom: string, price: string, params?: RequestParams) => Promise<HttpResponse<DexQueryGetShortBookResponse, RpcStatus>>;
 }
 export {};

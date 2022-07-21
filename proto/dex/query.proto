@@ -68,14 +68,14 @@ service Query {
 
 	// Returns all registered pairs for specified contract address
 	rpc GetRegisteredPairs(QueryRegisteredPairsRequest) returns (QueryRegisteredPairsResponse) {
-		option (google.api.http).get = "/sei-protocol/seichain/dex/asset_list";
+		option (google.api.http).get = "/sei-protocol/seichain/dex/registered_pairs";
 	}
 
 	rpc GetOrders(QueryGetOrdersRequest) returns (QueryGetOrdersResponse) {
 		option (google.api.http).get = "/sei-protocol/seichain/dex/get_orders/{contractAddr}/{account}";
 	}
 
-	rpc GetOrderByID(QueryGetOrderByIDRequest) returns (QueryGetOrderByIDResponse) {
+	rpc GetOrder(QueryGetOrderByIDRequest) returns (QueryGetOrderByIDResponse) {
 		option (google.api.http).get = "/sei-protocol/seichain/dex/get_order_by_id/{contractAddr}/{priceDenom}/{assetDenom}/{id}";
 	}
 

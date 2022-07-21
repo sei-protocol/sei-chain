@@ -3,6 +3,8 @@ export declare const protobufPackage = "seiprotocol.seichain.dex";
 export interface ContractInfo {
     codeId: number;
     contractAddr: string;
+    NeedHook: boolean;
+    NeedOrderMatching: boolean;
 }
 export declare const ContractInfo: {
     encode(message: ContractInfo, writer?: Writer): Writer;

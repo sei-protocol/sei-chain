@@ -1,21 +1,29 @@
 import { txClient, queryClient, MissingWalletError, registry } from './module';
 // @ts-ignore
 import { SpVuexError } from '@starport/vuex';
+import { AssetIBCInfo } from "./module/types/dex/asset_list";
+import { AssetMetadata } from "./module/types/dex/asset_list";
 import { ContractInfo } from "./module/types/dex/contract";
+import { RegisterPairsProposal } from "./module/types/dex/gov";
+import { UpdateTickSizeProposal } from "./module/types/dex/gov";
+import { AddAssetMetadataProposal } from "./module/types/dex/gov";
 import { LongBook } from "./module/types/dex/long_book";
-import { OrderCancellation } from "./module/types/dex/order_cancellation";
+import { Order } from "./module/types/dex/order";
+import { Cancellation } from "./module/types/dex/order";
+import { ActiveOrders } from "./module/types/dex/order";
 import { OrderEntry } from "./module/types/dex/order_entry";
-import { OrderPlacement } from "./module/types/dex/order_placement";
+import { Allocation } from "./module/types/dex/order_entry";
 import { Pair } from "./module/types/dex/pair";
+import { BatchContractPair } from "./module/types/dex/pair";
 import { Params } from "./module/types/dex/params";
 import { Price } from "./module/types/dex/price";
-import { QueryGetSettlementsRequest } from "./module/types/dex/query";
-import { QueryGetSettlementsResponse } from "./module/types/dex/query";
+import { PriceCandlestick } from "./module/types/dex/price";
 import { SettlementEntry } from "./module/types/dex/settlement";
 import { Settlements } from "./module/types/dex/settlement";
 import { ShortBook } from "./module/types/dex/short_book";
+import { TickSize } from "./module/types/dex/tick_size";
 import { Twap } from "./module/types/dex/twap";
-export { ContractInfo, LongBook, OrderCancellation, OrderEntry, OrderPlacement, Pair, Params, Price, QueryGetSettlementsRequest, QueryGetSettlementsResponse, SettlementEntry, Settlements, ShortBook, Twap };
+export { AssetIBCInfo, AssetMetadata, ContractInfo, RegisterPairsProposal, UpdateTickSizeProposal, AddAssetMetadataProposal, LongBook, Order, Cancellation, ActiveOrders, OrderEntry, Allocation, Pair, BatchContractPair, Params, Price, PriceCandlestick, SettlementEntry, Settlements, ShortBook, TickSize, Twap };
 async function initTxClient(vuexGetters) {
     return await txClient(vuexGetters['common/wallet/signer'], {
         addr: vuexGetters['common/env/apiTendermint']
@@ -54,23 +62,37 @@ const getDefaultState = () => {
         LongBookAll: {},
         ShortBook: {},
         ShortBookAll: {},
-        SettlementsAll: {},
+        GetSettlements: {},
         GetPrices: {},
         GetTwaps: {},
+        AssetMetadata: {},
+        AssetList: {},
+        GetRegisteredPairs: {},
+        GetOrders: {},
+        GetOrder: {},
+        GetHistoricalPrices: {},
         _Structure: {
+            AssetIBCInfo: getStructure(AssetIBCInfo.fromPartial({})),
+            AssetMetadata: getStructure(AssetMetadata.fromPartial({})),
             ContractInfo: getStructure(ContractInfo.fromPartial({})),
+            RegisterPairsProposal: getStructure(RegisterPairsProposal.fromPartial({})),
+            UpdateTickSizeProposal: getStructure(UpdateTickSizeProposal.fromPartial({})),
+            AddAssetMetadataProposal: getStructure(AddAssetMetadataProposal.fromPartial({})),
             LongBook: getStructure(LongBook.fromPartial({})),
-            OrderCancellation: getStructure(OrderCancellation.fromPartial({})),
+            Order: getStructure(Order.fromPartial({})),
+            Cancellation: getStructure(Cancellation.fromPartial({})),
+            ActiveOrders: getStructure(ActiveOrders.fromPartial({})),
             OrderEntry: getStructure(OrderEntry.fromPartial({})),
-            OrderPlacement: getStructure(OrderPlacement.fromPartial({})),
+            Allocation: getStructure(Allocation.fromPartial({})),
             Pair: getStructure(Pair.fromPartial({})),
+            BatchContractPair: getStructure(BatchContractPair.fromPartial({})),
             Params: getStructure(Params.fromPartial({})),
             Price: getStructure(Price.fromPartial({})),
-            QueryGetSettlementsRequest: getStructure(QueryGetSettlementsRequest.fromPartial({})),
-            QueryGetSettlementsResponse: getStructure(QueryGetSettlementsResponse.fromPartial({})),
+            PriceCandlestick: getStructure(PriceCandlestick.fromPartial({})),
             SettlementEntry: getStructure(SettlementEntry.fromPartial({})),
             Settlements: getStructure(Settlements.fromPartial({})),
             ShortBook: getStructure(ShortBook.fromPartial({})),
+            TickSize: getStructure(TickSize.fromPartial({})),
             Twap: getStructure(Twap.fromPartial({})),
         },
         _Registry: registry,
@@ -127,11 +149,11 @@ export default {
             }
             return state.ShortBookAll[JSON.stringify(params)] ?? {};
         },
-        getSettlementsAll: (state) => (params = { params: {} }) => {
+        getGetSettlements: (state) => (params = { params: {} }) => {
             if (!params.query) {
                 params.query = null;
             }
-            return state.SettlementsAll[JSON.stringify(params)] ?? {};
+            return state.GetSettlements[JSON.stringify(params)] ?? {};
         },
         getGetPrices: (state) => (params = { params: {} }) => {
             if (!params.query) {
@@ -144,6 +166,42 @@ export default {
                 params.query = null;
             }
             return state.GetTwaps[JSON.stringify(params)] ?? {};
+        },
+        getAssetMetadata: (state) => (params = { params: {} }) => {
+            if (!params.query) {
+                params.query = null;
+            }
+            return state.AssetMetadata[JSON.stringify(params)] ?? {};
+        },
+        getAssetList: (state) => (params = { params: {} }) => {
+            if (!params.query) {
+                params.query = null;
+            }
+            return state.AssetList[JSON.stringify(params)] ?? {};
+        },
+        getGetRegisteredPairs: (state) => (params = { params: {} }) => {
+            if (!params.query) {
+                params.query = null;
+            }
+            return state.GetRegisteredPairs[JSON.stringify(params)] ?? {};
+        },
+        getGetOrders: (state) => (params = { params: {} }) => {
+            if (!params.query) {
+                params.query = null;
+            }
+            return state.GetOrders[JSON.stringify(params)] ?? {};
+        },
+        getGetOrder: (state) => (params = { params: {} }) => {
+            if (!params.query) {
+                params.query = null;
+            }
+            return state.GetOrder[JSON.stringify(params)] ?? {};
+        },
+        getGetHistoricalPrices: (state) => (params = { params: {} }) => {
+            if (!params.query) {
+                params.query = null;
+            }
+            return state.GetHistoricalPrices[JSON.stringify(params)] ?? {};
         },
         getTypeStructure: (state) => (type) => {
             return state._Structure[type].fields;
@@ -256,22 +314,18 @@ export default {
                 throw new SpVuexError('QueryClient:QueryShortBookAll', 'API Node Unavailable. Could not perform query: ' + e.message);
             }
         },
-        async QuerySettlementsAll({ commit, rootGetters, getters }, { options: { subscribe, all } = { subscribe: false, all: false }, params, query = null }) {
+        async QueryGetSettlements({ commit, rootGetters, getters }, { options: { subscribe, all } = { subscribe: false, all: false }, params, query = null }) {
             try {
                 const key = params ?? {};
                 const queryClient = await initQueryClient(rootGetters);
-                let value = (await queryClient.querySettlementsAll(query)).data;
-                while (all && value.pagination && value.pagination.next_key != null) {
-                    let next_values = (await queryClient.querySettlementsAll({ ...query, 'pagination.key': value.pagination.next_key })).data;
-                    value = mergeResults(value, next_values);
-                }
-                commit('QUERY', { query: 'SettlementsAll', key: { params: { ...key }, query }, value });
+                let value = (await queryClient.queryGetSettlements(key.contractAddr, key.priceDenom, key.assetDenom, key.orderId)).data;
+                commit('QUERY', { query: 'GetSettlements', key: { params: { ...key }, query }, value });
                 if (subscribe)
-                    commit('SUBSCRIBE', { action: 'QuerySettlementsAll', payload: { options: { all }, params: { ...key }, query } });
-                return getters['getSettlementsAll']({ params: { ...key }, query }) ?? {};
+                    commit('SUBSCRIBE', { action: 'QueryGetSettlements', payload: { options: { all }, params: { ...key }, query } });
+                return getters['getGetSettlements']({ params: { ...key }, query }) ?? {};
             }
             catch (e) {
-                throw new SpVuexError('QueryClient:QuerySettlementsAll', 'API Node Unavailable. Could not perform query: ' + e.message);
+                throw new SpVuexError('QueryClient:QueryGetSettlements', 'API Node Unavailable. Could not perform query: ' + e.message);
             }
         },
         async QueryGetPrices({ commit, rootGetters, getters }, { options: { subscribe, all } = { subscribe: false, all: false }, params, query = null }) {
@@ -300,6 +354,94 @@ export default {
             }
             catch (e) {
                 throw new SpVuexError('QueryClient:QueryGetTwaps', 'API Node Unavailable. Could not perform query: ' + e.message);
+            }
+        },
+        async QueryAssetMetadata({ commit, rootGetters, getters }, { options: { subscribe, all } = { subscribe: false, all: false }, params, query = null }) {
+            try {
+                const key = params ?? {};
+                const queryClient = await initQueryClient(rootGetters);
+                let value = (await queryClient.queryAssetMetadata(key.denom)).data;
+                commit('QUERY', { query: 'AssetMetadata', key: { params: { ...key }, query }, value });
+                if (subscribe)
+                    commit('SUBSCRIBE', { action: 'QueryAssetMetadata', payload: { options: { all }, params: { ...key }, query } });
+                return getters['getAssetMetadata']({ params: { ...key }, query }) ?? {};
+            }
+            catch (e) {
+                throw new SpVuexError('QueryClient:QueryAssetMetadata', 'API Node Unavailable. Could not perform query: ' + e.message);
+            }
+        },
+        async QueryAssetList({ commit, rootGetters, getters }, { options: { subscribe, all } = { subscribe: false, all: false }, params, query = null }) {
+            try {
+                const key = params ?? {};
+                const queryClient = await initQueryClient(rootGetters);
+                let value = (await queryClient.queryAssetList()).data;
+                commit('QUERY', { query: 'AssetList', key: { params: { ...key }, query }, value });
+                if (subscribe)
+                    commit('SUBSCRIBE', { action: 'QueryAssetList', payload: { options: { all }, params: { ...key }, query } });
+                return getters['getAssetList']({ params: { ...key }, query }) ?? {};
+            }
+            catch (e) {
+                throw new SpVuexError('QueryClient:QueryAssetList', 'API Node Unavailable. Could not perform query: ' + e.message);
+            }
+        },
+        async QueryGetRegisteredPairs({ commit, rootGetters, getters }, { options: { subscribe, all } = { subscribe: false, all: false }, params, query = null }) {
+            try {
+                const key = params ?? {};
+                const queryClient = await initQueryClient(rootGetters);
+                let value = (await queryClient.queryGetRegisteredPairs(query)).data;
+                while (all && value.pagination && value.pagination.next_key != null) {
+                    let next_values = (await queryClient.queryGetRegisteredPairs({ ...query, 'pagination.key': value.pagination.next_key })).data;
+                    value = mergeResults(value, next_values);
+                }
+                commit('QUERY', { query: 'GetRegisteredPairs', key: { params: { ...key }, query }, value });
+                if (subscribe)
+                    commit('SUBSCRIBE', { action: 'QueryGetRegisteredPairs', payload: { options: { all }, params: { ...key }, query } });
+                return getters['getGetRegisteredPairs']({ params: { ...key }, query }) ?? {};
+            }
+            catch (e) {
+                throw new SpVuexError('QueryClient:QueryGetRegisteredPairs', 'API Node Unavailable. Could not perform query: ' + e.message);
+            }
+        },
+        async QueryGetOrders({ commit, rootGetters, getters }, { options: { subscribe, all } = { subscribe: false, all: false }, params, query = null }) {
+            try {
+                const key = params ?? {};
+                const queryClient = await initQueryClient(rootGetters);
+                let value = (await queryClient.queryGetOrders(key.contractAddr, key.account)).data;
+                commit('QUERY', { query: 'GetOrders', key: { params: { ...key }, query }, value });
+                if (subscribe)
+                    commit('SUBSCRIBE', { action: 'QueryGetOrders', payload: { options: { all }, params: { ...key }, query } });
+                return getters['getGetOrders']({ params: { ...key }, query }) ?? {};
+            }
+            catch (e) {
+                throw new SpVuexError('QueryClient:QueryGetOrders', 'API Node Unavailable. Could not perform query: ' + e.message);
+            }
+        },
+        async QueryGetOrder({ commit, rootGetters, getters }, { options: { subscribe, all } = { subscribe: false, all: false }, params, query = null }) {
+            try {
+                const key = params ?? {};
+                const queryClient = await initQueryClient(rootGetters);
+                let value = (await queryClient.queryGetOrder(key.contractAddr, key.priceDenom, key.assetDenom, key.id)).data;
+                commit('QUERY', { query: 'GetOrder', key: { params: { ...key }, query }, value });
+                if (subscribe)
+                    commit('SUBSCRIBE', { action: 'QueryGetOrder', payload: { options: { all }, params: { ...key }, query } });
+                return getters['getGetOrder']({ params: { ...key }, query }) ?? {};
+            }
+            catch (e) {
+                throw new SpVuexError('QueryClient:QueryGetOrder', 'API Node Unavailable. Could not perform query: ' + e.message);
+            }
+        },
+        async QueryGetHistoricalPrices({ commit, rootGetters, getters }, { options: { subscribe, all } = { subscribe: false, all: false }, params, query = null }) {
+            try {
+                const key = params ?? {};
+                const queryClient = await initQueryClient(rootGetters);
+                let value = (await queryClient.queryGetHistoricalPrices(key.contractAddr, key.priceDenom, key.assetDenom, key.periodLengthInSeconds, key.numOfPeriods)).data;
+                commit('QUERY', { query: 'GetHistoricalPrices', key: { params: { ...key }, query }, value });
+                if (subscribe)
+                    commit('SUBSCRIBE', { action: 'QueryGetHistoricalPrices', payload: { options: { all }, params: { ...key }, query } });
+                return getters['getGetHistoricalPrices']({ params: { ...key }, query }) ?? {};
+            }
+            catch (e) {
+                throw new SpVuexError('QueryClient:QueryGetHistoricalPrices', 'API Node Unavailable. Could not perform query: ' + e.message);
             }
         },
         async sendMsgCancelOrders({ rootGetters }, { value, fee = [], memo = '' }) {
@@ -336,20 +478,20 @@ export default {
                 }
             }
         },
-        async sendMsgRegisterPair({ rootGetters }, { value, fee = [], memo = '' }) {
+        async sendMsgPlaceOrders({ rootGetters }, { value, fee = [], memo = '' }) {
             try {
                 const txClient = await initTxClient(rootGetters);
-                const msg = await txClient.msgRegisterPair(value);
+                const msg = await txClient.msgPlaceOrders(value);
                 const result = await txClient.signAndBroadcast([msg], { fee: { amount: fee,
                         gas: "200000" }, memo });
                 return result;
             }
             catch (e) {
                 if (e == MissingWalletError) {
-                    throw new SpVuexError('TxClient:MsgRegisterPair:Init', 'Could not initialize signing client. Wallet is required.');
+                    throw new SpVuexError('TxClient:MsgPlaceOrders:Init', 'Could not initialize signing client. Wallet is required.');
                 }
                 else {
-                    throw new SpVuexError('TxClient:MsgRegisterPair:Send', 'Could not broadcast Tx: ' + e.message);
+                    throw new SpVuexError('TxClient:MsgPlaceOrders:Send', 'Could not broadcast Tx: ' + e.message);
                 }
             }
         },
@@ -367,23 +509,6 @@ export default {
                 }
                 else {
                     throw new SpVuexError('TxClient:MsgRegisterContract:Send', 'Could not broadcast Tx: ' + e.message);
-                }
-            }
-        },
-        async sendMsgPlaceOrders({ rootGetters }, { value, fee = [], memo = '' }) {
-            try {
-                const txClient = await initTxClient(rootGetters);
-                const msg = await txClient.msgPlaceOrders(value);
-                const result = await txClient.signAndBroadcast([msg], { fee: { amount: fee,
-                        gas: "200000" }, memo });
-                return result;
-            }
-            catch (e) {
-                if (e == MissingWalletError) {
-                    throw new SpVuexError('TxClient:MsgPlaceOrders:Init', 'Could not initialize signing client. Wallet is required.');
-                }
-                else {
-                    throw new SpVuexError('TxClient:MsgPlaceOrders:Send', 'Could not broadcast Tx: ' + e.message);
                 }
             }
         },
@@ -417,18 +542,18 @@ export default {
                 }
             }
         },
-        async MsgRegisterPair({ rootGetters }, { value }) {
+        async MsgPlaceOrders({ rootGetters }, { value }) {
             try {
                 const txClient = await initTxClient(rootGetters);
-                const msg = await txClient.msgRegisterPair(value);
+                const msg = await txClient.msgPlaceOrders(value);
                 return msg;
             }
             catch (e) {
                 if (e == MissingWalletError) {
-                    throw new SpVuexError('TxClient:MsgRegisterPair:Init', 'Could not initialize signing client. Wallet is required.');
+                    throw new SpVuexError('TxClient:MsgPlaceOrders:Init', 'Could not initialize signing client. Wallet is required.');
                 }
                 else {
-                    throw new SpVuexError('TxClient:MsgRegisterPair:Create', 'Could not create message: ' + e.message);
+                    throw new SpVuexError('TxClient:MsgPlaceOrders:Create', 'Could not create message: ' + e.message);
                 }
             }
         },
@@ -444,21 +569,6 @@ export default {
                 }
                 else {
                     throw new SpVuexError('TxClient:MsgRegisterContract:Create', 'Could not create message: ' + e.message);
-                }
-            }
-        },
-        async MsgPlaceOrders({ rootGetters }, { value }) {
-            try {
-                const txClient = await initTxClient(rootGetters);
-                const msg = await txClient.msgPlaceOrders(value);
-                return msg;
-            }
-            catch (e) {
-                if (e == MissingWalletError) {
-                    throw new SpVuexError('TxClient:MsgPlaceOrders:Init', 'Could not initialize signing client. Wallet is required.');
-                }
-                else {
-                    throw new SpVuexError('TxClient:MsgPlaceOrders:Create', 'Could not create message: ' + e.message);
                 }
             }
         },

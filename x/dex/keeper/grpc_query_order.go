@@ -9,7 +9,7 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-func (k Keeper) GetOrderByID(c context.Context, req *types.QueryGetOrderByIDRequest) (*types.QueryGetOrderByIDResponse, error) {
+func (k Keeper) GetOrder(c context.Context, req *types.QueryGetOrderByIDRequest) (*types.QueryGetOrderByIDResponse, error) {
 	if req == nil {
 		return nil, status.Error(codes.InvalidArgument, "invalid request")
 	}

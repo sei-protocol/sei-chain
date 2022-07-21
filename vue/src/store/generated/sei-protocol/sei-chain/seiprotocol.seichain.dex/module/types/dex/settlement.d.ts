@@ -8,9 +8,8 @@ export interface SettlementEntry {
     executionCostOrProceed: string;
     expectedCostOrProceed: string;
     positionDirection: string;
-    positionEffect: string;
-    leverage: string;
     orderType: string;
+    orderId: number;
 }
 export interface Settlements {
     epoch: number;

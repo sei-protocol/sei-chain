@@ -1,4 +1,6 @@
 import { txClient, queryClient, MissingWalletError , registry} from './module'
+// @ts-ignore
+import { SpVuexError } from '@starport/vuex'
 
 import { WeightedVoteOption } from "./module/types/cosmos/gov/v1beta1/gov"
 import { TextProposal } from "./module/types/cosmos/gov/v1beta1/gov"
@@ -173,7 +175,7 @@ export default {
 					const sub=JSON.parse(subscription)
 					await dispatch(sub.action, sub.payload)
 				}catch(e) {
-					throw new Error('Subscriptions: ' + e.message)
+					throw new SpVuexError('Subscriptions: ' + e.message)
 				}
 			})
 		},
@@ -194,7 +196,7 @@ export default {
 				if (subscribe) commit('SUBSCRIBE', { action: 'QueryProposal', payload: { options: { all }, params: {...key},query }})
 				return getters['getProposal']( { params: {...key}, query}) ?? {}
 			} catch (e) {
-				throw new Error('QueryClient:QueryProposal API Node Unavailable. Could not perform query: ' + e.message)
+				throw new SpVuexError('QueryClient:QueryProposal', 'API Node Unavailable. Could not perform query: ' + e.message)
 				
 			}
 		},
@@ -220,7 +222,7 @@ export default {
 				if (subscribe) commit('SUBSCRIBE', { action: 'QueryProposals', payload: { options: { all }, params: {...key},query }})
 				return getters['getProposals']( { params: {...key}, query}) ?? {}
 			} catch (e) {
-				throw new Error('QueryClient:QueryProposals API Node Unavailable. Could not perform query: ' + e.message)
+				throw new SpVuexError('QueryClient:QueryProposals', 'API Node Unavailable. Could not perform query: ' + e.message)
 				
 			}
 		},
@@ -242,7 +244,7 @@ export default {
 				if (subscribe) commit('SUBSCRIBE', { action: 'QueryVote', payload: { options: { all }, params: {...key},query }})
 				return getters['getVote']( { params: {...key}, query}) ?? {}
 			} catch (e) {
-				throw new Error('QueryClient:QueryVote API Node Unavailable. Could not perform query: ' + e.message)
+				throw new SpVuexError('QueryClient:QueryVote', 'API Node Unavailable. Could not perform query: ' + e.message)
 				
 			}
 		},
@@ -268,7 +270,7 @@ export default {
 				if (subscribe) commit('SUBSCRIBE', { action: 'QueryVotes', payload: { options: { all }, params: {...key},query }})
 				return getters['getVotes']( { params: {...key}, query}) ?? {}
 			} catch (e) {
-				throw new Error('QueryClient:QueryVotes API Node Unavailable. Could not perform query: ' + e.message)
+				throw new SpVuexError('QueryClient:QueryVotes', 'API Node Unavailable. Could not perform query: ' + e.message)
 				
 			}
 		},
@@ -290,7 +292,7 @@ export default {
 				if (subscribe) commit('SUBSCRIBE', { action: 'QueryParams', payload: { options: { all }, params: {...key},query }})
 				return getters['getParams']( { params: {...key}, query}) ?? {}
 			} catch (e) {
-				throw new Error('QueryClient:QueryParams API Node Unavailable. Could not perform query: ' + e.message)
+				throw new SpVuexError('QueryClient:QueryParams', 'API Node Unavailable. Could not perform query: ' + e.message)
 				
 			}
 		},
@@ -312,7 +314,7 @@ export default {
 				if (subscribe) commit('SUBSCRIBE', { action: 'QueryDeposit', payload: { options: { all }, params: {...key},query }})
 				return getters['getDeposit']( { params: {...key}, query}) ?? {}
 			} catch (e) {
-				throw new Error('QueryClient:QueryDeposit API Node Unavailable. Could not perform query: ' + e.message)
+				throw new SpVuexError('QueryClient:QueryDeposit', 'API Node Unavailable. Could not perform query: ' + e.message)
 				
 			}
 		},
@@ -338,7 +340,7 @@ export default {
 				if (subscribe) commit('SUBSCRIBE', { action: 'QueryDeposits', payload: { options: { all }, params: {...key},query }})
 				return getters['getDeposits']( { params: {...key}, query}) ?? {}
 			} catch (e) {
-				throw new Error('QueryClient:QueryDeposits API Node Unavailable. Could not perform query: ' + e.message)
+				throw new SpVuexError('QueryClient:QueryDeposits', 'API Node Unavailable. Could not perform query: ' + e.message)
 				
 			}
 		},
@@ -360,12 +362,27 @@ export default {
 				if (subscribe) commit('SUBSCRIBE', { action: 'QueryTallyResult', payload: { options: { all }, params: {...key},query }})
 				return getters['getTallyResult']( { params: {...key}, query}) ?? {}
 			} catch (e) {
-				throw new Error('QueryClient:QueryTallyResult API Node Unavailable. Could not perform query: ' + e.message)
+				throw new SpVuexError('QueryClient:QueryTallyResult', 'API Node Unavailable. Could not perform query: ' + e.message)
 				
 			}
 		},
 		
 		
+		async sendMsgDeposit({ rootGetters }, { value, fee = [], memo = '' }) {
+			try {
+				const txClient=await initTxClient(rootGetters)
+				const msg = await txClient.msgDeposit(value)
+				const result = await txClient.signAndBroadcast([msg], {fee: { amount: fee, 
+	gas: "200000" }, memo})
+				return result
+			} catch (e) {
+				if (e == MissingWalletError) {
+					throw new SpVuexError('TxClient:MsgDeposit:Init', 'Could not initialize signing client. Wallet is required.')
+				}else{
+					throw new SpVuexError('TxClient:MsgDeposit:Send', 'Could not broadcast Tx: '+ e.message)
+				}
+			}
+		},
 		async sendMsgVoteWeighted({ rootGetters }, { value, fee = [], memo = '' }) {
 			try {
 				const txClient=await initTxClient(rootGetters)
@@ -375,9 +392,9 @@ export default {
 				return result
 			} catch (e) {
 				if (e == MissingWalletError) {
-					throw new Error('TxClient:MsgVoteWeighted:Init Could not initialize signing client. Wallet is required.')
+					throw new SpVuexError('TxClient:MsgVoteWeighted:Init', 'Could not initialize signing client. Wallet is required.')
 				}else{
-					throw new Error('TxClient:MsgVoteWeighted:Send Could not broadcast Tx: '+ e.message)
+					throw new SpVuexError('TxClient:MsgVoteWeighted:Send', 'Could not broadcast Tx: '+ e.message)
 				}
 			}
 		},
@@ -390,24 +407,9 @@ export default {
 				return result
 			} catch (e) {
 				if (e == MissingWalletError) {
-					throw new Error('TxClient:MsgSubmitProposal:Init Could not initialize signing client. Wallet is required.')
+					throw new SpVuexError('TxClient:MsgSubmitProposal:Init', 'Could not initialize signing client. Wallet is required.')
 				}else{
-					throw new Error('TxClient:MsgSubmitProposal:Send Could not broadcast Tx: '+ e.message)
-				}
-			}
-		},
-		async sendMsgDeposit({ rootGetters }, { value, fee = [], memo = '' }) {
-			try {
-				const txClient=await initTxClient(rootGetters)
-				const msg = await txClient.msgDeposit(value)
-				const result = await txClient.signAndBroadcast([msg], {fee: { amount: fee, 
-	gas: "200000" }, memo})
-				return result
-			} catch (e) {
-				if (e == MissingWalletError) {
-					throw new Error('TxClient:MsgDeposit:Init Could not initialize signing client. Wallet is required.')
-				}else{
-					throw new Error('TxClient:MsgDeposit:Send Could not broadcast Tx: '+ e.message)
+					throw new SpVuexError('TxClient:MsgSubmitProposal:Send', 'Could not broadcast Tx: '+ e.message)
 				}
 			}
 		},
@@ -420,13 +422,27 @@ export default {
 				return result
 			} catch (e) {
 				if (e == MissingWalletError) {
-					throw new Error('TxClient:MsgVote:Init Could not initialize signing client. Wallet is required.')
+					throw new SpVuexError('TxClient:MsgVote:Init', 'Could not initialize signing client. Wallet is required.')
 				}else{
-					throw new Error('TxClient:MsgVote:Send Could not broadcast Tx: '+ e.message)
+					throw new SpVuexError('TxClient:MsgVote:Send', 'Could not broadcast Tx: '+ e.message)
 				}
 			}
 		},
 		
+		async MsgDeposit({ rootGetters }, { value }) {
+			try {
+				const txClient=await initTxClient(rootGetters)
+				const msg = await txClient.msgDeposit(value)
+				return msg
+			} catch (e) {
+				if (e == MissingWalletError) {
+					throw new SpVuexError('TxClient:MsgDeposit:Init', 'Could not initialize signing client. Wallet is required.')
+				}else{
+					throw new SpVuexError('TxClient:MsgDeposit:Create', 'Could not create message: ' + e.message)
+					
+				}
+			}
+		},
 		async MsgVoteWeighted({ rootGetters }, { value }) {
 			try {
 				const txClient=await initTxClient(rootGetters)
@@ -434,9 +450,10 @@ export default {
 				return msg
 			} catch (e) {
 				if (e == MissingWalletError) {
-					throw new Error('TxClient:MsgVoteWeighted:Init Could not initialize signing client. Wallet is required.')
-				} else{
-					throw new Error('TxClient:MsgVoteWeighted:Create Could not create message: ' + e.message)
+					throw new SpVuexError('TxClient:MsgVoteWeighted:Init', 'Could not initialize signing client. Wallet is required.')
+				}else{
+					throw new SpVuexError('TxClient:MsgVoteWeighted:Create', 'Could not create message: ' + e.message)
+					
 				}
 			}
 		},
@@ -447,22 +464,10 @@ export default {
 				return msg
 			} catch (e) {
 				if (e == MissingWalletError) {
-					throw new Error('TxClient:MsgSubmitProposal:Init Could not initialize signing client. Wallet is required.')
-				} else{
-					throw new Error('TxClient:MsgSubmitProposal:Create Could not create message: ' + e.message)
-				}
-			}
-		},
-		async MsgDeposit({ rootGetters }, { value }) {
-			try {
-				const txClient=await initTxClient(rootGetters)
-				const msg = await txClient.msgDeposit(value)
-				return msg
-			} catch (e) {
-				if (e == MissingWalletError) {
-					throw new Error('TxClient:MsgDeposit:Init Could not initialize signing client. Wallet is required.')
-				} else{
-					throw new Error('TxClient:MsgDeposit:Create Could not create message: ' + e.message)
+					throw new SpVuexError('TxClient:MsgSubmitProposal:Init', 'Could not initialize signing client. Wallet is required.')
+				}else{
+					throw new SpVuexError('TxClient:MsgSubmitProposal:Create', 'Could not create message: ' + e.message)
+					
 				}
 			}
 		},
@@ -473,9 +478,10 @@ export default {
 				return msg
 			} catch (e) {
 				if (e == MissingWalletError) {
-					throw new Error('TxClient:MsgVote:Init Could not initialize signing client. Wallet is required.')
-				} else{
-					throw new Error('TxClient:MsgVote:Create Could not create message: ' + e.message)
+					throw new SpVuexError('TxClient:MsgVote:Init', 'Could not initialize signing client. Wallet is required.')
+				}else{
+					throw new SpVuexError('TxClient:MsgVote:Create', 'Could not create message: ' + e.message)
+					
 				}
 			}
 		},

@@ -13,11 +13,11 @@ export interface StoreCodeProposal {
   /** Description is a human readable text */
   description: string;
   /** RunAs is the address that is passed to the contract's environment as sender */
-  run_as: string;
+  runAs: string;
   /** WASMByteCode can be raw or gzip compressed */
-  wasm_byte_code: Uint8Array;
+  wasmByteCode: Uint8Array;
   /** InstantiatePermission to apply on contract creation, optional */
-  instantiate_permission: AccessConfig | undefined;
+  instantiatePermission: AccessConfig | undefined;
 }
 
 /**
@@ -30,11 +30,11 @@ export interface InstantiateContractProposal {
   /** Description is a human readable text */
   description: string;
   /** RunAs is the address that is passed to the contract's environment as sender */
-  run_as: string;
+  runAs: string;
   /** Admin is an optional address that can execute migrations */
   admin: string;
   /** CodeID is the reference to the stored WASM code */
-  code_id: number;
+  codeId: number;
   /** Label is optional metadata to be stored with a constract instance. */
   label: string;
   /** Msg json encoded message to be passed to the contract on instantiation */
@@ -52,7 +52,7 @@ export interface MigrateContractProposal {
   /** Contract is the address of the smart contract */
   contract: string;
   /** CodeID references the new WASM code */
-  code_id: number;
+  codeId: number;
   /** Msg json encoded message to be passed to the contract on migration */
   msg: Uint8Array;
 }
@@ -79,7 +79,7 @@ export interface ExecuteContractProposal {
   /** Description is a human readable text */
   description: string;
   /** RunAs is the address that is passed to the contract's environment as sender */
-  run_as: string;
+  runAs: string;
   /** Contract is the address of the smart contract */
   contract: string;
   /** Msg json encoded message to be passed to the contract as execute */
@@ -95,7 +95,7 @@ export interface UpdateAdminProposal {
   /** Description is a human readable text */
   description: string;
   /** NewAdmin address to be set */
-  new_admin: string;
+  newAdmin: string;
   /** Contract is the address of the smart contract */
   contract: string;
 }
@@ -123,7 +123,7 @@ export interface PinCodesProposal {
   /** Description is a human readable text */
   description: string;
   /** CodeIDs references the new WASM codes */
-  code_ids: number[];
+  codeIds: number[];
 }
 
 /**
@@ -136,7 +136,7 @@ export interface UnpinCodesProposal {
   /** Description is a human readable text */
   description: string;
   /** CodeIDs references the WASM codes */
-  code_ids: number[];
+  codeIds: number[];
 }
 
 /**
@@ -145,9 +145,9 @@ export interface UnpinCodesProposal {
  */
 export interface AccessConfigUpdate {
   /** CodeID is the reference to the stored WASM code to be updated */
-  code_id: number;
+  codeId: number;
   /** InstantiatePermission to apply to the set of code ids */
-  instantiate_permission: AccessConfig | undefined;
+  instantiatePermission: AccessConfig | undefined;
 }
 
 /**
@@ -163,14 +163,10 @@ export interface UpdateInstantiateConfigProposal {
    * AccessConfigUpdate contains the list of code ids and the access config
    * to be applied.
    */
-  access_config_updates: AccessConfigUpdate[];
+  accessConfigUpdates: AccessConfigUpdate[];
 }
 
-const baseStoreCodeProposal: object = {
-  title: "",
-  description: "",
-  run_as: "",
-};
+const baseStoreCodeProposal: object = { title: "", description: "", runAs: "" };
 
 export const StoreCodeProposal = {
   encode(message: StoreCodeProposal, writer: Writer = Writer.create()): Writer {
@@ -180,15 +176,15 @@ export const StoreCodeProposal = {
     if (message.description !== "") {
       writer.uint32(18).string(message.description);
     }
-    if (message.run_as !== "") {
-      writer.uint32(26).string(message.run_as);
+    if (message.runAs !== "") {
+      writer.uint32(26).string(message.runAs);
     }
-    if (message.wasm_byte_code.length !== 0) {
-      writer.uint32(34).bytes(message.wasm_byte_code);
+    if (message.wasmByteCode.length !== 0) {
+      writer.uint32(34).bytes(message.wasmByteCode);
     }
-    if (message.instantiate_permission !== undefined) {
+    if (message.instantiatePermission !== undefined) {
       AccessConfig.encode(
-        message.instantiate_permission,
+        message.instantiatePermission,
         writer.uint32(58).fork()
       ).ldelim();
     }
@@ -209,13 +205,13 @@ export const StoreCodeProposal = {
           message.description = reader.string();
           break;
         case 3:
-          message.run_as = reader.string();
+          message.runAs = reader.string();
           break;
         case 4:
-          message.wasm_byte_code = reader.bytes();
+          message.wasmByteCode = reader.bytes();
           break;
         case 7:
-          message.instantiate_permission = AccessConfig.decode(
+          message.instantiatePermission = AccessConfig.decode(
             reader,
             reader.uint32()
           );
@@ -240,23 +236,23 @@ export const StoreCodeProposal = {
     } else {
       message.description = "";
     }
-    if (object.run_as !== undefined && object.run_as !== null) {
-      message.run_as = String(object.run_as);
+    if (object.runAs !== undefined && object.runAs !== null) {
+      message.runAs = String(object.runAs);
     } else {
-      message.run_as = "";
+      message.runAs = "";
     }
-    if (object.wasm_byte_code !== undefined && object.wasm_byte_code !== null) {
-      message.wasm_byte_code = bytesFromBase64(object.wasm_byte_code);
+    if (object.wasmByteCode !== undefined && object.wasmByteCode !== null) {
+      message.wasmByteCode = bytesFromBase64(object.wasmByteCode);
     }
     if (
-      object.instantiate_permission !== undefined &&
-      object.instantiate_permission !== null
+      object.instantiatePermission !== undefined &&
+      object.instantiatePermission !== null
     ) {
-      message.instantiate_permission = AccessConfig.fromJSON(
-        object.instantiate_permission
+      message.instantiatePermission = AccessConfig.fromJSON(
+        object.instantiatePermission
       );
     } else {
-      message.instantiate_permission = undefined;
+      message.instantiatePermission = undefined;
     }
     return message;
   },
@@ -266,16 +262,16 @@ export const StoreCodeProposal = {
     message.title !== undefined && (obj.title = message.title);
     message.description !== undefined &&
       (obj.description = message.description);
-    message.run_as !== undefined && (obj.run_as = message.run_as);
-    message.wasm_byte_code !== undefined &&
-      (obj.wasm_byte_code = base64FromBytes(
-        message.wasm_byte_code !== undefined
-          ? message.wasm_byte_code
+    message.runAs !== undefined && (obj.runAs = message.runAs);
+    message.wasmByteCode !== undefined &&
+      (obj.wasmByteCode = base64FromBytes(
+        message.wasmByteCode !== undefined
+          ? message.wasmByteCode
           : new Uint8Array()
       ));
-    message.instantiate_permission !== undefined &&
-      (obj.instantiate_permission = message.instantiate_permission
-        ? AccessConfig.toJSON(message.instantiate_permission)
+    message.instantiatePermission !== undefined &&
+      (obj.instantiatePermission = message.instantiatePermission
+        ? AccessConfig.toJSON(message.instantiatePermission)
         : undefined);
     return obj;
   },
@@ -292,25 +288,25 @@ export const StoreCodeProposal = {
     } else {
       message.description = "";
     }
-    if (object.run_as !== undefined && object.run_as !== null) {
-      message.run_as = object.run_as;
+    if (object.runAs !== undefined && object.runAs !== null) {
+      message.runAs = object.runAs;
     } else {
-      message.run_as = "";
+      message.runAs = "";
     }
-    if (object.wasm_byte_code !== undefined && object.wasm_byte_code !== null) {
-      message.wasm_byte_code = object.wasm_byte_code;
+    if (object.wasmByteCode !== undefined && object.wasmByteCode !== null) {
+      message.wasmByteCode = object.wasmByteCode;
     } else {
-      message.wasm_byte_code = new Uint8Array();
+      message.wasmByteCode = new Uint8Array();
     }
     if (
-      object.instantiate_permission !== undefined &&
-      object.instantiate_permission !== null
+      object.instantiatePermission !== undefined &&
+      object.instantiatePermission !== null
     ) {
-      message.instantiate_permission = AccessConfig.fromPartial(
-        object.instantiate_permission
+      message.instantiatePermission = AccessConfig.fromPartial(
+        object.instantiatePermission
       );
     } else {
-      message.instantiate_permission = undefined;
+      message.instantiatePermission = undefined;
     }
     return message;
   },
@@ -319,9 +315,9 @@ export const StoreCodeProposal = {
 const baseInstantiateContractProposal: object = {
   title: "",
   description: "",
-  run_as: "",
+  runAs: "",
   admin: "",
-  code_id: 0,
+  codeId: 0,
   label: "",
 };
 
@@ -336,14 +332,14 @@ export const InstantiateContractProposal = {
     if (message.description !== "") {
       writer.uint32(18).string(message.description);
     }
-    if (message.run_as !== "") {
-      writer.uint32(26).string(message.run_as);
+    if (message.runAs !== "") {
+      writer.uint32(26).string(message.runAs);
     }
     if (message.admin !== "") {
       writer.uint32(34).string(message.admin);
     }
-    if (message.code_id !== 0) {
-      writer.uint32(40).uint64(message.code_id);
+    if (message.codeId !== 0) {
+      writer.uint32(40).uint64(message.codeId);
     }
     if (message.label !== "") {
       writer.uint32(50).string(message.label);
@@ -377,13 +373,13 @@ export const InstantiateContractProposal = {
           message.description = reader.string();
           break;
         case 3:
-          message.run_as = reader.string();
+          message.runAs = reader.string();
           break;
         case 4:
           message.admin = reader.string();
           break;
         case 5:
-          message.code_id = longToNumber(reader.uint64() as Long);
+          message.codeId = longToNumber(reader.uint64() as Long);
           break;
         case 6:
           message.label = reader.string();
@@ -417,20 +413,20 @@ export const InstantiateContractProposal = {
     } else {
       message.description = "";
     }
-    if (object.run_as !== undefined && object.run_as !== null) {
-      message.run_as = String(object.run_as);
+    if (object.runAs !== undefined && object.runAs !== null) {
+      message.runAs = String(object.runAs);
     } else {
-      message.run_as = "";
+      message.runAs = "";
     }
     if (object.admin !== undefined && object.admin !== null) {
       message.admin = String(object.admin);
     } else {
       message.admin = "";
     }
-    if (object.code_id !== undefined && object.code_id !== null) {
-      message.code_id = Number(object.code_id);
+    if (object.codeId !== undefined && object.codeId !== null) {
+      message.codeId = Number(object.codeId);
     } else {
-      message.code_id = 0;
+      message.codeId = 0;
     }
     if (object.label !== undefined && object.label !== null) {
       message.label = String(object.label);
@@ -453,9 +449,9 @@ export const InstantiateContractProposal = {
     message.title !== undefined && (obj.title = message.title);
     message.description !== undefined &&
       (obj.description = message.description);
-    message.run_as !== undefined && (obj.run_as = message.run_as);
+    message.runAs !== undefined && (obj.runAs = message.runAs);
     message.admin !== undefined && (obj.admin = message.admin);
-    message.code_id !== undefined && (obj.code_id = message.code_id);
+    message.codeId !== undefined && (obj.codeId = message.codeId);
     message.label !== undefined && (obj.label = message.label);
     message.msg !== undefined &&
       (obj.msg = base64FromBytes(
@@ -486,20 +482,20 @@ export const InstantiateContractProposal = {
     } else {
       message.description = "";
     }
-    if (object.run_as !== undefined && object.run_as !== null) {
-      message.run_as = object.run_as;
+    if (object.runAs !== undefined && object.runAs !== null) {
+      message.runAs = object.runAs;
     } else {
-      message.run_as = "";
+      message.runAs = "";
     }
     if (object.admin !== undefined && object.admin !== null) {
       message.admin = object.admin;
     } else {
       message.admin = "";
     }
-    if (object.code_id !== undefined && object.code_id !== null) {
-      message.code_id = object.code_id;
+    if (object.codeId !== undefined && object.codeId !== null) {
+      message.codeId = object.codeId;
     } else {
-      message.code_id = 0;
+      message.codeId = 0;
     }
     if (object.label !== undefined && object.label !== null) {
       message.label = object.label;
@@ -524,7 +520,7 @@ const baseMigrateContractProposal: object = {
   title: "",
   description: "",
   contract: "",
-  code_id: 0,
+  codeId: 0,
 };
 
 export const MigrateContractProposal = {
@@ -541,8 +537,8 @@ export const MigrateContractProposal = {
     if (message.contract !== "") {
       writer.uint32(34).string(message.contract);
     }
-    if (message.code_id !== 0) {
-      writer.uint32(40).uint64(message.code_id);
+    if (message.codeId !== 0) {
+      writer.uint32(40).uint64(message.codeId);
     }
     if (message.msg.length !== 0) {
       writer.uint32(50).bytes(message.msg);
@@ -569,7 +565,7 @@ export const MigrateContractProposal = {
           message.contract = reader.string();
           break;
         case 5:
-          message.code_id = longToNumber(reader.uint64() as Long);
+          message.codeId = longToNumber(reader.uint64() as Long);
           break;
         case 6:
           message.msg = reader.bytes();
@@ -601,10 +597,10 @@ export const MigrateContractProposal = {
     } else {
       message.contract = "";
     }
-    if (object.code_id !== undefined && object.code_id !== null) {
-      message.code_id = Number(object.code_id);
+    if (object.codeId !== undefined && object.codeId !== null) {
+      message.codeId = Number(object.codeId);
     } else {
-      message.code_id = 0;
+      message.codeId = 0;
     }
     if (object.msg !== undefined && object.msg !== null) {
       message.msg = bytesFromBase64(object.msg);
@@ -618,7 +614,7 @@ export const MigrateContractProposal = {
     message.description !== undefined &&
       (obj.description = message.description);
     message.contract !== undefined && (obj.contract = message.contract);
-    message.code_id !== undefined && (obj.code_id = message.code_id);
+    message.codeId !== undefined && (obj.codeId = message.codeId);
     message.msg !== undefined &&
       (obj.msg = base64FromBytes(
         message.msg !== undefined ? message.msg : new Uint8Array()
@@ -647,10 +643,10 @@ export const MigrateContractProposal = {
     } else {
       message.contract = "";
     }
-    if (object.code_id !== undefined && object.code_id !== null) {
-      message.code_id = object.code_id;
+    if (object.codeId !== undefined && object.codeId !== null) {
+      message.codeId = object.codeId;
     } else {
-      message.code_id = 0;
+      message.codeId = 0;
     }
     if (object.msg !== undefined && object.msg !== null) {
       message.msg = object.msg;
@@ -779,7 +775,7 @@ export const SudoContractProposal = {
 const baseExecuteContractProposal: object = {
   title: "",
   description: "",
-  run_as: "",
+  runAs: "",
   contract: "",
 };
 
@@ -794,8 +790,8 @@ export const ExecuteContractProposal = {
     if (message.description !== "") {
       writer.uint32(18).string(message.description);
     }
-    if (message.run_as !== "") {
-      writer.uint32(26).string(message.run_as);
+    if (message.runAs !== "") {
+      writer.uint32(26).string(message.runAs);
     }
     if (message.contract !== "") {
       writer.uint32(34).string(message.contract);
@@ -826,7 +822,7 @@ export const ExecuteContractProposal = {
           message.description = reader.string();
           break;
         case 3:
-          message.run_as = reader.string();
+          message.runAs = reader.string();
           break;
         case 4:
           message.contract = reader.string();
@@ -860,10 +856,10 @@ export const ExecuteContractProposal = {
     } else {
       message.description = "";
     }
-    if (object.run_as !== undefined && object.run_as !== null) {
-      message.run_as = String(object.run_as);
+    if (object.runAs !== undefined && object.runAs !== null) {
+      message.runAs = String(object.runAs);
     } else {
-      message.run_as = "";
+      message.runAs = "";
     }
     if (object.contract !== undefined && object.contract !== null) {
       message.contract = String(object.contract);
@@ -886,7 +882,7 @@ export const ExecuteContractProposal = {
     message.title !== undefined && (obj.title = message.title);
     message.description !== undefined &&
       (obj.description = message.description);
-    message.run_as !== undefined && (obj.run_as = message.run_as);
+    message.runAs !== undefined && (obj.runAs = message.runAs);
     message.contract !== undefined && (obj.contract = message.contract);
     message.msg !== undefined &&
       (obj.msg = base64FromBytes(
@@ -917,10 +913,10 @@ export const ExecuteContractProposal = {
     } else {
       message.description = "";
     }
-    if (object.run_as !== undefined && object.run_as !== null) {
-      message.run_as = object.run_as;
+    if (object.runAs !== undefined && object.runAs !== null) {
+      message.runAs = object.runAs;
     } else {
-      message.run_as = "";
+      message.runAs = "";
     }
     if (object.contract !== undefined && object.contract !== null) {
       message.contract = object.contract;
@@ -944,7 +940,7 @@ export const ExecuteContractProposal = {
 const baseUpdateAdminProposal: object = {
   title: "",
   description: "",
-  new_admin: "",
+  newAdmin: "",
   contract: "",
 };
 
@@ -959,8 +955,8 @@ export const UpdateAdminProposal = {
     if (message.description !== "") {
       writer.uint32(18).string(message.description);
     }
-    if (message.new_admin !== "") {
-      writer.uint32(26).string(message.new_admin);
+    if (message.newAdmin !== "") {
+      writer.uint32(26).string(message.newAdmin);
     }
     if (message.contract !== "") {
       writer.uint32(34).string(message.contract);
@@ -982,7 +978,7 @@ export const UpdateAdminProposal = {
           message.description = reader.string();
           break;
         case 3:
-          message.new_admin = reader.string();
+          message.newAdmin = reader.string();
           break;
         case 4:
           message.contract = reader.string();
@@ -1007,10 +1003,10 @@ export const UpdateAdminProposal = {
     } else {
       message.description = "";
     }
-    if (object.new_admin !== undefined && object.new_admin !== null) {
-      message.new_admin = String(object.new_admin);
+    if (object.newAdmin !== undefined && object.newAdmin !== null) {
+      message.newAdmin = String(object.newAdmin);
     } else {
-      message.new_admin = "";
+      message.newAdmin = "";
     }
     if (object.contract !== undefined && object.contract !== null) {
       message.contract = String(object.contract);
@@ -1025,7 +1021,7 @@ export const UpdateAdminProposal = {
     message.title !== undefined && (obj.title = message.title);
     message.description !== undefined &&
       (obj.description = message.description);
-    message.new_admin !== undefined && (obj.new_admin = message.new_admin);
+    message.newAdmin !== undefined && (obj.newAdmin = message.newAdmin);
     message.contract !== undefined && (obj.contract = message.contract);
     return obj;
   },
@@ -1042,10 +1038,10 @@ export const UpdateAdminProposal = {
     } else {
       message.description = "";
     }
-    if (object.new_admin !== undefined && object.new_admin !== null) {
-      message.new_admin = object.new_admin;
+    if (object.newAdmin !== undefined && object.newAdmin !== null) {
+      message.newAdmin = object.newAdmin;
     } else {
-      message.new_admin = "";
+      message.newAdmin = "";
     }
     if (object.contract !== undefined && object.contract !== null) {
       message.contract = object.contract;
@@ -1153,11 +1149,7 @@ export const ClearAdminProposal = {
   },
 };
 
-const basePinCodesProposal: object = {
-  title: "",
-  description: "",
-  code_ids: 0,
-};
+const basePinCodesProposal: object = { title: "", description: "", codeIds: 0 };
 
 export const PinCodesProposal = {
   encode(message: PinCodesProposal, writer: Writer = Writer.create()): Writer {
@@ -1168,7 +1160,7 @@ export const PinCodesProposal = {
       writer.uint32(18).string(message.description);
     }
     writer.uint32(26).fork();
-    for (const v of message.code_ids) {
+    for (const v of message.codeIds) {
       writer.uint64(v);
     }
     writer.ldelim();
@@ -1179,7 +1171,7 @@ export const PinCodesProposal = {
     const reader = input instanceof Uint8Array ? new Reader(input) : input;
     let end = length === undefined ? reader.len : reader.pos + length;
     const message = { ...basePinCodesProposal } as PinCodesProposal;
-    message.code_ids = [];
+    message.codeIds = [];
     while (reader.pos < end) {
       const tag = reader.uint32();
       switch (tag >>> 3) {
@@ -1193,10 +1185,10 @@ export const PinCodesProposal = {
           if ((tag & 7) === 2) {
             const end2 = reader.uint32() + reader.pos;
             while (reader.pos < end2) {
-              message.code_ids.push(longToNumber(reader.uint64() as Long));
+              message.codeIds.push(longToNumber(reader.uint64() as Long));
             }
           } else {
-            message.code_ids.push(longToNumber(reader.uint64() as Long));
+            message.codeIds.push(longToNumber(reader.uint64() as Long));
           }
           break;
         default:
@@ -1209,7 +1201,7 @@ export const PinCodesProposal = {
 
   fromJSON(object: any): PinCodesProposal {
     const message = { ...basePinCodesProposal } as PinCodesProposal;
-    message.code_ids = [];
+    message.codeIds = [];
     if (object.title !== undefined && object.title !== null) {
       message.title = String(object.title);
     } else {
@@ -1220,9 +1212,9 @@ export const PinCodesProposal = {
     } else {
       message.description = "";
     }
-    if (object.code_ids !== undefined && object.code_ids !== null) {
-      for (const e of object.code_ids) {
-        message.code_ids.push(Number(e));
+    if (object.codeIds !== undefined && object.codeIds !== null) {
+      for (const e of object.codeIds) {
+        message.codeIds.push(Number(e));
       }
     }
     return message;
@@ -1233,17 +1225,17 @@ export const PinCodesProposal = {
     message.title !== undefined && (obj.title = message.title);
     message.description !== undefined &&
       (obj.description = message.description);
-    if (message.code_ids) {
-      obj.code_ids = message.code_ids.map((e) => e);
+    if (message.codeIds) {
+      obj.codeIds = message.codeIds.map((e) => e);
     } else {
-      obj.code_ids = [];
+      obj.codeIds = [];
     }
     return obj;
   },
 
   fromPartial(object: DeepPartial<PinCodesProposal>): PinCodesProposal {
     const message = { ...basePinCodesProposal } as PinCodesProposal;
-    message.code_ids = [];
+    message.codeIds = [];
     if (object.title !== undefined && object.title !== null) {
       message.title = object.title;
     } else {
@@ -1254,9 +1246,9 @@ export const PinCodesProposal = {
     } else {
       message.description = "";
     }
-    if (object.code_ids !== undefined && object.code_ids !== null) {
-      for (const e of object.code_ids) {
-        message.code_ids.push(e);
+    if (object.codeIds !== undefined && object.codeIds !== null) {
+      for (const e of object.codeIds) {
+        message.codeIds.push(e);
       }
     }
     return message;
@@ -1266,7 +1258,7 @@ export const PinCodesProposal = {
 const baseUnpinCodesProposal: object = {
   title: "",
   description: "",
-  code_ids: 0,
+  codeIds: 0,
 };
 
 export const UnpinCodesProposal = {
@@ -1281,7 +1273,7 @@ export const UnpinCodesProposal = {
       writer.uint32(18).string(message.description);
     }
     writer.uint32(26).fork();
-    for (const v of message.code_ids) {
+    for (const v of message.codeIds) {
       writer.uint64(v);
     }
     writer.ldelim();
@@ -1292,7 +1284,7 @@ export const UnpinCodesProposal = {
     const reader = input instanceof Uint8Array ? new Reader(input) : input;
     let end = length === undefined ? reader.len : reader.pos + length;
     const message = { ...baseUnpinCodesProposal } as UnpinCodesProposal;
-    message.code_ids = [];
+    message.codeIds = [];
     while (reader.pos < end) {
       const tag = reader.uint32();
       switch (tag >>> 3) {
@@ -1306,10 +1298,10 @@ export const UnpinCodesProposal = {
           if ((tag & 7) === 2) {
             const end2 = reader.uint32() + reader.pos;
             while (reader.pos < end2) {
-              message.code_ids.push(longToNumber(reader.uint64() as Long));
+              message.codeIds.push(longToNumber(reader.uint64() as Long));
             }
           } else {
-            message.code_ids.push(longToNumber(reader.uint64() as Long));
+            message.codeIds.push(longToNumber(reader.uint64() as Long));
           }
           break;
         default:
@@ -1322,7 +1314,7 @@ export const UnpinCodesProposal = {
 
   fromJSON(object: any): UnpinCodesProposal {
     const message = { ...baseUnpinCodesProposal } as UnpinCodesProposal;
-    message.code_ids = [];
+    message.codeIds = [];
     if (object.title !== undefined && object.title !== null) {
       message.title = String(object.title);
     } else {
@@ -1333,9 +1325,9 @@ export const UnpinCodesProposal = {
     } else {
       message.description = "";
     }
-    if (object.code_ids !== undefined && object.code_ids !== null) {
-      for (const e of object.code_ids) {
-        message.code_ids.push(Number(e));
+    if (object.codeIds !== undefined && object.codeIds !== null) {
+      for (const e of object.codeIds) {
+        message.codeIds.push(Number(e));
       }
     }
     return message;
@@ -1346,17 +1338,17 @@ export const UnpinCodesProposal = {
     message.title !== undefined && (obj.title = message.title);
     message.description !== undefined &&
       (obj.description = message.description);
-    if (message.code_ids) {
-      obj.code_ids = message.code_ids.map((e) => e);
+    if (message.codeIds) {
+      obj.codeIds = message.codeIds.map((e) => e);
     } else {
-      obj.code_ids = [];
+      obj.codeIds = [];
     }
     return obj;
   },
 
   fromPartial(object: DeepPartial<UnpinCodesProposal>): UnpinCodesProposal {
     const message = { ...baseUnpinCodesProposal } as UnpinCodesProposal;
-    message.code_ids = [];
+    message.codeIds = [];
     if (object.title !== undefined && object.title !== null) {
       message.title = object.title;
     } else {
@@ -1367,28 +1359,28 @@ export const UnpinCodesProposal = {
     } else {
       message.description = "";
     }
-    if (object.code_ids !== undefined && object.code_ids !== null) {
-      for (const e of object.code_ids) {
-        message.code_ids.push(e);
+    if (object.codeIds !== undefined && object.codeIds !== null) {
+      for (const e of object.codeIds) {
+        message.codeIds.push(e);
       }
     }
     return message;
   },
 };
 
-const baseAccessConfigUpdate: object = { code_id: 0 };
+const baseAccessConfigUpdate: object = { codeId: 0 };
 
 export const AccessConfigUpdate = {
   encode(
     message: AccessConfigUpdate,
     writer: Writer = Writer.create()
   ): Writer {
-    if (message.code_id !== 0) {
-      writer.uint32(8).uint64(message.code_id);
+    if (message.codeId !== 0) {
+      writer.uint32(8).uint64(message.codeId);
     }
-    if (message.instantiate_permission !== undefined) {
+    if (message.instantiatePermission !== undefined) {
       AccessConfig.encode(
-        message.instantiate_permission,
+        message.instantiatePermission,
         writer.uint32(18).fork()
       ).ldelim();
     }
@@ -1403,10 +1395,10 @@ export const AccessConfigUpdate = {
       const tag = reader.uint32();
       switch (tag >>> 3) {
         case 1:
-          message.code_id = longToNumber(reader.uint64() as Long);
+          message.codeId = longToNumber(reader.uint64() as Long);
           break;
         case 2:
-          message.instantiate_permission = AccessConfig.decode(
+          message.instantiatePermission = AccessConfig.decode(
             reader,
             reader.uint32()
           );
@@ -1421,50 +1413,50 @@ export const AccessConfigUpdate = {
 
   fromJSON(object: any): AccessConfigUpdate {
     const message = { ...baseAccessConfigUpdate } as AccessConfigUpdate;
-    if (object.code_id !== undefined && object.code_id !== null) {
-      message.code_id = Number(object.code_id);
+    if (object.codeId !== undefined && object.codeId !== null) {
+      message.codeId = Number(object.codeId);
     } else {
-      message.code_id = 0;
+      message.codeId = 0;
     }
     if (
-      object.instantiate_permission !== undefined &&
-      object.instantiate_permission !== null
+      object.instantiatePermission !== undefined &&
+      object.instantiatePermission !== null
     ) {
-      message.instantiate_permission = AccessConfig.fromJSON(
-        object.instantiate_permission
+      message.instantiatePermission = AccessConfig.fromJSON(
+        object.instantiatePermission
       );
     } else {
-      message.instantiate_permission = undefined;
+      message.instantiatePermission = undefined;
     }
     return message;
   },
 
   toJSON(message: AccessConfigUpdate): unknown {
     const obj: any = {};
-    message.code_id !== undefined && (obj.code_id = message.code_id);
-    message.instantiate_permission !== undefined &&
-      (obj.instantiate_permission = message.instantiate_permission
-        ? AccessConfig.toJSON(message.instantiate_permission)
+    message.codeId !== undefined && (obj.codeId = message.codeId);
+    message.instantiatePermission !== undefined &&
+      (obj.instantiatePermission = message.instantiatePermission
+        ? AccessConfig.toJSON(message.instantiatePermission)
         : undefined);
     return obj;
   },
 
   fromPartial(object: DeepPartial<AccessConfigUpdate>): AccessConfigUpdate {
     const message = { ...baseAccessConfigUpdate } as AccessConfigUpdate;
-    if (object.code_id !== undefined && object.code_id !== null) {
-      message.code_id = object.code_id;
+    if (object.codeId !== undefined && object.codeId !== null) {
+      message.codeId = object.codeId;
     } else {
-      message.code_id = 0;
+      message.codeId = 0;
     }
     if (
-      object.instantiate_permission !== undefined &&
-      object.instantiate_permission !== null
+      object.instantiatePermission !== undefined &&
+      object.instantiatePermission !== null
     ) {
-      message.instantiate_permission = AccessConfig.fromPartial(
-        object.instantiate_permission
+      message.instantiatePermission = AccessConfig.fromPartial(
+        object.instantiatePermission
       );
     } else {
-      message.instantiate_permission = undefined;
+      message.instantiatePermission = undefined;
     }
     return message;
   },
@@ -1486,7 +1478,7 @@ export const UpdateInstantiateConfigProposal = {
     if (message.description !== "") {
       writer.uint32(18).string(message.description);
     }
-    for (const v of message.access_config_updates) {
+    for (const v of message.accessConfigUpdates) {
       AccessConfigUpdate.encode(v!, writer.uint32(26).fork()).ldelim();
     }
     return writer;
@@ -1501,7 +1493,7 @@ export const UpdateInstantiateConfigProposal = {
     const message = {
       ...baseUpdateInstantiateConfigProposal,
     } as UpdateInstantiateConfigProposal;
-    message.access_config_updates = [];
+    message.accessConfigUpdates = [];
     while (reader.pos < end) {
       const tag = reader.uint32();
       switch (tag >>> 3) {
@@ -1512,7 +1504,7 @@ export const UpdateInstantiateConfigProposal = {
           message.description = reader.string();
           break;
         case 3:
-          message.access_config_updates.push(
+          message.accessConfigUpdates.push(
             AccessConfigUpdate.decode(reader, reader.uint32())
           );
           break;
@@ -1528,7 +1520,7 @@ export const UpdateInstantiateConfigProposal = {
     const message = {
       ...baseUpdateInstantiateConfigProposal,
     } as UpdateInstantiateConfigProposal;
-    message.access_config_updates = [];
+    message.accessConfigUpdates = [];
     if (object.title !== undefined && object.title !== null) {
       message.title = String(object.title);
     } else {
@@ -1540,11 +1532,11 @@ export const UpdateInstantiateConfigProposal = {
       message.description = "";
     }
     if (
-      object.access_config_updates !== undefined &&
-      object.access_config_updates !== null
+      object.accessConfigUpdates !== undefined &&
+      object.accessConfigUpdates !== null
     ) {
-      for (const e of object.access_config_updates) {
-        message.access_config_updates.push(AccessConfigUpdate.fromJSON(e));
+      for (const e of object.accessConfigUpdates) {
+        message.accessConfigUpdates.push(AccessConfigUpdate.fromJSON(e));
       }
     }
     return message;
@@ -1555,12 +1547,12 @@ export const UpdateInstantiateConfigProposal = {
     message.title !== undefined && (obj.title = message.title);
     message.description !== undefined &&
       (obj.description = message.description);
-    if (message.access_config_updates) {
-      obj.access_config_updates = message.access_config_updates.map((e) =>
+    if (message.accessConfigUpdates) {
+      obj.accessConfigUpdates = message.accessConfigUpdates.map((e) =>
         e ? AccessConfigUpdate.toJSON(e) : undefined
       );
     } else {
-      obj.access_config_updates = [];
+      obj.accessConfigUpdates = [];
     }
     return obj;
   },
@@ -1571,7 +1563,7 @@ export const UpdateInstantiateConfigProposal = {
     const message = {
       ...baseUpdateInstantiateConfigProposal,
     } as UpdateInstantiateConfigProposal;
-    message.access_config_updates = [];
+    message.accessConfigUpdates = [];
     if (object.title !== undefined && object.title !== null) {
       message.title = object.title;
     } else {
@@ -1583,11 +1575,11 @@ export const UpdateInstantiateConfigProposal = {
       message.description = "";
     }
     if (
-      object.access_config_updates !== undefined &&
-      object.access_config_updates !== null
+      object.accessConfigUpdates !== undefined &&
+      object.accessConfigUpdates !== null
     ) {
-      for (const e of object.access_config_updates) {
-        message.access_config_updates.push(AccessConfigUpdate.fromPartial(e));
+      for (const e of object.accessConfigUpdates) {
+        message.accessConfigUpdates.push(AccessConfigUpdate.fromPartial(e));
       }
     }
     return message;

@@ -16,12 +16,12 @@ export interface GenesisState {
    * signing_infos represents a map between validator addresses and their
    * signing infos.
    */
-  signing_infos: SigningInfo[];
+  signingInfos: SigningInfo[];
   /**
    * missed_blocks represents a map between validator addresses and their
    * missed blocks.
    */
-  missed_blocks: ValidatorMissedBlocks[];
+  missedBlocks: ValidatorMissedBlocks[];
 }
 
 /** SigningInfo stores validator signing info of corresponding address. */
@@ -29,7 +29,7 @@ export interface SigningInfo {
   /** address is the validator address. */
   address: string;
   /** validator_signing_info represents the signing info of this validator. */
-  validator_signing_info: ValidatorSigningInfo | undefined;
+  validatorSigningInfo: ValidatorSigningInfo | undefined;
 }
 
 /**
@@ -40,7 +40,7 @@ export interface ValidatorMissedBlocks {
   /** address is the validator address. */
   address: string;
   /** missed_blocks is an array of missed blocks by the validator. */
-  missed_blocks: MissedBlock[];
+  missedBlocks: MissedBlock[];
 }
 
 /** MissedBlock contains height and missed status as boolean. */
@@ -58,10 +58,10 @@ export const GenesisState = {
     if (message.params !== undefined) {
       Params.encode(message.params, writer.uint32(10).fork()).ldelim();
     }
-    for (const v of message.signing_infos) {
+    for (const v of message.signingInfos) {
       SigningInfo.encode(v!, writer.uint32(18).fork()).ldelim();
     }
-    for (const v of message.missed_blocks) {
+    for (const v of message.missedBlocks) {
       ValidatorMissedBlocks.encode(v!, writer.uint32(26).fork()).ldelim();
     }
     return writer;
@@ -71,8 +71,8 @@ export const GenesisState = {
     const reader = input instanceof Uint8Array ? new Reader(input) : input;
     let end = length === undefined ? reader.len : reader.pos + length;
     const message = { ...baseGenesisState } as GenesisState;
-    message.signing_infos = [];
-    message.missed_blocks = [];
+    message.signingInfos = [];
+    message.missedBlocks = [];
     while (reader.pos < end) {
       const tag = reader.uint32();
       switch (tag >>> 3) {
@@ -80,12 +80,12 @@ export const GenesisState = {
           message.params = Params.decode(reader, reader.uint32());
           break;
         case 2:
-          message.signing_infos.push(
+          message.signingInfos.push(
             SigningInfo.decode(reader, reader.uint32())
           );
           break;
         case 3:
-          message.missed_blocks.push(
+          message.missedBlocks.push(
             ValidatorMissedBlocks.decode(reader, reader.uint32())
           );
           break;
@@ -99,21 +99,21 @@ export const GenesisState = {
 
   fromJSON(object: any): GenesisState {
     const message = { ...baseGenesisState } as GenesisState;
-    message.signing_infos = [];
-    message.missed_blocks = [];
+    message.signingInfos = [];
+    message.missedBlocks = [];
     if (object.params !== undefined && object.params !== null) {
       message.params = Params.fromJSON(object.params);
     } else {
       message.params = undefined;
     }
-    if (object.signing_infos !== undefined && object.signing_infos !== null) {
-      for (const e of object.signing_infos) {
-        message.signing_infos.push(SigningInfo.fromJSON(e));
+    if (object.signingInfos !== undefined && object.signingInfos !== null) {
+      for (const e of object.signingInfos) {
+        message.signingInfos.push(SigningInfo.fromJSON(e));
       }
     }
-    if (object.missed_blocks !== undefined && object.missed_blocks !== null) {
-      for (const e of object.missed_blocks) {
-        message.missed_blocks.push(ValidatorMissedBlocks.fromJSON(e));
+    if (object.missedBlocks !== undefined && object.missedBlocks !== null) {
+      for (const e of object.missedBlocks) {
+        message.missedBlocks.push(ValidatorMissedBlocks.fromJSON(e));
       }
     }
     return message;
@@ -123,40 +123,40 @@ export const GenesisState = {
     const obj: any = {};
     message.params !== undefined &&
       (obj.params = message.params ? Params.toJSON(message.params) : undefined);
-    if (message.signing_infos) {
-      obj.signing_infos = message.signing_infos.map((e) =>
+    if (message.signingInfos) {
+      obj.signingInfos = message.signingInfos.map((e) =>
         e ? SigningInfo.toJSON(e) : undefined
       );
     } else {
-      obj.signing_infos = [];
+      obj.signingInfos = [];
     }
-    if (message.missed_blocks) {
-      obj.missed_blocks = message.missed_blocks.map((e) =>
+    if (message.missedBlocks) {
+      obj.missedBlocks = message.missedBlocks.map((e) =>
         e ? ValidatorMissedBlocks.toJSON(e) : undefined
       );
     } else {
-      obj.missed_blocks = [];
+      obj.missedBlocks = [];
     }
     return obj;
   },
 
   fromPartial(object: DeepPartial<GenesisState>): GenesisState {
     const message = { ...baseGenesisState } as GenesisState;
-    message.signing_infos = [];
-    message.missed_blocks = [];
+    message.signingInfos = [];
+    message.missedBlocks = [];
     if (object.params !== undefined && object.params !== null) {
       message.params = Params.fromPartial(object.params);
     } else {
       message.params = undefined;
     }
-    if (object.signing_infos !== undefined && object.signing_infos !== null) {
-      for (const e of object.signing_infos) {
-        message.signing_infos.push(SigningInfo.fromPartial(e));
+    if (object.signingInfos !== undefined && object.signingInfos !== null) {
+      for (const e of object.signingInfos) {
+        message.signingInfos.push(SigningInfo.fromPartial(e));
       }
     }
-    if (object.missed_blocks !== undefined && object.missed_blocks !== null) {
-      for (const e of object.missed_blocks) {
-        message.missed_blocks.push(ValidatorMissedBlocks.fromPartial(e));
+    if (object.missedBlocks !== undefined && object.missedBlocks !== null) {
+      for (const e of object.missedBlocks) {
+        message.missedBlocks.push(ValidatorMissedBlocks.fromPartial(e));
       }
     }
     return message;
@@ -170,9 +170,9 @@ export const SigningInfo = {
     if (message.address !== "") {
       writer.uint32(10).string(message.address);
     }
-    if (message.validator_signing_info !== undefined) {
+    if (message.validatorSigningInfo !== undefined) {
       ValidatorSigningInfo.encode(
-        message.validator_signing_info,
+        message.validatorSigningInfo,
         writer.uint32(18).fork()
       ).ldelim();
     }
@@ -190,7 +190,7 @@ export const SigningInfo = {
           message.address = reader.string();
           break;
         case 2:
-          message.validator_signing_info = ValidatorSigningInfo.decode(
+          message.validatorSigningInfo = ValidatorSigningInfo.decode(
             reader,
             reader.uint32()
           );
@@ -211,14 +211,14 @@ export const SigningInfo = {
       message.address = "";
     }
     if (
-      object.validator_signing_info !== undefined &&
-      object.validator_signing_info !== null
+      object.validatorSigningInfo !== undefined &&
+      object.validatorSigningInfo !== null
     ) {
-      message.validator_signing_info = ValidatorSigningInfo.fromJSON(
-        object.validator_signing_info
+      message.validatorSigningInfo = ValidatorSigningInfo.fromJSON(
+        object.validatorSigningInfo
       );
     } else {
-      message.validator_signing_info = undefined;
+      message.validatorSigningInfo = undefined;
     }
     return message;
   },
@@ -226,9 +226,9 @@ export const SigningInfo = {
   toJSON(message: SigningInfo): unknown {
     const obj: any = {};
     message.address !== undefined && (obj.address = message.address);
-    message.validator_signing_info !== undefined &&
-      (obj.validator_signing_info = message.validator_signing_info
-        ? ValidatorSigningInfo.toJSON(message.validator_signing_info)
+    message.validatorSigningInfo !== undefined &&
+      (obj.validatorSigningInfo = message.validatorSigningInfo
+        ? ValidatorSigningInfo.toJSON(message.validatorSigningInfo)
         : undefined);
     return obj;
   },
@@ -241,14 +241,14 @@ export const SigningInfo = {
       message.address = "";
     }
     if (
-      object.validator_signing_info !== undefined &&
-      object.validator_signing_info !== null
+      object.validatorSigningInfo !== undefined &&
+      object.validatorSigningInfo !== null
     ) {
-      message.validator_signing_info = ValidatorSigningInfo.fromPartial(
-        object.validator_signing_info
+      message.validatorSigningInfo = ValidatorSigningInfo.fromPartial(
+        object.validatorSigningInfo
       );
     } else {
-      message.validator_signing_info = undefined;
+      message.validatorSigningInfo = undefined;
     }
     return message;
   },
@@ -264,7 +264,7 @@ export const ValidatorMissedBlocks = {
     if (message.address !== "") {
       writer.uint32(10).string(message.address);
     }
-    for (const v of message.missed_blocks) {
+    for (const v of message.missedBlocks) {
       MissedBlock.encode(v!, writer.uint32(18).fork()).ldelim();
     }
     return writer;
@@ -274,7 +274,7 @@ export const ValidatorMissedBlocks = {
     const reader = input instanceof Uint8Array ? new Reader(input) : input;
     let end = length === undefined ? reader.len : reader.pos + length;
     const message = { ...baseValidatorMissedBlocks } as ValidatorMissedBlocks;
-    message.missed_blocks = [];
+    message.missedBlocks = [];
     while (reader.pos < end) {
       const tag = reader.uint32();
       switch (tag >>> 3) {
@@ -282,7 +282,7 @@ export const ValidatorMissedBlocks = {
           message.address = reader.string();
           break;
         case 2:
-          message.missed_blocks.push(
+          message.missedBlocks.push(
             MissedBlock.decode(reader, reader.uint32())
           );
           break;
@@ -296,15 +296,15 @@ export const ValidatorMissedBlocks = {
 
   fromJSON(object: any): ValidatorMissedBlocks {
     const message = { ...baseValidatorMissedBlocks } as ValidatorMissedBlocks;
-    message.missed_blocks = [];
+    message.missedBlocks = [];
     if (object.address !== undefined && object.address !== null) {
       message.address = String(object.address);
     } else {
       message.address = "";
     }
-    if (object.missed_blocks !== undefined && object.missed_blocks !== null) {
-      for (const e of object.missed_blocks) {
-        message.missed_blocks.push(MissedBlock.fromJSON(e));
+    if (object.missedBlocks !== undefined && object.missedBlocks !== null) {
+      for (const e of object.missedBlocks) {
+        message.missedBlocks.push(MissedBlock.fromJSON(e));
       }
     }
     return message;
@@ -313,12 +313,12 @@ export const ValidatorMissedBlocks = {
   toJSON(message: ValidatorMissedBlocks): unknown {
     const obj: any = {};
     message.address !== undefined && (obj.address = message.address);
-    if (message.missed_blocks) {
-      obj.missed_blocks = message.missed_blocks.map((e) =>
+    if (message.missedBlocks) {
+      obj.missedBlocks = message.missedBlocks.map((e) =>
         e ? MissedBlock.toJSON(e) : undefined
       );
     } else {
-      obj.missed_blocks = [];
+      obj.missedBlocks = [];
     }
     return obj;
   },
@@ -327,15 +327,15 @@ export const ValidatorMissedBlocks = {
     object: DeepPartial<ValidatorMissedBlocks>
   ): ValidatorMissedBlocks {
     const message = { ...baseValidatorMissedBlocks } as ValidatorMissedBlocks;
-    message.missed_blocks = [];
+    message.missedBlocks = [];
     if (object.address !== undefined && object.address !== null) {
       message.address = object.address;
     } else {
       message.address = "";
     }
-    if (object.missed_blocks !== undefined && object.missed_blocks !== null) {
-      for (const e of object.missed_blocks) {
-        message.missed_blocks.push(MissedBlock.fromPartial(e));
+    if (object.missedBlocks !== undefined && object.missedBlocks !== null) {
+      for (const e of object.missedBlocks) {
+        message.missedBlocks.push(MissedBlock.fromPartial(e));
       }
     }
     return message;

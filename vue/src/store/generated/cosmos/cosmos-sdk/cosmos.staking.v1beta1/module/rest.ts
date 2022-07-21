@@ -145,10 +145,10 @@ multiplied by exchange rate.
 */
 export interface Stakingv1Beta1Validator {
   /** operator_address defines the address of the validator's operator; bech encoded in JSON. */
-  operator_address?: string;
+  operatorAddress?: string;
 
   /** consensus_pubkey is the consensus public key of the validator, as a Protobuf Any. */
-  consensus_pubkey?: ProtobufAny;
+  consensusPubkey?: ProtobufAny;
 
   /** jailed defined whether the validator has been jailed from bonded status or not. */
   jailed?: boolean;
@@ -160,7 +160,7 @@ export interface Stakingv1Beta1Validator {
   tokens?: string;
 
   /** delegator_shares defines total shares issued to a validator's delegators. */
-  delegator_shares?: string;
+  delegatorShares?: string;
 
   /** description defines the description terms for the validator. */
   description?: V1Beta1Description;
@@ -169,25 +169,25 @@ export interface Stakingv1Beta1Validator {
    * unbonding_height defines, if unbonding, the height at which this validator has begun unbonding.
    * @format int64
    */
-  unbonding_height?: string;
+  unbondingHeight?: string;
 
   /**
    * unbonding_time defines, if unbonding, the min time for the validator to complete unbonding.
    * @format date-time
    */
-  unbonding_time?: string;
+  unbondingTime?: string;
 
   /** commission defines the commission parameters. */
   commission?: V1Beta1Commission;
 
   /** min_self_delegation is the validator's self declared minimum self delegation. */
-  min_self_delegation?: string;
+  minSelfDelegation?: string;
 }
 
 export interface TypesBlockID {
   /** @format byte */
   hash?: string;
-  part_set_header?: TypesPartSetHeader;
+  partSetHeader?: TypesPartSetHeader;
 }
 
 /**
@@ -200,41 +200,41 @@ export interface TypesHeader {
    * state transition machine.
    */
   version?: VersionConsensus;
-  chain_id?: string;
+  chainId?: string;
 
   /** @format int64 */
   height?: string;
 
   /** @format date-time */
   time?: string;
-  last_block_id?: TypesBlockID;
+  lastBlockId?: TypesBlockID;
 
   /** @format byte */
-  last_commit_hash?: string;
+  lastCommitHash?: string;
 
   /** @format byte */
-  data_hash?: string;
+  dataHash?: string;
 
   /** @format byte */
-  validators_hash?: string;
+  validatorsHash?: string;
 
   /** @format byte */
-  next_validators_hash?: string;
+  nextValidatorsHash?: string;
 
   /** @format byte */
-  consensus_hash?: string;
+  consensusHash?: string;
 
   /** @format byte */
-  app_hash?: string;
+  appHash?: string;
 
   /** @format byte */
-  last_results_hash?: string;
+  lastResultsHash?: string;
 
   /** @format byte */
-  evidence_hash?: string;
+  evidenceHash?: string;
 
   /** @format byte */
-  proposer_address?: string;
+  proposerAddress?: string;
 }
 
 export interface TypesPartSetHeader {
@@ -276,13 +276,13 @@ export interface V1Beta1Coin {
  */
 export interface V1Beta1Commission {
   /** commission_rates defines the initial commission rates to be used for creating a validator. */
-  commission_rates?: V1Beta1CommissionRates;
+  commissionRates?: V1Beta1CommissionRates;
 
   /**
    * update_time is the last time the commission rate was changed.
    * @format date-time
    */
-  update_time?: string;
+  updateTime?: string;
 }
 
 /**
@@ -294,10 +294,10 @@ export interface V1Beta1CommissionRates {
   rate?: string;
 
   /** max_rate defines the maximum commission rate which validator can ever charge, as a fraction. */
-  max_rate?: string;
+  maxRate?: string;
 
   /** max_change_rate defines the maximum daily increase of the validator commission, as a fraction. */
-  max_change_rate?: string;
+  maxChangeRate?: string;
 }
 
 /**
@@ -307,10 +307,10 @@ validator.
 */
 export interface V1Beta1Delegation {
   /** delegator_address is the bech32-encoded address of the delegator. */
-  delegator_address?: string;
+  delegatorAddress?: string;
 
   /** validator_address is the bech32-encoded address of the validator. */
-  validator_address?: string;
+  validatorAddress?: string;
 
   /** shares define the delegation shares received. */
   shares?: string;
@@ -351,7 +351,7 @@ export interface V1Beta1Description {
   website?: string;
 
   /** security_contact defines an optional email for security contact. */
-  security_contact?: string;
+  securityContact?: string;
 
   /** details define other optional details. */
   details?: string;
@@ -374,7 +374,7 @@ export interface V1Beta1HistoricalInfo {
  */
 export interface V1Beta1MsgBeginRedelegateResponse {
   /** @format date-time */
-  completion_time?: string;
+  completionTime?: string;
 }
 
 /**
@@ -397,7 +397,7 @@ export type V1Beta1MsgEditValidatorResponse = object;
  */
 export interface V1Beta1MsgUndelegateResponse {
   /** @format date-time */
-  completion_time?: string;
+  completionTime?: string;
 }
 
 /**
@@ -436,7 +436,7 @@ export interface V1Beta1PageRequest {
    * count_total is only respected when offset is used. It is ignored when key
    * is set.
    */
-  count_total?: boolean;
+  countTotal?: boolean;
 
   /**
    * reverse is set to true if results are to be returned in the descending order.
@@ -457,7 +457,7 @@ corresponding request message has used PageRequest.
 */
 export interface V1Beta1PageResponse {
   /** @format byte */
-  next_key?: string;
+  nextKey?: string;
 
   /** @format uint64 */
   total?: string;
@@ -468,28 +468,28 @@ export interface V1Beta1PageResponse {
  */
 export interface V1Beta1Params {
   /** unbonding_time is the time duration of unbonding. */
-  unbonding_time?: string;
+  unbondingTime?: string;
 
   /**
    * max_validators is the maximum number of validators.
    * @format int64
    */
-  max_validators?: number;
+  maxValidators?: number;
 
   /**
    * max_entries is the max entries for either unbonding delegation or redelegation (per pair/trio).
    * @format int64
    */
-  max_entries?: number;
+  maxEntries?: number;
 
   /**
    * historical_entries is the number of historical entries to persist.
    * @format int64
    */
-  historical_entries?: number;
+  historicalEntries?: number;
 
   /** bond_denom defines the bondable coin denomination. */
-  bond_denom?: string;
+  bondDenom?: string;
 }
 
 /**
@@ -497,8 +497,8 @@ export interface V1Beta1Params {
 denomination.
 */
 export interface V1Beta1Pool {
-  not_bonded_tokens?: string;
-  bonded_tokens?: string;
+  notBondedTokens?: string;
+  bondedTokens?: string;
 }
 
 /**
@@ -506,7 +506,7 @@ export interface V1Beta1Pool {
  */
 export interface V1Beta1QueryDelegationResponse {
   /** delegation_responses defines the delegation info of a delegation. */
-  delegation_response?: V1Beta1DelegationResponse;
+  delegationResponse?: V1Beta1DelegationResponse;
 }
 
 /**
@@ -515,7 +515,7 @@ Query/DelegatorDelegations RPC method.
 */
 export interface V1Beta1QueryDelegatorDelegationsResponse {
   /** delegation_responses defines all the delegations' info of a delegator. */
-  delegation_responses?: V1Beta1DelegationResponse[];
+  delegationResponses?: V1Beta1DelegationResponse[];
 
   /** pagination defines the pagination in the response. */
   pagination?: V1Beta1PageResponse;
@@ -526,7 +526,7 @@ export interface V1Beta1QueryDelegatorDelegationsResponse {
 Query/UnbondingDelegatorDelegations RPC method.
 */
 export interface V1Beta1QueryDelegatorUnbondingDelegationsResponse {
-  unbonding_responses?: V1Beta1UnbondingDelegation[];
+  unbondingResponses?: V1Beta1UnbondingDelegation[];
 
   /** pagination defines the pagination in the response. */
   pagination?: V1Beta1PageResponse;
@@ -583,7 +583,7 @@ export interface V1Beta1QueryPoolResponse {
 method.
 */
 export interface V1Beta1QueryRedelegationsResponse {
-  redelegation_responses?: V1Beta1RedelegationResponse[];
+  redelegationResponses?: V1Beta1RedelegationResponse[];
 
   /** pagination defines the pagination in the response. */
   pagination?: V1Beta1PageResponse;
@@ -599,7 +599,7 @@ export interface V1Beta1QueryUnbondingDelegationResponse {
 }
 
 export interface V1Beta1QueryValidatorDelegationsResponse {
-  delegation_responses?: V1Beta1DelegationResponse[];
+  delegationResponses?: V1Beta1DelegationResponse[];
 
   /** pagination defines the pagination in the response. */
   pagination?: V1Beta1PageResponse;
@@ -615,7 +615,7 @@ export interface V1Beta1QueryValidatorResponse {
 Query/ValidatorUnbondingDelegations RPC method.
 */
 export interface V1Beta1QueryValidatorUnbondingDelegationsResponse {
-  unbonding_responses?: V1Beta1UnbondingDelegation[];
+  unbondingResponses?: V1Beta1UnbondingDelegation[];
 
   /** pagination defines the pagination in the response. */
   pagination?: V1Beta1PageResponse;
@@ -635,13 +635,13 @@ from a particular source validator to a particular destination validator.
 */
 export interface V1Beta1Redelegation {
   /** delegator_address is the bech32-encoded address of the delegator. */
-  delegator_address?: string;
+  delegatorAddress?: string;
 
   /** validator_src_address is the validator redelegation source operator address. */
-  validator_src_address?: string;
+  validatorSrcAddress?: string;
 
   /** validator_dst_address is the validator redelegation destination operator address. */
-  validator_dst_address?: string;
+  validatorDstAddress?: string;
 
   /** entries are the redelegation entries. */
   entries?: V1Beta1RedelegationEntry[];
@@ -655,19 +655,19 @@ export interface V1Beta1RedelegationEntry {
    * creation_height  defines the height which the redelegation took place.
    * @format int64
    */
-  creation_height?: string;
+  creationHeight?: string;
 
   /**
    * completion_time defines the unix time for redelegation completion.
    * @format date-time
    */
-  completion_time?: string;
+  completionTime?: string;
 
   /** initial_balance defines the initial balance when redelegation started. */
-  initial_balance?: string;
+  initialBalance?: string;
 
   /** shares_dst is the amount of destination-validator shares created by redelegation. */
-  shares_dst?: string;
+  sharesDst?: string;
 }
 
 /**
@@ -677,7 +677,7 @@ responses.
 */
 export interface V1Beta1RedelegationEntryResponse {
   /** RedelegationEntry defines a redelegation object with relevant metadata. */
-  redelegation_entry?: V1Beta1RedelegationEntry;
+  redelegationEntry?: V1Beta1RedelegationEntry;
   balance?: string;
 }
 
@@ -701,10 +701,10 @@ for a single validator in an time-ordered list.
 */
 export interface V1Beta1UnbondingDelegation {
   /** delegator_address is the bech32-encoded address of the delegator. */
-  delegator_address?: string;
+  delegatorAddress?: string;
 
   /** validator_address is the bech32-encoded address of the validator. */
-  validator_address?: string;
+  validatorAddress?: string;
 
   /** entries are the unbonding delegation entries. */
   entries?: V1Beta1UnbondingDelegationEntry[];
@@ -718,16 +718,16 @@ export interface V1Beta1UnbondingDelegationEntry {
    * creation_height is the height which the unbonding took place.
    * @format int64
    */
-  creation_height?: string;
+  creationHeight?: string;
 
   /**
    * completion_time is the unix time for unbonding completion.
    * @format date-time
    */
-  completion_time?: string;
+  completionTime?: string;
 
   /** initial_balance defines the tokens initially scheduled to receive at completion. */
-  initial_balance?: string;
+  initialBalance?: string;
 
   /** balance defines the tokens to receive at completion. */
   balance?: string;
@@ -948,21 +948,21 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
    * @tags Query
    * @name QueryDelegatorDelegations
    * @summary DelegatorDelegations queries all delegations of a given delegator address.
-   * @request GET:/cosmos/staking/v1beta1/delegations/{delegator_addr}
+   * @request GET:/cosmos/staking/v1beta1/delegations/{delegatorAddr}
    */
   queryDelegatorDelegations = (
-    delegator_addr: string,
+    delegatorAddr: string,
     query?: {
       "pagination.key"?: string;
       "pagination.offset"?: string;
       "pagination.limit"?: string;
-      "pagination.count_total"?: boolean;
+      "pagination.countTotal"?: boolean;
       "pagination.reverse"?: boolean;
     },
     params: RequestParams = {},
   ) =>
     this.request<V1Beta1QueryDelegatorDelegationsResponse, RpcStatus>({
-      path: `/cosmos/staking/v1beta1/delegations/${delegator_addr}`,
+      path: `/cosmos/staking/v1beta1/delegations/${delegatorAddr}`,
       method: "GET",
       query: query,
       format: "json",
@@ -975,23 +975,23 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
    * @tags Query
    * @name QueryRedelegations
    * @summary Redelegations queries redelegations of given address.
-   * @request GET:/cosmos/staking/v1beta1/delegators/{delegator_addr}/redelegations
+   * @request GET:/cosmos/staking/v1beta1/delegators/{delegatorAddr}/redelegations
    */
   queryRedelegations = (
-    delegator_addr: string,
+    delegatorAddr: string,
     query?: {
-      src_validator_addr?: string;
-      dst_validator_addr?: string;
+      srcValidatorAddr?: string;
+      dstValidatorAddr?: string;
       "pagination.key"?: string;
       "pagination.offset"?: string;
       "pagination.limit"?: string;
-      "pagination.count_total"?: boolean;
+      "pagination.countTotal"?: boolean;
       "pagination.reverse"?: boolean;
     },
     params: RequestParams = {},
   ) =>
     this.request<V1Beta1QueryRedelegationsResponse, RpcStatus>({
-      path: `/cosmos/staking/v1beta1/delegators/${delegator_addr}/redelegations`,
+      path: `/cosmos/staking/v1beta1/delegators/${delegatorAddr}/redelegations`,
       method: "GET",
       query: query,
       format: "json",
@@ -1005,21 +1005,21 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
  * @name QueryDelegatorUnbondingDelegations
  * @summary DelegatorUnbondingDelegations queries all unbonding delegations of a given
 delegator address.
- * @request GET:/cosmos/staking/v1beta1/delegators/{delegator_addr}/unbonding_delegations
+ * @request GET:/cosmos/staking/v1beta1/delegators/{delegatorAddr}/unbonding_delegations
  */
   queryDelegatorUnbondingDelegations = (
-    delegator_addr: string,
+    delegatorAddr: string,
     query?: {
       "pagination.key"?: string;
       "pagination.offset"?: string;
       "pagination.limit"?: string;
-      "pagination.count_total"?: boolean;
+      "pagination.countTotal"?: boolean;
       "pagination.reverse"?: boolean;
     },
     params: RequestParams = {},
   ) =>
     this.request<V1Beta1QueryDelegatorUnbondingDelegationsResponse, RpcStatus>({
-      path: `/cosmos/staking/v1beta1/delegators/${delegator_addr}/unbonding_delegations`,
+      path: `/cosmos/staking/v1beta1/delegators/${delegatorAddr}/unbonding_delegations`,
       method: "GET",
       query: query,
       format: "json",
@@ -1033,21 +1033,21 @@ delegator address.
  * @name QueryDelegatorValidators
  * @summary DelegatorValidators queries all validators info for given delegator
 address.
- * @request GET:/cosmos/staking/v1beta1/delegators/{delegator_addr}/validators
+ * @request GET:/cosmos/staking/v1beta1/delegators/{delegatorAddr}/validators
  */
   queryDelegatorValidators = (
-    delegator_addr: string,
+    delegatorAddr: string,
     query?: {
       "pagination.key"?: string;
       "pagination.offset"?: string;
       "pagination.limit"?: string;
-      "pagination.count_total"?: boolean;
+      "pagination.countTotal"?: boolean;
       "pagination.reverse"?: boolean;
     },
     params: RequestParams = {},
   ) =>
     this.request<V1Beta1QueryDelegatorValidatorsResponse, RpcStatus>({
-      path: `/cosmos/staking/v1beta1/delegators/${delegator_addr}/validators`,
+      path: `/cosmos/staking/v1beta1/delegators/${delegatorAddr}/validators`,
       method: "GET",
       query: query,
       format: "json",
@@ -1061,11 +1061,11 @@ address.
  * @name QueryDelegatorValidator
  * @summary DelegatorValidator queries validator info for given delegator validator
 pair.
- * @request GET:/cosmos/staking/v1beta1/delegators/{delegator_addr}/validators/{validator_addr}
+ * @request GET:/cosmos/staking/v1beta1/delegators/{delegatorAddr}/validators/{validatorAddr}
  */
-  queryDelegatorValidator = (delegator_addr: string, validator_addr: string, params: RequestParams = {}) =>
+  queryDelegatorValidator = (delegatorAddr: string, validatorAddr: string, params: RequestParams = {}) =>
     this.request<V1Beta1QueryDelegatorValidatorResponse, RpcStatus>({
-      path: `/cosmos/staking/v1beta1/delegators/${delegator_addr}/validators/${validator_addr}`,
+      path: `/cosmos/staking/v1beta1/delegators/${delegatorAddr}/validators/${validatorAddr}`,
       method: "GET",
       format: "json",
       ...params,
@@ -1133,7 +1133,7 @@ pair.
       "pagination.key"?: string;
       "pagination.offset"?: string;
       "pagination.limit"?: string;
-      "pagination.count_total"?: boolean;
+      "pagination.countTotal"?: boolean;
       "pagination.reverse"?: boolean;
     },
     params: RequestParams = {},
@@ -1152,11 +1152,11 @@ pair.
    * @tags Query
    * @name QueryValidator
    * @summary Validator queries validator info for given validator address.
-   * @request GET:/cosmos/staking/v1beta1/validators/{validator_addr}
+   * @request GET:/cosmos/staking/v1beta1/validators/{validatorAddr}
    */
-  queryValidator = (validator_addr: string, params: RequestParams = {}) =>
+  queryValidator = (validatorAddr: string, params: RequestParams = {}) =>
     this.request<V1Beta1QueryValidatorResponse, RpcStatus>({
-      path: `/cosmos/staking/v1beta1/validators/${validator_addr}`,
+      path: `/cosmos/staking/v1beta1/validators/${validatorAddr}`,
       method: "GET",
       format: "json",
       ...params,
@@ -1168,21 +1168,21 @@ pair.
    * @tags Query
    * @name QueryValidatorDelegations
    * @summary ValidatorDelegations queries delegate info for given validator.
-   * @request GET:/cosmos/staking/v1beta1/validators/{validator_addr}/delegations
+   * @request GET:/cosmos/staking/v1beta1/validators/{validatorAddr}/delegations
    */
   queryValidatorDelegations = (
-    validator_addr: string,
+    validatorAddr: string,
     query?: {
       "pagination.key"?: string;
       "pagination.offset"?: string;
       "pagination.limit"?: string;
-      "pagination.count_total"?: boolean;
+      "pagination.countTotal"?: boolean;
       "pagination.reverse"?: boolean;
     },
     params: RequestParams = {},
   ) =>
     this.request<V1Beta1QueryValidatorDelegationsResponse, RpcStatus>({
-      path: `/cosmos/staking/v1beta1/validators/${validator_addr}/delegations`,
+      path: `/cosmos/staking/v1beta1/validators/${validatorAddr}/delegations`,
       method: "GET",
       query: query,
       format: "json",
@@ -1195,11 +1195,11 @@ pair.
    * @tags Query
    * @name QueryDelegation
    * @summary Delegation queries delegate info for given validator delegator pair.
-   * @request GET:/cosmos/staking/v1beta1/validators/{validator_addr}/delegations/{delegator_addr}
+   * @request GET:/cosmos/staking/v1beta1/validators/{validatorAddr}/delegations/{delegatorAddr}
    */
-  queryDelegation = (validator_addr: string, delegator_addr: string, params: RequestParams = {}) =>
+  queryDelegation = (validatorAddr: string, delegatorAddr: string, params: RequestParams = {}) =>
     this.request<V1Beta1QueryDelegationResponse, RpcStatus>({
-      path: `/cosmos/staking/v1beta1/validators/${validator_addr}/delegations/${delegator_addr}`,
+      path: `/cosmos/staking/v1beta1/validators/${validatorAddr}/delegations/${delegatorAddr}`,
       method: "GET",
       format: "json",
       ...params,
@@ -1212,11 +1212,11 @@ pair.
  * @name QueryUnbondingDelegation
  * @summary UnbondingDelegation queries unbonding info for given validator delegator
 pair.
- * @request GET:/cosmos/staking/v1beta1/validators/{validator_addr}/delegations/{delegator_addr}/unbonding_delegation
+ * @request GET:/cosmos/staking/v1beta1/validators/{validatorAddr}/delegations/{delegatorAddr}/unbonding_delegation
  */
-  queryUnbondingDelegation = (validator_addr: string, delegator_addr: string, params: RequestParams = {}) =>
+  queryUnbondingDelegation = (validatorAddr: string, delegatorAddr: string, params: RequestParams = {}) =>
     this.request<V1Beta1QueryUnbondingDelegationResponse, RpcStatus>({
-      path: `/cosmos/staking/v1beta1/validators/${validator_addr}/delegations/${delegator_addr}/unbonding_delegation`,
+      path: `/cosmos/staking/v1beta1/validators/${validatorAddr}/delegations/${delegatorAddr}/unbonding_delegation`,
       method: "GET",
       format: "json",
       ...params,
@@ -1228,21 +1228,21 @@ pair.
    * @tags Query
    * @name QueryValidatorUnbondingDelegations
    * @summary ValidatorUnbondingDelegations queries unbonding delegations of a validator.
-   * @request GET:/cosmos/staking/v1beta1/validators/{validator_addr}/unbonding_delegations
+   * @request GET:/cosmos/staking/v1beta1/validators/{validatorAddr}/unbonding_delegations
    */
   queryValidatorUnbondingDelegations = (
-    validator_addr: string,
+    validatorAddr: string,
     query?: {
       "pagination.key"?: string;
       "pagination.offset"?: string;
       "pagination.limit"?: string;
-      "pagination.count_total"?: boolean;
+      "pagination.countTotal"?: boolean;
       "pagination.reverse"?: boolean;
     },
     params: RequestParams = {},
   ) =>
     this.request<V1Beta1QueryValidatorUnbondingDelegationsResponse, RpcStatus>({
-      path: `/cosmos/staking/v1beta1/validators/${validator_addr}/unbonding_delegations`,
+      path: `/cosmos/staking/v1beta1/validators/${validatorAddr}/unbonding_delegations`,
       method: "GET",
       query: query,
       format: "json",

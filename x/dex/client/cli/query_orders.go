@@ -74,7 +74,7 @@ func CmdGetOrdersByID() *cobra.Command {
 				Id:           orderID,
 			}
 
-			res, err := queryClient.GetOrderByID(cmd.Context(), params)
+			res, err := queryClient.GetOrder(cmd.Context(), params)
 			if err != nil {
 				return err
 			}

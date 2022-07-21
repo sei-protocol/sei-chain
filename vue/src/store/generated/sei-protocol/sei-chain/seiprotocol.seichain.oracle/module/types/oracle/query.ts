@@ -25,7 +25,7 @@ export interface QueryExchangeRateRequest {
  */
 export interface QueryExchangeRateResponse {
   /** exchange_rate defines the exchange rate of Luna denominated in various Terra */
-  oracle_exchange_rate: OracleExchangeRate | undefined;
+  oracleExchangeRate: OracleExchangeRate | undefined;
 }
 
 /** QueryExchangeRatesRequest is the request type for the Query/ExchangeRates RPC method. */
@@ -33,7 +33,7 @@ export interface QueryExchangeRatesRequest {}
 
 export interface DenomOracleExchangeRatePair {
   denom: string;
-  oracle_exchange_rate: OracleExchangeRate | undefined;
+  oracleExchangeRate: OracleExchangeRate | undefined;
 }
 
 /**
@@ -42,7 +42,7 @@ export interface DenomOracleExchangeRatePair {
  */
 export interface QueryExchangeRatesResponse {
   /** exchange_rates defines a list of the exchange rate for all whitelisted denoms. */
-  denom_oracle_exchange_rate_pairs: DenomOracleExchangeRatePair[];
+  denomOracleExchangeRatePairs: DenomOracleExchangeRatePair[];
 }
 
 /** QueryActivesRequest is the request type for the Query/Actives RPC method. */
@@ -69,29 +69,29 @@ export interface QueryVoteTargetsResponse {
    * vote_targets defines a list of the denomination in which everyone
    * should vote in the current vote period.
    */
-  vote_targets: string[];
+  voteTargets: string[];
 }
 
 /** request type for price snapshot history RPC method */
 export interface QueryPriceSnapshotHistoryRequest {}
 
 export interface QueryPriceSnapshotHistoryResponse {
-  price_snapshots: PriceSnapshot[];
+  priceSnapshots: PriceSnapshot[];
 }
 
 /** request type for twap RPC method */
 export interface QueryTwapsRequest {
-  lookback_seconds: number;
+  lookbackSeconds: number;
 }
 
 export interface QueryTwapsResponse {
-  oracle_twaps: OracleTwap[];
+  oracleTwaps: OracleTwap[];
 }
 
 /** QueryFeederDelegationRequest is the request type for the Query/FeederDelegation RPC method. */
 export interface QueryFeederDelegationRequest {
   /** validator defines the validator address to query for. */
-  validator_addr: string;
+  validatorAddr: string;
 }
 
 /**
@@ -100,13 +100,13 @@ export interface QueryFeederDelegationRequest {
  */
 export interface QueryFeederDelegationResponse {
   /** feeder_addr defines the feeder delegation of a validator */
-  feeder_addr: string;
+  feederAddr: string;
 }
 
 /** QueryVotePenaltyCounterRequest is the request type for the Query/MissCounter RPC method. */
 export interface QueryVotePenaltyCounterRequest {
   /** validator defines the validator address to query for. */
-  validator_addr: string;
+  validatorAddr: string;
 }
 
 /**
@@ -114,13 +114,13 @@ export interface QueryVotePenaltyCounterRequest {
  * Query/VotePenaltyCounter RPC method.
  */
 export interface QueryVotePenaltyCounterResponse {
-  vote_penalty_counter: VotePenaltyCounter | undefined;
+  votePenaltyCounter: VotePenaltyCounter | undefined;
 }
 
 /** QueryAggregatePrevoteRequest is the request type for the Query/AggregatePrevote RPC method. */
 export interface QueryAggregatePrevoteRequest {
   /** validator defines the validator address to query for. */
-  validator_addr: string;
+  validatorAddr: string;
 }
 
 /**
@@ -129,7 +129,7 @@ export interface QueryAggregatePrevoteRequest {
  */
 export interface QueryAggregatePrevoteResponse {
   /** aggregate_prevote defines oracle aggregate prevote submitted by a validator in the current vote period */
-  aggregate_prevote: AggregateExchangeRatePrevote | undefined;
+  aggregatePrevote: AggregateExchangeRatePrevote | undefined;
 }
 
 /** QueryAggregatePrevotesRequest is the request type for the Query/AggregatePrevotes RPC method. */
@@ -141,13 +141,13 @@ export interface QueryAggregatePrevotesRequest {}
  */
 export interface QueryAggregatePrevotesResponse {
   /** aggregate_prevotes defines all oracle aggregate prevotes submitted in the current vote period */
-  aggregate_prevotes: AggregateExchangeRatePrevote[];
+  aggregatePrevotes: AggregateExchangeRatePrevote[];
 }
 
 /** QueryAggregateVoteRequest is the request type for the Query/AggregateVote RPC method. */
 export interface QueryAggregateVoteRequest {
   /** validator defines the validator address to query for. */
-  validator_addr: string;
+  validatorAddr: string;
 }
 
 /**
@@ -156,7 +156,7 @@ export interface QueryAggregateVoteRequest {
  */
 export interface QueryAggregateVoteResponse {
   /** aggregate_vote defines oracle aggregate vote submitted by a validator in the current vote period */
-  aggregate_vote: AggregateExchangeRateVote | undefined;
+  aggregateVote: AggregateExchangeRateVote | undefined;
 }
 
 /** QueryAggregateVotesRequest is the request type for the Query/AggregateVotes RPC method. */
@@ -168,7 +168,7 @@ export interface QueryAggregateVotesRequest {}
  */
 export interface QueryAggregateVotesResponse {
   /** aggregate_votes defines all oracle aggregate votes submitted in the current vote period */
-  aggregate_votes: AggregateExchangeRateVote[];
+  aggregateVotes: AggregateExchangeRateVote[];
 }
 
 /** QueryParamsRequest is the request type for the Query/Params RPC method. */
@@ -256,9 +256,9 @@ export const QueryExchangeRateResponse = {
     message: QueryExchangeRateResponse,
     writer: Writer = Writer.create()
   ): Writer {
-    if (message.oracle_exchange_rate !== undefined) {
+    if (message.oracleExchangeRate !== undefined) {
       OracleExchangeRate.encode(
-        message.oracle_exchange_rate,
+        message.oracleExchangeRate,
         writer.uint32(10).fork()
       ).ldelim();
     }
@@ -278,7 +278,7 @@ export const QueryExchangeRateResponse = {
       const tag = reader.uint32();
       switch (tag >>> 3) {
         case 1:
-          message.oracle_exchange_rate = OracleExchangeRate.decode(
+          message.oracleExchangeRate = OracleExchangeRate.decode(
             reader,
             reader.uint32()
           );
@@ -296,23 +296,23 @@ export const QueryExchangeRateResponse = {
       ...baseQueryExchangeRateResponse,
     } as QueryExchangeRateResponse;
     if (
-      object.oracle_exchange_rate !== undefined &&
-      object.oracle_exchange_rate !== null
+      object.oracleExchangeRate !== undefined &&
+      object.oracleExchangeRate !== null
     ) {
-      message.oracle_exchange_rate = OracleExchangeRate.fromJSON(
-        object.oracle_exchange_rate
+      message.oracleExchangeRate = OracleExchangeRate.fromJSON(
+        object.oracleExchangeRate
       );
     } else {
-      message.oracle_exchange_rate = undefined;
+      message.oracleExchangeRate = undefined;
     }
     return message;
   },
 
   toJSON(message: QueryExchangeRateResponse): unknown {
     const obj: any = {};
-    message.oracle_exchange_rate !== undefined &&
-      (obj.oracle_exchange_rate = message.oracle_exchange_rate
-        ? OracleExchangeRate.toJSON(message.oracle_exchange_rate)
+    message.oracleExchangeRate !== undefined &&
+      (obj.oracleExchangeRate = message.oracleExchangeRate
+        ? OracleExchangeRate.toJSON(message.oracleExchangeRate)
         : undefined);
     return obj;
   },
@@ -324,14 +324,14 @@ export const QueryExchangeRateResponse = {
       ...baseQueryExchangeRateResponse,
     } as QueryExchangeRateResponse;
     if (
-      object.oracle_exchange_rate !== undefined &&
-      object.oracle_exchange_rate !== null
+      object.oracleExchangeRate !== undefined &&
+      object.oracleExchangeRate !== null
     ) {
-      message.oracle_exchange_rate = OracleExchangeRate.fromPartial(
-        object.oracle_exchange_rate
+      message.oracleExchangeRate = OracleExchangeRate.fromPartial(
+        object.oracleExchangeRate
       );
     } else {
-      message.oracle_exchange_rate = undefined;
+      message.oracleExchangeRate = undefined;
     }
     return message;
   },
@@ -399,9 +399,9 @@ export const DenomOracleExchangeRatePair = {
     if (message.denom !== "") {
       writer.uint32(10).string(message.denom);
     }
-    if (message.oracle_exchange_rate !== undefined) {
+    if (message.oracleExchangeRate !== undefined) {
       OracleExchangeRate.encode(
-        message.oracle_exchange_rate,
+        message.oracleExchangeRate,
         writer.uint32(18).fork()
       ).ldelim();
     }
@@ -424,7 +424,7 @@ export const DenomOracleExchangeRatePair = {
           message.denom = reader.string();
           break;
         case 2:
-          message.oracle_exchange_rate = OracleExchangeRate.decode(
+          message.oracleExchangeRate = OracleExchangeRate.decode(
             reader,
             reader.uint32()
           );
@@ -447,14 +447,14 @@ export const DenomOracleExchangeRatePair = {
       message.denom = "";
     }
     if (
-      object.oracle_exchange_rate !== undefined &&
-      object.oracle_exchange_rate !== null
+      object.oracleExchangeRate !== undefined &&
+      object.oracleExchangeRate !== null
     ) {
-      message.oracle_exchange_rate = OracleExchangeRate.fromJSON(
-        object.oracle_exchange_rate
+      message.oracleExchangeRate = OracleExchangeRate.fromJSON(
+        object.oracleExchangeRate
       );
     } else {
-      message.oracle_exchange_rate = undefined;
+      message.oracleExchangeRate = undefined;
     }
     return message;
   },
@@ -462,9 +462,9 @@ export const DenomOracleExchangeRatePair = {
   toJSON(message: DenomOracleExchangeRatePair): unknown {
     const obj: any = {};
     message.denom !== undefined && (obj.denom = message.denom);
-    message.oracle_exchange_rate !== undefined &&
-      (obj.oracle_exchange_rate = message.oracle_exchange_rate
-        ? OracleExchangeRate.toJSON(message.oracle_exchange_rate)
+    message.oracleExchangeRate !== undefined &&
+      (obj.oracleExchangeRate = message.oracleExchangeRate
+        ? OracleExchangeRate.toJSON(message.oracleExchangeRate)
         : undefined);
     return obj;
   },
@@ -481,14 +481,14 @@ export const DenomOracleExchangeRatePair = {
       message.denom = "";
     }
     if (
-      object.oracle_exchange_rate !== undefined &&
-      object.oracle_exchange_rate !== null
+      object.oracleExchangeRate !== undefined &&
+      object.oracleExchangeRate !== null
     ) {
-      message.oracle_exchange_rate = OracleExchangeRate.fromPartial(
-        object.oracle_exchange_rate
+      message.oracleExchangeRate = OracleExchangeRate.fromPartial(
+        object.oracleExchangeRate
       );
     } else {
-      message.oracle_exchange_rate = undefined;
+      message.oracleExchangeRate = undefined;
     }
     return message;
   },
@@ -501,7 +501,7 @@ export const QueryExchangeRatesResponse = {
     message: QueryExchangeRatesResponse,
     writer: Writer = Writer.create()
   ): Writer {
-    for (const v of message.denom_oracle_exchange_rate_pairs) {
+    for (const v of message.denomOracleExchangeRatePairs) {
       DenomOracleExchangeRatePair.encode(v!, writer.uint32(10).fork()).ldelim();
     }
     return writer;
@@ -516,12 +516,12 @@ export const QueryExchangeRatesResponse = {
     const message = {
       ...baseQueryExchangeRatesResponse,
     } as QueryExchangeRatesResponse;
-    message.denom_oracle_exchange_rate_pairs = [];
+    message.denomOracleExchangeRatePairs = [];
     while (reader.pos < end) {
       const tag = reader.uint32();
       switch (tag >>> 3) {
         case 1:
-          message.denom_oracle_exchange_rate_pairs.push(
+          message.denomOracleExchangeRatePairs.push(
             DenomOracleExchangeRatePair.decode(reader, reader.uint32())
           );
           break;
@@ -537,13 +537,13 @@ export const QueryExchangeRatesResponse = {
     const message = {
       ...baseQueryExchangeRatesResponse,
     } as QueryExchangeRatesResponse;
-    message.denom_oracle_exchange_rate_pairs = [];
+    message.denomOracleExchangeRatePairs = [];
     if (
-      object.denom_oracle_exchange_rate_pairs !== undefined &&
-      object.denom_oracle_exchange_rate_pairs !== null
+      object.denomOracleExchangeRatePairs !== undefined &&
+      object.denomOracleExchangeRatePairs !== null
     ) {
-      for (const e of object.denom_oracle_exchange_rate_pairs) {
-        message.denom_oracle_exchange_rate_pairs.push(
+      for (const e of object.denomOracleExchangeRatePairs) {
+        message.denomOracleExchangeRatePairs.push(
           DenomOracleExchangeRatePair.fromJSON(e)
         );
       }
@@ -553,12 +553,12 @@ export const QueryExchangeRatesResponse = {
 
   toJSON(message: QueryExchangeRatesResponse): unknown {
     const obj: any = {};
-    if (message.denom_oracle_exchange_rate_pairs) {
-      obj.denom_oracle_exchange_rate_pairs = message.denom_oracle_exchange_rate_pairs.map(
+    if (message.denomOracleExchangeRatePairs) {
+      obj.denomOracleExchangeRatePairs = message.denomOracleExchangeRatePairs.map(
         (e) => (e ? DenomOracleExchangeRatePair.toJSON(e) : undefined)
       );
     } else {
-      obj.denom_oracle_exchange_rate_pairs = [];
+      obj.denomOracleExchangeRatePairs = [];
     }
     return obj;
   },
@@ -569,13 +569,13 @@ export const QueryExchangeRatesResponse = {
     const message = {
       ...baseQueryExchangeRatesResponse,
     } as QueryExchangeRatesResponse;
-    message.denom_oracle_exchange_rate_pairs = [];
+    message.denomOracleExchangeRatePairs = [];
     if (
-      object.denom_oracle_exchange_rate_pairs !== undefined &&
-      object.denom_oracle_exchange_rate_pairs !== null
+      object.denomOracleExchangeRatePairs !== undefined &&
+      object.denomOracleExchangeRatePairs !== null
     ) {
-      for (const e of object.denom_oracle_exchange_rate_pairs) {
-        message.denom_oracle_exchange_rate_pairs.push(
+      for (const e of object.denomOracleExchangeRatePairs) {
+        message.denomOracleExchangeRatePairs.push(
           DenomOracleExchangeRatePair.fromPartial(e)
         );
       }
@@ -733,14 +733,14 @@ export const QueryVoteTargetsRequest = {
   },
 };
 
-const baseQueryVoteTargetsResponse: object = { vote_targets: "" };
+const baseQueryVoteTargetsResponse: object = { voteTargets: "" };
 
 export const QueryVoteTargetsResponse = {
   encode(
     message: QueryVoteTargetsResponse,
     writer: Writer = Writer.create()
   ): Writer {
-    for (const v of message.vote_targets) {
+    for (const v of message.voteTargets) {
       writer.uint32(10).string(v!);
     }
     return writer;
@@ -755,12 +755,12 @@ export const QueryVoteTargetsResponse = {
     const message = {
       ...baseQueryVoteTargetsResponse,
     } as QueryVoteTargetsResponse;
-    message.vote_targets = [];
+    message.voteTargets = [];
     while (reader.pos < end) {
       const tag = reader.uint32();
       switch (tag >>> 3) {
         case 1:
-          message.vote_targets.push(reader.string());
+          message.voteTargets.push(reader.string());
           break;
         default:
           reader.skipType(tag & 7);
@@ -774,10 +774,10 @@ export const QueryVoteTargetsResponse = {
     const message = {
       ...baseQueryVoteTargetsResponse,
     } as QueryVoteTargetsResponse;
-    message.vote_targets = [];
-    if (object.vote_targets !== undefined && object.vote_targets !== null) {
-      for (const e of object.vote_targets) {
-        message.vote_targets.push(String(e));
+    message.voteTargets = [];
+    if (object.voteTargets !== undefined && object.voteTargets !== null) {
+      for (const e of object.voteTargets) {
+        message.voteTargets.push(String(e));
       }
     }
     return message;
@@ -785,10 +785,10 @@ export const QueryVoteTargetsResponse = {
 
   toJSON(message: QueryVoteTargetsResponse): unknown {
     const obj: any = {};
-    if (message.vote_targets) {
-      obj.vote_targets = message.vote_targets.map((e) => e);
+    if (message.voteTargets) {
+      obj.voteTargets = message.voteTargets.map((e) => e);
     } else {
-      obj.vote_targets = [];
+      obj.voteTargets = [];
     }
     return obj;
   },
@@ -799,10 +799,10 @@ export const QueryVoteTargetsResponse = {
     const message = {
       ...baseQueryVoteTargetsResponse,
     } as QueryVoteTargetsResponse;
-    message.vote_targets = [];
-    if (object.vote_targets !== undefined && object.vote_targets !== null) {
-      for (const e of object.vote_targets) {
-        message.vote_targets.push(e);
+    message.voteTargets = [];
+    if (object.voteTargets !== undefined && object.voteTargets !== null) {
+      for (const e of object.voteTargets) {
+        message.voteTargets.push(e);
       }
     }
     return message;
@@ -868,7 +868,7 @@ export const QueryPriceSnapshotHistoryResponse = {
     message: QueryPriceSnapshotHistoryResponse,
     writer: Writer = Writer.create()
   ): Writer {
-    for (const v of message.price_snapshots) {
+    for (const v of message.priceSnapshots) {
       PriceSnapshot.encode(v!, writer.uint32(10).fork()).ldelim();
     }
     return writer;
@@ -883,12 +883,12 @@ export const QueryPriceSnapshotHistoryResponse = {
     const message = {
       ...baseQueryPriceSnapshotHistoryResponse,
     } as QueryPriceSnapshotHistoryResponse;
-    message.price_snapshots = [];
+    message.priceSnapshots = [];
     while (reader.pos < end) {
       const tag = reader.uint32();
       switch (tag >>> 3) {
         case 1:
-          message.price_snapshots.push(
+          message.priceSnapshots.push(
             PriceSnapshot.decode(reader, reader.uint32())
           );
           break;
@@ -904,13 +904,10 @@ export const QueryPriceSnapshotHistoryResponse = {
     const message = {
       ...baseQueryPriceSnapshotHistoryResponse,
     } as QueryPriceSnapshotHistoryResponse;
-    message.price_snapshots = [];
-    if (
-      object.price_snapshots !== undefined &&
-      object.price_snapshots !== null
-    ) {
-      for (const e of object.price_snapshots) {
-        message.price_snapshots.push(PriceSnapshot.fromJSON(e));
+    message.priceSnapshots = [];
+    if (object.priceSnapshots !== undefined && object.priceSnapshots !== null) {
+      for (const e of object.priceSnapshots) {
+        message.priceSnapshots.push(PriceSnapshot.fromJSON(e));
       }
     }
     return message;
@@ -918,12 +915,12 @@ export const QueryPriceSnapshotHistoryResponse = {
 
   toJSON(message: QueryPriceSnapshotHistoryResponse): unknown {
     const obj: any = {};
-    if (message.price_snapshots) {
-      obj.price_snapshots = message.price_snapshots.map((e) =>
+    if (message.priceSnapshots) {
+      obj.priceSnapshots = message.priceSnapshots.map((e) =>
         e ? PriceSnapshot.toJSON(e) : undefined
       );
     } else {
-      obj.price_snapshots = [];
+      obj.priceSnapshots = [];
     }
     return obj;
   },
@@ -934,25 +931,22 @@ export const QueryPriceSnapshotHistoryResponse = {
     const message = {
       ...baseQueryPriceSnapshotHistoryResponse,
     } as QueryPriceSnapshotHistoryResponse;
-    message.price_snapshots = [];
-    if (
-      object.price_snapshots !== undefined &&
-      object.price_snapshots !== null
-    ) {
-      for (const e of object.price_snapshots) {
-        message.price_snapshots.push(PriceSnapshot.fromPartial(e));
+    message.priceSnapshots = [];
+    if (object.priceSnapshots !== undefined && object.priceSnapshots !== null) {
+      for (const e of object.priceSnapshots) {
+        message.priceSnapshots.push(PriceSnapshot.fromPartial(e));
       }
     }
     return message;
   },
 };
 
-const baseQueryTwapsRequest: object = { lookback_seconds: 0 };
+const baseQueryTwapsRequest: object = { lookbackSeconds: 0 };
 
 export const QueryTwapsRequest = {
   encode(message: QueryTwapsRequest, writer: Writer = Writer.create()): Writer {
-    if (message.lookback_seconds !== 0) {
-      writer.uint32(8).int64(message.lookback_seconds);
+    if (message.lookbackSeconds !== 0) {
+      writer.uint32(8).int64(message.lookbackSeconds);
     }
     return writer;
   },
@@ -965,7 +959,7 @@ export const QueryTwapsRequest = {
       const tag = reader.uint32();
       switch (tag >>> 3) {
         case 1:
-          message.lookback_seconds = longToNumber(reader.int64() as Long);
+          message.lookbackSeconds = longToNumber(reader.int64() as Long);
           break;
         default:
           reader.skipType(tag & 7);
@@ -978,32 +972,32 @@ export const QueryTwapsRequest = {
   fromJSON(object: any): QueryTwapsRequest {
     const message = { ...baseQueryTwapsRequest } as QueryTwapsRequest;
     if (
-      object.lookback_seconds !== undefined &&
-      object.lookback_seconds !== null
+      object.lookbackSeconds !== undefined &&
+      object.lookbackSeconds !== null
     ) {
-      message.lookback_seconds = Number(object.lookback_seconds);
+      message.lookbackSeconds = Number(object.lookbackSeconds);
     } else {
-      message.lookback_seconds = 0;
+      message.lookbackSeconds = 0;
     }
     return message;
   },
 
   toJSON(message: QueryTwapsRequest): unknown {
     const obj: any = {};
-    message.lookback_seconds !== undefined &&
-      (obj.lookback_seconds = message.lookback_seconds);
+    message.lookbackSeconds !== undefined &&
+      (obj.lookbackSeconds = message.lookbackSeconds);
     return obj;
   },
 
   fromPartial(object: DeepPartial<QueryTwapsRequest>): QueryTwapsRequest {
     const message = { ...baseQueryTwapsRequest } as QueryTwapsRequest;
     if (
-      object.lookback_seconds !== undefined &&
-      object.lookback_seconds !== null
+      object.lookbackSeconds !== undefined &&
+      object.lookbackSeconds !== null
     ) {
-      message.lookback_seconds = object.lookback_seconds;
+      message.lookbackSeconds = object.lookbackSeconds;
     } else {
-      message.lookback_seconds = 0;
+      message.lookbackSeconds = 0;
     }
     return message;
   },
@@ -1016,7 +1010,7 @@ export const QueryTwapsResponse = {
     message: QueryTwapsResponse,
     writer: Writer = Writer.create()
   ): Writer {
-    for (const v of message.oracle_twaps) {
+    for (const v of message.oracleTwaps) {
       OracleTwap.encode(v!, writer.uint32(10).fork()).ldelim();
     }
     return writer;
@@ -1026,12 +1020,12 @@ export const QueryTwapsResponse = {
     const reader = input instanceof Uint8Array ? new Reader(input) : input;
     let end = length === undefined ? reader.len : reader.pos + length;
     const message = { ...baseQueryTwapsResponse } as QueryTwapsResponse;
-    message.oracle_twaps = [];
+    message.oracleTwaps = [];
     while (reader.pos < end) {
       const tag = reader.uint32();
       switch (tag >>> 3) {
         case 1:
-          message.oracle_twaps.push(OracleTwap.decode(reader, reader.uint32()));
+          message.oracleTwaps.push(OracleTwap.decode(reader, reader.uint32()));
           break;
         default:
           reader.skipType(tag & 7);
@@ -1043,10 +1037,10 @@ export const QueryTwapsResponse = {
 
   fromJSON(object: any): QueryTwapsResponse {
     const message = { ...baseQueryTwapsResponse } as QueryTwapsResponse;
-    message.oracle_twaps = [];
-    if (object.oracle_twaps !== undefined && object.oracle_twaps !== null) {
-      for (const e of object.oracle_twaps) {
-        message.oracle_twaps.push(OracleTwap.fromJSON(e));
+    message.oracleTwaps = [];
+    if (object.oracleTwaps !== undefined && object.oracleTwaps !== null) {
+      for (const e of object.oracleTwaps) {
+        message.oracleTwaps.push(OracleTwap.fromJSON(e));
       }
     }
     return message;
@@ -1054,37 +1048,37 @@ export const QueryTwapsResponse = {
 
   toJSON(message: QueryTwapsResponse): unknown {
     const obj: any = {};
-    if (message.oracle_twaps) {
-      obj.oracle_twaps = message.oracle_twaps.map((e) =>
+    if (message.oracleTwaps) {
+      obj.oracleTwaps = message.oracleTwaps.map((e) =>
         e ? OracleTwap.toJSON(e) : undefined
       );
     } else {
-      obj.oracle_twaps = [];
+      obj.oracleTwaps = [];
     }
     return obj;
   },
 
   fromPartial(object: DeepPartial<QueryTwapsResponse>): QueryTwapsResponse {
     const message = { ...baseQueryTwapsResponse } as QueryTwapsResponse;
-    message.oracle_twaps = [];
-    if (object.oracle_twaps !== undefined && object.oracle_twaps !== null) {
-      for (const e of object.oracle_twaps) {
-        message.oracle_twaps.push(OracleTwap.fromPartial(e));
+    message.oracleTwaps = [];
+    if (object.oracleTwaps !== undefined && object.oracleTwaps !== null) {
+      for (const e of object.oracleTwaps) {
+        message.oracleTwaps.push(OracleTwap.fromPartial(e));
       }
     }
     return message;
   },
 };
 
-const baseQueryFeederDelegationRequest: object = { validator_addr: "" };
+const baseQueryFeederDelegationRequest: object = { validatorAddr: "" };
 
 export const QueryFeederDelegationRequest = {
   encode(
     message: QueryFeederDelegationRequest,
     writer: Writer = Writer.create()
   ): Writer {
-    if (message.validator_addr !== "") {
-      writer.uint32(10).string(message.validator_addr);
+    if (message.validatorAddr !== "") {
+      writer.uint32(10).string(message.validatorAddr);
     }
     return writer;
   },
@@ -1102,7 +1096,7 @@ export const QueryFeederDelegationRequest = {
       const tag = reader.uint32();
       switch (tag >>> 3) {
         case 1:
-          message.validator_addr = reader.string();
+          message.validatorAddr = reader.string();
           break;
         default:
           reader.skipType(tag & 7);
@@ -1116,18 +1110,18 @@ export const QueryFeederDelegationRequest = {
     const message = {
       ...baseQueryFeederDelegationRequest,
     } as QueryFeederDelegationRequest;
-    if (object.validator_addr !== undefined && object.validator_addr !== null) {
-      message.validator_addr = String(object.validator_addr);
+    if (object.validatorAddr !== undefined && object.validatorAddr !== null) {
+      message.validatorAddr = String(object.validatorAddr);
     } else {
-      message.validator_addr = "";
+      message.validatorAddr = "";
     }
     return message;
   },
 
   toJSON(message: QueryFeederDelegationRequest): unknown {
     const obj: any = {};
-    message.validator_addr !== undefined &&
-      (obj.validator_addr = message.validator_addr);
+    message.validatorAddr !== undefined &&
+      (obj.validatorAddr = message.validatorAddr);
     return obj;
   },
 
@@ -1137,24 +1131,24 @@ export const QueryFeederDelegationRequest = {
     const message = {
       ...baseQueryFeederDelegationRequest,
     } as QueryFeederDelegationRequest;
-    if (object.validator_addr !== undefined && object.validator_addr !== null) {
-      message.validator_addr = object.validator_addr;
+    if (object.validatorAddr !== undefined && object.validatorAddr !== null) {
+      message.validatorAddr = object.validatorAddr;
     } else {
-      message.validator_addr = "";
+      message.validatorAddr = "";
     }
     return message;
   },
 };
 
-const baseQueryFeederDelegationResponse: object = { feeder_addr: "" };
+const baseQueryFeederDelegationResponse: object = { feederAddr: "" };
 
 export const QueryFeederDelegationResponse = {
   encode(
     message: QueryFeederDelegationResponse,
     writer: Writer = Writer.create()
   ): Writer {
-    if (message.feeder_addr !== "") {
-      writer.uint32(10).string(message.feeder_addr);
+    if (message.feederAddr !== "") {
+      writer.uint32(10).string(message.feederAddr);
     }
     return writer;
   },
@@ -1172,7 +1166,7 @@ export const QueryFeederDelegationResponse = {
       const tag = reader.uint32();
       switch (tag >>> 3) {
         case 1:
-          message.feeder_addr = reader.string();
+          message.feederAddr = reader.string();
           break;
         default:
           reader.skipType(tag & 7);
@@ -1186,18 +1180,17 @@ export const QueryFeederDelegationResponse = {
     const message = {
       ...baseQueryFeederDelegationResponse,
     } as QueryFeederDelegationResponse;
-    if (object.feeder_addr !== undefined && object.feeder_addr !== null) {
-      message.feeder_addr = String(object.feeder_addr);
+    if (object.feederAddr !== undefined && object.feederAddr !== null) {
+      message.feederAddr = String(object.feederAddr);
     } else {
-      message.feeder_addr = "";
+      message.feederAddr = "";
     }
     return message;
   },
 
   toJSON(message: QueryFeederDelegationResponse): unknown {
     const obj: any = {};
-    message.feeder_addr !== undefined &&
-      (obj.feeder_addr = message.feeder_addr);
+    message.feederAddr !== undefined && (obj.feederAddr = message.feederAddr);
     return obj;
   },
 
@@ -1207,24 +1200,24 @@ export const QueryFeederDelegationResponse = {
     const message = {
       ...baseQueryFeederDelegationResponse,
     } as QueryFeederDelegationResponse;
-    if (object.feeder_addr !== undefined && object.feeder_addr !== null) {
-      message.feeder_addr = object.feeder_addr;
+    if (object.feederAddr !== undefined && object.feederAddr !== null) {
+      message.feederAddr = object.feederAddr;
     } else {
-      message.feeder_addr = "";
+      message.feederAddr = "";
     }
     return message;
   },
 };
 
-const baseQueryVotePenaltyCounterRequest: object = { validator_addr: "" };
+const baseQueryVotePenaltyCounterRequest: object = { validatorAddr: "" };
 
 export const QueryVotePenaltyCounterRequest = {
   encode(
     message: QueryVotePenaltyCounterRequest,
     writer: Writer = Writer.create()
   ): Writer {
-    if (message.validator_addr !== "") {
-      writer.uint32(10).string(message.validator_addr);
+    if (message.validatorAddr !== "") {
+      writer.uint32(10).string(message.validatorAddr);
     }
     return writer;
   },
@@ -1242,7 +1235,7 @@ export const QueryVotePenaltyCounterRequest = {
       const tag = reader.uint32();
       switch (tag >>> 3) {
         case 1:
-          message.validator_addr = reader.string();
+          message.validatorAddr = reader.string();
           break;
         default:
           reader.skipType(tag & 7);
@@ -1256,18 +1249,18 @@ export const QueryVotePenaltyCounterRequest = {
     const message = {
       ...baseQueryVotePenaltyCounterRequest,
     } as QueryVotePenaltyCounterRequest;
-    if (object.validator_addr !== undefined && object.validator_addr !== null) {
-      message.validator_addr = String(object.validator_addr);
+    if (object.validatorAddr !== undefined && object.validatorAddr !== null) {
+      message.validatorAddr = String(object.validatorAddr);
     } else {
-      message.validator_addr = "";
+      message.validatorAddr = "";
     }
     return message;
   },
 
   toJSON(message: QueryVotePenaltyCounterRequest): unknown {
     const obj: any = {};
-    message.validator_addr !== undefined &&
-      (obj.validator_addr = message.validator_addr);
+    message.validatorAddr !== undefined &&
+      (obj.validatorAddr = message.validatorAddr);
     return obj;
   },
 
@@ -1277,10 +1270,10 @@ export const QueryVotePenaltyCounterRequest = {
     const message = {
       ...baseQueryVotePenaltyCounterRequest,
     } as QueryVotePenaltyCounterRequest;
-    if (object.validator_addr !== undefined && object.validator_addr !== null) {
-      message.validator_addr = object.validator_addr;
+    if (object.validatorAddr !== undefined && object.validatorAddr !== null) {
+      message.validatorAddr = object.validatorAddr;
     } else {
-      message.validator_addr = "";
+      message.validatorAddr = "";
     }
     return message;
   },
@@ -1293,9 +1286,9 @@ export const QueryVotePenaltyCounterResponse = {
     message: QueryVotePenaltyCounterResponse,
     writer: Writer = Writer.create()
   ): Writer {
-    if (message.vote_penalty_counter !== undefined) {
+    if (message.votePenaltyCounter !== undefined) {
       VotePenaltyCounter.encode(
-        message.vote_penalty_counter,
+        message.votePenaltyCounter,
         writer.uint32(10).fork()
       ).ldelim();
     }
@@ -1315,7 +1308,7 @@ export const QueryVotePenaltyCounterResponse = {
       const tag = reader.uint32();
       switch (tag >>> 3) {
         case 1:
-          message.vote_penalty_counter = VotePenaltyCounter.decode(
+          message.votePenaltyCounter = VotePenaltyCounter.decode(
             reader,
             reader.uint32()
           );
@@ -1333,23 +1326,23 @@ export const QueryVotePenaltyCounterResponse = {
       ...baseQueryVotePenaltyCounterResponse,
     } as QueryVotePenaltyCounterResponse;
     if (
-      object.vote_penalty_counter !== undefined &&
-      object.vote_penalty_counter !== null
+      object.votePenaltyCounter !== undefined &&
+      object.votePenaltyCounter !== null
     ) {
-      message.vote_penalty_counter = VotePenaltyCounter.fromJSON(
-        object.vote_penalty_counter
+      message.votePenaltyCounter = VotePenaltyCounter.fromJSON(
+        object.votePenaltyCounter
       );
     } else {
-      message.vote_penalty_counter = undefined;
+      message.votePenaltyCounter = undefined;
     }
     return message;
   },
 
   toJSON(message: QueryVotePenaltyCounterResponse): unknown {
     const obj: any = {};
-    message.vote_penalty_counter !== undefined &&
-      (obj.vote_penalty_counter = message.vote_penalty_counter
-        ? VotePenaltyCounter.toJSON(message.vote_penalty_counter)
+    message.votePenaltyCounter !== undefined &&
+      (obj.votePenaltyCounter = message.votePenaltyCounter
+        ? VotePenaltyCounter.toJSON(message.votePenaltyCounter)
         : undefined);
     return obj;
   },
@@ -1361,28 +1354,28 @@ export const QueryVotePenaltyCounterResponse = {
       ...baseQueryVotePenaltyCounterResponse,
     } as QueryVotePenaltyCounterResponse;
     if (
-      object.vote_penalty_counter !== undefined &&
-      object.vote_penalty_counter !== null
+      object.votePenaltyCounter !== undefined &&
+      object.votePenaltyCounter !== null
     ) {
-      message.vote_penalty_counter = VotePenaltyCounter.fromPartial(
-        object.vote_penalty_counter
+      message.votePenaltyCounter = VotePenaltyCounter.fromPartial(
+        object.votePenaltyCounter
       );
     } else {
-      message.vote_penalty_counter = undefined;
+      message.votePenaltyCounter = undefined;
     }
     return message;
   },
 };
 
-const baseQueryAggregatePrevoteRequest: object = { validator_addr: "" };
+const baseQueryAggregatePrevoteRequest: object = { validatorAddr: "" };
 
 export const QueryAggregatePrevoteRequest = {
   encode(
     message: QueryAggregatePrevoteRequest,
     writer: Writer = Writer.create()
   ): Writer {
-    if (message.validator_addr !== "") {
-      writer.uint32(10).string(message.validator_addr);
+    if (message.validatorAddr !== "") {
+      writer.uint32(10).string(message.validatorAddr);
     }
     return writer;
   },
@@ -1400,7 +1393,7 @@ export const QueryAggregatePrevoteRequest = {
       const tag = reader.uint32();
       switch (tag >>> 3) {
         case 1:
-          message.validator_addr = reader.string();
+          message.validatorAddr = reader.string();
           break;
         default:
           reader.skipType(tag & 7);
@@ -1414,18 +1407,18 @@ export const QueryAggregatePrevoteRequest = {
     const message = {
       ...baseQueryAggregatePrevoteRequest,
     } as QueryAggregatePrevoteRequest;
-    if (object.validator_addr !== undefined && object.validator_addr !== null) {
-      message.validator_addr = String(object.validator_addr);
+    if (object.validatorAddr !== undefined && object.validatorAddr !== null) {
+      message.validatorAddr = String(object.validatorAddr);
     } else {
-      message.validator_addr = "";
+      message.validatorAddr = "";
     }
     return message;
   },
 
   toJSON(message: QueryAggregatePrevoteRequest): unknown {
     const obj: any = {};
-    message.validator_addr !== undefined &&
-      (obj.validator_addr = message.validator_addr);
+    message.validatorAddr !== undefined &&
+      (obj.validatorAddr = message.validatorAddr);
     return obj;
   },
 
@@ -1435,10 +1428,10 @@ export const QueryAggregatePrevoteRequest = {
     const message = {
       ...baseQueryAggregatePrevoteRequest,
     } as QueryAggregatePrevoteRequest;
-    if (object.validator_addr !== undefined && object.validator_addr !== null) {
-      message.validator_addr = object.validator_addr;
+    if (object.validatorAddr !== undefined && object.validatorAddr !== null) {
+      message.validatorAddr = object.validatorAddr;
     } else {
-      message.validator_addr = "";
+      message.validatorAddr = "";
     }
     return message;
   },
@@ -1451,9 +1444,9 @@ export const QueryAggregatePrevoteResponse = {
     message: QueryAggregatePrevoteResponse,
     writer: Writer = Writer.create()
   ): Writer {
-    if (message.aggregate_prevote !== undefined) {
+    if (message.aggregatePrevote !== undefined) {
       AggregateExchangeRatePrevote.encode(
-        message.aggregate_prevote,
+        message.aggregatePrevote,
         writer.uint32(10).fork()
       ).ldelim();
     }
@@ -1473,7 +1466,7 @@ export const QueryAggregatePrevoteResponse = {
       const tag = reader.uint32();
       switch (tag >>> 3) {
         case 1:
-          message.aggregate_prevote = AggregateExchangeRatePrevote.decode(
+          message.aggregatePrevote = AggregateExchangeRatePrevote.decode(
             reader,
             reader.uint32()
           );
@@ -1491,23 +1484,23 @@ export const QueryAggregatePrevoteResponse = {
       ...baseQueryAggregatePrevoteResponse,
     } as QueryAggregatePrevoteResponse;
     if (
-      object.aggregate_prevote !== undefined &&
-      object.aggregate_prevote !== null
+      object.aggregatePrevote !== undefined &&
+      object.aggregatePrevote !== null
     ) {
-      message.aggregate_prevote = AggregateExchangeRatePrevote.fromJSON(
-        object.aggregate_prevote
+      message.aggregatePrevote = AggregateExchangeRatePrevote.fromJSON(
+        object.aggregatePrevote
       );
     } else {
-      message.aggregate_prevote = undefined;
+      message.aggregatePrevote = undefined;
     }
     return message;
   },
 
   toJSON(message: QueryAggregatePrevoteResponse): unknown {
     const obj: any = {};
-    message.aggregate_prevote !== undefined &&
-      (obj.aggregate_prevote = message.aggregate_prevote
-        ? AggregateExchangeRatePrevote.toJSON(message.aggregate_prevote)
+    message.aggregatePrevote !== undefined &&
+      (obj.aggregatePrevote = message.aggregatePrevote
+        ? AggregateExchangeRatePrevote.toJSON(message.aggregatePrevote)
         : undefined);
     return obj;
   },
@@ -1519,14 +1512,14 @@ export const QueryAggregatePrevoteResponse = {
       ...baseQueryAggregatePrevoteResponse,
     } as QueryAggregatePrevoteResponse;
     if (
-      object.aggregate_prevote !== undefined &&
-      object.aggregate_prevote !== null
+      object.aggregatePrevote !== undefined &&
+      object.aggregatePrevote !== null
     ) {
-      message.aggregate_prevote = AggregateExchangeRatePrevote.fromPartial(
-        object.aggregate_prevote
+      message.aggregatePrevote = AggregateExchangeRatePrevote.fromPartial(
+        object.aggregatePrevote
       );
     } else {
-      message.aggregate_prevote = undefined;
+      message.aggregatePrevote = undefined;
     }
     return message;
   },
@@ -1591,7 +1584,7 @@ export const QueryAggregatePrevotesResponse = {
     message: QueryAggregatePrevotesResponse,
     writer: Writer = Writer.create()
   ): Writer {
-    for (const v of message.aggregate_prevotes) {
+    for (const v of message.aggregatePrevotes) {
       AggregateExchangeRatePrevote.encode(
         v!,
         writer.uint32(10).fork()
@@ -1609,12 +1602,12 @@ export const QueryAggregatePrevotesResponse = {
     const message = {
       ...baseQueryAggregatePrevotesResponse,
     } as QueryAggregatePrevotesResponse;
-    message.aggregate_prevotes = [];
+    message.aggregatePrevotes = [];
     while (reader.pos < end) {
       const tag = reader.uint32();
       switch (tag >>> 3) {
         case 1:
-          message.aggregate_prevotes.push(
+          message.aggregatePrevotes.push(
             AggregateExchangeRatePrevote.decode(reader, reader.uint32())
           );
           break;
@@ -1630,13 +1623,13 @@ export const QueryAggregatePrevotesResponse = {
     const message = {
       ...baseQueryAggregatePrevotesResponse,
     } as QueryAggregatePrevotesResponse;
-    message.aggregate_prevotes = [];
+    message.aggregatePrevotes = [];
     if (
-      object.aggregate_prevotes !== undefined &&
-      object.aggregate_prevotes !== null
+      object.aggregatePrevotes !== undefined &&
+      object.aggregatePrevotes !== null
     ) {
-      for (const e of object.aggregate_prevotes) {
-        message.aggregate_prevotes.push(
+      for (const e of object.aggregatePrevotes) {
+        message.aggregatePrevotes.push(
           AggregateExchangeRatePrevote.fromJSON(e)
         );
       }
@@ -1646,12 +1639,12 @@ export const QueryAggregatePrevotesResponse = {
 
   toJSON(message: QueryAggregatePrevotesResponse): unknown {
     const obj: any = {};
-    if (message.aggregate_prevotes) {
-      obj.aggregate_prevotes = message.aggregate_prevotes.map((e) =>
+    if (message.aggregatePrevotes) {
+      obj.aggregatePrevotes = message.aggregatePrevotes.map((e) =>
         e ? AggregateExchangeRatePrevote.toJSON(e) : undefined
       );
     } else {
-      obj.aggregate_prevotes = [];
+      obj.aggregatePrevotes = [];
     }
     return obj;
   },
@@ -1662,13 +1655,13 @@ export const QueryAggregatePrevotesResponse = {
     const message = {
       ...baseQueryAggregatePrevotesResponse,
     } as QueryAggregatePrevotesResponse;
-    message.aggregate_prevotes = [];
+    message.aggregatePrevotes = [];
     if (
-      object.aggregate_prevotes !== undefined &&
-      object.aggregate_prevotes !== null
+      object.aggregatePrevotes !== undefined &&
+      object.aggregatePrevotes !== null
     ) {
-      for (const e of object.aggregate_prevotes) {
-        message.aggregate_prevotes.push(
+      for (const e of object.aggregatePrevotes) {
+        message.aggregatePrevotes.push(
           AggregateExchangeRatePrevote.fromPartial(e)
         );
       }
@@ -1677,15 +1670,15 @@ export const QueryAggregatePrevotesResponse = {
   },
 };
 
-const baseQueryAggregateVoteRequest: object = { validator_addr: "" };
+const baseQueryAggregateVoteRequest: object = { validatorAddr: "" };
 
 export const QueryAggregateVoteRequest = {
   encode(
     message: QueryAggregateVoteRequest,
     writer: Writer = Writer.create()
   ): Writer {
-    if (message.validator_addr !== "") {
-      writer.uint32(10).string(message.validator_addr);
+    if (message.validatorAddr !== "") {
+      writer.uint32(10).string(message.validatorAddr);
     }
     return writer;
   },
@@ -1703,7 +1696,7 @@ export const QueryAggregateVoteRequest = {
       const tag = reader.uint32();
       switch (tag >>> 3) {
         case 1:
-          message.validator_addr = reader.string();
+          message.validatorAddr = reader.string();
           break;
         default:
           reader.skipType(tag & 7);
@@ -1717,18 +1710,18 @@ export const QueryAggregateVoteRequest = {
     const message = {
       ...baseQueryAggregateVoteRequest,
     } as QueryAggregateVoteRequest;
-    if (object.validator_addr !== undefined && object.validator_addr !== null) {
-      message.validator_addr = String(object.validator_addr);
+    if (object.validatorAddr !== undefined && object.validatorAddr !== null) {
+      message.validatorAddr = String(object.validatorAddr);
     } else {
-      message.validator_addr = "";
+      message.validatorAddr = "";
     }
     return message;
   },
 
   toJSON(message: QueryAggregateVoteRequest): unknown {
     const obj: any = {};
-    message.validator_addr !== undefined &&
-      (obj.validator_addr = message.validator_addr);
+    message.validatorAddr !== undefined &&
+      (obj.validatorAddr = message.validatorAddr);
     return obj;
   },
 
@@ -1738,10 +1731,10 @@ export const QueryAggregateVoteRequest = {
     const message = {
       ...baseQueryAggregateVoteRequest,
     } as QueryAggregateVoteRequest;
-    if (object.validator_addr !== undefined && object.validator_addr !== null) {
-      message.validator_addr = object.validator_addr;
+    if (object.validatorAddr !== undefined && object.validatorAddr !== null) {
+      message.validatorAddr = object.validatorAddr;
     } else {
-      message.validator_addr = "";
+      message.validatorAddr = "";
     }
     return message;
   },
@@ -1754,9 +1747,9 @@ export const QueryAggregateVoteResponse = {
     message: QueryAggregateVoteResponse,
     writer: Writer = Writer.create()
   ): Writer {
-    if (message.aggregate_vote !== undefined) {
+    if (message.aggregateVote !== undefined) {
       AggregateExchangeRateVote.encode(
-        message.aggregate_vote,
+        message.aggregateVote,
         writer.uint32(10).fork()
       ).ldelim();
     }
@@ -1776,7 +1769,7 @@ export const QueryAggregateVoteResponse = {
       const tag = reader.uint32();
       switch (tag >>> 3) {
         case 1:
-          message.aggregate_vote = AggregateExchangeRateVote.decode(
+          message.aggregateVote = AggregateExchangeRateVote.decode(
             reader,
             reader.uint32()
           );
@@ -1793,21 +1786,21 @@ export const QueryAggregateVoteResponse = {
     const message = {
       ...baseQueryAggregateVoteResponse,
     } as QueryAggregateVoteResponse;
-    if (object.aggregate_vote !== undefined && object.aggregate_vote !== null) {
-      message.aggregate_vote = AggregateExchangeRateVote.fromJSON(
-        object.aggregate_vote
+    if (object.aggregateVote !== undefined && object.aggregateVote !== null) {
+      message.aggregateVote = AggregateExchangeRateVote.fromJSON(
+        object.aggregateVote
       );
     } else {
-      message.aggregate_vote = undefined;
+      message.aggregateVote = undefined;
     }
     return message;
   },
 
   toJSON(message: QueryAggregateVoteResponse): unknown {
     const obj: any = {};
-    message.aggregate_vote !== undefined &&
-      (obj.aggregate_vote = message.aggregate_vote
-        ? AggregateExchangeRateVote.toJSON(message.aggregate_vote)
+    message.aggregateVote !== undefined &&
+      (obj.aggregateVote = message.aggregateVote
+        ? AggregateExchangeRateVote.toJSON(message.aggregateVote)
         : undefined);
     return obj;
   },
@@ -1818,12 +1811,12 @@ export const QueryAggregateVoteResponse = {
     const message = {
       ...baseQueryAggregateVoteResponse,
     } as QueryAggregateVoteResponse;
-    if (object.aggregate_vote !== undefined && object.aggregate_vote !== null) {
-      message.aggregate_vote = AggregateExchangeRateVote.fromPartial(
-        object.aggregate_vote
+    if (object.aggregateVote !== undefined && object.aggregateVote !== null) {
+      message.aggregateVote = AggregateExchangeRateVote.fromPartial(
+        object.aggregateVote
       );
     } else {
-      message.aggregate_vote = undefined;
+      message.aggregateVote = undefined;
     }
     return message;
   },
@@ -1888,7 +1881,7 @@ export const QueryAggregateVotesResponse = {
     message: QueryAggregateVotesResponse,
     writer: Writer = Writer.create()
   ): Writer {
-    for (const v of message.aggregate_votes) {
+    for (const v of message.aggregateVotes) {
       AggregateExchangeRateVote.encode(v!, writer.uint32(10).fork()).ldelim();
     }
     return writer;
@@ -1903,12 +1896,12 @@ export const QueryAggregateVotesResponse = {
     const message = {
       ...baseQueryAggregateVotesResponse,
     } as QueryAggregateVotesResponse;
-    message.aggregate_votes = [];
+    message.aggregateVotes = [];
     while (reader.pos < end) {
       const tag = reader.uint32();
       switch (tag >>> 3) {
         case 1:
-          message.aggregate_votes.push(
+          message.aggregateVotes.push(
             AggregateExchangeRateVote.decode(reader, reader.uint32())
           );
           break;
@@ -1924,13 +1917,10 @@ export const QueryAggregateVotesResponse = {
     const message = {
       ...baseQueryAggregateVotesResponse,
     } as QueryAggregateVotesResponse;
-    message.aggregate_votes = [];
-    if (
-      object.aggregate_votes !== undefined &&
-      object.aggregate_votes !== null
-    ) {
-      for (const e of object.aggregate_votes) {
-        message.aggregate_votes.push(AggregateExchangeRateVote.fromJSON(e));
+    message.aggregateVotes = [];
+    if (object.aggregateVotes !== undefined && object.aggregateVotes !== null) {
+      for (const e of object.aggregateVotes) {
+        message.aggregateVotes.push(AggregateExchangeRateVote.fromJSON(e));
       }
     }
     return message;
@@ -1938,12 +1928,12 @@ export const QueryAggregateVotesResponse = {
 
   toJSON(message: QueryAggregateVotesResponse): unknown {
     const obj: any = {};
-    if (message.aggregate_votes) {
-      obj.aggregate_votes = message.aggregate_votes.map((e) =>
+    if (message.aggregateVotes) {
+      obj.aggregateVotes = message.aggregateVotes.map((e) =>
         e ? AggregateExchangeRateVote.toJSON(e) : undefined
       );
     } else {
-      obj.aggregate_votes = [];
+      obj.aggregateVotes = [];
     }
     return obj;
   },
@@ -1954,13 +1944,10 @@ export const QueryAggregateVotesResponse = {
     const message = {
       ...baseQueryAggregateVotesResponse,
     } as QueryAggregateVotesResponse;
-    message.aggregate_votes = [];
-    if (
-      object.aggregate_votes !== undefined &&
-      object.aggregate_votes !== null
-    ) {
-      for (const e of object.aggregate_votes) {
-        message.aggregate_votes.push(AggregateExchangeRateVote.fromPartial(e));
+    message.aggregateVotes = [];
+    if (object.aggregateVotes !== undefined && object.aggregateVotes !== null) {
+      for (const e of object.aggregateVotes) {
+        message.aggregateVotes.push(AggregateExchangeRateVote.fromPartial(e));
       }
     }
     return message;

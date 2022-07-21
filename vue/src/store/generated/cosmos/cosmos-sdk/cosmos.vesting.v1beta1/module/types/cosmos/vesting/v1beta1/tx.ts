@@ -10,10 +10,10 @@ export const protobufPackage = "cosmos.vesting.v1beta1";
  * account.
  */
 export interface MsgCreateVestingAccount {
-  from_address: string;
-  to_address: string;
+  fromAddress: string;
+  toAddress: string;
   amount: Coin[];
-  end_time: number;
+  endTime: number;
   delayed: boolean;
 }
 
@@ -21,9 +21,9 @@ export interface MsgCreateVestingAccount {
 export interface MsgCreateVestingAccountResponse {}
 
 const baseMsgCreateVestingAccount: object = {
-  from_address: "",
-  to_address: "",
-  end_time: 0,
+  fromAddress: "",
+  toAddress: "",
+  endTime: 0,
   delayed: false,
 };
 
@@ -32,17 +32,17 @@ export const MsgCreateVestingAccount = {
     message: MsgCreateVestingAccount,
     writer: Writer = Writer.create()
   ): Writer {
-    if (message.from_address !== "") {
-      writer.uint32(10).string(message.from_address);
+    if (message.fromAddress !== "") {
+      writer.uint32(10).string(message.fromAddress);
     }
-    if (message.to_address !== "") {
-      writer.uint32(18).string(message.to_address);
+    if (message.toAddress !== "") {
+      writer.uint32(18).string(message.toAddress);
     }
     for (const v of message.amount) {
       Coin.encode(v!, writer.uint32(26).fork()).ldelim();
     }
-    if (message.end_time !== 0) {
-      writer.uint32(32).int64(message.end_time);
+    if (message.endTime !== 0) {
+      writer.uint32(32).int64(message.endTime);
     }
     if (message.delayed === true) {
       writer.uint32(40).bool(message.delayed);
@@ -61,16 +61,16 @@ export const MsgCreateVestingAccount = {
       const tag = reader.uint32();
       switch (tag >>> 3) {
         case 1:
-          message.from_address = reader.string();
+          message.fromAddress = reader.string();
           break;
         case 2:
-          message.to_address = reader.string();
+          message.toAddress = reader.string();
           break;
         case 3:
           message.amount.push(Coin.decode(reader, reader.uint32()));
           break;
         case 4:
-          message.end_time = longToNumber(reader.int64() as Long);
+          message.endTime = longToNumber(reader.int64() as Long);
           break;
         case 5:
           message.delayed = reader.bool();
@@ -88,25 +88,25 @@ export const MsgCreateVestingAccount = {
       ...baseMsgCreateVestingAccount,
     } as MsgCreateVestingAccount;
     message.amount = [];
-    if (object.from_address !== undefined && object.from_address !== null) {
-      message.from_address = String(object.from_address);
+    if (object.fromAddress !== undefined && object.fromAddress !== null) {
+      message.fromAddress = String(object.fromAddress);
     } else {
-      message.from_address = "";
+      message.fromAddress = "";
     }
-    if (object.to_address !== undefined && object.to_address !== null) {
-      message.to_address = String(object.to_address);
+    if (object.toAddress !== undefined && object.toAddress !== null) {
+      message.toAddress = String(object.toAddress);
     } else {
-      message.to_address = "";
+      message.toAddress = "";
     }
     if (object.amount !== undefined && object.amount !== null) {
       for (const e of object.amount) {
         message.amount.push(Coin.fromJSON(e));
       }
     }
-    if (object.end_time !== undefined && object.end_time !== null) {
-      message.end_time = Number(object.end_time);
+    if (object.endTime !== undefined && object.endTime !== null) {
+      message.endTime = Number(object.endTime);
     } else {
-      message.end_time = 0;
+      message.endTime = 0;
     }
     if (object.delayed !== undefined && object.delayed !== null) {
       message.delayed = Boolean(object.delayed);
@@ -118,15 +118,15 @@ export const MsgCreateVestingAccount = {
 
   toJSON(message: MsgCreateVestingAccount): unknown {
     const obj: any = {};
-    message.from_address !== undefined &&
-      (obj.from_address = message.from_address);
-    message.to_address !== undefined && (obj.to_address = message.to_address);
+    message.fromAddress !== undefined &&
+      (obj.fromAddress = message.fromAddress);
+    message.toAddress !== undefined && (obj.toAddress = message.toAddress);
     if (message.amount) {
       obj.amount = message.amount.map((e) => (e ? Coin.toJSON(e) : undefined));
     } else {
       obj.amount = [];
     }
-    message.end_time !== undefined && (obj.end_time = message.end_time);
+    message.endTime !== undefined && (obj.endTime = message.endTime);
     message.delayed !== undefined && (obj.delayed = message.delayed);
     return obj;
   },
@@ -138,25 +138,25 @@ export const MsgCreateVestingAccount = {
       ...baseMsgCreateVestingAccount,
     } as MsgCreateVestingAccount;
     message.amount = [];
-    if (object.from_address !== undefined && object.from_address !== null) {
-      message.from_address = object.from_address;
+    if (object.fromAddress !== undefined && object.fromAddress !== null) {
+      message.fromAddress = object.fromAddress;
     } else {
-      message.from_address = "";
+      message.fromAddress = "";
     }
-    if (object.to_address !== undefined && object.to_address !== null) {
-      message.to_address = object.to_address;
+    if (object.toAddress !== undefined && object.toAddress !== null) {
+      message.toAddress = object.toAddress;
     } else {
-      message.to_address = "";
+      message.toAddress = "";
     }
     if (object.amount !== undefined && object.amount !== null) {
       for (const e of object.amount) {
         message.amount.push(Coin.fromPartial(e));
       }
     }
-    if (object.end_time !== undefined && object.end_time !== null) {
-      message.end_time = object.end_time;
+    if (object.endTime !== undefined && object.endTime !== null) {
+      message.endTime = object.endTime;
     } else {
-      message.end_time = 0;
+      message.endTime = 0;
     }
     if (object.delayed !== undefined && object.delayed !== null) {
       message.delayed = object.delayed;

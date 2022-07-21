@@ -1,12 +1,14 @@
-import { Denom } from "../dex/enums";
 import { Reader, Writer } from "protobufjs/minimal";
 import { Params } from "../dex/params";
 import { LongBook } from "../dex/long_book";
 import { PageRequest, PageResponse } from "../cosmos/base/query/v1beta1/pagination";
 import { ShortBook } from "../dex/short_book";
 import { Settlements } from "../dex/settlement";
-import { Price } from "../dex/price";
+import { Price, PriceCandlestick } from "../dex/price";
 import { Twap } from "../dex/twap";
+import { AssetMetadata } from "../dex/asset_list";
+import { Pair } from "../dex/pair";
+import { Order } from "../dex/order";
 export declare const protobufPackage = "seiprotocol.seichain.dex";
 /** QueryParamsRequest is request type for the Query/Params RPC method. */
 export interface QueryParamsRequest {
@@ -19,8 +21,8 @@ export interface QueryParamsResponse {
 export interface QueryGetLongBookRequest {
     price: string;
     contractAddr: string;
-    priceDenom: Denom;
-    assetDenom: Denom;
+    priceDenom: string;
+    assetDenom: string;
 }
 export interface QueryGetLongBookResponse {
     LongBook: LongBook | undefined;
@@ -28,8 +30,8 @@ export interface QueryGetLongBookResponse {
 export interface QueryAllLongBookRequest {
     pagination: PageRequest | undefined;
     contractAddr: string;
-    priceDenom: Denom;
-    assetDenom: Denom;
+    priceDenom: string;
+    assetDenom: string;
 }
 export interface QueryAllLongBookResponse {
     LongBook: LongBook[];
@@ -38,8 +40,8 @@ export interface QueryAllLongBookResponse {
 export interface QueryGetShortBookRequest {
     price: string;
     contractAddr: string;
-    priceDenom: Denom;
-    assetDenom: Denom;
+    priceDenom: string;
+    assetDenom: string;
 }
 export interface QueryGetShortBookResponse {
     ShortBook: ShortBook | undefined;
@@ -47,8 +49,8 @@ export interface QueryGetShortBookResponse {
 export interface QueryAllShortBookRequest {
     pagination: PageRequest | undefined;
     contractAddr: string;
-    priceDenom: Denom;
-    assetDenom: Denom;
+    priceDenom: string;
+    assetDenom: string;
 }
 export interface QueryAllShortBookResponse {
     ShortBook: ShortBook[];
@@ -56,23 +58,16 @@ export interface QueryAllShortBookResponse {
 }
 export interface QueryGetSettlementsRequest {
     contractAddr: string;
-    blockHeight: number;
-    priceDenom: Denom;
-    assetDenom: Denom;
+    orderId: number;
+    priceDenom: string;
+    assetDenom: string;
 }
 export interface QueryGetSettlementsResponse {
     Settlements: Settlements | undefined;
 }
-export interface QueryAllSettlementsRequest {
-    pagination: PageRequest | undefined;
-}
-export interface QueryAllSettlementsResponse {
-    Settlements: Settlements[];
-    pagination: PageResponse | undefined;
-}
 export interface QueryGetPricesRequest {
-    priceDenom: Denom;
-    assetDenom: Denom;
+    priceDenom: string;
+    assetDenom: string;
     contractAddr: string;
 }
 export interface QueryGetPricesResponse {
@@ -84,6 +79,49 @@ export interface QueryGetTwapsRequest {
 }
 export interface QueryGetTwapsResponse {
     twaps: Twap[];
+}
+export interface QueryAssetListRequest {
+}
+export interface QueryAssetListResponse {
+    assetList: AssetMetadata[];
+}
+export interface QueryAssetMetadataRequest {
+    denom: string;
+}
+export interface QueryAssetMetadataResponse {
+    metadata: AssetMetadata | undefined;
+}
+export interface QueryRegisteredPairsRequest {
+    contractAddr: string;
+}
+export interface QueryRegisteredPairsResponse {
+    pairs: Pair[];
+}
+export interface QueryGetOrdersRequest {
+    contractAddr: string;
+    account: string;
+}
+export interface QueryGetOrdersResponse {
+    orders: Order[];
+}
+export interface QueryGetOrderByIDRequest {
+    contractAddr: string;
+    priceDenom: string;
+    assetDenom: string;
+    id: number;
+}
+export interface QueryGetOrderByIDResponse {
+    order: Order | undefined;
+}
+export interface QueryGetHistoricalPricesRequest {
+    contractAddr: string;
+    priceDenom: string;
+    assetDenom: string;
+    periodLengthInSeconds: number;
+    numOfPeriods: number;
+}
+export interface QueryGetHistoricalPricesResponse {
+    prices: PriceCandlestick[];
 }
 export declare const QueryParamsRequest: {
     encode(_: QueryParamsRequest, writer?: Writer): Writer;
@@ -169,20 +207,6 @@ export declare const QueryGetSettlementsResponse: {
     toJSON(message: QueryGetSettlementsResponse): unknown;
     fromPartial(object: DeepPartial<QueryGetSettlementsResponse>): QueryGetSettlementsResponse;
 };
-export declare const QueryAllSettlementsRequest: {
-    encode(message: QueryAllSettlementsRequest, writer?: Writer): Writer;
-    decode(input: Reader | Uint8Array, length?: number): QueryAllSettlementsRequest;
-    fromJSON(object: any): QueryAllSettlementsRequest;
-    toJSON(message: QueryAllSettlementsRequest): unknown;
-    fromPartial(object: DeepPartial<QueryAllSettlementsRequest>): QueryAllSettlementsRequest;
-};
-export declare const QueryAllSettlementsResponse: {
-    encode(message: QueryAllSettlementsResponse, writer?: Writer): Writer;
-    decode(input: Reader | Uint8Array, length?: number): QueryAllSettlementsResponse;
-    fromJSON(object: any): QueryAllSettlementsResponse;
-    toJSON(message: QueryAllSettlementsResponse): unknown;
-    fromPartial(object: DeepPartial<QueryAllSettlementsResponse>): QueryAllSettlementsResponse;
-};
 export declare const QueryGetPricesRequest: {
     encode(message: QueryGetPricesRequest, writer?: Writer): Writer;
     decode(input: Reader | Uint8Array, length?: number): QueryGetPricesRequest;
@@ -211,6 +235,90 @@ export declare const QueryGetTwapsResponse: {
     toJSON(message: QueryGetTwapsResponse): unknown;
     fromPartial(object: DeepPartial<QueryGetTwapsResponse>): QueryGetTwapsResponse;
 };
+export declare const QueryAssetListRequest: {
+    encode(_: QueryAssetListRequest, writer?: Writer): Writer;
+    decode(input: Reader | Uint8Array, length?: number): QueryAssetListRequest;
+    fromJSON(_: any): QueryAssetListRequest;
+    toJSON(_: QueryAssetListRequest): unknown;
+    fromPartial(_: DeepPartial<QueryAssetListRequest>): QueryAssetListRequest;
+};
+export declare const QueryAssetListResponse: {
+    encode(message: QueryAssetListResponse, writer?: Writer): Writer;
+    decode(input: Reader | Uint8Array, length?: number): QueryAssetListResponse;
+    fromJSON(object: any): QueryAssetListResponse;
+    toJSON(message: QueryAssetListResponse): unknown;
+    fromPartial(object: DeepPartial<QueryAssetListResponse>): QueryAssetListResponse;
+};
+export declare const QueryAssetMetadataRequest: {
+    encode(message: QueryAssetMetadataRequest, writer?: Writer): Writer;
+    decode(input: Reader | Uint8Array, length?: number): QueryAssetMetadataRequest;
+    fromJSON(object: any): QueryAssetMetadataRequest;
+    toJSON(message: QueryAssetMetadataRequest): unknown;
+    fromPartial(object: DeepPartial<QueryAssetMetadataRequest>): QueryAssetMetadataRequest;
+};
+export declare const QueryAssetMetadataResponse: {
+    encode(message: QueryAssetMetadataResponse, writer?: Writer): Writer;
+    decode(input: Reader | Uint8Array, length?: number): QueryAssetMetadataResponse;
+    fromJSON(object: any): QueryAssetMetadataResponse;
+    toJSON(message: QueryAssetMetadataResponse): unknown;
+    fromPartial(object: DeepPartial<QueryAssetMetadataResponse>): QueryAssetMetadataResponse;
+};
+export declare const QueryRegisteredPairsRequest: {
+    encode(message: QueryRegisteredPairsRequest, writer?: Writer): Writer;
+    decode(input: Reader | Uint8Array, length?: number): QueryRegisteredPairsRequest;
+    fromJSON(object: any): QueryRegisteredPairsRequest;
+    toJSON(message: QueryRegisteredPairsRequest): unknown;
+    fromPartial(object: DeepPartial<QueryRegisteredPairsRequest>): QueryRegisteredPairsRequest;
+};
+export declare const QueryRegisteredPairsResponse: {
+    encode(message: QueryRegisteredPairsResponse, writer?: Writer): Writer;
+    decode(input: Reader | Uint8Array, length?: number): QueryRegisteredPairsResponse;
+    fromJSON(object: any): QueryRegisteredPairsResponse;
+    toJSON(message: QueryRegisteredPairsResponse): unknown;
+    fromPartial(object: DeepPartial<QueryRegisteredPairsResponse>): QueryRegisteredPairsResponse;
+};
+export declare const QueryGetOrdersRequest: {
+    encode(message: QueryGetOrdersRequest, writer?: Writer): Writer;
+    decode(input: Reader | Uint8Array, length?: number): QueryGetOrdersRequest;
+    fromJSON(object: any): QueryGetOrdersRequest;
+    toJSON(message: QueryGetOrdersRequest): unknown;
+    fromPartial(object: DeepPartial<QueryGetOrdersRequest>): QueryGetOrdersRequest;
+};
+export declare const QueryGetOrdersResponse: {
+    encode(message: QueryGetOrdersResponse, writer?: Writer): Writer;
+    decode(input: Reader | Uint8Array, length?: number): QueryGetOrdersResponse;
+    fromJSON(object: any): QueryGetOrdersResponse;
+    toJSON(message: QueryGetOrdersResponse): unknown;
+    fromPartial(object: DeepPartial<QueryGetOrdersResponse>): QueryGetOrdersResponse;
+};
+export declare const QueryGetOrderByIDRequest: {
+    encode(message: QueryGetOrderByIDRequest, writer?: Writer): Writer;
+    decode(input: Reader | Uint8Array, length?: number): QueryGetOrderByIDRequest;
+    fromJSON(object: any): QueryGetOrderByIDRequest;
+    toJSON(message: QueryGetOrderByIDRequest): unknown;
+    fromPartial(object: DeepPartial<QueryGetOrderByIDRequest>): QueryGetOrderByIDRequest;
+};
+export declare const QueryGetOrderByIDResponse: {
+    encode(message: QueryGetOrderByIDResponse, writer?: Writer): Writer;
+    decode(input: Reader | Uint8Array, length?: number): QueryGetOrderByIDResponse;
+    fromJSON(object: any): QueryGetOrderByIDResponse;
+    toJSON(message: QueryGetOrderByIDResponse): unknown;
+    fromPartial(object: DeepPartial<QueryGetOrderByIDResponse>): QueryGetOrderByIDResponse;
+};
+export declare const QueryGetHistoricalPricesRequest: {
+    encode(message: QueryGetHistoricalPricesRequest, writer?: Writer): Writer;
+    decode(input: Reader | Uint8Array, length?: number): QueryGetHistoricalPricesRequest;
+    fromJSON(object: any): QueryGetHistoricalPricesRequest;
+    toJSON(message: QueryGetHistoricalPricesRequest): unknown;
+    fromPartial(object: DeepPartial<QueryGetHistoricalPricesRequest>): QueryGetHistoricalPricesRequest;
+};
+export declare const QueryGetHistoricalPricesResponse: {
+    encode(message: QueryGetHistoricalPricesResponse, writer?: Writer): Writer;
+    decode(input: Reader | Uint8Array, length?: number): QueryGetHistoricalPricesResponse;
+    fromJSON(object: any): QueryGetHistoricalPricesResponse;
+    toJSON(message: QueryGetHistoricalPricesResponse): unknown;
+    fromPartial(object: DeepPartial<QueryGetHistoricalPricesResponse>): QueryGetHistoricalPricesResponse;
+};
 /** Query defines the gRPC querier service. */
 export interface Query {
     /** Parameters queries the parameters of the module. */
@@ -223,9 +331,18 @@ export interface Query {
     ShortBook(request: QueryGetShortBookRequest): Promise<QueryGetShortBookResponse>;
     /** Queries a list of ShortBook items. */
     ShortBookAll(request: QueryAllShortBookRequest): Promise<QueryAllShortBookResponse>;
-    SettlementsAll(request: QueryAllSettlementsRequest): Promise<QueryAllSettlementsResponse>;
+    GetSettlements(request: QueryGetSettlementsRequest): Promise<QueryGetSettlementsResponse>;
     GetPrices(request: QueryGetPricesRequest): Promise<QueryGetPricesResponse>;
     GetTwaps(request: QueryGetTwapsRequest): Promise<QueryGetTwapsResponse>;
+    /** Returns the metadata for a specified denom / display type */
+    AssetMetadata(request: QueryAssetMetadataRequest): Promise<QueryAssetMetadataResponse>;
+    /** Returns metadata for all the assets */
+    AssetList(request: QueryAssetListRequest): Promise<QueryAssetListResponse>;
+    /** Returns all registered pairs for specified contract address */
+    GetRegisteredPairs(request: QueryRegisteredPairsRequest): Promise<QueryRegisteredPairsResponse>;
+    GetOrders(request: QueryGetOrdersRequest): Promise<QueryGetOrdersResponse>;
+    GetOrder(request: QueryGetOrderByIDRequest): Promise<QueryGetOrderByIDResponse>;
+    GetHistoricalPrices(request: QueryGetHistoricalPricesRequest): Promise<QueryGetHistoricalPricesResponse>;
 }
 export declare class QueryClientImpl implements Query {
     private readonly rpc;
@@ -235,9 +352,15 @@ export declare class QueryClientImpl implements Query {
     LongBookAll(request: QueryAllLongBookRequest): Promise<QueryAllLongBookResponse>;
     ShortBook(request: QueryGetShortBookRequest): Promise<QueryGetShortBookResponse>;
     ShortBookAll(request: QueryAllShortBookRequest): Promise<QueryAllShortBookResponse>;
-    SettlementsAll(request: QueryAllSettlementsRequest): Promise<QueryAllSettlementsResponse>;
+    GetSettlements(request: QueryGetSettlementsRequest): Promise<QueryGetSettlementsResponse>;
     GetPrices(request: QueryGetPricesRequest): Promise<QueryGetPricesResponse>;
     GetTwaps(request: QueryGetTwapsRequest): Promise<QueryGetTwapsResponse>;
+    AssetMetadata(request: QueryAssetMetadataRequest): Promise<QueryAssetMetadataResponse>;
+    AssetList(request: QueryAssetListRequest): Promise<QueryAssetListResponse>;
+    GetRegisteredPairs(request: QueryRegisteredPairsRequest): Promise<QueryRegisteredPairsResponse>;
+    GetOrders(request: QueryGetOrdersRequest): Promise<QueryGetOrdersResponse>;
+    GetOrder(request: QueryGetOrderByIDRequest): Promise<QueryGetOrderByIDResponse>;
+    GetHistoricalPrices(request: QueryGetHistoricalPricesRequest): Promise<QueryGetHistoricalPricesResponse>;
 }
 interface Rpc {
     request(service: string, method: string, data: Uint8Array): Promise<Uint8Array>;
