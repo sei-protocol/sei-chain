@@ -33,6 +33,7 @@ func GetQueryCmd(queryRoute string) *cobra.Command {
 	cmd.AddCommand(CmdGetTwaps())
 	cmd.AddCommand(CmdGetAssetList())
 	cmd.AddCommand(CmdGetAssetMetadata())
+	cmd.AddCommand(CmdGetRegisteredPairs())
 	cmd.AddCommand(CmdGetOrders())
 	cmd.AddCommand(CmdGetOrdersByID())
 
