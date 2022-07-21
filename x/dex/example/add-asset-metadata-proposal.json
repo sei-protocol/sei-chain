@@ -25,8 +25,29 @@
                 ],
                 "base": "ibc/D189335C6E4A68B513C10AB227BF1C1D38C746766278BA3EEB4FB14124F1D858",
                 "name": "USD Coin",
-                "display": "axlusdc",
+                "display": "uusdc",
                 "symbol": "USDC"
+            }
+        },
+        {
+            "type_asset": "native",
+            "metadata": {
+                "description": "Native token of Sei Network",
+                "denom_units": [
+                    {
+                      "denom": "usei",
+                      "exponent": 0,
+                      "aliases": ["usei"]
+                    },
+                    {
+                      "denom": "sei",
+                      "exponent": 6
+                    }
+                ],
+                "base": "SEI",
+                "name": "sei",
+                "display": "usei",
+                "symbol": "SEI"
             }
         }
     ],
