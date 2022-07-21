@@ -6,18 +6,18 @@
         "contract_addr": "sei14hj2tavq8fpesdwxxcu44rty3hh90vhujrvcmstl4zr3txmfvw9sh9m79m",
         "pairs": [
           {
-            "price_denom": "usdc",
-            "asset_denom": "sei",
+            "price_denom": "uusdc",
+            "asset_denom": "usei",
             "tick_size": "0.2"
           },
           {
-            "price_denom": "usdc",
-            "asset_denom": "atom",
+            "price_denom": "uusdc",
+            "asset_denom": "uatom",
             "tick_size": "1.1"
           },
           {
-            "price_denom": "atom",
-            "asset_denom": "sei",
+            "price_denom": "uatom",
+            "asset_denom": "usei",
             "tick_size": "1.5"
           }
         ]
