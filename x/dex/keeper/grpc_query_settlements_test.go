@@ -98,3 +98,43 @@ func TestSettlementsQueryForAccount(t *testing.T) {
 		})
 	}
 }
+
+func TestAllSettlementsQuery(t *testing.T) {
+	keeper, ctx := keepertest.DexKeeper(t)
+	wctx := sdk.WrapSDKContext(ctx)
+	msgs := createNSettlements(keeper, ctx, 2)
+	for _, tc := range []struct {
+		desc     string
+		request  *types.QueryGetAllSettlementsRequest
+		response *types.QueryGetAllSettlementsResponse
+		err      error
+	}{
+		{
+			desc:     "First",
+			request:  &types.QueryGetAllSettlementsRequest{ContractAddr: TEST_CONTRACT, PriceDenom: "usdc0", AssetDenom: "sei0"},
+			response: &types.QueryGetAllSettlementsResponse{SettlementsList: []types.Settlements{msgs[0]}},
+		},
+		{
+			desc:     "Second",
+			request:  &types.QueryGetAllSettlementsRequest{ContractAddr: TEST_CONTRACT, PriceDenom: "usdc1", AssetDenom: "sei1"},
+			response: &types.QueryGetAllSettlementsResponse{SettlementsList: []types.Settlements{msgs[1]}},
+		},
+		{
+			desc: "InvalidRequest",
+			err:  status.Error(codes.InvalidArgument, "invalid request"),
+		},
+	} {
+		t.Run(tc.desc, func(t *testing.T) {
+			response, err := keeper.GetAllSettlements(wctx, tc.request)
+			if tc.err != nil {
+				require.ErrorIs(t, err, tc.err)
+			} else {
+				require.NoError(t, err)
+				require.Equal(t,
+					nullify.Fill(tc.response),
+					nullify.Fill(response),
+				)
+			}
+		})
+	}
+}

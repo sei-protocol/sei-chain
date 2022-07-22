@@ -9,8 +9,8 @@ import (
 )
 
 func (k Keeper) SetSettlements(ctx sdk.Context, contractAddr string, priceDenom string, assetDenom string, settlements types.Settlements) {
+	store := prefix.NewStore(ctx.KVStore(k.storeKey), types.SettlementEntryPrefix(contractAddr, priceDenom, assetDenom))
 	for _, settlement := range settlements.GetEntries() {
-		store := prefix.NewStore(ctx.KVStore(k.storeKey), types.SettlementEntryPrefix(contractAddr, priceDenom, assetDenom, settlement.Account))
 		existing, found := k.GetSettlementsState(ctx, contractAddr, priceDenom, assetDenom, settlement.Account, settlement.OrderId)
 		if found {
 			existing.Entries = append(existing.Entries, settlement)
@@ -18,18 +18,14 @@ func (k Keeper) SetSettlements(ctx sdk.Context, contractAddr string, priceDenom 
 			existing = settlements
 		}
 
-		orderIDBytes := make([]byte, 8)
-		binary.BigEndian.PutUint64(orderIDBytes, settlement.OrderId)
 		b := k.Cdc.MustMarshal(&existing)
-		store.Set(orderIDBytes, b)
+		store.Set(getSettlementKey(settlement.OrderId, settlement.Account), b)
 	}
 }
 
-func (k Keeper) GetSettlementsState(ctx sdk.Context, contractAddr string, priceDenom string, assetDenom string, account string, orderID uint64) (val types.Settlements, found bool) {
-	store := prefix.NewStore(ctx.KVStore(k.storeKey), types.SettlementEntryPrefix(contractAddr, priceDenom, assetDenom, account))
-	orderIDBytes := make([]byte, 8)
-	binary.BigEndian.PutUint64(orderIDBytes, orderID)
-	b := store.Get(orderIDBytes)
+func (k Keeper) GetSettlementsState(ctx sdk.Context, contractAddr string, priceDenom string, assetDenom string, account string, orderId uint64) (val types.Settlements, found bool) {
+	store := prefix.NewStore(ctx.KVStore(k.storeKey), types.SettlementEntryPrefix(contractAddr, priceDenom, assetDenom))
+	b := store.Get(getSettlementKey(orderId, account))
 	val = types.Settlements{}
 	if b == nil {
 		return val, false
@@ -39,9 +35,9 @@ func (k Keeper) GetSettlementsState(ctx sdk.Context, contractAddr string, priceD
 }
 
 func (k Keeper) GetSettlementsStateForAccount(ctx sdk.Context, contractAddr string, priceDenom string, assetDenom string, account string) []types.Settlements {
-	store := prefix.NewStore(ctx.KVStore(k.storeKey), types.SettlementEntryPrefix(contractAddr, priceDenom, assetDenom, account))
+	store := prefix.NewStore(ctx.KVStore(k.storeKey), types.SettlementEntryPrefix(contractAddr, priceDenom, assetDenom))
 	res := []types.Settlements{}
-	iterator := sdk.KVStorePrefixIterator(store, []byte{})
+	iterator := sdk.KVStorePrefixIterator(store, []byte(account))
 
 	defer iterator.Close()
 
@@ -52,4 +48,30 @@ func (k Keeper) GetSettlementsStateForAccount(ctx sdk.Context, contractAddr stri
 	}
 
 	return res
+}
+
+func (k Keeper) GetAllSettlementsState(ctx sdk.Context, contractAddr string, priceDenom string, assetDenom string, limit int) []types.Settlements {
+	store := prefix.NewStore(ctx.KVStore(k.storeKey), types.SettlementEntryPrefix(contractAddr, priceDenom, assetDenom))
+	res := []types.Settlements{}
+	iterator := sdk.KVStorePrefixIterator(store, []byte{})
+
+	defer iterator.Close()
+
+	for ; iterator.Valid(); iterator.Next() {
+		var val types.Settlements
+		k.Cdc.MustUnmarshal(iterator.Value(), &val)
+		res = append(res, val)
+		if len(res) >= limit {
+			break
+		}
+	}
+
+	return res
+}
+
+func getSettlementKey(orderId uint64, account string) []byte {
+	accountBytes := append([]byte(account), []byte("|")...)
+	orderIDBytes := make([]byte, 8)
+	binary.BigEndian.PutUint64(orderIDBytes, orderId)
+	return append(accountBytes, orderIDBytes...)
 }

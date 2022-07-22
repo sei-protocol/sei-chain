@@ -85,3 +85,36 @@ func CmdListSettlementsForAccounts() *cobra.Command {
 
 	return cmd
 }
+
+func CmdListAllSettlements() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "get-settlements-for-account [contract address] [price denom] [asset denom]",
+		Short: "get settlements",
+		Args:  cobra.ExactArgs(3),
+		RunE: func(cmd *cobra.Command, args []string) (err error) {
+			clientCtx := client.GetClientContextFromCmd(cmd)
+
+			queryClient := types.NewQueryClient(clientCtx)
+
+			contractAddr := args[0]
+			priceDenom := args[1]
+			assetDenom := args[2]
+			query := &types.QueryGetAllSettlementsRequest{
+				ContractAddr: contractAddr,
+				PriceDenom:   priceDenom,
+				AssetDenom:   assetDenom,
+			}
+
+			res, err := queryClient.GetAllSettlements(cmd.Context(), query)
+			if err != nil {
+				return err
+			}
+
+			return clientCtx.PrintProto(res)
+		},
+	}
+
+	flags.AddQueryFlagsToCmd(cmd)
+
+	return cmd
+}
