@@ -12,6 +12,7 @@ import (
 	tmbytes "github.com/tendermint/tendermint/libs/bytes"
 	tmtypes "github.com/tendermint/tendermint/types"
 
+	channeltypes "github.com/cosmos/ibc-go/v3/modules/core/04-channel/types"
 	host "github.com/cosmos/ibc-go/v3/modules/core/24-host"
 )
 
@@ -20,9 +21,9 @@ import (
 //
 // Examples:
 //
-// - "transfer/channelidone/uatom" => DenomTrace{Path: "transfer/channelidone", BaseDenom: "uatom"}
-// - "transfer/channelidone/transfer/channelidtwo/uatom" => DenomTrace{Path: "transfer/channelidone/transfer/channelidtwo", BaseDenom: "uatom"}
-// - "transfer/channelidone/gamm/pool/1" => DenomTrace{Path: "transfer/channelidone", BaseDenom: "gamm/pool/1"}
+// - "portidone/channel-0/uatom" => DenomTrace{Path: "portidone/channel-0", BaseDenom: "uatom"}
+// - "portidone/channel-0/portidtwo/channel-1/uatom" => DenomTrace{Path: "portidone/channel-0/portidtwo/channel-1", BaseDenom: "uatom"}
+// - "portidone/channel-0/gamm/pool/1" => DenomTrace{Path: "portidone/channel-0", BaseDenom: "gamm/pool/1"}
 // - "gamm/pool/1" => DenomTrace{Path: "", BaseDenom: "gamm/pool/1"}
 // - "uatom" => DenomTrace{Path: "", BaseDenom: "uatom"}
 func ParseDenomTrace(rawDenom string) DenomTrace {
@@ -77,11 +78,23 @@ func (dt DenomTrace) GetFullDenomPath() string {
 // extractPathAndBaseFromFullDenom returns the trace path and the base denom from
 // the elements that constitute the complete denom.
 func extractPathAndBaseFromFullDenom(fullDenomItems []string) (string, string) {
-	var path []string
-	var baseDenom []string
+	var (
+		path      []string
+		baseDenom []string
+	)
+
 	length := len(fullDenomItems)
 	for i := 0; i < length; i = i + 2 {
-		if i < length-1 && length > 2 && fullDenomItems[i] == PortID {
+		// The IBC specification does not guarentee the expected format of the
+		// destination port or destination channel identifier. A short term solution
+		// to determine base denomination is to expect the channel identifier to be the
+		// one ibc-go specifies. A longer term solution is to separate the path and base
+		// denomination in the ICS20 packet. If an intermediate hop prefixes the full denom
+		// with a channel identifier format different from our own, the base denomination
+		// will be incorrectly parsed, but the token will continue to be treated correctly
+		// as an IBC denomination. The hash used to store the token internally on our chain
+		// will be the same value as the base denomination being correctly parsed.
+		if i < length-1 && length > 2 && channeltypes.IsValidChannelID(fullDenomItems[i+1]) {
 			path = append(path, fullDenomItems[i], fullDenomItems[i+1])
 		} else {
 			baseDenom = fullDenomItems[i:]
@@ -165,7 +178,7 @@ func (t Traces) Sort() Traces {
 // ValidatePrefixedDenom checks that the denomination for an IBC fungible token packet denom is correctly prefixed.
 // The function will return no error if the given string follows one of the two formats:
 //
-//  - Prefixed denomination: 'transfer/{channelIDN}/.../transfer/{channelID0}/baseDenom'
+//  - Prefixed denomination: '{portIDN}/{channelIDN}/.../{portID0}/{channelID0}/baseDenom'
 //  - Unprefixed denomination: 'baseDenom'
 //
 // 'baseDenom' may or may not contain '/'s
