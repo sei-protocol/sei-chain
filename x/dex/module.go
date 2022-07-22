@@ -481,6 +481,8 @@ func (am AppModule) endBlockForContract(ctx sdk.Context, contract types.Contract
 					Initiator: types.CancellationInitiator_USER,
 				})
 				am.keeper.UpdateOrderStatus(ctx, contractAddr, marketOrder.Id, types.OrderStatus_CANCELLED)
+			} else {
+				am.keeper.UpdateOrderStatus(ctx, contractAddr, marketOrder.Id, types.OrderStatus_FULFILLED)
 			}
 		}
 		for _, marketOrder := range marketSells {
@@ -490,6 +492,8 @@ func (am AppModule) endBlockForContract(ctx sdk.Context, contract types.Contract
 					Initiator: types.CancellationInitiator_USER,
 				})
 				am.keeper.UpdateOrderStatus(ctx, contractAddr, marketOrder.Id, types.OrderStatus_CANCELLED)
+			} else {
+				am.keeper.UpdateOrderStatus(ctx, contractAddr, marketOrder.Id, types.OrderStatus_FULFILLED)
 			}
 		}
 	}
