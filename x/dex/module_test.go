@@ -73,6 +73,20 @@ func TestEndBlockMarketOrder(t *testing.T) {
 			Data:              "{\"position_effect\":\"Open\",\"leverage\":\"1\"}",
 		},
 	)
+	dexkeeper.MemState.GetBlockOrders(types.ContractAddress(contractAddr.String()), types.GetPairString(&pair)).AddOrder(
+		types.Order{
+			Id:                2,
+			Account:           testAccount.String(),
+			ContractAddr:      contractAddr.String(),
+			Price:             sdk.MustNewDecFromStr("2"),
+			Quantity:          sdk.MustNewDecFromStr("1"),
+			PriceDenom:        pair.PriceDenom,
+			AssetDenom:        pair.AssetDenom,
+			OrderType:         types.OrderType_LIMIT,
+			PositionDirection: types.PositionDirection_LONG,
+			Data:              "{\"position_effect\":\"Open\",\"leverage\":\"1\"}",
+		},
+	)
 	dexkeeper.MemState.GetDepositInfo(types.ContractAddress(contractAddr.String())).AddDeposit(
 		dexcache.DepositInfoEntry{
 			Creator: testAccount.String(),

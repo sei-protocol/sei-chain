@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sort"
 
 	"github.com/CosmWasm/wasmd/x/wasm"
 	"github.com/gorilla/mux"
@@ -346,6 +347,12 @@ func (am AppModule) endBlockForContract(ctx sdk.Context, contract types.Contract
 		assetDenomStr := pair.AssetDenom
 		allExistingBuys := am.keeper.GetAllLongBookForPair(ctx, contractAddr, priceDenomStr, assetDenomStr)
 		allExistingSells := am.keeper.GetAllShortBookForPair(ctx, contractAddr, priceDenomStr, assetDenomStr)
+		sort.Slice(allExistingBuys, func(i, j int) bool {
+			return allExistingBuys[i].GetPrice().LT(allExistingBuys[j].GetPrice())
+		})
+		sort.Slice(allExistingSells, func(i, j int) bool {
+			return allExistingSells[i].GetPrice().LT(allExistingSells[j].GetPrice())
+		})
 
 		longDirtyPrices, shortDirtyPrices := exchange.NewDirtyPrices(), exchange.NewDirtyPrices()
 
@@ -473,6 +480,7 @@ func (am AppModule) endBlockForContract(ctx sdk.Context, contract types.Contract
 					Id:        marketOrder.Id,
 					Initiator: types.CancellationInitiator_USER,
 				})
+				am.keeper.UpdateOrderStatus(ctx, contractAddr, marketOrder.Id, types.OrderStatus_CANCELLED)
 			}
 		}
 		for _, marketOrder := range marketSells {
@@ -481,6 +489,7 @@ func (am AppModule) endBlockForContract(ctx sdk.Context, contract types.Contract
 					Id:        marketOrder.Id,
 					Initiator: types.CancellationInitiator_USER,
 				})
+				am.keeper.UpdateOrderStatus(ctx, contractAddr, marketOrder.Id, types.OrderStatus_CANCELLED)
 			}
 		}
 	}
