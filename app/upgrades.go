@@ -31,6 +31,9 @@ const Upgrade106 = "1.0.6beta"
 // 1.0.7beta
 const Upgrade107 = "1.0.7beta"
 
+// 1.0.7beta-postfix
+const Upgrade107PostFix = "1.0.7beta-postfix"
+
 func (app App) RegisterUpgradeHandlers() {
 	app.UpgradeKeeper.SetUpgradeHandler(IgniteCLIRemovalUpgradeHandler, func(ctx sdk.Context, plan upgradetypes.Plan, fromVM module.VersionMap) (module.VersionMap, error) {
 		return app.mm.RunMigrations(ctx, app.configurator, fromVM)
@@ -54,6 +57,9 @@ func (app App) RegisterUpgradeHandlers() {
 		return app.mm.RunMigrations(ctx, app.configurator, fromVM)
 	})
 	app.UpgradeKeeper.SetUpgradeHandler(Upgrade107, func(ctx sdk.Context, plan upgradetypes.Plan, fromVM module.VersionMap) (module.VersionMap, error) {
+		return app.mm.RunMigrations(ctx, app.configurator, fromVM)
+	})
+	app.UpgradeKeeper.SetUpgradeHandler(Upgrade107PostFix, func(ctx sdk.Context, plan upgradetypes.Plan, fromVM module.VersionMap) (module.VersionMap, error) {
 		return app.mm.RunMigrations(ctx, app.configurator, fromVM)
 	})
 }
