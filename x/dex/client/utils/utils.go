@@ -54,7 +54,7 @@ type (
 	AddAssetMetadataProposalJSON struct {
 		Title       string        `json:"title" yaml:"title"`
 		Description string        `json:"description" yaml:"description"`
-		AssetList   AssetListJSON `json:"tick_size_list" yaml:"tick_size_list"`
+		AssetList   AssetListJSON `json:"asset_list" yaml:"asset_list"`
 		Deposit     string        `json:"deposit" yaml:"deposit"`
 	}
 )
