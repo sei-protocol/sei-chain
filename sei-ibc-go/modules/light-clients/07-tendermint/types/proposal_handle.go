@@ -2,6 +2,7 @@ package types
 
 import (
 	"reflect"
+	"time"
 
 	"github.com/cosmos/cosmos-sdk/codec"
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -70,6 +71,9 @@ func (cs ClientState) CheckSubstituteAndUpdateState(
 	cs.LatestHeight = substituteClientState.LatestHeight
 	cs.ChainId = substituteClientState.ChainId
 
+	// set new trusting period based on the substitute client state
+	cs.TrustingPeriod = substituteClientState.TrustingPeriod
+
 	// no validation is necessary since the substitute is verified to be Active
 	// in 02-client.
 
@@ -77,13 +81,15 @@ func (cs ClientState) CheckSubstituteAndUpdateState(
 }
 
 // IsMatchingClientState returns true if all the client state parameters match
-// except for frozen height, latest height, and chain-id.
+// except for frozen height, latest height, trusting period, chain-id.
 func IsMatchingClientState(subject, substitute ClientState) bool {
 	// zero out parameters which do not need to match
 	subject.LatestHeight = clienttypes.ZeroHeight()
 	subject.FrozenHeight = clienttypes.ZeroHeight()
+	subject.TrustingPeriod = time.Duration(0)
 	substitute.LatestHeight = clienttypes.ZeroHeight()
 	substitute.FrozenHeight = clienttypes.ZeroHeight()
+	substitute.TrustingPeriod = time.Duration(0)
 	subject.ChainId = ""
 	substitute.ChainId = ""
 	// sets both sets of flags to true as these flags have been DEPRECATED, see ADR-026 for more information
