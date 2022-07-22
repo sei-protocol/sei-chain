@@ -17,6 +17,7 @@ type AccountOrderID struct {
 }
 
 func Settle(
+	ctx sdk.Context,
 	takerOrder types.Order,
 	quantityTaken sdk.Dec,
 	order types.OrderBook,
@@ -54,6 +55,7 @@ func Settle(
 	order.GetEntry().Allocations = nonZeroNewAllocations
 	for _, toSettle := range newToSettle {
 		takerSettlements = append(takerSettlements, types.NewSettlementEntry(
+			ctx,
 			takerOrder.Id,
 			takerOrder.Account,
 			takerOrder.PositionDirection,
@@ -65,6 +67,7 @@ func Settle(
 			takerOrder.OrderType,
 		))
 		makerSettlements = append(makerSettlements, types.NewSettlementEntry(
+			ctx,
 			toSettle.orderID,
 			toSettle.account,
 			types.OppositePositionDirection[takerOrder.PositionDirection],
@@ -80,6 +83,7 @@ func Settle(
 }
 
 func SettleFromBook(
+	ctx sdk.Context,
 	longOrder types.OrderBook,
 	shortOrder types.OrderBook,
 	executedQuantity sdk.Dec,
@@ -148,6 +152,7 @@ func SettleFromBook(
 			quantity = shortToSettle.amount
 		}
 		settlements = append(settlements, types.NewSettlementEntry(
+			ctx,
 			longToSettle.orderID,
 			longToSettle.account,
 			types.PositionDirection_LONG,
@@ -158,6 +163,7 @@ func SettleFromBook(
 			longOrder.GetPrice(),
 			types.OrderType_LIMIT,
 		), types.NewSettlementEntry(
+			ctx,
 			shortToSettle.orderID,
 			shortToSettle.account,
 			types.PositionDirection_SHORT,

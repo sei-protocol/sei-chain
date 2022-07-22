@@ -16,6 +16,7 @@ type SudoSettlementMsg struct {
 }
 
 func NewSettlementEntry(
+	ctx sdk.Context,
 	orderID uint64,
 	account string,
 	direction PositionDirection,
@@ -36,5 +37,7 @@ func NewSettlementEntry(
 		ExpectedCostOrProceed:  expectedCostOrProceed,
 		Account:                account,
 		OrderType:              GetContractOrderType(orderType),
+		Timestamp:              uint64(ctx.BlockTime().Unix()),
+		Height:                 uint64(ctx.BlockHeight()),
 	}
 }

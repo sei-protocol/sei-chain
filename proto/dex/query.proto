@@ -87,6 +87,10 @@ service Query {
 		option (google.api.http).get = "/sei-protocol/seichain/dex/get_market_summary/{contractAddr}/{priceDenom}/{assetDenom}/{lookbackInSeconds}";
 	}
 
+	rpc GetSettlementsForAccount(QueryGetSettlementsForAccountRequest) returns (QueryGetSettlementsForAccountResponse) {
+		option (google.api.http).get = "/sei-protocol/seichain/dex/get_settlements_for_account/{contractAddr}/{priceDenom}/{assetDenom}/{account}";
+	}
+
 // this line is used by starport scaffolding # 2
 }
 
@@ -158,12 +162,37 @@ message QueryGetSettlementsRequest {
 	string assetDenom = 4 [
 		(gogoproto.jsontag) = "asset_denom"
 	];
+	string account = 5 [
+		(gogoproto.jsontag) = "account"
+	];
 }
 
 message QueryGetSettlementsResponse {
 	Settlements Settlements = 1 [
 		(gogoproto.nullable) = false,
 		(gogoproto.jsontag) = "settlements"
+	];
+}
+
+message QueryGetSettlementsForAccountRequest {
+	string contractAddr = 1 [
+		(gogoproto.jsontag) = "contract_address"
+	];
+	string account = 2 [
+		(gogoproto.jsontag) = "account"
+	];
+	string priceDenom = 3 [
+		(gogoproto.jsontag) = "price_denom"
+	];
+	string assetDenom = 4 [
+		(gogoproto.jsontag) = "asset_denom"
+	];
+}
+
+message QueryGetSettlementsForAccountResponse {
+	repeated Settlements SettlementsList = 1 [
+		(gogoproto.nullable) = false,
+		(gogoproto.jsontag) = "settlements_list"
 	];
 }
 
