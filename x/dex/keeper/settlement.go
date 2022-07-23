@@ -23,9 +23,9 @@ func (k Keeper) SetSettlements(ctx sdk.Context, contractAddr string, priceDenom 
 	}
 }
 
-func (k Keeper) GetSettlementsState(ctx sdk.Context, contractAddr string, priceDenom string, assetDenom string, account string, orderId uint64) (val types.Settlements, found bool) {
+func (k Keeper) GetSettlementsState(ctx sdk.Context, contractAddr string, priceDenom string, assetDenom string, account string, orderID uint64) (val types.Settlements, found bool) {
 	store := prefix.NewStore(ctx.KVStore(k.storeKey), types.SettlementEntryPrefix(contractAddr, priceDenom, assetDenom))
-	b := store.Get(getSettlementKey(orderId, account))
+	b := store.Get(getSettlementKey(orderID, account))
 	val = types.Settlements{}
 	if b == nil {
 		return val, false
@@ -69,9 +69,9 @@ func (k Keeper) GetAllSettlementsState(ctx sdk.Context, contractAddr string, pri
 	return res
 }
 
-func getSettlementKey(orderId uint64, account string) []byte {
+func getSettlementKey(orderID uint64, account string) []byte {
 	accountBytes := append([]byte(account), []byte("|")...)
 	orderIDBytes := make([]byte, 8)
-	binary.BigEndian.PutUint64(orderIDBytes, orderId)
+	binary.BigEndian.PutUint64(orderIDBytes, orderID)
 	return append(accountBytes, orderIDBytes...)
 }
