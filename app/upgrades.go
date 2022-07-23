@@ -9,7 +9,7 @@ import (
 	upgradetypes "github.com/cosmos/cosmos-sdk/x/upgrade/types"
 )
 
-// this will introduce the oracle module as well
+// UpgradeNameOracleModule - this will introduce the oracle module as well
 var UpgradeNameOracleModule = "1.0.4beta"
 
 // NOTE: When performing upgrades, make sure to keep / register the handlers
