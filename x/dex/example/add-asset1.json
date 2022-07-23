@@ -19,13 +19,13 @@
                       "aliases": ["uatom"]
                     },
                     {
-                      "denom": "atom",
+                      "denom": "ATOM",
                       "exponent": 6
                     }
                 ],
                 "base": "ATOM",
                 "name": "ATOM",
-                "display": "atom",
+                "display": "ATOM",
                 "symbol": "ATOM"
             }
         }

@@ -13,30 +13,30 @@ printf '00000000\n' | ./build/seid tx dex add-asset-proposal ./x/dex/example/add
 printf '00000000\n' | ./build/seid tx gov deposit 1 10000000usei -y --from=alice --chain-id=sei --fees=10000000usei --gas=500000 --broadcast-mode=block
 printf '00000000\n' | ./build/seid tx gov vote 1 yes -y --from=alice --chain-id=sei --fees=10000000usei --gas=500000 --broadcast-mode=block
 
-# # add to asset list
+# # # add to asset list
 printf '00000000\n' | ./build/seid tx dex add-asset-proposal ./x/dex/example/add-asset1.json -y --from=alice --chain-id=sei --fees=10000000usei --gas=500000 --broadcast-mode=block
 printf '00000000\n' | ./build/seid tx gov deposit 2 10000000usei -y --from=alice --chain-id=sei --fees=10000000usei --gas=500000 --broadcast-mode=block
 printf '00000000\n' | ./build/seid tx gov vote 2 yes -y --from=alice --chain-id=sei --fees=10000000usei --gas=500000 --broadcast-mode=block
 
-# # add to asset list
+# # # add to asset list
 printf '00000000\n' | ./build/seid tx dex add-asset-proposal ./x/dex/example/add-asset2.json -y --from=alice --chain-id=sei --fees=10000000usei --gas=500000 --broadcast-mode=block
 printf '00000000\n' | ./build/seid tx gov deposit 3 10000000usei -y --from=alice --chain-id=sei --fees=10000000usei --gas=500000 --broadcast-mode=block
 printf '00000000\n' | ./build/seid tx gov vote 3 yes -y --from=alice --chain-id=sei --fees=10000000usei --gas=500000 --broadcast-mode=block
 
-# # wait till the asset addition take effects
-sleep 30
+# # # wait till the asset addition take effects
+sleep 7
 
-# # register a pair
+# # # register a pair
 printf '00000000\n' | ./build/seid tx dex register-pairs-proposal ./x/dex/example/register-pair-proposal.json -y --from=alice --chain-id=sei --fees=10000000usei --gas=500000 --broadcast-mode=block
 printf '00000000\n' | ./build/seid tx gov deposit 4 10000000usei -y --from=alice --chain-id=sei --fees=10000000usei --gas=500000 --broadcast-mode=block
 printf '00000000\n' | ./build/seid tx gov vote 4 yes -y --from=alice --chain-id=sei --fees=10000000usei --gas=500000 --broadcast-mode=block
 
 # sleep 5
-printf '00000000\n' | ./build/seid tx dex update-tick-size-proposal ./x/dex/example/update-tick-size-proposal.json -y --from=alice --chain-id=sei --fees=10000000usei --gas=500000 --broadcast-mode=block
-printf '00000000\n' | ./build/seid tx gov deposit 2 10000000usei -y --from=alice --chain-id=sei --fees=10000000usei --gas=500000 --broadcast-mode=block
-printf '00000000\n' | ./build/seid tx gov vote 2 yes -y --from=alice --chain-id=sei --fees=10000000usei --gas=500000 --broadcast-mode=block
+# printf '00000000\n' | ./build/seid tx dex update-tick-size-proposal ./x/dex/example/update-tick-size-proposal.json -y --from=alice --chain-id=sei --fees=10000000usei --gas=500000 --broadcast-mode=block
+# printf '00000000\n' | ./build/seid tx gov deposit 2 10000000usei -y --from=alice --chain-id=sei --fees=10000000usei --gas=500000 --broadcast-mode=block
+# printf '00000000\n' | ./build/seid tx gov vote 2 yes -y --from=alice --chain-id=sei --fees=10000000usei --gas=500000 --broadcast-mode=block
 
 
 # order: (position_direction, price, quantity, price_denom, asset_denom, position_effect(open/close), order_type(limit, market,..), leverage) 
 # need to wait for vote period close to take effect, seem no early stop implemented for vote
-#  ./build/seid tx dex place-orders sei14hj2tavq8fpesdwxxcu44rty3hh90vhujrvcmstl4zr3txmfvw9sh9m79m Long?1?1?atom?sei?Limit?1 --amount=10000usei -y --from=alice --chain-id=sei --fees=10000usei --gas=50000000 --broadcast-mode=block
+#  ./build/seid tx dex place-orders sei14hj2tavq8fpesdwxxcu44rty3hh90vhujrvcmstl4zr3txmfvw9sh9m79m Long?1?1?SEI?ATOM?Limit?1 --amount=10000usei -y --from=alice --chain-id=sei --fees=10000usei --gas=50000000 --broadcast-mode=block

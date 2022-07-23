@@ -7,16 +7,17 @@
         "pairs": [
           {
             "price_denom": "axlusdc",
-            "asset_denom": "sei",
+            "asset_denom": "SEI",
             "tick_size": "1"
           },
           {
             "price_denom": "axlusdc",
-            "asset_denom": "atom"
+            "asset_denom": "ATOM",
+            "tick_size": "1"
           },
           {
-            "price_denom": "atom",
-            "asset_denom": "sei",
+            "price_denom": "SEI",
+            "asset_denom": "ATOM",
             "tick_size": "1"
           }
         ]

@@ -89,6 +89,6 @@ func SetTendermintConfigs(config *tmcfg.Config) {
 	// Consensus Configs
 	config.Consensus.TimeoutPrevote = 250 * time.Millisecond
 	config.Consensus.TimeoutPrecommit = 250 * time.Millisecond
-	config.Consensus.TimeoutCommit = 250 * time.Millisecond
-	config.Consensus.SkipTimeoutCommit = true
+	config.Consensus.TimeoutCommit = 1000 * time.Millisecond
+	config.Consensus.SkipTimeoutCommit = false
 }

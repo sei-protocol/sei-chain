@@ -13,13 +13,13 @@
                       "aliases": ["usei"]
                     },
                     {
-                      "denom": "sei",
+                      "denom": "SEI",
                       "exponent": 6
                     }
                 ],
                 "base": "SEI",
                 "name": "sei",
-                "display": "sei",
+                "display": "SEI",
                 "symbol": "SEI"
             }
         }
