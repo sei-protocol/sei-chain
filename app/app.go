@@ -657,7 +657,7 @@ func New(
 		panic(err)
 	}
 
-	if upgradeInfo.Name == Upgrade104 && !app.UpgradeKeeper.IsSkipHeight(upgradeInfo.Height) {
+	if upgradeInfo.Name == UpgradeNameOracleModule && !app.UpgradeKeeper.IsSkipHeight(upgradeInfo.Height) {
 		storeUpgrades := storetypes.StoreUpgrades{
 			Added: []string{oracletypes.StoreKey},
 		}
