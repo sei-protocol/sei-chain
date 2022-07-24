@@ -39,4 +39,4 @@ printf '00000000\n' | ./build/seid tx gov vote 4 yes -y --from=alice --chain-id=
 
 # order: (position_direction, price, quantity, price_denom, asset_denom, position_effect(open/close), order_type(limit, market,..), leverage) 
 # need to wait for vote period close to take effect, seem no early stop implemented for vote
-#  ./build/seid tx dex place-orders sei14hj2tavq8fpesdwxxcu44rty3hh90vhujrvcmstl4zr3txmfvw9sh9m79m Long?1?1?SEI?ATOM?Limit?1 --amount=10000usei -y --from=alice --chain-id=sei --fees=10000usei --gas=50000000 --broadcast-mode=block
+#  ./build/seid tx dex place-orders sei14hj2tavq8fpesdwxxcu44rty3hh90vhujrvcmstl4zr3txmfvw9sh9m79m Long?1?1?SEI?ATOM?Limit?"{\"position_effect\":\"Open\",\"leverage\":\"1\"}" --amount=10000usei -y --from=alice --chain-id=sei --fees=10000usei --gas=50000000 --broadcast-mode=block
