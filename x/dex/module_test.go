@@ -123,6 +123,9 @@ func TestEndBlockMarketOrder(t *testing.T) {
 	_, found = dexkeeper.GetLongBookByPrice(ctx, contractAddr.String(), sdk.MustNewDecFromStr("1"), pair.PriceDenom, pair.AssetDenom)
 	// Long book should be populated
 	require.False(t, found)
+
+	marketOrder := dexkeeper.GetOrdersByIds(ctx, contractAddr.String(), []uint64{2})[uint64(2)]
+	require.Equal(t, types.OrderStatus_FULFILLED, marketOrder.Status)
 }
 
 func TestEndBlockRollback(t *testing.T) {
