@@ -65,9 +65,8 @@ func (d *MsgTypeDistribution) Sample() string {
 	randNum := sdk.MustNewDecFromStr(fmt.Sprintf("%f", rand.Float64()))
 	if randNum.LT(d.LimitOrderPct) {
 		return "limit"
-	} else {
-		return "market"
 	}
+	return "market"
 }
 
 var (
@@ -110,7 +109,10 @@ func run(config Config) {
 	defer grpcConn.Close()
 	TxClient = typestx.NewServiceClient(grpcConn)
 	userHomeDir, _ := os.UserHomeDir()
-	os.Mkdir(filepath.Join(userHomeDir, "outputs"), os.ModePerm)
+	err := os.Mkdir(filepath.Join(userHomeDir, "outputs"), os.ModePerm)
+	if err != nil {
+		panic(err)
+	}
 	filename := filepath.Join(userHomeDir, "outputs", "test_tx_hash")
 	_ = os.Remove(filename)
 	file, err := os.OpenFile(filename, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
@@ -240,7 +242,7 @@ func main() {
 	config := Config{}
 	pwd, _ := os.Getwd()
 	file, _ := ioutil.ReadFile(pwd + "/loadtest/config.json")
-	if err := json.Unmarshal([]byte(file), &config); err != nil {
+	if err := json.Unmarshal(file, &config); err != nil {
 		panic(err)
 	}
 	run(config)
