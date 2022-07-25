@@ -186,11 +186,38 @@ export class Api extends HttpClient {
          * No description
          *
          * @tags Query
+         * @name QueryGetAllSettlements
+         * @request GET:/sei-protocol/seichain/dex/get_all_settlements/{contractAddr}/{priceDenom}/{assetDenom}
+         */
+        this.queryGetAllSettlements = (contractAddr, priceDenom, assetDenom, query, params = {}) => this.request({
+            path: `/sei-protocol/seichain/dex/get_all_settlements/${contractAddr}/${priceDenom}/${assetDenom}`,
+            method: "GET",
+            query: query,
+            format: "json",
+            ...params,
+        });
+        /**
+         * No description
+         *
+         * @tags Query
          * @name QueryGetHistoricalPrices
          * @request GET:/sei-protocol/seichain/dex/get_historical_prices/{contractAddr}/{priceDenom}/{assetDenom}/{periodLengthInSeconds}/{numOfPeriods}
          */
         this.queryGetHistoricalPrices = (contractAddr, priceDenom, assetDenom, periodLengthInSeconds, numOfPeriods, params = {}) => this.request({
             path: `/sei-protocol/seichain/dex/get_historical_prices/${contractAddr}/${priceDenom}/${assetDenom}/${periodLengthInSeconds}/${numOfPeriods}`,
+            method: "GET",
+            format: "json",
+            ...params,
+        });
+        /**
+         * No description
+         *
+         * @tags Query
+         * @name QueryGetMarketSummary
+         * @request GET:/sei-protocol/seichain/dex/get_market_summary/{contractAddr}/{priceDenom}/{assetDenom}/{lookbackInSeconds}
+         */
+        this.queryGetMarketSummary = (contractAddr, priceDenom, assetDenom, lookbackInSeconds, params = {}) => this.request({
+            path: `/sei-protocol/seichain/dex/get_market_summary/${contractAddr}/${priceDenom}/${assetDenom}/${lookbackInSeconds}`,
             method: "GET",
             format: "json",
             ...params,
@@ -241,8 +268,22 @@ export class Api extends HttpClient {
          * @name QueryGetSettlements
          * @request GET:/sei-protocol/seichain/dex/get_settlements/{contractAddr}/{priceDenom}/{assetDenom}/{orderId}
          */
-        this.queryGetSettlements = (contractAddr, priceDenom, assetDenom, orderId, params = {}) => this.request({
+        this.queryGetSettlements = (contractAddr, priceDenom, assetDenom, orderId, query, params = {}) => this.request({
             path: `/sei-protocol/seichain/dex/get_settlements/${contractAddr}/${priceDenom}/${assetDenom}/${orderId}`,
+            method: "GET",
+            query: query,
+            format: "json",
+            ...params,
+        });
+        /**
+         * No description
+         *
+         * @tags Query
+         * @name QueryGetSettlementsForAccount
+         * @request GET:/sei-protocol/seichain/dex/get_settlements_for_account/{contractAddr}/{priceDenom}/{assetDenom}/{account}
+         */
+        this.queryGetSettlementsForAccount = (contractAddr, priceDenom, assetDenom, account, params = {}) => this.request({
+            path: `/sei-protocol/seichain/dex/get_settlements_for_account/${contractAddr}/${priceDenom}/${assetDenom}/${account}`,
             method: "GET",
             format: "json",
             ...params,

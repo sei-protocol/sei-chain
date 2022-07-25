@@ -61,9 +61,28 @@ export interface QueryGetSettlementsRequest {
     orderId: number;
     priceDenom: string;
     assetDenom: string;
+    account: string;
 }
 export interface QueryGetSettlementsResponse {
     Settlements: Settlements | undefined;
+}
+export interface QueryGetSettlementsForAccountRequest {
+    contractAddr: string;
+    account: string;
+    priceDenom: string;
+    assetDenom: string;
+}
+export interface QueryGetSettlementsForAccountResponse {
+    SettlementsList: Settlements[];
+}
+export interface QueryGetAllSettlementsRequest {
+    contractAddr: string;
+    priceDenom: string;
+    assetDenom: string;
+    limit: number;
+}
+export interface QueryGetAllSettlementsResponse {
+    SettlementsList: Settlements[];
 }
 export interface QueryGetPricesRequest {
     priceDenom: string;
@@ -122,6 +141,19 @@ export interface QueryGetHistoricalPricesRequest {
 }
 export interface QueryGetHistoricalPricesResponse {
     prices: PriceCandlestick[];
+}
+export interface QueryGetMarketSummaryRequest {
+    contractAddr: string;
+    priceDenom: string;
+    assetDenom: string;
+    lookbackInSeconds: number;
+}
+export interface QueryGetMarketSummaryResponse {
+    totalVolume: string;
+    totalVolumeNotional: string;
+    highPrice: string;
+    lowPrice: string;
+    lastPrice: string;
 }
 export declare const QueryParamsRequest: {
     encode(_: QueryParamsRequest, writer?: Writer): Writer;
@@ -206,6 +238,34 @@ export declare const QueryGetSettlementsResponse: {
     fromJSON(object: any): QueryGetSettlementsResponse;
     toJSON(message: QueryGetSettlementsResponse): unknown;
     fromPartial(object: DeepPartial<QueryGetSettlementsResponse>): QueryGetSettlementsResponse;
+};
+export declare const QueryGetSettlementsForAccountRequest: {
+    encode(message: QueryGetSettlementsForAccountRequest, writer?: Writer): Writer;
+    decode(input: Reader | Uint8Array, length?: number): QueryGetSettlementsForAccountRequest;
+    fromJSON(object: any): QueryGetSettlementsForAccountRequest;
+    toJSON(message: QueryGetSettlementsForAccountRequest): unknown;
+    fromPartial(object: DeepPartial<QueryGetSettlementsForAccountRequest>): QueryGetSettlementsForAccountRequest;
+};
+export declare const QueryGetSettlementsForAccountResponse: {
+    encode(message: QueryGetSettlementsForAccountResponse, writer?: Writer): Writer;
+    decode(input: Reader | Uint8Array, length?: number): QueryGetSettlementsForAccountResponse;
+    fromJSON(object: any): QueryGetSettlementsForAccountResponse;
+    toJSON(message: QueryGetSettlementsForAccountResponse): unknown;
+    fromPartial(object: DeepPartial<QueryGetSettlementsForAccountResponse>): QueryGetSettlementsForAccountResponse;
+};
+export declare const QueryGetAllSettlementsRequest: {
+    encode(message: QueryGetAllSettlementsRequest, writer?: Writer): Writer;
+    decode(input: Reader | Uint8Array, length?: number): QueryGetAllSettlementsRequest;
+    fromJSON(object: any): QueryGetAllSettlementsRequest;
+    toJSON(message: QueryGetAllSettlementsRequest): unknown;
+    fromPartial(object: DeepPartial<QueryGetAllSettlementsRequest>): QueryGetAllSettlementsRequest;
+};
+export declare const QueryGetAllSettlementsResponse: {
+    encode(message: QueryGetAllSettlementsResponse, writer?: Writer): Writer;
+    decode(input: Reader | Uint8Array, length?: number): QueryGetAllSettlementsResponse;
+    fromJSON(object: any): QueryGetAllSettlementsResponse;
+    toJSON(message: QueryGetAllSettlementsResponse): unknown;
+    fromPartial(object: DeepPartial<QueryGetAllSettlementsResponse>): QueryGetAllSettlementsResponse;
 };
 export declare const QueryGetPricesRequest: {
     encode(message: QueryGetPricesRequest, writer?: Writer): Writer;
@@ -319,6 +379,20 @@ export declare const QueryGetHistoricalPricesResponse: {
     toJSON(message: QueryGetHistoricalPricesResponse): unknown;
     fromPartial(object: DeepPartial<QueryGetHistoricalPricesResponse>): QueryGetHistoricalPricesResponse;
 };
+export declare const QueryGetMarketSummaryRequest: {
+    encode(message: QueryGetMarketSummaryRequest, writer?: Writer): Writer;
+    decode(input: Reader | Uint8Array, length?: number): QueryGetMarketSummaryRequest;
+    fromJSON(object: any): QueryGetMarketSummaryRequest;
+    toJSON(message: QueryGetMarketSummaryRequest): unknown;
+    fromPartial(object: DeepPartial<QueryGetMarketSummaryRequest>): QueryGetMarketSummaryRequest;
+};
+export declare const QueryGetMarketSummaryResponse: {
+    encode(message: QueryGetMarketSummaryResponse, writer?: Writer): Writer;
+    decode(input: Reader | Uint8Array, length?: number): QueryGetMarketSummaryResponse;
+    fromJSON(object: any): QueryGetMarketSummaryResponse;
+    toJSON(message: QueryGetMarketSummaryResponse): unknown;
+    fromPartial(object: DeepPartial<QueryGetMarketSummaryResponse>): QueryGetMarketSummaryResponse;
+};
 /** Query defines the gRPC querier service. */
 export interface Query {
     /** Parameters queries the parameters of the module. */
@@ -343,6 +417,9 @@ export interface Query {
     GetOrders(request: QueryGetOrdersRequest): Promise<QueryGetOrdersResponse>;
     GetOrder(request: QueryGetOrderByIDRequest): Promise<QueryGetOrderByIDResponse>;
     GetHistoricalPrices(request: QueryGetHistoricalPricesRequest): Promise<QueryGetHistoricalPricesResponse>;
+    GetMarketSummary(request: QueryGetMarketSummaryRequest): Promise<QueryGetMarketSummaryResponse>;
+    GetSettlementsForAccount(request: QueryGetSettlementsForAccountRequest): Promise<QueryGetSettlementsForAccountResponse>;
+    GetAllSettlements(request: QueryGetAllSettlementsRequest): Promise<QueryGetAllSettlementsResponse>;
 }
 export declare class QueryClientImpl implements Query {
     private readonly rpc;
@@ -361,6 +438,9 @@ export declare class QueryClientImpl implements Query {
     GetOrders(request: QueryGetOrdersRequest): Promise<QueryGetOrdersResponse>;
     GetOrder(request: QueryGetOrderByIDRequest): Promise<QueryGetOrderByIDResponse>;
     GetHistoricalPrices(request: QueryGetHistoricalPricesRequest): Promise<QueryGetHistoricalPricesResponse>;
+    GetMarketSummary(request: QueryGetMarketSummaryRequest): Promise<QueryGetMarketSummaryResponse>;
+    GetSettlementsForAccount(request: QueryGetSettlementsForAccountRequest): Promise<QueryGetSettlementsForAccountResponse>;
+    GetAllSettlements(request: QueryGetAllSettlementsRequest): Promise<QueryGetAllSettlementsResponse>;
 }
 interface Rpc {
     request(service: string, method: string, data: Uint8Array): Promise<Uint8Array>;
