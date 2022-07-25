@@ -35,7 +35,7 @@ yes | ~/go/bin/seid keys add $keyname
 yes | ~/go/bin/seid keys add faucet
 printf '12345678\n' | ~/go/bin/seid add-genesis-account $(~/go/bin/seid keys show $keyname -a) 100000000000000000000usei
 printf '12345678\n' | ~/go/bin/seid add-genesis-account $(~/go/bin/seid keys show faucet -a) 100000000000000000000usei
-python ./loadtest/scripts/populate_genesis_accounts.py $numtestaccount loc
+python3 ./loadtest/scripts/populate_genesis_accounts.py $numtestaccount loc
 printf '12345678\n' | ~/go/bin/seid gentx $keyname 70000000000000000000usei --chain-id sei-chain
 ~/go/bin/seid collect-gentxs
 cat ~/.sei/config/genesis.json | jq '.app_state["crisis"]["constant_fee"]["denom"]="usei"' > ~/.sei/config/tmp_genesis.json && mv ~/.sei/config/tmp_genesis.json ~/.sei/config/genesis.json

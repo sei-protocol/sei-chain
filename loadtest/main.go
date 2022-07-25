@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"io/ioutil"
 	"math/rand"
 	"os"
 	"os/exec"
@@ -29,6 +30,43 @@ type EncodingConfig struct {
 	Marshaler codec.Codec
 	TxConfig  client.TxConfig
 	Amino     *codec.LegacyAmino
+}
+
+type Config struct {
+	ChainID        string              `json:"chain_id"`
+	ContractAddr   string              `json:"contract_address"`
+	OrdersPerBlock uint64              `json:"orders_per_block"`
+	NumberOfBlocks uint64              `json:"number_of_blocks"`
+	PriceDistr     NumericDistribution `json:"price_distribution"`
+	QuantityDistr  NumericDistribution `json:"quantity_distribution"`
+	MsgTypeDistr   MsgTypeDistribution `json:"message_type_distribution"`
+}
+
+type NumericDistribution struct {
+	Min         sdk.Dec `json:"min"`
+	Max         sdk.Dec `json:"max"`
+	NumDistinct int64   `json:"number_of_distinct_values"`
+}
+
+func (d *NumericDistribution) Sample() sdk.Dec {
+	steps := sdk.NewDec(rand.Int63n(d.NumDistinct))
+	return d.Min.Add(d.Max.Sub(d.Min).QuoInt64(d.NumDistinct).Mul(steps))
+}
+
+type MsgTypeDistribution struct {
+	LimitOrderPct  sdk.Dec `json:"limit_order_percentage"`
+	MarketOrderPct sdk.Dec `json:"market_order_percentage"`
+}
+
+func (d *MsgTypeDistribution) Sample() string {
+	if !d.LimitOrderPct.Add(d.MarketOrderPct).Equal(sdk.OneDec()) {
+		panic("Distribution percentages must add up to 1")
+	}
+	randNum := sdk.MustNewDecFromStr(fmt.Sprintf("%f", rand.Float64()))
+	if randNum.LT(d.LimitOrderPct) {
+		return "limit"
+	}
+	return "market"
 }
 
 var (
@@ -62,17 +100,8 @@ func init() {
 	app.ModuleBasics.RegisterInterfaces(TestConfig.InterfaceRegistry)
 }
 
-func run(
-	contractAddress string,
-	numberOfAccounts uint64,
-	numberOfBlocks uint64,
-	longPriceFloor uint64,
-	longPriceCeiling uint64,
-	shortPriceFloor uint64,
-	shortPriceCeiling uint64,
-	quantityFloor uint64,
-	quantityCeiling uint64,
-) {
+func run(config Config) {
+	ChainID = config.ChainID
 	grpcConn, _ := grpc.Dial(
 		"127.0.0.1:9090",
 		grpc.WithInsecure(),
@@ -80,6 +109,10 @@ func run(
 	defer grpcConn.Close()
 	TxClient = typestx.NewServiceClient(grpcConn)
 	userHomeDir, _ := os.UserHomeDir()
+	err := os.Mkdir(filepath.Join(userHomeDir, "outputs"), os.ModePerm)
+	if err != nil {
+		panic(err)
+	}
 	filename := filepath.Join(userHomeDir, "outputs", "test_tx_hash")
 	_ = os.Remove(filename)
 	file, err := os.OpenFile(filename, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
@@ -90,6 +123,7 @@ func run(
 	TxHashFile = file
 	var mu sync.Mutex
 
+	numberOfAccounts := config.OrdersPerBlock / BatchSize * 2 // * 2 because we need two sets of accounts
 	activeAccounts := []int{}
 	inactiveAccounts := []int{}
 	for i := 0; i < int(numberOfAccounts); i++ {
@@ -101,53 +135,55 @@ func run(
 	}
 	wgs := []*sync.WaitGroup{}
 	sendersList := [][]func(){}
-	for i := 0; i < int(numberOfBlocks); i++ {
+	for i := 0; i < int(config.NumberOfBlocks); i++ {
 		fmt.Printf("Preparing %d-th block\n", i)
 		wg := &sync.WaitGroup{}
 		var senders []func()
 		wgs = append(wgs, wg)
 		for j, account := range activeAccounts {
 			key := GetKey(uint64(account))
+			var msg sdk.Msg
+			msgType := config.MsgTypeDistr.Sample()
 			orderPlacements := []*dextypes.Order{}
-			longPrice := uint64(j)%(longPriceCeiling-longPriceFloor) + longPriceFloor
-			longQuantity := uint64(rand.Intn(int(quantityCeiling)-int(quantityFloor))) + quantityFloor
-			shortPrice := uint64(j)%(shortPriceCeiling-shortPriceFloor) + shortPriceFloor
-			shortQuantity := uint64(rand.Intn(int(quantityCeiling)-int(quantityFloor))) + quantityFloor
+			var orderType dextypes.OrderType
+			if msgType == "limit" {
+				orderType = dextypes.OrderType_LIMIT
+			} else {
+				orderType = dextypes.OrderType_MARKET
+			}
+			var direction dextypes.PositionDirection
+			if rand.Float64() < 0.5 {
+				direction = dextypes.PositionDirection_LONG
+			} else {
+				direction = dextypes.PositionDirection_SHORT
+			}
+			price := config.PriceDistr.Sample()
+			quantity := config.QuantityDistr.Sample()
 			for j := 0; j < BatchSize; j++ {
 				orderPlacements = append(orderPlacements, &dextypes.Order{
 					Account:           sdk.AccAddress(key.PubKey().Address()).String(),
-					ContractAddr:      contractAddress,
-					PositionDirection: dextypes.PositionDirection_LONG,
-					Price:             sdk.NewDec(int64(longPrice)).Quo(FromMili),
-					Quantity:          sdk.NewDec(int64(longQuantity)).Quo(FromMili),
+					ContractAddr:      config.ContractAddr,
+					PositionDirection: direction,
+					Price:             price.Quo(FromMili),
+					Quantity:          quantity.Quo(FromMili),
 					PriceDenom:        "SEI",
 					AssetDenom:        "ATOM",
-					OrderType:         dextypes.OrderType_LIMIT,
-					Data:              VortexData,
-				}, &dextypes.Order{
-					Account:           sdk.AccAddress(key.PubKey().Address()).String(),
-					ContractAddr:      contractAddress,
-					PositionDirection: dextypes.PositionDirection_SHORT,
-					Price:             sdk.NewDec(int64(shortPrice)).Quo(FromMili),
-					Quantity:          sdk.NewDec(int64(shortQuantity)).Quo(FromMili),
-					PriceDenom:        "SEI",
-					AssetDenom:        "ATOM",
-					OrderType:         dextypes.OrderType_LIMIT,
+					OrderType:         orderType,
 					Data:              VortexData,
 				})
 			}
-			amount, err := sdk.ParseCoinsNormalized(fmt.Sprintf("%d%s", longPrice*longQuantity+shortPrice*shortQuantity, "usei"))
+			amount, err := sdk.ParseCoinsNormalized(fmt.Sprintf("%d%s", price.Mul(quantity).Ceil().RoundInt64(), "usei"))
 			if err != nil {
 				panic(err)
 			}
-			msg := dextypes.MsgPlaceOrders{
+			msg = &dextypes.MsgPlaceOrders{
 				Creator:      sdk.AccAddress(key.PubKey().Address()).String(),
 				Orders:       orderPlacements,
-				ContractAddr: contractAddress,
+				ContractAddr: config.ContractAddr,
 				Funds:        amount,
 			}
 			txBuilder := TestConfig.TxConfig.NewTxBuilder()
-			_ = txBuilder.SetMsgs(&msg)
+			_ = txBuilder.SetMsgs(msg)
 			seqDelta := uint64(i / 2)
 			SignTx(&txBuilder, key, seqDelta)
 			mode := typestx.BroadcastMode_BROADCAST_MODE_SYNC
@@ -167,7 +203,7 @@ func run(
 	}
 
 	lastHeight := getLastHeight()
-	for i := 0; i < int(numberOfBlocks); i++ {
+	for i := 0; i < int(config.NumberOfBlocks); i++ {
 		newHeight := getLastHeight()
 		for newHeight == lastHeight {
 			time.Sleep(50 * time.Millisecond)
@@ -203,27 +239,11 @@ func getLastHeight() int {
 }
 
 func main() {
-	args := os.Args[1:]
-	contractAddress := args[0]
-	numberOfAccounts, _ := strconv.ParseUint(args[1], 10, 64)
-	numberOfBlocks, _ := strconv.ParseUint(args[2], 10, 64)
-	longPriceFloor, _ := strconv.ParseUint(args[3], 10, 64)
-	longPriceCeiling, _ := strconv.ParseUint(args[4], 10, 64)
-	shortPriceFloor, _ := strconv.ParseUint(args[5], 10, 64)
-	shortPriceCeiling, _ := strconv.ParseUint(args[6], 10, 64)
-	quantityFloor, _ := strconv.ParseUint(args[7], 10, 64)
-	quantityCeiling, _ := strconv.ParseUint(args[8], 10, 64)
-	chainID := args[9]
-	ChainID = chainID
-	run(
-		contractAddress,
-		numberOfAccounts,
-		numberOfBlocks,
-		longPriceFloor,
-		longPriceCeiling,
-		shortPriceFloor,
-		shortPriceCeiling,
-		quantityFloor,
-		quantityCeiling,
-	)
+	config := Config{}
+	pwd, _ := os.Getwd()
+	file, _ := ioutil.ReadFile(pwd + "/loadtest/config.json")
+	if err := json.Unmarshal(file, &config); err != nil {
+		panic(err)
+	}
+	run(config)
 }
