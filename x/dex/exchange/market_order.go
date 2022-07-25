@@ -9,7 +9,6 @@ func MatchMarketOrders(
 	ctx sdk.Context,
 	marketOrders []types.Order,
 	orderBook []types.OrderBook,
-	pair types.Pair,
 	direction types.PositionDirection,
 	dirtyPrices *DirtyPrices,
 	settlements *[]*types.SettlementEntry,
@@ -52,6 +51,7 @@ func MatchMarketOrders(
 			dirtyPrices.Add(existingOrder.GetPrice())
 
 			takerSettlements, makerSettlements, zeroAccountOrders := Settle(
+				ctx,
 				marketOrder,
 				executed,
 				existingOrder,
