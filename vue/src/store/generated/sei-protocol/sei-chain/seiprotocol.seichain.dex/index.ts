@@ -78,6 +78,9 @@ const getDefaultState = () => {
 				GetOrders: {},
 				GetOrder: {},
 				GetHistoricalPrices: {},
+				GetMarketSummary: {},
+				GetSettlementsForAccount: {},
+				GetAllSettlements: {},
 				
 				_Structure: {
 						AssetIBCInfo: getStructure(AssetIBCInfo.fromPartial({})),
@@ -213,6 +216,24 @@ export default {
 						(<any> params).query=null
 					}
 			return state.GetHistoricalPrices[JSON.stringify(params)] ?? {}
+		},
+				getGetMarketSummary: (state) => (params = { params: {}}) => {
+					if (!(<any> params).query) {
+						(<any> params).query=null
+					}
+			return state.GetMarketSummary[JSON.stringify(params)] ?? {}
+		},
+				getGetSettlementsForAccount: (state) => (params = { params: {}}) => {
+					if (!(<any> params).query) {
+						(<any> params).query=null
+					}
+			return state.GetSettlementsForAccount[JSON.stringify(params)] ?? {}
+		},
+				getGetAllSettlements: (state) => (params = { params: {}}) => {
+					if (!(<any> params).query) {
+						(<any> params).query=null
+					}
+			return state.GetAllSettlements[JSON.stringify(params)] ?? {}
 		},
 				
 		getTypeStructure: (state) => (type) => {
@@ -375,9 +396,13 @@ export default {
 			try {
 				const key = params ?? {};
 				const queryClient=await initQueryClient(rootGetters)
-				let value= (await queryClient.queryGetSettlements( key.contractAddr,  key.priceDenom,  key.assetDenom,  key.orderId)).data
+				let value= (await queryClient.queryGetSettlements( key.contractAddr,  key.priceDenom,  key.assetDenom,  key.orderId, query)).data
 				
 					
+				while (all && (<any> value).pagination && (<any> value).pagination.next_key!=null) {
+					let next_values=(await queryClient.queryGetSettlements( key.contractAddr,  key.priceDenom,  key.assetDenom,  key.orderId, {...query, 'pagination.key':(<any> value).pagination.next_key})).data
+					value = mergeResults(value, next_values);
+				}
 				commit('QUERY', { query: 'GetSettlements', key: { params: {...key}, query}, value })
 				if (subscribe) commit('SUBSCRIBE', { action: 'QueryGetSettlements', payload: { options: { all }, params: {...key},query }})
 				return getters['getGetSettlements']( { params: {...key}, query}) ?? {}
@@ -568,36 +593,76 @@ export default {
 		},
 		
 		
-		async sendMsgCancelOrders({ rootGetters }, { value, fee = [], memo = '' }) {
+		
+		
+		 		
+		
+		
+		async QueryGetMarketSummary({ commit, rootGetters, getters }, { options: { subscribe, all} = { subscribe:false, all:false}, params, query=null }) {
 			try {
-				const txClient=await initTxClient(rootGetters)
-				const msg = await txClient.msgCancelOrders(value)
-				const result = await txClient.signAndBroadcast([msg], {fee: { amount: fee, 
-	gas: "200000" }, memo})
-				return result
+				const key = params ?? {};
+				const queryClient=await initQueryClient(rootGetters)
+				let value= (await queryClient.queryGetMarketSummary( key.contractAddr,  key.priceDenom,  key.assetDenom,  key.lookbackInSeconds)).data
+				
+					
+				commit('QUERY', { query: 'GetMarketSummary', key: { params: {...key}, query}, value })
+				if (subscribe) commit('SUBSCRIBE', { action: 'QueryGetMarketSummary', payload: { options: { all }, params: {...key},query }})
+				return getters['getGetMarketSummary']( { params: {...key}, query}) ?? {}
 			} catch (e) {
-				if (e == MissingWalletError) {
-					throw new SpVuexError('TxClient:MsgCancelOrders:Init', 'Could not initialize signing client. Wallet is required.')
-				}else{
-					throw new SpVuexError('TxClient:MsgCancelOrders:Send', 'Could not broadcast Tx: '+ e.message)
-				}
+				throw new SpVuexError('QueryClient:QueryGetMarketSummary', 'API Node Unavailable. Could not perform query: ' + e.message)
+				
 			}
 		},
-		async sendMsgLiquidation({ rootGetters }, { value, fee = [], memo = '' }) {
+		
+		
+		
+		
+		 		
+		
+		
+		async QueryGetSettlementsForAccount({ commit, rootGetters, getters }, { options: { subscribe, all} = { subscribe:false, all:false}, params, query=null }) {
 			try {
-				const txClient=await initTxClient(rootGetters)
-				const msg = await txClient.msgLiquidation(value)
-				const result = await txClient.signAndBroadcast([msg], {fee: { amount: fee, 
-	gas: "200000" }, memo})
-				return result
+				const key = params ?? {};
+				const queryClient=await initQueryClient(rootGetters)
+				let value= (await queryClient.queryGetSettlementsForAccount( key.contractAddr,  key.priceDenom,  key.assetDenom,  key.account)).data
+				
+					
+				commit('QUERY', { query: 'GetSettlementsForAccount', key: { params: {...key}, query}, value })
+				if (subscribe) commit('SUBSCRIBE', { action: 'QueryGetSettlementsForAccount', payload: { options: { all }, params: {...key},query }})
+				return getters['getGetSettlementsForAccount']( { params: {...key}, query}) ?? {}
 			} catch (e) {
-				if (e == MissingWalletError) {
-					throw new SpVuexError('TxClient:MsgLiquidation:Init', 'Could not initialize signing client. Wallet is required.')
-				}else{
-					throw new SpVuexError('TxClient:MsgLiquidation:Send', 'Could not broadcast Tx: '+ e.message)
-				}
+				throw new SpVuexError('QueryClient:QueryGetSettlementsForAccount', 'API Node Unavailable. Could not perform query: ' + e.message)
+				
 			}
 		},
+		
+		
+		
+		
+		 		
+		
+		
+		async QueryGetAllSettlements({ commit, rootGetters, getters }, { options: { subscribe, all} = { subscribe:false, all:false}, params, query=null }) {
+			try {
+				const key = params ?? {};
+				const queryClient=await initQueryClient(rootGetters)
+				let value= (await queryClient.queryGetAllSettlements( key.contractAddr,  key.priceDenom,  key.assetDenom, query)).data
+				
+					
+				while (all && (<any> value).pagination && (<any> value).pagination.next_key!=null) {
+					let next_values=(await queryClient.queryGetAllSettlements( key.contractAddr,  key.priceDenom,  key.assetDenom, {...query, 'pagination.key':(<any> value).pagination.next_key})).data
+					value = mergeResults(value, next_values);
+				}
+				commit('QUERY', { query: 'GetAllSettlements', key: { params: {...key}, query}, value })
+				if (subscribe) commit('SUBSCRIBE', { action: 'QueryGetAllSettlements', payload: { options: { all }, params: {...key},query }})
+				return getters['getGetAllSettlements']( { params: {...key}, query}) ?? {}
+			} catch (e) {
+				throw new SpVuexError('QueryClient:QueryGetAllSettlements', 'API Node Unavailable. Could not perform query: ' + e.message)
+				
+			}
+		},
+		
+		
 		async sendMsgPlaceOrders({ rootGetters }, { value, fee = [], memo = '' }) {
 			try {
 				const txClient=await initTxClient(rootGetters)
@@ -610,6 +675,21 @@ export default {
 					throw new SpVuexError('TxClient:MsgPlaceOrders:Init', 'Could not initialize signing client. Wallet is required.')
 				}else{
 					throw new SpVuexError('TxClient:MsgPlaceOrders:Send', 'Could not broadcast Tx: '+ e.message)
+				}
+			}
+		},
+		async sendMsgCancelOrders({ rootGetters }, { value, fee = [], memo = '' }) {
+			try {
+				const txClient=await initTxClient(rootGetters)
+				const msg = await txClient.msgCancelOrders(value)
+				const result = await txClient.signAndBroadcast([msg], {fee: { amount: fee, 
+	gas: "200000" }, memo})
+				return result
+			} catch (e) {
+				if (e == MissingWalletError) {
+					throw new SpVuexError('TxClient:MsgCancelOrders:Init', 'Could not initialize signing client. Wallet is required.')
+				}else{
+					throw new SpVuexError('TxClient:MsgCancelOrders:Send', 'Could not broadcast Tx: '+ e.message)
 				}
 			}
 		},
@@ -628,35 +708,22 @@ export default {
 				}
 			}
 		},
-		
-		async MsgCancelOrders({ rootGetters }, { value }) {
-			try {
-				const txClient=await initTxClient(rootGetters)
-				const msg = await txClient.msgCancelOrders(value)
-				return msg
-			} catch (e) {
-				if (e == MissingWalletError) {
-					throw new SpVuexError('TxClient:MsgCancelOrders:Init', 'Could not initialize signing client. Wallet is required.')
-				}else{
-					throw new SpVuexError('TxClient:MsgCancelOrders:Create', 'Could not create message: ' + e.message)
-					
-				}
-			}
-		},
-		async MsgLiquidation({ rootGetters }, { value }) {
+		async sendMsgLiquidation({ rootGetters }, { value, fee = [], memo = '' }) {
 			try {
 				const txClient=await initTxClient(rootGetters)
 				const msg = await txClient.msgLiquidation(value)
-				return msg
+				const result = await txClient.signAndBroadcast([msg], {fee: { amount: fee, 
+	gas: "200000" }, memo})
+				return result
 			} catch (e) {
 				if (e == MissingWalletError) {
 					throw new SpVuexError('TxClient:MsgLiquidation:Init', 'Could not initialize signing client. Wallet is required.')
 				}else{
-					throw new SpVuexError('TxClient:MsgLiquidation:Create', 'Could not create message: ' + e.message)
-					
+					throw new SpVuexError('TxClient:MsgLiquidation:Send', 'Could not broadcast Tx: '+ e.message)
 				}
 			}
 		},
+		
 		async MsgPlaceOrders({ rootGetters }, { value }) {
 			try {
 				const txClient=await initTxClient(rootGetters)
@@ -671,6 +738,20 @@ export default {
 				}
 			}
 		},
+		async MsgCancelOrders({ rootGetters }, { value }) {
+			try {
+				const txClient=await initTxClient(rootGetters)
+				const msg = await txClient.msgCancelOrders(value)
+				return msg
+			} catch (e) {
+				if (e == MissingWalletError) {
+					throw new SpVuexError('TxClient:MsgCancelOrders:Init', 'Could not initialize signing client. Wallet is required.')
+				}else{
+					throw new SpVuexError('TxClient:MsgCancelOrders:Create', 'Could not create message: ' + e.message)
+					
+				}
+			}
+		},
 		async MsgRegisterContract({ rootGetters }, { value }) {
 			try {
 				const txClient=await initTxClient(rootGetters)
@@ -681,6 +762,20 @@ export default {
 					throw new SpVuexError('TxClient:MsgRegisterContract:Init', 'Could not initialize signing client. Wallet is required.')
 				}else{
 					throw new SpVuexError('TxClient:MsgRegisterContract:Create', 'Could not create message: ' + e.message)
+					
+				}
+			}
+		},
+		async MsgLiquidation({ rootGetters }, { value }) {
+			try {
+				const txClient=await initTxClient(rootGetters)
+				const msg = await txClient.msgLiquidation(value)
+				return msg
+			} catch (e) {
+				if (e == MissingWalletError) {
+					throw new SpVuexError('TxClient:MsgLiquidation:Init', 'Could not initialize signing client. Wallet is required.')
+				}else{
+					throw new SpVuexError('TxClient:MsgLiquidation:Create', 'Could not create message: ' + e.message)
 					
 				}
 			}

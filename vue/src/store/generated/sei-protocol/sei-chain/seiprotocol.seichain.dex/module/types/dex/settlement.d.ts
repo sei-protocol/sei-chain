@@ -10,6 +10,8 @@ export interface SettlementEntry {
     positionDirection: string;
     orderType: string;
     orderId: number;
+    timestamp: number;
+    height: number;
 }
 export interface Settlements {
     epoch: number;

@@ -126,11 +126,21 @@ export interface DexQueryAssetListResponse {
 export interface DexQueryAssetMetadataResponse {
     metadata?: DexAssetMetadata;
 }
+export interface DexQueryGetAllSettlementsResponse {
+    SettlementsList?: DexSettlements[];
+}
 export interface DexQueryGetHistoricalPricesResponse {
     prices?: DexPriceCandlestick[];
 }
 export interface DexQueryGetLongBookResponse {
     LongBook?: DexLongBook;
+}
+export interface DexQueryGetMarketSummaryResponse {
+    totalVolume?: string;
+    totalVolumeNotional?: string;
+    highPrice?: string;
+    lowPrice?: string;
+    lastPrice?: string;
 }
 export interface DexQueryGetOrderByIDResponse {
     order?: DexOrder;
@@ -140,6 +150,9 @@ export interface DexQueryGetOrdersResponse {
 }
 export interface DexQueryGetPricesResponse {
     prices?: DexPrice[];
+}
+export interface DexQueryGetSettlementsForAccountResponse {
+    SettlementsList?: DexSettlements[];
 }
 export interface DexQueryGetSettlementsResponse {
     Settlements?: DexSettlements;
@@ -171,6 +184,10 @@ export interface DexSettlementEntry {
     orderType?: string;
     /** @format uint64 */
     orderId?: string;
+    /** @format uint64 */
+    timestamp?: string;
+    /** @format uint64 */
+    height?: string;
 }
 export interface DexSettlements {
     /** @format int64 */
@@ -391,10 +408,28 @@ export declare class Api<SecurityDataType extends unknown> extends HttpClient<Se
      * No description
      *
      * @tags Query
+     * @name QueryGetAllSettlements
+     * @request GET:/sei-protocol/seichain/dex/get_all_settlements/{contractAddr}/{priceDenom}/{assetDenom}
+     */
+    queryGetAllSettlements: (contractAddr: string, priceDenom: string, assetDenom: string, query?: {
+        limit?: string;
+    }, params?: RequestParams) => Promise<HttpResponse<DexQueryGetAllSettlementsResponse, RpcStatus>>;
+    /**
+     * No description
+     *
+     * @tags Query
      * @name QueryGetHistoricalPrices
      * @request GET:/sei-protocol/seichain/dex/get_historical_prices/{contractAddr}/{priceDenom}/{assetDenom}/{periodLengthInSeconds}/{numOfPeriods}
      */
     queryGetHistoricalPrices: (contractAddr: string, priceDenom: string, assetDenom: string, periodLengthInSeconds: string, numOfPeriods: string, params?: RequestParams) => Promise<HttpResponse<DexQueryGetHistoricalPricesResponse, RpcStatus>>;
+    /**
+     * No description
+     *
+     * @tags Query
+     * @name QueryGetMarketSummary
+     * @request GET:/sei-protocol/seichain/dex/get_market_summary/{contractAddr}/{priceDenom}/{assetDenom}/{lookbackInSeconds}
+     */
+    queryGetMarketSummary: (contractAddr: string, priceDenom: string, assetDenom: string, lookbackInSeconds: string, params?: RequestParams) => Promise<HttpResponse<DexQueryGetMarketSummaryResponse, RpcStatus>>;
     /**
      * No description
      *
@@ -426,7 +461,17 @@ export declare class Api<SecurityDataType extends unknown> extends HttpClient<Se
      * @name QueryGetSettlements
      * @request GET:/sei-protocol/seichain/dex/get_settlements/{contractAddr}/{priceDenom}/{assetDenom}/{orderId}
      */
-    queryGetSettlements: (contractAddr: string, priceDenom: string, assetDenom: string, orderId: string, params?: RequestParams) => Promise<HttpResponse<DexQueryGetSettlementsResponse, RpcStatus>>;
+    queryGetSettlements: (contractAddr: string, priceDenom: string, assetDenom: string, orderId: string, query?: {
+        account?: string;
+    }, params?: RequestParams) => Promise<HttpResponse<DexQueryGetSettlementsResponse, RpcStatus>>;
+    /**
+     * No description
+     *
+     * @tags Query
+     * @name QueryGetSettlementsForAccount
+     * @request GET:/sei-protocol/seichain/dex/get_settlements_for_account/{contractAddr}/{priceDenom}/{assetDenom}/{account}
+     */
+    queryGetSettlementsForAccount: (contractAddr: string, priceDenom: string, assetDenom: string, account: string, params?: RequestParams) => Promise<HttpResponse<DexQueryGetSettlementsForAccountResponse, RpcStatus>>;
     /**
      * No description
      *
