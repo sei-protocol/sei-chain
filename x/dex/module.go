@@ -22,12 +22,19 @@ import (
 	"github.com/sei-protocol/sei-chain/utils"
 	"github.com/sei-protocol/sei-chain/utils/tracing"
 	dexcache "github.com/sei-protocol/sei-chain/x/dex/cache"
-	"github.com/sei-protocol/sei-chain/x/dex/client/cli"
+	"github.com/sei-protocol/sei-chain/x/dex/client/cli/query"
+	"github.com/sei-protocol/sei-chain/x/dex/client/cli/tx"
 	"github.com/sei-protocol/sei-chain/x/dex/contract"
 	"github.com/sei-protocol/sei-chain/x/dex/exchange"
 	"github.com/sei-protocol/sei-chain/x/dex/keeper"
+	dexkeeperabci "github.com/sei-protocol/sei-chain/x/dex/keeper/abci"
+	"github.com/sei-protocol/sei-chain/x/dex/keeper/msgserver"
+	dexkeeperquery "github.com/sei-protocol/sei-chain/x/dex/keeper/query"
+	dexkeeperutils "github.com/sei-protocol/sei-chain/x/dex/keeper/utils"
 	"github.com/sei-protocol/sei-chain/x/dex/migrations"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
+	dextypesutils "github.com/sei-protocol/sei-chain/x/dex/types/utils"
+	dextypeswasm "github.com/sei-protocol/sei-chain/x/dex/types/wasm"
 	"github.com/sei-protocol/sei-chain/x/store"
 )
 
@@ -92,12 +99,12 @@ func (AppModuleBasic) RegisterGRPCGatewayRoutes(clientCtx client.Context, mux *r
 
 // GetTxCmd returns the capability module's root tx command.
 func (a AppModuleBasic) GetTxCmd() *cobra.Command {
-	return cli.GetTxCmd()
+	return tx.GetTxCmd()
 }
 
 // GetQueryCmd returns the capability module's root query command.
 func (AppModuleBasic) GetQueryCmd() *cobra.Command {
-	return cli.GetQueryCmd(types.StoreKey)
+	return query.GetQueryCmd(types.StoreKey)
 }
 
 // ----------------------------------------------------------------------------
@@ -112,6 +119,8 @@ type AppModule struct {
 	accountKeeper types.AccountKeeper
 	bankKeeper    types.BankKeeper
 	wasmKeeper    wasm.Keeper
+
+	abciWrapper dexkeeperabci.KeeperWrapper
 
 	tracingInfo *tracing.Info
 }
@@ -130,6 +139,7 @@ func NewAppModule(
 		accountKeeper:  accountKeeper,
 		bankKeeper:     bankKeeper,
 		wasmKeeper:     wasmKeeper,
+		abciWrapper:    dexkeeperabci.KeeperWrapper{Keeper: &keeper},
 		tracingInfo:    tracingInfo,
 	}
 }
@@ -155,8 +165,8 @@ func (am AppModule) LegacyQuerierHandler(legacyQuerierCdc *codec.LegacyAmino) sd
 // RegisterServices registers a GRPC query service to respond to the
 // module-specific GRPC queries.
 func (am AppModule) RegisterServices(cfg module.Configurator) {
-	types.RegisterMsgServer(cfg.MsgServer(), keeper.NewMsgServerImpl(am.keeper, am.tracingInfo))
-	types.RegisterQueryServer(cfg.QueryServer(), am.keeper)
+	types.RegisterMsgServer(cfg.MsgServer(), msgserver.NewMsgServerImpl(am.keeper, am.tracingInfo))
+	types.RegisterQueryServer(cfg.QueryServer(), dexkeeperquery.KeeperWrapper{Keeper: &am.keeper})
 
 	_ = cfg.RegisterMigration(types.ModuleName, 1, func(ctx sdk.Context) error { return nil })
 	_ = cfg.RegisterMigration(types.ModuleName, 2, func(ctx sdk.Context) error {
@@ -224,7 +234,7 @@ func (am AppModule) beginBlockForContract(ctx sdk.Context, contract types.Contra
 	defer span.End()
 
 	if contract.NeedHook {
-		if err := am.keeper.HandleBBNewBlock(ctx, contractAddr, epoch); err != nil {
+		if err := am.abciWrapper.HandleBBNewBlock(ctx, contractAddr, epoch); err != nil {
 			ctx.Logger().Error(fmt.Sprintf("New block hook error for %s: %s", contractAddr, err.Error()))
 		}
 	}
@@ -256,9 +266,9 @@ func (am AppModule) EndBlock(ctx sdk.Context, _ abci.RequestEndBlock) []abci.Val
 		cachedCtx, msCached := store.GetCachedContext(ctx)
 		// cache keeper in-memory state
 		memStateCopy := am.keeper.MemState.DeepCopy()
-		finalizeBlockMessages := map[string]*types.SudoFinalizeBlockMsg{}
+		finalizeBlockMessages := map[string]*dextypeswasm.SudoFinalizeBlockMsg{}
 		for contractAddr := range validContractAddresses {
-			finalizeBlockMessages[contractAddr] = types.NewSudoFinalizeBlockMsg()
+			finalizeBlockMessages[contractAddr] = dextypeswasm.NewSudoFinalizeBlockMsg()
 		}
 
 		for contractAddr, contractInfo := range validContractAddresses {
@@ -283,7 +293,7 @@ func (am AppModule) EndBlock(ctx sdk.Context, _ abci.RequestEndBlock) []abci.Val
 			if !validContractAddresses[contractAddr].NeedHook {
 				continue
 			}
-			if _, err := am.keeper.CallContractSudo(cachedCtx, contractAddr, finalizeBlockMsg); err != nil {
+			if _, err := dexkeeperutils.CallContractSudo(cachedCtx, &am.keeper, contractAddr, finalizeBlockMsg); err != nil {
 				ctx.Logger().Error(fmt.Sprintf("Error calling FinalizeBlock of %s", contractAddr))
 				failedContractAddresses.Add(contractAddr)
 			}
@@ -314,34 +324,34 @@ func (am AppModule) EndBlock(ctx sdk.Context, _ abci.RequestEndBlock) []abci.Val
 	return []abci.ValidatorUpdate{}
 }
 
-func (am AppModule) endBlockForContract(ctx sdk.Context, contract types.ContractInfo) (map[string]types.ContractOrderResult, error) {
+func (am AppModule) endBlockForContract(ctx sdk.Context, contract types.ContractInfo) (map[string]dextypeswasm.ContractOrderResult, error) {
 	contractAddr := contract.ContractAddr
 	spanCtx, span := (*am.tracingInfo.Tracer).Start(am.tracingInfo.TracerContext, "DexEndBlock")
 	span.SetAttributes(attribute.String("contract", contractAddr))
 	defer span.End()
 
-	typedContractAddr := types.ContractAddress(contractAddr)
+	typedContractAddr := dextypesutils.ContractAddress(contractAddr)
 	registeredPairs := am.keeper.GetAllRegisteredPairs(ctx, contractAddr)
 	_, currentEpoch := am.keeper.IsNewEpoch(ctx)
-	orderResults := map[string]types.ContractOrderResult{}
+	orderResults := map[string]dextypeswasm.ContractOrderResult{}
 
-	if err := am.keeper.HandleEBLiquidation(spanCtx, ctx, am.tracingInfo.Tracer, contractAddr, registeredPairs); err != nil {
+	if err := am.abciWrapper.HandleEBLiquidation(spanCtx, ctx, am.tracingInfo.Tracer, contractAddr, registeredPairs); err != nil {
 		return orderResults, err
 	}
-	if err := am.keeper.HandleEBCancelOrders(spanCtx, ctx, am.tracingInfo.Tracer, contractAddr, registeredPairs); err != nil {
+	if err := am.abciWrapper.HandleEBCancelOrders(spanCtx, ctx, am.tracingInfo.Tracer, contractAddr, registeredPairs); err != nil {
 		return orderResults, err
 	}
-	if err := am.keeper.HandleEBPlaceOrders(spanCtx, ctx, am.tracingInfo.Tracer, contractAddr, registeredPairs); err != nil {
+	if err := am.abciWrapper.HandleEBPlaceOrders(spanCtx, ctx, am.tracingInfo.Tracer, contractAddr, registeredPairs); err != nil {
 		return orderResults, err
 	}
 
 	// populate order placement results for FinalizeBlock hook
 	for _, orders := range am.keeper.MemState.BlockOrders[typedContractAddr] {
-		types.PopulateOrderPlacementResults(contractAddr, *orders, orderResults)
+		dextypeswasm.PopulateOrderPlacementResults(contractAddr, *orders, orderResults)
 	}
 
 	for _, pair := range registeredPairs {
-		typedPairStr := types.GetPairString(&pair) //nolint:gosec // USING THE POINTER HERE COULD BE BAD, LET'S CHECK IT
+		typedPairStr := dextypesutils.GetPairString(&pair) //nolint:gosec // USING THE POINTER HERE COULD BE BAD, LET'S CHECK IT
 		orders := am.keeper.MemState.GetBlockOrders(typedContractAddr, typedPairStr)
 		cancels := am.keeper.MemState.GetBlockCancels(typedContractAddr, typedPairStr)
 		ctx.Logger().Info(string(typedPairStr))
@@ -417,12 +427,12 @@ func (am AppModule) endBlockForContract(ctx sdk.Context, contract types.Contract
 			ctx.Logger().Info(fmt.Sprintf("Long book: %s, %s", buy.GetPrice(), buy.GetEntry().Quantity))
 			if longDirtyPrices.Has(buy.GetPrice()) {
 				ctx.Logger().Info("Long book is dirty")
-				am.keeper.FlushDirtyLongBook(ctx, contractAddr, buy)
+				dexkeeperutils.FlushDirtyLongBook(ctx, &am.keeper, contractAddr, buy)
 			}
 		}
 		for _, sell := range allExistingSells {
 			if shortDirtyPrices.Has(sell.GetPrice()) {
-				am.keeper.FlushDirtyShortBook(ctx, contractAddr, sell)
+				dexkeeperutils.FlushDirtyShortBook(ctx, &am.keeper, contractAddr, sell)
 			}
 		}
 		_, currentEpoch := am.keeper.IsNewEpoch(ctx)
@@ -430,7 +440,7 @@ func (am AppModule) endBlockForContract(ctx sdk.Context, contract types.Contract
 			Epoch:   int64(currentEpoch),
 			Entries: []*types.SettlementEntry{},
 		}
-		settlementMap := map[types.PairString]*types.Settlements{}
+		settlementMap := map[dextypesutils.PairString]*types.Settlements{}
 
 		for _, settlementEntry := range settlements {
 			priceDenom := settlementEntry.PriceDenom
@@ -439,10 +449,10 @@ func (am AppModule) endBlockForContract(ctx sdk.Context, contract types.Contract
 				PriceDenom: priceDenom,
 				AssetDenom: assetDenom,
 			}
-			if settlements, ok := settlementMap[types.GetPairString(&pair)]; ok {
+			if settlements, ok := settlementMap[dextypesutils.GetPairString(&pair)]; ok {
 				settlements.Entries = append(settlements.Entries, settlementEntry)
 			} else {
-				settlementMap[types.GetPairString(&pair)] = &types.Settlements{
+				settlementMap[dextypesutils.GetPairString(&pair)] = &types.Settlements{
 					Epoch:   int64(currentEpoch),
 					Entries: []*types.SettlementEntry{settlementEntry},
 				}
@@ -451,18 +461,18 @@ func (am AppModule) endBlockForContract(ctx sdk.Context, contract types.Contract
 		}
 		for _, pair := range registeredPairs {
 			pair := pair
-			if settlementEntries, ok := settlementMap[types.GetPairString(&pair)]; ok && len(settlementEntries.Entries) > 0 {
+			if settlementEntries, ok := settlementMap[dextypesutils.GetPairString(&pair)]; ok && len(settlementEntries.Entries) > 0 {
 				am.keeper.SetSettlements(ctx, contractAddr, settlementEntries.Entries[0].PriceDenom, settlementEntries.Entries[0].AssetDenom, *settlementEntries)
 			}
 		}
 		// populate execution results for FinalizeBlock hook
-		types.PopulateOrderExecutionResults(contractAddr, allSettlements.Entries, orderResults)
+		dextypeswasm.PopulateOrderExecutionResults(contractAddr, allSettlements.Entries, orderResults)
 
-		nativeSettlementMsg := types.SudoSettlementMsg{
+		nativeSettlementMsg := dextypeswasm.SudoSettlementMsg{
 			Settlement: allSettlements,
 		}
 		ctx.Logger().Info(nativeSettlementMsg.Settlement.String())
-		if _, err := am.keeper.CallContractSudo(ctx, contractAddr, nativeSettlementMsg); err != nil {
+		if _, err := dexkeeperutils.CallContractSudo(ctx, &am.keeper, contractAddr, nativeSettlementMsg); err != nil {
 			return orderResults, err
 		}
 
@@ -504,7 +514,7 @@ func (am AppModule) endBlockForContract(ctx sdk.Context, contract types.Contract
 		}
 	}
 	// Cancel unfilled market orders
-	if err := am.keeper.HandleEBCancelOrders(spanCtx, ctx, am.tracingInfo.Tracer, contractAddr, registeredPairs); err != nil {
+	if err := am.abciWrapper.HandleEBCancelOrders(spanCtx, ctx, am.tracingInfo.Tracer, contractAddr, registeredPairs); err != nil {
 		return orderResults, err
 	}
 

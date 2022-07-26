@@ -11,11 +11,11 @@ import (
 func TestTickSizeGet(t *testing.T) {
 	keeper, ctx := keepertest.DexKeeper(t)
 	// TEST_PAIR = atom/usdc pair
-	ticksize, found := keeper.GetTickSizeForPair(ctx, "sei14hj2tavq8fpesdwxxcu44rty3hh90vhujrvcmstl4zr3txmfvw9sh9m79m", TEST_PAIR)
+	ticksize, found := keeper.GetTickSizeForPair(ctx, "sei14hj2tavq8fpesdwxxcu44rty3hh90vhujrvcmstl4zr3txmfvw9sh9m79m", keepertest.TestPair)
 	assert.Equal(t, ticksize, sdk.ZeroDec())
 	assert.False(t, found)
-	keeper.SetTickSizeForPair(ctx, "sei14hj2tavq8fpesdwxxcu44rty3hh90vhujrvcmstl4zr3txmfvw9sh9m79m", TEST_PAIR, sdk.NewDec(2))
-	ticksize, found = keeper.GetTickSizeForPair(ctx, "sei14hj2tavq8fpesdwxxcu44rty3hh90vhujrvcmstl4zr3txmfvw9sh9m79m", TEST_PAIR)
+	keeper.SetTickSizeForPair(ctx, "sei14hj2tavq8fpesdwxxcu44rty3hh90vhujrvcmstl4zr3txmfvw9sh9m79m", keepertest.TestPair, sdk.NewDec(2))
+	ticksize, found = keeper.GetTickSizeForPair(ctx, "sei14hj2tavq8fpesdwxxcu44rty3hh90vhujrvcmstl4zr3txmfvw9sh9m79m", keepertest.TestPair)
 	assert.Equal(t, ticksize, sdk.NewDec(2))
 	assert.True(t, found)
 }
