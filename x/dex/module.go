@@ -23,6 +23,7 @@ import (
 	"github.com/sei-protocol/sei-chain/utils/tracing"
 	dexcache "github.com/sei-protocol/sei-chain/x/dex/cache"
 	"github.com/sei-protocol/sei-chain/x/dex/client/cli"
+	"github.com/sei-protocol/sei-chain/x/dex/contract"
 	"github.com/sei-protocol/sei-chain/x/dex/exchange"
 	"github.com/sei-protocol/sei-chain/x/dex/keeper"
 	"github.com/sei-protocol/sei-chain/x/dex/migrations"
@@ -194,7 +195,14 @@ func (am AppModule) ExportGenesis(ctx sdk.Context, cdc codec.JSONCodec) json.Raw
 func (AppModule) ConsensusVersion() uint64 { return 5 }
 
 func (am AppModule) getAllContractInfo(ctx sdk.Context) []types.ContractInfo {
-	return am.keeper.GetAllContractInfo(ctx)
+	unsorted := am.keeper.GetAllContractInfo(ctx)
+	sorted, err := contract.TopologicalSortContractInfo(unsorted)
+	if err != nil {
+		// This should never happen unless there is a bug in contract registration.
+		// Chain needs to be halted to prevent bad states from being written
+		panic(err)
+	}
+	return sorted
 }
 
 // BeginBlock executes all ABCI BeginBlock logic respective to the capability module.

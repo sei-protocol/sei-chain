@@ -8,7 +8,8 @@ import (
 
 // x/dex module sentinel errors
 var (
-	ErrSample                 = sdkerrors.Register(ModuleName, 1100, "sample error")
-	InsufficientAssetError    = sdkerrors.Register(ModuleName, 1101, "insufficient fund")
-	UnknownCustomMessageError = sdkerrors.Register(ModuleName, 1102, "unknown custom message")
+	ErrSample                     = sdkerrors.Register(ModuleName, 1100, "sample error")
+	InsufficientAssetError        = sdkerrors.Register(ModuleName, 1101, "insufficient fund")
+	UnknownCustomMessageError     = sdkerrors.Register(ModuleName, 1102, "unknown custom message")
+	ErrCircularContractDependency = sdkerrors.Register(ModuleName, 1103, "circular contract dependency detected")
 )
