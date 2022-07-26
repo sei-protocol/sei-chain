@@ -129,7 +129,7 @@ func TestEndBlockMarketOrder(t *testing.T) {
 
 	settlements, found := dexkeeper.GetSettlementsState(ctx, contractAddr.String(), pair.PriceDenom, pair.AssetDenom, testAccount.String(), 2)
 	require.True(t, found)
-	require.Equal(t, 2, len(settlements.Entries))
+	require.Equal(t, 1, len(settlements.Entries))
 }
 
 func TestEndBlockRollback(t *testing.T) {

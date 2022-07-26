@@ -15,7 +15,10 @@ func (k Keeper) SetSettlements(ctx sdk.Context, contractAddr string, priceDenom 
 		if found {
 			existing.Entries = append(existing.Entries, settlement)
 		} else {
-			existing = settlements
+			existing = types.Settlements{
+				Epoch:   settlements.Epoch,
+				Entries: []*types.SettlementEntry{settlement},
+			}
 		}
 
 		b := k.Cdc.MustMarshal(&existing)
