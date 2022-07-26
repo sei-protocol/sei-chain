@@ -94,6 +94,8 @@ service Query {
 	rpc GetAllSettlements(QueryGetAllSettlementsRequest) returns (QueryGetAllSettlementsResponse) {
 		option (google.api.http).get = "/sei-protocol/seichain/dex/get_all_settlements/{contractAddr}/{priceDenom}/{assetDenom}";
 	}
+	
+	rpc GetOrderSimulation(QueryOrderSimulationRequest) returns (QueryOrderSimulationResponse) {}
 
 // this line is used by starport scaffolding # 2
 }
@@ -368,3 +370,18 @@ message QueryGetMarketSummaryResponse{
       (gogoproto.jsontag) = "last_price"
   	];
 }
+
+message QueryOrderSimulationRequest {
+	Order order = 1 [
+		(gogoproto.jsontag) = "order"
+	];
+}
+
+message QueryOrderSimulationResponse {
+	string ExecutedQuantity = 1 [
+        (gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Dec",
+        (gogoproto.jsontag)    = "executed_quantity"
+    ];
+}
+
+// this line is used by starport scaffolding # 3
