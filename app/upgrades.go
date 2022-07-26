@@ -35,12 +35,13 @@ var upgradesList = []string{
 
 func (app App) RegisterUpgradeHandlers() {
 	// Upgrades names must be in alphabetical order
+	// https://github.com/cosmos/cosmos-sdk/blob/v0.45.4/docs/core/upgrade.md#order-of-migrations
 	// https://github.com/cosmos/cosmos-sdk/issues/11707
 	if !sort.StringsAreSorted(upgradesList) {
 		log.Fatal("New upgrades must be appended to 'upgradesList' in alphabetical order")
 	}
-	for _, upgrade := range upgradesList {
-		app.UpgradeKeeper.SetUpgradeHandler(upgrade, func(ctx sdk.Context, plan upgradetypes.Plan, fromVM module.VersionMap) (module.VersionMap, error) {
+	for _, upgradeName := range upgradesList {
+		app.UpgradeKeeper.SetUpgradeHandler(upgradeName, func(ctx sdk.Context, plan upgradetypes.Plan, fromVM module.VersionMap) (module.VersionMap, error) {
 			return app.mm.RunMigrations(ctx, app.configurator, fromVM)
 		})
 	}
