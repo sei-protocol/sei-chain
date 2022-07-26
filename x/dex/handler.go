@@ -9,12 +9,13 @@ import (
 
 	"github.com/sei-protocol/sei-chain/utils/tracing"
 	"github.com/sei-protocol/sei-chain/x/dex/keeper"
+	"github.com/sei-protocol/sei-chain/x/dex/keeper/msgserver"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
 )
 
 // NewHandler ...
 func NewHandler(k keeper.Keeper, tracingInfo *tracing.Info) sdk.Handler {
-	msgServer := keeper.NewMsgServerImpl(k, tracingInfo)
+	msgServer := msgserver.NewMsgServerImpl(k, tracingInfo)
 
 	return func(ctx sdk.Context, msg sdk.Msg) (*sdk.Result, error) {
 		ctx = ctx.WithEventManager(sdk.NewEventManager())
@@ -44,11 +45,11 @@ func NewProposalHandler(k keeper.Keeper) govtypes.Handler {
 	return func(ctx sdk.Context, content govtypes.Content) error {
 		switch c := content.(type) {
 		case *types.RegisterPairsProposal:
-			return k.HandleRegisterPairsProposal(ctx, c)
+			return HandleRegisterPairsProposal(ctx, &k, c)
 		case *types.UpdateTickSizeProposal:
-			return k.HandleUpdateTickSizeProposal(ctx, c)
+			return HandleUpdateTickSizeProposal(ctx, &k, c)
 		case *types.AddAssetMetadataProposal:
-			return k.HandleAddAssetMetadataProposal(ctx, c)
+			return HandleAddAssetMetadataProposal(ctx, &k, c)
 		default:
 			return sdkerrors.Wrapf(sdkerrors.ErrUnknownRequest, "unrecognized dex proposal content type: %T", c)
 		}

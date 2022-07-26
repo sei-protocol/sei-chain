@@ -3,6 +3,8 @@ package exchange
 import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
+	"github.com/sei-protocol/sei-chain/x/dex/types/utils"
+	"github.com/sei-protocol/sei-chain/x/dex/types/wasm"
 )
 
 type ToSettle struct {
@@ -54,7 +56,7 @@ func Settle(
 	}
 	order.GetEntry().Allocations = nonZeroNewAllocations
 	for _, toSettle := range newToSettle {
-		takerSettlements = append(takerSettlements, types.NewSettlementEntry(
+		takerSettlements = append(takerSettlements, wasm.NewSettlementEntry(
 			ctx,
 			takerOrder.Id,
 			takerOrder.Account,
@@ -66,11 +68,11 @@ func Settle(
 			worstPrice,
 			takerOrder.OrderType,
 		))
-		makerSettlements = append(makerSettlements, types.NewSettlementEntry(
+		makerSettlements = append(makerSettlements, wasm.NewSettlementEntry(
 			ctx,
 			toSettle.orderID,
 			toSettle.account,
-			types.OppositePositionDirection[takerOrder.PositionDirection],
+			utils.OppositePositionDirection[takerOrder.PositionDirection],
 			order.GetEntry().GetPriceDenom(),
 			order.GetEntry().GetAssetDenom(),
 			toSettle.amount,
@@ -151,7 +153,7 @@ func SettleFromBook(
 		} else {
 			quantity = shortToSettle.amount
 		}
-		settlements = append(settlements, types.NewSettlementEntry(
+		settlements = append(settlements, wasm.NewSettlementEntry(
 			ctx,
 			longToSettle.orderID,
 			longToSettle.account,
@@ -162,7 +164,7 @@ func SettleFromBook(
 			avgPrice,
 			longOrder.GetPrice(),
 			types.OrderType_LIMIT,
-		), types.NewSettlementEntry(
+		), wasm.NewSettlementEntry(
 			ctx,
 			shortToSettle.orderID,
 			shortToSettle.account,

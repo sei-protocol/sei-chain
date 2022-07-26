@@ -6,6 +6,8 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/sei-protocol/sei-chain/utils"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
+	typesutils "github.com/sei-protocol/sei-chain/x/dex/types/utils"
+	"github.com/sei-protocol/sei-chain/x/dex/types/wasm"
 )
 
 const (
@@ -19,10 +21,10 @@ const (
 )
 
 type MemState struct {
-	BlockOrders         map[types.ContractAddress]map[types.PairString]*BlockOrders
-	BlockCancels        map[types.ContractAddress]map[types.PairString]*BlockCancellations
-	DepositInfo         map[types.ContractAddress]*DepositInfo
-	LiquidationRequests map[types.ContractAddress]*LiquidationRequests
+	BlockOrders         map[typesutils.ContractAddress]map[typesutils.PairString]*BlockOrders
+	BlockCancels        map[typesutils.ContractAddress]map[typesutils.PairString]*BlockCancellations
+	DepositInfo         map[typesutils.ContractAddress]*DepositInfo
+	LiquidationRequests map[typesutils.ContractAddress]*LiquidationRequests
 }
 
 // All new orders attempted to be placed in the current block
@@ -47,16 +49,16 @@ type LiquidationRequests []LiquidationRequest
 
 func NewMemState() *MemState {
 	return &MemState{
-		BlockOrders:         map[types.ContractAddress]map[types.PairString]*BlockOrders{},
-		BlockCancels:        map[types.ContractAddress]map[types.PairString]*BlockCancellations{},
-		DepositInfo:         map[types.ContractAddress]*DepositInfo{},
-		LiquidationRequests: map[types.ContractAddress]*LiquidationRequests{},
+		BlockOrders:         map[typesutils.ContractAddress]map[typesutils.PairString]*BlockOrders{},
+		BlockCancels:        map[typesutils.ContractAddress]map[typesutils.PairString]*BlockCancellations{},
+		DepositInfo:         map[typesutils.ContractAddress]*DepositInfo{},
+		LiquidationRequests: map[typesutils.ContractAddress]*LiquidationRequests{},
 	}
 }
 
-func (s *MemState) GetBlockOrders(contractAddr types.ContractAddress, pair types.PairString) *BlockOrders {
+func (s *MemState) GetBlockOrders(contractAddr typesutils.ContractAddress, pair typesutils.PairString) *BlockOrders {
 	if _, ok := s.BlockOrders[contractAddr]; !ok {
-		s.BlockOrders[contractAddr] = map[types.PairString]*BlockOrders{}
+		s.BlockOrders[contractAddr] = map[typesutils.PairString]*BlockOrders{}
 	}
 	if _, ok := s.BlockOrders[contractAddr][pair]; !ok {
 		emptyBlockOrders := BlockOrders([]types.Order{})
@@ -65,9 +67,9 @@ func (s *MemState) GetBlockOrders(contractAddr types.ContractAddress, pair types
 	return s.BlockOrders[contractAddr][pair]
 }
 
-func (s *MemState) GetBlockCancels(contractAddr types.ContractAddress, pair types.PairString) *BlockCancellations {
+func (s *MemState) GetBlockCancels(contractAddr typesutils.ContractAddress, pair typesutils.PairString) *BlockCancellations {
 	if _, ok := s.BlockCancels[contractAddr]; !ok {
-		s.BlockCancels[contractAddr] = map[types.PairString]*BlockCancellations{}
+		s.BlockCancels[contractAddr] = map[typesutils.PairString]*BlockCancellations{}
 	}
 	if _, ok := s.BlockCancels[contractAddr][pair]; !ok {
 		emptyBlockCancels := BlockCancellations([]types.Cancellation{})
@@ -76,14 +78,14 @@ func (s *MemState) GetBlockCancels(contractAddr types.ContractAddress, pair type
 	return s.BlockCancels[contractAddr][pair]
 }
 
-func (s *MemState) GetDepositInfo(contractAddr types.ContractAddress) *DepositInfo {
+func (s *MemState) GetDepositInfo(contractAddr typesutils.ContractAddress) *DepositInfo {
 	if _, ok := s.DepositInfo[contractAddr]; !ok {
 		s.DepositInfo[contractAddr] = NewDepositInfo()
 	}
 	return s.DepositInfo[contractAddr]
 }
 
-func (s *MemState) GetLiquidationRequests(contractAddr types.ContractAddress) *LiquidationRequests {
+func (s *MemState) GetLiquidationRequests(contractAddr typesutils.ContractAddress) *LiquidationRequests {
 	if _, ok := s.LiquidationRequests[contractAddr]; !ok {
 		emptyRequests := LiquidationRequests([]LiquidationRequest{})
 		s.LiquidationRequests[contractAddr] = &emptyRequests
@@ -92,10 +94,10 @@ func (s *MemState) GetLiquidationRequests(contractAddr types.ContractAddress) *L
 }
 
 func (s *MemState) Clear() {
-	s.BlockOrders = map[types.ContractAddress]map[types.PairString]*BlockOrders{}
-	s.BlockCancels = map[types.ContractAddress]map[types.PairString]*BlockCancellations{}
-	s.DepositInfo = map[types.ContractAddress]*DepositInfo{}
-	s.LiquidationRequests = map[types.ContractAddress]*LiquidationRequests{}
+	s.BlockOrders = map[typesutils.ContractAddress]map[typesutils.PairString]*BlockOrders{}
+	s.BlockCancels = map[typesutils.ContractAddress]map[typesutils.PairString]*BlockCancellations{}
+	s.DepositInfo = map[typesutils.ContractAddress]*DepositInfo{}
+	s.LiquidationRequests = map[typesutils.ContractAddress]*LiquidationRequests{}
 }
 
 func (s *MemState) DeepCopy() *MemState {
@@ -248,8 +250,8 @@ func (d *DepositInfo) FilterByAccount(account string) {
 	*d = newDeposits
 }
 
-func ToContractDepositInfo(depositInfo DepositInfoEntry) types.ContractDepositInfo {
-	return types.ContractDepositInfo{
+func ToContractDepositInfo(depositInfo DepositInfoEntry) wasm.ContractDepositInfo {
+	return wasm.ContractDepositInfo{
 		Account: depositInfo.Creator,
 		Denom:   depositInfo.Denom,
 		Amount:  depositInfo.Amount,
