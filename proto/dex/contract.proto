@@ -8,4 +8,5 @@ message ContractInfo {
   string contractAddr = 2;
   bool NeedHook = 3;
   bool NeedOrderMatching = 4;
+  repeated string dependentContractAddrs = 5;
 }
