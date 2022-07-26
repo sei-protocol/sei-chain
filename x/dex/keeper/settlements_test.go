@@ -41,3 +41,27 @@ func TestGetAllSettlementsState(t *testing.T) {
 	res := keeper.GetAllSettlementsState(ctx, TEST_CONTRACT, "usdc0", "sei0", 100)
 	require.Equal(t, 1, len(res))
 }
+
+func TestSetSettlements(t *testing.T) {
+	keeper, ctx := keepertest.DexKeeper(t)
+	settlements := types.Settlements{
+		Epoch: 0,
+		Entries: []*types.SettlementEntry{
+			{
+				OrderId: 1,
+				Account: "abc",
+			},
+			{
+				OrderId: 2,
+				Account: "def",
+			},
+		},
+	}
+	keeper.SetSettlements(ctx, TEST_CONTRACT, TEST_PRICE_DENOM, TEST_ASSET_DENOM, settlements)
+	settlementsOrder1, found := keeper.GetSettlementsState(ctx, TEST_CONTRACT, TEST_PRICE_DENOM, TEST_ASSET_DENOM, "abc", 1)
+	require.True(t, found)
+	require.Equal(t, 1, len(settlementsOrder1.Entries))
+	settlementsOrder2, found := keeper.GetSettlementsState(ctx, TEST_CONTRACT, TEST_PRICE_DENOM, TEST_ASSET_DENOM, "def", 2)
+	require.True(t, found)
+	require.Equal(t, 1, len(settlementsOrder2.Entries))
+}
