@@ -422,7 +422,7 @@ func (am AppModule) endBlockForContract(ctx sdk.Context, contract types.Contract
 			Epoch:   int64(currentEpoch),
 			Entries: []*types.SettlementEntry{},
 		}
-		settlementMap := map[string]*types.Settlements{}
+		settlementMap := map[types.PairString]*types.Settlements{}
 
 		for _, settlementEntry := range settlements {
 			priceDenom := settlementEntry.PriceDenom
@@ -431,10 +431,10 @@ func (am AppModule) endBlockForContract(ctx sdk.Context, contract types.Contract
 				PriceDenom: priceDenom,
 				AssetDenom: assetDenom,
 			}
-			if settlements, ok := settlementMap[pair.String()]; ok {
+			if settlements, ok := settlementMap[types.GetPairString(&pair)]; ok {
 				settlements.Entries = append(settlements.Entries, settlementEntry)
 			} else {
-				settlementMap[pair.String()] = &types.Settlements{
+				settlementMap[types.GetPairString(&pair)] = &types.Settlements{
 					Epoch:   int64(currentEpoch),
 					Entries: []*types.SettlementEntry{settlementEntry},
 				}
@@ -442,7 +442,8 @@ func (am AppModule) endBlockForContract(ctx sdk.Context, contract types.Contract
 			allSettlements.Entries = append(allSettlements.Entries, settlementEntry)
 		}
 		for _, pair := range registeredPairs {
-			if settlementEntries, ok := settlementMap[pair.String()]; ok && len(settlementEntries.Entries) > 0 {
+			pair := pair
+			if settlementEntries, ok := settlementMap[types.GetPairString(&pair)]; ok && len(settlementEntries.Entries) > 0 {
 				am.keeper.SetSettlements(ctx, contractAddr, settlementEntries.Entries[0].PriceDenom, settlementEntries.Entries[0].AssetDenom, *settlementEntries)
 			}
 		}
