@@ -46,10 +46,20 @@ func TestTopologicalSortContractInfoIsolated(t *testing.T) {
 	}
 	res, err := contract.TopologicalSortContractInfo([]types.ContractInfo{b, c, a, d})
 	require.Nil(t, err)
-	require.Equal(t, "C", res[0].ContractAddr)
-	require.Equal(t, "A", res[1].ContractAddr)
-	require.Equal(t, "B", res[2].ContractAddr)
-	require.Equal(t, "D", res[3].ContractAddr)
+	aidx, bidx, cidx, didx := -1, -1, -1, -1
+	for i, c := range res {
+		if c.ContractAddr == "A" {
+			aidx = i
+		} else if c.ContractAddr == "B" {
+			bidx = i
+		} else if c.ContractAddr == "C" {
+			cidx = i
+		} else if c.ContractAddr == "D" {
+			didx = i
+		}
+	}
+	require.True(t, aidx != -1 && aidx < bidx)
+	require.True(t, cidx != -1 && cidx < didx)
 }
 
 // A -> B -> C -> A
