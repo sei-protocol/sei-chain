@@ -17,7 +17,7 @@ func TestRegisteredPairsQuery(t *testing.T) {
 	expectedPair := types.Pair{
 		PriceDenom: keepertest.TestPriceDenom,
 		AssetDenom: keepertest.TestAssetDenom,
-		Ticksize:   &keepertest.TEST_TICKSIZE,
+		Ticksize:   &keepertest.TestTicksize,
 	}
 	keeper.AddRegisteredPair(ctx, keepertest.TestContract, expectedPair)
 
