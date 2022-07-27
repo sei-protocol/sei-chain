@@ -3,6 +3,7 @@ package keeper_test
 import (
 	"testing"
 
+	sdk "github.com/cosmos/cosmos-sdk/types"
 	keepertest "github.com/sei-protocol/sei-chain/testutil/keeper"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
 	"github.com/stretchr/testify/require"
@@ -31,4 +32,15 @@ func TestAddCancel(t *testing.T) {
 	require.Equal(t, 1, len(keeper.GetOrdersByIds(ctx, keepertest.TestContract, []uint64{1})))
 	// The active index should be updated
 	require.Equal(t, 0, len(keeper.GetAccountActiveOrders(ctx, keepertest.TestContract, TEST_ACCOUNT).Ids))
+}
+
+func TestReduceOrderQuantity(t *testing.T) {
+	keeper, ctx := keepertest.DexKeeper(t)
+	order := types.Order{Id: 1, ContractAddr: keepertest.TestContract, Account: TEST_ACCOUNT, Quantity: sdk.MustNewDecFromStr("2")}
+	keeper.AddNewOrder(ctx, order)
+	keeper.ReduceOrderQuantity(ctx, keepertest.TestContract, 1, sdk.OneDec())
+	writtenOrders := keeper.GetOrdersByIds(ctx, keepertest.TestContract, []uint64{1})
+	require.Equal(t, 1, len(writtenOrders))
+	require.Equal(t, uint64(1), writtenOrders[1].Id)
+	require.True(t, sdk.OneDec().Equal(writtenOrders[1].Quantity))
 }
