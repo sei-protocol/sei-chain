@@ -211,7 +211,7 @@ func TestEndBlockPartialRollback(t *testing.T) {
 	)
 	// GOOD CONTRACT
 	testAccount, _ := sdk.AccAddressFromBech32("sei1yezq49upxhunjjhudql2fnj5dgvcwjj87pn2wx")
-	amounts := sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(1000000)))
+	amounts := sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(1000000)), sdk.NewCoin("uusdc", sdk.NewInt(1000000)))
 	bankkeeper := testApp.BankKeeper
 	bankkeeper.MintCoins(ctx, minttypes.ModuleName, amounts)
 	bankkeeper.SendCoinsFromModuleToAccount(ctx, minttypes.ModuleName, testAccount, amounts)
@@ -239,13 +239,20 @@ func TestEndBlockPartialRollback(t *testing.T) {
 			Id:                2,
 			Account:           testAccount.String(),
 			ContractAddr:      contractAddr.String(),
-			Price:             sdk.MustNewDecFromStr("1"),
-			Quantity:          sdk.MustNewDecFromStr("1"),
+			Price:             sdk.MustNewDecFromStr("0.0001"),
+			Quantity:          sdk.MustNewDecFromStr("0.0001"),
 			PriceDenom:        pair.PriceDenom,
 			AssetDenom:        pair.AssetDenom,
 			OrderType:         types.OrderType_LIMIT,
 			PositionDirection: types.PositionDirection_LONG,
 			Data:              "{\"position_effect\":\"Open\",\"leverage\":\"1\"}",
+		},
+	)
+	dexkeeper.MemState.GetDepositInfo(utils.ContractAddress(contractAddr.String())).AddDeposit(
+		dexcache.DepositInfoEntry{
+			Creator: testAccount.String(),
+			Denom:   "uusdc",
+			Amount:  sdk.MustNewDecFromStr("10000"),
 		},
 	)
 
@@ -256,7 +263,7 @@ func TestEndBlockPartialRollback(t *testing.T) {
 	require.False(t, found)
 	// state change should've been persisted for good contract
 	require.Equal(t, 1, len(dexkeeper.GetOrdersByIds(ctx, contractAddr.String(), []uint64{2})))
-	_, found = dexkeeper.GetLongBookByPrice(ctx, contractAddr.String(), sdk.MustNewDecFromStr("1"), pair.PriceDenom, pair.AssetDenom)
+	_, found = dexkeeper.GetLongBookByPrice(ctx, contractAddr.String(), sdk.MustNewDecFromStr("0.0001"), pair.PriceDenom, pair.AssetDenom)
 	require.True(t, found)
 }
 
