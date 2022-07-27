@@ -26,7 +26,10 @@ const (
 	"market_order_fee":{"decimal":"0.0001","negative":false},
 	"liquidation_order_fee":{"decimal":"0.0001","negative":false},
 	"margin_ratio":{"decimal":"0.0625","negative":false},
-	"max_leverage":{"decimal":"4","negative":false}}`
+	"max_leverage":{"decimal":"4","negative":false},"default_base":"USDC",
+	"native_token":"USDC","denoms": ["SEI","ATOM","USDC","SOL","ETH","OSMO","AVAX","BTC"],
+	"full_denom_mapping": [["usei","SEI","0.000001"],["uatom","ATOM","0.000001"],["uusdc","USDC","0.000001"]],
+	"funding_payment_lookback":3600,"spot_market_contract":"sei1h9yjz89tl0dl6zu65dpxcqnxfhq60wxx8s5kag"}`
 )
 
 func TestEndBlockMarketOrder(t *testing.T) {
@@ -130,6 +133,28 @@ func TestEndBlockMarketOrder(t *testing.T) {
 	settlements, found := dexkeeper.GetSettlementsState(ctx, contractAddr.String(), pair.PriceDenom, pair.AssetDenom, testAccount.String(), 2)
 	require.True(t, found)
 	require.Equal(t, 1, len(settlements.Entries))
+
+	dexkeeper.MemState.Clear()
+	dexkeeper.MemState.GetBlockOrders(utils.ContractAddress(contractAddr.String()), utils.GetPairString(&pair)).AddOrder(
+		types.Order{
+			Id:                3,
+			Account:           testAccount.String(),
+			ContractAddr:      contractAddr.String(),
+			Price:             sdk.MustNewDecFromStr("1000000"),
+			Quantity:          sdk.MustNewDecFromStr("1"),
+			PriceDenom:        pair.PriceDenom,
+			AssetDenom:        pair.AssetDenom,
+			OrderType:         types.OrderType_MARKET,
+			PositionDirection: types.PositionDirection_LONG,
+			Data:              "{\"position_effect\":\"Open\",\"leverage\":\"1\"}",
+		},
+	)
+
+	testApp.EndBlocker(ctx, abci.RequestEndBlock{})
+
+	marketOrder = dexkeeper.GetOrdersByIds(ctx, contractAddr.String(), []uint64{3})[uint64(3)]
+	require.Equal(t, types.OrderStatus_FAILED_TO_PLACE, marketOrder.Status)
+	require.Equal(t, "Account would be in margin call after order is placed", marketOrder.StatusDescription)
 }
 
 func TestEndBlockRollback(t *testing.T) {

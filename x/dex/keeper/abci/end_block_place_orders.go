@@ -50,7 +50,7 @@ func (w KeeperWrapper) HandleEBPlaceOrders(ctx context.Context, sdkCtx sdk.Conte
 	for _, pair := range registeredPairs {
 		typedPairStr := typesutils.GetPairString(&pair) //nolint:gosec // USING THE POINTER HERE COULD BE BAD, LET'S CHECK IT.
 		for _, response := range responses {
-			w.MemState.GetBlockOrders(typedContractAddr, typedPairStr).MarkFailedToPlaceByIds(response.UnsuccessfulOrderIds)
+			w.MemState.GetBlockOrders(typedContractAddr, typedPairStr).MarkFailedToPlace(response.UnsuccessfulOrders)
 		}
 	}
 	span.End()

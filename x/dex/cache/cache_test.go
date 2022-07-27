@@ -7,6 +7,7 @@ import (
 	dex "github.com/sei-protocol/sei-chain/x/dex/cache"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
 	"github.com/sei-protocol/sei-chain/x/dex/types/utils"
+	"github.com/sei-protocol/sei-chain/x/dex/types/wasm"
 	"github.com/stretchr/testify/require"
 )
 
@@ -93,16 +94,22 @@ func TestMarkFailedToPlaceByAccounts(t *testing.T) {
 		(*stateOne.GetBlockOrders(utils.ContractAddress(TEST_CONTRACT), utils.PairString(TEST_PAIR)))[0].Status)
 }
 
-func TestMarkFailedToPlaceByIds(t *testing.T) {
+func TestMarkFailedToPlace(t *testing.T) {
 	stateOne := dex.NewMemState()
 	stateOne.GetBlockOrders(utils.ContractAddress(TEST_CONTRACT), utils.PairString(TEST_PAIR)).AddOrder(types.Order{
 		Id:           1,
 		Account:      "test",
 		ContractAddr: TEST_CONTRACT,
 	})
-	stateOne.GetBlockOrders(utils.ContractAddress(TEST_CONTRACT), utils.PairString(TEST_PAIR)).MarkFailedToPlaceByIds([]uint64{1})
+	unsuccessfulOrder := wasm.UnsuccessfulOrder{
+		ID:     1,
+		Reason: "some reason",
+	}
+	stateOne.GetBlockOrders(utils.ContractAddress(TEST_CONTRACT), utils.PairString(TEST_PAIR)).MarkFailedToPlace([]wasm.UnsuccessfulOrder{unsuccessfulOrder})
 	require.Equal(t, types.OrderStatus_FAILED_TO_PLACE,
 		(*stateOne.GetBlockOrders(utils.ContractAddress(TEST_CONTRACT), utils.PairString(TEST_PAIR)))[0].Status)
+	require.Equal(t, "some reason",
+		(*stateOne.GetBlockOrders(utils.ContractAddress(TEST_CONTRACT), utils.PairString(TEST_PAIR)))[0].StatusDescription)
 }
 
 func TestGetSortedMarketOrders(t *testing.T) {
