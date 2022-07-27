@@ -435,6 +435,10 @@ func (am AppModule) endBlockForContract(ctx sdk.Context, contract types.Contract
 				dexkeeperutils.FlushDirtyShortBook(ctx, &am.keeper, contractAddr, sell)
 			}
 		}
+		for _, order := range *orders {
+			am.keeper.AddNewOrder(ctx, order)
+		}
+
 		_, currentEpoch := am.keeper.IsNewEpoch(ctx)
 		allSettlements := types.Settlements{
 			Epoch:   int64(currentEpoch),
@@ -458,7 +462,9 @@ func (am AppModule) endBlockForContract(ctx sdk.Context, contract types.Contract
 				}
 			}
 			allSettlements.Entries = append(allSettlements.Entries, settlementEntry)
+			am.keeper.ReduceOrderQuantity(ctx, contractAddr, settlementEntry.OrderId, settlementEntry.Quantity)
 		}
+
 		for _, pair := range registeredPairs {
 			pair := pair
 			if settlementEntries, ok := settlementMap[dextypesutils.GetPairString(&pair)]; ok && len(settlementEntries.Entries) > 0 {
@@ -476,9 +482,6 @@ func (am AppModule) endBlockForContract(ctx sdk.Context, contract types.Contract
 			return orderResults, err
 		}
 
-		for _, order := range *orders {
-			am.keeper.AddNewOrder(ctx, order)
-		}
 		for _, cancel := range *cancels {
 			am.keeper.AddCancel(ctx, contractAddr, cancel)
 			am.keeper.UpdateOrderStatus(ctx, contractAddr, cancel.Id, types.OrderStatus_CANCELLED)

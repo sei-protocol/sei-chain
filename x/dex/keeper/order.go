@@ -80,6 +80,20 @@ func (k Keeper) UpdateOrderStatus(ctx sdk.Context, contractAddr string, orderID 
 	store.Set(idKey, b)
 }
 
+func (k Keeper) ReduceOrderQuantity(ctx sdk.Context, contractAddr string, orderID uint64, delta sdk.Dec) {
+	store := prefix.NewStore(
+		ctx.KVStore(k.storeKey),
+		types.OrderPrefix(contractAddr),
+	)
+	idKey := make([]byte, 8)
+	binary.BigEndian.PutUint64(idKey, orderID)
+	order := types.Order{}
+	k.Cdc.MustUnmarshal(store.Get(idKey), &order)
+	order.Quantity = order.Quantity.Sub(delta)
+	b := k.Cdc.MustMarshal(&order)
+	store.Set(idKey, b)
+}
+
 func (k Keeper) GetOrdersByIds(ctx sdk.Context, contractAddr string, ids []uint64) map[uint64]types.Order {
 	store := prefix.NewStore(
 		ctx.KVStore(k.storeKey),
