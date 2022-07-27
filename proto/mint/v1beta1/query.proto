@@ -14,14 +14,10 @@ service Query {
     option (google.api.http).get = "/seichain/mint/v1beta1/params";
   }
 
-  // Inflation returns the current minting inflation value.
-  rpc Inflation(QueryInflationRequest) returns (QueryInflationResponse) {
-    option (google.api.http).get = "/seichain/mint/v1beta1/inflation";
-  }
-
-  // AnnualProvisions current minting annual provisions value.
-  rpc AnnualProvisions(QueryAnnualProvisionsRequest) returns (QueryAnnualProvisionsResponse) {
-    option (google.api.http).get = "/seichain/mint/v1beta1/annual_provisions";
+  // EpochProvisions current minting epoch provisions value.
+  rpc EpochProvisions(QueryEpochProvisionsRequest)
+      returns (QueryEpochProvisionsResponse) {
+    option (google.api.http).get = "/seichain/mint/v1beta1/epoch_provisions";
   }
 }
 
@@ -34,24 +30,16 @@ message QueryParamsResponse {
   Params params = 1 [(gogoproto.nullable) = false];
 }
 
-// QueryInflationRequest is the request type for the Query/Inflation RPC method.
-message QueryInflationRequest {}
+// QueryEpochProvisionsRequest is the request type for the
+// Query/EpochProvisions RPC method.
+message QueryEpochProvisionsRequest {}
 
-// QueryInflationResponse is the response type for the Query/Inflation RPC
-// method.
-message QueryInflationResponse {
-  // inflation is the current minting inflation value.
-  bytes inflation = 1 [(gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Dec", (gogoproto.nullable) = false];
-}
-
-// QueryAnnualProvisionsRequest is the request type for the
-// Query/AnnualProvisions RPC method.
-message QueryAnnualProvisionsRequest {}
-
-// QueryAnnualProvisionsResponse is the response type for the
-// Query/AnnualProvisions RPC method.
-message QueryAnnualProvisionsResponse {
-  // annual_provisions is the current minting annual provisions value.
-  bytes annual_provisions = 1
-      [(gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Dec", (gogoproto.nullable) = false];
+// QueryEpochProvisionsResponse is the response type for the
+// Query/EpochProvisions RPC method.
+message QueryEpochProvisionsResponse {
+  // epoch_provisions is the current minting per epoch provisions value.
+  bytes epoch_provisions = 1 [
+    (gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Dec",
+    (gogoproto.nullable) = false
+  ];
 }
