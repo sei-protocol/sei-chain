@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sync"
 
 	"github.com/CosmWasm/wasmd/x/wasm"
 	"github.com/armon/go-metrics"
@@ -296,51 +297,67 @@ func (am AppModule) EndBlock(ctx sdk.Context, _ abci.RequestEndBlock) (ret []abc
 		cachedCtx, msCached := store.GetCachedContext(ctx)
 		// cache keeper in-memory state
 		memStateCopy := am.keeper.MemState.DeepCopy()
-		finalizeBlockMessages := map[string]*dextypeswasm.SudoFinalizeBlockMsg{}
-		settlementsByContract := map[string][]*types.SettlementEntry{}
+		finalizeBlockMessages := sync.Map{} // of type map[string]*dextypeswasm.SudoFinalizeBlockMsg{}
+		settlementsByContract := sync.Map{} // of type map[string][]*types.SettlementEntry{}
 		for contractAddr := range validContractAddresses {
-			finalizeBlockMessages[contractAddr] = dextypeswasm.NewSudoFinalizeBlockMsg()
-			settlementsByContract[contractAddr] = []*types.SettlementEntry{}
+			finalizeBlockMessages.Store(contractAddr, dextypeswasm.NewSudoFinalizeBlockMsg())
+			settlementsByContract.Store(contractAddr, []*types.SettlementEntry{})
 		}
 
-		for contractAddr, contractInfo := range validContractAddresses {
+		validContractInfo := []types.ContractInfo{}
+		for _, contractInfo := range validContractAddresses {
+			validContractInfo = append(validContractInfo, contractInfo)
+		}
+		mu := sync.Mutex{}
+		runnable := func(contractInfo types.ContractInfo) {
 			if !contractInfo.NeedOrderMatching {
-				continue
+				return
 			}
-			ctx.Logger().Info(fmt.Sprintf("End block for %s", contractAddr))
+			cachedCtx.Logger().Info(fmt.Sprintf("End block for %s", contractInfo.ContractAddr))
 			if orderResultsMap, settlements, err := contract.HandleExecutionForContract(cachedCtx, contractInfo, &am.keeper, am.tracingInfo.Tracer); err != nil {
-				ctx.Logger().Error(fmt.Sprintf("Error for EndBlock of %s", contractAddr))
-				failedContractAddresses.Add(contractAddr)
+				cachedCtx.Logger().Error(fmt.Sprintf("Error for EndBlock of %s", contractInfo.ContractAddr))
+				failedContractAddresses.Add(contractInfo.ContractAddr)
 			} else {
 				for account, orderResults := range orderResultsMap {
 					// only add to finalize message for contract addresses
-					if msg, ok := finalizeBlockMessages[account]; ok {
-						msg.AddContractResult(orderResults)
+					if msg, ok := finalizeBlockMessages.Load(account); ok {
+						typedMsg := msg.(*dextypeswasm.SudoFinalizeBlockMsg)
+						mu.Lock()
+						typedMsg.AddContractResult(orderResults)
+						mu.Unlock()
 					}
 				}
-				settlementsByContract[contractAddr] = settlements
+				settlementsByContract.Store(contractInfo.ContractAddr, settlements)
 			}
 		}
 
-		for contractAddr, settlements := range settlementsByContract {
+		settlementsByContract.Range(func(key, val any) bool {
+			contractAddr := key.(string)
+			settlements := val.([]*types.SettlementEntry)
 			if !validContractAddresses[contractAddr].NeedOrderMatching {
-				continue
+				return true
 			}
 			if err := contract.HandleSettlements(cachedCtx, contractAddr, &am.keeper, settlements); err != nil {
 				ctx.Logger().Error(fmt.Sprintf("Error handling settlements for %s", contractAddr))
 				failedContractAddresses.Add(contractAddr)
 			}
-		}
+			return true
+		})
+		runner := contract.NewParallelRunner(runnable, validContractInfo)
+		runner.Run()
 
-		for contractAddr, finalizeBlockMsg := range finalizeBlockMessages {
+		finalizeBlockMessages.Range(func(key, val any) bool {
+			contractAddr := key.(string)
+			finalizeBlockMsg := val.(*dextypeswasm.SudoFinalizeBlockMsg)
 			if !validContractAddresses[contractAddr].NeedHook {
-				continue
+				return true
 			}
 			if _, err := dexkeeperutils.CallContractSudo(cachedCtx, &am.keeper, contractAddr, finalizeBlockMsg); err != nil {
-				ctx.Logger().Error(fmt.Sprintf("Error calling FinalizeBlock of %s", contractAddr))
+				cachedCtx.Logger().Error(fmt.Sprintf("Error calling FinalizeBlock of %s", contractAddr))
 				failedContractAddresses.Add(contractAddr)
 			}
-		}
+			return true
+		})
 
 		// No error is thrown for any contract. This should happen most of the time.
 		if failedContractAddresses.Size() == 0 {
