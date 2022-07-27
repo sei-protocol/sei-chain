@@ -50,6 +50,9 @@ message Order {
     string data = 11 [
         (gogoproto.jsontag) = "data"
     ];
+    string statusDescription = 12 [
+        (gogoproto.jsontag) = "status_description"
+    ];
 }
 
 message Cancellation {

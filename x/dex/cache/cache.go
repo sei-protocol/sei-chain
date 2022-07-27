@@ -158,18 +158,23 @@ func (o *BlockOrders) MarkFailedToPlaceByAccounts(accounts []string) {
 	for _, order := range *o {
 		if badAccountSet.Contains(order.Account) {
 			order.Status = types.OrderStatus_FAILED_TO_PLACE
+			order.StatusDescription = "Failed liquidation"
 		}
 		newOrders = append(newOrders, order)
 	}
 	*o = newOrders
 }
 
-func (o *BlockOrders) MarkFailedToPlaceByIds(ids []uint64) {
-	badIDSet := utils.NewUInt64Set(ids)
+func (o *BlockOrders) MarkFailedToPlace(failedOrders []wasm.UnsuccessfulOrder) {
+	failedOrdersMap := map[uint64]wasm.UnsuccessfulOrder{}
+	for _, failedOrder := range failedOrders {
+		failedOrdersMap[failedOrder.ID] = failedOrder
+	}
 	newOrders := []types.Order{}
 	for _, order := range *o {
-		if badIDSet.Contains(order.Id) {
+		if failedOrder, ok := failedOrdersMap[order.Id]; ok {
 			order.Status = types.OrderStatus_FAILED_TO_PLACE
+			order.StatusDescription = failedOrder.Reason
 		}
 		newOrders = append(newOrders, order)
 	}

@@ -23,9 +23,14 @@ type ContractDepositInfo struct {
 }
 
 type SudoOrderPlacementResponse struct {
-	UnsuccessfulOrderIds []uint64 `json:"unsuccessful_order_ids"`
+	UnsuccessfulOrders []UnsuccessfulOrder `json:"unsuccessful_orders"`
+}
+
+type UnsuccessfulOrder struct {
+	ID     uint64 `json:"id"`
+	Reason string `json:"reason"`
 }
 
 func (r SudoOrderPlacementResponse) String() string {
-	return fmt.Sprintf("Unsuccessful IDs count: %d", len(r.UnsuccessfulOrderIds))
+	return fmt.Sprintf("Unsuccessful orders count: %d", len(r.UnsuccessfulOrders))
 }
