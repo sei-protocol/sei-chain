@@ -3,11 +3,12 @@ package app
 import (
 	"context"
 	"fmt"
-	storetypes "github.com/cosmos/cosmos-sdk/store/types"
 	"io"
 	"os"
 	"path/filepath"
 	"strings"
+
+	storetypes "github.com/cosmos/cosmos-sdk/store/types"
 
 	appparams "github.com/sei-protocol/sei-chain/app/params"
 	"github.com/sei-protocol/sei-chain/wasmbinding"
