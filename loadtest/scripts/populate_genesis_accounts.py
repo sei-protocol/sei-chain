@@ -5,7 +5,7 @@ import sys
 
 def add_genesis_account(account_name, local=False):
     if local:
-        add_key_cmd = f"yes | ~/go/bin/seid keys add {account_name}"
+        add_key_cmd = f"yes | ~/go/bin/seid keys add {account_name} --keyring-backend test"
     else:
         add_key_cmd = f"printf '12345678\n' | ~/go/bin/seid keys add {account_name}"
     add_key_output = subprocess.check_output(
@@ -17,7 +17,7 @@ def add_genesis_account(account_name, local=False):
     address = splitted_outputs[3].split(': ')[1]
     mnemonic = splitted_outputs[11]
     if local:
-        add_account_cmd = f"~/go/bin/seid add-genesis-account {address} 1000000000usei"
+        add_account_cmd = f"~/go/bin/seid add-genesis-account {address} 1000000000usei --keyring-backend test"
     else:
         add_account_cmd = f"printf '12345678\n' | ~/go/bin/seid add-genesis-account {address} 1000000000usei"
 
