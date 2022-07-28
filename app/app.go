@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"fmt"
+	storetypes "github.com/cosmos/cosmos-sdk/store/types"
 	"io"
 	"os"
 	"path/filepath"
@@ -651,6 +652,19 @@ func New(
 	app.sm.RegisterStoreDecoders()
 
 	app.RegisterUpgradeHandlers()
+	upgradeInfo, err := app.UpgradeKeeper.ReadUpgradeInfoFromDisk()
+	if err != nil {
+		panic(err)
+	}
+
+	if upgradeInfo.Name == "1.0.4beta" && !app.UpgradeKeeper.IsSkipHeight(upgradeInfo.Height) {
+		storeUpgrades := storetypes.StoreUpgrades{
+			Added: []string{oracletypes.StoreKey},
+		}
+
+		// configure store loader that checks if version == upgradeHeight and applies store upgrades
+		app.SetStoreLoader(upgradetypes.UpgradeStoreLoader(upgradeInfo.Height, &storeUpgrades))
+	}
 
 	// initialize stores
 	app.MountKVStores(keys)
