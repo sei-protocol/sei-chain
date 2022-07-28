@@ -108,7 +108,7 @@ class PriceFeeder:
             shell=True,
         )
 
-    def vote_loop(self, coins, salt, interval=5):
+    def vote_loop(self, coins, salt, interval):
         last_prevoted_period = -1
         last_voted_period = -1
         last_combined_voted_period = -1
@@ -136,12 +136,13 @@ def main():
     parser.add_argument('--fees', help='The fees to use', type=int, default=100000)
     parser.add_argument('--gas', help='The gas to use', type=int, default=100000)
     parser.add_argument('--salt', help='The salt to use', type=str, default='abc')
+    parser.add_argument('--interval', help='How long time to sleep between price checks', type=int, default=5)
     args=parser.parse_args()
 
     pf = PriceFeeder(args.key, args.password, args.binary, args.chain_id, args.node, args.fees, args.gas)
 
     coins = args.coins.split(',')
-    pf.vote_loop(coins, args.salt)
+    pf.vote_loop(coins, args.salt, args.interval)
 
 if __name__ == "__main__":
     main()
