@@ -11,26 +11,24 @@ from price_fetcher import PriceFetcher
 CMD = "printf '{password}\n' | {binary}"
 PREVOTE_TMPL = (
     " tx oracle aggregate-prevote abc 100uusdc,50uatom {val_addr} --from={key} "
-    "--chain-id={chain_id} --fees={fees}usei --gas={gas} -y --broadcast-mode=sync --node={node}"
+    "--chain-id={chain_id} -y --broadcast-mode=sync --node={node}"
 )
 VOTE_TMPL = (
     " tx oracle aggregate-vote abc 100uusdc,50uatom {val_addr} --from={key} "
-    "--chain-id={chain_id} --fees={fees}usei --gas={gas} -y --broadcast-mode=sync --node={node}"
+    "--chain-id={chain_id} -y --broadcast-mode=sync --node={node}"
 )
 COMBINED_TMPL = (
     " tx oracle aggregate-combined-vote {salt} {prevote_prices} {salt} {vote_prices} {val_addr} --from {key} "
-    "--chain-id={chain_id} --fees={fees}usei --gas={gas} -y --broadcast-mode=sync --node={node}"
+    "--chain-id={chain_id} -y --broadcast-mode=sync --node={node}"
 )
 
 class PriceFeeder:
-    def __init__(self, key, password, binary, chain_id, node, fees, gas) -> None:
+    def __init__(self, key, password, binary, chain_id, node) -> None:
         self.key = key
         self.password = password
         self.binary = binary
         self.chain_id = chain_id
         self.node = node
-        self.fees = fees
-        self.gas = gas
         self.val_addr = ""
         self.init_val_addr()
 
@@ -56,8 +54,6 @@ class PriceFeeder:
                     key=self.key, 
                     chain_id=self.chain_id, 
                     val_addr=self.val_addr, 
-                    gas=self.gas, 
-                    fees=self.fees, 
                     node=self.node
                 )
             ],
@@ -74,8 +70,6 @@ class PriceFeeder:
                     key=self.key, 
                     chain_id=self.chain_id, 
                     val_addr=self.val_addr, 
-                    gas=self.gas, 
-                    fees=self.fees,
                     node=self.node
                 )
             ],
@@ -93,8 +87,6 @@ class PriceFeeder:
                     val_addr=self.val_addr, 
                     prevote_prices=prevote_prices, 
                     vote_prices=vote_prices,
-                    gas=self.gas, 
-                    fees=self.fees,
                     salt=salt,
                     node=self.node
                 )
@@ -140,13 +132,11 @@ def main():
     parser.add_argument('coins', help='The coins to use', type=str)
     parser.add_argument('--binary', help='Your seid binary path', type=str, default=str(Path.home()) + '/go/bin/seid')
     parser.add_argument('--node', help='The node to contact', type=str, default='http://localhost:26657')
-    parser.add_argument('--fees', help='The fees to use', type=int, default=100000)
-    parser.add_argument('--gas', help='The gas to use', type=int, default=100000)
     parser.add_argument('--salt', help='The salt to use', type=str, default='abc')
     parser.add_argument('--interval', help='How long time to sleep between price checks', type=int, default=5)
     args=parser.parse_args()
 
-    pf = PriceFeeder(args.key, args.password, args.binary, args.chain_id, args.node, args.fees, args.gas)
+    pf = PriceFeeder(args.key, args.password, args.binary, args.chain_id, args.node)
 
     coins = args.coins.split(',')
     pf.vote_loop(coins, args.salt, args.interval)
