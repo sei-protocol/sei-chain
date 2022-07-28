@@ -6,8 +6,8 @@ class PriceFetcher:
     coin_denom_mapping = {
         'cosmos': 'uatom',
         'osmosis': 'uosmo',
-        'bitcoin': 'wbtc',
-        'ethereum': 'weth',
+        'bitcoin': 'ubtc',
+        'ethereum': 'ueth',
     }
     DELIMITER = ', '
 

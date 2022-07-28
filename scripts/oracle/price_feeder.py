@@ -3,6 +3,7 @@ import argparse
 import time
 import subprocess
 import requests
+import re
 from pathlib import Path
 import sys
 from price_fetcher import PriceFetcher
@@ -30,22 +31,16 @@ class PriceFeeder:
         self.node = node
         self.fees = fees
         self.gas = gas
-        self.addr = ""
         self.val_addr = ""
-        self.init_node_info()
+        self.init_val_addr()
 
-    def init_node_info(self):
-        self.addr = subprocess.check_output(
-            [CMD.format(password=self.password, binary=self.binary) + f" keys show {self.key} -a"], 
-            stderr=subprocess.STDOUT,
-            shell=True,
-        ).decode()[:-1]
-
+    def init_val_addr(self):
         self.val_addr = subprocess.check_output(
-            [CMD.format(password=self.password, binary=self.binary) + f" query staking delegations {self.addr} --node={self.node} | grep validator_address | cut -d':' -f2 | xargs"],
+            [CMD.format(password=self.password, binary=self.binary) + f" keys show {self.key} --bech=val | grep address | cut -d':' -f2 | xargs"],
             stderr=subprocess.STDOUT,
             shell=True,
         ).decode()[:-1]
+        print("validator addr is:", self.val_addr)
 
     def get_current_vote_period(self):
         res = requests.get("{node}/blockchain".format(node=self.node))
@@ -108,30 +103,42 @@ class PriceFeeder:
             shell=True,
         )
 
-    def vote_loop(self, coins, salt, interval):
+        if re.search("code: \d{1,2}", result.decode("utf-8")).group(0) != "code: 0":
+            print("Err: ", result)
+            print("Oracle price didn't submit successfully!!")
+
+    def vote_loop(self, coins, salt, interval=0.2):
         last_prevoted_period = -1
         last_voted_period = -1
         last_combined_voted_period = -1
+        vote_loop_break = 0
         pf = PriceFetcher()
 
         vote_prices = pf.create_price_feed(coins)
         while True:
             time.sleep(interval)
-            print("Submitting price feeds ", vote_prices)
             current_vote_period = self.get_current_vote_period()
             if last_combined_voted_period < current_vote_period:
                 prevote_prices = pf.create_price_feed(coins)
+                print("submitting price feeds ", vote_prices, prevote_prices)
                 self.combined_vote_for_period(vote_prices, prevote_prices, salt)
                 vote_prices = prevote_prices
                 last_combined_voted_period = current_vote_period
+                vote_loop_break += 1
+
+            # sleep for 3s between every pairs of successful combined-votes to not be throttled by price API
+            if vote_loop_break > 1:
+                print("sleep for 3...")
+                time.sleep(3)
+                vote_loop_break = 0
 
 def main():
     parser=argparse.ArgumentParser()
     parser.add_argument("key", help='Your wallet (key) name', type=str)
     parser.add_argument("password", help='The keychain password', type=str)
+    parser.add_argument('chain_id', help='Chain id', type=str)
     parser.add_argument('coins', help='The coins to use', type=str)
     parser.add_argument('--binary', help='Your seid binary path', type=str, default=str(Path.home()) + '/go/bin/seid')
-    parser.add_argument('--chain_id', help='Your wallet (key) name', type=str, default='sei-chain')
     parser.add_argument('--node', help='The node to contact', type=str, default='http://localhost:26657')
     parser.add_argument('--fees', help='The fees to use', type=int, default=100000)
     parser.add_argument('--gas', help='The gas to use', type=int, default=100000)

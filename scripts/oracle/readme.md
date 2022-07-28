@@ -30,10 +30,20 @@ seid query oracle params
 
 Start the price feeder in the background
 ```
-seid tx oracle aggregate-combined-vote abc 10.09uatom,1.0uusdc abc 10.09uatom,1.0uusdc seivaloper1mf9zymr0wk66ueqwgem7mmlfe05dlk0qzfnl5u --from admin --chain-id=sei-chain --fees=100000usei --gas=100000 -y --broadcast-mode=sync
+nohup python3 -u price_feeder.py admin 12345678 sei-chain 'cosmos' &
 ```
 
-After successfully submit the prices, you can check the status of the oracle on-chain by
+Examine there is no immediate error of the script
+```
+tail -f nohup.out
+```
+
+After successfully submit the prices, you should see the current price feeds from
 ```
 seid query oracle exchange-rates
+```
+
+If you want to kill the background oracle script, do
+```
+kill -9 <PID>
 ```
