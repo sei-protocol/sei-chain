@@ -25,12 +25,11 @@ seid query oracle params
     - name: uatom
     - name: uusdc
     - name: usei
-    - name: ueth
 ```
 
-Start the price feeder in the background
+Start the price feeder in the background, note that you may want to submit all whitelisted coins' price, otherwise you may not be eligible for the oracle reward. ${coin_list} example: 'cosmos','usd-coin'
 ```
-nohup python3 -u price_feeder.py admin 12345678 sei-chain 'cosmos' &
+nohup python3 -u price_feeder.py admin 12345678 sei-chain ${coin_list} &
 ```
 
 Examine there is no immediate error of the script
