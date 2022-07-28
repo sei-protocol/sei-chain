@@ -115,7 +115,7 @@ func run(config Config) {
 	}
 	filename := filepath.Join(userHomeDir, "outputs", "test_tx_hash")
 	_ = os.Remove(filename)
-	file, err := os.OpenFile(filename, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	file, _ := os.OpenFile(filename, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
 	TxHashFile = file
 	var mu sync.Mutex
 
