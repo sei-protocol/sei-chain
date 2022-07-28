@@ -12,8 +12,10 @@ import (
 	keepertest "github.com/sei-protocol/sei-chain/testutil/keeper"
 )
 
-const TestTimestamp uint64 = 10000
-const TestHeight uint64 = 1
+const (
+	TestTimestamp uint64 = 10000
+	TestHeight    uint64 = 1
+)
 
 func TestMatchSingleMarketOrderFromShortBook(t *testing.T) {
 	_, ctx := keepertest.DexKeeper(t)
