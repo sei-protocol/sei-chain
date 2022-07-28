@@ -33,3 +33,7 @@ Start the price feeder in the background
 seid tx oracle aggregate-combined-vote abc 10.09uatom,1.0uusdc abc 10.09uatom,1.0uusdc seivaloper1mf9zymr0wk66ueqwgem7mmlfe05dlk0qzfnl5u --from admin --chain-id=sei-chain --fees=100000usei --gas=100000 -y --broadcast-mode=sync
 ```
 
+After successfully submit the prices, you can check the status of the oracle on-chain by
+```
+seid query oracle exchange-rates
+```
