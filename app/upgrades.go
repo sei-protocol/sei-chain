@@ -13,6 +13,8 @@ import (
 // for both the current (n) and the previous (n-1) upgrade name. There is a bug
 // in a missing value in a log statement for which the fix is not released
 var upgradesList = []string{
+	// 1.0.2beta
+	"1.0.2beta",
 	// 1.0.3beta
 	"1.0.3beta",
 	// 1.0.4beta
