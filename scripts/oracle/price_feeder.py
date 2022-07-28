@@ -127,8 +127,8 @@ class PriceFeeder:
 
 def main():
     parser=argparse.ArgumentParser()
-    parser.add_argument("key")
-    parser.add_argument("password")
+    parser.add_argument("key", help='Your wallet (key) name', type=str)
+    parser.add_argument("password", help='The keychain password', type=str)
     parser.add_argument('coins', help='The coins to use', type=str)
     parser.add_argument('--binary', help='Your seid binary path', type=str, default=str(Path.home()) + '/go/bin/seid')
     parser.add_argument('--chain_id', help='Your wallet (key) name', type=str, default='sei-chain')
