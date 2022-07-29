@@ -30,6 +30,7 @@ export interface Order {
   orderType: OrderType;
   positionDirection: PositionDirection;
   data: string;
+  statusDescription: string;
 }
 
 export interface Cancellation {
@@ -54,6 +55,7 @@ const baseOrder: object = {
   orderType: 0,
   positionDirection: 0,
   data: "",
+  statusDescription: "",
 };
 
 export const Order = {
@@ -90,6 +92,9 @@ export const Order = {
     }
     if (message.data !== "") {
       writer.uint32(90).string(message.data);
+    }
+    if (message.statusDescription !== "") {
+      writer.uint32(98).string(message.statusDescription);
     }
     return writer;
   },
@@ -133,6 +138,9 @@ export const Order = {
           break;
         case 11:
           message.data = reader.string();
+          break;
+        case 12:
+          message.statusDescription = reader.string();
           break;
         default:
           reader.skipType(tag & 7);
@@ -204,6 +212,14 @@ export const Order = {
     } else {
       message.data = "";
     }
+    if (
+      object.statusDescription !== undefined &&
+      object.statusDescription !== null
+    ) {
+      message.statusDescription = String(object.statusDescription);
+    } else {
+      message.statusDescription = "";
+    }
     return message;
   },
 
@@ -226,6 +242,8 @@ export const Order = {
         message.positionDirection
       ));
     message.data !== undefined && (obj.data = message.data);
+    message.statusDescription !== undefined &&
+      (obj.statusDescription = message.statusDescription);
     return obj;
   },
 
@@ -288,6 +306,14 @@ export const Order = {
       message.data = object.data;
     } else {
       message.data = "";
+    }
+    if (
+      object.statusDescription !== undefined &&
+      object.statusDescription !== null
+    ) {
+      message.statusDescription = object.statusDescription;
+    } else {
+      message.statusDescription = "";
     }
     return message;
   },

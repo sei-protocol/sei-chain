@@ -1,14 +1,14 @@
 import { StdFee } from "@cosmjs/launchpad";
 import { Registry, OfflineSigner, EncodeObject } from "@cosmjs/proto-signing";
 import { Api } from "./rest";
-import { MsgStoreCode } from "./types/cosmwasm/wasm/v1/tx";
 import { MsgIBCSend } from "./types/cosmwasm/wasm/v1/ibc";
-import { MsgMigrateContract } from "./types/cosmwasm/wasm/v1/tx";
-import { MsgUpdateAdmin } from "./types/cosmwasm/wasm/v1/tx";
 import { MsgClearAdmin } from "./types/cosmwasm/wasm/v1/tx";
-import { MsgExecuteContract } from "./types/cosmwasm/wasm/v1/tx";
-import { MsgIBCCloseChannel } from "./types/cosmwasm/wasm/v1/ibc";
+import { MsgMigrateContract } from "./types/cosmwasm/wasm/v1/tx";
 import { MsgInstantiateContract } from "./types/cosmwasm/wasm/v1/tx";
+import { MsgIBCCloseChannel } from "./types/cosmwasm/wasm/v1/ibc";
+import { MsgStoreCode } from "./types/cosmwasm/wasm/v1/tx";
+import { MsgExecuteContract } from "./types/cosmwasm/wasm/v1/tx";
+import { MsgUpdateAdmin } from "./types/cosmwasm/wasm/v1/tx";
 export declare const MissingWalletError: Error;
 export declare const registry: Registry;
 interface TxClientOptions {
@@ -20,14 +20,14 @@ interface SignAndBroadcastOptions {
 }
 declare const txClient: (wallet: OfflineSigner, { addr: addr }?: TxClientOptions) => Promise<{
     signAndBroadcast: (msgs: EncodeObject[], { fee, memo }?: SignAndBroadcastOptions) => any;
-    msgStoreCode: (data: MsgStoreCode) => EncodeObject;
     msgIBCSend: (data: MsgIBCSend) => EncodeObject;
-    msgMigrateContract: (data: MsgMigrateContract) => EncodeObject;
-    msgUpdateAdmin: (data: MsgUpdateAdmin) => EncodeObject;
     msgClearAdmin: (data: MsgClearAdmin) => EncodeObject;
-    msgExecuteContract: (data: MsgExecuteContract) => EncodeObject;
-    msgIBCCloseChannel: (data: MsgIBCCloseChannel) => EncodeObject;
+    msgMigrateContract: (data: MsgMigrateContract) => EncodeObject;
     msgInstantiateContract: (data: MsgInstantiateContract) => EncodeObject;
+    msgIBCCloseChannel: (data: MsgIBCCloseChannel) => EncodeObject;
+    msgStoreCode: (data: MsgStoreCode) => EncodeObject;
+    msgExecuteContract: (data: MsgExecuteContract) => EncodeObject;
+    msgUpdateAdmin: (data: MsgUpdateAdmin) => EncodeObject;
 }>;
 interface QueryClientOptions {
     addr: string;

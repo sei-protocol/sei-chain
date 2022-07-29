@@ -2831,6 +2831,124 @@ export const QueryGetMarketSummaryResponse = {
         return message;
     },
 };
+const baseQueryOrderSimulationRequest = {};
+export const QueryOrderSimulationRequest = {
+    encode(message, writer = Writer.create()) {
+        if (message.order !== undefined) {
+            Order.encode(message.order, writer.uint32(10).fork()).ldelim();
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof Uint8Array ? new Reader(input) : input;
+        let end = length === undefined ? reader.len : reader.pos + length;
+        const message = {
+            ...baseQueryOrderSimulationRequest,
+        };
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1:
+                    message.order = Order.decode(reader, reader.uint32());
+                    break;
+                default:
+                    reader.skipType(tag & 7);
+                    break;
+            }
+        }
+        return message;
+    },
+    fromJSON(object) {
+        const message = {
+            ...baseQueryOrderSimulationRequest,
+        };
+        if (object.order !== undefined && object.order !== null) {
+            message.order = Order.fromJSON(object.order);
+        }
+        else {
+            message.order = undefined;
+        }
+        return message;
+    },
+    toJSON(message) {
+        const obj = {};
+        message.order !== undefined &&
+            (obj.order = message.order ? Order.toJSON(message.order) : undefined);
+        return obj;
+    },
+    fromPartial(object) {
+        const message = {
+            ...baseQueryOrderSimulationRequest,
+        };
+        if (object.order !== undefined && object.order !== null) {
+            message.order = Order.fromPartial(object.order);
+        }
+        else {
+            message.order = undefined;
+        }
+        return message;
+    },
+};
+const baseQueryOrderSimulationResponse = { ExecutedQuantity: "" };
+export const QueryOrderSimulationResponse = {
+    encode(message, writer = Writer.create()) {
+        if (message.ExecutedQuantity !== "") {
+            writer.uint32(10).string(message.ExecutedQuantity);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof Uint8Array ? new Reader(input) : input;
+        let end = length === undefined ? reader.len : reader.pos + length;
+        const message = {
+            ...baseQueryOrderSimulationResponse,
+        };
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1:
+                    message.ExecutedQuantity = reader.string();
+                    break;
+                default:
+                    reader.skipType(tag & 7);
+                    break;
+            }
+        }
+        return message;
+    },
+    fromJSON(object) {
+        const message = {
+            ...baseQueryOrderSimulationResponse,
+        };
+        if (object.ExecutedQuantity !== undefined &&
+            object.ExecutedQuantity !== null) {
+            message.ExecutedQuantity = String(object.ExecutedQuantity);
+        }
+        else {
+            message.ExecutedQuantity = "";
+        }
+        return message;
+    },
+    toJSON(message) {
+        const obj = {};
+        message.ExecutedQuantity !== undefined &&
+            (obj.ExecutedQuantity = message.ExecutedQuantity);
+        return obj;
+    },
+    fromPartial(object) {
+        const message = {
+            ...baseQueryOrderSimulationResponse,
+        };
+        if (object.ExecutedQuantity !== undefined &&
+            object.ExecutedQuantity !== null) {
+            message.ExecutedQuantity = object.ExecutedQuantity;
+        }
+        else {
+            message.ExecutedQuantity = "";
+        }
+        return message;
+    },
+};
 export class QueryClientImpl {
     constructor(rpc) {
         this.rpc = rpc;
@@ -2919,6 +3037,11 @@ export class QueryClientImpl {
         const data = QueryGetAllSettlementsRequest.encode(request).finish();
         const promise = this.rpc.request("seiprotocol.seichain.dex.Query", "GetAllSettlements", data);
         return promise.then((data) => QueryGetAllSettlementsResponse.decode(new Reader(data)));
+    }
+    GetOrderSimulation(request) {
+        const data = QueryOrderSimulationRequest.encode(request).finish();
+        const promise = this.rpc.request("seiprotocol.seichain.dex.Query", "GetOrderSimulation", data);
+        return promise.then((data) => QueryOrderSimulationResponse.decode(new Reader(data)));
     }
 }
 var globalThis = (() => {

@@ -40,6 +40,7 @@ export interface DexContractInfo {
   contractAddr?: string;
   NeedHook?: boolean;
   NeedOrderMatching?: boolean;
+  dependentContractAddrs?: string[];
 }
 
 export interface DexLongBook {
@@ -70,6 +71,7 @@ export interface DexOrder {
   orderType?: DexOrderType;
   positionDirection?: DexPositionDirection;
   data?: string;
+  statusDescription?: string;
 }
 
 export interface DexOrderEntry {
@@ -208,6 +210,10 @@ export interface DexQueryGetShortBookResponse {
 
 export interface DexQueryGetTwapsResponse {
   twaps?: DexTwap[];
+}
+
+export interface DexQueryOrderSimulationResponse {
+  ExecutedQuantity?: string;
 }
 
 /**
