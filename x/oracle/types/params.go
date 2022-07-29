@@ -138,8 +138,8 @@ func validateVoteThreshold(i interface{}) error {
 		return fmt.Errorf("invalid parameter type: %T", i)
 	}
 
-	if v.LT(sdk.NewDecWithPrec(33, 2)) {
-		return fmt.Errorf("vote threshold must be bigger than 33%%: %s", v)
+	if v.LT(sdk.ZeroDec()) {
+		return fmt.Errorf("vote threshold must be bigger than 0%%: %s", v)
 	}
 
 	if v.GT(sdk.OneDec()) {
