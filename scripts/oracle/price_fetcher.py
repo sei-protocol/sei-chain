@@ -6,8 +6,9 @@ class PriceFetcher:
     coin_denom_mapping = {
         'cosmos': 'uatom',
         'osmosis': 'uosmo',
-        'bitcoin': 'wbtc',
-        'ethereum': 'weth',
+        'bitcoin': 'ubtc',
+        'ethereum': 'ueth',
+        'usd-coin': 'uusdc',
     }
     DELIMITER = ', '
 
@@ -16,7 +17,7 @@ class PriceFetcher:
         self.coin_prices = defaultdict(int)
 
     def create_price_feed(self, coin_list):
-        price_feed = ""
+        price_feed = "1usei," # default 1 SEI to 1 USDC, will need to change once SEI price is available
         usdc_conversion_rate = self.cg.get_price(ids='usd-coin', vs_currencies='usd')
 
         for coin in coin_list:

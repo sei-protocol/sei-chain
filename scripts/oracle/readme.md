@@ -25,15 +25,24 @@ seid query oracle params
     - name: uatom
     - name: uusdc
     - name: usei
-    - name: ueth
 ```
 
-Start the price feeder in the background
+Start the price feeder in the background, note that you may want to submit all whitelisted coins' price, otherwise you may not be eligible for the oracle reward. ${coin_list} example: 'cosmos','usd-coin'
 ```
-seid tx oracle aggregate-combined-vote abc 10.09uatom,1.0uusdc abc 10.09uatom,1.0uusdc seivaloper1mf9zymr0wk66ueqwgem7mmlfe05dlk0qzfnl5u --from admin --chain-id=sei-chain --fees=100000usei --gas=100000 -y --broadcast-mode=sync
+nohup python3 -u price_feeder.py admin 12345678 sei-chain ${coin_list} &
 ```
 
-After successfully submit the prices, you can check the status of the oracle on-chain by
+Examine there is no immediate error of the script
+```
+tail -f nohup.out
+```
+
+After successfully submit the prices, you should see the current price feeds from
 ```
 seid query oracle exchange-rates
+```
+
+If you want to kill the background oracle script, do
+```
+kill -9 <PID>
 ```
