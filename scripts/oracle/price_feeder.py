@@ -115,6 +115,12 @@ class PriceFeeder:
             current_vote_period = self.get_current_vote_period()
             if last_combined_voted_period < current_vote_period:
                 prevote_prices = pf.create_price_feed(coins)
+
+                if prevote_prices is None or vote_prices is None:
+                    print ("No price data available, sleep 60")
+                    time.sleep(60)
+                    continue
+
                 print("submitting price feeds ", vote_prices, prevote_prices)
                 self.combined_vote_for_period(vote_prices, prevote_prices, salt)
                 vote_prices = prevote_prices
