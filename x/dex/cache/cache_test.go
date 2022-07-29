@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	seiutils "github.com/sei-protocol/sei-chain/utils"
 	dex "github.com/sei-protocol/sei-chain/x/dex/cache"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
 	"github.com/sei-protocol/sei-chain/x/dex/types/utils"
@@ -65,10 +66,10 @@ func TestDeepFilterAccounts(t *testing.T) {
 	stateOne.GetLiquidationRequests(utils.ContractAddress(TEST_CONTRACT)).AddNewLiquidationRequest("test2", "")
 
 	stateOne.DeepFilterAccount("test")
-	require.Equal(t, 1, len(stateOne.BlockOrders))
-	require.Equal(t, 1, len(stateOne.BlockCancels))
-	require.Equal(t, 1, len(stateOne.DepositInfo))
-	require.Equal(t, 1, len(stateOne.LiquidationRequests))
+	require.Equal(t, 1, seiutils.SyncMapLen(stateOne.BlockOrders))
+	require.Equal(t, 1, seiutils.SyncMapLen(stateOne.BlockCancels))
+	require.Equal(t, 1, seiutils.SyncMapLen(stateOne.DepositInfo))
+	require.Equal(t, 1, seiutils.SyncMapLen(stateOne.LiquidationRequests))
 }
 
 func TestClear(t *testing.T) {

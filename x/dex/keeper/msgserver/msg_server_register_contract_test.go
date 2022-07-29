@@ -26,14 +26,15 @@ func TestRegisterContract(t *testing.T) {
 	require.Equal(t, 1, len(storedContracts))
 	require.Nil(t, storedContracts[0].DependentContractAddrs)
 
+	// dependency doesn't exist
 	contractInfo.DependentContractAddrs = []string{"TEST2"}
-	server.RegisterContract(wctx, &types.MsgRegisterContract{
+	_, err := server.RegisterContract(wctx, &types.MsgRegisterContract{
 		Creator:  keepertest.TestAccount,
 		Contract: &contractInfo,
 	})
+	require.NotNil(t, err)
 	storedContracts = keeper.GetAllContractInfo(ctx)
 	require.Equal(t, 1, len(storedContracts))
-	require.Equal(t, 1, len(storedContracts[0].DependentContractAddrs))
 }
 
 func TestRegisterContractCircularDependency(t *testing.T) {
@@ -41,9 +42,8 @@ func TestRegisterContractCircularDependency(t *testing.T) {
 	wctx := sdk.WrapSDKContext(ctx)
 	server := msgserver.NewMsgServerImpl(*keeper, nil)
 	contractInfo1 := types.ContractInfo{
-		CodeId:                 1,
-		ContractAddr:           "test1",
-		DependentContractAddrs: []string{"test2"},
+		CodeId:       1,
+		ContractAddr: "test1",
 	}
 	server.RegisterContract(wctx, &types.MsgRegisterContract{
 		Creator:  keepertest.TestAccount,
@@ -51,7 +51,6 @@ func TestRegisterContractCircularDependency(t *testing.T) {
 	})
 	storedContracts := keeper.GetAllContractInfo(ctx)
 	require.Equal(t, 1, len(storedContracts))
-	require.Equal(t, uint64(1), storedContracts[0].CodeId)
 
 	// This contract should fail to be registered because it causes a
 	// circular dependency
@@ -60,9 +59,83 @@ func TestRegisterContractCircularDependency(t *testing.T) {
 		ContractAddr:           "test2",
 		DependentContractAddrs: []string{"test1"},
 	}
-	_, err := server.RegisterContract(wctx, &types.MsgRegisterContract{
+	server.RegisterContract(wctx, &types.MsgRegisterContract{
 		Creator:  keepertest.TestAccount,
 		Contract: &contractInfo2,
 	})
+	storedContracts = keeper.GetAllContractInfo(ctx)
+	require.Equal(t, 2, len(storedContracts))
+
+	contractInfo1.DependentContractAddrs = []string{"test2"}
+	_, err := server.RegisterContract(wctx, &types.MsgRegisterContract{
+		Creator:  keepertest.TestAccount,
+		Contract: &contractInfo1,
+	})
 	require.NotNil(t, err)
+}
+
+func TestRegisterContractDuplicateDependency(t *testing.T) {
+	keeper, ctx := keepertest.DexKeeper(t)
+	wctx := sdk.WrapSDKContext(ctx)
+	server := msgserver.NewMsgServerImpl(*keeper, nil)
+	contractInfo1 := types.ContractInfo{
+		CodeId:                 1,
+		ContractAddr:           "test1",
+		DependentContractAddrs: []string{"test2", "test2"},
+	}
+	_, err := server.RegisterContract(wctx, &types.MsgRegisterContract{
+		Creator:  keepertest.TestAccount,
+		Contract: &contractInfo1,
+	})
+	require.NotNil(t, err)
+	storedContracts := keeper.GetAllContractInfo(ctx)
+	require.Equal(t, 0, len(storedContracts))
+}
+
+func TestRegisterContractNumIncomingPaths(t *testing.T) {
+	keeper, ctx := keepertest.DexKeeper(t)
+	wctx := sdk.WrapSDKContext(ctx)
+	server := msgserver.NewMsgServerImpl(*keeper, nil)
+	contractInfo1 := types.ContractInfo{
+		CodeId:       1,
+		ContractAddr: "test1",
+	}
+	server.RegisterContract(wctx, &types.MsgRegisterContract{
+		Creator:  keepertest.TestAccount,
+		Contract: &contractInfo1,
+	})
+	storedContract, err := keeper.GetContract(ctx, "test1")
+	require.Nil(t, err)
+	require.Equal(t, int64(0), storedContract.NumIncomingPaths)
+
+	contractInfo2 := types.ContractInfo{
+		CodeId:                 2,
+		ContractAddr:           "test2",
+		DependentContractAddrs: []string{"test1"},
+	}
+	server.RegisterContract(wctx, &types.MsgRegisterContract{
+		Creator:  keepertest.TestAccount,
+		Contract: &contractInfo2,
+	})
+	storedContract, err = keeper.GetContract(ctx, "test1")
+	require.Nil(t, err)
+	require.Equal(t, int64(1), storedContract.NumIncomingPaths)
+	storedContract, err = keeper.GetContract(ctx, "test2")
+	require.Nil(t, err)
+	require.Equal(t, int64(0), storedContract.NumIncomingPaths)
+
+	contractInfo2 = types.ContractInfo{
+		CodeId:       2,
+		ContractAddr: "test2",
+	}
+	server.RegisterContract(wctx, &types.MsgRegisterContract{
+		Creator:  keepertest.TestAccount,
+		Contract: &contractInfo2,
+	})
+	storedContract, err = keeper.GetContract(ctx, "test1")
+	require.Nil(t, err)
+	require.Equal(t, int64(0), storedContract.NumIncomingPaths)
+	storedContract, err = keeper.GetContract(ctx, "test2")
+	require.Nil(t, err)
+	require.Equal(t, int64(0), storedContract.NumIncomingPaths)
 }

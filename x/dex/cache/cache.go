@@ -2,6 +2,7 @@ package dex
 
 import (
 	"sort"
+	"sync"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/sei-protocol/sei-chain/utils"
@@ -21,10 +22,11 @@ const (
 )
 
 type MemState struct {
-	BlockOrders         map[typesutils.ContractAddress]map[typesutils.PairString]*BlockOrders
-	BlockCancels        map[typesutils.ContractAddress]map[typesutils.PairString]*BlockCancellations
-	DepositInfo         map[typesutils.ContractAddress]*DepositInfo
-	LiquidationRequests map[typesutils.ContractAddress]*LiquidationRequests
+	// it's a real shame that Golang doesn't support generics
+	BlockOrders         *sync.Map // of type map[typesutils.ContractAddress]map[typesutils.PairString]*BlockOrders
+	BlockCancels        *sync.Map // of type map[typesutils.ContractAddress]map[typesutils.PairString]*BlockCancellations
+	DepositInfo         *sync.Map // of map[typesutils.ContractAddress]*DepositInfo
+	LiquidationRequests *sync.Map // of map[typesutils.ContractAddress]*LiquidationRequests
 }
 
 // All new orders attempted to be placed in the current block
@@ -49,103 +51,108 @@ type LiquidationRequests []LiquidationRequest
 
 func NewMemState() *MemState {
 	return &MemState{
-		BlockOrders:         map[typesutils.ContractAddress]map[typesutils.PairString]*BlockOrders{},
-		BlockCancels:        map[typesutils.ContractAddress]map[typesutils.PairString]*BlockCancellations{},
-		DepositInfo:         map[typesutils.ContractAddress]*DepositInfo{},
-		LiquidationRequests: map[typesutils.ContractAddress]*LiquidationRequests{},
+		BlockOrders:         &sync.Map{},
+		BlockCancels:        &sync.Map{},
+		DepositInfo:         &sync.Map{},
+		LiquidationRequests: &sync.Map{},
 	}
 }
 
 func (s *MemState) GetBlockOrders(contractAddr typesutils.ContractAddress, pair typesutils.PairString) *BlockOrders {
-	if _, ok := s.BlockOrders[contractAddr]; !ok {
-		s.BlockOrders[contractAddr] = map[typesutils.PairString]*BlockOrders{}
-	}
-	if _, ok := s.BlockOrders[contractAddr][pair]; !ok {
-		emptyBlockOrders := BlockOrders([]types.Order{})
-		s.BlockOrders[contractAddr][pair] = &emptyBlockOrders
-	}
-	return s.BlockOrders[contractAddr][pair]
+	ordersForContract, _ := s.BlockOrders.LoadOrStore(contractAddr, &sync.Map{})
+	emptyBlockOrders := BlockOrders([]types.Order{})
+	ordersForPair, _ := ordersForContract.(*sync.Map).LoadOrStore(pair, &emptyBlockOrders)
+	return ordersForPair.(*BlockOrders)
 }
 
 func (s *MemState) GetBlockCancels(contractAddr typesutils.ContractAddress, pair typesutils.PairString) *BlockCancellations {
-	if _, ok := s.BlockCancels[contractAddr]; !ok {
-		s.BlockCancels[contractAddr] = map[typesutils.PairString]*BlockCancellations{}
-	}
-	if _, ok := s.BlockCancels[contractAddr][pair]; !ok {
-		emptyBlockCancels := BlockCancellations([]types.Cancellation{})
-		s.BlockCancels[contractAddr][pair] = &emptyBlockCancels
-	}
-	return s.BlockCancels[contractAddr][pair]
+	cancelsForContract, _ := s.BlockCancels.LoadOrStore(contractAddr, &sync.Map{})
+	emptyBlockCancels := BlockCancellations([]types.Cancellation{})
+	cancelsForPair, _ := cancelsForContract.(*sync.Map).LoadOrStore(pair, &emptyBlockCancels)
+	return cancelsForPair.(*BlockCancellations)
 }
 
 func (s *MemState) GetDepositInfo(contractAddr typesutils.ContractAddress) *DepositInfo {
-	if _, ok := s.DepositInfo[contractAddr]; !ok {
-		s.DepositInfo[contractAddr] = NewDepositInfo()
-	}
-	return s.DepositInfo[contractAddr]
+	depositsForContract, _ := s.DepositInfo.LoadOrStore(contractAddr, NewDepositInfo())
+	return depositsForContract.(*DepositInfo)
 }
 
 func (s *MemState) GetLiquidationRequests(contractAddr typesutils.ContractAddress) *LiquidationRequests {
-	if _, ok := s.LiquidationRequests[contractAddr]; !ok {
-		emptyRequests := LiquidationRequests([]LiquidationRequest{})
-		s.LiquidationRequests[contractAddr] = &emptyRequests
-	}
-	return s.LiquidationRequests[contractAddr]
+	emptyRequests := LiquidationRequests([]LiquidationRequest{})
+	liquidationsForContract, _ := s.LiquidationRequests.LoadOrStore(contractAddr, &emptyRequests)
+	return liquidationsForContract.(*LiquidationRequests)
 }
 
 func (s *MemState) Clear() {
-	s.BlockOrders = map[typesutils.ContractAddress]map[typesutils.PairString]*BlockOrders{}
-	s.BlockCancels = map[typesutils.ContractAddress]map[typesutils.PairString]*BlockCancellations{}
-	s.DepositInfo = map[typesutils.ContractAddress]*DepositInfo{}
-	s.LiquidationRequests = map[typesutils.ContractAddress]*LiquidationRequests{}
+	s.BlockOrders = &sync.Map{}
+	s.BlockCancels = &sync.Map{}
+	s.DepositInfo = &sync.Map{}
+	s.LiquidationRequests = &sync.Map{}
+}
+
+func (s *MemState) ClearCancellationForPair(contractAddr typesutils.ContractAddress, pair typesutils.PairString) {
+	cancelsForContract, _ := s.BlockCancels.LoadOrStore(contractAddr, &sync.Map{})
+	emptyBlockCancels := BlockCancellations([]types.Cancellation{})
+	cancelsForContract.(*sync.Map).Store(pair, &emptyBlockCancels)
 }
 
 func (s *MemState) DeepCopy() *MemState {
 	copy := NewMemState()
-	for contractAddr, _map := range s.BlockOrders {
-		for pair, blockOrders := range _map {
-			for _, blockOrder := range *blockOrders {
-				copy.GetBlockOrders(contractAddr, pair).AddOrder(blockOrder)
-			}
+
+	deepCopyNestedMap(s.BlockOrders, func(contractAddr typesutils.ContractAddress, pair typesutils.PairString, val any) {
+		blockOrders := val.(*BlockOrders)
+		for _, blockOrder := range *blockOrders {
+			copy.GetBlockOrders(contractAddr, pair).AddOrder(blockOrder)
 		}
-	}
-	for contractAddr, _map := range s.BlockCancels {
-		for pair, blockCancels := range _map {
-			for _, blockCancel := range *blockCancels {
-				copy.GetBlockCancels(contractAddr, pair).AddCancel(blockCancel)
-			}
+	})
+
+	deepCopyNestedMap(s.BlockCancels, func(contractAddr typesutils.ContractAddress, pair typesutils.PairString, val any) {
+		blockCancels := val.(*BlockCancellations)
+		for _, blockCancel := range *blockCancels {
+			copy.GetBlockCancels(contractAddr, pair).AddCancel(blockCancel)
 		}
-	}
-	for contractAddr, deposits := range s.DepositInfo {
+	})
+
+	deepCopyMap(s.DepositInfo, func(contractAddr typesutils.ContractAddress, val any) {
+		deposits := val.(*DepositInfo)
 		for _, deposit := range *deposits {
 			copy.GetDepositInfo(contractAddr).AddDeposit(deposit)
 		}
-	}
-	for contractAddr, liquidations := range s.LiquidationRequests {
+	})
+
+	deepCopyMap(s.LiquidationRequests, func(contractAddr typesutils.ContractAddress, val any) {
+		liquidations := val.(*LiquidationRequests)
 		for _, liquidation := range *liquidations {
 			copy.GetLiquidationRequests(contractAddr).AddNewLiquidationRequest(liquidation.Requestor, liquidation.AccountToLiquidate)
 		}
-	}
+	})
+
 	return copy
 }
 
 func (s *MemState) DeepFilterAccount(account string) {
-	for _, _map := range s.BlockOrders {
-		for _, blockOrders := range _map {
-			blockOrders.FilterByAccount(account)
-		}
-	}
-	for _, _map := range s.BlockCancels {
-		for _, blockCancels := range _map {
-			blockCancels.FilterByAccount(account)
-		}
-	}
-	for _, deposits := range s.DepositInfo {
-		deposits.FilterByAccount(account)
-	}
-	for _, liquidations := range s.LiquidationRequests {
-		liquidations.FilterByAccount(account)
-	}
+	s.BlockOrders.Range(func(_, val any) bool {
+		val.(*sync.Map).Range(func(_, pval any) bool {
+			pval.(*BlockOrders).FilterByAccount(account)
+			return true
+		})
+		return true
+	})
+	s.BlockCancels.Range(func(_, val any) bool {
+		val.(*sync.Map).Range(func(_, pval any) bool {
+			pval.(*BlockCancellations).FilterByAccount(account)
+			return true
+		})
+		return true
+	})
+	s.DepositInfo.Range(func(_, val any) bool {
+		val.(*DepositInfo).FilterByAccount(account)
+		return true
+	})
+	s.LiquidationRequests.Range(func(_, val any) bool {
+		val.(*LiquidationRequests).FilterByAccount(account)
+		return true
+	})
 }
 
 func (o *BlockOrders) AddOrder(order types.Order) {

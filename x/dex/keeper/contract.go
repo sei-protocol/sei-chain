@@ -25,6 +25,22 @@ func (k Keeper) SetContract(ctx sdk.Context, contract *types.ContractInfo) error
 	return nil
 }
 
+func (k Keeper) GetContract(ctx sdk.Context, contractAddr string) (types.ContractInfo, error) {
+	store := prefix.NewStore(
+		ctx.KVStore(k.storeKey),
+		[]byte(PrefixKey),
+	)
+	key := contractKey(contractAddr)
+	res := types.ContractInfo{}
+	if !store.Has(key) {
+		return res, errors.New("cannot find contract info")
+	}
+	if err := res.Unmarshal(store.Get(key)); err != nil {
+		return res, errors.New("cannot parse contract info")
+	}
+	return res, nil
+}
+
 func (k Keeper) GetAllContractInfo(ctx sdk.Context) []types.ContractInfo {
 	store := prefix.NewStore(ctx.KVStore(k.storeKey), []byte(PrefixKey))
 	iterator := sdk.KVStorePrefixIterator(store, []byte{})

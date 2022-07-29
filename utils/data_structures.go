@@ -1,5 +1,7 @@
 package utils
 
+import "sync"
+
 type StringSet struct {
 	dict map[string]bool
 }
@@ -74,4 +76,14 @@ func (s *UInt64Set) ToSlice() []uint64 {
 		res = append(res, s)
 	}
 	return res
+}
+
+// Surprisingly there is no Len/len method for sync.Map
+func SyncMapLen(_map *sync.Map) int {
+	len := 0
+	_map.Range(func(_, _ any) bool {
+		len++
+		return true
+	})
+	return len
 }

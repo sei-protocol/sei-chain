@@ -9,4 +9,5 @@ message ContractInfo {
   bool NeedHook = 3;
   bool NeedOrderMatching = 4;
   repeated string dependentContractAddrs = 5;
+  int64 numIncomingPaths = 6;
 }
