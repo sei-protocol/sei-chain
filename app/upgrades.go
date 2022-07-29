@@ -29,6 +29,8 @@ var upgradesList = []string{
 	"1.0.7beta-postfix",
 	// 1.0.8beta
 	"1.0.8beta",
+	// 1.0.9beta
+	"1.0.9beta",
 }
 
 func (app App) RegisterUpgradeHandlers() {
