@@ -5,6 +5,7 @@ export interface ContractInfo {
     contractAddr: string;
     NeedHook: boolean;
     NeedOrderMatching: boolean;
+    dependentContractAddrs: string[];
 }
 export declare const ContractInfo: {
     encode(message: ContractInfo, writer?: Writer): Writer;

@@ -13,6 +13,7 @@ export interface Order {
     orderType: OrderType;
     positionDirection: PositionDirection;
     data: string;
+    statusDescription: string;
 }
 export interface Cancellation {
     id: number;

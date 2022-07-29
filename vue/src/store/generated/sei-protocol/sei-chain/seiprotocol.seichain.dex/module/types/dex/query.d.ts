@@ -155,6 +155,12 @@ export interface QueryGetMarketSummaryResponse {
     lowPrice: string;
     lastPrice: string;
 }
+export interface QueryOrderSimulationRequest {
+    order: Order | undefined;
+}
+export interface QueryOrderSimulationResponse {
+    ExecutedQuantity: string;
+}
 export declare const QueryParamsRequest: {
     encode(_: QueryParamsRequest, writer?: Writer): Writer;
     decode(input: Reader | Uint8Array, length?: number): QueryParamsRequest;
@@ -393,6 +399,20 @@ export declare const QueryGetMarketSummaryResponse: {
     toJSON(message: QueryGetMarketSummaryResponse): unknown;
     fromPartial(object: DeepPartial<QueryGetMarketSummaryResponse>): QueryGetMarketSummaryResponse;
 };
+export declare const QueryOrderSimulationRequest: {
+    encode(message: QueryOrderSimulationRequest, writer?: Writer): Writer;
+    decode(input: Reader | Uint8Array, length?: number): QueryOrderSimulationRequest;
+    fromJSON(object: any): QueryOrderSimulationRequest;
+    toJSON(message: QueryOrderSimulationRequest): unknown;
+    fromPartial(object: DeepPartial<QueryOrderSimulationRequest>): QueryOrderSimulationRequest;
+};
+export declare const QueryOrderSimulationResponse: {
+    encode(message: QueryOrderSimulationResponse, writer?: Writer): Writer;
+    decode(input: Reader | Uint8Array, length?: number): QueryOrderSimulationResponse;
+    fromJSON(object: any): QueryOrderSimulationResponse;
+    toJSON(message: QueryOrderSimulationResponse): unknown;
+    fromPartial(object: DeepPartial<QueryOrderSimulationResponse>): QueryOrderSimulationResponse;
+};
 /** Query defines the gRPC querier service. */
 export interface Query {
     /** Parameters queries the parameters of the module. */
@@ -420,6 +440,7 @@ export interface Query {
     GetMarketSummary(request: QueryGetMarketSummaryRequest): Promise<QueryGetMarketSummaryResponse>;
     GetSettlementsForAccount(request: QueryGetSettlementsForAccountRequest): Promise<QueryGetSettlementsForAccountResponse>;
     GetAllSettlements(request: QueryGetAllSettlementsRequest): Promise<QueryGetAllSettlementsResponse>;
+    GetOrderSimulation(request: QueryOrderSimulationRequest): Promise<QueryOrderSimulationResponse>;
 }
 export declare class QueryClientImpl implements Query {
     private readonly rpc;
@@ -441,6 +462,7 @@ export declare class QueryClientImpl implements Query {
     GetMarketSummary(request: QueryGetMarketSummaryRequest): Promise<QueryGetMarketSummaryResponse>;
     GetSettlementsForAccount(request: QueryGetSettlementsForAccountRequest): Promise<QueryGetSettlementsForAccountResponse>;
     GetAllSettlements(request: QueryGetAllSettlementsRequest): Promise<QueryGetAllSettlementsResponse>;
+    GetOrderSimulation(request: QueryOrderSimulationRequest): Promise<QueryOrderSimulationResponse>;
 }
 interface Rpc {
     request(service: string, method: string, data: Uint8Array): Promise<Uint8Array>;

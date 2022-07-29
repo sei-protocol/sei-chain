@@ -25,6 +25,7 @@ export interface DexContractInfo {
     contractAddr?: string;
     NeedHook?: boolean;
     NeedOrderMatching?: boolean;
+    dependentContractAddrs?: string[];
 }
 export interface DexLongBook {
     price?: string;
@@ -49,6 +50,7 @@ export interface DexOrder {
     orderType?: DexOrderType;
     positionDirection?: DexPositionDirection;
     data?: string;
+    statusDescription?: string;
 }
 export interface DexOrderEntry {
     price?: string;
@@ -162,6 +164,9 @@ export interface DexQueryGetShortBookResponse {
 }
 export interface DexQueryGetTwapsResponse {
     twaps?: DexTwap[];
+}
+export interface DexQueryOrderSimulationResponse {
+    ExecutedQuantity?: string;
 }
 /**
  * QueryParamsResponse is response type for the Query/Params RPC method.

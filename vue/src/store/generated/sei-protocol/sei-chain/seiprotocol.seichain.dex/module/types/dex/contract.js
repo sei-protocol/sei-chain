@@ -7,6 +7,7 @@ const baseContractInfo = {
     contractAddr: "",
     NeedHook: false,
     NeedOrderMatching: false,
+    dependentContractAddrs: "",
 };
 export const ContractInfo = {
     encode(message, writer = Writer.create()) {
@@ -22,12 +23,16 @@ export const ContractInfo = {
         if (message.NeedOrderMatching === true) {
             writer.uint32(32).bool(message.NeedOrderMatching);
         }
+        for (const v of message.dependentContractAddrs) {
+            writer.uint32(42).string(v);
+        }
         return writer;
     },
     decode(input, length) {
         const reader = input instanceof Uint8Array ? new Reader(input) : input;
         let end = length === undefined ? reader.len : reader.pos + length;
         const message = { ...baseContractInfo };
+        message.dependentContractAddrs = [];
         while (reader.pos < end) {
             const tag = reader.uint32();
             switch (tag >>> 3) {
@@ -43,6 +48,9 @@ export const ContractInfo = {
                 case 4:
                     message.NeedOrderMatching = reader.bool();
                     break;
+                case 5:
+                    message.dependentContractAddrs.push(reader.string());
+                    break;
                 default:
                     reader.skipType(tag & 7);
                     break;
@@ -52,6 +60,7 @@ export const ContractInfo = {
     },
     fromJSON(object) {
         const message = { ...baseContractInfo };
+        message.dependentContractAddrs = [];
         if (object.codeId !== undefined && object.codeId !== null) {
             message.codeId = Number(object.codeId);
         }
@@ -77,6 +86,12 @@ export const ContractInfo = {
         else {
             message.NeedOrderMatching = false;
         }
+        if (object.dependentContractAddrs !== undefined &&
+            object.dependentContractAddrs !== null) {
+            for (const e of object.dependentContractAddrs) {
+                message.dependentContractAddrs.push(String(e));
+            }
+        }
         return message;
     },
     toJSON(message) {
@@ -87,10 +102,17 @@ export const ContractInfo = {
         message.NeedHook !== undefined && (obj.NeedHook = message.NeedHook);
         message.NeedOrderMatching !== undefined &&
             (obj.NeedOrderMatching = message.NeedOrderMatching);
+        if (message.dependentContractAddrs) {
+            obj.dependentContractAddrs = message.dependentContractAddrs.map((e) => e);
+        }
+        else {
+            obj.dependentContractAddrs = [];
+        }
         return obj;
     },
     fromPartial(object) {
         const message = { ...baseContractInfo };
+        message.dependentContractAddrs = [];
         if (object.codeId !== undefined && object.codeId !== null) {
             message.codeId = object.codeId;
         }
@@ -115,6 +137,12 @@ export const ContractInfo = {
         }
         else {
             message.NeedOrderMatching = false;
+        }
+        if (object.dependentContractAddrs !== undefined &&
+            object.dependentContractAddrs !== null) {
+            for (const e of object.dependentContractAddrs) {
+                message.dependentContractAddrs.push(e);
+            }
         }
         return message;
     },
