@@ -2,6 +2,7 @@ package kv
 
 import (
 	"fmt"
+	"strings"
 
 	storetypes "github.com/cosmos/cosmos-sdk/store/types"
 )
@@ -35,9 +36,12 @@ func (store *Store) Delete(key []byte) {
 
 func (store *Store) validateKeyForWrite(key []byte) {
 	keyStr := string(key)
-	if _, ok := store.writeWhitelist[string(key)]; !ok {
-		// Panic since the Store interface does not return error on Set. Can be
-		// intercepted by calling routine through `err := recover()`
-		panic(fmt.Sprintf("Setting disallowed key %s in whitelisted KV store", keyStr))
+	for whitelist := range store.writeWhitelist {
+		if strings.HasPrefix(keyStr, whitelist) {
+			return
+		}
 	}
+	// Panic since the Store interface does not return error on Set. Can be
+	// intercepted by calling routine through `err := recover()`
+	panic(fmt.Sprintf("Setting disallowed key %s in whitelisted KV store", keyStr))
 }
