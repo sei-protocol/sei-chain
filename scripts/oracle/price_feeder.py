@@ -23,14 +23,17 @@ COMBINED_TMPL = (
 )
 
 class PriceFeeder:
-    def __init__(self, key, password, binary, chain_id, node) -> None:
+    def __init__(self, key, password, binary, chain_id, node, valoper) -> None:
         self.key = key
         self.password = password
         self.binary = binary
         self.chain_id = chain_id
         self.node = node
-        self.val_addr = ""
-        self.init_val_addr()
+        if valoper is None:
+            self.val_addr = ""
+            self.init_val_addr()
+        else:
+            self.val_addr = valoper
 
     def init_val_addr(self):
         self.val_addr = subprocess.check_output(
@@ -134,9 +137,10 @@ def main():
     parser.add_argument('--node', help='The node to contact', type=str, default='http://localhost:26657')
     parser.add_argument('--salt', help='The salt to use', type=str, default='abc')
     parser.add_argument('--interval', help='How long time to sleep between price checks', type=int, default=5)
+    parser.add_argument('--valoper', help='Validator address if using separate feeder account', type=str)
     args=parser.parse_args()
 
-    pf = PriceFeeder(args.key, args.password, args.binary, args.chain_id, args.node)
+    pf = PriceFeeder(args.key, args.password, args.binary, args.chain_id, args.node, args.valoper)
 
     coins = args.coins.split(',')
     pf.vote_loop(coins, args.salt, args.interval)
