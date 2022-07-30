@@ -18,7 +18,7 @@ func TestGetPlaceSudoMsg(t *testing.T) {
 	pair := types.Pair{PriceDenom: keepertest.TestPriceDenom, AssetDenom: keepertest.TestAssetDenom}
 	keeper, ctx := keepertest.DexKeeper(t)
 	keeper.MemState.GetBlockOrders(keepertest.TestContract, typesutils.GetPairString(&pair)).AddOrder(
-		types.Order{
+		&types.Order{
 			Id:                1,
 			Price:             sdk.OneDec(),
 			Quantity:          sdk.OneDec(),

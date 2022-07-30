@@ -66,7 +66,7 @@ func (w KeeperWrapper) PlaceLiquidationOrders(ctx sdk.Context, contractAddr stri
 		pair := types.Pair{PriceDenom: order.PriceDenom, AssetDenom: order.AssetDenom}
 		orders := w.MemState.GetBlockOrders(typesutils.ContractAddress(contractAddr), typesutils.GetPairString(&pair))
 		order.Id = nextID
-		orders.AddOrder(order)
+		orders.AddOrder(&order)
 		nextID++
 	}
 	w.SetNextOrderID(ctx, nextID)

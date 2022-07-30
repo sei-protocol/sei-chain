@@ -79,7 +79,7 @@ func TestGetOrderSimulation(t *testing.T) {
 
 	// liquidity taken by earlier market orders
 	keeper.MemState.GetBlockOrders(utils.ContractAddress(keepertest.TestContract), utils.GetPairString(&keepertest.TestPair)).AddOrder(
-		types.Order{
+		&types.Order{
 			Account:           keepertest.TestAccount,
 			ContractAddr:      keepertest.TestContract,
 			PriceDenom:        keepertest.TestPriceDenom,

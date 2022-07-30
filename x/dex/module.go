@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"sort"
 
 	"github.com/CosmWasm/wasmd/x/wasm"
 	"github.com/gorilla/mux"
@@ -21,11 +20,9 @@ import (
 	"github.com/cosmos/cosmos-sdk/types/module"
 	"github.com/sei-protocol/sei-chain/utils"
 	"github.com/sei-protocol/sei-chain/utils/tracing"
-	dexcache "github.com/sei-protocol/sei-chain/x/dex/cache"
 	"github.com/sei-protocol/sei-chain/x/dex/client/cli/query"
 	"github.com/sei-protocol/sei-chain/x/dex/client/cli/tx"
 	"github.com/sei-protocol/sei-chain/x/dex/contract"
-	"github.com/sei-protocol/sei-chain/x/dex/exchange"
 	"github.com/sei-protocol/sei-chain/x/dex/keeper"
 	dexkeeperabci "github.com/sei-protocol/sei-chain/x/dex/keeper/abci"
 	"github.com/sei-protocol/sei-chain/x/dex/keeper/msgserver"
@@ -33,7 +30,6 @@ import (
 	dexkeeperutils "github.com/sei-protocol/sei-chain/x/dex/keeper/utils"
 	"github.com/sei-protocol/sei-chain/x/dex/migrations"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
-	dextypesutils "github.com/sei-protocol/sei-chain/x/dex/types/utils"
 	dextypeswasm "github.com/sei-protocol/sei-chain/x/dex/types/wasm"
 	"github.com/sei-protocol/sei-chain/x/store"
 )
@@ -267,8 +263,10 @@ func (am AppModule) EndBlock(ctx sdk.Context, _ abci.RequestEndBlock) []abci.Val
 		// cache keeper in-memory state
 		memStateCopy := am.keeper.MemState.DeepCopy()
 		finalizeBlockMessages := map[string]*dextypeswasm.SudoFinalizeBlockMsg{}
+		settlementsByContract := map[string][]*types.SettlementEntry{}
 		for contractAddr := range validContractAddresses {
 			finalizeBlockMessages[contractAddr] = dextypeswasm.NewSudoFinalizeBlockMsg()
+			settlementsByContract[contractAddr] = []*types.SettlementEntry{}
 		}
 
 		for contractAddr, contractInfo := range validContractAddresses {
@@ -276,7 +274,7 @@ func (am AppModule) EndBlock(ctx sdk.Context, _ abci.RequestEndBlock) []abci.Val
 				continue
 			}
 			ctx.Logger().Info(fmt.Sprintf("End block for %s", contractAddr))
-			if orderResultsMap, err := am.endBlockForContract(cachedCtx, contractInfo); err != nil {
+			if orderResultsMap, settlements, err := contract.HandleExecutionForContract(cachedCtx, contractInfo, &am.keeper, am.tracingInfo.Tracer); err != nil {
 				ctx.Logger().Error(fmt.Sprintf("Error for EndBlock of %s", contractAddr))
 				failedContractAddresses.Add(contractAddr)
 			} else {
@@ -286,6 +284,17 @@ func (am AppModule) EndBlock(ctx sdk.Context, _ abci.RequestEndBlock) []abci.Val
 						msg.AddContractResult(orderResults)
 					}
 				}
+				settlementsByContract[contractAddr] = settlements
+			}
+		}
+
+		for contractAddr, settlements := range settlementsByContract {
+			if !validContractAddresses[contractAddr].NeedOrderMatching {
+				continue
+			}
+			if err := contract.HandleSettlements(cachedCtx, contractAddr, &am.keeper, settlements); err != nil {
+				ctx.Logger().Error(fmt.Sprintf("Error handling settlements for %s", contractAddr))
+				failedContractAddresses.Add(contractAddr)
 			}
 		}
 
@@ -305,6 +314,7 @@ func (am AppModule) EndBlock(ctx sdk.Context, _ abci.RequestEndBlock) []abci.Val
 			return []abci.ValidatorUpdate{}
 		}
 		// restore keeper in-memory state
+		fmt.Println("Restore keeper state")
 		*am.keeper.MemState = *memStateCopy
 		// exclude orders by failed contracts from in-memory state,
 		// then update `validContractAddresses`
@@ -322,204 +332,4 @@ func (am AppModule) EndBlock(ctx sdk.Context, _ abci.RequestEndBlock) []abci.Val
 
 	// don't call `ctx.Write` if all contracts have error
 	return []abci.ValidatorUpdate{}
-}
-
-func (am AppModule) endBlockForContract(ctx sdk.Context, contract types.ContractInfo) (map[string]dextypeswasm.ContractOrderResult, error) {
-	contractAddr := contract.ContractAddr
-	spanCtx, span := (*am.tracingInfo.Tracer).Start(am.tracingInfo.TracerContext, "DexEndBlock")
-	span.SetAttributes(attribute.String("contract", contractAddr))
-	defer span.End()
-
-	typedContractAddr := dextypesutils.ContractAddress(contractAddr)
-	registeredPairs := am.keeper.GetAllRegisteredPairs(ctx, contractAddr)
-	_, currentEpoch := am.keeper.IsNewEpoch(ctx)
-	orderResults := map[string]dextypeswasm.ContractOrderResult{}
-
-	if err := am.abciWrapper.HandleEBLiquidation(spanCtx, ctx, am.tracingInfo.Tracer, contractAddr, registeredPairs); err != nil {
-		return orderResults, err
-	}
-	if err := am.abciWrapper.HandleEBCancelOrders(spanCtx, ctx, am.tracingInfo.Tracer, contractAddr, registeredPairs); err != nil {
-		return orderResults, err
-	}
-	if err := am.abciWrapper.HandleEBPlaceOrders(spanCtx, ctx, am.tracingInfo.Tracer, contractAddr, registeredPairs); err != nil {
-		return orderResults, err
-	}
-
-	// populate order placement results for FinalizeBlock hook
-	for _, orders := range am.keeper.MemState.BlockOrders[typedContractAddr] {
-		dextypeswasm.PopulateOrderPlacementResults(contractAddr, *orders, orderResults)
-	}
-
-	for _, pair := range registeredPairs {
-		typedPairStr := dextypesutils.GetPairString(&pair) //nolint:gosec // USING THE POINTER HERE COULD BE BAD, LET'S CHECK IT
-		orders := am.keeper.MemState.GetBlockOrders(typedContractAddr, typedPairStr)
-		cancels := am.keeper.MemState.GetBlockCancels(typedContractAddr, typedPairStr)
-		ctx.Logger().Info(string(typedPairStr))
-		ctx.Logger().Info(fmt.Sprintf("Order count: %d", len(*orders)))
-		marketBuys := orders.GetSortedMarketOrders(types.PositionDirection_LONG, true)
-		marketSells := orders.GetSortedMarketOrders(types.PositionDirection_SHORT, true)
-		limitBuys := orders.GetLimitOrders(types.PositionDirection_LONG)
-		limitSells := orders.GetLimitOrders(types.PositionDirection_SHORT)
-		ctx.Logger().Info(fmt.Sprintf("Number of LB: %d, LS: %d, MB: %d, MS: %d", len(limitBuys), len(limitSells), len(marketBuys), len(marketSells)))
-		priceDenomStr := pair.PriceDenom
-		assetDenomStr := pair.AssetDenom
-		allExistingBuys := am.keeper.GetAllLongBookForPair(ctx, contractAddr, priceDenomStr, assetDenomStr)
-		allExistingSells := am.keeper.GetAllShortBookForPair(ctx, contractAddr, priceDenomStr, assetDenomStr)
-		sort.Slice(allExistingBuys, func(i, j int) bool {
-			return allExistingBuys[i].GetPrice().LT(allExistingBuys[j].GetPrice())
-		})
-		sort.Slice(allExistingSells, func(i, j int) bool {
-			return allExistingSells[i].GetPrice().LT(allExistingSells[j].GetPrice())
-		})
-
-		longDirtyPrices, shortDirtyPrices := exchange.NewDirtyPrices(), exchange.NewDirtyPrices()
-
-		originalOrdersToCancel := am.keeper.GetOrdersByIds(ctx, contractAddr, cancels.GetIdsToCancel())
-		exchange.CancelOrders(ctx, *cancels, allExistingBuys, originalOrdersToCancel, &longDirtyPrices)
-		exchange.CancelOrders(ctx, *cancels, allExistingSells, originalOrdersToCancel, &shortDirtyPrices)
-
-		settlements := []*types.SettlementEntry{}
-		// orders that are fully executed during order matching and need to be removed from active order state
-		zeroOrders := []exchange.AccountOrderID{}
-		marketBuyTotalPrice, marketBuyTotalQuantity := exchange.MatchMarketOrders(
-			ctx,
-			marketBuys,
-			allExistingSells,
-			types.PositionDirection_LONG,
-			&shortDirtyPrices,
-			&settlements,
-			&zeroOrders,
-		)
-		marketSellTotalPrice, marketSellTotalQuantity := exchange.MatchMarketOrders(
-			ctx,
-			marketSells,
-			allExistingBuys,
-			types.PositionDirection_SHORT,
-			&longDirtyPrices,
-			&settlements,
-			&zeroOrders,
-		)
-		limitTotalPrice, limitTotalQuantity := exchange.MatchLimitOrders(
-			ctx,
-			limitBuys,
-			limitSells,
-			&allExistingBuys,
-			&allExistingSells,
-			&longDirtyPrices,
-			&shortDirtyPrices,
-			&settlements,
-			&zeroOrders,
-		)
-		var avgPrice sdk.Dec
-		if marketBuyTotalQuantity.Add(marketSellTotalQuantity).Add(limitTotalQuantity).IsZero() {
-			avgPrice = sdk.ZeroDec()
-		} else {
-			avgPrice = (marketBuyTotalPrice.Add(marketSellTotalPrice).Add(limitTotalPrice)).Quo(marketBuyTotalQuantity.Add(marketSellTotalQuantity).Add(limitTotalQuantity))
-			priceState, _ := am.keeper.GetPriceState(ctx, contractAddr, currentEpoch, pair)
-			priceState.SnapshotTimestampInSeconds = uint64(ctx.BlockTime().Unix())
-			priceState.Price = avgPrice
-			am.keeper.SetPriceState(ctx, priceState, contractAddr)
-		}
-		ctx.Logger().Info(fmt.Sprintf("Number of long books: %d", len(allExistingBuys)))
-		ctx.Logger().Info(fmt.Sprintf("Number of short books: %d", len(allExistingSells)))
-		ctx.Logger().Info(fmt.Sprintf("Average price for %s/%s: %d", pair.PriceDenom, pair.AssetDenom, avgPrice))
-		for _, buy := range allExistingBuys {
-			ctx.Logger().Info(fmt.Sprintf("Long book: %s, %s", buy.GetPrice(), buy.GetEntry().Quantity))
-			if longDirtyPrices.Has(buy.GetPrice()) {
-				ctx.Logger().Info("Long book is dirty")
-				dexkeeperutils.FlushDirtyLongBook(ctx, &am.keeper, contractAddr, buy)
-			}
-		}
-		for _, sell := range allExistingSells {
-			if shortDirtyPrices.Has(sell.GetPrice()) {
-				dexkeeperutils.FlushDirtyShortBook(ctx, &am.keeper, contractAddr, sell)
-			}
-		}
-		for _, order := range *orders {
-			am.keeper.AddNewOrder(ctx, order)
-		}
-
-		_, currentEpoch := am.keeper.IsNewEpoch(ctx)
-		allSettlements := types.Settlements{
-			Epoch:   int64(currentEpoch),
-			Entries: []*types.SettlementEntry{},
-		}
-		settlementMap := map[dextypesutils.PairString]*types.Settlements{}
-
-		for _, settlementEntry := range settlements {
-			priceDenom := settlementEntry.PriceDenom
-			assetDenom := settlementEntry.AssetDenom
-			pair := types.Pair{
-				PriceDenom: priceDenom,
-				AssetDenom: assetDenom,
-			}
-			if settlements, ok := settlementMap[dextypesutils.GetPairString(&pair)]; ok {
-				settlements.Entries = append(settlements.Entries, settlementEntry)
-			} else {
-				settlementMap[dextypesutils.GetPairString(&pair)] = &types.Settlements{
-					Epoch:   int64(currentEpoch),
-					Entries: []*types.SettlementEntry{settlementEntry},
-				}
-			}
-			allSettlements.Entries = append(allSettlements.Entries, settlementEntry)
-			am.keeper.ReduceOrderQuantity(ctx, contractAddr, settlementEntry.OrderId, settlementEntry.Quantity)
-		}
-
-		for _, pair := range registeredPairs {
-			pair := pair
-			if settlementEntries, ok := settlementMap[dextypesutils.GetPairString(&pair)]; ok && len(settlementEntries.Entries) > 0 {
-				am.keeper.SetSettlements(ctx, contractAddr, settlementEntries.Entries[0].PriceDenom, settlementEntries.Entries[0].AssetDenom, *settlementEntries)
-			}
-		}
-		// populate execution results for FinalizeBlock hook
-		dextypeswasm.PopulateOrderExecutionResults(contractAddr, allSettlements.Entries, orderResults)
-
-		nativeSettlementMsg := dextypeswasm.SudoSettlementMsg{
-			Settlement: allSettlements,
-		}
-		ctx.Logger().Info(nativeSettlementMsg.Settlement.String())
-		if _, err := dexkeeperutils.CallContractSudo(ctx, &am.keeper, contractAddr, nativeSettlementMsg); err != nil {
-			return orderResults, err
-		}
-
-		for _, cancel := range *cancels {
-			am.keeper.AddCancel(ctx, contractAddr, cancel)
-			am.keeper.UpdateOrderStatus(ctx, contractAddr, cancel.Id, types.OrderStatus_CANCELLED)
-		}
-		for _, zeroAccountOrder := range zeroOrders {
-			am.keeper.RemoveAccountActiveOrder(ctx, zeroAccountOrder.OrderID, contractAddr, zeroAccountOrder.Account)
-			am.keeper.UpdateOrderStatus(ctx, contractAddr, zeroAccountOrder.OrderID, types.OrderStatus_FULFILLED)
-		}
-
-		emptyBlockCancel := dexcache.BlockCancellations([]types.Cancellation{})
-		am.keeper.MemState.BlockCancels[typedContractAddr][typedPairStr] = &emptyBlockCancel
-		for _, marketOrder := range marketBuys {
-			if marketOrder.Quantity.IsPositive() {
-				am.keeper.MemState.GetBlockCancels(typedContractAddr, typedPairStr).AddCancel(types.Cancellation{
-					Id:        marketOrder.Id,
-					Initiator: types.CancellationInitiator_USER,
-				})
-				am.keeper.UpdateOrderStatus(ctx, contractAddr, marketOrder.Id, types.OrderStatus_CANCELLED)
-			} else {
-				am.keeper.UpdateOrderStatus(ctx, contractAddr, marketOrder.Id, types.OrderStatus_FULFILLED)
-			}
-		}
-		for _, marketOrder := range marketSells {
-			if marketOrder.Quantity.IsPositive() {
-				am.keeper.MemState.GetBlockCancels(typedContractAddr, typedPairStr).AddCancel(types.Cancellation{
-					Id:        marketOrder.Id,
-					Initiator: types.CancellationInitiator_USER,
-				})
-				am.keeper.UpdateOrderStatus(ctx, contractAddr, marketOrder.Id, types.OrderStatus_CANCELLED)
-			} else {
-				am.keeper.UpdateOrderStatus(ctx, contractAddr, marketOrder.Id, types.OrderStatus_FULFILLED)
-			}
-		}
-	}
-	// Cancel unfilled market orders
-	if err := am.abciWrapper.HandleEBCancelOrders(spanCtx, ctx, am.tracingInfo.Tracer, contractAddr, registeredPairs); err != nil {
-		return orderResults, err
-	}
-
-	return orderResults, nil
 }

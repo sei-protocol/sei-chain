@@ -18,13 +18,13 @@ const (
 
 func TestDeepCopy(t *testing.T) {
 	stateOne := dex.NewMemState()
-	stateOne.GetBlockOrders(utils.ContractAddress(TEST_CONTRACT), utils.PairString(TEST_PAIR)).AddOrder(types.Order{
+	stateOne.GetBlockOrders(utils.ContractAddress(TEST_CONTRACT), utils.PairString(TEST_PAIR)).AddOrder(&types.Order{
 		Id:           1,
 		Account:      "test",
 		ContractAddr: TEST_CONTRACT,
 	})
 	stateTwo := stateOne.DeepCopy()
-	stateTwo.GetBlockOrders(utils.ContractAddress(TEST_CONTRACT), utils.PairString(TEST_PAIR)).AddOrder(types.Order{
+	stateTwo.GetBlockOrders(utils.ContractAddress(TEST_CONTRACT), utils.PairString(TEST_PAIR)).AddOrder(&types.Order{
 		Id:           2,
 		Account:      "test",
 		ContractAddr: TEST_CONTRACT,
@@ -37,12 +37,12 @@ func TestDeepCopy(t *testing.T) {
 
 func TestDeepFilterAccounts(t *testing.T) {
 	stateOne := dex.NewMemState()
-	stateOne.GetBlockOrders(utils.ContractAddress(TEST_CONTRACT), utils.PairString(TEST_PAIR)).AddOrder(types.Order{
+	stateOne.GetBlockOrders(utils.ContractAddress(TEST_CONTRACT), utils.PairString(TEST_PAIR)).AddOrder(&types.Order{
 		Id:           1,
 		Account:      "test",
 		ContractAddr: TEST_CONTRACT,
 	})
-	stateOne.GetBlockOrders(utils.ContractAddress(TEST_CONTRACT), utils.PairString(TEST_PAIR)).AddOrder(types.Order{
+	stateOne.GetBlockOrders(utils.ContractAddress(TEST_CONTRACT), utils.PairString(TEST_PAIR)).AddOrder(&types.Order{
 		Id:           2,
 		Account:      "test2",
 		ContractAddr: TEST_CONTRACT,
@@ -73,7 +73,7 @@ func TestDeepFilterAccounts(t *testing.T) {
 
 func TestClear(t *testing.T) {
 	stateOne := dex.NewMemState()
-	stateOne.GetBlockOrders(utils.ContractAddress(TEST_CONTRACT), utils.PairString(TEST_PAIR)).AddOrder(types.Order{
+	stateOne.GetBlockOrders(utils.ContractAddress(TEST_CONTRACT), utils.PairString(TEST_PAIR)).AddOrder(&types.Order{
 		Id:           1,
 		Account:      "test",
 		ContractAddr: TEST_CONTRACT,
@@ -84,7 +84,7 @@ func TestClear(t *testing.T) {
 
 func TestMarkFailedToPlaceByAccounts(t *testing.T) {
 	stateOne := dex.NewMemState()
-	stateOne.GetBlockOrders(utils.ContractAddress(TEST_CONTRACT), utils.PairString(TEST_PAIR)).AddOrder(types.Order{
+	stateOne.GetBlockOrders(utils.ContractAddress(TEST_CONTRACT), utils.PairString(TEST_PAIR)).AddOrder(&types.Order{
 		Id:           1,
 		Account:      "test",
 		ContractAddr: TEST_CONTRACT,
@@ -96,7 +96,7 @@ func TestMarkFailedToPlaceByAccounts(t *testing.T) {
 
 func TestMarkFailedToPlace(t *testing.T) {
 	stateOne := dex.NewMemState()
-	stateOne.GetBlockOrders(utils.ContractAddress(TEST_CONTRACT), utils.PairString(TEST_PAIR)).AddOrder(types.Order{
+	stateOne.GetBlockOrders(utils.ContractAddress(TEST_CONTRACT), utils.PairString(TEST_PAIR)).AddOrder(&types.Order{
 		Id:           1,
 		Account:      "test",
 		ContractAddr: TEST_CONTRACT,
@@ -114,7 +114,7 @@ func TestMarkFailedToPlace(t *testing.T) {
 
 func TestGetSortedMarketOrders(t *testing.T) {
 	stateOne := dex.NewMemState()
-	stateOne.GetBlockOrders(utils.ContractAddress(TEST_CONTRACT), utils.PairString(TEST_PAIR)).AddOrder(types.Order{
+	stateOne.GetBlockOrders(utils.ContractAddress(TEST_CONTRACT), utils.PairString(TEST_PAIR)).AddOrder(&types.Order{
 		Id:                1,
 		Account:           "test",
 		ContractAddr:      TEST_CONTRACT,
@@ -122,7 +122,7 @@ func TestGetSortedMarketOrders(t *testing.T) {
 		OrderType:         types.OrderType_LIQUIDATION,
 		Price:             sdk.MustNewDecFromStr("150"),
 	})
-	stateOne.GetBlockOrders(utils.ContractAddress(TEST_CONTRACT), utils.PairString(TEST_PAIR)).AddOrder(types.Order{
+	stateOne.GetBlockOrders(utils.ContractAddress(TEST_CONTRACT), utils.PairString(TEST_PAIR)).AddOrder(&types.Order{
 		Id:                2,
 		Account:           "test",
 		ContractAddr:      TEST_CONTRACT,
@@ -130,7 +130,7 @@ func TestGetSortedMarketOrders(t *testing.T) {
 		OrderType:         types.OrderType_MARKET,
 		Price:             sdk.MustNewDecFromStr("100"),
 	})
-	stateOne.GetBlockOrders(utils.ContractAddress(TEST_CONTRACT), utils.PairString(TEST_PAIR)).AddOrder(types.Order{
+	stateOne.GetBlockOrders(utils.ContractAddress(TEST_CONTRACT), utils.PairString(TEST_PAIR)).AddOrder(&types.Order{
 		Id:                3,
 		Account:           "test",
 		ContractAddr:      TEST_CONTRACT,
@@ -138,7 +138,7 @@ func TestGetSortedMarketOrders(t *testing.T) {
 		OrderType:         types.OrderType_MARKET,
 		Price:             sdk.MustNewDecFromStr("0"),
 	})
-	stateOne.GetBlockOrders(utils.ContractAddress(TEST_CONTRACT), utils.PairString(TEST_PAIR)).AddOrder(types.Order{
+	stateOne.GetBlockOrders(utils.ContractAddress(TEST_CONTRACT), utils.PairString(TEST_PAIR)).AddOrder(&types.Order{
 		Id:                4,
 		Account:           "test",
 		ContractAddr:      TEST_CONTRACT,
@@ -146,7 +146,7 @@ func TestGetSortedMarketOrders(t *testing.T) {
 		OrderType:         types.OrderType_LIQUIDATION,
 		Price:             sdk.MustNewDecFromStr("100"),
 	})
-	stateOne.GetBlockOrders(utils.ContractAddress(TEST_CONTRACT), utils.PairString(TEST_PAIR)).AddOrder(types.Order{
+	stateOne.GetBlockOrders(utils.ContractAddress(TEST_CONTRACT), utils.PairString(TEST_PAIR)).AddOrder(&types.Order{
 		Id:                5,
 		Account:           "test",
 		ContractAddr:      TEST_CONTRACT,
@@ -154,7 +154,7 @@ func TestGetSortedMarketOrders(t *testing.T) {
 		OrderType:         types.OrderType_MARKET,
 		Price:             sdk.MustNewDecFromStr("80"),
 	})
-	stateOne.GetBlockOrders(utils.ContractAddress(TEST_CONTRACT), utils.PairString(TEST_PAIR)).AddOrder(types.Order{
+	stateOne.GetBlockOrders(utils.ContractAddress(TEST_CONTRACT), utils.PairString(TEST_PAIR)).AddOrder(&types.Order{
 		Id:                6,
 		Account:           "test",
 		ContractAddr:      TEST_CONTRACT,
@@ -162,7 +162,7 @@ func TestGetSortedMarketOrders(t *testing.T) {
 		OrderType:         types.OrderType_MARKET,
 		Price:             sdk.MustNewDecFromStr("0"),
 	})
-	stateOne.GetBlockOrders(utils.ContractAddress(TEST_CONTRACT), utils.PairString(TEST_PAIR)).AddOrder(types.Order{
+	stateOne.GetBlockOrders(utils.ContractAddress(TEST_CONTRACT), utils.PairString(TEST_PAIR)).AddOrder(&types.Order{
 		Id:                7,
 		Account:           "test",
 		ContractAddr:      TEST_CONTRACT,
@@ -170,7 +170,7 @@ func TestGetSortedMarketOrders(t *testing.T) {
 		OrderType:         types.OrderType_LIMIT,
 		Price:             sdk.MustNewDecFromStr("100"),
 	})
-	stateOne.GetBlockOrders(utils.ContractAddress(TEST_CONTRACT), utils.PairString(TEST_PAIR)).AddOrder(types.Order{
+	stateOne.GetBlockOrders(utils.ContractAddress(TEST_CONTRACT), utils.PairString(TEST_PAIR)).AddOrder(&types.Order{
 		Id:                8,
 		Account:           "test",
 		ContractAddr:      TEST_CONTRACT,
