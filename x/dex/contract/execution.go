@@ -62,7 +62,7 @@ func ExecutePair(
 	dexkeeper *keeper.Keeper,
 ) []*types.SettlementEntry {
 	typedContractAddr := dextypesutils.ContractAddress(contractAddr)
-	typedPairStr := dextypesutils.GetPairString(&pair) //nolint:gosec // USING THE POINTER HERE COULD BE BAD, LET'S CHECK IT
+	typedPairStr := dextypesutils.GetPairString(&pair)
 	orderbook := dexkeeperutils.PopulateOrderbook(ctx, dexkeeper, typedContractAddr, pair)
 
 	cancelForPair(ctx, typedContractAddr, typedPairStr, dexkeeper, orderbook)
@@ -160,8 +160,8 @@ func UpdateOrderState(
 		}
 	}
 	// Finally update market order status based on execution result
-	for _, marketOrderId := range getUnfulfilledPlacedMarketOrderIds(typedContractAddr, typedPairStr, dexkeeper) {
-		dexkeeper.UpdateOrderStatus(ctx, string(typedContractAddr), marketOrderId, types.OrderStatus_CANCELLED)
+	for _, marketOrderID := range getUnfulfilledPlacedMarketOrderIds(typedContractAddr, typedPairStr, dexkeeper) {
+		dexkeeper.UpdateOrderStatus(ctx, string(typedContractAddr), marketOrderID, types.OrderStatus_CANCELLED)
 	}
 }
 
@@ -172,9 +172,9 @@ func PrepareCancelUnfulfilledMarketOrders(
 ) {
 	emptyBlockCancel := dexcache.BlockCancellations([]types.Cancellation{})
 	dexkeeper.MemState.BlockCancels[typedContractAddr][typedPairStr] = &emptyBlockCancel
-	for _, marketOrderId := range getUnfulfilledPlacedMarketOrderIds(typedContractAddr, typedPairStr, dexkeeper) {
+	for _, marketOrderID := range getUnfulfilledPlacedMarketOrderIds(typedContractAddr, typedPairStr, dexkeeper) {
 		dexkeeper.MemState.GetBlockCancels(typedContractAddr, typedPairStr).AddCancel(types.Cancellation{
-			Id:        marketOrderId,
+			Id:        marketOrderID,
 			Initiator: types.CancellationInitiator_USER,
 		})
 	}
@@ -216,9 +216,10 @@ func HandleExecutionForContract(
 	}
 
 	for _, pair := range registeredPairs {
+		pairCopy := pair
 		pairSettlements := ExecutePair(ctx, contractAddr, pair, dexkeeper)
-		UpdateOrderState(ctx, typedContractAddr, dextypesutils.GetPairString(&pair), dexkeeper, pairSettlements)
-		PrepareCancelUnfulfilledMarketOrders(typedContractAddr, dextypesutils.GetPairString(&pair), dexkeeper)
+		UpdateOrderState(ctx, typedContractAddr, dextypesutils.GetPairString(&pairCopy), dexkeeper, pairSettlements)
+		PrepareCancelUnfulfilledMarketOrders(typedContractAddr, dextypesutils.GetPairString(&pairCopy), dexkeeper)
 
 		settlements = append(settlements, pairSettlements...)
 	}
