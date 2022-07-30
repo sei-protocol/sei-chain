@@ -1,8 +1,6 @@
 package contract
 
 import (
-	"fmt"
-
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"go.opentelemetry.io/otel/attribute"
 	otrace "go.opentelemetry.io/otel/trace"
@@ -143,9 +141,10 @@ func UpdateOrderState(
 	orders := dexkeeper.MemState.GetBlockOrders(typedContractAddr, typedPairStr)
 	cancels := dexkeeper.MemState.GetBlockCancels(typedContractAddr, typedPairStr)
 	// First add any new order, whether successfully placed or not, to the store
-	fmt.Println("Update")
 	for _, order := range *orders {
-		fmt.Printf("Order %d, q %s\n", order.Id, order.Quantity)
+		if order.Quantity.IsZero() {
+			order.Status = types.OrderStatus_FULFILLED
+		}
 		dexkeeper.AddNewOrder(ctx, *order)
 	}
 	// Then update order status and insert cancel record for any cancellation
@@ -155,10 +154,13 @@ func UpdateOrderState(
 	}
 	// Then deduct quantity from orders that have (partially) settled
 	for _, settlementEntry := range settlements {
-		dexkeeper.ReduceOrderQuantity(ctx, string(typedContractAddr), settlementEntry.OrderId, settlementEntry.Quantity)
+		// Market orders would have already had their quantities reduced during order matching
+		if settlementEntry.OrderType == dextypeswasm.GetContractOrderType(types.OrderType_LIMIT) {
+			dexkeeper.ReduceOrderQuantity(ctx, string(typedContractAddr), settlementEntry.OrderId, settlementEntry.Quantity)
+		}
 	}
 	// Finally update market order status based on execution result
-	for _, marketOrderId := range getUnfulfilledMarketOrderIds(typedContractAddr, typedPairStr, dexkeeper) {
+	for _, marketOrderId := range getUnfulfilledPlacedMarketOrderIds(typedContractAddr, typedPairStr, dexkeeper) {
 		dexkeeper.UpdateOrderStatus(ctx, string(typedContractAddr), marketOrderId, types.OrderStatus_CANCELLED)
 	}
 }
@@ -170,7 +172,7 @@ func PrepareCancelUnfulfilledMarketOrders(
 ) {
 	emptyBlockCancel := dexcache.BlockCancellations([]types.Cancellation{})
 	dexkeeper.MemState.BlockCancels[typedContractAddr][typedPairStr] = &emptyBlockCancel
-	for _, marketOrderId := range getUnfulfilledMarketOrderIds(typedContractAddr, typedPairStr, dexkeeper) {
+	for _, marketOrderId := range getUnfulfilledPlacedMarketOrderIds(typedContractAddr, typedPairStr, dexkeeper) {
 		dexkeeper.MemState.GetBlockCancels(typedContractAddr, typedPairStr).AddCancel(types.Cancellation{
 			Id:        marketOrderId,
 			Initiator: types.CancellationInitiator_USER,
@@ -178,13 +180,16 @@ func PrepareCancelUnfulfilledMarketOrders(
 	}
 }
 
-func getUnfulfilledMarketOrderIds(
+func getUnfulfilledPlacedMarketOrderIds(
 	typedContractAddr dextypesutils.ContractAddress,
 	typedPairStr dextypesutils.PairString,
 	dexkeeper *keeper.Keeper,
 ) []uint64 {
 	res := []uint64{}
 	for _, order := range *dexkeeper.MemState.GetBlockOrders(typedContractAddr, typedPairStr) {
+		if order.Status == types.OrderStatus_FAILED_TO_PLACE {
+			continue
+		}
 		if order.OrderType == types.OrderType_MARKET || order.OrderType == types.OrderType_LIQUIDATION {
 			if order.Quantity.IsPositive() {
 				res = append(res, order.Id)

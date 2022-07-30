@@ -314,7 +314,6 @@ func (am AppModule) EndBlock(ctx sdk.Context, _ abci.RequestEndBlock) []abci.Val
 			return []abci.ValidatorUpdate{}
 		}
 		// restore keeper in-memory state
-		fmt.Println("Restore keeper state")
 		*am.keeper.MemState = *memStateCopy
 		// exclude orders by failed contracts from in-memory state,
 		// then update `validContractAddresses`
