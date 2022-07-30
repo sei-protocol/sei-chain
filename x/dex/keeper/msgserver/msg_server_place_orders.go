@@ -2,6 +2,7 @@ package msgserver
 
 import (
 	"context"
+	"errors"
 	"math/big"
 
 	conversion "github.com/sei-protocol/sei-chain/utils"
@@ -17,8 +18,6 @@ func (k msgServer) transferFunds(goCtx context.Context, msg *types.MsgPlaceOrder
 	if len(msg.Funds) == 0 {
 		return nil
 	}
-	_, span := (*k.tracingInfo.Tracer).Start(goCtx, "TransferFunds")
-	defer span.End()
 
 	ctx := sdk.UnwrapSDKContext(goCtx)
 	contractAddr, err := sdk.AccAddressFromBech32(msg.ContractAddr)
@@ -43,10 +42,13 @@ func (k msgServer) transferFunds(goCtx context.Context, msg *types.MsgPlaceOrder
 }
 
 func (k msgServer) PlaceOrders(goCtx context.Context, msg *types.MsgPlaceOrders) (*types.MsgPlaceOrdersResponse, error) {
-	spanCtx, span := (*k.tracingInfo.Tracer).Start(goCtx, "PlaceOrders")
-	defer span.End()
-
 	ctx := sdk.UnwrapSDKContext(goCtx)
+
+	for _, order := range msg.Orders {
+		if err := k.validateOrder(order); err != nil {
+			return nil, err
+		}
+	}
 
 	if msg.AutoCalculateDeposit {
 		calculatedCollateral := sdk.NewDecFromBigInt(big.NewInt(0))
@@ -69,7 +71,7 @@ func (k msgServer) PlaceOrders(goCtx context.Context, msg *types.MsgPlaceOrders)
 		msg.Funds[0].Denom = newDenom
 	}
 
-	if err := k.transferFunds(spanCtx, msg); err != nil {
+	if err := k.transferFunds(goCtx, msg); err != nil {
 		return nil, err
 	}
 
@@ -94,4 +96,14 @@ func (k msgServer) PlaceOrders(goCtx context.Context, msg *types.MsgPlaceOrders)
 	return &types.MsgPlaceOrdersResponse{
 		OrderIds: idsInResp,
 	}, nil
+}
+
+func (k msgServer) validateOrder(order *types.Order) error {
+	if order.Quantity.IsNil() {
+		return errors.New("quantity cannot be empty")
+	}
+	if order.Price.IsNil() {
+		return errors.New("price cannot be empty")
+	}
+	return nil
 }
