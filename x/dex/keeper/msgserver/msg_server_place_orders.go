@@ -3,6 +3,7 @@ package msgserver
 import (
 	"context"
 	"errors"
+	"fmt"
 	"math/big"
 
 	conversion "github.com/sei-protocol/sei-chain/utils"
@@ -99,11 +100,23 @@ func (k msgServer) PlaceOrders(goCtx context.Context, msg *types.MsgPlaceOrders)
 }
 
 func (k msgServer) validateOrder(order *types.Order) error {
-	if order.Quantity.IsNil() {
-		return errors.New("quantity cannot be empty")
+	if order.Quantity.IsNil() || order.Quantity.IsNegative() {
+		return errors.New(fmt.Sprintf("invalid order quantity: %s", order.Quantity))
 	}
-	if order.Price.IsNil() {
-		return errors.New("price cannot be empty")
+	if order.Price.IsNil() || order.Price.IsNegative() {
+		return errors.New(fmt.Sprintf("invalid order price: %s", order.Price))
+	}
+	if len(order.AssetDenom) == 0 {
+		return errors.New("invalid order, asset denom is empty")
+	}
+	if len(order.ContractAddr) == 0 {
+		return errors.New("invalid order, contract address is empty")
+	}
+	if len(order.Account) == 0 {
+		return errors.New("invalid order, account is empty")
+	}
+	if len(order.PriceDenom) == 0 {
+		return errors.New("invalid order, price denom is empty")
 	}
 	return nil
 }

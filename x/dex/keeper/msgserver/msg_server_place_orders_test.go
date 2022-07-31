@@ -26,6 +26,8 @@ func TestPlaceOrder(t *testing.T) {
 				OrderType:         types.OrderType_LIMIT,
 				PriceDenom:        keepertest.TestPriceDenom,
 				AssetDenom:        keepertest.TestAssetDenom,
+				ContractAddr:      TestContract,
+				Account:           "testaccount",
 			},
 			{
 				Price:             sdk.MustNewDecFromStr("20"),
@@ -35,6 +37,8 @@ func TestPlaceOrder(t *testing.T) {
 				OrderType:         types.OrderType_MARKET,
 				PriceDenom:        keepertest.TestPriceDenom,
 				AssetDenom:        keepertest.TestAssetDenom,
+				ContractAddr:      TestContract,
+				Account:           "testaccount",
 			},
 		},
 	}
@@ -56,6 +60,7 @@ func TestPlaceInvalidOrder(t *testing.T) {
 	keeper.SetTickSizeForPair(ctx, TestContract, keepertest.TestPair, *keepertest.TestPair.Ticksize)
 	wctx := sdk.WrapSDKContext(ctx)
 
+	// Empty quantity
 	msg := &types.MsgPlaceOrders{
 		Creator:      TestCreator,
 		ContractAddr: TestContract,
@@ -68,6 +73,8 @@ func TestPlaceInvalidOrder(t *testing.T) {
 				OrderType:         types.OrderType_LIMIT,
 				PriceDenom:        keepertest.TestPriceDenom,
 				AssetDenom:        keepertest.TestAssetDenom,
+				ContractAddr:      TestContract,
+				Account:           "testaccount",
 			},
 		},
 	}
@@ -75,6 +82,7 @@ func TestPlaceInvalidOrder(t *testing.T) {
 	_, err := server.PlaceOrders(wctx, msg)
 	require.NotNil(t, err)
 
+	// Empty price
 	msg = &types.MsgPlaceOrders{
 		Creator:      TestCreator,
 		ContractAddr: TestContract,
@@ -87,6 +95,94 @@ func TestPlaceInvalidOrder(t *testing.T) {
 				OrderType:         types.OrderType_LIMIT,
 				PriceDenom:        keepertest.TestPriceDenom,
 				AssetDenom:        keepertest.TestAssetDenom,
+				ContractAddr:      TestContract,
+				Account:           "testaccount",
+			},
+		},
+	}
+	server = msgserver.NewMsgServerImpl(*keeper, nil)
+	_, err = server.PlaceOrders(wctx, msg)
+	require.NotNil(t, err)
+
+	// Negative quantity
+	msg = &types.MsgPlaceOrders{
+		Creator:      TestCreator,
+		ContractAddr: TestContract,
+		Orders: []*types.Order{
+			{
+				Price:             sdk.MustNewDecFromStr("10"),
+				Quantity:          sdk.MustNewDecFromStr("-1"),
+				Data:              "",
+				PositionDirection: types.PositionDirection_LONG,
+				OrderType:         types.OrderType_LIMIT,
+				PriceDenom:        keepertest.TestPriceDenom,
+				AssetDenom:        keepertest.TestAssetDenom,
+				ContractAddr:      TestContract,
+				Account:           "testaccount",
+			},
+		},
+	}
+	server = msgserver.NewMsgServerImpl(*keeper, nil)
+	_, err = server.PlaceOrders(wctx, msg)
+	require.NotNil(t, err)
+
+	// Negative price
+	msg = &types.MsgPlaceOrders{
+		Creator:      TestCreator,
+		ContractAddr: TestContract,
+		Orders: []*types.Order{
+			{
+				Price:             sdk.MustNewDecFromStr("-1"),
+				Quantity:          sdk.MustNewDecFromStr("10"),
+				Data:              "",
+				PositionDirection: types.PositionDirection_LONG,
+				OrderType:         types.OrderType_LIMIT,
+				PriceDenom:        keepertest.TestPriceDenom,
+				AssetDenom:        keepertest.TestAssetDenom,
+				ContractAddr:      TestContract,
+				Account:           "testaccount",
+			},
+		},
+	}
+	server = msgserver.NewMsgServerImpl(*keeper, nil)
+	_, err = server.PlaceOrders(wctx, msg)
+	require.NotNil(t, err)
+
+	// Missing contract
+	msg = &types.MsgPlaceOrders{
+		Creator:      TestCreator,
+		ContractAddr: TestContract,
+		Orders: []*types.Order{
+			{
+				Price:             sdk.MustNewDecFromStr("-1"),
+				Quantity:          sdk.MustNewDecFromStr("10"),
+				Data:              "",
+				PositionDirection: types.PositionDirection_LONG,
+				OrderType:         types.OrderType_LIMIT,
+				PriceDenom:        keepertest.TestPriceDenom,
+				AssetDenom:        keepertest.TestAssetDenom,
+				Account:           "testaccount",
+			},
+		},
+	}
+	server = msgserver.NewMsgServerImpl(*keeper, nil)
+	_, err = server.PlaceOrders(wctx, msg)
+	require.NotNil(t, err)
+
+	// Missing account
+	msg = &types.MsgPlaceOrders{
+		Creator:      TestCreator,
+		ContractAddr: TestContract,
+		Orders: []*types.Order{
+			{
+				Price:             sdk.MustNewDecFromStr("-1"),
+				Quantity:          sdk.MustNewDecFromStr("10"),
+				Data:              "",
+				PositionDirection: types.PositionDirection_LONG,
+				OrderType:         types.OrderType_LIMIT,
+				PriceDenom:        keepertest.TestPriceDenom,
+				AssetDenom:        keepertest.TestAssetDenom,
+				ContractAddr:      TestContract,
 			},
 		},
 	}
