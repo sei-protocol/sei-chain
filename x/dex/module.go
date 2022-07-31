@@ -254,10 +254,10 @@ func (am AppModule) beginBlockForContract(ctx sdk.Context, contract types.Contra
 // EndBlock executes all ABCI EndBlock logic respective to the capability module. It
 // returns no validator updates.
 func (am AppModule) EndBlock(ctx sdk.Context, _ abci.RequestEndBlock) (ret []abci.ValidatorUpdate) {
-	cachedCtx, msCached := store.GetCachedContext(ctx)
+	// TODO (codchen): Revert https://github.com/sei-protocol/sei-chain/pull/176/files before mainnet so we don't silently fail on errors
 	defer func() {
 		if err := recover(); err != nil {
-			ctx.Logger().Error(fmt.Sprintf("panic occurred in dex EndBlock: %s", err))
+			ctx.Logger().Error(fmt.Sprintf("panic occurred in %s EndBlock: %s", types.ModuleName, err))
 			telemetry.IncrCounterWithLabels(
 				[]string{fmt.Sprintf("%s%s", types.ModuleName, "endblockpanic")},
 				1,
@@ -270,7 +270,7 @@ func (am AppModule) EndBlock(ctx sdk.Context, _ abci.RequestEndBlock) (ret []abc
 	}()
 
 	validContractAddresses := map[string]types.ContractInfo{}
-	for _, contractInfo := range am.getAllContractInfo(cachedCtx) {
+	for _, contractInfo := range am.getAllContractInfo(ctx) {
 		validContractAddresses[contractInfo.ContractAddr] = contractInfo
 	}
 	// Each iteration is atomic. If an iteration finishes without any error, it will return,
@@ -280,7 +280,7 @@ func (am AppModule) EndBlock(ctx sdk.Context, _ abci.RequestEndBlock) (ret []abc
 	iterCounter := len(validContractAddresses)
 	for len(validContractAddresses) > 0 {
 		failedContractAddresses := utils.NewStringSet([]string{})
-		cachedCachedCtx, msCachedCached := store.GetCachedContext(cachedCtx)
+		cachedCtx, msCached := store.GetCachedContext(ctx)
 		// cache keeper in-memory state
 		memStateCopy := am.keeper.MemState.DeepCopy()
 		finalizeBlockMessages := map[string]*dextypeswasm.SudoFinalizeBlockMsg{}
@@ -293,7 +293,7 @@ func (am AppModule) EndBlock(ctx sdk.Context, _ abci.RequestEndBlock) (ret []abc
 				continue
 			}
 			ctx.Logger().Info(fmt.Sprintf("End block for %s", contractAddr))
-			if orderResultsMap, err := am.endBlockForContract(cachedCachedCtx, contractInfo); err != nil {
+			if orderResultsMap, err := am.endBlockForContract(cachedCtx, contractInfo); err != nil {
 				ctx.Logger().Error(fmt.Sprintf("Error for EndBlock of %s", contractAddr))
 				failedContractAddresses.Add(contractAddr)
 			} else {
@@ -310,7 +310,7 @@ func (am AppModule) EndBlock(ctx sdk.Context, _ abci.RequestEndBlock) (ret []abc
 			if !validContractAddresses[contractAddr].NeedHook {
 				continue
 			}
-			if _, err := dexkeeperutils.CallContractSudo(cachedCachedCtx, &am.keeper, contractAddr, finalizeBlockMsg); err != nil {
+			if _, err := dexkeeperutils.CallContractSudo(cachedCtx, &am.keeper, contractAddr, finalizeBlockMsg); err != nil {
 				ctx.Logger().Error(fmt.Sprintf("Error calling FinalizeBlock of %s", contractAddr))
 				failedContractAddresses.Add(contractAddr)
 			}
@@ -318,7 +318,6 @@ func (am AppModule) EndBlock(ctx sdk.Context, _ abci.RequestEndBlock) (ret []abc
 
 		// No error is thrown for any contract. This should happen most of the time.
 		if failedContractAddresses.Size() == 0 {
-			msCachedCached.Write()
 			msCached.Write()
 			return []abci.ValidatorUpdate{}
 		}
