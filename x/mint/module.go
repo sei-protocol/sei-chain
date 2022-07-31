@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math/rand"
 
+	"github.com/armon/go-metrics"
 	"github.com/gorilla/mux"
 	"github.com/grpc-ecosystem/grpc-gateway/runtime"
 	"github.com/spf13/cobra"
@@ -14,6 +15,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/client"
 	"github.com/cosmos/cosmos-sdk/codec"
 	cdctypes "github.com/cosmos/cosmos-sdk/codec/types"
+	"github.com/cosmos/cosmos-sdk/telemetry"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/types/module"
 	simtypes "github.com/cosmos/cosmos-sdk/types/simulation"
@@ -148,6 +150,20 @@ func (AppModule) ConsensusVersion() uint64 { return 1 }
 
 // BeginBlock returns the begin blocker for the mint module.
 func (am AppModule) BeginBlock(ctx sdk.Context, _ abci.RequestBeginBlock) {
+	// TODO (codchen): Revert before mainnet so we don't silently fail on errors
+	defer func() {
+		if err := recover(); err != nil {
+			ctx.Logger().Error(fmt.Sprintf("panic occurred in %s BeginBlock: %s", types.ModuleName, err))
+			telemetry.IncrCounterWithLabels(
+				[]string{fmt.Sprintf("%s%s", types.ModuleName, "beginblockpanic")},
+				1,
+				[]metrics.Label{
+					telemetry.NewLabel("error", fmt.Sprintf("%s", err)),
+				},
+			)
+		}
+	}()
+
 	BeginBlocker(ctx, am.keeper)
 }
 
