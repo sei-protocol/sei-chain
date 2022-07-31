@@ -7,6 +7,7 @@ import (
 	"sort"
 
 	"github.com/CosmWasm/wasmd/x/wasm"
+	"github.com/armon/go-metrics"
 	"github.com/gorilla/mux"
 	"github.com/grpc-ecosystem/grpc-gateway/runtime"
 	"github.com/spf13/cobra"
@@ -17,6 +18,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/client"
 	"github.com/cosmos/cosmos-sdk/codec"
 	cdctypes "github.com/cosmos/cosmos-sdk/codec/types"
+	"github.com/cosmos/cosmos-sdk/telemetry"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/types/module"
 	"github.com/sei-protocol/sei-chain/utils"
@@ -251,9 +253,24 @@ func (am AppModule) beginBlockForContract(ctx sdk.Context, contract types.Contra
 
 // EndBlock executes all ABCI EndBlock logic respective to the capability module. It
 // returns no validator updates.
-func (am AppModule) EndBlock(ctx sdk.Context, _ abci.RequestEndBlock) []abci.ValidatorUpdate {
+func (am AppModule) EndBlock(ctx sdk.Context, _ abci.RequestEndBlock) (ret []abci.ValidatorUpdate) {
+	cachedCtx, msCached := store.GetCachedContext(ctx)
+	defer func() {
+		if err := recover(); err != nil {
+			ctx.Logger().Error(fmt.Sprintf("panic occurred in dex EndBlock: %s", err))
+			telemetry.IncrCounterWithLabels(
+				[]string{types.ModuleName, "endblockpanic"},
+				1,
+				[]metrics.Label{
+					telemetry.NewLabel("error", fmt.Sprintf("%s", err)),
+				},
+			)
+			ret = []abci.ValidatorUpdate{}
+		}
+	}()
+
 	validContractAddresses := map[string]types.ContractInfo{}
-	for _, contractInfo := range am.getAllContractInfo(ctx) {
+	for _, contractInfo := range am.getAllContractInfo(cachedCtx) {
 		validContractAddresses[contractInfo.ContractAddr] = contractInfo
 	}
 	// Each iteration is atomic. If an iteration finishes without any error, it will return,
@@ -263,7 +280,7 @@ func (am AppModule) EndBlock(ctx sdk.Context, _ abci.RequestEndBlock) []abci.Val
 	iterCounter := len(validContractAddresses)
 	for len(validContractAddresses) > 0 {
 		failedContractAddresses := utils.NewStringSet([]string{})
-		cachedCtx, msCached := store.GetCachedContext(ctx)
+		cachedCachedCtx, msCachedCached := store.GetCachedContext(cachedCtx)
 		// cache keeper in-memory state
 		memStateCopy := am.keeper.MemState.DeepCopy()
 		finalizeBlockMessages := map[string]*dextypeswasm.SudoFinalizeBlockMsg{}
@@ -276,7 +293,7 @@ func (am AppModule) EndBlock(ctx sdk.Context, _ abci.RequestEndBlock) []abci.Val
 				continue
 			}
 			ctx.Logger().Info(fmt.Sprintf("End block for %s", contractAddr))
-			if orderResultsMap, err := am.endBlockForContract(cachedCtx, contractInfo); err != nil {
+			if orderResultsMap, err := am.endBlockForContract(cachedCachedCtx, contractInfo); err != nil {
 				ctx.Logger().Error(fmt.Sprintf("Error for EndBlock of %s", contractAddr))
 				failedContractAddresses.Add(contractAddr)
 			} else {
@@ -293,7 +310,7 @@ func (am AppModule) EndBlock(ctx sdk.Context, _ abci.RequestEndBlock) []abci.Val
 			if !validContractAddresses[contractAddr].NeedHook {
 				continue
 			}
-			if _, err := dexkeeperutils.CallContractSudo(cachedCtx, &am.keeper, contractAddr, finalizeBlockMsg); err != nil {
+			if _, err := dexkeeperutils.CallContractSudo(cachedCachedCtx, &am.keeper, contractAddr, finalizeBlockMsg); err != nil {
 				ctx.Logger().Error(fmt.Sprintf("Error calling FinalizeBlock of %s", contractAddr))
 				failedContractAddresses.Add(contractAddr)
 			}
@@ -301,6 +318,7 @@ func (am AppModule) EndBlock(ctx sdk.Context, _ abci.RequestEndBlock) []abci.Val
 
 		// No error is thrown for any contract. This should happen most of the time.
 		if failedContractAddresses.Size() == 0 {
+			msCachedCached.Write()
 			msCached.Write()
 			return []abci.ValidatorUpdate{}
 		}
