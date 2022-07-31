@@ -1,4 +1,4 @@
-package testing
+package fuzzing
 
 import (
 	sdk "github.com/cosmos/cosmos-sdk/types"

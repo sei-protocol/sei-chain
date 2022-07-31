@@ -12,7 +12,7 @@ import (
 )
 
 func FuzzPlaceOrders(f *testing.F) {
-	f.Add(uint64(0), int32(0), int64(10), false, int64(2), false, keepertest.TestPriceDenom, keepertest.TestAssetDenom, int32(0), int32(0), "", "", false, int64(20))
+	f.Add(uint64(0), int32(0), 2, 2, int64(10), false, int64(2), false, keepertest.TestPriceDenom, keepertest.TestAssetDenom, int32(0), int32(0), "", "", false, int64(20))
 	f.Fuzz(fuzzTargetPlaceOrders)
 }
 
@@ -20,6 +20,8 @@ func fuzzTargetPlaceOrders(
 	t *testing.T,
 	id uint64,
 	status int32,
+	accountIdx int,
+	contractIdx int,
 	priceI int64,
 	priceIsNil bool,
 	quantityI int64,
@@ -34,12 +36,13 @@ func fuzzTargetPlaceOrders(
 	fundAmount int64,
 ) {
 	keeper, ctx := keepertest.DexKeeper(t)
-	keeper.AddRegisteredPair(ctx, TestContract, keepertest.TestPair)
-	keeper.SetTickSizeForPair(ctx, TestContract, keepertest.TestPair, *keepertest.TestPair.Ticksize)
+	contract := fuzzutils.GetContract(contractIdx)
+	keeper.AddRegisteredPair(ctx, contract, keepertest.TestPair)
+	keeper.SetTickSizeForPair(ctx, contract, keepertest.TestPair, *keepertest.TestPair.Ticksize)
 	wctx := sdk.WrapSDKContext(ctx)
 	msg := &types.MsgPlaceOrders{
-		Creator:      TestCreator,
-		ContractAddr: TestContract,
+		Creator:      fuzzutils.GetAccount(accountIdx),
+		ContractAddr: contract,
 		Orders: []*types.Order{
 			{
 				Id:                id,
