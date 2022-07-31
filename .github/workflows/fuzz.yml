@@ -1,0 +1,26 @@
+name: Fuzzing
+
+
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+    branches: [ master ]
+
+defaults:
+ run:
+  shell: bash
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v2
+
+    - name: Set up Go
+      uses: actions/setup-go@v2
+      with:
+        go-version: 1.18
+
+    - name: Fuzz Place Order Msg
+      run: go test github.com/sei-protocol/sei-chain/x/dex/keeper/msgserver -fuzz FuzzPlaceOrders -fuzztime 30s
