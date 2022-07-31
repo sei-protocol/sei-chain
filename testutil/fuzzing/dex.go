@@ -21,60 +21,65 @@ var ValidAccountCorpus = []string{
 	"sei1yuyyr3xg7jhk7pjkrp4j6h88t7gv35e29pfvmf",
 	"sei1vjgdad5v2euf98nj3pwg5d8agflr384k0eks43",
 }
+
 var AccountCorpus = append([]string{
 	"invalid",
 }, ValidAccountCorpus...)
+
 var ContractCorpus = []string{
 	"invalid",
 	"sei14hj2tavq8fpesdwxxcu44rty3hh90vhujrvcmstl4zr3txmfvw9sh9m79m",
 	"sei1nc5tatafv6eyq7llkr2gv50ff9e22mnf70qgjlv737ktmt4eswrqms7u8a",
 }
-var MicroTick = sdk.MustNewDecFromStr("0.000001")
-var MilliTick = sdk.MustNewDecFromStr("0.001")
-var WholeTick = sdk.OneDec()
-var PairCorpus = []types.Pair{
-	{},
-	{PriceDenom: "SEI"},
-	{AssetDenom: "ATOM"},
-	{
-		PriceDenom: "SEI",
-		AssetDenom: "ATOM",
-	},
-	{
-		PriceDenom: "SEI",
-		AssetDenom: "ATOM",
-		Ticksize:   &MicroTick,
-	},
-	{
-		PriceDenom: "SEI",
-		AssetDenom: "ATOM",
-		Ticksize:   &MilliTick,
-	},
-	{
-		PriceDenom: "SEI",
-		AssetDenom: "ATOM",
-		Ticksize:   &WholeTick,
-	},
-	{
-		PriceDenom: "USDC",
-		AssetDenom: "ATOM",
-	},
-	{
-		PriceDenom: "USDC",
-		AssetDenom: "ATOM",
-		Ticksize:   &MicroTick,
-	},
-	{
-		PriceDenom: "USDC",
-		AssetDenom: "ATOM",
-		Ticksize:   &MilliTick,
-	},
-	{
-		PriceDenom: "USDC",
-		AssetDenom: "ATOM",
-		Ticksize:   &WholeTick,
-	},
-}
+
+var (
+	MicroTick  = sdk.MustNewDecFromStr("0.000001")
+	MilliTick  = sdk.MustNewDecFromStr("0.001")
+	WholeTick  = sdk.OneDec()
+	PairCorpus = []types.Pair{
+		{},
+		{PriceDenom: "SEI"},
+		{AssetDenom: "ATOM"},
+		{
+			PriceDenom: "SEI",
+			AssetDenom: "ATOM",
+		},
+		{
+			PriceDenom: "SEI",
+			AssetDenom: "ATOM",
+			Ticksize:   &MicroTick,
+		},
+		{
+			PriceDenom: "SEI",
+			AssetDenom: "ATOM",
+			Ticksize:   &MilliTick,
+		},
+		{
+			PriceDenom: "SEI",
+			AssetDenom: "ATOM",
+			Ticksize:   &WholeTick,
+		},
+		{
+			PriceDenom: "USDC",
+			AssetDenom: "ATOM",
+		},
+		{
+			PriceDenom: "USDC",
+			AssetDenom: "ATOM",
+			Ticksize:   &MicroTick,
+		},
+		{
+			PriceDenom: "USDC",
+			AssetDenom: "ATOM",
+			Ticksize:   &MilliTick,
+		},
+		{
+			PriceDenom: "USDC",
+			AssetDenom: "ATOM",
+			Ticksize:   &WholeTick,
+		},
+	}
+)
 
 func GetAccount(i int) string {
 	ui := uint64(i) % uint64(len(AccountCorpus))
@@ -141,7 +146,7 @@ func GetOrderBookEntries(buy bool, priceDenom string, assetDenom string, entryWe
 		} else {
 			price = sdk.MustNewDecFromStr(fmt.Sprintf("%f", BaselinePrice+float64(i)))
 		}
-		cumWeights += uint64(cumWeights)
+		cumWeights += uint64(entryWeight)
 		nextSliceStartAccnt := int(cumWeights * uint64(len(allAccountIndices)) / totalPriceWeights)
 		nextSliceStartWeights := int(cumWeights * uint64(len(allWeights)) / totalPriceWeights)
 		entry := types.OrderEntry{

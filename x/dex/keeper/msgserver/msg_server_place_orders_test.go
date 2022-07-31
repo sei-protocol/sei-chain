@@ -10,8 +10,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-const TestCreator = "sei1ewxvf5a9wq9zk5nurtl6m9yfxpnhyp7s7uk5sl"
-const TestContract = "sei14hj2tavq8fpesdwxxcu44rty3hh90vhujrvcmstl4zr3txmfvw9sh9m79m"
+const (
+	TestCreator  = "sei1ewxvf5a9wq9zk5nurtl6m9yfxpnhyp7s7uk5sl"
+	TestContract = "sei14hj2tavq8fpesdwxxcu44rty3hh90vhujrvcmstl4zr3txmfvw9sh9m79m"
+)
 
 func TestPlaceOrder(t *testing.T) {
 	msg := &types.MsgPlaceOrders{
