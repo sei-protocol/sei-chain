@@ -9,11 +9,17 @@ import (
 	"github.com/cosmos/cosmos-sdk/store"
 	storetypes "github.com/cosmos/cosmos-sdk/store/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	authkeeper "github.com/cosmos/cosmos-sdk/x/auth/keeper"
+	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
+	bankkeeper "github.com/cosmos/cosmos-sdk/x/bank/keeper"
 	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
+	paramskeeper "github.com/cosmos/cosmos-sdk/x/params/keeper"
 	typesparams "github.com/cosmos/cosmos-sdk/x/params/types"
 	"github.com/sei-protocol/sei-chain/app"
 	"github.com/sei-protocol/sei-chain/x/dex/keeper"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
+	epochkeeper "github.com/sei-protocol/sei-chain/x/epoch/keeper"
+	epochtypes "github.com/sei-protocol/sei-chain/x/epoch/types"
 	"github.com/stretchr/testify/require"
 	"github.com/tendermint/tendermint/libs/log"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
@@ -42,12 +48,26 @@ func TestApp() *app.App {
 
 func DexKeeper(t testing.TB) (*keeper.Keeper, sdk.Context) {
 	storeKey := sdk.NewKVStoreKey(types.StoreKey)
+	keyAcc := sdk.NewKVStoreKey(authtypes.StoreKey)
+	keyBank := sdk.NewKVStoreKey(banktypes.StoreKey)
+	keyParams := sdk.NewKVStoreKey(typesparams.StoreKey)
+	tKeyParams := sdk.NewTransientStoreKey(typesparams.TStoreKey)
+	keyEpochs := sdk.NewKVStoreKey(epochtypes.StoreKey)
 	memStoreKey := storetypes.NewMemoryStoreKey(types.MemStoreKey)
+
+	blackListAddrs := map[string]bool{}
+
+	maccPerms := map[string][]string{}
 
 	db := tmdb.NewMemDB()
 	stateStore := store.NewCommitMultiStore(db)
+	stateStore.MountStoreWithDB(keyAcc, sdk.StoreTypeIAVL, db)
+	stateStore.MountStoreWithDB(keyBank, sdk.StoreTypeIAVL, db)
 	stateStore.MountStoreWithDB(storeKey, sdk.StoreTypeIAVL, db)
 	stateStore.MountStoreWithDB(memStoreKey, sdk.StoreTypeMemory, nil)
+	stateStore.MountStoreWithDB(keyEpochs, sdk.StoreTypeIAVL, db)
+	stateStore.MountStoreWithDB(tKeyParams, sdk.StoreTypeTransient, db)
+	stateStore.MountStoreWithDB(keyParams, sdk.StoreTypeIAVL, db)
 	require.NoError(t, stateStore.LoadLatestVersion())
 
 	registry := codectypes.NewInterfaceRegistry()
@@ -59,17 +79,31 @@ func DexKeeper(t testing.TB) (*keeper.Keeper, sdk.Context) {
 		memStoreKey,
 		"DexParams",
 	)
-	k := keeper.NewPlainKeeper(
+	paramsKeeper := paramskeeper.NewKeeper(cdc, codec.NewLegacyAmino(), keyParams, tKeyParams)
+	accountKeeper := authkeeper.NewAccountKeeper(cdc, keyAcc, paramsKeeper.Subspace(authtypes.ModuleName), authtypes.ProtoBaseAccount, maccPerms)
+	bankKeeper := bankkeeper.NewBaseKeeper(cdc, keyBank, accountKeeper, paramsKeeper.Subspace(banktypes.ModuleName), blackListAddrs)
+	epochKeeper := epochkeeper.NewKeeper(cdc, keyEpochs, memStoreKey, paramsKeeper.Subspace(epochtypes.ModuleName))
+	k := keeper.NewKeeper(
 		cdc,
 		storeKey,
 		memStoreKey,
 		paramsSubspace,
+		*epochKeeper,
+		bankKeeper,
 	)
 
 	ctx := sdk.NewContext(stateStore, tmproto.Header{}, false, log.NewNopLogger())
 
 	// Initialize params
 	k.SetParams(ctx, types.DefaultParams())
+	bankParams := banktypes.DefaultParams()
+	bankParams.SendEnabled = []*banktypes.SendEnabled{
+		{
+			Denom:   TestPriceDenom,
+			Enabled: true,
+		},
+	}
+	bankKeeper.SetParams(ctx, bankParams)
 
 	return k, ctx
 }
