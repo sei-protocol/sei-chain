@@ -109,12 +109,6 @@ func (k msgServer) validateOrder(order *types.Order) error {
 	if len(order.AssetDenom) == 0 {
 		return errors.New("invalid order, asset denom is empty")
 	}
-	if len(order.ContractAddr) == 0 {
-		return errors.New("invalid order, contract address is empty")
-	}
-	if len(order.Account) == 0 {
-		return errors.New("invalid order, account is empty")
-	}
 	if len(order.PriceDenom) == 0 {
 		return errors.New("invalid order, price denom is empty")
 	}

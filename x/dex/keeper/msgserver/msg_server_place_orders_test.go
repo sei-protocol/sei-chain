@@ -28,8 +28,6 @@ func TestPlaceOrder(t *testing.T) {
 				OrderType:         types.OrderType_LIMIT,
 				PriceDenom:        keepertest.TestPriceDenom,
 				AssetDenom:        keepertest.TestAssetDenom,
-				ContractAddr:      TestContract,
-				Account:           "testaccount",
 			},
 			{
 				Price:             sdk.MustNewDecFromStr("20"),
@@ -39,8 +37,6 @@ func TestPlaceOrder(t *testing.T) {
 				OrderType:         types.OrderType_MARKET,
 				PriceDenom:        keepertest.TestPriceDenom,
 				AssetDenom:        keepertest.TestAssetDenom,
-				ContractAddr:      TestContract,
-				Account:           "testaccount",
 			},
 		},
 	}
@@ -54,6 +50,9 @@ func TestPlaceOrder(t *testing.T) {
 	require.Equal(t, 2, len(res.OrderIds))
 	require.Equal(t, uint64(0), res.OrderIds[0])
 	require.Equal(t, uint64(1), res.OrderIds[1])
+	// Ensure that contract addr and account is set in the order
+	require.Equal(t, msg.Orders[0].ContractAddr, TestContract)
+	require.Equal(t, msg.Orders[0].Account, TestCreator)
 }
 
 func TestPlaceInvalidOrder(t *testing.T) {
@@ -75,8 +74,6 @@ func TestPlaceInvalidOrder(t *testing.T) {
 				OrderType:         types.OrderType_LIMIT,
 				PriceDenom:        keepertest.TestPriceDenom,
 				AssetDenom:        keepertest.TestAssetDenom,
-				ContractAddr:      TestContract,
-				Account:           "testaccount",
 			},
 		},
 	}
@@ -97,8 +94,6 @@ func TestPlaceInvalidOrder(t *testing.T) {
 				OrderType:         types.OrderType_LIMIT,
 				PriceDenom:        keepertest.TestPriceDenom,
 				AssetDenom:        keepertest.TestAssetDenom,
-				ContractAddr:      TestContract,
-				Account:           "testaccount",
 			},
 		},
 	}
@@ -119,8 +114,6 @@ func TestPlaceInvalidOrder(t *testing.T) {
 				OrderType:         types.OrderType_LIMIT,
 				PriceDenom:        keepertest.TestPriceDenom,
 				AssetDenom:        keepertest.TestAssetDenom,
-				ContractAddr:      TestContract,
-				Account:           "testaccount",
 			},
 		},
 	}
@@ -163,7 +156,6 @@ func TestPlaceInvalidOrder(t *testing.T) {
 				OrderType:         types.OrderType_LIMIT,
 				PriceDenom:        keepertest.TestPriceDenom,
 				AssetDenom:        keepertest.TestAssetDenom,
-				Account:           "testaccount",
 			},
 		},
 	}
@@ -184,7 +176,6 @@ func TestPlaceInvalidOrder(t *testing.T) {
 				OrderType:         types.OrderType_LIMIT,
 				PriceDenom:        keepertest.TestPriceDenom,
 				AssetDenom:        keepertest.TestAssetDenom,
-				ContractAddr:      TestContract,
 			},
 		},
 	}
