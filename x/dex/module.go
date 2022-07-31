@@ -7,6 +7,7 @@ import (
 	"sort"
 
 	"github.com/CosmWasm/wasmd/x/wasm"
+	"github.com/armon/go-metrics"
 	"github.com/gorilla/mux"
 	"github.com/grpc-ecosystem/grpc-gateway/runtime"
 	"github.com/spf13/cobra"
@@ -17,6 +18,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/client"
 	"github.com/cosmos/cosmos-sdk/codec"
 	cdctypes "github.com/cosmos/cosmos-sdk/codec/types"
+	"github.com/cosmos/cosmos-sdk/telemetry"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/types/module"
 	"github.com/sei-protocol/sei-chain/utils"
@@ -251,7 +253,22 @@ func (am AppModule) beginBlockForContract(ctx sdk.Context, contract types.Contra
 
 // EndBlock executes all ABCI EndBlock logic respective to the capability module. It
 // returns no validator updates.
-func (am AppModule) EndBlock(ctx sdk.Context, _ abci.RequestEndBlock) []abci.ValidatorUpdate {
+func (am AppModule) EndBlock(ctx sdk.Context, _ abci.RequestEndBlock) (ret []abci.ValidatorUpdate) {
+	// TODO (codchen): Revert https://github.com/sei-protocol/sei-chain/pull/176/files before mainnet so we don't silently fail on errors
+	defer func() {
+		if err := recover(); err != nil {
+			ctx.Logger().Error(fmt.Sprintf("panic occurred in %s EndBlock: %s", types.ModuleName, err))
+			telemetry.IncrCounterWithLabels(
+				[]string{fmt.Sprintf("%s%s", types.ModuleName, "endblockpanic")},
+				1,
+				[]metrics.Label{
+					telemetry.NewLabel("error", fmt.Sprintf("%s", err)),
+				},
+			)
+			ret = []abci.ValidatorUpdate{}
+		}
+	}()
+
 	validContractAddresses := map[string]types.ContractInfo{}
 	for _, contractInfo := range am.getAllContractInfo(ctx) {
 		validContractAddresses[contractInfo.ContractAddr] = contractInfo

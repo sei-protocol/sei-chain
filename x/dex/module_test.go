@@ -303,3 +303,61 @@ func TestBeginBlock(t *testing.T) {
 	err = wrapper.HandleBBNewBlock(ctx, contractAddr.String(), 1)
 	require.Nil(t, err)
 }
+
+// Note that once the bug that causes EndBlock to panic is fixed, this test will need to be
+// updated to trigger the next bug that causes panics, if any.
+func TestEndBlockPanicHandling(t *testing.T) {
+	testApp := keepertest.TestApp()
+	ctx := testApp.BaseApp.NewContext(false, tmproto.Header{Time: time.Now()})
+	dexkeeper := testApp.DexKeeper
+	pair := types.Pair{PriceDenom: "SEI", AssetDenom: "ATOM"}
+
+	testAccount, _ := sdk.AccAddressFromBech32("sei1yezq49upxhunjjhudql2fnj5dgvcwjj87pn2wx")
+	amounts := sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(10000000)))
+	bankkeeper := testApp.BankKeeper
+	bankkeeper.MintCoins(ctx, minttypes.ModuleName, amounts)
+	bankkeeper.SendCoinsFromModuleToAccount(ctx, minttypes.ModuleName, testAccount, amounts)
+	wasm, err := ioutil.ReadFile("./testdata/clearing_house.wasm")
+	if err != nil {
+		panic(err)
+	}
+	wasmKeeper := testApp.WasmKeeper
+	contractKeeper := wasmkeeper.NewDefaultPermissionKeeper(&wasmKeeper)
+	var perm *wasmtypes.AccessConfig
+	codeId, err := contractKeeper.Create(ctx, testAccount, wasm, perm)
+	if err != nil {
+		panic(err)
+	}
+	contractAddr, _, err := contractKeeper.Instantiate(ctx, codeId, testAccount, testAccount, []byte(GOOD_CONTRACT_INSTANTIATE), "test",
+		sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(100000))))
+	if err != nil {
+		panic(err)
+	}
+	dexkeeper.SetContract(ctx, &types.ContractInfo{CodeId: 123, ContractAddr: contractAddr.String(), NeedHook: true, NeedOrderMatching: true})
+	dexkeeper.AddRegisteredPair(ctx, contractAddr.String(), pair)
+	dexkeeper.MemState.GetBlockOrders(utils.ContractAddress(contractAddr.String()), utils.GetPairString(&pair)).AddOrder(
+		types.Order{
+			Id:                1,
+			Account:           testAccount.String(),
+			ContractAddr:      contractAddr.String(),
+			Price:             sdk.Dec{},
+			Quantity:          sdk.Dec{},
+			PriceDenom:        pair.PriceDenom,
+			AssetDenom:        pair.AssetDenom,
+			OrderType:         types.OrderType_LIMIT,
+			PositionDirection: types.PositionDirection_LONG,
+			Data:              "{\"position_effect\":\"Open\",\"leverage\":\"1\"}",
+		},
+	)
+	dexkeeper.MemState.GetDepositInfo(utils.ContractAddress(contractAddr.String())).AddDeposit(
+		dexcache.DepositInfoEntry{
+			Creator: testAccount.String(),
+			Denom:   "usei",
+			Amount:  sdk.MustNewDecFromStr("2000000"),
+		},
+	)
+
+	require.NotPanics(t, func() { testApp.EndBlocker(ctx, abci.RequestEndBlock{}) })
+	_, found := dexkeeper.GetLongBookByPrice(ctx, contractAddr.String(), sdk.MustNewDecFromStr("1"), pair.PriceDenom, pair.AssetDenom)
+	require.False(t, found)
+}
