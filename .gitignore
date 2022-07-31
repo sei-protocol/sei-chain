@@ -23,3 +23,6 @@ package-lock.json
 
 # test coverage output
 c.out
+
+# fuzz test data
+*/testdata/fuzz/*

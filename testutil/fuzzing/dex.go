@@ -22,11 +22,9 @@ var ValidAccountCorpus = []string{
 	"sei1vjgdad5v2euf98nj3pwg5d8agflr384k0eks43",
 }
 var AccountCorpus = append([]string{
-	"",
 	"invalid",
 }, ValidAccountCorpus...)
 var ContractCorpus = []string{
-	"",
 	"invalid",
 	"sei14hj2tavq8fpesdwxxcu44rty3hh90vhujrvcmstl4zr3txmfvw9sh9m79m",
 	"sei1nc5tatafv6eyq7llkr2gv50ff9e22mnf70qgjlv737ktmt4eswrqms7u8a",
@@ -79,19 +77,23 @@ var PairCorpus = []types.Pair{
 }
 
 func GetAccount(i int) string {
-	return AccountCorpus[i%len(AccountCorpus)]
+	ui := uint64(i) % uint64(len(AccountCorpus))
+	return AccountCorpus[int(ui)]
 }
 
 func GetValidAccount(i int) string {
-	return ValidAccountCorpus[i%len(ValidAccountCorpus)]
+	ui := uint64(i) % uint64(len(ValidAccountCorpus))
+	return ValidAccountCorpus[int(ui)]
 }
 
 func GetContract(i int) string {
-	return ContractCorpus[i%len(ContractCorpus)]
+	ui := uint64(i) % uint64(len(ContractCorpus))
+	return ContractCorpus[int(ui)]
 }
 
 func GetPair(i int) types.Pair {
-	return PairCorpus[i%len(PairCorpus)]
+	ui := uint64(i) % uint64(len(PairCorpus))
+	return PairCorpus[int(ui)]
 }
 
 func GetPlacedOrders(direction types.PositionDirection, orderType types.OrderType, pair types.Pair, prices []byte, quantities []byte) []*types.Order {
@@ -126,12 +128,12 @@ func GetPlacedOrders(direction types.PositionDirection, orderType types.OrderTyp
 
 func GetOrderBookEntries(buy bool, priceDenom string, assetDenom string, entryWeights []byte, allAccountIndices []byte, allWeights []byte) []types.OrderBook {
 	res := []types.OrderBook{}
-	totalPriceWeights := int64(0)
+	totalPriceWeights := uint64(0)
 	for _, entryWeight := range entryWeights {
-		totalPriceWeights += int64(entryWeight)
+		totalPriceWeights += uint64(entryWeight)
 	}
 	sliceStartAccnt, sliceStartWeights := 0, 0
-	cumWeights := int64(0)
+	cumWeights := uint64(0)
 	for i, entryWeight := range entryWeights {
 		var price sdk.Dec
 		if buy {
@@ -139,16 +141,16 @@ func GetOrderBookEntries(buy bool, priceDenom string, assetDenom string, entryWe
 		} else {
 			price = sdk.MustNewDecFromStr(fmt.Sprintf("%f", BaselinePrice+float64(i)))
 		}
-		cumWeights += int64(cumWeights)
-		nextSliceStartAccnt := int(cumWeights * int64(len(allAccountIndices)) / totalPriceWeights)
-		nextSliceStartWeights := int(cumWeights * int64(len(allWeights)) / totalPriceWeights)
+		cumWeights += uint64(cumWeights)
+		nextSliceStartAccnt := int(cumWeights * uint64(len(allAccountIndices)) / totalPriceWeights)
+		nextSliceStartWeights := int(cumWeights * uint64(len(allWeights)) / totalPriceWeights)
 		entry := types.OrderEntry{
 			Price:      price,
-			Quantity:   sdk.NewDec(int64(entryWeight)),
+			Quantity:   sdk.NewDec(int64(uint64((entryWeight)))),
 			PriceDenom: priceDenom,
 			AssetDenom: assetDenom,
 			Allocations: GetAllocations(
-				int64(entryWeight),
+				int64(uint64((entryWeight))),
 				allAccountIndices[sliceStartAccnt:nextSliceStartAccnt],
 				allWeights[sliceStartWeights:nextSliceStartWeights],
 			),
@@ -177,11 +179,11 @@ func GetAllocations(totalQuantity int64, accountIndices []byte, weights []byte) 
 		accountIndices = accountIndices[:len(weights)]
 	}
 	// dedupe and aggregate
-	aggregatedAccountsToWeights := map[string]int64{}
-	totalWeight := int64(0)
+	aggregatedAccountsToWeights := map[string]uint64{}
+	totalWeight := uint64(0)
 	for i, accountIdx := range accountIndices {
 		account := GetValidAccount(int(accountIdx))
-		weight := int64(weights[i])
+		weight := uint64(weights[i])
 		if old, ok := aggregatedAccountsToWeights[account]; !ok {
 			aggregatedAccountsToWeights[account] = weight
 		} else {
@@ -191,12 +193,12 @@ func GetAllocations(totalQuantity int64, accountIndices []byte, weights []byte) 
 	}
 
 	quantityDec := sdk.NewDec(totalQuantity)
-	totalWeightDec := sdk.NewDec(totalWeight)
+	totalWeightDec := sdk.NewDec(int64(totalWeight))
 	res := []*types.Allocation{}
 	for account, weight := range aggregatedAccountsToWeights {
 		res = append(res, &types.Allocation{
 			Account:  account,
-			Quantity: quantityDec.Mul(sdk.NewDec(weight)).Quo(totalWeightDec),
+			Quantity: quantityDec.Mul(sdk.NewDec(int64(weight))).Quo(totalWeightDec),
 		})
 	}
 	return res
