@@ -219,6 +219,20 @@ func (am AppModule) getAllContractInfo(ctx sdk.Context) []types.ContractInfo {
 
 // BeginBlock executes all ABCI BeginBlock logic respective to the capability module.
 func (am AppModule) BeginBlock(ctx sdk.Context, _ abci.RequestBeginBlock) {
+	// TODO (codchen): Revert before mainnet so we don't silently fail on errors
+	defer func() {
+		if err := recover(); err != nil {
+			ctx.Logger().Error(fmt.Sprintf("panic occurred in %s BeginBlock: %s", types.ModuleName, err))
+			telemetry.IncrCounterWithLabels(
+				[]string{fmt.Sprintf("%s%s", types.ModuleName, "beginblockpanic")},
+				1,
+				[]metrics.Label{
+					telemetry.NewLabel("error", fmt.Sprintf("%s", err)),
+				},
+			)
+		}
+	}()
+
 	am.keeper.MemState.Clear()
 	isNewEpoch, currentEpoch := am.keeper.IsNewEpoch(ctx)
 	if isNewEpoch {
