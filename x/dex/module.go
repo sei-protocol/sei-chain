@@ -259,7 +259,7 @@ func (am AppModule) EndBlock(ctx sdk.Context, _ abci.RequestEndBlock) (ret []abc
 		if err := recover(); err != nil {
 			ctx.Logger().Error(fmt.Sprintf("panic occurred in dex EndBlock: %s", err))
 			telemetry.IncrCounterWithLabels(
-				[]string{types.ModuleName, "endblockpanic"},
+				[]string{fmt.Sprintf("%s%s", types.ModuleName, "endblockpanic")},
 				1,
 				[]metrics.Label{
 					telemetry.NewLabel("error", fmt.Sprintf("%s", err)),
