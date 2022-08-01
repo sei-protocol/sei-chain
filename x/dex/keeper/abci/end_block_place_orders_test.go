@@ -31,7 +31,7 @@ func TestGetPlaceSudoMsg(t *testing.T) {
 	)
 	wrapper := abci.KeeperWrapper{Keeper: keeper}
 	msgs := wrapper.GetPlaceSudoMsg(ctx, keepertest.TestContract, []types.Pair{pair})
-	require.Equal(t, 2, len(msgs))
+	require.Equal(t, 1, len(msgs))
 }
 
 func TestGetDepositSudoMsg(t *testing.T) {
