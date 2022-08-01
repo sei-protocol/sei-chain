@@ -10,8 +10,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-const TestCreator = "sei1ewxvf5a9wq9zk5nurtl6m9yfxpnhyp7s7uk5sl"
-const TestContract = "sei14hj2tavq8fpesdwxxcu44rty3hh90vhujrvcmstl4zr3txmfvw9sh9m79m"
+const (
+	TestCreator  = "sei1ewxvf5a9wq9zk5nurtl6m9yfxpnhyp7s7uk5sl"
+	TestContract = "sei14hj2tavq8fpesdwxxcu44rty3hh90vhujrvcmstl4zr3txmfvw9sh9m79m"
+)
 
 func TestPlaceOrder(t *testing.T) {
 	msg := &types.MsgPlaceOrders{
@@ -48,6 +50,9 @@ func TestPlaceOrder(t *testing.T) {
 	require.Equal(t, 2, len(res.OrderIds))
 	require.Equal(t, uint64(0), res.OrderIds[0])
 	require.Equal(t, uint64(1), res.OrderIds[1])
+	// Ensure that contract addr and account is set in the order
+	require.Equal(t, msg.Orders[0].ContractAddr, TestContract)
+	require.Equal(t, msg.Orders[0].Account, TestCreator)
 }
 
 func TestPlaceInvalidOrder(t *testing.T) {
@@ -56,6 +61,7 @@ func TestPlaceInvalidOrder(t *testing.T) {
 	keeper.SetTickSizeForPair(ctx, TestContract, keepertest.TestPair, *keepertest.TestPair.Ticksize)
 	wctx := sdk.WrapSDKContext(ctx)
 
+	// Empty quantity
 	msg := &types.MsgPlaceOrders{
 		Creator:      TestCreator,
 		ContractAddr: TestContract,
@@ -75,12 +81,95 @@ func TestPlaceInvalidOrder(t *testing.T) {
 	_, err := server.PlaceOrders(wctx, msg)
 	require.NotNil(t, err)
 
+	// Empty price
 	msg = &types.MsgPlaceOrders{
 		Creator:      TestCreator,
 		ContractAddr: TestContract,
 		Orders: []*types.Order{
 			{
 				Price:             sdk.Dec{},
+				Quantity:          sdk.MustNewDecFromStr("10"),
+				Data:              "",
+				PositionDirection: types.PositionDirection_LONG,
+				OrderType:         types.OrderType_LIMIT,
+				PriceDenom:        keepertest.TestPriceDenom,
+				AssetDenom:        keepertest.TestAssetDenom,
+			},
+		},
+	}
+	server = msgserver.NewMsgServerImpl(*keeper, nil)
+	_, err = server.PlaceOrders(wctx, msg)
+	require.NotNil(t, err)
+
+	// Negative quantity
+	msg = &types.MsgPlaceOrders{
+		Creator:      TestCreator,
+		ContractAddr: TestContract,
+		Orders: []*types.Order{
+			{
+				Price:             sdk.MustNewDecFromStr("10"),
+				Quantity:          sdk.MustNewDecFromStr("-1"),
+				Data:              "",
+				PositionDirection: types.PositionDirection_LONG,
+				OrderType:         types.OrderType_LIMIT,
+				PriceDenom:        keepertest.TestPriceDenom,
+				AssetDenom:        keepertest.TestAssetDenom,
+			},
+		},
+	}
+	server = msgserver.NewMsgServerImpl(*keeper, nil)
+	_, err = server.PlaceOrders(wctx, msg)
+	require.NotNil(t, err)
+
+	// Negative price
+	msg = &types.MsgPlaceOrders{
+		Creator:      TestCreator,
+		ContractAddr: TestContract,
+		Orders: []*types.Order{
+			{
+				Price:             sdk.MustNewDecFromStr("-1"),
+				Quantity:          sdk.MustNewDecFromStr("10"),
+				Data:              "",
+				PositionDirection: types.PositionDirection_LONG,
+				OrderType:         types.OrderType_LIMIT,
+				PriceDenom:        keepertest.TestPriceDenom,
+				AssetDenom:        keepertest.TestAssetDenom,
+				ContractAddr:      TestContract,
+				Account:           "testaccount",
+			},
+		},
+	}
+	server = msgserver.NewMsgServerImpl(*keeper, nil)
+	_, err = server.PlaceOrders(wctx, msg)
+	require.NotNil(t, err)
+
+	// Missing contract
+	msg = &types.MsgPlaceOrders{
+		Creator:      TestCreator,
+		ContractAddr: TestContract,
+		Orders: []*types.Order{
+			{
+				Price:             sdk.MustNewDecFromStr("-1"),
+				Quantity:          sdk.MustNewDecFromStr("10"),
+				Data:              "",
+				PositionDirection: types.PositionDirection_LONG,
+				OrderType:         types.OrderType_LIMIT,
+				PriceDenom:        keepertest.TestPriceDenom,
+				AssetDenom:        keepertest.TestAssetDenom,
+			},
+		},
+	}
+	server = msgserver.NewMsgServerImpl(*keeper, nil)
+	_, err = server.PlaceOrders(wctx, msg)
+	require.NotNil(t, err)
+
+	// Missing account
+	msg = &types.MsgPlaceOrders{
+		Creator:      TestCreator,
+		ContractAddr: TestContract,
+		Orders: []*types.Order{
+			{
+				Price:             sdk.MustNewDecFromStr("-1"),
 				Quantity:          sdk.MustNewDecFromStr("10"),
 				Data:              "",
 				PositionDirection: types.PositionDirection_LONG,

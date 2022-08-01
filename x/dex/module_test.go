@@ -336,7 +336,8 @@ func TestEndBlockPanicHandling(t *testing.T) {
 	dexkeeper.SetContract(ctx, &types.ContractInfo{CodeId: 123, ContractAddr: contractAddr.String(), NeedHook: true, NeedOrderMatching: true})
 	dexkeeper.AddRegisteredPair(ctx, contractAddr.String(), pair)
 	dexkeeper.MemState.GetBlockOrders(utils.ContractAddress(contractAddr.String()), utils.GetPairString(&pair)).AddOrder(
-		types.Order{
+		&types.Order{
+
 			Id:                1,
 			Account:           testAccount.String(),
 			ContractAddr:      contractAddr.String(),
