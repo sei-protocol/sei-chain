@@ -3,6 +3,7 @@ package msgserver
 import (
 	"context"
 	"errors"
+	"fmt"
 	"math/big"
 
 	conversion "github.com/sei-protocol/sei-chain/utils"
@@ -32,6 +33,9 @@ func (k msgServer) transferFunds(goCtx context.Context, msg *types.MsgPlaceOrder
 	}
 
 	for _, fund := range msg.Funds {
+		if fund.Amount.IsNil() || fund.IsNegative() {
+			return errors.New("fund deposits cannot be nil or negative")
+		}
 		k.MemState.GetDepositInfo(typesutils.ContractAddress(msg.GetContractAddr())).AddDeposit(dexcache.DepositInfoEntry{
 			Creator: msg.Creator,
 			Denom:   fund.Denom,
@@ -99,11 +103,17 @@ func (k msgServer) PlaceOrders(goCtx context.Context, msg *types.MsgPlaceOrders)
 }
 
 func (k msgServer) validateOrder(order *types.Order) error {
-	if order.Quantity.IsNil() {
-		return errors.New("quantity cannot be empty")
+	if order.Quantity.IsNil() || order.Quantity.IsNegative() {
+		return fmt.Errorf("invalid order quantity: %s", order.Quantity)
 	}
-	if order.Price.IsNil() {
-		return errors.New("price cannot be empty")
+	if order.Price.IsNil() || order.Price.IsNegative() {
+		return fmt.Errorf("invalid order price: %s", order.Price)
+	}
+	if len(order.AssetDenom) == 0 {
+		return fmt.Errorf("invalid order, asset denom is empty")
+	}
+	if len(order.PriceDenom) == 0 {
+		return fmt.Errorf("invalid order, price denom is empty")
 	}
 	return nil
 }
