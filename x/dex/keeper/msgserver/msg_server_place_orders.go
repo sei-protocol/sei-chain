@@ -104,16 +104,16 @@ func (k msgServer) PlaceOrders(goCtx context.Context, msg *types.MsgPlaceOrders)
 
 func (k msgServer) validateOrder(order *types.Order) error {
 	if order.Quantity.IsNil() || order.Quantity.IsNegative() {
-		return errors.New(fmt.Sprintf("invalid order quantity: %s", order.Quantity))
+		return fmt.Errorf("invalid order quantity: %s", order.Quantity)
 	}
 	if order.Price.IsNil() || order.Price.IsNegative() {
-		return errors.New(fmt.Sprintf("invalid order price: %s", order.Price))
+		return fmt.Errorf("invalid order price: %s", order.Price)
 	}
 	if len(order.AssetDenom) == 0 {
-		return errors.New("invalid order, asset denom is empty")
+		return fmt.Errorf("invalid order, asset denom is empty")
 	}
 	if len(order.PriceDenom) == 0 {
-		return errors.New("invalid order, price denom is empty")
+		return fmt.Errorf("invalid order, price denom is empty")
 	}
 	return nil
 }
