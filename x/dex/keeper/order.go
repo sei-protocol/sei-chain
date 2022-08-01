@@ -90,6 +90,9 @@ func (k Keeper) ReduceOrderQuantity(ctx sdk.Context, contractAddr string, orderI
 	order := types.Order{}
 	k.Cdc.MustUnmarshal(store.Get(idKey), &order)
 	order.Quantity = order.Quantity.Sub(delta)
+	if order.Quantity.IsZero() {
+		order.Status = types.OrderStatus_FULFILLED
+	}
 	b := k.Cdc.MustMarshal(&order)
 	store.Set(idKey, b)
 }

@@ -49,7 +49,7 @@ func NewContractOrderResult(contractAddr string) ContractOrderResult {
 	}
 }
 
-func PopulateOrderPlacementResults(contractAddr string, orders []types.Order, resultMap map[string]ContractOrderResult) {
+func PopulateOrderPlacementResults(contractAddr string, orders []*types.Order, resultMap map[string]ContractOrderResult) {
 	for _, order := range orders {
 		if _, ok := resultMap[order.Account]; !ok {
 			resultMap[order.Account] = NewContractOrderResult(contractAddr)

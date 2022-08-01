@@ -7,22 +7,20 @@ import (
 
 func MatchMarketOrders(
 	ctx sdk.Context,
-	marketOrders []types.Order,
-	orderBook []types.OrderBook,
+	marketOrders []*types.Order,
+	orderBookEntries *types.CachedSortedOrderBookEntries,
 	direction types.PositionDirection,
-	dirtyPrices *DirtyPrices,
-	settlements *[]*types.SettlementEntry,
-	zeroOrders *[]AccountOrderID,
-) (sdk.Dec, sdk.Dec) {
+) ExecutionOutcome {
 	totalExecuted, totalPrice := sdk.ZeroDec(), sdk.ZeroDec()
+	settlements := []*types.SettlementEntry{}
 	allTakerSettlements := []*types.SettlementEntry{}
 	for idx, marketOrder := range marketOrders {
-		for i := range orderBook {
-			var existingOrder types.OrderBook
+		for i := range orderBookEntries.Entries {
+			var existingOrder types.OrderBookEntry
 			if direction == types.PositionDirection_LONG {
-				existingOrder = orderBook[i]
+				existingOrder = orderBookEntries.Entries[i]
 			} else {
-				existingOrder = orderBook[len(orderBook)-i-1]
+				existingOrder = orderBookEntries.Entries[len(orderBookEntries.Entries)-i-1]
 			}
 			if existingOrder.GetEntry().Quantity.IsZero() {
 				continue
@@ -48,17 +46,16 @@ func MatchMarketOrders(
 			totalPrice = totalPrice.Add(
 				executed.Mul(existingOrder.GetPrice()),
 			)
-			dirtyPrices.Add(existingOrder.GetPrice())
+			orderBookEntries.AddDirtyEntry(existingOrder)
 
-			takerSettlements, makerSettlements, zeroAccountOrders := Settle(
+			takerSettlements, makerSettlements := Settle(
 				ctx,
 				marketOrder,
 				executed,
 				existingOrder,
 				marketOrder.Price,
 			)
-			*settlements = append(*settlements, makerSettlements...)
-			*zeroOrders = append(*zeroOrders, zeroAccountOrders...)
+			settlements = append(settlements, makerSettlements...)
 			// taker settlements' clearing price will need to be adjusted after all market order executions finish
 			allTakerSettlements = append(allTakerSettlements, takerSettlements...)
 			if marketOrder.Quantity.IsZero() {
@@ -72,7 +69,11 @@ func MatchMarketOrders(
 		for _, settlement := range allTakerSettlements {
 			settlement.ExecutionCostOrProceed = clearingPrice
 		}
-		*settlements = append(*settlements, allTakerSettlements...)
+		settlements = append(settlements, allTakerSettlements...)
 	}
-	return totalPrice, totalExecuted
+	return ExecutionOutcome{
+		TotalNotional: totalPrice,
+		TotalQuantity: totalExecuted,
+		Settlements:   settlements,
+	}
 }
