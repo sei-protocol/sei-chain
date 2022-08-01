@@ -110,6 +110,10 @@ import (
 	epochmodulekeeper "github.com/sei-protocol/sei-chain/x/epoch/keeper"
 	epochmoduletypes "github.com/sei-protocol/sei-chain/x/epoch/types"
 
+	tokenfactorymodule "github.com/sei-protocol/sei-chain/x/tokenfactory"
+	tokenfactorykeeper "github.com/sei-protocol/sei-chain/x/tokenfactory/keeper"
+	tokenfactorytypes "github.com/sei-protocol/sei-chain/x/tokenfactory/types"
+
 	// this line is used by starport scaffolding # stargate/app/moduleImport
 
 	"github.com/CosmWasm/wasmd/x/wasm"
@@ -163,6 +167,7 @@ var (
 		wasm.AppModuleBasic{},
 		dexmodule.AppModuleBasic{},
 		epochmodule.AppModuleBasic{},
+		tokenfactorymodule.AppModuleBasic{},
 		// this line is used by starport scaffolding # stargate/app/moduleBasic
 	)
 
@@ -178,6 +183,7 @@ var (
 		oracletypes.ModuleName:         nil,
 		wasm.ModuleName:                {authtypes.Burner},
 		dexmoduletypes.ModuleName:      nil,
+		tokenfactorytypes.ModuleName:   {authtypes.Minter, authtypes.Burner},
 		// this line is used by starport scaffolding # stargate/app/maccPerms
 	}
 
@@ -281,6 +287,8 @@ type App struct {
 	DexKeeper dexmodulekeeper.Keeper
 
 	EpochKeeper epochmodulekeeper.Keeper
+
+	TokenFactoryKeeper tokenfactorykeeper.Keeper
 	// this line is used by starport scaffolding # stargate/app/keeperDeclaration
 
 	// mm is the module manager
@@ -452,6 +460,12 @@ func New(
 		app.EpochKeeper,
 		app.BankKeeper,
 	)
+	tokenFactoryKeeper := tokenfactorykeeper.NewKeeper(
+		appCodec,
+		app.keys[tokenfactorytypes.StoreKey],
+		app.AccountKeeper,
+		app.BankKeeper.WithMintCoinsRestriction(tokenfactorytypes.NewTokenFactoryDenomMintCoinsRestriction()),
+	)
 	// The last arguments can contain custom message handlers, and custom query handlers,
 	// if we want to allow any custom callbacks
 	supportedFeatures := "iterator,staking,stargate,sei"
@@ -539,6 +553,7 @@ func New(
 		transferModule,
 		dexModule,
 		epochModule,
+		tokenfactorymodule.NewAppModule(app.TokenFactoryKeeper, app.AccountKeeper, app.BankKeeper),
 		// this line is used by starport scaffolding # stargate/app/appModule
 	)
 
@@ -648,6 +663,7 @@ func New(
 		transferModule,
 		dexModule,
 		epochModule,
+		tokenfactorymodule.NewAppModule(app.TokenFactoryKeeper, app.AccountKeeper, app.BankKeeper),
 		// this line is used by starport scaffolding # stargate/app/appModule
 	)
 	app.sm.RegisterStoreDecoders()
