@@ -63,7 +63,7 @@ func (w KeeperWrapper) GetPlaceSudoMsg(ctx sdk.Context, typedContractAddr typesu
 	for _, pair := range registeredPairs {
 		typedPairStr := typesutils.GetPairString(&pair) //nolint:gosec // USING THE POINTER HERE COULD BE BAD, LET'S CHECK IT.
 		for _, order := range *w.MemState.GetBlockOrders(typedContractAddr, typedPairStr) {
-			contractOrderPlacements = append(contractOrderPlacements, order)
+			contractOrderPlacements = append(contractOrderPlacements, *order)
 			if len(contractOrderPlacements) == MaxOrdersPerSudoCall {
 				msgs = append(msgs, wasm.SudoOrderPlacementMsg{
 					OrderPlacements: wasm.OrderPlacementMsgDetails{

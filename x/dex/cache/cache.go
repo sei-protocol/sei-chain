@@ -28,7 +28,7 @@ type MemState struct {
 }
 
 // All new orders attempted to be placed in the current block
-type BlockOrders []types.Order
+type BlockOrders []*types.Order
 
 type DepositInfoEntry struct {
 	Creator string
@@ -61,7 +61,7 @@ func (s *MemState) GetBlockOrders(contractAddr typesutils.ContractAddress, pair 
 		s.BlockOrders[contractAddr] = map[typesutils.PairString]*BlockOrders{}
 	}
 	if _, ok := s.BlockOrders[contractAddr][pair]; !ok {
-		emptyBlockOrders := BlockOrders([]types.Order{})
+		emptyBlockOrders := BlockOrders([]*types.Order{})
 		s.BlockOrders[contractAddr][pair] = &emptyBlockOrders
 	}
 	return s.BlockOrders[contractAddr][pair]
@@ -148,13 +148,26 @@ func (s *MemState) DeepFilterAccount(account string) {
 	}
 }
 
-func (o *BlockOrders) AddOrder(order types.Order) {
-	*o = append(*o, order)
+func (o *BlockOrders) AddOrder(order *types.Order) {
+	*o = append(*o, &types.Order{
+		Id:                order.Id,
+		Status:            order.Status,
+		Account:           order.Account,
+		ContractAddr:      order.ContractAddr,
+		Price:             order.Price,
+		Quantity:          order.Quantity,
+		PriceDenom:        order.PriceDenom,
+		AssetDenom:        order.AssetDenom,
+		Data:              order.Data,
+		StatusDescription: order.StatusDescription,
+		OrderType:         order.OrderType,
+		PositionDirection: order.PositionDirection,
+	})
 }
 
 func (o *BlockOrders) MarkFailedToPlaceByAccounts(accounts []string) {
 	badAccountSet := utils.NewStringSet(accounts)
-	newOrders := []types.Order{}
+	newOrders := []*types.Order{}
 	for _, order := range *o {
 		if badAccountSet.Contains(order.Account) {
 			order.Status = types.OrderStatus_FAILED_TO_PLACE
@@ -170,7 +183,7 @@ func (o *BlockOrders) MarkFailedToPlace(failedOrders []wasm.UnsuccessfulOrder) {
 	for _, failedOrder := range failedOrders {
 		failedOrdersMap[failedOrder.ID] = failedOrder
 	}
-	newOrders := []types.Order{}
+	newOrders := []*types.Order{}
 	for _, order := range *o {
 		if failedOrder, ok := failedOrdersMap[order.Id]; ok {
 			order.Status = types.OrderStatus_FAILED_TO_PLACE
@@ -182,7 +195,7 @@ func (o *BlockOrders) MarkFailedToPlace(failedOrders []wasm.UnsuccessfulOrder) {
 }
 
 func (o *BlockOrders) FilterByAccount(account string) {
-	newOrders := []types.Order{}
+	newOrders := []*types.Order{}
 	for _, order := range *o {
 		if order.Account == account {
 			continue
@@ -192,7 +205,7 @@ func (o *BlockOrders) FilterByAccount(account string) {
 	*o = newOrders
 }
 
-func (o *BlockOrders) GetSortedMarketOrders(direction types.PositionDirection, includeLiquidationOrders bool) []types.Order {
+func (o *BlockOrders) GetSortedMarketOrders(direction types.PositionDirection, includeLiquidationOrders bool) []*types.Order {
 	res := o.getOrdersByCriteria(types.OrderType_MARKET, direction)
 	if includeLiquidationOrders {
 		res = append(res, o.getOrdersByCriteria(types.OrderType_LIQUIDATION, direction)...)
@@ -217,12 +230,12 @@ func (o *BlockOrders) GetSortedMarketOrders(direction types.PositionDirection, i
 	return res
 }
 
-func (o *BlockOrders) GetLimitOrders(direction types.PositionDirection) []types.Order {
+func (o *BlockOrders) GetLimitOrders(direction types.PositionDirection) []*types.Order {
 	return o.getOrdersByCriteria(types.OrderType_LIMIT, direction)
 }
 
-func (o *BlockOrders) getOrdersByCriteria(orderType types.OrderType, direction types.PositionDirection) []types.Order {
-	res := []types.Order{}
+func (o *BlockOrders) getOrdersByCriteria(orderType types.OrderType, direction types.PositionDirection) []*types.Order {
+	res := []*types.Order{}
 	for _, order := range *o {
 		if order.OrderType != orderType || order.PositionDirection != direction {
 			continue
