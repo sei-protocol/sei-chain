@@ -301,8 +301,32 @@ func (am AppModule) EndBlock(ctx sdk.Context, _ abci.RequestEndBlock) (ret []abc
 		for _, contractInfo := range validContractAddresses {
 			validContractsInfo = append(validContractsInfo, contractInfo)
 		}
+		// Handle deposit sequentially since they mutate `bank` state which is shared by all contracts
+		keeperWrapper := dexkeeperabci.KeeperWrapper{Keeper: &am.keeper}
+		for contractAddr := range validContractAddresses {
+			if err := keeperWrapper.HandleEBDeposit(cachedCtx.Context(), cachedCtx, am.tracingInfo.Tracer, contractAddr); err != nil {
+				failedContractAddresses.Add(contractAddr)
+			}
+		}
+
 		mu := sync.Mutex{}
 		runnable := func(contractInfo types.ContractInfo) {
+			defer func() {
+				if err := recover(); err != nil {
+					ctx.Logger().Error(fmt.Sprintf("panic occurred during order matching for contract: %s", contractInfo.ContractAddr))
+					telemetry.IncrCounterWithLabels(
+						[]string{fmt.Sprintf("%s%s", types.ModuleName, "endblockpanic")},
+						1,
+						[]metrics.Label{
+							telemetry.NewLabel("error", fmt.Sprintf("%s", err)),
+							telemetry.NewLabel("contract", contractInfo.ContractAddr),
+						},
+					)
+					// idempotent
+					failedContractAddresses.Add(contractInfo.ContractAddr)
+				}
+			}()
+
 			if !contractInfo.NeedOrderMatching {
 				return
 			}
@@ -324,6 +348,9 @@ func (am AppModule) EndBlock(ctx sdk.Context, _ abci.RequestEndBlock) (ret []abc
 			}
 		}
 
+		runner := contract.NewParallelRunner(runnable, validContractsInfo)
+		runner.Run()
+
 		settlementsByContract.Range(func(key, val any) bool {
 			contractAddr := key.(string)
 			settlements := val.([]*types.SettlementEntry)
@@ -336,8 +363,6 @@ func (am AppModule) EndBlock(ctx sdk.Context, _ abci.RequestEndBlock) (ret []abc
 			}
 			return true
 		})
-		runner := contract.NewParallelRunner(runnable, validContractsInfo)
-		runner.Run()
 
 		finalizeBlockMessages.Range(func(key, val any) bool {
 			contractAddr := key.(string)

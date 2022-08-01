@@ -24,14 +24,9 @@ func (w KeeperWrapper) HandleEBPlaceOrders(ctx context.Context, sdkCtx sdk.Conte
 
 	typedContractAddr := typesutils.ContractAddress(contractAddr)
 	msgs := w.GetPlaceSudoMsg(sdkCtx, typedContractAddr, registeredPairs)
-	_, err := utils.CallContractSudo(sdkCtx, w.Keeper, contractAddr, msgs[0]) // deposit
-	if err != nil {
-		sdkCtx.Logger().Error(fmt.Sprintf("Error during deposit: %s", err.Error()))
-		return err
-	}
 
 	responses := []wasm.SudoOrderPlacementResponse{}
-	for _, msg := range msgs[1:] {
+	for _, msg := range msgs {
 		data, err := utils.CallContractSudo(sdkCtx, w.Keeper, contractAddr, msg)
 		if err != nil {
 			sdkCtx.Logger().Error(fmt.Sprintf("Error during order placement: %s", err.Error()))
@@ -57,7 +52,7 @@ func (w KeeperWrapper) HandleEBPlaceOrders(ctx context.Context, sdkCtx sdk.Conte
 }
 
 func (w KeeperWrapper) GetPlaceSudoMsg(ctx sdk.Context, typedContractAddr typesutils.ContractAddress, registeredPairs []types.Pair) []wasm.SudoOrderPlacementMsg {
-	msgs := []wasm.SudoOrderPlacementMsg{w.GetDepositSudoMsg(ctx, typedContractAddr)}
+	msgs := []wasm.SudoOrderPlacementMsg{}
 	contractOrderPlacements := []types.Order{}
 	for _, pair := range registeredPairs {
 		typedPairStr := typesutils.GetPairString(&pair) //nolint:gosec // USING THE POINTER HERE COULD BE BAD, LET'S CHECK IT.
@@ -81,30 +76,4 @@ func (w KeeperWrapper) GetPlaceSudoMsg(ctx sdk.Context, typedContractAddr typesu
 		},
 	})
 	return msgs
-}
-
-func (w KeeperWrapper) GetDepositSudoMsg(ctx sdk.Context, typedContractAddr typesutils.ContractAddress) wasm.SudoOrderPlacementMsg {
-	contractDepositInfo := []wasm.ContractDepositInfo{}
-	for _, depositInfo := range w.MemState.GetDepositInfo(typedContractAddr).Get() {
-		fund := sdk.NewCoins(sdk.NewCoin(depositInfo.Denom, depositInfo.Amount.RoundInt()))
-		sender, err := sdk.AccAddressFromBech32(depositInfo.Creator)
-		if err != nil {
-			ctx.Logger().Error("Invalid deposit creator")
-		}
-		receiver, err := sdk.AccAddressFromBech32(string(typedContractAddr))
-		if err != nil {
-			ctx.Logger().Error("Invalid deposit contract")
-		}
-		if err := w.BankKeeper.SendCoins(ctx, sender, receiver, fund); err == nil {
-			contractDepositInfo = append(contractDepositInfo, depositInfo.ToContractDepositInfo())
-		} else {
-			ctx.Logger().Error(err.Error())
-		}
-	}
-	return wasm.SudoOrderPlacementMsg{
-		OrderPlacements: wasm.OrderPlacementMsgDetails{
-			Orders:   []types.Order{},
-			Deposits: contractDepositInfo,
-		},
-	}
 }
