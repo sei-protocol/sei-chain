@@ -63,7 +63,7 @@ func TestEndBlockMarketOrder(t *testing.T) {
 	dexkeeper.AddRegisteredPair(ctx, contractAddr.String(), pair)
 	// place one order to a nonexistent contract
 	dexkeeper.MemState.GetBlockOrders(utils.ContractAddress(contractAddr.String()), utils.GetPairString(&pair)).AddOrder(
-		types.Order{
+		&types.Order{
 			Id:                1,
 			Account:           testAccount.String(),
 			ContractAddr:      contractAddr.String(),
@@ -77,7 +77,7 @@ func TestEndBlockMarketOrder(t *testing.T) {
 		},
 	)
 	dexkeeper.MemState.GetBlockOrders(utils.ContractAddress(contractAddr.String()), utils.GetPairString(&pair)).AddOrder(
-		types.Order{
+		&types.Order{
 			Id:                2,
 			Account:           testAccount.String(),
 			ContractAddr:      contractAddr.String(),
@@ -105,7 +105,7 @@ func TestEndBlockMarketOrder(t *testing.T) {
 
 	dexkeeper.MemState.Clear()
 	dexkeeper.MemState.GetBlockOrders(utils.ContractAddress(contractAddr.String()), utils.GetPairString(&pair)).AddOrder(
-		types.Order{
+		&types.Order{
 			Id:                2,
 			Account:           testAccount.String(),
 			ContractAddr:      contractAddr.String(),
@@ -137,7 +137,7 @@ func TestEndBlockMarketOrder(t *testing.T) {
 
 	dexkeeper.MemState.Clear()
 	dexkeeper.MemState.GetBlockOrders(utils.ContractAddress(contractAddr.String()), utils.GetPairString(&pair)).AddOrder(
-		types.Order{
+		&types.Order{
 			Id:                3,
 			Account:           testAccount.String(),
 			ContractAddr:      contractAddr.String(),
@@ -168,7 +168,7 @@ func TestEndBlockRollback(t *testing.T) {
 	dexkeeper.AddRegisteredPair(ctx, keepertest.TestContract, pair)
 	// place one order to a nonexistent contract
 	dexkeeper.MemState.GetBlockOrders(utils.ContractAddress(keepertest.TestContract), utils.GetPairString(&pair)).AddOrder(
-		types.Order{
+		&types.Order{
 			Id:                1,
 			Account:           keepertest.TestAccount,
 			ContractAddr:      keepertest.TestContract,
@@ -198,7 +198,7 @@ func TestEndBlockPartialRollback(t *testing.T) {
 	dexkeeper.AddRegisteredPair(ctx, keepertest.TestContract, pair)
 	// place one order to a nonexistent contract
 	dexkeeper.MemState.GetBlockOrders(utils.ContractAddress(keepertest.TestContract), utils.GetPairString(&pair)).AddOrder(
-		types.Order{
+		&types.Order{
 			Id:                1,
 			Account:           keepertest.TestAccount,
 			ContractAddr:      keepertest.TestContract,
@@ -236,7 +236,7 @@ func TestEndBlockPartialRollback(t *testing.T) {
 	dexkeeper.AddRegisteredPair(ctx, contractAddr.String(), pair)
 	// place one order to a nonexistent contract
 	dexkeeper.MemState.GetBlockOrders(utils.ContractAddress(contractAddr.String()), utils.GetPairString(&pair)).AddOrder(
-		types.Order{
+		&types.Order{
 			Id:                2,
 			Account:           testAccount.String(),
 			ContractAddr:      contractAddr.String(),

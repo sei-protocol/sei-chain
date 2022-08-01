@@ -91,7 +91,7 @@ func (k msgServer) PlaceOrders(goCtx context.Context, msg *types.MsgPlaceOrders)
 		order.Id = nextID
 		order.Account = msg.Creator
 		order.ContractAddr = msg.GetContractAddr()
-		k.MemState.GetBlockOrders(typesutils.ContractAddress(msg.GetContractAddr()), pairStr).AddOrder(*order)
+		k.MemState.GetBlockOrders(typesutils.ContractAddress(msg.GetContractAddr()), pairStr).AddOrder(order)
 		idsInResp = append(idsInResp, nextID)
 		nextID++
 	}

@@ -5,7 +5,7 @@ import (
 	"github.com/sei-protocol/sei-chain/x/dex/types"
 )
 
-func RebalanceAllocations(order types.OrderBook) map[uint64]sdk.Dec {
+func RebalanceAllocations(order types.OrderBookEntry) map[uint64]sdk.Dec {
 	newTotal := order.GetEntry().Quantity
 	oldTotal := sdk.ZeroDec()
 	for _, allo := range order.GetEntry().Allocations {
