@@ -37,8 +37,8 @@ func dependencyCheckRunnable(contractInfo types.ContractInfo) {
 func TestRunnerSingleContract(t *testing.T) {
 	counter = 0
 	contractInfo := types.ContractInfo{
-		ContractAddr:     "A",
-		NumIncomingPaths: 0,
+		ContractAddr:            "A",
+		NumIncomingDependencies: 0,
 	}
 	runner := contract.NewParallelRunner(noopRunnable, []types.ContractInfo{contractInfo})
 	runner.Run()
@@ -48,12 +48,12 @@ func TestRunnerSingleContract(t *testing.T) {
 func TestRunnerParallelContract(t *testing.T) {
 	counter = 0
 	contractInfoA := types.ContractInfo{
-		ContractAddr:     "A",
-		NumIncomingPaths: 0,
+		ContractAddr:            "A",
+		NumIncomingDependencies: 0,
 	}
 	contractInfoB := types.ContractInfo{
-		ContractAddr:     "B",
-		NumIncomingPaths: 0,
+		ContractAddr:            "B",
+		NumIncomingDependencies: 0,
 	}
 	runner := contract.NewParallelRunner(idleRunnable, []types.ContractInfo{contractInfoA, contractInfoB})
 	start := time.Now()
@@ -67,18 +67,26 @@ func TestRunnerParallelContract(t *testing.T) {
 func TestRunnerParallelContractWithDependency(t *testing.T) {
 	counter = 0
 	contractInfoA := types.ContractInfo{
-		ContractAddr:           "A",
-		NumIncomingPaths:       0,
-		DependentContractAddrs: []string{"C"},
+		ContractAddr:            "A",
+		NumIncomingDependencies: 0,
+		Dependencies: []*types.ContractDependencyInfo{
+			{
+				Dependency: "C",
+			},
+		},
 	}
 	contractInfoB := types.ContractInfo{
-		ContractAddr:           "B",
-		NumIncomingPaths:       0,
-		DependentContractAddrs: []string{"C"},
+		ContractAddr:            "B",
+		NumIncomingDependencies: 0,
+		Dependencies: []*types.ContractDependencyInfo{
+			{
+				Dependency: "C",
+			},
+		},
 	}
 	contractInfoC := types.ContractInfo{
-		ContractAddr:     "C",
-		NumIncomingPaths: 2,
+		ContractAddr:            "C",
+		NumIncomingDependencies: 2,
 	}
 	runner := contract.NewParallelRunner(dependencyCheckRunnable, []types.ContractInfo{contractInfoC, contractInfoB, contractInfoA})
 	runner.Run()

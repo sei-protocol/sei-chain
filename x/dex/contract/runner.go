@@ -1,7 +1,6 @@
 package contract
 
 import (
-	"sync"
 	"sync/atomic"
 
 	seiutils "github.com/sei-protocol/sei-chain/utils"
@@ -12,30 +11,30 @@ import (
 type ParallelRunner struct {
 	runnable func(contract types.ContractInfo)
 
-	contractAddrToInfo   *sync.Map // of type map[utils.ContractAddress]*types.ContractInfo
-	readyContracts       *sync.Map // of type map[utils.ContractAddress]struct{}
+	contractAddrToInfo   *seiutils.TypedSyncMap[utils.ContractAddress, *types.ContractInfo]
+	readyContracts       *seiutils.TypedSyncMap[utils.ContractAddress, struct{}]
 	readyCnt             int64
 	inProgressCnt        int64
 	someContractFinished chan struct{}
 }
 
 func NewParallelRunner(runnable func(contract types.ContractInfo), contracts []types.ContractInfo) ParallelRunner {
-	contractAddrToInfo := sync.Map{}
-	contractsFrontier := sync.Map{}
+	contractAddrToInfo := seiutils.NewTypedSyncMap[utils.ContractAddress, *types.ContractInfo]()
+	contractsFrontier := seiutils.NewTypedSyncMap[utils.ContractAddress, struct{}]()
 	for _, contract := range contracts {
 		// runner will mutate ContractInfo fields
 		copy := contract
 		typedContractAddr := utils.ContractAddress(contract.ContractAddr)
 		contractAddrToInfo.Store(typedContractAddr, &copy)
-		if copy.NumIncomingPaths == 0 {
+		if copy.NumIncomingDependencies == 0 {
 			contractsFrontier.Store(typedContractAddr, struct{}{})
 		}
 	}
 	return ParallelRunner{
 		runnable:             runnable,
-		contractAddrToInfo:   &contractAddrToInfo,
-		readyContracts:       &contractsFrontier,
-		readyCnt:             int64(seiutils.SyncMapLen(&contractsFrontier)),
+		contractAddrToInfo:   contractAddrToInfo,
+		readyContracts:       contractsFrontier,
+		readyCnt:             int64(contractsFrontier.Len()),
 		inProgressCnt:        0,
 		someContractFinished: make(chan struct{}),
 	}
@@ -87,9 +86,9 @@ func (r *ParallelRunner) Run() {
 	for r.inProgressCnt > 0 || r.readyCnt > 0 {
 		// r.readyContracts represent all frontier contracts that have
 		// not started running yet.
-		r.readyContracts.Range(func(key, _ any) bool {
+		r.readyContracts.Range(func(key utils.ContractAddress, _ struct{}) bool {
 			atomic.AddInt64(&r.inProgressCnt, 1)
-			go r.wrapRunnable(key.(utils.ContractAddress))
+			go r.wrapRunnable(key)
 			// Since the frontier contract has started running, we need
 			// to remove it from r.readyContracts so that it won't
 			// double-run.
@@ -107,18 +106,17 @@ func (r *ParallelRunner) Run() {
 
 func (r *ParallelRunner) wrapRunnable(contractAddr utils.ContractAddress) {
 	contractInfo, _ := r.contractAddrToInfo.Load(contractAddr)
-	typedContractInfo := contractInfo.(*types.ContractInfo)
-	r.runnable(*typedContractInfo)
+	r.runnable(*contractInfo)
 
 	// Check if there is any contract that should be promoted to the frontier set.
-	if typedContractInfo.DependentContractAddrs != nil {
-		for _, dependentContract := range typedContractInfo.DependentContractAddrs {
+	if contractInfo.Dependencies != nil {
+		for _, dependency := range contractInfo.Dependencies {
+			dependentContract := dependency.Dependency
 			typedDependentContract := utils.ContractAddress(dependentContract)
 			dependentInfo, _ := r.contractAddrToInfo.Load(typedDependentContract)
-			typedDependentInfo := dependentInfo.(*types.ContractInfo)
 			// It's okay to mutate ContractInfo here since it's a copy made in the runner's
 			// constructor.
-			newNumIncomingPaths := atomic.AddInt64(&typedDependentInfo.NumIncomingPaths, -1)
+			newNumIncomingPaths := atomic.AddInt64(&dependentInfo.NumIncomingDependencies, -1)
 			// This corresponds to the "for which all contracts that depend on it have
 			// already finished." definition for frontier contract.
 			if newNumIncomingPaths == 0 {
