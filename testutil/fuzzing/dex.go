@@ -131,8 +131,8 @@ func GetPlacedOrders(direction types.PositionDirection, orderType types.OrderTyp
 	return res
 }
 
-func GetOrderBookEntries(buy bool, priceDenom string, assetDenom string, entryWeights []byte, allAccountIndices []byte, allWeights []byte) []types.OrderBook {
-	res := []types.OrderBook{}
+func GetOrderBookEntries(buy bool, priceDenom string, assetDenom string, entryWeights []byte, allAccountIndices []byte, allWeights []byte) []types.OrderBookEntry {
+	res := []types.OrderBookEntry{}
 	totalPriceWeights := uint64(0)
 	for _, entryWeight := range entryWeights {
 		totalPriceWeights += uint64(entryWeight)
