@@ -6,7 +6,7 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/stretchr/testify/suite"
 
-	"github.com/osmosis-labs/osmosis/v10/app/apptesting"
+	"github.com/sei-protocol/sei-chain/app/apptesting"
 	"github.com/sei-protocol/sei-chain/x/tokenfactory/keeper"
 	"github.com/sei-protocol/sei-chain/x/tokenfactory/types"
 )
@@ -36,7 +36,7 @@ func (suite *KeeperTestSuite) SetupTest() {
 	suite.SetupTokenFactory()
 
 	suite.queryClient = types.NewQueryClient(suite.QueryHelper)
-	suite.msgServer = keeper.NewMsgServerImpl(*suite.App.TokenFactoryKeeper)
+	suite.msgServer = keeper.NewMsgServerImpl(suite.App.TokenFactoryKeeper)
 }
 
 func (suite *KeeperTestSuite) CreateDefaultDenom() {

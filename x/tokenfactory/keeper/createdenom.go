@@ -78,6 +78,7 @@ func (k Keeper) chargeForCreateDenom(ctx sdk.Context, creatorAddr string, subden
 		return err
 	}
 	if len(creationFee) > 0 {
+		// TODO(kartik): Possibly remove community funding
 		if err := k.distrKeeper.FundCommunityPool(ctx, creationFee, accAddr); err != nil {
 			return err
 		}

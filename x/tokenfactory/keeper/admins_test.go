@@ -86,7 +86,7 @@ func (suite *KeeperTestSuite) TestMintDenom() {
 		{
 			desc:      "denom does not exist",
 			amount:    10,
-			mintDenom: "factory/osmo1t7egva48prqmzl59x5ngv4zx0dtrwewc9m7z44/evmos",
+			mintDenom: "factory/sei1t7egva48prqmzl59x5ngv4zx0dtrwewc9m7z44/evmos",
 			admin:     suite.TestAccs[0].String(),
 			valid:     false,
 		},
@@ -139,7 +139,7 @@ func (suite *KeeperTestSuite) TestBurnDenom() {
 		{
 			desc:      "denom does not exist",
 			amount:    10,
-			burnDenom: "factory/osmo1t7egva48prqmzl59x5ngv4zx0dtrwewc9m7z44/evmos",
+			burnDenom: "factory/sei1t7egva48prqmzl59x5ngv4zx0dtrwewc9m7z44/evmos",
 			admin:     suite.TestAccs[0].String(),
 			valid:     false,
 		},
