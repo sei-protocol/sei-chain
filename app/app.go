@@ -279,7 +279,6 @@ type App struct {
 	WasmKeeper       wasm.Keeper
 	OracleKeeper     oraclekeeper.Keeper
 
-
 	// make scoped keepers public for test purposes
 	ScopedIBCKeeper      capabilitykeeper.ScopedKeeper
 	ScopedTransferKeeper capabilitykeeper.ScopedKeeper
