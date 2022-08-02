@@ -23,32 +23,32 @@ func TestDecomposeDenoms(t *testing.T) {
 		},
 		{
 			desc:  "normal",
-			denom: "factory/sei1t7egva48prqmzl59x5ngv4zx0dtrwewc9m7z44/bitcoin",
+			denom: "factory/sei1y3pxq5dp900czh0mkudhjdqjq5m8cpmmps8yjw/bitcoin",
 			valid: true,
 		},
 		{
 			desc:  "multiple slashes in subdenom",
-			denom: "factory/sei1t7egva48prqmzl59x5ngv4zx0dtrwewc9m7z44/bitcoin/1",
+			denom: "factory/sei1y3pxq5dp900czh0mkudhjdqjq5m8cpmmps8yjw/bitcoin/1",
 			valid: true,
 		},
 		{
 			desc:  "no subdenom",
-			denom: "factory/sei1t7egva48prqmzl59x5ngv4zx0dtrwewc9m7z44/",
+			denom: "factory/sei1y3pxq5dp900czh0mkudhjdqjq5m8cpmmps8yjw/",
 			valid: true,
 		},
 		{
 			desc:  "incorrect prefix",
-			denom: "ibc/sei1t7egva48prqmzl59x5ngv4zx0dtrwewc9m7z44/bitcoin",
+			denom: "ibc/sei1y3pxq5dp900czh0mkudhjdqjq5m8cpmmps8yjw/bitcoin",
 			valid: false,
 		},
 		{
 			desc:  "subdenom of only slashes",
-			denom: "factory/sei1t7egva48prqmzl59x5ngv4zx0dtrwewc9m7z44/////",
+			denom: "factory/sei1y3pxq5dp900czh0mkudhjdqjq5m8cpmmps8yjw/////",
 			valid: true,
 		},
 		{
 			desc:  "too long name",
-			denom: "factory/sei1t7egva48prqmzl59x5ngv4zx0dtrwewc9m7z44/adsfadsfadsfadsfadsfadsfadsfadsfadsfadsfadsfadsfadsfadsfadsfadsfadsfadsfadsfadsfadsfadsfadsfadsfadsfadsfadsfadsfadsfadsfadsfadsfadsfadsfadsfadsfadsfadsfadsfadsfadsf",
+			denom: "factory/sei1y3pxq5dp900czh0mkudhjdqjq5m8cpmmps8yjw/adsfadsfadsfadsfadsfadsfadsfadsfadsfadsfadsfadsfadsfadsfadsfadsfadsfadsfadsfadsfadsfadsfadsfadsfadsfadsfadsfadsfadsfadsfadsfadsfadsfadsfadsfadsfadsfadsfadsfadsfadsf",
 			valid: false,
 		},
 	} {
