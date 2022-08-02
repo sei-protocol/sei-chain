@@ -27,7 +27,7 @@ func TestAddCancel(t *testing.T) {
 	keeper, ctx := keepertest.DexKeeper(t)
 	order := types.Order{Id: 1, ContractAddr: keepertest.TestContract, Account: TEST_ACCOUNT}
 	keeper.AddNewOrder(ctx, order)
-	keeper.AddCancel(ctx, keepertest.TestContract, types.Cancellation{Id: 1})
+	keeper.AddCancel(ctx, keepertest.TestContract, &types.Cancellation{Id: 1})
 	// The old order should NOT be deleted (serves as a permenant record)
 	require.Equal(t, 1, len(keeper.GetOrdersByIds(ctx, keepertest.TestContract, []uint64{1})))
 	// The active index should be updated

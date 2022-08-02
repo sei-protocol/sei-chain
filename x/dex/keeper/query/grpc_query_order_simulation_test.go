@@ -70,15 +70,15 @@ func TestGetOrderSimulation(t *testing.T) {
 		Quantity:          sdk.MustNewDecFromStr("2"),
 		PositionDirection: types.PositionDirection_SHORT,
 	})
-	keeper.MemState.GetBlockCancels(utils.ContractAddress(keepertest.TestContract), utils.GetPairString(&keepertest.TestPair)).AddCancel(
-		types.Cancellation{Id: 1},
+	keeper.MemState.GetBlockCancels(utils.ContractAddress(keepertest.TestContract), utils.GetPairString(&keepertest.TestPair)).Add(
+		&types.Cancellation{Id: 1},
 	)
 	res, err = wrapper.GetOrderSimulation(wctx, &types.QueryOrderSimulationRequest{Order: &testOrder})
 	require.Nil(t, err)
 	require.Equal(t, sdk.MustNewDecFromStr("4"), *res.ExecutedQuantity)
 
 	// liquidity taken by earlier market orders
-	keeper.MemState.GetBlockOrders(utils.ContractAddress(keepertest.TestContract), utils.GetPairString(&keepertest.TestPair)).AddOrder(
+	keeper.MemState.GetBlockOrders(utils.ContractAddress(keepertest.TestContract), utils.GetPairString(&keepertest.TestPair)).Add(
 		&types.Order{
 			Account:           keepertest.TestAccount,
 			ContractAddr:      keepertest.TestContract,

@@ -17,7 +17,7 @@ import (
 func TestGetPlaceSudoMsg(t *testing.T) {
 	pair := types.Pair{PriceDenom: keepertest.TestPriceDenom, AssetDenom: keepertest.TestAssetDenom}
 	keeper, ctx := keepertest.DexKeeper(t)
-	keeper.MemState.GetBlockOrders(keepertest.TestContract, typesutils.GetPairString(&pair)).AddOrder(
+	keeper.MemState.GetBlockOrders(keepertest.TestContract, typesutils.GetPairString(&pair)).Add(
 		&types.Order{
 			Id:                1,
 			Price:             sdk.OneDec(),
@@ -43,8 +43,8 @@ func TestGetDepositSudoMsg(t *testing.T) {
 	bankkeeper.MintCoins(ctx, minttypes.ModuleName, amounts)
 	bankkeeper.SendCoinsFromModuleToAccount(ctx, minttypes.ModuleName, testAccount, amounts)
 	keeper := testApp.DexKeeper
-	keeper.MemState.GetDepositInfo(keepertest.TestContract).AddDeposit(
-		dex.DepositInfoEntry{
+	keeper.MemState.GetDepositInfo(keepertest.TestContract).Add(
+		&dex.DepositInfoEntry{
 			Creator: testAccount.String(),
 			Denom:   amounts[0].Denom,
 			Amount:  sdk.NewDec(amounts[0].Amount.Int64()),

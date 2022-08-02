@@ -31,7 +31,7 @@ func (w KeeperWrapper) getCancelSudoMsg(typedContractAddr typesutils.ContractAdd
 	idsToCancel := []uint64{}
 	for _, pair := range registeredPairs {
 		typedPairStr := typesutils.GetPairString(&pair) //nolint:gosec // THIS MAY BE CAUSE FOR CONCERN AND WE MIGHT WANT TO REFACTOR.
-		for _, cancel := range *w.MemState.GetBlockCancels(typedContractAddr, typedPairStr) {
+		for _, cancel := range w.MemState.GetBlockCancels(typedContractAddr, typedPairStr).Get() {
 			idsToCancel = append(idsToCancel, cancel.Id)
 		}
 	}

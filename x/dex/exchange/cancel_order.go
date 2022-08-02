@@ -6,7 +6,7 @@ import (
 )
 
 func CancelOrders(
-	cancels []types.Cancellation,
+	cancels []*types.Cancellation,
 	orderbook *types.OrderBook,
 	originalOrders map[uint64]types.Order,
 ) {

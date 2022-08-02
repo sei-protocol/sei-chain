@@ -4,7 +4,7 @@ import (
 	"context"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
-	"github.com/sei-protocol/sei-chain/utils"
+	"github.com/sei-protocol/sei-chain/utils/datastructures"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
 	typesutils "github.com/sei-protocol/sei-chain/x/dex/types/utils"
 )
@@ -12,7 +12,7 @@ import (
 func (k msgServer) CancelOrders(goCtx context.Context, msg *types.MsgCancelOrders) (*types.MsgCancelOrdersResponse, error) {
 	ctx := sdk.UnwrapSDKContext(goCtx)
 
-	activeOrderIDSet := utils.NewUInt64Set(k.GetAccountActiveOrders(ctx, msg.ContractAddr, msg.Creator).Ids)
+	activeOrderIDSet := datastructures.NewSyncSet(k.GetAccountActiveOrders(ctx, msg.ContractAddr, msg.Creator).Ids)
 	orderMap := k.GetOrdersByIds(ctx, msg.ContractAddr, msg.GetOrderIds())
 	for _, orderIDToCancel := range msg.GetOrderIds() {
 		if !activeOrderIDSet.Contains(orderIDToCancel) {
@@ -24,7 +24,7 @@ func (k msgServer) CancelOrders(goCtx context.Context, msg *types.MsgCancelOrder
 		pairStr := typesutils.GetPairString(&pair)
 		pairBlockCancellations := k.MemState.GetBlockCancels(typesutils.ContractAddress(msg.GetContractAddr()), pairStr)
 		cancelledInCurrentBlock := false
-		for _, cancelInCurrentBlock := range *pairBlockCancellations {
+		for _, cancelInCurrentBlock := range pairBlockCancellations.Get() {
 			if cancelInCurrentBlock.Id == orderIDToCancel {
 				cancelledInCurrentBlock = true
 				break
@@ -42,7 +42,7 @@ func (k msgServer) CancelOrders(goCtx context.Context, msg *types.MsgCancelOrder
 				Initiator: types.CancellationInitiator_USER,
 				Creator:   msg.Creator,
 			}
-			pairBlockCancellations.AddCancel(cancel)
+			pairBlockCancellations.Add(&cancel)
 		}
 	}
 

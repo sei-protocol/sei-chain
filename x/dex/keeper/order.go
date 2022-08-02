@@ -37,18 +37,18 @@ func (k Keeper) addAccountActiveOrder(ctx sdk.Context, order types.Order) {
 	store.Set(accountKey, b)
 }
 
-func (k Keeper) AddCancel(ctx sdk.Context, contractAddr string, cancel types.Cancellation) {
+func (k Keeper) AddCancel(ctx sdk.Context, contractAddr string, cancel *types.Cancellation) {
 	originalOrder := k.GetOrdersByIds(ctx, contractAddr, []uint64{cancel.Id})[cancel.Id]
 	k.storeCancel(ctx, cancel, originalOrder)
 	k.RemoveAccountActiveOrder(ctx, cancel.Id, originalOrder.ContractAddr, originalOrder.Account)
 }
 
-func (k Keeper) storeCancel(ctx sdk.Context, cancel types.Cancellation, originalOrder types.Order) {
+func (k Keeper) storeCancel(ctx sdk.Context, cancel *types.Cancellation, originalOrder types.Order) {
 	store := prefix.NewStore(
 		ctx.KVStore(k.storeKey),
 		types.Cancel(originalOrder.ContractAddr),
 	)
-	b := k.Cdc.MustMarshal(&cancel)
+	b := k.Cdc.MustMarshal(cancel)
 	idKey := make([]byte, 8)
 	binary.BigEndian.PutUint64(idKey, cancel.Id)
 	store.Set(idKey, b)

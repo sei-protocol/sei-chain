@@ -1,13 +1,13 @@
 package contract
 
 import (
-	"github.com/sei-protocol/sei-chain/utils"
+	"github.com/sei-protocol/sei-chain/utils/datastructures"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
 )
 
 type node struct {
 	contractAddr  string
-	incomingNodes *utils.StringSet
+	incomingNodes *datastructures.SyncSet[string]
 }
 
 // Kahn's algorithm
@@ -41,7 +41,7 @@ func initNodes(contracts []types.ContractInfo) map[string]node {
 	res := map[string]node{}
 	for _, contract := range contracts {
 		if _, ok := res[contract.ContractAddr]; !ok {
-			emptyIncomingNodes := utils.NewStringSet([]string{})
+			emptyIncomingNodes := datastructures.NewSyncSet([]string{})
 			res[contract.ContractAddr] = node{
 				contractAddr:  contract.ContractAddr,
 				incomingNodes: &emptyIncomingNodes,
@@ -53,7 +53,7 @@ func initNodes(contracts []types.ContractInfo) map[string]node {
 		for _, dependentContract := range contract.Dependencies {
 			dependentAddr := dependentContract.Dependency
 			if _, ok := res[dependentAddr]; !ok {
-				emptyIncomingNodes := utils.NewStringSet([]string{})
+				emptyIncomingNodes := datastructures.NewSyncSet([]string{})
 				res[dependentAddr] = node{
 					contractAddr:  dependentAddr,
 					incomingNodes: &emptyIncomingNodes,

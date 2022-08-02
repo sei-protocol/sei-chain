@@ -52,7 +52,7 @@ func TestGetOrderById(t *testing.T) {
 
 	// cancelled order
 	keeper.UpdateOrderStatus(ctx, keepertest.TestContract, 1, types.OrderStatus_CANCELLED)
-	keeper.AddCancel(ctx, keepertest.TestContract, types.Cancellation{Id: 1})
+	keeper.AddCancel(ctx, keepertest.TestContract, &types.Cancellation{Id: 1})
 	resp, err = wrapper.GetOrder(wctx, &query)
 	require.Nil(t, err)
 	require.Equal(t, uint64(1), resp.Order.Id)

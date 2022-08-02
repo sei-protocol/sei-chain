@@ -22,3 +22,10 @@ func TestMap(t *testing.T) {
 	require.Equal(t, 3, mapped[1])
 	require.Equal(t, 4, mapped[2])
 }
+
+func TestSliceCopy(t *testing.T) {
+	slice := []int{1}
+	copy := utils.SliceCopy(slice)
+	copy[0] = 2
+	require.Equal(t, 1, slice[0])
+}
