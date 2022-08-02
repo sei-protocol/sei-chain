@@ -47,7 +47,6 @@ func DeconstructDenom(denom string) (creator string, subdenom string, err error)
 	}
 
 	strParts := strings.Split(denom, "/")
-	fmt.Println("DENOM", denom)
 	if len(strParts) < 3 {
 		return "", "", sdkerrors.Wrapf(ErrInvalidDenom, "not enough parts of denom %s", denom)
 	}
@@ -57,9 +56,7 @@ func DeconstructDenom(denom string) (creator string, subdenom string, err error)
 	}
 
 	creator = strParts[1]
-	fmt.Println("CREATOR", creator)
-	_, err = sdk.AccAddressFromBech32("sei1t7egva48prqmzl59x5ngv4zx0dtrwewc9m7z44")
-	fmt.Println("ERRR", err)
+	_, err = sdk.AccAddressFromBech32(creator)
 	if err != nil {
 		return "", "", sdkerrors.Wrapf(ErrInvalidDenom, "Invalid creator address (%s)", err)
 	}
