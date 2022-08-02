@@ -109,10 +109,7 @@ func run(config Config) {
 	defer grpcConn.Close()
 	TxClient = typestx.NewServiceClient(grpcConn)
 	userHomeDir, _ := os.UserHomeDir()
-	err := os.Mkdir(filepath.Join(userHomeDir, "outputs"), os.ModePerm)
-	if err != nil {
-		panic(err)
-	}
+	_ = os.Mkdir(filepath.Join(userHomeDir, "outputs"), os.ModePerm)
 	filename := filepath.Join(userHomeDir, "outputs", "test_tx_hash")
 	_ = os.Remove(filename)
 	file, _ := os.OpenFile(filename, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)

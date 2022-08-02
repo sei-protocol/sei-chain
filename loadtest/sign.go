@@ -42,7 +42,7 @@ func GetKey(accountIdx uint64) cryptotypes.PrivKey {
 	if err := json.Unmarshal(byteVal, &accountInfo); err != nil {
 		panic(err)
 	}
-	kr, _ := keyring.New(sdk.KeyringServiceName(), "os", filepath.Join(userHomeDir, ".sei-chain"), os.Stdin)
+	kr, _ := keyring.New(sdk.KeyringServiceName(), "test", filepath.Join(userHomeDir, ".sei"), os.Stdin)
 	keyringAlgos, _ := kr.SupportedAlgorithms()
 	algoStr := string(hd.Secp256k1Type)
 	algo, _ := keyring.NewSigningAlgoFromString(algoStr, keyringAlgos)
@@ -98,6 +98,9 @@ func GetAccountNumberSequenceNumber(privKey cryptotypes.PrivKey) (uint64, uint64
 	context = context.WithNodeURI(NodeURI)
 	context = context.WithClient(cl)
 	context = context.WithInterfaceRegistry(TestConfig.InterfaceRegistry)
+	userHomeDir, _ := os.UserHomeDir()
+	kr, _ := keyring.New(sdk.KeyringServiceName(), "test", filepath.Join(userHomeDir, ".sei"), os.Stdin)
+	context = context.WithKeyring(kr)
 	account, seq, err := accountRetriever.GetAccountNumberSequence(context, address)
 	if err != nil {
 		time.Sleep(5 * time.Second)
