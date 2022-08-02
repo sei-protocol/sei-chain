@@ -333,6 +333,7 @@ func New(
 		evidencetypes.StoreKey, ibctransfertypes.StoreKey, capabilitytypes.StoreKey, oracletypes.StoreKey, wasm.StoreKey,
 		dexmoduletypes.StoreKey,
 		epochmoduletypes.StoreKey,
+		tokenfactorytypes.StoreKey,
 		// this line is used by starport scaffolding # stargate/app/storeKey
 	)
 	tkeys := sdk.NewTransientStoreKeys(paramstypes.TStoreKey)
@@ -586,6 +587,7 @@ func New(
 		epochmoduletypes.ModuleName,
 		dexmoduletypes.ModuleName,
 		wasm.ModuleName,
+		tokenfactorytypes.ModuleName,
 	)
 
 	app.mm.SetOrderEndBlockers(
@@ -610,6 +612,7 @@ func New(
 		epochmoduletypes.ModuleName,
 		dexmoduletypes.ModuleName,
 		wasm.ModuleName,
+		tokenfactorytypes.ModuleName,
 	)
 
 	// NOTE: The genutils module must occur after staking so that pools are
@@ -636,6 +639,7 @@ func New(
 		ibctransfertypes.ModuleName,
 		feegrant.ModuleName,
 		oracletypes.ModuleName,
+		tokenfactorytypes.ModuleName,
 		epochmoduletypes.ModuleName,
 		dexmoduletypes.ModuleName,
 		wasm.ModuleName,
@@ -886,6 +890,7 @@ func initParamsKeeper(appCodec codec.BinaryCodec, legacyAmino *codec.LegacyAmino
 	paramsKeeper.Subspace(wasm.ModuleName)
 	paramsKeeper.Subspace(dexmoduletypes.ModuleName)
 	paramsKeeper.Subspace(epochmoduletypes.ModuleName)
+	paramsKeeper.Subspace(tokenfactorytypes.ModuleName)
 	// this line is used by starport scaffolding # stargate/app/paramSubspace
 
 	return paramsKeeper
