@@ -7,11 +7,16 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	dexwasm "github.com/sei-protocol/sei-chain/x/dex/client/wasm"
+	tokenfactorywasm "github.com/sei-protocol/sei-chain/x/tokenfactory/client/wasm"
 )
 
 type SeiWasmMessage struct {
 	PlaceOrders  json.RawMessage `json:"place_orders,omitempty"`
 	CancelOrders json.RawMessage `json:"cancel_orders,omitempty"`
+	CreateDenom  json.RawMessage `json:"create_denom,omitempty"`
+	Mint         json.RawMessage `json:"mint,omitempty"`
+	Burn         json.RawMessage `json:"burn,omitempty"`
+	ChangeAdmin  json.RawMessage `json:"change_admin,omitempty"`
 }
 
 func CustomEncoder(sender sdk.AccAddress, msg json.RawMessage) ([]sdk.Msg, error) {
@@ -24,6 +29,14 @@ func CustomEncoder(sender sdk.AccAddress, msg json.RawMessage) ([]sdk.Msg, error
 		return dexwasm.EncodeDexPlaceOrders(parsedMessage.PlaceOrders)
 	case parsedMessage.CancelOrders != nil:
 		return dexwasm.EncodeDexCancelOrders(parsedMessage.CancelOrders)
+	case parsedMessage.CreateDenom != nil:
+		return tokenfactorywasm.EncodeTokenFactoryCreateDenom(parsedMessage.CreateDenom)
+	case parsedMessage.Mint != nil:
+		return tokenfactorywasm.EncodeTokenFactoryMint(parsedMessage.Mint)
+	case parsedMessage.Burn != nil:
+		return tokenfactorywasm.EncodeTokenFactoryBurn(parsedMessage.Burn)
+	case parsedMessage.ChangeAdmin != nil:
+		return tokenfactorywasm.EncodeTokenFactoryChangeAdmin(parsedMessage.ChangeAdmin)
 	default:
 		return []sdk.Msg{}, wasmvmtypes.UnsupportedRequest{Kind: "Unknown Sei Wasm Message"}
 	}
