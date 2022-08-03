@@ -39,6 +39,5 @@ type MintTokens struct {
 }
 
 type BurnTokens struct {
-	Denom  string  `json:"denom"`
 	Amount sdk.Coin `json:"amount"`
 }
