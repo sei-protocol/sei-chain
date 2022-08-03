@@ -11,8 +11,10 @@ func CancelOrders(
 	originalOrders map[uint64]types.Order,
 ) {
 	for _, cancel := range cancels {
-		cancelOrder(originalOrders[cancel.Id], orderbook.Longs)
-		cancelOrder(originalOrders[cancel.Id], orderbook.Shorts)
+		if originalOrder, ok := originalOrders[cancel.Id]; ok {
+			cancelOrder(originalOrder, orderbook.Longs)
+			cancelOrder(originalOrder, orderbook.Shorts)
+		}
 	}
 }
 

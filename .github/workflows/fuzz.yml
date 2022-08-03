@@ -24,3 +24,18 @@ jobs:
 
     - name: Fuzz Place Order Msg
       run: go test github.com/sei-protocol/sei-chain/x/dex/keeper/msgserver -fuzz FuzzPlaceOrders -fuzztime 30s
+
+    - name: Fuzz Limit Order Matching
+      run: go test github.com/sei-protocol/sei-chain/x/dex/keeper/exchange -fuzz FuzzMatchLimitOrders -fuzztime 30s
+
+    - name: Fuzz Market Order Matching
+      run: go test github.com/sei-protocol/sei-chain/x/dex/keeper/exchange -fuzz FuzzMatchMarketOrders -fuzztime 30s
+
+    - name: Fuzz Rebalance
+      run: go test github.com/sei-protocol/sei-chain/x/dex/keeper/exchange -fuzz FuzzRebalance -fuzztime 30s
+
+    - name: Fuzz Limit Order Settlement
+      run: go test github.com/sei-protocol/sei-chain/x/dex/keeper/exchange -fuzz FuzzSettleFromBook -fuzztime 30s
+
+    - name: Fuzz Market Order Settlement
+      run: go test github.com/sei-protocol/sei-chain/x/dex/keeper/exchange -fuzz FuzzSettle -fuzztime 30s
