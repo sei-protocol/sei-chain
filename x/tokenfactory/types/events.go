@@ -1,3 +1,4 @@
+/* #nosec G101 */
 package types
 
 // event types
