@@ -14,7 +14,7 @@ import (
 
 var TestFuzzSettleCtx = sdk.Context{}
 
-func FuzzSettle(f *testing.F) {
+func FuzzSettleMarketOrder(f *testing.F) {
 	TestFuzzSettleCtx = TestFuzzSettleCtx.WithBlockHeight(1).WithBlockTime(time.Now())
 	f.Fuzz(fuzzTargetMatchMarketOrders)
 }
@@ -57,7 +57,7 @@ func fuzzTargetSettle(
 	}
 }
 
-func FuzzSettleFromBook(f *testing.F) {
+func FuzzSettleLimitOrder(f *testing.F) {
 	TestFuzzSettleCtx = TestFuzzSettleCtx.WithBlockHeight(1).WithBlockTime(time.Now())
 	f.Fuzz(fuzzTargetMatchMarketOrders)
 }

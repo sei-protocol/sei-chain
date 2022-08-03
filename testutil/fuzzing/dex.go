@@ -203,7 +203,7 @@ func GetAllocations(totalQuantity int64, accountIndices []byte, weights []byte) 
 	quantityDec := sdk.NewDec(totalQuantity)
 	totalWeightDec := sdk.NewDec(int64(totalWeight))
 	res := []*types.Allocation{}
-	orderId := 0
+	orderID := 0
 	for account, weight := range aggregatedAccountsToWeights {
 		var quantity sdk.Dec
 		if totalWeightDec.IsZero() {
@@ -212,11 +212,11 @@ func GetAllocations(totalQuantity int64, accountIndices []byte, weights []byte) 
 			quantity = quantityDec.Mul(sdk.NewDec(int64(weight))).Quo(totalWeightDec)
 		}
 		res = append(res, &types.Allocation{
-			OrderId:  uint64(orderId),
+			OrderId:  uint64(orderID),
 			Account:  account,
 			Quantity: quantity,
 		})
-		orderId++
+		orderID++
 	}
 	return res
 }
