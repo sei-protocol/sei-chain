@@ -35,7 +35,7 @@ type ChangeAdmin struct {
 }
 
 type MintTokens struct {
-	Amount        sdk.Coin `json:"amount"`
+	Amount sdk.Coin `json:"amount"`
 }
 
 type BurnTokens struct {

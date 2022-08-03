@@ -4,8 +4,8 @@ import (
 	"encoding/json"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
-	"github.com/sei-protocol/sei-chain/x/tokenfactory/types"
 	"github.com/sei-protocol/sei-chain/wasmbinding/bindings"
+	"github.com/sei-protocol/sei-chain/x/tokenfactory/types"
 )
 
 func EncodeTokenFactoryCreateDenom(rawMsg json.RawMessage, sender sdk.AccAddress) ([]sdk.Msg, error) {
@@ -13,8 +13,8 @@ func EncodeTokenFactoryCreateDenom(rawMsg json.RawMessage, sender sdk.AccAddress
 	if err := json.Unmarshal(rawMsg, &encodedCreateDenomMsg); err != nil {
 		return []sdk.Msg{}, err
 	}
-	createDenomMsg := types.MsgCreateDenom {
-		Sender: sender.String(),
+	createDenomMsg := types.MsgCreateDenom{
+		Sender:   sender.String(),
 		Subdenom: encodedCreateDenomMsg.Subdenom,
 	}
 	return []sdk.Msg{&createDenomMsg}, nil
@@ -50,8 +50,8 @@ func EncodeTokenFactoryChangeAdmin(rawMsg json.RawMessage, sender sdk.AccAddress
 		return []sdk.Msg{}, err
 	}
 	changeAdminMsg := types.MsgChangeAdmin{
-		Sender: sender.String(),
-		Denom: encodedChangeAdminMsg.Denom,
+		Sender:   sender.String(),
+		Denom:    encodedChangeAdminMsg.Denom,
 		NewAdmin: encodedChangeAdminMsg.NewAdminAddress,
 	}
 	return []sdk.Msg{&changeAdminMsg}, nil
