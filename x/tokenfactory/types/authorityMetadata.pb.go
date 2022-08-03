@@ -28,7 +28,7 @@ const _ = proto.GoGoProtoPackageIsVersion3 // please upgrade the proto package
 // capabilities over a token factory denom. Right now there is only one Admin
 // permission, but is planned to be extended to the future.
 type DenomAuthorityMetadata struct {
-	// Can be empty for no admin, or a valid osmosis address
+	// Can be empty for no admin, or a valid sei address
 	Admin string `protobuf:"bytes,1,opt,name=admin,proto3" json:"admin,omitempty" yaml:"admin"`
 }
 

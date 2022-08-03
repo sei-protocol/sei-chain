@@ -14,7 +14,7 @@ service Query {
   // Params defines a gRPC query method that returns the tokenfactory module's
   // parameters.
   rpc Params(QueryParamsRequest) returns (QueryParamsResponse) {
-    option (google.api.http).get = "/osmosis/tokenfactory/v1beta1/params";
+    option (google.api.http).get = "/sei-protocol/seichain/tokenfactory/params";
   }
 
   // DenomAuthorityMetadata defines a gRPC query method for fetching
@@ -22,7 +22,7 @@ service Query {
   rpc DenomAuthorityMetadata(QueryDenomAuthorityMetadataRequest)
       returns (QueryDenomAuthorityMetadataResponse) {
     option (google.api.http).get =
-        "/osmosis/tokenfactory/v1beta1/denoms/{denom}/authority_metadata";
+        "/sei-protocol/seichain/tokenfactory/denoms/{denom}/authority_metadata";
   }
 
   // DenomsFromCreator defines a gRPC query method for fetching all
@@ -30,7 +30,7 @@ service Query {
   rpc DenomsFromCreator(QueryDenomsFromCreatorRequest)
       returns (QueryDenomsFromCreatorResponse) {
     option (google.api.http).get =
-        "/osmosis/tokenfactory/v1beta1/denoms_from_creator/{creator}";
+        "/sei-protocol/seichain/tokenfactory/denoms_from_creator/{creator}";
   }
 }
 
