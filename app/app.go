@@ -466,7 +466,7 @@ func New(
 		app.keys[tokenfactorytypes.StoreKey],
 		app.GetSubspace(tokenfactorytypes.ModuleName),
 		app.AccountKeeper,
-		app.BankKeeper, // TODO(kartik): Add back the NewTokenFactoryDenomMintCoinsRestriction
+		app.BankKeeper.(bankkeeper.BaseKeeper).WithMintCoinsRestriction(tokenfactorytypes.NewTokenFactoryDenomMintCoinsRestriction()),
 		app.DistrKeeper,
 	)
 	// The last arguments can contain custom message handlers, and custom query handlers,
