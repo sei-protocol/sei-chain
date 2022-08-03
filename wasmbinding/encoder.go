@@ -30,13 +30,13 @@ func CustomEncoder(sender sdk.AccAddress, msg json.RawMessage) ([]sdk.Msg, error
 	case parsedMessage.CancelOrders != nil:
 		return dexwasm.EncodeDexCancelOrders(parsedMessage.CancelOrders)
 	case parsedMessage.CreateDenom != nil:
-		return tokenfactorywasm.EncodeTokenFactoryCreateDenom(parsedMessage.CreateDenom)
+		return tokenfactorywasm.EncodeTokenFactoryCreateDenom(parsedMessage.CreateDenom, sender)
 	case parsedMessage.Mint != nil:
-		return tokenfactorywasm.EncodeTokenFactoryMint(parsedMessage.Mint)
+		return tokenfactorywasm.EncodeTokenFactoryMint(parsedMessage.Mint, sender)
 	case parsedMessage.Burn != nil:
-		return tokenfactorywasm.EncodeTokenFactoryBurn(parsedMessage.Burn)
+		return tokenfactorywasm.EncodeTokenFactoryBurn(parsedMessage.Burn, sender)
 	case parsedMessage.ChangeAdmin != nil:
-		return tokenfactorywasm.EncodeTokenFactoryChangeAdmin(parsedMessage.ChangeAdmin)
+		return tokenfactorywasm.EncodeTokenFactoryChangeAdmin(parsedMessage.ChangeAdmin, sender)
 	default:
 		return []sdk.Msg{}, wasmvmtypes.UnsupportedRequest{Kind: "Unknown Sei Wasm Message"}
 	}
