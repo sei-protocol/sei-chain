@@ -11,12 +11,20 @@ import (
 // A -> B -> C
 func TestTopologicalSortContractInfoSimple(t *testing.T) {
 	a := types.ContractInfo{
-		ContractAddr:           "A",
-		DependentContractAddrs: []string{"B"},
+		ContractAddr: "A",
+		Dependencies: []*types.ContractDependencyInfo{
+			{
+				Dependency: "B",
+			},
+		},
 	}
 	b := types.ContractInfo{
-		ContractAddr:           "B",
-		DependentContractAddrs: []string{"C"},
+		ContractAddr: "B",
+		Dependencies: []*types.ContractDependencyInfo{
+			{
+				Dependency: "C",
+			},
+		},
 	}
 	c := types.ContractInfo{
 		ContractAddr: "C",
@@ -31,15 +39,23 @@ func TestTopologicalSortContractInfoSimple(t *testing.T) {
 // A -> B, C -> D
 func TestTopologicalSortContractInfoIsolated(t *testing.T) {
 	a := types.ContractInfo{
-		ContractAddr:           "A",
-		DependentContractAddrs: []string{"B"},
+		ContractAddr: "A",
+		Dependencies: []*types.ContractDependencyInfo{
+			{
+				Dependency: "B",
+			},
+		},
 	}
 	b := types.ContractInfo{
 		ContractAddr: "B",
 	}
 	c := types.ContractInfo{
-		ContractAddr:           "C",
-		DependentContractAddrs: []string{"D"},
+		ContractAddr: "C",
+		Dependencies: []*types.ContractDependencyInfo{
+			{
+				Dependency: "D",
+			},
+		},
 	}
 	d := types.ContractInfo{
 		ContractAddr: "D",
@@ -65,16 +81,28 @@ func TestTopologicalSortContractInfoIsolated(t *testing.T) {
 // A -> B -> C -> A
 func TestTopologicalSortContractInfoCircular(t *testing.T) {
 	a := types.ContractInfo{
-		ContractAddr:           "A",
-		DependentContractAddrs: []string{"B"},
+		ContractAddr: "A",
+		Dependencies: []*types.ContractDependencyInfo{
+			{
+				Dependency: "B",
+			},
+		},
 	}
 	b := types.ContractInfo{
-		ContractAddr:           "B",
-		DependentContractAddrs: []string{"C"},
+		ContractAddr: "B",
+		Dependencies: []*types.ContractDependencyInfo{
+			{
+				Dependency: "C",
+			},
+		},
 	}
 	c := types.ContractInfo{
-		ContractAddr:           "C",
-		DependentContractAddrs: []string{"A"},
+		ContractAddr: "C",
+		Dependencies: []*types.ContractDependencyInfo{
+			{
+				Dependency: "A",
+			},
+		},
 	}
 	res, err := contract.TopologicalSortContractInfo([]types.ContractInfo{b, c, a})
 	require.NotNil(t, err)

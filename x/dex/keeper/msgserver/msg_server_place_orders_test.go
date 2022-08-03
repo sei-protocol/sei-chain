@@ -44,7 +44,7 @@ func TestPlaceOrder(t *testing.T) {
 	keeper.AddRegisteredPair(ctx, TestContract, keepertest.TestPair)
 	keeper.SetTickSizeForPair(ctx, TestContract, keepertest.TestPair, *keepertest.TestPair.Ticksize)
 	wctx := sdk.WrapSDKContext(ctx)
-	server := msgserver.NewMsgServerImpl(*keeper, nil)
+	server := msgserver.NewMsgServerImpl(*keeper)
 	res, err := server.PlaceOrders(wctx, msg)
 	require.Nil(t, err)
 	require.Equal(t, 2, len(res.OrderIds))
@@ -77,7 +77,7 @@ func TestPlaceInvalidOrder(t *testing.T) {
 			},
 		},
 	}
-	server := msgserver.NewMsgServerImpl(*keeper, nil)
+	server := msgserver.NewMsgServerImpl(*keeper)
 	_, err := server.PlaceOrders(wctx, msg)
 	require.NotNil(t, err)
 
@@ -97,7 +97,7 @@ func TestPlaceInvalidOrder(t *testing.T) {
 			},
 		},
 	}
-	server = msgserver.NewMsgServerImpl(*keeper, nil)
+	server = msgserver.NewMsgServerImpl(*keeper)
 	_, err = server.PlaceOrders(wctx, msg)
 	require.NotNil(t, err)
 
@@ -117,7 +117,7 @@ func TestPlaceInvalidOrder(t *testing.T) {
 			},
 		},
 	}
-	server = msgserver.NewMsgServerImpl(*keeper, nil)
+	server = msgserver.NewMsgServerImpl(*keeper)
 	_, err = server.PlaceOrders(wctx, msg)
 	require.NotNil(t, err)
 
@@ -139,7 +139,7 @@ func TestPlaceInvalidOrder(t *testing.T) {
 			},
 		},
 	}
-	server = msgserver.NewMsgServerImpl(*keeper, nil)
+	server = msgserver.NewMsgServerImpl(*keeper)
 	_, err = server.PlaceOrders(wctx, msg)
 	require.NotNil(t, err)
 
@@ -159,7 +159,7 @@ func TestPlaceInvalidOrder(t *testing.T) {
 			},
 		},
 	}
-	server = msgserver.NewMsgServerImpl(*keeper, nil)
+	server = msgserver.NewMsgServerImpl(*keeper)
 	_, err = server.PlaceOrders(wctx, msg)
 	require.NotNil(t, err)
 
@@ -179,7 +179,7 @@ func TestPlaceInvalidOrder(t *testing.T) {
 			},
 		},
 	}
-	server = msgserver.NewMsgServerImpl(*keeper, nil)
+	server = msgserver.NewMsgServerImpl(*keeper)
 	_, err = server.PlaceOrders(wctx, msg)
 	require.NotNil(t, err)
 }

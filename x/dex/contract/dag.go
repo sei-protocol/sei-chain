@@ -47,18 +47,19 @@ func initNodes(contracts []types.ContractInfo) map[string]node {
 				incomingNodes: &emptyIncomingNodes,
 			}
 		}
-		if contract.DependentContractAddrs == nil {
+		if contract.Dependencies == nil {
 			continue
 		}
-		for _, dependentContract := range contract.DependentContractAddrs {
-			if _, ok := res[dependentContract]; !ok {
+		for _, dependentContract := range contract.Dependencies {
+			dependentAddr := dependentContract.Dependency
+			if _, ok := res[dependentAddr]; !ok {
 				emptyIncomingNodes := utils.NewStringSet([]string{})
-				res[dependentContract] = node{
-					contractAddr:  dependentContract,
+				res[dependentAddr] = node{
+					contractAddr:  dependentAddr,
 					incomingNodes: &emptyIncomingNodes,
 				}
 			}
-			res[dependentContract].incomingNodes.Add(contract.ContractAddr)
+			res[dependentAddr].incomingNodes.Add(contract.ContractAddr)
 		}
 	}
 	return res

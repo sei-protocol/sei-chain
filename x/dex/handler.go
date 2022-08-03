@@ -7,15 +7,14 @@ import (
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	govtypes "github.com/cosmos/cosmos-sdk/x/gov/types"
 
-	"github.com/sei-protocol/sei-chain/utils/tracing"
 	"github.com/sei-protocol/sei-chain/x/dex/keeper"
 	"github.com/sei-protocol/sei-chain/x/dex/keeper/msgserver"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
 )
 
 // NewHandler ...
-func NewHandler(k keeper.Keeper, tracingInfo *tracing.Info) sdk.Handler {
-	msgServer := msgserver.NewMsgServerImpl(k, tracingInfo)
+func NewHandler(k keeper.Keeper) sdk.Handler {
+	msgServer := msgserver.NewMsgServerImpl(k)
 
 	return func(ctx sdk.Context, msg sdk.Msg) (*sdk.Result, error) {
 		ctx = ctx.WithEventManager(sdk.NewEventManager())

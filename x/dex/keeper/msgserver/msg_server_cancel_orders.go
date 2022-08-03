@@ -10,9 +10,6 @@ import (
 )
 
 func (k msgServer) CancelOrders(goCtx context.Context, msg *types.MsgCancelOrders) (*types.MsgCancelOrdersResponse, error) {
-	_, span := (*k.tracingInfo.Tracer).Start(goCtx, "CancelOrders")
-	defer span.End()
-
 	ctx := sdk.UnwrapSDKContext(goCtx)
 
 	activeOrderIDSet := utils.NewUInt64Set(k.GetAccountActiveOrders(ctx, msg.ContractAddr, msg.Creator).Ids)

@@ -149,7 +149,7 @@ func (am AppModule) Name() string {
 
 // Route returns the capability module's message routing key.
 func (am AppModule) Route() sdk.Route {
-	return sdk.NewRoute(types.RouterKey, NewHandler(am.keeper, am.tracingInfo))
+	return sdk.NewRoute(types.RouterKey, NewHandler(am.keeper))
 }
 
 // QuerierRoute returns the capability module's query routing key.
@@ -163,7 +163,7 @@ func (am AppModule) LegacyQuerierHandler(legacyQuerierCdc *codec.LegacyAmino) sd
 // RegisterServices registers a GRPC query service to respond to the
 // module-specific GRPC queries.
 func (am AppModule) RegisterServices(cfg module.Configurator) {
-	types.RegisterMsgServer(cfg.MsgServer(), msgserver.NewMsgServerImpl(am.keeper, am.tracingInfo))
+	types.RegisterMsgServer(cfg.MsgServer(), msgserver.NewMsgServerImpl(am.keeper))
 	types.RegisterQueryServer(cfg.QueryServer(), dexkeeperquery.KeeperWrapper{Keeper: &am.keeper})
 
 	_ = cfg.RegisterMigration(types.ModuleName, 1, func(ctx sdk.Context) error { return nil })
@@ -175,6 +175,9 @@ func (am AppModule) RegisterServices(cfg module.Configurator) {
 	})
 	_ = cfg.RegisterMigration(types.ModuleName, 4, func(ctx sdk.Context) error {
 		return migrations.V4ToV5(ctx, am.keeper.GetStoreKey(), am.keeper.Paramstore)
+	})
+	_ = cfg.RegisterMigration(types.ModuleName, 5, func(ctx sdk.Context) error {
+		return migrations.V5ToV6(ctx, am.keeper.GetStoreKey(), am.keeper.Cdc)
 	})
 }
 
@@ -200,7 +203,7 @@ func (am AppModule) ExportGenesis(ctx sdk.Context, cdc codec.JSONCodec) json.Raw
 }
 
 // ConsensusVersion implements ConsensusVersion.
-func (AppModule) ConsensusVersion() uint64 { return 5 }
+func (AppModule) ConsensusVersion() uint64 { return 6 }
 
 func (am AppModule) getAllContractInfo(ctx sdk.Context) []types.ContractInfo {
 	unsorted := am.keeper.GetAllContractInfo(ctx)
