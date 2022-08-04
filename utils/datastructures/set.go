@@ -37,7 +37,7 @@ func (s *SyncSet[T]) RemoveAll(vals []T) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for _, val := range vals {
-		s.Remove(val)
+		delete(s.dict, val)
 	}
 }
 
