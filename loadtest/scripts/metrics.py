@@ -6,7 +6,6 @@ def get_block_height_and_timestamp(tx_hash_str):
     res = requests.get(f"http://0.0.0.0:1317/txs/{tx_hash_str}")
     body = res.json()
     if "height" not in body:
-        print(tx_hash_str)
         return
     height = int(body["height"])
     return height
