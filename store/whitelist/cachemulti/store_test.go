@@ -10,11 +10,13 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-var WhitelistedStoreKey = storetypes.NewKVStoreKey("whitelisted")
-var NotWhitelistedStoreKey = storetypes.NewKVStoreKey("not-whitelisted")
-var TestStoreKeyToWriteWhitelist = map[storetypes.StoreKey][]string{
-	WhitelistedStoreKey: {"foo"},
-}
+var (
+	WhitelistedStoreKey          = storetypes.NewKVStoreKey("whitelisted")
+	NotWhitelistedStoreKey       = storetypes.NewKVStoreKey("not-whitelisted")
+	TestStoreKeyToWriteWhitelist = map[storetypes.StoreKey][]string{
+		WhitelistedStoreKey: {"foo"},
+	}
+)
 
 func TestWhitelistEnabledStore(t *testing.T) {
 	stores := map[types.StoreKey]types.CacheWrapper{
