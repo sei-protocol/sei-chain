@@ -3,6 +3,7 @@ package msgserver
 import (
 	"context"
 	"errors"
+	"fmt"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/sei-protocol/sei-chain/utils"
@@ -14,27 +15,47 @@ func (k msgServer) RegisterContract(goCtx context.Context, msg *types.MsgRegiste
 	ctx := sdk.UnwrapSDKContext(goCtx)
 	// TODO: add validation such that only the user who stored the code can register contract
 
+	if err := k.ValidateBasics(msg); err != nil {
+		ctx.Logger().Error(fmt.Sprintf("request invalid: %s", err))
+		return &types.MsgRegisterContractResponse{}, err
+	}
 	if err := k.ValidateUniqueDependencies(msg); err != nil {
+		ctx.Logger().Error(fmt.Sprintf("dependencies of contract %s are not unique", msg.Contract.ContractAddr))
 		return &types.MsgRegisterContractResponse{}, err
 	}
 	if err := k.RemoveExistingDependencies(ctx, msg); err != nil {
+		ctx.Logger().Error("failed to remove existing dependencies")
 		return &types.MsgRegisterContractResponse{}, err
 	}
 	if err := k.UpdateOldSiblings(ctx, msg); err != nil {
+		ctx.Logger().Error("failed to update old siblings")
 		return &types.MsgRegisterContractResponse{}, err
 	}
 	if err := k.UpdateNewDependencies(ctx, msg); err != nil {
+		ctx.Logger().Error("failed to update new dependencies")
 		return &types.MsgRegisterContractResponse{}, err
 	}
 	allContractInfo, err := k.SetNewContract(ctx, msg)
 	if err != nil {
+		ctx.Logger().Error("failed to set new contract")
 		return &types.MsgRegisterContractResponse{}, err
 	}
 	if _, err := contract.TopologicalSortContractInfo(allContractInfo); err != nil {
+		ctx.Logger().Error("contract caused a circular dependency")
 		return &types.MsgRegisterContractResponse{}, err
 	}
 
 	return &types.MsgRegisterContractResponse{}, nil
+}
+
+func (k msgServer) ValidateBasics(msg *types.MsgRegisterContract) error {
+	if msg.Contract == nil {
+		return errors.New("empty contract info")
+	}
+	if msg.Contract.ContractAddr == "" {
+		return errors.New("contract address is empty")
+	}
+	return nil
 }
 
 func (k msgServer) ValidateUniqueDependencies(msg *types.MsgRegisterContract) error {
@@ -54,9 +75,11 @@ func (k msgServer) RemoveExistingDependencies(ctx sdk.Context, msg *types.MsgReg
 	contractInfo, err := k.GetContract(ctx, msg.Contract.ContractAddr)
 	if err != nil {
 		// contract is being added for the first time
+		ctx.Logger().Info(fmt.Sprintf("adding contract %s for the first time", msg.Contract.ContractAddr))
 		return nil
 	}
 	if contractInfo.Dependencies == nil {
+		ctx.Logger().Info(fmt.Sprintf("existing contract %s has no dependency", msg.Contract.ContractAddr))
 		return nil
 	}
 	// update old dependency's NumIncomingPaths
@@ -64,6 +87,7 @@ func (k msgServer) RemoveExistingDependencies(ctx sdk.Context, msg *types.MsgReg
 		dependencyInfo, err := k.GetContract(ctx, oldDependency.Dependency)
 		if err != nil {
 			// old dependency doesn't exist. Do nothing.
+			ctx.Logger().Info(fmt.Sprintf("existing contract %s old dependency %s does not exist", msg.Contract.ContractAddr, oldDependency.Dependency))
 			continue
 		}
 		dependencyInfo.NumIncomingDependencies--
@@ -84,6 +108,7 @@ func (k msgServer) UpdateOldSiblings(ctx sdk.Context, msg *types.MsgRegisterCont
 		elder := oldDependency.ImmediateElderSibling
 		younger := oldDependency.ImmediateYoungerSibling
 		if younger != "" {
+			ctx.Logger().Info(fmt.Sprintf("update younger sibling %s of %s for dependency %s", younger, msg.Contract.ContractAddr, oldDependency.Dependency))
 			youngContract, err := k.GetContract(ctx, younger)
 			if err != nil {
 				return err
@@ -100,6 +125,7 @@ func (k msgServer) UpdateOldSiblings(ctx sdk.Context, msg *types.MsgRegisterCont
 			}
 		}
 		if elder != "" {
+			ctx.Logger().Info(fmt.Sprintf("update elder sibling %s of %s for dependency %s", elder, msg.Contract.ContractAddr, oldDependency.Dependency))
 			elderContract, err := k.GetContract(ctx, elder)
 			if err != nil {
 				return err
