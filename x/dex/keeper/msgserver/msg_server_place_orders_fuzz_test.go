@@ -59,6 +59,6 @@ func fuzzTargetPlaceOrders(
 		},
 		Funds: []sdk.Coin{fuzzutils.FuzzCoin(priceDenom, fundIsNil, fundAmount)},
 	}
-	server := msgserver.NewMsgServerImpl(*keeper, nil)
+	server := msgserver.NewMsgServerImpl(*keeper)
 	require.NotPanics(t, func() { server.PlaceOrders(wctx, msg) })
 }
