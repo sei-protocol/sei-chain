@@ -126,7 +126,7 @@ func run(config Config) {
 	}
 	wgs := []*sync.WaitGroup{}
 	sendersList := [][]func(){}
-	fmt.Printf("%s - Starting block prepare\n", time.Now().String())
+	fmt.Printf("%s - Starting block prepare\n", time.Now().Format("2006-01-02T15:04:05"))
 	for i := 0; i < int(config.Rounds); i++ {
 		fmt.Printf("Preparing %d-th block\n", i)
 		wg := &sync.WaitGroup{}
@@ -199,6 +199,7 @@ func run(config Config) {
 		}
 		wg.Wait()
 	}
+	fmt.Printf("%s - Finished\n", time.Now().Format("2006-01-02T15:04:05"))
 }
 
 func main() {
