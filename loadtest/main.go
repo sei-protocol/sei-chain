@@ -6,9 +6,7 @@ import (
 	"io/ioutil"
 	"math/rand"
 	"os"
-	"os/exec"
 	"path/filepath"
-	"strconv"
 	"sync"
 	"time"
 
@@ -36,7 +34,7 @@ type Config struct {
 	ChainID        string              `json:"chain_id"`
 	ContractAddr   string              `json:"contract_address"`
 	OrdersPerBlock uint64              `json:"orders_per_block"`
-	NumberOfBlocks uint64              `json:"number_of_blocks"`
+	Rounds         uint64              `json:"rounds"`
 	PriceDistr     NumericDistribution `json:"price_distribution"`
 	QuantityDistr  NumericDistribution `json:"quantity_distribution"`
 	MsgTypeDistr   MsgTypeDistribution `json:"message_type_distribution"`
@@ -128,12 +126,13 @@ func run(config Config) {
 	}
 	wgs := []*sync.WaitGroup{}
 	sendersList := [][]func(){}
-	for i := 0; i < int(config.NumberOfBlocks); i++ {
-		fmt.Printf("Preparing %d-th block\n", i)
+	fmt.Printf("%s - Starting block prepare\n", time.Now().Format("2006-01-02T15:04:05"))
+	for i := 0; i < int(config.Rounds); i++ {
+		fmt.Printf("Preparing %d-th round\n", i)
 		wg := &sync.WaitGroup{}
 		var senders []func()
 		wgs = append(wgs, wg)
-		for j, account := range activeAccounts {
+		for _, account := range activeAccounts {
 			key := GetKey(uint64(account))
 			var msg sdk.Msg
 			msgType := config.MsgTypeDistr.Sample()
@@ -178,11 +177,11 @@ func run(config Config) {
 			txBuilder := TestConfig.TxConfig.NewTxBuilder()
 			_ = txBuilder.SetMsgs(msg)
 			seqDelta := uint64(i / 2)
-			SignTx(&txBuilder, key, seqDelta)
 			mode := typestx.BroadcastMode_BROADCAST_MODE_SYNC
-			if j == len(activeAccounts)-1 {
-				mode = typestx.BroadcastMode_BROADCAST_MODE_BLOCK
-			}
+			// Note: There is a potential race condition here with seqnos
+			// in which a later seqno is delievered before an earlier seqno
+			// In practice, we haven't run into this issue so we'll leave this
+			// as is.
 			sender := SendTx(key, &txBuilder, mode, seqDelta, &mu)
 			wg.Add(1)
 			senders = append(senders, func() {
@@ -195,40 +194,16 @@ func run(config Config) {
 		inactiveAccounts, activeAccounts = activeAccounts, inactiveAccounts
 	}
 
-	lastHeight := getLastHeight()
-	for i := 0; i < int(config.NumberOfBlocks); i++ {
-		newHeight := getLastHeight()
-		for newHeight == lastHeight {
-			time.Sleep(50 * time.Millisecond)
-			newHeight = getLastHeight()
-		}
-		fmt.Printf("Sending %d-th block\n", i)
+	for i := 0; i < int(config.Rounds); i++ {
 
 		senders := sendersList[i]
 		wg := wgs[i]
-
 		for _, sender := range senders {
 			go sender()
 		}
 		wg.Wait()
 	}
-}
-
-func getLastHeight() int {
-	out, err := exec.Command("curl", "http://localhost:26657/blockchain").Output()
-	if err != nil {
-		panic(err)
-	}
-	var dat map[string]interface{}
-	if err := json.Unmarshal(out, &dat); err != nil {
-		panic(err)
-	}
-	result := dat["result"].(map[string]interface{})
-	height, err := strconv.Atoi(result["last_height"].(string))
-	if err != nil {
-		panic(err)
-	}
-	return height
+	fmt.Printf("%s - Finished\n", time.Now().Format("2006-01-02T15:04:05"))
 }
 
 func main() {
