@@ -128,6 +128,7 @@ func run(config Config) {
 	}
 	wgs := []*sync.WaitGroup{}
 	sendersList := [][]func(){}
+	fmt.Printf("%s - Starting block prepare\n", time.Now().String())
 	for i := 0; i < int(config.NumberOfBlocks); i++ {
 		fmt.Printf("Preparing %d-th block\n", i)
 		wg := &sync.WaitGroup{}
@@ -178,11 +179,7 @@ func run(config Config) {
 			txBuilder := TestConfig.TxConfig.NewTxBuilder()
 			_ = txBuilder.SetMsgs(msg)
 			seqDelta := uint64(i / 2)
-			SignTx(&txBuilder, key, seqDelta)
 			mode := typestx.BroadcastMode_BROADCAST_MODE_SYNC
-			if j == len(activeAccounts)-1 {
-				mode = typestx.BroadcastMode_BROADCAST_MODE_BLOCK
-			}
 			sender := SendTx(key, &txBuilder, mode, seqDelta, &mu)
 			wg.Add(1)
 			senders = append(senders, func() {
@@ -195,18 +192,10 @@ func run(config Config) {
 		inactiveAccounts, activeAccounts = activeAccounts, inactiveAccounts
 	}
 
-	lastHeight := getLastHeight()
 	for i := 0; i < int(config.NumberOfBlocks); i++ {
-		newHeight := getLastHeight()
-		for newHeight == lastHeight {
-			time.Sleep(50 * time.Millisecond)
-			newHeight = getLastHeight()
-		}
-		fmt.Printf("Sending %d-th block\n", i)
 
 		senders := sendersList[i]
 		wg := wgs[i]
-
 		for _, sender := range senders {
 			go sender()
 		}
