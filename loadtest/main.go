@@ -6,9 +6,7 @@ import (
 	"io/ioutil"
 	"math/rand"
 	"os"
-	"os/exec"
 	"path/filepath"
-	"strconv"
 	"sync"
 	"time"
 
@@ -201,23 +199,6 @@ func run(config Config) {
 		}
 		wg.Wait()
 	}
-}
-
-func getLastHeight() int {
-	out, err := exec.Command("curl", "http://localhost:26657/blockchain").Output()
-	if err != nil {
-		panic(err)
-	}
-	var dat map[string]interface{}
-	if err := json.Unmarshal(out, &dat); err != nil {
-		panic(err)
-	}
-	result := dat["result"].(map[string]interface{})
-	height, err := strconv.Atoi(result["last_height"].(string))
-	if err != nil {
-		panic(err)
-	}
-	return height
 }
 
 func main() {
