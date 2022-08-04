@@ -2,21 +2,6 @@ package bindings
 
 import sdk "github.com/cosmos/cosmos-sdk/types"
 
-type SeiMsg struct {
-	/// Contracts can create denoms, namespaced under the contract's address.
-	/// A contract may create any number of independent sub-denoms.
-	CreateDenom *CreateDenom `json:"create_denom,omitempty"`
-	/// Contracts can change the admin of a denom that they are the admin of.
-	ChangeAdmin *ChangeAdmin `json:"change_admin,omitempty"`
-	/// Contracts can mint native tokens for an existing factory denom
-	/// that they are the admin of.
-	MintTokens *MintTokens `json:"mint_tokens,omitempty"`
-	/// Contracts can burn native tokens for an existing factory denom
-	/// that they are the admin of.
-	/// Currently, the burn from address must be the admin contract.
-	BurnTokens *BurnTokens `json:"burn_tokens,omitempty"`
-}
-
 /// CreateDenom creates a new factory denom, of denomination:
 /// factory/{creating contract address}/{Subdenom}
 /// Subdenom can be of length at most 44 characters, in [0-9a-zA-Z./]
