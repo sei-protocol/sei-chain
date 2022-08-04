@@ -517,7 +517,12 @@ func (k Keeper) CalculateTwaps(ctx sdk.Context, lookbackSeconds int64) (types.Or
 		// divide the denom time weighed sum by denom duration
 		denomTimeWeightedSum := denomToTimeWeightedMap[denomKey]
 		denomDuration := denomDurationMap[denomKey]
-		denomTwap := denomTimeWeightedSum.QuoInt64(denomDuration)
+		var denomTwap sdk.Dec
+		if denomDuration == 0 {
+			denomTwap = sdk.ZeroDec()
+		} else {
+			denomTwap = denomTimeWeightedSum.QuoInt64(denomDuration)
+		}
 
 		denomOracleTwap := types.OracleTwap{
 			Denom:           denomKey,
