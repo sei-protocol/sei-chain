@@ -134,7 +134,7 @@ func run(config Config) {
 		wg := &sync.WaitGroup{}
 		var senders []func()
 		wgs = append(wgs, wg)
-		for j, account := range activeAccounts {
+		for _, account := range activeAccounts {
 			key := GetKey(uint64(account))
 			var msg sdk.Msg
 			msgType := config.MsgTypeDistr.Sample()
