@@ -33,6 +33,9 @@ func Settle(
 	newToSettle := []ToSettle{}
 	nonZeroNewAllocations := []*types.Allocation{}
 	for _, allocation := range order.GetEntry().Allocations {
+		if allocation.Quantity.IsZero() {
+			continue
+		}
 		newToSettle = append(newToSettle, ToSettle{
 			amount:  allocation.Quantity.Sub(newAllocations[allocation.OrderId]),
 			orderID: allocation.OrderId,
@@ -97,6 +100,9 @@ func SettleFromBook(
 	newShortToSettle := []ToSettle{}
 	nonZeroNewLongAllocations, nonZeroNewShortAllocations := []*types.Allocation{}, []*types.Allocation{}
 	for _, allocation := range longOrder.GetEntry().Allocations {
+		if allocation.Quantity.IsZero() {
+			continue
+		}
 		newLongToSettle = append(newLongToSettle, ToSettle{
 			amount:  allocation.Quantity.Sub(newLongAllocations[allocation.OrderId]),
 			account: allocation.Account,
@@ -112,6 +118,9 @@ func SettleFromBook(
 	}
 	longOrder.GetEntry().Allocations = nonZeroNewLongAllocations
 	for _, allocation := range shortOrder.GetEntry().Allocations {
+		if allocation.Quantity.IsZero() {
+			continue
+		}
 		newShortToSettle = append(newShortToSettle, ToSettle{
 			amount:  allocation.Quantity.Sub(newShortAllocations[allocation.OrderId]),
 			account: allocation.Account,

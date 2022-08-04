@@ -137,6 +137,9 @@ func GetOrderBookEntries(buy bool, priceDenom string, assetDenom string, entryWe
 	for _, entryWeight := range entryWeights {
 		totalPriceWeights += uint64(entryWeight)
 	}
+	if totalPriceWeights == uint64(0) {
+		return res
+	}
 	sliceStartAccnt, sliceStartWeights := 0, 0
 	cumWeights := uint64(0)
 	for i, entryWeight := range entryWeights {
@@ -200,11 +203,20 @@ func GetAllocations(totalQuantity int64, accountIndices []byte, weights []byte) 
 	quantityDec := sdk.NewDec(totalQuantity)
 	totalWeightDec := sdk.NewDec(int64(totalWeight))
 	res := []*types.Allocation{}
+	orderID := 0
 	for account, weight := range aggregatedAccountsToWeights {
+		var quantity sdk.Dec
+		if totalWeightDec.IsZero() {
+			quantity = sdk.ZeroDec()
+		} else {
+			quantity = quantityDec.Mul(sdk.NewDec(int64(weight))).Quo(totalWeightDec)
+		}
 		res = append(res, &types.Allocation{
+			OrderId:  uint64(orderID),
 			Account:  account,
-			Quantity: quantityDec.Mul(sdk.NewDec(int64(weight))).Quo(totalWeightDec),
+			Quantity: quantity,
 		})
+		orderID++
 	}
 	return res
 }

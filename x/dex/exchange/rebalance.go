@@ -11,11 +11,11 @@ func RebalanceAllocations(order types.OrderBookEntry) map[uint64]sdk.Dec {
 	for _, allo := range order.GetEntry().Allocations {
 		oldTotal = oldTotal.Add(allo.Quantity)
 	}
-	ratio := newTotal.Quo(oldTotal)
 	res := map[uint64]sdk.Dec{}
 	if oldTotal.IsZero() {
 		return res
 	}
+	ratio := newTotal.Quo(oldTotal)
 	acc := sdk.ZeroDec()
 	for _, allocation := range order.GetEntry().Allocations {
 		res[allocation.OrderId] = allocation.Quantity.Mul(ratio)

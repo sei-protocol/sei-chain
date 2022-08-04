@@ -25,4 +25,4 @@ package-lock.json
 c.out
 
 # fuzz test data
-*/testdata/fuzz/*
+**/testdata/fuzz/**
