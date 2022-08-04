@@ -2,7 +2,7 @@
     "chain_id": "sei-chain",
     "contract_address": "sei14hj2tavq8fpesdwxxcu44rty3hh90vhujrvcmstl4zr3txmfvw9sh9m79m",
     "orders_per_block": 10000,
-    "number_of_blocks": 5,
+    "rounds": 5,
     "price_distribution": {
         "min": "45",
         "max": "55",
