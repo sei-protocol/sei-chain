@@ -128,7 +128,7 @@ func run(config Config) {
 	sendersList := [][]func(){}
 	fmt.Printf("%s - Starting block prepare\n", time.Now().Format("2006-01-02T15:04:05"))
 	for i := 0; i < int(config.Rounds); i++ {
-		fmt.Printf("Preparing %d-th block\n", i)
+		fmt.Printf("Preparing %d-th round\n", i)
 		wg := &sync.WaitGroup{}
 		var senders []func()
 		wgs = append(wgs, wg)
@@ -178,6 +178,10 @@ func run(config Config) {
 			_ = txBuilder.SetMsgs(msg)
 			seqDelta := uint64(i / 2)
 			mode := typestx.BroadcastMode_BROADCAST_MODE_SYNC
+			// Note: There is a potential race condition here with seqnos
+			// in which a later seqno is delievered before an earlier seqno
+			// In practice, we haven't run into this issue so we'll leave this
+			// as is.
 			sender := SendTx(key, &txBuilder, mode, seqDelta, &mu)
 			wg.Add(1)
 			senders = append(senders, func() {
