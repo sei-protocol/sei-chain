@@ -82,6 +82,7 @@ func SetTendermintConfigs(config *tmcfg.Config) {
 	config.P2P.SendRate = 20480000
 	config.P2P.RecvRate = 20480000
 	config.P2P.MaxPacketMsgPayloadSize = 10240
+	config.P2P.FlushThrottleTimeout = 10 * time.Millisecond
 	// Mempool configs
 	config.Mempool.Size = 5000
 	config.Mempool.MaxTxsBytes = 10737418240
