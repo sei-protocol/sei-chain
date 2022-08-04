@@ -33,8 +33,8 @@ type EncodingConfig struct {
 type Config struct {
 	ChainID        string              `json:"chain_id"`
 	ContractAddr   string              `json:"contract_address"`
+	OrdersPerBlock uint64              `json:"orders_per_block"`
 	Rounds         uint64              `json:"rounds"`
-	NumberOfBlocks uint64              `json:"number_of_blocks"`
 	PriceDistr     NumericDistribution `json:"price_distribution"`
 	QuantityDistr  NumericDistribution `json:"quantity_distribution"`
 	MsgTypeDistr   MsgTypeDistribution `json:"message_type_distribution"`
@@ -114,7 +114,7 @@ func run(config Config) {
 	TxHashFile = file
 	var mu sync.Mutex
 
-	numberOfAccounts := config.Rounds / BatchSize * 2 // * 2 because we need two sets of accounts
+	numberOfAccounts := config.OrdersPerBlock / BatchSize * 2 // * 2 because we need two sets of accounts
 	activeAccounts := []int{}
 	inactiveAccounts := []int{}
 	for i := 0; i < int(numberOfAccounts); i++ {
@@ -127,7 +127,7 @@ func run(config Config) {
 	wgs := []*sync.WaitGroup{}
 	sendersList := [][]func(){}
 	fmt.Printf("%s - Starting block prepare\n", time.Now().String())
-	for i := 0; i < int(config.NumberOfBlocks); i++ {
+	for i := 0; i < int(config.Rounds); i++ {
 		fmt.Printf("Preparing %d-th block\n", i)
 		wg := &sync.WaitGroup{}
 		var senders []func()
@@ -190,7 +190,7 @@ func run(config Config) {
 		inactiveAccounts, activeAccounts = activeAccounts, inactiveAccounts
 	}
 
-	for i := 0; i < int(config.NumberOfBlocks); i++ {
+	for i := 0; i < int(config.Rounds); i++ {
 
 		senders := sendersList[i]
 		wg := wgs[i]
