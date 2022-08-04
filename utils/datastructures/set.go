@@ -1,6 +1,9 @@
 package datastructures
 
-import "sync"
+import (
+	"sort"
+	"sync"
+)
 
 type SyncSet[T comparable] struct {
 	dict map[T]bool
@@ -31,6 +34,8 @@ func (s *SyncSet[T]) Remove(val T) {
 }
 
 func (s *SyncSet[T]) RemoveAll(vals []T) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	for _, val := range vals {
 		s.Remove(val)
 	}
@@ -41,14 +46,22 @@ func (s *SyncSet[T]) Contains(val T) bool {
 	return ok
 }
 
-func (s *SyncSet[T]) ToSlice() []T {
+func (s *SyncSet[T]) ToOrderedSlice(comparator func(T, T) bool) []T {
 	res := []T{}
 	for s := range s.dict {
 		res = append(res, s)
 	}
+	sort.SliceStable(res, func(i, j int) bool {
+		return comparator(res[i], res[j])
+	})
+
 	return res
 }
 
 func (s *SyncSet[T]) Size() int {
 	return len(s.dict)
+}
+
+func StringComparator(s1 string, s2 string) bool {
+	return s1 < s2
 }

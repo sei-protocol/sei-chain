@@ -351,7 +351,7 @@ func (am AppModule) EndBlock(ctx sdk.Context, _ abci.RequestEndBlock) (ret []abc
 		*am.keeper.MemState = *memStateCopy
 		// exclude orders by failed contracts from in-memory state,
 		// then update `validContractAddresses`
-		for _, failedContractAddress := range failedContractAddresses.ToSlice() {
+		for _, failedContractAddress := range failedContractAddresses.ToOrderedSlice(datastructures.StringComparator) {
 			am.keeper.MemState.DeepFilterAccount(failedContractAddress)
 			delete(validContractAddresses, failedContractAddress)
 		}

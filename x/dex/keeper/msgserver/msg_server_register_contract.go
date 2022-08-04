@@ -7,6 +7,7 @@ import (
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/sei-protocol/sei-chain/utils"
+	"github.com/sei-protocol/sei-chain/utils/datastructures"
 	"github.com/sei-protocol/sei-chain/x/dex/contract"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
 )
@@ -62,7 +63,7 @@ func (k msgServer) ValidateUniqueDependencies(msg *types.MsgRegisterContract) er
 	if msg.Contract.Dependencies == nil {
 		return nil
 	}
-	dependencySet := utils.NewStringSet(utils.Map(
+	dependencySet := datastructures.NewSyncSet(utils.Map(
 		msg.Contract.Dependencies, func(c *types.ContractDependencyInfo) string { return c.Dependency },
 	))
 	if dependencySet.Size() < len(msg.Contract.Dependencies) {
@@ -174,7 +175,7 @@ func (k msgServer) SetNewContract(ctx sdk.Context, msg *types.MsgRegisterContrac
 		if contractInfo.Dependencies == nil {
 			continue
 		}
-		dependencySet := utils.NewStringSet(utils.Map(
+		dependencySet := datastructures.NewSyncSet(utils.Map(
 			contractInfo.Dependencies, func(c *types.ContractDependencyInfo) string { return c.Dependency },
 		))
 		if dependencySet.Contains(msg.Contract.ContractAddr) {
