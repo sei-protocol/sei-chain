@@ -309,7 +309,7 @@ func (am AppModule) EndBlock(ctx sdk.Context, _ abci.RequestEndBlock) (ret []abc
 			}
 			ctx.Logger().Info(fmt.Sprintf("End block for %s", contractAddr))
 			if orderResultsMap, settlements, err := contract.HandleExecutionForContract(cachedCtx, contractInfo, &am.keeper, am.tracingInfo.Tracer); err != nil {
-				ctx.Logger().Error(fmt.Sprintf("Error for EndBlock of %s", contractAddr))
+				ctx.Logger().Error(fmt.Sprintf("Error for EndBlock of %s: %s", contractAddr, err))
 				failedContractAddresses.Add(contractAddr)
 			} else {
 				for account, orderResults := range orderResultsMap {
@@ -327,7 +327,7 @@ func (am AppModule) EndBlock(ctx sdk.Context, _ abci.RequestEndBlock) (ret []abc
 				continue
 			}
 			if err := contract.HandleSettlements(cachedCtx, contractAddr, &am.keeper, settlements); err != nil {
-				ctx.Logger().Error(fmt.Sprintf("Error handling settlements for %s", contractAddr))
+				ctx.Logger().Error(fmt.Sprintf("Error handling settlements for %s: %s", contractAddr, err))
 				failedContractAddresses.Add(contractAddr)
 			}
 		}
@@ -337,7 +337,7 @@ func (am AppModule) EndBlock(ctx sdk.Context, _ abci.RequestEndBlock) (ret []abc
 				continue
 			}
 			if _, err := dexkeeperutils.CallContractSudo(cachedCtx, &am.keeper, contractAddr, finalizeBlockMsg); err != nil {
-				ctx.Logger().Error(fmt.Sprintf("Error calling FinalizeBlock of %s", contractAddr))
+				ctx.Logger().Error(fmt.Sprintf("Error calling FinalizeBlock of %s: %s", contractAddr, err))
 				failedContractAddresses.Add(contractAddr)
 			}
 		}
