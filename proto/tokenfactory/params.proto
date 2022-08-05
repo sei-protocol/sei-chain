@@ -1,0 +1,18 @@
+syntax = "proto3";
+package seiprotocol.seichain.tokenfactory;
+
+import "gogoproto/gogo.proto";
+import "tokenfactory/authorityMetadata.proto"; 
+import "cosmos_proto/cosmos.proto";
+import "cosmos/base/v1beta1/coin.proto";
+
+option go_package = "github.com/sei-protocol/sei-chain/x/tokenfactory/types";
+
+// Params defines the parameters for the tokenfactory module.
+message Params {
+  repeated cosmos.base.v1beta1.Coin denom_creation_fee = 1 [
+    (gogoproto.castrepeated) = "github.com/cosmos/cosmos-sdk/types.Coins",
+    (gogoproto.moretags) = "yaml:\"denom_creation_fee\"",
+    (gogoproto.nullable) = false
+  ];
+}

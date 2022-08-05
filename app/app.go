@@ -111,6 +111,10 @@ import (
 	epochmodulekeeper "github.com/sei-protocol/sei-chain/x/epoch/keeper"
 	epochmoduletypes "github.com/sei-protocol/sei-chain/x/epoch/types"
 
+	tokenfactorymodule "github.com/sei-protocol/sei-chain/x/tokenfactory"
+	tokenfactorykeeper "github.com/sei-protocol/sei-chain/x/tokenfactory/keeper"
+	tokenfactorytypes "github.com/sei-protocol/sei-chain/x/tokenfactory/types"
+
 	// this line is used by starport scaffolding # stargate/app/moduleImport
 
 	"github.com/CosmWasm/wasmd/x/wasm"
@@ -164,6 +168,7 @@ var (
 		wasm.AppModuleBasic{},
 		dexmodule.AppModuleBasic{},
 		epochmodule.AppModuleBasic{},
+		tokenfactorymodule.AppModuleBasic{},
 		// this line is used by starport scaffolding # stargate/app/moduleBasic
 	)
 
@@ -179,6 +184,7 @@ var (
 		oracletypes.ModuleName:         nil,
 		wasm.ModuleName:                {authtypes.Burner},
 		dexmoduletypes.ModuleName:      nil,
+		tokenfactorytypes.ModuleName:   {authtypes.Minter, authtypes.Burner},
 		// this line is used by starport scaffolding # stargate/app/maccPerms
 	}
 
@@ -282,6 +288,8 @@ type App struct {
 	DexKeeper dexmodulekeeper.Keeper
 
 	EpochKeeper epochmodulekeeper.Keeper
+
+	TokenFactoryKeeper tokenfactorykeeper.Keeper
 	// this line is used by starport scaffolding # stargate/app/keeperDeclaration
 
 	// mm is the module manager
@@ -325,6 +333,7 @@ func New(
 		evidencetypes.StoreKey, ibctransfertypes.StoreKey, capabilitytypes.StoreKey, oracletypes.StoreKey, wasm.StoreKey,
 		dexmoduletypes.StoreKey,
 		epochmoduletypes.StoreKey,
+		tokenfactorytypes.StoreKey,
 		// this line is used by starport scaffolding # stargate/app/storeKey
 	)
 	tkeys := sdk.NewTransientStoreKeys(paramstypes.TStoreKey)
@@ -453,6 +462,14 @@ func New(
 		app.EpochKeeper,
 		app.BankKeeper,
 	)
+	app.TokenFactoryKeeper = tokenfactorykeeper.NewKeeper(
+		appCodec,
+		app.keys[tokenfactorytypes.StoreKey],
+		app.GetSubspace(tokenfactorytypes.ModuleName),
+		app.AccountKeeper,
+		app.BankKeeper.(bankkeeper.BaseKeeper).WithMintCoinsRestriction(tokenfactorytypes.NewTokenFactoryDenomMintCoinsRestriction()),
+		app.DistrKeeper,
+	)
 	// The last arguments can contain custom message handlers, and custom query handlers,
 	// if we want to allow any custom callbacks
 	supportedFeatures := "iterator,staking,stargate,sei"
@@ -540,6 +557,7 @@ func New(
 		transferModule,
 		dexModule,
 		epochModule,
+		tokenfactorymodule.NewAppModule(app.TokenFactoryKeeper, app.AccountKeeper, app.BankKeeper),
 		// this line is used by starport scaffolding # stargate/app/appModule
 	)
 
@@ -569,6 +587,7 @@ func New(
 		epochmoduletypes.ModuleName,
 		dexmoduletypes.ModuleName,
 		wasm.ModuleName,
+		tokenfactorytypes.ModuleName,
 	)
 
 	app.mm.SetOrderEndBlockers(
@@ -593,6 +612,7 @@ func New(
 		epochmoduletypes.ModuleName,
 		dexmoduletypes.ModuleName,
 		wasm.ModuleName,
+		tokenfactorytypes.ModuleName,
 	)
 
 	// NOTE: The genutils module must occur after staking so that pools are
@@ -619,6 +639,7 @@ func New(
 		ibctransfertypes.ModuleName,
 		feegrant.ModuleName,
 		oracletypes.ModuleName,
+		tokenfactorytypes.ModuleName,
 		epochmoduletypes.ModuleName,
 		dexmoduletypes.ModuleName,
 		wasm.ModuleName,
@@ -649,6 +670,7 @@ func New(
 		transferModule,
 		dexModule,
 		epochModule,
+		tokenfactorymodule.NewAppModule(app.TokenFactoryKeeper, app.AccountKeeper, app.BankKeeper),
 		// this line is used by starport scaffolding # stargate/app/appModule
 	)
 	app.sm.RegisterStoreDecoders()
@@ -878,6 +900,7 @@ func initParamsKeeper(appCodec codec.BinaryCodec, legacyAmino *codec.LegacyAmino
 	paramsKeeper.Subspace(wasm.ModuleName)
 	paramsKeeper.Subspace(dexmoduletypes.ModuleName)
 	paramsKeeper.Subspace(epochmoduletypes.ModuleName)
+	paramsKeeper.Subspace(tokenfactorytypes.ModuleName)
 	// this line is used by starport scaffolding # stargate/app/paramSubspace
 
 	return paramsKeeper
