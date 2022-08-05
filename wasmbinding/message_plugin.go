@@ -11,7 +11,7 @@ import (
 	wasmvmtypes "github.com/CosmWasm/wasmvm/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
-	"github.com/sei-protocol/sei-chain/utils"
+	"github.com/sei-protocol/sei-chain/utils/datastructures"
 	dexwasm "github.com/sei-protocol/sei-chain/x/dex/client/wasm"
 	"github.com/sei-protocol/sei-chain/x/dex/contract"
 	dexkeeper "github.com/sei-protocol/sei-chain/x/dex/keeper"
@@ -53,12 +53,12 @@ func (m *CustomMessenger) DispatchMsg(ctx sdk.Context, contractAddr sdk.AccAddre
 		switch {
 		case parsedMessage.PlaceOrders != nil:
 			return Handle(
-				ctx, m.dexKeeper, parsedMessage.PlaceOrders, msgServer.PlaceOrders, dexwasm.EncodeDexPlaceOrders,
+				ctx, m.dexKeeper, contractAddr, parsedMessage.PlaceOrders, msgServer.PlaceOrders, dexwasm.EncodeDexPlaceOrders,
 				func(m *types.MsgPlaceOrders) string { return m.ContractAddr },
 			)
 		case parsedMessage.CancelOrders != nil:
 			return Handle(
-				ctx, m.dexKeeper, parsedMessage.CancelOrders, msgServer.CancelOrders, dexwasm.EncodeDexCancelOrders,
+				ctx, m.dexKeeper, contractAddr, parsedMessage.CancelOrders, msgServer.CancelOrders, dexwasm.EncodeDexCancelOrders,
 				func(m *types.MsgCancelOrders) string { return m.ContractAddr },
 			)
 		default:
@@ -93,20 +93,20 @@ func (m *CustomMessenger) synchronize(ctx sdk.Context) error {
 		if channels == nil {
 			return errors.New("no execution terminal signal channels is set in context")
 		}
-		typedChannels, ok := channels.(utils.TypedSyncMap[string, chan struct{}])
+		typedChannels, ok := channels.(datastructures.TypedSyncMap[string, chan struct{}])
 		if !ok {
 			return errors.New("invalid termination signal channels in context")
 		}
 		targetChannel, ok := typedChannels.Load(immediateElderSibling)
 		if !ok {
-			return errors.New(fmt.Sprintf("no termination signal channel for contract %s in context", immediateElderSibling))
+			return fmt.Errorf("no termination signal channel for contract %s in context", immediateElderSibling)
 		}
 
 		select {
 		case <-targetChannel:
 			targetChannel <- struct{}{}
 		case <-time.After(SynchronizationTimeoutInSeconds * time.Second):
-			return errors.New(fmt.Sprintf("timing out waiting for termination of %s", immediateElderSibling))
+			return fmt.Errorf("timing out waiting for termination of %s", immediateElderSibling)
 		}
 	}
 	return nil
@@ -115,12 +115,13 @@ func (m *CustomMessenger) synchronize(ctx sdk.Context) error {
 func Handle[M sdk.Msg, R any](
 	ctx sdk.Context,
 	dexKeeper *dexkeeper.Keeper,
+	contractAddr sdk.AccAddress,
 	rawMsg json.RawMessage,
 	serverHandler func(context.Context, M) (R, error),
-	encoder func(json.RawMessage) ([]sdk.Msg, error),
+	encoder func(json.RawMessage, sdk.AccAddress) ([]sdk.Msg, error),
 	contractGetter func(M) string,
 ) ([]sdk.Event, [][]byte, error) {
-	msgs, err := encoder(rawMsg)
+	msgs, err := encoder(rawMsg, contractAddr)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -164,5 +165,5 @@ func ValidateDependency[M sdk.Msg](ctx sdk.Context, dexKeeper *dexkeeper.Keeper,
 			return nil
 		}
 	}
-	return errors.New(fmt.Sprintf("dependency from %s to %s is not specified", contractAddr, calleeContract))
+	return fmt.Errorf("dependency from %s to %s is not specified", contractAddr, calleeContract)
 }

@@ -131,11 +131,3 @@ func (s *MemState) DeepFilterAccount(account string) {
 	s.DepositInfo.DeepApply(func(o *DepositInfo) { o.FilterByAccount(account) })
 	s.LiquidationRequests.DeepApply(func(o *LiquidationRequests) { o.FilterByAccount(account) })
 }
-
-func (lrs *LiquidationRequests) Copy() *LiquidationRequests {
-	copy := LiquidationRequests([]LiquidationRequest{})
-	for _, request := range *lrs {
-		copy.AddNewLiquidationRequest(request.Requestor, request.AccountToLiquidate)
-	}
-	return &copy
-}

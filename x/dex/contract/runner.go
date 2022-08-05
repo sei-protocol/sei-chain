@@ -3,7 +3,7 @@ package contract
 import (
 	"sync/atomic"
 
-	seiutils "github.com/sei-protocol/sei-chain/utils"
+	"github.com/sei-protocol/sei-chain/utils/datastructures"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
 	"github.com/sei-protocol/sei-chain/x/dex/types/utils"
 )
@@ -11,16 +11,16 @@ import (
 type ParallelRunner struct {
 	runnable func(contract types.ContractInfo)
 
-	contractAddrToInfo   *seiutils.TypedSyncMap[utils.ContractAddress, *types.ContractInfo]
-	readyContracts       *seiutils.TypedSyncMap[utils.ContractAddress, struct{}]
+	contractAddrToInfo   *datastructures.TypedSyncMap[utils.ContractAddress, *types.ContractInfo]
+	readyContracts       *datastructures.TypedSyncMap[utils.ContractAddress, struct{}]
 	readyCnt             int64
 	inProgressCnt        int64
 	someContractFinished chan struct{}
 }
 
 func NewParallelRunner(runnable func(contract types.ContractInfo), contracts []types.ContractInfo) ParallelRunner {
-	contractAddrToInfo := seiutils.NewTypedSyncMap[utils.ContractAddress, *types.ContractInfo]()
-	contractsFrontier := seiutils.NewTypedSyncMap[utils.ContractAddress, struct{}]()
+	contractAddrToInfo := datastructures.NewTypedSyncMap[utils.ContractAddress, *types.ContractInfo]()
+	contractsFrontier := datastructures.NewTypedSyncMap[utils.ContractAddress, struct{}]()
 	for _, contract := range contracts {
 		// runner will mutate ContractInfo fields
 		copy := contract

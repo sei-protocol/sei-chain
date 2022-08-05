@@ -9,6 +9,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/telemetry"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/sei-protocol/sei-chain/utils"
+	"github.com/sei-protocol/sei-chain/utils/datastructures"
 	"github.com/sei-protocol/sei-chain/x/dex/keeper"
 	dexkeeperabci "github.com/sei-protocol/sei-chain/x/dex/keeper/abci"
 	dexkeeperutils "github.com/sei-protocol/sei-chain/x/dex/keeper/utils"
@@ -18,15 +19,19 @@ import (
 	otrace "go.opentelemetry.io/otel/trace"
 )
 
-const CtxKeyExecTermSignal = "execution-termination-signals"
-const CtxKeyExecutingContract = "executing-contract"
+type CtxKeyType string
+
+const (
+	CtxKeyExecTermSignal    = CtxKeyType("execution-termination-signals")
+	CtxKeyExecutingContract = CtxKeyType("executing-contract")
+)
 
 type environment struct {
 	validContractsInfo          []types.ContractInfo
-	failedContractAddresses     utils.StringSet
-	finalizeBlockMessages       *utils.TypedSyncMap[string, *dextypeswasm.SudoFinalizeBlockMsg]
-	settlementsByContract       *utils.TypedSyncMap[string, []*types.SettlementEntry]
-	executionTerminationSignals *utils.TypedSyncMap[string, chan struct{}]
+	failedContractAddresses     datastructures.SyncSet[string]
+	finalizeBlockMessages       *datastructures.TypedSyncMap[string, *dextypeswasm.SudoFinalizeBlockMsg]
+	settlementsByContract       *datastructures.TypedSyncMap[string, []*types.SettlementEntry]
+	executionTerminationSignals *datastructures.TypedSyncMap[string, chan struct{}]
 
 	finalizeMsgMutex *sync.Mutex
 }
@@ -58,9 +63,9 @@ func EndBlockerAtomic(ctx sdk.Context, keeper *keeper.Keeper, validContractsInfo
 }
 
 func newEnv(validContractsInfo []types.ContractInfo) *environment {
-	finalizeBlockMessages := utils.NewTypedSyncMap[string, *dextypeswasm.SudoFinalizeBlockMsg]()
-	settlementsByContract := utils.NewTypedSyncMap[string, []*types.SettlementEntry]()
-	executionTerminationSignals := utils.NewTypedSyncMap[string, chan struct{}]()
+	finalizeBlockMessages := datastructures.NewTypedSyncMap[string, *dextypeswasm.SudoFinalizeBlockMsg]()
+	settlementsByContract := datastructures.NewTypedSyncMap[string, []*types.SettlementEntry]()
+	executionTerminationSignals := datastructures.NewTypedSyncMap[string, chan struct{}]()
 	for _, contract := range validContractsInfo {
 		finalizeBlockMessages.Store(contract.ContractAddr, dextypeswasm.NewSudoFinalizeBlockMsg())
 		settlementsByContract.Store(contract.ContractAddr, []*types.SettlementEntry{})
@@ -68,7 +73,7 @@ func newEnv(validContractsInfo []types.ContractInfo) *environment {
 	}
 	return &environment{
 		validContractsInfo:          validContractsInfo,
-		failedContractAddresses:     utils.NewStringSet([]string{}),
+		failedContractAddresses:     datastructures.NewSyncSet([]string{}),
 		finalizeBlockMessages:       finalizeBlockMessages,
 		settlementsByContract:       settlementsByContract,
 		executionTerminationSignals: executionTerminationSignals,
@@ -99,7 +104,7 @@ func handleDeposits(ctx sdk.Context, env *environment, keeper *keeper.Keeper, tr
 }
 
 func handleSettlements(ctx sdk.Context, env *environment, keeper *keeper.Keeper) {
-	contractsNeedOrderMatching := utils.NewStringSet([]string{})
+	contractsNeedOrderMatching := datastructures.NewSyncSet([]string{})
 	for _, contract := range env.validContractsInfo {
 		if contract.NeedOrderMatching {
 			contractsNeedOrderMatching.Add(contract.ContractAddr)
@@ -118,7 +123,7 @@ func handleSettlements(ctx sdk.Context, env *environment, keeper *keeper.Keeper)
 }
 
 func handleFinalizedBlocks(ctx sdk.Context, env *environment, keeper *keeper.Keeper) {
-	contractsNeedHook := utils.NewStringSet([]string{})
+	contractsNeedHook := datastructures.NewSyncSet([]string{})
 	for _, contract := range env.validContractsInfo {
 		if contract.NeedHook {
 			contractsNeedHook.Add(contract.ContractAddr)
@@ -186,7 +191,7 @@ func filterNewValidContracts(env *environment, keeper *keeper.Keeper) []types.Co
 			newValidContracts = append(newValidContracts, contract)
 		}
 	}
-	for _, failedContractAddress := range env.failedContractAddresses.ToSlice() {
+	for _, failedContractAddress := range env.failedContractAddresses.ToOrderedSlice(datastructures.StringComparator) {
 		keeper.MemState.DeepFilterAccount(failedContractAddress)
 	}
 	return newValidContracts
