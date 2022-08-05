@@ -7,17 +7,19 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/sei-protocol/sei-chain/wasmbinding"
 	"github.com/sei-protocol/sei-chain/wasmbinding/bindings"
-	"github.com/stretchr/testify/require"
 	dextypes "github.com/sei-protocol/sei-chain/x/dex/types"
 	tokenfactorytypes "github.com/sei-protocol/sei-chain/x/tokenfactory/types"
+	"github.com/stretchr/testify/require"
 )
 
 const (
 	TEST_TARGET_CONTRACT = "sei14hj2tavq8fpesdwxxcu44rty3hh90vhujrvcmstl4zr3txmfvw9sh9m79m"
-	TEST_CREATOR         = "sei1nc5tatafv6eyq7llkr2gv50ff9e22mnf70qgjlv737ktmt4eswrqms7u8a"
+	TEST_CREATOR         = "sei1y3pxq5dp900czh0mkudhjdqjq5m8cpmmps8yjw"
 )
 
 func TestEncodePlaceOrder(t *testing.T) {
+	contractAddr, err := sdk.AccAddressFromBech32("sei1y3pxq5dp900czh0mkudhjdqjq5m8cpmmps8yjw")
+	require.NoError(t, err)
 	order := dextypes.Order{
 		PositionDirection: dextypes.PositionDirection_LONG,
 		OrderType:         dextypes.OrderType_LIMIT,
@@ -28,11 +30,10 @@ func TestEncodePlaceOrder(t *testing.T) {
 		Data:              "{\"position_effect\":\"OPEN\", \"leverage\":\"1\"}",
 	}
 	fund := sdk.NewCoin("usei", sdk.NewInt(1000000000))
-	msg := dextypes.MsgPlaceOrders{
-		Creator:      TEST_CREATOR,
+	msg := bindings.PlaceOrders{
 		Orders:       []*dextypes.Order{&order},
-		ContractAddr: TEST_TARGET_CONTRACT,
 		Funds:        []sdk.Coin{fund},
+		ContractAddr: TEST_TARGET_CONTRACT,
 	}
 	serialized, _ := json.Marshal(msg)
 	msgData := wasmbinding.SeiWasmMessage{
@@ -40,17 +41,24 @@ func TestEncodePlaceOrder(t *testing.T) {
 	}
 	serializedMsg, _ := json.Marshal(msgData)
 
-	decodedMsgs, err := wasmbinding.CustomEncoder(nil, serializedMsg)
+	decodedMsgs, err := wasmbinding.CustomEncoder(contractAddr, serializedMsg)
 	require.NoError(t, err)
 	require.Equal(t, 1, len(decodedMsgs))
 	typedDecodedMsg, ok := decodedMsgs[0].(*dextypes.MsgPlaceOrders)
 	require.True(t, ok)
-	require.Equal(t, msg, *typedDecodedMsg)
+	expectedMsg := dextypes.MsgPlaceOrders{
+		Creator:      TEST_CREATOR,
+		Orders:       []*dextypes.Order{&order},
+		ContractAddr: TEST_TARGET_CONTRACT,
+		Funds:        []sdk.Coin{fund},
+	}
+	require.Equal(t, expectedMsg, *typedDecodedMsg)
 }
 
 func TestDecodeOrderCancellation(t *testing.T) {
-	msg := dextypes.MsgCancelOrders{
-		Creator:      TEST_CREATOR,
+	contractAddr, err := sdk.AccAddressFromBech32("sei1y3pxq5dp900czh0mkudhjdqjq5m8cpmmps8yjw")
+	require.NoError(t, err)
+	msg := bindings.CancelOrders{
 		OrderIds:     []uint64{1},
 		ContractAddr: TEST_TARGET_CONTRACT,
 	}
@@ -60,12 +68,17 @@ func TestDecodeOrderCancellation(t *testing.T) {
 	}
 	serializedMsg, _ := json.Marshal(msgData)
 
-	decodedMsgs, err := wasmbinding.CustomEncoder(nil, serializedMsg)
+	decodedMsgs, err := wasmbinding.CustomEncoder(contractAddr, serializedMsg)
 	require.NoError(t, err)
 	require.Equal(t, 1, len(decodedMsgs))
 	typedDecodedMsg, ok := decodedMsgs[0].(*dextypes.MsgCancelOrders)
 	require.True(t, ok)
-	require.Equal(t, msg, *typedDecodedMsg)
+	expectedMsg := dextypes.MsgCancelOrders{
+		Creator:      TEST_CREATOR,
+		OrderIds:     []uint64{1},
+		ContractAddr: TEST_TARGET_CONTRACT,
+	}
+	require.Equal(t, expectedMsg, *typedDecodedMsg)
 }
 
 func TestEncodeCreateDenom(t *testing.T) {
@@ -86,7 +99,7 @@ func TestEncodeCreateDenom(t *testing.T) {
 	typedDecodedMsg, ok := decodedMsgs[0].(*tokenfactorytypes.MsgCreateDenom)
 	require.True(t, ok)
 	expectedMsg := tokenfactorytypes.MsgCreateDenom{
-		Sender: "sei1y3pxq5dp900czh0mkudhjdqjq5m8cpmmps8yjw",
+		Sender:   "sei1y3pxq5dp900czh0mkudhjdqjq5m8cpmmps8yjw",
 		Subdenom: "subdenom",
 	}
 	require.Equal(t, expectedMsg, *typedDecodedMsg)
@@ -144,7 +157,7 @@ func TestEncodeChangeAdmin(t *testing.T) {
 	contractAddr, err := sdk.AccAddressFromBech32("sei1y3pxq5dp900czh0mkudhjdqjq5m8cpmmps8yjw")
 	require.NoError(t, err)
 	msg := bindings.ChangeAdmin{
-		Denom: "factory/sei1y3pxq5dp900czh0mkudhjdqjq5m8cpmmps8yjw/subdenom",
+		Denom:           "factory/sei1y3pxq5dp900czh0mkudhjdqjq5m8cpmmps8yjw/subdenom",
 		NewAdminAddress: "sei1hjfwcza3e3uzeznf3qthhakdr9juetl7g6esl4",
 	}
 	serialized, _ := json.Marshal(msg)
@@ -159,8 +172,8 @@ func TestEncodeChangeAdmin(t *testing.T) {
 	typedDecodedMsg, ok := decodedMsgs[0].(*tokenfactorytypes.MsgChangeAdmin)
 	require.True(t, ok)
 	expectedMsg := tokenfactorytypes.MsgChangeAdmin{
-		Sender: "sei1y3pxq5dp900czh0mkudhjdqjq5m8cpmmps8yjw",
-		Denom: "factory/sei1y3pxq5dp900czh0mkudhjdqjq5m8cpmmps8yjw/subdenom",
+		Sender:   "sei1y3pxq5dp900czh0mkudhjdqjq5m8cpmmps8yjw",
+		Denom:    "factory/sei1y3pxq5dp900czh0mkudhjdqjq5m8cpmmps8yjw/subdenom",
 		NewAdmin: "sei1hjfwcza3e3uzeznf3qthhakdr9juetl7g6esl4",
 	}
 	require.Equal(t, expectedMsg, *typedDecodedMsg)
