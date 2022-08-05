@@ -665,25 +665,37 @@ func TestCalculateTwaps(t *testing.T) {
 		}),
 	}, 6600))
 
+	input.OracleKeeper.AddPriceSnapshot(input.Ctx, types.NewPriceSnapshot(types.PriceSnapshotItems{
+		types.NewPriceSnapshotItem(utils.MicroEthDenom, types.OracleExchangeRate{
+			ExchangeRate: sdk.NewDec(20),
+			LastUpdate:   sdk.NewInt(6900),
+		}),
+	}, 6900))
+
 	input.Ctx = input.Ctx.WithBlockTime(time.Unix(6900, 0))
 
 	// the older interval weight should be appropriately shorted to the start of the lookback interval,
 	// so the TWAP should be 25 instead of 26.666 because the 20 and 30 are weighted 50-50 instead of 33.3-66.6
 	twaps, err = input.OracleKeeper.CalculateTwaps(input.Ctx, 600)
 	require.NoError(t, err)
-	require.Equal(t, 1, len(twaps))
+	require.Equal(t, 2, len(twaps))
 	atomTwap = twaps[0]
+	ethTwap = twaps[1]
 	require.Equal(t, utils.MicroAtomDenom, atomTwap.Denom)
 	require.Equal(t, int64(600), atomTwap.LookbackSeconds)
 	require.Equal(t, sdk.NewDec(25), atomTwap.Twap)
 
+	require.Equal(t, utils.MicroEthDenom, ethTwap.Denom)
+	require.Equal(t, int64(0), ethTwap.LookbackSeconds)
+	require.Equal(t, sdk.ZeroDec(), ethTwap.Twap)
+
 	// test error when lookback too large
-	twaps, err = input.OracleKeeper.CalculateTwaps(input.Ctx, 3700) //nolint:go-staticcheck // in testing there's no need to use twaps.
+	_, err = input.OracleKeeper.CalculateTwaps(input.Ctx, 3700)
 	require.Error(t, err)
 	require.Equal(t, types.ErrInvalidTwapLookback, err)
 
 	// test error when lookback is negative
-	twaps, err = input.OracleKeeper.CalculateTwaps(input.Ctx, -10) //nolint:go-staticcheck // in testing there's no need to use twaps.
+	_, err = input.OracleKeeper.CalculateTwaps(input.Ctx, -10)
 	require.Error(t, err)
 	require.Equal(t, types.ErrInvalidTwapLookback, err)
 }
