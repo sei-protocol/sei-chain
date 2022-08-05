@@ -4,6 +4,9 @@ import (
 	"sync"
 )
 
+// A map-like data structure that is guaranteed to be data race free during write
+// operations. It is a typed wrapper over the builtin typeless `sync.Map`. The
+// CRUD interface is exactly the same as those of `sync.Map`.
 type TypedSyncMap[K any, V any] struct {
 	internal *sync.Map
 }
@@ -66,6 +69,12 @@ func (m *TypedSyncMap[K, V]) DeepApply(toApply func(V)) {
 	})
 }
 
+// A nested map data structure that is guaranteed to be data race free during write
+// operations. It is the synchronous equivalent of type map[K1]map[K2]V. Besides
+// `sync.Map`'s existing interfaces, it also provides convenient methods to read/write
+// nested values directly. For example, to set value `v` for outer key `k1` and inner
+// key `k2`, one can simply call StoreNested(k1, k2, v), without worrying about creating
+// the inner map if it doesn't exist.
 type TypedNestedSyncMap[K1 any, K2 any, V any] struct {
 	*TypedSyncMap[K1, *TypedSyncMap[K2, V]]
 	mu *sync.Mutex // XXXNested methods have write operations outside sync.Map

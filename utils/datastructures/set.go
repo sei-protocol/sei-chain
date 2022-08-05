@@ -5,6 +5,9 @@ import (
 	"sync"
 )
 
+// A set-like data structure that is guaranteed to be data race free during write
+// operations. It can return internal data as a slice with a comparator provided,
+// so that the resulting slice has a deterministic ordering.
 type SyncSet[T comparable] struct {
 	dict map[T]bool
 	mu   *sync.Mutex
