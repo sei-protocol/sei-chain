@@ -33,7 +33,7 @@ type BurnTokens struct {
 // Dex Module msgs
 type PlaceOrders struct {
 	Orders []*types.Order `json:"orders"`
-	Funds sdk.Coins `json:"funds"`
+	Funds  sdk.Coins      `json:"funds"`
 }
 
 type CancelOrders struct {
