@@ -18,7 +18,10 @@ class PriceFetcher:
 
     def create_price_feed(self, coin_list):
         price_feed = "1usei," # default 1 SEI to 1 USDC, will need to change once SEI price is available
-        usdc_conversion_rate = self.cg.get_price(ids='usd-coin', vs_currencies='usd')
+        try:
+            usdc_conversion_rate = self.cg.get_price(ids='usd-coin', vs_currencies='usd')
+        except:
+            return
 
         for coin in coin_list:
             coin_price = self.cg.get_price(ids=coin, vs_currencies='usd')
