@@ -1,4 +1,5 @@
 {
+    "batch_size": 10,
     "chain_id": "sei-loadtest-testnet",
     "contract_address": "sei14hj2tavq8fpesdwxxcu44rty3hh90vhujrvcmstl4zr3txmfvw9sh9m79m",
     "orders_per_block": 1000,
