@@ -6,7 +6,9 @@ import (
 	"io/ioutil"
 	"math/rand"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strconv"
 	"sync"
 	"time"
 
@@ -114,6 +116,9 @@ func run(config Config) {
 	TxHashFile = file
 	var mu sync.Mutex
 
+	if config.OrdersPerBlock < BatchSize {
+		panic("Must have more orders per block than batch size")
+	}
 	numberOfAccounts := config.OrdersPerBlock / BatchSize * 2 // * 2 because we need two sets of accounts
 	activeAccounts := []int{}
 	inactiveAccounts := []int{}
@@ -175,6 +180,7 @@ func run(config Config) {
 				Funds:        amount,
 			}
 			txBuilder := TestConfig.TxConfig.NewTxBuilder()
+
 			_ = txBuilder.SetMsgs(msg)
 			seqDelta := uint64(i / 2)
 			mode := typestx.BroadcastMode_BROADCAST_MODE_SYNC
@@ -194,16 +200,40 @@ func run(config Config) {
 		inactiveAccounts, activeAccounts = activeAccounts, inactiveAccounts
 	}
 
+	lastHeight := getLastHeight()
 	for i := 0; i < int(config.Rounds); i++ {
-
+		newHeight := getLastHeight()
+		for newHeight == lastHeight {
+			time.Sleep(10 * time.Millisecond)
+			newHeight = getLastHeight()
+		}
+		fmt.Printf("Sending %d-th block\n", i)
 		senders := sendersList[i]
 		wg := wgs[i]
 		for _, sender := range senders {
 			go sender()
 		}
 		wg.Wait()
+		lastHeight = newHeight
 	}
 	fmt.Printf("%s - Finished\n", time.Now().Format("2006-01-02T15:04:05"))
+}
+
+func getLastHeight() int {
+	out, err := exec.Command("curl", "http://localhost:26657/blockchain").Output()
+	if err != nil {
+		panic(err)
+	}
+	var dat map[string]interface{}
+	if err := json.Unmarshal(out, &dat); err != nil {
+		panic(err)
+	}
+	result := dat["result"].(map[string]interface{})
+	height, err := strconv.Atoi(result["last_height"].(string))
+	if err != nil {
+		panic(err)
+	}
+	return height
 }
 
 func main() {
