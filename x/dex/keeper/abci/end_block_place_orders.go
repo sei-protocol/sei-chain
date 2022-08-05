@@ -6,7 +6,6 @@ import (
 	"fmt"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
-	dexcache "github.com/sei-protocol/sei-chain/x/dex/cache"
 	"github.com/sei-protocol/sei-chain/x/dex/keeper/utils"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
 	typesutils "github.com/sei-protocol/sei-chain/x/dex/types/utils"
@@ -62,7 +61,7 @@ func (w KeeperWrapper) GetPlaceSudoMsg(ctx sdk.Context, typedContractAddr typesu
 	contractOrderPlacements := []types.Order{}
 	for _, pair := range registeredPairs {
 		typedPairStr := typesutils.GetPairString(&pair) //nolint:gosec // USING THE POINTER HERE COULD BE BAD, LET'S CHECK IT.
-		for _, order := range *w.MemState.GetBlockOrders(typedContractAddr, typedPairStr) {
+		for _, order := range w.MemState.GetBlockOrders(typedContractAddr, typedPairStr).Get() {
 			contractOrderPlacements = append(contractOrderPlacements, *order)
 			if len(contractOrderPlacements) == MaxOrdersPerSudoCall {
 				msgs = append(msgs, wasm.SudoOrderPlacementMsg{
@@ -86,7 +85,7 @@ func (w KeeperWrapper) GetPlaceSudoMsg(ctx sdk.Context, typedContractAddr typesu
 
 func (w KeeperWrapper) GetDepositSudoMsg(ctx sdk.Context, typedContractAddr typesutils.ContractAddress) wasm.SudoOrderPlacementMsg {
 	contractDepositInfo := []wasm.ContractDepositInfo{}
-	for _, depositInfo := range *w.MemState.GetDepositInfo(typedContractAddr) {
+	for _, depositInfo := range w.MemState.GetDepositInfo(typedContractAddr).Get() {
 		fund := sdk.NewCoins(sdk.NewCoin(depositInfo.Denom, depositInfo.Amount.RoundInt()))
 		sender, err := sdk.AccAddressFromBech32(depositInfo.Creator)
 		if err != nil {
@@ -97,7 +96,7 @@ func (w KeeperWrapper) GetDepositSudoMsg(ctx sdk.Context, typedContractAddr type
 			ctx.Logger().Error("Invalid deposit contract")
 		}
 		if err := w.BankKeeper.SendCoins(ctx, sender, receiver, fund); err == nil {
-			contractDepositInfo = append(contractDepositInfo, dexcache.ToContractDepositInfo(depositInfo))
+			contractDepositInfo = append(contractDepositInfo, depositInfo.ToContractDepositInfo())
 		} else {
 			ctx.Logger().Error(err.Error())
 		}

@@ -85,7 +85,7 @@ func cancelForPair(
 ) {
 	cancels := dexkeeper.MemState.GetBlockCancels(typedContractAddr, typedPairStr)
 	originalOrdersToCancel := dexkeeper.GetOrdersByIds(ctx, string(typedContractAddr), cancels.GetIdsToCancel())
-	exchange.CancelOrders(*cancels, orderbook, originalOrdersToCancel)
+	exchange.CancelOrders(cancels.Get(), orderbook, originalOrdersToCancel)
 }
 
 func matchMarketOrderForPair(
@@ -141,14 +141,14 @@ func UpdateOrderState(
 	orders := dexkeeper.MemState.GetBlockOrders(typedContractAddr, typedPairStr)
 	cancels := dexkeeper.MemState.GetBlockCancels(typedContractAddr, typedPairStr)
 	// First add any new order, whether successfully placed or not, to the store
-	for _, order := range *orders {
+	for _, order := range orders.Get() {
 		if order.Quantity.IsZero() {
 			order.Status = types.OrderStatus_FULFILLED
 		}
 		dexkeeper.AddNewOrder(ctx, *order)
 	}
 	// Then update order status and insert cancel record for any cancellation
-	for _, cancel := range *cancels {
+	for _, cancel := range cancels.Get() {
 		dexkeeper.AddCancel(ctx, string(typedContractAddr), cancel)
 		dexkeeper.UpdateOrderStatus(ctx, string(typedContractAddr), cancel.Id, types.OrderStatus_CANCELLED)
 	}
@@ -170,10 +170,9 @@ func PrepareCancelUnfulfilledMarketOrders(
 	typedPairStr dextypesutils.PairString,
 	dexkeeper *keeper.Keeper,
 ) {
-	emptyBlockCancel := dexcache.BlockCancellations([]types.Cancellation{})
-	dexkeeper.MemState.BlockCancels[typedContractAddr][typedPairStr] = &emptyBlockCancel
+	dexkeeper.MemState.ClearCancellationForPair(typedContractAddr, typedPairStr)
 	for _, marketOrderID := range getUnfulfilledPlacedMarketOrderIds(typedContractAddr, typedPairStr, dexkeeper) {
-		dexkeeper.MemState.GetBlockCancels(typedContractAddr, typedPairStr).AddCancel(types.Cancellation{
+		dexkeeper.MemState.GetBlockCancels(typedContractAddr, typedPairStr).Add(&types.Cancellation{
 			Id:        marketOrderID,
 			Initiator: types.CancellationInitiator_USER,
 		})
@@ -186,7 +185,7 @@ func getUnfulfilledPlacedMarketOrderIds(
 	dexkeeper *keeper.Keeper,
 ) []uint64 {
 	res := []uint64{}
-	for _, order := range *dexkeeper.MemState.GetBlockOrders(typedContractAddr, typedPairStr) {
+	for _, order := range dexkeeper.MemState.GetBlockOrders(typedContractAddr, typedPairStr).Get() {
 		if order.Status == types.OrderStatus_FAILED_TO_PLACE {
 			continue
 		}
@@ -229,8 +228,11 @@ func HandleExecutionForContract(
 	}
 
 	// populate order placement results for FinalizeBlock hook
-	for _, orders := range dexkeeper.MemState.BlockOrders[typedContractAddr] {
-		dextypeswasm.PopulateOrderPlacementResults(contractAddr, *orders, orderResults)
+	contractOrdersMap, ok := dexkeeper.MemState.BlockOrders.Load(typedContractAddr)
+	if ok {
+		contractOrdersMap.DeepApply(func(orders *dexcache.BlockOrders) {
+			dextypeswasm.PopulateOrderPlacementResults(contractAddr, orders.Get(), orderResults)
+		})
 	}
 	dextypeswasm.PopulateOrderExecutionResults(contractAddr, settlements, orderResults)
 	return orderResults, settlements, nil

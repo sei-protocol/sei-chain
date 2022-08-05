@@ -52,7 +52,7 @@ func (k KeeperWrapper) getMatchedPriceQuantities(ctx sdk.Context, req *types.Que
 
 	// exclude liquidity to be cancelled
 	pair := types.Pair{PriceDenom: req.Order.PriceDenom, AssetDenom: req.Order.AssetDenom}
-	for _, cancel := range *k.MemState.GetBlockCancels(utils.ContractAddress(req.Order.ContractAddr), utils.GetPairString(&pair)) {
+	for _, cancel := range k.MemState.GetBlockCancels(utils.ContractAddress(req.Order.ContractAddr), utils.GetPairString(&pair)).Get() {
 		orderToBeCancelled := k.GetOrdersByIds(ctx, req.Order.ContractAddr, []uint64{cancel.Id})
 		if _, ok := orderToBeCancelled[cancel.Id]; !ok {
 			continue

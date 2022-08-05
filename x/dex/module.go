@@ -20,7 +20,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/telemetry"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/types/module"
-	"github.com/sei-protocol/sei-chain/utils"
+	"github.com/sei-protocol/sei-chain/utils/datastructures"
 	"github.com/sei-protocol/sei-chain/utils/tracing"
 	"github.com/sei-protocol/sei-chain/x/dex/client/cli/query"
 	"github.com/sei-protocol/sei-chain/x/dex/client/cli/tx"
@@ -292,7 +292,7 @@ func (am AppModule) EndBlock(ctx sdk.Context, _ abci.RequestEndBlock) (ret []abc
 	// `validContractAddresses` will always decrease in size every iteration.
 	iterCounter := len(validContractAddresses)
 	for len(validContractAddresses) > 0 {
-		failedContractAddresses := utils.NewStringSet([]string{})
+		failedContractAddresses := datastructures.NewSyncSet([]string{})
 		cachedCtx, msCached := store.GetCachedContext(ctx)
 		// cache keeper in-memory state
 		memStateCopy := am.keeper.MemState.DeepCopy()
@@ -351,7 +351,7 @@ func (am AppModule) EndBlock(ctx sdk.Context, _ abci.RequestEndBlock) (ret []abc
 		*am.keeper.MemState = *memStateCopy
 		// exclude orders by failed contracts from in-memory state,
 		// then update `validContractAddresses`
-		for _, failedContractAddress := range failedContractAddresses.ToSlice() {
+		for _, failedContractAddress := range failedContractAddresses.ToOrderedSlice(datastructures.StringComparator) {
 			am.keeper.MemState.DeepFilterAccount(failedContractAddress)
 			delete(validContractAddresses, failedContractAddress)
 		}

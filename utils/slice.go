@@ -17,3 +17,7 @@ func Map[I any, O any](input []I, lambda func(i I) O) []O {
 	}
 	return res
 }
+
+func SliceCopy[T any](slice []T) []T {
+	return append([]T{}, slice...)
+}
