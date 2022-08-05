@@ -128,8 +128,8 @@ func run(config Config) {
 	wgs := []*sync.WaitGroup{}
 	sendersList := [][]func(){}
 
-	config_string, _ := json.Marshal(config)
-	fmt.Printf("Running with \n %s \ns", string(config_string))
+	configString, _ := json.Marshal(config)
+	fmt.Printf("Running with \n %s \ns", string(configString))
 
 	fmt.Printf("%s - Starting block prepare\n", time.Now().Format("2006-01-02T15:04:05"))
 	for i := 0; i < int(config.Rounds); i++ {
