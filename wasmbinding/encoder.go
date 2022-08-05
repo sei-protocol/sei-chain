@@ -26,9 +26,9 @@ func CustomEncoder(sender sdk.AccAddress, msg json.RawMessage) ([]sdk.Msg, error
 	}
 	switch {
 	case parsedMessage.PlaceOrders != nil:
-		return dexwasm.EncodeDexPlaceOrders(parsedMessage.PlaceOrders)
+		return dexwasm.EncodeDexPlaceOrders(parsedMessage.PlaceOrders, sender)
 	case parsedMessage.CancelOrders != nil:
-		return dexwasm.EncodeDexCancelOrders(parsedMessage.CancelOrders)
+		return dexwasm.EncodeDexCancelOrders(parsedMessage.CancelOrders, sender)
 	case parsedMessage.CreateDenom != nil:
 		return tokenfactorywasm.EncodeTokenFactoryCreateDenom(parsedMessage.CreateDenom, sender)
 	case parsedMessage.Mint != nil:
