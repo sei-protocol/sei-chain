@@ -13,7 +13,7 @@ import (
 )
 
 const (
-	TEST_TARGET_CONTRACT = "sei1y3pxq5dp900czh0mkudhjdqjq5m8cpmmps8yjw"
+	TEST_TARGET_CONTRACT = "sei14hj2tavq8fpesdwxxcu44rty3hh90vhujrvcmstl4zr3txmfvw9sh9m79m"
 	TEST_CREATOR         = "sei1y3pxq5dp900czh0mkudhjdqjq5m8cpmmps8yjw"
 )
 
@@ -31,8 +31,9 @@ func TestEncodePlaceOrder(t *testing.T) {
 	}
 	fund := sdk.NewCoin("usei", sdk.NewInt(1000000000))
 	msg := bindings.PlaceOrders{
-		Orders: []*dextypes.Order{&order},
-		Funds:  []sdk.Coin{fund},
+		Orders:       []*dextypes.Order{&order},
+		Funds:        []sdk.Coin{fund},
+		ContractAddr: TEST_TARGET_CONTRACT,
 	}
 	serialized, _ := json.Marshal(msg)
 	msgData := wasmbinding.SeiWasmMessage{
@@ -58,7 +59,8 @@ func TestDecodeOrderCancellation(t *testing.T) {
 	contractAddr, err := sdk.AccAddressFromBech32("sei1y3pxq5dp900czh0mkudhjdqjq5m8cpmmps8yjw")
 	require.NoError(t, err)
 	msg := bindings.CancelOrders{
-		OrderIds: []uint64{1},
+		OrderIds:     []uint64{1},
+		ContractAddr: TEST_TARGET_CONTRACT,
 	}
 	serialized, _ := json.Marshal(msg)
 	msgData := wasmbinding.SeiWasmMessage{

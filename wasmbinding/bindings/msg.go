@@ -32,10 +32,12 @@ type BurnTokens struct {
 
 // Dex Module msgs
 type PlaceOrders struct {
-	Orders []*types.Order `json:"orders"`
-	Funds  sdk.Coins      `json:"funds"`
+	Orders       []*types.Order `json:"orders"`
+	Funds        sdk.Coins      `json:"funds"`
+	ContractAddr string         `json:"contract_address"`
 }
 
 type CancelOrders struct {
-	OrderIds []uint64 `json:"order_ids"`
+	OrderIds     []uint64 `json:"order_ids"`
+	ContractAddr string   `json:"contract_address"`
 }

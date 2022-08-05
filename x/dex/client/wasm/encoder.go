@@ -16,7 +16,7 @@ func EncodeDexPlaceOrders(rawMsg json.RawMessage, sender sdk.AccAddress) ([]sdk.
 	placeOrdersMsg := types.MsgPlaceOrders{
 		Creator:      sender.String(),
 		Orders:       encodedPlaceOrdersMsg.Orders,
-		ContractAddr: sender.String(),
+		ContractAddr: encodedPlaceOrdersMsg.ContractAddr,
 		Funds:        encodedPlaceOrdersMsg.Funds,
 	}
 	return []sdk.Msg{&placeOrdersMsg}, nil
@@ -30,7 +30,7 @@ func EncodeDexCancelOrders(rawMsg json.RawMessage, sender sdk.AccAddress) ([]sdk
 	cancelOrdersMsg := types.MsgCancelOrders{
 		Creator:      sender.String(),
 		OrderIds:     encodedCancelOrdersMsg.OrderIds,
-		ContractAddr: sender.String(),
+		ContractAddr: encodedCancelOrdersMsg.ContractAddr,
 	}
 	return []sdk.Msg{&cancelOrdersMsg}, nil
 }
