@@ -60,7 +60,7 @@ func (w KeeperWrapper) HandleEBLiquidation(ctx context.Context, sdkCtx sdk.Conte
 
 func (w KeeperWrapper) PlaceLiquidationOrders(ctx sdk.Context, contractAddr string, liquidationOrders []types.Order) {
 	ctx.Logger().Info("Placing liquidation orders...")
-	nextID := w.GetNextOrderID(ctx)
+	nextID := w.GetNextOrderID(ctx, contractAddr)
 	for _, order := range liquidationOrders {
 		ctx.Logger().Info(fmt.Sprintf("Liquidation order %s", order.String()))
 		pair := types.Pair{PriceDenom: order.PriceDenom, AssetDenom: order.AssetDenom}
@@ -70,7 +70,7 @@ func (w KeeperWrapper) PlaceLiquidationOrders(ctx sdk.Context, contractAddr stri
 		orders.Add(&orderCopy)
 		nextID++
 	}
-	w.SetNextOrderID(ctx, nextID)
+	w.SetNextOrderID(ctx, contractAddr, nextID)
 }
 
 func (w KeeperWrapper) getLiquidationSudoMsg(ctx sdk.Context, typedContractAddr typesutils.ContractAddress) wasm.SudoLiquidationMsg {

@@ -9,10 +9,10 @@ import (
 type Store struct {
 	storetypes.MultiStore
 
-	storeKeyToWriteWhitelist map[storetypes.StoreKey][]string
+	storeKeyToWriteWhitelist map[string][]string
 }
 
-func NewStore(parent storetypes.MultiStore, storeKeyToWriteWhitelist map[storetypes.StoreKey][]string) storetypes.MultiStore {
+func NewStore(parent storetypes.MultiStore, storeKeyToWriteWhitelist map[string][]string) storetypes.MultiStore {
 	return &Store{
 		MultiStore:               parent,
 		storeKeyToWriteWhitelist: storeKeyToWriteWhitelist,
@@ -25,8 +25,9 @@ func (cms Store) CacheMultiStore() storetypes.CacheMultiStore {
 
 func (cms Store) GetKVStore(key storetypes.StoreKey) storetypes.KVStore {
 	rawKVStore := cms.MultiStore.GetKVStore(key)
-	if writeWhitelist, ok := cms.storeKeyToWriteWhitelist[key]; ok {
+	if writeWhitelist, ok := cms.storeKeyToWriteWhitelist[key.Name()]; ok {
 		return kv.NewStore(rawKVStore, writeWhitelist)
 	}
-	return rawKVStore
+	// whitelist nothing
+	return kv.NewStore(rawKVStore, []string{})
 }

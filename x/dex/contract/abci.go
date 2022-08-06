@@ -8,6 +8,7 @@ import (
 	"github.com/armon/go-metrics"
 	"github.com/cosmos/cosmos-sdk/telemetry"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/sei-protocol/sei-chain/store/whitelist/multi"
 	"github.com/sei-protocol/sei-chain/utils"
 	"github.com/sei-protocol/sei-chain/utils/datastructures"
 	dexcache "github.com/sei-protocol/sei-chain/x/dex/cache"
@@ -84,7 +85,7 @@ func cacheAndDecorateContext(ctx sdk.Context, env *environment) (sdk.Context, sd
 
 func decorateContextForContract(ctx sdk.Context, contractInfo types.ContractInfo) sdk.Context {
 	goCtx := context.WithValue(ctx.Context(), dexcache.CtxKeyExecutingContract, contractInfo)
-	return ctx.WithContext(goCtx)
+	return ctx.WithContext(goCtx).WithMultiStore(multi.NewStore(ctx.MultiStore(), GetWhitelistMap(contractInfo.ContractAddr)))
 }
 
 func handleDeposits(ctx sdk.Context, env *environment, keeper *keeper.Keeper, tracer *otrace.Tracer) {

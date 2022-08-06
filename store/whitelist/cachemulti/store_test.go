@@ -13,8 +13,8 @@ import (
 var (
 	WhitelistedStoreKey          = storetypes.NewKVStoreKey("whitelisted")
 	NotWhitelistedStoreKey       = storetypes.NewKVStoreKey("not-whitelisted")
-	TestStoreKeyToWriteWhitelist = map[storetypes.StoreKey][]string{
-		WhitelistedStoreKey: {"foo"},
+	TestStoreKeyToWriteWhitelist = map[string][]string{
+		WhitelistedStoreKey.Name(): {"foo"},
 	}
 )
 
@@ -37,8 +37,8 @@ func TestWhitelistDisabledStore(t *testing.T) {
 	multistore := store.NewTestCacheMultiStore(stores)
 	whitelistMultistore := cachemulti.NewStore(multistore, TestStoreKeyToWriteWhitelist)
 	kvStore := whitelistMultistore.GetKVStore(NotWhitelistedStoreKey)
-	require.NotPanics(t, func() { kvStore.Delete([]byte("bar")) })
-	require.NotPanics(t, func() { kvStore.Delete([]byte("foo")) })
+	require.Panics(t, func() { kvStore.Delete([]byte("bar")) })
+	require.Panics(t, func() { kvStore.Delete([]byte("foo")) })
 }
 
 func TestCacheStillWhitelist(t *testing.T) {
