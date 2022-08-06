@@ -31,7 +31,7 @@ func (w KeeperWrapper) HandleEBDeposit(ctx context.Context, sdkCtx sdk.Context, 
 
 func (w KeeperWrapper) GetDepositSudoMsg(ctx sdk.Context, typedContractAddr typesutils.ContractAddress) wasm.SudoOrderPlacementMsg {
 	contractDepositInfo := []wasm.ContractDepositInfo{}
-	for _, depositInfo := range w.MemState.GetDepositInfo(typedContractAddr).Get() {
+	for _, depositInfo := range w.MemState.GetDepositInfo(ctx, typedContractAddr).Get() {
 		fund := sdk.NewCoins(sdk.NewCoin(depositInfo.Denom, depositInfo.Amount.RoundInt()))
 		sender, err := sdk.AccAddressFromBech32(depositInfo.Creator)
 		if err != nil {

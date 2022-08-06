@@ -10,6 +10,7 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/sei-protocol/sei-chain/utils"
 	"github.com/sei-protocol/sei-chain/utils/datastructures"
+	dexcache "github.com/sei-protocol/sei-chain/x/dex/cache"
 	"github.com/sei-protocol/sei-chain/x/dex/keeper"
 	dexkeeperabci "github.com/sei-protocol/sei-chain/x/dex/keeper/abci"
 	dexkeeperutils "github.com/sei-protocol/sei-chain/x/dex/keeper/utils"
@@ -17,13 +18,6 @@ import (
 	dextypeswasm "github.com/sei-protocol/sei-chain/x/dex/types/wasm"
 	"github.com/sei-protocol/sei-chain/x/store"
 	otrace "go.opentelemetry.io/otel/trace"
-)
-
-type CtxKeyType string
-
-const (
-	CtxKeyExecTermSignal    = CtxKeyType("execution-termination-signals")
-	CtxKeyExecutingContract = CtxKeyType("executing-contract")
 )
 
 type environment struct {
@@ -83,13 +77,13 @@ func newEnv(validContractsInfo []types.ContractInfo) *environment {
 
 func cacheAndDecorateContext(ctx sdk.Context, env *environment) (sdk.Context, sdk.CacheMultiStore) {
 	cachedCtx, msCached := store.GetCachedContext(ctx)
-	goCtx := context.WithValue(cachedCtx.Context(), CtxKeyExecTermSignal, env.executionTerminationSignals)
+	goCtx := context.WithValue(cachedCtx.Context(), dexcache.CtxKeyExecTermSignal, env.executionTerminationSignals)
 	cachedCtx = cachedCtx.WithContext(goCtx)
 	return cachedCtx, msCached
 }
 
 func decorateContextForContract(ctx sdk.Context, contractInfo types.ContractInfo) sdk.Context {
-	goCtx := context.WithValue(ctx.Context(), CtxKeyExecutingContract, contractInfo.ContractAddr)
+	goCtx := context.WithValue(ctx.Context(), dexcache.CtxKeyExecutingContract, contractInfo)
 	return ctx.WithContext(goCtx)
 }
 

@@ -24,12 +24,8 @@ func RegisterCustomPlugins(
 	queryPluginOpt := wasmkeeper.WithQueryPlugins(&wasmkeeper.QueryPlugins{
 		Custom: CustomQuerier(wasmQueryPlugin),
 	})
-	messengerDecoratorOpt := wasmkeeper.WithMessageHandlerDecorator(
-		CustomMessageDecorator(dex),
-	)
 
 	return []wasm.Option{
 		queryPluginOpt,
-		messengerDecoratorOpt,
 	}
 }
