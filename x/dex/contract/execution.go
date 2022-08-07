@@ -225,7 +225,7 @@ func ExecutePairsInParallel(ctx sdk.Context, contractAddr string, dexkeeper *kee
 			defer utils.PanicHandler(func(err any) {
 				anyPanicked = true
 				utils.MetricsPanicCallback(err, ctx, fmt.Sprintf("%s-%s|%s", contractAddr, pair.PriceDenom, pair.AssetDenom))
-			})
+			})()
 
 			pairCopy := pair
 			pairSettlements := ExecutePair(pairCtx, contractAddr, pair, dexkeeper)
