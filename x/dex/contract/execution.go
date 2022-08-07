@@ -1,10 +1,15 @@
 package contract
 
 import (
+	"fmt"
+	"sync"
+
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"go.opentelemetry.io/otel/attribute"
 	otrace "go.opentelemetry.io/otel/trace"
 
+	"github.com/sei-protocol/sei-chain/store/whitelist/multi"
+	"github.com/sei-protocol/sei-chain/utils"
 	dexcache "github.com/sei-protocol/sei-chain/x/dex/cache"
 	"github.com/sei-protocol/sei-chain/x/dex/exchange"
 	"github.com/sei-protocol/sei-chain/x/dex/keeper"
@@ -200,6 +205,49 @@ func getUnfulfilledPlacedMarketOrderIds(
 	return res
 }
 
+func ExecutePairsInParallel(ctx sdk.Context, contractAddr string, dexkeeper *keeper.Keeper) ([]func(), []*types.SettlementEntry) {
+	typedContractAddr := dextypesutils.ContractAddress(contractAddr)
+	registeredPairs := dexkeeper.GetAllRegisteredPairs(ctx, contractAddr)
+	orderUpdaters := []func(){}
+	settlements := []*types.SettlementEntry{}
+
+	mu := sync.Mutex{}
+	wg := sync.WaitGroup{}
+	anyPanicked := false
+
+	for _, pair := range registeredPairs {
+		wg.Add(1)
+
+		pair := pair
+		pairCtx := ctx.WithMultiStore(multi.NewStore(ctx.MultiStore(), GetPerPairWhitelistMap(contractAddr, pair)))
+		go func() {
+			defer wg.Done()
+			defer utils.PanicHandler(func(err any) {
+				anyPanicked = true
+				utils.MetricsPanicCallback(err, ctx, fmt.Sprintf("%s-%s|%s", contractAddr, pair.PriceDenom, pair.AssetDenom))
+			})
+
+			pairCopy := pair
+			pairSettlements := ExecutePair(pairCtx, contractAddr, pair, dexkeeper)
+			PrepareCancelUnfulfilledMarketOrders(pairCtx, typedContractAddr, dextypesutils.GetPairString(&pairCopy), dexkeeper)
+
+			mu.Lock()
+			defer mu.Unlock()
+			orderUpdaters = append(orderUpdaters, func() {
+				UpdateOrderState(ctx, typedContractAddr, dextypesutils.GetPairString(&pairCopy), dexkeeper, pairSettlements)
+			})
+			settlements = append(settlements, pairSettlements...)
+		}()
+	}
+	wg.Wait()
+	if anyPanicked {
+		// need to re-throw panic to the top level goroutine
+		panic("panicked during pair execution")
+	}
+
+	return orderUpdaters, settlements
+}
+
 func HandleExecutionForContract(
 	ctx sdk.Context,
 	contract types.ContractInfo,
@@ -208,21 +256,17 @@ func HandleExecutionForContract(
 ) (map[string]dextypeswasm.ContractOrderResult, []*types.SettlementEntry, error) {
 	contractAddr := contract.ContractAddr
 	typedContractAddr := dextypesutils.ContractAddress(contractAddr)
-	registeredPairs := dexkeeper.GetAllRegisteredPairs(ctx, contractAddr)
 	orderResults := map[string]dextypeswasm.ContractOrderResult{}
-	settlements := []*types.SettlementEntry{}
+
 	// Call contract hooks so that contracts can do internal bookkeeping
 	if err := CallPreExecutionHooks(ctx, contractAddr, dexkeeper, tracer); err != nil {
-		return orderResults, settlements, err
+		return orderResults, []*types.SettlementEntry{}, err
 	}
 
-	for _, pair := range registeredPairs {
-		pairCopy := pair
-		pairSettlements := ExecutePair(ctx, contractAddr, pair, dexkeeper)
-		UpdateOrderState(ctx, typedContractAddr, dextypesutils.GetPairString(&pairCopy), dexkeeper, pairSettlements)
-		PrepareCancelUnfulfilledMarketOrders(ctx, typedContractAddr, dextypesutils.GetPairString(&pairCopy), dexkeeper)
+	orderUpdaters, settlements := ExecutePairsInParallel(ctx, contractAddr, dexkeeper)
 
-		settlements = append(settlements, pairSettlements...)
+	for _, orderUpdater := range orderUpdaters {
+		orderUpdater()
 	}
 	// Cancel unfilled market orders
 	if err := CancelUnfulfilledMarketOrders(ctx, contractAddr, dexkeeper, tracer); err != nil {

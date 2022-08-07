@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/armon/go-metrics"
-	"github.com/cosmos/cosmos-sdk/telemetry"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/sei-protocol/sei-chain/store/whitelist/multi"
 	"github.com/sei-protocol/sei-chain/utils"
@@ -166,15 +164,7 @@ func orderMatchingRunnable(ctx sdk.Context, env *environment, keeper *keeper.Kee
 }
 
 func orderMatchingRecoverCallback(err any, ctx sdk.Context, env *environment, contractInfo types.ContractInfo) {
-	ctx.Logger().Error(fmt.Sprintf("panic occurred during order matching for contract: %s", contractInfo.ContractAddr))
-	telemetry.IncrCounterWithLabels(
-		[]string{fmt.Sprintf("%s%s", types.ModuleName, "endblockpanic")},
-		1,
-		[]metrics.Label{
-			telemetry.NewLabel("error", fmt.Sprintf("%s", err)),
-			telemetry.NewLabel("contract", contractInfo.ContractAddr),
-		},
-	)
+	utils.MetricsPanicCallback(err, ctx, fmt.Sprintf("%s%s", types.ModuleName, "endblockpanic"))
 	// idempotent
 	env.failedContractAddresses.Add(contractInfo.ContractAddr)
 }

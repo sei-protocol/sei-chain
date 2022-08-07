@@ -24,10 +24,22 @@ var WasmWhitelistedKeys = []string{
 	string(wasmtypes.ContractStorePrefix),
 }
 
+var DexPerPairWhitelistedKeys = []string{
+	types.LongBookKey,
+	types.ShortBookKey,
+	types.PriceKey,
+}
+
 func GetWhitelistMap(contractAddr string) map[string][]string {
 	res := map[string][]string{}
 	res[storetypes.NewKVStoreKey(types.StoreKey).Name()] = GetDexWhitelistedPrefixes(contractAddr)
 	res[storetypes.NewKVStoreKey(wasmtypes.StoreKey).Name()] = GetWasmWhitelistedPrefixes(contractAddr)
+	return res
+}
+
+func GetPerPairWhitelistMap(contractAddr string, pair types.Pair) map[string][]string {
+	res := map[string][]string{}
+	res[storetypes.NewKVStoreKey(types.StoreKey).Name()] = GetDexPerPairWhitelistedPrefixes(contractAddr, pair)
 	return res
 }
 
@@ -45,5 +57,13 @@ func GetWasmWhitelistedPrefixes(contractAddr string) []string {
 		return string(append(
 			[]byte(key), addr...,
 		))
+	})
+}
+
+func GetDexPerPairWhitelistedPrefixes(contractAddr string, pair types.Pair) []string {
+	return utils.Map(DexWhitelistedKeys, func(key string) string {
+		return string(append(append(
+			types.KeyPrefix(key), types.KeyPrefix(contractAddr)...,
+		), types.PairPrefix(pair.PriceDenom, pair.AssetDenom)...))
 	})
 }
