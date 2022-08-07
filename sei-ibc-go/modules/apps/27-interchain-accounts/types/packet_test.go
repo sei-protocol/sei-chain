@@ -42,6 +42,15 @@ func (suite *TypesTestSuite) TestValidateBasic() {
 			"empty data",
 			types.InterchainAccountPacketData{
 				Type: types.EXECUTE_TX,
+				Data: []byte{},
+				Memo: "memo",
+			},
+			false,
+		},
+		{
+			"nil data",
+			types.InterchainAccountPacketData{
+				Type: types.EXECUTE_TX,
 				Data: nil,
 				Memo: "memo",
 			},
