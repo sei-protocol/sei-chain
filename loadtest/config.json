@@ -1,8 +1,8 @@
 {
-    "chain_id": "sei-chain",
+    "chain_id": "sei-loadtest-testnet",
     "contract_address": "sei14hj2tavq8fpesdwxxcu44rty3hh90vhujrvcmstl4zr3txmfvw9sh9m79m",
-    "orders_per_block": 10000,
-    "rounds": 5,
+    "orders_per_block": 100,
+    "rounds": 10,
     "price_distribution": {
         "min": "45",
         "max": "55",

@@ -75,7 +75,7 @@ var (
 )
 
 const (
-	BatchSize  = 100
+	BatchSize  = 1
 	VortexData = "{\"position_effect\":\"Open\",\"leverage\":\"1\"}"
 )
 
@@ -164,6 +164,7 @@ func run(config Config) {
 					Data:              VortexData,
 				})
 			}
+			fmt.Println("Loadtest client quantity: ", quantity.Quo(FromMili))
 			amount, err := sdk.ParseCoinsNormalized(fmt.Sprintf("%d%s", price.Mul(quantity).Ceil().RoundInt64(), "usei"))
 			if err != nil {
 				panic(err)

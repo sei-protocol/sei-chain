@@ -14,6 +14,7 @@ func (k Keeper) SetSettlements(ctx sdk.Context, contractAddr string, priceDenom 
 	executionStart := time.Now()
 	defer telemetry.ModuleSetGauge(types.ModuleName, float32(time.Now().Sub(executionStart).Milliseconds()), "set_settlements_ms")
 	store := prefix.NewStore(ctx.KVStore(k.storeKey), types.SettlementEntryPrefix(contractAddr, priceDenom, assetDenom))
+
 	for _, settlement := range settlements.GetEntries() {
 		existing, found := k.GetSettlementsState(ctx, contractAddr, priceDenom, assetDenom, settlement.Account, settlement.OrderId)
 		if found {

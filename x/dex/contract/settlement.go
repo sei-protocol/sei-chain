@@ -1,6 +1,7 @@
 package contract
 
 import (
+	"fmt"
 	"github.com/cosmos/cosmos-sdk/telemetry"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/sei-protocol/sei-chain/x/dex/keeper"
@@ -31,6 +32,10 @@ func setSettlementStates(
 	defer telemetry.ModuleSetGauge(types.ModuleName, float32(time.Now().Sub(executionStart).Milliseconds()), "set_settlement_states_ms")
 	_, currentEpoch := dexkeeper.IsNewEpoch(ctx)
 	settlementMap := map[dextypesutils.PairString]*types.Settlements{}
+	for _, settlementEntry := range settlementEntries {
+		fmt.Println("Quantity ", settlementEntry.Quantity, ", direction ", settlementEntry.PositionDirection, " asset denom ", settlementEntry.AssetDenom)
+	}
+	fmt.Println("Len of settlements: %d", len(settlementEntries))
 	telemetry.ModuleSetGauge(types.ModuleName, float32(len(settlementEntries)), "settlement_entries")
 	for _, settlementEntry := range settlementEntries {
 		priceDenom := settlementEntry.PriceDenom
