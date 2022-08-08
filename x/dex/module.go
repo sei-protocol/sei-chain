@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"time"
 
 	"github.com/CosmWasm/wasmd/x/wasm"
 	"github.com/armon/go-metrics"
@@ -249,7 +250,7 @@ func (am AppModule) beginBlockForContract(ctx sdk.Context, contract types.Contra
 	defer span.End()
 
 	if contract.NeedHook {
-		if err := am.abciWrapper.HandleBBNewBlock(ctx, contractAddr, epoch); err != nil {
+		if err := am.abciWrapper.HandleBBNewBlock(ctx, contractAddr, epoch, am.tracingInfo.Tracer); err != nil {
 			ctx.Logger().Error(fmt.Sprintf("New block hook error for %s: %s", contractAddr, err.Error()))
 		}
 	}
@@ -267,8 +268,14 @@ func (am AppModule) beginBlockForContract(ctx sdk.Context, contract types.Contra
 // EndBlock executes all ABCI EndBlock logic respective to the capability module. It
 // returns no validator updates.
 func (am AppModule) EndBlock(ctx sdk.Context, _ abci.RequestEndBlock) (ret []abci.ValidatorUpdate) {
+	executionStart := time.Now()
+	defer telemetry.ModuleSetGauge(types.ModuleName, float32(time.Now().Sub(executionStart).Milliseconds()), "end_block_execution_ms")
+	_, span := (*am.tracingInfo.Tracer).Start(am.tracingInfo.TracerContext, "DexEndBlock")
+	defer span.End()
 	// TODO (codchen): Revert https://github.com/sei-protocol/sei-chain/pull/176/files before mainnet so we don't silently fail on errors
 	defer func() {
+		_, span := (*am.tracingInfo.Tracer).Start(am.tracingInfo.TracerContext, "DexEndBlockRollback")
+		defer span.End()
 		if err := recover(); err != nil {
 			ctx.Logger().Error(fmt.Sprintf("panic occurred in %s EndBlock: %s", types.ModuleName, err))
 			telemetry.IncrCounterWithLabels(
@@ -336,7 +343,7 @@ func (am AppModule) EndBlock(ctx sdk.Context, _ abci.RequestEndBlock) (ret []abc
 			if !validContractAddresses[contractAddr].NeedHook {
 				continue
 			}
-			if _, err := dexkeeperutils.CallContractSudo(cachedCtx, &am.keeper, contractAddr, finalizeBlockMsg); err != nil {
+			if _, err := dexkeeperutils.CallContractSudo(cachedCtx, &am.keeper, contractAddr, finalizeBlockMsg, am.tracingInfo.Tracer); err != nil {
 				ctx.Logger().Error(fmt.Sprintf("Error calling FinalizeBlock of %s", contractAddr))
 				failedContractAddresses.Add(contractAddr)
 			}

@@ -24,7 +24,7 @@ func (w KeeperWrapper) HandleEBPlaceOrders(ctx context.Context, sdkCtx sdk.Conte
 
 	typedContractAddr := typesutils.ContractAddress(contractAddr)
 	msgs := w.GetPlaceSudoMsg(sdkCtx, typedContractAddr, registeredPairs)
-	_, err := utils.CallContractSudo(sdkCtx, w.Keeper, contractAddr, msgs[0]) // deposit
+	_, err := utils.CallContractSudo(sdkCtx, w.Keeper, contractAddr, msgs[0], tracer) // deposit
 	if err != nil {
 		sdkCtx.Logger().Error(fmt.Sprintf("Error during deposit: %s", err.Error()))
 		return err
@@ -32,7 +32,7 @@ func (w KeeperWrapper) HandleEBPlaceOrders(ctx context.Context, sdkCtx sdk.Conte
 
 	responses := []wasm.SudoOrderPlacementResponse{}
 	for _, msg := range msgs[1:] {
-		data, err := utils.CallContractSudo(sdkCtx, w.Keeper, contractAddr, msg)
+		data, err := utils.CallContractSudo(sdkCtx, w.Keeper, contractAddr, msg, tracer)
 		if err != nil {
 			sdkCtx.Logger().Error(fmt.Sprintf("Error during order placement: %s", err.Error()))
 			return err

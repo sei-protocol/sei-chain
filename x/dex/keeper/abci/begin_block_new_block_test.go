@@ -19,5 +19,5 @@ func TestHandleBBNewBlock(t *testing.T) {
 	ctx, wasmkeepers := wasmkeeper.CreateTestInput(t, false, SupportedFeatures)
 	dexKeeper := keeper.Keeper{WasmKeeper: *wasmkeepers.WasmKeeper}
 	wrapper := abci.KeeperWrapper{Keeper: &dexKeeper}
-	wrapper.HandleBBNewBlock(ctx, TestContract, 1)
+	wrapper.HandleBBNewBlock(ctx, TestContract, 1, nil)
 }

@@ -19,7 +19,7 @@ func (w KeeperWrapper) HandleEBCancelOrders(ctx context.Context, sdkCtx sdk.Cont
 
 	typedContractAddr := typesutils.ContractAddress(contractAddr)
 	msg := w.getCancelSudoMsg(typedContractAddr, registeredPairs)
-	if _, err := utils.CallContractSudo(sdkCtx, w.Keeper, contractAddr, msg); err != nil {
+	if _, err := utils.CallContractSudo(sdkCtx, w.Keeper, contractAddr, msg, tracer); err != nil {
 		sdkCtx.Logger().Error(fmt.Sprintf("Error during cancellation: %s", err.Error()))
 		return err
 	}

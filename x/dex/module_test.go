@@ -300,7 +300,7 @@ func TestBeginBlock(t *testing.T) {
 	testApp.BeginBlocker(ctx, abci.RequestBeginBlock{})
 
 	wrapper := dexkeeperabci.KeeperWrapper{Keeper: &testApp.DexKeeper}
-	err = wrapper.HandleBBNewBlock(ctx, contractAddr.String(), 1)
+	err = wrapper.HandleBBNewBlock(ctx, contractAddr.String(), 1, nil)
 	require.Nil(t, err)
 }
 

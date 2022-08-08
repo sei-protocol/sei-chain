@@ -1,9 +1,11 @@
 package contract
 
 import (
+	"github.com/cosmos/cosmos-sdk/telemetry"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"go.opentelemetry.io/otel/attribute"
 	otrace "go.opentelemetry.io/otel/trace"
+	"time"
 
 	dexcache "github.com/sei-protocol/sei-chain/x/dex/cache"
 	"github.com/sei-protocol/sei-chain/x/dex/exchange"
@@ -204,6 +206,7 @@ func HandleExecutionForContract(
 	dexkeeper *keeper.Keeper,
 	tracer *otrace.Tracer,
 ) (map[string]dextypeswasm.ContractOrderResult, []*types.SettlementEntry, error) {
+	executionStart := time.Now()
 	contractAddr := contract.ContractAddr
 	typedContractAddr := dextypesutils.ContractAddress(contractAddr)
 	registeredPairs := dexkeeper.GetAllRegisteredPairs(ctx, contractAddr)
@@ -235,5 +238,6 @@ func HandleExecutionForContract(
 		})
 	}
 	dextypeswasm.PopulateOrderExecutionResults(contractAddr, settlements, orderResults)
+	telemetry.ModuleSetGauge(types.ModuleName, float32(time.Now().Sub(executionStart).Milliseconds()), "handle_execution_for_contract_ms")
 	return orderResults, settlements, nil
 }

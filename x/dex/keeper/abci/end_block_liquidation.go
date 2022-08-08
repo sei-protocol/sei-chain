@@ -20,7 +20,7 @@ func (w KeeperWrapper) HandleEBLiquidation(ctx context.Context, sdkCtx sdk.Conte
 
 	typedContractAddr := typesutils.ContractAddress(contractAddr)
 	msg := w.getLiquidationSudoMsg(typedContractAddr)
-	data, err := utils.CallContractSudo(sdkCtx, w.Keeper, contractAddr, msg)
+	data, err := utils.CallContractSudo(sdkCtx, w.Keeper, contractAddr, msg, tracer)
 	if err != nil {
 		return err
 	}

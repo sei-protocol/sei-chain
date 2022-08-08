@@ -1,12 +1,14 @@
 package contract
 
 import (
+	"github.com/cosmos/cosmos-sdk/telemetry"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/sei-protocol/sei-chain/x/dex/keeper"
 	dexkeeperutils "github.com/sei-protocol/sei-chain/x/dex/keeper/utils"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
 	dextypesutils "github.com/sei-protocol/sei-chain/x/dex/types/utils"
 	dextypeswasm "github.com/sei-protocol/sei-chain/x/dex/types/wasm"
+	"time"
 )
 
 func HandleSettlements(
@@ -25,6 +27,7 @@ func setSettlementStates(
 	dexkeeper *keeper.Keeper,
 	settlementEntries []*types.SettlementEntry,
 ) {
+	executionStart := time.Now()
 	_, currentEpoch := dexkeeper.IsNewEpoch(ctx)
 	settlementMap := map[dextypesutils.PairString]*types.Settlements{}
 	for _, settlementEntry := range settlementEntries {
@@ -50,6 +53,7 @@ func setSettlementStates(
 		}
 		dexkeeper.SetSettlements(ctx, contractAddr, settlements.Entries[0].PriceDenom, settlements.Entries[0].AssetDenom, *settlements)
 	}
+	telemetry.ModuleSetGauge(types.ModuleName, float32(time.Now().Sub(executionStart).Milliseconds()), "set_settlement_states_ms")
 }
 
 func callSettlementHook(
@@ -65,7 +69,7 @@ func callSettlementHook(
 			Entries: settlementEntries,
 		},
 	}
-	if _, err := dexkeeperutils.CallContractSudo(ctx, dexkeeper, contractAddr, nativeSettlementMsg); err != nil {
+	if _, err := dexkeeperutils.CallContractSudo(ctx, dexkeeper, contractAddr, nativeSettlementMsg, nil); err != nil {
 		return err
 	}
 	return nil
