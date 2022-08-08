@@ -258,7 +258,7 @@ func HandleExecutionForContract(
 	tracer *otrace.Tracer,
 ) (map[string]dextypeswasm.ContractOrderResult, []*types.SettlementEntry, error) {
 	executionStart := time.Now()
-	defer telemetry.ModuleSetGauge(types.ModuleName, float32(time.Now().Sub(executionStart).Milliseconds()), "handle_execution_for_contract_ms")
+	defer telemetry.ModuleSetGauge(types.ModuleName, float32(time.Since(executionStart).Milliseconds()), "handle_execution_for_contract_ms")
 	contractAddr := contract.ContractAddr
 	typedContractAddr := dextypesutils.ContractAddress(contractAddr)
 	orderResults := map[string]dextypeswasm.ContractOrderResult{}

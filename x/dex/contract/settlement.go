@@ -29,7 +29,7 @@ func setSettlementStates(
 	settlementEntries []*types.SettlementEntry,
 ) {
 	executionStart := time.Now()
-	defer telemetry.ModuleSetGauge(types.ModuleName, float32(time.Now().Sub(executionStart).Milliseconds()), "set_settlement_states_ms")
+	defer telemetry.ModuleSetGauge(types.ModuleName, float32(time.Since(executionStart).Milliseconds()), "set_settlement_states_ms")
 	_, currentEpoch := dexkeeper.IsNewEpoch(ctx)
 	settlementMap := map[dextypesutils.PairString]*types.Settlements{}
 	for _, settlementEntry := range settlementEntries {

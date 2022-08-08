@@ -18,7 +18,7 @@ func (app *App) BeginBlock(req abci.RequestBeginBlock) (res abci.ResponseBeginBl
 }
 
 func (app *App) EndBlock(req abci.RequestEndBlock) (res abci.ResponseEndBlock) {
-	_, span := (*app.tracingInfo.Tracer).Start(app.tracingInfo.TracerContext, "EndBlock	")
+	_, span := (*app.tracingInfo.Tracer).Start(app.tracingInfo.TracerContext, "EndBlock")
 	defer span.End()
 	return app.BaseApp.EndBlock(req)
 }
