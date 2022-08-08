@@ -120,7 +120,6 @@ func run(config Config) {
 		panic("Must have more orders per block than batch size")
 	}
 
-
 	numberOfAccounts := config.OrdersPerBlock / batchSize * 2 // * 2 because we need two sets of accounts
 	activeAccounts := []int{}
 	inactiveAccounts := []int{}
