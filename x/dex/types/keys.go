@@ -54,11 +54,8 @@ func TwapPrefix(contractAddr string) []byte {
 // `Price` constant + contract + price denom + asset denom
 func PricePrefix(contractAddr string, priceDenom string, assetDenom string) []byte {
 	return append(
-		append(
-			append(KeyPrefix(PriceKey), KeyPrefix(contractAddr)...),
-			KeyPrefix(priceDenom)...,
-		),
-		KeyPrefix(assetDenom)...,
+		append(KeyPrefix(PriceKey), KeyPrefix(contractAddr)...),
+		PairPrefix(priceDenom, assetDenom)...,
 	)
 }
 
@@ -103,17 +100,19 @@ func AssetListPrefix(assetDenom string) []byte {
 	return append(KeyPrefix(AssetListKey), KeyPrefix(assetDenom)...)
 }
 
+func NextOrderIDPrefix(contractAddr string) []byte {
+	return append(KeyPrefix(NextOrderIDKey), KeyPrefix(contractAddr)...)
+}
+
 const (
 	DefaultPriceDenom = "stake"
 	DefaultAssetDenom = "dummy"
 )
 
 const (
-	LongBookKey      = "LongBook-value-"
-	LongBookCountKey = "LongBook-count-"
+	LongBookKey = "LongBook-value-"
 
-	ShortBookKey      = "ShortBook-value-"
-	ShortBookCountKey = "ShortBook-count-"
+	ShortBookKey = "ShortBook-value-"
 
 	OrderKey               = "order"
 	AccountActiveOrdersKey = "account-active-orders"

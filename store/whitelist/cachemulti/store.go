@@ -13,10 +13,10 @@ type sdkCacheMultiStore = storetypes.CacheMultiStore
 type Store struct {
 	sdkCacheMultiStore
 
-	storeKeyToWriteWhitelist map[storetypes.StoreKey][]string
+	storeKeyToWriteWhitelist map[string][]string
 }
 
-func NewStore(parent storetypes.CacheMultiStore, storeKeyToWriteWhitelist map[storetypes.StoreKey][]string) storetypes.CacheMultiStore {
+func NewStore(parent storetypes.CacheMultiStore, storeKeyToWriteWhitelist map[string][]string) storetypes.CacheMultiStore {
 	return &Store{
 		sdkCacheMultiStore:       parent,
 		storeKeyToWriteWhitelist: storeKeyToWriteWhitelist,
@@ -29,8 +29,9 @@ func (cms Store) CacheMultiStore() storetypes.CacheMultiStore {
 
 func (cms Store) GetKVStore(key storetypes.StoreKey) storetypes.KVStore {
 	rawKVStore := cms.sdkCacheMultiStore.GetKVStore(key)
-	if writeWhitelist, ok := cms.storeKeyToWriteWhitelist[key]; ok {
+	if writeWhitelist, ok := cms.storeKeyToWriteWhitelist[key.Name()]; ok {
 		return kv.NewStore(rawKVStore, writeWhitelist)
 	}
-	return rawKVStore
+	// whitelist nothing
+	return kv.NewStore(rawKVStore, []string{})
 }

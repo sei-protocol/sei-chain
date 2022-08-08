@@ -18,7 +18,7 @@ func (w KeeperWrapper) HandleEBCancelOrders(ctx context.Context, sdkCtx sdk.Cont
 	span.SetAttributes(attribute.String("contractAddr", contractAddr))
 
 	typedContractAddr := typesutils.ContractAddress(contractAddr)
-	msg := w.getCancelSudoMsg(typedContractAddr, registeredPairs)
+	msg := w.getCancelSudoMsg(sdkCtx, typedContractAddr, registeredPairs)
 	if _, err := utils.CallContractSudo(sdkCtx, w.Keeper, contractAddr, msg); err != nil {
 		sdkCtx.Logger().Error(fmt.Sprintf("Error during cancellation: %s", err.Error()))
 		return err
@@ -27,11 +27,11 @@ func (w KeeperWrapper) HandleEBCancelOrders(ctx context.Context, sdkCtx sdk.Cont
 	return nil
 }
 
-func (w KeeperWrapper) getCancelSudoMsg(typedContractAddr typesutils.ContractAddress, registeredPairs []types.Pair) wasm.SudoOrderCancellationMsg {
+func (w KeeperWrapper) getCancelSudoMsg(sdkCtx sdk.Context, typedContractAddr typesutils.ContractAddress, registeredPairs []types.Pair) wasm.SudoOrderCancellationMsg {
 	idsToCancel := []uint64{}
 	for _, pair := range registeredPairs {
 		typedPairStr := typesutils.GetPairString(&pair) //nolint:gosec // THIS MAY BE CAUSE FOR CONCERN AND WE MIGHT WANT TO REFACTOR.
-		for _, cancel := range w.MemState.GetBlockCancels(typedContractAddr, typedPairStr).Get() {
+		for _, cancel := range w.MemState.GetBlockCancels(sdkCtx, typedContractAddr, typedPairStr).Get() {
 			idsToCancel = append(idsToCancel, cancel.Id)
 		}
 	}

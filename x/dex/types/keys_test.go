@@ -18,7 +18,7 @@ func TestPricePrefix(t *testing.T) {
 	testPriceDenom := "SEI"
 	testAssetDenom := "ATOM"
 	priceContractBytes := append([]byte(types.PriceKey), []byte(testContract)...)
-	pairBytes := append([]byte(testPriceDenom), []byte(testAssetDenom)...)
+	pairBytes := types.PairPrefix(testPriceDenom, testAssetDenom)
 	expectedKey := append(priceContractBytes, pairBytes...)
 	require.Equal(t, expectedKey, types.PricePrefix(testContract, testPriceDenom, testAssetDenom))
 }

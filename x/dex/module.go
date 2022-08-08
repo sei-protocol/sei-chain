@@ -20,7 +20,6 @@ import (
 	"github.com/cosmos/cosmos-sdk/telemetry"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/types/module"
-	"github.com/sei-protocol/sei-chain/utils/datastructures"
 	"github.com/sei-protocol/sei-chain/utils/tracing"
 	"github.com/sei-protocol/sei-chain/x/dex/client/cli/query"
 	"github.com/sei-protocol/sei-chain/x/dex/client/cli/tx"
@@ -29,11 +28,8 @@ import (
 	dexkeeperabci "github.com/sei-protocol/sei-chain/x/dex/keeper/abci"
 	"github.com/sei-protocol/sei-chain/x/dex/keeper/msgserver"
 	dexkeeperquery "github.com/sei-protocol/sei-chain/x/dex/keeper/query"
-	dexkeeperutils "github.com/sei-protocol/sei-chain/x/dex/keeper/utils"
 	"github.com/sei-protocol/sei-chain/x/dex/migrations"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
-	dextypeswasm "github.com/sei-protocol/sei-chain/x/dex/types/wasm"
-	"github.com/sei-protocol/sei-chain/x/store"
 )
 
 var (
@@ -179,6 +175,9 @@ func (am AppModule) RegisterServices(cfg module.Configurator) {
 	_ = cfg.RegisterMigration(types.ModuleName, 5, func(ctx sdk.Context) error {
 		return migrations.V5ToV6(ctx, am.keeper.GetStoreKey(), am.keeper.Cdc)
 	})
+	_ = cfg.RegisterMigration(types.ModuleName, 6, func(ctx sdk.Context) error {
+		return migrations.V6ToV7(ctx, am.keeper.GetStoreKey())
+	})
 }
 
 // RegisterInvariants registers the capability module's invariants.
@@ -203,17 +202,10 @@ func (am AppModule) ExportGenesis(ctx sdk.Context, cdc codec.JSONCodec) json.Raw
 }
 
 // ConsensusVersion implements ConsensusVersion.
-func (AppModule) ConsensusVersion() uint64 { return 6 }
+func (AppModule) ConsensusVersion() uint64 { return 7 }
 
 func (am AppModule) getAllContractInfo(ctx sdk.Context) []types.ContractInfo {
-	unsorted := am.keeper.GetAllContractInfo(ctx)
-	sorted, err := contract.TopologicalSortContractInfo(unsorted)
-	if err != nil {
-		// This should never happen unless there is a bug in contract registration.
-		// Chain needs to be halted to prevent bad states from being written
-		panic(err)
-	}
-	return sorted
+	return am.keeper.GetAllContractInfo(ctx)
 }
 
 // BeginBlock executes all ABCI BeginBlock logic respective to the capability module.
@@ -282,80 +274,22 @@ func (am AppModule) EndBlock(ctx sdk.Context, _ abci.RequestEndBlock) (ret []abc
 		}
 	}()
 
-	validContractAddresses := map[string]types.ContractInfo{}
-	for _, contractInfo := range am.getAllContractInfo(ctx) {
-		validContractAddresses[contractInfo.ContractAddr] = contractInfo
-	}
+	validContractsInfo := am.getAllContractInfo(ctx)
 	// Each iteration is atomic. If an iteration finishes without any error, it will return,
 	// otherwise it will rollback any state change, filter out contracts that cause the error,
 	// and proceed to the next iteration. The loop is guaranteed to finish since
 	// `validContractAddresses` will always decrease in size every iteration.
-	iterCounter := len(validContractAddresses)
-	for len(validContractAddresses) > 0 {
-		failedContractAddresses := datastructures.NewSyncSet([]string{})
-		cachedCtx, msCached := store.GetCachedContext(ctx)
-		// cache keeper in-memory state
-		memStateCopy := am.keeper.MemState.DeepCopy()
-		finalizeBlockMessages := map[string]*dextypeswasm.SudoFinalizeBlockMsg{}
-		settlementsByContract := map[string][]*types.SettlementEntry{}
-		for contractAddr := range validContractAddresses {
-			finalizeBlockMessages[contractAddr] = dextypeswasm.NewSudoFinalizeBlockMsg()
-			settlementsByContract[contractAddr] = []*types.SettlementEntry{}
+	iterCounter := len(validContractsInfo)
+	for len(validContractsInfo) > 0 {
+		newValidContractsInfo, ok := contract.EndBlockerAtomic(ctx, &am.keeper, validContractsInfo, am.tracingInfo.Tracer)
+		if ok {
+			break
 		}
+		validContractsInfo = newValidContractsInfo
 
-		for contractAddr, contractInfo := range validContractAddresses {
-			if !contractInfo.NeedOrderMatching {
-				continue
-			}
-			ctx.Logger().Info(fmt.Sprintf("End block for %s", contractAddr))
-			if orderResultsMap, settlements, err := contract.HandleExecutionForContract(cachedCtx, contractInfo, &am.keeper, am.tracingInfo.Tracer); err != nil {
-				ctx.Logger().Error(fmt.Sprintf("Error for EndBlock of %s", contractAddr))
-				failedContractAddresses.Add(contractAddr)
-			} else {
-				for account, orderResults := range orderResultsMap {
-					// only add to finalize message for contract addresses
-					if msg, ok := finalizeBlockMessages[account]; ok {
-						msg.AddContractResult(orderResults)
-					}
-				}
-				settlementsByContract[contractAddr] = settlements
-			}
-		}
-
-		for contractAddr, settlements := range settlementsByContract {
-			if !validContractAddresses[contractAddr].NeedOrderMatching {
-				continue
-			}
-			if err := contract.HandleSettlements(cachedCtx, contractAddr, &am.keeper, settlements); err != nil {
-				ctx.Logger().Error(fmt.Sprintf("Error handling settlements for %s", contractAddr))
-				failedContractAddresses.Add(contractAddr)
-			}
-		}
-
-		for contractAddr, finalizeBlockMsg := range finalizeBlockMessages {
-			if !validContractAddresses[contractAddr].NeedHook {
-				continue
-			}
-			if _, err := dexkeeperutils.CallContractSudo(cachedCtx, &am.keeper, contractAddr, finalizeBlockMsg); err != nil {
-				ctx.Logger().Error(fmt.Sprintf("Error calling FinalizeBlock of %s", contractAddr))
-				failedContractAddresses.Add(contractAddr)
-			}
-		}
-
-		// No error is thrown for any contract. This should happen most of the time.
-		if failedContractAddresses.Size() == 0 {
-			msCached.Write()
-			return []abci.ValidatorUpdate{}
-		}
-		// restore keeper in-memory state
-		*am.keeper.MemState = *memStateCopy
-		// exclude orders by failed contracts from in-memory state,
-		// then update `validContractAddresses`
-		for _, failedContractAddress := range failedContractAddresses.ToOrderedSlice(datastructures.StringComparator) {
-			am.keeper.MemState.DeepFilterAccount(failedContractAddress)
-			delete(validContractAddresses, failedContractAddress)
-		}
-
+		// technically we don't really need this if `EndBlockerAtomic` guarantees that `validContractsInfo` size will
+		// always shrink if not `ok`, but just in case, we decided to have an explicit termination criteria here to
+		// prevent the chain from being stuck.
 		iterCounter--
 		if iterCounter == 0 {
 			ctx.Logger().Error("All contracts failed in dex EndBlock. Doing nothing.")
@@ -363,6 +297,5 @@ func (am AppModule) EndBlock(ctx sdk.Context, _ abci.RequestEndBlock) (ret []abc
 		}
 	}
 
-	// don't call `ctx.Write` if all contracts have error
 	return []abci.ValidatorUpdate{}
 }

@@ -33,6 +33,7 @@ type EncodingConfig struct {
 }
 
 type Config struct {
+	BatchSize      uint64              `json:"batch_size"`
 	ChainID        string              `json:"chain_id"`
 	ContractAddr   string              `json:"contract_address"`
 	OrdersPerBlock uint64              `json:"orders_per_block"`
@@ -77,7 +78,6 @@ var (
 )
 
 const (
-	BatchSize  = 100
 	VortexData = "{\"position_effect\":\"Open\",\"leverage\":\"1\"}"
 )
 
@@ -115,11 +115,13 @@ func run(config Config) {
 	file, _ := os.OpenFile(filename, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
 	TxHashFile = file
 	var mu sync.Mutex
-
-	if config.OrdersPerBlock < BatchSize {
+	batchSize := config.BatchSize
+	if config.OrdersPerBlock < batchSize {
 		panic("Must have more orders per block than batch size")
 	}
-	numberOfAccounts := config.OrdersPerBlock / BatchSize * 2 // * 2 because we need two sets of accounts
+
+
+	numberOfAccounts := config.OrdersPerBlock / batchSize * 2 // * 2 because we need two sets of accounts
 	activeAccounts := []int{}
 	inactiveAccounts := []int{}
 	for i := 0; i < int(numberOfAccounts); i++ {
@@ -131,6 +133,10 @@ func run(config Config) {
 	}
 	wgs := []*sync.WaitGroup{}
 	sendersList := [][]func(){}
+
+	configString, _ := json.Marshal(config)
+	fmt.Printf("Running with \n %s \ns", string(configString))
+
 	fmt.Printf("%s - Starting block prepare\n", time.Now().Format("2006-01-02T15:04:05"))
 	for i := 0; i < int(config.Rounds); i++ {
 		fmt.Printf("Preparing %d-th round\n", i)
@@ -156,7 +162,7 @@ func run(config Config) {
 			}
 			price := config.PriceDistr.Sample()
 			quantity := config.QuantityDistr.Sample()
-			for j := 0; j < BatchSize; j++ {
+			for j := 0; j < int(batchSize); j++ {
 				orderPlacements = append(orderPlacements, &dextypes.Order{
 					Account:           sdk.AccAddress(key.PubKey().Address()).String(),
 					ContractAddr:      config.ContractAddr,

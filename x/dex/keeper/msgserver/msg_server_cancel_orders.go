@@ -22,7 +22,7 @@ func (k msgServer) CancelOrders(goCtx context.Context, msg *types.MsgCancelOrder
 		order := orderMap[orderIDToCancel]
 		pair := types.Pair{PriceDenom: order.PriceDenom, AssetDenom: order.AssetDenom}
 		pairStr := typesutils.GetPairString(&pair)
-		pairBlockCancellations := k.MemState.GetBlockCancels(typesutils.ContractAddress(msg.GetContractAddr()), pairStr)
+		pairBlockCancellations := k.MemState.GetBlockCancels(ctx, typesutils.ContractAddress(msg.GetContractAddr()), pairStr)
 		cancelledInCurrentBlock := false
 		for _, cancelInCurrentBlock := range pairBlockCancellations.Get() {
 			if cancelInCurrentBlock.Id == orderIDToCancel {
