@@ -15,14 +15,20 @@ var _ = strconv.Itoa(0)
 
 func CmdRegisterContract() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "register-contract [contract address] [code id] [hook only]",
+		Use:   "register-contract [contract address] [code id] [need hook] [need order matching] [dependency1,dependency2,...]",
 		Short: "Register exchange contract",
-		Args:  cobra.RangeArgs(2, 3),
+		Args:  cobra.MinimumNArgs(4),
 		RunE: func(cmd *cobra.Command, args []string) (err error) {
 			argContractAddr := args[0]
 			argCodeID, err := cast.ToUint64E(args[1])
 			if err != nil {
 				return err
+			}
+			argNeedHook := args[2] == "true"
+			argNeedMatching := args[3] == "true"
+			dependencies := []*types.ContractDependencyInfo{}
+			for _, dependency := range args[4:] {
+				dependencies = append(dependencies, &types.ContractDependencyInfo{Dependency: dependency})
 			}
 
 			clientCtx, err := client.GetClientTxContext(cmd)
@@ -34,8 +40,9 @@ func CmdRegisterContract() *cobra.Command {
 				clientCtx.GetFromAddress().String(),
 				argCodeID,
 				argContractAddr,
-				len(args) == 3 && args[2] == "true",
-				true,
+				argNeedHook,
+				argNeedMatching,
+				dependencies,
 			)
 			if err := msg.ValidateBasic(); err != nil {
 				return err

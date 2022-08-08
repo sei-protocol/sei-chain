@@ -20,6 +20,7 @@ import (
 	typestx "github.com/cosmos/cosmos-sdk/types/tx"
 	"github.com/cosmos/cosmos-sdk/x/auth/tx"
 	"github.com/sei-protocol/sei-chain/app"
+	"github.com/sei-protocol/sei-chain/utils"
 	dextypes "github.com/sei-protocol/sei-chain/x/dex/types"
 	"google.golang.org/grpc"
 )
@@ -33,14 +34,14 @@ type EncodingConfig struct {
 }
 
 type Config struct {
-	BatchSize      uint64              `json:"batch_size"`
-	ChainID        string              `json:"chain_id"`
-	ContractAddr   string              `json:"contract_address"`
-	OrdersPerBlock uint64              `json:"orders_per_block"`
-	Rounds         uint64              `json:"rounds"`
-	PriceDistr     NumericDistribution `json:"price_distribution"`
-	QuantityDistr  NumericDistribution `json:"quantity_distribution"`
-	MsgTypeDistr   MsgTypeDistribution `json:"message_type_distribution"`
+	BatchSize      uint64                `json:"batch_size"`
+	ChainID        string                `json:"chain_id"`
+	OrdersPerBlock uint64                `json:"orders_per_block"`
+	Rounds         uint64                `json:"rounds"`
+	PriceDistr     NumericDistribution   `json:"price_distribution"`
+	QuantityDistr  NumericDistribution   `json:"quantity_distribution"`
+	MsgTypeDistr   MsgTypeDistribution   `json:"message_type_distribution"`
+	ContractDistr  ContractDistributions `json:"contract_distribution"`
 }
 
 type NumericDistribution struct {
@@ -68,6 +69,28 @@ func (d *MsgTypeDistribution) Sample() string {
 		return "limit"
 	}
 	return "market"
+}
+
+type ContractDistributions []ContractDistribution
+
+func (d *ContractDistributions) Sample() string {
+	if !utils.Reduce(*d, func(i ContractDistribution, o sdk.Dec) sdk.Dec { return o.Add(i.Percentage) }, sdk.ZeroDec()).Equal(sdk.OneDec()) {
+		panic("Distribution percentages must add up to 1")
+	}
+	randNum := sdk.MustNewDecFromStr(fmt.Sprintf("%f", rand.Float64()))
+	cumPct := sdk.ZeroDec()
+	for _, dist := range *d {
+		cumPct = cumPct.Add(dist.Percentage)
+		if randNum.LTE(cumPct) {
+			return dist.ContractAddr
+		}
+	}
+	panic("this should never be triggered")
+}
+
+type ContractDistribution struct {
+	ContractAddr string  `json:"contract_address"`
+	Percentage   sdk.Dec `json:"percentage"`
 }
 
 var (
@@ -161,10 +184,11 @@ func run(config Config) {
 			}
 			price := config.PriceDistr.Sample()
 			quantity := config.QuantityDistr.Sample()
+			contract := config.ContractDistr.Sample()
 			for j := 0; j < int(batchSize); j++ {
 				orderPlacements = append(orderPlacements, &dextypes.Order{
 					Account:           sdk.AccAddress(key.PubKey().Address()).String(),
-					ContractAddr:      config.ContractAddr,
+					ContractAddr:      contract,
 					PositionDirection: direction,
 					Price:             price.Quo(FromMili),
 					Quantity:          quantity.Quo(FromMili),
@@ -181,7 +205,7 @@ func run(config Config) {
 			msg = &dextypes.MsgPlaceOrders{
 				Creator:      sdk.AccAddress(key.PubKey().Address()).String(),
 				Orders:       orderPlacements,
-				ContractAddr: config.ContractAddr,
+				ContractAddr: contract,
 				Funds:        amount,
 			}
 			txBuilder := TestConfig.TxConfig.NewTxBuilder()

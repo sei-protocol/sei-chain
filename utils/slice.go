@@ -21,3 +21,10 @@ func Map[I any, O any](input []I, lambda func(i I) O) []O {
 func SliceCopy[T any](slice []T) []T {
 	return append([]T{}, slice...)
 }
+
+func Reduce[I, O any](input []I, reducer func(I, O) O, initial O) O {
+	for _, i := range input {
+		initial = reducer(i, initial)
+	}
+	return initial
+}
