@@ -212,6 +212,8 @@ func (am AppModule) getAllContractInfo(ctx sdk.Context) []types.ContractInfo {
 func (am AppModule) BeginBlock(ctx sdk.Context, _ abci.RequestBeginBlock) {
 	// TODO (codchen): Revert before mainnet so we don't silently fail on errors
 	defer func() {
+		_, span := (*am.tracingInfo.Tracer).Start(am.tracingInfo.TracerContext, "DexEndBlockRollback")
+		defer span.End()
 		if err := recover(); err != nil {
 			ctx.Logger().Error(fmt.Sprintf("panic occurred in %s BeginBlock: %s", types.ModuleName, err))
 			telemetry.IncrCounterWithLabels(

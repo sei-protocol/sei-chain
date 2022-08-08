@@ -1,12 +1,14 @@
 package contract
 
 import (
+	"github.com/cosmos/cosmos-sdk/telemetry"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/sei-protocol/sei-chain/x/dex/keeper"
 	dexkeeperutils "github.com/sei-protocol/sei-chain/x/dex/keeper/utils"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
 	dextypesutils "github.com/sei-protocol/sei-chain/x/dex/types/utils"
 	dextypeswasm "github.com/sei-protocol/sei-chain/x/dex/types/wasm"
+	"time"
 )
 
 func HandleSettlements(
@@ -25,6 +27,8 @@ func setSettlementStates(
 	dexkeeper *keeper.Keeper,
 	settlementEntries []*types.SettlementEntry,
 ) {
+	executionStart := time.Now()
+	defer telemetry.ModuleSetGauge(types.ModuleName, float32(time.Now().Sub(executionStart).Milliseconds()), "set_settlement_states_ms")
 	_, currentEpoch := dexkeeper.IsNewEpoch(ctx)
 	settlementMap := map[dextypesutils.PairString]*types.Settlements{}
 	for _, settlementEntry := range settlementEntries {
@@ -43,7 +47,9 @@ func setSettlementStates(
 			}
 		}
 	}
-
+	// The size of this metric grows with # of contracts which shouldn't be too large.
+	// If # of contracts becomes large, we may need to disable this metric
+	telemetry.ModuleSetGauge(types.ModuleName, float32(len(settlementEntries)), contractAddr+"_settlement_size")
 	for _, settlements := range settlementMap {
 		if len(settlements.Entries) == 0 {
 			continue
