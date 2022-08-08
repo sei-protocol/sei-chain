@@ -17,7 +17,7 @@ import (
 func TestGetPlaceSudoMsg(t *testing.T) {
 	pair := types.Pair{PriceDenom: keepertest.TestPriceDenom, AssetDenom: keepertest.TestAssetDenom}
 	keeper, ctx := keepertest.DexKeeper(t)
-	keeper.MemState.GetBlockOrders(keepertest.TestContract, typesutils.GetPairString(&pair)).Add(
+	keeper.MemState.GetBlockOrders(ctx, keepertest.TestContract, typesutils.GetPairString(&pair)).Add(
 		&types.Order{
 			Id:                1,
 			Price:             sdk.OneDec(),
@@ -31,7 +31,7 @@ func TestGetPlaceSudoMsg(t *testing.T) {
 	)
 	wrapper := abci.KeeperWrapper{Keeper: keeper}
 	msgs := wrapper.GetPlaceSudoMsg(ctx, keepertest.TestContract, []types.Pair{pair})
-	require.Equal(t, 2, len(msgs))
+	require.Equal(t, 1, len(msgs))
 }
 
 func TestGetDepositSudoMsg(t *testing.T) {
@@ -43,7 +43,7 @@ func TestGetDepositSudoMsg(t *testing.T) {
 	bankkeeper.MintCoins(ctx, minttypes.ModuleName, amounts)
 	bankkeeper.SendCoinsFromModuleToAccount(ctx, minttypes.ModuleName, testAccount, amounts)
 	keeper := testApp.DexKeeper
-	keeper.MemState.GetDepositInfo(keepertest.TestContract).Add(
+	keeper.MemState.GetDepositInfo(ctx, keepertest.TestContract).Add(
 		&dex.DepositInfoEntry{
 			Creator: testAccount.String(),
 			Denom:   amounts[0].Denom,

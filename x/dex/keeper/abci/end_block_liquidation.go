@@ -19,7 +19,7 @@ func (w KeeperWrapper) HandleEBLiquidation(ctx context.Context, sdkCtx sdk.Conte
 	liquidationSpan.SetAttributes(attribute.String("contractAddr", contractAddr))
 
 	typedContractAddr := typesutils.ContractAddress(contractAddr)
-	msg := w.getLiquidationSudoMsg(typedContractAddr)
+	msg := w.getLiquidationSudoMsg(sdkCtx, typedContractAddr)
 	data, err := utils.CallContractSudo(sdkCtx, w.Keeper, contractAddr, msg)
 	if err != nil {
 		return err
@@ -38,14 +38,14 @@ func (w KeeperWrapper) HandleEBLiquidation(ctx context.Context, sdkCtx sdk.Conte
 	// Clear up all user-initiated order activities in the current block
 	for _, pair := range registeredPairs {
 		typedPairStr := typesutils.GetPairString(&pair) //nolint:gosec // USING THE POINTER HERE COULD BE BAD LET'S CHECK IT.
-		w.MemState.GetBlockCancels(typedContractAddr, typedPairStr).FilterByIds(liquidatedAccountsActiveOrderIds)
-		w.MemState.GetBlockOrders(typedContractAddr, typedPairStr).MarkFailedToPlaceByAccounts(response.SuccessfulAccounts)
+		w.MemState.GetBlockCancels(sdkCtx, typedContractAddr, typedPairStr).FilterByIds(liquidatedAccountsActiveOrderIds)
+		w.MemState.GetBlockOrders(sdkCtx, typedContractAddr, typedPairStr).MarkFailedToPlaceByAccounts(response.SuccessfulAccounts)
 	}
 	// Cancel all outstanding orders of liquidated accounts, as denoted as cancelled via liquidation
 	for id, order := range w.GetOrdersByIds(sdkCtx, contractAddr, liquidatedAccountsActiveOrderIds) {
 		pair := types.Pair{PriceDenom: order.PriceDenom, AssetDenom: order.AssetDenom}
 		typedPairStr := typesutils.GetPairString(&pair)
-		w.MemState.GetBlockCancels(typedContractAddr, typedPairStr).Add(&types.Cancellation{
+		w.MemState.GetBlockCancels(sdkCtx, typedContractAddr, typedPairStr).Add(&types.Cancellation{
 			Id:        id,
 			Initiator: types.CancellationInitiator_LIQUIDATED,
 		})
@@ -60,21 +60,21 @@ func (w KeeperWrapper) HandleEBLiquidation(ctx context.Context, sdkCtx sdk.Conte
 
 func (w KeeperWrapper) PlaceLiquidationOrders(ctx sdk.Context, contractAddr string, liquidationOrders []types.Order) {
 	ctx.Logger().Info("Placing liquidation orders...")
-	nextID := w.GetNextOrderID(ctx)
+	nextID := w.GetNextOrderID(ctx, contractAddr)
 	for _, order := range liquidationOrders {
 		ctx.Logger().Info(fmt.Sprintf("Liquidation order %s", order.String()))
 		pair := types.Pair{PriceDenom: order.PriceDenom, AssetDenom: order.AssetDenom}
-		orders := w.MemState.GetBlockOrders(typesutils.ContractAddress(contractAddr), typesutils.GetPairString(&pair))
+		orders := w.MemState.GetBlockOrders(ctx, typesutils.ContractAddress(contractAddr), typesutils.GetPairString(&pair))
 		order.Id = nextID
 		orderCopy := order
 		orders.Add(&orderCopy)
 		nextID++
 	}
-	w.SetNextOrderID(ctx, nextID)
+	w.SetNextOrderID(ctx, contractAddr, nextID)
 }
 
-func (w KeeperWrapper) getLiquidationSudoMsg(typedContractAddr typesutils.ContractAddress) wasm.SudoLiquidationMsg {
-	cachedLiquidationRequests := w.MemState.GetLiquidationRequests(typedContractAddr)
+func (w KeeperWrapper) getLiquidationSudoMsg(ctx sdk.Context, typedContractAddr typesutils.ContractAddress) wasm.SudoLiquidationMsg {
+	cachedLiquidationRequests := w.MemState.GetLiquidationRequests(ctx, typedContractAddr)
 	liquidationRequests := []wasm.LiquidationRequest{}
 	for _, cachedLiquidationRequest := range cachedLiquidationRequests.Get() {
 		liquidationRequests = append(liquidationRequests, wasm.LiquidationRequest{

@@ -18,5 +18,5 @@ func TestPlaceLiquidationOrders(t *testing.T) {
 	}
 	wrapper := abci.KeeperWrapper{Keeper: keeper}
 	wrapper.PlaceLiquidationOrders(ctx, keepertest.TestContract, []types.Order{liquidationOrder})
-	require.Equal(t, 1, len(keeper.MemState.GetBlockOrders(typesutils.ContractAddress(keepertest.TestContract), typesutils.GetPairString(&keepertest.TestPair)).Get()))
+	require.Equal(t, 1, len(keeper.MemState.GetBlockOrders(ctx, typesutils.ContractAddress(keepertest.TestContract), typesutils.GetPairString(&keepertest.TestPair)).Get()))
 }

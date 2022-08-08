@@ -1,10 +1,15 @@
 package contract
 
 import (
+	"fmt"
+	"sync"
+
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"go.opentelemetry.io/otel/attribute"
 	otrace "go.opentelemetry.io/otel/trace"
 
+	"github.com/sei-protocol/sei-chain/store/whitelist/multi"
+	"github.com/sei-protocol/sei-chain/utils"
 	dexcache "github.com/sei-protocol/sei-chain/x/dex/cache"
 	"github.com/sei-protocol/sei-chain/x/dex/exchange"
 	"github.com/sei-protocol/sei-chain/x/dex/keeper"
@@ -83,7 +88,7 @@ func cancelForPair(
 	dexkeeper *keeper.Keeper,
 	orderbook *types.OrderBook,
 ) {
-	cancels := dexkeeper.MemState.GetBlockCancels(typedContractAddr, typedPairStr)
+	cancels := dexkeeper.MemState.GetBlockCancels(ctx, typedContractAddr, typedPairStr)
 	originalOrdersToCancel := dexkeeper.GetOrdersByIds(ctx, string(typedContractAddr), cancels.GetIdsToCancel())
 	exchange.CancelOrders(cancels.Get(), orderbook, originalOrdersToCancel)
 }
@@ -95,7 +100,7 @@ func matchMarketOrderForPair(
 	dexkeeper *keeper.Keeper,
 	orderbook *types.OrderBook,
 ) exchange.ExecutionOutcome {
-	orders := dexkeeper.MemState.GetBlockOrders(typedContractAddr, typedPairStr)
+	orders := dexkeeper.MemState.GetBlockOrders(ctx, typedContractAddr, typedPairStr)
 	marketBuys := orders.GetSortedMarketOrders(types.PositionDirection_LONG, true)
 	marketSells := orders.GetSortedMarketOrders(types.PositionDirection_SHORT, true)
 	marketBuyOutcome := exchange.MatchMarketOrders(
@@ -120,7 +125,7 @@ func matchLimitOrderForPair(
 	dexkeeper *keeper.Keeper,
 	orderbook *types.OrderBook,
 ) exchange.ExecutionOutcome {
-	orders := dexkeeper.MemState.GetBlockOrders(typedContractAddr, typedPairStr)
+	orders := dexkeeper.MemState.GetBlockOrders(ctx, typedContractAddr, typedPairStr)
 	limitBuys := orders.GetLimitOrders(types.PositionDirection_LONG)
 	limitSells := orders.GetLimitOrders(types.PositionDirection_SHORT)
 	return exchange.MatchLimitOrders(
@@ -138,8 +143,8 @@ func UpdateOrderState(
 	dexkeeper *keeper.Keeper,
 	settlements []*types.SettlementEntry,
 ) {
-	orders := dexkeeper.MemState.GetBlockOrders(typedContractAddr, typedPairStr)
-	cancels := dexkeeper.MemState.GetBlockCancels(typedContractAddr, typedPairStr)
+	orders := dexkeeper.MemState.GetBlockOrders(ctx, typedContractAddr, typedPairStr)
+	cancels := dexkeeper.MemState.GetBlockCancels(ctx, typedContractAddr, typedPairStr)
 	// First add any new order, whether successfully placed or not, to the store
 	for _, order := range orders.Get() {
 		if order.Quantity.IsZero() {
@@ -160,19 +165,20 @@ func UpdateOrderState(
 		}
 	}
 	// Finally update market order status based on execution result
-	for _, marketOrderID := range getUnfulfilledPlacedMarketOrderIds(typedContractAddr, typedPairStr, dexkeeper) {
+	for _, marketOrderID := range getUnfulfilledPlacedMarketOrderIds(ctx, typedContractAddr, typedPairStr, dexkeeper) {
 		dexkeeper.UpdateOrderStatus(ctx, string(typedContractAddr), marketOrderID, types.OrderStatus_CANCELLED)
 	}
 }
 
 func PrepareCancelUnfulfilledMarketOrders(
+	ctx sdk.Context,
 	typedContractAddr dextypesutils.ContractAddress,
 	typedPairStr dextypesutils.PairString,
 	dexkeeper *keeper.Keeper,
 ) {
-	dexkeeper.MemState.ClearCancellationForPair(typedContractAddr, typedPairStr)
-	for _, marketOrderID := range getUnfulfilledPlacedMarketOrderIds(typedContractAddr, typedPairStr, dexkeeper) {
-		dexkeeper.MemState.GetBlockCancels(typedContractAddr, typedPairStr).Add(&types.Cancellation{
+	dexkeeper.MemState.ClearCancellationForPair(ctx, typedContractAddr, typedPairStr)
+	for _, marketOrderID := range getUnfulfilledPlacedMarketOrderIds(ctx, typedContractAddr, typedPairStr, dexkeeper) {
+		dexkeeper.MemState.GetBlockCancels(ctx, typedContractAddr, typedPairStr).Add(&types.Cancellation{
 			Id:        marketOrderID,
 			Initiator: types.CancellationInitiator_USER,
 		})
@@ -180,12 +186,13 @@ func PrepareCancelUnfulfilledMarketOrders(
 }
 
 func getUnfulfilledPlacedMarketOrderIds(
+	ctx sdk.Context,
 	typedContractAddr dextypesutils.ContractAddress,
 	typedPairStr dextypesutils.PairString,
 	dexkeeper *keeper.Keeper,
 ) []uint64 {
 	res := []uint64{}
-	for _, order := range dexkeeper.MemState.GetBlockOrders(typedContractAddr, typedPairStr).Get() {
+	for _, order := range dexkeeper.MemState.GetBlockOrders(ctx, typedContractAddr, typedPairStr).Get() {
 		if order.Status == types.OrderStatus_FAILED_TO_PLACE {
 			continue
 		}
@@ -198,6 +205,49 @@ func getUnfulfilledPlacedMarketOrderIds(
 	return res
 }
 
+func ExecutePairsInParallel(ctx sdk.Context, contractAddr string, dexkeeper *keeper.Keeper) ([]func(), []*types.SettlementEntry) {
+	typedContractAddr := dextypesutils.ContractAddress(contractAddr)
+	registeredPairs := dexkeeper.GetAllRegisteredPairs(ctx, contractAddr)
+	orderUpdaters := []func(){}
+	settlements := []*types.SettlementEntry{}
+
+	mu := sync.Mutex{}
+	wg := sync.WaitGroup{}
+	anyPanicked := false
+
+	for _, pair := range registeredPairs {
+		wg.Add(1)
+
+		pair := pair
+		pairCtx := ctx.WithMultiStore(multi.NewStore(ctx.MultiStore(), GetPerPairWhitelistMap(contractAddr, pair)))
+		go func() {
+			defer wg.Done()
+			defer utils.PanicHandler(func(err any) {
+				anyPanicked = true
+				utils.MetricsPanicCallback(err, ctx, fmt.Sprintf("%s-%s|%s", contractAddr, pair.PriceDenom, pair.AssetDenom))
+			})()
+
+			pairCopy := pair
+			pairSettlements := ExecutePair(pairCtx, contractAddr, pair, dexkeeper)
+			PrepareCancelUnfulfilledMarketOrders(pairCtx, typedContractAddr, dextypesutils.GetPairString(&pairCopy), dexkeeper)
+
+			mu.Lock()
+			defer mu.Unlock()
+			orderUpdaters = append(orderUpdaters, func() {
+				UpdateOrderState(ctx, typedContractAddr, dextypesutils.GetPairString(&pairCopy), dexkeeper, pairSettlements)
+			})
+			settlements = append(settlements, pairSettlements...)
+		}()
+	}
+	wg.Wait()
+	if anyPanicked {
+		// need to re-throw panic to the top level goroutine
+		panic("panicked during pair execution")
+	}
+
+	return orderUpdaters, settlements
+}
+
 func HandleExecutionForContract(
 	ctx sdk.Context,
 	contract types.ContractInfo,
@@ -206,21 +256,17 @@ func HandleExecutionForContract(
 ) (map[string]dextypeswasm.ContractOrderResult, []*types.SettlementEntry, error) {
 	contractAddr := contract.ContractAddr
 	typedContractAddr := dextypesutils.ContractAddress(contractAddr)
-	registeredPairs := dexkeeper.GetAllRegisteredPairs(ctx, contractAddr)
 	orderResults := map[string]dextypeswasm.ContractOrderResult{}
-	settlements := []*types.SettlementEntry{}
+
 	// Call contract hooks so that contracts can do internal bookkeeping
 	if err := CallPreExecutionHooks(ctx, contractAddr, dexkeeper, tracer); err != nil {
-		return orderResults, settlements, err
+		return orderResults, []*types.SettlementEntry{}, err
 	}
 
-	for _, pair := range registeredPairs {
-		pairCopy := pair
-		pairSettlements := ExecutePair(ctx, contractAddr, pair, dexkeeper)
-		UpdateOrderState(ctx, typedContractAddr, dextypesutils.GetPairString(&pairCopy), dexkeeper, pairSettlements)
-		PrepareCancelUnfulfilledMarketOrders(typedContractAddr, dextypesutils.GetPairString(&pairCopy), dexkeeper)
+	orderUpdaters, settlements := ExecutePairsInParallel(ctx, contractAddr, dexkeeper)
 
-		settlements = append(settlements, pairSettlements...)
+	for _, orderUpdater := range orderUpdaters {
+		orderUpdater()
 	}
 	// Cancel unfilled market orders
 	if err := CancelUnfulfilledMarketOrders(ctx, contractAddr, dexkeeper, tracer); err != nil {
@@ -228,12 +274,9 @@ func HandleExecutionForContract(
 	}
 
 	// populate order placement results for FinalizeBlock hook
-	contractOrdersMap, ok := dexkeeper.MemState.BlockOrders.Load(typedContractAddr)
-	if ok {
-		contractOrdersMap.DeepApply(func(orders *dexcache.BlockOrders) {
-			dextypeswasm.PopulateOrderPlacementResults(contractAddr, orders.Get(), orderResults)
-		})
-	}
+	dexkeeper.MemState.GetAllBlockOrders(ctx, typedContractAddr).DeepApply(func(orders *dexcache.BlockOrders) {
+		dextypeswasm.PopulateOrderPlacementResults(contractAddr, orders.Get(), orderResults)
+	})
 	dextypeswasm.PopulateOrderExecutionResults(contractAddr, settlements, orderResults)
 	return orderResults, settlements, nil
 }
