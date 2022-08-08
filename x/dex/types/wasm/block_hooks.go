@@ -1,8 +1,10 @@
 package wasm
 
 import (
+	"github.com/cosmos/cosmos-sdk/telemetry"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
+	"time"
 )
 
 type SudoNewBlockMsg struct {
@@ -50,6 +52,8 @@ func NewContractOrderResult(contractAddr string) ContractOrderResult {
 }
 
 func PopulateOrderPlacementResults(contractAddr string, orders []*types.Order, resultMap map[string]ContractOrderResult) {
+	executionStart := time.Now()
+	defer telemetry.ModuleSetGauge(types.ModuleName, float32(time.Now().Sub(executionStart).Milliseconds()), "populate_order_placement_results_ms")
 	for _, order := range orders {
 		if _, ok := resultMap[order.Account]; !ok {
 			resultMap[order.Account] = NewContractOrderResult(contractAddr)
@@ -65,6 +69,8 @@ func PopulateOrderPlacementResults(contractAddr string, orders []*types.Order, r
 }
 
 func PopulateOrderExecutionResults(contractAddr string, settlements []*types.SettlementEntry, resultMap map[string]ContractOrderResult) {
+	executionStart := time.Now()
+	defer telemetry.ModuleSetGauge(types.ModuleName, float32(time.Now().Sub(executionStart).Milliseconds()), "populate_order_execution_results_ms")
 	for _, settlement := range settlements {
 		if _, ok := resultMap[settlement.Account]; !ok {
 			resultMap[settlement.Account] = NewContractOrderResult(contractAddr)

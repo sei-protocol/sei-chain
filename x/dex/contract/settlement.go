@@ -28,8 +28,10 @@ func setSettlementStates(
 	settlementEntries []*types.SettlementEntry,
 ) {
 	executionStart := time.Now()
+	defer telemetry.ModuleSetGauge(types.ModuleName, float32(time.Now().Sub(executionStart).Milliseconds()), "set_settlement_states_ms")
 	_, currentEpoch := dexkeeper.IsNewEpoch(ctx)
 	settlementMap := map[dextypesutils.PairString]*types.Settlements{}
+	telemetry.ModuleSetGauge(types.ModuleName, float32(len(settlementEntries)), "settlement_entries")
 	for _, settlementEntry := range settlementEntries {
 		priceDenom := settlementEntry.PriceDenom
 		assetDenom := settlementEntry.AssetDenom
@@ -53,7 +55,6 @@ func setSettlementStates(
 		}
 		dexkeeper.SetSettlements(ctx, contractAddr, settlements.Entries[0].PriceDenom, settlements.Entries[0].AssetDenom, *settlements)
 	}
-	telemetry.ModuleSetGauge(types.ModuleName, float32(time.Now().Sub(executionStart).Milliseconds()), "set_settlement_states_ms")
 }
 
 func callSettlementHook(

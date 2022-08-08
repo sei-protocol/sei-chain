@@ -23,6 +23,8 @@ func CallPreExecutionHooks(
 	dexkeeper *keeper.Keeper,
 	tracer *otrace.Tracer,
 ) error {
+	executionStart := time.Now()
+	defer telemetry.ModuleSetGauge(types.ModuleName, float32(time.Now().Sub(executionStart).Milliseconds()), "call_pre_exec_hooks_ms")
 	spanCtx, span := (*tracer).Start(ctx.Context(), "PreExecutionHooks")
 	span.SetAttributes(attribute.String("contract", contractAddr))
 	defer span.End()
@@ -46,6 +48,8 @@ func CancelUnfulfilledMarketOrders(
 	dexkeeper *keeper.Keeper,
 	tracer *otrace.Tracer,
 ) error {
+	executionStart := time.Now()
+	defer telemetry.ModuleSetGauge(types.ModuleName, float32(time.Now().Sub(executionStart).Milliseconds()), "cancel_unfulfilled_market_orders_ms")
 	spanCtx, span := (*tracer).Start(ctx.Context(), "CancelUnfulfilledMarketOrders")
 	span.SetAttributes(attribute.String("contract", contractAddr))
 	defer span.End()
@@ -140,6 +144,8 @@ func UpdateOrderState(
 	dexkeeper *keeper.Keeper,
 	settlements []*types.SettlementEntry,
 ) {
+	executionStart := time.Now()
+	defer telemetry.ModuleSetGauge(types.ModuleName, float32(time.Now().Sub(executionStart).Milliseconds()), "update_order_state_ms")
 	orders := dexkeeper.MemState.GetBlockOrders(typedContractAddr, typedPairStr)
 	cancels := dexkeeper.MemState.GetBlockCancels(typedContractAddr, typedPairStr)
 	// First add any new order, whether successfully placed or not, to the store
@@ -172,6 +178,8 @@ func PrepareCancelUnfulfilledMarketOrders(
 	typedPairStr dextypesutils.PairString,
 	dexkeeper *keeper.Keeper,
 ) {
+	executionStart := time.Now()
+	defer telemetry.ModuleSetGauge(types.ModuleName, float32(time.Now().Sub(executionStart).Milliseconds()), "prepare_cancel_unfulfilled_market_orders_ms")
 	dexkeeper.MemState.ClearCancellationForPair(typedContractAddr, typedPairStr)
 	for _, marketOrderID := range getUnfulfilledPlacedMarketOrderIds(typedContractAddr, typedPairStr, dexkeeper) {
 		dexkeeper.MemState.GetBlockCancels(typedContractAddr, typedPairStr).Add(&types.Cancellation{
@@ -207,6 +215,7 @@ func HandleExecutionForContract(
 	tracer *otrace.Tracer,
 ) (map[string]dextypeswasm.ContractOrderResult, []*types.SettlementEntry, error) {
 	executionStart := time.Now()
+	defer telemetry.ModuleSetGauge(types.ModuleName, float32(time.Now().Sub(executionStart).Milliseconds()), "handle_execution_for_contract_ms")
 	contractAddr := contract.ContractAddr
 	typedContractAddr := dextypesutils.ContractAddress(contractAddr)
 	registeredPairs := dexkeeper.GetAllRegisteredPairs(ctx, contractAddr)
@@ -238,6 +247,5 @@ func HandleExecutionForContract(
 		})
 	}
 	dextypeswasm.PopulateOrderExecutionResults(contractAddr, settlements, orderResults)
-	telemetry.ModuleSetGauge(types.ModuleName, float32(time.Now().Sub(executionStart).Milliseconds()), "handle_execution_for_contract_ms")
 	return orderResults, settlements, nil
 }
