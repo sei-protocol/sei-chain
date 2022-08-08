@@ -1,6 +1,8 @@
 package contract
 
 import (
+	"time"
+
 	"github.com/cosmos/cosmos-sdk/telemetry"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/sei-protocol/sei-chain/x/dex/keeper"
@@ -8,7 +10,6 @@ import (
 	"github.com/sei-protocol/sei-chain/x/dex/types"
 	dextypesutils "github.com/sei-protocol/sei-chain/x/dex/types/utils"
 	dextypeswasm "github.com/sei-protocol/sei-chain/x/dex/types/wasm"
-	"time"
 )
 
 func HandleSettlements(

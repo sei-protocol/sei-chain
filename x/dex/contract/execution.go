@@ -2,9 +2,10 @@ package contract
 
 import (
 	"fmt"
-	"github.com/cosmos/cosmos-sdk/telemetry"
 	"sync"
 	"time"
+
+	"github.com/cosmos/cosmos-sdk/telemetry"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"go.opentelemetry.io/otel/attribute"
