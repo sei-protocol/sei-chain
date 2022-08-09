@@ -567,6 +567,7 @@ func New(
 	// CanWithdrawInvariant invariant.
 	// NOTE: staking module is required if HistoricalEntries param > 0
 	app.mm.SetOrderBeginBlockers(
+		epochmoduletypes.ModuleName,
 		upgradetypes.ModuleName,
 		capabilitytypes.ModuleName,
 		minttypes.ModuleName,
@@ -585,7 +586,6 @@ func New(
 		ibchost.ModuleName,
 		ibctransfertypes.ModuleName,
 		oracletypes.ModuleName,
-		epochmoduletypes.ModuleName,
 		dexmoduletypes.ModuleName,
 		wasm.ModuleName,
 		tokenfactorytypes.ModuleName,
