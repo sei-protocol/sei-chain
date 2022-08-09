@@ -48,6 +48,8 @@ import (
 // 4. A -> C : sender chain is sink zone. Denom upon receiving: 'C/B/denom'
 // 5. C -> B : sender chain is sink zone. Denom upon receiving: 'B/denom'
 // 6. B -> A : sender chain is sink zone. Denom upon receiving: 'denom'
+//
+// Note: An IBC Transfer must be initiated using a MsgTransfer via the Transfer rpc handler
 func (k Keeper) SendTransfer(
 	ctx sdk.Context,
 	sourcePort,
@@ -61,6 +63,10 @@ func (k Keeper) SendTransfer(
 
 	if !k.GetSendEnabled(ctx) {
 		return types.ErrSendDisabled
+	}
+
+	if k.bankKeeper.BlockedAddr(sender) {
+		return sdkerrors.Wrapf(sdkerrors.ErrUnauthorized, "%s is not allowed to send funds", sender)
 	}
 
 	sourceChannelEnd, found := k.channelKeeper.GetChannel(ctx, sourcePort, sourceChannel)
