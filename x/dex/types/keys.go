@@ -104,6 +104,13 @@ func NextOrderIDPrefix(contractAddr string) []byte {
 	return append(KeyPrefix(NextOrderIDKey), KeyPrefix(contractAddr)...)
 }
 
+func NextSettlementIDPrefix(contractAddr string, priceDenom string, assetDenom string) []byte {
+	return append(
+		append(KeyPrefix(NextSettlementIDKey), KeyPrefix(contractAddr)...),
+		PairPrefix(priceDenom, assetDenom)...,
+	)
+}
+
 const (
 	DefaultPriceDenom = "stake"
 	DefaultAssetDenom = "dummy"
@@ -121,6 +128,7 @@ const (
 	TwapKey             = "TWAP-"
 	PriceKey            = "Price-"
 	SettlementEntryKey  = "SettlementEntry-"
+	NextSettlementIDKey = "NextSettlementID-"
 	NextOrderIDKey      = "noid"
 	RegisteredPairKey   = "rp"
 	RegisteredPairCount = "rpcnt"

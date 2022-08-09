@@ -38,10 +38,12 @@ func TestSetSettlements(t *testing.T) {
 		},
 	}
 	keeper.SetSettlements(ctx, keepertest.TestContract, keepertest.TestPriceDenom, keepertest.TestAssetDenom, settlements)
-	settlementsOrder1, found := keeper.GetSettlementsState(ctx, keepertest.TestContract, keepertest.TestPriceDenom, keepertest.TestAssetDenom, "abc", 1)
-	require.True(t, found)
+	settlementsOrder1 := keeper.GetSettlementsState(ctx, keepertest.TestContract, keepertest.TestPriceDenom, keepertest.TestAssetDenom, "abc", 1)
 	require.Equal(t, 1, len(settlementsOrder1.Entries))
-	settlementsOrder2, found := keeper.GetSettlementsState(ctx, keepertest.TestContract, keepertest.TestPriceDenom, keepertest.TestAssetDenom, "def", 2)
-	require.True(t, found)
+	settlementsOrder2 := keeper.GetSettlementsState(ctx, keepertest.TestContract, keepertest.TestPriceDenom, keepertest.TestAssetDenom, "def", 2)
 	require.Equal(t, 1, len(settlementsOrder2.Entries))
+	nextSettlementID1 := keeper.GetNextSettlementID(ctx, keepertest.TestContract, keepertest.TestPriceDenom, keepertest.TestAssetDenom, 1)
+	require.Equal(t, uint64(1), nextSettlementID1)
+	nextSettlementID2 := keeper.GetNextSettlementID(ctx, keepertest.TestContract, keepertest.TestPriceDenom, keepertest.TestAssetDenom, 2)
+	require.Equal(t, uint64(1), nextSettlementID2)
 }

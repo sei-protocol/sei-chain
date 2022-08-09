@@ -4,7 +4,6 @@ import (
 	"testing"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
-	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -37,9 +36,9 @@ func TestSettlementsQuerySingle(t *testing.T) {
 			response: &types.QueryGetSettlementsResponse{Settlements: msgs[1]},
 		},
 		{
-			desc:    "KeyNotFound",
-			request: &types.QueryGetSettlementsRequest{ContractAddr: keepertest.TestContract, PriceDenom: "btc", AssetDenom: "sei", OrderId: 2, Account: "test_account2"},
-			err:     sdkerrors.ErrKeyNotFound,
+			desc:     "Empty",
+			request:  &types.QueryGetSettlementsRequest{ContractAddr: keepertest.TestContract, PriceDenom: "btc", AssetDenom: "sei", OrderId: 2, Account: "test_account2"},
+			response: &types.QueryGetSettlementsResponse{Settlements: types.Settlements{}},
 		},
 		{
 			desc: "InvalidRequest",

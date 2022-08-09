@@ -4,7 +4,6 @@ import (
 	"context"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
-	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -19,10 +18,7 @@ func (k KeeperWrapper) GetSettlements(c context.Context, req *types.QueryGetSett
 
 	ctx := sdk.UnwrapSDKContext(c)
 
-	settlements, found := k.GetSettlementsState(ctx, req.ContractAddr, req.PriceDenom, req.AssetDenom, req.Account, req.OrderId)
-	if !found {
-		return &types.QueryGetSettlementsResponse{}, sdkerrors.ErrKeyNotFound
-	}
+	settlements := k.GetSettlementsState(ctx, req.ContractAddr, req.PriceDenom, req.AssetDenom, req.Account, req.OrderId)
 
 	return &types.QueryGetSettlementsResponse{Settlements: settlements}, nil
 }
