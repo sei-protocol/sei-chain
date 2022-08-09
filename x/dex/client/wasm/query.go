@@ -34,3 +34,9 @@ func (handler DexWasmQueryHandler) GetOrderByID(ctx sdk.Context, req *types.Quer
 	wrapper := query.KeeperWrapper{Keeper: &handler.dexKeeper}
 	return wrapper.GetOrder(c, req)
 }
+
+func (handler DexWasmQueryHandler) GetOrderSimulation(ctx sdk.Context, req *types.QueryOrderSimulationRequest) (*types.QueryOrderSimulationResponse, error) {
+	c := sdk.WrapSDKContext(ctx)
+	wrapper := query.KeeperWrapper{Keeper: &handler.dexKeeper}
+	return wrapper.GetOrderSimulation(c, req)
+}

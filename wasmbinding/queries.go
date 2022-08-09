@@ -101,6 +101,17 @@ func (qp QueryPlugin) HandleDexQuery(ctx sdk.Context, queryData json.RawMessage)
 		}
 
 		return bz, nil
+	case parsedQuery.GetOrderSimulation != nil:
+		res, err := qp.dexHandler.GetOrderSimulation(ctx, parsedQuery.GetOrderSimulation)
+		if err != nil {
+			return nil, sdkerrors.Wrap(err, "Error while getting order simulation")
+		}
+		bz, err := json.Marshal(res)
+		if err != nil {
+			return nil, sdkerrors.Wrap(err, "Error encoding order as JSON")
+		}
+
+		return bz, nil
 	default:
 		return nil, wasmvmtypes.UnsupportedRequest{Kind: "Unknown Sei Dex Query"}
 	}
