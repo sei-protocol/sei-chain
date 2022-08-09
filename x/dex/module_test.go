@@ -131,8 +131,7 @@ func TestEndBlockMarketOrder(t *testing.T) {
 	require.Equal(t, types.OrderStatus_FULFILLED, marketOrder.Status)
 	require.True(t, marketOrder.Quantity.IsZero())
 
-	settlements, found := dexkeeper.GetSettlementsState(ctx, contractAddr.String(), pair.PriceDenom, pair.AssetDenom, testAccount.String(), 2)
-	require.True(t, found)
+	settlements := dexkeeper.GetSettlementsState(ctx, contractAddr.String(), pair.PriceDenom, pair.AssetDenom, testAccount.String(), 2)
 	require.Equal(t, 1, len(settlements.Entries))
 
 	dexkeeper.MemState.Clear()
