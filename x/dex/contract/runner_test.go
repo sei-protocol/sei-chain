@@ -11,8 +11,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-var counter int64 = 0
-var dependencyCheck = sync.Map{}
+var (
+	counter         int64 = 0
+	dependencyCheck       = sync.Map{}
+)
 
 func noopRunnable(_ types.ContractInfo) {
 	atomic.AddInt64(&counter, 1)
