@@ -3,6 +3,9 @@ package contract
 import (
 	"fmt"
 	"sync"
+	"time"
+
+	"github.com/cosmos/cosmos-sdk/telemetry"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"go.opentelemetry.io/otel/attribute"
@@ -254,6 +257,8 @@ func HandleExecutionForContract(
 	dexkeeper *keeper.Keeper,
 	tracer *otrace.Tracer,
 ) (map[string]dextypeswasm.ContractOrderResult, []*types.SettlementEntry, error) {
+	executionStart := time.Now()
+	defer telemetry.ModuleSetGauge(types.ModuleName, float32(time.Since(executionStart).Milliseconds()), "handle_execution_for_contract_ms")
 	contractAddr := contract.ContractAddr
 	typedContractAddr := dextypesutils.ContractAddress(contractAddr)
 	orderResults := map[string]dextypeswasm.ContractOrderResult{}
