@@ -1,16 +1,15 @@
 package contract
 
 import (
+	"context"
 	"fmt"
+	otrace "go.opentelemetry.io/otel/trace"
 	"sync"
 	"time"
 
 	"github.com/cosmos/cosmos-sdk/telemetry"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
-	"go.opentelemetry.io/otel/attribute"
-	otrace "go.opentelemetry.io/otel/trace"
-
 	"github.com/sei-protocol/sei-chain/store/whitelist/multi"
 	"github.com/sei-protocol/sei-chain/utils"
 	dexcache "github.com/sei-protocol/sei-chain/x/dex/cache"
@@ -21,6 +20,7 @@ import (
 	"github.com/sei-protocol/sei-chain/x/dex/types"
 	dextypesutils "github.com/sei-protocol/sei-chain/x/dex/types/utils"
 	dextypeswasm "github.com/sei-protocol/sei-chain/x/dex/types/wasm"
+	"go.opentelemetry.io/otel/attribute"
 )
 
 func CallPreExecutionHooks(
@@ -28,10 +28,11 @@ func CallPreExecutionHooks(
 	contractAddr string,
 	dexkeeper *keeper.Keeper,
 	tracer *otrace.Tracer,
+	parentSpanCtx context.Context,
 ) error {
-	spanCtx, span := (*tracer).Start(ctx.Context(), "PreExecutionHooks")
-	span.SetAttributes(attribute.String("contract", contractAddr))
+	spanCtx, span := (*tracer).Start(parentSpanCtx, "PreExecutionHooks")
 	defer span.End()
+	span.SetAttributes(attribute.String("contract", contractAddr))
 	abciWrapper := dexkeeperabci.KeeperWrapper{Keeper: dexkeeper}
 	registeredPairs := dexkeeper.GetAllRegisteredPairs(ctx, contractAddr)
 	if err := abciWrapper.HandleEBLiquidation(spanCtx, ctx, tracer, contractAddr, registeredPairs); err != nil {
@@ -51,8 +52,9 @@ func CancelUnfulfilledMarketOrders(
 	contractAddr string,
 	dexkeeper *keeper.Keeper,
 	tracer *otrace.Tracer,
+	parentSpanCtx context.Context,
 ) error {
-	spanCtx, span := (*tracer).Start(ctx.Context(), "CancelUnfulfilledMarketOrders")
+	spanCtx, span := (*tracer).Start(parentSpanCtx, "CancelUnfulfilledMarketOrders")
 	span.SetAttributes(attribute.String("contract", contractAddr))
 	defer span.End()
 	abciWrapper := dexkeeperabci.KeeperWrapper{Keeper: dexkeeper}
@@ -256,6 +258,7 @@ func HandleExecutionForContract(
 	contract types.ContractInfo,
 	dexkeeper *keeper.Keeper,
 	tracer *otrace.Tracer,
+	spanCtx context.Context,
 ) (map[string]dextypeswasm.ContractOrderResult, []*types.SettlementEntry, error) {
 	executionStart := time.Now()
 	defer telemetry.ModuleSetGauge(types.ModuleName, float32(time.Since(executionStart).Milliseconds()), "handle_execution_for_contract_ms")
@@ -264,7 +267,7 @@ func HandleExecutionForContract(
 	orderResults := map[string]dextypeswasm.ContractOrderResult{}
 
 	// Call contract hooks so that contracts can do internal bookkeeping
-	if err := CallPreExecutionHooks(ctx, contractAddr, dexkeeper, tracer); err != nil {
+	if err := CallPreExecutionHooks(ctx, contractAddr, dexkeeper, tracer, spanCtx); err != nil {
 		return orderResults, []*types.SettlementEntry{}, err
 	}
 
@@ -274,7 +277,7 @@ func HandleExecutionForContract(
 		orderUpdater()
 	}
 	// Cancel unfilled market orders
-	if err := CancelUnfulfilledMarketOrders(ctx, contractAddr, dexkeeper, tracer); err != nil {
+	if err := CancelUnfulfilledMarketOrders(ctx, contractAddr, dexkeeper, tracer, spanCtx); err != nil {
 		return orderResults, settlements, err
 	}
 

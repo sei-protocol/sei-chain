@@ -19,14 +19,18 @@ import (
 const MaxOrdersPerSudoCall = 50000
 
 func (w KeeperWrapper) HandleEBPlaceOrders(ctx context.Context, sdkCtx sdk.Context, tracer *otrace.Tracer, contractAddr string, registeredPairs []types.Pair) error {
-	_, span := (*tracer).Start(ctx, "SudoPlaceOrders")
+	spanCtx, span := (*tracer).Start(ctx, "SudoPlaceOrders")
 	span.SetAttributes(attribute.String("contractAddr", contractAddr))
+	defer span.End()
 
 	typedContractAddr := typesutils.ContractAddress(contractAddr)
 	msgs := w.GetPlaceSudoMsg(sdkCtx, typedContractAddr, registeredPairs)
 
 	responses := []wasm.SudoOrderPlacementResponse{}
+
+	fmt.Println("Num messages: ", len(msgs))
 	for _, msg := range msgs {
+		_, span := (*tracer).Start(spanCtx, "CallContractSudo")
 		data, err := utils.CallContractSudo(sdkCtx, w.Keeper, contractAddr, msg)
 		if err != nil {
 			sdkCtx.Logger().Error(fmt.Sprintf("Error during order placement: %s", err.Error()))
@@ -39,15 +43,18 @@ func (w KeeperWrapper) HandleEBPlaceOrders(ctx context.Context, sdkCtx sdk.Conte
 		}
 		sdkCtx.Logger().Info(fmt.Sprintf("Sudo response data: %s", response))
 		responses = append(responses, response)
+		span.End()
 	}
 
+	fmt.Println("Num responses: ", len(responses))
 	for _, pair := range registeredPairs {
 		typedPairStr := typesutils.GetPairString(&pair) //nolint:gosec // USING THE POINTER HERE COULD BE BAD, LET'S CHECK IT.
 		for _, response := range responses {
+			_, span := (*tracer).Start(spanCtx, "GetBlockOrders")
 			w.MemState.GetBlockOrders(sdkCtx, typedContractAddr, typedPairStr).MarkFailedToPlace(response.UnsuccessfulOrders)
+			span.End()
 		}
 	}
-	span.End()
 	return nil
 }
 
