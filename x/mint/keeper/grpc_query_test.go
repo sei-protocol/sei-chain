@@ -4,8 +4,6 @@ import (
 	gocontext "context"
 	"testing"
 
-	"github.com/sei-protocol/sei-chain/x/mint/keeper"
-
 	"github.com/sei-protocol/sei-chain/app"
 
 	"github.com/stretchr/testify/suite"
@@ -29,8 +27,7 @@ func (suite *MintTestSuite) SetupTest() {
 	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
 
 	queryHelper := baseapp.NewQueryServerTestHelper(ctx, app.InterfaceRegistry())
-
-	types.RegisterQueryServer(queryHelper, keeper.NewQuerier(app.MintKeeper))
+	types.RegisterQueryServer(queryHelper, app.MintKeeper)
 	queryClient := types.NewQueryClient(queryHelper)
 
 	suite.app = app
@@ -40,13 +37,19 @@ func (suite *MintTestSuite) SetupTest() {
 }
 
 func (suite *MintTestSuite) TestGRPCParams() {
-	queryClient := suite.queryClient
+	app, ctx, queryClient := suite.app, suite.ctx, suite.queryClient
 
-	_, err := queryClient.Params(gocontext.Background(), &types.QueryParamsRequest{})
+	params, err := queryClient.Params(gocontext.Background(), &types.QueryParamsRequest{})
 	suite.Require().NoError(err)
+	suite.Require().Equal(params.Params, app.MintKeeper.GetParams(ctx))
 
-	_, err = queryClient.EpochProvisions(gocontext.Background(), &types.QueryEpochProvisionsRequest{})
+	inflation, err := queryClient.Inflation(gocontext.Background(), &types.QueryInflationRequest{})
 	suite.Require().NoError(err)
+	suite.Require().Equal(inflation.Inflation, app.MintKeeper.GetMinter(ctx).Inflation)
+
+	annualProvisions, err := queryClient.AnnualProvisions(gocontext.Background(), &types.QueryAnnualProvisionsRequest{})
+	suite.Require().NoError(err)
+	suite.Require().Equal(annualProvisions.AnnualProvisions, app.MintKeeper.GetMinter(ctx).AnnualProvisions)
 }
 
 func TestMintTestSuite(t *testing.T) {

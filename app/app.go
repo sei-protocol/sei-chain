@@ -386,7 +386,7 @@ func New(
 	)
 	app.MintKeeper = mintkeeper.NewKeeper(
 		appCodec, keys[minttypes.StoreKey], app.GetSubspace(minttypes.ModuleName), &stakingKeeper,
-		app.AccountKeeper, app.BankKeeper, app.EpochKeeper, authtypes.FeeCollectorName,
+		app.AccountKeeper, app.BankKeeper, authtypes.FeeCollectorName,
 	)
 	app.DistrKeeper = distrkeeper.NewKeeper(
 		appCodec, keys[distrtypes.StoreKey], app.GetSubspace(distrtypes.ModuleName), app.AccountKeeper, app.BankKeeper,
@@ -453,8 +453,7 @@ func New(
 		keys[epochmoduletypes.StoreKey],
 		keys[epochmoduletypes.MemStoreKey],
 		app.GetSubspace(epochmoduletypes.ModuleName),
-	).SetHooks(epochmoduletypes.NewMultiEpochHooks(
-		app.MintKeeper.Hooks()))
+	)
 	app.DexKeeper = *dexmodulekeeper.NewKeeper(
 		appCodec,
 		keys[dexmoduletypes.StoreKey],
@@ -567,7 +566,6 @@ func New(
 	// CanWithdrawInvariant invariant.
 	// NOTE: staking module is required if HistoricalEntries param > 0
 	app.mm.SetOrderBeginBlockers(
-		epochmoduletypes.ModuleName,
 		upgradetypes.ModuleName,
 		capabilitytypes.ModuleName,
 		minttypes.ModuleName,
@@ -586,6 +584,7 @@ func New(
 		ibchost.ModuleName,
 		ibctransfertypes.ModuleName,
 		oracletypes.ModuleName,
+		epochmoduletypes.ModuleName,
 		dexmoduletypes.ModuleName,
 		wasm.ModuleName,
 		tokenfactorytypes.ModuleName,

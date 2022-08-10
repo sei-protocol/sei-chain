@@ -5,27 +5,91 @@ package simulation
 import (
 	"encoding/json"
 	"fmt"
+	"math/rand"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/types/module"
 	"github.com/sei-protocol/sei-chain/x/mint/types"
 )
 
-// RandomizedGenState generates a random GenesisState for mint.
+// Simulation parameter constants
+const (
+	Inflation           = "inflation"
+	InflationRateChange = "inflation_rate_change"
+	InflationMax        = "inflation_max"
+	InflationMin        = "inflation_min"
+	GoalBonded          = "goal_bonded"
+)
+
+// GenInflation randomized Inflation
+func GenInflation(r *rand.Rand) sdk.Dec {
+	return sdk.NewDecWithPrec(int64(r.Intn(99)), 2)
+}
+
+// GenInflationRateChange randomized InflationRateChange
+func GenInflationRateChange(r *rand.Rand) sdk.Dec {
+	return sdk.NewDecWithPrec(int64(r.Intn(99)), 2)
+}
+
+// GenInflationMax randomized InflationMax
+func GenInflationMax(r *rand.Rand) sdk.Dec {
+	return sdk.NewDecWithPrec(20, 2)
+}
+
+// GenInflationMin randomized InflationMin
+func GenInflationMin(r *rand.Rand) sdk.Dec {
+	return sdk.NewDecWithPrec(7, 2)
+}
+
+// GenGoalBonded randomized GoalBonded
+func GenGoalBonded(r *rand.Rand) sdk.Dec {
+	return sdk.NewDecWithPrec(67, 2)
+}
+
+// RandomizedGenState generates a random GenesisState for mint
 func RandomizedGenState(simState *module.SimulationState) {
 	// minter
-	mintDenom := sdk.DefaultBondDenom
-	epochProvisions := sdk.NewDec(500000) // TODO: Randomize this
-	// Epochs are every minute, set reduction period to be 1 year
-	params := types.NewParams(mintDenom, epochProvisions, sdk.NewDecWithPrec(5, 1), 60*24*365)
+	var inflation sdk.Dec
+	simState.AppParams.GetOrGenerate(
+		simState.Cdc, Inflation, &inflation, simState.Rand,
+		func(r *rand.Rand) { inflation = GenInflation(r) },
+	)
 
-	mintGenesis := types.NewGenesisState(types.InitialMinter(), params, 0)
+	// params
+	var inflationRateChange sdk.Dec
+	simState.AppParams.GetOrGenerate(
+		simState.Cdc, InflationRateChange, &inflationRateChange, simState.Rand,
+		func(r *rand.Rand) { inflationRateChange = GenInflationRateChange(r) },
+	)
+
+	var inflationMax sdk.Dec
+	simState.AppParams.GetOrGenerate(
+		simState.Cdc, InflationMax, &inflationMax, simState.Rand,
+		func(r *rand.Rand) { inflationMax = GenInflationMax(r) },
+	)
+
+	var inflationMin sdk.Dec
+	simState.AppParams.GetOrGenerate(
+		simState.Cdc, InflationMin, &inflationMin, simState.Rand,
+		func(r *rand.Rand) { inflationMin = GenInflationMin(r) },
+	)
+
+	var goalBonded sdk.Dec
+	simState.AppParams.GetOrGenerate(
+		simState.Cdc, GoalBonded, &goalBonded, simState.Rand,
+		func(r *rand.Rand) { goalBonded = GenGoalBonded(r) },
+	)
+
+	mintDenom := sdk.DefaultBondDenom
+	blocksPerYear := uint64(60 * 60 * 8766 / 5)
+	params := types.NewParams(mintDenom, inflationRateChange, inflationMax, inflationMin, goalBonded, blocksPerYear)
+
+	mintGenesis := types.NewGenesisState(types.InitialMinter(inflation), params)
 
 	bz, err := json.MarshalIndent(&mintGenesis, "", " ")
 	if err != nil {
 		panic(err)
 	}
-	// TODO: Do some randomization later
-	fmt.Printf("Selected deterministically generated minting parameters:\n%s\n", bz)
+	fmt.Printf("Selected randomly generated minting parameters:\n%s\n", bz)
 	simState.GenState[types.ModuleName] = simState.Cdc.MustMarshalJSON(mintGenesis)
 }
