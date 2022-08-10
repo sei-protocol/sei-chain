@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/sei-protocol/sei-chain/utils/tracing"
+
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/sei-protocol/sei-chain/store/whitelist/multi"
 	"github.com/sei-protocol/sei-chain/utils"
@@ -29,7 +31,10 @@ type environment struct {
 	finalizeMsgMutex *sync.Mutex
 }
 
-func EndBlockerAtomic(ctx sdk.Context, keeper *keeper.Keeper, validContractsInfo []types.ContractInfo, tracer *otrace.Tracer) ([]types.ContractInfo, bool) {
+func EndBlockerAtomic(ctx sdk.Context, keeper *keeper.Keeper, validContractsInfo []types.ContractInfo, tracingInfo *tracing.Info) ([]types.ContractInfo, bool) {
+	tracer := tracingInfo.Tracer
+	spanCtx, span := (*tracer).Start(tracingInfo.TracerContext, "DexEndBlockerAtomic")
+	defer span.End()
 	env := newEnv(validContractsInfo)
 	ctx, msCached := cacheAndDecorateContext(ctx, env)
 	memStateCopy := keeper.MemState.DeepCopy()
@@ -37,12 +42,12 @@ func EndBlockerAtomic(ctx sdk.Context, keeper *keeper.Keeper, validContractsInfo
 	handleDeposits(ctx, env, keeper, tracer)
 
 	runner := NewParallelRunner(func(contract types.ContractInfo) {
-		orderMatchingRunnable(ctx, env, keeper, contract, tracer)
+		orderMatchingRunnable(spanCtx, ctx, env, keeper, contract, tracer)
 	}, validContractsInfo)
 	runner.Run()
 
-	handleSettlements(ctx, env, keeper)
-	handleFinalizedBlocks(ctx, env, keeper)
+	handleSettlements(spanCtx, ctx, env, keeper, tracer)
+	handleFinalizedBlocks(spanCtx, ctx, env, keeper, tracer)
 
 	// No error is thrown for any contract. This should happen most of the time.
 	if env.failedContractAddresses.Size() == 0 {
@@ -96,7 +101,9 @@ func handleDeposits(ctx sdk.Context, env *environment, keeper *keeper.Keeper, tr
 	}
 }
 
-func handleSettlements(ctx sdk.Context, env *environment, keeper *keeper.Keeper) {
+func handleSettlements(ctx context.Context, sdkCtx sdk.Context, env *environment, keeper *keeper.Keeper, tracer *otrace.Tracer) {
+	_, span := (*tracer).Start(ctx, "DexEndBlockerHandleSettlements")
+	defer span.End()
 	contractsNeedOrderMatching := datastructures.NewSyncSet([]string{})
 	for _, contract := range env.validContractsInfo {
 		if contract.NeedOrderMatching {
@@ -107,15 +114,17 @@ func handleSettlements(ctx sdk.Context, env *environment, keeper *keeper.Keeper)
 		if !contractsNeedOrderMatching.Contains(contractAddr) {
 			return true
 		}
-		if err := HandleSettlements(ctx, contractAddr, keeper, settlements); err != nil {
-			ctx.Logger().Error(fmt.Sprintf("Error handling settlements for %s", contractAddr))
+		if err := HandleSettlements(sdkCtx, contractAddr, keeper, settlements); err != nil {
+			sdkCtx.Logger().Error(fmt.Sprintf("Error handling settlements for %s", contractAddr))
 			env.failedContractAddresses.Add(contractAddr)
 		}
 		return true
 	})
 }
 
-func handleFinalizedBlocks(ctx sdk.Context, env *environment, keeper *keeper.Keeper) {
+func handleFinalizedBlocks(ctx context.Context, sdkCtx sdk.Context, env *environment, keeper *keeper.Keeper, tracer *otrace.Tracer) {
+	_, span := (*tracer).Start(ctx, "DexEndBlockerHandleFinalizedBlocks")
+	defer span.End()
 	contractsNeedHook := datastructures.NewSyncSet([]string{})
 	for _, contract := range env.validContractsInfo {
 		if contract.NeedHook {
@@ -126,16 +135,16 @@ func handleFinalizedBlocks(ctx sdk.Context, env *environment, keeper *keeper.Kee
 		if !contractsNeedHook.Contains(contractAddr) {
 			return true
 		}
-		if _, err := dexkeeperutils.CallContractSudo(ctx, keeper, contractAddr, finalizeBlockMsg); err != nil {
-			ctx.Logger().Error(fmt.Sprintf("Error calling FinalizeBlock of %s", contractAddr))
+		if _, err := dexkeeperutils.CallContractSudo(sdkCtx, keeper, contractAddr, finalizeBlockMsg); err != nil {
+			sdkCtx.Logger().Error(fmt.Sprintf("Error calling FinalizeBlock of %s", contractAddr))
 			env.failedContractAddresses.Add(contractAddr)
 		}
 		return true
 	})
 }
 
-func orderMatchingRunnable(ctx sdk.Context, env *environment, keeper *keeper.Keeper, contractInfo types.ContractInfo, tracer *otrace.Tracer) {
-	defer utils.PanicHandler(func(err any) { orderMatchingRecoverCallback(err, ctx, env, contractInfo) })()
+func orderMatchingRunnable(ctx context.Context, sdkContext sdk.Context, env *environment, keeper *keeper.Keeper, contractInfo types.ContractInfo, tracer *otrace.Tracer) {
+	defer utils.PanicHandler(func(err any) { orderMatchingRecoverCallback(err, sdkContext, env, contractInfo) })()
 	defer func() {
 		if channel, ok := env.executionTerminationSignals.Load(contractInfo.ContractAddr); ok {
 			channel <- struct{}{}
@@ -145,10 +154,10 @@ func orderMatchingRunnable(ctx sdk.Context, env *environment, keeper *keeper.Kee
 	if !contractInfo.NeedOrderMatching {
 		return
 	}
-	ctx = decorateContextForContract(ctx, contractInfo)
-	ctx.Logger().Info(fmt.Sprintf("End block for %s", contractInfo.ContractAddr))
-	if orderResultsMap, settlements, err := HandleExecutionForContract(ctx, contractInfo, keeper, tracer); err != nil {
-		ctx.Logger().Error(fmt.Sprintf("Error for EndBlock of %s", contractInfo.ContractAddr))
+	sdkContext = decorateContextForContract(sdkContext, contractInfo)
+	sdkContext.Logger().Info(fmt.Sprintf("End block for %s", contractInfo.ContractAddr))
+	if orderResultsMap, settlements, err := HandleExecutionForContract(ctx, sdkContext, contractInfo, keeper, tracer); err != nil {
+		sdkContext.Logger().Error(fmt.Sprintf("Error for EndBlock of %s", contractInfo.ContractAddr))
 		env.failedContractAddresses.Add(contractInfo.ContractAddr)
 	} else {
 		for account, orderResults := range orderResultsMap {

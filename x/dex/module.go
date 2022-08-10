@@ -215,7 +215,7 @@ func (am AppModule) getAllContractInfo(ctx sdk.Context) []types.ContractInfo {
 func (am AppModule) BeginBlock(ctx sdk.Context, _ abci.RequestBeginBlock) {
 	// TODO (codchen): Revert before mainnet so we don't silently fail on errors
 	defer func() {
-		_, span := (*am.tracingInfo.Tracer).Start(am.tracingInfo.TracerContext, "DexEndBlockRollback")
+		_, span := (*am.tracingInfo.Tracer).Start(am.tracingInfo.TracerContext, "DexBeginBlockRollback")
 		defer span.End()
 		if err := recover(); err != nil {
 			ctx.Logger().Error(fmt.Sprintf("panic occurred in %s BeginBlock: %s", types.ModuleName, err))
@@ -264,15 +264,20 @@ func (am AppModule) beginBlockForContract(ctx sdk.Context, contract types.Contra
 // EndBlock executes all ABCI EndBlock logic respective to the capability module. It
 // returns no validator updates.
 func (am AppModule) EndBlock(ctx sdk.Context, _ abci.RequestEndBlock) (ret []abci.ValidatorUpdate) {
+	_, span := (*am.tracingInfo.Tracer).Start(am.tracingInfo.TracerContext, "DexEndBlock")
+	defer span.End()
 	// TODO (codchen): Revert https://github.com/sei-protocol/sei-chain/pull/176/files before mainnet so we don't silently fail on errors
 	defer func() {
+		_, span := (*am.tracingInfo.Tracer).Start(am.tracingInfo.TracerContext, "DexEndBlockRollback")
+		defer span.End()
 		if err := recover(); err != nil {
 			ctx.Logger().Error(fmt.Sprintf("panic occurred in %s EndBlock: %s", types.ModuleName, err))
 			telemetry.IncrCounterWithLabels(
-				[]string{fmt.Sprintf("%s%s", types.ModuleName, "endblockpanic")},
+				[]string{("endblockpanic")},
 				1,
 				[]metrics.Label{
 					telemetry.NewLabel("error", fmt.Sprintf("%s", err)),
+					telemetry.NewLabel("module", types.ModuleName),
 				},
 			)
 			ret = []abci.ValidatorUpdate{}
@@ -286,7 +291,7 @@ func (am AppModule) EndBlock(ctx sdk.Context, _ abci.RequestEndBlock) (ret []abc
 	// `validContractAddresses` will always decrease in size every iteration.
 	iterCounter := len(validContractsInfo)
 	for len(validContractsInfo) > 0 {
-		newValidContractsInfo, ok := contract.EndBlockerAtomic(ctx, &am.keeper, validContractsInfo, am.tracingInfo.Tracer)
+		newValidContractsInfo, ok := contract.EndBlockerAtomic(ctx, &am.keeper, validContractsInfo, am.tracingInfo)
 		if ok {
 			break
 		}

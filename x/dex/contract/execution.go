@@ -1,16 +1,16 @@
 package contract
 
 import (
+	"context"
 	"fmt"
 	"sync"
 	"time"
 
+	otrace "go.opentelemetry.io/otel/trace"
+
 	"github.com/cosmos/cosmos-sdk/telemetry"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
-	"go.opentelemetry.io/otel/attribute"
-	otrace "go.opentelemetry.io/otel/trace"
-
 	"github.com/sei-protocol/sei-chain/store/whitelist/multi"
 	"github.com/sei-protocol/sei-chain/utils"
 	dexcache "github.com/sei-protocol/sei-chain/x/dex/cache"
@@ -21,43 +21,46 @@ import (
 	"github.com/sei-protocol/sei-chain/x/dex/types"
 	dextypesutils "github.com/sei-protocol/sei-chain/x/dex/types/utils"
 	dextypeswasm "github.com/sei-protocol/sei-chain/x/dex/types/wasm"
+	"go.opentelemetry.io/otel/attribute"
 )
 
 func CallPreExecutionHooks(
-	ctx sdk.Context,
+	ctx context.Context,
+	sdkCtx sdk.Context,
 	contractAddr string,
 	dexkeeper *keeper.Keeper,
 	tracer *otrace.Tracer,
 ) error {
-	spanCtx, span := (*tracer).Start(ctx.Context(), "PreExecutionHooks")
-	span.SetAttributes(attribute.String("contract", contractAddr))
+	spanCtx, span := (*tracer).Start(ctx, "PreExecutionHooks")
 	defer span.End()
+	span.SetAttributes(attribute.String("contract", contractAddr))
 	abciWrapper := dexkeeperabci.KeeperWrapper{Keeper: dexkeeper}
-	registeredPairs := dexkeeper.GetAllRegisteredPairs(ctx, contractAddr)
-	if err := abciWrapper.HandleEBLiquidation(spanCtx, ctx, tracer, contractAddr, registeredPairs); err != nil {
+	registeredPairs := dexkeeper.GetAllRegisteredPairs(sdkCtx, contractAddr)
+	if err := abciWrapper.HandleEBLiquidation(spanCtx, sdkCtx, tracer, contractAddr, registeredPairs); err != nil {
 		return err
 	}
-	if err := abciWrapper.HandleEBCancelOrders(spanCtx, ctx, tracer, contractAddr, registeredPairs); err != nil {
+	if err := abciWrapper.HandleEBCancelOrders(spanCtx, sdkCtx, tracer, contractAddr, registeredPairs); err != nil {
 		return err
 	}
-	if err := abciWrapper.HandleEBPlaceOrders(spanCtx, ctx, tracer, contractAddr, registeredPairs); err != nil {
+	if err := abciWrapper.HandleEBPlaceOrders(spanCtx, sdkCtx, tracer, contractAddr, registeredPairs); err != nil {
 		return err
 	}
 	return nil
 }
 
 func CancelUnfulfilledMarketOrders(
-	ctx sdk.Context,
+	ctx context.Context,
+	sdkCtx sdk.Context,
 	contractAddr string,
 	dexkeeper *keeper.Keeper,
 	tracer *otrace.Tracer,
 ) error {
-	spanCtx, span := (*tracer).Start(ctx.Context(), "CancelUnfulfilledMarketOrders")
+	spanCtx, span := (*tracer).Start(ctx, "CancelUnfulfilledMarketOrders")
 	span.SetAttributes(attribute.String("contract", contractAddr))
 	defer span.End()
 	abciWrapper := dexkeeperabci.KeeperWrapper{Keeper: dexkeeper}
-	registeredPairs := dexkeeper.GetAllRegisteredPairs(ctx, contractAddr)
-	if err := abciWrapper.HandleEBCancelOrders(spanCtx, ctx, tracer, contractAddr, registeredPairs); err != nil {
+	registeredPairs := dexkeeper.GetAllRegisteredPairs(sdkCtx, contractAddr)
+	if err := abciWrapper.HandleEBCancelOrders(spanCtx, sdkCtx, tracer, contractAddr, registeredPairs); err != nil {
 		return err
 	}
 	return nil
@@ -252,7 +255,8 @@ func ExecutePairsInParallel(ctx sdk.Context, contractAddr string, dexkeeper *kee
 }
 
 func HandleExecutionForContract(
-	ctx sdk.Context,
+	ctx context.Context,
+	sdkCtx sdk.Context,
 	contract types.ContractInfo,
 	dexkeeper *keeper.Keeper,
 	tracer *otrace.Tracer,
@@ -264,22 +268,22 @@ func HandleExecutionForContract(
 	orderResults := map[string]dextypeswasm.ContractOrderResult{}
 
 	// Call contract hooks so that contracts can do internal bookkeeping
-	if err := CallPreExecutionHooks(ctx, contractAddr, dexkeeper, tracer); err != nil {
+	if err := CallPreExecutionHooks(ctx, sdkCtx, contractAddr, dexkeeper, tracer); err != nil {
 		return orderResults, []*types.SettlementEntry{}, err
 	}
 
-	orderUpdaters, settlements := ExecutePairsInParallel(ctx, contractAddr, dexkeeper)
+	orderUpdaters, settlements := ExecutePairsInParallel(sdkCtx, contractAddr, dexkeeper)
 
 	for _, orderUpdater := range orderUpdaters {
 		orderUpdater()
 	}
 	// Cancel unfilled market orders
-	if err := CancelUnfulfilledMarketOrders(ctx, contractAddr, dexkeeper, tracer); err != nil {
+	if err := CancelUnfulfilledMarketOrders(ctx, sdkCtx, contractAddr, dexkeeper, tracer); err != nil {
 		return orderResults, settlements, err
 	}
 
 	// populate order placement results for FinalizeBlock hook
-	dexkeeper.MemState.GetAllBlockOrders(ctx, typedContractAddr).DeepApply(func(orders *dexcache.BlockOrders) {
+	dexkeeper.MemState.GetAllBlockOrders(sdkCtx, typedContractAddr).DeepApply(func(orders *dexcache.BlockOrders) {
 		dextypeswasm.PopulateOrderPlacementResults(contractAddr, orders.Get(), orderResults)
 	})
 	dextypeswasm.PopulateOrderExecutionResults(contractAddr, settlements, orderResults)

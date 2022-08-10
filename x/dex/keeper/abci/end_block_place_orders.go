@@ -21,11 +21,13 @@ const MaxOrdersPerSudoCall = 50000
 func (w KeeperWrapper) HandleEBPlaceOrders(ctx context.Context, sdkCtx sdk.Context, tracer *otrace.Tracer, contractAddr string, registeredPairs []types.Pair) error {
 	_, span := (*tracer).Start(ctx, "SudoPlaceOrders")
 	span.SetAttributes(attribute.String("contractAddr", contractAddr))
+	defer span.End()
 
 	typedContractAddr := typesutils.ContractAddress(contractAddr)
 	msgs := w.GetPlaceSudoMsg(sdkCtx, typedContractAddr, registeredPairs)
 
 	responses := []wasm.SudoOrderPlacementResponse{}
+
 	for _, msg := range msgs {
 		data, err := utils.CallContractSudo(sdkCtx, w.Keeper, contractAddr, msg)
 		if err != nil {
@@ -47,7 +49,6 @@ func (w KeeperWrapper) HandleEBPlaceOrders(ctx context.Context, sdkCtx sdk.Conte
 			w.MemState.GetBlockOrders(sdkCtx, typedContractAddr, typedPairStr).MarkFailedToPlace(response.UnsuccessfulOrders)
 		}
 	}
-	span.End()
 	return nil
 }
 

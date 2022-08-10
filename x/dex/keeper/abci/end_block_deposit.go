@@ -14,9 +14,9 @@ import (
 )
 
 func (w KeeperWrapper) HandleEBDeposit(ctx context.Context, sdkCtx sdk.Context, tracer *otrace.Tracer, contractAddr string) error {
-	_, span := (*tracer).Start(ctx, "SudoPlaceOrders")
-	defer span.End()
+	_, span := (*tracer).Start(ctx, "SudoDeposit")
 	span.SetAttributes(attribute.String("contractAddr", contractAddr))
+	defer span.End()
 
 	typedContractAddr := typesutils.ContractAddress(contractAddr)
 	msg := w.GetDepositSudoMsg(sdkCtx, typedContractAddr)
