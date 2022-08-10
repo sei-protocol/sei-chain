@@ -25,24 +25,24 @@ import (
 )
 
 func CallPreExecutionHooks(
-	ctx sdk.Context,
+	ctx context.Context,
+	sdkCtx sdk.Context,
 	contractAddr string,
 	dexkeeper *keeper.Keeper,
 	tracer *otrace.Tracer,
-	parentSpanCtx context.Context,
 ) error {
-	spanCtx, span := (*tracer).Start(parentSpanCtx, "PreExecutionHooks")
+	spanCtx, span := (*tracer).Start(ctx, "PreExecutionHooks")
 	defer span.End()
 	span.SetAttributes(attribute.String("contract", contractAddr))
 	abciWrapper := dexkeeperabci.KeeperWrapper{Keeper: dexkeeper}
-	registeredPairs := dexkeeper.GetAllRegisteredPairs(ctx, contractAddr)
-	if err := abciWrapper.HandleEBLiquidation(spanCtx, ctx, tracer, contractAddr, registeredPairs); err != nil {
+	registeredPairs := dexkeeper.GetAllRegisteredPairs(sdkCtx, contractAddr)
+	if err := abciWrapper.HandleEBLiquidation(spanCtx, sdkCtx, tracer, contractAddr, registeredPairs); err != nil {
 		return err
 	}
-	if err := abciWrapper.HandleEBCancelOrders(spanCtx, ctx, tracer, contractAddr, registeredPairs); err != nil {
+	if err := abciWrapper.HandleEBCancelOrders(spanCtx, sdkCtx, tracer, contractAddr, registeredPairs); err != nil {
 		return err
 	}
-	if err := abciWrapper.HandleEBPlaceOrders(spanCtx, ctx, tracer, contractAddr, registeredPairs); err != nil {
+	if err := abciWrapper.HandleEBPlaceOrders(spanCtx, sdkCtx, tracer, contractAddr, registeredPairs); err != nil {
 		return err
 	}
 	return nil
@@ -268,7 +268,7 @@ func HandleExecutionForContract(
 	orderResults := map[string]dextypeswasm.ContractOrderResult{}
 
 	// Call contract hooks so that contracts can do internal bookkeeping
-	if err := CallPreExecutionHooks(sdkCtx, contractAddr, dexkeeper, tracer, ctx); err != nil {
+	if err := CallPreExecutionHooks(ctx, sdkCtx, contractAddr, dexkeeper, tracer); err != nil {
 		return orderResults, []*types.SettlementEntry{}, err
 	}
 
