@@ -375,6 +375,9 @@ message QueryOrderSimulationRequest {
 	Order order = 1 [
 		(gogoproto.jsontag) = "order"
 	];
+	string contractAddr = 2 [
+		(gogoproto.jsontag) = "contract_address"
+	];
 }
 
 message QueryOrderSimulationResponse {

@@ -510,6 +510,8 @@ github.com/grpc-ecosystem/grpc-gateway/v2 v2.11.0 h1:Ghn7copILfeIg0y8sTGRppI1bd8
 github.com/grpc-ecosystem/grpc-gateway/v2 v2.11.0/go.mod h1:dnjr4snxnhRSn5GWqJUva2AoMbeaxyAcepvc0Tg8lXk=
 github.com/grpc-ecosystem/grpc-gateway/v2 v2.11.1 h1:/sDbPb60SusIXjiJGYLUoS/rAQurQmvGWmwn2bBPM9c=
 github.com/grpc-ecosystem/grpc-gateway/v2 v2.11.1/go.mod h1:G+WkljZi4mflcqVxYSgvt8MNctRQHjEH8ubKtt1Ka3w=
+github.com/grpc-ecosystem/grpc-gateway/v2 v2.11.2 h1:BqHID5W5qnMkug0Z8UmL8tN0gAy4jQ+B4WFt8cCgluU=
+github.com/grpc-ecosystem/grpc-gateway/v2 v2.11.2/go.mod h1:ZbS3MZTZq/apAfAEHGoB5HbsQQstoqP92SjAqtQ9zeg=
 github.com/gsterjov/go-libsecret v0.0.0-20161001094733-a6f4afe4910c h1:6rhixN/i8ZofjG1Y75iExal34USq5p+wiN1tpie8IrU=
 github.com/gsterjov/go-libsecret v0.0.0-20161001094733-a6f4afe4910c/go.mod h1:NMPJylDgVpX0MLRlPy15sqSwOFv/U1GZ2m21JhFfek0=
 github.com/gtank/merlin v0.1.1-0.20191105220539-8318aed1a79f/go.mod h1:T86dnYJhcGOh5BjZFCJWTDeTK7XW8uE+E21Cy/bIQ+s=
@@ -1529,6 +1531,8 @@ google.golang.org/genproto v0.0.0-20220719170305-83ca9fad585f h1:P8EiVSxZwC6xH2n
 google.golang.org/genproto v0.0.0-20220719170305-83ca9fad585f/go.mod h1:GkXuJDJ6aQ7lnJcRF+SJVgFdQhypqgl3LB1C9vabdRE=
 google.golang.org/genproto v0.0.0-20220728213248-dd149ef739b9 h1:d3fKQZK+1rWQMg3xLKQbPMirUCo29I/NRdI2WarSzTg=
 google.golang.org/genproto v0.0.0-20220728213248-dd149ef739b9/go.mod h1:iHe1svFLAZg9VWz891+QbRMwUv9O/1Ww+/mngYeThbc=
+google.golang.org/genproto v0.0.0-20220805133916-01dd62135a58 h1:sRT5xdTkj1Kbk30qbYC7VyMj73N5pZYsw6v+Nrzdhno=
+google.golang.org/genproto v0.0.0-20220805133916-01dd62135a58/go.mod h1:iHe1svFLAZg9VWz891+QbRMwUv9O/1Ww+/mngYeThbc=
 google.golang.org/grpc v1.33.2 h1:EQyQC3sa8M+p6Ulc8yy9SWSS2GVwyRc83gAbG8lrl4o=
 google.golang.org/grpc v1.33.2/go.mod h1:JMHMWHQWaTccqQQlmk3MJZS+GWXOdAesneDmEnv2fbc=
 google.golang.org/grpc/cmd/protoc-gen-go-grpc v1.1.0/go.mod h1:6Kw0yEErY5E/yWrBtf03jp27GLLJujG4z/JK95pnjjw=
