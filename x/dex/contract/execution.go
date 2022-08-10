@@ -255,11 +255,11 @@ func ExecutePairsInParallel(ctx sdk.Context, contractAddr string, dexkeeper *kee
 }
 
 func HandleExecutionForContract(
-	ctx sdk.Context,
+	ctx context.Context,
+	sdkCtx sdk.Context,
 	contract types.ContractInfo,
 	dexkeeper *keeper.Keeper,
 	tracer *otrace.Tracer,
-	spanCtx context.Context,
 ) (map[string]dextypeswasm.ContractOrderResult, []*types.SettlementEntry, error) {
 	executionStart := time.Now()
 	defer telemetry.ModuleSetGauge(types.ModuleName, float32(time.Since(executionStart).Milliseconds()), "handle_execution_for_contract_ms")
@@ -268,22 +268,22 @@ func HandleExecutionForContract(
 	orderResults := map[string]dextypeswasm.ContractOrderResult{}
 
 	// Call contract hooks so that contracts can do internal bookkeeping
-	if err := CallPreExecutionHooks(ctx, contractAddr, dexkeeper, tracer, spanCtx); err != nil {
+	if err := CallPreExecutionHooks(sdkCtx, contractAddr, dexkeeper, tracer, ctx); err != nil {
 		return orderResults, []*types.SettlementEntry{}, err
 	}
 
-	orderUpdaters, settlements := ExecutePairsInParallel(ctx, contractAddr, dexkeeper)
+	orderUpdaters, settlements := ExecutePairsInParallel(sdkCtx, contractAddr, dexkeeper)
 
 	for _, orderUpdater := range orderUpdaters {
 		orderUpdater()
 	}
 	// Cancel unfilled market orders
-	if err := CancelUnfulfilledMarketOrders(spanCtx, ctx, contractAddr, dexkeeper, tracer); err != nil {
+	if err := CancelUnfulfilledMarketOrders(ctx, sdkCtx, contractAddr, dexkeeper, tracer); err != nil {
 		return orderResults, settlements, err
 	}
 
 	// populate order placement results for FinalizeBlock hook
-	dexkeeper.MemState.GetAllBlockOrders(ctx, typedContractAddr).DeepApply(func(orders *dexcache.BlockOrders) {
+	dexkeeper.MemState.GetAllBlockOrders(sdkCtx, typedContractAddr).DeepApply(func(orders *dexcache.BlockOrders) {
 		dextypeswasm.PopulateOrderPlacementResults(contractAddr, orders.Get(), orderResults)
 	})
 	dextypeswasm.PopulateOrderExecutionResults(contractAddr, settlements, orderResults)

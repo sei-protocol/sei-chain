@@ -42,7 +42,7 @@ func EndBlockerAtomic(ctx sdk.Context, keeper *keeper.Keeper, validContractsInfo
 	handleDeposits(ctx, env, keeper, tracer)
 
 	runner := NewParallelRunner(func(contract types.ContractInfo) {
-		orderMatchingRunnable(ctx, env, keeper, contract, tracer, spanCtx)
+		orderMatchingRunnable(spanCtx, ctx, env, keeper, contract, tracer)
 	}, validContractsInfo)
 	runner.Run()
 
@@ -143,8 +143,8 @@ func handleFinalizedBlocks(ctx context.Context, sdkCtx sdk.Context, env *environ
 	})
 }
 
-func orderMatchingRunnable(ctx sdk.Context, env *environment, keeper *keeper.Keeper, contractInfo types.ContractInfo, tracer *otrace.Tracer, spanCtx context.Context) {
-	defer utils.PanicHandler(func(err any) { orderMatchingRecoverCallback(err, ctx, env, contractInfo) })()
+func orderMatchingRunnable(ctx context.Context, sdkContext sdk.Context, env *environment, keeper *keeper.Keeper, contractInfo types.ContractInfo, tracer *otrace.Tracer) {
+	defer utils.PanicHandler(func(err any) { orderMatchingRecoverCallback(err, sdkContext, env, contractInfo) })()
 	defer func() {
 		if channel, ok := env.executionTerminationSignals.Load(contractInfo.ContractAddr); ok {
 			channel <- struct{}{}
@@ -154,10 +154,10 @@ func orderMatchingRunnable(ctx sdk.Context, env *environment, keeper *keeper.Kee
 	if !contractInfo.NeedOrderMatching {
 		return
 	}
-	ctx = decorateContextForContract(ctx, contractInfo)
-	ctx.Logger().Info(fmt.Sprintf("End block for %s", contractInfo.ContractAddr))
-	if orderResultsMap, settlements, err := HandleExecutionForContract(ctx, contractInfo, keeper, tracer, spanCtx); err != nil {
-		ctx.Logger().Error(fmt.Sprintf("Error for EndBlock of %s", contractInfo.ContractAddr))
+	sdkContext = decorateContextForContract(sdkContext, contractInfo)
+	sdkContext.Logger().Info(fmt.Sprintf("End block for %s", contractInfo.ContractAddr))
+	if orderResultsMap, settlements, err := HandleExecutionForContract(ctx, sdkContext, contractInfo, keeper, tracer); err != nil {
+		sdkContext.Logger().Error(fmt.Sprintf("Error for EndBlock of %s", contractInfo.ContractAddr))
 		env.failedContractAddresses.Add(contractInfo.ContractAddr)
 	} else {
 		for account, orderResults := range orderResultsMap {
