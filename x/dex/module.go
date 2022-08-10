@@ -273,10 +273,11 @@ func (am AppModule) EndBlock(ctx sdk.Context, _ abci.RequestEndBlock) (ret []abc
 		if err := recover(); err != nil {
 			ctx.Logger().Error(fmt.Sprintf("panic occurred in %s EndBlock: %s", types.ModuleName, err))
 			telemetry.IncrCounterWithLabels(
-				[]string{fmt.Sprintf("%s%s", types.ModuleName, "endblockpanic")},
+				[]string{fmt.Sprintf("endblockpanic")},
 				1,
 				[]metrics.Label{
 					telemetry.NewLabel("error", fmt.Sprintf("%s", err)),
+					telemetry.NewLabel("module", types.ModuleName),
 				},
 			)
 			ret = []abci.ValidatorUpdate{}
