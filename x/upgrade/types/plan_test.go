@@ -11,7 +11,7 @@ import (
 
 	codectypes "github.com/cosmos/cosmos-sdk/codec/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
-	"github.com/sei-protocol/sei-chain/x/upgrade/types"
+	"github.com/cosmos/cosmos-sdk/x/upgrade/types"
 )
 
 func mustParseTime(s string) time.Time {

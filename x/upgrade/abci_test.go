@@ -21,9 +21,9 @@ import (
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	"github.com/cosmos/cosmos-sdk/types/module"
 	govtypes "github.com/cosmos/cosmos-sdk/x/gov/types"
-	"github.com/sei-protocol/sei-chain/x/upgrade"
-	"github.com/sei-protocol/sei-chain/x/upgrade/keeper"
-	"github.com/sei-protocol/sei-chain/x/upgrade/types"
+	"github.com/cosmos/cosmos-sdk/x/upgrade"
+	"github.com/cosmos/cosmos-sdk/x/upgrade/keeper"
+	"github.com/cosmos/cosmos-sdk/x/upgrade/types"
 )
 
 type TestSuite struct {

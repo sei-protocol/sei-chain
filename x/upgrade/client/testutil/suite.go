@@ -7,8 +7,8 @@ import (
 	clitestutil "github.com/cosmos/cosmos-sdk/testutil/cli"
 	"github.com/cosmos/cosmos-sdk/testutil/network"
 	sdk "github.com/cosmos/cosmos-sdk/types"
-	"github.com/sei-protocol/sei-chain/x/upgrade/client/cli"
-	"github.com/sei-protocol/sei-chain/x/upgrade/types"
+	"github.com/cosmos/cosmos-sdk/x/upgrade/client/cli"
+	"github.com/cosmos/cosmos-sdk/x/upgrade/types"
 	"github.com/stretchr/testify/suite"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 )

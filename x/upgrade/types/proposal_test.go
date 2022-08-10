@@ -9,7 +9,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/codec"
 	codectypes "github.com/cosmos/cosmos-sdk/codec/types"
 	gov "github.com/cosmos/cosmos-sdk/x/gov/types"
-	"github.com/sei-protocol/sei-chain/x/upgrade/types"
+	"github.com/cosmos/cosmos-sdk/x/upgrade/types"
 )
 
 type ProposalWrapper struct {
