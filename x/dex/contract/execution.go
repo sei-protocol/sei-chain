@@ -49,18 +49,18 @@ func CallPreExecutionHooks(
 }
 
 func CancelUnfulfilledMarketOrders(
-	ctx sdk.Context,
+	ctx context.Context,
+	sdkCtx sdk.Context,
 	contractAddr string,
 	dexkeeper *keeper.Keeper,
 	tracer *otrace.Tracer,
-	parentSpanCtx context.Context,
 ) error {
-	spanCtx, span := (*tracer).Start(parentSpanCtx, "CancelUnfulfilledMarketOrders")
+	spanCtx, span := (*tracer).Start(ctx, "CancelUnfulfilledMarketOrders")
 	span.SetAttributes(attribute.String("contract", contractAddr))
 	defer span.End()
 	abciWrapper := dexkeeperabci.KeeperWrapper{Keeper: dexkeeper}
-	registeredPairs := dexkeeper.GetAllRegisteredPairs(ctx, contractAddr)
-	if err := abciWrapper.HandleEBCancelOrders(spanCtx, ctx, tracer, contractAddr, registeredPairs); err != nil {
+	registeredPairs := dexkeeper.GetAllRegisteredPairs(sdkCtx, contractAddr)
+	if err := abciWrapper.HandleEBCancelOrders(spanCtx, sdkCtx, tracer, contractAddr, registeredPairs); err != nil {
 		return err
 	}
 	return nil
@@ -278,7 +278,7 @@ func HandleExecutionForContract(
 		orderUpdater()
 	}
 	// Cancel unfilled market orders
-	if err := CancelUnfulfilledMarketOrders(ctx, contractAddr, dexkeeper, tracer, spanCtx); err != nil {
+	if err := CancelUnfulfilledMarketOrders(spanCtx, ctx, contractAddr, dexkeeper, tracer); err != nil {
 		return orderResults, settlements, err
 	}
 

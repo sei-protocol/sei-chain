@@ -46,8 +46,8 @@ func EndBlockerAtomic(ctx sdk.Context, keeper *keeper.Keeper, validContractsInfo
 	}, validContractsInfo)
 	runner.Run()
 
-	handleSettlements(ctx, env, keeper, tracer, spanCtx)
-	handleFinalizedBlocks(ctx, env, keeper, tracer, spanCtx)
+	handleSettlements(spanCtx, ctx, env, keeper, tracer)
+	handleFinalizedBlocks(spanCtx, ctx, env, keeper, tracer)
 
 	// No error is thrown for any contract. This should happen most of the time.
 	if env.failedContractAddresses.Size() == 0 {
@@ -101,8 +101,8 @@ func handleDeposits(ctx sdk.Context, env *environment, keeper *keeper.Keeper, tr
 	}
 }
 
-func handleSettlements(ctx sdk.Context, env *environment, keeper *keeper.Keeper, tracer *otrace.Tracer, spanCtx context.Context) {
-	_, span := (*tracer).Start(spanCtx, "DexEndBlockerHandleSettlements")
+func handleSettlements(ctx context.Context, sdkCtx sdk.Context, env *environment, keeper *keeper.Keeper, tracer *otrace.Tracer) {
+	_, span := (*tracer).Start(ctx, "DexEndBlockerHandleSettlements")
 	defer span.End()
 	contractsNeedOrderMatching := datastructures.NewSyncSet([]string{})
 	for _, contract := range env.validContractsInfo {
@@ -114,16 +114,16 @@ func handleSettlements(ctx sdk.Context, env *environment, keeper *keeper.Keeper,
 		if !contractsNeedOrderMatching.Contains(contractAddr) {
 			return true
 		}
-		if err := HandleSettlements(ctx, contractAddr, keeper, settlements); err != nil {
-			ctx.Logger().Error(fmt.Sprintf("Error handling settlements for %s", contractAddr))
+		if err := HandleSettlements(sdkCtx, contractAddr, keeper, settlements); err != nil {
+			sdkCtx.Logger().Error(fmt.Sprintf("Error handling settlements for %s", contractAddr))
 			env.failedContractAddresses.Add(contractAddr)
 		}
 		return true
 	})
 }
 
-func handleFinalizedBlocks(ctx sdk.Context, env *environment, keeper *keeper.Keeper, tracer *otrace.Tracer, spanCtx context.Context) {
-	_, span := (*tracer).Start(spanCtx, "DexEndBlockerHandleFinalizedBlocks")
+func handleFinalizedBlocks(ctx context.Context, sdkCtx sdk.Context, env *environment, keeper *keeper.Keeper, tracer *otrace.Tracer) {
+	_, span := (*tracer).Start(ctx, "DexEndBlockerHandleFinalizedBlocks")
 	defer span.End()
 	contractsNeedHook := datastructures.NewSyncSet([]string{})
 	for _, contract := range env.validContractsInfo {
@@ -135,8 +135,8 @@ func handleFinalizedBlocks(ctx sdk.Context, env *environment, keeper *keeper.Kee
 		if !contractsNeedHook.Contains(contractAddr) {
 			return true
 		}
-		if _, err := dexkeeperutils.CallContractSudo(ctx, keeper, contractAddr, finalizeBlockMsg); err != nil {
-			ctx.Logger().Error(fmt.Sprintf("Error calling FinalizeBlock of %s", contractAddr))
+		if _, err := dexkeeperutils.CallContractSudo(sdkCtx, keeper, contractAddr, finalizeBlockMsg); err != nil {
+			sdkCtx.Logger().Error(fmt.Sprintf("Error calling FinalizeBlock of %s", contractAddr))
 			env.failedContractAddresses.Add(contractAddr)
 		}
 		return true
