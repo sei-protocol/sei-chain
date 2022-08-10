@@ -27,7 +27,7 @@ func TestGetOrderSimulation(t *testing.T) {
 	}
 
 	// no liquidity
-	res, err := wrapper.GetOrderSimulation(wctx, &types.QueryOrderSimulationRequest{Order: &testOrder})
+	res, err := wrapper.GetOrderSimulation(wctx, &types.QueryOrderSimulationRequest{Order: &testOrder, ContractAddr: keepertest.TestContract})
 	require.Nil(t, err)
 	require.Equal(t, sdk.ZeroDec(), *res.ExecutedQuantity)
 
@@ -36,34 +36,33 @@ func TestGetOrderSimulation(t *testing.T) {
 		Price: sdk.MustNewDecFromStr("9"),
 		Entry: &types.OrderEntry{
 			Price:      sdk.MustNewDecFromStr("9"),
-			Quantity:   sdk.MustNewDecFromStr("3"),
+			Quantity:   sdk.MustNewDecFromStr("2"),
 			PriceDenom: keepertest.TestPriceDenom,
 			AssetDenom: keepertest.TestAssetDenom,
 		},
 	})
-	res, err = wrapper.GetOrderSimulation(wctx, &types.QueryOrderSimulationRequest{Order: &testOrder})
+	res, err = wrapper.GetOrderSimulation(wctx, &types.QueryOrderSimulationRequest{Order: &testOrder, ContractAddr: keepertest.TestContract})
 	require.Nil(t, err)
-	require.Equal(t, sdk.MustNewDecFromStr("3"), *res.ExecutedQuantity)
+	require.Equal(t, sdk.MustNewDecFromStr("2"), *res.ExecutedQuantity)
 
 	// full liquidity on orderbook
 	keeper.SetShortBook(ctx, keepertest.TestContract, types.ShortBook{
 		Price: sdk.MustNewDecFromStr("8"),
 		Entry: &types.OrderEntry{
 			Price:      sdk.MustNewDecFromStr("8"),
-			Quantity:   sdk.MustNewDecFromStr("3"),
+			Quantity:   sdk.MustNewDecFromStr("1"),
 			PriceDenom: keepertest.TestPriceDenom,
 			AssetDenom: keepertest.TestAssetDenom,
 		},
 	})
-	res, err = wrapper.GetOrderSimulation(wctx, &types.QueryOrderSimulationRequest{Order: &testOrder})
+	res, err = wrapper.GetOrderSimulation(wctx, &types.QueryOrderSimulationRequest{Order: &testOrder, ContractAddr: keepertest.TestContract})
 	require.Nil(t, err)
-	require.Equal(t, sdk.MustNewDecFromStr("5"), *res.ExecutedQuantity)
+	require.Equal(t, sdk.MustNewDecFromStr("3"), *res.ExecutedQuantity)
 
 	// liquidity taken by cancel
 	keeper.AddNewOrder(ctx, types.Order{
 		Id:                1,
 		Account:           keepertest.TestAccount,
-		ContractAddr:      keepertest.TestContract,
 		PriceDenom:        keepertest.TestPriceDenom,
 		AssetDenom:        keepertest.TestAssetDenom,
 		Price:             sdk.MustNewDecFromStr("9"),
@@ -73,15 +72,14 @@ func TestGetOrderSimulation(t *testing.T) {
 	keeper.MemState.GetBlockCancels(ctx, utils.ContractAddress(keepertest.TestContract), utils.GetPairString(&keepertest.TestPair)).Add(
 		&types.Cancellation{Id: 1},
 	)
-	res, err = wrapper.GetOrderSimulation(wctx, &types.QueryOrderSimulationRequest{Order: &testOrder})
+	res, err = wrapper.GetOrderSimulation(wctx, &types.QueryOrderSimulationRequest{Order: &testOrder, ContractAddr: keepertest.TestContract})
 	require.Nil(t, err)
-	require.Equal(t, sdk.MustNewDecFromStr("4"), *res.ExecutedQuantity)
+	require.Equal(t, sdk.MustNewDecFromStr("3"), *res.ExecutedQuantity)
 
 	// liquidity taken by earlier market orders
 	keeper.MemState.GetBlockOrders(ctx, utils.ContractAddress(keepertest.TestContract), utils.GetPairString(&keepertest.TestPair)).Add(
 		&types.Order{
 			Account:           keepertest.TestAccount,
-			ContractAddr:      keepertest.TestContract,
 			PriceDenom:        keepertest.TestPriceDenom,
 			AssetDenom:        keepertest.TestAssetDenom,
 			Price:             sdk.MustNewDecFromStr("11"),
@@ -90,7 +88,7 @@ func TestGetOrderSimulation(t *testing.T) {
 			OrderType:         types.OrderType_MARKET,
 		},
 	)
-	res, err = wrapper.GetOrderSimulation(wctx, &types.QueryOrderSimulationRequest{Order: &testOrder})
+	res, err = wrapper.GetOrderSimulation(wctx, &types.QueryOrderSimulationRequest{Order: &testOrder, ContractAddr: keepertest.TestContract})
 	require.Nil(t, err)
-	require.Equal(t, sdk.MustNewDecFromStr("2"), *res.ExecutedQuantity)
+	require.Equal(t, sdk.MustNewDecFromStr("1"), *res.ExecutedQuantity)
 }
