@@ -1,8 +1,7 @@
 {
     "batch_size": 10,
     "chain_id": "sei-chain",
-    "contract_address": "sei14hj2tavq8fpesdwxxcu44rty3hh90vhujrvcmstl4zr3txmfvw9sh9m79m",
-    "orders_per_block": 10000,
+    "orders_per_block": 400,
     "rounds": 5,
     "price_distribution": {
         "min": "45",
@@ -17,5 +16,23 @@
     "message_type_distribution": {
         "limit_order_percentage": "0.8",
         "market_order_percentage": "0.2"
-    }
+    },
+    "contract_distribution": [
+        {
+            "contract_address": "sei1yw4xvtc43me9scqfr2jr2gzvcxd3a9y4eq7gaukreugw2yd2f8tsy4qgdm",
+            "percentage": "0.25"
+        },
+        {
+            "contract_address": "sei1wug8sewp6cedgkmrmvhl3lf3tulagm9hnvy8p0rppz9yjw0g4wtq05fpn3",
+            "percentage": "0.25"
+        },
+        {
+            "contract_address": "sei1qg5ega6dykkxc307y25pecuufrjkxkaggkkxh7nad0vhyhtuhw3scwfwpd",
+            "percentage": "0.25"
+        },
+        {
+            "contract_address": "sei1zwv6feuzhy6a9wekh96cd57lsarmqlwxdypdsplw6zhfncqw6ftqr428wx",
+            "percentage": "0.25"
+        }
+    ]
 }
