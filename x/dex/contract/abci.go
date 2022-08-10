@@ -3,8 +3,9 @@ package contract
 import (
 	"context"
 	"fmt"
-	"github.com/sei-protocol/sei-chain/utils/tracing"
 	"sync"
+
+	"github.com/sei-protocol/sei-chain/utils/tracing"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/sei-protocol/sei-chain/store/whitelist/multi"

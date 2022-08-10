@@ -3,9 +3,10 @@ package contract
 import (
 	"context"
 	"fmt"
-	otrace "go.opentelemetry.io/otel/trace"
 	"sync"
 	"time"
+
+	otrace "go.opentelemetry.io/otel/trace"
 
 	"github.com/cosmos/cosmos-sdk/telemetry"
 
