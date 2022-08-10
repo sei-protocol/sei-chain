@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"context"
 	"fmt"
 
 	"github.com/spf13/cobra"
@@ -23,7 +22,8 @@ func GetQueryCmd() *cobra.Command {
 
 	mintingQueryCmd.AddCommand(
 		GetCmdQueryParams(),
-		GetCmdQueryEpochProvisions(),
+		GetCmdQueryInflation(),
+		GetCmdQueryAnnualProvisions(),
 	)
 
 	return mintingQueryCmd
@@ -58,12 +58,12 @@ func GetCmdQueryParams() *cobra.Command {
 	return cmd
 }
 
-// GetCmdQueryEpochProvisions implements a command to return the current minting
-// epoch provisions value.
-func GetCmdQueryEpochProvisions() *cobra.Command {
+// GetCmdQueryInflation implements a command to return the current minting
+// inflation value.
+func GetCmdQueryInflation() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "epoch-provisions",
-		Short: "Query the current minting epoch provisions value",
+		Use:   "inflation",
+		Short: "Query the current minting inflation value",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			clientCtx, err := client.GetClientQueryContext(cmd)
@@ -72,13 +72,42 @@ func GetCmdQueryEpochProvisions() *cobra.Command {
 			}
 			queryClient := types.NewQueryClient(clientCtx)
 
-			params := &types.QueryEpochProvisionsRequest{}
-			res, err := queryClient.EpochProvisions(context.Background(), params)
+			params := &types.QueryInflationRequest{}
+			res, err := queryClient.Inflation(cmd.Context(), params)
 			if err != nil {
 				return err
 			}
 
-			return clientCtx.PrintString(fmt.Sprintf("%s\n", res.EpochProvisions))
+			return clientCtx.PrintString(fmt.Sprintf("%s\n", res.Inflation))
+		},
+	}
+
+	flags.AddQueryFlagsToCmd(cmd)
+
+	return cmd
+}
+
+// GetCmdQueryAnnualProvisions implements a command to return the current minting
+// annual provisions value.
+func GetCmdQueryAnnualProvisions() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "annual-provisions",
+		Short: "Query the current minting annual provisions value",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			clientCtx, err := client.GetClientQueryContext(cmd)
+			if err != nil {
+				return err
+			}
+			queryClient := types.NewQueryClient(clientCtx)
+
+			params := &types.QueryAnnualProvisionsRequest{}
+			res, err := queryClient.AnnualProvisions(cmd.Context(), params)
+			if err != nil {
+				return err
+			}
+
+			return clientCtx.PrintString(fmt.Sprintf("%s\n", res.AnnualProvisions))
 		},
 	}
 
