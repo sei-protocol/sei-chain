@@ -1,6 +1,6 @@
 use cosmwasm_std::Decimal;
 use schemars::JsonSchema;
-use sei_cosmwasm::{Order, OrderType, PositionDirection};
+use sei_cosmwasm::{Order};
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, JsonSchema)]
@@ -14,8 +14,8 @@ pub struct SettlementEntry {
     pub quantity: Decimal,
     pub execution_cost_or_proceed: Decimal,
     pub expected_cost_or_proceed: Decimal,
-    pub position_direction: PositionDirection,
-    pub order_type: OrderType,
+    pub position_direction: StrPositionDirection,
+    pub order_type: StrOrderType,
     pub order_id: u64,
 }
 
@@ -41,6 +41,21 @@ pub struct DepositInfo {
 #[derive(Serialize, Deserialize, Clone, PartialEq, JsonSchema)]
 pub struct BulkOrderPlacementsResponse {
     pub unsuccessful_orders: Vec<UnsuccessfulOrder>,
+}
+
+#[derive(Serialize, Deserialize, Copy, Clone, Debug, PartialEq, JsonSchema, Eq, Hash)]
+pub enum StrPositionDirection {
+    Unknown,
+    Long,
+    Short,
+}
+
+#[derive(Serialize, Deserialize, Copy, Clone, Debug, PartialEq, JsonSchema, Eq, Hash)]
+pub enum StrOrderType {
+    Unknown,
+    Limit,
+    Market,
+    Liquidation,
 }
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, JsonSchema)]

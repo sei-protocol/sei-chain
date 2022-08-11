@@ -1,6 +1,6 @@
 {
     "batch_size": 10,
-    "chain_id": "sei-chain",
+    "chain_id": "sei-loadtest-testnet",
     "orders_per_block": 400,
     "rounds": 5,
     "price_distribution": {
