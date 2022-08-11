@@ -144,6 +144,52 @@ func TestWasmGetDexTwaps(t *testing.T) {
 	require.Equal(t, sdk.NewDec(20), twap.Twap)
 }
 
+func TestWasmGetOrderSimulation(t *testing.T) {
+	testWrapper, customQuerier := SetupWasmbindingTest(t)
+
+	order := dextypes.Order{
+		PositionDirection: dextypes.PositionDirection_LONG,
+		OrderType:         dextypes.OrderType_LIMIT,
+		PriceDenom:        "USDC",
+		AssetDenom:        "SEI",
+		Price:             sdk.MustNewDecFromStr("10"),
+		Quantity:          sdk.OneDec(),
+		Data:              "{\"position_effect\":\"OPEN\", \"leverage\":\"1\"}",
+	}
+
+	req := dexbinding.SeiDexQuery{GetOrderSimulation: &dextypes.QueryOrderSimulationRequest{
+		Order: &order,
+	}}
+	queryData, err := json.Marshal(req)
+	require.NoError(t, err)
+	query := wasmbinding.SeiQueryWrapper{Route: wasmbinding.DexRoute, QueryData: queryData}
+
+	rawQuery, err := json.Marshal(query)
+	require.NoError(t, err)
+
+	testWrapper.Ctx = testWrapper.Ctx.WithBlockHeight(11).WithBlockTime(time.Unix(3600, 0))
+	testWrapper.App.DexKeeper.AddRegisteredPair(
+		testWrapper.Ctx,
+		app.TestContract,
+		dextypes.Pair{PriceDenom: "sei", AssetDenom: "atom"},
+	)
+	testWrapper.App.DexKeeper.SetPriceState(testWrapper.Ctx, dextypes.Price{
+		SnapshotTimestampInSeconds: 3600,
+		Price:                      sdk.NewDec(20),
+		Pair:                       &dextypes.Pair{PriceDenom: "sei", AssetDenom: "atom"},
+	}, app.TestContract)
+	testWrapper.App.OracleKeeper.SetBaseExchangeRate(testWrapper.Ctx, oracleutils.MicroAtomDenom, sdk.NewDec(12))
+	testWrapper.Ctx = testWrapper.Ctx.WithBlockHeight(14).WithBlockTime(time.Unix(3700, 0))
+
+	res, err := customQuerier(testWrapper.Ctx, rawQuery)
+	require.NoError(t, err)
+
+	var parsedRes dextypes.QueryOrderSimulationResponse
+	err = json.Unmarshal(res, &parsedRes)
+	require.NoError(t, err)
+	require.Equal(t, sdk.NewDec(0), *parsedRes.ExecutedQuantity)
+}
+
 func TestWasmGetEpoch(t *testing.T) {
 	testWrapper, customQuerier := SetupWasmbindingTest(t)
 
