@@ -5,7 +5,7 @@ import (
 
 	"github.com/cosmos/cosmos-sdk/codec"
 
-	"github.com/cosmos/cosmos-sdk/x/upgrade/types"
+	"github.com/sei-protocol/sei-chain/x/upgrade/types"
 
 	abci "github.com/tendermint/tendermint/abci/types"
 

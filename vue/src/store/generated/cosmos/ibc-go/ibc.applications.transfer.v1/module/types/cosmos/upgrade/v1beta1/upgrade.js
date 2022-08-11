@@ -2,7 +2,7 @@
 import { Timestamp } from "../../../google/protobuf/timestamp";
 import * as Long from "long";
 import { util, configure, Writer, Reader } from "protobufjs/minimal";
-export const protobufPackage = "cosmos.upgrade.v1beta1";
+export const protobufPackage = "seiprotocol.seichain.upgrade.v1beta1";
 const basePlan = { name: "", height: 0, info: "" };
 export const Plan = {
     encode(message, writer = Writer.create()) {

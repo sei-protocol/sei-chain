@@ -12,8 +12,8 @@ import (
 	store "github.com/cosmos/cosmos-sdk/store/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/types/module"
-	"github.com/cosmos/cosmos-sdk/x/upgrade/keeper"
-	"github.com/cosmos/cosmos-sdk/x/upgrade/types"
+	"github.com/sei-protocol/sei-chain/x/upgrade/keeper"
+	"github.com/sei-protocol/sei-chain/x/upgrade/types"
 )
 
 type KeeperTestSuite struct {

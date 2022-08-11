@@ -3,7 +3,7 @@ import { Timestamp } from "../../../google/protobuf/timestamp";
 import * as Long from "long";
 import { util, configure, Writer, Reader } from "protobufjs/minimal";
 
-export const protobufPackage = "cosmos.upgrade.v1beta1";
+export const protobufPackage = "seiprotocol.seichain.upgrade.v1beta1";
 
 /** Plan specifies information about a planned upgrade and when it should occur. */
 export interface Plan {

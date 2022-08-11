@@ -9,7 +9,7 @@ import (
 
 	"github.com/cosmos/cosmos-sdk/client"
 	"github.com/cosmos/cosmos-sdk/types/rest"
-	"github.com/cosmos/cosmos-sdk/x/upgrade/types"
+	"github.com/sei-protocol/sei-chain/x/upgrade/types"
 )
 
 func registerQueryRoutes(clientCtx client.Context, r *mux.Router) {

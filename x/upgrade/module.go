@@ -14,10 +14,10 @@ import (
 	codectypes "github.com/cosmos/cosmos-sdk/codec/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/types/module"
-	"github.com/cosmos/cosmos-sdk/x/upgrade/client/cli"
-	"github.com/cosmos/cosmos-sdk/x/upgrade/client/rest"
-	"github.com/cosmos/cosmos-sdk/x/upgrade/keeper"
-	"github.com/cosmos/cosmos-sdk/x/upgrade/types"
+	"github.com/sei-protocol/sei-chain/x/upgrade/client/cli"
+	"github.com/sei-protocol/sei-chain/x/upgrade/client/rest"
+	"github.com/sei-protocol/sei-chain/x/upgrade/keeper"
+	"github.com/sei-protocol/sei-chain/x/upgrade/types"
 )
 
 func init() {

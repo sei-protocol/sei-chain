@@ -321,7 +321,7 @@ A user can query the `upgrade` module using gRPC endpoints.
 `AppliedPlan` queries a previously applied upgrade plan by its name.
 
 ```bash
-cosmos.upgrade.v1beta1.Query/AppliedPlan
+seiprotocol.seichain.upgrade.v1beta1.Query/AppliedPlan
 ```
 
 Example:
@@ -330,7 +330,7 @@ Example:
 grpcurl -plaintext \
     -d '{"name":"v2.0-upgrade"}' \
     localhost:9090 \
-    cosmos.upgrade.v1beta1.Query/AppliedPlan
+    seiprotocol.seichain.upgrade.v1beta1.Query/AppliedPlan
 ```
 
 Example Output:
@@ -346,7 +346,7 @@ Example Output:
 `CurrentPlan` queries the current upgrade plan.
 
 ```bash
-cosmos.upgrade.v1beta1.Query/CurrentPlan
+seiprotocol.seichain.upgrade.v1beta1.Query/CurrentPlan
 ```
 
 Example:
@@ -368,7 +368,7 @@ Example Output:
 `ModuleVersions` queries the list of module versions from state.
 
 ```bash
-cosmos.upgrade.v1beta1.Query/ModuleVersions
+seiprotocol.seichain.upgrade.v1beta1.Query/ModuleVersions
 ```
 
 Example:
