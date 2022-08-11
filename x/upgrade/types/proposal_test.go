@@ -17,6 +17,7 @@ type ProposalWrapper struct {
 }
 
 func TestContentAccessors(t *testing.T) {
+	println("testing content accessors")
 	cases := map[string]struct {
 		p     gov.Content
 		title string
@@ -78,6 +79,7 @@ func TestContentAccessors(t *testing.T) {
 
 // tests a software update proposal can be marshaled and unmarshaled
 func TestMarshalSoftwareUpdateProposal(t *testing.T) {
+	println("testing TestMarshalSoftwareUpdateProposal")
 	// create proposal
 	plan := types.Plan{
 		Name:   "upgrade",

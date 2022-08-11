@@ -19,6 +19,7 @@ func NewSoftwareUpgradeProposal(title, description string, plan Plan) gov.Conten
 var _ gov.Content = &SoftwareUpgradeProposal{}
 
 func init() {
+	println("Initing!")
 	gov.RegisterProposalType(ProposalTypeSoftwareUpgrade)
 	gov.RegisterProposalTypeCodec(&SoftwareUpgradeProposal{}, "cosmos-sdk/SoftwareUpgradeProposal")
 	gov.RegisterProposalType(ProposalTypeCancelSoftwareUpgrade)
