@@ -8,6 +8,7 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/sei-protocol/sei-chain/testutil/fuzzing"
 	keepertest "github.com/sei-protocol/sei-chain/testutil/keeper"
+	"github.com/sei-protocol/sei-chain/utils/datastructures"
 	"github.com/sei-protocol/sei-chain/x/dex/exchange"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
 	"github.com/stretchr/testify/require"
@@ -68,7 +69,7 @@ func fuzzTargetMatchMarketOrders(
 	require.NotPanics(t, func() {
 		exchange.MatchMarketOrders(TestFuzzMarketCtx, orders, &types.CachedSortedOrderBookEntries{
 			Entries:      entries,
-			DirtyEntries: map[string]types.OrderBookEntry{},
+			DirtyEntries: datastructures.NewTypedSyncMap[string, types.OrderBookEntry](),
 		}, direction)
 	})
 }

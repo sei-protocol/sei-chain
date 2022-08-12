@@ -22,6 +22,8 @@ func (o *BlockOrders) Copy() *BlockOrders {
 }
 
 func (o *BlockOrders) MarkFailedToPlaceByAccounts(accounts []string) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
 	badAccountSet := datastructures.NewSyncSet(accounts)
 	newOrders := []*types.Order{}
 	for _, order := range o.internal {
@@ -35,6 +37,8 @@ func (o *BlockOrders) MarkFailedToPlaceByAccounts(accounts []string) {
 }
 
 func (o *BlockOrders) MarkFailedToPlace(failedOrders []wasm.UnsuccessfulOrder) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
 	failedOrdersMap := map[uint64]wasm.UnsuccessfulOrder{}
 	for _, failedOrder := range failedOrders {
 		failedOrdersMap[failedOrder.ID] = failedOrder
@@ -51,6 +55,9 @@ func (o *BlockOrders) MarkFailedToPlace(failedOrders []wasm.UnsuccessfulOrder) {
 }
 
 func (o *BlockOrders) GetSortedMarketOrders(direction types.PositionDirection, includeLiquidationOrders bool) []*types.Order {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+
 	res := o.getOrdersByCriteria(types.OrderType_MARKET, direction)
 	if includeLiquidationOrders {
 		res = append(res, o.getOrdersByCriteria(types.OrderType_LIQUIDATION, direction)...)
@@ -76,6 +83,8 @@ func (o *BlockOrders) GetSortedMarketOrders(direction types.PositionDirection, i
 }
 
 func (o *BlockOrders) GetLimitOrders(direction types.PositionDirection) []*types.Order {
+	o.mu.Lock()
+	defer o.mu.Unlock()
 	return o.getOrdersByCriteria(types.OrderType_LIMIT, direction)
 }
 

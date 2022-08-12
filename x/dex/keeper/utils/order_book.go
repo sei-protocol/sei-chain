@@ -4,6 +4,7 @@ import (
 	"sort"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/sei-protocol/sei-chain/utils/datastructures"
 	"github.com/sei-protocol/sei-chain/x/dex/keeper"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
 	dextypesutils "github.com/sei-protocol/sei-chain/x/dex/types/utils"
@@ -22,11 +23,11 @@ func PopulateOrderbook(
 	return &types.OrderBook{
 		Longs: &types.CachedSortedOrderBookEntries{
 			Entries:      longs,
-			DirtyEntries: map[string]types.OrderBookEntry{},
+			DirtyEntries: datastructures.NewTypedSyncMap[string, types.OrderBookEntry](),
 		},
 		Shorts: &types.CachedSortedOrderBookEntries{
 			Entries:      shorts,
-			DirtyEntries: map[string]types.OrderBookEntry{},
+			DirtyEntries: datastructures.NewTypedSyncMap[string, types.OrderBookEntry](),
 		},
 	}
 }
@@ -44,20 +45,20 @@ func FlushOrderbook(
 	orderbook *types.OrderBook,
 ) {
 	contractAddr := string(typedContractAddr)
-	for _, entry := range orderbook.Longs.DirtyEntries {
+	orderbook.Longs.DirtyEntries.DeepApply(func(entry types.OrderBookEntry) {
 		if entry.GetEntry().Quantity.IsZero() {
 			keeper.RemoveLongBookByPrice(ctx, contractAddr, entry.GetEntry().Price, entry.GetEntry().PriceDenom, entry.GetEntry().AssetDenom)
 		} else {
 			longOrder := entry.(*types.LongBook)
 			keeper.SetLongBook(ctx, contractAddr, *longOrder)
 		}
-	}
-	for _, entry := range orderbook.Shorts.DirtyEntries {
+	})
+	orderbook.Shorts.DirtyEntries.DeepApply(func(entry types.OrderBookEntry) {
 		if entry.GetEntry().Quantity.IsZero() {
 			keeper.RemoveShortBookByPrice(ctx, contractAddr, entry.GetEntry().Price, entry.GetEntry().PriceDenom, entry.GetEntry().AssetDenom)
 		} else {
 			shortOrder := entry.(*types.ShortBook)
 			keeper.SetShortBook(ctx, contractAddr, *shortOrder)
 		}
-	}
+	})
 }

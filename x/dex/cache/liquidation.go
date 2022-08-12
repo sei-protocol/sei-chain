@@ -24,6 +24,9 @@ func (lrs *LiquidationRequests) Copy() *LiquidationRequests {
 }
 
 func (lrs *LiquidationRequests) IsAccountLiquidating(accountToLiquidate string) bool {
+	lrs.mu.Lock()
+	defer lrs.mu.Unlock()
+
 	for _, lr := range lrs.internal {
 		if lr.AccountToLiquidate == accountToLiquidate {
 			return true

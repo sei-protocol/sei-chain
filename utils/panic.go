@@ -17,7 +17,7 @@ func PanicHandler(recoverCallback func(any)) func() {
 }
 
 func MetricsPanicCallback(err any, ctx sdk.Context, key string) {
-	ctx.Logger().Error(fmt.Sprintf("panic occurred during order matching for: %s", key))
+	ctx.Logger().Error(fmt.Sprintf("panic %s occurred during order matching for: %s", err, key))
 	telemetry.IncrCounterWithLabels(
 		[]string{key},
 		1,

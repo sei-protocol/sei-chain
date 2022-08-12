@@ -14,7 +14,8 @@ func MatchMarketOrders(
 	totalExecuted, totalPrice := sdk.ZeroDec(), sdk.ZeroDec()
 	settlements := []*types.SettlementEntry{}
 	allTakerSettlements := []*types.SettlementEntry{}
-	for idx, marketOrder := range marketOrders {
+	for _, marketOrder := range marketOrders {
+		remainingQuantity := marketOrder.Quantity
 		for i := range orderBookEntries.Entries {
 			var existingOrder types.OrderBookEntry
 			if direction == types.PositionDirection_LONG {
@@ -36,12 +37,12 @@ func MatchMarketOrders(
 				}
 			}
 			var executed sdk.Dec
-			if marketOrder.Quantity.LTE(existingOrder.GetEntry().Quantity) {
-				executed = marketOrder.Quantity
+			if remainingQuantity.LTE(existingOrder.GetEntry().Quantity) {
+				executed = remainingQuantity
 			} else {
 				executed = existingOrder.GetEntry().Quantity
 			}
-			marketOrder.Quantity = marketOrder.Quantity.Sub(executed)
+			remainingQuantity = remainingQuantity.Sub(executed)
 			totalExecuted = totalExecuted.Add(executed)
 			totalPrice = totalPrice.Add(
 				executed.Mul(existingOrder.GetPrice()),
@@ -58,11 +59,10 @@ func MatchMarketOrders(
 			settlements = append(settlements, makerSettlements...)
 			// taker settlements' clearing price will need to be adjusted after all market order executions finish
 			allTakerSettlements = append(allTakerSettlements, takerSettlements...)
-			if marketOrder.Quantity.IsZero() {
+			if remainingQuantity.IsZero() {
 				break
 			}
 		}
-		marketOrders[idx].Quantity = marketOrder.Quantity
 	}
 	if totalExecuted.IsPositive() {
 		clearingPrice := totalPrice.Quo(totalExecuted)

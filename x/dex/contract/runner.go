@@ -83,7 +83,7 @@ func NewParallelRunner(runnable func(contract types.ContractInfo), contracts []t
 func (r *ParallelRunner) Run() {
 	// The ordering of the two conditions below matters, since readyCnt
 	// is updated before inProgressCnt.
-	for r.inProgressCnt > 0 || r.readyCnt > 0 {
+	for atomic.LoadInt64(&r.inProgressCnt) > 0 || atomic.LoadInt64(&r.readyCnt) > 0 {
 		// r.readyContracts represent all frontier contracts that have
 		// not started running yet.
 		r.readyContracts.Range(func(key utils.ContractAddress, _ struct{}) bool {
