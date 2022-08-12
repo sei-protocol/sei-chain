@@ -36,14 +36,12 @@ Ref: https://keepachangelog.com/en/1.0.0/
 
 ## [v0.0.1] 2023-05-27
 - Huckleberry patch
-## [Unreleased]
+## [v3.2.0](https://github.com/cosmos/ibc-go/releases/tag/v3.2.0) - 2022-08-12
 
 ### Dependencies
 
 * [\#1627](https://github.com/cosmos/ibc-go/pull/1627) Bump Go version to 1.18
 * [\#1905](https://github.com/cosmos/ibc-go/pull/1905) Bump SDK version to v0.45.7
-
-### API Breaking
 
 ### State Machine Breaking
 
@@ -57,8 +55,6 @@ Ref: https://keepachangelog.com/en/1.0.0/
 * (app/20-transfer) [\#1680](https://github.com/cosmos/ibc-go/pull/1680) Adds migration to correct any malformed trace path information of tokens with denoms that contains slashes. The transfer module consensus version has been bumped to 2.
 * (app/20-transfer) [\#1730](https://github.com/cosmos/ibc-go/pull/1730) parse the ics20 denomination provided via a packet using the channel identifier format specified by ibc-go.
 * (core/client) [\#1740](https://github.com/cosmos/ibc-go/pull/1740) Add `cosmos_proto.implements_interface` to adhere to guidelines in [Cosmos SDK ADR 019](https://github.com/cosmos/cosmos-sdk/blob/main/docs/architecture/adr-019-protobuf-state-encoding.md#safe-usage-of-any) for annotating `google.protobuf.Any` types
-
-### Features
 
 ### Bug Fixes
 
