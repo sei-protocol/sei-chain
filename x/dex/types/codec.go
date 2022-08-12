@@ -11,7 +11,6 @@ import (
 func RegisterCodec(cdc *codec.LegacyAmino) {
 	cdc.RegisterConcrete(&MsgPlaceOrders{}, "dex/MsgPlaceOrders", nil)
 	cdc.RegisterConcrete(&MsgCancelOrders{}, "dex/MsgCancelOrders", nil)
-	cdc.RegisterConcrete(&MsgLiquidation{}, "dex/MsgLiquidation", nil)
 	cdc.RegisterConcrete(&RegisterPairsProposal{}, "dex/RegisterPairsProposal", nil)
 	cdc.RegisterConcrete(&UpdateTickSizeProposal{}, "dex/UpdateTickSizeProposal", nil)
 	cdc.RegisterConcrete(&AddAssetMetadataProposal{}, "dex/AddAssetMetadataProposal", nil)
@@ -24,9 +23,6 @@ func RegisterInterfaces(registry cdctypes.InterfaceRegistry) {
 	)
 	registry.RegisterImplementations((*sdk.Msg)(nil),
 		&MsgCancelOrders{},
-	)
-	registry.RegisterImplementations((*sdk.Msg)(nil),
-		&MsgLiquidation{},
 	)
 	registry.RegisterImplementations((*govtypes.Content)(nil),
 		&RegisterPairsProposal{},

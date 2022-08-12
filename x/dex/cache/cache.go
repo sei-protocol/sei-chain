@@ -74,8 +74,7 @@ type MemState struct {
 		typesutils.PairString,
 		*BlockCancellations,
 	]
-	depositInfo         *datastructures.TypedSyncMap[typesutils.ContractAddress, *DepositInfo]
-	liquidationRequests *datastructures.TypedSyncMap[typesutils.ContractAddress, *LiquidationRequests]
+	depositInfo *datastructures.TypedSyncMap[typesutils.ContractAddress, *DepositInfo]
 }
 
 func NewMemState() *MemState {
@@ -90,8 +89,7 @@ func NewMemState() *MemState {
 			typesutils.PairString,
 			*BlockCancellations,
 		](),
-		depositInfo:         datastructures.NewTypedSyncMap[typesutils.ContractAddress, *DepositInfo](),
-		liquidationRequests: datastructures.NewTypedSyncMap[typesutils.ContractAddress, *LiquidationRequests](),
+		depositInfo: datastructures.NewTypedSyncMap[typesutils.ContractAddress, *DepositInfo](),
 	}
 }
 
@@ -119,12 +117,6 @@ func (s *MemState) GetDepositInfo(ctx sdk.Context, contractAddr typesutils.Contr
 	return depositsForContract
 }
 
-func (s *MemState) GetLiquidationRequests(ctx sdk.Context, contractAddr typesutils.ContractAddress) *LiquidationRequests {
-	s.SynchronizeAccess(ctx, contractAddr)
-	liquidationsForContract, _ := s.liquidationRequests.LoadOrStore(contractAddr, NewLiquidationRequests())
-	return liquidationsForContract
-}
-
 func (s *MemState) Clear() {
 	s.blockOrders = datastructures.NewTypedNestedSyncMap[
 		typesutils.ContractAddress,
@@ -137,7 +129,6 @@ func (s *MemState) Clear() {
 		*BlockCancellations,
 	]()
 	s.depositInfo = datastructures.NewTypedSyncMap[typesutils.ContractAddress, *DepositInfo]()
-	s.liquidationRequests = datastructures.NewTypedSyncMap[typesutils.ContractAddress, *LiquidationRequests]()
 }
 
 func (s *MemState) ClearCancellationForPair(ctx sdk.Context, contractAddr typesutils.ContractAddress, pair typesutils.PairString) {
@@ -150,7 +141,6 @@ func (s *MemState) DeepCopy() *MemState {
 	copy.blockOrders = s.blockOrders.DeepCopy(func(o *BlockOrders) *BlockOrders { return o.Copy() })
 	copy.blockCancels = s.blockCancels.DeepCopy(func(o *BlockCancellations) *BlockCancellations { return o.Copy() })
 	copy.depositInfo = s.depositInfo.DeepCopy(func(o *DepositInfo) *DepositInfo { return o.Copy() })
-	copy.liquidationRequests = s.liquidationRequests.DeepCopy(func(o *LiquidationRequests) *LiquidationRequests { return o.Copy() })
 	return copy
 }
 
@@ -158,7 +148,6 @@ func (s *MemState) DeepFilterAccount(account string) {
 	s.blockOrders.DeepApply(func(o *BlockOrders) { o.FilterByAccount(account) })
 	s.blockCancels.DeepApply(func(o *BlockCancellations) { o.FilterByAccount(account) })
 	s.depositInfo.DeepApply(func(o *DepositInfo) { o.FilterByAccount(account) })
-	s.liquidationRequests.DeepApply(func(o *LiquidationRequests) { o.FilterByAccount(account) })
 }
 
 func (s *MemState) SynchronizeAccess(ctx sdk.Context, contractAddr typesutils.ContractAddress) {

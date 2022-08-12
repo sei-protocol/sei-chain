@@ -14,7 +14,6 @@ option go_package = "github.com/sei-protocol/sei-chain/x/dex/types";
 service Msg {
   rpc PlaceOrders(MsgPlaceOrders) returns (MsgPlaceOrdersResponse);
   rpc CancelOrders(MsgCancelOrders) returns (MsgCancelOrdersResponse);
-  rpc Liquidate(MsgLiquidation) returns (MsgLiquidationResponse);
   rpc RegisterContract(MsgRegisterContract) returns(MsgRegisterContractResponse);
   // privileged endpoints below
 
@@ -36,9 +35,6 @@ message MsgPlaceOrders {
     (gogoproto.castrepeated) = "github.com/cosmos/cosmos-sdk/types.Coins",
     (gogoproto.jsontag) = "funds"
   ];
-  bool autoCalculateDeposit = 5 [
-      (gogoproto.jsontag) = "auto_calculate_deposit"
-  ];
 }
 
 message MsgPlaceOrdersResponse {
@@ -58,14 +54,6 @@ message MsgCancelOrders {
 }
 
 message MsgCancelOrdersResponse {}
-
-message MsgLiquidation {
-  string creator = 1;
-  string accountToLiquidate = 2;
-  string contractAddr = 3;
-}
-
-message MsgLiquidationResponse {}
 
 message MsgRegisterContract {
   string creator = 1;

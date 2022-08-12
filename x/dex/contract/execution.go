@@ -37,9 +37,6 @@ func CallPreExecutionHooks(
 	defer span.End()
 	span.SetAttributes(attribute.String("contract", contractAddr))
 	abciWrapper := dexkeeperabci.KeeperWrapper{Keeper: dexkeeper}
-	if err := abciWrapper.HandleEBLiquidation(spanCtx, sdkCtx, tracer, contractAddr, registeredPairs); err != nil {
-		return err
-	}
 	if err := abciWrapper.HandleEBCancelOrders(spanCtx, sdkCtx, tracer, contractAddr, registeredPairs); err != nil {
 		return err
 	}

@@ -64,14 +64,11 @@ func TestDeepFilterAccounts(t *testing.T) {
 	stateOne.GetDepositInfo(ctx, utils.ContractAddress(TEST_CONTRACT)).Add(&dex.DepositInfoEntry{
 		Creator: "test2",
 	})
-	stateOne.GetLiquidationRequests(ctx, utils.ContractAddress(TEST_CONTRACT)).Add(&dex.LiquidationRequest{Requestor: "test", AccountToLiquidate: ""})
-	stateOne.GetLiquidationRequests(ctx, utils.ContractAddress(TEST_CONTRACT)).Add(&dex.LiquidationRequest{Requestor: "test2", AccountToLiquidate: ""})
 
 	stateOne.DeepFilterAccount("test")
 	require.Equal(t, 1, stateOne.GetAllBlockOrders(ctx, utils.ContractAddress(TEST_CONTRACT)).Len())
 	require.Equal(t, 1, len(stateOne.GetBlockCancels(ctx, utils.ContractAddress(TEST_CONTRACT), utils.PairString(TEST_PAIR)).Get()))
 	require.Equal(t, 1, len(stateOne.GetDepositInfo(ctx, utils.ContractAddress(TEST_CONTRACT)).Get()))
-	require.Equal(t, 1, len(stateOne.GetLiquidationRequests(ctx, utils.ContractAddress(TEST_CONTRACT)).Get()))
 }
 
 func TestClear(t *testing.T) {

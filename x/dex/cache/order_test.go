@@ -22,19 +22,6 @@ func TestOrderFilterByAccount(t *testing.T) {
 	require.Equal(t, 0, len(orders.Get()))
 }
 
-func TestMarkFailedToPlaceByAccounts(t *testing.T) {
-	ctx := sdk.Context{}
-	stateOne := dex.NewMemState()
-	stateOne.GetBlockOrders(ctx, utils.ContractAddress(TEST_CONTRACT), utils.PairString(TEST_PAIR)).Add(&types.Order{
-		Id:           1,
-		Account:      "test",
-		ContractAddr: TEST_CONTRACT,
-	})
-	stateOne.GetBlockOrders(ctx, utils.ContractAddress(TEST_CONTRACT), utils.PairString(TEST_PAIR)).MarkFailedToPlaceByAccounts([]string{"test"})
-	require.Equal(t, types.OrderStatus_FAILED_TO_PLACE,
-		stateOne.GetBlockOrders(ctx, utils.ContractAddress(TEST_CONTRACT), utils.PairString(TEST_PAIR)).Get()[0].Status)
-}
-
 func TestMarkFailedToPlace(t *testing.T) {
 	ctx := sdk.Context{}
 	stateOne := dex.NewMemState()

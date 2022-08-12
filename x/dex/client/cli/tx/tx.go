@@ -30,7 +30,6 @@ func GetTxCmd() *cobra.Command {
 	}
 	cmd.AddCommand(CmdPlaceOrders())
 	cmd.AddCommand(CmdCancelOrders())
-	cmd.AddCommand(CmdLiquidate())
 	cmd.AddCommand(CmdRegisterContract())
 	cmd.AddCommand(NewRegisterPairsProposalTxCmd())
 	cmd.AddCommand(NewUpdateTickSizeProposalTxCmd())
