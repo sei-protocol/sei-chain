@@ -361,7 +361,7 @@ func (k Keeper) WriteAcknowledgement(
 	// log that a packet acknowledgement has been written
 	k.Logger(ctx).Info(
 		"acknowledgement written",
-		"sequence", packet.GetSequence(),
+		"sequence", strconv.FormatUint(packet.GetSequence(), 10),
 		"src_port", packet.GetSourcePort(),
 		"src_channel", packet.GetSourceChannel(),
 		"dst_port", packet.GetDestPort(),

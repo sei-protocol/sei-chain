@@ -62,6 +62,8 @@ Ref: https://keepachangelog.com/en/1.0.0/
 
 ### Bug Fixes
 
+* (modules/core/04-channel)[\#1919](https://github.com/cosmos/ibc-go/pull/1919) Fixed formatting of sequence for packet "acknowledgement written" logs.
+
 ## [v3.1.0](https://github.com/cosmos/ibc-go/releases/tag/v3.1.0) - 2022-04-16
 
 ### Dependencies
