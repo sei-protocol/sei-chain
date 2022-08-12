@@ -1,6 +1,8 @@
 package wasm
 
 import (
+	"sync"
+
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
 )
@@ -25,7 +27,9 @@ func NewSudoFinalizeBlockMsg() *SudoFinalizeBlockMsg {
 	}
 }
 
-func (m *SudoFinalizeBlockMsg) AddContractResult(result ContractOrderResult) {
+func (m *SudoFinalizeBlockMsg) AddContractResult(result ContractOrderResult, mu *sync.Mutex) {
+	mu.Lock()
+	defer mu.Unlock()
 	m.FinalizeBlock = FinalizeBlockRequest{
 		Results: append(m.FinalizeBlock.Results, result),
 	}

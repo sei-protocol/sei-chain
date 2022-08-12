@@ -212,9 +212,7 @@ func orderMatchingRunnable(ctx context.Context, sdkContext sdk.Context, env *env
 				// ordering of `AddContractResult` among multiple orderMatchingRunnable instances doesn't matter
 				// since it's not persisted as state, and it's only used for invoking registered contracts'
 				// FinalizeBlock sudo endpoints, whose state updates are gated by whitelist stores anyway.
-				env.finalizeMsgMutex.Lock()
-				msg.AddContractResult(orderResults)
-				env.finalizeMsgMutex.Unlock()
+				msg.AddContractResult(orderResults, env.finalizeMsgMutex)
 			}
 		}
 		env.settlementsByContract.Store(contractInfo.ContractAddr, settlements)
@@ -222,8 +220,8 @@ func orderMatchingRunnable(ctx context.Context, sdkContext sdk.Context, env *env
 
 	// ordering of events doesn't matter since events aren't part of consensus
 	env.eventManagerMutex.Lock()
+	defer env.eventManagerMutex.Unlock()
 	parentSdkContext.EventManager().EmitEvents(sdkContext.EventManager().Events())
-	env.eventManagerMutex.Unlock()
 }
 
 func orderMatchingRecoverCallback(err any, ctx sdk.Context, env *environment, contractInfo types.ContractInfo) {
