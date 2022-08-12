@@ -5,6 +5,7 @@ import (
 	"time"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/sei-protocol/sei-chain/utils/datastructures"
 	"github.com/sei-protocol/sei-chain/x/dex/exchange"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
 	"github.com/stretchr/testify/assert"
@@ -51,7 +52,7 @@ func TestMatchSingleMarketOrderFromShortBook(t *testing.T) {
 	}
 	entries := &types.CachedSortedOrderBookEntries{
 		Entries:      shortBook,
-		DirtyEntries: make(map[string]types.OrderBookEntry),
+		DirtyEntries: datastructures.NewTypedSyncMap[string, types.OrderBookEntry](),
 	}
 	outcome := exchange.MatchMarketOrders(
 		ctx, longOrders, entries, types.PositionDirection_LONG,
@@ -61,8 +62,8 @@ func TestMatchSingleMarketOrderFromShortBook(t *testing.T) {
 	settlements := outcome.Settlements
 	assert.Equal(t, totalPrice, sdk.NewDec(500))
 	assert.Equal(t, totalExecuted, sdk.NewDec(5))
-	assert.Equal(t, len(entries.DirtyEntries), 1)
-	_, ok := entries.DirtyEntries[sdk.MustNewDecFromStr("100").String()]
+	assert.Equal(t, entries.DirtyEntries.Len(), 1)
+	_, ok := entries.DirtyEntries.Load(sdk.MustNewDecFromStr("100").String())
 	assert.True(t, ok)
 	assert.Equal(t, len(shortBook), 1)
 	assert.Equal(t, shortBook[0].GetPrice(), sdk.NewDec(100))
@@ -131,7 +132,7 @@ func TestMatchSingleMarketOrderFromLongBook(t *testing.T) {
 	}
 	entries := &types.CachedSortedOrderBookEntries{
 		Entries:      longBook,
-		DirtyEntries: make(map[string]types.OrderBookEntry),
+		DirtyEntries: datastructures.NewTypedSyncMap[string, types.OrderBookEntry](),
 	}
 	outcome := exchange.MatchMarketOrders(
 		ctx, shortOrders, entries, types.PositionDirection_SHORT,
@@ -141,8 +142,8 @@ func TestMatchSingleMarketOrderFromLongBook(t *testing.T) {
 	settlements := outcome.Settlements
 	assert.Equal(t, totalPrice, sdk.NewDec(500))
 	assert.Equal(t, totalExecuted, sdk.NewDec(5))
-	assert.Equal(t, len(entries.DirtyEntries), 1)
-	_, ok := entries.DirtyEntries[sdk.MustNewDecFromStr("100").String()]
+	assert.Equal(t, entries.DirtyEntries.Len(), 1)
+	_, ok := entries.DirtyEntries.Load(sdk.MustNewDecFromStr("100").String())
 	assert.True(t, ok)
 	assert.Equal(t, len(longBook), 1)
 	assert.Equal(t, longBook[0].GetPrice(), sdk.NewDec(100))
@@ -229,7 +230,7 @@ func TestMatchSingleMarketOrderFromMultipleShortBook(t *testing.T) {
 	}
 	entries := &types.CachedSortedOrderBookEntries{
 		Entries:      shortBook,
-		DirtyEntries: make(map[string]types.OrderBookEntry),
+		DirtyEntries: datastructures.NewTypedSyncMap[string, types.OrderBookEntry](),
 	}
 	outcome := exchange.MatchMarketOrders(
 		ctx, longOrders, entries, types.PositionDirection_LONG,
@@ -239,10 +240,10 @@ func TestMatchSingleMarketOrderFromMultipleShortBook(t *testing.T) {
 	settlements := outcome.Settlements
 	assert.Equal(t, totalPrice, sdk.NewDec(480))
 	assert.Equal(t, totalExecuted, sdk.NewDec(5))
-	assert.Equal(t, len(entries.DirtyEntries), 2)
-	_, ok := entries.DirtyEntries[sdk.MustNewDecFromStr("100").String()]
+	assert.Equal(t, entries.DirtyEntries.Len(), 2)
+	_, ok := entries.DirtyEntries.Load(sdk.MustNewDecFromStr("100").String())
 	assert.True(t, ok)
-	_, ok = entries.DirtyEntries[sdk.MustNewDecFromStr("90").String()]
+	_, ok = entries.DirtyEntries.Load(sdk.MustNewDecFromStr("90").String())
 	assert.True(t, ok)
 	assert.Equal(t, len(shortBook), 2)
 	assert.Equal(t, shortBook[0].GetPrice(), sdk.NewDec(90))
@@ -397,7 +398,7 @@ func TestMatchSingleMarketOrderFromMultipleLongBook(t *testing.T) {
 	}
 	entries := &types.CachedSortedOrderBookEntries{
 		Entries:      longBook,
-		DirtyEntries: make(map[string]types.OrderBookEntry),
+		DirtyEntries: datastructures.NewTypedSyncMap[string, types.OrderBookEntry](),
 	}
 	outcome := exchange.MatchMarketOrders(
 		ctx, shortOrders, entries, types.PositionDirection_SHORT,
@@ -407,10 +408,10 @@ func TestMatchSingleMarketOrderFromMultipleLongBook(t *testing.T) {
 	settlements := outcome.Settlements
 	assert.Equal(t, totalPrice, sdk.NewDec(520))
 	assert.Equal(t, totalExecuted, sdk.NewDec(5))
-	assert.Equal(t, len(entries.DirtyEntries), 2)
-	_, ok := entries.DirtyEntries[sdk.MustNewDecFromStr("100").String()]
+	assert.Equal(t, entries.DirtyEntries.Len(), 2)
+	_, ok := entries.DirtyEntries.Load(sdk.MustNewDecFromStr("100").String())
 	assert.True(t, ok)
-	_, ok = entries.DirtyEntries[sdk.MustNewDecFromStr("110").String()]
+	_, ok = entries.DirtyEntries.Load(sdk.MustNewDecFromStr("110").String())
 	assert.True(t, ok)
 	assert.Equal(t, len(longBook), 2)
 	assert.Equal(t, longBook[0].GetPrice(), sdk.NewDec(100))
@@ -587,7 +588,7 @@ func TestMatchMultipleMarketOrderFromMultipleShortBook(t *testing.T) {
 	}
 	entries := &types.CachedSortedOrderBookEntries{
 		Entries:      shortBook,
-		DirtyEntries: make(map[string]types.OrderBookEntry),
+		DirtyEntries: datastructures.NewTypedSyncMap[string, types.OrderBookEntry](),
 	}
 	outcome := exchange.MatchMarketOrders(
 		ctx, longOrders, entries, types.PositionDirection_LONG,
@@ -597,10 +598,10 @@ func TestMatchMultipleMarketOrderFromMultipleShortBook(t *testing.T) {
 	settlements := outcome.Settlements
 	assert.Equal(t, totalPrice, sdk.NewDec(580))
 	assert.Equal(t, totalExecuted, sdk.NewDec(6))
-	assert.Equal(t, len(entries.DirtyEntries), 2)
-	_, ok := entries.DirtyEntries[sdk.MustNewDecFromStr("100").String()]
+	assert.Equal(t, entries.DirtyEntries.Len(), 2)
+	_, ok := entries.DirtyEntries.Load(sdk.MustNewDecFromStr("100").String())
 	assert.True(t, ok)
-	_, ok = entries.DirtyEntries[sdk.MustNewDecFromStr("90").String()]
+	_, ok = entries.DirtyEntries.Load(sdk.MustNewDecFromStr("90").String())
 	assert.True(t, ok)
 	assert.Equal(t, len(shortBook), 2)
 	assert.Equal(t, shortBook[0].GetPrice(), sdk.NewDec(90))
@@ -803,7 +804,7 @@ func TestMatchMultipleMarketOrderFromMultipleLongBook(t *testing.T) {
 	}
 	entries := &types.CachedSortedOrderBookEntries{
 		Entries:      longBook,
-		DirtyEntries: make(map[string]types.OrderBookEntry),
+		DirtyEntries: datastructures.NewTypedSyncMap[string, types.OrderBookEntry](),
 	}
 	outcome := exchange.MatchMarketOrders(
 		ctx, shortOrders, entries, types.PositionDirection_SHORT,
@@ -813,10 +814,10 @@ func TestMatchMultipleMarketOrderFromMultipleLongBook(t *testing.T) {
 	settlements := outcome.Settlements
 	assert.Equal(t, totalPrice, sdk.NewDec(620))
 	assert.Equal(t, totalExecuted, sdk.NewDec(6))
-	assert.Equal(t, len(entries.DirtyEntries), 2)
-	_, ok := entries.DirtyEntries[sdk.MustNewDecFromStr("100").String()]
+	assert.Equal(t, entries.DirtyEntries.Len(), 2)
+	_, ok := entries.DirtyEntries.Load(sdk.MustNewDecFromStr("100").String())
 	assert.True(t, ok)
-	_, ok = entries.DirtyEntries[sdk.MustNewDecFromStr("110").String()]
+	_, ok = entries.DirtyEntries.Load(sdk.MustNewDecFromStr("110").String())
 	assert.True(t, ok)
 	assert.Equal(t, len(longBook), 2)
 	assert.Equal(t, longBook[0].GetPrice(), sdk.NewDec(100))

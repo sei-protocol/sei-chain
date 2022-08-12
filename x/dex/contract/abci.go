@@ -9,6 +9,7 @@ import (
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/sei-protocol/sei-chain/store/whitelist/multi"
+	seisync "github.com/sei-protocol/sei-chain/sync"
 	"github.com/sei-protocol/sei-chain/utils"
 	"github.com/sei-protocol/sei-chain/utils/datastructures"
 	dexcache "github.com/sei-protocol/sei-chain/x/dex/cache"
@@ -16,6 +17,7 @@ import (
 	dexkeeperabci "github.com/sei-protocol/sei-chain/x/dex/keeper/abci"
 	dexkeeperutils "github.com/sei-protocol/sei-chain/x/dex/keeper/utils"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
+	dextypesutils "github.com/sei-protocol/sei-chain/x/dex/types/utils"
 	dextypeswasm "github.com/sei-protocol/sei-chain/x/dex/types/wasm"
 	"github.com/sei-protocol/sei-chain/x/store"
 	otrace "go.opentelemetry.io/otel/trace"
@@ -27,15 +29,18 @@ type environment struct {
 	finalizeBlockMessages       *datastructures.TypedSyncMap[string, *dextypeswasm.SudoFinalizeBlockMsg]
 	settlementsByContract       *datastructures.TypedSyncMap[string, []*types.SettlementEntry]
 	executionTerminationSignals *datastructures.TypedSyncMap[string, chan struct{}]
+	registeredPairs             *datastructures.TypedSyncMap[string, []types.Pair]
+	orderBooks                  *datastructures.TypedNestedSyncMap[string, dextypesutils.PairString, *types.OrderBook]
 
-	finalizeMsgMutex *sync.Mutex
+	finalizeMsgMutex  *sync.Mutex
+	eventManagerMutex *sync.Mutex
 }
 
 func EndBlockerAtomic(ctx sdk.Context, keeper *keeper.Keeper, validContractsInfo []types.ContractInfo, tracingInfo *tracing.Info) ([]types.ContractInfo, bool) {
 	tracer := tracingInfo.Tracer
 	spanCtx, span := (*tracer).Start(tracingInfo.TracerContext, "DexEndBlockerAtomic")
 	defer span.End()
-	env := newEnv(validContractsInfo)
+	env := newEnv(ctx, validContractsInfo, keeper)
 	ctx, msCached := cacheAndDecorateContext(ctx, env)
 	memStateCopy := keeper.MemState.DeepCopy()
 
@@ -47,6 +52,7 @@ func EndBlockerAtomic(ctx sdk.Context, keeper *keeper.Keeper, validContractsInfo
 	runner.Run()
 
 	handleSettlements(spanCtx, ctx, env, keeper, tracer)
+	handleUnfulfilledMarketOrders(spanCtx, ctx, env, keeper, tracer)
 	handleFinalizedBlocks(spanCtx, ctx, env, keeper, tracer)
 
 	// No error is thrown for any contract. This should happen most of the time.
@@ -60,14 +66,24 @@ func EndBlockerAtomic(ctx sdk.Context, keeper *keeper.Keeper, validContractsInfo
 	return filterNewValidContracts(env, keeper), false
 }
 
-func newEnv(validContractsInfo []types.ContractInfo) *environment {
+func newEnv(ctx sdk.Context, validContractsInfo []types.ContractInfo, keeper *keeper.Keeper) *environment {
 	finalizeBlockMessages := datastructures.NewTypedSyncMap[string, *dextypeswasm.SudoFinalizeBlockMsg]()
 	settlementsByContract := datastructures.NewTypedSyncMap[string, []*types.SettlementEntry]()
 	executionTerminationSignals := datastructures.NewTypedSyncMap[string, chan struct{}]()
+	registeredPairs := datastructures.NewTypedSyncMap[string, []types.Pair]()
+	orderBooks := datastructures.NewTypedNestedSyncMap[string, dextypesutils.PairString, *types.OrderBook]()
 	for _, contract := range validContractsInfo {
 		finalizeBlockMessages.Store(contract.ContractAddr, dextypeswasm.NewSudoFinalizeBlockMsg())
 		settlementsByContract.Store(contract.ContractAddr, []*types.SettlementEntry{})
 		executionTerminationSignals.Store(contract.ContractAddr, make(chan struct{}, 1))
+		contractPairs := keeper.GetAllRegisteredPairs(ctx, contract.ContractAddr)
+		registeredPairs.Store(contract.ContractAddr, contractPairs)
+		for _, pair := range contractPairs {
+			pair := pair
+			orderBooks.StoreNested(contract.ContractAddr, dextypesutils.GetPairString(&pair), dexkeeperutils.PopulateOrderbook(
+				ctx, keeper, dextypesutils.ContractAddress(contract.ContractAddr), pair,
+			))
+		}
 	}
 	return &environment{
 		validContractsInfo:          validContractsInfo,
@@ -75,7 +91,10 @@ func newEnv(validContractsInfo []types.ContractInfo) *environment {
 		finalizeBlockMessages:       finalizeBlockMessages,
 		settlementsByContract:       settlementsByContract,
 		executionTerminationSignals: executionTerminationSignals,
+		registeredPairs:             registeredPairs,
+		orderBooks:                  orderBooks,
 		finalizeMsgMutex:            &sync.Mutex{},
+		eventManagerMutex:           &sync.Mutex{},
 	}
 }
 
@@ -83,12 +102,17 @@ func cacheAndDecorateContext(ctx sdk.Context, env *environment) (sdk.Context, sd
 	cachedCtx, msCached := store.GetCachedContext(ctx)
 	goCtx := context.WithValue(cachedCtx.Context(), dexcache.CtxKeyExecTermSignal, env.executionTerminationSignals)
 	cachedCtx = cachedCtx.WithContext(goCtx)
-	return cachedCtx, msCached
+	decoratedCtx := cachedCtx.WithGasMeter(seisync.NewGasWrapper(cachedCtx.GasMeter())).WithBlockGasMeter(
+		seisync.NewGasWrapper(cachedCtx.BlockGasMeter()),
+	)
+	return decoratedCtx, msCached
 }
 
 func decorateContextForContract(ctx sdk.Context, contractInfo types.ContractInfo) sdk.Context {
 	goCtx := context.WithValue(ctx.Context(), dexcache.CtxKeyExecutingContract, contractInfo)
-	return ctx.WithContext(goCtx).WithMultiStore(multi.NewStore(ctx.MultiStore(), GetWhitelistMap(contractInfo.ContractAddr)))
+	whitelistedStore := multi.NewStore(ctx.MultiStore(), GetWhitelistMap(contractInfo.ContractAddr))
+	newEventManager := sdk.NewEventManager()
+	return ctx.WithContext(goCtx).WithMultiStore(whitelistedStore).WithEventManager(newEventManager)
 }
 
 func handleDeposits(ctx sdk.Context, env *environment, keeper *keeper.Keeper, tracer *otrace.Tracer) {
@@ -120,6 +144,22 @@ func handleSettlements(ctx context.Context, sdkCtx sdk.Context, env *environment
 		}
 		return true
 	})
+}
+
+func handleUnfulfilledMarketOrders(ctx context.Context, sdkCtx sdk.Context, env *environment, keeper *keeper.Keeper, tracer *otrace.Tracer) {
+	// Cancel unfilled market orders
+	for _, contract := range env.validContractsInfo {
+		if contract.NeedOrderMatching {
+			registeredPairs, found := env.registeredPairs.Load(contract.ContractAddr)
+			if !found {
+				continue
+			}
+			if err := CancelUnfulfilledMarketOrders(ctx, sdkCtx, contract.ContractAddr, keeper, registeredPairs, tracer); err != nil {
+				sdkCtx.Logger().Error(fmt.Sprintf("Error cancelling unfulfilled market orders for %s", contract.ContractAddr))
+				env.failedContractAddresses.Add(contract.ContractAddr)
+			}
+		}
+	}
 }
 
 func handleFinalizedBlocks(ctx context.Context, sdkCtx sdk.Context, env *environment, keeper *keeper.Keeper, tracer *otrace.Tracer) {
@@ -154,15 +194,24 @@ func orderMatchingRunnable(ctx context.Context, sdkContext sdk.Context, env *env
 	if !contractInfo.NeedOrderMatching {
 		return
 	}
+	parentSdkContext := sdkContext
 	sdkContext = decorateContextForContract(sdkContext, contractInfo)
 	sdkContext.Logger().Info(fmt.Sprintf("End block for %s", contractInfo.ContractAddr))
-	if orderResultsMap, settlements, err := HandleExecutionForContract(ctx, sdkContext, contractInfo, keeper, tracer); err != nil {
+	pairs, pairFound := env.registeredPairs.Load(contractInfo.ContractAddr)
+	orderBooks, found := env.orderBooks.Load(contractInfo.ContractAddr)
+	if !pairFound || !found {
+		sdkContext.Logger().Error(fmt.Sprintf("No pair or order book for %s", contractInfo.ContractAddr))
+		env.failedContractAddresses.Add(contractInfo.ContractAddr)
+	} else if orderResultsMap, settlements, err := HandleExecutionForContract(ctx, sdkContext, contractInfo, keeper, pairs, orderBooks, tracer); err != nil {
 		sdkContext.Logger().Error(fmt.Sprintf("Error for EndBlock of %s", contractInfo.ContractAddr))
 		env.failedContractAddresses.Add(contractInfo.ContractAddr)
 	} else {
 		for account, orderResults := range orderResultsMap {
 			// only add to finalize message for contract addresses
 			if msg, ok := env.finalizeBlockMessages.Load(account); ok {
+				// ordering of `AddContractResult` among multiple orderMatchingRunnable instances doesn't matter
+				// since it's not persisted as state, and it's only used for invoking registered contracts'
+				// FinalizeBlock sudo endpoints, whose state updates are gated by whitelist stores anyway.
 				env.finalizeMsgMutex.Lock()
 				msg.AddContractResult(orderResults)
 				env.finalizeMsgMutex.Unlock()
@@ -170,6 +219,11 @@ func orderMatchingRunnable(ctx context.Context, sdkContext sdk.Context, env *env
 		}
 		env.settlementsByContract.Store(contractInfo.ContractAddr, settlements)
 	}
+
+	// ordering of events doesn't matter since events aren't part of consensus
+	env.eventManagerMutex.Lock()
+	parentSdkContext.EventManager().EmitEvents(sdkContext.EventManager().Events())
+	env.eventManagerMutex.Unlock()
 }
 
 func orderMatchingRecoverCallback(err any, ctx sdk.Context, env *environment, contractInfo types.ContractInfo) {

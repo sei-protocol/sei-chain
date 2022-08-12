@@ -19,6 +19,9 @@ func (o *BlockCancellations) Copy() *BlockCancellations {
 }
 
 func (o *BlockCancellations) FilterByIds(idsToRemove []uint64) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+
 	newItems := []*types.Cancellation{}
 	badIDSet := datastructures.NewSyncSet(idsToRemove)
 	for _, cancel := range o.internal {
@@ -30,6 +33,9 @@ func (o *BlockCancellations) FilterByIds(idsToRemove []uint64) {
 }
 
 func (o *BlockCancellations) GetIdsToCancel() []uint64 {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+
 	res := []uint64{}
 	for _, cancel := range o.internal {
 		res = append(res, cancel.Id)

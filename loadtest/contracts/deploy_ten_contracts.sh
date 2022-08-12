@@ -69,8 +69,8 @@ marsaddr4=$(python3 parser.py contract_address $marsinsres3)
 # register
 echo "Registering..."
 
-valaddr=$(printf "12345678\n" | $seidbin keys show $(printf "12345678\n" | $seidbin keys show node_admin --output json | jq -r .address) --bech=val --output json | jq -r '.address')
-printf "12345678\n" | $seidbin tx staking delegate $valaddr 1000000000usei --from=$keyname --chain-id=$chainid -b block -y
+# valaddr=$(printf "12345678\n" | $seidbin keys show $(printf "12345678\n" | $seidbin keys show node_admin --output json | jq -r .address) --bech=val --output json | jq -r '.address')
+# printf "12345678\n" | $seidbin tx staking delegate $valaddr 1000000000usei --from=$keyname --chain-id=$chainid -b block -y
 
 printf "12345678\n" | $seidbin tx dex register-contract $marsaddr $marsid false true  -y --from=$keyname --chain-id=$chainid --fees=10000000usei --gas=500000 --broadcast-mode=block
 printf "12345678\n" | $seidbin tx dex register-contract $saturnaddr $saturnid false true -y --from=$keyname --chain-id=$chainid --fees=10000000usei --gas=500000 --broadcast-mode=block
@@ -143,7 +143,7 @@ marsproposalid4=$(python3 parser.py proposal_id $marspair4)
 printf "12345678\n" | $seidbin tx gov deposit $marsproposalid4 10000000usei -y --from=$keyname --chain-id=$chainid --fees=10000000usei --gas=500000 --broadcast-mode=block
 printf "12345678\n" | $seidbin tx gov vote $marsproposalid4 yes -y --from=$keyname --chain-id=$chainid --fees=10000000usei --gas=500000 --broadcast-mode=block
 
-printf "12345678\n" | $seidbin tx staking unbond $valaddr 1000000000usei --from=$keyname --chain-id=$chainid -b block -y
+# printf "12345678\n" | $seidbin tx staking unbond $valaddr 1000000000usei --from=$keyname --chain-id=$chainid -b block -y
 
 echo $marsaddr
 echo $saturnaddr

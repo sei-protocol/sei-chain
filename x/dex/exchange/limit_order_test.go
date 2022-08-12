@@ -5,6 +5,7 @@ import (
 	"time"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/sei-protocol/sei-chain/utils/datastructures"
 	"github.com/sei-protocol/sei-chain/x/dex/exchange"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
 	"github.com/stretchr/testify/assert"
@@ -53,11 +54,11 @@ func TestMatchSingleOrder(t *testing.T) {
 	orderbook := types.OrderBook{
 		Longs: &types.CachedSortedOrderBookEntries{
 			Entries:      longBook,
-			DirtyEntries: map[string]types.OrderBookEntry{},
+			DirtyEntries: datastructures.NewTypedSyncMap[string, types.OrderBookEntry](),
 		},
 		Shorts: &types.CachedSortedOrderBookEntries{
 			Entries:      shortBook,
-			DirtyEntries: map[string]types.OrderBookEntry{},
+			DirtyEntries: datastructures.NewTypedSyncMap[string, types.OrderBookEntry](),
 		},
 	}
 	outcome := exchange.MatchLimitOrders(
@@ -68,11 +69,11 @@ func TestMatchSingleOrder(t *testing.T) {
 	settlements := outcome.Settlements
 	assert.Equal(t, totalPrice, sdk.NewDec(1000))
 	assert.Equal(t, totalExecuted, sdk.NewDec(10))
-	assert.Equal(t, len(orderbook.Longs.DirtyEntries), 1)
-	assert.Equal(t, len(orderbook.Shorts.DirtyEntries), 1)
-	_, ok := orderbook.Longs.DirtyEntries[sdk.MustNewDecFromStr("100").String()]
+	assert.Equal(t, orderbook.Longs.DirtyEntries.Len(), 1)
+	assert.Equal(t, orderbook.Shorts.DirtyEntries.Len(), 1)
+	_, ok := orderbook.Longs.DirtyEntries.Load(sdk.MustNewDecFromStr("100").String())
 	assert.True(t, ok)
-	_, ok = orderbook.Shorts.DirtyEntries[sdk.MustNewDecFromStr("100").String()]
+	_, ok = orderbook.Shorts.DirtyEntries.Load(sdk.MustNewDecFromStr("100").String())
 	assert.True(t, ok)
 	longBook = orderbook.Longs.Entries
 	shortBook = orderbook.Shorts.Entries
@@ -227,11 +228,11 @@ func TestAddOrders(t *testing.T) {
 	orderbook := types.OrderBook{
 		Longs: &types.CachedSortedOrderBookEntries{
 			Entries:      longBook,
-			DirtyEntries: map[string]types.OrderBookEntry{},
+			DirtyEntries: datastructures.NewTypedSyncMap[string, types.OrderBookEntry](),
 		},
 		Shorts: &types.CachedSortedOrderBookEntries{
 			Entries:      shortBook,
-			DirtyEntries: map[string]types.OrderBookEntry{},
+			DirtyEntries: datastructures.NewTypedSyncMap[string, types.OrderBookEntry](),
 		},
 	}
 	outcome := exchange.MatchLimitOrders(
@@ -242,15 +243,15 @@ func TestAddOrders(t *testing.T) {
 	settlements := outcome.Settlements
 	assert.Equal(t, totalPrice, sdk.NewDec(0))
 	assert.Equal(t, totalExecuted, sdk.NewDec(0))
-	assert.Equal(t, len(orderbook.Longs.DirtyEntries), 2)
-	assert.Equal(t, len(orderbook.Shorts.DirtyEntries), 2)
-	_, ok := orderbook.Longs.DirtyEntries[sdk.MustNewDecFromStr("95").String()]
+	assert.Equal(t, orderbook.Longs.DirtyEntries.Len(), 2)
+	assert.Equal(t, orderbook.Shorts.DirtyEntries.Len(), 2)
+	_, ok := orderbook.Longs.DirtyEntries.Load(sdk.MustNewDecFromStr("95").String())
 	assert.True(t, ok)
-	_, ok = orderbook.Longs.DirtyEntries[sdk.MustNewDecFromStr("100").String()]
+	_, ok = orderbook.Longs.DirtyEntries.Load(sdk.MustNewDecFromStr("100").String())
 	assert.True(t, ok)
-	_, ok = orderbook.Shorts.DirtyEntries[sdk.MustNewDecFromStr("105").String()]
+	_, ok = orderbook.Shorts.DirtyEntries.Load(sdk.MustNewDecFromStr("105").String())
 	assert.True(t, ok)
-	_, ok = orderbook.Shorts.DirtyEntries[sdk.MustNewDecFromStr("115").String()]
+	_, ok = orderbook.Shorts.DirtyEntries.Load(sdk.MustNewDecFromStr("115").String())
 	assert.True(t, ok)
 	longBook = orderbook.Longs.Entries
 	shortBook = orderbook.Shorts.Entries
@@ -376,11 +377,11 @@ func TestMatchSingleOrderFromShortBook(t *testing.T) {
 	orderbook := types.OrderBook{
 		Longs: &types.CachedSortedOrderBookEntries{
 			Entries:      longBook,
-			DirtyEntries: map[string]types.OrderBookEntry{},
+			DirtyEntries: datastructures.NewTypedSyncMap[string, types.OrderBookEntry](),
 		},
 		Shorts: &types.CachedSortedOrderBookEntries{
 			Entries:      shortBook,
-			DirtyEntries: map[string]types.OrderBookEntry{},
+			DirtyEntries: datastructures.NewTypedSyncMap[string, types.OrderBookEntry](),
 		},
 	}
 	outcome := exchange.MatchLimitOrders(
@@ -391,11 +392,11 @@ func TestMatchSingleOrderFromShortBook(t *testing.T) {
 	settlements := outcome.Settlements
 	assert.Equal(t, totalPrice, sdk.NewDec(1000))
 	assert.Equal(t, totalExecuted, sdk.NewDec(10))
-	assert.Equal(t, len(orderbook.Longs.DirtyEntries), 1)
-	assert.Equal(t, len(orderbook.Shorts.DirtyEntries), 1)
-	_, ok := orderbook.Longs.DirtyEntries[sdk.MustNewDecFromStr("100").String()]
+	assert.Equal(t, orderbook.Longs.DirtyEntries.Len(), 1)
+	assert.Equal(t, orderbook.Shorts.DirtyEntries.Len(), 1)
+	_, ok := orderbook.Longs.DirtyEntries.Load(sdk.MustNewDecFromStr("100").String())
 	assert.True(t, ok)
-	_, ok = orderbook.Shorts.DirtyEntries[sdk.MustNewDecFromStr("100").String()]
+	_, ok = orderbook.Shorts.DirtyEntries.Load(sdk.MustNewDecFromStr("100").String())
 	assert.True(t, ok)
 	longBook = orderbook.Longs.Entries
 	shortBook = orderbook.Shorts.Entries
@@ -473,11 +474,11 @@ func TestMatchSingleOrderFromLongBook(t *testing.T) {
 	orderbook := types.OrderBook{
 		Longs: &types.CachedSortedOrderBookEntries{
 			Entries:      longBook,
-			DirtyEntries: map[string]types.OrderBookEntry{},
+			DirtyEntries: datastructures.NewTypedSyncMap[string, types.OrderBookEntry](),
 		},
 		Shorts: &types.CachedSortedOrderBookEntries{
 			Entries:      shortBook,
-			DirtyEntries: map[string]types.OrderBookEntry{},
+			DirtyEntries: datastructures.NewTypedSyncMap[string, types.OrderBookEntry](),
 		},
 	}
 	outcome := exchange.MatchLimitOrders(
@@ -488,11 +489,11 @@ func TestMatchSingleOrderFromLongBook(t *testing.T) {
 	settlements := outcome.Settlements
 	assert.Equal(t, totalPrice, sdk.NewDec(1000))
 	assert.Equal(t, totalExecuted, sdk.NewDec(10))
-	assert.Equal(t, len(orderbook.Longs.DirtyEntries), 1)
-	assert.Equal(t, len(orderbook.Shorts.DirtyEntries), 1)
-	_, ok := orderbook.Longs.DirtyEntries[sdk.MustNewDecFromStr("100").String()]
+	assert.Equal(t, orderbook.Longs.DirtyEntries.Len(), 1)
+	assert.Equal(t, orderbook.Shorts.DirtyEntries.Len(), 1)
+	_, ok := orderbook.Longs.DirtyEntries.Load(sdk.MustNewDecFromStr("100").String())
 	assert.True(t, ok)
-	_, ok = orderbook.Shorts.DirtyEntries[sdk.MustNewDecFromStr("100").String()]
+	_, ok = orderbook.Shorts.DirtyEntries.Load(sdk.MustNewDecFromStr("100").String())
 	assert.True(t, ok)
 	longBook = orderbook.Longs.Entries
 	shortBook = orderbook.Shorts.Entries
@@ -588,11 +589,11 @@ func TestMatchSingleOrderFromMultipleShortBook(t *testing.T) {
 	orderbook := types.OrderBook{
 		Longs: &types.CachedSortedOrderBookEntries{
 			Entries:      longBook,
-			DirtyEntries: map[string]types.OrderBookEntry{},
+			DirtyEntries: datastructures.NewTypedSyncMap[string, types.OrderBookEntry](),
 		},
 		Shorts: &types.CachedSortedOrderBookEntries{
 			Entries:      shortBook,
-			DirtyEntries: map[string]types.OrderBookEntry{},
+			DirtyEntries: datastructures.NewTypedSyncMap[string, types.OrderBookEntry](),
 		},
 	}
 	outcome := exchange.MatchLimitOrders(
@@ -603,13 +604,13 @@ func TestMatchSingleOrderFromMultipleShortBook(t *testing.T) {
 	settlements := outcome.Settlements
 	assert.Equal(t, totalPrice, sdk.NewDec(980))
 	assert.Equal(t, totalExecuted, sdk.NewDec(10))
-	assert.Equal(t, len(orderbook.Longs.DirtyEntries), 1)
-	assert.Equal(t, len(orderbook.Shorts.DirtyEntries), 2)
-	_, ok := orderbook.Longs.DirtyEntries[sdk.MustNewDecFromStr("100").String()]
+	assert.Equal(t, orderbook.Longs.DirtyEntries.Len(), 1)
+	assert.Equal(t, orderbook.Shorts.DirtyEntries.Len(), 2)
+	_, ok := orderbook.Longs.DirtyEntries.Load(sdk.MustNewDecFromStr("100").String())
 	assert.True(t, ok)
-	_, ok = orderbook.Shorts.DirtyEntries[sdk.MustNewDecFromStr("100").String()]
+	_, ok = orderbook.Shorts.DirtyEntries.Load(sdk.MustNewDecFromStr("100").String())
 	assert.True(t, ok)
-	_, ok = orderbook.Shorts.DirtyEntries[sdk.MustNewDecFromStr("90").String()]
+	_, ok = orderbook.Shorts.DirtyEntries.Load(sdk.MustNewDecFromStr("90").String())
 	assert.True(t, ok)
 	longBook = orderbook.Longs.Entries
 	shortBook = orderbook.Shorts.Entries
@@ -773,11 +774,11 @@ func TestMatchSingleOrderFromMultipleLongBook(t *testing.T) {
 	orderbook := types.OrderBook{
 		Longs: &types.CachedSortedOrderBookEntries{
 			Entries:      longBook,
-			DirtyEntries: map[string]types.OrderBookEntry{},
+			DirtyEntries: datastructures.NewTypedSyncMap[string, types.OrderBookEntry](),
 		},
 		Shorts: &types.CachedSortedOrderBookEntries{
 			Entries:      shortBook,
-			DirtyEntries: map[string]types.OrderBookEntry{},
+			DirtyEntries: datastructures.NewTypedSyncMap[string, types.OrderBookEntry](),
 		},
 	}
 	outcome := exchange.MatchLimitOrders(
@@ -788,13 +789,13 @@ func TestMatchSingleOrderFromMultipleLongBook(t *testing.T) {
 	settlements := outcome.Settlements
 	assert.Equal(t, totalPrice, sdk.NewDec(1020))
 	assert.Equal(t, totalExecuted, sdk.NewDec(10))
-	assert.Equal(t, len(orderbook.Longs.DirtyEntries), 2)
-	assert.Equal(t, len(orderbook.Shorts.DirtyEntries), 1)
-	_, ok := orderbook.Longs.DirtyEntries[sdk.MustNewDecFromStr("100").String()]
+	assert.Equal(t, orderbook.Longs.DirtyEntries.Len(), 2)
+	assert.Equal(t, orderbook.Shorts.DirtyEntries.Len(), 1)
+	_, ok := orderbook.Longs.DirtyEntries.Load(sdk.MustNewDecFromStr("100").String())
 	assert.True(t, ok)
-	_, ok = orderbook.Longs.DirtyEntries[sdk.MustNewDecFromStr("110").String()]
+	_, ok = orderbook.Longs.DirtyEntries.Load(sdk.MustNewDecFromStr("110").String())
 	assert.True(t, ok)
-	_, ok = orderbook.Shorts.DirtyEntries[sdk.MustNewDecFromStr("100").String()]
+	_, ok = orderbook.Shorts.DirtyEntries.Load(sdk.MustNewDecFromStr("100").String())
 	assert.True(t, ok)
 	longBook = orderbook.Longs.Entries
 	shortBook = orderbook.Shorts.Entries
@@ -980,11 +981,11 @@ func TestMatchMultipleOrderFromMultipleShortBook(t *testing.T) {
 	orderbook := types.OrderBook{
 		Longs: &types.CachedSortedOrderBookEntries{
 			Entries:      longBook,
-			DirtyEntries: map[string]types.OrderBookEntry{},
+			DirtyEntries: datastructures.NewTypedSyncMap[string, types.OrderBookEntry](),
 		},
 		Shorts: &types.CachedSortedOrderBookEntries{
 			Entries:      shortBook,
-			DirtyEntries: map[string]types.OrderBookEntry{},
+			DirtyEntries: datastructures.NewTypedSyncMap[string, types.OrderBookEntry](),
 		},
 	}
 	outcome := exchange.MatchLimitOrders(
@@ -995,17 +996,17 @@ func TestMatchMultipleOrderFromMultipleShortBook(t *testing.T) {
 	settlements := outcome.Settlements
 	assert.Equal(t, totalPrice, sdk.NewDec(1184))
 	assert.Equal(t, totalExecuted, sdk.NewDec(12))
-	assert.Equal(t, len(orderbook.Longs.DirtyEntries), 3)
-	assert.Equal(t, len(orderbook.Shorts.DirtyEntries), 2)
-	_, ok := orderbook.Longs.DirtyEntries[sdk.MustNewDecFromStr("98").String()]
+	assert.Equal(t, orderbook.Longs.DirtyEntries.Len(), 3)
+	assert.Equal(t, orderbook.Shorts.DirtyEntries.Len(), 2)
+	_, ok := orderbook.Longs.DirtyEntries.Load(sdk.MustNewDecFromStr("98").String())
 	assert.True(t, ok)
-	_, ok = orderbook.Longs.DirtyEntries[sdk.MustNewDecFromStr("100").String()]
+	_, ok = orderbook.Longs.DirtyEntries.Load(sdk.MustNewDecFromStr("100").String())
 	assert.True(t, ok)
-	_, ok = orderbook.Longs.DirtyEntries[sdk.MustNewDecFromStr("104").String()]
+	_, ok = orderbook.Longs.DirtyEntries.Load(sdk.MustNewDecFromStr("104").String())
 	assert.True(t, ok)
-	_, ok = orderbook.Shorts.DirtyEntries[sdk.MustNewDecFromStr("100").String()]
+	_, ok = orderbook.Shorts.DirtyEntries.Load(sdk.MustNewDecFromStr("100").String())
 	assert.True(t, ok)
-	_, ok = orderbook.Shorts.DirtyEntries[sdk.MustNewDecFromStr("90").String()]
+	_, ok = orderbook.Shorts.DirtyEntries.Load(sdk.MustNewDecFromStr("90").String())
 	assert.True(t, ok)
 	longBook = orderbook.Longs.Entries
 	shortBook = orderbook.Shorts.Entries
@@ -1232,11 +1233,11 @@ func TestMatchMultipleOrderFromMultipleLongBook(t *testing.T) {
 	orderbook := types.OrderBook{
 		Longs: &types.CachedSortedOrderBookEntries{
 			Entries:      longBook,
-			DirtyEntries: map[string]types.OrderBookEntry{},
+			DirtyEntries: datastructures.NewTypedSyncMap[string, types.OrderBookEntry](),
 		},
 		Shorts: &types.CachedSortedOrderBookEntries{
 			Entries:      shortBook,
-			DirtyEntries: map[string]types.OrderBookEntry{},
+			DirtyEntries: datastructures.NewTypedSyncMap[string, types.OrderBookEntry](),
 		},
 	}
 	outcome := exchange.MatchLimitOrders(
@@ -1247,17 +1248,17 @@ func TestMatchMultipleOrderFromMultipleLongBook(t *testing.T) {
 	settlements := outcome.Settlements
 	assert.Equal(t, totalPrice, sdk.NewDec(1216))
 	assert.Equal(t, totalExecuted, sdk.NewDec(12))
-	assert.Equal(t, len(orderbook.Longs.DirtyEntries), 2)
-	assert.Equal(t, len(orderbook.Shorts.DirtyEntries), 3)
-	_, ok := orderbook.Longs.DirtyEntries[sdk.MustNewDecFromStr("100").String()]
+	assert.Equal(t, orderbook.Longs.DirtyEntries.Len(), 2)
+	assert.Equal(t, orderbook.Shorts.DirtyEntries.Len(), 3)
+	_, ok := orderbook.Longs.DirtyEntries.Load(sdk.MustNewDecFromStr("100").String())
 	assert.True(t, ok)
-	_, ok = orderbook.Longs.DirtyEntries[sdk.MustNewDecFromStr("110").String()]
+	_, ok = orderbook.Longs.DirtyEntries.Load(sdk.MustNewDecFromStr("110").String())
 	assert.True(t, ok)
-	_, ok = orderbook.Shorts.DirtyEntries[sdk.MustNewDecFromStr("96").String()]
+	_, ok = orderbook.Shorts.DirtyEntries.Load(sdk.MustNewDecFromStr("96").String())
 	assert.True(t, ok)
-	_, ok = orderbook.Shorts.DirtyEntries[sdk.MustNewDecFromStr("100").String()]
+	_, ok = orderbook.Shorts.DirtyEntries.Load(sdk.MustNewDecFromStr("100").String())
 	assert.True(t, ok)
-	_, ok = orderbook.Shorts.DirtyEntries[sdk.MustNewDecFromStr("102").String()]
+	_, ok = orderbook.Shorts.DirtyEntries.Load(sdk.MustNewDecFromStr("102").String())
 	assert.True(t, ok)
 	longBook = orderbook.Longs.Entries
 	shortBook = orderbook.Shorts.Entries
