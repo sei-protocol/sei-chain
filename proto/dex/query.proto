@@ -44,10 +44,6 @@ service Query {
 		option (google.api.http).get = "/sei-protocol/seichain/dex/short_book/{contractAddr}/{priceDenom}/{assetDenom}";
 	}
 
-	rpc GetSettlements(QueryGetSettlementsRequest) returns (QueryGetSettlementsResponse) {
-		option (google.api.http).get = "/sei-protocol/seichain/dex/get_settlements/{contractAddr}/{priceDenom}/{assetDenom}/{orderId}";
-	}
-
 	rpc GetPrices(QueryGetPricesRequest) returns (QueryGetPricesResponse) {
 		option (google.api.http).get = "/sei-protocol/seichain/dex/get_prices/{contractAddr}/{priceDenom}/{assetDenom}";
 	}
@@ -85,14 +81,6 @@ service Query {
 
 	rpc GetMarketSummary(QueryGetMarketSummaryRequest) returns (QueryGetMarketSummaryResponse) {
 		option (google.api.http).get = "/sei-protocol/seichain/dex/get_market_summary/{contractAddr}/{priceDenom}/{assetDenom}/{lookbackInSeconds}";
-	}
-
-	rpc GetSettlementsForAccount(QueryGetSettlementsForAccountRequest) returns (QueryGetSettlementsForAccountResponse) {
-		option (google.api.http).get = "/sei-protocol/seichain/dex/get_settlements_for_account/{contractAddr}/{priceDenom}/{assetDenom}/{account}";
-	}
-
-	rpc GetAllSettlements(QueryGetAllSettlementsRequest) returns (QueryGetAllSettlementsResponse) {
-		option (google.api.http).get = "/sei-protocol/seichain/dex/get_all_settlements/{contractAddr}/{priceDenom}/{assetDenom}";
 	}
 	
 	rpc GetOrderSimulation(QueryOrderSimulationRequest) returns (QueryOrderSimulationResponse) {}
@@ -153,75 +141,6 @@ message QueryAllShortBookRequest {
 message QueryAllShortBookResponse {
 	repeated ShortBook ShortBook = 1 [(gogoproto.nullable) = false];
 	cosmos.base.query.v1beta1.PageResponse pagination = 2;
-}
-
-message QueryGetSettlementsRequest {
-	string contractAddr = 1 [
-		(gogoproto.jsontag) = "contract_address"
-	];
-	uint64 orderId = 2 [
-		(gogoproto.jsontag) = "order_id"
-	];
-	string priceDenom = 3 [
-		(gogoproto.jsontag) = "price_denom"
-	];
-	string assetDenom = 4 [
-		(gogoproto.jsontag) = "asset_denom"
-	];
-	string account = 5 [
-		(gogoproto.jsontag) = "account"
-	];
-}
-
-message QueryGetSettlementsResponse {
-	Settlements Settlements = 1 [
-		(gogoproto.nullable) = false,
-		(gogoproto.jsontag) = "settlements"
-	];
-}
-
-message QueryGetSettlementsForAccountRequest {
-	string contractAddr = 1 [
-		(gogoproto.jsontag) = "contract_address"
-	];
-	string account = 2 [
-		(gogoproto.jsontag) = "account"
-	];
-	string priceDenom = 3 [
-		(gogoproto.jsontag) = "price_denom"
-	];
-	string assetDenom = 4 [
-		(gogoproto.jsontag) = "asset_denom"
-	];
-}
-
-message QueryGetSettlementsForAccountResponse {
-	repeated Settlements SettlementsList = 1 [
-		(gogoproto.nullable) = false,
-		(gogoproto.jsontag) = "settlements_list"
-	];
-}
-
-message QueryGetAllSettlementsRequest {
-	string contractAddr = 1 [
-		(gogoproto.jsontag) = "contract_address"
-	];
-	string priceDenom = 2 [
-		(gogoproto.jsontag) = "price_denom"
-	];
-	string assetDenom = 3 [
-		(gogoproto.jsontag) = "asset_denom"
-	];
-	uint64 limit = 4 [
-		(gogoproto.jsontag) = "limit"
-	];
-}
-
-message QueryGetAllSettlementsResponse {
-	repeated Settlements SettlementsList = 1 [
-		(gogoproto.nullable) = false,
-		(gogoproto.jsontag) = "settlements_list"
-	];
 }
 
 message QueryGetPricesRequest {

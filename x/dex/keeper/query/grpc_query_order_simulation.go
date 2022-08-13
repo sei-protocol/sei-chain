@@ -53,13 +53,18 @@ func (k KeeperWrapper) getMatchedPriceQuantities(ctx sdk.Context, req *types.Que
 	// exclude liquidity to be cancelled
 	pair := types.Pair{PriceDenom: req.Order.PriceDenom, AssetDenom: req.Order.AssetDenom}
 	for _, cancel := range k.MemState.GetBlockCancels(ctx, utils.ContractAddress(req.ContractAddr), utils.GetPairString(&pair)).Get() {
-		orderToBeCancelled := k.GetOrdersByIds(ctx, req.ContractAddr, []uint64{cancel.Id})
-		if _, ok := orderToBeCancelled[cancel.Id]; !ok {
+		var cancelledAllocation *types.Allocation
+		var found bool
+		if cancel.PositionDirection == types.PositionDirection_LONG {
+			cancelledAllocation, found = k.GetLongAllocationForOrderID(ctx, req.ContractAddr, cancel.PriceDenom, cancel.AssetDenom, cancel.Price, cancel.Id)
+		} else {
+			cancelledAllocation, found = k.GetShortAllocationForOrderID(ctx, req.ContractAddr, cancel.PriceDenom, cancel.AssetDenom, cancel.Price, cancel.Id)
+		}
+		if !found {
 			continue
 		}
-		order := orderToBeCancelled[cancel.Id]
-		if q, ok := eligibleOrderBookPriceToQuantity[order.Price.String()]; ok {
-			eligibleOrderBookPriceToQuantity[order.Price.String()] = q.Sub(order.Quantity)
+		if q, ok := eligibleOrderBookPriceToQuantity[cancel.Price.String()]; ok {
+			eligibleOrderBookPriceToQuantity[cancel.Price.String()] = q.Sub(cancelledAllocation.Quantity)
 		}
 	}
 

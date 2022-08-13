@@ -60,21 +60,28 @@ func TestGetOrderSimulation(t *testing.T) {
 	require.Equal(t, sdk.MustNewDecFromStr("3"), *res.ExecutedQuantity)
 
 	// liquidity taken by cancel
-	keeper.AddNewOrder(ctx, types.Order{
-		Id:                1,
-		Account:           keepertest.TestAccount,
-		PriceDenom:        keepertest.TestPriceDenom,
-		AssetDenom:        keepertest.TestAssetDenom,
-		Price:             sdk.MustNewDecFromStr("9"),
-		Quantity:          sdk.MustNewDecFromStr("2"),
-		PositionDirection: types.PositionDirection_SHORT,
+	keeper.SetShortBook(ctx, keepertest.TestContract, types.ShortBook{
+		Price: sdk.MustNewDecFromStr("9"),
+		Entry: &types.OrderEntry{
+			Price:      sdk.MustNewDecFromStr("9"),
+			Quantity:   sdk.MustNewDecFromStr("2"),
+			PriceDenom: keepertest.TestPriceDenom,
+			AssetDenom: keepertest.TestAssetDenom,
+			Allocations: []*types.Allocation{
+				{
+					Account:  keepertest.TestAccount,
+					Quantity: sdk.MustNewDecFromStr("2"),
+					OrderId:  1,
+				},
+			},
+		},
 	})
 	keeper.MemState.GetBlockCancels(ctx, utils.ContractAddress(keepertest.TestContract), utils.GetPairString(&keepertest.TestPair)).Add(
-		&types.Cancellation{Id: 1},
+		&types.Cancellation{Id: 1, Price: sdk.MustNewDecFromStr("9"), PositionDirection: types.PositionDirection_SHORT, PriceDenom: keepertest.TestPriceDenom, AssetDenom: keepertest.TestAssetDenom},
 	)
 	res, err = wrapper.GetOrderSimulation(wctx, &types.QueryOrderSimulationRequest{Order: &testOrder, ContractAddr: keepertest.TestContract})
 	require.Nil(t, err)
-	require.Equal(t, sdk.MustNewDecFromStr("3"), *res.ExecutedQuantity)
+	require.Equal(t, sdk.OneDec(), *res.ExecutedQuantity)
 
 	// liquidity taken by earlier market orders
 	keeper.MemState.GetBlockOrders(ctx, utils.ContractAddress(keepertest.TestContract), utils.GetPairString(&keepertest.TestPair)).Add(
@@ -90,5 +97,5 @@ func TestGetOrderSimulation(t *testing.T) {
 	)
 	res, err = wrapper.GetOrderSimulation(wctx, &types.QueryOrderSimulationRequest{Order: &testOrder, ContractAddr: keepertest.TestContract})
 	require.Nil(t, err)
-	require.Equal(t, sdk.MustNewDecFromStr("1"), *res.ExecutedQuantity)
+	require.Equal(t, sdk.ZeroDec(), *res.ExecutedQuantity)
 }

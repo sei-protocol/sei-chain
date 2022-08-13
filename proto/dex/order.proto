@@ -66,6 +66,24 @@ message Cancellation {
         (gogoproto.jsontag)    = "creator",
         (gogoproto.nullable)   = true
     ];
+    string contractAddr = 4 [
+        (gogoproto.jsontag)    = "contract_address"
+    ];
+    string priceDenom = 5 [
+        (gogoproto.jsontag) = "price_denom"
+    ];
+    string assetDenom = 6 [
+        (gogoproto.jsontag) = "asset_denom"
+    ];
+    PositionDirection positionDirection = 7 [
+        (gogoproto.jsontag) = "position_direction"
+    ];
+    string price = 8 [
+        (gogoproto.moretags)   = "yaml:\"price\"",
+        (gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Dec",
+        (gogoproto.nullable)   = false,
+        (gogoproto.jsontag)    = "price"
+    ];
 }
 
 message ActiveOrders {

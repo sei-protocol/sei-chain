@@ -31,6 +31,7 @@ message SettlementEntry {
   uint64 orderId = 9 [(gogoproto.jsontag) = "order_id"];
   uint64 timestamp = 10 [(gogoproto.jsontag) = "timestamp"];
   uint64 height = 11 [(gogoproto.jsontag) = "height"];
+  uint64 settlementId = 12 [(gogoproto.jsontag) = "settlement_id"];
 }
 
 message Settlements {

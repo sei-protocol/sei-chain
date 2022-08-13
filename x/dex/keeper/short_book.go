@@ -76,6 +76,19 @@ func (k Keeper) GetAllShortBookForPairPaginated(ctx sdk.Context, contractAddr st
 	return
 }
 
+func (k Keeper) GetShortAllocationForOrderID(ctx sdk.Context, contractAddr string, priceDenom string, assetDenom string, price sdk.Dec, orderID uint64) (*types.Allocation, bool) {
+	orderBook, found := k.GetShortBookByPrice(ctx, contractAddr, price, priceDenom, assetDenom)
+	if !found {
+		return nil, false
+	}
+	for _, allocation := range orderBook.Entry.Allocations {
+		if allocation.OrderId == orderID {
+			return allocation, true
+		}
+	}
+	return nil, false
+}
+
 func GetKeyForShortBook(shortBook types.ShortBook) []byte {
 	return GetKeyForPrice(shortBook.Entry.Price)
 }
