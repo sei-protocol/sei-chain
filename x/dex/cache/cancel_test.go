@@ -20,17 +20,6 @@ func TestCancelCopy(t *testing.T) {
 	require.Equal(t, uint64(1), cancel.Id)
 }
 
-func TestCancelFilterByIds(t *testing.T) {
-	cancels := dex.NewCancels()
-	cancel := types.Cancellation{
-		Id:      1,
-		Creator: "abc",
-	}
-	cancels.Add(&cancel)
-	cancels.FilterByIds([]uint64{1})
-	require.Equal(t, 0, len(cancels.Get()))
-}
-
 func TestCancelGetIdsToCancel(t *testing.T) {
 	cancels := dex.NewCancels()
 	cancel := types.Cancellation{

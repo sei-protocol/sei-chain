@@ -4,7 +4,6 @@ import (
 	"sort"
 
 	"github.com/sei-protocol/sei-chain/utils"
-	"github.com/sei-protocol/sei-chain/utils/datastructures"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
 	"github.com/sei-protocol/sei-chain/x/dex/types/wasm"
 )
@@ -19,21 +18,6 @@ func NewOrders() *BlockOrders {
 
 func (o *BlockOrders) Copy() *BlockOrders {
 	return &BlockOrders{memStateItems: *o.memStateItems.Copy()}
-}
-
-func (o *BlockOrders) MarkFailedToPlaceByAccounts(accounts []string) {
-	o.mu.Lock()
-	defer o.mu.Unlock()
-	badAccountSet := datastructures.NewSyncSet(accounts)
-	newOrders := []*types.Order{}
-	for _, order := range o.internal {
-		if badAccountSet.Contains(order.Account) {
-			order.Status = types.OrderStatus_FAILED_TO_PLACE
-			order.StatusDescription = "Failed liquidation"
-		}
-		newOrders = append(newOrders, order)
-	}
-	o.internal = newOrders
 }
 
 func (o *BlockOrders) MarkFailedToPlace(failedOrders []wasm.UnsuccessfulOrder) {
