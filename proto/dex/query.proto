@@ -14,6 +14,7 @@ import "dex/twap.proto";
 import "dex/asset_list.proto";
 import "dex/pair.proto";
 import "dex/order.proto";
+import "dex/match_result.proto";
 // this line is used by starport scaffolding # 1
 
 option go_package = "github.com/sei-protocol/sei-chain/x/dex/types";
@@ -84,6 +85,8 @@ service Query {
 	}
 	
 	rpc GetOrderSimulation(QueryOrderSimulationRequest) returns (QueryOrderSimulationResponse) {}
+
+	rpc GetMatchResult(QueryGetMatchResultRequest) returns (QueryGetMatchResultResponse) {}
 
 // this line is used by starport scaffolding # 2
 }
@@ -306,4 +309,18 @@ message QueryOrderSimulationResponse {
     ];
 }
 
+message QueryGetMatchResultRequest {
+	string contractAddr = 1 [
+		(gogoproto.jsontag) = "contract_address"
+	];
+	int64 height = 2 [
+		(gogoproto.jsontag) = "height"
+	];
+}
+
+message QueryGetMatchResultResponse {
+	MatchResult result = 1 [
+		(gogoproto.jsontag) = "result"
+	];
+}
 // this line is used by starport scaffolding # 3

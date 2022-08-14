@@ -25,7 +25,7 @@ func (k Keeper) SetMatchResult(ctx sdk.Context, contractAddr string, result *typ
 	store.Set(key, bz)
 }
 
-func (k Keeper) GetMatchResult(ctx sdk.Context, contractAddr string, height int64) (*types.MatchResult, bool) {
+func (k Keeper) GetMatchResultState(ctx sdk.Context, contractAddr string, height int64) (*types.MatchResult, bool) {
 	store := prefix.NewStore(
 		ctx.KVStore(k.storeKey),
 		types.MatchResultPrefix(contractAddr),
