@@ -33,7 +33,7 @@ func (k Keeper) GetPairCount(ctx sdk.Context, contractAddr string) uint64 {
 func (k Keeper) AddRegisteredPair(ctx sdk.Context, contractAddr string, pair types.Pair) bool {
 	// Only add pairs that have not been added before
 	for _, prevPair := range k.GetAllRegisteredPairs(ctx, contractAddr) {
-		if pair == prevPair {
+		if pair.PriceDenom == prevPair.PriceDenom && pair.AssetDenom == prevPair.AssetDenom {
 			return false
 		}
 	}
