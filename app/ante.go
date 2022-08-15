@@ -9,6 +9,8 @@ import (
 	ibcante "github.com/cosmos/ibc-go/v3/modules/core/ante"
 	ibckeeper "github.com/cosmos/ibc-go/v3/modules/core/keeper"
 	"github.com/sei-protocol/sei-chain/app/antedecorators"
+	"github.com/sei-protocol/sei-chain/utils"
+	"github.com/sei-protocol/sei-chain/utils/tracing"
 	"github.com/sei-protocol/sei-chain/x/dex"
 	dexkeeper "github.com/sei-protocol/sei-chain/x/dex/keeper"
 	"github.com/sei-protocol/sei-chain/x/oracle"
@@ -25,6 +27,8 @@ type HandlerOptions struct {
 	OracleKeeper      *oraclekeeper.Keeper
 	DexKeeper         *dexkeeper.Keeper
 	TXCounterStoreKey sdk.StoreKey
+
+	TracingInfo *tracing.Info
 }
 
 func NewAnteHandler(options HandlerOptions) (sdk.AnteHandler, error) {
@@ -45,6 +49,9 @@ func NewAnteHandler(options HandlerOptions) (sdk.AnteHandler, error) {
 	}
 	if options.OracleKeeper == nil {
 		return nil, sdkerrors.Wrap(sdkerrors.ErrLogic, "oracle keeper is required for ante builder")
+	}
+	if options.TracingInfo == nil {
+		return nil, sdkerrors.Wrap(sdkerrors.ErrLogic, "tracing info is required for ante builder")
 	}
 
 	sigGasConsumer := options.SigGasConsumer
@@ -76,5 +83,9 @@ func NewAnteHandler(options HandlerOptions) (sdk.AnteHandler, error) {
 		dex.NewTickSizeMultipleDecorator(*options.DexKeeper),
 	}
 
-	return sdk.ChainAnteDecorators(anteDecorators...), nil
+	tracedDecorators := utils.Map(anteDecorators, func(d sdk.AnteDecorator) sdk.AnteDecorator {
+		return antedecorators.NewTracedAnteDecorator(d, nil)
+	})
+
+	return sdk.ChainAnteDecorators(tracedDecorators...), nil
 }
