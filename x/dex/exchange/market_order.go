@@ -19,7 +19,7 @@ func MatchMarketOrders(
 		// check if there is enough liquidity for fill-or-kill market order, if not skip them
 		if marketOrder.OrderType == types.OrderType_FOKMARKET {
 			fokOrderQuantity := marketOrder.Quantity
-			// TODO: calculate the liquidity of starting from each tick in prior to matching market order, so that 
+			// TODO: calculate the liquidity of starting from each tick in prior to matching market order, so that
 			// we can save computation cost in matching fok order
 			for i := range orderBookEntries.Entries {
 				var existingOrder types.OrderBookEntry
