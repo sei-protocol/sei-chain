@@ -17,6 +17,7 @@ enum OrderType {
     LIMIT = 0;
     MARKET = 1;
     LIQUIDATION = 2;
+    FOKMARKET = 3; // fill-or-kill market order
 }
 
 enum Unit {

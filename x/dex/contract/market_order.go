@@ -40,7 +40,7 @@ func getUnfulfilledPlacedMarketOrderIds(
 		if order.Status == types.OrderStatus_FAILED_TO_PLACE {
 			continue
 		}
-		if order.OrderType == types.OrderType_MARKET || order.OrderType == types.OrderType_LIQUIDATION {
+		if order.OrderType == types.OrderType_MARKET || order.OrderType == types.OrderType_LIQUIDATION || order.OrderType == types.OrderType_FOKMARKET {
 			if settledQuantity, ok := orderIDToSettledQuantities[order.Id]; !ok || settledQuantity.LT(order.Quantity) {
 				res = append(res, order.Id)
 			}
