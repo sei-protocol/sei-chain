@@ -44,6 +44,7 @@ func (tx FakeTx) ValidateBasic() error {
 }
 
 func TestGaslessDecorator(t *testing.T) {
+	output = ""
 	anteDecorators := []sdk.AnteDecorator{
 		FakeAnteDecoratorOne{},
 		antedecorators.NewGaslessDecorator([]sdk.AnteDecorator{FakeAnteDecoratorTwo{}}, oraclekeeper.Keeper{}),

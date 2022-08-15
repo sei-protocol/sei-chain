@@ -713,6 +713,7 @@ func New(
 			WasmConfig:        &wasmConfig,
 			OracleKeeper:      &app.OracleKeeper,
 			DexKeeper:         &app.DexKeeper,
+			TracingInfo:       app.tracingInfo,
 		},
 	)
 	if err != nil {
