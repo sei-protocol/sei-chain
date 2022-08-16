@@ -113,7 +113,7 @@ func TestEncodeMint(t *testing.T) {
 	}
 	serialized, _ := json.Marshal(msg)
 	msgData := wasmbinding.SeiWasmMessage{
-		Mint: serialized,
+		MintTokens: serialized,
 	}
 	serializedMsg, _ := json.Marshal(msgData)
 
@@ -137,7 +137,7 @@ func TestEncodeBurn(t *testing.T) {
 	}
 	serialized, _ := json.Marshal(msg)
 	msgData := wasmbinding.SeiWasmMessage{
-		Burn: serialized,
+		BurnTokens: serialized,
 	}
 	serializedMsg, _ := json.Marshal(msgData)
 
