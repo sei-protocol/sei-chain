@@ -55,5 +55,5 @@ development branches of Tendermint if we want this feature out soon.
 
 ### References
 
-- `Tendermint ABCI++ <https://docs.tendermint.com/master/spec/abci++/abci++_methods.html#new-methods-introduced-in-abci>`
-- `ABCI++ Timeline <https://blog.cosmos.network/the-tendermint-council-and-the-path-to-delivering-abci-d6deb9e0fc7f>`
+- [Tendermint ABCI++](https://docs.tendermint.com/master/spec/abci++/abci++_methods.html#new-methods-introduced-in-abci)
+- [ABCI++ Timeline](https://blog.cosmos.network/the-tendermint-council-and-the-path-to-delivering-abci-d6deb9e0fc7f)
