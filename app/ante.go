@@ -84,7 +84,7 @@ func NewAnteHandler(options HandlerOptions) (sdk.AnteHandler, error) {
 	}
 
 	tracedDecorators := utils.Map(anteDecorators, func(d sdk.AnteDecorator) sdk.AnteDecorator {
-		return antedecorators.NewTracedAnteDecorator(d, nil)
+		return antedecorators.NewTracedAnteDecorator(d, options.TracingInfo)
 	})
 
 	return sdk.ChainAnteDecorators(tracedDecorators...), nil
