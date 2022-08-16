@@ -29,22 +29,39 @@ func Settle(
 		return takerSettlements, makerSettlements
 	}
 	order.GetEntry().Quantity = order.GetEntry().Quantity.Sub(quantityTaken)
-	newAllocations := RebalanceAllocations(order)
+	settledQuantity := sdk.ZeroDec()
 	newToSettle := []ToSettle{}
 	nonZeroNewAllocations := []*types.Allocation{}
 	for _, allocation := range order.GetEntry().Allocations {
 		if allocation.Quantity.IsZero() {
 			continue
 		}
-		newToSettle = append(newToSettle, ToSettle{
-			amount:  allocation.Quantity.Sub(newAllocations[allocation.OrderId]),
-			orderID: allocation.OrderId,
-			account: allocation.Account,
-		})
-		if newAllocations[allocation.OrderId].IsPositive() {
+		if settledQuantity.LT(quantityTaken) {
+			diff := quantityTaken.Sub(settledQuantity)
+			if allocation.Quantity.GT(diff) {
+				newToSettle = append(newToSettle, ToSettle{
+					amount:  diff,
+					orderID: allocation.OrderId,
+					account: allocation.Account,
+				})
+				nonZeroNewAllocations = append(nonZeroNewAllocations, &types.Allocation{
+					OrderId:  allocation.OrderId,
+					Quantity: allocation.Quantity.Sub(diff),
+					Account:  allocation.Account,
+				})
+				settledQuantity = quantityTaken
+			} else {
+				newToSettle = append(newToSettle, ToSettle{
+					amount:  allocation.Quantity,
+					orderID: allocation.OrderId,
+					account: allocation.Account,
+				})
+				settledQuantity = settledQuantity.Add(allocation.Quantity)
+			}
+		} else {
 			nonZeroNewAllocations = append(nonZeroNewAllocations, &types.Allocation{
 				OrderId:  allocation.OrderId,
-				Quantity: newAllocations[allocation.OrderId],
+				Quantity: allocation.Quantity,
 				Account:  allocation.Account,
 			})
 		}
@@ -94,24 +111,40 @@ func SettleFromBook(
 	}
 	longOrder.GetEntry().Quantity = longOrder.GetEntry().Quantity.Sub(executedQuantity)
 	shortOrder.GetEntry().Quantity = shortOrder.GetEntry().Quantity.Sub(executedQuantity)
-	newLongAllocations := RebalanceAllocations(longOrder)
-	newShortAllocations := RebalanceAllocations(shortOrder)
 	newLongToSettle := []ToSettle{}
 	newShortToSettle := []ToSettle{}
 	nonZeroNewLongAllocations, nonZeroNewShortAllocations := []*types.Allocation{}, []*types.Allocation{}
+	longSettledQuantity, shortSettledQuantity := sdk.ZeroDec(), sdk.ZeroDec()
 	for _, allocation := range longOrder.GetEntry().Allocations {
 		if allocation.Quantity.IsZero() {
 			continue
 		}
-		newLongToSettle = append(newLongToSettle, ToSettle{
-			amount:  allocation.Quantity.Sub(newLongAllocations[allocation.OrderId]),
-			account: allocation.Account,
-			orderID: allocation.OrderId,
-		})
-		if newLongAllocations[allocation.OrderId].IsPositive() {
+		if longSettledQuantity.LT(executedQuantity) {
+			diff := executedQuantity.Sub(longSettledQuantity)
+			if allocation.Quantity.GT(diff) {
+				newLongToSettle = append(newLongToSettle, ToSettle{
+					amount:  diff,
+					orderID: allocation.OrderId,
+					account: allocation.Account,
+				})
+				nonZeroNewLongAllocations = append(nonZeroNewLongAllocations, &types.Allocation{
+					OrderId:  allocation.OrderId,
+					Quantity: allocation.Quantity.Sub(diff),
+					Account:  allocation.Account,
+				})
+				longSettledQuantity = executedQuantity
+			} else {
+				newLongToSettle = append(newLongToSettle, ToSettle{
+					amount:  allocation.Quantity,
+					orderID: allocation.OrderId,
+					account: allocation.Account,
+				})
+				longSettledQuantity = longSettledQuantity.Add(allocation.Quantity)
+			}
+		} else {
 			nonZeroNewLongAllocations = append(nonZeroNewLongAllocations, &types.Allocation{
 				OrderId:  allocation.OrderId,
-				Quantity: newLongAllocations[allocation.OrderId],
+				Quantity: allocation.Quantity,
 				Account:  allocation.Account,
 			})
 		}
@@ -121,15 +154,32 @@ func SettleFromBook(
 		if allocation.Quantity.IsZero() {
 			continue
 		}
-		newShortToSettle = append(newShortToSettle, ToSettle{
-			amount:  allocation.Quantity.Sub(newShortAllocations[allocation.OrderId]),
-			account: allocation.Account,
-			orderID: allocation.OrderId,
-		})
-		if newShortAllocations[allocation.OrderId].IsPositive() {
+		if shortSettledQuantity.LT(executedQuantity) {
+			diff := executedQuantity.Sub(shortSettledQuantity)
+			if allocation.Quantity.GT(diff) {
+				newShortToSettle = append(newShortToSettle, ToSettle{
+					amount:  diff,
+					orderID: allocation.OrderId,
+					account: allocation.Account,
+				})
+				nonZeroNewShortAllocations = append(nonZeroNewShortAllocations, &types.Allocation{
+					OrderId:  allocation.OrderId,
+					Quantity: allocation.Quantity.Sub(diff),
+					Account:  allocation.Account,
+				})
+				shortSettledQuantity = executedQuantity
+			} else {
+				newShortToSettle = append(newShortToSettle, ToSettle{
+					amount:  allocation.Quantity,
+					orderID: allocation.OrderId,
+					account: allocation.Account,
+				})
+				shortSettledQuantity = shortSettledQuantity.Add(allocation.Quantity)
+			}
+		} else {
 			nonZeroNewShortAllocations = append(nonZeroNewShortAllocations, &types.Allocation{
 				OrderId:  allocation.OrderId,
-				Quantity: newShortAllocations[allocation.OrderId],
+				Quantity: allocation.Quantity,
 				Account:  allocation.Account,
 			})
 		}
