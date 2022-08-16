@@ -14,8 +14,8 @@ type SeiWasmMessage struct {
 	PlaceOrders  json.RawMessage `json:"place_orders,omitempty"`
 	CancelOrders json.RawMessage `json:"cancel_orders,omitempty"`
 	CreateDenom  json.RawMessage `json:"create_denom,omitempty"`
-	Mint         json.RawMessage `json:"mint,omitempty"`
-	Burn         json.RawMessage `json:"burn,omitempty"`
+	MintTokens   json.RawMessage `json:"mint_tokens,omitempty"`
+	BurnTokens   json.RawMessage `json:"burn_tokens,omitempty"`
 	ChangeAdmin  json.RawMessage `json:"change_admin,omitempty"`
 }
 
@@ -31,10 +31,10 @@ func CustomEncoder(sender sdk.AccAddress, msg json.RawMessage) ([]sdk.Msg, error
 		return dexwasm.EncodeDexCancelOrders(parsedMessage.CancelOrders, sender)
 	case parsedMessage.CreateDenom != nil:
 		return tokenfactorywasm.EncodeTokenFactoryCreateDenom(parsedMessage.CreateDenom, sender)
-	case parsedMessage.Mint != nil:
-		return tokenfactorywasm.EncodeTokenFactoryMint(parsedMessage.Mint, sender)
-	case parsedMessage.Burn != nil:
-		return tokenfactorywasm.EncodeTokenFactoryBurn(parsedMessage.Burn, sender)
+	case parsedMessage.MintTokens != nil:
+		return tokenfactorywasm.EncodeTokenFactoryMint(parsedMessage.MintTokens, sender)
+	case parsedMessage.BurnTokens != nil:
+		return tokenfactorywasm.EncodeTokenFactoryBurn(parsedMessage.BurnTokens, sender)
 	case parsedMessage.ChangeAdmin != nil:
 		return tokenfactorywasm.EncodeTokenFactoryChangeAdmin(parsedMessage.ChangeAdmin, sender)
 	default:
