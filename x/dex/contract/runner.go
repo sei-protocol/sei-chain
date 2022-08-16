@@ -88,7 +88,7 @@ func (r *ParallelRunner) Run() {
 		// not started running yet.
 		r.readyContracts.Range(func(key utils.ContractAddress, _ struct{}) bool {
 			atomic.AddInt64(&r.inProgressCnt, 1)
-			r.wrapRunnable(key)
+			go r.wrapRunnable(key)
 			// Since the frontier contract has started running, we need
 			// to remove it from r.readyContracts so that it won't
 			// double-run.
@@ -100,7 +100,7 @@ func (r *ParallelRunner) Run() {
 		})
 		// This corresponds to the "wait for any existing run (could be
 		// from previous iteration) to finish" part in the pseudocode above.
-		// <-r.someContractFinished
+		<-r.someContractFinished
 	}
 }
 
@@ -127,5 +127,5 @@ func (r *ParallelRunner) wrapRunnable(contractAddr utils.ContractAddress) {
 	}
 
 	atomic.AddInt64(&r.inProgressCnt, -1) // this has to happen after any potential increment to readyCnt
-	// r.someContractFinished <- struct{}{}
+	r.someContractFinished <- struct{}{}
 }
