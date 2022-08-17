@@ -676,19 +676,7 @@ func New(
 	app.sm.RegisterStoreDecoders()
 
 	app.RegisterUpgradeHandlers()
-	upgradeInfo, err := app.UpgradeKeeper.ReadUpgradeInfoFromDisk()
-	if err != nil {
-		panic(err)
-	}
-
-	if upgradeInfo.Name == "1.0.4beta" && !app.UpgradeKeeper.IsSkipHeight(upgradeInfo.Height) {
-		storeUpgrades := storetypes.StoreUpgrades{
-			Added: []string{oracletypes.StoreKey},
-		}
-
-		// configure store loader that checks if version == upgradeHeight and applies store upgrades
-		app.SetStoreLoader(upgradetypes.UpgradeStoreLoader(upgradeInfo.Height, &storeUpgrades))
-	}
+	app.SetStoreUpgradeHandlers()
 
 	// initialize stores
 	app.MountKVStores(keys)
@@ -750,6 +738,32 @@ func New(
 	// this line is used by starport scaffolding # stargate/app/beforeInitReturn
 
 	return app
+}
+
+// Add (or remove) keepers when they are introduced / removed in different versions
+func (app *App) SetStoreUpgradeHandlers() {
+	upgradeInfo, err := app.UpgradeKeeper.ReadUpgradeInfoFromDisk()
+	if err != nil {
+		panic(err)
+	}
+
+	if upgradeInfo.Name == "1.0.4beta" && !app.UpgradeKeeper.IsSkipHeight(upgradeInfo.Height) {
+		storeUpgrades := storetypes.StoreUpgrades{
+			Added: []string{oracletypes.StoreKey},
+		}
+
+		// configure store loader that checks if version == upgradeHeight and applies store upgrades
+		app.SetStoreLoader(upgradetypes.UpgradeStoreLoader(upgradeInfo.Height, &storeUpgrades))
+	}
+
+	if upgradeInfo.Name == "1.2.0beta" && !app.UpgradeKeeper.IsSkipHeight(upgradeInfo.Height) {
+		storeUpgrades := storetypes.StoreUpgrades{
+			Added: []string{tokenfactorytypes.StoreKey},
+		}
+
+		// configure store loader that checks if version == upgradeHeight and applies store upgrades
+		app.SetStoreLoader(upgradetypes.UpgradeStoreLoader(upgradeInfo.Height, &storeUpgrades))
+	}
 }
 
 // AppName returns the name of the App
