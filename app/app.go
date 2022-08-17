@@ -3,11 +3,12 @@ package app
 import (
 	"context"
 	"fmt"
-	storetypes "github.com/cosmos/cosmos-sdk/store/types"
 	"io"
 	"os"
 	"path/filepath"
 	"strings"
+
+	storetypes "github.com/cosmos/cosmos-sdk/store/types"
 
 	appparams "github.com/sei-protocol/sei-chain/app/params"
 	"github.com/sei-protocol/sei-chain/wasmbinding"
@@ -763,7 +764,6 @@ func (app *App) SetStoreUpgradeHandlers() {
 		// configure store loader that checks if version == upgradeHeight and applies store upgrades
 		app.SetStoreLoader(upgradetypes.UpgradeStoreLoader(upgradeInfo.Height, &storeUpgrades))
 	}
-
 }
 
 // AppName returns the name of the App
