@@ -42,6 +42,9 @@ Q ms, this would theoretically reduce average block time by `P + Q - max(P, Q)` 
 a recent load test on Sei, P was ~600ms and Q was ~300ms, so optimistic processing would
 cut the block time by ~300ms in that case.
 
+The following diagram illustrates the intended flow:
+![Flow](./optimistic_processing.png)
+
 In the case where the proposal is rejected during voting, the optimistic processing outcome
 obviously needs to be thrown away, which is trivial with states managed by Cosmos thanks to
 cache stores, but demands special treatment for Sei's in-memory state in its `dex` module. A
@@ -52,6 +55,38 @@ we will only perform optimistic processing for the first round of a height.
 Finally, since ABCI++ isn't in any stable release of Tendermint yet and consequently Cosmos
 hasn't integrated with ABCI++, Sei would need to directly integrate with ABCI++ based off
 development branches of Tendermint if we want this feature out soon.
+
+### Implementation
+This proposal can be implemented fully on the application side. The execution context needs to
+add the following information:
+- whether there is any optimistic processing (OP) goroutine running
+- block info (height, round, hash, etc.) of the running OP goroutine, if any
+- termination signal
+- completion signal
+- pointers to branched states
+
+The OP goroutine would operate on top of a cache branch of the Cosmos store, and a branch
+equivalent for any state that is not managed by the Cosmos store.
+
+The OP goroutine would periodically (e.g. after every 10 txs) check if a termination signal is sent
+to it, and stops if so. If not, the OP goroutine would set the completion signal when it finishes
+processing.
+
+Upon receiving a `ProcessProposal` call, the application would adopt the following procedure:
+> if round == 0
+> &nbsp;&nbsp;&nbsp;&nbsp;set OP fields mentioned above in context
+> &nbsp;&nbsp;&nbsp;&nbsp;create branches for all mutable states
+> &nbsp;&nbsp;&nbsp;&nbsp;kick off an OP goroutine that optimistically process the proposal with the state branches
+> else if block height == OP height in context AND block hash == OP hash in context
+> &nbsp;&nbsp;&nbsp;&nbsp;send termination signal to the running OP goroutine
+> &nbsp;&nbsp;&nbsp;&nbsp;clear up OP fields from the context
+> else
+> &nbsp;&nbsp;&nbsp;&nbsp;do nothing
+> respond to Tendermint
+
+Upon receiving a `FinalizeBlock` call, the application would wait for any OP goroutine if the OP
+fields in the context match the information passed in by Tendermint, and merge any resulting branched
+states to the main store. If not, `FinalizeBlock` would just process the block by itself.
 
 ### References
 
