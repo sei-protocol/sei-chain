@@ -76,15 +76,15 @@ To prevent bad validators from overwhelming other nodes, we will only allow opti
 for the first round proposal of a given height.
 
 Upon receiving a `ProcessProposal` call, the application would adopt the following procedure:
-> if round == 0
-> &nbsp;&nbsp;&nbsp;&nbsp;set OP fields mentioned above in context
-> &nbsp;&nbsp;&nbsp;&nbsp;create branches for all mutable states
-> &nbsp;&nbsp;&nbsp;&nbsp;kick off an OP goroutine that optimistically process the proposal with the state branches
-> else if block height != OP height in context OR block hash != OP hash in context
-> &nbsp;&nbsp;&nbsp;&nbsp;send termination signal to the running OP goroutine
-> &nbsp;&nbsp;&nbsp;&nbsp;clear up OP fields from the context
-> else
-> &nbsp;&nbsp;&nbsp;&nbsp;do nothing
+> if round == 0<br>
+> &nbsp;&nbsp;&nbsp;&nbsp;set OP fields mentioned above in context<br>
+> &nbsp;&nbsp;&nbsp;&nbsp;create branches for all mutable states<br>
+> &nbsp;&nbsp;&nbsp;&nbsp;kick off an OP goroutine that optimistically process the proposal with the state branches<br>
+> else if block height != OP height in context OR block hash != OP hash in context<br>
+> &nbsp;&nbsp;&nbsp;&nbsp;send termination signal to the running OP goroutine<br>
+> &nbsp;&nbsp;&nbsp;&nbsp;clear up OP fields from the context<br>
+> else<br>
+> &nbsp;&nbsp;&nbsp;&nbsp;do nothing<br>
 > respond to Tendermint
 
 Upon receiving a `FinalizeBlock` call, the application would wait for any OP goroutine if the OP
