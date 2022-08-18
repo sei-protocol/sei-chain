@@ -7,7 +7,7 @@ parent:
 # Requests for Comments
 
 A Request for Comments (RFC) is a record of discussion on an open-ended topic
-related to the design and implementation of Tendermint Core, for which no
+related to the design and implementation of Sei, for which no
 immediate decision is required.
 
 The purpose of an RFC is to serve as a historical record of a high-level

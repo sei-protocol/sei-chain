@@ -72,12 +72,15 @@ The OP goroutine would periodically (e.g. after every 10 txs) check if a termina
 to it, and stops if so. If not, the OP goroutine would set the completion signal when it finishes
 processing.
 
+To prevent bad validators from overwhelming other nodes, we will only allow optimistic processing
+for the first round proposal of a given height.
+
 Upon receiving a `ProcessProposal` call, the application would adopt the following procedure:
 > if round == 0
 > &nbsp;&nbsp;&nbsp;&nbsp;set OP fields mentioned above in context
 > &nbsp;&nbsp;&nbsp;&nbsp;create branches for all mutable states
 > &nbsp;&nbsp;&nbsp;&nbsp;kick off an OP goroutine that optimistically process the proposal with the state branches
-> else if block height == OP height in context AND block hash == OP hash in context
+> else if block height != OP height in context OR block hash != OP hash in context
 > &nbsp;&nbsp;&nbsp;&nbsp;send termination signal to the running OP goroutine
 > &nbsp;&nbsp;&nbsp;&nbsp;clear up OP fields from the context
 > else
