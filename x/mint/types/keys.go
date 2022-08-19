@@ -3,6 +3,9 @@ package types
 // MinterKey is the key to use for the keeper store.
 var MinterKey = []byte{0x00}
 
+// LastHalvenEpochKey is the key to use for the keeper store.
+var LastHalvenEpochKey = []byte{0x03}
+
 const (
 	// module name
 	ModuleName = "mint"

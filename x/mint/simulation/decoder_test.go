@@ -4,10 +4,11 @@ import (
 	"fmt"
 	"testing"
 
+	sdk "github.com/cosmos/cosmos-sdk/types"
+
 	"github.com/stretchr/testify/require"
 
 	"github.com/cosmos/cosmos-sdk/simapp"
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/types/kv"
 	"github.com/sei-protocol/sei-chain/x/mint/simulation"
 	"github.com/sei-protocol/sei-chain/x/mint/types"
@@ -17,7 +18,7 @@ func TestDecodeStore(t *testing.T) {
 	cdc := simapp.MakeTestEncodingConfig().Marshaler
 	dec := simulation.NewDecodeStore(cdc)
 
-	minter := types.NewMinter(sdk.OneDec(), sdk.NewDec(15))
+	minter := types.NewMinter(sdk.NewDec(15))
 
 	kvPairs := kv.Pairs{
 		Pairs: []kv.Pair{
