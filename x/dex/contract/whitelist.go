@@ -18,6 +18,7 @@ var DexWhitelistedKeys = []string{
 	types.PriceKey,
 	types.SettlementEntryKey,
 	types.NextOrderIDKey,
+	types.MatchResultKey,
 }
 
 var WasmWhitelistedKeys = []string{

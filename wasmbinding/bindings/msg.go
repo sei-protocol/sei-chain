@@ -38,6 +38,6 @@ type PlaceOrders struct {
 }
 
 type CancelOrders struct {
-	OrderIds     []uint64 `json:"order_ids"`
-	ContractAddr string   `json:"contract_address"`
+	Cancellations []*types.Cancellation `json:"cancellations"`
+	ContractAddr  string                `json:"contract_address"`
 }

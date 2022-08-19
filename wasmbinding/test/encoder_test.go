@@ -7,6 +7,7 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/sei-protocol/sei-chain/wasmbinding"
 	"github.com/sei-protocol/sei-chain/wasmbinding/bindings"
+	"github.com/sei-protocol/sei-chain/x/dex/types"
 	dextypes "github.com/sei-protocol/sei-chain/x/dex/types"
 	tokenfactorytypes "github.com/sei-protocol/sei-chain/x/tokenfactory/types"
 	"github.com/stretchr/testify/require"
@@ -59,7 +60,9 @@ func TestDecodeOrderCancellation(t *testing.T) {
 	contractAddr, err := sdk.AccAddressFromBech32("sei1y3pxq5dp900czh0mkudhjdqjq5m8cpmmps8yjw")
 	require.NoError(t, err)
 	msg := bindings.CancelOrders{
-		OrderIds:     []uint64{1},
+		Cancellations: []*types.Cancellation{
+			{Id: 1},
+		},
 		ContractAddr: TEST_TARGET_CONTRACT,
 	}
 	serialized, _ := json.Marshal(msg)
@@ -74,11 +77,15 @@ func TestDecodeOrderCancellation(t *testing.T) {
 	typedDecodedMsg, ok := decodedMsgs[0].(*dextypes.MsgCancelOrders)
 	require.True(t, ok)
 	expectedMsg := dextypes.MsgCancelOrders{
-		Creator:      TEST_CREATOR,
-		OrderIds:     []uint64{1},
+		Creator: TEST_CREATOR,
+		Cancellations: []*types.Cancellation{
+			{Id: 1, Price: sdk.ZeroDec()},
+		},
 		ContractAddr: TEST_TARGET_CONTRACT,
 	}
-	require.Equal(t, expectedMsg, *typedDecodedMsg)
+	require.Equal(t, expectedMsg.Creator, typedDecodedMsg.Creator)
+	require.Equal(t, *expectedMsg.Cancellations[0], *typedDecodedMsg.Cancellations[0])
+	require.Equal(t, expectedMsg.ContractAddr, typedDecodedMsg.ContractAddr)
 }
 
 func TestEncodeCreateDenom(t *testing.T) {

@@ -111,6 +111,23 @@ func NextSettlementIDPrefix(contractAddr string, priceDenom string, assetDenom s
 	)
 }
 
+func MatchResultPrefix(contractAddr string) []byte {
+	return append(KeyPrefix(MatchResultKey), KeyPrefix(contractAddr)...)
+}
+
+func GetSettlementOrderIDPrefix(orderID uint64, account string) []byte {
+	accountBytes := append([]byte(account), []byte("|")...)
+	orderIDBytes := make([]byte, 8)
+	binary.BigEndian.PutUint64(orderIDBytes, orderID)
+	return append(accountBytes, orderIDBytes...)
+}
+
+func GetSettlementKey(orderID uint64, account string, settlementID uint64) []byte {
+	settlementIDBytes := make([]byte, 8)
+	binary.BigEndian.PutUint64(settlementIDBytes, settlementID)
+	return append(GetSettlementOrderIDPrefix(orderID, account), settlementIDBytes...)
+}
+
 const (
 	DefaultPriceDenom = "stake"
 	DefaultAssetDenom = "dummy"
@@ -134,4 +151,5 @@ const (
 	RegisteredPairCount = "rpcnt"
 	TickSizeKey         = "ticks"
 	AssetListKey        = "AssetList-"
+	MatchResultKey      = "MatchResult-"
 )

@@ -45,8 +45,8 @@ message MsgCancelOrders {
   string creator = 1 [
       (gogoproto.jsontag) = "creator"
   ];
-  repeated uint64 orderIds = 2 [
-      (gogoproto.jsontag) = "order_ids"
+  repeated Cancellation cancellations = 2 [
+      (gogoproto.jsontag) = "cancellations"
   ];
   string contractAddr = 3 [
       (gogoproto.jsontag) = "contract_address"

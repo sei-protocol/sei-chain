@@ -91,6 +91,19 @@ func (k Keeper) GetAllLongBookForPairPaginated(ctx sdk.Context, contractAddr str
 	return
 }
 
+func (k Keeper) GetLongAllocationForOrderID(ctx sdk.Context, contractAddr string, priceDenom string, assetDenom string, price sdk.Dec, orderID uint64) (*types.Allocation, bool) {
+	orderBook, found := k.GetLongBookByPrice(ctx, contractAddr, price, priceDenom, assetDenom)
+	if !found {
+		return nil, false
+	}
+	for _, allocation := range orderBook.Entry.Allocations {
+		if allocation.OrderId == orderID {
+			return allocation, true
+		}
+	}
+	return nil, false
+}
+
 func GetKeyForLongBook(longBook types.LongBook) []byte {
 	return GetKeyForPrice(longBook.Entry.Price)
 }

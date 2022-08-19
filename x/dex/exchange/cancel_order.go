@@ -8,26 +8,23 @@ import (
 func CancelOrders(
 	cancels []*types.Cancellation,
 	orderbook *types.OrderBook,
-	originalOrders map[uint64]types.Order,
 ) {
 	for _, cancel := range cancels {
-		if originalOrder, ok := originalOrders[cancel.Id]; ok {
-			cancelOrder(originalOrder, orderbook.Longs)
-			cancelOrder(originalOrder, orderbook.Shorts)
-		}
+		cancelOrder(cancel, orderbook.Longs)
+		cancelOrder(cancel, orderbook.Shorts)
 	}
 }
 
-func cancelOrder(originalOrder types.Order, orderBookEntries *types.CachedSortedOrderBookEntries) {
+func cancelOrder(cancellation *types.Cancellation, orderBookEntries *types.CachedSortedOrderBookEntries) {
 	for _, order := range orderBookEntries.Entries {
-		if !originalOrder.Price.Equal(order.GetPrice()) {
+		if !cancellation.Price.Equal(order.GetPrice()) {
 			continue
 		}
 		orderBookEntry := order.GetEntry()
 		newAllocations := []*types.Allocation{}
 		newQuantity := sdk.ZeroDec()
 		for _, allocation := range orderBookEntry.Allocations {
-			if allocation.OrderId != originalOrder.Id {
+			if allocation.OrderId != cancellation.Id {
 				newAllocations = append(newAllocations, allocation)
 				newQuantity = newQuantity.Add(allocation.Quantity)
 			} else {
@@ -37,5 +34,6 @@ func cancelOrder(originalOrder types.Order, orderBookEntries *types.CachedSorted
 		}
 		orderBookEntry.Quantity = newQuantity
 		orderBookEntry.Allocations = newAllocations
+		return
 	}
 }

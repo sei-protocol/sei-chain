@@ -28,9 +28,9 @@ func EncodeDexCancelOrders(rawMsg json.RawMessage, sender sdk.AccAddress) ([]sdk
 		return []sdk.Msg{}, err
 	}
 	cancelOrdersMsg := types.MsgCancelOrders{
-		Creator:      sender.String(),
-		OrderIds:     encodedCancelOrdersMsg.OrderIds,
-		ContractAddr: encodedCancelOrdersMsg.ContractAddr,
+		Creator:       sender.String(),
+		Cancellations: encodedCancelOrdersMsg.Cancellations,
+		ContractAddr:  encodedCancelOrdersMsg.ContractAddr,
 	}
 	return []sdk.Msg{&cancelOrdersMsg}, nil
 }

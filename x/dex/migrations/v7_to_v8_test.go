@@ -50,7 +50,7 @@ func TestMigrate7to8(t *testing.T) {
 		},
 	}
 	bz, _ := settlements.Marshal()
-	store.Set(keeper.GetSettlementOrderIDPrefix(1, keepertest.TestAccount), bz)
+	store.Set(types.GetSettlementOrderIDPrefix(1, keepertest.TestAccount), bz)
 
 	// register contract / pair
 	store = prefix.NewStore(
@@ -78,18 +78,18 @@ func TestMigrate7to8(t *testing.T) {
 		ctx.KVStore(storeKey),
 		types.SettlementEntryPrefix(keepertest.TestContract, keepertest.TestPriceDenom, keepertest.TestAssetDenom),
 	)
-	settlementEntry1Key := keeper.GetSettlementKey(1, keepertest.TestAccount, 0)
+	settlementEntry1Key := types.GetSettlementKey(1, keepertest.TestAccount, 0)
 	settlementEntry1 := types.SettlementEntry{}
 	settlementEntry1Bytes := store.Get(settlementEntry1Key)
 	_ = settlementEntry1.Unmarshal(settlementEntry1Bytes)
 	require.Equal(t, sdk.MustNewDecFromStr("0.3"), settlementEntry1.Quantity)
-	settlementEntry2Key := keeper.GetSettlementKey(1, keepertest.TestAccount, 1)
+	settlementEntry2Key := types.GetSettlementKey(1, keepertest.TestAccount, 1)
 	settlementEntry2 := types.SettlementEntry{}
 	settlementEntry2Bytes := store.Get(settlementEntry2Key)
 	_ = settlementEntry2.Unmarshal(settlementEntry2Bytes)
 	require.Equal(t, sdk.MustNewDecFromStr("0.7"), settlementEntry2.Quantity)
 
-	require.False(t, store.Has(keeper.GetSettlementOrderIDPrefix(1, keepertest.TestAccount)))
+	require.False(t, store.Has(types.GetSettlementOrderIDPrefix(1, keepertest.TestAccount)))
 
 	store = prefix.NewStore(ctx.KVStore(storeKey), types.NextSettlementIDPrefix(keepertest.TestContract, keepertest.TestPriceDenom, keepertest.TestAssetDenom))
 	key := make([]byte, 8)

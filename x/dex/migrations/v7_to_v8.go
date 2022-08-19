@@ -54,7 +54,7 @@ func flattenSettlements(ctx sdk.Context, storeKey sdk.StoreKey) error {
 						settlementIterator.Close()
 						return err
 					}
-					newKeys = append(newKeys, keeper.GetSettlementKey(settlementEntry.OrderId, settlementEntry.Account, uint64(i)))
+					newKeys = append(newKeys, types.GetSettlementKey(settlementEntry.OrderId, settlementEntry.Account, uint64(i)))
 					newVals = append(newVals, settlementBytes)
 				}
 

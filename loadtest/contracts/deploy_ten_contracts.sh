@@ -64,7 +64,7 @@ saturnaddr3=$(python3 parser.py contract_address $saturninsres3)
 venusaddr3=$(python3 parser.py contract_address $venusinsres3)
 
 marsinsres4=$(printf "12345678\n" | $seidbin tx wasm instantiate $marsid '{}' -y --no-admin --from=$keyname --chain-id=$chainid --gas=5000000 --fees=1000000usei --broadcast-mode=block  --label=dex --output=json)
-marsaddr4=$(python3 parser.py contract_address $marsinsres3)
+marsaddr4=$(python3 parser.py contract_address $marsinsres4)
 
 # register
 echo "Registering..."
