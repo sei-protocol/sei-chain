@@ -629,16 +629,16 @@ func TestMatchSingleOrderFromMultipleShortBook(t *testing.T) {
 		Allocations: []*types.Allocation{{
 			OrderId:  3,
 			Account:  "def",
-			Quantity: sdk.NewDec(2),
+			Quantity: sdk.NewDec(1),
 		}, {
 			OrderId:  4,
 			Account:  "ghi",
-			Quantity: sdk.NewDec(1),
+			Quantity: sdk.NewDec(2),
 		}},
 		PriceDenom: "USDC",
 		AssetDenom: "ATOM",
 	})
-	assert.Equal(t, len(settlements), 6)
+	assert.Equal(t, len(settlements), 4)
 	assert.Equal(t, *settlements[0], types.SettlementEntry{
 		PositionDirection:      "Long",
 		PriceDenom:             "USDC",
@@ -669,7 +669,7 @@ func TestMatchSingleOrderFromMultipleShortBook(t *testing.T) {
 		PositionDirection:      "Long",
 		PriceDenom:             "USDC",
 		AssetDenom:             "ATOM",
-		Quantity:               sdk.NewDec(2),
+		Quantity:               sdk.NewDec(3),
 		ExecutionCostOrProceed: sdk.NewDec(100),
 		ExpectedCostOrProceed:  sdk.NewDec(100),
 		Account:                "abc",
@@ -682,38 +682,12 @@ func TestMatchSingleOrderFromMultipleShortBook(t *testing.T) {
 		PositionDirection:      "Short",
 		PriceDenom:             "USDC",
 		AssetDenom:             "ATOM",
-		Quantity:               sdk.NewDec(2),
+		Quantity:               sdk.NewDec(3),
 		ExecutionCostOrProceed: sdk.NewDec(100),
 		ExpectedCostOrProceed:  sdk.NewDec(100),
 		Account:                "def",
 		OrderType:              "Limit",
 		OrderId:                3,
-		Timestamp:              TestTimestamp,
-		Height:                 TestHeight,
-	})
-	assert.Equal(t, *settlements[4], types.SettlementEntry{
-		PositionDirection:      "Long",
-		PriceDenom:             "USDC",
-		AssetDenom:             "ATOM",
-		Quantity:               sdk.NewDec(1),
-		ExecutionCostOrProceed: sdk.NewDec(100),
-		ExpectedCostOrProceed:  sdk.NewDec(100),
-		Account:                "abc",
-		OrderType:              "Limit",
-		OrderId:                1,
-		Timestamp:              TestTimestamp,
-		Height:                 TestHeight,
-	})
-	assert.Equal(t, *settlements[5], types.SettlementEntry{
-		PositionDirection:      "Short",
-		PriceDenom:             "USDC",
-		AssetDenom:             "ATOM",
-		Quantity:               sdk.NewDec(1),
-		ExecutionCostOrProceed: sdk.NewDec(100),
-		ExpectedCostOrProceed:  sdk.NewDec(100),
-		Account:                "ghi",
-		OrderType:              "Limit",
-		OrderId:                4,
 		Timestamp:              TestTimestamp,
 		Height:                 TestHeight,
 	})
@@ -807,11 +781,11 @@ func TestMatchSingleOrderFromMultipleLongBook(t *testing.T) {
 		Allocations: []*types.Allocation{{
 			OrderId:  2,
 			Account:  "abc",
-			Quantity: sdk.NewDec(2),
+			Quantity: sdk.NewDec(1),
 		}, {
 			OrderId:  3,
 			Account:  "ghi",
-			Quantity: sdk.NewDec(1),
+			Quantity: sdk.NewDec(2),
 		}},
 		PriceDenom: "USDC",
 		AssetDenom: "ATOM",
@@ -823,7 +797,7 @@ func TestMatchSingleOrderFromMultipleLongBook(t *testing.T) {
 	assert.Equal(t, shortBook[0].GetPrice(), sdk.NewDec(100))
 	assert.Equal(t, shortBook[0].GetEntry().Price, sdk.NewDec(100))
 	assert.Equal(t, shortBook[0].GetEntry().Quantity.IsZero(), true)
-	assert.Equal(t, len(settlements), 6)
+	assert.Equal(t, len(settlements), 4)
 	assert.Equal(t, *settlements[0], types.SettlementEntry{
 		PositionDirection:      "Long",
 		PriceDenom:             "USDC",
@@ -854,7 +828,7 @@ func TestMatchSingleOrderFromMultipleLongBook(t *testing.T) {
 		PositionDirection:      "Long",
 		PriceDenom:             "USDC",
 		AssetDenom:             "ATOM",
-		Quantity:               sdk.NewDec(2),
+		Quantity:               sdk.NewDec(3),
 		ExecutionCostOrProceed: sdk.NewDec(100),
 		ExpectedCostOrProceed:  sdk.NewDec(100),
 		Account:                "abc",
@@ -867,33 +841,7 @@ func TestMatchSingleOrderFromMultipleLongBook(t *testing.T) {
 		PositionDirection:      "Short",
 		PriceDenom:             "USDC",
 		AssetDenom:             "ATOM",
-		Quantity:               sdk.NewDec(2),
-		ExecutionCostOrProceed: sdk.NewDec(100),
-		ExpectedCostOrProceed:  sdk.NewDec(100),
-		Account:                "def",
-		OrderType:              "Limit",
-		OrderId:                1,
-		Timestamp:              TestTimestamp,
-		Height:                 TestHeight,
-	})
-	assert.Equal(t, *settlements[4], types.SettlementEntry{
-		PositionDirection:      "Long",
-		PriceDenom:             "USDC",
-		AssetDenom:             "ATOM",
-		Quantity:               sdk.NewDec(1),
-		ExecutionCostOrProceed: sdk.NewDec(100),
-		ExpectedCostOrProceed:  sdk.NewDec(100),
-		Account:                "ghi",
-		OrderType:              "Limit",
-		OrderId:                3,
-		Timestamp:              TestTimestamp,
-		Height:                 TestHeight,
-	})
-	assert.Equal(t, *settlements[5], types.SettlementEntry{
-		PositionDirection:      "Short",
-		PriceDenom:             "USDC",
-		AssetDenom:             "ATOM",
-		Quantity:               sdk.NewDec(1),
+		Quantity:               sdk.NewDec(3),
 		ExecutionCostOrProceed: sdk.NewDec(100),
 		ExpectedCostOrProceed:  sdk.NewDec(100),
 		Account:                "def",
@@ -1038,18 +986,14 @@ func TestMatchMultipleOrderFromMultipleShortBook(t *testing.T) {
 		Price:    sdk.NewDec(100),
 		Quantity: sdk.NewDec(2),
 		Allocations: []*types.Allocation{{
-			OrderId:  5,
-			Account:  "def",
-			Quantity: sdk.NewDec(4).Quo(sdk.NewDec(3)),
-		}, {
 			OrderId:  6,
 			Account:  "ghi",
-			Quantity: sdk.NewDec(2).Quo(sdk.NewDec(3)),
+			Quantity: sdk.NewDec(2),
 		}},
 		PriceDenom: "USDC",
 		AssetDenom: "ATOM",
 	})
-	assert.Equal(t, len(settlements), 8)
+	assert.Equal(t, len(settlements), 6)
 	assert.Equal(t, *settlements[0], types.SettlementEntry{
 		PositionDirection:      "Long",
 		PriceDenom:             "USDC",
@@ -1106,7 +1050,7 @@ func TestMatchMultipleOrderFromMultipleShortBook(t *testing.T) {
 		PositionDirection:      "Long",
 		PriceDenom:             "USDC",
 		AssetDenom:             "ATOM",
-		Quantity:               sdk.NewDec(8).Quo(sdk.NewDec(3)),
+		Quantity:               sdk.NewDec(4),
 		ExecutionCostOrProceed: sdk.NewDec(100),
 		ExpectedCostOrProceed:  sdk.NewDec(100),
 		Account:                "abc",
@@ -1119,38 +1063,12 @@ func TestMatchMultipleOrderFromMultipleShortBook(t *testing.T) {
 		PositionDirection:      "Short",
 		PriceDenom:             "USDC",
 		AssetDenom:             "ATOM",
-		Quantity:               sdk.NewDec(8).Quo(sdk.NewDec(3)),
+		Quantity:               sdk.NewDec(4),
 		ExecutionCostOrProceed: sdk.NewDec(100),
 		ExpectedCostOrProceed:  sdk.NewDec(100),
 		Account:                "def",
 		OrderType:              "Limit",
 		OrderId:                5,
-		Timestamp:              TestTimestamp,
-		Height:                 TestHeight,
-	})
-	assert.Equal(t, *settlements[6], types.SettlementEntry{
-		PositionDirection:      "Long",
-		PriceDenom:             "USDC",
-		AssetDenom:             "ATOM",
-		Quantity:               sdk.NewDec(4).Quo(sdk.NewDec(3)),
-		ExecutionCostOrProceed: sdk.NewDec(100),
-		ExpectedCostOrProceed:  sdk.NewDec(100),
-		Account:                "abc",
-		OrderType:              "Limit",
-		OrderId:                1,
-		Timestamp:              TestTimestamp,
-		Height:                 TestHeight,
-	})
-	assert.Equal(t, *settlements[7], types.SettlementEntry{
-		PositionDirection:      "Short",
-		PriceDenom:             "USDC",
-		AssetDenom:             "ATOM",
-		Quantity:               sdk.NewDec(4).Quo(sdk.NewDec(3)),
-		ExecutionCostOrProceed: sdk.NewDec(100),
-		ExpectedCostOrProceed:  sdk.NewDec(100),
-		Account:                "ghi",
-		OrderType:              "Limit",
-		OrderId:                6,
 		Timestamp:              TestTimestamp,
 		Height:                 TestHeight,
 	})
@@ -1268,13 +1186,9 @@ func TestMatchMultipleOrderFromMultipleLongBook(t *testing.T) {
 		Price:    sdk.NewDec(100),
 		Quantity: sdk.NewDec(2),
 		Allocations: []*types.Allocation{{
-			OrderId:  4,
-			Account:  "abc",
-			Quantity: sdk.NewDec(4).Quo(sdk.NewDec(3)),
-		}, {
 			OrderId:  5,
 			Account:  "ghi",
-			Quantity: sdk.NewDec(2).Quo(sdk.NewDec(3)),
+			Quantity: sdk.NewDec(2),
 		}},
 		PriceDenom: "USDC",
 		AssetDenom: "ATOM",
@@ -1301,7 +1215,7 @@ func TestMatchMultipleOrderFromMultipleLongBook(t *testing.T) {
 		PriceDenom: "USDC",
 		AssetDenom: "ATOM",
 	})
-	assert.Equal(t, len(settlements), 8)
+	assert.Equal(t, len(settlements), 6)
 	assert.Equal(t, *settlements[0], types.SettlementEntry{
 		PositionDirection:      "Long",
 		PriceDenom:             "USDC",
@@ -1358,7 +1272,7 @@ func TestMatchMultipleOrderFromMultipleLongBook(t *testing.T) {
 		PositionDirection:      "Long",
 		PriceDenom:             "USDC",
 		AssetDenom:             "ATOM",
-		Quantity:               sdk.NewDec(8).Quo(sdk.NewDec(3)),
+		Quantity:               sdk.NewDec(4),
 		ExecutionCostOrProceed: sdk.NewDec(100),
 		ExpectedCostOrProceed:  sdk.NewDec(100),
 		Account:                "abc",
@@ -1371,33 +1285,7 @@ func TestMatchMultipleOrderFromMultipleLongBook(t *testing.T) {
 		PositionDirection:      "Short",
 		PriceDenom:             "USDC",
 		AssetDenom:             "ATOM",
-		Quantity:               sdk.NewDec(8).Quo(sdk.NewDec(3)),
-		ExecutionCostOrProceed: sdk.NewDec(100),
-		ExpectedCostOrProceed:  sdk.NewDec(100),
-		Account:                "abc",
-		OrderType:              "Limit",
-		OrderId:                1,
-		Timestamp:              TestTimestamp,
-		Height:                 TestHeight,
-	})
-	assert.Equal(t, *settlements[6], types.SettlementEntry{
-		PositionDirection:      "Long",
-		PriceDenom:             "USDC",
-		AssetDenom:             "ATOM",
-		Quantity:               sdk.NewDec(4).Quo(sdk.NewDec(3)),
-		ExecutionCostOrProceed: sdk.NewDec(100),
-		ExpectedCostOrProceed:  sdk.NewDec(100),
-		Account:                "ghi",
-		OrderType:              "Limit",
-		OrderId:                5,
-		Timestamp:              TestTimestamp,
-		Height:                 TestHeight,
-	})
-	assert.Equal(t, *settlements[7], types.SettlementEntry{
-		PositionDirection:      "Short",
-		PriceDenom:             "USDC",
-		AssetDenom:             "ATOM",
-		Quantity:               sdk.NewDec(4).Quo(sdk.NewDec(3)),
+		Quantity:               sdk.NewDec(4),
 		ExecutionCostOrProceed: sdk.NewDec(100),
 		ExpectedCostOrProceed:  sdk.NewDec(100),
 		Account:                "abc",
