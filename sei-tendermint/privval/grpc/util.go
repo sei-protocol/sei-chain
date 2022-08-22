@@ -12,7 +12,7 @@ import (
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
-	"google.golang.org/grpc/credentials/insecure"
+
 	"google.golang.org/grpc/keepalive"
 
 	"github.com/tendermint/tendermint/config"
@@ -100,7 +100,7 @@ func DialRemoteSigner(
 		transportSecurity = GenerateTLS(cfg.ClientCertificateFile(),
 			cfg.ClientKeyFile(), cfg.RootCAFile(), logger)
 	} else {
-		transportSecurity = grpc.WithTransportCredentials(insecure.NewCredentials())
+		transportSecurity = grpc.WithInsecure()
 		logger.Info("Using an insecure gRPC connection!")
 	}
 
