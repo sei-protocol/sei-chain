@@ -42,14 +42,13 @@ func (suite *MintTestSuite) TestGRPCParams() {
 	suite.Require().NoError(err)
 	suite.Require().Equal(params.Params, app.MintKeeper.GetParams(ctx))
 
-	// This is a known bug https://github.com/cosmos/cosmos-sdk/issues/8426
-	// inflation, err := queryClient.Inflation(gocontext.Background(), &types.QueryInflationRequest{})
-	// suite.Require().NoError(err)
-	// suite.Require().Equal(inflation.Inflation, app.MintKeeper.GetMinter(ctx).Inflation)
+	inflation, err := queryClient.Inflation(gocontext.Background(), &types.QueryInflationRequest{})
+	suite.Require().NoError(err)
+	suite.Require().Equal(inflation.Inflation, app.MintKeeper.GetMinter(ctx).Inflation)
 
-	// annualProvisions, err := queryClient.AnnualProvisions(gocontext.Background(), &types.QueryAnnualProvisionsRequest{})
-	// suite.Require().NoError(err)
-	// suite.Require().Equal(annualProvisions.AnnualProvisions, app.MintKeeper.GetMinter(ctx).AnnualProvisions)
+	annualProvisions, err := queryClient.AnnualProvisions(gocontext.Background(), &types.QueryAnnualProvisionsRequest{})
+	suite.Require().NoError(err)
+	suite.Require().Equal(annualProvisions.AnnualProvisions, app.MintKeeper.GetMinter(ctx).AnnualProvisions)
 }
 
 func TestMintTestSuite(t *testing.T) {
