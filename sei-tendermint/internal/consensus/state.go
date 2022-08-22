@@ -1173,7 +1173,9 @@ func (cs *State) handleTxsAvailable(ctx context.Context) {
 // Used internally by handleTimeout and handleMsg to make state transitions
 
 // Enter: `timeoutNewHeight` by startTime (commitTime+timeoutCommit),
+//
 //	or, if SkipTimeoutCommit==true, after receiving all precommits from (height,round-1)
+//
 // Enter: `timeoutPrecommits` after any +2/3 precommits from (height,round-1)
 // Enter: +2/3 precommits for nil at (height,round-1)
 // Enter: +2/3 prevotes any or +2/3 precommits for block or any from (height, round)
@@ -1268,7 +1270,9 @@ func (cs *State) needProofBlock(height int64) bool {
 
 // Enter (CreateEmptyBlocks): from enterNewRound(height,round)
 // Enter (CreateEmptyBlocks, CreateEmptyBlocksInterval > 0 ):
-//		after enterNewRound(height,round), after timeout of CreateEmptyBlocksInterval
+//
+//	after enterNewRound(height,round), after timeout of CreateEmptyBlocksInterval
+//
 // Enter (!CreateEmptyBlocks) : after enterNewRound(height,round), once txs are in the mempool
 func (cs *State) enterPropose(ctx context.Context, height int64, round int32) {
 	logger := cs.logger.With("height", height, "round", round)
@@ -2798,7 +2802,7 @@ func (cs *State) voteTimeout(round int32) time.Duration {
 func (cs *State) commitTime(t time.Time) time.Time {
 	c := cs.state.ConsensusParams.Timeout.Commit
 	if cs.config.UnsafeCommitTimeoutOverride != 0 {
-		c = cs.config.UnsafeProposeTimeoutOverride
+		c = cs.config.UnsafeCommitTimeoutOverride
 	}
 	return t.Add(c)
 }

@@ -85,7 +85,8 @@ func (b *EventBus) PublishEventNewBlock(data types.EventDataNewBlock) error {
 	events := data.ResultFinalizeBlock.Events
 
 	// add Tendermint-reserved new block event
-	events = append(events, types.EventNewBlock)
+	// copy to a new destination explicitly
+	events = append([]abci.Event{}, append(events, types.EventNewBlock)...)
 
 	return b.pubsub.PublishWithEvents(data, events)
 }
@@ -96,7 +97,8 @@ func (b *EventBus) PublishEventNewBlockHeader(data types.EventDataNewBlockHeader
 	events := data.ResultFinalizeBlock.Events
 
 	// add Tendermint-reserved new block header event
-	events = append(events, types.EventNewBlockHeader)
+	// copy to a new destination explicitly
+	events = append([]abci.Event{}, append(events, types.EventNewBlockHeader)...)
 
 	return b.pubsub.PublishWithEvents(data, events)
 }
