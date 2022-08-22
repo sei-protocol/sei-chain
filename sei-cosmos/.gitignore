@@ -53,3 +53,7 @@ dependency-graph.png
 *.aux
 *.out
 *.synctex.gz
+
+# test artifacts
+**/priv_validator_key.json
+**/priv_validator_state.json
