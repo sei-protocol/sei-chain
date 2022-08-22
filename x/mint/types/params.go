@@ -38,9 +38,9 @@ func NewParams(
 // default minting module parameters
 func DefaultParams() Params {
 	return Params{
-		MintDenom:               sdk.DefaultBondDenom,
+		MintDenom:               "usei",
 		GenesisEpochProvisions:  sdk.NewDec(5000000),
-		ReductionPeriodInEpochs: 60 * 24 * 365,            // Epochs are 1 min - this is 1 year
+		ReductionPeriodInEpochs: 60 * 24,                  // Epochs are 1 min - this is 1 day
 		ReductionFactor:         sdk.NewDecWithPrec(5, 1), // 0.5
 	}
 }
