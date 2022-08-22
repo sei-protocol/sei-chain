@@ -1,10 +1,10 @@
 package maps
 
 import (
+	"crypto/sha256"
 	"encoding/binary"
 
 	"github.com/tendermint/tendermint/crypto/merkle"
-	"github.com/tendermint/tendermint/crypto/tmhash"
 	tmcrypto "github.com/tendermint/tendermint/proto/tendermint/crypto"
 
 	"github.com/cosmos/cosmos-sdk/types/kv"
@@ -35,11 +35,11 @@ func (sm *merkleMap) set(key string, value []byte) {
 
 	// The value is hashed, so you can check for equality with a cached value (say)
 	// and make a determination to fetch or not.
-	vhash := tmhash.Sum(value)
+	vhash := sha256.Sum256(value)
 
 	sm.kvs.Pairs = append(sm.kvs.Pairs, kv.Pair{
 		Key:   byteKey,
-		Value: vhash,
+		Value: vhash[:],
 	})
 }
 
@@ -96,11 +96,11 @@ func (sm *simpleMap) Set(key string, value []byte) {
 	// The value is hashed, so you can
 	// check for equality with a cached value (say)
 	// and make a determination to fetch or not.
-	vhash := tmhash.Sum(value)
+	vhash := sha256.Sum256(value)
 
 	sm.Kvs.Pairs = append(sm.Kvs.Pairs, kv.Pair{
 		Key:   byteKey,
-		Value: vhash,
+		Value: vhash[:],
 	})
 }
 

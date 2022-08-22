@@ -8,10 +8,11 @@ import (
 
 	"github.com/gogo/protobuf/proto"
 	abci "github.com/tendermint/tendermint/abci/types"
-	ctypes "github.com/tendermint/tendermint/rpc/core/types"
+	ctypes "github.com/tendermint/tendermint/rpc/coretypes"
 
 	"github.com/cosmos/cosmos-sdk/codec"
 	codectypes "github.com/cosmos/cosmos-sdk/codec/types"
+	"github.com/cosmos/cosmos-sdk/utils"
 )
 
 var cdc = codec.NewLegacyAmino()
@@ -29,7 +30,7 @@ func (r Result) String() string {
 func (r Result) GetEvents() Events {
 	events := make(Events, len(r.Events))
 	for i, e := range r.Events {
-		events[i] = Event(e)
+		events[i] = Event(ABCIToLegacyEvent(e))
 	}
 
 	return events
@@ -42,7 +43,7 @@ func NewABCIMessageLog(i uint32, log string, events Events) ABCIMessageLog {
 	return ABCIMessageLog{
 		MsgIndex: i,
 		Log:      log,
-		Events:   StringifyEvents(events.ToABCIEvents()),
+		Events:   StringifyEvents(utils.Map(events.ToABCIEvents(), LegacyToABCIEvent)),
 	}
 }
 
@@ -107,20 +108,13 @@ func newTxResponseCheckTx(res *ctypes.ResultBroadcastTxCommit) *TxResponse {
 		txHash = res.Hash.String()
 	}
 
-	parsedLogs, _ := ParseABCILogs(res.CheckTx.Log)
-
 	return &TxResponse{
 		Height:    res.Height,
 		TxHash:    txHash,
 		Codespace: res.CheckTx.Codespace,
 		Code:      res.CheckTx.Code,
 		Data:      strings.ToUpper(hex.EncodeToString(res.CheckTx.Data)),
-		RawLog:    res.CheckTx.Log,
-		Logs:      parsedLogs,
-		Info:      res.CheckTx.Info,
 		GasWanted: res.CheckTx.GasWanted,
-		GasUsed:   res.CheckTx.GasUsed,
-		Events:    res.CheckTx.Events,
 	}
 }
 
@@ -134,20 +128,20 @@ func newTxResponseDeliverTx(res *ctypes.ResultBroadcastTxCommit) *TxResponse {
 		txHash = res.Hash.String()
 	}
 
-	parsedLogs, _ := ParseABCILogs(res.DeliverTx.Log)
+	parsedLogs, _ := ParseABCILogs(res.TxResult.Log)
 
 	return &TxResponse{
 		Height:    res.Height,
 		TxHash:    txHash,
-		Codespace: res.DeliverTx.Codespace,
-		Code:      res.DeliverTx.Code,
-		Data:      strings.ToUpper(hex.EncodeToString(res.DeliverTx.Data)),
-		RawLog:    res.DeliverTx.Log,
+		Codespace: res.TxResult.Codespace,
+		Code:      res.TxResult.Code,
+		Data:      strings.ToUpper(hex.EncodeToString(res.TxResult.Data)),
+		RawLog:    res.TxResult.Log,
 		Logs:      parsedLogs,
-		Info:      res.DeliverTx.Info,
-		GasWanted: res.DeliverTx.GasWanted,
-		GasUsed:   res.DeliverTx.GasUsed,
-		Events:    res.DeliverTx.Events,
+		Info:      res.TxResult.Info,
+		GasWanted: res.TxResult.GasWanted,
+		GasUsed:   res.TxResult.GasUsed,
+		Events:    res.TxResult.Events,
 	}
 }
 
@@ -157,14 +151,10 @@ func NewResponseFormatBroadcastTx(res *ctypes.ResultBroadcastTx) *TxResponse {
 		return nil
 	}
 
-	parsedLogs, _ := ParseABCILogs(res.Log)
-
 	return &TxResponse{
 		Code:      res.Code,
 		Codespace: res.Codespace,
 		Data:      res.Data.String(),
-		RawLog:    res.Log,
-		Logs:      parsedLogs,
 		TxHash:    res.Hash.String(),
 	}
 }
@@ -248,7 +238,7 @@ func WrapServiceResult(ctx Context, res proto.Message, err error) (*Result, erro
 
 	var events []abci.Event
 	if evtMgr := ctx.EventManager(); evtMgr != nil {
-		events = evtMgr.ABCIEvents()
+		events = utils.Map(evtMgr.ABCIEvents(), LegacyToABCIEvent)
 	}
 
 	return &Result{

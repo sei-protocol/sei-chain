@@ -4,8 +4,8 @@ import (
 	"testing"
 	"time"
 
+	tmtime "github.com/cosmos/cosmos-sdk/std"
 	"github.com/stretchr/testify/require"
-	tmtime "github.com/tendermint/tendermint/types/time"
 
 	"github.com/cosmos/cosmos-sdk/crypto/keys/secp256k1"
 	"github.com/cosmos/cosmos-sdk/testutil/testdata"

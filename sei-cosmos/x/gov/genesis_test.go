@@ -1,6 +1,7 @@
 package gov_test
 
 import (
+	"context"
 	"encoding/json"
 	"testing"
 
@@ -26,8 +27,7 @@ func TestImportExportQueues(t *testing.T) {
 
 	SortAddresses(addrs)
 
-	header := tmproto.Header{Height: app.LastBlockHeight() + 1}
-	app.BeginBlock(abci.RequestBeginBlock{Header: header})
+	app.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{Height: app.LastBlockHeight() + 1})
 
 	ctx = app.BaseApp.NewContext(false, tmproto.Header{})
 
@@ -72,18 +72,15 @@ func TestImportExportQueues(t *testing.T) {
 	app2 := simapp.NewSimApp(log.NewNopLogger(), db, nil, true, map[int64]bool{}, simapp.DefaultNodeHome, 0, simapp.MakeTestEncodingConfig(), simapp.EmptyAppOptions{})
 
 	app2.InitChain(
-		abci.RequestInitChain{
+		context.Background(), &abci.RequestInitChain{
 			Validators:      []abci.ValidatorUpdate{},
 			ConsensusParams: simapp.DefaultConsensusParams,
 			AppStateBytes:   stateBytes,
 		},
 	)
 
-	app2.Commit()
-	app2.BeginBlock(abci.RequestBeginBlock{Header: tmproto.Header{Height: app2.LastBlockHeight() + 1}})
-
-	header = tmproto.Header{Height: app2.LastBlockHeight() + 1}
-	app2.BeginBlock(abci.RequestBeginBlock{Header: header})
+	app2.Commit(context.Background())
+	app2.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{Height: app2.LastBlockHeight() + 1})
 
 	ctx2 := app2.BaseApp.NewContext(false, tmproto.Header{})
 
@@ -140,8 +137,7 @@ func TestEqualProposals(t *testing.T) {
 
 	SortAddresses(addrs)
 
-	header := tmproto.Header{Height: app.LastBlockHeight() + 1}
-	app.BeginBlock(abci.RequestBeginBlock{Header: header})
+	app.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{Height: app.LastBlockHeight() + 1})
 
 	// Submit two proposals
 	proposal := TestProposal

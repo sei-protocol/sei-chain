@@ -47,6 +47,10 @@ func NewStore(parent types.KVStore) *Store {
 	}
 }
 
+func (store *Store) GetWorkingHash() []byte {
+	panic("should never attempt to get working hash from cache kv store")
+}
+
 // GetStoreType implements Store.
 func (store *Store) GetStoreType() types.StoreType {
 	return store.parent.GetStoreType()

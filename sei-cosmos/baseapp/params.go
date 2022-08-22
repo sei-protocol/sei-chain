@@ -3,8 +3,8 @@ package baseapp
 import (
 	"errors"
 	"fmt"
+	"time"
 
-	abci "github.com/tendermint/tendermint/abci/types"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -15,9 +15,13 @@ const Paramspace = "baseapp"
 
 // Parameter store keys for all the consensus parameter types.
 var (
-	ParamStoreKeyBlockParams     = []byte("BlockParams")
 	ParamStoreKeyEvidenceParams  = []byte("EvidenceParams")
 	ParamStoreKeyValidatorParams = []byte("ValidatorParams")
+	ParamStoreKeyBlockParams     = []byte("BlockParams")
+	ParamStoreKeyVersionParams   = []byte("VersionParams")
+	ParamStoreKeySynchronyParams = []byte("SynchronyParams")
+	ParamStoreKeyTimeoutParams   = []byte("TimeoutParams")
+	ParamStoreKeyABCIParams      = []byte("ABCIParams")
 )
 
 // ParamStore defines the interface the parameter store used by the BaseApp must
@@ -31,7 +35,7 @@ type ParamStore interface {
 // ValidateBlockParams defines a stateless validation on BlockParams. This function
 // is called whenever the parameters are updated or stored.
 func ValidateBlockParams(i interface{}) error {
-	v, ok := i.(abci.BlockParams)
+	v, ok := i.(tmproto.BlockParams)
 	if !ok {
 		return fmt.Errorf("invalid parameter type: %T", i)
 	}
@@ -82,5 +86,80 @@ func ValidateValidatorParams(i interface{}) error {
 		return errors.New("validator allowed pubkey types must not be empty")
 	}
 
+	return nil
+}
+
+func ValidateVersionParams(i interface{}) error {
+	_, ok := i.(tmproto.VersionParams)
+	if !ok {
+		return fmt.Errorf("invalid parameter type: %T", i)
+	}
+
+	return nil
+}
+
+func ValidateSynchronyParams(i interface{}) error {
+	v, ok := i.(tmproto.SynchronyParams)
+	if !ok {
+		return fmt.Errorf("invalid parameter type: %T", i)
+	}
+
+	if err := validateDurationPointer(v.MessageDelay, "message delay"); err != nil {
+		return err
+	}
+
+	if err := validateDurationPointer(v.Precision, "synchrony precision"); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func ValidateTimeoutParams(i interface{}) error {
+	v, ok := i.(tmproto.TimeoutParams)
+	if !ok {
+		return fmt.Errorf("invalid parameter type: %T", i)
+	}
+
+	if err := validateDurationPointer(v.Propose, "propose timeout"); err != nil {
+		return err
+	}
+
+	if err := validateDurationPointer(v.ProposeDelta, "propose delta timeout"); err != nil {
+		return err
+	}
+
+	if err := validateDurationPointer(v.Vote, "vote timeout"); err != nil {
+		return err
+	}
+
+	if err := validateDurationPointer(v.VoteDelta, "vote delta timeout"); err != nil {
+		return err
+	}
+
+	if err := validateDurationPointer(v.Commit, "commit timeout"); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func ValidateABCIParams(i interface{}) error {
+	v, ok := i.(tmproto.ABCIParams)
+	if !ok {
+		return fmt.Errorf("invalid parameter type: %T", i)
+	}
+
+	if v.VoteExtensionsEnableHeight < 0 {
+		return errors.New("invalid vote extensions enable height")
+	}
+
+	return nil
+}
+
+func validateDurationPointer(i *time.Duration, name string) error {
+	if i == nil || *i < 0 {
+		return fmt.Errorf("invalid %s", name)
+	}
 	return nil
 }

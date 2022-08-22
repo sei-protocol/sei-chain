@@ -4,10 +4,10 @@
 package v038
 
 import (
+	"crypto/sha256"
 	"fmt"
 	"time"
 
-	"github.com/tendermint/tendermint/crypto/tmhash"
 	tmbytes "github.com/tendermint/tendermint/libs/bytes"
 	"gopkg.in/yaml.v2"
 
@@ -89,7 +89,8 @@ func (e Equivocation) String() string {
 
 // Hash returns the hash of an Equivocation object.
 func (e Equivocation) Hash() tmbytes.HexBytes {
-	return tmhash.Sum(ModuleCdc.LegacyAmino.MustMarshal(e))
+	bz := sha256.Sum256(ModuleCdc.LegacyAmino.MustMarshal(e))
+	return bz[:]
 }
 
 // ValidateBasic performs basic stateless validation checks on an Equivocation object.

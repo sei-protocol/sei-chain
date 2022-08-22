@@ -1,6 +1,7 @@
 package bank_test
 
 import (
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -96,7 +97,7 @@ func TestSendNotEnoughBalance(t *testing.T) {
 
 	require.NoError(t, simapp.FundAccount(app.BankKeeper, ctx, addr1, sdk.NewCoins(sdk.NewInt64Coin("foocoin", 67))))
 
-	app.Commit()
+	app.Commit(context.Background())
 
 	res1 := app.AccountKeeper.GetAccount(ctx, addr1)
 	require.NotNil(t, res1)
@@ -131,7 +132,7 @@ func TestMsgMultiSendWithAccounts(t *testing.T) {
 
 	require.NoError(t, simapp.FundAccount(app.BankKeeper, ctx, addr1, sdk.NewCoins(sdk.NewInt64Coin("foocoin", 67))))
 
-	app.Commit()
+	app.Commit(context.Background())
 
 	res1 := app.AccountKeeper.GetAccount(ctx, addr1)
 	require.NotNil(t, res1)
@@ -203,7 +204,7 @@ func TestMsgMultiSendMultipleOut(t *testing.T) {
 
 	require.NoError(t, simapp.FundAccount(app.BankKeeper, ctx, addr2, sdk.NewCoins(sdk.NewInt64Coin("foocoin", 42))))
 
-	app.Commit()
+	app.Commit(context.Background())
 
 	testCases := []appTestCase{
 		{
@@ -254,7 +255,7 @@ func TestMsgMultiSendMultipleInOut(t *testing.T) {
 
 	require.NoError(t, simapp.FundAccount(app.BankKeeper, ctx, addr4, sdk.NewCoins(sdk.NewInt64Coin("foocoin", 42))))
 
-	app.Commit()
+	app.Commit(context.Background())
 
 	testCases := []appTestCase{
 		{
@@ -297,7 +298,7 @@ func TestMsgMultiSendDependent(t *testing.T) {
 
 	require.NoError(t, simapp.FundAccount(app.BankKeeper, ctx, addr1, sdk.NewCoins(sdk.NewInt64Coin("foocoin", 42))))
 
-	app.Commit()
+	app.Commit(context.Background())
 
 	testCases := []appTestCase{
 		{

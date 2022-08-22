@@ -9,8 +9,8 @@ import (
 	_ "github.com/gogo/protobuf/gogoproto"
 	proto "github.com/gogo/protobuf/proto"
 	github_com_gogo_protobuf_types "github.com/gogo/protobuf/types"
+	_ "github.com/golang/protobuf/ptypes/timestamp"
 	_ "github.com/regen-network/cosmos-proto"
-	_ "google.golang.org/protobuf/types/known/timestamppb"
 	io "io"
 	math "math"
 	math_bits "math/bits"
@@ -111,6 +111,8 @@ var xxx_messageInfo_Grant proto.InternalMessageInfo
 
 // GrantAuthorization extends a grant with both the addresses of the grantee and granter.
 // It is used in genesis.proto and query.proto
+//
+// Since: cosmos-sdk 0.45.2
 type GrantAuthorization struct {
 	Granter       string     `protobuf:"bytes,1,opt,name=granter,proto3" json:"granter,omitempty"`
 	Grantee       string     `protobuf:"bytes,2,opt,name=grantee,proto3" json:"grantee,omitempty"`

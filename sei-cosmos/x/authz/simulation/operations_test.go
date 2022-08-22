@@ -1,13 +1,14 @@
 package simulation_test
 
 import (
+	"context"
 	"math/rand"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/suite"
 
-	abci "github.com/tendermint/tendermint/abci/types"
+	"github.com/tendermint/tendermint/abci/types"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 
 	"github.com/cosmos/cosmos-sdk/simapp"
@@ -90,11 +91,9 @@ func (suite *SimTestSuite) TestSimulateGrant() {
 	ctx := suite.ctx.WithBlockTime(blockTime)
 
 	// begin a new block
-	suite.app.BeginBlock(abci.RequestBeginBlock{
-		Header: tmproto.Header{
-			Height:  suite.app.LastBlockHeight() + 1,
-			AppHash: suite.app.LastCommitID().Hash,
-		},
+	suite.app.FinalizeBlock(context.Background(), &types.RequestFinalizeBlock{
+		Height: suite.app.LastBlockHeight() + 1,
+		Hash:   suite.app.LastCommitID().Hash,
 	})
 
 	granter := accounts[0]
@@ -121,11 +120,10 @@ func (suite *SimTestSuite) TestSimulateRevoke() {
 	accounts := suite.getTestingAccounts(r, 3)
 
 	// begin a new block
-	suite.app.BeginBlock(abci.RequestBeginBlock{
-		Header: tmproto.Header{
-			Height:  suite.app.LastBlockHeight() + 1,
-			AppHash: suite.app.LastCommitID().Hash,
-		}})
+	suite.app.FinalizeBlock(context.Background(), &types.RequestFinalizeBlock{
+		Height: suite.app.LastBlockHeight() + 1,
+		Hash:   suite.app.LastCommitID().Hash,
+	})
 
 	initAmt := suite.app.StakingKeeper.TokensFromConsensusPower(suite.ctx, 200000)
 	initCoins := sdk.NewCoins(sdk.NewCoin("stake", initAmt))
@@ -160,7 +158,10 @@ func (suite *SimTestSuite) TestSimulateExec() {
 	accounts := suite.getTestingAccounts(r, 3)
 
 	// begin a new block
-	suite.app.BeginBlock(abci.RequestBeginBlock{Header: tmproto.Header{Height: suite.app.LastBlockHeight() + 1, AppHash: suite.app.LastCommitID().Hash}})
+	suite.app.FinalizeBlock(context.Background(), &types.RequestFinalizeBlock{
+		Height: suite.app.LastBlockHeight() + 1,
+		Hash:   suite.app.LastCommitID().Hash,
+	})
 
 	initAmt := suite.app.StakingKeeper.TokensFromConsensusPower(suite.ctx, 200000)
 	initCoins := sdk.NewCoins(sdk.NewCoin("stake", initAmt))

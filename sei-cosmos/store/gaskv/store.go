@@ -33,6 +33,10 @@ func (gs *Store) GetStoreType() types.StoreType {
 	return gs.parent.GetStoreType()
 }
 
+func (gs *Store) GetWorkingHash() []byte {
+	return gs.parent.GetWorkingHash()
+}
+
 // Implements KVStore.
 func (gs *Store) Get(key []byte) (value []byte) {
 	gs.gasMeter.ConsumeGas(gs.gasConfig.ReadCostFlat, types.GasReadCostFlatDesc)

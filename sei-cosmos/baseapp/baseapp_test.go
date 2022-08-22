@@ -2,6 +2,7 @@ package baseapp
 
 import (
 	"bytes"
+	"context"
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
@@ -29,6 +30,8 @@ import (
 	"github.com/cosmos/cosmos-sdk/testutil/testdata"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
+	"github.com/cosmos/cosmos-sdk/types/legacytm"
+	"github.com/cosmos/cosmos-sdk/utils"
 	"github.com/cosmos/cosmos-sdk/x/auth/legacy/legacytx"
 )
 
@@ -75,7 +78,8 @@ func (ps *paramStore) Get(_ sdk.Context, key []byte, ptr interface{}) {
 }
 
 func defaultLogger() log.Logger {
-	return log.NewTMLogger(log.NewSyncWriter(os.Stdout)).With("module", "sdk/app")
+	logger, _ := log.NewDefaultLogger("plain", "info")
+	return logger
 }
 
 func newBaseApp(name string, options ...func(*BaseApp)) *BaseApp {
@@ -148,12 +152,12 @@ func setupBaseAppWithSnapshots(t *testing.T, blocks uint, blockTxs int, options 
 		SetPruning(sdk.PruningOptions{KeepEvery: 1}),
 		routerOpt)...)
 
-	app.InitChain(abci.RequestInitChain{})
+	app.InitChain(context.Background(), &abci.RequestInitChain{})
 
 	r := rand.New(rand.NewSource(3920758213583))
 	keyCounter := 0
 	for height := int64(1); height <= int64(blocks); height++ {
-		app.BeginBlock(abci.RequestBeginBlock{Header: tmproto.Header{Height: height}})
+		app.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{Height: height})
 		for txNum := 0; txNum < blockTxs; txNum++ {
 			tx := txTest{Msgs: []sdk.Msg{}}
 			for msgNum := 0; msgNum < 100; msgNum++ {
@@ -166,11 +170,10 @@ func setupBaseAppWithSnapshots(t *testing.T, blocks uint, blockTxs int, options 
 			}
 			txBytes, err := codec.Marshal(tx)
 			require.NoError(t, err)
-			resp := app.DeliverTx(abci.RequestDeliverTx{Tx: txBytes})
+			resp := app.DeliverTx(legacytm.RequestDeliverTx{Tx: txBytes})
 			require.True(t, resp.IsOK(), "%v", resp.String())
 		}
-		app.EndBlock(abci.RequestEndBlock{Height: height})
-		app.Commit()
+		app.Commit(context.Background())
 
 		// Wait for snapshot to be taken, since it happens asynchronously.
 		if uint64(height)%snapshotInterval == 0 {
@@ -224,16 +227,14 @@ func TestLoadVersion(t *testing.T) {
 	require.Equal(t, emptyCommitID, lastID)
 
 	// execute a block, collect commit ID
-	header := tmproto.Header{Height: 1}
-	app.BeginBlock(abci.RequestBeginBlock{Header: header})
-	res := app.Commit()
-	commitID1 := sdk.CommitID{Version: 1, Hash: res.Data}
+	app.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{Height: 1})
+	app.Commit(context.Background())
+	commitID1 := sdk.CommitID{Version: 1}
 
 	// execute a block, collect commit ID
-	header = tmproto.Header{Height: 2}
-	app.BeginBlock(abci.RequestBeginBlock{Header: header})
-	res = app.Commit()
-	commitID2 := sdk.CommitID{Version: 2, Hash: res.Data}
+	app.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{Height: 2})
+	app.Commit(context.Background())
+	commitID2 := sdk.CommitID{Version: 2}
 
 	// reload with LoadLatestVersion
 	app = NewBaseApp(name, logger, db, nil, pruningOpt)
@@ -248,8 +249,8 @@ func TestLoadVersion(t *testing.T) {
 	err = app.LoadVersion(1)
 	require.Nil(t, err)
 	testLoadVersionHelper(t, app, int64(1), commitID1)
-	app.BeginBlock(abci.RequestBeginBlock{Header: header})
-	app.Commit()
+	app.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{Height: 2})
+	app.Commit(context.Background())
 	testLoadVersionHelper(t, app, int64(2), commitID2)
 }
 
@@ -329,9 +330,8 @@ func TestSetLoader(t *testing.T) {
 			require.Nil(t, err)
 
 			// "execute" one block
-			app.BeginBlock(abci.RequestBeginBlock{Header: tmproto.Header{Height: 2}})
-			res := app.Commit()
-			require.NotNil(t, res.Data)
+			app.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{Height: 2})
+			app.Commit(context.Background())
 
 			// check db is properly updated
 			checkStore(t, db, 2, tc.loadStoreKey, k, v)
@@ -348,14 +348,14 @@ func TestVersionSetterGetter(t *testing.T) {
 	app := NewBaseApp(name, logger, db, nil, pruningOpt)
 
 	require.Equal(t, "", app.Version())
-	res := app.Query(abci.RequestQuery{Path: "app/version"})
+	res, _ := app.Query(context.Background(), &abci.RequestQuery{Path: "app/version"})
 	require.True(t, res.IsOK())
 	require.Equal(t, "", string(res.Value))
 
 	versionString := "1.0.0"
 	app.SetVersion(versionString)
 	require.Equal(t, versionString, app.Version())
-	res = app.Query(abci.RequestQuery{Path: "app/version"})
+	res, _ = app.Query(context.Background(), &abci.RequestQuery{Path: "app/version"})
 	require.True(t, res.IsOK())
 	require.Equal(t, versionString, string(res.Value))
 }
@@ -374,10 +374,9 @@ func TestLoadVersionInvalid(t *testing.T) {
 	err = app.LoadVersion(-1)
 	require.Error(t, err)
 
-	header := tmproto.Header{Height: 1}
-	app.BeginBlock(abci.RequestBeginBlock{Header: header})
-	res := app.Commit()
-	commitID1 := sdk.CommitID{Version: 1, Hash: res.Data}
+	app.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{Height: 1})
+	app.Commit(context.Background())
+	commitID1 := sdk.CommitID{Version: 1}
 
 	// create a new app with the stores mounted under the same cap key
 	app = NewBaseApp(name, logger, db, nil, pruningOpt)
@@ -424,9 +423,9 @@ func TestLoadVersionPruning(t *testing.T) {
 	// Commit seven blocks, of which 7 (latest) is kept in addition to 6, 5
 	// (keep recent) and 3 (keep every).
 	for i := int64(1); i <= 7; i++ {
-		app.BeginBlock(abci.RequestBeginBlock{Header: tmproto.Header{Height: i}})
-		res := app.Commit()
-		lastCommitID = sdk.CommitID{Version: i, Hash: res.Data}
+		app.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{Height: i})
+		app.Commit(context.Background())
+		lastCommitID = sdk.CommitID{Version: i}
 	}
 
 	for _, v := range []int64{1, 2, 4} {
@@ -452,7 +451,7 @@ func testLoadVersionHelper(t *testing.T, app *BaseApp, expectedHeight int64, exp
 	lastHeight := app.LastBlockHeight()
 	lastID := app.LastCommitID()
 	require.Equal(t, expectedHeight, lastHeight)
-	require.Equal(t, expectedID, lastID)
+	require.Equal(t, expectedID.Version, lastID.Version)
 }
 
 func TestOptionFunction(t *testing.T) {
@@ -491,7 +490,7 @@ func TestInfo(t *testing.T) {
 
 	// ----- test an empty response -------
 	reqInfo := abci.RequestInfo{}
-	res := app.Info(reqInfo)
+	res, _ := app.Info(context.Background(), &reqInfo)
 
 	// should be empty
 	assert.Equal(t, "", res.Version)
@@ -575,8 +574,8 @@ func TestInitChainer(t *testing.T) {
 	}
 
 	// initChainer is nil - nothing happens
-	app.InitChain(abci.RequestInitChain{})
-	res := app.Query(query)
+	app.InitChain(context.Background(), &abci.RequestInitChain{})
+	res, _ := app.Query(context.Background(), &query)
 	require.Equal(t, 0, len(res.Value))
 
 	// set initChainer and try again - should see the value
@@ -587,7 +586,7 @@ func TestInitChainer(t *testing.T) {
 	require.Nil(t, err)
 	require.Equal(t, int64(0), app.LastBlockHeight())
 
-	initChainRes := app.InitChain(abci.RequestInitChain{AppStateBytes: []byte("{}"), ChainId: "test-chain-id"}) // must have valid JSON genesis file, even if empty
+	initChainRes, _ := app.InitChain(context.Background(), &abci.RequestInitChain{AppStateBytes: []byte("{}"), ChainId: "test-chain-id"}) // must have valid JSON genesis file, even if empty
 
 	// The AppHash returned by a new chain is the sha256 hash of "".
 	// $ echo -n '' | sha256sum
@@ -605,8 +604,8 @@ func TestInitChainer(t *testing.T) {
 	chainID = app.checkState.ctx.ChainID()
 	require.Equal(t, "test-chain-id", chainID, "ChainID in checkState not set correctly in InitChain")
 
-	app.Commit()
-	res = app.Query(query)
+	app.Commit(context.Background())
+	res, _ = app.Query(context.Background(), &query)
 	require.Equal(t, int64(1), app.LastBlockHeight())
 	require.Equal(t, value, res.Value)
 
@@ -619,15 +618,14 @@ func TestInitChainer(t *testing.T) {
 	require.Equal(t, int64(1), app.LastBlockHeight())
 
 	// ensure we can still query after reloading
-	res = app.Query(query)
+	res, _ = app.Query(context.Background(), &query)
 	require.Equal(t, value, res.Value)
 
 	// commit and ensure we can still query
-	header := tmproto.Header{Height: app.LastBlockHeight() + 1}
-	app.BeginBlock(abci.RequestBeginBlock{Header: header})
-	app.Commit()
+	app.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{Height: app.LastBlockHeight() + 1})
+	app.Commit(context.Background())
 
-	res = app.Query(query)
+	res, _ = app.Query(context.Background(), &query)
 	require.Equal(t, value, res.Value)
 }
 
@@ -638,11 +636,11 @@ func TestInitChain_WithInitialHeight(t *testing.T) {
 	app := NewBaseApp(name, logger, db, nil)
 
 	app.InitChain(
-		abci.RequestInitChain{
+		context.Background(), &abci.RequestInitChain{
 			InitialHeight: 3,
 		},
 	)
-	app.Commit()
+	app.Commit(context.Background())
 
 	require.Equal(t, int64(3), app.LastBlockHeight())
 }
@@ -654,25 +652,21 @@ func TestBeginBlock_WithInitialHeight(t *testing.T) {
 	app := NewBaseApp(name, logger, db, nil)
 
 	app.InitChain(
-		abci.RequestInitChain{
+		context.Background(), &abci.RequestInitChain{
 			InitialHeight: 3,
 		},
 	)
 
 	require.PanicsWithError(t, "invalid height: 4; expected: 3", func() {
-		app.BeginBlock(abci.RequestBeginBlock{
+		app.BeginBlock(legacytm.RequestBeginBlock{
 			Header: tmproto.Header{
 				Height: 4,
 			},
 		})
 	})
 
-	app.BeginBlock(abci.RequestBeginBlock{
-		Header: tmproto.Header{
-			Height: 3,
-		},
-	})
-	app.Commit()
+	app.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{Height: 3})
+	app.Commit(context.Background())
 
 	require.Equal(t, int64(3), app.LastBlockHeight())
 }
@@ -870,7 +864,7 @@ func handlerMsgCounter(t *testing.T, capKey sdk.StoreKey, deliverKey []byte) sdk
 			return nil, err
 		}
 
-		res.Events = ctx.EventManager().Events().ToABCIEvents()
+		res.Events = utils.Map(ctx.EventManager().Events().ToABCIEvents(), sdk.LegacyToABCIEvent)
 		return res, nil
 	}
 }
@@ -927,7 +921,7 @@ func TestCheckTx(t *testing.T) {
 	app := setupBaseApp(t, anteOpt, routerOpt)
 
 	nTxs := int64(5)
-	app.InitChain(abci.RequestInitChain{})
+	app.InitChain(context.Background(), &abci.RequestInitChain{})
 
 	// Create same codec used in txDecoder
 	codec := codec.NewLegacyAmino()
@@ -937,8 +931,7 @@ func TestCheckTx(t *testing.T) {
 		tx := newTxCounter(i, 0) // no messages
 		txBytes, err := codec.Marshal(tx)
 		require.NoError(t, err)
-		r := app.CheckTx(abci.RequestCheckTx{Tx: txBytes})
-		require.Empty(t, r.GetEvents())
+		r, _ := app.CheckTx(context.Background(), &abci.RequestCheckTx{Tx: txBytes})
 		require.True(t, r.IsOK(), fmt.Sprintf("%v", r))
 	}
 
@@ -949,14 +942,12 @@ func TestCheckTx(t *testing.T) {
 	require.Equal(t, nTxs, storedCounter)
 
 	// If a block is committed, CheckTx state should be reset.
-	header := tmproto.Header{Height: 1}
-	app.BeginBlock(abci.RequestBeginBlock{Header: header, Hash: []byte("hash")})
+	app.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{Height: 1, Hash: []byte("hash")})
 
 	require.NotNil(t, app.checkState.ctx.BlockGasMeter(), "block gas meter should have been set to checkState")
 	require.NotEmpty(t, app.checkState.ctx.HeaderHash())
 
-	app.EndBlock(abci.RequestEndBlock{})
-	app.Commit()
+	app.Commit(context.Background())
 
 	checkStateStore = app.checkState.ctx.KVStore(capKey1)
 	storedBytes := checkStateStore.Get(counterKey)
@@ -978,7 +969,7 @@ func TestDeliverTx(t *testing.T) {
 	}
 
 	app := setupBaseApp(t, anteOpt, routerOpt)
-	app.InitChain(abci.RequestInitChain{})
+	app.InitChain(context.Background(), &abci.RequestInitChain{})
 
 	// Create same codec used in txDecoder
 	codec := codec.NewLegacyAmino()
@@ -988,8 +979,7 @@ func TestDeliverTx(t *testing.T) {
 	txPerHeight := 5
 
 	for blockN := 0; blockN < nBlocks; blockN++ {
-		header := tmproto.Header{Height: int64(blockN) + 1}
-		app.BeginBlock(abci.RequestBeginBlock{Header: header})
+		app.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{Height: int64(blockN) + 1})
 
 		for i := 0; i < txPerHeight; i++ {
 			counter := int64(blockN*txPerHeight + i)
@@ -998,16 +988,15 @@ func TestDeliverTx(t *testing.T) {
 			txBytes, err := codec.Marshal(tx)
 			require.NoError(t, err)
 
-			res := app.DeliverTx(abci.RequestDeliverTx{Tx: txBytes})
+			res := app.DeliverTx(legacytm.RequestDeliverTx{Tx: txBytes})
 			require.True(t, res.IsOK(), fmt.Sprintf("%v", res))
 			events := res.GetEvents()
 			require.Len(t, events, 3, "should contain ante handler, message type and counter events respectively")
-			require.Equal(t, sdk.MarkEventsToIndex(counterEvent("ante_handler", counter).ToABCIEvents(), map[string]struct{}{})[0], events[0], "ante handler event")
-			require.Equal(t, sdk.MarkEventsToIndex(counterEvent(sdk.EventTypeMessage, counter).ToABCIEvents(), map[string]struct{}{})[0], events[2], "msg handler update counter event")
+			require.Equal(t, sdk.MarkEventsToIndex(counterEvent("ante_handler", counter).ToABCIEvents(), map[string]struct{}{})[0], sdk.ABCIToLegacyEvent(events[0]), "ante handler event")
+			require.Equal(t, sdk.MarkEventsToIndex(counterEvent(sdk.EventTypeMessage, counter).ToABCIEvents(), map[string]struct{}{})[0], sdk.ABCIToLegacyEvent(events[2]), "msg handler update counter event")
 		}
 
-		app.EndBlock(abci.RequestEndBlock{})
-		app.Commit()
+		app.Commit(context.Background())
 	}
 }
 
@@ -1042,12 +1031,11 @@ func TestMultiMsgDeliverTx(t *testing.T) {
 	// run a multi-msg tx
 	// with all msgs the same route
 
-	header := tmproto.Header{Height: 1}
-	app.BeginBlock(abci.RequestBeginBlock{Header: header})
+	app.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{Height: 1})
 	tx := newTxCounter(0, 0, 1, 2)
 	txBytes, err := codec.Marshal(tx)
 	require.NoError(t, err)
-	res := app.DeliverTx(abci.RequestDeliverTx{Tx: txBytes})
+	res := app.DeliverTx(legacytm.RequestDeliverTx{Tx: txBytes})
 	require.True(t, res.IsOK(), fmt.Sprintf("%v", res))
 
 	store := app.deliverState.ctx.KVStore(capKey1)
@@ -1067,7 +1055,7 @@ func TestMultiMsgDeliverTx(t *testing.T) {
 	tx.Msgs = append(tx.Msgs, msgCounter2{1})
 	txBytes, err = codec.Marshal(tx)
 	require.NoError(t, err)
-	res = app.DeliverTx(abci.RequestDeliverTx{Tx: txBytes})
+	res = app.DeliverTx(legacytm.RequestDeliverTx{Tx: txBytes})
 	require.True(t, res.IsOK(), fmt.Sprintf("%v", res))
 
 	store = app.deliverState.ctx.KVStore(capKey1)
@@ -1114,7 +1102,7 @@ func TestSimulateTx(t *testing.T) {
 
 	app := setupBaseApp(t, anteOpt, routerOpt)
 
-	app.InitChain(abci.RequestInitChain{})
+	app.InitChain(context.Background(), &abci.RequestInitChain{})
 
 	// Create same codec used in txDecoder
 	cdc := codec.NewLegacyAmino()
@@ -1123,8 +1111,7 @@ func TestSimulateTx(t *testing.T) {
 	nBlocks := 3
 	for blockN := 0; blockN < nBlocks; blockN++ {
 		count := int64(blockN + 1)
-		header := tmproto.Header{Height: count}
-		app.BeginBlock(abci.RequestBeginBlock{Header: header})
+		app.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{Height: count})
 
 		tx := newTxCounter(count, count)
 		txBytes, err := cdc.Marshal(tx)
@@ -1147,7 +1134,7 @@ func TestSimulateTx(t *testing.T) {
 			Path: "/app/simulate",
 			Data: txBytes,
 		}
-		queryResult := app.Query(query)
+		queryResult, _ := app.Query(context.Background(), &query)
 		require.True(t, queryResult.IsOK(), queryResult.Log)
 
 		var simRes sdk.SimulationResponse
@@ -1158,8 +1145,7 @@ func TestSimulateTx(t *testing.T) {
 		require.Equal(t, result.Events, simRes.Result.Events)
 		require.True(t, bytes.Equal(result.Data, simRes.Result.Data))
 
-		app.EndBlock(abci.RequestEndBlock{})
-		app.Commit()
+		app.Commit(context.Background())
 	}
 }
 
@@ -1178,8 +1164,7 @@ func TestRunInvalidTransaction(t *testing.T) {
 
 	app := setupBaseApp(t, anteOpt, routerOpt)
 
-	header := tmproto.Header{Height: 1}
-	app.BeginBlock(abci.RequestBeginBlock{Header: header})
+	app.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{Height: 1})
 
 	// transaction with no messages
 	{
@@ -1259,7 +1244,7 @@ func TestRunInvalidTransaction(t *testing.T) {
 		txBytes, err := newCdc.Marshal(tx)
 		require.NoError(t, err)
 
-		res := app.DeliverTx(abci.RequestDeliverTx{Tx: txBytes})
+		res := app.DeliverTx(legacytm.RequestDeliverTx{Tx: txBytes})
 		require.EqualValues(t, sdkerrors.ErrTxDecode.ABCICode(), res.Code)
 		require.EqualValues(t, sdkerrors.ErrTxDecode.Codespace(), res.Codespace)
 	}
@@ -1306,8 +1291,7 @@ func TestTxGasLimits(t *testing.T) {
 
 	app := setupBaseApp(t, anteOpt, routerOpt)
 
-	header := tmproto.Header{Height: 1}
-	app.BeginBlock(abci.RequestBeginBlock{Header: header})
+	app.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{Height: 1})
 
 	testCases := []struct {
 		tx      *txTest
@@ -1389,9 +1373,9 @@ func TestMaxBlockGasLimits(t *testing.T) {
 	}
 
 	app := setupBaseApp(t, anteOpt, routerOpt)
-	app.InitChain(abci.RequestInitChain{
-		ConsensusParams: &abci.ConsensusParams{
-			Block: &abci.BlockParams{
+	app.InitChain(context.Background(), &abci.RequestInitChain{
+		ConsensusParams: &tmproto.ConsensusParams{
+			Block: &tmproto.BlockParams{
 				MaxGas: 100,
 			},
 		},
@@ -1420,8 +1404,7 @@ func TestMaxBlockGasLimits(t *testing.T) {
 		tx := tc.tx
 
 		// reset the block gas
-		header := tmproto.Header{Height: app.LastBlockHeight() + 1}
-		app.BeginBlock(abci.RequestBeginBlock{Header: header})
+		app.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{Height: app.LastBlockHeight() + 1})
 
 		// execute the transaction multiple times
 		for j := 0; j < tc.numDelivers; j++ {
@@ -1473,8 +1456,7 @@ func TestCustomRunTxPanicHandler(t *testing.T) {
 
 	app := setupBaseApp(t, anteOpt, routerOpt)
 
-	header := tmproto.Header{Height: 1}
-	app.BeginBlock(abci.RequestBeginBlock{Header: header})
+	app.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{Height: 1})
 
 	app.AddRunTxRecoveryHandler(func(recoveryObj interface{}) error {
 		err, ok := recoveryObj.(error)
@@ -1512,11 +1494,10 @@ func TestBaseAppAnteHandler(t *testing.T) {
 	cdc := codec.NewLegacyAmino()
 	app := setupBaseApp(t, anteOpt, routerOpt)
 
-	app.InitChain(abci.RequestInitChain{})
+	app.InitChain(context.Background(), &abci.RequestInitChain{})
 	registerTestCodec(cdc)
 
-	header := tmproto.Header{Height: app.LastBlockHeight() + 1}
-	app.BeginBlock(abci.RequestBeginBlock{Header: header})
+	app.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{Height: app.LastBlockHeight() + 1})
 
 	// execute a tx that will fail ante handler execution
 	//
@@ -1526,7 +1507,7 @@ func TestBaseAppAnteHandler(t *testing.T) {
 	tx.setFailOnAnte(true)
 	txBytes, err := cdc.Marshal(tx)
 	require.NoError(t, err)
-	res := app.DeliverTx(abci.RequestDeliverTx{Tx: txBytes})
+	res := app.DeliverTx(legacytm.RequestDeliverTx{Tx: txBytes})
 	require.Empty(t, res.Events)
 	require.False(t, res.IsOK(), fmt.Sprintf("%v", res))
 
@@ -1542,7 +1523,7 @@ func TestBaseAppAnteHandler(t *testing.T) {
 	txBytes, err = cdc.Marshal(tx)
 	require.NoError(t, err)
 
-	res = app.DeliverTx(abci.RequestDeliverTx{Tx: txBytes})
+	res = app.DeliverTx(legacytm.RequestDeliverTx{Tx: txBytes})
 	// should emit ante event
 	require.NotEmpty(t, res.Events)
 	require.False(t, res.IsOK(), fmt.Sprintf("%v", res))
@@ -1559,7 +1540,7 @@ func TestBaseAppAnteHandler(t *testing.T) {
 	txBytes, err = cdc.Marshal(tx)
 	require.NoError(t, err)
 
-	res = app.DeliverTx(abci.RequestDeliverTx{Tx: txBytes})
+	res = app.DeliverTx(legacytm.RequestDeliverTx{Tx: txBytes})
 	require.NotEmpty(t, res.Events)
 	require.True(t, res.IsOK(), fmt.Sprintf("%v", res))
 
@@ -1569,8 +1550,7 @@ func TestBaseAppAnteHandler(t *testing.T) {
 	require.Equal(t, int64(1), getIntFromStore(store, deliverKey))
 
 	// commit
-	app.EndBlock(abci.RequestEndBlock{})
-	app.Commit()
+	app.Commit(context.Background())
 }
 
 func TestGasConsumptionBadTx(t *testing.T) {
@@ -1614,25 +1594,24 @@ func TestGasConsumptionBadTx(t *testing.T) {
 	registerTestCodec(cdc)
 
 	app := setupBaseApp(t, anteOpt, routerOpt)
-	app.InitChain(abci.RequestInitChain{
-		ConsensusParams: &abci.ConsensusParams{
-			Block: &abci.BlockParams{
+	app.InitChain(context.Background(), &abci.RequestInitChain{
+		ConsensusParams: &tmproto.ConsensusParams{
+			Block: &tmproto.BlockParams{
 				MaxGas: 9,
 			},
 		},
 	})
 
-	app.InitChain(abci.RequestInitChain{})
+	app.InitChain(context.Background(), &abci.RequestInitChain{})
 
-	header := tmproto.Header{Height: app.LastBlockHeight() + 1}
-	app.BeginBlock(abci.RequestBeginBlock{Header: header})
+	app.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{Height: app.LastBlockHeight() + 1})
 
 	tx := newTxCounter(5, 0)
 	tx.setFailOnAnte(true)
 	txBytes, err := cdc.Marshal(tx)
 	require.NoError(t, err)
 
-	res := app.DeliverTx(abci.RequestDeliverTx{Tx: txBytes})
+	res := app.DeliverTx(legacytm.RequestDeliverTx{Tx: txBytes})
 	require.False(t, res.IsOK(), fmt.Sprintf("%v", res))
 
 	// require next tx to fail due to black gas limit
@@ -1640,7 +1619,7 @@ func TestGasConsumptionBadTx(t *testing.T) {
 	txBytes, err = cdc.Marshal(tx)
 	require.NoError(t, err)
 
-	res = app.DeliverTx(abci.RequestDeliverTx{Tx: txBytes})
+	res = app.DeliverTx(legacytm.RequestDeliverTx{Tx: txBytes})
 	require.False(t, res.IsOK(), fmt.Sprintf("%v", res))
 }
 
@@ -1666,7 +1645,7 @@ func TestQuery(t *testing.T) {
 
 	app := setupBaseApp(t, anteOpt, routerOpt)
 
-	app.InitChain(abci.RequestInitChain{})
+	app.InitChain(context.Background(), &abci.RequestInitChain{})
 
 	// NOTE: "/store/key1" tells us KVStore
 	// and the final "/key" says to use the data as the
@@ -1678,29 +1657,28 @@ func TestQuery(t *testing.T) {
 	tx := newTxCounter(0, 0)
 
 	// query is empty before we do anything
-	res := app.Query(query)
+	res, _ := app.Query(context.Background(), &query)
 	require.Equal(t, 0, len(res.Value))
 
 	// query is still empty after a CheckTx
 	_, resTx, err := app.Check(aminoTxEncoder(), tx)
 	require.NoError(t, err)
 	require.NotNil(t, resTx)
-	res = app.Query(query)
+	res, _ = app.Query(context.Background(), &query)
 	require.Equal(t, 0, len(res.Value))
 
 	// query is still empty after a DeliverTx before we commit
-	header := tmproto.Header{Height: app.LastBlockHeight() + 1}
-	app.BeginBlock(abci.RequestBeginBlock{Header: header})
+	app.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{Height: app.LastBlockHeight() + 1})
 
 	_, resTx, err = app.Deliver(aminoTxEncoder(), tx)
 	require.NoError(t, err)
 	require.NotNil(t, resTx)
-	res = app.Query(query)
+	res, _ = app.Query(context.Background(), &query)
 	require.Equal(t, 0, len(res.Value))
 
 	// query returns correct value after Commit
-	app.Commit()
-	res = app.Query(query)
+	app.Commit(context.Background())
+	res, _ = app.Query(context.Background(), &query)
 	require.Equal(t, value, res.Value)
 }
 
@@ -1714,10 +1692,9 @@ func TestGRPCQuery(t *testing.T) {
 
 	app := setupBaseApp(t, grpcQueryOpt)
 
-	app.InitChain(abci.RequestInitChain{})
-	header := tmproto.Header{Height: app.LastBlockHeight() + 1}
-	app.BeginBlock(abci.RequestBeginBlock{Header: header})
-	app.Commit()
+	app.InitChain(context.Background(), &abci.RequestInitChain{})
+	app.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{Height: app.LastBlockHeight() + 1})
+	app.Commit(context.Background())
 
 	req := testdata.SayHelloRequest{Name: "foo"}
 	reqBz, err := req.Marshal()
@@ -1728,7 +1705,7 @@ func TestGRPCQuery(t *testing.T) {
 		Path: "/testdata.Query/SayHello",
 	}
 
-	resQuery := app.Query(reqQuery)
+	resQuery, _ := app.Query(context.Background(), &reqQuery)
 
 	require.Equal(t, abci.CodeTypeOK, resQuery.Code, resQuery)
 
@@ -1759,31 +1736,31 @@ func TestP2PQuery(t *testing.T) {
 	addrQuery := abci.RequestQuery{
 		Path: "/p2p/filter/addr/1.1.1.1:8000",
 	}
-	res := app.Query(addrQuery)
+	res, _ := app.Query(context.Background(), &addrQuery)
 	require.Equal(t, uint32(3), res.Code)
 
 	idQuery := abci.RequestQuery{
 		Path: "/p2p/filter/id/testid",
 	}
-	res = app.Query(idQuery)
+	res, _ = app.Query(context.Background(), &idQuery)
 	require.Equal(t, uint32(4), res.Code)
 }
 
 func TestGetMaximumBlockGas(t *testing.T) {
 	app := setupBaseApp(t)
-	app.InitChain(abci.RequestInitChain{})
+	app.InitChain(context.Background(), &abci.RequestInitChain{})
 	ctx := app.NewContext(true, tmproto.Header{})
 
-	app.StoreConsensusParams(ctx, &abci.ConsensusParams{Block: &abci.BlockParams{MaxGas: 0}})
+	app.StoreConsensusParams(ctx, &tmproto.ConsensusParams{Block: &tmproto.BlockParams{MaxGas: 0}})
 	require.Equal(t, uint64(0), app.getMaximumBlockGas(ctx))
 
-	app.StoreConsensusParams(ctx, &abci.ConsensusParams{Block: &abci.BlockParams{MaxGas: -1}})
+	app.StoreConsensusParams(ctx, &tmproto.ConsensusParams{Block: &tmproto.BlockParams{MaxGas: -1}})
 	require.Equal(t, uint64(0), app.getMaximumBlockGas(ctx))
 
-	app.StoreConsensusParams(ctx, &abci.ConsensusParams{Block: &abci.BlockParams{MaxGas: 5000000}})
+	app.StoreConsensusParams(ctx, &tmproto.ConsensusParams{Block: &tmproto.BlockParams{MaxGas: 5000000}})
 	require.Equal(t, uint64(5000000), app.getMaximumBlockGas(ctx))
 
-	app.StoreConsensusParams(ctx, &abci.ConsensusParams{Block: &abci.BlockParams{MaxGas: -5000000}})
+	app.StoreConsensusParams(ctx, &tmproto.ConsensusParams{Block: &tmproto.BlockParams{MaxGas: -5000000}})
 	require.Panics(t, func() { app.getMaximumBlockGas(ctx) })
 }
 
@@ -1791,7 +1768,7 @@ func TestListSnapshots(t *testing.T) {
 	app, teardown := setupBaseAppWithSnapshots(t, 5, 4)
 	defer teardown()
 
-	resp := app.ListSnapshots(abci.RequestListSnapshots{})
+	resp, _ := app.ListSnapshots(context.Background(), &abci.RequestListSnapshots{})
 	for _, s := range resp.Snapshots {
 		assert.NotEmpty(t, s.Hash)
 		assert.NotEmpty(t, s.Metadata)
@@ -1801,7 +1778,7 @@ func TestListSnapshots(t *testing.T) {
 	assert.Equal(t, abci.ResponseListSnapshots{Snapshots: []*abci.Snapshot{
 		{Height: 4, Format: 1, Chunks: 2},
 		{Height: 2, Format: 1, Chunks: 1},
-	}}, resp)
+	}}, *resp)
 }
 
 func TestLoadSnapshotChunk(t *testing.T) {
@@ -1825,13 +1802,13 @@ func TestLoadSnapshotChunk(t *testing.T) {
 	for name, tc := range testcases {
 		tc := tc
 		t.Run(name, func(t *testing.T) {
-			resp := app.LoadSnapshotChunk(abci.RequestLoadSnapshotChunk{
+			resp, _ := app.LoadSnapshotChunk(context.Background(), &abci.RequestLoadSnapshotChunk{
 				Height: tc.height,
 				Format: tc.format,
 				Chunk:  tc.chunk,
 			})
 			if tc.expectEmpty {
-				assert.Equal(t, abci.ResponseLoadSnapshotChunk{}, resp)
+				assert.Equal(t, abci.ResponseLoadSnapshotChunk{}, *resp)
 				return
 			}
 			assert.NotEmpty(t, resp.Chunk)
@@ -1870,29 +1847,29 @@ func TestOfferSnapshot_Errors(t *testing.T) {
 	for name, tc := range testcases {
 		tc := tc
 		t.Run(name, func(t *testing.T) {
-			resp := app.OfferSnapshot(abci.RequestOfferSnapshot{Snapshot: tc.snapshot})
+			resp, _ := app.OfferSnapshot(context.Background(), &abci.RequestOfferSnapshot{Snapshot: tc.snapshot})
 			assert.Equal(t, tc.result, resp.Result)
 		})
 	}
 
 	// Offering a snapshot after one has been accepted should error
-	resp := app.OfferSnapshot(abci.RequestOfferSnapshot{Snapshot: &abci.Snapshot{
+	resp, _ := app.OfferSnapshot(context.Background(), &abci.RequestOfferSnapshot{Snapshot: &abci.Snapshot{
 		Height:   1,
 		Format:   snapshottypes.CurrentFormat,
 		Chunks:   3,
 		Hash:     []byte{1, 2, 3},
 		Metadata: metadata,
 	}})
-	require.Equal(t, abci.ResponseOfferSnapshot{Result: abci.ResponseOfferSnapshot_ACCEPT}, resp)
+	require.Equal(t, abci.ResponseOfferSnapshot{Result: abci.ResponseOfferSnapshot_ACCEPT}, *resp)
 
-	resp = app.OfferSnapshot(abci.RequestOfferSnapshot{Snapshot: &abci.Snapshot{
+	resp, _ = app.OfferSnapshot(context.Background(), &abci.RequestOfferSnapshot{Snapshot: &abci.Snapshot{
 		Height:   2,
 		Format:   snapshottypes.CurrentFormat,
 		Chunks:   3,
 		Hash:     []byte{1, 2, 3},
 		Metadata: metadata,
 	}})
-	require.Equal(t, abci.ResponseOfferSnapshot{Result: abci.ResponseOfferSnapshot_ABORT}, resp)
+	require.Equal(t, abci.ResponseOfferSnapshot{Result: abci.ResponseOfferSnapshot_ABORT}, *resp)
 }
 
 func TestApplySnapshotChunk(t *testing.T) {
@@ -1903,7 +1880,7 @@ func TestApplySnapshotChunk(t *testing.T) {
 	defer teardown()
 
 	// Fetch latest snapshot to restore
-	respList := source.ListSnapshots(abci.RequestListSnapshots{})
+	respList, _ := source.ListSnapshots(context.Background(), &abci.RequestListSnapshots{})
 	require.NotEmpty(t, respList.Snapshots)
 	snapshot := respList.Snapshots[0]
 
@@ -1911,11 +1888,11 @@ func TestApplySnapshotChunk(t *testing.T) {
 	require.GreaterOrEqual(t, snapshot.Chunks, uint32(3), "Not enough snapshot chunks")
 
 	// Begin a snapshot restoration in the target
-	respOffer := target.OfferSnapshot(abci.RequestOfferSnapshot{Snapshot: snapshot})
-	require.Equal(t, abci.ResponseOfferSnapshot{Result: abci.ResponseOfferSnapshot_ACCEPT}, respOffer)
+	respOffer, _ := target.OfferSnapshot(context.Background(), &abci.RequestOfferSnapshot{Snapshot: snapshot})
+	require.Equal(t, abci.ResponseOfferSnapshot{Result: abci.ResponseOfferSnapshot_ACCEPT}, *respOffer)
 
 	// We should be able to pass an invalid chunk and get a verify failure, before reapplying it.
-	respApply := target.ApplySnapshotChunk(abci.RequestApplySnapshotChunk{
+	respApply, _ := target.ApplySnapshotChunk(context.Background(), &abci.RequestApplySnapshotChunk{
 		Index:  0,
 		Chunk:  []byte{9},
 		Sender: "sender",
@@ -1924,23 +1901,23 @@ func TestApplySnapshotChunk(t *testing.T) {
 		Result:        abci.ResponseApplySnapshotChunk_RETRY,
 		RefetchChunks: []uint32{0},
 		RejectSenders: []string{"sender"},
-	}, respApply)
+	}, *respApply)
 
 	// Fetch each chunk from the source and apply it to the target
 	for index := uint32(0); index < snapshot.Chunks; index++ {
-		respChunk := source.LoadSnapshotChunk(abci.RequestLoadSnapshotChunk{
+		respChunk, _ := source.LoadSnapshotChunk(context.Background(), &abci.RequestLoadSnapshotChunk{
 			Height: snapshot.Height,
 			Format: snapshot.Format,
 			Chunk:  index,
 		})
 		require.NotNil(t, respChunk.Chunk)
-		respApply := target.ApplySnapshotChunk(abci.RequestApplySnapshotChunk{
+		respApply, _ := target.ApplySnapshotChunk(context.Background(), &abci.RequestApplySnapshotChunk{
 			Index: index,
 			Chunk: respChunk.Chunk,
 		})
 		require.Equal(t, abci.ResponseApplySnapshotChunk{
 			Result: abci.ResponseApplySnapshotChunk_ACCEPT,
-		}, respApply)
+		}, *respApply)
 	}
 
 	// The target should now have the same hash as the source
@@ -1980,7 +1957,7 @@ func TestWithRouter(t *testing.T) {
 	}
 
 	app := setupBaseApp(t, anteOpt, routerOpt)
-	app.InitChain(abci.RequestInitChain{})
+	app.InitChain(context.Background(), &abci.RequestInitChain{})
 
 	// Create same codec used in txDecoder
 	codec := codec.NewLegacyAmino()
@@ -1990,8 +1967,7 @@ func TestWithRouter(t *testing.T) {
 	txPerHeight := 5
 
 	for blockN := 0; blockN < nBlocks; blockN++ {
-		header := tmproto.Header{Height: int64(blockN) + 1}
-		app.BeginBlock(abci.RequestBeginBlock{Header: header})
+		app.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{Height: int64(blockN) + 1})
 
 		for i := 0; i < txPerHeight; i++ {
 			counter := int64(blockN*txPerHeight + i)
@@ -2000,12 +1976,11 @@ func TestWithRouter(t *testing.T) {
 			txBytes, err := codec.Marshal(tx)
 			require.NoError(t, err)
 
-			res := app.DeliverTx(abci.RequestDeliverTx{Tx: txBytes})
+			res := app.DeliverTx(legacytm.RequestDeliverTx{Tx: txBytes})
 			require.True(t, res.IsOK(), fmt.Sprintf("%v", res))
 		}
 
-		app.EndBlock(abci.RequestEndBlock{})
-		app.Commit()
+		app.Commit(context.Background())
 	}
 }
 
@@ -2014,28 +1989,57 @@ func TestBaseApp_EndBlock(t *testing.T) {
 	name := t.Name()
 	logger := defaultLogger()
 
-	cp := &abci.ConsensusParams{
-		Block: &abci.BlockParams{
+	cp := &tmproto.ConsensusParams{
+		Block: &tmproto.BlockParams{
 			MaxGas: 5000000,
 		},
 	}
 
 	app := NewBaseApp(name, logger, db, nil)
 	app.SetParamStore(&paramStore{db: dbm.NewMemDB()})
-	app.InitChain(abci.RequestInitChain{
+	app.InitChain(context.Background(), &abci.RequestInitChain{
 		ConsensusParams: cp,
 	})
-
-	app.SetEndBlocker(func(ctx sdk.Context, req abci.RequestEndBlock) abci.ResponseEndBlock {
-		return abci.ResponseEndBlock{
-			ValidatorUpdates: []abci.ValidatorUpdate{
+	app.SetFinalizeBlocker(func(ctx sdk.Context, req *abci.RequestFinalizeBlock) (*abci.ResponseFinalizeBlock, error) {
+		endBlockResp := app.EndBlock(legacytm.RequestEndBlock{
+			Height: req.Height,
+		})
+		return &abci.ResponseFinalizeBlock{
+			ValidatorUpdates: utils.Map(endBlockResp.ValidatorUpdates, func(v legacytm.ValidatorUpdate) abci.ValidatorUpdate {
+				return abci.ValidatorUpdate{
+					PubKey: v.PubKey,
+					Power:  v.Power,
+				}
+			}),
+			ConsensusParamUpdates: &tmproto.ConsensusParams{
+				Block: &tmproto.BlockParams{
+					MaxBytes: endBlockResp.ConsensusParamUpdates.Block.MaxBytes,
+					MaxGas:   endBlockResp.ConsensusParamUpdates.Block.MaxGas,
+				},
+				Evidence: &tmproto.EvidenceParams{
+					MaxAgeNumBlocks: endBlockResp.ConsensusParamUpdates.Evidence.MaxAgeNumBlocks,
+					MaxAgeDuration:  endBlockResp.ConsensusParamUpdates.Evidence.MaxAgeDuration,
+					MaxBytes:        endBlockResp.ConsensusParamUpdates.Block.MaxBytes,
+				},
+				Validator: &tmproto.ValidatorParams{
+					PubKeyTypes: endBlockResp.ConsensusParamUpdates.Validator.PubKeyTypes,
+				},
+				Version: &tmproto.VersionParams{
+					AppVersion: endBlockResp.ConsensusParamUpdates.Version.AppVersion,
+				},
+			},
+		}, nil
+	})
+	app.SetEndBlocker(func(ctx sdk.Context, req legacytm.RequestEndBlock) legacytm.ResponseEndBlock {
+		return legacytm.ResponseEndBlock{
+			ValidatorUpdates: []legacytm.ValidatorUpdate{
 				{Power: 100},
 			},
 		}
 	})
 	app.Seal()
 
-	res := app.EndBlock(abci.RequestEndBlock{})
+	res, _ := app.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{})
 	require.Len(t, res.GetValidatorUpdates(), 1)
 	require.Equal(t, int64(100), res.GetValidatorUpdates()[0].Power)
 	require.Equal(t, cp.Block.MaxGas, res.ConsensusParamUpdates.Block.MaxGas)

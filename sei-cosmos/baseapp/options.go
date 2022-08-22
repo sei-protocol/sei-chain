@@ -153,6 +153,30 @@ func (app *BaseApp) SetEndBlocker(endBlocker sdk.EndBlocker) {
 	app.endBlocker = endBlocker
 }
 
+func (app *BaseApp) SetPrepareProposalHandler(prepareProposalHandler sdk.PrepareProposalHandler) {
+	if app.sealed {
+		panic("SetPrepareProposalHandler() on sealed BaseApp")
+	}
+
+	app.prepareProposalHandler = prepareProposalHandler
+}
+
+func (app *BaseApp) SetProcessProposalHandler(processProposalHandler sdk.ProcessProposalHandler) {
+	if app.sealed {
+		panic("SetProcessProposalHandler() on sealed BaseApp")
+	}
+
+	app.processProposalHandler = processProposalHandler
+}
+
+func (app *BaseApp) SetFinalizeBlocker(finalizeBlocker sdk.FinalizeBlocker) {
+	if app.sealed {
+		panic("SetFinalizeBlocker() on sealed BaseApp")
+	}
+
+	app.finalizeBlocker = finalizeBlocker
+}
+
 func (app *BaseApp) SetAnteHandler(ah sdk.AnteHandler) {
 	if app.sealed {
 		panic("SetAnteHandler() on sealed BaseApp")

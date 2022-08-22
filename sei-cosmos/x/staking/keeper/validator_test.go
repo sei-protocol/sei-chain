@@ -13,6 +13,8 @@ import (
 	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
 	"github.com/cosmos/cosmos-sdk/simapp"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/cosmos/cosmos-sdk/types/legacytm"
+	"github.com/cosmos/cosmos-sdk/utils"
 	"github.com/cosmos/cosmos-sdk/x/staking/keeper"
 	"github.com/cosmos/cosmos-sdk/x/staking/teststaking"
 	"github.com/cosmos/cosmos-sdk/x/staking/types"
@@ -844,8 +846,10 @@ func TestApplyAndReturnValidatorSetUpdatesWithCliffValidator(t *testing.T) {
 	app.StakingKeeper.SetValidatorByPowerIndex(ctx, validators[2])
 	updates := applyValidatorSetUpdates(t, ctx, app.StakingKeeper, 2)
 	validators[2], _ = app.StakingKeeper.GetValidator(ctx, validators[2].GetOperator())
-	require.Equal(t, validators[0].ABCIValidatorUpdateZero(), updates[1])
-	require.Equal(t, validators[2].ABCIValidatorUpdate(app.StakingKeeper.PowerReduction(ctx)), updates[0])
+	require.Equal(t, validators[0].ABCIValidatorUpdateZero().PubKey, updates[1].PubKey)
+	require.Equal(t, validators[0].ABCIValidatorUpdateZero().Power, updates[1].Power)
+	require.Equal(t, validators[2].ABCIValidatorUpdate(app.StakingKeeper.PowerReduction(ctx)).PubKey, updates[0].PubKey)
+	require.Equal(t, validators[2].ABCIValidatorUpdate(app.StakingKeeper.PowerReduction(ctx)).Power, updates[0].Power)
 }
 
 func TestApplyAndReturnValidatorSetUpdatesPowerDecrease(t *testing.T) {
@@ -1100,5 +1104,10 @@ func applyValidatorSetUpdates(t *testing.T, ctx sdk.Context, k keeper.Keeper, ex
 	if expectedUpdatesLen >= 0 {
 		require.Equal(t, expectedUpdatesLen, len(updates), "%v", updates)
 	}
-	return updates
+	return utils.Map(updates, func(v legacytm.ValidatorUpdate) abci.ValidatorUpdate {
+		return abci.ValidatorUpdate{
+			PubKey: v.PubKey,
+			Power:  v.Power,
+		}
+	})
 }

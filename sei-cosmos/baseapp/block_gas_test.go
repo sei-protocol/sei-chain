@@ -1,6 +1,7 @@
 package baseapp_test
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"math"
@@ -70,7 +71,7 @@ func TestBaseApp_BlockGas(t *testing.T) {
 			genState := simapp.NewDefaultGenesisState(encCfg.Marshaler)
 			stateBytes, err := json.MarshalIndent(genState, "", " ")
 			require.NoError(t, err)
-			app.InitChain(abci.RequestInitChain{
+			app.InitChain(context.Background(), &abci.RequestInitChain{
 				Validators:      []abci.ValidatorUpdate{},
 				ConsensusParams: simapp.DefaultConsensusParams,
 				AppStateBytes:   stateBytes,
@@ -104,8 +105,10 @@ func TestBaseApp_BlockGas(t *testing.T) {
 			_, txBytes, err := createTestTx(encCfg.TxConfig, txBuilder, privs, accNums, accSeqs, ctx.ChainID())
 			require.NoError(t, err)
 
-			app.BeginBlock(abci.RequestBeginBlock{Header: tmproto.Header{Height: 1}})
-			rsp := app.DeliverTx(abci.RequestDeliverTx{Tx: txBytes})
+			rsp, _ := app.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{
+				Height: 1,
+				Txs:    [][]byte{txBytes},
+			})
 
 			// check result
 			ctx = app.GetContextForDeliverTx(txBytes)
@@ -113,13 +116,13 @@ func TestBaseApp_BlockGas(t *testing.T) {
 
 			if tc.expErr {
 				if tc.panicTx {
-					require.Equal(t, sdkerrors.ErrPanic.ABCICode(), rsp.Code)
+					require.Equal(t, sdkerrors.ErrPanic.ABCICode(), rsp.TxResults[0].Code)
 				} else {
-					require.Equal(t, sdkerrors.ErrOutOfGas.ABCICode(), rsp.Code)
+					require.Equal(t, sdkerrors.ErrOutOfGas.ABCICode(), rsp.TxResults[0].Code)
 				}
 				require.Empty(t, okValue)
 			} else {
-				require.Equal(t, uint32(0), rsp.Code)
+				require.Equal(t, uint32(0), rsp.TxResults[0].Code)
 				require.Equal(t, []byte("ok"), okValue)
 			}
 			// check block gas is always consumed

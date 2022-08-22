@@ -26,6 +26,7 @@ type (
 		DeleteVersions(versions ...int64) error
 		Version() int64
 		Hash() []byte
+		WorkingHash() []byte
 		VersionExists(version int64) bool
 		GetVersioned(key []byte, version int64) (int64, []byte)
 		GetVersionedWithProof(key []byte, version int64) ([]byte, *iavl.RangeProof, error)
@@ -40,6 +41,10 @@ type (
 		*iavl.ImmutableTree
 	}
 )
+
+func (it *immutableTree) WorkingHash() []byte {
+	return it.Hash()
+}
 
 func (it *immutableTree) Set(_, _ []byte) bool {
 	panic("cannot call 'Set' on an immutable IAVL tree")

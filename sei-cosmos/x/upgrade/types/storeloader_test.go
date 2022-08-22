@@ -1,6 +1,7 @@
 package types
 
 import (
+	"context"
 	"encoding/json"
 	"io/ioutil"
 	"os"
@@ -10,7 +11,6 @@ import (
 	"github.com/stretchr/testify/require"
 	abci "github.com/tendermint/tendermint/abci/types"
 	"github.com/tendermint/tendermint/libs/log"
-	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 	dbm "github.com/tendermint/tm-db"
 
 	"github.com/cosmos/cosmos-sdk/baseapp"
@@ -26,7 +26,7 @@ func useUpgradeLoader(height int64, upgrades *store.StoreUpgrades) func(*baseapp
 }
 
 func defaultLogger() log.Logger {
-	return log.NewTMLogger(log.NewSyncWriter(os.Stdout)).With("module", "sdk/app")
+	return log.NewNopLogger()
 }
 
 func initStore(t *testing.T, db dbm.DB, storeKey string, k, v []byte) {
@@ -125,9 +125,8 @@ func TestSetLoader(t *testing.T) {
 			require.Nil(t, err)
 
 			for i := int64(2); i <= upgradeHeight-1; i++ {
-				origapp.BeginBlock(abci.RequestBeginBlock{Header: tmproto.Header{Height: i}})
-				res := origapp.Commit()
-				require.NotNil(t, res.Data)
+				origapp.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{Height: i})
+				origapp.Commit(context.Background())
 			}
 
 			if tc.setLoader != nil {
@@ -141,9 +140,8 @@ func TestSetLoader(t *testing.T) {
 			require.Nil(t, err)
 
 			// "execute" one block
-			app.BeginBlock(abci.RequestBeginBlock{Header: tmproto.Header{Height: upgradeHeight}})
-			res := app.Commit()
-			require.NotNil(t, res.Data)
+			app.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{Height: upgradeHeight})
+			app.Commit(context.Background())
 
 			// check db is properly updated
 			checkStore(t, db, upgradeHeight, tc.loadStoreKey, k, v)

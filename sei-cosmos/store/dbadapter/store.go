@@ -16,6 +16,10 @@ type Store struct {
 	dbm.DB
 }
 
+func (dsa Store) GetWorkingHash() []byte {
+	return []byte{}
+}
+
 // Get wraps the underlying DB's Get method panicing on error.
 func (dsa Store) Get(key []byte) []byte {
 	v, err := dsa.DB.Get(key)

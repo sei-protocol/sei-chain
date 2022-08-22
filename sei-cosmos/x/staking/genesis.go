@@ -9,6 +9,8 @@ import (
 
 	cryptocodec "github.com/cosmos/cosmos-sdk/crypto/codec"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/cosmos/cosmos-sdk/types/legacytm"
+	"github.com/cosmos/cosmos-sdk/utils"
 	"github.com/cosmos/cosmos-sdk/x/staking/keeper"
 	"github.com/cosmos/cosmos-sdk/x/staking/types"
 )
@@ -143,14 +145,23 @@ func InitGenesis(
 
 			update := validator.ABCIValidatorUpdate(keeper.PowerReduction(ctx))
 			update.Power = lv.Power // keep the next-val-set offset, use the last power for the first block
-			res = append(res, update)
+			res = append(res, abci.ValidatorUpdate{
+				PubKey: update.PubKey,
+				Power:  update.Power,
+			})
 		}
 	} else {
 		var err error
-		res, err = keeper.ApplyAndReturnValidatorSetUpdates(ctx)
+		legacyUpdates, err := keeper.ApplyAndReturnValidatorSetUpdates(ctx)
 		if err != nil {
 			log.Fatal(err)
 		}
+		res = utils.Map(legacyUpdates, func(v legacytm.ValidatorUpdate) abci.ValidatorUpdate {
+			return abci.ValidatorUpdate{
+				PubKey: v.PubKey,
+				Power:  v.Power,
+			}
+		})
 	}
 
 	return res

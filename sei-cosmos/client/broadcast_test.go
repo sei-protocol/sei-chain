@@ -2,14 +2,13 @@ package client
 
 import (
 	"context"
+	"crypto/sha256"
 	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/require"
-	"github.com/tendermint/tendermint/crypto/tmhash"
-	"github.com/tendermint/tendermint/mempool"
 	"github.com/tendermint/tendermint/rpc/client/mock"
-	ctypes "github.com/tendermint/tendermint/rpc/core/types"
+	ctypes "github.com/tendermint/tendermint/rpc/coretypes"
 	tmtypes "github.com/tendermint/tendermint/types"
 
 	"github.com/cosmos/cosmos-sdk/client/flags"
@@ -43,9 +42,9 @@ func CreateContextWithErrorAndMode(err error, mode string) Context {
 // Test the correct code is returned when
 func TestBroadcastError(t *testing.T) {
 	errors := map[error]uint32{
-		mempool.ErrTxInCache:       sdkerrors.ErrTxInMempoolCache.ABCICode(),
-		mempool.ErrTxTooLarge{}:    sdkerrors.ErrTxTooLarge.ABCICode(),
-		mempool.ErrMempoolIsFull{}: sdkerrors.ErrMempoolIsFull.ABCICode(),
+		ErrTxInCache:       sdkerrors.ErrTxInMempoolCache.ABCICode(),
+		ErrTxTooLarge{}:    sdkerrors.ErrTxTooLarge.ABCICode(),
+		ErrMempoolIsFull{}: sdkerrors.ErrMempoolIsFull.ABCICode(),
 	}
 
 	modes := []string{
@@ -55,7 +54,7 @@ func TestBroadcastError(t *testing.T) {
 	}
 
 	txBytes := []byte{0xA, 0xB}
-	txHash := fmt.Sprintf("%X", tmhash.Sum(txBytes))
+	txHash := fmt.Sprintf("%X", sha256.Sum256(txBytes))
 
 	for _, mode := range modes {
 		for err, code := range errors {

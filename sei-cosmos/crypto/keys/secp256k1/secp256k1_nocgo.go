@@ -7,8 +7,7 @@ import (
 	"math/big"
 
 	secp256k1 "github.com/btcsuite/btcd/btcec"
-
-	"github.com/tendermint/tendermint/crypto"
+	cosmoscrypto "github.com/cosmos/cosmos-sdk/crypto/utils"
 )
 
 // used to reject malleable signatures
@@ -21,7 +20,7 @@ var secp256k1halfN = new(big.Int).Rsh(secp256k1.S256().N, 1)
 // The returned signature will be of the form R || S (in lower-S form).
 func (privKey *PrivKey) Sign(msg []byte) ([]byte, error) {
 	priv, _ := secp256k1.PrivKeyFromBytes(secp256k1.S256(), privKey.Key)
-	sig, err := priv.Sign(crypto.Sha256(msg))
+	sig, err := priv.Sign(cosmoscrypto.Sha256(msg))
 	if err != nil {
 		return nil, err
 	}
@@ -46,7 +45,7 @@ func (pubKey *PubKey) VerifySignature(msg []byte, sigStr []byte) bool {
 	if signature.S.Cmp(secp256k1halfN) > 0 {
 		return false
 	}
-	return signature.Verify(crypto.Sha256(msg), pub)
+	return signature.Verify(cosmoscrypto.Sha256(msg), pub)
 }
 
 // Read Signature struct from R || S. Caller needs to ensure

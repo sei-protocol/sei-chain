@@ -1,6 +1,7 @@
 package simapp
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"math/rand"
@@ -249,7 +250,7 @@ func TestAppSimulationAfterImport(t *testing.T) {
 	newApp := NewSimApp(log.NewNopLogger(), newDB, nil, true, map[int64]bool{}, DefaultNodeHome, FlagPeriodValue, MakeTestEncodingConfig(), EmptyAppOptions{}, fauxMerkleModeOpt)
 	require.Equal(t, "SimApp", newApp.Name())
 
-	newApp.InitChain(abci.RequestInitChain{
+	newApp.InitChain(context.Background(), &abci.RequestInitChain{
 		AppStateBytes: exported.AppState,
 	})
 
@@ -291,7 +292,7 @@ func TestAppStateDeterminism(t *testing.T) {
 		for j := 0; j < numTimesToRunPerSeed; j++ {
 			var logger log.Logger
 			if FlagVerboseValue {
-				logger = log.TestingLogger()
+				logger = log.NewTestingLogger(t)
 			} else {
 				logger = log.NewNopLogger()
 			}

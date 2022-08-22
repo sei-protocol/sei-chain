@@ -7,14 +7,14 @@ import (
 	"testing"
 	"time"
 
-	abci "github.com/tendermint/tendermint/abci/types"
+	"github.com/cosmos/cosmos-sdk/types/legacytm"
 	cryptoenc "github.com/tendermint/tendermint/crypto/encoding"
 	tmbytes "github.com/tendermint/tendermint/libs/bytes"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 )
 
 type mockValidator struct {
-	val           abci.ValidatorUpdate
+	val           legacytm.ValidatorUpdate
 	livenessState int
 }
 
@@ -28,7 +28,7 @@ func (mv mockValidator) String() string {
 type mockValidators map[string]mockValidator
 
 // get mockValidators from abci validators
-func newMockValidators(r *rand.Rand, abciVals []abci.ValidatorUpdate, params Params) mockValidators {
+func newMockValidators(r *rand.Rand, abciVals []legacytm.ValidatorUpdate, params Params) mockValidators {
 	validators := make(mockValidators)
 
 	for _, validator := range abciVals {
@@ -83,7 +83,7 @@ func updateValidators(
 	r *rand.Rand,
 	params Params,
 	current map[string]mockValidator,
-	updates []abci.ValidatorUpdate,
+	updates []legacytm.ValidatorUpdate,
 	event func(route, op, evResult string),
 ) map[string]mockValidator {
 
@@ -118,15 +118,15 @@ func updateValidators(
 // the provided list of validators, signing fraction, and evidence fraction
 func RandomRequestBeginBlock(r *rand.Rand, params Params,
 	validators mockValidators, pastTimes []time.Time,
-	pastVoteInfos [][]abci.VoteInfo,
-	event func(route, op, evResult string), header tmproto.Header) abci.RequestBeginBlock {
+	pastVoteInfos [][]legacytm.VoteInfo,
+	event func(route, op, evResult string), header tmproto.Header) legacytm.RequestBeginBlock {
 	if len(validators) == 0 {
-		return abci.RequestBeginBlock{
+		return legacytm.RequestBeginBlock{
 			Header: header,
 		}
 	}
 
-	voteInfos := make([]abci.VoteInfo, len(validators))
+	voteInfos := make([]legacytm.VoteInfo, len(validators))
 
 	for i, key := range validators.getKeys() {
 		mVal := validators[key]
@@ -154,8 +154,8 @@ func RandomRequestBeginBlock(r *rand.Rand, params Params,
 			panic(err)
 		}
 
-		voteInfos[i] = abci.VoteInfo{
-			Validator: abci.Validator{
+		voteInfos[i] = legacytm.VoteInfo{
+			Validator: legacytm.Validator{
 				Address: pubkey.Address(),
 				Power:   mVal.val.Power,
 			},
@@ -165,16 +165,16 @@ func RandomRequestBeginBlock(r *rand.Rand, params Params,
 
 	// return if no past times
 	if len(pastTimes) == 0 {
-		return abci.RequestBeginBlock{
+		return legacytm.RequestBeginBlock{
 			Header: header,
-			LastCommitInfo: abci.LastCommitInfo{
+			LastCommitInfo: legacytm.LastCommitInfo{
 				Votes: voteInfos,
 			},
 		}
 	}
 
 	// TODO: Determine capacity before allocation
-	evidence := make([]abci.Evidence, 0)
+	evidence := make([]legacytm.Evidence, 0)
 
 	for r.Float64() < params.EvidenceFraction() {
 		height := header.Height
@@ -196,8 +196,8 @@ func RandomRequestBeginBlock(r *rand.Rand, params Params,
 		}
 
 		evidence = append(evidence,
-			abci.Evidence{
-				Type:             abci.EvidenceType_DUPLICATE_VOTE,
+			legacytm.Evidence{
+				Type:             legacytm.EvidenceType_DUPLICATE_VOTE,
 				Validator:        validator,
 				Height:           height,
 				Time:             time,
@@ -208,9 +208,9 @@ func RandomRequestBeginBlock(r *rand.Rand, params Params,
 		event("begin_block", "evidence", "ok")
 	}
 
-	return abci.RequestBeginBlock{
+	return legacytm.RequestBeginBlock{
 		Header: header,
-		LastCommitInfo: abci.LastCommitInfo{
+		LastCommitInfo: legacytm.LastCommitInfo{
 			Votes: voteInfos,
 		},
 		ByzantineValidators: evidence,

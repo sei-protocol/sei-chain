@@ -16,11 +16,9 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
-	tmcfg "github.com/tendermint/tendermint/config"
-	tmflags "github.com/tendermint/tendermint/libs/cli/flags"
+	"github.com/tendermint/tendermint/config"
 	"github.com/tendermint/tendermint/libs/log"
-	tmrand "github.com/tendermint/tendermint/libs/rand"
-	"github.com/tendermint/tendermint/node"
+	tmservice "github.com/tendermint/tendermint/libs/service"
 	tmclient "github.com/tendermint/tendermint/rpc/client"
 	dbm "github.com/tendermint/tm-db"
 	"google.golang.org/grpc"
@@ -42,6 +40,7 @@ import (
 	storetypes "github.com/cosmos/cosmos-sdk/store/types"
 	"github.com/cosmos/cosmos-sdk/testutil"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/cosmos/cosmos-sdk/utils"
 	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
 	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
 	"github.com/cosmos/cosmos-sdk/x/genutil"
@@ -109,8 +108,8 @@ func DefaultConfig() Config {
 		AppConstructor:    NewAppConstructor(encCfg),
 		GenesisState:      simapp.ModuleBasics.DefaultGenesis(encCfg.Marshaler),
 		TimeoutCommit:     2 * time.Second,
-		ChainID:           "chain-" + tmrand.NewRand().Str(6),
-		NumValidators:     4,
+		ChainID:           "chain-" + utils.NewRand().Str(6),
+		NumValidators:     1,
 		BondDenom:         sdk.DefaultBondDenom,
 		MinGasPrices:      fmt.Sprintf("0.000006%s", sdk.DefaultBondDenom),
 		AccountTokens:     sdk.TokensFromConsensusPower(1000, sdk.DefaultPowerReduction),
@@ -159,11 +158,13 @@ type (
 		Address    sdk.AccAddress
 		ValAddress sdk.ValAddress
 		RPCClient  tmclient.Client
+		GoCtx      context.Context
 
-		tmNode  *node.Node
-		api     *api.Server
-		grpc    *grpc.Server
-		grpcWeb *http.Server
+		tmNode   tmservice.Service
+		api      *api.Server
+		grpc     *grpc.Server
+		grpcWeb  *http.Server
+		cancelFn context.CancelFunc
 	}
 )
 
@@ -209,7 +210,9 @@ func New(t *testing.T, cfg Config) *Network {
 
 		ctx := server.NewDefaultContext()
 		tmCfg := ctx.Config
-		tmCfg.Consensus.TimeoutCommit = cfg.TimeoutCommit
+		tmCfg.BaseConfig.Mode = config.ModeValidator
+		tmCfg.Consensus.UnsafeCommitTimeoutOverride = cfg.TimeoutCommit
+		tmCfg.TxIndex = config.TestTxIndexConfig()
 
 		// Only allow the first validator to expose an RPC, API and gRPC
 		// server/client due to Tendermint in-process constraints.
@@ -243,8 +246,7 @@ func New(t *testing.T, cfg Config) *Network {
 
 		logger := log.NewNopLogger()
 		if cfg.EnableLogging {
-			logger = log.NewTMLogger(log.NewSyncWriter(os.Stdout))
-			logger, _ = tmflags.ParseLogLevel("info", logger, tmcfg.DefaultLogLevel)
+			logger = log.NewTestingLogger(t)
 		}
 
 		ctx.Logger = logger
@@ -269,7 +271,6 @@ func New(t *testing.T, cfg Config) *Network {
 		require.NoError(t, err)
 
 		tmCfg.P2P.ListenAddress = p2pAddr
-		tmCfg.P2P.AddrBookStrict = false
 		tmCfg.P2P.AllowDuplicateIP = true
 
 		nodeID, pubKey, err := genutil.InitializeNodeValidatorFiles(tmCfg)
@@ -359,6 +360,7 @@ func New(t *testing.T, cfg Config) *Network {
 			WithTxConfig(cfg.TxConfig).
 			WithAccountRetriever(cfg.AccountRetriever)
 
+		goCtx, cancelFn := context.WithCancel(context.Background())
 		network.Validators[i] = &Validator{
 			AppConfig:  appCfg,
 			ClientCtx:  clientCtx,
@@ -372,6 +374,8 @@ func New(t *testing.T, cfg Config) *Network {
 			APIAddress: apiAddr,
 			Address:    addr,
 			ValAddress: sdk.ValAddress(addr),
+			GoCtx:      goCtx,
+			cancelFn:   cancelFn,
 		}
 	}
 
@@ -474,7 +478,8 @@ func (n *Network) Cleanup() {
 
 	for _, v := range n.Validators {
 		if v.tmNode != nil && v.tmNode.IsRunning() {
-			_ = v.tmNode.Stop()
+			v.cancelFn()
+			v.tmNode.Wait()
 		}
 
 		if v.api != nil {

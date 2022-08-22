@@ -1,16 +1,20 @@
 package crypto
 
 import (
+	"bytes"
 	"encoding/hex"
+	"errors"
 	"fmt"
+	"io/ioutil"
 
 	"github.com/tendermint/crypto/bcrypt"
 	"github.com/tendermint/tendermint/crypto"
-	"github.com/tendermint/tendermint/crypto/armor"
-	"github.com/tendermint/tendermint/crypto/xsalsa20symmetric"
+	"golang.org/x/crypto/nacl/secretbox"
+	"golang.org/x/crypto/openpgp/armor"
 
 	"github.com/cosmos/cosmos-sdk/codec/legacy"
 	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
+	cosmoscrypto "github.com/cosmos/cosmos-sdk/crypto/utils"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 )
 
@@ -24,6 +28,78 @@ const (
 	headerVersion = "version"
 	headerType    = "type"
 )
+
+func EncodeArmor(blockType string, headers map[string]string, data []byte) string {
+	buf := new(bytes.Buffer)
+	w, err := armor.Encode(buf, blockType, headers)
+	if err != nil {
+		panic(fmt.Errorf("could not encode ascii armor: %s", err))
+	}
+	_, err = w.Write(data)
+	if err != nil {
+		panic(fmt.Errorf("could not encode ascii armor: %s", err))
+	}
+	err = w.Close()
+	if err != nil {
+		panic(fmt.Errorf("could not encode ascii armor: %s", err))
+	}
+	return buf.String()
+}
+
+func DecodeArmor(armorStr string) (blockType string, headers map[string]string, data []byte, err error) {
+	buf := bytes.NewBufferString(armorStr)
+	block, err := armor.Decode(buf)
+	if err != nil {
+		return "", nil, nil, err
+	}
+	data, err = ioutil.ReadAll(block.Body)
+	if err != nil {
+		return "", nil, nil, err
+	}
+	return block.Type, block.Header, data, nil
+}
+
+const nonceLen = 24
+const secretLen = 32
+
+// secret must be 32 bytes long. Use something like Sha256(Bcrypt(passphrase))
+// The ciphertext is (secretbox.Overhead + 24) bytes longer than the plaintext.
+func EncryptSymmetric(plaintext []byte, secret []byte) (ciphertext []byte) {
+	if len(secret) != secretLen {
+		panic(fmt.Sprintf("Secret must be 32 bytes long, got len %v", len(secret)))
+	}
+	nonce := crypto.CRandBytes(nonceLen)
+	nonceArr := [nonceLen]byte{}
+	copy(nonceArr[:], nonce)
+	secretArr := [secretLen]byte{}
+	copy(secretArr[:], secret)
+	ciphertext = make([]byte, nonceLen+secretbox.Overhead+len(plaintext))
+	copy(ciphertext, nonce)
+	secretbox.Seal(ciphertext[nonceLen:nonceLen], plaintext, &nonceArr, &secretArr)
+	return ciphertext
+}
+
+// secret must be 32 bytes long. Use something like Sha256(Bcrypt(passphrase))
+// The ciphertext is (secretbox.Overhead + 24) bytes longer than the plaintext.
+func DecryptSymmetric(ciphertext []byte, secret []byte) (plaintext []byte, err error) {
+	if len(secret) != secretLen {
+		panic(fmt.Sprintf("Secret must be 32 bytes long, got len %v", len(secret)))
+	}
+	if len(ciphertext) <= secretbox.Overhead+nonceLen {
+		return nil, errors.New("ciphertext is too short")
+	}
+	nonce := ciphertext[:nonceLen]
+	nonceArr := [nonceLen]byte{}
+	copy(nonceArr[:], nonce)
+	secretArr := [secretLen]byte{}
+	copy(secretArr[:], secret)
+	plaintext = make([]byte, len(ciphertext)-nonceLen-secretbox.Overhead)
+	_, ok := secretbox.Open(plaintext[:0], ciphertext[nonceLen:], &nonceArr, &secretArr)
+	if !ok {
+		return nil, errors.New("ciphertext decryption failed")
+	}
+	return plaintext, nil
+}
 
 // BcryptSecurityParameter is security parameter var, and it can be changed within the lcd test.
 // Making the bcrypt security parameter a var shouldn't be a security issue:
@@ -50,7 +126,7 @@ func ArmorInfoBytes(bz []byte) string {
 		headerVersion: "0.0.0",
 	}
 
-	return armor.EncodeArmor(blockTypeKeyInfo, header, bz)
+	return EncodeArmor(blockTypeKeyInfo, header, bz)
 }
 
 // Armor the PubKeyBytes
@@ -62,7 +138,7 @@ func ArmorPubKeyBytes(bz []byte, algo string) string {
 		header[headerType] = algo
 	}
 
-	return armor.EncodeArmor(blockTypePubKey, header, bz)
+	return EncodeArmor(blockTypePubKey, header, bz)
 }
 
 //-----------------------------------------------------------------
@@ -107,7 +183,7 @@ func UnarmorPubKeyBytes(armorStr string) (bz []byte, algo string, err error) {
 }
 
 func unarmorBytes(armorStr, blockType string) (bz []byte, header map[string]string, err error) {
-	bType, header, bz, err := armor.DecodeArmor(armorStr)
+	bType, header, bz, err := DecodeArmor(armorStr)
 	if err != nil {
 		return
 	}
@@ -135,7 +211,7 @@ func EncryptArmorPrivKey(privKey cryptotypes.PrivKey, passphrase string, algo st
 		header[headerType] = algo
 	}
 
-	armorStr := armor.EncodeArmor(blockTypePrivKey, header, encBytes)
+	armorStr := EncodeArmor(blockTypePrivKey, header, encBytes)
 
 	return armorStr
 }
@@ -151,15 +227,15 @@ func encryptPrivKey(privKey cryptotypes.PrivKey, passphrase string) (saltBytes [
 		panic(sdkerrors.Wrap(err, "error generating bcrypt key from passphrase"))
 	}
 
-	key = crypto.Sha256(key) // get 32 bytes
+	key = cosmoscrypto.Sha256(key) // get 32 bytes
 	privKeyBytes := legacy.Cdc.MustMarshal(privKey)
 
-	return saltBytes, xsalsa20symmetric.EncryptSymmetric(privKeyBytes, key)
+	return saltBytes, EncryptSymmetric(privKeyBytes, key)
 }
 
 // UnarmorDecryptPrivKey returns the privkey byte slice, a string of the algo type, and an error
 func UnarmorDecryptPrivKey(armorStr string, passphrase string) (privKey cryptotypes.PrivKey, algo string, err error) {
-	blockType, header, encBytes, err := armor.DecodeArmor(armorStr)
+	blockType, header, encBytes, err := DecodeArmor(armorStr)
 	if err != nil {
 		return privKey, "", err
 	}
@@ -196,9 +272,9 @@ func decryptPrivKey(saltBytes []byte, encBytes []byte, passphrase string) (privK
 		return privKey, sdkerrors.Wrap(err, "error generating bcrypt key from passphrase")
 	}
 
-	key = crypto.Sha256(key) // Get 32 bytes
+	key = cosmoscrypto.Sha256(key) // Get 32 bytes
 
-	privKeyBytes, err := xsalsa20symmetric.DecryptSymmetric(encBytes, key)
+	privKeyBytes, err := DecryptSymmetric(encBytes, key)
 	if err != nil && err.Error() == "Ciphertext decryption failed" {
 		return privKey, sdkerrors.ErrWrongPassword
 	} else if err != nil {

@@ -7,6 +7,7 @@ import (
 
 	abci "github.com/tendermint/tendermint/abci/types"
 
+	"github.com/cosmos/cosmos-sdk/types/legacytm"
 	authsigning "github.com/cosmos/cosmos-sdk/x/auth/signing"
 
 	"github.com/cosmos/cosmos-sdk/client"
@@ -315,7 +316,10 @@ func (s *ConverterTestSuite) TestBalanceOps() {
 			sdk.NewCoins(sdk.NewInt64Coin("test", 10), sdk.NewInt64Coin("utxo", 10)),
 		)
 
-		ops := s.c.ToRosetta().BalanceOps("", []abci.Event{(abci.Event)(subBalanceOp), (abci.Event)(addBalanceOp)})
+		abciSubBalanceOp := sdk.LegacyToABCIEvent((legacytm.Event)(subBalanceOp))
+		abciAddBalanceOp := sdk.LegacyToABCIEvent((legacytm.Event)(addBalanceOp))
+
+		ops := s.c.ToRosetta().BalanceOps("", []abci.Event{abciSubBalanceOp, abciAddBalanceOp})
 		s.Len(ops, 4)
 	})
 

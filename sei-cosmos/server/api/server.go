@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"net/http"
@@ -107,7 +108,7 @@ func (s *Server) Start(cfg config.Config) error {
 	tmCfg.WriteTimeout = time.Duration(cfg.API.RPCWriteTimeout) * time.Second
 	tmCfg.MaxBodyBytes = int64(cfg.API.RPCMaxBodyBytes)
 
-	listener, err := tmrpcserver.Listen(cfg.API.Address, tmCfg)
+	listener, err := tmrpcserver.Listen(cfg.API.Address, tmCfg.MaxOpenConnections)
 	if err != nil {
 		s.mtx.Unlock()
 		return err
@@ -121,12 +122,12 @@ func (s *Server) Start(cfg config.Config) error {
 	if cfg.API.EnableUnsafeCORS {
 		allowAllCORS := handlers.CORS(handlers.AllowedHeaders([]string{"Content-Type"}))
 		s.mtx.Unlock()
-		return tmrpcserver.Serve(s.listener, allowAllCORS(h), s.logger, tmCfg)
+		return tmrpcserver.Serve(context.Background(), s.listener, allowAllCORS(h), s.logger, tmCfg)
 	}
 
 	s.logger.Info("starting API server...")
 	s.mtx.Unlock()
-	return tmrpcserver.Serve(s.listener, s.Router, s.logger, tmCfg)
+	return tmrpcserver.Serve(context.Background(), s.listener, s.Router, s.logger, tmCfg)
 }
 
 // Close closes the API server.

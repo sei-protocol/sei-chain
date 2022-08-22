@@ -48,6 +48,10 @@ func NewStore(parent types.KVStore, writer io.Writer, tc types.TraceContext) *St
 	return &Store{parent: parent, writer: writer, context: tc}
 }
 
+func (tkv *Store) GetWorkingHash() []byte {
+	return tkv.parent.GetWorkingHash()
+}
+
 // Get implements the KVStore interface. It traces a read operation and
 // delegates a Get call to the parent KVStore.
 func (tkv *Store) Get(key []byte) []byte {

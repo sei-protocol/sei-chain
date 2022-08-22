@@ -8,7 +8,6 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/spf13/cobra"
-	tmjson "github.com/tendermint/tendermint/libs/json"
 
 	"github.com/cosmos/cosmos-sdk/client"
 	"github.com/cosmos/cosmos-sdk/client/flags"
@@ -117,7 +116,7 @@ $ %s migrate v0.36 /path/to/genesis.json --chain-id=cosmoshub-3 --genesis-time=2
 				genDoc.ChainID = chainID
 			}
 
-			bz, err := tmjson.Marshal(genDoc)
+			bz, err := json.Marshal(genDoc)
 			if err != nil {
 				return errors.Wrap(err, "failed to marshal genesis doc")
 			}

@@ -102,6 +102,10 @@ func (st *Store) GetImmutable(version int64) (*Store, error) {
 	}, nil
 }
 
+func (st *Store) GetWorkingHash() []byte {
+	return st.tree.WorkingHash()
+}
+
 // Commit commits the current store state and returns a CommitID with the new
 // version and hash.
 func (st *Store) Commit() types.CommitID {
