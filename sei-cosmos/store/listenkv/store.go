@@ -23,6 +23,10 @@ func NewStore(parent types.KVStore, parentStoreKey types.StoreKey, listeners []t
 	return &Store{parent: parent, listeners: listeners, parentStoreKey: parentStoreKey}
 }
 
+func (s *Store) GetWorkingHash() []byte {
+	return s.parent.GetWorkingHash()
+}
+
 // Get implements the KVStore interface. It traces a read operation and
 // delegates a Get call to the parent KVStore.
 func (s *Store) Get(key []byte) []byte {

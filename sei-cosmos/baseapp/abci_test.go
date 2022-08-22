@@ -1,6 +1,7 @@
 package baseapp
 
 import (
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -104,8 +105,8 @@ func TestGetBlockRentionHeight(t *testing.T) {
 		tc := tc
 
 		tc.bapp.SetParamStore(&paramStore{db: dbm.NewMemDB()})
-		tc.bapp.InitChain(abci.RequestInitChain{
-			ConsensusParams: &abci.ConsensusParams{
+		tc.bapp.InitChain(context.Background(), &abci.RequestInitChain{
+			ConsensusParams: &tmproto.ConsensusParams{
 				Evidence: &tmprototypes.EvidenceParams{
 					MaxAgeNumBlocks: tc.maxAgeBlocks,
 				},
@@ -130,11 +131,11 @@ func TestBaseAppCreateQueryContext(t *testing.T) {
 	name := t.Name()
 	app := NewBaseApp(name, logger, db, nil)
 
-	app.BeginBlock(abci.RequestBeginBlock{Header: tmproto.Header{Height: 1}})
-	app.Commit()
+	app.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{Height: 1})
+	app.Commit(context.Background())
 
-	app.BeginBlock(abci.RequestBeginBlock{Header: tmproto.Header{Height: 2}})
-	app.Commit()
+	app.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{Height: 2})
+	app.Commit(context.Background())
 
 	testCases := []struct {
 		name   string

@@ -6,6 +6,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/codec"
 	"github.com/cosmos/cosmos-sdk/server/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/cosmos/cosmos-sdk/types/legacytm"
 	"github.com/cosmos/cosmos-sdk/types/module"
 )
 
@@ -20,10 +21,10 @@ type App interface {
 	LegacyAmino() *codec.LegacyAmino
 
 	// Application updates every begin block.
-	BeginBlocker(ctx sdk.Context, req abci.RequestBeginBlock) abci.ResponseBeginBlock
+	BeginBlocker(ctx sdk.Context, req legacytm.RequestBeginBlock) legacytm.ResponseBeginBlock
 
 	// Application updates every end block.
-	EndBlocker(ctx sdk.Context, req abci.RequestEndBlock) abci.ResponseEndBlock
+	EndBlocker(ctx sdk.Context, req legacytm.RequestEndBlock) legacytm.ResponseEndBlock
 
 	// Application update at chain (i.e app) initialization.
 	InitChainer(ctx sdk.Context, req abci.RequestInitChain) abci.ResponseInitChain
@@ -41,4 +42,10 @@ type App interface {
 
 	// Helper for the simulation framework.
 	SimulationManager() *module.SimulationManager
+
+	PrepareProposalHandler(ctx sdk.Context, req *abci.RequestPrepareProposal) (*abci.ResponsePrepareProposal, error)
+
+	ProcessProposalHandler(ctx sdk.Context, req *abci.RequestProcessProposal) (*abci.ResponseProcessProposal, error)
+
+	FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBlock) (*abci.ResponseFinalizeBlock, error)
 }

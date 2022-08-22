@@ -14,6 +14,7 @@ import (
 	bam "github.com/cosmos/cosmos-sdk/baseapp"
 	"github.com/cosmos/cosmos-sdk/codec"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/cosmos/cosmos-sdk/types/legacytm"
 )
 
 // NewApp creates a simple mock kvstore app for testing. It should work
@@ -35,6 +36,27 @@ func NewApp(rootDir string, logger log.Logger) (abci.Application, error) {
 	baseApp.MountStores(capKeyMainStore)
 
 	baseApp.SetInitChainer(InitChainer(capKeyMainStore))
+	baseApp.SetFinalizeBlocker(func(ctx sdk.Context, req *abci.RequestFinalizeBlock) (*abci.ResponseFinalizeBlock, error) {
+		txResults := []*abci.ExecTxResult{}
+		for _, tx := range req.Txs {
+			deliverTxResp := baseApp.DeliverTx(legacytm.RequestDeliverTx{
+				Tx: tx,
+			})
+			txResults = append(txResults, &abci.ExecTxResult{
+				Code:      deliverTxResp.Code,
+				Data:      deliverTxResp.Data,
+				Log:       deliverTxResp.Log,
+				Info:      deliverTxResp.Info,
+				GasWanted: deliverTxResp.GasWanted,
+				GasUsed:   deliverTxResp.GasUsed,
+				Events:    deliverTxResp.Events,
+				Codespace: deliverTxResp.Codespace,
+			})
+		}
+		return &abci.ResponseFinalizeBlock{
+			TxResults: txResults,
+		}, nil
+	})
 
 	// Set a Route.
 	baseApp.Router().AddRoute(sdk.NewRoute("kvstore", KVStoreHandler(capKeyMainStore)))

@@ -16,6 +16,7 @@ import (
 
 	"github.com/cosmos/cosmos-sdk/crypto/hd"
 	csecp256k1 "github.com/cosmos/cosmos-sdk/crypto/keys/secp256k1"
+	cosmoscrypto "github.com/cosmos/cosmos-sdk/crypto/utils"
 	"github.com/cosmos/cosmos-sdk/testutil/testdata"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 )
@@ -102,7 +103,7 @@ func (mock LedgerSECP256K1Mock) SignSECP256K1(derivationPath []uint32, message [
 
 	priv, _ := secp256k1.PrivKeyFromBytes(secp256k1.S256(), derivedPriv[:])
 
-	sig, err := priv.Sign(crypto.Sha256(message))
+	sig, err := priv.Sign(cosmoscrypto.Sha256(message))
 	if err != nil {
 		return nil, err
 	}

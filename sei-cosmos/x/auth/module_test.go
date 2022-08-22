@@ -1,6 +1,7 @@
 package auth_test
 
 import (
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -16,7 +17,7 @@ func TestItCreatesModuleAccountOnInitBlock(t *testing.T) {
 	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
 
 	app.InitChain(
-		abcitypes.RequestInitChain{
+		context.Background(), &abcitypes.RequestInitChain{
 			AppStateBytes: []byte("{}"),
 			ChainId:       "test-chain-id",
 		},

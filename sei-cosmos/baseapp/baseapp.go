@@ -1,6 +1,7 @@
 package baseapp
 
 import (
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"reflect"
@@ -8,7 +9,6 @@ import (
 
 	"github.com/gogo/protobuf/proto"
 	abci "github.com/tendermint/tendermint/abci/types"
-	"github.com/tendermint/tendermint/crypto/tmhash"
 	"github.com/tendermint/tendermint/libs/log"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 	dbm "github.com/tendermint/tm-db"
@@ -19,6 +19,8 @@ import (
 	"github.com/cosmos/cosmos-sdk/store/rootmulti"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
+	"github.com/cosmos/cosmos-sdk/types/legacytm"
+	"github.com/cosmos/cosmos-sdk/utils"
 	"github.com/cosmos/cosmos-sdk/x/auth/legacy/legacytx"
 )
 
@@ -59,13 +61,16 @@ type BaseApp struct { // nolint: maligned
 	interfaceRegistry types.InterfaceRegistry
 	txDecoder         sdk.TxDecoder // unmarshal []byte into sdk.Tx
 
-	anteHandler    sdk.AnteHandler  // ante handler for fee and auth
-	initChainer    sdk.InitChainer  // initialize state with validators and state blob
-	beginBlocker   sdk.BeginBlocker // logic to run before any txs
-	endBlocker     sdk.EndBlocker   // logic to run after all txs, and to determine valset changes
-	addrPeerFilter sdk.PeerFilter   // filter peers by address and port
-	idPeerFilter   sdk.PeerFilter   // filter peers by node ID
-	fauxMerkleMode bool             // if true, IAVL MountStores uses MountStoresDB for simulation speed.
+	anteHandler            sdk.AnteHandler  // ante handler for fee and auth
+	initChainer            sdk.InitChainer  // initialize state with validators and state blob
+	beginBlocker           sdk.BeginBlocker // logic to run before any txs
+	endBlocker             sdk.EndBlocker   // logic to run after all txs, and to determine valset changes
+	addrPeerFilter         sdk.PeerFilter   // filter peers by address and port
+	idPeerFilter           sdk.PeerFilter   // filter peers by node ID
+	prepareProposalHandler sdk.PrepareProposalHandler
+	processProposalHandler sdk.ProcessProposalHandler
+	finalizeBlocker        sdk.FinalizeBlocker
+	fauxMerkleMode         bool // if true, IAVL MountStores uses MountStoresDB for simulation speed.
 
 	// manages snapshots, i.e. dumps of app state at certain intervals
 	snapshotManager    *snapshots.Manager
@@ -76,8 +81,10 @@ type BaseApp struct { // nolint: maligned
 	//
 	// checkState is set on InitChain and reset on Commit
 	// deliverState is set on InitChain and BeginBlock and set to nil on Commit
-	checkState   *state // for CheckTx
-	deliverState *state // for DeliverTx
+	checkState           *state // for CheckTx
+	deliverState         *state // for DeliverTx
+	prepareProposalState *state
+	processProposalState *state
 
 	// an inter-block write-through cache provided to the context during deliverState
 	interBlockCache sdk.MultiStorePersistentCache
@@ -133,6 +140,8 @@ type BaseApp struct { // nolint: maligned
 	// indexEvents defines the set of events in the form {eventType}.{attributeKey},
 	// which informs Tendermint what to index. If empty, all events will be indexed.
 	indexEvents map[string]struct{}
+
+	ChainID string
 }
 
 // NewBaseApp returns a reference to an initialized BaseApp. It accepts a
@@ -412,17 +421,33 @@ func (app *BaseApp) setDeliverState(header tmproto.Header) {
 	}
 }
 
+func (app *BaseApp) setPrepareProposalState(header tmproto.Header) {
+	ms := app.cms.CacheMultiStore()
+	app.prepareProposalState = &state{
+		ms:  ms,
+		ctx: sdk.NewContext(ms, header, false, app.logger),
+	}
+}
+
+func (app *BaseApp) setProcessProposalState(header tmproto.Header) {
+	ms := app.cms.CacheMultiStore()
+	app.processProposalState = &state{
+		ms:  ms,
+		ctx: sdk.NewContext(ms, header, false, app.logger),
+	}
+}
+
 // GetConsensusParams returns the current consensus parameters from the BaseApp's
 // ParamStore. If the BaseApp has no ParamStore defined, nil is returned.
-func (app *BaseApp) GetConsensusParams(ctx sdk.Context) *abci.ConsensusParams {
+func (app *BaseApp) GetConsensusParams(ctx sdk.Context) *tmproto.ConsensusParams {
 	if app.paramStore == nil {
 		return nil
 	}
 
-	cp := new(abci.ConsensusParams)
+	cp := new(tmproto.ConsensusParams)
 
 	if app.paramStore.Has(ctx, ParamStoreKeyBlockParams) {
-		var bp abci.BlockParams
+		var bp tmproto.BlockParams
 
 		app.paramStore.Get(ctx, ParamStoreKeyBlockParams, &bp)
 		cp.Block = &bp
@@ -442,6 +467,34 @@ func (app *BaseApp) GetConsensusParams(ctx sdk.Context) *abci.ConsensusParams {
 		cp.Validator = &vp
 	}
 
+	if app.paramStore.Has(ctx, ParamStoreKeyVersionParams) {
+		var vp tmproto.VersionParams
+
+		app.paramStore.Get(ctx, ParamStoreKeyVersionParams, &vp)
+		cp.Version = &vp
+	}
+
+	if app.paramStore.Has(ctx, ParamStoreKeySynchronyParams) {
+		var vp tmproto.SynchronyParams
+
+		app.paramStore.Get(ctx, ParamStoreKeySynchronyParams, &vp)
+		cp.Synchrony = &vp
+	}
+
+	if app.paramStore.Has(ctx, ParamStoreKeyTimeoutParams) {
+		var vp tmproto.TimeoutParams
+
+		app.paramStore.Get(ctx, ParamStoreKeyTimeoutParams, &vp)
+		cp.Timeout = &vp
+	}
+
+	if app.paramStore.Has(ctx, ParamStoreKeyABCIParams) {
+		var vp tmproto.ABCIParams
+
+		app.paramStore.Get(ctx, ParamStoreKeyABCIParams, &vp)
+		cp.Abci = &vp
+	}
+
 	return cp
 }
 
@@ -453,7 +506,7 @@ func (app *BaseApp) AddRunTxRecoveryHandler(handlers ...RecoveryHandler) {
 }
 
 // StoreConsensusParams sets the consensus parameters to the baseapp's param store.
-func (app *BaseApp) StoreConsensusParams(ctx sdk.Context, cp *abci.ConsensusParams) {
+func (app *BaseApp) StoreConsensusParams(ctx sdk.Context, cp *tmproto.ConsensusParams) {
 	if app.paramStore == nil {
 		panic("cannot store consensus params with no params store set")
 	}
@@ -465,6 +518,10 @@ func (app *BaseApp) StoreConsensusParams(ctx sdk.Context, cp *abci.ConsensusPara
 	app.paramStore.Set(ctx, ParamStoreKeyBlockParams, cp.Block)
 	app.paramStore.Set(ctx, ParamStoreKeyEvidenceParams, cp.Evidence)
 	app.paramStore.Set(ctx, ParamStoreKeyValidatorParams, cp.Validator)
+	app.paramStore.Set(ctx, ParamStoreKeyVersionParams, cp.Version)
+	app.paramStore.Set(ctx, ParamStoreKeySynchronyParams, cp.Synchrony)
+	app.paramStore.Set(ctx, ParamStoreKeyTimeoutParams, cp.Timeout)
+	app.paramStore.Set(ctx, ParamStoreKeyABCIParams, cp.Abci)
 }
 
 // getMaximumBlockGas gets the maximum gas from the consensus params. It panics
@@ -490,7 +547,7 @@ func (app *BaseApp) getMaximumBlockGas(ctx sdk.Context) uint64 {
 	}
 }
 
-func (app *BaseApp) validateHeight(req abci.RequestBeginBlock) error {
+func (app *BaseApp) validateHeight(req legacytm.RequestBeginBlock) error {
 	if req.Header.Height < 1 {
 		return fmt.Errorf("invalid height: %d", req.Header.Height)
 	}
@@ -572,7 +629,7 @@ func (app *BaseApp) cacheTxContext(ctx sdk.Context, txBytes []byte) (sdk.Context
 		msCache = msCache.SetTracingContext(
 			sdk.TraceContext(
 				map[string]interface{}{
-					"txHash": fmt.Sprintf("%X", tmhash.Sum(txBytes)),
+					"txHash": fmt.Sprintf("%X", sha256.Sum256(txBytes)),
 				},
 			),
 		).(sdk.CacheMultiStore)
@@ -679,7 +736,7 @@ func (app *BaseApp) runTx(mode runTxMode, txBytes []byte) (gInfo sdk.GasInfo, re
 		}
 
 		msCache.Write()
-		anteEvents = events.ToABCIEvents()
+		anteEvents = utils.Map(events.ToABCIEvents(), sdk.LegacyToABCIEvent)
 	}
 
 	// Create a new Context based off of the existing Context with a MultiStore branch
@@ -691,6 +748,7 @@ func (app *BaseApp) runTx(mode runTxMode, txBytes []byte) (gInfo sdk.GasInfo, re
 	// and we're in DeliverTx. Note, runMsgs will never return a reference to a
 	// Result if any single message fails or does not have a registered Handler.
 	result, err = app.runMsgs(runMsgCtx, msgs, mode)
+
 	if err == nil && mode == runTxModeDeliver {
 		// When block gas exceeds, it'll panic and won't commit the cached store.
 		consumeBlockGas()
@@ -712,6 +770,12 @@ func (app *BaseApp) runTx(mode runTxMode, txBytes []byte) (gInfo sdk.GasInfo, re
 // Handler does not exist for a given message route. Otherwise, a reference to a
 // Result is returned. The caller must not commit state if an error is returned.
 func (app *BaseApp) runMsgs(ctx sdk.Context, msgs []sdk.Msg, mode runTxMode) (*sdk.Result, error) {
+	defer func() {
+		if err := recover(); err != nil {
+			fmt.Println(err)
+			panic(err)
+		}
+	}()
 	msgLogs := make(sdk.ABCIMessageLogs, 0, len(msgs))
 	events := sdk.EmptyEvents()
 	txMsgData := &sdk.TxMsgData{
@@ -780,6 +844,6 @@ func (app *BaseApp) runMsgs(ctx sdk.Context, msgs []sdk.Msg, mode runTxMode) (*s
 	return &sdk.Result{
 		Data:   data,
 		Log:    strings.TrimSpace(msgLogs.String()),
-		Events: events.ToABCIEvents(),
+		Events: utils.Map(events.ToABCIEvents(), sdk.LegacyToABCIEvent),
 	}, nil
 }

@@ -2,17 +2,17 @@ package network
 
 import (
 	"encoding/json"
+	"io/ioutil"
 	"path/filepath"
 	"time"
 
+	"github.com/cosmos/cosmos-sdk/crypto/codec"
+	tmtime "github.com/cosmos/cosmos-sdk/std"
+	abciclient "github.com/tendermint/tendermint/abci/client"
 	tmos "github.com/tendermint/tendermint/libs/os"
 	"github.com/tendermint/tendermint/node"
-	"github.com/tendermint/tendermint/p2p"
-	pvm "github.com/tendermint/tendermint/privval"
-	"github.com/tendermint/tendermint/proxy"
 	"github.com/tendermint/tendermint/rpc/client/local"
 	"github.com/tendermint/tendermint/types"
-	tmtime "github.com/tendermint/tendermint/types/time"
 
 	"github.com/cosmos/cosmos-sdk/server/api"
 	servergrpc "github.com/cosmos/cosmos-sdk/server/grpc"
@@ -32,36 +32,45 @@ func startInProcess(cfg Config, val *Validator) error {
 		return err
 	}
 
-	nodeKey, err := p2p.LoadOrGenNodeKey(tmCfg.NodeKeyFile())
-	if err != nil {
-		return err
-	}
-
 	app := cfg.AppConstructor(*val)
 
-	genDocProvider := node.DefaultGenesisDocProviderFunc(tmCfg)
-	tmNode, err := node.NewNode(
+	defaultGensis, err := types.GenesisDocFromFile(tmCfg.GenesisFile())
+	if err != nil {
+		return err
+	}
+	tmPubKey, err := codec.ToTmPubKeyInterface(val.PubKey)
+	if err != nil {
+		return err
+	}
+	defaultGensis.Validators = []types.GenesisValidator{
+		{
+			PubKey:  tmPubKey,
+			Address: tmPubKey.Address(),
+			Name:    val.Moniker,
+			Power:   100,
+		},
+	}
+	tmNode, err := node.New(
+		val.GoCtx,
 		tmCfg,
-		pvm.LoadOrGenFilePV(tmCfg.PrivValidatorKeyFile(), tmCfg.PrivValidatorStateFile()),
-		nodeKey,
-		proxy.NewLocalClientCreator(app),
-		genDocProvider,
-		node.DefaultDBProvider,
-		node.DefaultMetricsProvider(tmCfg.Instrumentation),
-		logger.With("module", val.Moniker),
+		logger,
+		abciclient.NewLocalClient(logger, app),
+		defaultGensis,
 	)
+
 	if err != nil {
 		return err
 	}
 
-	if err := tmNode.Start(); err != nil {
+	if err := tmNode.Start(val.GoCtx); err != nil {
 		return err
 	}
 
 	val.tmNode = tmNode
 
 	if val.RPCAddress != "" {
-		val.RPCClient = local.New(tmNode)
+		localClient, _ := local.New(logger, tmNode.(local.NodeService))
+		val.RPCClient = localClient
 	}
 
 	// We'll need a RPC client if the validator exposes a gRPC or REST endpoint.
@@ -202,7 +211,7 @@ func writeFile(name string, dir string, contents []byte) error {
 		return err
 	}
 
-	err = tmos.WriteFile(file, contents, 0644)
+	err = ioutil.WriteFile(file, contents, 0644)
 	if err != nil {
 		return err
 	}

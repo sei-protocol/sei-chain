@@ -7,6 +7,7 @@ import (
 	tmcrypto "github.com/tendermint/tendermint/proto/tendermint/crypto"
 
 	sdkmaps "github.com/cosmos/cosmos-sdk/store/internal/maps"
+	"github.com/cosmos/cosmos-sdk/utils"
 )
 
 // SimpleResult contains a merkle.SimpleProof along with all data needed to build the confio/proof
@@ -70,7 +71,7 @@ func GetKey(allkeys []string, loc Where) string {
 		return allkeys[len(allkeys)-1]
 	}
 	// select a random index between 1 and allkeys-2
-	idx := rand.Int()%(len(allkeys)-2) + 1
+	idx := utils.Int()%(len(allkeys)-2) + 1
 	return allkeys[idx]
 }
 

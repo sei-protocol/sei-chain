@@ -8,7 +8,6 @@ import (
 	"math/rand"
 	"time"
 
-	tmjson "github.com/tendermint/tendermint/libs/json"
 	tmtypes "github.com/tendermint/tendermint/types"
 
 	"github.com/cosmos/cosmos-sdk/codec"
@@ -201,7 +200,7 @@ func AppStateFromGenesisFileFn(r io.Reader, cdc codec.JSONCodec, genesisFile str
 
 	var genesis tmtypes.GenesisDoc
 	// NOTE: Tendermint uses a custom JSON decoder for GenesisDoc
-	err = tmjson.Unmarshal(bytes, &genesis)
+	err = json.Unmarshal(bytes, &genesis)
 	if err != nil {
 		panic(err)
 	}

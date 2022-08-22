@@ -159,6 +159,7 @@ func validatorsOutput(ctx context.Context, cctx client.Context, height *int64, p
 // GetNodeInfo implements ServiceServer.GetNodeInfo
 func (s queryServer) GetNodeInfo(ctx context.Context, req *GetNodeInfoRequest) (*GetNodeInfoResponse, error) {
 	status, err := getNodeStatus(ctx, s.clientCtx)
+
 	if err != nil {
 		return nil, err
 	}

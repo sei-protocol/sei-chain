@@ -412,6 +412,7 @@ func ParseQueryParamBool(r *http.Request, param string) bool {
 // An error is returned if the request or reading the body fails.
 func GetRequest(url string) ([]byte, error) {
 	res, err := http.Get(url) // nolint:gosec
+
 	if err != nil {
 		return nil, err
 	}

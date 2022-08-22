@@ -3,6 +3,7 @@ package server
 // DONTCOVER
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"os"
@@ -10,13 +11,11 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	abciclient "github.com/tendermint/tendermint/abci/client"
 	"github.com/tendermint/tendermint/abci/server"
 	tcmd "github.com/tendermint/tendermint/cmd/tendermint/commands"
-	tmos "github.com/tendermint/tendermint/libs/os"
+	"github.com/tendermint/tendermint/libs/service"
 	"github.com/tendermint/tendermint/node"
-	"github.com/tendermint/tendermint/p2p"
-	pvm "github.com/tendermint/tendermint/privval"
-	"github.com/tendermint/tendermint/proxy"
 	"github.com/tendermint/tendermint/rpc/client/local"
 	"google.golang.org/grpc"
 
@@ -164,7 +163,7 @@ is performed. Note, when enabled, gRPC will also be automatically enabled.
 	cmd.Flags().Uint32(FlagStateSyncSnapshotKeepRecent, 2, "State sync snapshot to keep")
 
 	// add support for all Tendermint-specific command line options
-	tcmd.AddNodeFlags(cmd)
+	tcmd.AddNodeFlags(cmd, NewDefaultContext().Config)
 	return cmd
 }
 
@@ -186,22 +185,21 @@ func startStandAlone(ctx *Context, appCreator types.AppCreator) error {
 
 	app := appCreator(ctx.Logger, db, traceWriter, ctx.Viper)
 
-	svr, err := server.NewServer(addr, transport, app)
+	svr, err := server.NewServer(ctx.Logger.With("module", "abci-server"), addr, transport, app)
 	if err != nil {
 		return fmt.Errorf("error creating listener: %v", err)
 	}
 
-	svr.SetLogger(ctx.Logger.With("module", "abci-server"))
-
-	err = svr.Start()
+	goCtx, cancel := context.WithCancel(context.Background())
+	err = svr.Start(goCtx)
 	if err != nil {
-		tmos.Exit(err.Error())
+		fmt.Printf(err.Error() + "\n")
+		os.Exit(1)
 	}
 
 	defer func() {
-		if err = svr.Stop(); err != nil {
-			tmos.Exit(err.Error())
-		}
+		cancel()
+		svr.Wait()
 	}()
 
 	// Wait for SIGINT or SIGTERM signal
@@ -211,6 +209,8 @@ func startStandAlone(ctx *Context, appCreator types.AppCreator) error {
 func startInProcess(ctx *Context, clientCtx client.Context, appCreator types.AppCreator) error {
 	cfg := ctx.Config
 	home := cfg.RootDir
+	goCtx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	var cpuProfileCleanup func()
 
 	if cpuProfile := ctx.Viper.GetString(flagCPUProfile); cpuProfile != "" {
@@ -251,15 +251,8 @@ func startInProcess(ctx *Context, clientCtx client.Context, appCreator types.App
 
 	app := appCreator(ctx.Logger, db, traceWriter, ctx.Viper)
 
-	nodeKey, err := p2p.LoadOrGenNodeKey(cfg.NodeKeyFile())
-	if err != nil {
-		return err
-	}
-
-	genDocProvider := node.DefaultGenesisDocProviderFunc(cfg)
-
 	var (
-		tmNode   *node.Node
+		tmNode   service.Service
 		gRPCOnly = ctx.Viper.GetBool(flagGRPCOnly)
 	)
 
@@ -268,21 +261,17 @@ func startInProcess(ctx *Context, clientCtx client.Context, appCreator types.App
 		config.GRPC.Enable = true
 	} else {
 		ctx.Logger.Info("starting node with ABCI Tendermint in-process")
-
-		tmNode, err = node.NewNode(
-			cfg,
-			pvm.LoadOrGenFilePV(cfg.PrivValidatorKeyFile(), cfg.PrivValidatorStateFile()),
-			nodeKey,
-			proxy.NewLocalClientCreator(app),
-			genDocProvider,
-			node.DefaultDBProvider,
-			node.DefaultMetricsProvider(cfg.Instrumentation),
+		tmNode, err = node.New(
+			goCtx,
+			ctx.Config,
 			ctx.Logger,
+			abciclient.NewLocalClient(ctx.Logger, app),
+			nil,
 		)
 		if err != nil {
 			return err
 		}
-		if err := tmNode.Start(); err != nil {
+		if err := tmNode.Start(goCtx); err != nil {
 			return err
 		}
 	}
@@ -291,7 +280,11 @@ func startInProcess(ctx *Context, clientCtx client.Context, appCreator types.App
 	// service if API or gRPC is enabled, and avoid doing so in the general
 	// case, because it spawns a new local tendermint RPC client.
 	if (config.API.Enable || config.GRPC.Enable) && tmNode != nil {
-		clientCtx = clientCtx.WithClient(local.New(tmNode))
+		localClient, err := local.New(ctx.Logger, tmNode.(local.NodeService))
+		if err != nil {
+			return err
+		}
+		clientCtx = clientCtx.WithClient(localClient)
 
 		app.RegisterTxService(clientCtx)
 		app.RegisterTendermintService(clientCtx)
@@ -299,12 +292,7 @@ func startInProcess(ctx *Context, clientCtx client.Context, appCreator types.App
 
 	var apiSrv *api.Server
 	if config.API.Enable {
-		genDoc, err := genDocProvider()
-		if err != nil {
-			return err
-		}
-
-		clientCtx := clientCtx.WithHomeDir(home).WithChainID(genDoc.ChainID)
+		clientCtx := clientCtx.WithHomeDir(home).WithChainID(clientCtx.ChainID)
 
 		apiSrv = api.New(clientCtx, ctx.Logger.With("module", "api-server"))
 		app.RegisterAPIRoutes(apiSrv, config.API)
@@ -394,8 +382,9 @@ func startInProcess(ctx *Context, clientCtx client.Context, appCreator types.App
 	}
 
 	defer func() {
+		cancel()
 		if tmNode.IsRunning() {
-			_ = tmNode.Stop()
+			tmNode.Wait()
 		}
 
 		if cpuProfileCleanup != nil {

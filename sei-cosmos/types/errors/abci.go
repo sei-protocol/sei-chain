@@ -42,27 +42,11 @@ func ABCIInfo(err error, debug bool) (codespace string, code uint32, log string)
 // ResponseCheckTx returns an ABCI ResponseCheckTx object with fields filled in
 // from the given error and gas values.
 func ResponseCheckTx(err error, gw, gu uint64, debug bool) abci.ResponseCheckTx {
-	space, code, log := ABCIInfo(err, debug)
+	space, code, _ := ABCIInfo(err, debug)
 	return abci.ResponseCheckTx{
 		Codespace: space,
 		Code:      code,
-		Log:       log,
 		GasWanted: int64(gw),
-		GasUsed:   int64(gu),
-	}
-}
-
-// ResponseCheckTxWithEvents returns an ABCI ResponseCheckTx object with fields filled in
-// from the given error, gas values and events.
-func ResponseCheckTxWithEvents(err error, gw, gu uint64, events []abci.Event, debug bool) abci.ResponseCheckTx {
-	space, code, log := ABCIInfo(err, debug)
-	return abci.ResponseCheckTx{
-		Codespace: space,
-		Code:      code,
-		Log:       log,
-		GasWanted: int64(gw),
-		GasUsed:   int64(gu),
-		Events:    events,
 	}
 }
 

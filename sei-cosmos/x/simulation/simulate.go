@@ -1,6 +1,7 @@
 package simulation
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"math/rand"
@@ -16,7 +17,9 @@ import (
 	"github.com/cosmos/cosmos-sdk/baseapp"
 	"github.com/cosmos/cosmos-sdk/codec"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/cosmos/cosmos-sdk/types/legacytm"
 	"github.com/cosmos/cosmos-sdk/types/simulation"
+	"github.com/cosmos/cosmos-sdk/utils"
 )
 
 const AverageBlockTime = 6 * time.Second
@@ -40,8 +43,13 @@ func initChain(
 		ConsensusParams: consensusParams,
 		Time:            genesisTimestamp,
 	}
-	res := app.InitChain(req)
-	validators := newMockValidators(r, res.Validators, params)
+	res, _ := app.InitChain(context.Background(), &req)
+	validators := newMockValidators(r, utils.Map(res.Validators, func(v abci.ValidatorUpdate) legacytm.ValidatorUpdate {
+		return legacytm.ValidatorUpdate{
+			PubKey: v.PubKey,
+			Power:  v.Power,
+		}
+	}), params)
 
 	return validators, genesisTimestamp, accounts, chainID
 }
@@ -119,7 +127,7 @@ func SimulateFromSeed(
 
 	var (
 		pastTimes     []time.Time
-		pastVoteInfos [][]abci.VoteInfo
+		pastVoteInfos [][]legacytm.VoteInfo
 	)
 
 	request := RandomRequestBeginBlock(r, params,
@@ -183,7 +191,7 @@ func SimulateFromSeed(
 		operations := blockSimulator(r, app, ctx, accs, header)
 		opCount += operations + numQueuedOpsRan + numQueuedTimeOpsRan
 
-		res := app.EndBlock(abci.RequestEndBlock{})
+		res := app.EndBlock(legacytm.RequestEndBlock{})
 		header.Height++
 		header.Time = header.Time.Add(
 			time.Duration(minTimePerBlock) * time.Second)
@@ -194,7 +202,7 @@ func SimulateFromSeed(
 		logWriter.AddEntry(EndBlockEntry(int64(height)))
 
 		if config.Commit {
-			app.Commit()
+			app.Commit(context.Background())
 		}
 
 		if header.ProposerAddress == nil {

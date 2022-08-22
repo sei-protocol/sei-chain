@@ -14,6 +14,7 @@ import (
 
 	"github.com/cosmos/cosmos-sdk/codec"
 	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
+	cosmoscryptoutils "github.com/cosmos/cosmos-sdk/crypto/utils"
 	"github.com/cosmos/cosmos-sdk/types/errors"
 )
 
@@ -80,7 +81,7 @@ func (privKey *PrivKey) UnmarshalAminoJSON(bz []byte) error {
 // GenPrivKey generates a new ECDSA private key on curve secp256k1 private key.
 // It uses OS randomness to generate the private key.
 func GenPrivKey() *PrivKey {
-	return &PrivKey{Key: genPrivKey(crypto.CReader())}
+	return &PrivKey{Key: genPrivKey(cosmoscryptoutils.CReader())}
 }
 
 // genPrivKey generates a new secp256k1 private key using the provided reader.

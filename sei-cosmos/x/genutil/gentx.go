@@ -9,6 +9,8 @@ import (
 	"github.com/cosmos/cosmos-sdk/client"
 	"github.com/cosmos/cosmos-sdk/codec"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/cosmos/cosmos-sdk/types/legacytm"
+	"github.com/cosmos/cosmos-sdk/utils"
 	bankexported "github.com/cosmos/cosmos-sdk/x/bank/exported"
 	"github.com/cosmos/cosmos-sdk/x/genutil/types"
 	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
@@ -86,7 +88,7 @@ func ValidateAccountInGenesis(
 	return nil
 }
 
-type deliverTxfn func(abci.RequestDeliverTx) abci.ResponseDeliverTx
+type deliverTxfn func(legacytm.RequestDeliverTx) abci.ResponseDeliverTx
 
 // DeliverGenTxs iterates over all genesis txs, decodes each into a Tx and
 // invokes the provided deliverTxfn with the decoded Tx. It returns the result
@@ -108,11 +110,20 @@ func DeliverGenTxs(
 			panic(err)
 		}
 
-		res := deliverTx(abci.RequestDeliverTx{Tx: bz})
+		res := deliverTx(legacytm.RequestDeliverTx{Tx: bz})
 		if !res.IsOK() {
 			panic(res.Log)
 		}
 	}
 
-	return stakingKeeper.ApplyAndReturnValidatorSetUpdates(ctx)
+	legacyUpdates, err := stakingKeeper.ApplyAndReturnValidatorSetUpdates(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return utils.Map(legacyUpdates, func(v legacytm.ValidatorUpdate) abci.ValidatorUpdate {
+		return abci.ValidatorUpdate{
+			PubKey: v.PubKey,
+			Power:  v.Power,
+		}
+	}), nil
 }

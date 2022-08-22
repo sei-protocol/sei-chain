@@ -1,15 +1,15 @@
 package types
 
 import (
+	"crypto/sha256"
 	"fmt"
 	"time"
 
-	abci "github.com/tendermint/tendermint/abci/types"
-	"github.com/tendermint/tendermint/crypto/tmhash"
 	tmbytes "github.com/tendermint/tendermint/libs/bytes"
 	"gopkg.in/yaml.v2"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/cosmos/cosmos-sdk/types/legacytm"
 	"github.com/cosmos/cosmos-sdk/x/evidence/exported"
 )
 
@@ -38,7 +38,8 @@ func (e *Equivocation) Hash() tmbytes.HexBytes {
 	if err != nil {
 		panic(err)
 	}
-	return tmhash.Sum(bz)
+	b := sha256.Sum256(bz)
+	return b[:]
 }
 
 // ValidateBasic performs basic stateless validation checks on an Equivocation object.
@@ -87,7 +88,7 @@ func (e Equivocation) GetTotalPower() int64 { return 0 }
 
 // FromABCIEvidence converts a Tendermint concrete Evidence type to
 // SDK Evidence using Equivocation as the concrete type.
-func FromABCIEvidence(e abci.Evidence) exported.Evidence {
+func FromABCIEvidence(e legacytm.Evidence) exported.Evidence {
 	bech32PrefixConsAddr := sdk.GetConfig().GetBech32ConsensusAddrPrefix()
 	consAddr, err := sdk.Bech32ifyAddressBytes(bech32PrefixConsAddr, e.Validator.Address)
 	if err != nil {

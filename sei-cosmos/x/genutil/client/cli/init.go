@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"path/filepath"
 
 	"github.com/cosmos/go-bip39"
 	"github.com/pkg/errors"
@@ -140,7 +139,7 @@ func InitCmd(mbm module.BasicManager, defaultNodeHome string) *cobra.Command {
 
 			toPrint := newPrintInfo(config.Moniker, chainID, nodeID, "", appState)
 
-			cfg.WriteConfigFile(filepath.Join(config.RootDir, "config", "config.toml"), config)
+			cfg.WriteConfigFile(config.RootDir, config)
 			return displayInfo(toPrint)
 		},
 	}

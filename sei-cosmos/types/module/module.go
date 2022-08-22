@@ -43,6 +43,7 @@ import (
 	codectypes "github.com/cosmos/cosmos-sdk/codec/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
+	"github.com/cosmos/cosmos-sdk/types/legacytm"
 )
 
 // AppModuleBasic is the standard form for basic non-dependant elements of an application module.
@@ -180,8 +181,8 @@ type AppModule interface {
 	ConsensusVersion() uint64
 
 	// ABCI
-	BeginBlock(sdk.Context, abci.RequestBeginBlock)
-	EndBlock(sdk.Context, abci.RequestEndBlock) []abci.ValidatorUpdate
+	BeginBlock(sdk.Context, legacytm.RequestBeginBlock)
+	EndBlock(sdk.Context, legacytm.RequestEndBlock) []legacytm.ValidatorUpdate
 }
 
 // GenesisOnlyAppModule is an AppModule that only has import/export functionality
@@ -215,11 +216,11 @@ func (gam GenesisOnlyAppModule) RegisterServices(Configurator) {}
 func (gam GenesisOnlyAppModule) ConsensusVersion() uint64 { return 1 }
 
 // BeginBlock returns an empty module begin-block
-func (gam GenesisOnlyAppModule) BeginBlock(ctx sdk.Context, req abci.RequestBeginBlock) {}
+func (gam GenesisOnlyAppModule) BeginBlock(ctx sdk.Context, req legacytm.RequestBeginBlock) {}
 
 // EndBlock returns an empty module end-block
-func (GenesisOnlyAppModule) EndBlock(_ sdk.Context, _ abci.RequestEndBlock) []abci.ValidatorUpdate {
-	return []abci.ValidatorUpdate{}
+func (GenesisOnlyAppModule) EndBlock(_ sdk.Context, _ legacytm.RequestEndBlock) []legacytm.ValidatorUpdate {
+	return []legacytm.ValidatorUpdate{}
 }
 
 // Manager defines a module manager that provides the high level utility for managing and executing
@@ -472,14 +473,14 @@ func (m Manager) RunMigrations(ctx sdk.Context, cfg Configurator, fromVM Version
 // BeginBlock performs begin block functionality for all modules. It creates a
 // child context with an event manager to aggregate events emitted from all
 // modules.
-func (m *Manager) BeginBlock(ctx sdk.Context, req abci.RequestBeginBlock) abci.ResponseBeginBlock {
+func (m *Manager) BeginBlock(ctx sdk.Context, req legacytm.RequestBeginBlock) legacytm.ResponseBeginBlock {
 	ctx = ctx.WithEventManager(sdk.NewEventManager())
 
 	for _, moduleName := range m.OrderBeginBlockers {
 		m.Modules[moduleName].BeginBlock(ctx, req)
 	}
 
-	return abci.ResponseBeginBlock{
+	return legacytm.ResponseBeginBlock{
 		Events: ctx.EventManager().ABCIEvents(),
 	}
 }
@@ -487,9 +488,9 @@ func (m *Manager) BeginBlock(ctx sdk.Context, req abci.RequestBeginBlock) abci.R
 // EndBlock performs end block functionality for all modules. It creates a
 // child context with an event manager to aggregate events emitted from all
 // modules.
-func (m *Manager) EndBlock(ctx sdk.Context, req abci.RequestEndBlock) abci.ResponseEndBlock {
+func (m *Manager) EndBlock(ctx sdk.Context, req legacytm.RequestEndBlock) legacytm.ResponseEndBlock {
 	ctx = ctx.WithEventManager(sdk.NewEventManager())
-	validatorUpdates := []abci.ValidatorUpdate{}
+	validatorUpdates := []legacytm.ValidatorUpdate{}
 
 	for _, moduleName := range m.OrderEndBlockers {
 		moduleValUpdates := m.Modules[moduleName].EndBlock(ctx, req)
@@ -505,7 +506,7 @@ func (m *Manager) EndBlock(ctx sdk.Context, req abci.RequestEndBlock) abci.Respo
 		}
 	}
 
-	return abci.ResponseEndBlock{
+	return legacytm.ResponseEndBlock{
 		ValidatorUpdates: validatorUpdates,
 		Events:           ctx.EventManager().ABCIEvents(),
 	}

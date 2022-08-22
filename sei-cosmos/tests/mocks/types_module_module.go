@@ -8,6 +8,7 @@ import (
 	json "encoding/json"
 	reflect "reflect"
 
+	"github.com/cosmos/cosmos-sdk/types/legacytm"
 	client "github.com/cosmos/cosmos-sdk/client"
 	codec "github.com/cosmos/cosmos-sdk/codec"
 	types "github.com/cosmos/cosmos-sdk/codec/types"
@@ -354,7 +355,7 @@ func (m *MockAppModule) EXPECT() *MockAppModuleMockRecorder {
 }
 
 // BeginBlock mocks base method.
-func (m *MockAppModule) BeginBlock(arg0 types0.Context, arg1 types1.RequestBeginBlock) {
+func (m *MockAppModule) BeginBlock(arg0 types0.Context, arg1 legacytm.RequestBeginBlock) {
 	m.ctrl.T.Helper()
 	m.ctrl.Call(m, "BeginBlock", arg0, arg1)
 }
@@ -394,10 +395,10 @@ func (mr *MockAppModuleMockRecorder) DefaultGenesis(arg0 interface{}) *gomock.Ca
 }
 
 // EndBlock mocks base method.
-func (m *MockAppModule) EndBlock(arg0 types0.Context, arg1 types1.RequestEndBlock) []types1.ValidatorUpdate {
+func (m *MockAppModule) EndBlock(arg0 types0.Context, arg1 legacytm.RequestEndBlock) []legacytm.ValidatorUpdate {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "EndBlock", arg0, arg1)
-	ret0, _ := ret[0].([]types1.ValidatorUpdate)
+	ret0, _ := ret[0].([]legacytm.ValidatorUpdate)
 	return ret0
 }
 

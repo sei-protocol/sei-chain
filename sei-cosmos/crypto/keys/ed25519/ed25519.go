@@ -2,16 +2,17 @@ package ed25519
 
 import (
 	"crypto/ed25519"
+	"crypto/sha256"
 	"crypto/subtle"
 	"fmt"
 	"io"
 
 	"github.com/hdevalence/ed25519consensus"
 	"github.com/tendermint/tendermint/crypto"
-	"github.com/tendermint/tendermint/crypto/tmhash"
 
 	"github.com/cosmos/cosmos-sdk/codec"
 	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
+	cosmoscrypto "github.com/cosmos/cosmos-sdk/crypto/utils"
 	"github.com/cosmos/cosmos-sdk/types/errors"
 )
 
@@ -122,7 +123,7 @@ func (privKey *PrivKey) UnmarshalAminoJSON(bz []byte) error {
 // It uses OS randomness in conjunction with the current global random seed
 // in tendermint/libs/common to generate the private key.
 func GenPrivKey() *PrivKey {
-	return genPrivKey(crypto.CReader())
+	return genPrivKey(cosmoscrypto.CReader())
 }
 
 // genPrivKey generates a new ed25519 private key using the provided reader.
@@ -143,7 +144,7 @@ func genPrivKey(rand io.Reader) *PrivKey {
 // NOTE: secret should be the output of a KDF like bcrypt,
 // if it's derived from user input.
 func GenPrivKeyFromSecret(secret []byte) *PrivKey {
-	seed := crypto.Sha256(secret) // Not Ripemd160 because we want 32 bytes.
+	seed := cosmoscrypto.Sha256(secret) // Not Ripemd160 because we want 32 bytes.
 
 	return &PrivKey{Key: ed25519.NewKeyFromSeed(seed)}
 }
@@ -152,6 +153,8 @@ func GenPrivKeyFromSecret(secret []byte) *PrivKey {
 
 var _ cryptotypes.PubKey = &PubKey{}
 var _ codec.AminoMarshaler = &PubKey{}
+
+const TruncatedSize = 20
 
 // Address is the SHA256-20 of the raw pubkey bytes.
 // It doesn't implement ADR-28 addresses and it must not be used
@@ -162,7 +165,8 @@ func (pubKey *PubKey) Address() crypto.Address {
 	}
 	// For ADR-28 compatible address we would need to
 	// return address.Hash(proto.MessageName(pubKey), pubKey.Key)
-	return crypto.Address(tmhash.SumTruncated(pubKey.Key))
+	hash := sha256.Sum256(pubKey.Key)
+	return crypto.Address(hash[:TruncatedSize])
 }
 
 // Bytes returns the PubKey byte format.

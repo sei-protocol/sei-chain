@@ -6,12 +6,12 @@ import (
 	"fmt"
 	"reflect"
 
+	cosmoscrypto "github.com/cosmos/cosmos-sdk/crypto/utils"
 	auth "github.com/cosmos/cosmos-sdk/x/auth/types"
 
-	"github.com/tendermint/tendermint/crypto"
-
 	"github.com/btcsuite/btcd/btcec"
-	tmcoretypes "github.com/tendermint/tendermint/rpc/core/types"
+	tmcoretypes "github.com/tendermint/tendermint/rpc/coretypes"
+	tmtypes "github.com/tendermint/tendermint/types"
 
 	crgtypes "github.com/cosmos/cosmos-sdk/server/rosetta/lib/types"
 
@@ -20,7 +20,6 @@ import (
 
 	rosettatypes "github.com/coinbase/rosetta-sdk-go/types"
 	abci "github.com/tendermint/tendermint/abci/types"
-	tmtypes "github.com/tendermint/tendermint/types"
 
 	crgerrs "github.com/cosmos/cosmos-sdk/server/rosetta/lib/errors"
 
@@ -124,7 +123,7 @@ func NewConverter(cdc *codec.ProtoCodec, ir codectypes.InterfaceRegistry, cfg sd
 				return nil, err
 			}
 
-			return crypto.Sha256(bytesToSign), nil
+			return cosmoscrypto.Sha256(bytesToSign), nil
 		},
 		ir:  ir,
 		cdc: cdc,
@@ -571,9 +570,9 @@ func (c converter) Peers(peers []tmcoretypes.Peer) []*rosettatypes.Peer {
 
 	for i, peer := range peers {
 		converted[i] = &rosettatypes.Peer{
-			PeerID: peer.NodeInfo.Moniker,
+			PeerID: peer.ID.AddressString(""),
 			Metadata: map[string]interface{}{
-				"addr": peer.NodeInfo.ListenAddr,
+				"addr": peer.URL,
 			},
 		}
 	}

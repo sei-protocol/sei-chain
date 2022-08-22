@@ -5,11 +5,11 @@ import (
 	"io"
 
 	abci "github.com/tendermint/tendermint/abci/types"
-	tmstrings "github.com/tendermint/tendermint/libs/strings"
 	dbm "github.com/tendermint/tm-db"
 
 	snapshottypes "github.com/cosmos/cosmos-sdk/snapshots/types"
 	"github.com/cosmos/cosmos-sdk/types/kv"
+	"github.com/cosmos/cosmos-sdk/utils"
 )
 
 type Store interface {
@@ -70,7 +70,7 @@ func (s *StoreUpgrades) IsAdded(key string) bool {
 	if s == nil {
 		return false
 	}
-	return tmstrings.StringInSlice(key, s.Added)
+	return utils.StringInSlice(key, s.Added)
 }
 
 // IsDeleted returns true if the given key should be deleted
@@ -137,6 +137,8 @@ type MultiStore interface {
 	// AddListeners adds WriteListeners for the KVStore belonging to the provided StoreKey
 	// It appends the listeners to a current set, if one already exists
 	AddListeners(key StoreKey, listeners []WriteListener)
+
+	GetWorkingHash() []byte
 }
 
 // From MultiStore.CacheMultiStore()....
@@ -226,6 +228,8 @@ type KVStore interface {
 	// CONTRACT: No writes may happen within a domain while an iterator exists over it.
 	// Exceptionally allowed for cachekv.Store, safe to write in the modules.
 	ReverseIterator(start, end []byte) Iterator
+
+	GetWorkingHash() []byte
 }
 
 // Iterator is an alias db's Iterator for convenience.

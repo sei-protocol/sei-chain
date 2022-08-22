@@ -188,3 +188,7 @@ func (cms Store) GetKVStore(key types.StoreKey) types.KVStore {
 	}
 	return store.(types.KVStore)
 }
+
+func (cms Store) GetWorkingHash() []byte {
+	panic("should never attempt to get working hash from cache multi store")
+}

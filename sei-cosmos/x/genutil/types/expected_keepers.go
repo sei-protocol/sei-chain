@@ -3,17 +3,16 @@ package types
 import (
 	"encoding/json"
 
-	abci "github.com/tendermint/tendermint/abci/types"
-
 	"github.com/cosmos/cosmos-sdk/codec"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/cosmos/cosmos-sdk/types/legacytm"
 	auth "github.com/cosmos/cosmos-sdk/x/auth/types"
 	bankexported "github.com/cosmos/cosmos-sdk/x/bank/exported"
 )
 
 // StakingKeeper defines the expected staking keeper (noalias)
 type StakingKeeper interface {
-	ApplyAndReturnValidatorSetUpdates(sdk.Context) (updates []abci.ValidatorUpdate, err error)
+	ApplyAndReturnValidatorSetUpdates(sdk.Context) (updates []legacytm.ValidatorUpdate, err error)
 }
 
 // AccountKeeper defines the expected account keeper (noalias)

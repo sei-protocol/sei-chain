@@ -104,7 +104,7 @@ func (c *Client) Bootstrap() error {
 		return err
 	}
 
-	tmRPC, err := http.New(c.config.TendermintRPC, tmWebsocketPath)
+	tmRPC, err := http.New(c.config.TendermintRPC)
 	if err != nil {
 		return err
 	}
@@ -275,13 +275,6 @@ func (c *Client) GetTx(ctx context.Context, hash string) (*rosettatypes.Transact
 		}
 
 		return fullBlock.Transactions[0], nil
-	// handle deliver tx hash
-	case DeliverTxTx:
-		rawTx, err := c.tmRPC.Tx(ctx, hashBytes, true)
-		if err != nil {
-			return nil, crgerrs.WrapError(crgerrs.ErrUnknown, err.Error())
-		}
-		return c.converter.ToRosetta().Tx(rawTx.Tx, &rawTx.TxResult)
 	// handle end block hash
 	case EndBlockTx:
 		// get block height by hash
@@ -306,7 +299,7 @@ func (c *Client) GetTx(ctx context.Context, hash string) (*rosettatypes.Transact
 
 // GetUnconfirmedTx gets an unconfirmed transaction given its hash
 func (c *Client) GetUnconfirmedTx(ctx context.Context, hash string) (*rosettatypes.Transaction, error) {
-	res, err := c.tmRPC.UnconfirmedTxs(ctx, nil)
+	res, err := c.tmRPC.UnconfirmedTxs(ctx, nil, nil)
 	if err != nil {
 		return nil, crgerrs.WrapError(crgerrs.ErrNotFound, "unconfirmed tx not found")
 	}
@@ -339,7 +332,7 @@ func (c *Client) GetUnconfirmedTx(ctx context.Context, hash string) (*rosettatyp
 
 // Mempool returns the unconfirmed transactions in the mempool
 func (c *Client) Mempool(ctx context.Context) ([]*rosettatypes.TransactionIdentifier, error) {
-	txs, err := c.tmRPC.UnconfirmedTxs(ctx, nil)
+	txs, err := c.tmRPC.UnconfirmedTxs(ctx, nil, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -374,16 +367,14 @@ func (c *Client) PostTx(txBytes []byte) (*rosettatypes.TransactionIdentifier, ma
 	if res.Code != abcitypes.CodeTypeOK {
 		return nil, nil, crgerrs.WrapError(
 			crgerrs.ErrUnknown,
-			fmt.Sprintf("transaction broadcast failure: (%d) %s ", res.Code, res.Log),
+			fmt.Sprintf("transaction broadcast failure: (%d)", res.Code),
 		)
 	}
 
 	return &rosettatypes.TransactionIdentifier{
 			Hash: fmt.Sprintf("%X", res.Hash),
 		},
-		map[string]interface{}{
-			Log: res.Log,
-		}, nil
+		map[string]interface{}{}, nil
 }
 
 // construction endpoints
@@ -449,7 +440,7 @@ func (c *Client) blockTxs(ctx context.Context, height *int64) (crgtypes.BlockTra
 		TransactionIdentifier: &rosettatypes.TransactionIdentifier{Hash: c.converter.ToRosetta().BeginBlockTxHash(blockInfo.BlockID.Hash)},
 		Operations: AddOperationIndexes(
 			nil,
-			c.converter.ToRosetta().BalanceOps(StatusTxSuccess, blockResults.BeginBlockEvents),
+			c.converter.ToRosetta().BalanceOps(StatusTxSuccess, []abcitypes.Event{}),
 		),
 	}
 
@@ -457,14 +448,14 @@ func (c *Client) blockTxs(ctx context.Context, height *int64) (crgtypes.BlockTra
 		TransactionIdentifier: &rosettatypes.TransactionIdentifier{Hash: c.converter.ToRosetta().EndBlockTxHash(blockInfo.BlockID.Hash)},
 		Operations: AddOperationIndexes(
 			nil,
-			c.converter.ToRosetta().BalanceOps(StatusTxSuccess, blockResults.EndBlockEvents),
+			c.converter.ToRosetta().BalanceOps(StatusTxSuccess, blockResults.FinalizeBlockEvents),
 		),
 	}
 
 	deliverTx := make([]*rosettatypes.Transaction, len(blockInfo.Block.Txs))
 	// process normal txs
 	for i, tx := range blockInfo.Block.Txs {
-		rosTx, err := c.converter.ToRosetta().Tx(tx, blockResults.TxsResults[i])
+		rosTx, err := c.converter.ToRosetta().Tx(tx, &abcitypes.ResponseDeliverTx{})
 		if err != nil {
 			return crgtypes.BlockTransactionsResponse{}, err
 		}

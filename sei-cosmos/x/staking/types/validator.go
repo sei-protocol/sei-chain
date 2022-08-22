@@ -17,6 +17,7 @@ import (
 	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
+	"github.com/cosmos/cosmos-sdk/types/legacytm"
 )
 
 const (
@@ -38,6 +39,7 @@ var (
 var _ ValidatorI = Validator{}
 
 // NewValidator constructs a new Validator
+//
 //nolint:interfacer
 func NewValidator(operator sdk.ValAddress, pubKey cryptotypes.PubKey, description Description) (Validator, error) {
 	pkAny, err := codectypes.NewAnyWithValue(pubKey)
@@ -267,15 +269,27 @@ func (v Validator) ABCIValidatorUpdate(r sdk.Int) abci.ValidatorUpdate {
 	}
 }
 
-// ABCIValidatorUpdateZero returns an abci.ValidatorUpdate from a staking validator type
-// with zero power used for validator updates.
-func (v Validator) ABCIValidatorUpdateZero() abci.ValidatorUpdate {
+func (v Validator) LegacyABCIValidatorUpdate(r sdk.Int) legacytm.ValidatorUpdate {
 	tmProtoPk, err := v.TmConsPublicKey()
 	if err != nil {
 		panic(err)
 	}
 
-	return abci.ValidatorUpdate{
+	return legacytm.ValidatorUpdate{
+		PubKey: tmProtoPk,
+		Power:  v.ConsensusPower(r),
+	}
+}
+
+// ABCIValidatorUpdateZero returns an abci.ValidatorUpdate from a staking validator type
+// with zero power used for validator updates.
+func (v Validator) ABCIValidatorUpdateZero() legacytm.ValidatorUpdate {
+	tmProtoPk, err := v.TmConsPublicKey()
+	if err != nil {
+		panic(err)
+	}
+
+	return legacytm.ValidatorUpdate{
 		PubKey: tmProtoPk,
 		Power:  0,
 	}
@@ -406,7 +420,8 @@ func (v Validator) RemoveTokens(tokens sdk.Int) Validator {
 
 // RemoveDelShares removes delegator shares from a validator.
 // NOTE: because token fractions are left in the valiadator,
-//       the exchange rate of future shares of this validator can increase.
+//
+//	the exchange rate of future shares of this validator can increase.
 func (v Validator) RemoveDelShares(delShares sdk.Dec) (Validator, sdk.Int) {
 	remainingShares := v.DelegatorShares.Sub(delShares)
 

@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/suite"
-	ctypes "github.com/tendermint/tendermint/rpc/core/types"
+	ctypes "github.com/tendermint/tendermint/rpc/coretypes"
 
 	"github.com/cosmos/cosmos-sdk/client/rpc"
 	"github.com/cosmos/cosmos-sdk/codec/legacy"

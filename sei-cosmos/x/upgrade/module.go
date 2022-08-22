@@ -13,6 +13,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/codec"
 	codectypes "github.com/cosmos/cosmos-sdk/codec/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/cosmos/cosmos-sdk/types/legacytm"
 	"github.com/cosmos/cosmos-sdk/types/module"
 	"github.com/cosmos/cosmos-sdk/x/upgrade/client/cli"
 	"github.com/cosmos/cosmos-sdk/x/upgrade/client/rest"
@@ -126,11 +127,11 @@ func (AppModule) ConsensusVersion() uint64 { return 1 }
 // BeginBlock calls the upgrade module hooks
 //
 // CONTRACT: this is registered in BeginBlocker *before* all other modules' BeginBlock functions
-func (am AppModule) BeginBlock(ctx sdk.Context, req abci.RequestBeginBlock) {
+func (am AppModule) BeginBlock(ctx sdk.Context, req legacytm.RequestBeginBlock) {
 	BeginBlocker(am.keeper, ctx, req)
 }
 
 // EndBlock does nothing
-func (am AppModule) EndBlock(ctx sdk.Context, _ abci.RequestEndBlock) []abci.ValidatorUpdate {
-	return []abci.ValidatorUpdate{}
+func (am AppModule) EndBlock(ctx sdk.Context, _ legacytm.RequestEndBlock) []legacytm.ValidatorUpdate {
+	return []legacytm.ValidatorUpdate{}
 }

@@ -7,6 +7,8 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/cosmos/cosmos-sdk/types/legacytm"
+	"github.com/cosmos/cosmos-sdk/utils"
 	"github.com/gogo/protobuf/jsonpb"
 	proto "github.com/gogo/protobuf/proto"
 	abci "github.com/tendermint/tendermint/abci/types"
@@ -43,7 +45,7 @@ func (em *EventManager) EmitEvents(events Events) {
 }
 
 // ABCIEvents returns all stored Event objects as abci.Event objects.
-func (em EventManager) ABCIEvents() []abci.Event {
+func (em EventManager) ABCIEvents() []legacytm.Event {
 	return em.events.ToABCIEvents()
 }
 
@@ -87,9 +89,9 @@ func TypedEventToEvent(tev proto.Message) (Event, error) {
 		return Event{}, err
 	}
 
-	attrs := make([]abci.EventAttribute, 0, len(attrMap))
+	attrs := make([]legacytm.EventAttribute, 0, len(attrMap))
 	for k, v := range attrMap {
-		attrs = append(attrs, abci.EventAttribute{
+		attrs = append(attrs, legacytm.EventAttribute{
 			Key:   []byte(k),
 			Value: v,
 		})
@@ -102,7 +104,7 @@ func TypedEventToEvent(tev proto.Message) (Event, error) {
 }
 
 // ParseTypedEvent converts abci.Event back to typed event
-func ParseTypedEvent(event abci.Event) (proto.Message, error) {
+func ParseTypedEvent(event legacytm.Event) (proto.Message, error) {
 	concreteGoType := proto.MessageType(event.Type)
 	if concreteGoType == nil {
 		return nil, fmt.Errorf("failed to retrieve the message of type %q", event.Type)
@@ -144,7 +146,7 @@ func ParseTypedEvent(event abci.Event) (proto.Message, error) {
 
 type (
 	// Event is a type alias for an ABCI Event
-	Event abci.Event
+	Event legacytm.Event
 
 	// Events defines a slice of Event objects
 	Events []Event
@@ -177,8 +179,8 @@ func (a Attribute) String() string {
 }
 
 // ToKVPair converts an Attribute object into a Tendermint key/value pair.
-func (a Attribute) ToKVPair() abci.EventAttribute {
-	return abci.EventAttribute{Key: toBytes(a.Key), Value: toBytes(a.Value)}
+func (a Attribute) ToKVPair() legacytm.EventAttribute {
+	return legacytm.EventAttribute{Key: toBytes(a.Key), Value: toBytes(a.Value)}
 }
 
 // AppendAttributes adds one or more attributes to an Event.
@@ -201,13 +203,39 @@ func (e Events) AppendEvents(events Events) Events {
 
 // ToABCIEvents converts a slice of Event objects to a slice of abci.Event
 // objects.
-func (e Events) ToABCIEvents() []abci.Event {
-	res := make([]abci.Event, len(e))
+func (e Events) ToABCIEvents() []legacytm.Event {
+	res := make([]legacytm.Event, len(e))
 	for i, ev := range e {
-		res[i] = abci.Event{Type: ev.Type, Attributes: ev.Attributes}
+		res[i] = legacytm.Event{Type: ev.Type, Attributes: ev.Attributes}
 	}
 
 	return res
+}
+
+func LegacyToABCIEvent(legacyEvent legacytm.Event) abci.Event {
+	return abci.Event{
+		Type: legacyEvent.Type,
+		Attributes: utils.Map(legacyEvent.Attributes, func(legacyAttribute legacytm.EventAttribute) abci.EventAttribute {
+			return abci.EventAttribute{
+				Key:   string(legacyAttribute.Key),
+				Value: string(legacyAttribute.Value),
+				Index: legacyAttribute.Index,
+			}
+		}),
+	}
+}
+
+func ABCIToLegacyEvent(event abci.Event) legacytm.Event {
+	return legacytm.Event{
+		Type: event.Type,
+		Attributes: utils.Map(event.Attributes, func(attribute abci.EventAttribute) legacytm.EventAttribute {
+			return legacytm.EventAttribute{
+				Key:   []byte(attribute.Key),
+				Value: []byte(attribute.Value),
+				Index: attribute.Index,
+			}
+		}),
+	}
 }
 
 func toBytes(i interface{}) []byte {
@@ -307,19 +335,19 @@ func StringifyEvents(events []abci.Event) StringEvents {
 
 // MarkEventsToIndex returns the set of ABCI events, where each event's attribute
 // has it's index value marked based on the provided set of events to index.
-func MarkEventsToIndex(events []abci.Event, indexSet map[string]struct{}) []abci.Event {
+func MarkEventsToIndex(events []legacytm.Event, indexSet map[string]struct{}) []legacytm.Event {
 	indexAll := len(indexSet) == 0
-	updatedEvents := make([]abci.Event, len(events))
+	updatedEvents := make([]legacytm.Event, len(events))
 
 	for i, e := range events {
-		updatedEvent := abci.Event{
+		updatedEvent := legacytm.Event{
 			Type:       e.Type,
-			Attributes: make([]abci.EventAttribute, len(e.Attributes)),
+			Attributes: make([]legacytm.EventAttribute, len(e.Attributes)),
 		}
 
 		for j, attr := range e.Attributes {
 			_, index := indexSet[fmt.Sprintf("%s.%s", e.Type, attr.Key)]
-			updatedAttr := abci.EventAttribute{
+			updatedAttr := legacytm.EventAttribute{
 				Key:   attr.Key,
 				Value: attr.Value,
 				Index: index || indexAll,

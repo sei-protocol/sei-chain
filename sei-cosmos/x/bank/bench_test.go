@@ -1,15 +1,16 @@
 package bank_test
 
 import (
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/require"
-	abci "github.com/tendermint/tendermint/abci/types"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 
 	"github.com/cosmos/cosmos-sdk/simapp"
 	simappparams "github.com/cosmos/cosmos-sdk/simapp/params"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/cosmos/cosmos-sdk/types/legacytm"
 	"github.com/cosmos/cosmos-sdk/x/auth/types"
 	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
 	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
@@ -32,7 +33,7 @@ func BenchmarkOneBankSendTxPerBlock(b *testing.B) {
 	// some value conceivably higher than the benchmarks would ever go
 	require.NoError(b, simapp.FundAccount(benchmarkApp.BankKeeper, ctx, addr1, sdk.NewCoins(sdk.NewInt64Coin("foocoin", 100000000000))))
 
-	benchmarkApp.Commit()
+	benchmarkApp.Commit(context.Background())
 	txGen := simappparams.MakeTestEncodingConfig().TxConfig
 
 	// Precompute all txs
@@ -45,7 +46,7 @@ func BenchmarkOneBankSendTxPerBlock(b *testing.B) {
 	// Run this with a profiler, so its easy to distinguish what time comes from
 	// Committing, and what time comes from Check/Deliver Tx.
 	for i := 0; i < b.N; i++ {
-		benchmarkApp.BeginBlock(abci.RequestBeginBlock{Header: tmproto.Header{Height: height}})
+		benchmarkApp.BeginBlock(legacytm.RequestBeginBlock{Header: tmproto.Header{Height: height}})
 		_, _, err := benchmarkApp.Check(txGen.TxEncoder(), txs[i])
 		if err != nil {
 			panic("something is broken in checking transaction")
@@ -53,8 +54,8 @@ func BenchmarkOneBankSendTxPerBlock(b *testing.B) {
 
 		_, _, err = benchmarkApp.Deliver(txGen.TxEncoder(), txs[i])
 		require.NoError(b, err)
-		benchmarkApp.EndBlock(abci.RequestEndBlock{Height: height})
-		benchmarkApp.Commit()
+		benchmarkApp.EndBlock(legacytm.RequestEndBlock{Height: height})
+		benchmarkApp.Commit(context.Background())
 		height++
 	}
 }
@@ -74,7 +75,7 @@ func BenchmarkOneBankMultiSendTxPerBlock(b *testing.B) {
 	// some value conceivably higher than the benchmarks would ever go
 	require.NoError(b, simapp.FundAccount(benchmarkApp.BankKeeper, ctx, addr1, sdk.NewCoins(sdk.NewInt64Coin("foocoin", 100000000000))))
 
-	benchmarkApp.Commit()
+	benchmarkApp.Commit(context.Background())
 	txGen := simappparams.MakeTestEncodingConfig().TxConfig
 
 	// Precompute all txs
@@ -87,7 +88,7 @@ func BenchmarkOneBankMultiSendTxPerBlock(b *testing.B) {
 	// Run this with a profiler, so its easy to distinguish what time comes from
 	// Committing, and what time comes from Check/Deliver Tx.
 	for i := 0; i < b.N; i++ {
-		benchmarkApp.BeginBlock(abci.RequestBeginBlock{Header: tmproto.Header{Height: height}})
+		benchmarkApp.BeginBlock(legacytm.RequestBeginBlock{Header: tmproto.Header{Height: height}})
 		_, _, err := benchmarkApp.Check(txGen.TxEncoder(), txs[i])
 		if err != nil {
 			panic("something is broken in checking transaction")
@@ -95,8 +96,8 @@ func BenchmarkOneBankMultiSendTxPerBlock(b *testing.B) {
 
 		_, _, err = benchmarkApp.Deliver(txGen.TxEncoder(), txs[i])
 		require.NoError(b, err)
-		benchmarkApp.EndBlock(abci.RequestEndBlock{Height: height})
-		benchmarkApp.Commit()
+		benchmarkApp.EndBlock(legacytm.RequestEndBlock{Height: height})
+		benchmarkApp.Commit(context.Background())
 		height++
 	}
 }

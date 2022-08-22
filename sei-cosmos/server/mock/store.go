@@ -134,6 +134,10 @@ func (ms multiStore) Restore(
 	panic("not implemented")
 }
 
+func (ms multiStore) GetWorkingHash() []byte {
+	panic("not implemented")
+}
+
 var _ sdk.KVStore = kvStore{}
 
 type kvStore struct {
@@ -153,6 +157,10 @@ func (kv kvStore) CacheWrapWithListeners(_ store.StoreKey, _ []store.WriteListen
 }
 
 func (kv kvStore) GetStoreType() sdk.StoreType {
+	panic("not implemented")
+}
+
+func (kv kvStore) GetWorkingHash() []byte {
 	panic("not implemented")
 }
 

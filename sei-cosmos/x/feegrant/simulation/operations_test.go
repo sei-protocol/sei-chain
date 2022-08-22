@@ -1,6 +1,7 @@
 package simulation_test
 
 import (
+	"context"
 	"math/rand"
 	"testing"
 	"time"
@@ -105,7 +106,7 @@ func (suite *SimTestSuite) TestSimulateMsgGrantAllowance() {
 	accounts := suite.getTestingAccounts(r, 3)
 
 	// begin a new block
-	app.BeginBlock(abci.RequestBeginBlock{Header: tmproto.Header{Height: app.LastBlockHeight() + 1, AppHash: app.LastCommitID().Hash}})
+	suite.app.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{Height: suite.app.LastBlockHeight() + 1, Hash: suite.app.LastCommitID().Hash})
 
 	// execute operation
 	op := simulation.SimulateMsgGrantAllowance(app.AccountKeeper, app.BankKeeper, app.FeeGrantKeeper)
@@ -130,7 +131,7 @@ func (suite *SimTestSuite) TestSimulateMsgRevokeAllowance() {
 	accounts := suite.getTestingAccounts(r, 3)
 
 	// begin a new block
-	app.BeginBlock(abci.RequestBeginBlock{Header: tmproto.Header{Height: suite.app.LastBlockHeight() + 1, AppHash: suite.app.LastCommitID().Hash}})
+	suite.app.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{Height: suite.app.LastBlockHeight() + 1, Hash: suite.app.LastCommitID().Hash})
 
 	feeAmt := app.StakingKeeper.TokensFromConsensusPower(ctx, 200000)
 	feeCoins := sdk.NewCoins(sdk.NewCoin("foo", feeAmt))

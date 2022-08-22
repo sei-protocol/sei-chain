@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/suite"
 	abci "github.com/tendermint/tendermint/abci/types"
 	"github.com/tendermint/tendermint/libs/bytes"
-	ctypes "github.com/tendermint/tendermint/rpc/core/types"
+	ctypes "github.com/tendermint/tendermint/rpc/coretypes"
 
 	"github.com/cosmos/cosmos-sdk/codec"
 	"github.com/cosmos/cosmos-sdk/testutil/testdata"
@@ -64,7 +64,7 @@ func (s *resultTestSuite) TestNewSearchTxsResult() {
 }
 
 func (s *resultTestSuite) TestResponseResultTx() {
-	deliverTxResult := abci.ResponseDeliverTx{
+	deliverTxResult := abci.ExecTxResult{
 		Codespace: "codespace",
 		Code:      1,
 		Data:      []byte("data"),
@@ -120,7 +120,6 @@ txhash: "74657374"
 		Code:      1,
 		Codespace: "codespace",
 		Data:      []byte("data"),
-		Log:       `[]`,
 		Hash:      bytes.HexBytes([]byte("test")),
 	}
 
@@ -128,8 +127,7 @@ txhash: "74657374"
 		Code:      1,
 		Codespace: "codespace",
 		Data:      "64617461",
-		RawLog:    `[]`,
-		Logs:      logs,
+		RawLog:    "",
 		TxHash:    "74657374",
 	}, sdk.NewResponseFormatBroadcastTx(resultBroadcastTx))
 	s.Require().Equal((*sdk.TxResponse)(nil), sdk.NewResponseFormatBroadcastTx(nil))
@@ -149,29 +147,14 @@ func (s *resultTestSuite) TestResponseFormatBroadcastTxCommit() {
 		CheckTx: abci.ResponseCheckTx{
 			Code:      90,
 			Data:      nil,
-			Log:       `[]`,
-			Info:      "info",
 			GasWanted: 99,
-			GasUsed:   100,
 			Codespace: "codespace",
-			Events: []abci.Event{
-				{
-					Type: "message",
-					Attributes: []abci.EventAttribute{
-						{
-							Key:   []byte("action"),
-							Value: []byte("foo"),
-							Index: true,
-						},
-					},
-				},
-			},
 		},
 	}
 	deliverTxResult := &ctypes.ResultBroadcastTxCommit{
 		Height: 10,
 		Hash:   bytes.HexBytes([]byte("test")),
-		DeliverTx: abci.ResponseDeliverTx{
+		TxResult: abci.ExecTxResult{
 			Code:      90,
 			Data:      nil,
 			Log:       `[]`,
@@ -184,8 +167,8 @@ func (s *resultTestSuite) TestResponseFormatBroadcastTxCommit() {
 					Type: "message",
 					Attributes: []abci.EventAttribute{
 						{
-							Key:   []byte("action"),
-							Value: []byte("foo"),
+							Key:   "action",
+							Value: "foo",
 							Index: true,
 						},
 					},
@@ -193,7 +176,15 @@ func (s *resultTestSuite) TestResponseFormatBroadcastTxCommit() {
 			},
 		},
 	}
-	want := &sdk.TxResponse{
+	checkWant := &sdk.TxResponse{
+		Height:    10,
+		TxHash:    "74657374",
+		Codespace: "codespace",
+		Code:      90,
+		Data:      "",
+		GasWanted: 99,
+	}
+	deliverWant := &sdk.TxResponse{
 		Height:    10,
 		TxHash:    "74657374",
 		Codespace: "codespace",
@@ -209,8 +200,8 @@ func (s *resultTestSuite) TestResponseFormatBroadcastTxCommit() {
 				Type: "message",
 				Attributes: []abci.EventAttribute{
 					{
-						Key:   []byte("action"),
-						Value: []byte("foo"),
+						Key:   "action",
+						Value: "foo",
 						Index: true,
 					},
 				},
@@ -218,8 +209,8 @@ func (s *resultTestSuite) TestResponseFormatBroadcastTxCommit() {
 		},
 	}
 
-	s.Require().Equal(want, sdk.NewResponseFormatBroadcastTxCommit(checkTxResult))
-	s.Require().Equal(want, sdk.NewResponseFormatBroadcastTxCommit(deliverTxResult))
+	s.Require().Equal(checkWant, sdk.NewResponseFormatBroadcastTxCommit(checkTxResult))
+	s.Require().Equal(deliverWant, sdk.NewResponseFormatBroadcastTxCommit(deliverTxResult))
 }
 
 func TestWrapServiceResult(t *testing.T) {

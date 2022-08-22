@@ -18,6 +18,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/crypto/keys/ed25519"
 	"github.com/cosmos/cosmos-sdk/crypto/keys/secp256k1"
 	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
+	cosmoscrypto "github.com/cosmos/cosmos-sdk/crypto/utils"
 )
 
 type keyData struct {
@@ -63,7 +64,7 @@ func TestSignAndValidateSecp256k1(t *testing.T) {
 
 	// ----
 	// Test cross packages verification
-	msgHash := crypto.Sha256(msg)
+	msgHash := cosmoscrypto.Sha256(msg)
 	btcPrivKey, btcPubKey := btcSecp256k1.PrivKeyFromBytes(btcSecp256k1.S256(), privKey.Key)
 	// This fails: malformed signature: no header magic
 	//   btcSig, err := secp256k1.ParseSignature(sig, secp256k1.S256())

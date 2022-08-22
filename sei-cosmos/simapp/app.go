@@ -2,6 +2,7 @@ package simapp
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"os"
@@ -12,7 +13,7 @@ import (
 	"github.com/spf13/cast"
 	abci "github.com/tendermint/tendermint/abci/types"
 	"github.com/tendermint/tendermint/libs/log"
-	tmos "github.com/tendermint/tendermint/libs/os"
+	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 	dbm "github.com/tendermint/tm-db"
 
 	"github.com/cosmos/cosmos-sdk/baseapp"
@@ -27,7 +28,9 @@ import (
 	simappparams "github.com/cosmos/cosmos-sdk/simapp/params"
 	"github.com/cosmos/cosmos-sdk/testutil/testdata"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/cosmos/cosmos-sdk/types/legacytm"
 	"github.com/cosmos/cosmos-sdk/types/module"
+	"github.com/cosmos/cosmos-sdk/utils"
 	"github.com/cosmos/cosmos-sdk/version"
 	"github.com/cosmos/cosmos-sdk/x/auth"
 	"github.com/cosmos/cosmos-sdk/x/auth/ante"
@@ -415,10 +418,14 @@ func NewSimApp(
 
 	app.SetAnteHandler(anteHandler)
 	app.SetEndBlocker(app.EndBlocker)
+	app.SetPrepareProposalHandler(app.PrepareProposalHandler)
+	app.SetProcessProposalHandler(app.ProcessProposalHandler)
+	app.SetFinalizeBlocker(app.FinalizeBlocker)
 
 	if loadLatest {
 		if err := app.LoadLatestVersion(); err != nil {
-			tmos.Exit(err.Error())
+			fmt.Println(err.Error())
+			os.Exit(1)
 		}
 	}
 
@@ -428,13 +435,109 @@ func NewSimApp(
 // Name returns the name of the App
 func (app *SimApp) Name() string { return app.BaseApp.Name() }
 
+func (app *SimApp) PrepareProposalHandler(ctx sdk.Context, req *abci.RequestPrepareProposal) (*abci.ResponsePrepareProposal, error) {
+	return &abci.ResponsePrepareProposal{
+		TxRecords: utils.Map(req.Txs, func(tx []byte) *abci.TxRecord {
+			return &abci.TxRecord{Action: abci.TxRecord_UNMODIFIED, Tx: tx}
+		}),
+	}, nil
+}
+
+func (app *SimApp) ProcessProposalHandler(ctx sdk.Context, req *abci.RequestProcessProposal) (*abci.ResponseProcessProposal, error) {
+	return &abci.ResponseProcessProposal{
+		Status: abci.ResponseProcessProposal_ACCEPT,
+	}, nil
+}
+
+func (app *SimApp) FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBlock) (*abci.ResponseFinalizeBlock, error) {
+	events := []abci.Event{}
+	beginBlockResp := app.BeginBlock(legacytm.RequestBeginBlock{
+		Hash: req.Hash,
+		ByzantineValidators: utils.Map(req.ByzantineValidators, func(mis abci.Misbehavior) legacytm.Evidence {
+			return legacytm.Evidence{
+				Type:             legacytm.EvidenceType(mis.Type),
+				Validator:        legacytm.Validator(mis.Validator),
+				Height:           mis.Height,
+				Time:             mis.Time,
+				TotalVotingPower: mis.TotalVotingPower,
+			}
+		}),
+		LastCommitInfo: legacytm.LastCommitInfo{
+			Round: req.DecidedLastCommit.Round,
+			Votes: utils.Map(req.DecidedLastCommit.Votes, func(vote abci.VoteInfo) legacytm.VoteInfo {
+				return legacytm.VoteInfo{
+					Validator:       legacytm.Validator(vote.Validator),
+					SignedLastBlock: vote.SignedLastBlock,
+				}
+			}),
+		},
+		Header: tmproto.Header{
+			ChainID:         app.ChainID,
+			Height:          req.Height,
+			Time:            req.Time,
+			ProposerAddress: ctx.BlockHeader().ProposerAddress,
+		},
+	})
+	events = append(events, utils.Map(beginBlockResp.Events, sdk.LegacyToABCIEvent)...)
+	txResults := []*abci.ExecTxResult{}
+	for _, tx := range req.Txs {
+		deliverTxResp := app.DeliverTx(legacytm.RequestDeliverTx{
+			Tx: tx,
+		})
+		txResults = append(txResults, &abci.ExecTxResult{
+			Code:      deliverTxResp.Code,
+			Data:      deliverTxResp.Data,
+			Log:       deliverTxResp.Log,
+			Info:      deliverTxResp.Info,
+			GasWanted: deliverTxResp.GasWanted,
+			GasUsed:   deliverTxResp.GasUsed,
+			Events:    deliverTxResp.Events,
+			Codespace: deliverTxResp.Codespace,
+		})
+	}
+	endBlockResp := app.EndBlock(legacytm.RequestEndBlock{
+		Height: req.Height,
+	})
+	events = append(events, utils.Map(endBlockResp.Events, sdk.LegacyToABCIEvent)...)
+
+	appHash := app.WriteDeliverStateAndGetWorkingHash()
+	return &abci.ResponseFinalizeBlock{
+		Events:    events,
+		TxResults: txResults,
+		ValidatorUpdates: utils.Map(endBlockResp.ValidatorUpdates, func(v legacytm.ValidatorUpdate) abci.ValidatorUpdate {
+			return abci.ValidatorUpdate{
+				PubKey: v.PubKey,
+				Power:  v.Power,
+			}
+		}),
+		ConsensusParamUpdates: &tmproto.ConsensusParams{
+			Block: &tmproto.BlockParams{
+				MaxBytes: endBlockResp.ConsensusParamUpdates.Block.MaxBytes,
+				MaxGas:   endBlockResp.ConsensusParamUpdates.Block.MaxGas,
+			},
+			Evidence: &tmproto.EvidenceParams{
+				MaxAgeNumBlocks: endBlockResp.ConsensusParamUpdates.Evidence.MaxAgeNumBlocks,
+				MaxAgeDuration:  endBlockResp.ConsensusParamUpdates.Evidence.MaxAgeDuration,
+				MaxBytes:        endBlockResp.ConsensusParamUpdates.Block.MaxBytes,
+			},
+			Validator: &tmproto.ValidatorParams{
+				PubKeyTypes: endBlockResp.ConsensusParamUpdates.Validator.PubKeyTypes,
+			},
+			Version: &tmproto.VersionParams{
+				AppVersion: endBlockResp.ConsensusParamUpdates.Version.AppVersion,
+			},
+		},
+		AppHash: appHash,
+	}, nil
+}
+
 // BeginBlocker application updates every begin block
-func (app *SimApp) BeginBlocker(ctx sdk.Context, req abci.RequestBeginBlock) abci.ResponseBeginBlock {
+func (app *SimApp) BeginBlocker(ctx sdk.Context, req legacytm.RequestBeginBlock) legacytm.ResponseBeginBlock {
 	return app.mm.BeginBlock(ctx, req)
 }
 
 // EndBlocker application updates every end block
-func (app *SimApp) EndBlocker(ctx sdk.Context, req abci.RequestEndBlock) abci.ResponseEndBlock {
+func (app *SimApp) EndBlocker(ctx sdk.Context, req legacytm.RequestEndBlock) legacytm.ResponseEndBlock {
 	return app.mm.EndBlock(ctx, req)
 }
 

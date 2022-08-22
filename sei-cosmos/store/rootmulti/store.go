@@ -382,6 +382,24 @@ func (rs *Store) LastCommitID() types.CommitID {
 	return rs.lastCommitInfo.CommitID()
 }
 
+func (rs *Store) GetWorkingHash() []byte {
+	storeInfos := []types.StoreInfo{}
+	for key, store := range rs.stores {
+		if store.GetStoreType() == types.StoreTypeTransient {
+			continue
+		}
+		hash := store.GetWorkingHash()
+		storeInfos = append(storeInfos, types.StoreInfo{
+			Name: key.Name(),
+			CommitId: types.CommitID{
+				Hash: hash,
+			},
+		})
+	}
+	commitInfo := types.CommitInfo{StoreInfos: storeInfos}
+	return commitInfo.Hash()
+}
+
 // Commit implements Committer/CommitStore.
 func (rs *Store) Commit() types.CommitID {
 	var previousHeight, version int64

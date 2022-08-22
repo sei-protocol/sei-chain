@@ -1,8 +1,8 @@
 package simapp
 
 import (
+	"context"
 	"encoding/json"
-	"os"
 	"testing"
 
 	"github.com/golang/mock/gomock"
@@ -38,7 +38,7 @@ import (
 func TestSimAppExportAndBlockedAddrs(t *testing.T) {
 	encCfg := MakeTestEncodingConfig()
 	db := dbm.NewMemDB()
-	app := NewSimApp(log.NewTMLogger(log.NewSyncWriter(os.Stdout)), db, nil, true, map[int64]bool{}, DefaultNodeHome, 0, encCfg, EmptyAppOptions{})
+	app := NewSimApp(log.NewTestingLogger(t), db, nil, true, map[int64]bool{}, DefaultNodeHome, 0, encCfg, EmptyAppOptions{})
 
 	for acc := range maccPerms {
 		require.True(
@@ -54,15 +54,15 @@ func TestSimAppExportAndBlockedAddrs(t *testing.T) {
 
 	// Initialize the chain
 	app.InitChain(
-		abci.RequestInitChain{
+		context.Background(), &abci.RequestInitChain{
 			Validators:    []abci.ValidatorUpdate{},
 			AppStateBytes: stateBytes,
 		},
 	)
-	app.Commit()
+	app.Commit(context.Background())
 
 	// Making a new app object with the db, so that initchain hasn't been called
-	app2 := NewSimApp(log.NewTMLogger(log.NewSyncWriter(os.Stdout)), db, nil, true, map[int64]bool{}, DefaultNodeHome, 0, encCfg, EmptyAppOptions{})
+	app2 := NewSimApp(log.NewTestingLogger(t), db, nil, true, map[int64]bool{}, DefaultNodeHome, 0, encCfg, EmptyAppOptions{})
 	_, err = app2.ExportAppStateAndValidators(false, []string{})
 	require.NoError(t, err, "ExportAppStateAndValidators should not have an error")
 }
@@ -75,7 +75,7 @@ func TestGetMaccPerms(t *testing.T) {
 func TestRunMigrations(t *testing.T) {
 	db := dbm.NewMemDB()
 	encCfg := MakeTestEncodingConfig()
-	logger := log.NewTMLogger(log.NewSyncWriter(os.Stdout))
+	logger := log.NewTestingLogger(t)
 	app := NewSimApp(logger, db, nil, true, map[int64]bool{}, DefaultNodeHome, 0, encCfg, EmptyAppOptions{})
 
 	// Create a new baseapp and configurator for the purpose of this test.
@@ -99,8 +99,8 @@ func TestRunMigrations(t *testing.T) {
 	}
 
 	// Initialize the chain
-	app.InitChain(abci.RequestInitChain{})
-	app.Commit()
+	app.InitChain(context.Background(), &abci.RequestInitChain{})
+	app.Commit(context.Background())
 
 	testCases := []struct {
 		name         string
@@ -198,7 +198,7 @@ func TestRunMigrations(t *testing.T) {
 func TestInitGenesisOnMigration(t *testing.T) {
 	db := dbm.NewMemDB()
 	encCfg := MakeTestEncodingConfig()
-	logger := log.NewTMLogger(log.NewSyncWriter(os.Stdout))
+	logger := log.NewTestingLogger(t)
 	app := NewSimApp(logger, db, nil, true, map[int64]bool{}, DefaultNodeHome, 0, encCfg, EmptyAppOptions{})
 	ctx := app.NewContext(true, tmproto.Header{Height: app.LastBlockHeight()})
 
@@ -242,14 +242,14 @@ func TestInitGenesisOnMigration(t *testing.T) {
 func TestUpgradeStateOnGenesis(t *testing.T) {
 	encCfg := MakeTestEncodingConfig()
 	db := dbm.NewMemDB()
-	app := NewSimApp(log.NewTMLogger(log.NewSyncWriter(os.Stdout)), db, nil, true, map[int64]bool{}, DefaultNodeHome, 0, encCfg, EmptyAppOptions{})
+	app := NewSimApp(log.NewTestingLogger(t), db, nil, true, map[int64]bool{}, DefaultNodeHome, 0, encCfg, EmptyAppOptions{})
 	genesisState := NewDefaultGenesisState(encCfg.Marshaler)
 	stateBytes, err := json.MarshalIndent(genesisState, "", "  ")
 	require.NoError(t, err)
 
 	// Initialize the chain
 	app.InitChain(
-		abci.RequestInitChain{
+		context.Background(), &abci.RequestInitChain{
 			Validators:    []abci.ValidatorUpdate{},
 			AppStateBytes: stateBytes,
 		},

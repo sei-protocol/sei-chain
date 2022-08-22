@@ -5,9 +5,9 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
-	abci "github.com/tendermint/tendermint/abci/types"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/cosmos/cosmos-sdk/types/legacytm"
 	"github.com/cosmos/cosmos-sdk/x/evidence/types"
 )
 
@@ -61,9 +61,9 @@ func TestEquivocationValidateBasic(t *testing.T) {
 
 func TestEvidenceAddressConversion(t *testing.T) {
 	sdk.GetConfig().SetBech32PrefixForConsensusNode("testcnclcons", "testcnclconspub")
-	tmEvidence := abci.Evidence{
-		Type: abci.EvidenceType_DUPLICATE_VOTE,
-		Validator: abci.Validator{
+	tmEvidence := legacytm.Evidence{
+		Type: legacytm.EvidenceType_DUPLICATE_VOTE,
+		Validator: legacytm.Validator{
 			Address: []byte{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
 			Power:   100,
 		},

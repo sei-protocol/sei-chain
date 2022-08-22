@@ -29,7 +29,11 @@ func SetupSimulation(dirPrefix, dbName string) (simtypes.Config, dbm.DB, string,
 
 	var logger log.Logger
 	if FlagVerboseValue {
-		logger = log.TestingLogger()
+		logger, err := log.NewDefaultLogger(log.LogFormatText, "debug")
+		logger = logger
+		if err != nil {
+			return simtypes.Config{}, nil, "", nil, false, err
+		}
 	} else {
 		logger = log.NewNopLogger()
 	}

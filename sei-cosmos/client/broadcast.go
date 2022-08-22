@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/tendermint/tendermint/mempool"
+	"github.com/pkg/errors"
 	tmtypes "github.com/tendermint/tendermint/types"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -15,6 +15,34 @@ import (
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	"github.com/cosmos/cosmos-sdk/types/tx"
 )
+
+var ErrTxInCache = errors.New("tx already exists in cache")
+
+type ErrTxTooLarge struct {
+	Max    int
+	Actual int
+}
+
+func (e ErrTxTooLarge) Error() string {
+	return fmt.Sprintf("Tx too large. Max size is %d, but got %d", e.Max, e.Actual)
+}
+
+type ErrMempoolIsFull struct {
+	NumTxs      int
+	MaxTxs      int
+	TxsBytes    int64
+	MaxTxsBytes int64
+}
+
+func (e ErrMempoolIsFull) Error() string {
+	return fmt.Sprintf(
+		"mempool is full: number of txs %d (max: %d), total txs bytes %d (max: %d)",
+		e.NumTxs,
+		e.MaxTxs,
+		e.TxsBytes,
+		e.MaxTxsBytes,
+	)
+}
 
 // BroadcastTx broadcasts a transactions either synchronously or asynchronously
 // based on the context parameters. The result of the broadcast is parsed into
@@ -55,7 +83,7 @@ func CheckTendermintError(err error, tx tmtypes.Tx) *sdk.TxResponse {
 	txHash := fmt.Sprintf("%X", tx.Hash())
 
 	switch {
-	case strings.Contains(errStr, strings.ToLower(mempool.ErrTxInCache.Error())):
+	case strings.Contains(errStr, strings.ToLower(ErrTxInCache.Error())):
 		return &sdk.TxResponse{
 			Code:      sdkerrors.ErrTxInMempoolCache.ABCICode(),
 			Codespace: sdkerrors.ErrTxInMempoolCache.Codespace(),

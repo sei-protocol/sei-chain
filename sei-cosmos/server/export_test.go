@@ -14,9 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	abci "github.com/tendermint/tendermint/abci/types"
-	tmjson "github.com/tendermint/tendermint/libs/json"
 	"github.com/tendermint/tendermint/libs/log"
-	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 	tmtypes "github.com/tendermint/tendermint/types"
 	dbm "github.com/tendermint/tm-db"
 
@@ -33,7 +31,7 @@ import (
 func TestExportCmd_ConsensusParams(t *testing.T) {
 	tempDir := t.TempDir()
 
-	_, ctx, genDoc, cmd := setupApp(t, tempDir)
+	_, ctx, _, cmd := setupApp(t, tempDir)
 
 	output := &bytes.Buffer{}
 	cmd.SetOut(output)
@@ -41,12 +39,11 @@ func TestExportCmd_ConsensusParams(t *testing.T) {
 	require.NoError(t, cmd.ExecuteContext(ctx))
 
 	var exportedGenDoc tmtypes.GenesisDoc
-	err := tmjson.Unmarshal(output.Bytes(), &exportedGenDoc)
+	err := json.Unmarshal(output.Bytes(), &exportedGenDoc)
 	if err != nil {
 		t.Fatalf("error unmarshaling exported genesis doc: %s", err)
 	}
 
-	require.Equal(t, genDoc.ConsensusParams.Block.TimeIotaMs, exportedGenDoc.ConsensusParams.Block.TimeIotaMs)
 	require.Equal(t, simapp.DefaultConsensusParams.Block.MaxBytes, exportedGenDoc.ConsensusParams.Block.MaxBytes)
 	require.Equal(t, simapp.DefaultConsensusParams.Block.MaxGas, exportedGenDoc.ConsensusParams.Block.MaxGas)
 
@@ -100,8 +97,8 @@ func TestExportCmd_Height(t *testing.T) {
 
 			// Fast forward to block `tc.fastForward`.
 			for i := int64(2); i <= tc.fastForward; i++ {
-				app.BeginBlock(abci.RequestBeginBlock{Header: tmproto.Header{Height: i}})
-				app.Commit()
+				app.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{Height: i})
+				app.Commit(context.Background())
 			}
 
 			output := &bytes.Buffer{}
@@ -111,7 +108,7 @@ func TestExportCmd_Height(t *testing.T) {
 			require.NoError(t, cmd.ExecuteContext(ctx))
 
 			var exportedGenDoc tmtypes.GenesisDoc
-			err := tmjson.Unmarshal(output.Bytes(), &exportedGenDoc)
+			err := json.Unmarshal(output.Bytes(), &exportedGenDoc)
 			if err != nil {
 				t.Fatalf("error unmarshaling exported genesis doc: %s", err)
 			}
@@ -127,7 +124,7 @@ func setupApp(t *testing.T, tempDir string) (*simapp.SimApp, context.Context, *t
 		t.Fatalf("error creating config folder: %s", err)
 	}
 
-	logger := log.NewTMLogger(log.NewSyncWriter(os.Stdout))
+	logger := log.NewTestingLogger(t)
 	db := dbm.NewMemDB()
 	encCfg := simapp.MakeTestEncodingConfig()
 	app := simapp.NewSimApp(logger, db, nil, true, map[int64]bool{}, tempDir, 0, encCfg, simapp.EmptyAppOptions{})
@@ -140,13 +137,13 @@ func setupApp(t *testing.T, tempDir string) (*simapp.SimApp, context.Context, *t
 
 	require.NoError(t, saveGenesisFile(genDoc, serverCtx.Config.GenesisFile()))
 	app.InitChain(
-		abci.RequestInitChain{
+		context.Background(), &abci.RequestInitChain{
 			Validators:      []abci.ValidatorUpdate{},
 			ConsensusParams: simapp.DefaultConsensusParams,
 			AppStateBytes:   genDoc.AppState,
 		},
 	)
-	app.Commit()
+	app.Commit(context.Background())
 
 	cmd := server.ExportCmd(
 		func(_ log.Logger, _ dbm.DB, _ io.Writer, height int64, forZeroHeight bool, jailAllowedAddrs []string, appOptons types.AppOptions) (types.ExportedApp, error) {
