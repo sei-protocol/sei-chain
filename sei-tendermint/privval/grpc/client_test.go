@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/test/bufconn"
 
 	"github.com/stretchr/testify/assert"
@@ -51,7 +50,7 @@ func TestSignerClient_GetPubKey(t *testing.T) {
 	defer srv.Stop()
 
 	conn, err := grpc.DialContext(ctx, "",
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithInsecure(),
 		grpc.WithContextDialer(dialer),
 	)
 	require.NoError(t, err)
@@ -75,7 +74,7 @@ func TestSignerClient_SignVote(t *testing.T) {
 	defer srv.Stop()
 
 	conn, err := grpc.DialContext(ctx, "",
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithInsecure(),
 		grpc.WithContextDialer(dialer),
 	)
 	require.NoError(t, err)
@@ -130,7 +129,7 @@ func TestSignerClient_SignProposal(t *testing.T) {
 	defer srv.Stop()
 
 	conn, err := grpc.DialContext(ctx, "",
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithInsecure(),
 		grpc.WithContextDialer(dialer),
 	)
 	require.NoError(t, err)
