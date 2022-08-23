@@ -306,6 +306,5 @@ func (am AppModule) EndBlock(ctx sdk.Context, _ abci.RequestEndBlock) (ret []abc
 			break
 		}
 	}
-
 	return []abci.ValidatorUpdate{}
 }

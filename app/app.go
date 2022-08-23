@@ -3,6 +3,13 @@ package app
 import (
 	"context"
 	"fmt"
+	ethermint "github.com/evmos/ethermint/types"
+	"github.com/evmos/ethermint/x/evm"
+	evmkeeper "github.com/evmos/ethermint/x/evm/keeper"
+	evmtypes "github.com/evmos/ethermint/x/evm/types"
+	"github.com/evmos/ethermint/x/feemarket"
+	feemarkettypes "github.com/evmos/ethermint/x/feemarket/types"
+	"github.com/sei-protocol/sei-chain/app/ante"
 	"io"
 	"os"
 	"path/filepath"
@@ -28,10 +35,8 @@ import (
 	"github.com/cosmos/cosmos-sdk/types/module"
 	"github.com/cosmos/cosmos-sdk/version"
 	"github.com/cosmos/cosmos-sdk/x/auth"
-	"github.com/cosmos/cosmos-sdk/x/auth/ante"
 	authrest "github.com/cosmos/cosmos-sdk/x/auth/client/rest"
 	authkeeper "github.com/cosmos/cosmos-sdk/x/auth/keeper"
-	authsims "github.com/cosmos/cosmos-sdk/x/auth/simulation"
 	authtx "github.com/cosmos/cosmos-sdk/x/auth/tx"
 	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
 	"github.com/cosmos/cosmos-sdk/x/auth/vesting"
@@ -115,6 +120,8 @@ import (
 	tokenfactorykeeper "github.com/sei-protocol/sei-chain/x/tokenfactory/keeper"
 	tokenfactorytypes "github.com/sei-protocol/sei-chain/x/tokenfactory/types"
 
+	ethermintapp "github.com/evmos/ethermint/app"
+	feemarketkeeper "github.com/evmos/ethermint/x/feemarket/keeper"
 	// this line is used by starport scaffolding # stargate/app/moduleImport
 
 	"github.com/CosmWasm/wasmd/x/wasm"
@@ -169,6 +176,8 @@ var (
 		dexmodule.AppModuleBasic{},
 		epochmodule.AppModuleBasic{},
 		tokenfactorymodule.AppModuleBasic{},
+		evm.AppModuleBasic{},
+		feemarket.AppModuleBasic{},
 		// this line is used by starport scaffolding # stargate/app/moduleBasic
 	)
 
@@ -185,6 +194,7 @@ var (
 		wasm.ModuleName:                {authtypes.Burner},
 		dexmoduletypes.ModuleName:      nil,
 		tokenfactorytypes.ModuleName:   {authtypes.Minter, authtypes.Burner},
+		evmtypes.ModuleName:            {authtypes.Minter, authtypes.Burner}, // used for secure addition and subtraction of balance using module account
 		// this line is used by starport scaffolding # stargate/app/maccPerms
 	}
 
@@ -290,6 +300,10 @@ type App struct {
 	EpochKeeper epochmodulekeeper.Keeper
 
 	TokenFactoryKeeper tokenfactorykeeper.Keeper
+
+	// Ethermint keepers
+	EvmKeeper       *evmkeeper.Keeper
+	FeeMarketKeeper feemarketkeeper.Keeper
 	// this line is used by starport scaffolding # stargate/app/keeperDeclaration
 
 	// mm is the module manager
@@ -334,9 +348,11 @@ func New(
 		dexmoduletypes.StoreKey,
 		epochmoduletypes.StoreKey,
 		tokenfactorytypes.StoreKey,
+		evmtypes.StoreKey,
+		feemarkettypes.StoreKey,
 		// this line is used by starport scaffolding # stargate/app/storeKey
 	)
-	tkeys := sdk.NewTransientStoreKeys(paramstypes.TStoreKey)
+	tkeys := sdk.NewTransientStoreKeys(paramstypes.TStoreKey, evmtypes.TransientKey, feemarkettypes.TransientKey)
 	memKeys := sdk.NewMemoryStoreKeys(capabilitytypes.MemStoreKey)
 
 	tp, err := tracing.DefaultTracerProvider()
@@ -376,7 +392,7 @@ func New(
 
 	// add keepers
 	app.AccountKeeper = authkeeper.NewAccountKeeper(
-		appCodec, keys[authtypes.StoreKey], app.GetSubspace(authtypes.ModuleName), authtypes.ProtoBaseAccount, maccPerms,
+		appCodec, keys[authtypes.StoreKey], app.GetSubspace(authtypes.ModuleName), ethermint.ProtoAccount, maccPerms,
 	)
 	app.BankKeeper = bankkeeper.NewBaseKeeper(
 		appCodec, keys[banktypes.StoreKey], app.AccountKeeper, app.GetSubspace(banktypes.ModuleName), app.ModuleAccountAddrs(),
@@ -470,6 +486,15 @@ func New(
 		app.BankKeeper.(bankkeeper.BaseKeeper).WithMintCoinsRestriction(tokenfactorytypes.NewTokenFactoryDenomMintCoinsRestriction()),
 		app.DistrKeeper,
 	)
+	// Ethermint keepers
+	app.FeeMarketKeeper = feemarketkeeper.NewKeeper(
+		appCodec, app.GetSubspace(feemarkettypes.ModuleName), keys[feemarkettypes.StoreKey], tkeys[feemarkettypes.TransientKey],
+	)
+	app.EvmKeeper = evmkeeper.NewKeeper(
+		appCodec, keys[evmtypes.StoreKey], tkeys[evmtypes.TransientKey], app.GetSubspace(evmtypes.ModuleName),
+		app.AccountKeeper, app.BankKeeper, &stakingKeeper, app.FeeMarketKeeper,
+		"evm.tracer",
+	)
 	// The last arguments can contain custom message handlers, and custom query handlers,
 	// if we want to allow any custom callbacks
 	supportedFeatures := "iterator,staking,stargate,sei"
@@ -537,7 +562,7 @@ func New(
 			app.AccountKeeper, app.StakingKeeper, app.BaseApp.DeliverTx,
 			encodingConfig.TxConfig,
 		),
-		auth.NewAppModule(appCodec, app.AccountKeeper, nil),
+		auth.NewAppModule(appCodec, app.AccountKeeper, ethermintapp.RandomGenesisAccounts),
 		vesting.NewAppModule(app.AccountKeeper, app.BankKeeper),
 		bank.NewAppModule(appCodec, app.BankKeeper, app.AccountKeeper),
 		capability.NewAppModule(appCodec, *app.CapabilityKeeper),
@@ -558,13 +583,18 @@ func New(
 		dexModule,
 		epochModule,
 		tokenfactorymodule.NewAppModule(app.TokenFactoryKeeper, app.AccountKeeper, app.BankKeeper),
+		// Ethermint app modules
+		evm.NewAppModule(app.EvmKeeper, app.AccountKeeper),
+		feemarket.NewAppModule(app.FeeMarketKeeper),
 		// this line is used by starport scaffolding # stargate/app/appModule
 	)
 
 	// During begin block slashing happens after distr.BeginBlocker so that
 	// there is nothing left over in the validator fee pool, so as to keep the
 	// CanWithdrawInvariant invariant.
+	// NOTE: upgrade module must go first to handle software upgrades
 	// NOTE: staking module is required if HistoricalEntries param > 0
+	// NOTE: capability module's beginblocker must come before any modules using capabilities (e.g. IBC)
 	app.mm.SetOrderBeginBlockers(
 		upgradetypes.ModuleName,
 		capabilitytypes.ModuleName,
@@ -588,12 +618,17 @@ func New(
 		dexmoduletypes.ModuleName,
 		wasm.ModuleName,
 		tokenfactorytypes.ModuleName,
+		feemarkettypes.ModuleName,
+		evmtypes.ModuleName,
 	)
 
+	// NOTE: fee market module must go after evm to retrieve the block gas used
 	app.mm.SetOrderEndBlockers(
 		crisistypes.ModuleName,
 		govtypes.ModuleName,
 		stakingtypes.ModuleName,
+		evmtypes.ModuleName,
+		feemarkettypes.ModuleName,
 		capabilitytypes.ModuleName,
 		authtypes.ModuleName,
 		banktypes.ModuleName,
@@ -634,6 +669,9 @@ func New(
 		vestingtypes.ModuleName,
 		crisistypes.ModuleName,
 		ibchost.ModuleName,
+		evmtypes.ModuleName,
+		// feemarket module needs to be initialized before genutil module
+		feemarkettypes.ModuleName,
 		genutiltypes.ModuleName,
 		evidencetypes.ModuleName,
 		ibctransfertypes.ModuleName,
@@ -653,7 +691,7 @@ func New(
 
 	// create the simulation manager and define the order of the modules for deterministic simulations
 	app.sm = module.NewSimulationManager(
-		auth.NewAppModule(appCodec, app.AccountKeeper, authsims.RandomGenesisAccounts),
+		auth.NewAppModule(appCodec, app.AccountKeeper, ethermintapp.RandomGenesisAccounts),
 		bank.NewAppModule(appCodec, app.BankKeeper, app.AccountKeeper),
 		capability.NewAppModule(appCodec, *app.CapabilityKeeper),
 		feegrantmodule.NewAppModule(appCodec, app.AccountKeeper, app.BankKeeper, app.FeeGrantKeeper, app.interfaceRegistry),
@@ -671,6 +709,8 @@ func New(
 		dexModule,
 		epochModule,
 		tokenfactorymodule.NewAppModule(app.TokenFactoryKeeper, app.AccountKeeper, app.BankKeeper),
+		evm.NewAppModule(app.EvmKeeper, app.AccountKeeper),
+		feemarket.NewAppModule(app.FeeMarketKeeper),
 		// this line is used by starport scaffolding # stargate/app/appModule
 	)
 	app.sm.RegisterStoreDecoders()
@@ -687,23 +727,22 @@ func New(
 	app.SetInitChainer(app.InitChainer)
 	app.SetBeginBlocker(app.BeginBlocker)
 
-	anteHandler, err := NewAnteHandler(
-		HandlerOptions{
-			HandlerOptions: ante.HandlerOptions{
-				AccountKeeper:   app.AccountKeeper,
-				BankKeeper:      app.BankKeeper,
-				FeegrantKeeper:  app.FeeGrantKeeper,
-				SignModeHandler: encodingConfig.TxConfig.SignModeHandler(),
-				SigGasConsumer:  ante.DefaultSigVerificationGasConsumer,
-			},
-			IBCKeeper:         app.IBCKeeper,
-			TXCounterStoreKey: keys[wasm.StoreKey],
-			WasmConfig:        &wasmConfig,
-			OracleKeeper:      &app.OracleKeeper,
-			DexKeeper:         &app.DexKeeper,
-			TracingInfo:       app.tracingInfo,
-		},
-	)
+	anteHandler, err := ante.NewAnteHandler(ante.HandlerOptions{
+		AccountKeeper:     app.AccountKeeper,
+		BankKeeper:        app.BankKeeper,
+		FeegrantKeeper:    app.FeeGrantKeeper,
+		SignModeHandler:   encodingConfig.TxConfig.SignModeHandler(),
+		SigGasConsumer:    ante.DefaultSigVerificationGasConsumer,
+		IBCKeeper:         app.IBCKeeper,
+		TxCounterStoreKey: keys[wasm.StoreKey],
+		WasmConfig:        &wasmConfig,
+		OracleKeeper:      &app.OracleKeeper,
+		DexKeeper:         &app.DexKeeper,
+		EvmKeeper:         app.EvmKeeper,
+		FeeMarketKeeper:   app.FeeMarketKeeper,
+
+		TracingInfo: app.tracingInfo,
+	})
 	if err != nil {
 		panic(err)
 	}
@@ -916,6 +955,8 @@ func initParamsKeeper(appCodec codec.BinaryCodec, legacyAmino *codec.LegacyAmino
 	paramsKeeper.Subspace(dexmoduletypes.ModuleName)
 	paramsKeeper.Subspace(epochmoduletypes.ModuleName)
 	paramsKeeper.Subspace(tokenfactorytypes.ModuleName)
+	paramsKeeper.Subspace(evmtypes.ModuleName)
+	paramsKeeper.Subspace(feemarkettypes.ModuleName)
 	// this line is used by starport scaffolding # stargate/app/paramSubspace
 
 	return paramsKeeper

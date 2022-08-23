@@ -41,6 +41,7 @@ import (
 type Option func(*rootOptions)
 
 // scaffoldingOptions keeps set of options to apply scaffolding.
+//
 //nolint:unused // preserving this becase don't know if it is needed.
 type rootOptions struct {
 	addSubCmds         []*cobra.Command
@@ -66,7 +67,9 @@ func NewRootCmd() (*cobra.Command, params.EncodingConfig) {
 		WithAccountRetriever(types.AccountRetriever{}).
 		WithBroadcastMode(flags.BroadcastBlock).
 		WithHomeDir(app.DefaultNodeHome).
-		WithViper("SEI")
+		WithViper("SEI").
+		//WithChainID(flags.FlagChainID)
+		WithChainID("evmos_9001-2")
 
 	rootCmd := &cobra.Command{
 		Use:   "seid",
