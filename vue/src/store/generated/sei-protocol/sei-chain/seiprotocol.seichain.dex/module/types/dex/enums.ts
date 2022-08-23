@@ -69,6 +69,8 @@ export enum OrderType {
   LIMIT = 0,
   MARKET = 1,
   LIQUIDATION = 2,
+  /** FOKMARKET - fill-or-kill market order */
+  FOKMARKET = 3,
   UNRECOGNIZED = -1,
 }
 
@@ -83,6 +85,9 @@ export function orderTypeFromJSON(object: any): OrderType {
     case 2:
     case "LIQUIDATION":
       return OrderType.LIQUIDATION;
+    case 3:
+    case "FOKMARKET":
+      return OrderType.FOKMARKET;
     case -1:
     case "UNRECOGNIZED":
     default:
@@ -98,6 +103,8 @@ export function orderTypeToJSON(object: OrderType): string {
       return "MARKET";
     case OrderType.LIQUIDATION:
       return "LIQUIDATION";
+    case OrderType.FOKMARKET:
+      return "FOKMARKET";
     default:
       return "UNKNOWN";
   }

@@ -37,6 +37,11 @@ export interface Cancellation {
   id: number;
   initiator: CancellationInitiator;
   creator: string;
+  contractAddr: string;
+  priceDenom: string;
+  assetDenom: string;
+  positionDirection: PositionDirection;
+  price: string;
 }
 
 export interface ActiveOrders {
@@ -319,7 +324,16 @@ export const Order = {
   },
 };
 
-const baseCancellation: object = { id: 0, initiator: 0, creator: "" };
+const baseCancellation: object = {
+  id: 0,
+  initiator: 0,
+  creator: "",
+  contractAddr: "",
+  priceDenom: "",
+  assetDenom: "",
+  positionDirection: 0,
+  price: "",
+};
 
 export const Cancellation = {
   encode(message: Cancellation, writer: Writer = Writer.create()): Writer {
@@ -331,6 +345,21 @@ export const Cancellation = {
     }
     if (message.creator !== "") {
       writer.uint32(26).string(message.creator);
+    }
+    if (message.contractAddr !== "") {
+      writer.uint32(34).string(message.contractAddr);
+    }
+    if (message.priceDenom !== "") {
+      writer.uint32(42).string(message.priceDenom);
+    }
+    if (message.assetDenom !== "") {
+      writer.uint32(50).string(message.assetDenom);
+    }
+    if (message.positionDirection !== 0) {
+      writer.uint32(56).int32(message.positionDirection);
+    }
+    if (message.price !== "") {
+      writer.uint32(66).string(message.price);
     }
     return writer;
   },
@@ -350,6 +379,21 @@ export const Cancellation = {
           break;
         case 3:
           message.creator = reader.string();
+          break;
+        case 4:
+          message.contractAddr = reader.string();
+          break;
+        case 5:
+          message.priceDenom = reader.string();
+          break;
+        case 6:
+          message.assetDenom = reader.string();
+          break;
+        case 7:
+          message.positionDirection = reader.int32() as any;
+          break;
+        case 8:
+          message.price = reader.string();
           break;
         default:
           reader.skipType(tag & 7);
@@ -376,6 +420,36 @@ export const Cancellation = {
     } else {
       message.creator = "";
     }
+    if (object.contractAddr !== undefined && object.contractAddr !== null) {
+      message.contractAddr = String(object.contractAddr);
+    } else {
+      message.contractAddr = "";
+    }
+    if (object.priceDenom !== undefined && object.priceDenom !== null) {
+      message.priceDenom = String(object.priceDenom);
+    } else {
+      message.priceDenom = "";
+    }
+    if (object.assetDenom !== undefined && object.assetDenom !== null) {
+      message.assetDenom = String(object.assetDenom);
+    } else {
+      message.assetDenom = "";
+    }
+    if (
+      object.positionDirection !== undefined &&
+      object.positionDirection !== null
+    ) {
+      message.positionDirection = positionDirectionFromJSON(
+        object.positionDirection
+      );
+    } else {
+      message.positionDirection = 0;
+    }
+    if (object.price !== undefined && object.price !== null) {
+      message.price = String(object.price);
+    } else {
+      message.price = "";
+    }
     return message;
   },
 
@@ -385,6 +459,15 @@ export const Cancellation = {
     message.initiator !== undefined &&
       (obj.initiator = cancellationInitiatorToJSON(message.initiator));
     message.creator !== undefined && (obj.creator = message.creator);
+    message.contractAddr !== undefined &&
+      (obj.contractAddr = message.contractAddr);
+    message.priceDenom !== undefined && (obj.priceDenom = message.priceDenom);
+    message.assetDenom !== undefined && (obj.assetDenom = message.assetDenom);
+    message.positionDirection !== undefined &&
+      (obj.positionDirection = positionDirectionToJSON(
+        message.positionDirection
+      ));
+    message.price !== undefined && (obj.price = message.price);
     return obj;
   },
 
@@ -404,6 +487,34 @@ export const Cancellation = {
       message.creator = object.creator;
     } else {
       message.creator = "";
+    }
+    if (object.contractAddr !== undefined && object.contractAddr !== null) {
+      message.contractAddr = object.contractAddr;
+    } else {
+      message.contractAddr = "";
+    }
+    if (object.priceDenom !== undefined && object.priceDenom !== null) {
+      message.priceDenom = object.priceDenom;
+    } else {
+      message.priceDenom = "";
+    }
+    if (object.assetDenom !== undefined && object.assetDenom !== null) {
+      message.assetDenom = object.assetDenom;
+    } else {
+      message.assetDenom = "";
+    }
+    if (
+      object.positionDirection !== undefined &&
+      object.positionDirection !== null
+    ) {
+      message.positionDirection = object.positionDirection;
+    } else {
+      message.positionDirection = 0;
+    }
+    if (object.price !== undefined && object.price !== null) {
+      message.price = object.price;
+    } else {
+      message.price = "";
     }
     return message;
   },

@@ -14,6 +14,7 @@ const baseSettlementEntry = {
     orderId: 0,
     timestamp: 0,
     height: 0,
+    settlementId: 0,
 };
 export const SettlementEntry = {
     encode(message, writer = Writer.create()) {
@@ -49,6 +50,9 @@ export const SettlementEntry = {
         }
         if (message.height !== 0) {
             writer.uint32(88).uint64(message.height);
+        }
+        if (message.settlementId !== 0) {
+            writer.uint32(96).uint64(message.settlementId);
         }
         return writer;
     },
@@ -91,6 +95,9 @@ export const SettlementEntry = {
                     break;
                 case 11:
                     message.height = longToNumber(reader.uint64());
+                    break;
+                case 12:
+                    message.settlementId = longToNumber(reader.uint64());
                     break;
                 default:
                     reader.skipType(tag & 7);
@@ -170,6 +177,12 @@ export const SettlementEntry = {
         else {
             message.height = 0;
         }
+        if (object.settlementId !== undefined && object.settlementId !== null) {
+            message.settlementId = Number(object.settlementId);
+        }
+        else {
+            message.settlementId = 0;
+        }
         return message;
     },
     toJSON(message) {
@@ -188,6 +201,8 @@ export const SettlementEntry = {
         message.orderId !== undefined && (obj.orderId = message.orderId);
         message.timestamp !== undefined && (obj.timestamp = message.timestamp);
         message.height !== undefined && (obj.height = message.height);
+        message.settlementId !== undefined &&
+            (obj.settlementId = message.settlementId);
         return obj;
     },
     fromPartial(object) {
@@ -260,6 +275,12 @@ export const SettlementEntry = {
         }
         else {
             message.height = 0;
+        }
+        if (object.settlementId !== undefined && object.settlementId !== null) {
+            message.settlementId = object.settlementId;
+        }
+        else {
+            message.settlementId = 0;
         }
         return message;
     },

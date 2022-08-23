@@ -16,6 +16,7 @@ export interface SettlementEntry {
   orderId: number;
   timestamp: number;
   height: number;
+  settlementId: number;
 }
 
 export interface Settlements {
@@ -35,6 +36,7 @@ const baseSettlementEntry: object = {
   orderId: 0,
   timestamp: 0,
   height: 0,
+  settlementId: 0,
 };
 
 export const SettlementEntry = {
@@ -71,6 +73,9 @@ export const SettlementEntry = {
     }
     if (message.height !== 0) {
       writer.uint32(88).uint64(message.height);
+    }
+    if (message.settlementId !== 0) {
+      writer.uint32(96).uint64(message.settlementId);
     }
     return writer;
   },
@@ -114,6 +119,9 @@ export const SettlementEntry = {
           break;
         case 11:
           message.height = longToNumber(reader.uint64() as Long);
+          break;
+        case 12:
+          message.settlementId = longToNumber(reader.uint64() as Long);
           break;
         default:
           reader.skipType(tag & 7);
@@ -189,6 +197,11 @@ export const SettlementEntry = {
     } else {
       message.height = 0;
     }
+    if (object.settlementId !== undefined && object.settlementId !== null) {
+      message.settlementId = Number(object.settlementId);
+    } else {
+      message.settlementId = 0;
+    }
     return message;
   },
 
@@ -208,6 +221,8 @@ export const SettlementEntry = {
     message.orderId !== undefined && (obj.orderId = message.orderId);
     message.timestamp !== undefined && (obj.timestamp = message.timestamp);
     message.height !== undefined && (obj.height = message.height);
+    message.settlementId !== undefined &&
+      (obj.settlementId = message.settlementId);
     return obj;
   },
 
@@ -276,6 +291,11 @@ export const SettlementEntry = {
       message.height = object.height;
     } else {
       message.height = 0;
+    }
+    if (object.settlementId !== undefined && object.settlementId !== null) {
+      message.settlementId = object.settlementId;
+    } else {
+      message.settlementId = 0;
     }
     return message;
   },

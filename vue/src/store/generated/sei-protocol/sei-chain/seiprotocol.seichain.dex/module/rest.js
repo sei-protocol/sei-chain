@@ -8,6 +8,11 @@
  * ## SOURCE: https://github.com/acacode/swagger-typescript-api ##
  * ---------------------------------------------------------------
  */
+export var DexCancellationInitiator;
+(function (DexCancellationInitiator) {
+    DexCancellationInitiator["USER"] = "USER";
+    DexCancellationInitiator["LIQUIDATED"] = "LIQUIDATED";
+})(DexCancellationInitiator || (DexCancellationInitiator = {}));
 export var DexOrderStatus;
 (function (DexOrderStatus) {
     DexOrderStatus["PLACED"] = "PLACED";
@@ -20,6 +25,7 @@ export var DexOrderType;
     DexOrderType["LIMIT"] = "LIMIT";
     DexOrderType["MARKET"] = "MARKET";
     DexOrderType["LIQUIDATION"] = "LIQUIDATION";
+    DexOrderType["FOKMARKET"] = "FOKMARKET";
 })(DexOrderType || (DexOrderType = {}));
 export var DexPositionDirection;
 (function (DexPositionDirection) {
@@ -186,20 +192,6 @@ export class Api extends HttpClient {
          * No description
          *
          * @tags Query
-         * @name QueryGetAllSettlements
-         * @request GET:/sei-protocol/seichain/dex/get_all_settlements/{contractAddr}/{priceDenom}/{assetDenom}
-         */
-        this.queryGetAllSettlements = (contractAddr, priceDenom, assetDenom, query, params = {}) => this.request({
-            path: `/sei-protocol/seichain/dex/get_all_settlements/${contractAddr}/${priceDenom}/${assetDenom}`,
-            method: "GET",
-            query: query,
-            format: "json",
-            ...params,
-        });
-        /**
-         * No description
-         *
-         * @tags Query
          * @name QueryGetHistoricalPrices
          * @request GET:/sei-protocol/seichain/dex/get_historical_prices/{contractAddr}/{priceDenom}/{assetDenom}/{periodLengthInSeconds}/{numOfPeriods}
          */
@@ -257,33 +249,6 @@ export class Api extends HttpClient {
          */
         this.queryGetPrices = (contractAddr, priceDenom, assetDenom, params = {}) => this.request({
             path: `/sei-protocol/seichain/dex/get_prices/${contractAddr}/${priceDenom}/${assetDenom}`,
-            method: "GET",
-            format: "json",
-            ...params,
-        });
-        /**
-         * No description
-         *
-         * @tags Query
-         * @name QueryGetSettlements
-         * @request GET:/sei-protocol/seichain/dex/get_settlements/{contractAddr}/{priceDenom}/{assetDenom}/{orderId}
-         */
-        this.queryGetSettlements = (contractAddr, priceDenom, assetDenom, orderId, query, params = {}) => this.request({
-            path: `/sei-protocol/seichain/dex/get_settlements/${contractAddr}/${priceDenom}/${assetDenom}/${orderId}`,
-            method: "GET",
-            query: query,
-            format: "json",
-            ...params,
-        });
-        /**
-         * No description
-         *
-         * @tags Query
-         * @name QueryGetSettlementsForAccount
-         * @request GET:/sei-protocol/seichain/dex/get_settlements_for_account/{contractAddr}/{priceDenom}/{assetDenom}/{account}
-         */
-        this.queryGetSettlementsForAccount = (contractAddr, priceDenom, assetDenom, account, params = {}) => this.request({
-            path: `/sei-protocol/seichain/dex/get_settlements_for_account/${contractAddr}/${priceDenom}/${assetDenom}/${account}`,
             method: "GET",
             format: "json",
             ...params,

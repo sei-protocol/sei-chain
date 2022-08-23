@@ -3,12 +3,10 @@ import { SigningStargateClient } from "@cosmjs/stargate";
 import { Registry } from "@cosmjs/proto-signing";
 import { Api } from "./rest";
 import { MsgRegisterContract } from "./types/dex/tx";
-import { MsgLiquidation } from "./types/dex/tx";
 import { MsgCancelOrders } from "./types/dex/tx";
 import { MsgPlaceOrders } from "./types/dex/tx";
 const types = [
     ["/seiprotocol.seichain.dex.MsgRegisterContract", MsgRegisterContract],
-    ["/seiprotocol.seichain.dex.MsgLiquidation", MsgLiquidation],
     ["/seiprotocol.seichain.dex.MsgCancelOrders", MsgCancelOrders],
     ["/seiprotocol.seichain.dex.MsgPlaceOrders", MsgPlaceOrders],
 ];
@@ -32,7 +30,6 @@ const txClient = async (wallet, { addr: addr } = { addr: "http://localhost:26657
     return {
         signAndBroadcast: (msgs, { fee, memo } = { fee: defaultFee, memo: "" }) => client.signAndBroadcast(address, msgs, fee, memo),
         msgRegisterContract: (data) => ({ typeUrl: "/seiprotocol.seichain.dex.MsgRegisterContract", value: MsgRegisterContract.fromPartial(data) }),
-        msgLiquidation: (data) => ({ typeUrl: "/seiprotocol.seichain.dex.MsgLiquidation", value: MsgLiquidation.fromPartial(data) }),
         msgCancelOrders: (data) => ({ typeUrl: "/seiprotocol.seichain.dex.MsgCancelOrders", value: MsgCancelOrders.fromPartial(data) }),
         msgPlaceOrders: (data) => ({ typeUrl: "/seiprotocol.seichain.dex.MsgPlaceOrders", value: MsgPlaceOrders.fromPartial(data) }),
     };
