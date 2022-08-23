@@ -28,7 +28,6 @@ import (
 	simappparams "github.com/cosmos/cosmos-sdk/simapp/params"
 	"github.com/cosmos/cosmos-sdk/testutil/testdata"
 	sdk "github.com/cosmos/cosmos-sdk/types"
-	"github.com/cosmos/cosmos-sdk/types/legacytm"
 	"github.com/cosmos/cosmos-sdk/types/module"
 	"github.com/cosmos/cosmos-sdk/utils"
 	"github.com/cosmos/cosmos-sdk/version"
@@ -451,22 +450,22 @@ func (app *SimApp) ProcessProposalHandler(ctx sdk.Context, req *abci.RequestProc
 
 func (app *SimApp) FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBlock) (*abci.ResponseFinalizeBlock, error) {
 	events := []abci.Event{}
-	beginBlockResp := app.BeginBlock(legacytm.RequestBeginBlock{
+	beginBlockResp := app.BeginBlock(abci.RequestBeginBlock{
 		Hash: req.Hash,
-		ByzantineValidators: utils.Map(req.ByzantineValidators, func(mis abci.Misbehavior) legacytm.Evidence {
-			return legacytm.Evidence{
-				Type:             legacytm.EvidenceType(mis.Type),
-				Validator:        legacytm.Validator(mis.Validator),
+		ByzantineValidators: utils.Map(req.ByzantineValidators, func(mis abci.Misbehavior) abci.Evidence {
+			return abci.Evidence{
+				Type:             abci.MisbehaviorType(mis.Type),
+				Validator:        abci.Validator(mis.Validator),
 				Height:           mis.Height,
 				Time:             mis.Time,
 				TotalVotingPower: mis.TotalVotingPower,
 			}
 		}),
-		LastCommitInfo: legacytm.LastCommitInfo{
+		LastCommitInfo: abci.LastCommitInfo{
 			Round: req.DecidedLastCommit.Round,
-			Votes: utils.Map(req.DecidedLastCommit.Votes, func(vote abci.VoteInfo) legacytm.VoteInfo {
-				return legacytm.VoteInfo{
-					Validator:       legacytm.Validator(vote.Validator),
+			Votes: utils.Map(req.DecidedLastCommit.Votes, func(vote abci.VoteInfo) abci.VoteInfo {
+				return abci.VoteInfo{
+					Validator:       abci.Validator(vote.Validator),
 					SignedLastBlock: vote.SignedLastBlock,
 				}
 			}),
@@ -478,10 +477,10 @@ func (app *SimApp) FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBlo
 			ProposerAddress: ctx.BlockHeader().ProposerAddress,
 		},
 	})
-	events = append(events, utils.Map(beginBlockResp.Events, sdk.LegacyToABCIEvent)...)
+	events = append(events, beginBlockResp.Events...)
 	txResults := []*abci.ExecTxResult{}
 	for _, tx := range req.Txs {
-		deliverTxResp := app.DeliverTx(legacytm.RequestDeliverTx{
+		deliverTxResp := app.DeliverTx(abci.RequestDeliverTx{
 			Tx: tx,
 		})
 		txResults = append(txResults, &abci.ExecTxResult{
@@ -495,16 +494,16 @@ func (app *SimApp) FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBlo
 			Codespace: deliverTxResp.Codespace,
 		})
 	}
-	endBlockResp := app.EndBlock(legacytm.RequestEndBlock{
+	endBlockResp := app.EndBlock(abci.RequestEndBlock{
 		Height: req.Height,
 	})
-	events = append(events, utils.Map(endBlockResp.Events, sdk.LegacyToABCIEvent)...)
+	events = append(events, endBlockResp.Events...)
 
 	appHash := app.WriteDeliverStateAndGetWorkingHash()
 	return &abci.ResponseFinalizeBlock{
 		Events:    events,
 		TxResults: txResults,
-		ValidatorUpdates: utils.Map(endBlockResp.ValidatorUpdates, func(v legacytm.ValidatorUpdate) abci.ValidatorUpdate {
+		ValidatorUpdates: utils.Map(endBlockResp.ValidatorUpdates, func(v abci.ValidatorUpdate) abci.ValidatorUpdate {
 			return abci.ValidatorUpdate{
 				PubKey: v.PubKey,
 				Power:  v.Power,
@@ -532,12 +531,12 @@ func (app *SimApp) FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBlo
 }
 
 // BeginBlocker application updates every begin block
-func (app *SimApp) BeginBlocker(ctx sdk.Context, req legacytm.RequestBeginBlock) legacytm.ResponseBeginBlock {
+func (app *SimApp) BeginBlocker(ctx sdk.Context, req abci.RequestBeginBlock) abci.ResponseBeginBlock {
 	return app.mm.BeginBlock(ctx, req)
 }
 
 // EndBlocker application updates every end block
-func (app *SimApp) EndBlocker(ctx sdk.Context, req legacytm.RequestEndBlock) legacytm.ResponseEndBlock {
+func (app *SimApp) EndBlocker(ctx sdk.Context, req abci.RequestEndBlock) abci.ResponseEndBlock {
 	return app.mm.EndBlock(ctx, req)
 }
 

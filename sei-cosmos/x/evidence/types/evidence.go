@@ -5,11 +5,11 @@ import (
 	"fmt"
 	"time"
 
+	abci "github.com/tendermint/tendermint/abci/types"
 	tmbytes "github.com/tendermint/tendermint/libs/bytes"
 	"gopkg.in/yaml.v2"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
-	"github.com/cosmos/cosmos-sdk/types/legacytm"
 	"github.com/cosmos/cosmos-sdk/x/evidence/exported"
 )
 
@@ -88,7 +88,7 @@ func (e Equivocation) GetTotalPower() int64 { return 0 }
 
 // FromABCIEvidence converts a Tendermint concrete Evidence type to
 // SDK Evidence using Equivocation as the concrete type.
-func FromABCIEvidence(e legacytm.Evidence) exported.Evidence {
+func FromABCIEvidence(e abci.Evidence) exported.Evidence {
 	bech32PrefixConsAddr := sdk.GetConfig().GetBech32ConsensusAddrPrefix()
 	consAddr, err := sdk.Bech32ifyAddressBytes(bech32PrefixConsAddr, e.Validator.Address)
 	if err != nil {

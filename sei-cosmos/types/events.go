@@ -7,8 +7,6 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/cosmos/cosmos-sdk/types/legacytm"
-	"github.com/cosmos/cosmos-sdk/utils"
 	"github.com/gogo/protobuf/jsonpb"
 	proto "github.com/gogo/protobuf/proto"
 	abci "github.com/tendermint/tendermint/abci/types"
@@ -45,7 +43,7 @@ func (em *EventManager) EmitEvents(events Events) {
 }
 
 // ABCIEvents returns all stored Event objects as abci.Event objects.
-func (em EventManager) ABCIEvents() []legacytm.Event {
+func (em EventManager) ABCIEvents() []abci.Event {
 	return em.events.ToABCIEvents()
 }
 
@@ -89,11 +87,11 @@ func TypedEventToEvent(tev proto.Message) (Event, error) {
 		return Event{}, err
 	}
 
-	attrs := make([]legacytm.EventAttribute, 0, len(attrMap))
+	attrs := make([]abci.EventAttribute, 0, len(attrMap))
 	for k, v := range attrMap {
-		attrs = append(attrs, legacytm.EventAttribute{
-			Key:   []byte(k),
-			Value: v,
+		attrs = append(attrs, abci.EventAttribute{
+			Key:   k,
+			Value: string(v),
 		})
 	}
 
@@ -104,7 +102,7 @@ func TypedEventToEvent(tev proto.Message) (Event, error) {
 }
 
 // ParseTypedEvent converts abci.Event back to typed event
-func ParseTypedEvent(event legacytm.Event) (proto.Message, error) {
+func ParseTypedEvent(event abci.Event) (proto.Message, error) {
 	concreteGoType := proto.MessageType(event.Type)
 	if concreteGoType == nil {
 		return nil, fmt.Errorf("failed to retrieve the message of type %q", event.Type)
@@ -124,7 +122,7 @@ func ParseTypedEvent(event legacytm.Event) (proto.Message, error) {
 
 	attrMap := make(map[string]json.RawMessage)
 	for _, attr := range event.Attributes {
-		attrMap[string(attr.Key)] = attr.Value
+		attrMap[string(attr.Key)] = []byte(attr.Value)
 	}
 
 	attrBytes, err := json.Marshal(attrMap)
@@ -146,7 +144,7 @@ func ParseTypedEvent(event legacytm.Event) (proto.Message, error) {
 
 type (
 	// Event is a type alias for an ABCI Event
-	Event legacytm.Event
+	Event abci.Event
 
 	// Events defines a slice of Event objects
 	Events []Event
@@ -179,8 +177,8 @@ func (a Attribute) String() string {
 }
 
 // ToKVPair converts an Attribute object into a Tendermint key/value pair.
-func (a Attribute) ToKVPair() legacytm.EventAttribute {
-	return legacytm.EventAttribute{Key: toBytes(a.Key), Value: toBytes(a.Value)}
+func (a Attribute) ToKVPair() abci.EventAttribute {
+	return abci.EventAttribute{Key: a.Key, Value: a.Value}
 }
 
 // AppendAttributes adds one or more attributes to an Event.
@@ -203,39 +201,13 @@ func (e Events) AppendEvents(events Events) Events {
 
 // ToABCIEvents converts a slice of Event objects to a slice of abci.Event
 // objects.
-func (e Events) ToABCIEvents() []legacytm.Event {
-	res := make([]legacytm.Event, len(e))
+func (e Events) ToABCIEvents() []abci.Event {
+	res := make([]abci.Event, len(e))
 	for i, ev := range e {
-		res[i] = legacytm.Event{Type: ev.Type, Attributes: ev.Attributes}
+		res[i] = abci.Event{Type: ev.Type, Attributes: ev.Attributes}
 	}
 
 	return res
-}
-
-func LegacyToABCIEvent(legacyEvent legacytm.Event) abci.Event {
-	return abci.Event{
-		Type: legacyEvent.Type,
-		Attributes: utils.Map(legacyEvent.Attributes, func(legacyAttribute legacytm.EventAttribute) abci.EventAttribute {
-			return abci.EventAttribute{
-				Key:   string(legacyAttribute.Key),
-				Value: string(legacyAttribute.Value),
-				Index: legacyAttribute.Index,
-			}
-		}),
-	}
-}
-
-func ABCIToLegacyEvent(event abci.Event) legacytm.Event {
-	return legacytm.Event{
-		Type: event.Type,
-		Attributes: utils.Map(event.Attributes, func(attribute abci.EventAttribute) legacytm.EventAttribute {
-			return legacytm.EventAttribute{
-				Key:   []byte(attribute.Key),
-				Value: []byte(attribute.Value),
-				Index: attribute.Index,
-			}
-		}),
-	}
 }
 
 func toBytes(i interface{}) []byte {
@@ -335,19 +307,19 @@ func StringifyEvents(events []abci.Event) StringEvents {
 
 // MarkEventsToIndex returns the set of ABCI events, where each event's attribute
 // has it's index value marked based on the provided set of events to index.
-func MarkEventsToIndex(events []legacytm.Event, indexSet map[string]struct{}) []legacytm.Event {
+func MarkEventsToIndex(events []abci.Event, indexSet map[string]struct{}) []abci.Event {
 	indexAll := len(indexSet) == 0
-	updatedEvents := make([]legacytm.Event, len(events))
+	updatedEvents := make([]abci.Event, len(events))
 
 	for i, e := range events {
-		updatedEvent := legacytm.Event{
+		updatedEvent := abci.Event{
 			Type:       e.Type,
-			Attributes: make([]legacytm.EventAttribute, len(e.Attributes)),
+			Attributes: make([]abci.EventAttribute, len(e.Attributes)),
 		}
 
 		for j, attr := range e.Attributes {
 			_, index := indexSet[fmt.Sprintf("%s.%s", e.Type, attr.Key)]
-			updatedAttr := legacytm.EventAttribute{
+			updatedAttr := abci.EventAttribute{
 				Key:   attr.Key,
 				Value: attr.Value,
 				Index: index || indexAll,

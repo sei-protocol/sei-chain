@@ -9,7 +9,6 @@ import (
 	"github.com/cosmos/cosmos-sdk/client"
 	"github.com/cosmos/cosmos-sdk/codec"
 	sdk "github.com/cosmos/cosmos-sdk/types"
-	"github.com/cosmos/cosmos-sdk/types/legacytm"
 	"github.com/cosmos/cosmos-sdk/utils"
 	bankexported "github.com/cosmos/cosmos-sdk/x/bank/exported"
 	"github.com/cosmos/cosmos-sdk/x/genutil/types"
@@ -88,7 +87,7 @@ func ValidateAccountInGenesis(
 	return nil
 }
 
-type deliverTxfn func(legacytm.RequestDeliverTx) abci.ResponseDeliverTx
+type deliverTxfn func(abci.RequestDeliverTx) abci.ResponseDeliverTx
 
 // DeliverGenTxs iterates over all genesis txs, decodes each into a Tx and
 // invokes the provided deliverTxfn with the decoded Tx. It returns the result
@@ -110,7 +109,7 @@ func DeliverGenTxs(
 			panic(err)
 		}
 
-		res := deliverTx(legacytm.RequestDeliverTx{Tx: bz})
+		res := deliverTx(abci.RequestDeliverTx{Tx: bz})
 		if !res.IsOK() {
 			panic(res.Log)
 		}
@@ -120,7 +119,7 @@ func DeliverGenTxs(
 	if err != nil {
 		return nil, err
 	}
-	return utils.Map(legacyUpdates, func(v legacytm.ValidatorUpdate) abci.ValidatorUpdate {
+	return utils.Map(legacyUpdates, func(v abci.ValidatorUpdate) abci.ValidatorUpdate {
 		return abci.ValidatorUpdate{
 			PubKey: v.PubKey,
 			Power:  v.Power,

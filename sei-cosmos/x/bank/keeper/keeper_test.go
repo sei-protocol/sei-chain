@@ -7,12 +7,12 @@ import (
 
 	tmtime "github.com/cosmos/cosmos-sdk/std"
 	"github.com/stretchr/testify/suite"
+	abci "github.com/tendermint/tendermint/abci/types"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 
 	"github.com/cosmos/cosmos-sdk/baseapp"
 	"github.com/cosmos/cosmos-sdk/simapp"
 	sdk "github.com/cosmos/cosmos-sdk/types"
-	"github.com/cosmos/cosmos-sdk/types/legacytm"
 	"github.com/cosmos/cosmos-sdk/types/query"
 	authkeeper "github.com/cosmos/cosmos-sdk/x/auth/keeper"
 	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
@@ -551,35 +551,35 @@ func (suite *IntegrationTestSuite) TestMsgSendEvents() {
 	suite.Require().NoError(app.BankKeeper.SendCoins(ctx, addr, addr2, newCoins))
 	event1 := sdk.Event{
 		Type:       types.EventTypeTransfer,
-		Attributes: []legacytm.EventAttribute{},
+		Attributes: []abci.EventAttribute{},
 	}
 	event1.Attributes = append(
 		event1.Attributes,
-		legacytm.EventAttribute{Key: []byte(types.AttributeKeyRecipient), Value: []byte(addr2.String())},
+		abci.EventAttribute{Key: types.AttributeKeyRecipient, Value: addr2.String()},
 	)
 	event1.Attributes = append(
 		event1.Attributes,
-		legacytm.EventAttribute{Key: []byte(types.AttributeKeySender), Value: []byte(addr.String())},
+		abci.EventAttribute{Key: types.AttributeKeySender, Value: addr.String()},
 	)
 	event1.Attributes = append(
 		event1.Attributes,
-		legacytm.EventAttribute{Key: []byte(sdk.AttributeKeyAmount), Value: []byte(newCoins.String())},
+		abci.EventAttribute{Key: sdk.AttributeKeyAmount, Value: newCoins.String()},
 	)
 
 	event2 := sdk.Event{
 		Type:       sdk.EventTypeMessage,
-		Attributes: []legacytm.EventAttribute{},
+		Attributes: []abci.EventAttribute{},
 	}
 	event2.Attributes = append(
 		event2.Attributes,
-		legacytm.EventAttribute{Key: []byte(types.AttributeKeySender), Value: []byte(addr.String())},
+		abci.EventAttribute{Key: types.AttributeKeySender, Value: addr.String()},
 	)
 
 	// events are shifted due to the funding account events
 	events := ctx.EventManager().ABCIEvents()
 	suite.Require().Equal(10, len(events))
-	suite.Require().Equal(legacytm.Event(event1), events[8])
-	suite.Require().Equal(legacytm.Event(event2), events[9])
+	suite.Require().Equal(abci.Event(event1), events[8])
+	suite.Require().Equal(abci.Event(event2), events[9])
 }
 
 func (suite *IntegrationTestSuite) TestMsgMultiSendEvents() {
@@ -622,13 +622,13 @@ func (suite *IntegrationTestSuite) TestMsgMultiSendEvents() {
 
 	event1 := sdk.Event{
 		Type:       sdk.EventTypeMessage,
-		Attributes: []legacytm.EventAttribute{},
+		Attributes: []abci.EventAttribute{},
 	}
 	event1.Attributes = append(
 		event1.Attributes,
-		legacytm.EventAttribute{Key: []byte(types.AttributeKeySender), Value: []byte(addr.String())},
+		abci.EventAttribute{Key: types.AttributeKeySender, Value: addr.String()},
 	)
-	suite.Require().Equal(legacytm.Event(event1), events[7])
+	suite.Require().Equal(abci.Event(event1), events[7])
 
 	// Set addr's coins and addr2's coins
 	suite.Require().NoError(simapp.FundAccount(app.BankKeeper, ctx, addr, sdk.NewCoins(sdk.NewInt64Coin(fooDenom, 50))))
@@ -644,40 +644,40 @@ func (suite *IntegrationTestSuite) TestMsgMultiSendEvents() {
 
 	event2 := sdk.Event{
 		Type:       sdk.EventTypeMessage,
-		Attributes: []legacytm.EventAttribute{},
+		Attributes: []abci.EventAttribute{},
 	}
 	event2.Attributes = append(
 		event2.Attributes,
-		legacytm.EventAttribute{Key: []byte(types.AttributeKeySender), Value: []byte(addr2.String())},
+		abci.EventAttribute{Key: types.AttributeKeySender, Value: addr2.String()},
 	)
 	event3 := sdk.Event{
 		Type:       types.EventTypeTransfer,
-		Attributes: []legacytm.EventAttribute{},
+		Attributes: []abci.EventAttribute{},
 	}
 	event3.Attributes = append(
 		event3.Attributes,
-		legacytm.EventAttribute{Key: []byte(types.AttributeKeyRecipient), Value: []byte(addr3.String())},
+		abci.EventAttribute{Key: types.AttributeKeyRecipient, Value: addr3.String()},
 	)
 	event3.Attributes = append(
 		event3.Attributes,
-		legacytm.EventAttribute{Key: []byte(sdk.AttributeKeyAmount), Value: []byte(newCoins.String())})
+		abci.EventAttribute{Key: sdk.AttributeKeyAmount, Value: newCoins.String()})
 	event4 := sdk.Event{
 		Type:       types.EventTypeTransfer,
-		Attributes: []legacytm.EventAttribute{},
+		Attributes: []abci.EventAttribute{},
 	}
 	event4.Attributes = append(
 		event4.Attributes,
-		legacytm.EventAttribute{Key: []byte(types.AttributeKeyRecipient), Value: []byte(addr4.String())},
+		abci.EventAttribute{Key: types.AttributeKeyRecipient, Value: addr4.String()},
 	)
 	event4.Attributes = append(
 		event4.Attributes,
-		legacytm.EventAttribute{Key: []byte(sdk.AttributeKeyAmount), Value: []byte(newCoins2.String())},
+		abci.EventAttribute{Key: sdk.AttributeKeyAmount, Value: newCoins2.String()},
 	)
 	// events are shifted due to the funding account events
-	suite.Require().Equal(legacytm.Event(event1), events[21])
-	suite.Require().Equal(legacytm.Event(event2), events[23])
-	suite.Require().Equal(legacytm.Event(event3), events[25])
-	suite.Require().Equal(legacytm.Event(event4), events[27])
+	suite.Require().Equal(abci.Event(event1), events[21])
+	suite.Require().Equal(abci.Event(event2), events[23])
+	suite.Require().Equal(abci.Event(event3), events[25])
+	suite.Require().Equal(abci.Event(event4), events[27])
 }
 
 func (suite *IntegrationTestSuite) TestSpendableCoins() {

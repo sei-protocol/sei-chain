@@ -6,7 +6,6 @@ import (
 	"github.com/cosmos/cosmos-sdk/codec"
 	"github.com/cosmos/cosmos-sdk/server/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
-	"github.com/cosmos/cosmos-sdk/types/legacytm"
 	"github.com/cosmos/cosmos-sdk/types/module"
 )
 
@@ -21,10 +20,10 @@ type App interface {
 	LegacyAmino() *codec.LegacyAmino
 
 	// Application updates every begin block.
-	BeginBlocker(ctx sdk.Context, req legacytm.RequestBeginBlock) legacytm.ResponseBeginBlock
+	BeginBlocker(ctx sdk.Context, req abci.RequestBeginBlock) abci.ResponseBeginBlock
 
 	// Application updates every end block.
-	EndBlocker(ctx sdk.Context, req legacytm.RequestEndBlock) legacytm.ResponseEndBlock
+	EndBlocker(ctx sdk.Context, req abci.RequestEndBlock) abci.ResponseEndBlock
 
 	// Application update at chain (i.e app) initialization.
 	InitChainer(ctx sdk.Context, req abci.RequestInitChain) abci.ResponseInitChain

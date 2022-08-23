@@ -17,7 +17,6 @@ import (
 	"github.com/cosmos/cosmos-sdk/baseapp"
 	"github.com/cosmos/cosmos-sdk/codec"
 	sdk "github.com/cosmos/cosmos-sdk/types"
-	"github.com/cosmos/cosmos-sdk/types/legacytm"
 	"github.com/cosmos/cosmos-sdk/types/simulation"
 	"github.com/cosmos/cosmos-sdk/utils"
 )
@@ -44,8 +43,8 @@ func initChain(
 		Time:            genesisTimestamp,
 	}
 	res, _ := app.InitChain(context.Background(), &req)
-	validators := newMockValidators(r, utils.Map(res.Validators, func(v abci.ValidatorUpdate) legacytm.ValidatorUpdate {
-		return legacytm.ValidatorUpdate{
+	validators := newMockValidators(r, utils.Map(res.Validators, func(v abci.ValidatorUpdate) abci.ValidatorUpdate {
+		return abci.ValidatorUpdate{
 			PubKey: v.PubKey,
 			Power:  v.Power,
 		}
@@ -127,7 +126,7 @@ func SimulateFromSeed(
 
 	var (
 		pastTimes     []time.Time
-		pastVoteInfos [][]legacytm.VoteInfo
+		pastVoteInfos [][]abci.VoteInfo
 	)
 
 	request := RandomRequestBeginBlock(r, params,
@@ -191,7 +190,7 @@ func SimulateFromSeed(
 		operations := blockSimulator(r, app, ctx, accs, header)
 		opCount += operations + numQueuedOpsRan + numQueuedTimeOpsRan
 
-		res := app.EndBlock(legacytm.RequestEndBlock{})
+		res := app.EndBlock(abci.RequestEndBlock{})
 		header.Height++
 		header.Time = header.Time.Add(
 			time.Duration(minTimePerBlock) * time.Second)

@@ -1,7 +1,6 @@
 package types
 
 import (
-	"github.com/cosmos/cosmos-sdk/types/legacytm"
 	abci "github.com/tendermint/tendermint/abci/types"
 )
 
@@ -12,13 +11,13 @@ type InitChainer func(ctx Context, req abci.RequestInitChain) abci.ResponseInitC
 //
 // Note: applications which set create_empty_blocks=false will not have regular block timing and should use
 // e.g. BFT timestamps rather than block height for any periodic BeginBlock logic
-type BeginBlocker func(ctx Context, req legacytm.RequestBeginBlock) legacytm.ResponseBeginBlock
+type BeginBlocker func(ctx Context, req abci.RequestBeginBlock) abci.ResponseBeginBlock
 
 // EndBlocker runs code after the transactions in a block and return updates to the validator set
 //
 // Note: applications which set create_empty_blocks=false will not have regular block timing and should use
 // e.g. BFT timestamps rather than block height for any periodic EndBlock logic
-type EndBlocker func(ctx Context, req legacytm.RequestEndBlock) legacytm.ResponseEndBlock
+type EndBlocker func(ctx Context, req abci.RequestEndBlock) abci.ResponseEndBlock
 
 // PeerFilter responds to p2p filtering queries from Tendermint
 type PeerFilter func(info string) abci.ResponseQuery

@@ -5,14 +5,14 @@ import (
 
 	"github.com/cosmos/cosmos-sdk/codec"
 	sdk "github.com/cosmos/cosmos-sdk/types"
-	"github.com/cosmos/cosmos-sdk/types/legacytm"
 	auth "github.com/cosmos/cosmos-sdk/x/auth/types"
 	bankexported "github.com/cosmos/cosmos-sdk/x/bank/exported"
+	abci "github.com/tendermint/tendermint/abci/types"
 )
 
 // StakingKeeper defines the expected staking keeper (noalias)
 type StakingKeeper interface {
-	ApplyAndReturnValidatorSetUpdates(sdk.Context) (updates []legacytm.ValidatorUpdate, err error)
+	ApplyAndReturnValidatorSetUpdates(sdk.Context) (updates []abci.ValidatorUpdate, err error)
 }
 
 // AccountKeeper defines the expected account keeper (noalias)

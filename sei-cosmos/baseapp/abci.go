@@ -23,7 +23,6 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	"github.com/cosmos/cosmos-sdk/types/legacytm"
-	"github.com/cosmos/cosmos-sdk/utils"
 )
 
 // InitChain implements the ABCI interface. It runs the initialization logic
@@ -142,7 +141,7 @@ func (app *BaseApp) FilterPeerByID(info string) abci.ResponseQuery {
 }
 
 // BeginBlock implements the ABCI application interface.
-func (app *BaseApp) BeginBlock(req legacytm.RequestBeginBlock) (res legacytm.ResponseBeginBlock) {
+func (app *BaseApp) BeginBlock(req abci.RequestBeginBlock) (res abci.ResponseBeginBlock) {
 	defer telemetry.MeasureSince(time.Now(), "abci", "begin_block")
 
 	if err := app.validateHeight(req); err != nil {
@@ -157,7 +156,7 @@ func (app *BaseApp) BeginBlock(req legacytm.RequestBeginBlock) (res legacytm.Res
 }
 
 // EndBlock implements the ABCI interface.
-func (app *BaseApp) EndBlock(req legacytm.RequestEndBlock) (res legacytm.ResponseEndBlock) {
+func (app *BaseApp) EndBlock(req abci.RequestEndBlock) (res abci.ResponseEndBlock) {
 	defer telemetry.MeasureSince(time.Now(), "abci", "end_block")
 
 	if app.deliverState.ms.TracingEnabled() {
@@ -215,7 +214,7 @@ func (app *BaseApp) CheckTx(ctx context.Context, req *abci.RequestCheckTx) (*abc
 // Otherwise, the ResponseDeliverTx will contain releveant error information.
 // Regardless of tx execution outcome, the ResponseDeliverTx will contain relevant
 // gas execution context.
-func (app *BaseApp) DeliverTx(req legacytm.RequestDeliverTx) abci.ResponseDeliverTx {
+func (app *BaseApp) DeliverTx(req abci.RequestDeliverTx) abci.ResponseDeliverTx {
 	defer telemetry.MeasureSince(time.Now(), "abci", "deliver_tx")
 
 	gInfo := sdk.GasInfo{}
@@ -239,8 +238,7 @@ func (app *BaseApp) DeliverTx(req legacytm.RequestDeliverTx) abci.ResponseDelive
 		GasUsed:   int64(gInfo.GasUsed),   // TODO: Should type accept unsigned ints?
 		Log:       result.Log,
 		Data:      result.Data,
-		Events: utils.Map(sdk.MarkEventsToIndex(
-			utils.Map(result.Events, sdk.ABCIToLegacyEvent), app.indexEvents), sdk.LegacyToABCIEvent),
+		Events:    sdk.MarkEventsToIndex(result.Events, app.indexEvents),
 	}
 }
 
@@ -973,8 +971,7 @@ func (app *BaseApp) FinalizeBlock(ctx context.Context, req *abci.RequestFinalize
 		if err != nil {
 			return nil, err
 		}
-		res.Events = utils.Map(sdk.MarkEventsToIndex(
-			utils.Map(res.Events, sdk.ABCIToLegacyEvent), app.indexEvents), sdk.LegacyToABCIEvent)
+		res.Events = sdk.MarkEventsToIndex(res.Events, app.indexEvents)
 		// set the signed validators for addition to context in deliverTx
 		app.voteInfos = req.DecidedLastCommit.GetVotes()
 		return res, nil

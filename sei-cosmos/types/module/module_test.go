@@ -17,7 +17,6 @@ import (
 	"github.com/cosmos/cosmos-sdk/codec"
 	"github.com/cosmos/cosmos-sdk/tests/mocks"
 	sdk "github.com/cosmos/cosmos-sdk/types"
-	"github.com/cosmos/cosmos-sdk/types/legacytm"
 	"github.com/cosmos/cosmos-sdk/types/module"
 )
 
@@ -83,8 +82,8 @@ func TestGenesisOnlyAppModule(t *testing.T) {
 
 	// no-op
 	goam.RegisterInvariants(mockInvariantRegistry)
-	goam.BeginBlock(sdk.Context{}, legacytm.RequestBeginBlock{})
-	require.Equal(t, []legacytm.ValidatorUpdate{}, goam.EndBlock(sdk.Context{}, legacytm.RequestEndBlock{}))
+	goam.BeginBlock(sdk.Context{}, abci.RequestBeginBlock{})
+	require.Equal(t, []abci.ValidatorUpdate{}, goam.EndBlock(sdk.Context{}, abci.RequestEndBlock{}))
 }
 
 func TestManagerOrderSetters(t *testing.T) {
@@ -254,7 +253,7 @@ func TestManager_BeginBlock(t *testing.T) {
 	require.NotNil(t, mm)
 	require.Equal(t, 2, len(mm.Modules))
 
-	req := legacytm.RequestBeginBlock{Hash: []byte("test")}
+	req := abci.RequestBeginBlock{Hash: []byte("test")}
 
 	mockAppModule1.EXPECT().BeginBlock(gomock.Any(), gomock.Eq(req)).Times(1)
 	mockAppModule2.EXPECT().BeginBlock(gomock.Any(), gomock.Eq(req)).Times(1)
@@ -273,15 +272,15 @@ func TestManager_EndBlock(t *testing.T) {
 	require.NotNil(t, mm)
 	require.Equal(t, 2, len(mm.Modules))
 
-	req := legacytm.RequestEndBlock{Height: 10}
+	req := abci.RequestEndBlock{Height: 10}
 
-	mockAppModule1.EXPECT().EndBlock(gomock.Any(), gomock.Eq(req)).Times(1).Return([]legacytm.ValidatorUpdate{{}})
+	mockAppModule1.EXPECT().EndBlock(gomock.Any(), gomock.Eq(req)).Times(1).Return([]abci.ValidatorUpdate{{}})
 	mockAppModule2.EXPECT().EndBlock(gomock.Any(), gomock.Eq(req)).Times(1)
 	ret := mm.EndBlock(sdk.Context{}, req)
-	require.Equal(t, []legacytm.ValidatorUpdate{{}}, ret.ValidatorUpdates)
+	require.Equal(t, []abci.ValidatorUpdate{{}}, ret.ValidatorUpdates)
 
 	// test panic
-	mockAppModule1.EXPECT().EndBlock(gomock.Any(), gomock.Eq(req)).Times(1).Return([]legacytm.ValidatorUpdate{{}})
-	mockAppModule2.EXPECT().EndBlock(gomock.Any(), gomock.Eq(req)).Times(1).Return([]legacytm.ValidatorUpdate{{}})
+	mockAppModule1.EXPECT().EndBlock(gomock.Any(), gomock.Eq(req)).Times(1).Return([]abci.ValidatorUpdate{{}})
+	mockAppModule2.EXPECT().EndBlock(gomock.Any(), gomock.Eq(req)).Times(1).Return([]abci.ValidatorUpdate{{}})
 	require.Panics(t, func() { mm.EndBlock(sdk.Context{}, req) })
 }

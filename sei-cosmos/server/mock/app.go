@@ -14,7 +14,6 @@ import (
 	bam "github.com/cosmos/cosmos-sdk/baseapp"
 	"github.com/cosmos/cosmos-sdk/codec"
 	sdk "github.com/cosmos/cosmos-sdk/types"
-	"github.com/cosmos/cosmos-sdk/types/legacytm"
 )
 
 // NewApp creates a simple mock kvstore app for testing. It should work
@@ -39,7 +38,7 @@ func NewApp(rootDir string, logger log.Logger) (abci.Application, error) {
 	baseApp.SetFinalizeBlocker(func(ctx sdk.Context, req *abci.RequestFinalizeBlock) (*abci.ResponseFinalizeBlock, error) {
 		txResults := []*abci.ExecTxResult{}
 		for _, tx := range req.Txs {
-			deliverTxResp := baseApp.DeliverTx(legacytm.RequestDeliverTx{
+			deliverTxResp := baseApp.DeliverTx(abci.RequestDeliverTx{
 				Tx: tx,
 			})
 			txResults = append(txResults, &abci.ExecTxResult{
