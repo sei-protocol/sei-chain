@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"testing"
@@ -152,13 +153,16 @@ func Setup(isCheckTx bool) *App {
 			panic(err)
 		}
 
-		app.InitChain(
-			abci.RequestInitChain{
+		_, err = app.InitChain(
+			context.Background(), &abci.RequestInitChain{
 				Validators:      []abci.ValidatorUpdate{},
 				ConsensusParams: simapp.DefaultConsensusParams,
 				AppStateBytes:   stateBytes,
 			},
 		)
+		if err != nil {
+			panic(err)
+		}
 	}
 
 	return app
@@ -192,13 +196,16 @@ func SetupTestingAppWithLevelDb(isCheckTx bool) (*App, func()) {
 			panic(err)
 		}
 
-		app.InitChain(
-			abci.RequestInitChain{
+		_, err = app.InitChain(
+			context.Background(), &abci.RequestInitChain{
 				Validators:      []abci.ValidatorUpdate{},
 				ConsensusParams: simapp.DefaultConsensusParams,
 				AppStateBytes:   stateBytes,
 			},
 		)
+		if err != nil {
+			panic(err)
+		}
 	}
 
 	cleanupFn := func() {

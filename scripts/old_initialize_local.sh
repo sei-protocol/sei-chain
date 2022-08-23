@@ -29,7 +29,6 @@ echo "Building..."
 make install
 echo $password | sudo -S rm -r ~/.sei/
 echo $password | sudo -S rm -r ~/test_accounts/
-~/go/bin/seid tendermint unsafe-reset-all
 ~/go/bin/seid init demo --chain-id sei-chain
 yes | ~/go/bin/seid keys add $keyname
 yes | ~/go/bin/seid keys add faucet

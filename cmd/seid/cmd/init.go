@@ -141,7 +141,10 @@ func InitCmd(mbm module.BasicManager, defaultNodeHome string) *cobra.Command {
 
 			toPrint := newPrintInfo(config.Moniker, chainID, nodeID, "", appState)
 
-			tmcfg.WriteConfigFile(filepath.Join(config.RootDir, "config", "config.toml"), config)
+			err = tmcfg.WriteConfigFile(filepath.Join(config.RootDir, "config", "config.toml"), config)
+			if err != nil {
+				panic(err)
+			}
 
 			return displayInfo(toPrint)
 		},
