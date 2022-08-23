@@ -3,7 +3,6 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
 	"math/rand"
 	"os"
 	"os/exec"
@@ -268,7 +267,7 @@ func getLastHeight() int {
 func main() {
 	config := Config{}
 	pwd, _ := os.Getwd()
-	file, _ := ioutil.ReadFile(pwd + "/loadtest/config.json")
+	file, _ := os.ReadFile(pwd + "/loadtest/config.json")
 	if err := json.Unmarshal(file, &config); err != nil {
 		panic(err)
 	}

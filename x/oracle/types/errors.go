@@ -3,8 +3,7 @@ package types
 import (
 	"fmt"
 
-	"github.com/tendermint/tendermint/crypto/tmhash"
-
+	"github.com/cosmos/cosmos-sdk/crypto/keys/ed25519"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 )
 
@@ -15,7 +14,7 @@ var (
 	ErrNoVote                = sdkerrors.Register(ModuleName, 4, "no vote")
 	ErrNoVotingPermission    = sdkerrors.Register(ModuleName, 5, "unauthorized voter")
 	ErrInvalidHash           = sdkerrors.Register(ModuleName, 6, "invalid hash")
-	ErrInvalidHashLength     = sdkerrors.Register(ModuleName, 7, fmt.Sprintf("invalid hash length; should equal %d", tmhash.TruncatedSize))
+	ErrInvalidHashLength     = sdkerrors.Register(ModuleName, 7, fmt.Sprintf("invalid hash length; should equal %d", ed25519.TruncatedSize))
 	ErrVerificationFailed    = sdkerrors.Register(ModuleName, 8, "hash verification failed")
 	ErrRevealPeriodMissMatch = sdkerrors.Register(ModuleName, 9, "reveal period of submitted vote do not match with registered prevote")
 	ErrInvalidSaltLength     = sdkerrors.Register(ModuleName, 10, "invalid salt length; should be 1~4")

@@ -2,13 +2,15 @@ package types
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"hash"
 
 	"gopkg.in/yaml.v2"
 
-	"github.com/tendermint/tendermint/crypto/tmhash"
+	"github.com/cosmos/cosmos-sdk/crypto/keys/ed25519"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 )
@@ -19,10 +21,41 @@ var _ yaml.Marshaler = AggregateVoteHash{}
 // which is formatted as hex string in SHA256("{salt}:{exchange rate}{denom},...,{exchange rate}{denom}:{voter}")
 type AggregateVoteHash []byte
 
+type sha256trunc struct {
+	sha256 hash.Hash
+}
+
+func (h sha256trunc) Write(p []byte) (n int, err error) {
+	return h.sha256.Write(p)
+}
+
+func (h sha256trunc) Sum(b []byte) []byte {
+	shasum := h.sha256.Sum(b)
+	return shasum[:ed25519.TruncatedSize]
+}
+
+func (h sha256trunc) Reset() {
+	h.sha256.Reset()
+}
+
+func (h sha256trunc) Size() int {
+	return ed25519.TruncatedSize
+}
+
+func (h sha256trunc) BlockSize() int {
+	return h.sha256.BlockSize()
+}
+
+func NewTruncated() hash.Hash {
+	return sha256trunc{
+		sha256: sha256.New(),
+	}
+}
+
 // GetAggregateVoteHash computes hash value of ExchangeRateVote
 // to avoid redundant DecCoins stringify operation, use string argument
 func GetAggregateVoteHash(salt string, exchangeRatesStr string, voter sdk.ValAddress) AggregateVoteHash {
-	hash := tmhash.NewTruncated()
+	hash := NewTruncated()
 	sourceStr := fmt.Sprintf("%s:%s:%s", salt, exchangeRatesStr, voter.String())
 	_, err := hash.Write([]byte(sourceStr))
 	if err != nil {

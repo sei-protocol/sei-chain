@@ -1,6 +1,7 @@
 package apptesting
 
 import (
+	"context"
 	"time"
 
 	"github.com/cosmos/cosmos-sdk/baseapp"
@@ -60,7 +61,10 @@ func (s *KeeperTestHelper) CreateTestContext() sdk.Context {
 func (s *KeeperTestHelper) Commit() {
 	oldHeight := s.Ctx.BlockHeight()
 	oldHeader := s.Ctx.BlockHeader()
-	s.App.Commit()
+	_, err := s.App.Commit(context.Background())
+	if err != nil {
+		panic(err)
+	}
 	newHeader := tmtypes.Header{Height: oldHeight + 1, ChainID: oldHeader.ChainID, Time: time.Now().UTC()}
 	s.App.BeginBlock(abci.RequestBeginBlock{Header: newHeader})
 	s.Ctx = s.App.GetBaseApp().NewContext(false, newHeader)

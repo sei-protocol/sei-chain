@@ -21,6 +21,8 @@ const (
 	Bech32PrefixAccAddr = "sei"
 )
 
+var UnsafeBypassCommitTimeoutOverride bool = true
+
 var (
 	// Bech32PrefixAccPub defines the Bech32 prefix of an account's public key.
 	Bech32PrefixAccPub = Bech32PrefixAccAddr + "pub"
@@ -77,8 +79,7 @@ func SetAddressPrefixes() {
 }
 
 func SetTendermintConfigs(config *tmcfg.Config) {
-	config.P2P.MaxNumInboundPeers = 100
-	config.P2P.MaxNumOutboundPeers = 100
+	config.P2P.MaxConnections = 200
 	config.P2P.SendRate = 20480000
 	config.P2P.RecvRate = 20480000
 	config.P2P.MaxPacketMsgPayloadSize = 10240
@@ -88,8 +89,8 @@ func SetTendermintConfigs(config *tmcfg.Config) {
 	config.Mempool.MaxTxsBytes = 10737418240
 	config.Mempool.MaxTxBytes = 2048576
 	// Consensus Configs
-	config.Consensus.TimeoutPrevote = 250 * time.Millisecond
-	config.Consensus.TimeoutPrecommit = 250 * time.Millisecond
-	config.Consensus.TimeoutCommit = 250 * time.Millisecond
-	config.Consensus.SkipTimeoutCommit = true
+	config.Consensus.UnsafeProposeTimeoutOverride = 250 * time.Millisecond
+	config.Consensus.UnsafeVoteTimeoutOverride = 250 * time.Millisecond
+	config.Consensus.UnsafeCommitTimeoutOverride = 250 * time.Millisecond
+	config.Consensus.UnsafeBypassCommitTimeoutOverride = &UnsafeBypassCommitTimeoutOverride
 }

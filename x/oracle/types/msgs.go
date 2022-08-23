@@ -1,7 +1,7 @@
 package types
 
 import (
-	"github.com/tendermint/tendermint/crypto/tmhash"
+	"github.com/cosmos/cosmos-sdk/crypto/keys/ed25519"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
@@ -64,7 +64,7 @@ func (msg MsgAggregateExchangeRatePrevote) ValidateBasic() error {
 	}
 
 	// HEX encoding doubles the hash length
-	if len(msg.Hash) != tmhash.TruncatedSize*2 {
+	if len(msg.Hash) != ed25519.TruncatedSize*2 {
 		return ErrInvalidHashLength
 	}
 
@@ -243,7 +243,7 @@ func (msg MsgAggregateExchangeRateCombinedVote) ValidateBasic() error {
 	}
 
 	// HEX encoding doubles the hash length
-	if len(msg.PrevoteHash) != tmhash.TruncatedSize*2 {
+	if len(msg.PrevoteHash) != ed25519.TruncatedSize*2 {
 		return ErrInvalidHashLength
 	}
 

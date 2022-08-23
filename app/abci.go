@@ -23,10 +23,10 @@ func (app *App) EndBlock(req abci.RequestEndBlock) (res abci.ResponseEndBlock) {
 	return app.BaseApp.EndBlock(req)
 }
 
-func (app *App) CheckTx(req abci.RequestCheckTx) abci.ResponseCheckTx {
+func (app *App) CheckTx(ctx context.Context, req *abci.RequestCheckTx) (*abci.ResponseCheckTx, error) {
 	_, span := (*app.tracingInfo.Tracer).Start(app.tracingInfo.TracerContext, "CheckTx")
 	defer span.End()
-	return app.BaseApp.CheckTx(req)
+	return app.BaseApp.CheckTx(ctx, req)
 }
 
 func (app *App) DeliverTx(req abci.RequestDeliverTx) abci.ResponseDeliverTx {
@@ -38,7 +38,7 @@ func (app *App) DeliverTx(req abci.RequestDeliverTx) abci.ResponseDeliverTx {
 	return app.BaseApp.DeliverTx(req)
 }
 
-func (app *App) Commit() (res abci.ResponseCommit) {
+func (app *App) Commit(ctx context.Context) (res *abci.ResponseCommit, err error) {
 	if app.tracingInfo.BlockSpan != nil {
 		defer (*app.tracingInfo.BlockSpan).End()
 	}
@@ -46,5 +46,5 @@ func (app *App) Commit() (res abci.ResponseCommit) {
 	defer span.End()
 	app.tracingInfo.TracerContext = context.Background()
 	app.tracingInfo.BlockSpan = nil
-	return app.BaseApp.Commit()
+	return app.BaseApp.Commit(ctx)
 }
