@@ -220,10 +220,11 @@ func (am AppModule) BeginBlock(ctx sdk.Context, _ abci.RequestBeginBlock) {
 		if err := recover(); err != nil {
 			ctx.Logger().Error(fmt.Sprintf("panic occurred in %s BeginBlock: %s", types.ModuleName, err))
 			telemetry.IncrCounterWithLabels(
-				[]string{fmt.Sprintf("%s%s", types.ModuleName, "beginblockpanic")},
+				[]string{"beginblockpanic"},
 				1,
 				[]metrics.Label{
 					telemetry.NewLabel("error", fmt.Sprintf("%s", err)),
+					telemetry.NewLabel("module", types.ModuleName),
 				},
 			)
 		}
@@ -273,7 +274,7 @@ func (am AppModule) EndBlock(ctx sdk.Context, _ abci.RequestEndBlock) (ret []abc
 		if err := recover(); err != nil {
 			ctx.Logger().Error(fmt.Sprintf("panic occurred in %s EndBlock: %s", types.ModuleName, err))
 			telemetry.IncrCounterWithLabels(
-				[]string{("endblockpanic")},
+				[]string{"endblockpanic"},
 				1,
 				[]metrics.Label{
 					telemetry.NewLabel("error", fmt.Sprintf("%s", err)),
