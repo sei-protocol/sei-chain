@@ -6,6 +6,7 @@ option go_package = "github.com/tendermint/tendermint/abci/types";
 import "tendermint/crypto/proof.proto";
 import "tendermint/crypto/keys.proto";
 import "tendermint/types/params.proto";
+import "tendermint/types/types.proto";
 import "google/protobuf/timestamp.proto";
 import "gogoproto/gogo.proto";
 
@@ -34,6 +35,9 @@ message Request {
     RequestExtendVote          extend_vote           = 17;
     RequestVerifyVoteExtension verify_vote_extension = 18;
     RequestFinalizeBlock       finalize_block        = 19;
+    RequestBeginBlock         begin_block          = 20;
+    RequestDeliverTx          deliver_tx           = 21;
+    RequestEndBlock           end_block            = 22;
   }
   reserved 6, 8, 9; // RequestBeginBlock, RequestDeliverTx, RequestEndBlock
 }
@@ -157,6 +161,21 @@ message RequestFinalizeBlock {
   bytes proposer_address = 8;
 }
 
+message RequestBeginBlock {
+  bytes                   hash                 = 1;
+  tendermint.types.Header header               = 2 [(gogoproto.nullable) = false];
+  LastCommitInfo          last_commit_info     = 3 [(gogoproto.nullable) = false];
+  repeated Evidence       byzantine_validators = 4 [(gogoproto.nullable) = false];
+}
+
+message RequestDeliverTx {
+  bytes tx = 1;
+}
+
+message RequestEndBlock {
+  int64 height = 1;
+}
+
 //----------------------------------------
 // Response types
 
@@ -179,6 +198,9 @@ message Response {
     ResponseExtendVote          extend_vote           = 18;
     ResponseVerifyVoteExtension verify_vote_extension = 19;
     ResponseFinalizeBlock       finalize_block        = 20;
+    ResponseBeginBlock         begin_block          = 21;
+    ResponseDeliverTx          deliver_tx           = 22;
+    ResponseEndBlock           end_block            = 23;
   }
   reserved 7, 9, 10; // ResponseBeginBlock, ResponseDeliverTx, ResponseEndBlock
 }
@@ -224,6 +246,11 @@ message ResponseQuery {
   string                     codespace = 10;
 }
 
+message ResponseBeginBlock {
+  repeated Event events = 1
+      [(gogoproto.nullable) = false, (gogoproto.jsontag) = "events,omitempty"];
+}
+
 message ResponseCheckTx {
   uint32         code       = 1;
   bytes          data       = 2;
@@ -245,6 +272,14 @@ message ResponseDeliverTx {
   repeated Event events     = 7
       [(gogoproto.nullable) = false, (gogoproto.jsontag) = "events,omitempty"];  // nondeterministic
   string codespace = 8;
+}
+
+message ResponseEndBlock {
+  repeated ValidatorUpdate validator_updates = 1
+      [(gogoproto.nullable) = false];
+  ConsensusParams consensus_param_updates = 2;
+  repeated Event  events                  = 3
+      [(gogoproto.nullable) = false, (gogoproto.jsontag) = "events,omitempty"];
 }
 
 message ResponseCommit {
@@ -341,6 +376,11 @@ message CommitInfo {
   repeated VoteInfo votes = 2 [(gogoproto.nullable) = false];
 }
 
+message LastCommitInfo {
+  int32             round = 1;
+  repeated VoteInfo votes = 2 [(gogoproto.nullable) = false];
+}
+
 // ExtendedCommitInfo is similar to CommitInfo except that it is only used in
 // the PrepareProposal request such that Tendermint can provide vote extensions
 // to the application.
@@ -405,6 +445,20 @@ message TxRecord {
   }
 }
 
+message BlockParams {
+  // Note: must be greater than 0
+  int64 max_bytes = 1;
+  // Note: must be greater or equal to -1
+  int64 max_gas = 2;
+}
+
+message ConsensusParams {
+  BlockParams                      block     = 1;
+  tendermint.types.EvidenceParams  evidence  = 2;
+  tendermint.types.ValidatorParams validator = 3;
+  tendermint.types.VersionParams   version   = 4;
+}
+
 //----------------------------------------
 // Blockchain Types
 
@@ -451,6 +505,23 @@ message Misbehavior {
   int64 height = 3;
   // The corresponding time where the offense occurred
   google.protobuf.Timestamp time = 4 [(gogoproto.nullable) = false, (gogoproto.stdtime) = true];
+  // Total voting power of the validator set in case the ABCI application does
+  // not store historical validators.
+  // https://github.com/tendermint/tendermint/issues/4581
+  int64 total_voting_power = 5;
+}
+
+message Evidence {
+  MisbehaviorType type = 1;
+  // The offending validator
+  Validator validator = 2 [(gogoproto.nullable) = false];
+  // The height when the offense occurred
+  int64 height = 3;
+  // The corresponding time where the offense occurred
+  google.protobuf.Timestamp time = 4 [
+    (gogoproto.nullable) = false,
+    (gogoproto.stdtime)  = true
+  ];
   // Total voting power of the validator set in case the ABCI application does
   // not store historical validators.
   // https://github.com/tendermint/tendermint/issues/4581

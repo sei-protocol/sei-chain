@@ -3,6 +3,8 @@ package log
 import (
 	"io"
 	"sync"
+
+	kitlog "github.com/go-kit/log"
 )
 
 const (
@@ -54,4 +56,8 @@ func (w *syncWriter) Write(p []byte) (int, error) {
 	w.Lock()
 	defer w.Unlock()
 	return w.Writer.Write(p)
+}
+
+func NewSyncWriter(w io.Writer) io.Writer {
+	return kitlog.NewSyncWriter(w)
 }
