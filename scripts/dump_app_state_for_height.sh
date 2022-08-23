@@ -9,9 +9,9 @@ fi
 HEIGHT=$1
 
 # install iaviewer
-if ! command -v ~/go/bin/iaviewer &> /dev/null
+if ! command -v $HOME/go/bin/iaviewer &> /dev/null
 then
-    cd ~
+    cd $HOME
     sudo rm -r iavl
     git clone https://github.com/cosmos/iavl.git
     cd iavl
@@ -20,14 +20,14 @@ then
 fi
 
 # dump state for height
-cd ~
+cd $HOME
 sudo rm -r state_$HEIGHT
 mkdir state_$HEIGHT
 for key in dex wasm oracle epoch mint
 do
-    ~/go/bin/iaviewer data ~/.sei/data/application.db "s/k:"$key"/" $HEIGHT > ~/state_$HEIGHT/$key.data
-    ~/go/bin/iaviewer shape ~/.sei/data/application.db "s/k:"$key"/" $HEIGHT > ~/state_$HEIGHT/$key.shape
+    $HOME/go/bin/iaviewer data $HOME/.sei/data/application.db "s/k:"$key"/" $HEIGHT > $HOME/state_$HEIGHT/$key.data
+    $HOME/go/bin/iaviewer shape $HOME/.sei/data/application.db "s/k:"$key"/" $HEIGHT > $HOME/state_$HEIGHT/$key.shape
 done
 
 # zip
-zip -r ~/state_$HEIGHT.zip ~/state_$HEIGHT
+zip -r $HOME/state_$HEIGHT.zip $HOME/state_$HEIGHT
