@@ -4,11 +4,18 @@ package tendermint.state;
 option go_package = "github.com/tendermint/tendermint/proto/tendermint/state";
 
 import "gogoproto/gogo.proto";
+import "tendermint/abci/types.proto";
 import "tendermint/types/types.proto";
 import "tendermint/types/validator.proto";
 import "tendermint/types/params.proto";
 import "tendermint/version/types.proto";
 import "google/protobuf/timestamp.proto";
+
+message ABCIResponses {
+  repeated tendermint.abci.ResponseDeliverTx deliver_txs = 1;
+  tendermint.abci.ResponseEndBlock           end_block   = 2;
+  tendermint.abci.ResponseBeginBlock         begin_block = 3;
+}
 
 // ValidatorsInfo represents the latest validator set, or the last height it changed
 message ValidatorsInfo {
