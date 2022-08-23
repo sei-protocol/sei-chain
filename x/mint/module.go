@@ -155,10 +155,11 @@ func (am AppModule) BeginBlock(ctx sdk.Context, _ abci.RequestBeginBlock) {
 		if err := recover(); err != nil {
 			ctx.Logger().Error(fmt.Sprintf("panic occurred in %s BeginBlock: %s", types.ModuleName, err))
 			telemetry.IncrCounterWithLabels(
-				[]string{fmt.Sprintf("%s%s", types.ModuleName, "beginblockpanic")},
+				[]string{"beginblockpanic"},
 				1,
 				[]metrics.Label{
 					telemetry.NewLabel("error", fmt.Sprintf("%s", err)),
+					telemetry.NewLabel("module", types.ModuleName),
 				},
 			)
 		}

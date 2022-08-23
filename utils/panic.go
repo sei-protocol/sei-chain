@@ -19,10 +19,11 @@ func PanicHandler(recoverCallback func(any)) func() {
 func MetricsPanicCallback(err any, ctx sdk.Context, key string) {
 	ctx.Logger().Error(fmt.Sprintf("panic %s occurred during order matching for: %s", err, key))
 	telemetry.IncrCounterWithLabels(
-		[]string{key},
+		[]string{"endblockpanic"},
 		1,
 		[]metrics.Label{
 			telemetry.NewLabel("error", fmt.Sprintf("%s", err)),
+			telemetry.NewLabel("module", key),
 		},
 	)
 }
