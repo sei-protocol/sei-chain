@@ -1,10 +1,10 @@
 /*
 Package module contains application module patterns and associated "manager" functionality.
 The module pattern has been broken down by:
- - independent module functionality (AppModuleBasic)
- - inter-dependent module genesis functionality (AppModuleGenesis)
- - inter-dependent module simulation functionality (AppModuleSimulation)
- - inter-dependent module full functionality (AppModule)
+  - independent module functionality (AppModuleBasic)
+  - inter-dependent module genesis functionality (AppModuleGenesis)
+  - inter-dependent module simulation functionality (AppModuleSimulation)
+  - inter-dependent module full functionality (AppModule)
 
 inter-dependent module functionality is module functionality which somehow
 depends on other modules, typically through the module keeper.  Many of the
@@ -43,7 +43,6 @@ import (
 	codectypes "github.com/cosmos/cosmos-sdk/codec/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
-	"github.com/cosmos/cosmos-sdk/types/legacytm"
 )
 
 // AppModuleBasic is the standard form for basic non-dependant elements of an application module.
@@ -181,8 +180,8 @@ type AppModule interface {
 	ConsensusVersion() uint64
 
 	// ABCI
-	BeginBlock(sdk.Context, legacytm.RequestBeginBlock)
-	EndBlock(sdk.Context, legacytm.RequestEndBlock) []legacytm.ValidatorUpdate
+	BeginBlock(sdk.Context, abci.RequestBeginBlock)
+	EndBlock(sdk.Context, abci.RequestEndBlock) []abci.ValidatorUpdate
 }
 
 // GenesisOnlyAppModule is an AppModule that only has import/export functionality
@@ -216,11 +215,11 @@ func (gam GenesisOnlyAppModule) RegisterServices(Configurator) {}
 func (gam GenesisOnlyAppModule) ConsensusVersion() uint64 { return 1 }
 
 // BeginBlock returns an empty module begin-block
-func (gam GenesisOnlyAppModule) BeginBlock(ctx sdk.Context, req legacytm.RequestBeginBlock) {}
+func (gam GenesisOnlyAppModule) BeginBlock(ctx sdk.Context, req abci.RequestBeginBlock) {}
 
 // EndBlock returns an empty module end-block
-func (GenesisOnlyAppModule) EndBlock(_ sdk.Context, _ legacytm.RequestEndBlock) []legacytm.ValidatorUpdate {
-	return []legacytm.ValidatorUpdate{}
+func (GenesisOnlyAppModule) EndBlock(_ sdk.Context, _ abci.RequestEndBlock) []abci.ValidatorUpdate {
+	return []abci.ValidatorUpdate{}
 }
 
 // Manager defines a module manager that provides the high level utility for managing and executing
@@ -379,19 +378,21 @@ type VersionMap map[string]uint64
 // returning RunMigrations should be enough:
 //
 // Example:
-//   cfg := module.NewConfigurator(...)
-//   app.UpgradeKeeper.SetUpgradeHandler("my-plan", func(ctx sdk.Context, plan upgradetypes.Plan, fromVM module.VersionMap) (module.VersionMap, error) {
-//       return app.mm.RunMigrations(ctx, cfg, fromVM)
-//   })
+//
+//	cfg := module.NewConfigurator(...)
+//	app.UpgradeKeeper.SetUpgradeHandler("my-plan", func(ctx sdk.Context, plan upgradetypes.Plan, fromVM module.VersionMap) (module.VersionMap, error) {
+//	    return app.mm.RunMigrations(ctx, cfg, fromVM)
+//	})
 //
 // Internally, RunMigrations will perform the following steps:
 // - create an `updatedVM` VersionMap of module with their latest ConsensusVersion
 // - make a diff of `fromVM` and `udpatedVM`, and for each module:
-//    - if the module's `fromVM` version is less than its `updatedVM` version,
-//      then run in-place store migrations for that module between those versions.
-//    - if the module does not exist in the `fromVM` (which means that it's a new module,
-//      because it was not in the previous x/upgrade's store), then run
-//      `InitGenesis` on that module.
+//   - if the module's `fromVM` version is less than its `updatedVM` version,
+//     then run in-place store migrations for that module between those versions.
+//   - if the module does not exist in the `fromVM` (which means that it's a new module,
+//     because it was not in the previous x/upgrade's store), then run
+//     `InitGenesis` on that module.
+//
 // - return the `updatedVM` to be persisted in the x/upgrade's store.
 //
 // Migrations are run in an order defined by `Manager.OrderMigrations` or (if not set) defined by
@@ -404,18 +405,19 @@ type VersionMap map[string]uint64
 // running anything for foo.
 //
 // Example:
-//   cfg := module.NewConfigurator(...)
-//   app.UpgradeKeeper.SetUpgradeHandler("my-plan", func(ctx sdk.Context, plan upgradetypes.Plan, fromVM module.VersionMap) (module.VersionMap, error) {
-//       // Assume "foo" is a new module.
-//       // `fromVM` is fetched from existing x/upgrade store. Since foo didn't exist
-//       // before this upgrade, `v, exists := fromVM["foo"]; exists == false`, and RunMigration will by default
-//       // run InitGenesis on foo.
-//       // To skip running foo's InitGenesis, you need set `fromVM`'s foo to its latest
-//       // consensus version:
-//       fromVM["foo"] = foo.AppModule{}.ConsensusVersion()
 //
-//       return app.mm.RunMigrations(ctx, cfg, fromVM)
-//   })
+//	cfg := module.NewConfigurator(...)
+//	app.UpgradeKeeper.SetUpgradeHandler("my-plan", func(ctx sdk.Context, plan upgradetypes.Plan, fromVM module.VersionMap) (module.VersionMap, error) {
+//	    // Assume "foo" is a new module.
+//	    // `fromVM` is fetched from existing x/upgrade store. Since foo didn't exist
+//	    // before this upgrade, `v, exists := fromVM["foo"]; exists == false`, and RunMigration will by default
+//	    // run InitGenesis on foo.
+//	    // To skip running foo's InitGenesis, you need set `fromVM`'s foo to its latest
+//	    // consensus version:
+//	    fromVM["foo"] = foo.AppModule{}.ConsensusVersion()
+//
+//	    return app.mm.RunMigrations(ctx, cfg, fromVM)
+//	})
 //
 // Please also refer to docs/core/upgrade.md for more information.
 func (m Manager) RunMigrations(ctx sdk.Context, cfg Configurator, fromVM VersionMap) (VersionMap, error) {
@@ -473,14 +475,14 @@ func (m Manager) RunMigrations(ctx sdk.Context, cfg Configurator, fromVM Version
 // BeginBlock performs begin block functionality for all modules. It creates a
 // child context with an event manager to aggregate events emitted from all
 // modules.
-func (m *Manager) BeginBlock(ctx sdk.Context, req legacytm.RequestBeginBlock) legacytm.ResponseBeginBlock {
+func (m *Manager) BeginBlock(ctx sdk.Context, req abci.RequestBeginBlock) abci.ResponseBeginBlock {
 	ctx = ctx.WithEventManager(sdk.NewEventManager())
 
 	for _, moduleName := range m.OrderBeginBlockers {
 		m.Modules[moduleName].BeginBlock(ctx, req)
 	}
 
-	return legacytm.ResponseBeginBlock{
+	return abci.ResponseBeginBlock{
 		Events: ctx.EventManager().ABCIEvents(),
 	}
 }
@@ -488,9 +490,9 @@ func (m *Manager) BeginBlock(ctx sdk.Context, req legacytm.RequestBeginBlock) le
 // EndBlock performs end block functionality for all modules. It creates a
 // child context with an event manager to aggregate events emitted from all
 // modules.
-func (m *Manager) EndBlock(ctx sdk.Context, req legacytm.RequestEndBlock) legacytm.ResponseEndBlock {
+func (m *Manager) EndBlock(ctx sdk.Context, req abci.RequestEndBlock) abci.ResponseEndBlock {
 	ctx = ctx.WithEventManager(sdk.NewEventManager())
-	validatorUpdates := []legacytm.ValidatorUpdate{}
+	validatorUpdates := []abci.ValidatorUpdate{}
 
 	for _, moduleName := range m.OrderEndBlockers {
 		moduleValUpdates := m.Modules[moduleName].EndBlock(ctx, req)
@@ -506,7 +508,7 @@ func (m *Manager) EndBlock(ctx sdk.Context, req legacytm.RequestEndBlock) legacy
 		}
 	}
 
-	return legacytm.ResponseEndBlock{
+	return abci.ResponseEndBlock{
 		ValidatorUpdates: validatorUpdates,
 		Events:           ctx.EventManager().ABCIEvents(),
 	}

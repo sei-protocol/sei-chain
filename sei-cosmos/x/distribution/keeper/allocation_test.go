@@ -4,11 +4,11 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	abci "github.com/tendermint/tendermint/abci/types"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 
 	"github.com/cosmos/cosmos-sdk/simapp"
 	sdk "github.com/cosmos/cosmos-sdk/types"
-	"github.com/cosmos/cosmos-sdk/types/legacytm"
 	"github.com/cosmos/cosmos-sdk/x/auth/types"
 	"github.com/cosmos/cosmos-sdk/x/staking/teststaking"
 	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
@@ -59,11 +59,11 @@ func TestAllocateTokensToManyValidators(t *testing.T) {
 	tstaking.Commission = stakingtypes.NewCommissionRates(sdk.NewDec(0), sdk.NewDec(0), sdk.NewDec(0))
 	tstaking.CreateValidator(valAddrs[1], valConsPk2, sdk.NewInt(100), true)
 
-	abciValA := legacytm.Validator{
+	abciValA := abci.Validator{
 		Address: valConsPk1.Address(),
 		Power:   100,
 	}
-	abciValB := legacytm.Validator{
+	abciValB := abci.Validator{
 		Address: valConsPk2.Address(),
 		Power:   100,
 	}
@@ -87,7 +87,7 @@ func TestAllocateTokensToManyValidators(t *testing.T) {
 
 	app.AccountKeeper.SetAccount(ctx, feeCollector)
 
-	votes := []legacytm.VoteInfo{
+	votes := []abci.VoteInfo{
 		{
 			Validator:       abciValA,
 			SignedLastBlock: true,
@@ -134,15 +134,15 @@ func TestAllocateTokensTruncation(t *testing.T) {
 	tstaking.Commission = stakingtypes.NewCommissionRates(sdk.NewDecWithPrec(1, 1), sdk.NewDecWithPrec(1, 1), sdk.NewDec(0))
 	tstaking.CreateValidator(valAddrs[2], valConsPk3, sdk.NewInt(100), true)
 
-	abciValA := legacytm.Validator{
+	abciValA := abci.Validator{
 		Address: valConsPk1.Address(),
 		Power:   11,
 	}
-	abciValB := legacytm.Validator{
+	abciValB := abci.Validator{
 		Address: valConsPk2.Address(),
 		Power:   10,
 	}
-	abciValС := legacytm.Validator{
+	abciValС := abci.Validator{
 		Address: valConsPk3.Address(),
 		Power:   10,
 	}
@@ -167,7 +167,7 @@ func TestAllocateTokensTruncation(t *testing.T) {
 
 	app.AccountKeeper.SetAccount(ctx, feeCollector)
 
-	votes := []legacytm.VoteInfo{
+	votes := []abci.VoteInfo{
 		{
 			Validator:       abciValA,
 			SignedLastBlock: true,

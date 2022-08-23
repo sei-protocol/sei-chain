@@ -17,7 +17,6 @@ import (
 	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
-	"github.com/cosmos/cosmos-sdk/types/legacytm"
 )
 
 const (
@@ -269,13 +268,13 @@ func (v Validator) ABCIValidatorUpdate(r sdk.Int) abci.ValidatorUpdate {
 	}
 }
 
-func (v Validator) LegacyABCIValidatorUpdate(r sdk.Int) legacytm.ValidatorUpdate {
+func (v Validator) LegacyABCIValidatorUpdate(r sdk.Int) abci.ValidatorUpdate {
 	tmProtoPk, err := v.TmConsPublicKey()
 	if err != nil {
 		panic(err)
 	}
 
-	return legacytm.ValidatorUpdate{
+	return abci.ValidatorUpdate{
 		PubKey: tmProtoPk,
 		Power:  v.ConsensusPower(r),
 	}
@@ -283,13 +282,13 @@ func (v Validator) LegacyABCIValidatorUpdate(r sdk.Int) legacytm.ValidatorUpdate
 
 // ABCIValidatorUpdateZero returns an abci.ValidatorUpdate from a staking validator type
 // with zero power used for validator updates.
-func (v Validator) ABCIValidatorUpdateZero() legacytm.ValidatorUpdate {
+func (v Validator) ABCIValidatorUpdateZero() abci.ValidatorUpdate {
 	tmProtoPk, err := v.TmConsPublicKey()
 	if err != nil {
 		panic(err)
 	}
 
-	return legacytm.ValidatorUpdate{
+	return abci.ValidatorUpdate{
 		PubKey: tmProtoPk,
 		Power:  0,
 	}

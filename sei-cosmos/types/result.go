@@ -12,7 +12,6 @@ import (
 
 	"github.com/cosmos/cosmos-sdk/codec"
 	codectypes "github.com/cosmos/cosmos-sdk/codec/types"
-	"github.com/cosmos/cosmos-sdk/utils"
 )
 
 var cdc = codec.NewLegacyAmino()
@@ -30,7 +29,7 @@ func (r Result) String() string {
 func (r Result) GetEvents() Events {
 	events := make(Events, len(r.Events))
 	for i, e := range r.Events {
-		events[i] = Event(ABCIToLegacyEvent(e))
+		events[i] = Event(e)
 	}
 
 	return events
@@ -43,7 +42,7 @@ func NewABCIMessageLog(i uint32, log string, events Events) ABCIMessageLog {
 	return ABCIMessageLog{
 		MsgIndex: i,
 		Log:      log,
-		Events:   StringifyEvents(utils.Map(events.ToABCIEvents(), LegacyToABCIEvent)),
+		Events:   StringifyEvents(events.ToABCIEvents()),
 	}
 }
 
@@ -238,7 +237,7 @@ func WrapServiceResult(ctx Context, res proto.Message, err error) (*Result, erro
 
 	var events []abci.Event
 	if evtMgr := ctx.EventManager(); evtMgr != nil {
-		events = utils.Map(evtMgr.ABCIEvents(), LegacyToABCIEvent)
+		events = evtMgr.ABCIEvents()
 	}
 
 	return &Result{

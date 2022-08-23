@@ -11,7 +11,6 @@ import (
 	codectypes "github.com/cosmos/cosmos-sdk/codec/types"
 	testdata "github.com/cosmos/cosmos-sdk/testutil/testdata"
 	sdk "github.com/cosmos/cosmos-sdk/types"
-	"github.com/cosmos/cosmos-sdk/utils"
 )
 
 type eventsTestSuite struct {
@@ -108,7 +107,7 @@ func (s *eventsTestSuite) TestStringifyEvents() {
 		sdk.NewEvent("message", sdk.NewAttribute("sender", "foo")),
 		sdk.NewEvent("message", sdk.NewAttribute("module", "bank")),
 	}
-	se := sdk.StringifyEvents(utils.Map(e.ToABCIEvents(), sdk.LegacyToABCIEvent))
+	se := sdk.StringifyEvents(e.ToABCIEvents())
 
 	expectedTxtStr := "\t\t- message\n\t\t\t- sender: foo\n\t\t\t- module: bank"
 	s.Require().Equal(expectedTxtStr, se.String())
@@ -216,8 +215,8 @@ func (s *eventsTestSuite) TestMarkEventsToIndex() {
 	for name, tc := range testCases {
 		tc := tc
 		s.T().Run(name, func(_ *testing.T) {
-			legacyEvents := sdk.MarkEventsToIndex(utils.Map(tc.events, sdk.ABCIToLegacyEvent), tc.indexSet)
-			s.Require().Equal(tc.expected, utils.Map(legacyEvents, sdk.LegacyToABCIEvent))
+			legacyEvents := sdk.MarkEventsToIndex(tc.events, tc.indexSet)
+			s.Require().Equal(tc.expected, legacyEvents)
 		})
 	}
 }

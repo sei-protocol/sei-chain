@@ -14,7 +14,6 @@ import (
 	"github.com/cosmos/cosmos-sdk/simapp"
 	"github.com/cosmos/cosmos-sdk/testutil/testdata"
 	sdk "github.com/cosmos/cosmos-sdk/types"
-	"github.com/cosmos/cosmos-sdk/types/legacytm"
 	"github.com/cosmos/cosmos-sdk/types/tx/signing"
 	authsigning "github.com/cosmos/cosmos-sdk/x/auth/signing"
 )
@@ -82,7 +81,7 @@ func TestMsgService(t *testing.T) {
 	app.SetFinalizeBlocker(func(ctx sdk.Context, req *abci.RequestFinalizeBlock) (*abci.ResponseFinalizeBlock, error) {
 		txResults := []*abci.ExecTxResult{}
 		for _, tx := range req.Txs {
-			deliverTxResp := app.DeliverTx(legacytm.RequestDeliverTx{
+			deliverTxResp := app.DeliverTx(abci.RequestDeliverTx{
 				Tx: tx,
 			})
 			txResults = append(txResults, &abci.ExecTxResult{

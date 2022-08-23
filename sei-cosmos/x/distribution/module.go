@@ -16,7 +16,6 @@ import (
 	"github.com/cosmos/cosmos-sdk/codec"
 	cdctypes "github.com/cosmos/cosmos-sdk/codec/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
-	"github.com/cosmos/cosmos-sdk/types/legacytm"
 	"github.com/cosmos/cosmos-sdk/types/module"
 	simtypes "github.com/cosmos/cosmos-sdk/types/simulation"
 	"github.com/cosmos/cosmos-sdk/x/distribution/client/cli"
@@ -167,14 +166,14 @@ func (am AppModule) ExportGenesis(ctx sdk.Context, cdc codec.JSONCodec) json.Raw
 func (AppModule) ConsensusVersion() uint64 { return 2 }
 
 // BeginBlock returns the begin blocker for the distribution module.
-func (am AppModule) BeginBlock(ctx sdk.Context, req legacytm.RequestBeginBlock) {
+func (am AppModule) BeginBlock(ctx sdk.Context, req abci.RequestBeginBlock) {
 	BeginBlocker(ctx, req, am.keeper)
 }
 
 // EndBlock returns the end blocker for the distribution module. It returns no validator
 // updates.
-func (AppModule) EndBlock(_ sdk.Context, _ legacytm.RequestEndBlock) []legacytm.ValidatorUpdate {
-	return []legacytm.ValidatorUpdate{}
+func (AppModule) EndBlock(_ sdk.Context, _ abci.RequestEndBlock) []abci.ValidatorUpdate {
+	return []abci.ValidatorUpdate{}
 }
 
 // AppModuleSimulation functions

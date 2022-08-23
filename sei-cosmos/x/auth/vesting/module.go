@@ -12,7 +12,6 @@ import (
 	"github.com/cosmos/cosmos-sdk/codec"
 	codectypes "github.com/cosmos/cosmos-sdk/codec/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
-	"github.com/cosmos/cosmos-sdk/types/legacytm"
 	"github.com/cosmos/cosmos-sdk/types/module"
 	"github.com/cosmos/cosmos-sdk/x/auth/keeper"
 	"github.com/cosmos/cosmos-sdk/x/auth/vesting/client/cli"
@@ -117,11 +116,11 @@ func (am AppModule) InitGenesis(_ sdk.Context, _ codec.JSONCodec, _ json.RawMess
 }
 
 // BeginBlock performs a no-op.
-func (am AppModule) BeginBlock(_ sdk.Context, _ legacytm.RequestBeginBlock) {}
+func (am AppModule) BeginBlock(_ sdk.Context, _ abci.RequestBeginBlock) {}
 
 // EndBlock performs a no-op.
-func (am AppModule) EndBlock(_ sdk.Context, _ legacytm.RequestEndBlock) []legacytm.ValidatorUpdate {
-	return []legacytm.ValidatorUpdate{}
+func (am AppModule) EndBlock(_ sdk.Context, _ abci.RequestEndBlock) []abci.ValidatorUpdate {
+	return []abci.ValidatorUpdate{}
 }
 
 // ExportGenesis is always empty, as InitGenesis does nothing either.

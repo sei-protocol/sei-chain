@@ -13,7 +13,6 @@ import (
 	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
 	"github.com/cosmos/cosmos-sdk/simapp"
 	sdk "github.com/cosmos/cosmos-sdk/types"
-	"github.com/cosmos/cosmos-sdk/types/legacytm"
 	"github.com/cosmos/cosmos-sdk/utils"
 	"github.com/cosmos/cosmos-sdk/x/staking/keeper"
 	"github.com/cosmos/cosmos-sdk/x/staking/teststaking"
@@ -1104,7 +1103,7 @@ func applyValidatorSetUpdates(t *testing.T, ctx sdk.Context, k keeper.Keeper, ex
 	if expectedUpdatesLen >= 0 {
 		require.Equal(t, expectedUpdatesLen, len(updates), "%v", updates)
 	}
-	return utils.Map(updates, func(v legacytm.ValidatorUpdate) abci.ValidatorUpdate {
+	return utils.Map(updates, func(v abci.ValidatorUpdate) abci.ValidatorUpdate {
 		return abci.ValidatorUpdate{
 			PubKey: v.PubKey,
 			Power:  v.Power,

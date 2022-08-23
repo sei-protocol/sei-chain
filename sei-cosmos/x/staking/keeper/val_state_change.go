@@ -6,15 +6,15 @@ import (
 	"sort"
 
 	gogotypes "github.com/gogo/protobuf/types"
+	abci "github.com/tendermint/tendermint/abci/types"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
-	"github.com/cosmos/cosmos-sdk/types/legacytm"
 	"github.com/cosmos/cosmos-sdk/x/staking/types"
 )
 
 // BlockValidatorUpdates calculates the ValidatorUpdates for the current block
 // Called in each EndBlock
-func (k Keeper) BlockValidatorUpdates(ctx sdk.Context) []legacytm.ValidatorUpdate {
+func (k Keeper) BlockValidatorUpdates(ctx sdk.Context) []abci.ValidatorUpdate {
 	// Calculate validator set changes.
 	//
 	// NOTE: ApplyAndReturnValidatorSetUpdates has to come before
@@ -109,7 +109,7 @@ func (k Keeper) BlockValidatorUpdates(ctx sdk.Context) []legacytm.ValidatorUpdat
 // CONTRACT: Only validators with non-zero power or zero-power that were bonded
 // at the previous block height or were removed from the validator set entirely
 // are returned to Tendermint.
-func (k Keeper) ApplyAndReturnValidatorSetUpdates(ctx sdk.Context) (updates []legacytm.ValidatorUpdate, err error) {
+func (k Keeper) ApplyAndReturnValidatorSetUpdates(ctx sdk.Context) (updates []abci.ValidatorUpdate, err error) {
 	params := k.GetParams(ctx)
 	maxValidators := params.MaxValidators
 	powerReduction := k.PowerReduction(ctx)

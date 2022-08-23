@@ -4,9 +4,9 @@ import (
 	"fmt"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
-	"github.com/cosmos/cosmos-sdk/types/legacytm"
 	"github.com/cosmos/cosmos-sdk/x/distribution/types"
 	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
+	abci "github.com/tendermint/tendermint/abci/types"
 )
 
 // AllocateTokens handles distribution of the collected fees
@@ -14,7 +14,7 @@ import (
 // validators in the bonded set.
 func (k Keeper) AllocateTokens(
 	ctx sdk.Context, sumPreviousPrecommitPower, totalPreviousPower int64,
-	previousProposer sdk.ConsAddress, bondedVotes []legacytm.VoteInfo,
+	previousProposer sdk.ConsAddress, bondedVotes []abci.VoteInfo,
 ) {
 
 	logger := k.Logger(ctx)

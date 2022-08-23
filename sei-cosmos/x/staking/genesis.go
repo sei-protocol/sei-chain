@@ -9,7 +9,6 @@ import (
 
 	cryptocodec "github.com/cosmos/cosmos-sdk/crypto/codec"
 	sdk "github.com/cosmos/cosmos-sdk/types"
-	"github.com/cosmos/cosmos-sdk/types/legacytm"
 	"github.com/cosmos/cosmos-sdk/utils"
 	"github.com/cosmos/cosmos-sdk/x/staking/keeper"
 	"github.com/cosmos/cosmos-sdk/x/staking/types"
@@ -156,7 +155,7 @@ func InitGenesis(
 		if err != nil {
 			log.Fatal(err)
 		}
-		res = utils.Map(legacyUpdates, func(v legacytm.ValidatorUpdate) abci.ValidatorUpdate {
+		res = utils.Map(legacyUpdates, func(v abci.ValidatorUpdate) abci.ValidatorUpdate {
 			return abci.ValidatorUpdate{
 				PubKey: v.PubKey,
 				Power:  v.Power,

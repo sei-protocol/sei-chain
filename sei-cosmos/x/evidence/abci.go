@@ -6,21 +6,21 @@ import (
 
 	"github.com/cosmos/cosmos-sdk/telemetry"
 	sdk "github.com/cosmos/cosmos-sdk/types"
-	"github.com/cosmos/cosmos-sdk/types/legacytm"
 	"github.com/cosmos/cosmos-sdk/x/evidence/keeper"
 	"github.com/cosmos/cosmos-sdk/x/evidence/types"
+	abci "github.com/tendermint/tendermint/abci/types"
 )
 
 // BeginBlocker iterates through and handles any newly discovered evidence of
 // misbehavior submitted by Tendermint. Currently, only equivocation is handled.
-func BeginBlocker(ctx sdk.Context, req legacytm.RequestBeginBlock, k keeper.Keeper) {
+func BeginBlocker(ctx sdk.Context, req abci.RequestBeginBlock, k keeper.Keeper) {
 	defer telemetry.ModuleMeasureSince(types.ModuleName, time.Now(), telemetry.MetricKeyBeginBlocker)
 
 	for _, tmEvidence := range req.ByzantineValidators {
 		switch tmEvidence.Type {
 		// It's still ongoing discussion how should we treat and slash attacks with
 		// premeditation. So for now we agree to treat them in the same way.
-		case legacytm.EvidenceType_DUPLICATE_VOTE, legacytm.EvidenceType_LIGHT_CLIENT_ATTACK:
+		case abci.MisbehaviorType_DUPLICATE_VOTE, abci.MisbehaviorType_LIGHT_CLIENT_ATTACK:
 			evidence := types.FromABCIEvidence(tmEvidence)
 			k.HandleEquivocationEvidence(ctx, evidence.(*types.Equivocation))
 

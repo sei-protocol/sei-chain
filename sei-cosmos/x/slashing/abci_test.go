@@ -5,11 +5,11 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+	abci "github.com/tendermint/tendermint/abci/types"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 
 	"github.com/cosmos/cosmos-sdk/simapp"
 	sdk "github.com/cosmos/cosmos-sdk/types"
-	"github.com/cosmos/cosmos-sdk/types/legacytm"
 	"github.com/cosmos/cosmos-sdk/x/slashing"
 	"github.com/cosmos/cosmos-sdk/x/staking"
 	"github.com/cosmos/cosmos-sdk/x/staking/teststaking"
@@ -35,15 +35,15 @@ func TestBeginBlocker(t *testing.T) {
 	)
 	require.Equal(t, amt, app.StakingKeeper.Validator(ctx, addr).GetBondedTokens())
 
-	val := legacytm.Validator{
+	val := abci.Validator{
 		Address: pk.Address(),
 		Power:   power,
 	}
 
 	// mark the validator as having signed
-	req := legacytm.RequestBeginBlock{
-		LastCommitInfo: legacytm.LastCommitInfo{
-			Votes: []legacytm.VoteInfo{{
+	req := abci.RequestBeginBlock{
+		LastCommitInfo: abci.LastCommitInfo{
+			Votes: []abci.VoteInfo{{
 				Validator:       val,
 				SignedLastBlock: true,
 			}},
@@ -64,9 +64,9 @@ func TestBeginBlocker(t *testing.T) {
 	// for 1000 blocks, mark the validator as having signed
 	for ; height < app.SlashingKeeper.SignedBlocksWindow(ctx); height++ {
 		ctx = ctx.WithBlockHeight(height)
-		req = legacytm.RequestBeginBlock{
-			LastCommitInfo: legacytm.LastCommitInfo{
-				Votes: []legacytm.VoteInfo{{
+		req = abci.RequestBeginBlock{
+			LastCommitInfo: abci.LastCommitInfo{
+				Votes: []abci.VoteInfo{{
 					Validator:       val,
 					SignedLastBlock: true,
 				}},
@@ -79,9 +79,9 @@ func TestBeginBlocker(t *testing.T) {
 	// for 500 blocks, mark the validator as having not signed
 	for ; height < ((app.SlashingKeeper.SignedBlocksWindow(ctx) * 2) - app.SlashingKeeper.MinSignedPerWindow(ctx) + 1); height++ {
 		ctx = ctx.WithBlockHeight(height)
-		req = legacytm.RequestBeginBlock{
-			LastCommitInfo: legacytm.LastCommitInfo{
-				Votes: []legacytm.VoteInfo{{
+		req = abci.RequestBeginBlock{
+			LastCommitInfo: abci.LastCommitInfo{
+				Votes: []abci.VoteInfo{{
 					Validator:       val,
 					SignedLastBlock: false,
 				}},

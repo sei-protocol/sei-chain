@@ -17,7 +17,6 @@ import (
 	cdctypes "github.com/cosmos/cosmos-sdk/codec/types"
 	"github.com/cosmos/cosmos-sdk/telemetry"
 	sdk "github.com/cosmos/cosmos-sdk/types"
-	"github.com/cosmos/cosmos-sdk/types/legacytm"
 	"github.com/cosmos/cosmos-sdk/types/module"
 	simtypes "github.com/cosmos/cosmos-sdk/types/simulation"
 	"github.com/cosmos/cosmos-sdk/x/capability/keeper"
@@ -144,7 +143,7 @@ func (AppModule) ConsensusVersion() uint64 { return 1 }
 
 // BeginBlocker calls InitMemStore to assert that the memory store is initialized.
 // It's safe to run multiple times.
-func (am AppModule) BeginBlock(ctx sdk.Context, _ legacytm.RequestBeginBlock) {
+func (am AppModule) BeginBlock(ctx sdk.Context, _ abci.RequestBeginBlock) {
 	defer telemetry.ModuleMeasureSince(types.ModuleName, time.Now(), telemetry.MetricKeyBeginBlocker)
 
 	am.keeper.InitMemStore(ctx)
@@ -152,8 +151,8 @@ func (am AppModule) BeginBlock(ctx sdk.Context, _ legacytm.RequestBeginBlock) {
 
 // EndBlock executes all ABCI EndBlock logic respective to the capability module. It
 // returns no validator updates.
-func (am AppModule) EndBlock(_ sdk.Context, _ legacytm.RequestEndBlock) []legacytm.ValidatorUpdate {
-	return []legacytm.ValidatorUpdate{}
+func (am AppModule) EndBlock(_ sdk.Context, _ abci.RequestEndBlock) []abci.ValidatorUpdate {
+	return []abci.ValidatorUpdate{}
 }
 
 // GenerateGenesisState creates a randomized GenState of the capability module.

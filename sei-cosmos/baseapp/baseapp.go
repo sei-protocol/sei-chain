@@ -19,8 +19,6 @@ import (
 	"github.com/cosmos/cosmos-sdk/store/rootmulti"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
-	"github.com/cosmos/cosmos-sdk/types/legacytm"
-	"github.com/cosmos/cosmos-sdk/utils"
 	"github.com/cosmos/cosmos-sdk/x/auth/legacy/legacytx"
 )
 
@@ -547,7 +545,7 @@ func (app *BaseApp) getMaximumBlockGas(ctx sdk.Context) uint64 {
 	}
 }
 
-func (app *BaseApp) validateHeight(req legacytm.RequestBeginBlock) error {
+func (app *BaseApp) validateHeight(req abci.RequestBeginBlock) error {
 	if req.Header.Height < 1 {
 		return fmt.Errorf("invalid height: %d", req.Header.Height)
 	}
@@ -736,7 +734,7 @@ func (app *BaseApp) runTx(mode runTxMode, txBytes []byte) (gInfo sdk.GasInfo, re
 		}
 
 		msCache.Write()
-		anteEvents = utils.Map(events.ToABCIEvents(), sdk.LegacyToABCIEvent)
+		anteEvents = events.ToABCIEvents()
 	}
 
 	// Create a new Context based off of the existing Context with a MultiStore branch
@@ -844,6 +842,6 @@ func (app *BaseApp) runMsgs(ctx sdk.Context, msgs []sdk.Msg, mode runTxMode) (*s
 	return &sdk.Result{
 		Data:   data,
 		Log:    strings.TrimSpace(msgLogs.String()),
-		Events: utils.Map(events.ToABCIEvents(), sdk.LegacyToABCIEvent),
+		Events: events.ToABCIEvents(),
 	}, nil
 }
