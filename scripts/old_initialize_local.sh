@@ -1,4 +1,5 @@
 #!/bin/bash
+# test
 
 echo -n OS Password:
 read -s password
