@@ -242,6 +242,11 @@ func (app *BaseApp) DeliverTx(req abci.RequestDeliverTx) abci.ResponseDeliverTx 
 	}
 }
 
+func (app *BaseApp) WriteProrcessProposalStateAndGetWorkingHash() []byte {
+	app.processProposalState.ms.Write()
+	return app.cms.GetWorkingHash()
+}
+
 func (app *BaseApp) WriteDeliverStateAndGetWorkingHash() []byte {
 	app.deliverState.ms.Write()
 	return app.cms.GetWorkingHash()
