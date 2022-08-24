@@ -260,17 +260,18 @@ func (suite *GenTxTestSuite) TestDeliverGenTxs() {
 
 			tc.malleate()
 
+			ctx := suite.app.GetContextForDeliverTx([]byte{})
 			if tc.expPass {
 				suite.Require().NotPanics(func() {
 					genutil.DeliverGenTxs(
-						suite.ctx, genTxs, suite.app.StakingKeeper, suite.app.BaseApp.DeliverTx,
+						ctx, genTxs, suite.app.StakingKeeper, suite.app.BaseApp.DeliverTx,
 						suite.encodingConfig.TxConfig,
 					)
 				})
 			} else {
 				suite.Require().Panics(func() {
 					genutil.DeliverGenTxs(
-						suite.ctx, genTxs, suite.app.StakingKeeper, suite.app.BaseApp.DeliverTx,
+						ctx, genTxs, suite.app.StakingKeeper, suite.app.BaseApp.DeliverTx,
 						suite.encodingConfig.TxConfig,
 					)
 				})

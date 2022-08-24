@@ -81,7 +81,7 @@ func TestMsgService(t *testing.T) {
 	app.SetFinalizeBlocker(func(ctx sdk.Context, req *abci.RequestFinalizeBlock) (*abci.ResponseFinalizeBlock, error) {
 		txResults := []*abci.ExecTxResult{}
 		for _, tx := range req.Txs {
-			deliverTxResp := app.DeliverTx(abci.RequestDeliverTx{
+			deliverTxResp := app.DeliverTx(ctx, abci.RequestDeliverTx{
 				Tx: tx,
 			})
 			txResults = append(txResults, &abci.ExecTxResult{

@@ -170,7 +170,7 @@ func SimulateFromSeed(
 
 		// Run the BeginBlock handler
 		logWriter.AddEntry(BeginBlockEntry(int64(height)))
-		app.BeginBlock(request)
+		app.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{})
 
 		ctx := app.NewContext(false, header)
 
@@ -190,7 +190,7 @@ func SimulateFromSeed(
 		operations := blockSimulator(r, app, ctx, accs, header)
 		opCount += operations + numQueuedOpsRan + numQueuedTimeOpsRan
 
-		res := app.EndBlock(abci.RequestEndBlock{})
+		res, _ := app.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{})
 		header.Height++
 		header.Time = header.Time.Add(
 			time.Duration(minTimePerBlock) * time.Second)

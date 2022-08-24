@@ -46,7 +46,7 @@ func BenchmarkOneBankSendTxPerBlock(b *testing.B) {
 	// Run this with a profiler, so its easy to distinguish what time comes from
 	// Committing, and what time comes from Check/Deliver Tx.
 	for i := 0; i < b.N; i++ {
-		benchmarkApp.BeginBlock(abci.RequestBeginBlock{Header: tmproto.Header{Height: height}})
+		benchmarkApp.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{Height: height})
 		_, _, err := benchmarkApp.Check(txGen.TxEncoder(), txs[i])
 		if err != nil {
 			panic("something is broken in checking transaction")
@@ -54,7 +54,7 @@ func BenchmarkOneBankSendTxPerBlock(b *testing.B) {
 
 		_, _, err = benchmarkApp.Deliver(txGen.TxEncoder(), txs[i])
 		require.NoError(b, err)
-		benchmarkApp.EndBlock(abci.RequestEndBlock{Height: height})
+		benchmarkApp.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{Height: height})
 		benchmarkApp.Commit(context.Background())
 		height++
 	}
@@ -88,7 +88,7 @@ func BenchmarkOneBankMultiSendTxPerBlock(b *testing.B) {
 	// Run this with a profiler, so its easy to distinguish what time comes from
 	// Committing, and what time comes from Check/Deliver Tx.
 	for i := 0; i < b.N; i++ {
-		benchmarkApp.BeginBlock(abci.RequestBeginBlock{Header: tmproto.Header{Height: height}})
+		benchmarkApp.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{Height: height})
 		_, _, err := benchmarkApp.Check(txGen.TxEncoder(), txs[i])
 		if err != nil {
 			panic("something is broken in checking transaction")
@@ -96,7 +96,7 @@ func BenchmarkOneBankMultiSendTxPerBlock(b *testing.B) {
 
 		_, _, err = benchmarkApp.Deliver(txGen.TxEncoder(), txs[i])
 		require.NoError(b, err)
-		benchmarkApp.EndBlock(abci.RequestEndBlock{Height: height})
+		benchmarkApp.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{Height: height})
 		benchmarkApp.Commit(context.Background())
 		height++
 	}
