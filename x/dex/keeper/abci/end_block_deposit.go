@@ -9,6 +9,7 @@ import (
 	"github.com/sei-protocol/sei-chain/x/dex/types"
 	typesutils "github.com/sei-protocol/sei-chain/x/dex/types/utils"
 	"github.com/sei-protocol/sei-chain/x/dex/types/wasm"
+	dexutils "github.com/sei-protocol/sei-chain/x/dex/utils"
 	"go.opentelemetry.io/otel/attribute"
 	otrace "go.opentelemetry.io/otel/trace"
 )
@@ -31,7 +32,7 @@ func (w KeeperWrapper) HandleEBDeposit(ctx context.Context, sdkCtx sdk.Context, 
 
 func (w KeeperWrapper) GetDepositSudoMsg(ctx sdk.Context, typedContractAddr typesutils.ContractAddress) wasm.SudoOrderPlacementMsg {
 	contractDepositInfo := []wasm.ContractDepositInfo{}
-	for _, depositInfo := range w.MemState.GetDepositInfo(ctx, typedContractAddr).Get() {
+	for _, depositInfo := range dexutils.GetMemState(ctx.Context()).GetDepositInfo(ctx, typedContractAddr).Get() {
 		fund := sdk.NewCoins(sdk.NewCoin(depositInfo.Denom, depositInfo.Amount.RoundInt()))
 		sender, err := sdk.AccAddressFromBech32(depositInfo.Creator)
 		if err != nil {

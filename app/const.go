@@ -5,4 +5,6 @@ const (
 	AccountAddressPrefix = "sei"
 	// Application name
 	AppName = "sei"
+
+	OptimisticProcessingTimeoutInSeconds = 1
 )

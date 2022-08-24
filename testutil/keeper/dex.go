@@ -1,6 +1,7 @@
 package keeper
 
 import (
+	"context"
 	"testing"
 
 	"github.com/cosmos/cosmos-sdk/codec"
@@ -15,8 +16,10 @@ import (
 	paramskeeper "github.com/cosmos/cosmos-sdk/x/params/keeper"
 	typesparams "github.com/cosmos/cosmos-sdk/x/params/types"
 	"github.com/sei-protocol/sei-chain/app"
+	dexcache "github.com/sei-protocol/sei-chain/x/dex/cache"
 	"github.com/sei-protocol/sei-chain/x/dex/keeper"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
+	dexutils "github.com/sei-protocol/sei-chain/x/dex/utils"
 	epochkeeper "github.com/sei-protocol/sei-chain/x/epoch/keeper"
 	epochtypes "github.com/sei-protocol/sei-chain/x/epoch/types"
 	"github.com/stretchr/testify/require"
@@ -104,7 +107,7 @@ func DexKeeper(t testing.TB) (*keeper.Keeper, sdk.Context) {
 	}
 	bankKeeper.SetParams(ctx, bankParams)
 
-	return k, ctx
+	return k, ctx.WithContext(context.WithValue(ctx.Context(), dexutils.DexMemStateContextKey, dexcache.NewMemState()))
 }
 
 func CreateAssetMetadata(keeper *keeper.Keeper, ctx sdk.Context) types.AssetMetadata {

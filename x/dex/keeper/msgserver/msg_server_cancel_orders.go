@@ -7,6 +7,7 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
 	typesutils "github.com/sei-protocol/sei-chain/x/dex/types/utils"
+	dexutils "github.com/sei-protocol/sei-chain/x/dex/utils"
 )
 
 func (k msgServer) CancelOrders(goCtx context.Context, msg *types.MsgCancelOrders) (*types.MsgCancelOrdersResponse, error) {
@@ -28,7 +29,7 @@ func (k msgServer) CancelOrders(goCtx context.Context, msg *types.MsgCancelOrder
 		}
 		pair := types.Pair{PriceDenom: cancellation.PriceDenom, AssetDenom: cancellation.AssetDenom}
 		pairStr := typesutils.GetPairString(&pair)
-		pairBlockCancellations := k.MemState.GetBlockCancels(ctx, typesutils.ContractAddress(msg.GetContractAddr()), pairStr)
+		pairBlockCancellations := dexutils.GetMemState(ctx.Context()).GetBlockCancels(ctx, typesutils.ContractAddress(msg.GetContractAddr()), pairStr)
 		cancelledInCurrentBlock := false
 		for _, cancelInCurrentBlock := range pairBlockCancellations.Get() {
 			if cancelInCurrentBlock.Id == cancellation.Id {

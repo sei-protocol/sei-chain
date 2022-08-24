@@ -10,7 +10,6 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	bankkeeper "github.com/cosmos/cosmos-sdk/x/bank/keeper"
 	paramtypes "github.com/cosmos/cosmos-sdk/x/params/types"
-	dexcache "github.com/sei-protocol/sei-chain/x/dex/cache"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
 	epochkeeper "github.com/sei-protocol/sei-chain/x/epoch/keeper"
 )
@@ -24,7 +23,6 @@ type (
 		EpochKeeper epochkeeper.Keeper
 		BankKeeper  bankkeeper.Keeper
 		WasmKeeper  wasm.Keeper
-		MemState    *dexcache.MemState
 	}
 )
 
@@ -43,7 +41,6 @@ func NewPlainKeeper(
 		storeKey:   storeKey,
 		memKey:     memKey,
 		Paramstore: ps,
-		MemState:   dexcache.NewMemState(),
 	}
 }
 
@@ -66,7 +63,6 @@ func NewKeeper(
 		Paramstore:  ps,
 		EpochKeeper: epochKeeper,
 		BankKeeper:  bankKeeper,
-		MemState:    dexcache.NewMemState(),
 	}
 }
 

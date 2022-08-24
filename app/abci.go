@@ -3,24 +3,25 @@ package app
 import (
 	"context"
 
+	sdk "github.com/cosmos/cosmos-sdk/types"
 	abci "github.com/tendermint/tendermint/abci/types"
 	"go.opentelemetry.io/otel/attribute"
 )
 
-func (app *App) BeginBlock(req abci.RequestBeginBlock) (res abci.ResponseBeginBlock) {
-	ctx, topSpan := (*app.tracingInfo.Tracer).Start(context.Background(), "Block")
+func (app *App) BeginBlock(ctx sdk.Context, req abci.RequestBeginBlock) (res abci.ResponseBeginBlock) {
+	tracectx, topSpan := (*app.tracingInfo.Tracer).Start(context.Background(), "Block")
 	topSpan.SetAttributes(attribute.Int64("height", req.Header.Height))
 	app.tracingInfo.BlockSpan = &topSpan
-	app.tracingInfo.TracerContext = ctx
+	app.tracingInfo.TracerContext = tracectx
 	_, beginBlockSpan := (*app.tracingInfo.Tracer).Start(app.tracingInfo.TracerContext, "BeginBlock")
 	defer beginBlockSpan.End()
-	return app.BaseApp.BeginBlock(req)
+	return app.BaseApp.BeginBlock(ctx, req)
 }
 
-func (app *App) EndBlock(req abci.RequestEndBlock) (res abci.ResponseEndBlock) {
+func (app *App) EndBlock(ctx sdk.Context, req abci.RequestEndBlock) (res abci.ResponseEndBlock) {
 	_, span := (*app.tracingInfo.Tracer).Start(app.tracingInfo.TracerContext, "EndBlock")
 	defer span.End()
-	return app.BaseApp.EndBlock(req)
+	return app.BaseApp.EndBlock(ctx, req)
 }
 
 func (app *App) CheckTx(ctx context.Context, req *abci.RequestCheckTx) (*abci.ResponseCheckTx, error) {
@@ -29,13 +30,13 @@ func (app *App) CheckTx(ctx context.Context, req *abci.RequestCheckTx) (*abci.Re
 	return app.BaseApp.CheckTx(ctx, req)
 }
 
-func (app *App) DeliverTx(req abci.RequestDeliverTx) abci.ResponseDeliverTx {
-	ctx, span := (*app.tracingInfo.Tracer).Start(app.tracingInfo.TracerContext, "DeliverTx")
+func (app *App) DeliverTx(ctx sdk.Context, req abci.RequestDeliverTx) abci.ResponseDeliverTx {
+	tracectx, span := (*app.tracingInfo.Tracer).Start(app.tracingInfo.TracerContext, "DeliverTx")
 	oldCtx := app.tracingInfo.TracerContext
-	app.tracingInfo.TracerContext = ctx
+	app.tracingInfo.TracerContext = tracectx
 	defer span.End()
 	defer func() { app.tracingInfo.TracerContext = oldCtx }()
-	return app.BaseApp.DeliverTx(req)
+	return app.BaseApp.DeliverTx(ctx, req)
 }
 
 func (app *App) Commit(ctx context.Context) (res *abci.ResponseCommit, err error) {

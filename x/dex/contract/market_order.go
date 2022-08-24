@@ -8,6 +8,7 @@ import (
 	dexkeeperabci "github.com/sei-protocol/sei-chain/x/dex/keeper/abci"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
 	dextypesutils "github.com/sei-protocol/sei-chain/x/dex/types/utils"
+	dexutils "github.com/sei-protocol/sei-chain/x/dex/utils"
 	"go.opentelemetry.io/otel/attribute"
 	otrace "go.opentelemetry.io/otel/trace"
 )
@@ -19,9 +20,9 @@ func PrepareCancelUnfulfilledMarketOrders(
 	dexkeeper *keeper.Keeper,
 	orderIDToSettledQuantities map[uint64]sdk.Dec,
 ) {
-	dexkeeper.MemState.ClearCancellationForPair(ctx, typedContractAddr, typedPairStr)
+	dexutils.GetMemState(ctx.Context()).ClearCancellationForPair(ctx, typedContractAddr, typedPairStr)
 	for _, marketOrderID := range getUnfulfilledPlacedMarketOrderIds(ctx, typedContractAddr, typedPairStr, dexkeeper, orderIDToSettledQuantities) {
-		dexkeeper.MemState.GetBlockCancels(ctx, typedContractAddr, typedPairStr).Add(&types.Cancellation{
+		dexutils.GetMemState(ctx.Context()).GetBlockCancels(ctx, typedContractAddr, typedPairStr).Add(&types.Cancellation{
 			Id:        marketOrderID,
 			Initiator: types.CancellationInitiator_USER,
 		})
@@ -36,7 +37,7 @@ func getUnfulfilledPlacedMarketOrderIds(
 	orderIDToSettledQuantities map[uint64]sdk.Dec,
 ) []uint64 {
 	res := []uint64{}
-	for _, order := range dexkeeper.MemState.GetBlockOrders(ctx, typedContractAddr, typedPairStr).Get() {
+	for _, order := range dexutils.GetMemState(ctx.Context()).GetBlockOrders(ctx, typedContractAddr, typedPairStr).Get() {
 		if order.Status == types.OrderStatus_FAILED_TO_PLACE {
 			continue
 		}

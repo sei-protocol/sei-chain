@@ -9,6 +9,7 @@ import (
 	"github.com/sei-protocol/sei-chain/x/dex/types"
 	typesutils "github.com/sei-protocol/sei-chain/x/dex/types/utils"
 	"github.com/sei-protocol/sei-chain/x/dex/types/wasm"
+	dexutils "github.com/sei-protocol/sei-chain/x/dex/utils"
 	"go.opentelemetry.io/otel/attribute"
 	otrace "go.opentelemetry.io/otel/trace"
 )
@@ -31,7 +32,7 @@ func (w KeeperWrapper) getCancelSudoMsg(sdkCtx sdk.Context, typedContractAddr ty
 	idsToCancel := []uint64{}
 	for _, pair := range registeredPairs {
 		typedPairStr := typesutils.GetPairString(&pair) //nolint:gosec // THIS MAY BE CAUSE FOR CONCERN AND WE MIGHT WANT TO REFACTOR.
-		for _, cancel := range w.MemState.GetBlockCancels(sdkCtx, typedContractAddr, typedPairStr).Get() {
+		for _, cancel := range dexutils.GetMemState(sdkCtx.Context()).GetBlockCancels(sdkCtx, typedContractAddr, typedPairStr).Get() {
 			idsToCancel = append(idsToCancel, cancel.Id)
 		}
 	}
