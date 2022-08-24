@@ -55,6 +55,8 @@ func (app *BaseApp) InitChain(ctx context.Context, req *abci.RequestInitChain) (
 	// to state.
 	if req.ConsensusParams != nil {
 		app.StoreConsensusParams(app.deliverState.ctx, req.ConsensusParams)
+		app.StoreConsensusParams(app.prepareProposalState.ctx, req.ConsensusParams)
+		app.StoreConsensusParams(app.processProposalState.ctx, req.ConsensusParams)
 	}
 
 	if app.initChainer == nil {
@@ -63,8 +65,12 @@ func (app *BaseApp) InitChain(ctx context.Context, req *abci.RequestInitChain) (
 
 	// add block gas meter for any genesis transactions (allow infinite gas)
 	app.deliverState.ctx = app.deliverState.ctx.WithBlockGasMeter(sdk.NewInfiniteGasMeter())
+	app.prepareProposalState.ctx = app.prepareProposalState.ctx.WithBlockGasMeter(sdk.NewInfiniteGasMeter())
+	app.processProposalState.ctx = app.processProposalState.ctx.WithBlockGasMeter(sdk.NewInfiniteGasMeter())
 
 	resp := app.initChainer(app.deliverState.ctx, *req)
+	app.initChainer(app.prepareProposalState.ctx, *req)
+	app.initChainer(app.processProposalState.ctx, *req)
 	res = &resp
 
 	// sanity check
@@ -159,10 +165,6 @@ func (app *BaseApp) BeginBlock(ctx sdk.Context, req abci.RequestBeginBlock) (res
 func (app *BaseApp) EndBlock(ctx sdk.Context, req abci.RequestEndBlock) (res abci.ResponseEndBlock) {
 	defer telemetry.MeasureSince(time.Now(), "abci", "end_block")
 
-	if app.deliverState.ms.TracingEnabled() {
-		app.deliverState.ms = app.deliverState.ms.SetTracingContext(nil).(sdk.CacheMultiStore)
-	}
-
 	if app.endBlocker != nil {
 		res = app.endBlocker(ctx, req)
 		res.Events = sdk.MarkEventsToIndex(res.Events, app.indexEvents)
@@ -243,14 +245,17 @@ func (app *BaseApp) DeliverTx(ctx sdk.Context, req abci.RequestDeliverTx) abci.R
 	}
 }
 
-func (app *BaseApp) WriteProrcessProposalStateAndGetWorkingHash() []byte {
-	app.processProposalState.ms.Write()
+func (app *BaseApp) WriteStateToCommitAndGetWorkingHash() []byte {
+	app.stateToCommit.ms.Write()
 	return app.cms.GetWorkingHash()
 }
 
-func (app *BaseApp) WriteDeliverStateAndGetWorkingHash() []byte {
-	app.deliverState.ms.Write()
-	return app.cms.GetWorkingHash()
+func (app *BaseApp) SetProcessProposalStateToCommit() {
+	app.stateToCommit = app.processProposalState
+}
+
+func (app *BaseApp) SetDeliverStateToCommit() {
+	app.stateToCommit = app.deliverState
 }
 
 // Commit implements the ABCI interface. It will commit all state that exists in
@@ -263,10 +268,13 @@ func (app *BaseApp) WriteDeliverStateAndGetWorkingHash() []byte {
 func (app *BaseApp) Commit(ctx context.Context) (res *abci.ResponseCommit, err error) {
 	defer telemetry.MeasureSince(time.Now(), "abci", "commit")
 
-	header := app.deliverState.ctx.BlockHeader()
+	if app.stateToCommit == nil {
+		panic("no state to commit")
+	}
+	header := app.stateToCommit.ctx.BlockHeader()
 	retainHeight := app.GetBlockRetentionHeight(header.Height)
 
-	app.WriteDeliverStateAndGetWorkingHash()
+	app.WriteStateToCommitAndGetWorkingHash()
 	app.cms.Commit()
 
 	// Reset the Check state to the latest committed.
@@ -279,6 +287,7 @@ func (app *BaseApp) Commit(ctx context.Context) (res *abci.ResponseCommit, err e
 	app.prepareProposalState = nil
 	app.processProposalState = nil
 	app.deliverState = nil
+	app.stateToCommit = nil
 
 	var halt bool
 
@@ -932,7 +941,7 @@ func (app *BaseApp) ProcessProposal(ctx context.Context, req *abci.RequestProces
 		if err != nil {
 			return nil, err
 		}
-		if cp := app.GetConsensusParams(app.prepareProposalState.ctx); cp != nil {
+		if cp := app.GetConsensusParams(app.processProposalState.ctx); cp != nil {
 			res.ConsensusParamUpdates = cp
 		}
 		return res, nil
