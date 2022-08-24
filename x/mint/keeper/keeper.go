@@ -16,6 +16,7 @@ type Keeper struct {
 	paramSpace       paramtypes.Subspace
 	stakingKeeper    types.StakingKeeper
 	bankKeeper       types.BankKeeper
+	hooks            types.MintHooks
 	feeCollectorName string
 }
 
@@ -23,7 +24,7 @@ type Keeper struct {
 func NewKeeper(
 	cdc codec.BinaryCodec, key sdk.StoreKey, paramSpace paramtypes.Subspace,
 	sk types.StakingKeeper, ak types.AccountKeeper, bk types.BankKeeper,
-	feeCollectorName string,
+	ek types.EpochKeeper, feeCollectorName string,
 ) Keeper {
 	// ensure mint module account is set
 	if addr := ak.GetModuleAddress(types.ModuleName); addr == nil {
@@ -48,6 +49,32 @@ func NewKeeper(
 // Logger returns a module-specific logger.
 func (k Keeper) Logger(ctx sdk.Context) log.Logger {
 	return ctx.Logger().With("module", "x/"+types.ModuleName)
+}
+
+// Set the mint hooks.
+func (k *Keeper) SetHooks(h types.MintHooks) *Keeper {
+	if k.hooks != nil {
+		panic("cannot set mint hooks twice")
+	}
+	k.hooks = h
+	return k
+}
+
+// GetLastHalvenEpochNum returns last halven epoch number.
+func (k Keeper) GetLastHalvenEpochNum(ctx sdk.Context) int64 {
+	store := ctx.KVStore(k.storeKey)
+	b := store.Get(types.LastHalvenEpochKey)
+	if b == nil {
+		return 0
+	}
+
+	return int64(sdk.BigEndianToUint64(b))
+}
+
+// SetLastHalvenEpochNum set last halven epoch number.
+func (k Keeper) SetLastHalvenEpochNum(ctx sdk.Context, epochNum int64) {
+	store := ctx.KVStore(k.storeKey)
+	store.Set(types.LastHalvenEpochKey, sdk.Uint64ToBigEndian(uint64(epochNum)))
 }
 
 // get the minter
@@ -107,4 +134,9 @@ func (k Keeper) MintCoins(ctx sdk.Context, newCoins sdk.Coins) error {
 // AddCollectedFees to be used in BeginBlocker.
 func (k Keeper) AddCollectedFees(ctx sdk.Context, fees sdk.Coins) error {
 	return k.bankKeeper.SendCoinsFromModuleToModule(ctx, types.ModuleName, k.feeCollectorName, fees)
+}
+
+// GetProportions gets the balance of the `MintedDenom` from minted coins and returns coins according to the `AllocationRatio`.
+func (k Keeper) GetProportions(ctx sdk.Context, mintedCoin sdk.Coin, ratio sdk.Dec) sdk.Coin {
+	return sdk.NewCoin(mintedCoin.Denom, mintedCoin.Amount.ToDec().Mul(ratio).TruncateInt())
 }
