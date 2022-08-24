@@ -499,7 +499,8 @@ func (app *SimApp) FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBlo
 	})
 	events = append(events, endBlockResp.Events...)
 
-	appHash := app.WriteDeliverStateAndGetWorkingHash()
+	app.SetDeliverStateToCommit()
+	appHash := app.WriteStateToCommitAndGetWorkingHash()
 	return &abci.ResponseFinalizeBlock{
 		Events:    events,
 		TxResults: txResults,
