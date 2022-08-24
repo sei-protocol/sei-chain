@@ -907,6 +907,21 @@ func (app *BaseApp) ProcessProposal(ctx context.Context, req *abci.RequestProces
 			WithBlockHeader(header)
 	}
 
+	// add block gas meter
+	var gasMeter sdk.GasMeter
+	if maxGas := app.getMaximumBlockGas(app.processProposalState.ctx); maxGas > 0 {
+		gasMeter = sdk.NewGasMeter(maxGas)
+	} else {
+		gasMeter = sdk.NewInfiniteGasMeter()
+	}
+
+	// NOTE: header hash is not set in NewContext, so we manually set it here
+
+	app.processProposalState.ctx = app.processProposalState.ctx.
+		WithBlockGasMeter(gasMeter).
+		WithHeaderHash(req.Hash).
+		WithConsensusParams(app.GetConsensusParams(app.processProposalState.ctx))
+
 	if app.processProposalState.ms.TracingEnabled() {
 		app.processProposalState.ms = app.processProposalState.ms.SetTracingContext(nil).(sdk.CacheMultiStore)
 	}
