@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"errors"
+	"github.com/cosmos/cosmos-sdk/client/keys"
 	"io"
 	"os"
 	"path/filepath"
@@ -13,7 +14,6 @@ import (
 	"github.com/cosmos/cosmos-sdk/client/config"
 	"github.com/cosmos/cosmos-sdk/client/debug"
 	"github.com/cosmos/cosmos-sdk/client/flags"
-	"github.com/cosmos/cosmos-sdk/client/keys"
 	"github.com/cosmos/cosmos-sdk/client/rpc"
 	"github.com/cosmos/cosmos-sdk/codec"
 	"github.com/cosmos/cosmos-sdk/server"
@@ -27,6 +27,7 @@ import (
 	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
 	"github.com/cosmos/cosmos-sdk/x/crisis"
 	genutilcli "github.com/cosmos/cosmos-sdk/x/genutil/client/cli"
+	ethermintclient "github.com/evmos/ethermint/client"
 	"github.com/sei-protocol/sei-chain/app"
 	"github.com/sei-protocol/sei-chain/app/params"
 	"github.com/sei-protocol/sei-chain/wasmbinding"
@@ -143,7 +144,27 @@ func initRootCmd(
 		queryCommand(),
 		txCommand(),
 		keys.Commands(app.DefaultNodeHome),
+		ethermintCommand(),
 	)
+}
+
+func ethermintCommand() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:                        "ethermint",
+		Aliases:                    []string{"eth"},
+		Short:                      "Ethermint subcommands",
+		DisableFlagParsing:         true,
+		SuggestionsMinimumDistance: 2,
+		RunE:                       client.ValidateCmd,
+	}
+
+	cmd.AddCommand(
+		ethermintclient.KeyCommands(app.DefaultNodeHome),
+	)
+
+	cmd.PersistentFlags().String(flags.FlagChainID, "", "The network chain ID")
+
+	return cmd
 }
 
 // queryCommand returns the sub-command to send queries to the app

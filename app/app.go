@@ -223,15 +223,6 @@ var (
 	_ simapp.App              = (*App)(nil)
 )
 
-func init() {
-	userHomeDir, err := os.UserHomeDir()
-	if err != nil {
-		panic(err)
-	}
-
-	DefaultNodeHome = filepath.Join(userHomeDir, "."+AppName)
-}
-
 // GetWasmEnabledProposals parses the WasmProposalsEnabled and
 // EnableSpecificWasmProposals values to produce a list of enabled proposals to
 // pass into the application.
@@ -977,6 +968,14 @@ func (app *App) BlacklistedAccAddrs() map[string]bool {
 }
 
 func init() {
+	// Set home dir
+	userHomeDir, err := os.UserHomeDir()
+	if err != nil {
+		panic(err)
+	}
+
+	DefaultNodeHome = filepath.Join(userHomeDir, "."+AppName)
+
 	// override max wasm size to 1MB
 	wasmtypes.MaxWasmSize = 1024 * 1024
 }
