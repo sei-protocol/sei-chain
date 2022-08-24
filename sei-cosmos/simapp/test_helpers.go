@@ -363,7 +363,7 @@ func SignCheckDeliver(
 		require.Nil(t, res)
 	}
 
-	app.EndBlock(abci.RequestEndBlock{})
+	app.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{Height: header.Height})
 	app.Commit(context.Background())
 
 	return gInfo, res, err

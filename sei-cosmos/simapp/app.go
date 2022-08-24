@@ -450,7 +450,7 @@ func (app *SimApp) ProcessProposalHandler(ctx sdk.Context, req *abci.RequestProc
 
 func (app *SimApp) FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBlock) (*abci.ResponseFinalizeBlock, error) {
 	events := []abci.Event{}
-	beginBlockResp := app.BeginBlock(abci.RequestBeginBlock{
+	beginBlockResp := app.BeginBlock(ctx, abci.RequestBeginBlock{
 		Hash: req.Hash,
 		ByzantineValidators: utils.Map(req.ByzantineValidators, func(mis abci.Misbehavior) abci.Evidence {
 			return abci.Evidence{
@@ -480,7 +480,7 @@ func (app *SimApp) FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBlo
 	events = append(events, beginBlockResp.Events...)
 	txResults := []*abci.ExecTxResult{}
 	for _, tx := range req.Txs {
-		deliverTxResp := app.DeliverTx(abci.RequestDeliverTx{
+		deliverTxResp := app.DeliverTx(ctx, abci.RequestDeliverTx{
 			Tx: tx,
 		})
 		txResults = append(txResults, &abci.ExecTxResult{
@@ -494,7 +494,7 @@ func (app *SimApp) FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBlo
 			Codespace: deliverTxResp.Codespace,
 		})
 	}
-	endBlockResp := app.EndBlock(abci.RequestEndBlock{
+	endBlockResp := app.EndBlock(ctx, abci.RequestEndBlock{
 		Height: req.Height,
 	})
 	events = append(events, endBlockResp.Events...)

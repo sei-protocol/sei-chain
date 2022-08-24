@@ -38,7 +38,7 @@ func NewApp(rootDir string, logger log.Logger) (abci.Application, error) {
 	baseApp.SetFinalizeBlocker(func(ctx sdk.Context, req *abci.RequestFinalizeBlock) (*abci.ResponseFinalizeBlock, error) {
 		txResults := []*abci.ExecTxResult{}
 		for _, tx := range req.Txs {
-			deliverTxResp := baseApp.DeliverTx(abci.RequestDeliverTx{
+			deliverTxResp := baseApp.DeliverTx(ctx, abci.RequestDeliverTx{
 				Tx: tx,
 			})
 			txResults = append(txResults, &abci.ExecTxResult{
