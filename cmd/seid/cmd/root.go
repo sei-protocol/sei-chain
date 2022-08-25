@@ -2,12 +2,6 @@ package cmd
 
 import (
 	"errors"
-	"github.com/cosmos/cosmos-sdk/client/keys"
-	sdkcfg "github.com/cosmos/cosmos-sdk/server/config"
-	"io"
-	"os"
-	"path/filepath"
-
 	"github.com/CosmWasm/wasmd/x/wasm"
 	wasmkeeper "github.com/CosmWasm/wasmd/x/wasm/keeper"
 	"github.com/cosmos/cosmos-sdk/baseapp"
@@ -15,9 +9,11 @@ import (
 	"github.com/cosmos/cosmos-sdk/client/config"
 	"github.com/cosmos/cosmos-sdk/client/debug"
 	"github.com/cosmos/cosmos-sdk/client/flags"
+	"github.com/cosmos/cosmos-sdk/client/keys"
 	"github.com/cosmos/cosmos-sdk/client/rpc"
 	"github.com/cosmos/cosmos-sdk/codec"
 	sdkserver "github.com/cosmos/cosmos-sdk/server"
+	sdkcfg "github.com/cosmos/cosmos-sdk/server/config"
 	servertypes "github.com/cosmos/cosmos-sdk/server/types"
 	"github.com/cosmos/cosmos-sdk/snapshots"
 	"github.com/cosmos/cosmos-sdk/store"
@@ -39,6 +35,9 @@ import (
 	tmcli "github.com/tendermint/tendermint/libs/cli"
 	"github.com/tendermint/tendermint/libs/log"
 	dbm "github.com/tendermint/tm-db"
+	"io"
+	"os"
+	"path/filepath"
 )
 
 // Option configures root command option.
@@ -141,33 +140,21 @@ func initRootCmd(
 		addModuleInitFlags,
 	)
 
-	// add keybase, auxiliary RPC, query, and tx child commands
+	// Use ethermint's keys command, but set default to Secp256k1 rather
+	// than Ethsecp256k1
+	keysCmd := keys.Commands(app.DefaultNodeHome)
+	keysCmd.AddCommand(
+		// Add ethermint
+		ethermintclient.UnsafeExportEthKeyCommand(),
+		ethermintclient.UnsafeImportKeyCommand(),
+	)
 	rootCmd.AddCommand(
 		rpc.StatusCommand(),
 		queryCommand(),
 		txCommand(),
-		keys.Commands(app.DefaultNodeHome),
-		ethermintCommand(),
+		keysCmd,
+
 	)
-}
-
-func ethermintCommand() *cobra.Command {
-	cmd := &cobra.Command{
-		Use:                        "ethermint",
-		Aliases:                    []string{"eth"},
-		Short:                      "Ethermint subcommands",
-		DisableFlagParsing:         true,
-		SuggestionsMinimumDistance: 2,
-		RunE:                       client.ValidateCmd,
-	}
-
-	cmd.AddCommand(
-		ethermintclient.KeyCommands(app.DefaultNodeHome),
-	)
-
-	cmd.PersistentFlags().String(flags.FlagChainID, "", "The network chain ID")
-
-	return cmd
 }
 
 // queryCommand returns the sub-command to send queries to the app
