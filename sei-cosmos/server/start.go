@@ -63,6 +63,9 @@ const (
 	flagGRPCAddress    = "grpc.address"
 	flagGRPCWebEnable  = "grpc-web.enable"
 	flagGRPCWebAddress = "grpc-web.address"
+
+	// chain info
+	FlagChainID = "chain-id"
 )
 
 // StartCmd runs the service passed in, either stand-alone or in-process with
@@ -161,6 +164,8 @@ is performed. Note, when enabled, gRPC will also be automatically enabled.
 
 	cmd.Flags().Uint64(FlagStateSyncSnapshotInterval, 0, "State sync snapshot interval")
 	cmd.Flags().Uint32(FlagStateSyncSnapshotKeepRecent, 2, "State sync snapshot to keep")
+
+	cmd.Flags().String(FlagChainID, "", "Chain ID")
 
 	// add support for all Tendermint-specific command line options
 	tcmd.AddNodeFlags(cmd, NewDefaultContext().Config)

@@ -16,6 +16,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/baseapp"
 	"github.com/cosmos/cosmos-sdk/store/rootmulti"
 	store "github.com/cosmos/cosmos-sdk/store/types"
+	"github.com/cosmos/cosmos-sdk/testutil"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 )
 
@@ -119,13 +120,14 @@ func TestSetLoader(t *testing.T) {
 			// load the app with the existing db
 			opts := []func(*baseapp.BaseApp){baseapp.SetPruning(store.PruneNothing)}
 
-			origapp := baseapp.NewBaseApp(t.Name(), defaultLogger(), db, nil, opts...)
+			origapp := baseapp.NewBaseApp(t.Name(), defaultLogger(), db, nil, &testutil.TestAppOpts{}, opts...)
 			origapp.MountStores(sdk.NewKVStoreKey(tc.origStoreKey))
 			err := origapp.LoadLatestVersion()
 			require.Nil(t, err)
 
 			for i := int64(2); i <= upgradeHeight-1; i++ {
 				origapp.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{Height: i})
+				origapp.SetDeliverStateToCommit()
 				origapp.Commit(context.Background())
 			}
 
@@ -134,13 +136,14 @@ func TestSetLoader(t *testing.T) {
 			}
 
 			// load the new app with the original app db
-			app := baseapp.NewBaseApp(t.Name(), defaultLogger(), db, nil, opts...)
+			app := baseapp.NewBaseApp(t.Name(), defaultLogger(), db, nil, &testutil.TestAppOpts{}, opts...)
 			app.MountStores(sdk.NewKVStoreKey(tc.loadStoreKey))
 			err = app.LoadLatestVersion()
 			require.Nil(t, err)
 
 			// "execute" one block
 			app.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{Height: upgradeHeight})
+			app.SetDeliverStateToCommit()
 			app.Commit(context.Background())
 
 			// check db is properly updated

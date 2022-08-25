@@ -27,6 +27,7 @@ import (
 	snapshottypes "github.com/cosmos/cosmos-sdk/snapshots/types"
 	"github.com/cosmos/cosmos-sdk/store/rootmulti"
 	store "github.com/cosmos/cosmos-sdk/store/types"
+	"github.com/cosmos/cosmos-sdk/testutil"
 	"github.com/cosmos/cosmos-sdk/testutil/testdata"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
@@ -86,7 +87,7 @@ func newBaseApp(name string, options ...func(*BaseApp)) *BaseApp {
 	db := dbm.NewMemDB()
 	codec := codec.NewLegacyAmino()
 	registerTestCodec(codec)
-	return NewBaseApp(name, logger, db, testTxDecoder(codec), options...)
+	return NewBaseApp(name, logger, db, testTxDecoder(codec), &testutil.TestAppOpts{}, options...)
 }
 
 func registerTestCodec(cdc *codec.LegacyAmino) {
@@ -157,6 +158,7 @@ func setupBaseAppWithSnapshots(t *testing.T, blocks uint, blockTxs int, options 
 	keyCounter := 0
 	for height := int64(1); height <= int64(blocks); height++ {
 		app.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{Height: height})
+		app.SetDeliverStateToCommit()
 		for txNum := 0; txNum < blockTxs; txNum++ {
 			tx := txTest{Msgs: []sdk.Msg{}}
 			for msgNum := 0; msgNum < 100; msgNum++ {
@@ -211,7 +213,7 @@ func TestLoadVersion(t *testing.T) {
 	pruningOpt := SetPruning(store.PruneNothing)
 	db := dbm.NewMemDB()
 	name := t.Name()
-	app := NewBaseApp(name, logger, db, nil, pruningOpt)
+	app := NewBaseApp(name, logger, db, nil, &testutil.TestAppOpts{}, pruningOpt)
 
 	// make a cap key and mount the store
 	err := app.LoadLatestVersion() // needed to make stores non-nil
@@ -227,16 +229,18 @@ func TestLoadVersion(t *testing.T) {
 
 	// execute a block, collect commit ID
 	app.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{Height: 1})
+	app.SetDeliverStateToCommit()
 	app.Commit(context.Background())
 	commitID1 := sdk.CommitID{Version: 1}
 
 	// execute a block, collect commit ID
 	app.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{Height: 2})
+	app.SetDeliverStateToCommit()
 	app.Commit(context.Background())
 	commitID2 := sdk.CommitID{Version: 2}
 
 	// reload with LoadLatestVersion
-	app = NewBaseApp(name, logger, db, nil, pruningOpt)
+	app = NewBaseApp(name, logger, db, nil, &testutil.TestAppOpts{}, pruningOpt)
 	app.MountStores()
 	err = app.LoadLatestVersion()
 	require.Nil(t, err)
@@ -244,11 +248,12 @@ func TestLoadVersion(t *testing.T) {
 
 	// reload with LoadVersion, see if you can commit the same block and get
 	// the same result
-	app = NewBaseApp(name, logger, db, nil, pruningOpt)
+	app = NewBaseApp(name, logger, db, nil, &testutil.TestAppOpts{}, pruningOpt)
 	err = app.LoadVersion(1)
 	require.Nil(t, err)
 	testLoadVersionHelper(t, app, int64(1), commitID1)
 	app.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{Height: 2})
+	app.SetDeliverStateToCommit()
 	app.Commit(context.Background())
 	testLoadVersionHelper(t, app, int64(2), commitID2)
 }
@@ -323,13 +328,14 @@ func TestSetLoader(t *testing.T) {
 			if tc.setLoader != nil {
 				opts = append(opts, tc.setLoader)
 			}
-			app := NewBaseApp(t.Name(), defaultLogger(), db, nil, opts...)
+			app := NewBaseApp(t.Name(), defaultLogger(), db, nil, &testutil.TestAppOpts{}, opts...)
 			app.MountStores(sdk.NewKVStoreKey(tc.loadStoreKey))
 			err := app.LoadLatestVersion()
 			require.Nil(t, err)
 
 			// "execute" one block
 			app.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{Height: 2})
+			app.SetDeliverStateToCommit()
 			app.Commit(context.Background())
 
 			// check db is properly updated
@@ -344,7 +350,7 @@ func TestVersionSetterGetter(t *testing.T) {
 	pruningOpt := SetPruning(store.PruneDefault)
 	db := dbm.NewMemDB()
 	name := t.Name()
-	app := NewBaseApp(name, logger, db, nil, pruningOpt)
+	app := NewBaseApp(name, logger, db, nil, &testutil.TestAppOpts{}, pruningOpt)
 
 	require.Equal(t, "", app.Version())
 	res, _ := app.Query(context.Background(), &abci.RequestQuery{Path: "app/version"})
@@ -364,7 +370,7 @@ func TestLoadVersionInvalid(t *testing.T) {
 	pruningOpt := SetPruning(store.PruneNothing)
 	db := dbm.NewMemDB()
 	name := t.Name()
-	app := NewBaseApp(name, logger, db, nil, pruningOpt)
+	app := NewBaseApp(name, logger, db, nil, &testutil.TestAppOpts{}, pruningOpt)
 
 	err := app.LoadLatestVersion()
 	require.Nil(t, err)
@@ -374,11 +380,12 @@ func TestLoadVersionInvalid(t *testing.T) {
 	require.Error(t, err)
 
 	app.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{Height: 1})
+	app.SetDeliverStateToCommit()
 	app.Commit(context.Background())
 	commitID1 := sdk.CommitID{Version: 1}
 
 	// create a new app with the stores mounted under the same cap key
-	app = NewBaseApp(name, logger, db, nil, pruningOpt)
+	app = NewBaseApp(name, logger, db, nil, &testutil.TestAppOpts{}, pruningOpt)
 
 	// require we can load the latest version
 	err = app.LoadVersion(1)
@@ -400,7 +407,7 @@ func TestLoadVersionPruning(t *testing.T) {
 	pruningOpt := SetPruning(pruningOptions)
 	db := dbm.NewMemDB()
 	name := t.Name()
-	app := NewBaseApp(name, logger, db, nil, pruningOpt)
+	app := NewBaseApp(name, logger, db, nil, &testutil.TestAppOpts{}, pruningOpt)
 
 	// make a cap key and mount the store
 	capKey := sdk.NewKVStoreKey("key1")
@@ -423,6 +430,7 @@ func TestLoadVersionPruning(t *testing.T) {
 	// (keep recent) and 3 (keep every).
 	for i := int64(1); i <= 7; i++ {
 		app.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{Height: i})
+		app.SetDeliverStateToCommit()
 		app.Commit(context.Background())
 		lastCommitID = sdk.CommitID{Version: i}
 	}
@@ -438,7 +446,7 @@ func TestLoadVersionPruning(t *testing.T) {
 	}
 
 	// reload with LoadLatestVersion, check it loads last version
-	app = NewBaseApp(name, logger, db, nil, pruningOpt)
+	app = NewBaseApp(name, logger, db, nil, &testutil.TestAppOpts{}, pruningOpt)
 	app.MountStores(capKey)
 
 	err = app.LoadLatestVersion()
@@ -456,7 +464,7 @@ func testLoadVersionHelper(t *testing.T, app *BaseApp, expectedHeight int64, exp
 func TestOptionFunction(t *testing.T) {
 	logger := defaultLogger()
 	db := dbm.NewMemDB()
-	bap := NewBaseApp("starting name", logger, db, nil, testChangeNameHelper("new name"))
+	bap := NewBaseApp("starting name", logger, db, nil, &testutil.TestAppOpts{}, testChangeNameHelper("new name"))
 	require.Equal(t, bap.name, "new name", "BaseApp should have had name changed via option function")
 }
 
@@ -554,7 +562,7 @@ func TestInitChainer(t *testing.T) {
 	// we can reload the same  app later
 	db := dbm.NewMemDB()
 	logger := defaultLogger()
-	app := NewBaseApp(name, logger, db, nil)
+	app := NewBaseApp(name, logger, db, nil, &testutil.TestAppOpts{})
 	capKey := sdk.NewKVStoreKey("main")
 	capKey2 := sdk.NewKVStoreKey("key2")
 	app.MountStores(capKey, capKey2)
@@ -603,13 +611,14 @@ func TestInitChainer(t *testing.T) {
 	chainID = app.checkState.ctx.ChainID()
 	require.Equal(t, "test-chain-id", chainID, "ChainID in checkState not set correctly in InitChain")
 
+	app.SetDeliverStateToCommit()
 	app.Commit(context.Background())
 	res, _ = app.Query(context.Background(), &query)
 	require.Equal(t, int64(1), app.LastBlockHeight())
 	require.Equal(t, value, res.Value)
 
 	// reload app
-	app = NewBaseApp(name, logger, db, nil)
+	app = NewBaseApp(name, logger, db, nil, &testutil.TestAppOpts{})
 	app.SetInitChainer(initChainer)
 	app.MountStores(capKey, capKey2)
 	err = app.LoadLatestVersion() // needed to make stores non-nil
@@ -622,6 +631,7 @@ func TestInitChainer(t *testing.T) {
 
 	// commit and ensure we can still query
 	app.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{Height: app.LastBlockHeight() + 1})
+	app.SetDeliverStateToCommit()
 	app.Commit(context.Background())
 
 	res, _ = app.Query(context.Background(), &query)
@@ -632,7 +642,7 @@ func TestInitChain_WithInitialHeight(t *testing.T) {
 	name := t.Name()
 	db := dbm.NewMemDB()
 	logger := defaultLogger()
-	app := NewBaseApp(name, logger, db, nil)
+	app := NewBaseApp(name, logger, db, nil, &testutil.TestAppOpts{})
 
 	app.InitChain(
 		context.Background(), &abci.RequestInitChain{
@@ -648,7 +658,7 @@ func TestBeginBlock_WithInitialHeight(t *testing.T) {
 	name := t.Name()
 	db := dbm.NewMemDB()
 	logger := defaultLogger()
-	app := NewBaseApp(name, logger, db, nil)
+	app := NewBaseApp(name, logger, db, nil, &testutil.TestAppOpts{})
 
 	app.InitChain(
 		context.Background(), &abci.RequestInitChain{
@@ -979,6 +989,7 @@ func TestDeliverTx(t *testing.T) {
 
 	for blockN := 0; blockN < nBlocks; blockN++ {
 		app.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{Height: int64(blockN) + 1})
+		app.SetDeliverStateToCommit()
 
 		for i := 0; i < txPerHeight; i++ {
 			counter := int64(blockN*txPerHeight + i)
@@ -1111,6 +1122,7 @@ func TestSimulateTx(t *testing.T) {
 	for blockN := 0; blockN < nBlocks; blockN++ {
 		count := int64(blockN + 1)
 		app.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{Height: count})
+		app.SetDeliverStateToCommit()
 
 		tx := newTxCounter(count, count)
 		txBytes, err := cdc.Marshal(tx)
@@ -1967,6 +1979,7 @@ func TestWithRouter(t *testing.T) {
 
 	for blockN := 0; blockN < nBlocks; blockN++ {
 		app.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{Height: int64(blockN) + 1})
+		app.SetDeliverStateToCommit()
 
 		for i := 0; i < txPerHeight; i++ {
 			counter := int64(blockN*txPerHeight + i)
@@ -1994,7 +2007,7 @@ func TestBaseApp_EndBlock(t *testing.T) {
 		},
 	}
 
-	app := NewBaseApp(name, logger, db, nil)
+	app := NewBaseApp(name, logger, db, nil, &testutil.TestAppOpts{})
 	app.SetParamStore(&paramStore{db: dbm.NewMemDB()})
 	app.InitChain(context.Background(), &abci.RequestInitChain{
 		ConsensusParams: cp,
