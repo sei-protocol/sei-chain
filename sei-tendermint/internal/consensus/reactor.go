@@ -27,49 +27,54 @@ var (
 	_ p2p.Wrapper     = (*tmcons.Message)(nil)
 )
 
-// GetChannelDescriptor produces an instance of a descriptor for this
-// package's required channels.
-func getChannelDescriptors() map[p2p.ChannelID]*p2p.ChannelDescriptor {
-	return map[p2p.ChannelID]*p2p.ChannelDescriptor{
-		StateChannel: {
-			ID:                  StateChannel,
-			MessageType:         new(tmcons.Message),
-			Priority:            8,
-			SendQueueCapacity:   64,
-			RecvMessageCapacity: maxMsgSize,
-			RecvBufferCapacity:  128,
-			Name:                "state",
-		},
-		DataChannel: {
-			// TODO: Consider a split between gossiping current block and catchup
-			// stuff. Once we gossip the whole block there is nothing left to send
-			// until next height or round.
-			ID:                  DataChannel,
-			MessageType:         new(tmcons.Message),
-			Priority:            12,
-			SendQueueCapacity:   64,
-			RecvBufferCapacity:  512,
-			RecvMessageCapacity: maxMsgSize,
-			Name:                "data",
-		},
-		VoteChannel: {
-			ID:                  VoteChannel,
-			MessageType:         new(tmcons.Message),
-			Priority:            10,
-			SendQueueCapacity:   64,
-			RecvBufferCapacity:  128,
-			RecvMessageCapacity: maxMsgSize,
-			Name:                "vote",
-		},
-		VoteSetBitsChannel: {
-			ID:                  VoteSetBitsChannel,
-			MessageType:         new(tmcons.Message),
-			Priority:            5,
-			SendQueueCapacity:   8,
-			RecvBufferCapacity:  128,
-			RecvMessageCapacity: maxMsgSize,
-			Name:                "voteSet",
-		},
+func GetStateChannelDescriptor() *p2p.ChannelDescriptor {
+	return &p2p.ChannelDescriptor{
+		ID:                  StateChannel,
+		MessageType:         new(tmcons.Message),
+		Priority:            8,
+		SendQueueCapacity:   64,
+		RecvMessageCapacity: maxMsgSize,
+		RecvBufferCapacity:  128,
+		Name:                "state",
+	}
+}
+
+func GetDataChannelDescriptor() *p2p.ChannelDescriptor {
+	return &p2p.ChannelDescriptor{
+		// TODO: Consider a split between gossiping current block and catchup
+		// stuff. Once we gossip the whole block there is nothing left to send
+		// until next height or round.
+		ID:                  DataChannel,
+		MessageType:         new(tmcons.Message),
+		Priority:            12,
+		SendQueueCapacity:   64,
+		RecvBufferCapacity:  512,
+		RecvMessageCapacity: maxMsgSize,
+		Name:                "data",
+	}
+}
+
+func GetVoteChannelDescriptor() *p2p.ChannelDescriptor {
+	return &p2p.ChannelDescriptor{
+		ID:                  VoteChannel,
+		MessageType:         new(tmcons.Message),
+		Priority:            10,
+		SendQueueCapacity:   64,
+		RecvBufferCapacity:  128,
+		RecvMessageCapacity: maxMsgSize,
+		Name:                "vote",
+	}
+}
+
+func GetVoteSetChannelDescriptor() *p2p.ChannelDescriptor {
+	return &p2p.ChannelDescriptor{
+		ID:                  VoteSetBitsChannel,
+		MessageType:         new(tmcons.Message),
+		Priority:            5,
+		SendQueueCapacity:   8,
+		RecvBufferCapacity:  128,
+		RecvMessageCapacity: maxMsgSize,
+		Name:                "voteSet",
 	}
 }
 
@@ -103,8 +108,9 @@ type BlockSyncReactor interface {
 	GetRemainingSyncTime() time.Duration
 }
 
-//go:generate ../../scripts/mockery_generate.sh ConsSyncReactor
 // ConsSyncReactor defines an interface used for testing abilities of node.startStateSync.
+//
+//go:generate ../../scripts/mockery_generate.sh ConsSyncReactor
 type ConsSyncReactor interface {
 	SwitchToConsensus(sm.State, bool)
 	SetStateSyncingMetrics(float64)
@@ -127,7 +133,8 @@ type Reactor struct {
 	readySignal chan struct{} // closed when the node is ready to start consensus
 
 	peerEvents p2p.PeerEventSubscriber
-	chCreator  p2p.ChannelCreator
+
+	channels *channelBundle
 }
 
 // NewReactor returns a reference to a new consensus reactor, which implements
@@ -137,7 +144,6 @@ type Reactor struct {
 func NewReactor(
 	logger log.Logger,
 	cs *State,
-	channelCreator p2p.ChannelCreator,
 	peerEvents p2p.PeerEventSubscriber,
 	eventBus *eventbus.EventBus,
 	waitSync bool,
@@ -152,8 +158,8 @@ func NewReactor(
 		eventBus:    eventBus,
 		Metrics:     metrics,
 		peerEvents:  peerEvents,
-		chCreator:   channelCreator,
 		readySignal: make(chan struct{}),
+		channels:    &channelBundle{},
 	}
 	r.BaseService = *service.NewBaseService(logger, "Consensus", r)
 
@@ -171,6 +177,22 @@ type channelBundle struct {
 	votSet *p2p.Channel
 }
 
+func (r *Reactor) SetStateChannel(ch *p2p.Channel) {
+	r.channels.state = ch
+}
+
+func (r *Reactor) SetDataChannel(ch *p2p.Channel) {
+	r.channels.data = ch
+}
+
+func (r *Reactor) SetVoteChannel(ch *p2p.Channel) {
+	r.channels.vote = ch
+}
+
+func (r *Reactor) SetVoteSetChannel(ch *p2p.Channel) {
+	r.channels.votSet = ch
+}
+
 // OnStart starts separate go routines for each p2p Channel and listens for
 // envelopes on each. In addition, it also listens for peer updates and handles
 // messages on that p2p channel accordingly. The caller must be sure to execute
@@ -180,37 +202,13 @@ func (r *Reactor) OnStart(ctx context.Context) error {
 
 	peerUpdates := r.peerEvents(ctx)
 
-	var chBundle channelBundle
-	var err error
-
-	chans := getChannelDescriptors()
-	chBundle.state, err = r.chCreator(ctx, chans[StateChannel])
-	if err != nil {
-		return err
-	}
-
-	chBundle.data, err = r.chCreator(ctx, chans[DataChannel])
-	if err != nil {
-		return err
-	}
-
-	chBundle.vote, err = r.chCreator(ctx, chans[VoteChannel])
-	if err != nil {
-		return err
-	}
-
-	chBundle.votSet, err = r.chCreator(ctx, chans[VoteSetBitsChannel])
-	if err != nil {
-		return err
-	}
-
 	// start routine that computes peer statistics for evaluating peer quality
 	//
 	// TODO: Evaluate if we need this to be synchronized via WaitGroup as to not
 	// leak the goroutine when stopping the reactor.
 	go r.peerStatsRoutine(ctx, peerUpdates)
 
-	r.subscribeToBroadcastEvents(ctx, chBundle.state)
+	r.subscribeToBroadcastEvents(ctx, r.channels.state)
 
 	if !r.WaitSync() {
 		if err := r.state.Start(ctx); err != nil {
@@ -222,11 +220,11 @@ func (r *Reactor) OnStart(ctx context.Context) error {
 
 	go r.updateRoundStateRoutine(ctx)
 
-	go r.processStateCh(ctx, chBundle)
-	go r.processDataCh(ctx, chBundle)
-	go r.processVoteCh(ctx, chBundle)
-	go r.processVoteSetBitsCh(ctx, chBundle)
-	go r.processPeerUpdates(ctx, peerUpdates, chBundle)
+	go r.processStateCh(ctx, *r.channels)
+	go r.processDataCh(ctx, *r.channels)
+	go r.processVoteCh(ctx, *r.channels)
+	go r.processVoteSetBitsCh(ctx, *r.channels)
+	go r.processPeerUpdates(ctx, peerUpdates, *r.channels)
 
 	return nil
 }

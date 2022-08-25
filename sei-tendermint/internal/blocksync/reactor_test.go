@@ -149,7 +149,6 @@ func makeReactor(
 		blockExec,
 		blockStore,
 		nil,
-		channelCreator,
 		peerEvents,
 		true,
 		consensus.NopMetrics(),

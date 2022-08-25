@@ -80,7 +80,6 @@ type Reactor struct {
 	logger log.Logger
 
 	peerManager *p2p.PeerManager
-	chCreator   p2p.ChannelCreator
 	peerEvents  p2p.PeerEventSubscriber
 	// list of available peers to loop through and send peer requests to
 	availablePeers map[types.NodeID]struct{}
@@ -100,19 +99,19 @@ type Reactor struct {
 
 	// the total number of unique peers added
 	totalPeers int
+
+	channel *p2p.Channel
 }
 
 // NewReactor returns a reference to a new reactor.
 func NewReactor(
 	logger log.Logger,
 	peerManager *p2p.PeerManager,
-	channelCreator p2p.ChannelCreator,
 	peerEvents p2p.PeerEventSubscriber,
 ) *Reactor {
 	r := &Reactor{
 		logger:               logger,
 		peerManager:          peerManager,
-		chCreator:            channelCreator,
 		peerEvents:           peerEvents,
 		availablePeers:       make(map[types.NodeID]struct{}),
 		requestsSent:         make(map[types.NodeID]struct{}),
@@ -123,18 +122,17 @@ func NewReactor(
 	return r
 }
 
+func (r *Reactor) SetChannel(ch *p2p.Channel) {
+	r.channel = ch
+}
+
 // OnStart starts separate go routines for each p2p Channel and listens for
 // envelopes on each. In addition, it also listens for peer updates and handles
 // messages on that p2p channel accordingly. The caller must be sure to execute
 // OnStop to ensure the outbound p2p Channels are closed.
 func (r *Reactor) OnStart(ctx context.Context) error {
-	channel, err := r.chCreator(ctx, ChannelDescriptor())
-	if err != nil {
-		return err
-	}
-
 	peerUpdates := r.peerEvents(ctx)
-	go r.processPexCh(ctx, channel)
+	go r.processPexCh(ctx, r.channel)
 	go r.processPeerUpdates(ctx, peerUpdates)
 	return nil
 }

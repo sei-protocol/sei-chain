@@ -81,6 +81,7 @@ func makeSeedNode(
 			closer)
 	}
 
+	pexReactor := pex.NewReactor(logger, peerManager, peerManager.Subscribe)
 	node := &seedNodeImpl{
 		config:     cfg,
 		logger:     logger,
@@ -92,8 +93,9 @@ func makeSeedNode(
 
 		shutdownOps: closer,
 
-		pexReactor: pex.NewReactor(logger, peerManager, router.OpenChannel, peerManager.Subscribe),
+		pexReactor: pexReactor,
 	}
+	node.router.AddChDescToBeAdded(pex.ChannelDescriptor(), pexReactor.SetChannel)
 	node.BaseService = *service.NewBaseService(logger, "SeedNode", node)
 
 	return node, nil

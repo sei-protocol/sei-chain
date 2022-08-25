@@ -11,7 +11,6 @@ import (
 	"github.com/tendermint/tendermint/internal/consensus"
 	"github.com/tendermint/tendermint/internal/eventbus"
 	"github.com/tendermint/tendermint/internal/p2p"
-	"github.com/tendermint/tendermint/internal/p2p/conn"
 	sm "github.com/tendermint/tendermint/internal/state"
 	"github.com/tendermint/tendermint/internal/store"
 	"github.com/tendermint/tendermint/libs/log"
@@ -81,8 +80,8 @@ type Reactor struct {
 	consReactor consensusReactor
 	blockSync   *atomicBool
 
-	chCreator  p2p.ChannelCreator
 	peerEvents p2p.PeerEventSubscriber
+	channel    *p2p.Channel
 
 	requestsCh <-chan BlockRequest
 	errorsCh   <-chan peerError
@@ -100,7 +99,6 @@ func NewReactor(
 	blockExec *sm.BlockExecutor,
 	store *store.BlockStore,
 	consReactor consensusReactor,
-	channelCreator p2p.ChannelCreator,
 	peerEvents p2p.PeerEventSubscriber,
 	blockSync bool,
 	metrics *consensus.Metrics,
@@ -113,7 +111,6 @@ func NewReactor(
 		store:       store,
 		consReactor: consReactor,
 		blockSync:   newAtomicBool(blockSync),
-		chCreator:   channelCreator,
 		peerEvents:  peerEvents,
 		metrics:     metrics,
 		eventBus:    eventBus,
@@ -121,6 +118,10 @@ func NewReactor(
 
 	r.BaseService = *service.NewBaseService(logger, "BlockSync", r)
 	return r
+}
+
+func (r *Reactor) SetChannel(ch *p2p.Channel) {
+	r.channel = ch
 }
 
 // OnStart starts separate go routines for each p2p Channel and listens for
@@ -131,12 +132,6 @@ func NewReactor(
 // If blockSync is enabled, we also start the pool and the pool processing
 // goroutine. If the pool fails to start, an error is returned.
 func (r *Reactor) OnStart(ctx context.Context) error {
-	blockSyncCh, err := r.chCreator(ctx, GetChannelDescriptor())
-	if err != nil {
-		return err
-	}
-	r.chCreator = func(context.Context, *conn.ChannelDescriptor) (*p2p.Channel, error) { return blockSyncCh, nil }
-
 	state, err := r.stateStore.Load()
 	if err != nil {
 		return err
@@ -162,13 +157,13 @@ func (r *Reactor) OnStart(ctx context.Context) error {
 		if err := r.pool.Start(ctx); err != nil {
 			return err
 		}
-		go r.requestRoutine(ctx, blockSyncCh)
+		go r.requestRoutine(ctx, r.channel)
 
-		go r.poolRoutine(ctx, false, blockSyncCh)
+		go r.poolRoutine(ctx, false, r.channel)
 	}
 
-	go r.processBlockSyncCh(ctx, blockSyncCh)
-	go r.processPeerUpdates(ctx, r.peerEvents(ctx), blockSyncCh)
+	go r.processBlockSyncCh(ctx, r.channel)
+	go r.processPeerUpdates(ctx, r.peerEvents(ctx), r.channel)
 
 	return nil
 }
@@ -378,13 +373,8 @@ func (r *Reactor) SwitchToBlockSync(ctx context.Context, state sm.State) error {
 
 	r.syncStartTime = time.Now()
 
-	bsCh, err := r.chCreator(ctx, GetChannelDescriptor())
-	if err != nil {
-		return err
-	}
-
-	go r.requestRoutine(ctx, bsCh)
-	go r.poolRoutine(ctx, true, bsCh)
+	go r.requestRoutine(ctx, r.channel)
+	go r.poolRoutine(ctx, true, r.channel)
 
 	if err := r.PublishStatus(types.EventDataBlockSyncStatus{
 		Complete: false,

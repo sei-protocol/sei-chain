@@ -96,13 +96,8 @@ func setup(ctx context.Context, t *testing.T, stateStores []sm.Store) *reactorTe
 		rts.network.Nodes[nodeID].PeerManager.Register(ctx, pu)
 		rts.nodes = append(rts.nodes, rts.network.Nodes[nodeID])
 
-		chCreator := func(ctx context.Context, chdesc *p2p.ChannelDescriptor) (*p2p.Channel, error) {
-			return rts.evidenceChannels[nodeID], nil
-		}
-
 		rts.reactors[nodeID] = evidence.NewReactor(
 			logger,
-			chCreator,
 			func(ctx context.Context) *p2p.PeerUpdates { return pu },
 			rts.pools[nodeID])
 

@@ -256,7 +256,8 @@ func makeNode(
 	}
 
 	evReactor, evPool, edbCloser, err := createEvidenceReactor(logger, cfg, dbProvider,
-		stateStore, blockStore, peerManager.Subscribe, node.router.OpenChannel, nodeMetrics.evidence, eventBus)
+		stateStore, blockStore, peerManager.Subscribe, nodeMetrics.evidence, eventBus)
+	node.router.AddChDescToBeAdded(evidence.GetChannelDescriptor(), evReactor.SetChannel)
 	closers = append(closers, edbCloser)
 	if err != nil {
 		return nil, combineCloseError(err, makeCloser(closers))
@@ -266,7 +267,8 @@ func makeNode(
 	node.evPool = evPool
 
 	mpReactor, mp := createMempoolReactor(logger, cfg, proxyApp, stateStore, nodeMetrics.mempool,
-		peerManager.Subscribe, node.router.OpenChannel)
+		peerManager.Subscribe)
+	node.router.AddChDescToBeAdded(mempool.GetChannelDescriptor(cfg.Mempool), mpReactor.SetChannel)
 	node.rpcEnv.Mempool = mp
 	node.services = append(node.services, mpReactor)
 
@@ -313,12 +315,15 @@ func makeNode(
 	csReactor := consensus.NewReactor(
 		logger,
 		csState,
-		node.router.OpenChannel,
 		peerManager.Subscribe,
 		eventBus,
 		waitSync,
 		nodeMetrics.consensus,
 	)
+	node.router.AddChDescToBeAdded(consensus.GetStateChannelDescriptor(), csReactor.SetStateChannel)
+	node.router.AddChDescToBeAdded(consensus.GetDataChannelDescriptor(), csReactor.SetDataChannel)
+	node.router.AddChDescToBeAdded(consensus.GetVoteChannelDescriptor(), csReactor.SetVoteChannel)
+	node.router.AddChDescToBeAdded(consensus.GetVoteSetChannelDescriptor(), csReactor.SetVoteSetChannel)
 	node.services = append(node.services, csReactor)
 	node.rpcEnv.ConsensusReactor = csReactor
 
@@ -330,12 +335,12 @@ func makeNode(
 		blockExec,
 		blockStore,
 		csReactor,
-		node.router.OpenChannel,
 		peerManager.Subscribe,
 		blockSync && !stateSync,
 		nodeMetrics.consensus,
 		eventBus,
 	)
+	node.router.AddChDescToBeAdded(blocksync.GetChannelDescriptor(), bcReactor.SetChannel)
 	node.services = append(node.services, bcReactor)
 	node.rpcEnv.BlockSyncReactor = bcReactor
 
@@ -348,20 +353,21 @@ func makeNode(
 	}
 
 	if cfg.P2P.PexReactor {
-		node.services = append(node.services, pex.NewReactor(logger, peerManager, node.router.OpenChannel, peerManager.Subscribe))
+		pxReactor := pex.NewReactor(logger, peerManager, peerManager.Subscribe)
+		node.services = append(node.services, pxReactor)
+		node.router.AddChDescToBeAdded(pex.ChannelDescriptor(), pxReactor.SetChannel)
 	}
 
 	// Set up state sync reactor, and schedule a sync if requested.
 	// FIXME The way we do phased startups (e.g. replay -> block sync -> consensus) is very messy,
 	// we should clean this whole thing up. See:
 	// https://github.com/tendermint/tendermint/issues/4644
-	node.services = append(node.services, statesync.NewReactor(
+	ssReactor := statesync.NewReactor(
 		genDoc.ChainID,
 		genDoc.InitialHeight,
 		*cfg.StateSync,
 		logger.With("module", "statesync"),
 		proxyApp,
-		node.router.OpenChannel,
 		peerManager.Subscribe,
 		stateStore,
 		blockStore,
@@ -385,7 +391,12 @@ func makeNode(
 			return nil
 		},
 		stateSync,
-	))
+	)
+	node.services = append(node.services, ssReactor)
+	node.router.AddChDescToBeAdded(statesync.GetSnapshotChannelDescriptor(), ssReactor.SetSnapshotChannel)
+	node.router.AddChDescToBeAdded(statesync.GetChunkChannelDescriptor(), ssReactor.SetChunkChannel)
+	node.router.AddChDescToBeAdded(statesync.GetLightBlockChannelDescriptor(), ssReactor.SetLightBlockChannel)
+	node.router.AddChDescToBeAdded(statesync.GetParamsChannelDescriptor(), ssReactor.SetParamsChannel)
 
 	if cfg.Mode == config.ModeValidator {
 		if privValidator != nil {

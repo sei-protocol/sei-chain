@@ -33,7 +33,6 @@ type Reactor struct {
 	ids     *IDs
 
 	peerEvents p2p.PeerEventSubscriber
-	chCreator  p2p.ChannelCreator
 
 	// observePanic is a function for observing panics that were recovered in methods on
 	// Reactor. observePanic is called with the recovered value.
@@ -41,6 +40,8 @@ type Reactor struct {
 
 	mtx          sync.Mutex
 	peerRoutines map[types.NodeID]context.CancelFunc
+
+	channel *p2p.Channel
 }
 
 // NewReactor returns a reference to a new reactor.
@@ -48,7 +49,6 @@ func NewReactor(
 	logger log.Logger,
 	cfg *config.MempoolConfig,
 	txmp *TxMempool,
-	chCreator p2p.ChannelCreator,
 	peerEvents p2p.PeerEventSubscriber,
 ) *Reactor {
 	r := &Reactor{
@@ -56,7 +56,6 @@ func NewReactor(
 		cfg:          cfg,
 		mempool:      txmp,
 		ids:          NewMempoolIDs(),
-		chCreator:    chCreator,
 		peerEvents:   peerEvents,
 		peerRoutines: make(map[types.NodeID]context.CancelFunc),
 		observePanic: defaultObservePanic,
@@ -66,11 +65,15 @@ func NewReactor(
 	return r
 }
 
+func (r *Reactor) SetChannel(ch *p2p.Channel) {
+	r.channel = ch
+}
+
 func defaultObservePanic(r interface{}) {}
 
 // getChannelDescriptor produces an instance of a descriptor for this
 // package's required channels.
-func getChannelDescriptor(cfg *config.MempoolConfig) *p2p.ChannelDescriptor {
+func GetChannelDescriptor(cfg *config.MempoolConfig) *p2p.ChannelDescriptor {
 	largestTx := make([]byte, cfg.MaxTxBytes)
 	batchMsg := protomem.Message{
 		Sum: &protomem.Message_Txs{
@@ -97,13 +100,8 @@ func (r *Reactor) OnStart(ctx context.Context) error {
 		r.logger.Info("tx broadcasting is disabled")
 	}
 
-	ch, err := r.chCreator(ctx, getChannelDescriptor(r.cfg))
-	if err != nil {
-		return err
-	}
-
-	go r.processMempoolCh(ctx, ch)
-	go r.processPeerUpdates(ctx, r.peerEvents(ctx), ch)
+	go r.processMempoolCh(ctx, r.channel)
+	go r.processPeerUpdates(ctx, r.peerEvents(ctx), r.channel)
 
 	return nil
 }

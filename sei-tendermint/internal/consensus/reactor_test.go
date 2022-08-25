@@ -85,23 +85,6 @@ func setup(
 	ctx, cancel := context.WithCancel(ctx)
 	t.Cleanup(cancel)
 
-	chCreator := func(nodeID types.NodeID) p2p.ChannelCreator {
-		return func(ctx context.Context, desc *p2p.ChannelDescriptor) (*p2p.Channel, error) {
-			switch desc.ID {
-			case StateChannel:
-				return rts.stateChannels[nodeID], nil
-			case DataChannel:
-				return rts.dataChannels[nodeID], nil
-			case VoteChannel:
-				return rts.voteChannels[nodeID], nil
-			case VoteSetBitsChannel:
-				return rts.voteSetBitsChannels[nodeID], nil
-			default:
-				return nil, fmt.Errorf("invalid channel; %v", desc.ID)
-			}
-		}
-	}
-
 	i := 0
 	for nodeID, node := range rts.network.Nodes {
 		state := states[i]
@@ -109,7 +92,6 @@ func setup(
 		reactor := NewReactor(
 			state.logger.With("node", nodeID),
 			state,
-			chCreator(nodeID),
 			func(ctx context.Context) *p2p.PeerUpdates { return node.MakePeerUpdates(ctx, t) },
 			state.eventBus,
 			true,
@@ -695,7 +677,6 @@ func TestSwitchToConsensusVoteExtensions(t *testing.T) {
 			reactor := NewReactor(
 				log.NewNopLogger(),
 				cs,
-				nil,
 				nil,
 				cs.eventBus,
 				true,

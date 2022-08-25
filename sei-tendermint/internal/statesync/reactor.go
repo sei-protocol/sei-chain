@@ -72,46 +72,52 @@ const (
 	maxLightBlockRequestRetries = 20
 )
 
-func getChannelDescriptors() map[p2p.ChannelID]*p2p.ChannelDescriptor {
-	return map[p2p.ChannelID]*p2p.ChannelDescriptor{
-		SnapshotChannel: {
-			ID:                  SnapshotChannel,
-			MessageType:         new(ssproto.Message),
-			Priority:            6,
-			SendQueueCapacity:   10,
-			RecvMessageCapacity: snapshotMsgSize,
-			RecvBufferCapacity:  128,
-			Name:                "snapshot",
-		},
-		ChunkChannel: {
-			ID:                  ChunkChannel,
-			Priority:            3,
-			MessageType:         new(ssproto.Message),
-			SendQueueCapacity:   4,
-			RecvMessageCapacity: chunkMsgSize,
-			RecvBufferCapacity:  128,
-			Name:                "chunk",
-		},
-		LightBlockChannel: {
-			ID:                  LightBlockChannel,
-			MessageType:         new(ssproto.Message),
-			Priority:            5,
-			SendQueueCapacity:   10,
-			RecvMessageCapacity: lightBlockMsgSize,
-			RecvBufferCapacity:  128,
-			Name:                "light-block",
-		},
-		ParamsChannel: {
-			ID:                  ParamsChannel,
-			MessageType:         new(ssproto.Message),
-			Priority:            2,
-			SendQueueCapacity:   10,
-			RecvMessageCapacity: paramMsgSize,
-			RecvBufferCapacity:  128,
-			Name:                "params",
-		},
+func GetSnapshotChannelDescriptor() *p2p.ChannelDescriptor {
+	return &p2p.ChannelDescriptor{
+		ID:                  SnapshotChannel,
+		MessageType:         new(ssproto.Message),
+		Priority:            6,
+		SendQueueCapacity:   10,
+		RecvMessageCapacity: snapshotMsgSize,
+		RecvBufferCapacity:  128,
+		Name:                "snapshot",
 	}
+}
 
+func GetChunkChannelDescriptor() *p2p.ChannelDescriptor {
+	return &p2p.ChannelDescriptor{
+		ID:                  ChunkChannel,
+		Priority:            3,
+		MessageType:         new(ssproto.Message),
+		SendQueueCapacity:   4,
+		RecvMessageCapacity: chunkMsgSize,
+		RecvBufferCapacity:  128,
+		Name:                "chunk",
+	}
+}
+
+func GetLightBlockChannelDescriptor() *p2p.ChannelDescriptor {
+	return &p2p.ChannelDescriptor{
+		ID:                  LightBlockChannel,
+		MessageType:         new(ssproto.Message),
+		Priority:            5,
+		SendQueueCapacity:   10,
+		RecvMessageCapacity: lightBlockMsgSize,
+		RecvBufferCapacity:  128,
+		Name:                "light-block",
+	}
+}
+
+func GetParamsChannelDescriptor() *p2p.ChannelDescriptor {
+	return &p2p.ChannelDescriptor{
+		ID:                  ParamsChannel,
+		MessageType:         new(ssproto.Message),
+		Priority:            2,
+		SendQueueCapacity:   10,
+		RecvMessageCapacity: paramMsgSize,
+		RecvBufferCapacity:  128,
+		Name:                "params",
+	}
 }
 
 // Metricer defines an interface used for the rpc sync info query, please see statesync.metrics
@@ -141,7 +147,6 @@ type Reactor struct {
 	conn           abciclient.Client
 	tempDir        string
 	peerEvents     p2p.PeerEventSubscriber
-	chCreator      p2p.ChannelCreator
 	sendBlockError func(context.Context, p2p.PeerError) error
 	postSyncHook   func(context.Context, sm.State) error
 
@@ -170,6 +175,11 @@ type Reactor struct {
 	metrics            *Metrics
 	backfillBlockTotal int64
 	backfilledBlocks   int64
+
+	snapshotChannel   *p2p.Channel
+	chunkChannel      *p2p.Channel
+	lightBlockChannel *p2p.Channel
+	paramsChannel     *p2p.Channel
 }
 
 // NewReactor returns a reference to a new state sync reactor, which implements
@@ -182,7 +192,6 @@ func NewReactor(
 	cfg config.StateSyncConfig,
 	logger log.Logger,
 	conn abciclient.Client,
-	channelCreator p2p.ChannelCreator,
 	peerEvents p2p.PeerEventSubscriber,
 	stateStore sm.Store,
 	blockStore *store.BlockStore,
@@ -198,7 +207,6 @@ func NewReactor(
 		initialHeight:  initialHeight,
 		cfg:            cfg,
 		conn:           conn,
-		chCreator:      channelCreator,
 		peerEvents:     peerEvents,
 		tempDir:        tempDir,
 		stateStore:     stateStore,
@@ -215,6 +223,22 @@ func NewReactor(
 	return r
 }
 
+func (r *Reactor) SetSnapshotChannel(ch *p2p.Channel) {
+	r.snapshotChannel = ch
+}
+
+func (r *Reactor) SetChunkChannel(ch *p2p.Channel) {
+	r.chunkChannel = ch
+}
+
+func (r *Reactor) SetLightBlockChannel(ch *p2p.Channel) {
+	r.lightBlockChannel = ch
+}
+
+func (r *Reactor) SetParamsChannel(ch *p2p.Channel) {
+	r.paramsChannel = ch
+}
+
 // OnStart starts separate go routines for each p2p Channel and listens for
 // envelopes on each. In addition, it also listens for peer updates and handles
 // messages on that p2p channel accordingly. Note, we do not launch a go-routine to
@@ -222,25 +246,6 @@ func NewReactor(
 // The caller must be sure to execute OnStop to ensure the outbound p2p Channels are
 // closed. No error is returned.
 func (r *Reactor) OnStart(ctx context.Context) error {
-	// construct channels
-	chDesc := getChannelDescriptors()
-	snapshotCh, err := r.chCreator(ctx, chDesc[SnapshotChannel])
-	if err != nil {
-		return err
-	}
-	chunkCh, err := r.chCreator(ctx, chDesc[ChunkChannel])
-	if err != nil {
-		return err
-	}
-	blockCh, err := r.chCreator(ctx, chDesc[LightBlockChannel])
-	if err != nil {
-		return err
-	}
-	paramsCh, err := r.chCreator(ctx, chDesc[ParamsChannel])
-	if err != nil {
-		return err
-	}
-
 	// define constructor and helper functions, that hold
 	// references to these channels for use later. This is not
 	// ideal.
@@ -250,23 +255,23 @@ func (r *Reactor) OnStart(ctx context.Context) error {
 			stateProvider: r.stateProvider,
 			conn:          r.conn,
 			snapshots:     newSnapshotPool(),
-			snapshotCh:    snapshotCh,
-			chunkCh:       chunkCh,
+			snapshotCh:    r.snapshotChannel,
+			chunkCh:       r.chunkChannel,
 			tempDir:       r.tempDir,
 			fetchers:      r.cfg.Fetchers,
 			retryTimeout:  r.cfg.ChunkRequestTimeout,
 			metrics:       r.metrics,
 		}
 	}
-	r.dispatcher = NewDispatcher(blockCh)
+	r.dispatcher = NewDispatcher(r.lightBlockChannel)
 	r.requestSnaphot = func() error {
 		// request snapshots from all currently connected peers
-		return snapshotCh.Send(ctx, p2p.Envelope{
+		return r.snapshotChannel.Send(ctx, p2p.Envelope{
 			Broadcast: true,
 			Message:   &ssproto.SnapshotsRequest{},
 		})
 	}
-	r.sendBlockError = blockCh.SendError
+	r.sendBlockError = r.lightBlockChannel.SendError
 
 	r.initStateProvider = func(ctx context.Context, chainID string, initialHeight int64) error {
 		to := light.TrustOptions{
@@ -289,7 +294,7 @@ func (r *Reactor) OnStart(ctx context.Context) error {
 				providers[idx] = NewBlockProvider(p, chainID, r.dispatcher)
 			}
 
-			stateProvider, err := NewP2PStateProvider(ctx, chainID, initialHeight, providers, to, paramsCh, r.logger.With("module", "stateprovider"))
+			stateProvider, err := NewP2PStateProvider(ctx, chainID, initialHeight, providers, to, r.paramsChannel, r.logger.With("module", "stateprovider"))
 			if err != nil {
 				return fmt.Errorf("failed to initialize P2P state provider: %w", err)
 			}
@@ -306,10 +311,10 @@ func (r *Reactor) OnStart(ctx context.Context) error {
 	}
 
 	go r.processChannels(ctx, map[p2p.ChannelID]*p2p.Channel{
-		SnapshotChannel:   snapshotCh,
-		ChunkChannel:      chunkCh,
-		LightBlockChannel: blockCh,
-		ParamsChannel:     paramsCh,
+		SnapshotChannel:   r.snapshotChannel,
+		ChunkChannel:      r.chunkChannel,
+		LightBlockChannel: r.lightBlockChannel,
+		ParamsChannel:     r.paramsChannel,
 	})
 	go r.processPeerUpdates(ctx, r.peerEvents(ctx))
 
