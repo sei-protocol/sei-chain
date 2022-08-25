@@ -1484,9 +1484,10 @@ func (cs *State) enterPrevote(ctx context.Context, height int64, round int32) {
 	logger := cs.logger.With("height", height, "round", round)
 
 	if cs.Height != height || round < cs.Round || (cs.Round == round && cstypes.RoundStepPrevote <= cs.Step) {
-		logger.Debug(
+		logger.Info(
 			"entering prevote step with invalid args",
 			"current", fmt.Sprintf("%v/%v/%v", cs.Height, cs.Round, cs.Step),
+			"time", time.Now().UnixMilli(),
 		)
 		return
 	}
@@ -1497,7 +1498,7 @@ func (cs *State) enterPrevote(ctx context.Context, height int64, round int32) {
 		cs.newStep()
 	}()
 
-	logger.Debug("entering prevote step", "current", fmt.Sprintf("%v/%v/%v", cs.Height, cs.Round, cs.Step))
+	logger.Info("entering prevote step", "current", fmt.Sprintf("%v/%v/%v", cs.Height, cs.Round, cs.Step), "time", time.Now().UnixMilli())
 
 	// Sign and broadcast vote as necessary
 	cs.doPrevote(ctx, height, round)
@@ -1516,26 +1517,26 @@ func (cs *State) defaultDoPrevote(ctx context.Context, height int64, round int32
 
 	// Check that a proposed block was not received within this round (and thus executing this from a timeout).
 	if cs.ProposalBlock == nil {
-		logger.Debug("prevote step: ProposalBlock is nil; prevoting nil")
+		logger.Info("prevote step: ProposalBlock is nil; prevoting nil")
 		cs.signAddVote(ctx, tmproto.PrevoteType, nil, types.PartSetHeader{})
 		return
 	}
 
 	if cs.Proposal == nil {
-		logger.Debug("prevote step: did not receive proposal; prevoting nil")
+		logger.Info("prevote step: did not receive proposal; prevoting nil")
 		cs.signAddVote(ctx, tmproto.PrevoteType, nil, types.PartSetHeader{})
 		return
 	}
 
 	if !cs.Proposal.Timestamp.Equal(cs.ProposalBlock.Header.Time) {
-		logger.Debug("prevote step: proposal timestamp not equal; prevoting nil")
+		logger.Info("prevote step: proposal timestamp not equal; prevoting nil")
 		cs.signAddVote(ctx, tmproto.PrevoteType, nil, types.PartSetHeader{})
 		return
 	}
 
 	sp := cs.state.ConsensusParams.Synchrony.SynchronyParamsOrDefaults()
 	if cs.Proposal.POLRound == -1 && cs.LockedRound == -1 && !cs.proposalIsTimely() {
-		logger.Debug("prevote step: Proposal is not timely; prevoting nil",
+		logger.Info("prevote step: Proposal is not timely; prevoting nil",
 			"proposed",
 			tmtime.Canonical(cs.Proposal.Timestamp).Format(time.RFC3339Nano),
 			"received",
@@ -1597,12 +1598,12 @@ func (cs *State) defaultDoPrevote(ctx context.Context, height int64, round int32
 	*/
 	if cs.Proposal.POLRound == -1 {
 		if cs.LockedRound == -1 {
-			logger.Debug("prevote step: ProposalBlock is valid and there is no locked block; prevoting the proposal")
+			logger.Info("prevote step: ProposalBlock is valid and there is no locked block; prevoting the proposal")
 			cs.signAddVote(ctx, tmproto.PrevoteType, cs.ProposalBlock.Hash(), cs.ProposalBlockParts.Header())
 			return
 		}
 		if cs.ProposalBlock.HashesTo(cs.LockedBlock.Hash()) {
-			logger.Debug("prevote step: ProposalBlock is valid and matches our locked block; prevoting the proposal")
+			logger.Info("prevote step: ProposalBlock is valid and matches our locked block; prevoting the proposal")
 			cs.signAddVote(ctx, tmproto.PrevoteType, cs.ProposalBlock.Hash(), cs.ProposalBlockParts.Header())
 			return
 		}
@@ -1628,19 +1629,19 @@ func (cs *State) defaultDoPrevote(ctx context.Context, height int64, round int32
 	blockID, ok := cs.Votes.Prevotes(cs.Proposal.POLRound).TwoThirdsMajority()
 	if ok && cs.ProposalBlock.HashesTo(blockID.Hash) && cs.Proposal.POLRound >= 0 && cs.Proposal.POLRound < cs.Round {
 		if cs.LockedRound <= cs.Proposal.POLRound {
-			logger.Debug("prevote step: ProposalBlock is valid and received a 2/3" +
+			logger.Info("prevote step: ProposalBlock is valid and received a 2/3" +
 				"majority in a round later than the locked round; prevoting the proposal")
 			cs.signAddVote(ctx, tmproto.PrevoteType, cs.ProposalBlock.Hash(), cs.ProposalBlockParts.Header())
 			return
 		}
 		if cs.ProposalBlock.HashesTo(cs.LockedBlock.Hash()) {
-			logger.Debug("prevote step: ProposalBlock is valid and matches our locked block; prevoting the proposal")
+			logger.Info("prevote step: ProposalBlock is valid and matches our locked block; prevoting the proposal")
 			cs.signAddVote(ctx, tmproto.PrevoteType, cs.ProposalBlock.Hash(), cs.ProposalBlockParts.Header())
 			return
 		}
 	}
 
-	logger.Debug("prevote step: ProposalBlock is valid but was not our locked block or " +
+	logger.Info("prevote step: ProposalBlock is valid but was not our locked block or " +
 		"did not receive a more recent majority; prevoting nil")
 	cs.signAddVote(ctx, tmproto.PrevoteType, nil, types.PartSetHeader{})
 }
@@ -1650,9 +1651,10 @@ func (cs *State) enterPrevoteWait(height int64, round int32) {
 	logger := cs.logger.With("height", height, "round", round)
 
 	if cs.Height != height || round < cs.Round || (cs.Round == round && cstypes.RoundStepPrevoteWait <= cs.Step) {
-		logger.Debug(
+		logger.Info(
 			"entering prevote wait step with invalid args",
 			"current", fmt.Sprintf("%v/%v/%v", cs.Height, cs.Round, cs.Step),
+			"time", time.Now().UnixMilli(),
 		)
 		return
 	}
@@ -1664,7 +1666,7 @@ func (cs *State) enterPrevoteWait(height int64, round int32) {
 		))
 	}
 
-	logger.Debug("entering prevote wait step", "current", fmt.Sprintf("%v/%v/%v", cs.Height, cs.Round, cs.Step))
+	logger.Info("entering prevote wait step", "current", fmt.Sprintf("%v/%v/%v", cs.Height, cs.Round, cs.Step), "time", time.Now().UnixMilli())
 
 	defer func() {
 		// Done enterPrevoteWait:
@@ -1685,14 +1687,15 @@ func (cs *State) enterPrecommit(ctx context.Context, height int64, round int32) 
 	logger := cs.logger.With("height", height, "round", round)
 
 	if cs.Height != height || round < cs.Round || (cs.Round == round && cstypes.RoundStepPrecommit <= cs.Step) {
-		logger.Debug(
+		logger.Info(
 			"entering precommit step with invalid args",
 			"current", fmt.Sprintf("%v/%v/%v", cs.Height, cs.Round, cs.Step),
+			"time", time.Now().UnixMilli(),
 		)
 		return
 	}
 
-	logger.Debug("entering precommit step", "current", fmt.Sprintf("%v/%v/%v", cs.Height, cs.Round, cs.Step))
+	logger.Info("entering precommit step", "current", fmt.Sprintf("%v/%v/%v", cs.Height, cs.Round, cs.Step), "time", time.Now().UnixMilli())
 
 	defer func() {
 		// Done enterPrecommit:
@@ -1706,9 +1709,9 @@ func (cs *State) enterPrecommit(ctx context.Context, height int64, round int32) 
 	// If we don't have a polka, we must precommit nil.
 	if !ok {
 		if cs.LockedBlock != nil {
-			logger.Debug("precommit step; no +2/3 prevotes during enterPrecommit while we are locked; precommitting nil")
+			logger.Info("precommit step; no +2/3 prevotes during enterPrecommit while we are locked; precommitting nil")
 		} else {
-			logger.Debug("precommit step; no +2/3 prevotes during enterPrecommit; precommitting nil")
+			logger.Info("precommit step; no +2/3 prevotes during enterPrecommit; precommitting nil")
 		}
 
 		cs.signAddVote(ctx, tmproto.PrecommitType, nil, types.PartSetHeader{})
@@ -1728,7 +1731,7 @@ func (cs *State) enterPrecommit(ctx context.Context, height int64, round int32) 
 
 	// +2/3 prevoted nil. Precommit nil.
 	if blockID.IsNil() {
-		logger.Debug("precommit step: +2/3 prevoted for nil; precommitting nil")
+		logger.Info("precommit step: +2/3 prevoted for nil; precommitting nil")
 		cs.signAddVote(ctx, tmproto.PrecommitType, nil, types.PartSetHeader{})
 		return
 	}
@@ -1736,21 +1739,21 @@ func (cs *State) enterPrecommit(ctx context.Context, height int64, round int32) 
 
 	// If we never received a proposal for this block, we must precommit nil
 	if cs.Proposal == nil || cs.ProposalBlock == nil {
-		logger.Debug("precommit step; did not receive proposal, precommitting nil")
+		logger.Info("precommit step; did not receive proposal, precommitting nil")
 		cs.signAddVote(ctx, tmproto.PrecommitType, nil, types.PartSetHeader{})
 		return
 	}
 
 	// If the proposal time does not match the block time, precommit nil.
 	if !cs.Proposal.Timestamp.Equal(cs.ProposalBlock.Header.Time) {
-		logger.Debug("precommit step: proposal timestamp not equal; precommitting nil")
+		logger.Info("precommit step: proposal timestamp not equal; precommitting nil")
 		cs.signAddVote(ctx, tmproto.PrecommitType, nil, types.PartSetHeader{})
 		return
 	}
 
 	// If we're already locked on that block, precommit it, and update the LockedRound
 	if cs.LockedBlock.HashesTo(blockID.Hash) {
-		logger.Debug("precommit step: +2/3 prevoted locked block; relocking")
+		logger.Info("precommit step: +2/3 prevoted locked block; relocking")
 		cs.LockedRound = round
 
 		if err := cs.eventBus.PublishEventRelock(cs.RoundStateEvent()); err != nil {
@@ -1765,7 +1768,7 @@ func (cs *State) enterPrecommit(ctx context.Context, height int64, round int32) 
 	// the proposed block, update our locked block to this block and issue a
 	// precommit vote for it.
 	if cs.ProposalBlock.HashesTo(blockID.Hash) {
-		logger.Debug("precommit step: +2/3 prevoted proposal block; locking", "hash", blockID.Hash)
+		logger.Info("precommit step: +2/3 prevoted proposal block; locking", "hash", blockID.Hash)
 
 		// Validate the block.
 		if err := cs.blockExec.ValidateBlock(ctx, cs.state, cs.ProposalBlock); err != nil {
@@ -1786,7 +1789,7 @@ func (cs *State) enterPrecommit(ctx context.Context, height int64, round int32) 
 
 	// There was a polka in this round for a block we don't have.
 	// Fetch that block, and precommit nil.
-	logger.Debug("precommit step: +2/3 prevotes for a block we do not have; voting nil", "block_id", blockID)
+	logger.Info("precommit step: +2/3 prevotes for a block we do not have; voting nil", "block_id", blockID)
 
 	if !cs.ProposalBlockParts.HasHeader(blockID.PartSetHeader) {
 		cs.ProposalBlock = nil
@@ -1802,10 +1805,11 @@ func (cs *State) enterPrecommitWait(height int64, round int32) {
 	logger := cs.logger.With("height", height, "round", round)
 
 	if cs.Height != height || round < cs.Round || (cs.Round == round && cs.TriggeredTimeoutPrecommit) {
-		logger.Debug(
+		logger.Info(
 			"entering precommit wait step with invalid args",
 			"triggered_timeout", cs.TriggeredTimeoutPrecommit,
 			"current", fmt.Sprintf("%v/%v", cs.Height, cs.Round),
+			"time", time.Now().UnixMilli(),
 		)
 		return
 	}
@@ -1817,7 +1821,7 @@ func (cs *State) enterPrecommitWait(height int64, round int32) {
 		))
 	}
 
-	logger.Debug("entering precommit wait step", "current", fmt.Sprintf("%v/%v/%v", cs.Height, cs.Round, cs.Step))
+	logger.Info("entering precommit wait step", "current", fmt.Sprintf("%v/%v/%v", cs.Height, cs.Round, cs.Step), "time", time.Now().UnixMilli())
 
 	defer func() {
 		// Done enterPrecommitWait:
@@ -1834,14 +1838,15 @@ func (cs *State) enterCommit(ctx context.Context, height int64, commitRound int3
 	logger := cs.logger.With("height", height, "commit_round", commitRound)
 
 	if cs.Height != height || cstypes.RoundStepCommit <= cs.Step {
-		logger.Debug(
+		logger.Info(
 			"entering commit step with invalid args",
 			"current", fmt.Sprintf("%v/%v/%v", cs.Height, cs.Round, cs.Step),
+			"time", time.Now().UnixMilli(),
 		)
 		return
 	}
 
-	logger.Debug("entering commit step", "current", fmt.Sprintf("%v/%v/%v", cs.Height, cs.Round, cs.Step))
+	logger.Info("entering commit step", "current", fmt.Sprintf("%v/%v/%v", cs.Height, cs.Round, cs.Step), "time", time.Now().UnixMilli())
 
 	defer func() {
 		// Done enterCommit:
@@ -1864,7 +1869,7 @@ func (cs *State) enterCommit(ctx context.Context, height int64, commitRound int3
 	// Move them over to ProposalBlock if they match the commit hash,
 	// otherwise they'll be cleared in updateToState.
 	if cs.LockedBlock.HashesTo(blockID.Hash) {
-		logger.Debug("commit is for a locked block; set ProposalBlock=LockedBlock", "block_hash", blockID.Hash)
+		logger.Info("commit is for a locked block; set ProposalBlock=LockedBlock", "block_hash", blockID.Hash)
 		cs.ProposalBlock = cs.LockedBlock
 		cs.ProposalBlockParts = cs.LockedBlockParts
 	}
@@ -1910,10 +1915,11 @@ func (cs *State) tryFinalizeCommit(ctx context.Context, height int64) {
 	if !cs.ProposalBlock.HashesTo(blockID.Hash) {
 		// TODO: this happens every time if we're not a validator (ugly logs)
 		// TODO: ^^ wait, why does it matter that we're a validator?
-		logger.Debug(
+		logger.Info(
 			"failed attempt to finalize commit; we do not have the commit block",
 			"proposal_block", cs.ProposalBlock.Hash(),
 			"commit_block", blockID.Hash,
+			"time", time.Now().UnixMilli(),
 		)
 		return
 	}
@@ -1926,9 +1932,10 @@ func (cs *State) finalizeCommit(ctx context.Context, height int64) {
 	logger := cs.logger.With("height", height)
 
 	if cs.Height != height || cs.Step != cstypes.RoundStepCommit {
-		logger.Debug(
+		logger.Info(
 			"entering finalize commit step",
 			"current", fmt.Sprintf("%v/%v/%v", cs.Height, cs.Round, cs.Step),
+			"time", time.Now().UnixMilli(),
 		)
 		return
 	}
@@ -1957,6 +1964,7 @@ func (cs *State) finalizeCommit(ctx context.Context, height int64) {
 		"hash", block.Hash(),
 		"root", block.AppHash,
 		"num_txs", len(block.Txs),
+		"time", time.Now().UnixMilli(),
 	)
 	logger.Debug(fmt.Sprintf("%v", block))
 
@@ -2236,7 +2244,7 @@ func (cs *State) addProposalBlockPart(
 		cs.ProposalBlock = block
 
 		// NOTE: it's possible to receive complete proposal blocks for future rounds without having the proposal
-		cs.logger.Info("received complete proposal block", "height", cs.ProposalBlock.Height, "hash", cs.ProposalBlock.Hash())
+		cs.logger.Info("received complete proposal block", "height", cs.ProposalBlock.Height, "hash", cs.ProposalBlock.Hash(), "time", time.Now().UnixMilli())
 
 		if err := cs.eventBus.PublishEventCompleteProposal(cs.CompleteProposalEvent()); err != nil {
 			cs.logger.Error("failed publishing event complete proposal", "err", err)
