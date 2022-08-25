@@ -15,6 +15,7 @@ printf '00000000\n' | ./build/seid add-genesis-account $(./build/seid keys show 
 # generate genesis tx
 printf '00000000\n' | ./build/seid gentx $test_account_name 70000000000000000000usei --chain-id sei
 sed -i 's/mode = "full"/mode = "validator"/g' $HOME/.sei/config/config.toml
+sed -i 's/indexer = \["null"\]/indexer = \["kv"\]/g' $HOME/.sei/config/config.toml
 KEY=$(jq '.pub_key' ~/.sei/config/priv_validator_key.json -c)
 jq '.validators = [{}]' ~/.sei/config/genesis.json > ~/.sei/config/tmp_genesis.json
 jq '.validators[0] += {"power":"70000000000000"}' ~/.sei/config/tmp_genesis.json > ~/.sei/config/tmp_genesis_2.json

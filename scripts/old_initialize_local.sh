@@ -37,6 +37,7 @@ printf '12345678\n' | ~/go/bin/seid add-genesis-account $(~/go/bin/seid keys sho
 python3 ./loadtest/scripts/populate_genesis_accounts.py $numtestaccount loc
 printf '12345678\n' | ~/go/bin/seid gentx $keyname 70000000000000000000usei --chain-id sei-chain
 sed -i 's/mode = "full"/mode = "validator"/g' $HOME/.sei/config/config.toml
+sed -i 's/indexer = \["null"\]/indexer = \["kv"\]/g' $HOME/.sei/config/config.toml
 KEY=$(jq '.pub_key' ~/.sei/config/priv_validator_key.json -c)
 jq '.validators = [{}]' ~/.sei/config/genesis.json > ~/.sei/config/tmp_genesis.json
 jq '.validators[0] += {"power":"70000000000000"}' ~/.sei/config/tmp_genesis.json > ~/.sei/config/tmp_genesis_2.json
