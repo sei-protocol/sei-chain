@@ -1,4 +1,3 @@
-HOME="~"
 KEY="mykey"
 CHAINID="sei_900-1"
 MONIKER="localtestnet"
@@ -27,7 +26,7 @@ seid config keyring-backend $KEYRING
 seid config chain-id $CHAINID
 
 # if $KEY exists it should be deleted
-seid keys add $KEY --keyring-backend $KEYRING --algo $KEYALGO
+seid keys add $KEY --keyring-backend $KEYRING --algo $ETHKEYALGO
 
 # Set moniker and chain-id for Evmos (Moniker can be anything, chain-id must be an integer)
 seid init $MONIKER --chain-id $CHAINID
@@ -46,11 +45,14 @@ if [[ "$OSTYPE" == "darwin"* ]]; then
     sed -i '' 's/create_empty_blocks_interval = "0s"/create_empty_blocks_interval = "30s"/g' $HOME/.sei/config/config.toml
     sed -i '' 's/timeout_commit = "250ms"/timeout_commit = "1s"/g' $HOME/.sei/config/config.toml
     sed -i '' 's/skip_timeout_commit = true/skip_timeout_commit = false/g' $HOME/.sei/config/config.toml
+    sed -i '' 's#laddr = "tcp://127.0.0.1:26657"# laddr = "tcp://0.0.0.0:26657"#g' $HOME/.sei/config/config.toml
 else
     sed -i 's/create_empty_blocks = true/create_empty_blocks = false/g' $HOME/.sei/config/config.toml
     sed -i 's/create_empty_blocks_interval = "0s"/create_empty_blocks_interval = "30s"/g' $HOME/.sei/config/config.toml
     sed -i 's/timeout_commit = "250ms"/timeout_commit = "1s"/g' $HOME/.sei/config/config.toml
     sed -i 's/skip_timeout_commit = true/skip_timeout_commit = false/g' $HOME/.sei/config/config.toml
+    sed -i 's#laddr = "tcp://127.0.0.1:26657"# laddr = "tcp://0.0.0.0:26657"#g' $HOME/.sei/config/config.toml
+
 fi
 
 # Allocate genesis accounts (cosmos formatted addresses)
@@ -69,4 +71,4 @@ if [[ $1 == "pending" ]]; then
 fi
 
 # Start the node (remove the --pruning=nothing flag if historical queries are not needed)
-seid start --pruning=nothing $TRACE --log_level $LOGLEVEL --minimum-gas-prices=0.0001usei
+seid start $TRACE --log_level $LOGLEVEL --minimum-gas-prices=0.0001usei --json-rpc.api eth,txpool,personal,net,debug,web3

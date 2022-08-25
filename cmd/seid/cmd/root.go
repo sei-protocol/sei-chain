@@ -3,6 +3,7 @@ package cmd
 import (
 	"errors"
 	"github.com/cosmos/cosmos-sdk/client/keys"
+	sdkcfg "github.com/cosmos/cosmos-sdk/server/config"
 	"io"
 	"os"
 	"path/filepath"
@@ -16,8 +17,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/client/flags"
 	"github.com/cosmos/cosmos-sdk/client/rpc"
 	"github.com/cosmos/cosmos-sdk/codec"
-	"github.com/cosmos/cosmos-sdk/server"
-	serverconfig "github.com/cosmos/cosmos-sdk/server/config"
+	sdkserver "github.com/cosmos/cosmos-sdk/server"
 	servertypes "github.com/cosmos/cosmos-sdk/server/types"
 	"github.com/cosmos/cosmos-sdk/snapshots"
 	"github.com/cosmos/cosmos-sdk/store"
@@ -28,8 +28,11 @@ import (
 	"github.com/cosmos/cosmos-sdk/x/crisis"
 	genutilcli "github.com/cosmos/cosmos-sdk/x/genutil/client/cli"
 	ethermintclient "github.com/evmos/ethermint/client"
+	ethermintserver "github.com/evmos/ethermint/server"
+	servercfg "github.com/evmos/ethermint/server/config"
 	"github.com/sei-protocol/sei-chain/app"
 	"github.com/sei-protocol/sei-chain/app/params"
+	seikr "github.com/sei-protocol/sei-chain/crypto/keyring"
 	"github.com/sei-protocol/sei-chain/wasmbinding"
 	"github.com/spf13/cast"
 	"github.com/spf13/cobra"
@@ -69,8 +72,8 @@ func NewRootCmd() (*cobra.Command, params.EncodingConfig) {
 		WithBroadcastMode(flags.BroadcastBlock).
 		WithHomeDir(app.DefaultNodeHome).
 		WithViper("SEI").
-		//WithChainID(flags.FlagChainID)
-		WithChainID("evmos_9001-2")
+		WithKeyringOptions(seikr.Option()).
+		WithChainID(flags.FlagChainID)
 
 	rootCmd := &cobra.Command{
 		Use:   "seid",
@@ -94,7 +97,7 @@ func NewRootCmd() (*cobra.Command, params.EncodingConfig) {
 
 			customAppTemplate, customAppConfig := initAppConfig()
 
-			return server.InterceptConfigsPreRunHandler(cmd, customAppTemplate, customAppConfig)
+			return sdkserver.InterceptConfigsPreRunHandler(cmd, customAppTemplate, customAppConfig)
 		},
 	}
 
@@ -130,7 +133,7 @@ func initRootCmd(
 	)
 
 	// add server commands
-	server.AddCommands(
+	ethermintserver.AddCommands(
 		rootCmd,
 		app.DefaultNodeHome,
 		newApp,
@@ -232,16 +235,16 @@ func newApp(
 ) servertypes.Application {
 	var cache sdk.MultiStorePersistentCache
 
-	if cast.ToBool(appOpts.Get(server.FlagInterBlockCache)) {
+	if cast.ToBool(appOpts.Get(sdkserver.FlagInterBlockCache)) {
 		cache = store.NewCommitKVStoreCacheManager()
 	}
 
 	skipUpgradeHeights := make(map[int64]bool)
-	for _, h := range cast.ToIntSlice(appOpts.Get(server.FlagUnsafeSkipUpgrades)) {
+	for _, h := range cast.ToIntSlice(appOpts.Get(sdkserver.FlagUnsafeSkipUpgrades)) {
 		skipUpgradeHeights[int64(h)] = true
 	}
 
-	pruningOpts, err := server.GetPruningOptionsFromFlags(appOpts)
+	pruningOpts, err := sdkserver.GetPruningOptionsFromFlags(appOpts)
 	if err != nil {
 		panic(err)
 	}
@@ -267,22 +270,22 @@ func newApp(
 		true,
 		skipUpgradeHeights,
 		cast.ToString(appOpts.Get(flags.FlagHome)),
-		cast.ToUint(appOpts.Get(server.FlagInvCheckPeriod)),
+		cast.ToUint(appOpts.Get(sdkserver.FlagInvCheckPeriod)),
 		app.MakeEncodingConfig(),
 		wasm.EnableAllProposals,
 		appOpts,
 		wasmopts,
 		baseapp.SetPruning(pruningOpts),
-		baseapp.SetMinGasPrices(cast.ToString(appOpts.Get(server.FlagMinGasPrices))),
-		baseapp.SetMinRetainBlocks(cast.ToUint64(appOpts.Get(server.FlagMinRetainBlocks))),
-		baseapp.SetHaltHeight(cast.ToUint64(appOpts.Get(server.FlagHaltHeight))),
-		baseapp.SetHaltTime(cast.ToUint64(appOpts.Get(server.FlagHaltTime))),
+		baseapp.SetMinGasPrices(cast.ToString(appOpts.Get(sdkserver.FlagMinGasPrices))),
+		baseapp.SetMinRetainBlocks(cast.ToUint64(appOpts.Get(sdkserver.FlagMinRetainBlocks))),
+		baseapp.SetHaltHeight(cast.ToUint64(appOpts.Get(sdkserver.FlagHaltHeight))),
+		baseapp.SetHaltTime(cast.ToUint64(appOpts.Get(sdkserver.FlagHaltTime))),
 		baseapp.SetInterBlockCache(cache),
-		baseapp.SetTrace(cast.ToBool(appOpts.Get(server.FlagTrace))),
-		baseapp.SetIndexEvents(cast.ToStringSlice(appOpts.Get(server.FlagIndexEvents))),
+		baseapp.SetTrace(cast.ToBool(appOpts.Get(sdkserver.FlagTrace))),
+		baseapp.SetIndexEvents(cast.ToStringSlice(appOpts.Get(sdkserver.FlagIndexEvents))),
 		baseapp.SetSnapshotStore(snapshotStore),
-		baseapp.SetSnapshotInterval(cast.ToUint64(appOpts.Get(server.FlagStateSyncSnapshotInterval))),
-		baseapp.SetSnapshotKeepRecent(cast.ToUint32(appOpts.Get(server.FlagStateSyncSnapshotKeepRecent))),
+		baseapp.SetSnapshotInterval(cast.ToUint64(appOpts.Get(sdkserver.FlagStateSyncSnapshotInterval))),
+		baseapp.SetSnapshotKeepRecent(cast.ToUint32(appOpts.Get(sdkserver.FlagStateSyncSnapshotKeepRecent))),
 	)
 }
 
@@ -333,14 +336,15 @@ func initAppConfig() (string, interface{}) {
 	}
 
 	type CustomAppConfig struct {
-		serverconfig.Config
+		servercfg.Config
 
-		WASM WASMConfig `mapstructure:"wasm"`
+		WASM    WASMConfig              `mapstructure:"wasm"`
+		JSONRPC servercfg.JSONRPCConfig `mapstructure:"json-rpc"`
 	}
 
 	// Optionally allow the chain developer to overwrite the SDK's default
 	// server config.
-	srvCfg := serverconfig.DefaultConfig()
+	srvCfg := servercfg.DefaultConfig()
 	// The SDK's default minimum gas price is set to "" (empty value) inside
 	// app.toml. If left empty by validators, the node will halt on startup.
 	// However, the chain developer can set a default app.toml value for their
@@ -366,15 +370,75 @@ func initAppConfig() (string, interface{}) {
 			LruSize:       1,
 			QueryGasLimit: 300000,
 		},
+		JSONRPC: *servercfg.DefaultJSONRPCConfig(),
 	}
 
-	customAppTemplate := serverconfig.DefaultConfigTemplate + `
+	customAppTemplate := sdkcfg.DefaultConfigTemplate + `
 [wasm]
 # This is the maximum sdk gas (wasm and storage) that we allow for any x/wasm "smart" queries
 query_gas_limit = 300000
 # This is the number of wasm vm instances we keep cached in memory for speed-up
 # Warning: this is currently unstable and may lead to crashes, best to keep for 0 unless testing locally
-lru_size = 0`
+lru_size = 0
+
+###############################################################################
+###                           JSON RPC Configuration                        ###
+###############################################################################
+
+[json-rpc]
+
+# Enable defines if the gRPC server should be enabled.
+enable = {{ .JSONRPC.Enable }}
+
+# Address defines the EVM RPC HTTP server address to bind to.
+address = "{{ .JSONRPC.Address }}"
+
+# Address defines the EVM WebSocket server address to bind to.
+ws-address = "{{ .JSONRPC.WsAddress }}"
+
+# API defines a list of JSON-RPC namespaces that should be enabled
+# Example: "eth,txpool,personal,net,debug,web3"
+api = "{{range $index, $elmt := .JSONRPC.API}}{{if $index}},{{$elmt}}{{else}}{{$elmt}}{{end}}{{end}}"
+
+# GasCap sets a cap on gas that can be used in eth_call/estimateGas (0=infinite). Default: 25,000,000.
+gas-cap = {{ .JSONRPC.GasCap }}
+
+# EVMTimeout is the global timeout for eth_call. Default: 5s.
+evm-timeout = "{{ .JSONRPC.EVMTimeout }}"
+
+# TxFeeCap is the global tx-fee cap for send transaction. Default: 1eth.
+txfee-cap = {{ .JSONRPC.TxFeeCap }}
+
+# FilterCap sets the global cap for total number of filters that can be created
+filter-cap = {{ .JSONRPC.FilterCap }}
+
+# FeeHistoryCap sets the global cap for total number of blocks that can be fetched
+feehistory-cap = {{ .JSONRPC.FeeHistoryCap }}
+
+# LogsCap defines the max number of results can be returned from single 'eth_getLogs' query.
+logs-cap = {{ .JSONRPC.LogsCap }}
+
+# BlockRangeCap defines the max block range allowed for 'eth_getLogs' query.
+block-range-cap = {{ .JSONRPC.BlockRangeCap }}
+
+# HTTPTimeout is the read/write timeout of http json-rpc server.
+http-timeout = "{{ .JSONRPC.HTTPTimeout }}"
+
+# HTTPIdleTimeout is the idle timeout of http json-rpc server.
+http-idle-timeout = "{{ .JSONRPC.HTTPIdleTimeout }}"
+
+# AllowUnprotectedTxs restricts unprotected (non EIP155 signed) transactions to be submitted via
+# the node's RPC when the global parameter is disabled.
+allow-unprotected-txs = {{ .JSONRPC.AllowUnprotectedTxs }}
+
+# MaxOpenConnections sets the maximum number of simultaneous connections
+# for the server listener.
+max-open-connections = {{ .JSONRPC.MaxOpenConnections }}
+
+# EnableIndexer enables the custom transaction indexer for the EVM (ethereum transactions).
+enable-indexer = {{ .JSONRPC.EnableIndexer }}
+
+`
 
 	return customAppTemplate, customAppConfig
 }
