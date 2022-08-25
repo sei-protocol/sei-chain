@@ -2,6 +2,10 @@ package cmd
 
 import (
 	"errors"
+	"io"
+	"os"
+	"path/filepath"
+
 	"github.com/CosmWasm/wasmd/x/wasm"
 	wasmkeeper "github.com/CosmWasm/wasmd/x/wasm/keeper"
 	"github.com/cosmos/cosmos-sdk/baseapp"
@@ -35,9 +39,6 @@ import (
 	tmcli "github.com/tendermint/tendermint/libs/cli"
 	"github.com/tendermint/tendermint/libs/log"
 	dbm "github.com/tendermint/tm-db"
-	"io"
-	"os"
-	"path/filepath"
 )
 
 // Option configures root command option.
@@ -153,7 +154,6 @@ func initRootCmd(
 		queryCommand(),
 		txCommand(),
 		keysCmd,
-
 	)
 }
 

@@ -3,6 +3,11 @@ package app
 import (
 	"context"
 	"fmt"
+	"io"
+	"os"
+	"path/filepath"
+	"strings"
+
 	ethermint "github.com/evmos/ethermint/types"
 	"github.com/evmos/ethermint/x/evm"
 	evmrest "github.com/evmos/ethermint/x/evm/client/rest"
@@ -11,10 +16,6 @@ import (
 	"github.com/evmos/ethermint/x/feemarket"
 	feemarkettypes "github.com/evmos/ethermint/x/feemarket/types"
 	"github.com/sei-protocol/sei-chain/app/ante"
-	"io"
-	"os"
-	"path/filepath"
-	"strings"
 
 	storetypes "github.com/cosmos/cosmos-sdk/store/types"
 
