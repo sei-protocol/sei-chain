@@ -26,7 +26,7 @@ seid config keyring-backend $KEYRING
 seid config chain-id $CHAINID
 
 # if $KEY exists it should be deleted
-seid keys add $KEY --keyring-backend $KEYRING --algo $ETHKEYALGO
+seid keys add $KEY --keyring-backend $KEYRING --algo $KEYALGO
 
 # Set moniker and chain-id for Evmos (Moniker can be anything, chain-id must be an integer)
 seid init $MONIKER --chain-id $CHAINID
