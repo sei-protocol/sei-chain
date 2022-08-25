@@ -299,11 +299,7 @@ func setupSingle(ctx context.Context, t *testing.T) *singleTestReactor {
 	peerManager, err := p2p.NewPeerManager(nodeID, dbm.NewMemDB(), p2p.PeerManagerOptions{})
 	require.NoError(t, err)
 
-	chCreator := func(context.Context, *p2p.ChannelDescriptor) (*p2p.Channel, error) {
-		return pexCh, nil
-	}
-
-	reactor := pex.NewReactor(log.NewNopLogger(), peerManager, chCreator, func(_ context.Context) *p2p.PeerUpdates { return peerUpdates })
+	reactor := pex.NewReactor(log.NewNopLogger(), peerManager, func(_ context.Context) *p2p.PeerUpdates { return peerUpdates })
 
 	require.NoError(t, reactor.Start(ctx))
 	t.Cleanup(reactor.Wait)
@@ -388,10 +384,6 @@ func setupNetwork(ctx context.Context, t *testing.T, opts testOptions) *reactorT
 		rts.peerUpdates[nodeID] = p2p.NewPeerUpdates(rts.peerChans[nodeID], chBuf)
 		rts.network.Nodes[nodeID].PeerManager.Register(ctx, rts.peerUpdates[nodeID])
 
-		chCreator := func(context.Context, *p2p.ChannelDescriptor) (*p2p.Channel, error) {
-			return rts.pexChannels[nodeID], nil
-		}
-
 		// the first nodes in the array are always mock nodes
 		if idx < opts.MockNodes {
 			rts.mocks = append(rts.mocks, nodeID)
@@ -399,7 +391,6 @@ func setupNetwork(ctx context.Context, t *testing.T, opts testOptions) *reactorT
 			rts.reactors[nodeID] = pex.NewReactor(
 				rts.logger.With("nodeID", nodeID),
 				rts.network.Nodes[nodeID].PeerManager,
-				chCreator,
 				func(_ context.Context) *p2p.PeerUpdates { return rts.peerUpdates[nodeID] },
 			)
 		}
@@ -448,14 +439,9 @@ func (r *reactorTestSuite) addNodes(ctx context.Context, t *testing.T, nodes int
 		r.peerUpdates[nodeID] = p2p.NewPeerUpdates(r.peerChans[nodeID], r.opts.BufferSize)
 		r.network.Nodes[nodeID].PeerManager.Register(ctx, r.peerUpdates[nodeID])
 
-		chCreator := func(context.Context, *p2p.ChannelDescriptor) (*p2p.Channel, error) {
-			return r.pexChannels[nodeID], nil
-		}
-
 		r.reactors[nodeID] = pex.NewReactor(
 			r.logger.With("nodeID", nodeID),
 			r.network.Nodes[nodeID].PeerManager,
-			chCreator,
 			func(_ context.Context) *p2p.PeerUpdates { return r.peerUpdates[nodeID] },
 		)
 		r.nodes = append(r.nodes, nodeID)

@@ -133,21 +133,6 @@ func setup(
 
 	cfg := config.DefaultStateSyncConfig()
 
-	chCreator := func(ctx context.Context, desc *p2p.ChannelDescriptor) (*p2p.Channel, error) {
-		switch desc.ID {
-		case SnapshotChannel:
-			return rts.snapshotChannel, nil
-		case ChunkChannel:
-			return rts.chunkChannel, nil
-		case LightBlockChannel:
-			return rts.blockChannel, nil
-		case ParamsChannel:
-			return rts.paramsChannel, nil
-		default:
-			return nil, fmt.Errorf("invalid channel; %v", desc.ID)
-		}
-	}
-
 	logger := log.NewNopLogger()
 
 	rts.reactor = NewReactor(
@@ -156,7 +141,6 @@ func setup(
 		*cfg,
 		logger.With("component", "reactor"),
 		conn,
-		chCreator,
 		func(context.Context) *p2p.PeerUpdates { return rts.peerUpdates },
 		rts.stateStore,
 		rts.blockStore,

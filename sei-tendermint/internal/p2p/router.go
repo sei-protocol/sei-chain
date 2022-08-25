@@ -112,33 +112,33 @@ func (o *RouterOptions) Validate() error {
 //
 // On startup, three main goroutines are spawned to maintain peer connections:
 //
-//   dialPeers(): in a loop, calls PeerManager.DialNext() to get the next peer
-//   address to dial and spawns a goroutine that dials the peer, handshakes
-//   with it, and begins to route messages if successful.
+//	dialPeers(): in a loop, calls PeerManager.DialNext() to get the next peer
+//	address to dial and spawns a goroutine that dials the peer, handshakes
+//	with it, and begins to route messages if successful.
 //
-//   acceptPeers(): in a loop, waits for an inbound connection via
-//   Transport.Accept() and spawns a goroutine that handshakes with it and
-//   begins to route messages if successful.
+//	acceptPeers(): in a loop, waits for an inbound connection via
+//	Transport.Accept() and spawns a goroutine that handshakes with it and
+//	begins to route messages if successful.
 //
-//   evictPeers(): in a loop, calls PeerManager.EvictNext() to get the next
-//   peer to evict, and disconnects it by closing its message queue.
+//	evictPeers(): in a loop, calls PeerManager.EvictNext() to get the next
+//	peer to evict, and disconnects it by closing its message queue.
 //
 // When a peer is connected, an outbound peer message queue is registered in
 // peerQueues, and routePeer() is called to spawn off two additional goroutines:
 //
-//   sendPeer(): waits for an outbound message from the peerQueues queue,
-//   marshals it, and passes it to the peer transport which delivers it.
+//	sendPeer(): waits for an outbound message from the peerQueues queue,
+//	marshals it, and passes it to the peer transport which delivers it.
 //
-//   receivePeer(): waits for an inbound message from the peer transport,
-//   unmarshals it, and passes it to the appropriate inbound channel queue
-//   in channelQueues.
+//	receivePeer(): waits for an inbound message from the peer transport,
+//	unmarshals it, and passes it to the appropriate inbound channel queue
+//	in channelQueues.
 //
 // When a reactor opens a channel via OpenChannel, an inbound channel message
 // queue is registered in channelQueues, and a channel goroutine is spawned:
 //
-//   routeChannel(): waits for an outbound message from the channel, looks
-//   up the recipient peer's outbound message queue in peerQueues, and submits
-//   the message to it.
+//	routeChannel(): waits for an outbound message from the channel, looks
+//	up the recipient peer's outbound message queue in peerQueues, and submits
+//	the message to it.
 //
 // All channel sends in the router are blocking. It is the responsibility of the
 // queue interface in peerQueues and channelQueues to prioritize and drop
@@ -172,6 +172,13 @@ type Router struct {
 	channelMtx      sync.RWMutex
 	channelQueues   map[ChannelID]queue // inbound messages from all peers to a single channel
 	channelMessages map[ChannelID]proto.Message
+
+	chDescsToBeAdded []chDescAdderWithCallback
+}
+
+type chDescAdderWithCallback struct {
+	chDesc *ChannelDescriptor
+	cb     func(*Channel)
 }
 
 // NewRouter creates a new Router. The given Transports must already be
@@ -946,6 +953,13 @@ func (r *Router) setupQueueFactory(ctx context.Context) error {
 	return nil
 }
 
+func (r *Router) AddChDescToBeAdded(chDesc *ChannelDescriptor, callback func(*Channel)) {
+	r.chDescsToBeAdded = append(r.chDescsToBeAdded, chDescAdderWithCallback{
+		chDesc: chDesc,
+		cb:     callback,
+	})
+}
+
 // OnStart implements service.Service.
 func (r *Router) OnStart(ctx context.Context) error {
 	if err := r.setupQueueFactory(ctx); err != nil {
@@ -954,6 +968,14 @@ func (r *Router) OnStart(ctx context.Context) error {
 
 	if err := r.transport.Listen(r.endpoint); err != nil {
 		return err
+	}
+
+	for _, chDescWithCb := range r.chDescsToBeAdded {
+		if ch, err := r.OpenChannel(ctx, chDescWithCb.chDesc); err != nil {
+			return err
+		} else {
+			chDescWithCb.cb(ch)
+		}
 	}
 
 	go r.dialPeers(ctx)

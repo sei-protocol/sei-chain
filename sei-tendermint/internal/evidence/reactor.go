@@ -48,12 +48,12 @@ type Reactor struct {
 	logger log.Logger
 
 	evpool     *Pool
-	chCreator  p2p.ChannelCreator
 	peerEvents p2p.PeerEventSubscriber
 
 	mtx sync.Mutex
 
 	peerRoutines map[types.NodeID]context.CancelFunc
+	channel      *p2p.Channel
 }
 
 // NewReactor returns a reference to a new evidence reactor, which implements the
@@ -61,14 +61,12 @@ type Reactor struct {
 // envelopes with EvidenceList messages.
 func NewReactor(
 	logger log.Logger,
-	chCreator p2p.ChannelCreator,
 	peerEvents p2p.PeerEventSubscriber,
 	evpool *Pool,
 ) *Reactor {
 	r := &Reactor{
 		logger:       logger,
 		evpool:       evpool,
-		chCreator:    chCreator,
 		peerEvents:   peerEvents,
 		peerRoutines: make(map[types.NodeID]context.CancelFunc),
 	}
@@ -78,18 +76,17 @@ func NewReactor(
 	return r
 }
 
+func (r *Reactor) SetChannel(ch *p2p.Channel) {
+	r.channel = ch
+}
+
 // OnStart starts separate go routines for each p2p Channel and listens for
 // envelopes on each. In addition, it also listens for peer updates and handles
 // messages on that p2p channel accordingly. The caller must be sure to execute
 // OnStop to ensure the outbound p2p Channels are closed. No error is returned.
 func (r *Reactor) OnStart(ctx context.Context) error {
-	ch, err := r.chCreator(ctx, GetChannelDescriptor())
-	if err != nil {
-		return err
-	}
-
-	go r.processEvidenceCh(ctx, ch)
-	go r.processPeerUpdates(ctx, r.peerEvents(ctx), ch)
+	go r.processEvidenceCh(ctx, r.channel)
+	go r.processPeerUpdates(ctx, r.peerEvents(ctx), r.channel)
 
 	return nil
 }

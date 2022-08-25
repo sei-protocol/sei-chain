@@ -27,7 +27,6 @@ import (
 	"github.com/tendermint/tendermint/internal/store"
 	"github.com/tendermint/tendermint/libs/log"
 	tmnet "github.com/tendermint/tendermint/libs/net"
-	"github.com/tendermint/tendermint/libs/service"
 	tmstrings "github.com/tendermint/tendermint/libs/strings"
 	"github.com/tendermint/tendermint/privval"
 	tmgrpc "github.com/tendermint/tendermint/privval/grpc"
@@ -146,8 +145,7 @@ func createMempoolReactor(
 	store sm.Store,
 	memplMetrics *mempool.Metrics,
 	peerEvents p2p.PeerEventSubscriber,
-	chCreator p2p.ChannelCreator,
-) (service.Service, mempool.Mempool) {
+) (*mempool.Reactor, mempool.Mempool) {
 	logger = logger.With("module", "mempool")
 
 	mp := mempool.NewTxMempool(
@@ -163,7 +161,6 @@ func createMempoolReactor(
 		logger,
 		cfg.Mempool,
 		mp,
-		chCreator,
 		peerEvents,
 	)
 
@@ -181,7 +178,6 @@ func createEvidenceReactor(
 	store sm.Store,
 	blockStore *store.BlockStore,
 	peerEvents p2p.PeerEventSubscriber,
-	chCreator p2p.ChannelCreator,
 	metrics *evidence.Metrics,
 	eventBus *eventbus.EventBus,
 ) (*evidence.Reactor, *evidence.Pool, closer, error) {
@@ -193,7 +189,7 @@ func createEvidenceReactor(
 	logger = logger.With("module", "evidence")
 
 	evidencePool := evidence.NewPool(logger, evidenceDB, store, blockStore, metrics, eventBus)
-	evidenceReactor := evidence.NewReactor(logger, chCreator, peerEvents, evidencePool)
+	evidenceReactor := evidence.NewReactor(logger, peerEvents, evidencePool)
 
 	return evidenceReactor, evidencePool, evidenceDB.Close, nil
 }
