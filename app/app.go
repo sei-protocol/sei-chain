@@ -328,7 +328,7 @@ func New(
 	cdc := encodingConfig.Amino
 	interfaceRegistry := encodingConfig.InterfaceRegistry
 
-	bApp := baseapp.NewBaseApp(AppName, logger, db, encodingConfig.TxConfig.TxDecoder(), baseAppOptions...)
+	bApp := baseapp.NewBaseApp(AppName, logger, db, encodingConfig.TxConfig.TxDecoder(), appOpts, baseAppOptions...)
 	bApp.SetCommitMultiStoreTracer(traceStore)
 	bApp.SetVersion(version.Version)
 	bApp.SetInterfaceRegistry(interfaceRegistry)
@@ -830,7 +830,7 @@ func (app *App) ProcessProposalHandler(ctx sdk.Context, req *abci.RequestProcess
 			optimisticProcessingInfo.EndBlockResp = endBlockResp
 			optimisticProcessingInfo.Completion <- struct{}{}
 		}()
-	} else if bytes.Compare(app.optimisticProcessingInfo.Hash, req.Hash) != 0 {
+	} else if !bytes.Equal(app.optimisticProcessingInfo.Hash, req.Hash) {
 		app.optimisticProcessingInfo.Aborted = true
 	}
 	return &abci.ResponseProcessProposal{
@@ -843,7 +843,7 @@ func (app *App) FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBlock)
 		app.optimisticProcessingInfo = nil
 	}()
 
-	if app.optimisticProcessingInfo != nil && !app.optimisticProcessingInfo.Aborted && bytes.Compare(app.optimisticProcessingInfo.Hash, req.Hash) == 0 {
+	if app.optimisticProcessingInfo != nil && !app.optimisticProcessingInfo.Aborted && bytes.Equal(app.optimisticProcessingInfo.Hash, req.Hash) {
 		select {
 		case <-app.optimisticProcessingInfo.Completion:
 			app.SetProcessProposalStateToCommit()

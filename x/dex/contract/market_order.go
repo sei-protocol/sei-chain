@@ -17,11 +17,10 @@ func PrepareCancelUnfulfilledMarketOrders(
 	ctx sdk.Context,
 	typedContractAddr dextypesutils.ContractAddress,
 	typedPairStr dextypesutils.PairString,
-	dexkeeper *keeper.Keeper,
 	orderIDToSettledQuantities map[uint64]sdk.Dec,
 ) {
 	dexutils.GetMemState(ctx.Context()).ClearCancellationForPair(ctx, typedContractAddr, typedPairStr)
-	for _, marketOrderID := range getUnfulfilledPlacedMarketOrderIds(ctx, typedContractAddr, typedPairStr, dexkeeper, orderIDToSettledQuantities) {
+	for _, marketOrderID := range getUnfulfilledPlacedMarketOrderIds(ctx, typedContractAddr, typedPairStr, orderIDToSettledQuantities) {
 		dexutils.GetMemState(ctx.Context()).GetBlockCancels(ctx, typedContractAddr, typedPairStr).Add(&types.Cancellation{
 			Id:        marketOrderID,
 			Initiator: types.CancellationInitiator_USER,
@@ -33,7 +32,6 @@ func getUnfulfilledPlacedMarketOrderIds(
 	ctx sdk.Context,
 	typedContractAddr dextypesutils.ContractAddress,
 	typedPairStr dextypesutils.PairString,
-	dexkeeper *keeper.Keeper,
 	orderIDToSettledQuantities map[uint64]sdk.Dec,
 ) []uint64 {
 	res := []uint64{}

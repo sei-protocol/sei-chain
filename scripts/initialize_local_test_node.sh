@@ -79,4 +79,4 @@ else
 fi
 
 # start the chain with log tracing
-~/go/bin/seid start --trace
+~/go/bin/seid start --trace --chain-id sei-chain
