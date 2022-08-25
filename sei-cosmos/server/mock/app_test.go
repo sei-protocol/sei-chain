@@ -57,6 +57,14 @@ func TestDeliverTx(t *testing.T) {
 	txBytes := tx.GetSignBytes()
 
 	goCtx := context.Background()
+	appState, err := AppGenState(nil, types.GenesisDoc{}, nil)
+	require.NoError(t, err)
+
+	//TODO test validators in the init chain?
+	req := abci.RequestInitChain{
+		AppStateBytes: appState,
+	}
+	app.InitChain(goCtx, &req)
 	app.FinalizeBlock(goCtx, &abci.RequestFinalizeBlock{
 		Hash:   []byte("apphash"),
 		Height: 1,

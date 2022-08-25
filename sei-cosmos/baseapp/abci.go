@@ -59,6 +59,8 @@ func (app *BaseApp) InitChain(ctx context.Context, req *abci.RequestInitChain) (
 		app.StoreConsensusParams(app.processProposalState.ctx, req.ConsensusParams)
 	}
 
+	app.SetDeliverStateToCommit()
+
 	if app.initChainer == nil {
 		return
 	}

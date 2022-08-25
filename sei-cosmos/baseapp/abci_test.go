@@ -10,6 +10,7 @@ import (
 	tmprototypes "github.com/tendermint/tendermint/proto/tendermint/types"
 	dbm "github.com/tendermint/tm-db"
 
+	"github.com/cosmos/cosmos-sdk/testutil"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 )
 
@@ -25,20 +26,20 @@ func TestGetBlockRentionHeight(t *testing.T) {
 		expected     int64
 	}{
 		"defaults": {
-			bapp:         NewBaseApp(name, logger, db, nil),
+			bapp:         NewBaseApp(name, logger, db, nil, &testutil.TestAppOpts{}),
 			maxAgeBlocks: 0,
 			commitHeight: 499000,
 			expected:     0,
 		},
 		"pruning unbonding time only": {
-			bapp:         NewBaseApp(name, logger, db, nil, SetMinRetainBlocks(1)),
+			bapp:         NewBaseApp(name, logger, db, nil, &testutil.TestAppOpts{}, SetMinRetainBlocks(1)),
 			maxAgeBlocks: 362880,
 			commitHeight: 499000,
 			expected:     136120,
 		},
 		"pruning iavl snapshot only": {
 			bapp: NewBaseApp(
-				name, logger, db, nil,
+				name, logger, db, nil, &testutil.TestAppOpts{},
 				SetPruning(sdk.PruningOptions{KeepEvery: 10000}),
 				SetMinRetainBlocks(1),
 			),
@@ -48,7 +49,7 @@ func TestGetBlockRentionHeight(t *testing.T) {
 		},
 		"pruning state sync snapshot only": {
 			bapp: NewBaseApp(
-				name, logger, db, nil,
+				name, logger, db, nil, &testutil.TestAppOpts{},
 				SetSnapshotInterval(50000),
 				SetSnapshotKeepRecent(3),
 				SetMinRetainBlocks(1),
@@ -59,7 +60,7 @@ func TestGetBlockRentionHeight(t *testing.T) {
 		},
 		"pruning min retention only": {
 			bapp: NewBaseApp(
-				name, logger, db, nil,
+				name, logger, db, nil, &testutil.TestAppOpts{},
 				SetMinRetainBlocks(400000),
 			),
 			maxAgeBlocks: 0,
@@ -68,7 +69,7 @@ func TestGetBlockRentionHeight(t *testing.T) {
 		},
 		"pruning all conditions": {
 			bapp: NewBaseApp(
-				name, logger, db, nil,
+				name, logger, db, nil, &testutil.TestAppOpts{},
 				SetPruning(sdk.PruningOptions{KeepEvery: 10000}),
 				SetMinRetainBlocks(400000),
 				SetSnapshotInterval(50000), SetSnapshotKeepRecent(3),
@@ -79,7 +80,7 @@ func TestGetBlockRentionHeight(t *testing.T) {
 		},
 		"no pruning due to no persisted state": {
 			bapp: NewBaseApp(
-				name, logger, db, nil,
+				name, logger, db, nil, &testutil.TestAppOpts{},
 				SetPruning(sdk.PruningOptions{KeepEvery: 10000}),
 				SetMinRetainBlocks(400000),
 				SetSnapshotInterval(50000), SetSnapshotKeepRecent(3),
@@ -90,7 +91,7 @@ func TestGetBlockRentionHeight(t *testing.T) {
 		},
 		"disable pruning": {
 			bapp: NewBaseApp(
-				name, logger, db, nil,
+				name, logger, db, nil, &testutil.TestAppOpts{},
 				SetPruning(sdk.PruningOptions{KeepEvery: 10000}),
 				SetMinRetainBlocks(0),
 				SetSnapshotInterval(50000), SetSnapshotKeepRecent(3),
@@ -129,7 +130,7 @@ func TestBaseAppCreateQueryContext(t *testing.T) {
 	logger := defaultLogger()
 	db := dbm.NewMemDB()
 	name := t.Name()
-	app := NewBaseApp(name, logger, db, nil)
+	app := NewBaseApp(name, logger, db, nil, &testutil.TestAppOpts{})
 
 	app.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{Height: 1})
 	app.Commit(context.Background())
