@@ -124,6 +124,7 @@ import (
 
 	ethermintapp "github.com/evmos/ethermint/app"
 	feemarketkeeper "github.com/evmos/ethermint/x/feemarket/keeper"
+
 	// this line is used by starport scaffolding # stargate/app/moduleImport
 
 	"github.com/CosmWasm/wasmd/x/wasm"
