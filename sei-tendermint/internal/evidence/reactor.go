@@ -20,7 +20,7 @@ var _ service.Service = (*Reactor)(nil)
 const (
 	EvidenceChannel = p2p.ChannelID(0x38)
 
-	maxMsgSize = 1048576 // 1MB TODO make it configurable
+	maxMsgSize = 4194304 // 4MB TODO make it configurable
 
 	// broadcast all uncommitted evidence this often. This sets when the reactor
 	// goes back to the start of the list and begins sending the evidence again.
