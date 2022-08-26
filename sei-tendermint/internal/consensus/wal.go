@@ -298,7 +298,7 @@ func NewWALEncoder(wr io.Writer) *WALEncoder {
 }
 
 // Encode writes the custom encoding of v to the stream. It returns an error if
-// the encoded size of v is greater than 1MB. Any error encountered
+// the encoded size of v is greater than 4MB. Any error encountered
 // during the write is also returned.
 func (enc *WALEncoder) Encode(v *TimedWALMessage) error {
 	pbMsg, err := WALToProto(v.Msg)

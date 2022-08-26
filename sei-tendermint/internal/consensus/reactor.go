@@ -84,7 +84,7 @@ const (
 	VoteChannel        = p2p.ChannelID(0x22)
 	VoteSetBitsChannel = p2p.ChannelID(0x23)
 
-	maxMsgSize = 1048576 // 1MB; NOTE: keep in sync with types.PartSet sizes.
+	maxMsgSize = 4194304 // 4MB; NOTE: keep larger than types.PartSet sizes.
 
 	blocksToContributeToBecomeGoodPeer = 10000
 	votesToContributeToBecomeGoodPeer  = 10000
