@@ -18,11 +18,20 @@ func DefaultTracerProvider() (*trace.TracerProvider, error) {
 
 func TracerProvider(url string) (*trace.TracerProvider, error) {
 	// Create the Jaeger exporter
+	opts, err := GetTracerProviderOptions(url)
+	if err != nil {
+		return nil, err
+	}
+	tp := trace.NewTracerProvider(opts...)
+	return tp, nil
+}
+
+func GetTracerProviderOptions(url string) ([]trace.TracerProviderOption, error) {
 	exp, err := jaeger.New(jaeger.WithCollectorEndpoint(jaeger.WithEndpoint(url)))
 	if err != nil {
 		return nil, err
 	}
-	tp := trace.NewTracerProvider(
+	return []trace.TracerProviderOption{
 		// Always be sure to batch in production.
 		trace.WithBatcher(exp),
 		// Record information about this application in a Resource.
@@ -32,8 +41,7 @@ func TracerProvider(url string) (*trace.TracerProvider, error) {
 			attribute.String("environment", "production"),
 			attribute.Int64("ID", 1),
 		)),
-	)
-	return tp, nil
+	}, nil
 }
 
 type Info struct {
