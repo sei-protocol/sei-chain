@@ -12,6 +12,10 @@ import (
 	tmmain "github.com/tendermint/tendermint/cmd/tendermint/commands"
 	"github.com/tendermint/tendermint/libs/log"
 	dbm "github.com/tendermint/tm-db"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/exporters/jaeger"
+	"go.opentelemetry.io/otel/sdk/resource"
+	"go.opentelemetry.io/otel/sdk/trace"
 
 	"github.com/cosmos/cosmos-sdk/baseapp"
 	"github.com/cosmos/cosmos-sdk/client"
@@ -33,6 +37,8 @@ import (
 	"github.com/cosmos/cosmos-sdk/x/crisis"
 	genutilcli "github.com/cosmos/cosmos-sdk/x/genutil/client/cli"
 )
+
+const DefaultTracingURL = "http://localhost:14268/api/traces"
 
 // NewRootCmd creates a new root command for simd. It is called once in the
 // main function.
@@ -154,8 +160,22 @@ func initRootCmd(rootCmd *cobra.Command, encodingConfig params.EncodingConfig) {
 		config.Cmd(),
 	)
 
+	exp, err := jaeger.New(jaeger.WithCollectorEndpoint(jaeger.WithEndpoint(DefaultTracingURL)))
+	if err != nil {
+		panic(err)
+	}
+
 	a := appCreator{encodingConfig}
-	server.AddCommands(rootCmd, simapp.DefaultNodeHome, a.newApp, a.appExport, addModuleInitFlags)
+	server.AddCommands(rootCmd, simapp.DefaultNodeHome, a.newApp, a.appExport, addModuleInitFlags, []trace.TracerProviderOption{
+		trace.WithBatcher(exp),
+		// Record information about this application in a Resource.
+		trace.WithResource(resource.NewWithAttributes(
+			"https://opentelemetry.io/schemas/1.9.0",
+			attribute.Key("service.name").String("sei-chain"),
+			attribute.String("environment", "production"),
+			attribute.Int64("ID", 1),
+		)),
+	})
 
 	// add keybase, auxiliary RPC, query, and tx child commands
 	rootCmd.AddCommand(

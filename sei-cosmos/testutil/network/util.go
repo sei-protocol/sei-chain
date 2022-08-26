@@ -13,6 +13,7 @@ import (
 	"github.com/tendermint/tendermint/node"
 	"github.com/tendermint/tendermint/rpc/client/local"
 	"github.com/tendermint/tendermint/types"
+	"go.opentelemetry.io/otel/sdk/trace"
 
 	"github.com/cosmos/cosmos-sdk/server/api"
 	servergrpc "github.com/cosmos/cosmos-sdk/server/grpc"
@@ -56,6 +57,7 @@ func startInProcess(cfg Config, val *Validator) error {
 		logger,
 		abciclient.NewLocalClient(logger, app),
 		defaultGensis,
+		[]trace.TracerProviderOption{},
 	)
 
 	if err != nil {

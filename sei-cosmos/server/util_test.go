@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/spf13/cobra"
+	"go.opentelemetry.io/otel/sdk/trace"
 
 	"github.com/cosmos/cosmos-sdk/client/flags"
 	"github.com/cosmos/cosmos-sdk/server"
@@ -31,7 +32,7 @@ func preRunETestImpl(cmd *cobra.Command, args []string) error {
 
 func TestInterceptConfigsPreRunHandlerCreatesConfigFilesWhenMissing(t *testing.T) {
 	tempDir := t.TempDir()
-	cmd := server.StartCmd(nil, "/foobar")
+	cmd := server.StartCmd(nil, "/foobar", []trace.TracerProviderOption{})
 	if err := cmd.Flags().Set(flags.FlagHome, tempDir); err != nil {
 		t.Fatalf("Could not set home flag [%T] %v", err, err)
 	}
@@ -107,7 +108,7 @@ func TestInterceptConfigsPreRunHandlerReadsConfigToml(t *testing.T) {
 		t.Fatalf("Failed closing config.toml: %v", err)
 	}
 
-	cmd := server.StartCmd(nil, "/foobar")
+	cmd := server.StartCmd(nil, "/foobar", []trace.TracerProviderOption{})
 	if err := cmd.Flags().Set(flags.FlagHome, tempDir); err != nil {
 		t.Fatalf("Could not set home flag [%T] %v", err, err)
 	}
@@ -147,7 +148,7 @@ func TestInterceptConfigsPreRunHandlerReadsAppToml(t *testing.T) {
 	if err := writer.Close(); err != nil {
 		t.Fatalf("Failed closing app.toml: %v", err)
 	}
-	cmd := server.StartCmd(nil, tempDir)
+	cmd := server.StartCmd(nil, tempDir, []trace.TracerProviderOption{})
 
 	cmd.PreRunE = preRunETestImpl
 
@@ -166,7 +167,7 @@ func TestInterceptConfigsPreRunHandlerReadsAppToml(t *testing.T) {
 func TestInterceptConfigsPreRunHandlerReadsFlags(t *testing.T) {
 	const testAddr = "tcp://127.1.2.3:12345"
 	tempDir := t.TempDir()
-	cmd := server.StartCmd(nil, "/foobar")
+	cmd := server.StartCmd(nil, "/foobar", []trace.TracerProviderOption{})
 
 	if err := cmd.Flags().Set(flags.FlagHome, tempDir); err != nil {
 		t.Fatalf("Could not set home flag [%T] %v", err, err)
@@ -194,7 +195,7 @@ func TestInterceptConfigsPreRunHandlerReadsFlags(t *testing.T) {
 func TestInterceptConfigsPreRunHandlerReadsEnvVars(t *testing.T) {
 	const testAddr = "tcp://127.1.2.3:12345"
 	tempDir := t.TempDir()
-	cmd := server.StartCmd(nil, "/foobar")
+	cmd := server.StartCmd(nil, "/foobar", []trace.TracerProviderOption{})
 	if err := cmd.Flags().Set(flags.FlagHome, tempDir); err != nil {
 		t.Fatalf("Could not set home flag [%T] %v", err, err)
 	}
@@ -280,7 +281,7 @@ func newPrecedenceCommon(t *testing.T) precedenceCommon {
 	})
 
 	// Set up the command object that is used in this test
-	retval.cmd = server.StartCmd(nil, tempDir)
+	retval.cmd = server.StartCmd(nil, tempDir, []trace.TracerProviderOption{})
 	retval.cmd.PreRunE = preRunETestImpl
 
 	return retval
@@ -387,7 +388,7 @@ func TestInterceptConfigsWithBadPermissions(t *testing.T) {
 	if err := os.Mkdir(subDir, 0600); err != nil {
 		t.Fatalf("Failed to create sub directory: %v", err)
 	}
-	cmd := server.StartCmd(nil, "/foobar")
+	cmd := server.StartCmd(nil, "/foobar", []trace.TracerProviderOption{})
 	if err := cmd.Flags().Set(flags.FlagHome, subDir); err != nil {
 		t.Fatalf("Could not set home flag [%T] %v", err, err)
 	}
