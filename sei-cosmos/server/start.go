@@ -17,6 +17,7 @@ import (
 	"github.com/tendermint/tendermint/libs/service"
 	"github.com/tendermint/tendermint/node"
 	"github.com/tendermint/tendermint/rpc/client/local"
+	"go.opentelemetry.io/otel/sdk/trace"
 	"google.golang.org/grpc"
 
 	"github.com/cosmos/cosmos-sdk/client"
@@ -70,7 +71,7 @@ const (
 
 // StartCmd runs the service passed in, either stand-alone or in-process with
 // Tendermint.
-func StartCmd(appCreator types.AppCreator, defaultNodeHome string) *cobra.Command {
+func StartCmd(appCreator types.AppCreator, defaultNodeHome string, tracerProviderOptions []trace.TracerProviderOption) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "start",
 		Short: "Run the full node",
@@ -125,7 +126,7 @@ is performed. Note, when enabled, gRPC will also be automatically enabled.
 			}
 
 			// amino is needed here for backwards compatibility of REST routes
-			err = startInProcess(serverCtx, clientCtx, appCreator)
+			err = startInProcess(serverCtx, clientCtx, appCreator, tracerProviderOptions)
 			errCode, ok := err.(ErrorCode)
 			if !ok {
 				return err
@@ -211,7 +212,7 @@ func startStandAlone(ctx *Context, appCreator types.AppCreator) error {
 	return WaitForQuitSignals()
 }
 
-func startInProcess(ctx *Context, clientCtx client.Context, appCreator types.AppCreator) error {
+func startInProcess(ctx *Context, clientCtx client.Context, appCreator types.AppCreator, tracerProviderOptions []trace.TracerProviderOption) error {
 	cfg := ctx.Config
 	home := cfg.RootDir
 	goCtx, cancel := context.WithCancel(context.Background())
@@ -272,6 +273,7 @@ func startInProcess(ctx *Context, clientCtx client.Context, appCreator types.App
 			ctx.Logger,
 			abciclient.NewLocalClient(ctx.Logger, app),
 			nil,
+			tracerProviderOptions,
 		)
 		if err != nil {
 			return err
