@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/spf13/viper"
+	"go.opentelemetry.io/otel/sdk/trace"
 	"google.golang.org/grpc"
 
 	abciclient "github.com/tendermint/tendermint/abci/client"
@@ -152,6 +153,7 @@ func startNode(ctx context.Context, cfg *Config) error {
 		nodeLogger,
 		abciclient.NewLocalClient(nodeLogger, app),
 		nil,
+		[]trace.TracerProviderOption{},
 	)
 	if err != nil {
 		return err
@@ -167,7 +169,7 @@ func startSeedNode(ctx context.Context) error {
 
 	tmcfg.Mode = config.ModeSeed
 
-	n, err := node.New(ctx, tmcfg, nodeLogger, nil, nil)
+	n, err := node.New(ctx, tmcfg, nodeLogger, nil, nil, []trace.TracerProviderOption{})
 	if err != nil {
 		return err
 	}

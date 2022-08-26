@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	dbm "github.com/tendermint/tm-db"
+	"go.opentelemetry.io/otel/sdk/trace"
 
 	abciclient "github.com/tendermint/tendermint/abci/client"
 	"github.com/tendermint/tendermint/abci/example/kvstore"
@@ -505,6 +506,7 @@ func newStateWithConfigAndBlockStore(
 		mempool,
 		evpool,
 		eventBus,
+		[]trace.TracerProviderOption{},
 	)
 	if err != nil {
 		t.Fatal(err)

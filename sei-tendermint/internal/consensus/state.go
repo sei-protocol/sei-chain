@@ -14,6 +14,9 @@ import (
 	"time"
 
 	"github.com/gogo/protobuf/proto"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/sdk/trace"
+	otrace "go.opentelemetry.io/otel/trace"
 
 	"github.com/tendermint/tendermint/config"
 	"github.com/tendermint/tendermint/crypto"
@@ -180,6 +183,12 @@ type State struct {
 
 	// wait the channel event happening for shutting down the state gracefully
 	onStopCh chan *cstypes.RoundState
+
+	tracer                otrace.Tracer
+	tracerProviderOptions []trace.TracerProviderOption
+	heightSpan            otrace.Span
+	heightBeingTraced     int64
+	tracingCtx            context.Context
 }
 
 // StateOption sets an optional parameter on the State.
@@ -201,6 +210,7 @@ func NewState(
 	txNotifier txNotifier,
 	evpool evidencePool,
 	eventBus *eventbus.EventBus,
+	traceProviderOps []trace.TracerProviderOption,
 	options ...StateOption,
 ) (*State, error) {
 	cs := &State{
@@ -242,6 +252,10 @@ func NewState(
 			return nil, err
 		}
 	}
+
+	tp := trace.NewTracerProvider(traceProviderOps...)
+	cs.tracer = tp.Tracer("tm-consensus-state")
+	cs.tracerProviderOptions = traceProviderOps
 
 	return cs, nil
 }
@@ -1004,11 +1018,19 @@ func (cs *State) handleMsg(ctx context.Context, mi msgInfo, fsyncUponCompletion 
 
 	switch msg := msg.(type) {
 	case *ProposalMessage:
+		_, span := cs.tracer.Start(cs.getTracingCtx(ctx), "cs.state.handleProposalMsg")
+		span.SetAttributes(attribute.Int("round", int(msg.Proposal.Round)))
+		defer span.End()
+
 		// will not cause transition.
 		// once proposal is set, we can receive block parts
 		err = cs.setProposal(msg.Proposal, mi.ReceiveTime)
 
 	case *BlockPartMessage:
+		_, span := cs.tracer.Start(cs.getTracingCtx(ctx), "cs.state.handleBlockPartMsg")
+		span.SetAttributes(attribute.Int("round", int(msg.Round)))
+		defer span.End()
+
 		// if the proposal is complete, we'll enterPrevote or tryFinalizeCommit
 		added, err = cs.addProposalBlockPart(msg, peerID)
 
@@ -1053,6 +1075,10 @@ func (cs *State) handleMsg(ctx context.Context, mi msgInfo, fsyncUponCompletion 
 		}
 
 	case *VoteMessage:
+		_, span := cs.tracer.Start(cs.getTracingCtx(ctx), "cs.state.handleVoteMsg")
+		span.SetAttributes(attribute.Int("round", int(msg.Vote.Round)))
+		defer span.End()
+
 		// attempt to add the vote and dupeout the validator if its a duplicate signature
 		// if the vote gives us a 2/3-any or 2/3-one, we transition
 		added, err = cs.tryAddVote(ctx, msg.Vote, peerID)
@@ -1092,6 +1118,7 @@ func (cs *State) handleMsg(ctx context.Context, mi msgInfo, fsyncUponCompletion 
 			"err", err,
 		)
 	}
+	return
 }
 
 func (cs *State) handleTimeout(
@@ -1146,6 +1173,7 @@ func (cs *State) handleTimeout(
 		panic(fmt.Sprintf("invalid timeout step: %v", ti.Step))
 	}
 
+	return
 }
 
 func (cs *State) handleTxsAvailable(ctx context.Context) {
@@ -1171,6 +1199,14 @@ func (cs *State) handleTxsAvailable(ctx context.Context) {
 	case cstypes.RoundStepNewRound: // after timeoutCommit
 		cs.enterPropose(ctx, cs.Height, 0)
 	}
+	return
+}
+
+func (cs *State) getTracingCtx(defaultCtx context.Context) context.Context {
+	if cs.tracingCtx != nil {
+		return cs.tracingCtx
+	}
+	return defaultCtx
 }
 
 //-----------------------------------------------------------------------------
@@ -1186,6 +1222,18 @@ func (cs *State) handleTxsAvailable(ctx context.Context) {
 // Enter: +2/3 prevotes any or +2/3 precommits for block or any from (height, round)
 // NOTE: cs.StartTime was already set for height.
 func (cs *State) enterNewRound(ctx context.Context, height int64, round int32) {
+	if height > cs.heightBeingTraced {
+		if cs.heightSpan != nil {
+			cs.heightSpan.End()
+		}
+		cs.heightBeingTraced = height
+		cs.tracingCtx, cs.heightSpan = cs.tracer.Start(ctx, "cs.state.Height")
+		cs.heightSpan.SetAttributes(attribute.Int64("height", height))
+	}
+	_, span := cs.tracer.Start(cs.getTracingCtx(ctx), "cs.state.enterNewRound")
+	span.SetAttributes(attribute.Int("round", int(round)))
+	defer span.End()
+
 	// TODO: remove panics in this function and return an error
 
 	logger := cs.logger.With("height", height, "round", round)
@@ -1256,6 +1304,8 @@ func (cs *State) enterNewRound(ctx context.Context, height int64, round int32) {
 	}
 
 	cs.enterPropose(ctx, height, round)
+
+	return
 }
 
 // needProofBlock returns true on the first height (so the genesis app hash is signed right away)
@@ -1280,6 +1330,10 @@ func (cs *State) needProofBlock(height int64) bool {
 //
 // Enter (!CreateEmptyBlocks) : after enterNewRound(height,round), once txs are in the mempool
 func (cs *State) enterPropose(ctx context.Context, height int64, round int32) {
+	_, span := cs.tracer.Start(cs.getTracingCtx(ctx), "cs.state.enterPropose")
+	span.SetAttributes(attribute.Int("round", int(round)))
+	defer span.End()
+
 	logger := cs.logger.With("height", height, "round", round)
 
 	if cs.Height != height || round < cs.Round || (cs.Round == round && cstypes.RoundStepPropose <= cs.Step) {
@@ -1361,6 +1415,10 @@ func (cs *State) isProposer(address []byte) bool {
 }
 
 func (cs *State) defaultDecideProposal(ctx context.Context, height int64, round int32) {
+	_, span := cs.tracer.Start(cs.getTracingCtx(ctx), "cs.state.decideProposal")
+	span.SetAttributes(attribute.Int("round", int(round)))
+	defer span.End()
+
 	var block *types.Block
 	var blockParts *types.PartSet
 
@@ -1486,6 +1544,10 @@ func (cs *State) createProposalBlock(ctx context.Context) (*types.Block, error) 
 // locked on or matches a block that received a POL in a round later than our
 // locked round, prevote for the proposal, otherwise vote nil.
 func (cs *State) enterPrevote(ctx context.Context, height int64, round int32) {
+	_, span := cs.tracer.Start(cs.getTracingCtx(ctx), "cs.state.enterPrevote")
+	span.SetAttributes(attribute.Int("round", int(round)))
+	defer span.End()
+
 	logger := cs.logger.With("height", height, "round", round)
 
 	if cs.Height != height || round < cs.Round || (cs.Round == round && cstypes.RoundStepPrevote <= cs.Step) {
@@ -1689,6 +1751,10 @@ func (cs *State) enterPrevoteWait(height int64, round int32) {
 // Lock & precommit the ProposalBlock if we have enough prevotes for it (a POL in this round)
 // else, precommit nil otherwise.
 func (cs *State) enterPrecommit(ctx context.Context, height int64, round int32) {
+	_, span := cs.tracer.Start(cs.getTracingCtx(ctx), "cs.state.enterPrecommit")
+	span.SetAttributes(attribute.Int("round", int(round)))
+	defer span.End()
+
 	logger := cs.logger.With("height", height, "round", round)
 
 	if cs.Height != height || round < cs.Round || (cs.Round == round && cstypes.RoundStepPrecommit <= cs.Step) {
@@ -1840,6 +1906,10 @@ func (cs *State) enterPrecommitWait(height int64, round int32) {
 
 // Enter: +2/3 precommits for block
 func (cs *State) enterCommit(ctx context.Context, height int64, commitRound int32) {
+	_, span := cs.tracer.Start(cs.getTracingCtx(ctx), "cs.state.enterCommit")
+	span.SetAttributes(attribute.Int("round", int(commitRound)))
+	defer span.End()
+
 	logger := cs.logger.With("height", height, "commit_round", commitRound)
 
 	if cs.Height != height || cstypes.RoundStepCommit <= cs.Step {
@@ -2354,7 +2424,6 @@ func (cs *State) addVote(
 		"val_index", vote.ValidatorIndex,
 		"cs_height", cs.Height,
 	)
-
 	if vote.Height < cs.Height || (vote.Height == cs.Height && vote.Round < cs.Round) {
 		cs.metrics.MarkLateVote(vote.Type)
 	}

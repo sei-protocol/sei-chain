@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 	dbm "github.com/tendermint/tm-db"
+	"go.opentelemetry.io/otel/sdk/trace"
 
 	abciclient "github.com/tendermint/tendermint/abci/client"
 	"github.com/tendermint/tendermint/abci/example/kvstore"
@@ -491,7 +492,7 @@ func TestReactorWithEvidence(t *testing.T) {
 		blockExec := sm.NewBlockExecutor(stateStore, log.NewNopLogger(), proxyAppConnCon, mempool, evpool, blockStore, eventBus, sm.NopMetrics())
 
 		cs, err := NewState(logger.With("validator", i, "module", "consensus"),
-			thisConfig.Consensus, stateStore, blockExec, blockStore, mempool, evpool2, eventBus)
+			thisConfig.Consensus, stateStore, blockExec, blockStore, mempool, evpool2, eventBus, []trace.TracerProviderOption{})
 		require.NoError(t, err)
 		cs.SetPrivValidator(ctx, pv)
 

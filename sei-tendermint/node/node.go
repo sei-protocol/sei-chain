@@ -12,6 +12,7 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"go.opentelemetry.io/otel/sdk/trace"
 
 	abciclient "github.com/tendermint/tendermint/abci/client"
 	abci "github.com/tendermint/tendermint/abci/types"
@@ -114,6 +115,7 @@ func newDefaultNode(
 		defaultGenesisDocProviderFunc(cfg),
 		config.DefaultDBProvider,
 		logger,
+		[]trace.TracerProviderOption{},
 	)
 }
 
@@ -127,6 +129,7 @@ func makeNode(
 	genesisDocProvider genesisDocProvider,
 	dbProvider config.DBProvider,
 	logger log.Logger,
+	tracerProviderOptions []trace.TracerProviderOption,
 ) (service.Service, error) {
 	var cancel context.CancelFunc
 	ctx, cancel = context.WithCancel(ctx)
@@ -304,6 +307,7 @@ func makeNode(
 		mp,
 		evPool,
 		eventBus,
+		tracerProviderOptions,
 		consensus.StateMetrics(nodeMetrics.consensus),
 		consensus.SkipStateStoreBootstrap,
 	)
