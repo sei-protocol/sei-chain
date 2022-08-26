@@ -16,6 +16,7 @@ import (
 	"github.com/tendermint/tendermint/node"
 	"github.com/tendermint/tendermint/rpc/coretypes"
 	rpcclient "github.com/tendermint/tendermint/rpc/jsonrpc/client"
+	"go.opentelemetry.io/otel/sdk/trace"
 )
 
 // Options helps with specifying some parameters for our RPC testing for greater
@@ -99,7 +100,7 @@ func StartTendermint(
 
 	}
 	papp := abciclient.NewLocalClient(logger, app)
-	tmNode, err := node.New(ctx, conf, logger, papp, nil)
+	tmNode, err := node.New(ctx, conf, logger, papp, nil, []trace.TracerProviderOption{})
 	if err != nil {
 		return nil, func(_ context.Context) error { cancel(); return nil }, err
 	}

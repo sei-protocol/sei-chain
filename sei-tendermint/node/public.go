@@ -11,6 +11,7 @@ import (
 	"github.com/tendermint/tendermint/libs/service"
 	"github.com/tendermint/tendermint/privval"
 	"github.com/tendermint/tendermint/types"
+	"go.opentelemetry.io/otel/sdk/trace"
 )
 
 // NewDefault constructs a tendermint node service for use in go
@@ -37,6 +38,7 @@ func New(
 	logger log.Logger,
 	cf abciclient.Client,
 	gen *types.GenesisDoc,
+	tracerProviderOptions []trace.TracerProviderOption,
 ) (service.Service, error) {
 	nodeKey, err := types.LoadOrGenNodeKey(conf.NodeKeyFile())
 	if err != nil {
@@ -66,7 +68,8 @@ func New(
 			cf,
 			genProvider,
 			config.DefaultDBProvider,
-			logger)
+			logger,
+			tracerProviderOptions)
 	case config.ModeSeed:
 		return makeSeedNode(logger, conf, config.DefaultDBProvider, nodeKey, genProvider)
 	default:

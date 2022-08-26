@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	dbm "github.com/tendermint/tm-db"
+	"go.opentelemetry.io/otel/sdk/trace"
 
 	"github.com/tendermint/tendermint/config"
 	"github.com/tendermint/tendermint/internal/eventbus"
@@ -146,7 +147,7 @@ func (pb *playback) replayReset(ctx context.Context, count int, newStepSub event
 	pb.cs.Wait()
 
 	newCS, err := NewState(pb.cs.logger, pb.cs.config, pb.stateStore, pb.cs.blockExec,
-		pb.cs.blockStore, pb.cs.txNotifier, pb.cs.evpool, pb.cs.eventBus)
+		pb.cs.blockStore, pb.cs.txNotifier, pb.cs.evpool, pb.cs.eventBus, pb.cs.tracerProviderOptions)
 	if err != nil {
 		return err
 	}
@@ -351,7 +352,7 @@ func newConsensusStateForReplay(
 	blockExec := sm.NewBlockExecutor(stateStore, logger, proxyApp, mempool, evpool, blockStore, eventBus, sm.NopMetrics())
 
 	consensusState, err := NewState(logger, csConfig, stateStore, blockExec,
-		blockStore, mempool, evpool, eventBus)
+		blockStore, mempool, evpool, eventBus, []trace.TracerProviderOption{})
 	if err != nil {
 		return nil, err
 	}
