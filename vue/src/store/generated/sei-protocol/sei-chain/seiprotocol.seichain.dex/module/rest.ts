@@ -34,13 +34,39 @@ export interface DexAssetMetadata {
   metadata?: V1Beta1Metadata;
 }
 
+export interface DexCancellation {
+  /** @format uint64 */
+  id?: string;
+  initiator?: DexCancellationInitiator;
+  creator?: string;
+  contractAddr?: string;
+  priceDenom?: string;
+  assetDenom?: string;
+  positionDirection?: DexPositionDirection;
+  price?: string;
+}
+
+export enum DexCancellationInitiator {
+  USER = "USER",
+  LIQUIDATED = "LIQUIDATED",
+}
+
+export interface DexContractDependencyInfo {
+  dependency?: string;
+  immediateElderSibling?: string;
+  immediateYoungerSibling?: string;
+}
+
 export interface DexContractInfo {
   /** @format uint64 */
   codeId?: string;
   contractAddr?: string;
-  NeedHook?: boolean;
-  NeedOrderMatching?: boolean;
-  dependentContractAddrs?: string[];
+  needHook?: boolean;
+  needOrderMatching?: boolean;
+  dependencies?: DexContractDependencyInfo[];
+
+  /** @format int64 */
+  numIncomingDependencies?: string;
 }
 
 export interface DexLongBook {
@@ -48,9 +74,16 @@ export interface DexLongBook {
   entry?: DexOrderEntry;
 }
 
-export type DexMsgCancelOrdersResponse = object;
+export interface DexMatchResult {
+  /** @format int64 */
+  height?: string;
+  contractAddr?: string;
+  orders?: DexOrder[];
+  settlements?: DexSettlementEntry[];
+  cancellations?: DexCancellation[];
+}
 
-export type DexMsgLiquidationResponse = object;
+export type DexMsgCancelOrdersResponse = object;
 
 export interface DexMsgPlaceOrdersResponse {
   orderIds?: string[];
@@ -93,6 +126,7 @@ export enum DexOrderType {
   LIMIT = "LIMIT",
   MARKET = "MARKET",
   LIQUIDATION = "LIQUIDATION",
+  FOKMARKET = "FOKMARKET",
 }
 
 export interface DexPair {
@@ -164,10 +198,6 @@ export interface DexQueryAssetMetadataResponse {
   metadata?: DexAssetMetadata;
 }
 
-export interface DexQueryGetAllSettlementsResponse {
-  SettlementsList?: DexSettlements[];
-}
-
 export interface DexQueryGetHistoricalPricesResponse {
   prices?: DexPriceCandlestick[];
 }
@@ -184,6 +214,10 @@ export interface DexQueryGetMarketSummaryResponse {
   lastPrice?: string;
 }
 
+export interface DexQueryGetMatchResultResponse {
+  result?: DexMatchResult;
+}
+
 export interface DexQueryGetOrderByIDResponse {
   order?: DexOrder;
 }
@@ -194,14 +228,6 @@ export interface DexQueryGetOrdersResponse {
 
 export interface DexQueryGetPricesResponse {
   prices?: DexPrice[];
-}
-
-export interface DexQueryGetSettlementsForAccountResponse {
-  SettlementsList?: DexSettlements[];
-}
-
-export interface DexQueryGetSettlementsResponse {
-  Settlements?: DexSettlements;
 }
 
 export interface DexQueryGetShortBookResponse {
@@ -246,12 +272,9 @@ export interface DexSettlementEntry {
 
   /** @format uint64 */
   height?: string;
-}
 
-export interface DexSettlements {
-  /** @format int64 */
-  epoch?: string;
-  entries?: DexSettlementEntry[];
+  /** @format uint64 */
+  settlementId?: string;
 }
 
 export interface DexShortBook {
@@ -641,28 +664,6 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
    * No description
    *
    * @tags Query
-   * @name QueryGetAllSettlements
-   * @request GET:/sei-protocol/seichain/dex/get_all_settlements/{contractAddr}/{priceDenom}/{assetDenom}
-   */
-  queryGetAllSettlements = (
-    contractAddr: string,
-    priceDenom: string,
-    assetDenom: string,
-    query?: { limit?: string },
-    params: RequestParams = {},
-  ) =>
-    this.request<DexQueryGetAllSettlementsResponse, RpcStatus>({
-      path: `/sei-protocol/seichain/dex/get_all_settlements/${contractAddr}/${priceDenom}/${assetDenom}`,
-      method: "GET",
-      query: query,
-      format: "json",
-      ...params,
-    });
-
-  /**
-   * No description
-   *
-   * @tags Query
    * @name QueryGetHistoricalPrices
    * @request GET:/sei-protocol/seichain/dex/get_historical_prices/{contractAddr}/{priceDenom}/{assetDenom}/{periodLengthInSeconds}/{numOfPeriods}
    */
@@ -748,50 +749,6 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
   queryGetPrices = (contractAddr: string, priceDenom: string, assetDenom: string, params: RequestParams = {}) =>
     this.request<DexQueryGetPricesResponse, RpcStatus>({
       path: `/sei-protocol/seichain/dex/get_prices/${contractAddr}/${priceDenom}/${assetDenom}`,
-      method: "GET",
-      format: "json",
-      ...params,
-    });
-
-  /**
-   * No description
-   *
-   * @tags Query
-   * @name QueryGetSettlements
-   * @request GET:/sei-protocol/seichain/dex/get_settlements/{contractAddr}/{priceDenom}/{assetDenom}/{orderId}
-   */
-  queryGetSettlements = (
-    contractAddr: string,
-    priceDenom: string,
-    assetDenom: string,
-    orderId: string,
-    query?: { account?: string },
-    params: RequestParams = {},
-  ) =>
-    this.request<DexQueryGetSettlementsResponse, RpcStatus>({
-      path: `/sei-protocol/seichain/dex/get_settlements/${contractAddr}/${priceDenom}/${assetDenom}/${orderId}`,
-      method: "GET",
-      query: query,
-      format: "json",
-      ...params,
-    });
-
-  /**
-   * No description
-   *
-   * @tags Query
-   * @name QueryGetSettlementsForAccount
-   * @request GET:/sei-protocol/seichain/dex/get_settlements_for_account/{contractAddr}/{priceDenom}/{assetDenom}/{account}
-   */
-  queryGetSettlementsForAccount = (
-    contractAddr: string,
-    priceDenom: string,
-    assetDenom: string,
-    account: string,
-    params: RequestParams = {},
-  ) =>
-    this.request<DexQueryGetSettlementsForAccountResponse, RpcStatus>({
-      path: `/sei-protocol/seichain/dex/get_settlements_for_account/${contractAddr}/${priceDenom}/${assetDenom}/${account}`,
       method: "GET",
       format: "json",
       ...params,

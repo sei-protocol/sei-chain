@@ -12,6 +12,7 @@ export interface SettlementEntry {
     orderId: number;
     timestamp: number;
     height: number;
+    settlementId: number;
 }
 export interface Settlements {
     epoch: number;

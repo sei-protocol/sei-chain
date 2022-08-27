@@ -8,12 +8,12 @@ import {
   PageResponse,
 } from "../cosmos/base/query/v1beta1/pagination";
 import { ShortBook } from "../dex/short_book";
-import { Settlements } from "../dex/settlement";
 import { Price, PriceCandlestick } from "../dex/price";
 import { Twap } from "../dex/twap";
 import { AssetMetadata } from "../dex/asset_list";
 import { Pair } from "../dex/pair";
 import { Order } from "../dex/order";
+import { MatchResult } from "../dex/match_result";
 
 export const protobufPackage = "seiprotocol.seichain.dex";
 
@@ -70,40 +70,6 @@ export interface QueryAllShortBookRequest {
 export interface QueryAllShortBookResponse {
   ShortBook: ShortBook[];
   pagination: PageResponse | undefined;
-}
-
-export interface QueryGetSettlementsRequest {
-  contractAddr: string;
-  orderId: number;
-  priceDenom: string;
-  assetDenom: string;
-  account: string;
-}
-
-export interface QueryGetSettlementsResponse {
-  Settlements: Settlements | undefined;
-}
-
-export interface QueryGetSettlementsForAccountRequest {
-  contractAddr: string;
-  account: string;
-  priceDenom: string;
-  assetDenom: string;
-}
-
-export interface QueryGetSettlementsForAccountResponse {
-  SettlementsList: Settlements[];
-}
-
-export interface QueryGetAllSettlementsRequest {
-  contractAddr: string;
-  priceDenom: string;
-  assetDenom: string;
-  limit: number;
-}
-
-export interface QueryGetAllSettlementsResponse {
-  SettlementsList: Settlements[];
 }
 
 export interface QueryGetPricesRequest {
@@ -196,10 +162,20 @@ export interface QueryGetMarketSummaryResponse {
 
 export interface QueryOrderSimulationRequest {
   order: Order | undefined;
+  contractAddr: string;
 }
 
 export interface QueryOrderSimulationResponse {
   ExecutedQuantity: string;
+}
+
+export interface QueryGetMatchResultRequest {
+  contractAddr: string;
+  height: number;
+}
+
+export interface QueryGetMatchResultResponse {
+  result: MatchResult | undefined;
 }
 
 const baseQueryParamsRequest: object = {};
@@ -1142,649 +1118,6 @@ export const QueryAllShortBookResponse = {
       message.pagination = PageResponse.fromPartial(object.pagination);
     } else {
       message.pagination = undefined;
-    }
-    return message;
-  },
-};
-
-const baseQueryGetSettlementsRequest: object = {
-  contractAddr: "",
-  orderId: 0,
-  priceDenom: "",
-  assetDenom: "",
-  account: "",
-};
-
-export const QueryGetSettlementsRequest = {
-  encode(
-    message: QueryGetSettlementsRequest,
-    writer: Writer = Writer.create()
-  ): Writer {
-    if (message.contractAddr !== "") {
-      writer.uint32(10).string(message.contractAddr);
-    }
-    if (message.orderId !== 0) {
-      writer.uint32(16).uint64(message.orderId);
-    }
-    if (message.priceDenom !== "") {
-      writer.uint32(26).string(message.priceDenom);
-    }
-    if (message.assetDenom !== "") {
-      writer.uint32(34).string(message.assetDenom);
-    }
-    if (message.account !== "") {
-      writer.uint32(42).string(message.account);
-    }
-    return writer;
-  },
-
-  decode(
-    input: Reader | Uint8Array,
-    length?: number
-  ): QueryGetSettlementsRequest {
-    const reader = input instanceof Uint8Array ? new Reader(input) : input;
-    let end = length === undefined ? reader.len : reader.pos + length;
-    const message = {
-      ...baseQueryGetSettlementsRequest,
-    } as QueryGetSettlementsRequest;
-    while (reader.pos < end) {
-      const tag = reader.uint32();
-      switch (tag >>> 3) {
-        case 1:
-          message.contractAddr = reader.string();
-          break;
-        case 2:
-          message.orderId = longToNumber(reader.uint64() as Long);
-          break;
-        case 3:
-          message.priceDenom = reader.string();
-          break;
-        case 4:
-          message.assetDenom = reader.string();
-          break;
-        case 5:
-          message.account = reader.string();
-          break;
-        default:
-          reader.skipType(tag & 7);
-          break;
-      }
-    }
-    return message;
-  },
-
-  fromJSON(object: any): QueryGetSettlementsRequest {
-    const message = {
-      ...baseQueryGetSettlementsRequest,
-    } as QueryGetSettlementsRequest;
-    if (object.contractAddr !== undefined && object.contractAddr !== null) {
-      message.contractAddr = String(object.contractAddr);
-    } else {
-      message.contractAddr = "";
-    }
-    if (object.orderId !== undefined && object.orderId !== null) {
-      message.orderId = Number(object.orderId);
-    } else {
-      message.orderId = 0;
-    }
-    if (object.priceDenom !== undefined && object.priceDenom !== null) {
-      message.priceDenom = String(object.priceDenom);
-    } else {
-      message.priceDenom = "";
-    }
-    if (object.assetDenom !== undefined && object.assetDenom !== null) {
-      message.assetDenom = String(object.assetDenom);
-    } else {
-      message.assetDenom = "";
-    }
-    if (object.account !== undefined && object.account !== null) {
-      message.account = String(object.account);
-    } else {
-      message.account = "";
-    }
-    return message;
-  },
-
-  toJSON(message: QueryGetSettlementsRequest): unknown {
-    const obj: any = {};
-    message.contractAddr !== undefined &&
-      (obj.contractAddr = message.contractAddr);
-    message.orderId !== undefined && (obj.orderId = message.orderId);
-    message.priceDenom !== undefined && (obj.priceDenom = message.priceDenom);
-    message.assetDenom !== undefined && (obj.assetDenom = message.assetDenom);
-    message.account !== undefined && (obj.account = message.account);
-    return obj;
-  },
-
-  fromPartial(
-    object: DeepPartial<QueryGetSettlementsRequest>
-  ): QueryGetSettlementsRequest {
-    const message = {
-      ...baseQueryGetSettlementsRequest,
-    } as QueryGetSettlementsRequest;
-    if (object.contractAddr !== undefined && object.contractAddr !== null) {
-      message.contractAddr = object.contractAddr;
-    } else {
-      message.contractAddr = "";
-    }
-    if (object.orderId !== undefined && object.orderId !== null) {
-      message.orderId = object.orderId;
-    } else {
-      message.orderId = 0;
-    }
-    if (object.priceDenom !== undefined && object.priceDenom !== null) {
-      message.priceDenom = object.priceDenom;
-    } else {
-      message.priceDenom = "";
-    }
-    if (object.assetDenom !== undefined && object.assetDenom !== null) {
-      message.assetDenom = object.assetDenom;
-    } else {
-      message.assetDenom = "";
-    }
-    if (object.account !== undefined && object.account !== null) {
-      message.account = object.account;
-    } else {
-      message.account = "";
-    }
-    return message;
-  },
-};
-
-const baseQueryGetSettlementsResponse: object = {};
-
-export const QueryGetSettlementsResponse = {
-  encode(
-    message: QueryGetSettlementsResponse,
-    writer: Writer = Writer.create()
-  ): Writer {
-    if (message.Settlements !== undefined) {
-      Settlements.encode(
-        message.Settlements,
-        writer.uint32(10).fork()
-      ).ldelim();
-    }
-    return writer;
-  },
-
-  decode(
-    input: Reader | Uint8Array,
-    length?: number
-  ): QueryGetSettlementsResponse {
-    const reader = input instanceof Uint8Array ? new Reader(input) : input;
-    let end = length === undefined ? reader.len : reader.pos + length;
-    const message = {
-      ...baseQueryGetSettlementsResponse,
-    } as QueryGetSettlementsResponse;
-    while (reader.pos < end) {
-      const tag = reader.uint32();
-      switch (tag >>> 3) {
-        case 1:
-          message.Settlements = Settlements.decode(reader, reader.uint32());
-          break;
-        default:
-          reader.skipType(tag & 7);
-          break;
-      }
-    }
-    return message;
-  },
-
-  fromJSON(object: any): QueryGetSettlementsResponse {
-    const message = {
-      ...baseQueryGetSettlementsResponse,
-    } as QueryGetSettlementsResponse;
-    if (object.Settlements !== undefined && object.Settlements !== null) {
-      message.Settlements = Settlements.fromJSON(object.Settlements);
-    } else {
-      message.Settlements = undefined;
-    }
-    return message;
-  },
-
-  toJSON(message: QueryGetSettlementsResponse): unknown {
-    const obj: any = {};
-    message.Settlements !== undefined &&
-      (obj.Settlements = message.Settlements
-        ? Settlements.toJSON(message.Settlements)
-        : undefined);
-    return obj;
-  },
-
-  fromPartial(
-    object: DeepPartial<QueryGetSettlementsResponse>
-  ): QueryGetSettlementsResponse {
-    const message = {
-      ...baseQueryGetSettlementsResponse,
-    } as QueryGetSettlementsResponse;
-    if (object.Settlements !== undefined && object.Settlements !== null) {
-      message.Settlements = Settlements.fromPartial(object.Settlements);
-    } else {
-      message.Settlements = undefined;
-    }
-    return message;
-  },
-};
-
-const baseQueryGetSettlementsForAccountRequest: object = {
-  contractAddr: "",
-  account: "",
-  priceDenom: "",
-  assetDenom: "",
-};
-
-export const QueryGetSettlementsForAccountRequest = {
-  encode(
-    message: QueryGetSettlementsForAccountRequest,
-    writer: Writer = Writer.create()
-  ): Writer {
-    if (message.contractAddr !== "") {
-      writer.uint32(10).string(message.contractAddr);
-    }
-    if (message.account !== "") {
-      writer.uint32(18).string(message.account);
-    }
-    if (message.priceDenom !== "") {
-      writer.uint32(26).string(message.priceDenom);
-    }
-    if (message.assetDenom !== "") {
-      writer.uint32(34).string(message.assetDenom);
-    }
-    return writer;
-  },
-
-  decode(
-    input: Reader | Uint8Array,
-    length?: number
-  ): QueryGetSettlementsForAccountRequest {
-    const reader = input instanceof Uint8Array ? new Reader(input) : input;
-    let end = length === undefined ? reader.len : reader.pos + length;
-    const message = {
-      ...baseQueryGetSettlementsForAccountRequest,
-    } as QueryGetSettlementsForAccountRequest;
-    while (reader.pos < end) {
-      const tag = reader.uint32();
-      switch (tag >>> 3) {
-        case 1:
-          message.contractAddr = reader.string();
-          break;
-        case 2:
-          message.account = reader.string();
-          break;
-        case 3:
-          message.priceDenom = reader.string();
-          break;
-        case 4:
-          message.assetDenom = reader.string();
-          break;
-        default:
-          reader.skipType(tag & 7);
-          break;
-      }
-    }
-    return message;
-  },
-
-  fromJSON(object: any): QueryGetSettlementsForAccountRequest {
-    const message = {
-      ...baseQueryGetSettlementsForAccountRequest,
-    } as QueryGetSettlementsForAccountRequest;
-    if (object.contractAddr !== undefined && object.contractAddr !== null) {
-      message.contractAddr = String(object.contractAddr);
-    } else {
-      message.contractAddr = "";
-    }
-    if (object.account !== undefined && object.account !== null) {
-      message.account = String(object.account);
-    } else {
-      message.account = "";
-    }
-    if (object.priceDenom !== undefined && object.priceDenom !== null) {
-      message.priceDenom = String(object.priceDenom);
-    } else {
-      message.priceDenom = "";
-    }
-    if (object.assetDenom !== undefined && object.assetDenom !== null) {
-      message.assetDenom = String(object.assetDenom);
-    } else {
-      message.assetDenom = "";
-    }
-    return message;
-  },
-
-  toJSON(message: QueryGetSettlementsForAccountRequest): unknown {
-    const obj: any = {};
-    message.contractAddr !== undefined &&
-      (obj.contractAddr = message.contractAddr);
-    message.account !== undefined && (obj.account = message.account);
-    message.priceDenom !== undefined && (obj.priceDenom = message.priceDenom);
-    message.assetDenom !== undefined && (obj.assetDenom = message.assetDenom);
-    return obj;
-  },
-
-  fromPartial(
-    object: DeepPartial<QueryGetSettlementsForAccountRequest>
-  ): QueryGetSettlementsForAccountRequest {
-    const message = {
-      ...baseQueryGetSettlementsForAccountRequest,
-    } as QueryGetSettlementsForAccountRequest;
-    if (object.contractAddr !== undefined && object.contractAddr !== null) {
-      message.contractAddr = object.contractAddr;
-    } else {
-      message.contractAddr = "";
-    }
-    if (object.account !== undefined && object.account !== null) {
-      message.account = object.account;
-    } else {
-      message.account = "";
-    }
-    if (object.priceDenom !== undefined && object.priceDenom !== null) {
-      message.priceDenom = object.priceDenom;
-    } else {
-      message.priceDenom = "";
-    }
-    if (object.assetDenom !== undefined && object.assetDenom !== null) {
-      message.assetDenom = object.assetDenom;
-    } else {
-      message.assetDenom = "";
-    }
-    return message;
-  },
-};
-
-const baseQueryGetSettlementsForAccountResponse: object = {};
-
-export const QueryGetSettlementsForAccountResponse = {
-  encode(
-    message: QueryGetSettlementsForAccountResponse,
-    writer: Writer = Writer.create()
-  ): Writer {
-    for (const v of message.SettlementsList) {
-      Settlements.encode(v!, writer.uint32(10).fork()).ldelim();
-    }
-    return writer;
-  },
-
-  decode(
-    input: Reader | Uint8Array,
-    length?: number
-  ): QueryGetSettlementsForAccountResponse {
-    const reader = input instanceof Uint8Array ? new Reader(input) : input;
-    let end = length === undefined ? reader.len : reader.pos + length;
-    const message = {
-      ...baseQueryGetSettlementsForAccountResponse,
-    } as QueryGetSettlementsForAccountResponse;
-    message.SettlementsList = [];
-    while (reader.pos < end) {
-      const tag = reader.uint32();
-      switch (tag >>> 3) {
-        case 1:
-          message.SettlementsList.push(
-            Settlements.decode(reader, reader.uint32())
-          );
-          break;
-        default:
-          reader.skipType(tag & 7);
-          break;
-      }
-    }
-    return message;
-  },
-
-  fromJSON(object: any): QueryGetSettlementsForAccountResponse {
-    const message = {
-      ...baseQueryGetSettlementsForAccountResponse,
-    } as QueryGetSettlementsForAccountResponse;
-    message.SettlementsList = [];
-    if (
-      object.SettlementsList !== undefined &&
-      object.SettlementsList !== null
-    ) {
-      for (const e of object.SettlementsList) {
-        message.SettlementsList.push(Settlements.fromJSON(e));
-      }
-    }
-    return message;
-  },
-
-  toJSON(message: QueryGetSettlementsForAccountResponse): unknown {
-    const obj: any = {};
-    if (message.SettlementsList) {
-      obj.SettlementsList = message.SettlementsList.map((e) =>
-        e ? Settlements.toJSON(e) : undefined
-      );
-    } else {
-      obj.SettlementsList = [];
-    }
-    return obj;
-  },
-
-  fromPartial(
-    object: DeepPartial<QueryGetSettlementsForAccountResponse>
-  ): QueryGetSettlementsForAccountResponse {
-    const message = {
-      ...baseQueryGetSettlementsForAccountResponse,
-    } as QueryGetSettlementsForAccountResponse;
-    message.SettlementsList = [];
-    if (
-      object.SettlementsList !== undefined &&
-      object.SettlementsList !== null
-    ) {
-      for (const e of object.SettlementsList) {
-        message.SettlementsList.push(Settlements.fromPartial(e));
-      }
-    }
-    return message;
-  },
-};
-
-const baseQueryGetAllSettlementsRequest: object = {
-  contractAddr: "",
-  priceDenom: "",
-  assetDenom: "",
-  limit: 0,
-};
-
-export const QueryGetAllSettlementsRequest = {
-  encode(
-    message: QueryGetAllSettlementsRequest,
-    writer: Writer = Writer.create()
-  ): Writer {
-    if (message.contractAddr !== "") {
-      writer.uint32(10).string(message.contractAddr);
-    }
-    if (message.priceDenom !== "") {
-      writer.uint32(18).string(message.priceDenom);
-    }
-    if (message.assetDenom !== "") {
-      writer.uint32(26).string(message.assetDenom);
-    }
-    if (message.limit !== 0) {
-      writer.uint32(32).uint64(message.limit);
-    }
-    return writer;
-  },
-
-  decode(
-    input: Reader | Uint8Array,
-    length?: number
-  ): QueryGetAllSettlementsRequest {
-    const reader = input instanceof Uint8Array ? new Reader(input) : input;
-    let end = length === undefined ? reader.len : reader.pos + length;
-    const message = {
-      ...baseQueryGetAllSettlementsRequest,
-    } as QueryGetAllSettlementsRequest;
-    while (reader.pos < end) {
-      const tag = reader.uint32();
-      switch (tag >>> 3) {
-        case 1:
-          message.contractAddr = reader.string();
-          break;
-        case 2:
-          message.priceDenom = reader.string();
-          break;
-        case 3:
-          message.assetDenom = reader.string();
-          break;
-        case 4:
-          message.limit = longToNumber(reader.uint64() as Long);
-          break;
-        default:
-          reader.skipType(tag & 7);
-          break;
-      }
-    }
-    return message;
-  },
-
-  fromJSON(object: any): QueryGetAllSettlementsRequest {
-    const message = {
-      ...baseQueryGetAllSettlementsRequest,
-    } as QueryGetAllSettlementsRequest;
-    if (object.contractAddr !== undefined && object.contractAddr !== null) {
-      message.contractAddr = String(object.contractAddr);
-    } else {
-      message.contractAddr = "";
-    }
-    if (object.priceDenom !== undefined && object.priceDenom !== null) {
-      message.priceDenom = String(object.priceDenom);
-    } else {
-      message.priceDenom = "";
-    }
-    if (object.assetDenom !== undefined && object.assetDenom !== null) {
-      message.assetDenom = String(object.assetDenom);
-    } else {
-      message.assetDenom = "";
-    }
-    if (object.limit !== undefined && object.limit !== null) {
-      message.limit = Number(object.limit);
-    } else {
-      message.limit = 0;
-    }
-    return message;
-  },
-
-  toJSON(message: QueryGetAllSettlementsRequest): unknown {
-    const obj: any = {};
-    message.contractAddr !== undefined &&
-      (obj.contractAddr = message.contractAddr);
-    message.priceDenom !== undefined && (obj.priceDenom = message.priceDenom);
-    message.assetDenom !== undefined && (obj.assetDenom = message.assetDenom);
-    message.limit !== undefined && (obj.limit = message.limit);
-    return obj;
-  },
-
-  fromPartial(
-    object: DeepPartial<QueryGetAllSettlementsRequest>
-  ): QueryGetAllSettlementsRequest {
-    const message = {
-      ...baseQueryGetAllSettlementsRequest,
-    } as QueryGetAllSettlementsRequest;
-    if (object.contractAddr !== undefined && object.contractAddr !== null) {
-      message.contractAddr = object.contractAddr;
-    } else {
-      message.contractAddr = "";
-    }
-    if (object.priceDenom !== undefined && object.priceDenom !== null) {
-      message.priceDenom = object.priceDenom;
-    } else {
-      message.priceDenom = "";
-    }
-    if (object.assetDenom !== undefined && object.assetDenom !== null) {
-      message.assetDenom = object.assetDenom;
-    } else {
-      message.assetDenom = "";
-    }
-    if (object.limit !== undefined && object.limit !== null) {
-      message.limit = object.limit;
-    } else {
-      message.limit = 0;
-    }
-    return message;
-  },
-};
-
-const baseQueryGetAllSettlementsResponse: object = {};
-
-export const QueryGetAllSettlementsResponse = {
-  encode(
-    message: QueryGetAllSettlementsResponse,
-    writer: Writer = Writer.create()
-  ): Writer {
-    for (const v of message.SettlementsList) {
-      Settlements.encode(v!, writer.uint32(10).fork()).ldelim();
-    }
-    return writer;
-  },
-
-  decode(
-    input: Reader | Uint8Array,
-    length?: number
-  ): QueryGetAllSettlementsResponse {
-    const reader = input instanceof Uint8Array ? new Reader(input) : input;
-    let end = length === undefined ? reader.len : reader.pos + length;
-    const message = {
-      ...baseQueryGetAllSettlementsResponse,
-    } as QueryGetAllSettlementsResponse;
-    message.SettlementsList = [];
-    while (reader.pos < end) {
-      const tag = reader.uint32();
-      switch (tag >>> 3) {
-        case 1:
-          message.SettlementsList.push(
-            Settlements.decode(reader, reader.uint32())
-          );
-          break;
-        default:
-          reader.skipType(tag & 7);
-          break;
-      }
-    }
-    return message;
-  },
-
-  fromJSON(object: any): QueryGetAllSettlementsResponse {
-    const message = {
-      ...baseQueryGetAllSettlementsResponse,
-    } as QueryGetAllSettlementsResponse;
-    message.SettlementsList = [];
-    if (
-      object.SettlementsList !== undefined &&
-      object.SettlementsList !== null
-    ) {
-      for (const e of object.SettlementsList) {
-        message.SettlementsList.push(Settlements.fromJSON(e));
-      }
-    }
-    return message;
-  },
-
-  toJSON(message: QueryGetAllSettlementsResponse): unknown {
-    const obj: any = {};
-    if (message.SettlementsList) {
-      obj.SettlementsList = message.SettlementsList.map((e) =>
-        e ? Settlements.toJSON(e) : undefined
-      );
-    } else {
-      obj.SettlementsList = [];
-    }
-    return obj;
-  },
-
-  fromPartial(
-    object: DeepPartial<QueryGetAllSettlementsResponse>
-  ): QueryGetAllSettlementsResponse {
-    const message = {
-      ...baseQueryGetAllSettlementsResponse,
-    } as QueryGetAllSettlementsResponse;
-    message.SettlementsList = [];
-    if (
-      object.SettlementsList !== undefined &&
-      object.SettlementsList !== null
-    ) {
-      for (const e of object.SettlementsList) {
-        message.SettlementsList.push(Settlements.fromPartial(e));
-      }
     }
     return message;
   },
@@ -3358,7 +2691,7 @@ export const QueryGetMarketSummaryResponse = {
   },
 };
 
-const baseQueryOrderSimulationRequest: object = {};
+const baseQueryOrderSimulationRequest: object = { contractAddr: "" };
 
 export const QueryOrderSimulationRequest = {
   encode(
@@ -3367,6 +2700,9 @@ export const QueryOrderSimulationRequest = {
   ): Writer {
     if (message.order !== undefined) {
       Order.encode(message.order, writer.uint32(10).fork()).ldelim();
+    }
+    if (message.contractAddr !== "") {
+      writer.uint32(18).string(message.contractAddr);
     }
     return writer;
   },
@@ -3386,6 +2722,9 @@ export const QueryOrderSimulationRequest = {
         case 1:
           message.order = Order.decode(reader, reader.uint32());
           break;
+        case 2:
+          message.contractAddr = reader.string();
+          break;
         default:
           reader.skipType(tag & 7);
           break;
@@ -3403,6 +2742,11 @@ export const QueryOrderSimulationRequest = {
     } else {
       message.order = undefined;
     }
+    if (object.contractAddr !== undefined && object.contractAddr !== null) {
+      message.contractAddr = String(object.contractAddr);
+    } else {
+      message.contractAddr = "";
+    }
     return message;
   },
 
@@ -3410,6 +2754,8 @@ export const QueryOrderSimulationRequest = {
     const obj: any = {};
     message.order !== undefined &&
       (obj.order = message.order ? Order.toJSON(message.order) : undefined);
+    message.contractAddr !== undefined &&
+      (obj.contractAddr = message.contractAddr);
     return obj;
   },
 
@@ -3423,6 +2769,11 @@ export const QueryOrderSimulationRequest = {
       message.order = Order.fromPartial(object.order);
     } else {
       message.order = undefined;
+    }
+    if (object.contractAddr !== undefined && object.contractAddr !== null) {
+      message.contractAddr = object.contractAddr;
+    } else {
+      message.contractAddr = "";
     }
     return message;
   },
@@ -3504,6 +2855,165 @@ export const QueryOrderSimulationResponse = {
   },
 };
 
+const baseQueryGetMatchResultRequest: object = { contractAddr: "", height: 0 };
+
+export const QueryGetMatchResultRequest = {
+  encode(
+    message: QueryGetMatchResultRequest,
+    writer: Writer = Writer.create()
+  ): Writer {
+    if (message.contractAddr !== "") {
+      writer.uint32(10).string(message.contractAddr);
+    }
+    if (message.height !== 0) {
+      writer.uint32(16).int64(message.height);
+    }
+    return writer;
+  },
+
+  decode(
+    input: Reader | Uint8Array,
+    length?: number
+  ): QueryGetMatchResultRequest {
+    const reader = input instanceof Uint8Array ? new Reader(input) : input;
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = {
+      ...baseQueryGetMatchResultRequest,
+    } as QueryGetMatchResultRequest;
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1:
+          message.contractAddr = reader.string();
+          break;
+        case 2:
+          message.height = longToNumber(reader.int64() as Long);
+          break;
+        default:
+          reader.skipType(tag & 7);
+          break;
+      }
+    }
+    return message;
+  },
+
+  fromJSON(object: any): QueryGetMatchResultRequest {
+    const message = {
+      ...baseQueryGetMatchResultRequest,
+    } as QueryGetMatchResultRequest;
+    if (object.contractAddr !== undefined && object.contractAddr !== null) {
+      message.contractAddr = String(object.contractAddr);
+    } else {
+      message.contractAddr = "";
+    }
+    if (object.height !== undefined && object.height !== null) {
+      message.height = Number(object.height);
+    } else {
+      message.height = 0;
+    }
+    return message;
+  },
+
+  toJSON(message: QueryGetMatchResultRequest): unknown {
+    const obj: any = {};
+    message.contractAddr !== undefined &&
+      (obj.contractAddr = message.contractAddr);
+    message.height !== undefined && (obj.height = message.height);
+    return obj;
+  },
+
+  fromPartial(
+    object: DeepPartial<QueryGetMatchResultRequest>
+  ): QueryGetMatchResultRequest {
+    const message = {
+      ...baseQueryGetMatchResultRequest,
+    } as QueryGetMatchResultRequest;
+    if (object.contractAddr !== undefined && object.contractAddr !== null) {
+      message.contractAddr = object.contractAddr;
+    } else {
+      message.contractAddr = "";
+    }
+    if (object.height !== undefined && object.height !== null) {
+      message.height = object.height;
+    } else {
+      message.height = 0;
+    }
+    return message;
+  },
+};
+
+const baseQueryGetMatchResultResponse: object = {};
+
+export const QueryGetMatchResultResponse = {
+  encode(
+    message: QueryGetMatchResultResponse,
+    writer: Writer = Writer.create()
+  ): Writer {
+    if (message.result !== undefined) {
+      MatchResult.encode(message.result, writer.uint32(10).fork()).ldelim();
+    }
+    return writer;
+  },
+
+  decode(
+    input: Reader | Uint8Array,
+    length?: number
+  ): QueryGetMatchResultResponse {
+    const reader = input instanceof Uint8Array ? new Reader(input) : input;
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = {
+      ...baseQueryGetMatchResultResponse,
+    } as QueryGetMatchResultResponse;
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1:
+          message.result = MatchResult.decode(reader, reader.uint32());
+          break;
+        default:
+          reader.skipType(tag & 7);
+          break;
+      }
+    }
+    return message;
+  },
+
+  fromJSON(object: any): QueryGetMatchResultResponse {
+    const message = {
+      ...baseQueryGetMatchResultResponse,
+    } as QueryGetMatchResultResponse;
+    if (object.result !== undefined && object.result !== null) {
+      message.result = MatchResult.fromJSON(object.result);
+    } else {
+      message.result = undefined;
+    }
+    return message;
+  },
+
+  toJSON(message: QueryGetMatchResultResponse): unknown {
+    const obj: any = {};
+    message.result !== undefined &&
+      (obj.result = message.result
+        ? MatchResult.toJSON(message.result)
+        : undefined);
+    return obj;
+  },
+
+  fromPartial(
+    object: DeepPartial<QueryGetMatchResultResponse>
+  ): QueryGetMatchResultResponse {
+    const message = {
+      ...baseQueryGetMatchResultResponse,
+    } as QueryGetMatchResultResponse;
+    if (object.result !== undefined && object.result !== null) {
+      message.result = MatchResult.fromPartial(object.result);
+    } else {
+      message.result = undefined;
+    }
+    return message;
+  },
+};
+
 /** Query defines the gRPC querier service. */
 export interface Query {
   /** Parameters queries the parameters of the module. */
@@ -3522,9 +3032,6 @@ export interface Query {
   ShortBookAll(
     request: QueryAllShortBookRequest
   ): Promise<QueryAllShortBookResponse>;
-  GetSettlements(
-    request: QueryGetSettlementsRequest
-  ): Promise<QueryGetSettlementsResponse>;
   GetPrices(request: QueryGetPricesRequest): Promise<QueryGetPricesResponse>;
   GetTwaps(request: QueryGetTwapsRequest): Promise<QueryGetTwapsResponse>;
   /** Returns the metadata for a specified denom / display type */
@@ -3547,15 +3054,12 @@ export interface Query {
   GetMarketSummary(
     request: QueryGetMarketSummaryRequest
   ): Promise<QueryGetMarketSummaryResponse>;
-  GetSettlementsForAccount(
-    request: QueryGetSettlementsForAccountRequest
-  ): Promise<QueryGetSettlementsForAccountResponse>;
-  GetAllSettlements(
-    request: QueryGetAllSettlementsRequest
-  ): Promise<QueryGetAllSettlementsResponse>;
   GetOrderSimulation(
     request: QueryOrderSimulationRequest
   ): Promise<QueryOrderSimulationResponse>;
+  GetMatchResult(
+    request: QueryGetMatchResultRequest
+  ): Promise<QueryGetMatchResultResponse>;
 }
 
 export class QueryClientImpl implements Query {
@@ -3626,20 +3130,6 @@ export class QueryClientImpl implements Query {
     );
     return promise.then((data) =>
       QueryAllShortBookResponse.decode(new Reader(data))
-    );
-  }
-
-  GetSettlements(
-    request: QueryGetSettlementsRequest
-  ): Promise<QueryGetSettlementsResponse> {
-    const data = QueryGetSettlementsRequest.encode(request).finish();
-    const promise = this.rpc.request(
-      "seiprotocol.seichain.dex.Query",
-      "GetSettlements",
-      data
-    );
-    return promise.then((data) =>
-      QueryGetSettlementsResponse.decode(new Reader(data))
     );
   }
 
@@ -3761,34 +3251,6 @@ export class QueryClientImpl implements Query {
     );
   }
 
-  GetSettlementsForAccount(
-    request: QueryGetSettlementsForAccountRequest
-  ): Promise<QueryGetSettlementsForAccountResponse> {
-    const data = QueryGetSettlementsForAccountRequest.encode(request).finish();
-    const promise = this.rpc.request(
-      "seiprotocol.seichain.dex.Query",
-      "GetSettlementsForAccount",
-      data
-    );
-    return promise.then((data) =>
-      QueryGetSettlementsForAccountResponse.decode(new Reader(data))
-    );
-  }
-
-  GetAllSettlements(
-    request: QueryGetAllSettlementsRequest
-  ): Promise<QueryGetAllSettlementsResponse> {
-    const data = QueryGetAllSettlementsRequest.encode(request).finish();
-    const promise = this.rpc.request(
-      "seiprotocol.seichain.dex.Query",
-      "GetAllSettlements",
-      data
-    );
-    return promise.then((data) =>
-      QueryGetAllSettlementsResponse.decode(new Reader(data))
-    );
-  }
-
   GetOrderSimulation(
     request: QueryOrderSimulationRequest
   ): Promise<QueryOrderSimulationResponse> {
@@ -3800,6 +3262,20 @@ export class QueryClientImpl implements Query {
     );
     return promise.then((data) =>
       QueryOrderSimulationResponse.decode(new Reader(data))
+    );
+  }
+
+  GetMatchResult(
+    request: QueryGetMatchResultRequest
+  ): Promise<QueryGetMatchResultResponse> {
+    const data = QueryGetMatchResultRequest.encode(request).finish();
+    const promise = this.rpc.request(
+      "seiprotocol.seichain.dex.Query",
+      "GetMatchResult",
+      data
+    );
+    return promise.then((data) =>
+      QueryGetMatchResultResponse.decode(new Reader(data))
     );
   }
 }

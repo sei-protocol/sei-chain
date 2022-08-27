@@ -19,6 +19,11 @@ export interface Cancellation {
     id: number;
     initiator: CancellationInitiator;
     creator: string;
+    contractAddr: string;
+    priceDenom: string;
+    assetDenom: string;
+    positionDirection: PositionDirection;
+    price: string;
 }
 export interface ActiveOrders {
     ids: number[];

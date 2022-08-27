@@ -17,6 +17,8 @@ export declare enum OrderType {
     LIMIT = 0,
     MARKET = 1,
     LIQUIDATION = 2,
+    /** FOKMARKET - fill-or-kill market order */
+    FOKMARKET = 3,
     UNRECOGNIZED = -1
 }
 export declare function orderTypeFromJSON(object: any): OrderType;

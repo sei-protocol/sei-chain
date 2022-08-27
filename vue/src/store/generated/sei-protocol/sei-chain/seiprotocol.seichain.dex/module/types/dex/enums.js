@@ -65,6 +65,8 @@ export var OrderType;
     OrderType[OrderType["LIMIT"] = 0] = "LIMIT";
     OrderType[OrderType["MARKET"] = 1] = "MARKET";
     OrderType[OrderType["LIQUIDATION"] = 2] = "LIQUIDATION";
+    /** FOKMARKET - fill-or-kill market order */
+    OrderType[OrderType["FOKMARKET"] = 3] = "FOKMARKET";
     OrderType[OrderType["UNRECOGNIZED"] = -1] = "UNRECOGNIZED";
 })(OrderType || (OrderType = {}));
 export function orderTypeFromJSON(object) {
@@ -78,6 +80,9 @@ export function orderTypeFromJSON(object) {
         case 2:
         case "LIQUIDATION":
             return OrderType.LIQUIDATION;
+        case 3:
+        case "FOKMARKET":
+            return OrderType.FOKMARKET;
         case -1:
         case "UNRECOGNIZED":
         default:
@@ -92,6 +97,8 @@ export function orderTypeToJSON(object) {
             return "MARKET";
         case OrderType.LIQUIDATION:
             return "LIQUIDATION";
+        case OrderType.FOKMARKET:
+            return "FOKMARKET";
         default:
             return "UNKNOWN";
     }

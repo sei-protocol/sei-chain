@@ -1,7 +1,7 @@
 /* eslint-disable */
 import { Reader, util, configure, Writer } from "protobufjs/minimal";
 import * as Long from "long";
-import { Order } from "../dex/order";
+import { Order, Cancellation } from "../dex/order";
 import { Coin } from "../cosmos/base/v1beta1/coin";
 import { ContractInfo } from "../dex/contract";
 
@@ -12,7 +12,6 @@ export interface MsgPlaceOrders {
   orders: Order[];
   contractAddr: string;
   funds: Coin[];
-  autoCalculateDeposit: boolean;
 }
 
 export interface MsgPlaceOrdersResponse {
@@ -21,19 +20,11 @@ export interface MsgPlaceOrdersResponse {
 
 export interface MsgCancelOrders {
   creator: string;
-  orderIds: number[];
+  cancellations: Cancellation[];
   contractAddr: string;
 }
 
 export interface MsgCancelOrdersResponse {}
-
-export interface MsgLiquidation {
-  creator: string;
-  accountToLiquidate: string;
-  contractAddr: string;
-}
-
-export interface MsgLiquidationResponse {}
 
 export interface MsgRegisterContract {
   creator: string;
@@ -42,11 +33,7 @@ export interface MsgRegisterContract {
 
 export interface MsgRegisterContractResponse {}
 
-const baseMsgPlaceOrders: object = {
-  creator: "",
-  contractAddr: "",
-  autoCalculateDeposit: false,
-};
+const baseMsgPlaceOrders: object = { creator: "", contractAddr: "" };
 
 export const MsgPlaceOrders = {
   encode(message: MsgPlaceOrders, writer: Writer = Writer.create()): Writer {
@@ -61,9 +48,6 @@ export const MsgPlaceOrders = {
     }
     for (const v of message.funds) {
       Coin.encode(v!, writer.uint32(34).fork()).ldelim();
-    }
-    if (message.autoCalculateDeposit === true) {
-      writer.uint32(40).bool(message.autoCalculateDeposit);
     }
     return writer;
   },
@@ -88,9 +72,6 @@ export const MsgPlaceOrders = {
           break;
         case 4:
           message.funds.push(Coin.decode(reader, reader.uint32()));
-          break;
-        case 5:
-          message.autoCalculateDeposit = reader.bool();
           break;
         default:
           reader.skipType(tag & 7);
@@ -124,14 +105,6 @@ export const MsgPlaceOrders = {
         message.funds.push(Coin.fromJSON(e));
       }
     }
-    if (
-      object.autoCalculateDeposit !== undefined &&
-      object.autoCalculateDeposit !== null
-    ) {
-      message.autoCalculateDeposit = Boolean(object.autoCalculateDeposit);
-    } else {
-      message.autoCalculateDeposit = false;
-    }
     return message;
   },
 
@@ -150,8 +123,6 @@ export const MsgPlaceOrders = {
     } else {
       obj.funds = [];
     }
-    message.autoCalculateDeposit !== undefined &&
-      (obj.autoCalculateDeposit = message.autoCalculateDeposit);
     return obj;
   },
 
@@ -178,14 +149,6 @@ export const MsgPlaceOrders = {
       for (const e of object.funds) {
         message.funds.push(Coin.fromPartial(e));
       }
-    }
-    if (
-      object.autoCalculateDeposit !== undefined &&
-      object.autoCalculateDeposit !== null
-    ) {
-      message.autoCalculateDeposit = object.autoCalculateDeposit;
-    } else {
-      message.autoCalculateDeposit = false;
     }
     return message;
   },
@@ -267,22 +230,16 @@ export const MsgPlaceOrdersResponse = {
   },
 };
 
-const baseMsgCancelOrders: object = {
-  creator: "",
-  orderIds: 0,
-  contractAddr: "",
-};
+const baseMsgCancelOrders: object = { creator: "", contractAddr: "" };
 
 export const MsgCancelOrders = {
   encode(message: MsgCancelOrders, writer: Writer = Writer.create()): Writer {
     if (message.creator !== "") {
       writer.uint32(10).string(message.creator);
     }
-    writer.uint32(18).fork();
-    for (const v of message.orderIds) {
-      writer.uint64(v);
+    for (const v of message.cancellations) {
+      Cancellation.encode(v!, writer.uint32(18).fork()).ldelim();
     }
-    writer.ldelim();
     if (message.contractAddr !== "") {
       writer.uint32(26).string(message.contractAddr);
     }
@@ -293,7 +250,7 @@ export const MsgCancelOrders = {
     const reader = input instanceof Uint8Array ? new Reader(input) : input;
     let end = length === undefined ? reader.len : reader.pos + length;
     const message = { ...baseMsgCancelOrders } as MsgCancelOrders;
-    message.orderIds = [];
+    message.cancellations = [];
     while (reader.pos < end) {
       const tag = reader.uint32();
       switch (tag >>> 3) {
@@ -301,14 +258,9 @@ export const MsgCancelOrders = {
           message.creator = reader.string();
           break;
         case 2:
-          if ((tag & 7) === 2) {
-            const end2 = reader.uint32() + reader.pos;
-            while (reader.pos < end2) {
-              message.orderIds.push(longToNumber(reader.uint64() as Long));
-            }
-          } else {
-            message.orderIds.push(longToNumber(reader.uint64() as Long));
-          }
+          message.cancellations.push(
+            Cancellation.decode(reader, reader.uint32())
+          );
           break;
         case 3:
           message.contractAddr = reader.string();
@@ -323,15 +275,15 @@ export const MsgCancelOrders = {
 
   fromJSON(object: any): MsgCancelOrders {
     const message = { ...baseMsgCancelOrders } as MsgCancelOrders;
-    message.orderIds = [];
+    message.cancellations = [];
     if (object.creator !== undefined && object.creator !== null) {
       message.creator = String(object.creator);
     } else {
       message.creator = "";
     }
-    if (object.orderIds !== undefined && object.orderIds !== null) {
-      for (const e of object.orderIds) {
-        message.orderIds.push(Number(e));
+    if (object.cancellations !== undefined && object.cancellations !== null) {
+      for (const e of object.cancellations) {
+        message.cancellations.push(Cancellation.fromJSON(e));
       }
     }
     if (object.contractAddr !== undefined && object.contractAddr !== null) {
@@ -345,10 +297,12 @@ export const MsgCancelOrders = {
   toJSON(message: MsgCancelOrders): unknown {
     const obj: any = {};
     message.creator !== undefined && (obj.creator = message.creator);
-    if (message.orderIds) {
-      obj.orderIds = message.orderIds.map((e) => e);
+    if (message.cancellations) {
+      obj.cancellations = message.cancellations.map((e) =>
+        e ? Cancellation.toJSON(e) : undefined
+      );
     } else {
-      obj.orderIds = [];
+      obj.cancellations = [];
     }
     message.contractAddr !== undefined &&
       (obj.contractAddr = message.contractAddr);
@@ -357,15 +311,15 @@ export const MsgCancelOrders = {
 
   fromPartial(object: DeepPartial<MsgCancelOrders>): MsgCancelOrders {
     const message = { ...baseMsgCancelOrders } as MsgCancelOrders;
-    message.orderIds = [];
+    message.cancellations = [];
     if (object.creator !== undefined && object.creator !== null) {
       message.creator = object.creator;
     } else {
       message.creator = "";
     }
-    if (object.orderIds !== undefined && object.orderIds !== null) {
-      for (const e of object.orderIds) {
-        message.orderIds.push(e);
+    if (object.cancellations !== undefined && object.cancellations !== null) {
+      for (const e of object.cancellations) {
+        message.cancellations.push(Cancellation.fromPartial(e));
       }
     }
     if (object.contractAddr !== undefined && object.contractAddr !== null) {
@@ -419,145 +373,6 @@ export const MsgCancelOrdersResponse = {
     const message = {
       ...baseMsgCancelOrdersResponse,
     } as MsgCancelOrdersResponse;
-    return message;
-  },
-};
-
-const baseMsgLiquidation: object = {
-  creator: "",
-  accountToLiquidate: "",
-  contractAddr: "",
-};
-
-export const MsgLiquidation = {
-  encode(message: MsgLiquidation, writer: Writer = Writer.create()): Writer {
-    if (message.creator !== "") {
-      writer.uint32(10).string(message.creator);
-    }
-    if (message.accountToLiquidate !== "") {
-      writer.uint32(18).string(message.accountToLiquidate);
-    }
-    if (message.contractAddr !== "") {
-      writer.uint32(26).string(message.contractAddr);
-    }
-    return writer;
-  },
-
-  decode(input: Reader | Uint8Array, length?: number): MsgLiquidation {
-    const reader = input instanceof Uint8Array ? new Reader(input) : input;
-    let end = length === undefined ? reader.len : reader.pos + length;
-    const message = { ...baseMsgLiquidation } as MsgLiquidation;
-    while (reader.pos < end) {
-      const tag = reader.uint32();
-      switch (tag >>> 3) {
-        case 1:
-          message.creator = reader.string();
-          break;
-        case 2:
-          message.accountToLiquidate = reader.string();
-          break;
-        case 3:
-          message.contractAddr = reader.string();
-          break;
-        default:
-          reader.skipType(tag & 7);
-          break;
-      }
-    }
-    return message;
-  },
-
-  fromJSON(object: any): MsgLiquidation {
-    const message = { ...baseMsgLiquidation } as MsgLiquidation;
-    if (object.creator !== undefined && object.creator !== null) {
-      message.creator = String(object.creator);
-    } else {
-      message.creator = "";
-    }
-    if (
-      object.accountToLiquidate !== undefined &&
-      object.accountToLiquidate !== null
-    ) {
-      message.accountToLiquidate = String(object.accountToLiquidate);
-    } else {
-      message.accountToLiquidate = "";
-    }
-    if (object.contractAddr !== undefined && object.contractAddr !== null) {
-      message.contractAddr = String(object.contractAddr);
-    } else {
-      message.contractAddr = "";
-    }
-    return message;
-  },
-
-  toJSON(message: MsgLiquidation): unknown {
-    const obj: any = {};
-    message.creator !== undefined && (obj.creator = message.creator);
-    message.accountToLiquidate !== undefined &&
-      (obj.accountToLiquidate = message.accountToLiquidate);
-    message.contractAddr !== undefined &&
-      (obj.contractAddr = message.contractAddr);
-    return obj;
-  },
-
-  fromPartial(object: DeepPartial<MsgLiquidation>): MsgLiquidation {
-    const message = { ...baseMsgLiquidation } as MsgLiquidation;
-    if (object.creator !== undefined && object.creator !== null) {
-      message.creator = object.creator;
-    } else {
-      message.creator = "";
-    }
-    if (
-      object.accountToLiquidate !== undefined &&
-      object.accountToLiquidate !== null
-    ) {
-      message.accountToLiquidate = object.accountToLiquidate;
-    } else {
-      message.accountToLiquidate = "";
-    }
-    if (object.contractAddr !== undefined && object.contractAddr !== null) {
-      message.contractAddr = object.contractAddr;
-    } else {
-      message.contractAddr = "";
-    }
-    return message;
-  },
-};
-
-const baseMsgLiquidationResponse: object = {};
-
-export const MsgLiquidationResponse = {
-  encode(_: MsgLiquidationResponse, writer: Writer = Writer.create()): Writer {
-    return writer;
-  },
-
-  decode(input: Reader | Uint8Array, length?: number): MsgLiquidationResponse {
-    const reader = input instanceof Uint8Array ? new Reader(input) : input;
-    let end = length === undefined ? reader.len : reader.pos + length;
-    const message = { ...baseMsgLiquidationResponse } as MsgLiquidationResponse;
-    while (reader.pos < end) {
-      const tag = reader.uint32();
-      switch (tag >>> 3) {
-        default:
-          reader.skipType(tag & 7);
-          break;
-      }
-    }
-    return message;
-  },
-
-  fromJSON(_: any): MsgLiquidationResponse {
-    const message = { ...baseMsgLiquidationResponse } as MsgLiquidationResponse;
-    return message;
-  },
-
-  toJSON(_: MsgLiquidationResponse): unknown {
-    const obj: any = {};
-    return obj;
-  },
-
-  fromPartial(_: DeepPartial<MsgLiquidationResponse>): MsgLiquidationResponse {
-    const message = { ...baseMsgLiquidationResponse } as MsgLiquidationResponse;
     return message;
   },
 };
@@ -696,7 +511,6 @@ export const MsgRegisterContractResponse = {
 export interface Msg {
   PlaceOrders(request: MsgPlaceOrders): Promise<MsgPlaceOrdersResponse>;
   CancelOrders(request: MsgCancelOrders): Promise<MsgCancelOrdersResponse>;
-  Liquidate(request: MsgLiquidation): Promise<MsgLiquidationResponse>;
   /** privileged endpoints below */
   RegisterContract(
     request: MsgRegisterContract
@@ -729,18 +543,6 @@ export class MsgClientImpl implements Msg {
     );
     return promise.then((data) =>
       MsgCancelOrdersResponse.decode(new Reader(data))
-    );
-  }
-
-  Liquidate(request: MsgLiquidation): Promise<MsgLiquidationResponse> {
-    const data = MsgLiquidation.encode(request).finish();
-    const promise = this.rpc.request(
-      "seiprotocol.seichain.dex.Msg",
-      "Liquidate",
-      data
-    );
-    return promise.then((data) =>
-      MsgLiquidationResponse.decode(new Reader(data))
     );
   }
 

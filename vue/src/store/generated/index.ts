@@ -15,6 +15,7 @@ import CosmosIbcGoIbcApplicationsTransferV1 from './cosmos/ibc-go/ibc.applicatio
 import CosmosIbcGoIbcApplicationsTransferV2 from './cosmos/ibc-go/ibc.applications.transfer.v2'
 import SeiProtocolSeiChainSeiprotocolSeichainDex from './sei-protocol/sei-chain/seiprotocol.seichain.dex'
 import SeiProtocolSeiChainSeiprotocolSeichainOracle from './sei-protocol/sei-chain/seiprotocol.seichain.oracle'
+import SeiProtocolSeiChainSeiprotocolSeichainTokenfactory from './sei-protocol/sei-chain/seiprotocol.seichain.tokenfactory'
 
 
 export default { 
@@ -33,6 +34,7 @@ export default {
   CosmosIbcGoIbcApplicationsTransferV2: load(CosmosIbcGoIbcApplicationsTransferV2, 'ibc.applications.transfer.v2'),
   SeiProtocolSeiChainSeiprotocolSeichainDex: load(SeiProtocolSeiChainSeiprotocolSeichainDex, 'seiprotocol.seichain.dex'),
   SeiProtocolSeiChainSeiprotocolSeichainOracle: load(SeiProtocolSeiChainSeiprotocolSeichainOracle, 'seiprotocol.seichain.oracle'),
+  SeiProtocolSeiChainSeiprotocolSeichainTokenfactory: load(SeiProtocolSeiChainSeiprotocolSeichainTokenfactory, 'seiprotocol.seichain.tokenfactory'),
   
 }
 
