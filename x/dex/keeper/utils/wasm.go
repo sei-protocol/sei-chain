@@ -2,6 +2,7 @@ package utils
 
 import (
 	"encoding/json"
+	"time"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/sei-protocol/sei-chain/utils/metrics"
@@ -13,6 +14,10 @@ func getMsgType(msg interface{}) string {
 	switch msg.(type) {
 	case dextypeswasm.SudoNewBlockMsg:
 		return "new_block"
+	case dextypeswasm.SudoFinalizeBlockMsg:
+		return "finalize_block"
+	case *dextypeswasm.SudoFinalizeBlockMsg:
+		return "finalize_block"
 	case dextypeswasm.SudoSettlementMsg:
 		return "settlement"
 	case dextypeswasm.SudoOrderPlacementMsg:
@@ -28,7 +33,7 @@ func getMsgType(msg interface{}) string {
 
 func sudo(sdkCtx sdk.Context, k *keeper.Keeper, contractAddress []byte, wasmMsg []byte, msgType string) ([]byte, error) {
 	// Measure the time it takes to execute the contract in WASM
-	defer metrics.MeasureSudoExecutionDuration(msgType)
+	defer metrics.MeasureSudoExecutionDuration(time.Now(), msgType)
 	data, err := k.WasmKeeper.Sudo(
 		sdkCtx, contractAddress, wasmMsg,
 	)
