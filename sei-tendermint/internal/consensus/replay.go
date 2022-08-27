@@ -539,7 +539,7 @@ func (h *Handshaker) replayBlock(
 	blockExec := sm.NewBlockExecutor(h.stateStore, h.logger, appClient, emptyMempool{}, sm.EmptyEvidencePool{}, h.store, h.eventBus, sm.NopMetrics())
 
 	var err error
-	state, err = blockExec.ApplyBlock(ctx, state, meta.BlockID, block)
+	state, err = blockExec.ApplyBlock(ctx, state, meta.BlockID, block, nil)
 	if err != nil {
 		return sm.State{}, err
 	}

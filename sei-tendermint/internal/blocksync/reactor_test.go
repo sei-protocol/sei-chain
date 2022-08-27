@@ -190,7 +190,7 @@ func (rts *reactorTestSuite) addNode(
 	for blockHeight := int64(1); blockHeight <= maxBlockHeight; blockHeight++ {
 		block, blockID, partSet, seenExtCommit := makeNextBlock(ctx, t, state, privVal, blockHeight, lastExtCommit)
 
-		state, err = reactor.blockExec.ApplyBlock(ctx, state, blockID, block)
+		state, err = reactor.blockExec.ApplyBlock(ctx, state, blockID, block, nil)
 		require.NoError(t, err)
 
 		reactor.store.SaveBlockWithExtendedCommit(block, partSet, seenExtCommit)

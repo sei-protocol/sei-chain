@@ -68,7 +68,7 @@ func makeAndApplyGoodBlock(
 	require.NoError(t, blockExec.ValidateBlock(ctx, state, block))
 	blockID := types.BlockID{Hash: block.Hash(),
 		PartSetHeader: partSet.Header()}
-	state, err = blockExec.ApplyBlock(ctx, state, blockID, block)
+	state, err = blockExec.ApplyBlock(ctx, state, blockID, block, nil)
 	require.NoError(t, err)
 
 	return state, blockID
