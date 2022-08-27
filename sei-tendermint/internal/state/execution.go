@@ -16,6 +16,7 @@ import (
 	"github.com/tendermint/tendermint/libs/log"
 	tmtypes "github.com/tendermint/tendermint/proto/tendermint/types"
 	"github.com/tendermint/tendermint/types"
+	otrace "go.opentelemetry.io/otel/trace"
 )
 
 //-----------------------------------------------------------------------------
@@ -199,10 +200,20 @@ func (blockExec *BlockExecutor) ValidateBlock(ctx context.Context, state State, 
 func (blockExec *BlockExecutor) ApplyBlock(
 	ctx context.Context,
 	state State,
-	blockID types.BlockID, block *types.Block) (State, error) {
+	blockID types.BlockID, block *types.Block, tracer otrace.Tracer) (State, error) {
+	if tracer != nil {
+		spanCtx, span := tracer.Start(ctx, "cs.state.ApplyBlock")
+		ctx = spanCtx
+		defer span.End()
+	}
 	// validate the block if we haven't already
 	if err := blockExec.ValidateBlock(ctx, state, block); err != nil {
 		return state, ErrInvalidBlock(err)
+	}
+	var finalizeBlockSpan otrace.Span = nil
+	if tracer != nil {
+		_, finalizeBlockSpan = tracer.Start(ctx, "cs.state.ApplyBlock.FinalizeBlock")
+		defer finalizeBlockSpan.End()
 	}
 	startTime := time.Now().UnixNano()
 	fBlockRes, err := blockExec.appClient.FinalizeBlock(
@@ -219,6 +230,9 @@ func (blockExec *BlockExecutor) ApplyBlock(
 		},
 	)
 	endTime := time.Now().UnixNano()
+	if finalizeBlockSpan != nil {
+		finalizeBlockSpan.End()
+	}
 	blockExec.metrics.BlockProcessingTime.Observe(float64(endTime-startTime) / 1000000)
 	if err != nil {
 		return state, ErrProxyAppConn(err)
@@ -269,10 +283,18 @@ func (blockExec *BlockExecutor) ApplyBlock(
 		return state, fmt.Errorf("commit failed for application: %w", err)
 	}
 
+	var commitSpan otrace.Span = nil
+	if tracer != nil {
+		_, commitSpan = tracer.Start(ctx, "cs.state.ApplyBlock.Commit")
+		defer commitSpan.End()
+	}
 	// Lock mempool, commit app state, update mempoool.
 	retainHeight, err := blockExec.Commit(ctx, state, block, fBlockRes.TxResults)
 	if err != nil {
 		return state, fmt.Errorf("commit failed for application: %w", err)
+	}
+	if commitSpan != nil {
+		commitSpan.End()
 	}
 
 	// Update evpool with the latest state.

@@ -1307,7 +1307,7 @@ func (cs *State) enterNewRound(ctx context.Context, height int64, round int32, e
 	}
 
 	span.End()
-	cs.enterPropose(ctx, height, round, "enterPropose")
+	cs.enterPropose(ctx, height, round, "enterNewRound")
 
 	return
 }
@@ -1915,7 +1915,7 @@ func (cs *State) enterPrecommitWait(height int64, round int32) {
 
 // Enter: +2/3 precommits for block
 func (cs *State) enterCommit(ctx context.Context, height int64, commitRound int32, entryLabel string) {
-	_, span := cs.tracer.Start(cs.getTracingCtx(ctx), "cs.state.enterCommit")
+	spanCtx, span := cs.tracer.Start(cs.getTracingCtx(ctx), "cs.state.enterCommit")
 	span.SetAttributes(attribute.Int("round", int(commitRound)))
 	span.SetAttributes(attribute.String("entry", entryLabel))
 	defer span.End()
@@ -1942,7 +1942,7 @@ func (cs *State) enterCommit(ctx context.Context, height int64, commitRound int3
 		cs.newStep()
 
 		// Maybe finalize immediately.
-		cs.tryFinalizeCommit(ctx, height)
+		cs.tryFinalizeCommit(spanCtx, height)
 	}()
 
 	blockID, ok := cs.Votes.Precommits(commitRound).TwoThirdsMajority()
@@ -2014,6 +2014,8 @@ func (cs *State) tryFinalizeCommit(ctx context.Context, height int64) {
 
 // Increment height and goto cstypes.RoundStepNewHeight
 func (cs *State) finalizeCommit(ctx context.Context, height int64) {
+	spanCtx, span := cs.tracer.Start(ctx, "cs.state.finalizeCommit")
+	defer span.End()
 	logger := cs.logger.With("height", height)
 
 	if cs.Height != height || cs.Step != cstypes.RoundStepCommit {
@@ -2057,12 +2059,15 @@ func (cs *State) finalizeCommit(ctx context.Context, height int64) {
 	if cs.blockStore.Height() < block.Height {
 		// NOTE: the seenCommit is local justification to commit this block,
 		// but may differ from the LastCommit included in the next block
+		_, storeBlockSpan := cs.tracer.Start(spanCtx, "cs.state.finalizeCommit.saveblockstore")
+		defer storeBlockSpan.End()
 		seenExtendedCommit := cs.Votes.Precommits(cs.CommitRound).MakeExtendedCommit()
 		if cs.state.ConsensusParams.ABCI.VoteExtensionsEnabled(block.Height) {
 			cs.blockStore.SaveBlockWithExtendedCommit(block, blockParts, seenExtendedCommit)
 		} else {
 			cs.blockStore.SaveBlock(block, blockParts, seenExtendedCommit.ToCommit())
 		}
+		storeBlockSpan.End()
 	} else {
 		// Happens during replay if we already saved the block but didn't commit
 		logger.Debug("calling finalizeCommit on already stored block", "height", block.Height)
@@ -2082,25 +2087,29 @@ func (cs *State) finalizeCommit(ctx context.Context, height int64) {
 	// successfully call ApplyBlock (ie. later here, or in Handshake after
 	// restart).
 	endMsg := EndHeightMessage{height}
+	_, fsyncSpan := cs.tracer.Start(spanCtx, "cs.state.finalizeCommit.fsync")
+	defer fsyncSpan.End()
 	if err := cs.wal.WriteSync(endMsg); err != nil { // NOTE: fsync
 		panic(fmt.Errorf(
 			"failed to write %v msg to consensus WAL due to %w; check your file system and restart the node",
 			endMsg, err,
 		))
 	}
+	fsyncSpan.End()
 
 	// Create a copy of the state for staging and an event cache for txs.
 	stateCopy := cs.state.Copy()
 
 	// Execute and commit the block, update and save the state, and update the mempool.
 	// NOTE The block.AppHash wont reflect these txs until the next block.
-	stateCopy, err := cs.blockExec.ApplyBlock(ctx,
+	stateCopy, err := cs.blockExec.ApplyBlock(spanCtx,
 		stateCopy,
 		types.BlockID{
 			Hash:          block.Hash(),
 			PartSetHeader: blockParts.Header(),
 		},
 		block,
+		cs.tracer,
 	)
 	if err != nil {
 		logger.Error("failed to apply block", "err", err)

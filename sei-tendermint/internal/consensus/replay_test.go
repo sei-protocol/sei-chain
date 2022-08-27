@@ -292,7 +292,7 @@ func (w *crashingWAL) Start(ctx context.Context) error { return w.next.Start(ctx
 func (w *crashingWAL) Stop()                           { w.next.Stop() }
 func (w *crashingWAL) Wait()                           { w.next.Wait() }
 
-//------------------------------------------------------------------------------------------
+// ------------------------------------------------------------------------------------------
 type simulatorTestSuite struct {
 	GenesisState sm.State
 	Config       *config.Config
@@ -831,7 +831,7 @@ func applyBlock(
 	bps, err := blk.MakePartSet(testPartSize)
 	require.NoError(t, err)
 	blkID := types.BlockID{Hash: blk.Hash(), PartSetHeader: bps.Header()}
-	newState, err := blockExec.ApplyBlock(ctx, st, blkID, blk)
+	newState, err := blockExec.ApplyBlock(ctx, st, blkID, blk, nil)
 	require.NoError(t, err)
 	return newState
 }
