@@ -75,3 +75,7 @@ lint:
 
 build:
 	go build $(BUILD_FLAGS) -o ./build/seid ./cmd/seid
+
+clean:
+	rm -rf ./build
+ 
