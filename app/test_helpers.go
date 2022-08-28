@@ -34,7 +34,7 @@ func NewTestWrapper(t *testing.T, tm time.Time, valPub crptotypes.PubKey) *TestW
 	appPtr := Setup(false)
 	wrapper := &TestWrapper{
 		App: appPtr,
-		Ctx: appPtr.BaseApp.NewContext(false, tmproto.Header{Height: 1, ChainID: "sei-test", Time: tm}),
+		Ctx: appPtr.BaseApp.NewContext(false, tmproto.Header{Height: 1, ChainID: "seitest_1-1", Time: tm}),
 	}
 	wrapper.SetT(t)
 	wrapper.setupValidator(stakingtypes.Bonded, valPub)
@@ -157,6 +157,7 @@ func Setup(isCheckTx bool) *App {
 				Validators:      []abci.ValidatorUpdate{},
 				ConsensusParams: simapp.DefaultConsensusParams,
 				AppStateBytes:   stateBytes,
+				ChainId:         "sei_1-1",
 			},
 		)
 	}
