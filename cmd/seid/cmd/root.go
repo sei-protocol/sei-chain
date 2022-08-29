@@ -41,6 +41,7 @@ import (
 type Option func(*rootOptions)
 
 // scaffoldingOptions keeps set of options to apply scaffolding.
+//
 //nolint:unused // preserving this becase don't know if it is needed.
 type rootOptions struct {
 	addSubCmds         []*cobra.Command
