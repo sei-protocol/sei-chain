@@ -6,5 +6,5 @@ const (
 	// Application name
 	AppName = "sei"
 
-	OptimisticProcessingTimeoutInSeconds = 1
+	OptimisticProcessingTimeoutInSeconds = 5
 )
