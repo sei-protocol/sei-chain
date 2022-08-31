@@ -5,14 +5,14 @@ import { SigningStargateClient } from "@cosmjs/stargate";
 import { Registry, OfflineSigner, EncodeObject, DirectSecp256k1HdWallet } from "@cosmjs/proto-signing";
 import { Api } from "./rest";
 import { MsgRegisterContract } from "./types/dex/tx";
-import { MsgCancelOrders } from "./types/dex/tx";
 import { MsgPlaceOrders } from "./types/dex/tx";
+import { MsgCancelOrders } from "./types/dex/tx";
 
 
 const types = [
   ["/seiprotocol.seichain.dex.MsgRegisterContract", MsgRegisterContract],
-  ["/seiprotocol.seichain.dex.MsgCancelOrders", MsgCancelOrders],
   ["/seiprotocol.seichain.dex.MsgPlaceOrders", MsgPlaceOrders],
+  ["/seiprotocol.seichain.dex.MsgCancelOrders", MsgCancelOrders],
   
 ];
 export const MissingWalletError = new Error("wallet is required");
@@ -46,8 +46,8 @@ const txClient = async (wallet: OfflineSigner, { addr: addr }: TxClientOptions =
   return {
     signAndBroadcast: (msgs: EncodeObject[], { fee, memo }: SignAndBroadcastOptions = {fee: defaultFee, memo: ""}) => client.signAndBroadcast(address, msgs, fee,memo),
     msgRegisterContract: (data: MsgRegisterContract): EncodeObject => ({ typeUrl: "/seiprotocol.seichain.dex.MsgRegisterContract", value: MsgRegisterContract.fromPartial( data ) }),
-    msgCancelOrders: (data: MsgCancelOrders): EncodeObject => ({ typeUrl: "/seiprotocol.seichain.dex.MsgCancelOrders", value: MsgCancelOrders.fromPartial( data ) }),
     msgPlaceOrders: (data: MsgPlaceOrders): EncodeObject => ({ typeUrl: "/seiprotocol.seichain.dex.MsgPlaceOrders", value: MsgPlaceOrders.fromPartial( data ) }),
+    msgCancelOrders: (data: MsgCancelOrders): EncodeObject => ({ typeUrl: "/seiprotocol.seichain.dex.MsgCancelOrders", value: MsgCancelOrders.fromPartial( data ) }),
     
   };
 };
