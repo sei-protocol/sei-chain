@@ -2,6 +2,8 @@ package ante
 
 import (
 	"fmt"
+	"github.com/armon/go-metrics"
+	"github.com/cosmos/cosmos-sdk/telemetry"
 	"runtime/debug"
 
 	tmlog "github.com/tendermint/tendermint/libs/log"
@@ -28,6 +30,15 @@ func NewAnteHandler(options HandlerOptions) (sdk.AnteHandler, error) {
 		return nil, err
 	}
 
+	defaultCosmosAnteHandler := newCosmosAnteHandler(options)
+	// Cache AnteHandlers so we don't recreate on every tx
+	requestHandlerMap := map[string]sdk.AnteHandler{
+		"/ethermint.evm.v1.ExtensionOptionsEthereumTx":    newEthAnteHandler(options),
+		"/ethermint.types.v1.ExtensionOptionsWeb3Tx":      newCosmosAnteHandlerEip712(options),
+		"/ethermint.types.v1.ExtensionOptionDynamicFeeTx": defaultCosmosAnteHandler,
+	}
+	fmt.Println("finding handler")
+
 	return func(
 		ctx sdk.Context, tx sdk.Tx, sim bool,
 	) (newCtx sdk.Context, err error) {
@@ -39,40 +50,39 @@ func NewAnteHandler(options HandlerOptions) (sdk.AnteHandler, error) {
 		if ok {
 			opts := txWithExtensions.GetExtensionOptions()
 			if len(opts) > 0 {
-				switch typeURL := opts[0].GetTypeUrl(); typeURL {
-				case "/ethermint.evm.v1.ExtensionOptionsEthereumTx":
-					// handle as *evmtypes.MsgEthereumTx
-					anteHandler = newEthAnteHandler(options)
-				case "/ethermint.types.v1.ExtensionOptionsWeb3Tx":
-					// handle as normal Cosmos SDK tx, except signature is checked for EIP712 representation
-					anteHandler = newCosmosAnteHandlerEip712(options)
-				case "/ethermint.types.v1.ExtensionOptionDynamicFeeTx":
-					// cosmos-sdk tx with dynamic fee extension
-					anteHandler = newCosmosAnteHandler(options)
-				default:
+				typeURL := opts[0].GetTypeUrl()
+				if reqAnteHandler, ok := requestHandlerMap[typeURL]; ok {
+					fmt.Println("ether")
+					return reqAnteHandler(ctx, tx, sim)
+				} else {
 					return ctx, sdkerrors.Wrapf(
 						sdkerrors.ErrUnknownExtensionOptions,
 						"rejecting tx with unsupported extension option: %s", typeURL,
 					)
 				}
-
-				return anteHandler(ctx, tx, sim)
 			}
+			fmt.Println("len opts 0")
 		}
-
 		// handle as totally normal Cosmos SDK tx
 		switch tx.(type) {
 		case sdk.Tx:
-			anteHandler = newCosmosAnteHandler(options)
+			fmt.Println("default")
+			anteHandler = defaultCosmosAnteHandler
 		default:
 			return ctx, sdkerrors.Wrapf(sdkerrors.ErrUnknownRequest, "invalid transaction type: %T", tx)
 		}
-
 		return anteHandler(ctx, tx, sim)
 	}, nil
 }
 
 func Recover(logger tmlog.Logger, err *error) {
+	telemetry.IncrCounterWithLabels(
+		[]string{("antehandler_panic")},
+		1,
+		[]metrics.Label{
+			telemetry.NewLabel("error", fmt.Sprintf("%s", err)),
+		},
+	)
 	if r := recover(); r != nil {
 		*err = sdkerrors.Wrapf(sdkerrors.ErrPanic, "%v", r)
 
