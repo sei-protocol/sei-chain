@@ -12,8 +12,12 @@ import (
 	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
 	ibcante "github.com/cosmos/ibc-go/v3/modules/core/ante"
 	ibckeeper "github.com/cosmos/ibc-go/v3/modules/core/keeper"
+	"github.com/sei-protocol/sei-chain/app/antedecorators"
+	"github.com/sei-protocol/sei-chain/utils"
 	"github.com/sei-protocol/sei-chain/utils/tracing"
+	"github.com/sei-protocol/sei-chain/x/dex"
 	dexkeeper "github.com/sei-protocol/sei-chain/x/dex/keeper"
+	"github.com/sei-protocol/sei-chain/x/oracle"
 	oraclekeeper "github.com/sei-protocol/sei-chain/x/oracle/keeper"
 
 	ethante "github.com/evmos/ethermint/app/ante"
@@ -81,13 +85,22 @@ func newEthAnteHandler(options HandlerOptions) sdk.AnteHandler {
 
 // newCosmosAnteHandler creates the default ante handler for Cosmos transactions
 func newCosmosAnteHandler(options HandlerOptions) sdk.AnteHandler {
-	return sdk.ChainAnteDecorators(
+	sigGasConsumer := options.SigGasConsumer
+	if sigGasConsumer == nil {
+		sigGasConsumer = ante.DefaultSigVerificationGasConsumer
+	}
+
+	memPoolDecorator := ante.NewMempoolFeeDecorator()
+	anteDecorators := []sdk.AnteDecorator{
+		ante.NewSetUpContextDecorator(),   // outermost AnteDecorator. SetUpContext must be called first
 		ethante.RejectMessagesDecorator{}, // reject MsgEthereumTxs
-		ante.NewSetUpContextDecorator(),
+		// TODO: have dex antehandler separate, and then call the individual antehandlers FROM the gasless antehandler decorator wrapper
+		antedecorators.NewGaslessDecorator([]sdk.AnteDecorator{&memPoolDecorator}, *options.OracleKeeper),
+		wasmkeeper.NewLimitSimulationGasDecorator(options.WasmConfig.SimulationGasLimit), // after setup context to enforce limits early
+		wasmkeeper.NewCountTXDecorator(options.TxCounterStoreKey),
 		ante.NewRejectExtensionOptionsDecorator(),
+		oracle.NewSpammingPreventionDecorator(*options.OracleKeeper),
 		ante.NewValidateBasicDecorator(),
-		ante.NewMempoolFeeDecorator(),
-		ethante.NewMinGasPriceDecorator(options.FeeMarketKeeper, options.EvmKeeper),
 		ante.NewTxTimeoutHeightDecorator(),
 		ante.NewValidateMemoDecorator(options.AccountKeeper),
 		ante.NewConsumeGasForTxSizeDecorator(options.AccountKeeper),
@@ -95,22 +108,38 @@ func newCosmosAnteHandler(options HandlerOptions) sdk.AnteHandler {
 		// SetPubKeyDecorator must be called before all signature verification decorators
 		ante.NewSetPubKeyDecorator(options.AccountKeeper),
 		ante.NewValidateSigCountDecorator(options.AccountKeeper),
-		ante.NewSigGasConsumeDecorator(options.AccountKeeper, options.SigGasConsumer),
+		ante.NewSigGasConsumeDecorator(options.AccountKeeper, sigGasConsumer),
 		ante.NewSigVerificationDecorator(options.AccountKeeper, options.SignModeHandler),
 		ante.NewIncrementSequenceDecorator(options.AccountKeeper),
 		ibcante.NewAnteDecorator(options.IBCKeeper),
-		ethante.NewGasWantedDecorator(options.EvmKeeper, options.FeeMarketKeeper),
-	)
+		dex.NewTickSizeMultipleDecorator(*options.DexKeeper),
+	}
+
+	tracedDecorators := utils.Map(anteDecorators, func(d sdk.AnteDecorator) sdk.AnteDecorator {
+		return antedecorators.NewTracedAnteDecorator(d, options.TracingInfo)
+	})
+
+	return sdk.ChainAnteDecorators(tracedDecorators...)
 }
 
 // newCosmosAnteHandlerEip712 creates the ante handler for transactions signed with EIP712
 func newCosmosAnteHandlerEip712(options HandlerOptions) sdk.AnteHandler {
-	return sdk.ChainAnteDecorators(
+	sigGasConsumer := options.SigGasConsumer
+	if sigGasConsumer == nil {
+		sigGasConsumer = ante.DefaultSigVerificationGasConsumer
+	}
+
+	memPoolDecorator := ante.NewMempoolFeeDecorator()
+	anteDecorators := []sdk.AnteDecorator{
+		ante.NewSetUpContextDecorator(),   // outermost AnteDecorator. SetUpContext must be called first
 		ethante.RejectMessagesDecorator{}, // reject MsgEthereumTxs
-		ante.NewSetUpContextDecorator(),
-		ante.NewMempoolFeeDecorator(),
+		// TODO: have dex antehandler separate, and then call the individual antehandlers FROM the gasless antehandler decorator wrapper
+		antedecorators.NewGaslessDecorator([]sdk.AnteDecorator{&memPoolDecorator}, *options.OracleKeeper),
+		wasmkeeper.NewLimitSimulationGasDecorator(options.WasmConfig.SimulationGasLimit), // after setup context to enforce limits early
+		wasmkeeper.NewCountTXDecorator(options.TxCounterStoreKey),
+		ante.NewRejectExtensionOptionsDecorator(),
+		oracle.NewSpammingPreventionDecorator(*options.OracleKeeper),
 		ante.NewValidateBasicDecorator(),
-		ethante.NewMinGasPriceDecorator(options.FeeMarketKeeper, options.EvmKeeper),
 		ante.NewTxTimeoutHeightDecorator(),
 		ante.NewValidateMemoDecorator(options.AccountKeeper),
 		ante.NewConsumeGasForTxSizeDecorator(options.AccountKeeper),
@@ -118,11 +147,18 @@ func newCosmosAnteHandlerEip712(options HandlerOptions) sdk.AnteHandler {
 		// SetPubKeyDecorator must be called before all signature verification decorators
 		ante.NewSetPubKeyDecorator(options.AccountKeeper),
 		ante.NewValidateSigCountDecorator(options.AccountKeeper),
-		ante.NewSigGasConsumeDecorator(options.AccountKeeper, options.SigGasConsumer),
+		ante.NewSigGasConsumeDecorator(options.AccountKeeper, sigGasConsumer),
 		// Note: signature verification uses EIP instead of the cosmos signature validator
 		ethante.NewEip712SigVerificationDecorator(options.AccountKeeper, options.SignModeHandler),
+		ante.NewSigVerificationDecorator(options.AccountKeeper, options.SignModeHandler),
 		ante.NewIncrementSequenceDecorator(options.AccountKeeper),
 		ibcante.NewAnteDecorator(options.IBCKeeper),
-		ethante.NewGasWantedDecorator(options.EvmKeeper, options.FeeMarketKeeper),
-	)
+		dex.NewTickSizeMultipleDecorator(*options.DexKeeper),
+	}
+
+	tracedDecorators := utils.Map(anteDecorators, func(d sdk.AnteDecorator) sdk.AnteDecorator {
+		return antedecorators.NewTracedAnteDecorator(d, options.TracingInfo)
+	})
+
+	return sdk.ChainAnteDecorators(tracedDecorators...)
 }
