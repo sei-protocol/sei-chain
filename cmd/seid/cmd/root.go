@@ -130,6 +130,7 @@ func initRootCmd(
 		tmcli.NewCompletionCmd(rootCmd, true),
 		debug.Cmd(),
 		config.Cmd(),
+		preUpgradeCommand(),
 	)
 
 	// add server commands
@@ -155,6 +156,30 @@ func initRootCmd(
 		txCommand(),
 		keysCmd,
 	)
+}
+
+func preUpgradeCommand() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "pre-upgrade",
+		Short: "Pre-upgrade command",
+		Long:  "Pre-upgrade command to implement custom pre-upgrade handling",
+		Run: func(cmd *cobra.Command, args []string) {
+
+			rootViper := sdkserver.GetServerContextFromCmd(cmd).Viper
+			rootDir := rootViper.GetString(flags.FlagHome)
+			configPath := filepath.Join(rootDir, "config")
+			appCfgFilePath := filepath.Join(configPath, "app.toml")
+			err := os.RemoveAll(appCfgFilePath)
+			if err != nil {
+				os.Exit(30)
+			}
+
+			os.Exit(0)
+
+		},
+	}
+
+	return cmd
 }
 
 // queryCommand returns the sub-command to send queries to the app
