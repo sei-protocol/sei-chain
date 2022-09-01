@@ -16,10 +16,7 @@ func (k Keeper) AddCreatorToWhitelist(ctx sdk.Context, creator string) {
 func (k Keeper) IsCreatorInDenomFeeWhitelist(ctx sdk.Context, creator string) (found bool) {
 	store := ctx.KVStore(k.storeKey)
 	b := store.Get(types.GetCreatorDenomFeeWhitelistPrefix(creator))
-	if b == nil {
-		return false
-	}
-	return true
+	return b != nil
 }
 
 func (k Keeper) GetAllCreatorsDenomFeeWhitelistIterator(ctx sdk.Context) sdk.Iterator {
