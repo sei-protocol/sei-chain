@@ -1,18 +1,16 @@
 package utils
 
 import (
-	"io/ioutil"
 	"github.com/cosmos/cosmos-sdk/codec"
+	"io/ioutil"
 )
 
 type (
-	CreatorsJSON []string
-
 	AddCreatorsToDenomFeeWhitelistProposalJSON struct {
-		Title         string        `json:"title" yaml:"title"`
-		Description   string        `json:"description" yaml:"description"`
-		CreatorList   CreatorsJSON  `json:"creator_list" yaml:"creator_list"`
-		Deposit       string        `json:"deposit" yaml:"deposit"`
+		Title       string   `json:"title" yaml:"title"`
+		Description string   `json:"description" yaml:"description"`
+		CreatorList []string `json:"creator_list" yaml:"creator_list"`
+		Deposit     string   `json:"deposit" yaml:"deposit"`
 	}
 )
 

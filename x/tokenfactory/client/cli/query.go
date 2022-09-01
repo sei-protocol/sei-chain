@@ -31,6 +31,8 @@ func GetQueryCmd() *cobra.Command {
 		GetParams(),
 		GetCmdDenomAuthorityMetadata(),
 		GetCmdDenomsFromCreator(),
+		GetCmdCreateDenomFeeWhitelist(),
+		GetCmdIsCreatorInDenomFeeWhitelist(),
 	)
 
 	return cmd
@@ -106,6 +108,62 @@ func GetCmdDenomsFromCreator() *cobra.Command {
 			queryClient := types.NewQueryClient(clientCtx)
 
 			res, err := queryClient.DenomsFromCreator(cmd.Context(), &types.QueryDenomsFromCreatorRequest{
+				Creator: args[0],
+			})
+			if err != nil {
+				return err
+			}
+
+			return clientCtx.PrintProto(res)
+		},
+	}
+
+	flags.AddQueryFlagsToCmd(cmd)
+
+	return cmd
+}
+
+// GetCmdCreateDenomFeeWhitelist a command to get a list of all addresses whitelisted from the denom creation fee
+func GetCmdCreateDenomFeeWhitelist() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "create-denom-fee-whitelist",
+		Short: "Returns a list of all addresses whitelisted from the denom creation fee",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			clientCtx, err := client.GetClientQueryContext(cmd)
+			if err != nil {
+				return err
+			}
+			queryClient := types.NewQueryClient(clientCtx)
+
+			res, err := queryClient.DenomCreationFeeWhitelist(cmd.Context(), &types.QueryDenomCreationFeeWhitelistRequest{})
+			if err != nil {
+				return err
+			}
+
+			return clientCtx.PrintProto(res)
+		},
+	}
+
+	flags.AddQueryFlagsToCmd(cmd)
+
+	return cmd
+}
+
+// GetCmdDenomsFromCreator a command to return whether a address is whitelisted from denom creation fees
+func GetCmdIsCreatorInDenomFeeWhitelist() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "creator-in-denom-fee-whitelist [creator address]",
+		Short: "Returns whether a address is whitelisted from denom creation fees",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			clientCtx, err := client.GetClientQueryContext(cmd)
+			if err != nil {
+				return err
+			}
+			queryClient := types.NewQueryClient(clientCtx)
+
+			res, err := queryClient.CreatorInDenomFeeWhitelist(cmd.Context(), &types.QueryCreatorInDenomFeeWhitelistRequest{
 				Creator: args[0],
 			})
 			if err != nil {

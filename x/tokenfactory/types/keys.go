@@ -49,8 +49,14 @@ func GetCreatorsPrefix() []byte {
 	return []byte(strings.Join([]string{CreatorPrefixKey, ""}, KeySeparator))
 }
 
-// GetCreateDenomFeeWhitelistPrefix returns the store prefix of addresses which are
+// GetDenomFeeWhitelistPrefix returns the store prefix of addresses which are
 // whitelisted to avoid a denom creation fee
-func GetCreateDenomFeeWhitelistPrefix(creator string) []byte {
+func GetCreateDenomFeeWhitelistPrefix() []byte {
+	return []byte(strings.Join([]string{CreateDenomFeeWhitelistKey, ""}, KeySeparator))
+}
+
+// GetCreatorDenomFeeWhitelistPrefix returns the store prefix of addresses which are
+// whitelisted to avoid a denom creation fee by specific creator
+func GetCreatorDenomFeeWhitelistPrefix(creator string) []byte {
 	return []byte(strings.Join([]string{CreateDenomFeeWhitelistKey, creator, ""}, KeySeparator))
 }
