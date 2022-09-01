@@ -6,7 +6,6 @@ import (
 
 	// this line is used by starport scaffolding # 1
 
-	"github.com/armon/go-metrics"
 	"github.com/gorilla/mux"
 	"github.com/grpc-ecosystem/grpc-gateway/runtime"
 	"github.com/spf13/cobra"
@@ -16,9 +15,9 @@ import (
 	"github.com/cosmos/cosmos-sdk/client"
 	"github.com/cosmos/cosmos-sdk/codec"
 	cdctypes "github.com/cosmos/cosmos-sdk/codec/types"
-	"github.com/cosmos/cosmos-sdk/telemetry"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/types/module"
+	"github.com/sei-protocol/sei-chain/utils"
 	"github.com/sei-protocol/sei-chain/x/epoch/client/cli"
 	"github.com/sei-protocol/sei-chain/x/epoch/keeper"
 	"github.com/sei-protocol/sei-chain/x/epoch/types"
@@ -173,19 +172,7 @@ func (AppModule) ConsensusVersion() uint64 { return 2 }
 // BeginBlock executes all ABCI BeginBlock logic respective to the capability module.
 func (am AppModule) BeginBlock(ctx sdk.Context, _ abci.RequestBeginBlock) {
 	// TODO (codchen): Revert before mainnet so we don't silently fail on errors
-	defer func() {
-		if err := recover(); err != nil {
-			ctx.Logger().Error(fmt.Sprintf("panic occurred in %s BeginBlock: %s", types.ModuleName, err))
-			telemetry.IncrCounterWithLabels(
-				[]string{"beginblockpanic"},
-				1,
-				[]metrics.Label{
-					telemetry.NewLabel("error", fmt.Sprintf("%s", err)),
-					telemetry.NewLabel("module", types.ModuleName),
-				},
-			)
-		}
-	}()
+	defer utils.PanicHandler(func(err any) { utils.MetricsPanicCallback(err, ctx, types.ModuleName) })()
 
 	lastEpoch := am.keeper.GetEpoch(ctx)
 	ctx.Logger().Info(fmt.Sprintf("Current block time %s, last %s; duration %d", ctx.BlockTime().String(), lastEpoch.CurrentEpochStartTime.String(), lastEpoch.EpochDuration))

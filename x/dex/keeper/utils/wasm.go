@@ -2,13 +2,17 @@ package utils
 
 import (
 	"encoding/json"
+	"strings"
 	"time"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/sei-protocol/sei-chain/utils"
 	"github.com/sei-protocol/sei-chain/utils/metrics"
 	"github.com/sei-protocol/sei-chain/x/dex/keeper"
 	dextypeswasm "github.com/sei-protocol/sei-chain/x/dex/types/wasm"
 )
+
+const ErrWasmModuleInstCPUFeatureLiteral = "Error instantiating module: CpuFeature"
 
 func getMsgType(msg interface{}) string {
 	switch msg.(type) {
@@ -37,7 +41,17 @@ func sudo(sdkCtx sdk.Context, k *keeper.Keeper, contractAddress []byte, wasmMsg 
 	data, err := k.WasmKeeper.Sudo(
 		sdkCtx, contractAddress, wasmMsg,
 	)
+	if hasErrInstantiatingWasmModuleDueToCPUFeature(err) {
+		panic(utils.DecorateHardFailError(err))
+	}
 	return data, err
+}
+
+func hasErrInstantiatingWasmModuleDueToCPUFeature(err error) bool {
+	if err == nil {
+		return false
+	}
+	return strings.Contains(err.Error(), ErrWasmModuleInstCPUFeatureLiteral)
 }
 
 func CallContractSudo(sdkCtx sdk.Context, k *keeper.Keeper, contractAddr string, msg interface{}) ([]byte, error) {
