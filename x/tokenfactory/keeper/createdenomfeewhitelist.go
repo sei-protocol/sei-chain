@@ -30,7 +30,7 @@ func (k Keeper) GetAllCreatorsDenomFeeWhitelistIterator(ctx sdk.Context) sdk.Ite
 func (k Keeper) GetCreatorsInDenomFeeWhitelist(ctx sdk.Context) []string {
 	creators := []string{}
 
-	iterator := k.GetCreatorsDenomFeePrefixStore(ctx).Iterator(nil, nil)
+	iterator := k.GetAllCreatorsDenomFeeWhitelistIterator(ctx)
 	defer iterator.Close()
 	for ; iterator.Valid(); iterator.Next() {
 		creator := string(iterator.Value())
