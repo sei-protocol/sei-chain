@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	yaml "gopkg.in/yaml.v2"
 
@@ -13,10 +14,9 @@ import (
 
 // Parameter store keys
 var (
-	KeyMintDenom               = []byte("MintDenom")
-	KeyGenesisEpochProvisions  = []byte("GenesisEpochProvisions")
-	KeyReductionPeriodInEpochs = []byte("ReductionPeriodInEpochs")
-	KeyReductionFactor         = []byte("ReductionFactor")
+	KeyMintDenom               	= []byte("MintDenom")
+	KeyGenesisEpochProvisions  	= []byte("GenesisEpochProvisions")
+	KeyTokenReleaseSchedule     = []byte("TokenReleaseSchedule")
 )
 
 // ParamTable for minting module.
@@ -25,23 +25,21 @@ func ParamKeyTable() paramtypes.KeyTable {
 }
 
 func NewParams(
-	mintDenom string, genesisEpochProvisions sdk.Dec, reductionFactor sdk.Dec, reductionPeriodInEpochs int64,
+	mintDenom string, genesisEpochProvisions sdk.Dec, tokenReleaseSchedule []ScheduledTokenRelease,
 ) Params {
 	return Params{
-		MintDenom:               mintDenom,
-		GenesisEpochProvisions:  genesisEpochProvisions,
-		ReductionFactor:         reductionFactor,
-		ReductionPeriodInEpochs: reductionPeriodInEpochs,
+		MintDenom:               	mintDenom,
+		GenesisEpochProvisions:  	genesisEpochProvisions,
+		TokenReleaseSchedule:    	tokenReleaseSchedule,
 	}
 }
 
 // default minting module parameters
 func DefaultParams() Params {
 	return Params{
-		MintDenom:               "usei",
-		GenesisEpochProvisions:  sdk.NewDec(5000000),
-		ReductionPeriodInEpochs: 60 * 24,                  // Epochs are 1 min - this is 1 day
-		ReductionFactor:         sdk.NewDecWithPrec(5, 1), // 0.5
+		MintDenom:               	"usei",
+		GenesisEpochProvisions:  	sdk.NewDec(5000000),
+		TokenReleaseSchedule:		[]ScheduledTokenRelease{},
 	}
 }
 
@@ -53,10 +51,7 @@ func (p Params) Validate() error {
 	if err := validateGenesisEpochProvisions(p.GenesisEpochProvisions); err != nil {
 		return err
 	}
-	if err := validateReductionPeriodInEpochs(p.ReductionPeriodInEpochs); err != nil {
-		return err
-	}
-	if err := validateReductionFactor(p.ReductionFactor); err != nil {
+	if err := validateTokenReleaseSchedule(p.TokenReleaseSchedule); err != nil {
 		return err
 	}
 	return nil
@@ -73,8 +68,7 @@ func (p *Params) ParamSetPairs() paramtypes.ParamSetPairs {
 	return paramtypes.ParamSetPairs{
 		paramtypes.NewParamSetPair(KeyMintDenom, &p.MintDenom, validateMintDenom),
 		paramtypes.NewParamSetPair(KeyGenesisEpochProvisions, &p.GenesisEpochProvisions, validateGenesisEpochProvisions),
-		paramtypes.NewParamSetPair(KeyReductionPeriodInEpochs, &p.ReductionPeriodInEpochs, validateReductionPeriodInEpochs),
-		paramtypes.NewParamSetPair(KeyReductionFactor, &p.ReductionFactor, validateReductionFactor),
+		paramtypes.NewParamSetPair(KeyTokenReleaseSchedule, &p.TokenReleaseSchedule, validateTokenReleaseSchedule),
 	}
 }
 
@@ -107,32 +101,19 @@ func validateGenesisEpochProvisions(i interface{}) error {
 	return nil
 }
 
-func validateReductionPeriodInEpochs(i interface{}) error {
-	v, ok := i.(int64)
+func validateTokenReleaseSchedule(i interface{}) error {
+	tokenReleaseSchedule, ok := i.([]ScheduledTokenRelease)
 	if !ok {
 		return fmt.Errorf("invalid parameter type: %T", i)
 	}
-
-	if v <= 0 {
-		return fmt.Errorf("max validators must be positive: %d", v)
+	for _, scheduledTokenRelease := range tokenReleaseSchedule {
+		if scheduledTokenRelease.GetTokenReleaseAmount() < 0 {
+			return fmt.Errorf("token release amount must be non-negative: %d", scheduledTokenRelease.GetTokenReleaseAmount())
+		}
+		_, err := time.Parse(TokenReleaseDateFormat, scheduledTokenRelease.GetDate())
+		if err != nil {
+			return fmt.Errorf("error: invalid date format use yyyy-mm-dd: %s", err)
+		}
 	}
-
-	return nil
-}
-
-func validateReductionFactor(i interface{}) error {
-	v, ok := i.(sdk.Dec)
-	if !ok {
-		return fmt.Errorf("invalid parameter type: %T", i)
-	}
-
-	if v.GT(sdk.NewDec(1)) {
-		return fmt.Errorf("reduction factor cannot be greater than 1")
-	}
-
-	if v.IsNegative() {
-		return fmt.Errorf("reduction factor cannot be negative")
-	}
-
 	return nil
 }

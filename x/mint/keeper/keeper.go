@@ -1,6 +1,9 @@
 package keeper
 
 import (
+	"fmt"
+	"time"
+
 	"github.com/tendermint/tendermint/libs/log"
 
 	"github.com/cosmos/cosmos-sdk/codec"
@@ -60,21 +63,28 @@ func (k *Keeper) SetHooks(h types.MintHooks) *Keeper {
 	return k
 }
 
-// GetLastHalvenEpochNum returns last halven epoch number.
-func (k Keeper) GetLastHalvenEpochNum(ctx sdk.Context) int64 {
+func (k Keeper) GetLastTokenReleaseDate(ctx sdk.Context) time.Time {
 	store := ctx.KVStore(k.storeKey)
-	b := store.Get(types.LastHalvenEpochKey)
+	b := store.Get(types.LastTokenReleaseDate)
 	if b == nil {
-		return 0
+		// Return 0001-01-01 00:00:00 +0000 UTC 
+		return time.Time{}
 	}
-
-	return int64(sdk.BigEndianToUint64(b))
+	lastTokenReleaseDate, err := time.Parse(types.TokenReleaseDateFormat, string(b))
+	if err != nil {
+		panic(fmt.Errorf("invalid last token release date: %s", err))
+	}
+	return lastTokenReleaseDate
 }
 
-// SetLastHalvenEpochNum set last halven epoch number.
-func (k Keeper) SetLastHalvenEpochNum(ctx sdk.Context, epochNum int64) {
+func (k Keeper) SetLastTokenReleaseDate(ctx sdk.Context, date string) {
 	store := ctx.KVStore(k.storeKey)
-	store.Set(types.LastHalvenEpochKey, sdk.Uint64ToBigEndian(uint64(epochNum)))
+	// MarshalText returns timestamp in RFC3339 format
+	_, err := time.Parse(types.TokenReleaseDateFormat, date)
+	if err != nil {
+		panic(fmt.Errorf("invalid unable to get timestamp string: %s", err))
+	}
+	store.Set(types.LastTokenReleaseDate, []byte(date))
 }
 
 // get the minter

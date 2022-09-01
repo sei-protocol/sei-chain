@@ -12,20 +12,22 @@ import (
 func (k Keeper) BeforeEpochStart(ctx sdk.Context, epoch epochTypes.Epoch) {
 }
 
+
 func (k Keeper) AfterEpochEnd(ctx sdk.Context, epoch epochTypes.Epoch) {
 	params := k.GetParams(ctx)
-	// Check if we have hit an epoch where we update the inflation parameter.
-	// Since epochs only update based on BFT time data, it is safe to store the "halvening period time"
-	// in terms of the number of epochs that have transpired
-	// If it's not time to mint coins, exit
-	if int64(epoch.GetCurrentEpoch()) < k.GetLastHalvenEpochNum(ctx)+params.ReductionPeriodInEpochs {
+	minter := k.GetMinter(ctx)
+
+	// If the current yyyy-mm-dd of the epoch timestamp matches any of the scheduled token release then proceed to mint
+	scheduledTokenRelease := types.GetScheduledTokenRelease(epoch, k.GetLastTokenReleaseDate(ctx), params.GetTokenReleaseSchedule())
+	if scheduledTokenRelease == nil {
 		return
 	}
-	// Halven the reward per halven period
-	minter := k.GetMinter(ctx)
-	minter.EpochProvisions = minter.NextEpochProvisions(params)
+
+	minter.EpochProvisions = sdk.NewDec(scheduledTokenRelease.GetTokenReleaseAmount())
+	
 	k.SetMinter(ctx, minter)
-	k.SetLastHalvenEpochNum(ctx, int64(epoch.GetCurrentEpoch()))
+	k.SetLastTokenReleaseDate(ctx, scheduledTokenRelease.GetDate())
+
 	// mint coins, update supply
 	mintedCoin := minter.EpochProvision(params)
 	mintedCoins := sdk.NewCoins(mintedCoin)

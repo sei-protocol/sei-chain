@@ -41,7 +41,6 @@ func TestRandomizedGenState(t *testing.T) {
 
 	require.Equal(t, "stake", mintGenesis.Params.MintDenom)
 	require.Equal(t, "0stake", mintGenesis.Minter.EpochProvision(mintGenesis.Params).String())
-	require.Equal(t, "0.000000000000000000", mintGenesis.Minter.NextEpochProvisions(mintGenesis.Params).String())
 	require.Equal(t, "0.000000000000000000", mintGenesis.Minter.EpochProvisions.String())
 }
 
