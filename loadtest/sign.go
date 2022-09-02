@@ -3,7 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"os"
 	"path/filepath"
 	"time"
@@ -34,7 +34,7 @@ func GetKey(accountIdx uint64) cryptotypes.PrivKey {
 		panic(err)
 	}
 	var accountInfo AccountInfo
-	byteVal, err := ioutil.ReadAll(jsonFile)
+	byteVal, err := io.ReadAll(jsonFile)
 	if err != nil {
 		panic(err)
 	}

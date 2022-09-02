@@ -2,7 +2,7 @@ package utils
 
 import (
 	"errors"
-	"io/ioutil"
+	"os"
 
 	"github.com/cosmos/cosmos-sdk/codec"
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -125,7 +125,7 @@ func (tss TickSizesJSON) ToTickSizes() ([]dextypes.TickSize, error) {
 func ParseRegisterPairsProposalJSON(cdc *codec.LegacyAmino, proposalFile string) (RegisterPairsProposalJSON, error) {
 	proposal := RegisterPairsProposalJSON{}
 
-	contents, err := ioutil.ReadFile(proposalFile)
+	contents, err := os.ReadFile(proposalFile)
 	if err != nil {
 		return proposal, err
 	}
@@ -142,7 +142,7 @@ func ParseRegisterPairsProposalJSON(cdc *codec.LegacyAmino, proposalFile string)
 func ParseUpdateTickSizeProposalJSON(cdc *codec.LegacyAmino, proposalFile string) (UpdateTickSizeProposalJSON, error) {
 	proposal := UpdateTickSizeProposalJSON{}
 
-	contents, err := ioutil.ReadFile(proposalFile)
+	contents, err := os.ReadFile(proposalFile)
 	if err != nil {
 		return proposal, err
 	}
@@ -159,7 +159,7 @@ func ParseUpdateTickSizeProposalJSON(cdc *codec.LegacyAmino, proposalFile string
 func ParseAddAssetMetadataProposalJSON(cdc *codec.LegacyAmino, proposalFile string) (AddAssetMetadataProposalJSON, error) {
 	proposal := AddAssetMetadataProposalJSON{}
 
-	contents, err := ioutil.ReadFile(proposalFile)
+	contents, err := os.ReadFile(proposalFile)
 	if err != nil {
 		return proposal, err
 	}

@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"math/rand"
 
-	"github.com/armon/go-metrics"
 	"github.com/gorilla/mux"
 	"github.com/grpc-ecosystem/grpc-gateway/runtime"
 	"github.com/spf13/cobra"
@@ -16,11 +15,11 @@ import (
 	"github.com/cosmos/cosmos-sdk/client"
 	"github.com/cosmos/cosmos-sdk/codec"
 	codectypes "github.com/cosmos/cosmos-sdk/codec/types"
-	"github.com/cosmos/cosmos-sdk/telemetry"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/types/module"
 	simtypes "github.com/cosmos/cosmos-sdk/types/simulation"
 
+	"github.com/sei-protocol/sei-chain/utils"
 	"github.com/sei-protocol/sei-chain/x/oracle/client/cli"
 	"github.com/sei-protocol/sei-chain/x/oracle/client/rest"
 	"github.com/sei-protocol/sei-chain/x/oracle/keeper"
@@ -172,20 +171,7 @@ func (AppModule) BeginBlock(_ sdk.Context, _ abci.RequestBeginBlock) {}
 // EndBlock returns the end blocker for the oracle module.
 func (am AppModule) EndBlock(ctx sdk.Context, _ abci.RequestEndBlock) (ret []abci.ValidatorUpdate) {
 	// TODO (codchen): Revert before mainnet so we don't silently fail on errors
-	defer func() {
-		if err := recover(); err != nil {
-			ctx.Logger().Error(fmt.Sprintf("panic occurred in %s EndBlock: %s", types.ModuleName, err))
-			telemetry.IncrCounterWithLabels(
-				[]string{"endblockpanic"},
-				1,
-				[]metrics.Label{
-					telemetry.NewLabel("error", fmt.Sprintf("%s", err)),
-					telemetry.NewLabel("module", types.ModuleName),
-				},
-			)
-			ret = []abci.ValidatorUpdate{}
-		}
-	}()
+	defer utils.PanicHandler(func(err any) { utils.MetricsPanicCallback(err, ctx, types.ModuleName) })()
 
 	EndBlocker(ctx, am.keeper)
 	return []abci.ValidatorUpdate{}
