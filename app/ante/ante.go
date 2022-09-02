@@ -4,9 +4,8 @@ import (
 	"fmt"
 	"github.com/armon/go-metrics"
 	"github.com/cosmos/cosmos-sdk/telemetry"
-	"runtime/debug"
-
 	tmlog "github.com/tendermint/tendermint/libs/log"
+	"runtime/debug"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
@@ -37,7 +36,6 @@ func NewAnteHandler(options HandlerOptions) (sdk.AnteHandler, error) {
 		"/ethermint.types.v1.ExtensionOptionsWeb3Tx":      newCosmosAnteHandlerEip712(options),
 		"/ethermint.types.v1.ExtensionOptionDynamicFeeTx": defaultCosmosAnteHandler,
 	}
-	fmt.Println("finding handler")
 
 	return func(
 		ctx sdk.Context, tx sdk.Tx, sim bool,
@@ -52,7 +50,6 @@ func NewAnteHandler(options HandlerOptions) (sdk.AnteHandler, error) {
 			if len(opts) > 0 {
 				typeURL := opts[0].GetTypeUrl()
 				if reqAnteHandler, ok := requestHandlerMap[typeURL]; ok {
-					fmt.Println("ether")
 					return reqAnteHandler(ctx, tx, sim)
 				} else {
 					return ctx, sdkerrors.Wrapf(
@@ -61,12 +58,10 @@ func NewAnteHandler(options HandlerOptions) (sdk.AnteHandler, error) {
 					)
 				}
 			}
-			fmt.Println("len opts 0")
 		}
 		// handle as totally normal Cosmos SDK tx
 		switch tx.(type) {
 		case sdk.Tx:
-			fmt.Println("default")
 			anteHandler = defaultCosmosAnteHandler
 		default:
 			return ctx, sdkerrors.Wrapf(sdkerrors.ErrUnknownRequest, "invalid transaction type: %T", tx)

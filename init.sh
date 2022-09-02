@@ -1,8 +1,8 @@
 KEY="mykey"
-CHAINID="seilocal_1-1"
+CHAINID="seilocal_900-1"
 MONIKER="localtestnet"
 KEYRING="test" # remember to change to other types of keyring like 'file' in-case exposing to outside world, otherwise your balance will be wiped quickly. The keyring test does not require private key to steal tokens from you
-KEYALGO="secp256k1"
+KEYALGO="eth_secp256k1"
 ETHKEYALGO="eth_secp256k1"
 LOGLEVEL="info"
 # to trace evm
