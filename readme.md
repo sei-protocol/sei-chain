@@ -68,7 +68,7 @@ Developers, traders, and users can all connect to Sei as ecosystem partners bene
 ```bash
 git clone https://github.com/sei-protocol/sei-chain
 cd sei-chain
-git checkout origin/1.0.1beta-upgrade
+git checkout tags/1.1.1beta -b 1.1.1beta
 make install
 mv $HOME/go/bin/seid /usr/bin/
 ```
