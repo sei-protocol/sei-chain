@@ -11,6 +11,7 @@ import (
 
 func (k Keeper) BeforeEpochStart(ctx sdk.Context, epoch epochTypes.Epoch) {
 }
+
 func (k Keeper) AfterEpochEnd(ctx sdk.Context, epoch epochTypes.Epoch) {
 	params := k.GetParams(ctx)
 	minter := k.GetMinter(ctx)

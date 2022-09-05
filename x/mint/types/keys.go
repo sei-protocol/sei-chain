@@ -22,5 +22,6 @@ const (
 	QueryAnnualProvisions = "annual_provisions"
 
 	// Format used for scheduling token releases
+	/*#nosec G101 Not a hard coded credential*/
 	TokenReleaseDateFormat = "2006-01-02"
 )
