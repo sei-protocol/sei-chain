@@ -19,7 +19,7 @@ var (
 	KeyTokenReleaseSchedule     = []byte("TokenReleaseSchedule")
 )
 
-// ParamTable for minting module.
+// ParamTable for minting m1odule.
 func ParamKeyTable() paramtypes.KeyTable {
 	return paramtypes.NewKeyTable().RegisterParamSet(&Params{})
 }
