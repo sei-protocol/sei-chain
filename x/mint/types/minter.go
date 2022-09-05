@@ -49,7 +49,7 @@ func (m Minter) EpochProvision(params Params) sdk.Coin {
 	lastTokenReleaseDate time.Time,
 	tokenReleaseSchedule []ScheduledTokenRelease, 
 ) *ScheduledTokenRelease{
-	blockDateString := epoch.CurrentEpochStartTime.Format(TokenReleaseDateFormat)
+	blockDateString := epoch.GetCurrentEpochStartTime().Format(TokenReleaseDateFormat)
 	lastTokenReleaseDateString := lastTokenReleaseDate.Format(TokenReleaseDateFormat)
 	for _, scheduledRelease := range tokenReleaseSchedule {
 		scheduledReleaseDate := scheduledRelease.GetDate()

@@ -18,13 +18,14 @@ func (k Keeper) AfterEpochEnd(ctx sdk.Context, epoch epochTypes.Epoch) {
 	minter := k.GetMinter(ctx)
 
 	// If the current yyyy-mm-dd of the epoch timestamp matches any of the scheduled token release then proceed to mint
-	scheduledTokenRelease := types.GetScheduledTokenRelease(epoch, k.GetLastTokenReleaseDate(ctx), params.GetTokenReleaseSchedule())
+	lastRelaseDate := k.GetLastTokenReleaseDate(ctx)
+	scheduledTokenRelease := types.GetScheduledTokenRelease(epoch, lastRelaseDate, params.GetTokenReleaseSchedule())
 	if scheduledTokenRelease == nil {
+		ctx.Logger().Debug(fmt.Sprintf("No release at epoch time %s; last release %s", epoch.GetCurrentEpochStartTime().String(), lastRelaseDate.Format(types.TokenReleaseDateFormat)))
 		return
 	}
 
 	minter.EpochProvisions = sdk.NewDec(scheduledTokenRelease.GetTokenReleaseAmount())
-	
 	k.SetMinter(ctx, minter)
 	k.SetLastTokenReleaseDate(ctx, scheduledTokenRelease.GetDate())
 
@@ -40,9 +41,10 @@ func (k Keeper) AfterEpochEnd(ctx sdk.Context, epoch epochTypes.Epoch) {
 	}
 	
 	if mintedCoin.Amount.IsInt64() {
-		defer telemetry.ModuleSetGauge(types.ModuleName, float32(mintedCoin.Amount.Int64()), "minted_tokens")
+		mintedCoins := float32(mintedCoin.Amount.Int64())
+		ctx.Logger().Info(fmt.Sprintf("Minted %f at block time %s", mintedCoins, epoch.CurrentEpochStartTime.String()))
+		defer telemetry.ModuleSetGauge(types.ModuleName, mintedCoins, "minted_tokens")
 	}
-
 	ctx.EventManager().EmitEvent(
 		sdk.NewEvent(
 			types.EventTypeMint,
