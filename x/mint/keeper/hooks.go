@@ -11,8 +11,6 @@ import (
 
 func (k Keeper) BeforeEpochStart(ctx sdk.Context, epoch epochTypes.Epoch) {
 }
-
-
 func (k Keeper) AfterEpochEnd(ctx sdk.Context, epoch epochTypes.Epoch) {
 	params := k.GetParams(ctx)
 	minter := k.GetMinter(ctx)
@@ -39,7 +37,7 @@ func (k Keeper) AfterEpochEnd(ctx sdk.Context, epoch epochTypes.Epoch) {
 	if err := k.AddCollectedFees(ctx, mintedCoins); err != nil {
 		panic(err)
 	}
-	
+
 	if mintedCoin.Amount.IsInt64() {
 		mintedCoins := float32(mintedCoin.Amount.Int64())
 		ctx.Logger().Info(fmt.Sprintf("Minted %f at block time %s", mintedCoins, epoch.CurrentEpochStartTime.String()))

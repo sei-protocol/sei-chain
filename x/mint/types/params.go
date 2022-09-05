@@ -14,9 +14,9 @@ import (
 
 // Parameter store keys
 var (
-	KeyMintDenom               	= []byte("MintDenom")
-	KeyGenesisEpochProvisions  	= []byte("GenesisEpochProvisions")
-	KeyTokenReleaseSchedule     = []byte("TokenReleaseSchedule")
+	KeyMintDenom              = []byte("MintDenom")
+	KeyGenesisEpochProvisions = []byte("GenesisEpochProvisions")
+	KeyTokenReleaseSchedule   = []byte("TokenReleaseSchedule")
 )
 
 // ParamTable for minting m1odule.
@@ -28,18 +28,18 @@ func NewParams(
 	mintDenom string, genesisEpochProvisions sdk.Dec, tokenReleaseSchedule []ScheduledTokenRelease,
 ) Params {
 	return Params{
-		MintDenom:               	mintDenom,
-		GenesisEpochProvisions:  	genesisEpochProvisions,
-		TokenReleaseSchedule:    	tokenReleaseSchedule,
+		MintDenom:              mintDenom,
+		GenesisEpochProvisions: genesisEpochProvisions,
+		TokenReleaseSchedule:   tokenReleaseSchedule,
 	}
 }
 
 // default minting module parameters
 func DefaultParams() Params {
 	return Params{
-		MintDenom:               	"usei",
-		GenesisEpochProvisions:  	sdk.NewDec(5000000),
-		TokenReleaseSchedule:		[]ScheduledTokenRelease{},
+		MintDenom:              "usei",
+		GenesisEpochProvisions: sdk.NewDec(5000000),
+		TokenReleaseSchedule:   []ScheduledTokenRelease{},
 	}
 }
 

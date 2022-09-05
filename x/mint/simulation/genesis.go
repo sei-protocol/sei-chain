@@ -20,14 +20,14 @@ func RandomizedGenState(simState *module.SimulationState) {
 
 	randomProvision := rand.Int63n(1000000)
 	epochProvisions := sdk.NewDec(randomProvision + 500000) // Some value between 500000 - 1500000
-	
+
 	currentDate := time.Now()
 	// Epochs are every minute, set reduction period to be 1 year
 	tokenReleaseSchedule := []types.ScheduledTokenRelease{}
 
 	for i := 1; i <= 10; i++ {
 		scheduledTokenRelease := types.ScheduledTokenRelease{
-			Date: currentDate.AddDate(1, 0, 0).Format(types.TokenReleaseDateFormat),
+			Date:               currentDate.AddDate(1, 0, 0).Format(types.TokenReleaseDateFormat),
 			TokenReleaseAmount: randomProvision / int64(i),
 		}
 		tokenReleaseSchedule = append(tokenReleaseSchedule, scheduledTokenRelease)

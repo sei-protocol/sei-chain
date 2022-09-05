@@ -67,7 +67,7 @@ func (k Keeper) GetLastTokenReleaseDate(ctx sdk.Context) time.Time {
 	store := ctx.KVStore(k.storeKey)
 	b := store.Get(types.LastTokenReleaseDate)
 	if b == nil {
-		// Return 0001-01-01 00:00:00 +0000 UTC 
+		// Return 0001-01-01 00:00:00 +0000 UTC
 		return time.Time{}
 	}
 	lastTokenReleaseDate, err := time.Parse(types.TokenReleaseDateFormat, string(b))

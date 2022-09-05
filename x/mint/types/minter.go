@@ -41,19 +41,19 @@ func (m Minter) EpochProvision(params Params) sdk.Coin {
 }
 
 /*	Returns ScheduledRelease if the date of the block matches the scheduled release date.
- *	You may only schedule one release of tokens on each day, the date must be in 
+ *	You may only schedule one release of tokens on each day, the date must be in
  *  types.TokenReleaseDateFormat.
- */ 
- func GetScheduledTokenRelease(
-	epoch epochTypes.Epoch, 
+ */
+func GetScheduledTokenRelease(
+	epoch epochTypes.Epoch,
 	lastTokenReleaseDate time.Time,
-	tokenReleaseSchedule []ScheduledTokenRelease, 
-) *ScheduledTokenRelease{
+	tokenReleaseSchedule []ScheduledTokenRelease,
+) *ScheduledTokenRelease {
 	blockDateString := epoch.GetCurrentEpochStartTime().Format(TokenReleaseDateFormat)
 	lastTokenReleaseDateString := lastTokenReleaseDate.Format(TokenReleaseDateFormat)
 	for _, scheduledRelease := range tokenReleaseSchedule {
 		scheduledReleaseDate := scheduledRelease.GetDate()
-		if scheduledReleaseDate == blockDateString && scheduledReleaseDate != lastTokenReleaseDateString{
+		if scheduledReleaseDate == blockDateString && scheduledReleaseDate != lastTokenReleaseDateString {
 			return &scheduledRelease
 		}
 	}
