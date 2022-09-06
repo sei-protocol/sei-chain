@@ -1,6 +1,7 @@
 package simapp
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -176,6 +177,9 @@ type SimApp struct {
 
 	// module configurator
 	configurator module.Configurator
+
+	batchVerifier *ante.SR25519BatchVerifier
+	txDecoder     sdk.TxDecoder
 }
 
 func init() {
@@ -224,6 +228,7 @@ func NewSimApp(
 		keys:              keys,
 		tkeys:             tkeys,
 		memKeys:           memKeys,
+		txDecoder:         encodingConfig.TxConfig.TxDecoder(),
 	}
 
 	app.ParamsKeeper = initParamsKeeper(appCodec, legacyAmino, keys[paramstypes.StoreKey], tkeys[paramstypes.TStoreKey])
@@ -401,12 +406,15 @@ func NewSimApp(
 	app.SetInitChainer(app.InitChainer)
 	app.SetBeginBlocker(app.BeginBlocker)
 
+	signModeHandler := encodingConfig.TxConfig.SignModeHandler()
+	app.batchVerifier = ante.NewSR25519BatchVerifier(app.AccountKeeper, signModeHandler)
 	anteHandler, err := ante.NewAnteHandler(
 		ante.HandlerOptions{
 			AccountKeeper:   app.AccountKeeper,
 			BankKeeper:      app.BankKeeper,
-			SignModeHandler: encodingConfig.TxConfig.SignModeHandler(),
+			SignModeHandler: signModeHandler,
 			FeegrantKeeper:  app.FeeGrantKeeper,
+			BatchVerifier:   app.batchVerifier,
 			SigGasConsumer:  ante.DefaultSigVerificationGasConsumer,
 		},
 	)
@@ -478,8 +486,21 @@ func (app *SimApp) FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBlo
 		},
 	})
 	events = append(events, beginBlockResp.Events...)
-	txResults := []*abci.ExecTxResult{}
+
+	typedTxs := []sdk.Tx{}
 	for _, tx := range req.Txs {
+		typedTx, err := app.txDecoder(tx)
+		if err != nil {
+			typedTxs = append(typedTxs, nil)
+		} else {
+			typedTxs = append(typedTxs, typedTx)
+		}
+	}
+	app.batchVerifier.VerifyTxs(ctx, typedTxs)
+
+	txResults := []*abci.ExecTxResult{}
+	for i, tx := range req.Txs {
+		ctx = ctx.WithContext(context.WithValue(ctx.Context(), ante.ContextKeyTxIndexKey, i))
 		deliverTxResp := app.DeliverTx(ctx, abci.RequestDeliverTx{
 			Tx: tx,
 		})
