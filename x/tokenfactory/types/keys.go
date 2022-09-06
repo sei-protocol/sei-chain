@@ -25,10 +25,11 @@ const (
 const KeySeparator = "|"
 
 var (
-	DenomAuthorityMetadataKey = "authoritymetadata"
-	DenomsPrefixKey           = "denoms"
-	CreatorPrefixKey          = "creator"
-	AdminPrefixKey            = "admin"
+	DenomAuthorityMetadataKey  = "authoritymetadata"
+	DenomsPrefixKey            = "denoms"
+	CreatorPrefixKey           = "creator"
+	AdminPrefixKey             = "admin"
+	CreateDenomFeeWhitelistKey = "createdenomfeewhitelist"
 )
 
 // GetDenomPrefixStore returns the store prefix where all the data associated with a specific denom
@@ -46,4 +47,16 @@ func GetCreatorPrefix(creator string) []byte {
 // GetCreatorsPrefix returns the store prefix where a list of all creator addresses are stored
 func GetCreatorsPrefix() []byte {
 	return []byte(strings.Join([]string{CreatorPrefixKey, ""}, KeySeparator))
+}
+
+// GetDenomFeeWhitelistPrefix returns the store prefix of addresses which are
+// whitelisted to avoid a denom creation fee
+func GetCreateDenomFeeWhitelistPrefix() []byte {
+	return []byte(strings.Join([]string{CreateDenomFeeWhitelistKey, ""}, KeySeparator))
+}
+
+// GetCreatorDenomFeeWhitelistPrefix returns the store prefix of addresses which are
+// whitelisted to avoid a denom creation fee by specific creator
+func GetCreatorDenomFeeWhitelistPrefix(creator string) []byte {
+	return []byte(strings.Join([]string{CreateDenomFeeWhitelistKey, creator, ""}, KeySeparator))
 }
