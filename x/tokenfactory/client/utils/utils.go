@@ -1,8 +1,9 @@
 package utils
 
 import (
-	"github.com/cosmos/cosmos-sdk/codec"
 	"io/ioutil"
+
+	"github.com/cosmos/cosmos-sdk/codec"
 )
 
 type (

@@ -18,9 +18,7 @@ func init() {
 	govtypes.RegisterProposalTypeCodec(&AddCreatorsToDenomFeeWhitelistProposal{}, "tokenfactory/AddCreatorsToDenomFeeWhitelistProposal")
 }
 
-var (
-	_ govtypes.Content = &AddCreatorsToDenomFeeWhitelistProposal{}
-)
+var _ govtypes.Content = &AddCreatorsToDenomFeeWhitelistProposal{}
 
 func NewRegisterPairsProposal(title, description string, creatorList []string) AddCreatorsToDenomFeeWhitelistProposal {
 	return AddCreatorsToDenomFeeWhitelistProposal{
