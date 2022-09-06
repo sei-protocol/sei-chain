@@ -14,6 +14,7 @@ type HandlerOptions struct {
 	BankKeeper      types.BankKeeper
 	FeegrantKeeper  FeegrantKeeper
 	SignModeHandler authsigning.SignModeHandler
+	BatchVerifier   *SR25519BatchVerifier
 	SigGasConsumer  func(meter sdk.GasMeter, sig signing.SignatureV2, params types.Params) error
 }
 
@@ -38,6 +39,14 @@ func NewAnteHandler(options HandlerOptions) (sdk.AnteHandler, error) {
 		sigGasConsumer = DefaultSigVerificationGasConsumer
 	}
 
+	var sigVerifyDecorator sdk.AnteDecorator
+	sequentialVerifyDecorator := NewSigVerificationDecorator(options.AccountKeeper, options.SignModeHandler)
+	if options.BatchVerifier == nil {
+		sigVerifyDecorator = sequentialVerifyDecorator
+	} else {
+		sigVerifyDecorator = NewBatchSigVerificationDecorator(options.BatchVerifier, sequentialVerifyDecorator)
+	}
+
 	anteDecorators := []sdk.AnteDecorator{
 		NewSetUpContextDecorator(), // outermost AnteDecorator. SetUpContext must be called first
 		NewRejectExtensionOptionsDecorator(),
@@ -50,7 +59,7 @@ func NewAnteHandler(options HandlerOptions) (sdk.AnteHandler, error) {
 		NewSetPubKeyDecorator(options.AccountKeeper), // SetPubKeyDecorator must be called before all signature verification decorators
 		NewValidateSigCountDecorator(options.AccountKeeper),
 		NewSigGasConsumeDecorator(options.AccountKeeper, sigGasConsumer),
-		NewSigVerificationDecorator(options.AccountKeeper, options.SignModeHandler),
+		sigVerifyDecorator,
 		NewIncrementSequenceDecorator(options.AccountKeeper),
 	}
 
