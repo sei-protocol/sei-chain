@@ -256,8 +256,7 @@ func getLastHeight() int {
 	if err := json.Unmarshal(out, &dat); err != nil {
 		panic(err)
 	}
-	result := dat["result"].(map[string]interface{})
-	height, err := strconv.Atoi(result["last_height"].(string))
+	height, err := strconv.Atoi(dat["last_height"].(string))
 	if err != nil {
 		panic(err)
 	}

@@ -41,10 +41,11 @@ func NewParallelRunner(runnable func(contract types.ContractInfo), contracts []t
 }
 
 // We define "frontier contract" as a contract which:
-// 1. Has not finished running yet, and
-// 2. either:
-//    a. has no other contracts depending on it, or
-//    b. for which all contracts that depend on it have already finished.
+//  1. Has not finished running yet, and
+//  2. either:
+//     a. has no other contracts depending on it, or
+//     b. for which all contracts that depend on it have already finished.
+//
 // Consequently, the set of frontier contracts will mutate throughout the
 // `Run` method, until all contracts finish their runs.
 // The key principle here is that at any moment, we can have all frontier
@@ -53,26 +54,32 @@ func NewParallelRunner(runnable func(contract types.ContractInfo), contracts []t
 // The simplest implementation would be:
 // ```
 // while there is any contract left:
-//     run all frontier contracts concurrently
-//     wait for all runs to finish
-//     update the frontier set
+//
+//	run all frontier contracts concurrently
+//	wait for all runs to finish
+//	update the frontier set
+//
 // ```
 // We can illustrate why this implementation is not optimal with the following
 // example:
-//     Suppose we have four contracts, where A depends on B, and C depends on
-//     D. The run for A, B, C, D takes 5s, 5s, 8s, 2s, respectively.
-//     With the implementation above, the first iteration would take 8s since
-//     it runs A and C, and the second iteration would take 5s since it runs
-//     B and D. However C doesn't actually need to wait for B to finish, and
-//     if C runs immediately after A finishes, the whole process would take
-//     max(5 + 5, 8 + 2) = 10s, which is 3s faster than the implementation
-//     above.
+//
+//	Suppose we have four contracts, where A depends on B, and C depends on
+//	D. The run for A, B, C, D takes 5s, 5s, 8s, 2s, respectively.
+//	With the implementation above, the first iteration would take 8s since
+//	it runs A and C, and the second iteration would take 5s since it runs
+//	B and D. However C doesn't actually need to wait for B to finish, and
+//	if C runs immediately after A finishes, the whole process would take
+//	max(5 + 5, 8 + 2) = 10s, which is 3s faster than the implementation
+//	above.
+//
 // So we can optimize the implementation to be:
 // ```
 // while there is any contract left:
-//     run all frontier contracts concurrently
-//     wait for any existing run (could be from previous iteration) to finish
-//     update the frontier set
+//
+//	run all frontier contracts concurrently
+//	wait for any existing run (could be from previous iteration) to finish
+//	update the frontier set
+//
 // ```
 // With the example above, the whole process would take 3 iterations:
 // Iter 1 (A, C run): 5s since it finishes when A finishes
@@ -113,7 +120,10 @@ func (r *ParallelRunner) wrapRunnable(contractAddr utils.ContractAddress) {
 		for _, dependency := range contractInfo.Dependencies {
 			dependentContract := dependency.Dependency
 			typedDependentContract := utils.ContractAddress(dependentContract)
-			dependentInfo, _ := r.contractAddrToInfo.Load(typedDependentContract)
+			dependentInfo, ok := r.contractAddrToInfo.Load(typedDependentContract)
+			if !ok {
+				continue
+			}
 			// It's okay to mutate ContractInfo here since it's a copy made in the runner's
 			// constructor.
 			newNumIncomingPaths := atomic.AddInt64(&dependentInfo.NumIncomingDependencies, -1)

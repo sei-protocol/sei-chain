@@ -29,6 +29,7 @@ import (
 	genutilcli "github.com/cosmos/cosmos-sdk/x/genutil/client/cli"
 	"github.com/sei-protocol/sei-chain/app"
 	"github.com/sei-protocol/sei-chain/app/params"
+	"github.com/sei-protocol/sei-chain/utils/tracing"
 	"github.com/sei-protocol/sei-chain/wasmbinding"
 	"github.com/spf13/cast"
 	"github.com/spf13/cobra"
@@ -41,6 +42,7 @@ import (
 type Option func(*rootOptions)
 
 // scaffoldingOptions keeps set of options to apply scaffolding.
+//
 //nolint:unused // preserving this becase don't know if it is needed.
 type rootOptions struct {
 	addSubCmds         []*cobra.Command
@@ -125,6 +127,10 @@ func initRootCmd(
 		config.Cmd(),
 	)
 
+	tracingProviderOpts, err := tracing.GetTracerProviderOptions(tracing.DefaultTracingURL)
+	if err != nil {
+		panic(err)
+	}
 	// add server commands
 	server.AddCommands(
 		rootCmd,
@@ -132,6 +138,7 @@ func initRootCmd(
 		newApp,
 		appExport,
 		addModuleInitFlags,
+		tracingProviderOpts,
 	)
 
 	// add keybase, auxiliary RPC, query, and tx child commands
