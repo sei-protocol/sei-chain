@@ -21,6 +21,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/codec/legacy"
 	"github.com/cosmos/cosmos-sdk/crypto"
 	"github.com/cosmos/cosmos-sdk/crypto/hd"
+	"github.com/cosmos/cosmos-sdk/crypto/keys/sr25519"
 	"github.com/cosmos/cosmos-sdk/crypto/ledger"
 	"github.com/cosmos/cosmos-sdk/crypto/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -111,23 +112,10 @@ type Signer interface {
 type Importer interface {
 	// ImportPrivKey imports ASCII armored passphrase-encrypted private keys.
 	ImportPrivKey(uid, armor, passphrase string) error
-
-	// ImportPubKey imports ASCII armored public keys.
-	ImportPubKey(uid string, armor string) error
-}
-
-// LegacyInfoImporter is implemented by key stores that support import of Info types.
-type LegacyInfoImporter interface {
-	// ImportInfo import a keyring.Info into the current keyring.
-	// It is used to migrate multisig, ledger, and public key Info structure.
-	ImportInfo(oldInfo Info) error
 }
 
 // Exporter is implemented by key stores that support export of public and private keys.
 type Exporter interface {
-	// Export public key
-	ExportPubKeyArmor(uid string) (string, error)
-	ExportPubKeyArmorByAddress(address sdk.Address) (string, error)
 
 	// ExportPrivKeyArmor returns a private key in ASCII armored format.
 	// It returns an error if the key does not exist or a wrong encryption passphrase is supplied.
@@ -203,8 +191,8 @@ type keystore struct {
 func newKeystore(kr keyring.Keyring, opts ...Option) keystore {
 	// Default options for keybase
 	options := Options{
-		SupportedAlgos:       SigningAlgoList{hd.Secp256k1},
-		SupportedAlgosLedger: SigningAlgoList{hd.Secp256k1},
+		SupportedAlgos:       SigningAlgoList{hd.Sr25519, hd.Secp256k1},
+		SupportedAlgosLedger: SigningAlgoList{hd.Sr25519, hd.Secp256k1},
 	}
 
 	for _, optionFn := range opts {
@@ -212,28 +200,6 @@ func newKeystore(kr keyring.Keyring, opts ...Option) keystore {
 	}
 
 	return keystore{kr, options}
-}
-
-func (ks keystore) ExportPubKeyArmor(uid string) (string, error) {
-	bz, err := ks.Key(uid)
-	if err != nil {
-		return "", err
-	}
-
-	if bz == nil {
-		return "", fmt.Errorf("no key to export with name: %s", uid)
-	}
-
-	return crypto.ArmorPubKeyBytes(legacy.Cdc.MustMarshal(bz.GetPubKey()), string(bz.GetAlgo())), nil
-}
-
-func (ks keystore) ExportPubKeyArmorByAddress(address sdk.Address) (string, error) {
-	info, err := ks.KeyByAddress(address)
-	if err != nil {
-		return "", err
-	}
-
-	return ks.ExportPubKeyArmor(info.GetName())
 }
 
 func (ks keystore) ExportPrivKeyArmor(uid, encryptPassphrase string) (armor string, err error) {
@@ -251,13 +217,13 @@ func (ks keystore) ExportPrivKeyArmor(uid, encryptPassphrase string) (armor stri
 }
 
 // ExportPrivateKeyObject exports an armored private key object.
-func (ks keystore) ExportPrivateKeyObject(uid string) (types.PrivKey, error) {
+func (ks keystore) ExportPrivateKeyObject(uid string) ([]byte, error) {
 	info, err := ks.Key(uid)
 	if err != nil {
 		return nil, err
 	}
 
-	var priv types.PrivKey
+	var priv []byte
 
 	switch linfo := info.(type) {
 	case localInfo:
@@ -266,9 +232,18 @@ func (ks keystore) ExportPrivateKeyObject(uid string) (types.PrivKey, error) {
 			return nil, err
 		}
 
-		priv, err = legacy.PrivKeyFromBytes([]byte(linfo.PrivKeyArmor))
-		if err != nil {
-			return nil, err
+		if linfo.Algo == hd.Sr25519Type {
+			typedPriv := &sr25519.PrivKey{}
+			if err := typedPriv.UnmarshalJSON([]byte(linfo.PrivKeyArmor)); err != nil {
+				return nil, err
+			}
+			priv = []byte(linfo.PrivKeyArmor)
+		} else {
+			privKeys, err := legacy.PrivKeyFromBytes([]byte(linfo.PrivKeyArmor))
+			if err != nil {
+				return nil, err
+			}
+			priv = legacy.Cdc.MustMarshal(privKeys)
 		}
 
 	case ledgerInfo, offlineInfo, multiInfo:
@@ -292,9 +267,23 @@ func (ks keystore) ImportPrivKey(uid, armor, passphrase string) error {
 		return fmt.Errorf("cannot overwrite key: %s", uid)
 	}
 
-	privKey, algo, err := crypto.UnarmorDecryptPrivKey(armor, passphrase)
+	privKeyBytes, algo, err := crypto.UnarmorDecryptPrivKey(armor, passphrase)
 	if err != nil {
 		return errors.Wrap(err, "failed to decrypt private key")
+	}
+
+	var privKey types.PrivKey
+	if algo == string(hd.Sr25519Type) {
+		typedKey := &sr25519.PrivKey{}
+		if err := typedKey.UnmarshalJSON(privKeyBytes); err != nil {
+			return err
+		}
+		privKey = typedKey
+	} else {
+		privKey, err = legacy.PrivKeyFromBytes(privKeyBytes)
+		if err != nil {
+			return err
+		}
 	}
 
 	_, err = ks.writeLocalKey(uid, privKey, hd.PubKeyType(algo))
@@ -303,38 +292,6 @@ func (ks keystore) ImportPrivKey(uid, armor, passphrase string) error {
 	}
 
 	return nil
-}
-
-func (ks keystore) ImportPubKey(uid string, armor string) error {
-	if _, err := ks.Key(uid); err == nil {
-		return fmt.Errorf("cannot overwrite key: %s", uid)
-	}
-
-	pubBytes, algo, err := crypto.UnarmorPubKeyBytes(armor)
-	if err != nil {
-		return err
-	}
-
-	pubKey, err := legacy.PubKeyFromBytes(pubBytes)
-	if err != nil {
-		return err
-	}
-
-	_, err = ks.writeOfflineKey(uid, pubKey, hd.PubKeyType(algo))
-	if err != nil {
-		return err
-	}
-
-	return nil
-}
-
-// ImportInfo implements Importer.MigrateInfo.
-func (ks keystore) ImportInfo(oldInfo Info) error {
-	if _, err := ks.Key(oldInfo.GetName()); err == nil {
-		return fmt.Errorf("cannot overwrite key: %s", oldInfo.GetName())
-	}
-
-	return ks.writeInfo(oldInfo)
 }
 
 func (ks keystore) Sign(uid string, msg []byte) ([]byte, types.PubKey, error) {
@@ -351,9 +308,17 @@ func (ks keystore) Sign(uid string, msg []byte) ([]byte, types.PubKey, error) {
 			return nil, nil, fmt.Errorf("private key not available")
 		}
 
-		priv, err = legacy.PrivKeyFromBytes([]byte(i.PrivKeyArmor))
-		if err != nil {
-			return nil, nil, err
+		if i.Algo == hd.Sr25519Type {
+			typedPriv := &sr25519.PrivKey{}
+			if err := typedPriv.UnmarshalJSON([]byte(i.PrivKeyArmor)); err != nil {
+				return nil, nil, err
+			}
+			priv = typedPriv
+		} else {
+			priv, err = legacy.PrivKeyFromBytes([]byte(i.PrivKeyArmor))
+			if err != nil {
+				return nil, nil, err
+			}
 		}
 
 	case ledgerInfo:
@@ -746,7 +711,17 @@ func newRealPrompt(dir string, buf io.Reader) func(string) (string, error) {
 func (ks keystore) writeLocalKey(name string, priv types.PrivKey, algo hd.PubKeyType) (Info, error) {
 	// encrypt private key using keyring
 	pub := priv.PubKey()
-	info := newLocalInfo(name, pub, string(legacy.Cdc.MustMarshal(priv)), algo)
+	var info Info
+	if algo == hd.Sr25519Type {
+		typedPriv := priv.(*sr25519.PrivKey)
+		jsonBytes, err := typedPriv.MarshalJSON()
+		if err != nil {
+			return nil, err
+		}
+		info = newLocalInfo(name, pub, string(jsonBytes), algo)
+	} else {
+		info = newLocalInfo(name, pub, string(legacy.Cdc.MustMarshal(priv)), algo)
+	}
 	if err := ks.writeInfo(info); err != nil {
 		return nil, err
 	}
@@ -846,7 +821,7 @@ func (ks unsafeKeystore) UnsafeExportPrivKeyHex(uid string) (privkey string, err
 		return "", err
 	}
 
-	return hex.EncodeToString(priv.Bytes()), nil
+	return hex.EncodeToString(priv), nil
 }
 
 func addrHexKeyAsString(address sdk.Address) string {
