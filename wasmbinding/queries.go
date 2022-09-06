@@ -12,20 +12,24 @@ import (
 	epochbindings "github.com/sei-protocol/sei-chain/x/epoch/client/wasm/bindings"
 	oraclewasm "github.com/sei-protocol/sei-chain/x/oracle/client/wasm"
 	oraclebindings "github.com/sei-protocol/sei-chain/x/oracle/client/wasm/bindings"
+	tokenfactorywasm "github.com/sei-protocol/sei-chain/x/tokenfactory/client/wasm"
+	tokenfactorybindings "github.com/sei-protocol/sei-chain/x/tokenfactory/client/wasm/bindings"
 )
 
 type QueryPlugin struct {
 	oracleHandler oraclewasm.OracleWasmQueryHandler
 	dexHandler    dexwasm.DexWasmQueryHandler
 	epochHandler  epochwasm.EpochWasmQueryHandler
+	tokenfactoryHandler tokenfactorywasm.TokenFactoryWasmQueryHandler
 }
 
 // NewQueryPlugin returns a reference to a new QueryPlugin.
-func NewQueryPlugin(oh *oraclewasm.OracleWasmQueryHandler, dh *dexwasm.DexWasmQueryHandler, eh *epochwasm.EpochWasmQueryHandler) *QueryPlugin {
+func NewQueryPlugin(oh *oraclewasm.OracleWasmQueryHandler, dh *dexwasm.DexWasmQueryHandler, eh *epochwasm.EpochWasmQueryHandler, th *tokenfactorywasm.TokenFactoryWasmQueryHandler) *QueryPlugin {
 	return &QueryPlugin{
 		oracleHandler: *oh,
 		dexHandler:    *dh,
 		epochHandler:  *eh,
+		tokenfactoryHandler: *th,
 	}
 }
 
@@ -136,5 +140,38 @@ func (qp QueryPlugin) HandleEpochQuery(ctx sdk.Context, queryData json.RawMessag
 		return bz, nil
 	default:
 		return nil, wasmvmtypes.UnsupportedRequest{Kind: "Unknown Sei Epoch Query"}
+	}
+}
+
+func (qp QueryPlugin) HandleTokenFactoryQuery(ctx sdk.Context, queryData json.RawMessage) ([]byte, error) {
+	var parsedQuery tokenfactorybindings.SeiTokenFactoryQuery
+	if err := json.Unmarshal(queryData, &parsedQuery); err != nil {
+		return nil, sdkerrors.Wrap(err, "Error parsing SeiTokenFactoryQuery")
+	}
+	switch {
+	case parsedQuery.CreatorInDenomFeeWhitelist != nil:
+		res, err := qp.tokenfactoryHandler.GetCreatorInDenomFeeWhitelist(ctx, parsedQuery.CreatorInDenomFeeWhitelist)
+		if err != nil {
+			return nil, sdkerrors.Wrap(err, "Error while querying whether creator in denom fee whitelist")
+		}
+		bz, err := json.Marshal(res)
+		if err != nil {
+			return nil, sdkerrors.Wrap(err, "Error encoding whitelist membership as JSON")
+		}
+
+		return bz, nil
+	case parsedQuery.GetDenomFeeWhitelist != nil:
+		res, err := qp.tokenfactoryHandler.GetDenomCreationFeeWhitelist(ctx)
+		if err != nil {
+			return nil, sdkerrors.Wrap(err, "Error while querying create denom fee whitelist")
+		}
+		bz, err := json.Marshal(res)
+		if err != nil {
+			return nil, sdkerrors.Wrap(err, "Error encoding whitelist as JSON")
+		}
+
+		return bz, nil
+	default:
+		return nil, wasmvmtypes.UnsupportedRequest{Kind: "Unknown Sei TokenFactory Query"}
 	}
 }
