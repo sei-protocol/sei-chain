@@ -66,7 +66,7 @@ func (s *KeeperTestHelper) Commit() {
 		panic(err)
 	}
 	newHeader := tmtypes.Header{Height: oldHeight + 1, ChainID: oldHeader.ChainID, Time: time.Now().UTC()}
-	s.App.BeginBlock(abci.RequestBeginBlock{Header: newHeader})
+	s.App.BeginBlock(s.Ctx, abci.RequestBeginBlock{Header: newHeader})
 	s.Ctx = s.App.GetBaseApp().NewContext(false, newHeader)
 }
 

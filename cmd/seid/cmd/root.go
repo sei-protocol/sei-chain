@@ -28,6 +28,7 @@ import (
 	genutilcli "github.com/cosmos/cosmos-sdk/x/genutil/client/cli"
 	"github.com/sei-protocol/sei-chain/app"
 	"github.com/sei-protocol/sei-chain/app/params"
+	"github.com/sei-protocol/sei-chain/utils/tracing"
 	"github.com/spf13/cast"
 	"github.com/spf13/cobra"
 	tmcli "github.com/tendermint/tendermint/libs/cli"
@@ -124,6 +125,10 @@ func initRootCmd(
 		config.Cmd(),
 	)
 
+	tracingProviderOpts, err := tracing.GetTracerProviderOptions(tracing.DefaultTracingURL)
+	if err != nil {
+		panic(err)
+	}
 	// add server commands
 	server.AddCommands(
 		rootCmd,
@@ -131,6 +136,7 @@ func initRootCmd(
 		newApp,
 		appExport,
 		addModuleInitFlags,
+		tracingProviderOpts,
 	)
 
 	// add keybase, auxiliary RPC, query, and tx child commands

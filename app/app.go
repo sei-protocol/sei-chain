@@ -1,6 +1,7 @@
 package app
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -8,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	storetypes "github.com/cosmos/cosmos-sdk/store/types"
 
@@ -101,8 +103,10 @@ import (
 	"github.com/sei-protocol/sei-chain/utils/tracing"
 
 	dexmodule "github.com/sei-protocol/sei-chain/x/dex"
+	dexcache "github.com/sei-protocol/sei-chain/x/dex/cache"
 	dexmodulekeeper "github.com/sei-protocol/sei-chain/x/dex/keeper"
 	dexmoduletypes "github.com/sei-protocol/sei-chain/x/dex/types"
+	dexutils "github.com/sei-protocol/sei-chain/x/dex/utils"
 
 	oraclemodule "github.com/sei-protocol/sei-chain/x/oracle"
 	oraclekeeper "github.com/sei-protocol/sei-chain/x/oracle/keeper"
@@ -313,6 +317,8 @@ type App struct {
 
 	tracingInfo  *tracing.Info
 	configurator module.Configurator
+
+	optimisticProcessingInfo *OptimisticProcessingInfo
 }
 
 // New returns a reference to an initialized blockchain app
@@ -334,7 +340,7 @@ func New(
 	cdc := encodingConfig.Amino
 	interfaceRegistry := encodingConfig.InterfaceRegistry
 
-	bApp := baseapp.NewBaseApp(AppName, logger, db, encodingConfig.TxConfig.TxDecoder(), baseAppOptions...)
+	bApp := baseapp.NewBaseApp(AppName, logger, db, encodingConfig.TxConfig.TxDecoder(), appOpts, baseAppOptions...)
 	bApp.SetCommitMultiStoreTracer(traceStore)
 	bApp.SetVersion(version.Version)
 	bApp.SetInterfaceRegistry(interfaceRegistry)
@@ -849,21 +855,71 @@ func (app *App) PrepareProposalHandler(ctx sdk.Context, req *abci.RequestPrepare
 }
 
 func (app *App) ProcessProposalHandler(ctx sdk.Context, req *abci.RequestProcessProposal) (*abci.ResponseProcessProposal, error) {
+	if app.optimisticProcessingInfo == nil {
+		completionSignal := make(chan struct{}, 1)
+		optimisticProcessingInfo := &OptimisticProcessingInfo{
+			Height:     req.Height,
+			Hash:       req.Hash,
+			Completion: completionSignal,
+		}
+		app.optimisticProcessingInfo = optimisticProcessingInfo
+		go func() {
+			events, txResults, endBlockResp, _ := app.ProcessBlock(ctx, req.Txs, req, req.ProposedLastCommit)
+			optimisticProcessingInfo.Events = events
+			optimisticProcessingInfo.TxRes = txResults
+			optimisticProcessingInfo.EndBlockResp = endBlockResp
+			optimisticProcessingInfo.Completion <- struct{}{}
+		}()
+	} else if !bytes.Equal(app.optimisticProcessingInfo.Hash, req.Hash) {
+		app.optimisticProcessingInfo.Aborted = true
+	}
 	return &abci.ResponseProcessProposal{
 		Status: abci.ResponseProcessProposal_ACCEPT,
 	}, nil
 }
 
 func (app *App) FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBlock) (*abci.ResponseFinalizeBlock, error) {
+	startTime := time.Now()
+	defer func() {
+		app.optimisticProcessingInfo = nil
+		duration := time.Since(startTime)
+		ctx.Logger().Info(fmt.Sprintf("FinalizeBlock took %dms", duration/time.Millisecond))
+	}()
+
+	if app.optimisticProcessingInfo != nil && !app.optimisticProcessingInfo.Aborted && bytes.Equal(app.optimisticProcessingInfo.Hash, req.Hash) {
+		select {
+		case <-app.optimisticProcessingInfo.Completion:
+			app.SetProcessProposalStateToCommit()
+			appHash := app.WriteStateToCommitAndGetWorkingHash()
+			resp := app.getFinalizeBlockResponse(appHash, app.optimisticProcessingInfo.Events, app.optimisticProcessingInfo.TxRes, app.optimisticProcessingInfo.EndBlockResp)
+			return &resp, nil
+		case <-time.After(OptimisticProcessingTimeoutInSeconds * time.Second):
+			ctx.Logger().Info("optimistic processing timed out")
+			break
+		}
+	}
+	ctx.Logger().Info("optimistic processing ineligible")
+	events, txResults, endBlockResp, _ := app.ProcessBlock(ctx, req.Txs, req, req.DecidedLastCommit)
+
+	app.SetDeliverStateToCommit()
+	appHash := app.WriteStateToCommitAndGetWorkingHash()
+	resp := app.getFinalizeBlockResponse(appHash, events, txResults, endBlockResp)
+	return &resp, nil
+}
+
+func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequest, lastCommit abci.CommitInfo) ([]abci.Event, []*abci.ExecTxResult, abci.ResponseEndBlock, error) {
+	goCtx := app.decorateContextWithDexMemState(ctx.Context())
+	ctx = ctx.WithContext(goCtx)
+
 	events := []abci.Event{}
-	beginBlockResp := app.BeginBlock(abci.RequestBeginBlock{
-		Hash: req.Hash,
-		ByzantineValidators: utils.Map(req.ByzantineValidators, func(mis abci.Misbehavior) abci.Evidence {
+	beginBlockReq := abci.RequestBeginBlock{
+		Hash: req.GetHash(),
+		ByzantineValidators: utils.Map(req.GetByzantineValidators(), func(mis abci.Misbehavior) abci.Evidence {
 			return abci.Evidence(mis)
 		}),
 		LastCommitInfo: abci.LastCommitInfo{
-			Round: req.DecidedLastCommit.Round,
-			Votes: utils.Map(req.DecidedLastCommit.Votes, func(vote abci.VoteInfo) abci.VoteInfo {
+			Round: lastCommit.Round,
+			Votes: utils.Map(lastCommit.Votes, func(vote abci.VoteInfo) abci.VoteInfo {
 				return abci.VoteInfo{
 					Validator:       vote.Validator,
 					SignedLastBlock: vote.SignedLastBlock,
@@ -872,15 +928,17 @@ func (app *App) FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBlock)
 		},
 		Header: tmproto.Header{
 			ChainID:         app.ChainID,
-			Height:          req.Height,
-			Time:            req.Time,
+			Height:          req.GetHeight(),
+			Time:            req.GetTime(),
 			ProposerAddress: ctx.BlockHeader().ProposerAddress,
 		},
-	})
+	}
+
+	beginBlockResp := app.BeginBlock(ctx, beginBlockReq)
 	events = append(events, beginBlockResp.Events...)
 	txResults := []*abci.ExecTxResult{}
-	for _, tx := range req.Txs {
-		deliverTxResp := app.DeliverTx(abci.RequestDeliverTx{
+	for _, tx := range txs {
+		deliverTxResp := app.DeliverTx(ctx, abci.RequestDeliverTx{
 			Tx: tx,
 		})
 		txResults = append(txResults, &abci.ExecTxResult{
@@ -894,13 +952,16 @@ func (app *App) FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBlock)
 			Codespace: deliverTxResp.Codespace,
 		})
 	}
-	endBlockResp := app.EndBlock(abci.RequestEndBlock{
-		Height: req.Height,
+	endBlockResp := app.EndBlock(ctx, abci.RequestEndBlock{
+		Height: req.GetHeight(),
 	})
 	events = append(events, endBlockResp.Events...)
 
-	appHash := app.WriteDeliverStateAndGetWorkingHash()
-	return &abci.ResponseFinalizeBlock{
+	return events, txResults, endBlockResp, nil
+}
+
+func (app *App) getFinalizeBlockResponse(appHash []byte, events []abci.Event, txResults []*abci.ExecTxResult, endBlockResp abci.ResponseEndBlock) abci.ResponseFinalizeBlock {
+	return abci.ResponseFinalizeBlock{
 		Events:    events,
 		TxResults: txResults,
 		ValidatorUpdates: utils.Map(endBlockResp.ValidatorUpdates, func(v abci.ValidatorUpdate) abci.ValidatorUpdate {
@@ -927,7 +988,7 @@ func (app *App) FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBlock)
 			},
 		},
 		AppHash: appHash,
-	}, nil
+	}
 }
 
 // LoadHeight loads a particular height
@@ -1068,6 +1129,10 @@ func (app *App) BlacklistedAccAddrs() map[string]bool {
 	}
 
 	return blacklistedAddrs
+}
+
+func (app *App) decorateContextWithDexMemState(base context.Context) context.Context {
+	return context.WithValue(base, dexutils.DexMemStateContextKey, dexcache.NewMemState())
 }
 
 func init() {

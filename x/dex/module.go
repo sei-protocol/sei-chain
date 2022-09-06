@@ -29,6 +29,7 @@ import (
 	dexkeeperquery "github.com/sei-protocol/sei-chain/x/dex/keeper/query"
 	"github.com/sei-protocol/sei-chain/x/dex/migrations"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
+	dexutils "github.com/sei-protocol/sei-chain/x/dex/utils"
 )
 
 var (
@@ -219,7 +220,7 @@ func (am AppModule) BeginBlock(ctx sdk.Context, _ abci.RequestBeginBlock) {
 	}()
 	defer utils.PanicHandler(func(err any) { utils.MetricsPanicCallback(err, ctx, types.ModuleName) })()
 
-	am.keeper.MemState.Clear()
+	dexutils.GetMemState(ctx.Context()).Clear()
 	isNewEpoch, currentEpoch := am.keeper.IsNewEpoch(ctx)
 	if isNewEpoch {
 		am.keeper.SetEpoch(ctx, currentEpoch)
@@ -271,7 +272,7 @@ func (am AppModule) EndBlock(ctx sdk.Context, _ abci.RequestEndBlock) (ret []abc
 	// `validContractAddresses` will always decrease in size every iteration.
 	iterCounter := len(validContractsInfo)
 	for len(validContractsInfo) > 0 {
-		newValidContractsInfo, ok := contract.EndBlockerAtomic(ctx, &am.keeper, validContractsInfo, am.tracingInfo)
+		newValidContractsInfo, ctx, ok := contract.EndBlockerAtomic(ctx, &am.keeper, validContractsInfo, am.tracingInfo)
 		if ok {
 			break
 		}

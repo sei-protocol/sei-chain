@@ -10,6 +10,7 @@ import (
 	dexcache "github.com/sei-protocol/sei-chain/x/dex/cache"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
 	typesutils "github.com/sei-protocol/sei-chain/x/dex/types/utils"
+	dexutils "github.com/sei-protocol/sei-chain/x/dex/utils"
 )
 
 func (k msgServer) transferFunds(goCtx context.Context, msg *types.MsgPlaceOrders) error {
@@ -38,7 +39,7 @@ func (k msgServer) transferFunds(goCtx context.Context, msg *types.MsgPlaceOrder
 		if fund.Amount.IsNil() || fund.IsNegative() {
 			return errors.New("fund deposits cannot be nil or negative")
 		}
-		k.MemState.GetDepositInfo(ctx, typesutils.ContractAddress(msg.GetContractAddr())).Add(&dexcache.DepositInfoEntry{
+		dexutils.GetMemState(ctx.Context()).GetDepositInfo(ctx, typesutils.ContractAddress(msg.GetContractAddr())).Add(&dexcache.DepositInfoEntry{
 			Creator: msg.Creator,
 			Denom:   fund.Denom,
 			Amount:  sdk.NewDec(fund.Amount.Int64()),
@@ -72,7 +73,7 @@ func (k msgServer) PlaceOrders(goCtx context.Context, msg *types.MsgPlaceOrders)
 		order.Id = nextID
 		order.Account = msg.Creator
 		order.ContractAddr = msg.GetContractAddr()
-		k.MemState.GetBlockOrders(ctx, typesutils.ContractAddress(msg.GetContractAddr()), pairStr).Add(order)
+		dexutils.GetMemState(ctx.Context()).GetBlockOrders(ctx, typesutils.ContractAddress(msg.GetContractAddr()), pairStr).Add(order)
 		idsInResp = append(idsInResp, nextID)
 		nextID++
 	}

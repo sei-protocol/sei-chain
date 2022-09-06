@@ -1,14 +1,17 @@
 package abci_test
 
 import (
+	"context"
 	"testing"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	keepertest "github.com/sei-protocol/sei-chain/testutil/keeper"
 	dex "github.com/sei-protocol/sei-chain/x/dex/cache"
+	dexcache "github.com/sei-protocol/sei-chain/x/dex/cache"
 	"github.com/sei-protocol/sei-chain/x/dex/keeper/abci"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
 	typesutils "github.com/sei-protocol/sei-chain/x/dex/types/utils"
+	dexutils "github.com/sei-protocol/sei-chain/x/dex/utils"
 	minttypes "github.com/sei-protocol/sei-chain/x/mint/types"
 	"github.com/stretchr/testify/require"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
@@ -17,7 +20,7 @@ import (
 func TestGetPlaceSudoMsg(t *testing.T) {
 	pair := types.Pair{PriceDenom: keepertest.TestPriceDenom, AssetDenom: keepertest.TestAssetDenom}
 	keeper, ctx := keepertest.DexKeeper(t)
-	keeper.MemState.GetBlockOrders(ctx, keepertest.TestContract, typesutils.GetPairString(&pair)).Add(
+	dexutils.GetMemState(ctx.Context()).GetBlockOrders(ctx, keepertest.TestContract, typesutils.GetPairString(&pair)).Add(
 		&types.Order{
 			Id:                1,
 			Price:             sdk.OneDec(),
@@ -37,13 +40,14 @@ func TestGetPlaceSudoMsg(t *testing.T) {
 func TestGetDepositSudoMsg(t *testing.T) {
 	testApp := keepertest.TestApp()
 	ctx := testApp.BaseApp.NewContext(false, tmproto.Header{})
+	ctx = ctx.WithContext(context.WithValue(ctx.Context(), dexutils.DexMemStateContextKey, dexcache.NewMemState()))
 	bankkeeper := testApp.BankKeeper
 	testAccount, _ := sdk.AccAddressFromBech32("sei1yezq49upxhunjjhudql2fnj5dgvcwjj87pn2wx")
 	amounts := sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(1000000)))
 	bankkeeper.MintCoins(ctx, minttypes.ModuleName, amounts)
 	bankkeeper.SendCoinsFromModuleToAccount(ctx, minttypes.ModuleName, testAccount, amounts)
 	keeper := testApp.DexKeeper
-	keeper.MemState.GetDepositInfo(ctx, keepertest.TestContract).Add(
+	dexutils.GetMemState(ctx.Context()).GetDepositInfo(ctx, keepertest.TestContract).Add(
 		&dex.DepositInfoEntry{
 			Creator: testAccount.String(),
 			Denom:   amounts[0].Denom,

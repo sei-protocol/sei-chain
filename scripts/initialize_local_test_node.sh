@@ -3,9 +3,9 @@
 echo -n Key Name to Add:
 read keyname
 echo
-echo -n Release to Build \(please find the latest release on https://github.com/sei-protocol/sei-chain/releases. Example: 1.1.0beta\):
-read release
-echo
+#echo -n Release to Build \(please find the latest release on https://github.com/sei-protocol/sei-chain/releases. Example: 1.1.0beta\):
+#read release
+#echo
 
 docker stop jaeger
 docker rm jaeger
@@ -23,10 +23,10 @@ docker run -d --name jaeger \
   jaegertracing/all-in-one:1.33
 
 echo "Building..."
-git fetch --tags -f
-git checkout $release
+#git fetch --tags -f
+#git checkout $release
 make install
-git checkout master
+#git checkout master
 sudo -S rm -r ~/.sei/
 sudo -S rm -r ~/test_accounts/
 ~/go/bin/seid tendermint unsafe-reset-all
@@ -63,12 +63,14 @@ if [[ "$OSTYPE" == "linux-gnu"* ]]; then
   sed -i 's/timeout_commit =.*/timeout_commit = "2000ms"/g' $CONFIG_PATH
   sed -i 's/skip_timeout_commit =.*/skip_timeout_commit = false/g' $CONFIG_PATH
   sed -i 's/mode = "full"/mode = "validator"/g' $HOME/.sei/config/config.toml
+  sed -i 's/indexer = \["null"\]/indexer = \["kv"\]/g' $HOME/.sei/config/config.toml
 elif [[ "$OSTYPE" == "darwin"* ]]; then
   sed -i '' 's/timeout_prevote =.*/timeout_prevote = "2000ms"/g' $CONFIG_PATH
   sed -i '' 's/timeout_precommit =.*/timeout_precommit = "2000ms"/g' $CONFIG_PATH
   sed -i '' 's/timeout_commit =.*/timeout_commit = "2000ms"/g' $CONFIG_PATH
   sed -i '' 's/skip_timeout_commit =.*/skip_timeout_commit = false/g' $CONFIG_PATH
   sed -i '' 's/mode = "full"/mode = "validator"/g' $HOME/.sei/config/config.toml
+  sed -i '' 's/indexer = \["null"\]/indexer = \["kv"\]/g' $HOME/.sei/config/config.toml
 else
   printf "Platform not supported, please ensure that the following values are set in your config.toml:\n"
   printf "###         Consensus Configuration Options         ###\n"
@@ -77,8 +79,9 @@ else
   printf "\t timeout_commit = \"2000ms\"\n"
   printf "\t skip_timeout_commit = false\n"
   printf "\t mode = validator\n"
+  printf "\t indexer = [\"kv\"]\n"
   exit 1
 fi
 
 # start the chain with log tracing
-~/go/bin/seid start --trace
+~/go/bin/seid start --trace --chain-id sei-chain
