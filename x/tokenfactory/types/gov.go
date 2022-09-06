@@ -55,7 +55,7 @@ func (p AddCreatorsToDenomFeeWhitelistProposal) String() string {
 	b.WriteString(fmt.Sprintf(`Add Creators to Denom Fee Whitelist Proposal:
   Title:       %s
   Description: %s
-  Records:     %s
+  CreatorList: %s
 `, p.Title, p.Description, creators))
 	return b.String()
 }
