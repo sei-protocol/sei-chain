@@ -38,7 +38,10 @@ message MsgPlaceOrders {
 }
 
 message MsgPlaceOrdersResponse {
-  repeated uint64 orderIds = 1;
+  repeated uint64 orderIds = 1 [
+    (gogoproto.moretags) = "yaml:\"order_ids\"",
+    (gogoproto.jsontag) = "order_ids"
+  ];
 }
 
 message MsgCancelOrders {
