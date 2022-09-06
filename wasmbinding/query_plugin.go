@@ -9,9 +9,9 @@ import (
 )
 
 const (
-	OracleRoute = "oracle"
-	DexRoute    = "dex"
-	EpochRoute  = "epoch"
+	OracleRoute       = "oracle"
+	DexRoute          = "dex"
+	EpochRoute        = "epoch"
 	TokenFactoryRoute = "tokenfactory"
 )
 

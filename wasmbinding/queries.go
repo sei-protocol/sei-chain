@@ -17,18 +17,18 @@ import (
 )
 
 type QueryPlugin struct {
-	oracleHandler oraclewasm.OracleWasmQueryHandler
-	dexHandler    dexwasm.DexWasmQueryHandler
-	epochHandler  epochwasm.EpochWasmQueryHandler
+	oracleHandler       oraclewasm.OracleWasmQueryHandler
+	dexHandler          dexwasm.DexWasmQueryHandler
+	epochHandler        epochwasm.EpochWasmQueryHandler
 	tokenfactoryHandler tokenfactorywasm.TokenFactoryWasmQueryHandler
 }
 
 // NewQueryPlugin returns a reference to a new QueryPlugin.
 func NewQueryPlugin(oh *oraclewasm.OracleWasmQueryHandler, dh *dexwasm.DexWasmQueryHandler, eh *epochwasm.EpochWasmQueryHandler, th *tokenfactorywasm.TokenFactoryWasmQueryHandler) *QueryPlugin {
 	return &QueryPlugin{
-		oracleHandler: *oh,
-		dexHandler:    *dh,
-		epochHandler:  *eh,
+		oracleHandler:       *oh,
+		dexHandler:          *dh,
+		epochHandler:        *eh,
 		tokenfactoryHandler: *th,
 	}
 }
