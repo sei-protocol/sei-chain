@@ -191,8 +191,8 @@ type keystore struct {
 func newKeystore(kr keyring.Keyring, opts ...Option) keystore {
 	// Default options for keybase
 	options := Options{
-		SupportedAlgos:       SigningAlgoList{hd.Sr25519},
-		SupportedAlgosLedger: SigningAlgoList{hd.Sr25519},
+		SupportedAlgos:       SigningAlgoList{hd.Sr25519, hd.Secp256k1},
+		SupportedAlgosLedger: SigningAlgoList{hd.Sr25519, hd.Secp256k1},
 	}
 
 	for _, optionFn := range opts {

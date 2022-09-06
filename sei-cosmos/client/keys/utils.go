@@ -40,8 +40,8 @@ func printKeyInfo(w io.Writer, keyInfo cryptokeyring.Info, bechKeyOut bechKeyOut
 	}
 }
 
-func printInfos(w io.Writer, infos []cryptokeyring.Info, output string, proto bool) {
-	kos, err := cryptokeyring.MkAccKeysOutput(infos, proto)
+func printInfos(w io.Writer, infos []cryptokeyring.Info, output string) {
+	kos, err := cryptokeyring.MkAccKeysOutput(infos)
 	if err != nil {
 		panic(err)
 	}

@@ -291,10 +291,7 @@ func printCreate(cmd *cobra.Command, info keyring.Info, showMnemonic bool, mnemo
 	switch outputFormat {
 	case OutputFormatText:
 		cmd.PrintErrln()
-		outputer := func(keyInfo keyring.Info) (keyring.KeyOutput, error) {
-			return keyring.MkAccKeyOutput(keyInfo, false)
-		}
-		printKeyInfo(cmd.OutOrStdout(), info, outputer, outputFormat)
+		printKeyInfo(cmd.OutOrStdout(), info, keyring.MkAccKeyOutput, outputFormat)
 
 		// print mnemonic unless requested not to.
 		if showMnemonic {
@@ -304,7 +301,7 @@ func printCreate(cmd *cobra.Command, info keyring.Info, showMnemonic bool, mnemo
 			fmt.Fprintln(cmd.ErrOrStderr(), mnemonic)
 		}
 	case OutputFormatJSON:
-		out, err := keyring.MkAccKeyOutput(info, false)
+		out, err := keyring.MkAccKeyOutput(info)
 		if err != nil {
 			return err
 		}

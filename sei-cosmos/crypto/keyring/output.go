@@ -55,28 +55,20 @@ func MkValKeyOutput(keyInfo Info) (KeyOutput, error) {
 // MkAccKeyOutput create a KeyOutput in with "acc" Bech32 prefixes. If the
 // public key is a multisig public key, then the threshold and constituent
 // public keys will be added.
-func MkAccKeyOutput(keyInfo Info, proto bool) (KeyOutput, error) {
+func MkAccKeyOutput(keyInfo Info) (KeyOutput, error) {
 	pk := keyInfo.GetPubKey()
 	addr := sdk.AccAddress(pk.Address())
-	if proto {
-		return NewKeyOutput(keyInfo.GetName(), keyInfo.GetType(), addr, pk)
-	}
-	return KeyOutput{
-		Name:    keyInfo.GetName(),
-		Type:    keyInfo.GetType().String(),
-		Address: addr.String(),
-		PubKey:  string(pk.String()),
-	}, nil
+	return NewKeyOutput(keyInfo.GetName(), keyInfo.GetType(), addr, pk)
 }
 
 // MkAccKeysOutput returns a slice of KeyOutput objects, each with the "acc"
 // Bech32 prefixes, given a slice of Info objects. It returns an error if any
 // call to MkKeyOutput fails.
-func MkAccKeysOutput(infos []Info, proto bool) ([]KeyOutput, error) {
+func MkAccKeysOutput(infos []Info) ([]KeyOutput, error) {
 	kos := make([]KeyOutput, len(infos))
 	var err error
 	for i, info := range infos {
-		kos[i], err = MkAccKeyOutput(info, proto)
+		kos[i], err = MkAccKeyOutput(info)
 		if err != nil {
 			return nil, err
 		}
