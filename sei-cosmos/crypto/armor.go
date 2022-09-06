@@ -12,8 +12,6 @@ import (
 	"golang.org/x/crypto/nacl/secretbox"
 	"golang.org/x/crypto/openpgp/armor"
 
-	"github.com/cosmos/cosmos-sdk/codec/legacy"
-	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
 	cosmoscrypto "github.com/cosmos/cosmos-sdk/crypto/utils"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 )
@@ -117,91 +115,11 @@ func DecryptSymmetric(ciphertext []byte, secret []byte) (plaintext []byte, err e
 var BcryptSecurityParameter = 12
 
 //-----------------------------------------------------------------
-// add armor
-
-// Armor the InfoBytes
-func ArmorInfoBytes(bz []byte) string {
-	header := map[string]string{
-		headerType:    "Info",
-		headerVersion: "0.0.0",
-	}
-
-	return EncodeArmor(blockTypeKeyInfo, header, bz)
-}
-
-// Armor the PubKeyBytes
-func ArmorPubKeyBytes(bz []byte, algo string) string {
-	header := map[string]string{
-		headerVersion: "0.0.1",
-	}
-	if algo != "" {
-		header[headerType] = algo
-	}
-
-	return EncodeArmor(blockTypePubKey, header, bz)
-}
-
-//-----------------------------------------------------------------
-// remove armor
-
-// Unarmor the InfoBytes
-func UnarmorInfoBytes(armorStr string) ([]byte, error) {
-	bz, header, err := unarmorBytes(armorStr, blockTypeKeyInfo)
-	if err != nil {
-		return nil, err
-	}
-
-	if header[headerVersion] != "0.0.0" {
-		return nil, fmt.Errorf("unrecognized version: %v", header[headerVersion])
-	}
-
-	return bz, nil
-}
-
-// UnarmorPubKeyBytes returns the pubkey byte slice, a string of the algo type, and an error
-func UnarmorPubKeyBytes(armorStr string) (bz []byte, algo string, err error) {
-	bz, header, err := unarmorBytes(armorStr, blockTypePubKey)
-	if err != nil {
-		return nil, "", fmt.Errorf("couldn't unarmor bytes: %v", err)
-	}
-
-	switch header[headerVersion] {
-	case "0.0.0":
-		return bz, defaultAlgo, err
-	case "0.0.1":
-		if header[headerType] == "" {
-			header[headerType] = defaultAlgo
-		}
-
-		return bz, header[headerType], err
-	case "":
-		return nil, "", fmt.Errorf("header's version field is empty")
-	default:
-		err = fmt.Errorf("unrecognized version: %v", header[headerVersion])
-		return nil, "", err
-	}
-}
-
-func unarmorBytes(armorStr, blockType string) (bz []byte, header map[string]string, err error) {
-	bType, header, bz, err := DecodeArmor(armorStr)
-	if err != nil {
-		return
-	}
-
-	if bType != blockType {
-		err = fmt.Errorf("unrecognized armor type %q, expected: %q", bType, blockType)
-		return
-	}
-
-	return
-}
-
-//-----------------------------------------------------------------
 // encrypt/decrypt with armor
 
 // Encrypt and armor the private key.
-func EncryptArmorPrivKey(privKey cryptotypes.PrivKey, passphrase string, algo string) string {
-	saltBytes, encBytes := encryptPrivKey(privKey, passphrase)
+func EncryptArmorPrivKey(privKeyBytes []byte, passphrase string, algo string) string {
+	saltBytes, encBytes := encryptPrivKey(privKeyBytes, passphrase)
 	header := map[string]string{
 		"kdf":  "bcrypt",
 		"salt": fmt.Sprintf("%X", saltBytes),
@@ -219,7 +137,7 @@ func EncryptArmorPrivKey(privKey cryptotypes.PrivKey, passphrase string, algo st
 // encrypt the given privKey with the passphrase using a randomly
 // generated salt and the xsalsa20 cipher. returns the salt and the
 // encrypted priv key.
-func encryptPrivKey(privKey cryptotypes.PrivKey, passphrase string) (saltBytes []byte, encBytes []byte) {
+func encryptPrivKey(privKeyBytes []byte, passphrase string) (saltBytes []byte, encBytes []byte) {
 	saltBytes = crypto.CRandBytes(16)
 	key, err := bcrypt.GenerateFromPassword(saltBytes, []byte(passphrase), BcryptSecurityParameter)
 
@@ -228,13 +146,13 @@ func encryptPrivKey(privKey cryptotypes.PrivKey, passphrase string) (saltBytes [
 	}
 
 	key = cosmoscrypto.Sha256(key) // get 32 bytes
-	privKeyBytes := legacy.Cdc.MustMarshal(privKey)
+	// privKeyBytes := legacy.Cdc.MustMarshal(privKey)
 
 	return saltBytes, EncryptSymmetric(privKeyBytes, key)
 }
 
 // UnarmorDecryptPrivKey returns the privkey byte slice, a string of the algo type, and an error
-func UnarmorDecryptPrivKey(armorStr string, passphrase string) (privKey cryptotypes.PrivKey, algo string, err error) {
+func UnarmorDecryptPrivKey(armorStr string, passphrase string) (privKey []byte, algo string, err error) {
 	blockType, header, encBytes, err := DecodeArmor(armorStr)
 	if err != nil {
 		return privKey, "", err
@@ -266,7 +184,7 @@ func UnarmorDecryptPrivKey(armorStr string, passphrase string) (privKey cryptoty
 	return privKey, header[headerType], err
 }
 
-func decryptPrivKey(saltBytes []byte, encBytes []byte, passphrase string) (privKey cryptotypes.PrivKey, err error) {
+func decryptPrivKey(saltBytes []byte, encBytes []byte, passphrase string) (privKey []byte, err error) {
 	key, err := bcrypt.GenerateFromPassword(saltBytes, []byte(passphrase), BcryptSecurityParameter)
 	if err != nil {
 		return privKey, sdkerrors.Wrap(err, "error generating bcrypt key from passphrase")
@@ -281,5 +199,6 @@ func decryptPrivKey(saltBytes []byte, encBytes []byte, passphrase string) (privK
 		return privKey, err
 	}
 
-	return legacy.PrivKeyFromBytes(privKeyBytes)
+	// return legacy.PrivKeyFromBytes(privKeyBytes)
+	return privKeyBytes, nil
 }

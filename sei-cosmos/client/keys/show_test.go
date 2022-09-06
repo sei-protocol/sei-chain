@@ -189,6 +189,9 @@ func Test_getBechKeyOut(t *testing.T) {
 	type args struct {
 		bechPrefix string
 	}
+	outputer := func(keyInfo keyring.Info) (keyring.KeyOutput, error) {
+		return keyring.MkAccKeyOutput(keyInfo, true)
+	}
 	tests := []struct {
 		name    string
 		args    args
@@ -197,7 +200,7 @@ func Test_getBechKeyOut(t *testing.T) {
 	}{
 		{"empty", args{""}, nil, true},
 		{"wrong", args{"???"}, nil, true},
-		{"acc", args{sdk.PrefixAccount}, keyring.MkAccKeyOutput, false},
+		{"acc", args{sdk.PrefixAccount}, outputer, false},
 		{"val", args{sdk.PrefixValidator}, keyring.MkValKeyOutput, false},
 		{"cons", args{sdk.PrefixConsensus}, keyring.MkConsKeyOutput, false},
 	}
