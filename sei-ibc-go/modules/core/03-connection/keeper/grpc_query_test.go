@@ -30,13 +30,15 @@ func (suite *KeeperTestSuite) TestQueryConnection() {
 			},
 			false,
 		},
-		{"invalid connectionID",
+		{
+			"invalid connectionID",
 			func() {
 				req = &types.QueryConnectionRequest{}
 			},
 			false,
 		},
-		{"connection not found",
+		{
+			"connection not found",
 			func() {
 				req = &types.QueryConnectionRequest{
 					ConnectionId: ibctesting.InvalidID,
@@ -186,13 +188,15 @@ func (suite *KeeperTestSuite) TestQueryClientConnections() {
 			},
 			false,
 		},
-		{"invalid connectionID",
+		{
+			"invalid connectionID",
 			func() {
 				req = &types.QueryClientConnectionsRequest{}
 			},
 			false,
 		},
-		{"connection not found",
+		{
+			"connection not found",
 			func() {
 				req = &types.QueryClientConnectionsRequest{
 					ClientId: ibctesting.InvalidID,

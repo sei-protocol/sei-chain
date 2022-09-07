@@ -10,9 +10,7 @@ import (
 )
 
 func (suite *TypesTestSuite) TestMarshalConsensusStateWithHeight() {
-	var (
-		cswh types.ConsensusStateWithHeight
-	)
+	var cswh types.ConsensusStateWithHeight
 
 	testCases := []struct {
 		name     string

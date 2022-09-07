@@ -64,7 +64,6 @@ func ParsePacketFromEvents(events sdk.Events) (channeltypes.Packet, error) {
 		if ev.Type == channeltypes.EventTypeSendPacket {
 			packet := channeltypes.Packet{}
 			for _, attr := range ev.Attributes {
-
 				switch string(attr.Key) {
 				case channeltypes.AttributeKeyData:
 					packet.Data = attr.Value

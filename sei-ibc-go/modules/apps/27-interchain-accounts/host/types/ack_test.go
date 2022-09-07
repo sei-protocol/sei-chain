@@ -97,5 +97,4 @@ func (suite *TypesTestSuite) TestAcknowledgementError() {
 
 	suite.Require().Equal(ack, ackSameABCICode)
 	suite.Require().NotEqual(ack, ackDifferentABCICode)
-
 }

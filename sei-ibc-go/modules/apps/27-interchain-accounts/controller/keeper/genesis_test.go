@@ -41,7 +41,6 @@ func (suite *KeeperTestSuite) TestInitGenesis() {
 	expParams := types.NewParams(false)
 	params := suite.chainA.GetSimApp().ICAControllerKeeper.GetParams(suite.chainA.GetContext())
 	suite.Require().Equal(expParams, params)
-
 }
 
 func (suite *KeeperTestSuite) TestExportGenesis() {

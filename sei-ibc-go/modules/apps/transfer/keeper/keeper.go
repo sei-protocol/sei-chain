@@ -35,7 +35,6 @@ func NewKeeper(
 	ics4Wrapper types.ICS4Wrapper, channelKeeper types.ChannelKeeper, portKeeper types.PortKeeper,
 	authKeeper types.AccountKeeper, bankKeeper types.BankKeeper, scopedKeeper capabilitykeeper.ScopedKeeper,
 ) Keeper {
-
 	// ensure ibc transfer module account is set
 	if addr := authKeeper.GetModuleAddress(types.ModuleName); addr == nil {
 		panic("the IBC transfer module account has not been set")

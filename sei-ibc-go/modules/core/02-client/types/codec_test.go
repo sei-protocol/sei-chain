@@ -18,7 +18,6 @@ type caseAny struct {
 }
 
 func (suite *TypesTestSuite) TestPackClientState() {
-
 	testCases := []struct {
 		name        string
 		clientState exported.ClientState

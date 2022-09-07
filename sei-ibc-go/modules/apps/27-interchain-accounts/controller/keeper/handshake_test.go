@@ -22,7 +22,6 @@ func (suite *KeeperTestSuite) TestOnChanOpenInit() {
 		malleate func()
 		expPass  bool
 	}{
-
 		{
 			"success",
 			func() {
@@ -242,7 +241,6 @@ func (suite *KeeperTestSuite) TestOnChanOpenInit() {
 			} else {
 				suite.Require().Error(err)
 			}
-
 		})
 	}
 }
@@ -402,16 +400,13 @@ func (suite *KeeperTestSuite) TestOnChanOpenAck() {
 }
 
 func (suite *KeeperTestSuite) TestOnChanCloseConfirm() {
-	var (
-		path *ibctesting.Path
-	)
+	var path *ibctesting.Path
 
 	testCases := []struct {
 		name     string
 		malleate func()
 		expPass  bool
 	}{
-
 		{
 			"success", func() {}, true,
 		},
@@ -441,7 +436,6 @@ func (suite *KeeperTestSuite) TestOnChanCloseConfirm() {
 			} else {
 				suite.Require().Error(err)
 			}
-
 		})
 	}
 }

@@ -39,7 +39,6 @@ func NewKeeper(
 	channelKeeper icatypes.ChannelKeeper, portKeeper icatypes.PortKeeper,
 	accountKeeper icatypes.AccountKeeper, scopedKeeper capabilitykeeper.ScopedKeeper, msgRouter *baseapp.MsgServiceRouter,
 ) Keeper {
-
 	// ensure ibc interchain accounts module account is set
 	if addr := accountKeeper.GetModuleAddress(icatypes.ModuleName); addr == nil {
 		panic("the Interchain Accounts module account has not been set")

@@ -117,7 +117,6 @@ func (suite *TypesTestSuite) TestUpgradeProposalValidateBasic() {
 			"fails validate abstract - empty title", func() {
 				proposal, err = types.NewUpgradeProposal("", ibctesting.Description, plan, cs)
 				suite.Require().NoError(err)
-
 			}, false,
 		},
 		{
@@ -199,7 +198,6 @@ func (suite *TypesTestSuite) TestMarshalUpgradeProposal() {
 	// unpack client state
 	_, err = types.UnpackClientState(newUp.UpgradedClientState)
 	suite.Require().NoError(err)
-
 }
 
 func (suite *TypesTestSuite) TestUpgradeString() {

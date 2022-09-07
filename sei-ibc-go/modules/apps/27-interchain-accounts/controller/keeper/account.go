@@ -10,7 +10,7 @@ import (
 )
 
 // RegisterInterchainAccount is the entry point to registering an interchain account.
-// It generates a new port identifier using the owner address. It will bind to the 
+// It generates a new port identifier using the owner address. It will bind to the
 // port identifier and call 04-channel 'ChanOpenInit'. An error is returned if the port
 // identifier is already in use. Gaining access to interchain accounts whose channels
 // have closed cannot be done with this function. A regular MsgChanOpenInit must be used.
