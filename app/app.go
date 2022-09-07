@@ -917,7 +917,8 @@ func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequ
 	app.batchVerifier.VerifyTxs(ctx, typedTxs)
 
 	txResults := []*abci.ExecTxResult{}
-	for _, tx := range txs {
+	for i, tx := range txs {
+		ctx = ctx.WithContext(context.WithValue(ctx.Context(), ante.ContextKeyTxIndexKey, i))
 		deliverTxResp := app.DeliverTx(ctx, abci.RequestDeliverTx{
 			Tx: tx,
 		})
