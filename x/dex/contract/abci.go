@@ -119,6 +119,9 @@ func handleDeposits(ctx sdk.Context, env *environment, keeper *keeper.Keeper, tr
 	// Handle deposit sequentially since they mutate `bank` state which is shared by all contracts
 	keeperWrapper := dexkeeperabci.KeeperWrapper{Keeper: keeper}
 	for _, contract := range env.validContractsInfo {
+		if !contract.NeedOrderMatching {
+			continue
+		}
 		if err := keeperWrapper.HandleEBDeposit(ctx.Context(), ctx, tracer, contract.ContractAddr); err != nil {
 			env.failedContractAddresses.Add(contract.ContractAddr)
 		}
