@@ -128,7 +128,7 @@ func GetCmdCreateDenomFeeWhitelist() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "create-denom-fee-whitelist",
 		Short: "Returns a list of all addresses whitelisted from the denom creation fee",
-		Args:  cobra.ExactArgs(1),
+		Args:  cobra.ExactArgs(0),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			clientCtx, err := client.GetClientQueryContext(cmd)
 			if err != nil {
