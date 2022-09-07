@@ -57,6 +57,37 @@ func (v *SR25519BatchVerifier) VerifyTxs(ctx sdk.Context, txs []sdk.Tx) {
 			v.errors[i] = sdkerrors.Wrapf(sdkerrors.ErrUnauthorized, "invalid number of signer;  expected: %d, got %d", len(signerAddrs), len(sigs))
 			continue
 		}
+
+		pubkeys, err := sigTx.GetPubKeys()
+		if err != nil {
+			v.errors[i] = err
+			continue
+		}
+		if len(pubkeys) != len(signerAddrs) {
+			v.errors[i] = sdkerrors.Wrapf(sdkerrors.ErrUnauthorized, "invalid number of pubkeys;  expected: %d, got %d", len(signerAddrs), len(pubkeys))
+			continue
+		}
+		for j, pk := range pubkeys {
+			acc, err := GetSignerAcc(ctx, v.ak, signerAddrs[j])
+			if err != nil {
+				v.errors[i] = err
+				break
+			}
+			// account already has pubkey set,no need to reset
+			if acc.GetPubKey() != nil {
+				continue
+			}
+			err = acc.SetPubKey(pk)
+			if err != nil {
+				v.errors[i] = sdkerrors.Wrap(sdkerrors.ErrInvalidPubKey, err.Error())
+				break
+			}
+			v.ak.SetAccount(ctx, acc)
+		}
+		if v.errors[i] != nil {
+			continue
+		}
+
 		sigTxs[i] = sigTx
 		sigsList[i] = sigs
 		signerAddressesList[i] = signerAddrs
