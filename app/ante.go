@@ -59,6 +59,14 @@ func NewAnteHandler(options HandlerOptions) (sdk.AnteHandler, error) {
 		sigGasConsumer = ante.DefaultSigVerificationGasConsumer
 	}
 
+	var sigVerifyDecorator sdk.AnteDecorator
+	sequentialVerifyDecorator := ante.NewSigVerificationDecorator(options.AccountKeeper, options.SignModeHandler)
+	if options.BatchVerifier == nil {
+		sigVerifyDecorator = sequentialVerifyDecorator
+	} else {
+		sigVerifyDecorator = ante.NewBatchSigVerificationDecorator(options.BatchVerifier, sequentialVerifyDecorator)
+	}
+
 	memPoolDecorator := ante.NewMempoolFeeDecorator()
 	anteDecorators := []sdk.AnteDecorator{
 		ante.NewSetUpContextDecorator(), // outermost AnteDecorator. SetUpContext must be called first
@@ -77,7 +85,7 @@ func NewAnteHandler(options HandlerOptions) (sdk.AnteHandler, error) {
 		ante.NewSetPubKeyDecorator(options.AccountKeeper),
 		ante.NewValidateSigCountDecorator(options.AccountKeeper),
 		ante.NewSigGasConsumeDecorator(options.AccountKeeper, sigGasConsumer),
-		ante.NewSigVerificationDecorator(options.AccountKeeper, options.SignModeHandler),
+		sigVerifyDecorator,
 		ante.NewIncrementSequenceDecorator(options.AccountKeeper),
 		ibcante.NewAnteDecorator(options.IBCKeeper),
 		dex.NewTickSizeMultipleDecorator(*options.DexKeeper),
