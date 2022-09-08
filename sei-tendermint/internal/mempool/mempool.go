@@ -353,6 +353,10 @@ func (txmp *TxMempool) ReapMaxBytesMaxGas(maxBytes, maxGas int64) types.Txs {
 	}()
 
 	txs := make([]types.Tx, 0, txmp.priorityIndex.NumTxs())
+	if txmp.Size() < txmp.config.TxNotifyThreshold {
+		// do not reap anything if threshold is not met
+		return txs
+	}
 	for txmp.priorityIndex.NumTxs() > 0 {
 		wtx := txmp.priorityIndex.PopTx()
 		txs = append(txs, wtx.tx)
@@ -835,11 +839,6 @@ func (txmp *TxMempool) purgeExpiredTxs(blockHeight int64) {
 func (txmp *TxMempool) notifyTxsAvailable() {
 	if txmp.Size() == 0 {
 		panic("attempt to notify txs available but mempool is empty!")
-	}
-
-	if txmp.Size() < txmp.config.TxNotifyThreshold {
-		// not reaching the threshold yet. Holding off from notification
-		return
 	}
 
 	if txmp.txsAvailable != nil && !txmp.notifiedTxsAvailable {
