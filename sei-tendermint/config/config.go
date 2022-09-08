@@ -770,6 +770,10 @@ type MempoolConfig struct {
 	// has existed in the mempool at least TTLNumBlocks number of blocks or if
 	// it's insertion time into the mempool is beyond TTLDuration.
 	TTLNumBlocks int64 `mapstructure:"ttl-num-blocks"`
+
+	// TxNotifyThreshold, if non-zero, defines the minimum number of transactions
+	// needed to trigger a notification in mempool's Tx notifier
+	TxNotifyThreshold int `mapstructure:"tx-notify-threshold"`
 }
 
 // DefaultMempoolConfig returns a default configuration for the Tendermint mempool.
@@ -778,12 +782,13 @@ func DefaultMempoolConfig() *MempoolConfig {
 		Broadcast: true,
 		// Each signature verification takes .5ms, Size reduced until we implement
 		// ABCI Recheck
-		Size:         5000,
-		MaxTxsBytes:  1024 * 1024 * 1024, // 1GB
-		CacheSize:    10000,
-		MaxTxBytes:   1024 * 1024, // 1MB
-		TTLDuration:  0 * time.Second,
-		TTLNumBlocks: 0,
+		Size:              5000,
+		MaxTxsBytes:       1024 * 1024 * 1024, // 1GB
+		CacheSize:         10000,
+		MaxTxBytes:        1024 * 1024, // 1MB
+		TTLDuration:       0 * time.Second,
+		TTLNumBlocks:      0,
+		TxNotifyThreshold: 0,
 	}
 }
 
@@ -814,6 +819,9 @@ func (cfg *MempoolConfig) ValidateBasic() error {
 	}
 	if cfg.TTLNumBlocks < 0 {
 		return errors.New("ttl-num-blocks can't be negative")
+	}
+	if cfg.TxNotifyThreshold < 0 {
+		return errors.New("tx-notify-threshold can't be negative")
 	}
 
 	return nil
@@ -1120,12 +1128,14 @@ func (cfg *ConsensusConfig) DeprecatedFieldWarning() error {
 	return nil
 }
 
-//-----------------------------------------------------------------------------
+// -----------------------------------------------------------------------------
 // TxIndexConfig
 // Remember that Event has the following structure:
 // type: [
-//  key: value,
-//  ...
+//
+//	key: value,
+//	...
+//
 // ]
 //
 // CompositeKeys are constructed by `type.key`

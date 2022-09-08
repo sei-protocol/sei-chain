@@ -837,6 +837,11 @@ func (txmp *TxMempool) notifyTxsAvailable() {
 		panic("attempt to notify txs available but mempool is empty!")
 	}
 
+	if txmp.Size() < txmp.config.TxNotifyThreshold {
+		// not reaching the threshold yet. Holding off from notification
+		return
+	}
+
 	if txmp.txsAvailable != nil && !txmp.notifiedTxsAvailable {
 		// channel cap is 1, so this will send once
 		txmp.notifiedTxsAvailable = true

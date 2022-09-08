@@ -396,6 +396,8 @@ ttl-duration = "{{ .Mempool.TTLDuration }}"
 # it's insertion time into the mempool is beyond ttl-duration.
 ttl-num-blocks = {{ .Mempool.TTLNumBlocks }}
 
+tx-notify-threshold = {{ .Mempool.TxNotifyThreshold }}
+
 #######################################################
 ###         State Sync Configuration Options        ###
 #######################################################
