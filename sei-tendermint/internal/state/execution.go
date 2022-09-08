@@ -147,15 +147,17 @@ func (blockExec *BlockExecutor) ProcessProposal(
 	block *types.Block,
 	state State,
 ) (bool, error) {
+	txs := block.Data.Txs.ToSliceOfBytes()
 	resp, err := blockExec.appClient.ProcessProposal(ctx, &abci.RequestProcessProposal{
 		Hash:                block.Header.Hash(),
 		Height:              block.Header.Height,
 		Time:                block.Header.Time,
-		Txs:                 block.Data.Txs.ToSliceOfBytes(),
+		Txs:                 txs,
 		ProposedLastCommit:  buildLastCommitInfo(block, blockExec.store, state.InitialHeight),
 		ByzantineValidators: block.Evidence.ToABCI(),
 		ProposerAddress:     block.ProposerAddress,
 		NextValidatorsHash:  block.NextValidatorsHash,
+		SigsVerified:        blockExec.getSigsVerified(txs),
 	})
 	if err != nil {
 		return false, ErrInvalidBlock(err)
@@ -216,17 +218,19 @@ func (blockExec *BlockExecutor) ApplyBlock(
 		defer finalizeBlockSpan.End()
 	}
 	startTime := time.Now().UnixNano()
+	txs := block.Data.Txs.ToSliceOfBytes()
 	fBlockRes, err := blockExec.appClient.FinalizeBlock(
 		ctx,
 		&abci.RequestFinalizeBlock{
 			Hash:                block.Hash(),
 			Height:              block.Header.Height,
 			Time:                block.Header.Time,
-			Txs:                 block.Txs.ToSliceOfBytes(),
+			Txs:                 txs,
 			DecidedLastCommit:   buildLastCommitInfo(block, blockExec.store, state.InitialHeight),
 			ByzantineValidators: block.Evidence.ToABCI(),
 			ProposerAddress:     block.ProposerAddress,
 			NextValidatorsHash:  block.NextValidatorsHash,
+			SigsVerified:        blockExec.getSigsVerified(txs),
 		},
 	)
 	endTime := time.Now().UnixNano()
@@ -763,4 +767,16 @@ func (blockExec *BlockExecutor) pruneBlocks(retainHeight int64) (uint64, error) 
 		return 0, fmt.Errorf("failed to prune state store: %w", err)
 	}
 	return pruned, nil
+}
+
+func (blockExec *BlockExecutor) getSigsVerified(txs [][]byte) []bool {
+	sigsVerified := make([]bool, len(txs))
+	txStore := blockExec.mempool.TxStore()
+	for i, tx := range txs {
+		typedTx := types.Tx(tx)
+		if txStore != nil && txStore.GetTxByHash(typedTx.Key()) != nil {
+			sigsVerified[i] = true
+		}
+	}
+	return sigsVerified
 }

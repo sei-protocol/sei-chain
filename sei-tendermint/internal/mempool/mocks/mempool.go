@@ -19,6 +19,10 @@ type Mempool struct {
 	mock.Mock
 }
 
+func (_m *Mempool) TxStore() *mempool.TxStore {
+	return nil
+}
+
 // CheckTx provides a mock function with given fields: ctx, tx, callback, txInfo
 func (_m *Mempool) CheckTx(ctx context.Context, tx types.Tx, callback func(*abcitypes.ResponseCheckTx), txInfo mempool.TxInfo) error {
 	ret := _m.Called(ctx, tx, callback, txInfo)

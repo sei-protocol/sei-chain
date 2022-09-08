@@ -145,6 +145,10 @@ func WithMetrics(metrics *Metrics) TxMempoolOption {
 	return func(txmp *TxMempool) { txmp.metrics = metrics }
 }
 
+func (txmp *TxMempool) TxStore() *TxStore {
+	return txmp.txStore
+}
+
 // Lock obtains a write-lock on the mempool. A caller must be sure to explicitly
 // release the lock when finished.
 func (txmp *TxMempool) Lock() {
@@ -208,14 +212,14 @@ func (txmp *TxMempool) TxsAvailable() <-chan struct{} {
 // CheckTx ABCI method synchronously. We return an error if any of
 // the following happen:
 //
-// - The CheckTx execution fails.
-// - The transaction already exists in the cache and we've already received the
-//   transaction from the peer. Otherwise, if it solely exists in the cache, we
-//   return nil.
-// - The transaction size exceeds the maximum transaction size as defined by the
-//   configuration provided to the mempool.
-// - The transaction fails Pre-Check (if it is defined).
-// - The proxyAppConn fails, e.g. the buffer is full.
+//   - The CheckTx execution fails.
+//   - The transaction already exists in the cache and we've already received the
+//     transaction from the peer. Otherwise, if it solely exists in the cache, we
+//     return nil.
+//   - The transaction size exceeds the maximum transaction size as defined by the
+//     configuration provided to the mempool.
+//   - The transaction fails Pre-Check (if it is defined).
+//   - The proxyAppConn fails, e.g. the buffer is full.
 //
 // If the mempool is full, we still execute CheckTx and attempt to find a lower
 // priority transaction to evict. If such a transaction exists, we remove the
@@ -328,8 +332,8 @@ func (txmp *TxMempool) Flush() {
 // and gas constraints. Transaction are retrieved in priority order.
 //
 // NOTE:
-// - Transactions returned are not removed from the mempool transaction
-//   store or indexes.
+//   - Transactions returned are not removed from the mempool transaction
+//     store or indexes.
 func (txmp *TxMempool) ReapMaxBytesMaxGas(maxBytes, maxGas int64) types.Txs {
 	txmp.mtx.RLock()
 	defer txmp.mtx.RUnlock()
@@ -379,8 +383,8 @@ func (txmp *TxMempool) ReapMaxBytesMaxGas(maxBytes, maxGas int64) types.Txs {
 // transactions bound. Transaction are retrieved in priority order.
 //
 // NOTE:
-// - Transactions returned are not removed from the mempool transaction
-//   store or indexes.
+//   - Transactions returned are not removed from the mempool transaction
+//     store or indexes.
 func (txmp *TxMempool) ReapMaxTxs(max int) types.Txs {
 	txmp.mtx.RLock()
 	defer txmp.mtx.RUnlock()
