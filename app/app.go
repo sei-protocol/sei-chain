@@ -308,8 +308,8 @@ type App struct {
 
 	optimisticProcessingInfo *OptimisticProcessingInfo
 
-	batchVerifier *ante.SR25519BatchVerifier
-	txDecoder     sdk.TxDecoder
+	// batchVerifier *ante.SR25519BatchVerifier
+	// txDecoder     sdk.TxDecoder
 }
 
 // New returns a reference to an initialized blockchain app
@@ -368,7 +368,7 @@ func New(
 			Tracer:        &tr,
 			TracerContext: context.Background(),
 		},
-		txDecoder: encodingConfig.TxConfig.TxDecoder(),
+		// txDecoder: encodingConfig.TxConfig.TxDecoder(),
 	}
 
 	app.ParamsKeeper = initParamsKeeper(appCodec, cdc, keys[paramstypes.StoreKey], tkeys[paramstypes.TStoreKey])
@@ -699,7 +699,7 @@ func New(
 	app.SetBeginBlocker(app.BeginBlocker)
 
 	signModeHandler := encodingConfig.TxConfig.SignModeHandler()
-	app.batchVerifier = ante.NewSR25519BatchVerifier(app.AccountKeeper, signModeHandler)
+	// app.batchVerifier = ante.NewSR25519BatchVerifier(app.AccountKeeper, signModeHandler)
 
 	anteHandler, err := NewAnteHandler(
 		HandlerOptions{
@@ -709,7 +709,7 @@ func New(
 				FeegrantKeeper:  app.FeeGrantKeeper,
 				SignModeHandler: signModeHandler,
 				SigGasConsumer:  ante.DefaultSigVerificationGasConsumer,
-				BatchVerifier:   app.batchVerifier,
+				// BatchVerifier:   app.batchVerifier,
 			},
 			IBCKeeper:         app.IBCKeeper,
 			TXCounterStoreKey: keys[wasm.StoreKey],
@@ -905,20 +905,20 @@ func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequ
 	beginBlockResp := app.BeginBlock(ctx, beginBlockReq)
 	events = append(events, beginBlockResp.Events...)
 
-	typedTxs := []sdk.Tx{}
-	for _, tx := range req.GetTxs() {
-		typedTx, err := app.txDecoder(tx)
-		if err != nil {
-			typedTxs = append(typedTxs, nil)
-		} else {
-			typedTxs = append(typedTxs, typedTx)
-		}
-	}
-	app.batchVerifier.VerifyTxs(ctx, typedTxs)
+	// typedTxs := []sdk.Tx{}
+	// for _, tx := range req.GetTxs() {
+	// 	typedTx, err := app.txDecoder(tx)
+	// 	if err != nil {
+	// 		typedTxs = append(typedTxs, nil)
+	// 	} else {
+	// 		typedTxs = append(typedTxs, typedTx)
+	// 	}
+	// }
+	// app.batchVerifier.VerifyTxs(ctx, typedTxs)
 
 	txResults := []*abci.ExecTxResult{}
-	for i, tx := range txs {
-		ctx = ctx.WithContext(context.WithValue(ctx.Context(), ante.ContextKeyTxIndexKey, i))
+	for _, tx := range txs {
+		// ctx = ctx.WithContext(context.WithValue(ctx.Context(), ante.ContextKeyTxIndexKey, i))
 		deliverTxResp := app.DeliverTx(ctx, abci.RequestDeliverTx{
 			Tx: tx,
 		})
