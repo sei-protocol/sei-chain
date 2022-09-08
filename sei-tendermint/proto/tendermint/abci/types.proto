@@ -132,6 +132,7 @@ message RequestProcessProposal {
   bytes                     next_validators_hash = 7;
   // address of the public key of the original proposer of the block.
   bytes proposer_address = 8;
+  repeated bool sigs_verified = 9;
 }
 
 // Extends a vote with application-side injection
@@ -159,6 +160,7 @@ message RequestFinalizeBlock {
   bytes                     next_validators_hash = 7;
   // proposer_address is the address of the public key of the original proposer of the block.
   bytes proposer_address = 8;
+  repeated bool sigs_verified = 9;
 }
 
 message RequestBeginBlock {
@@ -170,6 +172,7 @@ message RequestBeginBlock {
 
 message RequestDeliverTx {
   bytes tx = 1;
+  bool sig_verified = 2;
 }
 
 message RequestEndBlock {

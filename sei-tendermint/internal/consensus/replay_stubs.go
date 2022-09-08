@@ -18,9 +18,10 @@ type emptyMempool struct{}
 
 var _ mempool.Mempool = emptyMempool{}
 
-func (emptyMempool) Lock()     {}
-func (emptyMempool) Unlock()   {}
-func (emptyMempool) Size() int { return 0 }
+func (emptyMempool) TxStore() *mempool.TxStore { return nil }
+func (emptyMempool) Lock()                     {}
+func (emptyMempool) Unlock()                   {}
+func (emptyMempool) Size() int                 { return 0 }
 func (emptyMempool) CheckTx(context.Context, types.Tx, func(*abci.ResponseCheckTx), mempool.TxInfo) error {
 	return nil
 }
