@@ -920,7 +920,7 @@ func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequ
 	sigVerifiedSet := len(txs) == len(req.GetSigsVerified())
 	txResults := []*abci.ExecTxResult{}
 	for i, tx := range txs {
-		// ctx = ctx.WithContext(context.WithValue(ctx.Context(), ante.ContextKeyTxIndexKey, i))
+		ctx = ctx.WithContext(context.WithValue(ctx.Context(), ante.ContextKeyTxIndexKey, i))
 		if sigVerifiedSet {
 			ctx = ctx.WithContext(context.WithValue(ctx.Context(), antedecorators.WasCheckedKey, req.GetSigsVerified()[i]))
 		}

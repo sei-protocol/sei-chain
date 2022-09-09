@@ -9,6 +9,7 @@ import (
 	ibcante "github.com/cosmos/ibc-go/v3/modules/core/ante"
 	ibckeeper "github.com/cosmos/ibc-go/v3/modules/core/keeper"
 	"github.com/sei-protocol/sei-chain/app/antedecorators"
+	"github.com/sei-protocol/sei-chain/utils"
 	"github.com/sei-protocol/sei-chain/utils/tracing"
 	"github.com/sei-protocol/sei-chain/x/dex"
 	dexkeeper "github.com/sei-protocol/sei-chain/x/dex/keeper"
@@ -92,5 +93,9 @@ func NewAnteHandler(options HandlerOptions) (sdk.AnteHandler, error) {
 		dex.NewTickSizeMultipleDecorator(*options.DexKeeper),
 	}
 
-	return sdk.ChainAnteDecorators(anteDecorators...), nil
+	tracedDecorators := utils.Map(anteDecorators, func(d sdk.AnteDecorator) sdk.AnteDecorator {
+		return antedecorators.NewTracedAnteDecorator(d, options.TracingInfo)
+	})
+
+	return sdk.ChainAnteDecorators(tracedDecorators...), nil
 }
