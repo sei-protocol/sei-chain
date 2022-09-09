@@ -35,6 +35,8 @@ import (
 	tmcli "github.com/tendermint/tendermint/libs/cli"
 	"github.com/tendermint/tendermint/libs/log"
 	dbm "github.com/tendermint/tm-db"
+	"github.com/cosmos/cosmos-sdk/version"
+	"github.com/sei-protocol/sei-chain/utils/metrics"
 )
 
 // Option configures root command option.
@@ -90,6 +92,10 @@ func NewRootCmd() (*cobra.Command, params.EncodingConfig) {
 			}
 
 			customAppTemplate, customAppConfig := initAppConfig()
+
+			// emit metrics for seid version and git commit every time any of the seid commands is used
+			verInfo := version.NewInfo()
+			metrics.GaugeSeidVersionAndCommit(verInfo.Version, verInfo.GitCommit)
 
 			return server.InterceptConfigsPreRunHandler(cmd, customAppTemplate, customAppConfig)
 		},

@@ -32,3 +32,13 @@ func IncrementSudoFailCount(msgType string) {
 		[]metrics.Label{telemetry.NewLabel("type", msgType)},
 	)
 }
+
+
+// Gauge metric with seid version and git commit as labels
+func GaugeSeidVersionAndCommit(version string, commit string) {
+	telemetry.SetGaugeWithLabels(
+		[]string{"seid","version","and","commit"},
+		1,
+		[]metrics.Label{telemetry.NewLabel("version", version), telemetry.NewLabel("commit", commit)},
+	)
+}
