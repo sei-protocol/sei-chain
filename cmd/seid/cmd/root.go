@@ -37,6 +37,7 @@ import (
 	dbm "github.com/tendermint/tm-db"
 	"github.com/cosmos/cosmos-sdk/version"
 	"github.com/sei-protocol/sei-chain/utils/metrics"
+	"github.com/prometheus/client_golang/prometheus"
 )
 
 // Option configures root command option.
@@ -96,6 +97,13 @@ func NewRootCmd() (*cobra.Command, params.EncodingConfig) {
 			// emit metrics for seid version and git commit every time any of the seid commands is used
 			verInfo := version.NewInfo()
 			metrics.GaugeSeidVersionAndCommit(verInfo.Version, verInfo.GitCommit)
+
+			opsQueued := prometheus.NewGauge(prometheus.GaugeOpts{
+				Name: "seid_version_git_commit_diff_lib",
+			})
+			prometheus.MustRegister(opsQueued)
+			opsQueued.Add(10)
+				
 
 			return server.InterceptConfigsPreRunHandler(cmd, customAppTemplate, customAppConfig)
 		},
