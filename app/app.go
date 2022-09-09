@@ -13,6 +13,7 @@ import (
 
 	storetypes "github.com/cosmos/cosmos-sdk/store/types"
 
+	"github.com/sei-protocol/sei-chain/app/antedecorators"
 	appparams "github.com/sei-protocol/sei-chain/app/params"
 	"github.com/sei-protocol/sei-chain/utils"
 	"github.com/sei-protocol/sei-chain/wasmbinding"
@@ -916,9 +917,13 @@ func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequ
 	// }
 	// app.batchVerifier.VerifyTxs(ctx, typedTxs)
 
+	sigVerifiedSet := len(txs) == len(req.GetSigsVerified())
 	txResults := []*abci.ExecTxResult{}
-	for _, tx := range txs {
+	for i, tx := range txs {
 		// ctx = ctx.WithContext(context.WithValue(ctx.Context(), ante.ContextKeyTxIndexKey, i))
+		if sigVerifiedSet {
+			ctx = ctx.WithContext(context.WithValue(ctx.Context(), antedecorators.WasCheckedKey, req.GetSigsVerified()[i]))
+		}
 		deliverTxResp := app.DeliverTx(ctx, abci.RequestDeliverTx{
 			Tx: tx,
 		})

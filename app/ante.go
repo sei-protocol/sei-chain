@@ -59,7 +59,9 @@ func NewAnteHandler(options HandlerOptions) (sdk.AnteHandler, error) {
 	}
 
 	// var sigVerifyDecorator sdk.AnteDecorator
-	sequentialVerifyDecorator := ante.NewSigVerificationDecorator(options.AccountKeeper, options.SignModeHandler)
+	sequentialVerifyDecorator := antedecorators.NewFastPathDecorator(
+		ante.NewSigVerificationDecorator(options.AccountKeeper, options.SignModeHandler),
+	)
 	// if options.BatchVerifier == nil {
 	// 	sigVerifyDecorator = sequentialVerifyDecorator
 	// } else {

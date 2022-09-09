@@ -23,4 +23,5 @@ type BlockProcessRequest interface {
 	GetByzantineValidators() []abci.Misbehavior
 	GetHeight() int64
 	GetTime() time.Time
+	GetSigsVerified() []bool
 }
