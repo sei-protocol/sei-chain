@@ -122,6 +122,9 @@ import (
 	wasmtypes "github.com/CosmWasm/wasmd/x/wasm/types"
 
 	"go.opentelemetry.io/otel"
+
+	"github.com/sei-protocol/sei-chain/utils/metrics"
+	"github.com/prometheus/client_golang/prometheus"
 )
 
 // this line is used by starport scaffolding # stargate/wasm/app/enabledProposals
@@ -738,6 +741,16 @@ func New(
 	app.ScopedTransferKeeper = scopedTransferKeeper
 	app.ScopedWasmKeeper = scopedWasmKeeper
 	// this line is used by starport scaffolding # stargate/app/beforeInitReturn
+
+	// emit metrics for seid version and git commit every time any of the seid commands is used
+	verInfo := version.NewInfo()
+	metrics.GaugeSeidVersionAndCommit(verInfo.Version, "from new")
+
+	opsQueued := prometheus.NewGauge(prometheus.GaugeOpts{
+		Name: "seid_version_git_commit_diff_lib_from_new",
+	})
+	prometheus.MustRegister(opsQueued)
+	opsQueued.Add(10)
 
 	return app
 }
