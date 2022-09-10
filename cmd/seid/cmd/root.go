@@ -38,6 +38,8 @@ import (
 	"github.com/cosmos/cosmos-sdk/version"
 	"github.com/sei-protocol/sei-chain/utils/metrics"
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/cosmos/cosmos-sdk/telemetry"
+	serverconfig "github.com/cosmos/cosmos-sdk/server/config"
 )
 
 // Option configures root command option.
@@ -103,7 +105,12 @@ func NewRootCmd() (*cobra.Command, params.EncodingConfig) {
 		encodingConfig,
 	)
 
-	
+	serverCtx := server.GetServerContextFromCmd(rootCmd)
+	serverConfig := serverconfig.GetConfig(serverCtx.Viper)
+	_, err := startTelemetry(serverConfig)
+	if err != nil {
+		panic(err)
+	}
 
 	// emit metrics for seid version and git commit every time any of the seid commands is used
 	verInfo := version.NewInfo()
@@ -116,6 +123,13 @@ func NewRootCmd() (*cobra.Command, params.EncodingConfig) {
 	opsQueued.Add(10)
 
 	return rootCmd, encodingConfig
+}
+
+func startTelemetry(cfg serverconfig.Config) (*telemetry.Metrics, error) {
+	if !cfg.Telemetry.Enabled {
+		return nil, nil
+	}
+	return telemetry.New(cfg.Telemetry)
 }
 
 func initRootCmd(

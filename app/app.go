@@ -757,6 +757,9 @@ func New(
 	return app
 }
 
+
+
+
 // Add (or remove) keepers when they are introduced / removed in different versions
 func (app *App) SetStoreUpgradeHandlers() {
 	upgradeInfo, err := app.UpgradeKeeper.ReadUpgradeInfoFromDisk()
