@@ -752,6 +752,8 @@ func New(
 	prometheus.MustRegister(opsQueued)
 	opsQueued.Add(10)
 
+	fmt.Println("asdf")
+
 	return app
 }
 

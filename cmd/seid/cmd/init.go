@@ -23,6 +23,8 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/types/module"
 	"github.com/cosmos/cosmos-sdk/x/genutil"
+	"github.com/cosmos/cosmos-sdk/telemetry"
+	serverconfig "github.com/cosmos/cosmos-sdk/server/config"
 )
 
 const (
@@ -142,6 +144,16 @@ func InitCmd(mbm module.BasicManager, defaultNodeHome string) *cobra.Command {
 			toPrint := newPrintInfo(config.Moniker, chainID, nodeID, "", appState)
 
 			tmcfg.WriteConfigFile(filepath.Join(config.RootDir, "config", "config.toml"), config)
+			
+			serverConfig := serverconfig.GetConfig(serverCtx.Viper)
+			if err != nil {
+				return err
+			}
+
+			_, err = startTelemetry(serverConfig)
+			if err != nil {
+				return err
+			}
 
 			return displayInfo(toPrint)
 		},
@@ -153,4 +165,12 @@ func InitCmd(mbm module.BasicManager, defaultNodeHome string) *cobra.Command {
 	cmd.Flags().String(flags.FlagChainID, "", "genesis file chain-id, if left blank will use sei")
 
 	return cmd
+}
+
+
+func startTelemetry(cfg serverconfig.Config) (*telemetry.Metrics, error) {
+	if !cfg.Telemetry.Enabled {
+		return nil, nil
+	}
+	return telemetry.New(cfg.Telemetry)
 }

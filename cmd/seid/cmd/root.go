@@ -94,17 +94,6 @@ func NewRootCmd() (*cobra.Command, params.EncodingConfig) {
 
 			customAppTemplate, customAppConfig := initAppConfig()
 
-			// emit metrics for seid version and git commit every time any of the seid commands is used
-			verInfo := version.NewInfo()
-			metrics.GaugeSeidVersionAndCommit(verInfo.Version, verInfo.GitCommit)
-
-			opsQueued := prometheus.NewGauge(prometheus.GaugeOpts{
-				Name: "seid_version_git_commit_diff_lib",
-			})
-			prometheus.MustRegister(opsQueued)
-			opsQueued.Add(10)
-				
-
 			return server.InterceptConfigsPreRunHandler(cmd, customAppTemplate, customAppConfig)
 		},
 	}
@@ -113,6 +102,19 @@ func NewRootCmd() (*cobra.Command, params.EncodingConfig) {
 		rootCmd,
 		encodingConfig,
 	)
+
+	
+
+	// emit metrics for seid version and git commit every time any of the seid commands is used
+	verInfo := version.NewInfo()
+	metrics.GaugeSeidVersionAndCommit(verInfo.Version, verInfo.GitCommit)
+
+	opsQueued := prometheus.NewGauge(prometheus.GaugeOpts{
+		Name: "seid_version_git_commit_diff_lib",
+	})
+	prometheus.MustRegister(opsQueued)
+	opsQueued.Add(10)
+
 	return rootCmd, encodingConfig
 }
 
