@@ -2,6 +2,7 @@ package main
 
 import (
 	"os"
+	"fmt"
 
 	"github.com/sei-protocol/sei-chain/app/params"
 	"github.com/sei-protocol/sei-chain/cmd/seid/cmd"
@@ -11,6 +12,7 @@ import (
 )
 
 func main() {
+	fmt.Println("called")
 	params.SetAddressPrefixes()
 	rootCmd, _ := cmd.NewRootCmd()
 	if err := svrcmd.Execute(rootCmd, app.DefaultNodeHome); err != nil {

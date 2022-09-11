@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -35,11 +36,11 @@ import (
 	tmcli "github.com/tendermint/tendermint/libs/cli"
 	"github.com/tendermint/tendermint/libs/log"
 	dbm "github.com/tendermint/tm-db"
+
 	"github.com/cosmos/cosmos-sdk/version"
 	"github.com/sei-protocol/sei-chain/utils/metrics"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/cosmos/cosmos-sdk/telemetry"
-	serverconfig "github.com/cosmos/cosmos-sdk/server/config"
 )
 
 // Option configures root command option.
@@ -96,7 +97,26 @@ func NewRootCmd() (*cobra.Command, params.EncodingConfig) {
 
 			customAppTemplate, customAppConfig := initAppConfig()
 
-			return server.InterceptConfigsPreRunHandler(cmd, customAppTemplate, customAppConfig)
+			if err = server.InterceptConfigsPreRunHandler(cmd, customAppTemplate, customAppConfig); err != nil {
+				return err
+			}
+
+			fmt.Println("seid called")
+			serverCtx := server.GetServerContextFromCmd(cmd)
+			serverConfig := serverconfig.GetConfig(serverCtx.Viper)
+			_, err = startTelemetry(serverConfig)
+
+			// emit metrics for seid version and git commit every time any of the seid commands is used
+			verInfo := version.NewInfo()
+			metrics.GaugeSeidVersionAndCommit(verInfo.Version, verInfo.GitCommit)
+
+			opsQueued := prometheus.NewGauge(prometheus.GaugeOpts{
+				Name: "seid_version_git_commit_diff_lib",
+			})
+			prometheus.MustRegister(opsQueued)
+			opsQueued.Add(10)
+
+			return err
 		},
 	}
 
@@ -104,23 +124,6 @@ func NewRootCmd() (*cobra.Command, params.EncodingConfig) {
 		rootCmd,
 		encodingConfig,
 	)
-
-	serverCtx := server.GetServerContextFromCmd(rootCmd)
-	serverConfig := serverconfig.GetConfig(serverCtx.Viper)
-	_, err := startTelemetry(serverConfig)
-	if err != nil {
-		panic(err)
-	}
-
-	// emit metrics for seid version and git commit every time any of the seid commands is used
-	verInfo := version.NewInfo()
-	metrics.GaugeSeidVersionAndCommit(verInfo.Version, verInfo.GitCommit)
-
-	opsQueued := prometheus.NewGauge(prometheus.GaugeOpts{
-		Name: "seid_version_git_commit_diff_lib",
-	})
-	prometheus.MustRegister(opsQueued)
-	opsQueued.Add(10)
 
 	return rootCmd, encodingConfig
 }
@@ -237,6 +240,7 @@ func newApp(
 	traceStore io.Writer,
 	appOpts servertypes.AppOptions,
 ) servertypes.Application {
+	fmt.Println("NEW")
 	var cache sdk.MultiStorePersistentCache
 
 	if cast.ToBool(appOpts.Get(server.FlagInterBlockCache)) {
