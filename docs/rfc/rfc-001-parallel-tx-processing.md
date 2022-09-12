@@ -6,10 +6,10 @@
 
 ## Abstract
 
-This document discusses a proposal to enable parallel processing of transaction messages in a block safely and deterministically. ABCI++ support is a prerequisite.
+This document discusses a proposal to enable parallel processing of transaction messages in a block safely and deterministically. ABCI++ support is a prerequisite. Cosmos-SDK/wasmd forking is also necessary.
 
 ## Background
-
+As shown by recent load tests, after the optimizations of `EndBlock` are in place, the biggest bottleneck Sei has when processing thousands of transactions per block is the sequential processing of transactions. Each transaction takes 0.5ms on an `m5.12xlarge` EC2 machine, which translates to 0.5s for a 1000-tx block and 1s for a 2000-tx block, respectively. Since there is no obvious bottleneck within each transaction's processing logic (even signature verification is pretty fast, when transaction data size is reasonable), the best way we can improve performance is through parallelization of transaction processing.
 
 ## Discussion
 
@@ -62,12 +62,60 @@ As a result, `first_blue_read` will happen immediately and signal completion to 
 
 Upon receiving a block proposal, the app will first build out the access DAG based on the rules and mapping aforementioned, and validate that the DAG is indeed a DAG, so that there can be no circular dependency that would make deadlock possible. Then it will fire off one goroutine per message with `resource_dependencies` and `completion_signals` set for each message based on the DAG. The app blocks on waiting for all goroutines before responding to Tendermint.
 #### Maintain Access Mapping
-The keys for access mapping will be in the form of `module-msgtype-subtype`, which can be derived either from reflection or new explicit interface methods on `Msg`. The values will be in the form of `type-id`, where examples for type are `kv`, `dex-mem`, etc., and `id` can be prefixes for `kv` or other point or range identifiers for other resource types.
+The following structs will be defined to represent resource access:
+```go
+type AccessType uint32
+const (
+    AccessType_Unknown = 0
+    AccessType_Read = 1
+    AccessType_Write = 2
+)
+
+type ResourceType uint32
+const (
+    ResourceType_Unknown = 0
+    ResourceType_Any = 1 // The most coarse-grained resource type. Writes to it block everything.
+    ResourceType_KV = 2
+    ResourceType_Mem = 3
+    ResourceType_DexMem = 4
+    ...
+)
+
+type AccessOp struct {
+    MsgKey string
+    Type AccessType
+    Resource ResourceType
+    IdentifierTemplate string // can be generalized
+}
+
+func (a *AccessOp) GetResourceIdentifier(args []any) string {
+    return fmt.Sprintf(a.IdentifierTemplate, args...)
+}
+```
+Two new interface methods will be added to `sdk.Msg` which each message type would need to implement:
+```go
+GetAccessMappingKey() string
+GetAccessMappingValueArgs() [][]any
+```
+The new `accesscontrol` module needs to have mapping for every possible outcome of `GetAccessMappingKey()` in its store; otherwise the message should be rejected during CheckTx. Mapped value for each "mapping key" is an ordered list of `AccessOp`s. For example, assume the `i`-th `AccessOp` of a certain message type is a bank balance read operation:
+- the key may be something like `bank-balances`
+- the type is `read`
+- the resource type is `KV`
+- the id template can just be `"%s"`, whereas `GetAccessMappingValueArgs` of a particular instance of that message type will return a list `args` such that `args[i]` is `[<account address>]`.
+
+Note that if the exact value of a template argument cannot be known before actually executing the message, then it should not be a template and the mapping should be set with a coarser grained `AccessOp` (e.g. in this case, if account cannot be known in advance, then the `AccessOp` should cover the entire bank/balances prefix)
 
 Mappings for builtin modules are set in genesis and can only be updated via governance. If governance messages themselves have wrong mappings set, the chain may never be recovered, so for safety we will switch to the old sequential execution mode whenever there are governance messages in a block.
 
-Mappings for `wasm` contracts' public endpoints can only be set by contract owners, with keys in the form of `wasm-[code ID]-[instantiate/execute endpoint]` and are required before any of the execution endpoint is usable. Accessible resources for a `wasm` contract include not only its prefix in the `wasm` store and common ante handlers, but also any resource the contract's messages/submessages might access. If messages/submessages are possible, the access mapping should just mark that it could potentially read/write all resources since at the moment we don't have a generic way to know what messages (quantity and ordering) a contract call may produce before actually executing it.
+Mappings for `wasm` contracts' `execute` endpoints can be kept coarse-grained for now, with the following `AccessOp`s definition (in order):
+```
+Ante handler related ops
+Read from wasm store for contract address (load contract code and metadata)
+Read from Any (potential queries during contract execution)
+Write to Any (potential messages in contract responses)
+```
+It *might* be possible to make this finer-grained if we have the capability to automatically inspect contract code upon submission and derive its access patterns, but it is out-of-scope for the purpose of this document.
 
-TODO: mappings for EVM/SolanaVM contracts
-##### Validation
-The `Context` object for each message will also keep a `step` counter that's incremented whenever it signals one completion. The resource stores can then use this `step` counter to validate if the access request is for the correct `step`, and panic if not. If the validation fails, it means that the access mapping for that particular transaction is wrong and needs to be updated before messages for that type can be processed.
+*TODO: mappings for EVM/SolanaVM contracts once those modules are finalized*
+#### Validation
+To prevent bugs or human errors during mapping setting from damaging the chain, the `Context` object for each message will also keep a `step` counter that's incremented whenever it signals one completion. The resource stores can then use this `step` counter to validate if the access request is for the correct `step`, and panic if not. If the validation fails, it means that the access mapping for that particular transaction is wrong and needs to be updated before messages for that type can be processed.
