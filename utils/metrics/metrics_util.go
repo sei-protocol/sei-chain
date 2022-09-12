@@ -39,7 +39,7 @@ func IncrementSudoFailCount(msgType string) {
 // Metric Name:
 //
 //	seid_version_and_commit
-func GaugeSeidVersionAndCommit(version string, commit string) {
+func GaugeSeidVersionAndCommitDiffLib(version string, commit string) {
 	metric := prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Name: "seid_version_and_commit",
@@ -51,4 +51,13 @@ func GaugeSeidVersionAndCommit(version string, commit string) {
 	)
 	prometheus.MustRegister(metric)
 	metric.With(prometheus.Labels{"seid_version": version, "commit": commit}).Add(1)
+}
+
+
+func GaugeSeidVersionAndCommit(version string, commit string) {
+	telemetry.SetGaugeWithLabels(
+		[]string{"sei_version_and_commit"},
+		1,
+		[]metrics.Label{telemetry.NewLabel("seid_version", version),telemetry.NewLabel("seid_version", version)},
+	)
 }

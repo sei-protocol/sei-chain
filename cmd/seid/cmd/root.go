@@ -94,10 +94,6 @@ func NewRootCmd() (*cobra.Command, params.EncodingConfig) {
 
 			customAppTemplate, customAppConfig := initAppConfig()
 
-			// emit metrics for seid version and git commit every time any of the seid commands is used
-			verInfo := version.NewInfo()
-			metrics.GaugeSeidVersionAndCommit(verInfo.Version, verInfo.GitCommit)
-
 			return server.InterceptConfigsPreRunHandler(cmd, customAppTemplate, customAppConfig)
 		},
 	}
