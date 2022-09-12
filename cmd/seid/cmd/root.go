@@ -2,7 +2,6 @@ package cmd
 
 import (
 	"errors"
-	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -100,7 +99,6 @@ func NewRootCmd() (*cobra.Command, params.EncodingConfig) {
 		rootCmd,
 		encodingConfig,
 	)
-
 	return rootCmd, encodingConfig
 }
 

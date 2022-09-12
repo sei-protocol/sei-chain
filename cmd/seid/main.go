@@ -2,7 +2,6 @@ package main
 
 import (
 	"os"
-	"fmt"
 
 	"github.com/sei-protocol/sei-chain/app/params"
 	"github.com/sei-protocol/sei-chain/cmd/seid/cmd"

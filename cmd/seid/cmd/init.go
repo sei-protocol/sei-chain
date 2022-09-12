@@ -143,7 +143,6 @@ func InitCmd(mbm module.BasicManager, defaultNodeHome string) *cobra.Command {
 
 			tmcfg.WriteConfigFile(filepath.Join(config.RootDir, "config", "config.toml"), config)
 
-
 			return displayInfo(toPrint)
 		},
 	}
@@ -155,6 +154,3 @@ func InitCmd(mbm module.BasicManager, defaultNodeHome string) *cobra.Command {
 
 	return cmd
 }
-
-
-

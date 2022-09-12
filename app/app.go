@@ -122,9 +122,6 @@ import (
 	wasmtypes "github.com/CosmWasm/wasmd/x/wasm/types"
 
 	"go.opentelemetry.io/otel"
-
-	"github.com/sei-protocol/sei-chain/utils/metrics"
-	"github.com/prometheus/client_golang/prometheus"
 )
 
 // this line is used by starport scaffolding # stargate/wasm/app/enabledProposals
@@ -744,8 +741,6 @@ func New(
 
 	return app
 }
-
-
 
 
 // Add (or remove) keepers when they are introduced / removed in different versions
