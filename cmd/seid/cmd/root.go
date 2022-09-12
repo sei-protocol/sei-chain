@@ -36,11 +36,6 @@ import (
 	tmcli "github.com/tendermint/tendermint/libs/cli"
 	"github.com/tendermint/tendermint/libs/log"
 	dbm "github.com/tendermint/tm-db"
-
-	"github.com/cosmos/cosmos-sdk/version"
-	"github.com/sei-protocol/sei-chain/utils/metrics"
-	"github.com/prometheus/client_golang/prometheus"
-	"github.com/cosmos/cosmos-sdk/telemetry"
 )
 
 // Option configures root command option.
@@ -97,26 +92,7 @@ func NewRootCmd() (*cobra.Command, params.EncodingConfig) {
 
 			customAppTemplate, customAppConfig := initAppConfig()
 
-			if err = server.InterceptConfigsPreRunHandler(cmd, customAppTemplate, customAppConfig); err != nil {
-				return err
-			}
-
-			fmt.Println("seid called")
-			serverCtx := server.GetServerContextFromCmd(cmd)
-			serverConfig := serverconfig.GetConfig(serverCtx.Viper)
-			_, err = startTelemetry(serverConfig)
-
-			// emit metrics for seid version and git commit every time any of the seid commands is used
-			verInfo := version.NewInfo()
-			metrics.GaugeSeidVersionAndCommit(verInfo.Version, verInfo.GitCommit)
-
-			opsQueued := prometheus.NewGauge(prometheus.GaugeOpts{
-				Name: "seid_version_git_commit_diff_lib",
-			})
-			prometheus.MustRegister(opsQueued)
-			opsQueued.Add(10)
-
-			return err
+			return server.InterceptConfigsPreRunHandler(cmd, customAppTemplate, customAppConfig)
 		},
 	}
 
@@ -126,13 +102,6 @@ func NewRootCmd() (*cobra.Command, params.EncodingConfig) {
 	)
 
 	return rootCmd, encodingConfig
-}
-
-func startTelemetry(cfg serverconfig.Config) (*telemetry.Metrics, error) {
-	if !cfg.Telemetry.Enabled {
-		return nil, nil
-	}
-	return telemetry.New(cfg.Telemetry)
 }
 
 func initRootCmd(
@@ -240,7 +209,6 @@ func newApp(
 	traceStore io.Writer,
 	appOpts servertypes.AppOptions,
 ) servertypes.Application {
-	fmt.Println("NEW")
 	var cache sdk.MultiStorePersistentCache
 
 	if cast.ToBool(appOpts.Get(server.FlagInterBlockCache)) {
