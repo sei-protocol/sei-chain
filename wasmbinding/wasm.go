@@ -3,6 +3,7 @@ package wasmbinding
 import (
 	"github.com/CosmWasm/wasmd/x/wasm"
 	wasmkeeper "github.com/CosmWasm/wasmd/x/wasm/keeper"
+	authkeeper "github.com/cosmos/cosmos-sdk/x/auth/keeper"
 	dexwasm "github.com/sei-protocol/sei-chain/x/dex/client/wasm"
 	dexkeeper "github.com/sei-protocol/sei-chain/x/dex/keeper"
 	epochwasm "github.com/sei-protocol/sei-chain/x/epoch/client/wasm"
@@ -11,7 +12,6 @@ import (
 	oraclekeeper "github.com/sei-protocol/sei-chain/x/oracle/keeper"
 	tokenfactorywasm "github.com/sei-protocol/sei-chain/x/tokenfactory/client/wasm"
 	tokenfactorykeeper "github.com/sei-protocol/sei-chain/x/tokenfactory/keeper"
-	authkeeper "github.com/cosmos/cosmos-sdk/x/auth/keeper"
 )
 
 func RegisterCustomPlugins(
@@ -34,7 +34,7 @@ func RegisterCustomPlugins(
 	messengerDecoratorOpt := wasmkeeper.WithMessageHandlerDecorator(
 		CustomMessageDecorator(router, accountKeeper),
 	)
-	
+
 	return []wasm.Option{
 		queryPluginOpt,
 		messengerDecoratorOpt,

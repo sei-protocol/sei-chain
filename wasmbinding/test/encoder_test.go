@@ -6,11 +6,11 @@ import (
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/sei-protocol/sei-chain/wasmbinding/bindings"
+	dexwasm "github.com/sei-protocol/sei-chain/x/dex/client/wasm"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
 	dextypes "github.com/sei-protocol/sei-chain/x/dex/types"
-	tokenfactorytypes "github.com/sei-protocol/sei-chain/x/tokenfactory/types"
-	dexwasm "github.com/sei-protocol/sei-chain/x/dex/client/wasm"
 	tokenfactorywasm "github.com/sei-protocol/sei-chain/x/tokenfactory/client/wasm"
+	tokenfactorytypes "github.com/sei-protocol/sei-chain/x/tokenfactory/types"
 	"github.com/stretchr/testify/require"
 )
 

@@ -63,7 +63,7 @@ func (m *CustomMessenger) DispatchCustomMsg(
 		return nil, nil, sdkerrors.Wrap(err, "Error parsing Sei Wasm Message")
 	}
 
-	sdkMsgs, err := []sdk.Msg{}, nil
+	var sdkMsgs []sdk.Msg
 	switch {
 	case parsedMessage.PlaceOrders != nil:
 		sdkMsgs, err = dexwasm.EncodeDexPlaceOrders(parsedMessage.PlaceOrders, contractAddr)
@@ -98,7 +98,7 @@ func (m *CustomMessenger) DispatchCustomMsg(
 		}
 		events = append(events, sdkEvents...)
 	}
-	return
+	return events, data, nil
 }
 
 // This function is forked from wasmd. sdk.Msg will be validated and routed to the corresponding module msg server in this function.
