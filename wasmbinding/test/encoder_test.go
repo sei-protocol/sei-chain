@@ -5,10 +5,11 @@ import (
 	"testing"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
-	"github.com/sei-protocol/sei-chain/wasmbinding"
 	"github.com/sei-protocol/sei-chain/wasmbinding/bindings"
+	dexwasm "github.com/sei-protocol/sei-chain/x/dex/client/wasm"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
 	dextypes "github.com/sei-protocol/sei-chain/x/dex/types"
+	tokenfactorywasm "github.com/sei-protocol/sei-chain/x/tokenfactory/client/wasm"
 	tokenfactorytypes "github.com/sei-protocol/sei-chain/x/tokenfactory/types"
 	"github.com/stretchr/testify/require"
 )
@@ -36,13 +37,9 @@ func TestEncodePlaceOrder(t *testing.T) {
 		Funds:        []sdk.Coin{fund},
 		ContractAddr: TEST_TARGET_CONTRACT,
 	}
-	serialized, _ := json.Marshal(msg)
-	msgData := wasmbinding.SeiWasmMessage{
-		PlaceOrders: serialized,
-	}
-	serializedMsg, _ := json.Marshal(msgData)
+	serializedMsg, _ := json.Marshal(msg)
 
-	decodedMsgs, err := wasmbinding.CustomEncoder(contractAddr, serializedMsg)
+	decodedMsgs, err := dexwasm.EncodeDexPlaceOrders(serializedMsg, contractAddr)
 	require.NoError(t, err)
 	require.Equal(t, 1, len(decodedMsgs))
 	typedDecodedMsg, ok := decodedMsgs[0].(*dextypes.MsgPlaceOrders)
@@ -65,13 +62,9 @@ func TestDecodeOrderCancellation(t *testing.T) {
 		},
 		ContractAddr: TEST_TARGET_CONTRACT,
 	}
-	serialized, _ := json.Marshal(msg)
-	msgData := wasmbinding.SeiWasmMessage{
-		CancelOrders: serialized,
-	}
-	serializedMsg, _ := json.Marshal(msgData)
+	serializedMsg, _ := json.Marshal(msg)
 
-	decodedMsgs, err := wasmbinding.CustomEncoder(contractAddr, serializedMsg)
+	decodedMsgs, err := dexwasm.EncodeDexCancelOrders(serializedMsg, contractAddr)
 	require.NoError(t, err)
 	require.Equal(t, 1, len(decodedMsgs))
 	typedDecodedMsg, ok := decodedMsgs[0].(*dextypes.MsgCancelOrders)
@@ -94,13 +87,9 @@ func TestEncodeCreateDenom(t *testing.T) {
 	msg := bindings.CreateDenom{
 		Subdenom: "subdenom",
 	}
-	serialized, _ := json.Marshal(msg)
-	msgData := wasmbinding.SeiWasmMessage{
-		CreateDenom: serialized,
-	}
-	serializedMsg, _ := json.Marshal(msgData)
+	serializedMsg, _ := json.Marshal(msg)
 
-	decodedMsgs, err := wasmbinding.CustomEncoder(contractAddr, serializedMsg)
+	decodedMsgs, err := tokenfactorywasm.EncodeTokenFactoryCreateDenom(serializedMsg, contractAddr)
 	require.NoError(t, err)
 	require.Equal(t, 1, len(decodedMsgs))
 	typedDecodedMsg, ok := decodedMsgs[0].(*tokenfactorytypes.MsgCreateDenom)
@@ -118,13 +107,9 @@ func TestEncodeMint(t *testing.T) {
 	msg := bindings.MintTokens{
 		Amount: sdk.Coin{Amount: sdk.NewInt(100), Denom: "subdenom"},
 	}
-	serialized, _ := json.Marshal(msg)
-	msgData := wasmbinding.SeiWasmMessage{
-		MintTokens: serialized,
-	}
-	serializedMsg, _ := json.Marshal(msgData)
+	serializedMsg, _ := json.Marshal(msg)
 
-	decodedMsgs, err := wasmbinding.CustomEncoder(contractAddr, serializedMsg)
+	decodedMsgs, err := tokenfactorywasm.EncodeTokenFactoryMint(serializedMsg, contractAddr)
 	require.NoError(t, err)
 	require.Equal(t, 1, len(decodedMsgs))
 	typedDecodedMsg, ok := decodedMsgs[0].(*tokenfactorytypes.MsgMint)
@@ -142,13 +127,9 @@ func TestEncodeBurn(t *testing.T) {
 	msg := bindings.BurnTokens{
 		Amount: sdk.Coin{Amount: sdk.NewInt(10), Denom: "subdenom"},
 	}
-	serialized, _ := json.Marshal(msg)
-	msgData := wasmbinding.SeiWasmMessage{
-		BurnTokens: serialized,
-	}
-	serializedMsg, _ := json.Marshal(msgData)
+	serializedMsg, _ := json.Marshal(msg)
 
-	decodedMsgs, err := wasmbinding.CustomEncoder(contractAddr, serializedMsg)
+	decodedMsgs, err := tokenfactorywasm.EncodeTokenFactoryBurn(serializedMsg, contractAddr)
 	require.NoError(t, err)
 	require.Equal(t, 1, len(decodedMsgs))
 	typedDecodedMsg, ok := decodedMsgs[0].(*tokenfactorytypes.MsgBurn)
@@ -167,13 +148,9 @@ func TestEncodeChangeAdmin(t *testing.T) {
 		Denom:           "factory/sei1y3pxq5dp900czh0mkudhjdqjq5m8cpmmps8yjw/subdenom",
 		NewAdminAddress: "sei1hjfwcza3e3uzeznf3qthhakdr9juetl7g6esl4",
 	}
-	serialized, _ := json.Marshal(msg)
-	msgData := wasmbinding.SeiWasmMessage{
-		ChangeAdmin: serialized,
-	}
-	serializedMsg, _ := json.Marshal(msgData)
+	serializedMsg, _ := json.Marshal(msg)
 
-	decodedMsgs, err := wasmbinding.CustomEncoder(contractAddr, serializedMsg)
+	decodedMsgs, err := tokenfactorywasm.EncodeTokenFactoryChangeAdmin(serializedMsg, contractAddr)
 	require.NoError(t, err)
 	require.Equal(t, 1, len(decodedMsgs))
 	typedDecodedMsg, ok := decodedMsgs[0].(*tokenfactorytypes.MsgChangeAdmin)

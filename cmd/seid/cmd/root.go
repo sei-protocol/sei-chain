@@ -7,7 +7,6 @@ import (
 	"path/filepath"
 
 	"github.com/CosmWasm/wasmd/x/wasm"
-	wasmkeeper "github.com/CosmWasm/wasmd/x/wasm/keeper"
 	"github.com/cosmos/cosmos-sdk/baseapp"
 	"github.com/cosmos/cosmos-sdk/client"
 	"github.com/cosmos/cosmos-sdk/client/config"
@@ -31,7 +30,6 @@ import (
 	"github.com/sei-protocol/sei-chain/app"
 	"github.com/sei-protocol/sei-chain/app/params"
 	"github.com/sei-protocol/sei-chain/utils/tracing"
-	"github.com/sei-protocol/sei-chain/wasmbinding"
 	"github.com/spf13/cast"
 	"github.com/spf13/cobra"
 	tmcli "github.com/tendermint/tendermint/libs/cli"
@@ -240,10 +238,6 @@ func newApp(
 		panic(err)
 	}
 
-	wasmopts := []wasm.Option{wasmkeeper.WithMessageEncoders(&wasmkeeper.MessageEncoders{
-		Custom: wasmbinding.CustomEncoder,
-	})}
-
 	return app.New(
 		logger,
 		db,
@@ -255,7 +249,7 @@ func newApp(
 		app.MakeEncodingConfig(),
 		wasm.EnableAllProposals,
 		appOpts,
-		wasmopts,
+		[]wasm.Option{},
 		[]aclkeeper.Option{},
 		baseapp.SetPruning(pruningOpts),
 		baseapp.SetMinGasPrices(cast.ToString(appOpts.Get(server.FlagMinGasPrices))),
