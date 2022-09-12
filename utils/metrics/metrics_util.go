@@ -5,7 +5,6 @@ import (
 
 	metrics "github.com/armon/go-metrics"
 	"github.com/cosmos/cosmos-sdk/telemetry"
-	"github.com/prometheus/client_golang/prometheus"
 )
 
 // Measures the time taken to execute a sudo msg
@@ -35,25 +34,9 @@ func IncrementSudoFailCount(msgType string) {
 }
 
 // Gauge metric with seid version and git commit as labels
-// Using prometheus lib due to this metric is emitted before telemetry is started
 // Metric Name:
 //
 //	seid_version_and_commit
-func GaugeSeidVersionAndCommitDiffLib(version string, commit string) {
-	metric := prometheus.NewGaugeVec(
-		prometheus.GaugeOpts{
-			Name: "seid_version_and_commit",
-		},
-		[]string{
-			"seid_version",
-			"commit",
-		},
-	)
-	prometheus.MustRegister(metric)
-	metric.With(prometheus.Labels{"seid_version": version, "commit": commit}).Add(1)
-}
-
-
 func GaugeSeidVersionAndCommit(version string, commit string) {
 	telemetry.SetGaugeWithLabels(
 		[]string{"sei_version_and_commit"},

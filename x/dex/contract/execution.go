@@ -227,8 +227,6 @@ func HandleExecutionForContract(
 	}
 
 	settlements := ExecutePairsInParallel(sdkCtx, contractAddr, dexkeeper, registeredPairs, orderBooks)
-	defer telemetry.ModuleSetGauge(types.ModuleName, float32(len(settlements)), "settlement_size")
-	defer telemetry.ModuleSetGauge(types.ModuleName, float32(len(settlements)), "settlement_size")
 
 	// populate order placement results for FinalizeBlock hook
 	dexkeeper.MemState.GetAllBlockOrders(sdkCtx, typedContractAddr).DeepApply(func(orders *dexcache.BlockOrders) {

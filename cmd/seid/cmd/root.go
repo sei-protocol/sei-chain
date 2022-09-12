@@ -35,9 +35,6 @@ import (
 	tmcli "github.com/tendermint/tendermint/libs/cli"
 	"github.com/tendermint/tendermint/libs/log"
 	dbm "github.com/tendermint/tm-db"
-
-	"github.com/cosmos/cosmos-sdk/version"
-	"github.com/sei-protocol/sei-chain/utils/metrics"
 )
 
 // Option configures root command option.
