@@ -11,6 +11,7 @@ import (
 	oraclekeeper "github.com/sei-protocol/sei-chain/x/oracle/keeper"
 	tokenfactorywasm "github.com/sei-protocol/sei-chain/x/tokenfactory/client/wasm"
 	tokenfactorykeeper "github.com/sei-protocol/sei-chain/x/tokenfactory/keeper"
+	authkeeper "github.com/cosmos/cosmos-sdk/x/auth/keeper"
 )
 
 func RegisterCustomPlugins(
@@ -18,6 +19,8 @@ func RegisterCustomPlugins(
 	dex *dexkeeper.Keeper,
 	epoch *epochkeeper.Keeper,
 	tokenfactory *tokenfactorykeeper.Keeper,
+	accountKeeper *authkeeper.AccountKeeper,
+	router wasmkeeper.MessageRouter,
 ) []wasmkeeper.Option {
 	dexHandler := dexwasm.NewDexWasmQueryHandler(dex)
 	oracleHandler := oraclewasm.NewOracleWasmQueryHandler(oracle)
@@ -28,8 +31,12 @@ func RegisterCustomPlugins(
 	queryPluginOpt := wasmkeeper.WithQueryPlugins(&wasmkeeper.QueryPlugins{
 		Custom: CustomQuerier(wasmQueryPlugin),
 	})
-
+	messengerDecoratorOpt := wasmkeeper.WithMessageHandlerDecorator(
+		CustomMessageDecorator(router, accountKeeper),
+	)
+	
 	return []wasm.Option{
 		queryPluginOpt,
+		messengerDecoratorOpt,
 	}
 }
