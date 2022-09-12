@@ -34,12 +34,11 @@ func IncrementSudoFailCount(msgType string) {
 	)
 }
 
-
 // Gauge metric with seid version and git commit as labels
 // Using prometheus lib due to this metric is emitted before telemetry is started
 // Metric Name:
 //
-//  seid_version_and_commit
+//	seid_version_and_commit
 func GaugeSeidVersionAndCommit(version string, commit string) {
 	metric := prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
