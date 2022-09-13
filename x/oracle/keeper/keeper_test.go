@@ -249,49 +249,6 @@ func TestIterateMissCounters(t *testing.T) {
 	require.Equal(t, missCounter, votePenaltyCounters[0].MissCount)
 }
 
-func TestAggregatePrevoteAddDelete(t *testing.T) {
-	input := CreateTestInput(t)
-
-	hash := types.GetAggregateVoteHash("salt", "100ukrw,1000uusd", sdk.ValAddress(Addrs[0]))
-	aggregatePrevote := types.NewAggregateExchangeRatePrevote(hash, sdk.ValAddress(Addrs[0]), 0)
-	input.OracleKeeper.SetAggregateExchangeRatePrevote(input.Ctx, sdk.ValAddress(Addrs[0]), aggregatePrevote)
-
-	KPrevote, err := input.OracleKeeper.GetAggregateExchangeRatePrevote(input.Ctx, sdk.ValAddress(Addrs[0]))
-	require.NoError(t, err)
-	require.Equal(t, aggregatePrevote, KPrevote)
-
-	input.OracleKeeper.DeleteAggregateExchangeRatePrevote(input.Ctx, sdk.ValAddress(Addrs[0]))
-	_, err = input.OracleKeeper.GetAggregateExchangeRatePrevote(input.Ctx, sdk.ValAddress(Addrs[0]))
-	require.Error(t, err)
-}
-
-func TestAggregatePrevoteIterate(t *testing.T) {
-	input := CreateTestInput(t)
-
-	hash := types.GetAggregateVoteHash("salt", "100ukrw,1000uusd", sdk.ValAddress(Addrs[0]))
-	aggregatePrevote1 := types.NewAggregateExchangeRatePrevote(hash, sdk.ValAddress(Addrs[0]), 0)
-	input.OracleKeeper.SetAggregateExchangeRatePrevote(input.Ctx, sdk.ValAddress(Addrs[0]), aggregatePrevote1)
-
-	hash2 := types.GetAggregateVoteHash("salt", "100ukrw,1000uusd", sdk.ValAddress(Addrs[1]))
-	aggregatePrevote2 := types.NewAggregateExchangeRatePrevote(hash2, sdk.ValAddress(Addrs[1]), 0)
-	input.OracleKeeper.SetAggregateExchangeRatePrevote(input.Ctx, sdk.ValAddress(Addrs[1]), aggregatePrevote2)
-
-	i := 0
-	bigger := bytes.Compare(Addrs[0], Addrs[1])
-	input.OracleKeeper.IterateAggregateExchangeRatePrevotes(input.Ctx, func(voter sdk.ValAddress, p types.AggregateExchangeRatePrevote) (stop bool) {
-		if (i == 0 && bigger == -1) || (i == 1 && bigger == 1) {
-			require.Equal(t, aggregatePrevote1, p)
-			require.Equal(t, voter.String(), p.Voter)
-		} else {
-			require.Equal(t, aggregatePrevote2, p)
-			require.Equal(t, voter.String(), p.Voter)
-		}
-
-		i++
-		return false
-	})
-}
-
 func TestAggregateVoteAddDelete(t *testing.T) {
 	input := CreateTestInput(t)
 
