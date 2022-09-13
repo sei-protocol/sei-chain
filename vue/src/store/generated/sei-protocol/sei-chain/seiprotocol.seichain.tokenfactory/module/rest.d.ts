@@ -32,6 +32,13 @@ export interface TokenfactoryParams {
     denomCreationFee?: V1Beta1Coin[];
 }
 /**
+* QueryCreatorInDenomFeeWhitelistResponse defines the response structure for the
+CreatorInDenomFeeWhitelist gRPC query.
+*/
+export interface TokenfactoryQueryCreatorInDenomFeeWhitelistResponse {
+    whitelisted?: boolean;
+}
+/**
 * QueryDenomAuthorityMetadataResponse defines the response structure for the
 DenomAuthorityMetadata gRPC query.
 */
@@ -42,6 +49,13 @@ export interface TokenfactoryQueryDenomAuthorityMetadataResponse {
      * permission, but is planned to be extended to the future.
      */
     authorityMetadata?: TokenfactoryDenomAuthorityMetadata;
+}
+/**
+* QueryDenomCreationFeeWhitelistResponse defines the response structure for the
+DenomsFromCreator gRPC query.
+*/
+export interface TokenfactoryQueryDenomCreationFeeWhitelistResponse {
+    creators?: string[];
 }
 /**
 * QueryDenomsFromCreatorRequest defines the response structure for the
@@ -125,6 +139,26 @@ export declare class HttpClient<SecurityDataType = unknown> {
  * @version version not set
  */
 export declare class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDataType> {
+    /**
+   * No description
+   *
+   * @tags Query
+   * @name QueryDenomCreationFeeWhitelist
+   * @summary DenomCreationFeeWhitelist defines a gRPC query method for fetching all
+  creators who are whitelisted from paying the denom creation fee.
+   * @request GET:/sei-protocol/seichain/tokenfactory/denom_creation_fee_whitelist
+   */
+    queryDenomCreationFeeWhitelist: (params?: RequestParams) => Promise<HttpResponse<TokenfactoryQueryDenomCreationFeeWhitelistResponse, RpcStatus>>;
+    /**
+   * No description
+   *
+   * @tags Query
+   * @name QueryCreatorInDenomFeeWhitelist
+   * @summary CreatorInDenomFeeWhitelist defines a gRPC query method for fetching
+  whether a creator is whitelisted from denom creation fees.
+   * @request GET:/sei-protocol/seichain/tokenfactory/denom_creation_fee_whitelist/{creator}
+   */
+    queryCreatorInDenomFeeWhitelist: (creator: string, params?: RequestParams) => Promise<HttpResponse<TokenfactoryQueryCreatorInDenomFeeWhitelistResponse, RpcStatus>>;
     /**
    * No description
    *

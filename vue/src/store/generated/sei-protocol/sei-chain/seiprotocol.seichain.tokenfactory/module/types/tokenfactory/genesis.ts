@@ -9,7 +9,7 @@ export const protobufPackage = "seiprotocol.seichain.tokenfactory";
 export interface GenesisState {
   /** params defines the paramaters of the module. */
   params: Params | undefined;
-  factoryDenoms: GenesisDenom[];
+  factory_denoms: GenesisDenom[];
 }
 
 /**
@@ -19,7 +19,7 @@ export interface GenesisState {
  */
 export interface GenesisDenom {
   denom: string;
-  authorityMetadata: DenomAuthorityMetadata | undefined;
+  authority_metadata: DenomAuthorityMetadata | undefined;
 }
 
 const baseGenesisState: object = {};
@@ -29,7 +29,7 @@ export const GenesisState = {
     if (message.params !== undefined) {
       Params.encode(message.params, writer.uint32(10).fork()).ldelim();
     }
-    for (const v of message.factoryDenoms) {
+    for (const v of message.factory_denoms) {
       GenesisDenom.encode(v!, writer.uint32(18).fork()).ldelim();
     }
     return writer;
@@ -39,7 +39,7 @@ export const GenesisState = {
     const reader = input instanceof Uint8Array ? new Reader(input) : input;
     let end = length === undefined ? reader.len : reader.pos + length;
     const message = { ...baseGenesisState } as GenesisState;
-    message.factoryDenoms = [];
+    message.factory_denoms = [];
     while (reader.pos < end) {
       const tag = reader.uint32();
       switch (tag >>> 3) {
@@ -47,7 +47,7 @@ export const GenesisState = {
           message.params = Params.decode(reader, reader.uint32());
           break;
         case 2:
-          message.factoryDenoms.push(
+          message.factory_denoms.push(
             GenesisDenom.decode(reader, reader.uint32())
           );
           break;
@@ -61,15 +61,15 @@ export const GenesisState = {
 
   fromJSON(object: any): GenesisState {
     const message = { ...baseGenesisState } as GenesisState;
-    message.factoryDenoms = [];
+    message.factory_denoms = [];
     if (object.params !== undefined && object.params !== null) {
       message.params = Params.fromJSON(object.params);
     } else {
       message.params = undefined;
     }
-    if (object.factoryDenoms !== undefined && object.factoryDenoms !== null) {
-      for (const e of object.factoryDenoms) {
-        message.factoryDenoms.push(GenesisDenom.fromJSON(e));
+    if (object.factory_denoms !== undefined && object.factory_denoms !== null) {
+      for (const e of object.factory_denoms) {
+        message.factory_denoms.push(GenesisDenom.fromJSON(e));
       }
     }
     return message;
@@ -79,27 +79,27 @@ export const GenesisState = {
     const obj: any = {};
     message.params !== undefined &&
       (obj.params = message.params ? Params.toJSON(message.params) : undefined);
-    if (message.factoryDenoms) {
-      obj.factoryDenoms = message.factoryDenoms.map((e) =>
+    if (message.factory_denoms) {
+      obj.factory_denoms = message.factory_denoms.map((e) =>
         e ? GenesisDenom.toJSON(e) : undefined
       );
     } else {
-      obj.factoryDenoms = [];
+      obj.factory_denoms = [];
     }
     return obj;
   },
 
   fromPartial(object: DeepPartial<GenesisState>): GenesisState {
     const message = { ...baseGenesisState } as GenesisState;
-    message.factoryDenoms = [];
+    message.factory_denoms = [];
     if (object.params !== undefined && object.params !== null) {
       message.params = Params.fromPartial(object.params);
     } else {
       message.params = undefined;
     }
-    if (object.factoryDenoms !== undefined && object.factoryDenoms !== null) {
-      for (const e of object.factoryDenoms) {
-        message.factoryDenoms.push(GenesisDenom.fromPartial(e));
+    if (object.factory_denoms !== undefined && object.factory_denoms !== null) {
+      for (const e of object.factory_denoms) {
+        message.factory_denoms.push(GenesisDenom.fromPartial(e));
       }
     }
     return message;
@@ -113,9 +113,9 @@ export const GenesisDenom = {
     if (message.denom !== "") {
       writer.uint32(10).string(message.denom);
     }
-    if (message.authorityMetadata !== undefined) {
+    if (message.authority_metadata !== undefined) {
       DenomAuthorityMetadata.encode(
-        message.authorityMetadata,
+        message.authority_metadata,
         writer.uint32(18).fork()
       ).ldelim();
     }
@@ -133,7 +133,7 @@ export const GenesisDenom = {
           message.denom = reader.string();
           break;
         case 2:
-          message.authorityMetadata = DenomAuthorityMetadata.decode(
+          message.authority_metadata = DenomAuthorityMetadata.decode(
             reader,
             reader.uint32()
           );
@@ -154,14 +154,14 @@ export const GenesisDenom = {
       message.denom = "";
     }
     if (
-      object.authorityMetadata !== undefined &&
-      object.authorityMetadata !== null
+      object.authority_metadata !== undefined &&
+      object.authority_metadata !== null
     ) {
-      message.authorityMetadata = DenomAuthorityMetadata.fromJSON(
-        object.authorityMetadata
+      message.authority_metadata = DenomAuthorityMetadata.fromJSON(
+        object.authority_metadata
       );
     } else {
-      message.authorityMetadata = undefined;
+      message.authority_metadata = undefined;
     }
     return message;
   },
@@ -169,9 +169,9 @@ export const GenesisDenom = {
   toJSON(message: GenesisDenom): unknown {
     const obj: any = {};
     message.denom !== undefined && (obj.denom = message.denom);
-    message.authorityMetadata !== undefined &&
-      (obj.authorityMetadata = message.authorityMetadata
-        ? DenomAuthorityMetadata.toJSON(message.authorityMetadata)
+    message.authority_metadata !== undefined &&
+      (obj.authority_metadata = message.authority_metadata
+        ? DenomAuthorityMetadata.toJSON(message.authority_metadata)
         : undefined);
     return obj;
   },
@@ -184,14 +184,14 @@ export const GenesisDenom = {
       message.denom = "";
     }
     if (
-      object.authorityMetadata !== undefined &&
-      object.authorityMetadata !== null
+      object.authority_metadata !== undefined &&
+      object.authority_metadata !== null
     ) {
-      message.authorityMetadata = DenomAuthorityMetadata.fromPartial(
-        object.authorityMetadata
+      message.authority_metadata = DenomAuthorityMetadata.fromPartial(
+        object.authority_metadata
       );
     } else {
-      message.authorityMetadata = undefined;
+      message.authority_metadata = undefined;
     }
     return message;
   },
