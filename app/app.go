@@ -122,6 +122,8 @@ import (
 	wasmtypes "github.com/CosmWasm/wasmd/x/wasm/types"
 
 	"go.opentelemetry.io/otel"
+
+	"github.com/sei-protocol/sei-chain/utils/metrics"
 )
 
 // this line is used by starport scaffolding # stargate/wasm/app/enabledProposals
@@ -206,6 +208,9 @@ var (
 
 	// EmptyWasmOpts defines a type alias for a list of wasm options.
 	EmptyWasmOpts []wasm.Option
+
+	// Boolean to only emit seid version and git commit metric once per chain initialization
+	EmittedSeidVersionMetric bool = false
 )
 
 var (
@@ -780,6 +785,11 @@ func (app *App) BeginBlocker(ctx sdk.Context, req abci.RequestBeginBlock) abci.R
 	// 	context.WithValue(ctx.Context(), dexcache.GOCTX_KEY, dexcache.NewOrders()),
 	// )
 	// app.Logger().Info(fmt.Sprintf("BeginBlocker context %s", newCtx.Context().Value(dexcache.GOCTX_KEY).(dexcache.Orders)))
+	if !EmittedSeidVersionMetric {
+		verInfo := version.NewInfo()
+		metrics.GaugeSeidVersionAndCommit(verInfo.Version, verInfo.GitCommit)
+		EmittedSeidVersionMetric = true
+	}
 	return app.mm.BeginBlock(ctx, req)
 }
 
