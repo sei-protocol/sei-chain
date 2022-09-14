@@ -15,7 +15,6 @@ import (
 
 	"github.com/sei-protocol/sei-chain/x/oracle/keeper"
 	"github.com/sei-protocol/sei-chain/x/oracle/types"
-	"github.com/sei-protocol/sei-chain/x/oracle/utils"
 )
 
 // Simulation operation weights constants
@@ -26,10 +25,7 @@ const (
 	OpWeightMsgDelegateFeedConsent       = "op_weight_msg_exchange_feed_consent"
 )
 
-var (
-	whitelist   = []string{utils.MicroAtomDenom}
-	voteHashMap = make(map[string]string)
-)
+var voteHashMap = make(map[string]string)
 
 // WeightedOperations returns all the operations from the module with their respective weights
 func WeightedOperations(
