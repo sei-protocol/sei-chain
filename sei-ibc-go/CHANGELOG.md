@@ -46,6 +46,8 @@ Ref: https://keepachangelog.com/en/1.0.0/
 
 ### Features
 
+* (apps/27-interchain-accounts) [\#2193](https://github.com/cosmos/ibc-go/pull/2193) Adding `InterchainAccount` gRPC query endpont to ICS27 `controller` submodule to allow users to retrieve registered interchain account addresses.
+
 ### Bug Fixes
 
 ## [v3.2.0](https://github.com/cosmos/ibc-go/releases/tag/v3.2.0) - 2022-08-12
