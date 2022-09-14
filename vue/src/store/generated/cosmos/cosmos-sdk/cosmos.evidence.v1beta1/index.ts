@@ -1,6 +1,4 @@
 import { txClient, queryClient, MissingWalletError , registry} from './module'
-// @ts-ignore
-import { SpVuexError } from '@starport/vuex'
 
 import { Equivocation } from "./module/types/cosmos/evidence/v1beta1/evidence"
 
@@ -117,7 +115,7 @@ export default {
 					const sub=JSON.parse(subscription)
 					await dispatch(sub.action, sub.payload)
 				}catch(e) {
-					throw new SpVuexError('Subscriptions: ' + e.message)
+					throw new Error('Subscriptions: ' + e.message)
 				}
 			})
 		},
@@ -138,7 +136,7 @@ export default {
 				if (subscribe) commit('SUBSCRIBE', { action: 'QueryEvidence', payload: { options: { all }, params: {...key},query }})
 				return getters['getEvidence']( { params: {...key}, query}) ?? {}
 			} catch (e) {
-				throw new SpVuexError('QueryClient:QueryEvidence', 'API Node Unavailable. Could not perform query: ' + e.message)
+				throw new Error('QueryClient:QueryEvidence API Node Unavailable. Could not perform query: ' + e.message)
 				
 			}
 		},
@@ -164,7 +162,7 @@ export default {
 				if (subscribe) commit('SUBSCRIBE', { action: 'QueryAllEvidence', payload: { options: { all }, params: {...key},query }})
 				return getters['getAllEvidence']( { params: {...key}, query}) ?? {}
 			} catch (e) {
-				throw new SpVuexError('QueryClient:QueryAllEvidence', 'API Node Unavailable. Could not perform query: ' + e.message)
+				throw new Error('QueryClient:QueryAllEvidence API Node Unavailable. Could not perform query: ' + e.message)
 				
 			}
 		},
@@ -179,9 +177,9 @@ export default {
 				return result
 			} catch (e) {
 				if (e == MissingWalletError) {
-					throw new SpVuexError('TxClient:MsgSubmitEvidence:Init', 'Could not initialize signing client. Wallet is required.')
+					throw new Error('TxClient:MsgSubmitEvidence:Init Could not initialize signing client. Wallet is required.')
 				}else{
-					throw new SpVuexError('TxClient:MsgSubmitEvidence:Send', 'Could not broadcast Tx: '+ e.message)
+					throw new Error('TxClient:MsgSubmitEvidence:Send Could not broadcast Tx: '+ e.message)
 				}
 			}
 		},
@@ -193,10 +191,9 @@ export default {
 				return msg
 			} catch (e) {
 				if (e == MissingWalletError) {
-					throw new SpVuexError('TxClient:MsgSubmitEvidence:Init', 'Could not initialize signing client. Wallet is required.')
-				}else{
-					throw new SpVuexError('TxClient:MsgSubmitEvidence:Create', 'Could not create message: ' + e.message)
-					
+					throw new Error('TxClient:MsgSubmitEvidence:Init Could not initialize signing client. Wallet is required.')
+				} else{
+					throw new Error('TxClient:MsgSubmitEvidence:Create Could not create message: ' + e.message)
 				}
 			}
 		},

@@ -25,7 +25,7 @@ export interface DexAssetIBCInfo {
 
 export interface DexAssetMetadata {
   ibcInfo?: DexAssetIBCInfo;
-  typeAsset?: string;
+  type_asset?: string;
 
   /**
    * Metadata represents a struct that describes
@@ -306,7 +306,7 @@ export interface RpcStatus {
  */
 export interface SeichaindexParams {
   /** @format uint64 */
-  priceSnapshotRetention?: string;
+  price_snapshot_retention?: string;
 }
 
 /**
@@ -346,7 +346,7 @@ a basic token.
 */
 export interface V1Beta1Metadata {
   description?: string;
-  denomUnits?: V1Beta1DenomUnit[];
+  denom_units?: V1Beta1DenomUnit[];
 
   /** base represents the base denom (should be the DenomUnit with exponent = 0). */
   base?: string;
@@ -405,14 +405,7 @@ export interface V1Beta1PageRequest {
    * count_total is only respected when offset is used. It is ignored when key
    * is set.
    */
-  countTotal?: boolean;
-
-  /**
-   * reverse is set to true if results are to be returned in the descending order.
-   *
-   * Since: cosmos-sdk 0.43
-   */
-  reverse?: boolean;
+  count_total?: boolean;
 }
 
 /**
@@ -426,7 +419,7 @@ corresponding request message has used PageRequest.
 */
 export interface V1Beta1PageResponse {
   /** @format byte */
-  nextKey?: string;
+  next_key?: string;
 
   /** @format uint64 */
   total?: string;
@@ -785,8 +778,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       "pagination.key"?: string;
       "pagination.offset"?: string;
       "pagination.limit"?: string;
-      "pagination.countTotal"?: boolean;
-      "pagination.reverse"?: boolean;
+      "pagination.count_total"?: boolean;
     },
     params: RequestParams = {},
   ) =>
@@ -869,8 +861,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       "pagination.key"?: string;
       "pagination.offset"?: string;
       "pagination.limit"?: string;
-      "pagination.countTotal"?: boolean;
-      "pagination.reverse"?: boolean;
+      "pagination.count_total"?: boolean;
     },
     params: RequestParams = {},
   ) =>

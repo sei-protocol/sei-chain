@@ -37,13 +37,7 @@ export interface PageRequest {
    * count_total is only respected when offset is used. It is ignored when key
    * is set.
    */
-  countTotal: boolean;
-  /**
-   * reverse is set to true if results are to be returned in the descending order.
-   *
-   * Since: cosmos-sdk 0.43
-   */
-  reverse: boolean;
+  count_total: boolean;
 }
 
 /**
@@ -60,7 +54,7 @@ export interface PageResponse {
    * next_key is the key to be passed to PageRequest.key to
    * query the next page most efficiently
    */
-  nextKey: Uint8Array;
+  next_key: Uint8Array;
   /**
    * total is total number of results available if PageRequest.count_total
    * was set, its value is undefined otherwise
@@ -68,12 +62,7 @@ export interface PageResponse {
   total: number;
 }
 
-const basePageRequest: object = {
-  offset: 0,
-  limit: 0,
-  countTotal: false,
-  reverse: false,
-};
+const basePageRequest: object = { offset: 0, limit: 0, count_total: false };
 
 export const PageRequest = {
   encode(message: PageRequest, writer: Writer = Writer.create()): Writer {
@@ -86,11 +75,8 @@ export const PageRequest = {
     if (message.limit !== 0) {
       writer.uint32(24).uint64(message.limit);
     }
-    if (message.countTotal === true) {
-      writer.uint32(32).bool(message.countTotal);
-    }
-    if (message.reverse === true) {
-      writer.uint32(40).bool(message.reverse);
+    if (message.count_total === true) {
+      writer.uint32(32).bool(message.count_total);
     }
     return writer;
   },
@@ -112,10 +98,7 @@ export const PageRequest = {
           message.limit = longToNumber(reader.uint64() as Long);
           break;
         case 4:
-          message.countTotal = reader.bool();
-          break;
-        case 5:
-          message.reverse = reader.bool();
+          message.count_total = reader.bool();
           break;
         default:
           reader.skipType(tag & 7);
@@ -140,15 +123,10 @@ export const PageRequest = {
     } else {
       message.limit = 0;
     }
-    if (object.countTotal !== undefined && object.countTotal !== null) {
-      message.countTotal = Boolean(object.countTotal);
+    if (object.count_total !== undefined && object.count_total !== null) {
+      message.count_total = Boolean(object.count_total);
     } else {
-      message.countTotal = false;
-    }
-    if (object.reverse !== undefined && object.reverse !== null) {
-      message.reverse = Boolean(object.reverse);
-    } else {
-      message.reverse = false;
+      message.count_total = false;
     }
     return message;
   },
@@ -161,8 +139,8 @@ export const PageRequest = {
       ));
     message.offset !== undefined && (obj.offset = message.offset);
     message.limit !== undefined && (obj.limit = message.limit);
-    message.countTotal !== undefined && (obj.countTotal = message.countTotal);
-    message.reverse !== undefined && (obj.reverse = message.reverse);
+    message.count_total !== undefined &&
+      (obj.count_total = message.count_total);
     return obj;
   },
 
@@ -183,15 +161,10 @@ export const PageRequest = {
     } else {
       message.limit = 0;
     }
-    if (object.countTotal !== undefined && object.countTotal !== null) {
-      message.countTotal = object.countTotal;
+    if (object.count_total !== undefined && object.count_total !== null) {
+      message.count_total = object.count_total;
     } else {
-      message.countTotal = false;
-    }
-    if (object.reverse !== undefined && object.reverse !== null) {
-      message.reverse = object.reverse;
-    } else {
-      message.reverse = false;
+      message.count_total = false;
     }
     return message;
   },
@@ -201,8 +174,8 @@ const basePageResponse: object = { total: 0 };
 
 export const PageResponse = {
   encode(message: PageResponse, writer: Writer = Writer.create()): Writer {
-    if (message.nextKey.length !== 0) {
-      writer.uint32(10).bytes(message.nextKey);
+    if (message.next_key.length !== 0) {
+      writer.uint32(10).bytes(message.next_key);
     }
     if (message.total !== 0) {
       writer.uint32(16).uint64(message.total);
@@ -218,7 +191,7 @@ export const PageResponse = {
       const tag = reader.uint32();
       switch (tag >>> 3) {
         case 1:
-          message.nextKey = reader.bytes();
+          message.next_key = reader.bytes();
           break;
         case 2:
           message.total = longToNumber(reader.uint64() as Long);
@@ -233,8 +206,8 @@ export const PageResponse = {
 
   fromJSON(object: any): PageResponse {
     const message = { ...basePageResponse } as PageResponse;
-    if (object.nextKey !== undefined && object.nextKey !== null) {
-      message.nextKey = bytesFromBase64(object.nextKey);
+    if (object.next_key !== undefined && object.next_key !== null) {
+      message.next_key = bytesFromBase64(object.next_key);
     }
     if (object.total !== undefined && object.total !== null) {
       message.total = Number(object.total);
@@ -246,9 +219,9 @@ export const PageResponse = {
 
   toJSON(message: PageResponse): unknown {
     const obj: any = {};
-    message.nextKey !== undefined &&
-      (obj.nextKey = base64FromBytes(
-        message.nextKey !== undefined ? message.nextKey : new Uint8Array()
+    message.next_key !== undefined &&
+      (obj.next_key = base64FromBytes(
+        message.next_key !== undefined ? message.next_key : new Uint8Array()
       ));
     message.total !== undefined && (obj.total = message.total);
     return obj;
@@ -256,10 +229,10 @@ export const PageResponse = {
 
   fromPartial(object: DeepPartial<PageResponse>): PageResponse {
     const message = { ...basePageResponse } as PageResponse;
-    if (object.nextKey !== undefined && object.nextKey !== null) {
-      message.nextKey = object.nextKey;
+    if (object.next_key !== undefined && object.next_key !== null) {
+      message.next_key = object.next_key;
     } else {
-      message.nextKey = new Uint8Array();
+      message.next_key = new Uint8Array();
     }
     if (object.total !== undefined && object.total !== null) {
       message.total = object.total;
