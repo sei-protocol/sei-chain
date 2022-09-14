@@ -4,8 +4,10 @@ import (
 	"testing"
 	"time"
 
+	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/sei-protocol/sei-chain/app"
 	"github.com/sei-protocol/sei-chain/x/epoch/types"
+	minttypes "github.com/sei-protocol/sei-chain/x/mint/types"
 	"github.com/stretchr/testify/require"
 	abci "github.com/tendermint/tendermint/abci/types"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
@@ -25,53 +27,55 @@ func getEpoch(genesisTime time.Time, currTime time.Time) types.Epoch {
 func TestEndOfEpochMintedCoinDistribution(t *testing.T) {
 	seiApp := app.Setup(false)
 	ctx := seiApp.BaseApp.NewContext(false, tmproto.Header{})
+
+	genesisTime := time.Date(2022, time.Month(7), 18, 10, 0, 0, 0, time.UTC)
+	
+	tokenReleaseSchedle := []minttypes.ScheduledTokenRelease{
+		{Date: genesisTime.AddDate(1, 0 ,0).Format(minttypes.TokenReleaseDateFormat), TokenReleaseAmount: 2500000},
+		{Date: genesisTime.AddDate(2, 0 ,0).Format(minttypes.TokenReleaseDateFormat), TokenReleaseAmount: 1250000},
+	}
+	mintParams := minttypes.NewParams(
+		"usei",
+		sdk.NewDec(5000000),
+		tokenReleaseSchedle,
+	)
+
+	seiApp.MintKeeper.SetParams(ctx, mintParams)
+
 	header := tmproto.Header{Height: seiApp.LastBlockHeight() + 1}
 	seiApp.BeginBlock(abci.RequestBeginBlock{Header: header})
-	// Get mint params
-	mintParams := seiApp.MintKeeper.GetParams(ctx)
-	genesisEpochProvisions := mintParams.GenesisEpochProvisions
-	reductionFactor := mintParams.ReductionFactor
-	genesisTime := time.Date(2022, time.Month(7), 18, 10, 0, 0, 0, time.UTC)
 
 	// Year 1
-	currTime := genesisTime.Add(60 * 24 * 365 * time.Minute)
+	currTime := genesisTime.AddDate(1, 0 ,0)
 	currEpoch := getEpoch(genesisTime, currTime)
 	presupply := seiApp.BankKeeper.GetSupply(ctx, mintParams.MintDenom)
 
 	// Run hooks
 	seiApp.EpochKeeper.BeforeEpochStart(ctx, currEpoch)
 	seiApp.EpochKeeper.AfterEpochEnd(ctx, currEpoch)
-
 	mintParams = seiApp.MintKeeper.GetParams(ctx)
+
+	// Year 1
 	mintedCoinYear1 := seiApp.MintKeeper.GetMinter(ctx).EpochProvision(mintParams)
-	// ensure post-epoch supply changed by exactly the minted coins amount
 	postsupplyYear1 := seiApp.BankKeeper.GetSupply(ctx, mintParams.MintDenom)
 	require.True(t, postsupplyYear1.IsEqual(presupply.Add(mintedCoinYear1)))
-	// ensure that the minted amount is genesisEpochProvisions * reductionFactor
-	expectedMintedYear1, err := genesisEpochProvisions.Mul(reductionFactor).Float64()
-	if err != nil {
-		panic(err)
-	}
-	require.True(t, mintedCoinYear1.Amount.Int64() == int64(expectedMintedYear1))
+	require.Equal(t, mintedCoinYear1.Amount.Int64(), int64(2500000))
+
 
 	// Year 2
-	currTime = currTime.Add(60 * 24 * 7 * 365 * time.Minute)
+	currTime = currTime.AddDate(1, 0 ,0)
 	currEpoch = getEpoch(genesisTime, currTime)
 
 	// Run hooks
 	seiApp.EpochKeeper.BeforeEpochStart(ctx, currEpoch)
 	seiApp.EpochKeeper.AfterEpochEnd(ctx, currEpoch)
+	mintParams = seiApp.MintKeeper.GetParams(ctx)
+
 
 	mintedCoinYear2 := seiApp.MintKeeper.GetMinter(ctx).EpochProvision(mintParams)
-	// ensure post-epoch supply changed by exactly the minted coins amount
 	postsupplyYear2 := seiApp.BankKeeper.GetSupply(ctx, mintParams.MintDenom)
 	require.True(t, postsupplyYear2.IsEqual(postsupplyYear1.Add(mintedCoinYear2)))
-	// ensure that the minted amount is mintedCoinYear1 * reductionFactor
-	expectedMintedYear2, err := mintedCoinYear1.Amount.ToDec().Mul(reductionFactor).Float64()
-	if err != nil {
-		panic(err)
-	}
-	require.True(t, mintedCoinYear2.Amount.Int64() == int64(expectedMintedYear2))
+	require.Equal(t, mintedCoinYear2.Amount.Int64(), int64(1250000))
 }
 
 func TestNoEpochPassedNoDistribution(t *testing.T) {
