@@ -15,6 +15,11 @@ message Minter {
     ];
 }
 
+message ScheduledTokenRelease {
+  string date = 1; // yyyy-mm-dd
+  int64 token_release_amount = 2;
+}
+
 // Params holds parameters for the mint module.
 message Params {
   option (gogoproto.goproto_stringer) = false;
@@ -27,13 +32,10 @@ message Params {
     (gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Dec",
     (gogoproto.nullable) = false
   ];
-  // number of epochs to take to reduce rewards
-  int64 reduction_period_in_epochs = 3 [(gogoproto.moretags) = "yaml:\"reduction_period_in_epochs\""];
-  // reduction multiplier to execute on each period
-  string reduction_factor = 4 [
-    (gogoproto.moretags) = "yaml:\"reduction-factor\"",
-    (gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Dec",
+  // List of token release schedules
+  repeated ScheduledTokenRelease token_release_schedule = 3 [
+    (gogoproto.moretags) = "yaml:\"token_release_schedule\"",
     (gogoproto.nullable) = false
   ];
-
 }
+

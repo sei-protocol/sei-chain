@@ -27,7 +27,7 @@ export interface QueryDenomAuthorityMetadataRequest {
  * DenomAuthorityMetadata gRPC query.
  */
 export interface QueryDenomAuthorityMetadataResponse {
-  authorityMetadata: DenomAuthorityMetadata | undefined;
+  authority_metadata: DenomAuthorityMetadata | undefined;
 }
 
 /**
@@ -44,6 +44,36 @@ export interface QueryDenomsFromCreatorRequest {
  */
 export interface QueryDenomsFromCreatorResponse {
   denoms: string[];
+}
+
+/**
+ * QueryDenomCreationFeeWhitelistRequest defines the request structure for the
+ * DenomCreationFeeWhitelist gRPC query.
+ */
+export interface QueryDenomCreationFeeWhitelistRequest {}
+
+/**
+ * QueryDenomCreationFeeWhitelistResponse defines the response structure for the
+ * DenomsFromCreator gRPC query.
+ */
+export interface QueryDenomCreationFeeWhitelistResponse {
+  creators: string[];
+}
+
+/**
+ * QueryCreatorInDenomFeeWhitelistRequest defines the request structure for the
+ * CreatorInDenomFeeWhitelist gRPC query.
+ */
+export interface QueryCreatorInDenomFeeWhitelistRequest {
+  creator: string;
+}
+
+/**
+ * QueryCreatorInDenomFeeWhitelistResponse defines the response structure for the
+ * CreatorInDenomFeeWhitelist gRPC query.
+ */
+export interface QueryCreatorInDenomFeeWhitelistResponse {
+  whitelisted: boolean;
 }
 
 const baseQueryParamsRequest: object = {};
@@ -219,9 +249,9 @@ export const QueryDenomAuthorityMetadataResponse = {
     message: QueryDenomAuthorityMetadataResponse,
     writer: Writer = Writer.create()
   ): Writer {
-    if (message.authorityMetadata !== undefined) {
+    if (message.authority_metadata !== undefined) {
       DenomAuthorityMetadata.encode(
-        message.authorityMetadata,
+        message.authority_metadata,
         writer.uint32(10).fork()
       ).ldelim();
     }
@@ -241,7 +271,7 @@ export const QueryDenomAuthorityMetadataResponse = {
       const tag = reader.uint32();
       switch (tag >>> 3) {
         case 1:
-          message.authorityMetadata = DenomAuthorityMetadata.decode(
+          message.authority_metadata = DenomAuthorityMetadata.decode(
             reader,
             reader.uint32()
           );
@@ -259,23 +289,23 @@ export const QueryDenomAuthorityMetadataResponse = {
       ...baseQueryDenomAuthorityMetadataResponse,
     } as QueryDenomAuthorityMetadataResponse;
     if (
-      object.authorityMetadata !== undefined &&
-      object.authorityMetadata !== null
+      object.authority_metadata !== undefined &&
+      object.authority_metadata !== null
     ) {
-      message.authorityMetadata = DenomAuthorityMetadata.fromJSON(
-        object.authorityMetadata
+      message.authority_metadata = DenomAuthorityMetadata.fromJSON(
+        object.authority_metadata
       );
     } else {
-      message.authorityMetadata = undefined;
+      message.authority_metadata = undefined;
     }
     return message;
   },
 
   toJSON(message: QueryDenomAuthorityMetadataResponse): unknown {
     const obj: any = {};
-    message.authorityMetadata !== undefined &&
-      (obj.authorityMetadata = message.authorityMetadata
-        ? DenomAuthorityMetadata.toJSON(message.authorityMetadata)
+    message.authority_metadata !== undefined &&
+      (obj.authority_metadata = message.authority_metadata
+        ? DenomAuthorityMetadata.toJSON(message.authority_metadata)
         : undefined);
     return obj;
   },
@@ -287,14 +317,14 @@ export const QueryDenomAuthorityMetadataResponse = {
       ...baseQueryDenomAuthorityMetadataResponse,
     } as QueryDenomAuthorityMetadataResponse;
     if (
-      object.authorityMetadata !== undefined &&
-      object.authorityMetadata !== null
+      object.authority_metadata !== undefined &&
+      object.authority_metadata !== null
     ) {
-      message.authorityMetadata = DenomAuthorityMetadata.fromPartial(
-        object.authorityMetadata
+      message.authority_metadata = DenomAuthorityMetadata.fromPartial(
+        object.authority_metadata
       );
     } else {
-      message.authorityMetadata = undefined;
+      message.authority_metadata = undefined;
     }
     return message;
   },
@@ -445,6 +475,275 @@ export const QueryDenomsFromCreatorResponse = {
   },
 };
 
+const baseQueryDenomCreationFeeWhitelistRequest: object = {};
+
+export const QueryDenomCreationFeeWhitelistRequest = {
+  encode(
+    _: QueryDenomCreationFeeWhitelistRequest,
+    writer: Writer = Writer.create()
+  ): Writer {
+    return writer;
+  },
+
+  decode(
+    input: Reader | Uint8Array,
+    length?: number
+  ): QueryDenomCreationFeeWhitelistRequest {
+    const reader = input instanceof Uint8Array ? new Reader(input) : input;
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = {
+      ...baseQueryDenomCreationFeeWhitelistRequest,
+    } as QueryDenomCreationFeeWhitelistRequest;
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        default:
+          reader.skipType(tag & 7);
+          break;
+      }
+    }
+    return message;
+  },
+
+  fromJSON(_: any): QueryDenomCreationFeeWhitelistRequest {
+    const message = {
+      ...baseQueryDenomCreationFeeWhitelistRequest,
+    } as QueryDenomCreationFeeWhitelistRequest;
+    return message;
+  },
+
+  toJSON(_: QueryDenomCreationFeeWhitelistRequest): unknown {
+    const obj: any = {};
+    return obj;
+  },
+
+  fromPartial(
+    _: DeepPartial<QueryDenomCreationFeeWhitelistRequest>
+  ): QueryDenomCreationFeeWhitelistRequest {
+    const message = {
+      ...baseQueryDenomCreationFeeWhitelistRequest,
+    } as QueryDenomCreationFeeWhitelistRequest;
+    return message;
+  },
+};
+
+const baseQueryDenomCreationFeeWhitelistResponse: object = { creators: "" };
+
+export const QueryDenomCreationFeeWhitelistResponse = {
+  encode(
+    message: QueryDenomCreationFeeWhitelistResponse,
+    writer: Writer = Writer.create()
+  ): Writer {
+    for (const v of message.creators) {
+      writer.uint32(10).string(v!);
+    }
+    return writer;
+  },
+
+  decode(
+    input: Reader | Uint8Array,
+    length?: number
+  ): QueryDenomCreationFeeWhitelistResponse {
+    const reader = input instanceof Uint8Array ? new Reader(input) : input;
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = {
+      ...baseQueryDenomCreationFeeWhitelistResponse,
+    } as QueryDenomCreationFeeWhitelistResponse;
+    message.creators = [];
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1:
+          message.creators.push(reader.string());
+          break;
+        default:
+          reader.skipType(tag & 7);
+          break;
+      }
+    }
+    return message;
+  },
+
+  fromJSON(object: any): QueryDenomCreationFeeWhitelistResponse {
+    const message = {
+      ...baseQueryDenomCreationFeeWhitelistResponse,
+    } as QueryDenomCreationFeeWhitelistResponse;
+    message.creators = [];
+    if (object.creators !== undefined && object.creators !== null) {
+      for (const e of object.creators) {
+        message.creators.push(String(e));
+      }
+    }
+    return message;
+  },
+
+  toJSON(message: QueryDenomCreationFeeWhitelistResponse): unknown {
+    const obj: any = {};
+    if (message.creators) {
+      obj.creators = message.creators.map((e) => e);
+    } else {
+      obj.creators = [];
+    }
+    return obj;
+  },
+
+  fromPartial(
+    object: DeepPartial<QueryDenomCreationFeeWhitelistResponse>
+  ): QueryDenomCreationFeeWhitelistResponse {
+    const message = {
+      ...baseQueryDenomCreationFeeWhitelistResponse,
+    } as QueryDenomCreationFeeWhitelistResponse;
+    message.creators = [];
+    if (object.creators !== undefined && object.creators !== null) {
+      for (const e of object.creators) {
+        message.creators.push(e);
+      }
+    }
+    return message;
+  },
+};
+
+const baseQueryCreatorInDenomFeeWhitelistRequest: object = { creator: "" };
+
+export const QueryCreatorInDenomFeeWhitelistRequest = {
+  encode(
+    message: QueryCreatorInDenomFeeWhitelistRequest,
+    writer: Writer = Writer.create()
+  ): Writer {
+    if (message.creator !== "") {
+      writer.uint32(10).string(message.creator);
+    }
+    return writer;
+  },
+
+  decode(
+    input: Reader | Uint8Array,
+    length?: number
+  ): QueryCreatorInDenomFeeWhitelistRequest {
+    const reader = input instanceof Uint8Array ? new Reader(input) : input;
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = {
+      ...baseQueryCreatorInDenomFeeWhitelistRequest,
+    } as QueryCreatorInDenomFeeWhitelistRequest;
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1:
+          message.creator = reader.string();
+          break;
+        default:
+          reader.skipType(tag & 7);
+          break;
+      }
+    }
+    return message;
+  },
+
+  fromJSON(object: any): QueryCreatorInDenomFeeWhitelistRequest {
+    const message = {
+      ...baseQueryCreatorInDenomFeeWhitelistRequest,
+    } as QueryCreatorInDenomFeeWhitelistRequest;
+    if (object.creator !== undefined && object.creator !== null) {
+      message.creator = String(object.creator);
+    } else {
+      message.creator = "";
+    }
+    return message;
+  },
+
+  toJSON(message: QueryCreatorInDenomFeeWhitelistRequest): unknown {
+    const obj: any = {};
+    message.creator !== undefined && (obj.creator = message.creator);
+    return obj;
+  },
+
+  fromPartial(
+    object: DeepPartial<QueryCreatorInDenomFeeWhitelistRequest>
+  ): QueryCreatorInDenomFeeWhitelistRequest {
+    const message = {
+      ...baseQueryCreatorInDenomFeeWhitelistRequest,
+    } as QueryCreatorInDenomFeeWhitelistRequest;
+    if (object.creator !== undefined && object.creator !== null) {
+      message.creator = object.creator;
+    } else {
+      message.creator = "";
+    }
+    return message;
+  },
+};
+
+const baseQueryCreatorInDenomFeeWhitelistResponse: object = {
+  whitelisted: false,
+};
+
+export const QueryCreatorInDenomFeeWhitelistResponse = {
+  encode(
+    message: QueryCreatorInDenomFeeWhitelistResponse,
+    writer: Writer = Writer.create()
+  ): Writer {
+    if (message.whitelisted === true) {
+      writer.uint32(8).bool(message.whitelisted);
+    }
+    return writer;
+  },
+
+  decode(
+    input: Reader | Uint8Array,
+    length?: number
+  ): QueryCreatorInDenomFeeWhitelistResponse {
+    const reader = input instanceof Uint8Array ? new Reader(input) : input;
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = {
+      ...baseQueryCreatorInDenomFeeWhitelistResponse,
+    } as QueryCreatorInDenomFeeWhitelistResponse;
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1:
+          message.whitelisted = reader.bool();
+          break;
+        default:
+          reader.skipType(tag & 7);
+          break;
+      }
+    }
+    return message;
+  },
+
+  fromJSON(object: any): QueryCreatorInDenomFeeWhitelistResponse {
+    const message = {
+      ...baseQueryCreatorInDenomFeeWhitelistResponse,
+    } as QueryCreatorInDenomFeeWhitelistResponse;
+    if (object.whitelisted !== undefined && object.whitelisted !== null) {
+      message.whitelisted = Boolean(object.whitelisted);
+    } else {
+      message.whitelisted = false;
+    }
+    return message;
+  },
+
+  toJSON(message: QueryCreatorInDenomFeeWhitelistResponse): unknown {
+    const obj: any = {};
+    message.whitelisted !== undefined &&
+      (obj.whitelisted = message.whitelisted);
+    return obj;
+  },
+
+  fromPartial(
+    object: DeepPartial<QueryCreatorInDenomFeeWhitelistResponse>
+  ): QueryCreatorInDenomFeeWhitelistResponse {
+    const message = {
+      ...baseQueryCreatorInDenomFeeWhitelistResponse,
+    } as QueryCreatorInDenomFeeWhitelistResponse;
+    if (object.whitelisted !== undefined && object.whitelisted !== null) {
+      message.whitelisted = object.whitelisted;
+    } else {
+      message.whitelisted = false;
+    }
+    return message;
+  },
+};
+
 /** Query defines the gRPC querier service. */
 export interface Query {
   /**
@@ -466,6 +765,20 @@ export interface Query {
   DenomsFromCreator(
     request: QueryDenomsFromCreatorRequest
   ): Promise<QueryDenomsFromCreatorResponse>;
+  /**
+   * DenomCreationFeeWhitelist defines a gRPC query method for fetching all
+   * creators who are whitelisted from paying the denom creation fee.
+   */
+  DenomCreationFeeWhitelist(
+    request: QueryDenomCreationFeeWhitelistRequest
+  ): Promise<QueryDenomCreationFeeWhitelistResponse>;
+  /**
+   * CreatorInDenomFeeWhitelist defines a gRPC query method for fetching
+   * whether a creator is whitelisted from denom creation fees.
+   */
+  CreatorInDenomFeeWhitelist(
+    request: QueryCreatorInDenomFeeWhitelistRequest
+  ): Promise<QueryCreatorInDenomFeeWhitelistResponse>;
 }
 
 export class QueryClientImpl implements Query {
@@ -508,6 +821,36 @@ export class QueryClientImpl implements Query {
     );
     return promise.then((data) =>
       QueryDenomsFromCreatorResponse.decode(new Reader(data))
+    );
+  }
+
+  DenomCreationFeeWhitelist(
+    request: QueryDenomCreationFeeWhitelistRequest
+  ): Promise<QueryDenomCreationFeeWhitelistResponse> {
+    const data = QueryDenomCreationFeeWhitelistRequest.encode(request).finish();
+    const promise = this.rpc.request(
+      "seiprotocol.seichain.tokenfactory.Query",
+      "DenomCreationFeeWhitelist",
+      data
+    );
+    return promise.then((data) =>
+      QueryDenomCreationFeeWhitelistResponse.decode(new Reader(data))
+    );
+  }
+
+  CreatorInDenomFeeWhitelist(
+    request: QueryCreatorInDenomFeeWhitelistRequest
+  ): Promise<QueryCreatorInDenomFeeWhitelistResponse> {
+    const data = QueryCreatorInDenomFeeWhitelistRequest.encode(
+      request
+    ).finish();
+    const promise = this.rpc.request(
+      "seiprotocol.seichain.tokenfactory.Query",
+      "CreatorInDenomFeeWhitelist",
+      data
+    );
+    return promise.then((data) =>
+      QueryCreatorInDenomFeeWhitelistResponse.decode(new Reader(data))
     );
   }
 }

@@ -3,9 +3,40 @@ package types
 import (
 	"math/rand"
 	"testing"
+	"time"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/sei-protocol/sei-chain/x/epoch/types"
+	"github.com/stretchr/testify/require"
 )
+
+func getGenesisTime() time.Time {
+	return time.Date(2022, time.Month(7), 18, 10, 0, 0, 0, time.UTC)
+}
+
+func getEpoch(currTime time.Time) types.Epoch {
+	genesisTime := getGenesisTime()
+	// Epochs increase every minute, so derive based on the time
+	return types.Epoch{
+		GenesisTime:           genesisTime,
+		EpochDuration:         time.Minute,
+		CurrentEpoch:          uint64(currTime.Sub(genesisTime).Minutes()),
+		CurrentEpochStartTime: currTime,
+		CurrentEpochHeight:    0,
+	}
+}
+
+func getTestTokenReleaseSchedule(currTime time.Time, numReleases int) []ScheduledTokenRelease {
+	tokenReleaseSchedule := []ScheduledTokenRelease{}
+
+	for i := 1; i <= numReleases; i++ {
+		currTime = currTime.AddDate(1, 0 ,0)
+		scheduledRelease := ScheduledTokenRelease{Date: currTime.AddDate(1, 0 ,0).Format(TokenReleaseDateFormat), TokenReleaseAmount: 2500000 / int64(i)}
+		tokenReleaseSchedule = append(tokenReleaseSchedule, scheduledRelease)
+	}
+
+	return tokenReleaseSchedule
+}
 
 // Benchmarking :)
 // previously using sdk.Int operations:
@@ -29,14 +60,51 @@ func BenchmarkEpochProvision(b *testing.B) {
 }
 
 // Next epoch provisions benchmarking
-// BenchmarkNextEpochProvisions-4 5000000 251 ns/op
-func BenchmarkNextEpochProvisions(b *testing.B) {
+// cpu: Intel(R) Core(TM) i9-9880H CPU @ 2.30GHz
+// BenchmarkGetScheduledTokenRelease-16               319.7 ns/op            56 B/op          3 allocs/op
+func BenchmarkGetScheduledTokenRelease(b *testing.B) {
 	b.ReportAllocs()
-	minter := InitialMinter()
-	params := DefaultParams()
 
-	// run the NextEpochProvisions function b.N times
+	genesisTime := getGenesisTime()
+	epoch := getEpoch(genesisTime)
+	tokenReleaseSchedule := getTestTokenReleaseSchedule(genesisTime, 10)
+
+	// run the GetScheduledTokenRelease function b.N times
 	for n := 0; n < b.N; n++ {
-		minter.NextEpochProvisions(params)
+		GetScheduledTokenRelease(
+			epoch,
+			genesisTime,
+			tokenReleaseSchedule,
+		)
 	}
+}
+
+func TestGetScheduledTokenReleaseNil(t *testing.T) {
+	genesisTime := getGenesisTime()
+	epoch := getEpoch(genesisTime.AddDate(20, 0 ,0))
+	tokenReleaseSchedule := getTestTokenReleaseSchedule(genesisTime, 10)
+
+	scheduledTokenRelease := GetScheduledTokenRelease(
+		epoch,
+		genesisTime,
+		tokenReleaseSchedule,
+	)
+	// Should return nil if there are no scheduled releases
+	require.Nil(t, scheduledTokenRelease)
+}
+
+func TestGetScheduledTokenRelease(t *testing.T) {
+	genesisTime := getGenesisTime()
+	epoch := getEpoch(genesisTime.AddDate(5, 0 ,0))
+	tokenReleaseSchedule := getTestTokenReleaseSchedule(genesisTime, 10)
+
+	scheduledTokenRelease := GetScheduledTokenRelease(
+		epoch,
+		genesisTime,
+		tokenReleaseSchedule,
+	)
+
+	require.NotNil(t, scheduledTokenRelease)
+	require.Equal(t, scheduledTokenRelease.GetTokenReleaseAmount(), int64(2500000 / 4))
+	require.Equal(t, scheduledTokenRelease.GetDate(), genesisTime.AddDate(5, 0, 0).Format(TokenReleaseDateFormat))
 }

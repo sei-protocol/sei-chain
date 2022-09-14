@@ -166,22 +166,22 @@ export interface TextProposal {
  * proposal.
  */
 export interface Deposit {
-  proposalId: number;
+  proposal_id: number;
   depositor: string;
   amount: Coin[];
 }
 
 /** Proposal defines the core field members of a governance proposal. */
 export interface Proposal {
-  proposalId: number;
+  proposal_id: number;
   content: Any | undefined;
   status: ProposalStatus;
-  finalTallyResult: TallyResult | undefined;
-  submitTime: Date | undefined;
-  depositEndTime: Date | undefined;
-  totalDeposit: Coin[];
-  votingStartTime: Date | undefined;
-  votingEndTime: Date | undefined;
+  final_tally_result: TallyResult | undefined;
+  submit_time: Date | undefined;
+  deposit_end_time: Date | undefined;
+  total_deposit: Coin[];
+  voting_start_time: Date | undefined;
+  voting_end_time: Date | undefined;
 }
 
 /** TallyResult defines a standard tally for a governance proposal. */
@@ -189,7 +189,7 @@ export interface TallyResult {
   yes: string;
   abstain: string;
   no: string;
-  noWithVeto: string;
+  no_with_veto: string;
 }
 
 /**
@@ -197,7 +197,7 @@ export interface TallyResult {
  * A Vote consists of a proposal ID, the voter, and the vote option.
  */
 export interface Vote {
-  proposalId: number;
+  proposal_id: number;
   voter: string;
   /**
    * Deprecated: Prefer to use `options` instead. This field is set in queries
@@ -214,18 +214,18 @@ export interface Vote {
 /** DepositParams defines the params for deposits on governance proposals. */
 export interface DepositParams {
   /** Minimum deposit for a proposal to enter voting period. */
-  minDeposit: Coin[];
+  min_deposit: Coin[];
   /**
    * Maximum period for Atom holders to deposit on a proposal. Initial value: 2
    *  months.
    */
-  maxDepositPeriod: Duration | undefined;
+  max_deposit_period: Duration | undefined;
 }
 
 /** VotingParams defines the params for voting on governance proposals. */
 export interface VotingParams {
   /** Length of the voting period. */
-  votingPeriod: Duration | undefined;
+  voting_period: Duration | undefined;
 }
 
 /** TallyParams defines the params for tallying votes on governance proposals. */
@@ -241,7 +241,7 @@ export interface TallyParams {
    * Minimum value of Veto votes to Total votes ratio for proposal to be
    *  vetoed. Default value: 1/3.
    */
-  vetoThreshold: Uint8Array;
+  veto_threshold: Uint8Array;
 }
 
 const baseWeightedVoteOption: object = { option: 0, weight: "" };
@@ -393,12 +393,12 @@ export const TextProposal = {
   },
 };
 
-const baseDeposit: object = { proposalId: 0, depositor: "" };
+const baseDeposit: object = { proposal_id: 0, depositor: "" };
 
 export const Deposit = {
   encode(message: Deposit, writer: Writer = Writer.create()): Writer {
-    if (message.proposalId !== 0) {
-      writer.uint32(8).uint64(message.proposalId);
+    if (message.proposal_id !== 0) {
+      writer.uint32(8).uint64(message.proposal_id);
     }
     if (message.depositor !== "") {
       writer.uint32(18).string(message.depositor);
@@ -418,7 +418,7 @@ export const Deposit = {
       const tag = reader.uint32();
       switch (tag >>> 3) {
         case 1:
-          message.proposalId = longToNumber(reader.uint64() as Long);
+          message.proposal_id = longToNumber(reader.uint64() as Long);
           break;
         case 2:
           message.depositor = reader.string();
@@ -437,10 +437,10 @@ export const Deposit = {
   fromJSON(object: any): Deposit {
     const message = { ...baseDeposit } as Deposit;
     message.amount = [];
-    if (object.proposalId !== undefined && object.proposalId !== null) {
-      message.proposalId = Number(object.proposalId);
+    if (object.proposal_id !== undefined && object.proposal_id !== null) {
+      message.proposal_id = Number(object.proposal_id);
     } else {
-      message.proposalId = 0;
+      message.proposal_id = 0;
     }
     if (object.depositor !== undefined && object.depositor !== null) {
       message.depositor = String(object.depositor);
@@ -457,7 +457,8 @@ export const Deposit = {
 
   toJSON(message: Deposit): unknown {
     const obj: any = {};
-    message.proposalId !== undefined && (obj.proposalId = message.proposalId);
+    message.proposal_id !== undefined &&
+      (obj.proposal_id = message.proposal_id);
     message.depositor !== undefined && (obj.depositor = message.depositor);
     if (message.amount) {
       obj.amount = message.amount.map((e) => (e ? Coin.toJSON(e) : undefined));
@@ -470,10 +471,10 @@ export const Deposit = {
   fromPartial(object: DeepPartial<Deposit>): Deposit {
     const message = { ...baseDeposit } as Deposit;
     message.amount = [];
-    if (object.proposalId !== undefined && object.proposalId !== null) {
-      message.proposalId = object.proposalId;
+    if (object.proposal_id !== undefined && object.proposal_id !== null) {
+      message.proposal_id = object.proposal_id;
     } else {
-      message.proposalId = 0;
+      message.proposal_id = 0;
     }
     if (object.depositor !== undefined && object.depositor !== null) {
       message.depositor = object.depositor;
@@ -489,12 +490,12 @@ export const Deposit = {
   },
 };
 
-const baseProposal: object = { proposalId: 0, status: 0 };
+const baseProposal: object = { proposal_id: 0, status: 0 };
 
 export const Proposal = {
   encode(message: Proposal, writer: Writer = Writer.create()): Writer {
-    if (message.proposalId !== 0) {
-      writer.uint32(8).uint64(message.proposalId);
+    if (message.proposal_id !== 0) {
+      writer.uint32(8).uint64(message.proposal_id);
     }
     if (message.content !== undefined) {
       Any.encode(message.content, writer.uint32(18).fork()).ldelim();
@@ -502,36 +503,36 @@ export const Proposal = {
     if (message.status !== 0) {
       writer.uint32(24).int32(message.status);
     }
-    if (message.finalTallyResult !== undefined) {
+    if (message.final_tally_result !== undefined) {
       TallyResult.encode(
-        message.finalTallyResult,
+        message.final_tally_result,
         writer.uint32(34).fork()
       ).ldelim();
     }
-    if (message.submitTime !== undefined) {
+    if (message.submit_time !== undefined) {
       Timestamp.encode(
-        toTimestamp(message.submitTime),
+        toTimestamp(message.submit_time),
         writer.uint32(42).fork()
       ).ldelim();
     }
-    if (message.depositEndTime !== undefined) {
+    if (message.deposit_end_time !== undefined) {
       Timestamp.encode(
-        toTimestamp(message.depositEndTime),
+        toTimestamp(message.deposit_end_time),
         writer.uint32(50).fork()
       ).ldelim();
     }
-    for (const v of message.totalDeposit) {
+    for (const v of message.total_deposit) {
       Coin.encode(v!, writer.uint32(58).fork()).ldelim();
     }
-    if (message.votingStartTime !== undefined) {
+    if (message.voting_start_time !== undefined) {
       Timestamp.encode(
-        toTimestamp(message.votingStartTime),
+        toTimestamp(message.voting_start_time),
         writer.uint32(66).fork()
       ).ldelim();
     }
-    if (message.votingEndTime !== undefined) {
+    if (message.voting_end_time !== undefined) {
       Timestamp.encode(
-        toTimestamp(message.votingEndTime),
+        toTimestamp(message.voting_end_time),
         writer.uint32(74).fork()
       ).ldelim();
     }
@@ -542,12 +543,12 @@ export const Proposal = {
     const reader = input instanceof Uint8Array ? new Reader(input) : input;
     let end = length === undefined ? reader.len : reader.pos + length;
     const message = { ...baseProposal } as Proposal;
-    message.totalDeposit = [];
+    message.total_deposit = [];
     while (reader.pos < end) {
       const tag = reader.uint32();
       switch (tag >>> 3) {
         case 1:
-          message.proposalId = longToNumber(reader.uint64() as Long);
+          message.proposal_id = longToNumber(reader.uint64() as Long);
           break;
         case 2:
           message.content = Any.decode(reader, reader.uint32());
@@ -556,31 +557,31 @@ export const Proposal = {
           message.status = reader.int32() as any;
           break;
         case 4:
-          message.finalTallyResult = TallyResult.decode(
+          message.final_tally_result = TallyResult.decode(
             reader,
             reader.uint32()
           );
           break;
         case 5:
-          message.submitTime = fromTimestamp(
+          message.submit_time = fromTimestamp(
             Timestamp.decode(reader, reader.uint32())
           );
           break;
         case 6:
-          message.depositEndTime = fromTimestamp(
+          message.deposit_end_time = fromTimestamp(
             Timestamp.decode(reader, reader.uint32())
           );
           break;
         case 7:
-          message.totalDeposit.push(Coin.decode(reader, reader.uint32()));
+          message.total_deposit.push(Coin.decode(reader, reader.uint32()));
           break;
         case 8:
-          message.votingStartTime = fromTimestamp(
+          message.voting_start_time = fromTimestamp(
             Timestamp.decode(reader, reader.uint32())
           );
           break;
         case 9:
-          message.votingEndTime = fromTimestamp(
+          message.voting_end_time = fromTimestamp(
             Timestamp.decode(reader, reader.uint32())
           );
           break;
@@ -594,11 +595,11 @@ export const Proposal = {
 
   fromJSON(object: any): Proposal {
     const message = { ...baseProposal } as Proposal;
-    message.totalDeposit = [];
-    if (object.proposalId !== undefined && object.proposalId !== null) {
-      message.proposalId = Number(object.proposalId);
+    message.total_deposit = [];
+    if (object.proposal_id !== undefined && object.proposal_id !== null) {
+      message.proposal_id = Number(object.proposal_id);
     } else {
-      message.proposalId = 0;
+      message.proposal_id = 0;
     }
     if (object.content !== undefined && object.content !== null) {
       message.content = Any.fromJSON(object.content);
@@ -611,92 +612,101 @@ export const Proposal = {
       message.status = 0;
     }
     if (
-      object.finalTallyResult !== undefined &&
-      object.finalTallyResult !== null
+      object.final_tally_result !== undefined &&
+      object.final_tally_result !== null
     ) {
-      message.finalTallyResult = TallyResult.fromJSON(object.finalTallyResult);
+      message.final_tally_result = TallyResult.fromJSON(
+        object.final_tally_result
+      );
     } else {
-      message.finalTallyResult = undefined;
+      message.final_tally_result = undefined;
     }
-    if (object.submitTime !== undefined && object.submitTime !== null) {
-      message.submitTime = fromJsonTimestamp(object.submitTime);
+    if (object.submit_time !== undefined && object.submit_time !== null) {
+      message.submit_time = fromJsonTimestamp(object.submit_time);
     } else {
-      message.submitTime = undefined;
+      message.submit_time = undefined;
     }
-    if (object.depositEndTime !== undefined && object.depositEndTime !== null) {
-      message.depositEndTime = fromJsonTimestamp(object.depositEndTime);
+    if (
+      object.deposit_end_time !== undefined &&
+      object.deposit_end_time !== null
+    ) {
+      message.deposit_end_time = fromJsonTimestamp(object.deposit_end_time);
     } else {
-      message.depositEndTime = undefined;
+      message.deposit_end_time = undefined;
     }
-    if (object.totalDeposit !== undefined && object.totalDeposit !== null) {
-      for (const e of object.totalDeposit) {
-        message.totalDeposit.push(Coin.fromJSON(e));
+    if (object.total_deposit !== undefined && object.total_deposit !== null) {
+      for (const e of object.total_deposit) {
+        message.total_deposit.push(Coin.fromJSON(e));
       }
     }
     if (
-      object.votingStartTime !== undefined &&
-      object.votingStartTime !== null
+      object.voting_start_time !== undefined &&
+      object.voting_start_time !== null
     ) {
-      message.votingStartTime = fromJsonTimestamp(object.votingStartTime);
+      message.voting_start_time = fromJsonTimestamp(object.voting_start_time);
     } else {
-      message.votingStartTime = undefined;
+      message.voting_start_time = undefined;
     }
-    if (object.votingEndTime !== undefined && object.votingEndTime !== null) {
-      message.votingEndTime = fromJsonTimestamp(object.votingEndTime);
+    if (
+      object.voting_end_time !== undefined &&
+      object.voting_end_time !== null
+    ) {
+      message.voting_end_time = fromJsonTimestamp(object.voting_end_time);
     } else {
-      message.votingEndTime = undefined;
+      message.voting_end_time = undefined;
     }
     return message;
   },
 
   toJSON(message: Proposal): unknown {
     const obj: any = {};
-    message.proposalId !== undefined && (obj.proposalId = message.proposalId);
+    message.proposal_id !== undefined &&
+      (obj.proposal_id = message.proposal_id);
     message.content !== undefined &&
       (obj.content = message.content ? Any.toJSON(message.content) : undefined);
     message.status !== undefined &&
       (obj.status = proposalStatusToJSON(message.status));
-    message.finalTallyResult !== undefined &&
-      (obj.finalTallyResult = message.finalTallyResult
-        ? TallyResult.toJSON(message.finalTallyResult)
+    message.final_tally_result !== undefined &&
+      (obj.final_tally_result = message.final_tally_result
+        ? TallyResult.toJSON(message.final_tally_result)
         : undefined);
-    message.submitTime !== undefined &&
-      (obj.submitTime =
-        message.submitTime !== undefined
-          ? message.submitTime.toISOString()
+    message.submit_time !== undefined &&
+      (obj.submit_time =
+        message.submit_time !== undefined
+          ? message.submit_time.toISOString()
           : null);
-    message.depositEndTime !== undefined &&
-      (obj.depositEndTime =
-        message.depositEndTime !== undefined
-          ? message.depositEndTime.toISOString()
+    message.deposit_end_time !== undefined &&
+      (obj.deposit_end_time =
+        message.deposit_end_time !== undefined
+          ? message.deposit_end_time.toISOString()
           : null);
-    if (message.totalDeposit) {
-      obj.totalDeposit = message.totalDeposit.map((e) =>
+    if (message.total_deposit) {
+      obj.total_deposit = message.total_deposit.map((e) =>
         e ? Coin.toJSON(e) : undefined
       );
     } else {
-      obj.totalDeposit = [];
+      obj.total_deposit = [];
     }
-    message.votingStartTime !== undefined &&
-      (obj.votingStartTime =
-        message.votingStartTime !== undefined
-          ? message.votingStartTime.toISOString()
+    message.voting_start_time !== undefined &&
+      (obj.voting_start_time =
+        message.voting_start_time !== undefined
+          ? message.voting_start_time.toISOString()
           : null);
-    message.votingEndTime !== undefined &&
-      (obj.votingEndTime =
-        message.votingEndTime !== undefined
-          ? message.votingEndTime.toISOString()
+    message.voting_end_time !== undefined &&
+      (obj.voting_end_time =
+        message.voting_end_time !== undefined
+          ? message.voting_end_time.toISOString()
           : null);
     return obj;
   },
 
   fromPartial(object: DeepPartial<Proposal>): Proposal {
     const message = { ...baseProposal } as Proposal;
-    message.totalDeposit = [];
-    if (object.proposalId !== undefined && object.proposalId !== null) {
-      message.proposalId = object.proposalId;
+    message.total_deposit = [];
+    if (object.proposal_id !== undefined && object.proposal_id !== null) {
+      message.proposal_id = object.proposal_id;
     } else {
-      message.proposalId = 0;
+      message.proposal_id = 0;
     }
     if (object.content !== undefined && object.content !== null) {
       message.content = Any.fromPartial(object.content);
@@ -709,42 +719,48 @@ export const Proposal = {
       message.status = 0;
     }
     if (
-      object.finalTallyResult !== undefined &&
-      object.finalTallyResult !== null
+      object.final_tally_result !== undefined &&
+      object.final_tally_result !== null
     ) {
-      message.finalTallyResult = TallyResult.fromPartial(
-        object.finalTallyResult
+      message.final_tally_result = TallyResult.fromPartial(
+        object.final_tally_result
       );
     } else {
-      message.finalTallyResult = undefined;
+      message.final_tally_result = undefined;
     }
-    if (object.submitTime !== undefined && object.submitTime !== null) {
-      message.submitTime = object.submitTime;
+    if (object.submit_time !== undefined && object.submit_time !== null) {
+      message.submit_time = object.submit_time;
     } else {
-      message.submitTime = undefined;
+      message.submit_time = undefined;
     }
-    if (object.depositEndTime !== undefined && object.depositEndTime !== null) {
-      message.depositEndTime = object.depositEndTime;
+    if (
+      object.deposit_end_time !== undefined &&
+      object.deposit_end_time !== null
+    ) {
+      message.deposit_end_time = object.deposit_end_time;
     } else {
-      message.depositEndTime = undefined;
+      message.deposit_end_time = undefined;
     }
-    if (object.totalDeposit !== undefined && object.totalDeposit !== null) {
-      for (const e of object.totalDeposit) {
-        message.totalDeposit.push(Coin.fromPartial(e));
+    if (object.total_deposit !== undefined && object.total_deposit !== null) {
+      for (const e of object.total_deposit) {
+        message.total_deposit.push(Coin.fromPartial(e));
       }
     }
     if (
-      object.votingStartTime !== undefined &&
-      object.votingStartTime !== null
+      object.voting_start_time !== undefined &&
+      object.voting_start_time !== null
     ) {
-      message.votingStartTime = object.votingStartTime;
+      message.voting_start_time = object.voting_start_time;
     } else {
-      message.votingStartTime = undefined;
+      message.voting_start_time = undefined;
     }
-    if (object.votingEndTime !== undefined && object.votingEndTime !== null) {
-      message.votingEndTime = object.votingEndTime;
+    if (
+      object.voting_end_time !== undefined &&
+      object.voting_end_time !== null
+    ) {
+      message.voting_end_time = object.voting_end_time;
     } else {
-      message.votingEndTime = undefined;
+      message.voting_end_time = undefined;
     }
     return message;
   },
@@ -754,7 +770,7 @@ const baseTallyResult: object = {
   yes: "",
   abstain: "",
   no: "",
-  noWithVeto: "",
+  no_with_veto: "",
 };
 
 export const TallyResult = {
@@ -768,8 +784,8 @@ export const TallyResult = {
     if (message.no !== "") {
       writer.uint32(26).string(message.no);
     }
-    if (message.noWithVeto !== "") {
-      writer.uint32(34).string(message.noWithVeto);
+    if (message.no_with_veto !== "") {
+      writer.uint32(34).string(message.no_with_veto);
     }
     return writer;
   },
@@ -791,7 +807,7 @@ export const TallyResult = {
           message.no = reader.string();
           break;
         case 4:
-          message.noWithVeto = reader.string();
+          message.no_with_veto = reader.string();
           break;
         default:
           reader.skipType(tag & 7);
@@ -818,10 +834,10 @@ export const TallyResult = {
     } else {
       message.no = "";
     }
-    if (object.noWithVeto !== undefined && object.noWithVeto !== null) {
-      message.noWithVeto = String(object.noWithVeto);
+    if (object.no_with_veto !== undefined && object.no_with_veto !== null) {
+      message.no_with_veto = String(object.no_with_veto);
     } else {
-      message.noWithVeto = "";
+      message.no_with_veto = "";
     }
     return message;
   },
@@ -831,7 +847,8 @@ export const TallyResult = {
     message.yes !== undefined && (obj.yes = message.yes);
     message.abstain !== undefined && (obj.abstain = message.abstain);
     message.no !== undefined && (obj.no = message.no);
-    message.noWithVeto !== undefined && (obj.noWithVeto = message.noWithVeto);
+    message.no_with_veto !== undefined &&
+      (obj.no_with_veto = message.no_with_veto);
     return obj;
   },
 
@@ -852,21 +869,21 @@ export const TallyResult = {
     } else {
       message.no = "";
     }
-    if (object.noWithVeto !== undefined && object.noWithVeto !== null) {
-      message.noWithVeto = object.noWithVeto;
+    if (object.no_with_veto !== undefined && object.no_with_veto !== null) {
+      message.no_with_veto = object.no_with_veto;
     } else {
-      message.noWithVeto = "";
+      message.no_with_veto = "";
     }
     return message;
   },
 };
 
-const baseVote: object = { proposalId: 0, voter: "", option: 0 };
+const baseVote: object = { proposal_id: 0, voter: "", option: 0 };
 
 export const Vote = {
   encode(message: Vote, writer: Writer = Writer.create()): Writer {
-    if (message.proposalId !== 0) {
-      writer.uint32(8).uint64(message.proposalId);
+    if (message.proposal_id !== 0) {
+      writer.uint32(8).uint64(message.proposal_id);
     }
     if (message.voter !== "") {
       writer.uint32(18).string(message.voter);
@@ -889,7 +906,7 @@ export const Vote = {
       const tag = reader.uint32();
       switch (tag >>> 3) {
         case 1:
-          message.proposalId = longToNumber(reader.uint64() as Long);
+          message.proposal_id = longToNumber(reader.uint64() as Long);
           break;
         case 2:
           message.voter = reader.string();
@@ -913,10 +930,10 @@ export const Vote = {
   fromJSON(object: any): Vote {
     const message = { ...baseVote } as Vote;
     message.options = [];
-    if (object.proposalId !== undefined && object.proposalId !== null) {
-      message.proposalId = Number(object.proposalId);
+    if (object.proposal_id !== undefined && object.proposal_id !== null) {
+      message.proposal_id = Number(object.proposal_id);
     } else {
-      message.proposalId = 0;
+      message.proposal_id = 0;
     }
     if (object.voter !== undefined && object.voter !== null) {
       message.voter = String(object.voter);
@@ -938,7 +955,8 @@ export const Vote = {
 
   toJSON(message: Vote): unknown {
     const obj: any = {};
-    message.proposalId !== undefined && (obj.proposalId = message.proposalId);
+    message.proposal_id !== undefined &&
+      (obj.proposal_id = message.proposal_id);
     message.voter !== undefined && (obj.voter = message.voter);
     message.option !== undefined &&
       (obj.option = voteOptionToJSON(message.option));
@@ -955,10 +973,10 @@ export const Vote = {
   fromPartial(object: DeepPartial<Vote>): Vote {
     const message = { ...baseVote } as Vote;
     message.options = [];
-    if (object.proposalId !== undefined && object.proposalId !== null) {
-      message.proposalId = object.proposalId;
+    if (object.proposal_id !== undefined && object.proposal_id !== null) {
+      message.proposal_id = object.proposal_id;
     } else {
-      message.proposalId = 0;
+      message.proposal_id = 0;
     }
     if (object.voter !== undefined && object.voter !== null) {
       message.voter = object.voter;
@@ -983,12 +1001,12 @@ const baseDepositParams: object = {};
 
 export const DepositParams = {
   encode(message: DepositParams, writer: Writer = Writer.create()): Writer {
-    for (const v of message.minDeposit) {
+    for (const v of message.min_deposit) {
       Coin.encode(v!, writer.uint32(10).fork()).ldelim();
     }
-    if (message.maxDepositPeriod !== undefined) {
+    if (message.max_deposit_period !== undefined) {
       Duration.encode(
-        message.maxDepositPeriod,
+        message.max_deposit_period,
         writer.uint32(18).fork()
       ).ldelim();
     }
@@ -999,15 +1017,15 @@ export const DepositParams = {
     const reader = input instanceof Uint8Array ? new Reader(input) : input;
     let end = length === undefined ? reader.len : reader.pos + length;
     const message = { ...baseDepositParams } as DepositParams;
-    message.minDeposit = [];
+    message.min_deposit = [];
     while (reader.pos < end) {
       const tag = reader.uint32();
       switch (tag >>> 3) {
         case 1:
-          message.minDeposit.push(Coin.decode(reader, reader.uint32()));
+          message.min_deposit.push(Coin.decode(reader, reader.uint32()));
           break;
         case 2:
-          message.maxDepositPeriod = Duration.decode(reader, reader.uint32());
+          message.max_deposit_period = Duration.decode(reader, reader.uint32());
           break;
         default:
           reader.skipType(tag & 7);
@@ -1019,54 +1037,56 @@ export const DepositParams = {
 
   fromJSON(object: any): DepositParams {
     const message = { ...baseDepositParams } as DepositParams;
-    message.minDeposit = [];
-    if (object.minDeposit !== undefined && object.minDeposit !== null) {
-      for (const e of object.minDeposit) {
-        message.minDeposit.push(Coin.fromJSON(e));
+    message.min_deposit = [];
+    if (object.min_deposit !== undefined && object.min_deposit !== null) {
+      for (const e of object.min_deposit) {
+        message.min_deposit.push(Coin.fromJSON(e));
       }
     }
     if (
-      object.maxDepositPeriod !== undefined &&
-      object.maxDepositPeriod !== null
+      object.max_deposit_period !== undefined &&
+      object.max_deposit_period !== null
     ) {
-      message.maxDepositPeriod = Duration.fromJSON(object.maxDepositPeriod);
+      message.max_deposit_period = Duration.fromJSON(object.max_deposit_period);
     } else {
-      message.maxDepositPeriod = undefined;
+      message.max_deposit_period = undefined;
     }
     return message;
   },
 
   toJSON(message: DepositParams): unknown {
     const obj: any = {};
-    if (message.minDeposit) {
-      obj.minDeposit = message.minDeposit.map((e) =>
+    if (message.min_deposit) {
+      obj.min_deposit = message.min_deposit.map((e) =>
         e ? Coin.toJSON(e) : undefined
       );
     } else {
-      obj.minDeposit = [];
+      obj.min_deposit = [];
     }
-    message.maxDepositPeriod !== undefined &&
-      (obj.maxDepositPeriod = message.maxDepositPeriod
-        ? Duration.toJSON(message.maxDepositPeriod)
+    message.max_deposit_period !== undefined &&
+      (obj.max_deposit_period = message.max_deposit_period
+        ? Duration.toJSON(message.max_deposit_period)
         : undefined);
     return obj;
   },
 
   fromPartial(object: DeepPartial<DepositParams>): DepositParams {
     const message = { ...baseDepositParams } as DepositParams;
-    message.minDeposit = [];
-    if (object.minDeposit !== undefined && object.minDeposit !== null) {
-      for (const e of object.minDeposit) {
-        message.minDeposit.push(Coin.fromPartial(e));
+    message.min_deposit = [];
+    if (object.min_deposit !== undefined && object.min_deposit !== null) {
+      for (const e of object.min_deposit) {
+        message.min_deposit.push(Coin.fromPartial(e));
       }
     }
     if (
-      object.maxDepositPeriod !== undefined &&
-      object.maxDepositPeriod !== null
+      object.max_deposit_period !== undefined &&
+      object.max_deposit_period !== null
     ) {
-      message.maxDepositPeriod = Duration.fromPartial(object.maxDepositPeriod);
+      message.max_deposit_period = Duration.fromPartial(
+        object.max_deposit_period
+      );
     } else {
-      message.maxDepositPeriod = undefined;
+      message.max_deposit_period = undefined;
     }
     return message;
   },
@@ -1076,8 +1096,8 @@ const baseVotingParams: object = {};
 
 export const VotingParams = {
   encode(message: VotingParams, writer: Writer = Writer.create()): Writer {
-    if (message.votingPeriod !== undefined) {
-      Duration.encode(message.votingPeriod, writer.uint32(10).fork()).ldelim();
+    if (message.voting_period !== undefined) {
+      Duration.encode(message.voting_period, writer.uint32(10).fork()).ldelim();
     }
     return writer;
   },
@@ -1090,7 +1110,7 @@ export const VotingParams = {
       const tag = reader.uint32();
       switch (tag >>> 3) {
         case 1:
-          message.votingPeriod = Duration.decode(reader, reader.uint32());
+          message.voting_period = Duration.decode(reader, reader.uint32());
           break;
         default:
           reader.skipType(tag & 7);
@@ -1102,29 +1122,29 @@ export const VotingParams = {
 
   fromJSON(object: any): VotingParams {
     const message = { ...baseVotingParams } as VotingParams;
-    if (object.votingPeriod !== undefined && object.votingPeriod !== null) {
-      message.votingPeriod = Duration.fromJSON(object.votingPeriod);
+    if (object.voting_period !== undefined && object.voting_period !== null) {
+      message.voting_period = Duration.fromJSON(object.voting_period);
     } else {
-      message.votingPeriod = undefined;
+      message.voting_period = undefined;
     }
     return message;
   },
 
   toJSON(message: VotingParams): unknown {
     const obj: any = {};
-    message.votingPeriod !== undefined &&
-      (obj.votingPeriod = message.votingPeriod
-        ? Duration.toJSON(message.votingPeriod)
+    message.voting_period !== undefined &&
+      (obj.voting_period = message.voting_period
+        ? Duration.toJSON(message.voting_period)
         : undefined);
     return obj;
   },
 
   fromPartial(object: DeepPartial<VotingParams>): VotingParams {
     const message = { ...baseVotingParams } as VotingParams;
-    if (object.votingPeriod !== undefined && object.votingPeriod !== null) {
-      message.votingPeriod = Duration.fromPartial(object.votingPeriod);
+    if (object.voting_period !== undefined && object.voting_period !== null) {
+      message.voting_period = Duration.fromPartial(object.voting_period);
     } else {
-      message.votingPeriod = undefined;
+      message.voting_period = undefined;
     }
     return message;
   },
@@ -1140,8 +1160,8 @@ export const TallyParams = {
     if (message.threshold.length !== 0) {
       writer.uint32(18).bytes(message.threshold);
     }
-    if (message.vetoThreshold.length !== 0) {
-      writer.uint32(26).bytes(message.vetoThreshold);
+    if (message.veto_threshold.length !== 0) {
+      writer.uint32(26).bytes(message.veto_threshold);
     }
     return writer;
   },
@@ -1160,7 +1180,7 @@ export const TallyParams = {
           message.threshold = reader.bytes();
           break;
         case 3:
-          message.vetoThreshold = reader.bytes();
+          message.veto_threshold = reader.bytes();
           break;
         default:
           reader.skipType(tag & 7);
@@ -1178,8 +1198,8 @@ export const TallyParams = {
     if (object.threshold !== undefined && object.threshold !== null) {
       message.threshold = bytesFromBase64(object.threshold);
     }
-    if (object.vetoThreshold !== undefined && object.vetoThreshold !== null) {
-      message.vetoThreshold = bytesFromBase64(object.vetoThreshold);
+    if (object.veto_threshold !== undefined && object.veto_threshold !== null) {
+      message.veto_threshold = bytesFromBase64(object.veto_threshold);
     }
     return message;
   },
@@ -1194,10 +1214,10 @@ export const TallyParams = {
       (obj.threshold = base64FromBytes(
         message.threshold !== undefined ? message.threshold : new Uint8Array()
       ));
-    message.vetoThreshold !== undefined &&
-      (obj.vetoThreshold = base64FromBytes(
-        message.vetoThreshold !== undefined
-          ? message.vetoThreshold
+    message.veto_threshold !== undefined &&
+      (obj.veto_threshold = base64FromBytes(
+        message.veto_threshold !== undefined
+          ? message.veto_threshold
           : new Uint8Array()
       ));
     return obj;
@@ -1215,10 +1235,10 @@ export const TallyParams = {
     } else {
       message.threshold = new Uint8Array();
     }
-    if (object.vetoThreshold !== undefined && object.vetoThreshold !== null) {
-      message.vetoThreshold = object.vetoThreshold;
+    if (object.veto_threshold !== undefined && object.veto_threshold !== null) {
+      message.veto_threshold = object.veto_threshold;
     } else {
-      message.vetoThreshold = new Uint8Array();
+      message.veto_threshold = new Uint8Array();
     }
     return message;
   },

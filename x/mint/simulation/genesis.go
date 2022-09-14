@@ -5,6 +5,8 @@ package simulation
 import (
 	"encoding/json"
 	"fmt"
+	"math/rand"
+	"time"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/types/module"
@@ -15,11 +17,25 @@ import (
 func RandomizedGenState(simState *module.SimulationState) {
 	// minter
 	mintDenom := sdk.DefaultBondDenom
-	epochProvisions := sdk.NewDec(500000) // TODO: Randomize this
-	// Epochs are every minute, set reduction period to be 1 year
-	params := types.NewParams(mintDenom, epochProvisions, sdk.NewDecWithPrec(5, 1), 60*24*365)
 
-	mintGenesis := types.NewGenesisState(types.InitialMinter(), params, 0)
+	randomProvision := rand.Int63n(1000000)
+	epochProvisions := sdk.NewDec(randomProvision + 500000) // Some value between 500000 - 1500000
+
+	currentDate := time.Now()
+	// Epochs are every minute, set reduction period to be 1 year
+	tokenReleaseSchedule := []types.ScheduledTokenRelease{}
+
+	for i := 1; i <= 10; i++ {
+		scheduledTokenRelease := types.ScheduledTokenRelease{
+			Date:               currentDate.AddDate(1, 0, 0).Format(types.TokenReleaseDateFormat),
+			TokenReleaseAmount: randomProvision / int64(i),
+		}
+		tokenReleaseSchedule = append(tokenReleaseSchedule, scheduledTokenRelease)
+	}
+
+	params := types.NewParams(mintDenom, epochProvisions, tokenReleaseSchedule)
+
+	mintGenesis := types.NewGenesisState(types.InitialMinter(), params)
 
 	bz, err := json.MarshalIndent(&mintGenesis, "", " ")
 	if err != nil {
