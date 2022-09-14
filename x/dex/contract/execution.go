@@ -227,6 +227,7 @@ func HandleExecutionForContract(
 	}
 
 	settlements := ExecutePairsInParallel(sdkCtx, contractAddr, dexkeeper, registeredPairs, orderBooks)
+	defer EmitSettlementMetrics(settlements)
 
 	// populate order placement results for FinalizeBlock hook
 	dexkeeper.MemState.GetAllBlockOrders(sdkCtx, typedContractAddr).DeepApply(func(orders *dexcache.BlockOrders) {
@@ -234,4 +235,40 @@ func HandleExecutionForContract(
 	})
 	dextypeswasm.PopulateOrderExecutionResults(contractAddr, settlements, orderResults)
 	return orderResults, settlements, nil
+}
+
+
+// Emit metrics for settlements
+func EmitSettlementMetrics(settlements []*types.SettlementEntry) {
+	telemetry.ModuleSetGauge(
+		types.ModuleName,
+		float32(len(settlements)),
+		"num_settlements",
+	)
+	var total_quantity int
+	for _, s := range settlements {
+		fmt.Println(s)
+		total_quantity += s.Quantity.Size()
+		telemetry.IncrCounter(
+			1,
+			"num_settlements_order_type_" + s.GetOrderType(),
+		)
+		telemetry.IncrCounter(
+			1,
+			"num_settlements_position_direction" + s.GetPositionDirection(),
+		)
+		telemetry.IncrCounter(
+			1,
+			"num_settlements_asset_denom_" + s.GetAssetDenom(),
+		)
+		telemetry.IncrCounter(
+			1,
+			"num_settlements_price_denom_" + s.GetPriceDenom(),
+		)
+	}
+	telemetry.ModuleSetGauge(
+		types.ModuleName,
+		float32(total_quantity),
+		"num_total_order_quantity_in_settlements",
+	)
 }
