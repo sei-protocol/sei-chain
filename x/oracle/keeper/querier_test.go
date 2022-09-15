@@ -85,55 +85,6 @@ func TestQueryFeederDelegation(t *testing.T) {
 	require.Equal(t, Addrs[1].String(), res.FeederAddr)
 }
 
-func TestQueryAggregatePrevote(t *testing.T) {
-	input := CreateTestInput(t)
-	ctx := sdk.WrapSDKContext(input.Ctx)
-	querier := NewQuerier(input.OracleKeeper)
-
-	prevote1 := types.NewAggregateExchangeRatePrevote(types.AggregateVoteHash{}, ValAddrs[0], 0)
-	input.OracleKeeper.SetAggregateExchangeRatePrevote(input.Ctx, ValAddrs[0], prevote1)
-	prevote2 := types.NewAggregateExchangeRatePrevote(types.AggregateVoteHash{}, ValAddrs[1], 0)
-	input.OracleKeeper.SetAggregateExchangeRatePrevote(input.Ctx, ValAddrs[1], prevote2)
-
-	// validator 0 address params
-	res, err := querier.AggregatePrevote(ctx, &types.QueryAggregatePrevoteRequest{
-		ValidatorAddr: ValAddrs[0].String(),
-	})
-	require.NoError(t, err)
-	require.Equal(t, prevote1, res.AggregatePrevote)
-
-	// validator 1 address params
-	res, err = querier.AggregatePrevote(ctx, &types.QueryAggregatePrevoteRequest{
-		ValidatorAddr: ValAddrs[1].String(),
-	})
-	require.NoError(t, err)
-	require.Equal(t, prevote2, res.AggregatePrevote)
-}
-
-func TestQueryAggregatePrevotes(t *testing.T) {
-	input := CreateTestInput(t)
-	ctx := sdk.WrapSDKContext(input.Ctx)
-	querier := NewQuerier(input.OracleKeeper)
-
-	prevote1 := types.NewAggregateExchangeRatePrevote(types.AggregateVoteHash{}, ValAddrs[0], 0)
-	input.OracleKeeper.SetAggregateExchangeRatePrevote(input.Ctx, ValAddrs[0], prevote1)
-	prevote2 := types.NewAggregateExchangeRatePrevote(types.AggregateVoteHash{}, ValAddrs[1], 0)
-	input.OracleKeeper.SetAggregateExchangeRatePrevote(input.Ctx, ValAddrs[1], prevote2)
-	prevote3 := types.NewAggregateExchangeRatePrevote(types.AggregateVoteHash{}, ValAddrs[2], 0)
-	input.OracleKeeper.SetAggregateExchangeRatePrevote(input.Ctx, ValAddrs[2], prevote3)
-
-	expectedPrevotes := []types.AggregateExchangeRatePrevote{prevote1, prevote2, prevote3}
-	sort.SliceStable(expectedPrevotes, func(i, j int) bool {
-		addr1, _ := sdk.ValAddressFromBech32(expectedPrevotes[i].Voter)
-		addr2, _ := sdk.ValAddressFromBech32(expectedPrevotes[j].Voter)
-		return bytes.Compare(addr1, addr2) == -1
-	})
-
-	res, err := querier.AggregatePrevotes(ctx, &types.QueryAggregatePrevotesRequest{})
-	require.NoError(t, err)
-	require.Equal(t, expectedPrevotes, res.AggregatePrevotes)
-}
-
 func TestQueryAggregateVote(t *testing.T) {
 	input := CreateTestInput(t)
 	ctx := sdk.WrapSDKContext(input.Ctx)

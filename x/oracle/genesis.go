@@ -39,15 +39,6 @@ func InitGenesis(ctx sdk.Context, keeper keeper.Keeper, data *types.GenesisState
 		keeper.SetVotePenaltyCounter(ctx, operator, pc.VotePenaltyCounter.MissCount, pc.VotePenaltyCounter.AbstainCount)
 	}
 
-	for _, ap := range data.AggregateExchangeRatePrevotes {
-		valAddr, err := sdk.ValAddressFromBech32(ap.Voter)
-		if err != nil {
-			panic(err)
-		}
-
-		keeper.SetAggregateExchangeRatePrevote(ctx, valAddr, ap)
-	}
-
 	for _, av := range data.AggregateExchangeRateVotes {
 		valAddr, err := sdk.ValAddressFromBech32(av.Voter)
 		if err != nil {
@@ -95,12 +86,6 @@ func ExportGenesis(ctx sdk.Context, keeper keeper.Keeper) *types.GenesisState {
 		return false
 	})
 
-	aggregateExchangeRatePrevotes := []types.AggregateExchangeRatePrevote{}
-	keeper.IterateAggregateExchangeRatePrevotes(ctx, func(_ sdk.ValAddress, aggregatePrevote types.AggregateExchangeRatePrevote) (stop bool) {
-		aggregateExchangeRatePrevotes = append(aggregateExchangeRatePrevotes, aggregatePrevote)
-		return false
-	})
-
 	aggregateExchangeRateVotes := []types.AggregateExchangeRateVote{}
 	keeper.IterateAggregateExchangeRateVotes(ctx, func(_ sdk.ValAddress, aggregateVote types.AggregateExchangeRateVote) bool {
 		aggregateExchangeRateVotes = append(aggregateExchangeRateVotes, aggregateVote)
@@ -111,6 +96,5 @@ func ExportGenesis(ctx sdk.Context, keeper keeper.Keeper) *types.GenesisState {
 		exchangeRates,
 		feederDelegations,
 		penaltyCounters,
-		aggregateExchangeRatePrevotes,
 		aggregateExchangeRateVotes)
 }

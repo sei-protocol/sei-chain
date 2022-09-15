@@ -56,3 +56,17 @@ func (m Migrator) Migrate3to4(ctx sdk.Context) error {
 
 	return nil
 }
+
+// Migrate3to4 migrates from version 4 to 5
+func (m Migrator) Migrate4to5(ctx sdk.Context) error {
+	// we remove the prevotes from store in this migration
+	store := ctx.KVStore(m.keeper.storeKey)
+
+	oldPrevoteKey := []byte{0x04}
+	iter := sdk.KVStorePrefixIterator(store, oldPrevoteKey)
+	defer iter.Close()
+	for ; iter.Valid(); iter.Next() {
+		store.Delete(iter.Key())
+	}
+	return nil
+}

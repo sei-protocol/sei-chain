@@ -10,28 +10,25 @@ import (
 func NewGenesisState(
 	params Params, rates []ExchangeRateTuple,
 	feederDelegations []FeederDelegation, penaltyCounters []PenaltyCounter,
-	aggregateExchangeRatePrevotes []AggregateExchangeRatePrevote,
 	aggregateExchangeRateVotes []AggregateExchangeRateVote,
 ) *GenesisState {
 	return &GenesisState{
-		Params:                        params,
-		ExchangeRates:                 rates,
-		FeederDelegations:             feederDelegations,
-		PenaltyCounters:               penaltyCounters,
-		AggregateExchangeRatePrevotes: aggregateExchangeRatePrevotes,
-		AggregateExchangeRateVotes:    aggregateExchangeRateVotes,
+		Params:                     params,
+		ExchangeRates:              rates,
+		FeederDelegations:          feederDelegations,
+		PenaltyCounters:            penaltyCounters,
+		AggregateExchangeRateVotes: aggregateExchangeRateVotes,
 	}
 }
 
 // DefaultGenesisState - default GenesisState used by columbus-2
 func DefaultGenesisState() *GenesisState {
 	return &GenesisState{
-		Params:                        DefaultParams(),
-		ExchangeRates:                 []ExchangeRateTuple{},
-		FeederDelegations:             []FeederDelegation{},
-		PenaltyCounters:               []PenaltyCounter{},
-		AggregateExchangeRatePrevotes: []AggregateExchangeRatePrevote{},
-		AggregateExchangeRateVotes:    []AggregateExchangeRateVote{},
+		Params:                     DefaultParams(),
+		ExchangeRates:              []ExchangeRateTuple{},
+		FeederDelegations:          []FeederDelegation{},
+		PenaltyCounters:            []PenaltyCounter{},
+		AggregateExchangeRateVotes: []AggregateExchangeRateVote{},
 	}
 }
 

@@ -48,16 +48,6 @@ service Query {
     option (google.api.http).get = "/sei-protocol/sei-chain/oracle/validators/{validator_addr}/vote_penalty_counter";
   }
 
-  // AggregatePrevote returns an aggregate prevote of a validator
-  rpc AggregatePrevote(QueryAggregatePrevoteRequest) returns (QueryAggregatePrevoteResponse) {
-    option (google.api.http).get = "/sei-protocol/sei-chain/oracle/validators/{validator_addr}/aggregate_prevote";
-  }
-
-  // AggregatePrevotes returns aggregate prevotes of all validators
-  rpc AggregatePrevotes(QueryAggregatePrevotesRequest) returns (QueryAggregatePrevotesResponse) {
-    option (google.api.http).get = "/sei-protocol/sei-chain/oracle/validators/aggregate_prevotes";
-  }
-
   // AggregateVote returns an aggregate vote of a validator
   rpc AggregateVote(QueryAggregateVoteRequest) returns (QueryAggregateVoteResponse) {
     option (google.api.http).get = "/sei-protocol/sei-chain/oracle/validators/{validator_addr}/aggregate_vote";
@@ -178,32 +168,6 @@ message QueryVotePenaltyCounterRequest {
 // Query/VotePenaltyCounter RPC method.
 message QueryVotePenaltyCounterResponse {
   VotePenaltyCounter vote_penalty_counter = 1;
-}
-
-// QueryAggregatePrevoteRequest is the request type for the Query/AggregatePrevote RPC method.
-message QueryAggregatePrevoteRequest {
-  option (gogoproto.equal)           = false;
-  option (gogoproto.goproto_getters) = false;
-
-  // validator defines the validator address to query for.
-  string validator_addr = 1;
-}
-
-// QueryAggregatePrevoteResponse is response type for the
-// Query/AggregatePrevote RPC method.
-message QueryAggregatePrevoteResponse {
-  // aggregate_prevote defines oracle aggregate prevote submitted by a validator in the current vote period
-  AggregateExchangeRatePrevote aggregate_prevote = 1 [(gogoproto.nullable) = false];
-}
-
-// QueryAggregatePrevotesRequest is the request type for the Query/AggregatePrevotes RPC method.
-message QueryAggregatePrevotesRequest {}
-
-// QueryAggregatePrevotesResponse is response type for the
-// Query/AggregatePrevotes RPC method.
-message QueryAggregatePrevotesResponse {
-  // aggregate_prevotes defines all oracle aggregate prevotes submitted in the current vote period
-  repeated AggregateExchangeRatePrevote aggregate_prevotes = 1 [(gogoproto.nullable) = false];
 }
 
 // QueryAggregateVoteRequest is the request type for the Query/AggregateVote RPC method.

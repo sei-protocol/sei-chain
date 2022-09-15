@@ -31,7 +31,6 @@ func TestDecodeDistributionStore(t *testing.T) {
 	missCounter := uint64(23)
 	abstainCounter := uint64(21)
 
-	aggregatePrevote := types.NewAggregateExchangeRatePrevote(types.AggregateVoteHash([]byte("12345")), valAddr, 123)
 	aggregateVote := types.NewAggregateExchangeRateVote(types.ExchangeRateTuples{
 		{Denom: utils.MicroAtomDenom, ExchangeRate: sdk.NewDecWithPrec(1234, 1)},
 	}, valAddr)
@@ -44,7 +43,6 @@ func TestDecodeDistributionStore(t *testing.T) {
 			{Key: types.ExchangeRateKey, Value: cdc.MustMarshal(&sdk.DecProto{Dec: exchangeRate})},
 			{Key: types.FeederDelegationKey, Value: feederAddr.Bytes()},
 			{Key: types.VotePenaltyCounterKey, Value: cdc.MustMarshal(&votePenaltyCounter)},
-			{Key: types.AggregateExchangeRatePrevoteKey, Value: cdc.MustMarshal(&aggregatePrevote)},
 			{Key: types.AggregateExchangeRateVoteKey, Value: cdc.MustMarshal(&aggregateVote)},
 			{Key: types.VoteTargetKey, Value: cdc.MustMarshal(&types.Denom{Name: denom})},
 			{Key: []byte{0x99}, Value: []byte{0x99}},
@@ -58,7 +56,6 @@ func TestDecodeDistributionStore(t *testing.T) {
 		{"ExchangeRate", fmt.Sprintf("%v\n%v", exchangeRate, exchangeRate)},
 		{"FeederDelegation", fmt.Sprintf("%v\n%v", feederAddr, feederAddr)},
 		{"VotePenaltyCounter", fmt.Sprintf("%v\n%v", votePenaltyCounter, votePenaltyCounter)},
-		{"AggregatePrevote", fmt.Sprintf("%v\n%v", aggregatePrevote, aggregatePrevote)},
 		{"AggregateVote", fmt.Sprintf("%v\n%v", aggregateVote, aggregateVote)},
 		{"VoteTarget", fmt.Sprintf("name: %v\n\nname: %v\n", denom, denom)},
 		{"other", ""},
