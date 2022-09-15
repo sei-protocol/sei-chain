@@ -232,54 +232,9 @@ func (k Keeper) IterateVotePenaltyCounters(ctx sdk.Context,
 }
 
 //-----------------------------------
-// AggregateExchangeRatePrevote logic
-
-// GetAggregateExchangeRatePrevote retrieves an oracle prevote from the store
-func (k Keeper) GetAggregateExchangeRatePrevote(ctx sdk.Context, voter sdk.ValAddress) (aggregatePrevote types.AggregateExchangeRatePrevote, err error) {
-	store := ctx.KVStore(k.storeKey)
-	b := store.Get(types.GetAggregateExchangeRatePrevoteKey(voter))
-	if b == nil {
-		err = sdkerrors.Wrap(types.ErrNoAggregatePrevote, voter.String())
-		return
-	}
-	k.cdc.MustUnmarshal(b, &aggregatePrevote)
-	return
-}
-
-// SetAggregateExchangeRatePrevote set an oracle aggregate prevote to the store
-func (k Keeper) SetAggregateExchangeRatePrevote(ctx sdk.Context, voter sdk.ValAddress, prevote types.AggregateExchangeRatePrevote) {
-	store := ctx.KVStore(k.storeKey)
-	bz := k.cdc.MustMarshal(&prevote)
-
-	store.Set(types.GetAggregateExchangeRatePrevoteKey(voter), bz)
-}
-
-// DeleteAggregateExchangeRatePrevote deletes an oracle prevote from the store
-func (k Keeper) DeleteAggregateExchangeRatePrevote(ctx sdk.Context, voter sdk.ValAddress) {
-	store := ctx.KVStore(k.storeKey)
-	store.Delete(types.GetAggregateExchangeRatePrevoteKey(voter))
-}
-
-// IterateAggregateExchangeRatePrevotes iterates rate over prevotes in the store
-func (k Keeper) IterateAggregateExchangeRatePrevotes(ctx sdk.Context, handler func(voterAddr sdk.ValAddress, aggregatePrevote types.AggregateExchangeRatePrevote) (stop bool)) {
-	store := ctx.KVStore(k.storeKey)
-	iter := sdk.KVStorePrefixIterator(store, types.AggregateExchangeRatePrevoteKey)
-	defer iter.Close()
-	for ; iter.Valid(); iter.Next() {
-		voterAddr := sdk.ValAddress(iter.Key()[2:])
-
-		var aggregatePrevote types.AggregateExchangeRatePrevote
-		k.cdc.MustUnmarshal(iter.Value(), &aggregatePrevote)
-		if handler(voterAddr, aggregatePrevote) {
-			break
-		}
-	}
-}
-
-//-----------------------------------
 // AggregateExchangeRateVote logic
 
-// GetAggregateExchangeRateVote retrieves an oracle prevote from the store
+// GetAggregateExchangeRateVote retrieves an oracle vote from the store
 func (k Keeper) GetAggregateExchangeRateVote(ctx sdk.Context, voter sdk.ValAddress) (aggregateVote types.AggregateExchangeRateVote, err error) {
 	store := ctx.KVStore(k.storeKey)
 	b := store.Get(types.GetAggregateExchangeRateVoteKey(voter))
@@ -291,20 +246,20 @@ func (k Keeper) GetAggregateExchangeRateVote(ctx sdk.Context, voter sdk.ValAddre
 	return
 }
 
-// SetAggregateExchangeRateVote adds an oracle aggregate prevote to the store
+// SetAggregateExchangeRateVote adds an oracle aggregate vote to the store
 func (k Keeper) SetAggregateExchangeRateVote(ctx sdk.Context, voter sdk.ValAddress, vote types.AggregateExchangeRateVote) {
 	store := ctx.KVStore(k.storeKey)
 	bz := k.cdc.MustMarshal(&vote)
 	store.Set(types.GetAggregateExchangeRateVoteKey(voter), bz)
 }
 
-// DeleteAggregateExchangeRateVote deletes an oracle prevote from the store
+// DeleteAggregateExchangeRateVote deletes an oracle vote from the store
 func (k Keeper) DeleteAggregateExchangeRateVote(ctx sdk.Context, voter sdk.ValAddress) {
 	store := ctx.KVStore(k.storeKey)
 	store.Delete(types.GetAggregateExchangeRateVoteKey(voter))
 }
 
-// IterateAggregateExchangeRateVotes iterates rate over prevotes in the store
+// IterateAggregateExchangeRateVotes iterates rate over votes in the store
 func (k Keeper) IterateAggregateExchangeRateVotes(ctx sdk.Context, handler func(voterAddr sdk.ValAddress, aggregateVote types.AggregateExchangeRateVote) (stop bool)) {
 	store := ctx.KVStore(k.storeKey)
 	iter := sdk.KVStorePrefixIterator(store, types.AggregateExchangeRateVoteKey)
@@ -546,13 +501,4 @@ func (k Keeper) ValidateLookbackSeconds(ctx sdk.Context, lookbackSeconds int64) 
 	}
 
 	return nil
-}
-
-func (k Keeper) IsPrevoteFromPreviousWindow(ctx sdk.Context, valAddr sdk.ValAddress) bool {
-	votePeriod := k.VotePeriod(ctx)
-	prevote, err := k.GetAggregateExchangeRatePrevote(ctx, valAddr)
-	if err != nil {
-		return false
-	}
-	return (uint64(ctx.BlockHeight())/votePeriod)-(prevote.SubmitBlock/votePeriod) == 1
 }

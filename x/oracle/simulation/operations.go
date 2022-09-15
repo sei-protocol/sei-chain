@@ -4,7 +4,6 @@ package simulation
 
 import (
 	"math/rand"
-	"strings"
 
 	"github.com/cosmos/cosmos-sdk/baseapp"
 	"github.com/cosmos/cosmos-sdk/codec"
@@ -16,24 +15,17 @@ import (
 
 	"github.com/sei-protocol/sei-chain/x/oracle/keeper"
 	"github.com/sei-protocol/sei-chain/x/oracle/types"
-	"github.com/sei-protocol/sei-chain/x/oracle/utils"
 )
 
 // Simulation operation weights constants
 //
 //nolint:gosec
 const (
-	OpWeightMsgAggregateExchangeRatePrevote = "op_weight_msg_exchange_rate_aggregate_prevote"
-	OpWeightMsgAggregateExchangeRateVote    = "op_weight_msg_exchange_rate_aggregate_vote"
-	OpWeightMsgDelegateFeedConsent          = "op_weight_msg_exchange_feed_consent"
-
-	salt = "1234"
+	OpWeightMsgAggregateExchangeRateVote = "op_weight_msg_exchange_rate_aggregate_vote"
+	OpWeightMsgDelegateFeedConsent       = "op_weight_msg_exchange_feed_consent"
 )
 
-var (
-	whitelist   = []string{utils.MicroAtomDenom}
-	voteHashMap = make(map[string]string)
-)
+var voteHashMap = make(map[string]string)
 
 // WeightedOperations returns all the operations from the module with their respective weights
 func WeightedOperations(
@@ -44,14 +36,8 @@ func WeightedOperations(
 	k keeper.Keeper,
 ) simulation.WeightedOperations {
 	var (
-		weightMsgAggregateExchangeRatePrevote int
-		weightMsgAggregateExchangeRateVote    int
-		weightMsgDelegateFeedConsent          int
-	)
-	appParams.GetOrGenerate(cdc, OpWeightMsgAggregateExchangeRatePrevote, &weightMsgAggregateExchangeRatePrevote, nil,
-		func(_ *rand.Rand) {
-			weightMsgAggregateExchangeRatePrevote = simappparams.DefaultWeightMsgSend * 2
-		},
+		weightMsgAggregateExchangeRateVote int
+		weightMsgDelegateFeedConsent       int
 	)
 
 	appParams.GetOrGenerate(cdc, OpWeightMsgAggregateExchangeRateVote, &weightMsgAggregateExchangeRateVote, nil,
@@ -68,10 +54,6 @@ func WeightedOperations(
 
 	return simulation.WeightedOperations{
 		simulation.NewWeightedOperation(
-			weightMsgAggregateExchangeRatePrevote,
-			SimulateMsgAggregateExchangeRatePrevote(ak, bk, k),
-		),
-		simulation.NewWeightedOperation(
 			weightMsgAggregateExchangeRateVote,
 			SimulateMsgAggregateExchangeRateVote(ak, bk, k),
 		),
@@ -79,69 +61,6 @@ func WeightedOperations(
 			weightMsgDelegateFeedConsent,
 			SimulateMsgDelegateFeedConsent(ak, bk, k),
 		),
-	}
-}
-
-// SimulateMsgAggregateExchangeRatePrevote generates a MsgAggregateExchangeRatePrevote with random values.
-//nolint: funlen
-func SimulateMsgAggregateExchangeRatePrevote(ak types.AccountKeeper, bk types.BankKeeper, k keeper.Keeper) simtypes.Operation {
-	return func(
-		r *rand.Rand, app *baseapp.BaseApp, ctx sdk.Context, accs []simtypes.Account, chainID string,
-	) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
-		simAccount, _ := simtypes.RandomAcc(r, accs)
-		address := sdk.ValAddress(simAccount.Address)
-
-		// ensure the validator exists
-		val := k.StakingKeeper.Validator(ctx, address)
-		if val == nil || !val.IsBonded() {
-			return simtypes.NoOpMsg(types.ModuleName, types.TypeMsgAggregateExchangeRatePrevote, "unable to find validator"), nil, nil
-		}
-
-		exchangeRatesStr := ""
-		for _, denom := range whitelist {
-			price := sdk.NewDecWithPrec(int64(simtypes.RandIntBetween(r, 1, 10000)), int64(1))
-			exchangeRatesStr += price.String() + denom + ","
-		}
-
-		exchangeRatesStr = strings.TrimRight(exchangeRatesStr, ",")
-		voteHash := types.GetAggregateVoteHash(salt, exchangeRatesStr, address)
-
-		feederAddr := k.GetFeederDelegation(ctx, address)
-		feederSimAccount, _ := simtypes.FindAccount(accs, feederAddr)
-
-		feederAccount := ak.GetAccount(ctx, feederAddr)
-		spendable := bk.SpendableCoins(ctx, feederAccount.GetAddress())
-
-		fees, err := simtypes.RandomFees(r, ctx, spendable)
-		if err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, types.TypeMsgAggregateExchangeRatePrevote, "unable to generate fees"), nil, err
-		}
-
-		msg := types.NewMsgAggregateExchangeRatePrevote(voteHash, feederAddr, address)
-
-		txGen := simappparams.MakeTestEncodingConfig().TxConfig
-		tx, err := helpers.GenTx(
-			txGen,
-			[]sdk.Msg{msg},
-			fees,
-			helpers.DefaultGenTxGas,
-			chainID,
-			[]uint64{feederAccount.GetAccountNumber()},
-			[]uint64{feederAccount.GetSequence()},
-			feederSimAccount.PrivKey,
-		)
-		if err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, msg.Type(), "unable to generate mock tx"), nil, err
-		}
-
-		_, _, err = app.Deliver(txGen.TxEncoder(), tx)
-		if err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, msg.Type(), "unable to deliver tx"), nil, err
-		}
-
-		voteHashMap[address.String()] = exchangeRatesStr
-
-		return simtypes.NewOperationMsg(msg, true, "", nil), nil, nil
 	}
 }
 
@@ -166,16 +85,6 @@ func SimulateMsgAggregateExchangeRateVote(ak types.AccountKeeper, bk types.BankK
 			return simtypes.NoOpMsg(types.ModuleName, types.TypeMsgAggregateExchangeRateVote, "vote hash not exists"), nil, nil
 		}
 
-		// get prevote
-		_, err := k.GetAggregateExchangeRatePrevote(ctx, address)
-		if err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, types.TypeMsgAggregateExchangeRateVote, "prevote not found"), nil, nil
-		}
-
-		if !k.IsPrevoteFromPreviousWindow(ctx, address) {
-			return simtypes.NoOpMsg(types.ModuleName, types.TypeMsgAggregateExchangeRateVote, "reveal period of submitted vote do not match with registered prevote"), nil, nil
-		}
-
 		feederAddr := k.GetFeederDelegation(ctx, address)
 		feederSimAccount, _ := simtypes.FindAccount(accs, feederAddr)
 		feederAccount := ak.GetAccount(ctx, feederAddr)
@@ -186,7 +95,7 @@ func SimulateMsgAggregateExchangeRateVote(ak types.AccountKeeper, bk types.BankK
 			return simtypes.NoOpMsg(types.ModuleName, types.TypeMsgAggregateExchangeRateVote, "unable to generate fees"), nil, err
 		}
 
-		msg := types.NewMsgAggregateExchangeRateVote(salt, exchangeRatesStr, feederAddr, address)
+		msg := types.NewMsgAggregateExchangeRateVote(exchangeRatesStr, feederAddr, address)
 
 		txGen := simappparams.MakeTestEncodingConfig().TxConfig
 		tx, err := helpers.GenTx(
