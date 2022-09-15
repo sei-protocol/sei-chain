@@ -237,38 +237,39 @@ func HandleExecutionForContract(
 	return orderResults, settlements, nil
 }
 
-
 // Emit metrics for settlements
 func EmitSettlementMetrics(settlements []*types.SettlementEntry) {
-	telemetry.ModuleSetGauge(
-		types.ModuleName,
-		float32(len(settlements)),
-		"num_settlements",
-	)
-	var total_quantity int
-	for _, s := range settlements {
-		fmt.Println(s)
-		total_quantity += s.Quantity.Size()
-		telemetry.IncrCounter(
-			1,
-			"num_settlements_order_type_" + s.GetOrderType(),
+	if len(settlements) > 0 {
+		telemetry.ModuleSetGauge(
+			types.ModuleName,
+			float32(len(settlements)),
+			"num_settlements",
 		)
-		telemetry.IncrCounter(
-			1,
-			"num_settlements_position_direction" + s.GetPositionDirection(),
-		)
-		telemetry.IncrCounter(
-			1,
-			"num_settlements_asset_denom_" + s.GetAssetDenom(),
-		)
-		telemetry.IncrCounter(
-			1,
-			"num_settlements_price_denom_" + s.GetPriceDenom(),
+		var total_quantity int
+		for _, s := range settlements {
+			fmt.Println(s)
+			total_quantity += s.Quantity.Size()
+			telemetry.IncrCounter(
+				1,
+				"num_settlements_order_type_"+s.GetOrderType(),
+			)
+			telemetry.IncrCounter(
+				1,
+				"num_settlements_position_direction"+s.GetPositionDirection(),
+			)
+			telemetry.IncrCounter(
+				1,
+				"num_settlements_asset_denom_"+s.GetAssetDenom(),
+			)
+			telemetry.IncrCounter(
+				1,
+				"num_settlements_price_denom_"+s.GetPriceDenom(),
+			)
+		}
+		telemetry.ModuleSetGauge(
+			types.ModuleName,
+			float32(total_quantity),
+			"num_total_order_quantity_in_settlements",
 		)
 	}
-	telemetry.ModuleSetGauge(
-		types.ModuleName,
-		float32(total_quantity),
-		"num_total_order_quantity_in_settlements",
-	)
 }
