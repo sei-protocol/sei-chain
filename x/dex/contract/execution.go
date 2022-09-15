@@ -245,10 +245,10 @@ func EmitSettlementMetrics(settlements []*types.SettlementEntry) {
 			float32(len(settlements)),
 			"num_settlements",
 		)
-		var total_quantity int
+		var totalQuantity int
 		for _, s := range settlements {
 			fmt.Println(s)
-			total_quantity += s.Quantity.Size()
+			totalQuantity += s.Quantity.Size()
 			telemetry.IncrCounter(
 				1,
 				"num_settlements_order_type_"+s.GetOrderType(),
@@ -268,7 +268,7 @@ func EmitSettlementMetrics(settlements []*types.SettlementEntry) {
 		}
 		telemetry.ModuleSetGauge(
 			types.ModuleName,
-			float32(total_quantity),
+			float32(totalQuantity),
 			"num_total_order_quantity_in_settlements",
 		)
 	}
