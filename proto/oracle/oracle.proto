@@ -50,16 +50,6 @@ message Denom {
   string name      = 1 [(gogoproto.moretags) = "yaml:\"name\""];
 }
 
-message AggregateExchangeRatePrevote {
-  option (gogoproto.equal)            = false;
-  option (gogoproto.goproto_getters)  = false;
-  option (gogoproto.goproto_stringer) = false;
-
-  string hash         = 1 [(gogoproto.moretags) = "yaml:\"hash\""];
-  string voter        = 2 [(gogoproto.moretags) = "yaml:\"voter\""];
-  uint64 submit_block = 3 [(gogoproto.moretags) = "yaml:\"submit_block\""];
-}
-
 message AggregateExchangeRateVote {
   option (gogoproto.equal)            = false;
   option (gogoproto.goproto_getters)  = false;

@@ -55,17 +55,8 @@ func (k Keeper) OrganizeBallotByDenom(ctx sdk.Context, validatorClaimMap map[str
 	return votes
 }
 
-// ClearBallots clears all tallied prevotes and votes from the store
+// ClearBallots clears all tallied votes from the store
 func (k Keeper) ClearBallots(ctx sdk.Context, votePeriod uint64) {
-	// Clear all aggregate prevotes
-	k.IterateAggregateExchangeRatePrevotes(ctx, func(voterAddr sdk.ValAddress, aggregatePrevote types.AggregateExchangeRatePrevote) (stop bool) {
-		if ctx.BlockHeight() > int64(aggregatePrevote.SubmitBlock+votePeriod) {
-			k.DeleteAggregateExchangeRatePrevote(ctx, voterAddr)
-		}
-
-		return false
-	})
-
 	// Clear all aggregate votes
 	k.IterateAggregateExchangeRateVotes(ctx, func(voterAddr sdk.ValAddress, aggregateVote types.AggregateExchangeRateVote) (stop bool) {
 		k.DeleteAggregateExchangeRateVote(ctx, voterAddr)

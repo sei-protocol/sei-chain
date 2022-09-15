@@ -4,24 +4,6 @@ order: 2
 
 # State
 
-## ExchangeRatePrevote
-
-`ExchangeRatePrevote` containing validator voter's prevote for a given denom for the current `VotePeriod`.
-
-- ExchangeRatePrevote: `0x01<denom_Bytes><valAddress_Bytes> -> amino(ExchangeRatePrevote)`
-
-```go
-type ValAddress []byte
-type VoteHash []byte
-
-type ExchangeRatePrevote struct {
-	Hash        VoteHash       // Vote hex hash to protect centralize data source problem
-	Denom       string         // Ticker name of target fiat currency
-	Voter       sdk.ValAddress // Voter val address
-	SubmitBlock int64
-}
-```
-
 ## ExchangeRateVote
 
 `ExchangeRateVote` containing validator voter's vote for a given denom for the current `VotePeriod`.
@@ -55,24 +37,6 @@ An `sdk.AccAddress` (`terra-` account) address of `operator`'s delegated price f
 An `int64` representing the number of `VotePeriods` that validator `operator` missed during the current `SlashWindow`.
 
 - MissCounter: `0x05<valAddress_Bytes> -> amino(int64)`
-
-## AggregateExchangeRatePrevote
-
-`AggregateExchangeRatePrevote` containing validator voter's aggregated prevote for all denoms for the current `VotePeriod`.
-
-- AggregateExchangeRatePrevote: `0x06<valAddress_Bytes> -> amino(AggregateExchangeRatePrevote)`
-
-```go
-// AggregateVoteHash is hash value to hide vote exchange rates
-// which is formatted as hex string in SHA256("{salt}:{exchange rate}{denom},...,{exchange rate}{denom}:{voter}")
-type AggregateVoteHash []byte
-
-type AggregateExchangeRatePrevote struct {
-	Hash        AggregateVoteHash // Vote hex hash to protect centralize data source problem
-	Voter       sdk.ValAddress    // Voter val address
-	SubmitBlock int64
-}
-```
 
 ## AggregateExchangeRateVote
 

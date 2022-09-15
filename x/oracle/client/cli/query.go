@@ -32,7 +32,6 @@ func GetQueryCmd() *cobra.Command {
 		GetCmdQueryParams(),
 		GetCmdQueryFeederDelegation(),
 		GetCmdQueryVotePenaltyCounter(),
-		GetCmdQueryAggregatePrevote(),
 		GetCmdQueryAggregateVote(),
 		GetCmdQueryVoteTargets(),
 	)
@@ -296,63 +295,7 @@ $ seid query oracle miss seivaloper...
 	return cmd
 }
 
-// GetCmdQueryAggregatePrevote implements the query aggregate prevote of the validator command
-func GetCmdQueryAggregatePrevote() *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   "aggregate-prevotes [validator]",
-		Args:  cobra.RangeArgs(0, 1),
-		Short: "Query outstanding oracle aggregate prevotes.",
-		Long: strings.TrimSpace(`
-Query outstanding oracle aggregate prevotes.
-
-$ terrad query oracle aggregate-prevotes
-
-Or, can filter with voter address
-
-$ terrad query oracle aggregate-prevotes terravaloper...
-`),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			clientCtx, err := client.GetClientQueryContext(cmd)
-			if err != nil {
-				return err
-			}
-			queryClient := types.NewQueryClient(clientCtx)
-
-			if len(args) == 0 {
-				res, err := queryClient.AggregatePrevotes(
-					context.Background(),
-					&types.QueryAggregatePrevotesRequest{},
-				)
-				if err != nil {
-					return err
-				}
-
-				return clientCtx.PrintProto(res)
-			}
-
-			valString := args[0]
-			validator, err := sdk.ValAddressFromBech32(valString)
-			if err != nil {
-				return err
-			}
-
-			res, err := queryClient.AggregatePrevote(
-				context.Background(),
-				&types.QueryAggregatePrevoteRequest{ValidatorAddr: validator.String()},
-			)
-			if err != nil {
-				return err
-			}
-
-			return clientCtx.PrintProto(res)
-		},
-	}
-
-	flags.AddQueryFlagsToCmd(cmd)
-	return cmd
-}
-
-// GetCmdQueryAggregateVote implements the query aggregate prevote of the validator command
+// GetCmdQueryAggregateVote implements the query aggregate vote of the validator command
 func GetCmdQueryAggregateVote() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "aggregate-votes [validator]",

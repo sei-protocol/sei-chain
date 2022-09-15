@@ -165,43 +165,6 @@ func (q querier) VotePenaltyCounter(c context.Context, req *types.QueryVotePenal
 	}, nil
 }
 
-// AggregatePrevote queries an aggregate prevote of a validator
-func (q querier) AggregatePrevote(c context.Context, req *types.QueryAggregatePrevoteRequest) (*types.QueryAggregatePrevoteResponse, error) {
-	if req == nil {
-		return nil, status.Error(codes.InvalidArgument, "invalid request")
-	}
-
-	valAddr, err := sdk.ValAddressFromBech32(req.ValidatorAddr)
-	if err != nil {
-		return nil, status.Error(codes.InvalidArgument, err.Error())
-	}
-
-	ctx := sdk.UnwrapSDKContext(c)
-	prevote, err := q.GetAggregateExchangeRatePrevote(ctx, valAddr)
-	if err != nil {
-		return nil, err
-	}
-
-	return &types.QueryAggregatePrevoteResponse{
-		AggregatePrevote: prevote,
-	}, nil
-}
-
-// AggregatePrevotes queries aggregate prevotes of all validators
-func (q querier) AggregatePrevotes(c context.Context, req *types.QueryAggregatePrevotesRequest) (*types.QueryAggregatePrevotesResponse, error) {
-	ctx := sdk.UnwrapSDKContext(c)
-
-	var prevotes []types.AggregateExchangeRatePrevote
-	q.IterateAggregateExchangeRatePrevotes(ctx, func(_ sdk.ValAddress, prevote types.AggregateExchangeRatePrevote) bool {
-		prevotes = append(prevotes, prevote)
-		return false
-	})
-
-	return &types.QueryAggregatePrevotesResponse{
-		AggregatePrevotes: prevotes,
-	}, nil
-}
-
 // AggregateVote queries an aggregate vote of a validator
 func (q querier) AggregateVote(c context.Context, req *types.QueryAggregateVoteRequest) (*types.QueryAggregateVoteResponse, error) {
 	if req == nil {
