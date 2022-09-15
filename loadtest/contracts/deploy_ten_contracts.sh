@@ -1,17 +1,21 @@
 #!/bin/bash
-echo -n Admin Key Name:
-read keyname
-echo
-echo -n Chain ID:
-read chainid
-echo
-echo -n seid binary:
-read seidbin
-echo
-echo -n sei-chain directory:
-read seihome
-echo
+#echo -n Admin Key Name:
+#read keyname
+#echo
+#echo -n Chain ID:
+#read chainid
+#echo
+#echo -n seid binary:
+#read seidbin
+#echo
+#echo -n sei-chain directory:
+#read seihome
+#echo
 
+keyname=admin
+chainid=sei-loadtest-testnet
+seidbin=seid
+seihome=/home/ubuntu/sei-chain
 cd $seihome/loadtest/contracts/mars && cargo build && docker run --rm -v "$(pwd)":/code \
   --mount type=volume,source="$(basename "$(pwd)")_cache",target=/code/target \
   --mount type=volume,source=registry_cache,target=/usr/local/cargo/registry \
