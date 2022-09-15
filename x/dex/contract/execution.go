@@ -247,7 +247,6 @@ func EmitSettlementMetrics(settlements []*types.SettlementEntry) {
 		)
 		var totalQuantity int
 		for _, s := range settlements {
-			fmt.Println(s)
 			totalQuantity += s.Quantity.Size()
 			telemetry.IncrCounter(
 				1,
