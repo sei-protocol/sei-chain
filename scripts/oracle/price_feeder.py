@@ -117,8 +117,8 @@ class PriceFeeder:
                 prevote_prices = pf.create_price_feed(coins)
 
                 if prevote_prices is None or vote_prices is None:
-                    print ("No price data available, sleep 60")
-                    time.sleep(60)
+                    print ("No price data available, sleep 5")
+                    time.sleep(5)
                     continue
 
                 print("submitting price feeds ", vote_prices, prevote_prices)
@@ -126,12 +126,6 @@ class PriceFeeder:
                 vote_prices = prevote_prices
                 last_combined_voted_period = current_vote_period
                 vote_loop_break += 1
-
-            # sleep for 3s between every pairs of successful combined-votes to not be throttled by price API
-            if vote_loop_break > 1:
-                print("sleep for 3...")
-                time.sleep(3)
-                vote_loop_break = 0
 
 def main():
     parser=argparse.ArgumentParser()
