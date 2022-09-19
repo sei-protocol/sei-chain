@@ -1,0 +1,10 @@
+syntax = "proto3";
+package seiprotocol.seichain.accesscontrol;
+
+option go_package = "github.com/sei-protocol/sei-chain/x/accesscontrol/types";
+
+enum AccessType {
+    UNKNOWN = 0;
+    READ = 1;
+    WRITE = 2;
+}

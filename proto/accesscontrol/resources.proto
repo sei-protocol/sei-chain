@@ -1,0 +1,11 @@
+syntax = "proto3";
+package seiprotocol.seichain.accesscontrol;
+
+option go_package = "github.com/sei-protocol/sei-chain/x/accesscontrol/types";
+
+enum ResourceType {
+    ANY = 0;
+    KV = 1;
+    Mem = 2;
+    DexMem = 3;
+}

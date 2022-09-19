@@ -90,6 +90,7 @@ import (
 	ibcporttypes "github.com/cosmos/ibc-go/v3/modules/core/05-port/types"
 	ibchost "github.com/cosmos/ibc-go/v3/modules/core/24-host"
 	ibckeeper "github.com/cosmos/ibc-go/v3/modules/core/keeper"
+
 	"github.com/sei-protocol/sei-chain/x/mint"
 	mintkeeper "github.com/sei-protocol/sei-chain/x/mint/keeper"
 	minttypes "github.com/sei-protocol/sei-chain/x/mint/types"
@@ -101,6 +102,10 @@ import (
 	dbm "github.com/tendermint/tm-db"
 
 	"github.com/sei-protocol/sei-chain/utils/tracing"
+
+	aclmodule "github.com/sei-protocol/sei-chain/x/accesscontrol"
+	aclmodulekeeper "github.com/sei-protocol/sei-chain/x/accesscontrol/keeper"
+	aclmoduletypes "github.com/sei-protocol/sei-chain/x/accesscontrol/types"
 
 	dexmodule "github.com/sei-protocol/sei-chain/x/dex"
 	dexcache "github.com/sei-protocol/sei-chain/x/dex/cache"
@@ -152,6 +157,7 @@ var (
 	// non-dependant module elements, such as codec registration
 	// and genesis verification.
 	ModuleBasics = module.NewBasicManager(
+		aclmodule.AppModuleBasic{},
 		auth.AppModuleBasic{},
 		genutil.AppModuleBasic{},
 		bank.AppModuleBasic{},
@@ -179,6 +185,7 @@ var (
 
 	// module account permissions
 	maccPerms = map[string][]string{
+		aclmoduletypes.ModuleName:      nil,
 		authtypes.FeeCollectorName:     nil,
 		distrtypes.ModuleName:          nil,
 		minttypes.ModuleName:           {authtypes.Minter},
@@ -289,6 +296,8 @@ type App struct {
 	ScopedIBCKeeper      capabilitykeeper.ScopedKeeper
 	ScopedTransferKeeper capabilitykeeper.ScopedKeeper
 	ScopedWasmKeeper     capabilitykeeper.ScopedKeeper
+
+	AccessControlKeeper aclmodulekeeper.Keeper
 
 	DexKeeper dexmodulekeeper.Keeper
 
@@ -459,6 +468,11 @@ func New(
 		panic(fmt.Sprintf("error while reading wasm config: %s", err))
 	}
 
+	app.AccessControlKeeper = aclmodulekeeper.NewKeeper(
+		appCodec,
+		app.keys[aclmoduletypes.StoreKey],
+		app.GetSubspace(aclmoduletypes.ModuleName),
+	)
 	app.EpochKeeper = *epochmodulekeeper.NewKeeper(
 		appCodec,
 		keys[epochmoduletypes.StoreKey],
@@ -484,7 +498,14 @@ func New(
 	// The last arguments can contain custom message handlers, and custom query handlers,
 	// if we want to allow any custom callbacks
 	supportedFeatures := "iterator,staking,stargate,sei"
-	wasmOpts = append(wasmbinding.RegisterCustomPlugins(&app.OracleKeeper, &app.DexKeeper, &app.EpochKeeper), wasmOpts...)
+	wasmOpts = append(wasmbinding.RegisterCustomPlugins(
+		&app.OracleKeeper,
+		&app.DexKeeper,
+		&app.EpochKeeper,
+		&app.TokenFactoryKeeper,
+		&app.AccountKeeper,
+	), wasmOpts...)
+
 	app.WasmKeeper = wasm.NewKeeper(
 		appCodec,
 		keys[wasm.StoreKey],
@@ -548,6 +569,7 @@ func New(
 			app.AccountKeeper, app.StakingKeeper, app.BaseApp.DeliverTx,
 			encodingConfig.TxConfig,
 		),
+		aclmodule.NewAppModule(appCodec, app.AccessControlKeeper),
 		auth.NewAppModule(appCodec, app.AccountKeeper, nil),
 		vesting.NewAppModule(app.AccountKeeper, app.BankKeeper),
 		bank.NewAppModule(appCodec, app.BankKeeper, app.AccountKeeper),
@@ -599,6 +621,7 @@ func New(
 		dexmoduletypes.ModuleName,
 		wasm.ModuleName,
 		tokenfactorytypes.ModuleName,
+		aclmoduletypes.ModuleName,
 	)
 
 	app.mm.SetOrderEndBlockers(
@@ -624,6 +647,7 @@ func New(
 		dexmoduletypes.ModuleName,
 		wasm.ModuleName,
 		tokenfactorytypes.ModuleName,
+		aclmoduletypes.ModuleName,
 	)
 
 	// NOTE: The genutils module must occur after staking so that pools are
@@ -654,6 +678,7 @@ func New(
 		epochmoduletypes.ModuleName,
 		dexmoduletypes.ModuleName,
 		wasm.ModuleName,
+		aclmoduletypes.ModuleName,
 		// this line is used by starport scaffolding # stargate/app/initGenesis
 	)
 
@@ -682,6 +707,7 @@ func New(
 		dexModule,
 		epochModule,
 		tokenfactorymodule.NewAppModule(app.TokenFactoryKeeper, app.AccountKeeper, app.BankKeeper),
+		aclmodule.NewAppModule(appCodec, app.AccessControlKeeper),
 		// this line is used by starport scaffolding # stargate/app/appModule
 	)
 	app.sm.RegisterStoreDecoders()
@@ -1092,6 +1118,7 @@ func initParamsKeeper(appCodec codec.BinaryCodec, legacyAmino *codec.LegacyAmino
 	paramsKeeper.Subspace(dexmoduletypes.ModuleName)
 	paramsKeeper.Subspace(epochmoduletypes.ModuleName)
 	paramsKeeper.Subspace(tokenfactorytypes.ModuleName)
+	paramsKeeper.Subspace(aclmoduletypes.ModuleName)
 	// this line is used by starport scaffolding # stargate/app/paramSubspace
 
 	return paramsKeeper

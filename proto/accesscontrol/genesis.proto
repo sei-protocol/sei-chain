@@ -1,0 +1,30 @@
+syntax = "proto3";
+package seiprotocol.seichain.accesscontrol;
+
+import "gogoproto/gogo.proto";
+
+option go_package = "github.com/sei-protocol/sei-chain/x/accesscontrol/types";
+
+message GenesisState {
+    Params params = 1 [(gogoproto.nullable) = false];
+}
+  
+enum MessageType {
+    MessageTypeAny = 0;
+}
+
+message MessageDependencyMapping {
+    MessageType message_type = 1;
+    repeated string resource_dependencies = 2;
+}
+
+message Params {
+    option (gogoproto.goproto_stringer) = false;
+    
+    // mapping between every message type and its predetermined resource read/write sequence
+    repeated MessageDependencyMapping message_dependency_mapping = 1 [
+        (gogoproto.nullable) = false,
+        (gogoproto.moretags) = "yaml:\"message_dependency_mapping\""
+    ];
+  }
+
