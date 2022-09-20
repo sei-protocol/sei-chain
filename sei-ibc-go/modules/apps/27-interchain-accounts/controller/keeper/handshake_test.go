@@ -24,9 +24,7 @@ func (suite *KeeperTestSuite) TestOnChanOpenInit() {
 	}{
 		{
 			"success",
-			func() {
-				path.EndpointA.SetChannel(*channel)
-			},
+			func() {},
 			true,
 		},
 		{
@@ -48,10 +46,33 @@ func (suite *KeeperTestSuite) TestOnChanOpenInit() {
 			true,
 		},
 		{
+			"success: channel reopening",
+			func() {
+				err := SetupICAPath(path, TestOwnerAddress)
+				suite.Require().NoError(err)
+
+				err = path.EndpointA.SetChannelClosed()
+				suite.Require().NoError(err)
+
+				err = path.EndpointB.SetChannelClosed()
+				suite.Require().NoError(err)
+
+				path.EndpointA.ChannelID = ""
+				path.EndpointB.ChannelID = ""
+			},
+			true,
+		},
+		{
 			"invalid metadata -  previous metadata is different",
 			func() {
 				// set active channel to closed
 				suite.chainA.GetSimApp().ICAControllerKeeper.SetActiveChannelID(suite.chainA.GetContext(), ibctesting.FirstConnectionID, path.EndpointA.ChannelConfig.PortID, path.EndpointA.ChannelID)
+
+				// attempt to downgrade version by reinitializing channel with version 1, but setting channel to version 2
+				metadata.Version = "ics27-2"
+
+				versionBytes, err := icatypes.ModuleCdc.MarshalJSON(&metadata)
+				suite.Require().NoError(err)
 
 				counterparty := channeltypes.NewCounterparty(path.EndpointB.ChannelConfig.PortID, path.EndpointB.ChannelID)
 				closedChannel := channeltypes.Channel{
@@ -59,18 +80,9 @@ func (suite *KeeperTestSuite) TestOnChanOpenInit() {
 					Ordering:       channeltypes.ORDERED,
 					Counterparty:   counterparty,
 					ConnectionHops: []string{path.EndpointA.ConnectionID},
-					Version:        TestVersion,
+					Version:        string(versionBytes),
 				}
-
 				path.EndpointA.SetChannel(closedChannel)
-
-				// modify metadata
-				metadata.Version = "ics27-2"
-
-				versionBytes, err := icatypes.ModuleCdc.MarshalJSON(&metadata)
-				suite.Require().NoError(err)
-
-				channel.Version = string(versionBytes)
 			},
 			false,
 		},
@@ -368,7 +380,10 @@ func (suite *KeeperTestSuite) TestOnChanOpenAck() {
 			err = path.EndpointB.ChanOpenTry()
 			suite.Require().NoError(err)
 
-			metadata = icatypes.NewMetadata(icatypes.Version, ibctesting.FirstConnectionID, ibctesting.FirstConnectionID, TestAccAddress.String(), icatypes.EncodingProtobuf, icatypes.TxTypeSDKMultiMsg)
+			interchainAccAddr, exists := suite.chainB.GetSimApp().ICAHostKeeper.GetInterchainAccountAddress(suite.chainB.GetContext(), path.EndpointB.ConnectionID, path.EndpointA.ChannelConfig.PortID)
+			suite.Require().True(exists)
+
+			metadata = icatypes.NewMetadata(icatypes.Version, ibctesting.FirstConnectionID, ibctesting.FirstConnectionID, interchainAccAddr, icatypes.EncodingProtobuf, icatypes.TxTypeSDKMultiMsg)
 			versionBytes, err := icatypes.ModuleCdc.MarshalJSON(&metadata)
 			suite.Require().NoError(err)
 

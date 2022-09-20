@@ -10,6 +10,7 @@ import (
 func (suite *KeeperTestSuite) TestInitGenesis() {
 	suite.SetupTest()
 
+	interchainAccAddr := icatypes.GenerateUniqueAddress(suite.chainB.GetContext(), ibctesting.FirstConnectionID, TestPortID)
 	genesisState := icatypes.ControllerGenesisState{
 		ActiveChannels: []icatypes.ActiveChannel{
 			{
@@ -22,7 +23,7 @@ func (suite *KeeperTestSuite) TestInitGenesis() {
 			{
 				ConnectionId:   ibctesting.FirstConnectionID,
 				PortId:         TestPortID,
-				AccountAddress: TestAccAddress.String(),
+				AccountAddress: interchainAccAddr.String(),
 			},
 		},
 		Ports: []string{TestPortID},
@@ -36,7 +37,7 @@ func (suite *KeeperTestSuite) TestInitGenesis() {
 
 	accountAdrr, found := suite.chainA.GetSimApp().ICAControllerKeeper.GetInterchainAccountAddress(suite.chainA.GetContext(), ibctesting.FirstConnectionID, TestPortID)
 	suite.Require().True(found)
-	suite.Require().Equal(TestAccAddress.String(), accountAdrr)
+	suite.Require().Equal(interchainAccAddr.String(), accountAdrr)
 
 	expParams := types.NewParams(false)
 	params := suite.chainA.GetSimApp().ICAControllerKeeper.GetParams(suite.chainA.GetContext())
@@ -52,12 +53,15 @@ func (suite *KeeperTestSuite) TestExportGenesis() {
 	err := SetupICAPath(path, TestOwnerAddress)
 	suite.Require().NoError(err)
 
+	interchainAccAddr, exists := suite.chainB.GetSimApp().ICAHostKeeper.GetInterchainAccountAddress(suite.chainB.GetContext(), path.EndpointB.ConnectionID, path.EndpointA.ChannelConfig.PortID)
+	suite.Require().True(exists)
+
 	genesisState := keeper.ExportGenesis(suite.chainA.GetContext(), suite.chainA.GetSimApp().ICAControllerKeeper)
 
 	suite.Require().Equal(path.EndpointA.ChannelID, genesisState.ActiveChannels[0].ChannelId)
 	suite.Require().Equal(path.EndpointA.ChannelConfig.PortID, genesisState.ActiveChannels[0].PortId)
 
-	suite.Require().Equal(TestAccAddress.String(), genesisState.InterchainAccounts[0].AccountAddress)
+	suite.Require().Equal(interchainAccAddr, genesisState.InterchainAccounts[0].AccountAddress)
 	suite.Require().Equal(path.EndpointA.ChannelConfig.PortID, genesisState.InterchainAccounts[0].PortId)
 
 	suite.Require().Equal([]string{TestPortID}, genesisState.GetPorts())
