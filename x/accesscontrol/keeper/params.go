@@ -15,4 +15,7 @@ func (k Keeper) GetParams(ctx sdk.Context) (params types.Params) {
 // SetParams sets the total set of params.
 func (k Keeper) SetParams(ctx sdk.Context, params types.Params) {
 	k.paramSpace.SetParamSet(ctx, &params)
+	for _, resourceDepedencyMapping := range params.GetMessageDependencyMapping() {
+		k.SetResourceDepedencyMapping(ctx, resourceDepedencyMapping)
+	}
 }

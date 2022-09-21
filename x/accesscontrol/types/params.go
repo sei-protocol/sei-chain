@@ -33,7 +33,13 @@ func NewParams(messageDependencyMapping []MessageDependencyMapping) Params {
 
 // default access control module parameters
 func DefaultParams() Params {
-	return NewParams([]MessageDependencyMapping{})
+	return NewParams([]MessageDependencyMapping{
+		{
+			MessageType:          MessageType_ANY_MESSAGE,
+			ModuleName:           Module_ANY_MODULE,
+			ResourceDependencies: []string{ResourceType_ANY.String()},
+		},
+	})
 }
 
 func (p Params) Validate() error {

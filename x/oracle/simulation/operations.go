@@ -20,6 +20,7 @@ import (
 )
 
 // Simulation operation weights constants
+//
 //nolint:gosec
 const (
 	OpWeightMsgAggregateExchangeRatePrevote = "op_weight_msg_exchange_rate_aggregate_prevote"
@@ -82,7 +83,7 @@ func WeightedOperations(
 }
 
 // SimulateMsgAggregateExchangeRatePrevote generates a MsgAggregateExchangeRatePrevote with random values.
-//nolint: funlen
+// nolint: funlen
 func SimulateMsgAggregateExchangeRatePrevote(ak types.AccountKeeper, bk types.BankKeeper, k keeper.Keeper) simtypes.Operation {
 	return func(
 		r *rand.Rand, app *baseapp.BaseApp, ctx sdk.Context, accs []simtypes.Account, chainID string,

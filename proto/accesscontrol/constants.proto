@@ -1,0 +1,28 @@
+syntax = "proto3";
+package seiprotocol.seichain.accesscontrol;
+
+option go_package = "github.com/sei-protocol/sei-chain/x/accesscontrol/types";
+
+enum ResourceType {
+    ANY = 0;
+    KV = 1;
+    Mem = 2;
+    DexMem = 3;
+}
+
+enum MessageType {
+    ANY_MESSAGE = 0;
+    // TODO(bweng/uday):: Add more message type support
+}
+
+enum Module {
+    ANY_MODULE = 0;
+    AUTH = 1;
+    DEX = 2;
+    EPOCH = 3;
+    MINT = 4;
+    ORACLE = 5;
+    STAKING = 6;
+    TOKENFACTORY = 7;
+    WASM = 8;
+}

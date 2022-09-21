@@ -47,7 +47,6 @@ func (b AppModuleBasic) RegisterInterfaces(_ cdctypes.InterfaceRegistry) {}
 // DefaultGenesis returns default genesis state as raw bytes for the accesscontrol
 // module.
 func (AppModuleBasic) DefaultGenesis(cdc codec.JSONCodec) json.RawMessage {
-	println("Unmarshalliy")
 	return cdc.MustMarshalJSON(types.DefaultGenesisState())
 }
 

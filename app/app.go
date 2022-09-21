@@ -498,13 +498,7 @@ func New(
 	// The last arguments can contain custom message handlers, and custom query handlers,
 	// if we want to allow any custom callbacks
 	supportedFeatures := "iterator,staking,stargate,sei"
-	wasmOpts = append(wasmbinding.RegisterCustomPlugins(
-		&app.OracleKeeper,
-		&app.DexKeeper,
-		&app.EpochKeeper,
-		&app.TokenFactoryKeeper,
-		&app.AccountKeeper,
-	), wasmOpts...)
+	wasmOpts = append(wasmbinding.RegisterCustomPlugins(&app.OracleKeeper, &app.DexKeeper, &app.EpochKeeper), wasmOpts...)
 
 	app.WasmKeeper = wasm.NewKeeper(
 		appCodec,
@@ -803,6 +797,15 @@ func (app *App) SetStoreUpgradeHandlers() {
 	if upgradeInfo.Name == "1.1.1beta" && !app.UpgradeKeeper.IsSkipHeight(upgradeInfo.Height) {
 		storeUpgrades := storetypes.StoreUpgrades{
 			Added: []string{tokenfactorytypes.StoreKey},
+		}
+
+		// configure store loader that checks if version == upgradeHeight and applies store upgrades
+		app.SetStoreLoader(upgradetypes.UpgradeStoreLoader(upgradeInfo.Height, &storeUpgrades))
+	}
+
+	if upgradeInfo.Name == "2.0.0beta" && !app.UpgradeKeeper.IsSkipHeight(upgradeInfo.Height) {
+		storeUpgrades := storetypes.StoreUpgrades{
+			Added: []string{aclmoduletypes.StoreKey},
 		}
 
 		// configure store loader that checks if version == upgradeHeight and applies store upgrades

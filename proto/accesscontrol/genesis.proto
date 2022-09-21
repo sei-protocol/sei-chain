@@ -2,20 +2,18 @@ syntax = "proto3";
 package seiprotocol.seichain.accesscontrol;
 
 import "gogoproto/gogo.proto";
+import "accesscontrol/constants.proto";
 
 option go_package = "github.com/sei-protocol/sei-chain/x/accesscontrol/types";
 
 message GenesisState {
     Params params = 1 [(gogoproto.nullable) = false];
 }
-  
-enum MessageType {
-    MessageTypeAny = 0;
-}
 
 message MessageDependencyMapping {
     MessageType message_type = 1;
-    repeated string resource_dependencies = 2;
+    Module module_name = 2;
+    repeated string resource_dependencies = 3;
 }
 
 message Params {
