@@ -18,7 +18,8 @@ func (suite *AnteTestSuite) TestEnsureMempoolFees() {
 	// keys and addresses
 	priv1, _, addr1 := testdata.KeyTestPubAddr()
 	coins := sdk.NewCoins(sdk.NewCoin("atom", sdk.NewInt(300)))
-	testutil.FundAccount(suite.app.BankKeeper, suite.ctx, addr1, coins)
+	err := simapp.FundAccount(suite.app.BankKeeper, suite.ctx, addr1, coins)
+	suite.Require().NoError(err)
 
 	// msg and signatures
 	msg := testdata.NewTestMsg(addr1)
@@ -33,7 +34,7 @@ func (suite *AnteTestSuite) TestEnsureMempoolFees() {
 	suite.Require().NoError(err)
 
 	// Set high gas price so standard test fee fails
-	atomPrice := sdk.NewDecCoinFromDec("atom", math.LegacyNewDec(20))
+	atomPrice := sdk.NewDecCoinFromDec("atom", sdk.NewDec(20))
 	highGasPrice := []sdk.DecCoin{atomPrice}
 	suite.ctx = suite.ctx.WithMinGasPrices(highGasPrice)
 
@@ -58,11 +59,11 @@ func (suite *AnteTestSuite) TestEnsureMempoolFees() {
 	lowGasPrice := []sdk.DecCoin{atomPrice}
 	suite.ctx = suite.ctx.WithMinGasPrices(lowGasPrice)
 
-	newCtx, err = antehandler(suite.ctx, tx, false)
+	newCtx, err := antehandler(suite.ctx, tx, false)
 	suite.Require().Nil(err, "Decorator should not have errored on fee higher than local gasPrice")
-	/ Priority is the smallest gas price amount in any denom. Since we have only 1 gas price
+	// Priority is the smallest gas price amount in any denom. Since we have only 1 gas price
 	// of 10atom, the priority here is 10.
-	require.Equal(t, int64(10), newCtx.Priority())
+	suite.Equal(int64(10), newCtx.Priority())
 }
 
 func (suite *AnteTestSuite) TestDeductFees() {
