@@ -122,6 +122,13 @@ app.mm.SetOrderInitGenesis(
     icatypes.ModuleName,
     ...
 )
+
+// initParamsKeeper init params keeper and its subspaces
+func initParamsKeeper(appCodec codec.BinaryCodec, legacyAmino *codec.LegacyAmino, key, tkey sdk.StoreKey) paramskeeper.Keeper {
+    ...
+    paramsKeeper.Subspace(icahosttypes.SubModuleName)
+    paramsKeeper.Subspace(icacontrollertypes.SubModuleName)
+    ...
 ```
 
 ### Using submodules exclusively
