@@ -1,7 +1,7 @@
 package utils
 
 import (
-	"io/ioutil"
+	"os"
 
 	"github.com/cosmos/cosmos-sdk/codec"
 )
@@ -20,7 +20,7 @@ type (
 func ParseAddCreatorsToDenomFeeWhitelistProposalJSON(cdc *codec.LegacyAmino, proposalFile string) (AddCreatorsToDenomFeeWhitelistProposalJSON, error) {
 	proposal := AddCreatorsToDenomFeeWhitelistProposalJSON{}
 
-	contents, err := ioutil.ReadFile(proposalFile)
+	contents, err := os.ReadFile(proposalFile)
 	if err != nil {
 		return proposal, err
 	}
