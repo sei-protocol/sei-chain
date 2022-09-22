@@ -416,6 +416,7 @@ func NewSimApp(
 			FeegrantKeeper:  app.FeeGrantKeeper,
 			BatchVerifier:   app.batchVerifier,
 			SigGasConsumer:  ante.DefaultSigVerificationGasConsumer,
+			TxFeeChecker:    ante.CheckTxFeeWithValidatorMinGasPrices,
 		},
 	)
 
