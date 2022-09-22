@@ -20,12 +20,12 @@ type DeductFeeDecorator struct {
 	accountKeeper  AccountKeeper
 	bankKeeper     types.BankKeeper
 	feegrantKeeper FeegrantKeeper
-	txFeeChecker TxFeeChecker
+	txFeeChecker   TxFeeChecker
 }
 
 func NewDeductFeeDecorator(ak AccountKeeper, bk types.BankKeeper, fk FeegrantKeeper, tfc TxFeeChecker) DeductFeeDecorator {
 	if tfc == nil {
-		tfc = checkTxFeeWithValidatorMinGasPrices
+		tfc = CheckTxFeeWithValidatorMinGasPrices
 	}
 
 	return DeductFeeDecorator{
