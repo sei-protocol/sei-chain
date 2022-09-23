@@ -9,7 +9,8 @@ const (
 
 	QuerierRoute = ModuleName
 
-	StoreKey = ModuleName
+	// Append "acl" to prevent prefix collision with "acc" module
+	StoreKey = "acl" + ModuleName
 )
 
 func GetResourceDependencyMappingKey() []byte {
