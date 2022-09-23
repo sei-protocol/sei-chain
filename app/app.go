@@ -344,7 +344,7 @@ func New(
 	bApp.SetInterfaceRegistry(interfaceRegistry)
 
 	keys := sdk.NewKVStoreKeys(
-		"aclaccesscontrol", authtypes.StoreKey, banktypes.StoreKey, stakingtypes.StoreKey,
+		acltypes.StoreKey, authtypes.StoreKey, banktypes.StoreKey, stakingtypes.StoreKey,
 		minttypes.StoreKey, distrtypes.StoreKey, slashingtypes.StoreKey,
 		govtypes.StoreKey, paramstypes.StoreKey, ibchost.StoreKey, upgradetypes.StoreKey, feegrant.StoreKey,
 		evidencetypes.StoreKey, ibctransfertypes.StoreKey, capabilitytypes.StoreKey, oracletypes.StoreKey, wasm.StoreKey,
@@ -395,7 +395,7 @@ func New(
 	// add keepers
 	app.AccessControlKeeper = aclkeeper.NewKeeper(
 		appCodec,
-		app.keys["aclaccesscontrol"],
+		app.keys[acltypes.StoreKey],
 		app.GetSubspace(acltypes.ModuleName),
 	)
 	app.AccountKeeper = authkeeper.NewAccountKeeper(
