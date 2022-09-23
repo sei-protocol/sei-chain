@@ -1,0 +1,23 @@
+syntax = "proto3";
+package cosmos.accesscontrol.v1beta1;
+
+option go_package = "github.com/cosmos/cosmos-sdk/x/accesscontrol/types";
+
+enum AccessType {
+    UNKNOWN = 0;
+    READ = 1;
+    WRITE = 2;
+}
+
+enum ResourceType {
+    ANY = 0;
+    KV = 1;
+    Mem = 2;
+    DexMem = 3;
+}
+
+enum MessageType {
+    ANY_MESSAGE = 0;
+    // TODO(bweng/uday):: Add more message type support
+}
+
