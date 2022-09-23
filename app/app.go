@@ -12,6 +12,7 @@ import (
 	"time"
 
 	storetypes "github.com/cosmos/cosmos-sdk/store/types"
+	graph "github.com/yourbasic/graph"
 
 	appparams "github.com/sei-protocol/sei-chain/app/params"
 	"github.com/sei-protocol/sei-chain/utils"
@@ -884,13 +885,17 @@ func (app *App) BuildDependencyDag(ctx sdk.Context, txs [][]byte) (*Dag, error) 
 		}
 		msgs := tx.GetMsgs()
 		for _, msg := range msgs {
-			msgDependencies := app.AccessControlKeeper.GetResourceDepedencyMapping(ctx, msg.GetAccessMappingKey())
+			msgDependencies := app.AccessControlKeeper.GetResourceDependencyMapping(ctx, acltypes.GenerateMessageKey(msg))
 			for _, accessOp := range msgDependencies.AccessOps {
 				// make a new node in the dependency dag
 				dependencyDag.AddNodeBuildDependency(ctx, txIndex, accessOp)
 			}
 		}
 
+	}
+
+	if !graph.Acyclic(&dependencyDag) {
+		return nil, ErrCycleInDAG
 	}
 	return &dependencyDag, nil
 }
@@ -965,27 +970,34 @@ func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequ
 	// }
 	// app.batchVerifier.VerifyTxs(ctx, typedTxs)
 
-	// TODO: build dag here and verify
-	// for tx in txs, we need to get their message dependencies from access control module
-	// for each resource type it uses, we need to
-
+	dag, err := app.BuildDependencyDag(ctx, txs)
 	txResults := []*abci.ExecTxResult{}
-	for _, tx := range txs {
-		// ctx = ctx.WithContext(context.WithValue(ctx.Context(), ante.ContextKeyTxIndexKey, i))
-		deliverTxResp := app.DeliverTx(ctx, abci.RequestDeliverTx{
-			Tx: tx,
-		})
-		txResults = append(txResults, &abci.ExecTxResult{
-			Code:      deliverTxResp.Code,
-			Data:      deliverTxResp.Data,
-			Log:       deliverTxResp.Log,
-			Info:      deliverTxResp.Info,
-			GasWanted: deliverTxResp.GasWanted,
-			GasUsed:   deliverTxResp.GasUsed,
-			Events:    deliverTxResp.Events,
-			Codespace: deliverTxResp.Codespace,
-		})
+	if err != nil {
+		if err == ErrCycleInDAG {
+			// something went wrong in dag, process txs sequentially
+			for _, tx := range txs {
+				// ctx = ctx.WithContext(context.WithValue(ctx.Context(), ante.ContextKeyTxIndexKey, i))
+				deliverTxResp := app.DeliverTx(ctx, abci.RequestDeliverTx{
+					Tx: tx,
+				})
+				txResults = append(txResults, &abci.ExecTxResult{
+					Code:      deliverTxResp.Code,
+					Data:      deliverTxResp.Data,
+					Log:       deliverTxResp.Log,
+					Info:      deliverTxResp.Info,
+					GasWanted: deliverTxResp.GasWanted,
+					GasUsed:   deliverTxResp.GasUsed,
+					Events:    deliverTxResp.Events,
+					Codespace: deliverTxResp.Codespace,
+				})
+			}
+		}
+	} else {
+		// no error, lets process txs concurrently
+		_, _ = dag.BuildCompletionSignalMaps()
+		// TODO: create channel map here
 	}
+
 	endBlockResp := app.EndBlock(ctx, abci.RequestEndBlock{
 		Height: req.GetHeight(),
 	})
