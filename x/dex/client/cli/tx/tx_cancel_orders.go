@@ -29,18 +29,22 @@ func CmdCancelOrders() *cobra.Command {
 			for _, cancellation := range args[1:] {
 				newCancel := types.Cancellation{}
 				cancelDetails := strings.Split(cancellation, "?")
-				argPositionDir, err := utils.GetPositionDirectionFromStr(cancelDetails[0])
+				newCancel.Id, err = strconv.ParseUint(cancelDetails[0], 10, 64)
+				if err != nil {
+					return err
+				}
+				argPositionDir, err := utils.GetPositionDirectionFromStr(cancelDetails[1])
 				if err != nil {
 					return err
 				}
 				newCancel.PositionDirection = argPositionDir
-				argPrice, err := sdk.NewDecFromStr(cancelDetails[1])
+				argPrice, err := sdk.NewDecFromStr(cancelDetails[2])
 				if err != nil {
 					return err
 				}
 				newCancel.Price = argPrice
-				newCancel.PriceDenom = cancelDetails[2]
-				newCancel.AssetDenom = cancelDetails[3]
+				newCancel.PriceDenom = cancelDetails[3]
+				newCancel.AssetDenom = cancelDetails[4]
 				cancellations = append(cancellations, &newCancel)
 			}
 
