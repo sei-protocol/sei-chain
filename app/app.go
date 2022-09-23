@@ -316,7 +316,7 @@ type App struct {
 	optimisticProcessingInfo *OptimisticProcessingInfo
 
 	// batchVerifier *ante.SR25519BatchVerifier
-	// txDecoder     sdk.TxDecoder
+	txDecoder sdk.TxDecoder
 }
 
 // New returns a reference to an initialized blockchain app
@@ -375,7 +375,7 @@ func New(
 			Tracer:        &tr,
 			TracerContext: context.Background(),
 		},
-		// txDecoder: encodingConfig.TxConfig.TxDecoder(),
+		txDecoder: encodingConfig.TxConfig.TxDecoder(),
 	}
 
 	app.ParamsKeeper = initParamsKeeper(appCodec, cdc, keys[paramstypes.StoreKey], tkeys[paramstypes.TStoreKey])
@@ -871,6 +871,30 @@ func (app *App) ProcessProposalHandler(ctx sdk.Context, req *abci.RequestProcess
 	}, nil
 }
 
+func (app *App) BuildDependencyDag(ctx sdk.Context, txs [][]byte) (*Dag, error) {
+	// contains the latest msg index for a specific Access Operation
+	dependencyDag := Dag{
+		NodeMap:  make(map[int]DagNode),
+		EdgesMap: make(map[int][]DagEdge),
+	}
+	for txIndex, txBytes := range txs {
+		tx, err := app.txDecoder(txBytes)
+		if err != nil {
+			return nil, err
+		}
+		msgs := tx.GetMsgs()
+		for _, msg := range msgs {
+			msgDependencies := app.AccessControlKeeper.GetResourceDepedencyMapping(ctx, msg.GetAccessMappingKey())
+			for _, accessOp := range msgDependencies.AccessOps {
+				// make a new node in the dependency dag
+				dependencyDag.AddNodeBuildDependency(ctx, txIndex, accessOp)
+			}
+		}
+
+	}
+	return &dependencyDag, nil
+}
+
 func (app *App) FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBlock) (*abci.ResponseFinalizeBlock, error) {
 	startTime := time.Now()
 	defer func() {
@@ -940,6 +964,10 @@ func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequ
 	// 	}
 	// }
 	// app.batchVerifier.VerifyTxs(ctx, typedTxs)
+
+	// TODO: build dag here and verify
+	// for tx in txs, we need to get their message dependencies from access control module
+	// for each resource type it uses, we need to
 
 	txResults := []*abci.ExecTxResult{}
 	for _, tx := range txs {
