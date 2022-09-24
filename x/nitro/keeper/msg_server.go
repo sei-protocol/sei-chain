@@ -21,6 +21,7 @@ func NewMsgServerImpl(keeper Keeper) types.MsgServer {
 
 var _ types.MsgServer = msgServer{}
 
+// allow whitelisted accounts to post L2 transaction data/state root onto Sei
 func (server msgServer) RecordTransactionData(goCtx context.Context, msg *types.MsgRecordTransactionData) (*types.MsgRecordTransactionDataResponse, error) {
 	ctx := sdk.UnwrapSDKContext(goCtx)
 

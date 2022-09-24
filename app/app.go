@@ -726,6 +726,7 @@ func New(
 			WasmConfig:        &wasmConfig,
 			OracleKeeper:      &app.OracleKeeper,
 			DexKeeper:         &app.DexKeeper,
+			NitroKeeper:       &app.NitroKeeper,
 			TracingInfo:       app.tracingInfo,
 		},
 	)

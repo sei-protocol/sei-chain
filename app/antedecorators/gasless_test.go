@@ -6,6 +6,7 @@ import (
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/sei-protocol/sei-chain/app/antedecorators"
+	nitrokeeper "github.com/sei-protocol/sei-chain/x/nitro/keeper"
 	oraclekeeper "github.com/sei-protocol/sei-chain/x/oracle/keeper"
 	"github.com/stretchr/testify/require"
 )
@@ -47,7 +48,7 @@ func TestGaslessDecorator(t *testing.T) {
 	output = ""
 	anteDecorators := []sdk.AnteDecorator{
 		FakeAnteDecoratorOne{},
-		antedecorators.NewGaslessDecorator([]sdk.AnteDecorator{FakeAnteDecoratorTwo{}}, oraclekeeper.Keeper{}),
+		antedecorators.NewGaslessDecorator([]sdk.AnteDecorator{FakeAnteDecoratorTwo{}}, oraclekeeper.Keeper{}, nitrokeeper.Keeper{}),
 		FakeAnteDecoratorThree{},
 	}
 	chainedHandler := sdk.ChainAnteDecorators(anteDecorators...)

@@ -31,6 +31,13 @@ func (k Keeper) GetTransactionData(ctx sdk.Context, slot uint64) ([][]byte, erro
 	return DecodeTransactionData(encoded)
 }
 
+// since we don't want to write one entry per transaction but still want to be able
+// to read individual transaction data when we implement fraud proof, a custom encoding
+// scheme is applied to flatten the transactions into a 1D byte array:
+
+// First 8 bytes: count (C) of transactions
+// Next 8 * C bytes: transaction sizes
+// The rest: transaction bodies
 func EncodeTransactionData(data [][]byte) []byte {
 	totalSize := uint64(HeaderSizeTotalCount)
 	for _, datum := range data {

@@ -7,7 +7,7 @@ import "nitro/params.proto";
 option go_package = "github.com/sei-protocol/sei-chain/x/nitro/types";
 
 message GenesisState {
-  Params                     params             = 1 [(gogoproto.nullable) = false];
+  Params params = 1 [(gogoproto.nullable) = false];
   uint64 slot = 2;
   string sender = 3;
   string stateRoot = 4;
