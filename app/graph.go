@@ -8,14 +8,14 @@ import (
 )
 
 type DagNode struct {
-	NodeId          int
+	NodeID          int
 	TxIndex         int
 	AccessOperation acltypes.AccessOperation
 }
 
 type DagEdge struct {
-	FromNodeId      int
-	ToNodeId        int
+	FromNodeID      int
+	ToNodeID        int
 	AccessOperation *acltypes.AccessOperation
 }
 
@@ -24,20 +24,19 @@ type Dag struct {
 	EdgesMap     map[int][]DagEdge                  // maps node Id (from node) and contains edge info
 	AccessOpsMap map[acltypes.AccessOperation][]int // tracks latest node to use a specific access op
 	TxIndexMap   map[int]int                        // tracks latest node ID for a tx index
-	NextId       int
+	NextID       int
 }
 
 func (edge *DagEdge) GetCompletionSignal() *CompletionSignal {
 	// only if there is an access operation
 	if edge.AccessOperation != nil {
 		return &CompletionSignal{
-			FromNodeId:      edge.FromNodeId,
-			ToNodeId:        edge.ToNodeId,
+			FromNodeID:      edge.FromNodeID,
+			ToNodeID:        edge.ToNodeID,
 			AccessOperation: *edge.AccessOperation,
 		}
-	} else {
-		return nil
 	}
+	return nil
 }
 
 // Order returns the number of vertices in a graph.
@@ -49,7 +48,7 @@ func (dag Dag) Order() int {
 func (dag Dag) Visit(v int, do func(w int, c int64) (skip bool)) (aborted bool) {
 	for _, edge := range dag.EdgesMap[v] {
 		// just have cost as zero because we only need for acyclic validation purposes
-		if do(edge.ToNodeId, 0) {
+		if do(edge.ToNodeID, 0) {
 			return true
 		}
 	}
@@ -62,18 +61,18 @@ func NewDag() Dag {
 		EdgesMap:     make(map[int][]DagEdge),
 		AccessOpsMap: make(map[acltypes.AccessOperation][]int),
 		TxIndexMap:   make(map[int]int),
-		NextId:       0,
+		NextID:       0,
 	}
 }
 
 func (dag *Dag) AddNode(txIndex int, accessOp acltypes.AccessOperation) DagNode {
 	dagNode := DagNode{
-		NodeId:          dag.NextId,
+		NodeID:          dag.NextID,
 		TxIndex:         txIndex,
 		AccessOperation: accessOp,
 	}
-	dag.NodeMap[dag.NextId] = dagNode
-	dag.NextId += 1
+	dag.NodeMap[dag.NextID] = dagNode
+	dag.NextID++
 	return dagNode
 }
 
@@ -93,12 +92,12 @@ func (dag *Dag) AddEdge(fromIndex int, toIndex int, accessOp *acltypes.AccessOpe
 func (dag *Dag) AddNodeBuildDependency(ctx sdk.Context, txIndex int, accessOp acltypes.AccessOperation) {
 	dagNode := dag.AddNode(txIndex, accessOp)
 	// if in TxIndexMap, make an edge from the previous node index
-	if lastTxNodeId, ok := dag.TxIndexMap[txIndex]; ok {
+	if lastTxNodeID, ok := dag.TxIndexMap[txIndex]; ok {
 		// add an edge with no access op
-		dag.AddEdge(lastTxNodeId, dagNode.NodeId, nil)
+		dag.AddEdge(lastTxNodeID, dagNode.NodeID, nil)
 	}
 	// update tx index map
-	dag.TxIndexMap[txIndex] = dagNode.NodeId
+	dag.TxIndexMap[txIndex] = dagNode.NodeID
 	// if the blocking access ops are in access ops map, make an edge
 	switch accessOp.AccessType {
 	case acltypes.AccessType_READ:
@@ -109,14 +108,14 @@ func (dag *Dag) AddNodeBuildDependency(ctx sdk.Context, txIndex int, accessOp ac
 			ResourceType:       accessOp.GetResourceType(),
 			IdentifierTemplate: accessOp.GetIdentifierTemplate(),
 		}
-		if writeNodeIds, ok := dag.AccessOpsMap[writeAccessOp]; ok {
-			for _, wn := range writeNodeIds {
+		if writeNodeIDs, ok := dag.AccessOpsMap[writeAccessOp]; ok {
+			for _, wn := range writeNodeIDs {
 				writeNode := dag.NodeMap[wn]
 				// if accessOp exists already (and from a previous transaction), we need to define a dependency on the previous message (and make a edge between the two)
 				// if from a previous transaction, we need to create an edge
 				if writeNode.TxIndex < dagNode.TxIndex {
 					lastTxNode := dag.NodeMap[dag.TxIndexMap[writeNode.TxIndex]]
-					dag.AddEdge(lastTxNode.NodeId, dagNode.NodeId, &writeAccessOp)
+					dag.AddEdge(lastTxNode.NodeID, dagNode.NodeID, &writeAccessOp)
 				}
 			}
 		}
@@ -127,15 +126,15 @@ func (dag *Dag) AddNodeBuildDependency(ctx sdk.Context, txIndex int, accessOp ac
 			ResourceType:       accessOp.GetResourceType(),
 			IdentifierTemplate: accessOp.GetIdentifierTemplate(),
 		}
-		if writeNodeIds, ok := dag.AccessOpsMap[writeAccessOp]; ok {
-			for _, wn := range writeNodeIds {
+		if writeNodeIDs, ok := dag.AccessOpsMap[writeAccessOp]; ok {
+			for _, wn := range writeNodeIDs {
 				// if accessOp exists already (and from a previous transaction), we need to define a dependency on the previous message (and make a edge between the two)
 				writeNode := dag.NodeMap[wn]
 				// if from a previous transaction, we need to create an edge
 				if writeNode.TxIndex < dagNode.TxIndex {
 					// we need to get the last node from that tx
 					lastTxNode := dag.NodeMap[dag.TxIndexMap[writeNode.TxIndex]]
-					dag.AddEdge(lastTxNode.NodeId, dagNode.NodeId, &writeAccessOp)
+					dag.AddEdge(lastTxNode.NodeID, dagNode.NodeID, &writeAccessOp)
 				}
 			}
 		}
@@ -144,13 +143,13 @@ func (dag *Dag) AddNodeBuildDependency(ctx sdk.Context, txIndex int, accessOp ac
 			ResourceType:       accessOp.GetResourceType(),
 			IdentifierTemplate: accessOp.GetIdentifierTemplate(),
 		}
-		if readNodeIds, ok := dag.AccessOpsMap[readAccessOp]; ok {
-			for _, rn := range readNodeIds {
+		if readNodeIDs, ok := dag.AccessOpsMap[readAccessOp]; ok {
+			for _, rn := range readNodeIDs {
 				readNode := dag.NodeMap[rn]
 				// if accessOp exists already (and from a previous transaction), we need to define a dependency on the previous message (and make a edge between the two)
 				// if from a previous transaction, we need to create an edge
 				if readNode.TxIndex < dagNode.TxIndex {
-					dag.AddEdge(readNode.NodeId, dagNode.NodeId, &readAccessOp)
+					dag.AddEdge(readNode.NodeID, dagNode.NodeID, &readAccessOp)
 				}
 			}
 		}
@@ -159,7 +158,7 @@ func (dag *Dag) AddNodeBuildDependency(ctx sdk.Context, txIndex int, accessOp ac
 		ctx.Logger().Error("Invalid AccessControlType Received")
 	}
 	// update access ops map with the latest node id using a specific access op
-	dag.AccessOpsMap[accessOp] = append(dag.AccessOpsMap[accessOp], dagNode.NodeId)
+	dag.AccessOpsMap[accessOp] = append(dag.AccessOpsMap[accessOp], dagNode.NodeID)
 }
 
 // returns completion signaling map and blocking signals map
@@ -167,31 +166,28 @@ func (dag *Dag) BuildCompletionSignalMaps() (completionSignalingMap map[int]map[
 	// go through every node
 	for _, node := range dag.NodeMap {
 		// for each node, assign its completion signaling, and also assign blocking signals for the destination nodes
-		if outgoingEdges, ok := dag.EdgesMap[node.NodeId]; ok {
+		if outgoingEdges, ok := dag.EdgesMap[node.NodeID]; ok {
 			for _, edge := range outgoingEdges {
 				maybeCompletionSignal := edge.GetCompletionSignal()
 				if maybeCompletionSignal != nil {
 					completionSignal := *maybeCompletionSignal
 					// add it to the right blocking signal in the right txindex
-					toNode := dag.NodeMap[edge.ToNodeId]
+					toNode := dag.NodeMap[edge.ToNodeID]
 					blockingSignalsMap[toNode.TxIndex][*edge.AccessOperation] = append(blockingSignalsMap[toNode.TxIndex][*edge.AccessOperation], completionSignal)
 					// add it to the completion signal for the tx index
 					completionSignalingMap[node.TxIndex][*edge.AccessOperation] = append(completionSignalingMap[node.TxIndex][*edge.AccessOperation], completionSignal)
 				}
 
 			}
-
 		}
 	}
 	return
 }
 
 type CompletionSignal struct {
-	FromNodeId      int
-	ToNodeId        int
+	FromNodeID      int
+	ToNodeID        int
 	AccessOperation acltypes.AccessOperation
 }
 
-var (
-	ErrCycleInDAG = fmt.Errorf("cycle detected in DAG")
-)
+var ErrCycleInDAG = fmt.Errorf("cycle detected in DAG")
