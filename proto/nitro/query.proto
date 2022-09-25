@@ -1,0 +1,78 @@
+syntax = "proto3";
+package seiprotocol.seichain.nitro;
+
+import "gogoproto/gogo.proto";
+import "google/api/annotations.proto";
+import "cosmos/base/query/v1beta1/pagination.proto"; 
+import "nitro/params.proto"; 
+
+option go_package = "github.com/sei-protocol/sei-chain/x/nitro/types";
+
+service Query {
+  rpc Params(QueryParamsRequest) returns (QueryParamsResponse) {
+    option (google.api.http).get = "/sei-protocol/seichain/nitro/params";
+  }
+
+  rpc RecordedTransactionData(QueryRecordedTransactionDataRequest)
+      returns (QueryRecordedTransactionDataResponse) {
+    option (google.api.http).get =
+        "/sei-protocol/seichain/nitro/txs/{slot}";
+  }
+
+  rpc StateRoot(QueryStateRootRequest)
+      returns (QueryStateRootResponse) {
+    option (google.api.http).get =
+        "/sei-protocol/seichain/nitro/state/{slot}";
+  }
+
+  rpc Sender(QuerySenderRequest)
+      returns (QuerySenderResponse) {
+    option (google.api.http).get =
+        "/sei-protocol/seichain/nitro/sender/{slot}";
+  }
+}
+
+message QueryParamsRequest {}
+
+message QueryParamsResponse {
+  Params params = 1 [
+    (gogoproto.nullable) = false,
+    (gogoproto.jsontag) = "params"
+  ];
+}
+
+message QueryRecordedTransactionDataRequest {
+  uint64 slot = 1 [
+    (gogoproto.jsontag) = "slot"
+  ];
+}
+
+message QueryRecordedTransactionDataResponse {
+  repeated string txs = 1 [
+    (gogoproto.jsontag) = "txs"
+  ];
+}
+
+message QueryStateRootRequest {
+  uint64 slot = 1 [
+    (gogoproto.jsontag) = "slot"
+  ];
+}
+
+message QueryStateRootResponse {
+  string root = 1 [
+    (gogoproto.jsontag) = "root"
+  ];
+}
+
+message QuerySenderRequest {
+  uint64 slot = 1 [
+    (gogoproto.jsontag) = "slot"
+  ];
+}
+
+message QuerySenderResponse {
+  string sender = 1 [
+    (gogoproto.jsontag) = "sender"
+  ];
+}

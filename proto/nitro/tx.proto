@@ -1,0 +1,27 @@
+syntax = "proto3";
+package seiprotocol.seichain.nitro;
+
+import "gogoproto/gogo.proto";
+
+option go_package = "github.com/sei-protocol/sei-chain/x/nitro/types";
+
+service Msg {
+    rpc RecordTransactionData(MsgRecordTransactionData) returns (MsgRecordTransactionDataResponse);
+}
+
+message MsgRecordTransactionData {
+    string sender = 1 [
+        (gogoproto.jsontag) = "sender"
+    ];
+    uint64 slot = 2 [
+        (gogoproto.jsontag) = "slot"
+    ];
+    string stateRoot = 3 [
+        (gogoproto.jsontag) = "state_root"
+    ];
+    repeated string txs = 4 [
+        (gogoproto.jsontag) = "txs"
+    ];
+}
+
+message MsgRecordTransactionDataResponse {}

@@ -13,6 +13,7 @@ import (
 	"github.com/sei-protocol/sei-chain/utils/tracing"
 	"github.com/sei-protocol/sei-chain/x/dex"
 	dexkeeper "github.com/sei-protocol/sei-chain/x/dex/keeper"
+	nitrokeeper "github.com/sei-protocol/sei-chain/x/nitro/keeper"
 	"github.com/sei-protocol/sei-chain/x/oracle"
 	oraclekeeper "github.com/sei-protocol/sei-chain/x/oracle/keeper"
 )
@@ -26,6 +27,7 @@ type HandlerOptions struct {
 	WasmConfig        *wasmTypes.WasmConfig
 	OracleKeeper      *oraclekeeper.Keeper
 	DexKeeper         *dexkeeper.Keeper
+	NitroKeeper       *nitrokeeper.Keeper
 	TXCounterStoreKey sdk.StoreKey
 
 	TracingInfo *tracing.Info
@@ -50,6 +52,9 @@ func NewAnteHandler(options HandlerOptions) (sdk.AnteHandler, error) {
 	if options.OracleKeeper == nil {
 		return nil, sdkerrors.Wrap(sdkerrors.ErrLogic, "oracle keeper is required for ante builder")
 	}
+	if options.NitroKeeper == nil {
+		return nil, sdkerrors.Wrap(sdkerrors.ErrLogic, "nitro keeper is required for ante builder")
+	}
 	if options.TracingInfo == nil {
 		return nil, sdkerrors.Wrap(sdkerrors.ErrLogic, "tracing info is required for ante builder")
 	}
@@ -63,7 +68,7 @@ func NewAnteHandler(options HandlerOptions) (sdk.AnteHandler, error) {
 	anteDecorators := []sdk.AnteDecorator{
 		ante.NewSetUpContextDecorator(), // outermost AnteDecorator. SetUpContext must be called first
 		// TODO: have dex antehandler separate, and then call the individual antehandlers FROM the gasless antehandler decorator wrapper
-		antedecorators.NewGaslessDecorator([]sdk.AnteDecorator{&memPoolDecorator}, *options.OracleKeeper),
+		antedecorators.NewGaslessDecorator([]sdk.AnteDecorator{&memPoolDecorator}, *options.OracleKeeper, *options.NitroKeeper),
 		wasmkeeper.NewLimitSimulationGasDecorator(options.WasmConfig.SimulationGasLimit), // after setup context to enforce limits early
 		wasmkeeper.NewCountTXDecorator(options.TXCounterStoreKey),
 		ante.NewRejectExtensionOptionsDecorator(),
