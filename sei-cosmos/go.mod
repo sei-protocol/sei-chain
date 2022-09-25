@@ -3,7 +3,6 @@ go 1.18
 module github.com/cosmos/cosmos-sdk
 
 require (
-	cosmossdk.io/math v1.0.0-beta.3
 	github.com/99designs/keyring v1.1.6
 	github.com/armon/go-metrics v0.3.10
 	github.com/bgentry/speakeasy v0.1.0

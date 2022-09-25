@@ -16,8 +16,3 @@ enum ResourceType {
     DexMem = 3;
 }
 
-enum MessageType {
-    ANY_MESSAGE = 0;
-    // TODO(bweng/uday):: Add more message type support
-}
-

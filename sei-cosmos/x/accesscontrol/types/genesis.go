@@ -9,9 +9,8 @@ import (
 func DefaultMessageDependencyMapping() []MessageDependencyMapping {
 	return []MessageDependencyMapping{
 		{
-			MessageType:          MessageType_ANY_MESSAGE,
-			ModuleName:           "ANY",
-			AccessOps: []AccessOperation {
+			MessageKey: "",
+			AccessOps: []AccessOperation{
 				{AccessType: AccessType_UNKNOWN, ResourceType: ResourceType_ANY, IdentifierTemplate: "*"},
 			},
 		},
