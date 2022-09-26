@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -872,8 +873,10 @@ func (app *App) FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBlock)
 	events, txResults, endBlockResp, _ := app.ProcessBlock(ctx, spanCtx, req.Txs, req, req.DecidedLastCommit)
 
 	app.SetDeliverStateToCommit()
-	_, writeStateSpan := (*app.tracingInfo.Tracer).Start(app.tracingInfo.TracerContext, "WriteStateToCommitAndGetWorkignHash")
+	_, writeStateSpan := (*app.tracingInfo.Tracer).Start(spanCtx, "WriteStateToCommitAndGetWorkignHash")
+	ctx.Logger().Info("starting write state to commit:" + strconv.FormatInt(time.Now().UnixMilli(), 10))
 	appHash := app.WriteStateToCommitAndGetWorkingHash()
+	ctx.Logger().Info("finishing write state to commit:" + strconv.FormatInt(time.Now().UnixMilli(), 10))
 	writeStateSpan.End()
 	resp := app.getFinalizeBlockResponse(appHash, events, txResults, endBlockResp)
 	return &resp, nil
