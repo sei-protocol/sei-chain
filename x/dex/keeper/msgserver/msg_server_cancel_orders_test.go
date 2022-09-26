@@ -102,7 +102,7 @@ func TestInvalidCancels(t *testing.T) {
 
 	// nil contract address
 	msg = &types.MsgCancelOrders{
-		Creator:      keepertest.TestAccount,
+		Creator: keepertest.TestAccount,
 		Cancellations: []*types.Cancellation{
 			{
 				Price:             sdk.OneDec(),

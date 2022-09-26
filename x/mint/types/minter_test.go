@@ -30,8 +30,8 @@ func getTestTokenReleaseSchedule(currTime time.Time, numReleases int) []Schedule
 	tokenReleaseSchedule := []ScheduledTokenRelease{}
 
 	for i := 1; i <= numReleases; i++ {
-		currTime = currTime.AddDate(1, 0 ,0)
-		scheduledRelease := ScheduledTokenRelease{Date: currTime.AddDate(1, 0 ,0).Format(TokenReleaseDateFormat), TokenReleaseAmount: 2500000 / int64(i)}
+		currTime = currTime.AddDate(1, 0, 0)
+		scheduledRelease := ScheduledTokenRelease{Date: currTime.AddDate(1, 0, 0).Format(TokenReleaseDateFormat), TokenReleaseAmount: 2500000 / int64(i)}
 		tokenReleaseSchedule = append(tokenReleaseSchedule, scheduledRelease)
 	}
 
@@ -81,7 +81,7 @@ func BenchmarkGetScheduledTokenRelease(b *testing.B) {
 
 func TestGetScheduledTokenReleaseNil(t *testing.T) {
 	genesisTime := getGenesisTime()
-	epoch := getEpoch(genesisTime.AddDate(20, 0 ,0))
+	epoch := getEpoch(genesisTime.AddDate(20, 0, 0))
 	tokenReleaseSchedule := getTestTokenReleaseSchedule(genesisTime, 10)
 
 	scheduledTokenRelease := GetScheduledTokenRelease(
@@ -95,7 +95,7 @@ func TestGetScheduledTokenReleaseNil(t *testing.T) {
 
 func TestGetScheduledTokenRelease(t *testing.T) {
 	genesisTime := getGenesisTime()
-	epoch := getEpoch(genesisTime.AddDate(5, 0 ,0))
+	epoch := getEpoch(genesisTime.AddDate(5, 0, 0))
 	tokenReleaseSchedule := getTestTokenReleaseSchedule(genesisTime, 10)
 
 	scheduledTokenRelease := GetScheduledTokenRelease(
@@ -105,6 +105,6 @@ func TestGetScheduledTokenRelease(t *testing.T) {
 	)
 
 	require.NotNil(t, scheduledTokenRelease)
-	require.Equal(t, scheduledTokenRelease.GetTokenReleaseAmount(), int64(2500000 / 4))
+	require.Equal(t, scheduledTokenRelease.GetTokenReleaseAmount(), int64(2500000/4))
 	require.Equal(t, scheduledTokenRelease.GetDate(), genesisTime.AddDate(5, 0, 0).Format(TokenReleaseDateFormat))
 }
