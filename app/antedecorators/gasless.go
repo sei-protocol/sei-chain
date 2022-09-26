@@ -22,7 +22,11 @@ func NewGaslessDecorator(wrapped []sdk.AnteDecorator, oracleKeeper oraclekeeper.
 }
 
 func (gd GaslessDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool, next sdk.AnteHandler) (newCtx sdk.Context, err error) {
+	originalGasMeter := ctx.GasMeter()
+	// eagerly set infinite gas meter so that queries performed by isTxGasless will not incur gas cost
+	ctx = ctx.WithGasMeter(sdk.NewInfiniteGasMeter())
 	if !isTxGasless(tx, ctx, gd.oracleKeeper, gd.nitroKeeper) {
+		ctx = ctx.WithGasMeter(originalGasMeter)
 		// if not gasless, then we use the wrappers
 
 		// AnteHandle always takes a `next` so we need a no-op to execute only one handler at a time
@@ -36,9 +40,8 @@ func (gd GaslessDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool,
 		}
 		return next(ctx, tx, simulate)
 	}
-	gaslessMeter := sdk.NewInfiniteGasMeter()
 
-	return next(ctx.WithGasMeter(gaslessMeter), tx, simulate)
+	return next(ctx, tx, simulate)
 }
 
 func isTxGasless(tx sdk.Tx, ctx sdk.Context, oracleKeeper oraclekeeper.Keeper, nitroKeeper nitrokeeper.Keeper) bool {
