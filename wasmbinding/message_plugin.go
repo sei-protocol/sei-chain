@@ -8,6 +8,7 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	authkeeper "github.com/cosmos/cosmos-sdk/x/auth/keeper"
+	"github.com/sei-protocol/sei-chain/wasmbinding/bindings"
 	dexwasm "github.com/sei-protocol/sei-chain/x/dex/client/wasm"
 	tokenfactorywasm "github.com/sei-protocol/sei-chain/x/tokenfactory/client/wasm"
 )
@@ -60,7 +61,7 @@ func (m *CustomMessenger) DispatchCustomMsg(
 ) (events []sdk.Event, data [][]byte, err error) {
 	var parsedMessage SeiWasmMessage
 	if err := json.Unmarshal(msg.Custom, &parsedMessage); err != nil {
-		return nil, nil, sdkerrors.Wrap(err, "Error parsing Sei Wasm Message")
+		return nil, nil, bindings.ErrParsingSeiWasmMsg
 	}
 
 	var sdkMsgs []sdk.Msg
