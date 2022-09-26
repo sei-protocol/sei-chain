@@ -7,7 +7,7 @@ import (
 	"github.com/gogo/protobuf/proto"
 )
 
-var ErrNoCommitAccessOp = fmt.Errorf("message dependency mapping AccessOps don't terminate with COMMIT access op")
+var ErrNoCommitAccessOp = fmt.Errorf("MessageDependencyMapping doesn't terminate with AccessType_COMMIT")
 
 func GenerateMessageKey(msg sdk.Msg) string {
 	return proto.MessageName(msg)
