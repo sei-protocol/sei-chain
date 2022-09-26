@@ -874,12 +874,9 @@ func (app *App) ProcessProposalHandler(ctx sdk.Context, req *abci.RequestProcess
 
 func (app *App) BuildDependencyDag(ctx sdk.Context, txs [][]byte) (*Dag, error) {
 	// contains the latest msg index for a specific Access Operation
-	dependencyDag := Dag{
-		NodeMap:  make(map[int]DagNode),
-		EdgesMap: make(map[int][]DagEdge),
-	}
+	dependencyDag := NewDag()
 	for txIndex, txBytes := range txs {
-		tx, err := app.txDecoder(txBytes)
+		tx, err := app.txDecoder(txBytes) // TODO: results in repetitive decoding for txs with runtx decode (potential optimization)
 		if err != nil {
 			return nil, err
 		}
@@ -888,7 +885,7 @@ func (app *App) BuildDependencyDag(ctx sdk.Context, txs [][]byte) (*Dag, error) 
 			msgDependencies := app.AccessControlKeeper.GetResourceDependencyMapping(ctx, acltypes.GenerateMessageKey(msg))
 			for _, accessOp := range msgDependencies.AccessOps {
 				// make a new node in the dependency dag
-				dependencyDag.AddNodeBuildDependency(ctx, txIndex, accessOp)
+				dependencyDag.AddNodeBuildDependency(txIndex, accessOp)
 			}
 		}
 
@@ -991,6 +988,7 @@ func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequ
 					Codespace: deliverTxResp.Codespace,
 				})
 			}
+			// TODO: handle other errors
 		}
 	} else {
 		// no error, lets process txs concurrently
