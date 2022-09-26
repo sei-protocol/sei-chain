@@ -970,25 +970,22 @@ func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequ
 	dag, err := app.BuildDependencyDag(ctx, txs)
 	txResults := []*abci.ExecTxResult{}
 	if err != nil {
-		if err == ErrCycleInDAG {
-			// something went wrong in dag, process txs sequentially
-			for _, tx := range txs {
-				// ctx = ctx.WithContext(context.WithValue(ctx.Context(), ante.ContextKeyTxIndexKey, i))
-				deliverTxResp := app.DeliverTx(ctx, abci.RequestDeliverTx{
-					Tx: tx,
-				})
-				txResults = append(txResults, &abci.ExecTxResult{
-					Code:      deliverTxResp.Code,
-					Data:      deliverTxResp.Data,
-					Log:       deliverTxResp.Log,
-					Info:      deliverTxResp.Info,
-					GasWanted: deliverTxResp.GasWanted,
-					GasUsed:   deliverTxResp.GasUsed,
-					Events:    deliverTxResp.Events,
-					Codespace: deliverTxResp.Codespace,
-				})
-			}
-			// TODO: handle other errors
+		// something went wrong in dag, process txs sequentially
+		for _, tx := range txs {
+			// ctx = ctx.WithContext(context.WithValue(ctx.Context(), ante.ContextKeyTxIndexKey, i))
+			deliverTxResp := app.DeliverTx(ctx, abci.RequestDeliverTx{
+				Tx: tx,
+			})
+			txResults = append(txResults, &abci.ExecTxResult{
+				Code:      deliverTxResp.Code,
+				Data:      deliverTxResp.Data,
+				Log:       deliverTxResp.Log,
+				Info:      deliverTxResp.Info,
+				GasWanted: deliverTxResp.GasWanted,
+				GasUsed:   deliverTxResp.GasUsed,
+				Events:    deliverTxResp.Events,
+				Codespace: deliverTxResp.Codespace,
+			})
 		}
 	} else {
 		// no error, lets process txs concurrently
