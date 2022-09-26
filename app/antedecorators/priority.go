@@ -7,24 +7,24 @@ import (
 	oracletypes "github.com/sei-protocol/sei-chain/x/oracle/types"
 )
 
-type PriorityDecorator struct {}
+type PriorityDecorator struct{}
 
 func NewPriorityDecorator() PriorityDecorator {
 	return PriorityDecorator{}
 }
 
 func intMin(a, b int64) int64 {
-    if a < b {
-        return a
-    }
-    return b
+	if a < b {
+		return a
+	}
+	return b
 }
 
 // Assigns higher priority to certain types of transactions including oracle
 func (pd PriorityDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool, next sdk.AnteHandler) (sdk.Context, error) {
 	// Cap priority to MAXINT64 - 1000
 	// Use higher priorities for tiers including oracle tx's
-	priority := intMin(ctx.Priority(), math.MaxInt64 - 1000)
+	priority := intMin(ctx.Priority(), math.MaxInt64-1000)
 
 	if isOracleTx(tx) {
 		priority = math.MaxInt64 - 100
