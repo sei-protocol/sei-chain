@@ -3,7 +3,7 @@ package app_test
 import (
 	"testing"
 
-	acltypes "github.com/cosmos/cosmos-sdk/x/accesscontrol/types"
+	acltypes "github.com/cosmos/cosmos-sdk/types/accesscontrol"
 	"github.com/sei-protocol/sei-chain/app"
 	"github.com/stretchr/testify/require"
 	"github.com/yourbasic/graph"
@@ -48,17 +48,17 @@ func TestCreateGraph(t *testing.T) {
 		IdentifierTemplate: "ResourceB",
 	}
 
-	dag.AddNodeBuildDependency(1, writeAccessA)   // node id 0
-	dag.AddNodeBuildDependency(1, readAccessB)    // node id 1
-	dag.AddNodeBuildDependency(1, commitAccessOp) // node id 2
-	dag.AddNodeBuildDependency(2, readAccessA)    // node id 3
-	dag.AddNodeBuildDependency(2, readAccessB)    // node id 4
-	dag.AddNodeBuildDependency(2, commitAccessOp) // node id 5
-	dag.AddNodeBuildDependency(3, readAccessB)    // node id 6
-	dag.AddNodeBuildDependency(3, readAccessA)    // node id 7
-	dag.AddNodeBuildDependency(3, commitAccessOp) // node id 8
-	dag.AddNodeBuildDependency(4, writeAccessB)   // node id 9
-	dag.AddNodeBuildDependency(4, commitAccessOp) // node id 10
+	dag.AddNodeBuildDependency(1, 1, writeAccessA)   // node id 0
+	dag.AddNodeBuildDependency(1, 1, readAccessB)    // node id 1
+	dag.AddNodeBuildDependency(1, 1, commitAccessOp) // node id 2
+	dag.AddNodeBuildDependency(1, 2, readAccessA)    // node id 3
+	dag.AddNodeBuildDependency(1, 2, readAccessB)    // node id 4
+	dag.AddNodeBuildDependency(1, 2, commitAccessOp) // node id 5
+	dag.AddNodeBuildDependency(1, 3, readAccessB)    // node id 6
+	dag.AddNodeBuildDependency(1, 3, readAccessA)    // node id 7
+	dag.AddNodeBuildDependency(1, 3, commitAccessOp) // node id 8
+	dag.AddNodeBuildDependency(1, 4, writeAccessB)   // node id 9
+	dag.AddNodeBuildDependency(1, 4, commitAccessOp) // node id 10
 
 	require.Equal(
 		t,
