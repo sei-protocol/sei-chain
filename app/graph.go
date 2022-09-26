@@ -31,14 +31,15 @@ func (dag *Dag) GetCompletionSignal(edge DagEdge) *CompletionSignal {
 	// only if tx indexes are different
 	fromNode := dag.NodeMap[edge.FromNodeID]
 	toNode := dag.NodeMap[edge.ToNodeID]
-
+	if fromNode.TxIndex == toNode.TxIndex {
+		return nil
+	}
 	return &CompletionSignal{
 		FromNodeID:                fromNode.NodeID,
 		ToNodeID:                  toNode.NodeID,
 		CompletionAccessOperation: fromNode.AccessOperation,
 		BlockedAccessOperation:    toNode.AccessOperation,
 	}
-	return nil
 }
 
 // Order returns the number of vertices in a graph.
@@ -181,7 +182,7 @@ func (dag *Dag) GetNodeDependencies(node DagNode) (nodeDependencies []DagNode) {
 			}
 		}
 	}
-	return
+	return nodeDependencies
 }
 
 // returns completion signaling map and blocking signals map
