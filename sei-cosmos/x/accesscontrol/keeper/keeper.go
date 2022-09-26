@@ -52,11 +52,16 @@ func (k Keeper) GetResourceDependencyMapping(ctx sdk.Context, messageKey string)
 func (k Keeper) SetResourceDependencyMapping(
 	ctx sdk.Context,
 	dependencyMapping types.MessageDependencyMapping,
-) {
+) error {
+	err := types.ValidateMessageDependencyMapping(dependencyMapping)
+	if err != nil {
+		return err
+	}
 	store := ctx.KVStore(k.storeKey)
 	b := k.cdc.MustMarshal(&dependencyMapping)
 	resourceKey := types.GetResourceDependencyKey(dependencyMapping.GetMessageKey())
 	store.Set(resourceKey, b)
+	return nil
 }
 
 func (k Keeper) IterateResourceKeys(ctx sdk.Context, handler func(dependencyMapping types.MessageDependencyMapping) (stop bool)) {

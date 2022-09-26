@@ -12,6 +12,7 @@ func DefaultMessageDependencyMapping() []MessageDependencyMapping {
 			MessageKey: "",
 			AccessOps: []AccessOperation{
 				{AccessType: AccessType_UNKNOWN, ResourceType: ResourceType_ANY, IdentifierTemplate: "*"},
+				{AccessType: AccessType_COMMIT, ResourceType: ResourceType_ANY, IdentifierTemplate: "*"},
 			},
 		},
 	}
@@ -35,6 +36,12 @@ func DefaultGenesisState() *GenesisState {
 
 // ValidateGenesis validates the oracle genesis state
 func ValidateGenesis(data GenesisState) error {
+	for _, mapping := range data.MessageDependencyMapping {
+		err := ValidateMessageDependencyMapping(mapping)
+		if err != nil {
+			return err
+		}
+	}
 	return data.Params.Validate()
 }
 
