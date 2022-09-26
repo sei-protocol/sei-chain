@@ -832,7 +832,7 @@ func (app *App) ProcessProposalHandler(ctx sdk.Context, req *abci.RequestProcess
 		}
 		app.optimisticProcessingInfo = optimisticProcessingInfo
 		go func() {
-			events, txResults, endBlockResp, _ := app.ProcessBlock(ctx, req.Txs, req, req.ProposedLastCommit)
+			events, txResults, endBlockResp, _ := app.ProcessBlock(ctx, app.tracingInfo.TracerContext, req.Txs, req, req.ProposedLastCommit)
 			optimisticProcessingInfo.Events = events
 			optimisticProcessingInfo.TxRes = txResults
 			optimisticProcessingInfo.EndBlockResp = endBlockResp
@@ -847,7 +847,7 @@ func (app *App) ProcessProposalHandler(ctx sdk.Context, req *abci.RequestProcess
 }
 
 func (app *App) FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBlock) (*abci.ResponseFinalizeBlock, error) {
-	_, span := (*app.tracingInfo.Tracer).Start(app.tracingInfo.TracerContext, "FinalizeBlocker")
+	spanCtx, span := (*app.tracingInfo.Tracer).Start(app.tracingInfo.TracerContext, "FinalizeBlocker")
 	defer span.End()
 	startTime := time.Now()
 	defer func() {
@@ -869,19 +869,21 @@ func (app *App) FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBlock)
 		}
 	}
 	ctx.Logger().Info("optimistic processing ineligible")
-	events, txResults, endBlockResp, _ := app.ProcessBlock(ctx, req.Txs, req, req.DecidedLastCommit)
+	events, txResults, endBlockResp, _ := app.ProcessBlock(ctx, spanCtx, req.Txs, req, req.DecidedLastCommit)
 
 	app.SetDeliverStateToCommit()
+	_, writeStateSpan := (*app.tracingInfo.Tracer).Start(app.tracingInfo.TracerContext, "WriteStateToCommitAndGetWorkignHash")
 	appHash := app.WriteStateToCommitAndGetWorkingHash()
+	writeStateSpan.End()
 	resp := app.getFinalizeBlockResponse(appHash, events, txResults, endBlockResp)
 	return &resp, nil
 }
 
-func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequest, lastCommit abci.CommitInfo) ([]abci.Event, []*abci.ExecTxResult, abci.ResponseEndBlock, error) {
-	_, span := (*app.tracingInfo.Tracer).Start(app.tracingInfo.TracerContext, "ProcessBlock")
+func (app *App) ProcessBlock(sdkCtx sdk.Context, ctx context.Context, txs [][]byte, req BlockProcessRequest, lastCommit abci.CommitInfo) ([]abci.Event, []*abci.ExecTxResult, abci.ResponseEndBlock, error) {
+	_, span := (*app.tracingInfo.Tracer).Start(ctx, "ProcessBlock")
 	defer span.End()
-	goCtx := app.decorateContextWithDexMemState(ctx.Context())
-	ctx = ctx.WithContext(goCtx)
+	goCtx := app.decorateContextWithDexMemState(sdkCtx.Context())
+	sdkCtx = sdkCtx.WithContext(goCtx)
 
 	events := []abci.Event{}
 	beginBlockReq := abci.RequestBeginBlock{
@@ -902,11 +904,11 @@ func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequ
 			ChainID:         app.ChainID,
 			Height:          req.GetHeight(),
 			Time:            req.GetTime(),
-			ProposerAddress: ctx.BlockHeader().ProposerAddress,
+			ProposerAddress: sdkCtx.BlockHeader().ProposerAddress,
 		},
 	}
 
-	beginBlockResp := app.BeginBlock(ctx, beginBlockReq)
+	beginBlockResp := app.BeginBlock(sdkCtx, beginBlockReq)
 	events = append(events, beginBlockResp.Events...)
 
 	// typedTxs := []sdk.Tx{}
@@ -923,7 +925,7 @@ func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequ
 	txResults := []*abci.ExecTxResult{}
 	for _, tx := range txs {
 		// ctx = ctx.WithContext(context.WithValue(ctx.Context(), ante.ContextKeyTxIndexKey, i))
-		deliverTxResp := app.DeliverTx(ctx, abci.RequestDeliverTx{
+		deliverTxResp := app.DeliverTx(sdkCtx, abci.RequestDeliverTx{
 			Tx: tx,
 		})
 		txResults = append(txResults, &abci.ExecTxResult{
@@ -937,7 +939,7 @@ func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequ
 			Codespace: deliverTxResp.Codespace,
 		})
 	}
-	endBlockResp := app.EndBlock(ctx, abci.RequestEndBlock{
+	endBlockResp := app.EndBlock(sdkCtx, abci.RequestEndBlock{
 		Height: req.GetHeight(),
 	})
 	events = append(events, endBlockResp.Events...)
