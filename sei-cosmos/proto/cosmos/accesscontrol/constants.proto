@@ -7,6 +7,7 @@ enum AccessType {
     UNKNOWN = 0;
     READ = 1;
     WRITE = 2;
+    COMMIT = 3;
 }
 
 enum ResourceType {
