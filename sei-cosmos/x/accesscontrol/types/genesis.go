@@ -4,22 +4,23 @@ import (
 	"encoding/json"
 
 	"github.com/cosmos/cosmos-sdk/codec"
+	acltypes "github.com/cosmos/cosmos-sdk/types/accesscontrol"
 )
 
-func DefaultMessageDependencyMapping() []MessageDependencyMapping {
-	return []MessageDependencyMapping{
+func DefaultMessageDependencyMapping() []acltypes.MessageDependencyMapping {
+	return []acltypes.MessageDependencyMapping{
 		{
 			MessageKey: "",
-			AccessOps: []AccessOperation{
-				{AccessType: AccessType_UNKNOWN, ResourceType: ResourceType_ANY, IdentifierTemplate: "*"},
-				{AccessType: AccessType_COMMIT, ResourceType: ResourceType_ANY, IdentifierTemplate: "*"},
+			AccessOps: []acltypes.AccessOperation{
+				{AccessType: acltypes.AccessType_UNKNOWN, ResourceType: acltypes.ResourceType_ANY, IdentifierTemplate: "*"},
+				{AccessType: acltypes.AccessType_COMMIT, ResourceType: acltypes.ResourceType_ANY, IdentifierTemplate: "*"},
 			},
 		},
 	}
 }
 
 // NewGenesisState creates a new GenesisState object
-func NewGenesisState(params Params, messageDependencyMapping []MessageDependencyMapping) *GenesisState {
+func NewGenesisState(params Params, messageDependencyMapping []acltypes.MessageDependencyMapping) *GenesisState {
 	return &GenesisState{
 		Params:                   params,
 		MessageDependencyMapping: messageDependencyMapping,

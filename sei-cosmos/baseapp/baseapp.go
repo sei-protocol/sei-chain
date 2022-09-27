@@ -803,6 +803,7 @@ func (app *BaseApp) runMsgs(ctx sdk.Context, msgs []sdk.Msg, mode runTxMode) (*s
 		)
 
 		if handler := app.msgServiceRouter.Handler(msg); handler != nil {
+			ctx = ctx.WithMessageIndex(i)
 			// ADR 031 request type routing
 			msgResult, err = handler(ctx, msg)
 			eventMsgName = sdk.MsgTypeURL(msg)

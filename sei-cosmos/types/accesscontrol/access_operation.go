@@ -1,4 +1,4 @@
-package types
+package accesscontrol
 
 import (
 	fmt "fmt"

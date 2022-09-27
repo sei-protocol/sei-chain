@@ -8,8 +8,8 @@ import (
 	"github.com/cosmos/cosmos-sdk/codec"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 
+	acltypes "github.com/cosmos/cosmos-sdk/types/accesscontrol"
 	"github.com/cosmos/cosmos-sdk/x/accesscontrol/types"
-
 	paramtypes "github.com/cosmos/cosmos-sdk/x/params/types"
 )
 
@@ -41,17 +41,17 @@ func (k Keeper) Logger(ctx sdk.Context) log.Logger {
 	return ctx.Logger().With("module", fmt.Sprintf("x/%s", types.ModuleName))
 }
 
-func (k Keeper) GetResourceDependencyMapping(ctx sdk.Context, messageKey string) types.MessageDependencyMapping {
+func (k Keeper) GetResourceDependencyMapping(ctx sdk.Context, messageKey string) acltypes.MessageDependencyMapping {
 	store := ctx.KVStore(k.storeKey)
 	b := store.Get(types.GetResourceDependencyKey(messageKey))
-	dependencyMapping := types.MessageDependencyMapping{}
+	dependencyMapping := acltypes.MessageDependencyMapping{}
 	k.cdc.MustUnmarshal(b, &dependencyMapping)
 	return dependencyMapping
 }
 
 func (k Keeper) SetResourceDependencyMapping(
 	ctx sdk.Context,
-	dependencyMapping types.MessageDependencyMapping,
+	dependencyMapping acltypes.MessageDependencyMapping,
 ) error {
 	err := types.ValidateMessageDependencyMapping(dependencyMapping)
 	if err != nil {
@@ -64,12 +64,12 @@ func (k Keeper) SetResourceDependencyMapping(
 	return nil
 }
 
-func (k Keeper) IterateResourceKeys(ctx sdk.Context, handler func(dependencyMapping types.MessageDependencyMapping) (stop bool)) {
+func (k Keeper) IterateResourceKeys(ctx sdk.Context, handler func(dependencyMapping acltypes.MessageDependencyMapping) (stop bool)) {
 	store := ctx.KVStore(k.storeKey)
 	iter := sdk.KVStorePrefixIterator(store, types.GetResourceDependencyMappingKey())
 	defer iter.Close()
 	for ; iter.Valid(); iter.Next() {
-		dependencyMapping := types.MessageDependencyMapping{}
+		dependencyMapping := acltypes.MessageDependencyMapping{}
 		k.cdc.MustUnmarshal(iter.Value(), &dependencyMapping)
 		if handler(dependencyMapping) {
 			break
