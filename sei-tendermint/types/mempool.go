@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
+	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 )
 
 // ErrTxInCache is returned to the client if we saw tx earlier
@@ -11,6 +12,47 @@ var ErrTxInCache = errors.New("tx already exists in cache")
 
 // TxKey is the fixed length array key used as an index.
 type TxKey [sha256.Size]byte
+
+// ToProto converts Data to protobuf
+func (txKey *TxKey) ToProto() *tmproto.TxKey {
+	tp := new(tmproto.TxKey)
+
+	txBzs := make([]byte, len(txKey))
+	if len(txKey) > 0 {
+		for i := range txKey {
+			txBzs[i] = txKey[i]
+		}
+		tp.TxKey = txBzs
+	}
+
+	return tp
+}
+
+// TxKeyFromProto takes a protobuf representation of TxKey &
+// returns the native type.
+func TxKeyFromProto(dp *tmproto.TxKey) (TxKey, error) {
+	if dp == nil {
+		return TxKey{}, errors.New("nil data")
+	}
+	var txBzs [sha256.Size]byte
+	for i := range dp.TxKey {
+		txBzs[i] = dp.TxKey[i]
+	}
+
+	return txBzs, nil
+}
+
+func TxKeysListFromProto(dps []*tmproto.TxKey) ([]TxKey, error) {
+	var txKeys []TxKey
+	for _, txKey := range dps {
+		txKey, err := TxKeyFromProto(txKey)
+		if err != nil {
+			return nil, err
+		}
+		txKeys = append(txKeys, txKey)
+	}
+	return txKeys, nil
+}
 
 // ErrTxTooLarge defines an error when a transaction is too big to be sent in a
 // message to other peers.

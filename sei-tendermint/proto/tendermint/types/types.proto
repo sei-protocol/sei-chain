@@ -98,6 +98,10 @@ message Data {
   repeated bytes txs = 1;
 }
 
+message TxKey {
+  bytes tx_key = 1;
+}
+
 // Vote represents a prevote, precommit, or commit vote from validators for
 // consensus.
 message Vote {
@@ -174,6 +178,10 @@ message Proposal {
   google.protobuf.Timestamp timestamp = 6
       [(gogoproto.nullable) = false, (gogoproto.stdtime) = true];
   bytes signature = 7;
+  repeated TxKey tx_keys = 8;
+  EvidenceList evidence = 9;
+  Commit last_commit = 10;
+  Header header     = 11 [(gogoproto.nullable) = false];
 }
 
 message SignedHeader {
@@ -200,4 +208,38 @@ message TxProof {
   bytes                   root_hash = 1;
   bytes                   data      = 2;
   tendermint.crypto.Proof proof     = 3;
+}
+
+
+message Evidence {
+  oneof sum {
+    DuplicateVoteEvidence     duplicate_vote_evidence      = 1;
+    LightClientAttackEvidence light_client_attack_evidence = 2;
+  }
+}
+
+// DuplicateVoteEvidence contains evidence of a validator signed two conflicting
+// votes.
+message DuplicateVoteEvidence {
+  tendermint.types.Vote     vote_a             = 1;
+  tendermint.types.Vote     vote_b             = 2;
+  int64                     total_voting_power = 3;
+  int64                     validator_power    = 4;
+  google.protobuf.Timestamp timestamp          = 5
+  [(gogoproto.nullable) = false, (gogoproto.stdtime) = true];
+}
+
+// LightClientAttackEvidence contains evidence of a set of validators attempting
+// to mislead a light client.
+message LightClientAttackEvidence {
+  tendermint.types.LightBlock conflicting_block            = 1;
+  int64                       common_height                = 2;
+  repeated tendermint.types.Validator byzantine_validators = 3;
+  int64                               total_voting_power   = 4;
+  google.protobuf.Timestamp           timestamp            = 5
+  [(gogoproto.nullable) = false, (gogoproto.stdtime) = true];
+}
+
+message EvidenceList {
+  repeated Evidence evidence = 1 [(gogoproto.nullable) = false];
 }

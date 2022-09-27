@@ -465,8 +465,8 @@ func (m *HasVote) GetIndex() int32 {
 	return 0
 }
 
-// VoteSetMaj23 is sent to indicate that a given BlockID has seen +2/3 votes.
 type VoteSetMaj23 struct {
+	// VoteSetMaj23 is sent to indicate that a given BlockID has seen +2/3 votes.
 	Height  int64               `protobuf:"varint,1,opt,name=height,proto3" json:"height,omitempty"`
 	Round   int32               `protobuf:"varint,2,opt,name=round,proto3" json:"round,omitempty"`
 	Type    types.SignedMsgType `protobuf:"varint,3,opt,name=type,proto3,enum=tendermint.types.SignedMsgType" json:"type,omitempty"`

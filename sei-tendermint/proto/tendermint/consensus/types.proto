@@ -64,8 +64,8 @@ message HasVote {
   int32                          index  = 4;
 }
 
-// VoteSetMaj23 is sent to indicate that a given BlockID has seen +2/3 votes.
 message VoteSetMaj23 {
+  // VoteSetMaj23 is sent to indicate that a given BlockID has seen +2/3 votes.
   int64                          height   = 1;
   int32                          round    = 2;
   tendermint.types.SignedMsgType type     = 3;
@@ -83,6 +83,7 @@ message VoteSetBits {
       [(gogoproto.customname) = "BlockID", (gogoproto.nullable) = false];
   tendermint.libs.bits.BitArray votes = 5 [(gogoproto.nullable) = false];
 }
+
 
 message Message {
   oneof sum {

@@ -459,6 +459,9 @@ double-sign-check-height = {{ .Consensus.DoubleSignCheckHeight }}
 create-empty-blocks = {{ .Consensus.CreateEmptyBlocks }}
 create-empty-blocks-interval = "{{ .Consensus.CreateEmptyBlocksInterval }}"
 
+# Only gossip hashes, not the actual data
+gossip-tx-key-only = "{{ .Consensus.GossipTransactionKeyOnly }}"
+
 # Reactor sleep duration parameters
 peer-gossip-sleep-duration = "{{ .Consensus.PeerGossipSleepDuration }}"
 peer-query-maj23-sleep-duration = "{{ .Consensus.PeerQueryMaj23SleepDuration }}"

@@ -75,8 +75,8 @@ func (b *Block) ValidateBasic() error {
 	}
 
 	// NOTE: b.Data.Txs may be nil, but b.Data.Hash() still works fine.
-	if w, g := b.Data.Hash(), b.DataHash; !bytes.Equal(w, g) {
-		return fmt.Errorf("wrong Header.DataHash. Expected %X, got %X", w, g)
+	if w, g := b.Data.Hash(false), b.DataHash; !bytes.Equal(w, g) {
+		return fmt.Errorf("wrong Header.DataHash. Expected %X, got %X. Len of txs %d", w, g, len(b.Data.Txs))
 	}
 
 	// NOTE: b.Evidence may be nil, but we're just looping.
@@ -99,7 +99,7 @@ func (b *Block) fillHeader() {
 		b.LastCommitHash = b.LastCommit.Hash()
 	}
 	if b.DataHash == nil {
-		b.DataHash = b.Data.Hash()
+		b.DataHash = b.Data.Hash(false)
 	}
 	if b.EvidenceHash == nil {
 		b.EvidenceHash = b.Evidence.Hash()
@@ -307,13 +307,18 @@ func MaxDataBytesNoEvidence(maxBytes int64, valsCount int) int64 {
 // computed from itself.
 // It populates the same set of fields validated by ValidateBasic.
 func MakeBlock(height int64, txs []Tx, lastCommit *Commit, evidence []Evidence) *Block {
+	txKeys := make([]TxKey, 0, len(txs))
+	for _, tx := range txs {
+		txKeys = append(txKeys, tx.Key())
+	}
 	block := &Block{
 		Header: Header{
 			Version: version.Consensus{Block: version.BlockProtocol, App: 0},
 			Height:  height,
 		},
 		Data: Data{
-			Txs: txs,
+			Txs:    txs,
+			TxKeys: txKeys,
 		},
 		Evidence:   evidence,
 		LastCommit: lastCommit,
@@ -1286,14 +1291,19 @@ type Data struct {
 	// This means that block.AppHash does not include these txs.
 	Txs Txs `json:"txs"`
 
+	TxKeys []TxKey `json:"tx_keys"`
+
 	// Volatile
 	hash tmbytes.HexBytes
 }
 
 // Hash returns the hash of the data
-func (data *Data) Hash() tmbytes.HexBytes {
+func (data *Data) Hash(overwrite bool) tmbytes.HexBytes {
 	if data == nil {
 		return (Txs{}).Hash()
+	}
+	if data.hash != nil && overwrite {
+		data.hash = data.Txs.Hash()
 	}
 	if data.hash == nil {
 		data.hash = data.Txs.Hash() // NOTE: leaves of merkle tree are TxIDs

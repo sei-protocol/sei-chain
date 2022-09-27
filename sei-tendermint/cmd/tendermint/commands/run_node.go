@@ -77,6 +77,10 @@ func AddNodeFlags(cmd *cobra.Command, conf *cfg.Config) {
 		"consensus.create-empty-blocks-interval",
 		conf.Consensus.CreateEmptyBlocksInterval.String(),
 		"the possible interval between empty blocks")
+	cmd.Flags().Bool(
+		"consensus.gossip-tx-key-only",
+		conf.Consensus.GossipTransactionKeyOnly,
+		"set this to false to gossip entire data rather than just the key")
 
 	addDBFlags(cmd, conf)
 }

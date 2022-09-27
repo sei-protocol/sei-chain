@@ -307,6 +307,24 @@ func (txmp *TxMempool) RemoveTxByKey(txKey types.TxKey) error {
 	return errors.New("transaction not found")
 }
 
+func (txmp *TxMempool) HasTx(txKey types.TxKey) bool {
+	txmp.Lock()
+	defer txmp.Unlock()
+	return txmp.txStore.GetTxByHash(txKey) != nil
+}
+
+func (txmp *TxMempool) GetTxsForKeys(txKeys []types.TxKey) types.Txs {
+	txmp.mtx.RLock()
+	defer txmp.mtx.RUnlock()
+
+	txs := make([]types.Tx, 0, len(txKeys))
+	for _, txKey := range txKeys {
+		wtx := txmp.txStore.GetTxByHash(txKey)
+		txs = append(txs, wtx.tx)
+	}
+	return txs
+}
+
 // Flush empties the mempool. It acquires a read-lock, fetches all the
 // transactions currently in the transaction store and removes each transaction
 // from the store and all indexes and finally resets the cache.

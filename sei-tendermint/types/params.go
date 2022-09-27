@@ -199,7 +199,7 @@ func DefaultABCIParams() ABCIParams {
 		// When set to 0, vote extensions are not required.
 		VoteExtensionsEnableHeight: 0,
 		// When true, run CheckTx on each transaction in the mempool after each height.
-		RecheckTx: true,
+		RecheckTx: false,
 	}
 }
 

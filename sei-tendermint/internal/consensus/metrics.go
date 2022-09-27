@@ -82,6 +82,11 @@ type Metrics struct {
 	// was relevant to the block the node is trying to gather or not.
 	BlockGossipPartsReceived metrics.Counter `metrics_labels:"matches_current"`
 
+	ProposalBlockCreatedOnPropose metrics.Counter `metrics_labels:"success"`
+	ProposalTxs                   metrics.Gauge
+	ProposalMissingTxs            metrics.Gauge
+	MissingTxs                    metrics.Gauge `metrics_labels:"proposer_address"`
+
 	// QuroumPrevoteMessageDelay is the interval in seconds between the proposal
 	// timestamp and the timestamp of the earliest prevote that achieved a quorum
 	// during the prevote step.

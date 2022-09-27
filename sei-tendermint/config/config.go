@@ -963,6 +963,8 @@ type ConsensusConfig struct {
 	// EmptyBlocks mode and possible interval between empty blocks
 	CreateEmptyBlocks         bool          `mapstructure:"create-empty-blocks"`
 	CreateEmptyBlocksInterval time.Duration `mapstructure:"create-empty-blocks-interval"`
+	// Send transaction hash only
+	GossipTransactionKeyOnly bool `mapstructure:"gossip-tx-key-only"`
 
 	// Reactor sleep duration parameters
 	PeerGossipSleepDuration     time.Duration `mapstructure:"peer-gossip-sleep-duration"`
@@ -1027,6 +1029,7 @@ func DefaultConsensusConfig() *ConsensusConfig {
 		PeerGossipSleepDuration:     100 * time.Millisecond,
 		PeerQueryMaj23SleepDuration: 2000 * time.Millisecond,
 		DoubleSignCheckHeight:       int64(0),
+		GossipTransactionKeyOnly:    true,
 	}
 }
 
@@ -1158,7 +1161,7 @@ type TxIndexConfig struct {
 
 // DefaultTxIndexConfig returns a default configuration for the transaction indexer.
 func DefaultTxIndexConfig() *TxIndexConfig {
-	return &TxIndexConfig{Indexer: []string{"null"}}
+	return &TxIndexConfig{Indexer: []string{"kv"}}
 }
 
 // TestTxIndexConfig returns a default configuration for the transaction indexer.

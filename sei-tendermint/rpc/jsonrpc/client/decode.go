@@ -12,7 +12,7 @@ func unmarshalResponseBytes(responseBytes []byte, expectedID string, result inte
 	// into the correct type.
 	var response rpctypes.RPCResponse
 	if err := json.Unmarshal(responseBytes, &response); err != nil {
-		return fmt.Errorf("unmarshaling response: %w", err)
+		return fmt.Errorf("unmarshaling response test: %w, bytes: %d", err, len(responseBytes))
 	}
 
 	if response.Error != nil {

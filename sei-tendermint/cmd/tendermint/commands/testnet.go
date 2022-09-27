@@ -102,6 +102,8 @@ Example:
 				nValidators+nNonValidators,
 			)
 		}
+		ResetAll(conf.DBDir(), conf.PrivValidator.KeyFile(),
+			conf.PrivValidator.StateFile(), logger, keyType)
 
 		// set mode to validator for testnet
 		config := cfg.DefaultValidatorConfig()

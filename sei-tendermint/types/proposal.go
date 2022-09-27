@@ -24,25 +24,35 @@ var (
 // a so-called Proof-of-Lock (POL) round, as noted in the POLRound.
 // If POLRound >= 0, then BlockID corresponds to the block that is locked in POLRound.
 type Proposal struct {
-	Type      tmproto.SignedMsgType
-	Height    int64     `json:"height,string"`
-	Round     int32     `json:"round"`     // there can not be greater than 2_147_483_647 rounds
-	POLRound  int32     `json:"pol_round"` // -1 if null.
-	BlockID   BlockID   `json:"block_id"`
-	Timestamp time.Time `json:"timestamp"`
-	Signature []byte    `json:"signature"`
+	Type            tmproto.SignedMsgType
+	Height          int64     `json:"height,string"`
+	Round           int32     `json:"round"`     // there can not be greater than 2_147_483_647 rounds
+	POLRound        int32     `json:"pol_round"` // -1 if null.
+	BlockID         BlockID   `json:"block_id"`
+	Timestamp       time.Time `json:"timestamp"`
+	Signature       []byte    `json:"signature"`
+	TxKeys          []TxKey   `json:"tx_keys"`
+	Header          `json:"header"`
+	LastCommit      *Commit      `json:"last_commit"`
+	Evidence        EvidenceList `json:"evidence"`
+	ProposerAddress Address      `json:"proposer_address"` // original proposer of the block
 }
 
 // NewProposal returns a new Proposal.
 // If there is no POLRound, polRound should be -1.
-func NewProposal(height int64, round int32, polRound int32, blockID BlockID, ts time.Time) *Proposal {
+func NewProposal(height int64, round int32, polRound int32, blockID BlockID, ts time.Time, txKeys []TxKey, header Header, lastCommit *Commit, evidenceList EvidenceList, proposerAddress Address) *Proposal {
 	return &Proposal{
-		Type:      tmproto.ProposalType,
-		Height:    height,
-		Round:     round,
-		BlockID:   blockID,
-		POLRound:  polRound,
-		Timestamp: tmtime.Canonical(ts),
+		Type:            tmproto.ProposalType,
+		Height:          height,
+		Round:           round,
+		BlockID:         blockID,
+		POLRound:        polRound,
+		Timestamp:       tmtime.Canonical(ts),
+		TxKeys:          txKeys,
+		Header:          header,
+		LastCommit:      lastCommit,
+		Evidence:        evidenceList,
+		ProposerAddress: proposerAddress,
 	}
 }
 
@@ -169,6 +179,18 @@ func (p *Proposal) ToProto() *tmproto.Proposal {
 	pb.PolRound = p.POLRound
 	pb.Timestamp = p.Timestamp
 	pb.Signature = p.Signature
+	txKeys := make([]*tmproto.TxKey, 0, len(p.TxKeys))
+	for _, txKey := range p.TxKeys {
+		txKeys = append(txKeys, txKey.ToProto())
+	}
+	pb.TxKeys = txKeys
+	pb.LastCommit = p.LastCommit.ToProto()
+	eviD, err := p.Evidence.ToProto()
+	if err != nil {
+		panic(err)
+	}
+	pb.Evidence = eviD
+	pb.Header = *p.Header.ToProto()
 
 	return pb
 }
@@ -194,6 +216,21 @@ func ProposalFromProto(pp *tmproto.Proposal) (*Proposal, error) {
 	p.POLRound = pp.PolRound
 	p.Timestamp = pp.Timestamp
 	p.Signature = pp.Signature
+	txKeys, err := TxKeysListFromProto(pp.TxKeys)
+	if err != nil {
+		return nil, err
+	}
+	p.TxKeys = txKeys
+	header, err := HeaderFromProto(&pp.Header)
+	if err != nil {
+		return nil, err
+	}
+	p.Header = header
+	lastCommit, err := CommitFromProto(pp.LastCommit)
+	p.LastCommit = lastCommit
+	eviD := new(EvidenceList)
+	eviD.FromProto(pp.Evidence)
+	p.Evidence = *eviD
 
 	return p, p.ValidateBasic()
 }

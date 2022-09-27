@@ -10,6 +10,7 @@ import (
 	"os"
 	"runtime/debug"
 	"sort"
+	"strconv"
 	"sync"
 	"time"
 
@@ -119,6 +120,7 @@ type State struct {
 
 	// config details
 	config            *config.ConsensusConfig
+	mempoolConfig     *config.MempoolConfig
 	privValidator     types.PrivValidator // for signing votes
 	privValidatorType types.PrivValidatorType
 
@@ -1004,6 +1006,14 @@ func (cs *State) receiveRoutine(ctx context.Context, maxSteps int) {
 		// TODO should we handle context cancels here?
 	}
 }
+func (cs *State) fsyncAndCompleteProposal(ctx context.Context, fsyncUponCompletion bool, height int64, span otrace.Span) {
+	if fsyncUponCompletion {
+		if err := cs.wal.FlushAndSync(); err != nil { // fsync
+			panic("error flushing wal after receiving all block parts")
+		}
+	}
+	cs.handleCompleteProposal(ctx, height, span)
+}
 
 // state transitions on complete-proposal, 2/3-any, 2/3-one
 func (cs *State) handleMsg(ctx context.Context, mi msgInfo, fsyncUponCompletion bool) {
@@ -1018,22 +1028,35 @@ func (cs *State) handleMsg(ctx context.Context, mi msgInfo, fsyncUponCompletion 
 
 	switch msg := msg.(type) {
 	case *ProposalMessage:
-		_, span := cs.tracer.Start(cs.getTracingCtx(ctx), "cs.state.handleProposalMsg")
+		spanCtx, span := cs.tracer.Start(cs.getTracingCtx(ctx), "cs.state.handleProposalMsg")
 		span.SetAttributes(attribute.Int("round", int(msg.Proposal.Round)))
 		defer span.End()
 
 		// will not cause transition.
 		// once proposal is set, we can receive block parts
 		err = cs.setProposal(msg.Proposal, mi.ReceiveTime)
+		// See if we can try creating the proposal block if keys exist
+		if cs.config.GossipTransactionKeyOnly && !cs.isProposer(cs.privValidatorPubKey.Address()) && cs.ProposalBlock == nil {
+			created := cs.tryCreateProposalBlock(spanCtx, msg.Proposal.Height, msg.Proposal.Round, msg.Proposal.Header, msg.Proposal.LastCommit, msg.Proposal.Evidence, msg.Proposal.ProposerAddress)
+			if created {
+				cs.fsyncAndCompleteProposal(ctx, fsyncUponCompletion, msg.Proposal.Height, span)
+			}
+		}
 
 	case *BlockPartMessage:
-		spanCtx, span := cs.tracer.Start(cs.getTracingCtx(ctx), "cs.state.handleBlockPartMsg")
+		// If we have already created block parts, we can exit early if block part matches
+		if cs.config.GossipTransactionKeyOnly && cs.Proposal != nil && cs.ProposalBlockParts != nil {
+			// Check hash proof matches. If so, we can return
+			if msg.Part.Proof.Verify(cs.ProposalBlockParts.Hash(), msg.Part.Bytes) != nil {
+				return
+			}
+		}
+		_, span := cs.tracer.Start(cs.getTracingCtx(ctx), "cs.state.handleBlockPartMsg")
 		span.SetAttributes(attribute.Int("round", int(msg.Round)))
 		defer span.End()
 
 		// if the proposal is complete, we'll enterPrevote or tryFinalizeCommit
 		added, err = cs.addProposalBlockPart(msg, peerID)
-
 		// We unlock here to yield to any routines that need to read the the RoundState.
 		// Previously, this code held the lock from the point at which the final block
 		// part was received until the block executed against the application.
@@ -1049,14 +1072,7 @@ func (cs *State) handleMsg(ctx context.Context, mi msgInfo, fsyncUponCompletion 
 
 		cs.mtx.Lock()
 		if added && cs.ProposalBlockParts.IsComplete() {
-			if fsyncUponCompletion {
-				_, fsyncSpan := cs.tracer.Start(spanCtx, "cs.state.handleBlockPartMsg.fsync")
-				if err := cs.wal.FlushAndSync(); err != nil { // fsync
-					panic("error flushing wal after receiving all block parts")
-				}
-				fsyncSpan.End()
-			}
-			cs.handleCompleteProposal(ctx, msg.Height, span)
+			cs.fsyncAndCompleteProposal(ctx, fsyncUponCompletion, msg.Height, span)
 		}
 		if added {
 			select {
@@ -1074,6 +1090,8 @@ func (cs *State) handleMsg(ctx context.Context, mi msgInfo, fsyncUponCompletion 
 				"block_round", msg.Round,
 			)
 			err = nil
+		} else if err != nil {
+			cs.logger.Debug("added block part but received error", "error", err, "height", cs.Height, "cs_round", cs.Round, "block_round", msg.Round)
 		}
 
 	case *VoteMessage:
@@ -1459,7 +1477,7 @@ func (cs *State) defaultDecideProposal(ctx context.Context, height int64, round 
 
 	// Make proposal
 	propBlockID := types.BlockID{Hash: block.Hash(), PartSetHeader: blockParts.Header()}
-	proposal := types.NewProposal(height, round, cs.ValidRound, propBlockID, block.Header.Time)
+	proposal := types.NewProposal(height, round, cs.ValidRound, propBlockID, block.Header.Time, block.Data.TxKeys, block.Header, block.LastCommit, block.Evidence, cs.privValidatorPubKey.Address())
 	p := proposal.ToProto()
 
 	// wait the max amount we would wait for a proposal
@@ -1591,8 +1609,7 @@ func (cs *State) defaultDoPrevote(ctx context.Context, height int64, round int32
 	logger := cs.logger.With("height", height, "round", round)
 
 	// Check that a proposed block was not received within this round (and thus executing this from a timeout).
-	if cs.ProposalBlock == nil {
-		logger.Info("prevote step: ProposalBlock is nil; prevoting nil")
+	if !cs.config.GossipTransactionKeyOnly && cs.ProposalBlock == nil {
 		cs.signAddVote(ctx, tmproto.PrevoteType, nil, types.PartSetHeader{})
 		return
 	}
@@ -1601,6 +1618,24 @@ func (cs *State) defaultDoPrevote(ctx context.Context, height int64, round int32
 		logger.Info("prevote step: did not receive proposal; prevoting nil")
 		cs.signAddVote(ctx, tmproto.PrevoteType, nil, types.PartSetHeader{})
 		return
+	}
+
+	// If we're not the proposer, we need to build the block
+	if cs.config.GossipTransactionKeyOnly && cs.Proposal != nil && cs.ProposalBlock == nil {
+		txKeys := cs.Proposal.TxKeys
+		if cs.ProposalBlockParts.IsComplete() {
+			block, err := cs.getBlockFromBlockParts()
+			if err != nil {
+				cs.logger.Error("Encountered error building block from parts", "block parts", cs.ProposalBlockParts)
+				return
+			}
+			// We have full proposal block and txs. Build proposal block with txKeys
+			proposalBlock := cs.buildProposalBlock(height, block.Header, block.LastCommit, block.Evidence, block.ProposerAddress, txKeys)
+			if proposalBlock == nil {
+				return
+			}
+			cs.ProposalBlock = proposalBlock
+		}
 	}
 
 	if !cs.Proposal.Timestamp.Equal(cs.ProposalBlock.Header.Time) {
@@ -1771,6 +1806,8 @@ func (cs *State) enterPrecommit(ctx context.Context, height int64, round int32, 
 			"entering precommit step with invalid args",
 			"current", fmt.Sprintf("%v/%v/%v", cs.Height, cs.Round, cs.Step),
 			"time", time.Now().UnixMilli(),
+			"expected", fmt.Sprintf("#%v/%v", height, round),
+			"entryLabel", entryLabel,
 		)
 		return
 	}
@@ -2319,24 +2356,13 @@ func (cs *State) addProposalBlockPart(
 	}
 	if added && cs.ProposalBlockParts.IsComplete() {
 		cs.metrics.MarkBlockGossipComplete()
-		bz, err := io.ReadAll(cs.ProposalBlockParts.GetReader())
+		block, err := cs.getBlockFromBlockParts()
 		if err != nil {
-			return added, err
-		}
-
-		var pbb = new(tmproto.Block)
-		err = proto.Unmarshal(bz, pbb)
-		if err != nil {
-			return added, err
-		}
-
-		block, err := types.BlockFromProto(pbb)
-		if err != nil {
-			return added, err
+			cs.logger.Error("Encountered error building block from parts", "block parts", cs.ProposalBlockParts)
+			return false, err
 		}
 
 		cs.ProposalBlock = block
-
 		// NOTE: it's possible to receive complete proposal blocks for future rounds without having the proposal
 		cs.logger.Info("received complete proposal block", "height", cs.ProposalBlock.Height, "hash", cs.ProposalBlock.Hash(), "time", time.Now().UnixMilli())
 
@@ -2347,6 +2373,77 @@ func (cs *State) addProposalBlockPart(
 
 	return added, nil
 }
+
+func (cs *State) getBlockFromBlockParts() (*types.Block, error) {
+	bz, err := io.ReadAll(cs.ProposalBlockParts.GetReader())
+	if err != nil {
+		return nil, err
+	}
+
+	var pbb = new(tmproto.Block)
+	err = proto.Unmarshal(bz, pbb)
+	if err != nil {
+		return nil, err
+	}
+
+	block, err := types.BlockFromProto(pbb)
+	if err != nil {
+		return nil, err
+	}
+	return block, nil
+}
+
+func (cs *State) tryCreateProposalBlock(ctx context.Context, height int64, round int32, header types.Header, lastCommit *types.Commit, evidence []types.Evidence, proposerAddress types.Address) bool {
+	_, span := cs.tracer.Start(ctx, "cs.state.tryCreateProposalBlock")
+	span.SetAttributes(attribute.Int("round", int(round)))
+	defer span.End()
+
+	// Blocks might be reused, so round mismatch is OK
+	if cs.Height != height {
+		cs.logger.Info("received block part from wrong height", "height", height, "round", round)
+		cs.metrics.BlockGossipPartsReceived.With("matches_current", "false").Add(1)
+		return false
+	}
+	// We may not have a valid proposal yet (e.g. only received proposal for a wrong height)
+	if cs.Proposal == nil {
+		return false
+	}
+	block := cs.buildProposalBlock(height, header, lastCommit, evidence, proposerAddress, cs.Proposal.TxKeys)
+	if block == nil {
+		cs.metrics.ProposalBlockCreatedOnPropose.With("success", strconv.FormatBool(false)).Add(1)
+		return false
+	}
+	cs.ProposalBlock = block
+	partSet, err := block.MakePartSet(types.BlockPartSizeBytes)
+	if err != nil {
+		return false
+	}
+	cs.ProposalBlockParts = partSet
+	// NOTE: it's possible to receive complete proposal blocks for future rounds without having the proposal
+	cs.metrics.ProposalBlockCreatedOnPropose.With("success", strconv.FormatBool(true)).Add(1)
+	cs.metrics.MarkBlockGossipComplete()
+	return true
+}
+
+// Build a proposal block from mempool txs. If cs.config.GossipTransactionKeyOnly=true
+// proposals only contain txKeys so we rebuild the block using mempool txs
+func (cs *State) buildProposalBlock(height int64, header types.Header, lastCommit *types.Commit, evidence []types.Evidence, proposerAddress types.Address, txKeys []types.TxKey) *types.Block {
+	block := cs.state.MakeBlock(height, cs.blockExec.GetTxsForKeys(txKeys), lastCommit, evidence, proposerAddress)
+	missingTxs := cs.blockExec.GetMissingTxs(txKeys)
+	if len(missingTxs) > 0 {
+		cs.metrics.ProposalMissingTxs.Set(float64(len(missingTxs)))
+		cs.logger.Error("Missing txs when trying to build block", "missing_txs", cs.blockExec.GetMissingTxs(txKeys))
+		return nil
+	}
+	txs := cs.blockExec.GetTxsForKeys(txKeys)
+	block.Version = header.Version
+	block.Data.Txs = txs
+	block.DataHash = block.Data.Hash(true)
+	block.Header.Time = header.Time
+	block.Header.ProposerAddress = header.ProposerAddress
+	return block
+}
+
 func (cs *State) handleCompleteProposal(ctx context.Context, height int64, handleBlockPartSpan otrace.Span) {
 	// Update Valid* if we can.
 	prevotes := cs.Votes.Prevotes(cs.Round)

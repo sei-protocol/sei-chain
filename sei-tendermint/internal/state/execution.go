@@ -142,6 +142,10 @@ func (blockExec *BlockExecutor) CreateProposalBlock(
 	return state.MakeBlock(height, itxs, commit, evidence, proposerAddr), nil
 }
 
+func (blockExec *BlockExecutor) GetTxsForKeys(txKeys []types.TxKey) types.Txs {
+	return blockExec.mempool.GetTxsForKeys(txKeys)
+}
+
 func (blockExec *BlockExecutor) ProcessProposal(
 	ctx context.Context,
 	block *types.Block,
@@ -410,6 +414,16 @@ func (blockExec *BlockExecutor) Commit(
 	)
 
 	return res.RetainHeight, err
+}
+
+func (blockExec *BlockExecutor) GetMissingTxs(txKeys []types.TxKey) []types.TxKey {
+	var missingTxKeys []types.TxKey
+	for _, txKey := range txKeys {
+		if !blockExec.mempool.HasTx(txKey) {
+			missingTxKeys = append(missingTxKeys, txKey)
+		}
+	}
+	return missingTxKeys
 }
 
 func buildLastCommitInfo(block *types.Block, store Store, initialHeight int64) abci.CommitInfo {

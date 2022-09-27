@@ -38,6 +38,10 @@ type Mempool interface {
 	// from the mempool.
 	RemoveTxByKey(txKey types.TxKey) error
 
+	HasTx(txKey types.TxKey) bool
+
+	GetTxsForKeys(txKeys []types.TxKey) types.Txs
+
 	// ReapMaxBytesMaxGas reaps transactions from the mempool up to maxBytes
 	// bytes total with the condition that the total gasWanted must be less than
 	// maxGas.

@@ -589,7 +589,7 @@ OUTER_LOOP:
 			{
 				propProto := rs.Proposal.ToProto()
 
-				logger.Debug("sending proposal", "height", prs.Height, "round", prs.Round)
+				logger.Debug("sending proposal", "height", prs.Height, "round", prs.Round, "txkeys", propProto.TxKeys)
 				if err := dataCh.Send(ctx, p2p.Envelope{
 					To: ps.peerID,
 					Message: &tmcons.Proposal{

@@ -16,6 +16,14 @@ import (
 
 type emptyMempool struct{}
 
+func (m emptyMempool) HasTx(txKey types.TxKey) bool {
+	return false
+}
+
+func (m emptyMempool) GetTxsForKeys(txKeys []types.TxKey) types.Txs {
+	return types.Txs{}
+}
+
 var _ mempool.Mempool = emptyMempool{}
 
 func (emptyMempool) TxStore() *mempool.TxStore { return nil }
