@@ -12,6 +12,7 @@ import (
 	"time"
 
 	storetypes "github.com/cosmos/cosmos-sdk/store/types"
+	graph "github.com/yourbasic/graph"
 
 	appparams "github.com/sei-protocol/sei-chain/app/params"
 	"github.com/sei-protocol/sei-chain/utils"
@@ -328,7 +329,7 @@ type App struct {
 	optimisticProcessingInfo *OptimisticProcessingInfo
 
 	// batchVerifier *ante.SR25519BatchVerifier
-	// txDecoder     sdk.TxDecoder
+	txDecoder sdk.TxDecoder
 }
 
 // New returns a reference to an initialized blockchain app
@@ -388,7 +389,7 @@ func New(
 			Tracer:        &tr,
 			TracerContext: context.Background(),
 		},
-		// txDecoder: encodingConfig.TxConfig.TxDecoder(),
+		txDecoder: encodingConfig.TxConfig.TxDecoder(),
 	}
 
 	app.ParamsKeeper = initParamsKeeper(appCodec, cdc, keys[paramstypes.StoreKey], tkeys[paramstypes.TStoreKey])
@@ -911,6 +912,31 @@ func (app *App) ProcessProposalHandler(ctx sdk.Context, req *abci.RequestProcess
 	}, nil
 }
 
+func (app *App) BuildDependencyDag(ctx sdk.Context, txs [][]byte) (*Dag, error) {
+	// contains the latest msg index for a specific Access Operation
+	dependencyDag := NewDag()
+	for txIndex, txBytes := range txs {
+		tx, err := app.txDecoder(txBytes) // TODO: results in repetitive decoding for txs with runtx decode (potential optimization)
+		if err != nil {
+			return nil, err
+		}
+		msgs := tx.GetMsgs()
+		for _, msg := range msgs {
+			msgDependencies := app.AccessControlKeeper.GetResourceDependencyMapping(ctx, acltypes.GenerateMessageKey(msg))
+			for _, accessOp := range msgDependencies.AccessOps {
+				// make a new node in the dependency dag
+				dependencyDag.AddNodeBuildDependency(txIndex, accessOp)
+			}
+		}
+
+	}
+
+	if !graph.Acyclic(&dependencyDag) {
+		return nil, ErrCycleInDAG
+	}
+	return &dependencyDag, nil
+}
+
 func (app *App) FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBlock) (*abci.ResponseFinalizeBlock, error) {
 	startTime := time.Now()
 	defer func() {
@@ -981,23 +1007,32 @@ func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequ
 	// }
 	// app.batchVerifier.VerifyTxs(ctx, typedTxs)
 
+	dag, err := app.BuildDependencyDag(ctx, txs)
 	txResults := []*abci.ExecTxResult{}
-	for _, tx := range txs {
-		// ctx = ctx.WithContext(context.WithValue(ctx.Context(), ante.ContextKeyTxIndexKey, i))
-		deliverTxResp := app.DeliverTx(ctx, abci.RequestDeliverTx{
-			Tx: tx,
-		})
-		txResults = append(txResults, &abci.ExecTxResult{
-			Code:      deliverTxResp.Code,
-			Data:      deliverTxResp.Data,
-			Log:       deliverTxResp.Log,
-			Info:      deliverTxResp.Info,
-			GasWanted: deliverTxResp.GasWanted,
-			GasUsed:   deliverTxResp.GasUsed,
-			Events:    deliverTxResp.Events,
-			Codespace: deliverTxResp.Codespace,
-		})
+	if err != nil {
+		// something went wrong in dag, process txs sequentially
+		for _, tx := range txs {
+			// ctx = ctx.WithContext(context.WithValue(ctx.Context(), ante.ContextKeyTxIndexKey, i))
+			deliverTxResp := app.DeliverTx(ctx, abci.RequestDeliverTx{
+				Tx: tx,
+			})
+			txResults = append(txResults, &abci.ExecTxResult{
+				Code:      deliverTxResp.Code,
+				Data:      deliverTxResp.Data,
+				Log:       deliverTxResp.Log,
+				Info:      deliverTxResp.Info,
+				GasWanted: deliverTxResp.GasWanted,
+				GasUsed:   deliverTxResp.GasUsed,
+				Events:    deliverTxResp.Events,
+				Codespace: deliverTxResp.Codespace,
+			})
+		}
+	} else {
+		// no error, lets process txs concurrently
+		_, _ = dag.BuildCompletionSignalMaps()
+		// TODO: create channel map here
 	}
+
 	endBlockResp := app.EndBlock(ctx, abci.RequestEndBlock{
 		Height: req.GetHeight(),
 	})
