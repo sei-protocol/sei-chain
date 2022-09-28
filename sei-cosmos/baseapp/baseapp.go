@@ -20,6 +20,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/store"
 	"github.com/cosmos/cosmos-sdk/store/rootmulti"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	acltypes "github.com/cosmos/cosmos-sdk/types/accesscontrol"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	"github.com/cosmos/cosmos-sdk/x/auth/legacy/legacytx"
 )
@@ -49,7 +50,7 @@ type (
 )
 
 // BaseApp reflects the ABCI application implementation.
-type BaseApp struct { // nolint: maligned
+type BaseApp struct { //nolint: maligned
 	// initialized on creation
 	logger            log.Logger
 	name              string               // application name from abci.Info
@@ -771,6 +772,21 @@ func (app *BaseApp) runTx(ctx sdk.Context, mode runTxMode, txBytes []byte) (gInf
 	return gInfo, result, anteEvents, priority, err
 }
 
+// Waits for all dependent concurrent resource access operations to complete before handling
+// message. Defers completion signal to the end of the method once the real handler is called
+func wrappedHandler(ctx sdk.Context, msg sdk.Msg, handler sdk.Handler) (*sdk.Result, error) {
+	messageIndex := ctx.MessageIndex()
+
+	// Defer sending completion channels to the end of the message 
+	defer acltypes.SendAllSignals(ctx.TxCompletionChannels()[messageIndex])
+
+	// Wait for signals to complete, this should be blocking 
+	// TODO:: More granular waits on access time instead
+	acltypes.WaitForAllSignals(ctx.TxBlockingChannels()[messageIndex])
+
+	return handler(ctx, msg)
+}
+
 // runMsgs iterates through a list of messages and executes them with the provided
 // Context and execution mode. Messages will only be executed during simulation
 // and DeliverTx. An error is returned if any single message fails or if a
@@ -805,7 +821,7 @@ func (app *BaseApp) runMsgs(ctx sdk.Context, msgs []sdk.Msg, mode runTxMode) (*s
 		if handler := app.msgServiceRouter.Handler(msg); handler != nil {
 			ctx = ctx.WithMessageIndex(i)
 			// ADR 031 request type routing
-			msgResult, err = handler(ctx, msg)
+			msgResult, err = wrappedHandler(ctx, msg, handler)
 			eventMsgName = sdk.MsgTypeURL(msg)
 		} else if legacyMsg, ok := msg.(legacytx.LegacyMsg); ok {
 			// legacy sdk.Msg routing
