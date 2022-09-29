@@ -1,6 +1,7 @@
 package app_test
 
 import (
+	"sort"
 	"testing"
 
 	acltypes "github.com/cosmos/cosmos-sdk/types/accesscontrol"
@@ -48,26 +49,22 @@ func TestCreateGraph(t *testing.T) {
 		IdentifierTemplate: "ResourceB",
 	}
 
-	dag.AddNodeBuildDependency(1, 1, writeAccessA)   // node id 0
-	dag.AddNodeBuildDependency(1, 1, readAccessB)    // node id 1
-	dag.AddNodeBuildDependency(1, 1, commitAccessOp) // node id 2
-	dag.AddNodeBuildDependency(1, 2, readAccessA)    // node id 3
-	dag.AddNodeBuildDependency(1, 2, readAccessB)    // node id 4
-	dag.AddNodeBuildDependency(1, 2, commitAccessOp) // node id 5
-	dag.AddNodeBuildDependency(1, 3, readAccessB)    // node id 6
-	dag.AddNodeBuildDependency(1, 3, readAccessA)    // node id 7
-	dag.AddNodeBuildDependency(1, 3, commitAccessOp) // node id 8
-	dag.AddNodeBuildDependency(1, 4, writeAccessB)   // node id 9
-	dag.AddNodeBuildDependency(1, 4, commitAccessOp) // node id 10
+	dag.AddNodeBuildDependency(0, 0, writeAccessA)   // node id 0
+	dag.AddNodeBuildDependency(0, 0, readAccessB)    // node id 1
+	dag.AddNodeBuildDependency(0, 0, commitAccessOp) // node id 2
+	dag.AddNodeBuildDependency(0, 1, readAccessA)    // node id 3
+	dag.AddNodeBuildDependency(0, 1, readAccessB)    // node id 4
+	dag.AddNodeBuildDependency(0, 1, commitAccessOp) // node id 5
+	dag.AddNodeBuildDependency(0, 2, readAccessB)    // node id 6
+	dag.AddNodeBuildDependency(0, 2, readAccessA)    // node id 7
+	dag.AddNodeBuildDependency(0, 2, commitAccessOp) // node id 8
+	dag.AddNodeBuildDependency(0, 3, writeAccessB)   // node id 9
+	dag.AddNodeBuildDependency(0, 3, commitAccessOp) // node id 10
 
+	require.Equal(t, []app.DagEdge(nil), dag.EdgesMap[0])
 	require.Equal(
 		t,
-		[]app.DagEdge{{0, 1}},
-		dag.EdgesMap[0],
-	)
-	require.Equal(
-		t,
-		[]app.DagEdge{{1, 2}, {1, 9}},
+		[]app.DagEdge{{1, 9}},
 		dag.EdgesMap[1],
 	)
 	require.Equal(
@@ -75,36 +72,80 @@ func TestCreateGraph(t *testing.T) {
 		[]app.DagEdge{{2, 3}, {2, 7}},
 		dag.EdgesMap[2],
 	)
+	require.Equal(t, []app.DagEdge(nil), dag.EdgesMap[3])
 	require.Equal(
 		t,
-		[]app.DagEdge{{3, 4}},
-		dag.EdgesMap[3],
-	)
-	require.Equal(
-		t,
-		[]app.DagEdge{{4, 5}, {4, 9}},
+		[]app.DagEdge{{4, 9}},
 		dag.EdgesMap[4],
 	)
 	require.Equal(t, []app.DagEdge(nil), dag.EdgesMap[5])
 	require.Equal(
 		t,
-		[]app.DagEdge{{6, 7}, {6, 9}},
+		[]app.DagEdge{{6, 9}},
 		dag.EdgesMap[6],
 	)
-	require.Equal(
-		t,
-		[]app.DagEdge{{7, 8}},
-		dag.EdgesMap[7],
-	)
+	require.Equal(t, []app.DagEdge(nil), dag.EdgesMap[7])
 	require.Equal(t, []app.DagEdge(nil), dag.EdgesMap[8])
-	require.Equal(
-		t,
-		[]app.DagEdge{{9, 10}},
-		dag.EdgesMap[9],
-	)
+	require.Equal(t, []app.DagEdge(nil), dag.EdgesMap[9])
 	require.Equal(t, []app.DagEdge(nil), dag.EdgesMap[10])
 
 	// assert dag is acyclic
 	acyclic := graph.Acyclic(dag)
 	require.True(t, acyclic)
+
+	// test completion signals
+	completionSignalsMap, blockingSignalsMap := dag.BuildCompletionSignalMaps()
+
+	channel0 := completionSignalsMap[0][0][commitAccessOp][0].Channel
+	channel1 := completionSignalsMap[0][0][commitAccessOp][1].Channel
+	channel2 := completionSignalsMap[1][0][readAccessB][0].Channel
+	channel3 := completionSignalsMap[0][0][readAccessB][0].Channel
+	channel4 := completionSignalsMap[2][0][readAccessB][0].Channel
+
+	signal0 := app.CompletionSignal{2, 3, commitAccessOp, readAccessA, channel0}
+	signal1 := app.CompletionSignal{2, 7, commitAccessOp, readAccessA, channel1}
+	signal2 := app.CompletionSignal{4, 9, readAccessB, writeAccessB, channel2}
+	signal3 := app.CompletionSignal{1, 9, readAccessB, writeAccessB, channel3}
+	signal4 := app.CompletionSignal{6, 9, readAccessB, writeAccessB, channel4}
+
+	require.Equal(
+		t,
+		[]app.CompletionSignal{signal0, signal1},
+		completionSignalsMap[0][0][commitAccessOp],
+	)
+	require.Equal(
+		t,
+		[]app.CompletionSignal{signal0},
+		blockingSignalsMap[1][0][readAccessA],
+	)
+	require.Equal(
+		t,
+		[]app.CompletionSignal{signal1},
+		blockingSignalsMap[2][0][readAccessA],
+	)
+
+	require.Equal(
+		t,
+		[]app.CompletionSignal{signal2},
+		completionSignalsMap[1][0][readAccessB],
+	)
+	require.Equal(
+		t,
+		[]app.CompletionSignal{signal3},
+		completionSignalsMap[0][0][readAccessB],
+	)
+	require.Equal(
+		t,
+		[]app.CompletionSignal{signal4},
+		completionSignalsMap[2][0][readAccessB],
+	)
+	slice := blockingSignalsMap[3][0][writeAccessB]
+	sort.SliceStable(slice, func(p, q int) bool {
+		return slice[p].FromNodeID < slice[q].FromNodeID
+	})
+	require.Equal(
+		t,
+		[]app.CompletionSignal{signal3, signal2, signal4},
+		slice,
+	)
 }
