@@ -1,6 +1,7 @@
 package app_test
 
 import (
+	"sort"
 	"testing"
 
 	acltypes "github.com/cosmos/cosmos-sdk/types/accesscontrol"
@@ -138,9 +139,13 @@ func TestCreateGraph(t *testing.T) {
 		[]app.CompletionSignal{signal4},
 		completionSignalsMap[2][0][readAccessB],
 	)
+	slice := blockingSignalsMap[3][0][writeAccessB]
+	sort.SliceStable(slice, func(p, q int) bool {
+		return slice[p].FromNodeID < slice[q].FromNodeID
+	})
 	require.Equal(
 		t,
-		[]app.CompletionSignal{signal4, signal3, signal2},
-		blockingSignalsMap[3][0][writeAccessB],
+		[]app.CompletionSignal{signal3, signal2, signal4},
+		slice,
 	)
 }
