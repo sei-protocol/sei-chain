@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	storetypes "github.com/cosmos/cosmos-sdk/store/types"
@@ -30,6 +31,7 @@ import (
 	servertypes "github.com/cosmos/cosmos-sdk/server/types"
 	"github.com/cosmos/cosmos-sdk/simapp"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	sdkacltypes "github.com/cosmos/cosmos-sdk/types/accesscontrol"
 	"github.com/cosmos/cosmos-sdk/types/module"
 	"github.com/cosmos/cosmos-sdk/version"
 	"github.com/cosmos/cosmos-sdk/x/auth"
@@ -38,6 +40,7 @@ import (
 	aclmodule "github.com/cosmos/cosmos-sdk/x/accesscontrol"
 	aclkeeper "github.com/cosmos/cosmos-sdk/x/accesscontrol/keeper"
 	acltypes "github.com/cosmos/cosmos-sdk/x/accesscontrol/types"
+
 	authrest "github.com/cosmos/cosmos-sdk/x/auth/client/rest"
 	authkeeper "github.com/cosmos/cosmos-sdk/x/auth/keeper"
 	authsims "github.com/cosmos/cosmos-sdk/x/auth/simulation"
@@ -921,11 +924,11 @@ func (app *App) BuildDependencyDag(ctx sdk.Context, txs [][]byte) (*Dag, error) 
 			return nil, err
 		}
 		msgs := tx.GetMsgs()
-		for _, msg := range msgs {
+		for messageIndex, msg := range msgs {
 			msgDependencies := app.AccessControlKeeper.GetResourceDependencyMapping(ctx, acltypes.GenerateMessageKey(msg))
-			for _, accessOp := range msgDependencies.AccessOps {
+			for _, accessOp := range msgDependencies.GetAccessOps() {
 				// make a new node in the dependency dag
-				dependencyDag.AddNodeBuildDependency(txIndex, accessOp)
+				dependencyDag.AddNodeBuildDependency(messageIndex, txIndex, accessOp)
 			}
 		}
 
@@ -964,6 +967,115 @@ func (app *App) FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBlock)
 	appHash := app.WriteStateToCommitAndGetWorkingHash()
 	resp := app.getFinalizeBlockResponse(appHash, events, txResults, endBlockResp)
 	return &resp, nil
+}
+
+func (app *App) DeliverTxWithResult(ctx sdk.Context, tx []byte) *abci.ExecTxResult {
+	deliverTxResp := app.DeliverTx(ctx, abci.RequestDeliverTx{
+		Tx: tx,
+	})
+	return &abci.ExecTxResult{
+		Code:      deliverTxResp.Code,
+		Data:      deliverTxResp.Data,
+		Log:       deliverTxResp.Log,
+		Info:      deliverTxResp.Info,
+		GasWanted: deliverTxResp.GasWanted,
+		GasUsed:   deliverTxResp.GasUsed,
+		Events:    deliverTxResp.Events,
+		Codespace: deliverTxResp.Codespace,
+	}
+}
+
+func (app *App) ProcessBlockSynchronous(ctx sdk.Context, txs [][]byte) []*abci.ExecTxResult {
+	txResults := []*abci.ExecTxResult{}
+	for _, tx := range txs {
+		txResults = append(txResults, app.DeliverTxWithResult(ctx, tx))
+	}
+	return txResults
+}
+
+// Returns a mapping of the accessOperation to the channels
+func getChannelsFromSignalMapping(signalMapping MessageCompletionSignalMapping) sdkacltypes.MessageAccessOpsChannelMapping {
+	channelsMapping := make(sdkacltypes.MessageAccessOpsChannelMapping)
+	for messageIndex, accessOperationsToSignal := range signalMapping {
+		for accessOperation, completionSignals := range accessOperationsToSignal {
+			var channels []chan interface{}
+			for _, completionSignal := range completionSignals {
+				channels = append(channels, completionSignal.Channel)
+			}
+			channelsMapping[messageIndex][accessOperation] = channels
+		}
+	}
+	return channelsMapping
+}
+
+type ChannelResult struct {
+	txIndex int
+	result  *abci.ExecTxResult
+}
+
+func (app *App) ProcessTxConcurrent(
+	ctx sdk.Context,
+	txIndex int,
+	txBytes []byte,
+	wg *sync.WaitGroup,
+	resultChan chan<- ChannelResult,
+	txCompletionSignalingMap MessageCompletionSignalMapping,
+	txBlockingSignalsMap MessageCompletionSignalMapping,
+) {
+	defer wg.Done()
+	// Store the Channels in the Context Object for each transaction
+	ctx.WithTxBlockingChannels(getChannelsFromSignalMapping(txBlockingSignalsMap))
+	ctx.WithTxCompletionChannels(getChannelsFromSignalMapping(txCompletionSignalingMap))
+
+	// Deliver the transaction and store the result in the channel
+	resultChan <- ChannelResult{txIndex, app.DeliverTxWithResult(ctx, txBytes)}
+}
+
+func (app *App) ProcessBlockConcurrent(
+	ctx sdk.Context,
+	txs [][]byte,
+	completionSignalingMap map[int]MessageCompletionSignalMapping,
+	blockingSignalsMap map[int]MessageCompletionSignalMapping,
+) []*abci.ExecTxResult {
+	var waitGroup sync.WaitGroup
+	resultChan := make(chan ChannelResult)
+	txResults := []*abci.ExecTxResult{}
+
+	// If there's no transactions then return empty results
+	if len(txs) == 0 {
+		return txResults
+	}
+
+	// For each transaction, start goroutine and deliver TX
+	for txIndex, txBytes := range txs {
+		waitGroup.Add(1)
+		go app.ProcessTxConcurrent(
+			ctx,
+			txIndex,
+			txBytes,
+			&waitGroup,
+			resultChan,
+			completionSignalingMap[txIndex],
+			blockingSignalsMap[txIndex],
+		)
+	}
+
+	// Waits for all the transactions to complete
+	waitGroup.Wait()
+
+	// Gather Results and store it based on txIndex
+	// Concurrent results may be in different order than the original txIndex
+	txResultsMap := map[int]*abci.ExecTxResult{}
+	for result := range resultChan {
+		txResultsMap[result.txIndex] = result.result
+	}
+
+	// Gather Results and store in array based on txIndex to preserve ordering
+	for txIndex := range txs {
+		txResults = append(txResults, txResultsMap[txIndex])
+	}
+
+	return txResults
 }
 
 func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequest, lastCommit abci.CommitInfo) ([]abci.Event, []*abci.ExecTxResult, abci.ResponseEndBlock, error) {
@@ -1007,30 +1119,18 @@ func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequ
 	// }
 	// app.batchVerifier.VerifyTxs(ctx, typedTxs)
 
-	dag, err := app.BuildDependencyDag(ctx, txs)
+	dependencyDag, err := app.BuildDependencyDag(ctx, txs)
 	txResults := []*abci.ExecTxResult{}
+
+	// TODO:: add metrics for async vs sync
 	if err != nil {
-		// something went wrong in dag, process txs sequentially
-		for _, tx := range txs {
-			// ctx = ctx.WithContext(context.WithValue(ctx.Context(), ante.ContextKeyTxIndexKey, i))
-			deliverTxResp := app.DeliverTx(ctx, abci.RequestDeliverTx{
-				Tx: tx,
-			})
-			txResults = append(txResults, &abci.ExecTxResult{
-				Code:      deliverTxResp.Code,
-				Data:      deliverTxResp.Data,
-				Log:       deliverTxResp.Log,
-				Info:      deliverTxResp.Info,
-				GasWanted: deliverTxResp.GasWanted,
-				GasUsed:   deliverTxResp.GasUsed,
-				Events:    deliverTxResp.Events,
-				Codespace: deliverTxResp.Codespace,
-			})
+		ctx.Logger().Error(fmt.Sprintf("Error while building DAG, processing synchronously: %s", err))
+		if err == ErrCycleInDAG {
+			txResults = app.ProcessBlockSynchronous(ctx, txs)
 		}
 	} else {
-		// no error, lets process txs concurrently
-		_, _ = dag.BuildCompletionSignalMaps()
-		// TODO: create channel map here
+		completionSignalingMap, blockingSignalsMap := dependencyDag.BuildCompletionSignalMaps()
+		txResults = app.ProcessBlockConcurrent(ctx, txs, completionSignalingMap, blockingSignalsMap)
 	}
 
 	endBlockResp := app.EndBlock(ctx, abci.RequestEndBlock{
