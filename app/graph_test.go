@@ -149,3 +149,109 @@ func TestCreateGraph(t *testing.T) {
 		slice,
 	)
 }
+
+func TestHierarchyDag(t *testing.T) {
+	dag := app.NewDag()
+	/**
+	tx1: write to A, commit 1
+	tx2: read ALL, commit 2
+	tx3: write B dexmem, commit 3
+	tx4: read A, commit 4
+	expected dag
+	1wA -> 1c => 2rALL -> 2c
+			\	   \=> 3wB c3
+			\---=> 4rA c4
+	**/
+
+	commit := acltypes.AccessOperation{
+		AccessType:         acltypes.AccessType_COMMIT,
+		ResourceType:       acltypes.ResourceType_ANY,
+		IdentifierTemplate: "*",
+	}
+	writeA := acltypes.AccessOperation{
+		AccessType:         acltypes.AccessType_WRITE,
+		ResourceType:       acltypes.ResourceType_KV,
+		IdentifierTemplate: "ResourceA",
+	}
+	readA := acltypes.AccessOperation{
+		AccessType:         acltypes.AccessType_READ,
+		ResourceType:       acltypes.ResourceType_KV,
+		IdentifierTemplate: "ResourceA",
+	}
+	writeB := acltypes.AccessOperation{
+		AccessType:         acltypes.AccessType_WRITE,
+		ResourceType:       acltypes.ResourceType_DexMem,
+		IdentifierTemplate: "ResourceB",
+	}
+	readAll := acltypes.AccessOperation{
+		AccessType:         acltypes.AccessType_READ,
+		ResourceType:       acltypes.ResourceType_ANY,
+		IdentifierTemplate: "*",
+	}
+
+	dag.AddNodeBuildDependency(0, 0, writeA)  // node id 0
+	dag.AddNodeBuildDependency(0, 0, commit)  // node id 1
+	dag.AddNodeBuildDependency(0, 1, readAll) // node id 2
+	dag.AddNodeBuildDependency(0, 1, commit)  // node id 3
+	dag.AddNodeBuildDependency(0, 2, writeB)  // node id 4
+	dag.AddNodeBuildDependency(0, 2, commit)  // node id 5
+	dag.AddNodeBuildDependency(0, 3, readA)   // node id 6
+	dag.AddNodeBuildDependency(0, 3, commit)  // node id 7
+
+	// assert dag is acyclic
+	acyclic := graph.Acyclic(dag)
+	require.True(t, acyclic)
+
+	require.Equal(t, []app.DagEdge(nil), dag.EdgesMap[0])
+	require.Equal(
+		t,
+		[]app.DagEdge{{1, 2}, {1, 6}},
+		dag.EdgesMap[1],
+	)
+	require.Equal(
+		t,
+		[]app.DagEdge{{2, 4}},
+		dag.EdgesMap[2],
+	)
+	require.Equal(t, []app.DagEdge(nil), dag.EdgesMap[3])
+	require.Equal(t, []app.DagEdge(nil), dag.EdgesMap[4])
+	require.Equal(t, []app.DagEdge(nil), dag.EdgesMap[5])
+	require.Equal(t, []app.DagEdge(nil), dag.EdgesMap[6])
+
+	// test completion signals
+	completionSignalsMap, blockingSignalsMap := dag.BuildCompletionSignalMaps()
+
+	channel0 := completionSignalsMap[0][0][commit][0].Channel
+	channel1 := completionSignalsMap[0][0][commit][1].Channel
+	channel2 := completionSignalsMap[1][0][readAll][0].Channel
+
+	signal0 := app.CompletionSignal{1, 2, commit, readAll, channel0}
+	signal1 := app.CompletionSignal{1, 6, commit, readA, channel1}
+	signal2 := app.CompletionSignal{2, 4, readAll, writeB, channel2}
+
+	require.Equal(
+		t,
+		[]app.CompletionSignal{signal0, signal1},
+		completionSignalsMap[0][0][commit],
+	)
+	require.Equal(
+		t,
+		[]app.CompletionSignal{signal0},
+		blockingSignalsMap[1][0][readAll],
+	)
+	require.Equal(
+		t,
+		[]app.CompletionSignal{signal1},
+		blockingSignalsMap[3][0][readA],
+	)
+	require.Equal(
+		t,
+		[]app.CompletionSignal{signal2},
+		completionSignalsMap[1][0][readAll],
+	)
+	require.Equal(
+		t,
+		[]app.CompletionSignal{signal2},
+		blockingSignalsMap[2][0][writeB],
+	)
+}
