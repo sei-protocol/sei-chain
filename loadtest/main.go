@@ -3,8 +3,6 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	sdktypes "github.com/cosmos/cosmos-sdk/types"
-	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
 	"math/rand"
 	"os"
 	"os/exec"
@@ -12,6 +10,9 @@ import (
 	"strconv"
 	"sync"
 	"time"
+
+	sdktypes "github.com/cosmos/cosmos-sdk/types"
+	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
 
 	"github.com/cosmos/cosmos-sdk/client"
 	"github.com/cosmos/cosmos-sdk/codec"
