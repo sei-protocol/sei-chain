@@ -3,8 +3,11 @@ import os
 import multiprocessing
 import subprocess
 import sys
+import threading
+import time
 
 PARALLEISM=32
+LOCK=threading.Lock()
 
 def add_genesis_account(account_name, local=False):
     if local:
@@ -35,16 +38,20 @@ def add_genesis_account(account_name, local=False):
         json.dump(data, f)
     success = False
     retry_counter = 5
+    sleep_time = 1
     while not success and retry_counter > 0:
         try:
-            subprocess.check_call(
-                [add_account_cmd],
-                shell=True,
-            )
-            success = True
+            with LOCK:
+                subprocess.check_call(
+                    [add_account_cmd],
+                    shell=True,
+                )
+                success = True
         except subprocess.CalledProcessError as e:
             print(f"Encountered error {e}, retrying {retry_counter - 1} times")
             retry_counter -= 1
+            sleep_time += 0.5
+            time.sleep(sleep_time)
 
 
 def bulk_create_genesis_accounts(number_of_accounts, start_idx, is_local=False):
