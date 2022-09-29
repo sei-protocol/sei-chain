@@ -235,7 +235,7 @@ func (dag *Dag) BuildCompletionSignalMaps() (
 			}
 		}
 	}
-	return
+	return completionSignalingMap, blockingSignalsMap
 }
 
 var ErrCycleInDAG = fmt.Errorf("cycle detected in DAG")
