@@ -3,6 +3,8 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	sdktypes "github.com/cosmos/cosmos-sdk/types"
+	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
 	"math/rand"
 	"os"
 	"os/exec"
@@ -37,6 +39,7 @@ type Config struct {
 	ChainID        string                `json:"chain_id"`
 	OrdersPerBlock uint64                `json:"orders_per_block"`
 	Rounds         uint64                `json:"rounds"`
+	MessageType    string                `json:"message_type"`
 	PriceDistr     NumericDistribution   `json:"price_distribution"`
 	QuantityDistr  NumericDistribution   `json:"quantity_distribution"`
 	MsgTypeDistr   MsgTypeDistribution   `json:"message_type_distribution"`
@@ -167,55 +170,67 @@ func run(config Config) {
 		for accountIdx, account := range activeAccounts {
 			key := GetKey(uint64(account))
 			var msg sdk.Msg
-			msgType := config.MsgTypeDistr.Sample()
-			orderPlacements := []*dextypes.Order{}
-			var orderType dextypes.OrderType
-			if msgType == "limit" {
-				orderType = dextypes.OrderType_LIMIT
+			if config.MessageType == "basic" {
+				msg = &banktypes.MsgSend{
+					FromAddress: sdk.AccAddress(key.PubKey().Address()).String(),
+					ToAddress:   sdk.AccAddress(key.PubKey().Address()).String(),
+					Amount: sdktypes.NewCoins(sdktypes.Coin{
+						Denom:  "usei",
+						Amount: sdktypes.NewInt(1),
+					}),
+				}
+			} else if config.MessageType == "dex" {
+				msgType := config.MsgTypeDistr.Sample()
+				orderPlacements := []*dextypes.Order{}
+				var orderType dextypes.OrderType
+				if msgType == "limit" {
+					orderType = dextypes.OrderType_LIMIT
+				} else {
+					orderType = dextypes.OrderType_MARKET
+				}
+				var direction dextypes.PositionDirection
+				if rand.Float64() < 0.5 {
+					direction = dextypes.PositionDirection_LONG
+				} else {
+					direction = dextypes.PositionDirection_SHORT
+				}
+				price := config.PriceDistr.Sample()
+				quantity := config.QuantityDistr.Sample()
+				contract := config.ContractDistr.Sample()
+				for j := 0; j < int(batchSize); j++ {
+					orderPlacements = append(orderPlacements, &dextypes.Order{
+						Account:           sdk.AccAddress(key.PubKey().Address()).String(),
+						ContractAddr:      contract,
+						PositionDirection: direction,
+						Price:             price.Quo(FromMili),
+						Quantity:          quantity.Quo(FromMili),
+						PriceDenom:        "SEI",
+						AssetDenom:        "ATOM",
+						OrderType:         orderType,
+						Data:              VortexData,
+					})
+				}
+				amount, err := sdk.ParseCoinsNormalized(fmt.Sprintf("%d%s", price.Mul(quantity).Ceil().RoundInt64(), "usei"))
+				if err != nil {
+					panic(err)
+				}
+				msg = &dextypes.MsgPlaceOrders{
+					Creator:      sdk.AccAddress(key.PubKey().Address()).String(),
+					Orders:       orderPlacements,
+					ContractAddr: contract,
+					Funds:        amount,
+				}
 			} else {
-				orderType = dextypes.OrderType_MARKET
-			}
-			var direction dextypes.PositionDirection
-			if rand.Float64() < 0.5 {
-				direction = dextypes.PositionDirection_LONG
-			} else {
-				direction = dextypes.PositionDirection_SHORT
-			}
-			price := config.PriceDistr.Sample()
-			quantity := config.QuantityDistr.Sample()
-			contract := config.ContractDistr.Sample()
-			for j := 0; j < int(batchSize); j++ {
-				orderPlacements = append(orderPlacements, &dextypes.Order{
-					Account:           sdk.AccAddress(key.PubKey().Address()).String(),
-					ContractAddr:      contract,
-					PositionDirection: direction,
-					Price:             price.Quo(FromMili),
-					Quantity:          quantity.Quo(FromMili),
-					PriceDenom:        "SEI",
-					AssetDenom:        "ATOM",
-					OrderType:         orderType,
-					Data:              VortexData,
-				})
-			}
-			amount, err := sdk.ParseCoinsNormalized(fmt.Sprintf("%d%s", price.Mul(quantity).Ceil().RoundInt64(), "usei"))
-			if err != nil {
-				panic(err)
-			}
-			msg = &dextypes.MsgPlaceOrders{
-				Creator:      sdk.AccAddress(key.PubKey().Address()).String(),
-				Orders:       orderPlacements,
-				ContractAddr: contract,
-				Funds:        amount,
+				fmt.Sprintf("Unrecognized message type %s", config.MessageType)
 			}
 			txBuilder := TestConfig.TxConfig.NewTxBuilder()
-
 			_ = txBuilder.SetMsgs(msg)
 			seqDelta := uint64(i / 2)
 			mode := typestx.BroadcastMode_BROADCAST_MODE_SYNC
 			if accountIdx == len(activeAccounts)-1 {
 				mode = typestx.BroadcastMode_BROADCAST_MODE_BLOCK
-
 			}
+
 			// Note: There is a potential race condition here with seqnos
 			// in which a later seqno is delievered before an earlier seqno
 			// In practice, we haven't run into this issue so we'll leave this
