@@ -968,9 +968,9 @@ func getChannelsFromSignalMapping(signalMapping MessageCompletionSignalMapping) 
 	return channelsMapping
 }
 
-type ChannelResult struct { 
+type ChannelResult struct {
 	txIndex int
-	result *abci.ExecTxResult 
+	result  *abci.ExecTxResult
 }
 
 func (app *App) ProcessTxConcurrent(
@@ -1023,7 +1023,7 @@ func (app *App) ProcessBlockConcurrent(
 	// Waits for all the transactions to complete
 	waitGroup.Wait()
 
-	// Gather Results and store it based on txIndex 
+	// Gather Results and store it based on txIndex
 	// Concurrent results may be in different order than the original txIndex
 	txResultsMap := map[int]*abci.ExecTxResult{}
 	for result := range resultChan {
@@ -1034,7 +1034,7 @@ func (app *App) ProcessBlockConcurrent(
 	for txIndex := range txs {
 		txResults = append(txResults, txResultsMap[txIndex])
 	}
-		
+
 	return txResults
 }
 
