@@ -1,7 +1,13 @@
 import json
 import os
+import multiprocessing
 import subprocess
 import sys
+import threading
+import time
+
+PARALLEISM=32
+LOCK=threading.Lock()
 
 def add_genesis_account(account_name, local=False):
     if local:
@@ -30,13 +36,26 @@ def add_genesis_account(account_name, local=False):
             "mnemonic": mnemonic,
         }
         json.dump(data, f)
-    subprocess.check_call(
-        [add_account_cmd],
-        shell=True,
-    )
+    success = False
+    retry_counter = 5
+    sleep_time = 1
+    while not success and retry_counter > 0:
+        try:
+            with LOCK:
+                subprocess.check_call(
+                    [add_account_cmd],
+                    shell=True,
+                )
+                success = True
+        except subprocess.CalledProcessError as e:
+            print(f"Encountered error {e}, retrying {retry_counter - 1} times")
+            retry_counter -= 1
+            sleep_time += 0.5
+            time.sleep(sleep_time)
 
-def bulk_create_genesis_accounts(number_of_accounts, is_local=False):
-    for i in range(number_of_accounts):
+
+def bulk_create_genesis_accounts(number_of_accounts, start_idx, is_local=False):
+    for i in range(start_idx, start_idx + number_of_accounts):
         print(f"Creating account {i}")
         add_genesis_account(f"ta{i}", is_local)
 
@@ -46,7 +65,14 @@ def main():
     is_local = False
     if len(args) > 1 and args[1] == "loc":
         is_local = True
-    bulk_create_genesis_accounts(number_of_accounts, is_local)
+    num_processes = number_of_accounts // PARALLEISM
+    processes = []
+    for i in range(0, number_of_accounts, num_processes):
+        processes.append(multiprocessing.Process(target=bulk_create_genesis_accounts, args=(num_processes, i, is_local)))
+    for p in processes:
+        p.start()
+    for p in processes:
+        p.join()
 
 if __name__ == "__main__":
     main()
