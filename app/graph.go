@@ -3,13 +3,14 @@ package app
 import (
 	"fmt"
 
-	acltypes "github.com/cosmos/cosmos-sdk/x/accesscontrol/types"
+	acltypes "github.com/cosmos/cosmos-sdk/types/accesscontrol"
 )
 
 type DagNodeID int
 
 type DagNode struct {
 	NodeID          DagNodeID
+	MessageIndex    int
 	TxIndex         int
 	AccessOperation acltypes.AccessOperation
 }
@@ -27,6 +28,17 @@ type Dag struct {
 	NextID       DagNodeID
 }
 
+// Alias for mapping MessageIndexId -> AccessOperations -> CompletionSignals
+type MessageCompletionSignalMapping = map[int]map[acltypes.AccessOperation][]CompletionSignal
+
+type CompletionSignal struct {
+	FromNodeID                DagNodeID
+	ToNodeID                  DagNodeID
+	CompletionAccessOperation acltypes.AccessOperation // this is the access operation that must complete in order to send the signal
+	BlockedAccessOperation    acltypes.AccessOperation // this is the access operation that is blocked by the completion access operation
+	Channel                   chan interface{}
+}
+
 func (dag *Dag) GetCompletionSignal(edge DagEdge) *CompletionSignal {
 	// only if tx indexes are different
 	fromNode := dag.NodeMap[edge.FromNodeID]
@@ -39,6 +51,8 @@ func (dag *Dag) GetCompletionSignal(edge DagEdge) *CompletionSignal {
 		ToNodeID:                  toNode.NodeID,
 		CompletionAccessOperation: fromNode.AccessOperation,
 		BlockedAccessOperation:    toNode.AccessOperation,
+		// channel used for signalling
+		Channel: make(chan interface{}),
 	}
 }
 
@@ -68,9 +82,10 @@ func NewDag() Dag {
 	}
 }
 
-func (dag *Dag) AddNode(txIndex int, accessOp acltypes.AccessOperation) DagNode {
+func (dag *Dag) AddNode(messageIndex int, txIndex int, accessOp acltypes.AccessOperation) DagNode {
 	dagNode := DagNode{
 		NodeID:          dag.NextID,
+		MessageIndex:    messageIndex,
 		TxIndex:         txIndex,
 		AccessOperation: accessOp,
 	}
@@ -101,8 +116,8 @@ func (dag *Dag) AddEdge(fromIndex DagNodeID, toIndex DagNodeID) *DagEdge {
 // that will allow the dependent goroutines to cordinate execution safely.
 //
 // It will also register the new node with AccessOpsMap so that future nodes that amy be dependent on this one can properly identify the dependency.
-func (dag *Dag) AddNodeBuildDependency(txIndex int, accessOp acltypes.AccessOperation) {
-	dagNode := dag.AddNode(txIndex, accessOp)
+func (dag *Dag) AddNodeBuildDependency(messageIndex int, txIndex int, accessOp acltypes.AccessOperation) {
+	dagNode := dag.AddNode(messageIndex, txIndex, accessOp)
 	// if in TxIndexMap, make an edge from the previous node index
 	if lastTxNodeID, ok := dag.TxIndexMap[txIndex]; ok {
 		// TODO: we actually don't necessarily need these edges, but keeping for now so we can first determine that cycles can't be missed if we remove these
@@ -186,7 +201,10 @@ func (dag *Dag) GetNodeDependencies(node DagNode) (nodeDependencies []DagNode) {
 }
 
 // returns completion signaling map and blocking signals map
-func (dag *Dag) BuildCompletionSignalMaps() (completionSignalingMap map[int]map[acltypes.AccessOperation][]CompletionSignal, blockingSignalsMap map[int]map[acltypes.AccessOperation][]CompletionSignal) {
+func (dag *Dag) BuildCompletionSignalMaps() (
+	completionSignalingMap map[int]MessageCompletionSignalMapping,
+	blockingSignalsMap map[int]MessageCompletionSignalMapping,
+) {
 	// go through every node
 	for _, node := range dag.NodeMap {
 		// for each node, assign its completion signaling, and also assign blocking signals for the destination nodes
@@ -195,24 +213,21 @@ func (dag *Dag) BuildCompletionSignalMaps() (completionSignalingMap map[int]map[
 				maybeCompletionSignal := dag.GetCompletionSignal(edge)
 				if maybeCompletionSignal != nil {
 					completionSignal := *maybeCompletionSignal
+
 					// add it to the right blocking signal in the right txindex
 					toNode := dag.NodeMap[edge.ToNodeID]
-					blockingSignalsMap[toNode.TxIndex][completionSignal.BlockedAccessOperation] = append(blockingSignalsMap[toNode.TxIndex][completionSignal.BlockedAccessOperation], completionSignal)
+					prevBlockSignalMapping := blockingSignalsMap[toNode.TxIndex][toNode.MessageIndex][completionSignal.BlockedAccessOperation]
+					blockingSignalsMap[toNode.TxIndex][toNode.MessageIndex][completionSignal.BlockedAccessOperation] = append(prevBlockSignalMapping, completionSignal)
+
 					// add it to the completion signal for the tx index
-					completionSignalingMap[node.TxIndex][completionSignal.CompletionAccessOperation] = append(completionSignalingMap[node.TxIndex][completionSignal.CompletionAccessOperation], completionSignal)
+					prevCompletionSignalMapping := completionSignalingMap[node.TxIndex][node.MessageIndex][completionSignal.CompletionAccessOperation]
+					completionSignalingMap[node.TxIndex][node.MessageIndex][completionSignal.CompletionAccessOperation] = append(prevCompletionSignalMapping, completionSignal)
 				}
 
 			}
 		}
 	}
 	return
-}
-
-type CompletionSignal struct {
-	FromNodeID                DagNodeID
-	ToNodeID                  DagNodeID
-	CompletionAccessOperation acltypes.AccessOperation // this is the access operation that must complete in order to send the signal
-	BlockedAccessOperation    acltypes.AccessOperation // this is the access operation that is blocked by the completion access operation
 }
 
 var ErrCycleInDAG = fmt.Errorf("cycle detected in DAG")
