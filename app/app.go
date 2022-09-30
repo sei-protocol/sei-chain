@@ -983,6 +983,8 @@ func (app *App) ProcessTxConcurrent(
 	txBlockingSignalsMap MessageCompletionSignalMapping,
 ) {
 	defer wg.Done()
+	ctx.Logger().Info(fmt.Sprintf("ProcessTxConcurrent:: Processing: %d", txIndex))
+
 	// Store the Channels in the Context Object for each transaction
 	ctx.WithTxBlockingChannels(getChannelsFromSignalMapping(txBlockingSignalsMap))
 	ctx.WithTxCompletionChannels(getChannelsFromSignalMapping(txCompletionSignalingMap))
@@ -1003,6 +1005,7 @@ func (app *App) ProcessBlockConcurrent(
 
 	// If there's no transactions then return empty results
 	if len(txs) == 0 {
+		ctx.Logger().Info("ProcessBlockConcurrent:: No Transactions!")
 		return txResults
 	}
 
@@ -1021,6 +1024,7 @@ func (app *App) ProcessBlockConcurrent(
 	}
 
 	// Waits for all the transactions to complete
+	ctx.Logger().Info("ProcessBlockConcurrent:: Waiting for TXs!")
 	waitGroup.Wait()
 
 	// Gather Results and store it based on txIndex
@@ -1030,6 +1034,7 @@ func (app *App) ProcessBlockConcurrent(
 		txResultsMap[result.txIndex] = result.result
 	}
 
+	ctx.Logger().Info("ProcessBlockConcurrent:: Gathered Results!")
 	// Gather Results and store in array based on txIndex to preserve ordering
 	for txIndex := range txs {
 		txResults = append(txResults, txResultsMap[txIndex])
@@ -1089,6 +1094,7 @@ func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequ
 			txResults = app.ProcessBlockSynchronous(ctx, txs)
 		}
 	} else {
+		ctx.Logger().Info("ProcessBlock:: Building Mapping")
 		completionSignalingMap, blockingSignalsMap := dependencyDag.BuildCompletionSignalMaps()
 		txResults = app.ProcessBlockConcurrent(ctx, txs, completionSignalingMap, blockingSignalsMap)
 	}
