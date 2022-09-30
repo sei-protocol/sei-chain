@@ -14,11 +14,13 @@ def add_genesis_account(account_name, local=False):
         add_key_cmd = f"yes | ~/go/bin/seid keys add {account_name} --keyring-backend test"
     else:
         add_key_cmd = f"printf '12345678\n' | ~/go/bin/seid keys add {account_name}"
-    add_key_output = subprocess.check_output(
-        [add_key_cmd],
-        stderr=subprocess.STDOUT,
-        shell=True,
-    ).decode()
+
+    with LOCK:
+        add_key_output = subprocess.check_output(
+            [add_key_cmd],
+            stderr=subprocess.STDOUT,
+            shell=True,
+        ).decode()
     splitted_outputs = add_key_output.split('\n')
     address = splitted_outputs[3].split(': ')[1]
     mnemonic = splitted_outputs[11]
