@@ -6,15 +6,9 @@ import (
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 )
 
 func (k KeeperWrapper) GetTwaps(goCtx context.Context, req *types.QueryGetTwapsRequest) (*types.QueryGetTwapsResponse, error) {
-	if req == nil {
-		return nil, status.Error(codes.InvalidArgument, "invalid request")
-	}
-
 	ctx := sdk.UnwrapSDKContext(goCtx)
 	allRegisteredPairs := k.GetAllRegisteredPairs(ctx, req.ContractAddr)
 	twaps := []*types.Twap{}

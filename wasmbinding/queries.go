@@ -3,7 +3,6 @@ package wasmbinding
 import (
 	"encoding/json"
 
-	wasmvmtypes "github.com/CosmWasm/wasmvm/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	dexwasm "github.com/sei-protocol/sei-chain/x/dex/client/wasm"
 	dexbindings "github.com/sei-protocol/sei-chain/x/dex/client/wasm/bindings"
@@ -45,7 +44,7 @@ func (qp QueryPlugin) HandleOracleQuery(ctx sdk.Context, queryData json.RawMessa
 	case parsedQuery.ExchangeRates != nil:
 		res, err := qp.oracleHandler.GetExchangeRates(ctx)
 		if err != nil {
-			return nil, oracletypes.ErrGettingExchangeRates
+			return nil, err
 		}
 		bz, err := json.Marshal(res)
 		if err != nil {
@@ -56,16 +55,16 @@ func (qp QueryPlugin) HandleOracleQuery(ctx sdk.Context, queryData json.RawMessa
 	case parsedQuery.OracleTwaps != nil:
 		res, err := qp.oracleHandler.GetOracleTwaps(ctx, parsedQuery.OracleTwaps)
 		if err != nil {
-			return nil, oracletypes.ErrGettingOralceTwaps
+			return nil, err
 		}
 		bz, err := json.Marshal(res)
 		if err != nil {
-			return nil, oracletypes.ErrEncodingOralceTwaps
+			return nil, oracletypes.ErrEncodingOracleTwaps
 		}
 
 		return bz, nil
 	default:
-		return nil, wasmvmtypes.UnsupportedRequest{Kind: "Unknown Sei Oracle Query"}
+		return nil, oracletypes.ErrUnknownSeiOracleQuery
 	}
 }
 
@@ -78,7 +77,7 @@ func (qp QueryPlugin) HandleDexQuery(ctx sdk.Context, queryData json.RawMessage)
 	case parsedQuery.DexTwaps != nil:
 		res, err := qp.dexHandler.GetDexTwap(ctx, parsedQuery.DexTwaps)
 		if err != nil {
-			return nil, dextypes.ErrGettingDexTwaps
+			return nil, err
 		}
 		bz, err := json.Marshal(res)
 		if err != nil {
@@ -89,7 +88,7 @@ func (qp QueryPlugin) HandleDexQuery(ctx sdk.Context, queryData json.RawMessage)
 	case parsedQuery.GetOrders != nil:
 		res, err := qp.dexHandler.GetOrders(ctx, parsedQuery.GetOrders)
 		if err != nil {
-			return nil, dextypes.ErrGettingOrders
+			return nil, err
 		}
 		bz, err := json.Marshal(res)
 		if err != nil {
@@ -100,7 +99,7 @@ func (qp QueryPlugin) HandleDexQuery(ctx sdk.Context, queryData json.RawMessage)
 	case parsedQuery.GetOrderByID != nil:
 		res, err := qp.dexHandler.GetOrderByID(ctx, parsedQuery.GetOrderByID)
 		if err != nil {
-			return nil, dextypes.ErrGettingOrderByID
+			return nil, err
 		}
 		bz, err := json.Marshal(res)
 		if err != nil {
@@ -111,7 +110,7 @@ func (qp QueryPlugin) HandleDexQuery(ctx sdk.Context, queryData json.RawMessage)
 	case parsedQuery.GetOrderSimulation != nil:
 		res, err := qp.dexHandler.GetOrderSimulation(ctx, parsedQuery.GetOrderSimulation)
 		if err != nil {
-			return nil, dextypes.ErrEncodingOrderSimulation
+			return nil, err
 		}
 		bz, err := json.Marshal(res)
 		if err != nil {
@@ -120,7 +119,7 @@ func (qp QueryPlugin) HandleDexQuery(ctx sdk.Context, queryData json.RawMessage)
 
 		return bz, nil
 	default:
-		return nil, wasmvmtypes.UnsupportedRequest{Kind: "Unknown Sei Dex Query"}
+		return nil, dextypes.ErrUnknownSeiDexQuery
 	}
 }
 
@@ -133,7 +132,7 @@ func (qp QueryPlugin) HandleEpochQuery(ctx sdk.Context, queryData json.RawMessag
 	case parsedQuery.Epoch != nil:
 		res, err := qp.epochHandler.GetEpoch(ctx, parsedQuery.Epoch)
 		if err != nil {
-			return nil, epochtypes.ErrGettingEpoch
+			return nil, err
 		}
 		bz, err := json.Marshal(res)
 		if err != nil {
@@ -142,7 +141,7 @@ func (qp QueryPlugin) HandleEpochQuery(ctx sdk.Context, queryData json.RawMessag
 
 		return bz, nil
 	default:
-		return nil, wasmvmtypes.UnsupportedRequest{Kind: "Unknown Sei Epoch Query"}
+		return nil, epochtypes.ErrUnknownSeiEpochQuery
 	}
 }
 
@@ -155,7 +154,7 @@ func (qp QueryPlugin) HandleTokenFactoryQuery(ctx sdk.Context, queryData json.Ra
 	case parsedQuery.CreatorInDenomFeeWhitelist != nil:
 		res, err := qp.tokenfactoryHandler.GetCreatorInDenomFeeWhitelist(ctx, parsedQuery.CreatorInDenomFeeWhitelist)
 		if err != nil {
-			return nil, tokenfactorytypes.ErrQueryingCreatorInDenomFeeWhitelist
+			return nil, err
 		}
 		bz, err := json.Marshal(res)
 		if err != nil {
@@ -166,7 +165,7 @@ func (qp QueryPlugin) HandleTokenFactoryQuery(ctx sdk.Context, queryData json.Ra
 	case parsedQuery.GetDenomFeeWhitelist != nil:
 		res, err := qp.tokenfactoryHandler.GetDenomCreationFeeWhitelist(ctx)
 		if err != nil {
-			return nil, tokenfactorytypes.ErrGettingDenomCreationFeeWhitelist
+			return nil, err
 		}
 		bz, err := json.Marshal(res)
 		if err != nil {
@@ -175,6 +174,6 @@ func (qp QueryPlugin) HandleTokenFactoryQuery(ctx sdk.Context, queryData json.Ra
 
 		return bz, nil
 	default:
-		return nil, wasmvmtypes.UnsupportedRequest{Kind: "Unknown Sei TokenFactory Query"}
+		return nil, tokenfactorytypes.ErrUnknownSeiTokenFactoryQuery
 	}
 }

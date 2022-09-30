@@ -8,6 +8,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/crypto/keys/secp256k1"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/sei-protocol/sei-chain/app"
+	keepertest "github.com/sei-protocol/sei-chain/testutil/keeper"
 	"github.com/sei-protocol/sei-chain/wasmbinding"
 	dexwasm "github.com/sei-protocol/sei-chain/x/dex/client/wasm"
 	dexbinding "github.com/sei-protocol/sei-chain/x/dex/client/wasm/bindings"
@@ -37,6 +38,54 @@ func SetupWasmbindingTest(t *testing.T) (*app.TestWrapper, func(ctx sdk.Context,
 	th := tokenfactorywasm.NewTokenFactoryWasmQueryHandler(&testWrapper.App.TokenFactoryKeeper)
 	qp := wasmbinding.NewQueryPlugin(oh, dh, eh, th)
 	return testWrapper, wasmbinding.CustomQuerier(qp)
+}
+
+func TestWasmUnknownQuery(t *testing.T) {
+	testWrapper, customQuerier := SetupWasmbindingTest(t)
+
+	oracle_req := oraclebinding.SeiOracleQuery{}
+	queryData, err := json.Marshal(oracle_req)
+	require.NoError(t, err)
+	query := wasmbinding.SeiQueryWrapper{Route: wasmbinding.OracleRoute, QueryData: queryData}
+	rawQuery, err := json.Marshal(query)
+	require.NoError(t, err)
+
+	_, err = customQuerier(testWrapper.Ctx, rawQuery)
+	require.Error(t, err)
+	require.Equal(t, err, oracletypes.ErrUnknownSeiOracleQuery)
+
+	dex_req := dexbinding.SeiDexQuery{}
+	queryData, err = json.Marshal(dex_req)
+	require.NoError(t, err)
+	query = wasmbinding.SeiQueryWrapper{Route: wasmbinding.DexRoute, QueryData: queryData}
+	rawQuery, err = json.Marshal(query)
+	require.NoError(t, err)
+
+	_, err = customQuerier(testWrapper.Ctx, rawQuery)
+	require.Error(t, err)
+	require.Equal(t, err, dextypes.ErrUnknownSeiDexQuery)
+
+	epoch_req := epochbinding.SeiEpochQuery{}
+	queryData, err = json.Marshal(epoch_req)
+	require.NoError(t, err)
+	query = wasmbinding.SeiQueryWrapper{Route: wasmbinding.EpochRoute, QueryData: queryData}
+	rawQuery, err = json.Marshal(query)
+	require.NoError(t, err)
+
+	_, err = customQuerier(testWrapper.Ctx, rawQuery)
+	require.Error(t, err)
+	require.Equal(t, err, epochtypes.ErrUnknownSeiEpochQuery)
+
+	token_factory_req := tokenfactorybinding.SeiTokenFactoryQuery{}
+	queryData, err = json.Marshal(token_factory_req)
+	require.NoError(t, err)
+	query = wasmbinding.SeiQueryWrapper{Route: wasmbinding.TokenFactoryRoute, QueryData: queryData}
+	rawQuery, err = json.Marshal(query)
+	require.NoError(t, err)
+
+	_, err = customQuerier(testWrapper.Ctx, rawQuery)
+	require.Error(t, err)
+	require.Equal(t, err, tokenfactorytypes.ErrUnknownSeiTokenFactoryQuery)
 }
 
 func TestWasmGetOracleExchangeRates(t *testing.T) {
@@ -107,6 +156,32 @@ func TestWasmGetOracleTwaps(t *testing.T) {
 	}}, parsedRes2)
 }
 
+func TestWasmGetOracleTwapsErrorHandling(t *testing.T) {
+	testWrapper, customQuerier := SetupWasmbindingTest(t)
+
+	req := oraclebinding.SeiOracleQuery{OracleTwaps: &oracletypes.QueryTwapsRequest{LookbackSeconds: 200}}
+	queryData, err := json.Marshal(req)
+	require.NoError(t, err)
+	query := wasmbinding.SeiQueryWrapper{Route: wasmbinding.OracleRoute, QueryData: queryData}
+	rawQuery, err := json.Marshal(query)
+	require.NoError(t, err)
+
+	_, err = customQuerier(testWrapper.Ctx, rawQuery)
+	require.Error(t, err)
+	require.Equal(t, err, oracletypes.ErrNoTwapData)
+
+	req = oraclebinding.SeiOracleQuery{OracleTwaps: &oracletypes.QueryTwapsRequest{LookbackSeconds: 3601}}
+	queryData, err = json.Marshal(req)
+	require.NoError(t, err)
+	query = wasmbinding.SeiQueryWrapper{Route: wasmbinding.OracleRoute, QueryData: queryData}
+	rawQuery, err = json.Marshal(query)
+	require.NoError(t, err)
+
+	_, err = customQuerier(testWrapper.Ctx, rawQuery)
+	require.Error(t, err)
+	require.Equal(t, err, oracletypes.ErrInvalidTwapLookback)
+}
+
 func TestWasmGetDexTwaps(t *testing.T) {
 	testWrapper, customQuerier := SetupWasmbindingTest(t)
 
@@ -146,6 +221,27 @@ func TestWasmGetDexTwaps(t *testing.T) {
 	require.Equal(t, "sei", twap.Pair.PriceDenom)
 	require.Equal(t, "atom", twap.Pair.AssetDenom)
 	require.Equal(t, sdk.NewDec(20), twap.Twap)
+}
+
+func TestWasmDexGetOrderByIdErrorHandling(t *testing.T) {
+	testWrapper, customQuerier := SetupWasmbindingTest(t)
+
+	req := dexbinding.SeiDexQuery{GetOrderByID: &dextypes.QueryGetOrderByIDRequest{
+		ContractAddr: keepertest.TestContract,
+		PriceDenom:   keepertest.TestPriceDenom,
+		AssetDenom:   keepertest.TestAssetDenom,
+		Id:           1,
+	}}
+	queryData, err := json.Marshal(req)
+	require.NoError(t, err)
+	query := wasmbinding.SeiQueryWrapper{Route: wasmbinding.DexRoute, QueryData: queryData}
+
+	rawQuery, err := json.Marshal(query)
+	require.NoError(t, err)
+
+	_, err = customQuerier(testWrapper.Ctx, rawQuery)
+	require.Error(t, err)
+	require.IsType(t, dextypes.ErrInvalidOrderID, err)
 }
 
 func TestWasmGetOrderSimulation(t *testing.T) {
