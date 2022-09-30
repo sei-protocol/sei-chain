@@ -14,6 +14,7 @@ func (k Keeper) SetEpoch(ctx sdk.Context, epoch uint64) {
 	bz := make([]byte, 8)
 	binary.BigEndian.PutUint64(bz, epoch)
 	store.Set([]byte(EpochKey), bz)
+	ctx.Logger().Info(fmt.Sprintf("Current epoch %d", epoch))
 }
 
 func (k Keeper) IsNewEpoch(ctx sdk.Context) (bool, uint64) {
@@ -21,6 +22,5 @@ func (k Keeper) IsNewEpoch(ctx sdk.Context) (bool, uint64) {
 	b := store.Get([]byte(EpochKey))
 	lastEpoch := binary.BigEndian.Uint64(b)
 	currentEpoch := k.EpochKeeper.GetEpoch(ctx).CurrentEpoch
-	ctx.Logger().Info(fmt.Sprintf("Current epoch %d", currentEpoch))
 	return currentEpoch > lastEpoch, currentEpoch
 }

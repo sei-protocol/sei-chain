@@ -13,10 +13,12 @@ import (
 	"time"
 
 	storetypes "github.com/cosmos/cosmos-sdk/store/types"
+	"github.com/k0kubun/pp"
 	graph "github.com/yourbasic/graph"
 
 	appparams "github.com/sei-protocol/sei-chain/app/params"
 	"github.com/sei-protocol/sei-chain/utils"
+	"github.com/sei-protocol/sei-chain/utils/metrics"
 	"github.com/sei-protocol/sei-chain/wasmbinding"
 
 	wasmkeeper "github.com/CosmWasm/wasmd/x/wasm/keeper"
@@ -885,9 +887,13 @@ func (app *App) BuildDependencyDag(ctx sdk.Context, txs [][]byte) (*Dag, error) 
 		}
 		msgs := tx.GetMsgs()
 		for messageIndex, msg := range msgs {
-			msgDependencies := app.AccessControlKeeper.GetResourceDependencyMapping(ctx, acltypes.GenerateMessageKey(msg))
+			msgKey := acltypes.GenerateMessageKey(msg)
+			msgDependencies := app.AccessControlKeeper.GetResourceDependencyMapping(ctx, msgKey)
+			ctx.Logger().Info(fmt.Sprintf("BuildDependencyDag:Getting Dependencies for %s", msgKey))
+			pp.Println(msgDependencies)
 			for _, accessOp := range msgDependencies.GetAccessOps() {
 				// make a new node in the dependency dag
+				ctx.Logger().Info(fmt.Sprintf("BuildDependencyDag:Get AccessOps Dependencies for %s", msgKey))
 				dependencyDag.AddNodeBuildDependency(messageIndex, txIndex, accessOp)
 			}
 		}
@@ -933,6 +939,7 @@ func (app *App) DeliverTxWithResult(ctx sdk.Context, tx []byte) *abci.ExecTxResu
 	deliverTxResp := app.DeliverTx(ctx, abci.RequestDeliverTx{
 		Tx: tx,
 	})
+	ctx.Logger().Info(fmt.Sprintf("DeliverTxWithResult:: Delievered TX"))
 	return &abci.ExecTxResult{
 		Code:      deliverTxResp.Code,
 		Data:      deliverTxResp.Data,
@@ -950,6 +957,7 @@ func (app *App) ProcessBlockSynchronous(ctx sdk.Context, txs [][]byte) []*abci.E
 	for _, tx := range txs {
 		txResults = append(txResults, app.DeliverTxWithResult(ctx, tx))
 	}
+	metrics.IncrTransactionProcessTypeCounter(metrics.SYNCHRONOUS)
 	return txResults
 }
 
@@ -991,7 +999,12 @@ func (app *App) ProcessTxConcurrent(
 
 	// Deliver the transaction and store the result in the channel
 	ctx.Logger().Info(fmt.Sprintf("ProcessTxConcurrent:: Waiting for: %d", txIndex))
-	resultChan <- ChannelResult{txIndex, app.DeliverTxWithResult(ctx, txBytes)}
+	results := app.DeliverTxWithResult(ctx, txBytes)
+	ctx.Logger().Info(fmt.Sprintf("Got Results: %d", txIndex))
+	channelResult := ChannelResult{txIndex, results}
+	resultChan <- channelResult
+	ctx.Logger().Info(fmt.Sprintf("ProcessTxConcurrent:: Sent to channel: %d", txIndex))
+	metrics.IncrTransactionProcessTypeCounter(metrics.CONCURRENT)
 }
 
 func (app *App) ProcessBlockConcurrent(
@@ -1011,6 +1024,11 @@ func (app *App) ProcessBlockConcurrent(
 	}
 
 	ctx.Logger().Info(fmt.Sprintf("ProcessBlockConcurrent:: Got transactions: %d", len(txs)))
+	go func() {
+        waitGroup.Wait()
+		ctx.Logger().Info("Closing Channels!")
+        close(resultChan)
+    }()
 
 	// For each transaction, start goroutine and deliver TX
 	for txIndex, txBytes := range txs {
@@ -1027,8 +1045,8 @@ func (app *App) ProcessBlockConcurrent(
 	}
 
 	// Waits for all the transactions to complete
-	ctx.Logger().Info("ProcessBlockConcurrent:: Waiting for TXs!")
-	waitGroup.Wait()
+	// ctx.Logger().Info("ProcessBlockConcurrent:: Waiting for TXs!")
+	// waitGroup.Wait()
 
 	// Gather Results and store it based on txIndex
 	// Concurrent results may be in different order than the original txIndex
