@@ -990,6 +990,7 @@ func (app *App) ProcessTxConcurrent(
 	ctx.WithTxCompletionChannels(getChannelsFromSignalMapping(txCompletionSignalingMap))
 
 	// Deliver the transaction and store the result in the channel
+	ctx.Logger().Info(fmt.Sprintf("ProcessTxConcurrent:: Waiting for: %d", txIndex))
 	resultChan <- ChannelResult{txIndex, app.DeliverTxWithResult(ctx, txBytes)}
 }
 
@@ -1008,6 +1009,8 @@ func (app *App) ProcessBlockConcurrent(
 		ctx.Logger().Info("ProcessBlockConcurrent:: No Transactions!")
 		return txResults
 	}
+
+	ctx.Logger().Info(fmt.Sprintf("ProcessBlockConcurrent:: Got transactions: %d", len(txs)))
 
 	// For each transaction, start goroutine and deliver TX
 	for txIndex, txBytes := range txs {
