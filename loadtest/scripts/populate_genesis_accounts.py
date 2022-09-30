@@ -1,26 +1,18 @@
 import json
 import os
-import multiprocessing
 import subprocess
 import sys
-import threading
-import time
-
-PARALLEISM=32
-LOCK=threading.Lock()
 
 def add_genesis_account(account_name, local=False):
     if local:
         add_key_cmd = f"yes | ~/go/bin/seid keys add {account_name} --keyring-backend test"
     else:
         add_key_cmd = f"printf '12345678\n' | ~/go/bin/seid keys add {account_name}"
-
-    with LOCK:
-        add_key_output = subprocess.check_output(
-            [add_key_cmd],
-            stderr=subprocess.STDOUT,
-            shell=True,
-        ).decode()
+    add_key_output = subprocess.check_output(
+        [add_key_cmd],
+        stderr=subprocess.STDOUT,
+        shell=True,
+    ).decode()
     splitted_outputs = add_key_output.split('\n')
     address = splitted_outputs[3].split(': ')[1]
     mnemonic = splitted_outputs[11]
@@ -38,26 +30,13 @@ def add_genesis_account(account_name, local=False):
             "mnemonic": mnemonic,
         }
         json.dump(data, f)
-    success = False
-    retry_counter = 5
-    sleep_time = 1
-    while not success and retry_counter > 0:
-        try:
-            with LOCK:
-                subprocess.check_call(
-                    [add_account_cmd],
-                    shell=True,
-                )
-                success = True
-        except subprocess.CalledProcessError as e:
-            print(f"Encountered error {e}, retrying {retry_counter - 1} times")
-            retry_counter -= 1
-            sleep_time += 0.5
-            time.sleep(sleep_time)
+    subprocess.check_call(
+        [add_account_cmd],
+        shell=True,
+    )
 
-
-def bulk_create_genesis_accounts(number_of_accounts, start_idx, is_local=False):
-    for i in range(start_idx, start_idx + number_of_accounts):
+def bulk_create_genesis_accounts(number_of_accounts, is_local=False):
+    for i in range(number_of_accounts):
         print(f"Creating account {i}")
         add_genesis_account(f"ta{i}", is_local)
 
@@ -67,14 +46,7 @@ def main():
     is_local = False
     if len(args) > 1 and args[1] == "loc":
         is_local = True
-    num_processes = number_of_accounts // PARALLEISM
-    processes = []
-    for i in range(0, number_of_accounts, num_processes):
-        processes.append(multiprocessing.Process(target=bulk_create_genesis_accounts, args=(num_processes, i, is_local)))
-    for p in processes:
-        p.start()
-    for p in processes:
-        p.join()
+    bulk_create_genesis_accounts(number_of_accounts, is_local)
 
 if __name__ == "__main__":
     main()
