@@ -21,7 +21,6 @@ def add_key(account_name, local=False):
         stderr=subprocess.STDOUT,
         shell=True,
     ).decode()
-
     splitted_outputs = add_key_output.split('\n')
     address = splitted_outputs[3].split(': ')[1]
     mnemonic = splitted_outputs[11]
