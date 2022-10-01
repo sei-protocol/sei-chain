@@ -26,7 +26,7 @@ def get_all_heights():
 
 def get_block_info(height):
     res = requests.get(f"http://localhost:26657/block?height={height}")
-    block = res.json()["result"]["block"]
+    block = res.json()["block"]
     return {
         "timestamp": datetime.strptime(block["header"]["time"][:26], "%Y-%m-%dT%H:%M:%S.%f"),
         "number_of_txs": len(block["data"]["txs"])

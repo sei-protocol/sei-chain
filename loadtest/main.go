@@ -171,7 +171,8 @@ func run(config Config) {
 		for _, account := range activeAccounts {
 			key := GetKey(uint64(account))
 			var msg sdk.Msg
-			if config.MessageType == "basic" {
+			switch config.MessageType {
+			case "basic":
 				msg = &banktypes.MsgSend{
 					FromAddress: sdk.AccAddress(key.PubKey().Address()).String(),
 					ToAddress:   sdk.AccAddress(key.PubKey().Address()).String(),
@@ -180,7 +181,7 @@ func run(config Config) {
 						Amount: sdktypes.NewInt(1),
 					}),
 				}
-			} else if config.MessageType == "dex" {
+			case "dex":
 				msgType := config.MsgTypeDistr.Sample()
 				orderPlacements := []*dextypes.Order{}
 				var orderType dextypes.OrderType
@@ -221,7 +222,7 @@ func run(config Config) {
 					ContractAddr: contract,
 					Funds:        amount,
 				}
-			} else {
+			default:
 				fmt.Printf("Unrecognized message type %s", config.MessageType)
 			}
 			txBuilder := TestConfig.TxConfig.NewTxBuilder()
@@ -273,8 +274,7 @@ func getLastHeight() int {
 	if err := json.Unmarshal(out, &dat); err != nil {
 		panic(err)
 	}
-	result := dat["result"].(map[string]interface{})
-	height, err := strconv.Atoi(result["last_height"].(string))
+	height, err := strconv.Atoi(dat["last_height"].(string))
 	if err != nil {
 		panic(err)
 	}
