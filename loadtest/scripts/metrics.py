@@ -49,7 +49,7 @@ def get_metrics():
     return {
         "Summary (excl. first block)": {
             "average_block_time": average_block_time,
-            "average_throughput_per_block": average_txs_num / len(skip_edge_blocks),
+            "average_throughput_per_block": average_txs_num,
             "average_throughput_per_sec": average_txs_num / average_block_time,
             "number_of_full_blocks": len(skip_edge_blocks),
             "total_txs_num": total_txs_num,
