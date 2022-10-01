@@ -222,7 +222,7 @@ func run(config Config) {
 					Funds:        amount,
 				}
 			} else {
-				fmt.Sprintf("Unrecognized message type %s", config.MessageType)
+				fmt.Printf("Unrecognized message type %s", config.MessageType)
 			}
 			txBuilder := TestConfig.TxConfig.NewTxBuilder()
 			_ = txBuilder.SetMsgs(msg)
