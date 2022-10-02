@@ -108,6 +108,7 @@ import (
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 	dbm "github.com/tendermint/tm-db"
 
+	"github.com/sei-protocol/sei-chain/utils/metrics"
 	"github.com/sei-protocol/sei-chain/utils/tracing"
 
 	dexmodule "github.com/sei-protocol/sei-chain/x/dex"
@@ -950,6 +951,7 @@ func (app *App) ProcessBlockSynchronous(ctx sdk.Context, txs [][]byte) []*abci.E
 	for _, tx := range txs {
 		txResults = append(txResults, app.DeliverTxWithResult(ctx, tx))
 	}
+	metrics.IncrTxProcessTypeCounter(metrics.SYNCHRONOUS)
 	return txResults
 }
 
@@ -989,6 +991,7 @@ func (app *App) ProcessTxConcurrent(
 
 	// Deliver the transaction and store the result in the channel
 	resultChan <- ChannelResult{txIndex, app.DeliverTxWithResult(ctx, txBytes)}
+	metrics.IncrTxProcessTypeCounter(metrics.CONCURRENT)
 }
 
 func (app *App) ProcessBlockConcurrent(
@@ -1020,10 +1023,15 @@ func (app *App) ProcessBlockConcurrent(
 		)
 	}
 
-	// Waits for all the transactions to complete
-	waitGroup.Wait()
+	// Do not call waitGroup.Wait() synchronously as it blocks on channel reads
+	// until all the messages are read. This closes the channel once
+	// results are all read and prevent any further writes.
+	go func() {
+		waitGroup.Wait()
+		close(resultChan)
+	}()
 
-	// Gather Results and store it based on txIndex
+	// Gather Results and store it based on txIndex and read results from channel
 	// Concurrent results may be in different order than the original txIndex
 	txResultsMap := map[int]*abci.ExecTxResult{}
 	for result := range resultChan {
