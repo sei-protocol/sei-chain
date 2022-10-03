@@ -4,6 +4,9 @@ import (
 	"encoding/json"
 
 	"github.com/cosmos/cosmos-sdk/codec"
+	distrtypes "github.com/cosmos/cosmos-sdk/x/distribution/types"
+
+	sdk "github.com/cosmos/cosmos-sdk/types"
 )
 
 // The genesis state of the blockchain is represented here as a map of raw json
@@ -17,5 +20,15 @@ type GenesisState map[string]json.RawMessage
 
 // NewDefaultGenesisState generates the default state for the application.
 func NewDefaultGenesisState(cdc codec.JSONCodec) GenesisState {
-	return ModuleBasics.DefaultGenesis(cdc)
+	encCfg := MakeEncodingConfig()
+	gen := ModuleBasics.DefaultGenesis(cdc)
+
+	// Override distribution config to remove community tax
+	distrGen := distrtypes.GenesisState {
+		Params: distrtypes.Params{
+			CommunityTax: sdk.NewDec(0),
+		},
+	}
+	gen[distrtypes.ModuleName] = encCfg.Marshaler.MustMarshalJSON(&distrGen)
+	return gen
 }
