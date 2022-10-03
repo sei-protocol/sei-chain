@@ -188,6 +188,36 @@ func (dag *Dag) getDependencyWrites(node DagNode, dependentResource acltypes.Res
 	return nodeIDs
 }
 
+func (dag *Dag) getDependencyUnknowns(node DagNode, dependentResource acltypes.ResourceType) mapset.Set {
+	nodeIDs := mapset.NewSet()
+	unknownResourceAccess := ResourceAccess{
+		dependentResource,
+		acltypes.AccessType_UNKNOWN,
+	}
+	if identifierNodeMapping, ok := dag.ResourceAccessMap[unknownResourceAccess]; ok {
+		var nodeIDsMaybeDependency []DagNodeID
+		if dependentResource != node.AccessOperation.ResourceType {
+			// we can add all node IDs as dependencies if applicable
+			nodeIDsMaybeDependency = getAllNodeIDsFromIdentifierMapping(identifierNodeMapping)
+		} else {
+			// TODO: otherwise we need to have partial filtering on identifiers
+			// for now, lets just perform exact matching on identifiers
+			nodeIDsMaybeDependency = identifierNodeMapping[node.AccessOperation.IdentifierTemplate]
+		}
+		for _, un := range nodeIDsMaybeDependency {
+			uNode := dag.NodeMap[un]
+			// if accessOp exists already (and from a previous transaction), we need to define a dependency on the previous message (and make a edge between the two)
+			// if from a previous transaction, we need to create an edge
+			if uNode.TxIndex < node.TxIndex {
+				// this should be the COMMIT access op for the tx
+				lastTxNode := dag.NodeMap[dag.TxIndexMap[uNode.TxIndex]]
+				nodeIDs.Add(lastTxNode.NodeID)
+			}
+		}
+	}
+	return nodeIDs
+}
+
 func (dag *Dag) getDependencyReads(node DagNode, dependentResource acltypes.ResourceType) mapset.Set {
 	nodeIDs := mapset.NewSet()
 	readResourceAccess := ResourceAccess{
@@ -220,11 +250,13 @@ func (dag *Dag) getNodeDependenciesForResource(node DagNode, dependentResource a
 	nodeIDs := mapset.NewSet()
 	switch node.AccessOperation.AccessType {
 	case acltypes.AccessType_READ:
-		// for a read, we are blocked on prior writes
+		// for a read, we are blocked on prior writes and unknown
 		nodeIDs = nodeIDs.Union(dag.getDependencyWrites(node, dependentResource))
+		nodeIDs = nodeIDs.Union(dag.getDependencyUnknowns(node, dependentResource))
 	case acltypes.AccessType_WRITE, acltypes.AccessType_UNKNOWN:
-		// for write / unknown, we're blocked on prior writes and reads
+		// for write / unknown, we're blocked on prior writes, reads, and unknowns
 		nodeIDs = nodeIDs.Union(dag.getDependencyWrites(node, dependentResource))
+		nodeIDs = nodeIDs.Union(dag.getDependencyUnknowns(node, dependentResource))
 		nodeIDs = nodeIDs.Union(dag.getDependencyReads(node, dependentResource))
 	}
 	return nodeIDs
