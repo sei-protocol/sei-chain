@@ -327,3 +327,4 @@ func (dag *Dag) BuildCompletionSignalMaps() (
 }
 
 var ErrCycleInDAG = fmt.Errorf("cycle detected in DAG")
+var ErrGovMsgInBlock = fmt.Errorf("gov msg in block")

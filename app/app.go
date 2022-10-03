@@ -876,6 +876,15 @@ func (app *App) ProcessProposalHandler(ctx sdk.Context, req *abci.RequestProcess
 	}, nil
 }
 
+func isGovMessage(msg sdk.Msg) bool {
+	switch msg.(type) {
+	case *govtypes.MsgVoteWeighted, *govtypes.MsgVote, *govtypes.MsgSubmitProposal, *govtypes.MsgDeposit:
+		return true
+	default:
+		return false
+	}
+}
+
 func (app *App) BuildDependencyDag(ctx sdk.Context, txs [][]byte) (*Dag, error) {
 	// contains the latest msg index for a specific Access Operation
 	dependencyDag := NewDag()
@@ -886,6 +895,9 @@ func (app *App) BuildDependencyDag(ctx sdk.Context, txs [][]byte) (*Dag, error) 
 		}
 		msgs := tx.GetMsgs()
 		for messageIndex, msg := range msgs {
+			if isGovMessage(msg) {
+				return nil, ErrGovMsgInBlock
+			}
 			msgDependencies := app.AccessControlKeeper.GetResourceDependencyMapping(ctx, acltypes.GenerateMessageKey(msg))
 			for _, accessOp := range msgDependencies.GetAccessOps() {
 				// make a new node in the dependency dag
@@ -1091,11 +1103,12 @@ func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequ
 	txResults := []*abci.ExecTxResult{}
 
 	// TODO:: add metrics for async vs sync
-	if err != nil {
+	if err == ErrGovMsgInBlock {
+		ctx.Logger().Info(fmt.Sprintf("Gov msg found while building DAG, processing synchronously: %s", err))
+		txResults = app.ProcessBlockSynchronous(ctx, txs)
+	} else if err != nil {
 		ctx.Logger().Error(fmt.Sprintf("Error while building DAG, processing synchronously: %s", err))
-		if err == ErrCycleInDAG {
-			txResults = app.ProcessBlockSynchronous(ctx, txs)
-		}
+		txResults = app.ProcessBlockSynchronous(ctx, txs)
 	} else {
 		completionSignalingMap, blockingSignalsMap := dependencyDag.BuildCompletionSignalMaps()
 		txResults = app.ProcessBlockConcurrent(ctx, txs, completionSignalingMap, blockingSignalsMap)
