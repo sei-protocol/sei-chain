@@ -915,6 +915,7 @@ func (app *App) ProcessProposalHandler(ctx sdk.Context, req *abci.RequestProcess
 }
 
 func (app *App) BuildDependencyDag(ctx sdk.Context, txs [][]byte) (*Dag, error) {
+	defer metrics.MeasureBuildDagDuration(time.Now(), "BuildDependencyDag")
 	// contains the latest msg index for a specific Access Operation
 	dependencyDag := NewDag()
 	for txIndex, txBytes := range txs {
