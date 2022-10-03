@@ -13,7 +13,6 @@ import (
 	"time"
 
 	storetypes "github.com/cosmos/cosmos-sdk/store/types"
-	"github.com/k0kubun/pp"
 	graph "github.com/yourbasic/graph"
 
 	appparams "github.com/sei-protocol/sei-chain/app/params"
@@ -890,7 +889,6 @@ func (app *App) BuildDependencyDag(ctx sdk.Context, txs [][]byte) (*Dag, error) 
 			msgKey := acltypes.GenerateMessageKey(msg)
 			msgDependencies := app.AccessControlKeeper.GetResourceDependencyMapping(ctx, msgKey)
 			ctx.Logger().Info(fmt.Sprintf("BuildDependencyDag:Getting Dependencies for %s", msgKey))
-			pp.Println(msgDependencies)
 			for _, accessOp := range msgDependencies.GetAccessOps() {
 				// make a new node in the dependency dag
 				ctx.Logger().Info(fmt.Sprintf("BuildDependencyDag:Get AccessOps Dependencies for %s", msgKey))

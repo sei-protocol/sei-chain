@@ -5,6 +5,7 @@ import (
 
 	acltypes "github.com/cosmos/cosmos-sdk/types/accesscontrol"
 	mapset "github.com/deckarep/golang-set"
+	"github.com/k0kubun/pp"
 )
 
 type DagNodeID int
@@ -319,6 +320,13 @@ func (dag *Dag) BuildCompletionSignalMaps() (
 			}
 		}
 	}
+	println("DAG")
+	pp.Println(dag)
+	println("completionSignalingMap")
+	pp.Println(completionSignalingMap)
+	println("blockingSignalsMap")
+	pp.Println(blockingSignalsMap)
+
 	return completionSignalingMap, blockingSignalsMap
 }
 
