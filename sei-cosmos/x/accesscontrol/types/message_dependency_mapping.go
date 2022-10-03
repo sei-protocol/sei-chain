@@ -21,3 +21,19 @@ func ValidateMessageDependencyMapping(mapping acltypes.MessageDependencyMapping)
 	}
 	return nil
 }
+
+func SynchronousMessageDependencyMapping(messageKey string) acltypes.MessageDependencyMapping {
+	return acltypes.MessageDependencyMapping{
+		MessageKey: messageKey,
+		AccessOps: []acltypes.AccessOperation{
+			{AccessType: acltypes.AccessType_UNKNOWN, ResourceType: acltypes.ResourceType_ANY, IdentifierTemplate: "*"},
+			{AccessType: acltypes.AccessType_COMMIT, ResourceType: acltypes.ResourceType_ANY, IdentifierTemplate: "*"},
+		},
+	}
+}
+
+func DefaultMessageDependencyMapping() []acltypes.MessageDependencyMapping {
+	return []acltypes.MessageDependencyMapping{
+		SynchronousMessageDependencyMapping(""),
+	}
+}

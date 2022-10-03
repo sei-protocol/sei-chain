@@ -7,18 +7,6 @@ import (
 	acltypes "github.com/cosmos/cosmos-sdk/types/accesscontrol"
 )
 
-func DefaultMessageDependencyMapping() []acltypes.MessageDependencyMapping {
-	return []acltypes.MessageDependencyMapping{
-		{
-			MessageKey: "",
-			AccessOps: []acltypes.AccessOperation{
-				{AccessType: acltypes.AccessType_UNKNOWN, ResourceType: acltypes.ResourceType_ANY, IdentifierTemplate: "*"},
-				{AccessType: acltypes.AccessType_COMMIT, ResourceType: acltypes.ResourceType_ANY, IdentifierTemplate: "*"},
-			},
-		},
-	}
-}
-
 // NewGenesisState creates a new GenesisState object
 func NewGenesisState(params Params, messageDependencyMapping []acltypes.MessageDependencyMapping) *GenesisState {
 	return &GenesisState{

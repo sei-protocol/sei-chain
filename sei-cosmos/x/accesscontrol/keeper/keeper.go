@@ -43,9 +43,14 @@ func (k Keeper) Logger(ctx sdk.Context) log.Logger {
 
 func (k Keeper) GetResourceDependencyMapping(ctx sdk.Context, messageKey string) acltypes.MessageDependencyMapping {
 	store := ctx.KVStore(k.storeKey)
-	b := store.Get(types.GetResourceDependencyKey(messageKey))
+	depMapping := store.Get(types.GetResourceDependencyKey(messageKey))
+	if depMapping == nil {
+		// If the storage key doesn't exist in the mapping then assume synchronous processing
+		return types.SynchronousMessageDependencyMapping(messageKey)
+	}
+
 	dependencyMapping := acltypes.MessageDependencyMapping{}
-	k.cdc.MustUnmarshal(b, &dependencyMapping)
+	k.cdc.MustUnmarshal(depMapping, &dependencyMapping)
 	return dependencyMapping
 }
 
