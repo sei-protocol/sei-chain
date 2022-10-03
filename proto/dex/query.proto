@@ -45,6 +45,10 @@ service Query {
 		option (google.api.http).get = "/sei-protocol/seichain/dex/short_book/{contractAddr}/{priceDenom}/{assetDenom}";
 	}
 
+	rpc GetPrice(QueryGetPriceRequest) returns (QueryGetPriceResponse) {
+		option (google.api.http).get = "/sei-protocol/seichain/dex/get_price/{contractAddr}/{priceDenom}/{assetDenom}";
+	}
+
 	rpc GetPrices(QueryGetPricesRequest) returns (QueryGetPricesResponse) {
 		option (google.api.http).get = "/sei-protocol/seichain/dex/get_prices/{contractAddr}/{priceDenom}/{assetDenom}";
 	}
@@ -154,6 +158,18 @@ message QueryGetPricesRequest {
 
 message QueryGetPricesResponse {
 	repeated Price prices = 1;
+}
+
+message QueryGetPriceRequest {
+	string priceDenom = 1;
+	string assetDenom = 2;
+	string contractAddr = 3;
+	uint64 timestamp  = 4;
+}
+
+message QueryGetPriceResponse {
+	Price price = 1;
+	bool found = 2;
 }
 
 message QueryGetTwapsRequest {
