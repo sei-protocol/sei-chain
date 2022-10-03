@@ -39,6 +39,7 @@ func (app *App) DeliverTx(ctx sdk.Context, req abci.RequestDeliverTx) abci.Respo
 	// app.tracingInfo.TracerContext = tracectx
 	// defer span.End()
 	// defer func() { app.tracingInfo.TracerContext = oldCtx }()
+	println("DeliverTx::Delivering TX")
 	return app.BaseApp.DeliverTx(ctx, req)
 }
 

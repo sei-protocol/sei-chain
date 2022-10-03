@@ -1,7 +1,10 @@
 package types
 
 import (
+	fmt "fmt"
+
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	sdkacltypes "github.com/cosmos/cosmos-sdk/types/accesscontrol"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 )
 
@@ -51,4 +54,10 @@ func (msg *MsgPlaceOrders) ValidateBasic() error {
 		return sdkerrors.Wrapf(sdkerrors.ErrInvalidAddress, "invalid creator address (%s)", err)
 	}
 	return nil
+}
+
+// Used for concurrent message processing
+func (msg *MsgPlaceOrders) GetMsgResourceIdentifier(accessOp sdkacltypes.AccessOperation) string {
+	// TODO:: check accessOp for types and return other identifiers
+	return fmt.Sprintf(accessOp.GetIdentifierTemplate(), msg.ContractAddr)
 }

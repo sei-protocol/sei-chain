@@ -49,17 +49,17 @@ func TestCreateGraph(t *testing.T) {
 		IdentifierTemplate: "ResourceB",
 	}
 
-	dag.AddNodeBuildDependency(0, 0, writeAccessA)   // node id 0
-	dag.AddNodeBuildDependency(0, 0, readAccessB)    // node id 1
-	dag.AddNodeBuildDependency(0, 0, commitAccessOp) // node id 2
-	dag.AddNodeBuildDependency(0, 1, readAccessA)    // node id 3
-	dag.AddNodeBuildDependency(0, 1, readAccessB)    // node id 4
-	dag.AddNodeBuildDependency(0, 1, commitAccessOp) // node id 5
-	dag.AddNodeBuildDependency(0, 2, readAccessB)    // node id 6
-	dag.AddNodeBuildDependency(0, 2, readAccessA)    // node id 7
-	dag.AddNodeBuildDependency(0, 2, commitAccessOp) // node id 8
-	dag.AddNodeBuildDependency(0, 3, writeAccessB)   // node id 9
-	dag.AddNodeBuildDependency(0, 3, commitAccessOp) // node id 10
+	dag.AddNodeBuildDependency(0, 0, writeAccessA, "*")   // node id 0
+	dag.AddNodeBuildDependency(0, 0, readAccessB, "*")    // node id 1
+	dag.AddNodeBuildDependency(0, 0, commitAccessOp, "*") // node id 2
+	dag.AddNodeBuildDependency(0, 1, readAccessA, "*")    // node id 3
+	dag.AddNodeBuildDependency(0, 1, readAccessB, "*")    // node id 4
+	dag.AddNodeBuildDependency(0, 1, commitAccessOp, "*") // node id 5
+	dag.AddNodeBuildDependency(0, 2, readAccessB, "*")    // node id 6
+	dag.AddNodeBuildDependency(0, 2, readAccessA, "*")    // node id 7
+	dag.AddNodeBuildDependency(0, 2, commitAccessOp, "*") // node id 8
+	dag.AddNodeBuildDependency(0, 3, writeAccessB, "*")   // node id 9
+	dag.AddNodeBuildDependency(0, 3, commitAccessOp, "*") // node id 10
 
 	require.Equal(t, []app.DagEdge(nil), dag.EdgesMap[0])
 	require.Equal(
@@ -189,14 +189,14 @@ func TestHierarchyDag(t *testing.T) {
 		IdentifierTemplate: "*",
 	}
 
-	dag.AddNodeBuildDependency(0, 0, writeA)  // node id 0
-	dag.AddNodeBuildDependency(0, 0, commit)  // node id 1
-	dag.AddNodeBuildDependency(0, 1, readAll) // node id 2
-	dag.AddNodeBuildDependency(0, 1, commit)  // node id 3
-	dag.AddNodeBuildDependency(0, 2, writeB)  // node id 4
-	dag.AddNodeBuildDependency(0, 2, commit)  // node id 5
-	dag.AddNodeBuildDependency(0, 3, readA)   // node id 6
-	dag.AddNodeBuildDependency(0, 3, commit)  // node id 7
+	dag.AddNodeBuildDependency(0, 0, writeA, "*")  // node id 0
+	dag.AddNodeBuildDependency(0, 0, commit, "*")  // node id 1
+	dag.AddNodeBuildDependency(0, 1, readAll, "*") // node id 2
+	dag.AddNodeBuildDependency(0, 1, commit, "*")  // node id 3
+	dag.AddNodeBuildDependency(0, 2, writeB, "*")  // node id 4
+	dag.AddNodeBuildDependency(0, 2, commit, "*")  // node id 5
+	dag.AddNodeBuildDependency(0, 3, readA, "*")   // node id 6
+	dag.AddNodeBuildDependency(0, 3, commit, "*")  // node id 7
 
 	// assert dag is acyclic
 	acyclic := graph.Acyclic(dag)

@@ -7,6 +7,7 @@ import (
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
+	"github.com/k0kubun/pp"
 	dexcache "github.com/sei-protocol/sei-chain/x/dex/cache"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
 	typesutils "github.com/sei-protocol/sei-chain/x/dex/types/utils"
@@ -50,9 +51,11 @@ func (k msgServer) transferFunds(goCtx context.Context, msg *types.MsgPlaceOrder
 
 func (k msgServer) PlaceOrders(goCtx context.Context, msg *types.MsgPlaceOrders) (*types.MsgPlaceOrdersResponse, error) {
 	ctx := sdk.UnwrapSDKContext(goCtx)
-
+	ctx.Logger().Info("PlaceOrders:: Recieved Msg!")
 	for _, order := range msg.Orders {
 		if err := k.validateOrder(order); err != nil {
+			ctx.Logger().Info("PlaceOrders:: Invalid Order")
+			pp.Println(order)
 			return nil, err
 		}
 	}
@@ -73,6 +76,8 @@ func (k msgServer) PlaceOrders(goCtx context.Context, msg *types.MsgPlaceOrders)
 		order.Id = nextID
 		order.Account = msg.Creator
 		order.ContractAddr = msg.GetContractAddr()
+		ctx.Logger().Info("PlaceOrders:: Processing:")
+		pp.Println(order)
 		dexutils.GetMemState(ctx.Context()).GetBlockOrders(ctx, typesutils.ContractAddress(msg.GetContractAddr()), pairStr).Add(order)
 		idsInResp = append(idsInResp, nextID)
 		nextID++

@@ -22,6 +22,7 @@ type DagNode struct {
 	MessageIndex    int
 	TxIndex         int
 	AccessOperation acltypes.AccessOperation
+	ResourceID 		string
 }
 
 type DagEdge struct {
@@ -103,12 +104,13 @@ func GetResourceAccess(accessOp acltypes.AccessOperation) ResourceAccess {
 	}
 }
 
-func (dag *Dag) AddNode(messageIndex int, txIndex int, accessOp acltypes.AccessOperation) DagNode {
+func (dag *Dag) AddNode(messageIndex int, txIndex int, accessOp acltypes.AccessOperation, resourceId string) DagNode {
 	dagNode := DagNode{
 		NodeID:          dag.NextID,
 		MessageIndex:    messageIndex,
 		TxIndex:         txIndex,
 		AccessOperation: accessOp,
+		ResourceID: 	 resourceId,
 	}
 	dag.NodeMap[dag.NextID] = dagNode
 	dag.NextID++
@@ -137,8 +139,8 @@ func (dag *Dag) AddEdge(fromIndex DagNodeID, toIndex DagNodeID) *DagEdge {
 // that will allow the dependent goroutines to cordinate execution safely.
 //
 // It will also register the new node with AccessOpsMap so that future nodes that amy be dependent on this one can properly identify the dependency.
-func (dag *Dag) AddNodeBuildDependency(messageIndex int, txIndex int, accessOp acltypes.AccessOperation) {
-	dagNode := dag.AddNode(messageIndex, txIndex, accessOp)
+func (dag *Dag) AddNodeBuildDependency(messageIndex int, txIndex int, accessOp acltypes.AccessOperation, resourceId string) {
+	dagNode := dag.AddNode(messageIndex, txIndex, accessOp, resourceId)
 	// update tx index map
 	dag.TxIndexMap[txIndex] = dagNode.NodeID
 
@@ -161,7 +163,7 @@ func (dag *Dag) AddNodeBuildDependency(messageIndex int, txIndex int, accessOp a
 	if _, exists := dag.ResourceAccessMap[resourceAccess]; !exists {
 		dag.ResourceAccessMap[resourceAccess] = make(ResourceIdentifierNodeIDMapping)
 	}
-	dag.ResourceAccessMap[resourceAccess][accessOp.IdentifierTemplate] = append(dag.ResourceAccessMap[resourceAccess][accessOp.IdentifierTemplate], dagNode.NodeID)
+	dag.ResourceAccessMap[resourceAccess][dagNode.ResourceID] = append(dag.ResourceAccessMap[resourceAccess][dagNode.ResourceID], dagNode.NodeID)
 }
 
 func getAllNodeIDsFromIdentifierMapping(mapping ResourceIdentifierNodeIDMapping) (allNodeIDs []DagNodeID) {
@@ -185,7 +187,7 @@ func (dag *Dag) getDependencyWrites(node DagNode, dependentResource acltypes.Res
 		} else {
 			// TODO: otherwise we need to have partial filtering on identifiers
 			// for now, lets just perform exact matching on identifiers
-			nodeIDsMaybeDependency = identifierNodeMapping[node.AccessOperation.IdentifierTemplate]
+			nodeIDsMaybeDependency = identifierNodeMapping[node.ResourceID]
 		}
 		for _, wn := range nodeIDsMaybeDependency {
 			writeNode := dag.NodeMap[wn]
@@ -215,7 +217,7 @@ func (dag *Dag) getDependencyUnknowns(node DagNode, dependentResource acltypes.R
 		} else {
 			// TODO: otherwise we need to have partial filtering on identifiers
 			// for now, lets just perform exact matching on identifiers
-			nodeIDsMaybeDependency = identifierNodeMapping[node.AccessOperation.IdentifierTemplate]
+			nodeIDsMaybeDependency = identifierNodeMapping[node.ResourceID]
 		}
 		for _, un := range nodeIDsMaybeDependency {
 			uNode := dag.NodeMap[un]
@@ -245,7 +247,7 @@ func (dag *Dag) getDependencyReads(node DagNode, dependentResource acltypes.Reso
 		} else {
 			// TODO: otherwise we need to have partial filtering on identifiers
 			// for now, lets just perform exact matching on identifiers
-			nodeIDsMaybeDependency = identifierNodeMapping[node.AccessOperation.IdentifierTemplate]
+			nodeIDsMaybeDependency = identifierNodeMapping[node.ResourceID]
 		}
 		for _, rn := range nodeIDsMaybeDependency {
 			readNode := dag.NodeMap[rn]

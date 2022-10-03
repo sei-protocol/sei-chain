@@ -13,6 +13,7 @@ import (
 	"time"
 
 	storetypes "github.com/cosmos/cosmos-sdk/store/types"
+	"github.com/k0kubun/pp"
 	graph "github.com/yourbasic/graph"
 
 	appparams "github.com/sei-protocol/sei-chain/app/params"
@@ -902,10 +903,15 @@ func (app *App) BuildDependencyDag(ctx sdk.Context, txs [][]byte) (*Dag, error) 
 			if isGovMessage(msg) {
 				return nil, ErrGovMsgInBlock
 			}
-			msgDependencies := app.AccessControlKeeper.GetResourceDependencyMapping(ctx, acltypes.GenerateMessageKey(msg))
+
+			messageKey := acltypes.GenerateMessageKey(msg)
+			msgDependencies := app.AccessControlKeeper.GetResourceDependencyMapping(ctx, messageKey)
+			ctx.Logger().Info(fmt.Sprintf("Message Key=%s", messageKey))
+
 			for _, accessOp := range msgDependencies.GetAccessOps() {
-				// make a new node in the dependency dag
-				dependencyDag.AddNodeBuildDependency(messageIndex, txIndex, accessOp)
+				resourceId := accessOp.GetResourceID(msg)
+				ctx.Logger().Info(fmt.Sprintf("RESOURCE ID: %s", resourceId))
+				dependencyDag.AddNodeBuildDependency(messageIndex, txIndex, accessOp, resourceId)
 			}
 		}
 
@@ -914,6 +920,9 @@ func (app *App) BuildDependencyDag(ctx sdk.Context, txs [][]byte) (*Dag, error) 
 	if !graph.Acyclic(&dependencyDag) {
 		return nil, ErrCycleInDAG
 	}
+
+	println("DEPENDENCY DAG")
+	pp.Println(dependencyDag)
 	return &dependencyDag, nil
 }
 
@@ -964,7 +973,8 @@ func (app *App) DeliverTxWithResult(ctx sdk.Context, tx []byte) *abci.ExecTxResu
 
 func (app *App) ProcessBlockSynchronous(ctx sdk.Context, txs [][]byte) []*abci.ExecTxResult {
 	txResults := []*abci.ExecTxResult{}
-	for _, tx := range txs {
+	for txIndex, tx := range txs {
+		ctx = ctx.WithTxIndex(txIndex)
 		txResults = append(txResults, app.DeliverTxWithResult(ctx, tx))
 	}
 	metrics.IncrTxProcessTypeCounter(metrics.SYNCHRONOUS)
@@ -992,6 +1002,21 @@ type ChannelResult struct {
 	result  *abci.ExecTxResult
 }
 
+func SendAllSignals(txIndex int, messageIndexToAccessOpsChannelMapping map[int]map[sdkacltypes.AccessOperation][]chan interface{}) {
+	println(fmt.Printf("%d=========SendAllSignals:: Sending Signals =========", txIndex))
+	pp.Println(messageIndexToAccessOpsChannelMapping)
+	for _, accessOpsToChannelsMap  := range messageIndexToAccessOpsChannelMapping {
+		for _, channels := range accessOpsToChannelsMap {
+			for _, channel := range channels {
+				println(fmt.Printf("%d==SendAllSignals:: Sending Signal", txIndex))
+				channel <- struct{}{}
+				println(fmt.Printf("%d==SendAllSignals:: Sent Signal", txIndex))
+			}
+		}
+	}
+	println(fmt.Printf("%d==SendAllSignals:: Sent All Signals", txIndex))
+}
+
 func (app *App) ProcessTxConcurrent(
 	ctx sdk.Context,
 	txIndex int,
@@ -1002,12 +1027,16 @@ func (app *App) ProcessTxConcurrent(
 	txBlockingSignalsMap MessageCompletionSignalMapping,
 ) {
 	defer wg.Done()
+	defer SendAllSignals(txIndex, getChannelsFromSignalMapping(txCompletionSignalingMap))
+
 	// Store the Channels in the Context Object for each transaction
-	ctx.WithTxBlockingChannels(getChannelsFromSignalMapping(txBlockingSignalsMap))
-	ctx.WithTxCompletionChannels(getChannelsFromSignalMapping(txCompletionSignalingMap))
+	ctx = ctx.WithTxIndex(txIndex)
+	ctx = ctx.WithTxBlockingChannels(getChannelsFromSignalMapping(txBlockingSignalsMap))
 
 	// Deliver the transaction and store the result in the channel
+	ctx.Logger().Info(fmt.Sprintf("ProcessTxConcurrent:: Delievering txIndex=%d", txIndex))
 	resultChan <- ChannelResult{txIndex, app.DeliverTxWithResult(ctx, txBytes)}
+	ctx.Logger().Info(fmt.Sprintf("ProcessTxConcurrent:: Delievered txIndex=%d", txIndex))
 	metrics.IncrTxProcessTypeCounter(metrics.CONCURRENT)
 }
 
@@ -1050,11 +1079,12 @@ func (app *App) ProcessBlockConcurrent(
 
 	// Gather Results and store it based on txIndex and read results from channel
 	// Concurrent results may be in different order than the original txIndex
+	ctx.Logger().Info(fmt.Sprintf("ProcessBlockConcurrent:: Starting to gather results"))
 	txResultsMap := map[int]*abci.ExecTxResult{}
 	for result := range resultChan {
 		txResultsMap[result.txIndex] = result.result
 	}
-
+	ctx.Logger().Info(fmt.Sprintf("ProcessBlockConcurrent:: Gathered Results"))
 	// Gather Results and store in array based on txIndex to preserve ordering
 	for txIndex := range txs {
 		txResults = append(txResults, txResultsMap[txIndex])
@@ -1110,15 +1140,21 @@ func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequ
 	switch err {
 	case nil:
 		// Only run concurrently if no error
+		ctx.Logger().Info(fmt.Sprintf("ProcessBlockConcurrent::Processing Concurrently num txs=%d!", len(txs)))
 		txResults = app.ProcessBlockConcurrent(ctx, txs, dependencyDag.CompletionSignalingMap, dependencyDag.BlockingSignalsMap)
+		// ctx.Logger().Info("Concurrent Processing is turned off!")
+		// pp.Println(dependencyDag)
+		// txResults = app.ProcessBlockSynchronous(ctx, txs)
 	case ErrGovMsgInBlock:
 		ctx.Logger().Info(fmt.Sprintf("Gov msg found while building DAG, processing synchronously: %s", err))
 		txResults = app.ProcessBlockSynchronous(ctx, txs)
-
 	default:
 		ctx.Logger().Error(fmt.Sprintf("Error while building DAG, processing synchronously: %s", err))
 		txResults = app.ProcessBlockSynchronous(ctx, txs)
 	}
+
+	// ctx.Logger().Info("ProcessBlockConcurrent:: Results!")
+	// pp.Println(txResults)
 
 	endBlockResp := app.EndBlock(ctx, abci.RequestEndBlock{
 		Height: req.GetHeight(),
