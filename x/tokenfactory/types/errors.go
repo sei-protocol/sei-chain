@@ -28,4 +28,5 @@ var (
 	ErrEncodingDenomFeeWhitelist          = sdkerrors.Register(ModuleName, 17, "Error encoding whitelist membership as JSON")
 	ErrGettingDenomCreationFeeWhitelist   = sdkerrors.Register(ModuleName, 18, "Error while querying create denom fee whitelist")
 	ErrEncodingDenomCreationFeeWhitelist  = sdkerrors.Register(ModuleName, 19, "Error encoding denom creation fee whitelist as JSON")
+	ErrUnknownSeiTokenFactoryQuery        = sdkerrors.Register(ModuleName, 23, "Error unknown sei token factory query")
 )

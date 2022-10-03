@@ -108,21 +108,10 @@ func (q querier) PriceSnapshotHistory(c context.Context, req *types.QueryPriceSn
 }
 
 func (q querier) Twaps(c context.Context, req *types.QueryTwapsRequest) (*types.QueryTwapsResponse, error) {
-	if req == nil {
-		return nil, status.Error(codes.InvalidArgument, "invalid request")
-	}
-
 	ctx := sdk.UnwrapSDKContext(c)
 	twaps, err := q.CalculateTwaps(ctx, req.LookbackSeconds)
 	if err != nil {
-		if err == types.ErrInvalidTwapLookback {
-			return nil, status.Error(codes.InvalidArgument, err.Error())
-		}
-		if err == types.ErrNoTwapData {
-			return nil, status.Error(codes.FailedPrecondition, err.Error())
-		}
-		// we shouldnt get this
-		return nil, status.Error(codes.Unknown, err.Error())
+		return nil, err
 	}
 	response := types.QueryTwapsResponse{OracleTwaps: twaps}
 	return &response, nil
