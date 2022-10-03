@@ -1,0 +1,58 @@
+syntax = "proto3";
+package cosmos.accesscontrol_x.v1beta1;
+
+import "gogoproto/gogo.proto";
+import "google/api/annotations.proto";
+import "cosmos/base/query/v1beta1/pagination.proto";
+
+import "cosmos/accesscontrol/accesscontrol.proto";
+import "cosmos/accesscontrol_x/genesis.proto";
+
+option go_package = "github.com/cosmos/cosmos-sdk/x/accesscontrol/types";
+
+service Query {
+  rpc Params(QueryParamsRequest) returns (QueryParamsResponse) {
+    option (google.api.http).get = "/cosmos/cosmos-sdk/accesscontrol/params";
+  }
+
+  rpc ResourceDepedencyMappingFromMessageKey(ResourceDepedencyMappingFromMessageKeyRequest)
+      returns (ResourceDepedencyMappingFromMessageKeyResponse) {
+    option (google.api.http).get =
+        "/cosmos/cosmos-sdk/accesscontrol/resource_depedency_mapping_from_message_key/{message_key}";
+  }
+
+  rpc ListResourceDepedencyMapping(ListResourceDepedencyMappingRequest)
+      returns (ListResourceDepedencyMappingResponse) {
+    option (google.api.http).get =
+        "/cosmos/cosmos-sdk/accesscontrol/list_resource_depedency_mapping";
+  }
+}
+
+
+message QueryParamsRequest {}
+
+
+message QueryParamsResponse {
+  // params defines the parameters of the module.
+  cosmos.accesscontrol_x.v1beta1.Params params = 1 [ (gogoproto.nullable) = false ];
+}
+
+message ResourceDepedencyMappingFromMessageKeyRequest {
+  string message_key = 1 [ (gogoproto.moretags) = "yaml:\"message_key\"" ];
+}
+
+message ResourceDepedencyMappingFromMessageKeyResponse {
+    cosmos.accesscontrol.v1beta1.MessageDependencyMapping message_dependency_mapping = 1 [ 
+        (gogoproto.nullable) = false,
+        (gogoproto.moretags) = "yaml:\"message_dependency_mapping\""
+    ];
+}
+
+message ListResourceDepedencyMappingRequest {}
+  
+message ListResourceDepedencyMappingResponse {
+    repeated cosmos.accesscontrol.v1beta1.MessageDependencyMapping message_dependency_mapping_list = 1 [ 
+        (gogoproto.nullable) = false,
+        (gogoproto.moretags) = "yaml:\"message_dependency_mapping_list\""
+    ];
+}

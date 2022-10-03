@@ -16,6 +16,7 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/types/module"
 	simtypes "github.com/cosmos/cosmos-sdk/types/simulation"
+	cli "github.com/cosmos/cosmos-sdk/x/accesscontrol/client"
 	"github.com/cosmos/cosmos-sdk/x/accesscontrol/keeper"
 	"github.com/cosmos/cosmos-sdk/x/accesscontrol/types"
 )
@@ -71,7 +72,7 @@ func (AppModuleBasic) RegisterGRPCGatewayRoutes(clientCtx client.Context, mux *r
 func (AppModuleBasic) GetTxCmd() *cobra.Command { return nil }
 
 // GetQueryCmd returns the root query command for the accesscontrol module.
-func (AppModuleBasic) GetQueryCmd() *cobra.Command { return nil }
+func (AppModuleBasic) GetQueryCmd() *cobra.Command { return cli.GetQueryCmd() }
 
 // AppModule implements an application module for the accesscontrol module.
 type AppModule struct {
@@ -113,7 +114,9 @@ func (am AppModule) LegacyQuerierHandler(legacyQuerierCdc *codec.LegacyAmino) sd
 
 // RegisterServices registers a gRPC query service to respond to the
 // module-specific gRPC queries.
-func (am AppModule) RegisterServices(cfg module.Configurator) {}
+func (am AppModule) RegisterServices(cfg module.Configurator) {
+	types.RegisterQueryServer(cfg.QueryServer(), am.keeper)
+}
 
 // InitGenesis performs genesis initialization for the accesscontrol module. It returns
 // no validator updates.

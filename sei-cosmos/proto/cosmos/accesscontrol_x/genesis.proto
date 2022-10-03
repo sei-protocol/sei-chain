@@ -1,5 +1,5 @@
 syntax = "proto3";
-package cosmos.accesscontrol_genesis.v1beta1;
+package cosmos.accesscontrol_x.v1beta1;
 
 import "gogoproto/gogo.proto";
 import "cosmos/accesscontrol/accesscontrol.proto";
@@ -18,5 +18,5 @@ message GenesisState {
 
 message Params {
     option (gogoproto.goproto_stringer) = false;
-  }
+}
 
