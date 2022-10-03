@@ -1,6 +1,6 @@
 package metrics
 
 const (
-	CONCURRENT = "concurrent"
+	CONCURRENT  = "concurrent"
 	SYNCHRONOUS = "synchronous"
 )
