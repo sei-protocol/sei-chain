@@ -267,7 +267,6 @@ func (dag *Dag) getNodeDependenciesForResource(node DagNode, dependentResource a
 
 // This helper will identify nodes that are dependencies for the current node, and can then be used for creating edges between then for future completion signals
 func (dag *Dag) GetNodeDependencies(node DagNode) []DagNodeID {
-
 	accessOp := node.AccessOperation
 	// get all parent resource types, we'll need to create edges for any of these
 	parentResources := accessOp.ResourceType.GetResourceDependencies()
