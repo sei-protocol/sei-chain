@@ -135,7 +135,6 @@ func (dag *Dag) AddEdge(fromIndex DagNodeID, toIndex DagNodeID) *DagEdge {
 //
 // It will also register the new node with AccessOpsMap so that future nodes that amy be dependent on this one can properly identify the dependency.
 func (dag *Dag) AddNodeBuildDependency(messageIndex int, txIndex int, accessOp acltypes.AccessOperation) {
-	defer metrics.MeasureBuildDagDuration(time.Now(), "AddNodeBuildDependency")
 	dagNode := dag.AddNode(messageIndex, txIndex, accessOp)
 	// update tx index map
 	dag.TxIndexMap[txIndex] = dagNode.NodeID
