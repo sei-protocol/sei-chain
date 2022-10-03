@@ -4,9 +4,18 @@ import (
 	"fmt"
 
 	acltypes "github.com/cosmos/cosmos-sdk/types/accesscontrol"
+	mapset "github.com/deckarep/golang-set"
 )
 
 type DagNodeID int
+
+// Alias for mapping resource identifier to dag node IDs
+type ResourceIdentifierNodeIDMapping = map[string][]DagNodeID
+
+type ResourceAccess struct {
+	ResourceType acltypes.ResourceType
+	AccessType   acltypes.AccessType
+}
 
 type DagNode struct {
 	NodeID          DagNodeID
@@ -21,11 +30,11 @@ type DagEdge struct {
 }
 
 type Dag struct {
-	NodeMap      map[DagNodeID]DagNode
-	EdgesMap     map[DagNodeID][]DagEdge                  // maps node Id (from node) and contains edge info
-	AccessOpsMap map[acltypes.AccessOperation][]DagNodeID // tracks latest node to use a specific access op
-	TxIndexMap   map[int]DagNodeID                        // tracks latest node ID for a tx index
-	NextID       DagNodeID
+	NodeMap           map[DagNodeID]DagNode
+	EdgesMap          map[DagNodeID][]DagEdge                            // maps node Id (from node) and contains edge info
+	ResourceAccessMap map[ResourceAccess]ResourceIdentifierNodeIDMapping // maps resource type and access type to identifiers + node IDs
+	TxIndexMap        map[int]DagNodeID                                  // tracks latest node ID for a tx index
+	NextID            DagNodeID
 }
 
 // Alias for mapping MessageIndexId -> AccessOperations -> CompletionSignals
@@ -74,11 +83,18 @@ func (dag Dag) Visit(v int, do func(w int, c int64) (skip bool)) (aborted bool) 
 
 func NewDag() Dag {
 	return Dag{
-		NodeMap:      make(map[DagNodeID]DagNode),
-		EdgesMap:     make(map[DagNodeID][]DagEdge),
-		AccessOpsMap: make(map[acltypes.AccessOperation][]DagNodeID),
-		TxIndexMap:   make(map[int]DagNodeID),
-		NextID:       0,
+		NodeMap:           make(map[DagNodeID]DagNode),
+		EdgesMap:          make(map[DagNodeID][]DagEdge),
+		ResourceAccessMap: make(map[ResourceAccess]ResourceIdentifierNodeIDMapping),
+		TxIndexMap:        make(map[int]DagNodeID),
+		NextID:            0,
+	}
+}
+
+func GetResourceAccess(accessOp acltypes.AccessOperation) ResourceAccess {
+	return ResourceAccess{
+		accessOp.ResourceType,
+		accessOp.AccessType,
 	}
 }
 
@@ -124,72 +140,140 @@ func (dag *Dag) AddNodeBuildDependency(messageIndex int, txIndex int, accessOp a
 	nodeDependencies := dag.GetNodeDependencies(dagNode)
 	// build edges for each of the dependencies
 	for _, nodeDependency := range nodeDependencies {
-		dag.AddEdge(nodeDependency.NodeID, dagNode.NodeID)
+		dag.AddEdge(nodeDependency, dagNode.NodeID)
 	}
 
 	// update access ops map with the latest node id using a specific access op
-	dag.AccessOpsMap[accessOp] = append(dag.AccessOpsMap[accessOp], dagNode.NodeID)
+	resourceAccess := GetResourceAccess(accessOp)
+	if _, exists := dag.ResourceAccessMap[resourceAccess]; !exists {
+		dag.ResourceAccessMap[resourceAccess] = make(ResourceIdentifierNodeIDMapping)
+	}
+	dag.ResourceAccessMap[resourceAccess][accessOp.IdentifierTemplate] = append(dag.ResourceAccessMap[resourceAccess][accessOp.IdentifierTemplate], dagNode.NodeID)
+}
+
+func getAllNodeIDsFromIdentifierMapping(mapping ResourceIdentifierNodeIDMapping) (allNodeIDs []DagNodeID) {
+	for _, nodeIDs := range mapping {
+		allNodeIDs = append(allNodeIDs, nodeIDs...)
+	}
+	return
+}
+
+func (dag *Dag) getDependencyWrites(node DagNode, dependentResource acltypes.ResourceType) mapset.Set {
+	nodeIDs := mapset.NewSet()
+	writeResourceAccess := ResourceAccess{
+		dependentResource,
+		acltypes.AccessType_WRITE,
+	}
+	if identifierNodeMapping, ok := dag.ResourceAccessMap[writeResourceAccess]; ok {
+		var nodeIDsMaybeDependency []DagNodeID
+		if dependentResource != node.AccessOperation.ResourceType {
+			// we can add all node IDs as dependencies if applicable
+			nodeIDsMaybeDependency = getAllNodeIDsFromIdentifierMapping(identifierNodeMapping)
+		} else {
+			// TODO: otherwise we need to have partial filtering on identifiers
+			// for now, lets just perform exact matching on identifiers
+			nodeIDsMaybeDependency = identifierNodeMapping[node.AccessOperation.IdentifierTemplate]
+		}
+		for _, wn := range nodeIDsMaybeDependency {
+			writeNode := dag.NodeMap[wn]
+			// if accessOp exists already (and from a previous transaction), we need to define a dependency on the previous message (and make a edge between the two)
+			// if from a previous transaction, we need to create an edge
+			if writeNode.TxIndex < node.TxIndex {
+				// this should be the COMMIT access op for the tx
+				lastTxNode := dag.NodeMap[dag.TxIndexMap[writeNode.TxIndex]]
+				nodeIDs.Add(lastTxNode.NodeID)
+			}
+		}
+	}
+	return nodeIDs
+}
+
+func (dag *Dag) getDependencyUnknowns(node DagNode, dependentResource acltypes.ResourceType) mapset.Set {
+	nodeIDs := mapset.NewSet()
+	unknownResourceAccess := ResourceAccess{
+		dependentResource,
+		acltypes.AccessType_UNKNOWN,
+	}
+	if identifierNodeMapping, ok := dag.ResourceAccessMap[unknownResourceAccess]; ok {
+		var nodeIDsMaybeDependency []DagNodeID
+		if dependentResource != node.AccessOperation.ResourceType {
+			// we can add all node IDs as dependencies if applicable
+			nodeIDsMaybeDependency = getAllNodeIDsFromIdentifierMapping(identifierNodeMapping)
+		} else {
+			// TODO: otherwise we need to have partial filtering on identifiers
+			// for now, lets just perform exact matching on identifiers
+			nodeIDsMaybeDependency = identifierNodeMapping[node.AccessOperation.IdentifierTemplate]
+		}
+		for _, un := range nodeIDsMaybeDependency {
+			uNode := dag.NodeMap[un]
+			// if accessOp exists already (and from a previous transaction), we need to define a dependency on the previous message (and make a edge between the two)
+			// if from a previous transaction, we need to create an edge
+			if uNode.TxIndex < node.TxIndex {
+				// this should be the COMMIT access op for the tx
+				lastTxNode := dag.NodeMap[dag.TxIndexMap[uNode.TxIndex]]
+				nodeIDs.Add(lastTxNode.NodeID)
+			}
+		}
+	}
+	return nodeIDs
+}
+
+func (dag *Dag) getDependencyReads(node DagNode, dependentResource acltypes.ResourceType) mapset.Set {
+	nodeIDs := mapset.NewSet()
+	readResourceAccess := ResourceAccess{
+		dependentResource,
+		acltypes.AccessType_READ,
+	}
+	if identifierNodeMapping, ok := dag.ResourceAccessMap[readResourceAccess]; ok {
+		var nodeIDsMaybeDependency []DagNodeID
+		if dependentResource != node.AccessOperation.ResourceType {
+			// we can add all node IDs as dependencies if applicable
+			nodeIDsMaybeDependency = getAllNodeIDsFromIdentifierMapping(identifierNodeMapping)
+		} else {
+			// TODO: otherwise we need to have partial filtering on identifiers
+			// for now, lets just perform exact matching on identifiers
+			nodeIDsMaybeDependency = identifierNodeMapping[node.AccessOperation.IdentifierTemplate]
+		}
+		for _, rn := range nodeIDsMaybeDependency {
+			readNode := dag.NodeMap[rn]
+			// if from a previous transaction, we need to create an edge
+			if readNode.TxIndex < node.TxIndex {
+				nodeIDs.Add(readNode.NodeID)
+			}
+		}
+	}
+	return nodeIDs
+}
+
+// given a node, and a dependent Resource, generate a set of nodes that are dependencies
+func (dag *Dag) getNodeDependenciesForResource(node DagNode, dependentResource acltypes.ResourceType) mapset.Set {
+	nodeIDs := mapset.NewSet()
+	switch node.AccessOperation.AccessType {
+	case acltypes.AccessType_READ:
+		// for a read, we are blocked on prior writes and unknown
+		nodeIDs = nodeIDs.Union(dag.getDependencyWrites(node, dependentResource))
+		nodeIDs = nodeIDs.Union(dag.getDependencyUnknowns(node, dependentResource))
+	case acltypes.AccessType_WRITE, acltypes.AccessType_UNKNOWN:
+		// for write / unknown, we're blocked on prior writes, reads, and unknowns
+		nodeIDs = nodeIDs.Union(dag.getDependencyWrites(node, dependentResource))
+		nodeIDs = nodeIDs.Union(dag.getDependencyUnknowns(node, dependentResource))
+		nodeIDs = nodeIDs.Union(dag.getDependencyReads(node, dependentResource))
+	}
+	return nodeIDs
 }
 
 // This helper will identify nodes that are dependencies for the current node, and can then be used for creating edges between then for future completion signals
-func (dag *Dag) GetNodeDependencies(node DagNode) (nodeDependencies []DagNode) {
+func (dag *Dag) GetNodeDependencies(node DagNode) []DagNodeID {
 	accessOp := node.AccessOperation
-	// if the blocking access ops are in access ops map, make an edge
-	switch accessOp.AccessType {
-	case acltypes.AccessType_READ:
-		// if we need to do a read, we need latest write as a dependency
-		// TODO: replace hardcoded access op dependencies with helper that generates (and also generates superseding resources too eg. Resource.ALL is blocking for Resource.KV)
-		writeAccessOp := acltypes.AccessOperation{
-			AccessType:         acltypes.AccessType_WRITE,
-			ResourceType:       accessOp.GetResourceType(),
-			IdentifierTemplate: accessOp.GetIdentifierTemplate(),
-		}
-		if writeNodeIDs, ok := dag.AccessOpsMap[writeAccessOp]; ok {
-			for _, wn := range writeNodeIDs {
-				writeNode := dag.NodeMap[wn]
-				// if accessOp exists already (and from a previous transaction), we need to define a dependency on the previous message (and make a edge between the two)
-				// if from a previous transaction, we need to create an edge
-				if writeNode.TxIndex < node.TxIndex {
-					// this should be the COMMIT access op for the tx
-					lastTxNode := dag.NodeMap[dag.TxIndexMap[writeNode.TxIndex]]
-					nodeDependencies = append(nodeDependencies, lastTxNode)
-				}
-			}
-		}
-	case acltypes.AccessType_WRITE, acltypes.AccessType_UNKNOWN:
-		// if we need to do a write, we need read and write as dependencies
-		writeAccessOp := acltypes.AccessOperation{
-			AccessType:         acltypes.AccessType_WRITE,
-			ResourceType:       accessOp.GetResourceType(),
-			IdentifierTemplate: accessOp.GetIdentifierTemplate(),
-		}
-		if writeNodeIDs, ok := dag.AccessOpsMap[writeAccessOp]; ok {
-			for _, wn := range writeNodeIDs {
-				// if accessOp exists already (and from a previous transaction), we need to define a dependency on the previous message (and make a edge between the two)
-				writeNode := dag.NodeMap[wn]
-				// if from a previous transaction, we need to create an edge
-				if writeNode.TxIndex < node.TxIndex {
-					// we need to get the last node from that tx
-					lastTxNode := dag.NodeMap[dag.TxIndexMap[writeNode.TxIndex]]
-					nodeDependencies = append(nodeDependencies, lastTxNode)
-				}
-			}
-		}
-		readAccessOp := acltypes.AccessOperation{
-			AccessType:         acltypes.AccessType_READ,
-			ResourceType:       accessOp.GetResourceType(),
-			IdentifierTemplate: accessOp.GetIdentifierTemplate(),
-		}
-		if readNodeIDs, ok := dag.AccessOpsMap[readAccessOp]; ok {
-			for _, rn := range readNodeIDs {
-				readNode := dag.NodeMap[rn]
-				// if accessOp exists already (and from a previous transaction), we need to define a dependency on the previous message (and make a edge between the two)
-				// if from a previous transaction, we need to create an edge
-				if readNode.TxIndex < node.TxIndex {
-					nodeDependencies = append(nodeDependencies, readNode)
-				}
-			}
-		}
+	// get all parent resource types, we'll need to create edges for any of these
+	parentResources := accessOp.ResourceType.GetResourceDependencies()
+	nodeIDSet := mapset.NewSet()
+	for _, resource := range parentResources {
+		nodeIDSet = nodeIDSet.Union(dag.getNodeDependenciesForResource(node, resource))
+	}
+	nodeDependencies := make([]DagNodeID, nodeIDSet.Cardinality())
+	for i, x := range nodeIDSet.ToSlice() {
+		nodeDependencies[i] = x.(DagNodeID)
 	}
 	return nodeDependencies
 }
