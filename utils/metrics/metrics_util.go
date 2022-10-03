@@ -31,3 +31,17 @@ func MeasureDeliverTxDuration(start time.Time) {
 		start.UTC(),
 	)
 }
+
+// Measures the time taken to execute a sudo msg
+// Metric Names:
+//
+//	sei_dag_build_duration_miliseconds
+//	sei_dag_build_duration_miliseconds_count
+//	sei_dag_build_duration_miliseconds_sum
+func MeasureBuildDagDuration(start time.Time, method string) {
+	metrics.MeasureSinceWithLabels(
+		[]string{"sei", "dag", "build", "milliseconds"},
+		start.UTC(),
+		[]metrics.Label{telemetry.NewLabel("method", method)},
+	)
+}
