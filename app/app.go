@@ -791,7 +791,7 @@ func (app *App) SetStoreUpgradeHandlers() {
 		app.SetStoreLoader(upgradetypes.UpgradeStoreLoader(upgradeInfo.Height, &storeUpgrades))
 	}
 
-	if upgradeInfo.Name == "1.2.1beta" && !app.UpgradeKeeper.IsSkipHeight(upgradeInfo.Height) {
+	if upgradeInfo.Name == "1.2.2beta" && !app.UpgradeKeeper.IsSkipHeight(upgradeInfo.Height) {
 		storeUpgrades := storetypes.StoreUpgrades{
 			Added: []string{nitrotypes.StoreKey},
 		}
