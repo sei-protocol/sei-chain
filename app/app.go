@@ -38,6 +38,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/x/auth/ante"
 
 	aclmodule "github.com/cosmos/cosmos-sdk/x/accesscontrol"
+	aclclient "github.com/cosmos/cosmos-sdk/x/accesscontrol/client"
 	aclkeeper "github.com/cosmos/cosmos-sdk/x/accesscontrol/keeper"
 	acltypes "github.com/cosmos/cosmos-sdk/x/accesscontrol/types"
 
@@ -147,6 +148,7 @@ func getGovProposalHandlers() []govclient.ProposalHandler {
 		upgradeclient.CancelProposalHandler,
 		ibcclientclient.UpdateClientProposalHandler,
 		ibcclientclient.UpgradeProposalHandler,
+		aclclient.ProposalHandler,
 		// this line is used by starport scaffolding # stargate/app/govProposalHandler
 	)
 
@@ -532,7 +534,8 @@ func New(
 		AddRoute(distrtypes.RouterKey, distr.NewCommunityPoolSpendProposalHandler(app.DistrKeeper)).
 		AddRoute(upgradetypes.RouterKey, upgrade.NewSoftwareUpgradeProposalHandler(app.UpgradeKeeper)).
 		AddRoute(ibcclienttypes.RouterKey, ibcclient.NewClientProposalHandler(app.IBCKeeper.ClientKeeper)).
-		AddRoute(dexmoduletypes.RouterKey, dexmodule.NewProposalHandler(app.DexKeeper))
+		AddRoute(dexmoduletypes.RouterKey, dexmodule.NewProposalHandler(app.DexKeeper)).
+		AddRoute(acltypes.ModuleName, aclmodule.NewProposalHandler(app.AccessControlKeeper))
 	if len(enabledProposals) != 0 {
 		govRouter.AddRoute(wasm.RouterKey, wasm.NewWasmProposalHandler(app.WasmKeeper, enabledProposals))
 	}
@@ -974,6 +977,7 @@ func getChannelsFromSignalMapping(signalMapping MessageCompletionSignalMapping) 
 	for messageIndex, accessOperationsToSignal := range signalMapping {
 		for accessOperation, completionSignals := range accessOperationsToSignal {
 			var channels []chan interface{}
+			channelsMapping[messageIndex] = make(sdkacltypes.AccessOpsChannelMapping)
 			for _, completionSignal := range completionSignals {
 				channels = append(channels, completionSignal.Channel)
 			}
