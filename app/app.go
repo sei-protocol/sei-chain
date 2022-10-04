@@ -1100,16 +1100,17 @@ func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequ
 	// app.batchVerifier.VerifyTxs(ctx, typedTxs)
 
 	dependencyDag, err := app.BuildDependencyDag(ctx, txs)
-	txResults := []*abci.ExecTxResult{}
+	var txResults []*abci.ExecTxResult
 
 	// TODO:: add metrics for async vs sync
-	if err == ErrGovMsgInBlock {
+	switch err {
+	case ErrGovMsgInBlock:
 		ctx.Logger().Info(fmt.Sprintf("Gov msg found while building DAG, processing synchronously: %s", err))
 		txResults = app.ProcessBlockSynchronous(ctx, txs)
-	} else if err != nil {
+	case nil:
 		ctx.Logger().Error(fmt.Sprintf("Error while building DAG, processing synchronously: %s", err))
 		txResults = app.ProcessBlockSynchronous(ctx, txs)
-	} else {
+	default:
 		completionSignalingMap, blockingSignalsMap := dependencyDag.BuildCompletionSignalMaps()
 		txResults = app.ProcessBlockConcurrent(ctx, txs, completionSignalingMap, blockingSignalsMap)
 	}
