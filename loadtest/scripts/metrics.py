@@ -47,14 +47,14 @@ def get_metrics():
     total_txs_num = sum([block["number_of_txs"] for block in skip_edge_blocks])
     average_txs_num = total_txs_num / len(skip_edge_blocks)
     return {
-        "Summary (excl. first block)": {
+        "Summary (excl. edge block)": {
             "average_block_time": average_block_time,
             "average_throughput_per_block": average_txs_num,
             "average_throughput_per_sec": average_txs_num / average_block_time,
             "number_of_full_blocks": len(skip_edge_blocks),
             "total_txs_num": total_txs_num,
         },
-        "Detail (incl. first block)": {
+        "Detail (incl. edge blocks)": {
             "blocks": all_heights,
             "txs_per_block": [block["number_of_txs"] for block in block_info_list]
         }

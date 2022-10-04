@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
 	"math/rand"
 	"os"
 	"os/exec"
@@ -170,61 +171,8 @@ func run(config Config) {
 		wgs = append(wgs, wg)
 		for _, account := range activeAccounts {
 			key := GetKey(uint64(account))
-			var msg sdk.Msg
-			switch config.MessageType {
-			case "basic":
-				msg = &banktypes.MsgSend{
-					FromAddress: sdk.AccAddress(key.PubKey().Address()).String(),
-					ToAddress:   sdk.AccAddress(key.PubKey().Address()).String(),
-					Amount: sdktypes.NewCoins(sdktypes.Coin{
-						Denom:  "usei",
-						Amount: sdktypes.NewInt(1),
-					}),
-				}
-			case "dex":
-				msgType := config.MsgTypeDistr.Sample()
-				orderPlacements := []*dextypes.Order{}
-				var orderType dextypes.OrderType
-				if msgType == "limit" {
-					orderType = dextypes.OrderType_LIMIT
-				} else {
-					orderType = dextypes.OrderType_MARKET
-				}
-				var direction dextypes.PositionDirection
-				if rand.Float64() < 0.5 {
-					direction = dextypes.PositionDirection_LONG
-				} else {
-					direction = dextypes.PositionDirection_SHORT
-				}
-				price := config.PriceDistr.Sample()
-				quantity := config.QuantityDistr.Sample()
-				contract := config.ContractDistr.Sample()
-				for j := 0; j < int(batchSize); j++ {
-					orderPlacements = append(orderPlacements, &dextypes.Order{
-						Account:           sdk.AccAddress(key.PubKey().Address()).String(),
-						ContractAddr:      contract,
-						PositionDirection: direction,
-						Price:             price.Quo(FromMili),
-						Quantity:          quantity.Quo(FromMili),
-						PriceDenom:        "SEI",
-						AssetDenom:        "ATOM",
-						OrderType:         orderType,
-						Data:              VortexData,
-					})
-				}
-				amount, err := sdk.ParseCoinsNormalized(fmt.Sprintf("%d%s", price.Mul(quantity).Ceil().RoundInt64(), "usei"))
-				if err != nil {
-					panic(err)
-				}
-				msg = &dextypes.MsgPlaceOrders{
-					Creator:      sdk.AccAddress(key.PubKey().Address()).String(),
-					Orders:       orderPlacements,
-					ContractAddr: contract,
-					Funds:        amount,
-				}
-			default:
-				fmt.Printf("Unrecognized message type %s", config.MessageType)
-			}
+
+			msg := generateMessage(config, key, batchSize)
 			txBuilder := TestConfig.TxConfig.NewTxBuilder()
 			_ = txBuilder.SetMsgs(msg)
 			seqDelta := uint64(i / 2)
@@ -263,6 +211,65 @@ func run(config Config) {
 		lastHeight = newHeight
 	}
 	fmt.Printf("%s - Finished\n", time.Now().Format("2006-01-02T15:04:05"))
+}
+
+func generateMessage(config Config, key cryptotypes.PrivKey, batchSize uint64) sdk.Msg {
+	var msg sdk.Msg
+	switch config.MessageType {
+	case "basic":
+		msg = &banktypes.MsgSend{
+			FromAddress: sdk.AccAddress(key.PubKey().Address()).String(),
+			ToAddress:   sdk.AccAddress(key.PubKey().Address()).String(),
+			Amount: sdktypes.NewCoins(sdktypes.Coin{
+				Denom:  "usei",
+				Amount: sdktypes.NewInt(1),
+			}),
+		}
+	case "dex":
+		msgType := config.MsgTypeDistr.Sample()
+		orderPlacements := []*dextypes.Order{}
+		var orderType dextypes.OrderType
+		if msgType == "limit" {
+			orderType = dextypes.OrderType_LIMIT
+		} else {
+			orderType = dextypes.OrderType_MARKET
+		}
+		var direction dextypes.PositionDirection
+		if rand.Float64() < 0.5 {
+			direction = dextypes.PositionDirection_LONG
+		} else {
+			direction = dextypes.PositionDirection_SHORT
+		}
+		price := config.PriceDistr.Sample()
+		quantity := config.QuantityDistr.Sample()
+		contract := config.ContractDistr.Sample()
+		for j := 0; j < int(batchSize); j++ {
+			orderPlacements = append(orderPlacements, &dextypes.Order{
+				Account:           sdk.AccAddress(key.PubKey().Address()).String(),
+				ContractAddr:      contract,
+				PositionDirection: direction,
+				Price:             price.Quo(FromMili),
+				Quantity:          quantity.Quo(FromMili),
+				PriceDenom:        "SEI",
+				AssetDenom:        "ATOM",
+				OrderType:         orderType,
+				Data:              VortexData,
+			})
+		}
+		amount, err := sdk.ParseCoinsNormalized(fmt.Sprintf("%d%s", price.Mul(quantity).Ceil().RoundInt64(), "usei"))
+		if err != nil {
+			panic(err)
+		}
+		msg = &dextypes.MsgPlaceOrders{
+			Creator:      sdk.AccAddress(key.PubKey().Address()).String(),
+			Orders:       orderPlacements,
+			ContractAddr: contract,
+			Funds:        amount,
+		}
+	default:
+		fmt.Printf("Unrecognized message type %s", config.MessageType)
+	}
+	return msg
 }
 
 func getLastHeight() int {
