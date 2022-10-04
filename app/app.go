@@ -965,6 +965,7 @@ func getChannelsFromSignalMapping(signalMapping MessageCompletionSignalMapping) 
 	for messageIndex, accessOperationsToSignal := range signalMapping {
 		for accessOperation, completionSignals := range accessOperationsToSignal {
 			var channels []chan interface{}
+			channelsMapping[messageIndex] = make(sdkacltypes.AccessOpsChannelMapping)
 			for _, completionSignal := range completionSignals {
 				channels = append(channels, completionSignal.Channel)
 			}
