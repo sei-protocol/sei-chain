@@ -535,7 +535,7 @@ func New(
 		AddRoute(upgradetypes.RouterKey, upgrade.NewSoftwareUpgradeProposalHandler(app.UpgradeKeeper)).
 		AddRoute(ibcclienttypes.RouterKey, ibcclient.NewClientProposalHandler(app.IBCKeeper.ClientKeeper)).
 		AddRoute(dexmoduletypes.RouterKey, dexmodule.NewProposalHandler(app.DexKeeper)).
-		AddRoute(acltypes.RouterKey, aclmodule.NewProposalHandler(app.AccessControlKeeper))
+		AddRoute(acltypes.ModuleName, aclmodule.NewProposalHandler(app.AccessControlKeeper))
 	if len(enabledProposals) != 0 {
 		govRouter.AddRoute(wasm.RouterKey, wasm.NewWasmProposalHandler(app.WasmKeeper, enabledProposals))
 	}
