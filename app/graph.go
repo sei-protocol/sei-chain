@@ -2,11 +2,9 @@ package app
 
 import (
 	"fmt"
-	"time"
 
 	acltypes "github.com/cosmos/cosmos-sdk/types/accesscontrol"
 	mapset "github.com/deckarep/golang-set"
-	"github.com/sei-protocol/sei-chain/utils/metrics"
 )
 
 type DagNodeID int
