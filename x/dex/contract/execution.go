@@ -152,7 +152,7 @@ func GetOrderIDToSettledQuantities(settlements []*types.SettlementEntry) map[uin
 	return res
 }
 
-func ExecutePairsInParallel(ctx sdk.Context, contractAddr string, dexkeeper *keeper.Keeper, registeredPairs []types.Pair, orderBooks *datastructures.TypedSyncMap[dextypesutils.PairString, *types.OrderBook]) []*types.SettlementEntry {
+func ExecutePairsInParallel(ctx sdk.Context, contractAddr string, dexkeeper *keeper.Keeper, registeredPairs []types.Pair, orderBooks *datastructures.TypedSyncMap[dextypesutils.PairString, *types.OrderBook]) ([]*types.SettlementEntry, []*types.Cancellation) {
 	typedContractAddr := dextypesutils.ContractAddress(contractAddr)
 	orderResults := []*types.Order{}
 	cancelResults := []*types.Cancellation{}
@@ -203,7 +203,7 @@ func ExecutePairsInParallel(ctx sdk.Context, contractAddr string, dexkeeper *kee
 	}
 	dexkeeper.SetMatchResult(ctx, contractAddr, types.NewMatchResult(orderResults, cancelResults, settlements))
 
-	return settlements
+	return settlements, cancelResults
 }
 
 func HandleExecutionForContract(
@@ -226,14 +226,15 @@ func HandleExecutionForContract(
 		return orderResults, []*types.SettlementEntry{}, err
 	}
 
-	settlements := ExecutePairsInParallel(sdkCtx, contractAddr, dexkeeper, registeredPairs, orderBooks)
+	settlements, cancellations := ExecutePairsInParallel(sdkCtx, contractAddr, dexkeeper, registeredPairs, orderBooks)
 	defer EmitSettlementMetrics(settlements)
 
 	// populate order placement results for FinalizeBlock hook
 	dexkeeper.MemState.GetAllBlockOrders(sdkCtx, typedContractAddr).DeepApply(func(orders *dexcache.BlockOrders) {
-		dextypeswasm.PopulateOrderPlacementResults(contractAddr, orders.Get(), orderResults)
+		dextypeswasm.PopulateOrderPlacementResults(contractAddr, orders.Get(), cancellations, orderResults)
 	})
 	dextypeswasm.PopulateOrderExecutionResults(contractAddr, settlements, orderResults)
+
 	return orderResults, settlements, nil
 }
 
