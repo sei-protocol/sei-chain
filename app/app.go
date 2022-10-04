@@ -890,7 +890,9 @@ func (app *App) BuildDependencyDag(ctx sdk.Context, txs [][]byte) (*Dag, error) 
 		}
 		msgs := tx.GetMsgs()
 		for messageIndex, msg := range msgs {
-			msgDependencies := app.AccessControlKeeper.GetResourceDependencyMapping(ctx, acltypes.GenerateMessageKey(msg))
+			messageKey := acltypes.GenerateMessageKey(msg)
+			ctx.Logger().Info(fmt.Sprintf("Message Key=%s", messageKey))
+			msgDependencies := app.AccessControlKeeper.GetResourceDependencyMapping(ctx, messageKey)
 			for _, accessOp := range msgDependencies.GetAccessOps() {
 				// make a new node in the dependency dag
 				dependencyDag.AddNodeBuildDependency(messageIndex, txIndex, accessOp)
