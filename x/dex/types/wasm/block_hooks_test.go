@@ -25,7 +25,7 @@ func TestPopulateOrderPlacementResults(t *testing.T) {
 		Data:              "{\"position_effect\":\"Open\",\"leverage\":\"1\"}",
 	}
 	resultsMap := map[string]wasm.ContractOrderResult{}
-	wasm.PopulateOrderPlacementResults(contract, []*types.Order{&orderToPopulate}, resultsMap)
+	wasm.PopulateOrderPlacementResults(contract, []*types.Order{&orderToPopulate}, []*types.Cancellation{}, resultsMap)
 	require.Equal(t, 1, len(resultsMap))
 	require.Equal(t, contract, resultsMap[account].ContractAddr)
 	require.Equal(t, 1, len(resultsMap[account].OrderPlacementResults))

@@ -53,15 +53,27 @@ func NewContractOrderResult(contractAddr string) ContractOrderResult {
 	}
 }
 
-func PopulateOrderPlacementResults(contractAddr string, orders []*types.Order, resultMap map[string]ContractOrderResult) {
+func PopulateOrderPlacementResults(contractAddr string, orders []*types.Order, cancellations []*types.Cancellation, resultMap map[string]ContractOrderResult) {
+	// get cancelled order ids 
+	cancels := make(map[uint64]bool)
+	for _, cancel := range cancellations {
+		cancels[cancel.Id] = true
+	}
+
+
 	for _, order := range orders {
+		orderStatus := order.Status
+		if _, ok := cancels[order.Id]; ok {
+			orderStatus = types.OrderStatus_CANCELLED
+		}
+
 		if _, ok := resultMap[order.Account]; !ok {
 			resultMap[order.Account] = NewContractOrderResult(contractAddr)
 		}
 		resultsForAccount := resultMap[order.Account]
 		resultsForAccount.OrderPlacementResults = append(resultsForAccount.OrderPlacementResults, OrderPlacementResult{
 			OrderID: order.Id,
-			Status:  order.Status,
+			Status:  orderStatus,
 		},
 		)
 		resultMap[order.Account] = resultsForAccount
