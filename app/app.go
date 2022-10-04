@@ -879,6 +879,15 @@ func (app *App) ProcessProposalHandler(ctx sdk.Context, req *abci.RequestProcess
 	}, nil
 }
 
+func isGovMessage(msg sdk.Msg) bool {
+	switch msg.(type) {
+	case *govtypes.MsgVoteWeighted, *govtypes.MsgVote, *govtypes.MsgSubmitProposal, *govtypes.MsgDeposit:
+		return true
+	default:
+		return false
+	}
+}
+
 func (app *App) BuildDependencyDag(ctx sdk.Context, txs [][]byte) (*Dag, error) {
 	defer metrics.MeasureBuildDagDuration(time.Now(), "BuildDependencyDag")
 	// contains the latest msg index for a specific Access Operation
@@ -890,9 +899,10 @@ func (app *App) BuildDependencyDag(ctx sdk.Context, txs [][]byte) (*Dag, error) 
 		}
 		msgs := tx.GetMsgs()
 		for messageIndex, msg := range msgs {
-			messageKey := acltypes.GenerateMessageKey(msg)
-			ctx.Logger().Info(fmt.Sprintf("Message Key=%s", messageKey))
-			msgDependencies := app.AccessControlKeeper.GetResourceDependencyMapping(ctx, messageKey)
+			if isGovMessage(msg) {
+				return nil, ErrGovMsgInBlock
+			}
+			msgDependencies := app.AccessControlKeeper.GetResourceDependencyMapping(ctx, acltypes.GenerateMessageKey(msg))
 			for _, accessOp := range msgDependencies.GetAccessOps() {
 				// make a new node in the dependency dag
 				dependencyDag.AddNodeBuildDependency(messageIndex, txIndex, accessOp)
@@ -1095,17 +1105,18 @@ func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequ
 	// app.batchVerifier.VerifyTxs(ctx, typedTxs)
 
 	dependencyDag, err := app.BuildDependencyDag(ctx, txs)
-	txResults := []*abci.ExecTxResult{}
+	var txResults []*abci.ExecTxResult
 
 	// TODO:: add metrics for async vs sync
-	if err != nil {
+	switch err {
+	case ErrGovMsgInBlock:
+		ctx.Logger().Info(fmt.Sprintf("Gov msg found while building DAG, processing synchronously: %s", err))
+		txResults = app.ProcessBlockSynchronous(ctx, txs)
+	case nil:
 		ctx.Logger().Error(fmt.Sprintf("Error while building DAG, processing synchronously: %s", err))
-		if err == ErrCycleInDAG {
-			txResults = app.ProcessBlockSynchronous(ctx, txs)
-		}
-	} else {
-		completionSignalingMap, blockingSignalsMap := dependencyDag.BuildCompletionSignalMaps()
-		txResults = app.ProcessBlockConcurrent(ctx, txs, completionSignalingMap, blockingSignalsMap)
+		txResults = app.ProcessBlockSynchronous(ctx, txs)
+	default:
+		txResults = app.ProcessBlockConcurrent(ctx, txs, dependencyDag.CompletionSignalingMap, dependencyDag.BlockingSignalsMap)
 	}
 
 	endBlockResp := app.EndBlock(ctx, abci.RequestEndBlock{
