@@ -24,7 +24,7 @@ func NewDefaultGenesisState(cdc codec.JSONCodec) GenesisState {
 	gen := ModuleBasics.DefaultGenesis(cdc)
 
 	// Override distribution config to remove community tax
-	distrGen := distrtypes.GenesisState {
+	distrGen := distrtypes.GenesisState{
 		Params: distrtypes.Params{
 			CommunityTax: sdk.NewDec(0),
 		},

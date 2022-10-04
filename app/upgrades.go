@@ -47,6 +47,8 @@ var upgradesList = []string{
 	"1.2.1beta",
 	// 1.2.2beta
 	"1.2.2beta",
+	// 1.2.3beta
+	"1.2.3beta",
 }
 
 func (app App) RegisterUpgradeHandlers() {
@@ -57,6 +59,20 @@ func (app App) RegisterUpgradeHandlers() {
 	}
 	for _, upgradeName := range upgradesList {
 		app.UpgradeKeeper.SetUpgradeHandler(upgradeName, func(ctx sdk.Context, plan upgradetypes.Plan, fromVM module.VersionMap) (module.VersionMap, error) {
+			// Set params to Distribution here when migrating
+			if upgradeName == "1.2.3beta" {
+				newVM, err := app.mm.RunMigrations(ctx, app.configurator, fromVM)
+				if err != nil {
+					return newVM, err
+				}
+
+				params := app.DistrKeeper.GetParams(ctx)
+				params.CommunityTax = sdk.NewDec(0)
+				app.DistrKeeper.SetParams(ctx, params)
+
+				return newVM, err
+			}
+
 			return app.mm.RunMigrations(ctx, app.configurator, fromVM)
 		})
 	}
