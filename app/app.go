@@ -1150,8 +1150,7 @@ func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequ
 		ctx.Logger().Error(fmt.Sprintf("Error while building DAG, processing synchronously: %s", err))
 		txResults = app.ProcessBlockSynchronous(ctx, txs)
 	default:
-		completionSignalingMap, blockingSignalsMap := dependencyDag.BuildCompletionSignalMaps()
-		txResults = app.ProcessBlockConcurrent(ctx, txs, completionSignalingMap, blockingSignalsMap)
+		txResults = app.ProcessBlockConcurrent(ctx, txs, dependencyDag.CompletionSignalingMap, dependencyDag.BlockingSignalsMap)
 	}
 
 	endBlockResp := app.EndBlock(ctx, abci.RequestEndBlock{
