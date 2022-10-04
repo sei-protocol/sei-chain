@@ -1141,16 +1141,17 @@ func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequ
 	dependencyDag, err := app.BuildDependencyDag(ctx, txs)
 	var txResults []*abci.ExecTxResult
 
-	// TODO:: add metrics for async vs sync
 	switch err {
+	case nil:
+		// Only run concurrently if no error
+		txResults = app.ProcessBlockConcurrent(ctx, txs, dependencyDag.CompletionSignalingMap, dependencyDag.BlockingSignalsMap)
 	case ErrGovMsgInBlock:
 		ctx.Logger().Info(fmt.Sprintf("Gov msg found while building DAG, processing synchronously: %s", err))
 		txResults = app.ProcessBlockSynchronous(ctx, txs)
-	case nil:
+
+	default:
 		ctx.Logger().Error(fmt.Sprintf("Error while building DAG, processing synchronously: %s", err))
 		txResults = app.ProcessBlockSynchronous(ctx, txs)
-	default:
-		txResults = app.ProcessBlockConcurrent(ctx, txs, dependencyDag.CompletionSignalingMap, dependencyDag.BlockingSignalsMap)
 	}
 
 	endBlockResp := app.EndBlock(ctx, abci.RequestEndBlock{
