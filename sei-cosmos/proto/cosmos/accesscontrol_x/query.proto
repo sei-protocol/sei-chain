@@ -15,16 +15,16 @@ service Query {
     option (google.api.http).get = "/cosmos/cosmos-sdk/accesscontrol/params";
   }
 
-  rpc ResourceDepedencyMappingFromMessageKey(ResourceDepedencyMappingFromMessageKeyRequest)
-      returns (ResourceDepedencyMappingFromMessageKeyResponse) {
+  rpc ResourceDependencyMappingFromMessageKey(ResourceDependencyMappingFromMessageKeyRequest)
+      returns (ResourceDependencyMappingFromMessageKeyResponse) {
     option (google.api.http).get =
-        "/cosmos/cosmos-sdk/accesscontrol/resource_depedency_mapping_from_message_key/{message_key}";
+        "/cosmos/cosmos-sdk/accesscontrol/resource_dependency_mapping_from_message_key/{message_key}";
   }
 
-  rpc ListResourceDepedencyMapping(ListResourceDepedencyMappingRequest)
-      returns (ListResourceDepedencyMappingResponse) {
+  rpc ListResourceDependencyMapping(ListResourceDependencyMappingRequest)
+      returns (ListResourceDependencyMappingResponse) {
     option (google.api.http).get =
-        "/cosmos/cosmos-sdk/accesscontrol/list_resource_depedency_mapping";
+        "/cosmos/cosmos-sdk/accesscontrol/list_resource_dependency_mapping";
   }
 }
 
@@ -37,21 +37,21 @@ message QueryParamsResponse {
   cosmos.accesscontrol_x.v1beta1.Params params = 1 [ (gogoproto.nullable) = false ];
 }
 
-message ResourceDepedencyMappingFromMessageKeyRequest {
+message ResourceDependencyMappingFromMessageKeyRequest {
   string message_key = 1 [ (gogoproto.moretags) = "yaml:\"message_key\"" ];
 }
 
-message ResourceDepedencyMappingFromMessageKeyResponse {
-    cosmos.accesscontrol.v1beta1.MessageDependencyMapping message_dependency_mapping = 1 [ 
+message ResourceDependencyMappingFromMessageKeyResponse {
+    cosmos.accesscontrol.v1beta1.MessageDependencyMapping message_dependency_mapping = 1 [
         (gogoproto.nullable) = false,
         (gogoproto.moretags) = "yaml:\"message_dependency_mapping\""
     ];
 }
 
-message ListResourceDepedencyMappingRequest {}
-  
-message ListResourceDepedencyMappingResponse {
-    repeated cosmos.accesscontrol.v1beta1.MessageDependencyMapping message_dependency_mapping_list = 1 [ 
+message ListResourceDependencyMappingRequest {}
+
+message ListResourceDependencyMappingResponse {
+    repeated cosmos.accesscontrol.v1beta1.MessageDependencyMapping message_dependency_mapping_list = 1 [
         (gogoproto.nullable) = false,
         (gogoproto.moretags) = "yaml:\"message_dependency_mapping_list\""
     ];

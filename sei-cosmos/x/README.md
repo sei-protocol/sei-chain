@@ -7,7 +7,7 @@ parent:
 
 Here are some production-grade modules that can be used in Cosmos SDK applications, along with their respective documentation:
 
-- [Accesscontrol] - Resource depedency access control module used for managing concurrent read/write access to resources.
+- [Accesscontrol] - Resource dependency access control module used for managing concurrent read/write access to resources.
 - [Auth](auth/spec/README.md) - Authentication of accounts and transactions for Cosmos SDK application.
 - [Authz](authz/spec/README.md) - Authorization for accounts to perform actions on behalf of other accounts.
 - [Bank](bank/spec/README.md) - Token transfer functionalities.

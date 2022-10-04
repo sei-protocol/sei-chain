@@ -16,7 +16,7 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/types/module"
 	simtypes "github.com/cosmos/cosmos-sdk/types/simulation"
-	cli "github.com/cosmos/cosmos-sdk/x/accesscontrol/client"
+	cli "github.com/cosmos/cosmos-sdk/x/accesscontrol/client/cli"
 	"github.com/cosmos/cosmos-sdk/x/accesscontrol/keeper"
 	"github.com/cosmos/cosmos-sdk/x/accesscontrol/types"
 )
@@ -43,7 +43,9 @@ func (AppModuleBasic) Name() string {
 func (AppModuleBasic) RegisterLegacyAminoCodec(cdc *codec.LegacyAmino) {}
 
 // RegisterInterfaces registers the module's interface types
-func (b AppModuleBasic) RegisterInterfaces(_ cdctypes.InterfaceRegistry) {}
+func (b AppModuleBasic) RegisterInterfaces(registry cdctypes.InterfaceRegistry) {
+	types.RegisterInterfaces(registry)
+}
 
 // DefaultGenesis returns default genesis state as raw bytes for the accesscontrol
 // module.
@@ -69,7 +71,7 @@ func (AppModuleBasic) RegisterRESTRoutes(clientCtx client.Context, rtr *mux.Rout
 func (AppModuleBasic) RegisterGRPCGatewayRoutes(clientCtx client.Context, mux *runtime.ServeMux) {}
 
 // GetTxCmd returns no root tx command for the accesscontrol module.
-func (AppModuleBasic) GetTxCmd() *cobra.Command { return nil }
+func (AppModuleBasic) GetTxCmd() *cobra.Command { return cli.GetTxCmd() }
 
 // GetQueryCmd returns the root query command for the accesscontrol module.
 func (AppModuleBasic) GetQueryCmd() *cobra.Command { return cli.GetQueryCmd() }

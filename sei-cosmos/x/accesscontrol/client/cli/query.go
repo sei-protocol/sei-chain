@@ -67,9 +67,9 @@ func GetResourceDependencyMapping() *cobra.Command {
 			}
 			queryClient := types.NewQueryClient(clientCtx)
 
-			res, err := queryClient.ResourceDepedencyMappingFromMessageKey(
+			res, err := queryClient.ResourceDependencyMappingFromMessageKey(
 				cmd.Context(),
-				&types.ResourceDepedencyMappingFromMessageKeyRequest{MessageKey: args[0]},
+				&types.ResourceDependencyMappingFromMessageKeyRequest{MessageKey: args[0]},
 			)
 			if err != nil {
 				return err
@@ -84,7 +84,6 @@ func GetResourceDependencyMapping() *cobra.Command {
 	return cmd
 }
 
-
 func ListResourceDependencyMapping() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "list-resource-dependency-mapping [flags]",
@@ -97,9 +96,9 @@ func ListResourceDependencyMapping() *cobra.Command {
 			}
 			queryClient := types.NewQueryClient(clientCtx)
 
-			res, err := queryClient.ListResourceDepedencyMapping(
+			res, err := queryClient.ListResourceDependencyMapping(
 				cmd.Context(),
-				&types.ListResourceDepedencyMappingRequest{},
+				&types.ListResourceDependencyMappingRequest{},
 			)
 			if err != nil {
 				return err

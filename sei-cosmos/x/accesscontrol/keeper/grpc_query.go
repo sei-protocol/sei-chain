@@ -17,21 +17,21 @@ func (k Keeper) Params(ctx context.Context, req *types.QueryParamsRequest) (*typ
 	return &types.QueryParamsResponse{Params: params}, nil
 }
 
-func (k Keeper) ResourceDepedencyMappingFromMessageKey(ctx context.Context, req *types.ResourceDepedencyMappingFromMessageKeyRequest) (*types.ResourceDepedencyMappingFromMessageKeyResponse, error) {
+func (k Keeper) ResourceDependencyMappingFromMessageKey(ctx context.Context, req *types.ResourceDependencyMappingFromMessageKeyRequest) (*types.ResourceDependencyMappingFromMessageKeyResponse, error) {
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
 
 	resourceDependency := k.GetResourceDependencyMapping(sdkCtx, req.GetMessageKey())
-	return &types.ResourceDepedencyMappingFromMessageKeyResponse{MessageDependencyMapping: resourceDependency}, nil
+	return &types.ResourceDependencyMappingFromMessageKeyResponse{MessageDependencyMapping: resourceDependency}, nil
 }
 
 
-func (k Keeper) ListResourceDepedencyMapping(ctx context.Context, req *types.ListResourceDepedencyMappingRequest) (*types.ListResourceDepedencyMappingResponse, error) {
+func (k Keeper) ListResourceDependencyMapping(ctx context.Context, req *types.ListResourceDependencyMappingRequest) (*types.ListResourceDependencyMappingResponse, error) {
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
-	resourceDepedencyMappings := []acltypes.MessageDependencyMapping{}
+	resourceDependencyMappings := []acltypes.MessageDependencyMapping{}
 	k.IterateResourceKeys(sdkCtx, func(dependencyMapping acltypes.MessageDependencyMapping) (stop bool) {
-		resourceDepedencyMappings = append(resourceDepedencyMappings, dependencyMapping)
+		resourceDependencyMappings = append(resourceDependencyMappings, dependencyMapping)
 		return false
 	})
 
-	return &types.ListResourceDepedencyMappingResponse{MessageDependencyMappingList: resourceDepedencyMappings}, nil
+	return &types.ListResourceDependencyMappingResponse{MessageDependencyMappingList: resourceDependencyMappings}, nil
 }

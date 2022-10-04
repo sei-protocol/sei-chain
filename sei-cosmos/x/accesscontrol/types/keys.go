@@ -11,6 +11,8 @@ const (
 
 	// Append "acl" to prevent prefix collision with "acc" module
 	StoreKey = "acl" + ModuleName
+
+	RouterKey = ModuleName
 )
 
 func GetResourceDependencyMappingKey() []byte {
