@@ -94,7 +94,7 @@ func TestCreateGraph(t *testing.T) {
 	require.True(t, acyclic)
 
 	// test completion signals
-	completionSignalsMap, blockingSignalsMap := dag.BuildCompletionSignalMaps()
+	completionSignalsMap, blockingSignalsMap := dag.CompletionSignalingMap, dag.BlockingSignalsMap
 
 	channel0 := completionSignalsMap[0][0][commitAccessOp][0].Channel
 	channel1 := completionSignalsMap[0][0][commitAccessOp][1].Channel
@@ -219,7 +219,7 @@ func TestHierarchyDag(t *testing.T) {
 	require.Equal(t, []app.DagEdge(nil), dag.EdgesMap[6])
 
 	// test completion signals
-	completionSignalsMap, blockingSignalsMap := dag.BuildCompletionSignalMaps()
+	completionSignalsMap, blockingSignalsMap := dag.CompletionSignalingMap, dag.BlockingSignalsMap
 
 	channel0 := completionSignalsMap[0][0][commit][0].Channel
 	channel1 := completionSignalsMap[0][0][commit][1].Channel
