@@ -81,3 +81,13 @@ func (k Keeper) IterateResourceKeys(ctx sdk.Context, handler func(dependencyMapp
 		}
 	}
 }
+
+func (k Keeper) GetMessageDependencies(ctx sdk.Context, msg sdk.Msg) []acltypes.AccessOperation {
+	switch msg.(type) {
+	default:
+		// Default behavior is to get the static dependency mapping for the message
+		messageKey := types.GenerateMessageKey(msg)
+		dependencyMapping := k.GetResourceDependencyMapping(ctx, messageKey)
+		return dependencyMapping.AccessOps
+	}
+}

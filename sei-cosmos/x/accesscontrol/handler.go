@@ -5,7 +5,6 @@ import (
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	govtypes "github.com/cosmos/cosmos-sdk/x/gov/types"
 
-	acltypes "github.com/cosmos/cosmos-sdk/types/accesscontrol"
 	"github.com/cosmos/cosmos-sdk/x/accesscontrol/keeper"
 	"github.com/cosmos/cosmos-sdk/x/accesscontrol/types"
 )
@@ -25,15 +24,5 @@ func NewProposalHandler(k keeper.Keeper) govtypes.Handler {
 		default:
 			return sdkerrors.Wrapf(sdkerrors.ErrUnknownRequest, "unrecognized accesscontrol proposal content type: %T", c)
 		}
-	}
-}
-
-func (am AppModule) GetMessageDependencies(ctx sdk.Context, msg sdk.Msg) []acltypes.AccessOperation {
-	switch msg.(type) {
-	default:
-		// Default behavior is to get the static dependency mapping for the message
-		messageKey := types.GenerateMessageKey(msg)
-		dependencyMapping := am.keeper.GetResourceDependencyMapping(ctx, messageKey)
-		return dependencyMapping.AccessOps
 	}
 }
