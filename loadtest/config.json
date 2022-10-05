@@ -14,9 +14,10 @@
         "number_of_distinct_values": 20
     },
     "message_type_distribution": {
-        "limit_order_percentage": "0.8",
-        "market_order_percentage": "0.2"
+        "limit_order_percentage": "0.2",
+        "market_order_percentage": "0.8"
     },
+    "message_type": "basic",
     "contract_distribution": [
         {
             "contract_address": "sei1yw4xvtc43me9scqfr2jr2gzvcxd3a9y4eq7gaukreugw2yd2f8tsy4qgdm",
