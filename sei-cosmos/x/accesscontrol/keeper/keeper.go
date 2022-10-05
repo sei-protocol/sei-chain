@@ -2,10 +2,14 @@ package keeper
 
 import (
 	"fmt"
+	"time"
 
+	"github.com/armon/go-metrics"
 	"github.com/tendermint/tendermint/libs/log"
+	"github.com/yourbasic/graph"
 
 	"github.com/cosmos/cosmos-sdk/codec"
+	"github.com/cosmos/cosmos-sdk/telemetry"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 
 	acltypes "github.com/cosmos/cosmos-sdk/types/accesscontrol"
@@ -80,6 +84,49 @@ func (k Keeper) IterateResourceKeys(ctx sdk.Context, handler func(dependencyMapp
 			break
 		}
 	}
+}
+
+func (k Keeper) BuildDependencyDag(ctx sdk.Context, txDecoder sdk.TxDecoder, txs [][]byte) (*types.Dag, error) {
+	defer MeasureBuildDagDuration(time.Now(), "BuildDependencyDag")
+	// contains the latest msg index for a specific Access Operation
+	dependencyDag := types.NewDag()
+	for txIndex, txBytes := range txs {
+		tx, err := txDecoder(txBytes) // TODO: results in repetitive decoding for txs with runtx decode (potential optimization)
+		if err != nil {
+			return nil, err
+		}
+		msgs := tx.GetMsgs()
+		for messageIndex, msg := range msgs {
+			if types.IsGovMessage(msg) {
+				return nil, types.ErrGovMsgInBlock
+			}
+			msgDependencies := k.GetMessageDependencies(ctx, msg)
+			for _, accessOp := range msgDependencies {
+				// make a new node in the dependency dag
+				dependencyDag.AddNodeBuildDependency(messageIndex, txIndex, accessOp)
+			}
+		}
+
+	}
+
+	if !graph.Acyclic(&dependencyDag) {
+		return nil, types.ErrCycleInDAG
+	}
+	return &dependencyDag, nil
+}
+
+// Measures the time taken to build dependency dag
+// Metric Names:
+//
+//	sei_dag_build_duration_miliseconds
+//	sei_dag_build_duration_miliseconds_count
+//	sei_dag_build_duration_miliseconds_sum
+func MeasureBuildDagDuration(start time.Time, method string) {
+	metrics.MeasureSinceWithLabels(
+		[]string{"sei", "dag", "build", "milliseconds"},
+		start.UTC(),
+		[]metrics.Label{telemetry.NewLabel("method", method)},
+	)
 }
 
 func (k Keeper) GetMessageDependencies(ctx sdk.Context, msg sdk.Msg) []acltypes.AccessOperation {
