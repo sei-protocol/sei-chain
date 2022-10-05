@@ -3,7 +3,6 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
 	"math/rand"
 	"os"
 	"os/exec"
@@ -11,6 +10,8 @@ import (
 	"strconv"
 	"sync"
 	"time"
+
+	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
 
 	sdktypes "github.com/cosmos/cosmos-sdk/types"
 	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
