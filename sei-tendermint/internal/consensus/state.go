@@ -2428,7 +2428,6 @@ func (cs *State) tryCreateProposalBlock(ctx context.Context, height int64, round
 // Build a proposal block from mempool txs. If cs.config.GossipTransactionKeyOnly=true
 // proposals only contain txKeys so we rebuild the block using mempool txs
 func (cs *State) buildProposalBlock(height int64, header types.Header, lastCommit *types.Commit, evidence []types.Evidence, proposerAddress types.Address, txKeys []types.TxKey) *types.Block {
-	block := cs.state.MakeBlock(height, cs.blockExec.GetTxsForKeys(txKeys), lastCommit, evidence, proposerAddress)
 	missingTxs := cs.blockExec.GetMissingTxs(txKeys)
 	if len(missingTxs) > 0 {
 		cs.metrics.ProposalMissingTxs.Set(float64(len(missingTxs)))
@@ -2436,6 +2435,7 @@ func (cs *State) buildProposalBlock(height int64, header types.Header, lastCommi
 		return nil
 	}
 	txs := cs.blockExec.GetTxsForKeys(txKeys)
+	block := cs.state.MakeBlock(height, cs.blockExec.GetTxsForKeys(txKeys), lastCommit, evidence, proposerAddress)
 	block.Version = header.Version
 	block.Data.Txs = txs
 	block.DataHash = block.Data.Hash(true)
