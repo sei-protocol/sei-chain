@@ -13,7 +13,6 @@ import (
 
 	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
 
-	sdktypes "github.com/cosmos/cosmos-sdk/types"
 	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
 
 	"github.com/cosmos/cosmos-sdk/client"
@@ -221,9 +220,9 @@ func generateMessage(config Config, key cryptotypes.PrivKey, batchSize uint64) s
 		msg = &banktypes.MsgSend{
 			FromAddress: sdk.AccAddress(key.PubKey().Address()).String(),
 			ToAddress:   sdk.AccAddress(key.PubKey().Address()).String(),
-			Amount: sdktypes.NewCoins(sdktypes.Coin{
+			Amount: sdk.NewCoins(sdk.Coin{
 				Denom:  "usei",
-				Amount: sdktypes.NewInt(1),
+				Amount: sdk.NewInt(1),
 			}),
 		}
 	case "dex":
