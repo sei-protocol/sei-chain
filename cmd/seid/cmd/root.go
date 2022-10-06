@@ -22,6 +22,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/snapshots"
 	"github.com/cosmos/cosmos-sdk/store"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	aclkeeper "github.com/cosmos/cosmos-sdk/x/accesscontrol/keeper"
 	authcmd "github.com/cosmos/cosmos-sdk/x/auth/client/cli"
 	"github.com/cosmos/cosmos-sdk/x/auth/types"
 	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
@@ -255,6 +256,7 @@ func newApp(
 		wasm.EnableAllProposals,
 		appOpts,
 		wasmopts,
+		[]aclkeeper.Option{},
 		baseapp.SetPruning(pruningOpts),
 		baseapp.SetMinGasPrices(cast.ToString(appOpts.Get(server.FlagMinGasPrices))),
 		baseapp.SetMinRetainBlocks(cast.ToUint64(appOpts.Get(server.FlagMinRetainBlocks))),
@@ -290,12 +292,12 @@ func appExport(
 	}
 
 	if height != -1 {
-		exportableApp = app.New(logger, db, traceStore, false, map[int64]bool{}, "", uint(1), encCfg, app.GetWasmEnabledProposals(), appOpts, app.EmptyWasmOpts)
+		exportableApp = app.New(logger, db, traceStore, false, map[int64]bool{}, "", uint(1), encCfg, app.GetWasmEnabledProposals(), appOpts, app.EmptyWasmOpts, app.EmptyAclOpts)
 		if err := exportableApp.LoadHeight(height); err != nil {
 			return servertypes.ExportedApp{}, err
 		}
 	} else {
-		exportableApp = app.New(logger, db, traceStore, true, map[int64]bool{}, "", uint(1), encCfg, app.GetWasmEnabledProposals(), appOpts, app.EmptyWasmOpts)
+		exportableApp = app.New(logger, db, traceStore, true, map[int64]bool{}, "", uint(1), encCfg, app.GetWasmEnabledProposals(), appOpts, app.EmptyWasmOpts, app.EmptyAclOpts)
 	}
 
 	return exportableApp.ExportAppStateAndValidators(forZeroHeight, jailAllowedAddrs)
