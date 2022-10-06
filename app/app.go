@@ -1002,8 +1002,8 @@ func (app *App) ProcessTxConcurrent(
 ) {
 	defer wg.Done()
 	// Store the Channels in the Context Object for each transaction
-	ctx.WithTxBlockingChannels(getChannelsFromSignalMapping(txBlockingSignalsMap))
-	ctx.WithTxCompletionChannels(getChannelsFromSignalMapping(txCompletionSignalingMap))
+	ctx = ctx.WithTxBlockingChannels(getChannelsFromSignalMapping(txBlockingSignalsMap))
+	ctx = ctx.WithTxCompletionChannels(getChannelsFromSignalMapping(txCompletionSignalingMap))
 
 	// Deliver the transaction and store the result in the channel
 	resultChan <- ChannelResult{txIndex, app.DeliverTxWithResult(ctx, txBytes)}
