@@ -46,7 +46,7 @@ service Query {
 	}
 
 	rpc GetPrice(QueryGetPriceRequest) returns (QueryGetPriceResponse) {
-		option (google.api.http).get = "/sei-protocol/seichain/dex/get_price/{contractAddr}/{priceDenom}/{assetDenom}";
+		option (google.api.http).get = "/sei-protocol/seichain/dex/get_price/{contractAddr}/{priceDenom}/{assetDenom}/{timestamp}";
 	}
 
 	rpc GetPrices(QueryGetPricesRequest) returns (QueryGetPricesResponse) {
