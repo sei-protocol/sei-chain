@@ -5,6 +5,7 @@ import (
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
+	distrtypes "github.com/cosmos/cosmos-sdk/x/distribution/types"
 
 	"github.com/sei-protocol/sei-chain/x/tokenfactory/types"
 )
@@ -74,17 +75,19 @@ func (k Keeper) validateCreateDenom(ctx sdk.Context, creatorAddr string, subdeno
 }
 
 func (k Keeper) chargeForCreateDenom(ctx sdk.Context, creatorAddr string) (err error) {
-	// Send creation fee to community pool
+	// Send creation fee to distribution module
 	creationFee := k.GetParams(ctx).DenomCreationFee
 	accAddr, err := sdk.AccAddressFromBech32(creatorAddr)
 	if err != nil {
 		return err
 	}
+
 	if len(creationFee) > 0 {
-		// TODO(kartik): Possibly remove community funding
-		if err := k.distrKeeper.FundCommunityPool(ctx, creationFee, accAddr); err != nil {
+		// Send denom creation fees back to distr module to be distributed to validators
+		if err := k.bankKeeper.SendCoinsFromAccountToModule(ctx, accAddr, distrtypes.ModuleName, creationFee); err != nil {
 			return err
 		}
 	}
+
 	return nil
 }
