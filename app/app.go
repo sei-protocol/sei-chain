@@ -13,7 +13,6 @@ import (
 	"time"
 
 	storetypes "github.com/cosmos/cosmos-sdk/store/types"
-	graph "github.com/yourbasic/graph"
 
 	appparams "github.com/sei-protocol/sei-chain/app/params"
 	"github.com/sei-protocol/sei-chain/utils"
@@ -917,44 +916,6 @@ func (app *App) ProcessProposalHandler(ctx sdk.Context, req *abci.RequestProcess
 	}, nil
 }
 
-func isGovMessage(msg sdk.Msg) bool {
-	switch msg.(type) {
-	case *govtypes.MsgVoteWeighted, *govtypes.MsgVote, *govtypes.MsgSubmitProposal, *govtypes.MsgDeposit:
-		return true
-	default:
-		return false
-	}
-}
-
-func (app *App) BuildDependencyDag(ctx sdk.Context, txs [][]byte) (*Dag, error) {
-	defer metrics.MeasureBuildDagDuration(time.Now(), "BuildDependencyDag")
-	// contains the latest msg index for a specific Access Operation
-	dependencyDag := NewDag()
-	for txIndex, txBytes := range txs {
-		tx, err := app.txDecoder(txBytes) // TODO: results in repetitive decoding for txs with runtx decode (potential optimization)
-		if err != nil {
-			return nil, err
-		}
-		msgs := tx.GetMsgs()
-		for messageIndex, msg := range msgs {
-			if isGovMessage(msg) {
-				return nil, ErrGovMsgInBlock
-			}
-			msgDependencies := app.AccessControlKeeper.GetResourceDependencyMapping(ctx, acltypes.GenerateMessageKey(msg))
-			for _, accessOp := range msgDependencies.GetAccessOps() {
-				// make a new node in the dependency dag
-				dependencyDag.AddNodeBuildDependency(messageIndex, txIndex, accessOp)
-			}
-		}
-
-	}
-
-	if !graph.Acyclic(&dependencyDag) {
-		return nil, ErrCycleInDAG
-	}
-	return &dependencyDag, nil
-}
-
 func (app *App) FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBlock) (*abci.ResponseFinalizeBlock, error) {
 	startTime := time.Now()
 	defer func() {
@@ -1010,7 +971,7 @@ func (app *App) ProcessBlockSynchronous(ctx sdk.Context, txs [][]byte) []*abci.E
 }
 
 // Returns a mapping of the accessOperation to the channels
-func getChannelsFromSignalMapping(signalMapping MessageCompletionSignalMapping) sdkacltypes.MessageAccessOpsChannelMapping {
+func getChannelsFromSignalMapping(signalMapping acltypes.MessageCompletionSignalMapping) sdkacltypes.MessageAccessOpsChannelMapping {
 	channelsMapping := make(sdkacltypes.MessageAccessOpsChannelMapping)
 	for messageIndex, accessOperationsToSignal := range signalMapping {
 		for accessOperation, completionSignals := range accessOperationsToSignal {
@@ -1036,8 +997,8 @@ func (app *App) ProcessTxConcurrent(
 	txBytes []byte,
 	wg *sync.WaitGroup,
 	resultChan chan<- ChannelResult,
-	txCompletionSignalingMap MessageCompletionSignalMapping,
-	txBlockingSignalsMap MessageCompletionSignalMapping,
+	txCompletionSignalingMap acltypes.MessageCompletionSignalMapping,
+	txBlockingSignalsMap acltypes.MessageCompletionSignalMapping,
 ) {
 	defer wg.Done()
 	// Store the Channels in the Context Object for each transaction
@@ -1052,8 +1013,8 @@ func (app *App) ProcessTxConcurrent(
 func (app *App) ProcessBlockConcurrent(
 	ctx sdk.Context,
 	txs [][]byte,
-	completionSignalingMap map[int]MessageCompletionSignalMapping,
-	blockingSignalsMap map[int]MessageCompletionSignalMapping,
+	completionSignalingMap map[int]acltypes.MessageCompletionSignalMapping,
+	blockingSignalsMap map[int]acltypes.MessageCompletionSignalMapping,
 ) []*abci.ExecTxResult {
 	var waitGroup sync.WaitGroup
 	resultChan := make(chan ChannelResult)
@@ -1142,14 +1103,14 @@ func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequ
 	// }
 	// app.batchVerifier.VerifyTxs(ctx, typedTxs)
 
-	dependencyDag, err := app.BuildDependencyDag(ctx, txs)
+	dependencyDag, err := app.AccessControlKeeper.BuildDependencyDag(ctx, app.txDecoder, txs)
 	var txResults []*abci.ExecTxResult
 
 	switch err {
 	case nil:
 		// Only run concurrently if no error
 		txResults = app.ProcessBlockConcurrent(ctx, txs, dependencyDag.CompletionSignalingMap, dependencyDag.BlockingSignalsMap)
-	case ErrGovMsgInBlock:
+	case acltypes.ErrGovMsgInBlock:
 		ctx.Logger().Info(fmt.Sprintf("Gov msg found while building DAG, processing synchronously: %s", err))
 		txResults = app.ProcessBlockSynchronous(ctx, txs)
 
