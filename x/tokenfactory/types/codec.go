@@ -38,7 +38,7 @@ func RegisterInterfaces(registry cdctypes.InterfaceRegistry) {
 	// registry.RegisterImplementations((*govtypes.Content)(nil),
 	// 	&MsgForceTransfer{},
 	// )
-	
+
 	msgservice.RegisterMsgServiceDesc(registry, &_Msg_serviceDesc)
 }
 
