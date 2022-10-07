@@ -49,6 +49,7 @@ func (k msgServer) transferFunds(goCtx context.Context, msg *types.MsgPlaceOrder
 	return nil
 }
 
+
 func (k msgServer) PlaceOrders(goCtx context.Context, msg *types.MsgPlaceOrders) (*types.MsgPlaceOrdersResponse, error) {
 	ctx := sdk.UnwrapSDKContext(goCtx)
 	ctx.Logger().Info("PlaceOrders:: Recieved Msg!")

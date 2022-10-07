@@ -59,5 +59,5 @@ func (msg *MsgPlaceOrders) ValidateBasic() error {
 // Used for concurrent message processing
 func (msg *MsgPlaceOrders) GetMsgResourceIdentifier(accessOp sdkacltypes.AccessOperation) string {
 	// TODO:: check accessOp for types and return other identifiers
-	return fmt.Sprintf(accessOp.GetIdentifierTemplate(), msg.ContractAddr)
+	return fmt.Sprintf(accessOp.GetIdentifierTemplate(), msg.ContractAddr, msg.Creator, msg.Orders)
 }
