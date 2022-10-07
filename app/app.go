@@ -1002,19 +1002,32 @@ type ChannelResult struct {
 	result  *abci.ExecTxResult
 }
 
-func SendAllSignals(txIndex int, messageIndexToAccessOpsChannelMapping map[int]map[sdkacltypes.AccessOperation][]chan interface{}) {
-	println(fmt.Printf("%d=========SendAllSignals:: Sending Signals =========", txIndex))
+func SendAllSignals(txIndex int, messageIndexToAccessOpsChannelMapping sdkacltypes.MessageAccessOpsChannelMapping) {
 	pp.Println(messageIndexToAccessOpsChannelMapping)
 	for _, accessOpsToChannelsMap  := range messageIndexToAccessOpsChannelMapping {
 		for _, channels := range accessOpsToChannelsMap {
 			for _, channel := range channels {
-				println(fmt.Printf("%d==SendAllSignals:: Sending Signal", txIndex))
+				println(fmt.Printf("TxIndex=%d:SendAllSignals:: Sending Signal", txIndex))
 				channel <- struct{}{}
-				println(fmt.Printf("%d==SendAllSignals:: Sent Signal", txIndex))
+				println(fmt.Printf("TxIndex=%d:SendAllSignals:: Sent Signal", txIndex))
 			}
 		}
 	}
-	println(fmt.Printf("%d==SendAllSignals:: Sent All Signals", txIndex))
+	println(fmt.Printf("TxIndex=%d:SendAllSignals:: Sent All Signals", txIndex))
+}
+
+func WaitForAllSignals(txIndex int, messageIndexToAccessOpsChannelMapping sdkacltypes.MessageAccessOpsChannelMapping) {
+	pp.Println(messageIndexToAccessOpsChannelMapping)
+	for _, accessOpsToChannelsMap  := range messageIndexToAccessOpsChannelMapping {
+		for _, channels := range accessOpsToChannelsMap {
+			for _, channel := range channels {
+				println(fmt.Printf("TxIndex=%d:WaitForallSignals:: Waiting", txIndex))
+				<-channel
+				println(fmt.Printf("TxIndex=%d:WaitForallSignals:: Got Signal", txIndex))
+			}
+		}
+	}
+	println(fmt.Printf("TxIndex=%d:WaitForallSignals:: Receieved all Signals", txIndex))
 }
 
 func (app *App) ProcessTxConcurrent(
@@ -1031,12 +1044,14 @@ func (app *App) ProcessTxConcurrent(
 
 	// Store the Channels in the Context Object for each transaction
 	ctx = ctx.WithTxIndex(txIndex)
-	ctx = ctx.WithTxBlockingChannels(getChannelsFromSignalMapping(txBlockingSignalsMap))
 
 	// Deliver the transaction and store the result in the channel
-	ctx.Logger().Info(fmt.Sprintf("ProcessTxConcurrent:: Delievering txIndex=%d", txIndex))
-	resultChan <- ChannelResult{txIndex, app.DeliverTxWithResult(ctx, txBytes)}
-	ctx.Logger().Info(fmt.Sprintf("ProcessTxConcurrent:: Delievered txIndex=%d", txIndex))
+	WaitForAllSignals(txIndex, getChannelsFromSignalMapping(txBlockingSignalsMap))
+	ctx.Logger().Info(fmt.Sprintf("TxIndex=%d:ProcessTxConcurrent:: Delievering", txIndex))
+	result := app.DeliverTxWithResult(ctx, txBytes)
+	ctx.Logger().Info(fmt.Sprintf("TxIndex=%d:ProcessTxConcurrent:: Delievered", txIndex))
+
+	resultChan <- ChannelResult{txIndex, result}
 	metrics.IncrTxProcessTypeCounter(metrics.CONCURRENT)
 }
 
