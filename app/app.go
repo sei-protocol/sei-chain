@@ -963,12 +963,12 @@ func (app *App) ProcessTxConcurrent(
 	txBlockingSignalsMap acltypes.MessageCompletionSignalMapping,
 ) {
 	defer wg.Done()
-	// Store the Channels in the Context Object for each transaction
-	ctx = ctx.WithTxBlockingChannels(getChannelsFromSignalMapping(txBlockingSignalsMap))
-	ctx = ctx.WithTxCompletionChannels(getChannelsFromSignalMapping(txCompletionSignalingMap))
+	defer sdkacltypes.SendAllSignals(txIndex, getChannelsFromSignalMapping(txCompletionSignalingMap))
 
 	// Deliver the transaction and store the result in the channel
-	resultChan <- ChannelResult{txIndex, app.DeliverTxWithResult(ctx, txBytes)}
+	sdkacltypes.WaitForAllSignals(txIndex, getChannelsFromSignalMapping(txBlockingSignalsMap))
+	result := app.DeliverTxWithResult(ctx, txBytes)
+	resultChan <- ChannelResult{txIndex, result}
 	metrics.IncrTxProcessTypeCounter(metrics.CONCURRENT)
 }
 
