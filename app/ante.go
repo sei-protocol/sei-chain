@@ -4,6 +4,7 @@ import (
 	wasmkeeper "github.com/CosmWasm/wasmd/x/wasm/keeper"
 	wasmTypes "github.com/CosmWasm/wasmd/x/wasm/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	sdkacltypes "github.com/cosmos/cosmos-sdk/types/accesscontrol"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	"github.com/cosmos/cosmos-sdk/x/auth/ante"
 	ibcante "github.com/cosmos/ibc-go/v3/modules/core/ante"
@@ -30,27 +31,54 @@ type HandlerOptions struct {
 	TracingInfo *tracing.Info
 }
 
-func NewAnteHandler(options HandlerOptions) (sdk.AnteHandler, error) {
+type WrappedAnteDecorator struct {
+	Decorator    sdk.AnteDecorator
+	DepDecorator sdk.AnteDepDecorator
+}
+
+func CustomDepWrappedAnteDecorator(decorator sdk.AnteDecorator, depDecorator sdk.AnteDepDecorator) WrappedAnteDecorator {
+	return WrappedAnteDecorator{
+		Decorator:    decorator,
+		DepDecorator: depDecorator,
+	}
+}
+
+func DefaultWrappedAnteDecorator(decorator sdk.AnteDecorator) WrappedAnteDecorator {
+	return WrappedAnteDecorator{
+		Decorator:    decorator,
+		DepDecorator: sdk.DefaultDepDecorator{},
+	}
+}
+
+func (wad WrappedAnteDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool, next sdk.AnteHandler) (newCtx sdk.Context, err error) {
+	return wad.Decorator.AnteHandle(ctx, tx, simulate, next)
+}
+
+func (wad WrappedAnteDecorator) AnteDeps(txDeps []sdkacltypes.AccessOperation, tx sdk.Tx, next sdk.AnteDepGenerator) (newTxDeps []sdkacltypes.AccessOperation, err error) {
+	return wad.DepDecorator.AnteDeps(txDeps, tx, next)
+}
+
+func NewAnteHandlerAndDepGenerator(options HandlerOptions) (sdk.AnteHandler, sdk.AnteDepGenerator, error) {
 	if options.AccountKeeper == nil {
-		return nil, sdkerrors.Wrap(sdkerrors.ErrLogic, "account keeper is required for AnteHandler")
+		return nil, nil, sdkerrors.Wrap(sdkerrors.ErrLogic, "account keeper is required for AnteHandler")
 	}
 	if options.BankKeeper == nil {
-		return nil, sdkerrors.Wrap(sdkerrors.ErrLogic, "bank keeper is required for AnteHandler")
+		return nil, nil, sdkerrors.Wrap(sdkerrors.ErrLogic, "bank keeper is required for AnteHandler")
 	}
 	if options.SignModeHandler == nil {
-		return nil, sdkerrors.Wrap(sdkerrors.ErrLogic, "sign mode handler is required for ante builder")
+		return nil, nil, sdkerrors.Wrap(sdkerrors.ErrLogic, "sign mode handler is required for ante builder")
 	}
 	if options.WasmConfig == nil {
-		return nil, sdkerrors.Wrap(sdkerrors.ErrLogic, "wasm config is required for ante builder")
+		return nil, nil, sdkerrors.Wrap(sdkerrors.ErrLogic, "wasm config is required for ante builder")
 	}
 	if options.TXCounterStoreKey == nil {
-		return nil, sdkerrors.Wrap(sdkerrors.ErrLogic, "tx counter key is required for ante builder")
+		return nil, nil, sdkerrors.Wrap(sdkerrors.ErrLogic, "tx counter key is required for ante builder")
 	}
 	if options.OracleKeeper == nil {
-		return nil, sdkerrors.Wrap(sdkerrors.ErrLogic, "oracle keeper is required for ante builder")
+		return nil, nil, sdkerrors.Wrap(sdkerrors.ErrLogic, "oracle keeper is required for ante builder")
 	}
 	if options.TracingInfo == nil {
-		return nil, sdkerrors.Wrap(sdkerrors.ErrLogic, "tracing info is required for ante builder")
+		return nil, nil, sdkerrors.Wrap(sdkerrors.ErrLogic, "tracing info is required for ante builder")
 	}
 
 	sigGasConsumer := options.SigGasConsumer
@@ -66,29 +94,31 @@ func NewAnteHandler(options HandlerOptions) (sdk.AnteHandler, error) {
 	// 	sigVerifyDecorator = ante.NewBatchSigVerificationDecorator(options.BatchVerifier, sequentialVerifyDecorator)
 	// }
 
-	anteDecorators := []sdk.AnteDecorator{
-		ante.NewSetUpContextDecorator(), // outermost AnteDecorator. SetUpContext must be called first
+	anteDecorators := []sdk.AnteFullDecorator{
+		DefaultWrappedAnteDecorator(ante.NewSetUpContextDecorator()), // outermost AnteDecorator. SetUpContext must be called first
 		// TODO: have dex antehandler separate, and then call the individual antehandlers FROM the gasless antehandler decorator wrapper
-		wasmkeeper.NewLimitSimulationGasDecorator(options.WasmConfig.SimulationGasLimit), // after setup context to enforce limits early
-		wasmkeeper.NewCountTXDecorator(options.TXCounterStoreKey),
-		ante.NewRejectExtensionOptionsDecorator(),
-		oracle.NewSpammingPreventionDecorator(*options.OracleKeeper),
-		ante.NewValidateBasicDecorator(),
-		ante.NewTxTimeoutHeightDecorator(),
-		ante.NewValidateMemoDecorator(options.AccountKeeper),
-		ante.NewConsumeGasForTxSizeDecorator(options.AccountKeeper),
-		ante.NewDeductFeeDecorator(options.AccountKeeper, options.BankKeeper, options.FeegrantKeeper, options.TxFeeChecker),
+		DefaultWrappedAnteDecorator(wasmkeeper.NewLimitSimulationGasDecorator(options.WasmConfig.SimulationGasLimit)), // after setup context to enforce limits early
+		DefaultWrappedAnteDecorator(wasmkeeper.NewCountTXDecorator(options.TXCounterStoreKey)),
+		DefaultWrappedAnteDecorator(ante.NewRejectExtensionOptionsDecorator()),
+		DefaultWrappedAnteDecorator(oracle.NewSpammingPreventionDecorator(*options.OracleKeeper)),
+		DefaultWrappedAnteDecorator(ante.NewValidateBasicDecorator()),
+		DefaultWrappedAnteDecorator(ante.NewTxTimeoutHeightDecorator()),
+		DefaultWrappedAnteDecorator(ante.NewValidateMemoDecorator(options.AccountKeeper)),
+		DefaultWrappedAnteDecorator(ante.NewConsumeGasForTxSizeDecorator(options.AccountKeeper)),
+		DefaultWrappedAnteDecorator(ante.NewDeductFeeDecorator(options.AccountKeeper, options.BankKeeper, options.FeegrantKeeper, options.TxFeeChecker)),
 		// PriorityDecorator must be called after DeductFeeDecorator which sets tx priority based on tx fees
-		antedecorators.NewPriorityDecorator(),
+		DefaultWrappedAnteDecorator(antedecorators.NewPriorityDecorator()),
 		// SetPubKeyDecorator must be called before all signature verification decorators
-		ante.NewSetPubKeyDecorator(options.AccountKeeper),
-		ante.NewValidateSigCountDecorator(options.AccountKeeper),
-		ante.NewSigGasConsumeDecorator(options.AccountKeeper, sigGasConsumer),
-		sequentialVerifyDecorator,
-		ante.NewIncrementSequenceDecorator(options.AccountKeeper),
-		ibcante.NewAnteDecorator(options.IBCKeeper),
-		dex.NewTickSizeMultipleDecorator(*options.DexKeeper),
+		DefaultWrappedAnteDecorator(ante.NewSetPubKeyDecorator(options.AccountKeeper)),
+		DefaultWrappedAnteDecorator(ante.NewValidateSigCountDecorator(options.AccountKeeper)),
+		DefaultWrappedAnteDecorator(ante.NewSigGasConsumeDecorator(options.AccountKeeper, sigGasConsumer)),
+		DefaultWrappedAnteDecorator(sequentialVerifyDecorator),
+		DefaultWrappedAnteDecorator(ante.NewIncrementSequenceDecorator(options.AccountKeeper)),
+		DefaultWrappedAnteDecorator(ibcante.NewAnteDecorator(options.IBCKeeper)),
+		DefaultWrappedAnteDecorator(dex.NewTickSizeMultipleDecorator(*options.DexKeeper)),
 	}
 
-	return sdk.ChainAnteDecorators(anteDecorators...), nil
+	anteHandler, anteDepGenerator := sdk.ChainAnteDecorators(anteDecorators...)
+
+	return anteHandler, anteDepGenerator, nil
 }

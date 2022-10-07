@@ -732,7 +732,7 @@ func New(
 	signModeHandler := encodingConfig.TxConfig.SignModeHandler()
 	// app.batchVerifier = ante.NewSR25519BatchVerifier(app.AccountKeeper, signModeHandler)
 
-	anteHandler, err := NewAnteHandler(
+	anteHandler, anteDepGenerator, err := NewAnteHandlerAndDepGenerator(
 		HandlerOptions{
 			HandlerOptions: ante.HandlerOptions{
 				AccountKeeper:   app.AccountKeeper,
@@ -755,6 +755,7 @@ func New(
 	}
 
 	app.SetAnteHandler(anteHandler)
+	app.SetAnteDepGenerator(anteDepGenerator)
 	app.SetEndBlocker(app.EndBlocker)
 	app.SetPrepareProposalHandler(app.PrepareProposalHandler)
 	app.SetProcessProposalHandler(app.ProcessProposalHandler)
