@@ -226,7 +226,7 @@ func MatchByValueFOKMarketOrder(
 	}
 
 	// settle orders only when all fund are used
-	if remainingFund.IsZero() && remainingQuantity.GTE(sdk.ZeroDec()){
+	if remainingFund.IsZero() && remainingQuantity.GTE(sdk.ZeroDec()) {
 		marketByNominalSettlement := []*types.SettlementEntry{}
 		for i := range ordersToSettle {
 			executed := quantityExecuted[i]
