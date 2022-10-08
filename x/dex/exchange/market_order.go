@@ -15,13 +15,14 @@ func MatchMarketOrders(
 	settlements := []*types.SettlementEntry{}
 	allTakerSettlements := []*types.SettlementEntry{}
 	for _, marketOrder := range marketOrders {
-		if marketOrder.OrderType == types.OrderType_FOKMARKETBYVALUE {
+		switch marketOrder.OrderType {
+		case types.OrderType_FOKMARKETBYVALUE:
 			settlements, allTakerSettlements = MatchByValueFOKMarketOrder(
 				ctx, marketOrder, orderBookEntries, direction, &totalExecuted, &totalPrice, settlements, allTakerSettlements)
-		} else if marketOrder.OrderType == types.OrderType_FOKMARKET {
+		case types.OrderType_FOKMARKET:
 			settlements, allTakerSettlements = MatchFOKMarketOrder(
 				ctx, marketOrder, orderBookEntries, direction, &totalExecuted, &totalPrice, settlements, allTakerSettlements)
-		} else {
+		default:
 			settlements, allTakerSettlements = MatchMarketOrder(
 				ctx, marketOrder, orderBookEntries, direction, &totalExecuted, &totalPrice, settlements, allTakerSettlements)
 		}

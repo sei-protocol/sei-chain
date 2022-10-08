@@ -43,8 +43,8 @@ func (o *BlockOrders) GetSortedMarketOrders(direction types.PositionDirection, i
 	defer o.mu.Unlock()
 
 	orderTypes := map[types.OrderType]bool{
-		types.OrderType_MARKET: true,
-		types.OrderType_FOKMARKET: true,
+		types.OrderType_MARKET:           true,
+		types.OrderType_FOKMARKET:        true,
 		types.OrderType_FOKMARKETBYVALUE: true,
 	}
 	if includeLiquidationOrders {
@@ -96,10 +96,10 @@ func (o *BlockOrders) getOrdersByCriteriaMap(orderType map[types.OrderType]bool,
 	res := []*types.Order{}
 	for _, order := range o.internal {
 		if _, ok := orderType[order.OrderType]; !ok {
-			continue;
+			continue
 		}
 		if _, ok := direction[order.PositionDirection]; !ok {
-			continue;
+			continue
 		}
 		if order.Status == types.OrderStatus_FAILED_TO_PLACE {
 			continue
