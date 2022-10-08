@@ -18,6 +18,7 @@ enum OrderType {
     MARKET = 1;
     LIQUIDATION = 2;
     FOKMARKET = 3; // fill-or-kill market order
+    FOKMARKETBYVALUE = 4; // fill-or-kill market by value order
 }
 
 enum Unit {

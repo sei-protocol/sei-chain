@@ -44,6 +44,7 @@ func (o *BlockOrders) GetSortedMarketOrders(direction types.PositionDirection, i
 
 	res := o.getOrdersByCriteria(types.OrderType_MARKET, direction)
 	res = append(res, o.getOrdersByCriteria(types.OrderType_FOKMARKET, direction)...)
+	res = append(res, o.getOrdersByCriteria(types.OrderType_FOKMARKETBYVALUE, direction)...)
 	if includeLiquidationOrders {
 		res = append(res, o.getOrdersByCriteria(types.OrderType_LIQUIDATION, direction)...)
 	}
