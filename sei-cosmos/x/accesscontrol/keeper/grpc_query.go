@@ -20,10 +20,9 @@ func (k Keeper) Params(ctx context.Context, req *types.QueryParamsRequest) (*typ
 func (k Keeper) ResourceDependencyMappingFromMessageKey(ctx context.Context, req *types.ResourceDependencyMappingFromMessageKeyRequest) (*types.ResourceDependencyMappingFromMessageKeyResponse, error) {
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
 
-	resourceDependency := k.GetResourceDependencyMapping(sdkCtx, req.GetMessageKey())
+	resourceDependency := k.GetResourceDependencyMapping(sdkCtx, types.MessageKey(req.GetMessageKey()))
 	return &types.ResourceDependencyMappingFromMessageKeyResponse{MessageDependencyMapping: resourceDependency}, nil
 }
-
 
 func (k Keeper) ListResourceDependencyMapping(ctx context.Context, req *types.ListResourceDependencyMappingRequest) (*types.ListResourceDependencyMappingResponse, error) {
 	sdkCtx := sdk.UnwrapSDKContext(ctx)

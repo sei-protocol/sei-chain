@@ -17,4 +17,5 @@ message MessageDependencyMapping {
     repeated AccessOperation access_ops = 2 [
         (gogoproto.nullable) = false
     ];
+    bool dynamic_enabled = 3;
 }

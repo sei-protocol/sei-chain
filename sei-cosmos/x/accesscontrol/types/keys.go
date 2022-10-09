@@ -19,6 +19,6 @@ func GetResourceDependencyMappingKey() []byte {
 	return []byte{byte(ResourceDependencyMappingKey)}
 }
 
-func GetResourceDependencyKey(messageKey string) []byte {
+func GetResourceDependencyKey(messageKey MessageKey) []byte {
 	return append(GetResourceDependencyMappingKey(), []byte(messageKey)...)
 }
