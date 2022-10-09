@@ -654,6 +654,11 @@ func (app *BaseApp) cacheTxContext(ctx sdk.Context, txBytes []byte) (sdk.Context
 // returned if the tx does not run out of gas and if all the messages are valid
 // and execute successfully. An error is returned otherwise.
 func (app *BaseApp) runTx(ctx sdk.Context, mode runTxMode, txBytes []byte) (gInfo sdk.GasInfo, result *sdk.Result, anteEvents []abci.Event, priority int64, err error) {
+	// Wait for signals to complete before starting the transaction. This is needed before any of the
+	// resources are acceessed by the ante handlers and message handlers.
+	// TODO(bweng):: add unit tests to enforce this 
+	acltypes.WaitForAllSignalsForTx(ctx.TxBlockingChannels())
+
 	// NOTE: GasWanted should be returned by the AnteHandler. GasUsed is
 	// determined by the GasMeter. We need access to the context to get the gas
 	// meter so we initialize upfront.
@@ -777,12 +782,8 @@ func (app *BaseApp) runTx(ctx sdk.Context, mode runTxMode, txBytes []byte) (gInf
 func wrappedHandler(ctx sdk.Context, msg sdk.Msg, handler sdk.Handler) (*sdk.Result, error) {
 	messageIndex := ctx.MessageIndex()
 
-	// Defer sending completion channels to the end of the message 
-	defer acltypes.SendAllSignals(ctx.TxCompletionChannels()[messageIndex])
-
-	// Wait for signals to complete, this should be blocking 
-	// TODO:: More granular waits on access time instead
-	acltypes.WaitForAllSignals(ctx.TxBlockingChannels()[messageIndex])
+	// Defer sending completion channels to the end of the message
+	defer acltypes.SendAllSignalsForMsg(ctx.TxCompletionChannels()[messageIndex])
 
 	return handler(ctx, msg)
 }
