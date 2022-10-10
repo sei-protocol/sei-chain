@@ -28,6 +28,7 @@ func MsgSendDependencyGenerator(keeper aclkeeper.Keeper, ctx sdk.Context, msg sd
 	if !ok {
 		return []sdkacltypes.AccessOperation{}, ErrorInvalidMsgType
 	}
+	println(fmt.Sprintf("%s:%s amount=%s", msgSend.FromAddress, msgSend.ToAddress, msgSend.Amount.String()))
 
 	accessOperations := []sdkacltypes.AccessOperation{
 		// MsgSend also checks if the coin denom is enabled, but the information is from the params.
