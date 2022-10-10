@@ -3,9 +3,9 @@ package util
 import "fmt"
 
 const (
-	BANK = "bank"
-	AUTH = "auth"
-	DEFAULT_ID_TEMPLATE = "*"
+	BANK              = "bank"
+	AUTH              = "auth"
+	DefaultIDTemplate = "*"
 )
 
 func GetIdentifierTemplatePerModule(module string, identifier string) string {

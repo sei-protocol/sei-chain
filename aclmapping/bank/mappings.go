@@ -35,46 +35,46 @@ func MsgSendDependencyGenerator(keeper aclkeeper.Keeper, ctx sdk.Context, msg sd
 
 		// Checks balance of sender
 		{
-			AccessType: sdkacltypes.AccessType_READ,
-			ResourceType: sdkacltypes.ResourceType_KV,
+			AccessType:         sdkacltypes.AccessType_READ,
+			ResourceType:       sdkacltypes.ResourceType_KV,
 			IdentifierTemplate: utils.GetIdentifierTemplatePerModule(utils.BANK, msgSend.FromAddress),
 		},
 		// Reduce the amount from the sender's balance
 		{
-			AccessType: sdkacltypes.AccessType_WRITE,
-			ResourceType: sdkacltypes.ResourceType_KV,
+			AccessType:         sdkacltypes.AccessType_WRITE,
+			ResourceType:       sdkacltypes.ResourceType_KV,
 			IdentifierTemplate: utils.GetIdentifierTemplatePerModule(utils.BANK, msgSend.FromAddress),
 		},
 
-		// Checks balance for reciever
+		// Checks balance for receiver
 		{
-			AccessType: sdkacltypes.AccessType_READ,
-			ResourceType: sdkacltypes.ResourceType_KV,
+			AccessType:         sdkacltypes.AccessType_READ,
+			ResourceType:       sdkacltypes.ResourceType_KV,
 			IdentifierTemplate: utils.GetIdentifierTemplatePerModule(utils.BANK, msgSend.ToAddress),
 		},
 		{
-			AccessType: sdkacltypes.AccessType_WRITE,
-			ResourceType: sdkacltypes.ResourceType_KV,
+			AccessType:         sdkacltypes.AccessType_WRITE,
+			ResourceType:       sdkacltypes.ResourceType_KV,
 			IdentifierTemplate: utils.GetIdentifierTemplatePerModule(utils.BANK, msgSend.ToAddress),
 		},
 
 		// Tries to create the reciever's account if it doesn't exist
 		{
-			AccessType: sdkacltypes.AccessType_READ,
-			ResourceType: sdkacltypes.ResourceType_KV,
+			AccessType:         sdkacltypes.AccessType_READ,
+			ResourceType:       sdkacltypes.ResourceType_KV,
 			IdentifierTemplate: utils.GetIdentifierTemplatePerModule(utils.AUTH, msgSend.ToAddress),
 		},
 		{
-			AccessType: sdkacltypes.AccessType_WRITE,
-			ResourceType: sdkacltypes.ResourceType_KV,
+			AccessType:         sdkacltypes.AccessType_WRITE,
+			ResourceType:       sdkacltypes.ResourceType_KV,
 			IdentifierTemplate: utils.GetIdentifierTemplatePerModule(utils.AUTH, msgSend.ToAddress),
 		},
 
 		// Last Operation should always be a commit
 		{
-			ResourceType: sdkacltypes.ResourceType_ANY,
-			AccessType: sdkacltypes.AccessType_COMMIT,
-			IdentifierTemplate: utils.DEFAULT_ID_TEMPLATE,
+			ResourceType:       sdkacltypes.ResourceType_ANY,
+			AccessType:         sdkacltypes.AccessType_COMMIT,
+			IdentifierTemplate: utils.DefaultIDTemplate,
 		},
 	}
 	return accessOperations, nil
