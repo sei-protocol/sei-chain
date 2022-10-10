@@ -969,11 +969,13 @@ func (app *App) DeliverTxWithResult(ctx sdk.Context, tx []byte) *abci.ExecTxResu
 }
 
 func (app *App) ProcessBlockSynchronous(ctx sdk.Context, txs [][]byte) []*abci.ExecTxResult {
+	defer metrics.BlockProcessLatency(time.Now(), metrics.SYNCHRONOUS)
+
 	txResults := []*abci.ExecTxResult{}
 	for _, tx := range txs {
 		txResults = append(txResults, app.DeliverTxWithResult(ctx, tx))
+		metrics.IncrTxProcessTypeCounter(metrics.SYNCHRONOUS)
 	}
-	metrics.IncrTxProcessTypeCounter(metrics.SYNCHRONOUS)
 	return txResults
 }
 
@@ -1023,6 +1025,8 @@ func (app *App) ProcessBlockConcurrent(
 	completionSignalingMap map[int]acltypes.MessageCompletionSignalMapping,
 	blockingSignalsMap map[int]acltypes.MessageCompletionSignalMapping,
 ) []*abci.ExecTxResult {
+	defer metrics.BlockProcessLatency(time.Now(), metrics.CONCURRENT)
+
 	var waitGroup sync.WaitGroup
 	resultChan := make(chan ChannelResult)
 	txResults := []*abci.ExecTxResult{}
@@ -1120,10 +1124,11 @@ func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequ
 	case acltypes.ErrGovMsgInBlock:
 		ctx.Logger().Info(fmt.Sprintf("Gov msg found while building DAG, processing synchronously: %s", err))
 		txResults = app.ProcessBlockSynchronous(ctx, txs)
-
+		metrics.IncrDagBuildErrorCounter(metrics.GovMsgInBlock)
 	default:
 		ctx.Logger().Error(fmt.Sprintf("Error while building DAG, processing synchronously: %s", err))
 		txResults = app.ProcessBlockSynchronous(ctx, txs)
+		metrics.IncrDagBuildErrorCounter(metrics.FailedToBuild)
 	}
 
 	endBlockResp := app.EndBlock(ctx, abci.RequestEndBlock{
