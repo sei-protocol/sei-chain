@@ -58,15 +58,13 @@ ldflags := $(strip $(ldflags))
 BUILD_FLAGS := -tags "$(build_tags)" -ldflags '$(ldflags)'
 
 #### Command List ####
-
 all: lint install
 
 install: go.sum
-		go install $(BUILD_FLAGS) ./cmd/seid
-
-go.sum: go.mod
-		@echo "--> Ensure dependencies have not been modified"
-		@go mod verify
+	echo "Ensure dependencies have not been modified ..." >&2
+	go mod verify
+	go mod tidy
+	go install $(BUILD_FLAGS) ./cmd/seid
 
 lint:
 	golangci-lint run
