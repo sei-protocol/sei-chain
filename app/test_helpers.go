@@ -140,6 +140,7 @@ func Setup(isCheckTx bool) *App {
 		wasm.EnableAllProposals,
 		&cosmostestutil.TestAppOpts{},
 		EmptyWasmOpts,
+		EmptyACLOpts,
 	)
 	if !isCheckTx {
 		genesisState := NewDefaultGenesisState(cdc)
@@ -183,6 +184,7 @@ func SetupTestingAppWithLevelDb(isCheckTx bool) (*App, func()) {
 		wasm.EnableAllProposals,
 		&cosmostestutil.TestAppOpts{},
 		EmptyWasmOpts,
+		EmptyACLOpts,
 	)
 	if !isCheckTx {
 		genesisState := NewDefaultGenesisState(cdc)
