@@ -13,6 +13,7 @@ import (
 	"time"
 
 	storetypes "github.com/cosmos/cosmos-sdk/store/types"
+	"github.com/k0kubun/pp"
 
 	"github.com/sei-protocol/sei-chain/aclmapping"
 	appparams "github.com/sei-protocol/sei-chain/app/params"
@@ -1080,6 +1081,8 @@ func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequ
 	dependencyDag, err := app.AccessControlKeeper.BuildDependencyDag(ctx, app.txDecoder, txs)
 	var txResults []*abci.ExecTxResult
 
+	ctx.Logger().Info(fmt.Sprintf("DEPENDENCY DAG"))
+	pp.Println(dependencyDag)
 	switch err {
 	case nil:
 		// Only run concurrently if no error
