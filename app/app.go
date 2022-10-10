@@ -13,7 +13,6 @@ import (
 	"time"
 
 	storetypes "github.com/cosmos/cosmos-sdk/store/types"
-	"github.com/k0kubun/pp"
 
 	"github.com/sei-protocol/sei-chain/aclmapping"
 	appparams "github.com/sei-protocol/sei-chain/app/params"
@@ -888,6 +887,9 @@ func (app *App) ProcessProposalHandler(ctx sdk.Context, req *abci.RequestProcess
 }
 
 func (app *App) FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBlock) (*abci.ResponseFinalizeBlock, error) {
+	_, span := (*app.tracingInfo.Tracer).Start(app.tracingInfo.TracerContext, "FinalizeBlocker")
+	defer span.End()
+
 	startTime := time.Now()
 	defer func() {
 		app.optimisticProcessingInfo = nil
@@ -908,10 +910,16 @@ func (app *App) FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBlock)
 		}
 	}
 	ctx.Logger().Info("optimistic processing ineligible")
+
+	span.AddEvent("Processing Block")
 	events, txResults, endBlockResp, _ := app.ProcessBlock(ctx, req.Txs, req, req.DecidedLastCommit)
 
+	span.AddEvent("Finished Processing Block")
 	app.SetDeliverStateToCommit()
+
+	span.AddEvent("Starting Commit")
 	appHash := app.WriteStateToCommitAndGetWorkingHash()
+	span.AddEvent("Finished Commit")
 	resp := app.getFinalizeBlockResponse(appHash, events, txResults, endBlockResp)
 	return &resp, nil
 }
@@ -1081,8 +1089,6 @@ func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequ
 	dependencyDag, err := app.AccessControlKeeper.BuildDependencyDag(ctx, app.txDecoder, txs)
 	var txResults []*abci.ExecTxResult
 
-	ctx.Logger().Info("DEPENDENCY DAG")
-	pp.Println(dependencyDag)
 	switch err {
 	case nil:
 		// Only run concurrently if no error
