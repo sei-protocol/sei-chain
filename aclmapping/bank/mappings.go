@@ -3,12 +3,12 @@ package aclbankmapping
 import (
 	"fmt"
 
-	utils "github.com/cosmos/cosmos-sdk/aclmapping/aclmappingutils"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkacltypes "github.com/cosmos/cosmos-sdk/types/accesscontrol"
 	aclkeeper "github.com/cosmos/cosmos-sdk/x/accesscontrol/keeper"
 	acltypes "github.com/cosmos/cosmos-sdk/x/accesscontrol/types"
 	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
+	utils "github.com/sei-protocol/sei-chain/aclmapping/utils"
 )
 
 var ErrorInvalidMsgType = fmt.Errorf("invalid message received for bank module")
@@ -29,9 +29,7 @@ func MsgSendDependencyGenerator(keeper aclkeeper.Keeper, ctx sdk.Context, msg sd
 		return []sdkacltypes.AccessOperation{}, ErrorInvalidMsgType
 	}
 
-	accessOperations := []sdkacltypes.AccessOperation{}
-
-	accessOperations = append(accessOperations, []sdkacltypes.AccessOperation{
+	accessOperations := []sdkacltypes.AccessOperation{
 		// MsgSend also checks if the coin denom is enabled, but the information is from the params.
 		// Changing the param would require a gov proposal, which is synchrounos by default
 
@@ -39,39 +37,45 @@ func MsgSendDependencyGenerator(keeper aclkeeper.Keeper, ctx sdk.Context, msg sd
 		{
 			AccessType: sdkacltypes.AccessType_READ,
 			ResourceType: sdkacltypes.ResourceType_KV,
-			IdentifierTemplate: utils.getIdentifierTemplatePerModule(utils.BANK, msgSend.FromAddress),
+			IdentifierTemplate: utils.GetIdentifierTemplatePerModule(utils.BANK, msgSend.FromAddress),
 		},
 		// Reduce the amount from the sender's balance
 		{
 			AccessType: sdkacltypes.AccessType_WRITE,
 			ResourceType: sdkacltypes.ResourceType_KV,
-			IdentifierTemplate: utils.getIdentifierTemplatePerModule(utils.BANK, msgSend.FromAddress),
+			IdentifierTemplate: utils.GetIdentifierTemplatePerModule(utils.BANK, msgSend.FromAddress),
 		},
 
 		// Checks balance for reciever
 		{
 			AccessType: sdkacltypes.AccessType_READ,
 			ResourceType: sdkacltypes.ResourceType_KV,
-			IdentifierTemplate: utils.getIdentifierTemplatePerModule(utils.BANK, msgSend.ToAddress),
+			IdentifierTemplate: utils.GetIdentifierTemplatePerModule(utils.BANK, msgSend.ToAddress),
 		},
 		{
 			AccessType: sdkacltypes.AccessType_WRITE,
 			ResourceType: sdkacltypes.ResourceType_KV,
-			IdentifierTemplate: utils.getIdentifierTemplatePerModule(utils.BANK, msgSend.ToAddress),
+			IdentifierTemplate: utils.GetIdentifierTemplatePerModule(utils.BANK, msgSend.ToAddress),
 		},
 
 		// Tries to create the reciever's account if it doesn't exist
 		{
 			AccessType: sdkacltypes.AccessType_READ,
 			ResourceType: sdkacltypes.ResourceType_KV,
-			IdentifierTemplate: utils.getIdentifierTemplatePerModule(utils.AUTH, msgSend.ToAddress),
+			IdentifierTemplate: utils.GetIdentifierTemplatePerModule(utils.AUTH, msgSend.ToAddress),
 		},
 		{
 			AccessType: sdkacltypes.AccessType_WRITE,
 			ResourceType: sdkacltypes.ResourceType_KV,
-			IdentifierTemplate: utils.getIdentifierTemplatePerModule(utils.AUTH, msgSend.ToAddress),
+			IdentifierTemplate: utils.GetIdentifierTemplatePerModule(utils.AUTH, msgSend.ToAddress),
 		},
 
-	}...)
+		// Last Operation should always be a commit
+		{
+			ResourceType: sdkacltypes.ResourceType_ANY,
+			AccessType: sdkacltypes.AccessType_COMMIT,
+			IdentifierTemplate: utils.DEFAULT_ID_TEMPLATE,
+		},
+	}
 	return accessOperations, nil
 }
