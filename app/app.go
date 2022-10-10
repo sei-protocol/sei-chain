@@ -14,6 +14,7 @@ import (
 
 	storetypes "github.com/cosmos/cosmos-sdk/store/types"
 
+	"github.com/sei-protocol/sei-chain/aclmapping"
 	appparams "github.com/sei-protocol/sei-chain/app/params"
 	"github.com/sei-protocol/sei-chain/utils"
 	"github.com/sei-protocol/sei-chain/wasmbinding"
@@ -223,6 +224,9 @@ var (
 
 	// EmptyWasmOpts defines a type alias for a list of wasm options.
 	EmptyWasmOpts []wasm.Option
+
+	// EmptyAclmOpts defines a type alias for a list of wasm options.
+	EmptyACLOpts []aclkeeper.Option
 )
 
 var (
@@ -338,6 +342,7 @@ func New(
 	enabledProposals []wasm.ProposalType,
 	appOpts servertypes.AppOptions,
 	wasmOpts []wasm.Option,
+	aclOpts []aclkeeper.Option,
 	baseAppOptions ...func(*baseapp.BaseApp),
 ) *App {
 	appCodec := encodingConfig.Marshaler
@@ -399,11 +404,6 @@ func New(
 	// this line is used by starport scaffolding # stargate/app/scopedKeeper
 
 	// add keepers
-	app.AccessControlKeeper = aclkeeper.NewKeeper(
-		appCodec,
-		app.keys[acltypes.StoreKey],
-		app.GetSubspace(acltypes.ModuleName),
-	)
 	app.AccountKeeper = authkeeper.NewAccountKeeper(
 		appCodec, keys[authtypes.StoreKey], app.GetSubspace(authtypes.ModuleName), authtypes.ProtoBaseAccount, maccPerms,
 	)
@@ -526,6 +526,14 @@ func New(
 	dexModule := dexmodule.NewAppModule(appCodec, app.DexKeeper, app.AccountKeeper, app.BankKeeper, app.WasmKeeper, app.tracingInfo)
 	epochModule := epochmodule.NewAppModule(appCodec, app.EpochKeeper, app.AccountKeeper, app.BankKeeper)
 
+	customDependencyGenerators := aclmapping.NewCustomDependencyGenerator(app.WasmKeeper)
+	aclOpts = append(aclOpts, aclkeeper.WithDependencyGeneratorMappings(customDependencyGenerators.GetCustomDependencyGenerators()))
+	app.AccessControlKeeper = aclkeeper.NewKeeper(
+		appCodec,
+		app.keys[acltypes.StoreKey],
+		app.GetSubspace(acltypes.ModuleName),
+		aclOpts...,
+	)
 	// register the proposal types
 	govRouter := govtypes.NewRouter()
 	govRouter.AddRoute(govtypes.RouterKey, govtypes.ProposalHandler).
