@@ -95,3 +95,29 @@ func TestRunnerParallelContractWithDependency(t *testing.T) {
 	_, hasC := dependencyCheck.Load("C")
 	require.True(t, hasC)
 }
+
+func TestRunnerParallelContractWithInvalidDependency(t *testing.T) {
+	counter = 0
+	contractInfoA := types.ContractInfo{
+		ContractAddr:            "A",
+		NumIncomingDependencies: 0,
+		Dependencies: []*types.ContractDependencyInfo{
+			{
+				Dependency: "C",
+			},
+		},
+	}
+	contractInfoB := types.ContractInfo{
+		ContractAddr:            "B",
+		NumIncomingDependencies: 0,
+		Dependencies: []*types.ContractDependencyInfo{
+			{
+				Dependency: "C",
+			},
+		},
+	}
+	runner := contract.NewParallelRunner(dependencyCheckRunnable, []types.ContractInfo{contractInfoB, contractInfoA})
+	runner.Run()
+	_, hasC := dependencyCheck.Load("C")
+	require.False(t, hasC)
+}

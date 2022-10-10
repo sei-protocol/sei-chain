@@ -120,7 +120,11 @@ func (r *ParallelRunner) wrapRunnable(contractAddr utils.ContractAddress) {
 		for _, dependency := range contractInfo.Dependencies {
 			dependentContract := dependency.Dependency
 			typedDependentContract := utils.ContractAddress(dependentContract)
-			dependentInfo, _ := r.contractAddrToInfo.Load(typedDependentContract)
+			dependentInfo, ok := r.contractAddrToInfo.Load(typedDependentContract)
+			if !ok {
+				// If we cannot find the dependency in the contract address info, then it's not a valid contract in this round
+				continue
+			}
 			// It's okay to mutate ContractInfo here since it's a copy made in the runner's
 			// constructor.
 			newNumIncomingPaths := atomic.AddInt64(&dependentInfo.NumIncomingDependencies, -1)
