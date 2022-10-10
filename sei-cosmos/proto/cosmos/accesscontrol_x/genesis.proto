@@ -14,6 +14,11 @@ message GenesisState {
         (gogoproto.nullable) = false,
         (gogoproto.moretags) = "yaml:\"message_dependency_mapping\""
     ];
+
+    repeated cosmos.accesscontrol.v1beta1.WasmFunctionDependencyMapping wasm_function_dependency_mappings = 3 [
+        (gogoproto.nullable) = false,
+        (gogoproto.moretags) = "yaml:\"wasm_function_dependency_mappings\""
+    ];
 }
 
 message Params {

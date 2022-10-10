@@ -8,18 +8,20 @@ import (
 )
 
 // NewGenesisState creates a new GenesisState object
-func NewGenesisState(params Params, messageDependencyMapping []acltypes.MessageDependencyMapping) *GenesisState {
+func NewGenesisState(params Params, messageDependencyMapping []acltypes.MessageDependencyMapping, wasmDependencyMappings []acltypes.WasmFunctionDependencyMapping) *GenesisState {
 	return &GenesisState{
-		Params:                   params,
-		MessageDependencyMapping: messageDependencyMapping,
+		Params:                         params,
+		MessageDependencyMapping:       messageDependencyMapping,
+		WasmFunctionDependencyMappings: wasmDependencyMappings,
 	}
 }
 
 // DefaultGenesisState - default GenesisState used by columbus-2
 func DefaultGenesisState() *GenesisState {
 	return &GenesisState{
-		Params:                   DefaultParams(),
-		MessageDependencyMapping: DefaultMessageDependencyMapping(),
+		Params:                         DefaultParams(),
+		MessageDependencyMapping:       DefaultMessageDependencyMapping(),
+		WasmFunctionDependencyMappings: DefaultWasmDependencyMappings(),
 	}
 }
 
@@ -27,6 +29,12 @@ func DefaultGenesisState() *GenesisState {
 func ValidateGenesis(data GenesisState) error {
 	for _, mapping := range data.MessageDependencyMapping {
 		err := ValidateMessageDependencyMapping(mapping)
+		if err != nil {
+			return err
+		}
+	}
+	for _, mapping := range data.WasmFunctionDependencyMappings {
+		err := ValidateWasmFunctionDependencyMapping(mapping)
 		if err != nil {
 			return err
 		}

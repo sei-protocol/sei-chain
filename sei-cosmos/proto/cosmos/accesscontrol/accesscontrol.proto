@@ -19,3 +19,11 @@ message MessageDependencyMapping {
     ];
     bool dynamic_enabled = 3;
 }
+
+message WasmFunctionDependencyMapping {
+    string wasm_function = 1;
+    bool enabled = 2;
+    repeated AccessOperation access_ops = 3 [
+        (gogoproto.nullable) = false
+    ];
+}

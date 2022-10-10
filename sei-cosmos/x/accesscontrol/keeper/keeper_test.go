@@ -12,6 +12,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/testutil"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	acltypes "github.com/cosmos/cosmos-sdk/types/accesscontrol"
+	aclkeeper "github.com/cosmos/cosmos-sdk/x/accesscontrol/keeper"
 	"github.com/cosmos/cosmos-sdk/x/accesscontrol/types"
 	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
 	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
@@ -52,11 +53,7 @@ func TestResourceDependencyMapping(t *testing.T) {
 				AccessType:         acltypes.AccessType_READ,
 				IdentifierTemplate: "someIdentifier",
 			},
-			{
-				ResourceType:       acltypes.ResourceType_ANY,
-				AccessType:         acltypes.AccessType_COMMIT,
-				IdentifierTemplate: "*",
-			},
+			types.CommitAccessOp(),
 		},
 	}
 	invalidDependencyMapping := acltypes.MessageDependencyMapping{
@@ -90,6 +87,32 @@ func TestResourceDependencyMapping(t *testing.T) {
 	require.Equal(t, 1, counter)
 }
 
+func TestWasmFunctionDependencyMapping(t *testing.T) {
+	app := simapp.Setup(false)
+	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
+
+	wasmCodeID := uint64(1)
+	wasmFunction := "execute_wasm_testfunction"
+	wasmMapping := acltypes.WasmFunctionDependencyMapping{
+		WasmFunction: wasmFunction,
+		Enabled:      true,
+		AccessOps: []acltypes.AccessOperation{
+			{ResourceType: acltypes.ResourceType_KV, AccessType: acltypes.AccessType_WRITE, IdentifierTemplate: "someResource"},
+			types.CommitAccessOp(),
+		},
+	}
+	// set the dependency mapping
+	err := app.AccessControlKeeper.SetWasmFunctionDependencyMapping(ctx, wasmCodeID, wasmMapping)
+	require.NoError(t, err)
+	// test getting the dependency mapping
+	mapping, err := app.AccessControlKeeper.GetWasmFunctionDependencyMapping(ctx, wasmCodeID, wasmFunction)
+	require.NoError(t, err)
+	require.Equal(t, wasmMapping, mapping)
+	// test getting a dependency mapping for something function that isn't present
+	_, err = app.AccessControlKeeper.GetWasmFunctionDependencyMapping(ctx, wasmCodeID, "some_other_function")
+	require.Error(t, aclkeeper.ErrWasmFunctionDependencyMappingNotFound, err)
+}
+
 func (suite *KeeperTestSuite) TestMessageDependencies() {
 	suite.SetupTest()
 	app := suite.app
@@ -121,11 +144,7 @@ func (suite *KeeperTestSuite) TestMessageDependencies() {
 				AccessType:         acltypes.AccessType_WRITE,
 				IdentifierTemplate: "stakingPrefix",
 			},
-			{
-				ResourceType:       acltypes.ResourceType_ANY,
-				AccessType:         acltypes.AccessType_COMMIT,
-				IdentifierTemplate: "*",
-			},
+			types.CommitAccessOp(),
 		},
 		DynamicEnabled: true,
 	}
@@ -148,11 +167,7 @@ func (suite *KeeperTestSuite) TestMessageDependencies() {
 				AccessType:         acltypes.AccessType_WRITE,
 				IdentifierTemplate: "stakingUndelegatePrefix",
 			},
-			{
-				ResourceType:       acltypes.ResourceType_ANY,
-				AccessType:         acltypes.AccessType_COMMIT,
-				IdentifierTemplate: "*",
-			},
+			types.CommitAccessOp(),
 		},
 		DynamicEnabled: true,
 	}
@@ -172,11 +187,7 @@ func (suite *KeeperTestSuite) TestMessageDependencies() {
 				AccessType:         acltypes.AccessType_WRITE,
 				IdentifierTemplate: "bankPrefix",
 			},
-			{
-				ResourceType:       acltypes.ResourceType_ANY,
-				AccessType:         acltypes.AccessType_COMMIT,
-				IdentifierTemplate: "*",
-			},
+			types.CommitAccessOp(),
 		},
 		DynamicEnabled: false,
 	}
