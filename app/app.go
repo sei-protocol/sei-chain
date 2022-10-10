@@ -893,7 +893,6 @@ func (app *App) WriteStateToCommitAndGetWorkingHashTrace() []byte {
 	defer span.End()
 	defer func() { app.tracingInfo.TracerContext = oldCtx }()
 
-	defer span.End()
 	appHash := app.WriteStateToCommitAndGetWorkingHash()
 	return appHash
 }
@@ -904,8 +903,6 @@ func (app *App) FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBlock)
 	app.tracingInfo.TracerContext = tracectx
 	defer span.End()
 	defer func() { app.tracingInfo.TracerContext = oldCtx }()
-
-	defer span.End()
 
 	startTime := time.Now()
 	defer func() {
@@ -1064,7 +1061,6 @@ func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequ
 	defer span.End()
 	defer func() { app.tracingInfo.TracerContext = oldCtx }()
 
-	defer span.End()
 	goCtx := app.decorateContextWithDexMemState(ctx.Context())
 	ctx = ctx.WithContext(goCtx)
 
