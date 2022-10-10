@@ -225,8 +225,8 @@ var (
 	// EmptyWasmOpts defines a type alias for a list of wasm options.
 	EmptyWasmOpts []wasm.Option
 
-	// EmptyWasmOpts defines a type alias for a list of wasm options.
-	EmptyAclOpts []aclkeeper.Option
+	// EmptyAclmOpts defines a type alias for a list of wasm options.
+	EmptyACLOpts []aclkeeper.Option
 )
 
 var (
