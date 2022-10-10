@@ -1098,8 +1098,8 @@ github.com/sean-/seed v0.0.0-20170313163322-e2103e2c3529/go.mod h1:DxrIzT+xaE7yg
 github.com/seccomp/libseccomp-golang v0.9.1/go.mod h1:GbW5+tmTXfcxTToHLXlScSlAvWlF4P2Ca7zGrPiEpWo=
 github.com/securego/gosec/v2 v2.11.0/go.mod h1:SX8bptShuG8reGC0XS09+a4H2BoWSJi+fscA+Pulbpo=
 github.com/segmentio/fasthash v1.0.3/go.mod h1:waKX8l2N8yckOgmSsXJi7x1ZfdKZ4x7KRMzBtS3oedY=
-github.com/sei-protocol/sei-cosmos v0.1.103 h1:HIWnzmw3TuCtnGYqZj5jKbVztUqHU8rJm9eWQ8ji8po=
-github.com/sei-protocol/sei-cosmos v0.1.103/go.mod h1:L4fVgFVReigFZAe+43UNhaCf3DQzUZvpN6LlBsWkub4=
+github.com/sei-protocol/sei-cosmos v0.1.105 h1:45l/ZNaYrdyU87TNijE1OIciYI4wb3PXd95qr1HPAgE=
+github.com/sei-protocol/sei-cosmos v0.1.105/go.mod h1:8ccWQxpBkWbpvBos/T4QO9K9gQxFs0duTqKRnagKo+0=
 github.com/sei-protocol/sei-tendermint v0.1.59 h1:POGL60PumMQHF4EzAHzvkGfDnodQJLHpl65LuiwSO/Y=
 github.com/sei-protocol/sei-tendermint v0.1.59/go.mod h1:Olwbjyagrpoxj5DAUhHxMTWDVEfQ3FYdpypaJ3+6Hs8=
 github.com/sergi/go-diff v1.1.0/go.mod h1:STckp+ISIX8hZLjrqAeVduY0gWCT9IjLuqbuNXdaHfM=
