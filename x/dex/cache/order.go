@@ -42,11 +42,16 @@ func (o *BlockOrders) GetSortedMarketOrders(direction types.PositionDirection, i
 	o.mu.Lock()
 	defer o.mu.Unlock()
 
-	res := o.getOrdersByCriteria(types.OrderType_MARKET, direction)
-	res = append(res, o.getOrdersByCriteria(types.OrderType_FOKMARKET, direction)...)
-	if includeLiquidationOrders {
-		res = append(res, o.getOrdersByCriteria(types.OrderType_LIQUIDATION, direction)...)
+	orderTypes := map[types.OrderType]bool{
+		types.OrderType_MARKET:           true,
+		types.OrderType_FOKMARKET:        true,
+		types.OrderType_FOKMARKETBYVALUE: true,
 	}
+	if includeLiquidationOrders {
+		orderTypes[types.OrderType_LIQUIDATION] = true
+	}
+	res := o.getOrdersByCriteriaMap(orderTypes, map[types.PositionDirection]bool{direction: true})
+
 	sort.Slice(res, func(i, j int) bool {
 		// a price of 0 indicates that there is no worst price for the order, so it should
 		// always be ranked at the top.
@@ -77,6 +82,23 @@ func (o *BlockOrders) getOrdersByCriteria(orderType types.OrderType, direction t
 	res := []*types.Order{}
 	for _, order := range o.internal {
 		if order.OrderType != orderType || order.PositionDirection != direction {
+			continue
+		}
+		if order.Status == types.OrderStatus_FAILED_TO_PLACE {
+			continue
+		}
+		res = append(res, order)
+	}
+	return res
+}
+
+func (o *BlockOrders) getOrdersByCriteriaMap(orderType map[types.OrderType]bool, direction map[types.PositionDirection]bool) []*types.Order {
+	res := []*types.Order{}
+	for _, order := range o.internal {
+		if _, ok := orderType[order.OrderType]; !ok {
+			continue
+		}
+		if _, ok := direction[order.PositionDirection]; !ok {
 			continue
 		}
 		if order.Status == types.OrderStatus_FAILED_TO_PLACE {

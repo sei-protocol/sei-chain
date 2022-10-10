@@ -96,5 +96,8 @@ func (k msgServer) validateOrder(order *types.Order) error {
 	if len(order.PriceDenom) == 0 {
 		return fmt.Errorf("invalid order, price denom is empty")
 	}
+	if order.OrderType == types.OrderType_FOKMARKETBYVALUE && (order.Nominal.IsNil() || order.Nominal.IsNegative()) {
+		return fmt.Errorf("invalid nominal value for market by value order: %s", order.Nominal)
+	}
 	return nil
 }

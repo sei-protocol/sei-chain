@@ -53,6 +53,13 @@ func CmdPlaceOrders() *cobra.Command {
 				}
 				newOrder.OrderType = argOrderType
 				newOrder.Data = orderDetails[6]
+				if newOrder.OrderType == types.OrderType_FOKMARKETBYVALUE {
+					argNominal, err := sdk.NewDecFromStr(orderDetails[7])
+					if err != nil {
+						return err
+					}
+					newOrder.Nominal = argNominal
+				}
 				orders = append(orders, &newOrder)
 			}
 
