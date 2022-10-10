@@ -888,14 +888,19 @@ func (app *App) ProcessProposalHandler(ctx sdk.Context, req *abci.RequestProcess
 
 func (app *App) WriteStateToCommitAndGetWorkingHashTrace() []byte {
 	_, span := (*app.tracingInfo.Tracer).Start(app.tracingInfo.TracerContext, "WriteStateToCommitAndGetWorkingHashTrace")
-	defer span.End()
+	app.tracingInfo.TracerContext = context.Background()
+	app.tracingInfo.BlockSpan = nil
 
+	defer span.End()
 	appHash := app.WriteStateToCommitAndGetWorkingHash()
 	return appHash
 }
 
 func (app *App) FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBlock) (*abci.ResponseFinalizeBlock, error) {
 	_, span := (*app.tracingInfo.Tracer).Start(app.tracingInfo.TracerContext, "FinalizeBlocker")
+	app.tracingInfo.TracerContext = context.Background()
+	app.tracingInfo.BlockSpan = nil
+
 	defer span.End()
 
 	startTime := time.Now()
@@ -1050,6 +1055,9 @@ func (app *App) ProcessBlockConcurrent(
 
 func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequest, lastCommit abci.CommitInfo) ([]abci.Event, []*abci.ExecTxResult, abci.ResponseEndBlock, error) {
 	_, span := (*app.tracingInfo.Tracer).Start(app.tracingInfo.TracerContext, "ProcessBlock")
+	app.tracingInfo.TracerContext = context.Background()
+	app.tracingInfo.BlockSpan = nil
+
 	defer span.End()
 	goCtx := app.decorateContextWithDexMemState(ctx.Context())
 	ctx = ctx.WithContext(goCtx)
