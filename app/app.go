@@ -886,6 +886,14 @@ func (app *App) ProcessProposalHandler(ctx sdk.Context, req *abci.RequestProcess
 	}, nil
 }
 
+func (app *App) WriteStateToCommitAndGetWorkingHashTrace() []byte {
+	_, span := (*app.tracingInfo.Tracer).Start(app.tracingInfo.TracerContext, "WriteStateToCommitAndGetWorkingHashTrace")
+	defer span.End()
+
+	appHash := app.WriteStateToCommitAndGetWorkingHash()
+	return appHash
+}
+
 func (app *App) FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBlock) (*abci.ResponseFinalizeBlock, error) {
 	_, span := (*app.tracingInfo.Tracer).Start(app.tracingInfo.TracerContext, "FinalizeBlocker")
 	defer span.End()
@@ -911,15 +919,10 @@ func (app *App) FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBlock)
 	}
 	ctx.Logger().Info("optimistic processing ineligible")
 
-	span.AddEvent("Processing Block")
 	events, txResults, endBlockResp, _ := app.ProcessBlock(ctx, req.Txs, req, req.DecidedLastCommit)
 
-	span.AddEvent("Finished Processing Block")
 	app.SetDeliverStateToCommit()
-
-	span.AddEvent("Starting Commit")
-	appHash := app.WriteStateToCommitAndGetWorkingHash()
-	span.AddEvent("Finished Commit")
+	appHash := app.WriteStateToCommitAndGetWorkingHashTrace()
 	resp := app.getFinalizeBlockResponse(appHash, events, txResults, endBlockResp)
 	return &resp, nil
 }
@@ -1046,6 +1049,8 @@ func (app *App) ProcessBlockConcurrent(
 }
 
 func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequest, lastCommit abci.CommitInfo) ([]abci.Event, []*abci.ExecTxResult, abci.ResponseEndBlock, error) {
+	_, span := (*app.tracingInfo.Tracer).Start(app.tracingInfo.TracerContext, "ProcessBlock")
+	defer span.End()
 	goCtx := app.decorateContextWithDexMemState(ctx.Context())
 	ctx = ctx.WithContext(goCtx)
 
