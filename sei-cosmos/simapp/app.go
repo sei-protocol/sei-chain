@@ -27,7 +27,6 @@ import (
 	"github.com/cosmos/cosmos-sdk/server/config"
 	servertypes "github.com/cosmos/cosmos-sdk/server/types"
 	simappparams "github.com/cosmos/cosmos-sdk/simapp/params"
-	"github.com/cosmos/cosmos-sdk/testutil"
 	"github.com/cosmos/cosmos-sdk/testutil/testdata"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/types/module"
@@ -35,6 +34,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/version"
 	aclmodule "github.com/cosmos/cosmos-sdk/x/accesscontrol"
 	aclkeeper "github.com/cosmos/cosmos-sdk/x/accesscontrol/keeper"
+	acltestutil "github.com/cosmos/cosmos-sdk/x/accesscontrol/testutil"
 	acltypes "github.com/cosmos/cosmos-sdk/x/accesscontrol/types"
 	"github.com/cosmos/cosmos-sdk/x/auth"
 	"github.com/cosmos/cosmos-sdk/x/auth/ante"
@@ -281,7 +281,7 @@ func NewSimApp(
 	)
 
 	app.AuthzKeeper = authzkeeper.NewKeeper(keys[authzkeeper.StoreKey], appCodec, app.BaseApp.MsgServiceRouter())
-	app.AccessControlKeeper = aclkeeper.NewKeeper(appCodec, keys[acltypes.StoreKey], app.GetSubspace(acltypes.ModuleName), aclkeeper.WithDependencyMappingGenerator(testutil.MessageDependencyGeneratorTestHelper()))
+	app.AccessControlKeeper = aclkeeper.NewKeeper(appCodec, keys[acltypes.StoreKey], app.GetSubspace(acltypes.ModuleName), aclkeeper.WithDependencyMappingGenerator(acltestutil.MessageDependencyGeneratorTestHelper()))
 
 	// register the proposal types
 	govRouter := govtypes.NewRouter()
@@ -417,7 +417,7 @@ func NewSimApp(
 
 	signModeHandler := encodingConfig.TxConfig.SignModeHandler()
 	app.batchVerifier = ante.NewSR25519BatchVerifier(app.AccountKeeper, signModeHandler)
-	anteHandler, err := ante.NewAnteHandler(
+	anteHandler, anteDepGenerator, err := ante.NewAnteHandler(
 		ante.HandlerOptions{
 			AccountKeeper:   app.AccountKeeper,
 			BankKeeper:      app.BankKeeper,
@@ -434,6 +434,7 @@ func NewSimApp(
 	}
 
 	app.SetAnteHandler(anteHandler)
+	app.SetAnteDepGenerator(anteDepGenerator)
 	app.SetEndBlocker(app.EndBlocker)
 	app.SetPrepareProposalHandler(app.PrepareProposalHandler)
 	app.SetProcessProposalHandler(app.ProcessProposalHandler)

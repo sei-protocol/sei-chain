@@ -90,6 +90,33 @@ func chainAnteDecoratorDepGenerators(chain ...AnteFullDecorator) AnteDepGenerato
 	}
 }
 
+type WrappedAnteDecorator struct {
+	Decorator    AnteDecorator
+	DepDecorator AnteDepDecorator
+}
+
+func CustomDepWrappedAnteDecorator(decorator AnteDecorator, depDecorator AnteDepDecorator) WrappedAnteDecorator {
+	return WrappedAnteDecorator{
+		Decorator:    decorator,
+		DepDecorator: depDecorator,
+	}
+}
+
+func DefaultWrappedAnteDecorator(decorator AnteDecorator) WrappedAnteDecorator {
+	return WrappedAnteDecorator{
+		Decorator:    decorator,
+		DepDecorator: DefaultDepDecorator{},
+	}
+}
+
+func (wad WrappedAnteDecorator) AnteHandle(ctx Context, tx Tx, simulate bool, next AnteHandler) (newCtx Context, err error) {
+	return wad.Decorator.AnteHandle(ctx, tx, simulate, next)
+}
+
+func (wad WrappedAnteDecorator) AnteDeps(txDeps []sdkacltypes.AccessOperation, tx Tx, next AnteDepGenerator) (newTxDeps []sdkacltypes.AccessOperation, err error) {
+	return wad.DepDecorator.AnteDeps(txDeps, tx, next)
+}
+
 // Terminator AnteDecorator will get added to the chain to simplify decorator code
 // Don't need to check if next == nil further up the chain
 //

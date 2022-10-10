@@ -9,10 +9,10 @@ import (
 
 	"github.com/cosmos/cosmos-sdk/baseapp"
 	"github.com/cosmos/cosmos-sdk/simapp"
-	"github.com/cosmos/cosmos-sdk/testutil"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	acltypes "github.com/cosmos/cosmos-sdk/types/accesscontrol"
 	aclkeeper "github.com/cosmos/cosmos-sdk/x/accesscontrol/keeper"
+	acltestutil "github.com/cosmos/cosmos-sdk/x/accesscontrol/testutil"
 	"github.com/cosmos/cosmos-sdk/x/accesscontrol/types"
 	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
 	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
@@ -206,7 +206,7 @@ func (suite *KeeperTestSuite) TestMessageDependencies() {
 
 	// now, because we have static mappings + dynamic enabled == true, we get dynamic ops
 	accessOps = app.AccessControlKeeper.GetMessageDependencies(ctx, &bankSendMsg)
-	dynamicOps, err := testutil.BankSendDepGenerator(app.AccessControlKeeper, ctx, &bankSendMsg)
+	dynamicOps, err := acltestutil.BankSendDepGenerator(app.AccessControlKeeper, ctx, &bankSendMsg)
 	req.NoError(err)
 	req.Equal(dynamicOps, accessOps)
 
