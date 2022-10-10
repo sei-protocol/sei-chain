@@ -57,4 +57,3 @@ func MeasureDeliverTxDuration(start time.Time) {
 		start.UTC(),
 	)
 }
-
