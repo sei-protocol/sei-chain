@@ -174,6 +174,7 @@ func (k Keeper) BuildDependencyDag(ctx sdk.Context, txDecoder sdk.TxDecoder, txs
 		if err != nil {
 			return nil, err
 		}
+		// TODO: first call the anteDependencyGenerator with the TX and add those depenendencies too. (should we use txindex -1 for this?)
 		msgs := tx.GetMsgs()
 		for messageIndex, msg := range msgs {
 			if types.IsGovMessage(msg) {
