@@ -37,37 +37,37 @@ func MsgSendDependencyGenerator(keeper aclkeeper.Keeper, ctx sdk.Context, msg sd
 		{
 			AccessType:         sdkacltypes.AccessType_READ,
 			ResourceType:       sdkacltypes.ResourceType_KV,
-			IdentifierTemplate: utils.GetIdentifierTemplatePerModule(utils.BANK, msgSend.FromAddress),
+			IdentifierTemplate: utils.GetIdentifierTemplatePerModule(utils.BANK, ""),
 		},
 		// Reduce the amount from the sender's balance
 		{
 			AccessType:         sdkacltypes.AccessType_WRITE,
 			ResourceType:       sdkacltypes.ResourceType_KV,
-			IdentifierTemplate: utils.GetIdentifierTemplatePerModule(utils.BANK, msgSend.FromAddress),
+			IdentifierTemplate: utils.GetIdentifierTemplatePerModule(utils.BANK, ""),
 		},
 
 		// Checks balance for receiver
 		{
 			AccessType:         sdkacltypes.AccessType_READ,
 			ResourceType:       sdkacltypes.ResourceType_KV,
-			IdentifierTemplate: utils.GetIdentifierTemplatePerModule(utils.BANK, msgSend.ToAddress),
+			IdentifierTemplate: utils.GetIdentifierTemplatePerModule(utils.BANK, ""),
 		},
 		{
 			AccessType:         sdkacltypes.AccessType_WRITE,
 			ResourceType:       sdkacltypes.ResourceType_KV,
-			IdentifierTemplate: utils.GetIdentifierTemplatePerModule(utils.BANK, msgSend.ToAddress),
+			IdentifierTemplate: utils.GetIdentifierTemplatePerModule(utils.BANK, ""),
 		},
 
 		// Tries to create the reciever's account if it doesn't exist
 		{
 			AccessType:         sdkacltypes.AccessType_READ,
 			ResourceType:       sdkacltypes.ResourceType_KV,
-			IdentifierTemplate: utils.GetIdentifierTemplatePerModule(utils.AUTH, msgSend.ToAddress),
+			IdentifierTemplate: utils.GetIdentifierTemplatePerModule(utils.AUTH, ""),
 		},
 		{
 			AccessType:         sdkacltypes.AccessType_WRITE,
 			ResourceType:       sdkacltypes.ResourceType_KV,
-			IdentifierTemplate: utils.GetIdentifierTemplatePerModule(utils.AUTH, msgSend.ToAddress),
+			IdentifierTemplate: utils.GetIdentifierTemplatePerModule(utils.AUTH, ""),
 		},
 
 		// Last Operation should always be a commit

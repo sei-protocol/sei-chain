@@ -1081,7 +1081,7 @@ func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequ
 	dependencyDag, err := app.AccessControlKeeper.BuildDependencyDag(ctx, app.txDecoder, txs)
 	var txResults []*abci.ExecTxResult
 
-	ctx.Logger().Info(fmt.Sprintf("DEPENDENCY DAG"))
+	ctx.Logger().Info("DEPENDENCY DAG")
 	pp.Println(dependencyDag)
 	switch err {
 	case nil:
