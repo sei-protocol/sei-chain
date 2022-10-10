@@ -887,9 +887,11 @@ func (app *App) ProcessProposalHandler(ctx sdk.Context, req *abci.RequestProcess
 }
 
 func (app *App) WriteStateToCommitAndGetWorkingHashTrace() []byte {
-	_, span := (*app.tracingInfo.Tracer).Start(app.tracingInfo.TracerContext, "WriteStateToCommitAndGetWorkingHashTrace")
-	app.tracingInfo.TracerContext = context.Background()
-	app.tracingInfo.BlockSpan = nil
+	tracectx, span := (*app.tracingInfo.Tracer).Start(app.tracingInfo.TracerContext, "WriteStateToCommitAndGetWorkingHashTrace")
+	oldCtx := app.tracingInfo.TracerContext
+	app.tracingInfo.TracerContext = tracectx
+	defer span.End()
+	defer func() { app.tracingInfo.TracerContext = oldCtx }()
 
 	defer span.End()
 	appHash := app.WriteStateToCommitAndGetWorkingHash()
@@ -897,9 +899,11 @@ func (app *App) WriteStateToCommitAndGetWorkingHashTrace() []byte {
 }
 
 func (app *App) FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBlock) (*abci.ResponseFinalizeBlock, error) {
-	_, span := (*app.tracingInfo.Tracer).Start(app.tracingInfo.TracerContext, "FinalizeBlocker")
-	app.tracingInfo.TracerContext = context.Background()
-	app.tracingInfo.BlockSpan = nil
+	tracectx, span := (*app.tracingInfo.Tracer).Start(app.tracingInfo.TracerContext, "FinalizeBlocker")
+	oldCtx := app.tracingInfo.TracerContext
+	app.tracingInfo.TracerContext = tracectx
+	defer span.End()
+	defer func() { app.tracingInfo.TracerContext = oldCtx }()
 
 	defer span.End()
 
@@ -1054,9 +1058,11 @@ func (app *App) ProcessBlockConcurrent(
 }
 
 func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequest, lastCommit abci.CommitInfo) ([]abci.Event, []*abci.ExecTxResult, abci.ResponseEndBlock, error) {
-	_, span := (*app.tracingInfo.Tracer).Start(app.tracingInfo.TracerContext, "ProcessBlock")
-	app.tracingInfo.TracerContext = context.Background()
-	app.tracingInfo.BlockSpan = nil
+	tracectx, span := (*app.tracingInfo.Tracer).Start(app.tracingInfo.TracerContext, "ProcessBlock")
+	oldCtx := app.tracingInfo.TracerContext
+	app.tracingInfo.TracerContext = tracectx
+	defer span.End()
+	defer func() { app.tracingInfo.TracerContext = oldCtx }()
 
 	defer span.End()
 	goCtx := app.decorateContextWithDexMemState(ctx.Context())
