@@ -10,9 +10,7 @@ import (
 	dexmoduletypes "github.com/sei-protocol/sei-chain/x/dex/types"
 )
 
-var (
-	ErrPlaceOrdersGenerator = fmt.Errorf("invalid message received for type DexPlaceOrders")
-)
+var ErrPlaceOrdersGenerator = fmt.Errorf("invalid message received for type DexPlaceOrders")
 
 func GetDexDependencyGenerators() aclkeeper.DependencyGeneratorMap {
 	dependencyGeneratorMap := make(aclkeeper.DependencyGeneratorMap)
