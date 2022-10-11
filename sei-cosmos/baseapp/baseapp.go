@@ -873,3 +873,7 @@ func (app *BaseApp) runMsgs(ctx sdk.Context, msgs []sdk.Msg, mode runTxMode) (*s
 		Events: events.ToABCIEvents(),
 	}, nil
 }
+
+func (app *BaseApp) GetAnteDepGenerator() sdk.AnteDepGenerator {
+	return app.anteDepGenerator
+}

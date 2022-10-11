@@ -165,7 +165,10 @@ func (k Keeper) IterateWasmDependencies(ctx sdk.Context, handler func(wasmDepend
 	}
 }
 
-func (k Keeper) BuildDependencyDag(ctx sdk.Context, txDecoder sdk.TxDecoder, txs [][]byte) (*types.Dag, error) {
+// use -1 to indicate that it is prior to msgs in the tx
+const ANTE_MSG_INDEX = int(-1)
+
+func (k Keeper) BuildDependencyDag(ctx sdk.Context, txDecoder sdk.TxDecoder, anteDepGen sdk.AnteDepGenerator, txs [][]byte) (*types.Dag, error) {
 	defer MeasureBuildDagDuration(time.Now(), "BuildDependencyDag")
 	// contains the latest msg index for a specific Access Operation
 	dependencyDag := types.NewDag()
@@ -174,7 +177,14 @@ func (k Keeper) BuildDependencyDag(ctx sdk.Context, txDecoder sdk.TxDecoder, txs
 		if err != nil {
 			return nil, err
 		}
-		// TODO: first call the anteDependencyGenerator with the TX and add those depenendencies too. (should we use txindex -1 for this?)
+		// get the ante dependencies and add them to the dag
+		anteDeps, err := anteDepGen([]acltypes.AccessOperation{}, tx)
+		if err != nil {
+			return nil, err
+		}
+		for _, accessOp := range anteDeps {
+			dependencyDag.AddNodeBuildDependency(ANTE_MSG_INDEX, txIndex, accessOp)
+		}
 		msgs := tx.GetMsgs()
 		for messageIndex, msg := range msgs {
 			if types.IsGovMessage(msg) {
