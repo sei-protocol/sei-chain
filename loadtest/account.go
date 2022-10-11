@@ -12,7 +12,7 @@ type AccountManager struct {
 
 func (account *AccountManager) GetNextSeqNumber() uint64 {
 	account.SeqNumLock.Lock()
-	defer account.SeqNumLock.Unlock()
-	account.SeqNum = account.SeqNum + 1
+	account.SeqNum++
+	println(account.SeqNum)
 	return account.SeqNum
 }

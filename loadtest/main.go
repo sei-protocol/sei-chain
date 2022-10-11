@@ -167,8 +167,8 @@ func run(config Config) {
 	sendersList := [][]func(){}
 
 	configString, _ := json.Marshal(config)
-	fmt.Printf("Running with \n %s \ns", string(configString))
-	fmt.Printf("Number of Accounts: \n %d \n", numberOfAccounts)
+	fmt.Printf("Running with \n %s \n", string(configString))
+	fmt.Printf("Number of Accounts: %d \n", numberOfAccounts)
 
 	fmt.Printf("%s - Starting block prepare\n", time.Now().Format("2006-01-02T15:04:05"))
 	for i := 0; i < int(config.Rounds); i++ {
@@ -177,8 +177,6 @@ func run(config Config) {
 		var senders []func()
 		wgs = append(wgs, wg)
 		for account, accountManager := range activeAccounts {
-
-
 			key := GetKey(uint64(account))
 
 			msg := generateMessage(config, key, batchSize)

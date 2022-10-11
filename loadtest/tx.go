@@ -25,6 +25,8 @@ func SendTx(
 		sdk.NewCoin("usei", sdk.NewInt(10000000)),
 	})
 	SignTx(txBuilder, key, accountManager.GetNextSeqNumber())
+	defer accountManager.SeqNumLock.Unlock()
+
 	txBytes, _ := TestConfig.TxConfig.TxEncoder()((*txBuilder).GetTx())
 	return func() {
 		grpcRes, err := TxClient.BroadcastTx(
