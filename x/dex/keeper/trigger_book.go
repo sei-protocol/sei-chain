@@ -17,17 +17,17 @@ func (k Keeper) SetTriggerBookOrder(ctx sdk.Context, contractAddr string, order 
 	store := prefix.NewStore(ctx.KVStore(k.storeKey), types.TriggerOrderBookPrefix(contractAddr, priceDenom, assetDenom))
 
 	b := k.Cdc.MustMarshal(&order)
-	store.Set(GetKeyForOrderId(order.Id), b)
+	store.Set(GetKeyForOrderID(order.Id), b)
 }
 
-func (k Keeper) RemoveTriggerBookOrder(ctx sdk.Context, contractAddr string, order_id uint64, priceDenom string, assetDenom string) {
+func (k Keeper) RemoveTriggerBookOrder(ctx sdk.Context, contractAddr string, orderID uint64, priceDenom string, assetDenom string) {
 	store := prefix.NewStore(ctx.KVStore(k.storeKey), types.TriggerOrderBookPrefix(contractAddr, priceDenom, assetDenom))
-	store.Delete(GetKeyForOrderId(order_id))
+	store.Delete(GetKeyForOrderID(orderID))
 }
 
-func (k Keeper) GetTriggerBookByOrderId(ctx sdk.Context, contractAddr string, order_id uint64, priceDenom string, assetDenom string) (val types.Order, found bool) {
+func (k Keeper) GetTriggerBookByOrderID(ctx sdk.Context, contractAddr string, orderID uint64, priceDenom string, assetDenom string) (val types.Order, found bool) {
 	store := prefix.NewStore(ctx.KVStore(k.storeKey), types.TriggerOrderBookPrefix(contractAddr, priceDenom, assetDenom))
-	b := store.Get(GetKeyForOrderId(order_id))
+	b := store.Get(GetKeyForOrderID(orderID))
 	if b == nil {
 		return val, false
 	}
@@ -54,9 +54,9 @@ func (k Keeper) GetAllTriggerBookOrdersForPair(ctx sdk.Context, contractAddr str
 // 	return GetKeyForPrice(shortBook.Entry.Price)
 // }
 
-func GetKeyForOrderId(order_id uint64) []byte {
+func GetKeyForOrderID(orderID uint64) []byte {
 	key := make([]byte, 8)
-	binary.LittleEndian.PutUint64(key, order_id)
+	binary.LittleEndian.PutUint64(key, orderID)
 
 	return key
 }

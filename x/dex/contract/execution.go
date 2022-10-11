@@ -120,14 +120,15 @@ func moveTriggeredOrderForPair(
 	dexkeeper *keeper.Keeper,
 ) {
 	priceDenom, assetDenom := dextypesutils.GetPriceAssetString(typedPairStr)
-	for _, order := range dexkeeper.GetAllTriggerBookOrdersForPair(ctx, string(typedContractAddr), priceDenom, assetDenom) {
+	triggeredOrders := dexkeeper.GetAllTriggerBookOrdersForPair(ctx, string(typedContractAddr), priceDenom, assetDenom)
+	for i, order := range triggeredOrders {
 		if order.TriggerStatus {
 			if order.OrderType == types.OrderType_STOPLOSS {
 				order.OrderType = types.OrderType_MARKET
 			} else if order.OrderType == types.OrderType_STOPLIMIT {
 				order.OrderType = types.OrderType_LIMIT
 			}
-			dexkeeper.MemState.GetBlockOrders(ctx, typedContractAddr, typedPairStr).Add(&order)
+			dexkeeper.MemState.GetBlockOrders(ctx, typedContractAddr, typedPairStr).Add(&triggeredOrders[i])
 			dexkeeper.RemoveTriggerBookOrder(ctx, string(typedContractAddr), order.Id, priceDenom, assetDenom)
 		}
 	}
@@ -140,7 +141,6 @@ func updateTriggeredOrderForPair(
 	dexkeeper *keeper.Keeper,
 	totalOutcome exchange.ExecutionOutcome,
 ) {
-
 	orders := dexkeeper.MemState.GetBlockOrders(ctx, typedContractAddr, typedPairStr)
 	triggeredOrders := orders.GetTriggeredOrders()
 
@@ -148,7 +148,7 @@ func updateTriggeredOrderForPair(
 	priceDenom, assetDenom := dextypesutils.GetPriceAssetString(typedPairStr)
 	for _, order := range dexkeeper.GetAllTriggerBookOrdersForPair(ctx, string(typedContractAddr), priceDenom, assetDenom) {
 		if (order.PositionDirection == types.PositionDirection_LONG && order.TriggerPrice.LTE(totalOutcome.MaxPrice)) ||
-		order.PositionDirection == types.PositionDirection_SHORT && order.TriggerPrice.GTE(totalOutcome.MinPrice) {
+			order.PositionDirection == types.PositionDirection_SHORT && order.TriggerPrice.GTE(totalOutcome.MinPrice) {
 			order.TriggerStatus = true
 			dexkeeper.SetTriggerBookOrder(ctx, order.ContractAddr, order, order.PriceDenom, order.AssetDenom)
 		}

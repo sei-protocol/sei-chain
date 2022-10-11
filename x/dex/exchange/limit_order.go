@@ -24,7 +24,6 @@ func MatchLimitOrders(
 			executed = orderbook.Shorts.Entries[shortPtr].GetEntry().Quantity
 		}
 		totalExecuted = totalExecuted.Add(executed).Add(executed)
-		// I think the line-below is off... but I'm not really sure I udnerstand the logic
 		totalPrice = totalPrice.Add(
 			executed.Mul(
 				orderbook.Longs.Entries[longPtr].GetPrice().Add(orderbook.Shorts.Entries[shortPtr].GetPrice()),
