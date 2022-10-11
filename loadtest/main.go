@@ -42,6 +42,7 @@ type Config struct {
 	OrdersPerBlock uint64                `json:"orders_per_block"`
 	Rounds         uint64                `json:"rounds"`
 	MessageType    string                `json:"message_type"`
+	NumAccounts    uint64                `json:"num_accounts"`
 	PriceDistr     NumericDistribution   `json:"price_distribution"`
 	QuantityDistr  NumericDistribution   `json:"quantity_distribution"`
 	MsgTypeDistr   MsgTypeDistribution   `json:"message_type_distribution"`
@@ -148,13 +149,13 @@ func run(config Config) {
 	}
 
 	numberOfAccounts := config.OrdersPerBlock / batchSize * 2 // * 2 because we need two sets of accounts
-	activeAccounts := []int{}
-	inactiveAccounts := []int{}
+	activeAccounts := make(map[int](chan uint64))
+	inactiveAccounts := make(map[int](chan uint64))
 	for i := 0; i < int(numberOfAccounts); i++ {
 		if i%2 == 0 {
-			activeAccounts = append(activeAccounts, i)
+			activeAccounts[i] = make(chan uint64)
 		} else {
-			inactiveAccounts = append(inactiveAccounts, i)
+			inactiveAccounts[i] = make(chan uint64)
 		}
 	}
 	wgs := []*sync.WaitGroup{}
@@ -170,7 +171,7 @@ func run(config Config) {
 		wg := &sync.WaitGroup{}
 		var senders []func()
 		wgs = append(wgs, wg)
-		for _, account := range activeAccounts {
+		for account, syncChannel := range activeAccounts {
 			key := GetKey(uint64(account))
 
 			msg := generateMessage(config, key, batchSize)
@@ -186,8 +187,23 @@ func run(config Config) {
 			sender := SendTx(key, &txBuilder, mode, seqDelta, &mu)
 			wg.Add(1)
 			senders = append(senders, func() {
+				if seqDelta > 0 {
+					for {
+						select {
+						case currSeqDelta := <-syncChannel:
+							if currSeqDelta != seqDelta {
+								syncChannel <- currSeqDelta
+								break
+							}
+						default:
+							break
+						}
+					}
+				}
 				defer wg.Done()
 				sender()
+				// Signal that the next seq for  this account can be processed
+				syncChannel <- seqDelta + 1
 			})
 		}
 		sendersList = append(sendersList, senders)
