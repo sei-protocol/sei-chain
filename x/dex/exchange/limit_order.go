@@ -2,22 +2,16 @@ package exchange
 
 import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/sei-protocol/sei-chain/x/dex/keeper"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
+	dextypesutils "github.com/sei-protocol/sei-chain/x/dex/types/utils"
 )
 
 func MatchLimitOrders(
 	ctx sdk.Context,
-	longOrders []*types.Order,
-	shortOrders []*types.Order,
 	orderbook *types.OrderBook,
 ) ExecutionOutcome {
 	settlements := []*types.SettlementEntry{}
-	for _, order := range longOrders {
-		addOrderToOrderBookEntry(order, orderbook.Longs)
-	}
-	for _, order := range shortOrders {
-		addOrderToOrderBookEntry(order, orderbook.Shorts)
-	}
 	totalExecuted, totalPrice := sdk.ZeroDec(), sdk.ZeroDec()
 	longPtr, shortPtr := len(orderbook.Longs.Entries)-1, 0
 
@@ -114,4 +108,22 @@ func addOrderToOrderBookEntry(
 		orderBookEntries.Entries[insertAt] = newOrder
 	}
 	orderBookEntries.AddDirtyEntry(newOrder)
+}
+
+func AddOutstandingLimitOrdersToOrderbook(
+	ctx sdk.Context,
+	typedContractAddr dextypesutils.ContractAddress,
+	typedPairStr dextypesutils.PairString,
+	dexkeeper *keeper.Keeper,
+	orderbook *types.OrderBook,
+) {
+	orders := dexkeeper.MemState.GetBlockOrders(ctx, typedContractAddr, typedPairStr)
+	limitBuys := orders.GetLimitOrders(types.PositionDirection_LONG)
+	limitSells := orders.GetLimitOrders(types.PositionDirection_SHORT)
+	for _, order := range limitBuys {
+		addOrderToOrderBookEntry(order, orderbook.Longs)
+	}
+	for _, order := range limitSells {
+		addOrderToOrderBookEntry(order, orderbook.Shorts)
+	}
 }
