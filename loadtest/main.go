@@ -192,19 +192,22 @@ func run(config Config) {
 						select {
 						case currSeqDelta := <- syncChannel:
 							if currSeqDelta != seqDelta {
+								fmt.Printf("%d != %d", seqDelta, currSeqDelta)
 								syncChannel <- currSeqDelta
+								fmt.Printf("Sleeping %d != %d", seqDelta, currSeqDelta)
 								// Sleep so that the other senders can get the value
 								time.Sleep(10 * time.Millisecond)
+							} else {
+								break
 							}
-						default:
-							break
 						}
 					}
 				}
 				defer wg.Done()
 				sender()
 
-				// Signal that the next seq for  this account can be processed
+				// Signal that the next seq for this account can be processed
+				fmt.Printf("Sending %d", seqDelta + 1)
 				syncChannel <- seqDelta + 1
 			})
 		}
