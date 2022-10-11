@@ -190,10 +190,11 @@ func run(config Config) {
 				if seqDelta > 0 {
 					for {
 						select {
-						case currSeqDelta := <-syncChannel:
+						case currSeqDelta := <- syncChannel:
 							if currSeqDelta != seqDelta {
 								syncChannel <- currSeqDelta
-								break
+								// Sleep so that the other senders can get the value
+								time.Sleep(10 * time.Millisecond)
 							}
 						default:
 							break
@@ -202,6 +203,7 @@ func run(config Config) {
 				}
 				defer wg.Done()
 				sender()
+
 				// Signal that the next seq for  this account can be processed
 				syncChannel <- seqDelta + 1
 			})
