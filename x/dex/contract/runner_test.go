@@ -6,14 +6,18 @@ import (
 	"testing"
 	"time"
 
+	keepertest "github.com/sei-protocol/sei-chain/testutil/keeper"
 	"github.com/sei-protocol/sei-chain/x/dex/contract"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
 	"github.com/stretchr/testify/require"
+	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 )
 
 var (
 	counter         int64 = 0
 	dependencyCheck       = sync.Map{}
+	testApp               = keepertest.TestApp()
+	sdkCtx                = testApp.BaseApp.NewContext(false, tmproto.Header{Time: time.Now()})
 )
 
 func noopRunnable(_ types.ContractInfo) {
@@ -42,7 +46,7 @@ func TestRunnerSingleContract(t *testing.T) {
 		ContractAddr:            "A",
 		NumIncomingDependencies: 0,
 	}
-	runner := contract.NewParallelRunner(noopRunnable, []types.ContractInfo{contractInfo})
+	runner := contract.NewParallelRunner(noopRunnable, []types.ContractInfo{contractInfo}, sdkCtx)
 	runner.Run()
 	require.Equal(t, int64(1), counter)
 }
@@ -57,7 +61,7 @@ func TestRunnerParallelContract(t *testing.T) {
 		ContractAddr:            "B",
 		NumIncomingDependencies: 0,
 	}
-	runner := contract.NewParallelRunner(idleRunnable, []types.ContractInfo{contractInfoA, contractInfoB})
+	runner := contract.NewParallelRunner(idleRunnable, []types.ContractInfo{contractInfoA, contractInfoB}, sdkCtx)
 	start := time.Now()
 	runner.Run()
 	end := time.Now()
@@ -90,7 +94,7 @@ func TestRunnerParallelContractWithDependency(t *testing.T) {
 		ContractAddr:            "C",
 		NumIncomingDependencies: 2,
 	}
-	runner := contract.NewParallelRunner(dependencyCheckRunnable, []types.ContractInfo{contractInfoC, contractInfoB, contractInfoA})
+	runner := contract.NewParallelRunner(dependencyCheckRunnable, []types.ContractInfo{contractInfoC, contractInfoB, contractInfoA}, sdkCtx)
 	runner.Run()
 	_, hasC := dependencyCheck.Load("C")
 	require.True(t, hasC)
@@ -117,7 +121,7 @@ func TestRunnerParallelContractWithInvalidDependency(t *testing.T) {
 			},
 		},
 	}
-	runner := contract.NewParallelRunner(dependencyCheckRunnable, []types.ContractInfo{contractInfoB, contractInfoA})
+	runner := contract.NewParallelRunner(dependencyCheckRunnable, []types.ContractInfo{contractInfoB, contractInfoA}, sdkCtx)
 	runner.Run()
 	_, hasC := dependencyCheck.Load("C")
 	require.False(t, hasC)

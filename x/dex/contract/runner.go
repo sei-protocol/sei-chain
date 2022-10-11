@@ -1,6 +1,7 @@
 package contract
 
 import (
+	"fmt"
 	"sync/atomic"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -126,7 +127,7 @@ func (r *ParallelRunner) wrapRunnable(contractAddr utils.ContractAddress) {
 			dependentInfo, ok := r.contractAddrToInfo.Load(typedDependentContract)
 			if !ok {
 				// If we cannot find the dependency in the contract address info, then it's not a valid contract in this round
-				sdkCtx.Logger().Error(fmt.Sprintf("Error cancelling unfulfilled market orders for %s", contract.ContractAddr))
+				r.sdkCtx.Logger().Error(fmt.Sprintf("Couldn't find dependency %s of contract %s in the contract address info", contractInfo.ContractAddr, dependentContract))
 				continue
 			}
 			// It's okay to mutate ContractInfo here since it's a copy made in the runner's
