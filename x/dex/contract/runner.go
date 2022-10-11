@@ -3,6 +3,7 @@ package contract
 import (
 	"sync/atomic"
 
+	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/sei-protocol/sei-chain/utils/datastructures"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
 	"github.com/sei-protocol/sei-chain/x/dex/types/utils"
@@ -16,9 +17,10 @@ type ParallelRunner struct {
 	readyCnt             int64
 	inProgressCnt        int64
 	someContractFinished chan struct{}
+	sdkCtx               sdk.Context
 }
 
-func NewParallelRunner(runnable func(contract types.ContractInfo), contracts []types.ContractInfo) ParallelRunner {
+func NewParallelRunner(runnable func(contract types.ContractInfo), contracts []types.ContractInfo, ctx sdk.Context) ParallelRunner {
 	contractAddrToInfo := datastructures.NewTypedSyncMap[utils.ContractAddress, *types.ContractInfo]()
 	contractsFrontier := datastructures.NewTypedSyncMap[utils.ContractAddress, struct{}]()
 	for _, contract := range contracts {
@@ -37,6 +39,7 @@ func NewParallelRunner(runnable func(contract types.ContractInfo), contracts []t
 		readyCnt:             int64(contractsFrontier.Len()),
 		inProgressCnt:        0,
 		someContractFinished: make(chan struct{}),
+		sdkCtx:               ctx,
 	}
 }
 
@@ -123,6 +126,7 @@ func (r *ParallelRunner) wrapRunnable(contractAddr utils.ContractAddress) {
 			dependentInfo, ok := r.contractAddrToInfo.Load(typedDependentContract)
 			if !ok {
 				// If we cannot find the dependency in the contract address info, then it's not a valid contract in this round
+				sdkCtx.Logger().Error(fmt.Sprintf("Error cancelling unfulfilled market orders for %s", contract.ContractAddr))
 				continue
 			}
 			// It's okay to mutate ContractInfo here since it's a copy made in the runner's

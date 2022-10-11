@@ -97,6 +97,7 @@ func TestRunnerParallelContractWithDependency(t *testing.T) {
 }
 
 func TestRunnerParallelContractWithInvalidDependency(t *testing.T) {
+	dependencyCheck = sync.Map{}
 	counter = 0
 	contractInfoA := types.ContractInfo{
 		ContractAddr:            "A",
