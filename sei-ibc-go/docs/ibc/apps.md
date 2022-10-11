@@ -474,4 +474,4 @@ callbacks](https://github.com/cosmos/ibc-go/blob/main/modules/apps/transfer/ibc_
 
 ## Next {hide}
 
-Learn about [building modules](https://github.com/cosmos/cosmos-sdk/blob/master/docs/building-modules/intro.md) {hide}
+Learn about [building modules](https://github.com/cosmos/cosmos-sdk/blob/main/docs/docs/building-modules/01-intro.md) {hide}

@@ -136,7 +136,7 @@ Proofs are passed from core IBC to light-clients as bytes. It is up to light cli
 [ICS-24 Host State Machine Requirements](https://github.com/cosmos/ics/tree/master/spec/core/ics-024-host-requirements). 
 - The proof format that all implementations must be able to produce and verify is defined in [ICS-23 Proofs](https://github.com/confio/ics23) implementation.
 
-### [Capabilities](https://github.com/cosmos/cosmos-sdk/blob/master/docs/core/ocap.md)
+### [Capabilities](https://github.com/cosmos/cosmos-sdk/blob/main/docs/docs/core/10-ocap.md)
 
 IBC is intended to work in execution environments where modules do not necessarily trust each
 other. Thus, IBC must authenticate module actions on ports and channels so that only modules with the

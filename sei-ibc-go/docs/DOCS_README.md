@@ -96,7 +96,7 @@ We are using [Algolia](https://www.algolia.com) to power full-text search. This 
 ## Consistency
 
 Because the build processes are identical (as is the information contained herein), this file should be kept in sync as
-much as possible with its [counterpart in the Cosmos SDK repo](https://github.com/cosmos/cosmos-sdk/tree/master/docs/DOCS_README.md).
+much as possible with its [counterpart in the Cosmos SDK repo](https://github.com/cosmos/cosmos-sdk/blob/main/docs/README.md).
 
 ### Update and Build the RPC docs
 

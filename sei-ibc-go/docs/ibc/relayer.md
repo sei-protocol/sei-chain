@@ -7,7 +7,7 @@ order: 6
 ## Pre-requisites Readings
 
 - [IBC Overview](./overview.md) {prereq}
-- [Events](https://github.com/cosmos/cosmos-sdk/blob/master/docs/core/events.md) {prereq}
+- [Events](https://github.com/cosmos/cosmos-sdk/blob/main/docs/docs/core/08-events.md) {prereq}
 
 ## Events
 
