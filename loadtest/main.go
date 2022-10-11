@@ -42,7 +42,6 @@ type Config struct {
 	OrdersPerBlock uint64                `json:"orders_per_block"`
 	Rounds         uint64                `json:"rounds"`
 	MessageType    string                `json:"message_type"`
-	NumAccounts    uint64                `json:"num_accounts"`
 	PriceDistr     NumericDistribution   `json:"price_distribution"`
 	QuantityDistr  NumericDistribution   `json:"quantity_distribution"`
 	MsgTypeDistr   MsgTypeDistribution   `json:"message_type_distribution"`
@@ -149,26 +148,20 @@ func run(config Config) {
 	}
 
 	numberOfAccounts := config.OrdersPerBlock / batchSize * 2 // * 2 because we need two sets of accounts
-	activeAccounts := make(map[int](AccountManager))
-	inactiveAccounts := make(map[int](AccountManager))
+	activeAccounts := []int{}
+	inactiveAccounts := []int{}
 	for i := 0; i < int(numberOfAccounts); i++ {
-		account := AccountManager{
-			AccountNum: uint64(i),
-			SeqNum: 0,
-			SeqNumLock: &sync.Mutex{},
-		}
 		if i%2 == 0 {
-			activeAccounts[i] = account
+			activeAccounts = append(activeAccounts, i)
 		} else {
-			inactiveAccounts[i] = account
+			inactiveAccounts = append(inactiveAccounts, i)
 		}
 	}
 	wgs := []*sync.WaitGroup{}
 	sendersList := [][]func(){}
 
 	configString, _ := json.Marshal(config)
-	fmt.Printf("Running with \n %s \n", string(configString))
-	fmt.Printf("Number of Accounts: %d \n", numberOfAccounts)
+	fmt.Printf("Running with \n %s \ns", string(configString))
 
 	fmt.Printf("%s - Starting block prepare\n", time.Now().Format("2006-01-02T15:04:05"))
 	for i := 0; i < int(config.Rounds); i++ {
@@ -176,19 +169,20 @@ func run(config Config) {
 		wg := &sync.WaitGroup{}
 		var senders []func()
 		wgs = append(wgs, wg)
-		for account, accountManager := range activeAccounts {
+		for _, account := range activeAccounts {
 			key := GetKey(uint64(account))
 
 			msg := generateMessage(config, key, batchSize)
 			txBuilder := TestConfig.TxConfig.NewTxBuilder()
 			_ = txBuilder.SetMsgs(msg)
+			seqDelta := uint64(i / 2)
 			mode := typestx.BroadcastMode_BROADCAST_MODE_SYNC
 
 			// Note: There is a potential race condition here with seqnos
 			// in which a later seqno is delievered before an earlier seqno
 			// In practice, we haven't run into this issue so we'll leave this
 			// as is.
-			sender := SendTx(key, &txBuilder, mode, accountManager, &mu)
+			sender := SendTx(key, &txBuilder, mode, seqDelta, &mu)
 			wg.Add(1)
 			senders = append(senders, func() {
 				defer wg.Done()
