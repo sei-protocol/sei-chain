@@ -17,14 +17,14 @@ func SendTx(
 	key cryptotypes.PrivKey,
 	txBuilder *client.TxBuilder,
 	mode typestx.BroadcastMode,
-	seqDelta uint64,
+	accountManager AccountManager,
 	mu *sync.Mutex,
 ) func() {
 	(*txBuilder).SetGasLimit(200000000)
 	(*txBuilder).SetFeeAmount([]sdk.Coin{
 		sdk.NewCoin("usei", sdk.NewInt(10000000)),
 	})
-	SignTx(txBuilder, key, seqDelta)
+	SignTx(txBuilder, key, accountManager.GetNextSeqNumber())
 	txBytes, _ := TestConfig.TxConfig.TxEncoder()((*txBuilder).GetTx())
 	return func() {
 		grpcRes, err := TxClient.BroadcastTx(

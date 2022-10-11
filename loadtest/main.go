@@ -149,13 +149,18 @@ func run(config Config) {
 	}
 
 	numberOfAccounts := config.OrdersPerBlock / batchSize * 2 // * 2 because we need two sets of accounts
-	activeAccounts := make(map[int](chan uint64))
-	inactiveAccounts := make(map[int](chan uint64))
+	activeAccounts := make(map[int](AccountManager))
+	inactiveAccounts := make(map[int](AccountManager))
 	for i := 0; i < int(numberOfAccounts); i++ {
+		account := AccountManager{
+			AccountNum: uint64(i),
+			SeqNum: 0,
+			SeqNumLock: &sync.Mutex{},
+		}
 		if i%2 == 0 {
-			activeAccounts[i] = make(chan uint64)
+			activeAccounts[i] = account
 		} else {
-			inactiveAccounts[i] = make(chan uint64)
+			inactiveAccounts[i] = account
 		}
 	}
 	wgs := []*sync.WaitGroup{}
@@ -171,44 +176,25 @@ func run(config Config) {
 		wg := &sync.WaitGroup{}
 		var senders []func()
 		wgs = append(wgs, wg)
-		for account, syncChannel := range activeAccounts {
+		for account, accountManager := range activeAccounts {
+
+
 			key := GetKey(uint64(account))
 
 			msg := generateMessage(config, key, batchSize)
 			txBuilder := TestConfig.TxConfig.NewTxBuilder()
 			_ = txBuilder.SetMsgs(msg)
-			seqDelta := uint64(i / 2)
 			mode := typestx.BroadcastMode_BROADCAST_MODE_SYNC
 
 			// Note: There is a potential race condition here with seqnos
 			// in which a later seqno is delievered before an earlier seqno
 			// In practice, we haven't run into this issue so we'll leave this
 			// as is.
-			sender := SendTx(key, &txBuilder, mode, seqDelta, &mu)
+			sender := SendTx(key, &txBuilder, mode, accountManager, &mu)
 			wg.Add(1)
 			senders = append(senders, func() {
-				if seqDelta > 0 {
-					for {
-						select {
-						case currSeqDelta := <- syncChannel:
-							if currSeqDelta != seqDelta {
-								fmt.Printf("%d != %d", seqDelta, currSeqDelta)
-								syncChannel <- currSeqDelta
-								fmt.Printf("Sleeping %d != %d", seqDelta, currSeqDelta)
-								// Sleep so that the other senders can get the value
-								time.Sleep(10 * time.Millisecond)
-							} else {
-								break
-							}
-						}
-					}
-				}
 				defer wg.Done()
 				sender()
-
-				// Signal that the next seq for this account can be processed
-				fmt.Printf("Sending %d", seqDelta + 1)
-				syncChannel <- seqDelta + 1
 			})
 		}
 		sendersList = append(sendersList, senders)
