@@ -4,7 +4,6 @@ import (
 	wasmkeeper "github.com/CosmWasm/wasmd/x/wasm/keeper"
 	wasmTypes "github.com/CosmWasm/wasmd/x/wasm/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
-	sdkacltypes "github.com/cosmos/cosmos-sdk/types/accesscontrol"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	"github.com/cosmos/cosmos-sdk/x/auth/ante"
 	ibcante "github.com/cosmos/ibc-go/v3/modules/core/ante"
@@ -29,33 +28,6 @@ type HandlerOptions struct {
 	TXCounterStoreKey sdk.StoreKey
 
 	TracingInfo *tracing.Info
-}
-
-type WrappedAnteDecorator struct {
-	Decorator    sdk.AnteDecorator
-	DepDecorator sdk.AnteDepDecorator
-}
-
-func CustomDepWrappedAnteDecorator(decorator sdk.AnteDecorator, depDecorator sdk.AnteDepDecorator) WrappedAnteDecorator {
-	return WrappedAnteDecorator{
-		Decorator:    decorator,
-		DepDecorator: depDecorator,
-	}
-}
-
-func DefaultWrappedAnteDecorator(decorator sdk.AnteDecorator) WrappedAnteDecorator {
-	return WrappedAnteDecorator{
-		Decorator:    decorator,
-		DepDecorator: sdk.DefaultDepDecorator{},
-	}
-}
-
-func (wad WrappedAnteDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool, next sdk.AnteHandler) (newCtx sdk.Context, err error) {
-	return wad.Decorator.AnteHandle(ctx, tx, simulate, next)
-}
-
-func (wad WrappedAnteDecorator) AnteDeps(txDeps []sdkacltypes.AccessOperation, tx sdk.Tx, next sdk.AnteDepGenerator) (newTxDeps []sdkacltypes.AccessOperation, err error) {
-	return wad.DepDecorator.AnteDeps(txDeps, tx, next)
 }
 
 func NewAnteHandlerAndDepGenerator(options HandlerOptions) (sdk.AnteHandler, sdk.AnteDepGenerator, error) {
