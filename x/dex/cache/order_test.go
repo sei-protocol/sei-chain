@@ -139,3 +139,45 @@ func TestGetSortedMarketOrders(t *testing.T) {
 	require.Equal(t, uint64(6), marketSellsWithoutLiquidation[0].Id)
 	require.Equal(t, uint64(5), marketSellsWithoutLiquidation[1].Id)
 }
+
+func TestGetTriggeredOrders(t *testing.T) {
+	ctx := sdk.Context{}
+	stateOne := dex.NewMemState()
+	stateOne.GetBlockOrders(ctx, utils.ContractAddress(TEST_CONTRACT), utils.PairString(TEST_PAIR)).Add(&types.Order{
+		Id:                1,
+		Account:           "test",
+		ContractAddr:      TEST_CONTRACT,
+		PositionDirection: types.PositionDirection_LONG,
+		OrderType:         types.OrderType_STOPLOSS,
+		Price:             sdk.MustNewDecFromStr("150"),
+		TriggerPrice:      sdk.MustNewDecFromStr("100"),
+		TriggerStatus:     false,
+	})
+	stateOne.GetBlockOrders(ctx, utils.ContractAddress(TEST_CONTRACT), utils.PairString(TEST_PAIR)).Add(&types.Order{
+		Id:                2,
+		Account:           "test",
+		ContractAddr:      TEST_CONTRACT,
+		PositionDirection: types.PositionDirection_SHORT,
+		OrderType:         types.OrderType_STOPLIMIT,
+		Price:             sdk.MustNewDecFromStr("150"),
+		TriggerPrice:      sdk.MustNewDecFromStr("200"),
+		TriggerStatus:     false,
+	})
+	stateOne.GetBlockOrders(ctx, utils.ContractAddress(TEST_CONTRACT), utils.PairString(TEST_PAIR)).Add(&types.Order{
+		Id:                3,
+		Account:           "test",
+		ContractAddr:      TEST_CONTRACT,
+		PositionDirection: types.PositionDirection_LONG,
+		OrderType:         types.OrderType_LIMIT,
+		Price:             sdk.MustNewDecFromStr("100"),
+	})
+
+	triggeredOrders := stateOne.GetBlockOrders(ctx, utils.ContractAddress(TEST_CONTRACT), utils.PairString(TEST_PAIR)).GetTriggeredOrders()
+	var orderIds []uint64
+	for _, order := range triggeredOrders {
+		orderIds = append(orderIds, order.Id)
+	}
+
+	require.Equal(t, len(triggeredOrders), 2)
+	require.ElementsMatch(t, orderIds, []uint64{1, 2})
+}

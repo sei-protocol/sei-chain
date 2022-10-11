@@ -65,7 +65,6 @@ func WeightedOperations(
 }
 
 // SimulateMsgAggregateExchangeRateVote generates a MsgAggregateExchangeRateVote with random values.
-// nolint: funlen
 func SimulateMsgAggregateExchangeRateVote(ak types.AccountKeeper, bk types.BankKeeper, k keeper.Keeper) simtypes.Operation {
 	return func(
 		r *rand.Rand, app *baseapp.BaseApp, ctx sdk.Context, accs []simtypes.Account, chainID string,
@@ -122,7 +121,6 @@ func SimulateMsgAggregateExchangeRateVote(ak types.AccountKeeper, bk types.BankK
 }
 
 // SimulateMsgDelegateFeedConsent generates a MsgDelegateFeedConsent with random values.
-// nolint: funlen
 func SimulateMsgDelegateFeedConsent(ak types.AccountKeeper, bk types.BankKeeper, k keeper.Keeper) simtypes.Operation {
 	return func(
 		r *rand.Rand, app *baseapp.BaseApp, ctx sdk.Context, accs []simtypes.Account, chainID string,
