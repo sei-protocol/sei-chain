@@ -2,9 +2,7 @@ package exchange
 
 import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
-	"github.com/sei-protocol/sei-chain/x/dex/keeper"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
-	dextypesutils "github.com/sei-protocol/sei-chain/x/dex/types/utils"
 )
 
 func MatchLimitOrders(
@@ -111,15 +109,10 @@ func addOrderToOrderBookEntry(
 }
 
 func AddOutstandingLimitOrdersToOrderbook(
-	ctx sdk.Context,
-	typedContractAddr dextypesutils.ContractAddress,
-	typedPairStr dextypesutils.PairString,
-	dexkeeper *keeper.Keeper,
 	orderbook *types.OrderBook,
+	limitBuys []*types.Order,
+	limitSells []*types.Order,
 ) {
-	orders := dexkeeper.MemState.GetBlockOrders(ctx, typedContractAddr, typedPairStr)
-	limitBuys := orders.GetLimitOrders(types.PositionDirection_LONG)
-	limitSells := orders.GetLimitOrders(types.PositionDirection_SHORT)
 	for _, order := range limitBuys {
 		addOrderToOrderBookEntry(order, orderbook.Longs)
 	}

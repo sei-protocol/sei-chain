@@ -59,7 +59,10 @@ func ExecutePair(
 	// First cancel orders
 	cancelForPair(ctx, typedContractAddr, typedPairStr, dexkeeper, orderbook)
 	// Add all limit orders to the orderbook
-	exchange.AddOutstandingLimitOrdersToOrderbook(ctx, typedContractAddr, typedPairStr, dexkeeper, orderbook)
+	orders := dexkeeper.MemState.GetBlockOrders(ctx, typedContractAddr, typedPairStr)
+	limitBuys := orders.GetLimitOrders(types.PositionDirection_LONG)
+	limitSells := orders.GetLimitOrders(types.PositionDirection_SHORT)
+	exchange.AddOutstandingLimitOrdersToOrderbook(orderbook, limitBuys, limitSells)
 	// Fill market orders
 	marketOrderOutcome := matchMarketOrderForPair(ctx, typedContractAddr, typedPairStr, dexkeeper, orderbook)
 	// Fill limit orders

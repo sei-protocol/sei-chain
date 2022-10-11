@@ -42,5 +42,6 @@ func fuzzTargetMatchLimitOrders(
 		Longs:  &types.CachedSortedOrderBookEntries{Entries: buyEntries, DirtyEntries: datastructures.NewTypedSyncMap[string, types.OrderBookEntry]()},
 		Shorts: &types.CachedSortedOrderBookEntries{Entries: sellEntries, DirtyEntries: datastructures.NewTypedSyncMap[string, types.OrderBookEntry]()},
 	}
-	require.NotPanics(t, func() { exchange.MatchLimitOrders(TestFuzzLimitCtx, buyOrders, sellOrders, &orderBook) })
+	exchange.AddOutstandingLimitOrdersToOrderbook(&orderBook, buyOrders, sellOrders)
+	require.NotPanics(t, func() { exchange.MatchLimitOrders(TestFuzzLimitCtx, &orderBook) })
 }
