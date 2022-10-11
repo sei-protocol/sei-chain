@@ -935,11 +935,9 @@ func (app *App) FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBlock)
 	return &resp, nil
 }
 
-func (app *App) DeliverTxWithResult(ctx sdk.Context, tx []byte) *abci.ExecTxResult {
-	deliverTxResp := app.DeliverTx(ctx, abci.RequestDeliverTx{
-		Tx: tx,
-	})
-	return &abci.ExecTxResult{
+func (app *App) DeliverTxWithResult(ctx sdk.Context, tx []byte, isConcurrentRun bool) (sdk.Context, *abci.ExecTxResult) {
+	ctx, deliverTxResp := app.DeliverTx(ctx, abci.RequestDeliverTx{Tx: tx}, isConcurrentRun)
+	return ctx, &abci.ExecTxResult{
 		Code:      deliverTxResp.Code,
 		Data:      deliverTxResp.Data,
 		Log:       deliverTxResp.Log,
@@ -956,7 +954,9 @@ func (app *App) ProcessBlockSynchronous(ctx sdk.Context, txs [][]byte) []*abci.E
 
 	txResults := []*abci.ExecTxResult{}
 	for _, tx := range txs {
-		txResults = append(txResults, app.DeliverTxWithResult(ctx, tx))
+		// Synchronous runs do not care about ctx returned as cache.Write() should already be called
+		_, results := app.DeliverTxWithResult(ctx, tx, false)
+		txResults = append(txResults, results)
 		metrics.IncrTxProcessTypeCounter(metrics.SYNCHRONOUS)
 	}
 	return txResults
@@ -978,9 +978,10 @@ func getChannelsFromSignalMapping(signalMapping acltypes.MessageCompletionSignal
 	return channelsMapping
 }
 
-type ChannelResult struct {
+type ProcessTxConcurrentResult struct {
 	txIndex int
 	result  *abci.ExecTxResult
+	txCtx 	sdk.Context
 }
 
 func (app *App) ProcessTxConcurrent(
@@ -988,7 +989,7 @@ func (app *App) ProcessTxConcurrent(
 	txIndex int,
 	txBytes []byte,
 	wg *sync.WaitGroup,
-	resultChan chan<- ChannelResult,
+	resultChan chan<- ProcessTxConcurrentResult,
 	txCompletionSignalingMap acltypes.MessageCompletionSignalMapping,
 	txBlockingSignalsMap acltypes.MessageCompletionSignalMapping,
 ) {
@@ -998,7 +999,9 @@ func (app *App) ProcessTxConcurrent(
 	ctx = ctx.WithTxCompletionChannels(getChannelsFromSignalMapping(txCompletionSignalingMap))
 
 	// Deliver the transaction and store the result in the channel
-	resultChan <- ChannelResult{txIndex, app.DeliverTxWithResult(ctx, txBytes)}
+	// Store context for deterministic write ordering
+	ctx, result := app.DeliverTxWithResult(ctx, txBytes, true)
+	resultChan <- ProcessTxConcurrentResult{txIndex, result, ctx}
 	metrics.IncrTxProcessTypeCounter(metrics.CONCURRENT)
 }
 
@@ -1011,7 +1014,7 @@ func (app *App) ProcessBlockConcurrent(
 	defer metrics.BlockProcessLatency(time.Now(), metrics.CONCURRENT)
 
 	var waitGroup sync.WaitGroup
-	resultChan := make(chan ChannelResult)
+	resultChan := make(chan ProcessTxConcurrentResult)
 	txResults := []*abci.ExecTxResult{}
 
 	// If there's no transactions then return empty results
@@ -1043,14 +1046,16 @@ func (app *App) ProcessBlockConcurrent(
 
 	// Gather Results and store it based on txIndex and read results from channel
 	// Concurrent results may be in different order than the original txIndex
-	txResultsMap := map[int]*abci.ExecTxResult{}
+	txResultsMap := map[int]ProcessTxConcurrentResult{}
 	for result := range resultChan {
-		txResultsMap[result.txIndex] = result.result
+		txResultsMap[result.txIndex] = result
 	}
 
 	// Gather Results and store in array based on txIndex to preserve ordering
 	for txIndex := range txs {
-		txResults = append(txResults, txResultsMap[txIndex])
+		chanResult := txResultsMap[txIndex]
+		chanResult.txCtx.MultiStore().CacheMultiStore().Write()
+		txResults = append(txResults, chanResult.result)
 	}
 
 	return txResults

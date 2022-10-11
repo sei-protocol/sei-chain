@@ -32,14 +32,14 @@ func (app *App) CheckTx(ctx context.Context, req *abci.RequestCheckTx) (*abci.Re
 	return app.BaseApp.CheckTx(ctx, req)
 }
 
-func (app *App) DeliverTx(ctx sdk.Context, req abci.RequestDeliverTx) abci.ResponseDeliverTx {
+func (app *App) DeliverTx(ctx sdk.Context, req abci.RequestDeliverTx, isConcurrentRun bool) (sdk.Context, abci.ResponseDeliverTx) {
 	defer metrics.MeasureDeliverTxDuration(time.Now())
 	tracectx, span := (*app.tracingInfo.Tracer).Start(app.tracingInfo.TracerContext, "DeliverTx")
 	oldCtx := app.tracingInfo.TracerContext
 	app.tracingInfo.TracerContext = tracectx
 	defer span.End()
 	defer func() { app.tracingInfo.TracerContext = oldCtx }()
-	return app.BaseApp.DeliverTx(ctx, req)
+	return app.BaseApp.DeliverTxWithContext(ctx, req, isConcurrentRun)
 }
 
 func (app *App) Commit(ctx context.Context) (res *abci.ResponseCommit, err error) {
