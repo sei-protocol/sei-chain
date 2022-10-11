@@ -10,7 +10,7 @@ the name `factory/{creator address}/{subdenom}` in a permissionless fashion.
 Creates a denom of `factory/{creator address}/{subdenom}` given the denom creator
 address and the subdenom. Subdenoms can contain `[a-zA-Z0-9./]`.
 
-```go
+```protobuf
 message MsgCreateDenom {
   string sender = 1 [ (gogoproto.moretags) = "yaml:\"sender\"" ];
   string subdenom = 2 [ (gogoproto.moretags) = "yaml:\"subdenom\"" ];
@@ -22,7 +22,7 @@ message MsgCreateDenom {
 Minting of a specific denom is only allowed for the current admin.
 Note, the current admin is defaulted to the creator of the denom.
 
-```go
+```protobuf
 message MsgMint {
   string sender = 1 [ (gogoproto.moretags) = "yaml:\"sender\"" ];
   cosmos.base.v1beta1.Coin amount = 2 [
@@ -37,7 +37,7 @@ message MsgMint {
 Burning of a specific denom is only allowed for the current admin.
 Note, the current admin is defaulted to the creator of the denom.
 
-```go
+```protobuf
 message MsgBurn {
   string sender = 1 [ (gogoproto.moretags) = "yaml:\"sender\"" ];
   cosmos.base.v1beta1.Coin amount = 2 [
@@ -51,7 +51,7 @@ message MsgBurn {
 
 Change the admin of a denom. Note, this is only allowed to be called by the current admin of the denom.
 
-```go
+```protobuf
 message MsgChangeAdmin {
   string sender = 1 [ (gogoproto.moretags) = "yaml:\"sender\"" ];
   string denom = 2 [ (gogoproto.moretags) = "yaml:\"denom\"" ];
