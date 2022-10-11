@@ -1078,7 +1078,7 @@ func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequ
 	// }
 	// app.batchVerifier.VerifyTxs(ctx, typedTxs)
 
-	dependencyDag, err := app.AccessControlKeeper.BuildDependencyDag(ctx, app.txDecoder, txs)
+	dependencyDag, err := app.AccessControlKeeper.BuildDependencyDag(ctx, app.txDecoder, app.GetAnteDepGenerator(), txs)
 	var txResults []*abci.ExecTxResult
 
 	switch err {
