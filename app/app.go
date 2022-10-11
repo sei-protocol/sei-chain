@@ -1054,7 +1054,7 @@ func (app *App) ProcessBlockConcurrent(
 	// Gather Results and store in array based on txIndex to preserve ordering
 	for txIndex := range txs {
 		chanResult := txResultsMap[txIndex]
-		ctx.Logger().Info("Writing cache for Tx ", txIndex)
+		ctx.Logger().Info("ProcessBlockConcurrent::Writing cache for Tx ", txIndex)
 		chanResult.txCtx.MultiStore().CacheMultiStore().Write()
 		txResults = append(txResults, chanResult.result)
 	}
