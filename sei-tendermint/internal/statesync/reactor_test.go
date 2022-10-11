@@ -150,6 +150,10 @@ func setup(
 		nil,   // post-sync-hook
 		false, // run Sync during Start()
 	)
+	rts.reactor.SetSnapshotChannel(rts.snapshotChannel)
+	rts.reactor.SetChunkChannel(rts.chunkChannel)
+	rts.reactor.SetLightBlockChannel(rts.blockChannel)
+	rts.reactor.SetParamsChannel(rts.paramsChannel)
 
 	rts.syncer = &syncer{
 		logger:        logger,

@@ -101,6 +101,7 @@ func setup(ctx context.Context, t *testing.T, stateStores []sm.Store) *reactorTe
 			func(ctx context.Context) *p2p.PeerUpdates { return pu },
 			rts.pools[nodeID])
 
+		rts.reactors[nodeID].SetChannel(rts.evidenceChannels[nodeID])
 		require.NoError(t, rts.reactors[nodeID].Start(ctx))
 		require.True(t, rts.reactors[nodeID].IsRunning())
 

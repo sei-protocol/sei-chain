@@ -47,6 +47,14 @@ type Block struct {
 	LastCommit *Commit      `json:"last_commit"`
 }
 
+func (b *Block) GetTxKeys() []TxKey {
+	txKeys := make([]TxKey, len(b.Data.Txs))
+	for i := range b.Data.Txs {
+		txKeys[i] = b.Data.Txs[i].Key()
+	}
+	return txKeys
+}
+
 // ValidateBasic performs basic validation that doesn't involve state data.
 // It checks the internal consistency of the block.
 // Further validation is done using state#ValidateBlock.
@@ -317,8 +325,7 @@ func MakeBlock(height int64, txs []Tx, lastCommit *Commit, evidence []Evidence) 
 			Height:  height,
 		},
 		Data: Data{
-			Txs:    txs,
-			TxKeys: txKeys,
+			Txs: txs,
 		},
 		Evidence:   evidence,
 		LastCommit: lastCommit,
@@ -1290,8 +1297,6 @@ type Data struct {
 	// NOTE: not all txs here are valid.  We're just agreeing on the order first.
 	// This means that block.AppHash does not include these txs.
 	Txs Txs `json:"txs"`
-
-	TxKeys []TxKey `json:"tx_keys"`
 
 	// Volatile
 	hash tmbytes.HexBytes

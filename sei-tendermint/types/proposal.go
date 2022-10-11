@@ -191,6 +191,7 @@ func (p *Proposal) ToProto() *tmproto.Proposal {
 	}
 	pb.Evidence = eviD
 	pb.Header = *p.Header.ToProto()
+	pb.ProposerAddress = p.ProposerAddress
 
 	return pb
 }
@@ -231,6 +232,7 @@ func ProposalFromProto(pp *tmproto.Proposal) (*Proposal, error) {
 	eviD := new(EvidenceList)
 	eviD.FromProto(pp.Evidence)
 	p.Evidence = *eviD
+	p.ProposerAddress = pp.ProposerAddress
 
 	return p, p.ValidateBasic()
 }

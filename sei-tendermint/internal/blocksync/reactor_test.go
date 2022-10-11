@@ -2,6 +2,7 @@ package blocksync
 
 import (
 	"context"
+	"github.com/tendermint/tendermint/internal/mempool"
 	"os"
 	"testing"
 	"time"
@@ -75,6 +76,7 @@ func setup(
 	i := 0
 	for nodeID := range rts.network.Nodes {
 		rts.addNode(ctx, t, nodeID, genDoc, privVal, maxBlockHeights[i])
+		rts.reactors[nodeID].SetChannel(rts.blockSyncChannels[nodeID])
 		i++
 	}
 
@@ -128,6 +130,7 @@ func makeReactor(
 		mock.Anything,
 		mock.Anything,
 		mock.Anything).Return(nil)
+	mp.On("TxStore").Return(&mempool.TxStore{})
 
 	eventbus := eventbus.NewDefault(logger)
 	require.NoError(t, eventbus.Start(ctx))
@@ -183,6 +186,7 @@ func (rts *reactorTestSuite) addNode(
 	peerEvents := func(ctx context.Context) *p2p.PeerUpdates { return rts.peerUpdates[nodeID] }
 	reactor := makeReactor(ctx, t, nodeID, genDoc, privVal, chCreator, peerEvents)
 
+	reactor.SetChannel(rts.blockSyncChannels[nodeID])
 	lastExtCommit := &types.ExtendedCommit{}
 
 	state, err := reactor.stateStore.Load()

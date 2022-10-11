@@ -19,10 +19,6 @@ type Mempool struct {
 	mock.Mock
 }
 
-func (_m *Mempool) TxStore() *mempool.TxStore {
-	return nil
-}
-
 // CheckTx provides a mock function with given fields: ctx, tx, callback, txInfo
 func (_m *Mempool) CheckTx(ctx context.Context, tx types.Tx, callback func(*abcitypes.ResponseCheckTx), txInfo mempool.TxInfo) error {
 	ret := _m.Called(ctx, tx, callback, txInfo)
@@ -56,6 +52,36 @@ func (_m *Mempool) FlushAppConn(_a0 context.Context) error {
 		r0 = rf(_a0)
 	} else {
 		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// GetTxsForKeys provides a mock function with given fields: txKeys
+func (_m *Mempool) GetTxsForKeys(txKeys []types.TxKey) types.Txs {
+	ret := _m.Called(txKeys)
+
+	var r0 types.Txs
+	if rf, ok := ret.Get(0).(func([]types.TxKey) types.Txs); ok {
+		r0 = rf(txKeys)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(types.Txs)
+		}
+	}
+
+	return r0
+}
+
+// HasTx provides a mock function with given fields: txKey
+func (_m *Mempool) HasTx(txKey types.TxKey) bool {
+	ret := _m.Called(txKey)
+
+	var r0 bool
+	if rf, ok := ret.Get(0).(func(types.TxKey) bool); ok {
+		r0 = rf(txKey)
+	} else {
+		r0 = ret.Get(0).(bool)
 	}
 
 	return r0
@@ -140,6 +166,22 @@ func (_m *Mempool) SizeBytes() int64 {
 	return r0
 }
 
+// TxStore provides a mock function with given fields:
+func (_m *Mempool) TxStore() *mempool.TxStore {
+	ret := _m.Called()
+
+	var r0 *mempool.TxStore
+	if rf, ok := ret.Get(0).(func() *mempool.TxStore); ok {
+		r0 = rf()
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*mempool.TxStore)
+		}
+	}
+
+	return r0
+}
+
 // TxsAvailable provides a mock function with given fields:
 func (_m *Mempool) TxsAvailable() <-chan struct{} {
 	ret := _m.Called()
@@ -175,13 +217,13 @@ func (_m *Mempool) Update(ctx context.Context, blockHeight int64, blockTxs types
 	return r0
 }
 
-type NewMempoolT interface {
+type mockConstructorTestingTNewMempool interface {
 	mock.TestingT
 	Cleanup(func())
 }
 
 // NewMempool creates a new instance of Mempool. It also registers a testing interface on the mock and a cleanup function to assert the mocks expectations.
-func NewMempool(t NewMempoolT) *Mempool {
+func NewMempool(t mockConstructorTestingTNewMempool) *Mempool {
 	mock := &Mempool{}
 	mock.Mock.Test(t)
 

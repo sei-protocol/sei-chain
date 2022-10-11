@@ -182,6 +182,7 @@ message Proposal {
   EvidenceList evidence = 9;
   Commit last_commit = 10;
   Header header     = 11 [(gogoproto.nullable) = false];
+  bytes proposer_address = 12;
 }
 
 message SignedHeader {

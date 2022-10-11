@@ -41,6 +41,7 @@ func TestReactorInvalidPrecommit(t *testing.T) {
 
 	for _, reactor := range rts.reactors {
 		state := reactor.state.GetState()
+		reactor.StopWaitSync()
 		reactor.SwitchToConsensus(ctx, state, false)
 	}
 

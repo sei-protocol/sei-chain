@@ -161,7 +161,7 @@ func (blockExec *BlockExecutor) ProcessProposal(
 		ByzantineValidators: block.Evidence.ToABCI(),
 		ProposerAddress:     block.ProposerAddress,
 		NextValidatorsHash:  block.NextValidatorsHash,
-		SigsVerified:        blockExec.getSigsVerified(txs),
+		SigsVerified:        blockExec.GetSigsVerified(txs),
 	})
 	if err != nil {
 		return false, ErrInvalidBlock(err)
@@ -234,7 +234,7 @@ func (blockExec *BlockExecutor) ApplyBlock(
 			ByzantineValidators: block.Evidence.ToABCI(),
 			ProposerAddress:     block.ProposerAddress,
 			NextValidatorsHash:  block.NextValidatorsHash,
-			SigsVerified:        blockExec.getSigsVerified(txs),
+			SigsVerified:        blockExec.GetSigsVerified(txs),
 		},
 	)
 	endTime := time.Now().UnixNano()
@@ -783,7 +783,7 @@ func (blockExec *BlockExecutor) pruneBlocks(retainHeight int64) (uint64, error) 
 	return pruned, nil
 }
 
-func (blockExec *BlockExecutor) getSigsVerified(txs [][]byte) []bool {
+func (blockExec *BlockExecutor) GetSigsVerified(txs [][]byte) []bool {
 	sigsVerified := make([]bool, len(txs))
 	txStore := blockExec.mempool.TxStore()
 	for i, tx := range txs {

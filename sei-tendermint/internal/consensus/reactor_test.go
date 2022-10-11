@@ -99,6 +99,11 @@ func setup(
 			NopMetrics(),
 		)
 
+		reactor.SetStateChannel(rts.stateChannels[nodeID])
+		reactor.SetDataChannel(rts.dataChannels[nodeID])
+		reactor.SetVoteChannel(rts.voteChannels[nodeID])
+		reactor.SetVoteSetChannel(rts.voteSetBitsChannels[nodeID])
+
 		blocksSub, err := state.eventBus.SubscribeWithArgs(ctx, tmpubsub.SubscribeArgs{
 			ClientID: testSubscriber,
 			Query:    types.EventQueryNewBlock,
@@ -349,6 +354,7 @@ func TestReactorBasic(t *testing.T) {
 
 	for _, reactor := range rts.reactors {
 		state := reactor.state.GetState()
+		reactor.StopWaitSync()
 		reactor.SwitchToConsensus(ctx, state, false)
 	}
 
@@ -482,8 +488,7 @@ func TestReactorWithEvidence(t *testing.T) {
 		evpool.On("CheckEvidence", ctx, mock.AnythingOfType("types.EvidenceList")).Return(nil)
 		evpool.On("PendingEvidence", mock.AnythingOfType("int64")).Return([]types.Evidence{
 			ev}, int64(len(ev.Bytes())))
-		evpool.On("Update", ctx, mock.AnythingOfType("state.State"), mock.AnythingOfType("types.EvidenceList")).Return()
-
+		evpool.On("Update", mock.MatchedBy(func(ctx context.Context) bool { return true }), mock.AnythingOfType("state.State"), mock.AnythingOfType("types.EvidenceList")).Return()
 		evpool2 := sm.EmptyEvidencePool{}
 
 		eventBus := eventbus.NewDefault(log.NewNopLogger().With("module", "events"))
@@ -505,6 +510,7 @@ func TestReactorWithEvidence(t *testing.T) {
 
 	for _, reactor := range rts.reactors {
 		state := reactor.state.GetState()
+		reactor.StopWaitSync()
 		reactor.SwitchToConsensus(ctx, state, false)
 	}
 
@@ -549,10 +555,11 @@ func TestReactorCreatesBlockWhenEmptyBlocksFalse(t *testing.T) {
 	)
 	t.Cleanup(cleanup)
 
-	rts := setup(ctx, t, n, states, 100) // buffer must be large enough to not deadlock
+	rts := setup(ctx, t, n, states, 1048576) // buffer must be large enough to not deadlock
 
 	for _, reactor := range rts.reactors {
 		state := reactor.state.GetState()
+		reactor.StopWaitSync()
 		reactor.SwitchToConsensus(ctx, state, false)
 	}
 
@@ -686,9 +693,11 @@ func TestSwitchToConsensusVoteExtensions(t *testing.T) {
 
 			if testCase.shouldPanic {
 				assert.Panics(t, func() {
+					reactor.StopWaitSync()
 					reactor.SwitchToConsensus(ctx, cs.state, false)
 				})
 			} else {
+				reactor.StopWaitSync()
 				reactor.SwitchToConsensus(ctx, cs.state, false)
 			}
 		})
@@ -711,6 +720,7 @@ func TestReactorRecordsVotesAndBlockParts(t *testing.T) {
 
 	for _, reactor := range rts.reactors {
 		state := reactor.state.GetState()
+		reactor.StopWaitSync()
 		reactor.SwitchToConsensus(ctx, state, false)
 	}
 
@@ -777,10 +787,11 @@ func TestReactorVotingPowerChange(t *testing.T) {
 
 	t.Cleanup(cleanup)
 
-	rts := setup(ctx, t, n, states, 100) // buffer must be large enough to not deadlock
+	rts := setup(ctx, t, n, states, 1048576) // buffer must be large enough to not deadlock
 
 	for _, reactor := range rts.reactors {
 		state := reactor.state.GetState()
+		reactor.StopWaitSync()
 		reactor.SwitchToConsensus(ctx, state, false)
 	}
 
@@ -890,6 +901,7 @@ func TestReactorValidatorSetChanges(t *testing.T) {
 
 	for _, reactor := range rts.reactors {
 		state := reactor.state.GetState()
+		reactor.StopWaitSync()
 		reactor.SwitchToConsensus(ctx, state, false)
 	}
 

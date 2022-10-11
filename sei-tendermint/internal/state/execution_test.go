@@ -66,6 +66,7 @@ func TestApplyBlock(t *testing.T) {
 		mock.Anything,
 		mock.Anything,
 		mock.Anything).Return(nil)
+	mp.On("TxStore").Return(nil)
 	blockExec := sm.NewBlockExecutor(stateStore, logger, proxyApp, mp, sm.EmptyEvidencePool{}, blockStore, eventBus, sm.NopMetrics())
 
 	block := sf.MakeBlock(state, 1, new(types.Commit))
@@ -128,6 +129,7 @@ func TestFinalizeBlockDecidedLastCommit(t *testing.T) {
 				mock.Anything,
 				mock.Anything,
 				mock.Anything).Return(nil)
+			mp.On("TxStore").Return(nil)
 
 			eventBus := eventbus.NewDefault(logger)
 			require.NoError(t, eventBus.Start(ctx))
@@ -254,6 +256,7 @@ func TestFinalizeBlockByzantineValidators(t *testing.T) {
 		mock.Anything,
 		mock.Anything,
 		mock.Anything).Return(nil)
+	mp.On("TxStore").Return(nil)
 
 	eventBus := eventbus.NewDefault(logger)
 	require.NoError(t, eventBus.Start(ctx))
@@ -297,11 +300,13 @@ func TestProcessProposal(t *testing.T) {
 	eventBus := eventbus.NewDefault(logger)
 	require.NoError(t, eventBus.Start(ctx))
 
+	mp := &mpmocks.Mempool{}
+	mp.On("TxStore").Return(nil)
 	blockExec := sm.NewBlockExecutor(
 		stateStore,
 		logger,
 		proxyApp,
-		new(mpmocks.Mempool),
+		mp,
 		sm.EmptyEvidencePool{},
 		blockStore,
 		eventBus,
@@ -349,6 +354,7 @@ func TestProcessProposal(t *testing.T) {
 		},
 		NextValidatorsHash: block1.NextValidatorsHash,
 		ProposerAddress:    block1.ProposerAddress,
+		SigsVerified:       blockExec.GetSigsVerified(block1.Txs.ToSliceOfBytes()),
 	}
 
 	app.On("ProcessProposal", mock.Anything, mock.Anything).Return(&abci.ResponseProcessProposal{Status: abci.ResponseProcessProposal_ACCEPT}, nil)
@@ -517,6 +523,7 @@ func TestFinalizeBlockValidatorUpdates(t *testing.T) {
 		mock.Anything,
 		mock.Anything).Return(nil)
 	mp.On("ReapMaxBytesMaxGas", mock.Anything, mock.Anything).Return(types.Txs{})
+	mp.On("TxStore").Return(nil)
 
 	eventBus := eventbus.NewDefault(logger)
 	require.NoError(t, eventBus.Start(ctx))
@@ -592,11 +599,13 @@ func TestFinalizeBlockValidatorUpdatesResultingInEmptySet(t *testing.T) {
 	state, stateDB, _ := makeState(t, 1, 1)
 	stateStore := sm.NewStore(stateDB)
 	blockStore := store.NewBlockStore(dbm.NewMemDB())
+	mp := &mpmocks.Mempool{}
+	mp.On("TxStore").Return(nil)
 	blockExec := sm.NewBlockExecutor(
 		stateStore,
 		log.NewNopLogger(),
 		proxyApp,
-		new(mpmocks.Mempool),
+		mp,
 		sm.EmptyEvidencePool{},
 		blockStore,
 		eventBus,
@@ -652,6 +661,7 @@ func TestEmptyPrepareProposal(t *testing.T) {
 		mock.Anything,
 		mock.Anything).Return(nil)
 	mp.On("ReapMaxBytesMaxGas", mock.Anything, mock.Anything).Return(types.Txs{})
+	mp.On("TxStore").Return(nil)
 
 	blockExec := sm.NewBlockExecutor(
 		stateStore,

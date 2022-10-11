@@ -300,6 +300,7 @@ func setupSingle(ctx context.Context, t *testing.T) *singleTestReactor {
 	require.NoError(t, err)
 
 	reactor := pex.NewReactor(log.NewNopLogger(), peerManager, func(_ context.Context) *p2p.PeerUpdates { return peerUpdates })
+	reactor.SetChannel(pexCh)
 
 	require.NoError(t, reactor.Start(ctx))
 	t.Cleanup(reactor.Wait)
@@ -393,6 +394,7 @@ func setupNetwork(ctx context.Context, t *testing.T, opts testOptions) *reactorT
 				rts.network.Nodes[nodeID].PeerManager,
 				func(_ context.Context) *p2p.PeerUpdates { return rts.peerUpdates[nodeID] },
 			)
+			rts.reactors[nodeID].SetChannel(rts.pexChannels[nodeID])
 		}
 		rts.nodes = append(rts.nodes, nodeID)
 

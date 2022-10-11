@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/hex"
 	"fmt"
+	"github.com/tendermint/tendermint/version"
 	"math"
 	"testing"
 	"time"
@@ -54,18 +55,31 @@ func TestMsgToProto(t *testing.T) {
 	pbParts, err := parts.ToProto()
 	require.NoError(t, err)
 
+	pv := types.NewMockPV()
+	pubKey, err := pv.GetPubKey(ctx)
+	require.NoError(t, err)
+
+	header := types.Header{
+		Height:          1,
+		ProposerAddress: pubKey.Address(),
+	}
+	header.Version.Block = version.BlockProtocol
+
 	proposal := types.Proposal{
-		Type:      tmproto.ProposalType,
-		Height:    1,
-		Round:     1,
-		POLRound:  1,
-		BlockID:   bi,
-		Timestamp: time.Now(),
-		Signature: tmrand.Bytes(20),
+		Type:            tmproto.ProposalType,
+		Height:          1,
+		Round:           1,
+		POLRound:        1,
+		BlockID:         bi,
+		Timestamp:       time.Now(),
+		Signature:       tmrand.Bytes(20),
+		Header:          header,
+		Evidence:        types.EvidenceList{},
+		LastCommit:      &types.Commit{Signatures: []types.CommitSig{}},
+		ProposerAddress: pubKey.Address(),
 	}
 	pbProposal := proposal.ToProto()
 
-	pv := types.NewMockPV()
 	vote, err := factory.MakeVote(ctx, pv, factory.DefaultTestChainID,
 		0, 1, 0, 2, bi, time.Now())
 	require.NoError(t, err)
@@ -393,7 +407,7 @@ func TestConsMsgsVectors(t *testing.T) {
 				Height: 1, Round: 1, BlockPartSetHeader: pbPsh, BlockParts: pbBits, IsCommit: false}}},
 			"1231080110011a24080112206164645f6d6f72655f6578636c616d6174696f6e5f6d61726b735f636f64652d22050801120100"},
 		{"Proposal", &tmcons.Message{Sum: &tmcons.Message_Proposal{Proposal: &tmcons.Proposal{Proposal: *pbProposal}}},
-			"1a720a7008201001180120012a480a206164645f6d6f72655f6578636c616d6174696f6e5f6d61726b735f636f64652d1224080112206164645f6d6f72655f6578636c616d6174696f6e5f6d61726b735f636f64652d320608c0b89fdc053a146164645f6d6f72655f6578636c616d6174696f6e"},
+			"1a8a010a870108201001180120012a480a206164645f6d6f72655f6578636c616d6174696f6e5f6d61726b735f636f64652d1224080112206164645f6d6f72655f6578636c616d6174696f6e5f6d61726b735f636f64652d320608c0b89fdc053a146164645f6d6f72655f6578636c616d6174696f6e4a005a130a00220b088092b8c398feffffff012a021200"},
 		{"ProposalPol", &tmcons.Message{Sum: &tmcons.Message_ProposalPol{
 			ProposalPol: &tmcons.ProposalPOL{Height: 1, ProposalPolRound: 1}}},
 			"2206080110011a00"},
@@ -609,7 +623,7 @@ func TestNewValidBlockMessageValidateBasic(t *testing.T) {
 		},
 		{
 			func(msg *NewValidBlockMessage) { msg.BlockParts = bits.NewBitArray(int(types.MaxBlockPartsCount) + 1) },
-			"blockParts bit array size 1602 not equal to BlockPartSetHeader.Total 1",
+			"blockParts bit array size 102 not equal to BlockPartSetHeader.Total 1",
 		},
 	}
 

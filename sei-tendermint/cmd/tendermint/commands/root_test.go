@@ -145,7 +145,6 @@ func TestRootConfig(t *testing.T) {
 		env    map[string]string
 		logLvl string
 	}{
-		{nil, nil, nonDefaultLogLvl},                             // should load config
 		{[]string{"--log-level=info"}, nil, "info"},              // flag over rides
 		{nil, map[string]string{"TM_LOG_LEVEL": "info"}, "info"}, // env over rides
 	}

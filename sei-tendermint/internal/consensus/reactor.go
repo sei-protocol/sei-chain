@@ -248,6 +248,12 @@ func (r *Reactor) WaitSync() bool {
 	return r.waitSync
 }
 
+func (r *Reactor) StopWaitSync() {
+	r.mtx.Lock()
+	r.waitSync = false
+	r.mtx.Unlock()
+}
+
 // SwitchToConsensus switches from block-sync mode to consensus mode. It resets
 // the state, turns off block-sync, and starts the consensus state-machine.
 func (r *Reactor) SwitchToConsensus(ctx context.Context, state sm.State, skipWAL bool) {

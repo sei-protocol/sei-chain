@@ -2,6 +2,7 @@ package types
 
 import (
 	"context"
+	"github.com/tendermint/tendermint/version"
 	"math"
 	"testing"
 	"time"
@@ -17,6 +18,27 @@ import (
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 )
 
+func generateHeader() Header {
+	return Header{
+		Version: version.Consensus{Block: version.BlockProtocol},
+		ChainID: string(make([]byte, MaxChainIDLen)),
+		Height:  1,
+		LastBlockID: BlockID{
+			Hash: make([]byte, crypto.HashSize),
+			PartSetHeader: PartSetHeader{
+				Hash: make([]byte, crypto.HashSize),
+			},
+		},
+		LastCommitHash:     make([]byte, crypto.HashSize),
+		DataHash:           make([]byte, crypto.HashSize),
+		EvidenceHash:       make([]byte, crypto.HashSize),
+		ProposerAddress:    make([]byte, crypto.AddressSize),
+		ValidatorsHash:     make([]byte, crypto.HashSize),
+		NextValidatorsHash: make([]byte, crypto.HashSize),
+		ConsensusHash:      make([]byte, crypto.HashSize),
+		LastResultsHash:    make([]byte, crypto.HashSize),
+	}
+}
 func getTestProposal(t testing.TB) *Proposal {
 	t.Helper()
 
@@ -59,9 +81,10 @@ func TestProposalVerifySignature(t *testing.T) {
 	pubKey, err := privVal.GetPubKey(ctx)
 	require.NoError(t, err)
 
+	txKeys := make([]TxKey, 0)
 	prop := NewProposal(
 		4, 2, 2,
-		BlockID{tmrand.Bytes(crypto.HashSize), PartSetHeader{777, tmrand.Bytes(crypto.HashSize)}}, tmtime.Now())
+		BlockID{tmrand.Bytes(crypto.HashSize), PartSetHeader{777, tmrand.Bytes(crypto.HashSize)}}, tmtime.Now(), txKeys, generateHeader(), &Commit{}, EvidenceList{}, pubKey.Address())
 	p := prop.ToProto()
 	signBytes := ProposalSignBytes("test_chain_id", p)
 
@@ -171,11 +194,15 @@ func TestProposalValidateBasic(t *testing.T) {
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 
+			txKeys := make([]TxKey, 0)
+			pubKey, err := privVal.GetPubKey(ctx)
+			require.NoError(t, err)
 			prop := NewProposal(
 				4, 2, 2,
-				blockID, tmtime.Now())
+				blockID, tmtime.Now(), txKeys,
+				generateHeader(), &Commit{}, EvidenceList{}, pubKey.Address())
 			p := prop.ToProto()
-			err := privVal.SignProposal(ctx, "test_chain_id", p)
+			err = privVal.SignProposal(ctx, "test_chain_id", p)
 			prop.Signature = p.Signature
 			require.NoError(t, err)
 			tc.malleateProposal(prop)
@@ -185,9 +212,10 @@ func TestProposalValidateBasic(t *testing.T) {
 }
 
 func TestProposalProtoBuf(t *testing.T) {
-	proposal := NewProposal(1, 2, 3, makeBlockID([]byte("hash"), 2, []byte("part_set_hash")), tmtime.Now())
+	var txKeys []TxKey
+	proposal := NewProposal(1, 2, 3, makeBlockID([]byte("hash"), 2, []byte("part_set_hash")), tmtime.Now(), txKeys, generateHeader(), &Commit{Signatures: []CommitSig{}}, EvidenceList{}, crypto.Address("testaddr"))
 	proposal.Signature = []byte("sig")
-	proposal2 := NewProposal(1, 2, 3, BlockID{}, tmtime.Now())
+	proposal2 := NewProposal(1, 2, 3, BlockID{}, tmtime.Now(), txKeys, generateHeader(), &Commit{Signatures: []CommitSig{}}, EvidenceList{}, crypto.Address("testaddr"))
 
 	testCases := []struct {
 		msg     string
