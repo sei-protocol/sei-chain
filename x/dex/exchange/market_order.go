@@ -1,6 +1,8 @@
 package exchange
 
 import (
+	"math"
+
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
 )
@@ -12,19 +14,20 @@ func MatchMarketOrders(
 	direction types.PositionDirection,
 ) ExecutionOutcome {
 	totalExecuted, totalPrice := sdk.ZeroDec(), sdk.ZeroDec()
+	minPrice, maxPrice := sdk.NewDecFromInt(sdk.NewIntFromUint64(math.MaxInt64)), sdk.OneDec().Neg()
 	settlements := []*types.SettlementEntry{}
 	allTakerSettlements := []*types.SettlementEntry{}
 	for _, marketOrder := range marketOrders {
 		switch marketOrder.OrderType {
 		case types.OrderType_FOKMARKETBYVALUE:
 			settlements, allTakerSettlements = MatchByValueFOKMarketOrder(
-				ctx, marketOrder, orderBookEntries, direction, &totalExecuted, &totalPrice, settlements, allTakerSettlements)
+				ctx, marketOrder, orderBookEntries, direction, &totalExecuted, &totalPrice, &minPrice, &maxPrice, settlements, allTakerSettlements)
 		case types.OrderType_FOKMARKET:
 			settlements, allTakerSettlements = MatchFOKMarketOrder(
-				ctx, marketOrder, orderBookEntries, direction, &totalExecuted, &totalPrice, settlements, allTakerSettlements)
+				ctx, marketOrder, orderBookEntries, direction, &totalExecuted, &totalPrice, &minPrice, &maxPrice, settlements, allTakerSettlements)
 		default:
 			settlements, allTakerSettlements = MatchMarketOrder(
-				ctx, marketOrder, orderBookEntries, direction, &totalExecuted, &totalPrice, settlements, allTakerSettlements)
+				ctx, marketOrder, orderBookEntries, direction, &totalExecuted, &totalPrice, &minPrice, &maxPrice, settlements, allTakerSettlements)
 		}
 	}
 
@@ -39,6 +42,8 @@ func MatchMarketOrders(
 		TotalNotional: totalPrice,
 		TotalQuantity: totalExecuted,
 		Settlements:   settlements,
+		MinPrice:      minPrice,
+		MaxPrice:      maxPrice,
 	}
 }
 
@@ -49,6 +54,8 @@ func MatchMarketOrder(
 	direction types.PositionDirection,
 	totalExecuted *sdk.Dec,
 	totalPrice *sdk.Dec,
+	minPrice *sdk.Dec,
+	maxPrice *sdk.Dec,
 	settlements []*types.SettlementEntry,
 	allTakerSettlements []*types.SettlementEntry,
 ) ([]*types.SettlementEntry, []*types.SettlementEntry) {
@@ -84,6 +91,8 @@ func MatchMarketOrder(
 		*totalPrice = totalPrice.Add(
 			executed.Mul(existingOrder.GetPrice()),
 		)
+		*minPrice = sdk.MinDec(*minPrice, existingOrder.GetPrice())
+		*maxPrice = sdk.MaxDec(*maxPrice, existingOrder.GetPrice())
 		orderBookEntries.AddDirtyEntry(existingOrder)
 
 		takerSettlements, makerSettlements := Settle(
@@ -111,6 +120,8 @@ func MatchFOKMarketOrder(
 	direction types.PositionDirection,
 	totalExecuted *sdk.Dec,
 	totalPrice *sdk.Dec,
+	minPrice *sdk.Dec,
+	maxPrice *sdk.Dec,
 	settlements []*types.SettlementEntry,
 	allTakerSettlements []*types.SettlementEntry,
 ) ([]*types.SettlementEntry, []*types.SettlementEntry) {
@@ -159,6 +170,8 @@ func MatchFOKMarketOrder(
 			*totalPrice = totalPrice.Add(
 				executed.Mul(existingOrder.GetPrice()),
 			)
+			*minPrice = sdk.MinDec(*minPrice, existingOrder.GetPrice())
+			*maxPrice = sdk.MaxDec(*maxPrice, existingOrder.GetPrice())
 			orderBookEntries.AddDirtyEntry(existingOrder)
 
 			takerSettlements, makerSettlements := Settle(
@@ -183,6 +196,8 @@ func MatchByValueFOKMarketOrder(
 	direction types.PositionDirection,
 	totalExecuted *sdk.Dec,
 	totalPrice *sdk.Dec,
+	minPrice *sdk.Dec,
+	maxPrice *sdk.Dec,
 	settlements []*types.SettlementEntry,
 	allTakerSettlements []*types.SettlementEntry,
 ) ([]*types.SettlementEntry, []*types.SettlementEntry) {
@@ -237,6 +252,8 @@ func MatchByValueFOKMarketOrder(
 			*totalPrice = totalPrice.Add(
 				executed.Mul(existingOrder.GetPrice()),
 			)
+			*minPrice = sdk.MinDec(*minPrice, existingOrder.GetPrice())
+			*maxPrice = sdk.MaxDec(*maxPrice, existingOrder.GetPrice())
 			orderBookEntries.AddDirtyEntry(existingOrder)
 
 			takerSettlements, makerSettlements := Settle(
