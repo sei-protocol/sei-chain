@@ -46,12 +46,12 @@ func (tx FakeTx) ValidateBasic() error {
 
 func TestGaslessDecorator(t *testing.T) {
 	output = ""
-	anteDecorators := []sdk.AnteDecorator{
-		FakeAnteDecoratorOne{},
-		antedecorators.NewGaslessDecorator([]sdk.AnteDecorator{FakeAnteDecoratorTwo{}}, oraclekeeper.Keeper{}, nitrokeeper.Keeper{}),
-		FakeAnteDecoratorThree{},
+	anteDecorators := []sdk.AnteFullDecorator{
+		sdk.DefaultWrappedAnteDecorator(FakeAnteDecoratorOne{}),
+		sdk.DefaultWrappedAnteDecorator(antedecorators.NewGaslessDecorator([]sdk.AnteDecorator{FakeAnteDecoratorTwo{}}, oraclekeeper.Keeper{}, nitrokeeper.Keeper{})),
+		sdk.DefaultWrappedAnteDecorator(FakeAnteDecoratorThree{}),
 	}
-	chainedHandler := sdk.ChainAnteDecorators(anteDecorators...)
+	chainedHandler, _ := sdk.ChainAnteDecorators(anteDecorators...)
 	chainedHandler(sdk.Context{}, FakeTx{}, false)
 	require.Equal(t, "onetwothree", output)
 }
