@@ -81,8 +81,6 @@ func (o *BlockOrders) GetLimitOrders(direction types.PositionDirection) []*types
 func (o *BlockOrders) GetTriggeredOrders() []*types.Order {
 	o.mu.Lock()
 	defer o.mu.Unlock()
-	// TODO: abstract the getOrdersByCriteria
-	// might be worth to get all directions too
 	return o.getOrdersByCriteriaMap(
 		map[types.OrderType]bool{
 			types.OrderType_STOPLOSS:  true,

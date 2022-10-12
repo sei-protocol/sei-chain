@@ -36,6 +36,7 @@ func MatchMarketOrders(
 		for _, settlement := range allTakerSettlements {
 			settlement.ExecutionCostOrProceed = clearingPrice
 		}
+		minPrice, maxPrice = clearingPrice, clearingPrice
 		settlements = append(settlements, allTakerSettlements...)
 	}
 	return ExecutionOutcome{

@@ -68,7 +68,7 @@ func ExecutePair(
 	// Fill limit orders
 	limitOrderOutcome := exchange.MatchLimitOrders(ctx, orderbook)
 	totalOutcome := marketOrderOutcome.Merge(&limitOrderOutcome)
-	updateTriggeredOrderForPair(ctx, typedContractAddr, typedPairStr, dexkeeper, totalOutcome)
+	UpdateTriggeredOrderForPair(ctx, typedContractAddr, typedPairStr, dexkeeper, totalOutcome)
 
 	dexkeeperutils.SetPriceStateFromExecutionOutcome(ctx, dexkeeper, typedContractAddr, pair, totalOutcome)
 	dexkeeperutils.FlushOrderbook(ctx, dexkeeper, typedContractAddr, orderbook)
@@ -113,7 +113,7 @@ func matchMarketOrderForPair(
 }
 
 
-func moveTriggeredOrderForPair(
+func MoveTriggeredOrderForPair(
 	ctx sdk.Context,
 	typedContractAddr dextypesutils.ContractAddress,
 	typedPairStr dextypesutils.PairString,
@@ -124,9 +124,9 @@ func moveTriggeredOrderForPair(
 	for i, order := range triggeredOrders {
 		if order.TriggerStatus {
 			if order.OrderType == types.OrderType_STOPLOSS {
-				order.OrderType = types.OrderType_MARKET
+				triggeredOrders[i].OrderType = types.OrderType_MARKET
 			} else if order.OrderType == types.OrderType_STOPLIMIT {
-				order.OrderType = types.OrderType_LIMIT
+				triggeredOrders[i].OrderType = types.OrderType_LIMIT
 			}
 			dexkeeper.MemState.GetBlockOrders(ctx, typedContractAddr, typedPairStr).Add(&triggeredOrders[i])
 			dexkeeper.RemoveTriggerBookOrder(ctx, string(typedContractAddr), order.Id, priceDenom, assetDenom)
@@ -134,38 +134,36 @@ func moveTriggeredOrderForPair(
 	}
 }
 
-func updateTriggeredOrderForPair(
+func UpdateTriggeredOrderForPair(
 	ctx sdk.Context,
 	typedContractAddr dextypesutils.ContractAddress,
 	typedPairStr dextypesutils.PairString,
 	dexkeeper *keeper.Keeper,
 	totalOutcome exchange.ExecutionOutcome,
 ) {
-	orders := dexkeeper.MemState.GetBlockOrders(ctx, typedContractAddr, typedPairStr)
-	triggeredOrders := orders.GetTriggeredOrders()
-
 	// update existing trigger orders
 	priceDenom, assetDenom := dextypesutils.GetPriceAssetString(typedPairStr)
-	for _, order := range dexkeeper.GetAllTriggerBookOrdersForPair(ctx, string(typedContractAddr), priceDenom, assetDenom) {
-		if (order.PositionDirection == types.PositionDirection_LONG && order.TriggerPrice.LTE(totalOutcome.MaxPrice)) ||
-			order.PositionDirection == types.PositionDirection_SHORT && order.TriggerPrice.GTE(totalOutcome.MinPrice) {
-			order.TriggerStatus = true
-			dexkeeper.SetTriggerBookOrder(ctx, order.ContractAddr, order, order.PriceDenom, order.AssetDenom)
-		}
-	}
-
-	for _, order := range triggeredOrders {
+	triggeredOrders := dexkeeper.GetAllTriggerBookOrdersForPair(ctx, string(typedContractAddr), priceDenom, assetDenom)
+	for i, order := range triggeredOrders {
 		if order.PositionDirection == types.PositionDirection_LONG && order.TriggerPrice.LTE(totalOutcome.MaxPrice) {
-			// trigger order to close short position - buy back
-			order.TriggerStatus = true
+			triggeredOrders[i].TriggerStatus = true
+			dexkeeper.SetTriggerBookOrder(ctx, string(typedContractAddr), triggeredOrders[i], priceDenom, assetDenom)
 		} else if order.PositionDirection == types.PositionDirection_SHORT && order.TriggerPrice.GTE(totalOutcome.MinPrice) {
-			// trigger order to close long position - sell back
-			order.TriggerStatus = true
+			triggeredOrders[i].TriggerStatus = true
+			dexkeeper.SetTriggerBookOrder(ctx, string(typedContractAddr), triggeredOrders[i], priceDenom, assetDenom)
 		}
 	}
 
-	for _, order := range triggeredOrders {
-		dexkeeper.SetTriggerBookOrder(ctx, order.ContractAddr, *order, order.PriceDenom, order.AssetDenom)
+	// update triggered orders in cache
+	orders := dexkeeper.MemState.GetBlockOrders(ctx, typedContractAddr, typedPairStr)
+	cacheTriggeredOrders := orders.GetTriggeredOrders()
+	for i, order := range cacheTriggeredOrders {
+		if order.PositionDirection == types.PositionDirection_LONG && order.TriggerPrice.LTE(totalOutcome.MaxPrice) {
+			cacheTriggeredOrders[i].TriggerStatus = true
+		} else if order.PositionDirection == types.PositionDirection_SHORT && order.TriggerPrice.GTE(totalOutcome.MinPrice) {
+			cacheTriggeredOrders[i].TriggerStatus = true
+		}
+		dexkeeper.SetTriggerBookOrder(ctx, string(typedContractAddr), *cacheTriggeredOrders[i], priceDenom, assetDenom)
 	}
 }
 
@@ -226,7 +224,7 @@ func ExecutePairsInParallel(ctx sdk.Context, contractAddr string, dexkeeper *kee
 
 			pairCopy := pair
 			pairStr := dextypesutils.GetPairString(&pairCopy)
-			moveTriggeredOrderForPair(ctx, typedContractAddr, pairStr, dexkeeper)
+			MoveTriggeredOrderForPair(ctx, typedContractAddr, pairStr, dexkeeper)
 			orderbook, found := orderBooks.Load(pairStr)
 			if !found {
 				panic(fmt.Sprintf("Orderbook not found for %s", pairStr))
