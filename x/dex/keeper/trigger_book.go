@@ -45,6 +45,21 @@ func (k Keeper) GetAllTriggeredOrdersForPair(ctx sdk.Context, contractAddr strin
 	return
 }
 
+func (k Keeper) GetAllTriggeredOrders(ctx sdk.Context, contractAddr string) (list []types.Order) {
+	store := prefix.NewStore(ctx.KVStore(k.storeKey), types.ContractKeyPrefix(types.TriggerBookKey, contractAddr))
+	iterator := sdk.KVStorePrefixIterator(store, []byte{})
+
+	defer iterator.Close()
+
+	for ; iterator.Valid(); iterator.Next() {
+		var val types.Order
+		k.Cdc.MustUnmarshal(iterator.Value(), &val)
+		list = append(list, val)
+	}
+
+	return
+}
+
 func GetKeyForOrderID(orderID uint64) []byte {
 	key := make([]byte, 8)
 	binary.LittleEndian.PutUint64(key, orderID)

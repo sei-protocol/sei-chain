@@ -52,6 +52,16 @@ func (k KeeperWrapper) GetOrder(c context.Context, req *types.QueryGetOrderByIDR
 			}
 		}
 	}
+
+	triggeredOrders := k.GetAllTriggeredOrders(ctx, req.ContractAddr)
+	for _, order := range triggeredOrders {
+		if order.Id == req.Id {
+			return &types.QueryGetOrderByIDResponse{
+				Order: &order,
+			}, nil
+		}
+	}
+
 	return &types.QueryGetOrderByIDResponse{}, types.ErrInvalidOrderID
 }
 
@@ -96,6 +106,10 @@ func (k KeeperWrapper) GetOrders(c context.Context, req *types.QueryGetOrdersReq
 				})
 			}
 		}
+	}
+	triggeredOrders := k.GetAllTriggeredOrders(ctx, req.ContractAddr)
+	for _, order := range triggeredOrders {
+		orders = append(orders, &order)
 	}
 
 	return &types.QueryGetOrdersResponse{Orders: orders}, nil

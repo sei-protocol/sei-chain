@@ -33,7 +33,7 @@ func TestTriggeredOrderGetByID(t *testing.T) {
 	require.Equal(t, types.Order{}, got)
 }
 
-func TestTriggeredOrderGetAll(t *testing.T) {
+func TestTriggeredOrderGetAllPair(t *testing.T) {
 	keeper, ctx := keepertest.DexKeeper(t)
 
 	o1 := types.Order{
@@ -71,6 +71,44 @@ func TestTriggeredOrderGetAll(t *testing.T) {
 	require.Equal(t, len(orders), 2)
 	orders = keeper.GetAllTriggeredOrdersForPair(ctx, keepertest.TestContract, "FOO", "BAR")
 	require.Equal(t, len(orders), 1)
+}
+
+func TestTriggeredOrderGetAll(t *testing.T) {
+	keeper, ctx := keepertest.DexKeeper(t)
+
+	o1 := types.Order{
+		Id:            1,
+		Price:         sdk.MustNewDecFromStr("1"),
+		Quantity:      sdk.MustNewDecFromStr("1"),
+		Nominal:       sdk.MustNewDecFromStr("1"),
+		OrderType:     types.OrderType_STOPLOSS,
+		TriggerPrice:  sdk.MustNewDecFromStr("4"),
+		TriggerStatus: false,
+	}
+	o2 := types.Order{
+		Id:            2,
+		Price:         sdk.MustNewDecFromStr("1"),
+		Quantity:      sdk.MustNewDecFromStr("1"),
+		Nominal:       sdk.MustNewDecFromStr("1"),
+		OrderType:     types.OrderType_STOPLOSS,
+		TriggerPrice:  sdk.MustNewDecFromStr("4"),
+		TriggerStatus: false,
+	}
+	o3 := types.Order{
+		Id:            3,
+		Price:         sdk.MustNewDecFromStr("1"),
+		Quantity:      sdk.MustNewDecFromStr("1"),
+		Nominal:       sdk.MustNewDecFromStr("1"),
+		OrderType:     types.OrderType_STOPLOSS,
+		TriggerPrice:  sdk.MustNewDecFromStr("4"),
+		TriggerStatus: false,
+	}
+	keeper.SetTriggeredOrder(ctx, keepertest.TestContract, o1, keepertest.TestPriceDenom, keepertest.TestAssetDenom)
+	keeper.SetTriggeredOrder(ctx, keepertest.TestContract, o2, keepertest.TestPriceDenom, keepertest.TestAssetDenom)
+	keeper.SetTriggeredOrder(ctx, keepertest.TestContract, o3, "FOO", "BAR")
+
+	orders := keeper.GetAllTriggeredOrders(ctx, keepertest.TestContract)
+	require.Equal(t, len(orders), 3)
 }
 
 func TestTriggeredOrderSetOverwrite(t *testing.T) {
