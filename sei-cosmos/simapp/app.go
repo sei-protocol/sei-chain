@@ -178,8 +178,7 @@ type SimApp struct {
 	// module configurator
 	configurator module.Configurator
 
-	batchVerifier *ante.SR25519BatchVerifier
-	txDecoder     sdk.TxDecoder
+	txDecoder sdk.TxDecoder
 }
 
 func init() {
@@ -407,14 +406,12 @@ func NewSimApp(
 	app.SetBeginBlocker(app.BeginBlocker)
 
 	signModeHandler := encodingConfig.TxConfig.SignModeHandler()
-	app.batchVerifier = ante.NewSR25519BatchVerifier(app.AccountKeeper, signModeHandler)
 	anteHandler, err := ante.NewAnteHandler(
 		ante.HandlerOptions{
 			AccountKeeper:   app.AccountKeeper,
 			BankKeeper:      app.BankKeeper,
 			SignModeHandler: signModeHandler,
 			FeegrantKeeper:  app.FeeGrantKeeper,
-			BatchVerifier:   app.batchVerifier,
 			SigGasConsumer:  ante.DefaultSigVerificationGasConsumer,
 			TxFeeChecker:    ante.CheckTxFeeWithValidatorMinGasPrices,
 		},
@@ -497,7 +494,6 @@ func (app *SimApp) FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBlo
 			typedTxs = append(typedTxs, typedTx)
 		}
 	}
-	app.batchVerifier.VerifyTxs(ctx, typedTxs)
 
 	txResults := []*abci.ExecTxResult{}
 	for i, tx := range req.Txs {
