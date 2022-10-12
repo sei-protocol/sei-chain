@@ -17,35 +17,55 @@ import (
 	paramtypes "github.com/cosmos/cosmos-sdk/x/params/types"
 )
 
+// Option is an extension point to instantiate keeper with non default values
+type Option interface {
+	apply(*Keeper)
+}
+
+type MessageDependencyGenerator func(keeper Keeper, ctx sdk.Context, msg sdk.Msg) ([]acltypes.AccessOperation, error)
+
+type DependencyGeneratorMap map[types.MessageKey]MessageDependencyGenerator
+
 type (
 	Keeper struct {
-		cdc        codec.BinaryCodec
-		storeKey   sdk.StoreKey
-		paramSpace paramtypes.Subspace
+		cdc                              codec.BinaryCodec
+		storeKey                         sdk.StoreKey
+		paramSpace                       paramtypes.Subspace
+		MessageDependencyGeneratorMapper DependencyGeneratorMap
 	}
 )
+
+var ErrWasmFunctionDependencyMappingNotFound = fmt.Errorf("wasm function dependency mapping not found")
 
 func NewKeeper(
 	cdc codec.Codec,
 	storeKey sdk.StoreKey,
 	paramSpace paramtypes.Subspace,
+	opts ...Option,
 ) Keeper {
 	if !paramSpace.HasKeyTable() {
 		paramSpace = paramSpace.WithKeyTable(types.ParamKeyTable())
 	}
 
-	return Keeper{
-		cdc:        cdc,
-		storeKey:   storeKey,
-		paramSpace: paramSpace,
+	keeper := &Keeper{
+		cdc:                              cdc,
+		storeKey:                         storeKey,
+		paramSpace:                       paramSpace,
+		MessageDependencyGeneratorMapper: DefaultMessageDependencyGenerator(),
 	}
+
+	for _, o := range opts {
+		o.apply(keeper)
+	}
+
+	return *keeper
 }
 
 func (k Keeper) Logger(ctx sdk.Context) log.Logger {
 	return ctx.Logger().With("module", fmt.Sprintf("x/%s", types.ModuleName))
 }
 
-func (k Keeper) GetResourceDependencyMapping(ctx sdk.Context, messageKey string) acltypes.MessageDependencyMapping {
+func (k Keeper) GetResourceDependencyMapping(ctx sdk.Context, messageKey types.MessageKey) acltypes.MessageDependencyMapping {
 	store := ctx.KVStore(k.storeKey)
 	depMapping := store.Get(types.GetResourceDependencyKey(messageKey))
 	if depMapping == nil {
@@ -68,7 +88,7 @@ func (k Keeper) SetResourceDependencyMapping(
 	}
 	store := ctx.KVStore(k.storeKey)
 	b := k.cdc.MustMarshal(&dependencyMapping)
-	resourceKey := types.GetResourceDependencyKey(dependencyMapping.GetMessageKey())
+	resourceKey := types.GetResourceDependencyKey(types.MessageKey(dependencyMapping.GetMessageKey()))
 	store.Set(resourceKey, b)
 	return nil
 }
@@ -86,7 +106,69 @@ func (k Keeper) IterateResourceKeys(ctx sdk.Context, handler func(dependencyMapp
 	}
 }
 
-func (k Keeper) BuildDependencyDag(ctx sdk.Context, txDecoder sdk.TxDecoder, txs [][]byte) (*types.Dag, error) {
+func (k Keeper) SetDependencyMappingDynamicFlag(ctx sdk.Context, messageKey types.MessageKey, enabled bool) error {
+	dependencyMapping := k.GetResourceDependencyMapping(ctx, messageKey)
+	dependencyMapping.DynamicEnabled = enabled
+	return k.SetResourceDependencyMapping(ctx, dependencyMapping)
+}
+
+func (k Keeper) GetWasmFunctionDependencyMapping(ctx sdk.Context, codeID uint64, wasmFunction string) (acltypes.WasmFunctionDependencyMapping, error) {
+	store := ctx.KVStore(k.storeKey)
+	b := store.Get(types.GetWasmFunctionDependencyKey(codeID, wasmFunction))
+	if b == nil {
+		return acltypes.WasmFunctionDependencyMapping{}, ErrWasmFunctionDependencyMappingNotFound
+	}
+	dependencyMapping := acltypes.WasmFunctionDependencyMapping{}
+	k.cdc.MustUnmarshal(b, &dependencyMapping)
+	return dependencyMapping, nil
+}
+
+func (k Keeper) SetWasmFunctionDependencyMapping(
+	ctx sdk.Context,
+	codeID uint64,
+	dependencyMapping acltypes.WasmFunctionDependencyMapping,
+) error {
+	err := types.ValidateWasmFunctionDependencyMapping(dependencyMapping)
+	if err != nil {
+		return err
+	}
+	store := ctx.KVStore(k.storeKey)
+	b := k.cdc.MustMarshal(&dependencyMapping)
+	resourceKey := types.GetWasmFunctionDependencyKey(codeID, dependencyMapping.WasmFunction)
+	store.Set(resourceKey, b)
+	return nil
+}
+
+func (k Keeper) IterateWasmDependenciesForCodeID(ctx sdk.Context, codeID uint64, handler func(wasmDependencyMapping acltypes.WasmFunctionDependencyMapping) (stop bool)) {
+	store := ctx.KVStore(k.storeKey)
+	iter := sdk.KVStorePrefixIterator(store, types.GetKeyForCodeID(codeID))
+	defer iter.Close()
+	for ; iter.Valid(); iter.Next() {
+		dependencyMapping := acltypes.WasmFunctionDependencyMapping{}
+		k.cdc.MustUnmarshal(iter.Value(), &dependencyMapping)
+		if handler(dependencyMapping) {
+			break
+		}
+	}
+}
+
+func (k Keeper) IterateWasmDependencies(ctx sdk.Context, handler func(wasmDependencyMapping acltypes.WasmFunctionDependencyMapping) (stop bool)) {
+	store := ctx.KVStore(k.storeKey)
+	iter := sdk.KVStorePrefixIterator(store, types.GetWasmMappingKey())
+	defer iter.Close()
+	for ; iter.Valid(); iter.Next() {
+		dependencyMapping := acltypes.WasmFunctionDependencyMapping{}
+		k.cdc.MustUnmarshal(iter.Value(), &dependencyMapping)
+		if handler(dependencyMapping) {
+			break
+		}
+	}
+}
+
+// use -1 to indicate that it is prior to msgs in the tx
+const ANTE_MSG_INDEX = int(-1)
+
+func (k Keeper) BuildDependencyDag(ctx sdk.Context, txDecoder sdk.TxDecoder, anteDepGen sdk.AnteDepGenerator, txs [][]byte) (*types.Dag, error) {
 	defer MeasureBuildDagDuration(time.Now(), "BuildDependencyDag")
 	// contains the latest msg index for a specific Access Operation
 	dependencyDag := types.NewDag()
@@ -94,6 +176,14 @@ func (k Keeper) BuildDependencyDag(ctx sdk.Context, txDecoder sdk.TxDecoder, txs
 		tx, err := txDecoder(txBytes) // TODO: results in repetitive decoding for txs with runtx decode (potential optimization)
 		if err != nil {
 			return nil, err
+		}
+		// get the ante dependencies and add them to the dag
+		anteDeps, err := anteDepGen([]acltypes.AccessOperation{}, tx)
+		if err != nil {
+			return nil, err
+		}
+		for _, accessOp := range anteDeps {
+			dependencyDag.AddNodeBuildDependency(ANTE_MSG_INDEX, txIndex, accessOp)
 		}
 		msgs := tx.GetMsgs()
 		for messageIndex, msg := range msgs {
@@ -130,11 +220,36 @@ func MeasureBuildDagDuration(start time.Time, method string) {
 }
 
 func (k Keeper) GetMessageDependencies(ctx sdk.Context, msg sdk.Msg) []acltypes.AccessOperation {
-	switch msg.(type) {
-	default:
-		// Default behavior is to get the static dependency mapping for the message
-		messageKey := types.GenerateMessageKey(msg)
-		dependencyMapping := k.GetResourceDependencyMapping(ctx, messageKey)
-		return dependencyMapping.AccessOps
+	// Default behavior is to get the static dependency mapping for the message
+	messageKey := types.GenerateMessageKey(msg)
+	dependencyMapping := k.GetResourceDependencyMapping(ctx, messageKey)
+	if dependencyGenerator, ok := k.MessageDependencyGeneratorMapper[types.GenerateMessageKey(msg)]; dependencyMapping.DynamicEnabled && ok {
+		// if we have a dependency generator AND dynamic is enabled, use it
+		if dependencies, err := dependencyGenerator(k, ctx, msg); err == nil {
+			// validate the access ops before using them
+			validateErr := types.ValidateAccessOps(dependencies)
+			if validateErr == nil {
+				return dependencies
+			} else {
+				ctx.Logger().Error(validateErr.Error())
+			}
+		} else {
+			ctx.Logger().Error("Error generating message dependencies: ", err)
+		}
+	}
+	if dependencyMapping.DynamicEnabled {
+		// there was an issue with dynamic generation, so lets disable it
+		err := k.SetDependencyMappingDynamicFlag(ctx, messageKey, false)
+		if err != nil {
+			ctx.Logger().Error("Error disabling dynamic enabled: ", err)
+		}
+	}
+	return dependencyMapping.AccessOps
+
+}
+
+func DefaultMessageDependencyGenerator() DependencyGeneratorMap {
+	return DependencyGeneratorMap{
+		//TODO: define default granular behavior here
 	}
 }

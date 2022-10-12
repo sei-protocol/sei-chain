@@ -24,13 +24,14 @@ func (s *handlerTestSuite) SetupSuite() {
 
 func (s *handlerTestSuite) TestChainAnteDecorators() {
 	// test panic
-	s.Require().Nil(sdk.ChainAnteDecorators([]sdk.AnteDecorator{}...))
+	s.Require().Nil(sdk.ChainAnteDecorators([]sdk.AnteFullDecorator{}...))
 
 	ctx, tx := sdk.Context{}, sdk.Tx(nil)
 	mockCtrl := gomock.NewController(s.T())
 	mockAnteDecorator1 := mocks.NewMockAnteDecorator(mockCtrl)
 	mockAnteDecorator1.EXPECT().AnteHandle(gomock.Eq(ctx), gomock.Eq(tx), true, gomock.Any()).Times(1)
-	_, err := sdk.ChainAnteDecorators(mockAnteDecorator1)(ctx, tx, true)
+	handler, _ := sdk.ChainAnteDecorators(sdk.DefaultWrappedAnteDecorator(mockAnteDecorator1))
+	_, err := handler(ctx, tx, true)
 	s.Require().NoError(err)
 
 	mockAnteDecorator2 := mocks.NewMockAnteDecorator(mockCtrl)
@@ -40,8 +41,10 @@ func (s *handlerTestSuite) TestChainAnteDecorators() {
 	mockAnteDecorator1.EXPECT().AnteHandle(gomock.Eq(ctx), gomock.Eq(tx), true, gomock.Any()).Times(1)
 	mockAnteDecorator2.EXPECT().AnteHandle(gomock.Eq(ctx), gomock.Eq(tx), true, gomock.Any()).Times(1)
 
-	_, err = sdk.ChainAnteDecorators(
-		mockAnteDecorator1,
-		mockAnteDecorator2)(ctx, tx, true)
+	handler, _ = sdk.ChainAnteDecorators(
+		sdk.DefaultWrappedAnteDecorator(mockAnteDecorator1),
+		sdk.DefaultWrappedAnteDecorator(mockAnteDecorator2),
+	)
+	_, err = handler(ctx, tx, true)
 	s.Require().NoError(err)
 }

@@ -64,12 +64,13 @@ type BaseApp struct { //nolint: maligned
 	interfaceRegistry types.InterfaceRegistry
 	txDecoder         sdk.TxDecoder // unmarshal []byte into sdk.Tx
 
-	anteHandler            sdk.AnteHandler  // ante handler for fee and auth
-	initChainer            sdk.InitChainer  // initialize state with validators and state blob
-	beginBlocker           sdk.BeginBlocker // logic to run before any txs
-	endBlocker             sdk.EndBlocker   // logic to run after all txs, and to determine valset changes
-	addrPeerFilter         sdk.PeerFilter   // filter peers by address and port
-	idPeerFilter           sdk.PeerFilter   // filter peers by node ID
+	anteHandler            sdk.AnteHandler      // ante handler for fee and auth
+	anteDepGenerator       sdk.AnteDepGenerator // ante dep generator for parallelization
+	initChainer            sdk.InitChainer      // initialize state with validators and state blob
+	beginBlocker           sdk.BeginBlocker     // logic to run before any txs
+	endBlocker             sdk.EndBlocker       // logic to run after all txs, and to determine valset changes
+	addrPeerFilter         sdk.PeerFilter       // filter peers by address and port
+	idPeerFilter           sdk.PeerFilter       // filter peers by node ID
 	prepareProposalHandler sdk.PrepareProposalHandler
 	processProposalHandler sdk.ProcessProposalHandler
 	finalizeBlocker        sdk.FinalizeBlocker
@@ -654,6 +655,11 @@ func (app *BaseApp) cacheTxContext(ctx sdk.Context, txBytes []byte) (sdk.Context
 // returned if the tx does not run out of gas and if all the messages are valid
 // and execute successfully. An error is returned otherwise.
 func (app *BaseApp) runTx(ctx sdk.Context, mode runTxMode, txBytes []byte) (gInfo sdk.GasInfo, result *sdk.Result, anteEvents []abci.Event, priority int64, err error) {
+	// Wait for signals to complete before starting the transaction. This is needed before any of the
+	// resources are acceessed by the ante handlers and message handlers.
+	// TODO(bweng):: add unit tests to enforce this
+	acltypes.WaitForAllSignalsForTx(ctx.TxBlockingChannels())
+
 	// NOTE: GasWanted should be returned by the AnteHandler. GasUsed is
 	// determined by the GasMeter. We need access to the context to get the gas
 	// meter so we initialize upfront.
@@ -777,12 +783,8 @@ func (app *BaseApp) runTx(ctx sdk.Context, mode runTxMode, txBytes []byte) (gInf
 func wrappedHandler(ctx sdk.Context, msg sdk.Msg, handler sdk.Handler) (*sdk.Result, error) {
 	messageIndex := ctx.MessageIndex()
 
-	// Defer sending completion channels to the end of the message 
-	defer acltypes.SendAllSignals(ctx.TxCompletionChannels()[messageIndex])
-
-	// Wait for signals to complete, this should be blocking 
-	// TODO:: More granular waits on access time instead
-	acltypes.WaitForAllSignals(ctx.TxBlockingChannels()[messageIndex])
+	// Defer sending completion channels to the end of the message
+	defer acltypes.SendAllSignalsForMsg(ctx.TxCompletionChannels()[messageIndex])
 
 	return handler(ctx, msg)
 }
@@ -870,4 +872,8 @@ func (app *BaseApp) runMsgs(ctx sdk.Context, msgs []sdk.Msg, mode runTxMode) (*s
 		Log:    strings.TrimSpace(msgLogs.String()),
 		Events: events.ToABCIEvents(),
 	}, nil
+}
+
+func (app *BaseApp) GetAnteDepGenerator() sdk.AnteDepGenerator {
+	return app.anteDepGenerator
 }
