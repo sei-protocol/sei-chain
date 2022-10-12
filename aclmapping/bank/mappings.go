@@ -36,6 +36,7 @@ func MsgSendDependencyGenerator(keeper aclkeeper.Keeper, ctx sdk.Context, msg sd
 		// Checks balance of sender
 		{
 			AccessType:         sdkacltypes.AccessType_READ,
+			// TODO:: we can make resource types more granular  (e.g KV_PARAM or KV_BANK_BALANCE)
 			ResourceType:       sdkacltypes.ResourceType_KV,
 			IdentifierTemplate: utils.GetIdentifierTemplatePerModule(utils.BANK, msgSend.FromAddress),
 		},
