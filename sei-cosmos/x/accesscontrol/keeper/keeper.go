@@ -179,10 +179,15 @@ func (k Keeper) BuildDependencyDag(ctx sdk.Context, txDecoder sdk.TxDecoder, ant
 		}
 		// get the ante dependencies and add them to the dag
 		anteDeps, err := anteDepGen([]acltypes.AccessOperation{}, tx)
+		anteDepSet := make(map[acltypes.AccessOperation]struct{})
+		for _, dep := range anteDeps {
+			anteDepSet[dep] = struct{}{}
+		}
+		// pass through set to dedup
 		if err != nil {
 			return nil, err
 		}
-		for _, accessOp := range anteDeps {
+		for accessOp := range anteDepSet {
 			dependencyDag.AddNodeBuildDependency(ANTE_MSG_INDEX, txIndex, accessOp)
 		}
 		msgs := tx.GetMsgs()
@@ -198,7 +203,6 @@ func (k Keeper) BuildDependencyDag(ctx sdk.Context, txDecoder sdk.TxDecoder, ant
 		}
 
 	}
-
 	if !graph.Acyclic(&dependencyDag) {
 		return nil, types.ErrCycleInDAG
 	}

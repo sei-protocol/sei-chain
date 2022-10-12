@@ -187,7 +187,7 @@ func (app *BaseApp) SetAnteHandler(ah sdk.AnteHandler) {
 
 func (app *BaseApp) SetAnteDepGenerator(adg sdk.AnteDepGenerator) {
 	if app.sealed {
-		panic("SetAnteHandler() on sealed BaseApp")
+		panic("SetAnteDepGenerator() on sealed BaseApp")
 	}
 
 	app.anteDepGenerator = adg
