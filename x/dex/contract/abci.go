@@ -48,7 +48,7 @@ func EndBlockerAtomic(ctx sdk.Context, keeper *keeper.Keeper, validContractsInfo
 
 	runner := NewParallelRunner(func(contract types.ContractInfo) {
 		orderMatchingRunnable(spanCtx, ctx, env, keeper, contract, tracer)
-	}, validContractsInfo)
+	}, validContractsInfo, ctx)
 	runner.Run()
 
 	handleSettlements(spanCtx, ctx, env, keeper, tracer)
