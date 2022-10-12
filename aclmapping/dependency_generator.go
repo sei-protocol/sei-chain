@@ -3,6 +3,7 @@ package aclmapping
 import (
 	wasmkeeper "github.com/CosmWasm/wasmd/x/wasm/keeper"
 	aclkeeper "github.com/cosmos/cosmos-sdk/x/accesscontrol/keeper"
+	aclbankmapping "github.com/sei-protocol/sei-chain/aclmapping/bank"
 	acldexmapping "github.com/sei-protocol/sei-chain/aclmapping/dex"
 	aclwasmmapping "github.com/sei-protocol/sei-chain/aclmapping/wasm"
 )
@@ -19,6 +20,7 @@ func (customDepGen CustomDependencyGenerator) GetCustomDependencyGenerators() ac
 	dependencyGeneratorMap := make(aclkeeper.DependencyGeneratorMap)
 
 	dependencyGeneratorMap.Merge(acldexmapping.GetDexDependencyGenerators())
+	dependencyGeneratorMap.Merge(aclbankmapping.GetBankDepedencyGenerator())
 	wasmDependencyGenerators := aclwasmmapping.NewWasmDependencyGenerator(customDepGen.WasmKeeper)
 	dependencyGeneratorMap.Merge(wasmDependencyGenerators.GetWasmDependencyGenerators())
 
