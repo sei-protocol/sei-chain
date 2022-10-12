@@ -23,6 +23,7 @@ func GetBankDepedencyGenerator() aclkeeper.DependencyGeneratorMap {
 	return dependencyGeneratorMap
 }
 
+// TODO:: we can make resource types more granular  (e.g KV_PARAM or KV_BANK_BALANCE)
 func MsgSendDependencyGenerator(keeper aclkeeper.Keeper, ctx sdk.Context, msg sdk.Msg) ([]sdkacltypes.AccessOperation, error) {
 	msgSend, ok := msg.(*banktypes.MsgSend)
 	if !ok {
@@ -36,7 +37,6 @@ func MsgSendDependencyGenerator(keeper aclkeeper.Keeper, ctx sdk.Context, msg sd
 		// Checks balance of sender
 		{
 			AccessType:         sdkacltypes.AccessType_READ,
-			// TODO:: we can make resource types more granular  (e.g KV_PARAM or KV_BANK_BALANCE)
 			ResourceType:       sdkacltypes.ResourceType_KV,
 			IdentifierTemplate: utils.GetIdentifierTemplatePerModule(utils.BANK, msgSend.FromAddress),
 		},
