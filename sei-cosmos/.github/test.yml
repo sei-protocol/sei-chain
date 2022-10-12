@@ -1,0 +1,251 @@
+name: Tests / Code Coverage
+#  Tests / Code Coverage workflow runs unit tests and uploads a code coverage report
+#  This workflow is run on pushes to main & every Pull Requests where a .go, .mod, .sum have been changed
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}-tests
+  cancel-in-progress: true
+
+jobs:
+  test-submodules:
+    runs-on: buildjet-4vcpu-ubuntu-2004
+    container: tendermintdev/docker-tm-db-testing
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/setup-go@v3
+        with:
+          go-version: 1.19
+      - uses: technote-space/get-diff-action@v6.1.0
+        id: git_diff
+        with:
+          PATTERNS: |
+            **/**.go
+            go.mod
+            go.sum
+      - name: Get data from Go build cache
+        # if: env.GIT_DIFF
+        if: ${{ false }}
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/golangci-lint
+            ~/.cache/go-build
+          key: ${{ runner.os }}-go-build-${{ hashFiles('**/go.sum') }}
+      - name: Run submodule tests and create test coverage profile.
+        # GIT_DIFF is passed to the scripts
+        run: bash scripts/module-tests.sh
+        if: env.GIT_DIFF
+      - uses: actions/upload-artifact@v3
+        with:
+          name: "${{ github.sha }}-go-submodules-coverage"
+          path: ./coverage-go-submod-profile.out
+
+  split-test-files:
+    runs-on: buildjet-4vcpu-ubuntu-2004
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/setup-go@v3
+        with:
+          go-version: 1.19
+      - name: Create a file with all core Cosmos SDK pkgs
+        run: go list ./... > pkgs.txt
+      - name: Split pkgs into 4 files
+        run: split -d -n l/4 pkgs.txt pkgs.txt.part.
+      # cache multiple
+      - uses: actions/upload-artifact@v3
+        with:
+          name: "${{ github.sha }}-00"
+          path: ./pkgs.txt.part.00
+      - uses: actions/upload-artifact@v3
+        with:
+          name: "${{ github.sha }}-01"
+          path: ./pkgs.txt.part.01
+      - uses: actions/upload-artifact@v3
+        with:
+          name: "${{ github.sha }}-02"
+          path: ./pkgs.txt.part.02
+      - uses: actions/upload-artifact@v3
+        with:
+          name: "${{ github.sha }}-03"
+          path: ./pkgs.txt.part.03
+
+  tests:
+    runs-on: buildjet-4vcpu-ubuntu-2004
+    needs: split-test-files
+    strategy:
+      fail-fast: false
+      matrix:
+        part: ["00", "01", "02", "03"]
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/setup-go@v3
+        with:
+          go-version: 1.19
+      - uses: technote-space/get-diff-action@v6.1.0
+        with:
+          PATTERNS: |
+            **/**.go
+            go.mod
+            go.sum
+      - name: Get data from Go build cache
+        # if: env.GIT_DIFF
+        if: ${{ false }}
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/golangci-lint
+            ~/.cache/go-build
+          key: ${{ runner.os }}-go-build-${{ hashFiles('**/go.sum') }}
+      - uses: actions/download-artifact@v3
+        with:
+          name: "${{ github.sha }}-${{ matrix.part }}"
+        if: env.GIT_DIFF
+      - name: test & coverage report creation
+        run: |
+          cat pkgs.txt.part.${{ matrix.part }} | xargs go test -mod=readonly -race -timeout 30m -coverprofile=${{ matrix.part }}profile.out -covermode=atomic -tags='ledger test_ledger_mock'
+        if: env.GIT_DIFF
+      - uses: actions/upload-artifact@v3
+        with:
+          name: "${{ github.sha }}-${{ matrix.part }}-coverage"
+          path: ./${{ matrix.part }}profile.out
+
+  upload-coverage-report:
+    runs-on: buildjet-4vcpu-ubuntu-2004
+    needs: tests
+    steps:
+      - uses: actions/checkout@v3
+      - uses: technote-space/get-diff-action@v6.1.0
+        with:
+          PATTERNS: |
+            **/**.go
+            go.mod
+            go.sum
+      - uses: actions/download-artifact@v3
+        with:
+          name: "${{ github.sha }}-00-coverage"
+        if: env.GIT_DIFF
+      - uses: actions/download-artifact@v3
+        with:
+          name: "${{ github.sha }}-01-coverage"
+        if: env.GIT_DIFF
+      - uses: actions/download-artifact@v3
+        with:
+          name: "${{ github.sha }}-02-coverage"
+        if: env.GIT_DIFF
+      - uses: actions/download-artifact@v3
+        with:
+          name: "${{ github.sha }}-03-coverage"
+        if: env.GIT_DIFF
+      - uses: actions/download-artifact@v3
+        with:
+          name: "${{ github.sha }}-go-submodules-coverage"
+        if: env.GIT_DIFF
+        continue-on-error: true
+      - run: |
+          cat ./*profile.out | grep -v "mode: atomic" >> coverage.txt
+        if: env.GIT_DIFF
+      - name: filter out DONTCOVER
+        run: |
+          excludelist="$(find ./ -type f -name '*.go' | xargs grep -l 'DONTCOVER')"
+          excludelist+=" $(find ./ -type f -name '*.pb.go')"
+          excludelist+=" $(find ./ -type f -name '*.pb.gw.go')"
+          excludelist+=" $(find ./ -type f -path './tests/mocks/*.go')"
+          for filename in ${excludelist}; do
+            filename=$(echo $filename | sed 's/^./github.com\/cosmos\/cosmos-sdk/g')
+            echo "Excluding ${filename} from coverage report..."
+            sed -i.bak "/$(echo $filename | sed 's/\//\\\//g')/d" coverage.txt
+          done
+        if: env.GIT_DIFF
+      - uses: codecov/codecov-action@v3
+        with:
+          file: ./coverage.txt
+        if: env.GIT_DIFF
+
+  test-rosetta:
+    runs-on: buildjet-4vcpu-ubuntu-2004
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v3
+      - uses: technote-space/get-diff-action@v6.1.0
+        id: git_diff
+        with:
+          PATTERNS: |
+            **/**.go
+            go.mod
+            go.sum
+      - name: Get data from Go build cache
+        # if: env.GIT_DIFF
+        if: ${{ false }}
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/golangci-lint
+            ~/.cache/go-build
+          key: ${{ runner.os }}-go-build-${{ hashFiles('**/go.sum') }}
+      - name: test rosetta
+        run: |
+          make test-rosetta
+        # if: env.GIT_DIFF
+
+  liveness-test:
+    runs-on: buildjet-4vcpu-ubuntu-2004
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/setup-go@v3
+        with:
+          go-version: 1.19
+      - uses: technote-space/get-diff-action@v6.1.0
+        id: git_diff
+        with:
+          PATTERNS: |
+            **/**.go
+            go.mod
+            go.sum
+      - name: Get data from Go build cache
+        # if: env.GIT_DIFF
+        if: ${{ false }}
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/golangci-lint
+            ~/.cache/go-build
+          key: ${{ runner.os }}-go-build-${{ hashFiles('**/go.sum') }}
+      - name: start localnet
+        run: |
+          make clean localnet-start
+        if: env.GIT_DIFF
+      - name: test liveness
+        run: |
+          ./contrib/localnet_liveness.sh 100 5 50 localhost
+        if: env.GIT_DIFF
+
+  test-sim-nondeterminism:
+    runs-on: buildjet-4vcpu-ubuntu-2004
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/setup-go@v3
+        with:
+          go-version: 1.19
+      - uses: technote-space/get-diff-action@v6.1.0
+        with:
+          PATTERNS: |
+            **/**.go
+            go.mod
+            go.sum
+      - name: test-sim-nondeterminism
+        run: |
+          make test-sim-nondeterminism
+        if: env.GIT_DIFF
