@@ -10,7 +10,6 @@ import (
 	"github.com/pkg/errors"
 
 	secp256k1 "github.com/tendermint/btcd/btcec"
-	"github.com/tendermint/tendermint/crypto"
 
 	"github.com/cosmos/go-bip39"
 
