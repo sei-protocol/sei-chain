@@ -8,11 +8,6 @@ import (
 	"github.com/sei-protocol/sei-chain/x/dex/types"
 )
 
-// I don't think this is proper lmao
-// func (k Keeper) SetTriggerBook(ctx sdk.Context, contractAddr string, triggerBook types.TriggerBook) {
-// 	prefix.NewStore(ctx.KVStore(k.storeKey), types.TriggerOrderBookPrefix(contractAddr, triggerBook.PriceDenom, triggerBook.AssetDenom))
-// }
-
 func (k Keeper) SetTriggeredOrder(ctx sdk.Context, contractAddr string, order types.Order, priceDenom string, assetDenom string) {
 	store := prefix.NewStore(ctx.KVStore(k.storeKey), types.TriggerOrderBookPrefix(contractAddr, priceDenom, assetDenom))
 
@@ -49,10 +44,6 @@ func (k Keeper) GetAllTriggeredOrdersForPair(ctx sdk.Context, contractAddr strin
 
 	return
 }
-
-// func GetKeyForTriggerBook(triggerBook types.TriggerBook) []byte {
-// 	return GetKeyForPrice(shortBook.Entry.Price)
-// }
 
 func GetKeyForOrderID(orderID uint64) []byte {
 	key := make([]byte, 8)
