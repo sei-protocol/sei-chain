@@ -43,7 +43,7 @@ func TestMoveTriggeredOrderIntoMemState(t *testing.T) {
 		TriggerStatus:     true,
 	}
 
-	dexkeeper.SetTriggerBookOrder(ctx, TEST_CONTRACT, triggeredOrder, TEST_PAIR().PriceDenom, TEST_PAIR().AssetDenom)
+	dexkeeper.SetTriggeredOrder(ctx, TEST_CONTRACT, triggeredOrder, TEST_PAIR().PriceDenom, TEST_PAIR().AssetDenom)
 	contract.MoveTriggeredOrderForPair(
 		ctx,
 		utils.ContractAddress(TEST_CONTRACT),
@@ -54,7 +54,7 @@ func TestMoveTriggeredOrderIntoMemState(t *testing.T) {
 	cacheMarketOrders := orders.GetSortedMarketOrders(types.PositionDirection_LONG, false)
 	cacheTriggeredOrders := orders.GetTriggeredOrders()
 
-	triggeredBookOrders := dexkeeper.GetAllTriggerBookOrdersForPair(ctx, TEST_CONTRACT, TEST_PAIR().PriceDenom, TEST_PAIR().AssetDenom)
+	triggeredBookOrders := dexkeeper.GetAllTriggeredOrdersForPair(ctx, TEST_CONTRACT, TEST_PAIR().PriceDenom, TEST_PAIR().AssetDenom)
 
 	require.Equal(t, len(triggeredBookOrders), 0)
 	require.Equal(t, len(cacheTriggeredOrders), 0)
@@ -125,8 +125,8 @@ func TestUpdateTriggeredOrders(t *testing.T) {
 		MaxPrice:      sdk.MustNewDecFromStr("20"),
 	}
 
-	dexkeeper.SetTriggerBookOrder(ctx, TEST_CONTRACT, shortTriggeredOrder, TEST_PAIR().PriceDenom, TEST_PAIR().AssetDenom)
-	dexkeeper.SetTriggerBookOrder(ctx, TEST_CONTRACT, longNotTriggeredOrder, TEST_PAIR().PriceDenom, TEST_PAIR().AssetDenom)
+	dexkeeper.SetTriggeredOrder(ctx, TEST_CONTRACT, shortTriggeredOrder, TEST_PAIR().PriceDenom, TEST_PAIR().AssetDenom)
+	dexkeeper.SetTriggeredOrder(ctx, TEST_CONTRACT, longNotTriggeredOrder, TEST_PAIR().PriceDenom, TEST_PAIR().AssetDenom)
 	orders := dexkeeper.MemState.GetBlockOrders(ctx, TEST_CONTRACT, utils.GetPairString(&pair))
 	orders.Add(&shortNotTriggeredOrder)
 	orders.Add(&longTriggeredOrder)
@@ -139,7 +139,7 @@ func TestUpdateTriggeredOrders(t *testing.T) {
 		totalOutcome,
 	)
 
-	triggeredBookOrders := dexkeeper.GetAllTriggerBookOrdersForPair(ctx, TEST_CONTRACT, TEST_PAIR().PriceDenom, TEST_PAIR().AssetDenom)
+	triggeredBookOrders := dexkeeper.GetAllTriggeredOrdersForPair(ctx, TEST_CONTRACT, TEST_PAIR().PriceDenom, TEST_PAIR().AssetDenom)
 
 	require.Equal(t, len(triggeredBookOrders), 4)
 	triggerStatusMap := map[uint64]bool{}
