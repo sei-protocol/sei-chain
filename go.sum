@@ -1100,6 +1100,7 @@ github.com/segmentio/fasthash v1.0.3/go.mod h1:waKX8l2N8yckOgmSsXJi7x1ZfdKZ4x7KR
 <<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
 github.com/sei-protocol/sei-cosmos v0.1.114 h1:Cy5MnBdvql5VJw5pC104DsivQxPg0xkvVOuq6VwDiRk=
 github.com/sei-protocol/sei-cosmos v0.1.114/go.mod h1:8ccWQxpBkWbpvBos/T4QO9K9gQxFs0duTqKRnagKo+0=
 =======
@@ -1114,6 +1115,10 @@ github.com/sei-protocol/sei-cosmos v0.1.104/go.mod h1:8ccWQxpBkWbpvBos/T4QO9K9gQ
 github.com/sei-protocol/sei-cosmos v0.1.122 h1:/2v6ySBZeWL+gUhyozTZfDjgoPD+lkGJOqmk1naZU0s=
 github.com/sei-protocol/sei-cosmos v0.1.122/go.mod h1:Xl+SxpPz/vprq7RQpRYLup1/lePi269T/s/m4rfTwgs=
 >>>>>>> f050c6c (print hash instead)
+=======
+github.com/sei-protocol/sei-cosmos v0.1.124 h1:x27Rw8fp+pldJ3YY1sgMq+EQrMZIDWgENTmPbhrQp4E=
+github.com/sei-protocol/sei-cosmos v0.1.124/go.mod h1:Xl+SxpPz/vprq7RQpRYLup1/lePi269T/s/m4rfTwgs=
+>>>>>>> b4e1c6e (asd)
 github.com/sei-protocol/sei-tendermint v0.1.59 h1:POGL60PumMQHF4EzAHzvkGfDnodQJLHpl65LuiwSO/Y=
 github.com/sei-protocol/sei-tendermint v0.1.59/go.mod h1:Olwbjyagrpoxj5DAUhHxMTWDVEfQ3FYdpypaJ3+6Hs8=
 github.com/sergi/go-diff v1.1.0/go.mod h1:STckp+ISIX8hZLjrqAeVduY0gWCT9IjLuqbuNXdaHfM=
