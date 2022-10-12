@@ -133,9 +133,11 @@ func TestBaseAppCreateQueryContext(t *testing.T) {
 	app := NewBaseApp(name, logger, db, nil, &testutil.TestAppOpts{})
 
 	app.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{Height: 1})
+	app.SetDeliverStateToCommit()
 	app.Commit(context.Background())
 
 	app.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{Height: 2})
+	app.SetDeliverStateToCommit()
 	app.Commit(context.Background())
 
 	testCases := []struct {
