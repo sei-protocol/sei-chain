@@ -13,6 +13,7 @@ import (
 	"time"
 
 	storetypes "github.com/cosmos/cosmos-sdk/store/types"
+	"github.com/k0kubun/pp"
 
 	"github.com/sei-protocol/sei-chain/aclmapping"
 	appparams "github.com/sei-protocol/sei-chain/app/params"
@@ -981,6 +982,7 @@ func (app *App) ProcessTxConcurrent(
 	// Deliver the transaction and store the result in the channel
 	resultChan <- ChannelResult{txIndex, app.DeliverTxWithResult(ctx, txBytes)}
 	metrics.IncrTxProcessTypeCounter(metrics.CONCURRENT)
+	ctx.Logger().Info(fmt.Sprintf("ProcessTxConcurrent::Processed Tx Index=%d", txIndex))
 }
 
 // cacheContext returns a new context based off of the provided context with
@@ -1087,13 +1089,18 @@ func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequ
 	// app.batchVerifier.VerifyTxs(ctx, typedTxs)
 
 	dependencyDag, err := app.AccessControlKeeper.BuildDependencyDag(ctx, app.txDecoder, app.GetAnteDepGenerator(), txs)
+	pp.Printf("ProcessBlock:: Dependency DAG:%s", dependencyDag)
+
 	var txResults []*abci.ExecTxResult
 
 	switch err {
 	case nil:
 		// Only run concurrently if no error
 
-		// Branch off the current context and pass a cached context to the concurrent delivered TXs that are shared
+		// Branch off the current context and pass a cached context to the concurrent delivered TXs that are shared.
+		// runTx will write to this ephermeral CacheMultiStore, after the process block is done, Write() is called on this
+		// CacheMultiStore where it writes the data to the parent store (DeliverState) in sorted Key order to maintain
+		// deterministic ordering between validators in the case of concurrent deliverTXs
 		processBlockCtx, processBlockCache := app.CacheContext(ctx)
 		txResults = app.ProcessBlockConcurrent(processBlockCtx, txs, dependencyDag.CompletionSignalingMap, dependencyDag.BlockingSignalsMap)
 		// Write the results back to the concurrent contexts
