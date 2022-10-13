@@ -14,7 +14,7 @@ var _ = strconv.Itoa(0)
 func CmdGetLatestPrice() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "get-latest-price [contract-address] [price-denom] [asset-denom]",
-		Short: "Query getPrice",
+		Short: "Query getLatestPrice",
 		Args:  cobra.ExactArgs(3),
 		RunE: func(cmd *cobra.Command, args []string) (err error) {
 			reqContractAddr := args[0]
