@@ -26,13 +26,6 @@ func CustomMessageHandler(
 	aclKeeper aclkeeper.Keeper,
 ) wasmkeeper.Messenger {
 	encoders := wasmkeeper.DefaultEncoders(unpacker, portSource)
-	// TODO:
-	// Instead of default encoders, we also want to merge in the custom encoder.
-	// Then we also fork the DispatchMsg for SDKMessage handler, and betweeen encoding and running,
-	// we make a check with context and sdk message dependencies to verify that the contract has access to the proper access ops to run the logic.
-	// if it doesnt we first set the acl keeper wasm dependency mapping enabled to false, and then fail the message.
-	// determine if the "false" stays (it should)
-	// end TODO:
 	encoders = encoders.Merge(
 		&wasmkeeper.MessageEncoders{
 			Custom: CustomEncoder,
