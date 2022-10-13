@@ -56,9 +56,17 @@ func ExecutePair(
 	typedContractAddr := dextypesutils.ContractAddress(contractAddr)
 	typedPairStr := dextypesutils.GetPairString(&pair)
 
+	// First cancel orders
 	cancelForPair(ctx, typedContractAddr, typedPairStr, dexkeeper, orderbook)
+	// Add all limit orders to the orderbook
+	orders := dexkeeper.MemState.GetBlockOrders(ctx, typedContractAddr, typedPairStr)
+	limitBuys := orders.GetLimitOrders(types.PositionDirection_LONG)
+	limitSells := orders.GetLimitOrders(types.PositionDirection_SHORT)
+	exchange.AddOutstandingLimitOrdersToOrderbook(orderbook, limitBuys, limitSells)
+	// Fill market orders
 	marketOrderOutcome := matchMarketOrderForPair(ctx, typedContractAddr, typedPairStr, dexkeeper, orderbook)
-	limitOrderOutcome := matchLimitOrderForPair(ctx, typedContractAddr, typedPairStr, dexkeeper, orderbook)
+	// Fill limit orders
+	limitOrderOutcome := exchange.MatchLimitOrders(ctx, orderbook)
 	totalOutcome := marketOrderOutcome.Merge(&limitOrderOutcome)
 
 	dexkeeperutils.SetPriceStateFromExecutionOutcome(ctx, dexkeeper, typedContractAddr, pair, totalOutcome)
@@ -101,24 +109,6 @@ func matchMarketOrderForPair(
 		types.PositionDirection_SHORT,
 	)
 	return marketBuyOutcome.Merge(&marketSellOutcome)
-}
-
-func matchLimitOrderForPair(
-	ctx sdk.Context,
-	typedContractAddr dextypesutils.ContractAddress,
-	typedPairStr dextypesutils.PairString,
-	dexkeeper *keeper.Keeper,
-	orderbook *types.OrderBook,
-) exchange.ExecutionOutcome {
-	orders := dexkeeper.MemState.GetBlockOrders(ctx, typedContractAddr, typedPairStr)
-	limitBuys := orders.GetLimitOrders(types.PositionDirection_LONG)
-	limitSells := orders.GetLimitOrders(types.PositionDirection_SHORT)
-	return exchange.MatchLimitOrders(
-		ctx,
-		limitBuys,
-		limitSells,
-		orderbook,
-	)
 }
 
 func GetMatchResults(

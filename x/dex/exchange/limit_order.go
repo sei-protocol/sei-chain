@@ -7,17 +7,9 @@ import (
 
 func MatchLimitOrders(
 	ctx sdk.Context,
-	longOrders []*types.Order,
-	shortOrders []*types.Order,
 	orderbook *types.OrderBook,
 ) ExecutionOutcome {
 	settlements := []*types.SettlementEntry{}
-	for _, order := range longOrders {
-		addOrderToOrderBookEntry(order, orderbook.Longs)
-	}
-	for _, order := range shortOrders {
-		addOrderToOrderBookEntry(order, orderbook.Shorts)
-	}
 	totalExecuted, totalPrice := sdk.ZeroDec(), sdk.ZeroDec()
 	longPtr, shortPtr := len(orderbook.Longs.Entries)-1, 0
 
@@ -114,4 +106,17 @@ func addOrderToOrderBookEntry(
 		orderBookEntries.Entries[insertAt] = newOrder
 	}
 	orderBookEntries.AddDirtyEntry(newOrder)
+}
+
+func AddOutstandingLimitOrdersToOrderbook(
+	orderbook *types.OrderBook,
+	limitBuys []*types.Order,
+	limitSells []*types.Order,
+) {
+	for _, order := range limitBuys {
+		addOrderToOrderBookEntry(order, orderbook.Longs)
+	}
+	for _, order := range limitSells {
+		addOrderToOrderBookEntry(order, orderbook.Shorts)
+	}
 }
