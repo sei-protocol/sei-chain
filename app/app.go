@@ -1011,6 +1011,7 @@ func (app *App) ProcessBlockConcurrent(
 	}
 
 	// For each transaction, start goroutine and deliver TX
+	ctx.Logger().Info(fmt.Sprintf("ProcessBlock: sending off num_txs=%d", len(txs)))
 	for txIndex, txBytes := range txs {
 		waitGroup.Add(1)
 		go app.ProcessTxConcurrent(
@@ -1034,11 +1035,12 @@ func (app *App) ProcessBlockConcurrent(
 
 	// Gather Results and store it based on txIndex and read results from channel
 	// Concurrent results may be in different order than the original txIndex
+	ctx.Logger().Info("ProcessBlock:collecting transactions")
 	txResultsMap := map[int]*abci.ExecTxResult{}
 	for result := range resultChan {
 		txResultsMap[result.txIndex] = result.result
 	}
-
+	ctx.Logger().Info("ProcessBlock:collected transactions")
 	// Gather Results and store in array based on txIndex to preserve ordering
 	for txIndex := range txs {
 		txResults = append(txResults, txResultsMap[txIndex])
@@ -1104,7 +1106,9 @@ func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequ
 		processBlockCtx, processBlockCache := app.CacheContext(ctx)
 		txResults = app.ProcessBlockConcurrent(processBlockCtx, txs, dependencyDag.CompletionSignalingMap, dependencyDag.BlockingSignalsMap)
 		// Write the results back to the concurrent contexts
+		ctx.Logger().Info("ProcessBlock:Writing processBlockCtx")
 		processBlockCache.Write()
+		ctx.Logger().Info("ProcessBlock:processBlockCtx wrote")
 	case acltypes.ErrGovMsgInBlock:
 		ctx.Logger().Info(fmt.Sprintf("Gov msg found while building DAG, processing synchronously: %s", err))
 		txResults = app.ProcessBlockSynchronous(ctx, txs)
