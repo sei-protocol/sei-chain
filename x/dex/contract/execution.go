@@ -111,6 +111,7 @@ func matchMarketOrderForPair(
 	)
 	return marketBuyOutcome.Merge(&marketSellOutcome)
 }
+
 func MoveTriggeredOrderForPair(
 	ctx sdk.Context,
 	typedContractAddr dextypesutils.ContractAddress,
