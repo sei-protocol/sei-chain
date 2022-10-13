@@ -49,6 +49,10 @@ service Query {
 		option (google.api.http).get = "/sei-protocol/seichain/dex/get_price/{contractAddr}/{priceDenom}/{assetDenom}/{timestamp}";
 	}
 
+	rpc GetLatestPrice(QueryGetLatestPriceRequest) returns (QueryGetLatestPriceResponse) {
+		option (google.api.http).get = "/sei-protocol/seichain/dex/get_latest_price/{contractAddr}/{priceDenom}/{assetDenom}";
+	}
+
 	rpc GetPrices(QueryGetPricesRequest) returns (QueryGetPricesResponse) {
 		option (google.api.http).get = "/sei-protocol/seichain/dex/get_prices/{contractAddr}/{priceDenom}/{assetDenom}";
 	}
@@ -168,6 +172,17 @@ message QueryGetPriceRequest {
 }
 
 message QueryGetPriceResponse {
+	Price price = 1;
+	bool found = 2;
+}
+
+message QueryGetLatestPriceRequest {
+	string priceDenom = 1;
+	string assetDenom = 2;
+	string contractAddr = 3;
+}
+
+message QueryGetLatestPriceResponse {
 	Price price = 1;
 	bool found = 2;
 }
