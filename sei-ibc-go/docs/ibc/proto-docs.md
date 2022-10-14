@@ -946,6 +946,7 @@ https://github.com/cosmos/ibc/tree/master/spec/app/ics-020-fungible-token-transf
 | `receiver` | [string](#string) |  | the recipient address on the destination chain |
 | `timeout_height` | [ibc.core.client.v1.Height](#ibc.core.client.v1.Height) |  | Timeout height relative to the current block height. The timeout is disabled when set to 0. |
 | `timeout_timestamp` | [uint64](#uint64) |  | Timeout timestamp in absolute nanoseconds since unix epoch. The timeout is disabled when set to 0. |
+| `metadata` | [bytes](#bytes) |  | optional metadata |
 
 
 
@@ -1007,6 +1008,7 @@ https://github.com/cosmos/ibc/tree/master/spec/app/ics-020-fungible-token-transf
 | `amount` | [string](#string) |  | the token amount to be transferred |
 | `sender` | [string](#string) |  | the sender address |
 | `receiver` | [string](#string) |  | the recipient address on the destination chain |
+| `metadata` | [bytes](#bytes) |  | optional metadata |
 
 
 
