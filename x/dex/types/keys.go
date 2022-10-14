@@ -47,6 +47,15 @@ func OrderBookPrefix(long bool, contractAddr string, priceDenom string, assetDen
 	)
 }
 
+func TriggerOrderBookPrefix(contractAddr string, priceDenom string, assetDenom string) []byte {
+	prefix := KeyPrefix(TriggerBookKey)
+
+	return append(
+		append(prefix, KeyPrefix(contractAddr)...),
+		PairPrefix(priceDenom, assetDenom)...,
+	)
+}
+
 func TwapPrefix(contractAddr string) []byte {
 	return append(KeyPrefix(TwapKey), KeyPrefix(contractAddr)...)
 }
@@ -137,6 +146,8 @@ const (
 	LongBookKey = "LongBook-value-"
 
 	ShortBookKey = "ShortBook-value-"
+
+	TriggerBookKey = "TriggerBook-value-"
 
 	OrderKey               = "order"
 	AccountActiveOrdersKey = "account-active-orders"

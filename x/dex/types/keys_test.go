@@ -22,3 +22,15 @@ func TestPricePrefix(t *testing.T) {
 	expectedKey := append(priceContractBytes, pairBytes...)
 	require.Equal(t, expectedKey, types.PricePrefix(testContract, testPriceDenom, testAssetDenom))
 }
+
+func TestTriggerOrderBookPrefix(t *testing.T) {
+	testContract := "test"
+	testPriceDenom := "SEI"
+	testAssetDenom := "ATOM"
+
+	triggerBookContractBytes := append([]byte(types.TriggerBookKey), []byte(testContract)...)
+	pairBytes := types.PairPrefix(testPriceDenom, testAssetDenom)
+	expectedKey := append(triggerBookContractBytes, pairBytes...)
+
+	require.Equal(t, expectedKey, types.TriggerOrderBookPrefix(testContract, testPriceDenom, testAssetDenom))
+}

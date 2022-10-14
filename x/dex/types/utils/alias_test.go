@@ -13,3 +13,9 @@ func TestGetPairString(t *testing.T) {
 	expected := utils.PairString("USDC|ATOM")
 	require.Equal(t, expected, utils.GetPairString(&pair))
 }
+
+func TestGetPriceAssetString(t *testing.T) {
+	priceDenom, assetDenom := utils.GetPriceAssetString(utils.PairString("USDC|ATOM"))
+	require.Equal(t, "USDC", priceDenom)
+	require.Equal(t, "ATOM", assetDenom)
+}

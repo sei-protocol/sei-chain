@@ -1179,8 +1179,12 @@ func TestMatchMultipleOrderFromMultipleLongBook(t *testing.T) {
 	totalPrice := outcome.TotalNotional
 	totalExecuted := outcome.TotalQuantity
 	settlements := outcome.Settlements
+	minPrice := outcome.MinPrice
+	maxPrice := outcome.MaxPrice
 	assert.Equal(t, totalPrice, sdk.NewDec(1216))
 	assert.Equal(t, totalExecuted, sdk.NewDec(12))
+	assert.Equal(t, minPrice, sdk.NewDec(100))
+	assert.Equal(t, maxPrice, sdk.NewDec(110))
 	assert.Equal(t, orderbook.Longs.DirtyEntries.Len(), 2)
 	assert.Equal(t, orderbook.Shorts.DirtyEntries.Len(), 3)
 	_, ok := orderbook.Longs.DirtyEntries.Load(sdk.MustNewDecFromStr("100").String())

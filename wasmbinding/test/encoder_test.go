@@ -31,6 +31,8 @@ func TestEncodePlaceOrder(t *testing.T) {
 		Quantity:          sdk.OneDec(),
 		Data:              "{\"position_effect\":\"OPEN\", \"leverage\":\"1\"}",
 		Nominal:           sdk.ZeroDec(),
+		TriggerPrice:      sdk.ZeroDec(),
+		TriggerStatus:     false,
 	}
 	fund := sdk.NewCoin("usei", sdk.NewInt(1000000000))
 	msg := bindings.PlaceOrders{

@@ -38,6 +38,17 @@ func TestPlaceOrder(t *testing.T) {
 				PriceDenom:        keepertest.TestPriceDenom,
 				AssetDenom:        keepertest.TestAssetDenom,
 			},
+			{
+				Price:             sdk.MustNewDecFromStr("20"),
+				Quantity:          sdk.MustNewDecFromStr("5"),
+				Data:              "",
+				PositionDirection: types.PositionDirection_SHORT,
+				OrderType:         types.OrderType_STOPLOSS,
+				PriceDenom:        keepertest.TestPriceDenom,
+				AssetDenom:        keepertest.TestAssetDenom,
+				TriggerPrice:      sdk.MustNewDecFromStr("10"),
+				TriggerStatus:     false,
+			},
 		},
 	}
 	keeper, ctx := keepertest.DexKeeper(t)
@@ -47,9 +58,10 @@ func TestPlaceOrder(t *testing.T) {
 	server := msgserver.NewMsgServerImpl(*keeper)
 	res, err := server.PlaceOrders(wctx, msg)
 	require.Nil(t, err)
-	require.Equal(t, 2, len(res.OrderIds))
+	require.Equal(t, 3, len(res.OrderIds))
 	require.Equal(t, uint64(0), res.OrderIds[0])
 	require.Equal(t, uint64(1), res.OrderIds[1])
+	require.Equal(t, uint64(2), res.OrderIds[2])
 	// Ensure that contract addr and account is set in the order
 	require.Equal(t, msg.Orders[0].ContractAddr, TestContract)
 	require.Equal(t, msg.Orders[0].Account, TestCreator)

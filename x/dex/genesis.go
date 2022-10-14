@@ -19,6 +19,11 @@ func InitGenesis(ctx sdk.Context, k keeper.Keeper, genState types.GenesisState) 
 		k.SetShortBook(ctx, "genesis", elem)
 	}
 
+	for _, elem := range genState.TriggeredOrdersList {
+		// not sure if it's guaranteed that the Order has the correct Price/Asset/Contract details...
+		k.SetTriggeredOrder(ctx, "genesis", elem, elem.PriceDenom, elem.AssetDenom)
+	}
+
 	// Set initial tick size for each pair
 	// tick size is the minimum unit that can be traded for certain pair
 	for _, elem := range genState.TickSizeList {

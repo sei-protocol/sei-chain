@@ -99,5 +99,9 @@ func (k msgServer) validateOrder(order *types.Order) error {
 	if order.OrderType == types.OrderType_FOKMARKETBYVALUE && (order.Nominal.IsNil() || order.Nominal.IsNegative()) {
 		return fmt.Errorf("invalid nominal value for market by value order: %s", order.Nominal)
 	}
+	if (order.OrderType == types.OrderType_STOPLIMIT || order.OrderType == types.OrderType_STOPLOSS) &&
+		(order.TriggerPrice.IsNil() || order.TriggerPrice.IsNegative()) {
+		return fmt.Errorf("invalid trigger price for stop loss/limit order: %s", order.TriggerPrice)
+	}
 	return nil
 }
