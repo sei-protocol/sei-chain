@@ -169,7 +169,7 @@ func run(config Config) {
 		wg := &sync.WaitGroup{}
 		var senders []func()
 		wgs = append(wgs, wg)
-		for _, account := range activeAccounts {
+		for i, account := range activeAccounts {
 			key := GetKey(uint64(account))
 
 			msg := generateMessage(config, key, batchSize)
@@ -177,6 +177,10 @@ func run(config Config) {
 			_ = txBuilder.SetMsgs(msg)
 			seqDelta := uint64(i / 2)
 			mode := typestx.BroadcastMode_BROADCAST_MODE_SYNC
+
+			if i == len(activeAccounts)-1 {
+				mode = typestx.BroadcastMode_BROADCAST_MODE_BLOCK
+			}
 
 			// Note: There is a potential race condition here with seqnos
 			// in which a later seqno is delievered before an earlier seqno
