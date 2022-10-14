@@ -22,7 +22,7 @@ func SendTx(
 ) func() {
 	(*txBuilder).SetGasLimit(200000000)
 	(*txBuilder).SetFeeAmount([]sdk.Coin{
-		sdk.NewCoin("usei", sdk.NewInt(10,000,000)),
+		sdk.NewCoin("usei", sdk.NewInt(10000000)),
 	})
 	SignTx(txBuilder, key, seqDelta)
 	txBytes, _ := TestConfig.TxConfig.TxEncoder()((*txBuilder).GetTx())
