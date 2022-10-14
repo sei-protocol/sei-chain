@@ -29,7 +29,18 @@ const (
 	"max_leverage":{"decimal":"4","negative":false},"default_base":"USDC",
 	"native_token":"USDC","denoms": ["SEI","ATOM","USDC","SOL","ETH","OSMO","AVAX","BTC"],
 	"full_denom_mapping": [["usei","SEI","0.000001"],["uatom","ATOM","0.000001"],["uusdc","USDC","0.000001"]],
-	"funding_payment_lookback":3600,"spot_market_contract":"sei1h9yjz89tl0dl6zu65dpxcqnxfhq60wxx8s5kag"}`
+	"funding_payment_lookback":3600,"spot_market_contract":"sei1h9yjz89tl0dl6zu65dpxcqnxfhq60wxx8s5kag",
+	"supported_collateral_denoms": ["USDC"],
+	"supported_multicollateral_denoms": ["ATOM"],
+	"oracle_denom_mapping": [["usei","SEI","1"],["uatom","ATOM","1"],["uusdc","USDC","1"],["ueth","ETH","1"]],
+	"multicollateral_whitelist": ["sei1h9yjz89tl0dl6zu65dpxcqnxfhq60wxx8s5kag"],
+	"multicollateral_whitelist_enable": true,
+	"funding_payment_pairs": [["USDC","ETH"]],
+	"default_margin_ratios":{
+		"initial":"0.3",
+		"partial":"0.25",
+		"maintenance":"0.06"
+	}}`
 )
 
 func TestEndBlockMarketOrder(t *testing.T) {
