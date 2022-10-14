@@ -178,10 +178,6 @@ func run(config Config) {
 			seqDelta := uint64(i / 2)
 			mode := typestx.BroadcastMode_BROADCAST_MODE_SYNC
 
-			if i == len(activeAccounts)-1 {
-				mode = typestx.BroadcastMode_BROADCAST_MODE_BLOCK
-			}
-
 			// Note: There is a potential race condition here with seqnos
 			// in which a later seqno is delievered before an earlier seqno
 			// In practice, we haven't run into this issue so we'll leave this
