@@ -89,10 +89,37 @@ func GenerateAllowedResourceAccess(resource sdkacltypes.ResourceType, access sdk
 	return accesses
 }
 
+func AreDependenciesFulfilled(lookupMap map[acltypes.ResourceAccess]map[string]struct{}, accessOp sdkacltypes.AccessOperation) bool {
+	currResourceAccesses := GenerateAllowedResourceAccess(accessOp.ResourceType, accessOp.AccessType)
+	for _, currResourceAccess := range currResourceAccesses {
+		if identifierMap, ok := lookupMap[currResourceAccess]; ok {
+			if _, ok := identifierMap[accessOp.IdentifierTemplate]; ok {
+				// we found a proper listed dependency, we can go to the next access op
+				return true
+			}
+		}
+	}
+
+	// what about parent resources
+	parentResources := accessOp.ResourceType.GetParentResources()
+	// for each of the parent resources, we need at least one to be defined in the wasmDependencies
+	for _, parentResource := range parentResources {
+		// make parent resource access with same access type
+		parentResourceAccesses := GenerateAllowedResourceAccess(parentResource, accessOp.AccessType)
+		// for each of the parent resources, we check to see if its in the lookup map (identifier doesnt matter bc parent)
+		for _, parentResourceAccess := range parentResourceAccesses {
+			if _, parentResourcePresent := lookupMap[parentResourceAccess]; parentResourcePresent {
+				// we can continue to the next access op
+				return true
+			}
+		}
+	}
+	return false
+}
+
 func (decorator SDKMessageDependencyDecorator) DispatchMsg(ctx sdk.Context, contractAddr sdk.AccAddress, contractIBCPortID string, msg wasmvmtypes.CosmosMsg) (events []sdk.Event, data [][]byte, err error) {
 	sdkMsgs, err := decorator.encoders.Encode(ctx, contractAddr, contractIBCPortID, msg)
 	if err != nil {
-		decorator.DisableWasmDependencyForContract(ctx, contractAddr)
 		return nil, nil, err
 	}
 	// get the dependencies for the contract to validate against
@@ -103,8 +130,6 @@ func (decorator SDKMessageDependencyDecorator) DispatchMsg(ctx sdk.Context, cont
 		return decorator.wrapped.DispatchMsg(ctx, contractAddr, contractIBCPortID, msg)
 	}
 	if err != nil {
-		// some other error, return error
-		decorator.DisableWasmDependencyForContract(ctx, contractAddr)
 		return nil, nil, err
 	}
 	if !wasmDependency.Enabled {
@@ -120,41 +145,8 @@ func (decorator SDKMessageDependencyDecorator) DispatchMsg(ctx sdk.Context, cont
 		// go through each access op, and check if there is a completion signal for it OR a parent
 		for _, accessOp := range accessOps {
 			// first check for our specific resource access AND identifier template
-			currResourceAccesses := GenerateAllowedResourceAccess(accessOp.ResourceType, accessOp.AccessType)
-			validResourceAccessFound := false
-			for _, currResourceAccess := range currResourceAccesses {
-				if identifierMap, ok := lookupMap[currResourceAccess]; ok {
-					if _, ok := identifierMap[accessOp.IdentifierTemplate]; ok {
-						// we found a proper listed dependency, we can go to the next access op
-						validResourceAccessFound = true
-						break
-					}
-				}
-			}
-			if validResourceAccessFound {
-				continue
-			}
-			// what about
-			parentResources := accessOp.ResourceType.GetParentResources()
-			// for each of the parent resources, we need at least one to be defined in the wasmDependencies
-			for _, parentResource := range parentResources {
-				// make parent resource access with same access type
-				parentResourceAccesses := GenerateAllowedResourceAccess(parentResource, accessOp.AccessType)
-				// for each of the parent resources, we check to see if its in the lookup map (identifier doesnt matter bc parent)
-				for _, parentResourceAccess := range parentResourceAccesses {
-					if _, parentResourcePresent := lookupMap[parentResourceAccess]; parentResourcePresent {
-						// we can continue to the next access op
-						validResourceAccessFound = true
-						break
-					}
-				}
-				if validResourceAccessFound {
-					break
-				}
-			}
-			if !validResourceAccessFound {
-				// didnt find a parent resource for the message requirements, disable wasm parallelizatiomn and disable the mapping
-				decorator.DisableWasmDependencyForContract(ctx, contractAddr)
+			depsFulfilled := AreDependenciesFulfilled(lookupMap, accessOp)
+			if !depsFulfilled {
 				return nil, nil, ErrUnexpectedWasmDependency
 			}
 		}
@@ -162,19 +154,4 @@ func (decorator SDKMessageDependencyDecorator) DispatchMsg(ctx sdk.Context, cont
 	// we've gone through all of the messages
 	// and verified their dependencies with the declared dependencies in the wasm contract dependencies, we can process it now
 	return decorator.wrapped.DispatchMsg(ctx, contractAddr, contractIBCPortID, msg)
-}
-
-func (decorator SDKMessageDependencyDecorator) DisableWasmDependencyForContract(ctx sdk.Context, contractAddr sdk.AccAddress) {
-	wasmDependency, err := decorator.aclKeeper.GetWasmDependencyMapping(ctx, contractAddr)
-	if err == aclkeeper.ErrWasmDependencyMappingNotFound {
-		return
-	}
-	if err != nil {
-		ctx.Logger().Error("Error disabling contract wasm dependency")
-	}
-	wasmDependency.Enabled = false
-	err = decorator.aclKeeper.SetWasmDependencyMapping(ctx, contractAddr, wasmDependency)
-	if err != nil {
-		ctx.Logger().Error("Error disabling contract wasm dependency")
-	}
 }

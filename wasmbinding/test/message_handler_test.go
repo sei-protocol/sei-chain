@@ -110,32 +110,7 @@ func TestMessageHandlerDependencyDecorator(t *testing.T) {
 	})
 	// we expect an error now
 	require.Error(t, wasmbinding.ErrUnexpectedWasmDependency, err)
-	// we also expect the wasm dependency to be disabled
-	deps, err := app.AccessControlKeeper.GetWasmDependencyMapping(testContext, contractAddr)
-	require.NoError(t, err)
-	require.False(t, deps.Enabled)
 
-	// since we've disabled the incorrect dependency mapping, running it again should no longer error
-	events, _, err = dependencyDecorator.DispatchMsg(testContext, contractAddr, "test", wasmvmtypes.CosmosMsg{
-		Bank: &wasmvmtypes.BankMsg{
-			Send: &wasmvmtypes.SendMsg{
-				ToAddress: "sdfasdf",
-				Amount: []wasmvmtypes.Coin{
-					{
-						Denom:  "usei",
-						Amount: "12345",
-					},
-				},
-			},
-		},
-	})
-	require.NoError(t, err)
-	require.Equal(t, []sdk.Event{
-		{
-			Type:       "test",
-			Attributes: []abci.EventAttribute{},
-		},
-	}, events)
 	// reenable wasm mapping that's correct
 	app.AccessControlKeeper.SetWasmDependencyMapping(testContext, contractAddr, accesscontrol.WasmDependencyMapping{
 		Enabled: true,
@@ -153,9 +128,4 @@ func TestMessageHandlerDependencyDecorator(t *testing.T) {
 		Custom: json.RawMessage{},
 	})
 	require.Error(t, wasmtypes.ErrUnknownMsg, err)
-	// double check that wasm dependency mapping was disabled
-	deps, err = app.AccessControlKeeper.GetWasmDependencyMapping(testContext, contractAddr)
-	require.NoError(t, err)
-	require.False(t, deps.Enabled)
-
 }

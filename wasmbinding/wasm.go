@@ -33,15 +33,13 @@ func RegisterCustomPlugins(
 	epochHandler := epochwasm.NewEpochWasmQueryHandler(epoch)
 	wasmQueryPlugin := NewQueryPlugin(oracleHandler, dexHandler, epochHandler)
 
-	queryPluginOpt := wasmkeeper.WithQueryPlugins(&wasmkeeper.QueryPlugins{
-		Custom: CustomQuerier(wasmQueryPlugin),
-	})
+	queryOpt := wasmkeeper.WithQueryHandlerDecorator(CustomQueryHandlerDecorator(aclKeeper, *wasmQueryPlugin))
 	messengerHandlerOpt := wasmkeeper.WithMessageHandler(
 		CustomMessageHandler(router, channelKeeper, capabilityKeeper, bankKeeper, unpacker, portSource, aclKeeper),
 	)
 
 	return []wasm.Option{
-		queryPluginOpt,
+		queryOpt,
 		messengerHandlerOpt,
 	}
 }
