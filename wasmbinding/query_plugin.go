@@ -66,8 +66,9 @@ func (queryHandler CustomQueryHandler) HandleQuery(ctx sdk.Context, caller sdk.A
 	if request.Bank != nil {
 		// check for BANK resource type
 		accessOp := accesscontrol.AccessOperation{
-			ResourceType: accesscontrol.ResourceType_KV_BANK,
-			AccessType:   accesscontrol.AccessType_READ,
+			ResourceType:       accesscontrol.ResourceType_KV_BANK,
+			AccessType:         accesscontrol.AccessType_READ,
+			IdentifierTemplate: "*",
 		}
 		if needToCheckDependencies {
 			if !AreDependenciesFulfilled(lookupMap, accessOp) {
@@ -93,8 +94,9 @@ func (queryHandler CustomQueryHandler) HandleQuery(ctx sdk.Context, caller sdk.A
 			resourceType = accesscontrol.ResourceType_KV_EPOCH
 		}
 		accessOp := accesscontrol.AccessOperation{
-			ResourceType: resourceType,
-			AccessType:   accesscontrol.AccessType_READ,
+			ResourceType:       resourceType,
+			AccessType:         accesscontrol.AccessType_READ,
+			IdentifierTemplate: "*",
 		}
 		if needToCheckDependencies {
 			if !AreDependenciesFulfilled(lookupMap, accessOp) {
@@ -107,8 +109,9 @@ func (queryHandler CustomQueryHandler) HandleQuery(ctx sdk.Context, caller sdk.A
 		// check for ANY resource type
 		// TODO: do we need a special resource type for IBC?
 		accessOp := accesscontrol.AccessOperation{
-			ResourceType: accesscontrol.ResourceType_ANY,
-			AccessType:   accesscontrol.AccessType_READ,
+			ResourceType:       accesscontrol.ResourceType_ANY,
+			AccessType:         accesscontrol.AccessType_READ,
+			IdentifierTemplate: "*",
 		}
 		if needToCheckDependencies {
 			if !AreDependenciesFulfilled(lookupMap, accessOp) {
@@ -120,8 +123,9 @@ func (queryHandler CustomQueryHandler) HandleQuery(ctx sdk.Context, caller sdk.A
 	if request.Staking != nil {
 		// check for STAKING resource type
 		accessOp := accesscontrol.AccessOperation{
-			ResourceType: accesscontrol.ResourceType_KV_STAKING,
-			AccessType:   accesscontrol.AccessType_READ,
+			ResourceType:       accesscontrol.ResourceType_KV_STAKING,
+			AccessType:         accesscontrol.AccessType_READ,
+			IdentifierTemplate: "*",
 		}
 		if needToCheckDependencies {
 			if !AreDependenciesFulfilled(lookupMap, accessOp) {
@@ -134,8 +138,9 @@ func (queryHandler CustomQueryHandler) HandleQuery(ctx sdk.Context, caller sdk.A
 		// check for ANY resource type
 		// TODO: determine what Stargate dependency granularity looks like
 		accessOp := accesscontrol.AccessOperation{
-			ResourceType: accesscontrol.ResourceType_ANY,
-			AccessType:   accesscontrol.AccessType_READ,
+			ResourceType:       accesscontrol.ResourceType_ANY,
+			AccessType:         accesscontrol.AccessType_READ,
+			IdentifierTemplate: "*",
 		}
 		if needToCheckDependencies {
 			if !AreDependenciesFulfilled(lookupMap, accessOp) {
@@ -147,8 +152,9 @@ func (queryHandler CustomQueryHandler) HandleQuery(ctx sdk.Context, caller sdk.A
 	if request.Wasm != nil {
 		// check for WASM resource type
 		accessOp := accesscontrol.AccessOperation{
-			ResourceType: accesscontrol.ResourceType_KV_WASM,
-			AccessType:   accesscontrol.AccessType_READ,
+			ResourceType:       accesscontrol.ResourceType_KV_WASM,
+			AccessType:         accesscontrol.AccessType_READ,
+			IdentifierTemplate: "*",
 		}
 		if needToCheckDependencies {
 			if !AreDependenciesFulfilled(lookupMap, accessOp) {
