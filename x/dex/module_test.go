@@ -26,7 +26,8 @@ const (
 	"market_order_fee":{"decimal":"0.0001","negative":false},
 	"liquidation_order_fee":{"decimal":"0.0001","negative":false},
 	"margin_ratio":{"decimal":"0.0625","negative":false},
-	"max_leverage":{"decimal":"4","negative":false},"default_base":"USDC",
+	"max_leverage":{"decimal":"4","negative":false},
+	"default_base":"USDC",
 	"native_token":"USDC","denoms": ["SEI","ATOM","USDC","SOL","ETH","OSMO","AVAX","BTC"],
 	"full_denom_mapping": [["usei","SEI","0.000001"],["uatom","ATOM","0.000001"],["uusdc","USDC","0.000001"]],
 	"funding_payment_lookback":3600,"spot_market_contract":"sei1h9yjz89tl0dl6zu65dpxcqnxfhq60wxx8s5kag",
@@ -70,6 +71,7 @@ func TestEndBlockMarketOrder(t *testing.T) {
 	if err != nil {
 		panic(err)
 	}
+
 	dexkeeper.SetContract(ctx, &types.ContractInfo{CodeId: 123, ContractAddr: contractAddr.String(), NeedHook: true, NeedOrderMatching: true})
 	dexkeeper.AddRegisteredPair(ctx, contractAddr.String(), pair)
 	// place one order to a nonexistent contract
@@ -104,7 +106,7 @@ func TestEndBlockMarketOrder(t *testing.T) {
 	dexkeeper.MemState.GetDepositInfo(ctx, utils.ContractAddress(contractAddr.String())).Add(
 		&dexcache.DepositInfoEntry{
 			Creator: testAccount.String(),
-			Denom:   "usei",
+			Denom:   "uusdc",
 			Amount:  sdk.MustNewDecFromStr("2000000"),
 		},
 	)
@@ -118,7 +120,7 @@ func TestEndBlockMarketOrder(t *testing.T) {
 	dexkeeper.MemState.Clear()
 	dexkeeper.MemState.GetBlockOrders(ctx, utils.ContractAddress(contractAddr.String()), utils.GetPairString(&pair)).Add(
 		&types.Order{
-			Id:                2,
+			Id:                3,
 			Account:           testAccount.String(),
 			ContractAddr:      contractAddr.String(),
 			Price:             sdk.MustNewDecFromStr("1"),
@@ -136,9 +138,10 @@ func TestEndBlockMarketOrder(t *testing.T) {
 
 	// Long book should be removed since it's executed
 	// No state change should've been persisted for bad contract
-	_, found = dexkeeper.GetLongBookByPrice(ctx, contractAddr.String(), sdk.MustNewDecFromStr("1"), pair.PriceDenom, pair.AssetDenom)
-	// Long book should be populated
+	_, found = dexkeeper.GetLongBookByPrice(ctx, contractAddr.String(), sdk.MustNewDecFromStr("2"), pair.PriceDenom, pair.AssetDenom)
 	require.False(t, found)
+	_, found = dexkeeper.GetLongBookByPrice(ctx, contractAddr.String(), sdk.MustNewDecFromStr("1"), pair.PriceDenom, pair.AssetDenom)
+	require.True(t, found)
 
 	matchResults, _ := dexkeeper.GetMatchResultState(ctx, contractAddr.String(), 2)
 	require.Equal(t, 1, len(matchResults.Orders))
