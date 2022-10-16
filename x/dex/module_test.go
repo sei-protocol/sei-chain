@@ -150,7 +150,7 @@ func TestEndBlockMarketOrder(t *testing.T) {
 	dexkeeper.MemState.Clear()
 	dexkeeper.MemState.GetBlockOrders(ctx, utils.ContractAddress(contractAddr.String()), utils.GetPairString(&pair)).Add(
 		&types.Order{
-			Id:                3,
+			Id:                4,
 			Account:           testAccount.String(),
 			ContractAddr:      contractAddr.String(),
 			Price:             sdk.MustNewDecFromStr("1000000"),
