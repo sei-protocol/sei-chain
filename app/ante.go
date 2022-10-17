@@ -25,7 +25,6 @@ type HandlerOptions struct {
 	WasmConfig        *wasmTypes.WasmConfig
 	OracleKeeper      *oraclekeeper.Keeper
 	DexKeeper         *dexkeeper.Keeper
-	TXCounterStoreKey sdk.StoreKey
 
 	TracingInfo *tracing.Info
 }
@@ -42,9 +41,6 @@ func NewAnteHandlerAndDepGenerator(options HandlerOptions) (sdk.AnteHandler, sdk
 	}
 	if options.WasmConfig == nil {
 		return nil, nil, sdkerrors.Wrap(sdkerrors.ErrLogic, "wasm config is required for ante builder")
-	}
-	if options.TXCounterStoreKey == nil {
-		return nil, nil, sdkerrors.Wrap(sdkerrors.ErrLogic, "tx counter key is required for ante builder")
 	}
 	if options.OracleKeeper == nil {
 		return nil, nil, sdkerrors.Wrap(sdkerrors.ErrLogic, "oracle keeper is required for ante builder")
