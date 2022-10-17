@@ -177,9 +177,15 @@ message QueryGetPriceResponse {
 }
 
 message QueryGetLatestPriceRequest {
-	string priceDenom = 1;
-	string assetDenom = 2;
-	string contractAddr = 3;
+	string priceDenom = 1 [
+		(gogoproto.jsontag) = "price_denom"
+	];
+	string assetDenom = 2 [
+		(gogoproto.jsontag) = "asset_denom"
+	];
+	string contractAddr = 3 [
+		(gogoproto.jsontag) = "contract_address"
+	];
 }
 
 message QueryGetLatestPriceResponse {
