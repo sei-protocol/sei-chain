@@ -50,11 +50,11 @@ func DefaultMessageDependencyMapping() []acltypes.MessageDependencyMapping {
 	}
 }
 
-func DefaultWasmDependencyMappings() []acltypes.WasmFunctionDependencyMapping {
-	return []acltypes.WasmFunctionDependencyMapping{}
+func DefaultWasmDependencyMappings() []acltypes.WasmDependencyMapping {
+	return []acltypes.WasmDependencyMapping{}
 }
 
-func ValidateWasmFunctionDependencyMapping(mapping acltypes.WasmFunctionDependencyMapping) error {
+func ValidateWasmDependencyMapping(mapping acltypes.WasmDependencyMapping) error {
 	lastAccessOp := mapping.AccessOps[len(mapping.AccessOps)-1]
 	if lastAccessOp.AccessType != acltypes.AccessType_COMMIT {
 		return ErrNoCommitAccessOp

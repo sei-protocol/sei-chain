@@ -1,6 +1,9 @@
 package types
 
-import "encoding/binary"
+import (
+	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/cosmos/cosmos-sdk/types/address"
+)
 
 // ResourceDependencyMappingKey is the key used for the keeper store
 var (
@@ -32,17 +35,6 @@ func GetWasmMappingKey() []byte {
 	return []byte{byte(WasmMappingKey)}
 }
 
-func GetKeyForCodeID(codeID uint64) []byte {
-	key := make([]byte, 8)
-	binary.BigEndian.PutUint64(key, codeID)
-	return key
-}
-
-func GetWasmCodeIDPrefix(codeID uint64) []byte {
-	return append(GetWasmMappingKey(), GetKeyForCodeID(codeID)...)
-}
-
-// wasmFunctionName is the top level object key in the execute JSON payload
-func GetWasmFunctionDependencyKey(codeID uint64, wasmFunctionName string) []byte {
-	return append(GetWasmCodeIDPrefix(codeID), []byte(wasmFunctionName)...)
+func GetWasmContractAddressKey(contractAddress sdk.AccAddress) []byte {
+	return append(GetWasmMappingKey(), address.MustLengthPrefix(contractAddress)...)
 }

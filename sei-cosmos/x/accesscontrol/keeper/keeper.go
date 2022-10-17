@@ -35,7 +35,7 @@ type (
 	}
 )
 
-var ErrWasmFunctionDependencyMappingNotFound = fmt.Errorf("wasm function dependency mapping not found")
+var ErrWasmDependencyMappingNotFound = fmt.Errorf("wasm dependency mapping not found")
 
 func NewKeeper(
 	cdc codec.Codec,
@@ -112,52 +112,39 @@ func (k Keeper) SetDependencyMappingDynamicFlag(ctx sdk.Context, messageKey type
 	return k.SetResourceDependencyMapping(ctx, dependencyMapping)
 }
 
-func (k Keeper) GetWasmFunctionDependencyMapping(ctx sdk.Context, codeID uint64, wasmFunction string) (acltypes.WasmFunctionDependencyMapping, error) {
+func (k Keeper) GetWasmDependencyMapping(ctx sdk.Context, contractAddress sdk.AccAddress) (acltypes.WasmDependencyMapping, error) {
 	store := ctx.KVStore(k.storeKey)
-	b := store.Get(types.GetWasmFunctionDependencyKey(codeID, wasmFunction))
+	b := store.Get(types.GetWasmContractAddressKey(contractAddress))
 	if b == nil {
-		return acltypes.WasmFunctionDependencyMapping{}, ErrWasmFunctionDependencyMappingNotFound
+		return acltypes.WasmDependencyMapping{}, ErrWasmDependencyMappingNotFound
 	}
-	dependencyMapping := acltypes.WasmFunctionDependencyMapping{}
+	dependencyMapping := acltypes.WasmDependencyMapping{}
 	k.cdc.MustUnmarshal(b, &dependencyMapping)
 	return dependencyMapping, nil
 }
 
-func (k Keeper) SetWasmFunctionDependencyMapping(
+func (k Keeper) SetWasmDependencyMapping(
 	ctx sdk.Context,
-	codeID uint64,
-	dependencyMapping acltypes.WasmFunctionDependencyMapping,
+	contractAddress sdk.AccAddress,
+	dependencyMapping acltypes.WasmDependencyMapping,
 ) error {
-	err := types.ValidateWasmFunctionDependencyMapping(dependencyMapping)
+	err := types.ValidateWasmDependencyMapping(dependencyMapping)
 	if err != nil {
 		return err
 	}
 	store := ctx.KVStore(k.storeKey)
 	b := k.cdc.MustMarshal(&dependencyMapping)
-	resourceKey := types.GetWasmFunctionDependencyKey(codeID, dependencyMapping.WasmFunction)
+	resourceKey := types.GetWasmContractAddressKey(contractAddress)
 	store.Set(resourceKey, b)
 	return nil
 }
 
-func (k Keeper) IterateWasmDependenciesForCodeID(ctx sdk.Context, codeID uint64, handler func(wasmDependencyMapping acltypes.WasmFunctionDependencyMapping) (stop bool)) {
-	store := ctx.KVStore(k.storeKey)
-	iter := sdk.KVStorePrefixIterator(store, types.GetKeyForCodeID(codeID))
-	defer iter.Close()
-	for ; iter.Valid(); iter.Next() {
-		dependencyMapping := acltypes.WasmFunctionDependencyMapping{}
-		k.cdc.MustUnmarshal(iter.Value(), &dependencyMapping)
-		if handler(dependencyMapping) {
-			break
-		}
-	}
-}
-
-func (k Keeper) IterateWasmDependencies(ctx sdk.Context, handler func(wasmDependencyMapping acltypes.WasmFunctionDependencyMapping) (stop bool)) {
+func (k Keeper) IterateWasmDependencies(ctx sdk.Context, handler func(wasmDependencyMapping acltypes.WasmDependencyMapping) (stop bool)) {
 	store := ctx.KVStore(k.storeKey)
 	iter := sdk.KVStorePrefixIterator(store, types.GetWasmMappingKey())
 	defer iter.Close()
 	for ; iter.Valid(); iter.Next() {
-		dependencyMapping := acltypes.WasmFunctionDependencyMapping{}
+		dependencyMapping := acltypes.WasmDependencyMapping{}
 		k.cdc.MustUnmarshal(iter.Value(), &dependencyMapping)
 		if handler(dependencyMapping) {
 			break

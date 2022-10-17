@@ -12,8 +12,14 @@ enum AccessType {
 
 enum ResourceType {
     ANY = 0;
-    KV = 1;
-    Mem = 2;
-    DexMem = 3;
+    KV = 1; // child of ANY
+    Mem = 2; // child of ANY
+    DexMem = 3; // child of MEM
+    KV_BANK = 4; // child of KV
+    KV_STAKING = 5; // child of KV
+    KV_WASM = 6; // child of KV
+    KV_ORACLE = 7; // child of KV
+    KV_DEX = 8; // child of KV
+    KV_EPOCH = 9; // child of KV
 }
 

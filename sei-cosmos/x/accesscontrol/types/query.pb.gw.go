@@ -123,8 +123,8 @@ func local_request_Query_ListResourceDependencyMapping_0(ctx context.Context, ma
 
 }
 
-func request_Query_WasmFunctionDependencyMapping_0(ctx context.Context, marshaler runtime.Marshaler, client QueryClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
-	var protoReq WasmFunctionDependencyMappingRequest
+func request_Query_WasmDependencyMapping_0(ctx context.Context, marshaler runtime.Marshaler, client QueryClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+	var protoReq WasmDependencyMappingRequest
 	var metadata runtime.ServerMetadata
 
 	var (
@@ -134,35 +134,24 @@ func request_Query_WasmFunctionDependencyMapping_0(ctx context.Context, marshale
 		_   = err
 	)
 
-	val, ok = pathParams["code_id"]
+	val, ok = pathParams["contract_address"]
 	if !ok {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "code_id")
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "contract_address")
 	}
 
-	protoReq.CodeId, err = runtime.Uint64(val)
+	protoReq.ContractAddress, err = runtime.String(val)
 
 	if err != nil {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "code_id", err)
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "contract_address", err)
 	}
 
-	val, ok = pathParams["wasm_function"]
-	if !ok {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "wasm_function")
-	}
-
-	protoReq.WasmFunction, err = runtime.String(val)
-
-	if err != nil {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "wasm_function", err)
-	}
-
-	msg, err := client.WasmFunctionDependencyMapping(ctx, &protoReq, grpc.Header(&metadata.HeaderMD), grpc.Trailer(&metadata.TrailerMD))
+	msg, err := client.WasmDependencyMapping(ctx, &protoReq, grpc.Header(&metadata.HeaderMD), grpc.Trailer(&metadata.TrailerMD))
 	return msg, metadata, err
 
 }
 
-func local_request_Query_WasmFunctionDependencyMapping_0(ctx context.Context, marshaler runtime.Marshaler, server QueryServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
-	var protoReq WasmFunctionDependencyMappingRequest
+func local_request_Query_WasmDependencyMapping_0(ctx context.Context, marshaler runtime.Marshaler, server QueryServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+	var protoReq WasmDependencyMappingRequest
 	var metadata runtime.ServerMetadata
 
 	var (
@@ -172,47 +161,36 @@ func local_request_Query_WasmFunctionDependencyMapping_0(ctx context.Context, ma
 		_   = err
 	)
 
-	val, ok = pathParams["code_id"]
+	val, ok = pathParams["contract_address"]
 	if !ok {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "code_id")
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "contract_address")
 	}
 
-	protoReq.CodeId, err = runtime.Uint64(val)
+	protoReq.ContractAddress, err = runtime.String(val)
 
 	if err != nil {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "code_id", err)
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "contract_address", err)
 	}
 
-	val, ok = pathParams["wasm_function"]
-	if !ok {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "wasm_function")
-	}
-
-	protoReq.WasmFunction, err = runtime.String(val)
-
-	if err != nil {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "wasm_function", err)
-	}
-
-	msg, err := server.WasmFunctionDependencyMapping(ctx, &protoReq)
+	msg, err := server.WasmDependencyMapping(ctx, &protoReq)
 	return msg, metadata, err
 
 }
 
-func request_Query_ListWasmFunctionDependencyMapping_0(ctx context.Context, marshaler runtime.Marshaler, client QueryClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
-	var protoReq ListWasmFunctionDependencyMappingRequest
+func request_Query_ListWasmDependencyMapping_0(ctx context.Context, marshaler runtime.Marshaler, client QueryClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+	var protoReq ListWasmDependencyMappingRequest
 	var metadata runtime.ServerMetadata
 
-	msg, err := client.ListWasmFunctionDependencyMapping(ctx, &protoReq, grpc.Header(&metadata.HeaderMD), grpc.Trailer(&metadata.TrailerMD))
+	msg, err := client.ListWasmDependencyMapping(ctx, &protoReq, grpc.Header(&metadata.HeaderMD), grpc.Trailer(&metadata.TrailerMD))
 	return msg, metadata, err
 
 }
 
-func local_request_Query_ListWasmFunctionDependencyMapping_0(ctx context.Context, marshaler runtime.Marshaler, server QueryServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
-	var protoReq ListWasmFunctionDependencyMappingRequest
+func local_request_Query_ListWasmDependencyMapping_0(ctx context.Context, marshaler runtime.Marshaler, server QueryServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+	var protoReq ListWasmDependencyMappingRequest
 	var metadata runtime.ServerMetadata
 
-	msg, err := server.ListWasmFunctionDependencyMapping(ctx, &protoReq)
+	msg, err := server.ListWasmDependencyMapping(ctx, &protoReq)
 	return msg, metadata, err
 
 }
@@ -292,7 +270,7 @@ func RegisterQueryHandlerServer(ctx context.Context, mux *runtime.ServeMux, serv
 
 	})
 
-	mux.Handle("GET", pattern_Query_WasmFunctionDependencyMapping_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+	mux.Handle("GET", pattern_Query_WasmDependencyMapping_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		var stream runtime.ServerTransportStream
@@ -303,7 +281,7 @@ func RegisterQueryHandlerServer(ctx context.Context, mux *runtime.ServeMux, serv
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		resp, md, err := local_request_Query_WasmFunctionDependencyMapping_0(rctx, inboundMarshaler, server, req, pathParams)
+		resp, md, err := local_request_Query_WasmDependencyMapping_0(rctx, inboundMarshaler, server, req, pathParams)
 		md.HeaderMD, md.TrailerMD = metadata.Join(md.HeaderMD, stream.Header()), metadata.Join(md.TrailerMD, stream.Trailer())
 		ctx = runtime.NewServerMetadataContext(ctx, md)
 		if err != nil {
@@ -311,11 +289,11 @@ func RegisterQueryHandlerServer(ctx context.Context, mux *runtime.ServeMux, serv
 			return
 		}
 
-		forward_Query_WasmFunctionDependencyMapping_0(ctx, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+		forward_Query_WasmDependencyMapping_0(ctx, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
 
 	})
 
-	mux.Handle("GET", pattern_Query_ListWasmFunctionDependencyMapping_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+	mux.Handle("GET", pattern_Query_ListWasmDependencyMapping_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		var stream runtime.ServerTransportStream
@@ -326,7 +304,7 @@ func RegisterQueryHandlerServer(ctx context.Context, mux *runtime.ServeMux, serv
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		resp, md, err := local_request_Query_ListWasmFunctionDependencyMapping_0(rctx, inboundMarshaler, server, req, pathParams)
+		resp, md, err := local_request_Query_ListWasmDependencyMapping_0(rctx, inboundMarshaler, server, req, pathParams)
 		md.HeaderMD, md.TrailerMD = metadata.Join(md.HeaderMD, stream.Header()), metadata.Join(md.TrailerMD, stream.Trailer())
 		ctx = runtime.NewServerMetadataContext(ctx, md)
 		if err != nil {
@@ -334,7 +312,7 @@ func RegisterQueryHandlerServer(ctx context.Context, mux *runtime.ServeMux, serv
 			return
 		}
 
-		forward_Query_ListWasmFunctionDependencyMapping_0(ctx, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+		forward_Query_ListWasmDependencyMapping_0(ctx, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
 
 	})
 
@@ -439,7 +417,7 @@ func RegisterQueryHandlerClient(ctx context.Context, mux *runtime.ServeMux, clie
 
 	})
 
-	mux.Handle("GET", pattern_Query_WasmFunctionDependencyMapping_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+	mux.Handle("GET", pattern_Query_WasmDependencyMapping_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
@@ -448,18 +426,18 @@ func RegisterQueryHandlerClient(ctx context.Context, mux *runtime.ServeMux, clie
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		resp, md, err := request_Query_WasmFunctionDependencyMapping_0(rctx, inboundMarshaler, client, req, pathParams)
+		resp, md, err := request_Query_WasmDependencyMapping_0(rctx, inboundMarshaler, client, req, pathParams)
 		ctx = runtime.NewServerMetadataContext(ctx, md)
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
 		}
 
-		forward_Query_WasmFunctionDependencyMapping_0(ctx, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+		forward_Query_WasmDependencyMapping_0(ctx, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
 
 	})
 
-	mux.Handle("GET", pattern_Query_ListWasmFunctionDependencyMapping_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+	mux.Handle("GET", pattern_Query_ListWasmDependencyMapping_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
@@ -468,14 +446,14 @@ func RegisterQueryHandlerClient(ctx context.Context, mux *runtime.ServeMux, clie
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		resp, md, err := request_Query_ListWasmFunctionDependencyMapping_0(rctx, inboundMarshaler, client, req, pathParams)
+		resp, md, err := request_Query_ListWasmDependencyMapping_0(rctx, inboundMarshaler, client, req, pathParams)
 		ctx = runtime.NewServerMetadataContext(ctx, md)
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
 		}
 
-		forward_Query_ListWasmFunctionDependencyMapping_0(ctx, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+		forward_Query_ListWasmDependencyMapping_0(ctx, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
 
 	})
 
@@ -489,9 +467,9 @@ var (
 
 	pattern_Query_ListResourceDependencyMapping_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3}, []string{"cosmos", "cosmos-sdk", "accesscontrol", "list_resource_dependency_mapping"}, "", runtime.AssumeColonVerbOpt(false)))
 
-	pattern_Query_WasmFunctionDependencyMapping_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3, 1, 0, 4, 1, 5, 4, 1, 0, 4, 1, 5, 5}, []string{"cosmos", "cosmos-sdk", "accesscontrol", "wasm_function_dependency_mapping", "code_id", "wasm_function"}, "", runtime.AssumeColonVerbOpt(false)))
+	pattern_Query_WasmDependencyMapping_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3, 1, 0, 4, 1, 5, 4}, []string{"cosmos", "cosmos-sdk", "accesscontrol", "wasm_dependency_mapping", "contract_address"}, "", runtime.AssumeColonVerbOpt(false)))
 
-	pattern_Query_ListWasmFunctionDependencyMapping_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3}, []string{"cosmos", "cosmos-sdk", "accesscontrol", "list_wasm_function_dependency_mapping"}, "", runtime.AssumeColonVerbOpt(false)))
+	pattern_Query_ListWasmDependencyMapping_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3}, []string{"cosmos", "cosmos-sdk", "accesscontrol", "list_wasm_dependency_mapping"}, "", runtime.AssumeColonVerbOpt(false)))
 )
 
 var (
@@ -501,7 +479,7 @@ var (
 
 	forward_Query_ListResourceDependencyMapping_0 = runtime.ForwardResponseMessage
 
-	forward_Query_WasmFunctionDependencyMapping_0 = runtime.ForwardResponseMessage
+	forward_Query_WasmDependencyMapping_0 = runtime.ForwardResponseMessage
 
-	forward_Query_ListWasmFunctionDependencyMapping_0 = runtime.ForwardResponseMessage
+	forward_Query_ListWasmDependencyMapping_0 = runtime.ForwardResponseMessage
 )

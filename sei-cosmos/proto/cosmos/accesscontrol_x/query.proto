@@ -27,16 +27,16 @@ service Query {
         "/cosmos/cosmos-sdk/accesscontrol/list_resource_dependency_mapping";
   }
 
-  rpc WasmFunctionDependencyMapping(WasmFunctionDependencyMappingRequest)
-    returns (WasmFunctionDependencyMappingResponse) {
+  rpc WasmDependencyMapping(WasmDependencyMappingRequest)
+    returns (WasmDependencyMappingResponse) {
   option (google.api.http).get =
-      "/cosmos/cosmos-sdk/accesscontrol/wasm_function_dependency_mapping/{code_id}/{wasm_function}";
+      "/cosmos/cosmos-sdk/accesscontrol/wasm_dependency_mapping/{contract_address}";
   }
 
-  rpc ListWasmFunctionDependencyMapping(ListWasmFunctionDependencyMappingRequest)
-    returns (ListWasmFunctionDependencyMappingResponse) {
+  rpc ListWasmDependencyMapping(ListWasmDependencyMappingRequest)
+    returns (ListWasmDependencyMappingResponse) {
   option (google.api.http).get =
-      "/cosmos/cosmos-sdk/accesscontrol/list_wasm_function_dependency_mapping";
+      "/cosmos/cosmos-sdk/accesscontrol/list_wasm_dependency_mapping";
   }
 }
 
@@ -60,15 +60,14 @@ message ResourceDependencyMappingFromMessageKeyResponse {
     ];
 }
 
-message WasmFunctionDependencyMappingRequest {
-  uint64 code_id = 1 [ (gogoproto.moretags) = "yaml:\"code_id\"" ];
-  string wasm_function = 2 [ (gogoproto.moretags) = "yaml:\"wasm_function\"" ];
+message WasmDependencyMappingRequest {
+  string contract_address = 1 [ (gogoproto.moretags) = "yaml:\"contract_address\"" ];
 }
 
-message WasmFunctionDependencyMappingResponse {
-    cosmos.accesscontrol.v1beta1.WasmFunctionDependencyMapping wasm_function_dependency_mapping = 1 [
+message WasmDependencyMappingResponse {
+    cosmos.accesscontrol.v1beta1.WasmDependencyMapping wasm_dependency_mapping = 1 [
         (gogoproto.nullable) = false,
-        (gogoproto.moretags) = "yaml:\"wasm_function_dependency_mapping\""
+        (gogoproto.moretags) = "yaml:\"wasm_dependency_mapping\""
     ];
 }
 
@@ -82,11 +81,11 @@ message ListResourceDependencyMappingResponse {
     ];
 }
 
-message ListWasmFunctionDependencyMappingRequest {}
+message ListWasmDependencyMappingRequest {}
 
-message ListWasmFunctionDependencyMappingResponse {
-    repeated cosmos.accesscontrol.v1beta1.WasmFunctionDependencyMapping wasm_function_dependency_mapping_list = 1 [
+message ListWasmDependencyMappingResponse {
+    repeated cosmos.accesscontrol.v1beta1.WasmDependencyMapping wasm_dependency_mapping_list = 1 [
         (gogoproto.nullable) = false,
-        (gogoproto.moretags) = "yaml:\"wasm_function_dependency_mapping_list\""
+        (gogoproto.moretags) = "yaml:\"wasm_dependency_mapping_list\""
     ];
 }
