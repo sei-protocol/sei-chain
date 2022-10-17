@@ -16,10 +16,13 @@ func WaitForAllSignalsForTx(messageIndexToAccessOpsChannelMapping MessageAccessO
 	}
 }
 
-func SendAllSignalsForMsg(accessOpsChannelMapping AccessOpsChannelMapping) {
-	for _, channels := range accessOpsChannelMapping {
-		for _, channel := range channels {
-			channel <- struct{}{}
+func SendAllSignalsForTx(messageIndexToAccessOpsChannelMapping MessageAccessOpsChannelMapping) {
+	for _, accessOpsToChannelsMap  := range messageIndexToAccessOpsChannelMapping {
+		for _, channels := range accessOpsToChannelsMap {
+			for _, channel := range channels {
+				channel <- struct{}{}
+			}
 		}
 	}
 }
+

@@ -657,7 +657,9 @@ func (app *BaseApp) cacheTxContext(ctx sdk.Context, txBytes []byte) (sdk.Context
 func (app *BaseApp) runTx(ctx sdk.Context, mode runTxMode, txBytes []byte) (gInfo sdk.GasInfo, result *sdk.Result, anteEvents []abci.Event, priority int64, err error) {
 	// Wait for signals to complete before starting the transaction. This is needed before any of the
 	// resources are acceessed by the ante handlers and message handlers.
-	// TODO(bweng):: add unit tests to enforce this
+
+	// TODO:: Make this more granular by moving antehandler and messagehandler
+	defer acltypes.SendAllSignalsForTx(ctx.TxCompletionChannels())
 	acltypes.WaitForAllSignalsForTx(ctx.TxBlockingChannels())
 
 	// NOTE: GasWanted should be returned by the AnteHandler. GasUsed is
@@ -677,7 +679,6 @@ func (app *BaseApp) runTx(ctx sdk.Context, mode runTxMode, txBytes []byte) (gInf
 			recoveryMW := newOutOfGasRecoveryMiddleware(gasWanted, ctx, app.runTxRecoveryMiddleware)
 			err, result = processRecovery(r, recoveryMW), nil
 		}
-
 		gInfo = sdk.GasInfo{GasWanted: gasWanted, GasUsed: ctx.GasMeter().GasConsumed()}
 	}()
 
@@ -736,6 +737,11 @@ func (app *BaseApp) runTx(ctx sdk.Context, mode runTxMode, txBytes []byte) (gInf
 			// Also, in the case of the tx aborting, we need to track gas consumed via
 			// the instantiated gas meter in the AnteHandler, so we update the context
 			// prior to returning.
+			//
+			// This also replaces the GasMeter in the context where GasUsed was initalized 0
+			// and updated with gas consumed in the ante handler runs
+			// The GasMeter is a pointer and its passed to the RunMsg and tracks the consumed
+			// gas there too.
 			ctx = newCtx.WithMultiStore(ms)
 		}
 
@@ -743,7 +749,6 @@ func (app *BaseApp) runTx(ctx sdk.Context, mode runTxMode, txBytes []byte) (gInf
 
 		// GasMeter expected to be set in AnteHandler
 		gasWanted = ctx.GasMeter().Limit()
-
 		if err != nil {
 			return gInfo, nil, nil, 0, err
 		}
@@ -776,17 +781,6 @@ func (app *BaseApp) runTx(ctx sdk.Context, mode runTxMode, txBytes []byte) (gInf
 	}
 
 	return gInfo, result, anteEvents, priority, err
-}
-
-// Waits for all dependent concurrent resource access operations to complete before handling
-// message. Defers completion signal to the end of the method once the real handler is called
-func wrappedHandler(ctx sdk.Context, msg sdk.Msg, handler sdk.Handler) (*sdk.Result, error) {
-	messageIndex := ctx.MessageIndex()
-
-	// Defer sending completion channels to the end of the message
-	defer acltypes.SendAllSignalsForMsg(ctx.TxCompletionChannels()[messageIndex])
-
-	return handler(ctx, msg)
 }
 
 // runMsgs iterates through a list of messages and executes them with the provided
@@ -823,7 +817,7 @@ func (app *BaseApp) runMsgs(ctx sdk.Context, msgs []sdk.Msg, mode runTxMode) (*s
 		if handler := app.msgServiceRouter.Handler(msg); handler != nil {
 			ctx = ctx.WithMessageIndex(i)
 			// ADR 031 request type routing
-			msgResult, err = wrappedHandler(ctx, msg, handler)
+			msgResult, err = handler(ctx, msg)
 			eventMsgName = sdk.MsgTypeURL(msg)
 		} else if legacyMsg, ok := msg.(legacytx.LegacyMsg); ok {
 			// legacy sdk.Msg routing

@@ -1,10 +1,13 @@
 package ante
 
 import (
+	"fmt"
+
 	"github.com/cosmos/cosmos-sdk/codec/legacy"
 	"github.com/cosmos/cosmos-sdk/crypto/keys/multisig"
 	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	sdkacltypes "github.com/cosmos/cosmos-sdk/types/accesscontrol"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	"github.com/cosmos/cosmos-sdk/types/tx/signing"
 	"github.com/cosmos/cosmos-sdk/x/auth/legacy/legacytx"
@@ -79,10 +82,24 @@ type ConsumeTxSizeGasDecorator struct {
 	ak AccountKeeper
 }
 
-func NewConsumeGasForTxSizeDecorator(ak AccountKeeper) ConsumeTxSizeGasDecorator {
-	return ConsumeTxSizeGasDecorator{
-		ak: ak,
+func (d ConsumeTxSizeGasDecorator) AnteDeps(txDeps []sdkacltypes.AccessOperation, tx sdk.Tx, next sdk.AnteDepGenerator) (newTxDeps []sdkacltypes.AccessOperation, err error) {
+	sigTx, _ := tx.(authsigning.SigVerifiableTx)
+	deps := []sdkacltypes.AccessOperation{}
+	for _, signer := range sigTx.GetSigners() {
+		deps = append(deps,
+			sdkacltypes.AccessOperation{
+				AccessType:         sdkacltypes.AccessType_WRITE,
+				ResourceType:       sdkacltypes.ResourceType_KV,
+				IdentifierTemplate:  signer.String(),
+			},
+		)
+
 	}
+	return next(append(txDeps, deps...), tx)
+}
+
+func NewConsumeGasForTxSizeDecorator(ak AccountKeeper) ConsumeTxSizeGasDecorator {
+	return ConsumeTxSizeGasDecorator{ak: ak}
 }
 
 func (cgts ConsumeTxSizeGasDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool, next sdk.AnteHandler) (sdk.Context, error) {
@@ -92,7 +109,7 @@ func (cgts ConsumeTxSizeGasDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, sim
 	}
 	params := cgts.ak.GetParams(ctx)
 
-	ctx.GasMeter().ConsumeGas(params.TxSizeCostPerByte*sdk.Gas(len(ctx.TxBytes())), "txSize")
+	ctx.GasMeter().ConsumeGas(params.TxSizeCostPerByte*sdk.Gas(len(ctx.TxBytes())), "ConsumeTxSizeGasDecoratorAnteHandle")
 
 	// simulate gas cost for signatures in simulate mode
 	if simulate {
@@ -135,7 +152,7 @@ func (cgts ConsumeTxSizeGasDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, sim
 				cost *= params.TxSigLimit
 			}
 
-			ctx.GasMeter().ConsumeGas(params.TxSizeCostPerByte*cost, "txSize")
+			ctx.GasMeter().ConsumeGas(params.TxSizeCostPerByte*cost, fmt.Sprintf("txSizeSigners_%d", i))
 		}
 	}
 
