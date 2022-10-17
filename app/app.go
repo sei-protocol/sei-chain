@@ -1001,6 +1001,14 @@ type ChannelResult struct {
 	result  *abci.ExecTxResult
 }
 
+// cacheContext returns a new context based off of the provided context with
+// a branched multi-store.
+func (app *App) CacheContext(ctx sdk.Context) (sdk.Context, sdk.CacheMultiStore) {
+	ms := ctx.MultiStore()
+	msCache := ms.CacheMultiStore()
+	return ctx.WithMultiStore(msCache), msCache
+}
+
 func (app *App) ProcessTxConcurrent(
 	ctx sdk.Context,
 	txIndex int,
@@ -1121,7 +1129,15 @@ func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequ
 	switch err {
 	case nil:
 		// Only run concurrently if no error
-		txResults = app.ProcessBlockConcurrent(ctx, txs, dependencyDag.CompletionSignalingMap, dependencyDag.BlockingSignalsMap)
+		// Branch off the current context and pass a cached context to the concurrent delivered TXs that are shared.
+		// runTx will write to this ephermeral CacheMultiStore, after the process block is done, Write() is called on this
+		// CacheMultiStore where it writes the data to the parent store (DeliverState) in sorted Key order to maintain
+		// deterministic ordering between validators in the case of concurrent deliverTXs
+		processBlockCtx, processBlockCache := app.CacheContext(ctx)
+		txResults = app.ProcessBlockConcurrent(processBlockCtx, txs, dependencyDag.CompletionSignalingMap, dependencyDag.BlockingSignalsMap)
+		// Write the results back to the concurrent contexts
+		ctx.Logger().Info("ProcessBlock:Writing processBlockCtx")
+		processBlockCache.Write()
 	case acltypes.ErrGovMsgInBlock:
 		ctx.Logger().Info(fmt.Sprintf("Gov msg found while building DAG, processing synchronously: %s", err))
 		txResults = app.ProcessBlockSynchronous(ctx, txs)
