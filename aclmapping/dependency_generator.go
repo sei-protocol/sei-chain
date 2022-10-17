@@ -7,8 +7,7 @@ import (
 	aclwasmmapping "github.com/sei-protocol/sei-chain/aclmapping/wasm"
 )
 
-type CustomDependencyGenerator struct {
-}
+type CustomDependencyGenerator struct{}
 
 func NewCustomDependencyGenerator() CustomDependencyGenerator {
 	return CustomDependencyGenerator{}
