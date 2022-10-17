@@ -45,9 +45,6 @@ func NewAnteHandlerAndDepGenerator(options HandlerOptions) (sdk.AnteHandler, sdk
 	if options.WasmConfig == nil {
 		return nil, nil, sdkerrors.Wrap(sdkerrors.ErrLogic, "wasm config is required for ante builder")
 	}
-	if options.TXCounterStoreKey == nil {
-		return nil, nil, sdkerrors.Wrap(sdkerrors.ErrLogic, "tx counter key is required for ante builder")
-	}
 	if options.OracleKeeper == nil {
 		return nil, nil, sdkerrors.Wrap(sdkerrors.ErrLogic, "oracle keeper is required for ante builder")
 	}
@@ -74,8 +71,8 @@ func NewAnteHandlerAndDepGenerator(options HandlerOptions) (sdk.AnteHandler, sdk
 	anteDecorators := []sdk.AnteFullDecorator{
 		sdk.DefaultWrappedAnteDecorator(ante.NewSetUpContextDecorator()), // outermost AnteDecorator. SetUpContext must be called first
 		// TODO: have dex antehandler separate, and then call the individual antehandlers FROM the gasless antehandler decorator wrapper
+		sdk.DefaultWrappedAnteDecorator(antedecorators.NewGaslessDecorator([]sdk.AnteDecorator{}, *options.OracleKeeper, *options.NitroKeeper)),
 		sdk.DefaultWrappedAnteDecorator(wasmkeeper.NewLimitSimulationGasDecorator(options.WasmConfig.SimulationGasLimit)), // after setup context to enforce limits early
-		sdk.DefaultWrappedAnteDecorator(wasmkeeper.NewCountTXDecorator(options.TXCounterStoreKey)),
 		sdk.DefaultWrappedAnteDecorator(ante.NewRejectExtensionOptionsDecorator()),
 		sdk.DefaultWrappedAnteDecorator(oracle.NewSpammingPreventionDecorator(*options.OracleKeeper)),
 		sdk.DefaultWrappedAnteDecorator(ante.NewValidateBasicDecorator()),
