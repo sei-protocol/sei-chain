@@ -986,7 +986,9 @@ func (app *App) ProcessTxConcurrent(
 	ctx = ctx.WithTxCompletionChannels(getChannelsFromSignalMapping(txCompletionSignalingMap))
 
 	// Deliver the transaction and store the result in the channel
+
 	resultChan <- ChannelResult{txIndex, app.DeliverTxWithResult(ctx, txBytes)}
+	ctx.Logger().Info(fmt.Sprintf("Processed TxIndex=%d", txIndex))
 	metrics.IncrTxProcessTypeCounter(metrics.CONCURRENT)
 }
 
@@ -1007,6 +1009,7 @@ func (app *App) ProcessBlockConcurrent(
 		return txResults
 	}
 
+	ctx.Logger().Info(fmt.Sprintf("Processing Tx Count=%d", len(txs)))
 	// For each transaction, start goroutine and deliver TX
 	for txIndex, txBytes := range txs {
 		waitGroup.Add(1)
@@ -1032,6 +1035,7 @@ func (app *App) ProcessBlockConcurrent(
 	// Gather Results and store it based on txIndex and read results from channel
 	// Concurrent results may be in different order than the original txIndex
 	txResultsMap := map[int]*abci.ExecTxResult{}
+	ctx.Logger().Info("Waiting for TXs to return")
 	for result := range resultChan {
 		txResultsMap[result.txIndex] = result.result
 	}
@@ -1086,6 +1090,7 @@ func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequ
 	// app.batchVerifier.VerifyTxs(ctx, typedTxs)
 
 	dependencyDag, err := app.AccessControlKeeper.BuildDependencyDag(ctx, app.txDecoder, app.GetAnteDepGenerator(), txs)
+
 	var txResults []*abci.ExecTxResult
 
 	switch err {
@@ -1097,8 +1102,8 @@ func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequ
 		// deterministic ordering between validators in the case of concurrent deliverTXs
 		processBlockCtx, processBlockCache := app.CacheContext(ctx)
 		txResults = app.ProcessBlockConcurrent(processBlockCtx, txs, dependencyDag.CompletionSignalingMap, dependencyDag.BlockingSignalsMap)
+		// Finalize all Bank Module Transfers here so that events are included
 		// Write the results back to the concurrent contexts
-		ctx.Logger().Info("ProcessBlock:Writing processBlockCtx")
 		processBlockCache.Write()
 	case acltypes.ErrGovMsgInBlock:
 		ctx.Logger().Info(fmt.Sprintf("Gov msg found while building DAG, processing synchronously: %s", err))
@@ -1110,9 +1115,14 @@ func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequ
 		metrics.IncrDagBuildErrorCounter(metrics.FailedToBuild)
 	}
 
+	lazyWriteEvents := app.BankKeeper.WriteLazyDepositsToModuleAccounts(ctx)
+
+	events = append(events, lazyWriteEvents...)
+
 	endBlockResp := app.EndBlock(ctx, abci.RequestEndBlock{
 		Height: req.GetHeight(),
 	})
+
 	events = append(events, endBlockResp.Events...)
 
 	return events, txResults, endBlockResp, nil

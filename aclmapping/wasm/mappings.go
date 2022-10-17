@@ -47,8 +47,6 @@ func (wasmDepGen WasmDependencyGenerator) WasmExecuteContractGenerator(keeper ac
 	if err != nil {
 		return []sdkacltypes.AccessOperation{}, err
 	}
-	contractInfo := wasmDepGen.WasmKeeper.GetContractInfo(ctx, contractAddr)
-	codeID := contractInfo.CodeID
 
 	jsonObj := make(map[string]interface{})
 	jsonErr := json.Unmarshal(executeContractMsg.Msg, &jsonObj)
@@ -68,7 +66,7 @@ func (wasmDepGen WasmDependencyGenerator) WasmExecuteContractGenerator(keeper ac
 			wasmFunction = fieldName
 		}
 	}
-	wasmDependencyMapping, err := keeper.GetWasmFunctionDependencyMapping(ctx, codeID, wasmFunction)
+	wasmDependencyMapping, err := keeper.GetWasmDependencyMapping(ctx, contractAddr)
 	if err != nil {
 		return []sdkacltypes.AccessOperation{}, err
 	}
