@@ -112,3 +112,61 @@ func ListResourceDependencyMapping() *cobra.Command {
 
 	return cmd
 }
+
+func GetWasmDependencyMapping() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "wasm-dependency-mapping [contractAddr] [flags]",
+		Short: "Get the wasm contract dependency mapping for a specific contract address",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			clientCtx, err := client.GetClientQueryContext(cmd)
+			if err != nil {
+				return err
+			}
+			queryClient := types.NewQueryClient(clientCtx)
+
+			res, err := queryClient.WasmDependencyMapping(
+				cmd.Context(),
+				&types.WasmDependencyMappingRequest{ContractAddress: args[0]},
+			)
+			if err != nil {
+				return err
+			}
+
+			return clientCtx.PrintProto(res)
+		},
+	}
+
+	flags.AddQueryFlagsToCmd(cmd)
+
+	return cmd
+}
+
+func ListWasmDependencyMapping() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "list-wasm-dependency-mapping [flags]",
+		Short: "List all wasm contract dependency mappings",
+		Args:  cobra.ExactArgs(0),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			clientCtx, err := client.GetClientQueryContext(cmd)
+			if err != nil {
+				return err
+			}
+			queryClient := types.NewQueryClient(clientCtx)
+
+			res, err := queryClient.ListWasmDependencyMapping(
+				cmd.Context(),
+				&types.ListWasmDependencyMappingRequest{},
+			)
+			if err != nil {
+				return err
+			}
+
+			return clientCtx.PrintProto(res)
+		},
+	}
+
+	flags.AddQueryFlagsToCmd(cmd)
+
+	return cmd
+}
