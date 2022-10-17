@@ -16,8 +16,7 @@ var (
 	ErrWasmFunctionDependenciesDisabled = fmt.Errorf("wasm function dependency mapping disabled")
 )
 
-type WasmDependencyGenerator struct {
-}
+type WasmDependencyGenerator struct{}
 
 func NewWasmDependencyGenerator() WasmDependencyGenerator {
 	return WasmDependencyGenerator{}
