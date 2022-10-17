@@ -742,12 +742,11 @@ func New(
 				SigGasConsumer:  ante.DefaultSigVerificationGasConsumer,
 				// BatchVerifier:   app.batchVerifier,
 			},
-			IBCKeeper:         app.IBCKeeper,
-			TXCounterStoreKey: keys[wasm.StoreKey],
-			WasmConfig:        &wasmConfig,
-			OracleKeeper:      &app.OracleKeeper,
-			DexKeeper:         &app.DexKeeper,
-			TracingInfo:       app.tracingInfo,
+			IBCKeeper:    app.IBCKeeper,
+			WasmConfig:   &wasmConfig,
+			OracleKeeper: &app.OracleKeeper,
+			DexKeeper:    &app.DexKeeper,
+			TracingInfo:  app.tracingInfo,
 		},
 	)
 	if err != nil {
