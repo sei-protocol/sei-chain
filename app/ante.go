@@ -21,10 +21,10 @@ import (
 type HandlerOptions struct {
 	ante.HandlerOptions
 
-	IBCKeeper         *ibckeeper.Keeper
-	WasmConfig        *wasmTypes.WasmConfig
-	OracleKeeper      *oraclekeeper.Keeper
-	DexKeeper         *dexkeeper.Keeper
+	IBCKeeper    *ibckeeper.Keeper
+	WasmConfig   *wasmTypes.WasmConfig
+	OracleKeeper *oraclekeeper.Keeper
+	DexKeeper    *dexkeeper.Keeper
 
 	TracingInfo *tracing.Info
 }
