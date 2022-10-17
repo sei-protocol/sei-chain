@@ -15,12 +15,23 @@ func (k KeeperWrapper) GetLatestPrice(goCtx context.Context, req *types.QueryGet
 	}
 
 	ctx := sdk.UnwrapSDKContext(goCtx)
-	blockTimeStamp := uint64(ctx.BlockTime().Unix())
+	prices := k.GetAllPrices(ctx, req.ContractAddr, types.Pair{PriceDenom: req.PriceDenom, AssetDenom: req.AssetDenom})
 
-	price, found := k.GetPriceState(ctx, req.ContractAddr, blockTimeStamp, types.Pair{PriceDenom: req.PriceDenom, AssetDenom: req.AssetDenom})
+	if len(prices) == 0 {
+		return &types.QueryGetLatestPriceResponse{
+			Price: &types.Price{},
+		}, nil
+	}
+
+	latestPrice := prices[0]
+
+	for _, price := range prices {
+		if price.SnapshotTimestampInSeconds > latestPrice.SnapshotTimestampInSeconds {
+			latestPrice = price
+		}
+	}
 
 	return &types.QueryGetLatestPriceResponse{
-		Price: &price,
-		Found: found,
+		Price: latestPrice,
 	}, nil
 }

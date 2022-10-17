@@ -184,7 +184,6 @@ message QueryGetLatestPriceRequest {
 
 message QueryGetLatestPriceResponse {
 	Price price = 1;
-	bool found = 2;
 }
 
 message QueryGetTwapsRequest {

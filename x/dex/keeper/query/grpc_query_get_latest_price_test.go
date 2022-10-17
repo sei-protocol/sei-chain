@@ -17,7 +17,7 @@ func TestGetLatestPrice(t *testing.T) {
 	keepertest.SeedPriceSnapshot(ctx, keeper, "101", 2)
 	keepertest.SeedPriceSnapshot(ctx, keeper, "99", 3)
 
-	ctx = ctx.WithBlockTime(time.Unix(3, 0))
+	ctx = ctx.WithBlockTime(time.Unix(4, 0))
 	wctx := sdk.WrapSDKContext(ctx)
 	wrapper := query.KeeperWrapper{Keeper: keeper}
 	resp, err := wrapper.GetLatestPrice(wctx, &types.QueryGetLatestPriceRequest{
@@ -26,6 +26,5 @@ func TestGetLatestPrice(t *testing.T) {
 		AssetDenom:        keepertest.TestPair.AssetDenom,
 	})
 	require.Nil(t, err)
-	require.Equal(t, true, resp.Found)
 	require.Equal(t, sdk.MustNewDecFromStr("99"), resp.Price.Price)
 }
