@@ -69,6 +69,7 @@ func NewAnteHandlerAndDepGenerator(options HandlerOptions) (sdk.AnteHandler, sdk
 	anteDecorators := []sdk.AnteFullDecorator{
 		sdk.DefaultWrappedAnteDecorator(ante.NewSetUpContextDecorator()), // outermost AnteDecorator. SetUpContext must be called first
 		// TODO: have dex antehandler separate, and then call the individual antehandlers FROM the gasless antehandler decorator wrapper
+		sdk.DefaultWrappedAnteDecorator(antedecorators.NewGaslessDecorator([]sdk.AnteDecorator{}, *options.OracleKeeper)),
 		sdk.DefaultWrappedAnteDecorator(wasmkeeper.NewLimitSimulationGasDecorator(options.WasmConfig.SimulationGasLimit)), // after setup context to enforce limits early
 		sdk.DefaultWrappedAnteDecorator(wasmkeeper.NewCountTXDecorator(options.TXCounterStoreKey)),
 		sdk.DefaultWrappedAnteDecorator(ante.NewRejectExtensionOptionsDecorator()),
