@@ -1,8 +1,6 @@
 package ante
 
 import (
-	"fmt"
-
 	"github.com/cosmos/cosmos-sdk/codec/legacy"
 	"github.com/cosmos/cosmos-sdk/crypto/keys/multisig"
 	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
@@ -86,6 +84,9 @@ func (d ConsumeTxSizeGasDecorator) AnteDeps(txDeps []sdkacltypes.AccessOperation
 	sigTx, _ := tx.(authsigning.SigVerifiableTx)
 	deps := []sdkacltypes.AccessOperation{}
 	for _, signer := range sigTx.GetSigners() {
+		if signer == nil {
+			continue
+		}
 		deps = append(deps,
 			sdkacltypes.AccessOperation{
 				AccessType:         sdkacltypes.AccessType_WRITE,
@@ -109,7 +110,7 @@ func (cgts ConsumeTxSizeGasDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, sim
 	}
 	params := cgts.ak.GetParams(ctx)
 
-	ctx.GasMeter().ConsumeGas(params.TxSizeCostPerByte*sdk.Gas(len(ctx.TxBytes())), "ConsumeTxSizeGasDecoratorAnteHandle")
+	ctx.GasMeter().ConsumeGas(params.TxSizeCostPerByte*sdk.Gas(len(ctx.TxBytes())), "txSize")
 
 	// simulate gas cost for signatures in simulate mode
 	if simulate {
@@ -152,7 +153,7 @@ func (cgts ConsumeTxSizeGasDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, sim
 				cost *= params.TxSigLimit
 			}
 
-			ctx.GasMeter().ConsumeGas(params.TxSizeCostPerByte*cost, fmt.Sprintf("txSizeSigners_%d", i))
+			ctx.GasMeter().ConsumeGas(params.TxSizeCostPerByte*cost, "txSize")
 		}
 	}
 

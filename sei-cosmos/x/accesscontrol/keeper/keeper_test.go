@@ -175,6 +175,7 @@ func (suite *KeeperTestSuite) TestMessageDependencies() {
 	req.NoError(err)
 
 	// get the message dependencies from keeper (because nothing configured, should return synchronous)
+	app.AccessControlKeeper.SetDependencyMappingDynamicFlag(ctx, bankMsgKey, false)
 	accessOps := app.AccessControlKeeper.GetMessageDependencies(ctx, &bankSendMsg)
 	req.Equal(types.SynchronousMessageDependencyMapping("").AccessOps, accessOps)
 

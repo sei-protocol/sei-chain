@@ -172,6 +172,9 @@ func (suite *AnteTestSuite) RunTestCase(privs []cryptotypes.PrivKey, msgs []sdk.
 		tx, txErr := suite.CreateTestTx(privs, accNums, accSeqs, chainID)
 		newCtx, anteErr := suite.anteHandler(suite.ctx, tx, tc.simulate)
 
+		// Fee Collector actual account balance deposit coins into the fee collector account
+		suite.app.BankKeeper.WriteDeferredDepositsToModuleAccounts(suite.ctx)
+
 		if tc.expPass {
 			suite.Require().NoError(txErr)
 			suite.Require().NoError(anteErr)

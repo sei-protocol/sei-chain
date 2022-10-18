@@ -336,6 +336,9 @@ func (isd IncrementSequenceDecorator) AnteDeps(txDeps []sdkacltypes.AccessOperat
 
 	// Add all signers as dependencies
 	for _, addr := range sigTx.GetSigners() {
+		if addr == nil {
+			continue
+		}
 		deps = append(deps, sdkacltypes.AccessOperation{
 			AccessType: sdkacltypes.AccessType_WRITE,
 			ResourceType: sdkacltypes.ResourceType_KV,

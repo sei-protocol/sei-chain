@@ -39,17 +39,24 @@ func NewDeductFeeDecorator(ak AccountKeeper, bk types.BankKeeper, fk FeegrantKee
 
 func (d DeductFeeDecorator) AnteDeps(txDeps []sdkacltypes.AccessOperation, tx sdk.Tx, next sdk.AnteDepGenerator) (newTxDeps []sdkacltypes.AccessOperation, err error) {
 	feeTx, _ := tx.(sdk.FeeTx)
-	deps := []sdkacltypes.AccessOperation{
-		{
+	deps := []sdkacltypes.AccessOperation{}
+
+	if feeTx.FeePayer() != nil {
+		deps = append(deps, sdkacltypes.AccessOperation{
 			AccessType:         sdkacltypes.AccessType_WRITE,
 			ResourceType:       sdkacltypes.ResourceType_KV,
 			IdentifierTemplate:  feeTx.FeePayer().String(),
-		},
-		{
-			AccessType:         sdkacltypes.AccessType_WRITE,
-			ResourceType:       sdkacltypes.ResourceType_KV,
-			IdentifierTemplate:  feeTx.FeeGranter().String(),
-		},
+		})
+	}
+
+	if feeTx.FeeGranter() != nil {
+		deps = append(deps,
+			sdkacltypes.AccessOperation{
+				AccessType:         sdkacltypes.AccessType_WRITE,
+				ResourceType:       sdkacltypes.ResourceType_KV,
+				IdentifierTemplate:  feeTx.FeeGranter().String(),
+			},
+		)
 	}
 
 	return next(append(txDeps, deps...), tx)
@@ -125,7 +132,7 @@ func DeductFees(bankKeeper types.BankKeeper, ctx sdk.Context, acc types.AccountI
 		return sdkerrors.Wrapf(sdkerrors.ErrInsufficientFee, "invalid fee amount: %s", fees)
 	}
 
-	err := bankKeeper.SendCoinsFromAccountToModule(ctx, acc.GetAddress(), types.FeeCollectorName, fees)
+	err := bankKeeper.DeferredSendCoinsFromAccountToModule(ctx, acc.GetAddress(), types.FeeCollectorName, fees)
 	if err != nil {
 		return sdkerrors.Wrapf(sdkerrors.ErrInsufficientFunds, err.Error())
 	}

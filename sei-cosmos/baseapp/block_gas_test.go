@@ -125,16 +125,17 @@ func TestBaseApp_BlockGas(t *testing.T) {
 				require.Equal(t, uint32(0), rsp.TxResults[0].Code)
 				require.Equal(t, []byte("ok"), okValue)
 			}
-			// check block gas is always consumed
-			baseGas := uint64(59142) // baseGas is the gas consumed before tx msg
+			// check block gas is always consumed - this value may change if we update the logic for
+			// how gas is consumed
+			baseGas := uint64(52585) // baseGas is the gas consumed before tx msg
 			expGasConsumed := addUint64Saturating(tc.gasToConsume, baseGas)
 			if expGasConsumed > txtypes.MaxGasWanted {
 				// capped by gasLimit
 				expGasConsumed = txtypes.MaxGasWanted
 			}
-			require.Equal(t, expGasConsumed, ctx.BlockGasMeter().GasConsumed())
+			require.Equal(t, int(expGasConsumed), int(ctx.BlockGasMeter().GasConsumed()))
 			// tx fee is always deducted
-			require.Equal(t, int64(0), app.BankKeeper.GetBalance(ctx, addr1, feeCoin.Denom).Amount.Int64())
+			require.Equal(t, 0, int(app.BankKeeper.GetBalance(ctx, addr1, feeCoin.Denom).Amount.Int64()))
 			// sender's sequence is always increased
 			seq, err = app.AccountKeeper.GetSequence(ctx, addr1)
 			require.NoError(t, err)

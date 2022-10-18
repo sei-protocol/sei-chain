@@ -130,6 +130,12 @@ func (dag *Dag) AddEdge(fromIndex DagNodeID, toIndex DagNodeID) *DagEdge {
 	if _, ok := dag.NodeMap[toIndex]; !ok {
 		return nil
 	}
+
+	// Processing in a given TX is sequential so no need for dependency
+	if dag.NodeMap[fromIndex].TxIndex == dag.NodeMap[toIndex].TxIndex {
+		return nil
+	}
+
 	newEdge := DagEdge{fromIndex, toIndex}
 	dag.EdgesMap[fromIndex] = append(dag.EdgesMap[fromIndex], newEdge)
 	return &newEdge

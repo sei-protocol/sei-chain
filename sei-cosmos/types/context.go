@@ -44,6 +44,8 @@ type Context struct {
 	txBlockingChannels		acltypes.MessageAccessOpsChannelMapping
 	txCompletionChannels	acltypes.MessageAccessOpsChannelMapping
 	messageIndex int	// Used to track current message being processed
+
+	contextMemCache *ContextMemCache
 }
 
 // Proposed rename, not done to avoid API breakage
@@ -68,6 +70,7 @@ func (c Context) Priority() int64             { return c.priority }
 func (c Context) TxCompletionChannels() acltypes.MessageAccessOpsChannelMapping { return c.txCompletionChannels }
 func (c Context) TxBlockingChannels() 	acltypes.MessageAccessOpsChannelMapping { return c.txBlockingChannels }
 func (c Context) MessageIndex() int		  { return c.messageIndex }
+func (c Context) ContextMemCache() *ContextMemCache { return c.contextMemCache }
 
 // clone the header before returning
 func (c Context) BlockHeader() tmproto.Header {
@@ -106,6 +109,7 @@ func NewContext(ms MultiStore, header tmproto.Header, isCheckTx bool, logger log
 		gasMeter:     stypes.NewInfiniteGasMeter(),
 		minGasPrice:  DecCoins{},
 		eventManager: NewEventManager(),
+		contextMemCache: NewContextMemCache(),
 	}
 }
 
@@ -245,6 +249,12 @@ func (c Context) WithTxBlockingChannels(blockingChannels acltypes.MessageAccessO
 // WithMessageIndex returns a Context with the current message index that's being processed
 func (c Context) WithMessageIndex(messageIndex int) Context {
 	c.messageIndex = messageIndex
+	return c
+}
+
+// WithContextMemCache returns a Context with a new context mem cache
+func (c Context) WithContextMemCache(contextMemCache *ContextMemCache) Context {
+	c.contextMemCache = contextMemCache
 	return c
 }
 
