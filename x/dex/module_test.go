@@ -298,6 +298,8 @@ func TestEndBlockLimitOrder(t *testing.T) {
 	require.True(t, found)
 	_, found = dexkeeper.GetShortBookByPrice(ctx, contractAddr.String(), sdk.MustNewDecFromStr("3"), pair.PriceDenom, pair.AssetDenom)
 	require.True(t, found)
+	_, found = dexkeeper.GetLongBookByPrice(ctx, contractAddr.String(), sdk.MustNewDecFromStr("3"), pair.PriceDenom, pair.AssetDenom)
+	require.False(t, found)
 
 	matchResults, _ := dexkeeper.GetMatchResultState(ctx, contractAddr.String(), 2)
 	require.Equal(t, 2, len(matchResults.Orders))
@@ -321,6 +323,13 @@ func TestEndBlockLimitOrder(t *testing.T) {
 
 	ctx = ctx.WithBlockHeight(3)
 	testApp.EndBlocker(ctx, abci.RequestEndBlock{})
+
+	_, found = dexkeeper.GetLongBookByPrice(ctx, contractAddr.String(), sdk.MustNewDecFromStr("1"), pair.PriceDenom, pair.AssetDenom)
+	require.True(t, found)
+	_, found = dexkeeper.GetLongBookByPrice(ctx, contractAddr.String(), sdk.MustNewDecFromStr("1000000"), pair.PriceDenom, pair.AssetDenom)
+	require.False(t, found)
+	_, found = dexkeeper.GetShortBookByPrice(ctx, contractAddr.String(), sdk.MustNewDecFromStr("3"), pair.PriceDenom, pair.AssetDenom)
+	require.False(t, found)
 
 	matchResults, _ = dexkeeper.GetMatchResultState(ctx, contractAddr.String(), 3)
 	require.Equal(t, 1, len(matchResults.Orders))
