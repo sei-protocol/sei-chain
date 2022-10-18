@@ -30,6 +30,7 @@ func GetQueryCmd(queryRoute string) *cobra.Command {
 	cmd.AddCommand(CmdListShortBook())
 	cmd.AddCommand(CmdShowShortBook())
 	cmd.AddCommand(CmdGetPrice())
+	cmd.AddCommand(CmdGetLatestPrice())
 	cmd.AddCommand(CmdGetPrices())
 	cmd.AddCommand(CmdGetTwaps())
 	cmd.AddCommand(CmdGetAssetList())
