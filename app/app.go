@@ -1101,7 +1101,6 @@ func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequ
 		// deterministic ordering between validators in the case of concurrent deliverTXs
 		processBlockCtx, processBlockCache := app.CacheContext(ctx)
 		txResults = app.ProcessBlockConcurrent(processBlockCtx, txs, dependencyDag.CompletionSignalingMap, dependencyDag.BlockingSignalsMap)
-		// Finalize all Bank Module Transfers here so that events are included
 		// Write the results back to the concurrent contexts
 		processBlockCache.Write()
 	case acltypes.ErrGovMsgInBlock:
@@ -1114,6 +1113,7 @@ func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequ
 		metrics.IncrDagBuildErrorCounter(metrics.FailedToBuild)
 	}
 
+	// Finalize all Bank Module Transfers here so that events are included
 	lazyWriteEvents := app.BankKeeper.WriteDeferredDepositsToModuleAccounts(ctx)
 	events = append(events, lazyWriteEvents...)
 
