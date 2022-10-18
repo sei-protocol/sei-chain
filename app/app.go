@@ -988,7 +988,6 @@ func (app *App) ProcessTxConcurrent(
 	// Deliver the transaction and store the result in the channel
 
 	resultChan <- ChannelResult{txIndex, app.DeliverTxWithResult(ctx, txBytes)}
-	ctx.Logger().Info(fmt.Sprintf("Processed TxIndex=%d", txIndex))
 	metrics.IncrTxProcessTypeCounter(metrics.CONCURRENT)
 }
 
