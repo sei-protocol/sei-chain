@@ -1008,7 +1008,6 @@ func (app *App) ProcessBlockConcurrent(
 		return txResults
 	}
 
-	ctx.Logger().Info(fmt.Sprintf("Processing Tx Count=%d", len(txs)))
 	// For each transaction, start goroutine and deliver TX
 	for txIndex, txBytes := range txs {
 		waitGroup.Add(1)
@@ -1034,7 +1033,6 @@ func (app *App) ProcessBlockConcurrent(
 	// Gather Results and store it based on txIndex and read results from channel
 	// Concurrent results may be in different order than the original txIndex
 	txResultsMap := map[int]*abci.ExecTxResult{}
-	ctx.Logger().Info("Waiting for TXs to return")
 	for result := range resultChan {
 		txResultsMap[result.txIndex] = result.result
 	}
