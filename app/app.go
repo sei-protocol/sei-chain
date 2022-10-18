@@ -1114,7 +1114,7 @@ func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequ
 	}
 
 	// Finalize all Bank Module Transfers here so that events are included
-	lazyWriteEvents := app.BankKeeper.WriteLazyDepositsToModuleAccounts(ctx)
+	lazyWriteEvents := app.BankKeeper.WriteDeferredDepositsToModuleAccounts(ctx)
 	events = append(events, lazyWriteEvents...)
 
 	endBlockResp := app.EndBlock(ctx, abci.RequestEndBlock{
