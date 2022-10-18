@@ -50,7 +50,6 @@ import (
 	"github.com/cosmos/cosmos-sdk/x/auth/vesting"
 	vestingtypes "github.com/cosmos/cosmos-sdk/x/auth/vesting/types"
 	"github.com/cosmos/cosmos-sdk/x/bank"
-	bankcache "github.com/cosmos/cosmos-sdk/x/bank/cache"
 	bankkeeper "github.com/cosmos/cosmos-sdk/x/bank/keeper"
 	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
 	"github.com/cosmos/cosmos-sdk/x/capability"
@@ -864,27 +863,24 @@ func (app *App) PrepareProposalHandler(ctx sdk.Context, req *abci.RequestPrepare
 }
 
 func (app *App) ProcessProposalHandler(ctx sdk.Context, req *abci.RequestProcessProposal) (*abci.ResponseProcessProposal, error) {
-	completionSignal := make(chan struct{}, 1)
-	optimisticProcessingInfo := &OptimisticProcessingInfo{
-		Height:     req.Height,
-		Hash:       req.Hash,
-		Completion: completionSignal,
+	if app.optimisticProcessingInfo == nil {
+		completionSignal := make(chan struct{}, 1)
+		optimisticProcessingInfo := &OptimisticProcessingInfo{
+			Height:     req.Height,
+			Hash:       req.Hash,
+			Completion: completionSignal,
+		}
+		app.optimisticProcessingInfo = optimisticProcessingInfo
+		go func() {
+			events, txResults, endBlockResp, _ := app.ProcessBlock(ctx, req.Txs, req, req.ProposedLastCommit)
+			optimisticProcessingInfo.Events = events
+			optimisticProcessingInfo.TxRes = txResults
+			optimisticProcessingInfo.EndBlockResp = endBlockResp
+			optimisticProcessingInfo.Completion <- struct{}{}
+		}()
+	} else if !bytes.Equal(app.optimisticProcessingInfo.Hash, req.Hash) {
+		app.optimisticProcessingInfo.Aborted = true
 	}
-	app.optimisticProcessingInfo = optimisticProcessingInfo
-	// if app.optimisticProcessingInfo == nil {
-	// 	completionSignal := make(chan struct{}, 1)
-
-	// 	app.optimisticProcessingInfo = optimisticProcessingInfo
-	// 	go func() {
-	// 		events, txResults, endBlockResp, _ := app.ProcessBlock(ctx, req.Txs, req, req.ProposedLastCommit)
-	// 		optimisticProcessingInfo.Events = events
-	// 		optimisticProcessingInfo.TxRes = txResults
-	// 		optimisticProcessingInfo.EndBlockResp = endBlockResp
-	// 		optimisticProcessingInfo.Completion <- struct{}{}
-	// 	}()
-	// } else if !bytes.Equal(app.optimisticProcessingInfo.Hash, req.Hash) {
-	app.optimisticProcessingInfo.Aborted = true
-	// }
 	return &abci.ResponseProcessProposal{
 		Status: abci.ResponseProcessProposal_ACCEPT,
 	}, nil
@@ -1053,9 +1049,7 @@ func (app *App) ProcessBlockConcurrent(
 
 func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequest, lastCommit abci.CommitInfo) ([]abci.Event, []*abci.ExecTxResult, abci.ResponseEndBlock, error) {
 	goCtx := app.decorateContextWithDexMemState(ctx.Context())
-	goCtx = app.decorateContextWithBankMemState(ctx.Context())
-
-	ctx = ctx.WithContext(goCtx)
+	ctx = ctx.WithContext(goCtx).WithContextMemCache(sdk.NewContextMemCache())
 
 	events := []abci.Event{}
 	beginBlockReq := abci.RequestBeginBlock{
@@ -1305,10 +1299,6 @@ func (app *App) BlacklistedAccAddrs() map[string]bool {
 
 func (app *App) decorateContextWithDexMemState(base context.Context) context.Context {
 	return context.WithValue(base, dexutils.DexMemStateContextKey, dexcache.NewMemState())
-}
-
-func (app *App) decorateContextWithBankMemState(base context.Context) context.Context {
-	return context.WithValue(base, bankcache.BankMemStateKeyKey, bankcache.NewMemState())
 }
 
 func init() {
