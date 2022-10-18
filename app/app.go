@@ -863,24 +863,24 @@ func (app *App) PrepareProposalHandler(ctx sdk.Context, req *abci.RequestPrepare
 }
 
 func (app *App) ProcessProposalHandler(ctx sdk.Context, req *abci.RequestProcessProposal) (*abci.ResponseProcessProposal, error) {
-	if app.optimisticProcessingInfo == nil {
-		completionSignal := make(chan struct{}, 1)
-		optimisticProcessingInfo := &OptimisticProcessingInfo{
-			Height:     req.Height,
-			Hash:       req.Hash,
-			Completion: completionSignal,
-		}
-		app.optimisticProcessingInfo = optimisticProcessingInfo
-		go func() {
-			events, txResults, endBlockResp, _ := app.ProcessBlock(ctx, req.Txs, req, req.ProposedLastCommit)
-			optimisticProcessingInfo.Events = events
-			optimisticProcessingInfo.TxRes = txResults
-			optimisticProcessingInfo.EndBlockResp = endBlockResp
-			optimisticProcessingInfo.Completion <- struct{}{}
-		}()
-	} else if !bytes.Equal(app.optimisticProcessingInfo.Hash, req.Hash) {
-		app.optimisticProcessingInfo.Aborted = true
-	}
+	// if app.optimisticProcessingInfo == nil {
+	// 	completionSignal := make(chan struct{}, 1)
+	// 	optimisticProcessingInfo := &OptimisticProcessingInfo{
+	// 		Height:     req.Height,
+	// 		Hash:       req.Hash,
+	// 		Completion: completionSignal,
+	// 	}
+	// 	app.optimisticProcessingInfo = optimisticProcessingInfo
+	// 	go func() {
+	// 		events, txResults, endBlockResp, _ := app.ProcessBlock(ctx, req.Txs, req, req.ProposedLastCommit)
+	// 		optimisticProcessingInfo.Events = events
+	// 		optimisticProcessingInfo.TxRes = txResults
+	// 		optimisticProcessingInfo.EndBlockResp = endBlockResp
+	// 		optimisticProcessingInfo.Completion <- struct{}{}
+	// 	}()
+	// } else if !bytes.Equal(app.optimisticProcessingInfo.Hash, req.Hash) {
+	// 	app.optimisticProcessingInfo.Aborted = true
+	// }
 	return &abci.ResponseProcessProposal{
 		Status: abci.ResponseProcessProposal_ACCEPT,
 	}, nil
