@@ -50,6 +50,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/x/auth/vesting"
 	vestingtypes "github.com/cosmos/cosmos-sdk/x/auth/vesting/types"
 	"github.com/cosmos/cosmos-sdk/x/bank"
+	bankcache "github.com/cosmos/cosmos-sdk/x/bank/cache"
 	bankkeeper "github.com/cosmos/cosmos-sdk/x/bank/keeper"
 	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
 	"github.com/cosmos/cosmos-sdk/x/capability"
@@ -1052,6 +1053,8 @@ func (app *App) ProcessBlockConcurrent(
 
 func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequest, lastCommit abci.CommitInfo) ([]abci.Event, []*abci.ExecTxResult, abci.ResponseEndBlock, error) {
 	goCtx := app.decorateContextWithDexMemState(ctx.Context())
+	goCtx = app.decorateContextWithBankMemState(ctx.Context())
+
 	ctx = ctx.WithContext(goCtx)
 
 	events := []abci.Event{}
@@ -1302,6 +1305,10 @@ func (app *App) BlacklistedAccAddrs() map[string]bool {
 
 func (app *App) decorateContextWithDexMemState(base context.Context) context.Context {
 	return context.WithValue(base, dexutils.DexMemStateContextKey, dexcache.NewMemState())
+}
+
+func (app *App) decorateContextWithBankMemState(base context.Context) context.Context {
+	return context.WithValue(base, bankcache.BankMemStateKeyKey, bankcache.NewMemState())
 }
 
 func init() {
