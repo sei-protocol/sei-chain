@@ -40,8 +40,13 @@ func getUnfulfilledPlacedMarketOrderIds(
 			continue
 		}
 		if order.OrderType == types.OrderType_MARKET || order.OrderType == types.OrderType_LIQUIDATION ||
-			order.OrderType == types.OrderType_FOKMARKET || order.OrderType == types.OrderType_FOKMARKETBYVALUE {
+			order.OrderType == types.OrderType_FOKMARKET {
 			if settledQuantity, ok := orderIDToSettledQuantities[order.Id]; !ok || settledQuantity.LT(order.Quantity) {
+				res = append(res, order.Id)
+			}
+		} else if order.OrderType == types.OrderType_FOKMARKETBYVALUE {
+			// cancel market order by nominal if zero quantity is executed
+			if _, ok := orderIDToSettledQuantities[order.Id]; !ok {
 				res = append(res, order.Id)
 			}
 		}
