@@ -3,9 +3,9 @@
 echo -n Key Name to Add:
 read keyname
 echo
-#echo -n Release to Build \(please find the latest release on https://github.com/sei-protocol/sei-chain/releases. Example: 1.1.0beta\):
-#read release
-#echo
+echo -n Release to Build \(please find the latest release on https://github.com/sei-protocol/sei-chain/releases. Example: 1.1.0beta\):
+read release
+echo
 
 docker stop jaeger
 docker rm jaeger
@@ -23,10 +23,10 @@ docker run -d --name jaeger \
   jaegertracing/all-in-one:1.33
 
 echo "Building..."
-#git fetch --tags -f
-#git checkout $release
+git fetch --tags -f
+git checkout $release
 make install
-#git checkout master
+git checkout master
 sudo -S rm -r ~/.sei/
 sudo -S rm -r ~/test_accounts/
 ~/go/bin/seid tendermint unsafe-reset-all
