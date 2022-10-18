@@ -14,7 +14,6 @@ type HandlerOptions struct {
 	BankKeeper      types.BankKeeper
 	FeegrantKeeper  FeegrantKeeper
 	SignModeHandler authsigning.SignModeHandler
-	BatchVerifier   *SR25519BatchVerifier
 	SigGasConsumer  func(meter sdk.GasMeter, sig signing.SignatureV2, params types.Params) error
 	TxFeeChecker    TxFeeChecker
 }
@@ -37,11 +36,7 @@ func NewAnteHandler(options HandlerOptions) (sdk.AnteHandler, sdk.AnteDepGenerat
 
 	var sigVerifyDecorator sdk.AnteDecorator
 	sequentialVerifyDecorator := NewSigVerificationDecorator(options.AccountKeeper, options.SignModeHandler)
-	if options.BatchVerifier == nil {
-		sigVerifyDecorator = sequentialVerifyDecorator
-	} else {
-		sigVerifyDecorator = NewBatchSigVerificationDecorator(options.BatchVerifier, sequentialVerifyDecorator)
-	}
+	sigVerifyDecorator = sequentialVerifyDecorator
 
 	anteDecorators := []sdk.AnteFullDecorator{
 		sdk.DefaultWrappedAnteDecorator(NewSetUpContextDecorator()), // outermost AnteDecorator. SetUpContext must be called first

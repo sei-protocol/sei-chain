@@ -53,7 +53,7 @@ func Test_runExportCmd(t *testing.T) {
 			extraArgs:      []string{"--unsafe", "--unarmored-hex"},
 			userInput:      "y\n",
 			mustFail:       false,
-			expectedOutput: "2485e33678db4175dc0ecef2d6e1fc493d4a0d7f7ce83324b6ed70afe77f3485\n",
+			expectedOutput: "22667038337039573670342f526531793456773576493968437730544273794e4b6733755355626d672b68673d22\n",
 		},
 		{
 			name:           "file keyring backend properly read password and user confirmation",
@@ -62,7 +62,7 @@ func Test_runExportCmd(t *testing.T) {
 			// first 2 pass for creating the key, then unsafe export confirmation, then unlock keyring pass
 			userInput:      "12345678\n12345678\ny\n12345678\n",
 			mustFail:       false,
-			expectedOutput: "2485e33678db4175dc0ecef2d6e1fc493d4a0d7f7ce83324b6ed70afe77f3485\n",
+			expectedOutput: "22667038337039573670342f526531793456773576493968437730544273794e4b6733755355626d672b68673d22\n",
 		},
 	}
 
@@ -92,7 +92,7 @@ func Test_runExportCmd(t *testing.T) {
 			})
 
 			path := sdk.GetConfig().GetFullBIP44Path()
-			_, err = kb.NewAccount("keyname1", testdata.TestMnemonic, "", path, hd.Secp256k1)
+			_, err = kb.NewAccount("keyname1", testdata.TestMnemonic, "", path, hd.Sr25519)
 			require.NoError(t, err)
 
 			clientCtx := client.Context{}.

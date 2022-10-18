@@ -183,8 +183,7 @@ type SimApp struct {
 	// module configurator
 	configurator module.Configurator
 
-	batchVerifier *ante.SR25519BatchVerifier
-	txDecoder     sdk.TxDecoder
+	txDecoder sdk.TxDecoder
 }
 
 func init() {
@@ -289,7 +288,7 @@ func NewSimApp(
 		AddRoute(paramproposal.RouterKey, params.NewParamChangeProposalHandler(app.ParamsKeeper)).
 		AddRoute(distrtypes.RouterKey, distr.NewCommunityPoolSpendProposalHandler(app.DistrKeeper)).
 		AddRoute(upgradetypes.RouterKey, upgrade.NewSoftwareUpgradeProposalHandler(app.UpgradeKeeper))
-		//TODO: we may need to add acl gov proposal types here
+	//TODO: we may need to add acl gov proposal types here
 	govKeeper := govkeeper.NewKeeper(
 		appCodec, keys[govtypes.StoreKey], app.GetSubspace(govtypes.ModuleName), app.AccountKeeper, app.BankKeeper,
 		&stakingKeeper, govRouter,
@@ -297,7 +296,7 @@ func NewSimApp(
 
 	app.GovKeeper = *govKeeper.SetHooks(
 		govtypes.NewMultiGovHooks(
-		// register the governance hooks
+			// register the governance hooks
 		),
 	)
 
@@ -416,14 +415,12 @@ func NewSimApp(
 	app.SetBeginBlocker(app.BeginBlocker)
 
 	signModeHandler := encodingConfig.TxConfig.SignModeHandler()
-	app.batchVerifier = ante.NewSR25519BatchVerifier(app.AccountKeeper, signModeHandler)
 	anteHandler, anteDepGenerator, err := ante.NewAnteHandler(
 		ante.HandlerOptions{
 			AccountKeeper:   app.AccountKeeper,
 			BankKeeper:      app.BankKeeper,
 			SignModeHandler: signModeHandler,
 			FeegrantKeeper:  app.FeeGrantKeeper,
-			BatchVerifier:   app.batchVerifier,
 			SigGasConsumer:  ante.DefaultSigVerificationGasConsumer,
 			TxFeeChecker:    ante.CheckTxFeeWithValidatorMinGasPrices,
 		},
@@ -507,7 +504,6 @@ func (app *SimApp) FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBlo
 			typedTxs = append(typedTxs, typedTx)
 		}
 	}
-	app.batchVerifier.VerifyTxs(ctx, typedTxs)
 
 	txResults := []*abci.ExecTxResult{}
 	for i, tx := range req.Txs {

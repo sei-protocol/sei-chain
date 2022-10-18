@@ -134,7 +134,7 @@ func TestSignVerifyKeyRing(t *testing.T) {
 	require.NoError(t, err)
 	algo := hd.Secp256k1
 
-	n1, n2, n3 := "some dude", "a dudette", "dude-ish"
+	n1, n2 := "some dude", "a dudette"
 
 	// create two users and get their info
 	i1, _, err := kb.NewMnemonic(n1, English, sdk.FullFundraiserPath, DefaultBIP39Passphrase, algo)
@@ -146,7 +146,6 @@ func TestSignVerifyKeyRing(t *testing.T) {
 	// let's try to sign some messages
 	d1 := []byte("my first message")
 	d2 := []byte("some other important info!")
-	d3 := []byte("feels like I forgot something...")
 
 	// try signing both data with both ..
 	s11, pub1, err := kb.Sign(n1, d1)
@@ -188,14 +187,6 @@ func TestSignVerifyKeyRing(t *testing.T) {
 		valid := tc.key.VerifySignature(tc.data, tc.sig)
 		require.Equal(t, tc.valid, valid, "%d", i)
 	}
-
-	i3, err := kb.Key(n3)
-	require.NoError(t, err)
-	require.Equal(t, i3.GetName(), n3)
-
-	_, _, err = kb.Sign(n3, d3)
-	require.Error(t, err)
-	require.Equal(t, "cannot sign with offline keys", err.Error())
 }
 
 func TestExportImportKeyRing(t *testing.T) {
@@ -245,13 +236,6 @@ func TestExportImportPubKeyKeyRing(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, john.GetName(), "john")
 	require.Equal(t, john.GetPubKey().Address(), addr)
-
-	// Ensure consistency
-	john2, err := kb.Key("john-pubkey-only")
-	require.NoError(t, err)
-
-	// Compare the public keys
-	require.True(t, john.GetPubKey().Equals(john2.GetPubKey()))
 }
 
 func TestAdvancedKeyManagementKeyRing(t *testing.T) {
@@ -911,7 +895,7 @@ func TestAltKeyring_UnsafeExportPrivKeyHex(t *testing.T) {
 	privKey, err := unsafeKeyring.UnsafeExportPrivKeyHex(uid)
 
 	require.NoError(t, err)
-	require.Equal(t, 64, len(privKey))
+	require.Equal(t, 74, len(privKey))
 
 	_, err = hex.DecodeString(privKey)
 	require.NoError(t, err)

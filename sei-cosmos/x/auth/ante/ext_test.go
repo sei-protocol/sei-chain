@@ -13,7 +13,7 @@ func (suite *AnteTestSuite) TestRejectExtensionOptionsDecorator() {
 	suite.txBuilder = suite.clientCtx.TxConfig.NewTxBuilder()
 
 	reod := ante.NewRejectExtensionOptionsDecorator()
-	antehandler := sdk.ChainAnteDecorators(reod)
+	antehandler, _ := sdk.ChainAnteDecorators(sdk.DefaultWrappedAnteDecorator(reod))
 
 	// no extension options should not trigger an error
 	theTx := suite.txBuilder.GetTx()
