@@ -1,16 +1,9 @@
 import json
 import os
-import multiprocessing
 import subprocess
 import sys
 import threading
 import time
-<<<<<<< HEAD
-=======
-
-PARALLEISM=32
-LOCK=threading.Lock()
->>>>>>> 41453369 (Use tx digest dissemination binaries (#265))
 
 PARALLEISM=32
 
@@ -46,11 +39,7 @@ def add_genesis_account(account_name, lock, local=False):
     sleep_time = 1
     while not success and retry_counter > 0:
         try:
-<<<<<<< HEAD
             with lock:
-=======
-            with LOCK:
->>>>>>> 41453369 (Use tx digest dissemination binaries (#265))
                 subprocess.check_call(
                     [add_account_cmd],
                     shell=True,
@@ -63,11 +52,7 @@ def add_genesis_account(account_name, lock, local=False):
             time.sleep(sleep_time)
 
 
-<<<<<<< HEAD
 def bulk_create_genesis_accounts(number_of_accounts, start_idx, lock, is_local=False):
-=======
-def bulk_create_genesis_accounts(number_of_accounts, start_idx, is_local=False):
->>>>>>> 41453369 (Use tx digest dissemination binaries (#265))
     for i in range(start_idx, start_idx + number_of_accounts):
         print(f"Creating account {i}")
         add_genesis_account(f"ta{i}", lock, is_local)
@@ -78,7 +63,6 @@ def main():
     is_local = False
     if len(args) > 1 and args[1] == "loc":
         is_local = True
-<<<<<<< HEAD
     num_threads = number_of_accounts // PARALLEISM
     threads = []
     lock=threading.Lock()
@@ -88,16 +72,6 @@ def main():
         t.start()
     for t in threads:
         t.join()
-=======
-    num_processes = number_of_accounts // PARALLEISM
-    processes = []
-    for i in range(0, number_of_accounts, num_processes):
-        processes.append(multiprocessing.Process(target=bulk_create_genesis_accounts, args=(num_processes, i, is_local)))
-    for p in processes:
-        p.start()
-    for p in processes:
-        p.join()
->>>>>>> 41453369 (Use tx digest dissemination binaries (#265))
 
 if __name__ == "__main__":
     main()
