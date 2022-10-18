@@ -9,6 +9,7 @@ import (
 	ibcante "github.com/cosmos/ibc-go/v3/modules/core/ante"
 	ibckeeper "github.com/cosmos/ibc-go/v3/modules/core/keeper"
 	"github.com/sei-protocol/sei-chain/app/antedecorators"
+	"github.com/sei-protocol/sei-chain/app/antedecorators/depdecorators"
 	"github.com/sei-protocol/sei-chain/utils/tracing"
 	"github.com/sei-protocol/sei-chain/x/dex"
 	dexkeeper "github.com/sei-protocol/sei-chain/x/dex/keeper"
@@ -78,16 +79,16 @@ func NewAnteHandlerAndDepGenerator(options HandlerOptions) (sdk.AnteHandler, sdk
 		sdk.DefaultWrappedAnteDecorator(ante.NewValidateBasicDecorator()),
 		sdk.DefaultWrappedAnteDecorator(ante.NewTxTimeoutHeightDecorator()),
 		sdk.DefaultWrappedAnteDecorator(ante.NewValidateMemoDecorator(options.AccountKeeper)),
-		sdk.DefaultWrappedAnteDecorator(ante.NewConsumeGasForTxSizeDecorator(options.AccountKeeper)),
+		sdk.CustomDepWrappedAnteDecorator(ante.NewConsumeGasForTxSizeDecorator(options.AccountKeeper), depdecorators.SignerDepDecorator{ReadOnly: true}),
 		sdk.DefaultWrappedAnteDecorator(ante.NewDeductFeeDecorator(options.AccountKeeper, options.BankKeeper, options.FeegrantKeeper, options.TxFeeChecker)),
 		// PriorityDecorator must be called after DeductFeeDecorator which sets tx priority based on tx fees
 		sdk.DefaultWrappedAnteDecorator(antedecorators.NewPriorityDecorator()),
 		// SetPubKeyDecorator must be called before all signature verification decorators
-		sdk.DefaultWrappedAnteDecorator(ante.NewSetPubKeyDecorator(options.AccountKeeper)),
+		sdk.CustomDepWrappedAnteDecorator(ante.NewSetPubKeyDecorator(options.AccountKeeper), depdecorators.SignerDepDecorator{ReadOnly: false}),
 		sdk.DefaultWrappedAnteDecorator(ante.NewValidateSigCountDecorator(options.AccountKeeper)),
-		sdk.DefaultWrappedAnteDecorator(ante.NewSigGasConsumeDecorator(options.AccountKeeper, sigGasConsumer)),
-		sdk.DefaultWrappedAnteDecorator(sequentialVerifyDecorator),
-		sdk.DefaultWrappedAnteDecorator(ante.NewIncrementSequenceDecorator(options.AccountKeeper)),
+		sdk.CustomDepWrappedAnteDecorator(ante.NewSigGasConsumeDecorator(options.AccountKeeper, sigGasConsumer), depdecorators.SignerDepDecorator{ReadOnly: true}),
+		sdk.CustomDepWrappedAnteDecorator(sequentialVerifyDecorator, depdecorators.SignerDepDecorator{ReadOnly: true}),
+		sdk.CustomDepWrappedAnteDecorator(ante.NewIncrementSequenceDecorator(options.AccountKeeper), depdecorators.SignerDepDecorator{ReadOnly: false}),
 		sdk.DefaultWrappedAnteDecorator(ibcante.NewAnteDecorator(options.IBCKeeper)),
 		sdk.DefaultWrappedAnteDecorator(dex.NewTickSizeMultipleDecorator(*options.DexKeeper)),
 	}
