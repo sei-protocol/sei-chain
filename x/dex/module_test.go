@@ -26,10 +26,22 @@ const (
 	"market_order_fee":{"decimal":"0.0001","negative":false},
 	"liquidation_order_fee":{"decimal":"0.0001","negative":false},
 	"margin_ratio":{"decimal":"0.0625","negative":false},
-	"max_leverage":{"decimal":"4","negative":false},"default_base":"USDC",
+	"max_leverage":{"decimal":"4","negative":false},
+	"default_base":"USDC",
 	"native_token":"USDC","denoms": ["SEI","ATOM","USDC","SOL","ETH","OSMO","AVAX","BTC"],
 	"full_denom_mapping": [["usei","SEI","0.000001"],["uatom","ATOM","0.000001"],["uusdc","USDC","0.000001"]],
-	"funding_payment_lookback":3600,"spot_market_contract":"sei1h9yjz89tl0dl6zu65dpxcqnxfhq60wxx8s5kag"}`
+	"funding_payment_lookback":3600,"spot_market_contract":"sei1h9yjz89tl0dl6zu65dpxcqnxfhq60wxx8s5kag",
+	"supported_collateral_denoms": ["USDC"],
+	"supported_multicollateral_denoms": ["ATOM"],
+	"oracle_denom_mapping": [["usei","SEI","1"],["uatom","ATOM","1"],["uusdc","USDC","1"],["ueth","ETH","1"]],
+	"multicollateral_whitelist": ["sei1h9yjz89tl0dl6zu65dpxcqnxfhq60wxx8s5kag"],
+	"multicollateral_whitelist_enable": true,
+	"funding_payment_pairs": [["USDC","ETH"]],
+	"default_margin_ratios":{
+		"initial":"0.3",
+		"partial":"0.25",
+		"maintenance":"0.06"
+	}}`
 )
 
 func TestEndBlockMarketOrder(t *testing.T) {
@@ -93,7 +105,7 @@ func TestEndBlockMarketOrder(t *testing.T) {
 	dexkeeper.MemState.GetDepositInfo(ctx, utils.ContractAddress(contractAddr.String())).Add(
 		&dexcache.DepositInfoEntry{
 			Creator: testAccount.String(),
-			Denom:   "usei",
+			Denom:   "uusdc",
 			Amount:  sdk.MustNewDecFromStr("2000000"),
 		},
 	)
@@ -107,7 +119,7 @@ func TestEndBlockMarketOrder(t *testing.T) {
 	dexkeeper.MemState.Clear()
 	dexkeeper.MemState.GetBlockOrders(ctx, utils.ContractAddress(contractAddr.String()), utils.GetPairString(&pair)).Add(
 		&types.Order{
-			Id:                2,
+			Id:                3,
 			Account:           testAccount.String(),
 			ContractAddr:      contractAddr.String(),
 			Price:             sdk.MustNewDecFromStr("1"),
@@ -125,9 +137,10 @@ func TestEndBlockMarketOrder(t *testing.T) {
 
 	// Long book should be removed since it's executed
 	// No state change should've been persisted for bad contract
-	_, found = dexkeeper.GetLongBookByPrice(ctx, contractAddr.String(), sdk.MustNewDecFromStr("1"), pair.PriceDenom, pair.AssetDenom)
-	// Long book should be populated
+	_, found = dexkeeper.GetLongBookByPrice(ctx, contractAddr.String(), sdk.MustNewDecFromStr("2"), pair.PriceDenom, pair.AssetDenom)
 	require.False(t, found)
+	_, found = dexkeeper.GetLongBookByPrice(ctx, contractAddr.String(), sdk.MustNewDecFromStr("1"), pair.PriceDenom, pair.AssetDenom)
+	require.True(t, found)
 
 	matchResults, _ := dexkeeper.GetMatchResultState(ctx, contractAddr.String(), 2)
 	require.Equal(t, 1, len(matchResults.Orders))
@@ -136,7 +149,7 @@ func TestEndBlockMarketOrder(t *testing.T) {
 	dexkeeper.MemState.Clear()
 	dexkeeper.MemState.GetBlockOrders(ctx, utils.ContractAddress(contractAddr.String()), utils.GetPairString(&pair)).Add(
 		&types.Order{
-			Id:                3,
+			Id:                4,
 			Account:           testAccount.String(),
 			ContractAddr:      contractAddr.String(),
 			Price:             sdk.MustNewDecFromStr("1000000"),
