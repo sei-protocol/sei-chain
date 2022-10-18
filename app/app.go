@@ -1115,8 +1115,7 @@ func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequ
 		metrics.IncrDagBuildErrorCounter(metrics.FailedToBuild)
 	}
 
-	lazyWriteEvents := app.BankKeeper.WriteLazyDepositsToModuleAccounts(ctx)
-
+	lazyWriteEvents := app.BankKeeper.WriteDeferredDepositsToModuleAccounts(ctx)
 	events = append(events, lazyWriteEvents...)
 
 	endBlockResp := app.EndBlock(ctx, abci.RequestEndBlock{
