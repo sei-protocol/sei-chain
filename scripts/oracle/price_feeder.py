@@ -60,7 +60,7 @@ class PriceFeeder:
             print("Err: ", result)
             print("Oracle price didn't submit successfully!!")
 
-    def vote_loop(self, coins, salt, interval=0.2):
+    def vote_loop(self, coins, interval=0.2):
         last_voted_period = -1
         vote_loop_break = 0
         pf = PriceFetcher()
@@ -89,7 +89,6 @@ def main():
     parser.add_argument('coins', help='The coins to use', type=str)
     parser.add_argument('--binary', help='Your seid binary path', type=str, default=str(Path.home()) + '/go/bin/seid')
     parser.add_argument('--node', help='The node to contact', type=str, default='http://localhost:26657')
-    parser.add_argument('--salt', help='The salt to use', type=str, default='abc')
     parser.add_argument('--interval', help='How long time to sleep between price checks', type=int, default=5)
     parser.add_argument('--valoper', help='Validator address if using separate feeder account', type=str)
     args=parser.parse_args()
@@ -97,7 +96,7 @@ def main():
     pf = PriceFeeder(args.key, args.password, args.binary, args.chain_id, args.node, args.valoper)
 
     coins = args.coins.split(',')
-    pf.vote_loop(coins, args.salt, args.interval)
+    pf.vote_loop(coins, args.interval)
 
 if __name__ == "__main__":
     main()
