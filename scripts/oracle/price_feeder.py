@@ -66,12 +66,11 @@ class PriceFeeder:
         vote_loop_break = 0
         pf = PriceFetcher(self.api_key)
 
-        vote_prices = pf.create_price_feed(coins)
         while True:
             time.sleep(interval)
             current_vote_period = self.get_current_vote_period()
             if last_voted_period < current_vote_period:
-
+                vote_prices = pf.create_price_feed(coins)
                 if vote_prices is None:
                     print ("No price data available, sleep 5")
                     time.sleep(5)
