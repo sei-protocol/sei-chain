@@ -17,22 +17,21 @@ import (
 
 // PlanRequest defines a proposal for a new upgrade plan.
 type UpdateResourceDependencyMappingRequest struct {
-	BaseReq       rest.BaseReq `json:"base_req" yaml:"base_req"`
-	Title         string       `json:"title" yaml:"title"`
-	Description   string       `json:"description" yaml:"description"`
-	Deposit     sdk.Coins        `json:"deposit" yaml:"deposit"`
+	BaseReq                  rest.BaseReq                             `json:"base_req" yaml:"base_req"`
+	Title                    string                                   `json:"title" yaml:"title"`
+	Description              string                                   `json:"description" yaml:"description"`
+	Deposit                  sdk.Coins                                `json:"deposit" yaml:"deposit"`
 	MessageDependencyMapping []accesscontrol.MessageDependencyMapping `json:"message_dependency_mapping" yaml:"message_dependency_mapping"`
-
 }
 
-func ProposalRESTHandler(clientCtx client.Context) govrest.ProposalRESTHandler {
+func UpdateResourceDependencyProposalRESTHandler(clientCtx client.Context) govrest.ProposalRESTHandler {
 	return govrest.ProposalRESTHandler{
 		SubRoute: "update_resource_dependency_mapping",
-		Handler:  newPostPlanHandler(clientCtx),
+		Handler:  newUpdateResourceDependencyPostPlanHandler(clientCtx),
 	}
 }
 
-func newPostPlanHandler(clientCtx client.Context) http.HandlerFunc {
+func newUpdateResourceDependencyPostPlanHandler(clientCtx client.Context) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var req UpdateResourceDependencyMappingRequest
 
@@ -52,6 +51,56 @@ func newPostPlanHandler(clientCtx client.Context) http.HandlerFunc {
 
 		content := types.NewMsgUpdateResourceDependencyMappingProposal(
 			req.Title, req.Description, req.MessageDependencyMapping,
+		)
+		msg, err := govtypes.NewMsgSubmitProposal(content, req.Deposit, fromAddr)
+		if rest.CheckBadRequestError(w, err) {
+			return
+		}
+		if rest.CheckBadRequestError(w, msg.ValidateBasic()) {
+			return
+		}
+
+		tx.WriteGeneratedTxResponse(clientCtx, w, req.BaseReq, msg)
+	}
+}
+
+type UpdateWasmDependencyMappingRequest struct {
+	BaseReq         rest.BaseReq `json:"base_req" yaml:"base_req"`
+	Title           string       `json:"title" yaml:"title"`
+	Description     string       `json:"description" yaml:"description"`
+	ContractAddress string       `json:"cotnract_address" yaml:"contract_address"`
+
+	Deposit               sdk.Coins                           `json:"deposit" yaml:"deposit"`
+	WasmDependencyMapping accesscontrol.WasmDependencyMapping `json:"wasm_dependency_mapping" yaml:"wasm_dependency_mapping"`
+}
+
+func UpdateWasmDependencyProposalRESTHandler(clientCtx client.Context) govrest.ProposalRESTHandler {
+	return govrest.ProposalRESTHandler{
+		SubRoute: "update_wasm_dependency_mapping",
+		Handler:  newUpdateWasmDependencyPostPlanHandler(clientCtx),
+	}
+}
+
+func newUpdateWasmDependencyPostPlanHandler(clientCtx client.Context) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var req UpdateWasmDependencyMappingRequest
+
+		if !rest.ReadRESTReq(w, r, clientCtx.LegacyAmino, &req) {
+			return
+		}
+
+		req.BaseReq = req.BaseReq.Sanitize()
+		if !req.BaseReq.ValidateBasic(w) {
+			return
+		}
+
+		fromAddr, err := sdk.AccAddressFromBech32(req.BaseReq.From)
+		if rest.CheckBadRequestError(w, err) {
+			return
+		}
+
+		content := types.NewMsgUpdateWasmDependencyMappingProposal(
+			req.Title, req.Description, req.ContractAddress, req.WasmDependencyMapping,
 		)
 		msg, err := govtypes.NewMsgSubmitProposal(content, req.Deposit, fromAddr)
 		if rest.CheckBadRequestError(w, err) {

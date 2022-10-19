@@ -176,44 +176,174 @@ func (m *MsgUpdateResourceDependencyMappingProposalResponse) XXX_DiscardUnknown(
 
 var xxx_messageInfo_MsgUpdateResourceDependencyMappingProposalResponse proto.InternalMessageInfo
 
+type MsgUpdateWasmDependencyMappingProposal struct {
+	Title                 string                              `protobuf:"bytes,1,opt,name=title,proto3" json:"title" yaml:"title"`
+	Description           string                              `protobuf:"bytes,2,opt,name=description,proto3" json:"description" yaml:"description"`
+	ContractAddress       string                              `protobuf:"bytes,3,opt,name=contract_address,json=contractAddress,proto3" json:"contract_address" yaml:"contract_address"`
+	WasmDependencyMapping accesscontrol.WasmDependencyMapping `protobuf:"bytes,4,opt,name=wasm_dependency_mapping,json=wasmDependencyMapping,proto3" json:"wasm_dependency_mapping" yaml:"wasm_dependency_mapping"`
+}
+
+func (m *MsgUpdateWasmDependencyMappingProposal) Reset() {
+	*m = MsgUpdateWasmDependencyMappingProposal{}
+}
+func (*MsgUpdateWasmDependencyMappingProposal) ProtoMessage() {}
+func (*MsgUpdateWasmDependencyMappingProposal) Descriptor() ([]byte, []int) {
+	return fileDescriptor_3e058bfaa38d4c4c, []int{3}
+}
+func (m *MsgUpdateWasmDependencyMappingProposal) XXX_Unmarshal(b []byte) error {
+	return m.Unmarshal(b)
+}
+func (m *MsgUpdateWasmDependencyMappingProposal) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	if deterministic {
+		return xxx_messageInfo_MsgUpdateWasmDependencyMappingProposal.Marshal(b, m, deterministic)
+	} else {
+		b = b[:cap(b)]
+		n, err := m.MarshalToSizedBuffer(b)
+		if err != nil {
+			return nil, err
+		}
+		return b[:n], nil
+	}
+}
+func (m *MsgUpdateWasmDependencyMappingProposal) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_MsgUpdateWasmDependencyMappingProposal.Merge(m, src)
+}
+func (m *MsgUpdateWasmDependencyMappingProposal) XXX_Size() int {
+	return m.Size()
+}
+func (m *MsgUpdateWasmDependencyMappingProposal) XXX_DiscardUnknown() {
+	xxx_messageInfo_MsgUpdateWasmDependencyMappingProposal.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_MsgUpdateWasmDependencyMappingProposal proto.InternalMessageInfo
+
+type MsgUpdateWasmDependencyMappingProposalJsonFile struct {
+	Title                 string                              `protobuf:"bytes,1,opt,name=title,proto3" json:"title" yaml:"title"`
+	Description           string                              `protobuf:"bytes,2,opt,name=description,proto3" json:"description" yaml:"description"`
+	Deposit               string                              `protobuf:"bytes,3,opt,name=deposit,proto3" json:"deposit" yaml:"deposit"`
+	ContractAddress       string                              `protobuf:"bytes,4,opt,name=contract_address,json=contractAddress,proto3" json:"contract_address" yaml:"contract_address"`
+	WasmDependencyMapping accesscontrol.WasmDependencyMapping `protobuf:"bytes,5,opt,name=wasm_dependency_mapping,json=wasmDependencyMapping,proto3" json:"wasm_dependency_mapping" yaml:"wasm_dependency_mapping"`
+}
+
+func (m *MsgUpdateWasmDependencyMappingProposalJsonFile) Reset() {
+	*m = MsgUpdateWasmDependencyMappingProposalJsonFile{}
+}
+func (m *MsgUpdateWasmDependencyMappingProposalJsonFile) String() string {
+	return proto.CompactTextString(m)
+}
+func (*MsgUpdateWasmDependencyMappingProposalJsonFile) ProtoMessage() {}
+func (*MsgUpdateWasmDependencyMappingProposalJsonFile) Descriptor() ([]byte, []int) {
+	return fileDescriptor_3e058bfaa38d4c4c, []int{4}
+}
+func (m *MsgUpdateWasmDependencyMappingProposalJsonFile) XXX_Unmarshal(b []byte) error {
+	return m.Unmarshal(b)
+}
+func (m *MsgUpdateWasmDependencyMappingProposalJsonFile) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	if deterministic {
+		return xxx_messageInfo_MsgUpdateWasmDependencyMappingProposalJsonFile.Marshal(b, m, deterministic)
+	} else {
+		b = b[:cap(b)]
+		n, err := m.MarshalToSizedBuffer(b)
+		if err != nil {
+			return nil, err
+		}
+		return b[:n], nil
+	}
+}
+func (m *MsgUpdateWasmDependencyMappingProposalJsonFile) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_MsgUpdateWasmDependencyMappingProposalJsonFile.Merge(m, src)
+}
+func (m *MsgUpdateWasmDependencyMappingProposalJsonFile) XXX_Size() int {
+	return m.Size()
+}
+func (m *MsgUpdateWasmDependencyMappingProposalJsonFile) XXX_DiscardUnknown() {
+	xxx_messageInfo_MsgUpdateWasmDependencyMappingProposalJsonFile.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_MsgUpdateWasmDependencyMappingProposalJsonFile proto.InternalMessageInfo
+
+func (m *MsgUpdateWasmDependencyMappingProposalJsonFile) GetTitle() string {
+	if m != nil {
+		return m.Title
+	}
+	return ""
+}
+
+func (m *MsgUpdateWasmDependencyMappingProposalJsonFile) GetDescription() string {
+	if m != nil {
+		return m.Description
+	}
+	return ""
+}
+
+func (m *MsgUpdateWasmDependencyMappingProposalJsonFile) GetDeposit() string {
+	if m != nil {
+		return m.Deposit
+	}
+	return ""
+}
+
+func (m *MsgUpdateWasmDependencyMappingProposalJsonFile) GetContractAddress() string {
+	if m != nil {
+		return m.ContractAddress
+	}
+	return ""
+}
+
+func (m *MsgUpdateWasmDependencyMappingProposalJsonFile) GetWasmDependencyMapping() accesscontrol.WasmDependencyMapping {
+	if m != nil {
+		return m.WasmDependencyMapping
+	}
+	return accesscontrol.WasmDependencyMapping{}
+}
+
 func init() {
 	proto.RegisterType((*MsgUpdateResourceDependencyMappingProposal)(nil), "cosmos.accesscontrol.v1beta1.MsgUpdateResourceDependencyMappingProposal")
 	proto.RegisterType((*MsgUpdateResourceDependencyMappingProposalJsonFile)(nil), "cosmos.accesscontrol.v1beta1.MsgUpdateResourceDependencyMappingProposalJsonFile")
 	proto.RegisterType((*MsgUpdateResourceDependencyMappingProposalResponse)(nil), "cosmos.accesscontrol.v1beta1.MsgUpdateResourceDependencyMappingProposalResponse")
+	proto.RegisterType((*MsgUpdateWasmDependencyMappingProposal)(nil), "cosmos.accesscontrol.v1beta1.MsgUpdateWasmDependencyMappingProposal")
+	proto.RegisterType((*MsgUpdateWasmDependencyMappingProposalJsonFile)(nil), "cosmos.accesscontrol.v1beta1.MsgUpdateWasmDependencyMappingProposalJsonFile")
 }
 
 func init() { proto.RegisterFile("cosmos/accesscontrol_x/gov.proto", fileDescriptor_3e058bfaa38d4c4c) }
 
 var fileDescriptor_3e058bfaa38d4c4c = []byte{
-	// 438 bytes of a gzipped FileDescriptorProto
-	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0xc4, 0x93, 0xcf, 0x8b, 0xd3, 0x40,
-	0x14, 0xc7, 0x93, 0xad, 0x3f, 0x30, 0x2b, 0x22, 0xc1, 0x43, 0x2c, 0x9a, 0xa9, 0x41, 0xa1, 0x0a,
-	0x26, 0x6c, 0x15, 0x85, 0x3d, 0x16, 0x51, 0x10, 0x0b, 0x12, 0xf0, 0xe2, 0xa5, 0x4c, 0x27, 0x8f,
-	0x18, 0x4c, 0xe6, 0x0d, 0x79, 0xb3, 0xcb, 0xf6, 0xe6, 0x51, 0x6f, 0x1e, 0xbd, 0xd9, 0x3f, 0x67,
-	0x8f, 0x7b, 0x14, 0x91, 0x41, 0xda, 0x8b, 0xf4, 0x98, 0xbf, 0x40, 0xcc, 0x6c, 0xa5, 0xab, 0xbb,
-	0xfe, 0x38, 0xed, 0x29, 0xc9, 0x37, 0x9f, 0xef, 0x77, 0xde, 0xbc, 0xc7, 0xf3, 0x7a, 0x02, 0xa9,
-	0x42, 0x4a, 0xb8, 0x10, 0x40, 0x24, 0x50, 0xea, 0x1a, 0xcb, 0xf1, 0x5e, 0x92, 0xe3, 0x6e, 0xac,
-	0x6a, 0xd4, 0xe8, 0x5f, 0xb3, 0x44, 0x7c, 0x84, 0x88, 0x77, 0xb7, 0x26, 0xa0, 0xf9, 0x56, 0xf7,
-	0x4a, 0x8e, 0x39, 0xb6, 0x60, 0xf2, 0xe3, 0xcd, 0x7a, 0xba, 0x37, 0x8f, 0x4b, 0x4d, 0x04, 0x4a,
-	0xd2, 0x5c, 0x6a, 0x3a, 0xa4, 0xfa, 0xc7, 0x52, 0x47, 0xcf, 0x69, 0xc9, 0xe8, 0xf3, 0x86, 0x77,
-	0x67, 0x44, 0xf9, 0x0b, 0x95, 0x71, 0x0d, 0x29, 0x10, 0xee, 0xd4, 0x02, 0x1e, 0x81, 0x02, 0x99,
-	0x81, 0x14, 0xd3, 0x11, 0x57, 0xaa, 0x90, 0xf9, 0xf3, 0x1a, 0x15, 0x12, 0x2f, 0xfd, 0xc4, 0x3b,
-	0xab, 0x0b, 0x5d, 0x42, 0xe0, 0xf6, 0xdc, 0xfe, 0x85, 0xe1, 0xd5, 0xa5, 0x61, 0x56, 0x68, 0x0c,
-	0xbb, 0x38, 0xe5, 0x55, 0xb9, 0x1d, 0xb5, 0x9f, 0x51, 0x6a, 0x65, 0xff, 0x89, 0xb7, 0x99, 0x01,
-	0x89, 0xba, 0x50, 0xba, 0x40, 0x19, 0x6c, 0xb4, 0xb6, 0x5b, 0x4b, 0xc3, 0xd6, 0xe5, 0xc6, 0x30,
-	0xdf, 0x9a, 0xd7, 0xc4, 0x28, 0x5d, 0x47, 0xfc, 0x8f, 0xae, 0xd7, 0xad, 0x80, 0x88, 0xe7, 0x30,
-	0xce, 0x7e, 0xd6, 0x37, 0xae, 0x6c, 0x81, 0x41, 0xa7, 0xd7, 0xe9, 0x6f, 0x0e, 0x1e, 0xc4, 0x7f,
-	0x6a, 0x69, 0x3c, 0xb2, 0xfe, 0xdf, 0xae, 0x37, 0xbc, 0xbd, 0x6f, 0x98, 0xd3, 0x18, 0x76, 0xc3,
-	0x56, 0x71, 0xf2, 0x39, 0x51, 0x1a, 0x54, 0x27, 0x84, 0x6c, 0x5f, 0x7e, 0x3b, 0x63, 0xce, 0x87,
-	0x19, 0x73, 0xbe, 0xcd, 0x98, 0xf3, 0xe6, 0x4b, 0xcf, 0x89, 0xde, 0x75, 0xbc, 0xc1, 0xbf, 0x37,
-	0xf7, 0x29, 0xa1, 0x7c, 0x5c, 0x94, 0x70, 0x8a, 0x4d, 0x7e, 0xe8, 0x9d, 0xcf, 0x40, 0x21, 0x15,
-	0x3a, 0xe8, 0xb4, 0x21, 0xd7, 0x97, 0x86, 0xad, 0xa4, 0xc6, 0xb0, 0x4b, 0xab, 0x80, 0x56, 0x88,
-	0xd2, 0xd5, 0xaf, 0xbf, 0x4d, 0xe7, 0xcc, 0xa9, 0x4f, 0x27, 0xba, 0xff, 0x3f, 0xa3, 0x48, 0x81,
-	0x14, 0x4a, 0x82, 0xe1, 0xb3, 0xfd, 0x79, 0xe8, 0x1e, 0xcc, 0x43, 0xf7, 0xeb, 0x3c, 0x74, 0xdf,
-	0x2f, 0x42, 0xe7, 0x60, 0x11, 0x3a, 0x9f, 0x16, 0xa1, 0xf3, 0x72, 0x90, 0x17, 0xfa, 0xd5, 0xce,
-	0x24, 0x16, 0x58, 0x25, 0x87, 0xdb, 0x66, 0x1f, 0x77, 0x29, 0x7b, 0x9d, 0xec, 0xfd, 0xb2, 0x7a,
-	0x7a, 0xaa, 0x80, 0x26, 0xe7, 0xda, 0x9d, 0xbb, 0xf7, 0x3d, 0x00, 0x00, 0xff, 0xff, 0xf5, 0xbc,
-	0x2e, 0x6d, 0x1b, 0x04, 0x00, 0x00,
+	// 547 bytes of a gzipped FileDescriptorProto
+	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0xd4, 0x55, 0xcf, 0x8b, 0xd3, 0x40,
+	0x14, 0x4e, 0x36, 0xbb, 0x8a, 0x53, 0xd1, 0x25, 0x28, 0x5b, 0x8b, 0x66, 0xea, 0xa0, 0x4b, 0x15,
+	0x4c, 0xd8, 0xae, 0x28, 0xec, 0xcd, 0x22, 0x0a, 0x62, 0x41, 0x02, 0x22, 0xec, 0xa5, 0x4c, 0x93,
+	0x21, 0x06, 0x9b, 0xcc, 0x90, 0x37, 0xfb, 0xa3, 0x37, 0x8f, 0x7a, 0x13, 0xbc, 0x78, 0xb3, 0x27,
+	0xff, 0x96, 0x3d, 0xee, 0x45, 0x10, 0x91, 0x41, 0xda, 0x8b, 0xf4, 0xd8, 0xbf, 0x40, 0xcc, 0xb4,
+	0x4b, 0x77, 0x37, 0x5d, 0xd7, 0x8b, 0xd5, 0x53, 0x92, 0xef, 0x7d, 0xdf, 0x7b, 0x2f, 0xef, 0xe3,
+	0xf1, 0x50, 0x35, 0xe0, 0x90, 0x70, 0xf0, 0x68, 0x10, 0x30, 0x80, 0x80, 0xa7, 0x32, 0xe3, 0x9d,
+	0xd6, 0xae, 0x17, 0xf1, 0x6d, 0x57, 0x64, 0x5c, 0x72, 0xfb, 0xaa, 0x66, 0xb8, 0x87, 0x18, 0xee,
+	0xf6, 0x5a, 0x9b, 0x49, 0xba, 0x56, 0xb9, 0x14, 0xf1, 0x88, 0xe7, 0x44, 0xef, 0xd7, 0x9b, 0xd6,
+	0x54, 0x6e, 0x14, 0x65, 0xf5, 0x02, 0x9e, 0x82, 0xa4, 0xa9, 0x84, 0x31, 0xab, 0x56, 0xc8, 0x3a,
+	0x5c, 0x27, 0x67, 0x92, 0xaf, 0x0b, 0xe8, 0x76, 0x13, 0xa2, 0xe7, 0x22, 0xa4, 0x92, 0xf9, 0x0c,
+	0xf8, 0x56, 0x16, 0xb0, 0x87, 0x4c, 0xb0, 0x34, 0x64, 0x69, 0xd0, 0x6d, 0x52, 0x21, 0xe2, 0x34,
+	0x7a, 0x96, 0x71, 0xc1, 0x81, 0x76, 0x6c, 0x0f, 0x2d, 0xc9, 0x58, 0x76, 0x58, 0xd9, 0xac, 0x9a,
+	0xb5, 0x73, 0x8d, 0x2b, 0x43, 0x85, 0x35, 0x30, 0x52, 0xf8, 0x7c, 0x97, 0x26, 0x9d, 0x0d, 0x92,
+	0x7f, 0x12, 0x5f, 0xc3, 0xf6, 0x63, 0x54, 0x0a, 0x19, 0x04, 0x59, 0x2c, 0x64, 0xcc, 0xd3, 0xf2,
+	0x42, 0x2e, 0xbb, 0x39, 0x54, 0x78, 0x1a, 0x1e, 0x29, 0x6c, 0x6b, 0xf1, 0x14, 0x48, 0xfc, 0x69,
+	0x8a, 0xfd, 0xd1, 0x44, 0x95, 0x84, 0x01, 0xd0, 0x88, 0xb5, 0xc2, 0x83, 0xfe, 0x5a, 0x89, 0x6e,
+	0xb0, 0x6c, 0x55, 0xad, 0x5a, 0xa9, 0x7e, 0xcf, 0x3d, 0x69, 0xa4, 0x6e, 0x53, 0xeb, 0x8f, 0xfd,
+	0x5e, 0xe3, 0xd6, 0x9e, 0xc2, 0xc6, 0x48, 0xe1, 0xeb, 0xba, 0x8b, 0xd9, 0x75, 0x88, 0x5f, 0x4e,
+	0x66, 0x24, 0xd9, 0x58, 0x7e, 0xd3, 0xc3, 0xc6, 0x87, 0x1e, 0x36, 0x7e, 0xf4, 0xb0, 0xf1, 0xfa,
+	0x5b, 0xd5, 0x20, 0x6f, 0x2d, 0x54, 0x3f, 0xfd, 0x70, 0x9f, 0x00, 0x4f, 0x1f, 0xc5, 0x1d, 0x36,
+	0xc7, 0x21, 0xdf, 0x47, 0x67, 0x43, 0x26, 0x38, 0xc4, 0xb2, 0x6c, 0xe5, 0x49, 0xae, 0x0d, 0x15,
+	0x9e, 0x40, 0x23, 0x85, 0x2f, 0x4c, 0x12, 0xe4, 0x00, 0xf1, 0x27, 0xa1, 0xdf, 0xb9, 0xb3, 0x38,
+	0x77, 0x77, 0xc8, 0xdd, 0x3f, 0xb1, 0xc2, 0x67, 0x20, 0x78, 0x0a, 0x8c, 0x7c, 0xb2, 0xd0, 0xea,
+	0x81, 0xec, 0x05, 0x85, 0xe4, 0x5f, 0x5c, 0x8d, 0x4d, 0xb4, 0x9c, 0xcf, 0x92, 0x06, 0xb2, 0x45,
+	0xc3, 0x30, 0x63, 0x00, 0x63, 0xfb, 0xbc, 0xa1, 0xc2, 0xc7, 0x62, 0x23, 0x85, 0x57, 0x74, 0xca,
+	0xa3, 0x11, 0xe2, 0x5f, 0x9c, 0x40, 0x0f, 0x34, 0x62, 0xbf, 0x37, 0xd1, 0xca, 0x0e, 0x85, 0xa4,
+	0xd8, 0x55, 0xb3, 0x56, 0xaa, 0xaf, 0x9f, 0xec, 0x6a, 0xe1, 0xd0, 0x1a, 0xab, 0x63, 0x4b, 0x1d,
+	0xdd, 0xc8, 0x8c, 0x0a, 0xc4, 0xbf, 0xbc, 0x53, 0x24, 0x2f, 0x58, 0xb5, 0xcf, 0x16, 0x72, 0x4f,
+	0x67, 0xd4, 0xff, 0xbc, 0x66, 0x45, 0x4e, 0x2f, 0xfe, 0x05, 0xa7, 0x97, 0xe6, 0xe5, 0x74, 0xe3,
+	0xe9, 0x5e, 0xdf, 0x31, 0xf7, 0xfb, 0x8e, 0xf9, 0xbd, 0xef, 0x98, 0xef, 0x06, 0x8e, 0xb1, 0x3f,
+	0x70, 0x8c, 0x2f, 0x03, 0xc7, 0xd8, 0xac, 0x47, 0xb1, 0x7c, 0xb9, 0xd5, 0x76, 0x03, 0x9e, 0x78,
+	0xe3, 0x73, 0xa7, 0x1f, 0x77, 0x20, 0x7c, 0xe5, 0xed, 0x1e, 0xb9, 0x7d, 0xb2, 0x2b, 0x18, 0xb4,
+	0xcf, 0xe4, 0x47, 0x6f, 0xfd, 0x67, 0x00, 0x00, 0x00, 0xff, 0xff, 0x5a, 0x4c, 0x68, 0xe0, 0x9c,
+	0x07, 0x00, 0x00,
 }
 
 func (m *MsgUpdateResourceDependencyMappingProposal) Marshal() (dAtA []byte, err error) {
@@ -348,6 +478,121 @@ func (m *MsgUpdateResourceDependencyMappingProposalResponse) MarshalToSizedBuffe
 	return len(dAtA) - i, nil
 }
 
+func (m *MsgUpdateWasmDependencyMappingProposal) Marshal() (dAtA []byte, err error) {
+	size := m.Size()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalToSizedBuffer(dAtA[:size])
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *MsgUpdateWasmDependencyMappingProposal) MarshalTo(dAtA []byte) (int, error) {
+	size := m.Size()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *MsgUpdateWasmDependencyMappingProposal) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
+	_ = i
+	var l int
+	_ = l
+	{
+		size, err := m.WasmDependencyMapping.MarshalToSizedBuffer(dAtA[:i])
+		if err != nil {
+			return 0, err
+		}
+		i -= size
+		i = encodeVarintGov(dAtA, i, uint64(size))
+	}
+	i--
+	dAtA[i] = 0x22
+	if len(m.ContractAddress) > 0 {
+		i -= len(m.ContractAddress)
+		copy(dAtA[i:], m.ContractAddress)
+		i = encodeVarintGov(dAtA, i, uint64(len(m.ContractAddress)))
+		i--
+		dAtA[i] = 0x1a
+	}
+	if len(m.Description) > 0 {
+		i -= len(m.Description)
+		copy(dAtA[i:], m.Description)
+		i = encodeVarintGov(dAtA, i, uint64(len(m.Description)))
+		i--
+		dAtA[i] = 0x12
+	}
+	if len(m.Title) > 0 {
+		i -= len(m.Title)
+		copy(dAtA[i:], m.Title)
+		i = encodeVarintGov(dAtA, i, uint64(len(m.Title)))
+		i--
+		dAtA[i] = 0xa
+	}
+	return len(dAtA) - i, nil
+}
+
+func (m *MsgUpdateWasmDependencyMappingProposalJsonFile) Marshal() (dAtA []byte, err error) {
+	size := m.Size()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalToSizedBuffer(dAtA[:size])
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *MsgUpdateWasmDependencyMappingProposalJsonFile) MarshalTo(dAtA []byte) (int, error) {
+	size := m.Size()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *MsgUpdateWasmDependencyMappingProposalJsonFile) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
+	_ = i
+	var l int
+	_ = l
+	{
+		size, err := m.WasmDependencyMapping.MarshalToSizedBuffer(dAtA[:i])
+		if err != nil {
+			return 0, err
+		}
+		i -= size
+		i = encodeVarintGov(dAtA, i, uint64(size))
+	}
+	i--
+	dAtA[i] = 0x2a
+	if len(m.ContractAddress) > 0 {
+		i -= len(m.ContractAddress)
+		copy(dAtA[i:], m.ContractAddress)
+		i = encodeVarintGov(dAtA, i, uint64(len(m.ContractAddress)))
+		i--
+		dAtA[i] = 0x22
+	}
+	if len(m.Deposit) > 0 {
+		i -= len(m.Deposit)
+		copy(dAtA[i:], m.Deposit)
+		i = encodeVarintGov(dAtA, i, uint64(len(m.Deposit)))
+		i--
+		dAtA[i] = 0x1a
+	}
+	if len(m.Description) > 0 {
+		i -= len(m.Description)
+		copy(dAtA[i:], m.Description)
+		i = encodeVarintGov(dAtA, i, uint64(len(m.Description)))
+		i--
+		dAtA[i] = 0x12
+	}
+	if len(m.Title) > 0 {
+		i -= len(m.Title)
+		copy(dAtA[i:], m.Title)
+		i = encodeVarintGov(dAtA, i, uint64(len(m.Title)))
+		i--
+		dAtA[i] = 0xa
+	}
+	return len(dAtA) - i, nil
+}
+
 func encodeVarintGov(dAtA []byte, offset int, v uint64) int {
 	offset -= sovGov(v)
 	base := offset
@@ -415,6 +660,56 @@ func (m *MsgUpdateResourceDependencyMappingProposalResponse) Size() (n int) {
 	}
 	var l int
 	_ = l
+	return n
+}
+
+func (m *MsgUpdateWasmDependencyMappingProposal) Size() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	l = len(m.Title)
+	if l > 0 {
+		n += 1 + l + sovGov(uint64(l))
+	}
+	l = len(m.Description)
+	if l > 0 {
+		n += 1 + l + sovGov(uint64(l))
+	}
+	l = len(m.ContractAddress)
+	if l > 0 {
+		n += 1 + l + sovGov(uint64(l))
+	}
+	l = m.WasmDependencyMapping.Size()
+	n += 1 + l + sovGov(uint64(l))
+	return n
+}
+
+func (m *MsgUpdateWasmDependencyMappingProposalJsonFile) Size() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	l = len(m.Title)
+	if l > 0 {
+		n += 1 + l + sovGov(uint64(l))
+	}
+	l = len(m.Description)
+	if l > 0 {
+		n += 1 + l + sovGov(uint64(l))
+	}
+	l = len(m.Deposit)
+	if l > 0 {
+		n += 1 + l + sovGov(uint64(l))
+	}
+	l = len(m.ContractAddress)
+	if l > 0 {
+		n += 1 + l + sovGov(uint64(l))
+	}
+	l = m.WasmDependencyMapping.Size()
+	n += 1 + l + sovGov(uint64(l))
 	return n
 }
 
@@ -781,6 +1076,396 @@ func (m *MsgUpdateResourceDependencyMappingProposalResponse) Unmarshal(dAtA []by
 			return fmt.Errorf("proto: MsgUpdateResourceDependencyMappingProposalResponse: illegal tag %d (wire type %d)", fieldNum, wire)
 		}
 		switch fieldNum {
+		default:
+			iNdEx = preIndex
+			skippy, err := skipGov(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
+				return ErrInvalidLengthGov
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+func (m *MsgUpdateWasmDependencyMappingProposal) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return ErrIntOverflowGov
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= uint64(b&0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: MsgUpdateWasmDependencyMappingProposal: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: MsgUpdateWasmDependencyMappingProposal: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 1:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Title", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowGov
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLengthGov
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return ErrInvalidLengthGov
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.Title = string(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
+		case 2:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Description", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowGov
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLengthGov
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return ErrInvalidLengthGov
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.Description = string(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
+		case 3:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field ContractAddress", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowGov
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLengthGov
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return ErrInvalidLengthGov
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.ContractAddress = string(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
+		case 4:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field WasmDependencyMapping", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowGov
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthGov
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthGov
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if err := m.WasmDependencyMapping.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		default:
+			iNdEx = preIndex
+			skippy, err := skipGov(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
+				return ErrInvalidLengthGov
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+func (m *MsgUpdateWasmDependencyMappingProposalJsonFile) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return ErrIntOverflowGov
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= uint64(b&0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: MsgUpdateWasmDependencyMappingProposalJsonFile: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: MsgUpdateWasmDependencyMappingProposalJsonFile: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 1:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Title", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowGov
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLengthGov
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return ErrInvalidLengthGov
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.Title = string(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
+		case 2:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Description", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowGov
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLengthGov
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return ErrInvalidLengthGov
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.Description = string(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
+		case 3:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Deposit", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowGov
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLengthGov
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return ErrInvalidLengthGov
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.Deposit = string(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
+		case 4:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field ContractAddress", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowGov
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLengthGov
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return ErrInvalidLengthGov
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.ContractAddress = string(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
+		case 5:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field WasmDependencyMapping", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowGov
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthGov
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthGov
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if err := m.WasmDependencyMapping.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
 		default:
 			iNdEx = preIndex
 			skippy, err := skipGov(dAtA[iNdEx:])

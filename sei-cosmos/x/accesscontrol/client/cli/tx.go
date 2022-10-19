@@ -26,9 +26,12 @@ func GetTxCmd() *cobra.Command {
 
 	updateResourceDependencyMappingProposalCmd := MsgUpdateResourceDependencyMappingProposalCmd()
 	flags.AddTxFlagsToCmd(updateResourceDependencyMappingProposalCmd)
+	updateWasmDependencyMappingProposalCmd := MsgUpdateWasmDependencyMappingProposalCmd()
+	flags.AddTxFlagsToCmd(updateWasmDependencyMappingProposalCmd)
 
 	cmd.AddCommand(
 		updateResourceDependencyMappingProposalCmd,
+		updateWasmDependencyMappingProposalCmd,
 	)
 
 	return cmd
@@ -53,8 +56,8 @@ func MsgUpdateResourceDependencyMappingProposalCmd() *cobra.Command {
 			from := clientCtx.GetFromAddress()
 
 			content := types.MsgUpdateResourceDependencyMappingProposal{
-				Title:	proposal.Title,
-				Description: proposal.Description,
+				Title:                    proposal.Title,
+				Description:              proposal.Description,
 				MessageDependencyMapping: proposal.MessageDependencyMapping,
 			}
 
@@ -64,6 +67,45 @@ func MsgUpdateResourceDependencyMappingProposalCmd() *cobra.Command {
 			}
 
 			msg, err := govtypes.NewMsgSubmitProposal(&content, deposit, from)
+			if err != nil {
+
+				return err
+			}
+
+			return tx.GenerateOrBroadcastTxCLI(clientCtx, cmd.Flags(), msg)
+		},
+	}
+
+	return cmd
+}
+
+func MsgUpdateWasmDependencyMappingProposalCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "update-wasm-dependency-mapping [proposal-file]",
+		Args:  cobra.ExactArgs(1),
+		Short: "Submit an UpdateWasmDependencyMapping proposal",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			clientCtx, err := client.GetClientTxContext(cmd)
+			if err != nil {
+				return err
+			}
+
+			proposal, err := utils.ParseUpdateWasmDependencyMappingProposalJSON(clientCtx.Codec, args[0])
+			if err != nil {
+				return err
+			}
+
+			from := clientCtx.GetFromAddress()
+			content := types.NewMsgUpdateWasmDependencyMappingProposal(
+				proposal.Title, proposal.Description, proposal.ContractAddress, proposal.WasmDependencyMapping,
+			)
+
+			deposit, err := sdk.ParseCoinsNormalized(proposal.Deposit)
+			if err != nil {
+				return err
+			}
+
+			msg, err := govtypes.NewMsgSubmitProposal(content, deposit, from)
 			if err != nil {
 
 				return err
