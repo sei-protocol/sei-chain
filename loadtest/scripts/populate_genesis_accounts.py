@@ -51,7 +51,7 @@ def create_genesis_account(account_index, account_name, local=False):
     address, mnemonic = add_key(account_name=account_name, local=local)
     add_account_cmd = add_account(account_name=account_name, address=address, mnemonic=mnemonic, local=local)
 
-    retry_counter = 50
+    retry_counter = 0
     sleep_time = 1
 
     while True:
@@ -64,8 +64,8 @@ def create_genesis_account(account_index, account_name, local=False):
             )
             break
         except subprocess.CalledProcessError as e:
-            print(f"Encountered error {e}, retrying {retry_counter - 1} times")
-            retry_counter -= 1
+            print(f"Encountered error {e}, retried {retry_counter} times")
+            retry_counter += 1
             sleep_time += 0.5
             time.sleep(sleep_time)
 
