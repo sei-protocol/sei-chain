@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"flag"
 	"fmt"
 	"math/rand"
 	"os"
@@ -225,6 +226,15 @@ func generateMessage(config Config, key cryptotypes.PrivKey, batchSize uint64) s
 				Amount: sdk.NewInt(1),
 			}),
 		}
+	case "failure-basic":
+		msg = &banktypes.MsgSend{
+			FromAddress: sdk.AccAddress(key.PubKey().Address()).String(),
+			ToAddress:   sdk.AccAddress(key.PubKey().Address()).String(),
+			Amount: sdk.NewCoins(sdk.Coin{
+				Denom:  "unknown",
+				Amount: sdk.NewInt(1),
+			}),
+		}
 	case "dex":
 		msgType := config.MsgTypeDistr.Sample()
 		orderPlacements := []*dextypes.Order{}
@@ -289,9 +299,15 @@ func getLastHeight() int {
 }
 
 func main() {
+	clientType := flag.String("clientType", "", "a string")
+	flag.Parse()
+	fmt.Printf("in main -> clientType: %s \n", *clientType)
 	config := Config{}
 	pwd, _ := os.Getwd()
 	file, _ := os.ReadFile(pwd + "/loadtest/config.json")
+	if *clientType == "failure" {
+		file, _ = os.ReadFile(pwd + "/loadtest/failure_basic_config.json")
+	}
 	if err := json.Unmarshal(file, &config); err != nil {
 		panic(err)
 	}
