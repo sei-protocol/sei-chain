@@ -1105,6 +1105,9 @@ func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequ
 
 	var txResults []*abci.ExecTxResult
 
+	// Used for testing - disables Concurrent Processing
+	err = acltypes.ErrCycleInDAG
+
 	switch err {
 	case nil:
 		// Only run concurrently if no error
