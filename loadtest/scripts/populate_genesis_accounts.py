@@ -54,7 +54,7 @@ def create_genesis_account(account_index, account_name, local=False):
     retry_counter = 0
     sleep_time = 1
 
-    while True:
+    while True and retry_counter < 1000:
         try:
             print(f'Running: ${add_account_cmd}')
             subprocess.call(
@@ -68,7 +68,10 @@ def create_genesis_account(account_index, account_name, local=False):
             retry_counter += 1
             sleep_time += 0.5
             time.sleep(sleep_time)
-
+    
+    if retry_counter >= 1000:
+        exit(-1)
+    
     global_accounts_mapping[account_index] = {
         "balance": {
             "address": address,
@@ -141,7 +144,7 @@ def main():
     num_accounts_created = len([account for account in account_info if account != 0])
     print(f'Created {num_accounts_created} accounts')
 
-    assert num_accounts_created > number_of_accounts
+    assert num_accounts_created >= number_of_accounts
     write_genesis_file(genesis_file)
 
 if __name__ == "__main__":
