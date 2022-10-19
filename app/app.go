@@ -499,6 +499,7 @@ func New(
 		app.BankKeeper.(bankkeeper.BaseKeeper).WithMintCoinsRestriction(tokenfactorytypes.NewTokenFactoryDenomMintCoinsRestriction()),
 		app.DistrKeeper,
 	)
+
 	customDependencyGenerators := aclmapping.NewCustomDependencyGenerator()
 	aclOpts = append(aclOpts, aclkeeper.WithDependencyGeneratorMappings(customDependencyGenerators.GetCustomDependencyGenerators()))
 	app.AccessControlKeeper = aclkeeper.NewKeeper(
@@ -1001,6 +1002,7 @@ func (app *App) ProcessTxConcurrent(
 	ctx = ctx.WithTxCompletionChannels(getChannelsFromSignalMapping(txCompletionSignalingMap))
 
 	// Deliver the transaction and store the result in the channel
+
 	resultChan <- ChannelResult{txIndex, app.DeliverTxWithResult(ctx, txBytes)}
 	metrics.IncrTxProcessTypeCounter(metrics.CONCURRENT)
 }
@@ -1061,7 +1063,7 @@ func (app *App) ProcessBlockConcurrent(
 
 func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequest, lastCommit abci.CommitInfo) ([]abci.Event, []*abci.ExecTxResult, abci.ResponseEndBlock, error) {
 	goCtx := app.decorateContextWithDexMemState(ctx.Context())
-	ctx = ctx.WithContext(goCtx)
+	ctx = ctx.WithContext(goCtx).WithContextMemCache(sdk.NewContextMemCache())
 
 	events := []abci.Event{}
 	beginBlockReq := abci.RequestBeginBlock{
@@ -1101,6 +1103,7 @@ func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequ
 	// app.batchVerifier.VerifyTxs(ctx, typedTxs)
 
 	dependencyDag, err := app.AccessControlKeeper.BuildDependencyDag(ctx, app.txDecoder, app.GetAnteDepGenerator(), txs)
+
 	var txResults []*abci.ExecTxResult
 
 	switch err {
@@ -1113,7 +1116,6 @@ func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequ
 		processBlockCtx, processBlockCache := app.CacheContext(ctx)
 		txResults = app.ProcessBlockConcurrent(processBlockCtx, txs, dependencyDag.CompletionSignalingMap, dependencyDag.BlockingSignalsMap)
 		// Write the results back to the concurrent contexts
-		ctx.Logger().Info("ProcessBlock:Writing processBlockCtx")
 		processBlockCache.Write()
 	case acltypes.ErrGovMsgInBlock:
 		ctx.Logger().Info(fmt.Sprintf("Gov msg found while building DAG, processing synchronously: %s", err))
@@ -1125,9 +1127,14 @@ func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequ
 		metrics.IncrDagBuildErrorCounter(metrics.FailedToBuild)
 	}
 
+	// Finalize all Bank Module Transfers here so that events are included
+	lazyWriteEvents := app.BankKeeper.WriteDeferredDepositsToModuleAccounts(ctx)
+	events = append(events, lazyWriteEvents...)
+
 	endBlockResp := app.EndBlock(ctx, abci.RequestEndBlock{
 		Height: req.GetHeight(),
 	})
+
 	events = append(events, endBlockResp.Events...)
 
 	return events, txResults, endBlockResp, nil

@@ -43,6 +43,7 @@ def add_genesis_account(account_name, lock, local=False):
                 subprocess.check_call(
                     [add_account_cmd],
                     shell=True,
+                    timeout=20,
                 )
                 success = True
         except subprocess.CalledProcessError as e:

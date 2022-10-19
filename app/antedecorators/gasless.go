@@ -4,6 +4,8 @@ import (
 	"bytes"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	sdkacltypes "github.com/cosmos/cosmos-sdk/types/accesscontrol"
+	aclutils "github.com/sei-protocol/sei-chain/aclmapping/utils"
 	dextypes "github.com/sei-protocol/sei-chain/x/dex/types"
 	oraclekeeper "github.com/sei-protocol/sei-chain/x/oracle/keeper"
 	oracletypes "github.com/sei-protocol/sei-chain/x/oracle/types"
@@ -36,6 +38,31 @@ func (gd GaslessDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool,
 	gaslessMeter := sdk.NewInfiniteGasMeter()
 
 	return next(ctx.WithGasMeter(gaslessMeter), tx, simulate)
+}
+
+func (gd GaslessDecorator) AnteDeps(txDeps []sdkacltypes.AccessOperation, tx sdk.Tx, next sdk.AnteDepGenerator) (newTxDeps []sdkacltypes.AccessOperation, err error) {
+	deps := []sdkacltypes.AccessOperation{}
+	for _, msg := range tx.GetMsgs() {
+		// Error checking will be handled in AnteHandler
+		switch m := msg.(type) {
+		case *oracletypes.MsgAggregateExchangeRatePrevote:
+			feederAddr, _ := sdk.AccAddressFromBech32(m.Feeder)
+			valAddr, _ := sdk.ValAddressFromBech32(m.Validator)
+			deps = append(deps, aclutils.GetOracleReadAccessOpsForValAndFeeder(feederAddr, valAddr)...)
+		case *oracletypes.MsgAggregateExchangeRateVote:
+			feederAddr, _ := sdk.AccAddressFromBech32(m.Feeder)
+			valAddr, _ := sdk.ValAddressFromBech32(m.Validator)
+			deps = append(deps, aclutils.GetOracleReadAccessOpsForValAndFeeder(feederAddr, valAddr)...)
+		case *oracletypes.MsgAggregateExchangeRateCombinedVote:
+			feederAddr, _ := sdk.AccAddressFromBech32(m.Feeder)
+			valAddr, _ := sdk.ValAddressFromBech32(m.Validator)
+			deps = append(deps, aclutils.GetOracleReadAccessOpsForValAndFeeder(feederAddr, valAddr)...)
+		default:
+			continue
+		}
+	}
+
+	return next(append(txDeps, deps...), tx)
 }
 
 func isTxGasless(tx sdk.Tx, ctx sdk.Context, oracleKeeper oraclekeeper.Keeper) bool {
