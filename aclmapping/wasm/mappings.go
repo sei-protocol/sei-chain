@@ -1,10 +1,8 @@
 package aclwasmmapping
 
 import (
-	"encoding/json"
 	"fmt"
 
-	wasmkeeper "github.com/CosmWasm/wasmd/x/wasm/keeper"
 	wasmtypes "github.com/CosmWasm/wasmd/x/wasm/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkacltypes "github.com/cosmos/cosmos-sdk/types/accesscontrol"
@@ -18,14 +16,10 @@ var (
 	ErrWasmFunctionDependenciesDisabled = fmt.Errorf("wasm function dependency mapping disabled")
 )
 
-type WasmDependencyGenerator struct {
-	WasmKeeper wasmkeeper.Keeper
-}
+type WasmDependencyGenerator struct{}
 
-func NewWasmDependencyGenerator(wasmKeeper wasmkeeper.Keeper) WasmDependencyGenerator {
-	return WasmDependencyGenerator{
-		WasmKeeper: wasmKeeper,
-	}
+func NewWasmDependencyGenerator() WasmDependencyGenerator {
+	return WasmDependencyGenerator{}
 }
 
 func (wasmDepGen WasmDependencyGenerator) GetWasmDependencyGenerators() aclkeeper.DependencyGeneratorMap {
@@ -46,25 +40,6 @@ func (wasmDepGen WasmDependencyGenerator) WasmExecuteContractGenerator(keeper ac
 	contractAddr, err := sdk.AccAddressFromBech32(executeContractMsg.Contract)
 	if err != nil {
 		return []sdkacltypes.AccessOperation{}, err
-	}
-
-	jsonObj := make(map[string]interface{})
-	jsonErr := json.Unmarshal(executeContractMsg.Msg, &jsonObj)
-	var wasmFunction string
-	if jsonErr != nil {
-		// try unmarshalling to string for execute function with no params
-		jsonErr2 := json.Unmarshal(executeContractMsg.Msg, &wasmFunction)
-		if jsonErr2 != nil {
-			return []sdkacltypes.AccessOperation{}, ErrInvalidWasmFunction
-		}
-	} else {
-		if len(jsonObj) != 1 {
-			return []sdkacltypes.AccessOperation{}, ErrInvalidWasmFunction
-		}
-		for fieldName := range jsonObj {
-			// this should only run once based on the check above
-			wasmFunction = fieldName
-		}
 	}
 	wasmDependencyMapping, err := keeper.GetWasmDependencyMapping(ctx, contractAddr)
 	if err != nil {
