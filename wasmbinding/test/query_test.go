@@ -6,8 +6,12 @@ import (
 	"testing"
 	"time"
 
+	wasmkeeper "github.com/CosmWasm/wasmd/x/wasm/keeper"
+	wasmvmtypes "github.com/CosmWasm/wasmvm/types"
 	"github.com/cosmos/cosmos-sdk/crypto/keys/secp256k1"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/cosmos/cosmos-sdk/types/accesscontrol"
+	acltypes "github.com/cosmos/cosmos-sdk/x/accesscontrol/types"
 	"github.com/sei-protocol/sei-chain/app"
 	keepertest "github.com/sei-protocol/sei-chain/testutil/keeper"
 	"github.com/sei-protocol/sei-chain/wasmbinding"
@@ -27,6 +31,7 @@ import (
 	tokenfactorybinding "github.com/sei-protocol/sei-chain/x/tokenfactory/client/wasm/bindings"
 	tokenfactorytypes "github.com/sei-protocol/sei-chain/x/tokenfactory/types"
 	"github.com/stretchr/testify/require"
+	"github.com/tendermint/tendermint/proto/tendermint/types"
 )
 
 func SetupWasmbindingTest(t *testing.T) (*app.TestWrapper, func(ctx sdk.Context, request json.RawMessage) ([]byte, error)) {
@@ -408,4 +413,441 @@ func TestWasmGetCreatorInDenomFeeWhitelist(t *testing.T) {
 	err = json.Unmarshal(res, &parsedRes2)
 	require.NoError(t, err)
 	require.Equal(t, tokenfactorytypes.QueryCreatorInDenomFeeWhitelistResponse{Whitelisted: true}, parsedRes2)
+}
+
+func MockQueryPlugins() wasmkeeper.QueryPlugins {
+	return wasmkeeper.QueryPlugins{
+		Bank: func(ctx sdk.Context, request *wasmvmtypes.BankQuery) ([]byte, error) { return []byte{}, nil },
+		IBC: func(ctx sdk.Context, caller sdk.AccAddress, request *wasmvmtypes.IBCQuery) ([]byte, error) {
+			return []byte{}, nil
+		},
+		Custom: func(ctx sdk.Context, request json.RawMessage) ([]byte, error) {
+			println("test")
+			return []byte{}, nil
+		},
+		Stargate: func(ctx sdk.Context, request *wasmvmtypes.StargateQuery) ([]byte, error) { return []byte{}, nil },
+		Staking:  func(ctx sdk.Context, request *wasmvmtypes.StakingQuery) ([]byte, error) { return []byte{}, nil },
+		Wasm:     func(ctx sdk.Context, request *wasmvmtypes.WasmQuery) ([]byte, error) { return []byte{}, nil },
+	}
+}
+
+func TestQueryHandlerDependencyDecoratorBank(t *testing.T) {
+	app := app.Setup(false)
+	contractAddr, err := sdk.AccAddressFromBech32("sei1y3pxq5dp900czh0mkudhjdqjq5m8cpmmps8yjw")
+	require.NoError(t, err)
+	queryDecorator := wasmbinding.NewCustomQueryHandler(MockQueryPlugins(), app.AccessControlKeeper)
+	testContext := app.NewContext(false, types.Header{})
+
+	// setup the wasm contract's dependency mapping
+	err = app.AccessControlKeeper.SetWasmDependencyMapping(testContext, contractAddr, accesscontrol.WasmDependencyMapping{
+		Enabled: true,
+		AccessOps: []accesscontrol.AccessOperation{
+			{
+				AccessType:         accesscontrol.AccessType_READ,
+				ResourceType:       accesscontrol.ResourceType_KV_BANK,
+				IdentifierTemplate: "*",
+			},
+			acltypes.CommitAccessOp(),
+		},
+	})
+	require.NoError(t, err)
+
+	_, err = queryDecorator.HandleQuery(testContext, contractAddr, wasmvmtypes.QueryRequest{
+		Bank: &wasmvmtypes.BankQuery{},
+	})
+	require.NoError(t, err)
+
+	err = app.AccessControlKeeper.SetWasmDependencyMapping(testContext, contractAddr, accesscontrol.WasmDependencyMapping{
+		Enabled: true,
+		AccessOps: []accesscontrol.AccessOperation{
+			{
+				AccessType:         accesscontrol.AccessType_WRITE,
+				ResourceType:       accesscontrol.ResourceType_KV_DEX,
+				IdentifierTemplate: "*",
+			},
+			acltypes.CommitAccessOp(),
+		},
+	})
+	require.NoError(t, err)
+
+	_, err = queryDecorator.HandleQuery(testContext, contractAddr, wasmvmtypes.QueryRequest{
+		Bank: &wasmvmtypes.BankQuery{},
+	})
+	require.Error(t, wasmbinding.ErrUnexpectedWasmDependency, err)
+}
+
+func TestQueryHandlerDependencyDecoratorIBC(t *testing.T) {
+	app := app.Setup(false)
+	contractAddr, err := sdk.AccAddressFromBech32("sei1y3pxq5dp900czh0mkudhjdqjq5m8cpmmps8yjw")
+	require.NoError(t, err)
+	queryDecorator := wasmbinding.NewCustomQueryHandler(MockQueryPlugins(), app.AccessControlKeeper)
+	testContext := app.NewContext(false, types.Header{})
+
+	// setup the wasm contract's dependency mapping
+	err = app.AccessControlKeeper.SetWasmDependencyMapping(testContext, contractAddr, accesscontrol.WasmDependencyMapping{
+		Enabled: true,
+		AccessOps: []accesscontrol.AccessOperation{
+			{
+				AccessType:         accesscontrol.AccessType_READ,
+				ResourceType:       accesscontrol.ResourceType_ANY,
+				IdentifierTemplate: "*",
+			},
+			acltypes.CommitAccessOp(),
+		},
+	})
+	require.NoError(t, err)
+
+	_, err = queryDecorator.HandleQuery(testContext, contractAddr, wasmvmtypes.QueryRequest{
+		IBC: &wasmvmtypes.IBCQuery{},
+	})
+	require.NoError(t, err)
+
+	err = app.AccessControlKeeper.SetWasmDependencyMapping(testContext, contractAddr, accesscontrol.WasmDependencyMapping{
+		Enabled: true,
+		AccessOps: []accesscontrol.AccessOperation{
+			{
+				AccessType:         accesscontrol.AccessType_WRITE,
+				ResourceType:       accesscontrol.ResourceType_KV,
+				IdentifierTemplate: "*",
+			},
+			acltypes.CommitAccessOp(),
+		},
+	})
+	require.NoError(t, err)
+
+	_, err = queryDecorator.HandleQuery(testContext, contractAddr, wasmvmtypes.QueryRequest{
+		IBC: &wasmvmtypes.IBCQuery{},
+	})
+	require.Error(t, wasmbinding.ErrUnexpectedWasmDependency, err)
+}
+
+func TestQueryHandlerDependencyDecoratorStaking(t *testing.T) {
+	app := app.Setup(false)
+	contractAddr, err := sdk.AccAddressFromBech32("sei1y3pxq5dp900czh0mkudhjdqjq5m8cpmmps8yjw")
+	require.NoError(t, err)
+	queryDecorator := wasmbinding.NewCustomQueryHandler(MockQueryPlugins(), app.AccessControlKeeper)
+	testContext := app.NewContext(false, types.Header{})
+
+	// setup the wasm contract's dependency mapping
+	err = app.AccessControlKeeper.SetWasmDependencyMapping(testContext, contractAddr, accesscontrol.WasmDependencyMapping{
+		Enabled: true,
+		AccessOps: []accesscontrol.AccessOperation{
+			{
+				AccessType:         accesscontrol.AccessType_READ,
+				ResourceType:       accesscontrol.ResourceType_KV_STAKING,
+				IdentifierTemplate: "*",
+			},
+			acltypes.CommitAccessOp(),
+		},
+	})
+	require.NoError(t, err)
+
+	_, err = queryDecorator.HandleQuery(testContext, contractAddr, wasmvmtypes.QueryRequest{
+		Staking: &wasmvmtypes.StakingQuery{},
+	})
+	require.NoError(t, err)
+
+	err = app.AccessControlKeeper.SetWasmDependencyMapping(testContext, contractAddr, accesscontrol.WasmDependencyMapping{
+		Enabled: true,
+		AccessOps: []accesscontrol.AccessOperation{
+			{
+				AccessType:         accesscontrol.AccessType_WRITE,
+				ResourceType:       accesscontrol.ResourceType_KV_DEX,
+				IdentifierTemplate: "*",
+			},
+			acltypes.CommitAccessOp(),
+		},
+	})
+	require.NoError(t, err)
+
+	_, err = queryDecorator.HandleQuery(testContext, contractAddr, wasmvmtypes.QueryRequest{
+		Staking: &wasmvmtypes.StakingQuery{},
+	})
+	require.Error(t, wasmbinding.ErrUnexpectedWasmDependency, err)
+}
+
+func TestQueryHandlerDependencyDecoratorStargate(t *testing.T) {
+	app := app.Setup(false)
+	contractAddr, err := sdk.AccAddressFromBech32("sei1y3pxq5dp900czh0mkudhjdqjq5m8cpmmps8yjw")
+	require.NoError(t, err)
+	queryDecorator := wasmbinding.NewCustomQueryHandler(MockQueryPlugins(), app.AccessControlKeeper)
+	testContext := app.NewContext(false, types.Header{})
+
+	// setup the wasm contract's dependency mapping
+	err = app.AccessControlKeeper.SetWasmDependencyMapping(testContext, contractAddr, accesscontrol.WasmDependencyMapping{
+		Enabled: true,
+		AccessOps: []accesscontrol.AccessOperation{
+			{
+				AccessType:         accesscontrol.AccessType_READ,
+				ResourceType:       accesscontrol.ResourceType_ANY,
+				IdentifierTemplate: "*",
+			},
+			acltypes.CommitAccessOp(),
+		},
+	})
+	require.NoError(t, err)
+
+	_, err = queryDecorator.HandleQuery(testContext, contractAddr, wasmvmtypes.QueryRequest{
+		Stargate: &wasmvmtypes.StargateQuery{},
+	})
+	require.NoError(t, err)
+
+	err = app.AccessControlKeeper.SetWasmDependencyMapping(testContext, contractAddr, accesscontrol.WasmDependencyMapping{
+		Enabled: true,
+		AccessOps: []accesscontrol.AccessOperation{
+			{
+				AccessType:         accesscontrol.AccessType_WRITE,
+				ResourceType:       accesscontrol.ResourceType_KV,
+				IdentifierTemplate: "*",
+			},
+			acltypes.CommitAccessOp(),
+		},
+	})
+	require.NoError(t, err)
+
+	_, err = queryDecorator.HandleQuery(testContext, contractAddr, wasmvmtypes.QueryRequest{
+		Stargate: &wasmvmtypes.StargateQuery{},
+	})
+	require.Error(t, wasmbinding.ErrUnexpectedWasmDependency, err)
+}
+
+func TestQueryHandlerDependencyDecoratorWasm(t *testing.T) {
+	app := app.Setup(false)
+	contractAddr, err := sdk.AccAddressFromBech32("sei1y3pxq5dp900czh0mkudhjdqjq5m8cpmmps8yjw")
+	require.NoError(t, err)
+	queryDecorator := wasmbinding.NewCustomQueryHandler(MockQueryPlugins(), app.AccessControlKeeper)
+	testContext := app.NewContext(false, types.Header{})
+
+	// setup the wasm contract's dependency mapping
+	err = app.AccessControlKeeper.SetWasmDependencyMapping(testContext, contractAddr, accesscontrol.WasmDependencyMapping{
+		Enabled: true,
+		AccessOps: []accesscontrol.AccessOperation{
+			{
+				AccessType:         accesscontrol.AccessType_READ,
+				ResourceType:       accesscontrol.ResourceType_KV_WASM,
+				IdentifierTemplate: "*",
+			},
+			acltypes.CommitAccessOp(),
+		},
+	})
+	require.NoError(t, err)
+
+	_, err = queryDecorator.HandleQuery(testContext, contractAddr, wasmvmtypes.QueryRequest{
+		Wasm: &wasmvmtypes.WasmQuery{},
+	})
+	require.NoError(t, err)
+
+	err = app.AccessControlKeeper.SetWasmDependencyMapping(testContext, contractAddr, accesscontrol.WasmDependencyMapping{
+		Enabled: true,
+		AccessOps: []accesscontrol.AccessOperation{
+			{
+				AccessType:         accesscontrol.AccessType_WRITE,
+				ResourceType:       accesscontrol.ResourceType_KV_DEX,
+				IdentifierTemplate: "*",
+			},
+			acltypes.CommitAccessOp(),
+		},
+	})
+	require.NoError(t, err)
+
+	_, err = queryDecorator.HandleQuery(testContext, contractAddr, wasmvmtypes.QueryRequest{
+		Wasm: &wasmvmtypes.WasmQuery{},
+	})
+	require.Error(t, wasmbinding.ErrUnexpectedWasmDependency, err)
+}
+
+func TestQueryHandlerDependencyDecoratorDex(t *testing.T) {
+	app := app.Setup(false)
+	contractAddr, err := sdk.AccAddressFromBech32("sei1y3pxq5dp900czh0mkudhjdqjq5m8cpmmps8yjw")
+	require.NoError(t, err)
+	queryDecorator := wasmbinding.NewCustomQueryHandler(MockQueryPlugins(), app.AccessControlKeeper)
+	testContext := app.NewContext(false, types.Header{})
+
+	// setup the wasm contract's dependency mapping
+	err = app.AccessControlKeeper.SetWasmDependencyMapping(testContext, contractAddr, accesscontrol.WasmDependencyMapping{
+		Enabled: true,
+		AccessOps: []accesscontrol.AccessOperation{
+			{
+				AccessType:         accesscontrol.AccessType_READ,
+				ResourceType:       accesscontrol.ResourceType_KV_DEX,
+				IdentifierTemplate: "*",
+			},
+			acltypes.CommitAccessOp(),
+		},
+	})
+	require.NoError(t, err)
+
+	customQuery, err := json.Marshal(wasmbinding.SeiQueryWrapper{
+		Route: wasmbinding.DexRoute,
+	})
+	require.NoError(t, err)
+	_, err = queryDecorator.HandleQuery(testContext, contractAddr, wasmvmtypes.QueryRequest{
+		Custom: customQuery,
+	})
+	require.NoError(t, err)
+
+	err = app.AccessControlKeeper.SetWasmDependencyMapping(testContext, contractAddr, accesscontrol.WasmDependencyMapping{
+		Enabled: true,
+		AccessOps: []accesscontrol.AccessOperation{
+			{
+				AccessType:         accesscontrol.AccessType_READ,
+				ResourceType:       accesscontrol.ResourceType_KV_ORACLE,
+				IdentifierTemplate: "*",
+			},
+			acltypes.CommitAccessOp(),
+		},
+	})
+	require.NoError(t, err)
+
+	_, err = queryDecorator.HandleQuery(testContext, contractAddr, wasmvmtypes.QueryRequest{
+		Custom: customQuery,
+	})
+	require.Error(t, wasmbinding.ErrUnexpectedWasmDependency, err)
+}
+
+func TestQueryHandlerDependencyDecoratorOracle(t *testing.T) {
+	app := app.Setup(false)
+	contractAddr, err := sdk.AccAddressFromBech32("sei1y3pxq5dp900czh0mkudhjdqjq5m8cpmmps8yjw")
+	require.NoError(t, err)
+	queryDecorator := wasmbinding.NewCustomQueryHandler(MockQueryPlugins(), app.AccessControlKeeper)
+	testContext := app.NewContext(false, types.Header{})
+
+	// setup the wasm contract's dependency mapping
+	err = app.AccessControlKeeper.SetWasmDependencyMapping(testContext, contractAddr, accesscontrol.WasmDependencyMapping{
+		Enabled: true,
+		AccessOps: []accesscontrol.AccessOperation{
+			{
+				AccessType:         accesscontrol.AccessType_READ,
+				ResourceType:       accesscontrol.ResourceType_KV_ORACLE,
+				IdentifierTemplate: "*",
+			},
+			acltypes.CommitAccessOp(),
+		},
+	})
+	require.NoError(t, err)
+
+	customQuery, err := json.Marshal(wasmbinding.SeiQueryWrapper{
+		Route: wasmbinding.OracleRoute,
+	})
+	require.NoError(t, err)
+	_, err = queryDecorator.HandleQuery(testContext, contractAddr, wasmvmtypes.QueryRequest{
+		Custom: customQuery,
+	})
+	require.NoError(t, err)
+
+	err = app.AccessControlKeeper.SetWasmDependencyMapping(testContext, contractAddr, accesscontrol.WasmDependencyMapping{
+		Enabled: true,
+		AccessOps: []accesscontrol.AccessOperation{
+			{
+				AccessType:         accesscontrol.AccessType_READ,
+				ResourceType:       accesscontrol.ResourceType_KV_BANK,
+				IdentifierTemplate: "*",
+			},
+			acltypes.CommitAccessOp(),
+		},
+	})
+	require.NoError(t, err)
+
+	_, err = queryDecorator.HandleQuery(testContext, contractAddr, wasmvmtypes.QueryRequest{
+		Custom: customQuery,
+	})
+	require.Error(t, wasmbinding.ErrUnexpectedWasmDependency, err)
+}
+
+func TestQueryHandlerDependencyDecoratorEpoch(t *testing.T) {
+	app := app.Setup(false)
+	contractAddr, err := sdk.AccAddressFromBech32("sei1y3pxq5dp900czh0mkudhjdqjq5m8cpmmps8yjw")
+	require.NoError(t, err)
+	queryDecorator := wasmbinding.NewCustomQueryHandler(MockQueryPlugins(), app.AccessControlKeeper)
+	testContext := app.NewContext(false, types.Header{})
+
+	// setup the wasm contract's dependency mapping
+	err = app.AccessControlKeeper.SetWasmDependencyMapping(testContext, contractAddr, accesscontrol.WasmDependencyMapping{
+		Enabled: true,
+		AccessOps: []accesscontrol.AccessOperation{
+			{
+				AccessType:         accesscontrol.AccessType_READ,
+				ResourceType:       accesscontrol.ResourceType_KV_EPOCH,
+				IdentifierTemplate: "*",
+			},
+			acltypes.CommitAccessOp(),
+		},
+	})
+	require.NoError(t, err)
+
+	customQuery, err := json.Marshal(wasmbinding.SeiQueryWrapper{
+		Route: wasmbinding.EpochRoute,
+	})
+	require.NoError(t, err)
+	_, err = queryDecorator.HandleQuery(testContext, contractAddr, wasmvmtypes.QueryRequest{
+		Custom: customQuery,
+	})
+	require.NoError(t, err)
+
+	err = app.AccessControlKeeper.SetWasmDependencyMapping(testContext, contractAddr, accesscontrol.WasmDependencyMapping{
+		Enabled: true,
+		AccessOps: []accesscontrol.AccessOperation{
+			{
+				AccessType:         accesscontrol.AccessType_READ,
+				ResourceType:       accesscontrol.ResourceType_KV_BANK,
+				IdentifierTemplate: "*",
+			},
+			acltypes.CommitAccessOp(),
+		},
+	})
+	require.NoError(t, err)
+
+	_, err = queryDecorator.HandleQuery(testContext, contractAddr, wasmvmtypes.QueryRequest{
+		Custom: customQuery,
+	})
+	require.Error(t, wasmbinding.ErrUnexpectedWasmDependency, err)
+}
+
+func TestQueryHandlerDependencyDecoratorTokenFactory(t *testing.T) {
+	app := app.Setup(false)
+	contractAddr, err := sdk.AccAddressFromBech32("sei1y3pxq5dp900czh0mkudhjdqjq5m8cpmmps8yjw")
+	require.NoError(t, err)
+	queryDecorator := wasmbinding.NewCustomQueryHandler(MockQueryPlugins(), app.AccessControlKeeper)
+	testContext := app.NewContext(false, types.Header{})
+
+	// setup the wasm contract's dependency mapping
+	err = app.AccessControlKeeper.SetWasmDependencyMapping(testContext, contractAddr, accesscontrol.WasmDependencyMapping{
+		Enabled: true,
+		AccessOps: []accesscontrol.AccessOperation{
+			{
+				AccessType:         accesscontrol.AccessType_READ,
+				ResourceType:       accesscontrol.ResourceType_KV,
+				IdentifierTemplate: "*",
+			},
+			acltypes.CommitAccessOp(),
+		},
+	})
+	require.NoError(t, err)
+
+	customQuery, err := json.Marshal(wasmbinding.SeiQueryWrapper{
+		Route: wasmbinding.TokenFactoryRoute,
+	})
+	require.NoError(t, err)
+	_, err = queryDecorator.HandleQuery(testContext, contractAddr, wasmvmtypes.QueryRequest{
+		Custom: customQuery,
+	})
+	require.NoError(t, err)
+
+	err = app.AccessControlKeeper.SetWasmDependencyMapping(testContext, contractAddr, accesscontrol.WasmDependencyMapping{
+		Enabled: true,
+		AccessOps: []accesscontrol.AccessOperation{
+			{
+				AccessType:         accesscontrol.AccessType_READ,
+				ResourceType:       accesscontrol.ResourceType_Mem,
+				IdentifierTemplate: "*",
+			},
+			acltypes.CommitAccessOp(),
+		},
+	})
+	require.NoError(t, err)
+
+	_, err = queryDecorator.HandleQuery(testContext, contractAddr, wasmvmtypes.QueryRequest{
+		Custom: customQuery,
+	})
+	require.Error(t, wasmbinding.ErrUnexpectedWasmDependency, err)
 }
