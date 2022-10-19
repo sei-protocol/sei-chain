@@ -1101,12 +1101,12 @@ func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequ
 	// }
 	// app.batchVerifier.VerifyTxs(ctx, typedTxs)
 
-	dependencyDag, err := app.AccessControlKeeper.BuildDependencyDag(ctx, app.txDecoder, app.GetAnteDepGenerator(), txs)
+	dependencyDag, _ := app.AccessControlKeeper.BuildDependencyDag(ctx, app.txDecoder, app.GetAnteDepGenerator(), txs)
 
 	var txResults []*abci.ExecTxResult
 
 	// Used for testing - disables Concurrent Processing
-	err = acltypes.ErrCycleInDAG
+	err := acltypes.ErrCycleInDAG
 
 	switch err {
 	case nil:
