@@ -12,8 +12,8 @@ class PriceFetcher:
     }
     DELIMITER = ', '
 
-    def __init__(self) -> None:
-        self.cg = CoinGeckoAPI(api_key='XXX')
+    def __init__(self, api_key=None) -> None:
+        self.cg = CoinGeckoAPI(api_key=api_key if api_key is not None else 'XXX')
         self.coin_prices = defaultdict(int)
 
     def create_price_feed(self, coin_list):
