@@ -9,16 +9,8 @@ import sys
 from price_fetcher import PriceFetcher
 
 CMD = "printf '{password}\n' | {binary}"
-PREVOTE_TMPL = (
-    " tx oracle aggregate-prevote abc 100uusdc,50uatom {val_addr} --from={key} "
-    "--chain-id={chain_id} -y --broadcast-mode=sync --node={node}"
-)
 VOTE_TMPL = (
-    " tx oracle aggregate-vote abc 100uusdc,50uatom {val_addr} --from={key} "
-    "--chain-id={chain_id} -y --broadcast-mode=sync --node={node}"
-)
-COMBINED_TMPL = (
-    " tx oracle aggregate-combined-vote {salt} {prevote_prices} {salt} {vote_prices} {val_addr} --from {key} "
+    " tx oracle aggregate-vote {vote_prices} {val_addr} --from {key} "
     "--chain-id={chain_id} -y --broadcast-mode=sync --node={node}"
 )
 
@@ -46,51 +38,17 @@ class PriceFeeder:
     def get_current_vote_period(self):
         res = requests.get("{node}/blockchain".format(node=self.node))
         body = res.json()
-        return int(body["result"]["last_height"]) // 10
+        return int(body["result"]["last_height"])
 
-    def vote_for_period(self):
-        print("Vote")
+    def vote_for_period(self, vote_prices):
         result = subprocess.check_output(
             [
-                CMD.format(password=self.password, binary=self.binary) + 
+                CMD.format(password=self.password, binary=self.binary) +
                 VOTE_TMPL.format(
-                    key=self.key, 
-                    chain_id=self.chain_id, 
-                    val_addr=self.val_addr, 
-                    node=self.node
-                )
-            ],
-            stderr=subprocess.STDOUT,
-            shell=True,
-        )
-
-    def prevote_for_period(self):
-        print("Prevote")
-        result = subprocess.check_output(
-            [
-                CMD.format(password=self.password, binary=self.binary) + 
-                PREVOTE_TMPL.format(
-                    key=self.key, 
-                    chain_id=self.chain_id, 
-                    val_addr=self.val_addr, 
-                    node=self.node
-                )
-            ],
-            stderr=subprocess.STDOUT,
-            shell=True,
-        )
-
-    def combined_vote_for_period(self, vote_prices, prevote_prices, salt):
-        result = subprocess.check_output(
-            [
-                CMD.format(password=self.password, binary=self.binary) + 
-                COMBINED_TMPL.format(
-                    key=self.key, 
-                    chain_id=self.chain_id, 
-                    val_addr=self.val_addr, 
-                    prevote_prices=prevote_prices, 
+                    key=self.key,
+                    chain_id=self.chain_id,
+                    val_addr=self.val_addr,
                     vote_prices=vote_prices,
-                    salt=salt,
                     node=self.node
                 )
             ],
@@ -103,9 +61,7 @@ class PriceFeeder:
             print("Oracle price didn't submit successfully!!")
 
     def vote_loop(self, coins, salt, interval=0.2):
-        last_prevoted_period = -1
         last_voted_period = -1
-        last_combined_voted_period = -1
         vote_loop_break = 0
         pf = PriceFetcher()
 
@@ -113,18 +69,16 @@ class PriceFeeder:
         while True:
             time.sleep(interval)
             current_vote_period = self.get_current_vote_period()
-            if last_combined_voted_period < current_vote_period:
-                prevote_prices = pf.create_price_feed(coins)
+            if last_voted_period < current_vote_period:
 
-                if prevote_prices is None or vote_prices is None:
+                if vote_prices is None:
                     print ("No price data available, sleep 5")
                     time.sleep(5)
                     continue
 
-                print("submitting price feeds ", vote_prices, prevote_prices)
-                self.combined_vote_for_period(vote_prices, prevote_prices, salt)
-                vote_prices = prevote_prices
-                last_combined_voted_period = current_vote_period
+                print("submitting price feed ", vote_prices)
+                self.vote_for_period(vote_prices)
+                last_voted_period = current_vote_period
                 vote_loop_break += 1
 
 def main():
