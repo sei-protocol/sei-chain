@@ -4,8 +4,10 @@ import (
 	"sync"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
-	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
+	sdkacltypes "github.com/cosmos/cosmos-sdk/types/accesscontrol"
+	aclutils "github.com/sei-protocol/sei-chain/aclmapping/utils"
 
+	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	"github.com/sei-protocol/sei-chain/x/oracle/keeper"
 	"github.com/sei-protocol/sei-chain/x/oracle/types"
 )
@@ -43,6 +45,23 @@ func (spd SpammingPreventionDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, si
 	}
 
 	return next(ctx, tx, simulate)
+}
+
+func (spd SpammingPreventionDecorator) AnteDeps(txDeps []sdkacltypes.AccessOperation, tx sdk.Tx, next sdk.AnteDepGenerator) (newTxDeps []sdkacltypes.AccessOperation, err error) {
+	deps := []sdkacltypes.AccessOperation{}
+	for _, msg := range tx.GetMsgs() {
+		// Error checking will be handled in AnteHandler
+		switch m := msg.(type) {
+		case *types.MsgAggregateExchangeRateVote:
+			feederAddr, _ := sdk.AccAddressFromBech32(m.Feeder)
+			valAddr, _ := sdk.ValAddressFromBech32(m.Validator)
+			deps = append(deps, aclutils.GetOracleReadAccessOpsForValAndFeeder(feederAddr, valAddr)...)
+		default:
+			continue
+		}
+	}
+
+	return next(append(txDeps, deps...), tx)
 }
 
 // CheckOracleSpamming check whether the msgs are spamming purpose or not

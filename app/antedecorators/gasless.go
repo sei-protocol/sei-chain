@@ -4,6 +4,8 @@ import (
 	"bytes"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	sdkacltypes "github.com/cosmos/cosmos-sdk/types/accesscontrol"
+	aclutils "github.com/sei-protocol/sei-chain/aclmapping/utils"
 	dextypes "github.com/sei-protocol/sei-chain/x/dex/types"
 	nitrokeeper "github.com/sei-protocol/sei-chain/x/nitro/keeper"
 	nitrotypes "github.com/sei-protocol/sei-chain/x/nitro/types"
@@ -42,6 +44,24 @@ func (gd GaslessDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool,
 	}
 
 	return next(ctx, tx, simulate)
+}
+
+func (gd GaslessDecorator) AnteDeps(txDeps []sdkacltypes.AccessOperation, tx sdk.Tx, next sdk.AnteDepGenerator) (newTxDeps []sdkacltypes.AccessOperation, err error) {
+	deps := []sdkacltypes.AccessOperation{}
+	for _, msg := range tx.GetMsgs() {
+		// Error checking will be handled in AnteHandler
+		switch m := msg.(type) {
+		case *oracletypes.MsgAggregateExchangeRateVote:
+			feederAddr, _ := sdk.AccAddressFromBech32(m.Feeder)
+			valAddr, _ := sdk.ValAddressFromBech32(m.Validator)
+			deps = append(deps, aclutils.GetOracleReadAccessOpsForValAndFeeder(feederAddr, valAddr)...)
+		// TODO: add tx gasless deps for nitro for nitrokeeper read
+		default:
+			continue
+		}
+	}
+
+	return next(append(txDeps, deps...), tx)
 }
 
 func isTxGasless(tx sdk.Tx, ctx sdk.Context, oracleKeeper oraclekeeper.Keeper, nitroKeeper nitrokeeper.Keeper) bool {
