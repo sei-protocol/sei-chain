@@ -499,33 +499,10 @@ func New(
 		app.BankKeeper.(bankkeeper.BaseKeeper).WithMintCoinsRestriction(tokenfactorytypes.NewTokenFactoryDenomMintCoinsRestriction()),
 		app.DistrKeeper,
 	)
-	customDependencyGenerators := aclmapping.NewCustomDependencyGenerator()
-	aclOpts = append(aclOpts, aclkeeper.WithDependencyGeneratorMappings(customDependencyGenerators.GetCustomDependencyGenerators()))
-	app.AccessControlKeeper = aclkeeper.NewKeeper(
-		appCodec,
-		app.keys[acltypes.StoreKey],
-		app.GetSubspace(acltypes.ModuleName),
-		aclOpts...,
-	)
 	// The last arguments can contain custom message handlers, and custom query handlers,
 	// if we want to allow any custom callbacks
 	supportedFeatures := "iterator,staking,stargate,sei"
-	wasmOpts = append(
-		wasmbinding.RegisterCustomPlugins(
-			&app.OracleKeeper,
-			&app.DexKeeper,
-			&app.EpochKeeper,
-			&app.AccountKeeper,
-			app.MsgServiceRouter(),
-			app.IBCKeeper.ChannelKeeper,
-			scopedWasmKeeper,
-			app.BankKeeper,
-			appCodec,
-			app.TransferKeeper,
-			app.AccessControlKeeper,
-		),
-		wasmOpts...,
-	)
+	wasmOpts = append(wasmbinding.RegisterCustomPlugins(&app.OracleKeeper, &app.DexKeeper, &app.EpochKeeper), wasmOpts...)
 	app.WasmKeeper = wasm.NewKeeper(
 		appCodec,
 		keys[wasm.StoreKey],
@@ -549,6 +526,14 @@ func New(
 	dexModule := dexmodule.NewAppModule(appCodec, app.DexKeeper, app.AccountKeeper, app.BankKeeper, app.WasmKeeper, app.tracingInfo)
 	epochModule := epochmodule.NewAppModule(appCodec, app.EpochKeeper, app.AccountKeeper, app.BankKeeper)
 
+	customDependencyGenerators := aclmapping.NewCustomDependencyGenerator(app.WasmKeeper)
+	aclOpts = append(aclOpts, aclkeeper.WithDependencyGeneratorMappings(customDependencyGenerators.GetCustomDependencyGenerators()))
+	app.AccessControlKeeper = aclkeeper.NewKeeper(
+		appCodec,
+		app.keys[acltypes.StoreKey],
+		app.GetSubspace(acltypes.ModuleName),
+		aclOpts...,
+	)
 	// register the proposal types
 	govRouter := govtypes.NewRouter()
 	govRouter.AddRoute(govtypes.RouterKey, govtypes.ProposalHandler).
@@ -1101,12 +1086,9 @@ func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequ
 	// }
 	// app.batchVerifier.VerifyTxs(ctx, typedTxs)
 
-	dependencyDag, _ := app.AccessControlKeeper.BuildDependencyDag(ctx, app.txDecoder, app.GetAnteDepGenerator(), txs)
+	dependencyDag, err := app.AccessControlKeeper.BuildDependencyDag(ctx, app.txDecoder, app.GetAnteDepGenerator(), txs)
 
 	var txResults []*abci.ExecTxResult
-
-	// Used for testing - disables Concurrent Processing
-	err := acltypes.ErrCycleInDAG
 
 	switch err {
 	case nil:
