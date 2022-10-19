@@ -95,20 +95,6 @@ def bulk_create_genesis_accounts(number_of_accounts, start_idx, is_local=False):
         print(f"Created account {i}")
 
 
-def update_genesis_file(old_genesis_json):
-    sorted_keys = sorted(list(global_accounts_mapping.keys()))
-    account_info = [0] * len(sorted_keys)
-    balances = [0] * len(sorted_keys)
-    for key in sorted_keys:
-        balances[i] = global_accounts_mapping[key]["balance"]
-        account_info[i] = global_accounts_mapping[key]["account"]
-
-    old_genesis_json["app_state"]["bank"]["balances"] = old_genesis_json["app_state"]["bank"]["balances"] + balances
-    old_genesis_json["app_state"]["auth"]["accounts"] = old_genesis_json["app_state"]["auth"]["accounts"] + account_info
-    print(f'Writing {len(account_info)} and {len(balances)}')
-    write_genesis_file(old_genesis_json)
-
-
 def read_genesis_file():
     with open("/root/.sei/config/genesis.json", 'r') as f:
         return json.load(f)
