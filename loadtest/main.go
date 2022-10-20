@@ -20,6 +20,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/codec"
 	"github.com/cosmos/cosmos-sdk/codec/types"
 	"github.com/cosmos/cosmos-sdk/std"
+	"github.com/cosmos/cosmos-sdk/telemetry"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	typestx "github.com/cosmos/cosmos-sdk/types/tx"
 	"github.com/cosmos/cosmos-sdk/x/auth/tx"
@@ -27,7 +28,6 @@ import (
 	"github.com/sei-protocol/sei-chain/utils"
 	dextypes "github.com/sei-protocol/sei-chain/x/dex/types"
 	"google.golang.org/grpc"
-	"github.com/cosmos/cosmos-sdk/telemetry"
 )
 
 type EncodingConfig struct {
@@ -39,16 +39,16 @@ type EncodingConfig struct {
 }
 
 type Config struct {
-	BatchSize      uint64                `json:"batch_size"`
-	ChainID        string                `json:"chain_id"`
-	OrdersPerBlock uint64                `json:"orders_per_block"`
-	Rounds         uint64                `json:"rounds"`
-	MessageType    string                `json:"message_type"`
-	PriceDistr     NumericDistribution   `json:"price_distribution"`
-	QuantityDistr  NumericDistribution   `json:"quantity_distribution"`
-	MsgTypeDistr   MsgTypeDistribution   `json:"message_type_distribution"`
-	ContractDistr  ContractDistributions `json:"contract_distribution"`
-	ConstLoadInterval	   int64 				 `json:"const_load_interval"`
+	BatchSize         uint64                `json:"batch_size"`
+	ChainID           string                `json:"chain_id"`
+	OrdersPerBlock    uint64                `json:"orders_per_block"`
+	Rounds            uint64                `json:"rounds"`
+	MessageType       string                `json:"message_type"`
+	PriceDistr        NumericDistribution   `json:"price_distribution"`
+	QuantityDistr     NumericDistribution   `json:"quantity_distribution"`
+	MsgTypeDistr      MsgTypeDistribution   `json:"message_type_distribution"`
+	ContractDistr     ContractDistributions `json:"contract_distribution"`
+	ConstLoadInterval int64                 `json:"const_load_interval"`
 }
 
 type NumericDistribution struct {
@@ -211,7 +211,7 @@ func run(config Config, constant *bool) {
 		for _, sender := range senders {
 			go func() {
 				tx := sender()
-				if (tx != ""){
+				if tx != "" {
 					telemetry.IncrCounter(1, "load_test_pending_tx_counts")
 					txs = append(txs, tx)
 				}
@@ -221,12 +221,12 @@ func run(config Config, constant *bool) {
 		lastHeight = newHeight
 	}
 
-	if (*constant) {
+	if *constant {
 		// sleep 3 seconds wait for transaction to finish
 		time.Sleep(3 * time.Second)
-		for i := 0; i < int(len(txs)); i++ {
+		for i := 0; i < len(txs); i++ {
 			txResponse := GetTxResponse(txs[i])
-			if (txResponse.Tx == nil) {
+			if txResponse.Tx == nil {
 				// Replace panic with metrics instead
 				panic("transaction not committed")
 			}
@@ -242,8 +242,8 @@ func generateMessage(config Config, key cryptotypes.PrivKey, batchSize uint64, c
 	messageType := config.MessageType
 
 	// Use a random message type if it's running constant load test
-	if (*constant) {
-		messageType = messageTypes[rand.Intn(len(messageTypes) + 1) - 1]		
+	if *constant {
+		messageType = messageTypes[rand.Intn(len(messageTypes)+1)-1]
 	}
 	switch messageType {
 	case "basic":
@@ -323,9 +323,9 @@ func main() {
 	flag.Parse()
 	config := Config{}
 	pwd, _ := os.Getwd()
-	
+
 	fileName := "/loadtest/config.json"
-	if (*constant) {
+	if *constant {
 		fileName = "/loadtest/constant_load_config.json"
 	}
 	file, _ := os.ReadFile(pwd + fileName)
@@ -333,7 +333,7 @@ func main() {
 		panic(err)
 	}
 
-	if (*constant) {
+	if *constant {
 		for {
 			run(config, constant)
 			time.Sleep(time.Duration(config.ConstLoadInterval) * time.Second)
