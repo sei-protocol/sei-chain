@@ -2,11 +2,13 @@ syntax = "proto3";
 package seiprotocol.seichain.nitro;
 
 import "gogoproto/gogo.proto";
+import "nitro/data.proto"; 
 
 option go_package = "github.com/sei-protocol/sei-chain/x/nitro/types";
 
 service Msg {
     rpc RecordTransactionData(MsgRecordTransactionData) returns (MsgRecordTransactionDataResponse);
+    rpc SubmitFraudChallenge(MsgSubmitFraudChallenge) returns (MsgSubmitFraudChallengeResponse);
 }
 
 message MsgRecordTransactionData {
@@ -24,4 +26,24 @@ message MsgRecordTransactionData {
     ];
 }
 
+message MsgSubmitFraudChallenge {
+    string sender = 1 [
+        (gogoproto.jsontag) = "sender"
+    ];
+    uint64 startSlot = 2 [
+        (gogoproto.jsontag) = "start_slot"
+    ];
+    uint64 endSlot = 3 [
+        (gogoproto.jsontag) = "end_slot"
+    ];
+    string fraudState = 4 [
+        (gogoproto.jsontag) = "fraud_state"
+    ];
+    MerkleProof merkleProof = 5 [
+        (gogoproto.jsontag) = "merkle_proof"
+    ];
+}
+
 message MsgRecordTransactionDataResponse {}
+
+message MsgSubmitFraudChallengeResponse {}

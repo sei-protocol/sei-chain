@@ -96,6 +96,82 @@ func (m *MsgRecordTransactionData) GetTxs() []string {
 	return nil
 }
 
+type MsgSubmitFraudChallenge struct {
+	Sender      string       `protobuf:"bytes,1,opt,name=sender,proto3" json:"sender"`
+	StartSlot   uint64       `protobuf:"varint,2,opt,name=startSlot,proto3" json:"start_slot"`
+	EndSlot     uint64       `protobuf:"varint,3,opt,name=endSlot,proto3" json:"end_slot"`
+	FraudState  string       `protobuf:"bytes,4,opt,name=fraudState,proto3" json:"fraud_state"`
+	MerkleProof *MerkleProof `protobuf:"bytes,5,opt,name=merkleProof,proto3" json:"merkle_proof"`
+}
+
+func (m *MsgSubmitFraudChallenge) Reset()         { *m = MsgSubmitFraudChallenge{} }
+func (m *MsgSubmitFraudChallenge) String() string { return proto.CompactTextString(m) }
+func (*MsgSubmitFraudChallenge) ProtoMessage()    {}
+func (*MsgSubmitFraudChallenge) Descriptor() ([]byte, []int) {
+	return fileDescriptor_fa387fcec7e73aca, []int{1}
+}
+func (m *MsgSubmitFraudChallenge) XXX_Unmarshal(b []byte) error {
+	return m.Unmarshal(b)
+}
+func (m *MsgSubmitFraudChallenge) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	if deterministic {
+		return xxx_messageInfo_MsgSubmitFraudChallenge.Marshal(b, m, deterministic)
+	} else {
+		b = b[:cap(b)]
+		n, err := m.MarshalToSizedBuffer(b)
+		if err != nil {
+			return nil, err
+		}
+		return b[:n], nil
+	}
+}
+func (m *MsgSubmitFraudChallenge) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_MsgSubmitFraudChallenge.Merge(m, src)
+}
+func (m *MsgSubmitFraudChallenge) XXX_Size() int {
+	return m.Size()
+}
+func (m *MsgSubmitFraudChallenge) XXX_DiscardUnknown() {
+	xxx_messageInfo_MsgSubmitFraudChallenge.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_MsgSubmitFraudChallenge proto.InternalMessageInfo
+
+func (m *MsgSubmitFraudChallenge) GetSender() string {
+	if m != nil {
+		return m.Sender
+	}
+	return ""
+}
+
+func (m *MsgSubmitFraudChallenge) GetStartSlot() uint64 {
+	if m != nil {
+		return m.StartSlot
+	}
+	return 0
+}
+
+func (m *MsgSubmitFraudChallenge) GetEndSlot() uint64 {
+	if m != nil {
+		return m.EndSlot
+	}
+	return 0
+}
+
+func (m *MsgSubmitFraudChallenge) GetFraudState() string {
+	if m != nil {
+		return m.FraudState
+	}
+	return ""
+}
+
+func (m *MsgSubmitFraudChallenge) GetMerkleProof() *MerkleProof {
+	if m != nil {
+		return m.MerkleProof
+	}
+	return nil
+}
+
 type MsgRecordTransactionDataResponse struct {
 }
 
@@ -103,7 +179,7 @@ func (m *MsgRecordTransactionDataResponse) Reset()         { *m = MsgRecordTrans
 func (m *MsgRecordTransactionDataResponse) String() string { return proto.CompactTextString(m) }
 func (*MsgRecordTransactionDataResponse) ProtoMessage()    {}
 func (*MsgRecordTransactionDataResponse) Descriptor() ([]byte, []int) {
-	return fileDescriptor_fa387fcec7e73aca, []int{1}
+	return fileDescriptor_fa387fcec7e73aca, []int{2}
 }
 func (m *MsgRecordTransactionDataResponse) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
@@ -132,35 +208,83 @@ func (m *MsgRecordTransactionDataResponse) XXX_DiscardUnknown() {
 
 var xxx_messageInfo_MsgRecordTransactionDataResponse proto.InternalMessageInfo
 
+type MsgSubmitFraudChallengeResponse struct {
+}
+
+func (m *MsgSubmitFraudChallengeResponse) Reset()         { *m = MsgSubmitFraudChallengeResponse{} }
+func (m *MsgSubmitFraudChallengeResponse) String() string { return proto.CompactTextString(m) }
+func (*MsgSubmitFraudChallengeResponse) ProtoMessage()    {}
+func (*MsgSubmitFraudChallengeResponse) Descriptor() ([]byte, []int) {
+	return fileDescriptor_fa387fcec7e73aca, []int{3}
+}
+func (m *MsgSubmitFraudChallengeResponse) XXX_Unmarshal(b []byte) error {
+	return m.Unmarshal(b)
+}
+func (m *MsgSubmitFraudChallengeResponse) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	if deterministic {
+		return xxx_messageInfo_MsgSubmitFraudChallengeResponse.Marshal(b, m, deterministic)
+	} else {
+		b = b[:cap(b)]
+		n, err := m.MarshalToSizedBuffer(b)
+		if err != nil {
+			return nil, err
+		}
+		return b[:n], nil
+	}
+}
+func (m *MsgSubmitFraudChallengeResponse) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_MsgSubmitFraudChallengeResponse.Merge(m, src)
+}
+func (m *MsgSubmitFraudChallengeResponse) XXX_Size() int {
+	return m.Size()
+}
+func (m *MsgSubmitFraudChallengeResponse) XXX_DiscardUnknown() {
+	xxx_messageInfo_MsgSubmitFraudChallengeResponse.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_MsgSubmitFraudChallengeResponse proto.InternalMessageInfo
+
 func init() {
 	proto.RegisterType((*MsgRecordTransactionData)(nil), "seiprotocol.seichain.nitro.MsgRecordTransactionData")
+	proto.RegisterType((*MsgSubmitFraudChallenge)(nil), "seiprotocol.seichain.nitro.MsgSubmitFraudChallenge")
 	proto.RegisterType((*MsgRecordTransactionDataResponse)(nil), "seiprotocol.seichain.nitro.MsgRecordTransactionDataResponse")
+	proto.RegisterType((*MsgSubmitFraudChallengeResponse)(nil), "seiprotocol.seichain.nitro.MsgSubmitFraudChallengeResponse")
 }
 
 func init() { proto.RegisterFile("nitro/tx.proto", fileDescriptor_fa387fcec7e73aca) }
 
 var fileDescriptor_fa387fcec7e73aca = []byte{
-	// 314 bytes of a gzipped FileDescriptorProto
-	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0x9c, 0x51, 0xb1, 0x4e, 0xf3, 0x30,
-	0x10, 0xae, 0xff, 0x54, 0xfd, 0xa9, 0x87, 0x0e, 0x11, 0x48, 0xa1, 0x42, 0x49, 0x94, 0xa9, 0x03,
-	0xc4, 0x12, 0x30, 0x32, 0x45, 0x2c, 0x0c, 0x5d, 0x2c, 0x26, 0x16, 0xe4, 0xa6, 0x56, 0x6a, 0xa9,
-	0xf8, 0x2a, 0xdf, 0x21, 0x95, 0x67, 0x60, 0x41, 0xe2, 0x19, 0x78, 0x17, 0xc6, 0x8e, 0x4c, 0x11,
-	0x6a, 0xb7, 0x3c, 0x05, 0xaa, 0x69, 0xc5, 0x42, 0x16, 0x96, 0xf3, 0x7d, 0xe7, 0xef, 0xee, 0xfb,
-	0xec, 0xe3, 0x03, 0x6b, 0xc8, 0x81, 0xa0, 0x65, 0xbe, 0x70, 0x40, 0x10, 0x0e, 0x51, 0x1b, 0x9f,
-	0x95, 0x30, 0xcf, 0x51, 0x9b, 0x72, 0xa6, 0x8c, 0xcd, 0x3d, 0x69, 0x78, 0x58, 0x41, 0x05, 0xfe,
-	0x52, 0x6c, 0xb3, 0xef, 0x8e, 0xec, 0x8d, 0xf1, 0x68, 0x8c, 0x95, 0xd4, 0x25, 0xb8, 0xe9, 0xad,
-	0x53, 0x16, 0x55, 0x49, 0x06, 0xec, 0xb5, 0x22, 0x15, 0x66, 0xbc, 0x87, 0xda, 0x4e, 0xb5, 0x8b,
-	0x58, 0xca, 0x46, 0xfd, 0x82, 0x37, 0x75, 0xb2, 0xab, 0xc8, 0xdd, 0x19, 0x9e, 0xf0, 0x2e, 0xce,
-	0x81, 0xa2, 0x7f, 0x29, 0x1b, 0x75, 0x8b, 0x83, 0xa6, 0x4e, 0x3c, 0x96, 0x3e, 0x86, 0xa7, 0xbc,
-	0x8f, 0xa4, 0x48, 0x4b, 0x00, 0x8a, 0x02, 0x3f, 0x64, 0xd0, 0xd4, 0x09, 0xf7, 0xc5, 0x7b, 0x07,
-	0x40, 0xf2, 0x87, 0x10, 0x1e, 0xf3, 0x80, 0x96, 0x18, 0x75, 0xd3, 0x60, 0xd4, 0x2f, 0xfe, 0x37,
-	0x75, 0xb2, 0x85, 0x72, 0x1b, 0xb2, 0x8c, 0xa7, 0x6d, 0x36, 0xa5, 0xc6, 0x05, 0x58, 0xd4, 0xe7,
-	0xaf, 0x8c, 0x07, 0x63, 0xac, 0xc2, 0x67, 0xc6, 0x8f, 0x7e, 0x7f, 0xd0, 0x65, 0xde, 0xfe, 0x41,
-	0x79, 0xdb, 0xfc, 0xe1, 0xd5, 0x5f, 0xba, 0xf6, 0xae, 0x8a, 0x9b, 0xf7, 0x75, 0xcc, 0x56, 0xeb,
-	0x98, 0x7d, 0xae, 0x63, 0xf6, 0xb2, 0x89, 0x3b, 0xab, 0x4d, 0xdc, 0xf9, 0xd8, 0xc4, 0x9d, 0x3b,
-	0x51, 0x19, 0x9a, 0x3d, 0x4e, 0xf2, 0x12, 0x1e, 0x04, 0x6a, 0x73, 0xb6, 0x97, 0xf0, 0xc0, 0x6b,
-	0x88, 0xa5, 0xd8, 0x6d, 0xf8, 0x69, 0xa1, 0x71, 0xd2, 0xf3, 0x8c, 0x8b, 0xaf, 0x00, 0x00, 0x00,
-	0xff, 0xff, 0xe4, 0x51, 0xcb, 0xa2, 0xf7, 0x01, 0x00, 0x00,
+	// 480 bytes of a gzipped FileDescriptorProto
+	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0x9c, 0x93, 0x31, 0x6f, 0xd3, 0x40,
+	0x14, 0xc7, 0x73, 0x71, 0x68, 0x9b, 0x97, 0xaa, 0x54, 0xa7, 0x22, 0x8c, 0x85, 0x6c, 0xe3, 0x01,
+	0x32, 0x80, 0x2d, 0xb5, 0x6c, 0x30, 0x19, 0x84, 0xc4, 0x10, 0x09, 0x39, 0x4c, 0x30, 0x44, 0x17,
+	0xfb, 0xea, 0x58, 0x38, 0x77, 0xd1, 0xdd, 0x45, 0x0a, 0xdf, 0x00, 0x89, 0x85, 0x4f, 0x80, 0xc4,
+	0xc0, 0x77, 0x61, 0xec, 0xc8, 0x64, 0xa1, 0x64, 0xf3, 0xa7, 0x40, 0x3e, 0xc7, 0x4a, 0x87, 0x18,
+	0xaa, 0x2e, 0xe7, 0x7b, 0xef, 0xfe, 0xff, 0xf7, 0x7e, 0xe7, 0x67, 0xc3, 0x09, 0xcb, 0x94, 0xe0,
+	0x81, 0x5a, 0xf9, 0x0b, 0xc1, 0x15, 0xc7, 0x96, 0xa4, 0x99, 0xde, 0xc5, 0x3c, 0xf7, 0x25, 0xcd,
+	0xe2, 0x19, 0xc9, 0x98, 0xaf, 0x45, 0xd6, 0x59, 0xca, 0x53, 0xae, 0x0f, 0x83, 0x6a, 0x57, 0x3b,
+	0xac, 0xd3, 0xba, 0x42, 0x42, 0x14, 0xa9, 0x33, 0xde, 0x4f, 0x04, 0xe6, 0x48, 0xa6, 0x11, 0x8d,
+	0xb9, 0x48, 0xde, 0x0b, 0xc2, 0x24, 0x89, 0x55, 0xc6, 0xd9, 0x6b, 0xa2, 0x08, 0xf6, 0xe0, 0x40,
+	0x52, 0x96, 0x50, 0x61, 0x22, 0x17, 0x0d, 0xfb, 0x21, 0x94, 0x85, 0xb3, 0xcd, 0x44, 0xdb, 0x27,
+	0x7e, 0x08, 0x3d, 0x99, 0x73, 0x65, 0x76, 0x5d, 0x34, 0xec, 0x85, 0x47, 0x65, 0xe1, 0xe8, 0x38,
+	0xd2, 0x2b, 0x7e, 0x0a, 0x7d, 0xa9, 0x88, 0xa2, 0x11, 0xe7, 0xca, 0x34, 0x74, 0x91, 0x93, 0xb2,
+	0x70, 0x40, 0x27, 0x27, 0x82, 0x73, 0x15, 0xed, 0x04, 0xf8, 0x01, 0x18, 0x6a, 0x25, 0xcd, 0x9e,
+	0x6b, 0x0c, 0xfb, 0xe1, 0x61, 0x59, 0x38, 0x55, 0x18, 0x55, 0x8b, 0xf7, 0xa3, 0x0b, 0xf7, 0x47,
+	0x32, 0x1d, 0x2f, 0xa7, 0xf3, 0x4c, 0xbd, 0x11, 0x64, 0x99, 0xbc, 0x9a, 0x91, 0x3c, 0xa7, 0x2c,
+	0xa5, 0x37, 0xc2, 0xac, 0x41, 0x84, 0x1a, 0xef, 0x58, 0x1b, 0x10, 0xa1, 0x26, 0x9a, 0x78, 0x27,
+	0xc0, 0x8f, 0xe1, 0x90, 0xb2, 0x44, 0x6b, 0x0d, 0xad, 0x3d, 0x2e, 0x0b, 0xe7, 0x88, 0xb2, 0xa4,
+	0x56, 0x36, 0x87, 0x38, 0x00, 0xb8, 0xac, 0x58, 0xc6, 0xd5, 0x15, 0xcc, 0x9e, 0xee, 0x7e, 0xb7,
+	0x2c, 0x9c, 0x81, 0xce, 0x4e, 0xea, 0x9b, 0x5d, 0x93, 0xe0, 0x8f, 0x30, 0x98, 0x53, 0xf1, 0x29,
+	0xa7, 0xef, 0x04, 0xe7, 0x97, 0xe6, 0x1d, 0x17, 0x0d, 0x07, 0xe7, 0x4f, 0xfc, 0xf6, 0x41, 0xfa,
+	0xa3, 0x9d, 0x3c, 0x3c, 0x2d, 0x0b, 0xe7, 0xb8, 0xf6, 0x4f, 0x16, 0x55, 0x26, 0xba, 0x5e, 0xcd,
+	0xf3, 0xc0, 0x6d, 0x1b, 0x65, 0x44, 0xe5, 0x82, 0x33, 0x49, 0xbd, 0x47, 0xe0, 0xb4, 0xbc, 0xc6,
+	0x46, 0x72, 0xfe, 0xbd, 0x0b, 0xc6, 0x48, 0xa6, 0xf8, 0x2b, 0x82, 0x7b, 0xfb, 0xbf, 0x8b, 0xe7,
+	0xff, 0x04, 0x6e, 0x41, 0xb0, 0x5e, 0xde, 0xc6, 0xd5, 0x50, 0xe1, 0x2f, 0x08, 0xce, 0xf6, 0x4e,
+	0xff, 0xe2, 0x3f, 0x65, 0xf7, 0x99, 0xac, 0x17, 0xb7, 0x30, 0x35, 0x28, 0xe1, 0xdb, 0x5f, 0x6b,
+	0x1b, 0x5d, 0xad, 0x6d, 0xf4, 0x67, 0x6d, 0xa3, 0x6f, 0x1b, 0xbb, 0x73, 0xb5, 0xb1, 0x3b, 0xbf,
+	0x37, 0x76, 0xe7, 0x43, 0x90, 0x66, 0x6a, 0xb6, 0x9c, 0xfa, 0x31, 0x9f, 0x07, 0x92, 0x66, 0xcf,
+	0x9a, 0x0e, 0x3a, 0xd0, 0x2d, 0x82, 0x55, 0xb0, 0xfd, 0x8b, 0x3f, 0x2f, 0xa8, 0x9c, 0x1e, 0x68,
+	0xc5, 0xc5, 0xdf, 0x00, 0x00, 0x00, 0xff, 0xff, 0xc2, 0x98, 0xd3, 0x8c, 0xdb, 0x03, 0x00, 0x00,
 }
 
 // Reference imports to suppress errors if they are not otherwise used.
@@ -176,6 +300,7 @@ const _ = grpc.SupportPackageIsVersion4
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://godoc.org/google.golang.org/grpc#ClientConn.NewStream.
 type MsgClient interface {
 	RecordTransactionData(ctx context.Context, in *MsgRecordTransactionData, opts ...grpc.CallOption) (*MsgRecordTransactionDataResponse, error)
+	SubmitFraudChallenge(ctx context.Context, in *MsgSubmitFraudChallenge, opts ...grpc.CallOption) (*MsgSubmitFraudChallengeResponse, error)
 }
 
 type msgClient struct {
@@ -195,9 +320,19 @@ func (c *msgClient) RecordTransactionData(ctx context.Context, in *MsgRecordTran
 	return out, nil
 }
 
+func (c *msgClient) SubmitFraudChallenge(ctx context.Context, in *MsgSubmitFraudChallenge, opts ...grpc.CallOption) (*MsgSubmitFraudChallengeResponse, error) {
+	out := new(MsgSubmitFraudChallengeResponse)
+	err := c.cc.Invoke(ctx, "/seiprotocol.seichain.nitro.Msg/SubmitFraudChallenge", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // MsgServer is the server API for Msg service.
 type MsgServer interface {
 	RecordTransactionData(context.Context, *MsgRecordTransactionData) (*MsgRecordTransactionDataResponse, error)
+	SubmitFraudChallenge(context.Context, *MsgSubmitFraudChallenge) (*MsgSubmitFraudChallengeResponse, error)
 }
 
 // UnimplementedMsgServer can be embedded to have forward compatible implementations.
@@ -206,6 +341,9 @@ type UnimplementedMsgServer struct {
 
 func (*UnimplementedMsgServer) RecordTransactionData(ctx context.Context, req *MsgRecordTransactionData) (*MsgRecordTransactionDataResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method RecordTransactionData not implemented")
+}
+func (*UnimplementedMsgServer) SubmitFraudChallenge(ctx context.Context, req *MsgSubmitFraudChallenge) (*MsgSubmitFraudChallengeResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method SubmitFraudChallenge not implemented")
 }
 
 func RegisterMsgServer(s grpc1.Server, srv MsgServer) {
@@ -230,6 +368,24 @@ func _Msg_RecordTransactionData_Handler(srv interface{}, ctx context.Context, de
 	return interceptor(ctx, in, info, handler)
 }
 
+func _Msg_SubmitFraudChallenge_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(MsgSubmitFraudChallenge)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MsgServer).SubmitFraudChallenge(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/seiprotocol.seichain.nitro.Msg/SubmitFraudChallenge",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MsgServer).SubmitFraudChallenge(ctx, req.(*MsgSubmitFraudChallenge))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 var _Msg_serviceDesc = grpc.ServiceDesc{
 	ServiceName: "seiprotocol.seichain.nitro.Msg",
 	HandlerType: (*MsgServer)(nil),
@@ -237,6 +393,10 @@ var _Msg_serviceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "RecordTransactionData",
 			Handler:    _Msg_RecordTransactionData_Handler,
+		},
+		{
+			MethodName: "SubmitFraudChallenge",
+			Handler:    _Msg_SubmitFraudChallenge_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
@@ -294,6 +454,65 @@ func (m *MsgRecordTransactionData) MarshalToSizedBuffer(dAtA []byte) (int, error
 	return len(dAtA) - i, nil
 }
 
+func (m *MsgSubmitFraudChallenge) Marshal() (dAtA []byte, err error) {
+	size := m.Size()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalToSizedBuffer(dAtA[:size])
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *MsgSubmitFraudChallenge) MarshalTo(dAtA []byte) (int, error) {
+	size := m.Size()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *MsgSubmitFraudChallenge) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
+	_ = i
+	var l int
+	_ = l
+	if m.MerkleProof != nil {
+		{
+			size, err := m.MerkleProof.MarshalToSizedBuffer(dAtA[:i])
+			if err != nil {
+				return 0, err
+			}
+			i -= size
+			i = encodeVarintTx(dAtA, i, uint64(size))
+		}
+		i--
+		dAtA[i] = 0x2a
+	}
+	if len(m.FraudState) > 0 {
+		i -= len(m.FraudState)
+		copy(dAtA[i:], m.FraudState)
+		i = encodeVarintTx(dAtA, i, uint64(len(m.FraudState)))
+		i--
+		dAtA[i] = 0x22
+	}
+	if m.EndSlot != 0 {
+		i = encodeVarintTx(dAtA, i, uint64(m.EndSlot))
+		i--
+		dAtA[i] = 0x18
+	}
+	if m.StartSlot != 0 {
+		i = encodeVarintTx(dAtA, i, uint64(m.StartSlot))
+		i--
+		dAtA[i] = 0x10
+	}
+	if len(m.Sender) > 0 {
+		i -= len(m.Sender)
+		copy(dAtA[i:], m.Sender)
+		i = encodeVarintTx(dAtA, i, uint64(len(m.Sender)))
+		i--
+		dAtA[i] = 0xa
+	}
+	return len(dAtA) - i, nil
+}
+
 func (m *MsgRecordTransactionDataResponse) Marshal() (dAtA []byte, err error) {
 	size := m.Size()
 	dAtA = make([]byte, size)
@@ -310,6 +529,29 @@ func (m *MsgRecordTransactionDataResponse) MarshalTo(dAtA []byte) (int, error) {
 }
 
 func (m *MsgRecordTransactionDataResponse) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
+	_ = i
+	var l int
+	_ = l
+	return len(dAtA) - i, nil
+}
+
+func (m *MsgSubmitFraudChallengeResponse) Marshal() (dAtA []byte, err error) {
+	size := m.Size()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalToSizedBuffer(dAtA[:size])
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *MsgSubmitFraudChallengeResponse) MarshalTo(dAtA []byte) (int, error) {
+	size := m.Size()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *MsgSubmitFraudChallengeResponse) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	i := len(dAtA)
 	_ = i
 	var l int
@@ -354,7 +596,43 @@ func (m *MsgRecordTransactionData) Size() (n int) {
 	return n
 }
 
+func (m *MsgSubmitFraudChallenge) Size() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	l = len(m.Sender)
+	if l > 0 {
+		n += 1 + l + sovTx(uint64(l))
+	}
+	if m.StartSlot != 0 {
+		n += 1 + sovTx(uint64(m.StartSlot))
+	}
+	if m.EndSlot != 0 {
+		n += 1 + sovTx(uint64(m.EndSlot))
+	}
+	l = len(m.FraudState)
+	if l > 0 {
+		n += 1 + l + sovTx(uint64(l))
+	}
+	if m.MerkleProof != nil {
+		l = m.MerkleProof.Size()
+		n += 1 + l + sovTx(uint64(l))
+	}
+	return n
+}
+
 func (m *MsgRecordTransactionDataResponse) Size() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	return n
+}
+
+func (m *MsgSubmitFraudChallengeResponse) Size() (n int) {
 	if m == nil {
 		return 0
 	}
@@ -534,6 +812,194 @@ func (m *MsgRecordTransactionData) Unmarshal(dAtA []byte) error {
 	}
 	return nil
 }
+func (m *MsgSubmitFraudChallenge) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return ErrIntOverflowTx
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= uint64(b&0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: MsgSubmitFraudChallenge: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: MsgSubmitFraudChallenge: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 1:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Sender", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowTx
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLengthTx
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return ErrInvalidLengthTx
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.Sender = string(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
+		case 2:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field StartSlot", wireType)
+			}
+			m.StartSlot = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowTx
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.StartSlot |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		case 3:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field EndSlot", wireType)
+			}
+			m.EndSlot = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowTx
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.EndSlot |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		case 4:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field FraudState", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowTx
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLengthTx
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return ErrInvalidLengthTx
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.FraudState = string(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
+		case 5:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field MerkleProof", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowTx
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthTx
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthTx
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if m.MerkleProof == nil {
+				m.MerkleProof = &MerkleProof{}
+			}
+			if err := m.MerkleProof.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		default:
+			iNdEx = preIndex
+			skippy, err := skipTx(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
+				return ErrInvalidLengthTx
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
 func (m *MsgRecordTransactionDataResponse) Unmarshal(dAtA []byte) error {
 	l := len(dAtA)
 	iNdEx := 0
@@ -561,6 +1027,56 @@ func (m *MsgRecordTransactionDataResponse) Unmarshal(dAtA []byte) error {
 		}
 		if fieldNum <= 0 {
 			return fmt.Errorf("proto: MsgRecordTransactionDataResponse: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		default:
+			iNdEx = preIndex
+			skippy, err := skipTx(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
+				return ErrInvalidLengthTx
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+func (m *MsgSubmitFraudChallengeResponse) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return ErrIntOverflowTx
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= uint64(b&0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: MsgSubmitFraudChallengeResponse: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: MsgSubmitFraudChallengeResponse: illegal tag %d (wire type %d)", fieldNum, wire)
 		}
 		switch fieldNum {
 		default:

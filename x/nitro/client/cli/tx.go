@@ -3,6 +3,7 @@ package cli
 import (
 	"fmt"
 	"strconv"
+	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -25,6 +26,7 @@ func GetTxCmd() *cobra.Command {
 
 	cmd.AddCommand(
 		NewRecordTransactionDataCmd(),
+		NewSubmitFraudChallengeCmd(),
 	)
 
 	return cmd
@@ -57,6 +59,60 @@ func NewRecordTransactionDataCmd() *cobra.Command {
 				slot,
 				args[1],
 				txs,
+			)
+
+			return tx.GenerateOrBroadcastTxWithFactory(clientCtx, txf, msg)
+		},
+	}
+
+	flags.AddTxFlagsToCmd(cmd)
+	return cmd
+}
+
+func NewSubmitFraudChallengeCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "submit-fraud-challenge [startSlot] [endSlot] [fraudState] [commitment] [hash] [direction]",
+		Short: "subimt fraud challenge to faulty nitro transactions between given slots",
+		Args:  cobra.MinimumNArgs(6),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			clientCtx, err := client.GetClientTxContext(cmd)
+			if err != nil {
+				return err
+			}
+
+			startSlot, err := strconv.ParseUint(args[0], 10, 64)
+			if err != nil {
+				return err
+			}
+			endSlot, err := strconv.ParseUint(args[1], 10, 64)
+			if err != nil {
+				return err
+			}
+			fraudState := args[2]
+			commitment := args[3]
+			hash := strings.Split(args[4], "?")
+			direction := []int64{}
+			for _, directionStr := range strings.Split(args[5], "?") {
+				directionInt, err := strconv.ParseInt(directionStr, 10, 64)
+				if err != nil {
+					return err
+				}
+				direction = append(direction, directionInt)
+			}
+			merkleProof := &types.MerkleProof{
+				Commitment: commitment,
+				Hash:       hash,
+				Direction:  direction,
+			}
+
+			txf := tx.NewFactoryCLI(clientCtx, cmd.Flags()).WithTxConfig(clientCtx.TxConfig).WithAccountRetriever(clientCtx.AccountRetriever)
+
+			msg := types.NewMsgSubmitFraudChallenge(
+				clientCtx.GetFromAddress().String(),
+				startSlot,
+				endSlot,
+				fraudState,
+				merkleProof,
 			)
 
 			return tx.GenerateOrBroadcastTxWithFactory(clientCtx, txf, msg)
