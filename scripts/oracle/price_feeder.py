@@ -15,7 +15,7 @@ VOTE_TMPL = (
 )
 
 class PriceFeeder:
-    def __init__(self, key, password, binary, chain_id, node, valoper, api_key) -> None:
+    def __init__(self, key, password, binary, chain_id, node, valoper, api_key, vote_period) -> None:
         self.key = key
         self.password = password
         self.binary = binary
@@ -27,6 +27,7 @@ class PriceFeeder:
         else:
             self.val_addr = valoper
         self.api_key = api_key
+        self.vote_period = vote_period
 
     def init_val_addr(self):
         self.val_addr = subprocess.check_output(
@@ -39,7 +40,7 @@ class PriceFeeder:
     def get_current_vote_period(self):
         res = requests.get("{node}/blockchain".format(node=self.node))
         body = res.json()
-        return int(body["result"]["last_height"])
+        return int(body["result"]["last_height"]) // self.vote_period
 
     def vote_for_period(self, vote_prices):
         result = subprocess.check_output(
@@ -90,6 +91,7 @@ def main():
     parser.add_argument('--binary', help='Your seid binary path', type=str, default=str(Path.home()) + '/go/bin/seid')
     parser.add_argument('--node', help='The node to contact', type=str, default='http://localhost:26657')
     parser.add_argument('--interval', help='How long time to sleep between price checks', type=int, default=5)
+    parser.add_argument('--vote-period', help='how many blocks is the vote period', type=int, default=10)
     parser.add_argument('--valoper', help='Validator address if using separate feeder account', type=str)
     parser.add_argument('--api-key', help='API Key for price fetcher', type=str)
     args=parser.parse_args()
