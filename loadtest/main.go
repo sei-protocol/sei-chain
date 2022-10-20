@@ -60,6 +60,16 @@ func (d *NumericDistribution) Sample() sdk.Dec {
 	return d.Min.Add(d.Max.Sub(d.Min).QuoInt64(d.NumDistinct).Mul(steps))
 }
 
+// Invalid numeric distribution sample
+func (d *NumericDistribution) InvalidSample() sdk.Dec {
+	steps := sdk.NewDec(rand.Int63n(d.NumDistinct))
+	if rand.Float64() < 0.5 {
+		return d.Min.Sub(d.Max.Sub(d.Min).QuoInt64(d.NumDistinct).Mul(steps))
+	} else {
+		return d.Max.Add(d.Max.Sub(d.Min).QuoInt64(d.NumDistinct).Mul(steps))
+	}
+}
+
 type MsgTypeDistribution struct {
 	LimitOrderPct  sdk.Dec `json:"limit_order_percentage"`
 	MarketOrderPct sdk.Dec `json:"market_order_percentage"`
@@ -74,6 +84,23 @@ func (d *MsgTypeDistribution) Sample() string {
 		return "limit"
 	}
 	return "market"
+}
+
+type InvalidMsgTypeDistribution struct {
+	FakeLimitOrderPct  sdk.Dec `json:"fake_limit_order_percentage"`
+	FakeMarketOrderPct sdk.Dec `json:"fake_market_order_percentage"`
+}
+
+// Invalid msg type distribution sample
+func (d *InvalidMsgTypeDistribution) InvalidSample() string {
+	if !d.FakeLimitOrderPct.Add(d.FakeMarketOrderPct).Equal(sdk.OneDec()) {
+		panic("Distribution percentages for failure case must add up to 1")
+	}
+	randNum := sdk.MustNewDecFromStr(fmt.Sprintf("%f", rand.Float64()))
+	if randNum.LT(d.FakeLimitOrderPct) {
+		return "fake_limit"
+	}
+	return "fake_market"
 }
 
 type ContractDistributions []ContractDistribution
@@ -226,14 +253,135 @@ func generateMessage(config Config, key cryptotypes.PrivKey, batchSize uint64) s
 				Amount: sdk.NewInt(1),
 			}),
 		}
-	case "failure-basic":
+	case "failure_basic_malformed":
+		var denom string
+		if rand.Float64() < 0.5 {
+			denom = "unknown"
+		} else {
+			denom = "other"
+		}
+		var fromAddr string
+		if rand.Float64() < 0.5 {
+			fromAddr = "fromAddressRandom"
+		} else {
+			fromAddr = "otherFromAddressRandom"
+		}
+		var toAddr string
+		if rand.Float64() < 0.5 {
+			fromAddr = "toAddressRandom"
+		} else {
+			fromAddr = "toFromAddressRandom"
+		}
+		msg = &banktypes.MsgSend{
+			FromAddress: fromAddr,
+			ToAddress:   toAddr,
+			Amount: sdk.NewCoins(sdk.Coin{
+				Denom:  denom,
+				Amount: sdk.NewInt(1),
+			}),
+		}
+	case "failure_basic_invalid":
+		var amount_usei int64
+		if rand.Float64() < 0.5 {
+			amount_usei = 1000000000000000000
+		} else {
+			amount_usei = 0
+		}
 		msg = &banktypes.MsgSend{
 			FromAddress: sdk.AccAddress(key.PubKey().Address()).String(),
 			ToAddress:   sdk.AccAddress(key.PubKey().Address()).String(),
 			Amount: sdk.NewCoins(sdk.Coin{
-				Denom:  "unknown",
-				Amount: sdk.NewInt(1),
+				Denom:  "usei",
+				Amount: sdk.NewInt(amount_usei),
 			}),
+		}
+	case "failure_dex_malformed":
+		msgType := config.MsgTypeDistr.Sample()
+		orderPlacements := []*dextypes.Order{}
+		var orderType dextypes.OrderType
+		if msgType == "fake_limit" {
+			orderType = 8
+		} else {
+			orderType = 9
+		}
+		var direction dextypes.PositionDirection
+		if rand.Float64() < 0.5 {
+			direction = dextypes.PositionDirection_LONG
+		} else {
+			direction = dextypes.PositionDirection_SHORT
+		}
+		price := config.PriceDistr.InvalidSample()
+		quantity := config.QuantityDistr.InvalidSample()
+		contract := config.ContractDistr.Sample()
+		for j := 0; j < int(batchSize); j++ {
+			orderPlacements = append(orderPlacements, &dextypes.Order{
+				Account:           sdk.AccAddress(key.PubKey().Address()).String(),
+				ContractAddr:      contract,
+				PositionDirection: direction,
+				Price:             price.Quo(FromMili),
+				Quantity:          quantity.Quo(FromMili),
+				PriceDenom:        "SEI",
+				AssetDenom:        "ATOM",
+				OrderType:         orderType,
+				Data:              VortexData,
+			})
+		}
+		amount, err := sdk.ParseCoinsNormalized(fmt.Sprintf("%d%s", price.Mul(quantity).Ceil().RoundInt64(), "usei"))
+		if err != nil {
+			panic(err)
+		}
+		msg = &dextypes.MsgPlaceOrders{
+			Creator:      sdk.AccAddress(key.PubKey().Address()).String(),
+			Orders:       orderPlacements,
+			ContractAddr: contract,
+			Funds:        amount,
+		}
+	case "failure_dex_invalid":
+		msgType := config.MsgTypeDistr.Sample()
+		orderPlacements := []*dextypes.Order{}
+		var orderType dextypes.OrderType
+		if msgType == "limit" {
+			orderType = dextypes.OrderType_LIMIT
+		} else {
+			orderType = dextypes.OrderType_MARKET
+		}
+		var direction dextypes.PositionDirection
+		if rand.Float64() < 0.5 {
+			direction = dextypes.PositionDirection_LONG
+		} else {
+			direction = dextypes.PositionDirection_SHORT
+		}
+		price := config.PriceDistr.Sample()
+		quantity := config.QuantityDistr.Sample()
+		contract := config.ContractDistr.Sample()
+		for j := 0; j < int(batchSize); j++ {
+			orderPlacements = append(orderPlacements, &dextypes.Order{
+				Account:           sdk.AccAddress(key.PubKey().Address()).String(),
+				ContractAddr:      contract,
+				PositionDirection: direction,
+				Price:             price.Quo(FromMili),
+				Quantity:          quantity.Quo(FromMili),
+				PriceDenom:        "SEI",
+				AssetDenom:        "ATOM",
+				OrderType:         orderType,
+				Data:              VortexData,
+			})
+		}
+		var amount_usei int64
+		if rand.Float64() < 0.5 {
+			amount_usei = 1000000000000000000
+		} else {
+			amount_usei = 0
+		}
+		amount, err := sdk.ParseCoinsNormalized(fmt.Sprintf("%d%s", amount_usei, "usei"))
+		if err != nil {
+			panic(err)
+		}
+		msg = &dextypes.MsgPlaceOrders{
+			Creator:      sdk.AccAddress(key.PubKey().Address()).String(),
+			Orders:       orderPlacements,
+			ContractAddr: contract,
+			Funds:        amount,
 		}
 	case "dex":
 		msgType := config.MsgTypeDistr.Sample()
@@ -305,8 +453,17 @@ func main() {
 	config := Config{}
 	pwd, _ := os.Getwd()
 	file, _ := os.ReadFile(pwd + "/loadtest/config.json")
-	if *clientType == "failure" {
-		file, _ = os.ReadFile(pwd + "/loadtest/failure_basic_config.json")
+	if *clientType == "failure_basic_malformed" {
+		file, _ = os.ReadFile(pwd + "/loadtest/failure_basic_malformed.json")
+	}
+	if *clientType == "failure_basic_invalid" {
+		file, _ = os.ReadFile(pwd + "/loadtest/failure_basic_invalid.json")
+	}
+	if *clientType == "failure_dex_malformed" {
+		file, _ = os.ReadFile(pwd + "/loadtest/failure_dex_malformed.json")
+	}
+	if *clientType == "failure_dex_invalid" {
+		file, _ = os.ReadFile(pwd + "/loadtest/failure_dex_invalid.json")
 	}
 	if err := json.Unmarshal(file, &config); err != nil {
 		panic(err)
