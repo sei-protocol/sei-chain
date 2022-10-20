@@ -4,6 +4,7 @@ import (
 	aclkeeper "github.com/cosmos/cosmos-sdk/x/accesscontrol/keeper"
 	aclbankmapping "github.com/sei-protocol/sei-chain/aclmapping/bank"
 	acldexmapping "github.com/sei-protocol/sei-chain/aclmapping/dex"
+	aclstakingmapping "github.com/sei-protocol/sei-chain/aclmapping/staking"
 	aclwasmmapping "github.com/sei-protocol/sei-chain/aclmapping/wasm"
 )
 
@@ -18,6 +19,7 @@ func (customDepGen CustomDependencyGenerator) GetCustomDependencyGenerators() ac
 
 	dependencyGeneratorMap.Merge(acldexmapping.GetDexDependencyGenerators())
 	dependencyGeneratorMap.Merge(aclbankmapping.GetBankDepedencyGenerator())
+	dependencyGeneratorMap.Merge(aclstakingmapping.GetStakingDependencyGenerator())
 	wasmDependencyGenerators := aclwasmmapping.NewWasmDependencyGenerator()
 	dependencyGeneratorMap.Merge(wasmDependencyGenerators.GetWasmDependencyGenerators())
 
