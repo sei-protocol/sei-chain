@@ -501,9 +501,9 @@ dependencies = [
 
 [[package]]
 name = "sei-cosmwasm"
-version = "0.2.0"
+version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "32cace5feff10f2f826f42ed459b8162d023b785aaf677bc640f42091c0e16e0"
+checksum = "869bc11575e307e8f885de6ade9a5a3458cc52a1a3fd2c58af730301c43ec0cc"
 dependencies = [
  "cosmwasm-std",
  "schemars",

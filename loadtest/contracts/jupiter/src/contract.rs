@@ -83,11 +83,11 @@ pub fn process_bulk_order_placements(
             position_direction: PositionDirection::Long,
             order_type: OrderType::Limit,
             data: "".to_string(),
+            status_description: "".to_string(),
         };
         let order = sei_cosmwasm::SeiMsg::PlaceOrders {
             funds: vec![],
             orders: vec![order_placement],
-            creator: env.contract.address,
             contract_address: MARS_ADDR.load(deps.storage)?,
         };
         response = Response::new().add_message(order);
