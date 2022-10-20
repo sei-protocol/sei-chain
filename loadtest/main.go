@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"flag"
 	"fmt"
 	"math/rand"
 	"os"
@@ -26,6 +27,7 @@ import (
 	"github.com/sei-protocol/sei-chain/utils"
 	dextypes "github.com/sei-protocol/sei-chain/x/dex/types"
 	"google.golang.org/grpc"
+	"github.com/cosmos/cosmos-sdk/telemetry"
 )
 
 type EncodingConfig struct {
@@ -46,6 +48,7 @@ type Config struct {
 	QuantityDistr  NumericDistribution   `json:"quantity_distribution"`
 	MsgTypeDistr   MsgTypeDistribution   `json:"message_type_distribution"`
 	ContractDistr  ContractDistributions `json:"contract_distribution"`
+	ConstLoadInterval	   int64 				 `json:"const_load_interval"`
 }
 
 type NumericDistribution struct {
@@ -127,7 +130,7 @@ func init() {
 	app.ModuleBasics.RegisterInterfaces(TestConfig.InterfaceRegistry)
 }
 
-func run(config Config) {
+func run(config Config, constant *bool) {
 	ChainID = config.ChainID
 	grpcConn, _ := grpc.Dial(
 		"127.0.0.1:9090",
@@ -158,7 +161,7 @@ func run(config Config) {
 		}
 	}
 	wgs := []*sync.WaitGroup{}
-	sendersList := [][]func(){}
+	sendersList := [][]func() string{}
 
 	configString, _ := json.Marshal(config)
 	fmt.Printf("Running with \n %s \ns", string(configString))
@@ -167,12 +170,12 @@ func run(config Config) {
 	for i := 0; i < int(config.Rounds); i++ {
 		fmt.Printf("Preparing %d-th round\n", i)
 		wg := &sync.WaitGroup{}
-		var senders []func()
+		var senders []func() string
 		wgs = append(wgs, wg)
 		for _, account := range activeAccounts {
 			key := GetKey(uint64(account))
 
-			msg := generateMessage(config, key, batchSize)
+			msg := generateMessage(config, key, batchSize, constant)
 			txBuilder := TestConfig.TxConfig.NewTxBuilder()
 			_ = txBuilder.SetMsgs(msg)
 			seqDelta := uint64(i / 2)
@@ -184,9 +187,9 @@ func run(config Config) {
 			// as is.
 			sender := SendTx(key, &txBuilder, mode, seqDelta, &mu)
 			wg.Add(1)
-			senders = append(senders, func() {
+			senders = append(senders, func() string {
 				defer wg.Done()
-				sender()
+				return sender()
 			})
 		}
 		sendersList = append(sendersList, senders)
@@ -195,6 +198,7 @@ func run(config Config) {
 	}
 
 	lastHeight := getLastHeight()
+	txs := []string{}
 	for i := 0; i < int(config.Rounds); i++ {
 		newHeight := getLastHeight()
 		for newHeight == lastHeight {
@@ -205,17 +209,43 @@ func run(config Config) {
 		senders := sendersList[i]
 		wg := wgs[i]
 		for _, sender := range senders {
-			go sender()
+			go func() {
+				tx := sender()
+				if (tx != ""){
+					telemetry.IncrCounter(1, "load_test_pending_tx_counts")
+					txs = append(txs, tx)
+				}
+			}()
 		}
 		wg.Wait()
 		lastHeight = newHeight
 	}
+
+	if (*constant) {
+		// sleep 3 seconds wait for transaction to finish
+		time.Sleep(3 * time.Second)
+		for i := 0; i < int(len(txs)); i++ {
+			txResponse := GetTxResponse(txs[i])
+			if (txResponse.Tx == nil) {
+				// Replace panic with metrics instead
+				panic("transaction not committed")
+			}
+			telemetry.IncrCounter(1, "load_test_committed_tx_counts")
+		}
+	}
 	fmt.Printf("%s - Finished\n", time.Now().Format("2006-01-02T15:04:05"))
 }
 
-func generateMessage(config Config, key cryptotypes.PrivKey, batchSize uint64) sdk.Msg {
+func generateMessage(config Config, key cryptotypes.PrivKey, batchSize uint64, constant *bool) sdk.Msg {
 	var msg sdk.Msg
-	switch config.MessageType {
+	messageTypes := []string{"basic", "dex"}
+	messageType := config.MessageType
+
+	// Use a random message type if it's running constant load test
+	if (*constant) {
+		messageType = messageTypes[rand.Intn(len(messageTypes) + 1) - 1]		
+	}
+	switch messageType {
 	case "basic":
 		msg = &banktypes.MsgSend{
 			FromAddress: sdk.AccAddress(key.PubKey().Address()).String(),
@@ -289,11 +319,26 @@ func getLastHeight() int {
 }
 
 func main() {
+	constant := flag.Bool("constant", false, "using constant client")
+	flag.Parse()
 	config := Config{}
 	pwd, _ := os.Getwd()
-	file, _ := os.ReadFile(pwd + "/loadtest/config.json")
+	
+	fileName := "/loadtest/config.json"
+	if (*constant) {
+		fileName = "/loadtest/constant_load_config.json"
+	}
+	file, _ := os.ReadFile(pwd + fileName)
 	if err := json.Unmarshal(file, &config); err != nil {
 		panic(err)
 	}
-	run(config)
+
+	if (*constant) {
+		for {
+			run(config, constant)
+			time.Sleep(time.Duration(config.ConstLoadInterval) * time.Second)
+		}
+	} else {
+		run(config, constant)
+	}
 }
