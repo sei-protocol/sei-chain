@@ -157,17 +157,28 @@ func MsgBeginRedelegateDependencyGenerator(keeper aclkeeper.Keeper, ctx sdk.Cont
 	accessOperations := []sdkacltypes.AccessOperation{
 		// Treat Delegations and Redelegations to have the same ACL since they are highly coupled, no point in finer granularization
 
-		// Get delegation to verify it has sufficient funds to undelegate
+		// Get src delegation to verify it has sufficient funds to undelegate
+		// Get dest delegation to see if it already exists
 		{
 			AccessType:         sdkacltypes.AccessType_READ,
 			ResourceType:       sdkacltypes.ResourceType_KV,
-			IdentifierTemplate: utils.GetIdentifierTemplatePerModule(utils.STAKING, msgBeingRedelegate.DelegatorAddress+msgUndelegate.ValidatorAddress),
+			IdentifierTemplate: utils.GetIdentifierTemplatePerModule(utils.STAKING, msgBeingRedelegate.DelegatorAddress+msgBeingRedelegate.ValidatorSrcAddress),
 		},
-		// Update/delete delegation after tokens have been unbonded
+		{
+			AccessType:         sdkacltypes.AccessType_READ,
+			ResourceType:       sdkacltypes.ResourceType_KV,
+			IdentifierTemplate: utils.GetIdentifierTemplatePerModule(utils.STAKING, msgBeingRedelegate.DelegatorAddress+msgBeingRedelegate.ValidatorDstAddress),
+		},
+		// Update/delete src and destination delegation after tokens have been unbonded
 		{
 			AccessType:         sdkacltypes.AccessType_WRITE,
 			ResourceType:       sdkacltypes.ResourceType_KV,
-			IdentifierTemplate: utils.GetIdentifierTemplatePerModule(utils.STAKING, msgBeingRedelegate.DelegatorAddress+msgUndelegate.ValidatorAddress),
+			IdentifierTemplate: utils.GetIdentifierTemplatePerModule(utils.STAKING, msgBeingRedelegate.DelegatorAddress+msgBeingRedelegate.ValidatorSrcAddress),
+		},
+		{
+			AccessType:         sdkacltypes.AccessType_WRITE,
+			ResourceType:       sdkacltypes.ResourceType_KV,
+			IdentifierTemplate: utils.GetIdentifierTemplatePerModule(utils.STAKING, msgBeingRedelegate.DelegatorAddress+msgBeingRedelegate.ValidatorDstAddress),
 		},
 
 		// Update the delegator, src validator and dest validator account balances
