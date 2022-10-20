@@ -96,7 +96,7 @@ def main():
     parser.add_argument('--api-key', help='API Key for price fetcher', type=str)
     args=parser.parse_args()
 
-    pf = PriceFeeder(args.key, args.password, args.binary, args.chain_id, args.node, args.valoper, args.api_key)
+    pf = PriceFeeder(args.key, args.password, args.binary, args.chain_id, args.node, args.valoper, args.api_key, args.vote_period)
 
     coins = args.coins.split(',')
     pf.vote_loop(coins, args.interval)
