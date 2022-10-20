@@ -333,6 +333,7 @@ func main() {
 		panic(err)
 	}
 
+	// runs the loadtest and sleeps based on the provided interval param
 	if *constant {
 		for {
 			run(config, constant)
