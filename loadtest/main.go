@@ -15,6 +15,7 @@ import (
 
 	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
 
+	wasmtypes "github.com/CosmWasm/wasmd/x/wasm/types"
 	"github.com/cosmos/cosmos-sdk/client"
 	"github.com/cosmos/cosmos-sdk/codec"
 	"github.com/cosmos/cosmos-sdk/codec/types"
@@ -221,6 +222,16 @@ func generateMessage(config Config, key cryptotypes.PrivKey, batchSize uint64) s
 			FromAddress: sdk.AccAddress(key.PubKey().Address()).String(),
 			ToAddress:   sdk.AccAddress(key.PubKey().Address()).String(),
 			Amount: sdk.NewCoins(sdk.Coin{
+				Denom:  "usei",
+				Amount: sdk.NewInt(1),
+			}),
+		}
+	case "wasm":
+		msg = &wasmtypes.MsgExecuteContract{
+			Sender:   sdk.AccAddress(key.PubKey().Address()).String(),
+			Contract: config.ContractDistr.Sample(),
+			Msg:      []byte("{\"noop\":{}}"),
+			Funds: sdk.NewCoins(sdk.Coin{
 				Denom:  "usei",
 				Amount: sdk.NewInt(1),
 			}),
