@@ -46,7 +46,7 @@ func TestEndBlockMarketOrder(t *testing.T) {
 	bankkeeper := testApp.BankKeeper
 	bankkeeper.MintCoins(ctx, minttypes.ModuleName, amounts)
 	bankkeeper.SendCoinsFromModuleToAccount(ctx, minttypes.ModuleName, testAccount, amounts)
-	wasm, err := ioutil.ReadFile("./testdata/clearing_house.wasm")
+	wasm, err := ioutil.ReadFile("./testdata/mars.wasm")
 	if err != nil {
 		panic(err)
 	}
@@ -62,7 +62,7 @@ func TestEndBlockMarketOrder(t *testing.T) {
 	if err != nil {
 		panic(err)
 	}
-	dexkeeper.SetContract(ctx, &types.ContractInfo{CodeId: 123, ContractAddr: contractAddr.String(), NeedHook: true, NeedOrderMatching: true})
+	dexkeeper.SetContract(ctx, &types.ContractInfo{CodeId: 123, ContractAddr: contractAddr.String(), NeedHook: false, NeedOrderMatching: true})
 	dexkeeper.AddRegisteredPair(ctx, contractAddr.String(), pair)
 	// place one order to a nonexistent contract
 	dexutils.GetMemState(ctx.Context()).GetBlockOrders(ctx, utils.ContractAddress(contractAddr.String()), utils.GetPairString(&pair)).Add(
@@ -128,7 +128,7 @@ func TestEndBlockMarketOrder(t *testing.T) {
 
 	// Long book should be removed since it's executed
 	// No state change should've been persisted for bad contract
-	_, found = dexkeeper.GetLongBookByPrice(ctx, contractAddr.String(), sdk.MustNewDecFromStr("1"), pair.PriceDenom, pair.AssetDenom)
+	_, found = dexkeeper.GetLongBookByPrice(ctx, contractAddr.String(), sdk.MustNewDecFromStr("2"), pair.PriceDenom, pair.AssetDenom)
 	// Long book should be populated
 	require.False(t, found)
 
@@ -167,7 +167,7 @@ func TestEndBlockRollback(t *testing.T) {
 	dexkeeper := testApp.DexKeeper
 	pair := TEST_PAIR()
 	// register contract and pair
-	dexkeeper.SetContract(ctx, &types.ContractInfo{CodeId: 123, ContractAddr: keepertest.TestContract, NeedHook: true, NeedOrderMatching: true})
+	dexkeeper.SetContract(ctx, &types.ContractInfo{CodeId: 123, ContractAddr: keepertest.TestContract, NeedHook: false, NeedOrderMatching: true})
 	dexkeeper.AddRegisteredPair(ctx, keepertest.TestContract, pair)
 	// place one order to a nonexistent contract
 	dexutils.GetMemState(ctx.Context()).GetBlockOrders(ctx, utils.ContractAddress(keepertest.TestContract), utils.GetPairString(&pair)).Add(
@@ -198,7 +198,7 @@ func TestEndBlockPartialRollback(t *testing.T) {
 	dexkeeper := testApp.DexKeeper
 	pair := TEST_PAIR()
 	// register contract and pair
-	dexkeeper.SetContract(ctx, &types.ContractInfo{CodeId: 123, ContractAddr: keepertest.TestContract, NeedHook: true, NeedOrderMatching: true})
+	dexkeeper.SetContract(ctx, &types.ContractInfo{CodeId: 123, ContractAddr: keepertest.TestContract, NeedHook: false, NeedOrderMatching: true})
 	dexkeeper.AddRegisteredPair(ctx, keepertest.TestContract, pair)
 	// place one order to a nonexistent contract
 	dexutils.GetMemState(ctx.Context()).GetBlockOrders(ctx, utils.ContractAddress(keepertest.TestContract), utils.GetPairString(&pair)).Add(
@@ -220,7 +220,7 @@ func TestEndBlockPartialRollback(t *testing.T) {
 	bankkeeper := testApp.BankKeeper
 	bankkeeper.MintCoins(ctx, minttypes.ModuleName, amounts)
 	bankkeeper.SendCoinsFromModuleToAccount(ctx, minttypes.ModuleName, testAccount, amounts)
-	wasm, err := ioutil.ReadFile("./testdata/clearing_house.wasm")
+	wasm, err := ioutil.ReadFile("./testdata/mars.wasm")
 	if err != nil {
 		panic(err)
 	}
@@ -236,7 +236,7 @@ func TestEndBlockPartialRollback(t *testing.T) {
 	if err != nil {
 		panic(err)
 	}
-	dexkeeper.SetContract(ctx, &types.ContractInfo{CodeId: 123, ContractAddr: contractAddr.String(), NeedHook: true, NeedOrderMatching: true})
+	dexkeeper.SetContract(ctx, &types.ContractInfo{CodeId: 123, ContractAddr: contractAddr.String(), NeedHook: false, NeedOrderMatching: true})
 	dexkeeper.AddRegisteredPair(ctx, contractAddr.String(), pair)
 	// place one order to a nonexistent contract
 	dexutils.GetMemState(ctx.Context()).GetBlockOrders(ctx, utils.ContractAddress(contractAddr.String()), utils.GetPairString(&pair)).Add(
@@ -284,7 +284,7 @@ func TestBeginBlock(t *testing.T) {
 	bankkeeper := testApp.BankKeeper
 	bankkeeper.MintCoins(ctx, minttypes.ModuleName, amounts)
 	bankkeeper.SendCoinsFromModuleToAccount(ctx, minttypes.ModuleName, testAccount, amounts)
-	wasm, err := ioutil.ReadFile("./testdata/clearing_house.wasm")
+	wasm, err := ioutil.ReadFile("./testdata/mars.wasm")
 	if err != nil {
 		panic(err)
 	}
@@ -300,7 +300,7 @@ func TestBeginBlock(t *testing.T) {
 	if err != nil {
 		panic(err)
 	}
-	dexkeeper.SetContract(ctx, &types.ContractInfo{CodeId: 123, ContractAddr: contractAddr.String(), NeedHook: true, NeedOrderMatching: true})
+	dexkeeper.SetContract(ctx, &types.ContractInfo{CodeId: 123, ContractAddr: contractAddr.String(), NeedHook: false, NeedOrderMatching: true})
 
 	// right now just make sure it doesn't crash since it doesn't register any state to be checked against
 	testApp.BeginBlocker(ctx, abci.RequestBeginBlock{})
@@ -324,7 +324,7 @@ func TestEndBlockPanicHandling(t *testing.T) {
 	bankkeeper := testApp.BankKeeper
 	bankkeeper.MintCoins(ctx, minttypes.ModuleName, amounts)
 	bankkeeper.SendCoinsFromModuleToAccount(ctx, minttypes.ModuleName, testAccount, amounts)
-	wasm, err := ioutil.ReadFile("./testdata/clearing_house.wasm")
+	wasm, err := ioutil.ReadFile("./testdata/mars.wasm")
 	if err != nil {
 		panic(err)
 	}
@@ -340,7 +340,7 @@ func TestEndBlockPanicHandling(t *testing.T) {
 	if err != nil {
 		panic(err)
 	}
-	dexkeeper.SetContract(ctx, &types.ContractInfo{CodeId: 123, ContractAddr: contractAddr.String(), NeedHook: true, NeedOrderMatching: true})
+	dexkeeper.SetContract(ctx, &types.ContractInfo{CodeId: 123, ContractAddr: contractAddr.String(), NeedHook: false, NeedOrderMatching: true})
 	dexkeeper.AddRegisteredPair(ctx, contractAddr.String(), pair)
 	dexutils.GetMemState(ctx.Context()).GetBlockOrders(ctx, utils.ContractAddress(contractAddr.String()), utils.GetPairString(&pair)).Add(
 		&types.Order{
