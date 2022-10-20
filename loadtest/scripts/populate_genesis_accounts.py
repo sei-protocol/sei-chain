@@ -21,6 +21,7 @@ def add_key(account_name, local=False):
         stderr=subprocess.STDOUT,
         shell=True,
     ).decode()
+
     splitted_outputs = add_key_output.split('\n')
     address = splitted_outputs[3].split(': ')[1]
     mnemonic = splitted_outputs[11]
@@ -67,6 +68,28 @@ def create_genesis_account(account_index, account_name, local=False):
             retry_counter += 1
             sleep_time += 0.5
             time.sleep(sleep_time)
+    
+    if retry_counter >= 1000:
+        exit(-1)
+    
+    global_accounts_mapping[account_index] = {
+        "balance": {
+            "address": address,
+            "coins": [
+                {
+                    "denom": "usei",
+                    "amount": "1000000000"
+                }
+            ]
+        },
+        "account": {
+          "@type": "/cosmos.auth.v1beta1.BaseAccount",
+          "address": address,
+          "pub_key": None,
+          "account_number": "0",
+          "sequence": "0"
+        }
+    }
 
     if retry_counter >= 1000:
         exit(-1)
