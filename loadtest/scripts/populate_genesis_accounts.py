@@ -4,6 +4,7 @@ import subprocess
 import sys
 import threading
 import time
+from pathlib import Path
 
 PARALLEISM=32
 
@@ -99,13 +100,13 @@ def bulk_create_genesis_accounts(number_of_accounts, start_idx, is_local=False):
 
 
 def read_genesis_file():
-    with open("/root/.sei/config/genesis.json", 'r') as f:
+    with open(str(Path.home()) + "/.sei/config/genesis.json", 'r') as f:
         return json.load(f)
 
 
 def write_genesis_file(data):
     print("Writing results to genesis file")
-    with open("/root/.sei/config/genesis.json", 'w') as f:
+    with open(str(Path.home()) + "/.sei/config/genesis.json", 'w') as f:
         json.dump(data, f, indent=4)
 
 

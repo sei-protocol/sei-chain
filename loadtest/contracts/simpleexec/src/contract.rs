@@ -1,5 +1,5 @@
 use cosmwasm_std::{
-    entry_point, Binary, DepsMut, Env, MessageInfo,
+    entry_point, DepsMut, Env, MessageInfo,
     Response, StdError, StdResult,
 };
 
@@ -13,7 +13,7 @@ pub fn instantiate(
     _env: Env,
     _info: MessageInfo,
     _msg: InstantiateMsg,
-) -> StdResult<Response<SeiMsg>> {
+) -> StdResult<Response> {
     Ok(Response::new())
 }
 
