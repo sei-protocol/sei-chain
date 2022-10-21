@@ -19,7 +19,7 @@ func SendTx(
 	mode typestx.BroadcastMode,
 	seqDelta uint64,
 	mu *sync.Mutex,
-	failureExpected bool
+	failureExpected bool,
 ) func() {
 	(*txBuilder).SetGasLimit(200000000)
 	(*txBuilder).SetFeeAmount([]sdk.Coin{
@@ -36,7 +36,7 @@ func SendTx(
 			},
 		)
 		if err != nil {
-			if (failureExpected) {
+			if failureExpected {
 				fmt.Printf("Error: %s\n", err)
 			} else {
 				panic(err)
@@ -54,7 +54,7 @@ func SendTx(
 				},
 			)
 			if err != nil {
-				if (failureExpected) {
+				if failureExpected {
 					fmt.Printf("Error: %s\n", err)
 				} else {
 					panic(err)
