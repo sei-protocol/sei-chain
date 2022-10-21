@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -200,7 +201,7 @@ func run(config Config) {
 		for _, account := range activeAccounts {
 			key := GetKey(uint64(account))
 
-			msg := generateMessage(config, key, batchSize)
+			msg, failureExpected := generateMessage(config, key, batchSize)
 			txBuilder := TestConfig.TxConfig.NewTxBuilder()
 			_ = txBuilder.SetMsgs(msg)
 			seqDelta := uint64(i / 2)
@@ -210,7 +211,7 @@ func run(config Config) {
 			// in which a later seqno is delievered before an earlier seqno
 			// In practice, we haven't run into this issue so we'll leave this
 			// as is.
-			sender := SendTx(key, &txBuilder, mode, seqDelta, &mu)
+			sender := SendTx(key, &txBuilder, mode, seqDelta, &mu, failureExpected)
 			wg.Add(1)
 			senders = append(senders, func() {
 				defer wg.Done()
@@ -241,7 +242,7 @@ func run(config Config) {
 	fmt.Printf("%s - Finished\n", time.Now().Format("2006-01-02T15:04:05"))
 }
 
-func generateMessage(config Config, key cryptotypes.PrivKey, batchSize uint64) sdk.Msg {
+func generateMessage(config Config, key cryptotypes.PrivKey, batchSize uint64) (sdk.Msg, bool) {
 	var msg sdk.Msg
 	switch config.MessageType {
 	case "basic":
@@ -427,7 +428,12 @@ func generateMessage(config Config, key cryptotypes.PrivKey, batchSize uint64) s
 	default:
 		fmt.Printf("Unrecognized message type %s", config.MessageType)
 	}
-	return msg
+
+	if strings.Contains(config.MessageType, "failure") {
+		return msg, true
+	} else {
+		return msg, false
+	}
 }
 
 func getLastHeight() int {

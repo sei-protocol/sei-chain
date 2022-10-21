@@ -19,6 +19,7 @@ func SendTx(
 	mode typestx.BroadcastMode,
 	seqDelta uint64,
 	mu *sync.Mutex,
+	failureExpected bool
 ) func() {
 	(*txBuilder).SetGasLimit(200000000)
 	(*txBuilder).SetFeeAmount([]sdk.Coin{
@@ -35,7 +36,11 @@ func SendTx(
 			},
 		)
 		if err != nil {
-			panic(err)
+			if (failureExpected) {
+				fmt.Printf("Error: %s\n", err)
+			} else {
+				panic(err)
+			}
 		}
 		for grpcRes.TxResponse.Code == sdkerrors.ErrMempoolIsFull.ABCICode() {
 			// retry after a second until either succeed or fail for some other reason
@@ -49,7 +54,11 @@ func SendTx(
 				},
 			)
 			if err != nil {
-				panic(err)
+				if (failureExpected) {
+					fmt.Printf("Error: %s\n", err)
+				} else {
+					panic(err)
+				}
 			}
 		}
 		if grpcRes.TxResponse.Code != 0 {
