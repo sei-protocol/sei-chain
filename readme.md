@@ -46,7 +46,7 @@ Developers, traders, and users can all connect to Sei as ecosystem partners bene
 
 ## Operating System 
 
-> Linux (x86_64) or Linux (amd64) Reccomended Arch Linux
+> Linux (x86_64) or Linux (amd64) Recommended Arch Linux
 
 **Dependencies**
 > Prerequisite: go1.18+ required.
