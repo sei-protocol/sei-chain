@@ -137,6 +137,19 @@ func MsgUndelegateDependencyGenerator(keeper aclkeeper.Keeper, ctx sdk.Context, 
 			IdentifierTemplate: utils.GetIdentifierTemplatePerModule(utils.BANK, msgUndelegate.ValidatorAddress),
 		},
 
+		// Checks if the validators exchange rate is valid
+		{
+			AccessType:         sdkacltypes.AccessType_READ,
+			ResourceType:       sdkacltypes.ResourceType_KV,
+			IdentifierTemplate: utils.GetIdentifierTemplatePerModule(utils.STAKING, msgUndelegate.ValidatorAddress),
+		},
+		// Update validator shares and power index
+		{
+			AccessType:         sdkacltypes.AccessType_WRITE,
+			ResourceType:       sdkacltypes.ResourceType_KV,
+			IdentifierTemplate: utils.GetIdentifierTemplatePerModule(utils.STAKING, msgUndelegate.ValidatorAddress),
+		},
+
 		// Last Operation should always be a commit
 		{
 			ResourceType:       sdkacltypes.ResourceType_ANY,
@@ -211,6 +224,28 @@ func MsgBeginRedelegateDependencyGenerator(keeper aclkeeper.Keeper, ctx sdk.Cont
 			AccessType:         sdkacltypes.AccessType_WRITE,
 			ResourceType:       sdkacltypes.ResourceType_KV,
 			IdentifierTemplate: utils.GetIdentifierTemplatePerModule(utils.BANK, msgBeingRedelegate.ValidatorDstAddress),
+		},
+
+		// Update validators staking shares and power index
+		{
+			AccessType:         sdkacltypes.AccessType_READ,
+			ResourceType:       sdkacltypes.ResourceType_KV,
+			IdentifierTemplate: utils.GetIdentifierTemplatePerModule(utils.STAKING, msgBeingRedelegate.ValidatorSrcAddress),
+		},
+		{
+			AccessType:         sdkacltypes.AccessType_WRITE,
+			ResourceType:       sdkacltypes.ResourceType_KV,
+			IdentifierTemplate: utils.GetIdentifierTemplatePerModule(utils.STAKING, msgBeingRedelegate.ValidatorSrcAddress),
+		},
+		{
+			AccessType:         sdkacltypes.AccessType_READ,
+			ResourceType:       sdkacltypes.ResourceType_KV,
+			IdentifierTemplate: utils.GetIdentifierTemplatePerModule(utils.STAKING, msgBeingRedelegate.ValidatorDstAddress),
+		},
+		{
+			AccessType:         sdkacltypes.AccessType_WRITE,
+			ResourceType:       sdkacltypes.ResourceType_KV,
+			IdentifierTemplate: utils.GetIdentifierTemplatePerModule(utils.STAKING, msgBeingRedelegate.ValidatorDstAddress),
 		},
 
 		// Last Operation should always be a commit
