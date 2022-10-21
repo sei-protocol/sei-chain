@@ -52,18 +52,11 @@ func (spd SpammingPreventionDecorator) AnteDeps(txDeps []sdkacltypes.AccessOpera
 	for _, msg := range tx.GetMsgs() {
 		// Error checking will be handled in AnteHandler
 		switch m := msg.(type) {
-		case *types.MsgAggregateExchangeRatePrevote:
-			feederAddr, _ := sdk.AccAddressFromBech32(m.Feeder)
-			valAddr, _ := sdk.ValAddressFromBech32(m.Validator)
-			deps = append(deps, aclutils.GetOracleReadAccessOpsForValAndFeeder(feederAddr, valAddr)...)
 		case *types.MsgAggregateExchangeRateVote:
 			feederAddr, _ := sdk.AccAddressFromBech32(m.Feeder)
 			valAddr, _ := sdk.ValAddressFromBech32(m.Validator)
 			deps = append(deps, aclutils.GetOracleReadAccessOpsForValAndFeeder(feederAddr, valAddr)...)
-		case *types.MsgAggregateExchangeRateCombinedVote:
-			feederAddr, _ := sdk.AccAddressFromBech32(m.Feeder)
-			valAddr, _ := sdk.ValAddressFromBech32(m.Validator)
-			deps = append(deps, aclutils.GetOracleReadAccessOpsForValAndFeeder(feederAddr, valAddr)...)
+			// TODO: we also need to add READs for Validator + bonded check
 		default:
 			continue
 		}

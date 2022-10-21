@@ -45,18 +45,11 @@ func (gd GaslessDecorator) AnteDeps(txDeps []sdkacltypes.AccessOperation, tx sdk
 	for _, msg := range tx.GetMsgs() {
 		// Error checking will be handled in AnteHandler
 		switch m := msg.(type) {
-		case *oracletypes.MsgAggregateExchangeRatePrevote:
-			feederAddr, _ := sdk.AccAddressFromBech32(m.Feeder)
-			valAddr, _ := sdk.ValAddressFromBech32(m.Validator)
-			deps = append(deps, aclutils.GetOracleReadAccessOpsForValAndFeeder(feederAddr, valAddr)...)
 		case *oracletypes.MsgAggregateExchangeRateVote:
 			feederAddr, _ := sdk.AccAddressFromBech32(m.Feeder)
 			valAddr, _ := sdk.ValAddressFromBech32(m.Validator)
 			deps = append(deps, aclutils.GetOracleReadAccessOpsForValAndFeeder(feederAddr, valAddr)...)
-		case *oracletypes.MsgAggregateExchangeRateCombinedVote:
-			feederAddr, _ := sdk.AccAddressFromBech32(m.Feeder)
-			valAddr, _ := sdk.ValAddressFromBech32(m.Validator)
-			deps = append(deps, aclutils.GetOracleReadAccessOpsForValAndFeeder(feederAddr, valAddr)...)
+			// TODO: we also need to add READs for Validator + bonded check
 		default:
 			continue
 		}
