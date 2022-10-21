@@ -71,7 +71,8 @@ func (dag *Dag) GetCompletionSignal(edge DagEdge) *CompletionSignal {
 		CompletionAccessOperation: fromNode.AccessOperation,
 		BlockedAccessOperation:    toNode.AccessOperation,
 		// channel used for signalling
-		Channel: make(chan interface{}),
+		// use buffered channel so that writing to channel won't be blocked by reads
+		Channel: make(chan interface{}, 1),
 	}
 }
 

@@ -6,8 +6,15 @@ type TreeNode struct {
 }
 
 var ResourceTree = map[ResourceType]TreeNode{
-	ResourceType_ANY:        {ResourceType_ANY, []ResourceType{ResourceType_KV, ResourceType_Mem}},
-	ResourceType_KV:         {ResourceType_ANY, []ResourceType{}},
+	ResourceType_ANY: {ResourceType_ANY, []ResourceType{ResourceType_KV, ResourceType_Mem}},
+	ResourceType_KV: {ResourceType_ANY, []ResourceType{
+		ResourceType_KV_BANK,
+		ResourceType_KV_DEX,
+		ResourceType_KV_EPOCH,
+		ResourceType_KV_ORACLE,
+		ResourceType_KV_STAKING,
+		ResourceType_KV_WASM,
+	}},
 	ResourceType_Mem:        {ResourceType_ANY, []ResourceType{ResourceType_DexMem}},
 	ResourceType_DexMem:     {ResourceType_Mem, []ResourceType{}},
 	ResourceType_KV_BANK:    {ResourceType_KV, []ResourceType{}},
