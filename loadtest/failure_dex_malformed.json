@@ -14,8 +14,8 @@
         "number_of_distinct_values": 20
     },
     "message_type_distribution": {
-        "fake_limit_order_percentage": "0.2",
-        "fake_market_order_percentage": "0.8"
+        "limit_order_percentage": "0.2",
+        "market_order_percentage": "0.8"
     },
     "message_type": "failure_dex_malformed",
     "contract_distribution": [

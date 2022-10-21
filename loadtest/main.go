@@ -87,23 +87,6 @@ func (d *MsgTypeDistribution) Sample() string {
 	return "market"
 }
 
-type InvalidMsgTypeDistribution struct {
-	FakeLimitOrderPct  sdk.Dec `json:"fake_limit_order_percentage"`
-	FakeMarketOrderPct sdk.Dec `json:"fake_market_order_percentage"`
-}
-
-// Invalid msg type distribution sample
-func (d *InvalidMsgTypeDistribution) InvalidSample() string {
-	if !d.FakeLimitOrderPct.Add(d.FakeMarketOrderPct).Equal(sdk.OneDec()) {
-		panic("Distribution percentages for failure case must add up to 1")
-	}
-	randNum := sdk.MustNewDecFromStr(fmt.Sprintf("%f", rand.Float64()))
-	if randNum.LT(d.FakeLimitOrderPct) {
-		return "fake_limit"
-	}
-	return "fake_market"
-}
-
 type ContractDistributions []ContractDistribution
 
 func (d *ContractDistributions) Sample() string {
@@ -242,6 +225,13 @@ func run(config Config) {
 	fmt.Printf("%s - Finished\n", time.Now().Format("2006-01-02T15:04:05"))
 }
 
+func reverse(s string) (r string) {
+	for _, v := range s {
+		r = string(v) + r
+	}
+	return
+}
+
 func generateMessage(config Config, key cryptotypes.PrivKey, batchSize uint64) (sdk.Msg, bool) {
 	var msg sdk.Msg
 	switch config.MessageType {
@@ -261,21 +251,9 @@ func generateMessage(config Config, key cryptotypes.PrivKey, batchSize uint64) (
 		} else {
 			denom = "other"
 		}
-		var fromAddr string
-		if rand.Float64() < 0.5 {
-			fromAddr = "fromAddressRandom"
-		} else {
-			fromAddr = "otherFromAddressRandom"
-		}
-		var toAddr string
-		if rand.Float64() < 0.5 {
-			fromAddr = "toAddressRandom"
-		} else {
-			fromAddr = "toFromAddressRandom"
-		}
 		msg = &banktypes.MsgSend{
-			FromAddress: fromAddr,
-			ToAddress:   toAddr,
+			FromAddress: reverse(sdk.AccAddress(key.PubKey().Address()).String()),
+			ToAddress:   reverse(sdk.AccAddress(key.PubKey().Address()).String()),
 			Amount: sdk.NewCoins(sdk.Coin{
 				Denom:  denom,
 				Amount: sdk.NewInt(1),
