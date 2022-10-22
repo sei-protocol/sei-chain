@@ -19,7 +19,6 @@ import (
 	"github.com/cosmos/cosmos-sdk/codec"
 	"github.com/cosmos/cosmos-sdk/codec/types"
 	"github.com/cosmos/cosmos-sdk/std"
-	"github.com/cosmos/cosmos-sdk/telemetry"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	typestx "github.com/cosmos/cosmos-sdk/types/tx"
 	"github.com/cosmos/cosmos-sdk/x/auth/tx"
@@ -212,7 +211,6 @@ func run(config Config) {
 			go func() {
 				tx := sender()
 				if tx != "" {
-					telemetry.IncrCounter(1, "load_test_pending_tx_counts")
 					txs = append(txs, tx)
 				}
 			}()
@@ -227,10 +225,9 @@ func run(config Config) {
 		for i := 0; i < len(txs); i++ {
 			txResponse := GetTxResponse(txs[i])
 			if txResponse.Tx == nil {
-				// Replace panic with metrics instead
-				panic("transaction not committed")
+				// TODO: add metrics to detect non commited txs
+				fmt.Println("transaction not committed")
 			}
-			telemetry.IncrCounter(1, "load_test_committed_tx_counts")
 		}
 	}
 	fmt.Printf("%s - Finished\n", time.Now().Format("2006-01-02T15:04:05"))
@@ -330,14 +327,8 @@ func main() {
 		panic(err)
 	}
 
-<<<<<<< HEAD
-	fmt.Println(config.Constant)
 	if config.Constant {
 		// If it's constant load, run forever with sleep intervals
-=======
-	// runs the loadtest and sleeps based on the provided interval param
-	if *constant {
->>>>>>> 750879e2902e5879989f8bab74db5de5f37d6d42
 		for {
 			run(config)
 			time.Sleep(time.Duration(config.ConstLoadInterval) * time.Second)
