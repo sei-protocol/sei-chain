@@ -17,6 +17,8 @@
         "limit_order_percentage": "0.2",
         "market_order_percentage": "0.8"
     },
+    "constant": true,
+    "const_load_interval": 10,
     "message_type": "basic",
     "contract_distribution": [
         {

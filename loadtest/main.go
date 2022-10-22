@@ -2,7 +2,6 @@ package main
 
 import (
 	"encoding/json"
-	"flag"
 	"fmt"
 	"math/rand"
 	"os"
@@ -48,6 +47,7 @@ type Config struct {
 	QuantityDistr     NumericDistribution   `json:"quantity_distribution"`
 	MsgTypeDistr      MsgTypeDistribution   `json:"message_type_distribution"`
 	ContractDistr     ContractDistributions `json:"contract_distribution"`
+	Constant		  bool					`json:"constant`
 	ConstLoadInterval int64                 `json:"const_load_interval"`
 }
 
@@ -130,7 +130,7 @@ func init() {
 	app.ModuleBasics.RegisterInterfaces(TestConfig.InterfaceRegistry)
 }
 
-func run(config Config, constant *bool) {
+func run(config Config) {
 	ChainID = config.ChainID
 	grpcConn, _ := grpc.Dial(
 		"127.0.0.1:9090",
@@ -175,7 +175,7 @@ func run(config Config, constant *bool) {
 		for _, account := range activeAccounts {
 			key := GetKey(uint64(account))
 
-			msg := generateMessage(config, key, batchSize, constant)
+			msg := generateMessage(config, key, batchSize)
 			txBuilder := TestConfig.TxConfig.NewTxBuilder()
 			_ = txBuilder.SetMsgs(msg)
 			seqDelta := uint64(i / 2)
@@ -221,7 +221,7 @@ func run(config Config, constant *bool) {
 		lastHeight = newHeight
 	}
 
-	if *constant {
+	if config.Constant {
 		// sleep 3 seconds wait for transaction to finish
 		time.Sleep(3 * time.Second)
 		for i := 0; i < len(txs); i++ {
@@ -236,14 +236,16 @@ func run(config Config, constant *bool) {
 	fmt.Printf("%s - Finished\n", time.Now().Format("2006-01-02T15:04:05"))
 }
 
-func generateMessage(config Config, key cryptotypes.PrivKey, batchSize uint64, constant *bool) sdk.Msg {
+func generateMessage(config Config, key cryptotypes.PrivKey, batchSize uint64) sdk.Msg {
 	var msg sdk.Msg
 	messageTypes := []string{"basic", "dex"}
 	messageType := config.MessageType
 
 	// Use a random message type if it's running constant load test
-	if *constant {
-		messageType = messageTypes[rand.Intn(len(messageTypes)+1)-1]
+	if config.Constant {
+		// need to update seed otherwise it's the same value for randomization
+		rand.Seed(time.Now().UnixNano())
+		messageType = messageTypes[rand.Intn(len(messageTypes))]
 	}
 	switch messageType {
 	case "basic":
@@ -319,26 +321,23 @@ func getLastHeight() int {
 }
 
 func main() {
-	constant := flag.Bool("constant", false, "using constant client")
-	flag.Parse()
 	config := Config{}
 	pwd, _ := os.Getwd()
 
 	fileName := "/loadtest/config.json"
-	if *constant {
-		fileName = "/loadtest/constant_load_config.json"
-	}
 	file, _ := os.ReadFile(pwd + fileName)
 	if err := json.Unmarshal(file, &config); err != nil {
 		panic(err)
 	}
 
-	if *constant {
+	fmt.Println(config.Constant)
+	if config.Constant {
+		// If it's constant load, run forever with sleep intervals
 		for {
-			run(config, constant)
+			run(config)
 			time.Sleep(time.Duration(config.ConstLoadInterval) * time.Second)
 		}
 	} else {
-		run(config, constant)
+		run(config)
 	}
 }
