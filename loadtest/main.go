@@ -330,9 +330,14 @@ func main() {
 		panic(err)
 	}
 
+<<<<<<< HEAD
 	fmt.Println(config.Constant)
 	if config.Constant {
 		// If it's constant load, run forever with sleep intervals
+=======
+	// runs the loadtest and sleeps based on the provided interval param
+	if *constant {
+>>>>>>> 750879e2902e5879989f8bab74db5de5f37d6d42
 		for {
 			run(config)
 			time.Sleep(time.Duration(config.ConstLoadInterval) * time.Second)
