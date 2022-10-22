@@ -37,15 +37,17 @@ type EncodingConfig struct {
 }
 
 type Config struct {
-	BatchSize      uint64                `json:"batch_size"`
-	ChainID        string                `json:"chain_id"`
-	OrdersPerBlock uint64                `json:"orders_per_block"`
-	Rounds         uint64                `json:"rounds"`
-	MessageType    string                `json:"message_type"`
-	PriceDistr     NumericDistribution   `json:"price_distribution"`
-	QuantityDistr  NumericDistribution   `json:"quantity_distribution"`
-	MsgTypeDistr   MsgTypeDistribution   `json:"message_type_distribution"`
-	ContractDistr  ContractDistributions `json:"contract_distribution"`
+	BatchSize         uint64                `json:"batch_size"`
+	ChainID           string                `json:"chain_id"`
+	OrdersPerBlock    uint64                `json:"orders_per_block"`
+	Rounds            uint64                `json:"rounds"`
+	MessageType       string                `json:"message_type"`
+	PriceDistr        NumericDistribution   `json:"price_distribution"`
+	QuantityDistr     NumericDistribution   `json:"quantity_distribution"`
+	MsgTypeDistr      MsgTypeDistribution   `json:"message_type_distribution"`
+	ContractDistr     ContractDistributions `json:"contract_distribution"`
+	Constant          bool                  `json:"constant"`
+	ConstLoadInterval int64                 `json:"const_load_interval"`
 }
 
 type NumericDistribution struct {
@@ -158,7 +160,7 @@ func run(config Config) {
 		}
 	}
 	wgs := []*sync.WaitGroup{}
-	sendersList := [][]func(){}
+	sendersList := [][]func() string{}
 
 	configString, _ := json.Marshal(config)
 	fmt.Printf("Running with \n %s \ns", string(configString))
@@ -167,7 +169,7 @@ func run(config Config) {
 	for i := 0; i < int(config.Rounds); i++ {
 		fmt.Printf("Preparing %d-th round\n", i)
 		wg := &sync.WaitGroup{}
-		var senders []func()
+		var senders []func() string
 		wgs = append(wgs, wg)
 		for _, account := range activeAccounts {
 			key := GetKey(uint64(account))
@@ -184,9 +186,9 @@ func run(config Config) {
 			// as is.
 			sender := SendTx(key, &txBuilder, mode, seqDelta, &mu)
 			wg.Add(1)
-			senders = append(senders, func() {
+			senders = append(senders, func() string {
 				defer wg.Done()
-				sender()
+				return sender()
 			})
 		}
 		sendersList = append(sendersList, senders)
@@ -195,6 +197,7 @@ func run(config Config) {
 	}
 
 	lastHeight := getLastHeight()
+	txs := []string{}
 	for i := 0; i < int(config.Rounds); i++ {
 		newHeight := getLastHeight()
 		for newHeight == lastHeight {
@@ -205,17 +208,44 @@ func run(config Config) {
 		senders := sendersList[i]
 		wg := wgs[i]
 		for _, sender := range senders {
-			go sender()
+			go func() {
+				//nolint:govet
+				tx := sender()
+				if tx != "" {
+					txs = append(txs, tx)
+				}
+			}()
 		}
 		wg.Wait()
 		lastHeight = newHeight
+	}
+
+	if config.Constant {
+		// sleep 3 seconds wait for transaction to finish
+		time.Sleep(3 * time.Second)
+		for i := 0; i < len(txs); i++ {
+			txResponse := GetTxResponse(txs[i])
+			if txResponse.Tx == nil {
+				// TODO: add metrics to detect non committed txs
+				fmt.Println("transaction not committed")
+			}
+		}
 	}
 	fmt.Printf("%s - Finished\n", time.Now().Format("2006-01-02T15:04:05"))
 }
 
 func generateMessage(config Config, key cryptotypes.PrivKey, batchSize uint64) sdk.Msg {
 	var msg sdk.Msg
-	switch config.MessageType {
+	messageTypes := []string{"basic", "dex"}
+	messageType := config.MessageType
+
+	// Use a random message type if it's running constant load test
+	if config.Constant {
+		// need to update seed otherwise it's the same value for randomization
+		rand.Seed(time.Now().UnixNano())
+		messageType = messageTypes[rand.Intn(len(messageTypes))]
+	}
+	switch messageType {
 	case "basic":
 		msg = &banktypes.MsgSend{
 			FromAddress: sdk.AccAddress(key.PubKey().Address()).String(),
@@ -291,9 +321,20 @@ func getLastHeight() int {
 func main() {
 	config := Config{}
 	pwd, _ := os.Getwd()
-	file, _ := os.ReadFile(pwd + "/loadtest/config.json")
+
+	fileName := "/loadtest/config.json"
+	file, _ := os.ReadFile(pwd + fileName)
 	if err := json.Unmarshal(file, &config); err != nil {
 		panic(err)
 	}
-	run(config)
+
+	if config.Constant {
+		// If it's constant load, run forever with sleep intervals
+		for {
+			run(config)
+			time.Sleep(time.Duration(config.ConstLoadInterval) * time.Second)
+		}
+	} else {
+		run(config)
+	}
 }

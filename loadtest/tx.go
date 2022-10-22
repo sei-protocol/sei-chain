@@ -19,14 +19,14 @@ func SendTx(
 	mode typestx.BroadcastMode,
 	seqDelta uint64,
 	mu *sync.Mutex,
-) func() {
+) func() string {
 	(*txBuilder).SetGasLimit(200000000)
 	(*txBuilder).SetFeeAmount([]sdk.Coin{
 		sdk.NewCoin("usei", sdk.NewInt(10000000)),
 	})
 	SignTx(txBuilder, key, seqDelta)
 	txBytes, _ := TestConfig.TxConfig.TxEncoder()((*txBuilder).GetTx())
-	return func() {
+	return func() string {
 		grpcRes, err := TxClient.BroadcastTx(
 			context.Background(),
 			&typestx.BroadcastTxRequest{
@@ -60,6 +60,23 @@ func SendTx(
 			if _, err := TxHashFile.WriteString(fmt.Sprintf("%s\n", grpcRes.TxResponse.TxHash)); err != nil {
 				panic(err)
 			}
+			return grpcRes.TxResponse.TxHash
 		}
+		return ""
 	}
+}
+
+func GetTxResponse(hash string) *sdk.TxResponse {
+	grpcRes, err := TxClient.GetTx(
+		context.Background(),
+		&typestx.GetTxRequest{
+			Hash: hash,
+		},
+	)
+	if err != nil {
+		fmt.Println(err)
+		return &sdk.TxResponse{}
+	}
+
+	return grpcRes.TxResponse
 }

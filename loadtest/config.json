@@ -1,8 +1,8 @@
 {
-    "batch_size": 10,
+    "batch_size": 1,
     "chain_id": "sei-loadtest-testnet",
-    "orders_per_block": 400,
-    "rounds": 5,
+    "orders_per_block": 1,
+    "rounds": 1,
     "price_distribution": {
         "min": "45",
         "max": "55",
@@ -17,6 +17,8 @@
         "limit_order_percentage": "0.2",
         "market_order_percentage": "0.8"
     },
+    "constant": true,
+    "const_load_interval": 10,
     "message_type": "basic",
     "contract_distribution": [
         {
