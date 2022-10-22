@@ -86,7 +86,7 @@ mv $HOME/go/bin/seid /usr/bin/
 
 * Initialize node: `seid init <moniker> --chain-id sei-testnet-1`
 
-* Download the Genesis file: `https://github.com/sei-protocol/testnet/raw/main/sei-testnet-1/genesis.json -P $HOME/.sei/config/`
+* Download the Genesis file: `wget https://github.com/sei-protocol/testnet/raw/main/sei-testnet-1/genesis.json -P $HOME/.sei/config/`
  
 * Edit the minimum-gas-prices in ${HOME}/.sei/config/app.toml: `sed -i 's/minimum-gas-prices = ""/minimum-gas-prices = "0.01usei"/g' $HOME/.sei/config/app.toml`
 
@@ -103,7 +103,7 @@ After=network.target
 Type=simple
 User=root
 WorkingDirectory=/root/
-ExecStart=/root/go/bin/seid start
+ExecStart=/usr/bin/seid start
 Restart=on-failure
 StartLimitInterval=0
 RestartSec=3
