@@ -1,1 +1,1 @@
-/home/ubuntu/sei-chain/build/loadtest -constant
+/home/ubuntu/sei-chain/build/loadtest
