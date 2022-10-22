@@ -209,7 +209,7 @@ func run(config Config) {
 		wg := wgs[i]
 		for _, sender := range senders {
 			go func() {
-				//nolint:all
+				//nolint:govet
 				tx := sender()
 				if tx != "" {
 					txs = append(txs, tx)
