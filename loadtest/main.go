@@ -6,102 +6,26 @@ import (
 	"math/rand"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strconv"
 	"sync"
 	"time"
 
 	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
+	"github.com/cosmos/cosmos-sdk/std"
 
+	"github.com/cosmos/cosmos-sdk/x/auth/tx"
 	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
 
-	"github.com/cosmos/cosmos-sdk/client"
 	"github.com/cosmos/cosmos-sdk/codec"
 	"github.com/cosmos/cosmos-sdk/codec/types"
-	"github.com/cosmos/cosmos-sdk/std"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	typestx "github.com/cosmos/cosmos-sdk/types/tx"
-	"github.com/cosmos/cosmos-sdk/x/auth/tx"
 	"github.com/sei-protocol/sei-chain/app"
-	"github.com/sei-protocol/sei-chain/utils"
 	dextypes "github.com/sei-protocol/sei-chain/x/dex/types"
-	"google.golang.org/grpc"
 )
-
-type EncodingConfig struct {
-	InterfaceRegistry types.InterfaceRegistry
-	// NOTE: this field will be renamed to Codec
-	Marshaler codec.Codec
-	TxConfig  client.TxConfig
-	Amino     *codec.LegacyAmino
-}
-
-type Config struct {
-	BatchSize      uint64                `json:"batch_size"`
-	ChainID        string                `json:"chain_id"`
-	OrdersPerBlock uint64                `json:"orders_per_block"`
-	Rounds         uint64                `json:"rounds"`
-	MessageType    string                `json:"message_type"`
-	PriceDistr     NumericDistribution   `json:"price_distribution"`
-	QuantityDistr  NumericDistribution   `json:"quantity_distribution"`
-	MsgTypeDistr   MsgTypeDistribution   `json:"message_type_distribution"`
-	ContractDistr  ContractDistributions `json:"contract_distribution"`
-}
-
-type NumericDistribution struct {
-	Min         sdk.Dec `json:"min"`
-	Max         sdk.Dec `json:"max"`
-	NumDistinct int64   `json:"number_of_distinct_values"`
-}
-
-func (d *NumericDistribution) Sample() sdk.Dec {
-	steps := sdk.NewDec(rand.Int63n(d.NumDistinct))
-	return d.Min.Add(d.Max.Sub(d.Min).QuoInt64(d.NumDistinct).Mul(steps))
-}
-
-type MsgTypeDistribution struct {
-	LimitOrderPct  sdk.Dec `json:"limit_order_percentage"`
-	MarketOrderPct sdk.Dec `json:"market_order_percentage"`
-}
-
-func (d *MsgTypeDistribution) Sample() string {
-	if !d.LimitOrderPct.Add(d.MarketOrderPct).Equal(sdk.OneDec()) {
-		panic("Distribution percentages must add up to 1")
-	}
-	randNum := sdk.MustNewDecFromStr(fmt.Sprintf("%f", rand.Float64()))
-	if randNum.LT(d.LimitOrderPct) {
-		return "limit"
-	}
-	return "market"
-}
-
-type ContractDistributions []ContractDistribution
-
-func (d *ContractDistributions) Sample() string {
-	if !utils.Reduce(*d, func(i ContractDistribution, o sdk.Dec) sdk.Dec { return o.Add(i.Percentage) }, sdk.ZeroDec()).Equal(sdk.OneDec()) {
-		panic("Distribution percentages must add up to 1")
-	}
-	randNum := sdk.MustNewDecFromStr(fmt.Sprintf("%f", rand.Float64()))
-	cumPct := sdk.ZeroDec()
-	for _, dist := range *d {
-		cumPct = cumPct.Add(dist.Percentage)
-		if randNum.LTE(cumPct) {
-			return dist.ContractAddr
-		}
-	}
-	panic("this should never be triggered")
-}
-
-type ContractDistribution struct {
-	ContractAddr string  `json:"contract_address"`
-	Percentage   sdk.Dec `json:"percentage"`
-}
 
 var (
 	TestConfig EncodingConfig
-	TxClient   typestx.ServiceClient
-	TxHashFile *os.File
-	ChainID    string
 )
 
 const (
@@ -128,28 +52,17 @@ func init() {
 }
 
 func run(config Config) {
-	ChainID = config.ChainID
-	grpcConn, _ := grpc.Dial(
-		"127.0.0.1:9090",
-		grpc.WithInsecure(),
-	)
-	defer grpcConn.Close()
-	TxClient = typestx.NewServiceClient(grpcConn)
-	userHomeDir, _ := os.UserHomeDir()
-	_ = os.Mkdir(filepath.Join(userHomeDir, "outputs"), os.ModePerm)
-	filename := filepath.Join(userHomeDir, "outputs", "test_tx_hash")
-	_ = os.Remove(filename)
-	file, _ := os.OpenFile(filename, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
-	TxHashFile = file
-	var mu sync.Mutex
-	batchSize := config.BatchSize
-	if config.OrdersPerBlock < batchSize {
+	client := NewLoadTestClient(config.ChainID)
+	defer client.Close()
+
+	if config.TxsPerBlock < config.MsgsPerTx {
 		panic("Must have more orders per block than batch size")
 	}
 
-	numberOfAccounts := config.OrdersPerBlock / batchSize * 2 // * 2 because we need two sets of accounts
+	numberOfAccounts := config.TxsPerBlock / config.MsgsPerTx * 2 // * 2 because we need two sets of accounts
 	activeAccounts := []int{}
 	inactiveAccounts := []int{}
+
 	for i := 0; i < int(numberOfAccounts); i++ {
 		if i%2 == 0 {
 			activeAccounts = append(activeAccounts, i)
@@ -157,6 +70,7 @@ func run(config Config) {
 			inactiveAccounts = append(inactiveAccounts, i)
 		}
 	}
+
 	wgs := []*sync.WaitGroup{}
 	sendersList := [][]func(){}
 
@@ -172,7 +86,7 @@ func run(config Config) {
 		for _, account := range activeAccounts {
 			key := GetKey(uint64(account))
 
-			msg := generateMessage(config, key, batchSize)
+			msg := generateMessage(config, key, config.MsgsPerTx)
 			txBuilder := TestConfig.TxConfig.NewTxBuilder()
 			_ = txBuilder.SetMsgs(msg)
 			seqDelta := uint64(i / 2)
@@ -182,7 +96,7 @@ func run(config Config) {
 			// in which a later seqno is delievered before an earlier seqno
 			// In practice, we haven't run into this issue so we'll leave this
 			// as is.
-			sender := SendTx(key, &txBuilder, mode, seqDelta, &mu)
+			sender := SendTx(key, &txBuilder, mode, seqDelta, *client)
 			wg.Add(1)
 			senders = append(senders, func() {
 				defer wg.Done()
@@ -213,7 +127,7 @@ func run(config Config) {
 	fmt.Printf("%s - Finished\n", time.Now().Format("2006-01-02T15:04:05"))
 }
 
-func generateMessage(config Config, key cryptotypes.PrivKey, batchSize uint64) sdk.Msg {
+func generateMessage(config Config, key cryptotypes.PrivKey, msgPerTx uint64) sdk.Msg {
 	var msg sdk.Msg
 	switch config.MessageType {
 	case "basic":
@@ -243,7 +157,7 @@ func generateMessage(config Config, key cryptotypes.PrivKey, batchSize uint64) s
 		price := config.PriceDistr.Sample()
 		quantity := config.QuantityDistr.Sample()
 		contract := config.ContractDistr.Sample()
-		for j := 0; j < int(batchSize); j++ {
+		for j := 0; j < int(msgPerTx); j++ {
 			orderPlacements = append(orderPlacements, &dextypes.Order{
 				Account:           sdk.AccAddress(key.PubKey().Address()).String(),
 				ContractAddr:      contract,
