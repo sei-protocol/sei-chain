@@ -65,6 +65,7 @@ func SendTx(
 		return ""
 	}
 }
+
 func GetTxResponse(hash string) *sdk.TxResponse {
 	grpcRes, err := TxClient.GetTx(
 		context.Background(),
@@ -76,6 +77,6 @@ func GetTxResponse(hash string) *sdk.TxResponse {
 		fmt.Println(err)
 		return &sdk.TxResponse{}
 	}
-	
+
 	return grpcRes.TxResponse
 }

@@ -46,7 +46,7 @@ type Config struct {
 	QuantityDistr     NumericDistribution   `json:"quantity_distribution"`
 	MsgTypeDistr      MsgTypeDistribution   `json:"message_type_distribution"`
 	ContractDistr     ContractDistributions `json:"contract_distribution"`
-	Constant		  bool					`json:"constant`
+	Constant          bool                  `json:"constant"`
 	ConstLoadInterval int64                 `json:"const_load_interval"`
 }
 
@@ -209,6 +209,7 @@ func run(config Config) {
 		wg := wgs[i]
 		for _, sender := range senders {
 			go func() {
+				//nolint:all
 				tx := sender()
 				if tx != "" {
 					txs = append(txs, tx)
@@ -225,7 +226,7 @@ func run(config Config) {
 		for i := 0; i < len(txs); i++ {
 			txResponse := GetTxResponse(txs[i])
 			if txResponse.Tx == nil {
-				// TODO: add metrics to detect non commited txs
+				// TODO: add metrics to detect non committed txs
 				fmt.Println("transaction not committed")
 			}
 		}
