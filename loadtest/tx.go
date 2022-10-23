@@ -23,7 +23,7 @@ func SendTx(
 	(*txBuilder).SetFeeAmount([]sdk.Coin{
 		sdk.NewCoin("usei", sdk.NewInt(10000000)),
 	})
-	SignTx(loadtestClient.ChainID, txBuilder, key, seqDelta)
+	loadtestClient.SignerClient.SignTx(loadtestClient.ChainID, txBuilder, key, seqDelta)
 	txBytes, _ := TestConfig.TxConfig.TxEncoder()((*txBuilder).GetTx())
 	return func() {
 		grpcRes, err := loadtestClient.TxClient.BroadcastTx(
@@ -34,7 +34,8 @@ func SendTx(
 			},
 		)
 		if err != nil {
-			panic(err)
+			// panic(err)
+			return
 		}
 		for grpcRes.TxResponse.Code == sdkerrors.ErrMempoolIsFull.ABCICode() {
 			// retry after a second until either succeed or fail for some other reason

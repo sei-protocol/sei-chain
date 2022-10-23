@@ -4,10 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"math/rand"
-	"os"
 	"os/exec"
 	"strconv"
-	"sync"
 	"time"
 
 	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
@@ -19,7 +17,6 @@ import (
 	"github.com/cosmos/cosmos-sdk/codec"
 	"github.com/cosmos/cosmos-sdk/codec/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
-	typestx "github.com/cosmos/cosmos-sdk/types/tx"
 	"github.com/sei-protocol/sei-chain/app"
 	dextypes "github.com/sei-protocol/sei-chain/x/dex/types"
 )
@@ -51,80 +48,28 @@ func init() {
 	app.ModuleBasics.RegisterInterfaces(TestConfig.InterfaceRegistry)
 }
 
-func run(config Config) {
-	client := NewLoadTestClient(config.ChainID)
+func run() {
+	client := NewLoadTestClient()
+	config := client.LoadTestConfig
+
 	defer client.Close()
 
 	if config.TxsPerBlock < config.MsgsPerTx {
 		panic("Must have more orders per block than batch size")
 	}
 
-	numberOfAccounts := config.TxsPerBlock / config.MsgsPerTx * 2 // * 2 because we need two sets of accounts
-	activeAccounts := []int{}
-	inactiveAccounts := []int{}
-
-	for i := 0; i < int(numberOfAccounts); i++ {
-		if i%2 == 0 {
-			activeAccounts = append(activeAccounts, i)
-		} else {
-			inactiveAccounts = append(inactiveAccounts, i)
-		}
-	}
-
-	wgs := []*sync.WaitGroup{}
-	sendersList := [][]func(){}
-
 	configString, _ := json.Marshal(config)
-	fmt.Printf("Running with \n %s \ns", string(configString))
+	fmt.Printf("Running with \n %s \n", string(configString))
 
 	fmt.Printf("%s - Starting block prepare\n", time.Now().Format("2006-01-02T15:04:05"))
-	for i := 0; i < int(config.Rounds); i++ {
-		fmt.Printf("Preparing %d-th round\n", i)
-		wg := &sync.WaitGroup{}
-		var senders []func()
-		wgs = append(wgs, wg)
-		for _, account := range activeAccounts {
-			key := GetKey(uint64(account))
+	workgroups, sendersList := client.BuildTxs()
 
-			msg := generateMessage(config, key, config.MsgsPerTx)
-			txBuilder := TestConfig.TxConfig.NewTxBuilder()
-			_ = txBuilder.SetMsgs(msg)
-			seqDelta := uint64(i / 2)
-			mode := typestx.BroadcastMode_BROADCAST_MODE_SYNC
+	client.SendTxs(workgroups, sendersList)
 
-			// Note: There is a potential race condition here with seqnos
-			// in which a later seqno is delievered before an earlier seqno
-			// In practice, we haven't run into this issue so we'll leave this
-			// as is.
-			sender := SendTx(key, &txBuilder, mode, seqDelta, *client)
-			wg.Add(1)
-			senders = append(senders, func() {
-				defer wg.Done()
-				sender()
-			})
-		}
-		sendersList = append(sendersList, senders)
-
-		inactiveAccounts, activeAccounts = activeAccounts, inactiveAccounts
-	}
-
-	lastHeight := getLastHeight()
-	for i := 0; i < int(config.Rounds); i++ {
-		newHeight := getLastHeight()
-		for newHeight == lastHeight {
-			time.Sleep(10 * time.Millisecond)
-			newHeight = getLastHeight()
-		}
-		fmt.Printf("Sending %d-th block\n", i)
-		senders := sendersList[i]
-		wg := wgs[i]
-		for _, sender := range senders {
-			go sender()
-		}
-		wg.Wait()
-		lastHeight = newHeight
-	}
+	// Records the resulting TxHash to file
+	client.WriteTxHashToFile()
 	fmt.Printf("%s - Finished\n", time.Now().Format("2006-01-02T15:04:05"))
+
 }
 
 func generateMessage(config Config, key cryptotypes.PrivKey, msgPerTx uint64) sdk.Msg {
@@ -203,11 +148,5 @@ func getLastHeight() int {
 }
 
 func main() {
-	config := Config{}
-	pwd, _ := os.Getwd()
-	file, _ := os.ReadFile(pwd + "/loadtest/config.json")
-	if err := json.Unmarshal(file, &config); err != nil {
-		panic(err)
-	}
-	run(config)
+	run()
 }

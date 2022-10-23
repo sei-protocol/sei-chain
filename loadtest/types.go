@@ -11,14 +11,6 @@ import (
 	"github.com/sei-protocol/sei-chain/utils"
 )
 
-type EncodingConfig struct {
-	InterfaceRegistry types.InterfaceRegistry
-	// NOTE: this field will be renamed to Codec
-	Marshaler codec.Codec
-	TxConfig  client.TxConfig
-	Amino     *codec.LegacyAmino
-}
-
 type Config struct {
 	ChainID        string                `json:"chain_id"`
 	TxsPerBlock uint64                	 `json:"txs_per_block"`
@@ -29,6 +21,14 @@ type Config struct {
 	QuantityDistr  NumericDistribution   `json:"quantity_distribution"`
 	MsgTypeDistr   MsgTypeDistribution   `json:"message_type_distribution"`
 	ContractDistr  ContractDistributions `json:"contract_distribution"`
+}
+
+type EncodingConfig struct {
+	InterfaceRegistry types.InterfaceRegistry
+	// NOTE: this field will be renamed to Codec
+	Marshaler codec.Codec
+	TxConfig  client.TxConfig
+	Amino     *codec.LegacyAmino
 }
 
 type NumericDistribution struct {
