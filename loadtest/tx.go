@@ -20,9 +20,9 @@ func SendTx(
 	seqDelta uint64,
 	mu *sync.Mutex,
 ) func() {
-	(*txBuilder).SetGasLimit(50000000)
+	(*txBuilder).SetGasLimit(50000)
 	(*txBuilder).SetFeeAmount([]sdk.Coin{
-		sdk.NewCoin("usei", sdk.NewInt(10000000)),
+		sdk.NewCoin("usei", sdk.NewInt(100000)),
 	})
 	SignTx(txBuilder, key, seqDelta)
 	txBytes, _ := TestConfig.TxConfig.TxEncoder()((*txBuilder).GetTx())

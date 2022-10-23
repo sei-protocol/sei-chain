@@ -34,11 +34,6 @@ func (app *App) CheckTx(ctx context.Context, req *abci.RequestCheckTx) (*abci.Re
 
 func (app *App) DeliverTx(ctx sdk.Context, req abci.RequestDeliverTx) abci.ResponseDeliverTx {
 	defer metrics.MeasureDeliverTxDuration(time.Now())
-	tracectx, span := (*app.tracingInfo.Tracer).Start(app.tracingInfo.TracerContext, "DeliverTx")
-	oldCtx := app.tracingInfo.TracerContext
-	app.tracingInfo.TracerContext = tracectx
-	defer span.End()
-	defer func() { app.tracingInfo.TracerContext = oldCtx }()
 	return app.BaseApp.DeliverTx(ctx, req)
 }
 
@@ -51,4 +46,10 @@ func (app *App) Commit(ctx context.Context) (res *abci.ResponseCommit, err error
 	app.tracingInfo.TracerContext = context.Background()
 	app.tracingInfo.BlockSpan = nil
 	return app.BaseApp.Commit(ctx)
+}
+
+func (app *App) RunTxUnblocked(ctx sdk.Context, mode uint8, txBytes []byte) (gInfo sdk.GasInfo, result *sdk.Result, anteEvents []abci.Event, priority int64, err error) {
+	_, span := (*app.tracingInfo.Tracer).Start(app.tracingInfo.TracerContext, "DeliverTx")
+	defer span.End()
+	return app.BaseApp.RunTxUnblocked(ctx, mode, txBytes)
 }
