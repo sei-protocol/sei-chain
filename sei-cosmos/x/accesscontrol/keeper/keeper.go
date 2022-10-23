@@ -116,7 +116,12 @@ func (k Keeper) GetWasmDependencyMapping(ctx sdk.Context, contractAddress sdk.Ac
 	store := ctx.KVStore(k.storeKey)
 	b := store.Get(types.GetWasmContractAddressKey(contractAddress))
 	if b == nil {
-		return acltypes.WasmDependencyMapping{}, ErrWasmDependencyMappingNotFound
+		// return default (synchronous) dependency mapping so that wasm resource type as a whole
+		// won't have dynamic mapping disabled if already enabled
+		return acltypes.WasmDependencyMapping{
+			Enabled:   true, // if wasm resource type as a whole is disabled, this will be ignored anyway
+			AccessOps: types.SynchronousAccessOps(),
+		}, nil
 	}
 	dependencyMapping := acltypes.WasmDependencyMapping{}
 	k.cdc.MustUnmarshal(b, &dependencyMapping)
