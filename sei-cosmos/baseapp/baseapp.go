@@ -26,7 +26,7 @@ import (
 )
 
 const (
-	runTxModeCheck    runTxMode = iota // Check a transaction
+	runTxModeCheck    RunTxMode = iota // Check a transaction
 	runTxModeReCheck                   // Recheck a (pending) transaction after a commit
 	runTxModeSimulate                  // Simulate a transaction
 	runTxModeDeliver                   // Deliver a transaction
@@ -40,7 +40,7 @@ var (
 
 type (
 	// Enum mode for app.runTx
-	runTxMode uint8
+	RunTxMode uint8
 
 	// StoreLoader defines a customizable function to control how we load the CommitMultiStore
 	// from disk. This is useful for state migration, when loading a datastore written with
@@ -601,7 +601,7 @@ func validateBasicTxMsgs(msgs []sdk.Msg) error {
 
 // Returns the applications's deliverState if app is in runTxModeDeliver,
 // otherwise it returns the application's checkstate.
-func (app *BaseApp) getState(mode runTxMode) *state {
+func (app *BaseApp) getState(mode RunTxMode) *state {
 	if mode == runTxModeDeliver {
 		return app.deliverState
 	}
@@ -610,7 +610,7 @@ func (app *BaseApp) getState(mode runTxMode) *state {
 }
 
 // retrieve the context for the tx w/ txBytes and other memoized values.
-func (app *BaseApp) getContextForTx(mode runTxMode, txBytes []byte) sdk.Context {
+func (app *BaseApp) getContextForTx(mode RunTxMode, txBytes []byte) sdk.Context {
 	ctx := app.getState(mode).ctx.
 		WithTxBytes(txBytes).
 		WithVoteInfos(app.voteInfos)
@@ -654,21 +654,17 @@ func (app *BaseApp) cacheTxContext(ctx sdk.Context, txBytes []byte) (sdk.Context
 // Note, gas execution info is always returned. A reference to a Result is
 // returned if the tx does not run out of gas and if all the messages are valid
 // and execute successfully. An error is returned otherwise.
-func (app *BaseApp) runTx(ctx sdk.Context, mode runTxMode, txBytes []byte) (gInfo sdk.GasInfo, result *sdk.Result, anteEvents []abci.Event, priority int64, err error) {
+func (app *BaseApp) RunTx(ctx sdk.Context, mode RunTxMode, txBytes []byte) (gInfo sdk.GasInfo, result *sdk.Result, anteEvents []abci.Event, priority int64, err error) {
 	// Wait for signals to complete before starting the transaction. This is needed before any of the
 	// resources are acceessed by the ante handlers and message handlers.
 
 	// TODO:: Make this more granular by moving antehandler and messagehandler
 	defer acltypes.SendAllSignalsForTx(ctx.TxCompletionChannels())
 	acltypes.WaitForAllSignalsForTx(ctx.TxBlockingChannels())
-	return app.RunTxUnblocked(ctx, uint8(mode), txBytes)
-}
 
-func (app *BaseApp) RunTxUnblocked(ctx sdk.Context, intmode uint8, txBytes []byte) (gInfo sdk.GasInfo, result *sdk.Result, anteEvents []abci.Event, priority int64, err error) {
 	// NOTE: GasWanted should be returned by the AnteHandler. GasUsed is
 	// determined by the GasMeter. We need access to the context to get the gas
 	// meter so we initialize upfront.
-	mode := runTxMode(intmode)
 	var gasWanted uint64
 
 	ms := ctx.MultiStore()
@@ -792,7 +788,7 @@ func (app *BaseApp) RunTxUnblocked(ctx sdk.Context, intmode uint8, txBytes []byt
 // and DeliverTx. An error is returned if any single message fails or if a
 // Handler does not exist for a given message route. Otherwise, a reference to a
 // Result is returned. The caller must not commit state if an error is returned.
-func (app *BaseApp) runMsgs(ctx sdk.Context, msgs []sdk.Msg, mode runTxMode) (*sdk.Result, error) {
+func (app *BaseApp) runMsgs(ctx sdk.Context, msgs []sdk.Msg, mode RunTxMode) (*sdk.Result, error) {
 	defer func() {
 		if err := recover(); err != nil {
 			fmt.Println(err)
