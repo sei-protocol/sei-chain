@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/cosmos/cosmos-sdk/baseapp"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/sei-protocol/sei-chain/utils/metrics"
 	abci "github.com/tendermint/tendermint/abci/types"
@@ -48,8 +49,8 @@ func (app *App) Commit(ctx context.Context) (res *abci.ResponseCommit, err error
 	return app.BaseApp.Commit(ctx)
 }
 
-func (app *App) RunTxUnblocked(ctx sdk.Context, mode uint8, txBytes []byte) (gInfo sdk.GasInfo, result *sdk.Result, anteEvents []abci.Event, priority int64, err error) {
+func (app *App) RunTx(ctx sdk.Context, mode baseapp.RunTxMode, txBytes []byte) (gInfo sdk.GasInfo, result *sdk.Result, anteEvents []abci.Event, priority int64, err error) {
 	_, span := (*app.tracingInfo.Tracer).Start(app.tracingInfo.TracerContext, "DeliverTx")
 	defer span.End()
-	return app.BaseApp.RunTxUnblocked(ctx, mode, txBytes)
+	return app.BaseApp.RunTx(ctx, mode, txBytes)
 }
