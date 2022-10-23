@@ -9,6 +9,7 @@ import (
 	"github.com/sei-protocol/sei-chain/utils/metrics"
 	abci "github.com/tendermint/tendermint/abci/types"
 	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 )
 
 func (app *App) BeginBlock(ctx sdk.Context, req abci.RequestBeginBlock) (res abci.ResponseBeginBlock) {
@@ -35,6 +36,19 @@ func (app *App) CheckTx(ctx context.Context, req *abci.RequestCheckTx) (*abci.Re
 
 func (app *App) DeliverTx(ctx sdk.Context, req abci.RequestDeliverTx) abci.ResponseDeliverTx {
 	defer metrics.MeasureDeliverTxDuration(time.Now())
+	var span trace.Span
+	ctx = ctx.WithContext(
+		context.WithValue(
+			context.WithValue(
+				ctx.Context(), baseapp.RunTxPreHookKey, func() {
+					_, span = (*app.tracingInfo.Tracer).Start(app.tracingInfo.TracerContext, "DeliverTx")
+				},
+			),
+			baseapp.RunTxPostHookKey, func() {
+				span.End()
+			},
+		),
+	)
 	return app.BaseApp.DeliverTx(ctx, req)
 }
 
@@ -47,10 +61,4 @@ func (app *App) Commit(ctx context.Context) (res *abci.ResponseCommit, err error
 	app.tracingInfo.TracerContext = context.Background()
 	app.tracingInfo.BlockSpan = nil
 	return app.BaseApp.Commit(ctx)
-}
-
-func (app *App) RunTx(ctx sdk.Context, mode baseapp.RunTxMode, txBytes []byte) (gInfo sdk.GasInfo, result *sdk.Result, anteEvents []abci.Event, priority int64, err error) {
-	_, span := (*app.tracingInfo.Tracer).Start(app.tracingInfo.TracerContext, "DeliverTx")
-	defer span.End()
-	return app.BaseApp.RunTx(ctx, mode, txBytes)
 }
