@@ -21,9 +21,7 @@ import (
 	dextypes "github.com/sei-protocol/sei-chain/x/dex/types"
 )
 
-var (
-	TestConfig EncodingConfig
-)
+var TestConfig EncodingConfig
 
 const (
 	VortexData = "{\"position_effect\":\"Open\",\"leverage\":\"1\"}"
@@ -69,7 +67,6 @@ func run() {
 	// Records the resulting TxHash to file
 	client.WriteTxHashToFile()
 	fmt.Printf("%s - Finished\n", time.Now().Format("2006-01-02T15:04:05"))
-
 }
 
 func generateMessage(config Config, key cryptotypes.PrivKey, msgPerTx uint64) sdk.Msg {

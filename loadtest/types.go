@@ -12,15 +12,15 @@ import (
 )
 
 type Config struct {
-	ChainID        string                `json:"chain_id"`
-	TxsPerBlock uint64                	 `json:"txs_per_block"`
-	MsgsPerTx      uint64                `json:"msgs_per_tx"`
-	Rounds         uint64                `json:"rounds"`
-	MessageType    string                `json:"message_type"`
-	PriceDistr     NumericDistribution   `json:"price_distribution"`
-	QuantityDistr  NumericDistribution   `json:"quantity_distribution"`
-	MsgTypeDistr   MsgTypeDistribution   `json:"message_type_distribution"`
-	ContractDistr  ContractDistributions `json:"contract_distribution"`
+	ChainID       string                `json:"chain_id"`
+	TxsPerBlock   uint64                `json:"txs_per_block"`
+	MsgsPerTx     uint64                `json:"msgs_per_tx"`
+	Rounds        uint64                `json:"rounds"`
+	MessageType   string                `json:"message_type"`
+	PriceDistr    NumericDistribution   `json:"price_distribution"`
+	QuantityDistr NumericDistribution   `json:"quantity_distribution"`
+	MsgTypeDistr  MsgTypeDistribution   `json:"message_type_distribution"`
+	ContractDistr ContractDistributions `json:"contract_distribution"`
 }
 
 type EncodingConfig struct {

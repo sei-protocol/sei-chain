@@ -30,14 +30,14 @@ type AccountInfo struct {
 type SignerInfo struct {
 	AccountNumber  uint64
 	SequenceNumber uint64
-	mutex *sync.Mutex
+	mutex          *sync.Mutex
 }
 
 func NewSignerInfo(accountNumber uint64, sequenceNumber uint64) *SignerInfo {
 	return &SignerInfo{
-		AccountNumber: accountNumber,
+		AccountNumber:  accountNumber,
 		SequenceNumber: sequenceNumber,
-		mutex: &sync.Mutex{},
+		mutex:          &sync.Mutex{},
 	}
 }
 
@@ -49,13 +49,13 @@ func (si *SignerInfo) IncrementAccountNumber() {
 
 type SignerClient struct {
 	CachedAccountSeqNum *sync.Map
-	CachedAccountKey *sync.Map
+	CachedAccountKey    *sync.Map
 }
 
 func NewSignerClient() *SignerClient {
 	return &SignerClient{
 		CachedAccountSeqNum: &sync.Map{},
-		CachedAccountKey: &sync.Map{},
+		CachedAccountKey:    &sync.Map{},
 	}
 }
 

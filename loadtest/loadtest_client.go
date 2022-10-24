@@ -13,14 +13,14 @@ import (
 )
 
 type LoadTestClient struct {
-	LoadTestConfig Config
-	TestConfig 	EncodingConfig
-	TxClient   typestx.ServiceClient
-	SignerClient *SignerClient
-	ChainID    string
-	TxHashList []string
+	LoadTestConfig  Config
+	TestConfig      EncodingConfig
+	TxClient        typestx.ServiceClient
+	SignerClient    *SignerClient
+	ChainID         string
+	TxHashList      []string
 	TxHashListMutex *sync.Mutex
-	GrpcConn *grpc.ClientConn
+	GrpcConn        *grpc.ClientConn
 }
 
 func NewLoadTestClient() *LoadTestClient {
@@ -38,14 +38,14 @@ func NewLoadTestClient() *LoadTestClient {
 	}
 
 	return &LoadTestClient{
-		LoadTestConfig: config,
-		TestConfig: TestConfig,
-		TxClient: TxClient,
-		SignerClient: NewSignerClient(),
-		ChainID: config.ChainID,
-		TxHashList: []string{},
+		LoadTestConfig:  config,
+		TestConfig:      TestConfig,
+		TxClient:        TxClient,
+		SignerClient:    NewSignerClient(),
+		ChainID:         config.ChainID,
+		TxHashList:      []string{},
 		TxHashListMutex: &sync.Mutex{},
-		GrpcConn: grpcConn,
+		GrpcConn:        grpcConn,
 	}
 }
 
@@ -74,7 +74,7 @@ func (c *LoadTestClient) WriteTxHashToFile() {
 	}
 }
 
-func (c *LoadTestClient) BuildTxs() (workgroups []*sync.WaitGroup, sendersList [][]func()){
+func (c *LoadTestClient) BuildTxs() (workgroups []*sync.WaitGroup, sendersList [][]func()) {
 	config := c.LoadTestConfig
 	numberOfAccounts := config.TxsPerBlock / config.MsgsPerTx * 2 // * 2 because we need two sets of accounts
 	activeAccounts := []int{}
