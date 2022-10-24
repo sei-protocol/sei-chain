@@ -79,7 +79,7 @@ func (d *NumericDistribution) Sample() sdk.Dec {
 func (d *NumericDistribution) InvalidSample() sdk.Dec {
 	steps := sdk.NewDec(rand.Int63n(d.NumDistinct))
 	if rand.Float64() < 0.5 {
-		return d.Min.Sub(d.Max.Sub(d.Min).QuoInt64(d.NumDistinct).Mul(steps))
+		return d.Min.Add(d.Max.Sub(d.Min).QuoInt64(d.NumDistinct).Mul(steps))
 	}
 	return d.Max.Add(d.Max.Sub(d.Min).QuoInt64(d.NumDistinct).Mul(steps))
 }
@@ -259,7 +259,7 @@ func run(config Config) {
 
 func generateMessage(config Config, key cryptotypes.PrivKey, batchSize uint64) (sdk.Msg, bool) {
 	var msg sdk.Msg
-	messageTypes := []string{"basic", "dex"}
+	messageTypes := []string{"basic", "dex", "failure_basic_malformed", "failure_basic_invalid", "failure_dex_malformed", "failure_dex_invalid"}
 	messageType := config.MessageType
 
 	// Use a random message type if it's running constant load test
@@ -295,11 +295,7 @@ func generateMessage(config Config, key cryptotypes.PrivKey, batchSize uint64) (
 		}
 	case FailureBasicInvalid:
 		var amountUsei int64
-		if rand.Float64() < 0.5 {
-			amountUsei = 1000000000000000000
-		} else {
-			amountUsei = 0
-		}
+		amountUsei = 1000000000000000000
 		msg = &banktypes.MsgSend{
 			FromAddress: sdk.AccAddress(key.PubKey().Address()).String(),
 			ToAddress:   sdk.AccAddress(key.PubKey().Address()).String(),
@@ -382,7 +378,7 @@ func generateMessage(config Config, key cryptotypes.PrivKey, batchSize uint64) (
 		}
 		var amountUsei int64
 		if rand.Float64() < 0.5 {
-			amountUsei = 1000000000000000000
+			amountUsei = 10000 * price.Mul(quantity).Ceil().RoundInt64()
 		} else {
 			amountUsei = 0
 		}
@@ -477,19 +473,19 @@ func main() {
 	}
 	if *clientType == FailureBasicMalformed {
 		config.FailureMode = true
-		config.FailureType = FailureBasicMalformed
+		config.MessageType = FailureBasicMalformed
 	}
 	if *clientType == FailureBasicInvalid {
 		config.FailureMode = true
-		config.FailureType = FailureBasicInvalid
+		config.MessageType = FailureBasicInvalid
 	}
 	if *clientType == FailureDexMalformed {
 		config.FailureMode = true
-		config.FailureType = FailureDexMalformed
+		config.MessageType = FailureDexMalformed
 	}
 	if *clientType == FailureDexInvalid {
 		config.FailureMode = true
-		config.FailureType = FailureDexInvalid
+		config.MessageType = FailureDexInvalid
 	}
 
 	if config.Constant {
