@@ -126,7 +126,7 @@ func MoveTriggeredOrderForPair(
 			} else if order.OrderType == types.OrderType_STOPLIMIT {
 				triggeredOrders[i].OrderType = types.OrderType_LIMIT
 			}
-			dexkeeper.MemState.GetBlockOrders(ctx, typedContractAddr, typedPairStr).Add(&triggeredOrders[i])
+			dexutils.GetMemState(ctx.Context()).GetBlockOrders(ctx, typedContractAddr, typedPairStr).Add(&triggeredOrders[i])
 			dexkeeper.RemoveTriggeredOrder(ctx, string(typedContractAddr), order.Id, priceDenom, assetDenom)
 		}
 	}
@@ -153,7 +153,7 @@ func UpdateTriggeredOrderForPair(
 	}
 
 	// update triggered orders in cache
-	orders := dexkeeper.MemState.GetBlockOrders(ctx, typedContractAddr, typedPairStr)
+	orders := dexutils.GetMemState(ctx.Context()).GetBlockOrders(ctx, typedContractAddr, typedPairStr)
 	cacheTriggeredOrders := orders.GetTriggeredOrders()
 	for i, order := range cacheTriggeredOrders {
 		if order.PositionDirection == types.PositionDirection_LONG && order.TriggerPrice.LTE(totalOutcome.MaxPrice) {
@@ -274,7 +274,7 @@ func HandleExecutionForContract(
 	defer EmitSettlementMetrics(settlements)
 
 	// populate order placement results for FinalizeBlock hook
-	dexkeeper.MemState.GetAllBlockOrders(sdkCtx, typedContractAddr).DeepApply(func(orders *dexcache.BlockOrders) {
+	dexutils.GetMemState(sdkCtx.Context()).GetAllBlockOrders(sdkCtx, typedContractAddr).DeepApply(func(orders *dexcache.BlockOrders) {
 		dextypeswasm.PopulateOrderPlacementResults(contractAddr, orders.Get(), cancellations, orderResults)
 	})
 	dextypeswasm.PopulateOrderExecutionResults(contractAddr, settlements, orderResults)
