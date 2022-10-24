@@ -1,11 +1,11 @@
 package main
 
 import (
-	"bufio"
 	"encoding/json"
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"time"
 
@@ -27,29 +27,27 @@ type AccountInfo struct {
 	Mnemonic string `json:"mnemonic"`
 }
 
-func GetValidators() []string {
-	userHomeDir, _ := os.UserHomeDir()
-	validatorAddrFilePath := filepath.Join(userHomeDir, "validator_addrs.txt")
-	f, err := os.Open(validatorAddrFilePath)
+type Validator struct {
+	OpperatorAddr string `json:"operator_address"`
+}
+
+type QueryValidators struct {
+	Validators []Validator `json:"validators"`
+}
+
+func GetValidators() QueryValidators {
+	seid_query, err := exec.Command("seid", "query", "staking", "validators", "--output", "json").Output()
+
 	if err != nil {
 		panic(err)
 	}
-	defer f.Close()
 
-	scanner := bufio.NewScanner(f)
-	scanner.Split(bufio.ScanWords)
-
-	validatorAddresses := []string{}
-	for scanner.Scan() {
-		addr := scanner.Text()
-		validatorAddresses = append(validatorAddresses, addr[1:len(addr)-1])
+	qv := QueryValidators{}
+	if err := json.Unmarshal(seid_query, &qv); err != nil {
+		panic(err)
 	}
 
-	if err := scanner.Err(); err != nil {
-		fmt.Println(err)
-	}
-
-	return validatorAddresses
+	return qv
 }
 
 func GetKey(accountIdx uint64) cryptotypes.PrivKey {

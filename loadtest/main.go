@@ -163,6 +163,7 @@ func run(config Config) {
 	if config.OrdersPerBlock < batchSize {
 		panic("Must have more orders per block than batch size")
 	}
+	qv := GetValidators()
 
 	numberOfAccounts := config.OrdersPerBlock / batchSize * 2 // * 2 because we need two sets of accounts
 	activeAccounts := []int{}
@@ -189,7 +190,7 @@ func run(config Config) {
 		for _, account := range activeAccounts {
 			key := GetKey(uint64(account))
 
-			msg := generateMessage(config, key, batchSize)
+			msg := generateMessage(config, key, batchSize, qv.Validators)
 			txBuilder := TestConfig.TxConfig.NewTxBuilder()
 			_ = txBuilder.SetMsgs(msg)
 			seqDelta := uint64(i / 2)
@@ -230,7 +231,7 @@ func run(config Config) {
 	fmt.Printf("%s - Finished\n", time.Now().Format("2006-01-02T15:04:05"))
 }
 
-func generateMessage(config Config, key cryptotypes.PrivKey, batchSize uint64) sdk.Msg {
+func generateMessage(config Config, key cryptotypes.PrivKey, batchSize uint64, validators []Validator) sdk.Msg {
 	var msg sdk.Msg
 	switch config.MessageType {
 	case "basic":
@@ -244,26 +245,25 @@ func generateMessage(config Config, key cryptotypes.PrivKey, batchSize uint64) s
 		}
 	case "staking":
 		msgType := config.MsgTypeDistr.SampleStakingMsgs()
-		validatorAddresses := GetValidators()
 
 		switch msgType {
 		case "delegate":
 			msg = &stakingtypes.MsgDelegate{
 				DelegatorAddress: sdk.AccAddress(key.PubKey().Address()).String(),
-				ValidatorAddress: validatorAddresses[rand.Intn(len(validatorAddresses))],
+				ValidatorAddress: validators[rand.Intn(len(validators))].OpperatorAddr,
 				Amount:           sdk.Coin{Denom: "usei", Amount: sdk.NewInt(5)},
 			}
 		case "undelegate":
 			msg = &stakingtypes.MsgUndelegate{
 				DelegatorAddress: sdk.AccAddress(key.PubKey().Address()).String(),
-				ValidatorAddress: validatorAddresses[rand.Intn(len(validatorAddresses))],
+				ValidatorAddress: validators[rand.Intn(len(validators))].OpperatorAddr,
 				Amount:           sdk.Coin{Denom: "usei", Amount: sdk.NewInt(1)},
 			}
 		case "begin_redelegate":
 			msg = &stakingtypes.MsgBeginRedelegate{
 				DelegatorAddress:    sdk.AccAddress(key.PubKey().Address()).String(),
-				ValidatorSrcAddress: validatorAddresses[rand.Intn(len(validatorAddresses))],
-				ValidatorDstAddress: validatorAddresses[rand.Intn(len(validatorAddresses))],
+				ValidatorSrcAddress: validators[rand.Intn(len(validators))].OpperatorAddr,
+				ValidatorDstAddress: validators[rand.Intn(len(validators))].OpperatorAddr,
 				Amount:              sdk.Coin{Denom: "usei", Amount: sdk.NewInt(1)},
 			}
 		default:
