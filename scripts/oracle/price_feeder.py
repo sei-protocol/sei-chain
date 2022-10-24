@@ -9,21 +9,13 @@ import sys
 from price_fetcher import PriceFetcher
 
 CMD = "printf '{password}\n' | {binary}"
-PREVOTE_TMPL = (
-    " tx oracle aggregate-prevote abc 100uusdc,50uatom {val_addr} --from={key} "
-    "--chain-id={chain_id} -y --broadcast-mode=sync --node={node}"
-)
 VOTE_TMPL = (
-    " tx oracle aggregate-vote abc 100uusdc,50uatom {val_addr} --from={key} "
-    "--chain-id={chain_id} -y --broadcast-mode=sync --node={node}"
-)
-COMBINED_TMPL = (
-    " tx oracle aggregate-combined-vote {salt} {prevote_prices} {salt} {vote_prices} {val_addr} --from {key} "
+    " tx oracle aggregate-vote {vote_prices} {val_addr} --from {key} "
     "--chain-id={chain_id} -y --broadcast-mode=sync --node={node}"
 )
 
 class PriceFeeder:
-    def __init__(self, key, password, binary, chain_id, node, valoper) -> None:
+    def __init__(self, key, password, binary, chain_id, node, valoper, api_key, vote_period) -> None:
         self.key = key
         self.password = password
         self.binary = binary
@@ -34,6 +26,8 @@ class PriceFeeder:
             self.init_val_addr()
         else:
             self.val_addr = valoper
+        self.api_key = api_key
+        self.vote_period = vote_period
 
     def init_val_addr(self):
         self.val_addr = subprocess.check_output(
@@ -46,51 +40,17 @@ class PriceFeeder:
     def get_current_vote_period(self):
         res = requests.get("{node}/blockchain".format(node=self.node))
         body = res.json()
-        return int(body["result"]["last_height"]) // 10
+        return int(body["result"]["last_height"]) // self.vote_period
 
-    def vote_for_period(self):
-        print("Vote")
+    def vote_for_period(self, vote_prices):
         result = subprocess.check_output(
             [
-                CMD.format(password=self.password, binary=self.binary) + 
+                CMD.format(password=self.password, binary=self.binary) +
                 VOTE_TMPL.format(
-                    key=self.key, 
-                    chain_id=self.chain_id, 
-                    val_addr=self.val_addr, 
-                    node=self.node
-                )
-            ],
-            stderr=subprocess.STDOUT,
-            shell=True,
-        )
-
-    def prevote_for_period(self):
-        print("Prevote")
-        result = subprocess.check_output(
-            [
-                CMD.format(password=self.password, binary=self.binary) + 
-                PREVOTE_TMPL.format(
-                    key=self.key, 
-                    chain_id=self.chain_id, 
-                    val_addr=self.val_addr, 
-                    node=self.node
-                )
-            ],
-            stderr=subprocess.STDOUT,
-            shell=True,
-        )
-
-    def combined_vote_for_period(self, vote_prices, prevote_prices, salt):
-        result = subprocess.check_output(
-            [
-                CMD.format(password=self.password, binary=self.binary) + 
-                COMBINED_TMPL.format(
-                    key=self.key, 
-                    chain_id=self.chain_id, 
-                    val_addr=self.val_addr, 
-                    prevote_prices=prevote_prices, 
+                    key=self.key,
+                    chain_id=self.chain_id,
+                    val_addr=self.val_addr,
                     vote_prices=vote_prices,
-                    salt=salt,
                     node=self.node
                 )
             ],
@@ -102,29 +62,24 @@ class PriceFeeder:
             print("Err: ", result)
             print("Oracle price didn't submit successfully!!")
 
-    def vote_loop(self, coins, salt, interval=0.2):
-        last_prevoted_period = -1
+    def vote_loop(self, coins, interval=0.2):
         last_voted_period = -1
-        last_combined_voted_period = -1
         vote_loop_break = 0
-        pf = PriceFetcher()
+        pf = PriceFetcher(self.api_key)
 
-        vote_prices = pf.create_price_feed(coins)
         while True:
             time.sleep(interval)
             current_vote_period = self.get_current_vote_period()
-            if last_combined_voted_period < current_vote_period:
-                prevote_prices = pf.create_price_feed(coins)
-
-                if prevote_prices is None or vote_prices is None:
+            if last_voted_period < current_vote_period:
+                vote_prices = pf.create_price_feed(coins)
+                if vote_prices is None:
                     print ("No price data available, sleep 5")
                     time.sleep(5)
                     continue
 
-                print("submitting price feeds ", vote_prices, prevote_prices)
-                self.combined_vote_for_period(vote_prices, prevote_prices, salt)
-                vote_prices = prevote_prices
-                last_combined_voted_period = current_vote_period
+                print("submitting price feed ", vote_prices)
+                self.vote_for_period(vote_prices)
+                last_voted_period = current_vote_period
                 vote_loop_break += 1
 
 def main():
@@ -135,15 +90,16 @@ def main():
     parser.add_argument('coins', help='The coins to use', type=str)
     parser.add_argument('--binary', help='Your seid binary path', type=str, default=str(Path.home()) + '/go/bin/seid')
     parser.add_argument('--node', help='The node to contact', type=str, default='http://localhost:26657')
-    parser.add_argument('--salt', help='The salt to use', type=str, default='abc')
     parser.add_argument('--interval', help='How long time to sleep between price checks', type=int, default=5)
+    parser.add_argument('--vote-period', help='how many blocks is the vote period', type=int, default=10)
     parser.add_argument('--valoper', help='Validator address if using separate feeder account', type=str)
+    parser.add_argument('--api-key', help='API Key for price fetcher', type=str)
     args=parser.parse_args()
 
-    pf = PriceFeeder(args.key, args.password, args.binary, args.chain_id, args.node, args.valoper)
+    pf = PriceFeeder(args.key, args.password, args.binary, args.chain_id, args.node, args.valoper, args.api_key, args.vote_period)
 
     coins = args.coins.split(',')
-    pf.vote_loop(coins, args.salt, args.interval)
+    pf.vote_loop(coins, args.interval)
 
 if __name__ == "__main__":
     main()

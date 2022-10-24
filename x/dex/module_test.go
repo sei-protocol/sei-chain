@@ -204,7 +204,6 @@ func TestEndBlockLimitOrder(t *testing.T) {
 	}
 	dexkeeper.SetContract(ctx, &types.ContractInfo{CodeId: 123, ContractAddr: contractAddr.String(), NeedHook: true, NeedOrderMatching: true})
 	dexkeeper.AddRegisteredPair(ctx, contractAddr.String(), pair)
-	// place one order to a nonexistent contract
 	dexutils.GetMemState(ctx.Context()).GetBlockOrders(ctx, utils.ContractAddress(contractAddr.String()), utils.GetPairString(&pair)).Add(
 		&types.Order{
 			Id:                1,
