@@ -333,6 +333,10 @@ func getLastHeight() int {
 	return height
 }
 
+func setup() {
+	exec.Command("seid query staking validators --output json | jq '.validators | to_entries | .[].value.operator_address' > ~/validator_addrs.txt")
+}
+
 func main() {
 	config := Config{}
 	pwd, _ := os.Getwd()
@@ -340,5 +344,6 @@ func main() {
 	if err := json.Unmarshal(file, &config); err != nil {
 		panic(err)
 	}
+	setup()
 	run(config)
 }
