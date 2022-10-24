@@ -260,10 +260,11 @@ func generateMessage(config Config, key cryptotypes.PrivKey, batchSize uint64, v
 				Amount:           sdk.Coin{Denom: "usei", Amount: sdk.NewInt(1)},
 			}
 		case "begin_redelegate":
+			validator_idx := rand.Intn(len(validators))
 			msg = &stakingtypes.MsgBeginRedelegate{
 				DelegatorAddress:    sdk.AccAddress(key.PubKey().Address()).String(),
-				ValidatorSrcAddress: validators[rand.Intn(len(validators))].OpperatorAddr,
-				ValidatorDstAddress: validators[rand.Intn(len(validators))].OpperatorAddr,
+				ValidatorSrcAddress: validators[validator_idx].OpperatorAddr,
+				ValidatorDstAddress: validators[validator_idx+rand.Intn(len(validators)-1)+1].OpperatorAddr,
 				Amount:              sdk.Coin{Denom: "usei", Amount: sdk.NewInt(1)},
 			}
 		default:
