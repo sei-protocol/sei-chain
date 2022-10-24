@@ -16,8 +16,8 @@
     "message_type_distribution": {
         "limit_order_percentage": "0.2",
         "market_order_percentage": "0.8",
-        "delegate_percentage": "1",
-        "redelegate_percentage": "0.0",
+        "delegate_percentage": "1.0",
+        "undelegate_percentage": "0.0",
         "begin_redelegate_percentage": "0.0"
     },
     "message_type": "staking",
