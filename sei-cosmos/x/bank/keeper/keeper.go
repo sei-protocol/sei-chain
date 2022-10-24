@@ -3,7 +3,6 @@ package keeper
 import (
 	"fmt"
 	"log"
-	"sync"
 
 	"github.com/cosmos/cosmos-sdk/codec"
 	"github.com/cosmos/cosmos-sdk/store/prefix"
@@ -36,12 +35,14 @@ type Keeper interface {
 	IterateAllDenomMetaData(ctx sdk.Context, cb func(types.Metadata) bool)
 
 	SendCoinsFromModuleToAccount(ctx sdk.Context, senderModule string, recipientAddr sdk.AccAddress, amt sdk.Coins) error
+	DeferredSendCoinsFromModuleToAccount(ctx sdk.Context, senderModule string, recipientAddr sdk.AccAddress, amount sdk.Coins) error
 	SendCoinsFromModuleToModule(ctx sdk.Context, senderModule, recipientModule string, amt sdk.Coins) error
 	SendCoinsFromAccountToModule(ctx sdk.Context, senderAddr sdk.AccAddress, recipientModule string, amt sdk.Coins) error
 	DeferredSendCoinsFromAccountToModule(ctx sdk.Context, senderAddr sdk.AccAddress, recipientModule string, amt sdk.Coins) error
 	WriteDeferredDepositsToModuleAccounts(ctx sdk.Context) []abci.Event
 	DelegateCoinsFromAccountToModule(ctx sdk.Context, senderAddr sdk.AccAddress, recipientModule string, amt sdk.Coins) error
 	UndelegateCoinsFromModuleToAccount(ctx sdk.Context, senderModule string, recipientAddr sdk.AccAddress, amt sdk.Coins) error
+	WriteDeferredOperations(ctx sdk.Context) []abci.Event
 	MintCoins(ctx sdk.Context, moduleName string, amt sdk.Coins) error
 	BurnCoins(ctx sdk.Context, moduleName string, amt sdk.Coins) error
 
@@ -60,13 +61,6 @@ type BaseKeeper struct {
 	storeKey               sdk.StoreKey
 	paramSpace             paramtypes.Subspace
 	mintCoinsRestrictionFn MintingRestrictionFn
-
-	// Mapping of Module Account to the amount of tokens that have been deducted from
-	// Sender accounts but not yet deposited into module accounts. Use this to remove
-	// bottle neck for concurrent transacation processing and perform batch deposit
-	// in the end block
-	moduleAccountDepositMapping map[string]sdk.Coins
-	moduleAccountDepositMappingLock *sync.Mutex
 }
 
 type MintingRestrictionFn func(ctx sdk.Context, coins sdk.Coins) error
@@ -123,8 +117,6 @@ func NewBaseKeeper(
 		storeKey:               storeKey,
 		paramSpace:             paramSpace,
 		mintCoinsRestrictionFn: func(ctx sdk.Context, coins sdk.Coins) error { return nil },
-		moduleAccountDepositMapping: make(map[string]sdk.Coins),
-		moduleAccountDepositMappingLock: &sync.Mutex{},
 	}
 }
 
@@ -336,6 +328,39 @@ func (k BaseKeeper) SendCoinsFromModuleToAccount(
 	return k.SendCoins(ctx, senderAddr, recipientAddr, amt)
 }
 
+// DeferredSendCoinsFromModuleToAccount transfers coins from a ModuleAccount to an AccAddress.
+// It will panic if the module account does not exist. An error is returned if
+// the recipient address is black-listed or if sending the tokens fails.
+// It's similar to SendCoinsFromModuleToAccount except the withdrawal happens as a batched operation
+func (k BaseKeeper) DeferredSendCoinsFromModuleToAccount(
+	ctx sdk.Context, moduleAccount string, recipientAddr sdk.AccAddress, amount sdk.Coins,
+) error {
+	moduleAddr := k.ak.GetModuleAddress(moduleAccount)
+	if moduleAddr == nil {
+		panic(sdkerrors.Wrapf(sdkerrors.ErrUnknownAddress, "module account %s does not exist", moduleAccount))
+	}
+
+	if k.BlockedAddr(recipientAddr) {
+		return sdkerrors.Wrapf(sdkerrors.ErrUnauthorized, "%s is not allowed to receive funds", recipientAddr)
+	}
+
+	// Branch Context for validation and fail if the module doesn't have enough coins
+	// but don't write this to the underlying store
+	validationContext, _ := ctx.CacheContext()
+	err := k.subUnlockedCoins(validationContext, moduleAddr, amount)
+	if err != nil {
+		return err
+	}
+
+	err = k.addCoins(ctx, recipientAddr, amount)
+	if err != nil {
+		return err
+	}
+
+	ctx.ContextMemCache().UpsertDeferredWithdrawals(moduleAccount, amount)
+	return nil
+}
+
 // SendCoinsFromModuleToModule transfers coins from a ModuleAccount to another.
 // It will panic if either module account does not exist.
 func (k BaseKeeper) SendCoinsFromModuleToModule(
@@ -387,14 +412,11 @@ func (k BaseKeeper) DeferredSendCoinsFromAccountToModule(
 	return nil
 }
 
-func (k BaseKeeper) DeferredDepositToModule(recipientModule string, amount sdk.Coins) {
-	k.moduleAccountDepositMappingLock.Lock()
-	defer k.moduleAccountDepositMappingLock.Unlock()
-	newAmount := amount
-	if v, ok := k.moduleAccountDepositMapping[recipientModule]; ok {
-		newAmount = v.Add(amount...)
-	}
-	k.moduleAccountDepositMapping[recipientModule] = newAmount
+func (k BaseKeeper) WriteDeferredOperations(ctx sdk.Context) []abci.Event {
+	return append(
+		k.WriteDeferredDepositsToModuleAccounts(ctx),
+		k.WriteDeferredWrithdrawlFromModuleAccounts(ctx)...,
+	)
 }
 
 // Iterates on all the lazy deposits and deposit them into the store
@@ -408,6 +430,22 @@ func (k BaseKeeper) WriteDeferredDepositsToModuleAccounts(ctx sdk.Context) []abc
 			}
 			log.Printf("Adding coin=%s to module=%s address=%s", amount, recipient, recipientAcc.GetAddress())
 			k.addCoins(ctx, recipientAcc.GetAddress(), amount)
+		},
+	)
+	return ctx.EventManager().ABCIEvents()
+}
+
+// Process all lazy withdrawls stored previously
+func (k BaseKeeper) WriteDeferredWrithdrawlFromModuleAccounts(ctx sdk.Context) []abci.Event {
+	ctx = ctx.WithEventManager(sdk.NewEventManager())
+	ctx.ContextMemCache().RangeOnDeferredWithdrawalsAndDelete(
+		func(recipient string, amount sdk.Coins) {
+			recipientAcc := k.ak.GetModuleAccount(ctx, recipient)
+			if recipientAcc == nil {
+				panic(sdkerrors.Wrapf(sdkerrors.ErrUnknownAddress, "module account %s does not exist", recipient))
+			}
+			log.Printf("Removing coin=%s from module=%s address=%s", amount, recipient, recipientAcc.GetAddress())
+			k.subUnlockedCoins(ctx, recipientAcc.GetAddress(), amount)
 		},
 	)
 	return ctx.EventManager().ABCIEvents()

@@ -5,13 +5,9 @@ import (
 	"testing"
 	"time"
 
-	tmtime "github.com/cosmos/cosmos-sdk/std"
-	"github.com/stretchr/testify/suite"
-	abci "github.com/tendermint/tendermint/abci/types"
-	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
-
 	"github.com/cosmos/cosmos-sdk/baseapp"
 	"github.com/cosmos/cosmos-sdk/simapp"
+	tmtime "github.com/cosmos/cosmos-sdk/std"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/types/query"
 	authkeeper "github.com/cosmos/cosmos-sdk/x/auth/keeper"
@@ -21,6 +17,9 @@ import (
 	"github.com/cosmos/cosmos-sdk/x/bank/keeper"
 	"github.com/cosmos/cosmos-sdk/x/bank/types"
 	minttypes "github.com/cosmos/cosmos-sdk/x/mint/types"
+	"github.com/stretchr/testify/suite"
+	abci "github.com/tendermint/tendermint/abci/types"
+	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 )
 
 const (
@@ -1229,6 +1228,67 @@ func (suite *IntegrationTestSuite) TestMintCoinRestrictions() {
 		}
 	}
 }
+
+func (suite *IntegrationTestSuite) TestDeferredSendCoinsFromModuleToAccount() {
+	ctx := suite.ctx
+
+	require := suite.Require()
+
+	// add module accounts to supply keeper
+	authKeeper, keeper := suite.initKeepersWithmAccPerms(make(map[string]bool))
+
+	initialPower := int64(100)
+	initTokens := suite.app.StakingKeeper.TokensFromConsensusPower(ctx, initialPower)
+	totalSupply := sdk.NewCoins(sdk.NewCoin(sdk.DefaultBondDenom, initTokens))
+
+	// set burnerAcc balance
+	authKeeper.SetModuleAccount(ctx, holderAcc)
+	require.NoError(keeper.MintCoins(ctx, authtypes.Minter, totalSupply))
+
+	beforeCoins := getCoinsByName(ctx, keeper, authKeeper, authtypes.Minter)
+	require.NoError(keeper.DeferredSendCoinsFromModuleToAccount(ctx, authtypes.Minter, holderAcc.GetAddress(), totalSupply))
+	suite.Require().Equal(beforeCoins, getCoinsByName(ctx, keeper, authKeeper, authtypes.Minter))
+	suite.Require().Equal(totalSupply, getCoinsByName(ctx, keeper, authKeeper, holderAcc.GetName()))
+
+	keeper.WriteDeferredOperations(ctx)
+
+	// No Coins after the deferred writes are processed
+	suite.Require().Equal(sdk.NewCoins().String(), getCoinsByName(ctx, keeper, authKeeper, authtypes.Minter).String())
+	suite.Require().Equal(totalSupply.String(), getCoinsByName(ctx, keeper, authKeeper, holderAcc.GetName()).String())
+}
+
+func (suite *IntegrationTestSuite) TestDeferredOperationsFromModuleToAccount() {
+	ctx := suite.ctx
+
+	require := suite.Require()
+
+	// add module accounts to supply keeper
+	authKeeper, keeper := suite.initKeepersWithmAccPerms(make(map[string]bool))
+
+	initialPower := int64(100)
+	initTokens := suite.app.StakingKeeper.TokensFromConsensusPower(ctx, initialPower)
+	totalSupply := sdk.NewCoins(sdk.NewCoin(sdk.DefaultBondDenom, initTokens))
+
+	// set burnerAcc balance
+	authKeeper.SetModuleAccount(ctx, holderAcc)
+	require.NoError(keeper.MintCoins(ctx, authtypes.Minter, totalSupply))
+
+	beforeCoins := getCoinsByName(ctx, keeper, authKeeper, authtypes.Minter)
+	require.NoError(keeper.DeferredSendCoinsFromModuleToAccount(ctx, authtypes.Minter, holderAcc.GetAddress(), totalSupply))
+	suite.Require().Equal(beforeCoins, getCoinsByName(ctx, keeper, authKeeper, holderAcc.GetName()))
+	suite.Require().Equal(beforeCoins, getCoinsByName(ctx, keeper, authKeeper, authtypes.Minter))
+
+	require.NoError(keeper.DeferredSendCoinsFromAccountToModule(ctx, holderAcc.GetAddress(), authtypes.Minter, totalSupply))
+	suite.Require().Equal(sdk.NewCoins().String(), getCoinsByName(ctx, keeper, authKeeper, holderAcc.GetName()).String())
+	suite.Require().Equal(beforeCoins, getCoinsByName(ctx, keeper, authKeeper, authtypes.Minter))
+
+	keeper.WriteDeferredOperations(ctx)
+
+	// No Coins after the deferred writes are processed
+	suite.Require().Equal(sdk.NewCoins().String(), getCoinsByName(ctx, keeper, authKeeper, holderAcc.GetName()).String())
+	suite.Require().Equal(totalSupply.String(), getCoinsByName(ctx, keeper, authKeeper, authtypes.Minter).String())
+}
+
 
 func TestKeeperTestSuite(t *testing.T) {
 	suite.Run(t, new(IntegrationTestSuite))

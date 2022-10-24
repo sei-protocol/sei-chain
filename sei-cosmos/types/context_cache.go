@@ -1,52 +1,60 @@
 package types
 
 import (
-	"sort"
 	"sync"
 )
 
+
 type ContextMemCache struct {
-	deferredSends 			  map[string]Coins
-	deferredSendsLock		  *sync.Mutex
+	deferredBankOpsLock		  *sync.Mutex
+	deferredSends 			  *DeferredBankOperationMapping
+	deferredWithdrawals 	  *DeferredBankOperationMapping
+
 }
 
 func NewContextMemCache() *ContextMemCache {
 	return &ContextMemCache{
-		deferredSends: make(map[string]Coins),
-		deferredSendsLock: &sync.Mutex{},
+		deferredBankOpsLock: &sync.Mutex{},
+		deferredSends: NewDeferredBankOperationMap(),
+		deferredWithdrawals: NewDeferredBankOperationMap(),
 	}
 }
 
-func (c *ContextMemCache) UpsertDeferredSends(recipientModule string, amount Coins) {
-	// The whole operation needs to be atomic
-	c.deferredSendsLock.Lock()
-	defer c.deferredSendsLock.Unlock()
+func (c *ContextMemCache) UpsertDeferredSends(moduleAccount string, amount Coins) {
+	// Separate locks needed for all mappings - atomic transaction needed
+	c.deferredBankOpsLock.Lock()
+	defer c.deferredBankOpsLock.Unlock()
 
-	newAmount := amount
-	if v, ok := c.deferredSends[recipientModule]; ok {
-		newAmount = v.Add(amount...)
+	// If there's already a pending withdrawal then subtract it from that amount first
+	// or else add it to the deferredSends mapping
+	ok := c.deferredWithdrawals.SafeSub(moduleAccount, amount)
+	if !ok {
+		c.deferredSends.UpsertMapping(moduleAccount, amount)
 	}
-	c.deferredSends[recipientModule] = newAmount
 }
 
 func (c *ContextMemCache) RangeOnDeferredSendsAndDelete(apply func (recipient string, amount Coins)) {
-	// The whole operation needs to be atomic
-	c.deferredSendsLock.Lock()
-	defer c.deferredSendsLock.Unlock()
+	c.deferredSends.RangeOnMapping(apply)
+}
 
-	// Need to sort keys for deterministic iterating
-	keys := make([]string, 0, len(c.deferredSends))
-	for key := range c.deferredSends {
-		keys = append(keys, key)
-	}
-	sort.Strings(keys)
+func (c *ContextMemCache) UpsertDeferredWithdrawals(moduleAccount string, amount Coins) {
+	// Separate locks needed for all mappings - atomic transaction needed
+	c.deferredBankOpsLock.Lock()
+	defer c.deferredBankOpsLock.Unlock()
 
-	for _, recipientModule := range keys {
-		apply(recipientModule, c.deferredSends[recipientModule])
-	}
-
-	for _, recipientModule := range keys {
-		delete(c.deferredSends, recipientModule)
+	// If there's already a pending deposit then subtract it from that amount first
+	// or else add it to the deferredWithdrawals mapping
+	ok := c.deferredSends.SafeSub(moduleAccount, amount)
+	if !ok {
+		c.deferredWithdrawals.UpsertMapping(moduleAccount, amount)
 	}
 }
 
+func (c *ContextMemCache) RangeOnDeferredWithdrawalsAndDelete(apply func (recipient string, amount Coins)) {
+	c.deferredWithdrawals.RangeOnMapping(apply)
+}
+
+func (c *ContextMemCache) ApplyOnAllDeferredOperationsAndDelete(apply func (recipient string, amount Coins)) {
+	c.RangeOnDeferredSendsAndDelete(apply)
+	c.RangeOnDeferredWithdrawalsAndDelete(apply)
+}
