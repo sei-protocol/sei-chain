@@ -1,63 +1,63 @@
 {
-  "batch_size": 1,
-  "chain_id": "sei-loadtest-testnet",
-  "orders_per_block": 2,
-  "rounds": 5,
-  "price_distribution": {
-    "min": "45",
-    "max": "55",
-    "number_of_distinct_values": 20
-  },
-  "quantity_distribution": {
-    "min": "1",
-    "max": "21",
-    "number_of_distinct_values": 20
-  },
-  "dex_message_type_distribution": {
-    "limit_order_percentage": "0.2",
-    "market_order_percentage": "0.8"
-  },
-  "message_type": "bank,dex,staking,tokenfactory",
-  "contract_distribution": [
-    {
-      "contract_address":"sei14hj2tavq8fpesdwxxcu44rty3hh90vhujrvcmstl4zr3txmfvw9sh9m79m",
-      "percentage":"0.1"
+    "msgs_per_tx": 10,
+    "chain_id": "sei-loadtest-testnet",
+    "txs_per_block": 6000,
+    "rounds": 5,
+    "price_distribution": {
+        "min": "45",
+        "max": "55",
+        "number_of_distinct_values": 20
     },
-    {
-      "contract_address":"sei1nc5tatafv6eyq7llkr2gv50ff9e22mnf70qgjlv737ktmt4eswrqms7u8a",
-      "percentage":"0.1"
+    "quantity_distribution": {
+        "min": "1",
+        "max": "21",
+        "number_of_distinct_values": 20
     },
-    {
-      "contract_address":"sei17p9rzwnnfxcjp32un9ug7yhhzgtkhvl9jfksztgw5uh69wac2pgsrtqewe",
-      "percentage":"0.1"
+    "message_type_distribution": {
+        "limit_order_percentage": "0.2",
+        "market_order_percentage": "0.8"
     },
-    {
-      "contract_address":"sei1yw4xvtc43me9scqfr2jr2gzvcxd3a9y4eq7gaukreugw2yd2f8tsy4qgdm",
-      "percentage":"0.1"
-    },
-    {
-      "contract_address":"sei1hulx7cgvpfcvg83wk5h96sedqgn72n026w6nl47uht554xhvj9nstdktte",
-      "percentage":"0.1"
-    },
-    {
-      "contract_address":"sei1fzm6gzyccl8jvdv3qq6hp9vs6ylaruervs4m06c7k0ntzn2f8faq8un0p6",
-      "percentage":"0.1"
-    },
-    {
-      "contract_address":"sei1wl59k23zngj34l7d42y9yltask7rjlnxgccawc7ltrknp6n52fpsj6ctln",
-      "percentage":"0.1"
-    },
-    {
-      "contract_address":"sei182nff4ttmvshn6yjlqj5czapfcav9434l2qzz8aahf5pxnyd33ts2pdy3l",
-      "percentage":"0.1"
-    },
-    {
-      "contract_address":"sei1k8re7jwz6rnnwrktnejdwkwnncte7ek7gt29gvnl3sdrg9mtnqksw4tqd9",
-      "percentage":"0.1"
-    },
-    {
-      "contract_address":"sei1nwnejwsdpqktusvh8qhxe5arsznjd5asdwutmaz9n5qcpl3dcmhs9eeuca",
-      "percentage":"0.1"
-    }
-  ]
+    "message_type": "bank,dex,staking,tokenfactory",
+    "contract_distribution": [
+            {
+              "contract_address":"sei14hj2tavq8fpesdwxxcu44rty3hh90vhujrvcmstl4zr3txmfvw9sh9m79m",
+              "percentage":"0.1"
+            },
+            {
+              "contract_address":"sei1nc5tatafv6eyq7llkr2gv50ff9e22mnf70qgjlv737ktmt4eswrqms7u8a",
+              "percentage":"0.1"
+            },
+            {
+              "contract_address":"sei17p9rzwnnfxcjp32un9ug7yhhzgtkhvl9jfksztgw5uh69wac2pgsrtqewe",
+              "percentage":"0.1"
+            },
+            {
+              "contract_address":"sei1yw4xvtc43me9scqfr2jr2gzvcxd3a9y4eq7gaukreugw2yd2f8tsy4qgdm",
+              "percentage":"0.1"
+            },
+            {
+              "contract_address":"sei1hulx7cgvpfcvg83wk5h96sedqgn72n026w6nl47uht554xhvj9nstdktte",
+              "percentage":"0.1"
+            },
+            {
+              "contract_address":"sei1fzm6gzyccl8jvdv3qq6hp9vs6ylaruervs4m06c7k0ntzn2f8faq8un0p6",
+              "percentage":"0.1"
+            },
+            {
+              "contract_address":"sei1wl59k23zngj34l7d42y9yltask7rjlnxgccawc7ltrknp6n52fpsj6ctln",
+              "percentage":"0.1"
+            },
+            {
+              "contract_address":"sei182nff4ttmvshn6yjlqj5czapfcav9434l2qzz8aahf5pxnyd33ts2pdy3l",
+              "percentage":"0.1"
+            },
+            {
+              "contract_address":"sei1k8re7jwz6rnnwrktnejdwkwnncte7ek7gt29gvnl3sdrg9mtnqksw4tqd9",
+              "percentage":"0.1"
+            },
+            {
+              "contract_address":"sei1nwnejwsdpqktusvh8qhxe5arsznjd5asdwutmaz9n5qcpl3dcmhs9eeuca",
+              "percentage":"0.1"
+            }
+          ]
 }
