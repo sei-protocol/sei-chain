@@ -17,7 +17,11 @@ func HandleMsgUpdateResourceDependencyMappingProposal(ctx sdk.Context, k *keeper
 }
 
 func HandleMsgUpdateWasmDependencyMappingProposal(ctx sdk.Context, k *keeper.Keeper, p *types.MsgUpdateWasmDependencyMappingProposal) error {
-	err := k.SetWasmDependencyMapping(ctx, sdk.AccAddress(p.ContractAddress), p.WasmDependencyMapping)
+	addr, err := sdk.AccAddressFromBech32(p.ContractAddress)
+	if err != nil {
+		return err
+	}
+	err = k.SetWasmDependencyMapping(ctx, addr, p.WasmDependencyMapping)
 	if err != nil {
 		return err
 	}
