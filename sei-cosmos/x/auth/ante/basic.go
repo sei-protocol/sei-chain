@@ -90,8 +90,8 @@ func (d ConsumeTxSizeGasDecorator) AnteDeps(txDeps []sdkacltypes.AccessOperation
 		deps = append(deps,
 			sdkacltypes.AccessOperation{
 				AccessType:         sdkacltypes.AccessType_WRITE,
-				ResourceType:       sdkacltypes.ResourceType_KV,
-				IdentifierTemplate:  signer.String(),
+				ResourceType:       sdkacltypes.ResourceType_KV_ACC,
+				IdentifierTemplate: signer.String(),
 			},
 		)
 
