@@ -56,7 +56,9 @@ Ref: https://keepachangelog.com/en/1.0.0/
 * [\#27](https://github.com/sei-protocol/sei-cosmos/pull/27) Add tx channels for parallel DeliverTx signaling 
 * (x/accesscontrol) [\#30](https://github.com/sei-protocol/sei-cosmos/pull/30) Add resource hierarchy helper to build resource dependencies
 * (x/accesscontrol) [\#33](https://github.com/sei-protocol/sei-cosmos/pull/33) Add gov proposal handler for x/accesscontrol
+* (x/accesscontrol) [\#36](https://github.com/sei-protocol/sei-cosmos/pull/36) Add dependency DAG to x/accesscontrol
 * (x/accesscontrol) [\#41](https://github.com/sei-protocol/sei-cosmos/pull/41) Add ante dependency decorator to define dependencies
+* (x/accesscontrol) [\#53](https://github.com/sei-protocol/sei-cosmos/pull/53) Add wasm dependency to accesscontrol keeper
 * [\#58](https://github.com/sei-protocol/sei-cosmos/pull/58) Lazy deposits all module accounts during EndBlock for parallel DeliverTx
 * (x/accesscontrol) [\#59](https://github.com/sei-protocol/sei-cosmos/pull/59) Add gov proposal type for wasm dependency mapping updates
 * [\#61](https://github.com/sei-protocol/sei-cosmos/pull/61) Add deferred withdrawl for module accounts
