@@ -30,6 +30,16 @@ import (
 	"google.golang.org/grpc"
 )
 
+const (
+	Basic                 string = "basic"
+	FailureBasicMalformed string = "failure_basic_malformed"
+	FailureBasicInvalid   string = "failure_basic_invalid"
+	FailureDexMalformed   string = "failure_dex_malformed"
+	FailureDexInvalid     string = "failure_dex_invalid"
+	Dex                   string = "dex"
+	Limit                 string = "limit"
+)
+
 type EncodingConfig struct {
 	InterfaceRegistry types.InterfaceRegistry
 	// NOTE: this field will be renamed to Codec
@@ -70,9 +80,8 @@ func (d *NumericDistribution) InvalidSample() sdk.Dec {
 	steps := sdk.NewDec(rand.Int63n(d.NumDistinct))
 	if rand.Float64() < 0.5 {
 		return d.Min.Sub(d.Max.Sub(d.Min).QuoInt64(d.NumDistinct).Mul(steps))
-	} else {
-		return d.Max.Add(d.Max.Sub(d.Min).QuoInt64(d.NumDistinct).Mul(steps))
 	}
+	return d.Max.Add(d.Max.Sub(d.Min).QuoInt64(d.NumDistinct).Mul(steps))
 }
 
 type MsgTypeDistribution struct {
@@ -86,7 +95,7 @@ func (d *MsgTypeDistribution) Sample() string {
 	}
 	randNum := sdk.MustNewDecFromStr(fmt.Sprintf("%f", rand.Float64()))
 	if randNum.LT(d.LimitOrderPct) {
-		return "limit"
+		return Limit
 	}
 	return "market"
 }
@@ -248,13 +257,6 @@ func run(config Config) {
 	fmt.Printf("%s - Finished\n", time.Now().Format("2006-01-02T15:04:05"))
 }
 
-func reverse(s string) (r string) {
-	for _, v := range s {
-		r = string(v) + r
-	}
-	return
-}
-
 func generateMessage(config Config, key cryptotypes.PrivKey, batchSize uint64) (sdk.Msg, bool) {
 	var msg sdk.Msg
 	messageTypes := []string{"basic", "dex"}
@@ -267,7 +269,7 @@ func generateMessage(config Config, key cryptotypes.PrivKey, batchSize uint64) (
 		messageType = messageTypes[rand.Intn(len(messageTypes))]
 	}
 	switch messageType {
-	case "basic":
+	case Basic:
 		msg = &banktypes.MsgSend{
 			FromAddress: sdk.AccAddress(key.PubKey().Address()).String(),
 			ToAddress:   sdk.AccAddress(key.PubKey().Address()).String(),
@@ -276,7 +278,7 @@ func generateMessage(config Config, key cryptotypes.PrivKey, batchSize uint64) (
 				Amount: sdk.NewInt(1),
 			}),
 		}
-	case "failure_basic_malformed":
+	case FailureBasicMalformed:
 		var denom string
 		if rand.Float64() < 0.5 {
 			denom = "unknown"
@@ -291,22 +293,22 @@ func generateMessage(config Config, key cryptotypes.PrivKey, batchSize uint64) (
 				Amount: sdk.NewInt(1),
 			}),
 		}
-	case "failure_basic_invalid":
-		var amount_usei int64
+	case FailureBasicInvalid:
+		var amountUsei int64
 		if rand.Float64() < 0.5 {
-			amount_usei = 1000000000000000000
+			amountUsei = 1000000000000000000
 		} else {
-			amount_usei = 0
+			amountUsei = 0
 		}
 		msg = &banktypes.MsgSend{
 			FromAddress: sdk.AccAddress(key.PubKey().Address()).String(),
 			ToAddress:   sdk.AccAddress(key.PubKey().Address()).String(),
 			Amount: sdk.NewCoins(sdk.Coin{
 				Denom:  "usei",
-				Amount: sdk.NewInt(amount_usei),
+				Amount: sdk.NewInt(amountUsei),
 			}),
 		}
-	case "failure_dex_malformed":
+	case FailureDexMalformed:
 		msgType := config.MsgTypeDistr.Sample()
 		orderPlacements := []*dextypes.Order{}
 		var orderType dextypes.OrderType
@@ -347,11 +349,11 @@ func generateMessage(config Config, key cryptotypes.PrivKey, batchSize uint64) (
 			ContractAddr: contract,
 			Funds:        amount,
 		}
-	case "failure_dex_invalid":
+	case FailureDexInvalid:
 		msgType := config.MsgTypeDistr.Sample()
 		orderPlacements := []*dextypes.Order{}
 		var orderType dextypes.OrderType
-		if msgType == "limit" {
+		if msgType == Limit {
 			orderType = dextypes.OrderType_LIMIT
 		} else {
 			orderType = dextypes.OrderType_MARKET
@@ -378,13 +380,13 @@ func generateMessage(config Config, key cryptotypes.PrivKey, batchSize uint64) (
 				Data:              VortexData,
 			})
 		}
-		var amount_usei int64
+		var amountUsei int64
 		if rand.Float64() < 0.5 {
-			amount_usei = 1000000000000000000
+			amountUsei = 1000000000000000000
 		} else {
-			amount_usei = 0
+			amountUsei = 0
 		}
-		amount, err := sdk.ParseCoinsNormalized(fmt.Sprintf("%d%s", amount_usei, "usei"))
+		amount, err := sdk.ParseCoinsNormalized(fmt.Sprintf("%d%s", amountUsei, "usei"))
 		if err != nil {
 			panic(err)
 		}
@@ -394,11 +396,11 @@ func generateMessage(config Config, key cryptotypes.PrivKey, batchSize uint64) (
 			ContractAddr: contract,
 			Funds:        amount,
 		}
-	case "dex":
+	case Dex:
 		msgType := config.MsgTypeDistr.Sample()
 		orderPlacements := []*dextypes.Order{}
 		var orderType dextypes.OrderType
-		if msgType == "limit" {
+		if msgType == Limit {
 			orderType = dextypes.OrderType_LIMIT
 		} else {
 			orderType = dextypes.OrderType_MARKET
@@ -441,9 +443,8 @@ func generateMessage(config Config, key cryptotypes.PrivKey, batchSize uint64) (
 
 	if strings.Contains(config.MessageType, "failure") {
 		return msg, true
-	} else {
-		return msg, false
 	}
+	return msg, false
 }
 
 func getLastHeight() int {
@@ -474,21 +475,21 @@ func main() {
 	if err := json.Unmarshal(file, &config); err != nil {
 		panic(err)
 	}
-	if *clientType == "failure_basic_malformed" {
+	if *clientType == FailureBasicMalformed {
 		config.FailureMode = true
-		config.FailureType = "failure_basic_malformed"
+		config.FailureType = FailureBasicMalformed
 	}
-	if *clientType == "failure_basic_invalid" {
+	if *clientType == FailureBasicInvalid {
 		config.FailureMode = true
-		config.FailureType = "failure_basic_invalid"
+		config.FailureType = FailureBasicInvalid
 	}
-	if *clientType == "failure_dex_malformed" {
+	if *clientType == FailureDexMalformed {
 		config.FailureMode = true
-		config.FailureType = "failure_dex_malformed"
+		config.FailureType = FailureDexMalformed
 	}
-	if *clientType == "failure_dex_invalid" {
+	if *clientType == FailureDexInvalid {
 		config.FailureMode = true
-		config.FailureType = "failure_dex_invalid"
+		config.FailureType = FailureDexInvalid
 	}
 
 	if config.Constant {
