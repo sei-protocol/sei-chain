@@ -131,7 +131,7 @@ func (sc *SignerClient) GetValKeys() []cryptotypes.PrivKey {
 			panic(err)
 		}
 
-		privKeyBytes, algo, err := crypto.UnarmorDecryptPrivKey(string(privKeyBz), "testpassword")
+		privKeyBytes, algo, err := crypto.UnarmorDecryptPrivKey(string(privKeyBz), "12345678")
 		if err != nil {
 			panic(err)
 		}
