@@ -43,7 +43,7 @@ func TestEndOfEpochMintedCoinDistribution(t *testing.T) {
 	seiApp.MintKeeper.SetParams(ctx, mintParams)
 
 	header := tmproto.Header{Height: seiApp.LastBlockHeight() + 1}
-	seiApp.BeginBlock(abci.RequestBeginBlock{Header: header})
+	seiApp.BeginBlock(ctx, abci.RequestBeginBlock{Header: header})
 
 	// Year 1
 	currTime := genesisTime.AddDate(1, 0, 0)
@@ -80,7 +80,7 @@ func TestNoEpochPassedNoDistribution(t *testing.T) {
 	seiApp := app.Setup(false)
 	ctx := seiApp.BaseApp.NewContext(false, tmproto.Header{})
 	header := tmproto.Header{Height: seiApp.LastBlockHeight() + 1}
-	seiApp.BeginBlock(abci.RequestBeginBlock{Header: header})
+	seiApp.BeginBlock(ctx, abci.RequestBeginBlock{Header: header})
 	// Get mint params
 	mintParams := seiApp.MintKeeper.GetParams(ctx)
 	genesisTime := time.Date(2022, time.Month(7), 18, 10, 0, 0, 0, time.UTC)
