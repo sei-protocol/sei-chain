@@ -60,7 +60,7 @@ func ExecutePair(
 	// First cancel orders
 	cancelForPair(ctx, typedContractAddr, typedPairStr, orderbook)
 	// Add all limit orders to the orderbook
-	orders := dexkeeper.MemState.GetBlockOrders(ctx, typedContractAddr, typedPairStr)
+	orders := dexutils.GetMemState(ctx.Context()).GetBlockOrders(ctx, typedContractAddr, typedPairStr)
 	limitBuys := orders.GetLimitOrders(types.PositionDirection_LONG)
 	limitSells := orders.GetLimitOrders(types.PositionDirection_SHORT)
 	exchange.AddOutstandingLimitOrdersToOrderbook(orderbook, limitBuys, limitSells)
