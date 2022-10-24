@@ -53,7 +53,7 @@ func run() {
 	defer client.Close()
 
 	if config.TxsPerBlock < config.MsgsPerTx {
-		panic("Must have more orders per block than batch size")
+		panic("Must have more TxsPerBlock than MsgsPerTx")
 	}
 
 	configString, _ := json.Marshal(config)
