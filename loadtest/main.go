@@ -44,6 +44,8 @@ type Config struct {
 	OrdersPerBlock uint64                `json:"orders_per_block"`
 	Rounds         uint64                `json:"rounds"`
 	MessageType    string                `json:"message_type"`
+	FailureMode    bool                  `json:"failure_mode"`
+	FailureType    string                `json:"failure_type"`
 	PriceDistr     NumericDistribution   `json:"price_distribution"`
 	QuantityDistr  NumericDistribution   `json:"quantity_distribution"`
 	MsgTypeDistr   MsgTypeDistribution   `json:"message_type_distribution"`
@@ -252,8 +254,8 @@ func generateMessage(config Config, key cryptotypes.PrivKey, batchSize uint64) (
 			denom = "other"
 		}
 		msg = &banktypes.MsgSend{
-			FromAddress: reverse(sdk.AccAddress(key.PubKey().Address()).String()),
-			ToAddress:   reverse(sdk.AccAddress(key.PubKey().Address()).String()),
+			FromAddress: sdk.AccAddress(key.PubKey().Address()).String(),
+			ToAddress:   sdk.AccAddress(key.PubKey().Address()).String(),
 			Amount: sdk.NewCoins(sdk.Coin{
 				Denom:  denom,
 				Amount: sdk.NewInt(1),
@@ -437,20 +439,25 @@ func main() {
 	config := Config{}
 	pwd, _ := os.Getwd()
 	file, _ := os.ReadFile(pwd + "/loadtest/config.json")
-	if *clientType == "failure_basic_malformed" {
-		file, _ = os.ReadFile(pwd + "/loadtest/failure_basic_malformed.json")
-	}
-	if *clientType == "failure_basic_invalid" {
-		file, _ = os.ReadFile(pwd + "/loadtest/failure_basic_invalid.json")
-	}
-	if *clientType == "failure_dex_malformed" {
-		file, _ = os.ReadFile(pwd + "/loadtest/failure_dex_malformed.json")
-	}
-	if *clientType == "failure_dex_invalid" {
-		file, _ = os.ReadFile(pwd + "/loadtest/failure_dex_invalid.json")
-	}
 	if err := json.Unmarshal(file, &config); err != nil {
 		panic(err)
 	}
+	if *clientType == "failure_basic_malformed" {
+		config.FailureMode = true
+		config.FailureType = "failure_basic_malformed"
+	}
+	if *clientType == "failure_basic_invalid" {
+		config.FailureMode = true
+		config.FailureType = "failure_basic_invalid"
+	}
+	if *clientType == "failure_dex_malformed" {
+		config.FailureMode = true
+		config.FailureType = "failure_dex_malformed"
+	}
+	if *clientType == "failure_dex_invalid" {
+		config.FailureMode = true
+		config.FailureType = "failure_dex_invalid"
+	}
+
 	run(config)
 }
