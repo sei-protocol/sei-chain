@@ -251,12 +251,21 @@ func generateMessage(config Config, key cryptotypes.PrivKey, batchSize uint64) s
 			msg = &stakingtypes.MsgDelegate{
 				DelegatorAddress: sdk.AccAddress(key.PubKey().Address()).String(),
 				ValidatorAddress: validatorAddresses[rand.Intn(len(validatorAddresses))],
-				Amount:           sdk.Coin{Denom: "usei", Amount: sdk.NewInt(1)},
+				Amount:           sdk.Coin{Denom: "usei", Amount: sdk.NewInt(5)},
 			}
 		case "undelegate":
-			msg = &stakingtypes.MsgUndelegate{}
+			msg = &stakingtypes.MsgUndelegate{
+				DelegatorAddress: sdk.AccAddress(key.PubKey().Address()).String(),
+				ValidatorAddress: validatorAddresses[rand.Intn(len(validatorAddresses))],
+				Amount:           sdk.Coin{Denom: "usei", Amount: sdk.NewInt(1)},
+			}
 		case "begin_redelegate":
-			msg = &stakingtypes.MsgBeginRedelegate{}
+			msg = &stakingtypes.MsgBeginRedelegate{
+				DelegatorAddress:    sdk.AccAddress(key.PubKey().Address()).String(),
+				ValidatorSrcAddress: validatorAddresses[rand.Intn(len(validatorAddresses))],
+				ValidatorDstAddress: validatorAddresses[rand.Intn(len(validatorAddresses))],
+				Amount:              sdk.Coin{Denom: "usei", Amount: sdk.NewInt(1)},
+			}
 		default:
 			panic("Unknown message type")
 		}
