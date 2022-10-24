@@ -60,9 +60,14 @@ func (d *NumericDistribution) Sample() sdk.Dec {
 	return d.Min.Add(d.Max.Sub(d.Min).QuoInt64(d.NumDistinct).Mul(steps))
 }
 
+// @TODO: Eventually, want to convert so we can send a distribution of messages
+//		  across various modules, currently only supports single module loadtesting
+// For a specific module, the sum of the msg types must equal 1
 type MsgTypeDistribution struct {
-	LimitOrderPct      sdk.Dec `json:"limit_order_percentage"`
-	MarketOrderPct     sdk.Dec `json:"market_order_percentage"`
+	// dex msg distribution
+	LimitOrderPct  sdk.Dec `json:"limit_order_percentage"`
+	MarketOrderPct sdk.Dec `json:"market_order_percentage"`
+	// staking msg distribution
 	DelegatePct        sdk.Dec `json:"delegate_percentage"`
 	UndelegatePct      sdk.Dec `json:"undelegate_percentage"`
 	BeginRedelegatePct sdk.Dec `json:"begin_redelegate_percentage"`
@@ -333,10 +338,6 @@ func getLastHeight() int {
 	return height
 }
 
-func setup() {
-	exec.Command("seid query staking validators --output json | jq '.validators | to_entries | .[].value.operator_address' > ~/validator_addrs.txt")
-}
-
 func main() {
 	config := Config{}
 	pwd, _ := os.Getwd()
@@ -344,6 +345,5 @@ func main() {
 	if err := json.Unmarshal(file, &config); err != nil {
 		panic(err)
 	}
-	setup()
 	run(config)
 }
