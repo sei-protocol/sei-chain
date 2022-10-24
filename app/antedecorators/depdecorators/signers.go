@@ -5,8 +5,6 @@ import (
 	sdkacltypes "github.com/cosmos/cosmos-sdk/types/accesscontrol"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	authsigning "github.com/cosmos/cosmos-sdk/x/auth/signing"
-	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
-	utils "github.com/sei-protocol/sei-chain/aclmapping/utils"
 )
 
 type SignerDepDecorator struct {
@@ -27,8 +25,8 @@ func (d SignerDepDecorator) AnteDeps(txDeps []sdkacltypes.AccessOperation, tx sd
 	for _, signer := range sigTx.GetSigners() {
 		txDeps = append(txDeps, sdkacltypes.AccessOperation{
 			AccessType:         accessType,
-			ResourceType:       sdkacltypes.ResourceType_KV,
-			IdentifierTemplate: utils.GetPrefixedIdentifierTemplatePerModule(utils.ACCOUNT, signer.String(), string(authtypes.AddressStoreKeyPrefix)),
+			ResourceType:       sdkacltypes.ResourceType_KV_ACC,
+			IdentifierTemplate: signer.String(),
 		})
 	}
 	return next(txDeps, tx)
