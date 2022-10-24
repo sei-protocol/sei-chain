@@ -38,6 +38,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/x/auth/ante"
 
 	aclmodule "github.com/cosmos/cosmos-sdk/x/accesscontrol"
+	aclclient "github.com/cosmos/cosmos-sdk/x/accesscontrol/client"
 	aclkeeper "github.com/cosmos/cosmos-sdk/x/accesscontrol/keeper"
 	acltypes "github.com/cosmos/cosmos-sdk/x/accesscontrol/types"
 
@@ -148,6 +149,8 @@ func getGovProposalHandlers() []govclient.ProposalHandler {
 		ibcclientclient.UpdateClientProposalHandler,
 		ibcclientclient.UpgradeProposalHandler,
 		// aclclient.ProposalHandler,
+		aclclient.ResourceDependencyProposalHandler,
+		aclclient.WasmDependencyProposalHandler,
 		// this line is used by starport scaffolding # stargate/app/govProposalHandler
 	)
 
