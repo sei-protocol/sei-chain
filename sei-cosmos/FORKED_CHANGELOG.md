@@ -52,10 +52,12 @@ Ref: https://keepachangelog.com/en/1.0.0/
 ### Features
 * [\#17](https://github.com/sei-protocol/sei-cosmos/pull/17) Support SR25519 algorithm for client transaction signing
 * [\#23](https://github.com/sei-protocol/sei-cosmos/pull/23) Add priority to CheckTx based on gas fees
-* (x/accesscontrol)[\#24](https://github.com/sei-protocol/sei-cosmos/pull/24) Add AccessControl module
+* (x/accesscontrol) [\#24](https://github.com/sei-protocol/sei-cosmos/pull/24) Add AccessControl module
 * [\#27](https://github.com/sei-protocol/sei-cosmos/pull/27) Add tx channels for parallel DeliverTx signaling 
-* (x/accesscontrol)[\#30](https://github.com/sei-protocol/sei-cosmos/pull/30) Add resource hierarchy helper to build resource dependencies
-* (x/accesscontrol)[\#33](https://github.com/sei-protocol/sei-cosmos/pull/33) Add gov proposal handler for x/accesscontrol
-* (x/accesscontrol)[\#41](https://github.com/sei-protocol/sei-cosmos/pull/41) Add ante dependency decorator to define dependencies
+* (x/accesscontrol) [\#30](https://github.com/sei-protocol/sei-cosmos/pull/30) Add resource hierarchy helper to build resource dependencies
+* (x/accesscontrol) [\#33](https://github.com/sei-protocol/sei-cosmos/pull/33) Add gov proposal handler for x/accesscontrol
+* (x/accesscontrol) [\#41](https://github.com/sei-protocol/sei-cosmos/pull/41) Add ante dependency decorator to define dependencies
 * [\#58](https://github.com/sei-protocol/sei-cosmos/pull/58) Lazy deposits all module accounts during EndBlock for parallel DeliverTx
-* (x/accesscontrol)[\#59](https://github.com/sei-protocol/sei-cosmos/pull/59) Add gov proposal type for wasm dependency mapping updates
+* (x/accesscontrol) [\#59](https://github.com/sei-protocol/sei-cosmos/pull/59) Add gov proposal type for wasm dependency mapping updates
+* [\#61](https://github.com/sei-protocol/sei-cosmos/pull/61) Add deferred withdrawl for module accounts
+* [\#63](https://github.com/sei-protocol/sei-cosmos/pull/63) Add support for deferred mint/burn from the module accounts
