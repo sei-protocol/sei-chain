@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -24,6 +25,31 @@ const NodeURI = "tcp://localhost:26657"
 type AccountInfo struct {
 	Address  string `json:"address"`
 	Mnemonic string `json:"mnemonic"`
+}
+
+func GetValidators() []string {
+	userHomeDir, _ := os.UserHomeDir()
+	validatorAddrFilePath := filepath.Join(userHomeDir, "validator_addrs.txt")
+	f, err := os.Open(validatorAddrFilePath)
+	if err != nil {
+		panic(err)
+	}
+	defer f.Close()
+
+	scanner := bufio.NewScanner(f)
+	scanner.Split(bufio.ScanWords)
+
+	validatorAddresses := []string{}
+	for scanner.Scan() {
+		addr := scanner.Text()
+		validatorAddresses = append(validatorAddresses, addr[1:len(addr)-1])
+	}
+
+	if err := scanner.Err(); err != nil {
+		fmt.Println(err)
+	}
+
+	return validatorAddresses
 }
 
 func GetKey(accountIdx uint64) cryptotypes.PrivKey {

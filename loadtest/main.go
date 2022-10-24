@@ -22,6 +22,7 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	typestx "github.com/cosmos/cosmos-sdk/types/tx"
 	"github.com/cosmos/cosmos-sdk/x/auth/tx"
+	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
 	"github.com/sei-protocol/sei-chain/app"
 	"github.com/sei-protocol/sei-chain/utils"
 	dextypes "github.com/sei-protocol/sei-chain/x/dex/types"
@@ -60,11 +61,14 @@ func (d *NumericDistribution) Sample() sdk.Dec {
 }
 
 type MsgTypeDistribution struct {
-	LimitOrderPct  sdk.Dec `json:"limit_order_percentage"`
-	MarketOrderPct sdk.Dec `json:"market_order_percentage"`
+	LimitOrderPct      sdk.Dec `json:"limit_order_percentage"`
+	MarketOrderPct     sdk.Dec `json:"market_order_percentage"`
+	DelegatePct        sdk.Dec `json:"delegate_percentage"`
+	UndelegatePct      sdk.Dec `json:"undelegate_percentage"`
+	BeginRedelegatePct sdk.Dec `json:"begin_redelegate_percentage"`
 }
 
-func (d *MsgTypeDistribution) Sample() string {
+func (d *MsgTypeDistribution) SampleDexMsgs() string {
 	if !d.LimitOrderPct.Add(d.MarketOrderPct).Equal(sdk.OneDec()) {
 		panic("Distribution percentages must add up to 1")
 	}
@@ -73,6 +77,19 @@ func (d *MsgTypeDistribution) Sample() string {
 		return "limit"
 	}
 	return "market"
+}
+
+func (d *MsgTypeDistribution) SampleStakingMsgs() string {
+	if !d.DelegatePct.Add(d.UndelegatePct).Add(d.BeginRedelegatePct).Equal(sdk.OneDec()) {
+		panic("Distribution percentages must add up to 1")
+	}
+	randNum := sdk.MustNewDecFromStr(fmt.Sprintf("%f", rand.Float64()))
+	if randNum.LT(d.DelegatePct) {
+		return "delegate"
+	} else if randNum.LT(d.DelegatePct.Add(d.UndelegatePct)) {
+		return "undelegate"
+	}
+	return "begin_redelegate"
 }
 
 type ContractDistributions []ContractDistribution
@@ -225,8 +242,27 @@ func generateMessage(config Config, key cryptotypes.PrivKey, batchSize uint64) s
 				Amount: sdk.NewInt(1),
 			}),
 		}
+	case "staking":
+		msgType := config.MsgTypeDistr.SampleStakingMsgs()
+		validatorAddresses := GetValidators()
+
+		switch msgType {
+		case "delegate":
+			msg = &stakingtypes.MsgDelegate{
+				DelegatorAddress: sdk.AccAddress(key.PubKey().Address()).String(),
+				ValidatorAddress: validatorAddresses[rand.Intn(len(validatorAddresses))],
+				Amount:           sdk.Coin{Denom: "usei", Amount: sdk.NewInt(1)},
+			}
+		case "undelegate":
+			msg = &stakingtypes.MsgUndelegate{}
+		case "begin_redelegate":
+			msg = &stakingtypes.MsgBeginRedelegate{}
+		default:
+			panic("Unknown message type")
+		}
+
 	case "dex":
-		msgType := config.MsgTypeDistr.Sample()
+		msgType := config.MsgTypeDistr.SampleDexMsgs()
 		orderPlacements := []*dextypes.Order{}
 		var orderType dextypes.OrderType
 		if msgType == "limit" {

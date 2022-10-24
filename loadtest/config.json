@@ -15,9 +15,12 @@
     },
     "message_type_distribution": {
         "limit_order_percentage": "0.2",
-        "market_order_percentage": "0.8"
+        "market_order_percentage": "0.8",
+        "delegate_percentage": "1",
+        "redelegate_percentage": "0.0",
+        "begin_redelegate_percentage": "0.0"
     },
-    "message_type": "basic",
+    "message_type": "staking",
     "contract_distribution": [
         {
             "contract_address": "sei1yw4xvtc43me9scqfr2jr2gzvcxd3a9y4eq7gaukreugw2yd2f8tsy4qgdm",
