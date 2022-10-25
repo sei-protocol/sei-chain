@@ -69,14 +69,13 @@ type QueryValidators struct {
 }
 
 func GetValidators() QueryValidators {
-	seid_query, err := exec.Command("seid", "query", "staking", "validators", "--output", "json").Output()
-
+	seidQuery, err := exec.Command("seid", "query", "staking", "validators", "--output", "json").Output()
 	if err != nil {
 		panic(err)
 	}
 
 	qv := QueryValidators{}
-	if err := json.Unmarshal(seid_query, &qv); err != nil {
+	if err := json.Unmarshal(seidQuery, &qv); err != nil {
 		panic(err)
 	}
 
