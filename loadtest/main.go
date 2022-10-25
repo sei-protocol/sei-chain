@@ -149,9 +149,6 @@ func generateMessage(config Config, key cryptotypes.PrivKey, msgPerTx uint64, va
 			ContractAddr: contract,
 			Funds:        amount,
 		}
-	case "none":
-		// this is noop
-		fmt.Println("No messages generated")
 	default:
 		fmt.Printf("Unrecognized message type %s", config.MessageType)
 	}
