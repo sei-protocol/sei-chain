@@ -70,7 +70,7 @@ func run() {
 	fmt.Printf("%s - Finished\n", time.Now().Format("2006-01-02T15:04:05"))
 }
 
-func generateMessage(config Config, key cryptotypes.PrivKey, batchSize uint64, validators []Validator) sdk.Msg {
+func generateMessage(config Config, key cryptotypes.PrivKey, msgPerTx uint64, validators []Validator) sdk.Msg {
 	var msg sdk.Msg
 	switch config.MessageType {
 	case "basic":
