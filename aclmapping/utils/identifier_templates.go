@@ -12,6 +12,7 @@ const (
 	BANK              = "bank"
 	AUTH              = "auth"
 	STAKING           = "staking"
+	TOKENFACTORY      = "tokenfactory"
 	DefaultIDTemplate = "*"
 )
 

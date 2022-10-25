@@ -5,11 +5,14 @@ import sys
 import threading
 import time
 
+from pathlib import Path
+
 PARALLEISM=32
 
 # Global Variable used for accounts
 # Does not need to be thread safe, each thread should only be writing to its own index
 global_accounts_mapping = {}
+home_path = os.path.expanduser('~')
 
 def add_key(account_name, local=False):
     if local:
@@ -34,7 +37,6 @@ def add_account(account_name, address, mnemonic, local=False):
     else:
         add_account_cmd = f"printf '12345678\n' | ~/go/bin/seid add-genesis-account {address} 1000000000usei"
 
-    home_path = os.path.expanduser('~')
     filename = f"{home_path}/test_accounts/{account_name}.json"
     os.makedirs(os.path.dirname(filename), exist_ok=True)
     with open(filename, 'w') as f:
@@ -68,10 +70,10 @@ def create_genesis_account(account_index, account_name, local=False):
             retry_counter += 1
             sleep_time += 0.5
             time.sleep(sleep_time)
-    
+
     if retry_counter >= 1000:
         exit(-1)
-    
+
     global_accounts_mapping[account_index] = {
         "balance": {
             "address": address,
@@ -120,14 +122,14 @@ def bulk_create_genesis_accounts(number_of_accounts, start_idx, is_local=False):
         print(f"Created account {i}")
 
 
-def read_genesis_file():
-    with open("/root/.sei/config/genesis.json", 'r') as f:
+def read_genesis_file(genesis_json_file_path):
+    with open(genesis_json_file_path, 'r') as f:
         return json.load(f)
 
 
-def write_genesis_file(data):
+def write_genesis_file(genesis_json_file_path, data):
     print("Writing results to genesis file")
-    with open("/root/.sei/config/genesis.json", 'w') as f:
+    with open(genesis_json_file_path, 'w') as f:
         json.dump(data, f, indent=4)
 
 
@@ -138,7 +140,8 @@ def main():
     if len(args) > 1 and args[1] == "loc":
         is_local = True
 
-    genesis_file = read_genesis_file()
+    genesis_json_file_path = f"{home_path}/.sei/config/genesis.json"
+    genesis_file = read_genesis_file(genesis_json_file_path)
 
     num_threads = number_of_accounts // PARALLEISM
     threads = []
@@ -167,7 +170,7 @@ def main():
     print(f'Created {num_accounts_created} accounts')
 
     assert num_accounts_created >= number_of_accounts
-    write_genesis_file(genesis_file)
+    write_genesis_file(genesis_json_file_path, genesis_file)
 
 if __name__ == "__main__":
     main()
