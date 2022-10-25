@@ -15,7 +15,10 @@
     },
     "message_type_distribution": {
         "limit_order_percentage": "0.2",
-        "market_order_percentage": "0.8"
+        "market_order_percentage": "0.8",
+        "delegate_percentage": "0.5",
+        "undelegate_percentage": "0.25",
+        "begin_redelegate_percentage": "0.25"
     },
     "message_type": "basic",
     "contract_distribution": [

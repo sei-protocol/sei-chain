@@ -79,6 +79,7 @@ func (c *LoadTestClient) BuildTxs() (workgroups []*sync.WaitGroup, sendersList [
 	numberOfAccounts := config.TxsPerBlock / config.MsgsPerTx * 2 // * 2 because we need two sets of accounts
 	activeAccounts := []int{}
 	inactiveAccounts := []int{}
+	qv := GetValidators()
 
 	for i := 0; i < int(numberOfAccounts); i++ {
 		if i%2 == 0 {
@@ -98,7 +99,7 @@ func (c *LoadTestClient) BuildTxs() (workgroups []*sync.WaitGroup, sendersList [
 		for _, account := range activeAccounts {
 			key := c.SignerClient.GetKey(uint64(account))
 
-			msg := generateMessage(config, key, config.MsgsPerTx)
+			msg := generateMessage(config, key, config.MsgsPerTx, qv.Validators)
 			txBuilder := TestConfig.TxConfig.NewTxBuilder()
 			_ = txBuilder.SetMsgs(msg)
 			seqDelta := uint64(i / 2)

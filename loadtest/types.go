@@ -43,11 +43,14 @@ func (d *NumericDistribution) Sample() sdk.Dec {
 }
 
 type MsgTypeDistribution struct {
-	LimitOrderPct  sdk.Dec `json:"limit_order_percentage"`
-	MarketOrderPct sdk.Dec `json:"market_order_percentage"`
+	LimitOrderPct      sdk.Dec `json:"limit_order_percentage"`
+	MarketOrderPct     sdk.Dec `json:"market_order_percentage"`
+	DelegatePct        sdk.Dec `json:"delegate_percentage"`
+	UndelegatePct      sdk.Dec `json:"undelegate_percentage"`
+	BeginRedelegatePct sdk.Dec `json:"begin_redelegate_percentage"`
 }
 
-func (d *MsgTypeDistribution) Sample() string {
+func (d *MsgTypeDistribution) SampleDexMsgs() string {
 	if !d.LimitOrderPct.Add(d.MarketOrderPct).Equal(sdk.OneDec()) {
 		panic("Distribution percentages must add up to 1")
 	}
@@ -56,6 +59,19 @@ func (d *MsgTypeDistribution) Sample() string {
 		return "limit"
 	}
 	return "market"
+}
+
+func (d *MsgTypeDistribution) SampleStakingMsgs() string {
+	if !d.DelegatePct.Add(d.UndelegatePct).Add(d.BeginRedelegatePct).Equal(sdk.OneDec()) {
+		panic("Distribution percentages must add up to 1")
+	}
+	randNum := sdk.MustNewDecFromStr(fmt.Sprintf("%f", rand.Float64()))
+	if randNum.LT(d.DelegatePct) {
+		return "delegate"
+	} else if randNum.LT(d.DelegatePct.Add(d.UndelegatePct)) {
+		return "undelegate"
+	}
+	return "begin_redelegate"
 }
 
 type ContractDistributions []ContractDistribution
