@@ -64,6 +64,10 @@ all: lint install
 install: go.sum
 		go install $(BUILD_FLAGS) ./cmd/seid
 
+loadtest: go.sum
+  go build $(BUILD_FLAGS) -o build/loadtest ./loadtest/
+
+
 go.sum: go.mod
 		@echo "--> Ensure dependencies have not been modified"
 		@go mod verify
