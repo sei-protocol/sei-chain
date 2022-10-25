@@ -73,7 +73,7 @@ func NewLoadTestClient() *LoadTestClient {
 
 func (c *LoadTestClient) SetValidators() {
 	if strings.Contains(c.LoadTestConfig.MessageType, "staking") {
-		if resp, err := StakingQueryClient.Validators(context.Background(), &stakingtypes.QueryValidatorsRequest{}); err != nil {
+		if resp, err := c.StakingQueryClient.Validators(context.Background(), &stakingtypes.QueryValidatorsRequest{}); err != nil {
 			panic(err)
 		} else {
 			c.Validators = resp.Validators
@@ -126,7 +126,7 @@ func (c *LoadTestClient) BuildTxs() (workgroups []*sync.WaitGroup, sendersList [
 		for j, account := range activeAccounts {
 			key := c.SignerClient.GetKey(uint64(account))
 
-			msg, failureExpected := generateMessage(config, key, config.MsgsPerTx)
+			msg, failureExpected := c.generateMessage(config, key, config.MsgsPerTx)
 			txBuilder := TestConfig.TxConfig.NewTxBuilder()
 			_ = txBuilder.SetMsgs(msg)
 			seqDelta := uint64(i / 2)
