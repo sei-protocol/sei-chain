@@ -65,7 +65,7 @@ install: go.sum
 		go install $(BUILD_FLAGS) ./cmd/seid
 
 loadtest: go.sum
-  go build $(BUILD_FLAGS) -o build/loadtest ./loadtest/
+  go build $(BUILD_FLAGS) -o ./build/loadtest ./loadtest/
 
 
 go.sum: go.mod
