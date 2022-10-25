@@ -20,7 +20,7 @@ func SendTx(
 	seqDelta uint64,
 	mu *sync.Mutex,
 ) func() {
-	(*txBuilder).SetGasLimit(100000)
+	(*txBuilder).SetGasLimit(200000)
 	(*txBuilder).SetFeeAmount([]sdk.Coin{
 		sdk.NewCoin("usei", sdk.NewInt(100000)),
 	})
