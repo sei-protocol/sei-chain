@@ -89,32 +89,53 @@ func (c *LoadTestClient) BuildTxs() (workgroups []*sync.WaitGroup, sendersList [
 		}
 	}
 
+	valKeys := c.SignerClient.GetValKeys()
+
 	for i := 0; i < int(config.Rounds); i++ {
 		fmt.Printf("Preparing %d-th round\n", i)
 
 		wg := &sync.WaitGroup{}
 		var senders []func()
 		workgroups = append(workgroups, wg)
+		if config.MessageType != "none" {
+			for _, account := range activeAccounts {
+				key := c.SignerClient.GetKey(uint64(account))
 
-		for _, account := range activeAccounts {
-			key := c.SignerClient.GetKey(uint64(account))
+				msg := generateMessage(config, key, config.MsgsPerTx, qv.Validators)
+				txBuilder := TestConfig.TxConfig.NewTxBuilder()
+				_ = txBuilder.SetMsgs(msg)
+				seqDelta := uint64(i / 2)
+				mode := typestx.BroadcastMode_BROADCAST_MODE_SYNC
 
-			msg := generateMessage(config, key, config.MsgsPerTx, qv.Validators)
-			txBuilder := TestConfig.TxConfig.NewTxBuilder()
-			_ = txBuilder.SetMsgs(msg)
-			seqDelta := uint64(i / 2)
-			mode := typestx.BroadcastMode_BROADCAST_MODE_SYNC
+				// Note: There is a potential race condition here with seqnos
+				// in which a later seqno is delievered before an earlier seqno
+				// In practice, we haven't run into this issue so we'll leave this
+				// as is.
+				sender := SendTx(key, &txBuilder, mode, seqDelta, *c)
+				wg.Add(1)
+				senders = append(senders, func() {
+					defer wg.Done()
+					sender()
+				})
+			}
+		}
 
-			// Note: There is a potential race condition here with seqnos
-			// in which a later seqno is delievered before an earlier seqno
-			// In practice, we haven't run into this issue so we'll leave this
-			// as is.
-			sender := SendTx(key, &txBuilder, mode, seqDelta, *c)
-			wg.Add(1)
-			senders = append(senders, func() {
-				defer wg.Done()
-				sender()
-			})
+		// prevent account sequence errors by doing every other round
+		if config.RunOracle && i%2 == 0 {
+			for _, valKey := range valKeys {
+				// generate oracle tx
+				msg := generateOracleMessage(valKey)
+				txBuilder := TestConfig.TxConfig.NewTxBuilder()
+				_ = txBuilder.SetMsgs(msg)
+				seqDelta := uint64(i)
+				mode := typestx.BroadcastMode_BROADCAST_MODE_SYNC
+				sender := SendTx(valKey, &txBuilder, mode, seqDelta, *c)
+				wg.Add(1)
+				senders = append(senders, func() {
+					defer wg.Done()
+					sender()
+				})
+			}
 		}
 
 		sendersList = append(sendersList, senders)
