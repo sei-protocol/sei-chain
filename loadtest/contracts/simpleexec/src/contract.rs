@@ -1,6 +1,6 @@
 use cosmwasm_std::{
     entry_point, DepsMut, Env, MessageInfo,
-    Response, StdError, StdResult, Uint128
+    Response, StdError, StdResult, Uint128, BankMsg,
 };
 
 use crate::msg::{
@@ -23,6 +23,7 @@ pub fn execute(deps: DepsMut, _env: Env, info: MessageInfo, msg: ExecuteMsg) -> 
     match msg {
         ExecuteMsg::Noop {} => process_noop(),
         ExecuteMsg::NamedCounter {} => process_named_counter(deps, info),
+        ExecuteMsg::Send {} => process_send(info),
     }
 }
 
@@ -41,4 +42,13 @@ pub fn process_named_counter(deps: DepsMut, info: MessageInfo) -> Result<Respons
     }
     WHO.save(deps.storage, &info.sender.to_string())?;
     Ok(Response::new())
+}
+
+pub fn process_send(info: MessageInfo) -> Result<Response, StdError> {
+    let mut res: Response = Response::new();
+    res = res.add_message(BankMsg::Send {
+        to_address: info.sender.to_string(),
+        amount: info.funds,
+    });
+    Ok(res)
 }

@@ -44,7 +44,7 @@ insres=$(printf "12345678\n" | $seidbin tx wasm instantiate $id '{}' -y --no-adm
 addr=$(python3 parser.py contract_address $insres)
 
 rm -f wasm.json
-echo '{"title":"enable wasm '$addr'","description":"enable wasm '$addr'","contract_address":"'$addr'","wasm_dependency_mapping":{"enabled":true,"access_ops":[{"access_type":"WRITE","resource_type":"KV_WASM","identifier_template":"'$addr'"},{"access_type":"COMMIT","resource_type":"ANY","identifier_template":"*"}]}}' > wasm.json
+echo '{"title":"enable wasm '$addr'","description":"enable wasm '$addr'","contract_address":"'$addr'","wasm_dependency_mapping":{"enabled":true,"access_ops":[{"access_type":"WRITE","resource_type":"KV_WASM","identifier_template":"'$addr'"},{"access_type":"WRITE","resource_type":"KV_BANK","identifier_template":"*"},{"access_type":"COMMIT","resource_type":"ANY","identifier_template":"*"}]}}' > wasm.json
 res=$(printf "12345678\n" | $seidbin tx accesscontrol update-wasm-dependency-mapping wasm.json -y --from=$keyname --chain-id=$chainid --fees=10000000usei --gas=500000 --broadcast-mode=block --output=json)
 proposalid=$(python3 parser.py proposal_id $res)
 dres=$(printf "12345678\n" | $seidbin tx gov deposit $proposalid 10000000usei -y --from=$keyname --chain-id=$chainid --fees=10000000usei --gas=500000 --broadcast-mode=block)

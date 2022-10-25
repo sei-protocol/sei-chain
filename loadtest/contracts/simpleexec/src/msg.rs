@@ -9,4 +9,5 @@ pub struct InstantiateMsg {}
 pub enum ExecuteMsg {
     Noop {},
     NamedCounter {},
+    Send {},
 }
