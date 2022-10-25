@@ -23,7 +23,6 @@ func GetOracleDependencyGenerator() aclkeeper.DependencyGeneratorMap {
 	return dependencyGeneratorMap
 }
 
-// TODO:: we can make resource types more granular  (e.g KV_PARAM or KV_BANK_BALANCE)
 func MsgVoteDependencyGenerator(keeper aclkeeper.Keeper, ctx sdk.Context, msg sdk.Msg) ([]sdkacltypes.AccessOperation, error) {
 	msgVote, ok := msg.(*oracletypes.MsgAggregateExchangeRateVote)
 	if !ok {
