@@ -48,6 +48,8 @@ Ref: https://keepachangelog.com/en/1.0.0/
 
 ### Features
 
+* (apps/transfer) [\#2305](https://github.com/cosmos/ibc-go/pull/2305) Added optional metadata field to `FungibleTokenPacketData` and `MsgTransfer`.
+
 ### Bug Fixes
 
 ## [v3.3.0](https://github.com/cosmos/ibc-go/releases/tag/v3.3.0) - 2022-09-20
