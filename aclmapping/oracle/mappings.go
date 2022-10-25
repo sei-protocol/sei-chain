@@ -39,7 +39,7 @@ func MsgVoteDependencyGenerator(keeper aclkeeper.Keeper, ctx sdk.Context, msg sd
 		},
 		// read validator from staking - READ
 		// validator is bonded check - READ
-		//(both covered by below)
+		// (both covered by below)
 		{
 			ResourceType:       sdkacltypes.ResourceType_KV_STAKING,
 			AccessType:         sdkacltypes.AccessType_READ,

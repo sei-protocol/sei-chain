@@ -119,7 +119,7 @@ func (sc *SignerClient) GetKey(accountIdx uint64) cryptotypes.PrivKey {
 }
 
 func (sc *SignerClient) GetValKeys() []cryptotypes.PrivKey {
-	var valKeys []cryptotypes.PrivKey
+	valKeys := []cryptotypes.PrivKey{}
 	userHomeDir, _ := os.UserHomeDir()
 	valKeysFilePath := filepath.Join(userHomeDir, "exported_keys")
 	files, _ := os.ReadDir(valKeysFilePath)
