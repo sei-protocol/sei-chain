@@ -19,6 +19,7 @@ import (
 	"github.com/sei-protocol/sei-chain/x/dex/types"
 	dextypesutils "github.com/sei-protocol/sei-chain/x/dex/types/utils"
 	dextypeswasm "github.com/sei-protocol/sei-chain/x/dex/types/wasm"
+	dexutils "github.com/sei-protocol/sei-chain/x/dex/utils"
 	"github.com/sei-protocol/sei-chain/x/store"
 	otrace "go.opentelemetry.io/otel/trace"
 )
@@ -36,13 +37,13 @@ type environment struct {
 	eventManagerMutex *sync.Mutex
 }
 
-func EndBlockerAtomic(ctx sdk.Context, keeper *keeper.Keeper, validContractsInfo []types.ContractInfo, tracingInfo *tracing.Info) ([]types.ContractInfo, bool) {
+func EndBlockerAtomic(ctx sdk.Context, keeper *keeper.Keeper, validContractsInfo []types.ContractInfo, tracingInfo *tracing.Info) ([]types.ContractInfo, sdk.Context, bool) {
 	tracer := tracingInfo.Tracer
 	spanCtx, span := (*tracer).Start(tracingInfo.TracerContext, "DexEndBlockerAtomic")
 	defer span.End()
 	env := newEnv(ctx, validContractsInfo, keeper)
 	ctx, msCached := cacheAndDecorateContext(ctx, env)
-	memStateCopy := keeper.MemState.DeepCopy()
+	memStateCopy := dexutils.GetMemState(ctx.Context()).DeepCopy()
 
 	handleDeposits(ctx, env, keeper, tracer)
 
@@ -58,12 +59,12 @@ func EndBlockerAtomic(ctx sdk.Context, keeper *keeper.Keeper, validContractsInfo
 	// No error is thrown for any contract. This should happen most of the time.
 	if env.failedContractAddresses.Size() == 0 {
 		msCached.Write()
-		return env.validContractsInfo, true
+		return env.validContractsInfo, ctx, true
 	}
 	// restore keeper in-memory state
-	*keeper.MemState = *memStateCopy
+	newGoContext := context.WithValue(ctx.Context(), dexutils.DexMemStateContextKey, memStateCopy)
 
-	return filterNewValidContracts(env, keeper), false
+	return filterNewValidContracts(ctx, env), ctx.WithContext(newGoContext), false
 }
 
 func newEnv(ctx sdk.Context, validContractsInfo []types.ContractInfo, keeper *keeper.Keeper) *environment {
@@ -233,7 +234,7 @@ func orderMatchingRecoverCallback(err any, ctx sdk.Context, env *environment, co
 	env.failedContractAddresses.Add(contractInfo.ContractAddr)
 }
 
-func filterNewValidContracts(env *environment, keeper *keeper.Keeper) []types.ContractInfo {
+func filterNewValidContracts(ctx sdk.Context, env *environment) []types.ContractInfo {
 	newValidContracts := []types.ContractInfo{}
 	for _, contract := range env.validContractsInfo {
 		if !env.failedContractAddresses.Contains(contract.ContractAddr) {
@@ -241,7 +242,7 @@ func filterNewValidContracts(env *environment, keeper *keeper.Keeper) []types.Co
 		}
 	}
 	for _, failedContractAddress := range env.failedContractAddresses.ToOrderedSlice(datastructures.StringComparator) {
-		keeper.MemState.DeepFilterAccount(failedContractAddress)
+		dexutils.GetMemState(ctx.Context()).DeepFilterAccount(failedContractAddress)
 	}
 	return newValidContracts
 }

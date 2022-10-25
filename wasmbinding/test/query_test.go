@@ -1,6 +1,7 @@
 package wasmbinding
 
 import (
+	"context"
 	"encoding/json"
 	"testing"
 	"time"
@@ -10,9 +11,11 @@ import (
 	"github.com/sei-protocol/sei-chain/app"
 	keepertest "github.com/sei-protocol/sei-chain/testutil/keeper"
 	"github.com/sei-protocol/sei-chain/wasmbinding"
+	dexcache "github.com/sei-protocol/sei-chain/x/dex/cache"
 	dexwasm "github.com/sei-protocol/sei-chain/x/dex/client/wasm"
 	dexbinding "github.com/sei-protocol/sei-chain/x/dex/client/wasm/bindings"
 	dextypes "github.com/sei-protocol/sei-chain/x/dex/types"
+	dexutils "github.com/sei-protocol/sei-chain/x/dex/utils"
 	epochwasm "github.com/sei-protocol/sei-chain/x/epoch/client/wasm"
 	epochbinding "github.com/sei-protocol/sei-chain/x/epoch/client/wasm/bindings"
 	epochtypes "github.com/sei-protocol/sei-chain/x/epoch/types"
@@ -268,6 +271,7 @@ func TestWasmGetOrderSimulation(t *testing.T) {
 	require.NoError(t, err)
 
 	testWrapper.Ctx = testWrapper.Ctx.WithBlockHeight(11).WithBlockTime(time.Unix(3600, 0))
+	testWrapper.Ctx = testWrapper.Ctx.WithContext(context.WithValue(testWrapper.Ctx.Context(), dexutils.DexMemStateContextKey, dexcache.NewMemState()))
 	testWrapper.App.DexKeeper.AddRegisteredPair(
 		testWrapper.Ctx,
 		app.TestContract,
@@ -280,6 +284,7 @@ func TestWasmGetOrderSimulation(t *testing.T) {
 	}, app.TestContract)
 	testWrapper.App.OracleKeeper.SetBaseExchangeRate(testWrapper.Ctx, oracleutils.MicroAtomDenom, sdk.NewDec(12))
 	testWrapper.Ctx = testWrapper.Ctx.WithBlockHeight(14).WithBlockTime(time.Unix(3700, 0))
+	testWrapper.Ctx = testWrapper.Ctx.WithContext(context.WithValue(testWrapper.Ctx.Context(), dexutils.DexMemStateContextKey, dexcache.NewMemState()))
 
 	res, err := customQuerier(testWrapper.Ctx, rawQuery)
 	require.NoError(t, err)

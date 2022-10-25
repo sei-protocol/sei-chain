@@ -1,6 +1,7 @@
 package contract_test
 
 import (
+	dexutils "github.com/sei-protocol/sei-chain/x/dex/utils"
 	"testing"
 	"time"
 
@@ -50,7 +51,7 @@ func TestMoveTriggeredOrderIntoMemState(t *testing.T) {
 		utils.GetPairString(&pair),
 		dexkeeper,
 	)
-	orders := dexkeeper.MemState.GetBlockOrders(ctx, TEST_CONTRACT, utils.GetPairString(&pair))
+	orders := dexutils.GetMemState(ctx.Context()).GetBlockOrders(ctx, TEST_CONTRACT, utils.GetPairString(&pair))
 	cacheMarketOrders := orders.GetSortedMarketOrders(types.PositionDirection_LONG, false)
 	cacheTriggeredOrders := orders.GetTriggeredOrders()
 
@@ -127,7 +128,7 @@ func TestUpdateTriggeredOrders(t *testing.T) {
 
 	dexkeeper.SetTriggeredOrder(ctx, TEST_CONTRACT, shortTriggeredOrder, TEST_PAIR().PriceDenom, TEST_PAIR().AssetDenom)
 	dexkeeper.SetTriggeredOrder(ctx, TEST_CONTRACT, longNotTriggeredOrder, TEST_PAIR().PriceDenom, TEST_PAIR().AssetDenom)
-	orders := dexkeeper.MemState.GetBlockOrders(ctx, TEST_CONTRACT, utils.GetPairString(&pair))
+	orders := dexutils.GetMemState(ctx.Context()).GetBlockOrders(ctx, TEST_CONTRACT, utils.GetPairString(&pair))
 	orders.Add(&shortNotTriggeredOrder)
 	orders.Add(&longTriggeredOrder)
 

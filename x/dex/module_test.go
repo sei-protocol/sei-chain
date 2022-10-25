@@ -1,6 +1,7 @@
 package dex_test
 
 import (
+	"context"
 	"io/ioutil"
 	"testing"
 	"time"
@@ -13,6 +14,7 @@ import (
 	dexkeeperabci "github.com/sei-protocol/sei-chain/x/dex/keeper/abci"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
 	"github.com/sei-protocol/sei-chain/x/dex/types/utils"
+	dexutils "github.com/sei-protocol/sei-chain/x/dex/utils"
 	minttypes "github.com/sei-protocol/sei-chain/x/mint/types"
 	"github.com/stretchr/testify/require"
 	abci "github.com/tendermint/tendermint/abci/types"
@@ -47,15 +49,16 @@ const (
 func TestEndBlockMarketOrder(t *testing.T) {
 	testApp := keepertest.TestApp()
 	ctx := testApp.BaseApp.NewContext(false, tmproto.Header{Time: time.Now()})
+	ctx = ctx.WithContext(context.WithValue(ctx.Context(), dexutils.DexMemStateContextKey, dexcache.NewMemState()))
 	dexkeeper := testApp.DexKeeper
 	pair := types.Pair{PriceDenom: "SEI", AssetDenom: "ATOM"}
 
 	testAccount, _ := sdk.AccAddressFromBech32("sei1yezq49upxhunjjhudql2fnj5dgvcwjj87pn2wx")
-	amounts := sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(10000000)))
+	amounts := sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(10000000)), sdk.NewCoin("uusdc", sdk.NewInt(10000000)))
 	bankkeeper := testApp.BankKeeper
 	bankkeeper.MintCoins(ctx, minttypes.ModuleName, amounts)
 	bankkeeper.SendCoinsFromModuleToAccount(ctx, minttypes.ModuleName, testAccount, amounts)
-	wasm, err := ioutil.ReadFile("./testdata/clearing_house.wasm")
+	wasm, err := ioutil.ReadFile("./testdata/mars.wasm")
 	if err != nil {
 		panic(err)
 	}
@@ -71,10 +74,10 @@ func TestEndBlockMarketOrder(t *testing.T) {
 	if err != nil {
 		panic(err)
 	}
-	dexkeeper.SetContract(ctx, &types.ContractInfo{CodeId: 123, ContractAddr: contractAddr.String(), NeedHook: true, NeedOrderMatching: true})
+	dexkeeper.SetContract(ctx, &types.ContractInfo{CodeId: 123, ContractAddr: contractAddr.String(), NeedHook: false, NeedOrderMatching: true})
 	dexkeeper.AddRegisteredPair(ctx, contractAddr.String(), pair)
 	// place one order to a nonexistent contract
-	dexkeeper.MemState.GetBlockOrders(ctx, utils.ContractAddress(contractAddr.String()), utils.GetPairString(&pair)).Add(
+	dexutils.GetMemState(ctx.Context()).GetBlockOrders(ctx, utils.ContractAddress(contractAddr.String()), utils.GetPairString(&pair)).Add(
 		&types.Order{
 			Id:                1,
 			Account:           testAccount.String(),
@@ -88,7 +91,7 @@ func TestEndBlockMarketOrder(t *testing.T) {
 			Data:              "{\"position_effect\":\"Open\",\"leverage\":\"1\"}",
 		},
 	)
-	dexkeeper.MemState.GetBlockOrders(ctx, utils.ContractAddress(contractAddr.String()), utils.GetPairString(&pair)).Add(
+	dexutils.GetMemState(ctx.Context()).GetBlockOrders(ctx, utils.ContractAddress(contractAddr.String()), utils.GetPairString(&pair)).Add(
 		&types.Order{
 			Id:                2,
 			Account:           testAccount.String(),
@@ -102,7 +105,7 @@ func TestEndBlockMarketOrder(t *testing.T) {
 			Data:              "{\"position_effect\":\"Open\",\"leverage\":\"1\"}",
 		},
 	)
-	dexkeeper.MemState.GetDepositInfo(ctx, utils.ContractAddress(contractAddr.String())).Add(
+	dexutils.GetMemState(ctx.Context()).GetDepositInfo(ctx, utils.ContractAddress(contractAddr.String())).Add(
 		&dexcache.DepositInfoEntry{
 			Creator: testAccount.String(),
 			Denom:   "uusdc",
@@ -116,8 +119,8 @@ func TestEndBlockMarketOrder(t *testing.T) {
 	// Long book should be populated
 	require.True(t, found)
 
-	dexkeeper.MemState.Clear()
-	dexkeeper.MemState.GetBlockOrders(ctx, utils.ContractAddress(contractAddr.String()), utils.GetPairString(&pair)).Add(
+	dexutils.GetMemState(ctx.Context()).Clear()
+	dexutils.GetMemState(ctx.Context()).GetBlockOrders(ctx, utils.ContractAddress(contractAddr.String()), utils.GetPairString(&pair)).Add(
 		&types.Order{
 			Id:                3,
 			Account:           testAccount.String(),
@@ -138,6 +141,7 @@ func TestEndBlockMarketOrder(t *testing.T) {
 	// Long book should be removed since it's executed
 	// No state change should've been persisted for bad contract
 	_, found = dexkeeper.GetLongBookByPrice(ctx, contractAddr.String(), sdk.MustNewDecFromStr("2"), pair.PriceDenom, pair.AssetDenom)
+	// Long book should be populated
 	require.False(t, found)
 	_, found = dexkeeper.GetLongBookByPrice(ctx, contractAddr.String(), sdk.MustNewDecFromStr("1"), pair.PriceDenom, pair.AssetDenom)
 	require.True(t, found)
@@ -146,8 +150,8 @@ func TestEndBlockMarketOrder(t *testing.T) {
 	require.Equal(t, 1, len(matchResults.Orders))
 	require.Equal(t, 2, len(matchResults.Settlements))
 
-	dexkeeper.MemState.Clear()
-	dexkeeper.MemState.GetBlockOrders(ctx, utils.ContractAddress(contractAddr.String()), utils.GetPairString(&pair)).Add(
+	dexutils.GetMemState(ctx.Context()).Clear()
+	dexutils.GetMemState(ctx.Context()).GetBlockOrders(ctx, utils.ContractAddress(contractAddr.String()), utils.GetPairString(&pair)).Add(
 		&types.Order{
 			Id:                4,
 			Account:           testAccount.String(),
@@ -173,11 +177,12 @@ func TestEndBlockMarketOrder(t *testing.T) {
 func TestEndBlockLimitOrder(t *testing.T) {
 	testApp := keepertest.TestApp()
 	ctx := testApp.BaseApp.NewContext(false, tmproto.Header{Time: time.Now()})
+	ctx = ctx.WithContext(context.WithValue(ctx.Context(), dexutils.DexMemStateContextKey, dexcache.NewMemState()))
 	dexkeeper := testApp.DexKeeper
 	pair := types.Pair{PriceDenom: "SEI", AssetDenom: "ATOM"}
 
 	testAccount, _ := sdk.AccAddressFromBech32("sei1yezq49upxhunjjhudql2fnj5dgvcwjj87pn2wx")
-	amounts := sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(10000000)))
+	amounts := sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(10000000)), sdk.NewCoin("uusdc", sdk.NewInt(10000000)))
 	bankkeeper := testApp.BankKeeper
 	bankkeeper.MintCoins(ctx, minttypes.ModuleName, amounts)
 	bankkeeper.SendCoinsFromModuleToAccount(ctx, minttypes.ModuleName, testAccount, amounts)
@@ -199,8 +204,7 @@ func TestEndBlockLimitOrder(t *testing.T) {
 	}
 	dexkeeper.SetContract(ctx, &types.ContractInfo{CodeId: 123, ContractAddr: contractAddr.String(), NeedHook: true, NeedOrderMatching: true})
 	dexkeeper.AddRegisteredPair(ctx, contractAddr.String(), pair)
-	// place one order to a nonexistent contract
-	dexkeeper.MemState.GetBlockOrders(ctx, utils.ContractAddress(contractAddr.String()), utils.GetPairString(&pair)).Add(
+	dexutils.GetMemState(ctx.Context()).GetBlockOrders(ctx, utils.ContractAddress(contractAddr.String()), utils.GetPairString(&pair)).Add(
 		&types.Order{
 			Id:                1,
 			Account:           testAccount.String(),
@@ -214,7 +218,7 @@ func TestEndBlockLimitOrder(t *testing.T) {
 			Data:              "{\"position_effect\":\"Open\",\"leverage\":\"1\"}",
 		},
 	)
-	dexkeeper.MemState.GetBlockOrders(ctx, utils.ContractAddress(contractAddr.String()), utils.GetPairString(&pair)).Add(
+	dexutils.GetMemState(ctx.Context()).GetBlockOrders(ctx, utils.ContractAddress(contractAddr.String()), utils.GetPairString(&pair)).Add(
 		&types.Order{
 			Id:                2,
 			Account:           testAccount.String(),
@@ -228,7 +232,7 @@ func TestEndBlockLimitOrder(t *testing.T) {
 			Data:              "{\"position_effect\":\"Open\",\"leverage\":\"1\"}",
 		},
 	)
-	dexkeeper.MemState.GetBlockOrders(ctx, utils.ContractAddress(contractAddr.String()), utils.GetPairString(&pair)).Add(
+	dexutils.GetMemState(ctx.Context()).GetBlockOrders(ctx, utils.ContractAddress(contractAddr.String()), utils.GetPairString(&pair)).Add(
 		&types.Order{
 			Id:                3,
 			Account:           testAccount.String(),
@@ -242,7 +246,7 @@ func TestEndBlockLimitOrder(t *testing.T) {
 			Data:              "{\"position_effect\":\"Open\",\"leverage\":\"1\"}",
 		},
 	)
-	dexkeeper.MemState.GetDepositInfo(ctx, utils.ContractAddress(contractAddr.String())).Add(
+	dexutils.GetMemState(ctx.Context()).GetDepositInfo(ctx, utils.ContractAddress(contractAddr.String())).Add(
 		&dexcache.DepositInfoEntry{
 			Creator: testAccount.String(),
 			Denom:   "uusdc",
@@ -259,8 +263,8 @@ func TestEndBlockLimitOrder(t *testing.T) {
 	_, found = dexkeeper.GetShortBookByPrice(ctx, contractAddr.String(), sdk.MustNewDecFromStr("3"), pair.PriceDenom, pair.AssetDenom)
 	require.True(t, found)
 
-	dexkeeper.MemState.Clear()
-	dexkeeper.MemState.GetBlockOrders(ctx, utils.ContractAddress(contractAddr.String()), utils.GetPairString(&pair)).Add(
+	dexutils.GetMemState(ctx.Context()).Clear()
+	dexutils.GetMemState(ctx.Context()).GetBlockOrders(ctx, utils.ContractAddress(contractAddr.String()), utils.GetPairString(&pair)).Add(
 		&types.Order{
 			Id:                4,
 			Account:           testAccount.String(),
@@ -274,7 +278,7 @@ func TestEndBlockLimitOrder(t *testing.T) {
 			Data:              "{\"position_effect\":\"Open\",\"leverage\":\"1\"}",
 		},
 	)
-	dexkeeper.MemState.GetBlockOrders(ctx, utils.ContractAddress(contractAddr.String()), utils.GetPairString(&pair)).Add(
+	dexutils.GetMemState(ctx.Context()).GetBlockOrders(ctx, utils.ContractAddress(contractAddr.String()), utils.GetPairString(&pair)).Add(
 		&types.Order{
 			Id:                5,
 			Account:           testAccount.String(),
@@ -305,8 +309,8 @@ func TestEndBlockLimitOrder(t *testing.T) {
 	require.Equal(t, 2, len(matchResults.Orders))
 	require.Equal(t, 4, len(matchResults.Settlements))
 
-	dexkeeper.MemState.Clear()
-	dexkeeper.MemState.GetBlockOrders(ctx, utils.ContractAddress(contractAddr.String()), utils.GetPairString(&pair)).Add(
+	dexutils.GetMemState(ctx.Context()).Clear()
+	dexutils.GetMemState(ctx.Context()).GetBlockOrders(ctx, utils.ContractAddress(contractAddr.String()), utils.GetPairString(&pair)).Add(
 		&types.Order{
 			Id:                6,
 			Account:           testAccount.String(),
@@ -339,13 +343,14 @@ func TestEndBlockLimitOrder(t *testing.T) {
 func TestEndBlockRollback(t *testing.T) {
 	testApp := keepertest.TestApp()
 	ctx := testApp.BaseApp.NewContext(false, tmproto.Header{})
+	ctx = ctx.WithContext(context.WithValue(ctx.Context(), dexutils.DexMemStateContextKey, dexcache.NewMemState()))
 	dexkeeper := testApp.DexKeeper
 	pair := TEST_PAIR()
 	// register contract and pair
-	dexkeeper.SetContract(ctx, &types.ContractInfo{CodeId: 123, ContractAddr: keepertest.TestContract, NeedHook: true, NeedOrderMatching: true})
+	dexkeeper.SetContract(ctx, &types.ContractInfo{CodeId: 123, ContractAddr: keepertest.TestContract, NeedHook: false, NeedOrderMatching: true})
 	dexkeeper.AddRegisteredPair(ctx, keepertest.TestContract, pair)
 	// place one order to a nonexistent contract
-	dexkeeper.MemState.GetBlockOrders(ctx, utils.ContractAddress(keepertest.TestContract), utils.GetPairString(&pair)).Add(
+	dexutils.GetMemState(ctx.Context()).GetBlockOrders(ctx, utils.ContractAddress(keepertest.TestContract), utils.GetPairString(&pair)).Add(
 		&types.Order{
 			Id:                1,
 			Account:           keepertest.TestAccount,
@@ -368,14 +373,15 @@ func TestEndBlockRollback(t *testing.T) {
 func TestEndBlockPartialRollback(t *testing.T) {
 	testApp := keepertest.TestApp()
 	ctx := testApp.BaseApp.NewContext(false, tmproto.Header{Time: time.Now()})
+	ctx = ctx.WithContext(context.WithValue(ctx.Context(), dexutils.DexMemStateContextKey, dexcache.NewMemState()))
 	// BAD CONTRACT
 	dexkeeper := testApp.DexKeeper
 	pair := TEST_PAIR()
 	// register contract and pair
-	dexkeeper.SetContract(ctx, &types.ContractInfo{CodeId: 123, ContractAddr: keepertest.TestContract, NeedHook: true, NeedOrderMatching: true})
+	dexkeeper.SetContract(ctx, &types.ContractInfo{CodeId: 123, ContractAddr: keepertest.TestContract, NeedHook: false, NeedOrderMatching: true})
 	dexkeeper.AddRegisteredPair(ctx, keepertest.TestContract, pair)
 	// place one order to a nonexistent contract
-	dexkeeper.MemState.GetBlockOrders(ctx, utils.ContractAddress(keepertest.TestContract), utils.GetPairString(&pair)).Add(
+	dexutils.GetMemState(ctx.Context()).GetBlockOrders(ctx, utils.ContractAddress(keepertest.TestContract), utils.GetPairString(&pair)).Add(
 		&types.Order{
 			Id:                1,
 			Account:           keepertest.TestAccount,
@@ -394,7 +400,7 @@ func TestEndBlockPartialRollback(t *testing.T) {
 	bankkeeper := testApp.BankKeeper
 	bankkeeper.MintCoins(ctx, minttypes.ModuleName, amounts)
 	bankkeeper.SendCoinsFromModuleToAccount(ctx, minttypes.ModuleName, testAccount, amounts)
-	wasm, err := ioutil.ReadFile("./testdata/clearing_house.wasm")
+	wasm, err := ioutil.ReadFile("./testdata/mars.wasm")
 	if err != nil {
 		panic(err)
 	}
@@ -410,10 +416,10 @@ func TestEndBlockPartialRollback(t *testing.T) {
 	if err != nil {
 		panic(err)
 	}
-	dexkeeper.SetContract(ctx, &types.ContractInfo{CodeId: 123, ContractAddr: contractAddr.String(), NeedHook: true, NeedOrderMatching: true})
+	dexkeeper.SetContract(ctx, &types.ContractInfo{CodeId: 123, ContractAddr: contractAddr.String(), NeedHook: false, NeedOrderMatching: true})
 	dexkeeper.AddRegisteredPair(ctx, contractAddr.String(), pair)
 	// place one order to a nonexistent contract
-	dexkeeper.MemState.GetBlockOrders(ctx, utils.ContractAddress(contractAddr.String()), utils.GetPairString(&pair)).Add(
+	dexutils.GetMemState(ctx.Context()).GetBlockOrders(ctx, utils.ContractAddress(contractAddr.String()), utils.GetPairString(&pair)).Add(
 		&types.Order{
 			Id:                2,
 			Account:           testAccount.String(),
@@ -427,7 +433,7 @@ func TestEndBlockPartialRollback(t *testing.T) {
 			Data:              "{\"position_effect\":\"Open\",\"leverage\":\"1\"}",
 		},
 	)
-	dexkeeper.MemState.GetDepositInfo(ctx, utils.ContractAddress(contractAddr.String())).Add(
+	dexutils.GetMemState(ctx.Context()).GetDepositInfo(ctx, utils.ContractAddress(contractAddr.String())).Add(
 		&dexcache.DepositInfoEntry{
 			Creator: testAccount.String(),
 			Denom:   "uusdc",
@@ -450,6 +456,7 @@ func TestEndBlockPartialRollback(t *testing.T) {
 func TestBeginBlock(t *testing.T) {
 	testApp := keepertest.TestApp()
 	ctx := testApp.BaseApp.NewContext(false, tmproto.Header{Time: time.Now()})
+	ctx = ctx.WithContext(context.WithValue(ctx.Context(), dexutils.DexMemStateContextKey, dexcache.NewMemState()))
 	dexkeeper := testApp.DexKeeper
 
 	testAccount, _ := sdk.AccAddressFromBech32("sei1yezq49upxhunjjhudql2fnj5dgvcwjj87pn2wx")
@@ -457,7 +464,7 @@ func TestBeginBlock(t *testing.T) {
 	bankkeeper := testApp.BankKeeper
 	bankkeeper.MintCoins(ctx, minttypes.ModuleName, amounts)
 	bankkeeper.SendCoinsFromModuleToAccount(ctx, minttypes.ModuleName, testAccount, amounts)
-	wasm, err := ioutil.ReadFile("./testdata/clearing_house.wasm")
+	wasm, err := ioutil.ReadFile("./testdata/mars.wasm")
 	if err != nil {
 		panic(err)
 	}
@@ -473,7 +480,7 @@ func TestBeginBlock(t *testing.T) {
 	if err != nil {
 		panic(err)
 	}
-	dexkeeper.SetContract(ctx, &types.ContractInfo{CodeId: 123, ContractAddr: contractAddr.String(), NeedHook: true, NeedOrderMatching: true})
+	dexkeeper.SetContract(ctx, &types.ContractInfo{CodeId: 123, ContractAddr: contractAddr.String(), NeedHook: false, NeedOrderMatching: true})
 
 	// right now just make sure it doesn't crash since it doesn't register any state to be checked against
 	testApp.BeginBlocker(ctx, abci.RequestBeginBlock{})
@@ -488,6 +495,7 @@ func TestBeginBlock(t *testing.T) {
 func TestEndBlockPanicHandling(t *testing.T) {
 	testApp := keepertest.TestApp()
 	ctx := testApp.BaseApp.NewContext(false, tmproto.Header{Time: time.Now()})
+	ctx = ctx.WithContext(context.WithValue(ctx.Context(), dexutils.DexMemStateContextKey, dexcache.NewMemState()))
 	dexkeeper := testApp.DexKeeper
 	pair := types.Pair{PriceDenom: "SEI", AssetDenom: "ATOM"}
 
@@ -496,7 +504,7 @@ func TestEndBlockPanicHandling(t *testing.T) {
 	bankkeeper := testApp.BankKeeper
 	bankkeeper.MintCoins(ctx, minttypes.ModuleName, amounts)
 	bankkeeper.SendCoinsFromModuleToAccount(ctx, minttypes.ModuleName, testAccount, amounts)
-	wasm, err := ioutil.ReadFile("./testdata/clearing_house.wasm")
+	wasm, err := ioutil.ReadFile("./testdata/mars.wasm")
 	if err != nil {
 		panic(err)
 	}
@@ -512,9 +520,9 @@ func TestEndBlockPanicHandling(t *testing.T) {
 	if err != nil {
 		panic(err)
 	}
-	dexkeeper.SetContract(ctx, &types.ContractInfo{CodeId: 123, ContractAddr: contractAddr.String(), NeedHook: true, NeedOrderMatching: true})
+	dexkeeper.SetContract(ctx, &types.ContractInfo{CodeId: 123, ContractAddr: contractAddr.String(), NeedHook: false, NeedOrderMatching: true})
 	dexkeeper.AddRegisteredPair(ctx, contractAddr.String(), pair)
-	dexkeeper.MemState.GetBlockOrders(ctx, utils.ContractAddress(contractAddr.String()), utils.GetPairString(&pair)).Add(
+	dexutils.GetMemState(ctx.Context()).GetBlockOrders(ctx, utils.ContractAddress(contractAddr.String()), utils.GetPairString(&pair)).Add(
 		&types.Order{
 			Id:                1,
 			Account:           testAccount.String(),
@@ -528,7 +536,7 @@ func TestEndBlockPanicHandling(t *testing.T) {
 			Data:              "{\"position_effect\":\"Open\",\"leverage\":\"1\"}",
 		},
 	)
-	dexkeeper.MemState.GetDepositInfo(ctx, utils.ContractAddress(contractAddr.String())).Add(
+	dexutils.GetMemState(ctx.Context()).GetDepositInfo(ctx, utils.ContractAddress(contractAddr.String())).Add(
 		&dexcache.DepositInfoEntry{
 			Creator: testAccount.String(),
 			Denom:   "usei",

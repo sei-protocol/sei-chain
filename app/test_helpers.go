@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"testing"
@@ -9,6 +10,7 @@ import (
 	"github.com/CosmWasm/wasmd/x/wasm"
 	crptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
 	"github.com/cosmos/cosmos-sdk/simapp"
+	cosmostestutil "github.com/cosmos/cosmos-sdk/testutil"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	slashingtypes "github.com/cosmos/cosmos-sdk/x/slashing/types"
 	"github.com/cosmos/cosmos-sdk/x/staking/teststaking"
@@ -122,12 +124,6 @@ func (s *TestWrapper) EndBlock() {
 	s.App.EndBlocker(s.Ctx, reqEndBlock)
 }
 
-type EmptyAppOptions struct{}
-
-func (ao EmptyAppOptions) Get(o string) interface{} {
-	return nil
-}
-
 func Setup(isCheckTx bool) *App {
 	db := dbm.NewMemDB()
 	encodingConfig := MakeEncodingConfig()
@@ -142,7 +138,7 @@ func Setup(isCheckTx bool) *App {
 		5,
 		encodingConfig,
 		wasm.EnableAllProposals,
-		EmptyAppOptions{},
+		&cosmostestutil.TestAppOpts{},
 		EmptyWasmOpts,
 	)
 	if !isCheckTx {
@@ -152,13 +148,16 @@ func Setup(isCheckTx bool) *App {
 			panic(err)
 		}
 
-		app.InitChain(
-			abci.RequestInitChain{
+		_, err = app.InitChain(
+			context.Background(), &abci.RequestInitChain{
 				Validators:      []abci.ValidatorUpdate{},
 				ConsensusParams: simapp.DefaultConsensusParams,
 				AppStateBytes:   stateBytes,
 			},
 		)
+		if err != nil {
+			panic(err)
+		}
 	}
 
 	return app
@@ -182,7 +181,7 @@ func SetupTestingAppWithLevelDb(isCheckTx bool) (*App, func()) {
 		5,
 		encodingConfig,
 		wasm.EnableAllProposals,
-		EmptyAppOptions{},
+		&cosmostestutil.TestAppOpts{},
 		EmptyWasmOpts,
 	)
 	if !isCheckTx {
@@ -192,13 +191,16 @@ func SetupTestingAppWithLevelDb(isCheckTx bool) (*App, func()) {
 			panic(err)
 		}
 
-		app.InitChain(
-			abci.RequestInitChain{
+		_, err = app.InitChain(
+			context.Background(), &abci.RequestInitChain{
 				Validators:      []abci.ValidatorUpdate{},
 				ConsensusParams: simapp.DefaultConsensusParams,
 				AppStateBytes:   stateBytes,
 			},
 		)
+		if err != nil {
+			panic(err)
+		}
 	}
 
 	cleanupFn := func() {

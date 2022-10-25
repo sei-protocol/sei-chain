@@ -2,12 +2,14 @@ package main
 
 import (
 	"encoding/json"
+	"flag"
 	"fmt"
 	"math/rand"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -28,6 +30,16 @@ import (
 	"google.golang.org/grpc"
 )
 
+const (
+	Basic                 string = "basic"
+	FailureBasicMalformed string = "failure_basic_malformed"
+	FailureBasicInvalid   string = "failure_basic_invalid"
+	FailureDexMalformed   string = "failure_dex_malformed"
+	FailureDexInvalid     string = "failure_dex_invalid"
+	Dex                   string = "dex"
+	Limit                 string = "limit"
+)
+
 type EncodingConfig struct {
 	InterfaceRegistry types.InterfaceRegistry
 	// NOTE: this field will be renamed to Codec
@@ -37,15 +49,19 @@ type EncodingConfig struct {
 }
 
 type Config struct {
-	BatchSize      uint64                `json:"batch_size"`
-	ChainID        string                `json:"chain_id"`
-	OrdersPerBlock uint64                `json:"orders_per_block"`
-	Rounds         uint64                `json:"rounds"`
-	MessageType    string                `json:"message_type"`
-	PriceDistr     NumericDistribution   `json:"price_distribution"`
-	QuantityDistr  NumericDistribution   `json:"quantity_distribution"`
-	MsgTypeDistr   MsgTypeDistribution   `json:"message_type_distribution"`
-	ContractDistr  ContractDistributions `json:"contract_distribution"`
+	BatchSize         uint64                `json:"batch_size"`
+	ChainID           string                `json:"chain_id"`
+	OrdersPerBlock    uint64                `json:"orders_per_block"`
+	Rounds            uint64                `json:"rounds"`
+	MessageType       string                `json:"message_type"`
+	FailureMode       bool                  `json:"failure_mode"`
+	FailureType       string                `json:"failure_type"`
+	PriceDistr        NumericDistribution   `json:"price_distribution"`
+	QuantityDistr     NumericDistribution   `json:"quantity_distribution"`
+	MsgTypeDistr      MsgTypeDistribution   `json:"message_type_distribution"`
+	ContractDistr     ContractDistributions `json:"contract_distribution"`
+	Constant          bool                  `json:"constant"`
+	ConstLoadInterval int64                 `json:"const_load_interval"`
 }
 
 type NumericDistribution struct {
@@ -59,6 +75,15 @@ func (d *NumericDistribution) Sample() sdk.Dec {
 	return d.Min.Add(d.Max.Sub(d.Min).QuoInt64(d.NumDistinct).Mul(steps))
 }
 
+// Invalid numeric distribution sample
+func (d *NumericDistribution) InvalidSample() sdk.Dec {
+	steps := sdk.NewDec(rand.Int63n(d.NumDistinct))
+	if rand.Float64() < 0.5 {
+		return d.Min.Add(d.Max.Sub(d.Min).QuoInt64(d.NumDistinct).Mul(steps))
+	}
+	return d.Max.Add(d.Max.Sub(d.Min).QuoInt64(d.NumDistinct).Mul(steps))
+}
+
 type MsgTypeDistribution struct {
 	LimitOrderPct  sdk.Dec `json:"limit_order_percentage"`
 	MarketOrderPct sdk.Dec `json:"market_order_percentage"`
@@ -70,7 +95,7 @@ func (d *MsgTypeDistribution) Sample() string {
 	}
 	randNum := sdk.MustNewDecFromStr(fmt.Sprintf("%f", rand.Float64()))
 	if randNum.LT(d.LimitOrderPct) {
-		return "limit"
+		return Limit
 	}
 	return "market"
 }
@@ -158,7 +183,7 @@ func run(config Config) {
 		}
 	}
 	wgs := []*sync.WaitGroup{}
-	sendersList := [][]func(){}
+	sendersList := [][]func() string{}
 
 	configString, _ := json.Marshal(config)
 	fmt.Printf("Running with \n %s \ns", string(configString))
@@ -167,12 +192,12 @@ func run(config Config) {
 	for i := 0; i < int(config.Rounds); i++ {
 		fmt.Printf("Preparing %d-th round\n", i)
 		wg := &sync.WaitGroup{}
-		var senders []func()
+		var senders []func() string
 		wgs = append(wgs, wg)
 		for _, account := range activeAccounts {
 			key := GetKey(uint64(account))
 
-			msg := generateMessage(config, key, batchSize)
+			msg, failureExpected := generateMessage(config, key, batchSize)
 			txBuilder := TestConfig.TxConfig.NewTxBuilder()
 			_ = txBuilder.SetMsgs(msg)
 			seqDelta := uint64(i / 2)
@@ -182,11 +207,11 @@ func run(config Config) {
 			// in which a later seqno is delievered before an earlier seqno
 			// In practice, we haven't run into this issue so we'll leave this
 			// as is.
-			sender := SendTx(key, &txBuilder, mode, seqDelta, &mu)
+			sender := SendTx(key, &txBuilder, mode, seqDelta, &mu, failureExpected)
 			wg.Add(1)
-			senders = append(senders, func() {
+			senders = append(senders, func() string {
 				defer wg.Done()
-				sender()
+				return sender()
 			})
 		}
 		sendersList = append(sendersList, senders)
@@ -195,6 +220,7 @@ func run(config Config) {
 	}
 
 	lastHeight := getLastHeight()
+	txs := []string{}
 	for i := 0; i < int(config.Rounds); i++ {
 		newHeight := getLastHeight()
 		for newHeight == lastHeight {
@@ -205,18 +231,45 @@ func run(config Config) {
 		senders := sendersList[i]
 		wg := wgs[i]
 		for _, sender := range senders {
-			go sender()
+			go func() {
+				//nolint:govet
+				tx := sender()
+				if tx != "" {
+					txs = append(txs, tx)
+				}
+			}()
 		}
 		wg.Wait()
 		lastHeight = newHeight
 	}
+
+	if config.Constant {
+		// sleep 3 seconds wait for transaction to finish
+		time.Sleep(3 * time.Second)
+		for i := 0; i < len(txs); i++ {
+			txResponse := GetTxResponse(txs[i])
+			if txResponse.Tx == nil {
+				// TODO: add metrics to detect non committed txs
+				fmt.Println("transaction not committed")
+			}
+		}
+	}
 	fmt.Printf("%s - Finished\n", time.Now().Format("2006-01-02T15:04:05"))
 }
 
-func generateMessage(config Config, key cryptotypes.PrivKey, batchSize uint64) sdk.Msg {
+func generateMessage(config Config, key cryptotypes.PrivKey, batchSize uint64) (sdk.Msg, bool) {
 	var msg sdk.Msg
-	switch config.MessageType {
-	case "basic":
+	messageTypes := []string{"basic", "dex", "failure_basic_malformed", "failure_basic_invalid", "failure_dex_malformed", "failure_dex_invalid"}
+	messageType := config.MessageType
+
+	// Use a random message type if it's running constant load test
+	if config.Constant {
+		// need to update seed otherwise it's the same value for randomization
+		rand.Seed(time.Now().UnixNano())
+		messageType = messageTypes[rand.Intn(len(messageTypes))]
+	}
+	switch messageType {
+	case Basic:
 		msg = &banktypes.MsgSend{
 			FromAddress: sdk.AccAddress(key.PubKey().Address()).String(),
 			ToAddress:   sdk.AccAddress(key.PubKey().Address()).String(),
@@ -225,11 +278,125 @@ func generateMessage(config Config, key cryptotypes.PrivKey, batchSize uint64) s
 				Amount: sdk.NewInt(1),
 			}),
 		}
-	case "dex":
+	case FailureBasicMalformed:
+		var denom string
+		if rand.Float64() < 0.5 {
+			denom = "unknown"
+		} else {
+			denom = "other"
+		}
+		msg = &banktypes.MsgSend{
+			FromAddress: sdk.AccAddress(key.PubKey().Address()).String(),
+			ToAddress:   sdk.AccAddress(key.PubKey().Address()).String(),
+			Amount: sdk.NewCoins(sdk.Coin{
+				Denom:  denom,
+				Amount: sdk.NewInt(1),
+			}),
+		}
+	case FailureBasicInvalid:
+		var amountUsei int64
+		amountUsei = 1000000000000000000
+		msg = &banktypes.MsgSend{
+			FromAddress: sdk.AccAddress(key.PubKey().Address()).String(),
+			ToAddress:   sdk.AccAddress(key.PubKey().Address()).String(),
+			Amount: sdk.NewCoins(sdk.Coin{
+				Denom:  "usei",
+				Amount: sdk.NewInt(amountUsei),
+			}),
+		}
+	case FailureDexMalformed:
 		msgType := config.MsgTypeDistr.Sample()
 		orderPlacements := []*dextypes.Order{}
 		var orderType dextypes.OrderType
-		if msgType == "limit" {
+		if msgType == "fake_limit" {
+			orderType = 8
+		} else {
+			orderType = 9
+		}
+		var direction dextypes.PositionDirection
+		if rand.Float64() < 0.5 {
+			direction = dextypes.PositionDirection_LONG
+		} else {
+			direction = dextypes.PositionDirection_SHORT
+		}
+		price := config.PriceDistr.InvalidSample()
+		quantity := config.QuantityDistr.InvalidSample()
+		contract := config.ContractDistr.Sample()
+		for j := 0; j < int(batchSize); j++ {
+			orderPlacements = append(orderPlacements, &dextypes.Order{
+				Account:           sdk.AccAddress(key.PubKey().Address()).String(),
+				ContractAddr:      contract,
+				PositionDirection: direction,
+				Price:             price.Quo(FromMili),
+				Quantity:          quantity.Quo(FromMili),
+				PriceDenom:        "SEI",
+				AssetDenom:        "ATOM",
+				OrderType:         orderType,
+				Data:              VortexData,
+			})
+		}
+		amount, err := sdk.ParseCoinsNormalized(fmt.Sprintf("%d%s", price.Mul(quantity).Ceil().RoundInt64(), "usei"))
+		if err != nil {
+			panic(err)
+		}
+		msg = &dextypes.MsgPlaceOrders{
+			Creator:      sdk.AccAddress(key.PubKey().Address()).String(),
+			Orders:       orderPlacements,
+			ContractAddr: contract,
+			Funds:        amount,
+		}
+	case FailureDexInvalid:
+		msgType := config.MsgTypeDistr.Sample()
+		orderPlacements := []*dextypes.Order{}
+		var orderType dextypes.OrderType
+		if msgType == Limit {
+			orderType = dextypes.OrderType_LIMIT
+		} else {
+			orderType = dextypes.OrderType_MARKET
+		}
+		var direction dextypes.PositionDirection
+		if rand.Float64() < 0.5 {
+			direction = dextypes.PositionDirection_LONG
+		} else {
+			direction = dextypes.PositionDirection_SHORT
+		}
+		price := config.PriceDistr.Sample()
+		quantity := config.QuantityDistr.Sample()
+		contract := config.ContractDistr.Sample()
+		for j := 0; j < int(batchSize); j++ {
+			orderPlacements = append(orderPlacements, &dextypes.Order{
+				Account:           sdk.AccAddress(key.PubKey().Address()).String(),
+				ContractAddr:      contract,
+				PositionDirection: direction,
+				Price:             price.Quo(FromMili),
+				Quantity:          quantity.Quo(FromMili),
+				PriceDenom:        "SEI",
+				AssetDenom:        "ATOM",
+				OrderType:         orderType,
+				Data:              VortexData,
+			})
+		}
+		var amountUsei int64
+		if rand.Float64() < 0.5 {
+			amountUsei = 10000 * price.Mul(quantity).Ceil().RoundInt64()
+		} else {
+			amountUsei = 0
+		}
+		amount, err := sdk.ParseCoinsNormalized(fmt.Sprintf("%d%s", amountUsei, "usei"))
+		if err != nil {
+			panic(err)
+		}
+		msg = &dextypes.MsgPlaceOrders{
+			Creator:      sdk.AccAddress(key.PubKey().Address()).String(),
+			Orders:       orderPlacements,
+			ContractAddr: contract,
+			Funds:        amount,
+		}
+	case Dex:
+		msgType := config.MsgTypeDistr.Sample()
+		orderPlacements := []*dextypes.Order{}
+		var orderType dextypes.OrderType
+		if msgType == Limit {
 			orderType = dextypes.OrderType_LIMIT
 		} else {
 			orderType = dextypes.OrderType_MARKET
@@ -269,7 +436,11 @@ func generateMessage(config Config, key cryptotypes.PrivKey, batchSize uint64) s
 	default:
 		fmt.Printf("Unrecognized message type %s", config.MessageType)
 	}
-	return msg
+
+	if strings.Contains(config.MessageType, "failure") {
+		return msg, true
+	}
+	return msg, false
 }
 
 func getLastHeight() int {
@@ -289,11 +460,41 @@ func getLastHeight() int {
 }
 
 func main() {
+	clientType := flag.String("clientType", "", "a string")
+	flag.Parse()
+	fmt.Printf("in main -> clientType: %s \n", *clientType)
 	config := Config{}
 	pwd, _ := os.Getwd()
-	file, _ := os.ReadFile(pwd + "/loadtest/config.json")
+
+	fileName := "/loadtest/config.json"
+	file, _ := os.ReadFile(pwd + fileName)
 	if err := json.Unmarshal(file, &config); err != nil {
 		panic(err)
 	}
-	run(config)
+	if *clientType == FailureBasicMalformed {
+		config.FailureMode = true
+		config.MessageType = FailureBasicMalformed
+	}
+	if *clientType == FailureBasicInvalid {
+		config.FailureMode = true
+		config.MessageType = FailureBasicInvalid
+	}
+	if *clientType == FailureDexMalformed {
+		config.FailureMode = true
+		config.MessageType = FailureDexMalformed
+	}
+	if *clientType == FailureDexInvalid {
+		config.FailureMode = true
+		config.MessageType = FailureDexInvalid
+	}
+
+	if config.Constant {
+		// If it's constant load, run forever with sleep intervals
+		for {
+			run(config)
+			time.Sleep(time.Duration(config.ConstLoadInterval) * time.Second)
+		}
+	} else {
+		run(config)
+	}
 }

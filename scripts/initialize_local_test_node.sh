@@ -35,6 +35,11 @@ sudo -S rm -r ~/test_accounts/
 ~/go/bin/seid keys add $keyname
 ~/go/bin/seid add-genesis-account $(~/go/bin/seid keys show $keyname -a) 100000000000000000000usei,100000000000000000000uusdc,100000000000000000000uatom
 ~/go/bin/seid gentx $keyname 70000000000000000000usei --chain-id sei-chain
+KEY=$(jq '.pub_key' ~/.sei/config/priv_validator_key.json -c)
+jq '.validators = [{}]' ~/.sei/config/genesis.json > ~/.sei/config/tmp_genesis.json
+jq '.validators[0] += {"power":"70000000000000"}' ~/.sei/config/tmp_genesis.json > ~/.sei/config/tmp_genesis_2.json
+jq '.validators[0] += {"pub_key":'$KEY'}' ~/.sei/config/tmp_genesis_2.json > ~/.sei/config/tmp_genesis_3.json
+mv ~/.sei/config/tmp_genesis_3.json ~/.sei/config/genesis.json && rm ~/.sei/config/tmp_genesis.json && rm ~/.sei/config/tmp_genesis_2.json
 ~/go/bin/seid collect-gentxs
 cat ~/.sei/config/genesis.json | jq '.app_state["crisis"]["constant_fee"]["denom"]="usei"' > ~/.sei/config/tmp_genesis.json && mv ~/.sei/config/tmp_genesis.json ~/.sei/config/genesis.json
 cat ~/.sei/config/genesis.json | jq '.app_state["gov"]["deposit_params"]["min_deposit"][0]["denom"]="usei"' > ~/.sei/config/tmp_genesis.json && mv ~/.sei/config/tmp_genesis.json ~/.sei/config/genesis.json
@@ -57,11 +62,15 @@ if [[ "$OSTYPE" == "linux-gnu"* ]]; then
   sed -i 's/timeout_precommit =.*/timeout_precommit = "2000ms"/g' $CONFIG_PATH
   sed -i 's/timeout_commit =.*/timeout_commit = "2000ms"/g' $CONFIG_PATH
   sed -i 's/skip_timeout_commit =.*/skip_timeout_commit = false/g' $CONFIG_PATH
+  sed -i 's/mode = "full"/mode = "validator"/g' $HOME/.sei/config/config.toml
+  sed -i 's/indexer = \["null"\]/indexer = \["kv"\]/g' $HOME/.sei/config/config.toml
 elif [[ "$OSTYPE" == "darwin"* ]]; then
   sed -i '' 's/timeout_prevote =.*/timeout_prevote = "2000ms"/g' $CONFIG_PATH
   sed -i '' 's/timeout_precommit =.*/timeout_precommit = "2000ms"/g' $CONFIG_PATH
   sed -i '' 's/timeout_commit =.*/timeout_commit = "2000ms"/g' $CONFIG_PATH
   sed -i '' 's/skip_timeout_commit =.*/skip_timeout_commit = false/g' $CONFIG_PATH
+  sed -i '' 's/mode = "full"/mode = "validator"/g' $HOME/.sei/config/config.toml
+  sed -i '' 's/indexer = \["null"\]/indexer = \["kv"\]/g' $HOME/.sei/config/config.toml
 else
   printf "Platform not supported, please ensure that the following values are set in your config.toml:\n"
   printf "###         Consensus Configuration Options         ###\n"
@@ -69,8 +78,10 @@ else
   printf "\t timeout_precommit = \"2000ms\"\n"
   printf "\t timeout_commit = \"2000ms\"\n"
   printf "\t skip_timeout_commit = false\n"
+  printf "\t mode = validator\n"
+  printf "\t indexer = [\"kv\"]\n"
   exit 1
 fi
 
 # start the chain with log tracing
-~/go/bin/seid start --trace
+~/go/bin/seid start --trace --chain-id sei-chain
