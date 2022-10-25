@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sync"
 	"time"
@@ -57,6 +58,28 @@ func NewSignerClient() *SignerClient {
 		CachedAccountSeqNum: &sync.Map{},
 		CachedAccountKey:    &sync.Map{},
 	}
+}
+
+type Validator struct {
+	OpperatorAddr string `json:"operator_address"`
+}
+
+type QueryValidators struct {
+	Validators []Validator `json:"validators"`
+}
+
+func GetValidators() QueryValidators {
+	seidQuery, err := exec.Command("seid", "query", "staking", "validators", "--output", "json").Output()
+	if err != nil {
+		panic(err)
+	}
+
+	qv := QueryValidators{}
+	if err := json.Unmarshal(seidQuery, &qv); err != nil {
+		panic(err)
+	}
+
+	return qv
 }
 
 func (sc *SignerClient) GetKey(accountIdx uint64) cryptotypes.PrivKey {

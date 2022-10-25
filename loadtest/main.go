@@ -17,6 +17,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/codec"
 	"github.com/cosmos/cosmos-sdk/codec/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
 	"github.com/sei-protocol/sei-chain/app"
 	dextypes "github.com/sei-protocol/sei-chain/x/dex/types"
 )
@@ -69,7 +70,7 @@ func run() {
 	fmt.Printf("%s - Finished\n", time.Now().Format("2006-01-02T15:04:05"))
 }
 
-func generateMessage(config Config, key cryptotypes.PrivKey, msgPerTx uint64) sdk.Msg {
+func generateMessage(config Config, key cryptotypes.PrivKey, msgPerTx uint64, validators []Validator) sdk.Msg {
 	var msg sdk.Msg
 	switch config.MessageType {
 	case "basic":
@@ -81,8 +82,34 @@ func generateMessage(config Config, key cryptotypes.PrivKey, msgPerTx uint64) sd
 				Amount: sdk.NewInt(1),
 			}),
 		}
+	case "staking":
+		msgType := config.MsgTypeDistr.SampleStakingMsgs()
+
+		switch msgType {
+		case "delegate":
+			msg = &stakingtypes.MsgDelegate{
+				DelegatorAddress: sdk.AccAddress(key.PubKey().Address()).String(),
+				ValidatorAddress: validators[rand.Intn(len(validators))].OpperatorAddr,
+				Amount:           sdk.Coin{Denom: "usei", Amount: sdk.NewInt(5)},
+			}
+		case "undelegate":
+			msg = &stakingtypes.MsgUndelegate{
+				DelegatorAddress: sdk.AccAddress(key.PubKey().Address()).String(),
+				ValidatorAddress: validators[rand.Intn(len(validators))].OpperatorAddr,
+				Amount:           sdk.Coin{Denom: "usei", Amount: sdk.NewInt(1)},
+			}
+		case "begin_redelegate":
+			msg = &stakingtypes.MsgBeginRedelegate{
+				DelegatorAddress:    sdk.AccAddress(key.PubKey().Address()).String(),
+				ValidatorSrcAddress: validators[rand.Intn(len(validators))].OpperatorAddr,
+				ValidatorDstAddress: validators[rand.Intn(len(validators))].OpperatorAddr,
+				Amount:              sdk.Coin{Denom: "usei", Amount: sdk.NewInt(1)},
+			}
+		default:
+			panic("Unknown message type")
+		}
 	case "dex":
-		msgType := config.MsgTypeDistr.Sample()
+		msgType := config.MsgTypeDistr.SampleDexMsgs()
 		orderPlacements := []*dextypes.Order{}
 		var orderType dextypes.OrderType
 		if msgType == "limit" {
