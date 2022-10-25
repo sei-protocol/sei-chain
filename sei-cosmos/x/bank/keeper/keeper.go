@@ -35,16 +35,20 @@ type Keeper interface {
 	IterateAllDenomMetaData(ctx sdk.Context, cb func(types.Metadata) bool)
 
 	SendCoinsFromModuleToAccount(ctx sdk.Context, senderModule string, recipientAddr sdk.AccAddress, amt sdk.Coins) error
-	DeferredSendCoinsFromModuleToAccount(ctx sdk.Context, senderModule string, recipientAddr sdk.AccAddress, amount sdk.Coins) error
 	SendCoinsFromModuleToModule(ctx sdk.Context, senderModule, recipientModule string, amt sdk.Coins) error
 	SendCoinsFromAccountToModule(ctx sdk.Context, senderAddr sdk.AccAddress, recipientModule string, amt sdk.Coins) error
-	DeferredSendCoinsFromAccountToModule(ctx sdk.Context, senderAddr sdk.AccAddress, recipientModule string, amt sdk.Coins) error
-	WriteDeferredDepositsToModuleAccounts(ctx sdk.Context) []abci.Event
 	DelegateCoinsFromAccountToModule(ctx sdk.Context, senderAddr sdk.AccAddress, recipientModule string, amt sdk.Coins) error
 	UndelegateCoinsFromModuleToAccount(ctx sdk.Context, senderModule string, recipientAddr sdk.AccAddress, amt sdk.Coins) error
-	WriteDeferredOperations(ctx sdk.Context) []abci.Event
+
 	MintCoins(ctx sdk.Context, moduleName string, amt sdk.Coins) error
 	BurnCoins(ctx sdk.Context, moduleName string, amt sdk.Coins) error
+
+	DeferredSendCoinsFromModuleToAccount(ctx sdk.Context, senderModule string, recipientAddr sdk.AccAddress, amount sdk.Coins) error
+	DeferredSendCoinsFromAccountToModule(ctx sdk.Context, senderAddr sdk.AccAddress, recipientModule string, amt sdk.Coins) error
+	WriteDeferredDepositsToModuleAccounts(ctx sdk.Context) []abci.Event
+	WriteDeferredOperations(ctx sdk.Context) []abci.Event
+	DeferredMintCoins(ctx sdk.Context, moduleName string, amt sdk.Coins) error
+	DeferredBurnCoins(ctx sdk.Context, moduleName string, amt sdk.Coins) error
 
 	DelegateCoins(ctx sdk.Context, delegatorAddr, moduleAccAddr sdk.AccAddress, amt sdk.Coins) error
 	UndelegateCoins(ctx sdk.Context, moduleAccAddr, delegatorAddr sdk.AccAddress, amt sdk.Coins) error
@@ -64,6 +68,8 @@ type BaseKeeper struct {
 }
 
 type MintingRestrictionFn func(ctx sdk.Context, coins sdk.Coins) error
+type SubFn func(ctx sdk.Context, moduleName string, amounts sdk.Coins) error
+type AddFn func(ctx sdk.Context, moduleName string, amounts sdk.Coins) error
 
 // GetPaginatedTotalSupply queries for the supply, ignoring 0 coins, with a given pagination
 func (k BaseKeeper) GetPaginatedTotalSupply(ctx sdk.Context, pagination *query.PageRequest) (sdk.Coins, *query.PageResponse, error) {
@@ -325,6 +331,13 @@ func (k BaseKeeper) SendCoinsFromModuleToAccount(
 		return sdkerrors.Wrapf(sdkerrors.ErrUnauthorized, "%s is not allowed to receive funds", recipientAddr)
 	}
 
+	// Try subtract from the in mem var first, prevents the condition where
+	// the module may have a pending deposit that would be enough to pay for this send
+	ok := ctx.ContextMemCache().SafeSubDeferredSends(senderModule, amt)
+	if ok {
+		return k.addCoins(ctx, recipientAddr, amt)
+	}
+
 	return k.SendCoins(ctx, senderAddr, recipientAddr, amt)
 }
 
@@ -375,6 +388,13 @@ func (k BaseKeeper) SendCoinsFromModuleToModule(
 	recipientAcc := k.ak.GetModuleAccount(ctx, recipientModule)
 	if recipientAcc == nil {
 		panic(sdkerrors.Wrapf(sdkerrors.ErrUnknownAddress, "module account %s does not exist", recipientModule))
+	}
+
+	// Try subtract from the in mem var first, prevents the condition where
+	// the module may have a pending deposit that would be enough to pay for this send
+	ok := ctx.ContextMemCache().SafeSubDeferredSends(senderModule, amt)
+	if ok {
+		return k.addCoins(ctx, recipientAcc.GetAddress(), amt)
 	}
 
 	return k.SendCoins(ctx, senderAddr, recipientAcc.GetAddress(), amt)
@@ -444,6 +464,11 @@ func (k BaseKeeper) WriteDeferredWrithdrawlFromModuleAccounts(ctx sdk.Context) [
 			if recipientAcc == nil {
 				panic(sdkerrors.Wrapf(sdkerrors.ErrUnknownAddress, "module account %s does not exist", recipient))
 			}
+
+			if amount.Empty() {
+				return
+			}
+
 			log.Printf("Removing coin=%s from module=%s address=%s", amount, recipient, recipientAcc.GetAddress())
 			k.subUnlockedCoins(ctx, recipientAcc.GetAddress(), amount)
 		},
@@ -490,9 +515,7 @@ func (k BaseKeeper) UndelegateCoinsFromModuleToAccount(
 	return k.UndelegateCoins(ctx, acc.GetAddress(), recipientAddr, amt)
 }
 
-// MintCoins creates new coins from thin air and adds it to the module account.
-// It will panic if the module account does not exist or is unauthorized.
-func (k BaseKeeper) MintCoins(ctx sdk.Context, moduleName string, amounts sdk.Coins) error {
+func (k BaseKeeper) createCoins(ctx sdk.Context, moduleName string, amounts sdk.Coins, addFn AddFn) error {
 	err := k.mintCoinsRestrictionFn(ctx, amounts)
 	if err != nil {
 		ctx.Logger().Error(fmt.Sprintf("Module %q attempted to mint coins %s it doesn't have permission for, error %v", moduleName, amounts, err))
@@ -507,11 +530,10 @@ func (k BaseKeeper) MintCoins(ctx sdk.Context, moduleName string, amounts sdk.Co
 		panic(sdkerrors.Wrapf(sdkerrors.ErrUnauthorized, "module account %s does not have permissions to mint tokens", moduleName))
 	}
 
-	err = k.addCoins(ctx, acc.GetAddress(), amounts)
+	err = addFn(ctx, moduleName, amounts)
 	if err != nil {
 		return err
 	}
-
 	for _, amount := range amounts {
 		supply := k.GetSupply(ctx, amount.GetDenom())
 		supply = supply.Add(amount)
@@ -529,9 +551,40 @@ func (k BaseKeeper) MintCoins(ctx sdk.Context, moduleName string, amounts sdk.Co
 	return nil
 }
 
-// BurnCoins burns coins deletes coins from the balance of the module account.
+// MintCoins creates new coins from thin air and adds it to the module account.
 // It will panic if the module account does not exist or is unauthorized.
-func (k BaseKeeper) BurnCoins(ctx sdk.Context, moduleName string, amounts sdk.Coins) error {
+func (k BaseKeeper) MintCoins(ctx sdk.Context, moduleName string, amounts sdk.Coins) error {
+	addFn := func(ctx sdk.Context, moduleName string, amounts sdk.Coins) error {
+		acc := k.ak.GetModuleAccount(ctx, moduleName)
+		return k.addCoins(ctx, acc.GetAddress(), amounts)
+	}
+
+	err := k.createCoins(ctx, moduleName, amounts, addFn)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+// DeferredMintCoins creates new coins from thin air and adds it to the module account.
+// It will not update the AVL store immediate but instead caches the data in an mem var
+// it requires the user to flush the deposits all at once. Used for deterministic concurrency
+// writes at the end of a block.
+// It will panic if the module account does not exist or is unauthorized.
+func (k BaseKeeper) DeferredMintCoins(ctx sdk.Context, moduleName string, amounts sdk.Coins) error {
+	addFn := func(ctx sdk.Context, moduleName string, amounts sdk.Coins) error {
+		return ctx.ContextMemCache().UpsertDeferredSends(moduleName, amounts)
+	}
+
+	err := k.createCoins(ctx, moduleName, amounts, addFn)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (k BaseKeeper) destroyCoins(ctx sdk.Context, moduleName string, amounts sdk.Coins, subFn SubFn) error {
 	acc := k.ak.GetModuleAccount(ctx, moduleName)
 	if acc == nil {
 		panic(sdkerrors.Wrapf(sdkerrors.ErrUnknownAddress, "module account %s does not exist", moduleName))
@@ -541,7 +594,7 @@ func (k BaseKeeper) BurnCoins(ctx sdk.Context, moduleName string, amounts sdk.Co
 		panic(sdkerrors.Wrapf(sdkerrors.ErrUnauthorized, "module account %s does not have permissions to burn tokens", moduleName))
 	}
 
-	err := k.subUnlockedCoins(ctx, acc.GetAddress(), amounts)
+	err := subFn(ctx, moduleName, amounts)
 	if err != nil {
 		return err
 	}
@@ -559,6 +612,49 @@ func (k BaseKeeper) BurnCoins(ctx sdk.Context, moduleName string, amounts sdk.Co
 	ctx.EventManager().EmitEvent(
 		types.NewCoinBurnEvent(acc.GetAddress(), amounts),
 	)
+	return nil
+}
+
+// BurnCoins burns coins deletes coins from the balance of the module account.
+// It will panic if the module account does not exist or is unauthorized.
+func (k BaseKeeper) BurnCoins(ctx sdk.Context, moduleName string, amounts sdk.Coins) error {
+	subFn := func(ctx sdk.Context, moduleName string, amounts sdk.Coins) error {
+		acc := k.ak.GetModuleAccount(ctx, moduleName)
+		return k.subUnlockedCoins(ctx, acc.GetAddress(), amounts)
+	}
+
+	err := k.destroyCoins(ctx, moduleName, amounts, subFn)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// DeferredBurnCoins burns coins deletes coins from the balance of the module account.
+// It will not update the AVL store immediate but instead caches the data in an mem var
+// it requires the user to flush the deposits all at once. Used for deterministic concurrency
+// writes at the end of a block.
+// It will panic if the module account does not exist or is unauthorized.
+func (k BaseKeeper) DeferredBurnCoins(ctx sdk.Context, moduleName string, amounts sdk.Coins) error {
+	subFn := func(ctx sdk.Context, moduleName string, amounts sdk.Coins) error {
+
+		// Branch Context for validation and fail if the module doesn't have enough coins
+		// but don't write this to the underlying store
+		validationContext, _ := ctx.CacheContext()
+		acc := k.ak.GetModuleAccount(ctx, moduleName)
+		err := k.subUnlockedCoins(validationContext, acc.GetAddress(), amounts)
+		if err != nil {
+			return err
+		}
+
+		return ctx.ContextMemCache().UpsertDeferredWithdrawals(moduleName, amounts)
+	}
+
+	err := k.destroyCoins(ctx, moduleName, amounts, subFn)
+	if err != nil {
+		return err
+	}
 
 	return nil
 }

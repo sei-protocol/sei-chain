@@ -250,6 +250,59 @@ func (suite *IntegrationTestSuite) TestSupply_MintCoins() {
 	suite.Require().Panics(func() { keeper.MintCoins(ctx, authtypes.Burner, initCoins) }) // nolint:errcheck
 }
 
+func (suite *IntegrationTestSuite) TestSupply_DeferredMintCoins() {
+	ctx := suite.ctx
+
+	// add module accounts to supply keeper
+	authKeeper, keeper := suite.initKeepersWithmAccPerms(make(map[string]bool))
+
+	authKeeper.SetModuleAccount(ctx, burnerAcc)
+	authKeeper.SetModuleAccount(ctx, minterAcc)
+	authKeeper.SetModuleAccount(ctx, multiPermAcc)
+	authKeeper.SetModuleAccount(ctx, randomPermAcc)
+
+	initialSupply, _, err := keeper.GetPaginatedTotalSupply(ctx, &query.PageRequest{})
+	suite.Require().NoError(err)
+
+	suite.Require().Panics(func() { keeper.DeferredMintCoins(ctx, "", initCoins) }, "no module account")                // nolint:errcheck
+	suite.Require().Panics(func() { keeper.DeferredMintCoins(ctx, authtypes.Burner, initCoins) }, "invalid permission") // nolint:errcheck
+
+	err = keeper.DeferredMintCoins(ctx, authtypes.Minter, sdk.Coins{sdk.Coin{Denom: "denom", Amount: sdk.NewInt(-10)}})
+	suite.Require().Error(err, "insufficient coins")
+
+	suite.Require().Panics(func() { keeper.DeferredMintCoins(ctx, randomPerm, initCoins) }) // nolint:errcheck
+
+	err = keeper.DeferredMintCoins(ctx, authtypes.Minter, initCoins)
+	suite.Require().NoError(err)
+
+	suite.Require().Equal(sdk.Coins{}, getCoinsByName(ctx, keeper, authKeeper, authtypes.Minter))
+	totalSupply, _, err := keeper.GetPaginatedTotalSupply(ctx, &query.PageRequest{})
+	suite.Require().NoError(err)
+
+	suite.Require().Equal(initialSupply.Add(initCoins...), totalSupply)
+
+	// test same functionality on module account with multiple permissions
+	initialSupply, _, err = keeper.GetPaginatedTotalSupply(ctx, &query.PageRequest{})
+	suite.Require().NoError(err)
+
+	keeper.WriteDeferredOperations(ctx)
+	suite.Require().Equal(initialSupply, getCoinsByName(ctx, keeper, authKeeper, authtypes.Minter))
+
+	err = keeper.DeferredMintCoins(ctx, multiPermAcc.GetName(), initCoins)
+	suite.Require().NoError(err)
+
+	totalSupply, _, err = keeper.GetPaginatedTotalSupply(ctx, &query.PageRequest{})
+	suite.Require().NoError(err)
+
+	suite.Require().Equal(sdk.Coins{}, getCoinsByName(ctx, keeper, authKeeper, multiPermAcc.GetName()))
+	keeper.WriteDeferredOperations(ctx)
+	suite.Require().Equal(initCoins, getCoinsByName(ctx, keeper, authKeeper, multiPermAcc.GetName()))
+
+
+	suite.Require().Equal(initialSupply.Add(initCoins...), totalSupply)
+	suite.Require().Panics(func() { keeper.DeferredMintCoins(ctx, authtypes.Burner, initCoins) }) // nolint:errcheck
+}
+
 func (suite *IntegrationTestSuite) TestSupply_BurnCoins() {
 	ctx := suite.ctx
 	// add module accounts to supply keeper
@@ -297,6 +350,67 @@ func (suite *IntegrationTestSuite) TestSupply_BurnCoins() {
 	supplyAfterBurn, _, err = keeper.GetPaginatedTotalSupply(ctx, &query.PageRequest{})
 	suite.Require().NoError(err)
 	suite.Require().NoError(err)
+	suite.Require().Equal(sdk.NewCoins().String(), getCoinsByName(ctx, keeper, authKeeper, multiPermAcc.GetName()).String())
+	suite.Require().Equal(supplyAfterInflation.Sub(initCoins), supplyAfterBurn)
+}
+
+func (suite *IntegrationTestSuite) TestSupply_DeferredBurnCoins() {
+	ctx := suite.ctx
+	// add module accounts to supply keeper
+	authKeeper, keeper := suite.initKeepersWithmAccPerms(make(map[string]bool))
+
+	// set burnerAcc balance
+	authKeeper.SetModuleAccount(ctx, burnerAcc)
+	suite.
+		Require().
+		NoError(keeper.MintCoins(ctx, authtypes.Minter, initCoins))
+	suite.
+		Require().
+		NoError(keeper.DeferredSendCoinsFromModuleToAccount(ctx, authtypes.Minter, burnerAcc.GetAddress(), initCoins))
+
+	// inflate supply
+	suite.
+		Require().
+		NoError(keeper.DeferredMintCoins(ctx, authtypes.Minter, initCoins))
+	supplyAfterInflation, _, err := keeper.GetPaginatedTotalSupply(ctx, &query.PageRequest{})
+	keeper.WriteDeferredOperations(ctx)
+
+	suite.Require().Panics(func() { keeper.BurnCoins(ctx, "", initCoins) }, "no module account")                    // nolint:errcheck
+	suite.Require().Panics(func() { keeper.BurnCoins(ctx, authtypes.Minter, initCoins) }, "invalid permission")     // nolint:errcheck
+	suite.Require().Panics(func() { keeper.BurnCoins(ctx, randomPerm, supplyAfterInflation) }, "random permission") // nolint:errcheck
+	err = keeper.DeferredBurnCoins(ctx, authtypes.Burner, supplyAfterInflation)
+	keeper.WriteDeferredOperations(ctx)
+	suite.Require().Error(err, "insufficient coins")
+
+	err = keeper.DeferredBurnCoins(ctx, authtypes.Burner, initCoins)
+	suite.Require().NoError(err)
+	supplyAfterBurn, _, err := keeper.GetPaginatedTotalSupply(ctx, &query.PageRequest{})
+
+	suite.Require().NoError(err)
+
+	suite.Require().Equal(initCoins.String(), getCoinsByName(ctx, keeper, authKeeper, authtypes.Burner).String())
+	keeper.WriteDeferredOperations(ctx)
+	suite.Require().Equal(sdk.NewCoins().String(), getCoinsByName(ctx, keeper, authKeeper, authtypes.Burner).String())
+
+	suite.Require().Equal(supplyAfterInflation.Sub(initCoins), supplyAfterBurn)
+
+	// test same functionality on module account with multiple permissions
+	suite.
+		Require().
+		NoError(keeper.DeferredMintCoins(ctx, authtypes.Minter, initCoins))
+
+	supplyAfterInflation, _, err = keeper.GetPaginatedTotalSupply(ctx, &query.PageRequest{})
+	suite.Require().NoError(err)
+	suite.Require().NoError(keeper.SendCoins(ctx, authtypes.NewModuleAddress(authtypes.Minter), multiPermAcc.GetAddress(), initCoins))
+	authKeeper.SetModuleAccount(ctx, multiPermAcc)
+
+	err = keeper.DeferredBurnCoins(ctx, multiPermAcc.GetName(), initCoins)
+	supplyAfterBurn, _, err = keeper.GetPaginatedTotalSupply(ctx, &query.PageRequest{})
+	suite.Require().NoError(err)
+	suite.Require().NoError(err)
+
+	suite.Require().Equal(initCoins.String(), getCoinsByName(ctx, keeper, authKeeper, multiPermAcc.GetName()).String())
+	keeper.WriteDeferredOperations(ctx)
 	suite.Require().Equal(sdk.NewCoins().String(), getCoinsByName(ctx, keeper, authKeeper, multiPermAcc.GetName()).String())
 	suite.Require().Equal(supplyAfterInflation.Sub(initCoins), supplyAfterBurn)
 }
