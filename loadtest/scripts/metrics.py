@@ -47,7 +47,7 @@ def get_metrics():
     average_block_time = total_duration.total_seconds() / (len(skip_edge_blocks) - 1)
     total_txs_num = sum([block["number_of_txs"] for block in skip_edge_blocks])
     average_txs_num = total_txs_num / len(skip_edge_blocks)
-    
+
     return {
         "Summary (excl. edge block)": {
             "average_block_time": average_block_time,
