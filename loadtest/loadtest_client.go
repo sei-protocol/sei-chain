@@ -121,10 +121,7 @@ func (c *LoadTestClient) BuildTxs() (workgroups []*sync.WaitGroup, sendersList [
 			}
 		}
 
-		// prevent account sequence errors by doing every other round
-		if config.RunOracle && i%2 == 0 {
-			senders = append(senders, c.GenerateOracleSenders(i, valKeys, wg)...)
-		}
+		senders = append(senders, c.GenerateOracleSenders(i, config, valKeys, wg)...)
 
 		sendersList = append(sendersList, senders)
 		inactiveAccounts, activeAccounts = activeAccounts, inactiveAccounts
@@ -133,21 +130,23 @@ func (c *LoadTestClient) BuildTxs() (workgroups []*sync.WaitGroup, sendersList [
 	return workgroups, sendersList
 }
 
-func (c *LoadTestClient) GenerateOracleSenders(i int, valKeys []cryptotypes.PrivKey, waitGroup *sync.WaitGroup) []func() {
-	var senders []func()
-	for _, valKey := range valKeys {
-		// generate oracle tx
-		msg := generateOracleMessage(valKey)
-		txBuilder := TestConfig.TxConfig.NewTxBuilder()
-		_ = txBuilder.SetMsgs(msg)
-		seqDelta := uint64(i / 2)
-		mode := typestx.BroadcastMode_BROADCAST_MODE_SYNC
-		sender := SendTx(valKey, &txBuilder, mode, seqDelta, *c)
-		waitGroup.Add(1)
-		senders = append(senders, func() {
-			defer waitGroup.Done()
-			sender()
-		})
+func (c *LoadTestClient) GenerateOracleSenders(i int, config Config, valKeys []cryptotypes.PrivKey, waitGroup *sync.WaitGroup) []func() {
+	senders := []func(){}
+	if config.RunOracle && i%2 == 0 {
+		for _, valKey := range valKeys {
+			// generate oracle tx
+			msg := generateOracleMessage(valKey)
+			txBuilder := TestConfig.TxConfig.NewTxBuilder()
+			_ = txBuilder.SetMsgs(msg)
+			seqDelta := uint64(i / 2)
+			mode := typestx.BroadcastMode_BROADCAST_MODE_SYNC
+			sender := SendTx(valKey, &txBuilder, mode, seqDelta, *c)
+			waitGroup.Add(1)
+			senders = append(senders, func() {
+				defer waitGroup.Done()
+				sender()
+			})
+		}
 	}
 	return senders
 }
