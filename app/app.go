@@ -1009,7 +1009,6 @@ func (app *App) ProcessTxConcurrent(
 	ctx = ctx.WithTxMsgAccessOps(txMsgAccessOpMapping)
 
 	// Deliver the transaction and store the result in the channel
-
 	resultChan <- ChannelResult{txIndex, app.DeliverTxWithResult(ctx, txBytes)}
 	metrics.IncrTxProcessTypeCounter(metrics.CONCURRENT)
 }

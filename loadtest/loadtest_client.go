@@ -10,6 +10,7 @@ import (
 
 	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
 	typestx "github.com/cosmos/cosmos-sdk/types/tx"
+	dextypes "github.com/sei-protocol/sei-chain/x/dex/types"
 	"google.golang.org/grpc"
 )
 
@@ -17,6 +18,7 @@ type LoadTestClient struct {
 	LoadTestConfig  Config
 	TestConfig      EncodingConfig
 	TxClient        typestx.ServiceClient
+	DexQueryClient  dextypes.QueryClient
 	SignerClient    *SignerClient
 	ChainID         string
 	TxHashList      []string
@@ -30,7 +32,7 @@ func NewLoadTestClient() *LoadTestClient {
 		grpc.WithInsecure(),
 	)
 	TxClient := typestx.NewServiceClient(grpcConn)
-
+	DexQueryClient := dextypes.NewQueryClient(grpcConn)
 	config := Config{}
 	pwd, _ := os.Getwd()
 	file, _ := os.ReadFile(pwd + "/loadtest/config.json")
@@ -42,6 +44,7 @@ func NewLoadTestClient() *LoadTestClient {
 		LoadTestConfig:  config,
 		TestConfig:      TestConfig,
 		TxClient:        TxClient,
+		DexQueryClient:  DexQueryClient,
 		SignerClient:    NewSignerClient(),
 		ChainID:         config.ChainID,
 		TxHashList:      []string{},
@@ -99,15 +102,17 @@ func (c *LoadTestClient) BuildTxs() (workgroups []*sync.WaitGroup, sendersList [
 		var senders []func()
 		workgroups = append(workgroups, wg)
 		if config.MessageType != "none" {
-			for _, account := range activeAccounts {
+			for j, account := range activeAccounts {
 				key := c.SignerClient.GetKey(uint64(account))
 
-				msg := generateMessage(config, key, config.MsgsPerTx, qv.Validators)
+				msg := generateMessage(c, key, config.MsgsPerTx, qv.Validators)
 				txBuilder := TestConfig.TxConfig.NewTxBuilder()
 				_ = txBuilder.SetMsgs(msg)
 				seqDelta := uint64(i / 2)
 				mode := typestx.BroadcastMode_BROADCAST_MODE_SYNC
-
+				if j == len(activeAccounts)-1 {
+					mode = typestx.BroadcastMode_BROADCAST_MODE_BLOCK
+				}
 				// Note: There is a potential race condition here with seqnos
 				// in which a later seqno is delievered before an earlier seqno
 				// In practice, we haven't run into this issue so we'll leave this

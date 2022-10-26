@@ -9,19 +9,21 @@ import (
 	"github.com/cosmos/cosmos-sdk/codec/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/sei-protocol/sei-chain/utils"
+	dextypes "github.com/sei-protocol/sei-chain/x/dex/types"
 )
 
 type Config struct {
-	ChainID       string                `json:"chain_id"`
-	TxsPerBlock   uint64                `json:"txs_per_block"`
-	MsgsPerTx     uint64                `json:"msgs_per_tx"`
-	Rounds        uint64                `json:"rounds"`
-	MessageType   string                `json:"message_type"`
-	RunOracle     bool                  `json:"run_oracle"`
-	PriceDistr    NumericDistribution   `json:"price_distribution"`
-	QuantityDistr NumericDistribution   `json:"quantity_distribution"`
-	MsgTypeDistr  MsgTypeDistribution   `json:"message_type_distribution"`
-	ContractDistr ContractDistributions `json:"contract_distribution"`
+	ChainID        string                `json:"chain_id"`
+	TxsPerBlock    uint64                `json:"txs_per_block"`
+	MsgsPerTx      uint64                `json:"msgs_per_tx"`
+	Rounds         uint64                `json:"rounds"`
+	MessageType    string                `json:"message_type"`
+	RunOracle      bool                  `json:"run_oracle"`
+	PriceDistr     NumericDistribution   `json:"price_distribution"`
+	QuantityDistr  NumericDistribution   `json:"quantity_distribution"`
+	MsgTypeDistr   MsgTypeDistribution   `json:"message_type_distribution"`
+	ContractDistr  ContractDistributions `json:"contract_distribution"`
+	OrderTypeDistr OrderTypeDistribution `json:"order_type_distribution"`
 }
 
 type EncodingConfig struct {
@@ -44,8 +46,8 @@ func (d *NumericDistribution) Sample() sdk.Dec {
 }
 
 type DexMsgTypeDistribution struct {
-	LimitOrderPct  sdk.Dec `json:"limit_order_percentage"`
-	MarketOrderPct sdk.Dec `json:"market_order_percentage"`
+	PlaceOrderPct  sdk.Dec `json:"place_order_percentage"`
+	CancelOrderPct sdk.Dec `json:"cancel_order_percentage"`
 }
 
 type StakingMsgTypeDistribution struct {
@@ -58,15 +60,31 @@ type MsgTypeDistribution struct {
 	Staking StakingMsgTypeDistribution `json:"staking"`
 }
 
-func (d *MsgTypeDistribution) SampleDexMsgs() string {
-	if !d.Dex.LimitOrderPct.Add(d.Dex.MarketOrderPct).Equal(sdk.OneDec()) {
+type OrderTypeDistribution struct {
+	LimitOrderPct  sdk.Dec `json:"limit_order_percentage"`
+	MarketOrderPct sdk.Dec `json:"market_order_percentage"`
+}
+
+func (d *OrderTypeDistribution) SampleOrderType() dextypes.OrderType {
+	if !d.LimitOrderPct.Add(d.MarketOrderPct).Equal(sdk.OneDec()) {
 		panic("Distribution percentages must add up to 1")
 	}
 	randNum := sdk.MustNewDecFromStr(fmt.Sprintf("%f", rand.Float64()))
-	if randNum.LT(d.Dex.LimitOrderPct) {
-		return "limit"
+	if randNum.LT(d.LimitOrderPct) {
+		return dextypes.OrderType_LIMIT
 	}
-	return "market"
+	return dextypes.OrderType_MARKET
+}
+
+func (d *MsgTypeDistribution) SampleDexMsgs() string {
+	if !d.Dex.PlaceOrderPct.Add(d.Dex.CancelOrderPct).Equal(sdk.OneDec()) {
+		panic("Distribution percentages must add up to 1")
+	}
+	randNum := sdk.MustNewDecFromStr(fmt.Sprintf("%f", rand.Float64()))
+	if randNum.LT(d.Dex.PlaceOrderPct) {
+		return "place_order"
+	}
+	return "cancel_order"
 }
 
 func (d *MsgTypeDistribution) SampleStakingMsgs() string {

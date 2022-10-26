@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"math/rand"
@@ -71,9 +72,9 @@ func run() {
 	fmt.Printf("%s - Finished\n", time.Now().Format("2006-01-02T15:04:05"))
 }
 
-func generateMessage(config Config, key cryptotypes.PrivKey, msgPerTx uint64, validators []Validator) sdk.Msg {
+func generateMessage(c *LoadTestClient, key cryptotypes.PrivKey, msgPerTx uint64, validators []Validator) sdk.Msg {
 	var msg sdk.Msg
-	switch config.MessageType {
+	switch c.LoadTestConfig.MessageType {
 	case "basic":
 		msg = &banktypes.MsgSend{
 			FromAddress: sdk.AccAddress(key.PubKey().Address()).String(),
@@ -84,7 +85,7 @@ func generateMessage(config Config, key cryptotypes.PrivKey, msgPerTx uint64, va
 			}),
 		}
 	case "staking":
-		msgType := config.MsgTypeDistr.SampleStakingMsgs()
+		msgType := c.LoadTestConfig.MsgTypeDistr.SampleStakingMsgs()
 
 		switch msgType {
 		case "delegate":
@@ -110,48 +111,90 @@ func generateMessage(config Config, key cryptotypes.PrivKey, msgPerTx uint64, va
 			panic("Unknown message type")
 		}
 	case "dex":
-		msgType := config.MsgTypeDistr.SampleDexMsgs()
-		orderPlacements := []*dextypes.Order{}
-		var orderType dextypes.OrderType
-		if msgType == "limit" {
-			orderType = dextypes.OrderType_LIMIT
-		} else {
-			orderType = dextypes.OrderType_MARKET
+		msgType := c.LoadTestConfig.MsgTypeDistr.SampleDexMsgs()
+		switch msgType {
+		case "place_order":
+			orderPlacements := []*dextypes.Order{}
+			var direction dextypes.PositionDirection
+			if rand.Float64() < 0.5 {
+				direction = dextypes.PositionDirection_LONG
+			} else {
+				direction = dextypes.PositionDirection_SHORT
+			}
+			orderType := c.LoadTestConfig.OrderTypeDistr.SampleOrderType()
+			price := c.LoadTestConfig.PriceDistr.Sample()
+			quantity := c.LoadTestConfig.QuantityDistr.Sample()
+			contract := c.LoadTestConfig.ContractDistr.Sample()
+			for j := 0; j < int(msgPerTx); j++ {
+				order := &dextypes.Order{
+					Account:           sdk.AccAddress(key.PubKey().Address()).String(),
+					ContractAddr:      contract,
+					PositionDirection: direction,
+					Price:             price.Quo(FromMili),
+					Quantity:          quantity.Quo(FromMili),
+					PriceDenom:        "SEI",
+					AssetDenom:        "ATOM",
+					OrderType:         orderType,
+					Data:              VortexData,
+				}
+				orderPlacements = append(orderPlacements, order)
+			}
+			amount, err := sdk.ParseCoinsNormalized(fmt.Sprintf("%d%s", price.Mul(quantity).Ceil().RoundInt64(), "usei"))
+			if err != nil {
+				panic(err)
+			}
+			msg = &dextypes.MsgPlaceOrders{
+				Creator:      sdk.AccAddress(key.PubKey().Address()).String(),
+				Orders:       orderPlacements,
+				ContractAddr: contract,
+				Funds:        amount,
+			}
+		case "cancel_order":
+			var contract string
+			var outstandingOrders []*dextypes.Order
+			for _, contractConfig := range c.LoadTestConfig.ContractDistr {
+
+				if resp, err := c.DexQueryClient.GetOrders(context.Background(), &dextypes.QueryGetOrdersRequest{
+					ContractAddr: contractConfig.ContractAddr,
+					Account:      sdk.AccAddress(key.PubKey().Address()).String(),
+				}); err != nil {
+					panic(err)
+				} else if len(resp.Orders) > 0 {
+					contract = contractConfig.ContractAddr
+					outstandingOrders = resp.Orders
+					break
+				}
+			}
+
+			cancelPlacements := []*dextypes.Cancellation{}
+			for j := 0; j < int(msgPerTx); j++ {
+				if len(outstandingOrders) > 0 {
+					order := outstandingOrders[len(outstandingOrders)-1]
+					outstandingOrders = outstandingOrders[:len(outstandingOrders)-1]
+					cancelPlacements = append(cancelPlacements, &dextypes.Cancellation{
+						Id:                order.Id,
+						Initiator:         dextypes.CancellationInitiator_USER,
+						Creator:           order.Account,
+						ContractAddr:      order.ContractAddr,
+						PriceDenom:        order.PriceDenom,
+						AssetDenom:        order.AssetDenom,
+						PositionDirection: order.PositionDirection,
+						Price:             order.Price,
+					})
+				}
+			}
+
+			msg = &dextypes.MsgCancelOrders{
+				Creator:       sdk.AccAddress(key.PubKey().Address()).String(),
+				Cancellations: cancelPlacements,
+				ContractAddr:  contract,
+			}
+		default:
+			panic("Unknown message type")
 		}
-		var direction dextypes.PositionDirection
-		if rand.Float64() < 0.5 {
-			direction = dextypes.PositionDirection_LONG
-		} else {
-			direction = dextypes.PositionDirection_SHORT
-		}
-		price := config.PriceDistr.Sample()
-		quantity := config.QuantityDistr.Sample()
-		contract := config.ContractDistr.Sample()
-		for j := 0; j < int(msgPerTx); j++ {
-			orderPlacements = append(orderPlacements, &dextypes.Order{
-				Account:           sdk.AccAddress(key.PubKey().Address()).String(),
-				ContractAddr:      contract,
-				PositionDirection: direction,
-				Price:             price.Quo(FromMili),
-				Quantity:          quantity.Quo(FromMili),
-				PriceDenom:        "SEI",
-				AssetDenom:        "ATOM",
-				OrderType:         orderType,
-				Data:              VortexData,
-			})
-		}
-		amount, err := sdk.ParseCoinsNormalized(fmt.Sprintf("%d%s", price.Mul(quantity).Ceil().RoundInt64(), "usei"))
-		if err != nil {
-			panic(err)
-		}
-		msg = &dextypes.MsgPlaceOrders{
-			Creator:      sdk.AccAddress(key.PubKey().Address()).String(),
-			Orders:       orderPlacements,
-			ContractAddr: contract,
-			Funds:        amount,
-		}
+
 	default:
-		fmt.Printf("Unrecognized message type %s", config.MessageType)
+		fmt.Printf("Unrecognized message type %s", c.LoadTestConfig.MessageType)
 	}
 	return msg
 }
