@@ -1,6 +1,6 @@
 use cosmwasm_std::{
     entry_point, DepsMut, Env, MessageInfo,
-    Response, StdError, StdResult, Uint128, BankMsg,
+    Response, StdError, StdResult, Uint128, BankMsg, QueryRequest, BondedDenomResponse,
 };
 
 use crate::msg::{
@@ -24,6 +24,7 @@ pub fn execute(deps: DepsMut, _env: Env, info: MessageInfo, msg: ExecuteMsg) -> 
         ExecuteMsg::Noop {} => process_noop(),
         ExecuteMsg::NamedCounter {} => process_named_counter(deps, info),
         ExecuteMsg::Send {} => process_send(info),
+        ExecuteMsg::ReadStake {} => process_read_stake(deps),
     }
 }
 
@@ -51,4 +52,9 @@ pub fn process_send(info: MessageInfo) -> Result<Response, StdError> {
         amount: info.funds,
     });
     Ok(res)
+}
+
+pub fn process_read_stake(deps: DepsMut) -> Result<Response, StdError> {
+    let _: BondedDenomResponse = deps.querier.query(&QueryRequest::Staking(cosmwasm_std::StakingQuery::BondedDenom {})).unwrap();
+    Ok(Response::new())
 }

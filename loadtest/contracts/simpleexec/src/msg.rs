@@ -10,4 +10,5 @@ pub enum ExecuteMsg {
     Noop {},
     NamedCounter {},
     Send {},
+    ReadStake {},
 }

@@ -8,7 +8,7 @@ crate-type = ["cdylib", "rlib"]
 doctest = false
 
 [dependencies]
-cosmwasm-std = { version = "1.0.0" }
+cosmwasm-std = { version = "1.0.0", features = ["staking"] }
 cosmwasm-storage = { version = "1.0.0" }
 cw-storage-plus = "0.13.2"
 serde-json-wasm = "0.4.1"
