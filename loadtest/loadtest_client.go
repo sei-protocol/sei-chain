@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
 	typestx "github.com/cosmos/cosmos-sdk/types/tx"
 	"google.golang.org/grpc"
 )
@@ -122,20 +123,7 @@ func (c *LoadTestClient) BuildTxs() (workgroups []*sync.WaitGroup, sendersList [
 
 		// prevent account sequence errors by doing every other round
 		if config.RunOracle && i%2 == 0 {
-			for _, valKey := range valKeys {
-				// generate oracle tx
-				msg := generateOracleMessage(valKey)
-				txBuilder := TestConfig.TxConfig.NewTxBuilder()
-				_ = txBuilder.SetMsgs(msg)
-				seqDelta := uint64(i)
-				mode := typestx.BroadcastMode_BROADCAST_MODE_SYNC
-				sender := SendTx(valKey, &txBuilder, mode, seqDelta, *c)
-				wg.Add(1)
-				senders = append(senders, func() {
-					defer wg.Done()
-					sender()
-				})
-			}
+			senders = append(senders, c.GenerateOracleSenders(i, valKeys, wg)...)
 		}
 
 		sendersList = append(sendersList, senders)
@@ -143,6 +131,25 @@ func (c *LoadTestClient) BuildTxs() (workgroups []*sync.WaitGroup, sendersList [
 	}
 
 	return workgroups, sendersList
+}
+
+func (c *LoadTestClient) GenerateOracleSenders(i int, valKeys []cryptotypes.PrivKey, waitGroup *sync.WaitGroup) []func() {
+	var senders []func()
+	for _, valKey := range valKeys {
+		// generate oracle tx
+		msg := generateOracleMessage(valKey)
+		txBuilder := TestConfig.TxConfig.NewTxBuilder()
+		_ = txBuilder.SetMsgs(msg)
+		seqDelta := uint64(i / 2)
+		mode := typestx.BroadcastMode_BROADCAST_MODE_SYNC
+		sender := SendTx(valKey, &txBuilder, mode, seqDelta, *c)
+		wg.Add(1)
+		senders = append(senders, func() {
+			defer wg.Done()
+			sender()
+		})
+	}
+	return senders
 }
 
 func (c *LoadTestClient) SendTxs(workgroups []*sync.WaitGroup, sendersList [][]func()) {
