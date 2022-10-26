@@ -20,6 +20,7 @@ import (
 	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
 	"github.com/sei-protocol/sei-chain/app"
 	dextypes "github.com/sei-protocol/sei-chain/x/dex/types"
+	oracletypes "github.com/sei-protocol/sei-chain/x/oracle/types"
 )
 
 var TestConfig EncodingConfig
@@ -151,6 +152,17 @@ func generateMessage(config Config, key cryptotypes.PrivKey, msgPerTx uint64, va
 		}
 	default:
 		fmt.Printf("Unrecognized message type %s", config.MessageType)
+	}
+	return msg
+}
+
+func generateOracleMessage(key cryptotypes.PrivKey) sdk.Msg {
+	valAddr := sdk.ValAddress(key.PubKey().Address()).String()
+	addr := sdk.AccAddress(key.PubKey().Address()).String()
+	msg := &oracletypes.MsgAggregateExchangeRateVote{
+		ExchangeRates: "1usei,2uatom",
+		Feeder:        addr,
+		Validator:     valAddr,
 	}
 	return msg
 }

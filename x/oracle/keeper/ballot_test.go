@@ -107,12 +107,6 @@ func TestClearBallots(t *testing.T) {
 	}
 
 	for i := range sdrBallot {
-		input.OracleKeeper.SetAggregateExchangeRatePrevote(input.Ctx, ValAddrs[i], types.AggregateExchangeRatePrevote{
-			Hash:        "",
-			Voter:       ValAddrs[i].String(),
-			SubmitBlock: uint64(input.Ctx.BlockHeight()),
-		})
-
 		input.OracleKeeper.SetAggregateExchangeRateVote(input.Ctx, ValAddrs[i],
 			types.NewAggregateExchangeRateVote(types.ExchangeRateTuples{
 				{Denom: sdrBallot[i].Denom, ExchangeRate: sdrBallot[i].ExchangeRate},
@@ -122,28 +116,12 @@ func TestClearBallots(t *testing.T) {
 
 	input.OracleKeeper.ClearBallots(input.Ctx, 5)
 
-	prevoteCounter := 0
 	voteCounter := 0
-	input.OracleKeeper.IterateAggregateExchangeRatePrevotes(input.Ctx, func(_ sdk.ValAddress, _ types.AggregateExchangeRatePrevote) bool {
-		prevoteCounter++
-		return false
-	})
 	input.OracleKeeper.IterateAggregateExchangeRateVotes(input.Ctx, func(_ sdk.ValAddress, _ types.AggregateExchangeRateVote) bool {
 		voteCounter++
 		return false
 	})
-
-	require.Equal(t, prevoteCounter, 3)
 	require.Equal(t, voteCounter, 0)
-
-	input.OracleKeeper.ClearBallots(input.Ctx.WithBlockHeight(input.Ctx.BlockHeight()+6), 5)
-
-	prevoteCounter = 0
-	input.OracleKeeper.IterateAggregateExchangeRatePrevotes(input.Ctx, func(_ sdk.ValAddress, _ types.AggregateExchangeRatePrevote) bool {
-		prevoteCounter++
-		return false
-	})
-	require.Equal(t, prevoteCounter, 0)
 }
 
 func TestApplyWhitelist(t *testing.T) {

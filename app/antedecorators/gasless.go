@@ -45,18 +45,11 @@ func (gd GaslessDecorator) AnteDeps(txDeps []sdkacltypes.AccessOperation, tx sdk
 	for _, msg := range tx.GetMsgs() {
 		// Error checking will be handled in AnteHandler
 		switch m := msg.(type) {
-		case *oracletypes.MsgAggregateExchangeRatePrevote:
-			feederAddr, _ := sdk.AccAddressFromBech32(m.Feeder)
-			valAddr, _ := sdk.ValAddressFromBech32(m.Validator)
-			deps = append(deps, aclutils.GetOracleReadAccessOpsForValAndFeeder(feederAddr, valAddr)...)
 		case *oracletypes.MsgAggregateExchangeRateVote:
 			feederAddr, _ := sdk.AccAddressFromBech32(m.Feeder)
 			valAddr, _ := sdk.ValAddressFromBech32(m.Validator)
 			deps = append(deps, aclutils.GetOracleReadAccessOpsForValAndFeeder(feederAddr, valAddr)...)
-		case *oracletypes.MsgAggregateExchangeRateCombinedVote:
-			feederAddr, _ := sdk.AccAddressFromBech32(m.Feeder)
-			valAddr, _ := sdk.ValAddressFromBech32(m.Validator)
-			deps = append(deps, aclutils.GetOracleReadAccessOpsForValAndFeeder(feederAddr, valAddr)...)
+			// TODO: we also need to add READs for Validator + bonded check
 		default:
 			continue
 		}
@@ -82,18 +75,8 @@ func isTxGasless(tx sdk.Tx, ctx sdk.Context, oracleKeeper oraclekeeper.Keeper) b
 				continue
 			}
 			return false
-		case *oracletypes.MsgAggregateExchangeRatePrevote:
-			if OraclePrevoteIsGasless(m, ctx, oracleKeeper) {
-				continue
-			}
-			return false
 		case *oracletypes.MsgAggregateExchangeRateVote:
 			if OracleVoteIsGasless(m, ctx, oracleKeeper) {
-				continue
-			}
-			return false
-		case *oracletypes.MsgAggregateExchangeRateCombinedVote:
-			if OracleCombinedVoteIsGasless(m, ctx, oracleKeeper) {
 				continue
 			}
 			return false
@@ -131,34 +114,6 @@ func allSignersWhitelisted(msg *dextypes.MsgCancelOrders) bool {
 	return true
 }
 
-func OraclePrevoteIsGasless(msg *oracletypes.MsgAggregateExchangeRatePrevote, ctx sdk.Context, keeper oraclekeeper.Keeper) bool {
-	feederAddr, err := sdk.AccAddressFromBech32(msg.Feeder)
-	if err != nil {
-		return false
-	}
-
-	valAddr, err := sdk.ValAddressFromBech32(msg.Validator)
-	if err != nil {
-		return false
-	}
-
-	err = keeper.ValidateFeeder(ctx, feederAddr, valAddr)
-	if err != nil {
-		return false
-	}
-
-	currHeight := ctx.BlockHeight()
-	votePeriod := keeper.VotePeriod(ctx)
-	lastPrevote, err := keeper.GetAggregateExchangeRatePrevote(ctx, valAddr)
-	if err != nil {
-		return true
-	}
-
-	lastPrevoteWindow := lastPrevote.SubmitBlock / votePeriod
-	currPrevoteWindow := uint64(currHeight) / votePeriod
-	return currPrevoteWindow > lastPrevoteWindow
-}
-
 func OracleVoteIsGasless(msg *oracletypes.MsgAggregateExchangeRateVote, ctx sdk.Context, keeper oraclekeeper.Keeper) bool {
 	feederAddr, err := sdk.AccAddressFromBech32(msg.Feeder)
 	if err != nil {
@@ -178,28 +133,6 @@ func OracleVoteIsGasless(msg *oracletypes.MsgAggregateExchangeRateVote, ctx sdk.
 	// this returns an error IFF there is no vote present
 	// this also gets cleared out after every vote window, so if there is no vote present, we may want to allow gasless tx
 	_, err = keeper.GetAggregateExchangeRateVote(ctx, valAddr)
-	// if there is no error that means there is a vote present, so we dont allow gasless tx
-	if err == nil {
-		return false
-	}
-
-	currHeight := ctx.BlockHeight()
-	votePeriod := keeper.VotePeriod(ctx)
-	// we expect a prevote from the previous window
-	lastPrevote, err := keeper.GetAggregateExchangeRatePrevote(ctx, valAddr)
-	if err != nil {
-		// if there is no prevote present, there shouldnt be a vote expected so we dont allow gasless
-		return false
-	}
-
-	lastPrevoteWindow := lastPrevote.SubmitBlock / votePeriod
-	currPrevoteWindow := uint64(currHeight) / votePeriod
-
-	// we allow gasless tx if the difference is exactly 1, since then the prevote is in the valid window
-	return currPrevoteWindow-lastPrevoteWindow == 1
-}
-
-func OracleCombinedVoteIsGasless(msg *oracletypes.MsgAggregateExchangeRateCombinedVote, ctx sdk.Context, keeper oraclekeeper.Keeper) bool {
-	return (OraclePrevoteIsGasless(msg.GetPrevoteFromCombinedVote(), ctx, keeper) ||
-		OracleVoteIsGasless(msg.GetVoteFromCombinedVote(), ctx, keeper))
+	// if there is no error that means there is a vote present, so we dont allow gasless tx otherwise we allow it
+	return err != nil
 }

@@ -28,11 +28,6 @@ func NewDecodeStore(cdc codec.Codec) func(kvA, kvB kv.Pair) string {
 			cdc.MustUnmarshal(kvA.Value, &counterA)
 			cdc.MustUnmarshal(kvB.Value, &counterB)
 			return fmt.Sprintf("%v\n%v", counterA, counterB)
-		case bytes.Equal(kvA.Key[:1], types.AggregateExchangeRatePrevoteKey):
-			var prevoteA, prevoteB types.AggregateExchangeRatePrevote
-			cdc.MustUnmarshal(kvA.Value, &prevoteA)
-			cdc.MustUnmarshal(kvB.Value, &prevoteB)
-			return fmt.Sprintf("%v\n%v", prevoteA, prevoteB)
 		case bytes.Equal(kvA.Key[:1], types.AggregateExchangeRateVoteKey):
 			var voteA, voteB types.AggregateExchangeRateVote
 			cdc.MustUnmarshal(kvA.Value, &voteA)

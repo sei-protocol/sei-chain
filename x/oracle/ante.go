@@ -15,19 +15,17 @@ import (
 // SpammingPreventionDecorator will check if the transaction's gas is smaller than
 // configured hard cap
 type SpammingPreventionDecorator struct {
-	oracleKeeper     keeper.Keeper
-	oraclePrevoteMap map[string]int64
-	oracleVoteMap    map[string]int64
-	mu               *sync.Mutex
+	oracleKeeper  keeper.Keeper
+	oracleVoteMap map[string]int64
+	mu            *sync.Mutex
 }
 
 // NewSpammingPreventionDecorator returns new spamming prevention decorator instance
 func NewSpammingPreventionDecorator(oracleKeeper keeper.Keeper) SpammingPreventionDecorator {
 	return SpammingPreventionDecorator{
-		oracleKeeper:     oracleKeeper,
-		oraclePrevoteMap: make(map[string]int64),
-		oracleVoteMap:    make(map[string]int64),
-		mu:               &sync.Mutex{},
+		oracleKeeper:  oracleKeeper,
+		oracleVoteMap: make(map[string]int64),
+		mu:            &sync.Mutex{},
 	}
 }
 
@@ -54,18 +52,11 @@ func (spd SpammingPreventionDecorator) AnteDeps(txDeps []sdkacltypes.AccessOpera
 	for _, msg := range tx.GetMsgs() {
 		// Error checking will be handled in AnteHandler
 		switch m := msg.(type) {
-		case *types.MsgAggregateExchangeRatePrevote:
-			feederAddr, _ := sdk.AccAddressFromBech32(m.Feeder)
-			valAddr, _ := sdk.ValAddressFromBech32(m.Validator)
-			deps = append(deps, aclutils.GetOracleReadAccessOpsForValAndFeeder(feederAddr, valAddr)...)
 		case *types.MsgAggregateExchangeRateVote:
 			feederAddr, _ := sdk.AccAddressFromBech32(m.Feeder)
 			valAddr, _ := sdk.ValAddressFromBech32(m.Validator)
 			deps = append(deps, aclutils.GetOracleReadAccessOpsForValAndFeeder(feederAddr, valAddr)...)
-		case *types.MsgAggregateExchangeRateCombinedVote:
-			feederAddr, _ := sdk.AccAddressFromBech32(m.Feeder)
-			valAddr, _ := sdk.ValAddressFromBech32(m.Validator)
-			deps = append(deps, aclutils.GetOracleReadAccessOpsForValAndFeeder(feederAddr, valAddr)...)
+			// TODO: we also need to add READs for Validator + bonded check
 		default:
 			continue
 		}
@@ -82,51 +73,7 @@ func (spd SpammingPreventionDecorator) CheckOracleSpamming(ctx sdk.Context, msgs
 	curHeight := ctx.BlockHeight()
 	for _, msg := range msgs {
 		switch msg := msg.(type) {
-		case *types.MsgAggregateExchangeRatePrevote:
-			feederAddr, err := sdk.AccAddressFromBech32(msg.Feeder)
-			if err != nil {
-				return err
-			}
-
-			valAddr, err := sdk.ValAddressFromBech32(msg.Validator)
-			if err != nil {
-				return err
-			}
-
-			err = spd.oracleKeeper.ValidateFeeder(ctx, feederAddr, valAddr)
-			if err != nil {
-				return err
-			}
-
-			if lastSubmittedHeight, ok := spd.oraclePrevoteMap[msg.Validator]; ok && lastSubmittedHeight == curHeight {
-				return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "the validator has already been submitted prevote at the current height")
-			}
-
-			spd.oraclePrevoteMap[msg.Validator] = curHeight
-			continue
 		case *types.MsgAggregateExchangeRateVote:
-			feederAddr, err := sdk.AccAddressFromBech32(msg.Feeder)
-			if err != nil {
-				return err
-			}
-
-			valAddr, err := sdk.ValAddressFromBech32(msg.Validator)
-			if err != nil {
-				return err
-			}
-
-			err = spd.oracleKeeper.ValidateFeeder(ctx, feederAddr, valAddr)
-			if err != nil {
-				return err
-			}
-
-			if lastSubmittedHeight, ok := spd.oracleVoteMap[msg.Validator]; ok && lastSubmittedHeight == curHeight {
-				return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "the validator has already been submitted vote at the current height")
-			}
-
-			spd.oracleVoteMap[msg.Validator] = curHeight
-			continue
-		case *types.MsgAggregateExchangeRateCombinedVote:
 			feederAddr, err := sdk.AccAddressFromBech32(msg.Feeder)
 			if err != nil {
 				return err
