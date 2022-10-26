@@ -143,9 +143,9 @@ func (c *LoadTestClient) GenerateOracleSenders(i int, valKeys []cryptotypes.Priv
 		seqDelta := uint64(i / 2)
 		mode := typestx.BroadcastMode_BROADCAST_MODE_SYNC
 		sender := SendTx(valKey, &txBuilder, mode, seqDelta, *c)
-		wg.Add(1)
+		waitGroup.Add(1)
 		senders = append(senders, func() {
-			defer wg.Done()
+			defer waitGroup.Done()
 			sender()
 		})
 	}
