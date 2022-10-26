@@ -11,8 +11,11 @@ import (
 
 	"github.com/cosmos/cosmos-sdk/client"
 	clienttx "github.com/cosmos/cosmos-sdk/client/tx"
+	"github.com/cosmos/cosmos-sdk/codec/legacy"
+	"github.com/cosmos/cosmos-sdk/crypto"
 	"github.com/cosmos/cosmos-sdk/crypto/hd"
 	"github.com/cosmos/cosmos-sdk/crypto/keyring"
+	"github.com/cosmos/cosmos-sdk/crypto/keys/sr25519"
 	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/types/tx/signing"
@@ -90,6 +93,43 @@ func (sc *SignerClient) GetKey(accountIdx uint64) cryptotypes.PrivKey {
 	// Cache this so we don't need to regenerate it
 	sc.CachedAccountKey.Store(accountIdx, privKey)
 	return privKey
+}
+
+func (sc *SignerClient) GetValKeys() []cryptotypes.PrivKey {
+	valKeys := []cryptotypes.PrivKey{}
+	userHomeDir, _ := os.UserHomeDir()
+	valKeysFilePath := filepath.Join(userHomeDir, "exported_keys")
+	files, _ := os.ReadDir(valKeysFilePath)
+	for _, fn := range files {
+		// we dont expect subdirectories, so we can just handle files
+		valKeyFile := filepath.Join(valKeysFilePath, fn.Name())
+		privKeyBz, err := os.ReadFile(valKeyFile)
+		if err != nil {
+			panic(err)
+		}
+
+		privKeyBytes, algo, err := crypto.UnarmorDecryptPrivKey(string(privKeyBz), "12345678")
+		if err != nil {
+			panic(err)
+		}
+
+		var privKey cryptotypes.PrivKey
+		if algo == string(hd.Sr25519Type) {
+			typedKey := &sr25519.PrivKey{}
+			if err := typedKey.UnmarshalJSON(privKeyBytes); err != nil {
+				panic(err)
+			}
+			privKey = typedKey
+		} else {
+			privKey, err = legacy.PrivKeyFromBytes(privKeyBytes)
+			if err != nil {
+				panic(err)
+			}
+		}
+
+		valKeys = append(valKeys, privKey)
+	}
+	return valKeys
 }
 
 func (sc *SignerClient) SignTx(chainID string, txBuilder *client.TxBuilder, privKey cryptotypes.PrivKey, seqDelta uint64) {

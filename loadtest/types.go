@@ -30,6 +30,7 @@ type Config struct {
 	MsgsPerTx         uint64                `json:"msgs_per_tx"`
 	Rounds            uint64                `json:"rounds"`
 	MessageType       string                `json:"message_type"`
+	RunOracle         bool                  `json:"run_oracle"`
 	PriceDistr        NumericDistribution   `json:"price_distribution"`
 	QuantityDistr     NumericDistribution   `json:"quantity_distribution"`
 	MsgTypeDistr      MsgTypeDistribution   `json:"message_type_distribution"`
