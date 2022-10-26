@@ -15,6 +15,7 @@ import (
 	storetypes "github.com/cosmos/cosmos-sdk/store/types"
 
 	"github.com/sei-protocol/sei-chain/aclmapping"
+	aclutils "github.com/sei-protocol/sei-chain/aclmapping/utils"
 	appparams "github.com/sei-protocol/sei-chain/app/params"
 	"github.com/sei-protocol/sei-chain/utils"
 	"github.com/sei-protocol/sei-chain/wasmbinding"
@@ -964,12 +965,17 @@ func (app *App) ProcessBlockSynchronous(ctx sdk.Context, txs [][]byte) []*abci.E
 }
 
 // Returns a mapping of the accessOperation to the channels
-func getChannelsFromSignalMapping(signalMapping acltypes.MessageCompletionSignalMapping) sdkacltypes.MessageAccessOpsChannelMapping {
+func GetChannelsFromSignalMapping(signalMapping acltypes.MessageCompletionSignalMapping) sdkacltypes.MessageAccessOpsChannelMapping {
 	channelsMapping := make(sdkacltypes.MessageAccessOpsChannelMapping)
 	for messageIndex, accessOperationsToSignal := range signalMapping {
 		for accessOperation, completionSignals := range accessOperationsToSignal {
 			var channels []chan interface{}
-			channelsMapping[messageIndex] = make(sdkacltypes.AccessOpsChannelMapping)
+			if val, ok := channelsMapping[messageIndex]; ok {
+				channels = val[accessOperation]
+			} else {
+				channelsMapping[messageIndex] = make(sdkacltypes.AccessOpsChannelMapping)
+			}
+
 			for _, completionSignal := range completionSignals {
 				channels = append(channels, completionSignal.Channel)
 			}
@@ -1004,14 +1010,18 @@ func (app *App) ProcessTxConcurrent(
 ) {
 	defer wg.Done()
 	// Store the Channels in the Context Object for each transaction
-	ctx = ctx.WithTxBlockingChannels(getChannelsFromSignalMapping(txBlockingSignalsMap))
-	ctx = ctx.WithTxCompletionChannels(getChannelsFromSignalMapping(txCompletionSignalingMap))
+	ctx = ctx.WithTxCompletionChannels(GetChannelsFromSignalMapping(txCompletionSignalingMap))
+	ctx = ctx.WithTxBlockingChannels(GetChannelsFromSignalMapping(txBlockingSignalsMap))
 	ctx = ctx.WithTxMsgAccessOps(txMsgAccessOpMapping)
+	ctx = ctx.WithMsgValidator(
+		sdkacltypes.NewMsgValidator(aclutils.StoreKeyToResourceTypePrefixMap),
+	)
 
 	// Deliver the transaction and store the result in the channel
-
+	ctx.Logger().Info(fmt.Sprintf("DEBUG: Processing txIndex=%d", txIndex))
 	resultChan <- ChannelResult{txIndex, app.DeliverTxWithResult(ctx, txBytes)}
 	metrics.IncrTxProcessTypeCounter(metrics.CONCURRENT)
+	ctx.Logger().Info(fmt.Sprintf("DEBUG: Finished txIndex=%d", txIndex))
 }
 
 func (app *App) ProcessBlockConcurrent(
@@ -1057,6 +1067,7 @@ func (app *App) ProcessBlockConcurrent(
 	// Gather Results and store it based on txIndex and read results from channel
 	// Concurrent results may be in different order than the original txIndex
 	txResultsMap := map[int]*abci.ExecTxResult{}
+	ctx.Logger().Info(fmt.Sprintf("DEBUG: Waiting for %d results", len(txs)))
 	for result := range resultChan {
 		txResultsMap[result.txIndex] = result.result
 	}
@@ -1067,6 +1078,7 @@ func (app *App) ProcessBlockConcurrent(
 	}
 
 	ok := true
+	ctx.Logger().Info(fmt.Sprintf("DEBUG: Parsing Results for %d results", len(txs)))
 	for i, result := range txResults {
 		if result.GetCode() == sdkerrors.ErrInvalidConcurrencyExecution.ABCICode() {
 			ctx.Logger().Error(fmt.Sprintf("Invalid concurrent execution of deliverTx index=%d", i))
@@ -1139,7 +1151,6 @@ func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequ
 			dependencyDag.TxMsgAccessOpMapping,
 		)
 		if ok {
-			ctx.Logger().Info("Concurrent Execution succeeded, proceeding to commit block")
 			txResults = concurrentResults
 			// Write the results back to the concurrent contexts - if concurrent execution fails,
 			// this should not be called and the state is rolled back and retried with synchronous execution
