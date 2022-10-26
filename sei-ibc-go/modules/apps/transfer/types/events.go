@@ -18,5 +18,5 @@ const (
 	AttributeKeyAck            = "acknowledgement"
 	AttributeKeyAckError       = "error"
 	AttributeKeyTraceHash      = "trace_hash"
-	AttributeKeyMetadata       = "metadata"
+	AttributeKeyMemo           = "memo"
 )

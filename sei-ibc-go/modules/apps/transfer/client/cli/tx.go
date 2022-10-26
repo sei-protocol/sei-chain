@@ -22,7 +22,7 @@ const (
 	flagPacketTimeoutHeight    = "packet-timeout-height"
 	flagPacketTimeoutTimestamp = "packet-timeout-timestamp"
 	flagAbsoluteTimeouts       = "absolute-timeouts"
-	flagMetadata               = "metadata"
+	flagMemo                   = "memo"
 )
 
 // NewTransferTxCmd returns the command to create a NewMsgTransfer transaction
@@ -77,7 +77,7 @@ corresponding to the counterparty channel. Any timeout set to 0 is disabled.`),
 				return err
 			}
 
-			metadataStr, err := cmd.Flags().GetString(flagMetadata)
+			memo, err := cmd.Flags().GetString(flagMemo)
 			if err != nil {
 				return err
 			}
@@ -119,7 +119,7 @@ corresponding to the counterparty channel. Any timeout set to 0 is disabled.`),
 			msg := types.NewMsgTransfer(
 				srcPort, srcChannel, coin, sender, receiver, timeoutHeight, timeoutTimestamp,
 			)
-			msg.Metadata = []byte(metadataStr)
+			msg.Memo = memo
 
 			return tx.GenerateOrBroadcastTxCLI(clientCtx, cmd.Flags(), msg)
 		},
@@ -128,7 +128,7 @@ corresponding to the counterparty channel. Any timeout set to 0 is disabled.`),
 	cmd.Flags().String(flagPacketTimeoutHeight, types.DefaultRelativePacketTimeoutHeight, "Packet timeout block height. The timeout is disabled when set to 0-0.")
 	cmd.Flags().Uint64(flagPacketTimeoutTimestamp, types.DefaultRelativePacketTimeoutTimestamp, "Packet timeout timestamp in nanoseconds from now. Default is 10 minutes. The timeout is disabled when set to 0.")
 	cmd.Flags().Bool(flagAbsoluteTimeouts, false, "Timeout flags are used as absolute timeouts.")
-	cmd.Flags().String(flagMetadata, "", "Metadata to be sent along with the packet. The CLI accepts only strings here but you can construct a packet with arbitrary bytes via code.")
+	cmd.Flags().String(flagMemo, "", "Memo to be sent along with the packet.")
 	flags.AddTxFlagsToCmd(cmd)
 
 	return cmd

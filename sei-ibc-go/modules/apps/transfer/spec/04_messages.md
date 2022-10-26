@@ -17,7 +17,7 @@ type MsgTransfer struct {
   Receiver          string
   TimeoutHeight     ibcexported.Height
   TimeoutTimestamp  uint64
-  Metadata          []byte
+  Memo              string
 }
 ```
 

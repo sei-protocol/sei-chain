@@ -69,7 +69,7 @@ func (k Keeper) SendTransfer(
 		receiver,
 		timeoutHeight,
 		timeoutTimestamp,
-		nil,
+		"",
 	)
 	return err
 }
@@ -84,7 +84,7 @@ func (k Keeper) sendTransfer(
 	receiver string,
 	timeoutHeight clienttypes.Height,
 	timeoutTimestamp uint64,
-	metadata []byte,
+	memo string,
 ) (uint64, error) {
 	if !k.GetSendEnabled(ctx) {
 		return 0, types.ErrSendDisabled
@@ -177,7 +177,7 @@ func (k Keeper) sendTransfer(
 	packetData := types.NewFungibleTokenPacketData(
 		fullDenomPath, token.Amount.String(), sender.String(), receiver,
 	)
-	packetData.Metadata = metadata
+	packetData.Memo = memo
 
 	packet := channeltypes.NewPacket(
 		packetData.GetBytes(),
