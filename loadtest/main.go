@@ -230,7 +230,7 @@ func generateMessage(config Config, key cryptotypes.PrivKey, batchSize uint64) s
 		msg = &wasmtypes.MsgExecuteContract{
 			Sender:   sdk.AccAddress(key.PubKey().Address()).String(),
 			Contract: config.ContractDistr.Sample(),
-			Msg:      []byte("{\"read_stake\":{}}"),
+			Msg:      []byte("{\"send\":{}}"),
 			Funds: sdk.NewCoins(sdk.Coin{
 				Denom:  "usei",
 				Amount: sdk.NewInt(1),
