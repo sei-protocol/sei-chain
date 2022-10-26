@@ -50,22 +50,22 @@ func MsgDelegateDependencyGenerator(keeper aclkeeper.Keeper, ctx sdk.Context, ms
 		// delegate coins from account validator account
 		{
 			AccessType:         sdkacltypes.AccessType_READ,
-			ResourceType:       sdkacltypes.ResourceType_KV,
+			ResourceType:       sdkacltypes.ResourceType_KV_BANK,
 			IdentifierTemplate: utils.GetIdentifierTemplatePerModule(utils.BANK, msgDelegate.DelegatorAddress),
 		},
 		{
 			AccessType:         sdkacltypes.AccessType_WRITE,
-			ResourceType:       sdkacltypes.ResourceType_KV,
+			ResourceType:       sdkacltypes.ResourceType_KV_BANK,
 			IdentifierTemplate: utils.GetIdentifierTemplatePerModule(utils.BANK, msgDelegate.DelegatorAddress),
 		},
 		{
 			AccessType:         sdkacltypes.AccessType_READ,
-			ResourceType:       sdkacltypes.ResourceType_KV,
+			ResourceType:       sdkacltypes.ResourceType_KV_BANK,
 			IdentifierTemplate: utils.GetIdentifierTemplatePerModule(utils.BANK, msgDelegate.ValidatorAddress),
 		},
 		{
 			AccessType:         sdkacltypes.AccessType_WRITE,
-			ResourceType:       sdkacltypes.ResourceType_KV,
+			ResourceType:       sdkacltypes.ResourceType_KV_BANK,
 			IdentifierTemplate: utils.GetIdentifierTemplatePerModule(utils.BANK, msgDelegate.ValidatorAddress),
 		},
 
@@ -118,22 +118,22 @@ func MsgUndelegateDependencyGenerator(keeper aclkeeper.Keeper, ctx sdk.Context, 
 		// Update the delegator and validator account balances
 		{
 			AccessType:         sdkacltypes.AccessType_READ,
-			ResourceType:       sdkacltypes.ResourceType_KV,
+			ResourceType:       sdkacltypes.ResourceType_KV_BANK,
 			IdentifierTemplate: utils.GetIdentifierTemplatePerModule(utils.BANK, msgUndelegate.DelegatorAddress),
 		},
 		{
 			AccessType:         sdkacltypes.AccessType_WRITE,
-			ResourceType:       sdkacltypes.ResourceType_KV,
+			ResourceType:       sdkacltypes.ResourceType_KV_BANK,
 			IdentifierTemplate: utils.GetIdentifierTemplatePerModule(utils.BANK, msgUndelegate.DelegatorAddress),
 		},
 		{
 			AccessType:         sdkacltypes.AccessType_READ,
-			ResourceType:       sdkacltypes.ResourceType_KV,
+			ResourceType:       sdkacltypes.ResourceType_KV_BANK,
 			IdentifierTemplate: utils.GetIdentifierTemplatePerModule(utils.BANK, msgUndelegate.ValidatorAddress),
 		},
 		{
 			AccessType:         sdkacltypes.AccessType_WRITE,
-			ResourceType:       sdkacltypes.ResourceType_KV,
+			ResourceType:       sdkacltypes.ResourceType_KV_BANK,
 			IdentifierTemplate: utils.GetIdentifierTemplatePerModule(utils.BANK, msgUndelegate.ValidatorAddress),
 		},
 
@@ -185,44 +185,44 @@ func MsgBeginRedelegateDependencyGenerator(keeper aclkeeper.Keeper, ctx sdk.Cont
 		// Update/delete src and destination delegation after tokens have been unbonded
 		{
 			AccessType:         sdkacltypes.AccessType_WRITE,
-			ResourceType:       sdkacltypes.ResourceType_KV,
+			ResourceType:       sdkacltypes.ResourceType_KV_STAKING_DELEGATION,
 			IdentifierTemplate: utils.GetIdentifierTemplatePerModule(utils.STAKING, msgBeingRedelegate.DelegatorAddress+msgBeingRedelegate.ValidatorSrcAddress),
 		},
 		{
 			AccessType:         sdkacltypes.AccessType_WRITE,
-			ResourceType:       sdkacltypes.ResourceType_KV,
+			ResourceType:       sdkacltypes.ResourceType_KV_STAKING_DELEGATION,
 			IdentifierTemplate: utils.GetIdentifierTemplatePerModule(utils.STAKING, msgBeingRedelegate.DelegatorAddress+msgBeingRedelegate.ValidatorDstAddress),
 		},
 
 		// Update the delegator, src validator and dest validator account balances
 		{
 			AccessType:         sdkacltypes.AccessType_READ,
-			ResourceType:       sdkacltypes.ResourceType_KV,
+			ResourceType:       sdkacltypes.ResourceType_KV_BANK,
 			IdentifierTemplate: utils.GetIdentifierTemplatePerModule(utils.BANK, msgBeingRedelegate.DelegatorAddress),
 		},
 		{
 			AccessType:         sdkacltypes.AccessType_WRITE,
-			ResourceType:       sdkacltypes.ResourceType_KV,
+			ResourceType:       sdkacltypes.ResourceType_KV_BANK,
 			IdentifierTemplate: utils.GetIdentifierTemplatePerModule(utils.BANK, msgBeingRedelegate.DelegatorAddress),
 		},
 		{
 			AccessType:         sdkacltypes.AccessType_READ,
-			ResourceType:       sdkacltypes.ResourceType_KV,
+			ResourceType:       sdkacltypes.ResourceType_KV_BANK,
 			IdentifierTemplate: utils.GetIdentifierTemplatePerModule(utils.BANK, msgBeingRedelegate.ValidatorSrcAddress),
 		},
 		{
 			AccessType:         sdkacltypes.AccessType_WRITE,
-			ResourceType:       sdkacltypes.ResourceType_KV,
+			ResourceType:       sdkacltypes.ResourceType_KV_BANK,
 			IdentifierTemplate: utils.GetIdentifierTemplatePerModule(utils.BANK, msgBeingRedelegate.ValidatorSrcAddress),
 		},
 		{
 			AccessType:         sdkacltypes.AccessType_READ,
-			ResourceType:       sdkacltypes.ResourceType_KV,
+			ResourceType:       sdkacltypes.ResourceType_KV_BANK,
 			IdentifierTemplate: utils.GetIdentifierTemplatePerModule(utils.BANK, msgBeingRedelegate.ValidatorDstAddress),
 		},
 		{
 			AccessType:         sdkacltypes.AccessType_WRITE,
-			ResourceType:       sdkacltypes.ResourceType_KV,
+			ResourceType:       sdkacltypes.ResourceType_KV_BANK,
 			IdentifierTemplate: utils.GetIdentifierTemplatePerModule(utils.BANK, msgBeingRedelegate.ValidatorDstAddress),
 		},
 

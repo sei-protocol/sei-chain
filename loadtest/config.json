@@ -24,7 +24,7 @@
             "begin_redelegate_percentage": "0.25"
         }
     },
-    "run_oracle": true,
+    "run_oracle": false,
     "message_type": "basic",
     "contract_distribution": [
         {
