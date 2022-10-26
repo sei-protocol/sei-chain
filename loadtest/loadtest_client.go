@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
 	typestx "github.com/cosmos/cosmos-sdk/types/tx"
 	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
 	"google.golang.org/grpc"
@@ -116,6 +117,8 @@ func (c *LoadTestClient) BuildTxs() (workgroups []*sync.WaitGroup, sendersList [
 		}
 	}
 
+	valKeys := c.SignerClient.GetValKeys()
+
 	for i := 0; i < int(config.Rounds); i++ {
 		fmt.Printf("Preparing %d-th round\n", i)
 
@@ -146,11 +149,34 @@ func (c *LoadTestClient) BuildTxs() (workgroups []*sync.WaitGroup, sendersList [
 			})
 		}
 
+		senders = append(senders, c.GenerateOracleSenders(i, config, valKeys, wg)...)
+
 		sendersList = append(sendersList, senders)
 		inactiveAccounts, activeAccounts = activeAccounts, inactiveAccounts
 	}
 
 	return workgroups, sendersList
+}
+
+func (c *LoadTestClient) GenerateOracleSenders(i int, config Config, valKeys []cryptotypes.PrivKey, waitGroup *sync.WaitGroup) []func() string {
+	senders := []func() string{}
+	if config.RunOracle && i%2 == 0 {
+		for _, valKey := range valKeys {
+			// generate oracle tx
+			msg := generateOracleMessage(valKey)
+			txBuilder := TestConfig.TxConfig.NewTxBuilder()
+			_ = txBuilder.SetMsgs(msg)
+			seqDelta := uint64(i / 2)
+			mode := typestx.BroadcastMode_BROADCAST_MODE_SYNC
+			sender := SendTx(valKey, &txBuilder, mode, seqDelta, false, *c)
+			waitGroup.Add(1)
+			senders = append(senders, func() string {
+				defer waitGroup.Done()
+				return sender()
+			})
+		}
+	}
+	return senders
 }
 
 func (c *LoadTestClient) SendTxs(workgroups []*sync.WaitGroup, sendersList [][]func() string) {

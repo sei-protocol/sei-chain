@@ -27,13 +27,13 @@ func GetOracleReadAccessOpsForValAndFeeder(feederAddr sdk.Address, valAddr sdk.A
 	return []sdkacltypes.AccessOperation{
 		{
 			AccessType:         sdkacltypes.AccessType_READ,
-			ResourceType:       sdkacltypes.ResourceType_KV,
-			IdentifierTemplate: GetIdentifierTemplatePerModule("oracle", feederAddr.String()),
+			ResourceType:       sdkacltypes.ResourceType_KV_ORACLE,
+			IdentifierTemplate: feederAddr.String(),
 		},
 		{
 			AccessType:         sdkacltypes.AccessType_READ,
-			ResourceType:       sdkacltypes.ResourceType_KV,
-			IdentifierTemplate: GetIdentifierTemplatePerModule("oracle", valAddr.String()),
+			ResourceType:       sdkacltypes.ResourceType_KV_ORACLE,
+			IdentifierTemplate: valAddr.String(),
 		},
 	}
 }

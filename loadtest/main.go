@@ -23,6 +23,7 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/sei-protocol/sei-chain/app"
 	dextypes "github.com/sei-protocol/sei-chain/x/dex/types"
+	oracletypes "github.com/sei-protocol/sei-chain/x/oracle/types"
 )
 
 var TestConfig EncodingConfig
@@ -267,6 +268,17 @@ func generateDexOrderPlacements(config Config, key cryptotypes.PrivKey, batchSiz
 		})
 	}
 	return orderPlacements
+}
+
+func generateOracleMessage(key cryptotypes.PrivKey) sdk.Msg {
+	valAddr := sdk.ValAddress(key.PubKey().Address()).String()
+	addr := sdk.AccAddress(key.PubKey().Address()).String()
+	msg := &oracletypes.MsgAggregateExchangeRateVote{
+		ExchangeRates: "1usei,2uatom",
+		Feeder:        addr,
+		Validator:     valAddr,
+	}
+	return msg
 }
 
 func getLastHeight() int {
