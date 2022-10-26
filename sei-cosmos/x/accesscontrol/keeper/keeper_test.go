@@ -49,7 +49,7 @@ func TestResourceDependencyMapping(t *testing.T) {
 		MessageKey: "testKey",
 		AccessOps: []acltypes.AccessOperation{
 			{
-				ResourceType:       acltypes.ResourceType_ANY,
+				ResourceType:       acltypes.ResourceType_KV_EPOCH,
 				AccessType:         acltypes.AccessType_READ,
 				IdentifierTemplate: "someIdentifier",
 			},
@@ -135,12 +135,12 @@ func (suite *KeeperTestSuite) TestMessageDependencies() {
 	}
 	delegateKey := types.GenerateMessageKey(&stakingDelegate)
 
-	// setup bank send static dependency
+	// setup staking dependency
 	delegateStaticMapping := acltypes.MessageDependencyMapping{
 		MessageKey: string(delegateKey),
 		AccessOps: []acltypes.AccessOperation{
 			{
-				ResourceType:       acltypes.ResourceType_KV,
+				ResourceType:       acltypes.ResourceType_KV_STAKING,
 				AccessType:         acltypes.AccessType_WRITE,
 				IdentifierTemplate: "stakingPrefix",
 			},
@@ -158,12 +158,12 @@ func (suite *KeeperTestSuite) TestMessageDependencies() {
 		Amount:           sdk.Coin{Denom: "usei", Amount: sdk.NewInt(10)},
 	}
 	undelegateKey := types.GenerateMessageKey(&stakingUndelegate)
-	// setup bank send static dependency
+	// setup staking dependency
 	undelegateStaticMapping := acltypes.MessageDependencyMapping{
 		MessageKey: string(undelegateKey),
 		AccessOps: []acltypes.AccessOperation{
 			{
-				ResourceType:       acltypes.ResourceType_KV,
+				ResourceType:       acltypes.ResourceType_KV_STAKING,
 				AccessType:         acltypes.AccessType_WRITE,
 				IdentifierTemplate: "stakingUndelegatePrefix",
 			},
@@ -184,7 +184,7 @@ func (suite *KeeperTestSuite) TestMessageDependencies() {
 		MessageKey: string(bankMsgKey),
 		AccessOps: []acltypes.AccessOperation{
 			{
-				ResourceType:       acltypes.ResourceType_KV,
+				ResourceType:       acltypes.ResourceType_KV_BANK,
 				AccessType:         acltypes.AccessType_WRITE,
 				IdentifierTemplate: "bankPrefix",
 			},

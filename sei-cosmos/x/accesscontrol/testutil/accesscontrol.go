@@ -24,8 +24,8 @@ func BankSendDepGenerator(keeper aclkeeper.Keeper, ctx sdk.Context, msg sdk.Msg)
 		return []acltypes.AccessOperation{}, fmt.Errorf("invalid message received for BankMsgSend")
 	}
 	accessOps := []acltypes.AccessOperation{
-		{ResourceType: acltypes.ResourceType_KV, AccessType: acltypes.AccessType_WRITE, IdentifierTemplate: bankSend.FromAddress},
-		{ResourceType: acltypes.ResourceType_KV, AccessType: acltypes.AccessType_WRITE, IdentifierTemplate: bankSend.ToAddress},
+		{ResourceType: acltypes.ResourceType_KV_BANK, AccessType: acltypes.AccessType_WRITE, IdentifierTemplate: bankSend.FromAddress},
+		{ResourceType: acltypes.ResourceType_KV_BANK, AccessType: acltypes.AccessType_WRITE, IdentifierTemplate: bankSend.ToAddress},
 		types.CommitAccessOp(),
 	}
 	return accessOps, nil
@@ -38,7 +38,7 @@ func StakingDelegateDepGenerator(keeper aclkeeper.Keeper, ctx sdk.Context, msg s
 		return []acltypes.AccessOperation{}, fmt.Errorf("invalid message received for StakingDelegate")
 	}
 	accessOps := []acltypes.AccessOperation{
-		{ResourceType: acltypes.ResourceType_KV, AccessType: acltypes.AccessType_WRITE, IdentifierTemplate: stakingDelegate.DelegatorAddress},
+		{ResourceType: acltypes.ResourceType_KV_STAKING, AccessType: acltypes.AccessType_WRITE, IdentifierTemplate: stakingDelegate.DelegatorAddress},
 	}
 	return accessOps, nil
 }

@@ -14,16 +14,20 @@ var ResourceTree = map[ResourceType]TreeNode{
 		ResourceType_KV_ORACLE,
 		ResourceType_KV_STAKING,
 		ResourceType_KV_WASM,
+		ResourceType_KV_TOKENFACTORY,
 	}},
-	ResourceType_Mem:        		{ResourceType_ANY, []ResourceType{ResourceType_DexMem}},
-	ResourceType_DexMem:     		{ResourceType_Mem, []ResourceType{}},
-	ResourceType_KV_BANK:    		{ResourceType_KV, []ResourceType{}},
-	ResourceType_KV_STAKING: 		{ResourceType_KV, []ResourceType{}},
-	ResourceType_KV_WASM:    		{ResourceType_KV, []ResourceType{}},
-	ResourceType_KV_EPOCH:   		{ResourceType_KV, []ResourceType{}},
-	ResourceType_KV_ORACLE:  		{ResourceType_KV, []ResourceType{}},
-	ResourceType_KV_DEX:     		{ResourceType_KV, []ResourceType{}},
-	ResourceType_KV_TOKENFACTORY:	{ResourceType_KV, []ResourceType{}},
+	ResourceType_Mem:                       {ResourceType_ANY, []ResourceType{ResourceType_DexMem}},
+	ResourceType_DexMem:                    {ResourceType_Mem, []ResourceType{}},
+	ResourceType_KV_BANK:                   {ResourceType_KV, []ResourceType{}},
+	ResourceType_KV_STAKING:                {ResourceType_KV, []ResourceType{}},
+	ResourceType_KV_WASM:                   {ResourceType_KV, []ResourceType{}},
+	ResourceType_KV_EPOCH:                  {ResourceType_KV, []ResourceType{}},
+	ResourceType_KV_ORACLE:                 {ResourceType_KV, []ResourceType{ResourceType_KV_ORACLE_AGGREGATE_VOTES, ResourceType_KV_ORACLE_VOTE_TARGETS, ResourceType_KV_ORACLE_FEEDERS}},
+	ResourceType_KV_ORACLE_VOTE_TARGETS:    {ResourceType_KV_ORACLE, []ResourceType{}},
+	ResourceType_KV_ORACLE_AGGREGATE_VOTES: {ResourceType_KV_ORACLE, []ResourceType{}},
+	ResourceType_KV_ORACLE_FEEDERS:         {ResourceType_KV_ORACLE, []ResourceType{}},
+	ResourceType_KV_DEX:                    {ResourceType_KV, []ResourceType{}},
+	ResourceType_KV_TOKENFACTORY:           {ResourceType_KV, []ResourceType{}},
 }
 
 // This returns a slice of all resource types that are dependent to a specific resource type
@@ -63,4 +67,8 @@ func (r ResourceType) GetParentResources() []ResourceType {
 	}
 
 	return parentResources
+}
+
+func (r ResourceType) HasChildren() bool {
+	return len(ResourceTree[r].Children) > 0
 }

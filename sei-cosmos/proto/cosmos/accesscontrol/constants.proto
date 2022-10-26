@@ -21,6 +21,9 @@ enum ResourceType {
     KV_ORACLE = 7; // child of KV
     KV_DEX = 8; // child of KV
     KV_EPOCH = 9; // child of KV
-    KV_TOKENFACTORY = 11; // child of KV
+    KV_TOKENFACTORY = 10; // child of KV
+    KV_ORACLE_VOTE_TARGETS = 11; // child of KV_ORACLE
+    KV_ORACLE_AGGREGATE_VOTES = 12; // child of KV_ORACLE
+    KV_ORACLE_FEEDERS = 13; // child of KV_ORACLE
 }
 

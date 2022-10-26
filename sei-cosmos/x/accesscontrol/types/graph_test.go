@@ -22,11 +22,7 @@ func TestCreateGraph(t *testing.T) {
 	\-----------------------------------=> 4wB -> 4c
 	**/
 
-	commitAccessOp := acltypes.AccessOperation{
-		AccessType:         acltypes.AccessType_COMMIT,
-		ResourceType:       acltypes.ResourceType_ANY,
-		IdentifierTemplate: "*",
-	}
+	commitAccessOp := CommitAccessOp()
 	writeAccessA := acltypes.AccessOperation{
 		AccessType:         acltypes.AccessType_WRITE,
 		ResourceType:       acltypes.ResourceType_KV,
@@ -162,11 +158,7 @@ func TestHierarchyDag(t *testing.T) {
 			\---=> 4rA c4
 	**/
 
-	commit := acltypes.AccessOperation{
-		AccessType:         acltypes.AccessType_COMMIT,
-		ResourceType:       acltypes.ResourceType_ANY,
-		IdentifierTemplate: "*",
-	}
+	commit := CommitAccessOp()
 	writeA := acltypes.AccessOperation{
 		AccessType:         acltypes.AccessType_WRITE,
 		ResourceType:       acltypes.ResourceType_KV,
@@ -253,4 +245,63 @@ func TestHierarchyDag(t *testing.T) {
 		[]CompletionSignal{signal2},
 		blockingSignalsMap[2][0][writeB],
 	)
+}
+
+func TestDagResourceIdentifiers(t *testing.T) {
+	dag := NewDag()
+
+	commit := CommitAccessOp()
+	writeA := acltypes.AccessOperation{
+		AccessType:         acltypes.AccessType_WRITE,
+		ResourceType:       acltypes.ResourceType_KV,
+		IdentifierTemplate: "ResourceA",
+	}
+	writeB := acltypes.AccessOperation{
+		AccessType:         acltypes.AccessType_WRITE,
+		ResourceType:       acltypes.ResourceType_KV,
+		IdentifierTemplate: "ResourceB",
+	}
+	writeStar := acltypes.AccessOperation{
+		AccessType:         acltypes.AccessType_WRITE,
+		ResourceType:       acltypes.ResourceType_KV,
+		IdentifierTemplate: "*",
+	}
+	writeC := acltypes.AccessOperation{
+		AccessType:         acltypes.AccessType_WRITE,
+		ResourceType:       acltypes.ResourceType_KV,
+		IdentifierTemplate: "ResourceC",
+	}
+
+	dag.AddNodeBuildDependency(0, 0, writeA)    // node id 0
+	dag.AddNodeBuildDependency(0, 0, commit)    // node id 1
+	dag.AddNodeBuildDependency(0, 1, writeB)    // node id 2
+	dag.AddNodeBuildDependency(0, 1, commit)    // node id 3
+	dag.AddNodeBuildDependency(0, 2, writeStar) // node id 4
+	dag.AddNodeBuildDependency(0, 2, commit)    // node id 5
+	dag.AddNodeBuildDependency(0, 3, writeC)    // node id 6
+	dag.AddNodeBuildDependency(0, 3, commit)    // node id 7
+
+	acyclic := graph.Acyclic(dag)
+	require.True(t, acyclic)
+	// we expect there to be edges from 1 -> 4, 3 -> 4, and 5 -> 6
+	require.Equal(t, []DagEdge(nil), dag.EdgesMap[0])
+	require.Equal(
+		t,
+		[]DagEdge{{1, 4}},
+		dag.EdgesMap[1],
+	)
+	require.Equal(t, []DagEdge(nil), dag.EdgesMap[2])
+	require.Equal(
+		t,
+		[]DagEdge{{3, 4}},
+		dag.EdgesMap[3],
+	)
+	require.Equal(t, []DagEdge(nil), dag.EdgesMap[4])
+	require.Equal(
+		t,
+		[]DagEdge{{5, 6}},
+		dag.EdgesMap[5],
+	)
+	require.Equal(t, []DagEdge(nil), dag.EdgesMap[6])
+	require.Equal(t, []DagEdge(nil), dag.EdgesMap[7])
 }

@@ -8,9 +8,11 @@ import (
 	"github.com/gogo/protobuf/proto"
 )
 
-var ErrNoCommitAccessOp = fmt.Errorf("MessageDependencyMapping doesn't terminate with AccessType_COMMIT")
-
-var ErrEmptyIdentifierString = fmt.Errorf("IdentifierTemplate cannot be an empty string")
+var (
+	ErrNoCommitAccessOp                  = fmt.Errorf("MessageDependencyMapping doesn't terminate with AccessType_COMMIT")
+	ErrEmptyIdentifierString             = fmt.Errorf("IdentifierTemplate cannot be an empty string")
+	ErrNonLeafResourceTypeWithIdentifier = fmt.Errorf("IdentifierTemplate must be '*' for non leaf resource types")
+)
 
 type MessageKey string
 
@@ -41,6 +43,9 @@ func ValidateAccessOps(accessOps []acltypes.AccessOperation) error {
 func ValidateAccessOp(accessOp acltypes.AccessOperation) error {
 	if accessOp.IdentifierTemplate == "" {
 		return ErrEmptyIdentifierString
+	}
+	if accessOp.ResourceType.HasChildren() && accessOp.IdentifierTemplate != "*" {
+		return ErrNonLeafResourceTypeWithIdentifier
 	}
 	return nil
 }
