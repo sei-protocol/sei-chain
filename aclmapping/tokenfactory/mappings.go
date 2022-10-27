@@ -27,7 +27,7 @@ func GetTokenFactoryDependencyGenerators() aclkeeper.DependencyGeneratorMap {
 func TokenFactoryMintDependencyGenerator(keeper aclkeeper.Keeper, ctx sdk.Context, msg sdk.Msg) ([]sdkacltypes.AccessOperation, error) {
 	mintMsg, ok := msg.(*tokenfactorymoduletypes.MsgMint)
 	if !ok {
-		return []sdkacltypes.AccessOperation{}, ErrInvalidMessageType
+		return acltypes.SynchronousMessageDependencyMapping(acltypes.GenerateMessageKey(mintMsg)).AccessOps, ErrInvalidMessageType
 	}
 
 	denom := mintMsg.GetAmount().Denom

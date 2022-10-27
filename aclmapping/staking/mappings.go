@@ -96,7 +96,7 @@ func MsgDelegateDependencyGenerator(keeper aclkeeper.Keeper, ctx sdk.Context, ms
 func MsgUndelegateDependencyGenerator(keeper aclkeeper.Keeper, ctx sdk.Context, msg sdk.Msg) ([]sdkacltypes.AccessOperation, error) {
 	msgUndelegate, ok := msg.(*stakingtypes.MsgUndelegate)
 	if !ok {
-		return []sdkacltypes.AccessOperation{}, ErrorInvalidMsgType
+		return acltypes.SynchronousMessageDependencyMapping(acltypes.GenerateMessageKey(msgUndelegate)).AccessOps, ErrorInvalidMsgType
 	}
 
 	accessOperations := []sdkacltypes.AccessOperation{
