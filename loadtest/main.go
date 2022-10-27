@@ -418,11 +418,12 @@ func generateDexOrderPlacements(config Config, key cryptotypes.PrivKey, batchSiz
 		orderType = -1
 	} else {
 		dexMsgType := config.DexMsgTypeDistr.Sample()
-		if dexMsgType == Limit {
+		switch dexMsgType {
+		case Limit:
 			orderType = dextypes.OrderType_LIMIT
-		} else if dexMsgType == Market {
+		case Market:
 			orderType = dextypes.OrderType_MARKET
-		} else {
+		default:
 			panic(fmt.Sprintf("Unknown message type %s\n", dexMsgType))
 		}
 	}
@@ -472,7 +473,7 @@ func generateStakingMsg(delegatorAddr string, chosenValidator string, srcAddr st
 				ValidatorDstAddress: chosenValidator,
 				Amount:              sdk.Coin{Denom: "usei", Amount: sdk.NewInt(1)},
 			}
-			DelegationMap[delegatorAddr][chosenValidator] += 1
+			DelegationMap[delegatorAddr][chosenValidator]++
 		} else {
 			msg = &stakingtypes.MsgUndelegate{
 				DelegatorAddress: delegatorAddr,
@@ -481,7 +482,7 @@ func generateStakingMsg(delegatorAddr string, chosenValidator string, srcAddr st
 			}
 		}
 		// Update delegation map
-		DelegationMap[delegatorAddr][srcAddr] -= 1
+		DelegationMap[delegatorAddr][srcAddr]--
 		if DelegationMap[delegatorAddr][srcAddr] == 0 {
 			delete(DelegationMap, delegatorAddr)
 		}
