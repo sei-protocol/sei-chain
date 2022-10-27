@@ -23,6 +23,8 @@ func GetQueryCmd() *cobra.Command {
 		GetParams(),
 		GetResourceDependencyMapping(),
 		ListResourceDependencyMapping(),
+		GetWasmDependencyMapping(),
+		ListWasmDependencyMapping(),
 	)
 
 	return cmd

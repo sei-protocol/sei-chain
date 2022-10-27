@@ -13,11 +13,19 @@ func RegisterCodec(cdc *codec.LegacyAmino) {
 		"cosmos-sdk/MsgUpdateResourceDependencyMappingProposal",
 		nil,
 	)
+	cdc.RegisterConcrete(
+		&MsgUpdateWasmDependencyMappingProposal{},
+		"cosmos-sdk/MsgUpdateWasmDependencyMappingProposal",
+		nil,
+	)
 }
 
 func RegisterInterfaces(registry cdctypes.InterfaceRegistry) {
 	registry.RegisterImplementations((*govtypes.Content)(nil),
 		&MsgUpdateResourceDependencyMappingProposal{},
+	)
+	registry.RegisterImplementations((*govtypes.Content)(nil),
+		&MsgUpdateWasmDependencyMappingProposal{},
 	)
 }
 
