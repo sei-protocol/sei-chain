@@ -13,6 +13,7 @@ import (
 	"time"
 
 	storetypes "github.com/cosmos/cosmos-sdk/store/types"
+	pp "github.com/k0kubun/pp/v3"
 
 	"github.com/sei-protocol/sei-chain/aclmapping"
 	appparams "github.com/sei-protocol/sei-chain/app/params"
@@ -1026,6 +1027,8 @@ func (app *App) ProcessBlockConcurrent(
 	if len(txs) == 0 {
 		return txResults, true
 	}
+
+	pp.Printf("DAG=%s\n", dependencyDag)
 
 	// For each transaction, start goroutine and deliver TX
 	for txIndex, txBytes := range txs {
