@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -12,6 +13,9 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
+	tokenfactorytypes "github.com/sei-protocol/sei-chain/x/tokenfactory/types"
 
 	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
 
@@ -31,13 +35,16 @@ import (
 )
 
 const (
-	Basic                 string = "basic"
-	FailureBasicMalformed string = "failure_basic_malformed"
-	FailureBasicInvalid   string = "failure_basic_invalid"
-	FailureDexMalformed   string = "failure_dex_malformed"
-	FailureDexInvalid     string = "failure_dex_invalid"
-	Dex                   string = "dex"
-	Limit                 string = "limit"
+	Bank                 string = "bank"
+	FailureBankMalformed string = "failure_bank_malformed"
+	FailureBankInvalid   string = "failure_bank_invalid"
+	FailureDexMalformed  string = "failure_dex_malformed"
+	FailureDexInvalid    string = "failure_dex_invalid"
+	Dex                  string = "dex"
+	Staking              string = "staking"
+	Tokenfactory         string = "tokenfactory"
+	Limit                string = "limit"
+	Market               string = "market"
 )
 
 type EncodingConfig struct {
@@ -54,11 +61,9 @@ type Config struct {
 	OrdersPerBlock    uint64                `json:"orders_per_block"`
 	Rounds            uint64                `json:"rounds"`
 	MessageType       string                `json:"message_type"`
-	FailureMode       bool                  `json:"failure_mode"`
-	FailureType       string                `json:"failure_type"`
 	PriceDistr        NumericDistribution   `json:"price_distribution"`
 	QuantityDistr     NumericDistribution   `json:"quantity_distribution"`
-	MsgTypeDistr      MsgTypeDistribution   `json:"message_type_distribution"`
+	DexMsgTypeDistr   MsgTypeDistribution   `json:"dex_message_type_distribution"`
 	ContractDistr     ContractDistributions `json:"contract_distribution"`
 	Constant          bool                  `json:"constant"`
 	ConstLoadInterval int64                 `json:"const_load_interval"`
@@ -123,10 +128,17 @@ type ContractDistribution struct {
 }
 
 var (
-	TestConfig EncodingConfig
-	TxClient   typestx.ServiceClient
-	TxHashFile *os.File
-	ChainID    string
+	TestConfig         EncodingConfig
+	TxClient           typestx.ServiceClient
+	StakingQueryClient stakingtypes.QueryClient
+	TxHashFile         *os.File
+	ChainID            string
+	//// Staking specific variables
+	Validators []stakingtypes.Validator
+	// DelegationMap is a map of delegator -> validator -> delegated amount
+	DelegationMap map[string]map[string]int
+	//// Tokenfactory specific variables
+	TokenFactoryDenomOwner map[string]string
 )
 
 const (
@@ -160,18 +172,16 @@ func run(config Config) {
 	)
 	defer grpcConn.Close()
 	TxClient = typestx.NewServiceClient(grpcConn)
-	userHomeDir, _ := os.UserHomeDir()
-	_ = os.Mkdir(filepath.Join(userHomeDir, "outputs"), os.ModePerm)
-	filename := filepath.Join(userHomeDir, "outputs", "test_tx_hash")
-	_ = os.Remove(filename)
-	file, _ := os.OpenFile(filename, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
-	TxHashFile = file
+	StakingQueryClient = stakingtypes.NewQueryClient(grpcConn)
+	createOutputFiles()
 	var mu sync.Mutex
 	batchSize := config.BatchSize
 	if config.OrdersPerBlock < batchSize {
 		panic("Must have more orders per block than batch size")
 	}
-
+	setValidators(config)
+	DelegationMap = map[string]map[string]int{}
+	TokenFactoryDenomOwner = map[string]string{}
 	numberOfAccounts := config.OrdersPerBlock / batchSize * 2 // * 2 because we need two sets of accounts
 	activeAccounts := []int{}
 	inactiveAccounts := []int{}
@@ -194,7 +204,7 @@ func run(config Config) {
 		wg := &sync.WaitGroup{}
 		var senders []func() string
 		wgs = append(wgs, wg)
-		for _, account := range activeAccounts {
+		for j, account := range activeAccounts {
 			key := GetKey(uint64(account))
 
 			msg, failureExpected := generateMessage(config, key, batchSize)
@@ -202,7 +212,9 @@ func run(config Config) {
 			_ = txBuilder.SetMsgs(msg)
 			seqDelta := uint64(i / 2)
 			mode := typestx.BroadcastMode_BROADCAST_MODE_SYNC
-
+			if j == len(activeAccounts)-1 {
+				mode = typestx.BroadcastMode_BROADCAST_MODE_BLOCK
+			}
 			// Note: There is a potential race condition here with seqnos
 			// in which a later seqno is delievered before an earlier seqno
 			// In practice, we haven't run into this issue so we'll leave this
@@ -220,7 +232,6 @@ func run(config Config) {
 	}
 
 	lastHeight := getLastHeight()
-	txs := []string{}
 	for i := 0; i < int(config.Rounds); i++ {
 		newHeight := getLastHeight()
 		for newHeight == lastHeight {
@@ -231,45 +242,41 @@ func run(config Config) {
 		senders := sendersList[i]
 		wg := wgs[i]
 		for _, sender := range senders {
-			go func() {
-				//nolint:govet
-				tx := sender()
-				if tx != "" {
-					txs = append(txs, tx)
-				}
-			}()
+			go sender()
 		}
 		wg.Wait()
 		lastHeight = newHeight
 	}
+	fmt.Printf("%s - Finished\n", time.Now().Format("2006-01-02T15:04:05"))
+}
 
-	if config.Constant {
-		// sleep 3 seconds wait for transaction to finish
-		time.Sleep(3 * time.Second)
-		for i := 0; i < len(txs); i++ {
-			txResponse := GetTxResponse(txs[i])
-			if txResponse.Tx == nil {
-				// TODO: add metrics to detect non committed txs
-				fmt.Println("transaction not committed")
-			}
+func createOutputFiles() {
+	userHomeDir, _ := os.UserHomeDir()
+	_ = os.Mkdir(filepath.Join(userHomeDir, "outputs"), os.ModePerm)
+	filename := filepath.Join(userHomeDir, "outputs", "test_tx_hash")
+	_ = os.Remove(filename)
+	file, _ := os.OpenFile(filename, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	TxHashFile = file
+}
+
+func setValidators(config Config) {
+	if strings.Contains(config.MessageType, "staking") {
+		if resp, err := StakingQueryClient.Validators(context.Background(), &stakingtypes.QueryValidatorsRequest{}); err != nil {
+			panic(err)
+		} else {
+			Validators = resp.Validators
 		}
 	}
-	fmt.Printf("%s - Finished\n", time.Now().Format("2006-01-02T15:04:05"))
 }
 
 func generateMessage(config Config, key cryptotypes.PrivKey, batchSize uint64) (sdk.Msg, bool) {
 	var msg sdk.Msg
-	messageTypes := []string{"basic", "dex", "failure_basic_malformed", "failure_basic_invalid", "failure_dex_malformed", "failure_dex_invalid"}
-	messageType := config.MessageType
-
-	// Use a random message type if it's running constant load test
-	if config.Constant {
-		// need to update seed otherwise it's the same value for randomization
-		rand.Seed(time.Now().UnixNano())
-		messageType = messageTypes[rand.Intn(len(messageTypes))]
-	}
+	messageTypes := strings.Split(config.MessageType, ",")
+	rand.Seed(time.Now().UnixNano())
+	messageType := messageTypes[rand.Intn(len(messageTypes))]
+	fmt.Printf("Message type: %s\n", messageType)
 	switch messageType {
-	case Basic:
+	case Bank:
 		msg = &banktypes.MsgSend{
 			FromAddress: sdk.AccAddress(key.PubKey().Address()).String(),
 			ToAddress:   sdk.AccAddress(key.PubKey().Address()).String(),
@@ -278,7 +285,60 @@ func generateMessage(config Config, key cryptotypes.PrivKey, batchSize uint64) (
 				Amount: sdk.NewInt(1),
 			}),
 		}
-	case FailureBasicMalformed:
+	case Dex:
+		price := config.PriceDistr.Sample()
+		quantity := config.QuantityDistr.Sample()
+		contract := config.ContractDistr.Sample()
+		orderPlacements := generateDexOrderPlacements(config, key, batchSize, price, quantity)
+		amount, err := sdk.ParseCoinsNormalized(fmt.Sprintf("%d%s", price.Mul(quantity).Ceil().RoundInt64(), "usei"))
+		if err != nil {
+			panic(err)
+		}
+		msg = &dextypes.MsgPlaceOrders{
+			Creator:      sdk.AccAddress(key.PubKey().Address()).String(),
+			Orders:       orderPlacements,
+			ContractAddr: contract,
+			Funds:        amount,
+		}
+	case Staking:
+		delegatorAddr := sdk.AccAddress(key.PubKey().Address()).String()
+		chosenValidator := Validators[rand.Intn(len(Validators))].OperatorAddress
+		// Randomly pick someone to redelegate / unbond from
+		srcAddr := ""
+		for k := range DelegationMap[delegatorAddr] {
+			if k == chosenValidator {
+				continue
+			}
+			srcAddr = k
+			break
+		}
+		msg = generateStakingMsg(delegatorAddr, chosenValidator, srcAddr)
+	case Tokenfactory:
+		denomCreatorAddr := sdk.AccAddress(key.PubKey().Address()).String()
+		// No denoms, let's mint
+		randNum := rand.Float64()
+		denom, ok := TokenFactoryDenomOwner[denomCreatorAddr]
+		switch {
+		case !ok || randNum <= 0.33:
+			subDenom := fmt.Sprintf("tokenfactory-created-denom-%d", time.Now().UnixMilli())
+			denom = fmt.Sprintf("factory/%s/%s", denomCreatorAddr, subDenom)
+			msg = &tokenfactorytypes.MsgCreateDenom{
+				Sender:   denomCreatorAddr,
+				Subdenom: subDenom,
+			}
+			TokenFactoryDenomOwner[denomCreatorAddr] = denom
+		case randNum <= 0.66:
+			msg = &tokenfactorytypes.MsgMint{
+				Sender: denomCreatorAddr,
+				Amount: sdk.Coin{Denom: denom, Amount: sdk.NewInt(1000000)},
+			}
+		default:
+			msg = &tokenfactorytypes.MsgBurn{
+				Sender: denomCreatorAddr,
+				Amount: sdk.Coin{Denom: denom, Amount: sdk.NewInt(1)},
+			}
+		}
+	case FailureBankMalformed:
 		var denom string
 		if rand.Float64() < 0.5 {
 			denom = "unknown"
@@ -293,7 +353,7 @@ func generateMessage(config Config, key cryptotypes.PrivKey, batchSize uint64) (
 				Amount: sdk.NewInt(1),
 			}),
 		}
-	case FailureBasicInvalid:
+	case FailureBankInvalid:
 		var amountUsei int64
 		amountUsei = 1000000000000000000
 		msg = &banktypes.MsgSend{
@@ -305,36 +365,10 @@ func generateMessage(config Config, key cryptotypes.PrivKey, batchSize uint64) (
 			}),
 		}
 	case FailureDexMalformed:
-		msgType := config.MsgTypeDistr.Sample()
-		orderPlacements := []*dextypes.Order{}
-		var orderType dextypes.OrderType
-		if msgType == "fake_limit" {
-			orderType = 8
-		} else {
-			orderType = 9
-		}
-		var direction dextypes.PositionDirection
-		if rand.Float64() < 0.5 {
-			direction = dextypes.PositionDirection_LONG
-		} else {
-			direction = dextypes.PositionDirection_SHORT
-		}
 		price := config.PriceDistr.InvalidSample()
 		quantity := config.QuantityDistr.InvalidSample()
 		contract := config.ContractDistr.Sample()
-		for j := 0; j < int(batchSize); j++ {
-			orderPlacements = append(orderPlacements, &dextypes.Order{
-				Account:           sdk.AccAddress(key.PubKey().Address()).String(),
-				ContractAddr:      contract,
-				PositionDirection: direction,
-				Price:             price.Quo(FromMili),
-				Quantity:          quantity.Quo(FromMili),
-				PriceDenom:        "SEI",
-				AssetDenom:        "ATOM",
-				OrderType:         orderType,
-				Data:              VortexData,
-			})
-		}
+		orderPlacements := generateDexOrderPlacements(config, key, batchSize, price, quantity)
 		amount, err := sdk.ParseCoinsNormalized(fmt.Sprintf("%d%s", price.Mul(quantity).Ceil().RoundInt64(), "usei"))
 		if err != nil {
 			panic(err)
@@ -346,36 +380,10 @@ func generateMessage(config Config, key cryptotypes.PrivKey, batchSize uint64) (
 			Funds:        amount,
 		}
 	case FailureDexInvalid:
-		msgType := config.MsgTypeDistr.Sample()
-		orderPlacements := []*dextypes.Order{}
-		var orderType dextypes.OrderType
-		if msgType == Limit {
-			orderType = dextypes.OrderType_LIMIT
-		} else {
-			orderType = dextypes.OrderType_MARKET
-		}
-		var direction dextypes.PositionDirection
-		if rand.Float64() < 0.5 {
-			direction = dextypes.PositionDirection_LONG
-		} else {
-			direction = dextypes.PositionDirection_SHORT
-		}
 		price := config.PriceDistr.Sample()
 		quantity := config.QuantityDistr.Sample()
 		contract := config.ContractDistr.Sample()
-		for j := 0; j < int(batchSize); j++ {
-			orderPlacements = append(orderPlacements, &dextypes.Order{
-				Account:           sdk.AccAddress(key.PubKey().Address()).String(),
-				ContractAddr:      contract,
-				PositionDirection: direction,
-				Price:             price.Quo(FromMili),
-				Quantity:          quantity.Quo(FromMili),
-				PriceDenom:        "SEI",
-				AssetDenom:        "ATOM",
-				OrderType:         orderType,
-				Data:              VortexData,
-			})
-		}
+		orderPlacements := generateDexOrderPlacements(config, key, batchSize, price, quantity)
 		var amountUsei int64
 		if rand.Float64() < 0.5 {
 			amountUsei = 10000 * price.Mul(quantity).Ceil().RoundInt64()
@@ -392,47 +400,7 @@ func generateMessage(config Config, key cryptotypes.PrivKey, batchSize uint64) (
 			ContractAddr: contract,
 			Funds:        amount,
 		}
-	case Dex:
-		msgType := config.MsgTypeDistr.Sample()
-		orderPlacements := []*dextypes.Order{}
-		var orderType dextypes.OrderType
-		if msgType == Limit {
-			orderType = dextypes.OrderType_LIMIT
-		} else {
-			orderType = dextypes.OrderType_MARKET
-		}
-		var direction dextypes.PositionDirection
-		if rand.Float64() < 0.5 {
-			direction = dextypes.PositionDirection_LONG
-		} else {
-			direction = dextypes.PositionDirection_SHORT
-		}
-		price := config.PriceDistr.Sample()
-		quantity := config.QuantityDistr.Sample()
-		contract := config.ContractDistr.Sample()
-		for j := 0; j < int(batchSize); j++ {
-			orderPlacements = append(orderPlacements, &dextypes.Order{
-				Account:           sdk.AccAddress(key.PubKey().Address()).String(),
-				ContractAddr:      contract,
-				PositionDirection: direction,
-				Price:             price.Quo(FromMili),
-				Quantity:          quantity.Quo(FromMili),
-				PriceDenom:        "SEI",
-				AssetDenom:        "ATOM",
-				OrderType:         orderType,
-				Data:              VortexData,
-			})
-		}
-		amount, err := sdk.ParseCoinsNormalized(fmt.Sprintf("%d%s", price.Mul(quantity).Ceil().RoundInt64(), "usei"))
-		if err != nil {
-			panic(err)
-		}
-		msg = &dextypes.MsgPlaceOrders{
-			Creator:      sdk.AccAddress(key.PubKey().Address()).String(),
-			Orders:       orderPlacements,
-			ContractAddr: contract,
-			Funds:        amount,
-		}
+
 	default:
 		fmt.Printf("Unrecognized message type %s", config.MessageType)
 	}
@@ -441,6 +409,85 @@ func generateMessage(config Config, key cryptotypes.PrivKey, batchSize uint64) (
 		return msg, true
 	}
 	return msg, false
+}
+
+func generateDexOrderPlacements(config Config, key cryptotypes.PrivKey, batchSize uint64, price sdk.Dec, quantity sdk.Dec) []*dextypes.Order {
+	orderPlacements := []*dextypes.Order{}
+	var orderType dextypes.OrderType
+	if config.MessageType == "failure_bank_malformed" {
+		orderType = -1
+	} else {
+		dexMsgType := config.DexMsgTypeDistr.Sample()
+		switch dexMsgType {
+		case Limit:
+			orderType = dextypes.OrderType_LIMIT
+		case Market:
+			orderType = dextypes.OrderType_MARKET
+		default:
+			panic(fmt.Sprintf("Unknown message type %s\n", dexMsgType))
+		}
+	}
+	var direction dextypes.PositionDirection
+	if rand.Float64() < 0.5 {
+		direction = dextypes.PositionDirection_LONG
+	} else {
+		direction = dextypes.PositionDirection_SHORT
+	}
+
+	contract := config.ContractDistr.Sample()
+	for j := 0; j < int(batchSize); j++ {
+		orderPlacements = append(orderPlacements, &dextypes.Order{
+			Account:           sdk.AccAddress(key.PubKey().Address()).String(),
+			ContractAddr:      contract,
+			PositionDirection: direction,
+			Price:             price.Quo(FromMili),
+			Quantity:          quantity.Quo(FromMili),
+			PriceDenom:        "SEI",
+			AssetDenom:        "ATOM",
+			OrderType:         orderType,
+			Data:              VortexData,
+		})
+	}
+	return orderPlacements
+}
+
+func generateStakingMsg(delegatorAddr string, chosenValidator string, srcAddr string) sdk.Msg {
+	// Randomly unbond, redelegate or delegate
+	// However, if there are no delegations, do so first
+	var msg sdk.Msg
+	randNum := rand.Float64()
+	if _, ok := DelegationMap[delegatorAddr]; !ok || randNum <= 0.33 || srcAddr == "" {
+		msg = &stakingtypes.MsgDelegate{
+			DelegatorAddress: delegatorAddr,
+			ValidatorAddress: chosenValidator,
+			Amount:           sdk.Coin{Denom: "usei", Amount: sdk.NewInt(1)},
+		}
+		DelegationMap[delegatorAddr] = map[string]int{}
+		DelegationMap[delegatorAddr][chosenValidator] = 1
+	} else {
+
+		if randNum <= 0.66 {
+			msg = &stakingtypes.MsgBeginRedelegate{
+				DelegatorAddress:    delegatorAddr,
+				ValidatorSrcAddress: srcAddr,
+				ValidatorDstAddress: chosenValidator,
+				Amount:              sdk.Coin{Denom: "usei", Amount: sdk.NewInt(1)},
+			}
+			DelegationMap[delegatorAddr][chosenValidator]++
+		} else {
+			msg = &stakingtypes.MsgUndelegate{
+				DelegatorAddress: delegatorAddr,
+				ValidatorAddress: srcAddr,
+				Amount:           sdk.Coin{Denom: "usei", Amount: sdk.NewInt(1)},
+			}
+		}
+		// Update delegation map
+		DelegationMap[delegatorAddr][srcAddr]--
+		if DelegationMap[delegatorAddr][srcAddr] == 0 {
+			delete(DelegationMap, delegatorAddr)
+		}
+	}
+	return msg
 }
 
 func getLastHeight() int {
@@ -460,9 +507,7 @@ func getLastHeight() int {
 }
 
 func main() {
-	clientType := flag.String("clientType", "", "a string")
 	flag.Parse()
-	fmt.Printf("in main -> clientType: %s \n", *clientType)
 	config := Config{}
 	pwd, _ := os.Getwd()
 
@@ -471,30 +516,6 @@ func main() {
 	if err := json.Unmarshal(file, &config); err != nil {
 		panic(err)
 	}
-	if *clientType == FailureBasicMalformed {
-		config.FailureMode = true
-		config.MessageType = FailureBasicMalformed
-	}
-	if *clientType == FailureBasicInvalid {
-		config.FailureMode = true
-		config.MessageType = FailureBasicInvalid
-	}
-	if *clientType == FailureDexMalformed {
-		config.FailureMode = true
-		config.MessageType = FailureDexMalformed
-	}
-	if *clientType == FailureDexInvalid {
-		config.FailureMode = true
-		config.MessageType = FailureDexInvalid
-	}
 
-	if config.Constant {
-		// If it's constant load, run forever with sleep intervals
-		for {
-			run(config)
-			time.Sleep(time.Duration(config.ConstLoadInterval) * time.Second)
-		}
-	} else {
-		run(config)
-	}
+	run(config)
 }
