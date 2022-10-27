@@ -140,7 +140,12 @@ func (suite *KeeperTestSuite) TestMessageDependencies() {
 		MessageKey: string(delegateKey),
 		AccessOps: []acltypes.AccessOperation{
 			{
-				ResourceType:       acltypes.ResourceType_KV_STAKING,
+				ResourceType:       acltypes.ResourceType_KV_STAKING_DELEGATION,
+				AccessType:         acltypes.AccessType_WRITE,
+				IdentifierTemplate: "stakingPrefix",
+			},
+			{
+				ResourceType:       acltypes.ResourceType_KV_STAKING_VALIDATOR,
 				AccessType:         acltypes.AccessType_WRITE,
 				IdentifierTemplate: "stakingPrefix",
 			},
@@ -163,7 +168,12 @@ func (suite *KeeperTestSuite) TestMessageDependencies() {
 		MessageKey: string(undelegateKey),
 		AccessOps: []acltypes.AccessOperation{
 			{
-				ResourceType:       acltypes.ResourceType_KV_STAKING,
+				ResourceType:       acltypes.ResourceType_KV_STAKING_DELEGATION,
+				AccessType:         acltypes.AccessType_WRITE,
+				IdentifierTemplate: "stakingUndelegatePrefix",
+			},
+			{
+				ResourceType:       acltypes.ResourceType_KV_STAKING_VALIDATOR,
 				AccessType:         acltypes.AccessType_WRITE,
 				IdentifierTemplate: "stakingUndelegatePrefix",
 			},
