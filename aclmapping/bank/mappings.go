@@ -12,19 +12,6 @@ import (
 	utils "github.com/sei-protocol/sei-chain/aclmapping/utils"
 )
 
-func CreateAddressStoreKeyFromBech32(addr string) []byte {
-	accAdrr, _ := sdk.AccAddressFromBech32(addr)
-	accAdrrWithPrefix := authtypes.AddressStoreKey(accAdrr)
-	return accAdrrWithPrefix
-}
-
-func CreateAccountBalancesPrefixFromBech32(addr string) []byte {
-	accAdrr, _ := sdk.AccAddressFromBech32(addr)
-	accAdrrPrefix := banktypes.CreateAccountBalancesPrefix(accAdrr)
-	return accAdrrPrefix
-}
-
-
 var ErrorInvalidMsgType = fmt.Errorf("invalid message received for bank module")
 
 func GetBankDepedencyGenerator() aclkeeper.DependencyGeneratorMap {
@@ -42,8 +29,8 @@ func MsgSendDependencyGenerator(keeper aclkeeper.Keeper, ctx sdk.Context, msg sd
 	if !ok {
 		return []sdkacltypes.AccessOperation{}, ErrorInvalidMsgType
 	}
-	fromAddrIdentifier := string(CreateAccountBalancesPrefixFromBech32(msgSend.FromAddress))
-	toAddrIdentifier := string(CreateAccountBalancesPrefixFromBech32(msgSend.ToAddress))
+	fromAddrIdentifier := string(banktypes.CreateAccountBalancesPrefixFromBech32(msgSend.FromAddress))
+	toAddrIdentifier := string(banktypes.CreateAccountBalancesPrefixFromBech32(msgSend.ToAddress))
 
 	accessOperations := []sdkacltypes.AccessOperation{
 		// MsgSend also checks if the coin denom is enabled, but the information is from the params.
@@ -77,20 +64,20 @@ func MsgSendDependencyGenerator(keeper aclkeeper.Keeper, ctx sdk.Context, msg sd
 		// Tries to create the reciever's account if it doesn't exist
 		{
 			AccessType:         sdkacltypes.AccessType_READ,
-			ResourceType:       sdkacltypes.ResourceType_KV,
-			IdentifierTemplate: string(CreateAddressStoreKeyFromBech32(msgSend.ToAddress)),
+			ResourceType:       sdkacltypes.ResourceType_KV_AUTH,
+			IdentifierTemplate: string(authtypes.CreateAddressStoreKeyFromBech32(msgSend.ToAddress)),
 		},
 		{
 			AccessType:         sdkacltypes.AccessType_WRITE,
-			ResourceType:       sdkacltypes.ResourceType_KV,
-			IdentifierTemplate: string(CreateAddressStoreKeyFromBech32(msgSend.ToAddress)),
+			ResourceType:       sdkacltypes.ResourceType_KV_AUTH,
+			IdentifierTemplate: string(authtypes.CreateAddressStoreKeyFromBech32(msgSend.ToAddress)),
 		},
 
 		// Gets Account Info for the sender
 		{
 			AccessType:         sdkacltypes.AccessType_READ,
-			ResourceType:       sdkacltypes.ResourceType_KV,
-			IdentifierTemplate: string(CreateAddressStoreKeyFromBech32(msgSend.FromAddress)),
+			ResourceType:       sdkacltypes.ResourceType_KV_AUTH,
+			IdentifierTemplate: string(authtypes.CreateAddressStoreKeyFromBech32(msgSend.FromAddress)),
 		},
 
 		{
