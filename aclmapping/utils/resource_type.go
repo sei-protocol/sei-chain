@@ -13,9 +13,9 @@ import (
 
 var StoreKeyToResourceTypePrefixMap = aclsdktypes.StoreKeyToResourceTypePrefixMap{
 	aclsdktypes.ParentNodeKey: {
-		aclsdktypes.ResourceType_ANY:     aclsdktypes.EmptyPrefix,
-		aclsdktypes.ResourceType_KV:      aclsdktypes.EmptyPrefix,
-		aclsdktypes.ResourceType_Mem:     aclsdktypes.EmptyPrefix,
+		aclsdktypes.ResourceType_ANY: aclsdktypes.EmptyPrefix,
+		aclsdktypes.ResourceType_KV:  aclsdktypes.EmptyPrefix,
+		aclsdktypes.ResourceType_Mem: aclsdktypes.EmptyPrefix,
 	},
 	dextypes.StoreKey: {
 		aclsdktypes.ResourceType_KV_DEX: aclsdktypes.EmptyPrefix,
