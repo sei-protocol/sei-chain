@@ -12,7 +12,6 @@ import (
 	"github.com/cosmos/cosmos-sdk/x/bank"
 	"github.com/cosmos/cosmos-sdk/x/bank/types"
 	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
-	pp "github.com/k0kubun/pp/v3"
 	oracletypes "github.com/sei-protocol/sei-chain/x/oracle/types"
 	"github.com/stretchr/testify/require"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
@@ -92,10 +91,7 @@ func TestMsgBankSendAclOps(t *testing.T) {
 			} else {
 				require.NoError(t, err)
 			}
-
-			// pp.Println(cms.GetEvents())
 			missing := (sdkacltypes.ValidateAccessOperations(depdenencies, cms.GetEvents()))
-			pp.Println(missing)
 			require.Empty(t, missing)
 		})
 	}
