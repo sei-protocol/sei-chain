@@ -57,7 +57,6 @@ func IncrFailedConcurrentDeliverTxCounter() {
 	)
 }
 
-
 // Measures the time taken to execute a sudo msg
 // Metric Names:
 //

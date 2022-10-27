@@ -1016,7 +1016,7 @@ func (app *App) ProcessBlockConcurrent(
 	completionSignalingMap map[int]acltypes.MessageCompletionSignalMapping,
 	blockingSignalsMap map[int]acltypes.MessageCompletionSignalMapping,
 	txMsgAccessOpMapping map[int]acltypes.MsgIndexToAccessOpMapping,
-) ([]*abci.ExecTxResult, bool){
+) ([]*abci.ExecTxResult, bool) {
 	defer metrics.BlockProcessLatency(time.Now(), metrics.CONCURRENT)
 
 	txResults := []*abci.ExecTxResult{}
