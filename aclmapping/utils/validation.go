@@ -8,19 +8,15 @@ import (
 	abci "github.com/tendermint/tendermint/abci/types"
 )
 
-var (
-	// Param Store Values can only be set during genesis and updated
-	// through a gov proposal and those are always processed sequentially
-	identifierWhitelistParams = map[string]bool{
-		"bank/SendEnabled": true,
-		"bank/DefaultSendEnabled": true,
-	}
-)
-
-
+// Param Store Values can only be set during genesis and updated
+// through a gov proposal and those are always processed sequentially
+var identifierWhitelistParams = map[string]bool{
+	"bank/SendEnabled":        true,
+	"bank/DefaultSendEnabled": true,
+}
 type Comparator struct {
 	AccessType sdkacltypes.AccessType
-	Identifier 	string
+	Identifier string
 }
 
 func (c *Comparator) Contains(comparator Comparator) bool {
@@ -66,7 +62,7 @@ func BuildComparatorFromEvents(events []abci.Event) (comparators []Comparator) {
 				identifier = attribute.Value
 			}
 			if attribute.Key == "access_type" {
-				accessType =  AccessTypeStringToEnum(attribute.Value)
+				accessType = AccessTypeStringToEnum(attribute.Value)
 			}
 		}
 		comparators = append(comparators, Comparator{
@@ -87,7 +83,7 @@ func ValidateAccessOperations(accessOps []sdkacltypes.AccessOperation, events []
 	for _, eventComparator := range eventsComparators {
 		matched := false
 		for _, accessOpComparator := range accessOpsComparators {
-			if eventComparator.IsWhitelistedIdentifier() || eventComparator.Contains(accessOpComparator){
+			if eventComparator.IsWhitelistedIdentifier() || eventComparator.Contains(accessOpComparator) {
 				matched = true
 				break
 			}
