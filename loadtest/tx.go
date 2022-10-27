@@ -74,18 +74,3 @@ func SendTx(
 		return ""
 	}
 }
-
-func GetTxResponse(hash string) *sdk.TxResponse {
-	grpcRes, err := TxClient.GetTx(
-		context.Background(),
-		&typestx.GetTxRequest{
-			Hash: hash,
-		},
-	)
-	if err != nil {
-		fmt.Println(err)
-		return &sdk.TxResponse{}
-	}
-
-	return grpcRes.TxResponse
-}

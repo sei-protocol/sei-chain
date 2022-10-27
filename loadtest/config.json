@@ -1,8 +1,8 @@
 {
   "batch_size": 1,
   "chain_id": "sei-loadtest-testnet",
-  "orders_per_block": 1,
-  "rounds": 1,
+  "orders_per_block": 2,
+  "rounds": 5,
   "price_distribution": {
     "min": "45",
     "max": "55",
@@ -17,7 +17,7 @@
     "limit_order_percentage": "0.2",
     "market_order_percentage": "0.8"
   },
-  "message_type": "bank,dex",
+  "message_type": "bank",
   "contract_distribution": [
     {
       "contract_address":"sei14hj2tavq8fpesdwxxcu44rty3hh90vhujrvcmstl4zr3txmfvw9sh9m79m",

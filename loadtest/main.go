@@ -1,9 +1,12 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
+	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
+	tokenfactorytypes "github.com/sei-protocol/sei-chain/x/tokenfactory/types"
 	"math/rand"
 	"os"
 	"os/exec"
@@ -124,10 +127,18 @@ type ContractDistribution struct {
 }
 
 var (
-	TestConfig EncodingConfig
-	TxClient   typestx.ServiceClient
-	TxHashFile *os.File
-	ChainID    string
+	TestConfig         EncodingConfig
+	TxClient           typestx.ServiceClient
+	StakingQueryClient stakingtypes.QueryClient
+	TxHashFile         *os.File
+	ChainID            string
+	//// Staking specific variables
+	Validators []stakingtypes.Validator
+	// DelegationMap is a map of delegator -> validator -> delegated amount
+	DelegationMap map[string]map[string]int
+	//// Tokenfactory specific variables
+	CurrentDenomIdx        int
+	TokenFactoryDenomOwner map[string]string
 )
 
 const (
@@ -161,18 +172,16 @@ func run(config Config) {
 	)
 	defer grpcConn.Close()
 	TxClient = typestx.NewServiceClient(grpcConn)
-	userHomeDir, _ := os.UserHomeDir()
-	_ = os.Mkdir(filepath.Join(userHomeDir, "outputs"), os.ModePerm)
-	filename := filepath.Join(userHomeDir, "outputs", "test_tx_hash")
-	_ = os.Remove(filename)
-	file, _ := os.OpenFile(filename, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
-	TxHashFile = file
+	StakingQueryClient = stakingtypes.NewQueryClient(grpcConn)
+	createOutputFiles()
 	var mu sync.Mutex
 	batchSize := config.BatchSize
 	if config.OrdersPerBlock < batchSize {
 		panic("Must have more orders per block than batch size")
 	}
-
+	setValidators(config)
+	CurrentDenomIdx = 0
+	DelegationMap = map[string]map[string]int{}
 	numberOfAccounts := config.OrdersPerBlock / batchSize * 2 // * 2 because we need two sets of accounts
 	activeAccounts := []int{}
 	inactiveAccounts := []int{}
@@ -195,14 +204,18 @@ func run(config Config) {
 		wg := &sync.WaitGroup{}
 		var senders []func() string
 		wgs = append(wgs, wg)
-		for _, account := range activeAccounts {
+		for j, account := range activeAccounts {
 			key := GetKey(uint64(account))
 
 			msg, failureExpected := generateMessage(config, key, batchSize)
+			fmt.Printf("Message created: %s\n", msg)
 			txBuilder := TestConfig.TxConfig.NewTxBuilder()
 			_ = txBuilder.SetMsgs(msg)
 			seqDelta := uint64(i / 2)
 			mode := typestx.BroadcastMode_BROADCAST_MODE_SYNC
+			if j == len(activeAccounts)-1 {
+				mode = typestx.BroadcastMode_BROADCAST_MODE_BLOCK
+			}
 			// Note: There is a potential race condition here with seqnos
 			// in which a later seqno is delievered before an earlier seqno
 			// In practice, we haven't run into this issue so we'll leave this
@@ -220,7 +233,6 @@ func run(config Config) {
 	}
 
 	lastHeight := getLastHeight()
-	txs := []string{}
 	for i := 0; i < int(config.Rounds); i++ {
 		newHeight := getLastHeight()
 		for newHeight == lastHeight {
@@ -231,30 +243,31 @@ func run(config Config) {
 		senders := sendersList[i]
 		wg := wgs[i]
 		for _, sender := range senders {
-			go func() {
-				//nolint:govet
-				tx := sender()
-				if tx != "" {
-					txs = append(txs, tx)
-				}
-			}()
+			go sender()
 		}
 		wg.Wait()
 		lastHeight = newHeight
 	}
+	fmt.Printf("%s - Finished\n", time.Now().Format("2006-01-02T15:04:05"))
+}
 
-	if config.Constant {
-		// sleep 3 seconds wait for transaction to finish
-		time.Sleep(3 * time.Second)
-		for i := 0; i < len(txs); i++ {
-			txResponse := GetTxResponse(txs[i])
-			if txResponse.Tx == nil {
-				// TODO: add metrics to detect non committed txs
-				fmt.Println("transaction not committed")
-			}
+func createOutputFiles() {
+	userHomeDir, _ := os.UserHomeDir()
+	_ = os.Mkdir(filepath.Join(userHomeDir, "outputs"), os.ModePerm)
+	filename := filepath.Join(userHomeDir, "outputs", "test_tx_hash")
+	_ = os.Remove(filename)
+	file, _ := os.OpenFile(filename, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	TxHashFile = file
+}
+
+func setValidators(config Config) {
+	if strings.Contains(config.MessageType, "staking") {
+		if resp, err := StakingQueryClient.Validators(context.Background(), &stakingtypes.QueryValidatorsRequest{}); err != nil {
+			panic(err)
+		} else {
+			Validators = resp.Validators
 		}
 	}
-	fmt.Printf("%s - Finished\n", time.Now().Format("2006-01-02T15:04:05"))
 }
 
 func generateMessage(config Config, key cryptotypes.PrivKey, batchSize uint64) (sdk.Msg, bool) {
@@ -262,6 +275,7 @@ func generateMessage(config Config, key cryptotypes.PrivKey, batchSize uint64) (
 	messageTypes := strings.Split(config.MessageType, ",")
 	rand.Seed(time.Now().UnixNano())
 	messageType := messageTypes[rand.Intn(len(messageTypes))]
+	fmt.Printf("Message type: %s\n", messageType)
 	switch messageType {
 	case Bank:
 		msg = &banktypes.MsgSend{
@@ -288,8 +302,42 @@ func generateMessage(config Config, key cryptotypes.PrivKey, batchSize uint64) (
 			Funds:        amount,
 		}
 	case Staking:
-
+		delegatorAddr := sdk.AccAddress(key.PubKey().Address()).String()
+		chosenValidator := Validators[rand.Intn(len(Validators))].OperatorAddress
+		// Randomly pick someone to redelegate / unbond from
+		srcAddr := ""
+		for k, _ := range DelegationMap[delegatorAddr] {
+			if k == chosenValidator {
+				continue
+			}
+			srcAddr = k
+			break
+		}
+		msg = generateStakingMsg(delegatorAddr, chosenValidator, srcAddr)
 	case Tokenfactory:
+		denomCreatorAddr := sdk.AccAddress(key.PubKey().Address()).String()
+		// No denoms, let's mint
+		randNum := rand.Float64()
+		if denom, ok := TokenFactoryDenomOwner[denomCreatorAddr]; !ok || randNum <= 0.33 {
+			subDenom := fmt.Sprintf("tokenfactory-created-denom-%d", CurrentDenomIdx)
+			denom = fmt.Sprintf("factory/%s/%s", denomCreatorAddr, subDenom)
+			CurrentDenomIdx += 1
+			msg = &tokenfactorytypes.MsgCreateDenom{
+				Sender:   denomCreatorAddr,
+				Subdenom: subDenom,
+			}
+			TokenFactoryDenomOwner[denomCreatorAddr] = denom
+		} else if randNum <= 0.66 {
+			msg = &tokenfactorytypes.MsgMint{
+				Sender: denomCreatorAddr,
+				Amount: sdk.Coin{Denom: fmt.Sprintf("factory/%s/%s", denomCreatorAddr, denom), Amount: sdk.NewInt(1000000)},
+			}
+		} else {
+			msg = &tokenfactorytypes.MsgBurn{
+				Sender: denomCreatorAddr,
+				Amount: sdk.Coin{Denom: fmt.Sprintf("factory/%s/%s", denomCreatorAddr, denom), Amount: sdk.NewInt(1)},
+			}
+		}
 
 	case FailureBankMalformed:
 		var denom string
@@ -401,6 +449,45 @@ func generateDexOrderPlacements(config Config, key cryptotypes.PrivKey, batchSiz
 		})
 	}
 	return orderPlacements
+}
+
+func generateStakingMsg(delegatorAddr string, chosenValidator string, srcAddr string) sdk.Msg {
+	// Randomly unbond, redelegate or delegate
+	// However, if there are no delegations, do so first
+	var msg sdk.Msg
+	randNum := rand.Float64()
+	if _, ok := DelegationMap[delegatorAddr]; !ok || randNum <= 0.33 || srcAddr == "" {
+		msg = &stakingtypes.MsgDelegate{
+			DelegatorAddress: delegatorAddr,
+			ValidatorAddress: chosenValidator,
+			Amount:           sdk.Coin{Denom: "usei", Amount: sdk.NewInt(1)},
+		}
+		DelegationMap[delegatorAddr] = map[string]int{}
+		DelegationMap[delegatorAddr][chosenValidator] = 1
+	} else {
+
+		if randNum <= 0.66 {
+			msg = &stakingtypes.MsgBeginRedelegate{
+				DelegatorAddress:    delegatorAddr,
+				ValidatorSrcAddress: srcAddr,
+				ValidatorDstAddress: chosenValidator,
+				Amount:              sdk.Coin{Denom: "usei", Amount: sdk.NewInt(1)},
+			}
+			DelegationMap[delegatorAddr][chosenValidator] += 1
+		} else {
+			msg = &stakingtypes.MsgUndelegate{
+				DelegatorAddress: delegatorAddr,
+				ValidatorAddress: srcAddr,
+				Amount:           sdk.Coin{Denom: "usei", Amount: sdk.NewInt(1)},
+			}
+		}
+		// Update delegation map
+		DelegationMap[delegatorAddr][srcAddr] -= 1
+		if DelegationMap[delegatorAddr][srcAddr] == 0 {
+			delete(DelegationMap, delegatorAddr)
+		}
+	}
+	return msg
 }
 
 func getLastHeight() int {
