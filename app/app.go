@@ -1006,6 +1006,10 @@ func (app *App) ProcessTxConcurrent(
 	ctx = ctx.WithTxMsgAccessOps(txMsgAccessOpMapping)
 	// Deliver the transaction and store the result in the channel
 
+
+	pp.Printf("txCompletionSignalingMap=%s\n", txCompletionSignalingMap)
+	pp.Printf("txBlockingSignalsMap=%s\n", txBlockingSignalsMap)
+
 	ctx.Logger().Info(fmt.Sprintf("Transactions Started=%d", txIndex))
 	resultChan <- ChannelResult{txIndex, app.DeliverTxWithResult(ctx, txBytes)}
 	metrics.IncrTxProcessTypeCounter(metrics.CONCURRENT)
@@ -1027,8 +1031,6 @@ func (app *App) ProcessBlockConcurrent(
 	if len(txs) == 0 {
 		return txResults, true
 	}
-
-	pp.Printf("DAG=%s\n", dependencyDag)
 
 	// For each transaction, start goroutine and deliver TX
 	for txIndex, txBytes := range txs {
