@@ -14,6 +14,7 @@ var identifierWhitelistParams = map[string]bool{
 	"bank/SendEnabled":        true,
 	"bank/DefaultSendEnabled": true,
 }
+
 type Comparator struct {
 	AccessType sdkacltypes.AccessType
 	Identifier string
