@@ -317,8 +317,9 @@ func generateMessage(config Config, key cryptotypes.PrivKey, batchSize uint64) (
 		denomCreatorAddr := sdk.AccAddress(key.PubKey().Address()).String()
 		// No denoms, let's mint
 		randNum := rand.Float64()
-		if denom, ok := TokenFactoryDenomOwner[denomCreatorAddr]; !ok || randNum <= 0.33 {
-
+		denom, ok := TokenFactoryDenomOwner[denomCreatorAddr]
+		switch {
+		case !ok || randNum <= 0.33:
 			subDenom := fmt.Sprintf("tokenfactory-created-denom-%d", time.Now().UnixMilli())
 			denom = fmt.Sprintf("factory/%s/%s", denomCreatorAddr, subDenom)
 			msg = &tokenfactorytypes.MsgCreateDenom{
@@ -326,18 +327,19 @@ func generateMessage(config Config, key cryptotypes.PrivKey, batchSize uint64) (
 				Subdenom: subDenom,
 			}
 			TokenFactoryDenomOwner[denomCreatorAddr] = denom
-		} else if randNum <= 0.66 {
+			break
+		case randNum <= 0.66:
 			msg = &tokenfactorytypes.MsgMint{
 				Sender: denomCreatorAddr,
 				Amount: sdk.Coin{Denom: denom, Amount: sdk.NewInt(1000000)},
 			}
-		} else {
+			break
+		default:
 			msg = &tokenfactorytypes.MsgBurn{
 				Sender: denomCreatorAddr,
 				Amount: sdk.Coin{Denom: denom, Amount: sdk.NewInt(1)},
 			}
 		}
-
 	case FailureBankMalformed:
 		var denom string
 		if rand.Float64() < 0.5 {
