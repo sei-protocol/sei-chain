@@ -44,6 +44,10 @@ var StoreKeyToResourceTypePrefixMap = aclsdktypes.StoreKeyToResourceTypePrefixMa
 	},
 	tokenfactorytypes.StoreKey: {
 		aclsdktypes.ResourceType_KV_TOKENFACTORY: aclsdktypes.EmptyPrefix,
+		aclsdktypes.ResourceType_KV_TOKENFACTORY_DENOM: []byte(tokenfactorytypes.DenomsPrefixKey),
+		aclsdktypes.ResourceType_KV_TOKENFACTORY_METADATA: []byte(tokenfactorytypes.DenomAuthorityMetadataKey),
+		aclsdktypes.ResourceType_KV_TOKENFACTORY_ADMIN: []byte(tokenfactorytypes.AdminPrefixKey),
+		aclsdktypes.ResourceType_KV_TOKENFACTORY_CREATOR: []byte(tokenfactorytypes.AdminPrefixKey),
 	},
 	epochtypes.StoreKey: {
 		aclsdktypes.ResourceType_KV_EPOCH: aclsdktypes.EmptyPrefix,

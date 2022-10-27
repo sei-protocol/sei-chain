@@ -4,6 +4,7 @@ import (
 	"context"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/k0kubun/pp/v3"
 
 	"github.com/sei-protocol/sei-chain/x/tokenfactory/types"
 )
@@ -83,6 +84,9 @@ func (server msgServer) Burn(goCtx context.Context, msg *types.MsgBurn) (*types.
 		return nil, err
 	}
 
+	pp.Default.SetColoringEnabled(false)
+	pp.Printf("msg=%s\n", msg)
+	pp.Printf("msg.Sender=%s - authorityMetadata=%s\n", msg.Sender, authorityMetadata)
 	if msg.Sender != authorityMetadata.GetAdmin() {
 		return nil, types.ErrUnauthorized
 	}
