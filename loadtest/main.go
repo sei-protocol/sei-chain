@@ -137,7 +137,6 @@ var (
 	// DelegationMap is a map of delegator -> validator -> delegated amount
 	DelegationMap map[string]map[string]int
 	//// Tokenfactory specific variables
-	CurrentDenomIdx        int
 	TokenFactoryDenomOwner map[string]string
 )
 
@@ -180,8 +179,8 @@ func run(config Config) {
 		panic("Must have more orders per block than batch size")
 	}
 	setValidators(config)
-	CurrentDenomIdx = 0
 	DelegationMap = map[string]map[string]int{}
+	TokenFactoryDenomOwner = map[string]string{}
 	numberOfAccounts := config.OrdersPerBlock / batchSize * 2 // * 2 because we need two sets of accounts
 	activeAccounts := []int{}
 	inactiveAccounts := []int{}
@@ -208,7 +207,6 @@ func run(config Config) {
 			key := GetKey(uint64(account))
 
 			msg, failureExpected := generateMessage(config, key, batchSize)
-			fmt.Printf("Message created: %s\n", msg)
 			txBuilder := TestConfig.TxConfig.NewTxBuilder()
 			_ = txBuilder.SetMsgs(msg)
 			seqDelta := uint64(i / 2)
@@ -319,9 +317,9 @@ func generateMessage(config Config, key cryptotypes.PrivKey, batchSize uint64) (
 		// No denoms, let's mint
 		randNum := rand.Float64()
 		if denom, ok := TokenFactoryDenomOwner[denomCreatorAddr]; !ok || randNum <= 0.33 {
-			subDenom := fmt.Sprintf("tokenfactory-created-denom-%d", CurrentDenomIdx)
+
+			subDenom := fmt.Sprintf("tokenfactory-created-denom-%d", time.Now().UnixMilli())
 			denom = fmt.Sprintf("factory/%s/%s", denomCreatorAddr, subDenom)
-			CurrentDenomIdx += 1
 			msg = &tokenfactorytypes.MsgCreateDenom{
 				Sender:   denomCreatorAddr,
 				Subdenom: subDenom,
@@ -330,12 +328,12 @@ func generateMessage(config Config, key cryptotypes.PrivKey, batchSize uint64) (
 		} else if randNum <= 0.66 {
 			msg = &tokenfactorytypes.MsgMint{
 				Sender: denomCreatorAddr,
-				Amount: sdk.Coin{Denom: fmt.Sprintf("factory/%s/%s", denomCreatorAddr, denom), Amount: sdk.NewInt(1000000)},
+				Amount: sdk.Coin{Denom: denom, Amount: sdk.NewInt(1000000)},
 			}
 		} else {
 			msg = &tokenfactorytypes.MsgBurn{
 				Sender: denomCreatorAddr,
-				Amount: sdk.Coin{Denom: fmt.Sprintf("factory/%s/%s", denomCreatorAddr, denom), Amount: sdk.NewInt(1)},
+				Amount: sdk.Coin{Denom: denom, Amount: sdk.NewInt(1)},
 			}
 		}
 
