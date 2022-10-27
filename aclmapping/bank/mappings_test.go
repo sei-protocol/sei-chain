@@ -12,6 +12,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/x/bank"
 	"github.com/cosmos/cosmos-sdk/x/bank/types"
 	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
+	aclutils "github.com/sei-protocol/sei-chain/aclmapping/utils"
 	oracletypes "github.com/sei-protocol/sei-chain/x/oracle/types"
 	"github.com/stretchr/testify/require"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
@@ -73,10 +74,13 @@ func TestMsgBankSendAclOps(t *testing.T) {
 	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
 
 	handler := bank.NewHandler(app.BankKeeper)
+	msgValidator := sdkacltypes.NewMsgValidator(aclutils.StoreKeyToResourceTypePrefixMap)
+	ctx = ctx.WithMsgValidator(msgValidator)
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			handlerCtx, cms := cacheTxContext(ctx)
+
 			_, err := handler(handlerCtx, tc.msg)
 
 			depdenencies , _ := MsgSendDependencyGenerator(app.AccessControlKeeper, handlerCtx, tc.msg)
@@ -90,7 +94,7 @@ func TestMsgBankSendAclOps(t *testing.T) {
 			} else {
 				require.NoError(t, err)
 			}
-			missing := (sdkacltypes.ValidateAccessOperations(depdenencies, cms.GetEvents()))
+			missing := handlerCtx.MsgValidator().ValidateAccessOperations(depdenencies, cms.GetEvents())
 			require.Empty(t, missing)
 		})
 	}

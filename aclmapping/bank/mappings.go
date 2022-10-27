@@ -39,25 +39,25 @@ func MsgSendDependencyGenerator(keeper aclkeeper.Keeper, ctx sdk.Context, msg sd
 		// Checks balance of sender
 		{
 			AccessType:         sdkacltypes.AccessType_READ,
-			ResourceType:       sdkacltypes.ResourceType_KV_BANK,
+			ResourceType:       sdkacltypes.ResourceType_KV_BANK_BALANCES,
 			IdentifierTemplate: fromAddrIdentifier,
 		},
 		// Reduce the amount from the sender's balance
 		{
 			AccessType:         sdkacltypes.AccessType_WRITE,
-			ResourceType:       sdkacltypes.ResourceType_KV_BANK,
+			ResourceType:       sdkacltypes.ResourceType_KV_BANK_BALANCES,
 			IdentifierTemplate: fromAddrIdentifier,
 		},
 
 		// Checks balance for receiver
 		{
 			AccessType:         sdkacltypes.AccessType_READ,
-			ResourceType:       sdkacltypes.ResourceType_KV_BANK,
+			ResourceType:       sdkacltypes.ResourceType_KV_BANK_BALANCES,
 			IdentifierTemplate: toAddrIdentifier,
 		},
 		{
 			AccessType:         sdkacltypes.AccessType_WRITE,
-			ResourceType:       sdkacltypes.ResourceType_KV_BANK,
+			ResourceType:       sdkacltypes.ResourceType_KV_BANK_BALANCES,
 			IdentifierTemplate: toAddrIdentifier,
 		},
 
