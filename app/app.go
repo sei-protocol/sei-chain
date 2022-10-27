@@ -13,7 +13,6 @@ import (
 	"time"
 
 	storetypes "github.com/cosmos/cosmos-sdk/store/types"
-	pp "github.com/k0kubun/pp/v3"
 
 	"github.com/sei-protocol/sei-chain/aclmapping"
 	appparams "github.com/sei-protocol/sei-chain/app/params"
@@ -1005,11 +1004,6 @@ func (app *App) ProcessTxConcurrent(
 	ctx = ctx.WithTxBlockingChannels(getChannelsFromSignalMapping(txBlockingSignalsMap))
 	ctx = ctx.WithTxMsgAccessOps(txMsgAccessOpMapping)
 	// Deliver the transaction and store the result in the channel
-
-
-	pp.Printf("txCompletionSignalingMap=%s\n", txCompletionSignalingMap)
-	pp.Printf("txBlockingSignalsMap=%s\n", txBlockingSignalsMap)
-
 	ctx.Logger().Info(fmt.Sprintf("Transactions Started=%d", txIndex))
 	resultChan <- ChannelResult{txIndex, app.DeliverTxWithResult(ctx, txBytes)}
 	metrics.IncrTxProcessTypeCounter(metrics.CONCURRENT)
