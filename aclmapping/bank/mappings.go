@@ -64,19 +64,19 @@ func MsgSendDependencyGenerator(keeper aclkeeper.Keeper, ctx sdk.Context, msg sd
 		// Tries to create the reciever's account if it doesn't exist
 		{
 			AccessType:         sdkacltypes.AccessType_READ,
-			ResourceType:       sdkacltypes.ResourceType_KV_AUTH,
+			ResourceType:       sdkacltypes.ResourceType_KV_AUTH_ADDRESS_STORE,
 			IdentifierTemplate: string(authtypes.CreateAddressStoreKeyFromBech32(msgSend.ToAddress)),
 		},
 		{
 			AccessType:         sdkacltypes.AccessType_WRITE,
-			ResourceType:       sdkacltypes.ResourceType_KV_AUTH,
+			ResourceType:       sdkacltypes.ResourceType_KV_AUTH_ADDRESS_STORE,
 			IdentifierTemplate: string(authtypes.CreateAddressStoreKeyFromBech32(msgSend.ToAddress)),
 		},
 
 		// Gets Account Info for the sender
 		{
 			AccessType:         sdkacltypes.AccessType_READ,
-			ResourceType:       sdkacltypes.ResourceType_KV_AUTH,
+			ResourceType:       sdkacltypes.ResourceType_KV_AUTH_ADDRESS_STORE,
 			IdentifierTemplate: string(authtypes.CreateAddressStoreKeyFromBech32(msgSend.FromAddress)),
 		},
 

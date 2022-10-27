@@ -12,6 +12,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/x/bank"
 	"github.com/cosmos/cosmos-sdk/x/bank/types"
 	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
+	pp "github.com/k0kubun/pp/v3"
 	aclutils "github.com/sei-protocol/sei-chain/aclmapping/utils"
 	oracletypes "github.com/sei-protocol/sei-chain/x/oracle/types"
 	"github.com/stretchr/testify/require"
@@ -51,6 +52,8 @@ func TestMsgBankSendAclOps(t *testing.T) {
 			dynamicDep: false,
 		},
 	}
+
+	pp.Printf("FROM: %s, TO:", addr1.String(), addr2.String())
 
 	acc1 := &authtypes.BaseAccount{
 		Address: addr1.String(),
@@ -95,6 +98,7 @@ func TestMsgBankSendAclOps(t *testing.T) {
 				require.NoError(t, err)
 			}
 			missing := handlerCtx.MsgValidator().ValidateAccessOperations(depdenencies, cms.GetEvents())
+			pp.Println(missing)
 			require.Empty(t, missing)
 		})
 	}
