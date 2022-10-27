@@ -5,8 +5,6 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
-	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
-	tokenfactorytypes "github.com/sei-protocol/sei-chain/x/tokenfactory/types"
 	"math/rand"
 	"os"
 	"os/exec"
@@ -15,6 +13,9 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
+	tokenfactorytypes "github.com/sei-protocol/sei-chain/x/tokenfactory/types"
 
 	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
 
@@ -304,7 +305,7 @@ func generateMessage(config Config, key cryptotypes.PrivKey, batchSize uint64) (
 		chosenValidator := Validators[rand.Intn(len(Validators))].OperatorAddress
 		// Randomly pick someone to redelegate / unbond from
 		srcAddr := ""
-		for k, _ := range DelegationMap[delegatorAddr] {
+		for k := range DelegationMap[delegatorAddr] {
 			if k == chosenValidator {
 				continue
 			}
