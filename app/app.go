@@ -1007,6 +1007,7 @@ func (app *App) ProcessTxConcurrent(
 
 	resultChan <- ChannelResult{txIndex, app.DeliverTxWithResult(ctx, txBytes)}
 	metrics.IncrTxProcessTypeCounter(metrics.CONCURRENT)
+	ctx.Logger().Info(fmt.Sprintf("Transactions Finished=%d", txIndex))
 }
 
 func (app *App) ProcessBlockConcurrent(
@@ -1051,6 +1052,8 @@ func (app *App) ProcessBlockConcurrent(
 	// Gather Results and store it based on txIndex and read results from channel
 	// Concurrent results may be in different order than the original txIndex
 	txResultsMap := map[int]*abci.ExecTxResult{}
+
+	ctx.Logger().Info(fmt.Sprintf("Waiting for Transactions=%d", len(txs)))
 	for result := range resultChan {
 		txResultsMap[result.txIndex] = result.result
 	}
