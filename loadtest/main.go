@@ -327,13 +327,11 @@ func generateMessage(config Config, key cryptotypes.PrivKey, batchSize uint64) (
 				Subdenom: subDenom,
 			}
 			TokenFactoryDenomOwner[denomCreatorAddr] = denom
-			break
 		case randNum <= 0.66:
 			msg = &tokenfactorytypes.MsgMint{
 				Sender: denomCreatorAddr,
 				Amount: sdk.Coin{Denom: denom, Amount: sdk.NewInt(1000000)},
 			}
-			break
 		default:
 			msg = &tokenfactorytypes.MsgBurn{
 				Sender: denomCreatorAddr,
