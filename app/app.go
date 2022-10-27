@@ -1066,6 +1066,7 @@ func (app *App) ProcessBlockConcurrent(
 	for i, result := range txResults {
 		if result.GetCode() == sdkerrors.ErrInvalidConcurrencyExecution.ABCICode() {
 			ctx.Logger().Error(fmt.Sprintf("Invalid concurrent execution of deliverTx index=%d", i))
+			metrics.IncrFailedConcurrentDeliverTxCounter()
 			ok = false
 		}
 	}

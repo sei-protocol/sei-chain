@@ -20,7 +20,6 @@ import (
 
 func cacheTxContext(ctx sdk.Context) (sdk.Context, sdk.CacheMultiStore) {
 	ms := ctx.MultiStore()
-	// TODO: https://github.com/cosmos/cosmos-sdk/issues/2824
 	msCache := ms.CacheMultiStore()
 	return ctx.WithMultiStore(msCache), msCache
 }
