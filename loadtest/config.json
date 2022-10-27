@@ -17,7 +17,7 @@
     "limit_order_percentage": "0.2",
     "market_order_percentage": "0.8"
   },
-  "message_type": "bank",
+  "message_type": "bank,dex,staking,tokenfactory",
   "contract_distribution": [
     {
       "contract_address":"sei14hj2tavq8fpesdwxxcu44rty3hh90vhujrvcmstl4zr3txmfvw9sh9m79m",
