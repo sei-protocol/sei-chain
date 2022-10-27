@@ -996,13 +996,15 @@ func (app *App) ProcessTxConcurrent(
 	resultChan chan<- ChannelResult,
 	txCompletionSignalingMap acltypes.MessageCompletionSignalMapping,
 	txBlockingSignalsMap acltypes.MessageCompletionSignalMapping,
-	txMsgAccessOpMapping acltypes.MsgIndexToAccessOpMapping,
+	// txMsgAccessOpMapping acltypes.MsgIndexToAccessOpMapping,
 ) {
 	defer wg.Done()
 	// Store the Channels in the Context Object for each transaction
 	ctx = ctx.WithTxCompletionChannels(getChannelsFromSignalMapping(txCompletionSignalingMap))
 	ctx = ctx.WithTxBlockingChannels(getChannelsFromSignalMapping(txBlockingSignalsMap))
-	ctx = ctx.WithTxMsgAccessOps(txMsgAccessOpMapping)
+
+	// ctx = ctx.WithTxMsgAccessOps(txMsgAccessOpMapping)
+
 	// Deliver the transaction and store the result in the channel
 	ctx.Logger().Info(fmt.Sprintf("Transactions Started=%d", txIndex))
 	resultChan <- ChannelResult{txIndex, app.DeliverTxWithResult(ctx, txBytes)}
@@ -1013,7 +1015,9 @@ func (app *App) ProcessTxConcurrent(
 func (app *App) ProcessBlockConcurrent(
 	ctx sdk.Context,
 	txs [][]byte,
-	dependencyDag *acltypes.Dag,
+	// dependencyDag *acltypes.Dag,
+	completionSignalingMap map[int]acltypes.MessageCompletionSignalMapping,
+	blockingSignalsMap map[int]acltypes.MessageCompletionSignalMapping,
 ) ([]*abci.ExecTxResult, bool) {
 	defer metrics.BlockProcessLatency(time.Now(), metrics.CONCURRENT)
 
@@ -1035,9 +1039,11 @@ func (app *App) ProcessBlockConcurrent(
 			txBytes,
 			&waitGroup,
 			resultChan,
-			dependencyDag.CompletionSignalingMap[txIndex],
-			dependencyDag.BlockingSignalsMap[txIndex],
-			dependencyDag.TxMsgAccessOpMapping[txIndex],
+			completionSignalingMap[txIndex],
+			blockingSignalsMap[txIndex],
+			// dependencyDag.CompletionSignalingMap[txIndex],
+			// dependencyDag.BlockingSignalsMap[txIndex],
+			// dependencyDag.TxMsgAccessOpMapping[txIndex],
 		)
 	}
 
@@ -1128,7 +1134,8 @@ func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequ
 		// CacheMultiStore where it writes the data to the parent store (DeliverState) in sorted Key order to maintain
 		// deterministic ordering between validators in the case of concurrent deliverTXs
 		processBlockCtx, processBlockCache := app.CacheContext(ctx)
-		concurrentResults, ok := app.ProcessBlockConcurrent(processBlockCtx, txs, dependencyDag)
+		// concurrentResults, ok := app.ProcessBlockConcurrent(processBlockCtx, txs, dependencyDag)
+		concurrentResults, ok := app.ProcessBlockConcurrent(processBlockCtx, txs, dependencyDag.CompletionSignalingMap, dependencyDag.BlockingSignalsMap)
 
 		if ok {
 			txResults = concurrentResults
