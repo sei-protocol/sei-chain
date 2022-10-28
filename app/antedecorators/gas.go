@@ -51,10 +51,3 @@ func getMessageMultiplierDenominator(ctx sdk.Context, msg sdk.Msg, aclkeeper acl
 	}
 	return DefaultGasMultiplierDenominator
 }
-
-func maxMultiplier(n1 uint64, d1 uint64, n2 uint64, d2 uint64) (uint64, uint64) {
-	if n1*d2 < d1*n2 {
-		return n2, d2
-	}
-	return n1, d1
-}
