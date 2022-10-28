@@ -5,7 +5,6 @@ import (
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
-	pp "github.com/k0kubun/pp/v3"
 
 	"github.com/sei-protocol/sei-chain/x/tokenfactory/types"
 )
@@ -42,8 +41,6 @@ func (k Keeper) createDenomAfterValidation(ctx sdk.Context, creatorAddr string, 
 	authorityMetadata := types.DenomAuthorityMetadata{
 		Admin: creatorAddr,
 	}
-
-	pp.Printf("denom=%s authorityMetadata=%s \n", denom, authorityMetadata)
 	err = k.setAuthorityMetadata(ctx, denom, authorityMetadata)
 	if err != nil {
 		return err
@@ -64,7 +61,6 @@ func (k Keeper) validateCreateDenom(ctx sdk.Context, creatorAddr string, subdeno
 	if err != nil {
 		return "", err
 	}
-	pp.Printf("denom=%s err=%s \n", denom, err)
 
 	_, found := k.bankKeeper.GetDenomMetaData(ctx, denom)
 	if found {

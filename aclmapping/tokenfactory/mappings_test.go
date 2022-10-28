@@ -11,7 +11,6 @@ import (
 	acltypes "github.com/cosmos/cosmos-sdk/x/accesscontrol/types"
 	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
 	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
-	"github.com/k0kubun/pp/v3"
 	tkfactory "github.com/sei-protocol/sei-chain/aclmapping/tokenfactory"
 	aclutils "github.com/sei-protocol/sei-chain/aclmapping/utils"
 	"github.com/sei-protocol/sei-chain/app/apptesting"
@@ -191,11 +190,6 @@ func (suite *KeeperTestSuite) TestMsgMintDependencies() {
 			}
 
 			missing := handlerCtx.MsgValidator().ValidateAccessOperations(depdenencies, cms.GetEvents())
-
-			pp.Println(depdenencies)
-			pp.Println(cms.GetEvents())
-			pp.Println(missing)
-
 			suite.Require().Empty(missing)
 		})
 	}
