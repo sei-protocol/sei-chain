@@ -37,11 +37,11 @@ import (
 	"github.com/cosmos/cosmos-sdk/x/auth"
 	"github.com/cosmos/cosmos-sdk/x/auth/ante"
 
+	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	aclmodule "github.com/cosmos/cosmos-sdk/x/accesscontrol"
 	aclclient "github.com/cosmos/cosmos-sdk/x/accesscontrol/client"
 	aclkeeper "github.com/cosmos/cosmos-sdk/x/accesscontrol/keeper"
 	acltypes "github.com/cosmos/cosmos-sdk/x/accesscontrol/types"
-
 	authrest "github.com/cosmos/cosmos-sdk/x/auth/client/rest"
 	authkeeper "github.com/cosmos/cosmos-sdk/x/auth/keeper"
 	authsims "github.com/cosmos/cosmos-sdk/x/auth/simulation"
@@ -1035,11 +1035,13 @@ func (app *App) ProcessTxConcurrent(
 	resultChan chan<- ChannelResult,
 	txCompletionSignalingMap acltypes.MessageCompletionSignalMapping,
 	txBlockingSignalsMap acltypes.MessageCompletionSignalMapping,
+	txMsgAccessOpMapping acltypes.MsgIndexToAccessOpMapping,
 ) {
 	defer wg.Done()
 	// Store the Channels in the Context Object for each transaction
 	ctx = ctx.WithTxBlockingChannels(getChannelsFromSignalMapping(txBlockingSignalsMap))
 	ctx = ctx.WithTxCompletionChannels(getChannelsFromSignalMapping(txCompletionSignalingMap))
+	ctx = ctx.WithTxMsgAccessOps(txMsgAccessOpMapping)
 
 	// Deliver the transaction and store the result in the channel
 
@@ -1052,18 +1054,18 @@ func (app *App) ProcessBlockConcurrent(
 	txs [][]byte,
 	completionSignalingMap map[int]acltypes.MessageCompletionSignalMapping,
 	blockingSignalsMap map[int]acltypes.MessageCompletionSignalMapping,
-) []*abci.ExecTxResult {
+	txMsgAccessOpMapping map[int]acltypes.MsgIndexToAccessOpMapping,
+) ([]*abci.ExecTxResult, bool) {
 	defer metrics.BlockProcessLatency(time.Now(), metrics.CONCURRENT)
+
+	txResults := []*abci.ExecTxResult{}
+	// If there's no transactions then return empty results
+	if len(txs) == 0 {
+		return txResults, true
+	}
 
 	var waitGroup sync.WaitGroup
 	resultChan := make(chan ChannelResult)
-	txResults := []*abci.ExecTxResult{}
-
-	// If there's no transactions then return empty results
-	if len(txs) == 0 {
-		return txResults
-	}
-
 	// For each transaction, start goroutine and deliver TX
 	for txIndex, txBytes := range txs {
 		waitGroup.Add(1)
@@ -1075,6 +1077,7 @@ func (app *App) ProcessBlockConcurrent(
 			resultChan,
 			completionSignalingMap[txIndex],
 			blockingSignalsMap[txIndex],
+			txMsgAccessOpMapping[txIndex],
 		)
 	}
 
@@ -1098,7 +1101,16 @@ func (app *App) ProcessBlockConcurrent(
 		txResults = append(txResults, txResultsMap[txIndex])
 	}
 
-	return txResults
+	ok := true
+	for i, result := range txResults {
+		if result.GetCode() == sdkerrors.ErrInvalidConcurrencyExecution.ABCICode() {
+			ctx.Logger().Error(fmt.Sprintf("Invalid concurrent execution of deliverTx index=%d", i))
+			metrics.IncrFailedConcurrentDeliverTxCounter()
+			ok = false
+		}
+	}
+
+	return txResults, ok
 }
 
 func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequest, lastCommit abci.CommitInfo) ([]abci.Event, []*abci.ExecTxResult, abci.ResponseEndBlock, error) {
@@ -1154,7 +1166,24 @@ func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequ
 		// CacheMultiStore where it writes the data to the parent store (DeliverState) in sorted Key order to maintain
 		// deterministic ordering between validators in the case of concurrent deliverTXs
 		processBlockCtx, processBlockCache := app.CacheContext(ctx)
-		txResults = app.ProcessBlockConcurrent(processBlockCtx, txs, dependencyDag.CompletionSignalingMap, dependencyDag.BlockingSignalsMap)
+		concurrentResults, ok := app.ProcessBlockConcurrent(
+			processBlockCtx,
+			txs,
+			dependencyDag.CompletionSignalingMap,
+			dependencyDag.BlockingSignalsMap,
+			dependencyDag.TxMsgAccessOpMapping,
+		)
+		if ok {
+			ctx.Logger().Info("Concurrent Execution succeeded, proceeding to commit block")
+			txResults = concurrentResults
+			// Write the results back to the concurrent contexts - if concurrent execution fails,
+			// this should not be called and the state is rolled back and retried with synchronous execution
+			processBlockCache.Write()
+		} else {
+			ctx.Logger().Error("Concurrent Execution failed, retrying with Synchronous")
+			txResults = app.ProcessBlockSynchronous(ctx, txs)
+		}
+
 		// Write the results back to the concurrent contexts
 		processBlockCache.Write()
 	case acltypes.ErrGovMsgInBlock:

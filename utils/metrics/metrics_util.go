@@ -80,6 +80,18 @@ func IncrDagBuildErrorCounter(reason string) {
 	)
 }
 
+// Counts the number of concurrent transactions that failed
+// Metric Names:
+//
+//	sei_tx_concurrent_delivertx_error
+func IncrFailedConcurrentDeliverTxCounter() {
+	metrics.IncrCounterWithLabels(
+		[]string{"sei", "tx", "concurrent", "delievertx", "error"},
+		1,
+		[]metrics.Label{},
+	)
+}
+
 // Measures the time taken to execute a sudo msg
 // Metric Names:
 //
