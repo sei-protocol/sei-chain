@@ -117,6 +117,7 @@ func (suite *KeeperTestSuite) TestMsgBurnDependencies() {
 				sdk.WrapSDKContext(handlerCtx),
 				tc.msg,
 			)
+			suite.App.BankKeeper.WriteDeferredOperations(suite.Ctx)
 
 			depdenencies , _ := tkfactory.TokenFactoryBurnDependencyGenerator(
 				suite.App.AccessControlKeeper,

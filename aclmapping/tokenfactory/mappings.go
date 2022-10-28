@@ -69,7 +69,7 @@ func TokenFactoryMintDependencyGenerator(keeper aclkeeper.Keeper, ctx sdk.Contex
 		},
 		{
 			AccessType:         sdkacltypes.AccessType_READ,
-			ResourceType:       sdkacltypes.ResourceType_KV_AUTH_ADDRESS_STORE,
+			ResourceType:       sdkacltypes.ResourceType_KV_BANK_BALANCES,
 			IdentifierTemplate:  string(banktypes.CreateAccountBalancesPrefix(moduleAdr)),
 		},
 
