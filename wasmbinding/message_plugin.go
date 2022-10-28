@@ -1,19 +1,17 @@
 package wasmbinding
 
 import (
-	"fmt"
-
 	wasmkeeper "github.com/CosmWasm/wasmd/x/wasm/keeper"
 	wasmtypes "github.com/CosmWasm/wasmd/x/wasm/types"
 	wasmvmtypes "github.com/CosmWasm/wasmvm/types"
 	codectypes "github.com/cosmos/cosmos-sdk/codec/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkacltypes "github.com/cosmos/cosmos-sdk/types/accesscontrol"
+	"github.com/cosmos/cosmos-sdk/x/accesscontrol"
 	aclkeeper "github.com/cosmos/cosmos-sdk/x/accesscontrol/keeper"
 	acltypes "github.com/cosmos/cosmos-sdk/x/accesscontrol/types"
+	"github.com/sei-protocol/sei-chain/utils"
 )
-
-var ErrUnexpectedWasmDependency = fmt.Errorf("unexpected wasm dependency detected")
 
 // forked from wasm
 func CustomMessageHandler(
@@ -123,7 +121,9 @@ func (decorator SDKMessageDependencyDecorator) DispatchMsg(ctx sdk.Context, cont
 		return nil, nil, err
 	}
 	// get the dependencies for the contract to validate against
-	wasmDependency, err := decorator.aclKeeper.GetWasmDependencyMapping(ctx, contractAddr)
+	// TODO: we need to carry wasmDependency in ctx instead of loading again here since here has no access to original msg payload
+	//       which is required for populating id correctly.
+	wasmDependency, err := decorator.aclKeeper.GetWasmDependencyMapping(ctx, contractAddr, []byte{}, false)
 	// If no mapping exists, or mapping is disabled, this message would behave as blocking for all resources
 	if err == aclkeeper.ErrWasmDependencyMappingNotFound {
 		// no mapping, we can just continue
@@ -138,7 +138,9 @@ func (decorator SDKMessageDependencyDecorator) DispatchMsg(ctx sdk.Context, cont
 		return decorator.wrapped.DispatchMsg(ctx, contractAddr, contractIBCPortID, msg)
 	}
 	// convert wasm dependency to a map of resource access and identifier we can look up in
-	lookupMap := BuildWasmDependencyLookupMap(wasmDependency.AccessOps)
+	lookupMap := BuildWasmDependencyLookupMap(
+		utils.Map(wasmDependency.AccessOps, func(op sdkacltypes.AccessOperationWithSelector) sdkacltypes.AccessOperation { return *op.Operation }),
+	)
 	// wasm dependency enabled, we need to validate the message dependencies
 	for _, msg := range sdkMsgs {
 		accessOps := decorator.aclKeeper.GetMessageDependencies(ctx, msg)
@@ -147,7 +149,8 @@ func (decorator SDKMessageDependencyDecorator) DispatchMsg(ctx sdk.Context, cont
 			// first check for our specific resource access AND identifier template
 			depsFulfilled := AreDependenciesFulfilled(lookupMap, accessOp)
 			if !depsFulfilled {
-				return nil, nil, ErrUnexpectedWasmDependency
+				emitIncorrectDependencyWasmEvent(ctx, contractAddr.String())
+				return nil, nil, accesscontrol.ErrUnexpectedWasmDependency
 			}
 		}
 	}
