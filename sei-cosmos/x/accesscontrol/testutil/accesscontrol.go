@@ -26,7 +26,7 @@ func BankSendDepGenerator(keeper aclkeeper.Keeper, ctx sdk.Context, msg sdk.Msg)
 	accessOps := []acltypes.AccessOperation{
 		{ResourceType: acltypes.ResourceType_KV_BANK, AccessType: acltypes.AccessType_WRITE, IdentifierTemplate: bankSend.FromAddress},
 		{ResourceType: acltypes.ResourceType_KV_BANK, AccessType: acltypes.AccessType_WRITE, IdentifierTemplate: bankSend.ToAddress},
-		types.CommitAccessOp(),
+		*types.CommitAccessOp(),
 	}
 	return accessOps, nil
 }

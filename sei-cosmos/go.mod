@@ -27,13 +27,14 @@ require (
 	github.com/improbable-eng/grpc-web v0.14.1
 	github.com/jhump/protoreflect v1.12.1-0.20220417024638-438db461d753
 	github.com/magiconair/properties v1.8.6
-	github.com/mattn/go-isatty v0.0.14
+	github.com/mattn/go-isatty v0.0.16
 	github.com/pkg/errors v0.9.1
 	github.com/prometheus/client_golang v1.12.2
 	github.com/prometheus/common v0.34.0
 	github.com/rakyll/statik v0.1.7
 	github.com/regen-network/cosmos-proto v0.3.1
 	github.com/rs/zerolog v1.26.1
+	github.com/savaki/jq v0.0.0-20161209013833-0e6baecebbf8
 	github.com/spf13/cast v1.5.0
 	github.com/spf13/cobra v1.4.0
 	github.com/spf13/pflag v1.0.5
@@ -120,7 +121,7 @@ require (
 	go.opentelemetry.io/otel/trace v1.9.0 // indirect
 	golang.org/x/net v0.0.0-20220624214902-1bab6f366d9e // indirect
 	golang.org/x/sync v0.0.0-20220513210516-0976fa681c29 // indirect
-	golang.org/x/sys v0.0.0-20220610221304-9f5ed59c137d // indirect
+	golang.org/x/sys v0.0.0-20220829200755-d48e67d00261 // indirect
 	golang.org/x/term v0.0.0-20220411215600-e5f449aeb171 // indirect
 	golang.org/x/text v0.3.7 // indirect
 	gopkg.in/ini.v1 v1.66.4 // indirect

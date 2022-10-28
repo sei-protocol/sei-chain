@@ -1,6 +1,7 @@
 package keeper_test
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -53,7 +54,7 @@ func TestResourceDependencyMapping(t *testing.T) {
 				AccessType:         acltypes.AccessType_READ,
 				IdentifierTemplate: "someIdentifier",
 			},
-			types.CommitAccessOp(),
+			*types.CommitAccessOp(),
 		},
 	}
 	invalidDependencyMapping := acltypes.MessageDependencyMapping{
@@ -96,20 +97,26 @@ func TestWasmDependencyMapping(t *testing.T) {
 	otherContractAddress := wasmContractAddresses[1]
 	wasmMapping := acltypes.WasmDependencyMapping{
 		Enabled: true,
-		AccessOps: []acltypes.AccessOperation{
-			{ResourceType: acltypes.ResourceType_KV, AccessType: acltypes.AccessType_WRITE, IdentifierTemplate: "someResource"},
-			types.CommitAccessOp(),
+		AccessOps: []acltypes.AccessOperationWithSelector{
+			{
+				Operation:    &acltypes.AccessOperation{ResourceType: acltypes.ResourceType_KV, AccessType: acltypes.AccessType_WRITE, IdentifierTemplate: "someResource"},
+				SelectorType: acltypes.AccessOperationSelectorType_NONE,
+			},
+			{
+				Operation:    types.CommitAccessOp(),
+				SelectorType: acltypes.AccessOperationSelectorType_NONE,
+			},
 		},
 	}
 	// set the dependency mapping
 	err := app.AccessControlKeeper.SetWasmDependencyMapping(ctx, wasmContractAddress, wasmMapping)
 	require.NoError(t, err)
 	// test getting the dependency mapping
-	mapping, err := app.AccessControlKeeper.GetWasmDependencyMapping(ctx, wasmContractAddress)
+	mapping, err := app.AccessControlKeeper.GetWasmDependencyMapping(ctx, wasmContractAddress, []byte{}, false)
 	require.NoError(t, err)
 	require.Equal(t, wasmMapping, mapping)
 	// test getting a dependency mapping for something function that isn't present
-	_, err = app.AccessControlKeeper.GetWasmDependencyMapping(ctx, otherContractAddress)
+	_, err = app.AccessControlKeeper.GetWasmDependencyMapping(ctx, otherContractAddress, []byte{}, false)
 	require.Error(t, aclkeeper.ErrWasmDependencyMappingNotFound, err)
 }
 
@@ -121,25 +128,81 @@ func TestResetWasmDependencyMapping(t *testing.T) {
 	wasmContractAddress := wasmContractAddresses[0]
 	wasmMapping := acltypes.WasmDependencyMapping{
 		Enabled: true,
-		AccessOps: []acltypes.AccessOperation{
-			{ResourceType: acltypes.ResourceType_KV, AccessType: acltypes.AccessType_WRITE, IdentifierTemplate: "someResource"},
-			types.CommitAccessOp(),
+		AccessOps: []acltypes.AccessOperationWithSelector{
+			{
+				Operation: &acltypes.AccessOperation{
+					ResourceType: acltypes.ResourceType_KV, AccessType: acltypes.AccessType_WRITE, IdentifierTemplate: "someResource",
+				},
+			}, {
+				Operation: types.CommitAccessOp(),
+			},
 		},
 	}
 	// set the dependency mapping
 	err := app.AccessControlKeeper.SetWasmDependencyMapping(ctx, wasmContractAddress, wasmMapping)
 	require.NoError(t, err)
 	// test getting the dependency mapping
-	mapping, err := app.AccessControlKeeper.GetWasmDependencyMapping(ctx, wasmContractAddress)
+	mapping, err := app.AccessControlKeeper.GetWasmDependencyMapping(ctx, wasmContractAddress, []byte{}, false)
 	require.NoError(t, err)
 	require.Equal(t, wasmMapping, mapping)
 	// test resetting
 	err = app.AccessControlKeeper.ResetWasmDependencyMapping(ctx, wasmContractAddress, "some reason")
 	require.NoError(t, err)
-	mapping, err = app.AccessControlKeeper.GetWasmDependencyMapping(ctx, wasmContractAddress)
+	mapping, err = app.AccessControlKeeper.GetWasmDependencyMapping(ctx, wasmContractAddress, []byte{}, false)
 	require.NoError(t, err)
-	require.Equal(t, types.SynchronousAccessOps(), mapping.AccessOps)
+	require.Equal(t, types.SynchronousAccessOpsWithSelector(), mapping.AccessOps)
 	require.Equal(t, "some reason", mapping.ResetReason)
+}
+
+func TestWasmDependencyMappingWithSelector(t *testing.T) {
+	app := simapp.Setup(false)
+	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
+
+	wasmContractAddresses := simapp.AddTestAddrsIncremental(app, ctx, 1, sdk.NewInt(30000000))
+	wasmContractAddress := wasmContractAddresses[0]
+	wasmMapping := acltypes.WasmDependencyMapping{
+		Enabled: true,
+		AccessOps: []acltypes.AccessOperationWithSelector{
+			{
+				Operation: &acltypes.AccessOperation{
+					ResourceType:       acltypes.ResourceType_KV_WASM,
+					AccessType:         acltypes.AccessType_WRITE,
+					IdentifierTemplate: wasmContractAddress.String() + "/%s",
+				},
+				SelectorType: acltypes.AccessOperationSelectorType_JQ,
+				Selector:     ".send.from",
+			},
+			{
+				Operation: &acltypes.AccessOperation{
+					ResourceType:       acltypes.ResourceType_KV_WASM,
+					AccessType:         acltypes.AccessType_WRITE,
+					IdentifierTemplate: wasmContractAddress.String() + "/%s",
+				},
+				SelectorType: acltypes.AccessOperationSelectorType_JQ,
+				Selector:     ".send.amount",
+			},
+			{
+				Operation:    types.CommitAccessOp(),
+				SelectorType: acltypes.AccessOperationSelectorType_NONE,
+			},
+		},
+	}
+	// set the dependency mapping
+	err := app.AccessControlKeeper.SetWasmDependencyMapping(ctx, wasmContractAddress, wasmMapping)
+	require.NoError(t, err)
+	// test getting the dependency mapping
+	mapping, err := app.AccessControlKeeper.GetWasmDependencyMapping(ctx, wasmContractAddress, []byte{}, false)
+	require.NoError(t, err)
+	require.Equal(t, wasmMapping, mapping)
+	// test getting a dependency mapping with selector
+	mapping, err = app.AccessControlKeeper.GetWasmDependencyMapping(
+		ctx,
+		wasmContractAddress,
+		[]byte("{\"send\":{\"from\":\"bob\",\"amount\":10}}"),
+		true,
+	)
+	require.Equal(t, fmt.Sprintf("%s/\"bob\"", wasmContractAddress.String()), mapping.AccessOps[0].Operation.IdentifierTemplate)
+	require.Equal(t, fmt.Sprintf("%s/10", wasmContractAddress.String()), mapping.AccessOps[1].Operation.IdentifierTemplate)
 }
 
 func (suite *KeeperTestSuite) TestMessageDependencies() {
@@ -178,7 +241,7 @@ func (suite *KeeperTestSuite) TestMessageDependencies() {
 				AccessType:         acltypes.AccessType_WRITE,
 				IdentifierTemplate: "stakingPrefix",
 			},
-			types.CommitAccessOp(),
+			*types.CommitAccessOp(),
 		},
 		DynamicEnabled: true,
 	}
@@ -206,7 +269,7 @@ func (suite *KeeperTestSuite) TestMessageDependencies() {
 				AccessType:         acltypes.AccessType_WRITE,
 				IdentifierTemplate: "stakingUndelegatePrefix",
 			},
-			types.CommitAccessOp(),
+			*types.CommitAccessOp(),
 		},
 		DynamicEnabled: true,
 	}
@@ -227,7 +290,7 @@ func (suite *KeeperTestSuite) TestMessageDependencies() {
 				AccessType:         acltypes.AccessType_WRITE,
 				IdentifierTemplate: "bankPrefix",
 			},
-			types.CommitAccessOp(),
+			*types.CommitAccessOp(),
 		},
 		DynamicEnabled: false,
 	}

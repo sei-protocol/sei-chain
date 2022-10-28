@@ -31,7 +31,7 @@ func (k Keeper) WasmDependencyMapping(ctx context.Context, req *types.WasmDepend
 	if err != nil {
 		return nil, err
 	}
-	wasmDependency, err := k.GetWasmDependencyMapping(sdkCtx, address)
+	wasmDependency, err := k.GetWasmDependencyMapping(sdkCtx, address, []byte{}, false)
 	if err != nil {
 		return nil, err
 	}

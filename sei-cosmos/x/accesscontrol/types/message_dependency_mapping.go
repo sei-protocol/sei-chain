@@ -20,14 +20,14 @@ func GenerateMessageKey(msg sdk.Msg) MessageKey {
 	return MessageKey(proto.MessageName(msg))
 }
 
-func CommitAccessOp() acltypes.AccessOperation {
-	return acltypes.AccessOperation{ResourceType: acltypes.ResourceType_ANY, AccessType: acltypes.AccessType_COMMIT, IdentifierTemplate: "*"}
+func CommitAccessOp() *acltypes.AccessOperation {
+	return &acltypes.AccessOperation{ResourceType: acltypes.ResourceType_ANY, AccessType: acltypes.AccessType_COMMIT, IdentifierTemplate: "*"}
 }
 
 // Validates access operation sequence for a message, requires the last access operation to be a COMMIT
 func ValidateAccessOps(accessOps []acltypes.AccessOperation) error {
 	lastAccessOp := accessOps[len(accessOps)-1]
-	if lastAccessOp != CommitAccessOp() {
+	if lastAccessOp != *CommitAccessOp() {
 		return ErrNoCommitAccessOp
 	}
 	for _, accessOp := range accessOps {
@@ -65,7 +65,20 @@ func SynchronousMessageDependencyMapping(messageKey MessageKey) acltypes.Message
 func SynchronousAccessOps() []acltypes.AccessOperation {
 	return []acltypes.AccessOperation{
 		{AccessType: acltypes.AccessType_UNKNOWN, ResourceType: acltypes.ResourceType_ANY, IdentifierTemplate: "*"},
-		{AccessType: acltypes.AccessType_COMMIT, ResourceType: acltypes.ResourceType_ANY, IdentifierTemplate: "*"},
+		*CommitAccessOp(),
+	}
+}
+
+func SynchronousAccessOpsWithSelector() []acltypes.AccessOperationWithSelector {
+	return []acltypes.AccessOperationWithSelector{
+		{
+			Operation:    &acltypes.AccessOperation{AccessType: acltypes.AccessType_UNKNOWN, ResourceType: acltypes.ResourceType_ANY, IdentifierTemplate: "*"},
+			SelectorType: acltypes.AccessOperationSelectorType_NONE,
+		},
+		{
+			Operation:    CommitAccessOp(),
+			SelectorType: acltypes.AccessOperationSelectorType_NONE,
+		},
 	}
 }
 
@@ -81,7 +94,7 @@ func DefaultWasmDependencyMappings() []acltypes.WasmDependencyMapping {
 
 func ValidateWasmDependencyMapping(mapping acltypes.WasmDependencyMapping) error {
 	lastAccessOp := mapping.AccessOps[len(mapping.AccessOps)-1]
-	if lastAccessOp.AccessType != acltypes.AccessType_COMMIT {
+	if lastAccessOp.Operation.AccessType != acltypes.AccessType_COMMIT {
 		return ErrNoCommitAccessOp
 	}
 	return nil

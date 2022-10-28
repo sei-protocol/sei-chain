@@ -22,7 +22,7 @@ func TestCreateGraph(t *testing.T) {
 	\-----------------------------------=> 4wB -> 4c
 	**/
 
-	commitAccessOp := CommitAccessOp()
+	commitAccessOp := *CommitAccessOp()
 	writeAccessA := acltypes.AccessOperation{
 		AccessType:         acltypes.AccessType_WRITE,
 		ResourceType:       acltypes.ResourceType_KV,
@@ -158,7 +158,7 @@ func TestHierarchyDag(t *testing.T) {
 			\---=> 4rA c4
 	**/
 
-	commit := CommitAccessOp()
+	commit := *CommitAccessOp()
 	writeA := acltypes.AccessOperation{
 		AccessType:         acltypes.AccessType_WRITE,
 		ResourceType:       acltypes.ResourceType_KV,
@@ -250,7 +250,7 @@ func TestHierarchyDag(t *testing.T) {
 func TestDagResourceIdentifiers(t *testing.T) {
 	dag := NewDag()
 
-	commit := CommitAccessOp()
+	commit := *CommitAccessOp()
 	writeA := acltypes.AccessOperation{
 		AccessType:         acltypes.AccessType_WRITE,
 		ResourceType:       acltypes.ResourceType_KV,

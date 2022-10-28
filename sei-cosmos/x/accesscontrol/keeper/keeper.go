@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/armon/go-metrics"
+	"github.com/savaki/jq"
 	"github.com/tendermint/tendermint/libs/log"
 	"github.com/yourbasic/graph"
 
@@ -112,7 +113,7 @@ func (k Keeper) SetDependencyMappingDynamicFlag(ctx sdk.Context, messageKey type
 	return k.SetResourceDependencyMapping(ctx, dependencyMapping)
 }
 
-func (k Keeper) GetWasmDependencyMapping(ctx sdk.Context, contractAddress sdk.AccAddress) (acltypes.WasmDependencyMapping, error) {
+func (k Keeper) GetWasmDependencyMapping(ctx sdk.Context, contractAddress sdk.AccAddress, msgBody []byte, applySelector bool) (acltypes.WasmDependencyMapping, error) {
 	store := ctx.KVStore(k.storeKey)
 	b := store.Get(types.GetWasmContractAddressKey(contractAddress))
 	if b == nil {
@@ -120,11 +121,29 @@ func (k Keeper) GetWasmDependencyMapping(ctx sdk.Context, contractAddress sdk.Ac
 		// won't have dynamic mapping disabled if already enabled
 		return acltypes.WasmDependencyMapping{
 			Enabled:   true, // if wasm resource type as a whole is disabled, this will be ignored anyway
-			AccessOps: types.SynchronousAccessOps(),
+			AccessOps: types.SynchronousAccessOpsWithSelector(),
 		}, nil
 	}
 	dependencyMapping := acltypes.WasmDependencyMapping{}
 	k.cdc.MustUnmarshal(b, &dependencyMapping)
+	if dependencyMapping.Enabled && applySelector {
+		for i, opWithSelector := range dependencyMapping.AccessOps {
+			if opWithSelector.SelectorType == acltypes.AccessOperationSelectorType_JQ {
+				op, err := jq.Parse(opWithSelector.Selector)
+				if err != nil {
+					return acltypes.WasmDependencyMapping{}, err
+				}
+				data, err := op.Apply(msgBody)
+				if err != nil {
+					return acltypes.WasmDependencyMapping{}, err
+				}
+				dependencyMapping.AccessOps[i].Operation.IdentifierTemplate = fmt.Sprintf(
+					dependencyMapping.AccessOps[i].Operation.IdentifierTemplate,
+					string(data),
+				)
+			}
+		}
+	}
 	return dependencyMapping, nil
 }
 
@@ -149,13 +168,13 @@ func (k Keeper) ResetWasmDependencyMapping(
 	contractAddress sdk.AccAddress,
 	reason string,
 ) error {
-	dependencyMapping, err := k.GetWasmDependencyMapping(ctx, contractAddress)
+	dependencyMapping, err := k.GetWasmDependencyMapping(ctx, contractAddress, []byte{}, false)
 	if err != nil {
 		return err
 	}
 	store := ctx.KVStore(k.storeKey)
 	// keep `Enabled` true so that it won't cause all WASM resources to be synchronous
-	dependencyMapping.AccessOps = types.SynchronousAccessOps()
+	dependencyMapping.AccessOps = types.SynchronousAccessOpsWithSelector()
 	dependencyMapping.ResetReason = reason
 	b := k.cdc.MustMarshal(&dependencyMapping)
 	resourceKey := types.GetWasmContractAddressKey(contractAddress)

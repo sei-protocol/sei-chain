@@ -10,6 +10,11 @@ enum AccessType {
     COMMIT = 3;
 }
 
+enum AccessOperationSelectorType {
+    NONE = 0;
+    JQ = 1;
+}
+
 enum ResourceType {
     ANY = 0;
     KV = 1; // child of ANY
