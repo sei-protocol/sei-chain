@@ -43,6 +43,9 @@ type Context struct {
 
 	txBlockingChannels		acltypes.MessageAccessOpsChannelMapping
 	txCompletionChannels	acltypes.MessageAccessOpsChannelMapping
+	txMsgAccessOps			map[int][]acltypes.AccessOperation
+
+	msgValidator *acltypes.MsgValidator
 	messageIndex int	// Used to track current message being processed
 
 	contextMemCache *ContextMemCache
@@ -69,7 +72,9 @@ func (c Context) EventManager() *EventManager { return c.eventManager }
 func (c Context) Priority() int64             { return c.priority }
 func (c Context) TxCompletionChannels() acltypes.MessageAccessOpsChannelMapping { return c.txCompletionChannels }
 func (c Context) TxBlockingChannels() 	acltypes.MessageAccessOpsChannelMapping { return c.txBlockingChannels }
+func (c Context) TxMsgAccessOps() map[int][]acltypes.AccessOperation		  { return c.txMsgAccessOps }
 func (c Context) MessageIndex() int		  { return c.messageIndex }
+func (c Context) MsgValidator() *acltypes.MsgValidator { return c.msgValidator }
 func (c Context) ContextMemCache() *ContextMemCache { return c.contextMemCache }
 
 // clone the header before returning
@@ -110,6 +115,10 @@ func NewContext(ms MultiStore, header tmproto.Header, isCheckTx bool, logger log
 		minGasPrice:  DecCoins{},
 		eventManager: NewEventManager(),
 		contextMemCache: NewContextMemCache(),
+
+		txBlockingChannels:		make(acltypes.MessageAccessOpsChannelMapping),
+		txCompletionChannels:	make(acltypes.MessageAccessOpsChannelMapping),
+		txMsgAccessOps:			make(map[int][]acltypes.AccessOperation),
 	}
 }
 
@@ -234,6 +243,13 @@ func (c Context) WithEventManager(em *EventManager) Context {
 	return c
 }
 
+// TxMsgAccessOps returns a Context with an updated list of completion channel
+func (c Context) WithTxMsgAccessOps(accessOps map[int][]acltypes.AccessOperation) Context {
+	c.txMsgAccessOps = accessOps
+	return c
+}
+
+
 // WithTxCompletionChannels returns a Context with an updated list of completion channel
 func (c Context) WithTxCompletionChannels(completionChannels acltypes.MessageAccessOpsChannelMapping) Context {
 	c.txCompletionChannels = completionChannels
@@ -249,6 +265,11 @@ func (c Context) WithTxBlockingChannels(blockingChannels acltypes.MessageAccessO
 // WithMessageIndex returns a Context with the current message index that's being processed
 func (c Context) WithMessageIndex(messageIndex int) Context {
 	c.messageIndex = messageIndex
+	return c
+}
+
+func (c Context) WithMsgValidator(msgValidator *acltypes.MsgValidator) Context {
+	c.msgValidator = msgValidator
 	return c
 }
 

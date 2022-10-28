@@ -3,12 +3,12 @@ package mock
 import (
 	"io"
 
-	protoio "github.com/gogo/protobuf/io"
-	dbm "github.com/tendermint/tm-db"
-
 	snapshottypes "github.com/cosmos/cosmos-sdk/snapshots/types"
 	store "github.com/cosmos/cosmos-sdk/store/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	protoio "github.com/gogo/protobuf/io"
+	abci "github.com/tendermint/tendermint/abci/types"
+	dbm "github.com/tendermint/tm-db"
 )
 
 var _ sdk.MultiStore = multiStore{}
@@ -25,11 +25,11 @@ func (ms multiStore) CacheMultiStoreWithVersion(_ int64) (sdk.CacheMultiStore, e
 	panic("not implemented")
 }
 
-func (ms multiStore) CacheWrap() sdk.CacheWrap {
+func (ms multiStore) CacheWrap(_ store.StoreKey) sdk.CacheWrap {
 	panic("not implemented")
 }
 
-func (ms multiStore) CacheWrapWithTrace(_ io.Writer, _ sdk.TraceContext) sdk.CacheWrap {
+func (ms multiStore) CacheWrapWithTrace(_ store.StoreKey, _ io.Writer, _ sdk.TraceContext) sdk.CacheWrap {
 	panic("not implemented")
 }
 
@@ -109,6 +109,11 @@ func (ms multiStore) GetStore(key sdk.StoreKey) sdk.Store {
 	panic("not implemented")
 }
 
+// GetStores returns mounted stores
+func (ms multiStore) GetEvents() []abci.Event {
+	panic("not implemented")
+}
+
 func (ms multiStore) GetStoreType() sdk.StoreType {
 	panic("not implemented")
 }
@@ -144,11 +149,11 @@ type kvStore struct {
 	store map[string][]byte
 }
 
-func (kv kvStore) CacheWrap() sdk.CacheWrap {
+func (kv kvStore) CacheWrap(_ store.StoreKey) sdk.CacheWrap {
 	panic("not implemented")
 }
 
-func (kv kvStore) CacheWrapWithTrace(w io.Writer, tc sdk.TraceContext) sdk.CacheWrap {
+func (kv kvStore) CacheWrapWithTrace(_ store.StoreKey, w io.Writer, tc sdk.TraceContext) sdk.CacheWrap {
 	panic("not implemented")
 }
 

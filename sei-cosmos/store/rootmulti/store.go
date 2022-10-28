@@ -151,6 +151,11 @@ func (rs *Store) GetStores() map[types.StoreKey]types.CommitKVStore {
 	return rs.stores
 }
 
+// GetStores returns mounted stores
+func (rs *Store) GetEvents() []abci.Event {
+	panic("getevents should not be called on the root multi store")
+}
+
 // LoadLatestVersionAndUpgrade implements CommitMultiStore
 func (rs *Store) LoadLatestVersionAndUpgrade(upgrades *types.StoreUpgrades) error {
 	ver := getLatestVersion(rs.db)
@@ -472,18 +477,18 @@ func (rs *Store) pruneStores() {
 }
 
 // CacheWrap implements CacheWrapper/Store/CommitStore.
-func (rs *Store) CacheWrap() types.CacheWrap {
+func (rs *Store) CacheWrap(storeKey types.StoreKey) types.CacheWrap {
 	return rs.CacheMultiStore().(types.CacheWrap)
 }
 
 // CacheWrapWithTrace implements the CacheWrapper interface.
-func (rs *Store) CacheWrapWithTrace(_ io.Writer, _ types.TraceContext) types.CacheWrap {
-	return rs.CacheWrap()
+func (rs *Store) CacheWrapWithTrace(storeKey types.StoreKey, _ io.Writer, _ types.TraceContext) types.CacheWrap {
+	return rs.CacheWrap(storeKey)
 }
 
 // CacheWrapWithListeners implements the CacheWrapper interface.
-func (rs *Store) CacheWrapWithListeners(_ types.StoreKey, _ []types.WriteListener) types.CacheWrap {
-	return rs.CacheWrap()
+func (rs *Store) CacheWrapWithListeners(storeKey types.StoreKey, _ []types.WriteListener) types.CacheWrap {
+	return rs.CacheWrap(storeKey)
 }
 
 // CacheMultiStore creates ephemeral branch of the multi-store and returns a CacheMultiStore.

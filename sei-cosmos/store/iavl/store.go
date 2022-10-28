@@ -158,18 +158,18 @@ func (st *Store) GetStoreType() types.StoreType {
 }
 
 // Implements Store.
-func (st *Store) CacheWrap() types.CacheWrap {
-	return cachekv.NewStore(st)
+func (st *Store) CacheWrap(storeKey types.StoreKey) types.CacheWrap {
+	return cachekv.NewStore(st, storeKey)
 }
 
 // CacheWrapWithTrace implements the Store interface.
-func (st *Store) CacheWrapWithTrace(w io.Writer, tc types.TraceContext) types.CacheWrap {
-	return cachekv.NewStore(tracekv.NewStore(st, w, tc))
+func (st *Store) CacheWrapWithTrace(storeKey types.StoreKey, w io.Writer, tc types.TraceContext) types.CacheWrap {
+	return cachekv.NewStore(tracekv.NewStore(st, w, tc), storeKey)
 }
 
 // CacheWrapWithListeners implements the CacheWrapper interface.
 func (st *Store) CacheWrapWithListeners(storeKey types.StoreKey, listeners []types.WriteListener) types.CacheWrap {
-	return cachekv.NewStore(listenkv.NewStore(st, storeKey, listeners))
+	return cachekv.NewStore(listenkv.NewStore(st, storeKey, listeners), storeKey)
 }
 
 // Implements types.KVStore.

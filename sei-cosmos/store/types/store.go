@@ -139,12 +139,17 @@ type MultiStore interface {
 	AddListeners(key StoreKey, listeners []WriteListener)
 
 	GetWorkingHash() []byte
+
+	// Returns Events Emitted from the internal event manager
+	GetEvents() []abci.Event
 }
 
 // From MultiStore.CacheMultiStore()....
 type CacheMultiStore interface {
 	MultiStore
-	Write() // Writes operations to underlying KVStore
+
+	// Writes operations to underlying KVStore
+	Write()
 }
 
 // CommitMultiStore is an interface for a MultiStore without cache capabilities.
@@ -243,6 +248,9 @@ type CacheKVStore interface {
 
 	// Writes operations to underlying KVStore
 	Write()
+
+	// Returns Events Emitted from the internal event manager
+	GetEvents() []abci.Event
 }
 
 // CommitKVStore is an interface for MultiStore.
@@ -255,18 +263,20 @@ type CommitKVStore interface {
 // CacheWrap
 
 // CacheWrap is the most appropriate interface for store ephemeral branching and cache.
-// For example, IAVLStore.CacheWrap() returns a CacheKVStore. CacheWrap should not return
+// For example, IAVLStore.CacheWrap(storeKey) returns a CacheKVStore. CacheWrap should not return
 // a Committer, since Commit ephemeral store make no sense. It can return KVStore,
 // HeapStore, SpaceStore, etc.
 type CacheWrap interface {
 	// Write syncs with the underlying store.
 	Write()
 
+	GetEvents() []abci.Event
+
 	// CacheWrap recursively wraps again.
-	CacheWrap() CacheWrap
+	CacheWrap(storeKey StoreKey) CacheWrap
 
 	// CacheWrapWithTrace recursively wraps again with tracing enabled.
-	CacheWrapWithTrace(w io.Writer, tc TraceContext) CacheWrap
+	CacheWrapWithTrace(storeKey StoreKey, w io.Writer, tc TraceContext) CacheWrap
 
 	// CacheWrapWithListeners recursively wraps again with listening enabled
 	CacheWrapWithListeners(storeKey StoreKey, listeners []WriteListener) CacheWrap
@@ -274,10 +284,10 @@ type CacheWrap interface {
 
 type CacheWrapper interface {
 	// CacheWrap branches a store.
-	CacheWrap() CacheWrap
+	CacheWrap(storeKey StoreKey) CacheWrap
 
 	// CacheWrapWithTrace branches a store with tracing enabled.
-	CacheWrapWithTrace(w io.Writer, tc TraceContext) CacheWrap
+	CacheWrapWithTrace(storeKey StoreKey, w io.Writer, tc TraceContext) CacheWrap
 
 	// CacheWrapWithListeners recursively wraps again with listening enabled
 	CacheWrapWithListeners(storeKey StoreKey, listeners []WriteListener) CacheWrap

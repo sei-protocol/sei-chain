@@ -144,6 +144,9 @@ var (
 	// ErrAppConfig defines an error occurred if min-gas-prices field in BaseConfig is empty.
 	ErrAppConfig = Register(RootCodespace, 40, "error in app.toml")
 
+	// ErrInvalidConcurrency defines an error occurred during concurrent execution
+	ErrInvalidConcurrencyExecution = Register(RootCodespace, 41, "error during concurrent execution")
+
 	// ErrPanic is only set when we recover from a panic, so we know to
 	// redact potentially sensitive system info
 	ErrPanic = Register(UndefinedCodespace, 111222, "panic")

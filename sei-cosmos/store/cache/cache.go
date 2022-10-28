@@ -90,8 +90,8 @@ func (cmgr *CommitKVStoreCacheManager) Reset() {
 }
 
 // CacheWrap implements the CacheWrapper interface
-func (ckv *CommitKVStoreCache) CacheWrap() types.CacheWrap {
-	return cachekv.NewStore(ckv)
+func (ckv *CommitKVStoreCache) CacheWrap(storeKey types.StoreKey) types.CacheWrap {
+	return cachekv.NewStore(ckv, storeKey)
 }
 
 // Get retrieves a value by key. It will first look in the write-through cache.

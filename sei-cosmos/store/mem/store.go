@@ -37,18 +37,18 @@ func (s Store) GetStoreType() types.StoreType {
 }
 
 // CacheWrap branches the underlying store.
-func (s Store) CacheWrap() types.CacheWrap {
-	return cachekv.NewStore(s)
+func (s Store) CacheWrap(storeKey types.StoreKey) types.CacheWrap {
+	return cachekv.NewStore(s, storeKey)
 }
 
 // CacheWrapWithTrace implements KVStore.
-func (s Store) CacheWrapWithTrace(w io.Writer, tc types.TraceContext) types.CacheWrap {
-	return cachekv.NewStore(tracekv.NewStore(s, w, tc))
+func (s Store) CacheWrapWithTrace(storeKey types.StoreKey, w io.Writer, tc types.TraceContext) types.CacheWrap {
+	return cachekv.NewStore(tracekv.NewStore(s, w, tc), storeKey)
 }
 
 // CacheWrapWithListeners implements the CacheWrapper interface.
 func (s Store) CacheWrapWithListeners(storeKey types.StoreKey, listeners []types.WriteListener) types.CacheWrap {
-	return cachekv.NewStore(listenkv.NewStore(s, storeKey, listeners))
+	return cachekv.NewStore(listenkv.NewStore(s, storeKey, listeners), storeKey)
 }
 
 // Commit performs a no-op as entries are persistent between commitments.

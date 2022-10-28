@@ -7,14 +7,15 @@ import (
 	"sync"
 	"time"
 
-	dbm "github.com/tendermint/tm-db"
-
 	"github.com/cosmos/cosmos-sdk/internal/conv"
 	"github.com/cosmos/cosmos-sdk/store/listenkv"
 	"github.com/cosmos/cosmos-sdk/store/tracekv"
 	"github.com/cosmos/cosmos-sdk/store/types"
 	"github.com/cosmos/cosmos-sdk/telemetry"
+	sdktypes "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/types/kv"
+	abci "github.com/tendermint/tendermint/abci/types"
+	dbm "github.com/tendermint/tm-db"
 )
 
 // If value is nil but deleted is false, it means the parent doesn't have the
@@ -32,23 +33,32 @@ type Store struct {
 	unsortedCache map[string]struct{}
 	sortedCache   *dbm.MemDB // always ascending sorted
 	parent        types.KVStore
+	eventManager  *sdktypes.EventManager
+	storeKey	  types.StoreKey
 }
 
 var _ types.CacheKVStore = (*Store)(nil)
 
 // NewStore creates a new Store object
-func NewStore(parent types.KVStore) *Store {
+func NewStore(parent types.KVStore, storeKey types.StoreKey) *Store {
 	return &Store{
 		cache:         make(map[string]*cValue),
 		deleted:       make(map[string]struct{}),
 		unsortedCache: make(map[string]struct{}),
 		sortedCache:   dbm.NewMemDB(),
 		parent:        parent,
+		eventManager:  sdktypes.NewEventManager(),
+		storeKey: 	   storeKey,
 	}
 }
 
 func (store *Store) GetWorkingHash() []byte {
 	panic("should never attempt to get working hash from cache kv store")
+}
+
+// Implements Store
+func (store *Store) GetEvents() []abci.Event {
+	return store.eventManager.ABCIEvents()
 }
 
 // GetStoreType implements Store.
@@ -70,6 +80,7 @@ func (store *Store) Get(key []byte) (value []byte) {
 	} else {
 		value = cacheValue.value
 	}
+	store.eventManager.EmitResourceAccessReadEvent("get", store.storeKey, key, value)
 
 	return value
 }
@@ -83,11 +94,13 @@ func (store *Store) Set(key []byte, value []byte) {
 	types.AssertValidValue(value)
 
 	store.setCacheValue(key, value, false, true)
+	store.eventManager.EmitResourceAccessWriteEvent("set", store.storeKey, key, value)
 }
 
 // Has implements types.KVStore.
 func (store *Store) Has(key []byte) bool {
 	value := store.Get(key)
+	store.eventManager.EmitResourceAccessReadEvent("has", store.storeKey, key, value)
 	return value != nil
 }
 
@@ -99,6 +112,7 @@ func (store *Store) Delete(key []byte) {
 
 	types.AssertValidKey(key)
 	store.setCacheValue(key, nil, true, true)
+	store.eventManager.EmitResourceAccessReadEvent("delete", store.storeKey, key, []byte{})
 }
 
 // Implements Cachetypes.KVStore.
@@ -154,18 +168,18 @@ func (store *Store) Write() {
 }
 
 // CacheWrap implements CacheWrapper.
-func (store *Store) CacheWrap() types.CacheWrap {
-	return NewStore(store)
+func (store *Store) CacheWrap(storeKey types.StoreKey) types.CacheWrap {
+	return NewStore(store, storeKey)
 }
 
 // CacheWrapWithTrace implements the CacheWrapper interface.
-func (store *Store) CacheWrapWithTrace(w io.Writer, tc types.TraceContext) types.CacheWrap {
-	return NewStore(tracekv.NewStore(store, w, tc))
+func (store *Store) CacheWrapWithTrace(storeKey types.StoreKey, w io.Writer, tc types.TraceContext) types.CacheWrap {
+	return NewStore(tracekv.NewStore(store, w, tc), storeKey)
 }
 
 // CacheWrapWithListeners implements the CacheWrapper interface.
 func (store *Store) CacheWrapWithListeners(storeKey types.StoreKey, listeners []types.WriteListener) types.CacheWrap {
-	return NewStore(listenkv.NewStore(store, storeKey, listeners))
+	return NewStore(listenkv.NewStore(store, storeKey, listeners), storeKey)
 }
 
 //----------------------------------------
@@ -194,7 +208,7 @@ func (store *Store) iterator(start, end []byte, ascending bool) types.Iterator {
 	}
 
 	store.dirtyItems(start, end)
-	cache = newMemIterator(start, end, store.sortedCache, store.deleted, ascending)
+	cache = newMemIterator(start, end, store.sortedCache, store.deleted, ascending, store.eventManager, store.storeKey)
 
 	return newCacheMergeIterator(parent, cache, ascending)
 }

@@ -829,10 +829,12 @@ func (app *BaseApp) runMsgs(ctx sdk.Context, msgs []sdk.Msg, mode runTxMode) (*s
 			err          error
 		)
 
+		msgCtx, msgMsCache := app.cacheTxContext(ctx, []byte{})
+		msgCtx = msgCtx.WithMessageIndex(i)
+
 		if handler := app.msgServiceRouter.Handler(msg); handler != nil {
-			ctx = ctx.WithMessageIndex(i)
 			// ADR 031 request type routing
-			msgResult, err = handler(ctx, msg)
+			msgResult, err = handler(msgCtx, msg)
 			eventMsgName = sdk.MsgTypeURL(msg)
 		} else if legacyMsg, ok := msg.(legacytx.LegacyMsg); ok {
 			// legacy sdk.Msg routing
@@ -842,12 +844,11 @@ func (app *BaseApp) runMsgs(ctx sdk.Context, msgs []sdk.Msg, mode runTxMode) (*s
 			// registered within the `msgServiceRouter` already.
 			msgRoute := legacyMsg.Route()
 			eventMsgName = legacyMsg.Type()
-			handler := app.router.Route(ctx, msgRoute)
+			handler := app.router.Route(msgCtx, msgRoute)
 			if handler == nil {
 				return nil, sdkerrors.Wrapf(sdkerrors.ErrUnknownRequest, "unrecognized message route: %s; message index: %d", msgRoute, i)
 			}
-
-			msgResult, err = handler(ctx, msg)
+			msgResult, err = handler(msgCtx, msg)
 		} else {
 			return nil, sdkerrors.Wrapf(sdkerrors.ErrUnknownRequest, "can't route message %+v", msg)
 		}
@@ -869,6 +870,22 @@ func (app *BaseApp) runMsgs(ctx sdk.Context, msgs []sdk.Msg, mode runTxMode) (*s
 
 		txMsgData.Data = append(txMsgData.Data, &sdk.MsgData{MsgType: sdk.MsgTypeURL(msg), Data: msgResult.Data})
 		msgLogs = append(msgLogs, sdk.NewABCIMessageLog(uint32(i), msgResult.Log, msgEvents))
+
+		msgMsCache.Write()
+
+		// storeAccessOpEvents := msgMsCache.GetEvents()
+		// accessOps := ctx.TxMsgAccessOps()[i]
+		// missingAccessOps := acltypes.ValidateAccessOperations(accessOps, storeAccessOpEvents)
+
+		// // TODO(bweng) add metrics
+		// if len(missingAccessOps) != 0 {
+		// 	for op := range missingAccessOps {
+		// 		ctx.Logger().Error((fmt.Sprintf("eventMsgName=%s Missing Access Operation:%s ", eventMsgName, op.String())))
+		// 	}
+		// 	errMessage := fmt.Sprintf("Invalid Concurrent Execution messageIndex=%d, missing %d access operations", i, len(missingAccessOps))
+		// 	return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidConcurrencyExecution, errMessage)
+		// }
+
 	}
 
 	data, err := proto.Marshal(txMsgData)

@@ -15,6 +15,7 @@ var ResourceTree = map[ResourceType]TreeNode{
 		ResourceType_KV_STAKING,
 		ResourceType_KV_WASM,
 		ResourceType_KV_TOKENFACTORY,
+		ResourceType_KV_AUTH,
 	}},
 	ResourceType_Mem:                       {ResourceType_ANY, []ResourceType{ResourceType_DexMem}},
 	ResourceType_DexMem:                    {ResourceType_Mem, []ResourceType{}},
@@ -30,6 +31,7 @@ var ResourceTree = map[ResourceType]TreeNode{
 	ResourceType_KV_ORACLE_FEEDERS:         {ResourceType_KV_ORACLE, []ResourceType{}},
 	ResourceType_KV_DEX:                    {ResourceType_KV, []ResourceType{}},
 	ResourceType_KV_TOKENFACTORY:           {ResourceType_KV, []ResourceType{}},
+	ResourceType_KV_AUTH:           		{ResourceType_KV, []ResourceType{}},
 }
 
 // This returns a slice of all resource types that are dependent to a specific resource type

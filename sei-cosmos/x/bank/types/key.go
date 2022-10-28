@@ -55,3 +55,9 @@ func AddressFromBalancesStore(key []byte) (sdk.AccAddress, error) {
 func CreateAccountBalancesPrefix(addr []byte) []byte {
 	return append(BalancesPrefix, address.MustLengthPrefix(addr)...)
 }
+
+func CreateAccountBalancesPrefixFromBech32(addr string) []byte {
+	accAdrr, _ := sdk.AccAddressFromBech32(addr)
+	accAdrrPrefix := CreateAccountBalancesPrefix(accAdrr)
+	return accAdrrPrefix
+}

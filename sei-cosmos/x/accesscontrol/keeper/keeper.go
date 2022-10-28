@@ -220,12 +220,14 @@ func (k Keeper) BuildDependencyDag(ctx sdk.Context, txDecoder sdk.TxDecoder, ant
 		for accessOp := range anteDepSet {
 			dependencyDag.AddNodeBuildDependency(ANTE_MSG_INDEX, txIndex, accessOp)
 		}
+
 		msgs := tx.GetMsgs()
 		for messageIndex, msg := range msgs {
 			if types.IsGovMessage(msg) {
 				return nil, types.ErrGovMsgInBlock
 			}
 			msgDependencies := k.GetMessageDependencies(ctx, msg)
+			dependencyDag.AddAccessOpsForMsg(messageIndex, txIndex, msgDependencies)
 			for _, accessOp := range msgDependencies {
 				// make a new node in the dependency dag
 				dependencyDag.AddNodeBuildDependency(messageIndex, txIndex, accessOp)
@@ -265,7 +267,7 @@ func (k Keeper) GetMessageDependencies(ctx sdk.Context, msg sdk.Msg) []acltypes.
 			if validateErr == nil {
 				return dependencies
 			} else {
-				ctx.Logger().Error(validateErr.Error())
+				ctx.Logger().Error("Invalid Access Ops", validateErr.Error())
 			}
 		} else {
 			ctx.Logger().Error("Error generating message dependencies: ", err)
@@ -279,7 +281,6 @@ func (k Keeper) GetMessageDependencies(ctx sdk.Context, msg sdk.Msg) []acltypes.
 		}
 	}
 	return dependencyMapping.AccessOps
-
 }
 
 func DefaultMessageDependencyGenerator() DependencyGeneratorMap {

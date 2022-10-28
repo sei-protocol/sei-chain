@@ -30,3 +30,9 @@ var (
 func AddressStoreKey(addr sdk.AccAddress) []byte {
 	return append(AddressStoreKeyPrefix, addr.Bytes()...)
 }
+
+func CreateAddressStoreKeyFromBech32(addr string) []byte {
+	accAdrr, _ := sdk.AccAddressFromBech32(addr)
+	accAdrrWithPrefix := AddressStoreKey(accAdrr)
+	return accAdrrWithPrefix
+}
