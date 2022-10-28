@@ -25,4 +25,5 @@ message WasmDependencyMapping {
     repeated AccessOperation access_ops = 2 [
         (gogoproto.nullable) = false
     ];
+    string reset_reason = 3;
 }

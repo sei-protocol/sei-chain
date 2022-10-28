@@ -144,6 +144,25 @@ func (k Keeper) SetWasmDependencyMapping(
 	return nil
 }
 
+func (k Keeper) ResetWasmDependencyMapping(
+	ctx sdk.Context,
+	contractAddress sdk.AccAddress,
+	reason string,
+) error {
+	dependencyMapping, err := k.GetWasmDependencyMapping(ctx, contractAddress)
+	if err != nil {
+		return err
+	}
+	store := ctx.KVStore(k.storeKey)
+	// keep `Enabled` true so that it won't cause all WASM resources to be synchronous
+	dependencyMapping.AccessOps = types.SynchronousAccessOps()
+	dependencyMapping.ResetReason = reason
+	b := k.cdc.MustMarshal(&dependencyMapping)
+	resourceKey := types.GetWasmContractAddressKey(contractAddress)
+	store.Set(resourceKey, b)
+	return nil
+}
+
 func (k Keeper) IterateWasmDependencies(ctx sdk.Context, handler func(wasmDependencyMapping acltypes.WasmDependencyMapping) (stop bool)) {
 	store := ctx.KVStore(k.storeKey)
 	iter := sdk.KVStorePrefixIterator(store, types.GetWasmMappingKey())

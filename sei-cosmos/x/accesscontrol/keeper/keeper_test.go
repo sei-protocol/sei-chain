@@ -113,6 +113,35 @@ func TestWasmDependencyMapping(t *testing.T) {
 	require.Error(t, aclkeeper.ErrWasmDependencyMappingNotFound, err)
 }
 
+func TestResetWasmDependencyMapping(t *testing.T) {
+	app := simapp.Setup(false)
+	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
+
+	wasmContractAddresses := simapp.AddTestAddrsIncremental(app, ctx, 1, sdk.NewInt(30000000))
+	wasmContractAddress := wasmContractAddresses[0]
+	wasmMapping := acltypes.WasmDependencyMapping{
+		Enabled: true,
+		AccessOps: []acltypes.AccessOperation{
+			{ResourceType: acltypes.ResourceType_KV, AccessType: acltypes.AccessType_WRITE, IdentifierTemplate: "someResource"},
+			types.CommitAccessOp(),
+		},
+	}
+	// set the dependency mapping
+	err := app.AccessControlKeeper.SetWasmDependencyMapping(ctx, wasmContractAddress, wasmMapping)
+	require.NoError(t, err)
+	// test getting the dependency mapping
+	mapping, err := app.AccessControlKeeper.GetWasmDependencyMapping(ctx, wasmContractAddress)
+	require.NoError(t, err)
+	require.Equal(t, wasmMapping, mapping)
+	// test resetting
+	err = app.AccessControlKeeper.ResetWasmDependencyMapping(ctx, wasmContractAddress, "some reason")
+	require.NoError(t, err)
+	mapping, err = app.AccessControlKeeper.GetWasmDependencyMapping(ctx, wasmContractAddress)
+	require.NoError(t, err)
+	require.Equal(t, types.SynchronousAccessOps(), mapping.AccessOps)
+	require.Equal(t, "some reason", mapping.ResetReason)
+}
+
 func (suite *KeeperTestSuite) TestMessageDependencies() {
 	suite.SetupTest()
 	app := suite.app
