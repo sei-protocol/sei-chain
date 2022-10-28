@@ -9,7 +9,8 @@ import (
 )
 
 const (
-	WasmCorrectDependencyDiscountNumerator   uint64 = 1
+	GasMultiplierNumerator                   uint64 = 1
+	DefaultGasMultiplierDenominator          uint64 = 1
 	WasmCorrectDependencyDiscountDenominator uint64 = 2
 )
 
@@ -19,34 +20,36 @@ func GetGasMeterSetter(aclkeeper aclkeeper.Keeper) func(bool, sdk.Context, uint6
 			return ctx.WithGasMeter(sdk.NewInfiniteGasMeter())
 		}
 
-		numerator, denominator := uint64(0), uint64(1)
+		denominator := uint64(1)
 		for _, msg := range tx.GetMsgs() {
-			candidateNumerator, candidateDenominator := getMessageMultiplier(ctx, msg, aclkeeper)
-			numerator, denominator = maxMultiplier(numerator, denominator, candidateNumerator, candidateDenominator)
+			candidateDenominator := getMessageMultiplierDenominator(ctx, msg, aclkeeper)
+			if candidateDenominator > denominator {
+				denominator = candidateDenominator
+			}
 		}
-		return ctx.WithGasMeter(types.NewMultiplierGasMeter(gasLimit, numerator, denominator))
+		return ctx.WithGasMeter(types.NewMultiplierGasMeter(gasLimit, DefaultGasMultiplierDenominator, denominator))
 	}
 }
 
-func getMessageMultiplier(ctx sdk.Context, msg sdk.Msg, aclkeeper aclkeeper.Keeper) (uint64, uint64) {
+func getMessageMultiplierDenominator(ctx sdk.Context, msg sdk.Msg, aclkeeper aclkeeper.Keeper) uint64 {
 	if wasmExecuteMsg, ok := msg.(*wasmtypes.MsgExecuteContract); ok {
 		addr, err := sdk.AccAddressFromBech32(wasmExecuteMsg.Contract)
 		if err != nil {
-			return 1, 1
+			return DefaultGasMultiplierDenominator
 		}
 		mapping, err := aclkeeper.GetWasmDependencyMapping(ctx, addr, []byte{}, false)
 		if err != nil {
-			return 1, 1
+			return DefaultGasMultiplierDenominator
 		}
 		// only give gas discount if none of the dependency (except COMMIT) has id "*"
 		for _, op := range mapping.AccessOps {
 			if op.Operation.AccessType != sdkacltypes.AccessType_COMMIT && op.Operation.IdentifierTemplate == "*" {
-				return 1, 1
+				return DefaultGasMultiplierDenominator
 			}
 		}
-		return WasmCorrectDependencyDiscountNumerator, WasmCorrectDependencyDiscountDenominator
+		return WasmCorrectDependencyDiscountDenominator
 	}
-	return 1, 1
+	return DefaultGasMultiplierDenominator
 }
 
 func maxMultiplier(n1 uint64, d1 uint64, n2 uint64, d2 uint64) (uint64, uint64) {
