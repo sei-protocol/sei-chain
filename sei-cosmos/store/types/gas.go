@@ -53,7 +53,7 @@ type GasMeter interface {
 type basicGasMeter struct {
 	limit    Gas
 	consumed Gas
-	lock *sync.Mutex
+	lock     *sync.Mutex
 }
 
 // NewGasMeter returns a reference to a new basicGasMeter.
@@ -61,7 +61,7 @@ func NewGasMeter(limit Gas) GasMeter {
 	return &basicGasMeter{
 		limit:    limit,
 		consumed: 0,
-		lock: &sync.Mutex{},
+		lock:     &sync.Mutex{},
 	}
 }
 
@@ -149,16 +149,46 @@ func (g *basicGasMeter) String() string {
 	return fmt.Sprintf("BasicGasMeter:\n  limit: %d\n  consumed: %d", g.limit, g.consumed)
 }
 
+type multiplierGasMeter struct {
+	basicGasMeter
+	multiplierNumerator   uint64
+	multiplierDenominator uint64
+}
+
+func NewMultiplierGasMeter(limit Gas, multiplierNumerator uint64, multiplierDenominator uint64) GasMeter {
+	return &multiplierGasMeter{
+		basicGasMeter: basicGasMeter{
+			limit:    limit,
+			consumed: 0,
+			lock:     &sync.Mutex{},
+		},
+		multiplierNumerator:   multiplierNumerator,
+		multiplierDenominator: multiplierDenominator,
+	}
+}
+
+func (g *multiplierGasMeter) adjustGas(original Gas) Gas {
+	return original * g.multiplierNumerator / g.multiplierDenominator
+}
+
+func (g *multiplierGasMeter) ConsumeGas(amount Gas, descriptor string) {
+	g.basicGasMeter.ConsumeGas(g.adjustGas(amount), descriptor)
+}
+
+func (g *multiplierGasMeter) RefundGas(amount Gas, descriptor string) {
+	g.basicGasMeter.RefundGas(g.adjustGas(amount), descriptor)
+}
+
 type infiniteGasMeter struct {
 	consumed Gas
-	lock *sync.Mutex
+	lock     *sync.Mutex
 }
 
 // NewInfiniteGasMeter returns a reference to a new infiniteGasMeter.
 func NewInfiniteGasMeter() GasMeter {
 	return &infiniteGasMeter{
 		consumed: 0,
-		lock: &sync.Mutex{},
+		lock:     &sync.Mutex{},
 	}
 }
 

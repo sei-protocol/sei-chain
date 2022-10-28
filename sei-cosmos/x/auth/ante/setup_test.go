@@ -27,7 +27,7 @@ func (suite *AnteTestSuite) TestSetup() {
 	tx, err := suite.CreateTestTx(privs, accNums, accSeqs, suite.ctx.ChainID())
 	suite.Require().NoError(err)
 
-	sud := ante.NewSetUpContextDecorator()
+	sud := ante.NewDefaultSetUpContextDecorator()
 	antehandler, _ := sdk.ChainAnteDecorators(sdk.DefaultWrappedAnteDecorator(sud))
 
 	// Set height to non-zero value for GasMeter to be set
@@ -62,7 +62,7 @@ func (suite *AnteTestSuite) TestRecoverPanic() {
 	tx, err := suite.CreateTestTx(privs, accNums, accSeqs, suite.ctx.ChainID())
 	suite.Require().NoError(err)
 
-	sud := ante.NewSetUpContextDecorator()
+	sud := ante.NewDefaultSetUpContextDecorator()
 	antehandler, _ := sdk.ChainAnteDecorators(sdk.DefaultWrappedAnteDecorator(sud), sdk.DefaultWrappedAnteDecorator(OutOfGasDecorator{}))
 
 	// Set height to non-zero value for GasMeter to be set

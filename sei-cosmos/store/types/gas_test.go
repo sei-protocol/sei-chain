@@ -71,6 +71,42 @@ func TestGasMeter(t *testing.T) {
 	}
 }
 
+func TestMultiplierGasMeter(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		limit                 Gas
+		usage                 []Gas
+		multiplierNumerator   uint64
+		multiplierDenominator uint64
+	}{
+		{10, []Gas{1, 2, 3, 4}, 1, 1},
+		{1000, []Gas{40, 30, 20, 10}, 10, 1},
+		{100000, []Gas{99998, 2, 100000}, 1, 2},
+		{100000000, []Gas{50000000, 40000000, 10000000}, 1, 1},
+		{65535, []Gas{32768, 32767}, 1, 1},
+		{65536, []Gas{32768, 32767, 1}, 1, 1},
+	}
+
+	for tcnum, tc := range cases {
+		meter := NewMultiplierGasMeter(tc.limit, tc.multiplierNumerator, tc.multiplierDenominator)
+		used := uint64(0)
+
+		for unum, usage := range tc.usage {
+			usage := usage
+			used += usage * tc.multiplierNumerator / tc.multiplierDenominator
+			require.NotPanics(t, func() { meter.ConsumeGas(usage, "") }, "Not exceeded limit but panicked. tc #%d, usage #%d", tcnum, unum)
+			require.Equal(t, used, meter.GasConsumed(), "Gas consumption not match. tc #%d, usage #%d", tcnum, unum)
+			require.Equal(t, used, meter.GasConsumedToLimit(), "Gas consumption (to limit) not match. tc #%d, usage #%d", tcnum, unum)
+			require.False(t, meter.IsPastLimit(), "Not exceeded limit but got IsPastLimit() true")
+			if unum < len(tc.usage)-1 {
+				require.False(t, meter.IsOutOfGas(), "Not yet at limit but got IsOutOfGas() true")
+			} else {
+				require.True(t, meter.IsOutOfGas(), "At limit but got IsOutOfGas() false")
+			}
+		}
+	}
+}
+
 func TestAddUint64Overflow(t *testing.T) {
 	t.Parallel()
 	testCases := []struct {

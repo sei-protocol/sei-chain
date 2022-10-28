@@ -39,7 +39,7 @@ func NewAnteHandler(options HandlerOptions) (sdk.AnteHandler, sdk.AnteDepGenerat
 	sigVerifyDecorator = sequentialVerifyDecorator
 
 	anteDecorators := []sdk.AnteFullDecorator{
-		sdk.DefaultWrappedAnteDecorator(NewSetUpContextDecorator()), // outermost AnteDecorator. SetUpContext must be called first
+		sdk.DefaultWrappedAnteDecorator(NewDefaultSetUpContextDecorator()), // outermost AnteDecorator. SetUpContext must be called first
 		sdk.DefaultWrappedAnteDecorator(NewRejectExtensionOptionsDecorator()),
 		sdk.DefaultWrappedAnteDecorator(NewValidateBasicDecorator()),
 		sdk.DefaultWrappedAnteDecorator(NewTxTimeoutHeightDecorator()),
