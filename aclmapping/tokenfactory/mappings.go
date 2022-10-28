@@ -44,7 +44,7 @@ func TokenFactoryMintDependencyGenerator(keeper aclkeeper.Keeper, ctx sdk.Contex
 		{
 			AccessType:         sdkacltypes.AccessType_READ,
 			ResourceType:       sdkacltypes.ResourceType_KV_BANK_DENOM,
-			IdentifierTemplate:  string(bankDenomMetaDataKey),
+			IdentifierTemplate: string(bankDenomMetaDataKey),
 		},
 
 		// Gets Authoritity data related to the denom
@@ -65,12 +65,12 @@ func TokenFactoryMintDependencyGenerator(keeper aclkeeper.Keeper, ctx sdk.Contex
 		{
 			AccessType:         sdkacltypes.AccessType_READ,
 			ResourceType:       sdkacltypes.ResourceType_KV_AUTH_ADDRESS_STORE,
-			IdentifierTemplate:  string(authtypes.AddressStoreKey(moduleAdr)),
+			IdentifierTemplate: string(authtypes.AddressStoreKey(moduleAdr)),
 		},
 		{
 			AccessType:         sdkacltypes.AccessType_READ,
 			ResourceType:       sdkacltypes.ResourceType_KV_BANK_BALANCES,
-			IdentifierTemplate:  string(banktypes.CreateAccountBalancesPrefix(moduleAdr)),
+			IdentifierTemplate: string(banktypes.CreateAccountBalancesPrefix(moduleAdr)),
 		},
 
 		// Deposit into Sender's Bank Balance
@@ -137,7 +137,7 @@ func TokenFactoryBurnDependencyGenerator(keeper aclkeeper.Keeper, ctx sdk.Contex
 		{
 			AccessType:         sdkacltypes.AccessType_READ,
 			ResourceType:       sdkacltypes.ResourceType_KV_BANK_DENOM,
-			IdentifierTemplate:  string(bankDenomMetaDataKey),
+			IdentifierTemplate: string(bankDenomMetaDataKey),
 		},
 
 		// Gets Authoritity data related to the denom
@@ -158,7 +158,7 @@ func TokenFactoryBurnDependencyGenerator(keeper aclkeeper.Keeper, ctx sdk.Contex
 		{
 			AccessType:         sdkacltypes.AccessType_READ,
 			ResourceType:       sdkacltypes.ResourceType_KV_AUTH,
-			IdentifierTemplate:  string(authtypes.AddressStoreKey(moduleAdr)),
+			IdentifierTemplate: string(authtypes.AddressStoreKey(moduleAdr)),
 		},
 
 		// Sends from Sender to Module account (deferred deposit)

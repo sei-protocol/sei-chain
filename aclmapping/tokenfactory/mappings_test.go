@@ -158,12 +158,12 @@ func (suite *KeeperTestSuite) TestMsgMintDependencies() {
 			expectedError: nil,
 			dynamicDep: true,
 		},
-		// {
-		// 	name:          "dont check synchronous",
-		// 	msg:           tokenfactorytypes.NewMsgMint(addr1, burnAmount),
-		// 	expectedError: nil,
-		// 	dynamicDep: false,
-		// },
+		{
+			name:          "dont check synchronous",
+			msg:           tokenfactorytypes.NewMsgMint(addr1, burnAmount),
+			expectedError: nil,
+			dynamicDep: false,
+		},
 	}
 	for _, tc := range tests {
 		suite.Run(fmt.Sprintf("Test Case: %s", tc.name), func() {
