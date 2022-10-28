@@ -280,7 +280,13 @@ func NewSimApp(
 	)
 
 	app.AuthzKeeper = authzkeeper.NewKeeper(keys[authzkeeper.StoreKey], appCodec, app.BaseApp.MsgServiceRouter())
-	app.AccessControlKeeper = aclkeeper.NewKeeper(appCodec, keys[acltypes.StoreKey], app.GetSubspace(acltypes.ModuleName), aclkeeper.WithDependencyMappingGenerator(acltestutil.MessageDependencyGeneratorTestHelper()))
+	app.AccessControlKeeper = aclkeeper.NewKeeper(
+		appCodec,
+		keys[acltypes.StoreKey],
+		app.GetSubspace(acltypes.ModuleName),
+		app.AccountKeeper,
+		aclkeeper.WithDependencyMappingGenerator(acltestutil.MessageDependencyGeneratorTestHelper()),
+	)
 
 	// register the proposal types
 	govRouter := govtypes.NewRouter()

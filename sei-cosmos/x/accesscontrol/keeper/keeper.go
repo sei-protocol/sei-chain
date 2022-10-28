@@ -12,9 +12,9 @@ import (
 	"github.com/cosmos/cosmos-sdk/codec"
 	"github.com/cosmos/cosmos-sdk/telemetry"
 	sdk "github.com/cosmos/cosmos-sdk/types"
-
 	acltypes "github.com/cosmos/cosmos-sdk/types/accesscontrol"
 	"github.com/cosmos/cosmos-sdk/x/accesscontrol/types"
+	authkeeper "github.com/cosmos/cosmos-sdk/x/auth/keeper"
 	paramtypes "github.com/cosmos/cosmos-sdk/x/params/types"
 )
 
@@ -33,6 +33,7 @@ type (
 		storeKey                         sdk.StoreKey
 		paramSpace                       paramtypes.Subspace
 		MessageDependencyGeneratorMapper DependencyGeneratorMap
+		AccountKeeper       			 authkeeper.AccountKeeper
 	}
 )
 
@@ -42,6 +43,7 @@ func NewKeeper(
 	cdc codec.Codec,
 	storeKey sdk.StoreKey,
 	paramSpace paramtypes.Subspace,
+	ak 		authkeeper.AccountKeeper,
 	opts ...Option,
 ) Keeper {
 	if !paramSpace.HasKeyTable() {
@@ -53,6 +55,7 @@ func NewKeeper(
 		storeKey:                         storeKey,
 		paramSpace:                       paramSpace,
 		MessageDependencyGeneratorMapper: DefaultMessageDependencyGenerator(),
+		AccountKeeper: ak,
 	}
 
 	for _, o := range opts {

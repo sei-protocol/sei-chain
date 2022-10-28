@@ -630,7 +630,6 @@ func (k BaseKeeper) BurnCoins(ctx sdk.Context, moduleName string, amounts sdk.Co
 		if ok {
 			return nil
 		}
-
 		acc := k.ak.GetModuleAccount(ctx, moduleName)
 		return k.subUnlockedCoins(ctx, acc.GetAddress(), amounts)
 	}

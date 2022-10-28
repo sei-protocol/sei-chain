@@ -1,8 +1,6 @@
 package accesscontrol
 
 import (
-	"log"
-
 	abci "github.com/tendermint/tendermint/abci/types"
 )
 
@@ -76,7 +74,6 @@ func (validator *MsgValidator) ValidateAccessOperations(accessOps []AccessOperat
 
 			// The resource type was not a parent type where it could match anything nor was it found in the respective store key mapping
 			if !ok {
-				log.Printf("ResourceType=%s not found in mapping for StoreKey=%s or default key", accessOp.GetResourceType(), storeKey)
 				matched = false
 				continue
 			}
