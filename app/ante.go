@@ -5,6 +5,7 @@ import (
 	wasmTypes "github.com/CosmWasm/wasmd/x/wasm/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
+	aclkeeper "github.com/cosmos/cosmos-sdk/x/accesscontrol/keeper"
 	"github.com/cosmos/cosmos-sdk/x/auth/ante"
 	ibcante "github.com/cosmos/ibc-go/v3/modules/core/ante"
 	ibckeeper "github.com/cosmos/ibc-go/v3/modules/core/keeper"
@@ -23,12 +24,13 @@ import (
 type HandlerOptions struct {
 	ante.HandlerOptions
 
-	IBCKeeper         *ibckeeper.Keeper
-	WasmConfig        *wasmTypes.WasmConfig
-	OracleKeeper      *oraclekeeper.Keeper
-	DexKeeper         *dexkeeper.Keeper
-	NitroKeeper       *nitrokeeper.Keeper
-	TXCounterStoreKey sdk.StoreKey
+	IBCKeeper           *ibckeeper.Keeper
+	WasmConfig          *wasmTypes.WasmConfig
+	OracleKeeper        *oraclekeeper.Keeper
+	DexKeeper           *dexkeeper.Keeper
+	NitroKeeper         *nitrokeeper.Keeper
+	AccessControlKeeper *aclkeeper.Keeper
+	TXCounterStoreKey   sdk.StoreKey
 
 	TracingInfo *tracing.Info
 }
@@ -52,6 +54,9 @@ func NewAnteHandlerAndDepGenerator(options HandlerOptions) (sdk.AnteHandler, sdk
 	if options.NitroKeeper == nil {
 		return nil, nil, sdkerrors.Wrap(sdkerrors.ErrLogic, "nitro keeper is required for ante builder")
 	}
+	if options.AccessControlKeeper == nil {
+		return nil, nil, sdkerrors.Wrap(sdkerrors.ErrLogic, "accesscontrol keeper is required for ante builder")
+	}
 	if options.TracingInfo == nil {
 		return nil, nil, sdkerrors.Wrap(sdkerrors.ErrLogic, "tracing info is required for ante builder")
 	}
@@ -70,7 +75,7 @@ func NewAnteHandlerAndDepGenerator(options HandlerOptions) (sdk.AnteHandler, sdk
 	// }
 
 	anteDecorators := []sdk.AnteFullDecorator{
-		sdk.DefaultWrappedAnteDecorator(ante.NewSetUpContextDecorator()), // outermost AnteDecorator. SetUpContext must be called first
+		sdk.DefaultWrappedAnteDecorator(ante.NewSetUpContextDecorator(antedecorators.GetGasMeterSetter(*options.AccessControlKeeper))), // outermost AnteDecorator. SetUpContext must be called first
 		// TODO: have dex antehandler separate, and then call the individual antehandlers FROM the gasless antehandler decorator wrapper
 		sdk.DefaultWrappedAnteDecorator(antedecorators.NewGaslessDecorator([]sdk.AnteDecorator{}, *options.OracleKeeper, *options.NitroKeeper)),
 		sdk.DefaultWrappedAnteDecorator(wasmkeeper.NewLimitSimulationGasDecorator(options.WasmConfig.SimulationGasLimit)), // after setup context to enforce limits early

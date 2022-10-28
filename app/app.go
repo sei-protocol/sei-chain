@@ -40,6 +40,7 @@ import (
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	aclmodule "github.com/cosmos/cosmos-sdk/x/accesscontrol"
 	aclclient "github.com/cosmos/cosmos-sdk/x/accesscontrol/client"
+	aclconstants "github.com/cosmos/cosmos-sdk/x/accesscontrol/constants"
 	aclkeeper "github.com/cosmos/cosmos-sdk/x/accesscontrol/keeper"
 	acltypes "github.com/cosmos/cosmos-sdk/x/accesscontrol/types"
 	authrest "github.com/cosmos/cosmos-sdk/x/auth/client/rest"
@@ -782,13 +783,14 @@ func New(
 				SigGasConsumer:  ante.DefaultSigVerificationGasConsumer,
 				// BatchVerifier:   app.batchVerifier,
 			},
-			IBCKeeper:         app.IBCKeeper,
-			TXCounterStoreKey: keys[wasm.StoreKey],
-			WasmConfig:        &wasmConfig,
-			OracleKeeper:      &app.OracleKeeper,
-			DexKeeper:         &app.DexKeeper,
-			NitroKeeper:       &app.NitroKeeper,
-			TracingInfo:       app.tracingInfo,
+			IBCKeeper:           app.IBCKeeper,
+			TXCounterStoreKey:   keys[wasm.StoreKey],
+			WasmConfig:          &wasmConfig,
+			OracleKeeper:        &app.OracleKeeper,
+			DexKeeper:           &app.DexKeeper,
+			NitroKeeper:         &app.NitroKeeper,
+			TracingInfo:         app.tracingInfo,
+			AccessControlKeeper: &app.AccessControlKeeper,
 		},
 	)
 	if err != nil {
@@ -1200,6 +1202,7 @@ func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequ
 	lazyWriteEvents := app.BankKeeper.WriteDeferredDepositsToModuleAccounts(ctx)
 	events = append(events, lazyWriteEvents...)
 
+	ctx = app.enrichContextWithTxResults(ctx, txResults)
 	endBlockResp := app.EndBlock(ctx, abci.RequestEndBlock{
 		Height: req.GetHeight(),
 	})
@@ -1207,6 +1210,27 @@ func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequ
 	events = append(events, endBlockResp.Events...)
 
 	return events, txResults, endBlockResp, nil
+}
+
+func (app *App) enrichContextWithTxResults(ctx sdk.Context, txResults []*abci.ExecTxResult) sdk.Context {
+	wasmContractsWithIncorrectDependencies := []sdk.AccAddress{}
+	for _, txResult := range txResults {
+		if txResult.Codespace == acltypes.ModuleName && txResult.Code == 2 {
+			for _, event := range txResult.Events {
+				if event.Type == wasmbinding.EventTypeWasmContractWithIncorrectDependency {
+					for _, attr := range event.Attributes {
+						if attr.Key == wasmbinding.AttributeKeyWasmContractAddress {
+							addr, err := sdk.AccAddressFromBech32(attr.Value)
+							if err == nil {
+								wasmContractsWithIncorrectDependencies = append(wasmContractsWithIncorrectDependencies, addr)
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+	return ctx.WithContext(context.WithValue(ctx.Context(), aclconstants.BadWasmDependencyAddressesKey, wasmContractsWithIncorrectDependencies))
 }
 
 func (app *App) getFinalizeBlockResponse(appHash []byte, events []abci.Event, txResults []*abci.ExecTxResult, endBlockResp abci.ResponseEndBlock) abci.ResponseFinalizeBlock {
