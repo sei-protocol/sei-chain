@@ -37,7 +37,7 @@ func MsgVoteDependencyGenerator(keeper aclkeeper.Keeper, ctx sdk.Context, msg sd
 		{
 			ResourceType:       sdkacltypes.ResourceType_KV_ORACLE_FEEDERS,
 			AccessType:         sdkacltypes.AccessType_READ,
-			IdentifierTemplate:  string(oracletypes.GetFeederDelegationKey(valAddr)),
+			IdentifierTemplate: string(oracletypes.GetFeederDelegationKey(valAddr)),
 		},
 		// read validator from staking - READ
 		// validator is bonded check - READ
@@ -59,7 +59,7 @@ func MsgVoteDependencyGenerator(keeper aclkeeper.Keeper, ctx sdk.Context, msg sd
 		{
 			ResourceType:       sdkacltypes.ResourceType_KV_ORACLE_AGGREGATE_VOTES,
 			AccessType:         sdkacltypes.AccessType_WRITE,
-			IdentifierTemplate:  string(oracletypes.GetAggregateExchangeRateVoteKey(valAddr)),
+			IdentifierTemplate: string(oracletypes.GetAggregateExchangeRateVoteKey(valAddr)),
 		},
 
 		// Last Operation should always be a commit
