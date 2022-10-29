@@ -9,7 +9,6 @@ import (
 	acltypes "github.com/cosmos/cosmos-sdk/x/accesscontrol/types"
 	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
 	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
-	utils "github.com/sei-protocol/sei-chain/aclmapping/utils"
 	tfktypes "github.com/sei-protocol/sei-chain/x/tokenfactory/types"
 )
 
@@ -111,11 +110,7 @@ func TokenFactoryMintDependencyGenerator(keeper aclkeeper.Keeper, ctx sdk.Contex
 		// Coins removed from Module account (Deferred)
 
 		// Last Operation should always be a commit
-		{
-			ResourceType:       sdkacltypes.ResourceType_ANY,
-			AccessType:         sdkacltypes.AccessType_COMMIT,
-			IdentifierTemplate: utils.DefaultIDTemplate,
-		},
+		*acltypes.CommitAccessOp(),
 	}, nil
 }
 
@@ -200,10 +195,6 @@ func TokenFactoryBurnDependencyGenerator(keeper aclkeeper.Keeper, ctx sdk.Contex
 		// Coins removed from Module account (Deferred)
 
 		// Last Operation should always be a commit
-		{
-			ResourceType:       sdkacltypes.ResourceType_ANY,
-			AccessType:         sdkacltypes.AccessType_COMMIT,
-			IdentifierTemplate: utils.DefaultIDTemplate,
-		},
+		*acltypes.CommitAccessOp(),
 	}, nil
 }
