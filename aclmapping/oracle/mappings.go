@@ -7,6 +7,7 @@ import (
 	sdkacltypes "github.com/cosmos/cosmos-sdk/types/accesscontrol"
 	aclkeeper "github.com/cosmos/cosmos-sdk/x/accesscontrol/keeper"
 	acltypes "github.com/cosmos/cosmos-sdk/x/accesscontrol/types"
+	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
 	utils "github.com/sei-protocol/sei-chain/aclmapping/utils"
 	oracletypes "github.com/sei-protocol/sei-chain/x/oracle/types"
 )
@@ -28,6 +29,7 @@ func MsgVoteDependencyGenerator(keeper aclkeeper.Keeper, ctx sdk.Context, msg sd
 	if !ok {
 		return []sdkacltypes.AccessOperation{}, ErrorInvalidMsgType
 	}
+	valAddr, _ := sdk.ValAddressFromBech32(msgVote.Validator)
 
 	accessOperations := []sdkacltypes.AccessOperation{
 		// validate feeder
@@ -35,16 +37,17 @@ func MsgVoteDependencyGenerator(keeper aclkeeper.Keeper, ctx sdk.Context, msg sd
 		{
 			ResourceType:       sdkacltypes.ResourceType_KV_ORACLE_FEEDERS,
 			AccessType:         sdkacltypes.AccessType_READ,
-			IdentifierTemplate: msgVote.Validator,
+			IdentifierTemplate:  string(oracletypes.GetFeederDelegationKey(valAddr)),
 		},
 		// read validator from staking - READ
 		// validator is bonded check - READ
 		// (both covered by below)
 		{
-			ResourceType:       sdkacltypes.ResourceType_KV_STAKING,
+			ResourceType:       sdkacltypes.ResourceType_KV_STAKING_VALIDATOR,
 			AccessType:         sdkacltypes.AccessType_READ,
-			IdentifierTemplate: msgVote.Validator,
+			IdentifierTemplate: string(stakingtypes.GetValidatorKey(valAddr)),
 		},
+
 		// get vote target (for all exchange rate tuples) -> blanket read on that prefix - READ
 		{
 			ResourceType:       sdkacltypes.ResourceType_KV_ORACLE_VOTE_TARGETS,
@@ -55,15 +58,12 @@ func MsgVoteDependencyGenerator(keeper aclkeeper.Keeper, ctx sdk.Context, msg sd
 		// set exchange rate vote - WRITE
 		{
 			ResourceType:       sdkacltypes.ResourceType_KV_ORACLE_AGGREGATE_VOTES,
-			AccessType:         sdkacltypes.AccessType_READ,
-			IdentifierTemplate: msgVote.Validator,
+			AccessType:         sdkacltypes.AccessType_WRITE,
+			IdentifierTemplate:  string(oracletypes.GetAggregateExchangeRateVoteKey(valAddr)),
 		},
+
 		// Last Operation should always be a commit
-		{
-			ResourceType:       sdkacltypes.ResourceType_ANY,
-			AccessType:         sdkacltypes.AccessType_COMMIT,
-			IdentifierTemplate: utils.DefaultIDTemplate,
-		},
+		*acltypes.CommitAccessOp(),
 	}
 	return accessOperations, nil
 }
