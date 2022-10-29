@@ -16,6 +16,7 @@ import (
 
 	"github.com/cosmos/cosmos-sdk/crypto/keys/secp256k1"
 	acltypes "github.com/cosmos/cosmos-sdk/x/accesscontrol/types"
+	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
 	"github.com/sei-protocol/sei-chain/app"
 	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
@@ -28,8 +29,10 @@ type KeeperTestSuite struct {
 	msgServer   oracletypes.MsgServer
 	// defaultDenom is on the suite, as it depends on the creator test address.
 	defaultDenom string
-
+	defaultExchangeRate string
 	initalBalance sdk.Coins
+
+	validator sdk.ValAddress
 }
 
 func TestKeeperTestSuite(t *testing.T) {
@@ -44,15 +47,24 @@ func (suite *KeeperTestSuite) SetupTest() {
 // Explicitly only run once during setup
 func (suite *KeeperTestSuite) PrepareTest() {
 	suite.defaultDenom = "usei"
+	suite.defaultExchangeRate = fmt.Sprintf("%dusei", sdk.NewDec(1700))
+
 	suite.initalBalance = sdk.Coins{sdk.NewInt64Coin(suite.defaultDenom, 100000000000)}
 	suite.FundAcc(suite.TestAccs[0], suite.initalBalance)
 
-	suite.SetupTokenFactory()
 	suite.queryClient = oracletypes.NewQueryClient(suite.QueryHelper)
 	suite.msgServer = oraclekeeper.NewMsgServerImpl(suite.App.OracleKeeper)
 
+	// testInput := oraclekeeper.CreateTestInput(suite.T())
+	// suite.Ctx = testInput.Ctx
+
 	msgValidator := sdkacltypes.NewMsgValidator(aclutils.StoreKeyToResourceTypePrefixMap)
 	suite.Ctx = suite.Ctx.WithMsgValidator(msgValidator)
+	suite.Ctx = suite.Ctx.WithBlockHeight(1)
+	suite.validator = suite.SetupValidator(stakingtypes.Bonded)
+
+	suite.App.OracleKeeper.SetFeederDelegation(suite.Ctx, suite.validator, suite.TestAccs[0])
+	suite.App.OracleKeeper.SetVoteTarget(suite.Ctx, suite.defaultDenom)
 }
 
 func (suite *KeeperTestSuite) TestMsgBurnDependencies() {
@@ -66,9 +78,9 @@ func (suite *KeeperTestSuite) TestMsgBurnDependencies() {
 		{
 			name:          "default vote",
 			msg:           &oracletypes.MsgAggregateExchangeRateVote{
-				ExchangeRates: "1usei",
-				Feeder:        "test",
-				Validator:     "validator",
+				ExchangeRates: suite.defaultExchangeRate,
+				Feeder:        suite.TestAccs[0].String(),
+				Validator:     suite.validator.String(),
 			},
 			expectedError: nil,
 			dynamicDep: true,
@@ -76,9 +88,9 @@ func (suite *KeeperTestSuite) TestMsgBurnDependencies() {
 		{
 			name:          "dont check synchronous",
 			msg:           &oracletypes.MsgAggregateExchangeRateVote{
-				ExchangeRates: "1usei",
-				Feeder:        "test",
-				Validator:     "validator",
+				ExchangeRates: suite.defaultExchangeRate,
+				Feeder:        suite.TestAccs[0].String(),
+				Validator:     suite.validator.String(),
 			},
 			expectedError: nil,
 			dynamicDep: false,
@@ -91,8 +103,6 @@ func (suite *KeeperTestSuite) TestMsgBurnDependencies() {
 				sdk.WrapSDKContext(handlerCtx),
 				tc.msg,
 			)
-			suite.App.BankKeeper.WriteDeferredOperations(suite.Ctx)
-
 			depdenencies , _ := oracleacl.MsgVoteDependencyGenerator(
 				suite.App.AccessControlKeeper,
 				handlerCtx,
