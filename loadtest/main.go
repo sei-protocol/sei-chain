@@ -107,31 +107,19 @@ func (c *LoadTestClient) generateMessage(config Config, key cryptotypes.PrivKey,
 			Funds:        amount,
 		}
 	case Staking:
-		msgType := config.MsgTypeDistr.SampleStakingMsgs()
 
-		switch msgType {
-		case "delegate":
-			msg = &stakingtypes.MsgDelegate{
-				DelegatorAddress: sdk.AccAddress(key.PubKey().Address()).String(),
-				ValidatorAddress: c.Validators[rand.Intn(len(c.Validators))].OperatorAddress,
-				Amount:           sdk.Coin{Denom: "usei", Amount: sdk.NewInt(5)},
+		delegatorAddr := sdk.AccAddress(key.PubKey().Address()).String()
+		chosenValidator := c.Validators[rand.Intn(len(c.Validators))].OperatorAddress
+		// Randomly pick someone to redelegate / unbond from
+		srcAddr := ""
+		for k := range c.DelegationMap[delegatorAddr] {
+			if k == chosenValidator {
+				continue
 			}
-		case "undelegate":
-			msg = &stakingtypes.MsgUndelegate{
-				DelegatorAddress: sdk.AccAddress(key.PubKey().Address()).String(),
-				ValidatorAddress: c.Validators[rand.Intn(len(c.Validators))].OperatorAddress,
-				Amount:           sdk.Coin{Denom: "usei", Amount: sdk.NewInt(1)},
-			}
-		case "begin_redelegate":
-			msg = &stakingtypes.MsgBeginRedelegate{
-				DelegatorAddress:    sdk.AccAddress(key.PubKey().Address()).String(),
-				ValidatorSrcAddress: c.Validators[rand.Intn(len(c.Validators))].OperatorAddress,
-				ValidatorDstAddress: c.Validators[rand.Intn(len(c.Validators))].OperatorAddress,
-				Amount:              sdk.Coin{Denom: "usei", Amount: sdk.NewInt(1)},
-			}
-		default:
-			panic("Unknown message type")
+			srcAddr = k
+			break
 		}
+		msg = c.generateStakingMsg(delegatorAddr, chosenValidator, srcAddr)
 	case Tokenfactory:
 		denomCreatorAddr := sdk.AccAddress(key.PubKey().Address()).String()
 		// No denoms, let's mint
@@ -277,6 +265,44 @@ func generateOracleMessage(key cryptotypes.PrivKey) sdk.Msg {
 		ExchangeRates: "1usei,2uatom",
 		Feeder:        addr,
 		Validator:     valAddr,
+	}
+	return msg
+}
+
+func (c *LoadTestClient) generateStakingMsg(delegatorAddr string, chosenValidator string, srcAddr string) sdk.Msg {
+	// Randomly unbond, redelegate or delegate
+	// However, if there are no delegations, do so first
+	var msg sdk.Msg
+	msgType := c.LoadTestConfig.MsgTypeDistr.SampleStakingMsgs()
+	if _, ok := c.DelegationMap[delegatorAddr]; !ok || msgType == "delegate" || srcAddr == "" {
+		msg = &stakingtypes.MsgDelegate{
+			DelegatorAddress: delegatorAddr,
+			ValidatorAddress: chosenValidator,
+			Amount:           sdk.Coin{Denom: "usei", Amount: sdk.NewInt(1)},
+		}
+		c.DelegationMap[delegatorAddr] = map[string]int{}
+		c.DelegationMap[delegatorAddr][chosenValidator] = 1
+	} else {
+		if msgType == "redelegate" {
+			msg = &stakingtypes.MsgBeginRedelegate{
+				DelegatorAddress:    delegatorAddr,
+				ValidatorSrcAddress: srcAddr,
+				ValidatorDstAddress: chosenValidator,
+				Amount:              sdk.Coin{Denom: "usei", Amount: sdk.NewInt(1)},
+			}
+			c.DelegationMap[delegatorAddr][chosenValidator]++
+		} else {
+			msg = &stakingtypes.MsgUndelegate{
+				DelegatorAddress: delegatorAddr,
+				ValidatorAddress: srcAddr,
+				Amount:           sdk.Coin{Denom: "usei", Amount: sdk.NewInt(1)},
+			}
+		}
+		// Update delegation map
+		c.DelegationMap[delegatorAddr][srcAddr]--
+		if c.DelegationMap[delegatorAddr][srcAddr] == 0 {
+			delete(c.DelegationMap, delegatorAddr)
+		}
 	}
 	return msg
 }
