@@ -525,6 +525,7 @@ func New(
 		app.keys[acltypes.StoreKey],
 		app.GetSubspace(acltypes.ModuleName),
 		app.AccountKeeper,
+		app.StakingKeeper,
 		aclOpts...,
 	)
 	// The last arguments can contain custom message handlers, and custom query handlers,
