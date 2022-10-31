@@ -158,7 +158,6 @@ func MsgDelegateDependencyGenerator(keeper aclkeeper.Keeper, ctx sdk.Context, ms
 			IdentifierTemplate: string(authtypes.AddressStoreKey(delegateAddr)),
 		},
 
-
 		// Update the delegator and validator account balances
 		{
 			AccessType:         sdkacltypes.AccessType_READ,
@@ -607,8 +606,8 @@ func MsgBeginRedelegateDependencyGenerator(keeper aclkeeper.Keeper, ctx sdk.Cont
 
 		// Checks if the validators exchange rate is valid
 		{
-			AccessType:         sdkacltypes.AccessType_WRITE,
-			ResourceType:       sdkacltypes.ResourceType_KV_STAKING_REDELEGATION_VAL_SRC,
+			AccessType:   sdkacltypes.AccessType_WRITE,
+			ResourceType: sdkacltypes.ResourceType_KV_STAKING_REDELEGATION_VAL_SRC,
 			IdentifierTemplate: string(stakingtypes.GetREDByValSrcIndexKey(
 				delegateAddr,
 				srcValidatorAddr,
@@ -616,8 +615,8 @@ func MsgBeginRedelegateDependencyGenerator(keeper aclkeeper.Keeper, ctx sdk.Cont
 			)),
 		},
 		{
-			AccessType:         sdkacltypes.AccessType_WRITE,
-			ResourceType:       sdkacltypes.ResourceType_KV_STAKING_REDELEGATION_VAL_DST,
+			AccessType:   sdkacltypes.AccessType_WRITE,
+			ResourceType: sdkacltypes.ResourceType_KV_STAKING_REDELEGATION_VAL_DST,
 			IdentifierTemplate: string(stakingtypes.GetREDByValDstIndexKey(
 				delegateAddr,
 				srcValidatorAddr,
@@ -646,7 +645,6 @@ func MsgBeginRedelegateDependencyGenerator(keeper aclkeeper.Keeper, ctx sdk.Cont
 			ResourceType:       sdkacltypes.ResourceType_KV_STAKING_VALIDATOR,
 			IdentifierTemplate: dstValidatorKey,
 		},
-
 
 		// Last Operation should always be a commit
 		*acltypes.CommitAccessOp(),
