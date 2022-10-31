@@ -212,7 +212,7 @@ func TestGeneratorInvalidMessageTypes(t *testing.T) {
 	require.Error(t, err)
 }
 
-func TestMsgBeginBankSendGenerator(t *testing.T) {
+func TestMsgBeginBurnDepedencyGenerator(t *testing.T) {
 	priv1 := secp256k1.GenPrivKey()
 	addr1 := sdk.AccAddress(priv1.PubKey().Address())
 

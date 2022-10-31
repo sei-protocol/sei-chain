@@ -11,7 +11,7 @@ import (
 
 func NewTestKVStore() types.KVStore {
 	mem := dbadapter.Store{DB: dbm.NewMemDB()}
-	return cachekv.NewStore(mem, nil)
+	return cachekv.NewStore(mem, storetypes.NewKVStoreKey("test"))
 }
 
 func NewTestCacheMultiStore(stores map[types.StoreKey]types.CacheWrapper) types.CacheMultiStore {
