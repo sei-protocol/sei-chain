@@ -172,13 +172,6 @@ func (suite *KeeperTestSuite) TestOnChanOpenTry() {
 			false,
 		},
 		{
-			"invalid counterparty port ID",
-			func() {
-				channel.Counterparty.PortId = "invalid-port-id"
-			},
-			false,
-		},
-		{
 			"connection not found",
 			func() {
 				channel.ConnectionHops = []string{"invalid-connnection-id"}

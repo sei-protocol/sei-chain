@@ -42,6 +42,7 @@ Ref: https://keepachangelog.com/en/1.0.0/
 
 ### State Machine Breaking
 
+* (27-interchain-accounts) [\#2580](https://github.com/cosmos/ibc-go/issues/2580) Removing port prefix requirement from the ICA host channel handshake
 * (transfer) [\#2377](https://github.com/cosmos/ibc-go/pull/2377) Adding `sequence` to `MsgTransferResponse`.
 
 ### Improvements
