@@ -285,6 +285,7 @@ func NewSimApp(
 		keys[acltypes.StoreKey],
 		app.GetSubspace(acltypes.ModuleName),
 		app.AccountKeeper,
+		app.StakingKeeper,
 		aclkeeper.WithDependencyMappingGenerator(acltestutil.MessageDependencyGeneratorTestHelper()),
 	)
 

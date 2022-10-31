@@ -16,6 +16,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/x/accesscontrol/types"
 	authkeeper "github.com/cosmos/cosmos-sdk/x/auth/keeper"
 	paramtypes "github.com/cosmos/cosmos-sdk/x/params/types"
+	stakingkeeper "github.com/cosmos/cosmos-sdk/x/staking/keeper"
 )
 
 // Option is an extension point to instantiate keeper with non default values
@@ -34,6 +35,7 @@ type (
 		paramSpace                       paramtypes.Subspace
 		MessageDependencyGeneratorMapper DependencyGeneratorMap
 		AccountKeeper       			 authkeeper.AccountKeeper
+		StakingKeeper       			 stakingkeeper.Keeper
 	}
 )
 
@@ -44,6 +46,7 @@ func NewKeeper(
 	storeKey sdk.StoreKey,
 	paramSpace paramtypes.Subspace,
 	ak 		authkeeper.AccountKeeper,
+	sk 		stakingkeeper.Keeper,
 	opts ...Option,
 ) Keeper {
 	if !paramSpace.HasKeyTable() {
@@ -56,6 +59,7 @@ func NewKeeper(
 		paramSpace:                       paramSpace,
 		MessageDependencyGeneratorMapper: DefaultMessageDependencyGenerator(),
 		AccountKeeper: ak,
+		StakingKeeper: sk,
 	}
 
 	for _, o := range opts {

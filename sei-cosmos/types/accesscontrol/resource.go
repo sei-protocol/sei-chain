@@ -16,8 +16,11 @@ var ResourceTree = map[ResourceType]TreeNode{
 		ResourceType_KV_WASM,
 		ResourceType_KV_AUTH,
 		ResourceType_KV_TOKENFACTORY,
+		ResourceType_KV_DISTRIBUTION,
 	}},
-	ResourceType_Mem:                       			{ResourceType_ANY, []ResourceType{ResourceType_DexMem}},
+	ResourceType_Mem:                       			{ResourceType_ANY, []ResourceType{
+		ResourceType_DexMem,
+	}},
 	ResourceType_DexMem:                    			{ResourceType_Mem, []ResourceType{}},
 	ResourceType_KV_BANK:                   			{ResourceType_KV, []ResourceType{}},
 	ResourceType_KV_STAKING:                			{ResourceType_KV, []ResourceType{
@@ -81,6 +84,26 @@ var ResourceTree = map[ResourceType]TreeNode{
 	ResourceType_KV_STAKING_VALIDATOR_QUEUE:           	{ResourceType_KV_STAKING, []ResourceType{}},
 	ResourceType_KV_STAKING_HISTORICAL_INFO:           	{ResourceType_KV_STAKING, []ResourceType{}},
 	ResourceType_KV_STAKING_UNBONDING:                	{ResourceType_KV_STAKING, []ResourceType{}},
+	ResourceType_KV_DISTRIBUTION:                         {ResourceType_KV, []ResourceType{
+		ResourceType_KV_DISTRIBUTION_FEE_POOL,
+		ResourceType_KV_DISTRIBUTION_PROPOSER_KEY,
+		ResourceType_KV_DISTRIBUTION_OUTSTANDING_REWARDS,
+		ResourceType_KV_DISTRIBUTION_DELEGATOR_WITHDRAW_ADDR,
+		ResourceType_KV_DISTRIBUTION_DELEGATOR_STARTING_INFO,
+		ResourceType_KV_DISTRIBUTION_VAL_HISTORICAL_REWARDS,
+		ResourceType_KV_DISTRIBUTION_VAL_CURRENT_REWARDS,
+		ResourceType_KV_DISTRIBUTION_VAL_ACCUM_COMMISSION,
+		ResourceType_KV_DISTRIBUTION_SLASH_EVENT,
+	}},
+	ResourceType_KV_DISTRIBUTION_FEE_POOL:                {ResourceType_KV_DISTRIBUTION, []ResourceType{}},
+	ResourceType_KV_DISTRIBUTION_PROPOSER_KEY:            {ResourceType_KV_DISTRIBUTION, []ResourceType{}},
+	ResourceType_KV_DISTRIBUTION_OUTSTANDING_REWARDS:     {ResourceType_KV_DISTRIBUTION, []ResourceType{}},
+	ResourceType_KV_DISTRIBUTION_DELEGATOR_WITHDRAW_ADDR: {ResourceType_KV_DISTRIBUTION, []ResourceType{}},
+	ResourceType_KV_DISTRIBUTION_DELEGATOR_STARTING_INFO: {ResourceType_KV_DISTRIBUTION, []ResourceType{}},
+	ResourceType_KV_DISTRIBUTION_VAL_HISTORICAL_REWARDS:  {ResourceType_KV_DISTRIBUTION, []ResourceType{}},
+	ResourceType_KV_DISTRIBUTION_VAL_CURRENT_REWARDS:     {ResourceType_KV_DISTRIBUTION, []ResourceType{}},
+	ResourceType_KV_DISTRIBUTION_VAL_ACCUM_COMMISSION:    {ResourceType_KV_DISTRIBUTION, []ResourceType{}},
+	ResourceType_KV_DISTRIBUTION_SLASH_EVENT:             {ResourceType_KV_DISTRIBUTION, []ResourceType{}},
 }
 
 // This returns a slice of all resource types that are dependent to a specific resource type

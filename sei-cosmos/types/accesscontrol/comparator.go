@@ -13,6 +13,8 @@ var (
 	ConcurrentSafeIdentifiers = map[string]bool{
 		"bank/SendEnabled": true,
 		"bank/DefaultSendEnabled": true,
+		"staking/BondDenom": true,
+		"staking/UnbondingTime": true,
 	}
 )
 
@@ -99,6 +101,10 @@ func (c *Comparator) DependencyMatch(accessOp AccessOperation, prefix []byte) bo
 }
 
 func (c *Comparator) IsConcurrentSafeIdentifier() bool {
+	// Params are safe as they need to be updated through gov proposals
+	if c.StoreKey == "params" {
+		return true
+	}
 	if val, ok := ConcurrentSafeIdentifiers[c.Identifier]; ok {
 		return val
 	}
