@@ -12,7 +12,6 @@ import (
 	stakingkeeper "github.com/cosmos/cosmos-sdk/x/staking/keeper"
 	"github.com/cosmos/cosmos-sdk/x/staking/types"
 	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
-	"github.com/k0kubun/pp/v3"
 	stakingacl "github.com/sei-protocol/sei-chain/aclmapping/staking"
 	aclutils "github.com/sei-protocol/sei-chain/aclmapping/utils"
 	"github.com/sei-protocol/sei-chain/app/apptesting"
@@ -35,8 +34,10 @@ type KeeperTestSuite struct {
 	initalBalance sdk.Coins
 
 	validator sdk.ValAddress
+	newValidator sdk.ValAddress
 	delegateMsg *types.MsgDelegate
 	undelegateMsg *types.MsgUndelegate
+	redelegateMsg *types.MsgBeginRedelegate
 }
 
 func TestKeeperTestSuite(t *testing.T) {
@@ -66,6 +67,7 @@ func (suite *KeeperTestSuite) PrepareTest() {
 	suite.Ctx = suite.Ctx.WithBlockHeight(10)
 	suite.Ctx = suite.Ctx.WithBlockTime(time.Unix(333, 0))
 	suite.validator = suite.SetupValidator(stakingtypes.Bonded)
+	suite.newValidator = suite.SetupValidator(stakingtypes.Unbonded)
 
 	notBondedPool := suite.App.StakingKeeper.GetNotBondedPool(suite.Ctx)
 	suite.App.AccountKeeper.SetModuleAccount(suite.Ctx, notBondedPool)
@@ -73,13 +75,25 @@ func (suite *KeeperTestSuite) PrepareTest() {
 	validator, _ := suite.App.StakingKeeper.GetValidator(suite.Ctx, suite.validator)
 	suite.App.StakingKeeper.SetValidatorByConsAddr(suite.Ctx, validator)
 
+	newValidator, _ := suite.App.StakingKeeper.GetValidator(suite.Ctx, suite.newValidator)
+	suite.App.StakingKeeper.SetValidatorByConsAddr(suite.Ctx, newValidator)
+
 	valTokens := suite.App.StakingKeeper.TokensFromConsensusPower(suite.Ctx, 10)
 	validator, issuedShares := validator.AddTokensFromDel(valTokens)
 	validator = keeper.TestingUpdateValidator(suite.App.StakingKeeper, suite.Ctx, validator, true)
 
+	newValTokens := suite.App.StakingKeeper.TokensFromConsensusPower(suite.Ctx, 10)
+	newValidator, newIssuedShares := newValidator.AddTokensFromDel(newValTokens)
+	newValidator = keeper.TestingUpdateValidator(suite.App.StakingKeeper, suite.Ctx, validator, true)
+
 	val0AccAddr := sdk.AccAddress(suite.validator)
-	selfDelegation := types.NewDelegation(val0AccAddr, suite.validator, issuedShares)
-	suite.App.StakingKeeper.SetDelegation(suite.Ctx, selfDelegation)
+	val1AccAddr := sdk.AccAddress(suite.newValidator)
+
+	val0selfDelegation := types.NewDelegation(val0AccAddr, suite.validator, issuedShares)
+	val1SelfDelegation := types.NewDelegation(val1AccAddr, suite.validator, newIssuedShares)
+
+	suite.App.StakingKeeper.SetDelegation(suite.Ctx, val0selfDelegation)
+	suite.App.StakingKeeper.SetDelegation(suite.Ctx, val1SelfDelegation)
 
 	bondedPool := suite.App.StakingKeeper.GetBondedPool(suite.Ctx)
 	suite.App.AccountKeeper.SetModuleAccount(suite.Ctx, bondedPool)
@@ -92,6 +106,12 @@ func (suite *KeeperTestSuite) PrepareTest() {
 	suite.undelegateMsg = &stakingtypes.MsgUndelegate{
 		Amount: 			  sdk.NewInt64Coin("stake", 10),
 		ValidatorAddress:      suite.validator.String(),
+		DelegatorAddress:     suite.TestAccs[0].String(),
+	}
+	suite.redelegateMsg = &stakingtypes.MsgBeginRedelegate{
+		Amount: 			  sdk.NewInt64Coin("stake", 10),
+		ValidatorSrcAddress:      suite.validator.String(),
+		ValidatorDstAddress:      suite.newValidator.String(),
 		DelegatorAddress:     suite.TestAccs[0].String(),
 	}
 
@@ -156,6 +176,58 @@ func (suite *KeeperTestSuite) TestMsgUndelegateDependencies() {
 	}
 }
 
+func (suite *KeeperTestSuite) TestMsgRedelegateDependencies() {
+	suite.PrepareTest()
+	tests := []struct {
+		name          string
+		expectedError error
+		msg           *stakingtypes.MsgBeginRedelegate
+		dynamicDep 	  bool
+	}{
+		{
+			name:          "default vote",
+			msg:           suite.redelegateMsg,
+			expectedError: nil,
+			dynamicDep: true,
+		},
+		// {
+		// 	name:          "dont check synchronous",
+		// 	msg:           suite.redelegateMsg,
+		// 	expectedError: nil,
+		// 	dynamicDep: false,
+		// },
+	}
+	for _, tc := range tests {
+		suite.Run(fmt.Sprintf("Test Case: %s", tc.name), func() {
+
+			handlerCtx, cms := aclutils.CacheTxContext(suite.Ctx)
+			_, err := suite.msgServer.BeginRedelegate(
+				sdk.WrapSDKContext(handlerCtx),
+				tc.msg,
+			)
+			depdenencies , _ := stakingacl.MsgBeginRedelegateDependencyGenerator(
+				suite.App.AccessControlKeeper,
+				handlerCtx,
+				tc.msg,
+			)
+
+			if !tc.dynamicDep {
+				depdenencies = sdkacltypes.SynchronousAccessOps()
+			}
+
+			if tc.expectedError != nil {
+				suite.Require().EqualError(err, tc.expectedError.Error())
+			} else {
+				suite.Require().NoError(err)
+			}
+
+			missing := handlerCtx.MsgValidator().ValidateAccessOperations(depdenencies, cms.GetEvents())
+			suite.Require().Empty(missing)
+		})
+	}
+}
+
+
 func (suite *KeeperTestSuite) TestMsgDelegateDependencies() {
 	suite.PrepareTest()
 	tests := []struct {
@@ -170,16 +242,12 @@ func (suite *KeeperTestSuite) TestMsgDelegateDependencies() {
 			expectedError: nil,
 			dynamicDep: true,
 		},
-		// {
-		// 	name:          "dont check synchronous",
-		// 	msg:           &stakingtypes.MsgDelegate{
-		// 		Amount: 			  sdk.NewInt64Coin("stake", 10),
-		// 		ValidatorAddress:      suite.validator.String(),
-		// 		DelegatorAddress:     suite.TestAccs[0].String(),
-		// 	},
-		// 	expectedError: nil,
-		// 	dynamicDep: false,
-		// },
+		{
+			name:          "dont check synchronous",
+			msg:           suite.delegateMsg,
+			expectedError: nil,
+			dynamicDep: false,
+		},
 	}
 	for _, tc := range tests {
 		suite.Run(fmt.Sprintf("Test Case: %s", tc.name), func() {
@@ -205,12 +273,6 @@ func (suite *KeeperTestSuite) TestMsgDelegateDependencies() {
 			}
 
 			missing := handlerCtx.MsgValidator().ValidateAccessOperations(depdenencies, cms.GetEvents())
-
-			pp.Default.SetColoringEnabled(false)
-			pp.Println(depdenencies)
-			pp.Println(cms.GetEvents())
-			println("MISSING:")
-			pp.Println(missing)
 			suite.Require().Empty(missing)
 		})
 	}
@@ -267,21 +329,14 @@ func (suite *KeeperTestSuite) TestMsgUndelegateGenerator() {
 	require.NoError(suite.T(), err)
 }
 
-func TestMsgBeginRedelegateGenerator(t *testing.T) {
-	tm := time.Now().UTC()
-	valPub := secp256k1.GenPrivKey().PubKey()
-
-	testWrapper := app.NewTestWrapper(t, tm, valPub)
-
-	stakingBeginRedelegate := stakingtypes.MsgBeginRedelegate{
-		DelegatorAddress:    "delegator",
-		ValidatorSrcAddress: "src_validator",
-		ValidatorDstAddress: "dst_validator",
-		Amount:              sdk.Coin{Denom: "usei", Amount: sdk.NewInt(5)},
-	}
-
-	accessOps, err := stakingacl.MsgBeginRedelegateDependencyGenerator(testWrapper.App.AccessControlKeeper, testWrapper.Ctx, &stakingBeginRedelegate)
-	require.NoError(t, err)
+func (suite *KeeperTestSuite) TestMsgBeginRedelegateGenerator() {
+	suite.PrepareTest()
+	accessOps, err := stakingacl.MsgBeginRedelegateDependencyGenerator(
+		suite.App.AccessControlKeeper,
+		suite.Ctx,
+		suite.redelegateMsg,
+	)
+	require.NoError(suite.T(), err)
 	err = acltypes.ValidateAccessOps(accessOps)
-	require.NoError(t, err)
+	require.NoError(suite.T(), err)
 }
