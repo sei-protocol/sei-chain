@@ -35,60 +35,222 @@ func MsgDelegateDependencyGenerator(keeper aclkeeper.Keeper, ctx sdk.Context, ms
 		return []sdkacltypes.AccessOperation{}, ErrorInvalidMsgType
 	}
 
+	bondedModuleAdr := keeper.AccountKeeper.GetModuleAddress(stakingtypes.BondedPoolName)
+	notBondedModuleAdr := keeper.AccountKeeper.GetModuleAddress(stakingtypes.NotBondedPoolName)
+
+	delegateAddr, _ := sdk.AccAddressFromBech32(msgDelegate.DelegatorAddress)
+	validatorAddr, _ := sdk.ValAddressFromBech32(msgDelegate.ValidatorAddress)
+
+	validator, _ := keeper.StakingKeeper.GetValidator(ctx, validatorAddr)
+	validatorCons, _ := validator.GetConsAddr()
+	validatorAddrCons := string(stakingtypes.GetValidatorByConsAddrKey(validatorCons))
+	// validatorOperatorAddr := validator.GetOperator().String()
+
+	delegationKey := string(stakingtypes.GetDelegationKey(delegateAddr, validatorAddr))
+	validatorKey := string(stakingtypes.GetValidatorKey(validatorAddr))
+	delegatorBalanceKey := string(banktypes.CreateAccountBalancesPrefixFromBech32(msgDelegate.DelegatorAddress))
+	validatorBalanceKey := string(banktypes.CreateAccountBalancesPrefixFromBech32(msgDelegate.ValidatorAddress))
+	// validatorOperatorBalanceKey := string(banktypes.CreateAccountBalancesPrefixFromBech32(validatorOperatorAddr))
+
 	accessOperations := []sdkacltypes.AccessOperation{
-		// Checks if the delegator exists
-		// Checks if there is a delegation object that already exists for (delegatorAddr, validatorAddr)
+		// Treat Delegations and Undelegations to have the same ACL since they are highly coupled, no point in finer granularization
+
+		// Get delegation/redelegations and error checking
 		{
 			AccessType:         sdkacltypes.AccessType_READ,
 			ResourceType:       sdkacltypes.ResourceType_KV_STAKING_DELEGATION,
-			IdentifierTemplate: utils.GetIdentifierTemplatePerModule(utils.STAKING, msgDelegate.DelegatorAddress+msgDelegate.ValidatorAddress),
+			IdentifierTemplate: delegationKey,
 		},
-		// Store new delegator for (delegator, validator)
+		// Update/delete delegation and update redelegation
 		{
 			AccessType:         sdkacltypes.AccessType_WRITE,
 			ResourceType:       sdkacltypes.ResourceType_KV_STAKING_DELEGATION,
-			IdentifierTemplate: utils.GetIdentifierTemplatePerModule(utils.STAKING, msgDelegate.DelegatorAddress+msgDelegate.ValidatorAddress),
+			IdentifierTemplate: delegationKey,
 		},
 
-		// delegate coins from account validator account
+		// Check Unbonding
 		{
 			AccessType:         sdkacltypes.AccessType_READ,
-			ResourceType:       sdkacltypes.ResourceType_KV_BANK,
-			IdentifierTemplate: utils.GetIdentifierTemplatePerModule(utils.BANK, msgDelegate.DelegatorAddress),
+			ResourceType:       sdkacltypes.ResourceType_KV_STAKING_UNBONDING_DELEGATION,
+			IdentifierTemplate: string(stakingtypes.GetUBDKey(delegateAddr, validatorAddr)),
 		},
 		{
 			AccessType:         sdkacltypes.AccessType_WRITE,
-			ResourceType:       sdkacltypes.ResourceType_KV_BANK,
-			IdentifierTemplate: utils.GetIdentifierTemplatePerModule(utils.BANK, msgDelegate.DelegatorAddress),
+			ResourceType:       sdkacltypes.ResourceType_KV_STAKING_UNBONDING_DELEGATION,
+			IdentifierTemplate: string(stakingtypes.GetUBDKey(delegateAddr, validatorAddr)),
 		},
 		{
 			AccessType:         sdkacltypes.AccessType_READ,
-			ResourceType:       sdkacltypes.ResourceType_KV_BANK,
-			IdentifierTemplate: utils.GetIdentifierTemplatePerModule(utils.BANK, msgDelegate.ValidatorAddress),
+			ResourceType:       sdkacltypes.ResourceType_KV_STAKING_UNBONDING_DELEGATION_VAL,
+			IdentifierTemplate: string(stakingtypes.GetUBDsByValIndexKey(validatorAddr)),
 		},
 		{
 			AccessType:         sdkacltypes.AccessType_WRITE,
-			ResourceType:       sdkacltypes.ResourceType_KV_BANK,
-			IdentifierTemplate: utils.GetIdentifierTemplatePerModule(utils.BANK, msgDelegate.ValidatorAddress),
+			ResourceType:       sdkacltypes.ResourceType_KV_STAKING_UNBONDING_DELEGATION_VAL,
+			IdentifierTemplate: string(stakingtypes.GetUBDsByValIndexKey(validatorAddr)),
+		},
+
+		// Testing
+		{
+			AccessType:         sdkacltypes.AccessType_READ,
+			ResourceType:       sdkacltypes.ResourceType_KV_STAKING_UNBONDING_DELEGATION,
+			IdentifierTemplate: delegationKey,
+		},
+
+		{
+			AccessType:         sdkacltypes.AccessType_READ,
+			ResourceType:       sdkacltypes.ResourceType_KV_STAKING_UNBONDING,
+			IdentifierTemplate: string(stakingtypes.UnbondingQueueKey),
+		},
+		{
+			AccessType:         sdkacltypes.AccessType_WRITE,
+			ResourceType:       sdkacltypes.ResourceType_KV_STAKING_UNBONDING,
+			IdentifierTemplate: string(stakingtypes.UnbondingQueueKey),
+		},
+
+		{
+			AccessType:         sdkacltypes.AccessType_READ,
+			ResourceType:       sdkacltypes.ResourceType_KV_STAKING_VALIDATORS_CON_ADDR,
+			IdentifierTemplate: validatorAddrCons,
+		},
+		{
+			AccessType:         sdkacltypes.AccessType_READ,
+			ResourceType:       sdkacltypes.ResourceType_KV_STAKING_VALIDATORS_CON_ADDR,
+			IdentifierTemplate: string(stakingtypes.GetUBDsByValIndexKey(validatorAddr)),
+		},
+		{
+			AccessType:         sdkacltypes.AccessType_READ,
+			ResourceType:       sdkacltypes.ResourceType_KV_STAKING_VALIDATORS_BY_POWER,
+			IdentifierTemplate: string(stakingtypes.GetValidatorsByPowerIndexKey(validator, keeper.StakingKeeper.PowerReduction(ctx))),
+		},
+		{
+			AccessType:         sdkacltypes.AccessType_WRITE,
+			ResourceType:       sdkacltypes.ResourceType_KV_STAKING_VALIDATORS_BY_POWER,
+			IdentifierTemplate: string(stakingtypes.GetValidatorsByPowerIndexKey(validator, keeper.StakingKeeper.PowerReduction(ctx))),
+		},
+
+		// Before Unbond Distribution Hook
+		{
+			AccessType:         sdkacltypes.AccessType_READ,
+			ResourceType:       sdkacltypes.ResourceType_KV_DISTRIBUTION_DELEGATOR_STARTING_INFO,
+			IdentifierTemplate: string(distributiontypes.GetDelegatorStartingInfoKey(validatorAddr, delegateAddr)),
+		},
+		{
+			AccessType:         sdkacltypes.AccessType_WRITE,
+			ResourceType:       sdkacltypes.ResourceType_KV_DISTRIBUTION_DELEGATOR_STARTING_INFO,
+			IdentifierTemplate: string(distributiontypes.GetDelegatorStartingInfoKey(validatorAddr, delegateAddr)),
+		},
+		{
+			AccessType:         sdkacltypes.AccessType_READ,
+			ResourceType:       sdkacltypes.ResourceType_KV_DISTRIBUTION_VAL_CURRENT_REWARDS,
+			IdentifierTemplate: string(distributiontypes.GetValidatorCurrentRewardsKey(validatorAddr)),
+		},
+		{
+			AccessType:         sdkacltypes.AccessType_WRITE,
+			ResourceType:       sdkacltypes.ResourceType_KV_DISTRIBUTION_VAL_CURRENT_REWARDS,
+			IdentifierTemplate: string(distributiontypes.GetValidatorCurrentRewardsKey(validatorAddr)),
+		},
+
+		{
+			AccessType:         sdkacltypes.AccessType_READ,
+			ResourceType:       sdkacltypes.ResourceType_KV_DISTRIBUTION_OUTSTANDING_REWARDS,
+			IdentifierTemplate: string(distributiontypes.GetValidatorOutstandingRewardsKey(validatorAddr)),
+		},
+		{
+			AccessType:         sdkacltypes.AccessType_WRITE,
+			ResourceType:       sdkacltypes.ResourceType_KV_DISTRIBUTION_OUTSTANDING_REWARDS,
+			IdentifierTemplate: string(distributiontypes.GetValidatorOutstandingRewardsKey(validatorAddr)),
+		},
+		{
+			AccessType:         sdkacltypes.AccessType_WRITE,
+			ResourceType:       sdkacltypes.ResourceType_KV_DISTRIBUTION_OUTSTANDING_REWARDS,
+			IdentifierTemplate: string(distributiontypes.GetValidatorCurrentRewardsKey(validatorAddr)),
+		},
+		{
+			AccessType:         sdkacltypes.AccessType_READ,
+			ResourceType:       sdkacltypes.ResourceType_KV_DISTRIBUTION_FEE_POOL,
+			IdentifierTemplate: string(distributiontypes.FeePoolKey),
+		},
+		{
+			AccessType:         sdkacltypes.AccessType_WRITE,
+			ResourceType:       sdkacltypes.ResourceType_KV_DISTRIBUTION_FEE_POOL,
+			IdentifierTemplate: string(distributiontypes.FeePoolKey),
+		},
+
+		{
+			AccessType:         sdkacltypes.AccessType_READ,
+			ResourceType:       sdkacltypes.ResourceType_KV_DISTRIBUTION_VAL_HISTORICAL_REWARDS,
+			IdentifierTemplate: string(distributiontypes.GetValidatorHistoricalRewardsPrefix(validatorAddr)),
+		},
+		{
+			AccessType:         sdkacltypes.AccessType_WRITE,
+			ResourceType:       sdkacltypes.ResourceType_KV_DISTRIBUTION_VAL_HISTORICAL_REWARDS,
+			IdentifierTemplate: string(distributiontypes.GetValidatorHistoricalRewardsPrefix(validatorAddr)),
+		},
+
+		// Gets Module Account information
+		{
+			AccessType:         sdkacltypes.AccessType_READ,
+			ResourceType:       sdkacltypes.ResourceType_KV_AUTH_ADDRESS_STORE,
+			IdentifierTemplate: string(authtypes.AddressStoreKey(bondedModuleAdr)),
+		},
+		{
+			AccessType:         sdkacltypes.AccessType_READ,
+			ResourceType:       sdkacltypes.ResourceType_KV_AUTH_ADDRESS_STORE,
+			IdentifierTemplate: string(authtypes.AddressStoreKey(notBondedModuleAdr)),
+		},
+
+		// Get Delegator Acc Info
+		{
+			AccessType:         sdkacltypes.AccessType_READ,
+			ResourceType:       sdkacltypes.ResourceType_KV_AUTH_ADDRESS_STORE,
+			IdentifierTemplate: string(authtypes.AddressStoreKey(delegateAddr)),
+		},
+		{
+			AccessType:         sdkacltypes.AccessType_READ,
+			ResourceType:       sdkacltypes.ResourceType_KV_AUTH_ADDRESS_STORE,
+			IdentifierTemplate: string(authtypes.AddressStoreKey(delegateAddr)),
+		},
+
+
+		// Update the delegator and validator account balances
+		{
+			AccessType:         sdkacltypes.AccessType_READ,
+			ResourceType:       sdkacltypes.ResourceType_KV_BANK_BALANCES,
+			IdentifierTemplate: delegatorBalanceKey,
+		},
+		{
+			AccessType:         sdkacltypes.AccessType_WRITE,
+			ResourceType:       sdkacltypes.ResourceType_KV_BANK_BALANCES,
+			IdentifierTemplate: delegatorBalanceKey,
+		},
+		{
+			AccessType:         sdkacltypes.AccessType_READ,
+			ResourceType:       sdkacltypes.ResourceType_KV_BANK_BALANCES,
+			IdentifierTemplate: validatorBalanceKey,
+		},
+		{
+			AccessType:         sdkacltypes.AccessType_WRITE,
+			ResourceType:       sdkacltypes.ResourceType_KV_BANK_BALANCES,
+			IdentifierTemplate: validatorBalanceKey,
 		},
 
 		// Checks if the validators exchange rate is valid
 		{
 			AccessType:         sdkacltypes.AccessType_READ,
 			ResourceType:       sdkacltypes.ResourceType_KV_STAKING_VALIDATOR,
-			IdentifierTemplate: utils.GetIdentifierTemplatePerModule(utils.STAKING, msgDelegate.ValidatorAddress),
+			IdentifierTemplate: validatorKey,
 		},
 		// Update validator shares and power index
 		{
 			AccessType:         sdkacltypes.AccessType_WRITE,
 			ResourceType:       sdkacltypes.ResourceType_KV_STAKING_VALIDATOR,
-			IdentifierTemplate: utils.GetIdentifierTemplatePerModule(utils.STAKING, msgDelegate.ValidatorAddress),
+			IdentifierTemplate: validatorKey,
 		},
 
 		// Last Operation should always be a commit
 		*acltypes.CommitAccessOp(),
 	}
-
 	return accessOperations, nil
 }
 
@@ -248,6 +410,12 @@ func MsgUndelegateDependencyGenerator(keeper aclkeeper.Keeper, ctx sdk.Context, 
 			AccessType:         sdkacltypes.AccessType_READ,
 			ResourceType:       sdkacltypes.ResourceType_KV_AUTH_ADDRESS_STORE,
 			IdentifierTemplate: string(authtypes.AddressStoreKey(notBondedModuleAdr)),
+		},
+
+		{
+			AccessType:         sdkacltypes.AccessType_WRITE,
+			ResourceType:       sdkacltypes.ResourceType_KV_DISTRIBUTION_DELEGATOR_STARTING_INFO,
+			IdentifierTemplate: string(distributiontypes.GetDelegatorStartingInfoKey(validatorAddr, delegateAddr)),
 		},
 
 		// Update the delegator and validator account balances

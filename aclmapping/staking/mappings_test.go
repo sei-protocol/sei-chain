@@ -119,12 +119,12 @@ func (suite *KeeperTestSuite) TestMsgUndelegateDependencies() {
 			expectedError: nil,
 			dynamicDep: true,
 		},
-		// {
-		// 	name:          "dont check synchronous",
-		// msg:           suite.undelegateMsg,
-		// 	expectedError: nil,
-		// 	dynamicDep: false,
-		// },
+		{
+			name:          "dont check synchronous",
+			msg:           suite.undelegateMsg,
+			expectedError: nil,
+			dynamicDep: false,
+		},
 	}
 	for _, tc := range tests {
 		suite.Run(fmt.Sprintf("Test Case: %s", tc.name), func() {
@@ -151,80 +151,70 @@ func (suite *KeeperTestSuite) TestMsgUndelegateDependencies() {
 			}
 
 			missing := handlerCtx.MsgValidator().ValidateAccessOperations(depdenencies, cms.GetEvents())
-			pp.Default.SetColoringEnabled(false)
-
-			pp.Println(depdenencies)
-			pp.Println(cms.GetEvents())
-			println("MISSING:")
-			pp.Println(missing)
-
 			suite.Require().Empty(missing)
 		})
 	}
 }
 
-// func (suite *KeeperTestSuite) TestMsgDelegateDependencies() {
-// 	suite.PrepareTest()
-// 	tests := []struct {
-// 		name          string
-// 		expectedError error
-// 		msg           *stakingtypes.MsgDelegate
-// 		dynamicDep 	  bool
-// 	}{
-// 		{
-// 			name:          "default vote",
-// 			msg:           &stakingtypes.MsgDelegate{
-// 				Amount: 			  sdk.NewInt64Coin("stake", 10),
-// 				ValidatorAddress:      suite.validator.String(),
-// 				DelegatorAddress:     suite.TestAccs[0].String(),
-// 			},
-// 			expectedError: nil,
-// 			dynamicDep: true,
-// 		},
-// 		// {
-// 		// 	name:          "dont check synchronous",
-// 		// 	msg:           &stakingtypes.MsgDelegate{
-// 		// 		Amount: 			  sdk.NewInt64Coin("stake", 10),
-// 		// 		ValidatorAddress:      suite.validator.String(),
-// 		// 		DelegatorAddress:     suite.TestAccs[0].String(),
-// 		// 	},
-// 		// 	expectedError: nil,
-// 		// 	dynamicDep: false,
-// 		// },
-// 	}
-// 	for _, tc := range tests {
-// 		suite.Run(fmt.Sprintf("Test Case: %s", tc.name), func() {
-// 			handlerCtx, cms := aclutils.CacheTxContext(suite.Ctx)
-// 			_, err := suite.msgServer.Delegate(
-// 				sdk.WrapSDKContext(handlerCtx),
-// 				tc.msg,
-// 			)
-// 			depdenencies , _ := stakingacl.MsgDelegateDependencyGenerator(
-// 				suite.App.AccessControlKeeper,
-// 				handlerCtx,
-// 				tc.msg,
-// 			)
+func (suite *KeeperTestSuite) TestMsgDelegateDependencies() {
+	suite.PrepareTest()
+	tests := []struct {
+		name          string
+		expectedError error
+		msg           *stakingtypes.MsgDelegate
+		dynamicDep 	  bool
+	}{
+		{
+			name:          "default vote",
+			msg:           suite.delegateMsg,
+			expectedError: nil,
+			dynamicDep: true,
+		},
+		// {
+		// 	name:          "dont check synchronous",
+		// 	msg:           &stakingtypes.MsgDelegate{
+		// 		Amount: 			  sdk.NewInt64Coin("stake", 10),
+		// 		ValidatorAddress:      suite.validator.String(),
+		// 		DelegatorAddress:     suite.TestAccs[0].String(),
+		// 	},
+		// 	expectedError: nil,
+		// 	dynamicDep: false,
+		// },
+	}
+	for _, tc := range tests {
+		suite.Run(fmt.Sprintf("Test Case: %s", tc.name), func() {
+			handlerCtx, cms := aclutils.CacheTxContext(suite.Ctx)
+			_, err := suite.msgServer.Delegate(
+				sdk.WrapSDKContext(handlerCtx),
+				tc.msg,
+			)
+			depdenencies , _ := stakingacl.MsgDelegateDependencyGenerator(
+				suite.App.AccessControlKeeper,
+				handlerCtx,
+				tc.msg,
+			)
 
-// 			if !tc.dynamicDep {
-// 				depdenencies = sdkacltypes.SynchronousAccessOps()
-// 			}
+			if !tc.dynamicDep {
+				depdenencies = sdkacltypes.SynchronousAccessOps()
+			}
 
-// 			if tc.expectedError != nil {
-// 				suite.Require().EqualError(err, tc.expectedError.Error())
-// 			} else {
-// 				suite.Require().NoError(err)
-// 			}
+			if tc.expectedError != nil {
+				suite.Require().EqualError(err, tc.expectedError.Error())
+			} else {
+				suite.Require().NoError(err)
+			}
 
-// 			missing := handlerCtx.MsgValidator().ValidateAccessOperations(depdenencies, cms.GetEvents())
+			missing := handlerCtx.MsgValidator().ValidateAccessOperations(depdenencies, cms.GetEvents())
 
-// 			pp.Println(depdenencies)
-// 			pp.Println(cms.GetEvents())
-// 			println("MISSING:")
-// 			pp.Println(missing)
-// 			suite.Require().Empty(missing)
-// 		})
-// 	}
-// }
+			pp.Default.SetColoringEnabled(false)
+			pp.Println(depdenencies)
+			pp.Println(cms.GetEvents())
+			println("MISSING:")
+			pp.Println(missing)
+			suite.Require().Empty(missing)
+		})
+	}
+}
 
 func TestGeneratorInvalidMessageTypes(t *testing.T) {
 	tm := time.Now().UTC()
@@ -251,21 +241,18 @@ func TestGeneratorInvalidMessageTypes(t *testing.T) {
 
 }
 
-func TestMsgDelegateGenerator(t *testing.T) {
-	tm := time.Now().UTC()
-	valPub := secp256k1.GenPrivKey().PubKey()
-	testWrapper := app.NewTestWrapper(t, tm, valPub)
+func (suite *KeeperTestSuite) TestMsgDelegateGenerator() {
+	suite.PrepareTest()
+	stakingDelegate := suite.delegateMsg
 
-	stakingDelegate := stakingtypes.MsgDelegate{
-		DelegatorAddress: "delegator",
-		ValidatorAddress: "validator",
-		Amount:           sdk.Coin{Denom: "usei", Amount: sdk.NewInt(5)},
-	}
-
-	accessOps, err := stakingacl.MsgDelegateDependencyGenerator(testWrapper.App.AccessControlKeeper, testWrapper.Ctx, &stakingDelegate)
-	require.NoError(t, err)
+	accessOps, err := stakingacl.MsgDelegateDependencyGenerator(
+		suite.App.AccessControlKeeper,
+		suite.Ctx,
+		stakingDelegate,
+	)
+	require.NoError(suite.T(), err)
 	err = acltypes.ValidateAccessOps(accessOps)
-	require.NoError(t, err)
+	require.NoError(suite.T(), err)
 }
 
 func (suite *KeeperTestSuite) TestMsgUndelegateGenerator() {
