@@ -295,9 +295,9 @@ func (suite *KeeperTestSuite) TestMessageDependencies() {
 		MessageKey: string(bankMsgKey),
 		AccessOps: []acltypes.AccessOperation{
 			{
-				ResourceType:       acltypes.ResourceType_KV_BANK,
+				ResourceType:       acltypes.ResourceType_KV_BANK_BALANCES,
 				AccessType:         acltypes.AccessType_WRITE,
-				IdentifierTemplate: "bankPrefix",
+				IdentifierTemplate: "*",
 			},
 			*types.CommitAccessOp(),
 		},

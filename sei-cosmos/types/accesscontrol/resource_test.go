@@ -29,3 +29,23 @@ func TestResourceTree(t *testing.T) {
 		}
 	}
 }
+
+func TestAllResourcesInTree(t *testing.T) {
+	notInTree := []ResourceType{}
+
+	for i := int32(0); ; i++ {
+		// if i exceeds the number of enum vals, exit loop
+		if _, ok := ResourceType_name[i]; !ok {
+			break
+		}
+		// if it does exist convert into the enum
+		resource := ResourceType(i)
+		// if the resource isn't in the tree, then add it to `notInTree`
+		if _, ok := ResourceTree[resource]; !ok {
+			notInTree = append(notInTree, resource)
+		}
+	}
+	// assert that notInTree is empty
+	require.Empty(t, notInTree)
+
+}
