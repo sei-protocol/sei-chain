@@ -55,8 +55,7 @@ func (gd GaslessDecorator) AnteDeps(txDeps []sdkacltypes.AccessOperation, tx sdk
 			feederAddr, _ := sdk.AccAddressFromBech32(m.Feeder)
 			valAddr, _ := sdk.ValAddressFromBech32(m.Validator)
 			deps = append(deps, aclutils.GetOracleReadAccessOpsForValAndFeeder(feederAddr, valAddr)...)
-			// TODO: add tx gasless deps for nitro for nitrokeeper read
-			// TODO: we also need to add READs for Validator + bonded check
+		// TODO: add tx gasless deps for nitro for nitrokeeper read
 		default:
 			continue
 		}
