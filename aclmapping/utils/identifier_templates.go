@@ -11,7 +11,6 @@ const (
 	ACCOUNT           = "acc"
 	BANK              = "bank"
 	AUTH              = "auth"
-	STAKING           = "staking"
 	DefaultIDTemplate = "*"
 )
 

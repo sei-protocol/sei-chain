@@ -25,7 +25,16 @@ import (
 	dextypes "github.com/sei-protocol/sei-chain/x/dex/types"
 )
 
-var TestConfig EncodingConfig
+var (
+	TestConfig         EncodingConfig
+	StakingQueryClient stakingtypes.QueryClient
+	//// Staking specific variables
+	Validators []stakingtypes.Validator
+	// DelegationMap is a map of delegator -> validator -> delegated amount
+	DelegationMap map[string]map[string]int
+	//// Tokenfactory specific variables
+	TokenFactoryDenomOwner map[string]string
+)
 
 const (
 	VortexData = "{\"position_effect\":\"Open\",\"leverage\":\"1\"}"
@@ -74,7 +83,7 @@ func run() {
 	fmt.Printf("%s - Finished\n", time.Now().Format("2006-01-02T15:04:05"))
 }
 
-func (c *LoadTestClient) generateMessage(config Config, key cryptotypes.PrivKey, msgPerTx uint64) (sdk.Msg, bool) {
+func generateMessage(config Config, key cryptotypes.PrivKey, msgPerTx uint64) (sdk.Msg, bool) {
 	var msg sdk.Msg
 	messageTypes := strings.Split(config.MessageType, ",")
 	rand.Seed(time.Now().UnixNano())
@@ -106,36 +115,23 @@ func (c *LoadTestClient) generateMessage(config Config, key cryptotypes.PrivKey,
 			Funds:        amount,
 		}
 	case Staking:
-		msgType := config.MsgTypeDistr.SampleStakingMsgs()
-
-		switch msgType {
-		case "delegate":
-			msg = &stakingtypes.MsgDelegate{
-				DelegatorAddress: sdk.AccAddress(key.PubKey().Address()).String(),
-				ValidatorAddress: c.Validators[rand.Intn(len(c.Validators))].OperatorAddress,
-				Amount:           sdk.Coin{Denom: "usei", Amount: sdk.NewInt(5)},
+		delegatorAddr := sdk.AccAddress(key.PubKey().Address()).String()
+		chosenValidator := Validators[rand.Intn(len(Validators))].OperatorAddress
+		// Randomly pick someone to redelegate / unbond from
+		srcAddr := ""
+		for k := range DelegationMap[delegatorAddr] {
+			if k == chosenValidator {
+				continue
 			}
-		case "undelegate":
-			msg = &stakingtypes.MsgUndelegate{
-				DelegatorAddress: sdk.AccAddress(key.PubKey().Address()).String(),
-				ValidatorAddress: c.Validators[rand.Intn(len(c.Validators))].OperatorAddress,
-				Amount:           sdk.Coin{Denom: "usei", Amount: sdk.NewInt(1)},
-			}
-		case "begin_redelegate":
-			msg = &stakingtypes.MsgBeginRedelegate{
-				DelegatorAddress:    sdk.AccAddress(key.PubKey().Address()).String(),
-				ValidatorSrcAddress: c.Validators[rand.Intn(len(c.Validators))].OperatorAddress,
-				ValidatorDstAddress: c.Validators[rand.Intn(len(c.Validators))].OperatorAddress,
-				Amount:              sdk.Coin{Denom: "usei", Amount: sdk.NewInt(1)},
-			}
-		default:
-			panic("Unknown message type")
+			srcAddr = k
+			break
 		}
+		msg = generateStakingMsg(delegatorAddr, chosenValidator, srcAddr)
 	case Tokenfactory:
 		denomCreatorAddr := sdk.AccAddress(key.PubKey().Address()).String()
 		// No denoms, let's mint
 		randNum := rand.Float64()
-		denom, ok := c.TokenFactoryDenomOwner[denomCreatorAddr]
+		denom, ok := TokenFactoryDenomOwner[denomCreatorAddr]
 		switch {
 		case !ok || randNum <= 0.33:
 			subDenom := fmt.Sprintf("tokenfactory-created-denom-%d", time.Now().UnixMilli())
@@ -144,7 +140,7 @@ func (c *LoadTestClient) generateMessage(config Config, key cryptotypes.PrivKey,
 				Sender:   denomCreatorAddr,
 				Subdenom: subDenom,
 			}
-			c.TokenFactoryDenomOwner[denomCreatorAddr] = denom
+			TokenFactoryDenomOwner[denomCreatorAddr] = denom
 		case randNum <= 0.66:
 			msg = &tokenfactorytypes.MsgMint{
 				Sender: denomCreatorAddr,
@@ -235,7 +231,7 @@ func generateDexOrderPlacements(config Config, key cryptotypes.PrivKey, batchSiz
 	if config.MessageType == "failure_bank_malformed" {
 		orderType = -1
 	} else {
-		dexMsgType := config.MsgTypeDistr.SampleDexMsgs()
+		dexMsgType := config.MsgTypeDistr.Sample()
 		switch dexMsgType {
 		case Limit:
 			orderType = dextypes.OrderType_LIMIT
@@ -267,6 +263,45 @@ func generateDexOrderPlacements(config Config, key cryptotypes.PrivKey, batchSiz
 		})
 	}
 	return orderPlacements
+}
+
+func generateStakingMsg(delegatorAddr string, chosenValidator string, srcAddr string) sdk.Msg {
+	// Randomly unbond, redelegate or delegate
+	// However, if there are no delegations, do so first
+	var msg sdk.Msg
+	randNum := rand.Float64()
+	if _, ok := DelegationMap[delegatorAddr]; !ok || randNum <= 0.33 || srcAddr == "" {
+		msg = &stakingtypes.MsgDelegate{
+			DelegatorAddress: delegatorAddr,
+			ValidatorAddress: chosenValidator,
+			Amount:           sdk.Coin{Denom: "usei", Amount: sdk.NewInt(1)},
+		}
+		DelegationMap[delegatorAddr] = map[string]int{}
+		DelegationMap[delegatorAddr][chosenValidator] = 1
+	} else {
+
+		if randNum <= 0.66 {
+			msg = &stakingtypes.MsgBeginRedelegate{
+				DelegatorAddress:    delegatorAddr,
+				ValidatorSrcAddress: srcAddr,
+				ValidatorDstAddress: chosenValidator,
+				Amount:              sdk.Coin{Denom: "usei", Amount: sdk.NewInt(1)},
+			}
+			DelegationMap[delegatorAddr][chosenValidator]++
+		} else {
+			msg = &stakingtypes.MsgUndelegate{
+				DelegatorAddress: delegatorAddr,
+				ValidatorAddress: srcAddr,
+				Amount:           sdk.Coin{Denom: "usei", Amount: sdk.NewInt(1)},
+			}
+		}
+		// Update delegation map
+		DelegationMap[delegatorAddr][srcAddr]--
+		if DelegationMap[delegatorAddr][srcAddr] == 0 {
+			delete(DelegationMap, delegatorAddr)
+		}
+	}
+	return msg
 }
 
 func getLastHeight() int {
