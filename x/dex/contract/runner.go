@@ -11,9 +11,9 @@ import (
 )
 
 type ParallelRunner struct {
-	runnable func(contract types.ContractInfo)
+	runnable func(contract types.ContractInfoV2)
 
-	contractAddrToInfo   *datastructures.TypedSyncMap[utils.ContractAddress, *types.ContractInfo]
+	contractAddrToInfo   *datastructures.TypedSyncMap[utils.ContractAddress, *types.ContractInfoV2]
 	readyContracts       *datastructures.TypedSyncMap[utils.ContractAddress, struct{}]
 	readyCnt             int64
 	inProgressCnt        int64
@@ -21,8 +21,8 @@ type ParallelRunner struct {
 	sdkCtx               sdk.Context
 }
 
-func NewParallelRunner(runnable func(contract types.ContractInfo), contracts []types.ContractInfo, ctx sdk.Context) ParallelRunner {
-	contractAddrToInfo := datastructures.NewTypedSyncMap[utils.ContractAddress, *types.ContractInfo]()
+func NewParallelRunner(runnable func(contract types.ContractInfoV2), contracts []types.ContractInfoV2, ctx sdk.Context) ParallelRunner {
+	contractAddrToInfo := datastructures.NewTypedSyncMap[utils.ContractAddress, *types.ContractInfoV2]()
 	contractsFrontier := datastructures.NewTypedSyncMap[utils.ContractAddress, struct{}]()
 	for _, contract := range contracts {
 		// runner will mutate ContractInfo fields

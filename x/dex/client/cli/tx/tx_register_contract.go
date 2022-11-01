@@ -15,9 +15,9 @@ var _ = strconv.Itoa(0)
 
 func CmdRegisterContract() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "register-contract [contract address] [code id] [need hook] [need order matching] [dependency1,dependency2,...]",
+		Use:   "register-contract [contract address] [code id] [need hook] [need order matching] [deposit] [dependency1,dependency2,...]",
 		Short: "Register exchange contract",
-		Args:  cobra.MinimumNArgs(4),
+		Args:  cobra.MinimumNArgs(5),
 		RunE: func(cmd *cobra.Command, args []string) (err error) {
 			argContractAddr := args[0]
 			argCodeID, err := cast.ToUint64E(args[1])
@@ -26,8 +26,12 @@ func CmdRegisterContract() *cobra.Command {
 			}
 			argNeedHook := args[2] == "true"
 			argNeedMatching := args[3] == "true"
+			argDeposit, err := cast.ToUint64E(args[4])
+			if err != nil {
+				return err
+			}
 			dependencies := []*types.ContractDependencyInfo{}
-			for _, dependency := range args[4:] {
+			for _, dependency := range args[5:] {
 				dependencies = append(dependencies, &types.ContractDependencyInfo{Dependency: dependency})
 			}
 
@@ -43,6 +47,7 @@ func CmdRegisterContract() *cobra.Command {
 				argNeedHook,
 				argNeedMatching,
 				dependencies,
+				argDeposit,
 			)
 			if err := msg.ValidateBasic(); err != nil {
 				return err

@@ -253,7 +253,7 @@ func ExecutePairsInParallel(ctx sdk.Context, contractAddr string, dexkeeper *kee
 func HandleExecutionForContract(
 	ctx context.Context,
 	sdkCtx sdk.Context,
-	contract types.ContractInfo,
+	contract types.ContractInfoV2,
 	dexkeeper *keeper.Keeper,
 	registeredPairs []types.Pair,
 	orderBooks *datastructures.TypedSyncMap[dextypesutils.PairString, *types.OrderBook],

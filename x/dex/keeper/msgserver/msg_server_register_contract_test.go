@@ -126,7 +126,7 @@ func TestRegisterContractSetSiblings(t *testing.T) {
 }
 
 func registerContract(server types.MsgServer, ctx context.Context, contractAddr string, dependencies []string) error {
-	contract := types.ContractInfo{
+	contract := types.ContractInfoV2{
 		CodeId:       1,
 		ContractAddr: contractAddr,
 	}

@@ -25,7 +25,7 @@ import (
 )
 
 type environment struct {
-	validContractsInfo          []types.ContractInfo
+	validContractsInfo          []types.ContractInfoV2
 	failedContractAddresses     datastructures.SyncSet[string]
 	finalizeBlockMessages       *datastructures.TypedSyncMap[string, *dextypeswasm.SudoFinalizeBlockMsg]
 	settlementsByContract       *datastructures.TypedSyncMap[string, []*types.SettlementEntry]
@@ -37,7 +37,7 @@ type environment struct {
 	eventManagerMutex *sync.Mutex
 }
 
-func EndBlockerAtomic(ctx sdk.Context, keeper *keeper.Keeper, validContractsInfo []types.ContractInfo, tracingInfo *tracing.Info) ([]types.ContractInfo, sdk.Context, bool) {
+func EndBlockerAtomic(ctx sdk.Context, keeper *keeper.Keeper, validContractsInfo []types.ContractInfoV2, tracingInfo *tracing.Info) ([]types.ContractInfoV2, sdk.Context, bool) {
 	tracer := tracingInfo.Tracer
 	spanCtx, span := (*tracer).Start(tracingInfo.TracerContext, "DexEndBlockerAtomic")
 	defer span.End()
@@ -47,7 +47,7 @@ func EndBlockerAtomic(ctx sdk.Context, keeper *keeper.Keeper, validContractsInfo
 
 	handleDeposits(ctx, env, keeper, tracer)
 
-	runner := NewParallelRunner(func(contract types.ContractInfo) {
+	runner := NewParallelRunner(func(contract types.ContractInfoV2) {
 		orderMatchingRunnable(spanCtx, ctx, env, keeper, contract, tracer)
 	}, validContractsInfo, ctx)
 	runner.Run()
@@ -67,7 +67,7 @@ func EndBlockerAtomic(ctx sdk.Context, keeper *keeper.Keeper, validContractsInfo
 	return filterNewValidContracts(ctx, env), ctx.WithContext(newGoContext), false
 }
 
-func newEnv(ctx sdk.Context, validContractsInfo []types.ContractInfo, keeper *keeper.Keeper) *environment {
+func newEnv(ctx sdk.Context, validContractsInfo []types.ContractInfoV2, keeper *keeper.Keeper) *environment {
 	finalizeBlockMessages := datastructures.NewTypedSyncMap[string, *dextypeswasm.SudoFinalizeBlockMsg]()
 	settlementsByContract := datastructures.NewTypedSyncMap[string, []*types.SettlementEntry]()
 	executionTerminationSignals := datastructures.NewTypedSyncMap[string, chan struct{}]()
@@ -109,7 +109,7 @@ func cacheAndDecorateContext(ctx sdk.Context, env *environment) (sdk.Context, sd
 	return decoratedCtx, msCached
 }
 
-func decorateContextForContract(ctx sdk.Context, contractInfo types.ContractInfo) sdk.Context {
+func decorateContextForContract(ctx sdk.Context, contractInfo types.ContractInfoV2) sdk.Context {
 	goCtx := context.WithValue(ctx.Context(), dexcache.CtxKeyExecutingContract, contractInfo)
 	whitelistedStore := multi.NewStore(ctx.MultiStore(), GetWhitelistMap(contractInfo.ContractAddr))
 	newEventManager := sdk.NewEventManager()
@@ -187,7 +187,7 @@ func handleFinalizedBlocks(ctx context.Context, sdkCtx sdk.Context, env *environ
 	})
 }
 
-func orderMatchingRunnable(ctx context.Context, sdkContext sdk.Context, env *environment, keeper *keeper.Keeper, contractInfo types.ContractInfo, tracer *otrace.Tracer) {
+func orderMatchingRunnable(ctx context.Context, sdkContext sdk.Context, env *environment, keeper *keeper.Keeper, contractInfo types.ContractInfoV2, tracer *otrace.Tracer) {
 	defer utils.PanicHandler(func(err any) { orderMatchingRecoverCallback(err, sdkContext, env, contractInfo) })()
 	defer func() {
 		if channel, ok := env.executionTerminationSignals.Load(contractInfo.ContractAddr); ok {
@@ -228,14 +228,14 @@ func orderMatchingRunnable(ctx context.Context, sdkContext sdk.Context, env *env
 	parentSdkContext.EventManager().EmitEvents(sdkContext.EventManager().Events())
 }
 
-func orderMatchingRecoverCallback(err any, ctx sdk.Context, env *environment, contractInfo types.ContractInfo) {
+func orderMatchingRecoverCallback(err any, ctx sdk.Context, env *environment, contractInfo types.ContractInfoV2) {
 	utils.MetricsPanicCallback(err, ctx, fmt.Sprintf("%s%s", types.ModuleName, "endblockpanic"))
 	// idempotent
 	env.failedContractAddresses.Add(contractInfo.ContractAddr)
 }
 
-func filterNewValidContracts(ctx sdk.Context, env *environment) []types.ContractInfo {
-	newValidContracts := []types.ContractInfo{}
+func filterNewValidContracts(ctx sdk.Context, env *environment) []types.ContractInfoV2 {
+	newValidContracts := []types.ContractInfoV2{}
 	for _, contract := range env.validContractsInfo {
 		if !env.failedContractAddresses.Contains(contract.ContractAddr) {
 			newValidContracts = append(newValidContracts, contract)

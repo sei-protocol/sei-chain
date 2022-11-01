@@ -486,6 +486,7 @@ func New(
 		app.GetSubspace(dexmoduletypes.ModuleName),
 		app.EpochKeeper,
 		app.BankKeeper,
+		app.AccountKeeper,
 	)
 	app.TokenFactoryKeeper = tokenfactorykeeper.NewKeeper(
 		appCodec,
