@@ -754,7 +754,7 @@ func New(
 	signModeHandler := encodingConfig.TxConfig.SignModeHandler()
 	// app.batchVerifier = ante.NewSR25519BatchVerifier(app.AccountKeeper, signModeHandler)
 
-	anteHandler, anteDepGenerator, err := NewAnteHandlerAndDepGenerator(
+	anteHandler, err := NewAnteHandler(
 		HandlerOptions{
 			HandlerOptions: ante.HandlerOptions{
 				AccountKeeper:   app.AccountKeeper,
@@ -778,7 +778,6 @@ func New(
 	}
 
 	app.SetAnteHandler(anteHandler)
-	app.SetAnteDepGenerator(anteDepGenerator)
 	app.SetEndBlocker(app.EndBlocker)
 	app.SetPrepareProposalHandler(app.PrepareProposalHandler)
 	app.SetProcessProposalHandler(app.ProcessProposalHandler)
@@ -1115,7 +1114,7 @@ func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequ
 	// }
 	// app.batchVerifier.VerifyTxs(ctx, typedTxs)
 
-	dependencyDag, err := app.AccessControlKeeper.BuildDependencyDag(ctx, app.txDecoder, app.GetAnteDepGenerator(), txs)
+	dependencyDag, err := app.AccessControlKeeper.BuildDependencyDag(ctx, app.txDecoder, txs)
 	var txResults []*abci.ExecTxResult
 
 	switch err {
