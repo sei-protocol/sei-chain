@@ -524,7 +524,6 @@ func New(
 		appCodec,
 		app.keys[acltypes.StoreKey],
 		app.GetSubspace(acltypes.ModuleName),
-		app.AccountKeeper,
 		aclOpts...,
 	)
 	// The last arguments can contain custom message handlers, and custom query handlers,
