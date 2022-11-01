@@ -515,35 +515,10 @@ func New(
 		app.keys[nitrotypes.StoreKey],
 		app.GetSubspace(nitrotypes.ModuleName),
 	)
-
-	customDependencyGenerators := aclmapping.NewCustomDependencyGenerator()
-	aclOpts = append(aclOpts, aclkeeper.WithDependencyGeneratorMappings(customDependencyGenerators.GetCustomDependencyGenerators()))
-	app.AccessControlKeeper = aclkeeper.NewKeeper(
-		appCodec,
-		app.keys[acltypes.StoreKey],
-		app.GetSubspace(acltypes.ModuleName),
-		aclOpts...,
-	)
 	// The last arguments can contain custom message handlers, and custom query handlers,
 	// if we want to allow any custom callbacks
 	supportedFeatures := "iterator,staking,stargate,sei"
-	wasmOpts = append(
-		wasmbinding.RegisterCustomPlugins(
-			&app.OracleKeeper,
-			&app.DexKeeper,
-			&app.EpochKeeper,
-			&app.TokenFactoryKeeper,
-			&app.AccountKeeper,
-			app.MsgServiceRouter(),
-			app.IBCKeeper.ChannelKeeper,
-			scopedWasmKeeper,
-			app.BankKeeper,
-			appCodec,
-			app.TransferKeeper,
-			app.AccessControlKeeper,
-		),
-		wasmOpts...,
-	)
+	wasmOpts = append(wasmbinding.RegisterCustomPlugins(&app.OracleKeeper, &app.DexKeeper, &app.EpochKeeper, &app.TokenFactoryKeeper, &app.AccountKeeper, app.MsgServiceRouter()), wasmOpts...)
 	app.WasmKeeper = wasm.NewKeeper(
 		appCodec,
 		keys[wasm.StoreKey],
@@ -567,6 +542,14 @@ func New(
 	dexModule := dexmodule.NewAppModule(appCodec, app.DexKeeper, app.AccountKeeper, app.BankKeeper, app.WasmKeeper, app.tracingInfo)
 	epochModule := epochmodule.NewAppModule(appCodec, app.EpochKeeper, app.AccountKeeper, app.BankKeeper)
 
+	customDependencyGenerators := aclmapping.NewCustomDependencyGenerator(app.WasmKeeper)
+	aclOpts = append(aclOpts, aclkeeper.WithDependencyGeneratorMappings(customDependencyGenerators.GetCustomDependencyGenerators()))
+	app.AccessControlKeeper = aclkeeper.NewKeeper(
+		appCodec,
+		app.keys[acltypes.StoreKey],
+		app.GetSubspace(acltypes.ModuleName),
+		aclOpts...,
+	)
 	// register the proposal types
 	govRouter := govtypes.NewRouter()
 	govRouter.AddRoute(govtypes.RouterKey, govtypes.ProposalHandler).
