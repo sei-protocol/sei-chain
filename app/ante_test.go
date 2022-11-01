@@ -181,7 +181,6 @@ func (suite *AnteTestSuite) TestValidateDepedencies() {
 	missing := handlerCtx.MsgValidator().ValidateAccessOperations(depdenencies, cms.GetEvents())
 	pp.Default.SetColoringEnabled(false)
 
-	pp.Println(missing)
 	suite.Require().Empty(missing)
 
 	// test decorator skips on recheck
@@ -192,7 +191,6 @@ func (suite *AnteTestSuite) TestValidateDepedencies() {
 	depdenencies, _ = suite.anteDepGenerator([]sdkacltypes.AccessOperation{}, invalidTx)
 	_, err = suite.anteHandler(handlerCtx, invalidTx, false)
 	missing = handlerCtx.MsgValidator().ValidateAccessOperations(depdenencies, cms.GetEvents())
-	pp.Println(missing)
 
 	err = acltypes.ValidateAccessOps(depdenencies)
 	require.NoError(suite.T(), err)
