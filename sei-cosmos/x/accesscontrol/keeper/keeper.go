@@ -229,6 +229,10 @@ func (k Keeper) BuildDependencyDag(ctx sdk.Context, txDecoder sdk.TxDecoder, ant
 			return nil, err
 		}
 		for accessOp := range anteDepSet {
+			err = types.ValidateAccessOp(accessOp)
+			if err != nil {
+				return nil, err
+			}
 			dependencyDag.AddNodeBuildDependency(ANTE_MSG_INDEX, txIndex, accessOp)
 		}
 
