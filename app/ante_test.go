@@ -14,7 +14,6 @@ import (
 	sdkacltypes "github.com/cosmos/cosmos-sdk/types/accesscontrol"
 	"github.com/cosmos/cosmos-sdk/types/tx/signing"
 	acltypes "github.com/cosmos/cosmos-sdk/x/accesscontrol/types"
-	pp "github.com/k0kubun/pp/v3"
 
 	"github.com/cosmos/cosmos-sdk/x/auth/ante"
 	xauthsigning "github.com/cosmos/cosmos-sdk/x/auth/signing"
@@ -179,8 +178,6 @@ func (suite *AnteTestSuite) TestValidateDepedencies() {
 	require.NoError(suite.T(), err)
 
 	missing := handlerCtx.MsgValidator().ValidateAccessOperations(depdenencies, cms.GetEvents())
-	pp.Default.SetColoringEnabled(false)
-
 	suite.Require().Empty(missing)
 
 	// test decorator skips on recheck
