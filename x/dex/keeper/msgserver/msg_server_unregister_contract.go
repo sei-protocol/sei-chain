@@ -21,6 +21,9 @@ func (k msgServer) UnregisterContract(goCtx context.Context, msg *types.MsgUnreg
 	}
 	// refund remaining rent to the creator
 	creatorAddr, err := sdk.AccAddressFromBech32(contract.Creator)
+	if err != nil {
+		return nil, err
+	}
 	if err := k.BankKeeper.SendCoins(ctx, k.AccountKeeper.GetModuleAddress(types.ModuleName), creatorAddr, sdk.NewCoins(sdk.NewCoin(appparams.BaseCoinUnit, sdk.NewInt(int64(contract.RentBalance))))); err != nil {
 		return nil, err
 	}

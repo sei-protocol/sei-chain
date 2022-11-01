@@ -221,7 +221,7 @@ var (
 	EmptyWasmOpts []wasm.Option
 
 	// Boolean to only emit seid version and git commit metric once per chain initialization
-	EmittedSeidVersionMetric bool = false
+	EmittedSeidVersionMetric = false
 )
 
 var (
