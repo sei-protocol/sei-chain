@@ -118,6 +118,12 @@ func (dag *Dag) AddEdge(fromIndex DagNodeID, toIndex DagNodeID) *DagEdge {
 // It will also register the new node with AccessOpsMap so that future nodes that amy be dependent on this one can properly identify the dependency.
 func (dag *Dag) AddNodeBuildDependency(messageIndex int, txIndex int, accessOp acltypes.AccessOperation) {
 	dagNode := dag.AddNode(messageIndex, txIndex, accessOp)
+	// if in TxIndexMap, make an edge from the previous node index
+	if lastTxNodeID, ok := dag.TxIndexMap[txIndex]; ok {
+		// TODO: we actually don't necessarily need these edges, but keeping for now so we can first determine that cycles can't be missed if we remove these
+		// add an edge between access ops in a transaction
+		dag.AddEdge(lastTxNodeID, dagNode.NodeID)
+	}
 	// update tx index map
 	dag.TxIndexMap[txIndex] = dagNode.NodeID
 
@@ -199,8 +205,6 @@ func (dag *Dag) BuildCompletionSignalMaps() (
 	completionSignalingMap map[int]MessageCompletionSignalMapping,
 	blockingSignalsMap map[int]MessageCompletionSignalMapping,
 ) {
-	completionSignalingMap = make(map[int]MessageCompletionSignalMapping)
-	blockingSignalsMap = make(map[int]MessageCompletionSignalMapping)
 	// go through every node
 	for _, node := range dag.NodeMap {
 		// for each node, assign its completion signaling, and also assign blocking signals for the destination nodes
@@ -210,23 +214,11 @@ func (dag *Dag) BuildCompletionSignalMaps() (
 				if maybeCompletionSignal != nil {
 					completionSignal := *maybeCompletionSignal
 
-					toNode := dag.NodeMap[edge.ToNodeID]
-					if _, exists := blockingSignalsMap[toNode.TxIndex]; !exists {
-						blockingSignalsMap[toNode.TxIndex] = make(MessageCompletionSignalMapping)
-					}
-					if _, exists := blockingSignalsMap[toNode.TxIndex][toNode.MessageIndex]; !exists {
-						blockingSignalsMap[toNode.TxIndex][toNode.MessageIndex] = make(map[acltypes.AccessOperation][]CompletionSignal)
-					}
 					// add it to the right blocking signal in the right txindex
+					toNode := dag.NodeMap[edge.ToNodeID]
 					prevBlockSignalMapping := blockingSignalsMap[toNode.TxIndex][toNode.MessageIndex][completionSignal.BlockedAccessOperation]
 					blockingSignalsMap[toNode.TxIndex][toNode.MessageIndex][completionSignal.BlockedAccessOperation] = append(prevBlockSignalMapping, completionSignal)
 
-					if _, exists := completionSignalingMap[node.TxIndex]; !exists {
-						completionSignalingMap[node.TxIndex] = make(MessageCompletionSignalMapping)
-					}
-					if _, exists := completionSignalingMap[node.TxIndex][node.MessageIndex]; !exists {
-						completionSignalingMap[node.TxIndex][node.MessageIndex] = make(map[acltypes.AccessOperation][]CompletionSignal)
-					}
 					// add it to the completion signal for the tx index
 					prevCompletionSignalMapping := completionSignalingMap[node.TxIndex][node.MessageIndex][completionSignal.CompletionAccessOperation]
 					completionSignalingMap[node.TxIndex][node.MessageIndex][completionSignal.CompletionAccessOperation] = append(prevCompletionSignalMapping, completionSignal)
@@ -235,7 +227,7 @@ func (dag *Dag) BuildCompletionSignalMaps() (
 			}
 		}
 	}
-	return completionSignalingMap, blockingSignalsMap
+	return
 }
 
 var ErrCycleInDAG = fmt.Errorf("cycle detected in DAG")
