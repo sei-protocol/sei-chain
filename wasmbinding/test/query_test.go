@@ -862,19 +862,13 @@ func TestQueryHandlerDependencyDecoratorTokenFactory(t *testing.T) {
 	// setup the wasm contract's dependency mapping
 	err = app.AccessControlKeeper.SetWasmDependencyMapping(testContext, contractAddr, accesscontrol.WasmDependencyMapping{
 		Enabled: true,
-		AccessOps: []accesscontrol.AccessOperationWithSelector{
+		AccessOps: []accesscontrol.AccessOperation{
 			{
-				Operation: &accesscontrol.AccessOperation{
-					AccessType:         accesscontrol.AccessType_READ,
-					ResourceType:       accesscontrol.ResourceType_KV,
-					IdentifierTemplate: "*",
-				},
-				SelectorType: accesscontrol.AccessOperationSelectorType_NONE,
+				AccessType:         accesscontrol.AccessType_READ,
+				ResourceType:       accesscontrol.ResourceType_KV,
+				IdentifierTemplate: "*",
 			},
-			{
-				Operation:    acltypes.CommitAccessOp(),
-				SelectorType: accesscontrol.AccessOperationSelectorType_NONE,
-			},
+			acltypes.CommitAccessOp(),
 		},
 	})
 	require.NoError(t, err)
@@ -890,19 +884,13 @@ func TestQueryHandlerDependencyDecoratorTokenFactory(t *testing.T) {
 
 	err = app.AccessControlKeeper.SetWasmDependencyMapping(testContext, contractAddr, accesscontrol.WasmDependencyMapping{
 		Enabled: true,
-		AccessOps: []accesscontrol.AccessOperationWithSelector{
+		AccessOps: []accesscontrol.AccessOperation{
 			{
-				Operation: &accesscontrol.AccessOperation{
-					AccessType:         accesscontrol.AccessType_READ,
-					ResourceType:       accesscontrol.ResourceType_Mem,
-					IdentifierTemplate: "*",
-				},
-				SelectorType: accesscontrol.AccessOperationSelectorType_NONE,
+				AccessType:         accesscontrol.AccessType_READ,
+				ResourceType:       accesscontrol.ResourceType_Mem,
+				IdentifierTemplate: "*",
 			},
-			{
-				Operation:    acltypes.CommitAccessOp(),
-				SelectorType: accesscontrol.AccessOperationSelectorType_NONE,
-			},
+			acltypes.CommitAccessOp(),
 		},
 	})
 	require.NoError(t, err)
@@ -910,5 +898,5 @@ func TestQueryHandlerDependencyDecoratorTokenFactory(t *testing.T) {
 	_, err = queryDecorator.HandleQuery(testContext, contractAddr, wasmvmtypes.QueryRequest{
 		Custom: customQuery,
 	})
-	require.Error(t, acl.ErrUnexpectedWasmDependency, err)
+	require.Error(t, wasmbinding.ErrUnexpectedWasmDependency, err)
 }
