@@ -97,6 +97,16 @@ func (suite *AnteTestSuite) SetupTest(isCheckTx bool) {
 	suite.anteDepGenerator = anteDepGenerator
 }
 
+func (suite *AnteTestSuite) AnteHandlerValidateAccessOp(acessOps []sdkacltypes.AccessOperation) error {
+	for _, accessOp := range acessOps {
+		err := acltypes.ValidateAccessOp(accessOp)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // CreateTestTx is a helper function to create a tx given multiple inputs.
 func (suite *AnteTestSuite) CreateTestTx(privs []cryptotypes.PrivKey, accNums []uint64, accSeqs []uint64, chainID string) (xauthsigning.Tx, error) {
 	// First round: we gather all the signer infos. We use the "set empty
@@ -174,7 +184,8 @@ func (suite *AnteTestSuite) TestValidateDepedencies() {
 	depdenencies, _ := suite.anteDepGenerator([]sdkacltypes.AccessOperation{}, validTx)
 	_, err = suite.anteHandler(handlerCtx, validTx, false)
 	suite.Require().Nil(err, "ValidateBasicDecorator returned error on valid tx. err: %v", err)
-	err = acltypes.ValidateAccessOps(depdenencies)
+	err = suite.AnteHandlerValidateAccessOp(depdenencies)
+
 	require.NoError(suite.T(), err)
 
 	missing := handlerCtx.MsgValidator().ValidateAccessOperations(depdenencies, cms.GetEvents())
@@ -189,7 +200,7 @@ func (suite *AnteTestSuite) TestValidateDepedencies() {
 	_, err = suite.anteHandler(handlerCtx, invalidTx, false)
 	missing = handlerCtx.MsgValidator().ValidateAccessOperations(depdenencies, cms.GetEvents())
 
-	err = acltypes.ValidateAccessOps(depdenencies)
+	err = suite.AnteHandlerValidateAccessOp(depdenencies)
 	require.NoError(suite.T(), err)
 
 	suite.Require().Empty(missing)
