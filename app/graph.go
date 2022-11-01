@@ -2,11 +2,9 @@ package app
 
 import (
 	"fmt"
-	"time"
 
 	acltypes "github.com/cosmos/cosmos-sdk/types/accesscontrol"
 	mapset "github.com/deckarep/golang-set"
-	"github.com/sei-protocol/sei-chain/utils/metrics"
 )
 
 type DagNodeID int
@@ -135,7 +133,6 @@ func (dag *Dag) AddEdge(fromIndex DagNodeID, toIndex DagNodeID) *DagEdge {
 //
 // It will also register the new node with AccessOpsMap so that future nodes that amy be dependent on this one can properly identify the dependency.
 func (dag *Dag) AddNodeBuildDependency(messageIndex int, txIndex int, accessOp acltypes.AccessOperation) {
-	defer metrics.MeasureBuildDagDuration(time.Now(), "AddNodeBuildDependency")
 	dagNode := dag.AddNode(messageIndex, txIndex, accessOp)
 	// update tx index map
 	dag.TxIndexMap[txIndex] = dagNode.NodeID
@@ -286,7 +283,6 @@ func (dag *Dag) BuildCompletionSignalMaps() (
 	completionSignalingMap map[int]MessageCompletionSignalMapping,
 	blockingSignalsMap map[int]MessageCompletionSignalMapping,
 ) {
-	defer metrics.MeasureBuildDagDuration(time.Now(), "BuildCompletionSignalMaps")
 	completionSignalingMap = make(map[int]MessageCompletionSignalMapping)
 	blockingSignalsMap = make(map[int]MessageCompletionSignalMapping)
 	// go through every node
