@@ -7,6 +7,7 @@ import (
 	sdkacltypes "github.com/cosmos/cosmos-sdk/types/accesscontrol"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	"github.com/cosmos/cosmos-sdk/x/auth/types"
+	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
 )
 
 // TxFeeChecker check if the provided fee is enough and returns the effective fee and tx priority,
@@ -39,24 +40,27 @@ func NewDeductFeeDecorator(ak AccountKeeper, bk types.BankKeeper, fk FeegrantKee
 
 func (d DeductFeeDecorator) AnteDeps(txDeps []sdkacltypes.AccessOperation, tx sdk.Tx, next sdk.AnteDepGenerator) (newTxDeps []sdkacltypes.AccessOperation, err error) {
 	feeTx, _ := tx.(sdk.FeeTx)
-	deps := []sdkacltypes.AccessOperation{}
-
-	if feeTx.FeePayer() != nil {
-		deps = append(deps, sdkacltypes.AccessOperation{
+	deps := []sdkacltypes.AccessOperation{
+		{
+			AccessType:         sdkacltypes.AccessType_READ,
+			ResourceType:       sdkacltypes.ResourceType_KV_BANK_BALANCES,
+			IdentifierTemplate:  string(banktypes.CreateAccountBalancesPrefix(feeTx.FeePayer())),
+		},
+		{
 			AccessType:         sdkacltypes.AccessType_WRITE,
-			ResourceType:       sdkacltypes.ResourceType_KV_BANK,
-			IdentifierTemplate: feeTx.FeePayer().String(),
-		})
-	}
-
-	if feeTx.FeeGranter() != nil {
-		deps = append(deps,
-			sdkacltypes.AccessOperation{
-				AccessType:         sdkacltypes.AccessType_WRITE,
-				ResourceType:       sdkacltypes.ResourceType_KV_BANK,
-				IdentifierTemplate: feeTx.FeeGranter().String(),
-			},
-		)
+			ResourceType:       sdkacltypes.ResourceType_KV_BANK_BALANCES,
+			IdentifierTemplate:  string(banktypes.CreateAccountBalancesPrefix(feeTx.FeePayer())),
+		},
+		{
+			AccessType:         sdkacltypes.AccessType_READ,
+			ResourceType:       sdkacltypes.ResourceType_KV_BANK_BALANCES,
+			IdentifierTemplate:  string(banktypes.CreateAccountBalancesPrefix(feeTx.FeeGranter())),
+		},
+		{
+			AccessType:         sdkacltypes.AccessType_WRITE,
+			ResourceType:       sdkacltypes.ResourceType_KV_BANK_BALANCES,
+			IdentifierTemplate:  string(banktypes.CreateAccountBalancesPrefix(feeTx.FeeGranter())),
+		},
 	}
 
 	return next(append(txDeps, deps...), tx)

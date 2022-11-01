@@ -10,6 +10,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/types/tx/signing"
 	"github.com/cosmos/cosmos-sdk/x/auth/legacy/legacytx"
 	authsigning "github.com/cosmos/cosmos-sdk/x/auth/signing"
+	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
 )
 
 // ValidateBasicDecorator will call tx.ValidateBasic and return any non-nil error.
@@ -90,8 +91,8 @@ func (d ConsumeTxSizeGasDecorator) AnteDeps(txDeps []sdkacltypes.AccessOperation
 		deps = append(deps,
 			sdkacltypes.AccessOperation{
 				AccessType:         sdkacltypes.AccessType_WRITE,
-				ResourceType:       sdkacltypes.ResourceType_KV, // TODO: change to ResourceType_KV_AUTH once merged
-				IdentifierTemplate: signer.String(),
+				ResourceType:       sdkacltypes.ResourceType_KV_AUTH_ADDRESS_STORE, // TODO: change to ResourceType_KV_AUTH once merged
+				IdentifierTemplate:  string(authtypes.AddressStoreKey(signer)),
 			},
 		)
 
