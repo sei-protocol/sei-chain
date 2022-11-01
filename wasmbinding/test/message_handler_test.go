@@ -8,8 +8,7 @@ import (
 	wasmtypes "github.com/CosmWasm/wasmd/x/wasm/types"
 	wasmvmtypes "github.com/CosmWasm/wasmvm/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
-	sdkacltypes "github.com/cosmos/cosmos-sdk/types/accesscontrol"
-	"github.com/cosmos/cosmos-sdk/x/accesscontrol"
+	"github.com/cosmos/cosmos-sdk/types/accesscontrol"
 	acltypes "github.com/cosmos/cosmos-sdk/x/accesscontrol/types"
 	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
 	"github.com/sei-protocol/sei-chain/app"
@@ -37,32 +36,29 @@ func TestMessageHandlerDependencyDecorator(t *testing.T) {
 	testContext := app.NewContext(false, types.Header{})
 
 	// setup bank send message with aclkeeper
-	app.AccessControlKeeper.SetResourceDependencyMapping(testContext, sdkacltypes.MessageDependencyMapping{
+	app.AccessControlKeeper.SetResourceDependencyMapping(testContext, accesscontrol.MessageDependencyMapping{
 		MessageKey: string(acltypes.GenerateMessageKey(&banktypes.MsgSend{})),
-		AccessOps: []sdkacltypes.AccessOperation{
+		AccessOps: []accesscontrol.AccessOperation{
 			{
-				AccessType:         sdkacltypes.AccessType_READ,
-				ResourceType:       sdkacltypes.ResourceType_KV,
+				AccessType:         accesscontrol.AccessType_READ,
+				ResourceType:       accesscontrol.ResourceType_KV,
 				IdentifierTemplate: "*",
 			},
-			*acltypes.CommitAccessOp(),
+			acltypes.CommitAccessOp(),
 		},
 		DynamicEnabled: false,
 	})
 
 	// setup the wasm contract's dependency mapping
-	app.AccessControlKeeper.SetWasmDependencyMapping(testContext, contractAddr, sdkacltypes.WasmDependencyMapping{
+	app.AccessControlKeeper.SetWasmDependencyMapping(testContext, contractAddr, accesscontrol.WasmDependencyMapping{
 		Enabled: true,
-		AccessOps: []sdkacltypes.AccessOperationWithSelector{
+		AccessOps: []accesscontrol.AccessOperation{
 			{
-				Operation: &sdkacltypes.AccessOperation{
-					AccessType:         sdkacltypes.AccessType_WRITE,
-					ResourceType:       sdkacltypes.ResourceType_ANY,
-					IdentifierTemplate: "*",
-				},
-			}, {
-				Operation: acltypes.CommitAccessOp(),
+				AccessType:         accesscontrol.AccessType_WRITE,
+				ResourceType:       accesscontrol.ResourceType_ANY,
+				IdentifierTemplate: "*",
 			},
+			acltypes.CommitAccessOp(),
 		},
 	})
 
@@ -87,18 +83,15 @@ func TestMessageHandlerDependencyDecorator(t *testing.T) {
 		},
 	}, events)
 
-	app.AccessControlKeeper.SetWasmDependencyMapping(testContext, contractAddr, sdkacltypes.WasmDependencyMapping{
+	app.AccessControlKeeper.SetWasmDependencyMapping(testContext, contractAddr, accesscontrol.WasmDependencyMapping{
 		Enabled: true,
-		AccessOps: []sdkacltypes.AccessOperationWithSelector{
+		AccessOps: []accesscontrol.AccessOperation{
 			{
-				Operation: &sdkacltypes.AccessOperation{
-					AccessType:         sdkacltypes.AccessType_WRITE,
-					ResourceType:       sdkacltypes.ResourceType_KV,
-					IdentifierTemplate: "otherIdentifier",
-				},
-			}, {
-				Operation: acltypes.CommitAccessOp(),
+				AccessType:         accesscontrol.AccessType_WRITE,
+				ResourceType:       accesscontrol.ResourceType_KV,
+				IdentifierTemplate: "otherIdentifier",
 			},
+			acltypes.CommitAccessOp(),
 		},
 	})
 
@@ -116,21 +109,18 @@ func TestMessageHandlerDependencyDecorator(t *testing.T) {
 		},
 	})
 	// we expect an error now
-	require.Error(t, accesscontrol.ErrUnexpectedWasmDependency, err)
+	require.Error(t, wasmbinding.ErrUnexpectedWasmDependency, err)
 
 	// reenable wasm mapping that's correct
-	app.AccessControlKeeper.SetWasmDependencyMapping(testContext, contractAddr, sdkacltypes.WasmDependencyMapping{
+	app.AccessControlKeeper.SetWasmDependencyMapping(testContext, contractAddr, accesscontrol.WasmDependencyMapping{
 		Enabled: true,
-		AccessOps: []sdkacltypes.AccessOperationWithSelector{
+		AccessOps: []accesscontrol.AccessOperation{
 			{
-				Operation: &sdkacltypes.AccessOperation{
-					AccessType:         sdkacltypes.AccessType_WRITE,
-					ResourceType:       sdkacltypes.ResourceType_KV,
-					IdentifierTemplate: "*",
-				},
-			}, {
-				Operation: acltypes.CommitAccessOp(),
+				AccessType:         accesscontrol.AccessType_WRITE,
+				ResourceType:       accesscontrol.ResourceType_KV,
+				IdentifierTemplate: "*",
 			},
+			acltypes.CommitAccessOp(),
 		},
 	})
 	// lets try with a message that wont decode properly

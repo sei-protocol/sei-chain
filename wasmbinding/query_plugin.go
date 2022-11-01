@@ -8,9 +8,7 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/types/accesscontrol"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
-	acl "github.com/cosmos/cosmos-sdk/x/accesscontrol"
 	aclkeeper "github.com/cosmos/cosmos-sdk/x/accesscontrol/keeper"
-	"github.com/sei-protocol/sei-chain/utils"
 )
 
 const (
@@ -54,9 +52,7 @@ type CustomQueryHandler struct {
 }
 
 func (queryHandler CustomQueryHandler) HandleQuery(ctx sdk.Context, caller sdk.AccAddress, request wasmvmtypes.QueryRequest) ([]byte, error) {
-	// TODO: we need to carry wasmDependency in ctx instead of loading again here since here has no access to original msg payload
-	//       which is required for populating id correctly.
-	wasmDependency, err := queryHandler.aclKeeper.GetWasmDependencyMapping(ctx, caller, []byte{}, false)
+	wasmDependency, err := queryHandler.aclKeeper.GetWasmDependencyMapping(ctx, caller)
 	// If no mapping exists, or mapping is disabled, this message would behave as blocking for all resources
 	needToCheckDependencies := true
 	if err == aclkeeper.ErrWasmDependencyMappingNotFound {
@@ -69,21 +65,17 @@ func (queryHandler CustomQueryHandler) HandleQuery(ctx sdk.Context, caller sdk.A
 	if !wasmDependency.Enabled {
 		needToCheckDependencies = false
 	}
-	lookupMap := BuildWasmDependencyLookupMap(
-		utils.Map(wasmDependency.AccessOps, func(op accesscontrol.AccessOperationWithSelector) accesscontrol.AccessOperation { return *op.Operation }),
-	)
+	lookupMap := BuildWasmDependencyLookupMap(wasmDependency.AccessOps)
 	if request.Bank != nil {
 		// check for BANK resource type
 		accessOp := accesscontrol.AccessOperation{
-			ResourceType: accesscontrol.ResourceType_KV_BANK,
-			AccessType:   accesscontrol.AccessType_READ,
-			// TODO: should IdentifierTemplate be based on the actual request?
+			ResourceType:       accesscontrol.ResourceType_KV_BANK,
+			AccessType:         accesscontrol.AccessType_READ,
 			IdentifierTemplate: "*",
 		}
 		if needToCheckDependencies {
 			if !AreDependenciesFulfilled(lookupMap, accessOp) {
-				emitIncorrectDependencyWasmEvent(ctx, caller.String())
-				return nil, acl.ErrUnexpectedWasmDependency
+				return nil, ErrUnexpectedWasmDependency
 			}
 		}
 		return queryHandler.QueryPlugins.Bank(ctx, request.Bank)
@@ -113,8 +105,7 @@ func (queryHandler CustomQueryHandler) HandleQuery(ctx sdk.Context, caller sdk.A
 		}
 		if needToCheckDependencies {
 			if !AreDependenciesFulfilled(lookupMap, accessOp) {
-				emitIncorrectDependencyWasmEvent(ctx, caller.String())
-				return nil, acl.ErrUnexpectedWasmDependency
+				return nil, ErrUnexpectedWasmDependency
 			}
 		}
 		return queryHandler.QueryPlugins.Custom(ctx, request.Custom)
@@ -129,8 +120,7 @@ func (queryHandler CustomQueryHandler) HandleQuery(ctx sdk.Context, caller sdk.A
 		}
 		if needToCheckDependencies {
 			if !AreDependenciesFulfilled(lookupMap, accessOp) {
-				emitIncorrectDependencyWasmEvent(ctx, caller.String())
-				return nil, acl.ErrUnexpectedWasmDependency
+				return nil, ErrUnexpectedWasmDependency
 			}
 		}
 		return queryHandler.QueryPlugins.IBC(ctx, caller, request.IBC)
@@ -144,8 +134,7 @@ func (queryHandler CustomQueryHandler) HandleQuery(ctx sdk.Context, caller sdk.A
 		}
 		if needToCheckDependencies {
 			if !AreDependenciesFulfilled(lookupMap, accessOp) {
-				emitIncorrectDependencyWasmEvent(ctx, caller.String())
-				return nil, acl.ErrUnexpectedWasmDependency
+				return nil, ErrUnexpectedWasmDependency
 			}
 		}
 		return queryHandler.QueryPlugins.Staking(ctx, request.Staking)
@@ -160,8 +149,7 @@ func (queryHandler CustomQueryHandler) HandleQuery(ctx sdk.Context, caller sdk.A
 		}
 		if needToCheckDependencies {
 			if !AreDependenciesFulfilled(lookupMap, accessOp) {
-				emitIncorrectDependencyWasmEvent(ctx, caller.String())
-				return nil, acl.ErrUnexpectedWasmDependency
+				return nil, ErrUnexpectedWasmDependency
 			}
 		}
 		return queryHandler.QueryPlugins.Stargate(ctx, request.Stargate)
@@ -175,8 +163,7 @@ func (queryHandler CustomQueryHandler) HandleQuery(ctx sdk.Context, caller sdk.A
 		}
 		if needToCheckDependencies {
 			if !AreDependenciesFulfilled(lookupMap, accessOp) {
-				emitIncorrectDependencyWasmEvent(ctx, caller.String())
-				return nil, acl.ErrUnexpectedWasmDependency
+				return nil, ErrUnexpectedWasmDependency
 			}
 		}
 		return queryHandler.QueryPlugins.Wasm(ctx, request.Wasm)

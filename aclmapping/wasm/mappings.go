@@ -8,7 +8,6 @@ import (
 	sdkacltypes "github.com/cosmos/cosmos-sdk/types/accesscontrol"
 	aclkeeper "github.com/cosmos/cosmos-sdk/x/accesscontrol/keeper"
 	acltypes "github.com/cosmos/cosmos-sdk/x/accesscontrol/types"
-	"github.com/sei-protocol/sei-chain/utils"
 )
 
 var (
@@ -42,12 +41,12 @@ func (wasmDepGen WasmDependencyGenerator) WasmExecuteContractGenerator(keeper ac
 	if err != nil {
 		return []sdkacltypes.AccessOperation{}, err
 	}
-	wasmDependencyMapping, err := keeper.GetWasmDependencyMapping(ctx, contractAddr, executeContractMsg.Msg, true)
+	wasmDependencyMapping, err := keeper.GetWasmDependencyMapping(ctx, contractAddr)
 	if err != nil {
 		return []sdkacltypes.AccessOperation{}, err
 	}
 	if !wasmDependencyMapping.Enabled {
 		return []sdkacltypes.AccessOperation{}, ErrWasmFunctionDependenciesDisabled
 	}
-	return utils.Map(wasmDependencyMapping.AccessOps, func(op sdkacltypes.AccessOperationWithSelector) sdkacltypes.AccessOperation { return *op.Operation }), nil
+	return wasmDependencyMapping.AccessOps, nil
 }

@@ -11,7 +11,6 @@ import (
 	"github.com/cosmos/cosmos-sdk/crypto/keys/secp256k1"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/types/accesscontrol"
-	acl "github.com/cosmos/cosmos-sdk/x/accesscontrol"
 	acltypes "github.com/cosmos/cosmos-sdk/x/accesscontrol/types"
 	"github.com/sei-protocol/sei-chain/app"
 	keepertest "github.com/sei-protocol/sei-chain/testutil/keeper"
@@ -442,16 +441,13 @@ func TestQueryHandlerDependencyDecoratorBank(t *testing.T) {
 	// setup the wasm contract's dependency mapping
 	err = app.AccessControlKeeper.SetWasmDependencyMapping(testContext, contractAddr, accesscontrol.WasmDependencyMapping{
 		Enabled: true,
-		AccessOps: []accesscontrol.AccessOperationWithSelector{
+		AccessOps: []accesscontrol.AccessOperation{
 			{
-				Operation: &accesscontrol.AccessOperation{
-					AccessType:         accesscontrol.AccessType_READ,
-					ResourceType:       accesscontrol.ResourceType_KV_BANK,
-					IdentifierTemplate: "*",
-				},
-			}, {
-				Operation: acltypes.CommitAccessOp(),
+				AccessType:         accesscontrol.AccessType_READ,
+				ResourceType:       accesscontrol.ResourceType_KV_BANK,
+				IdentifierTemplate: "*",
 			},
+			acltypes.CommitAccessOp(),
 		},
 	})
 	require.NoError(t, err)
@@ -463,16 +459,13 @@ func TestQueryHandlerDependencyDecoratorBank(t *testing.T) {
 
 	err = app.AccessControlKeeper.SetWasmDependencyMapping(testContext, contractAddr, accesscontrol.WasmDependencyMapping{
 		Enabled: true,
-		AccessOps: []accesscontrol.AccessOperationWithSelector{
+		AccessOps: []accesscontrol.AccessOperation{
 			{
-				Operation: &accesscontrol.AccessOperation{
-					AccessType:         accesscontrol.AccessType_WRITE,
-					ResourceType:       accesscontrol.ResourceType_KV_DEX,
-					IdentifierTemplate: "*",
-				},
-			}, {
-				Operation: acltypes.CommitAccessOp(),
+				AccessType:         accesscontrol.AccessType_WRITE,
+				ResourceType:       accesscontrol.ResourceType_KV_DEX,
+				IdentifierTemplate: "*",
 			},
+			acltypes.CommitAccessOp(),
 		},
 	})
 	require.NoError(t, err)
@@ -480,7 +473,7 @@ func TestQueryHandlerDependencyDecoratorBank(t *testing.T) {
 	_, err = queryDecorator.HandleQuery(testContext, contractAddr, wasmvmtypes.QueryRequest{
 		Bank: &wasmvmtypes.BankQuery{},
 	})
-	require.Error(t, acl.ErrUnexpectedWasmDependency, err)
+	require.Error(t, wasmbinding.ErrUnexpectedWasmDependency, err)
 }
 
 func TestQueryHandlerDependencyDecoratorIBC(t *testing.T) {
@@ -493,16 +486,13 @@ func TestQueryHandlerDependencyDecoratorIBC(t *testing.T) {
 	// setup the wasm contract's dependency mapping
 	err = app.AccessControlKeeper.SetWasmDependencyMapping(testContext, contractAddr, accesscontrol.WasmDependencyMapping{
 		Enabled: true,
-		AccessOps: []accesscontrol.AccessOperationWithSelector{
+		AccessOps: []accesscontrol.AccessOperation{
 			{
-				Operation: &accesscontrol.AccessOperation{
-					AccessType:         accesscontrol.AccessType_READ,
-					ResourceType:       accesscontrol.ResourceType_ANY,
-					IdentifierTemplate: "*",
-				},
-			}, {
-				Operation: acltypes.CommitAccessOp(),
+				AccessType:         accesscontrol.AccessType_READ,
+				ResourceType:       accesscontrol.ResourceType_ANY,
+				IdentifierTemplate: "*",
 			},
+			acltypes.CommitAccessOp(),
 		},
 	})
 	require.NoError(t, err)
@@ -514,16 +504,13 @@ func TestQueryHandlerDependencyDecoratorIBC(t *testing.T) {
 
 	err = app.AccessControlKeeper.SetWasmDependencyMapping(testContext, contractAddr, accesscontrol.WasmDependencyMapping{
 		Enabled: true,
-		AccessOps: []accesscontrol.AccessOperationWithSelector{
+		AccessOps: []accesscontrol.AccessOperation{
 			{
-				Operation: &accesscontrol.AccessOperation{
-					AccessType:         accesscontrol.AccessType_WRITE,
-					ResourceType:       accesscontrol.ResourceType_KV,
-					IdentifierTemplate: "*",
-				},
-			}, {
-				Operation: acltypes.CommitAccessOp(),
+				AccessType:         accesscontrol.AccessType_WRITE,
+				ResourceType:       accesscontrol.ResourceType_KV,
+				IdentifierTemplate: "*",
 			},
+			acltypes.CommitAccessOp(),
 		},
 	})
 	require.NoError(t, err)
@@ -531,7 +518,7 @@ func TestQueryHandlerDependencyDecoratorIBC(t *testing.T) {
 	_, err = queryDecorator.HandleQuery(testContext, contractAddr, wasmvmtypes.QueryRequest{
 		IBC: &wasmvmtypes.IBCQuery{},
 	})
-	require.Error(t, acl.ErrUnexpectedWasmDependency, err)
+	require.Error(t, wasmbinding.ErrUnexpectedWasmDependency, err)
 }
 
 func TestQueryHandlerDependencyDecoratorStaking(t *testing.T) {
@@ -544,16 +531,13 @@ func TestQueryHandlerDependencyDecoratorStaking(t *testing.T) {
 	// setup the wasm contract's dependency mapping
 	err = app.AccessControlKeeper.SetWasmDependencyMapping(testContext, contractAddr, accesscontrol.WasmDependencyMapping{
 		Enabled: true,
-		AccessOps: []accesscontrol.AccessOperationWithSelector{
+		AccessOps: []accesscontrol.AccessOperation{
 			{
-				Operation: &accesscontrol.AccessOperation{
-					AccessType:         accesscontrol.AccessType_READ,
-					ResourceType:       accesscontrol.ResourceType_KV_STAKING,
-					IdentifierTemplate: "*",
-				},
-			}, {
-				Operation: acltypes.CommitAccessOp(),
+				AccessType:         accesscontrol.AccessType_READ,
+				ResourceType:       accesscontrol.ResourceType_KV_STAKING,
+				IdentifierTemplate: "*",
 			},
+			acltypes.CommitAccessOp(),
 		},
 	})
 	require.NoError(t, err)
@@ -565,16 +549,13 @@ func TestQueryHandlerDependencyDecoratorStaking(t *testing.T) {
 
 	err = app.AccessControlKeeper.SetWasmDependencyMapping(testContext, contractAddr, accesscontrol.WasmDependencyMapping{
 		Enabled: true,
-		AccessOps: []accesscontrol.AccessOperationWithSelector{
+		AccessOps: []accesscontrol.AccessOperation{
 			{
-				Operation: &accesscontrol.AccessOperation{
-					AccessType:         accesscontrol.AccessType_WRITE,
-					ResourceType:       accesscontrol.ResourceType_KV_DEX,
-					IdentifierTemplate: "*",
-				},
-			}, {
-				Operation: acltypes.CommitAccessOp(),
+				AccessType:         accesscontrol.AccessType_WRITE,
+				ResourceType:       accesscontrol.ResourceType_KV_DEX,
+				IdentifierTemplate: "*",
 			},
+			acltypes.CommitAccessOp(),
 		},
 	})
 	require.NoError(t, err)
@@ -582,7 +563,7 @@ func TestQueryHandlerDependencyDecoratorStaking(t *testing.T) {
 	_, err = queryDecorator.HandleQuery(testContext, contractAddr, wasmvmtypes.QueryRequest{
 		Staking: &wasmvmtypes.StakingQuery{},
 	})
-	require.Error(t, acl.ErrUnexpectedWasmDependency, err)
+	require.Error(t, wasmbinding.ErrUnexpectedWasmDependency, err)
 }
 
 func TestQueryHandlerDependencyDecoratorStargate(t *testing.T) {
@@ -595,16 +576,13 @@ func TestQueryHandlerDependencyDecoratorStargate(t *testing.T) {
 	// setup the wasm contract's dependency mapping
 	err = app.AccessControlKeeper.SetWasmDependencyMapping(testContext, contractAddr, accesscontrol.WasmDependencyMapping{
 		Enabled: true,
-		AccessOps: []accesscontrol.AccessOperationWithSelector{
+		AccessOps: []accesscontrol.AccessOperation{
 			{
-				Operation: &accesscontrol.AccessOperation{
-					AccessType:         accesscontrol.AccessType_READ,
-					ResourceType:       accesscontrol.ResourceType_ANY,
-					IdentifierTemplate: "*",
-				},
-			}, {
-				Operation: acltypes.CommitAccessOp(),
+				AccessType:         accesscontrol.AccessType_READ,
+				ResourceType:       accesscontrol.ResourceType_ANY,
+				IdentifierTemplate: "*",
 			},
+			acltypes.CommitAccessOp(),
 		},
 	})
 	require.NoError(t, err)
@@ -616,16 +594,13 @@ func TestQueryHandlerDependencyDecoratorStargate(t *testing.T) {
 
 	err = app.AccessControlKeeper.SetWasmDependencyMapping(testContext, contractAddr, accesscontrol.WasmDependencyMapping{
 		Enabled: true,
-		AccessOps: []accesscontrol.AccessOperationWithSelector{
+		AccessOps: []accesscontrol.AccessOperation{
 			{
-				Operation: &accesscontrol.AccessOperation{
-					AccessType:         accesscontrol.AccessType_WRITE,
-					ResourceType:       accesscontrol.ResourceType_KV,
-					IdentifierTemplate: "*",
-				},
-			}, {
-				Operation: acltypes.CommitAccessOp(),
+				AccessType:         accesscontrol.AccessType_WRITE,
+				ResourceType:       accesscontrol.ResourceType_KV,
+				IdentifierTemplate: "*",
 			},
+			acltypes.CommitAccessOp(),
 		},
 	})
 	require.NoError(t, err)
@@ -633,7 +608,7 @@ func TestQueryHandlerDependencyDecoratorStargate(t *testing.T) {
 	_, err = queryDecorator.HandleQuery(testContext, contractAddr, wasmvmtypes.QueryRequest{
 		Stargate: &wasmvmtypes.StargateQuery{},
 	})
-	require.Error(t, acl.ErrUnexpectedWasmDependency, err)
+	require.Error(t, wasmbinding.ErrUnexpectedWasmDependency, err)
 }
 
 func TestQueryHandlerDependencyDecoratorWasm(t *testing.T) {
@@ -646,16 +621,13 @@ func TestQueryHandlerDependencyDecoratorWasm(t *testing.T) {
 	// setup the wasm contract's dependency mapping
 	err = app.AccessControlKeeper.SetWasmDependencyMapping(testContext, contractAddr, accesscontrol.WasmDependencyMapping{
 		Enabled: true,
-		AccessOps: []accesscontrol.AccessOperationWithSelector{
+		AccessOps: []accesscontrol.AccessOperation{
 			{
-				Operation: &accesscontrol.AccessOperation{
-					AccessType:         accesscontrol.AccessType_READ,
-					ResourceType:       accesscontrol.ResourceType_KV_WASM,
-					IdentifierTemplate: "*",
-				},
-			}, {
-				Operation: acltypes.CommitAccessOp(),
+				AccessType:         accesscontrol.AccessType_READ,
+				ResourceType:       accesscontrol.ResourceType_KV_WASM,
+				IdentifierTemplate: "*",
 			},
+			acltypes.CommitAccessOp(),
 		},
 	})
 	require.NoError(t, err)
@@ -667,16 +639,13 @@ func TestQueryHandlerDependencyDecoratorWasm(t *testing.T) {
 
 	err = app.AccessControlKeeper.SetWasmDependencyMapping(testContext, contractAddr, accesscontrol.WasmDependencyMapping{
 		Enabled: true,
-		AccessOps: []accesscontrol.AccessOperationWithSelector{
+		AccessOps: []accesscontrol.AccessOperation{
 			{
-				Operation: &accesscontrol.AccessOperation{
-					AccessType:         accesscontrol.AccessType_WRITE,
-					ResourceType:       accesscontrol.ResourceType_KV_DEX,
-					IdentifierTemplate: "*",
-				},
-			}, {
-				Operation: acltypes.CommitAccessOp(),
+				AccessType:         accesscontrol.AccessType_WRITE,
+				ResourceType:       accesscontrol.ResourceType_KV_DEX,
+				IdentifierTemplate: "*",
 			},
+			acltypes.CommitAccessOp(),
 		},
 	})
 	require.NoError(t, err)
@@ -684,7 +653,7 @@ func TestQueryHandlerDependencyDecoratorWasm(t *testing.T) {
 	_, err = queryDecorator.HandleQuery(testContext, contractAddr, wasmvmtypes.QueryRequest{
 		Wasm: &wasmvmtypes.WasmQuery{},
 	})
-	require.Error(t, acl.ErrUnexpectedWasmDependency, err)
+	require.Error(t, wasmbinding.ErrUnexpectedWasmDependency, err)
 }
 
 func TestQueryHandlerDependencyDecoratorDex(t *testing.T) {
@@ -697,16 +666,13 @@ func TestQueryHandlerDependencyDecoratorDex(t *testing.T) {
 	// setup the wasm contract's dependency mapping
 	err = app.AccessControlKeeper.SetWasmDependencyMapping(testContext, contractAddr, accesscontrol.WasmDependencyMapping{
 		Enabled: true,
-		AccessOps: []accesscontrol.AccessOperationWithSelector{
+		AccessOps: []accesscontrol.AccessOperation{
 			{
-				Operation: &accesscontrol.AccessOperation{
-					AccessType:         accesscontrol.AccessType_READ,
-					ResourceType:       accesscontrol.ResourceType_KV_DEX,
-					IdentifierTemplate: "*",
-				},
-			}, {
-				Operation: acltypes.CommitAccessOp(),
+				AccessType:         accesscontrol.AccessType_READ,
+				ResourceType:       accesscontrol.ResourceType_KV_DEX,
+				IdentifierTemplate: "*",
 			},
+			acltypes.CommitAccessOp(),
 		},
 	})
 	require.NoError(t, err)
@@ -722,16 +688,13 @@ func TestQueryHandlerDependencyDecoratorDex(t *testing.T) {
 
 	err = app.AccessControlKeeper.SetWasmDependencyMapping(testContext, contractAddr, accesscontrol.WasmDependencyMapping{
 		Enabled: true,
-		AccessOps: []accesscontrol.AccessOperationWithSelector{
+		AccessOps: []accesscontrol.AccessOperation{
 			{
-				Operation: &accesscontrol.AccessOperation{
-					AccessType:         accesscontrol.AccessType_READ,
-					ResourceType:       accesscontrol.ResourceType_KV_ORACLE,
-					IdentifierTemplate: "*",
-				},
-			}, {
-				Operation: acltypes.CommitAccessOp(),
+				AccessType:         accesscontrol.AccessType_READ,
+				ResourceType:       accesscontrol.ResourceType_KV_ORACLE,
+				IdentifierTemplate: "*",
 			},
+			acltypes.CommitAccessOp(),
 		},
 	})
 	require.NoError(t, err)
@@ -739,7 +702,7 @@ func TestQueryHandlerDependencyDecoratorDex(t *testing.T) {
 	_, err = queryDecorator.HandleQuery(testContext, contractAddr, wasmvmtypes.QueryRequest{
 		Custom: customQuery,
 	})
-	require.Error(t, acl.ErrUnexpectedWasmDependency, err)
+	require.Error(t, wasmbinding.ErrUnexpectedWasmDependency, err)
 }
 
 func TestQueryHandlerDependencyDecoratorOracle(t *testing.T) {
@@ -752,16 +715,13 @@ func TestQueryHandlerDependencyDecoratorOracle(t *testing.T) {
 	// setup the wasm contract's dependency mapping
 	err = app.AccessControlKeeper.SetWasmDependencyMapping(testContext, contractAddr, accesscontrol.WasmDependencyMapping{
 		Enabled: true,
-		AccessOps: []accesscontrol.AccessOperationWithSelector{
+		AccessOps: []accesscontrol.AccessOperation{
 			{
-				Operation: &accesscontrol.AccessOperation{
-					AccessType:         accesscontrol.AccessType_READ,
-					ResourceType:       accesscontrol.ResourceType_KV_ORACLE,
-					IdentifierTemplate: "*",
-				},
-			}, {
-				Operation: acltypes.CommitAccessOp(),
+				AccessType:         accesscontrol.AccessType_READ,
+				ResourceType:       accesscontrol.ResourceType_KV_ORACLE,
+				IdentifierTemplate: "*",
 			},
+			acltypes.CommitAccessOp(),
 		},
 	})
 	require.NoError(t, err)
@@ -777,16 +737,13 @@ func TestQueryHandlerDependencyDecoratorOracle(t *testing.T) {
 
 	err = app.AccessControlKeeper.SetWasmDependencyMapping(testContext, contractAddr, accesscontrol.WasmDependencyMapping{
 		Enabled: true,
-		AccessOps: []accesscontrol.AccessOperationWithSelector{
+		AccessOps: []accesscontrol.AccessOperation{
 			{
-				Operation: &accesscontrol.AccessOperation{
-					AccessType:         accesscontrol.AccessType_READ,
-					ResourceType:       accesscontrol.ResourceType_KV_BANK,
-					IdentifierTemplate: "*",
-				},
-			}, {
-				Operation: acltypes.CommitAccessOp(),
+				AccessType:         accesscontrol.AccessType_READ,
+				ResourceType:       accesscontrol.ResourceType_KV_BANK,
+				IdentifierTemplate: "*",
 			},
+			acltypes.CommitAccessOp(),
 		},
 	})
 	require.NoError(t, err)
@@ -794,7 +751,7 @@ func TestQueryHandlerDependencyDecoratorOracle(t *testing.T) {
 	_, err = queryDecorator.HandleQuery(testContext, contractAddr, wasmvmtypes.QueryRequest{
 		Custom: customQuery,
 	})
-	require.Error(t, acl.ErrUnexpectedWasmDependency, err)
+	require.Error(t, wasmbinding.ErrUnexpectedWasmDependency, err)
 }
 
 func TestQueryHandlerDependencyDecoratorEpoch(t *testing.T) {
@@ -807,16 +764,13 @@ func TestQueryHandlerDependencyDecoratorEpoch(t *testing.T) {
 	// setup the wasm contract's dependency mapping
 	err = app.AccessControlKeeper.SetWasmDependencyMapping(testContext, contractAddr, accesscontrol.WasmDependencyMapping{
 		Enabled: true,
-		AccessOps: []accesscontrol.AccessOperationWithSelector{
+		AccessOps: []accesscontrol.AccessOperation{
 			{
-				Operation: &accesscontrol.AccessOperation{
-					AccessType:         accesscontrol.AccessType_READ,
-					ResourceType:       accesscontrol.ResourceType_KV_EPOCH,
-					IdentifierTemplate: "*",
-				},
-			}, {
-				Operation: acltypes.CommitAccessOp(),
+				AccessType:         accesscontrol.AccessType_READ,
+				ResourceType:       accesscontrol.ResourceType_KV_EPOCH,
+				IdentifierTemplate: "*",
 			},
+			acltypes.CommitAccessOp(),
 		},
 	})
 	require.NoError(t, err)
@@ -832,16 +786,13 @@ func TestQueryHandlerDependencyDecoratorEpoch(t *testing.T) {
 
 	err = app.AccessControlKeeper.SetWasmDependencyMapping(testContext, contractAddr, accesscontrol.WasmDependencyMapping{
 		Enabled: true,
-		AccessOps: []accesscontrol.AccessOperationWithSelector{
+		AccessOps: []accesscontrol.AccessOperation{
 			{
-				Operation: &accesscontrol.AccessOperation{
-					AccessType:         accesscontrol.AccessType_READ,
-					ResourceType:       accesscontrol.ResourceType_KV_BANK,
-					IdentifierTemplate: "*",
-				},
-			}, {
-				Operation: acltypes.CommitAccessOp(),
+				AccessType:         accesscontrol.AccessType_READ,
+				ResourceType:       accesscontrol.ResourceType_KV_BANK,
+				IdentifierTemplate: "*",
 			},
+			acltypes.CommitAccessOp(),
 		},
 	})
 	require.NoError(t, err)
@@ -849,7 +800,7 @@ func TestQueryHandlerDependencyDecoratorEpoch(t *testing.T) {
 	_, err = queryDecorator.HandleQuery(testContext, contractAddr, wasmvmtypes.QueryRequest{
 		Custom: customQuery,
 	})
-	require.Error(t, acl.ErrUnexpectedWasmDependency, err)
+	require.Error(t, wasmbinding.ErrUnexpectedWasmDependency, err)
 }
 
 func TestQueryHandlerDependencyDecoratorTokenFactory(t *testing.T) {
