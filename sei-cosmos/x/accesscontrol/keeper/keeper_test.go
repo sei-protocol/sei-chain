@@ -179,6 +179,15 @@ func TestWasmDependencyMappingWithSelector(t *testing.T) {
 					IdentifierTemplate: wasmContractAddress.String() + "/%s",
 				},
 				SelectorType: acltypes.AccessOperationSelectorType_JQ,
+				Selector:     ".receive.amount",
+			},
+			{
+				Operation: &acltypes.AccessOperation{
+					ResourceType:       acltypes.ResourceType_KV_WASM,
+					AccessType:         acltypes.AccessType_WRITE,
+					IdentifierTemplate: wasmContractAddress.String() + "/%s",
+				},
+				SelectorType: acltypes.AccessOperationSelectorType_JQ,
 				Selector:     ".send.amount",
 			},
 			{

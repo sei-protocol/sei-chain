@@ -34,8 +34,8 @@ type (
 		storeKey                         sdk.StoreKey
 		paramSpace                       paramtypes.Subspace
 		MessageDependencyGeneratorMapper DependencyGeneratorMap
-		AccountKeeper       			 authkeeper.AccountKeeper
-		StakingKeeper       			 stakingkeeper.Keeper
+		AccountKeeper                    authkeeper.AccountKeeper
+		StakingKeeper                    stakingkeeper.Keeper
 	}
 )
 
@@ -45,8 +45,8 @@ func NewKeeper(
 	cdc codec.Codec,
 	storeKey sdk.StoreKey,
 	paramSpace paramtypes.Subspace,
-	ak 		authkeeper.AccountKeeper,
-	sk 		stakingkeeper.Keeper,
+	ak authkeeper.AccountKeeper,
+	sk stakingkeeper.Keeper,
 	opts ...Option,
 ) Keeper {
 	if !paramSpace.HasKeyTable() {
@@ -58,8 +58,8 @@ func NewKeeper(
 		storeKey:                         storeKey,
 		paramSpace:                       paramSpace,
 		MessageDependencyGeneratorMapper: DefaultMessageDependencyGenerator(),
-		AccountKeeper: ak,
-		StakingKeeper: sk,
+		AccountKeeper:                    ak,
+		StakingKeeper:                    sk,
 	}
 
 	for _, o := range opts {
@@ -134,7 +134,8 @@ func (k Keeper) GetWasmDependencyMapping(ctx sdk.Context, contractAddress sdk.Ac
 	dependencyMapping := acltypes.WasmDependencyMapping{}
 	k.cdc.MustUnmarshal(b, &dependencyMapping)
 	if dependencyMapping.Enabled && applySelector {
-		for i, opWithSelector := range dependencyMapping.AccessOps {
+		selectedAccessOps := []acltypes.AccessOperationWithSelector{}
+		for _, opWithSelector := range dependencyMapping.AccessOps {
 			if opWithSelector.SelectorType == acltypes.AccessOperationSelectorType_JQ {
 				op, err := jq.Parse(opWithSelector.Selector)
 				if err != nil {
@@ -142,14 +143,17 @@ func (k Keeper) GetWasmDependencyMapping(ctx sdk.Context, contractAddress sdk.Ac
 				}
 				data, err := op.Apply(msgBody)
 				if err != nil {
-					return acltypes.WasmDependencyMapping{}, err
+					// if the operation is not applicable to the message, skip it
+					continue
 				}
-				dependencyMapping.AccessOps[i].Operation.IdentifierTemplate = fmt.Sprintf(
-					dependencyMapping.AccessOps[i].Operation.IdentifierTemplate,
+				opWithSelector.Operation.IdentifierTemplate = fmt.Sprintf(
+					opWithSelector.Operation.IdentifierTemplate,
 					string(data),
 				)
 			}
+			selectedAccessOps = append(selectedAccessOps, opWithSelector)
 		}
+		dependencyMapping.AccessOps = selectedAccessOps
 	}
 	return dependencyMapping, nil
 }
