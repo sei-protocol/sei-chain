@@ -1,7 +1,7 @@
 {
     "msgs_per_tx": 10,
     "chain_id": "sei-loadtest-testnet",
-    "txs_per_block": 400,
+    "orders_per_block": 400,
     "rounds": 5,
     "price_distribution": {
         "min": "45",
@@ -25,7 +25,7 @@
         }
     },
     "message_type": "bank,dex,staking,tokenfactory",
-    "run_oracle": true,
+    "run_oracle": false,
     "contract_distribution": [
             {
               "contract_address":"sei14hj2tavq8fpesdwxxcu44rty3hh90vhujrvcmstl4zr3txmfvw9sh9m79m",
