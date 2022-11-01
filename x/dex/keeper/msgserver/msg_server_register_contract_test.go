@@ -16,13 +16,14 @@ func TestRegisterContract(t *testing.T) {
 	keeper, ctx := keepertest.DexKeeper(t)
 	wctx := sdk.WrapSDKContext(ctx)
 	server := msgserver.NewMsgServerImpl(*keeper)
-	registerContract(server, wctx, keepertest.TestContract, nil)
+	err := registerContract(server, wctx, keepertest.TestContract, nil)
+	require.NoError(t, err)
 	storedContracts := keeper.GetAllContractInfo(ctx)
 	require.Equal(t, 1, len(storedContracts))
 	require.Nil(t, storedContracts[0].Dependencies)
 
 	// dependency doesn't exist
-	err := registerContract(server, wctx, keepertest.TestContract, []string{"TEST2"})
+	err = registerContract(server, wctx, keepertest.TestContract, []string{"TEST2"})
 	require.NotNil(t, err)
 	storedContracts = keeper.GetAllContractInfo(ctx)
 	require.Equal(t, 1, len(storedContracts))

@@ -29,7 +29,7 @@ import (
 )
 
 const (
-	TestAccount    = "accnt"
+	TestAccount    = "sei1yezq49upxhunjjhudql2fnj5dgvcwjj87pn2wx"
 	TestContract   = "tc"
 	TestPriceDenom = "usdc"
 	TestAssetDenom = "atom"
