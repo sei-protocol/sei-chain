@@ -284,12 +284,12 @@ func appExport(
 	}
 
 	if height != -1 {
-		exportableApp = app.New(logger, db, traceStore, false, map[int64]bool{}, "", uint(1), encCfg, app.GetWasmEnabledProposals(), appOpts, app.EmptyWasmOpts)
+		exportableApp = app.New(logger, db, traceStore, false, map[int64]bool{}, cast.ToString(appOpts.Get(flags.FlagHome)), uint(1), encCfg, app.GetWasmEnabledProposals(), appOpts, app.EmptyWasmOpts)
 		if err := exportableApp.LoadHeight(height); err != nil {
 			return servertypes.ExportedApp{}, err
 		}
 	} else {
-		exportableApp = app.New(logger, db, traceStore, true, map[int64]bool{}, "", uint(1), encCfg, app.GetWasmEnabledProposals(), appOpts, app.EmptyWasmOpts)
+		exportableApp = app.New(logger, db, traceStore, true, map[int64]bool{}, cast.ToString(appOpts.Get(flags.FlagHome)), uint(1), encCfg, app.GetWasmEnabledProposals(), appOpts, app.EmptyWasmOpts)
 	}
 
 	return exportableApp.ExportAppStateAndValidators(forZeroHeight, jailAllowedAddrs)
