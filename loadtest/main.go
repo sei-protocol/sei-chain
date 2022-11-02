@@ -218,22 +218,26 @@ func (c *LoadTestClient) generateMessage(config Config, key cryptotypes.PrivKey,
 	return msg, false
 }
 
-func generateDexOrderPlacements(config Config, key cryptotypes.PrivKey, batchSize uint64, price sdk.Dec, quantity sdk.Dec) []*dextypes.Order {
-	orderPlacements := []*dextypes.Order{}
-	var orderType dextypes.OrderType
+func sampleDexOrderType(config Config) (orderType dextypes.OrderType){
 	if config.MessageType == "failure_bank_malformed" {
 		orderType = -1
 	} else {
-		dexMsgType := config.MsgTypeDistr.SampleDexMsgs()
-		switch dexMsgType {
+		msgType := config.MsgTypeDistr.SampleDexMsgs()
+		switch msgType {
 		case Limit:
 			orderType = dextypes.OrderType_LIMIT
 		case Market:
 			orderType = dextypes.OrderType_MARKET
 		default:
-			panic(fmt.Sprintf("Unknown message type %s\n", dexMsgType))
+			panic(fmt.Sprintf("Unknown message type %s\n", msgType))
 		}
 	}
+	return orderType
+}
+
+func generateDexOrderPlacements(config Config, key cryptotypes.PrivKey, msgPerTx uint64, price sdk.Dec, quantity sdk.Dec) (orderPlacements []*dextypes.Order) {
+	orderType := sampleDexOrderType(config)
+
 	var direction dextypes.PositionDirection
 	if rand.Float64() < 0.5 {
 		direction = dextypes.PositionDirection_LONG
@@ -242,7 +246,7 @@ func generateDexOrderPlacements(config Config, key cryptotypes.PrivKey, batchSiz
 	}
 
 	contract := config.ContractDistr.Sample()
-	for j := 0; j < int(batchSize); j++ {
+	for j := 0; j < int(msgPerTx); j++ {
 		orderPlacements = append(orderPlacements, &dextypes.Order{
 			Account:           sdk.AccAddress(key.PubKey().Address()).String(),
 			ContractAddr:      contract,
