@@ -218,7 +218,7 @@ func (c *LoadTestClient) generateMessage(config Config, key cryptotypes.PrivKey,
 	return msg, false
 }
 
-func sampleDexOrderType(config Config) (orderType dextypes.OrderType){
+func sampleDexOrderType(config Config) (orderType dextypes.OrderType) {
 	if config.MessageType == "failure_bank_malformed" {
 		orderType = -1
 	} else {
