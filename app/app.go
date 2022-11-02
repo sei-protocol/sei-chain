@@ -968,14 +968,9 @@ func (app *App) ProcessBlockSynchronous(ctx sdk.Context, txs [][]byte) []*abci.E
 func GetChannelsFromSignalMapping(signalMapping acltypes.MessageCompletionSignalMapping) sdkacltypes.MessageAccessOpsChannelMapping {
 	channelsMapping := make(sdkacltypes.MessageAccessOpsChannelMapping)
 	for messageIndex, accessOperationsToSignal := range signalMapping {
+		channelsMapping[messageIndex] = make(sdkacltypes.AccessOpsChannelMapping)
 		for accessOperation, completionSignals := range accessOperationsToSignal {
 			var channels []chan interface{}
-			if val, ok := channelsMapping[messageIndex]; ok {
-				channels = val[accessOperation]
-			} else {
-				channelsMapping[messageIndex] = make(sdkacltypes.AccessOpsChannelMapping)
-			}
-
 			for _, completionSignal := range completionSignals {
 				channels = append(channels, completionSignal.Channel)
 			}
