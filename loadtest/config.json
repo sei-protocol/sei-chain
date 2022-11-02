@@ -15,8 +15,8 @@
     },
     "message_type_distribution": {
         "dex": {
-            "place_order_percentage": "0.5",
-            "cancel_order_percentage": "0.5"
+            "limit_order_percentage": "0.2",
+            "market_order_percentage": "0.8"
         },
         "staking": {
             "delegate_percentage": "0.5",
@@ -24,27 +24,23 @@
             "begin_redelegate_percentage": "0.25"
         }
     },
-    "order_type_distribution": {
-        "limit_order_percentage": "0.2",
-        "market_order_percentage": "0.8"
-    },
-    "message_type": "dex",
-    "run_oracle": true,
+    "run_oracle": false,
+    "message_type": "basic",
     "contract_distribution": [
         {
-            "contract_address": "sei14hj2tavq8fpesdwxxcu44rty3hh90vhujrvcmstl4zr3txmfvw9sh9m79m",
-            "percentage": "0.25"
-        },
-        {
-            "contract_address": "sei1nc5tatafv6eyq7llkr2gv50ff9e22mnf70qgjlv737ktmt4eswrqms7u8a",
-            "percentage": "0.25"
-        },
-        {
-            "contract_address": "sei17p9rzwnnfxcjp32un9ug7yhhzgtkhvl9jfksztgw5uh69wac2pgsrtqewe",
-            "percentage": "0.25"
-        },
-        {
             "contract_address": "sei1yw4xvtc43me9scqfr2jr2gzvcxd3a9y4eq7gaukreugw2yd2f8tsy4qgdm",
+            "percentage": "0.25"
+        },
+        {
+            "contract_address": "sei1wug8sewp6cedgkmrmvhl3lf3tulagm9hnvy8p0rppz9yjw0g4wtq05fpn3",
+            "percentage": "0.25"
+        },
+        {
+            "contract_address": "sei1qg5ega6dykkxc307y25pecuufrjkxkaggkkxh7nad0vhyhtuhw3scwfwpd",
+            "percentage": "0.25"
+        },
+        {
+            "contract_address": "sei1zwv6feuzhy6a9wekh96cd57lsarmqlwxdypdsplw6zhfncqw6ftqr428wx",
             "percentage": "0.25"
         }
     ]
