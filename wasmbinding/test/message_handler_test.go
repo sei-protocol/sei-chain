@@ -51,18 +51,14 @@ func TestMessageHandlerDependencyDecorator(t *testing.T) {
 	})
 
 	// setup the wasm contract's dependency mapping
-	app.AccessControlKeeper.SetWasmDependencyMapping(testContext, contractAddr, sdkacltypes.WasmDependencyMapping{
-		Enabled: true,
-		AccessOps: []sdkacltypes.AccessOperationWithSelector{
-			{
-				Operation: &sdkacltypes.AccessOperation{
-					AccessType:         sdkacltypes.AccessType_WRITE,
-					ResourceType:       sdkacltypes.ResourceType_ANY,
-					IdentifierTemplate: "*",
-				},
-			}, {
-				Operation: acltypes.CommitAccessOp(),
+	testContext = testContext.WithTxMsgAccessOps(map[int][]sdkacltypes.AccessOperation{
+		0: {
+			sdkacltypes.AccessOperation{
+				AccessType:         sdkacltypes.AccessType_WRITE,
+				ResourceType:       sdkacltypes.ResourceType_ANY,
+				IdentifierTemplate: "*",
 			},
+			*acltypes.CommitAccessOp(),
 		},
 	})
 
@@ -87,18 +83,14 @@ func TestMessageHandlerDependencyDecorator(t *testing.T) {
 		},
 	}, events)
 
-	app.AccessControlKeeper.SetWasmDependencyMapping(testContext, contractAddr, sdkacltypes.WasmDependencyMapping{
-		Enabled: true,
-		AccessOps: []sdkacltypes.AccessOperationWithSelector{
-			{
-				Operation: &sdkacltypes.AccessOperation{
-					AccessType:         sdkacltypes.AccessType_WRITE,
-					ResourceType:       sdkacltypes.ResourceType_KV,
-					IdentifierTemplate: "otherIdentifier",
-				},
-			}, {
-				Operation: acltypes.CommitAccessOp(),
+	testContext = testContext.WithTxMsgAccessOps(map[int][]sdkacltypes.AccessOperation{
+		0: {
+			sdkacltypes.AccessOperation{
+				AccessType:         sdkacltypes.AccessType_WRITE,
+				ResourceType:       sdkacltypes.ResourceType_ANY,
+				IdentifierTemplate: "otherIdentifier",
 			},
+			*acltypes.CommitAccessOp(),
 		},
 	})
 
@@ -115,22 +107,19 @@ func TestMessageHandlerDependencyDecorator(t *testing.T) {
 			},
 		},
 	})
+
 	// we expect an error now
-	require.Error(t, accesscontrol.ErrUnexpectedWasmDependency, err)
+	require.Equal(t, accesscontrol.ErrUnexpectedWasmDependency, err)
 
 	// reenable wasm mapping that's correct
-	app.AccessControlKeeper.SetWasmDependencyMapping(testContext, contractAddr, sdkacltypes.WasmDependencyMapping{
-		Enabled: true,
-		AccessOps: []sdkacltypes.AccessOperationWithSelector{
-			{
-				Operation: &sdkacltypes.AccessOperation{
-					AccessType:         sdkacltypes.AccessType_WRITE,
-					ResourceType:       sdkacltypes.ResourceType_KV,
-					IdentifierTemplate: "*",
-				},
-			}, {
-				Operation: acltypes.CommitAccessOp(),
+	testContext = testContext.WithTxMsgAccessOps(map[int][]sdkacltypes.AccessOperation{
+		0: {
+			sdkacltypes.AccessOperation{
+				AccessType:         sdkacltypes.AccessType_WRITE,
+				ResourceType:       sdkacltypes.ResourceType_ANY,
+				IdentifierTemplate: "*",
 			},
+			*acltypes.CommitAccessOp(),
 		},
 	})
 	// lets try with a message that wont decode properly
