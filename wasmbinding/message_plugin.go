@@ -142,7 +142,6 @@ func (decorator SDKMessageDependencyDecorator) DispatchMsg(ctx sdk.Context, cont
 		utils.Map(wasmDependency.AccessOps, func(op sdkacltypes.AccessOperationWithSelector) sdkacltypes.AccessOperation { return *op.Operation }),
 	)
 	// wasm dependency enabled, we need to validate the message dependencies
-	println("WASM")
 	for _, msg := range sdkMsgs {
 		accessOps := decorator.aclKeeper.GetMessageDependencies(ctx, msg)
 		// go through each access op, and check if there is a completion signal for it OR a parent

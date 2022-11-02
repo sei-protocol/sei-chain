@@ -1018,10 +1018,8 @@ func (app *App) ProcessTxConcurrent(
 	)
 
 	// Deliver the transaction and store the result in the channel
-	ctx.Logger().Info(fmt.Sprintf("DEBUG: Processing txIndex=%d", txIndex))
 	resultChan <- ChannelResult{txIndex, app.DeliverTxWithResult(ctx, txBytes)}
 	metrics.IncrTxProcessTypeCounter(metrics.CONCURRENT)
-	ctx.Logger().Info(fmt.Sprintf("DEBUG: Finished txIndex=%d", txIndex))
 }
 
 func (app *App) ProcessBlockConcurrent(
@@ -1067,7 +1065,6 @@ func (app *App) ProcessBlockConcurrent(
 	// Gather Results and store it based on txIndex and read results from channel
 	// Concurrent results may be in different order than the original txIndex
 	txResultsMap := map[int]*abci.ExecTxResult{}
-	ctx.Logger().Info(fmt.Sprintf("DEBUG: Waiting for %d results", len(txs)))
 	for result := range resultChan {
 		txResultsMap[result.txIndex] = result.result
 	}
@@ -1078,7 +1075,6 @@ func (app *App) ProcessBlockConcurrent(
 	}
 
 	ok := true
-	ctx.Logger().Info(fmt.Sprintf("DEBUG: Parsing Results for %d results", len(txs)))
 	for i, result := range txResults {
 		if result.GetCode() == sdkerrors.ErrInvalidConcurrencyExecution.ABCICode() {
 			ctx.Logger().Error(fmt.Sprintf("Invalid concurrent execution of deliverTx index=%d", i))

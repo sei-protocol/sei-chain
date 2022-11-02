@@ -30,7 +30,6 @@ func ContractKeyPrefix(p string, contractAddr string) []byte {
 	return append([]byte(p), []byte(contractAddr)...)
 }
 
-// This one's a bit weird...
 // Price denom is a bit weird since the pairing can be different
 func PairPrefix(priceDenom string, assetDenom string) []byte {
 	return append([]byte(priceDenom), append([]byte(PairSeparator), []byte(assetDenom)...)...)
