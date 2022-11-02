@@ -1,17 +1,20 @@
 package datastructures
 
 import (
+	"sort"
 	"sync"
+
+	"golang.org/x/exp/constraints"
 )
 
 // A map-like data structure that is guaranteed to be data race free during write
 // operations. It is a typed wrapper over the builtin typeless `sync.Map`. The
 // CRUD interface is exactly the same as those of `sync.Map`.
-type TypedSyncMap[K any, V any] struct {
+type TypedSyncMap[K constraints.Ordered, V any] struct {
 	internal *sync.Map
 }
 
-func NewTypedSyncMap[K any, V any]() *TypedSyncMap[K, V] {
+func NewTypedSyncMap[K constraints.Ordered, V any]() *TypedSyncMap[K, V] {
 	return &TypedSyncMap[K, V]{
 		internal: &sync.Map{},
 	}
@@ -38,10 +41,22 @@ func (m *TypedSyncMap[K, V]) Delete(key K) {
 }
 
 func (m *TypedSyncMap[K, V]) Range(f func(K, V) bool) {
+	// All map iterations should be deterministic, so we apply f in sorted order to avoid nondeterminism
+	keys := make([]K, 0, m.Len())
 	m.internal.Range(func(key, val any) bool {
-		typedKey, typedVal := key.(K), val.(V)
-		return f(typedKey, typedVal)
+		keys = append(keys, key)
+		return true
 	})
+	sort.Slice(keys, func(i, j int) bool {
+		return keys[i] < keys[j]
+	})
+
+	for _, key := range keys {
+		val, _ := m.internal.Load(key)
+		typedVal := val.(V)
+		f(key, typedVal)
+	}
+	return
 }
 
 func (m *TypedSyncMap[K, V]) Len() int {
@@ -75,12 +90,12 @@ func (m *TypedSyncMap[K, V]) DeepApply(toApply func(V)) {
 // nested values directly. For example, to set value `v` for outer key `k1` and inner
 // key `k2`, one can simply call StoreNested(k1, k2, v), without worrying about creating
 // the inner map if it doesn't exist.
-type TypedNestedSyncMap[K1 any, K2 any, V any] struct {
+type TypedNestedSyncMap[K1 constraints.Ordered, K2 constraints.Ordered, V any] struct {
 	*TypedSyncMap[K1, *TypedSyncMap[K2, V]]
 	mu *sync.Mutex // XXXNested methods have write operations outside sync.Map
 }
 
-func NewTypedNestedSyncMap[K1 any, K2 any, V any]() *TypedNestedSyncMap[K1, K2, V] {
+func NewTypedNestedSyncMap[K1 constraints.Ordered, K2 constraints.Ordered, V any]() *TypedNestedSyncMap[K1, K2, V] {
 	return &TypedNestedSyncMap[K1, K2, V]{
 		TypedSyncMap: NewTypedSyncMap[K1, *TypedSyncMap[K2, V]](),
 		mu:           &sync.Mutex{},
