@@ -10,7 +10,6 @@ import (
 	"github.com/cosmos/cosmos-sdk/x/accesscontrol"
 	aclkeeper "github.com/cosmos/cosmos-sdk/x/accesscontrol/keeper"
 	acltypes "github.com/cosmos/cosmos-sdk/x/accesscontrol/types"
-	"github.com/sei-protocol/sei-chain/utils"
 )
 
 // forked from wasm
@@ -120,27 +119,21 @@ func (decorator SDKMessageDependencyDecorator) DispatchMsg(ctx sdk.Context, cont
 	if err != nil {
 		return nil, nil, err
 	}
-	// get the dependencies for the contract to validate against
-	// TODO: we need to carry wasmDependency in ctx instead of loading again here since here has no access to original msg payload
-	//       which is required for populating id correctly.
-	wasmDependency, err := decorator.aclKeeper.GetWasmDependencyMapping(ctx, contractAddr, []byte{}, false)
-	// If no mapping exists, or mapping is disabled, this message would behave as blocking for all resources
-	if err == aclkeeper.ErrWasmDependencyMappingNotFound {
+	if ctx.TxMsgAccessOps() == nil {
+		// This would be the case if the current block is executed in synchronous mode, or if the query is
+		// sent by sudo calls.
 		// no mapping, we can just continue
 		return decorator.wrapped.DispatchMsg(ctx, contractAddr, contractIBCPortID, msg)
 	}
-	if err != nil {
-		return nil, nil, err
-	}
-	if !wasmDependency.Enabled {
-		// if not enabled, just move on
-		// TODO: confirm that this is ok, is there ever a case where we should still verify dependencies for a disabled dependency? IDTS
+	msgDependency, ok := ctx.TxMsgAccessOps()[ctx.MessageIndex()]
+	if !ok || msgDependency == nil || len(msgDependency) == 0 {
+		// There is no known code path that could lead to this case but still adding it here just in
+		// case we missed something.
+		// no dependency set for the message, just continue
 		return decorator.wrapped.DispatchMsg(ctx, contractAddr, contractIBCPortID, msg)
 	}
 	// convert wasm dependency to a map of resource access and identifier we can look up in
-	lookupMap := BuildWasmDependencyLookupMap(
-		utils.Map(wasmDependency.AccessOps, func(op sdkacltypes.AccessOperationWithSelector) sdkacltypes.AccessOperation { return *op.Operation }),
-	)
+	lookupMap := BuildWasmDependencyLookupMap(msgDependency)
 	// wasm dependency enabled, we need to validate the message dependencies
 	for _, msg := range sdkMsgs {
 		accessOps := decorator.aclKeeper.GetMessageDependencies(ctx, msg)

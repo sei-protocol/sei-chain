@@ -10,7 +10,6 @@ import (
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	acl "github.com/cosmos/cosmos-sdk/x/accesscontrol"
 	aclkeeper "github.com/cosmos/cosmos-sdk/x/accesscontrol/keeper"
-	"github.com/sei-protocol/sei-chain/utils"
 )
 
 const (
@@ -51,24 +50,25 @@ type CustomQueryHandler struct {
 }
 
 func (queryHandler CustomQueryHandler) HandleQuery(ctx sdk.Context, caller sdk.AccAddress, request wasmvmtypes.QueryRequest) ([]byte, error) {
-	// TODO: we need to carry wasmDependency in ctx instead of loading again here since here has no access to original msg payload
-	//       which is required for populating id correctly.
-	wasmDependency, err := queryHandler.aclKeeper.GetWasmDependencyMapping(ctx, caller, []byte{}, false)
 	// If no mapping exists, or mapping is disabled, this message would behave as blocking for all resources
 	needToCheckDependencies := true
-	if err == aclkeeper.ErrWasmDependencyMappingNotFound {
+	msgDependency := []accesscontrol.AccessOperation{}
+	if ctx.TxMsgAccessOps() == nil {
+		// This would be the case if the current block is executed in synchronous mode, or if the query is
+		// sent by sudo calls.
 		// no mapping, we can just continue
 		needToCheckDependencies = false
+	} else {
+		if dep, ok := ctx.TxMsgAccessOps()[ctx.MessageIndex()]; !ok || dep == nil || len(dep) == 0 {
+			// There is no known code path that could lead to this case but still adding it here just in
+			// case we missed something.
+			// no dependency set for the message, just continue
+			needToCheckDependencies = false
+		} else {
+			msgDependency = dep
+		}
 	}
-	if err != nil {
-		return nil, err
-	}
-	if !wasmDependency.Enabled {
-		needToCheckDependencies = false
-	}
-	lookupMap := BuildWasmDependencyLookupMap(
-		utils.Map(wasmDependency.AccessOps, func(op accesscontrol.AccessOperationWithSelector) accesscontrol.AccessOperation { return *op.Operation }),
-	)
+	lookupMap := BuildWasmDependencyLookupMap(msgDependency)
 	if request.Bank != nil {
 		// check for BANK resource type
 		accessOp := accesscontrol.AccessOperation{
