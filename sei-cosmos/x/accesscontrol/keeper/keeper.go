@@ -241,6 +241,7 @@ func (k Keeper) BuildDependencyDag(ctx sdk.Context, txDecoder sdk.TxDecoder, ant
 			if types.IsGovMessage(msg) {
 				return nil, types.ErrGovMsgInBlock
 			}
+			println("BUILDING DAG")
 			msgDependencies := k.GetMessageDependencies(ctx, msg)
 			dependencyDag.AddAccessOpsForMsg(messageIndex, txIndex, msgDependencies)
 			for _, accessOp := range msgDependencies {
@@ -282,10 +283,11 @@ func (k Keeper) GetMessageDependencies(ctx sdk.Context, msg sdk.Msg) []acltypes.
 			if validateErr == nil {
 				return dependencies
 			} else {
-				ctx.Logger().Error("Invalid Access Ops", validateErr.Error())
+				errorMessage := fmt.Sprintf("Invalid Access Ops for message=%s. %s", messageKey, validateErr.Error())
+				ctx.Logger().Error(errorMessage)
 			}
 		} else {
-			ctx.Logger().Error("Error generating message dependencies: ", err)
+			ctx.Logger().Info("Error generating message dependencies: ", err)
 		}
 	}
 	if dependencyMapping.DynamicEnabled {

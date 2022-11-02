@@ -691,6 +691,7 @@ func (app *BaseApp) runTx(ctx sdk.Context, mode runTxMode, txBytes []byte) (gInf
 
 	defer func() {
 		if r := recover(); r != nil {
+			acltypes.SendAllSignalsForTx(ctx.TxCompletionChannels())
 			recoveryMW := newOutOfGasRecoveryMiddleware(gasWanted, ctx, app.runTxRecoveryMiddleware)
 			err, result = processRecovery(r, recoveryMW), nil
 		}
@@ -766,6 +767,20 @@ func (app *BaseApp) runTx(ctx sdk.Context, mode runTxMode, txBytes []byte) (gInf
 		gasWanted = ctx.GasMeter().Limit()
 		if err != nil {
 			return gInfo, nil, nil, 0, err
+		}
+
+		if ctx.MsgValidator() != nil {
+			storeAccessOpEvents := msCache.GetEvents()
+			accessOps, _:= app.anteDepGenerator([]acltypes.AccessOperation{}, tx)
+
+			missingAccessOps := ctx.MsgValidator().ValidateAccessOperations(accessOps, storeAccessOpEvents)
+			if len(missingAccessOps) != 0 {
+				for op := range missingAccessOps {
+					ctx.Logger().Info((fmt.Sprintf("Antehandler Missing Access Operation:%s ", op.String())))
+				}
+				errMessage := fmt.Sprintf("Invalid Concurrent Execution antehandler missing %d access operations", len(missingAccessOps))
+				return gInfo, nil, nil, 0, sdkerrors.Wrap(sdkerrors.ErrInvalidConcurrencyExecution, errMessage)
+			}
 		}
 
 		priority = ctx.Priority()
@@ -873,19 +888,19 @@ func (app *BaseApp) runMsgs(ctx sdk.Context, msgs []sdk.Msg, mode runTxMode) (*s
 
 		msgMsCache.Write()
 
-		// storeAccessOpEvents := msgMsCache.GetEvents()
-		// accessOps := ctx.TxMsgAccessOps()[i]
-		// missingAccessOps := acltypes.ValidateAccessOperations(accessOps, storeAccessOpEvents)
-
-		// // TODO(bweng) add metrics
-		// if len(missingAccessOps) != 0 {
-		// 	for op := range missingAccessOps {
-		// 		ctx.Logger().Error((fmt.Sprintf("eventMsgName=%s Missing Access Operation:%s ", eventMsgName, op.String())))
-		// 	}
-		// 	errMessage := fmt.Sprintf("Invalid Concurrent Execution messageIndex=%d, missing %d access operations", i, len(missingAccessOps))
-		// 	return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidConcurrencyExecution, errMessage)
-		// }
-
+		if ctx.MsgValidator() == nil {
+			continue
+		}
+		storeAccessOpEvents := msgMsCache.GetEvents()
+		accessOps := ctx.TxMsgAccessOps()[i]
+		missingAccessOps := ctx.MsgValidator().ValidateAccessOperations(accessOps, storeAccessOpEvents)
+		if len(missingAccessOps) != 0 {
+			for op := range missingAccessOps {
+				ctx.Logger().Info((fmt.Sprintf("eventMsgName=%s Missing Access Operation:%s ", eventMsgName, op.String())))
+			}
+			errMessage := fmt.Sprintf("Invalid Concurrent Execution messageIndex=%d, missing %d access operations", i, len(missingAccessOps))
+			return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidConcurrencyExecution, errMessage)
+		}
 	}
 
 	data, err := proto.Marshal(txMsgData)

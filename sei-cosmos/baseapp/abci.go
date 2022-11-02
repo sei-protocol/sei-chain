@@ -222,7 +222,6 @@ func (app *BaseApp) CheckTx(ctx context.Context, req *abci.RequestCheckTx) (*abc
 // gas execution context.
 func (app *BaseApp) DeliverTx(ctx sdk.Context, req abci.RequestDeliverTx) abci.ResponseDeliverTx {
 	defer telemetry.MeasureSince(time.Now(), "abci", "deliver_tx")
-
 	gInfo := sdk.GasInfo{}
 	resultStr := "successful"
 
