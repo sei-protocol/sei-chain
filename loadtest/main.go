@@ -137,7 +137,7 @@ func (c *LoadTestClient) generateMessage(config Config, key cryptotypes.PrivKey,
 		case randNum <= 0.66:
 			msg = &tokenfactorytypes.MsgMint{
 				Sender: denomCreatorAddr,
-				Amount: sdk.Coin{Denom: denom, Amount: sdk.NewInt(1000000)},
+				Amount: sdk.Coin{Denom: denom, Amount: sdk.NewInt(10000000000000)},
 			}
 		default:
 			msg = &tokenfactorytypes.MsgBurn{
