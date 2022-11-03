@@ -103,7 +103,7 @@ func cacheAndDecorateContext(ctx sdk.Context, env *environment) (sdk.Context, sd
 	cachedCtx, msCached := store.GetCachedContext(ctx)
 	goCtx := context.WithValue(cachedCtx.Context(), dexcache.CtxKeyExecTermSignal, env.executionTerminationSignals)
 	cachedCtx = cachedCtx.WithContext(goCtx)
-	decoratedCtx := cachedCtx.WithGasMeter(seisync.NewGasWrapper(cachedCtx.GasMeter())).WithBlockGasMeter(
+	decoratedCtx := cachedCtx.WithGasMeter(seisync.NewGasWrapper(sdk.NewInfiniteGasMeter())).WithBlockGasMeter(
 		seisync.NewGasWrapper(cachedCtx.BlockGasMeter()),
 	)
 	return decoratedCtx, msCached
@@ -113,9 +113,7 @@ func decorateContextForContract(ctx sdk.Context, contractInfo types.ContractInfo
 	goCtx := context.WithValue(ctx.Context(), dexcache.CtxKeyExecutingContract, contractInfo)
 	whitelistedStore := multi.NewStore(ctx.MultiStore(), GetWhitelistMap(contractInfo.ContractAddr))
 	newEventManager := sdk.NewEventManager()
-	// TODO: set a limit for each contract
-	newGasMeter := sdk.NewInfiniteGasMeter()
-	return ctx.WithContext(goCtx).WithMultiStore(whitelistedStore).WithEventManager(newEventManager).WithGasMeter(newGasMeter)
+	return ctx.WithContext(goCtx).WithMultiStore(whitelistedStore).WithEventManager(newEventManager)
 }
 
 func handleDeposits(ctx sdk.Context, env *environment, keeper *keeper.Keeper, tracer *otrace.Tracer) {
