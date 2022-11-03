@@ -8,16 +8,16 @@ import (
 	"gopkg.in/yaml.v2"
 )
 
-var KeyPriceSnapshotRetention = []byte("PriceSnapshotRetention") // number of epochs to retain price snapshots for
-var KeySudoCallGasPrice = []byte("KeySudoCallGasPrice")          // gas price for sudo calls from endblock
+var (
+	KeyPriceSnapshotRetention = []byte("PriceSnapshotRetention") // number of epochs to retain price snapshots for
+	KeySudoCallGasPrice       = []byte("KeySudoCallGasPrice")    // gas price for sudo calls from endblock
+)
 
 const (
 	DefaultPriceSnapshotRetention = 24 * 3600 // default to one day
 )
 
-var (
-	DefaultSudoCallGasPrice = sdk.NewDecWithPrec(1, 1) // 0.1
-)
+var DefaultSudoCallGasPrice = sdk.NewDecWithPrec(1, 1) // 0.1
 
 var _ paramtypes.ParamSet = (*Params)(nil)
 
