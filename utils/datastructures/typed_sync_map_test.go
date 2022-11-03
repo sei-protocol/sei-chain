@@ -78,10 +78,10 @@ func TestTypedSyncMapDeepCopy(t *testing.T) {
 }
 
 func TestTypedSyncMapDeepApply(t *testing.T) {
-	m := datastructures.NewTypedSyncMap[int, int]()
-	m.Store(1, 1)
-	m.Store(3, 3)
-	m.Store(2, 2)
+	m := datastructures.NewTypedSyncMap[string, int]()
+	m.Store("a", 1)
+	m.Store("c", 3)
+	m.Store("b", 2)
 	agg := 0
 	lastSeen := -1
 	// Require that keys are applied in sorted order
