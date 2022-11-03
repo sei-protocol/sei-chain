@@ -94,7 +94,7 @@ func TestSynchronization(t *testing.T) {
 	ctx = ctx.WithContext(goCtx)
 	require.NotPanics(t, func() { stateOne.SynchronizeAccess(ctx, targetContract) })
 	// executing contract same as target contract
-	executingContract := types.ContractInfo{ContractAddr: TEST_CONTRACT}
+	executingContract := types.ContractInfoV2{ContractAddr: TEST_CONTRACT}
 	ctx = ctx.WithContext(context.WithValue(goCtx, dex.CtxKeyExecutingContract, executingContract))
 	require.NotPanics(t, func() { stateOne.SynchronizeAccess(ctx, targetContract) })
 	// executing contract attempting to access non-dependency

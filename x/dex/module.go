@@ -181,6 +181,9 @@ func (am AppModule) RegisterServices(cfg module.Configurator) {
 	_ = cfg.RegisterMigration(types.ModuleName, 7, func(ctx sdk.Context) error {
 		return migrations.V7ToV8(ctx, am.keeper.GetStoreKey())
 	})
+	_ = cfg.RegisterMigration(types.ModuleName, 8, func(ctx sdk.Context) error {
+		return migrations.V8ToV9(ctx, am.keeper)
+	})
 }
 
 // RegisterInvariants registers the capability module's invariants.
@@ -205,9 +208,9 @@ func (am AppModule) ExportGenesis(ctx sdk.Context, cdc codec.JSONCodec) json.Raw
 }
 
 // ConsensusVersion implements ConsensusVersion.
-func (AppModule) ConsensusVersion() uint64 { return 8 }
+func (AppModule) ConsensusVersion() uint64 { return 9 }
 
-func (am AppModule) getAllContractInfo(ctx sdk.Context) []types.ContractInfo {
+func (am AppModule) getAllContractInfo(ctx sdk.Context) []types.ContractInfoV2 {
 	return am.keeper.GetAllContractInfo(ctx)
 }
 
@@ -230,7 +233,7 @@ func (am AppModule) BeginBlock(ctx sdk.Context, _ abci.RequestBeginBlock) {
 	}
 }
 
-func (am AppModule) beginBlockForContract(ctx sdk.Context, contract types.ContractInfo, epoch int64) {
+func (am AppModule) beginBlockForContract(ctx sdk.Context, contract types.ContractInfoV2, epoch int64) {
 	_, span := (*am.tracingInfo.Tracer).Start(am.tracingInfo.TracerContext, "DexBeginBlock")
 	contractAddr := contract.ContractAddr
 	span.SetAttributes(attribute.String("contract", contractAddr))

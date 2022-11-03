@@ -11,7 +11,7 @@ import (
 
 const ContractPrefixKey = "x-wasm-contract"
 
-func (k Keeper) SetContract(ctx sdk.Context, contract *types.ContractInfo) error {
+func (k Keeper) SetContract(ctx sdk.Context, contract *types.ContractInfoV2) error {
 	store := prefix.NewStore(
 		ctx.KVStore(k.storeKey),
 		[]byte(ContractPrefixKey),
@@ -25,13 +25,22 @@ func (k Keeper) SetContract(ctx sdk.Context, contract *types.ContractInfo) error
 	return nil
 }
 
-func (k Keeper) GetContract(ctx sdk.Context, contractAddr string) (types.ContractInfo, error) {
+func (k Keeper) DeleteContract(ctx sdk.Context, contractAddr string) {
 	store := prefix.NewStore(
 		ctx.KVStore(k.storeKey),
 		[]byte(ContractPrefixKey),
 	)
 	key := contractKey(contractAddr)
-	res := types.ContractInfo{}
+	store.Delete(key)
+}
+
+func (k Keeper) GetContract(ctx sdk.Context, contractAddr string) (types.ContractInfoV2, error) {
+	store := prefix.NewStore(
+		ctx.KVStore(k.storeKey),
+		[]byte(ContractPrefixKey),
+	)
+	key := contractKey(contractAddr)
+	res := types.ContractInfoV2{}
 	if !store.Has(key) {
 		return res, errors.New("cannot find contract info")
 	}
@@ -41,15 +50,15 @@ func (k Keeper) GetContract(ctx sdk.Context, contractAddr string) (types.Contrac
 	return res, nil
 }
 
-func (k Keeper) GetAllContractInfo(ctx sdk.Context) []types.ContractInfo {
+func (k Keeper) GetAllContractInfo(ctx sdk.Context) []types.ContractInfoV2 {
 	store := prefix.NewStore(ctx.KVStore(k.storeKey), []byte(ContractPrefixKey))
 	iterator := sdk.KVStorePrefixIterator(store, []byte{})
 
 	defer iterator.Close()
 
-	list := []types.ContractInfo{}
+	list := []types.ContractInfoV2{}
 	for ; iterator.Valid(); iterator.Next() {
-		contract := types.ContractInfo{}
+		contract := types.ContractInfoV2{}
 		if err := contract.Unmarshal(iterator.Value()); err == nil {
 			list = append(list, contract)
 		}

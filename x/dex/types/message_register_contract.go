@@ -16,15 +16,18 @@ func NewMsgRegisterContract(
 	needHook bool,
 	needOrderMatching bool,
 	dependencies []*ContractDependencyInfo,
+	deposit uint64,
 ) *MsgRegisterContract {
 	return &MsgRegisterContract{
 		Creator: creator,
-		Contract: &ContractInfo{
+		Contract: &ContractInfoV2{
 			CodeId:            codeID,
 			ContractAddr:      contractAddr,
 			NeedHook:          needHook,
 			NeedOrderMatching: needOrderMatching,
 			Dependencies:      dependencies,
+			Creator:           creator,
+			RentBalance:       deposit,
 		},
 	}
 }

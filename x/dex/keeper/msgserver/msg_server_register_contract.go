@@ -6,6 +6,8 @@ import (
 	"fmt"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
+	appparams "github.com/sei-protocol/sei-chain/app/params"
 	"github.com/sei-protocol/sei-chain/utils"
 	"github.com/sei-protocol/sei-chain/utils/datastructures"
 	"github.com/sei-protocol/sei-chain/x/dex/contract"
@@ -34,6 +36,10 @@ func (k msgServer) RegisterContract(goCtx context.Context, msg *types.MsgRegiste
 	}
 	if err := k.UpdateNewDependencies(ctx, msg); err != nil {
 		ctx.Logger().Error("failed to update new dependencies")
+		return &types.MsgRegisterContractResponse{}, err
+	}
+	if err := k.HandleDepositOrRefund(ctx, msg); err != nil {
+		ctx.Logger().Error("failed to deposit/refund during contract registration")
 		return &types.MsgRegisterContractResponse{}, err
 	}
 	allContractInfo, err := k.SetNewContract(ctx, msg)
@@ -166,9 +172,43 @@ func (k msgServer) UpdateNewDependencies(ctx sdk.Context, msg *types.MsgRegister
 	return nil
 }
 
-func (k msgServer) SetNewContract(ctx sdk.Context, msg *types.MsgRegisterContract) ([]types.ContractInfo, error) {
+func (k msgServer) HandleDepositOrRefund(ctx sdk.Context, msg *types.MsgRegisterContract) error {
+	creatorAddr, err := sdk.AccAddressFromBech32(msg.Creator)
+	if err != nil {
+		return err
+	}
+	if existingContract, err := k.GetContract(ctx, msg.Contract.ContractAddr); err != nil {
+		// brand new contract
+		if msg.Contract.RentBalance > 0 {
+			if err := k.BankKeeper.SendCoins(ctx, creatorAddr, k.AccountKeeper.GetModuleAddress(types.ModuleName), sdk.NewCoins(sdk.NewCoin(appparams.BaseCoinUnit, sdk.NewInt(int64(msg.Contract.RentBalance))))); err != nil {
+				return err
+			}
+		}
+	} else {
+		if msg.Creator != existingContract.Creator {
+			return sdkerrors.ErrUnauthorized
+		}
+		if msg.Contract.RentBalance < existingContract.RentBalance {
+			// refund
+			refundAmount := existingContract.RentBalance - msg.Contract.RentBalance
+			if err := k.BankKeeper.SendCoins(ctx, k.AccountKeeper.GetModuleAddress(types.ModuleName), creatorAddr, sdk.NewCoins(sdk.NewCoin(appparams.BaseCoinUnit, sdk.NewInt(int64(refundAmount))))); err != nil {
+				return err
+			}
+		} else if msg.Contract.RentBalance > existingContract.RentBalance {
+			// deposit
+			depositAmount := msg.Contract.RentBalance - existingContract.RentBalance
+			if err := k.BankKeeper.SendCoins(ctx, creatorAddr, k.AccountKeeper.GetModuleAddress(types.ModuleName), sdk.NewCoins(sdk.NewCoin(appparams.BaseCoinUnit, sdk.NewInt(int64(depositAmount))))); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func (k msgServer) SetNewContract(ctx sdk.Context, msg *types.MsgRegisterContract) ([]types.ContractInfoV2, error) {
 	// set incoming paths for new contract
 	newContract := msg.Contract
+	newContract.Creator = msg.Creator
 	newContract.NumIncomingDependencies = 0
 	allContractInfo := k.GetAllContractInfo(ctx)
 	for _, contractInfo := range allContractInfo {
@@ -200,7 +240,7 @@ func (k msgServer) SetNewContract(ctx sdk.Context, msg *types.MsgRegisterContrac
 				otherDependency.ImmediateYoungerSibling = newContract.ContractAddr
 				contractInfo := contractInfo
 				if err := k.SetContract(ctx, &contractInfo); err != nil {
-					return []types.ContractInfo{}, err
+					return []types.ContractInfoV2{}, err
 				}
 				found = true
 				break
@@ -216,7 +256,7 @@ func (k msgServer) SetNewContract(ctx sdk.Context, msg *types.MsgRegisterContrac
 
 	// always override contract info so that it can be updated
 	if err := k.SetContract(ctx, newContract); err != nil {
-		return []types.ContractInfo{}, err
+		return []types.ContractInfoV2{}, err
 	}
 	allContractInfo = append(allContractInfo, *newContract)
 	return allContractInfo, nil

@@ -12,6 +12,17 @@ message ContractInfo {
   int64 numIncomingDependencies = 6;
 }
 
+message ContractInfoV2 {
+  uint64 codeId = 1;
+  string contractAddr = 2;
+  bool needHook = 3;
+  bool needOrderMatching = 4;
+  repeated ContractDependencyInfo dependencies = 5;
+  int64 numIncomingDependencies = 6;
+  string creator = 7;
+  uint64 rentBalance = 8;
+}
+
 message ContractDependencyInfo {
   string dependency = 1;
   string immediateElderSibling = 2;

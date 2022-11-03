@@ -11,13 +11,13 @@ type node struct {
 }
 
 // Kahn's algorithm
-func TopologicalSortContractInfo(contracts []types.ContractInfo) ([]types.ContractInfo, error) {
-	contractAddrToContractInfo := map[string]types.ContractInfo{}
+func TopologicalSortContractInfo(contracts []types.ContractInfoV2) ([]types.ContractInfoV2, error) {
+	contractAddrToContractInfo := map[string]types.ContractInfoV2{}
 	for _, contract := range contracts {
 		contractAddrToContractInfo[contract.ContractAddr] = contract
 	}
 
-	res := []types.ContractInfo{}
+	res := []types.ContractInfoV2{}
 	nodes := initNodes(contracts)
 	frontierNodes, nonFrontierNodes := splitNodesByFrontier(nodes)
 	for len(frontierNodes) > 0 {
@@ -32,12 +32,12 @@ func TopologicalSortContractInfo(contracts []types.ContractInfo) ([]types.Contra
 		frontierNodes, nonFrontierNodes = splitNodesByFrontier(nonFrontierNodes)
 	}
 	if len(nonFrontierNodes) > 0 {
-		return []types.ContractInfo{}, types.ErrCircularContractDependency
+		return []types.ContractInfoV2{}, types.ErrCircularContractDependency
 	}
 	return res, nil
 }
 
-func initNodes(contracts []types.ContractInfo) map[string]node {
+func initNodes(contracts []types.ContractInfoV2) map[string]node {
 	res := map[string]node{}
 	for _, contract := range contracts {
 		if _, ok := res[contract.ContractAddr]; !ok {
