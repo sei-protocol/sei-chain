@@ -211,7 +211,8 @@ func (am AppModule) ExportGenesis(ctx sdk.Context, cdc codec.JSONCodec) json.Raw
 func (AppModule) ConsensusVersion() uint64 { return 9 }
 
 func (am AppModule) getAllContractInfo(ctx sdk.Context) []types.ContractInfoV2 {
-	return am.keeper.GetAllContractInfo(ctx)
+	// Do not process any contract that has a non-zero rent balance
+	return utils.Filter(am.keeper.GetAllContractInfo(ctx), func(c types.ContractInfoV2) bool { return c.RentBalance > 0 })
 }
 
 // BeginBlock executes all ABCI BeginBlock logic respective to the capability module.

@@ -113,7 +113,9 @@ func decorateContextForContract(ctx sdk.Context, contractInfo types.ContractInfo
 	goCtx := context.WithValue(ctx.Context(), dexcache.CtxKeyExecutingContract, contractInfo)
 	whitelistedStore := multi.NewStore(ctx.MultiStore(), GetWhitelistMap(contractInfo.ContractAddr))
 	newEventManager := sdk.NewEventManager()
-	return ctx.WithContext(goCtx).WithMultiStore(whitelistedStore).WithEventManager(newEventManager)
+	// TODO: set a limit for each contract
+	newGasMeter := sdk.NewInfiniteGasMeter()
+	return ctx.WithContext(goCtx).WithMultiStore(whitelistedStore).WithEventManager(newEventManager).WithGasMeter(newGasMeter)
 }
 
 func handleDeposits(ctx sdk.Context, env *environment, keeper *keeper.Keeper, tracer *otrace.Tracer) {
