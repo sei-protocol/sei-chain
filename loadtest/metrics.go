@@ -1,0 +1,78 @@
+package main
+
+import (
+	"fmt"
+	"io"
+	"log"
+	"net/http"
+	"time"
+
+	metrics "github.com/armon/go-metrics"
+	"github.com/cosmos/cosmos-sdk/telemetry"
+	"github.com/cosmos/cosmos-sdk/types/rest"
+)
+
+const defaultListenAddress = "0.0.0.0:9696"
+
+type MetricsServer struct {
+	metrics *telemetry.Metrics
+	server  *http.Server
+}
+
+func (s *MetricsServer) metricsHandler(w http.ResponseWriter, r *http.Request) {
+	gr, err := s.metrics.Gather("prometheus")
+	if err != nil {
+		rest.WriteErrorResponse(w, http.StatusBadRequest, fmt.Sprintf("failed to gather metrics: %s", err))
+		return
+	}
+
+	w.Header().Set("Content-Type", gr.ContentType)
+	_, _ = w.Write(gr.Metrics)
+}
+
+func (s *MetricsServer) StartMetricsClient() {
+	m, err := telemetry.New(telemetry.Config{
+		ServiceName:             "loadtest-client",
+		Enabled:                 true,
+		EnableHostnameLabel:     true,
+		EnableServiceLabel:      true,
+		PrometheusRetentionTime: 600,
+		GlobalLabels:            [][]string{},
+	})
+	if err != nil {
+		panic(err)
+	}
+	s.metrics = m
+	http.HandleFunc("/healthz", s.healthzHandler)
+	http.HandleFunc("/metrics", s.metricsHandler)
+	log.Printf("Listening for metrics scrapes on %s", defaultListenAddress)
+
+	s.server = &http.Server{
+		Addr:              defaultListenAddress,
+		ReadHeaderTimeout: 3 * time.Second,
+	}
+	err = s.server.ListenAndServe()
+	if err != nil {
+		panic(err)
+	}
+}
+
+func (s *MetricsServer) healthzHandler(w http.ResponseWriter, r *http.Request) {
+	io.WriteString(w, "ok\n")
+}
+
+func IncrTxProcessCode(reason string, count int) {
+	metrics.IncrCounterWithLabels(
+		[]string{"sei", "load_test", "tx", "code"},
+		float32(count),
+		[]metrics.Label{telemetry.NewLabel("reason", reason)},
+	)
+}
+
+func IncrTxNotCommitted(count int) {
+	metrics.IncrCounterWithLabels(
+		[]string{"sei", "load_test", "tx", "failed"},
+		float32(count),
+		[]metrics.Label{telemetry.NewLabel("reason", "not_committed")},
+	)
+}

@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -11,8 +10,12 @@ import (
 	"time"
 
 	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
+	"github.com/cosmos/cosmos-sdk/types"
+	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	typestx "github.com/cosmos/cosmos-sdk/types/tx"
 	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
+
+	"github.com/k0kubun/pp/v3"
 	"google.golang.org/grpc"
 )
 
@@ -24,6 +27,7 @@ type LoadTestClient struct {
 	SignerClient       *SignerClient
 	ChainID            string
 	TxHashList         []string
+	TxResponseChan	   chan *string
 	TxHashListMutex    *sync.Mutex
 	GrpcConn           *grpc.ClientConn
 	StakingQueryClient stakingtypes.QueryClient
@@ -35,19 +39,12 @@ type LoadTestClient struct {
 	TokenFactoryDenomOwner map[string]string
 }
 
-func NewLoadTestClient() *LoadTestClient {
+func NewLoadTestClient(config Config) *LoadTestClient {
 	grpcConn, _ := grpc.Dial(
 		"127.0.0.1:9090",
 		grpc.WithInsecure(),
 	)
 	TxClient := typestx.NewServiceClient(grpcConn)
-
-	config := Config{}
-	pwd, _ := os.Getwd()
-	file, _ := os.ReadFile(pwd + "/loadtest/config.json")
-	if err := json.Unmarshal(file, &config); err != nil {
-		panic(err)
-	}
 
 	// setup output files
 	userHomeDir, _ := os.UserHomeDir()
@@ -55,7 +52,6 @@ func NewLoadTestClient() *LoadTestClient {
 	filename := filepath.Join(userHomeDir, "outputs", "test_tx_hash")
 	_ = os.Remove(filename)
 	outputFile, _ := os.OpenFile(filename, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
-
 	return &LoadTestClient{
 		LoadTestConfig:         config,
 		TestConfig:             TestConfig,
@@ -64,6 +60,7 @@ func NewLoadTestClient() *LoadTestClient {
 		SignerClient:           NewSignerClient(),
 		ChainID:                config.ChainID,
 		TxHashList:             []string{},
+		TxResponseChan: 		make(chan *string),
 		TxHashListMutex:        &sync.Mutex{},
 		GrpcConn:               grpcConn,
 		StakingQueryClient:     stakingtypes.NewQueryClient(grpcConn),
@@ -87,13 +84,11 @@ func (c *LoadTestClient) Close() {
 }
 
 func (c *LoadTestClient) AppendTxHash(txHash string) {
-	c.TxHashListMutex.Lock()
-	defer c.TxHashListMutex.Unlock()
-
-	c.TxHashList = append(c.TxHashList, txHash)
+	c.TxResponseChan <- &txHash
 }
 
 func (c *LoadTestClient) WriteTxHashToFile() {
+	fmt.Printf("Writing Tx Hashes to: %s \n", c.TxHashFile.Name())
 	file := c.TxHashFile
 	for _, txHash := range c.TxHashList {
 		txHashLine := fmt.Sprintf("%s\n", txHash)
@@ -180,6 +175,8 @@ func (c *LoadTestClient) GenerateOracleSenders(i int, config Config, valKeys []c
 }
 
 func (c *LoadTestClient) SendTxs(workgroups []*sync.WaitGroup, sendersList [][]func() string) {
+	defer close(c.TxResponseChan)
+
 	lastHeight := getLastHeight()
 	for i := 0; i < int(c.LoadTestConfig.Rounds); i++ {
 		newHeight := getLastHeight()
@@ -196,4 +193,81 @@ func (c *LoadTestClient) SendTxs(workgroups []*sync.WaitGroup, sendersList [][]f
 		wg.Wait()
 		lastHeight = newHeight
 	}
+}
+
+func (c *LoadTestClient) GatherTxHashes() {
+	for txHash := range c.TxResponseChan {
+		c.TxHashList = append(c.TxHashList, *txHash)
+	}
+	fmt.Printf("Transactions Sent=%d\n", len(c.TxHashList))
+}
+
+func (c *LoadTestClient) ValidateTxs() {
+	defer c.Close()
+	numTxs := len(c.TxHashList)
+	resultChan := make(chan *types.TxResponse, numTxs)
+	var waitGroup sync.WaitGroup
+
+	if numTxs == 0 {
+		return
+	}
+
+	for _, txHash := range c.TxHashList {
+		waitGroup.Add(1)
+		go func(txHash string) {
+			defer waitGroup.Done()
+			resultChan <- c.GetTxResponse(txHash)
+		}(txHash)
+	}
+
+	go func() {
+		waitGroup.Wait()
+		close(resultChan)
+	}()
+
+	fmt.Printf("Validating %d Transactions... \n", len(c.TxHashList))
+	waitGroup.Wait()
+
+	notCommittedTxs := 0
+	responseCodeMap := map[int]int{}
+	responseStringMap := map[string]int{}
+	for result := range resultChan {
+		// If the result is nil then that means the transaction was not committed
+		if result == nil {
+			notCommittedTxs++
+			continue
+		}
+		code := result.Code
+		codeString := "ok"
+		if code != 0 {
+			codespace := result.Codespace
+			error := sdkerrors.ABCIError(codespace, code, fmt.Sprintf("Error code=%d ", code))
+			codeString = error.Error()
+		}
+		responseStringMap[codeString]++
+		responseCodeMap[int(code)]++
+	}
+
+
+	fmt.Printf("Transactions not committed: %d\n", notCommittedTxs)
+	pp.Printf("Response Code Mapping: \n %s \n", responseStringMap)
+	IncrTxNotCommitted(notCommittedTxs)
+	for reason, count := range responseStringMap {
+		IncrTxProcessCode(reason, count)
+	}
+}
+
+func (c *LoadTestClient) GetTxResponse(hash string) *types.TxResponse {
+	grpcRes, err := c.TxClient.GetTx(
+		context.Background(),
+		&typestx.GetTxRequest{
+			Hash: hash,
+		},
+	)
+	fmt.Printf("Validated: %s\n", hash)
+	if err != nil {
+		fmt.Println(err)
+		return nil
+	}
+	return grpcRes.TxResponse
 }
