@@ -138,6 +138,8 @@ func (sc *SignerClient) SignTx(chainID string, txBuilder *client.TxBuilder, priv
 	accountNum := signerInfo.AccountNumber
 	seqNum := signerInfo.SequenceNumber
 
+	fmt.Println("Account + seq: ", accountNum, seqNum)
+
 	seqNum += seqDelta
 	sigV2 := signing.SignatureV2{
 		PubKey: privKey.PubKey(),
