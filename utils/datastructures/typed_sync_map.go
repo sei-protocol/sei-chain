@@ -42,9 +42,9 @@ func (m *TypedSyncMap[K, V]) Delete(key K) {
 
 func (m *TypedSyncMap[K, V]) Range(f func(K, V) bool) {
 	// All map iterations should be deterministic, so we apply f in sorted order to avoid nondeterminism
-	keys := make([]K, 0, m.Len())
+	var keys []K
 	m.internal.Range(func(key, val any) bool {
-		keys = append(keys, key)
+		keys = append(keys, key.(K))
 		return true
 	})
 	sort.Slice(keys, func(i, j int) bool {

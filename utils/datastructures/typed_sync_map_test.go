@@ -80,11 +80,18 @@ func TestTypedSyncMapDeepCopy(t *testing.T) {
 func TestTypedSyncMapDeepApply(t *testing.T) {
 	m := datastructures.NewTypedSyncMap[int, int]()
 	m.Store(1, 1)
+	m.Store(3, 3)
 	m.Store(2, 2)
 	agg := 0
-	m.DeepApply(func(i int) { agg += i })
-	require.Equal(t, 2, m.Len())
-	require.Equal(t, 3, agg)
+	lastSeen := -1
+	// Require that keys are applied in sorted order
+	m.DeepApply(func(i int) {
+		agg += i
+		require.Less(t, lastSeen, i)
+		lastSeen = i
+	})
+	require.Equal(t, 3, m.Len())
+	require.Equal(t, 6, agg)
 }
 
 func TestTypedNestedSyncMapSequantial(t *testing.T) {
