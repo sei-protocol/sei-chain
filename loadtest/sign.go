@@ -6,12 +6,16 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 
 	"github.com/cosmos/cosmos-sdk/client"
 	clienttx "github.com/cosmos/cosmos-sdk/client/tx"
+	"github.com/cosmos/cosmos-sdk/codec/legacy"
+	"github.com/cosmos/cosmos-sdk/crypto"
 	"github.com/cosmos/cosmos-sdk/crypto/hd"
 	"github.com/cosmos/cosmos-sdk/crypto/keyring"
+	"github.com/cosmos/cosmos-sdk/crypto/keys/sr25519"
 	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/types/tx/signing"
@@ -26,7 +30,43 @@ type AccountInfo struct {
 	Mnemonic string `json:"mnemonic"`
 }
 
-func GetKey(accountIdx uint64) cryptotypes.PrivKey {
+type SignerInfo struct {
+	AccountNumber  uint64
+	SequenceNumber uint64
+	mutex          *sync.Mutex
+}
+
+func NewSignerInfo(accountNumber uint64, sequenceNumber uint64) *SignerInfo {
+	return &SignerInfo{
+		AccountNumber:  accountNumber,
+		SequenceNumber: sequenceNumber,
+		mutex:          &sync.Mutex{},
+	}
+}
+
+func (si *SignerInfo) IncrementAccountNumber() {
+	si.mutex.Lock()
+	defer si.mutex.Unlock()
+	si.AccountNumber++
+}
+
+type SignerClient struct {
+	CachedAccountSeqNum *sync.Map
+	CachedAccountKey    *sync.Map
+}
+
+func NewSignerClient() *SignerClient {
+	return &SignerClient{
+		CachedAccountSeqNum: &sync.Map{},
+		CachedAccountKey:    &sync.Map{},
+	}
+}
+
+func (sc *SignerClient) GetKey(accountIdx uint64) cryptotypes.PrivKey {
+	if val, ok := sc.CachedAccountKey.Load(accountIdx); ok {
+		privKey := val.(cryptotypes.PrivKey)
+		return privKey
+	}
 	userHomeDir, _ := os.UserHomeDir()
 	accountKeyFilePath := filepath.Join(userHomeDir, "test_accounts", fmt.Sprintf("ta%d.json", accountIdx))
 	jsonFile, err := os.Open(accountKeyFilePath)
@@ -48,12 +88,56 @@ func GetKey(accountIdx uint64) cryptotypes.PrivKey {
 	algo, _ := keyring.NewSigningAlgoFromString(algoStr, keyringAlgos)
 	hdpath := hd.CreateHDPath(sdk.GetConfig().GetCoinType(), 0, 0).String()
 	derivedPriv, _ := algo.Derive()(accountInfo.Mnemonic, "", hdpath)
-	return algo.Generate()(derivedPriv)
+	privKey := algo.Generate()(derivedPriv)
+
+	// Cache this so we don't need to regenerate it
+	sc.CachedAccountKey.Store(accountIdx, privKey)
+	return privKey
 }
 
-func SignTx(txBuilder *client.TxBuilder, privKey cryptotypes.PrivKey, seqDelta uint64) {
+func (sc *SignerClient) GetValKeys() []cryptotypes.PrivKey {
+	valKeys := []cryptotypes.PrivKey{}
+	userHomeDir, _ := os.UserHomeDir()
+	valKeysFilePath := filepath.Join(userHomeDir, "exported_keys")
+	files, _ := os.ReadDir(valKeysFilePath)
+	for _, fn := range files {
+		// we dont expect subdirectories, so we can just handle files
+		valKeyFile := filepath.Join(valKeysFilePath, fn.Name())
+		privKeyBz, err := os.ReadFile(valKeyFile)
+		if err != nil {
+			panic(err)
+		}
+
+		privKeyBytes, algo, err := crypto.UnarmorDecryptPrivKey(string(privKeyBz), "12345678")
+		if err != nil {
+			panic(err)
+		}
+
+		var privKey cryptotypes.PrivKey
+		if algo == string(hd.Sr25519Type) {
+			typedKey := &sr25519.PrivKey{}
+			if err := typedKey.UnmarshalJSON(privKeyBytes); err != nil {
+				panic(err)
+			}
+			privKey = typedKey
+		} else {
+			privKey, err = legacy.PrivKeyFromBytes(privKeyBytes)
+			if err != nil {
+				panic(err)
+			}
+		}
+
+		valKeys = append(valKeys, privKey)
+	}
+	return valKeys
+}
+
+func (sc *SignerClient) SignTx(chainID string, txBuilder *client.TxBuilder, privKey cryptotypes.PrivKey, seqDelta uint64) {
 	var sigsV2 []signing.SignatureV2
-	accountNum, seqNum := GetAccountNumberSequenceNumber(privKey)
+	signerInfo := sc.GetAccountNumberSequenceNumber(privKey)
+	accountNum := signerInfo.AccountNumber
+	seqNum := signerInfo.SequenceNumber
+
 	seqNum += seqDelta
 	sigV2 := signing.SignatureV2{
 		PubKey: privKey.PubKey(),
@@ -67,7 +151,7 @@ func SignTx(txBuilder *client.TxBuilder, privKey cryptotypes.PrivKey, seqDelta u
 	_ = (*txBuilder).SetSignatures(sigsV2...)
 	sigsV2 = []signing.SignatureV2{}
 	signerData := xauthsigning.SignerData{
-		ChainID:       ChainID,
+		ChainID:       chainID,
 		AccountNumber: accountNum,
 		Sequence:      seqNum,
 	}
@@ -83,7 +167,13 @@ func SignTx(txBuilder *client.TxBuilder, privKey cryptotypes.PrivKey, seqDelta u
 	_ = (*txBuilder).SetSignatures(sigsV2...)
 }
 
-func GetAccountNumberSequenceNumber(privKey cryptotypes.PrivKey) (uint64, uint64) {
+func (sc *SignerClient) GetAccountNumberSequenceNumber(privKey cryptotypes.PrivKey) SignerInfo {
+	if val, ok := sc.CachedAccountSeqNum.Load(privKey); ok {
+		signerinfo := val.(SignerInfo)
+		signerinfo.IncrementAccountNumber()
+		return signerinfo
+	}
+
 	hexAccount := privKey.PubKey().Address()
 	address, err := sdk.AccAddressFromHex(hexAccount.String())
 	if err != nil {
@@ -110,5 +200,8 @@ func GetAccountNumberSequenceNumber(privKey cryptotypes.PrivKey) (uint64, uint64
 			panic(err)
 		}
 	}
-	return account, seq
+
+	signerInfo := *NewSignerInfo(account, seq)
+	sc.CachedAccountSeqNum.Store(privKey, signerInfo)
+	return signerInfo
 }

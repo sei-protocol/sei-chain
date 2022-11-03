@@ -185,7 +185,7 @@ func TestEndBlockLimitOrder(t *testing.T) {
 	bankkeeper := testApp.BankKeeper
 	bankkeeper.MintCoins(ctx, minttypes.ModuleName, amounts)
 	bankkeeper.SendCoinsFromModuleToAccount(ctx, minttypes.ModuleName, testAccount, amounts)
-	wasm, err := ioutil.ReadFile("./testdata/clearing_house.wasm")
+	wasm, err := ioutil.ReadFile("./testdata/mars.wasm")
 	if err != nil {
 		panic(err)
 	}
