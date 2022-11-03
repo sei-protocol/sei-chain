@@ -2,8 +2,10 @@ package app
 
 import (
 	"context"
+	"time"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/sei-protocol/sei-chain/utils/metrics"
 	abci "github.com/tendermint/tendermint/abci/types"
 	"go.opentelemetry.io/otel/attribute"
 )
@@ -31,11 +33,12 @@ func (app *App) CheckTx(ctx context.Context, req *abci.RequestCheckTx) (*abci.Re
 }
 
 func (app *App) DeliverTx(ctx sdk.Context, req abci.RequestDeliverTx) abci.ResponseDeliverTx {
-	// tracectx, span := (*app.tracingInfo.Tracer).Start(app.tracingInfo.TracerContext, "DeliverTx")
-	// oldCtx := app.tracingInfo.TracerContext
-	// app.tracingInfo.TracerContext = tracectx
-	// defer span.End()
-	// defer func() { app.tracingInfo.TracerContext = oldCtx }()
+	defer metrics.MeasureDeliverTxDuration(time.Now())
+	tracectx, span := (*app.tracingInfo.Tracer).Start(app.tracingInfo.TracerContext, "DeliverTx")
+	oldCtx := app.tracingInfo.TracerContext
+	app.tracingInfo.TracerContext = tracectx
+	defer span.End()
+	defer func() { app.tracingInfo.TracerContext = oldCtx }()
 	return app.BaseApp.DeliverTx(ctx, req)
 }
 

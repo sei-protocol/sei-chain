@@ -21,7 +21,7 @@ const (
 	Bech32PrefixAccAddr = "sei"
 )
 
-var UnsafeBypassCommitTimeoutOverride bool = true
+var UnsafeBypassCommitTimeoutOverride = true
 
 var (
 	// Bech32PrefixAccPub defines the Bech32 prefix of an account's public key.
