@@ -125,7 +125,7 @@ func (qp QueryPlugin) HandleDexQuery(ctx sdk.Context, queryData json.RawMessage)
 		}
 		bz, err := json.Marshal(res)
 		if err != nil {
-			return nil, dextypes.ErrEncodingOrderSimulation
+			return nil, dextypes.ErrEncodingLatestPrice
 		}
 
 		return bz, nil
