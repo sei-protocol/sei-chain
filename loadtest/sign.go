@@ -170,7 +170,6 @@ func (sc *SignerClient) SignTx(chainID string, txBuilder *client.TxBuilder, priv
 func (sc *SignerClient) GetAccountNumberSequenceNumber(privKey cryptotypes.PrivKey) SignerInfo {
 	if val, ok := sc.CachedAccountSeqNum.Load(privKey); ok {
 		signerinfo := val.(SignerInfo)
-		signerinfo.IncrementAccountNumber()
 		return signerinfo
 	}
 
