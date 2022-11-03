@@ -202,7 +202,7 @@ func TestEndBlockLimitOrder(t *testing.T) {
 		panic(err)
 	}
 
-	dexkeeper.SetContract(ctx, &types.ContractInfoV2{CodeId: 123, ContractAddr: contractAddr.String(), NeedHook: true, NeedOrderMatching: true})
+	dexkeeper.SetContract(ctx, &types.ContractInfoV2{CodeId: 123, ContractAddr: contractAddr.String(), NeedHook: false, NeedOrderMatching: true})
 	dexkeeper.AddRegisteredPair(ctx, contractAddr.String(), pair)
 	dexutils.GetMemState(ctx.Context()).GetBlockOrders(ctx, utils.ContractAddress(contractAddr.String()), utils.GetPairString(&pair)).Add(
 		&types.Order{
