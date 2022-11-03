@@ -122,13 +122,14 @@ func initRootCmd(
 		tmcli.NewCompletionCmd(rootCmd, true),
 		debug.Cmd(),
 		config.Cmd(),
+		ReplayCmd(),
 	)
 
 	// add server commands
 	server.AddCommands(
 		rootCmd,
 		app.DefaultNodeHome,
-		newApp,
+		NewApp,
 		appExport,
 		addModuleInitFlags,
 	)
@@ -199,7 +200,7 @@ func addModuleInitFlags(startCmd *cobra.Command) {
 }
 
 // newApp creates a new Cosmos SDK app
-func newApp(
+func NewApp(
 	logger log.Logger,
 	db dbm.DB,
 	traceStore io.Writer,
