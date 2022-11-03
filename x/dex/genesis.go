@@ -9,6 +9,8 @@ import (
 // InitGenesis initializes the capability module's state from a provided genesis
 // state.
 func InitGenesis(ctx sdk.Context, k keeper.Keeper, genState types.GenesisState) {
+	k.CreateModuleAccount(ctx)
+
 	// Set all the longBook
 	for _, elem := range genState.LongBookList {
 		k.SetLongBook(ctx, "genesis", elem)

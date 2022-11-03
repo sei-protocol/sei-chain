@@ -15,6 +15,8 @@ service Msg {
   rpc PlaceOrders(MsgPlaceOrders) returns (MsgPlaceOrdersResponse);
   rpc CancelOrders(MsgCancelOrders) returns (MsgCancelOrdersResponse);
   rpc RegisterContract(MsgRegisterContract) returns(MsgRegisterContractResponse);
+  rpc ContractDepositRent(MsgContractDepositRent) returns(MsgContractDepositRentResponse);
+  rpc UnregisterContract(MsgUnregisterContract) returns(MsgUnregisterContractResponse);
   // privileged endpoints below
 
 // this line is used by starport scaffolding # proto/tx/rpc
@@ -60,9 +62,34 @@ message MsgCancelOrdersResponse {}
 
 message MsgRegisterContract {
   string creator = 1;
-  ContractInfo contract = 2;
+  ContractInfoV2 contract = 2;
 }
 
 message MsgRegisterContractResponse {}
+
+message MsgContractDepositRent {
+  string contractAddr = 1 [
+    (gogoproto.jsontag) = "contract_address"
+  ];
+  uint64 amount = 2 [
+    (gogoproto.jsontag) = "amount"
+  ];
+  string sender = 3 [
+    (gogoproto.jsontag) = "sender"
+  ];
+}
+
+message MsgContractDepositRentResponse {}
+
+message MsgUnregisterContract {
+  string creator = 1 [
+    (gogoproto.jsontag) = "creator"
+  ];
+  string contractAddr = 2 [
+    (gogoproto.jsontag) = "contract_address"
+  ];
+}
+
+message MsgUnregisterContractResponse {}
 
 // this line is used by starport scaffolding # proto/tx/message

@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	"github.com/cosmos/cosmos-sdk/codec"
-	codectypes "github.com/cosmos/cosmos-sdk/codec/types"
 	"github.com/cosmos/cosmos-sdk/store"
 	storetypes "github.com/cosmos/cosmos-sdk/store/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -22,6 +21,7 @@ import (
 	dexutils "github.com/sei-protocol/sei-chain/x/dex/utils"
 	epochkeeper "github.com/sei-protocol/sei-chain/x/epoch/keeper"
 	epochtypes "github.com/sei-protocol/sei-chain/x/epoch/types"
+	minttypes "github.com/sei-protocol/sei-chain/x/mint/types"
 	"github.com/stretchr/testify/require"
 	"github.com/tendermint/tendermint/libs/log"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
@@ -29,7 +29,7 @@ import (
 )
 
 const (
-	TestAccount    = "accnt"
+	TestAccount    = "sei1yezq49upxhunjjhudql2fnj5dgvcwjj87pn2wx"
 	TestContract   = "tc"
 	TestPriceDenom = "usdc"
 	TestAssetDenom = "atom"
@@ -59,7 +59,10 @@ func DexKeeper(t testing.TB) (*keeper.Keeper, sdk.Context) {
 
 	blackListAddrs := map[string]bool{}
 
-	maccPerms := map[string][]string{}
+	maccPerms := map[string][]string{
+		types.ModuleName:     nil,
+		minttypes.ModuleName: {authtypes.Minter},
+	}
 
 	db := tmdb.NewMemDB()
 	stateStore := store.NewCommitMultiStore(db)
@@ -72,8 +75,7 @@ func DexKeeper(t testing.TB) (*keeper.Keeper, sdk.Context) {
 	stateStore.MountStoreWithDB(keyParams, sdk.StoreTypeIAVL, db)
 	require.NoError(t, stateStore.LoadLatestVersion())
 
-	registry := codectypes.NewInterfaceRegistry()
-	cdc := codec.NewProtoCodec(registry)
+	cdc := codec.NewProtoCodec(app.MakeEncodingConfig().InterfaceRegistry)
 
 	paramsSubspace := typesparams.NewSubspace(cdc,
 		types.Amino,
@@ -92,9 +94,11 @@ func DexKeeper(t testing.TB) (*keeper.Keeper, sdk.Context) {
 		paramsSubspace,
 		*epochKeeper,
 		bankKeeper,
+		accountKeeper,
 	)
 
 	ctx := sdk.NewContext(stateStore, tmproto.Header{}, false, log.NewNopLogger())
+	k.CreateModuleAccount(ctx)
 
 	// Initialize params
 	k.SetParams(ctx, types.DefaultParams())
