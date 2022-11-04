@@ -47,7 +47,7 @@ func (o *BlockOrders) GetSortedMarketOrders(direction types.PositionDirection, i
 	if includeLiquidationOrders {
 		res = append(res, o.getOrdersByCriteria(types.OrderType_LIQUIDATION, direction)...)
 	}
-	sort.Slice(res, func(i, j int) bool {
+	sort.SliceStable(res, func(i, j int) bool {
 		// a price of 0 indicates that there is no worst price for the order, so it should
 		// always be ranked at the top.
 		if res[i].Price.IsZero() {
