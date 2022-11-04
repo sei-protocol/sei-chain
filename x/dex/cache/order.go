@@ -42,17 +42,12 @@ func (o *BlockOrders) GetSortedMarketOrders(direction types.PositionDirection, i
 	o.mu.Lock()
 	defer o.mu.Unlock()
 
-	orderTypes := map[types.OrderType]bool{
-		types.OrderType_MARKET:           true,
-		types.OrderType_FOKMARKET:        true,
-		types.OrderType_FOKMARKETBYVALUE: true,
-	}
+	res := o.getOrdersByCriteria(types.OrderType_MARKET, direction)
+	res = append(res, o.getOrdersByCriteria(types.OrderType_FOKMARKET, direction)...)
 	if includeLiquidationOrders {
-		orderTypes[types.OrderType_LIQUIDATION] = true
+		res = append(res, o.getOrdersByCriteria(types.OrderType_LIQUIDATION, direction)...)
 	}
-	res := o.getOrdersByCriteriaMap(orderTypes, map[types.PositionDirection]bool{direction: true})
-
-	sort.Slice(res, func(i, j int) bool {
+	sort.SliceStable(res, func(i, j int) bool {
 		// a price of 0 indicates that there is no worst price for the order, so it should
 		// always be ranked at the top.
 		if res[i].Price.IsZero() {
