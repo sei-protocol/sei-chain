@@ -10,23 +10,13 @@ func NewMatchResult(
 	settlements []*SettlementEntry,
 ) *MatchResult {
 	sort.Slice(orders, func(i, j int) bool {
-		if i != j && orders[i].Id == orders[j].Id {
-			panic("orders have identical IDs")
-		}
-		return orders[i].Id < orders[j].Id
+		return orders[i].String() < orders[j].String()
 	})
 	sort.Slice(cancellations, func(i, j int) bool {
-		if i != j && cancellations[i].Id == cancellations[j].Id {
-			panic("cancnellations have identical IDs")
-		}
-		return cancellations[i].Id < cancellations[j].Id
+		return cancellations[i].String() < cancellations[j].String()
 	})
 	sort.SliceStable(settlements, func(i, j int) bool {
-		// settlements for the same order ID are always populated
-		// by the same goroutine, so the ordering among those
-		// settlements are already deterministic as long as the
-		// sorting is stable.
-		return settlements[i].OrderId < settlements[j].OrderId
+		return settlements[i].String() < settlements[j].String()
 	})
 	return &MatchResult{
 		Orders:        orders,
