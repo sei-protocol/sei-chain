@@ -9,10 +9,10 @@ func NewMatchResult(
 	cancellations []*Cancellation,
 	settlements []*SettlementEntry,
 ) *MatchResult {
-	sort.Slice(orders, func(i, j int) bool {
+	sort.SliceStable(orders, func(i, j int) bool {
 		return orders[i].String() < orders[j].String()
 	})
-	sort.Slice(cancellations, func(i, j int) bool {
+	sort.SliceStable(cancellations, func(i, j int) bool {
 		return cancellations[i].String() < cancellations[j].String()
 	})
 	sort.SliceStable(settlements, func(i, j int) bool {
