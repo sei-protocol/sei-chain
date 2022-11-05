@@ -97,7 +97,7 @@ func runOnce(config Config) {
 	fmt.Printf("%s - Finished\n", time.Now().Format("2006-01-02T15:04:05"))
 
 	// Validate Tx will close the connection when it's done
-	client.ValidateTxs()
+	go client.ValidateTxs()
 }
 
 func (c *LoadTestClient) generateMessage(config Config, key cryptotypes.PrivKey, msgPerTx uint64) (sdk.Msg, bool) {
