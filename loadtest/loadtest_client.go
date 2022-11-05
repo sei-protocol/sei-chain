@@ -27,7 +27,7 @@ type LoadTestClient struct {
 	SignerClient       *SignerClient
 	ChainID            string
 	TxHashList         []string
-	TxResponseChan	   chan *string
+	TxResponseChan     chan *string
 	TxHashListMutex    *sync.Mutex
 	GrpcConn           *grpc.ClientConn
 	StakingQueryClient stakingtypes.QueryClient
@@ -60,7 +60,7 @@ func NewLoadTestClient(config Config) *LoadTestClient {
 		SignerClient:           NewSignerClient(),
 		ChainID:                config.ChainID,
 		TxHashList:             []string{},
-		TxResponseChan: 		make(chan *string),
+		TxResponseChan:         make(chan *string),
 		TxHashListMutex:        &sync.Mutex{},
 		GrpcConn:               grpcConn,
 		StakingQueryClient:     stakingtypes.NewQueryClient(grpcConn),
@@ -247,7 +247,6 @@ func (c *LoadTestClient) ValidateTxs() {
 		responseStringMap[codeString]++
 		responseCodeMap[int(code)]++
 	}
-
 
 	fmt.Printf("Transactions not committed: %d\n", notCommittedTxs)
 	pp.Printf("Response Code Mapping: \n %s \n", responseStringMap)
