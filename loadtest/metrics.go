@@ -58,7 +58,10 @@ func (s *MetricsServer) StartMetricsClient() {
 }
 
 func (s *MetricsServer) healthzHandler(w http.ResponseWriter, r *http.Request) {
-	io.WriteString(w, "ok\n")
+	_, err := io.WriteString(w, "ok\n")
+	if err != nil {
+		panic(err)
+	}
 }
 
 func IncrTxProcessCode(reason string, count int) {
