@@ -23,7 +23,7 @@ func TestUnregisterContractSetSiblings(t *testing.T) {
 	server := msgserver.NewMsgServerImpl(*keeper)
 	contract := types.ContractInfoV2{
 		CodeId:       1,
-		ContractAddr: keepertest.TestContract,
+		ContractAddr: TestContractA,
 		Creator:      testAccount.String(),
 		RentBalance:  1000000,
 	}
@@ -32,16 +32,16 @@ func TestUnregisterContractSetSiblings(t *testing.T) {
 		Contract: &contract,
 	})
 	require.NoError(t, err)
-	_, err = keeper.GetContract(ctx, keepertest.TestContract)
+	_, err = keeper.GetContract(ctx, TestContractA)
 	require.NoError(t, err)
 	balance := keeper.BankKeeper.GetBalance(ctx, testAccount, "usei")
 	require.Equal(t, int64(9000000), balance.Amount.Int64())
 	_, err = server.UnregisterContract(wctx, &types.MsgUnregisterContract{
 		Creator:      testAccount.String(),
-		ContractAddr: keepertest.TestContract,
+		ContractAddr: TestContractA,
 	})
 	require.NoError(t, err)
-	_, err = keeper.GetContract(ctx, keepertest.TestContract)
+	_, err = keeper.GetContract(ctx, TestContractA)
 	require.Error(t, err)
 	balance = keeper.BankKeeper.GetBalance(ctx, testAccount, "usei")
 	require.Equal(t, int64(10000000), balance.Amount.Int64())

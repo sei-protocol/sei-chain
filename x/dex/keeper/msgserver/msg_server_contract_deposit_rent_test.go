@@ -23,7 +23,7 @@ func TestDepositRent(t *testing.T) {
 	server := msgserver.NewMsgServerImpl(*keeper)
 	contract := types.ContractInfoV2{
 		CodeId:       1,
-		ContractAddr: keepertest.TestContract,
+		ContractAddr: TestContractA,
 		Creator:      testAccount.String(),
 		RentBalance:  1000000,
 	}
@@ -32,17 +32,17 @@ func TestDepositRent(t *testing.T) {
 		Contract: &contract,
 	})
 	require.NoError(t, err)
-	_, err = keeper.GetContract(ctx, keepertest.TestContract)
+	_, err = keeper.GetContract(ctx, TestContractA)
 	require.NoError(t, err)
 	balance := keeper.BankKeeper.GetBalance(ctx, testAccount, "usei")
 	require.Equal(t, int64(9000000), balance.Amount.Int64())
 	_, err = server.ContractDepositRent(wctx, &types.MsgContractDepositRent{
 		Sender:       testAccount.String(),
-		ContractAddr: keepertest.TestContract,
+		ContractAddr: TestContractA,
 		Amount:       1000000,
 	})
 	require.NoError(t, err)
-	_, err = keeper.GetContract(ctx, keepertest.TestContract)
+	_, err = keeper.GetContract(ctx, TestContractA)
 	require.NoError(t, err)
 	balance = keeper.BankKeeper.GetBalance(ctx, testAccount, "usei")
 	require.Equal(t, int64(8000000), balance.Amount.Int64())

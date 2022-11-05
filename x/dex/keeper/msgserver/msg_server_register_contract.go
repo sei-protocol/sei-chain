@@ -18,7 +18,7 @@ func (k msgServer) RegisterContract(goCtx context.Context, msg *types.MsgRegiste
 	ctx := sdk.UnwrapSDKContext(goCtx)
 	// TODO: add validation such that only the user who stored the code can register contract
 
-	if err := k.ValidateBasics(msg); err != nil {
+	if err := k.ValidateBasics(ctx, msg); err != nil {
 		ctx.Logger().Error(fmt.Sprintf("request invalid: %s", err))
 		return &types.MsgRegisterContractResponse{}, err
 	}
@@ -55,12 +55,16 @@ func (k msgServer) RegisterContract(goCtx context.Context, msg *types.MsgRegiste
 	return &types.MsgRegisterContractResponse{}, nil
 }
 
-func (k msgServer) ValidateBasics(msg *types.MsgRegisterContract) error {
+func (k msgServer) ValidateBasics(ctx sdk.Context, msg *types.MsgRegisterContract) error {
 	if msg.Contract == nil {
 		return errors.New("empty contract info")
 	}
 	if msg.Contract.ContractAddr == "" {
 		return errors.New("contract address is empty")
+	}
+	_, err := sdk.AccAddressFromBech32(msg.Contract.ContractAddr)
+	if err != nil {
+		return errors.New("contract address format is not bech32")
 	}
 	return nil
 }
