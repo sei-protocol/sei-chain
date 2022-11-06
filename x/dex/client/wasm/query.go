@@ -40,3 +40,9 @@ func (handler DexWasmQueryHandler) GetOrderSimulation(ctx sdk.Context, req *type
 	wrapper := query.KeeperWrapper{Keeper: &handler.dexKeeper}
 	return wrapper.GetOrderSimulation(c, req)
 }
+
+func (handler DexWasmQueryHandler) GetLatestPrice(ctx sdk.Context, req *types.QueryGetLatestPriceRequest) (*types.QueryGetLatestPriceResponse, error) {
+	c := sdk.WrapSDKContext(ctx)
+	wrapper := query.KeeperWrapper{Keeper: &handler.dexKeeper}
+	return wrapper.GetLatestPrice(c, req)
+}

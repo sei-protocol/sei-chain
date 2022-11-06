@@ -118,6 +118,17 @@ func (qp QueryPlugin) HandleDexQuery(ctx sdk.Context, queryData json.RawMessage)
 		}
 
 		return bz, nil
+	case parsedQuery.GetLatestPrice != nil:
+		res, err := qp.dexHandler.GetLatestPrice(ctx, parsedQuery.GetLatestPrice)
+		if err != nil {
+			return nil, err
+		}
+		bz, err := json.Marshal(res)
+		if err != nil {
+			return nil, dextypes.ErrEncodingLatestPrice
+		}
+
+		return bz, nil
 	default:
 		return nil, dextypes.ErrUnknownSeiDexQuery
 	}
