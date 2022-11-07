@@ -5,6 +5,7 @@ import "cosmos/base/v1beta1/coin.proto";
 import "gogoproto/gogo.proto";
 import "dex/contract.proto";
 import "dex/order.proto";
+import "dex/pair.proto";
 
 // this line is used by starport scaffolding # proto/tx/import
 
@@ -17,6 +18,7 @@ service Msg {
   rpc RegisterContract(MsgRegisterContract) returns(MsgRegisterContractResponse);
   rpc ContractDepositRent(MsgContractDepositRent) returns(MsgContractDepositRentResponse);
   rpc UnregisterContract(MsgUnregisterContract) returns(MsgUnregisterContractResponse);
+  rpc RegisterPairs(MsgRegisterPairs) returns(MsgRegisterPairsResponse);
   // privileged endpoints below
 
 // this line is used by starport scaffolding # proto/tx/rpc
@@ -91,5 +93,15 @@ message MsgUnregisterContract {
 }
 
 message MsgUnregisterContractResponse {}
+
+message MsgRegisterPairs {
+  repeated BatchContractPair batchcontractpair = 3 [
+        (gogoproto.moretags) = "yaml:\"batch_contract_pair\"",
+        (gogoproto.nullable) = false,
+        (gogoproto.jsontag) = "batch_contract_pair"
+    ];
+}
+
+message MsgRegisterPairsResponse {}
 
 // this line is used by starport scaffolding # proto/tx/message
