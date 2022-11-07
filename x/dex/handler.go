@@ -40,8 +40,6 @@ func NewHandler(k keeper.Keeper) sdk.Handler {
 func NewProposalHandler(k keeper.Keeper) govtypes.Handler {
 	return func(ctx sdk.Context, content govtypes.Content) error {
 		switch c := content.(type) {
-		case *types.RegisterPairsProposal:
-			return HandleRegisterPairsProposal(ctx, &k, c)
 		case *types.UpdateTickSizeProposal:
 			return HandleUpdateTickSizeProposal(ctx, &k, c)
 		case *types.AddAssetMetadataProposal:
