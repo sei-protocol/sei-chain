@@ -98,7 +98,7 @@ func (c *LoadTestClient) WriteTxHashToFile() {
 	}
 }
 
-func (c *LoadTestClient) BuildTxs() (workgroups []*sync.WaitGroup, sendersList [][]func() string) {
+func (c *LoadTestClient) BuildTxs() (workgroups []*sync.WaitGroup, sendersList [][]func()) {
 	config := c.LoadTestConfig
 	numberOfAccounts := config.TxsPerBlock / config.MsgsPerTx * 2 // * 2 because we need two sets of accounts
 	activeAccounts := []int{}
@@ -118,7 +118,7 @@ func (c *LoadTestClient) BuildTxs() (workgroups []*sync.WaitGroup, sendersList [
 		fmt.Printf("Preparing %d-th round\n", i)
 
 		wg := &sync.WaitGroup{}
-		var senders []func() string
+		var senders []func()
 		workgroups = append(workgroups, wg)
 
 		for j, account := range activeAccounts {
@@ -138,9 +138,9 @@ func (c *LoadTestClient) BuildTxs() (workgroups []*sync.WaitGroup, sendersList [
 			// as is.
 			sender := SendTx(key, &txBuilder, mode, seqDelta, failureExpected, *c)
 			wg.Add(1)
-			senders = append(senders, func() string {
+			senders = append(senders, func() {
 				defer wg.Done()
-				return sender()
+				sender()
 			})
 		}
 
@@ -153,8 +153,8 @@ func (c *LoadTestClient) BuildTxs() (workgroups []*sync.WaitGroup, sendersList [
 	return workgroups, sendersList
 }
 
-func (c *LoadTestClient) GenerateOracleSenders(i int, config Config, valKeys []cryptotypes.PrivKey, waitGroup *sync.WaitGroup) []func() string {
-	senders := []func() string{}
+func (c *LoadTestClient) GenerateOracleSenders(i int, config Config, valKeys []cryptotypes.PrivKey, waitGroup *sync.WaitGroup) []func() {
+	senders := []func() {}
 	if config.RunOracle && i%2 == 0 {
 		for _, valKey := range valKeys {
 			// generate oracle tx
@@ -165,16 +165,16 @@ func (c *LoadTestClient) GenerateOracleSenders(i int, config Config, valKeys []c
 			mode := typestx.BroadcastMode_BROADCAST_MODE_SYNC
 			sender := SendTx(valKey, &txBuilder, mode, seqDelta, false, *c)
 			waitGroup.Add(1)
-			senders = append(senders, func() string {
+			senders = append(senders, func() {
 				defer waitGroup.Done()
-				return sender()
+				sender()
 			})
 		}
 	}
 	return senders
 }
 
-func (c *LoadTestClient) SendTxs(workgroups []*sync.WaitGroup, sendersList [][]func() string) {
+func (c *LoadTestClient) SendTxs(workgroups []*sync.WaitGroup, sendersList [][]func()) {
 	defer close(c.TxResponseChan)
 
 	lastHeight := getLastHeight()
