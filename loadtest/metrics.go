@@ -64,7 +64,7 @@ func (s *MetricsServer) healthzHandler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-# loadtest_client_sei_tx_code
+// loadtest_client_sei_tx_code
 func IncrTxProcessCode(reason string, count int) {
 	metrics.IncrCounterWithLabels(
 		[]string{"sei", "tx", "code"},
@@ -73,7 +73,7 @@ func IncrTxProcessCode(reason string, count int) {
 	)
 }
 
-# loadtest_client_sei_tx_failed
+// loadtest_client_sei_tx_failed
 func IncrTxNotCommitted(count int) {
 	metrics.IncrCounterWithLabels(
 		[]string{"sei", "tx", "failed"},
