@@ -19,14 +19,14 @@ func SendTx(
 	seqDelta uint64,
 	failureExpected bool,
 	loadtestClient LoadTestClient,
-) func() string { // TODO: do we need to return string?
-	(*txBuilder).SetGasLimit(200000000)
+) func() {
+	(*txBuilder).SetGasLimit(200000)
 	(*txBuilder).SetFeeAmount([]sdk.Coin{
-		sdk.NewCoin("usei", sdk.NewInt(10000000)),
+		sdk.NewCoin("usei", sdk.NewInt(10000)),
 	})
 	loadtestClient.SignerClient.SignTx(loadtestClient.ChainID, txBuilder, key, seqDelta)
 	txBytes, _ := TestConfig.TxConfig.TxEncoder()((*txBuilder).GetTx())
-	return func() string {
+	return func() {
 		grpcRes, err := loadtestClient.TxClient.BroadcastTx(
 			context.Background(),
 			&typestx.BroadcastTxRequest{
@@ -64,8 +64,6 @@ func SendTx(
 			fmt.Printf("Error: %d, %s\n", grpcRes.TxResponse.Code, grpcRes.TxResponse.RawLog)
 		} else {
 			loadtestClient.AppendTxHash(grpcRes.TxResponse.TxHash)
-			return grpcRes.TxResponse.TxHash
 		}
-		return ""
 	}
 }

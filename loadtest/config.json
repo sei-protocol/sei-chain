@@ -24,6 +24,8 @@
             "begin_redelegate_percentage": "0.25"
         }
     },
+    "constant": true,
+    "const_load_interval": 600,
     "message_type": "bank,dex,staking,tokenfactory",
     "run_oracle": true,
     "contract_distribution": [
