@@ -154,7 +154,7 @@ func (c *LoadTestClient) BuildTxs() (workgroups []*sync.WaitGroup, sendersList [
 }
 
 func (c *LoadTestClient) GenerateOracleSenders(i int, config Config, valKeys []cryptotypes.PrivKey, waitGroup *sync.WaitGroup) []func() {
-	senders := []func() {}
+	senders := []func(){}
 	if config.RunOracle && i%2 == 0 {
 		for _, valKey := range valKeys {
 			// generate oracle tx
