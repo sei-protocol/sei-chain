@@ -3,7 +3,7 @@ package provider
 import (
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"strconv"
 	"strings"
@@ -85,7 +85,7 @@ func (p OsmosisProvider) GetTickerPrices(pairs ...types.CurrencyPair) (map[strin
 
 	defer resp.Body.Close()
 
-	bz, err := ioutil.ReadAll(resp.Body)
+	bz, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read Osmosis response body: %w", err)
 	}
@@ -154,7 +154,7 @@ func (p OsmosisProvider) GetCandlePrices(pairs ...types.CurrencyPair) (map[strin
 
 		defer resp.Body.Close()
 
-		bz, err := ioutil.ReadAll(resp.Body)
+		bz, err := io.ReadAll(resp.Body)
 		if err != nil {
 			return nil, fmt.Errorf("failed to read Osmosis response body: %w", err)
 		}

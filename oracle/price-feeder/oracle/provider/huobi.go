@@ -6,7 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -487,7 +487,7 @@ func decompressGzip(bz []byte) ([]byte, error) {
 		return nil, err
 	}
 
-	return ioutil.ReadAll(r)
+	return io.ReadAll(r)
 }
 
 // toTickerPrice converts current HuobiTicker to TickerPrice.

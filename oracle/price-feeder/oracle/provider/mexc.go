@@ -78,7 +78,7 @@ type (
 
 	// MexcCandle candle Mexc websocket channel "kline_1m" response.
 	MexcCandle struct {
-		//Channel  string             `json:"channel"` // expect "push.kline"
+		// Channel  string             `json:"channel"` // expect "push.kline"
 		Symbol   string             `json:"symbol"` // Symbol ex.: ATOM_USDT
 		Metadata MexcCandleMetadata `json:"data"`   // Metadata for candle
 	}
@@ -326,7 +326,6 @@ func (p *MexcProvider) setTickerPair(symbol string, ticker MexcTickerData) {
 	// msg := mt.Symbol + " - $" + mt.LastPrice + " - V: " + mt.Volume
 	// p.logger.Warn().Msgf("mexc got price: %d", msg)
 	p.tickers[symbol] = mt
-
 }
 
 func (p *MexcProvider) setCandlePair(candle MexcCandle) {
@@ -447,7 +446,10 @@ func (p *MexcProvider) setSubscribedPairs(cps ...types.CurrencyPair) {
 func (p *MexcProvider) subscribePairs(pairs ...string) error {
 	for _, cp := range pairs {
 		subsMsg := newMexcCandleSubscriptionMsg(cp)
-		p.wsClient.WriteJSON(subsMsg)
+		err := p.wsClient.WriteJSON(subsMsg)
+		if err != nil {
+			return err
+		}
 	}
 	subsMsg := newMexcTickerSubscriptionMsg()
 	return p.wsClient.WriteJSON(subsMsg)

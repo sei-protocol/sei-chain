@@ -3,7 +3,7 @@ package cmd
 import (
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
+	"os"
 	"runtime"
 
 	"github.com/sirkon/goproxy/gomod"
@@ -39,7 +39,7 @@ func getVersionCmd() *cobra.Command {
 		Use:   "version",
 		Short: "Print binary version information",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			modBz, err := ioutil.ReadFile("go.mod")
+			modBz, err := os.ReadFile("go.mod")
 			if err != nil {
 				return err
 			}

@@ -3,7 +3,7 @@ package provider
 import (
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"strings"
 	"time"
@@ -83,7 +83,7 @@ func (p FinProvider) GetTickerPrices(pairs ...types.CurrencyPair) (map[string]Ti
 		return nil, fmt.Errorf("FIN tickers request failed: %w", err)
 	}
 	defer tickerResponse.Body.Close()
-	tickerContent, err := ioutil.ReadAll(tickerResponse.Body)
+	tickerContent, err := io.ReadAll(tickerResponse.Body)
 	if err != nil {
 		return nil, fmt.Errorf("FIN tickers response read failed: %w", err)
 	}
@@ -148,7 +148,7 @@ func (p FinProvider) GetCandlePrices(pairs ...types.CurrencyPair) (map[string][]
 			return nil, fmt.Errorf("FIN candles request failed: %w", err)
 		}
 		defer candlesResponse.Body.Close()
-		candlesContent, err := ioutil.ReadAll(candlesResponse.Body)
+		candlesContent, err := io.ReadAll(candlesResponse.Body)
 		if err != nil {
 			return nil, fmt.Errorf("FIN candles response read failed: %w", err)
 		}
