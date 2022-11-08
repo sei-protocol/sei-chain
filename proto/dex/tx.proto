@@ -95,6 +95,7 @@ message MsgUnregisterContract {
 message MsgUnregisterContractResponse {}
 
 message MsgRegisterPairs {
+  string creator = 1;
   repeated BatchContractPair batchcontractpair = 3 [
         (gogoproto.moretags) = "yaml:\"batch_contract_pair\"",
         (gogoproto.nullable) = false,

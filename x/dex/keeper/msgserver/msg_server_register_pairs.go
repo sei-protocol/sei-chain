@@ -9,6 +9,7 @@ import (
 
 func (k msgServer) RegisterPairs(goCtx context.Context, msg *types.MsgRegisterPairs) (*types.MsgRegisterPairsResponse, error) {
 	ctx := sdk.UnwrapSDKContext(goCtx)
+	// TODO: add validation such that only the user who stored the code can register pairs
 
 	// Loop through each batch contract pair an individual contract pair, token pair
 	// tuple and register them individually

@@ -27,6 +27,7 @@ func TestRegisterPairs(t *testing.T) {
 		Pairs: []*types.Pair{&keepertest.TestPair},
 	})
 	_, err := server.RegisterPairs(ctx, &types.MsgRegisterPairs{
+		Creator: keepertest.TestAccount,
 		Batchcontractpair: &batchContractPairs,
 	})
 
@@ -47,6 +48,7 @@ func TestRegisterPairs(t *testing.T) {
 		Pairs: []*types.Pair{&keepertest.TestPair, &secondTestPair},
 	})
 	_, err = server.RegisterPairs(ctx, &types.MsgRegisterPairs{
+		Creator: keepertest.TestAccount,
 		Batchcontractpair: &secondContractPairs,
 	})
 
