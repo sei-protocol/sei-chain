@@ -41,8 +41,8 @@ def create_steady_loadtest_config(base_config_json):
     new_config = base_config_json.copy()
     new_config["constant"] = True
     new_config["metrics_port"] = 9696
-    new_config["txs_per_block"] = 100
-    # Run every 5 mins
+    new_config["txs_per_block"] = 10
+    # Run every min
     new_config["loadtest_interval"] = 60
     return new_config
 
