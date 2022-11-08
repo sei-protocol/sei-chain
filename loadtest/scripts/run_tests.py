@@ -75,10 +75,11 @@ def run_test(test_type, loadtest_config):
         config = create_steady_loadtest_config(base_config_json)
 
     temp_file = write_to_temp_json_file(config)
+    temp_file.close()
     try:
         run_go_loadtest_client(temp_file.name, binary_path=loadtest_config.loadtest_binary_file_path)
     finally:
-        temp_file.close()
+        os.delete(temp_file.name)
 
 def run():
     parser = argparse.ArgumentParser(
