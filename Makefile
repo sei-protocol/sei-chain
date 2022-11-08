@@ -67,6 +67,8 @@ install: go.sum
 loadtest: go.sum
 		go build $(BUILD_FLAGS) -o ./build/loadtest ./loadtest/
 
+price-feeder: go.sum
+		go build $(BUILD_FLAGS) -o ./build/price-feeder ./oracle/price-feeder
 
 go.sum: go.mod
 		@echo "--> Ensure dependencies have not been modified"
@@ -82,4 +84,3 @@ build:
 
 clean:
 	rm -rf ./build
- 
