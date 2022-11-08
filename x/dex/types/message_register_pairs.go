@@ -1,6 +1,8 @@
 package types
 
 import (
+	"errors"
+
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 )
@@ -41,9 +43,42 @@ func (msg *MsgRegisterPairs) GetSignBytes() []byte {
 }
 
 func (msg *MsgRegisterPairs) ValidateBasic() error {
+	if msg.Creator == "" {
+		return errors.New("creator address is empty")
+	}
+
 	_, err := sdk.AccAddressFromBech32(msg.Creator)
 	if err != nil {
 		return sdkerrors.Wrapf(sdkerrors.ErrInvalidAddress, "invalid creator address (%s)", err)
 	}
+
+	if len(msg.Batchcontractpair) == 0 {
+		return errors.New("no data provided in register pairs transaction")
+	}
+
+	for _, batchContractPair := range msg.Batchcontractpair {
+		contractAddress := batchContractPair.ContractAddr
+
+		if contractAddress == "" {
+			return errors.New("contract address is empty")
+		}
+
+		_, err = sdk.AccAddressFromBech32(contractAddress)
+		if err != nil {
+			return errors.New("contract address format is not bech32")
+		}
+
+		if len(batchContractPair.Pairs) == 0 {
+			return errors.New("no pairs provided in register pairs transaction")
+		}
+		
+		for _, pair := range batchContractPair.Pairs {
+			if pair == nil {
+				return errors.New("empty pair info")
+			}
+		} 
+	}
+
+
 	return nil
 }

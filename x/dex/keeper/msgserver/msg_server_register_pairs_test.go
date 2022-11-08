@@ -52,3 +52,54 @@ func TestRegisterPairs(t *testing.T) {
 	require.Equal(t, secondTestPair, storedRegisteredPairs[1])
 
 }
+
+func TestRegisterPairsInvalidMsg(t *testing.T) {
+	keeper, ctx := keepertest.DexKeeper(t)
+	wctx := sdk.WrapSDKContext(ctx)
+	server := msgserver.NewMsgServerImpl(*keeper)
+	batchContractPairs := []types.BatchContractPair{}
+	// Test with empty creator address
+	_, err := server.RegisterPairs(wctx, &types.MsgRegisterPairs{
+		Creator:           "",
+		Batchcontractpair: batchContractPairs,
+	})
+	require.NotNil(t, err)
+
+	// Test with empty msg
+	_, err = server.RegisterPairs(wctx, &types.MsgRegisterPairs{
+		Creator:           keepertest.TestAccount,
+		Batchcontractpair: batchContractPairs,
+	})
+	require.NotNil(t, err)
+
+	// Test with invalid Creator address
+	_, err = server.RegisterPairs(wctx, &types.MsgRegisterPairs{
+		Creator:           "invalidAddress",
+		Batchcontractpair: batchContractPairs,
+	})
+	require.NotNil(t, err)
+
+	// Test with empty contract address
+	batchContractPairs = append(batchContractPairs, types.BatchContractPair{
+		ContractAddr: "",
+		Pairs:        []*types.Pair{&keepertest.TestPair},
+	})
+	require.NotNil(t, err)
+
+	// Test with empty pairs list
+	batchContractPairs = []types.BatchContractPair{}
+	batchContractPairs = append(batchContractPairs, types.BatchContractPair{
+		ContractAddr: TestContractA,
+		Pairs:        []*types.Pair{},
+	})
+	require.NotNil(t, err)
+
+	// Test with nil pair
+	batchContractPairs = []types.BatchContractPair{}
+	batchContractPairs = append(batchContractPairs, types.BatchContractPair{
+		ContractAddr: TestContractA,
+		Pairs:        []*types.Pair{nil},
+	})
+	require.NotNil(t, err)
+
+}
