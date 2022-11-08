@@ -22,9 +22,7 @@ func init() {
 	govtypes.RegisterProposalTypeCodec(&AddAssetMetadataProposal{}, "dex/AddAssetMetadataProposal")
 }
 
-var (
-	_ govtypes.Content = &UpdateTickSizeProposal{}
-)
+var _ govtypes.Content = &UpdateTickSizeProposal{}
 
 // todo might be good to separate to different file when # of governance proposal increases
 func NewUpdateTickSizeForPair(title, description string, tickSizeList []TickSize) UpdateTickSizeProposal {
