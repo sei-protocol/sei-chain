@@ -117,21 +117,21 @@ func (tss TickSizesJSON) ToTickSizes() ([]dextypes.TickSize, error) {
 	return res, nil
 }
 
-// ParseRegisterPairsTxJSON reads and parses a RegisterPairsProposalJSON from
+// ParseRegisterPairsTxJSON reads and parses a RegisterPairsTxJSON from
 // a file.
-func ParseRegisterPairsTxJSON(cdc *codec.LegacyAmino, proposalFile string) (RegisterPairsTxJSON, error) {
-	proposal := RegisterPairsTxJSON{}
+func ParseRegisterPairsTxJSON(cdc *codec.LegacyAmino, txFile string) (RegisterPairsTxJSON, error) {
+	registerTx := RegisterPairsTxJSON{}
 
-	contents, err := os.ReadFile(proposalFile)
+	contents, err := os.ReadFile(txFile)
 	if err != nil {
-		return proposal, err
+		return registerTx, err
 	}
 
-	if err := cdc.UnmarshalJSON(contents, &proposal); err != nil {
-		return proposal, err
+	if err := cdc.UnmarshalJSON(contents, &registerTx); err != nil {
+		return registerTx, err
 	}
 
-	return proposal, nil
+	return registerTx, nil
 }
 
 // ParseUpdateTickSizeProposalJSON reads and parses a UpdateTickSizeProposalJSON from

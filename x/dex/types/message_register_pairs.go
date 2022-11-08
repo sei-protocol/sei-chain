@@ -14,7 +14,7 @@ func NewMsgRegisterPairs(
 	contractPairs []BatchContractPair,
 ) *MsgRegisterPairs {
 	return &MsgRegisterPairs{
-		Creator: creator,
+		Creator:           creator,
 		Batchcontractpair: contractPairs,
 	}
 }

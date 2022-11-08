@@ -29,15 +29,15 @@ import (
 type KeeperTestSuite struct {
 	apptesting.KeeperTestHelper
 
-	queryClient dextypes.QueryClient
-	msgServer   dextypes.MsgServer
-	defaultDenom string
+	queryClient         dextypes.QueryClient
+	msgServer           dextypes.MsgServer
+	defaultDenom        string
 	defaultExchangeRate string
-	initialBalance sdk.Coins
-	creator string
-	contract string
+	initialBalance      sdk.Coins
+	creator             string
+	contract            string
 
-	msgPlaceOrders *dextypes.MsgPlaceOrders
+	msgPlaceOrders  *dextypes.MsgPlaceOrders
 	msgCancelOrders *dextypes.MsgCancelOrders
 }
 
@@ -104,16 +104,16 @@ func (suite *KeeperTestSuite) PrepareTest() {
 		ContractAddr: suite.contract,
 		Cancellations: []*types.Cancellation{
 			{
-				Id:  			   1,
+				Id:                1,
 				Price:             sdk.MustNewDecFromStr("10"),
-				Creator: 		   suite.creator,
+				Creator:           suite.creator,
 				PositionDirection: types.PositionDirection_LONG,
 				PriceDenom:        keepertest.TestPriceDenom,
 				AssetDenom:        keepertest.TestAssetDenom,
 			},
 			{
-				Id: 			    2,
-				Creator:		   suite.creator,
+				Id:                2,
+				Creator:           suite.creator,
 				Price:             sdk.MustNewDecFromStr("20"),
 				PositionDirection: types.PositionDirection_SHORT,
 				PriceDenom:        keepertest.TestPriceDenom,
@@ -123,26 +123,25 @@ func (suite *KeeperTestSuite) PrepareTest() {
 	}
 }
 
-
 func (suite *KeeperTestSuite) TestMsgPlaceOrder() {
 	suite.PrepareTest()
 	tests := []struct {
 		name          string
 		expectedError error
 		msg           *dextypes.MsgPlaceOrders
-		dynamicDep 	  bool
+		dynamicDep    bool
 	}{
 		{
 			name:          "default place order",
 			msg:           suite.msgPlaceOrders,
 			expectedError: nil,
-			dynamicDep: true,
+			dynamicDep:    true,
 		},
 		{
 			name:          "dont check synchronous",
 			msg:           suite.msgPlaceOrders,
 			expectedError: nil,
-			dynamicDep: false,
+			dynamicDep:    false,
 		},
 	}
 	for _, tc := range tests {
@@ -156,7 +155,7 @@ func (suite *KeeperTestSuite) TestMsgPlaceOrder() {
 				tc.msg,
 			)
 
-			depdenencies , _ := dexacl.DexPlaceOrdersDependencyGenerator(
+			depdenencies, _ := dexacl.DexPlaceOrdersDependencyGenerator(
 				suite.App.AccessControlKeeper,
 				handlerCtx,
 				tc.msg,
@@ -186,19 +185,19 @@ func (suite *KeeperTestSuite) TestMsgCancelOrder() {
 		name          string
 		expectedError error
 		msg           *dextypes.MsgCancelOrders
-		dynamicDep 	  bool
+		dynamicDep    bool
 	}{
 		{
 			name:          "default cancel order",
 			msg:           suite.msgCancelOrders,
 			expectedError: nil,
-			dynamicDep: true,
+			dynamicDep:    true,
 		},
 		{
 			name:          "dont check synchronous",
 			msg:           suite.msgCancelOrders,
 			expectedError: nil,
-			dynamicDep: false,
+			dynamicDep:    false,
 		},
 	}
 	for _, tc := range tests {
@@ -217,7 +216,7 @@ func (suite *KeeperTestSuite) TestMsgCancelOrder() {
 				tc.msg,
 			)
 
-			depdenencies , _ := dexacl.DexCancelOrdersDependencyGenerator(
+			depdenencies, _ := dexacl.DexCancelOrdersDependencyGenerator(
 				suite.App.AccessControlKeeper,
 				handlerCtx,
 				tc.msg,
@@ -238,8 +237,6 @@ func (suite *KeeperTestSuite) TestMsgCancelOrder() {
 		})
 	}
 }
-
-
 
 func TestGeneratorInvalidMessageTypes(t *testing.T) {
 	tm := time.Now().UTC()
@@ -291,4 +288,3 @@ func (suite *KeeperTestSuite) TestMsgCancelOrderGenerator() {
 	err = acltypes.ValidateAccessOps(accessOps)
 	require.NoError(suite.T(), err)
 }
-

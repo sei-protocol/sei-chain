@@ -24,10 +24,10 @@ func TestRegisterPairs(t *testing.T) {
 	batchContractPairs := []types.BatchContractPair{}
 	batchContractPairs = append(batchContractPairs, types.BatchContractPair{
 		ContractAddr: TestContractA,
-		Pairs: []*types.Pair{&keepertest.TestPair},
+		Pairs:        []*types.Pair{&keepertest.TestPair},
 	})
 	_, err := server.RegisterPairs(ctx, &types.MsgRegisterPairs{
-		Creator: keepertest.TestAccount,
+		Creator:           keepertest.TestAccount,
 		Batchcontractpair: &batchContractPairs,
 	})
 
@@ -45,10 +45,10 @@ func TestRegisterPairs(t *testing.T) {
 	}
 	secondContractPairs = append(batchContractPairs, types.BatchContractPair{
 		ContractAddr: TestContractB,
-		Pairs: []*types.Pair{&keepertest.TestPair, &secondTestPair},
+		Pairs:        []*types.Pair{&keepertest.TestPair, &secondTestPair},
 	})
 	_, err = server.RegisterPairs(ctx, &types.MsgRegisterPairs{
-		Creator: keepertest.TestAccount,
+		Creator:           keepertest.TestAccount,
 		Batchcontractpair: &secondContractPairs,
 	})
 

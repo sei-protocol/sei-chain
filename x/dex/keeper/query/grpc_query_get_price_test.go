@@ -21,10 +21,10 @@ func TestGetPrice(t *testing.T) {
 	wctx := sdk.WrapSDKContext(ctx)
 	wrapper := query.KeeperWrapper{Keeper: keeper}
 	resp, err := wrapper.GetPrice(wctx, &types.QueryGetPriceRequest{
-		ContractAddr:      keepertest.TestContract,
-		PriceDenom:        keepertest.TestPair.PriceDenom,
-		AssetDenom:        keepertest.TestPair.AssetDenom,
-		Timestamp: 2,
+		ContractAddr: keepertest.TestContract,
+		PriceDenom:   keepertest.TestPair.PriceDenom,
+		AssetDenom:   keepertest.TestPair.AssetDenom,
+		Timestamp:    2,
 	})
 	require.Nil(t, err)
 	require.Equal(t, true, resp.Found)

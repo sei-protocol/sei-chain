@@ -6,16 +6,16 @@ import (
 	"github.com/cosmos/cosmos-sdk/client"
 	"github.com/cosmos/cosmos-sdk/client/flags"
 	"github.com/cosmos/cosmos-sdk/client/tx"
+	cutils "github.com/sei-protocol/sei-chain/x/dex/client/utils"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
 	"github.com/spf13/cobra"
-	cutils "github.com/sei-protocol/sei-chain/x/dex/client/utils"
 )
 
 var _ = strconv.Itoa(0)
 
 func CmdRegisterPairs() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "register-pairs-proposal [proposal-file]",
+		Use:   "register-pairs [register-pairs-file]",
 		Short: "Register pairs for a contract",
 		Args:  cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) (err error) {
