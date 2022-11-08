@@ -39,11 +39,6 @@ func (k msgServer) transferFunds(goCtx context.Context, msg *types.MsgPlaceOrder
 		if fund.Amount.IsNil() || fund.IsNegative() {
 			return errors.New("fund deposits cannot be nil or negative")
 		}
-		dexutils.GetMemState(ctx.Context()).GetDepositInfo(ctx, typesutils.ContractAddress(msg.GetContractAddr())).Add(&dexcache.DepositInfoEntry{
-			Creator: msg.Creator,
-			Denom:   fund.Denom,
-			Amount:  sdk.NewDec(fund.Amount.Int64()),
-		})
 	}
 	return nil
 }
@@ -63,6 +58,7 @@ func (k msgServer) PlaceOrders(goCtx context.Context, msg *types.MsgPlaceOrders)
 
 	nextID := k.GetNextOrderID(ctx, msg.ContractAddr)
 	idsInResp := []uint64{}
+	ordersToAdd := map[typesutils.PairString]*types.Order{}
 	for _, order := range msg.GetOrders() {
 		ticksize, found := k.Keeper.GetTickSizeForPair(ctx, msg.GetContractAddr(), types.Pair{PriceDenom: order.PriceDenom, AssetDenom: order.AssetDenom})
 		if !found {
@@ -73,11 +69,23 @@ func (k msgServer) PlaceOrders(goCtx context.Context, msg *types.MsgPlaceOrders)
 		order.Id = nextID
 		order.Account = msg.Creator
 		order.ContractAddr = msg.GetContractAddr()
-		dexutils.GetMemState(ctx.Context()).GetBlockOrders(ctx, typesutils.ContractAddress(msg.GetContractAddr()), pairStr).Add(order)
+		ordersToAdd[pairStr] = order
 		idsInResp = append(idsInResp, nextID)
 		nextID++
 	}
+	// setting bumped order id BEFORE adding orders to cache, so that if the latter fails, at least we wouldn't have
+	// duplicated order ids for future orders.
 	k.SetNextOrderID(ctx, msg.ContractAddr, nextID)
+	for _, fund := range msg.Funds {
+		dexutils.GetMemState(ctx.Context()).GetDepositInfo(ctx, typesutils.ContractAddress(msg.GetContractAddr())).Add(&dexcache.DepositInfoEntry{
+			Creator: msg.Creator,
+			Denom:   fund.Denom,
+			Amount:  sdk.NewDec(fund.Amount.Int64()),
+		})
+	}
+	for pairStr, order := range ordersToAdd {
+		dexutils.GetMemState(ctx.Context()).GetBlockOrders(ctx, typesutils.ContractAddress(msg.GetContractAddr()), pairStr).Add(order)
+	}
 
 	return &types.MsgPlaceOrdersResponse{
 		OrderIds: idsInResp,

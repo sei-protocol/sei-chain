@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/sei-protocol/sei-chain/utils/datastructures"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
 	typesutils "github.com/sei-protocol/sei-chain/x/dex/types/utils"
 	dexutils "github.com/sei-protocol/sei-chain/x/dex/utils"
@@ -19,6 +20,7 @@ func (k msgServer) CancelOrders(goCtx context.Context, msg *types.MsgCancelOrder
 		return nil, err
 	}
 
+	cancelsToAdd := map[typesutils.PairString]*types.Cancellation{}
 	for _, cancellation := range msg.GetCancellations() {
 		var allocation *types.Allocation
 		var found bool
@@ -55,8 +57,12 @@ func (k msgServer) CancelOrders(goCtx context.Context, msg *types.MsgCancelOrder
 				PriceDenom:        cancellation.PriceDenom,
 				PositionDirection: cancellation.PositionDirection,
 			}
-			pairBlockCancellations.Add(&cancel)
+			cancelsToAdd[pairStr] = &cancel
 		}
+	}
+
+	for pairStr, cancel := range cancelsToAdd {
+		dexutils.GetMemState(ctx.Context()).GetBlockCancels(ctx, typesutils.ContractAddress(msg.GetContractAddr()), pairStr).Add(cancel)
 	}
 
 	return &types.MsgCancelOrdersResponse{}, nil
@@ -70,7 +76,12 @@ func (k msgServer) validateCancels(cancels *types.MsgCancelOrders) error {
 		return fmt.Errorf("invalid cancellation, contract address cannot be empty")
 	}
 
+	seenIds := datastructures.NewSyncSet([]uint64{})
 	for _, cancellation := range cancels.GetCancellations() {
+		if seenIds.Contains(cancellation.Id) {
+			return errors.New("message contains duplicate order IDs")
+		}
+		seenIds.Add(cancellation.Id)
 		if cancellation.Price.IsNil() {
 			return fmt.Errorf("invalid cancellation price: %s", cancellation.Price)
 		}
