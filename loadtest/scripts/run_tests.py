@@ -79,7 +79,7 @@ def run_test(test_type, loadtest_config):
     try:
         run_go_loadtest_client(temp_file.name, binary_path=loadtest_config.loadtest_binary_file_path)
     finally:
-        os.delete(temp_file.name)
+        os.remove(temp_file.name)
 
 def run():
     parser = argparse.ArgumentParser(
