@@ -5,6 +5,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"strconv"
 	"time"
 
 	metrics "github.com/armon/go-metrics"
@@ -12,7 +13,10 @@ import (
 	"github.com/cosmos/cosmos-sdk/types/rest"
 )
 
-const defaultListenAddress = "0.0.0.0:9696"
+const (
+	defaultListenAddress = "0.0.0.0"
+	defaultMetricsPort   = 9696
+)
 
 type MetricsServer struct {
 	metrics *telemetry.Metrics
@@ -30,14 +34,16 @@ func (s *MetricsServer) metricsHandler(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write(gr.Metrics)
 }
 
-func (s *MetricsServer) StartMetricsClient() {
+func (s *MetricsServer) StartMetricsClient(config Config) {
 	m, err := telemetry.New(telemetry.Config{
 		ServiceName:             "loadtest-client",
 		Enabled:                 true,
 		EnableHostnameLabel:     true,
 		EnableServiceLabel:      true,
 		PrometheusRetentionTime: 600,
-		GlobalLabels:            [][]string{},
+		GlobalLabels: [][]string{
+			{"constant_mode", strconv.FormatBool(config.Constant)},
+		},
 	})
 	if err != nil {
 		panic(err)
@@ -45,10 +51,17 @@ func (s *MetricsServer) StartMetricsClient() {
 	s.metrics = m
 	http.HandleFunc("/healthz", s.healthzHandler)
 	http.HandleFunc("/metrics", s.metricsHandler)
-	log.Printf("Listening for metrics scrapes on %s", defaultListenAddress)
+
+	metricsPort := config.MetricsPort
+	if config.MetricsPort == 0 {
+		metricsPort = defaultMetricsPort
+	}
+
+	listenAddr := fmt.Sprintf("%s:%d", defaultListenAddress, metricsPort)
+	log.Printf("Listening for metrics scrapes on %s", listenAddr)
 
 	s.server = &http.Server{
-		Addr:              defaultListenAddress,
+		Addr:              listenAddr,
 		ReadHeaderTimeout: 3 * time.Second,
 	}
 	err = s.server.ListenAndServe()
