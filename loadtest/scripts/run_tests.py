@@ -23,9 +23,9 @@ class LoadTestConfig:
 
 
 def write_to_temp_json_file(data):
-    with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8', delete=False) as tmp:
-        json.dump(data, tmp, ensure_ascii=False)
-        return tmp.name
+    temp_file = tempfile.NamedTemporaryFile(mode='w', encoding='utf-8', delete=False)
+    json.dump(data, temp_file, ensure_ascii=False)
+    return temp_file
 
 def create_burst_loadtest_config(base_config_json):
     new_config = base_config_json.copy()
@@ -74,9 +74,11 @@ def run_test(test_type, loadtest_config):
     elif test_type == STEADY:
         config = create_steady_loadtest_config(base_config_json)
 
-    tempfile_path = write_to_temp_json_file(config)
-    run_go_loadtest_client(tempfile_path, binary_path=loadtest_config.loadtest_binary_file_path)
-    os.remove(tempfile_path)
+    temp_file = write_to_temp_json_file(config)
+    try:
+        run_go_loadtest_client(temp_file.name, binary_path=loadtest_config.loadtest_binary_file_path)
+    finally:
+        temp_file.close()
 
 def run():
     parser = argparse.ArgumentParser(
