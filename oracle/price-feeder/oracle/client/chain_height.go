@@ -5,10 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/rs/zerolog"
 	tmrpcclient "github.com/tendermint/tendermint/rpc/client"
-	tmctypes "github.com/tendermint/tendermint/rpc/coretypes"
 	tmtypes "github.com/tendermint/tendermint/types"
 )
 
@@ -45,19 +45,13 @@ func NewChainHeight(
 		return nil, err
 	}
 
-	newBlockHeaderSubscription, err := rpcClient.Subscribe(
-		ctx, tmtypes.EventNewBlockHeaderValue, queryEventNewBlockHeader.String())
-	if err != nil {
-		return nil, err
-	}
-
 	chainHeight := &ChainHeight{
 		Logger:            logger.With().Str("oracle_client", "chain_height").Logger(),
 		errGetChainHeight: nil,
 		lastChainHeight:   initialHeight,
 	}
 
-	go chainHeight.subscribe(ctx, rpcClient, newBlockHeaderSubscription)
+	go chainHeight.subscribe(ctx, rpcClient)
 
 	return chainHeight, nil
 }
@@ -75,29 +69,26 @@ func (chainHeight *ChainHeight) updateChainHeight(blockHeight int64, err error) 
 // and updates the chain height.
 func (chainHeight *ChainHeight) subscribe(
 	ctx context.Context,
-	eventsClient tmrpcclient.SubscriptionClient,
-	newBlockHeaderSubscription <-chan tmctypes.ResultEvent,
+	eventsClient tmrpcclient.EventsClient,
 ) {
 	for {
-		select {
-		case <-ctx.Done():
-			err := eventsClient.Unsubscribe(ctx, tmtypes.EventNewBlockHeaderValue, queryEventNewBlockHeader.String())
-			if err != nil {
-				chainHeight.Logger.Err(err)
-				chainHeight.updateChainHeight(chainHeight.lastChainHeight, err)
-			}
-			chainHeight.Logger.Info().Msg("closing the ChainHeight subscription")
-			return
-
-		case resultEvent := <-newBlockHeaderSubscription:
-			eventDataNewBlockHeader, ok := resultEvent.Data.(tmtypes.EventDataNewBlockHeader)
-			if !ok {
-				chainHeight.Logger.Err(errParseEventDataNewBlockHeader)
-				chainHeight.updateChainHeight(chainHeight.lastChainHeight, errParseEventDataNewBlockHeader)
-				continue
-			}
-			chainHeight.updateChainHeight(eventDataNewBlockHeader.Header.Height, nil)
+		eventData, err := tmrpcclient.WaitForOneEvent(ctx, eventsClient, queryEventNewBlockHeader.String())
+		if err != nil {
+			chainHeight.Logger.Err(err)
+			chainHeight.updateChainHeight(chainHeight.lastChainHeight, err)
 		}
+		eventDataNewBlockHeader, ok := eventData.(tmtypes.EventDataNewBlockHeader)
+		if !ok {
+			chainHeight.Logger.Err(errParseEventDataNewBlockHeader)
+			chainHeight.updateChainHeight(chainHeight.lastChainHeight, errParseEventDataNewBlockHeader)
+			continue
+		}
+		if eventDataNewBlockHeader.Header.Height != chainHeight.lastChainHeight {
+			chainHeight.updateChainHeight(eventDataNewBlockHeader.Header.Height, nil)
+			chainHeight.Logger.Debug().Msg(fmt.Sprintf("New Chain Height: %d", eventDataNewBlockHeader.Header.Height))
+		}
+		// sleep 20 ms before checking for new block
+		time.Sleep(20 * time.Millisecond)
 	}
 }
 
