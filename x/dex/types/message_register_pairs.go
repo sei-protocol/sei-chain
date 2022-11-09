@@ -71,14 +71,13 @@ func (msg *MsgRegisterPairs) ValidateBasic() error {
 		if len(batchContractPair.Pairs) == 0 {
 			return errors.New("no pairs provided in register pairs transaction")
 		}
-		
+
 		for _, pair := range batchContractPair.Pairs {
 			if pair == nil {
 				return errors.New("empty pair info")
 			}
-		} 
+		}
 	}
-
 
 	return nil
 }
