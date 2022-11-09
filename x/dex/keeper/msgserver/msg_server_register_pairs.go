@@ -24,7 +24,7 @@ func (k msgServer) RegisterPairs(goCtx context.Context, msg *types.MsgRegisterPa
 		}
 
 		if msg.Creator != contractInfo.Creator {
-			return nil, errors.New("Only contract creator can update registered pairs")
+			return nil, errors.New("only contract creator can update registered pairs")
 		}
 	}
 
