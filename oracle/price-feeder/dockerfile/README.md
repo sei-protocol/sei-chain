@@ -5,8 +5,8 @@ Change `VERSION` to the release you want to build.
 
 ```bash
 VERSION=master
-git clone https://github.com/Team-Kujira/oracle-price-feeder.git
-cd oracle-price-feeder/dockerfile || exit
+git clone https://github.com/sei-protocol/sei-chain.git
+cd oracle/price-feeder/dockerfile || exit
 docker build --build-arg VERSION=$VERSION -t price-feeder:latest .
 ```
 
@@ -16,7 +16,7 @@ Edit your `address`, `validator`, `grpc_endpoint`, `tmrpc_endpoint` you may need
 ```bash
 sudo tee config.toml <<EOF
 gas_adjustment = 1.5
-gas_prices = "0.00125ukuji"
+gas_prices = "0.00125usei"
 enable_server = true
 enable_voter = true
 provider_timeout = "500ms"
@@ -32,14 +32,14 @@ base = "USDT"
 threshold = "2"
 
 [account]
-address = "kujira..."
-chain_id = "kaiyo-1"
-validator = "kujiravaloper..."
-prefix = "kujira"
+address = "sei..."
+chain_id = "sei-chain"
+validator = "seivaloper..."
+prefix = "sei"
 
 [keyring]
 backend = "file"
-dir = "/root/.kujira"
+dir = "/root/.sei"
 
 [rpc]
 grpc_endpoint = "localhost:9090"
@@ -63,6 +63,7 @@ websocket = "stream.binance.com:9443"
 
 [[currency_pairs]]
 base = "ATOM"
+chain_denom = "uatom"
 providers = [
   "binance",
   "kraken",
@@ -77,26 +78,26 @@ change node to your favorite `rpc` node
 
 ```bash
 sudo tee client.toml <<EOF
-chain-id = "kaiyo-1"
+chain-id = "sei-chain"
 keyring-backend = "file"
 output = "text"
-node = "tcp://rpc-kujira.synergynodes.com:80"
+node = "tcp://localhost:26657"
 broadcast-mode = "sync"
 EOF
 ```
 
 ## Recover oracle `keyring-file` to local file
 ```bash
-kujirad keys add oracle --keyring-backend file --recover
+seid keys add oracle --keyring-backend file --recover
 ```
-In the kujira home directory (~/.kujira/) you should see the `keyring-file` folder.  This will be mounted as a volume when running the docker container.
+In the sei home directory (~/.sei/) you should see the `keyring-file` folder.  This will be mounted as a volume when running the docker container.
 
 ## Run Docker Image
 ```bash
 docker run \
 --env PRICE_FEEDER_PASS=password \
--v ~/.kujira/keyring-file:/root/.kujira/keyring-file \
+-v ~/.sei/keyring-file:/root/.sei/keyring-file \
 -v "$PWD"/config.toml:/root/price-feeder/config.toml \
--v "$PWD"/client.toml:/root/.kujira/config/client.toml \
+-v "$PWD"/client.toml:/root/.sei/config/client.toml \
 -it price-feeder /root/price-feeder/config.toml
 ```

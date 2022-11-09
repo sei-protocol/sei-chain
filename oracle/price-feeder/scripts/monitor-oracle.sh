@@ -1,6 +1,6 @@
 #!/bin/bash
 
-VALIDATOR="<KUJIRAVALOPERADDRESS"
+VALIDATOR="<SEIVALOPERADDRESS"
 LCD="<http://YOUR-ENDPOINT:1317>"
 
 # create your slack integration: https://api.slack.com/apps
