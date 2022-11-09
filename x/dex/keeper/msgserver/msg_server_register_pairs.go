@@ -2,6 +2,7 @@ package msgserver
 
 import (
 	"context"
+	"errors"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
@@ -13,7 +14,19 @@ func (k msgServer) RegisterPairs(goCtx context.Context, msg *types.MsgRegisterPa
 	}
 
 	ctx := sdk.UnwrapSDKContext(goCtx)
-	// TODO: add validation such that only the user who stored the code can register pairs
+
+	// Validation such that only the user who stored the code can register pairs
+	for _, batchPair := range msg.Batchcontractpair {
+		contractAddr := batchPair.ContractAddr
+		contractInfo, err := k.GetContract(ctx, contractAddr)
+		if err != nil {
+			return nil, err
+		}
+
+		if msg.Creator != contractInfo.Creator {
+			return nil, errors.New("Only contract creator can update registered pairs")
+		}
+	}
 
 	// Loop through each batch contract pair an individual contract pair, token pair
 	// tuple and register them individually

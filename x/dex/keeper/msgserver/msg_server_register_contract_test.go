@@ -25,14 +25,14 @@ func TestRegisterContract(t *testing.T) {
 	keeper, ctx := keepertest.DexKeeper(t)
 	wctx := sdk.WrapSDKContext(ctx)
 	server := msgserver.NewMsgServerImpl(*keeper)
-	err := registerContract(server, wctx, TestContractA, nil)
+	err := RegisterContractUtil(server, wctx, TestContractA, nil)
 	require.NoError(t, err)
 	storedContracts := keeper.GetAllContractInfo(ctx)
 	require.Equal(t, 1, len(storedContracts))
 	require.Nil(t, storedContracts[0].Dependencies)
 
 	// dependency doesn't exist
-	err = registerContract(server, wctx, TestContractA, []string{TestContractY})
+	err = RegisterContractUtil(server, wctx, TestContractA, []string{TestContractY})
 	require.NotNil(t, err)
 	storedContracts = keeper.GetAllContractInfo(ctx)
 	require.Equal(t, 1, len(storedContracts))
@@ -42,17 +42,17 @@ func TestRegisterContractCircularDependency(t *testing.T) {
 	keeper, ctx := keepertest.DexKeeper(t)
 	wctx := sdk.WrapSDKContext(ctx)
 	server := msgserver.NewMsgServerImpl(*keeper)
-	registerContract(server, wctx, TestContractA, nil)
+	RegisterContractUtil(server, wctx, TestContractA, nil)
 	storedContracts := keeper.GetAllContractInfo(ctx)
 	require.Equal(t, 1, len(storedContracts))
 
-	registerContract(server, wctx, TestContractB, []string{TestContractA})
+	RegisterContractUtil(server, wctx, TestContractB, []string{TestContractA})
 	storedContracts = keeper.GetAllContractInfo(ctx)
 	require.Equal(t, 2, len(storedContracts))
 
 	// This contract should fail to be registered because it causes a
 	// circular dependency
-	err := registerContract(server, wctx, TestContractA, []string{TestContractA})
+	err := RegisterContractUtil(server, wctx, TestContractA, []string{TestContractA})
 	require.NotNil(t, err)
 }
 
@@ -60,7 +60,7 @@ func TestRegisterContractDuplicateDependency(t *testing.T) {
 	keeper, ctx := keepertest.DexKeeper(t)
 	wctx := sdk.WrapSDKContext(ctx)
 	server := msgserver.NewMsgServerImpl(*keeper)
-	err := registerContract(server, wctx, TestContractA, []string{TestContractA, TestContractA})
+	err := RegisterContractUtil(server, wctx, TestContractA, []string{TestContractA, TestContractA})
 	require.NotNil(t, err)
 	storedContracts := keeper.GetAllContractInfo(ctx)
 	require.Equal(t, 0, len(storedContracts))
@@ -70,12 +70,12 @@ func TestRegisterContractNumIncomingPaths(t *testing.T) {
 	keeper, ctx := keepertest.DexKeeper(t)
 	wctx := sdk.WrapSDKContext(ctx)
 	server := msgserver.NewMsgServerImpl(*keeper)
-	registerContract(server, wctx, TestContractA, nil)
+	RegisterContractUtil(server, wctx, TestContractA, nil)
 	storedContract, err := keeper.GetContract(ctx, TestContractA)
 	require.Nil(t, err)
 	require.Equal(t, int64(0), storedContract.NumIncomingDependencies)
 
-	registerContract(server, wctx, TestContractB, []string{TestContractA})
+	RegisterContractUtil(server, wctx, TestContractB, []string{TestContractA})
 	storedContract, err = keeper.GetContract(ctx, TestContractA)
 	require.Nil(t, err)
 	require.Equal(t, int64(1), storedContract.NumIncomingDependencies)
@@ -83,7 +83,7 @@ func TestRegisterContractNumIncomingPaths(t *testing.T) {
 	require.Nil(t, err)
 	require.Equal(t, int64(0), storedContract.NumIncomingDependencies)
 
-	registerContract(server, wctx, TestContractB, nil)
+	RegisterContractUtil(server, wctx, TestContractB, nil)
 	storedContract, err = keeper.GetContract(ctx, TestContractA)
 	require.Nil(t, err)
 	require.Equal(t, int64(0), storedContract.NumIncomingDependencies)
@@ -97,13 +97,13 @@ func TestRegisterContractSetSiblings(t *testing.T) {
 	keeper, ctx := keepertest.DexKeeper(t)
 	wctx := sdk.WrapSDKContext(ctx)
 	server := msgserver.NewMsgServerImpl(*keeper)
-	registerContract(server, wctx, TestContractX, nil)
-	registerContract(server, wctx, TestContractY, nil)
-	registerContract(server, wctx, TestContractA, []string{TestContractX})
-	registerContract(server, wctx, TestContractB, []string{TestContractX})
-	registerContract(server, wctx, TestContractC, []string{TestContractY})
+	RegisterContractUtil(server, wctx, TestContractX, nil)
+	RegisterContractUtil(server, wctx, TestContractY, nil)
+	RegisterContractUtil(server, wctx, TestContractA, []string{TestContractX})
+	RegisterContractUtil(server, wctx, TestContractB, []string{TestContractX})
+	RegisterContractUtil(server, wctx, TestContractC, []string{TestContractY})
 	// add D -> X, D -> Y
-	registerContract(server, wctx, TestContractD, []string{TestContractX, TestContractY})
+	RegisterContractUtil(server, wctx, TestContractD, []string{TestContractX, TestContractY})
 	contract, _ := keeper.GetContract(ctx, TestContractA)
 	require.Equal(t, "", contract.Dependencies[0].ImmediateElderSibling)
 	require.Equal(t, TestContractB, contract.Dependencies[0].ImmediateYoungerSibling)
@@ -119,7 +119,7 @@ func TestRegisterContractSetSiblings(t *testing.T) {
 	require.Equal(t, TestContractC, contract.Dependencies[1].ImmediateElderSibling)
 	require.Equal(t, "", contract.Dependencies[1].ImmediateYoungerSibling)
 	// update D -> X only
-	registerContract(server, wctx, TestContractD, []string{TestContractX})
+	RegisterContractUtil(server, wctx, TestContractD, []string{TestContractX})
 	contract, _ = keeper.GetContract(ctx, TestContractA)
 	require.Equal(t, "", contract.Dependencies[0].ImmediateElderSibling)
 	require.Equal(t, TestContractB, contract.Dependencies[0].ImmediateYoungerSibling)
@@ -135,7 +135,7 @@ func TestRegisterContractSetSiblings(t *testing.T) {
 	require.Equal(t, "", contract.Dependencies[0].ImmediateYoungerSibling)
 }
 
-func registerContract(server types.MsgServer, ctx context.Context, contractAddr string, dependencies []string) error {
+func RegisterContractUtil(server types.MsgServer, ctx context.Context, contractAddr string, dependencies []string) error {
 	contract := types.ContractInfoV2{
 		CodeId:       1,
 		ContractAddr: contractAddr,

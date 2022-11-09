@@ -14,12 +14,15 @@ func TestRegisterPairs(t *testing.T) {
 	keeper, ctx := keepertest.DexKeeper(t)
 	wctx := sdk.WrapSDKContext(ctx)
 	server := msgserver.NewMsgServerImpl(*keeper)
+	err := RegisterContractUtil(server, wctx, TestContractA, nil)
+	require.NoError(t, err)
+
 	batchContractPairs := []types.BatchContractPair{}
 	batchContractPairs = append(batchContractPairs, types.BatchContractPair{
 		ContractAddr: TestContractA,
 		Pairs:        []*types.Pair{&keepertest.TestPair},
 	})
-	_, err := server.RegisterPairs(wctx, &types.MsgRegisterPairs{
+	_, err = server.RegisterPairs(wctx, &types.MsgRegisterPairs{
 		Creator:           keepertest.TestAccount,
 		Batchcontractpair: batchContractPairs,
 	})
@@ -30,6 +33,8 @@ func TestRegisterPairs(t *testing.T) {
 	require.Equal(t, keepertest.TestPair, storedRegisteredPairs[0])
 
 	// Test multiple pairs registered at once
+	err = RegisterContractUtil(server, wctx, TestContractB, nil)
+	require.NoError(t, err)
 	multiplePairs := []types.BatchContractPair{}
 	secondTestPair := types.Pair{
 		PriceDenom: "sei",
@@ -50,22 +55,29 @@ func TestRegisterPairs(t *testing.T) {
 	require.Equal(t, 2, len(storedRegisteredPairs))
 	require.Equal(t, keepertest.TestPair, storedRegisteredPairs[0])
 	require.Equal(t, secondTestPair, storedRegisteredPairs[1])
-
 }
 
 func TestRegisterPairsInvalidMsg(t *testing.T) {
 	keeper, ctx := keepertest.DexKeeper(t)
 	wctx := sdk.WrapSDKContext(ctx)
 	server := msgserver.NewMsgServerImpl(*keeper)
+	err := RegisterContractUtil(server, wctx, TestContractA, nil)
+	require.NoError(t, err)
 	batchContractPairs := []types.BatchContractPair{}
+	batchContractPairs = append(batchContractPairs, types.BatchContractPair{
+		ContractAddr: TestContractA,
+		Pairs:        []*types.Pair{&keepertest.TestPair},
+	})
+
 	// Test with empty creator address
-	_, err := server.RegisterPairs(wctx, &types.MsgRegisterPairs{
+	_, err = server.RegisterPairs(wctx, &types.MsgRegisterPairs{
 		Creator:           "",
 		Batchcontractpair: batchContractPairs,
 	})
 	require.NotNil(t, err)
 
 	// Test with empty msg
+	batchContractPairs = []types.BatchContractPair{}
 	_, err = server.RegisterPairs(wctx, &types.MsgRegisterPairs{
 		Creator:           keepertest.TestAccount,
 		Batchcontractpair: batchContractPairs,
@@ -73,6 +85,11 @@ func TestRegisterPairsInvalidMsg(t *testing.T) {
 	require.NotNil(t, err)
 
 	// Test with invalid Creator address
+	batchContractPairs = []types.BatchContractPair{}
+	batchContractPairs = append(batchContractPairs, types.BatchContractPair{
+		ContractAddr: TestContractA,
+		Pairs:        []*types.Pair{&keepertest.TestPair},
+	})
 	_, err = server.RegisterPairs(wctx, &types.MsgRegisterPairs{
 		Creator:           "invalidAddress",
 		Batchcontractpair: batchContractPairs,
@@ -80,9 +97,14 @@ func TestRegisterPairsInvalidMsg(t *testing.T) {
 	require.NotNil(t, err)
 
 	// Test with empty contract address
+	batchContractPairs = []types.BatchContractPair{}
 	batchContractPairs = append(batchContractPairs, types.BatchContractPair{
 		ContractAddr: "",
 		Pairs:        []*types.Pair{&keepertest.TestPair},
+	})
+	_, err = server.RegisterPairs(wctx, &types.MsgRegisterPairs{
+		Creator:           keepertest.TestAccount,
+		Batchcontractpair: batchContractPairs,
 	})
 	require.NotNil(t, err)
 
@@ -92,6 +114,10 @@ func TestRegisterPairsInvalidMsg(t *testing.T) {
 		ContractAddr: TestContractA,
 		Pairs:        []*types.Pair{},
 	})
+	_, err = server.RegisterPairs(wctx, &types.MsgRegisterPairs{
+		Creator:           keepertest.TestAccount,
+		Batchcontractpair: batchContractPairs,
+	})
 	require.NotNil(t, err)
 
 	// Test with nil pair
@@ -100,6 +126,37 @@ func TestRegisterPairsInvalidMsg(t *testing.T) {
 		ContractAddr: TestContractA,
 		Pairs:        []*types.Pair{nil},
 	})
+	_, err = server.RegisterPairs(wctx, &types.MsgRegisterPairs{
+		Creator:           keepertest.TestAccount,
+		Batchcontractpair: batchContractPairs,
+	})
+	require.NotNil(t, err)
+}
+
+// Test only contract creator can update registered pairs for contract
+func TestInvalidRegisterPairCreator(t *testing.T) {
+	keeper, ctx := keepertest.DexKeeper(t)
+	wctx := sdk.WrapSDKContext(ctx)
+	server := msgserver.NewMsgServerImpl(*keeper)
+	err := RegisterContractUtil(server, wctx, TestContractA, nil)
+	require.NoError(t, err)
+
+	// Expect error when registering pair with an address not contract creator
+	batchContractPairs := []types.BatchContractPair{}
+	batchContractPairs = append(batchContractPairs, types.BatchContractPair{
+		ContractAddr: TestContractA,
+		Pairs:        []*types.Pair{&keepertest.TestPair},
+	})
+	_, err = server.RegisterPairs(wctx, &types.MsgRegisterPairs{
+		Creator:           "sei18rrckuelmacz4fv4v2hl9t3kaw7mm4wpe8v36m",
+		Batchcontractpair: batchContractPairs,
+	})
 	require.NotNil(t, err)
 
+	// Works when creator = address
+	_, err = server.RegisterPairs(wctx, &types.MsgRegisterPairs{
+		Creator:           keepertest.TestAccount,
+		Batchcontractpair: batchContractPairs,
+	})
+	require.NoError(t, err)
 }
