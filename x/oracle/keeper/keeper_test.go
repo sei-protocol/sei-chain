@@ -2,7 +2,6 @@ package keeper
 
 import (
 	"bytes"
-	"fmt"
 	"testing"
 	"time"
 
@@ -19,9 +18,6 @@ import (
 
 func TestExchangeRate(t *testing.T) {
 	input := CreateTestInput(t)
-
-	params := input.OracleKeeper.GetParams(input.Ctx)
-	fmt.Println(params.VotePeriod)
 
 	cnyExchangeRate := sdk.NewDecWithPrec(839, int64(OracleDecPrecision)).MulInt64(utils.MicroUnit)
 	gbpExchangeRate := sdk.NewDecWithPrec(4995, int64(OracleDecPrecision)).MulInt64(utils.MicroUnit)
