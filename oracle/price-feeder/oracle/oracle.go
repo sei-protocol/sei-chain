@@ -254,6 +254,7 @@ func (o *Oracle) SetPrices(ctx context.Context) error {
 		return err
 	}
 
+	// TODO: make this more lenient to allow assigning prices even when unable to retrive all
 	if len(computedPrices) != len(requiredRates) {
 		return fmt.Errorf("unable to get prices for all exchange candles")
 	}
