@@ -2,9 +2,9 @@ package msgserver
 
 import (
 	"context"
-	"errors"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
 )
 
@@ -24,7 +24,7 @@ func (k msgServer) RegisterPairs(goCtx context.Context, msg *types.MsgRegisterPa
 		}
 
 		if msg.Creator != contractInfo.Creator {
-			return nil, errors.New("only contract creator can update registered pairs")
+			return nil, sdkerrors.ErrUnauthorized
 		}
 	}
 
