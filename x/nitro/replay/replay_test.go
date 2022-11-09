@@ -93,3 +93,12 @@ func TestWriteTransactionToFile(t *testing.T) {
 	require.Nil(t, err)
 	require.Equal(t, "0|1-2-3,a1-a2,recent,1_4:5:6_d1-2_7:8:9_d2|message|f|s1,s2", string(bz))
 }
+
+func TestTrimHexPrefix(t *testing.T) {
+	require.Equal(t, "", trimHexPrefix(""))
+	require.Equal(t, "a", trimHexPrefix("a"))
+	require.Equal(t, "\\y", trimHexPrefix("\\y"))
+	require.Equal(t, "", trimHexPrefix("\\x"))
+	require.Equal(t, "abc", trimHexPrefix("abc"))
+	require.Equal(t, "1234", trimHexPrefix("\\x1234"))
+}

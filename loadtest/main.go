@@ -2,8 +2,10 @@ package main
 
 import (
 	"encoding/json"
+	"flag"
 	"fmt"
 	"math/rand"
+	"os"
 	"os/exec"
 	"strconv"
 	"strings"
@@ -51,12 +53,29 @@ func init() {
 	app.ModuleBasics.RegisterInterfaces(TestConfig.InterfaceRegistry)
 }
 
-func run() {
-	client := NewLoadTestClient()
-	client.SetValidators()
-	config := client.LoadTestConfig
+func run(config Config) {
+	// Start metrics collector in another thread
+	metricsServer := MetricsServer{}
+	go metricsServer.StartMetricsClient(config)
+	sleepDuration := time.Duration(config.LoadInterval) * time.Second
 
-	defer client.Close()
+	if config.Constant {
+		fmt.Printf("Running in constant mode with interval=%d\n", config.LoadInterval)
+		for {
+			runOnce(config)
+			fmt.Printf("Sleeping for %f seconds before next run...\n", sleepDuration.Seconds())
+			time.Sleep(sleepDuration)
+		}
+	} else {
+		runOnce(config)
+		fmt.Print("Sleeping for 60 seconds for metrics to be scraped...\n")
+		time.Sleep(time.Duration(60))
+	}
+}
+
+func runOnce(config Config) {
+	client := NewLoadTestClient(config)
+	client.SetValidators()
 
 	if config.TxsPerBlock < config.MsgsPerTx {
 		panic("Must have more TxsPerBlock than MsgsPerTx")
@@ -68,11 +87,17 @@ func run() {
 	fmt.Printf("%s - Starting block prepare\n", time.Now().Format("2006-01-02T15:04:05"))
 	workgroups, sendersList := client.BuildTxs()
 
-	client.SendTxs(workgroups, sendersList)
+	go client.SendTxs(workgroups, sendersList)
+
+	// Waits until SendTx is done processing before proceeding to write and validate TXs
+	client.GatherTxHashes()
 
 	// Records the resulting TxHash to file
 	client.WriteTxHashToFile()
 	fmt.Printf("%s - Finished\n", time.Now().Format("2006-01-02T15:04:05"))
+
+	// Validate Tx will close the connection when it's done
+	go client.ValidateTxs()
 }
 
 func (c *LoadTestClient) generateMessage(config Config, key cryptotypes.PrivKey, msgPerTx uint64) (sdk.Msg, bool) {
@@ -137,7 +162,7 @@ func (c *LoadTestClient) generateMessage(config Config, key cryptotypes.PrivKey,
 		case randNum <= 0.66:
 			msg = &tokenfactorytypes.MsgMint{
 				Sender: denomCreatorAddr,
-				Amount: sdk.Coin{Denom: denom, Amount: sdk.NewInt(10000000000000)},
+				Amount: sdk.Coin{Denom: denom, Amount: sdk.NewInt(10)},
 			}
 		default:
 			msg = &tokenfactorytypes.MsgBurn{
@@ -327,6 +352,25 @@ func getLastHeight() int {
 	return height
 }
 
+func GetDefaultConfigFilePath() string {
+	pwd, _ := os.Getwd()
+	return pwd + "/loadtest/config.json"
+}
+
+func ReadConfig(path string) Config {
+	config := Config{}
+	file, _ := os.ReadFile(path)
+	if err := json.Unmarshal(file, &config); err != nil {
+		panic(err)
+	}
+	return config
+}
+
 func main() {
-	run()
+	configFilePath := flag.String("config-file", GetDefaultConfigFilePath(), "Path to the config.json file to use for this run")
+	flag.Parse()
+
+	config := ReadConfig(*configFilePath)
+	fmt.Printf("Using config file: %s\n", *configFilePath)
+	run(config)
 }

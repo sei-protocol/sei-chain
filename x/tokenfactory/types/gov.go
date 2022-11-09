@@ -20,7 +20,7 @@ func init() {
 
 var _ govtypes.Content = &AddCreatorsToDenomFeeWhitelistProposal{}
 
-func NewRegisterPairsProposal(title, description string, creatorList []string) AddCreatorsToDenomFeeWhitelistProposal {
+func NewAddCreatorsToDenomFeeWhitelistProposal(title, description string, creatorList []string) AddCreatorsToDenomFeeWhitelistProposal {
 	return AddCreatorsToDenomFeeWhitelistProposal{
 		Title:       title,
 		Description: description,
@@ -43,7 +43,7 @@ func (p *AddCreatorsToDenomFeeWhitelistProposal) ValidateBasic() error {
 	return err
 }
 
-// TODO: String support for register pair type
+// TODO: String support for add creators to denom fee whitelist type
 func (p AddCreatorsToDenomFeeWhitelistProposal) String() string {
 	creators := ""
 	for _, creator := range p.CreatorList {

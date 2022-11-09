@@ -35,13 +35,10 @@ type (
 
 	MultipleBatchContractPairJSON []BatchContractPairJSON
 
-	// RegisterPairsProposalJSON defines a RegisterPairsProposal
-	// to parse register pair proposals from a JSON file.
-	RegisterPairsProposalJSON struct {
-		Title             string                        `json:"title" yaml:"title"`
-		Description       string                        `json:"description" yaml:"description"`
+	// RegisterPairsTxJSON defines a RegisterPairsTx
+	// to parse register pair tx's from a JSON file.
+	RegisterPairsTxJSON struct {
 		BatchContractPair MultipleBatchContractPairJSON `json:"batch_contract_pair" yaml:"batch_contract_pair"`
-		Deposit           string                        `json:"deposit" yaml:"deposit"`
 	}
 
 	UpdateTickSizeProposalJSON struct {
@@ -120,24 +117,24 @@ func (tss TickSizesJSON) ToTickSizes() ([]dextypes.TickSize, error) {
 	return res, nil
 }
 
-// ParseRegisterPairsProposalJSON reads and parses a RegisterPairsProposalJSON from
+// ParseRegisterPairsTxJSON reads and parses a RegisterPairsTxJSON from
 // a file.
-func ParseRegisterPairsProposalJSON(cdc *codec.LegacyAmino, proposalFile string) (RegisterPairsProposalJSON, error) {
-	proposal := RegisterPairsProposalJSON{}
+func ParseRegisterPairsTxJSON(cdc *codec.LegacyAmino, txFile string) (RegisterPairsTxJSON, error) {
+	registerTx := RegisterPairsTxJSON{}
 
-	contents, err := os.ReadFile(proposalFile)
+	contents, err := os.ReadFile(txFile)
 	if err != nil {
-		return proposal, err
+		return registerTx, err
 	}
 
-	if err := cdc.UnmarshalJSON(contents, &proposal); err != nil {
-		return proposal, err
+	if err := cdc.UnmarshalJSON(contents, &registerTx); err != nil {
+		return registerTx, err
 	}
 
-	return proposal, nil
+	return registerTx, nil
 }
 
-// ParseRegisterPairsProposalJSON reads and parses a RegisterPairsProposalJSON from
+// ParseUpdateTickSizeProposalJSON reads and parses a UpdateTickSizeProposalJSON from
 // a file.
 func ParseUpdateTickSizeProposalJSON(cdc *codec.LegacyAmino, proposalFile string) (UpdateTickSizeProposalJSON, error) {
 	proposal := UpdateTickSizeProposalJSON{}

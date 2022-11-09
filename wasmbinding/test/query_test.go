@@ -423,7 +423,6 @@ func MockQueryPlugins() wasmkeeper.QueryPlugins {
 			return []byte{}, nil
 		},
 		Custom: func(ctx sdk.Context, request json.RawMessage) ([]byte, error) {
-			println("test")
 			return []byte{}, nil
 		},
 		Stargate: func(ctx sdk.Context, request *wasmvmtypes.StargateQuery) ([]byte, error) { return []byte{}, nil },

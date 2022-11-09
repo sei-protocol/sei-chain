@@ -29,13 +29,13 @@ type KeeperTestSuite struct {
 	queryClient stakingtypes.QueryClient
 	msgServer   stakingtypes.MsgServer
 	// defaultDenom is on the suite, as it depends on the creator test address.
-	defaultDenom string
+	defaultDenom        string
 	defaultExchangeRate string
-	initalBalance sdk.Coins
+	initalBalance       sdk.Coins
 
-	validator sdk.ValAddress
-	newValidator sdk.ValAddress
-	delegateMsg *types.MsgDelegate
+	validator     sdk.ValAddress
+	newValidator  sdk.ValAddress
+	delegateMsg   *types.MsgDelegate
 	undelegateMsg *types.MsgUndelegate
 	redelegateMsg *types.MsgBeginRedelegate
 }
@@ -99,20 +99,20 @@ func (suite *KeeperTestSuite) PrepareTest() {
 	suite.App.AccountKeeper.SetModuleAccount(suite.Ctx, bondedPool)
 
 	suite.delegateMsg = &stakingtypes.MsgDelegate{
-		Amount: 			  sdk.NewInt64Coin("stake", 10),
-		ValidatorAddress:      suite.validator.String(),
-		DelegatorAddress:     suite.TestAccs[0].String(),
+		Amount:           sdk.NewInt64Coin("stake", 10),
+		ValidatorAddress: suite.validator.String(),
+		DelegatorAddress: suite.TestAccs[0].String(),
 	}
 	suite.undelegateMsg = &stakingtypes.MsgUndelegate{
-		Amount: 			  sdk.NewInt64Coin("stake", 10),
-		ValidatorAddress:      suite.validator.String(),
-		DelegatorAddress:     suite.TestAccs[0].String(),
+		Amount:           sdk.NewInt64Coin("stake", 10),
+		ValidatorAddress: suite.validator.String(),
+		DelegatorAddress: suite.TestAccs[0].String(),
 	}
 	suite.redelegateMsg = &stakingtypes.MsgBeginRedelegate{
-		Amount: 			  sdk.NewInt64Coin("stake", 10),
-		ValidatorSrcAddress:      suite.validator.String(),
-		ValidatorDstAddress:      suite.newValidator.String(),
-		DelegatorAddress:     suite.TestAccs[0].String(),
+		Amount:              sdk.NewInt64Coin("stake", 10),
+		ValidatorSrcAddress: suite.validator.String(),
+		ValidatorDstAddress: suite.newValidator.String(),
+		DelegatorAddress:    suite.TestAccs[0].String(),
 	}
 
 	_, err := suite.msgServer.Delegate(
@@ -124,26 +124,25 @@ func (suite *KeeperTestSuite) PrepareTest() {
 	}
 }
 
-
 func (suite *KeeperTestSuite) TestMsgUndelegateDependencies() {
 	suite.PrepareTest()
 	tests := []struct {
 		name          string
 		expectedError error
 		msg           *stakingtypes.MsgUndelegate
-		dynamicDep 	  bool
+		dynamicDep    bool
 	}{
 		{
 			name:          "default vote",
 			msg:           suite.undelegateMsg,
 			expectedError: nil,
-			dynamicDep: true,
+			dynamicDep:    true,
 		},
 		{
 			name:          "dont check synchronous",
 			msg:           suite.undelegateMsg,
 			expectedError: nil,
-			dynamicDep: false,
+			dynamicDep:    false,
 		},
 	}
 	for _, tc := range tests {
@@ -154,7 +153,7 @@ func (suite *KeeperTestSuite) TestMsgUndelegateDependencies() {
 				sdk.WrapSDKContext(handlerCtx),
 				tc.msg,
 			)
-			depdenencies , _ := stakingacl.MsgUndelegateDependencyGenerator(
+			depdenencies, _ := stakingacl.MsgUndelegateDependencyGenerator(
 				suite.App.AccessControlKeeper,
 				handlerCtx,
 				tc.msg,
@@ -182,13 +181,13 @@ func (suite *KeeperTestSuite) TestMsgRedelegateDependencies() {
 		name          string
 		expectedError error
 		msg           *stakingtypes.MsgBeginRedelegate
-		dynamicDep 	  bool
+		dynamicDep    bool
 	}{
 		{
 			name:          "default vote",
 			msg:           suite.redelegateMsg,
 			expectedError: nil,
-			dynamicDep: true,
+			dynamicDep:    true,
 		},
 		// {
 		// 	name:          "dont check synchronous",
@@ -205,7 +204,7 @@ func (suite *KeeperTestSuite) TestMsgRedelegateDependencies() {
 				sdk.WrapSDKContext(handlerCtx),
 				tc.msg,
 			)
-			depdenencies , _ := stakingacl.MsgBeginRedelegateDependencyGenerator(
+			depdenencies, _ := stakingacl.MsgBeginRedelegateDependencyGenerator(
 				suite.App.AccessControlKeeper,
 				handlerCtx,
 				tc.msg,
@@ -227,26 +226,25 @@ func (suite *KeeperTestSuite) TestMsgRedelegateDependencies() {
 	}
 }
 
-
 func (suite *KeeperTestSuite) TestMsgDelegateDependencies() {
 	suite.PrepareTest()
 	tests := []struct {
 		name          string
 		expectedError error
 		msg           *stakingtypes.MsgDelegate
-		dynamicDep 	  bool
+		dynamicDep    bool
 	}{
 		{
 			name:          "default vote",
 			msg:           suite.delegateMsg,
 			expectedError: nil,
-			dynamicDep: true,
+			dynamicDep:    true,
 		},
 		{
 			name:          "dont check synchronous",
 			msg:           suite.delegateMsg,
 			expectedError: nil,
-			dynamicDep: false,
+			dynamicDep:    false,
 		},
 	}
 	for _, tc := range tests {
@@ -256,7 +254,7 @@ func (suite *KeeperTestSuite) TestMsgDelegateDependencies() {
 				sdk.WrapSDKContext(handlerCtx),
 				tc.msg,
 			)
-			depdenencies , _ := stakingacl.MsgDelegateDependencyGenerator(
+			depdenencies, _ := stakingacl.MsgDelegateDependencyGenerator(
 				suite.App.AccessControlKeeper,
 				handlerCtx,
 				tc.msg,

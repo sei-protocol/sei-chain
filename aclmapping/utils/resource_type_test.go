@@ -25,5 +25,4 @@ func TestAllResourcesInTree(t *testing.T) {
 		}
 	}
 
-
 }

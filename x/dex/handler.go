@@ -29,6 +29,9 @@ func NewHandler(k keeper.Keeper) sdk.Handler {
 		case *types.MsgRegisterContract:
 			res, err := msgServer.RegisterContract(sdk.WrapSDKContext(ctx), msg)
 			return sdk.WrapServiceResult(ctx, res, err)
+		case *types.MsgRegisterPairs:
+			res, err := msgServer.RegisterPairs(sdk.WrapSDKContext(ctx), msg)
+			return sdk.WrapServiceResult(ctx, res, err)
 			// this line is used by starport scaffolding # 1
 		default:
 			errMsg := fmt.Sprintf("unrecognized %s message type: %T", types.ModuleName, msg)
@@ -40,8 +43,6 @@ func NewHandler(k keeper.Keeper) sdk.Handler {
 func NewProposalHandler(k keeper.Keeper) govtypes.Handler {
 	return func(ctx sdk.Context, content govtypes.Content) error {
 		switch c := content.(type) {
-		case *types.RegisterPairsProposal:
-			return HandleRegisterPairsProposal(ctx, &k, c)
 		case *types.UpdateTickSizeProposal:
 			return HandleUpdateTickSizeProposal(ctx, &k, c)
 		case *types.AddAssetMetadataProposal:

@@ -28,9 +28,9 @@ type KeeperTestSuite struct {
 	queryClient oracletypes.QueryClient
 	msgServer   oracletypes.MsgServer
 	// defaultDenom is on the suite, as it depends on the creator test address.
-	defaultDenom string
+	defaultDenom        string
 	defaultExchangeRate string
-	initalBalance sdk.Coins
+	initalBalance       sdk.Coins
 
 	validator sdk.ValAddress
 }
@@ -73,27 +73,27 @@ func (suite *KeeperTestSuite) TestMsgBurnDependencies() {
 		name          string
 		expectedError error
 		msg           *oracletypes.MsgAggregateExchangeRateVote
-		dynamicDep 	  bool
+		dynamicDep    bool
 	}{
 		{
-			name:          "default vote",
-			msg:           &oracletypes.MsgAggregateExchangeRateVote{
+			name: "default vote",
+			msg: &oracletypes.MsgAggregateExchangeRateVote{
 				ExchangeRates: suite.defaultExchangeRate,
 				Feeder:        suite.TestAccs[0].String(),
 				Validator:     suite.validator.String(),
 			},
 			expectedError: nil,
-			dynamicDep: true,
+			dynamicDep:    true,
 		},
 		{
-			name:          "dont check synchronous",
-			msg:           &oracletypes.MsgAggregateExchangeRateVote{
+			name: "dont check synchronous",
+			msg: &oracletypes.MsgAggregateExchangeRateVote{
 				ExchangeRates: suite.defaultExchangeRate,
 				Feeder:        suite.TestAccs[0].String(),
 				Validator:     suite.validator.String(),
 			},
 			expectedError: nil,
-			dynamicDep: false,
+			dynamicDep:    false,
 		},
 	}
 	for _, tc := range tests {
@@ -103,7 +103,7 @@ func (suite *KeeperTestSuite) TestMsgBurnDependencies() {
 				sdk.WrapSDKContext(handlerCtx),
 				tc.msg,
 			)
-			depdenencies , _ := oracleacl.MsgVoteDependencyGenerator(
+			depdenencies, _ := oracleacl.MsgVoteDependencyGenerator(
 				suite.App.AccessControlKeeper,
 				handlerCtx,
 				tc.msg,

@@ -1073,7 +1073,7 @@ func (app *App) ProcessBlockConcurrent(
 	}
 
 	var waitGroup sync.WaitGroup
-	resultChan := make(chan ChannelResult)
+	resultChan := make(chan ChannelResult, len(txs))
 	// For each transaction, start goroutine and deliver TX
 	for txIndex, txBytes := range txs {
 		waitGroup.Add(1)

@@ -24,8 +24,11 @@
             "begin_redelegate_percentage": "0.25"
         }
     },
+    "constant": true,
+    "loadtest_interval": 600,
     "message_type": "bank,dex,staking,tokenfactory",
     "run_oracle": true,
+    "metrics_port": 9696,
     "contract_distribution": [
             {
               "contract_address":"sei14hj2tavq8fpesdwxxcu44rty3hh90vhujrvcmstl4zr3txmfvw9sh9m79m",
