@@ -56,20 +56,20 @@ func init() {
 func run(config Config) {
 	// Start metrics collector in another thread
 	metricsServer := MetricsServer{}
-	go metricsServer.StartMetricsClient()
+	go metricsServer.StartMetricsClient(config)
+	sleepDuration := time.Duration(config.LoadInterval) * time.Second
 
 	if config.Constant {
-		fmt.Printf("Running in constant mode with interval=%d\n", config.ConstLoadInterval)
-		sleepDuration := time.Duration(config.ConstLoadInterval) * time.Second
-
+		fmt.Printf("Running in constant mode with interval=%d\n", config.LoadInterval)
 		for {
 			runOnce(config)
 			fmt.Printf("Sleeping for %f seconds before next run...\n", sleepDuration.Seconds())
 			time.Sleep(sleepDuration)
-
 		}
 	} else {
 		runOnce(config)
+		fmt.Print("Sleeping for 60 seconds for metrics to be scraped...\n")
+		time.Sleep(time.Duration(60))
 	}
 }
 
@@ -368,6 +368,9 @@ func ReadConfig(path string) Config {
 
 func main() {
 	configFilePath := flag.String("config-file", GetDefaultConfigFilePath(), "Path to the config.json file to use for this run")
+	flag.Parse()
+
 	config := ReadConfig(*configFilePath)
+	fmt.Printf("Using config file: %s\n", *configFilePath)
 	run(config)
 }
