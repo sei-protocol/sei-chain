@@ -83,65 +83,35 @@ printf "12345678\n" | $seidbin tx dex register-contract $saturnaddr3 $saturnid f
 printf "12345678\n" | $seidbin tx dex register-contract $venusaddr3 $venusid false true -y --from=$keyname --chain-id=$chainid --fees=10000000usei --gas=500000 --broadcast-mode=block
 printf "12345678\n" | $seidbin tx dex register-contract $marsaddr4 $marsid false true  -y --from=$keyname --chain-id=$chainid --fees=10000000usei --gas=500000 --broadcast-mode=block
 
-echo '{"title":"Mars","description":"mars","batch_contract_pair":[{"contract_addr":"'$marsaddr'","pairs":[{"price_denom":"SEI","asset_denom":"ATOM","tick_size":"0.0000001"}]}],"deposit":"1000000usei"}' > mars.json
-marspair=$(printf "12345678\n" | $seidbin tx dex register-pairs-proposal mars.json -y --from=$keyname --chain-id=$chainid --fees=10000000usei --gas=500000 --broadcast-mode=block --output=json)
-marsproposalid=$(python3 parser.py proposal_id $marspair)
-printf "12345678\n" | $seidbin tx gov deposit $marsproposalid 10000000usei -y --from=$keyname --chain-id=$chainid --fees=10000000usei --gas=500000 --broadcast-mode=block
-printf "12345678\n" | $seidbin tx gov vote $marsproposalid yes -y --from=$keyname --chain-id=$chainid --fees=10000000usei --gas=500000 --broadcast-mode=block
+echo '{"batch_contract_pair":[{"contract_addr":"'$marsaddr'","pairs":[{"price_denom":"SEI","asset_denom":"ATOM","tick_size":"0.0000001"}]}]}' > mars.json
+marspair=$(printf "12345678\n" | $seidbin tx dex register-pairs mars.json -y --from=$keyname --chain-id=$chainid --fees=10000000usei --gas=500000 --broadcast-mode=block --output=json)
 
-echo '{"title":"Saturn","description":"saturn","batch_contract_pair":[{"contract_addr":"'$saturnaddr'","pairs":[{"price_denom":"SEI","asset_denom":"ATOM","tick_size":"0.0000001"}]}],"deposit":"1000000usei"}' > saturn.json
-saturnpair=$(printf "12345678\n" | $seidbin tx dex register-pairs-proposal saturn.json -y --from=$keyname --chain-id=$chainid --fees=10000000usei --gas=500000 --broadcast-mode=block --output=json)
-saturnproposalid=$(python3 parser.py proposal_id $saturnpair)
-printf "12345678\n" | $seidbin tx gov deposit $saturnproposalid 10000000usei -y --from=$keyname --chain-id=$chainid --fees=10000000usei --gas=500000 --broadcast-mode=block
-printf "12345678\n" | $seidbin tx gov vote $saturnproposalid yes -y --from=$keyname --chain-id=$chainid --fees=10000000usei --gas=500000 --broadcast-mode=block
+echo '{"batch_contract_pair":[{"contract_addr":"'$saturnaddr'","pairs":[{"price_denom":"SEI","asset_denom":"ATOM","tick_size":"0.0000001"}]}]}' > saturn.json
+saturnpair=$(printf "12345678\n" | $seidbin tx dex register-pairs saturn.json -y --from=$keyname --chain-id=$chainid --fees=10000000usei --gas=500000 --broadcast-mode=block --output=json)
 
-echo '{"title":"Venus","description":"venus","batch_contract_pair":[{"contract_addr":"'$venusaddr'","pairs":[{"price_denom":"SEI","asset_denom":"ATOM","tick_size":"0.0000001"}]}],"deposit":"1000000usei"}' > venus.json
-venuspair=$(printf "12345678\n" | $seidbin tx dex register-pairs-proposal venus.json -y --from=$keyname --chain-id=$chainid --fees=10000000usei --gas=500000 --broadcast-mode=block --output=json)
-venusproposalid=$(python3 parser.py proposal_id $venuspair)
-printf "12345678\n" | $seidbin tx gov deposit $venusproposalid 10000000usei -y --from=$keyname --chain-id=$chainid --fees=10000000usei --gas=500000 --broadcast-mode=block
-printf "12345678\n" | $seidbin tx gov vote $venusproposalid yes -y --from=$keyname --chain-id=$chainid --fees=10000000usei --gas=500000 --broadcast-mode=block
+echo '{"batch_contract_pair":[{"contract_addr":"'$venusaddr'","pairs":[{"price_denom":"SEI","asset_denom":"ATOM","tick_size":"0.0000001"}]}]}' > venus.json
+venuspair=$(printf "12345678\n" | $seidbin tx dex register-pairs venus.json -y --from=$keyname --chain-id=$chainid --fees=10000000usei --gas=500000 --broadcast-mode=block --output=json)
 
-echo '{"title":"Mars2","description":"mars2","batch_contract_pair":[{"contract_addr":"'$marsaddr2'","pairs":[{"price_denom":"SEI","asset_denom":"ATOM","tick_size":"0.0000001"}]}],"deposit":"1000000usei"}' > mars2.json
-marspair2=$(printf "12345678\n" | $seidbin tx dex register-pairs-proposal mars2.json -y --from=$keyname --chain-id=$chainid --fees=10000000usei --gas=500000 --broadcast-mode=block --output=json)
-marsproposalid2=$(python3 parser.py proposal_id $marspair2)
-printf "12345678\n" | $seidbin tx gov deposit $marsproposalid2 10000000usei -y --from=$keyname --chain-id=$chainid --fees=10000000usei --gas=500000 --broadcast-mode=block
-printf "12345678\n" | $seidbin tx gov vote $marsproposalid2 yes -y --from=$keyname --chain-id=$chainid --fees=10000000usei --gas=500000 --broadcast-mode=block
+echo '{"batch_contract_pair":[{"contract_addr":"'$marsaddr2'","pairs":[{"price_denom":"SEI","asset_denom":"ATOM","tick_size":"0.0000001"}]}]}' > mars2.json
+marspair2=$(printf "12345678\n" | $seidbin tx dex register-pairs mars2.json -y --from=$keyname --chain-id=$chainid --fees=10000000usei --gas=500000 --broadcast-mode=block --output=json)
 
-echo '{"title":"Saturn2","description":"saturn2","batch_contract_pair":[{"contract_addr":"'$saturnaddr2'","pairs":[{"price_denom":"SEI","asset_denom":"ATOM","tick_size":"0.0000001"}]}],"deposit":"1000000usei"}' > saturn2.json
-saturnpair2=$(printf "12345678\n" | $seidbin tx dex register-pairs-proposal saturn2.json -y --from=$keyname --chain-id=$chainid --fees=10000000usei --gas=500000 --broadcast-mode=block --output=json)
-saturnproposalid2=$(python3 parser.py proposal_id $saturnpair2)
-printf "12345678\n" | $seidbin tx gov deposit $saturnproposalid2 10000000usei -y --from=$keyname --chain-id=$chainid --fees=10000000usei --gas=500000 --broadcast-mode=block
-printf "12345678\n" | $seidbin tx gov vote $saturnproposalid2 yes -y --from=$keyname --chain-id=$chainid --fees=10000000usei --gas=500000 --broadcast-mode=block
+echo '{"batch_contract_pair":[{"contract_addr":"'$saturnaddr2'","pairs":[{"price_denom":"SEI","asset_denom":"ATOM","tick_size":"0.0000001"}]}]}' > saturn2.json
+saturnpair2=$(printf "12345678\n" | $seidbin tx dex register-pairs saturn2.json -y --from=$keyname --chain-id=$chainid --fees=10000000usei --gas=500000 --broadcast-mode=block --output=json)
 
-echo '{"title":"Venus2","description":"venus2","batch_contract_pair":[{"contract_addr":"'$venusaddr2'","pairs":[{"price_denom":"SEI","asset_denom":"ATOM","tick_size":"0.0000001"}]}],"deposit":"1000000usei"}' > venus2.json
-venuspair2=$(printf "12345678\n" | $seidbin tx dex register-pairs-proposal venus2.json -y --from=$keyname --chain-id=$chainid --fees=10000000usei --gas=500000 --broadcast-mode=block --output=json)
-venusproposalid2=$(python3 parser.py proposal_id $venuspair2)
-printf "12345678\n" | $seidbin tx gov deposit $venusproposalid2 10000000usei -y --from=$keyname --chain-id=$chainid --fees=10000000usei --gas=500000 --broadcast-mode=block
-printf "12345678\n" | $seidbin tx gov vote $venusproposalid2 yes -y --from=$keyname --chain-id=$chainid --fees=10000000usei --gas=500000 --broadcast-mode=block
+echo '{"batch_contract_pair":[{"contract_addr":"'$venusaddr2'","pairs":[{"price_denom":"SEI","asset_denom":"ATOM","tick_size":"0.0000001"}]}]}' > venus2.json
+venuspair2=$(printf "12345678\n" | $seidbin tx dex register-pairs venus2.json -y --from=$keyname --chain-id=$chainid --fees=10000000usei --gas=500000 --broadcast-mode=block --output=json)
 
-echo '{"title":"Mars3","description":"mars3","batch_contract_pair":[{"contract_addr":"'$marsaddr3'","pairs":[{"price_denom":"SEI","asset_denom":"ATOM","tick_size":"0.0000001"}]}],"deposit":"1000000usei"}' > mars3.json
-marspair3=$(printf "12345678\n" | $seidbin tx dex register-pairs-proposal mars3.json -y --from=$keyname --chain-id=$chainid --fees=10000000usei --gas=500000 --broadcast-mode=block --output=json)
-marsproposalid3=$(python3 parser.py proposal_id $marspair3)
-printf "12345678\n" | $seidbin tx gov deposit $marsproposalid3 10000000usei -y --from=$keyname --chain-id=$chainid --fees=10000000usei --gas=500000 --broadcast-mode=block
-printf "12345678\n" | $seidbin tx gov vote $marsproposalid3 yes -y --from=$keyname --chain-id=$chainid --fees=10000000usei --gas=500000 --broadcast-mode=block
+echo '{"batch_contract_pair":[{"contract_addr":"'$marsaddr3'","pairs":[{"price_denom":"SEI","asset_denom":"ATOM","tick_size":"0.0000001"}]}]}' > mars3.json
+marspair3=$(printf "12345678\n" | $seidbin tx dex register-pairs mars3.json -y --from=$keyname --chain-id=$chainid --fees=10000000usei --gas=500000 --broadcast-mode=block --output=json)
 
-echo '{"title":"Saturn3","description":"saturn3","batch_contract_pair":[{"contract_addr":"'$saturnaddr3'","pairs":[{"price_denom":"SEI","asset_denom":"ATOM","tick_size":"0.0000001"}]}],"deposit":"1000000usei"}' > saturn3.json
-saturnpair3=$(printf "12345678\n" | $seidbin tx dex register-pairs-proposal saturn3.json -y --from=$keyname --chain-id=$chainid --fees=10000000usei --gas=500000 --broadcast-mode=block --output=json)
-saturnproposalid3=$(python3 parser.py proposal_id $saturnpair3)
-printf "12345678\n" | $seidbin tx gov deposit $saturnproposalid3 10000000usei -y --from=$keyname --chain-id=$chainid --fees=10000000usei --gas=500000 --broadcast-mode=block
-printf "12345678\n" | $seidbin tx gov vote $saturnproposalid3 yes -y --from=$keyname --chain-id=$chainid --fees=10000000usei --gas=500000 --broadcast-mode=block
+echo '{"batch_contract_pair":[{"contract_addr":"'$saturnaddr3'","pairs":[{"price_denom":"SEI","asset_denom":"ATOM","tick_size":"0.0000001"}]}]}' > saturn3.json
+saturnpair3=$(printf "12345678\n" | $seidbin tx dex register-pairs saturn3.json -y --from=$keyname --chain-id=$chainid --fees=10000000usei --gas=500000 --broadcast-mode=block --output=json)
 
-echo '{"title":"Venus3","description":"venus3","batch_contract_pair":[{"contract_addr":"'$venusaddr3'","pairs":[{"price_denom":"SEI","asset_denom":"ATOM","tick_size":"0.0000001"}]}],"deposit":"1000000usei"}' > venus3.json
-venuspair3=$(printf "12345678\n" | $seidbin tx dex register-pairs-proposal venus3.json -y --from=$keyname --chain-id=$chainid --fees=10000000usei --gas=500000 --broadcast-mode=block --output=json)
-venusproposalid3=$(python3 parser.py proposal_id $venuspair3)
-printf "12345678\n" | $seidbin tx gov deposit $venusproposalid3 10000000usei -y --from=$keyname --chain-id=$chainid --fees=10000000usei --gas=500000 --broadcast-mode=block
-printf "12345678\n" | $seidbin tx gov vote $venusproposalid3 yes -y --from=$keyname --chain-id=$chainid --fees=10000000usei --gas=500000 --broadcast-mode=block
+echo '{"batch_contract_pair":[{"contract_addr":"'$venusaddr3'","pairs":[{"price_denom":"SEI","asset_denom":"ATOM","tick_size":"0.0000001"}]}]}' > venus3.json
+venuspair3=$(printf "12345678\n" | $seidbin tx dex register-pairs venus3.json -y --from=$keyname --chain-id=$chainid --fees=10000000usei --gas=500000 --broadcast-mode=block --output=json)
 
-echo '{"title":"Mars4","description":"mars4","batch_contract_pair":[{"contract_addr":"'$marsaddr4'","pairs":[{"price_denom":"SEI","asset_denom":"ATOM","tick_size":"0.0000001"}]}],"deposit":"1000000usei"}' > mars4.json
-marspair4=$(printf "12345678\n" | $seidbin tx dex register-pairs-proposal mars4.json -y --from=$keyname --chain-id=$chainid --fees=10000000usei --gas=500000 --broadcast-mode=block --output=json)
-marsproposalid4=$(python3 parser.py proposal_id $marspair4)
-printf "12345678\n" | $seidbin tx gov deposit $marsproposalid4 10000000usei -y --from=$keyname --chain-id=$chainid --fees=10000000usei --gas=500000 --broadcast-mode=block
-printf "12345678\n" | $seidbin tx gov vote $marsproposalid4 yes -y --from=$keyname --chain-id=$chainid --fees=10000000usei --gas=500000 --broadcast-mode=block
+echo '{"batch_contract_pair":[{"contract_addr":"'$marsaddr4'","pairs":[{"price_denom":"SEI","asset_denom":"ATOM","tick_size":"0.0000001"}]}]}' > mars4.json
+marspair4=$(printf "12345678\n" | $seidbin tx dex register-pairs mars4.json -y --from=$keyname --chain-id=$chainid --fees=10000000usei --gas=500000 --broadcast-mode=block --output=json)
 
 sleep 90
 
@@ -157,3 +127,5 @@ echo $marsaddr3
 echo $saturnaddr3
 echo $venusaddr3
 echo $marsaddr4
+
+echo '{"batch_contract_pair":[{"contract_addr":"sei14hj2tavq8fpesdwxxcu44rty3hh90vhujrvcmstl4zr3txmfvw9sh9m79m","pairs":[{"price_denom":"SEI","asset_denom":"ATOM","tick_size":"0.0000001"}]}]}' > mars4.json
