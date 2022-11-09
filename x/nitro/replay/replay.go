@@ -109,16 +109,17 @@ func writeTransactionToFile(directory string, tx []byte) (string, error) {
 		)
 		serialized += header
 		serialized += ","
-		serialized += strings.Join(transactionData.LegacyMessage.AccountKeys, "-")
+		serialized += strings.Join(
+			utils.Map(transactionData.LegacyMessage.AccountKeys, trimHexPrefix), "-")
 		serialized += ","
-		serialized += transactionData.LegacyMessage.RecentBlockhash
+		serialized += trimHexPrefix(transactionData.LegacyMessage.RecentBlockhash)
 		serialized += ","
 		instructions := utils.Map(transactionData.LegacyMessage.Instructions, func(i *types.CompiledInstruction) string {
 			return fmt.Sprintf(
 				"%d_%s_%s",
 				i.ProgramIdIndex,
 				strings.Join(utils.Map(i.Accounts, func(a uint32) string { return fmt.Sprintf("%d", a) }), ":"),
-				i.Data,
+				trimHexPrefix(i.Data),
 			)
 		})
 		serialized += strings.Join(instructions, "-")
@@ -133,16 +134,17 @@ func writeTransactionToFile(directory string, tx []byte) (string, error) {
 		)
 		serialized += header
 		serialized += ","
-		serialized += strings.Join(transactionData.V0LoadedMessage.Message.AccountKeys, "-")
+		serialized += strings.Join(
+			utils.Map(transactionData.V0LoadedMessage.Message.AccountKeys, trimHexPrefix), "-")
 		serialized += ","
-		serialized += transactionData.V0LoadedMessage.Message.RecentBlockhash
+		serialized += trimHexPrefix(transactionData.V0LoadedMessage.Message.RecentBlockhash)
 		serialized += ","
 		instructions := utils.Map(transactionData.V0LoadedMessage.Message.Instructions, func(i *types.CompiledInstruction) string {
 			return fmt.Sprintf(
 				"%d_%s_%s",
 				i.ProgramIdIndex,
 				strings.Join(utils.Map(i.Accounts, func(a uint32) string { return fmt.Sprintf("%d", a) }), ":"),
-				i.Data,
+				trimHexPrefix(i.Data),
 			)
 		})
 		serialized += strings.Join(instructions, "-")
@@ -184,4 +186,15 @@ func writeAccountToFile(directory string, account types.Account) (string, error)
 	serialized += account.Data
 	filepath := fmt.Sprintf("%s%s", directory, account.Pubkey)
 	return filepath, os.WriteFile(filepath, []byte(serialized), 0644)
+}
+
+// input: \x1234 output: 1234
+func trimHexPrefix(s string) string {
+	if len(s) < 2 {
+		return s
+	}
+	if s[:2] != "\\x" {
+		return s
+	}
+	return s[2:]
 }
