@@ -1,8 +1,13 @@
 package provider
 
 import (
+	"crypto/tls"
+	"crypto/x509"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
+	"time"
 
 	"github.com/gorilla/websocket"
 )
@@ -12,7 +17,7 @@ type MockProviderServer struct {
 	server      *httptest.Server
 }
 
-func NewMockServer() MockProviderServer {
+func NewMockProviderServer() MockProviderServer {
 	mockProvider := MockProviderServer{}
 	// default to echo handler
 	mockProvider.SetHandler(echo)
@@ -26,11 +31,59 @@ func (m *MockProviderServer) SetHandler(handler http.HandlerFunc) {
 }
 
 func (m *MockProviderServer) Start() {
-	m.server = httptest.NewServer(http.HandlerFunc(m.handlerFunc))
+	server := httptest.NewUnstartedServer(m.handlerFunc)
+	server.StartTLS()
+	m.server = server
+	m.InjectServerCertificatesIntoDefaultDialer()
 }
 
 func (m *MockProviderServer) Close() {
-	m.server.Close()
+	if m.server != nil {
+		// restore default dialer
+		websocket.DefaultDialer = &websocket.Dialer{
+			Proxy:            http.ProxyFromEnvironment,
+			HandshakeTimeout: 45 * time.Second,
+		}
+		m.server.Close()
+	}
+}
+
+func (m *MockProviderServer) GetBaseURL() string {
+	if m.server != nil {
+		return strings.TrimPrefix(m.server.URL, "https://")
+	}
+	return ""
+}
+
+func (m *MockProviderServer) GetWebsocketURL() string {
+	if m.server != nil {
+		return "wss" + strings.TrimPrefix(m.server.URL, "https")
+	}
+	return ""
+}
+
+func (m *MockProviderServer) InjectServerCertificatesIntoDefaultDialer() {
+	certs := x509.NewCertPool()
+	for _, c := range m.server.TLS.Certificates {
+		roots, err := x509.ParseCertificates(c.Certificate[len(c.Certificate)-1])
+		if err != nil {
+			panic(fmt.Errorf("error parsing server's root cert: %v", err))
+		}
+		for _, root := range roots {
+			certs.AddCert(root)
+		}
+	}
+
+	testDialer := websocket.Dialer{
+		Subprotocols:    []string{"p1", "p2"},
+		ReadBufferSize:  1024,
+		WriteBufferSize: 1024,
+	}
+	testDialer.TLSClientConfig = &tls.Config{
+		RootCAs:    certs,
+		MinVersion: tls.VersionTLS12,
+	}
+	websocket.DefaultDialer = &testDialer
 }
 
 var upgrader = websocket.Upgrader{}

@@ -1,24 +1,18 @@
 package provider
 
 import (
-	"net/http"
-	"net/http/httptest"
-	"strings"
 	"testing"
 
 	"github.com/gorilla/websocket"
 )
 
 func TestMockServer(t *testing.T) {
-	// Create test server with the echo handler.
-	s := httptest.NewServer(http.HandlerFunc(echo))
+	s := NewMockProviderServer()
+	s.Start()
 	defer s.Close()
 
-	// Convert http://127.0.0.1 to ws://127.0.0.
-	u := "ws" + strings.TrimPrefix(s.URL, "http")
-
 	// Connect to the server
-	ws, _, err := websocket.DefaultDialer.Dial(u, nil)
+	ws, _, err := websocket.DefaultDialer.Dial(s.GetWebsocketURL(), nil)
 	if err != nil {
 		t.Fatalf("%v", err)
 	}

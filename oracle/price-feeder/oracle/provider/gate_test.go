@@ -13,10 +13,19 @@ import (
 )
 
 func TestGateProvider_GetTickerPrices(t *testing.T) {
+	// use mock provider server
+	server := NewMockProviderServer()
+	server.Start()
+	defer server.Close()
+
 	p, err := NewGateProvider(
 		context.TODO(),
 		zerolog.Nop(),
-		config.ProviderEndpoint{},
+		config.ProviderEndpoint{
+			Name:      config.ProviderGate,
+			Rest:      "",
+			Websocket: server.GetBaseURL(),
+		},
 		types.CurrencyPair{Base: "ATOM", Quote: "USDT"},
 	)
 	require.NoError(t, err)
@@ -81,10 +90,19 @@ func TestGateProvider_GetTickerPrices(t *testing.T) {
 }
 
 func TestGateProvider_SubscribeCurrencyPairs(t *testing.T) {
+	// // use mock provider server
+	server := NewMockProviderServer()
+	server.Start()
+	defer server.Close()
+
 	p, err := NewGateProvider(
 		context.TODO(),
 		zerolog.Nop(),
-		config.ProviderEndpoint{},
+		config.ProviderEndpoint{
+			Name:      config.ProviderGate,
+			Rest:      "",
+			Websocket: server.GetBaseURL(),
+		},
 		types.CurrencyPair{Base: "ATOM", Quote: "USDT"},
 	)
 	require.NoError(t, err)
