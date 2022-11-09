@@ -30,7 +30,7 @@ func NewAddCreatorsToDenomFeeWhitelistProposalTxCmd() *cobra.Command {
 				return err
 			}
 
-			// Convert proposal to RegisterPairsProposal Type
+			// Convert proposal to AddCreatorsToDenomFeeWhitelistProposal Type
 			from := clientCtx.GetFromAddress()
 
 			content := types.AddCreatorsToDenomFeeWhitelistProposal{Title: proposal.Title, Description: proposal.Description, CreatorList: proposal.CreatorList}

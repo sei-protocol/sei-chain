@@ -18,7 +18,6 @@ import (
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 )
 
-
 func cacheTxContext(ctx sdk.Context) (sdk.Context, sdk.CacheMultiStore) {
 	ms := ctx.MultiStore()
 	msCache := ms.CacheMultiStore()
@@ -30,25 +29,25 @@ func TestMsgBankSendAclOps(t *testing.T) {
 	addr1 := sdk.AccAddress(priv1.PubKey().Address())
 	priv2 := secp256k1.GenPrivKey()
 	addr2 := sdk.AccAddress(priv2.PubKey().Address())
-	coins     := sdk.Coins{sdk.NewInt64Coin("foocoin", 10)}
+	coins := sdk.Coins{sdk.NewInt64Coin("foocoin", 10)}
 
 	tests := []struct {
 		name          string
 		expectedError error
 		msg           *types.MsgSend
-		dynamicDep 	  bool
+		dynamicDep    bool
 	}{
 		{
 			name:          "default send",
 			msg:           types.NewMsgSend(addr1, addr2, coins),
 			expectedError: nil,
-			dynamicDep: true,
+			dynamicDep:    true,
 		},
 		{
 			name:          "dont check synchronous",
 			msg:           types.NewMsgSend(addr1, addr2, coins),
 			expectedError: nil,
-			dynamicDep: false,
+			dynamicDep:    false,
 		},
 	}
 
@@ -83,7 +82,7 @@ func TestMsgBankSendAclOps(t *testing.T) {
 
 			_, err := handler(handlerCtx, tc.msg)
 
-			depdenencies , _ := MsgSendDependencyGenerator(app.AccessControlKeeper, handlerCtx, tc.msg)
+			depdenencies, _ := MsgSendDependencyGenerator(app.AccessControlKeeper, handlerCtx, tc.msg)
 
 			if !tc.dynamicDep {
 				depdenencies = sdkacltypes.SynchronousAccessOps()
@@ -122,7 +121,7 @@ func TestMsgBeginBankSendGenerator(t *testing.T) {
 	addr1 := sdk.AccAddress(priv1.PubKey().Address())
 	priv2 := secp256k1.GenPrivKey()
 	addr2 := sdk.AccAddress(priv2.PubKey().Address())
-	coins     := sdk.Coins{sdk.NewInt64Coin("foocoin", 10)}
+	coins := sdk.Coins{sdk.NewInt64Coin("foocoin", 10)}
 
 	acc1 := &authtypes.BaseAccount{
 		Address: addr1.String(),
@@ -147,8 +146,8 @@ func TestMsgBeginBankSendGenerator(t *testing.T) {
 
 	sendMsg := banktypes.MsgSend{
 		FromAddress: addr1.String(),
-		ToAddress: addr2.String(),
-		Amount: coins,
+		ToAddress:   addr2.String(),
+		Amount:      coins,
 	}
 
 	accessOps, err := MsgSendDependencyGenerator(app.AccessControlKeeper, ctx, &sendMsg)

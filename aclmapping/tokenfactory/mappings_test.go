@@ -23,14 +23,15 @@ import (
 
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 )
+
 type KeeperTestSuite struct {
 	apptesting.KeeperTestHelper
 
 	queryClient tokenfactorytypes.QueryClient
 	msgServer   tokenfactorytypes.MsgServer
 	// defaultDenom is on the suite, as it depends on the creator test address.
-	defaultDenom string
-	testDenom string
+	defaultDenom  string
+	testDenom     string
 	initalBalance sdk.Coins
 }
 
@@ -94,19 +95,19 @@ func (suite *KeeperTestSuite) TestMsgBurnDependencies() {
 		name          string
 		expectedError error
 		msg           *tokenfactorytypes.MsgBurn
-		dynamicDep 	  bool
+		dynamicDep    bool
 	}{
 		{
 			name:          "default burn",
 			msg:           tokenfactorytypes.NewMsgBurn(addr1, burnAmount),
 			expectedError: nil,
-			dynamicDep: true,
+			dynamicDep:    true,
 		},
 		{
 			name:          "dont check synchronous",
 			msg:           tokenfactorytypes.NewMsgBurn(addr1, burnAmount),
 			expectedError: nil,
-			dynamicDep: false,
+			dynamicDep:    false,
 		},
 	}
 	for _, tc := range tests {
@@ -118,7 +119,7 @@ func (suite *KeeperTestSuite) TestMsgBurnDependencies() {
 			)
 			suite.App.BankKeeper.WriteDeferredOperations(suite.Ctx)
 
-			depdenencies , _ := tkfactory.TokenFactoryBurnDependencyGenerator(
+			depdenencies, _ := tkfactory.TokenFactoryBurnDependencyGenerator(
 				suite.App.AccessControlKeeper,
 				handlerCtx,
 				tc.msg,
@@ -149,19 +150,19 @@ func (suite *KeeperTestSuite) TestMsgMintDependencies() {
 		name          string
 		expectedError error
 		msg           *tokenfactorytypes.MsgMint
-		dynamicDep 	  bool
+		dynamicDep    bool
 	}{
 		{
 			name:          "default mint",
 			msg:           tokenfactorytypes.NewMsgMint(addr1, burnAmount),
 			expectedError: nil,
-			dynamicDep: true,
+			dynamicDep:    true,
 		},
 		{
 			name:          "dont check synchronous",
 			msg:           tokenfactorytypes.NewMsgMint(addr1, burnAmount),
 			expectedError: nil,
-			dynamicDep: false,
+			dynamicDep:    false,
 		},
 	}
 	for _, tc := range tests {
@@ -173,7 +174,7 @@ func (suite *KeeperTestSuite) TestMsgMintDependencies() {
 			)
 			suite.App.BankKeeper.WriteDeferredOperations(handlerCtx)
 
-			depdenencies , _ := tkfactory.TokenFactoryMintDependencyGenerator(
+			depdenencies, _ := tkfactory.TokenFactoryMintDependencyGenerator(
 				suite.App.AccessControlKeeper,
 				handlerCtx,
 				tc.msg,

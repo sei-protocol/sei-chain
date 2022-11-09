@@ -15,52 +15,6 @@ import (
 
 // NewSubmitParamChangeProposalTxCmd returns a CLI command handler for creating
 // a parameter change proposal governance transaction.
-func NewRegisterPairsProposalTxCmd() *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   "register-pairs-proposal [proposal-file]",
-		Args:  cobra.ExactArgs(1),
-		Short: "Submit a register pairs proposal",
-		RunE: func(cmd *cobra.Command, args []string) error {
-			clientCtx, err := client.GetClientTxContext(cmd)
-			if err != nil {
-				return err
-			}
-			proposal, err := cutils.ParseRegisterPairsProposalJSON(clientCtx.LegacyAmino, args[0])
-			if err != nil {
-				return err
-			}
-
-			// Convert proposal to RegisterPairsProposal Type
-			from := clientCtx.GetFromAddress()
-			proposalBatchContractPair, err := proposal.BatchContractPair.ToMultipleBatchContractPair()
-			if err != nil {
-				return err
-			}
-			content := types.NewRegisterPairsProposal(
-				proposal.Title, proposal.Description, proposalBatchContractPair,
-			)
-
-			deposit, err := sdk.ParseCoinsNormalized(proposal.Deposit)
-			if err != nil {
-				return err
-			}
-
-			msg, err := govtypes.NewMsgSubmitProposal(&content, deposit, from)
-			if err != nil {
-				return err
-			}
-
-			return tx.GenerateOrBroadcastTxCLI(clientCtx, cmd.Flags(), msg)
-		},
-	}
-
-	flags.AddTxFlagsToCmd(cmd)
-
-	return cmd
-}
-
-// NewSubmitParamChangeProposalTxCmd returns a CLI command handler for creating
-// a parameter change proposal governance transaction.
 func NewUpdateTickSizeProposalTxCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "update-tick-size-proposal [proposal-file]",

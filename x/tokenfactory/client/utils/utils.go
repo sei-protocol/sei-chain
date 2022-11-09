@@ -15,7 +15,7 @@ type (
 	}
 )
 
-// ParseRegisterPairsProposalJSON reads and parses a RegisterPairsProposalJSON from
+// ParseAddCreatorsToDenomFeeWhitelistProposalJSON reads and parses a AddCreatorsToDenomFeeWhitelistProposalJSON from
 // a file.
 func ParseAddCreatorsToDenomFeeWhitelistProposalJSON(cdc *codec.LegacyAmino, proposalFile string) (AddCreatorsToDenomFeeWhitelistProposalJSON, error) {
 	proposal := AddCreatorsToDenomFeeWhitelistProposalJSON{}
