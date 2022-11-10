@@ -67,7 +67,7 @@ chain_denom = "uatom"
 providers = [
   "binance",
   "kraken",
-  "osmosis",
+  "coinbase",
 ]
 quote = "USD"
 EOF

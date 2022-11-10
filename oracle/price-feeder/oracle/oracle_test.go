@@ -95,7 +95,7 @@ func (ots *OracleTestSuite) SetupSuite() {
 				Base:       "XBT",
 				ChainDenom: "uxbt",
 				Quote:      "USDT",
-				Providers:  []string{config.ProviderOsmosis},
+				Providers:  []string{config.ProviderOkx},
 			},
 			{
 				Base:       "USDC",
@@ -226,7 +226,7 @@ func (ots *OracleTestSuite) TestPrices() {
 				},
 			},
 		},
-		config.ProviderOsmosis: mockProvider{
+		config.ProviderOkx: mockProvider{
 			prices: map[string]provider.TickerPrice{
 				"XBTUSDT": {
 					Price:  sdk.MustNewDecFromStr("3.717"),
@@ -279,7 +279,7 @@ func (ots *OracleTestSuite) TestPrices() {
 				},
 			},
 		},
-		config.ProviderOsmosis: mockProvider{
+		config.ProviderOkx: mockProvider{
 			prices: map[string]provider.TickerPrice{
 				"XBTUSDT": {
 					Price:  sdk.MustNewDecFromStr("3.717"),
@@ -331,7 +331,7 @@ func (ots *OracleTestSuite) TestPrices() {
 				},
 			},
 		},
-		config.ProviderOsmosis: mockProvider{
+		config.ProviderOkx: mockProvider{
 			prices: map[string]provider.TickerPrice{
 				"XBTUSDT": {
 					Price:  sdk.MustNewDecFromStr("3.717"),
