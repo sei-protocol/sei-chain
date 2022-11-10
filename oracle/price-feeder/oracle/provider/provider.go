@@ -68,7 +68,7 @@ func preventRedirect(_ *http.Request, _ []*http.Request) error {
 	return http.ErrUseLastResponse
 }
 
-//nolint:unused
+//nolint:unused,deadcode
 func newDefaultHTTPClient() *http.Client {
 	return newHTTPClientWithTimeout(defaultTimeout)
 }
@@ -115,7 +115,7 @@ func PastUnixTime(t time.Duration) int64 {
 	return time.Now().Add(t*-1).Unix() * int64(time.Second/time.Millisecond)
 }
 
-//nolint:unused
+//nolint:unused,deadcode
 func strToDec(str string) sdk.Dec {
 	if strings.Contains(str, ".") {
 		split := strings.Split(str, ".")
