@@ -49,7 +49,7 @@ func TestMigrate9to10(t *testing.T) {
 		Orders:       order2,
 	}
 	// Insert old match results format to blockHeights 1, 2
-	// That is: <matchResultsKey>-<Height>
+	// That is: matchResultsPrefix-<Height>
 	height := 1
 	bz, err := matchResult1.Marshal()
 	if err != nil {
@@ -74,7 +74,7 @@ func TestMigrate9to10(t *testing.T) {
 	err = migrations.V9ToV10(ctx, *dexkeeper)
 	require.NoError(t, err)
 
-	// We expect that everything is under the new format: <matchResultsKey>
+	// We expect that everything is under the new format: matchResultsPrefix-matchResultsKey
 	matchResult, found := dexkeeper.GetMatchResultState(ctx, keepertest.TestContract)
 	require.True(t, found)
 	require.Equal(t, types.MatchResult{Height: 3, ContractAddr: keepertest.TestContract, Orders: order2}, *matchResult)

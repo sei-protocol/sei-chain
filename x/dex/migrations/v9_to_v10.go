@@ -37,17 +37,6 @@ func V9ToV10(ctx sdk.Context, dexkeeper keeper.Keeper) error {
 			binary.BigEndian.PutUint64(key, uint64(i))
 			store.Delete(key)
 		}
-
-		//for i := height - 10; i < height; i++ {
-		//	key := make([]byte, 8)
-		//	binary.BigEndian.PutUint64(key, uint64(i))
-		//	if !store.Has(key) {
-		//		fmt.Printf("No key at height %d\n", i)
-		//		return nil
-		//	} else {
-		//		fmt.Printf("Has key at height %d\n", i)
-		//	}
-		//}
 	}
 	return nil
 }
