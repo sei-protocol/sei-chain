@@ -35,7 +35,9 @@ func V9ToV10(ctx sdk.Context, dexkeeper keeper.Keeper) error {
 		for i := int64(0); i <= prevHeight; i++ {
 			key := make([]byte, 8)
 			binary.BigEndian.PutUint64(key, uint64(i))
-			store.Delete(key)
+			if store.Has(key) {
+				store.Delete(key)
+			}
 		}
 	}
 	return nil
