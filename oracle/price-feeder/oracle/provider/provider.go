@@ -62,14 +62,18 @@ type AggregatedProviderCandles map[string]map[string][]CandlePrice
 
 // preventRedirect avoid any redirect in the http.Client the request call
 // will not return an error, but a valid response with redirect response code.
+//
+//nolint:unused
 func preventRedirect(_ *http.Request, _ []*http.Request) error {
 	return http.ErrUseLastResponse
 }
 
+//nolint:unused
 func newDefaultHTTPClient() *http.Client {
 	return newHTTPClientWithTimeout(defaultTimeout)
 }
 
+//nolint:unused
 func newHTTPClientWithTimeout(timeout time.Duration) *http.Client {
 	return &http.Client{
 		Timeout:       timeout,
@@ -111,6 +115,7 @@ func PastUnixTime(t time.Duration) int64 {
 	return time.Now().Add(t*-1).Unix() * int64(time.Second/time.Millisecond)
 }
 
+//nolint:unused
 func strToDec(str string) sdk.Dec {
 	if strings.Contains(str, ".") {
 		split := strings.Split(str, ".")
