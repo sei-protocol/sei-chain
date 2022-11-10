@@ -145,7 +145,7 @@ func TestEndBlockMarketOrder(t *testing.T) {
 	_, found = dexkeeper.GetLongBookByPrice(ctx, contractAddr.String(), sdk.MustNewDecFromStr("1"), pair.PriceDenom, pair.AssetDenom)
 	require.True(t, found)
 
-	matchResults, _ := dexkeeper.GetMatchResultState(ctx, contractAddr.String(), 2)
+	matchResults, _ := dexkeeper.GetMatchResultState(ctx, contractAddr.String())
 	require.Equal(t, 1, len(matchResults.Orders))
 	require.Equal(t, 2, len(matchResults.Settlements))
 
@@ -168,7 +168,7 @@ func TestEndBlockMarketOrder(t *testing.T) {
 	ctx = ctx.WithBlockHeight(3)
 	testApp.EndBlocker(ctx, abci.RequestEndBlock{})
 
-	matchResults, _ = dexkeeper.GetMatchResultState(ctx, contractAddr.String(), 3)
+	matchResults, _ = dexkeeper.GetMatchResultState(ctx, contractAddr.String())
 	require.Equal(t, 1, len(matchResults.Orders))
 	require.Equal(t, 0, len(matchResults.Settlements))
 }
@@ -305,7 +305,7 @@ func TestEndBlockLimitOrder(t *testing.T) {
 	_, found = dexkeeper.GetLongBookByPrice(ctx, contractAddr.String(), sdk.MustNewDecFromStr("3"), pair.PriceDenom, pair.AssetDenom)
 	require.False(t, found)
 
-	matchResults, _ := dexkeeper.GetMatchResultState(ctx, contractAddr.String(), 2)
+	matchResults, _ := dexkeeper.GetMatchResultState(ctx, contractAddr.String())
 	require.Equal(t, 2, len(matchResults.Orders))
 	require.Equal(t, 4, len(matchResults.Settlements))
 
@@ -335,7 +335,7 @@ func TestEndBlockLimitOrder(t *testing.T) {
 	_, found = dexkeeper.GetShortBookByPrice(ctx, contractAddr.String(), sdk.MustNewDecFromStr("3"), pair.PriceDenom, pair.AssetDenom)
 	require.False(t, found)
 
-	matchResults, _ = dexkeeper.GetMatchResultState(ctx, contractAddr.String(), 3)
+	matchResults, _ = dexkeeper.GetMatchResultState(ctx, contractAddr.String())
 	require.Equal(t, 1, len(matchResults.Orders))
 	require.Equal(t, 2, len(matchResults.Settlements))
 }
@@ -366,7 +366,7 @@ func TestEndBlockRollback(t *testing.T) {
 	ctx = ctx.WithBlockHeight(1)
 	testApp.EndBlocker(ctx, abci.RequestEndBlock{})
 	// No state change should've been persisted
-	_, found := dexkeeper.GetMatchResultState(ctx, keepertest.TestContract, 2)
+	_, found := dexkeeper.GetMatchResultState(ctx, keepertest.TestContract)
 	require.False(t, found)
 }
 
@@ -444,10 +444,10 @@ func TestEndBlockPartialRollback(t *testing.T) {
 	ctx = ctx.WithBlockHeight(1)
 	testApp.EndBlocker(ctx, abci.RequestEndBlock{})
 	// No state change should've been persisted for bad contract
-	_, found := dexkeeper.GetMatchResultState(ctx, keepertest.TestContract, 1)
+	_, found := dexkeeper.GetMatchResultState(ctx, keepertest.TestContract)
 	require.False(t, found)
 	// state change should've been persisted for good contract
-	matchResult, _ := dexkeeper.GetMatchResultState(ctx, contractAddr.String(), 1)
+	matchResult, _ := dexkeeper.GetMatchResultState(ctx, contractAddr.String())
 	require.Equal(t, 1, len(matchResult.Orders))
 	_, found = dexkeeper.GetLongBookByPrice(ctx, contractAddr.String(), sdk.MustNewDecFromStr("0.0001"), pair.PriceDenom, pair.AssetDenom)
 	require.True(t, found)

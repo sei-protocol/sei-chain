@@ -184,6 +184,9 @@ func (am AppModule) RegisterServices(cfg module.Configurator) {
 	_ = cfg.RegisterMigration(types.ModuleName, 8, func(ctx sdk.Context) error {
 		return migrations.V8ToV9(ctx, am.keeper)
 	})
+	_ = cfg.RegisterMigration(types.ModuleName, 9, func(ctx sdk.Context) error {
+		return migrations.V9ToV10(ctx, am.keeper)
+	})
 }
 
 // RegisterInvariants registers the capability module's invariants.
@@ -208,7 +211,7 @@ func (am AppModule) ExportGenesis(ctx sdk.Context, cdc codec.JSONCodec) json.Raw
 }
 
 // ConsensusVersion implements ConsensusVersion.
-func (AppModule) ConsensusVersion() uint64 { return 9 }
+func (AppModule) ConsensusVersion() uint64 { return 10 }
 
 func (am AppModule) getAllContractInfo(ctx sdk.Context) []types.ContractInfoV2 {
 	return am.keeper.GetAllContractInfo(ctx)

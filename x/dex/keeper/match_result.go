@@ -1,16 +1,16 @@
 package keeper
 
 import (
-	"encoding/binary"
-
 	"github.com/cosmos/cosmos-sdk/store/prefix"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
 )
 
+const MatchResultKey = "match-result"
+
 func (k Keeper) SetMatchResult(ctx sdk.Context, contractAddr string, result *types.MatchResult) {
 	store := prefix.NewStore(
-		ctx.KVStore(k.storeKey),
+		ctx.KVStore(k.StoreKey),
 		types.MatchResultPrefix(contractAddr),
 	)
 	height := ctx.BlockHeight()
@@ -20,22 +20,15 @@ func (k Keeper) SetMatchResult(ctx sdk.Context, contractAddr string, result *typ
 	if err != nil {
 		panic(err)
 	}
-	key := make([]byte, 8)
-	binary.BigEndian.PutUint64(key, uint64(height))
-	store.Set(key, bz)
+	store.Set([]byte(MatchResultKey), bz)
 }
 
-func (k Keeper) GetMatchResultState(ctx sdk.Context, contractAddr string, height int64) (*types.MatchResult, bool) {
+func (k Keeper) GetMatchResultState(ctx sdk.Context, contractAddr string) (*types.MatchResult, bool) {
 	store := prefix.NewStore(
-		ctx.KVStore(k.storeKey),
+		ctx.KVStore(k.StoreKey),
 		types.MatchResultPrefix(contractAddr),
 	)
-	key := make([]byte, 8)
-	binary.BigEndian.PutUint64(key, uint64(height))
-	if !store.Has(key) {
-		return nil, false
-	}
-	bz := store.Get(key)
+	bz := store.Get([]byte(MatchResultKey))
 	result := types.MatchResult{}
 	if err := result.Unmarshal(bz); err != nil {
 		panic(err)

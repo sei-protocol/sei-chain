@@ -11,7 +11,7 @@ const defaultAddr = "default"
 
 // contract_addr, pair -> tick size
 func (k Keeper) SetTickSizeForPair(ctx sdk.Context, contractAddr string, pair types.Pair, ticksize sdk.Dec) {
-	store := prefix.NewStore(ctx.KVStore(k.storeKey), types.TickSizeKeyPrefix(contractAddr))
+	store := prefix.NewStore(ctx.KVStore(k.StoreKey), types.TickSizeKeyPrefix(contractAddr))
 	bytes, err := ticksize.Marshal()
 	if err != nil {
 		panic(err)
@@ -20,7 +20,7 @@ func (k Keeper) SetTickSizeForPair(ctx sdk.Context, contractAddr string, pair ty
 }
 
 func (k Keeper) SetDefaultTickSizeForPair(ctx sdk.Context, pair types.Pair, ticksize sdk.Dec) {
-	store := prefix.NewStore(ctx.KVStore(k.storeKey), types.TickSizeKeyPrefix(defaultAddr))
+	store := prefix.NewStore(ctx.KVStore(k.StoreKey), types.TickSizeKeyPrefix(defaultAddr))
 	bytes, err := ticksize.Marshal()
 	if err != nil {
 		panic(err)
@@ -29,7 +29,7 @@ func (k Keeper) SetDefaultTickSizeForPair(ctx sdk.Context, pair types.Pair, tick
 }
 
 func (k Keeper) GetTickSizeForPair(ctx sdk.Context, contractAddr string, pair types.Pair) (sdk.Dec, bool) {
-	store := prefix.NewStore(ctx.KVStore(k.storeKey), types.TickSizeKeyPrefix(contractAddr))
+	store := prefix.NewStore(ctx.KVStore(k.StoreKey), types.TickSizeKeyPrefix(contractAddr))
 	b := store.Get(types.PairPrefix(pair.PriceDenom, pair.AssetDenom))
 	if b == nil {
 		return sdk.ZeroDec(), false
@@ -43,7 +43,7 @@ func (k Keeper) GetTickSizeForPair(ctx sdk.Context, contractAddr string, pair ty
 }
 
 func (k Keeper) GetDefaultTickSizeForPair(ctx sdk.Context, pair types.Pair) (sdk.Dec, bool) {
-	store := prefix.NewStore(ctx.KVStore(k.storeKey), types.TickSizeKeyPrefix(defaultAddr))
+	store := prefix.NewStore(ctx.KVStore(k.StoreKey), types.TickSizeKeyPrefix(defaultAddr))
 	b := store.Get(types.PairPrefix(pair.PriceDenom, pair.AssetDenom))
 	if b == nil {
 		return sdk.ZeroDec(), false

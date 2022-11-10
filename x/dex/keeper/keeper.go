@@ -19,9 +19,9 @@ import (
 
 type (
 	Keeper struct {
-		Cdc           codec.BinaryCodec
-		storeKey      sdk.StoreKey
-		memKey        sdk.StoreKey
+		Cdc      codec.BinaryCodec
+		StoreKey sdk.StoreKey
+		memKey   sdk.StoreKey
 		Paramstore    paramtypes.Subspace
 		AccountKeeper authkeeper.AccountKeeper
 		EpochKeeper   epochkeeper.Keeper
@@ -43,7 +43,7 @@ func NewPlainKeeper(
 	}
 	return &Keeper{
 		Cdc:        cdc,
-		storeKey:   storeKey,
+		StoreKey:   storeKey,
 		memKey:     memKey,
 		Paramstore: ps,
 		MemState:   dexcache.NewMemState(),
@@ -65,7 +65,7 @@ func NewKeeper(
 	}
 	return &Keeper{
 		Cdc:           cdc,
-		storeKey:      storeKey,
+		StoreKey:      storeKey,
 		memKey:        memKey,
 		Paramstore:    ps,
 		EpochKeeper:   epochKeeper,
@@ -80,7 +80,7 @@ func (k Keeper) Logger(ctx sdk.Context) log.Logger {
 }
 
 func (k Keeper) GetStoreKey() sdk.StoreKey {
-	return k.storeKey
+	return k.StoreKey
 }
 
 func (k *Keeper) SetWasmKeeper(wasmKeeper *wasm.Keeper) {

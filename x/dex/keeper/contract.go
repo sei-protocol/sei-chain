@@ -13,7 +13,7 @@ const ContractPrefixKey = "x-wasm-contract"
 
 func (k Keeper) SetContract(ctx sdk.Context, contract *types.ContractInfoV2) error {
 	store := prefix.NewStore(
-		ctx.KVStore(k.storeKey),
+		ctx.KVStore(k.StoreKey),
 		[]byte(ContractPrefixKey),
 	)
 	bz, err := contract.Marshal()
@@ -27,7 +27,7 @@ func (k Keeper) SetContract(ctx sdk.Context, contract *types.ContractInfoV2) err
 
 func (k Keeper) DeleteContract(ctx sdk.Context, contractAddr string) {
 	store := prefix.NewStore(
-		ctx.KVStore(k.storeKey),
+		ctx.KVStore(k.StoreKey),
 		[]byte(ContractPrefixKey),
 	)
 	key := contractKey(contractAddr)
@@ -36,7 +36,7 @@ func (k Keeper) DeleteContract(ctx sdk.Context, contractAddr string) {
 
 func (k Keeper) GetContract(ctx sdk.Context, contractAddr string) (types.ContractInfoV2, error) {
 	store := prefix.NewStore(
-		ctx.KVStore(k.storeKey),
+		ctx.KVStore(k.StoreKey),
 		[]byte(ContractPrefixKey),
 	)
 	key := contractKey(contractAddr)
@@ -51,7 +51,7 @@ func (k Keeper) GetContract(ctx sdk.Context, contractAddr string) (types.Contrac
 }
 
 func (k Keeper) GetAllContractInfo(ctx sdk.Context) []types.ContractInfoV2 {
-	store := prefix.NewStore(ctx.KVStore(k.storeKey), []byte(ContractPrefixKey))
+	store := prefix.NewStore(ctx.KVStore(k.StoreKey), []byte(ContractPrefixKey))
 	iterator := sdk.KVStorePrefixIterator(store, []byte{})
 
 	defer iterator.Close()
