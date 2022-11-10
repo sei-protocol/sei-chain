@@ -41,11 +41,8 @@ type (
 		BatchContractPair MultipleBatchContractPairJSON `json:"batch_contract_pair" yaml:"batch_contract_pair"`
 	}
 
-	UpdateTickSizeProposalJSON struct {
-		Title       string        `json:"title" yaml:"title"`
-		Description string        `json:"description" yaml:"description"`
-		TickSizes   TickSizesJSON `json:"tick_size_list" yaml:"tick_size_list"`
-		Deposit     string        `json:"deposit" yaml:"deposit"`
+	UpdateTickSizeTxJSON struct {
+		TickSizes TickSizesJSON `json:"tick_size_list" yaml:"tick_size_list"`
 	}
 
 	AddAssetMetadataProposalJSON struct {
@@ -134,21 +131,21 @@ func ParseRegisterPairsTxJSON(cdc *codec.LegacyAmino, txFile string) (RegisterPa
 	return registerTx, nil
 }
 
-// ParseUpdateTickSizeProposalJSON reads and parses a UpdateTickSizeProposalJSON from
+// ParseUpdateTickSizeTxJSON reads and parses a UpdateTickSizeTxJSON from
 // a file.
-func ParseUpdateTickSizeProposalJSON(cdc *codec.LegacyAmino, proposalFile string) (UpdateTickSizeProposalJSON, error) {
-	proposal := UpdateTickSizeProposalJSON{}
+func ParseUpdateTickSizeTxJSON(cdc *codec.LegacyAmino, txFile string) (UpdateTickSizeTxJSON, error) {
+	tickTx := UpdateTickSizeTxJSON{}
 
-	contents, err := os.ReadFile(proposalFile)
+	contents, err := os.ReadFile(txFile)
 	if err != nil {
-		return proposal, err
+		return tickTx, err
 	}
 
-	if err := cdc.UnmarshalJSON(contents, &proposal); err != nil {
-		return proposal, err
+	if err := cdc.UnmarshalJSON(contents, &tickTx); err != nil {
+		return tickTx, err
 	}
 
-	return proposal, nil
+	return tickTx, nil
 }
 
 // ParseAddAssetMetadataProposalJSON reads and parses an AddAssetMetadataProposalJSON from
