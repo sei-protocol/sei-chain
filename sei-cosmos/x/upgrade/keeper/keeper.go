@@ -10,12 +10,14 @@ import (
 	"path/filepath"
 	"sort"
 
+	"github.com/armon/go-metrics"
 	"github.com/tendermint/tendermint/libs/log"
 	tmos "github.com/tendermint/tendermint/libs/os"
 
 	"github.com/cosmos/cosmos-sdk/codec"
 	"github.com/cosmos/cosmos-sdk/store/prefix"
 	store "github.com/cosmos/cosmos-sdk/store/types"
+	"github.com/cosmos/cosmos-sdk/telemetry"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	"github.com/cosmos/cosmos-sdk/types/module"
@@ -192,6 +194,14 @@ func (k Keeper) ScheduleUpgrade(ctx sdk.Context, plan types.Plan) error {
 	bz := k.cdc.MustMarshal(&plan)
 	store.Set(types.PlanKey(), bz)
 
+	telemetry.SetGaugeWithLabels(
+		[]string{"cosmos", "upgrade", "plan", "height"},
+		float32(plan.Height),
+		[]metrics.Label{
+			{Name: "name", Value: plan.Name},
+			{Name: "info", Value: plan.Info},
+		},
+	)
 	return nil
 }
 
