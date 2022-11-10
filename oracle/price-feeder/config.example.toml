@@ -18,7 +18,7 @@ base = "ATOM"
 providers = [
   "binance",
   "kraken",
-  "osmosis",
+  "coinbase",
 ]
 quote = "USD"
 

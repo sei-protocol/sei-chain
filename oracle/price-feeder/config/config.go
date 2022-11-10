@@ -20,11 +20,9 @@ const (
 	defaultSrvReadTimeout  = 15 * time.Second
 	defaultProviderTimeout = 100 * time.Millisecond
 
-	ProviderFin      = "fin"
 	ProviderKraken   = "kraken"
 	ProviderBinance  = "binance"
 	ProviderMexc     = "mexc"
-	ProviderOsmosis  = "osmosis"
 	ProviderHuobi    = "huobi"
 	ProviderOkx      = "okx"
 	ProviderGate     = "gate"
@@ -41,11 +39,9 @@ var (
 	// SupportedProviders defines a lookup table of all the supported currency API
 	// providers.
 	SupportedProviders = map[string]struct{}{
-		ProviderFin:      {},
 		ProviderKraken:   {},
 		ProviderBinance:  {},
 		ProviderMexc:     {},
-		ProviderOsmosis:  {},
 		ProviderOkx:      {},
 		ProviderHuobi:    {},
 		ProviderGate:     {},

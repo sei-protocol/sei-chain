@@ -13,7 +13,6 @@ This is a standalone version of [Umee's fantastic work](https://github.com/umee-
 
 The list of current supported providers:
 
-- [FIN](https://fin.kujira.app)
 - [Binance](https://www.binance.com/en)
 - [MEXC](https://www.mexc.com/)
 - [Coinbase](https://www.coinbase.com/)
@@ -21,7 +20,6 @@ The list of current supported providers:
 - [Huobi](https://www.huobi.com/en-us/)
 - [Kraken](https://www.kraken.com/en-us/)
 - [Okx](https://www.okx.com/)
-- [Osmosis](https://app.osmosis.zone/)
 
 ## Usage
 
@@ -76,7 +74,6 @@ quote = "USDT"
 base = "ATOM"
 providers = [
   "kraken",
-  "osmosis",
 ]
 quote = "USD"
 ```

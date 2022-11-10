@@ -123,7 +123,7 @@ func TestStandardDeviation(t *testing.T) {
 					"ATOM": sdk.MustNewDecFromStr("28.23000000"),
 					"UMEE": sdk.MustNewDecFromStr("1.13050000"),
 				},
-				config.ProviderOsmosis: {
+				config.ProviderCoinbase: {
 					"ATOM": sdk.MustNewDecFromStr("28.40000000"),
 					"UMEE": sdk.MustNewDecFromStr("1.14000000"),
 					"LUNA": sdk.MustNewDecFromStr("64.10000000"),
@@ -154,7 +154,7 @@ func TestStandardDeviation(t *testing.T) {
 					"UMEE": sdk.MustNewDecFromStr("1.13050000"),
 					"LUNA": sdk.MustNewDecFromStr("64.85000000"),
 				},
-				config.ProviderOsmosis: {
+				config.ProviderCoinbase: {
 					"ATOM": sdk.MustNewDecFromStr("28.40000000"),
 					"UMEE": sdk.MustNewDecFromStr("1.14000000"),
 					"LUNA": sdk.MustNewDecFromStr("64.10000000"),
