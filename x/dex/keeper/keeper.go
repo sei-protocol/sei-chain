@@ -19,9 +19,9 @@ import (
 
 type (
 	Keeper struct {
-		Cdc      codec.BinaryCodec
-		StoreKey sdk.StoreKey
-		memKey   sdk.StoreKey
+		Cdc           codec.BinaryCodec
+		StoreKey      sdk.StoreKey
+		memKey        sdk.StoreKey
 		Paramstore    paramtypes.Subspace
 		AccountKeeper authkeeper.AccountKeeper
 		EpochKeeper   epochkeeper.Keeper
