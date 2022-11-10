@@ -32,12 +32,10 @@ func V9ToV10(ctx sdk.Context, dexkeeper keeper.Keeper) error {
 		dexkeeper.SetMatchResult(ctx, contractInfo.ContractAddr, &result)
 
 		// Now, remove all older ones
-		for i := int64(0); i <= prevHeight; i++ {
-			key := make([]byte, 8)
-			binary.BigEndian.PutUint64(key, uint64(i))
-			if store.Has(key) {
-				store.Delete(key)
-			}
+		iterator := sdk.KVStorePrefixIterator(ctx.KVStore(dexkeeper.StoreKey), types.MatchResultPrefix(contractInfo.ContractAddr))
+		defer iterator.Close()
+		for ; iterator.Valid(); iterator.Next() {
+			store.Delete(iterator.Key())
 		}
 	}
 	return nil
