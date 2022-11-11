@@ -60,7 +60,7 @@ func (server msgServer) SubmitFraudChallenge(goCtx context.Context, msg *types.M
 		return nil, types.ErrInvalidFraudStatePubkey
 	}
 
-	// verify that the provided Merkle proof for the end slot is valid 
+	// verify that the provided Merkle proof for the end slot is valid
 	merkleRoot, err := server.GetStateRoot(ctx, msg.EndSlot)
 	if err != nil {
 		return nil, err

@@ -11,7 +11,7 @@ import (
 
 const (
 	RIGHT_SIBLING = 1
-	LEFT_SIBLING = -1
+	LEFT_SIBLING  = -1
 )
 
 // this function goes over all merkle proof hashes, and check if the merkle root generated is the same as the provided root

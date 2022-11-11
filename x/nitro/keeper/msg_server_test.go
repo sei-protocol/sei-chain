@@ -82,20 +82,20 @@ func TestSubmitFraudChallenge(t *testing.T) {
 
 	// end slot doesn't exist
 	_, err = server.SubmitFraudChallenge(sdk.WrapSDKContext(ctx), &types.MsgSubmitFraudChallenge{
-		StartSlot:   0,
-		EndSlot:     2,
-		FraudStatePubKey:  "123",
-		MerkleProof: proof,
+		StartSlot:        0,
+		EndSlot:          2,
+		FraudStatePubKey: "123",
+		MerkleProof:      proof,
 	})
 	require.NotNil(t, err)
 
 	// invalid merkle proof
 	proof.Hash[0] = "efg"
 	_, err = server.SubmitFraudChallenge(sdk.WrapSDKContext(ctx), &types.MsgSubmitFraudChallenge{
-		StartSlot:   0,
-		EndSlot:     1,
-		FraudStatePubKey:  "123",
-		MerkleProof: proof,
+		StartSlot:        0,
+		EndSlot:          1,
+		FraudStatePubKey: "123",
+		MerkleProof:      proof,
 	})
 	require.NotNil(t, err)
 
@@ -103,10 +103,10 @@ func TestSubmitFraudChallenge(t *testing.T) {
 	_, proof = createMockMerkleProof()
 	proof.Commitment = "efg"
 	_, err = server.SubmitFraudChallenge(sdk.WrapSDKContext(ctx), &types.MsgSubmitFraudChallenge{
-		StartSlot:   0,
-		EndSlot:     1,
-		FraudStatePubKey:  "123",
-		MerkleProof: proof,
+		StartSlot:        0,
+		EndSlot:          1,
+		FraudStatePubKey: "123",
+		MerkleProof:      proof,
 	})
 	require.NotNil(t, err)
 
@@ -114,10 +114,10 @@ func TestSubmitFraudChallenge(t *testing.T) {
 	_, proof = createMockMerkleProof()
 	proof.Commitment = "efg"
 	_, err = server.SubmitFraudChallenge(sdk.WrapSDKContext(ctx), &types.MsgSubmitFraudChallenge{
-		StartSlot:   0,
-		EndSlot:     1,
-		FraudStatePubKey:  "",
-		MerkleProof: proof,
+		StartSlot:        0,
+		EndSlot:          1,
+		FraudStatePubKey: "",
+		MerkleProof:      proof,
 	})
 	require.Equal(t, err, types.ErrInvalidFraudStatePubkey)
 

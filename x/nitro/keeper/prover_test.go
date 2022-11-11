@@ -32,12 +32,12 @@ func TestValidateInvalidProof(t *testing.T) {
 }
 
 func TestAccountToValue(t *testing.T) {
-	account := types.Account {
-		Lamports: 123,
+	account := types.Account{
+		Lamports:  123,
 		RentEpoch: 456,
-		Data: hex.EncodeToString([]byte("abc")),
+		Data:      hex.EncodeToString([]byte("abc")),
 	}
-	expectedVal := []byte{149,84, 102, 209, 95, 175, 43, 23, 109, 170, 65, 141, 236, 74, 22, 129, 74, 243, 245, 225, 202, 22, 143, 202, 69, 254, 33, 247, 237, 138, 236, 175}
+	expectedVal := []byte{149, 84, 102, 209, 95, 175, 43, 23, 109, 170, 65, 141, 236, 74, 22, 129, 74, 243, 245, 225, 202, 22, 143, 202, 69, 254, 33, 247, 237, 138, 236, 175}
 
 	value, err := keeper.AccountToValue(account)
 	require.Nil(t, err)
