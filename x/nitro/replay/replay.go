@@ -15,7 +15,7 @@ import (
 	"github.com/sei-protocol/sei-chain/x/nitro/types"
 )
 
-func Replay(ctx sdk.Context, txs [][]byte, accounts []types.Account, programs []types.Account) ([]types.Account, error) {
+func Replay(ctx sdk.Context, txs [][]byte, accounts []types.Account, sysvarAccounts []types.Account, programs []types.Account) ([]types.Account, error) {
 	// there can be at most one replay per Sei block
 	inputDirectory := fmt.Sprintf("/tmp/replay_input_%d/", ctx.BlockHeight())
 	if err := os.Mkdir(inputDirectory, os.ModePerm); err != nil {
@@ -39,6 +39,14 @@ func Replay(ctx sdk.Context, txs [][]byte, accounts []types.Account, programs []
 		}
 		accountFilePaths = append(accountFilePaths, path)
 	}
+	sysvarFilePaths := []string{}
+	for _, sysvar := range sysvarAccounts {
+		path, err := writeAccountToFile(inputDirectory, sysvar)
+		if err != nil {
+			return nil, err
+		}
+		sysvarFilePaths = append(sysvarFilePaths, path)
+	}
 	programFilePaths := []string{}
 	for _, program := range programs {
 		path, err := writeAccountToFile(inputDirectory, program)
@@ -55,7 +63,7 @@ func Replay(ctx sdk.Context, txs [][]byte, accounts []types.Account, programs []
 		}
 		txFilePaths = append(txFilePaths, path)
 	}
-	if err := callReplayer(accountFilePaths, programFilePaths, txFilePaths, outputDirectory); err != nil {
+	if err := callReplayer(accountFilePaths, sysvarFilePaths, programFilePaths, txFilePaths, outputDirectory); err != nil {
 		return nil, err
 	}
 	files, err := ioutil.ReadDir(outputDirectory)

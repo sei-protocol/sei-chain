@@ -14,6 +14,7 @@ typedef struct FilePaths {
 } FilePaths;
 
 void replay(struct FilePaths account_file_paths,
+            struct FilePaths sysvar_file_paths,
             struct FilePaths program_file_paths,
             struct FilePaths tx_file_paths,
             struct ByteSliceView output_directory);
