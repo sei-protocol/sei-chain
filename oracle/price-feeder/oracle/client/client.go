@@ -143,7 +143,7 @@ func (r *passReader) Read(p []byte) (n int, err error) {
 // Ref: https://github.com/terra-money/oracle-feeder/blob/baef2a4a02f57a2ffeaa207932b2e03d7fb0fb25/feeder/src/vote.ts#L230
 func (oc OracleClient) BroadcastTx(nextBlockHeight, timeoutHeight int64, msgs ...sdk.Msg) error {
 	maxBlockHeight := nextBlockHeight + timeoutHeight
-	lastCheckHeight := nextBlockHeight - 1
+	lastCheckHeight := nextBlockHeight - 2
 
 	clientCtx, err := oc.CreateClientContext()
 	if err != nil {
