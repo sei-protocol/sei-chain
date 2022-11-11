@@ -65,3 +65,61 @@ func TestRecordTransactionData(t *testing.T) {
 	})
 	require.NotNil(t, err)
 }
+
+func TestSubmitFraudChallenge(t *testing.T) {
+	keeper, ctx := keepertest.NitroKeeper(t)
+	server := nitrokeeper.NewMsgServerImpl(*keeper)
+	stateRoot, proof := createMockMerkleProof()
+	// set state root with mock merkle root
+	keeper.SetParams(ctx, types.Params{WhitelistedTxSenders: []string{"sei14hj2tavq8fpesdwxxcu44rty3hh90vhujrvcmstl4zr3txmfvw9sh9m79m"}})
+	_, err := server.RecordTransactionData(sdk.WrapSDKContext(ctx), &types.MsgRecordTransactionData{
+		Sender:    "sei14hj2tavq8fpesdwxxcu44rty3hh90vhujrvcmstl4zr3txmfvw9sh9m79m",
+		Slot:      1,
+		StateRoot: hex.EncodeToString(stateRoot),
+		Txs:       []string{"5678"},
+	})
+	require.Nil(t, err)
+
+	// end slot doesn't exist
+	_, err = server.SubmitFraudChallenge(sdk.WrapSDKContext(ctx), &types.MsgSubmitFraudChallenge{
+		StartSlot:   0,
+		EndSlot:     2,
+		FraudStatePubKey:  "123",
+		MerkleProof: proof,
+	})
+	require.NotNil(t, err)
+
+	// invalid merkle proof
+	proof.Hash[0] = "efg"
+	_, err = server.SubmitFraudChallenge(sdk.WrapSDKContext(ctx), &types.MsgSubmitFraudChallenge{
+		StartSlot:   0,
+		EndSlot:     1,
+		FraudStatePubKey:  "123",
+		MerkleProof: proof,
+	})
+	require.NotNil(t, err)
+
+	// invalid original state root
+	_, proof = createMockMerkleProof()
+	proof.Commitment = "efg"
+	_, err = server.SubmitFraudChallenge(sdk.WrapSDKContext(ctx), &types.MsgSubmitFraudChallenge{
+		StartSlot:   0,
+		EndSlot:     1,
+		FraudStatePubKey:  "123",
+		MerkleProof: proof,
+	})
+	require.NotNil(t, err)
+
+	// invalid fraud state pubkey
+	_, proof = createMockMerkleProof()
+	proof.Commitment = "efg"
+	_, err = server.SubmitFraudChallenge(sdk.WrapSDKContext(ctx), &types.MsgSubmitFraudChallenge{
+		StartSlot:   0,
+		EndSlot:     1,
+		FraudStatePubKey:  "",
+		MerkleProof: proof,
+	})
+	require.Equal(t, err, types.ErrInvalidFraudStatePubkey)
+
+	// TODO: add happy path with replayable account states
+}

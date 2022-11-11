@@ -15,7 +15,7 @@ import (
 	"github.com/sei-protocol/sei-chain/x/nitro/types"
 )
 
-func Replay(ctx sdk.Context, txs [][]byte, accounts []types.Account, sysvarAccounts []types.Account, programs []types.Account) ([]types.Account, error) {
+func Replay(ctx sdk.Context, txs [][]byte, accounts []*types.Account, sysvarAccounts []*types.Account, programs []*types.Account) ([]types.Account, error) {
 	// there can be at most one replay per Sei block
 	inputDirectory := fmt.Sprintf("/tmp/replay_input_%d/", ctx.BlockHeight())
 	if err := os.Mkdir(inputDirectory, os.ModePerm); err != nil {
@@ -173,7 +173,7 @@ func writeTransactionToFile(directory string, tx []byte) (string, error) {
 	return filepath, os.WriteFile(filepath, []byte(serialized), 0644)
 }
 
-func writeAccountToFile(directory string, account types.Account) (string, error) {
+func writeAccountToFile(directory string, account *types.Account) (string, error) {
 	serialized := ""
 	serialized += account.Pubkey
 	serialized += "|"
