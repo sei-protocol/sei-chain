@@ -10,8 +10,10 @@ const (
 	TypeMsgRecordTransactionData = "record_transaction_data"
 )
 
-var _ sdk.Msg = &MsgRecordTransactionData{}
-var _ sdk.Msg = &MsgSubmitFraudChallenge{}
+var (
+	_ sdk.Msg = &MsgRecordTransactionData{}
+	_ sdk.Msg = &MsgSubmitFraudChallenge{}
+)
 
 func NewMsgRecordTransactionData(sender string, slot uint64, root string, txs []string) *MsgRecordTransactionData {
 	return &MsgRecordTransactionData{
