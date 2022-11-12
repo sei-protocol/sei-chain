@@ -20,8 +20,6 @@ jobs:
         with:
           go-version: 1.18
       - uses: actions/checkout@v3
-      -   name: Install dependencies
-          run: sudo apt update && sudo apt install libsnmp-dev
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v3
         with:
