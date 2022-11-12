@@ -1,6 +1,3 @@
-//go:build !codeanalysis
-// +build !codeanalysis
-
 package replay
 
 // #include <stdlib.h>

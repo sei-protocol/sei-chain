@@ -10,8 +10,8 @@ import (
 )
 
 const (
-	RIGHT_SIBLING = 1
-	LEFT_SIBLING  = -1
+	RightSibling = 1
+	LeftSibling  = -1
 )
 
 // this function goes over all merkle proof hashes, and check if the merkle root generated is the same as the provided root
@@ -23,7 +23,7 @@ func (k *Keeper) Validate(root []byte, proof *types.MerkleProof) error {
 	i := 0
 	newHash := []byte(proof.Commitment)
 	for i < len(proof.Hash) {
-		if proof.Direction[i] == RIGHT_SIBLING {
+		if proof.Direction[i] == RightSibling {
 			newHash = Hash(newHash, []byte(proof.Hash[i]))
 		} else {
 			newHash = Hash([]byte(proof.Hash[i]), newHash)
@@ -45,9 +45,9 @@ func Hash(val1, val2 []byte) []byte {
 func AccountToValue(account types.Account) ([]byte, error) {
 	value := [sha256.Size]byte{}
 	lamportbz := make([]byte, 8)
-	binary.BigEndian.PutUint64(lamportbz, uint64(account.Lamports))
+	binary.BigEndian.PutUint64(lamportbz, account.Lamports)
 	rentepochbz := make([]byte, 8)
-	binary.BigEndian.PutUint64(rentepochbz, uint64(account.RentEpoch))
+	binary.BigEndian.PutUint64(rentepochbz, account.RentEpoch)
 	databz, err := hex.DecodeString(account.Data)
 	if err != nil {
 		return nil, err
