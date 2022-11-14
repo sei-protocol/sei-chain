@@ -67,6 +67,24 @@ func (k Keeper) GetAllContractInfo(ctx sdk.Context) []types.ContractInfoV2 {
 	return list
 }
 
+func (k Keeper) ChargeRentForGas(ctx sdk.Context, contractAddr string, gasUsed uint64) error {
+	contract, err := k.GetContract(ctx, contractAddr)
+	if err != nil {
+		return err
+	}
+	params := k.GetParams(ctx)
+	gasPrice := sdk.NewDec(int64(gasUsed)).Mul(params.SudoCallGasPrice).RoundInt().Int64()
+	if gasPrice > int64(contract.RentBalance) {
+		contract.RentBalance = 0
+		if err := k.SetContract(ctx, &contract); err != nil {
+			return err
+		}
+		return errors.New("insufficient rent")
+	}
+	contract.RentBalance -= uint64(gasPrice)
+	return k.SetContract(ctx, &contract)
+}
+
 func contractKey(contractAddr string) []byte {
 	return []byte(contractAddr)
 }

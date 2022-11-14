@@ -5,6 +5,7 @@ import (
 	storetypes "github.com/cosmos/cosmos-sdk/store/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/sei-protocol/sei-chain/utils"
+	"github.com/sei-protocol/sei-chain/x/dex/keeper"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
 )
 
@@ -19,6 +20,7 @@ var DexWhitelistedKeys = []string{
 	types.SettlementEntryKey,
 	types.NextOrderIDKey,
 	types.MatchResultKey,
+	keeper.ContractPrefixKey,
 }
 
 var WasmWhitelistedKeys = []string{

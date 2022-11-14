@@ -33,5 +33,6 @@ func V8ToV9(ctx sdk.Context, dexkeeper keeper.Keeper) error {
 		}
 		contractStore.Set(iterator.Key(), bz)
 	}
+
 	return nil
 }

@@ -28,3 +28,13 @@ func Reduce[I, O any](input []I, reducer func(I, O) O, initial O) O {
 	}
 	return initial
 }
+
+func Filter[T any](slice []T, lambda func(t T) bool) []T {
+	res := []T{}
+	for _, t := range slice {
+		if lambda(t) {
+			res = append(res, t)
+		}
+	}
+	return res
+}

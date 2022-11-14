@@ -103,7 +103,7 @@ func cacheAndDecorateContext(ctx sdk.Context, env *environment) (sdk.Context, sd
 	cachedCtx, msCached := store.GetCachedContext(ctx)
 	goCtx := context.WithValue(cachedCtx.Context(), dexcache.CtxKeyExecTermSignal, env.executionTerminationSignals)
 	cachedCtx = cachedCtx.WithContext(goCtx)
-	decoratedCtx := cachedCtx.WithGasMeter(seisync.NewGasWrapper(cachedCtx.GasMeter())).WithBlockGasMeter(
+	decoratedCtx := cachedCtx.WithGasMeter(seisync.NewGasWrapper(sdk.NewInfiniteGasMeter())).WithBlockGasMeter(
 		seisync.NewGasWrapper(cachedCtx.BlockGasMeter()),
 	)
 	return decoratedCtx, msCached

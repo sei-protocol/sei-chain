@@ -14,4 +14,9 @@ message Params {
     (gogoproto.moretags) = "yaml:\"price_snapshot_retention\"",
     (gogoproto.jsontag) = "price_snapshot_retention"
   ];
+  string sudo_call_gas_price = 2 [
+    (gogoproto.jsontag)   = "sudo_call_gas_price",
+    (gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Dec",
+    (gogoproto.nullable)   = false
+  ];
 }
