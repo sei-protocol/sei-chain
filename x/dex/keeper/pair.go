@@ -10,7 +10,7 @@ import (
 
 func (k Keeper) SetPairCount(ctx sdk.Context, contractAddr string, count uint64) {
 	store := prefix.NewStore(
-		ctx.KVStore(k.StoreKey),
+		ctx.KVStore(k.storeKey),
 		types.RegisteredPairCountPrefix(),
 	)
 	countBytes := make([]byte, 8)
@@ -20,7 +20,7 @@ func (k Keeper) SetPairCount(ctx sdk.Context, contractAddr string, count uint64)
 
 func (k Keeper) GetPairCount(ctx sdk.Context, contractAddr string) uint64 {
 	store := prefix.NewStore(
-		ctx.KVStore(k.StoreKey),
+		ctx.KVStore(k.storeKey),
 		types.RegisteredPairCountPrefix(),
 	)
 	cnt := store.Get(types.KeyPrefix(contractAddr))
@@ -38,7 +38,7 @@ func (k Keeper) AddRegisteredPair(ctx sdk.Context, contractAddr string, pair typ
 		}
 	}
 	oldPairCnt := k.GetPairCount(ctx, contractAddr)
-	store := prefix.NewStore(ctx.KVStore(k.StoreKey), types.RegisteredPairPrefix(contractAddr))
+	store := prefix.NewStore(ctx.KVStore(k.storeKey), types.RegisteredPairPrefix(contractAddr))
 	keyBytes := make([]byte, 8)
 	binary.BigEndian.PutUint64(keyBytes, oldPairCnt)
 	store.Set(keyBytes, k.Cdc.MustMarshal(&pair))
@@ -48,7 +48,7 @@ func (k Keeper) AddRegisteredPair(ctx sdk.Context, contractAddr string, pair typ
 }
 
 func (k Keeper) GetAllRegisteredPairs(ctx sdk.Context, contractAddr string) []types.Pair {
-	store := prefix.NewStore(ctx.KVStore(k.StoreKey), types.RegisteredPairPrefix(contractAddr))
+	store := prefix.NewStore(ctx.KVStore(k.storeKey), types.RegisteredPairPrefix(contractAddr))
 	iterator := sdk.KVStorePrefixIterator(store, []byte{})
 
 	list := []types.Pair{}

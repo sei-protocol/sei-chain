@@ -6,7 +6,7 @@ import (
 )
 
 func (k Keeper) SetAssetMetadata(ctx sdk.Context, assetMetadata types.AssetMetadata) {
-	store := ctx.KVStore(k.StoreKey)
+	store := ctx.KVStore(k.storeKey)
 	// We only allow one asset per base denom for now
 	// Even if asset exists already, overwrite the store with new metadata
 	b := k.Cdc.MustMarshal(&assetMetadata)
@@ -15,7 +15,7 @@ func (k Keeper) SetAssetMetadata(ctx sdk.Context, assetMetadata types.AssetMetad
 }
 
 func (k Keeper) GetAssetMetadataByDenom(ctx sdk.Context, assetDenom string) (val types.AssetMetadata, found bool) {
-	store := ctx.KVStore(k.StoreKey)
+	store := ctx.KVStore(k.storeKey)
 	b := store.Get(types.AssetListPrefix(assetDenom))
 	if b == nil {
 		return types.AssetMetadata{}, false
@@ -26,7 +26,7 @@ func (k Keeper) GetAssetMetadataByDenom(ctx sdk.Context, assetDenom string) (val
 }
 
 func (k Keeper) GetAllAssetMetadata(ctx sdk.Context) []types.AssetMetadata {
-	store := ctx.KVStore(k.StoreKey)
+	store := ctx.KVStore(k.storeKey)
 	iterator := sdk.KVStorePrefixIterator(store, types.KeyPrefix(types.AssetListKey))
 
 	list := []types.AssetMetadata{}

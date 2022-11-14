@@ -10,13 +10,13 @@ import (
 )
 
 func (k Keeper) SetPriceState(ctx sdk.Context, price types.Price, contractAddr string) {
-	store := prefix.NewStore(ctx.KVStore(k.StoreKey), types.PricePrefix(contractAddr, price.Pair.PriceDenom, price.Pair.AssetDenom))
+	store := prefix.NewStore(ctx.KVStore(k.storeKey), types.PricePrefix(contractAddr, price.Pair.PriceDenom, price.Pair.AssetDenom))
 	b := k.Cdc.MustMarshal(&price)
 	store.Set(GetKeyForTs(price.SnapshotTimestampInSeconds), b)
 }
 
 func (k Keeper) DeletePriceStateBefore(ctx sdk.Context, contractAddr string, timestamp uint64, pair types.Pair) {
-	store := prefix.NewStore(ctx.KVStore(k.StoreKey), types.PricePrefix(contractAddr, pair.PriceDenom, pair.AssetDenom))
+	store := prefix.NewStore(ctx.KVStore(k.storeKey), types.PricePrefix(contractAddr, pair.PriceDenom, pair.AssetDenom))
 	iterator := sdk.KVStorePrefixIterator(store, []byte{})
 	defer iterator.Close()
 
@@ -34,7 +34,7 @@ func (k Keeper) DeletePriceStateBefore(ctx sdk.Context, contractAddr string, tim
 }
 
 func (k Keeper) GetPriceState(ctx sdk.Context, contractAddr string, timestamp uint64, pair types.Pair) (types.Price, bool) {
-	store := prefix.NewStore(ctx.KVStore(k.StoreKey), types.PricePrefix(contractAddr, pair.PriceDenom, pair.AssetDenom))
+	store := prefix.NewStore(ctx.KVStore(k.storeKey), types.PricePrefix(contractAddr, pair.PriceDenom, pair.AssetDenom))
 	res := types.Price{}
 	key := GetKeyForTs(timestamp)
 	if !store.Has(key) {
@@ -47,7 +47,7 @@ func (k Keeper) GetPriceState(ctx sdk.Context, contractAddr string, timestamp ui
 }
 
 func (k Keeper) GetAllPrices(ctx sdk.Context, contractAddr string, pair types.Pair) (list []*types.Price) {
-	store := prefix.NewStore(ctx.KVStore(k.StoreKey), types.PricePrefix(contractAddr, pair.PriceDenom, pair.AssetDenom))
+	store := prefix.NewStore(ctx.KVStore(k.storeKey), types.PricePrefix(contractAddr, pair.PriceDenom, pair.AssetDenom))
 	iterator := sdk.KVStorePrefixIterator(store, []byte{})
 
 	defer iterator.Close()

@@ -10,7 +10,7 @@ const MatchResultKey = "match-result"
 
 func (k Keeper) SetMatchResult(ctx sdk.Context, contractAddr string, result *types.MatchResult) {
 	store := prefix.NewStore(
-		ctx.KVStore(k.StoreKey),
+		ctx.KVStore(k.storeKey),
 		types.MatchResultPrefix(contractAddr),
 	)
 	height := ctx.BlockHeight()
@@ -25,7 +25,7 @@ func (k Keeper) SetMatchResult(ctx sdk.Context, contractAddr string, result *typ
 
 func (k Keeper) GetMatchResultState(ctx sdk.Context, contractAddr string) (*types.MatchResult, bool) {
 	store := prefix.NewStore(
-		ctx.KVStore(k.StoreKey),
+		ctx.KVStore(k.storeKey),
 		types.MatchResultPrefix(contractAddr),
 	)
 	bz := store.Get([]byte(MatchResultKey))

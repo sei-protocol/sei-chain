@@ -10,7 +10,7 @@ import (
 // SetLongBook set a specific longBook in the store
 func (k Keeper) SetLongBook(ctx sdk.Context, contractAddr string, longBook types.LongBook) {
 	store := prefix.NewStore(
-		ctx.KVStore(k.StoreKey),
+		ctx.KVStore(k.storeKey),
 		types.OrderBookPrefix(
 			true, contractAddr, longBook.Entry.PriceDenom, longBook.Entry.AssetDenom,
 		),
@@ -21,7 +21,7 @@ func (k Keeper) SetLongBook(ctx sdk.Context, contractAddr string, longBook types
 
 func (k Keeper) GetLongBookByPrice(ctx sdk.Context, contractAddr string, price sdk.Dec, priceDenom string, assetDenom string) (val types.LongBook, found bool) {
 	store := prefix.NewStore(
-		ctx.KVStore(k.StoreKey),
+		ctx.KVStore(k.storeKey),
 		types.OrderBookPrefix(
 			true, contractAddr, priceDenom, assetDenom,
 		),
@@ -36,7 +36,7 @@ func (k Keeper) GetLongBookByPrice(ctx sdk.Context, contractAddr string, price s
 
 func (k Keeper) RemoveLongBookByPrice(ctx sdk.Context, contractAddr string, price sdk.Dec, priceDenom string, assetDenom string) {
 	store := prefix.NewStore(
-		ctx.KVStore(k.StoreKey),
+		ctx.KVStore(k.storeKey),
 		types.OrderBookPrefix(
 			true, contractAddr, priceDenom, assetDenom,
 		),
@@ -46,7 +46,7 @@ func (k Keeper) RemoveLongBookByPrice(ctx sdk.Context, contractAddr string, pric
 
 // GetAllLongBook returns all longBook
 func (k Keeper) GetAllLongBook(ctx sdk.Context, contractAddr string) (list []types.LongBook) {
-	store := prefix.NewStore(ctx.KVStore(k.StoreKey), types.ContractKeyPrefix(types.LongBookKey, contractAddr))
+	store := prefix.NewStore(ctx.KVStore(k.storeKey), types.ContractKeyPrefix(types.LongBookKey, contractAddr))
 	iterator := sdk.KVStorePrefixIterator(store, []byte{})
 
 	defer iterator.Close()
@@ -61,7 +61,7 @@ func (k Keeper) GetAllLongBook(ctx sdk.Context, contractAddr string) (list []typ
 }
 
 func (k Keeper) GetAllLongBookForPair(ctx sdk.Context, contractAddr string, priceDenom string, assetDenom string) (list []types.OrderBookEntry) {
-	store := prefix.NewStore(ctx.KVStore(k.StoreKey), types.OrderBookPrefix(true, contractAddr, priceDenom, assetDenom))
+	store := prefix.NewStore(ctx.KVStore(k.storeKey), types.OrderBookPrefix(true, contractAddr, priceDenom, assetDenom))
 	iterator := sdk.KVStorePrefixIterator(store, []byte{})
 
 	defer iterator.Close()
@@ -76,7 +76,7 @@ func (k Keeper) GetAllLongBookForPair(ctx sdk.Context, contractAddr string, pric
 }
 
 func (k Keeper) GetAllLongBookForPairPaginated(ctx sdk.Context, contractAddr string, priceDenom string, assetDenom string, page *query.PageRequest) (list []types.LongBook, pageRes *query.PageResponse, err error) {
-	store := prefix.NewStore(ctx.KVStore(k.StoreKey), types.OrderBookPrefix(true, contractAddr, priceDenom, assetDenom))
+	store := prefix.NewStore(ctx.KVStore(k.storeKey), types.OrderBookPrefix(true, contractAddr, priceDenom, assetDenom))
 
 	pageRes, err = query.Paginate(store, page, func(key []byte, value []byte) error {
 		var longBook types.LongBook
