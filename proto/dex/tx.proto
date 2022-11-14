@@ -111,7 +111,7 @@ message MsgUpdateTickSize {
   string creator = 1 [
     (gogoproto.jsontag) = "creator"
   ];
-  repeated TickSize tickSizeList = 3 [
+  repeated TickSize tickSizeList = 2 [
         (gogoproto.moretags) = "yaml:\"tick_size_list\"",
         (gogoproto.nullable) = false,
         (gogoproto.jsontag) = "tick_size_list"
