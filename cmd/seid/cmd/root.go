@@ -335,10 +335,14 @@ func initAppConfig() (string, interface{}) {
 	srvCfg.MinGasPrices = "0.01usei,0.001ibc/6D45A5CD1AADE4B527E459025AC1A5AEF41AE99091EF3069F3FEAACAFCECCD21"
 	srvCfg.API.Enable = true
 
+	// Enable for frontend
 	// TODO: remove before mainnet launch
 	srvCfg.API.EnableUnsafeCORS = true
 	srvCfg.GRPCWeb.EnableUnsafeCORS = true
 
+	// Metrics
+	srvCfg.Telemetry.Enabled = true
+	srvCfg.Telemetry.PrometheusRetentionTime = 60
 	customAppConfig := CustomAppConfig{
 		Config: *srvCfg,
 		WASM: WASMConfig{
