@@ -47,10 +47,8 @@ var upgradesList = []string{
 	"1.2.1beta",
 	// 1.2.2beta
 	"1.2.2beta",
-	// 1.2.3beta
-	"1.2.3beta",
-	// 1.2.4beta
-	"1.2.4beta",
+	// 1.2.2beta-postfix
+	"1.2.2beta-postfix",
 }
 
 func (app App) RegisterUpgradeHandlers() {
