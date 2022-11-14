@@ -1,9 +1,10 @@
 package datastructures
 
 import (
-	"golang.org/x/exp/constraints"
 	"sort"
 	"sync"
+
+	"golang.org/x/exp/constraints"
 )
 
 // A map-like data structure that is guaranteed to be data race free during write
