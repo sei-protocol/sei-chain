@@ -72,16 +72,16 @@ echo "Registering..."
 valaddr=$(printf "12345678\n" | $seidbin keys show $(printf "12345678\n" | $seidbin keys show node_admin --output json | jq -r .address) --bech=val --output json | jq -r '.address')
 printf "12345678\n" | $seidbin tx staking delegate $valaddr 1000000000usei --from=$keyname --chain-id=$chainid -b block -y --fees 2000usei
 
-printf "12345678\n" | $seidbin tx dex register-contract $marsaddr $marsid false true 1000000 -y --from=$keyname --chain-id=$chainid --fees=10000000usei --gas=500000 --broadcast-mode=block
-printf "12345678\n" | $seidbin tx dex register-contract $saturnaddr $saturnid false true 1000000 -y --from=$keyname --chain-id=$chainid --fees=10000000usei --gas=500000 --broadcast-mode=block
-printf "12345678\n" | $seidbin tx dex register-contract $venusaddr $venusid false true 1000000 -y --from=$keyname --chain-id=$chainid --fees=10000000usei --gas=500000 --broadcast-mode=block
-printf "12345678\n" | $seidbin tx dex register-contract $marsaddr2 $marsid false true 1000000 -y --from=$keyname --chain-id=$chainid --fees=10000000usei --gas=500000 --broadcast-mode=block
-printf "12345678\n" | $seidbin tx dex register-contract $saturnaddr2 $saturnid false true 1000000 -y --from=$keyname --chain-id=$chainid --fees=10000000usei --gas=500000 --broadcast-mode=block
-printf "12345678\n" | $seidbin tx dex register-contract $venusaddr2 $venusid false true 1000000 -y --from=$keyname --chain-id=$chainid --fees=10000000usei --gas=500000 --broadcast-mode=block
-printf "12345678\n" | $seidbin tx dex register-contract $marsaddr3 $marsid false true 1000000 -y --from=$keyname --chain-id=$chainid --fees=10000000usei --gas=500000 --broadcast-mode=block
-printf "12345678\n" | $seidbin tx dex register-contract $saturnaddr3 $saturnid false true 1000000 -y --from=$keyname --chain-id=$chainid --fees=10000000usei --gas=500000 --broadcast-mode=block
-printf "12345678\n" | $seidbin tx dex register-contract $venusaddr3 $venusid false true 1000000 -y --from=$keyname --chain-id=$chainid --fees=10000000usei --gas=500000 --broadcast-mode=block
-printf "12345678\n" | $seidbin tx dex register-contract $marsaddr4 $marsid false true 1000000 -y --from=$keyname --chain-id=$chainid --fees=10000000usei --gas=500000 --broadcast-mode=block
+printf "12345678\n" | $seidbin tx dex register-contract $marsaddr $marsid false true 1000000000 -y --from=$keyname --chain-id=$chainid --fees=10000000usei --gas=500000 --broadcast-mode=block
+printf "12345678\n" | $seidbin tx dex register-contract $saturnaddr $saturnid false true 1000000000 -y --from=$keyname --chain-id=$chainid --fees=10000000usei --gas=500000 --broadcast-mode=block
+printf "12345678\n" | $seidbin tx dex register-contract $venusaddr $venusid false true 1000000000 -y --from=$keyname --chain-id=$chainid --fees=10000000usei --gas=500000 --broadcast-mode=block
+printf "12345678\n" | $seidbin tx dex register-contract $marsaddr2 $marsid false true 1000000000 -y --from=$keyname --chain-id=$chainid --fees=10000000usei --gas=500000 --broadcast-mode=block
+printf "12345678\n" | $seidbin tx dex register-contract $saturnaddr2 $saturnid false true 1000000000 -y --from=$keyname --chain-id=$chainid --fees=10000000usei --gas=500000 --broadcast-mode=block
+printf "12345678\n" | $seidbin tx dex register-contract $venusaddr2 $venusid false true 1000000000 -y --from=$keyname --chain-id=$chainid --fees=10000000usei --gas=500000 --broadcast-mode=block
+printf "12345678\n" | $seidbin tx dex register-contract $marsaddr3 $marsid false true 1000000000 -y --from=$keyname --chain-id=$chainid --fees=10000000usei --gas=500000 --broadcast-mode=block
+printf "12345678\n" | $seidbin tx dex register-contract $saturnaddr3 $saturnid false true 1000000000 -y --from=$keyname --chain-id=$chainid --fees=10000000usei --gas=500000 --broadcast-mode=block
+printf "12345678\n" | $seidbin tx dex register-contract $venusaddr3 $venusid false true 1000000000 -y --from=$keyname --chain-id=$chainid --fees=10000000usei --gas=500000 --broadcast-mode=block
+printf "12345678\n" | $seidbin tx dex register-contract $marsaddr4 $marsid false true 1000000000 -y --from=$keyname --chain-id=$chainid --fees=10000000usei --gas=500000 --broadcast-mode=block
 
 echo '{"batch_contract_pair":[{"contract_addr":"'$marsaddr'","pairs":[{"price_denom":"SEI","asset_denom":"ATOM","tick_size":"0.0000001"}]}]}' > mars.json
 marspair=$(printf "12345678\n" | $seidbin tx dex register-pairs mars.json -y --from=$keyname --chain-id=$chainid --fees=10000000usei --gas=500000 --broadcast-mode=block --output=json)
