@@ -3,15 +3,21 @@ package types
 import (
 	fmt "fmt"
 
+	sdk "github.com/cosmos/cosmos-sdk/types"
 	paramtypes "github.com/cosmos/cosmos-sdk/x/params/types"
 	"gopkg.in/yaml.v2"
 )
 
-var KeyPriceSnapshotRetention = []byte("PriceSnapshotRetention") // number of epochs to retain price snapshots for
+var (
+	KeyPriceSnapshotRetention = []byte("PriceSnapshotRetention") // number of epochs to retain price snapshots for
+	KeySudoCallGasPrice       = []byte("KeySudoCallGasPrice")    // gas price for sudo calls from endblock
+)
 
 const (
 	DefaultPriceSnapshotRetention = 24 * 3600 // default to one day
 )
+
+var DefaultSudoCallGasPrice = sdk.NewDecWithPrec(1, 1) // 0.1
 
 var _ paramtypes.ParamSet = (*Params)(nil)
 
@@ -29,6 +35,7 @@ func NewParams() Params {
 func DefaultParams() Params {
 	return Params{
 		PriceSnapshotRetention: DefaultPriceSnapshotRetention,
+		SudoCallGasPrice:       DefaultSudoCallGasPrice,
 	}
 }
 
@@ -36,6 +43,7 @@ func DefaultParams() Params {
 func (p *Params) ParamSetPairs() paramtypes.ParamSetPairs {
 	return paramtypes.ParamSetPairs{
 		paramtypes.NewParamSetPair(KeyPriceSnapshotRetention, &p.PriceSnapshotRetention, validatePriceSnapshotRetention),
+		paramtypes.NewParamSetPair(KeySudoCallGasPrice, &p.SudoCallGasPrice, validateSudoCallGasPrice),
 	}
 }
 
@@ -60,5 +68,9 @@ func validatePriceSnapshotRetention(i interface{}) error {
 		return fmt.Errorf("price snapshot retention must be a positive integer: %d", v)
 	}
 
+	return nil
+}
+
+func validateSudoCallGasPrice(i interface{}) error {
 	return nil
 }

@@ -35,16 +35,18 @@ func getMsgType(msg interface{}) string {
 	}
 }
 
-func sudo(sdkCtx sdk.Context, k *keeper.Keeper, contractAddress []byte, wasmMsg []byte, msgType string) ([]byte, error) {
+func sudo(sdkCtx sdk.Context, k *keeper.Keeper, contractAddress []byte, wasmMsg []byte, msgType string) ([]byte, uint64, error) {
 	// Measure the time it takes to execute the contract in WASM
 	defer metrics.MeasureSudoExecutionDuration(time.Now(), msgType)
+	gasConsumedBefore := sdkCtx.GasMeter().GasConsumed()
 	data, err := k.WasmKeeper.Sudo(
 		sdkCtx, contractAddress, wasmMsg,
 	)
+	gasConsumedAfter := sdkCtx.GasMeter().GasConsumed()
 	if hasErrInstantiatingWasmModuleDueToCPUFeature(err) {
 		panic(utils.DecorateHardFailError(err))
 	}
-	return data, err
+	return data, gasConsumedAfter - gasConsumedBefore, err
 }
 
 func hasErrInstantiatingWasmModuleDueToCPUFeature(err error) bool {
@@ -66,8 +68,13 @@ func CallContractSudo(sdkCtx sdk.Context, k *keeper.Keeper, contractAddr string,
 		return []byte{}, err
 	}
 	msgType := getMsgType(msg)
-	data, err := sudo(sdkCtx, k, contractAddress, wasmMsg, msgType)
+	data, gasUsed, err := sudo(sdkCtx, k, contractAddress, wasmMsg, msgType)
 	if err != nil {
+		metrics.IncrementSudoFailCount(msgType)
+		sdkCtx.Logger().Error(err.Error())
+		return []byte{}, err
+	}
+	if err := k.ChargeRentForGas(sdkCtx, contractAddr, gasUsed); err != nil {
 		metrics.IncrementSudoFailCount(msgType)
 		sdkCtx.Logger().Error(err.Error())
 		return []byte{}, err
