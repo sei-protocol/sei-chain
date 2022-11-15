@@ -170,7 +170,7 @@ func writeTransactionToFile(directory string, tx []byte) (string, error) {
 	serialized += "|"
 	serialized += strings.Join(transactionData.Signatures, ",")
 	filepath := fmt.Sprintf("%s%s", directory, transactionData.Signature)
-	return filepath, os.WriteFile(filepath, []byte(serialized), 0644)
+	return filepath, os.WriteFile(filepath, []byte(serialized), 0600)
 }
 
 func writeAccountToFile(directory string, account *types.Account) (string, error) {
@@ -193,7 +193,7 @@ func writeAccountToFile(directory string, account *types.Account) (string, error
 	serialized += "|"
 	serialized += account.Data
 	filepath := fmt.Sprintf("%s%s", directory, account.Pubkey)
-	return filepath, os.WriteFile(filepath, []byte(serialized), 0644)
+	return filepath, os.WriteFile(filepath, []byte(serialized), 0600)
 }
 
 // input: \x1234 output: 1234
