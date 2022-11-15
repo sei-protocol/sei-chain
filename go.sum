@@ -1299,8 +1299,8 @@ github.com/securego/gosec/v2 v2.11.0/go.mod h1:SX8bptShuG8reGC0XS09+a4H2BoWSJi+f
 github.com/segmentio/fasthash v1.0.3/go.mod h1:waKX8l2N8yckOgmSsXJi7x1ZfdKZ4x7KRMzBtS3oedY=
 github.com/sei-protocol/sei-cosmos v0.1.268 h1:v1WlauXbjnILJf3y+N9YuEnM0xqN+LKnkQ97KGCkY7M=
 github.com/sei-protocol/sei-cosmos v0.1.268/go.mod h1:o4+r4xXqBLvskNeg5eCmFH+K1Rqd08UPMvnzWI+OxRo=
-github.com/sei-protocol/sei-tendermint v0.1.59 h1:POGL60PumMQHF4EzAHzvkGfDnodQJLHpl65LuiwSO/Y=
-github.com/sei-protocol/sei-tendermint v0.1.59/go.mod h1:Olwbjyagrpoxj5DAUhHxMTWDVEfQ3FYdpypaJ3+6Hs8=
+github.com/sei-protocol/sei-tendermint v0.1.83 h1:ReVM8UiYrknAO9qav1bJt7lR7t11BENERP5m8R337oc=
+github.com/sei-protocol/sei-tendermint v0.1.83/go.mod h1:Olwbjyagrpoxj5DAUhHxMTWDVEfQ3FYdpypaJ3+6Hs8=
 github.com/sergi/go-diff v1.1.0/go.mod h1:STckp+ISIX8hZLjrqAeVduY0gWCT9IjLuqbuNXdaHfM=
 github.com/shazow/go-diff v0.0.0-20160112020656-b6b7b6733b8c h1:W65qqJCIOVP4jpqPQ0YvHYKwcMEMVWIzWC5iNQQfBTU=
 github.com/shazow/go-diff v0.0.0-20160112020656-b6b7b6733b8c/go.mod h1:/PevMnwAxekIXwN8qQyfc5gl2NlkB3CQlkizAbOkeBs=
