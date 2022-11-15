@@ -5,9 +5,11 @@ import (
 	"sync"
 	"time"
 
+	"github.com/cosmos/cosmos-sdk/store/prefix"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 
 	"github.com/sei-protocol/sei-chain/utils/datastructures"
+	"github.com/sei-protocol/sei-chain/x/dex/types"
 	typesutils "github.com/sei-protocol/sei-chain/x/dex/types/utils"
 )
 
@@ -64,11 +66,7 @@ func (i *memStateItems[T]) Copy() *memStateItems[T] {
 }
 
 type MemState struct {
-	blockOrders *datastructures.TypedNestedSyncMap[
-		typesutils.ContractAddress,
-		typesutils.PairString,
-		*BlockOrders,
-	]
+	storeKey     sdk.StoreKey
 	blockCancels *datastructures.TypedNestedSyncMap[
 		typesutils.ContractAddress,
 		typesutils.PairString,
@@ -77,13 +75,9 @@ type MemState struct {
 	depositInfo *datastructures.TypedSyncMap[typesutils.ContractAddress, *DepositInfo]
 }
 
-func NewMemState() *MemState {
+func NewMemState(storeKey sdk.StoreKey) *MemState {
 	return &MemState{
-		blockOrders: datastructures.NewTypedNestedSyncMap[
-			typesutils.ContractAddress,
-			typesutils.PairString,
-			*BlockOrders,
-		](),
+		storeKey: storeKey,
 		blockCancels: datastructures.NewTypedNestedSyncMap[
 			typesutils.ContractAddress,
 			typesutils.PairString,
@@ -93,16 +87,38 @@ func NewMemState() *MemState {
 	}
 }
 
-func (s *MemState) GetAllBlockOrders(ctx sdk.Context, contractAddr typesutils.ContractAddress) *datastructures.TypedSyncMap[typesutils.PairString, *BlockOrders] {
+func (s *MemState) GetAllBlockOrders(ctx sdk.Context, contractAddr typesutils.ContractAddress) (list []*types.Order) {
 	s.SynchronizeAccess(ctx, contractAddr)
-	ordersMap, _ := s.blockOrders.LoadOrStore(contractAddr, datastructures.NewTypedSyncMap[typesutils.PairString, *BlockOrders]())
-	return ordersMap
+	store := prefix.NewStore(
+		ctx.KVStore(s.storeKey),
+		types.MemOrderPrefix(
+			string(contractAddr),
+		),
+	)
+	iterator := sdk.KVStorePrefixIterator(store, []byte{})
+
+	defer iterator.Close()
+
+	for ; iterator.Valid(); iterator.Next() {
+		var val types.Order
+		if err := val.Unmarshal(iterator.Value()); err != nil {
+			panic(err)
+		}
+		list = append(list, &val)
+	}
+	return
 }
 
 func (s *MemState) GetBlockOrders(ctx sdk.Context, contractAddr typesutils.ContractAddress, pair typesutils.PairString) *BlockOrders {
 	s.SynchronizeAccess(ctx, contractAddr)
-	ordersForPair, _ := s.blockOrders.LoadOrStoreNested(contractAddr, pair, NewOrders())
-	return ordersForPair
+	return NewOrders(
+		prefix.NewStore(
+			ctx.KVStore(s.storeKey),
+			types.MemOrderPrefixForPair(
+				string(contractAddr), string(pair),
+			),
+		),
+	)
 }
 
 func (s *MemState) GetBlockCancels(ctx sdk.Context, contractAddr typesutils.ContractAddress, pair typesutils.PairString) *BlockCancellations {
@@ -117,12 +133,8 @@ func (s *MemState) GetDepositInfo(ctx sdk.Context, contractAddr typesutils.Contr
 	return depositsForContract
 }
 
-func (s *MemState) Clear() {
-	s.blockOrders = datastructures.NewTypedNestedSyncMap[
-		typesutils.ContractAddress,
-		typesutils.PairString,
-		*BlockOrders,
-	]()
+func (s *MemState) Clear(ctx sdk.Context) {
+	s.DeepDeleteOrders(ctx, func(_ *types.Order) bool { return true })
 	s.blockCancels = datastructures.NewTypedNestedSyncMap[
 		typesutils.ContractAddress,
 		typesutils.PairString,
@@ -137,15 +149,39 @@ func (s *MemState) ClearCancellationForPair(ctx sdk.Context, contractAddr typesu
 }
 
 func (s *MemState) DeepCopy() *MemState {
-	copy := NewMemState()
-	copy.blockOrders = s.blockOrders.DeepCopy(func(o *BlockOrders) *BlockOrders { return o.Copy() })
+	copy := NewMemState(s.storeKey)
+	// reset so that blockOrders won't reference to the old store
 	copy.blockCancels = s.blockCancels.DeepCopy(func(o *BlockCancellations) *BlockCancellations { return o.Copy() })
 	copy.depositInfo = s.depositInfo.DeepCopy(func(o *DepositInfo) *DepositInfo { return o.Copy() })
 	return copy
 }
 
-func (s *MemState) DeepFilterAccount(account string) {
-	s.blockOrders.DeepApply(func(o *BlockOrders) { o.FilterByAccount(account) })
+func (s *MemState) DeepDeleteOrders(ctx sdk.Context, matcher func(*types.Order) bool) {
+	store := prefix.NewStore(
+		ctx.KVStore(s.storeKey),
+		types.KeyPrefix(types.MemOrderKey),
+	)
+	iterator := sdk.KVStorePrefixIterator(store, []byte{})
+
+	defer iterator.Close()
+
+	keysToDelete := [][]byte{}
+	for ; iterator.Valid(); iterator.Next() {
+		var val types.Order
+		if err := val.Unmarshal(iterator.Value()); err != nil {
+			panic(err)
+		}
+		if matcher(&val) {
+			keysToDelete = append(keysToDelete, iterator.Key())
+		}
+	}
+	for _, keyToDelete := range keysToDelete {
+		store.Delete(keyToDelete)
+	}
+}
+
+func (s *MemState) DeepFilterAccount(ctx sdk.Context, account string) {
+	s.DeepDeleteOrders(ctx, func(o *types.Order) bool { return o.Account == account })
 	s.blockCancels.DeepApply(func(o *BlockCancellations) { o.FilterByAccount(account) })
 	s.depositInfo.DeepApply(func(o *DepositInfo) { o.FilterByAccount(account) })
 }

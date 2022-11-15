@@ -277,7 +277,7 @@ func TestWasmGetOrderSimulation(t *testing.T) {
 	require.NoError(t, err)
 
 	testWrapper.Ctx = testWrapper.Ctx.WithBlockHeight(11).WithBlockTime(time.Unix(3600, 0))
-	testWrapper.Ctx = testWrapper.Ctx.WithContext(context.WithValue(testWrapper.Ctx.Context(), dexutils.DexMemStateContextKey, dexcache.NewMemState()))
+	testWrapper.Ctx = testWrapper.Ctx.WithContext(context.WithValue(testWrapper.Ctx.Context(), dexutils.DexMemStateContextKey, dexcache.NewMemState(testWrapper.App.GetKey(dextypes.StoreKey))))
 	testWrapper.App.DexKeeper.AddRegisteredPair(
 		testWrapper.Ctx,
 		app.TestContract,
@@ -290,7 +290,7 @@ func TestWasmGetOrderSimulation(t *testing.T) {
 	}, app.TestContract)
 	testWrapper.App.OracleKeeper.SetBaseExchangeRate(testWrapper.Ctx, oracleutils.MicroAtomDenom, sdk.NewDec(12))
 	testWrapper.Ctx = testWrapper.Ctx.WithBlockHeight(14).WithBlockTime(time.Unix(3700, 0))
-	testWrapper.Ctx = testWrapper.Ctx.WithContext(context.WithValue(testWrapper.Ctx.Context(), dexutils.DexMemStateContextKey, dexcache.NewMemState()))
+	testWrapper.Ctx = testWrapper.Ctx.WithContext(context.WithValue(testWrapper.Ctx.Context(), dexutils.DexMemStateContextKey, dexcache.NewMemState(testWrapper.App.GetKey(dextypes.StoreKey))))
 
 	res, err := customQuerier(testWrapper.Ctx, rawQuery)
 	require.NoError(t, err)
