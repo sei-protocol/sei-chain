@@ -19,12 +19,8 @@ func BroadcastTx(clientCtx client.Context, txf tx.Factory, msgs ...sdk.Msg) (*sd
 		return nil, err
 	}
 
-	// _, adjusted, err := tx.CalculateGas(clientCtx, txf, msgs...)
-	// if err != nil {
-	// 	return nil, err
-	// }
-
-	// txf = txf.WithGas(adjusted)
+	txf = txf.WithGas(0)
+	// txf = txf.WithFees("0usei")
 
 	unsignedTx, err := tx.BuildUnsignedTx(txf, msgs...)
 	if err != nil {
@@ -32,7 +28,7 @@ func BroadcastTx(clientCtx client.Context, txf tx.Factory, msgs ...sdk.Msg) (*sd
 	}
 
 	// unsignedTx.SetFeeGranter(clientCtx.GetFeeGranterAddress())
-	unsignedTx.SetFeeAmount(sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(0))))
+	// unsignedTx.SetFeeAmount(sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(0))))
 	// unsignedTx.SetFeePayer(clientCtx.GetFeePayerAddress())
 
 	if err = tx.Sign(txf, clientCtx.GetFromName(), unsignedTx, true); err != nil {

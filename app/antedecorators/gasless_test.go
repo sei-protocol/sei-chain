@@ -34,7 +34,9 @@ func (ad FakeAnteDecoratorThree) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate
 	return next(ctx, tx, simulate)
 }
 
-type FakeTx struct{}
+type FakeTx struct {
+	sdk.FeeTx
+}
 
 func (tx FakeTx) GetMsgs() []sdk.Msg {
 	return []sdk.Msg{}
@@ -44,14 +46,29 @@ func (tx FakeTx) ValidateBasic() error {
 	return nil
 }
 
+func (t FakeTx) GetGas() uint64 {
+	return 0
+}
+func (t FakeTx) GetFee() sdk.Coins {
+	return sdk.NewCoins(sdk.NewCoin("usei", sdk.ZeroInt()))
+}
+func (t FakeTx) FeePayer() sdk.AccAddress {
+	return nil
+}
+
+func (t FakeTx) FeeGranter() sdk.AccAddress {
+	return nil
+}
+
 func TestGaslessDecorator(t *testing.T) {
 	output = ""
 	anteDecorators := []sdk.AnteFullDecorator{
 		sdk.DefaultWrappedAnteDecorator(FakeAnteDecoratorOne{}),
-		sdk.DefaultWrappedAnteDecorator(antedecorators.NewGaslessDecorator([]sdk.AnteDecorator{FakeAnteDecoratorTwo{}}, oraclekeeper.Keeper{}, nitrokeeper.Keeper{})),
+		sdk.DefaultWrappedAnteDecorator(antedecorators.NewGaslessDecorator([]sdk.AnteFullDecorator{sdk.DefaultWrappedAnteDecorator(FakeAnteDecoratorTwo{})}, oraclekeeper.Keeper{}, nitrokeeper.Keeper{})),
 		sdk.DefaultWrappedAnteDecorator(FakeAnteDecoratorThree{}),
 	}
 	chainedHandler, _ := sdk.ChainAnteDecorators(anteDecorators...)
-	chainedHandler(sdk.Context{}, FakeTx{}, false)
+	_, err := chainedHandler(sdk.Context{}, FakeTx{}, false)
+	require.NoError(t, err)
 	require.Equal(t, "onetwothree", output)
 }
