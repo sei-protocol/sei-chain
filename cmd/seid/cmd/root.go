@@ -361,7 +361,6 @@ func initAppConfig() (string, interface{}) {
 	// Pruning configs
 	srvCfg.Pruning = "custom"
 	srvCfg.PruningKeepRecent = "2000" // Large enough to allow folks to state sync
-
 	// Randomly generate pruning interval. We want the following properties:
 	//   - random: if eveyrone has the same value, the block that everyone prunes will be slow
 	//   - prime: no overlap
@@ -369,6 +368,7 @@ func initAppConfig() (string, interface{}) {
 	rand.Seed(time.Now().Unix())
 	pruningInterval := primes[rand.Intn(len(primes))]
 	srvCfg.PruningInterval = fmt.Sprintf("%d", pruningInterval)
+
 	// Enable for frontend
 	// TODO: remove before mainnet launch
 	srvCfg.API.EnableUnsafeCORS = true
