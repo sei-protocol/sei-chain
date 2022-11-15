@@ -9,7 +9,6 @@ import "unsafe"
 
 type (
 	cusize = C.uintptr_t
-	cu8    = C.uint8_t
 )
 
 type (
