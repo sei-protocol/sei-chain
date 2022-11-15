@@ -33,10 +33,3 @@ func (k Keeper) DenomsFromCreator(ctx context.Context, req *types.QueryDenomsFro
 	denoms := k.getDenomsFromCreator(sdkCtx, req.GetCreator())
 	return &types.QueryDenomsFromCreatorResponse{Denoms: denoms}, nil
 }
-
-// Checks whether creator address is in create denom fee whitelist
-func (k Keeper) CreatorInDenomFeeWhitelist(ctx context.Context, req *types.QueryCreatorInDenomFeeWhitelistRequest) (*types.QueryCreatorInDenomFeeWhitelistResponse, error) {
-	sdkCtx := sdk.UnwrapSDKContext(ctx)
-	b := k.IsCreatorInDenomFeeWhitelist(sdkCtx, req.Creator)
-	return &types.QueryCreatorInDenomFeeWhitelistResponse{Whitelisted: b}, nil
-}

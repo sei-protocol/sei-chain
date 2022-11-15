@@ -73,18 +73,6 @@ func (k Keeper) GetCreatorsPrefixStore(ctx sdk.Context) sdk.KVStore {
 	return prefix.NewStore(store, types.GetCreatorsPrefix())
 }
 
-// GetCreatorPrefixStore returns the substore for a specific whitelisted creator address
-func (k Keeper) GetCreatorDenomFeeWhitelistPrefixStore(ctx sdk.Context, creator string) sdk.KVStore {
-	store := ctx.KVStore(k.storeKey)
-	return prefix.NewStore(store, types.GetCreatorDenomFeeWhitelistPrefix(creator))
-}
-
-// GetCreatorsDenomFeePrefixStore returns the substore that contains a list of whitelisted creators
-func (k Keeper) GetCreatorsDenomFeePrefixStore(ctx sdk.Context) sdk.KVStore {
-	store := ctx.KVStore(k.storeKey)
-	return prefix.NewStore(store, types.GetCreateDenomFeeWhitelistPrefix())
-}
-
 // CreateModuleAccount creates a module account with minting and burning capabilities
 // This account isn't intended to store any coins,
 // it purely mints and burns them on behalf of the admin of respective denoms,

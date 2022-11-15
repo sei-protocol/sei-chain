@@ -1,11 +1,6 @@
 package types
 
 import (
-	"fmt"
-
-	appparams "github.com/sei-protocol/sei-chain/app/params"
-
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	paramtypes "github.com/cosmos/cosmos-sdk/x/params/types"
 )
 

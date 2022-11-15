@@ -31,8 +31,6 @@ func GetQueryCmd() *cobra.Command {
 		GetParams(),
 		GetCmdDenomAuthorityMetadata(),
 		GetCmdDenomsFromCreator(),
-		GetCmdCreateDenomFeeWhitelist(),
-		GetCmdIsCreatorInDenomFeeWhitelist(),
 	)
 
 	return cmd
