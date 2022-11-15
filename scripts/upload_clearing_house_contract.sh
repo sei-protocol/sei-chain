@@ -10,7 +10,7 @@ printf '00000000\n' | ./build/seid tx dex register-contract sei14hj2tavq8fpesdwx
 # register a pair
 printf '00000000\n' | ./build/seid tx dex register-pairs ./x/dex/example/register-pair-tx.json -y --from=alice --chain-id=sei --fees=10000000usei --gas=500000 --broadcast-mode=block
 sleep 5
-printf '00000000\n' | ./build/seid tx dex update-tick-size-proposal ./x/dex/example/update-tick-size-proposal.json -y --from=alice --chain-id=sei --fees=10000000usei --gas=500000 --broadcast-mode=block
+printf '00000000\n' | ./build/seid tx dex update-tick-size ./x/dex/example/update-tick-size-tx.json -y --from=alice --chain-id=sei --fees=10000000usei --gas=500000 --broadcast-mode=block
 printf '00000000\n' | ./build/seid tx gov deposit 2 10000000usei -y --from=alice --chain-id=sei --fees=10000000usei --gas=500000 --broadcast-mode=block
 printf '00000000\n' | ./build/seid tx gov vote 2 yes -y --from=alice --chain-id=sei --fees=10000000usei --gas=500000 --broadcast-mode=block
 # order: (position_direction, price, quantity, price_denom, asset_denom, position_effect(open/close), order_type(limit, market,..), leverage) 

@@ -1,6 +1,4 @@
 {
-    "title": "Update tick size for sei/atom to 1.5",
-    "description": "gov proposal to update contract 1",
     "tick_size_list": [
           {
             "pair": {
@@ -10,6 +8,5 @@
             "tick_size": "1.5",
             "contract_addr": "sei14hj2tavq8fpesdwxxcu44rty3hh90vhujrvcmstl4zr3txmfvw9sh9m79m"
           }
-    ],
-    "deposit": "500000usei"
+    ]
 }
