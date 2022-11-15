@@ -13,8 +13,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func testAccount() types.Account {
-	return types.Account{
+func testAccount() *types.Account {
+	return &types.Account{
 		Pubkey:     "pubkey",
 		Owner:      "owner",
 		Data:       "data",
@@ -62,7 +62,7 @@ func TestReplay(t *testing.T) {
 	ctx := sdk.Context{}.WithBlockHeight(1)
 	tx := testTransaction()
 	txbz, _ := tx.Marshal()
-	_, err := Replay(ctx, [][]byte{txbz}, []types.Account{}, []types.Account{testAccount()}, []types.Account{})
+	_, err := Replay(ctx, [][]byte{txbz}, []*types.Account{}, []*types.Account{testAccount()}, []*types.Account{})
 	require.Nil(t, err)
 }
 
