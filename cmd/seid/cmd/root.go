@@ -362,7 +362,7 @@ func initAppConfig() (string, interface{}) {
 	srvCfg.Pruning = "custom"
 	srvCfg.PruningKeepRecent = "2000"
 	// Randomly generate pruning interval. We want the following properties:
-	//   - random: if eveyrone has the same value, the block that everyone prunes will be slow
+	//   - random: if everyone has the same value, the block that everyone prunes will be slow
 	//   - prime: no overlap
 	primes := getPrimeNums(2500, 4000)
 	rand.Seed(time.Now().Unix())
