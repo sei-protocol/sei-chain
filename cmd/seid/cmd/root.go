@@ -360,7 +360,7 @@ func initAppConfig() (string, interface{}) {
 
 	// Pruning configs
 	srvCfg.Pruning = "custom"
-	srvCfg.PruningKeepRecent = "2000" // Large enough to allow folks to state sync
+	srvCfg.PruningKeepRecent = "2000"
 	// Randomly generate pruning interval. We want the following properties:
 	//   - random: if eveyrone has the same value, the block that everyone prunes will be slow
 	//   - prime: no overlap
