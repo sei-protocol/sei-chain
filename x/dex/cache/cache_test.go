@@ -69,7 +69,7 @@ func TestDeepFilterAccounts(t *testing.T) {
 	})
 
 	stateOne.DeepFilterAccount(ctx, "test")
-	require.Equal(t, 2, len(stateOne.GetAllBlockOrders(ctx, utils.ContractAddress(TEST_CONTRACT))))
+	require.Equal(t, 1, len(stateOne.GetAllBlockOrders(ctx, utils.ContractAddress(TEST_CONTRACT))))
 	require.Equal(t, 1, len(stateOne.GetBlockCancels(ctx, utils.ContractAddress(TEST_CONTRACT), utils.PairString(TEST_PAIR)).Get()))
 	require.Equal(t, 1, len(stateOne.GetDepositInfo(ctx, utils.ContractAddress(TEST_CONTRACT)).Get()))
 }
