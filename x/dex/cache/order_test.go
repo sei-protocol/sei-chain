@@ -3,7 +3,9 @@ package dex_test
 import (
 	"testing"
 
+	"github.com/cosmos/cosmos-sdk/store/prefix"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	keepertest "github.com/sei-protocol/sei-chain/testutil/keeper"
 	dex "github.com/sei-protocol/sei-chain/x/dex/cache"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
 	"github.com/sei-protocol/sei-chain/x/dex/types/utils"
@@ -12,7 +14,13 @@ import (
 )
 
 func TestOrderFilterByAccount(t *testing.T) {
-	orders := dex.NewOrders()
+	keeper, ctx := keepertest.DexKeeper(t)
+	orders := dex.NewOrders(
+		prefix.NewStore(
+			ctx.KVStore(keeper.GetStoreKey()),
+			[]byte("some prefix"),
+		),
+	)
 	order := types.Order{
 		Id:      1,
 		Account: "abc",
@@ -23,8 +31,8 @@ func TestOrderFilterByAccount(t *testing.T) {
 }
 
 func TestMarkFailedToPlace(t *testing.T) {
-	ctx := sdk.Context{}
-	stateOne := dex.NewMemState()
+	keeper, ctx := keepertest.DexKeeper(t)
+	stateOne := dex.NewMemState(keeper.GetStoreKey())
 	stateOne.GetBlockOrders(ctx, utils.ContractAddress(TEST_CONTRACT), utils.PairString(TEST_PAIR)).Add(&types.Order{
 		Id:           1,
 		Account:      "test",
@@ -42,8 +50,8 @@ func TestMarkFailedToPlace(t *testing.T) {
 }
 
 func TestGetSortedMarketOrders(t *testing.T) {
-	ctx := sdk.Context{}
-	stateOne := dex.NewMemState()
+	keeper, ctx := keepertest.DexKeeper(t)
+	stateOne := dex.NewMemState(keeper.GetStoreKey())
 	stateOne.GetBlockOrders(ctx, utils.ContractAddress(TEST_CONTRACT), utils.PairString(TEST_PAIR)).Add(&types.Order{
 		Id:                1,
 		Account:           "test",
@@ -141,8 +149,8 @@ func TestGetSortedMarketOrders(t *testing.T) {
 }
 
 func TestGetTriggeredOrders(t *testing.T) {
-	ctx := sdk.Context{}
-	stateOne := dex.NewMemState()
+	keeper, ctx := keepertest.DexKeeper(t)
+	stateOne := dex.NewMemState(keeper.GetStoreKey())
 	stateOne.GetBlockOrders(ctx, utils.ContractAddress(TEST_CONTRACT), utils.PairString(TEST_PAIR)).Add(&types.Order{
 		Id:                1,
 		Account:           "test",

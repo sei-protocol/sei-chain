@@ -146,7 +146,7 @@ func (suite *KeeperTestSuite) TestMsgPlaceOrder() {
 	}
 	for _, tc := range tests {
 		suite.Run(fmt.Sprintf("Test Case: %s", tc.name), func() {
-			goCtx := context.WithValue(suite.Ctx.Context(), dexutils.DexMemStateContextKey, dexcache.NewMemState())
+			goCtx := context.WithValue(suite.Ctx.Context(), dexutils.DexMemStateContextKey, dexcache.NewMemState(suite.App.GetKey(dextypes.StoreKey)))
 			suite.Ctx = suite.Ctx.WithContext(goCtx)
 
 			handlerCtx, cms := aclutils.CacheTxContext(suite.Ctx)
@@ -202,7 +202,7 @@ func (suite *KeeperTestSuite) TestMsgCancelOrder() {
 	}
 	for _, tc := range tests {
 		suite.Run(fmt.Sprintf("Test Case: %s", tc.name), func() {
-			goCtx := context.WithValue(suite.Ctx.Context(), dexutils.DexMemStateContextKey, dexcache.NewMemState())
+			goCtx := context.WithValue(suite.Ctx.Context(), dexutils.DexMemStateContextKey, dexcache.NewMemState(suite.App.GetKey(dextypes.StoreKey)))
 			suite.Ctx = suite.Ctx.WithContext(goCtx)
 
 			_, err := suite.msgServer.PlaceOrders(

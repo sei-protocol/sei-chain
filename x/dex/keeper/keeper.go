@@ -46,7 +46,7 @@ func NewPlainKeeper(
 		storeKey:   storeKey,
 		memKey:     memKey,
 		Paramstore: ps,
-		MemState:   dexcache.NewMemState(),
+		MemState:   dexcache.NewMemState(storeKey),
 	}
 }
 
@@ -71,7 +71,7 @@ func NewKeeper(
 		EpochKeeper:   epochKeeper,
 		BankKeeper:    bankKeeper,
 		AccountKeeper: accountKeeper,
-		MemState:      dexcache.NewMemState(),
+		MemState:      dexcache.NewMemState(storeKey),
 	}
 }
 

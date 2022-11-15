@@ -21,6 +21,7 @@ var DexWhitelistedKeys = []string{
 	types.NextOrderIDKey,
 	types.MatchResultKey,
 	keeper.ContractPrefixKey,
+	types.MemOrderKey,
 }
 
 var WasmWhitelistedKeys = []string{

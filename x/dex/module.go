@@ -224,7 +224,7 @@ func (am AppModule) BeginBlock(ctx sdk.Context, _ abci.RequestBeginBlock) {
 	}()
 	defer utils.PanicHandler(func(err any) { utils.MetricsPanicCallback(err, ctx, types.ModuleName) })()
 
-	dexutils.GetMemState(ctx.Context()).Clear()
+	dexutils.GetMemState(ctx.Context()).Clear(ctx)
 	isNewEpoch, currentEpoch := am.keeper.IsNewEpoch(ctx)
 	if isNewEpoch {
 		am.keeper.SetEpoch(ctx, currentEpoch)
@@ -261,6 +261,7 @@ func (am AppModule) beginBlockForContract(ctx sdk.Context, contract types.Contra
 func (am AppModule) EndBlock(ctx sdk.Context, _ abci.RequestEndBlock) (ret []abci.ValidatorUpdate) {
 	_, span := (*am.tracingInfo.Tracer).Start(am.tracingInfo.TracerContext, "DexEndBlock")
 	defer span.End()
+	defer dexutils.GetMemState(ctx.Context()).Clear(ctx)
 	// TODO (codchen): Revert https://github.com/sei-protocol/sei-chain/pull/176/files before mainnet so we don't silently fail on errors
 	defer utils.PanicHandler(func(err any) {
 		_, span := (*am.tracingInfo.Tracer).Start(am.tracingInfo.TracerContext, "DexEndBlockRollback")
