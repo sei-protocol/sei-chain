@@ -1,34 +1,46 @@
-package dex
+package keeper
 
 import (
 	"sort"
 
+	"github.com/cosmos/cosmos-sdk/store/prefix"
+	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/sei-protocol/sei-chain/utils"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
 	"github.com/sei-protocol/sei-chain/x/dex/types/wasm"
 )
 
+func (k Keeper) AddOrder(ctx sdk.Context, contractAddr string, order *types.Order) {
+	store := prefix.NewStore(
+		ctx.KVStore(k.storeKey),
+		types.LimitBookPrefix(
+			contractAddr, order.PriceDenom, order.AssetDenom,
+		),
+	)
+	key := GetKeyForPrice(order.Price)
+	val := types.BlockOrders{}
+
+	if store.Has(key) {
+		b := store.Get(key)
+		k.Cdc.MustUnmarshal(b, &val)
+	}
+	val.Orders = append(val.Orders, order)
+
+	b := k.Cdc.MustMarshal(&val)
+	store.Set(key, b)
+}
+
 type BlockOrders struct {
-	memStateItems[*types.Order]
-}
-
-func NewOrders() *BlockOrders {
-	return &BlockOrders{memStateItems: NewItems(utils.PtrCopier[types.Order])}
-}
-
-func (o *BlockOrders) Copy() *BlockOrders {
-	return &BlockOrders{memStateItems: *o.memStateItems.Copy()}
+	blockOrder types.BlockOrders
 }
 
 func (o *BlockOrders) MarkFailedToPlace(failedOrders []wasm.UnsuccessfulOrder) {
-	o.mu.Lock()
-	defer o.mu.Unlock()
 	failedOrdersMap := map[uint64]wasm.UnsuccessfulOrder{}
 	for _, failedOrder := range failedOrders {
 		failedOrdersMap[failedOrder.ID] = failedOrder
 	}
 	newOrders := []*types.Order{}
-	for _, order := range o.internal {
+	for _, order := range o.blockOrder.Orders {
 		if failedOrder, ok := failedOrdersMap[order.Id]; ok {
 			order.Status = types.OrderStatus_FAILED_TO_PLACE
 			order.StatusDescription = failedOrder.Reason
@@ -39,9 +51,6 @@ func (o *BlockOrders) MarkFailedToPlace(failedOrders []wasm.UnsuccessfulOrder) {
 }
 
 func (o *BlockOrders) GetSortedMarketOrders(direction types.PositionDirection, includeLiquidationOrders bool) []*types.Order {
-	o.mu.Lock()
-	defer o.mu.Unlock()
-
 	res := o.getOrdersByCriteria(types.OrderType_MARKET, direction)
 	res = append(res, o.getOrdersByCriteria(types.OrderType_FOKMARKET, direction)...)
 	if includeLiquidationOrders {
@@ -68,14 +77,10 @@ func (o *BlockOrders) GetSortedMarketOrders(direction types.PositionDirection, i
 }
 
 func (o *BlockOrders) GetLimitOrders(direction types.PositionDirection) []*types.Order {
-	o.mu.Lock()
-	defer o.mu.Unlock()
 	return o.getOrdersByCriteria(types.OrderType_LIMIT, direction)
 }
 
 func (o *BlockOrders) GetTriggeredOrders() []*types.Order {
-	o.mu.Lock()
-	defer o.mu.Unlock()
 	return o.getOrdersByCriteriaMap(
 		map[types.OrderType]bool{
 			types.OrderType_STOPLOSS:  true,

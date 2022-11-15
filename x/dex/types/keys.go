@@ -34,6 +34,33 @@ func PairPrefix(priceDenom string, assetDenom string) []byte {
 	return append([]byte(priceDenom), append([]byte(PairSeparator), []byte(assetDenom)...)...)
 }
 
+func LimitBookPrefix(contractAddr string, priceDenom string, assetDenom string) []byte {
+	prefix := KeyPrefix(LimitBookKey)
+
+	return append(
+		append(prefix, KeyPrefix(contractAddr)...),
+		PairPrefix(priceDenom, assetDenom)...,
+	)
+}
+
+func MarketBookPrefix(contractAddr string, priceDenom string, assetDenom string) []byte {
+	prefix := KeyPrefix(MarketBookKey)
+
+	return append(
+		append(prefix, KeyPrefix(contractAddr)...),
+		PairPrefix(priceDenom, assetDenom)...,
+	)
+}
+
+func CancelBookPrefix(contractAddr string, priceDenom string, assetDenom string) []byte {
+	prefix := KeyPrefix(CancelBookKey)
+
+	return append(
+		append(prefix, KeyPrefix(contractAddr)...),
+		PairPrefix(priceDenom, assetDenom)...,
+	)
+}
+
 func OrderBookPrefix(long bool, contractAddr string, priceDenom string, assetDenom string) []byte {
 	var prefix []byte
 	if long {
@@ -87,10 +114,6 @@ func RegisteredPairPrefix(contractAddr string) []byte {
 
 func TickSizeKeyPrefix(contractAddr string) []byte {
 	return append(KeyPrefix(TickSizeKey), KeyPrefix(contractAddr)...)
-}
-
-func OrderPrefix(contractAddr string) []byte {
-	return append(KeyPrefix(OrderKey), KeyPrefix(contractAddr)...)
 }
 
 func Cancel(contractAddr string) []byte {
@@ -147,7 +170,10 @@ const (
 
 	ShortBookKey = "ShortBook-value-"
 
+	LimitBookKey   = "LimitBook-value-"
+	MarketBookKey  = "MarketBook-value-"
 	TriggerBookKey = "TriggerBook-value-"
+	CancelBookKey = "CancelBook-value-"
 
 	OrderKey               = "order"
 	AccountActiveOrdersKey = "account-active-orders"

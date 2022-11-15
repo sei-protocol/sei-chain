@@ -1,0 +1,18 @@
+syntax = "proto3";
+package seiprotocol.seichain.dex;
+
+option go_package = "github.com/sei-protocol/sei-chain/x/dex/types";
+import "dex/order.proto"; 
+import "gogoproto/gogo.proto";
+
+message BlockOrders {
+  repeated Order orders = 1 [
+    (gogoproto.jsontag) = "orders"
+  ]; 
+}
+
+message BlockCancels {
+  repeated Cancellation cancels = 1 [
+    (gogoproto.jsontag) = "cancels"
+  ]; 
+}
