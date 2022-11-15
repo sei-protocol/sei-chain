@@ -3,7 +3,6 @@ package dex_test
 import (
 	"testing"
 
-	"github.com/cosmos/cosmos-sdk/store/prefix"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	keepertest "github.com/sei-protocol/sei-chain/testutil/keeper"
 	dex "github.com/sei-protocol/sei-chain/x/dex/cache"
@@ -12,23 +11,6 @@ import (
 	"github.com/sei-protocol/sei-chain/x/dex/types/wasm"
 	"github.com/stretchr/testify/require"
 )
-
-func TestOrderFilterByAccount(t *testing.T) {
-	keeper, ctx := keepertest.DexKeeper(t)
-	orders := dex.NewOrders(
-		prefix.NewStore(
-			ctx.KVStore(keeper.GetStoreKey()),
-			[]byte("some prefix"),
-		),
-	)
-	order := types.Order{
-		Id:      1,
-		Account: "abc",
-	}
-	orders.Add(&order)
-	orders.FilterByAccount("abc")
-	require.Equal(t, 0, len(orders.Get()))
-}
 
 func TestMarkFailedToPlace(t *testing.T) {
 	keeper, ctx := keepertest.DexKeeper(t)

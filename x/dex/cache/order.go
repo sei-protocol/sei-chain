@@ -3,7 +3,6 @@ package dex
 import (
 	"encoding/binary"
 	"sort"
-	"sync"
 
 	"github.com/cosmos/cosmos-sdk/store/prefix"
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -13,18 +12,13 @@ import (
 
 type BlockOrders struct {
 	orderStore *prefix.Store
-
-	mu *sync.Mutex
 }
 
 func NewOrders(orderStore prefix.Store) *BlockOrders {
-	return &BlockOrders{orderStore: &orderStore, mu: &sync.Mutex{}}
+	return &BlockOrders{orderStore: &orderStore}
 }
 
 func (o *BlockOrders) Get() (list []*types.Order) {
-	o.mu.Lock()
-	defer o.mu.Unlock()
-
 	iterator := sdk.KVStorePrefixIterator(o.orderStore, []byte{})
 
 	defer iterator.Close()
@@ -41,9 +35,6 @@ func (o *BlockOrders) Get() (list []*types.Order) {
 }
 
 func (o *BlockOrders) MarkFailedToPlace(failedOrders []wasm.UnsuccessfulOrder) {
-	o.mu.Lock()
-	defer o.mu.Unlock()
-
 	failedOrdersMap := map[uint64]wasm.UnsuccessfulOrder{}
 	for _, failedOrder := range failedOrders {
 		failedOrdersMap[failedOrder.ID] = failedOrder
@@ -71,9 +62,6 @@ func (o *BlockOrders) MarkFailedToPlace(failedOrders []wasm.UnsuccessfulOrder) {
 }
 
 func (o *BlockOrders) GetSortedMarketOrders(direction types.PositionDirection, includeLiquidationOrders bool) []*types.Order {
-	o.mu.Lock()
-	defer o.mu.Unlock()
-
 	res := o.getOrdersByCriteria(types.OrderType_MARKET, direction)
 	res = append(res, o.getOrdersByCriteria(types.OrderType_FOKMARKET, direction)...)
 	if includeLiquidationOrders {
@@ -100,14 +88,10 @@ func (o *BlockOrders) GetSortedMarketOrders(direction types.PositionDirection, i
 }
 
 func (o *BlockOrders) GetLimitOrders(direction types.PositionDirection) []*types.Order {
-	o.mu.Lock()
-	defer o.mu.Unlock()
 	return o.getOrdersByCriteria(types.OrderType_LIMIT, direction)
 }
 
 func (o *BlockOrders) GetTriggeredOrders() []*types.Order {
-	o.mu.Lock()
-	defer o.mu.Unlock()
 	return o.getOrdersByCriteriaMap(
 		map[types.OrderType]bool{
 			types.OrderType_STOPLOSS:  true,
@@ -167,38 +151,11 @@ func (o *BlockOrders) getOrdersByCriteriaMap(orderType map[types.OrderType]bool,
 }
 
 func (o *BlockOrders) Add(newItem *types.Order) {
-	o.mu.Lock()
-	defer o.mu.Unlock()
-
 	keybz := make([]byte, 8)
 	binary.BigEndian.PutUint64(keybz, newItem.Id)
 	if valbz, err := newItem.Marshal(); err != nil {
 		panic(err)
 	} else {
 		o.orderStore.Set(keybz, valbz)
-	}
-}
-
-func (o *BlockOrders) FilterByAccount(account string) {
-	o.mu.Lock()
-	defer o.mu.Unlock()
-
-	iterator := sdk.KVStorePrefixIterator(o.orderStore, []byte{})
-
-	defer iterator.Close()
-
-	keysToDelete := [][]byte{}
-	for ; iterator.Valid(); iterator.Next() {
-		var val types.Order
-		if err := val.Unmarshal(iterator.Value()); err != nil {
-			panic(err)
-		}
-		if val.Account == account {
-			keysToDelete = append(keysToDelete, iterator.Key())
-		}
-	}
-
-	for _, keyToDelete := range keysToDelete {
-		o.orderStore.Delete(keyToDelete)
 	}
 }
