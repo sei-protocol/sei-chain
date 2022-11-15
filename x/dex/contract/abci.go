@@ -242,7 +242,7 @@ func filterNewValidContracts(ctx sdk.Context, env *environment) []types.Contract
 		}
 	}
 	for _, failedContractAddress := range env.failedContractAddresses.ToOrderedSlice(datastructures.StringComparator) {
-		dexutils.GetMemState(ctx.Context()).DeepFilterAccount(failedContractAddress)
+		dexutils.GetMemState(ctx.Context()).DeepFilterAccount(ctx, failedContractAddress)
 	}
 	return newValidContracts
 }

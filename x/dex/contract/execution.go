@@ -14,7 +14,6 @@ import (
 	"github.com/sei-protocol/sei-chain/store/whitelist/multi"
 	"github.com/sei-protocol/sei-chain/utils"
 	"github.com/sei-protocol/sei-chain/utils/datastructures"
-	dexcache "github.com/sei-protocol/sei-chain/x/dex/cache"
 	"github.com/sei-protocol/sei-chain/x/dex/exchange"
 	"github.com/sei-protocol/sei-chain/x/dex/keeper"
 	dexkeeperabci "github.com/sei-protocol/sei-chain/x/dex/keeper/abci"
@@ -274,9 +273,7 @@ func HandleExecutionForContract(
 	defer EmitSettlementMetrics(settlements)
 
 	// populate order placement results for FinalizeBlock hook
-	dexutils.GetMemState(sdkCtx.Context()).GetAllBlockOrders(sdkCtx, typedContractAddr).DeepApply(func(orders *dexcache.BlockOrders) {
-		dextypeswasm.PopulateOrderPlacementResults(contractAddr, orders.Get(), cancellations, orderResults)
-	})
+	dextypeswasm.PopulateOrderPlacementResults(contractAddr, dexutils.GetMemState(sdkCtx.Context()).GetAllBlockOrders(sdkCtx, typedContractAddr), cancellations, orderResults)
 	dextypeswasm.PopulateOrderExecutionResults(contractAddr, settlements, orderResults)
 
 	return orderResults, settlements, nil
