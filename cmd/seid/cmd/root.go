@@ -369,8 +369,6 @@ func initAppConfig() (string, interface{}) {
 	pruningInterval := primes[rand.Intn(len(primes))]
 	srvCfg.PruningInterval = fmt.Sprintf("%d", pruningInterval)
 
-	// Snapshot
-	srvCfg.StateSync.SnapshotInterval = 1000
 	// Enable for frontend
 	// TODO: remove before mainnet launch
 	srvCfg.API.EnableUnsafeCORS = true
