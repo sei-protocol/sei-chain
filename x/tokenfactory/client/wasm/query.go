@@ -15,13 +15,3 @@ func NewTokenFactoryWasmQueryHandler(keeper *tokenfactorykeeper.Keeper) *TokenFa
 		tokenfactoryKeeper: *keeper,
 	}
 }
-
-func (handler TokenFactoryWasmQueryHandler) GetDenomCreationFeeWhitelist(ctx sdk.Context) (*types.QueryDenomCreationFeeWhitelistResponse, error) {
-	c := sdk.WrapSDKContext(ctx)
-	return handler.tokenfactoryKeeper.DenomCreationFeeWhitelist(c, &types.QueryDenomCreationFeeWhitelistRequest{})
-}
-
-func (handler TokenFactoryWasmQueryHandler) GetCreatorInDenomFeeWhitelist(ctx sdk.Context, req *types.QueryCreatorInDenomFeeWhitelistRequest) (*types.QueryCreatorInDenomFeeWhitelistResponse, error) {
-	c := sdk.WrapSDKContext(ctx)
-	return handler.tokenfactoryKeeper.CreatorInDenomFeeWhitelist(c, req)
-}

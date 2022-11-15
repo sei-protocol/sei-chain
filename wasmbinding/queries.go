@@ -162,28 +162,6 @@ func (qp QueryPlugin) HandleTokenFactoryQuery(ctx sdk.Context, queryData json.Ra
 		return nil, tokenfactorytypes.ErrParsingSeiTokenFactoryQuery
 	}
 	switch {
-	case parsedQuery.CreatorInDenomFeeWhitelist != nil:
-		res, err := qp.tokenfactoryHandler.GetCreatorInDenomFeeWhitelist(ctx, parsedQuery.CreatorInDenomFeeWhitelist)
-		if err != nil {
-			return nil, err
-		}
-		bz, err := json.Marshal(res)
-		if err != nil {
-			return nil, tokenfactorytypes.ErrEncodingDenomFeeWhitelist
-		}
-
-		return bz, nil
-	case parsedQuery.GetDenomFeeWhitelist != nil:
-		res, err := qp.tokenfactoryHandler.GetDenomCreationFeeWhitelist(ctx)
-		if err != nil {
-			return nil, err
-		}
-		bz, err := json.Marshal(res)
-		if err != nil {
-			return nil, tokenfactorytypes.ErrEncodingDenomCreationFeeWhitelist
-		}
-
-		return bz, nil
 	default:
 		return nil, tokenfactorytypes.ErrUnknownSeiTokenFactoryQuery
 	}

@@ -338,45 +338,6 @@ func TestWasmGetEpoch(t *testing.T) {
 	require.Equal(t, int64(40), epoch.CurrentEpochHeight)
 }
 
-func TestWasmGetDenomCreationFeeWhitelist(t *testing.T) {
-	testWrapper, customQuerier := SetupWasmbindingTest(t)
-
-	req := tokenfactorybinding.SeiTokenFactoryQuery{
-		GetDenomFeeWhitelist: &tokenfactorytypes.QueryDenomCreationFeeWhitelistRequest{},
-	}
-
-	queryData, err := json.Marshal(req)
-	require.NoError(t, err)
-	query := wasmbinding.SeiQueryWrapper{Route: wasmbinding.TokenFactoryRoute, QueryData: queryData}
-
-	rawQuery, err := json.Marshal(query)
-	require.NoError(t, err)
-
-	// Should be an empty whitelist
-	res, err := customQuerier(testWrapper.Ctx, rawQuery)
-	require.NoError(t, err)
-
-	var parsedRes1 tokenfactorytypes.QueryDenomCreationFeeWhitelistResponse
-	err = json.Unmarshal(res, &parsedRes1)
-	require.NoError(t, err)
-	require.Equal(t, tokenfactorytypes.QueryDenomCreationFeeWhitelistResponse{Creators: []string(nil)}, parsedRes1)
-
-	// Add two creators to whitelist
-	testWrapper.Ctx = testWrapper.Ctx.WithBlockHeight(11).WithBlockTime(time.Unix(3600, 0))
-	testWrapper.App.TokenFactoryKeeper.AddCreatorToWhitelist(testWrapper.Ctx, "creator_1")
-	testWrapper.App.TokenFactoryKeeper.AddCreatorToWhitelist(testWrapper.Ctx, "creator_2")
-
-	testWrapper.Ctx = testWrapper.Ctx.WithBlockHeight(14).WithBlockTime(time.Unix(3700, 0))
-
-	res, err = customQuerier(testWrapper.Ctx, rawQuery)
-	require.NoError(t, err)
-
-	var parsedRes2 tokenfactorytypes.QueryDenomCreationFeeWhitelistResponse
-	err = json.Unmarshal(res, &parsedRes2)
-	require.NoError(t, err)
-	require.Equal(t, tokenfactorytypes.QueryDenomCreationFeeWhitelistResponse{Creators: []string{"creator_1", "creator_2"}}, parsedRes2)
-}
-
 func TestWasmGetCreatorInDenomFeeWhitelist(t *testing.T) {
 	testWrapper, customQuerier := SetupWasmbindingTest(t)
 
