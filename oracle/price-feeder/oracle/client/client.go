@@ -283,7 +283,7 @@ func (oc OracleClient) CreateTxFactory() (tx.Factory, error) {
 		WithChainID(oc.ChainID).
 		WithTxConfig(clientCtx.TxConfig).
 		WithGasAdjustment(oc.GasAdjustment).
-		// WithGasPrices(oc.GasPrices).
+		WithGasPrices(oc.GasPrices).
 		WithKeybase(clientCtx.Keyring).
 		WithSignMode(signing.SignMode_SIGN_MODE_DIRECT).
 		WithSimulateAndExecute(true)
