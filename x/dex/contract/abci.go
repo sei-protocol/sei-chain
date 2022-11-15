@@ -203,7 +203,6 @@ func orderMatchingRunnable(ctx context.Context, sdkContext sdk.Context, env *env
 	sdkContext.Logger().Info(fmt.Sprintf("End block for %s", contractInfo.ContractAddr))
 	pairs, pairFound := env.registeredPairs.Load(contractInfo.ContractAddr)
 	orderBooks, found := env.orderBooks.Load(contractInfo.ContractAddr)
-	fmt.Println(env.failedContractAddresses.Size())
 	if !pairFound || !found {
 		sdkContext.Logger().Error(fmt.Sprintf("No pair or order book for %s", contractInfo.ContractAddr))
 		env.failedContractAddresses.Add(contractInfo.ContractAddr)
