@@ -64,7 +64,7 @@ func (w KeeperWrapper) GetPlaceSudoMsg(ctx sdk.Context, typedContractAddr typesu
 				msgs = append(msgs, wasm.SudoOrderPlacementMsg{
 					OrderPlacements: wasm.OrderPlacementMsgDetails{
 						Orders:   contractOrderPlacements,
-						Deposits: []wasm.ContractDepositInfo{},
+						Deposits: []types.ContractDepositInfo{},
 					},
 				})
 				contractOrderPlacements = []types.Order{}
@@ -74,7 +74,7 @@ func (w KeeperWrapper) GetPlaceSudoMsg(ctx sdk.Context, typedContractAddr typesu
 	msgs = append(msgs, wasm.SudoOrderPlacementMsg{
 		OrderPlacements: wasm.OrderPlacementMsgDetails{
 			Orders:   contractOrderPlacements,
-			Deposits: []wasm.ContractDepositInfo{},
+			Deposits: []types.ContractDepositInfo{},
 		},
 	})
 	return msgs

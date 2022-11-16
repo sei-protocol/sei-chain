@@ -105,7 +105,7 @@ func TestEndBlockMarketOrder(t *testing.T) {
 		},
 	)
 	dexutils.GetMemState(ctx.Context()).GetDepositInfo(ctx, utils.ContractAddress(contractAddr.String())).Add(
-		&dexcache.DepositInfoEntry{
+		&types.DepositInfoEntry{
 			Creator: testAccount.String(),
 			Denom:   "uusdc",
 			Amount:  sdk.MustNewDecFromStr("2000000"),
@@ -247,7 +247,7 @@ func TestEndBlockLimitOrder(t *testing.T) {
 		},
 	)
 	dexutils.GetMemState(ctx.Context()).GetDepositInfo(ctx, utils.ContractAddress(contractAddr.String())).Add(
-		&dexcache.DepositInfoEntry{
+		&types.DepositInfoEntry{
 			Creator: testAccount.String(),
 			Denom:   "uusdc",
 			Amount:  sdk.MustNewDecFromStr("2000000"),
@@ -434,7 +434,7 @@ func TestEndBlockPartialRollback(t *testing.T) {
 		},
 	)
 	dexutils.GetMemState(ctx.Context()).GetDepositInfo(ctx, utils.ContractAddress(contractAddr.String())).Add(
-		&dexcache.DepositInfoEntry{
+		&types.DepositInfoEntry{
 			Creator: testAccount.String(),
 			Denom:   "uusdc",
 			Amount:  sdk.MustNewDecFromStr("10000"),
@@ -537,7 +537,7 @@ func TestEndBlockPanicHandling(t *testing.T) {
 		},
 	)
 	dexutils.GetMemState(ctx.Context()).GetDepositInfo(ctx, utils.ContractAddress(contractAddr.String())).Add(
-		&dexcache.DepositInfoEntry{
+		&types.DepositInfoEntry{
 			Creator: testAccount.String(),
 			Denom:   "usei",
 			Amount:  sdk.MustNewDecFromStr("2000000"),
