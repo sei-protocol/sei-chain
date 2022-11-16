@@ -40,7 +40,7 @@ func TestGetPlaceSudoMsg(t *testing.T) {
 func TestGetDepositSudoMsg(t *testing.T) {
 	testApp := keepertest.TestApp()
 	ctx := testApp.BaseApp.NewContext(false, tmproto.Header{})
-	ctx = ctx.WithContext(context.WithValue(ctx.Context(), dexutils.DexMemStateContextKey, dexcache.NewMemState()))
+	ctx = ctx.WithContext(context.WithValue(ctx.Context(), dexutils.DexMemStateContextKey, dexcache.NewMemState(testApp.GetKey(types.StoreKey))))
 	bankkeeper := testApp.BankKeeper
 	testAccount, _ := sdk.AccAddressFromBech32("sei1yezq49upxhunjjhudql2fnj5dgvcwjj87pn2wx")
 	amounts := sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(1000000)))

@@ -49,7 +49,7 @@ const (
 func TestEndBlockMarketOrder(t *testing.T) {
 	testApp := keepertest.TestApp()
 	ctx := testApp.BaseApp.NewContext(false, tmproto.Header{Time: time.Now()})
-	ctx = ctx.WithContext(context.WithValue(ctx.Context(), dexutils.DexMemStateContextKey, dexcache.NewMemState()))
+	ctx = ctx.WithContext(context.WithValue(ctx.Context(), dexutils.DexMemStateContextKey, dexcache.NewMemState(testApp.GetKey(types.StoreKey))))
 	dexkeeper := testApp.DexKeeper
 	pair := types.Pair{PriceDenom: "SEI", AssetDenom: "ATOM"}
 
@@ -118,7 +118,7 @@ func TestEndBlockMarketOrder(t *testing.T) {
 	// Long book should be populated
 	require.True(t, found)
 
-	dexutils.GetMemState(ctx.Context()).Clear()
+	dexutils.GetMemState(ctx.Context()).Clear(ctx)
 	dexutils.GetMemState(ctx.Context()).GetBlockOrders(ctx, utils.ContractAddress(contractAddr.String()), utils.GetPairString(&pair)).Add(
 		&types.Order{
 			Id:                3,
@@ -145,11 +145,11 @@ func TestEndBlockMarketOrder(t *testing.T) {
 	_, found = dexkeeper.GetLongBookByPrice(ctx, contractAddr.String(), sdk.MustNewDecFromStr("1"), pair.PriceDenom, pair.AssetDenom)
 	require.True(t, found)
 
-	matchResults, _ := dexkeeper.GetMatchResultState(ctx, contractAddr.String(), 2)
+	matchResults, _ := dexkeeper.GetMatchResultState(ctx, contractAddr.String())
 	require.Equal(t, 1, len(matchResults.Orders))
 	require.Equal(t, 2, len(matchResults.Settlements))
 
-	dexutils.GetMemState(ctx.Context()).Clear()
+	dexutils.GetMemState(ctx.Context()).Clear(ctx)
 	dexutils.GetMemState(ctx.Context()).GetBlockOrders(ctx, utils.ContractAddress(contractAddr.String()), utils.GetPairString(&pair)).Add(
 		&types.Order{
 			Id:                4,
@@ -168,7 +168,7 @@ func TestEndBlockMarketOrder(t *testing.T) {
 	ctx = ctx.WithBlockHeight(3)
 	testApp.EndBlocker(ctx, abci.RequestEndBlock{})
 
-	matchResults, _ = dexkeeper.GetMatchResultState(ctx, contractAddr.String(), 3)
+	matchResults, _ = dexkeeper.GetMatchResultState(ctx, contractAddr.String())
 	require.Equal(t, 1, len(matchResults.Orders))
 	require.Equal(t, 0, len(matchResults.Settlements))
 }
@@ -176,7 +176,7 @@ func TestEndBlockMarketOrder(t *testing.T) {
 func TestEndBlockLimitOrder(t *testing.T) {
 	testApp := keepertest.TestApp()
 	ctx := testApp.BaseApp.NewContext(false, tmproto.Header{Time: time.Now()})
-	ctx = ctx.WithContext(context.WithValue(ctx.Context(), dexutils.DexMemStateContextKey, dexcache.NewMemState()))
+	ctx = ctx.WithContext(context.WithValue(ctx.Context(), dexutils.DexMemStateContextKey, dexcache.NewMemState(testApp.GetKey(types.StoreKey))))
 	dexkeeper := testApp.DexKeeper
 	pair := types.Pair{PriceDenom: "SEI", AssetDenom: "ATOM"}
 
@@ -263,7 +263,7 @@ func TestEndBlockLimitOrder(t *testing.T) {
 	_, found = dexkeeper.GetShortBookByPrice(ctx, contractAddr.String(), sdk.MustNewDecFromStr("3"), pair.PriceDenom, pair.AssetDenom)
 	require.True(t, found)
 
-	dexutils.GetMemState(ctx.Context()).Clear()
+	dexutils.GetMemState(ctx.Context()).Clear(ctx)
 	dexutils.GetMemState(ctx.Context()).GetBlockOrders(ctx, utils.ContractAddress(contractAddr.String()), utils.GetPairString(&pair)).Add(
 		&types.Order{
 			Id:                4,
@@ -305,11 +305,11 @@ func TestEndBlockLimitOrder(t *testing.T) {
 	_, found = dexkeeper.GetLongBookByPrice(ctx, contractAddr.String(), sdk.MustNewDecFromStr("3"), pair.PriceDenom, pair.AssetDenom)
 	require.False(t, found)
 
-	matchResults, _ := dexkeeper.GetMatchResultState(ctx, contractAddr.String(), 2)
+	matchResults, _ := dexkeeper.GetMatchResultState(ctx, contractAddr.String())
 	require.Equal(t, 2, len(matchResults.Orders))
 	require.Equal(t, 4, len(matchResults.Settlements))
 
-	dexutils.GetMemState(ctx.Context()).Clear()
+	dexutils.GetMemState(ctx.Context()).Clear(ctx)
 	dexutils.GetMemState(ctx.Context()).GetBlockOrders(ctx, utils.ContractAddress(contractAddr.String()), utils.GetPairString(&pair)).Add(
 		&types.Order{
 			Id:                6,
@@ -335,7 +335,7 @@ func TestEndBlockLimitOrder(t *testing.T) {
 	_, found = dexkeeper.GetShortBookByPrice(ctx, contractAddr.String(), sdk.MustNewDecFromStr("3"), pair.PriceDenom, pair.AssetDenom)
 	require.False(t, found)
 
-	matchResults, _ = dexkeeper.GetMatchResultState(ctx, contractAddr.String(), 3)
+	matchResults, _ = dexkeeper.GetMatchResultState(ctx, contractAddr.String())
 	require.Equal(t, 1, len(matchResults.Orders))
 	require.Equal(t, 2, len(matchResults.Settlements))
 }
@@ -343,7 +343,7 @@ func TestEndBlockLimitOrder(t *testing.T) {
 func TestEndBlockRollback(t *testing.T) {
 	testApp := keepertest.TestApp()
 	ctx := testApp.BaseApp.NewContext(false, tmproto.Header{})
-	ctx = ctx.WithContext(context.WithValue(ctx.Context(), dexutils.DexMemStateContextKey, dexcache.NewMemState()))
+	ctx = ctx.WithContext(context.WithValue(ctx.Context(), dexutils.DexMemStateContextKey, dexcache.NewMemState(testApp.GetKey(types.StoreKey))))
 	dexkeeper := testApp.DexKeeper
 	pair := TEST_PAIR()
 	// register contract and pair
@@ -366,14 +366,14 @@ func TestEndBlockRollback(t *testing.T) {
 	ctx = ctx.WithBlockHeight(1)
 	testApp.EndBlocker(ctx, abci.RequestEndBlock{})
 	// No state change should've been persisted
-	_, found := dexkeeper.GetMatchResultState(ctx, keepertest.TestContract, 2)
-	require.False(t, found)
+	matchResult, _ := dexkeeper.GetMatchResultState(ctx, keepertest.TestContract)
+	require.Equal(t, &types.MatchResult{}, matchResult)
 }
 
 func TestEndBlockPartialRollback(t *testing.T) {
 	testApp := keepertest.TestApp()
 	ctx := testApp.BaseApp.NewContext(false, tmproto.Header{Time: time.Now()})
-	ctx = ctx.WithContext(context.WithValue(ctx.Context(), dexutils.DexMemStateContextKey, dexcache.NewMemState()))
+	ctx = ctx.WithContext(context.WithValue(ctx.Context(), dexutils.DexMemStateContextKey, dexcache.NewMemState(testApp.GetKey(types.StoreKey))))
 	// BAD CONTRACT
 	dexkeeper := testApp.DexKeeper
 	pair := TEST_PAIR()
@@ -444,19 +444,19 @@ func TestEndBlockPartialRollback(t *testing.T) {
 	ctx = ctx.WithBlockHeight(1)
 	testApp.EndBlocker(ctx, abci.RequestEndBlock{})
 	// No state change should've been persisted for bad contract
-	_, found := dexkeeper.GetMatchResultState(ctx, keepertest.TestContract, 1)
-	require.False(t, found)
+	matchResult, _ := dexkeeper.GetMatchResultState(ctx, keepertest.TestContract)
+	require.Equal(t, &types.MatchResult{}, matchResult)
 	// state change should've been persisted for good contract
-	matchResult, _ := dexkeeper.GetMatchResultState(ctx, contractAddr.String(), 1)
+	matchResult, _ = dexkeeper.GetMatchResultState(ctx, contractAddr.String())
 	require.Equal(t, 1, len(matchResult.Orders))
-	_, found = dexkeeper.GetLongBookByPrice(ctx, contractAddr.String(), sdk.MustNewDecFromStr("0.0001"), pair.PriceDenom, pair.AssetDenom)
+	_, found := dexkeeper.GetLongBookByPrice(ctx, contractAddr.String(), sdk.MustNewDecFromStr("0.0001"), pair.PriceDenom, pair.AssetDenom)
 	require.True(t, found)
 }
 
 func TestBeginBlock(t *testing.T) {
 	testApp := keepertest.TestApp()
 	ctx := testApp.BaseApp.NewContext(false, tmproto.Header{Time: time.Now()})
-	ctx = ctx.WithContext(context.WithValue(ctx.Context(), dexutils.DexMemStateContextKey, dexcache.NewMemState()))
+	ctx = ctx.WithContext(context.WithValue(ctx.Context(), dexutils.DexMemStateContextKey, dexcache.NewMemState(testApp.GetKey(types.StoreKey))))
 	dexkeeper := testApp.DexKeeper
 
 	testAccount, _ := sdk.AccAddressFromBech32("sei1yezq49upxhunjjhudql2fnj5dgvcwjj87pn2wx")
@@ -495,7 +495,7 @@ func TestBeginBlock(t *testing.T) {
 func TestEndBlockPanicHandling(t *testing.T) {
 	testApp := keepertest.TestApp()
 	ctx := testApp.BaseApp.NewContext(false, tmproto.Header{Time: time.Now()})
-	ctx = ctx.WithContext(context.WithValue(ctx.Context(), dexutils.DexMemStateContextKey, dexcache.NewMemState()))
+	ctx = ctx.WithContext(context.WithValue(ctx.Context(), dexutils.DexMemStateContextKey, dexcache.NewMemState(testApp.GetKey(types.StoreKey))))
 	dexkeeper := testApp.DexKeeper
 	pair := types.Pair{PriceDenom: "SEI", AssetDenom: "ATOM"}
 

@@ -1,6 +1,3 @@
-//go:build !codeanalysis
-// +build !codeanalysis
-
 package replay
 
 import (
@@ -15,7 +12,7 @@ import (
 	"github.com/sei-protocol/sei-chain/x/nitro/types"
 )
 
-func Replay(ctx sdk.Context, txs [][]byte, accounts []types.Account, sysvarAccounts []types.Account, programs []types.Account) ([]types.Account, error) {
+func Replay(ctx sdk.Context, txs [][]byte, accounts []*types.Account, sysvarAccounts []*types.Account, programs []*types.Account) ([]types.Account, error) {
 	// there can be at most one replay per Sei block
 	inputDirectory := fmt.Sprintf("/tmp/replay_input_%d/", ctx.BlockHeight())
 	if err := os.Mkdir(inputDirectory, os.ModePerm); err != nil {
@@ -107,7 +104,9 @@ func writeTransactionToFile(directory string, tx []byte) (string, error) {
 		return "", err
 	}
 	serialized := ""
-	if transactionData.MessageType == 0 {
+
+	switch transactionData.MessageType {
+	case 0:
 		serialized = "0|"
 		header := fmt.Sprintf(
 			"%d-%d-%d",
@@ -132,7 +131,7 @@ func writeTransactionToFile(directory string, tx []byte) (string, error) {
 		})
 		serialized += strings.Join(instructions, "-")
 		serialized += "|"
-	} else if transactionData.MessageType == 1 {
+	case 1:
 		serialized = "1|"
 		header := fmt.Sprintf(
 			"%d-%d-%d",
@@ -157,9 +156,10 @@ func writeTransactionToFile(directory string, tx []byte) (string, error) {
 		})
 		serialized += strings.Join(instructions, "-")
 		serialized += "|"
-	} else {
+	default:
 		panic("unknown message type")
 	}
+
 	serialized += transactionData.MessageHash
 	serialized += "|"
 	if transactionData.IsVote {
@@ -170,10 +170,10 @@ func writeTransactionToFile(directory string, tx []byte) (string, error) {
 	serialized += "|"
 	serialized += strings.Join(transactionData.Signatures, ",")
 	filepath := fmt.Sprintf("%s%s", directory, transactionData.Signature)
-	return filepath, os.WriteFile(filepath, []byte(serialized), 0644)
+	return filepath, os.WriteFile(filepath, []byte(serialized), 0600)
 }
 
-func writeAccountToFile(directory string, account types.Account) (string, error) {
+func writeAccountToFile(directory string, account *types.Account) (string, error) {
 	serialized := ""
 	serialized += account.Pubkey
 	serialized += "|"
@@ -193,7 +193,7 @@ func writeAccountToFile(directory string, account types.Account) (string, error)
 	serialized += "|"
 	serialized += account.Data
 	filepath := fmt.Sprintf("%s%s", directory, account.Pubkey)
-	return filepath, os.WriteFile(filepath, []byte(serialized), 0644)
+	return filepath, os.WriteFile(filepath, []byte(serialized), 0600)
 }
 
 // input: \x1234 output: 1234

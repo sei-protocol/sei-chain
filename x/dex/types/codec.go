@@ -13,7 +13,7 @@ func RegisterCodec(cdc *codec.LegacyAmino) {
 	cdc.RegisterConcrete(&MsgCancelOrders{}, "dex/MsgCancelOrders", nil)
 	cdc.RegisterConcrete(&MsgRegisterContract{}, "dex/MsgRegisterContract", nil)
 	cdc.RegisterConcrete(&MsgRegisterPairs{}, "dex/MsgRegisterPairs", nil)
-	cdc.RegisterConcrete(&UpdateTickSizeProposal{}, "dex/UpdateTickSizeProposal", nil)
+	cdc.RegisterConcrete(&MsgUpdateTickSize{}, "dex/MsgUpdateTickSize", nil)
 	cdc.RegisterConcrete(&AddAssetMetadataProposal{}, "dex/AddAssetMetadataProposal", nil)
 	// this line is used by starport scaffolding # 2
 }
@@ -31,8 +31,8 @@ func RegisterInterfaces(registry cdctypes.InterfaceRegistry) {
 	registry.RegisterImplementations((*sdk.Msg)(nil),
 		&MsgRegisterPairs{},
 	)
-	registry.RegisterImplementations((*govtypes.Content)(nil),
-		&UpdateTickSizeProposal{},
+	registry.RegisterImplementations((*sdk.Msg)(nil),
+		&MsgUpdateTickSize{},
 	)
 	registry.RegisterImplementations((*govtypes.Content)(nil),
 		&AddAssetMetadataProposal{},
