@@ -33,7 +33,7 @@ func TestRegisterContract(t *testing.T) {
 	// Instantiate and get contract address
 	testApp := keepertest.TestApp()
 	ctx := testApp.BaseApp.NewContext(false, tmproto.Header{Time: time.Now()})
-	ctx = ctx.WithContext(context.WithValue(ctx.Context(), dexutils.DexMemStateContextKey, dexcache.NewMemState()))
+	ctx = ctx.WithContext(context.WithValue(ctx.Context(), dexutils.DexMemStateContextKey, dexcache.NewMemState(testApp.GetKey(types.StoreKey))))
 	wctx := sdk.WrapSDKContext(ctx)
 	keeper := testApp.DexKeeper
 
@@ -77,7 +77,7 @@ func TestRegisterContractCircularDependency(t *testing.T) {
 	// Instantiate and get contract address
 	testApp := keepertest.TestApp()
 	ctx := testApp.BaseApp.NewContext(false, tmproto.Header{Time: time.Now()})
-	ctx = ctx.WithContext(context.WithValue(ctx.Context(), dexutils.DexMemStateContextKey, dexcache.NewMemState()))
+	ctx = ctx.WithContext(context.WithValue(ctx.Context(), dexutils.DexMemStateContextKey, dexcache.NewMemState(testApp.GetKey(types.StoreKey))))
 	wctx := sdk.WrapSDKContext(ctx)
 	keeper := testApp.DexKeeper
 
@@ -127,7 +127,7 @@ func TestRegisterContractDuplicateDependency(t *testing.T) {
 	// Instantiate and get contract address
 	testApp := keepertest.TestApp()
 	ctx := testApp.BaseApp.NewContext(false, tmproto.Header{Time: time.Now()})
-	ctx = ctx.WithContext(context.WithValue(ctx.Context(), dexutils.DexMemStateContextKey, dexcache.NewMemState()))
+	ctx = ctx.WithContext(context.WithValue(ctx.Context(), dexutils.DexMemStateContextKey, dexcache.NewMemState(testApp.GetKey(types.StoreKey))))
 	wctx := sdk.WrapSDKContext(ctx)
 	keeper := testApp.DexKeeper
 
@@ -164,7 +164,7 @@ func TestRegisterContractNumIncomingPaths(t *testing.T) {
 	// Instantiate and get contract address
 	testApp := keepertest.TestApp()
 	ctx := testApp.BaseApp.NewContext(false, tmproto.Header{Time: time.Now()})
-	ctx = ctx.WithContext(context.WithValue(ctx.Context(), dexutils.DexMemStateContextKey, dexcache.NewMemState()))
+	ctx = ctx.WithContext(context.WithValue(ctx.Context(), dexutils.DexMemStateContextKey, dexcache.NewMemState(testApp.GetKey(types.StoreKey))))
 	wctx := sdk.WrapSDKContext(ctx)
 	keeper := testApp.DexKeeper
 
@@ -222,7 +222,7 @@ func TestRegisterContractSetSiblings(t *testing.T) {
 	// Instantiate and get contract address
 	testApp := keepertest.TestApp()
 	ctx := testApp.BaseApp.NewContext(false, tmproto.Header{Time: time.Now()})
-	ctx = ctx.WithContext(context.WithValue(ctx.Context(), dexutils.DexMemStateContextKey, dexcache.NewMemState()))
+	ctx = ctx.WithContext(context.WithValue(ctx.Context(), dexutils.DexMemStateContextKey, dexcache.NewMemState(testApp.GetKey(types.StoreKey))))
 	wctx := sdk.WrapSDKContext(ctx)
 	keeper := testApp.DexKeeper
 
