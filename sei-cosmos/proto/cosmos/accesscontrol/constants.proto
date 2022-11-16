@@ -88,4 +88,5 @@ enum ResourceType {
     KV_DEX_NEXT_SETTLEMENT_ID = 66; // child of KV_DEX
     KV_DEX_MATCH_RESULT = 67; // child of KV_DEX
     KV_DEX_SETTLEMENT_ORDER_ID = 68; // child of KV_DEX
+    KV_DEX_ORDER_BOOK = 69; // child of KV_DEX
 }
