@@ -79,6 +79,8 @@ func SetAddressPrefixes() {
 }
 
 func SetTendermintConfigs(config *tmcfg.Config) {
+	config.DBBackend = "pebbledb"
+	// P2P configs
 	config.P2P.MaxConnections = 200
 	config.P2P.SendRate = 20480000
 	config.P2P.RecvRate = 20480000
@@ -93,4 +95,6 @@ func SetTendermintConfigs(config *tmcfg.Config) {
 	config.Consensus.UnsafeVoteTimeoutOverride = 250 * time.Millisecond
 	config.Consensus.UnsafeCommitTimeoutOverride = 250 * time.Millisecond
 	config.Consensus.UnsafeBypassCommitTimeoutOverride = &UnsafeBypassCommitTimeoutOverride
+	// Metrics
+	config.Instrumentation.Prometheus = true
 }
