@@ -56,7 +56,7 @@ func TestDepositRent(t *testing.T) {
 	bankkeeper := testApp.BankKeeper
 	bankkeeper.MintCoins(ctx, minttypes.ModuleName, amounts)
 	bankkeeper.SendCoinsFromModuleToAccount(ctx, minttypes.ModuleName, testAccount, amounts)
-	wasm, err := ioutil.ReadFile("/Users/kartikbhat/sei-chain/x/dex/testdata/mars.wasm")
+	wasm, err := ioutil.ReadFile("./testdata/mars.wasm")
 	if err != nil {
 		panic(err)
 	}
