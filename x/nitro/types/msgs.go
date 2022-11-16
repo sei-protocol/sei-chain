@@ -10,7 +10,10 @@ const (
 	TypeMsgRecordTransactionData = "record_transaction_data"
 )
 
-var _ sdk.Msg = &MsgRecordTransactionData{}
+var (
+	_ sdk.Msg = &MsgRecordTransactionData{}
+	_ sdk.Msg = &MsgSubmitFraudChallenge{}
+)
 
 func NewMsgRecordTransactionData(sender string, slot uint64, root string, txs []string) *MsgRecordTransactionData {
 	return &MsgRecordTransactionData{
@@ -37,6 +40,48 @@ func (m MsgRecordTransactionData) GetSignBytes() []byte {
 }
 
 func (m MsgRecordTransactionData) GetSigners() []sdk.AccAddress {
+	sender, _ := sdk.AccAddressFromBech32(m.Sender)
+	return []sdk.AccAddress{sender}
+}
+
+func NewMsgSubmitFraudChallenge(
+	sender string,
+	startSlot uint64,
+	endSlot uint64,
+	fraudStatePubkey string,
+	merkleProof *MerkleProof,
+	accountStates []*Account,
+	programs []*Account,
+	sysvarAccounts []*Account,
+) *MsgSubmitFraudChallenge {
+	return &MsgSubmitFraudChallenge{
+		Sender:           sender,
+		StartSlot:        startSlot,
+		EndSlot:          endSlot,
+		FraudStatePubKey: fraudStatePubkey,
+		MerkleProof:      merkleProof,
+		AccountStates:    accountStates,
+		Programs:         programs,
+		SysvarAccounts:   sysvarAccounts,
+	}
+}
+
+func (m MsgSubmitFraudChallenge) Route() string { return RouterKey }
+func (m MsgSubmitFraudChallenge) Type() string  { return TypeMsgRecordTransactionData }
+func (m MsgSubmitFraudChallenge) ValidateBasic() error {
+	_, err := sdk.AccAddressFromBech32(m.Sender)
+	if err != nil {
+		return sdkerrors.Wrapf(sdkerrors.ErrInvalidAddress, "Invalid sender address (%s)", err)
+	}
+
+	return nil
+}
+
+func (m MsgSubmitFraudChallenge) GetSignBytes() []byte {
+	return sdk.MustSortJSON(ModuleCdc.MustMarshalJSON(&m))
+}
+
+func (m MsgSubmitFraudChallenge) GetSigners() []sdk.AccAddress {
 	sender, _ := sdk.AccAddressFromBech32(m.Sender)
 	return []sdk.AccAddress{sender}
 }

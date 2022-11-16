@@ -1,5 +1,5 @@
-//go:build !codeanalysis && darwin && !sys_nitro_replayer
-// +build !codeanalysis,darwin,!sys_nitro_replayer
+//go:build darwin && !sys_nitro_replayer
+// +build darwin,!sys_nitro_replayer
 
 package replay
 

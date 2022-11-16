@@ -121,3 +121,15 @@ message LoadedAddresses {
     (gogoproto.jsontag) = "readonly"
   ];
 }
+
+message MerkleProof {
+  string commitment = 1 [
+    (gogoproto.jsontag) = "commitment"
+  ];
+  repeated string hash = 2 [
+    (gogoproto.jsontag) = "hash"
+  ];
+  repeated int64 direction = 3 [
+    (gogoproto.jsontag) = "direction"
+  ];
+}

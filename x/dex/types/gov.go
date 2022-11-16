@@ -9,57 +9,14 @@ import (
 )
 
 const (
-	ProposalTypeUpdateTickSize   = "UpdateTickSize"
 	ProposalTypeAddAssetMetadata = "AddAssetMetadata"
 )
 
 func init() {
 	// for routing
-	govtypes.RegisterProposalType(ProposalTypeUpdateTickSize)
 	govtypes.RegisterProposalType(ProposalTypeAddAssetMetadata)
 	// for marshal and unmarshal
-	govtypes.RegisterProposalTypeCodec(&UpdateTickSizeProposal{}, "dex/UpdateTickSizeProposal")
 	govtypes.RegisterProposalTypeCodec(&AddAssetMetadataProposal{}, "dex/AddAssetMetadataProposal")
-}
-
-var _ govtypes.Content = &UpdateTickSizeProposal{}
-
-// todo might be good to separate to different file when # of governance proposal increases
-func NewUpdateTickSizeForPair(title, description string, tickSizeList []TickSize) UpdateTickSizeProposal {
-	return UpdateTickSizeProposal{
-		Title:        title,
-		Description:  description,
-		TickSizeList: tickSizeList,
-	}
-}
-
-func (p *UpdateTickSizeProposal) GetTitle() string { return p.Title }
-
-func (p *UpdateTickSizeProposal) GetDescription() string { return p.Description }
-
-func (p *UpdateTickSizeProposal) ProposalRoute() string { return RouterKey }
-
-func (p *UpdateTickSizeProposal) ProposalType() string {
-	return ProposalTypeUpdateTickSize
-}
-
-func (p *UpdateTickSizeProposal) ValidateBasic() error {
-	err := govtypes.ValidateAbstract(p)
-	return err
-}
-
-func (p UpdateTickSizeProposal) String() string {
-	tickSizeListRecords := ""
-	for _, ticksize := range p.TickSizeList {
-		tickSizeListRecords += ticksize.String()
-	}
-	var b strings.Builder
-	b.WriteString(fmt.Sprintf(`Update Tick Size Proposal:
-  Title:       %s
-  Description: %s
-  Records:     %s
-`, p.Title, p.Description, tickSizeListRecords))
-	return b.String()
 }
 
 // todo might be good to separate to different file when # of governance proposal increases
