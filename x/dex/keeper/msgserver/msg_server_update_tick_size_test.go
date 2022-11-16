@@ -2,25 +2,61 @@ package msgserver_test
 
 import (
 	"testing"
+	"context"
+	"io/ioutil"
+	"time"
 
+	wasmkeeper "github.com/CosmWasm/wasmd/x/wasm/keeper"
+	wasmtypes "github.com/CosmWasm/wasmd/x/wasm/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	keepertest "github.com/sei-protocol/sei-chain/testutil/keeper"
 	"github.com/sei-protocol/sei-chain/x/dex/keeper/msgserver"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
 	"github.com/stretchr/testify/require"
+	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
+	dexutils "github.com/sei-protocol/sei-chain/x/dex/utils"
+	minttypes "github.com/sei-protocol/sei-chain/x/mint/types"
+	dexcache "github.com/sei-protocol/sei-chain/x/dex/cache"
 )
 
 func TestUpdateTickSize(t *testing.T) {
-	keeper, ctx := keepertest.DexKeeper(t)
+	// Instantiate and get contract address
+	testApp := keepertest.TestApp()
+	ctx := testApp.BaseApp.NewContext(false, tmproto.Header{Time: time.Now()})
+	ctx = ctx.WithContext(context.WithValue(ctx.Context(), dexutils.DexMemStateContextKey, dexcache.NewMemState(testApp.GetKey(types.StoreKey))))
 	wctx := sdk.WrapSDKContext(ctx)
-	server := msgserver.NewMsgServerImpl(*keeper)
-	err := RegisterContractUtil(server, wctx, TestContractA, nil)
+	keeper := testApp.DexKeeper
+
+	testAccount, _ := sdk.AccAddressFromBech32("sei1yezq49upxhunjjhudql2fnj5dgvcwjj87pn2wx")
+	amounts := sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(10000000)), sdk.NewCoin("uusdc", sdk.NewInt(10000000)))
+	bankkeeper := testApp.BankKeeper
+	bankkeeper.MintCoins(ctx, minttypes.ModuleName, amounts)
+	bankkeeper.SendCoinsFromModuleToAccount(ctx, minttypes.ModuleName, testAccount, amounts)
+	wasm, err := ioutil.ReadFile("../../testdata/mars.wasm")
+	if err != nil {
+		panic(err)
+	}
+	wasmKeeper := testApp.WasmKeeper
+	contractKeeper := wasmkeeper.NewDefaultPermissionKeeper(&wasmKeeper)
+	var perm *wasmtypes.AccessConfig
+	codeId, err := contractKeeper.Create(ctx, testAccount, wasm, perm)
+	if err != nil {
+		panic(err)
+	}
+	contractAddr, _, err := contractKeeper.Instantiate(ctx, codeId, testAccount, testAccount, []byte(GOOD_CONTRACT_INSTANTIATE), "test",
+		sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(100000))))
+	if err != nil {
+		panic(err)
+	}
+
+	server := msgserver.NewMsgServerImpl(keeper)
+	err = RegisterContractUtil(server, wctx, contractAddr.String(), nil)
 	require.NoError(t, err)
 
 	// First register pair
 	batchContractPairs := []types.BatchContractPair{}
 	batchContractPairs = append(batchContractPairs, types.BatchContractPair{
-		ContractAddr: TestContractA,
+		ContractAddr: contractAddr.String(),
 		Pairs:        []*types.Pair{&keepertest.TestPair},
 	})
 	_, err = server.RegisterPairs(wctx, &types.MsgRegisterPairs{
@@ -32,7 +68,7 @@ func TestUpdateTickSize(t *testing.T) {
 	// Test updated tick size
 	tickUpdates := []types.TickSize{}
 	tickUpdates = append(tickUpdates, types.TickSize{
-		ContractAddr: TestContractA,
+		ContractAddr: contractAddr.String(),
 		Pair:         &keepertest.TestPair,
 		Ticksize:     sdk.MustNewDecFromStr("0.1"),
 	})
@@ -42,20 +78,47 @@ func TestUpdateTickSize(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	storedTickSize, _ := keeper.GetTickSizeForPair(ctx, TestContractA, keepertest.TestPair)
+	storedTickSize, _ := keeper.GetTickSizeForPair(ctx, contractAddr.String(), keepertest.TestPair)
 	require.Equal(t, sdk.MustNewDecFromStr("0.1"), storedTickSize)
 }
 
 func TestUpdateTickSizeInvalidMsg(t *testing.T) {
-	keeper, ctx := keepertest.DexKeeper(t)
+	// Instantiate and get contract address
+	testApp := keepertest.TestApp()
+	ctx := testApp.BaseApp.NewContext(false, tmproto.Header{Time: time.Now()})
+	ctx = ctx.WithContext(context.WithValue(ctx.Context(), dexutils.DexMemStateContextKey, dexcache.NewMemState(testApp.GetKey(types.StoreKey))))
 	wctx := sdk.WrapSDKContext(ctx)
-	server := msgserver.NewMsgServerImpl(*keeper)
-	err := RegisterContractUtil(server, wctx, TestContractA, nil)
+	keeper := testApp.DexKeeper
+
+	testAccount, _ := sdk.AccAddressFromBech32("sei1yezq49upxhunjjhudql2fnj5dgvcwjj87pn2wx")
+	amounts := sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(10000000)), sdk.NewCoin("uusdc", sdk.NewInt(10000000)))
+	bankkeeper := testApp.BankKeeper
+	bankkeeper.MintCoins(ctx, minttypes.ModuleName, amounts)
+	bankkeeper.SendCoinsFromModuleToAccount(ctx, minttypes.ModuleName, testAccount, amounts)
+	wasm, err := ioutil.ReadFile("../../testdata/mars.wasm")
+	if err != nil {
+		panic(err)
+	}
+	wasmKeeper := testApp.WasmKeeper
+	contractKeeper := wasmkeeper.NewDefaultPermissionKeeper(&wasmKeeper)
+	var perm *wasmtypes.AccessConfig
+	codeId, err := contractKeeper.Create(ctx, testAccount, wasm, perm)
+	if err != nil {
+		panic(err)
+	}
+	contractAddr, _, err := contractKeeper.Instantiate(ctx, codeId, testAccount, testAccount, []byte(GOOD_CONTRACT_INSTANTIATE), "test",
+		sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(100000))))
+	if err != nil {
+		panic(err)
+	}
+
+	server := msgserver.NewMsgServerImpl(keeper)
+	err = RegisterContractUtil(server, wctx, contractAddr.String(), nil)
 	require.NoError(t, err)
 	// First register pair
 	batchContractPairs := []types.BatchContractPair{}
 	batchContractPairs = append(batchContractPairs, types.BatchContractPair{
-		ContractAddr: TestContractA,
+		ContractAddr: contractAddr.String(),
 		Pairs:        []*types.Pair{&keepertest.TestPair},
 	})
 	_, err = server.RegisterPairs(wctx, &types.MsgRegisterPairs{
@@ -67,7 +130,7 @@ func TestUpdateTickSizeInvalidMsg(t *testing.T) {
 	// Test with empty creator address
 	tickUpdates := []types.TickSize{}
 	tickUpdates = append(tickUpdates, types.TickSize{
-		ContractAddr: TestContractA,
+		ContractAddr: contractAddr.String(),
 		Pair:         &keepertest.TestPair,
 		Ticksize:     sdk.MustNewDecFromStr("0.1"),
 	})
@@ -88,7 +151,7 @@ func TestUpdateTickSizeInvalidMsg(t *testing.T) {
 	// Test with invalid Creator address
 	tickUpdates = []types.TickSize{}
 	tickUpdates = append(tickUpdates, types.TickSize{
-		ContractAddr: TestContractA,
+		ContractAddr: contractAddr.String(),
 		Pair:         &keepertest.TestPair,
 		Ticksize:     sdk.MustNewDecFromStr("0.1"),
 	})
@@ -127,16 +190,43 @@ func TestUpdateTickSizeInvalidMsg(t *testing.T) {
 
 // Test only contract creator can update tick size for contract
 func TestInvalidUpdateTickSizeCreator(t *testing.T) {
-	keeper, ctx := keepertest.DexKeeper(t)
+	// Instantiate and get contract address
+	testApp := keepertest.TestApp()
+	ctx := testApp.BaseApp.NewContext(false, tmproto.Header{Time: time.Now()})
+	ctx = ctx.WithContext(context.WithValue(ctx.Context(), dexutils.DexMemStateContextKey, dexcache.NewMemState(testApp.GetKey(types.StoreKey))))
 	wctx := sdk.WrapSDKContext(ctx)
-	server := msgserver.NewMsgServerImpl(*keeper)
-	err := RegisterContractUtil(server, wctx, TestContractA, nil)
+	keeper := testApp.DexKeeper
+
+	testAccount, _ := sdk.AccAddressFromBech32("sei1yezq49upxhunjjhudql2fnj5dgvcwjj87pn2wx")
+	amounts := sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(10000000)), sdk.NewCoin("uusdc", sdk.NewInt(10000000)))
+	bankkeeper := testApp.BankKeeper
+	bankkeeper.MintCoins(ctx, minttypes.ModuleName, amounts)
+	bankkeeper.SendCoinsFromModuleToAccount(ctx, minttypes.ModuleName, testAccount, amounts)
+	wasm, err := ioutil.ReadFile("../../testdata/mars.wasm")
+	if err != nil {
+		panic(err)
+	}
+	wasmKeeper := testApp.WasmKeeper
+	contractKeeper := wasmkeeper.NewDefaultPermissionKeeper(&wasmKeeper)
+	var perm *wasmtypes.AccessConfig
+	codeId, err := contractKeeper.Create(ctx, testAccount, wasm, perm)
+	if err != nil {
+		panic(err)
+	}
+	contractAddr, _, err := contractKeeper.Instantiate(ctx, codeId, testAccount, testAccount, []byte(GOOD_CONTRACT_INSTANTIATE), "test",
+		sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(100000))))
+	if err != nil {
+		panic(err)
+	}
+
+	server := msgserver.NewMsgServerImpl(keeper)
+	err = RegisterContractUtil(server, wctx, contractAddr.String(), nil)
 	require.NoError(t, err)
 
 	// First register pair
 	batchContractPairs := []types.BatchContractPair{}
 	batchContractPairs = append(batchContractPairs, types.BatchContractPair{
-		ContractAddr: TestContractA,
+		ContractAddr: contractAddr.String(),
 		Pairs:        []*types.Pair{&keepertest.TestPair},
 	})
 	_, err = server.RegisterPairs(wctx, &types.MsgRegisterPairs{
@@ -148,7 +238,7 @@ func TestInvalidUpdateTickSizeCreator(t *testing.T) {
 	// Test invalid tx creator
 	tickUpdates := []types.TickSize{}
 	tickUpdates = append(tickUpdates, types.TickSize{
-		ContractAddr: TestContractA,
+		ContractAddr: contractAddr.String(),
 		Pair:         &keepertest.TestPair,
 		Ticksize:     sdk.MustNewDecFromStr("0.1"),
 	})

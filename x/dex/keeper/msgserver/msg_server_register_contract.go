@@ -16,12 +16,21 @@ import (
 
 func (k msgServer) RegisterContract(goCtx context.Context, msg *types.MsgRegisterContract) (*types.MsgRegisterContractResponse, error) {
 	ctx := sdk.UnwrapSDKContext(goCtx)
-	// TODO: add validation such that only the user who stored the code can register contract
 
 	if err := k.ValidateBasics(ctx, msg); err != nil {
 		ctx.Logger().Error(fmt.Sprintf("request invalid: %s", err))
 		return &types.MsgRegisterContractResponse{}, err
 	}
+
+	// Validation such that only the user who instantiated the contract can register contract
+	contractAddr, _ := sdk.AccAddressFromBech32(msg.Contract.ContractAddr)
+	contractInfo := k.Keeper.WasmKeeper.GetContractInfo(ctx, contractAddr)
+
+	// TODO: Add wasm fixture to write unit tests to verify this behavior
+	if contractInfo.Creator != msg.Creator {
+		return nil, sdkerrors.ErrUnauthorized
+	}
+
 	if err := k.ValidateUniqueDependencies(msg); err != nil {
 		ctx.Logger().Error(fmt.Sprintf("dependencies of contract %s are not unique", msg.Contract.ContractAddr))
 		return &types.MsgRegisterContractResponse{}, err
