@@ -1,0 +1,36 @@
+package msgserver
+
+import (
+	"context"
+
+	sdk "github.com/cosmos/cosmos-sdk/types"
+	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
+	"github.com/sei-protocol/sei-chain/x/dex/types"
+)
+
+func (k msgServer) UpdateTickSize(goCtx context.Context, msg *types.MsgUpdateTickSize) (*types.MsgUpdateTickSizeResponse, error) {
+	if err := msg.ValidateBasic(); err != nil {
+		return nil, err
+	}
+
+	ctx := sdk.UnwrapSDKContext(goCtx)
+
+	// Validation such that only the user who stored the code can update tick size
+	for _, tickSize := range msg.TickSizeList {
+		contractAddr := tickSize.ContractAddr
+		contractInfo, err := k.GetContract(ctx, contractAddr)
+		if err != nil {
+			return nil, err
+		}
+
+		if msg.Creator != contractInfo.Creator {
+			return nil, sdkerrors.ErrUnauthorized
+		}
+	}
+
+	for _, tickSize := range msg.TickSizeList {
+		k.SetTickSizeForPair(ctx, tickSize.ContractAddr, *tickSize.Pair, tickSize.Ticksize)
+	}
+
+	return &types.MsgUpdateTickSizeResponse{}, nil
+}

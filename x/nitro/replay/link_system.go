@@ -1,5 +1,5 @@
-//go:build !codeanalysis && sys_replayer
-// +build !codeanalysis,sys_replayer
+//go:build sys_replayer
+// +build sys_replayer
 
 package replay
 

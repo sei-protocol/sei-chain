@@ -137,6 +137,17 @@ func GetSettlementKey(orderID uint64, account string, settlementID uint64) []byt
 	return append(GetSettlementOrderIDPrefix(orderID, account), settlementIDBytes...)
 }
 
+func MemOrderPrefixForPair(contractAddr string, pairString string) []byte {
+	return append(
+		append(KeyPrefix(MemOrderKey), KeyPrefix(contractAddr)...),
+		[]byte(pairString)...,
+	)
+}
+
+func MemOrderPrefix(contractAddr string) []byte {
+	return append(KeyPrefix(MemOrderKey), KeyPrefix(contractAddr)...)
+}
+
 const (
 	DefaultPriceDenom = "stake"
 	DefaultAssetDenom = "dummy"
@@ -163,4 +174,6 @@ const (
 	TickSizeKey         = "ticks"
 	AssetListKey        = "AssetList-"
 	MatchResultKey      = "MatchResult-"
+
+	MemOrderKey = "MemOrder-"
 )

@@ -5,9 +5,9 @@ import (
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkacltypes "github.com/cosmos/cosmos-sdk/types/accesscontrol"
-	aclutils "github.com/sei-protocol/sei-chain/aclmapping/utils"
 
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
+	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
 	"github.com/sei-protocol/sei-chain/x/oracle/keeper"
 	"github.com/sei-protocol/sei-chain/x/oracle/types"
 )
@@ -53,10 +53,28 @@ func (spd SpammingPreventionDecorator) AnteDeps(txDeps []sdkacltypes.AccessOpera
 		// Error checking will be handled in AnteHandler
 		switch m := msg.(type) {
 		case *types.MsgAggregateExchangeRateVote:
-			feederAddr, _ := sdk.AccAddressFromBech32(m.Feeder)
 			valAddr, _ := sdk.ValAddressFromBech32(m.Validator)
-			deps = append(deps, aclutils.GetOracleReadAccessOpsForValAndFeeder(feederAddr, valAddr)...)
-			// TODO: we also need to add READs for Validator + bonded check
+			deps = append(deps, []sdkacltypes.AccessOperation{
+				// validate feeder
+				// read feeder delegation for val addr - READ
+				{
+					ResourceType:       sdkacltypes.ResourceType_KV_ORACLE_FEEDERS,
+					AccessType:         sdkacltypes.AccessType_READ,
+					IdentifierTemplate: string(types.GetFeederDelegationKey(valAddr)),
+				},
+				// read validator from staking - READ
+				{
+					ResourceType:       sdkacltypes.ResourceType_KV_STAKING_VALIDATOR,
+					AccessType:         sdkacltypes.AccessType_READ,
+					IdentifierTemplate: string(stakingtypes.GetValidatorKey(valAddr)),
+				},
+				// check exchange rate vote exists - READ
+				{
+					ResourceType:       sdkacltypes.ResourceType_KV_ORACLE_AGGREGATE_VOTES,
+					AccessType:         sdkacltypes.AccessType_READ,
+					IdentifierTemplate: string(types.GetAggregateExchangeRateVoteKey(valAddr)),
+				},
+			}...)
 		default:
 			continue
 		}

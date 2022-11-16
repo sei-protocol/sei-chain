@@ -1,5 +1,5 @@
-//go:build !codeanalysis && linux && amd64 && !sys_nitro_replayer
-// +build !codeanalysis,linux,amd64,!sys_nitro_replayer
+//go:build linux && amd64 && !sys_nitro_replayer
+// +build linux,amd64,!sys_nitro_replayer
 
 package replay
 

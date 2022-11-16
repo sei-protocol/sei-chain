@@ -6,6 +6,7 @@ import "gogoproto/gogo.proto";
 import "dex/contract.proto";
 import "dex/order.proto";
 import "dex/pair.proto";
+import "dex/tick_size.proto";
 
 // this line is used by starport scaffolding # proto/tx/import
 
@@ -19,6 +20,7 @@ service Msg {
   rpc ContractDepositRent(MsgContractDepositRent) returns(MsgContractDepositRentResponse);
   rpc UnregisterContract(MsgUnregisterContract) returns(MsgUnregisterContractResponse);
   rpc RegisterPairs(MsgRegisterPairs) returns(MsgRegisterPairsResponse);
+  rpc UpdateTickSize(MsgUpdateTickSize) returns(MsgUpdateTickSizeResponse);
   // privileged endpoints below
 
 // this line is used by starport scaffolding # proto/tx/rpc
@@ -104,5 +106,18 @@ message MsgRegisterPairs {
 }
 
 message MsgRegisterPairsResponse {}
+
+message MsgUpdateTickSize {
+  string creator = 1 [
+    (gogoproto.jsontag) = "creator"
+  ];
+  repeated TickSize tickSizeList = 2 [
+        (gogoproto.moretags) = "yaml:\"tick_size_list\"",
+        (gogoproto.nullable) = false,
+        (gogoproto.jsontag) = "tick_size_list"
+    ];
+}
+
+message MsgUpdateTickSizeResponse {}
 
 // this line is used by starport scaffolding # proto/tx/message

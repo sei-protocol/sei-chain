@@ -111,7 +111,7 @@ func DexKeeper(t testing.TB) (*keeper.Keeper, sdk.Context) {
 	}
 	bankKeeper.SetParams(ctx, bankParams)
 
-	return k, ctx.WithContext(context.WithValue(ctx.Context(), dexutils.DexMemStateContextKey, dexcache.NewMemState()))
+	return k, ctx.WithContext(context.WithValue(ctx.Context(), dexutils.DexMemStateContextKey, dexcache.NewMemState(storeKey)))
 }
 
 func CreateAssetMetadata(keeper *keeper.Keeper, ctx sdk.Context) types.AssetMetadata {

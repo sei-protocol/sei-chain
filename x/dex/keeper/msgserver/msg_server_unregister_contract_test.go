@@ -1,48 +1,76 @@
 package msgserver_test
 
 import (
+	"context"
+	"io/ioutil"
 	"testing"
+	"time"
 
+	wasmkeeper "github.com/CosmWasm/wasmd/x/wasm/keeper"
+	wasmtypes "github.com/CosmWasm/wasmd/x/wasm/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	keepertest "github.com/sei-protocol/sei-chain/testutil/keeper"
+	dexcache "github.com/sei-protocol/sei-chain/x/dex/cache"
 	"github.com/sei-protocol/sei-chain/x/dex/keeper/msgserver"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
+	dexutils "github.com/sei-protocol/sei-chain/x/dex/utils"
 	minttypes "github.com/sei-protocol/sei-chain/x/mint/types"
 	"github.com/stretchr/testify/require"
+	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 )
 
 func TestUnregisterContractSetSiblings(t *testing.T) {
-	keeper, ctx := keepertest.DexKeeper(t)
+	testApp := keepertest.TestApp()
+	ctx := testApp.BaseApp.NewContext(false, tmproto.Header{Time: time.Now()})
+	ctx = ctx.WithContext(context.WithValue(ctx.Context(), dexutils.DexMemStateContextKey, dexcache.NewMemState(testApp.GetKey(types.StoreKey))))
 	wctx := sdk.WrapSDKContext(ctx)
+	keeper := testApp.DexKeeper
+
 	testAccount, _ := sdk.AccAddressFromBech32("sei1yezq49upxhunjjhudql2fnj5dgvcwjj87pn2wx")
-	amounts := sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(10000000)))
-	bankkeeper := keeper.BankKeeper
+	amounts := sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(10000000)), sdk.NewCoin("uusdc", sdk.NewInt(10000000)))
+	bankkeeper := testApp.BankKeeper
 	bankkeeper.MintCoins(ctx, minttypes.ModuleName, amounts)
 	bankkeeper.SendCoinsFromModuleToAccount(ctx, minttypes.ModuleName, testAccount, amounts)
+	wasm, err := ioutil.ReadFile("../../testdata/mars.wasm")
+	if err != nil {
+		panic(err)
+	}
+	wasmKeeper := testApp.WasmKeeper
+	contractKeeper := wasmkeeper.NewDefaultPermissionKeeper(&wasmKeeper)
+	var perm *wasmtypes.AccessConfig
+	codeId, err := contractKeeper.Create(ctx, testAccount, wasm, perm)
+	if err != nil {
+		panic(err)
+	}
+	contractAddr, _, err := contractKeeper.Instantiate(ctx, codeId, testAccount, testAccount, []byte(GOOD_CONTRACT_INSTANTIATE), "test",
+		sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(100000))))
+	if err != nil {
+		panic(err)
+	}
 
-	server := msgserver.NewMsgServerImpl(*keeper)
+	server := msgserver.NewMsgServerImpl(keeper)
 	contract := types.ContractInfoV2{
 		CodeId:       1,
-		ContractAddr: TestContractA,
+		ContractAddr: contractAddr.String(),
 		Creator:      testAccount.String(),
 		RentBalance:  1000000,
 	}
-	_, err := server.RegisterContract(wctx, &types.MsgRegisterContract{
+	_, err = server.RegisterContract(wctx, &types.MsgRegisterContract{
 		Creator:  testAccount.String(),
 		Contract: &contract,
 	})
 	require.NoError(t, err)
-	_, err = keeper.GetContract(ctx, TestContractA)
+	_, err = keeper.GetContract(ctx, contractAddr.String())
 	require.NoError(t, err)
 	balance := keeper.BankKeeper.GetBalance(ctx, testAccount, "usei")
-	require.Equal(t, int64(9000000), balance.Amount.Int64())
+	require.Equal(t, int64(8900000), balance.Amount.Int64())
 	_, err = server.UnregisterContract(wctx, &types.MsgUnregisterContract{
 		Creator:      testAccount.String(),
-		ContractAddr: TestContractA,
+		ContractAddr: contractAddr.String(),
 	})
 	require.NoError(t, err)
-	_, err = keeper.GetContract(ctx, TestContractA)
+	_, err = keeper.GetContract(ctx, contractAddr.String())
 	require.Error(t, err)
 	balance = keeper.BankKeeper.GetBalance(ctx, testAccount, "usei")
-	require.Equal(t, int64(10000000), balance.Amount.Int64())
+	require.Equal(t, int64(9900000), balance.Amount.Int64())
 }

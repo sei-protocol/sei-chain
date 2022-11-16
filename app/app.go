@@ -1411,7 +1411,7 @@ func (app *App) BlacklistedAccAddrs() map[string]bool {
 }
 
 func (app *App) decorateContextWithDexMemState(base context.Context) context.Context {
-	return context.WithValue(base, dexutils.DexMemStateContextKey, dexcache.NewMemState())
+	return context.WithValue(base, dexutils.DexMemStateContextKey, dexcache.NewMemState(app.GetKey(dexmoduletypes.StoreKey)))
 }
 
 func init() {

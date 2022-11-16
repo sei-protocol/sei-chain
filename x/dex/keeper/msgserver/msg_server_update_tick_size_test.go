@@ -1,25 +1,26 @@
 package msgserver_test
 
 import (
+	"testing"
 	"context"
 	"io/ioutil"
-	"testing"
 	"time"
 
 	wasmkeeper "github.com/CosmWasm/wasmd/x/wasm/keeper"
 	wasmtypes "github.com/CosmWasm/wasmd/x/wasm/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	keepertest "github.com/sei-protocol/sei-chain/testutil/keeper"
-	dexcache "github.com/sei-protocol/sei-chain/x/dex/cache"
 	"github.com/sei-protocol/sei-chain/x/dex/keeper/msgserver"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
-	dexutils "github.com/sei-protocol/sei-chain/x/dex/utils"
-	minttypes "github.com/sei-protocol/sei-chain/x/mint/types"
 	"github.com/stretchr/testify/require"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
+	dexutils "github.com/sei-protocol/sei-chain/x/dex/utils"
+	minttypes "github.com/sei-protocol/sei-chain/x/mint/types"
+	dexcache "github.com/sei-protocol/sei-chain/x/dex/cache"
 )
 
-func TestRegisterPairs(t *testing.T) {
+func TestUpdateTickSize(t *testing.T) {
+	// Instantiate and get contract address
 	testApp := keepertest.TestApp()
 	ctx := testApp.BaseApp.NewContext(false, tmproto.Header{Time: time.Now()})
 	ctx = ctx.WithContext(context.WithValue(ctx.Context(), dexutils.DexMemStateContextKey, dexcache.NewMemState(testApp.GetKey(types.StoreKey))))
@@ -42,63 +43,47 @@ func TestRegisterPairs(t *testing.T) {
 	if err != nil {
 		panic(err)
 	}
-	contractAddrA, _, err := contractKeeper.Instantiate(ctx, codeId, testAccount, testAccount, []byte(GOOD_CONTRACT_INSTANTIATE), "test",
-		sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(100000))))
-	if err != nil {
-		panic(err)
-	}
-
-	contractAddrB, _, err := contractKeeper.Instantiate(ctx, codeId, testAccount, testAccount, []byte(GOOD_CONTRACT_INSTANTIATE), "test",
+	contractAddr, _, err := contractKeeper.Instantiate(ctx, codeId, testAccount, testAccount, []byte(GOOD_CONTRACT_INSTANTIATE), "test",
 		sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(100000))))
 	if err != nil {
 		panic(err)
 	}
 
 	server := msgserver.NewMsgServerImpl(keeper)
-	err = RegisterContractUtil(server, wctx, contractAddrA.String(), nil)
+	err = RegisterContractUtil(server, wctx, contractAddr.String(), nil)
 	require.NoError(t, err)
 
+	// First register pair
 	batchContractPairs := []types.BatchContractPair{}
 	batchContractPairs = append(batchContractPairs, types.BatchContractPair{
-		ContractAddr: contractAddrA.String(),
+		ContractAddr: contractAddr.String(),
 		Pairs:        []*types.Pair{&keepertest.TestPair},
 	})
 	_, err = server.RegisterPairs(wctx, &types.MsgRegisterPairs{
 		Creator:           keepertest.TestAccount,
 		Batchcontractpair: batchContractPairs,
 	})
-
 	require.NoError(t, err)
-	storedRegisteredPairs := keeper.GetAllRegisteredPairs(ctx, contractAddrA.String())
-	require.Equal(t, 1, len(storedRegisteredPairs))
-	require.Equal(t, keepertest.TestPair, storedRegisteredPairs[0])
 
-	// Test multiple pairs registered at once
-	err = RegisterContractUtil(server, wctx, contractAddrB.String(), nil)
-	require.NoError(t, err)
-	multiplePairs := []types.BatchContractPair{}
-	secondTestPair := types.Pair{
-		PriceDenom: "sei",
-		AssetDenom: "osmo",
-		Ticksize:   &keepertest.TestTicksize,
-	}
-	multiplePairs = append(multiplePairs, types.BatchContractPair{
-		ContractAddr: contractAddrB.String(),
-		Pairs:        []*types.Pair{&keepertest.TestPair, &secondTestPair},
+	// Test updated tick size
+	tickUpdates := []types.TickSize{}
+	tickUpdates = append(tickUpdates, types.TickSize{
+		ContractAddr: contractAddr.String(),
+		Pair:         &keepertest.TestPair,
+		Ticksize:     sdk.MustNewDecFromStr("0.1"),
 	})
-	_, err = server.RegisterPairs(wctx, &types.MsgRegisterPairs{
-		Creator:           keepertest.TestAccount,
-		Batchcontractpair: multiplePairs,
+	_, err = server.UpdateTickSize(wctx, &types.MsgUpdateTickSize{
+		Creator:      keepertest.TestAccount,
+		TickSizeList: tickUpdates,
 	})
-
 	require.NoError(t, err)
-	storedRegisteredPairs = keeper.GetAllRegisteredPairs(ctx, contractAddrB.String())
-	require.Equal(t, 2, len(storedRegisteredPairs))
-	require.Equal(t, keepertest.TestPair, storedRegisteredPairs[0])
-	require.Equal(t, secondTestPair, storedRegisteredPairs[1])
+
+	storedTickSize, _ := keeper.GetTickSizeForPair(ctx, contractAddr.String(), keepertest.TestPair)
+	require.Equal(t, sdk.MustNewDecFromStr("0.1"), storedTickSize)
 }
 
-func TestRegisterPairsInvalidMsg(t *testing.T) {
+func TestUpdateTickSizeInvalidMsg(t *testing.T) {
+	// Instantiate and get contract address
 	testApp := keepertest.TestApp()
 	ctx := testApp.BaseApp.NewContext(false, tmproto.Header{Time: time.Now()})
 	ctx = ctx.WithContext(context.WithValue(ctx.Context(), dexutils.DexMemStateContextKey, dexcache.NewMemState(testApp.GetKey(types.StoreKey))))
@@ -121,87 +106,91 @@ func TestRegisterPairsInvalidMsg(t *testing.T) {
 	if err != nil {
 		panic(err)
 	}
-	contractAddrA, _, err := contractKeeper.Instantiate(ctx, codeId, testAccount, testAccount, []byte(GOOD_CONTRACT_INSTANTIATE), "test",
+	contractAddr, _, err := contractKeeper.Instantiate(ctx, codeId, testAccount, testAccount, []byte(GOOD_CONTRACT_INSTANTIATE), "test",
 		sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(100000))))
 	if err != nil {
 		panic(err)
 	}
 
 	server := msgserver.NewMsgServerImpl(keeper)
-	err = RegisterContractUtil(server, wctx, contractAddrA.String(), nil)
+	err = RegisterContractUtil(server, wctx, contractAddr.String(), nil)
 	require.NoError(t, err)
+	// First register pair
 	batchContractPairs := []types.BatchContractPair{}
 	batchContractPairs = append(batchContractPairs, types.BatchContractPair{
-		ContractAddr: contractAddrA.String(),
+		ContractAddr: contractAddr.String(),
 		Pairs:        []*types.Pair{&keepertest.TestPair},
 	})
+	_, err = server.RegisterPairs(wctx, &types.MsgRegisterPairs{
+		Creator:           keepertest.TestAccount,
+		Batchcontractpair: batchContractPairs,
+	})
+	require.NoError(t, err)
 
 	// Test with empty creator address
-	_, err = server.RegisterPairs(wctx, &types.MsgRegisterPairs{
-		Creator:           "",
-		Batchcontractpair: batchContractPairs,
+	tickUpdates := []types.TickSize{}
+	tickUpdates = append(tickUpdates, types.TickSize{
+		ContractAddr: contractAddr.String(),
+		Pair:         &keepertest.TestPair,
+		Ticksize:     sdk.MustNewDecFromStr("0.1"),
+	})
+	_, err = server.UpdateTickSize(wctx, &types.MsgUpdateTickSize{
+		Creator:      "",
+		TickSizeList: tickUpdates,
 	})
 	require.NotNil(t, err)
 
 	// Test with empty msg
-	batchContractPairs = []types.BatchContractPair{}
-	_, err = server.RegisterPairs(wctx, &types.MsgRegisterPairs{
-		Creator:           keepertest.TestAccount,
-		Batchcontractpair: batchContractPairs,
+	tickUpdates = []types.TickSize{}
+	_, err = server.UpdateTickSize(wctx, &types.MsgUpdateTickSize{
+		Creator:      keepertest.TestAccount,
+		TickSizeList: tickUpdates,
 	})
 	require.NotNil(t, err)
 
 	// Test with invalid Creator address
-	batchContractPairs = []types.BatchContractPair{}
-	batchContractPairs = append(batchContractPairs, types.BatchContractPair{
-		ContractAddr: contractAddrA.String(),
-		Pairs:        []*types.Pair{&keepertest.TestPair},
+	tickUpdates = []types.TickSize{}
+	tickUpdates = append(tickUpdates, types.TickSize{
+		ContractAddr: contractAddr.String(),
+		Pair:         &keepertest.TestPair,
+		Ticksize:     sdk.MustNewDecFromStr("0.1"),
 	})
-	_, err = server.RegisterPairs(wctx, &types.MsgRegisterPairs{
-		Creator:           "invalidAddress",
-		Batchcontractpair: batchContractPairs,
+	_, err = server.UpdateTickSize(wctx, &types.MsgUpdateTickSize{
+		Creator:      "invalidAddress",
+		TickSizeList: tickUpdates,
 	})
 	require.NotNil(t, err)
 
 	// Test with empty contract address
-	batchContractPairs = []types.BatchContractPair{}
-	batchContractPairs = append(batchContractPairs, types.BatchContractPair{
+	tickUpdates = []types.TickSize{}
+	tickUpdates = append(tickUpdates, types.TickSize{
 		ContractAddr: "",
-		Pairs:        []*types.Pair{&keepertest.TestPair},
+		Pair:         &keepertest.TestPair,
+		Ticksize:     sdk.MustNewDecFromStr("0.1"),
 	})
-	_, err = server.RegisterPairs(wctx, &types.MsgRegisterPairs{
-		Creator:           keepertest.TestAccount,
-		Batchcontractpair: batchContractPairs,
-	})
-	require.NotNil(t, err)
-
-	// Test with empty pairs list
-	batchContractPairs = []types.BatchContractPair{}
-	batchContractPairs = append(batchContractPairs, types.BatchContractPair{
-		ContractAddr: contractAddrA.String(),
-		Pairs:        []*types.Pair{},
-	})
-	_, err = server.RegisterPairs(wctx, &types.MsgRegisterPairs{
-		Creator:           keepertest.TestAccount,
-		Batchcontractpair: batchContractPairs,
+	_, err = server.UpdateTickSize(wctx, &types.MsgUpdateTickSize{
+		Creator:      keepertest.TestAccount,
+		TickSizeList: tickUpdates,
 	})
 	require.NotNil(t, err)
 
 	// Test with nil pair
-	batchContractPairs = []types.BatchContractPair{}
-	batchContractPairs = append(batchContractPairs, types.BatchContractPair{
-		ContractAddr: contractAddrA.String(),
-		Pairs:        []*types.Pair{nil},
+	tickUpdates = []types.TickSize{}
+	tickUpdates = append(tickUpdates, types.TickSize{
+		ContractAddr: "",
+		Pair:         nil,
+		Ticksize:     sdk.MustNewDecFromStr("0.1"),
 	})
-	_, err = server.RegisterPairs(wctx, &types.MsgRegisterPairs{
-		Creator:           keepertest.TestAccount,
-		Batchcontractpair: batchContractPairs,
+	_, err = server.UpdateTickSize(wctx, &types.MsgUpdateTickSize{
+		Creator:      keepertest.TestAccount,
+		TickSizeList: tickUpdates,
 	})
 	require.NotNil(t, err)
 }
 
-// Test only contract creator can update registered pairs for contract
-func TestInvalidRegisterPairCreator(t *testing.T) {
+// Test only contract creator can update tick size for contract
+func TestInvalidUpdateTickSizeCreator(t *testing.T) {
+	// Instantiate and get contract address
 	testApp := keepertest.TestApp()
 	ctx := testApp.BaseApp.NewContext(false, tmproto.Header{Time: time.Now()})
 	ctx = ctx.WithContext(context.WithValue(ctx.Context(), dexutils.DexMemStateContextKey, dexcache.NewMemState(testApp.GetKey(types.StoreKey))))
@@ -224,32 +213,38 @@ func TestInvalidRegisterPairCreator(t *testing.T) {
 	if err != nil {
 		panic(err)
 	}
-	contractAddrA, _, err := contractKeeper.Instantiate(ctx, codeId, testAccount, testAccount, []byte(GOOD_CONTRACT_INSTANTIATE), "test",
+	contractAddr, _, err := contractKeeper.Instantiate(ctx, codeId, testAccount, testAccount, []byte(GOOD_CONTRACT_INSTANTIATE), "test",
 		sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(100000))))
 	if err != nil {
 		panic(err)
 	}
 
 	server := msgserver.NewMsgServerImpl(keeper)
-	err = RegisterContractUtil(server, wctx, contractAddrA.String(), nil)
+	err = RegisterContractUtil(server, wctx, contractAddr.String(), nil)
 	require.NoError(t, err)
 
-	// Expect error when registering pair with an address not contract creator
+	// First register pair
 	batchContractPairs := []types.BatchContractPair{}
 	batchContractPairs = append(batchContractPairs, types.BatchContractPair{
-		ContractAddr: contractAddrA.String(),
+		ContractAddr: contractAddr.String(),
 		Pairs:        []*types.Pair{&keepertest.TestPair},
 	})
-	_, err = server.RegisterPairs(wctx, &types.MsgRegisterPairs{
-		Creator:           "sei18rrckuelmacz4fv4v2hl9t3kaw7mm4wpe8v36m",
-		Batchcontractpair: batchContractPairs,
-	})
-	require.NotNil(t, err)
-
-	// Works when creator = address
 	_, err = server.RegisterPairs(wctx, &types.MsgRegisterPairs{
 		Creator:           keepertest.TestAccount,
 		Batchcontractpair: batchContractPairs,
 	})
 	require.NoError(t, err)
+
+	// Test invalid tx creator
+	tickUpdates := []types.TickSize{}
+	tickUpdates = append(tickUpdates, types.TickSize{
+		ContractAddr: contractAddr.String(),
+		Pair:         &keepertest.TestPair,
+		Ticksize:     sdk.MustNewDecFromStr("0.1"),
+	})
+	_, err = server.UpdateTickSize(wctx, &types.MsgUpdateTickSize{
+		Creator:      "sei18rrckuelmacz4fv4v2hl9t3kaw7mm4wpe8v36m",
+		TickSizeList: tickUpdates,
+	})
+	require.NotNil(t, err)
 }
