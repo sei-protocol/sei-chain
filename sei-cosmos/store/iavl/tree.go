@@ -32,6 +32,7 @@ type (
 		GetVersionedWithProof(key []byte, version int64) ([]byte, *iavl.RangeProof, error)
 		GetImmutable(version int64) (*iavl.ImmutableTree, error)
 		SetInitialVersion(version uint64)
+		LoadVersionForOverwriting(targetVersion int64) (int64, error)
 	}
 
 	// immutableTree is a simple wrapper around a reference to an iavl.ImmutableTree
@@ -68,6 +69,10 @@ func (it *immutableTree) DeleteVersions(_ ...int64) error {
 
 func (it *immutableTree) SetInitialVersion(_ uint64) {
 	panic("cannot call 'SetInitialVersion' on an immutable IAVL tree")
+}
+
+func (it *immutableTree) LoadVersionForOverwriting(targetVersion int64) (int64, error) {
+	panic("cannot call 'LoadVersionForOverwriting' on an immutable IAVL tree")
 }
 
 func (it *immutableTree) VersionExists(version int64) bool {

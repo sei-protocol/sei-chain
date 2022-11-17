@@ -5,6 +5,7 @@ import (
 	"io"
 	"time"
 
+	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/gogo/protobuf/grpc"
 	"github.com/spf13/cobra"
 	abci "github.com/tendermint/tendermint/abci/types"
@@ -52,6 +53,9 @@ type (
 
 		// RegisterTendermintService registers the gRPC Query service for tendermint queries.
 		RegisterTendermintService(clientCtx client.Context)
+
+		// Return the multistore instance
+		CommitMultiStore() sdk.CommitMultiStore
 	}
 
 	// AppCreator is a function that allows us to lazily initialize an

@@ -263,7 +263,14 @@ func interceptConfigs(rootViper *viper.Viper, customAppTemplate string, customCo
 }
 
 // add server commands
-func AddCommands(rootCmd *cobra.Command, defaultNodeHome string, appCreator types.AppCreator, appExport types.AppExporter, addStartFlags types.ModuleInitFlags, tracerProviderOptions []trace.TracerProviderOption) {
+func AddCommands(
+	rootCmd *cobra.Command,
+	defaultNodeHome string,
+	appCreator types.AppCreator,
+	appExport types.AppExporter,
+	addStartFlags types.ModuleInitFlags,
+	tracerProviderOptions []trace.TracerProviderOption,
+) {
 	tendermintCmd := &cobra.Command{
 		Use:   "tendermint",
 		Short: "Tendermint subcommands",
@@ -284,7 +291,7 @@ func AddCommands(rootCmd *cobra.Command, defaultNodeHome string, appCreator type
 		tendermintCmd,
 		ExportCmd(appExport, defaultNodeHome),
 		version.NewVersionCommand(),
-		NewRollbackCmd(defaultNodeHome),
+		NewRollbackCmd(appCreator, defaultNodeHome),
 	)
 }
 

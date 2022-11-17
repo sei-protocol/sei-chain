@@ -917,29 +917,40 @@ func (rs *Store) buildCommitInfo(version int64) *types.CommitInfo {
 }
 
 // RollbackToVersion delete the versions after `target` and update the latest version.
-func (rs *Store) RollbackToVersion(target int64) int64 {
-	if target < 0 {
-		panic("Negative rollback target")
-	}
-	current := getLatestVersion(rs.db)
-	if target >= current {
-		return current
-	}
-	for ; current > target; current-- {
-		rs.pruneHeights = append(rs.pruneHeights, current)
-	}
-	rs.pruneStores()
-
-	// update latest height
-	bz, err := gogotypes.StdInt64Marshal(current)
-	if err != nil {
-		panic(err)
+func (rs *Store) RollbackToVersion(target int64) error {
+	if target <= 0 {
+		return fmt.Errorf("invalid rollback height target: %d", target)
 	}
 
-	rs.db.Set([]byte(latestVersionKey), bz)
-	return current
+	for key, store := range rs.stores {
+		if store.GetStoreType() == types.StoreTypeIAVL {
+			// If the store is wrapped with an inter-block cache, we must first unwrap
+			// it to get the underlying IAVL store.
+			store = rs.GetCommitKVStore(key)
+			_, err := store.(*iavl.Store).LoadVersionForOverwriting(target)
+			if err != nil {
+				return err
+			}
+		}
+	}
+
+	rs.flushMetadata(rs.db, target, rs.buildCommitInfo(target))
+
+	return rs.LoadLatestVersion()
 }
 
+func (rs *Store) flushMetadata(db dbm.DB, version int64, cInfo *types.CommitInfo) {
+
+	batch := db.NewBatch()
+	defer batch.Close()
+	if cInfo != nil {
+		flushCommitInfo(batch, version, cInfo)
+	}
+	flushLatestVersion(batch, version)
+	if err := batch.WriteSync(); err != nil {
+		panic(fmt.Errorf("error on batch write %w", err))
+	}
+}
 type storeParams struct {
 	key            types.StoreKey
 	db             dbm.DB
@@ -1067,4 +1078,23 @@ func flushMetadata(db dbm.DB, version int64, cInfo *types.CommitInfo, pruneHeigh
 	if err := batch.Write(); err != nil {
 		panic(fmt.Errorf("error on batch write %w", err))
 	}
+}
+
+func flushCommitInfo(batch dbm.Batch, version int64, cInfo *types.CommitInfo) {
+	bz, err := cInfo.Marshal()
+	if err != nil {
+		panic(err)
+	}
+
+	cInfoKey := fmt.Sprintf(commitInfoKeyFmt, version)
+	batch.Set([]byte(cInfoKey), bz)
+}
+
+func flushLatestVersion(batch dbm.Batch, version int64) {
+	bz, err := gogotypes.StdInt64Marshal(version)
+	if err != nil {
+		panic(err)
+	}
+
+	batch.Set([]byte(latestVersionKey), bz)
 }

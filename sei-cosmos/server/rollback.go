@@ -4,13 +4,15 @@ import (
 	"fmt"
 
 	"github.com/cosmos/cosmos-sdk/client/flags"
-	"github.com/cosmos/cosmos-sdk/store/rootmulti"
+	"github.com/cosmos/cosmos-sdk/server/types"
 	"github.com/spf13/cobra"
 	tmcmd "github.com/tendermint/tendermint/cmd/tendermint/commands"
 )
 
+var removeBlock = false
+
 // NewRollbackCmd creates a command to rollback tendermint and multistore state by one height.
-func NewRollbackCmd(defaultNodeHome string) *cobra.Command {
+func NewRollbackCmd(appCreator types.AppCreator, defaultNodeHome string) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "rollback",
 		Short: "rollback cosmos-sdk and tendermint state by one height",
@@ -30,20 +32,30 @@ application.
 			if err != nil {
 				return err
 			}
+
+			app := appCreator(
+				ctx.Logger,
+				db,
+				nil,
+				ctx.Viper,
+			)
+
 			// rollback tendermint state
-			height, hash, err := tmcmd.RollbackState(ctx.Config)
+			height, hash, err := tmcmd.RollbackState(ctx.Config, removeBlock)
 			if err != nil {
 				return fmt.Errorf("failed to rollback tendermint state: %w", err)
 			}
 			// rollback the multistore
-			cms := rootmulti.NewStore(db)
-			cms.RollbackToVersion(height)
-
+			if err := app.CommitMultiStore().RollbackToVersion(height); err != nil {
+				return fmt.Errorf("failed to rollback to version: %w", err)
+			}
 			fmt.Printf("Rolled back state to height %d and hash %X", height, hash)
 			return nil
 		},
 	}
 
+	cmd.Flags().String(flags.FlagChainID, "sei-chain", "genesis file chain-id, if left blank will use sei")
+	cmd.Flags().BoolVar(&removeBlock, "hard", false, "remove last block as well as state")
 	cmd.Flags().String(flags.FlagHome, defaultNodeHome, "The application home directory")
 	return cmd
 }
