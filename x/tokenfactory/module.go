@@ -146,7 +146,8 @@ func (am AppModule) RegisterServices(cfg module.Configurator) {
 	types.RegisterQueryServer(cfg.QueryServer(), am.keeper)
 
 	m := keeper.NewMigrator(am.keeper)
-	_ = cfg.RegisterMigration(types.ModuleName, 1, m.Migrate1to2)
+	_ = cfg.RegisterMigration(types.ModuleName, 1, func(ctx sdk.Context) error { return nil })
+	_ = cfg.RegisterMigration(types.ModuleName, 2, m.Migrate2to3)
 }
 
 // RegisterInvariants registers the x/tokenfactory module's invariants.
