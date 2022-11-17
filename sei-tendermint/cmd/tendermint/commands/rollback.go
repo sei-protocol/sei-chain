@@ -9,8 +9,10 @@ import (
 	"github.com/tendermint/tendermint/internal/state"
 )
 
+var removeBlock bool = false
+
 func MakeRollbackStateCommand(conf *config.Config) *cobra.Command {
-	return &cobra.Command{
+	cmd := &cobra.Command{
 		Use:   "rollback",
 		Short: "rollback tendermint state by one height",
 		Long: `
@@ -22,22 +24,28 @@ restarting Tendermint the transactions in block n will be re-executed against th
 application.
 `,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			height, hash, err := RollbackState(conf)
+			height, hash, err := RollbackState(conf, removeBlock)
 			if err != nil {
 				return fmt.Errorf("failed to rollback state: %w", err)
 			}
 
-			fmt.Printf("Rolled back state to height %d and hash %X", height, hash)
+			if removeBlock {
+				fmt.Printf("Rolled back both state and block to height %d and hash %X\n", height, hash)
+			} else {
+				fmt.Printf("Rolled back state to height %d and hash %X\n", height, hash)
+			}
 			return nil
 		},
 	}
+	cmd.Flags().BoolVar(&removeBlock, "hard", false, "remove last block as well as state")
 
+	return cmd
 }
 
 // RollbackState takes the state at the current height n and overwrites it with the state
 // at height n - 1. Note state here refers to tendermint state not application state.
 // Returns the latest state height and app hash alongside an error if there was one.
-func RollbackState(config *config.Config) (int64, []byte, error) {
+func RollbackState(config *config.Config, removeBlock bool) (int64, []byte, error) {
 	// use the parsed config to load the block and state store
 	blockStore, stateStore, err := loadStateAndBlockStore(config)
 	if err != nil {
@@ -49,5 +57,5 @@ func RollbackState(config *config.Config) (int64, []byte, error) {
 	}()
 
 	// rollback the last state
-	return state.Rollback(blockStore, stateStore)
+	return state.Rollback(blockStore, stateStore, removeBlock, config.PrivValidator)
 }

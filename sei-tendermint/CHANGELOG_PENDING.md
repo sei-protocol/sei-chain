@@ -74,7 +74,9 @@ Special thanks to external contributors on this release:
 - [abci] ABCI++ [implemented](https://github.com/orgs/tendermint/projects/9). (@williambanfield, @thanethomson, @sergio-mena)
 
 ### IMPROVEMENTS
-
+- [cli] \#9171 add `--hard` flag to rollback command (and a boolean to the `RollbackState` method). This will rollback
+  state and remove the last block. This command can be triggered multiple times. The application must also rollback
+  state to the same height.  This was cherry-picked from this [commit](https://github.com/tendermint/tendermint/commit/e84d43ec93a3456d1b3c9df39513c9c77409ab02)
 - [internal/protoio] \#7325 Optimized `MarshalDelimited` by inlining the common case and using a `sync.Pool` in the worst case. (@odeke-em)
 - [consensus] \#6969 remove logic to 'unlock' a locked block.
 - [evidence] \#7700 Evidence messages contain single Evidence instead of EvidenceList (@jmalicevic)

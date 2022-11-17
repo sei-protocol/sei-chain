@@ -71,6 +71,7 @@ func (bs *BlockStore) Height() int64 {
 		blockMetaKey(1),
 		blockMetaKey(1<<63-1),
 	)
+
 	if err != nil {
 		panic(err)
 	}
@@ -85,7 +86,6 @@ func (bs *BlockStore) Height() int64 {
 	if err := iter.Error(); err != nil {
 		panic(err)
 	}
-
 	return 0
 }
 
@@ -740,4 +740,43 @@ func mustEncode(pb proto.Message) []byte {
 		panic(fmt.Errorf("unable to marshal: %w", err))
 	}
 	return bz
+}
+
+//-----------------------------------------------------------------------------
+
+// DeleteLatestBlock removes the block pointed to by height,
+// lowering height by one.
+func (bs *BlockStore) DeleteLatestBlock() error {
+	targetHeight := bs.Height()
+	batch := bs.db.NewBatch()
+	defer batch.Close()
+
+	// delete what we can, skipping what's already missing, to ensure partial
+	// blocks get deleted fully.
+	if meta := bs.LoadBlockMeta(targetHeight); meta != nil {
+		if err := batch.Delete(blockHashKey(meta.BlockID.Hash)); err != nil {
+			return err
+		}
+		for p := 0; p < int(meta.BlockID.PartSetHeader.Total); p++ {
+			if err := batch.Delete(blockPartKey(targetHeight, p)); err != nil {
+				return err
+			}
+		}
+	}
+	if err := batch.Delete(blockCommitKey(targetHeight)); err != nil {
+		return err
+	}
+	if err := batch.Delete(seenCommitKey()); err != nil {
+		return err
+	}
+	// delete last, so as to not leave keys built on meta.BlockID dangling
+	if err := batch.Delete(blockMetaKey(targetHeight)); err != nil {
+		return err
+	}
+
+	err := batch.WriteSync()
+	if err != nil {
+		return fmt.Errorf("failed to delete height %v: %w", targetHeight, err)
+	}
+	return nil
 }

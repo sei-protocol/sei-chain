@@ -4,13 +4,15 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/tendermint/tendermint/config"
+	"github.com/tendermint/tendermint/privval"
 	"github.com/tendermint/tendermint/version"
 )
 
 // Rollback overwrites the current Tendermint state (height n) with the most
 // recent previous state (height n - 1).
 // Note that this function does not affect application state.
-func Rollback(bs BlockStore, ss Store) (int64, []byte, error) {
+func Rollback(bs BlockStore, ss Store, removeBlock bool, privValidatorConfig *config.PrivValidatorConfig) (int64, []byte, error) {
 	invalidState, err := ss.Load()
 	if err != nil {
 		return -1, nil, err
@@ -22,9 +24,14 @@ func Rollback(bs BlockStore, ss Store) (int64, []byte, error) {
 	height := bs.Height()
 
 	// NOTE: persistence of state and blocks don't happen atomically. Therefore it is possible that
-	// when the user stopped the node the state wasn't updated but the blockstore was. In this situation
-	// we don't need to rollback any state and can just return early
+	// when the user stopped the node the state wasn't updated but the blockstore was. Discard the
+	// pending block before continuing.
 	if height == invalidState.LastBlockHeight+1 {
+		if removeBlock {
+			if err := bs.DeleteLatestBlock(); err != nil {
+				return -1, nil, fmt.Errorf("failed to remove final block from blockstore: %w", err)
+			}
+		}
 		return invalidState.LastBlockHeight, invalidState.AppHash, nil
 	}
 
@@ -103,6 +110,25 @@ func Rollback(bs BlockStore, ss Store) (int64, []byte, error) {
 	// but both should be the same
 	if err := ss.Save(rolledBackState); err != nil {
 		return -1, nil, fmt.Errorf("failed to save rolled back state: %w", err)
+	}
+
+	// If removeBlock is true then also remove the block associated with the previous state.
+	// This will mean both the last state and last block height is equal to n - 1
+	if removeBlock {
+		if err := bs.DeleteLatestBlock(); err != nil {
+			return -1, nil, fmt.Errorf("failed to remove final block from blockstore: %w", err)
+		}
+
+		// Priv Val LastState needs to be rolled back if this is the case
+		filePv, loadErr := privval.LoadFilePV(privValidatorConfig.KeyFile(), privValidatorConfig.StateFile())
+		if loadErr != nil {
+			return -1, nil, fmt.Errorf("failed to load private validator file: %w", loadErr)
+		}
+
+		resetErr := filePv.Reset()
+		if resetErr != nil {
+			return -1, nil, fmt.Errorf("failed to reset private validator file: %w", resetErr)
+		}
 	}
 
 	return rolledBackState.LastBlockHeight, rolledBackState.AppHash, nil

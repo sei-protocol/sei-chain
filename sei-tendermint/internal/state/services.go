@@ -38,6 +38,8 @@ type BlockStore interface {
 	LoadBlockCommit(height int64) *types.Commit
 	LoadSeenCommit() *types.Commit
 	LoadBlockExtendedCommit(height int64) *types.ExtendedCommit
+
+	DeleteLatestBlock() error
 }
 
 //-----------------------------------------------------------------------------

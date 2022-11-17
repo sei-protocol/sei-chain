@@ -1218,9 +1218,11 @@ func (bs *mockBlockStore) SaveBlock(block *types.Block, blockParts *types.PartSe
 func (bs *mockBlockStore) LoadBlockCommit(height int64) *types.Commit {
 	return bs.extCommits[height-1].ToCommit()
 }
+
 func (bs *mockBlockStore) LoadSeenCommit() *types.Commit {
 	return bs.extCommits[len(bs.extCommits)-1].ToCommit()
 }
+
 func (bs *mockBlockStore) LoadBlockExtendedCommit(height int64) *types.ExtendedCommit {
 	return bs.extCommits[height-1]
 }
@@ -1235,6 +1237,9 @@ func (bs *mockBlockStore) PruneBlocks(height int64) (uint64, error) {
 	bs.base = height
 	return pruned, nil
 }
+
+
+func (bs *mockBlockStore) DeleteLatestBlock() error { return nil }
 
 //---------------------------------------
 // Test handshake/init chain

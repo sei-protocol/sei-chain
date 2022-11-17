@@ -43,7 +43,7 @@ func TestRollbackIntegration(t *testing.T) {
 	t.Run("Rollback", func(t *testing.T) {
 		time.Sleep(time.Second)
 		require.NoError(t, app.Rollback())
-		height, _, err = commands.RollbackState(cfg)
+		height, _, err = commands.RollbackState(cfg, false)
 		require.NoError(t, err, "%d", height)
 	})
 	t.Run("Restart", func(t *testing.T) {

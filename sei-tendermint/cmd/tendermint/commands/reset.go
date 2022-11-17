@@ -42,7 +42,7 @@ func MakeResetCommand(conf *config.Config, logger log.Logger) *cobra.Command {
 	resetSignerCmd := &cobra.Command{
 		Use:   "unsafe-signer",
 		Short: "esets private validator signer state",
-		Long: `Resets private validator signer state. 
+		Long: `Resets private validator signer state.
 Only use in testing. This can cause the node to double sign`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return ResetFilePV(conf.PrivValidator.KeyFile(), conf.PrivValidator.StateFile(), logger, keyType)
@@ -52,7 +52,7 @@ Only use in testing. This can cause the node to double sign`,
 	resetAllCmd := &cobra.Command{
 		Use:   "unsafe-all",
 		Short: "Removes all tendermint data including signing state",
-		Long: `Removes all tendermint data including signing state. 
+		Long: `Removes all tendermint data including signing state.
 Only use in testing. This can cause the node to double sign`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return ResetAll(conf.DBDir(), conf.PrivValidator.KeyFile(),
