@@ -82,8 +82,13 @@ func TestClear(t *testing.T) {
 		Account:      "test",
 		ContractAddr: TEST_CONTRACT,
 	})
+	stateOne.GetBlockCancels(ctx, utils.ContractAddress(TEST_CONTRACT), utils.PairString(TEST_PAIR)).Add(&types.Cancellation{
+		Id:           2,
+		ContractAddr: TEST_CONTRACT,
+	})
 	stateOne.Clear(ctx)
 	require.Equal(t, 0, len(stateOne.GetBlockOrders(ctx, utils.ContractAddress(TEST_CONTRACT), utils.PairString(TEST_PAIR)).Get()))
+	require.Equal(t, 0, len(stateOne.GetBlockCancels(ctx, utils.ContractAddress(TEST_CONTRACT), utils.PairString(TEST_PAIR)).Get()))
 }
 
 func TestSynchronization(t *testing.T) {

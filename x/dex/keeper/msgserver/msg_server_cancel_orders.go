@@ -36,14 +36,7 @@ func (k msgServer) CancelOrders(goCtx context.Context, msg *types.MsgCancelOrder
 		pair := types.Pair{PriceDenom: cancellation.PriceDenom, AssetDenom: cancellation.AssetDenom}
 		pairStr := typesutils.GetPairString(&pair)
 		pairBlockCancellations := dexutils.GetMemState(ctx.Context()).GetBlockCancels(ctx, typesutils.ContractAddress(msg.GetContractAddr()), pairStr)
-		cancelledInCurrentBlock := false
-		for _, cancelInCurrentBlock := range pairBlockCancellations.Get() {
-			if cancelInCurrentBlock.Id == cancellation.Id {
-				cancelledInCurrentBlock = true
-				break
-			}
-		}
-		if !cancelledInCurrentBlock {
+		if !pairBlockCancellations.Has(cancellation) {
 			// only cancel if it's not cancelled in a previous tx in the same block
 			cancel := types.Cancellation{
 				Id:                cancellation.Id,

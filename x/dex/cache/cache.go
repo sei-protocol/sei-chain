@@ -66,23 +66,13 @@ func (i *memStateItems[T]) Copy() *memStateItems[T] {
 }
 
 type MemState struct {
-	storeKey     sdk.StoreKey
-	blockCancels *datastructures.TypedNestedSyncMap[
-		typesutils.ContractAddress,
-		typesutils.PairString,
-		*BlockCancellations,
-	]
+	storeKey    sdk.StoreKey
 	depositInfo *datastructures.TypedSyncMap[typesutils.ContractAddress, *DepositInfo]
 }
 
 func NewMemState(storeKey sdk.StoreKey) *MemState {
 	return &MemState{
-		storeKey: storeKey,
-		blockCancels: datastructures.NewTypedNestedSyncMap[
-			typesutils.ContractAddress,
-			typesutils.PairString,
-			*BlockCancellations,
-		](),
+		storeKey:    storeKey,
 		depositInfo: datastructures.NewTypedSyncMap[typesutils.ContractAddress, *DepositInfo](),
 	}
 }
@@ -123,8 +113,14 @@ func (s *MemState) GetBlockOrders(ctx sdk.Context, contractAddr typesutils.Contr
 
 func (s *MemState) GetBlockCancels(ctx sdk.Context, contractAddr typesutils.ContractAddress, pair typesutils.PairString) *BlockCancellations {
 	s.SynchronizeAccess(ctx, contractAddr)
-	cancelsForPair, _ := s.blockCancels.LoadOrStoreNested(contractAddr, pair, NewCancels())
-	return cancelsForPair
+	return NewCancels(
+		prefix.NewStore(
+			ctx.KVStore(s.storeKey),
+			types.MemCancelPrefixForPair(
+				string(contractAddr), string(pair),
+			),
+		),
+	)
 }
 
 func (s *MemState) GetDepositInfo(ctx sdk.Context, contractAddr typesutils.ContractAddress) *DepositInfo {
@@ -139,22 +135,26 @@ func (s *MemState) GetDepositInfo(ctx sdk.Context, contractAddr typesutils.Contr
 
 func (s *MemState) Clear(ctx sdk.Context) {
 	DeepDelete(ctx.KVStore(s.storeKey), types.KeyPrefix(types.MemOrderKey), func(_ []byte) bool { return true })
-	s.blockCancels = datastructures.NewTypedNestedSyncMap[
-		typesutils.ContractAddress,
-		typesutils.PairString,
-		*BlockCancellations,
-	]()
+	DeepDelete(ctx.KVStore(s.storeKey), types.KeyPrefix(types.MemCancelKey), func(_ []byte) bool { return true })
 	DeepDelete(ctx.KVStore(s.storeKey), types.KeyPrefix(types.MemDepositKey), func(_ []byte) bool { return true })
 }
 
 func (s *MemState) ClearCancellationForPair(ctx sdk.Context, contractAddr typesutils.ContractAddress, pair typesutils.PairString) {
 	s.SynchronizeAccess(ctx, contractAddr)
-	s.blockCancels.StoreNested(contractAddr, pair, NewCancels())
+	DeepDelete(ctx.KVStore(s.storeKey), types.KeyPrefix(types.MemCancelKey), func(v []byte) bool {
+		var c types.Cancellation
+		if err := c.Unmarshal(v); err != nil {
+			panic(err)
+		}
+		return c.ContractAddr == string(contractAddr) && typesutils.GetPairString(&types.Pair{
+			AssetDenom: c.AssetDenom,
+			PriceDenom: c.PriceDenom,
+		}) == pair
+	})
 }
 
 func (s *MemState) DeepCopy() *MemState {
 	copy := NewMemState(s.storeKey)
-	copy.blockCancels = s.blockCancels.DeepCopy(func(o *BlockCancellations) *BlockCancellations { return o.Copy() })
 	return copy
 }
 
@@ -166,7 +166,13 @@ func (s *MemState) DeepFilterAccount(ctx sdk.Context, account string) {
 		}
 		return o.Account == account
 	})
-	s.blockCancels.DeepApply(func(o *BlockCancellations) { o.FilterByAccount(account) })
+	DeepDelete(ctx.KVStore(s.storeKey), types.KeyPrefix(types.MemCancelKey), func(v []byte) bool {
+		var c types.Cancellation
+		if err := c.Unmarshal(v); err != nil {
+			panic(err)
+		}
+		return c.Creator == account
+	})
 	DeepDelete(ctx.KVStore(s.storeKey), types.KeyPrefix(types.MemDepositKey), func(v []byte) bool {
 		var d types.DepositInfoEntry
 		if err := d.Unmarshal(v); err != nil {

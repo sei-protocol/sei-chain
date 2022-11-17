@@ -144,6 +144,13 @@ func MemOrderPrefixForPair(contractAddr string, pairString string) []byte {
 	)
 }
 
+func MemCancelPrefixForPair(contractAddr string, pairString string) []byte {
+	return append(
+		append(KeyPrefix(MemCancelKey), KeyPrefix(contractAddr)...),
+		[]byte(pairString)...,
+	)
+}
+
 func MemOrderPrefix(contractAddr string) []byte {
 	return append(KeyPrefix(MemOrderKey), KeyPrefix(contractAddr)...)
 }
@@ -181,4 +188,5 @@ const (
 
 	MemOrderKey   = "MemOrder-"
 	MemDepositKey = "MemDeposit-"
+	MemCancelKey  = "MemCancel-"
 )
