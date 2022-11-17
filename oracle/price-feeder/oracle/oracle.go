@@ -29,7 +29,7 @@ import (
 // and broadcast pre-vote and vote transactions such that they're committed in
 // at least one block during each voting period.
 const (
-	tickerSleep = 250 * time.Millisecond
+	tickerSleep = 100 * time.Millisecond
 )
 
 // Oracle implements the core component responsible for fetching exchange rates
