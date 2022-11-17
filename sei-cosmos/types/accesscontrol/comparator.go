@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/armon/go-metrics"
+	"github.com/cosmos/cosmos-sdk/telemetry"
 	abci "github.com/tendermint/tendermint/abci/types"
 )
 
@@ -112,5 +114,16 @@ func (c *Comparator) IsConcurrentSafeIdentifier() bool {
 }
 
 func (c *Comparator) String() string {
-	return fmt.Sprintf("AccessType=%s, Identifier=%s\n", c.AccessType, c.Identifier)
+	return fmt.Sprintf("AccessType=%s, Identifier=%s, StoreKey=%s\n", c.AccessType, c.Identifier, c.StoreKey)
+}
+
+func (c *Comparator) EmitValidationFailMetrics() {
+	telemetry.IncrCounterWithLabels(
+		[]string{"sei", "concurrent", "tx", "validation", "failed"},
+		1,
+		[]metrics.Label{
+			telemetry.NewLabel("access_type", c.AccessType.String()),
+			telemetry.NewLabel("store_key", c.StoreKey),
+		},
+	)
 }
