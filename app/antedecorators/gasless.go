@@ -5,6 +5,7 @@ import (
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkacltypes "github.com/cosmos/cosmos-sdk/types/accesscontrol"
+	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
 	dextypes "github.com/sei-protocol/sei-chain/x/dex/types"
 	nitrokeeper "github.com/sei-protocol/sei-chain/x/nitro/keeper"
@@ -14,12 +15,12 @@ import (
 )
 
 type GaslessDecorator struct {
-	wrapped      []sdk.AnteDecorator
+	wrapped      []sdk.AnteFullDecorator
 	oracleKeeper oraclekeeper.Keeper
 	nitroKeeper  nitrokeeper.Keeper
 }
 
-func NewGaslessDecorator(wrapped []sdk.AnteDecorator, oracleKeeper oraclekeeper.Keeper, nitroKeeper nitrokeeper.Keeper) GaslessDecorator {
+func NewGaslessDecorator(wrapped []sdk.AnteFullDecorator, oracleKeeper oraclekeeper.Keeper, nitroKeeper nitrokeeper.Keeper) GaslessDecorator {
 	return GaslessDecorator{wrapped: wrapped, oracleKeeper: oracleKeeper, nitroKeeper: nitroKeeper}
 }
 
@@ -27,7 +28,14 @@ func (gd GaslessDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool,
 	originalGasMeter := ctx.GasMeter()
 	// eagerly set infinite gas meter so that queries performed by isTxGasless will not incur gas cost
 	ctx = ctx.WithGasMeter(sdk.NewInfiniteGasMeter())
-	if !isTxGasless(tx, ctx, gd.oracleKeeper, gd.nitroKeeper) {
+
+	feeTx, ok := tx.(sdk.FeeTx)
+	if !ok {
+		return ctx, sdkerrors.Wrap(sdkerrors.ErrTxDecode, "Tx must be a FeeTx")
+	}
+	gas := feeTx.GetGas()
+	// If non-zero gas limit is provided by the TX, we then consider it exempt from the gasless TX, and then prioritize it accordingly
+	if gas > 0 || !isTxGasless(tx, ctx, gd.oracleKeeper, gd.nitroKeeper) {
 		ctx = ctx.WithGasMeter(originalGasMeter)
 		// if not gasless, then we use the wrappers
 
@@ -36,9 +44,11 @@ func (gd GaslessDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool,
 			return ctx, nil
 		}
 		// iterating instead of recursing the handler for readability
-		// we use blank here because we shouldn't handle the error
 		for _, handler := range gd.wrapped {
-			ctx, _ = handler.AnteHandle(ctx, tx, simulate, terminatorHandler)
+			ctx, err = handler.AnteHandle(ctx, tx, simulate, terminatorHandler)
+			if err != nil {
+				return ctx, err
+			}
 		}
 		return next(ctx, tx, simulate)
 	}
@@ -48,6 +58,12 @@ func (gd GaslessDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool,
 
 func (gd GaslessDecorator) AnteDeps(txDeps []sdkacltypes.AccessOperation, tx sdk.Tx, next sdk.AnteDepGenerator) (newTxDeps []sdkacltypes.AccessOperation, err error) {
 	deps := []sdkacltypes.AccessOperation{}
+	terminatorDeps := func(txDeps []sdkacltypes.AccessOperation, _ sdk.Tx) ([]sdkacltypes.AccessOperation, error) {
+		return txDeps, nil
+	}
+	for _, depGen := range gd.wrapped {
+		deps, _ = depGen.AnteDeps(deps, tx, terminatorDeps)
+	}
 	for _, msg := range tx.GetMsgs() {
 		// Error checking will be handled in AnteHandler
 		switch m := msg.(type) {
