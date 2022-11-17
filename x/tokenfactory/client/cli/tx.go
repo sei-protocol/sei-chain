@@ -30,7 +30,6 @@ func GetTxCmd() *cobra.Command {
 		NewBurnCmd(),
 		// NewForceTransferCmd(),
 		NewChangeAdminCmd(),
-		NewAddCreatorsToDenomFeeWhitelistProposalTxCmd(),
 	)
 
 	return cmd

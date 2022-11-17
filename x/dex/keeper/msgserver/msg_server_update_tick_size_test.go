@@ -1,22 +1,22 @@
 package msgserver_test
 
 import (
-	"testing"
 	"context"
 	"io/ioutil"
+	"testing"
 	"time"
 
 	wasmkeeper "github.com/CosmWasm/wasmd/x/wasm/keeper"
 	wasmtypes "github.com/CosmWasm/wasmd/x/wasm/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	keepertest "github.com/sei-protocol/sei-chain/testutil/keeper"
+	dexcache "github.com/sei-protocol/sei-chain/x/dex/cache"
 	"github.com/sei-protocol/sei-chain/x/dex/keeper/msgserver"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
-	"github.com/stretchr/testify/require"
-	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 	dexutils "github.com/sei-protocol/sei-chain/x/dex/utils"
 	minttypes "github.com/sei-protocol/sei-chain/x/mint/types"
-	dexcache "github.com/sei-protocol/sei-chain/x/dex/cache"
+	"github.com/stretchr/testify/require"
+	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 )
 
 func TestUpdateTickSize(t *testing.T) {
