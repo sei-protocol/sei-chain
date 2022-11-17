@@ -38,16 +38,18 @@ const (
 // cacheMultiStore which is used for branching other MultiStores. It implements
 // the CommitMultiStore interface.
 type Store struct {
-	db             dbm.DB
-	lastCommitInfo *types.CommitInfo
-	pruningOpts    types.PruningOptions
-	iavlCacheSize  int
-	storesParams   map[types.StoreKey]storeParams
-	stores         map[types.StoreKey]types.CommitKVStore
-	keysByName     map[string]types.StoreKey
-	lazyLoading    bool
-	pruneHeights   []int64
-	initialVersion int64
+	db              dbm.DB
+	archivalDb      dbm.DB
+	lastCommitInfo  *types.CommitInfo
+	pruningOpts     types.PruningOptions
+	iavlCacheSize   int
+	storesParams    map[types.StoreKey]storeParams
+	stores          map[types.StoreKey]types.CommitKVStore
+	keysByName      map[string]types.StoreKey
+	lazyLoading     bool
+	pruneHeights    []int64
+	initialVersion  int64
+	archivalVersion int64
 
 	traceWriter       io.Writer
 	traceContext      types.TraceContext
@@ -78,6 +80,17 @@ func NewStore(db dbm.DB) *Store {
 		pruneHeights:  make([]int64, 0),
 		listeners:     make(map[types.StoreKey][]types.WriteListener),
 	}
+}
+
+func NewStoreWithArchival(db, archivalDb dbm.DB, archivalVersion int64) *Store {
+	store := NewStore(db)
+	store.archivalDb = archivalDb
+	store.archivalVersion = archivalVersion
+	return store
+}
+
+func (rs *Store) shouldUseArchivalDb(ver int64) bool {
+	return rs.archivalDb != nil && rs.archivalVersion > ver
 }
 
 // GetPruning fetches the pruning strategy from the root store.
@@ -844,6 +857,12 @@ func (rs *Store) loadCommitStoreFromParams(key types.StoreKey, id types.CommitID
 
 	if params.db != nil {
 		db = dbm.NewPrefixDB(params.db, []byte("s/_/"))
+	} else if rs.shouldUseArchivalDb(id.Version) {
+		prefix := make([]byte, 8)
+		binary.BigEndian.PutUint64(prefix, uint64(id.Version))
+		prefix = append(prefix, []byte("s/k:"+params.key.Name()+"/")...)
+		db = dbm.NewPrefixDB(rs.archivalDb, prefix)
+		params.typ = types.StoreTypeDB
 	} else {
 		prefix := "s/k:" + params.key.Name() + "/"
 		db = dbm.NewPrefixDB(rs.db, []byte(prefix))

@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/gogo/protobuf/proto"
+	sdbm "github.com/sei-protocol/sei-tm-db/backends"
 	"github.com/spf13/cast"
 	abci "github.com/tendermint/tendermint/abci/types"
 	"github.com/tendermint/tendermint/libs/log"
@@ -32,7 +33,15 @@ const (
 	runTxModeDeliver                   // Deliver a transaction
 )
 
-const FlagChainID = "chain-id"
+const (
+	// archival related flags
+	FlagArchivalVersion                = "archival-version"
+	FlagArchivalDBType                 = "archival-db-type"
+	FlagArchivalArweaveIndexDBFullPath = "archival-arweave-index-db-full-path"
+	FlagArchivalArweaveNodeURL         = "archival-arweave-node-url"
+
+	FlagChainID = "chain-id"
+)
 
 var (
 	_ abci.Application = (*BaseApp)(nil)
@@ -163,11 +172,25 @@ type BaseApp struct { //nolint: maligned
 func NewBaseApp(
 	name string, logger log.Logger, db dbm.DB, txDecoder sdk.TxDecoder, appOpts servertypes.AppOptions, options ...func(*BaseApp),
 ) *BaseApp {
+	cms := store.NewCommitMultiStore(db)
+	archivalVersion := cast.ToInt64(appOpts.Get(FlagArchivalVersion))
+	if archivalVersion > 0 {
+		switch cast.ToString(appOpts.Get(FlagArchivalDBType)) {
+		case "arweave":
+			indexDbPath := cast.ToString(appOpts.Get(FlagArchivalArweaveIndexDBFullPath))
+			arweaveNodeUrl := cast.ToString(appOpts.Get(FlagArchivalArweaveNodeURL))
+			arweaveDb, err := sdbm.NewArweaveDB(indexDbPath, arweaveNodeUrl)
+			if err != nil {
+				panic(err)
+			}
+			cms = store.NewCommitMultiStoreWithArchival(db, arweaveDb, archivalVersion)
+		}
+	}
 	app := &BaseApp{
 		logger:           logger,
 		name:             name,
 		db:               db,
-		cms:              store.NewCommitMultiStore(db),
+		cms:              cms,
 		storeLoader:      DefaultStoreLoader,
 		router:           NewRouter(),
 		queryRouter:      NewQueryRouter(),
@@ -768,7 +791,7 @@ func (app *BaseApp) runTx(ctx sdk.Context, mode runTxMode, txBytes []byte) (gInf
 
 		if ctx.MsgValidator() != nil {
 			storeAccessOpEvents := msCache.GetEvents()
-			accessOps, _:= app.anteDepGenerator([]acltypes.AccessOperation{}, tx)
+			accessOps, _ := app.anteDepGenerator([]acltypes.AccessOperation{}, tx)
 
 			missingAccessOps := ctx.MsgValidator().ValidateAccessOperations(accessOps, storeAccessOpEvents)
 			if len(missingAccessOps) != 0 {

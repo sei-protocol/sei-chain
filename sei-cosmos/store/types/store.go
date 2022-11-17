@@ -334,6 +334,7 @@ func (st StoreType) String() string {
 
 	case StoreTypeMemory:
 		return "StoreTypeMemory"
+
 	}
 
 	return "unknown store type"

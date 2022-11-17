@@ -65,6 +65,12 @@ const (
 	flagGRPCWebEnable  = "grpc-web.enable"
 	flagGRPCWebAddress = "grpc-web.address"
 
+	// archival related flags
+	FlagArchivalVersion                = "archival-version"
+	FlagArchivalDBType                 = "archival-db-type"
+	FlagArchivalArweaveIndexDBFullPath = "archival-arweave-index-db-full-path"
+	FlagArchivalArweaveNodeURL         = "archival-arweave-node-url"
+
 	// chain info
 	FlagChainID = "chain-id"
 )
@@ -165,6 +171,11 @@ is performed. Note, when enabled, gRPC will also be automatically enabled.
 
 	cmd.Flags().Uint64(FlagStateSyncSnapshotInterval, 0, "State sync snapshot interval")
 	cmd.Flags().Uint32(FlagStateSyncSnapshotKeepRecent, 2, "State sync snapshot to keep")
+
+	cmd.Flags().Int64(FlagArchivalVersion, 0, "Application data before this version is stored in archival DB")
+	cmd.Flags().String(FlagArchivalDBType, "", "Archival DB type. Valid options: arweave")
+	cmd.Flags().String(FlagArchivalArweaveIndexDBFullPath, "", "Full local path to the levelDB used for indexing arweave data")
+	cmd.Flags().String(FlagArchivalArweaveNodeURL, "", "Arweave Node URL that stores archived data")
 
 	cmd.Flags().String(FlagChainID, "", "Chain ID")
 
