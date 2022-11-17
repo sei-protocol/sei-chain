@@ -148,6 +148,10 @@ func MemOrderPrefix(contractAddr string) []byte {
 	return append(KeyPrefix(MemOrderKey), KeyPrefix(contractAddr)...)
 }
 
+func MemDepositPrefix(contractAddr string) []byte {
+	return append(KeyPrefix(MemDepositKey), KeyPrefix(contractAddr)...)
+}
+
 const (
 	DefaultPriceDenom = "stake"
 	DefaultAssetDenom = "dummy"
@@ -175,5 +179,6 @@ const (
 	AssetListKey        = "AssetList-"
 	MatchResultKey      = "MatchResult-"
 
-	MemOrderKey = "MemOrder-"
+	MemOrderKey   = "MemOrder-"
+	MemDepositKey = "MemDeposit-"
 )

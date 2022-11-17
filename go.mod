@@ -102,7 +102,6 @@ require (
 	github.com/firefart/nonamedreturns v1.0.1 // indirect
 	github.com/fsnotify/fsnotify v1.5.4 // indirect
 	github.com/fzipp/gocyclo v0.5.1 // indirect
-	github.com/ghodss/yaml v1.0.0 // indirect
 	github.com/go-critic/go-critic v0.6.3 // indirect
 	github.com/go-kit/kit v0.12.0 // indirect
 	github.com/go-kit/log v0.2.0 // indirect
@@ -277,10 +276,10 @@ require (
 )
 
 replace (
-	github.com/cosmos/cosmos-sdk => github.com/sei-protocol/sei-cosmos v0.1.268
+	github.com/cosmos/cosmos-sdk => github.com/sei-protocol/sei-cosmos v0.1.278
 	github.com/gogo/protobuf => github.com/regen-network/protobuf v1.3.3-alpha.regen.1
 	github.com/keybase/go-keychain => github.com/99designs/go-keychain v0.0.0-20191008050251-8e49817e8af4
-	github.com/tendermint/tendermint => github.com/sei-protocol/sei-tendermint v0.1.59
+	github.com/tendermint/tendermint => github.com/sei-protocol/sei-tendermint v0.1.84
 	google.golang.org/grpc => google.golang.org/grpc v1.33.2
 )
 

@@ -61,10 +61,10 @@ func TestDeepFilterAccounts(t *testing.T) {
 		Id:      2,
 		Creator: "test2",
 	})
-	stateOne.GetDepositInfo(ctx, utils.ContractAddress(TEST_CONTRACT)).Add(&dex.DepositInfoEntry{
+	stateOne.GetDepositInfo(ctx, utils.ContractAddress(TEST_CONTRACT)).Add(&types.DepositInfoEntry{
 		Creator: "test",
 	})
-	stateOne.GetDepositInfo(ctx, utils.ContractAddress(TEST_CONTRACT)).Add(&dex.DepositInfoEntry{
+	stateOne.GetDepositInfo(ctx, utils.ContractAddress(TEST_CONTRACT)).Add(&types.DepositInfoEntry{
 		Creator: "test2",
 	})
 

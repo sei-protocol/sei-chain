@@ -29,7 +29,7 @@ import (
 // and broadcast pre-vote and vote transactions such that they're committed in
 // at least one block during each voting period.
 const (
-	tickerSleep = 1000 * time.Millisecond
+	tickerSleep = 100 * time.Millisecond
 )
 
 // Oracle implements the core component responsible for fetching exchange rates
@@ -544,6 +544,7 @@ func (o *Oracle) tick(ctx context.Context) error {
 		Str("exchange_rates", voteMsg.ExchangeRates).
 		Str("validator", voteMsg.Validator).
 		Str("feeder", voteMsg.Feeder).
+		Float64("vote_period", currentVotePeriod).
 		Msg("broadcasting vote")
 	if err := o.oracleClient.BroadcastTx(
 		nextBlockHeight,
