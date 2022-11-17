@@ -6,7 +6,6 @@ import (
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	keepertest "github.com/sei-protocol/sei-chain/testutil/keeper"
-	dex "github.com/sei-protocol/sei-chain/x/dex/cache"
 	dexcache "github.com/sei-protocol/sei-chain/x/dex/cache"
 	"github.com/sei-protocol/sei-chain/x/dex/keeper/abci"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
@@ -48,7 +47,7 @@ func TestGetDepositSudoMsg(t *testing.T) {
 	bankkeeper.SendCoinsFromModuleToAccount(ctx, minttypes.ModuleName, testAccount, amounts)
 	keeper := testApp.DexKeeper
 	dexutils.GetMemState(ctx.Context()).GetDepositInfo(ctx, keepertest.TestContract).Add(
-		&dex.DepositInfoEntry{
+		&types.DepositInfoEntry{
 			Creator: testAccount.String(),
 			Denom:   amounts[0].Denom,
 			Amount:  sdk.NewDec(amounts[0].Amount.Int64()),

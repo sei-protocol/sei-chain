@@ -129,18 +129,22 @@ func (s *MemState) GetBlockCancels(ctx sdk.Context, contractAddr typesutils.Cont
 
 func (s *MemState) GetDepositInfo(ctx sdk.Context, contractAddr typesutils.ContractAddress) *DepositInfo {
 	s.SynchronizeAccess(ctx, contractAddr)
-	depositsForContract, _ := s.depositInfo.LoadOrStore(contractAddr, NewDepositInfo())
-	return depositsForContract
+	return NewDepositInfo(
+		prefix.NewStore(
+			ctx.KVStore(s.storeKey),
+			types.MemDepositPrefix(string(contractAddr)),
+		),
+	)
 }
 
 func (s *MemState) Clear(ctx sdk.Context) {
-	s.DeepDeleteOrders(ctx, func(_ *types.Order) bool { return true })
+	DeepDelete(ctx.KVStore(s.storeKey), types.KeyPrefix(types.MemOrderKey), func(_ []byte) bool { return true })
 	s.blockCancels = datastructures.NewTypedNestedSyncMap[
 		typesutils.ContractAddress,
 		typesutils.PairString,
 		*BlockCancellations,
 	]()
-	s.depositInfo = datastructures.NewTypedSyncMap[typesutils.ContractAddress, *DepositInfo]()
+	DeepDelete(ctx.KVStore(s.storeKey), types.KeyPrefix(types.MemDepositKey), func(_ []byte) bool { return true })
 }
 
 func (s *MemState) ClearCancellationForPair(ctx sdk.Context, contractAddr typesutils.ContractAddress, pair typesutils.PairString) {
@@ -150,40 +154,26 @@ func (s *MemState) ClearCancellationForPair(ctx sdk.Context, contractAddr typesu
 
 func (s *MemState) DeepCopy() *MemState {
 	copy := NewMemState(s.storeKey)
-	// reset so that blockOrders won't reference to the old store
 	copy.blockCancels = s.blockCancels.DeepCopy(func(o *BlockCancellations) *BlockCancellations { return o.Copy() })
-	copy.depositInfo = s.depositInfo.DeepCopy(func(o *DepositInfo) *DepositInfo { return o.Copy() })
 	return copy
 }
 
-func (s *MemState) DeepDeleteOrders(ctx sdk.Context, matcher func(*types.Order) bool) {
-	store := prefix.NewStore(
-		ctx.KVStore(s.storeKey),
-		types.KeyPrefix(types.MemOrderKey),
-	)
-	iterator := sdk.KVStorePrefixIterator(store, []byte{})
-
-	defer iterator.Close()
-
-	keysToDelete := [][]byte{}
-	for ; iterator.Valid(); iterator.Next() {
-		var val types.Order
-		if err := val.Unmarshal(iterator.Value()); err != nil {
+func (s *MemState) DeepFilterAccount(ctx sdk.Context, account string) {
+	DeepDelete(ctx.KVStore(s.storeKey), types.KeyPrefix(types.MemOrderKey), func(v []byte) bool {
+		var o types.Order
+		if err := o.Unmarshal(v); err != nil {
 			panic(err)
 		}
-		if matcher(&val) {
-			keysToDelete = append(keysToDelete, iterator.Key())
-		}
-	}
-	for _, keyToDelete := range keysToDelete {
-		store.Delete(keyToDelete)
-	}
-}
-
-func (s *MemState) DeepFilterAccount(ctx sdk.Context, account string) {
-	s.DeepDeleteOrders(ctx, func(o *types.Order) bool { return o.Account == account })
+		return o.Account == account
+	})
 	s.blockCancels.DeepApply(func(o *BlockCancellations) { o.FilterByAccount(account) })
-	s.depositInfo.DeepApply(func(o *DepositInfo) { o.FilterByAccount(account) })
+	DeepDelete(ctx.KVStore(s.storeKey), types.KeyPrefix(types.MemDepositKey), func(v []byte) bool {
+		var d types.DepositInfoEntry
+		if err := d.Unmarshal(v); err != nil {
+			panic(err)
+		}
+		return d.Creator == account
+	})
 }
 
 func (s *MemState) SynchronizeAccess(ctx sdk.Context, contractAddr typesutils.ContractAddress) {
@@ -230,4 +220,24 @@ func (s *MemState) SynchronizeAccess(ctx sdk.Context, contractAddr typesutils.Co
 	// eventually we will automatically de-register contracts that have to be rolled back
 	// so that this would not become a point of attack in terms of performance.
 	panic(fmt.Sprintf("Contract %s trying to access state of %s which is not a registered dependency", executingContract.ContractAddr, targetContractAddr))
+}
+
+func DeepDelete(kvStore sdk.KVStore, storePrefix []byte, matcher func([]byte) bool) {
+	store := prefix.NewStore(
+		kvStore,
+		storePrefix,
+	)
+	iterator := sdk.KVStorePrefixIterator(store, []byte{})
+
+	defer iterator.Close()
+
+	keysToDelete := [][]byte{}
+	for ; iterator.Valid(); iterator.Next() {
+		if matcher(iterator.Value()) {
+			keysToDelete = append(keysToDelete, iterator.Key())
+		}
+	}
+	for _, keyToDelete := range keysToDelete {
+		store.Delete(keyToDelete)
+	}
 }

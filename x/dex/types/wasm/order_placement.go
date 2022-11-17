@@ -3,7 +3,6 @@ package wasm
 import (
 	"fmt"
 
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
 )
 
@@ -12,14 +11,8 @@ type SudoOrderPlacementMsg struct {
 }
 
 type OrderPlacementMsgDetails struct {
-	Orders   []types.Order         `json:"orders"`
-	Deposits []ContractDepositInfo `json:"deposits"`
-}
-
-type ContractDepositInfo struct {
-	Account string  `json:"account"`
-	Denom   string  `json:"denom"`
-	Amount  sdk.Dec `json:"amount"`
+	Orders   []types.Order               `json:"orders"`
+	Deposits []types.ContractDepositInfo `json:"deposits"`
 }
 
 type SudoOrderPlacementResponse struct {
