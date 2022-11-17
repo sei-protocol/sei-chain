@@ -42,10 +42,27 @@ func InitGenesis(ctx sdk.Context, k keeper.Keeper, genState types.GenesisState) 
 func ExportGenesis(ctx sdk.Context, k keeper.Keeper) *types.GenesisState {
 	genesis := types.DefaultGenesis()
 	genesis.Params = k.GetParams(ctx)
+	var contractStates []types.ContractState
 
-	genesis.LongBookList = k.GetAllLongBook(ctx, "genesis")
-	genesis.ShortBookList = k.GetAllShortBook(ctx, "genesis")
-	// this line is used by starport scaffolding # genesis/module/export
+	for _, contractInfo := range k.GetAllContractInfo(ctx) {
+		contractAddr := contractInfo.ContractAddr
+		matchResult, found := k.GetMatchResultState(ctx, contractAddr)
+		if !found {
+			matchResult = &types.MatchResult{}
+
+		}
+		contractState := types.ContractState{
+			ContractInfo:        types.ContractInfoV2{},
+			LongBookList:        k.GetAllLongBook(ctx, contractAddr),
+			ShortBookList:       k.GetAllShortBook(ctx, contractAddr),
+			TriggeredOrdersList: k.GetAllTriggeredOrders(ctx, contractAddr),
+			PairList:            k.GetAllRegisteredPairs(ctx, contractAddr),
+			MatchResult:         *matchResult,
+			LastEpoch:           0,
+		}
+		contractStates = append(contractStates, contractState)
+	}
+	genesis.ContractState = contractStates
 
 	return genesis
 }
