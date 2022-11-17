@@ -15,6 +15,7 @@ import (
 	"github.com/sei-protocol/sei-chain/x/dex"
 	dexkeeper "github.com/sei-protocol/sei-chain/x/dex/keeper"
 	nitrokeeper "github.com/sei-protocol/sei-chain/x/nitro/keeper"
+	"github.com/sei-protocol/sei-chain/x/oracle"
 	oraclekeeper "github.com/sei-protocol/sei-chain/x/oracle/keeper"
 )
 
@@ -79,7 +80,7 @@ func NewAnteHandlerAndDepGenerator(options HandlerOptions) (sdk.AnteHandler, sdk
 		antedecorators.NewGaslessDecorator([]sdk.AnteFullDecorator{ante.NewDeductFeeDecorator(options.AccountKeeper, options.BankKeeper, options.FeegrantKeeper, options.TxFeeChecker)}, *options.OracleKeeper, *options.NitroKeeper),
 		sdk.DefaultWrappedAnteDecorator(wasmkeeper.NewLimitSimulationGasDecorator(options.WasmConfig.SimulationGasLimit)), // after setup context to enforce limits early
 		sdk.DefaultWrappedAnteDecorator(ante.NewRejectExtensionOptionsDecorator()),
-		// oracle.NewSpammingPreventionDecorator(*options.OracleKeeper), // TODO: UNDO THIS
+		oracle.NewSpammingPreventionDecorator(*options.OracleKeeper),
 		sdk.DefaultWrappedAnteDecorator(ante.NewValidateBasicDecorator()),
 		sdk.DefaultWrappedAnteDecorator(ante.NewTxTimeoutHeightDecorator()),
 		sdk.DefaultWrappedAnteDecorator(ante.NewValidateMemoDecorator(options.AccountKeeper)),
