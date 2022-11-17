@@ -544,7 +544,7 @@ func (o *Oracle) tick(ctx context.Context) error {
 		Str("exchange_rates", voteMsg.ExchangeRates).
 		Str("validator", voteMsg.Validator).
 		Str("feeder", voteMsg.Feeder).
-		Int64("vote_period", oracleVotePeriod).
+		Float64("vote_period", currentVotePeriod).
 		Msg("broadcasting vote")
 	if err := o.oracleClient.BroadcastTx(
 		nextBlockHeight,
