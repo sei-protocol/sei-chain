@@ -39,8 +39,12 @@ func CheckTxFeeWithValidatorMinGasPrices(ctx sdk.Context, tx sdk.Tx) (sdk.Coins,
 			}
 		}
 	}
-
-	priority := getTxPriority(feeCoins, int64(gas))
+	// this is the lowest priority, and will be used specifically if gas limit is set to 0
+	// realistically, if the gas limit IS set to 0, the tx will run out of gas anyways.
+	priority := int64(0)
+	if gas > 0 {
+		priority = getTxPriority(feeCoins, int64(gas))
+	}
 	return feeCoins, priority, nil
 }
 
