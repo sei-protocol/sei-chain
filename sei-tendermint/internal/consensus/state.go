@@ -1640,6 +1640,13 @@ func (cs *State) defaultDoPrevote(ctx context.Context, height int64, round int32
 		}
 	}
 
+	// If ProposalBlock is still nil, prevote nil.
+	if cs.ProposalBlock == nil {
+		logger.Debug("prevote step: ProposalBlock is nil")
+		cs.signAddVote(ctx,tmproto.PrevoteType, nil, types.PartSetHeader{})
+		return
+	}
+
 	if !cs.Proposal.Timestamp.Equal(cs.ProposalBlock.Header.Time) {
 		logger.Info("prevote step: proposal timestamp not equal; prevoting nil")
 		cs.signAddVote(ctx, tmproto.PrevoteType, nil, types.PartSetHeader{})
