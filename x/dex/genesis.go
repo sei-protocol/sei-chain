@@ -1,6 +1,7 @@
 package dex
 
 import (
+	"fmt"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/sei-protocol/sei-chain/x/dex/keeper"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
@@ -11,31 +12,46 @@ import (
 func InitGenesis(ctx sdk.Context, k keeper.Keeper, genState types.GenesisState) {
 	k.CreateModuleAccount(ctx)
 
+	lastEpoch := uint64(0)
+
 	// Set all the longBook
-	for _, elem := range genState.LongBookList {
-		k.SetLongBook(ctx, "genesis", elem)
-	}
+	fmt.Printf("Len gen state ContractState %d\n", len(genState.ContractState))
+	for _, contractState := range genState.ContractState {
+		fmt.Printf("Len inner longbook list %d\n", len(contractState.LongBookList))
+		for _, elem := range contractState.LongBookList {
+			k.SetLongBook(ctx, contractState.ContractInfo.ContractAddr, elem)
+		}
 
-	// Set all the shortBook
-	for _, elem := range genState.ShortBookList {
-		k.SetShortBook(ctx, "genesis", elem)
-	}
+		fmt.Printf("Len inner shortbook list %d\n", len(contractState.ShortBookList))
+		for _, elem := range contractState.ShortBookList {
+			k.SetShortBook(ctx, contractState.ContractInfo.ContractAddr, elem)
+		}
 
-	for _, elem := range genState.TriggeredOrdersList {
-		// not sure if it's guaranteed that the Order has the correct Price/Asset/Contract details...
-		k.SetTriggeredOrder(ctx, "genesis", elem, elem.PriceDenom, elem.AssetDenom)
-	}
+		fmt.Printf("Len triggered order list %d\n", len(contractState.TriggeredOrdersList))
+		for _, elem := range contractState.TriggeredOrdersList {
+			// not sure if it's guaranteed that the Order has the correct Price/Asset/Contract details...
+			k.SetTriggeredOrder(ctx, contractState.ContractInfo.ContractAddr, elem, elem.PriceDenom, elem.AssetDenom)
+		}
 
-	// Set initial tick size for each pair
-	// tick size is the minimum unit that can be traded for certain pair
-	for _, elem := range genState.TickSizeList {
-		k.SetDefaultTickSizeForPair(ctx, *elem.Pair, elem.Ticksize)
+		// Set initial tick size for each pair
+		// tick size is the minimum unit that can be traded for certain pair
+		fmt.Printf("Len triggered pair list %d\n", len(contractState.PairList))
+		for _, elem := range contractState.PairList {
+			// TODO:(kartik) Is this needed since tick size already part of pair?
+			// This might be necessary because tick size store is keyed by pricedenom/assetdenom not full struct
+			k.SetDefaultTickSizeForPair(ctx, elem, *elem.Ticksize)
+		}
+
+		if lastEpoch < contractState.LastEpoch {
+			lastEpoch = contractState.LastEpoch
+		}
+
 	}
 
 	// this line is used by starport scaffolding # genesis/module/init
 	k.SetParams(ctx, genState.Params)
 
-	k.SetEpoch(ctx, genState.LastEpoch)
+	k.SetEpoch(ctx, lastEpoch)
 }
 
 // ExportGenesis returns the capability module's exported genesis.
