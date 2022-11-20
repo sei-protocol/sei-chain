@@ -1,7 +1,6 @@
 package dex
 
 import (
-	"fmt"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/sei-protocol/sei-chain/x/dex/keeper"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
@@ -15,19 +14,15 @@ func InitGenesis(ctx sdk.Context, k keeper.Keeper, genState types.GenesisState) 
 	lastEpoch := uint64(0)
 
 	// Set all the longBook
-	fmt.Printf("Len gen state ContractState %d\n", len(genState.ContractState))
 	for _, contractState := range genState.ContractState {
-		fmt.Printf("Len inner longbook list %d\n", len(contractState.LongBookList))
 		for _, elem := range contractState.LongBookList {
 			k.SetLongBook(ctx, contractState.ContractInfo.ContractAddr, elem)
 		}
 
-		fmt.Printf("Len inner shortbook list %d\n", len(contractState.ShortBookList))
 		for _, elem := range contractState.ShortBookList {
 			k.SetShortBook(ctx, contractState.ContractInfo.ContractAddr, elem)
 		}
 
-		fmt.Printf("Len triggered order list %d\n", len(contractState.TriggeredOrdersList))
 		for _, elem := range contractState.TriggeredOrdersList {
 			// not sure if it's guaranteed that the Order has the correct Price/Asset/Contract details...
 			k.SetTriggeredOrder(ctx, contractState.ContractInfo.ContractAddr, elem, elem.PriceDenom, elem.AssetDenom)
@@ -35,13 +30,13 @@ func InitGenesis(ctx sdk.Context, k keeper.Keeper, genState types.GenesisState) 
 
 		// Set initial tick size for each pair
 		// tick size is the minimum unit that can be traded for certain pair
-		fmt.Printf("Len triggered pair list %d\n", len(contractState.PairList))
 		for _, elem := range contractState.PairList {
 			// TODO:(kartik) Is this needed since tick size already part of pair?
 			// This might be necessary because tick size store is keyed by pricedenom/assetdenom not full struct
 			k.SetDefaultTickSizeForPair(ctx, elem, *elem.Ticksize)
 		}
 
+		//TODO:(kartik) Right now looping through all contract states and setting last epoch as latest lastEpoch
 		if lastEpoch < contractState.LastEpoch {
 			lastEpoch = contractState.LastEpoch
 		}
