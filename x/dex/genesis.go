@@ -62,6 +62,7 @@ func ExportGenesis(ctx sdk.Context, k keeper.Keeper) *types.GenesisState {
 			matchResult = &types.MatchResult{}
 
 		}
+		_, currentEpoch := k.IsNewEpoch(ctx)
 		contractState := types.ContractState{
 			ContractInfo:        types.ContractInfoV2{},
 			LongBookList:        k.GetAllLongBook(ctx, contractAddr),
@@ -69,7 +70,9 @@ func ExportGenesis(ctx sdk.Context, k keeper.Keeper) *types.GenesisState {
 			TriggeredOrdersList: k.GetAllTriggeredOrders(ctx, contractAddr),
 			PairList:            k.GetAllRegisteredPairs(ctx, contractAddr),
 			MatchResult:         *matchResult,
-			LastEpoch:           0,
+			// TODO:(kartik) @psu didn't know what to keep for LastEpoch but left it at 0
+			// Verify currentEpoch should be used
+			LastEpoch: currentEpoch,
 		}
 		contractStates = append(contractStates, contractState)
 	}
