@@ -46,16 +46,28 @@ func (tsmd TickSizeMultipleDecorator) CheckTickSizeMultiple(ctx sdk.Context, msg
 			msgPlaceOrders := msg.(*types.MsgPlaceOrders) //nolint:gosimple // the linter is telling us we can make this faster, and this should be addressed later.
 			contractAddr := msgPlaceOrders.ContractAddr
 			for _, order := range msgPlaceOrders.Orders {
-				tickSize, found := tsmd.dexKeeper.GetTickSizeForPair(ctx, contractAddr,
+				priceTickSize, found := tsmd.dexKeeper.GetPriceTickSizeForPair(ctx, contractAddr,
 					types.Pair{
 						PriceDenom: order.PriceDenom,
 						AssetDenom: order.AssetDenom,
 					})
 				// todo may not need to throw err if ticksize unfound?
 				if !found {
-					return sdkerrors.Wrapf(sdkerrors.ErrKeyNotFound, "the pair {price:%s,asset:%s} has no ticksize configured", order.PriceDenom, order.AssetDenom)
+					return sdkerrors.Wrapf(sdkerrors.ErrKeyNotFound, "the pair {price:%s,asset:%s} has no price ticksize configured", order.PriceDenom, order.AssetDenom)
 				}
-				if !IsDecimalMultipleOf(order.Price, tickSize) {
+				if !IsDecimalMultipleOf(order.Price, priceTickSize) {
+					return sdkerrors.Wrapf(errors.New("ErrPriceNotMultipleOfTickSize"), "price need to be multiple of tick size")
+				}
+				quantityTickSize, found := tsmd.dexKeeper.GetQuantityTickSizeForPair(ctx, contractAddr,
+					types.Pair{
+						PriceDenom: order.PriceDenom,
+						AssetDenom: order.AssetDenom,
+					})
+				// todo may not need to throw err if ticksize unfound?
+				if !found {
+					return sdkerrors.Wrapf(sdkerrors.ErrKeyNotFound, "the pair {price:%s,asset:%s} has no quantity ticksize configured", order.PriceDenom, order.AssetDenom)
+				}
+				if !IsDecimalMultipleOf(order.Quantity, quantityTickSize) {
 					return sdkerrors.Wrapf(errors.New("ErrPriceNotMultipleOfTickSize"), "price need to be multiple of tick size")
 				}
 			}

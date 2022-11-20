@@ -34,7 +34,8 @@ func GetTxCmd() *cobra.Command {
 	cmd.AddCommand(CmdRegisterPairs())
 	cmd.AddCommand(CmdUnregisterContract())
 	cmd.AddCommand(CmdContractDepositRent())
-	cmd.AddCommand(CmdUpdateTickSize())
+	cmd.AddCommand(CmdUpdatePriceTickSize())
+	cmd.AddCommand(CmdUpdateQuantityTickSize())
 	cmd.AddCommand(NewAddAssetProposalTxCmd())
 	// this line is used by starport scaffolding # 1
 

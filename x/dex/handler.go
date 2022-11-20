@@ -32,8 +32,11 @@ func NewHandler(k keeper.Keeper) sdk.Handler {
 		case *types.MsgRegisterPairs:
 			res, err := msgServer.RegisterPairs(sdk.WrapSDKContext(ctx), msg)
 			return sdk.WrapServiceResult(ctx, res, err)
-		case *types.MsgUpdateTickSize:
-			res, err := msgServer.UpdateTickSize(sdk.WrapSDKContext(ctx), msg)
+		case *types.MsgUpdatePriceTickSize:
+			res, err := msgServer.UpdatePriceTickSize(sdk.WrapSDKContext(ctx), msg)
+			return sdk.WrapServiceResult(ctx, res, err)
+		case *types.MsgUpdateQuantityTickSize:
+			res, err := msgServer.UpdateQuantityTickSize(sdk.WrapSDKContext(ctx), msg)
 			return sdk.WrapServiceResult(ctx, res, err)
 			// this line is used by starport scaffolding # 1
 		default:
