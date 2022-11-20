@@ -38,9 +38,10 @@ const (
 var (
 	TestTicksize = sdk.OneDec()
 	TestPair     = types.Pair{
-		PriceDenom: TestPriceDenom,
-		AssetDenom: TestAssetDenom,
-		Ticksize:   &TestTicksize,
+		PriceDenom:       TestPriceDenom,
+		AssetDenom:       TestAssetDenom,
+		PriceTicksize:    &TestTicksize,
+		QuantityTicksize: &TestTicksize,
 	}
 )
 

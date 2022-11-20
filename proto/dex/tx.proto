@@ -20,7 +20,8 @@ service Msg {
   rpc ContractDepositRent(MsgContractDepositRent) returns(MsgContractDepositRentResponse);
   rpc UnregisterContract(MsgUnregisterContract) returns(MsgUnregisterContractResponse);
   rpc RegisterPairs(MsgRegisterPairs) returns(MsgRegisterPairsResponse);
-  rpc UpdateTickSize(MsgUpdateTickSize) returns(MsgUpdateTickSizeResponse);
+  rpc UpdatePriceTickSize(MsgUpdatePriceTickSize) returns(MsgUpdateTickSizeResponse);
+  rpc UpdateQuantityTickSize(MsgUpdateQuantityTickSize) returns(MsgUpdateTickSizeResponse);
   // privileged endpoints below
 
 // this line is used by starport scaffolding # proto/tx/rpc
@@ -107,7 +108,18 @@ message MsgRegisterPairs {
 
 message MsgRegisterPairsResponse {}
 
-message MsgUpdateTickSize {
+message MsgUpdatePriceTickSize {
+  string creator = 1 [
+    (gogoproto.jsontag) = "creator"
+  ];
+  repeated TickSize tickSizeList = 2 [
+        (gogoproto.moretags) = "yaml:\"tick_size_list\"",
+        (gogoproto.nullable) = false,
+        (gogoproto.jsontag) = "tick_size_list"
+    ];
+}
+
+message MsgUpdateQuantityTickSize {
   string creator = 1 [
     (gogoproto.jsontag) = "creator"
   ];

@@ -8,7 +8,7 @@ import (
 	"github.com/sei-protocol/sei-chain/x/dex/types"
 )
 
-func (k msgServer) UpdateTickSize(goCtx context.Context, msg *types.MsgUpdateTickSize) (*types.MsgUpdateTickSizeResponse, error) {
+func (k msgServer) UpdatePriceTickSize(goCtx context.Context, msg *types.MsgUpdatePriceTickSize) (*types.MsgUpdateTickSizeResponse, error) {
 	if err := msg.ValidateBasic(); err != nil {
 		return nil, err
 	}
@@ -29,7 +29,7 @@ func (k msgServer) UpdateTickSize(goCtx context.Context, msg *types.MsgUpdateTic
 	}
 
 	for _, tickSize := range msg.TickSizeList {
-		k.SetTickSizeForPair(ctx, tickSize.ContractAddr, *tickSize.Pair, tickSize.Ticksize)
+		k.SetPriceTickSizeForPair(ctx, tickSize.ContractAddr, *tickSize.Pair, tickSize.Ticksize)
 	}
 
 	return &types.MsgUpdateTickSizeResponse{}, nil
