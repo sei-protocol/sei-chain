@@ -53,9 +53,10 @@ func InitGenesis(ctx sdk.Context, k keeper.Keeper, genState types.GenesisState) 
 func ExportGenesis(ctx sdk.Context, k keeper.Keeper) *types.GenesisState {
 	genesis := types.DefaultGenesis()
 	genesis.Params = k.GetParams(ctx)
-	var contractStates []types.ContractState
 
-	for _, contractInfo := range k.GetAllContractInfo(ctx) {
+	allContractInfo := k.GetAllContractInfo(ctx)
+	contractStates := make([]types.ContractState, len(allContractInfo))
+	for i, contractInfo := range allContractInfo {
 		contractAddr := contractInfo.ContractAddr
 		matchResult, found := k.GetMatchResultState(ctx, contractAddr)
 		if !found {
@@ -63,18 +64,17 @@ func ExportGenesis(ctx sdk.Context, k keeper.Keeper) *types.GenesisState {
 
 		}
 		_, currentEpoch := k.IsNewEpoch(ctx)
-		contractState := types.ContractState{
+		contractStates[i] = types.ContractState{
 			ContractInfo:        types.ContractInfoV2{},
 			LongBookList:        k.GetAllLongBook(ctx, contractAddr),
 			ShortBookList:       k.GetAllShortBook(ctx, contractAddr),
 			TriggeredOrdersList: k.GetAllTriggeredOrders(ctx, contractAddr),
 			PairList:            k.GetAllRegisteredPairs(ctx, contractAddr),
 			MatchResult:         *matchResult,
-			// TODO:(kartik) @psu didn't know what to keep for LastEpoch but left it at 0
+			// TODO:(kartik) @psu didn't know what to keep for LastEpoch but previously left it at 0
 			// Verify currentEpoch should be used
 			LastEpoch: currentEpoch,
 		}
-		contractStates = append(contractStates, contractState)
 	}
 	genesis.ContractState = contractStates
 

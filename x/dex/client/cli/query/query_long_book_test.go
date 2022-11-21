@@ -22,6 +22,7 @@ func networkWithLongBookObjects(t *testing.T, n int) (*network.Network, []types.
 	t.Helper()
 	cfg := network.DefaultConfig()
 	state := types.GenesisState{}
+	longBookList := []types.LongBook{}
 	require.NoError(t, cfg.Codec.UnmarshalJSON(cfg.GenesisState[types.ModuleName], &state))
 
 	for i := 0; i < n; i++ {
@@ -36,12 +37,18 @@ func networkWithLongBookObjects(t *testing.T, n int) (*network.Network, []types.
 			},
 		}
 		nullify.Fill(&longBook)
-		state.LongBookList = append(state.LongBookList, longBook)
+		longBookList = append(longBookList, longBook)
 	}
+	contractState := []types.ContractState{
+		{
+			LongBookList: longBookList,
+		},
+	}
+	state.ContractState = contractState
 	buf, err := cfg.Codec.MarshalJSON(&state)
 	require.NoError(t, err)
 	cfg.GenesisState[types.ModuleName] = buf
-	return network.New(t, cfg), state.LongBookList
+	return network.New(t, cfg), state.ContractState[0].LongBookList
 }
 
 func TestShowLongBook(t *testing.T) {

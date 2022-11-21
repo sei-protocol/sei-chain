@@ -28,6 +28,7 @@ func networkWithShortBookObjects(t *testing.T, n int) (*network.Network, []types
 	t.Helper()
 	cfg := network.DefaultConfig()
 	state := types.GenesisState{}
+	shortBookList := []types.ShortBook{}
 	require.NoError(t, cfg.Codec.UnmarshalJSON(cfg.GenesisState[types.ModuleName], &state))
 
 	for i := 0; i < n; i++ {
@@ -42,12 +43,18 @@ func networkWithShortBookObjects(t *testing.T, n int) (*network.Network, []types
 			},
 		}
 		nullify.Fill(&shortBook)
-		state.ShortBookList = append(state.ShortBookList, shortBook)
+		shortBookList = append(shortBookList, shortBook)
 	}
+	contractState := []types.ContractState{
+		{
+			ShortBookList: shortBookList,
+		},
+	}
+	state.ContractState = contractState
 	buf, err := cfg.Codec.MarshalJSON(&state)
 	require.NoError(t, err)
 	cfg.GenesisState[types.ModuleName] = buf
-	return network.New(t, cfg), state.ShortBookList
+	return network.New(t, cfg), state.ContractState[0].ShortBookList
 }
 
 func TestShowShortBook(t *testing.T) {
