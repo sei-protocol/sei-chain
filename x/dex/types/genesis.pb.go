@@ -27,8 +27,7 @@ const _ = proto.GoGoProtoPackageIsVersion3 // please upgrade the proto package
 type GenesisState struct {
 	Params        Params          `protobuf:"bytes,1,opt,name=params,proto3" json:"params"`
 	ContractState []ContractState `protobuf:"bytes,2,rep,name=contractState,proto3" json:"contractState"`
-	// this line is used by starport scaffolding # genesis/proto/state
-	LastEpoch uint64 `protobuf:"varint,7,opt,name=lastEpoch,proto3" json:"lastEpoch,omitempty"`
+	LastEpoch     uint64          `protobuf:"varint,7,opt,name=lastEpoch,proto3" json:"lastEpoch,omitempty"`
 }
 
 func (m *GenesisState) Reset()         { *m = GenesisState{} }
