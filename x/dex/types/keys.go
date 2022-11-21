@@ -85,8 +85,12 @@ func RegisteredPairPrefix(contractAddr string) []byte {
 	return append(KeyPrefix(RegisteredPairKey), KeyPrefix(contractAddr)...)
 }
 
-func TickSizeKeyPrefix(contractAddr string) []byte {
-	return append(KeyPrefix(TickSizeKey), KeyPrefix(contractAddr)...)
+func PriceTickSizeKeyPrefix(contractAddr string) []byte {
+	return append(KeyPrefix(PriceTickSizeKey), KeyPrefix(contractAddr)...)
+}
+
+func QuantityTickSizeKeyPrefix(contractAddr string) []byte {
+	return append(KeyPrefix(QuantityTickSizeKey), KeyPrefix(contractAddr)...)
 }
 
 func OrderPrefix(contractAddr string) []byte {
@@ -144,6 +148,13 @@ func MemOrderPrefixForPair(contractAddr string, pairString string) []byte {
 	)
 }
 
+func MemCancelPrefixForPair(contractAddr string, pairString string) []byte {
+	return append(
+		append(KeyPrefix(MemCancelKey), KeyPrefix(contractAddr)...),
+		[]byte(pairString)...,
+	)
+}
+
 func MemOrderPrefix(contractAddr string) []byte {
 	return append(KeyPrefix(MemOrderKey), KeyPrefix(contractAddr)...)
 }
@@ -175,10 +186,12 @@ const (
 	NextOrderIDKey      = "noid"
 	RegisteredPairKey   = "rp"
 	RegisteredPairCount = "rpcnt"
-	TickSizeKey         = "ticks"
+	PriceTickSizeKey    = "ticks" // called ticks instead of priceticks since that was the original store key and makes it simpler this way since we don't need to do a migration
+	QuantityTickSizeKey = "quantityticks"
 	AssetListKey        = "AssetList-"
 	MatchResultKey      = "MatchResult-"
 
 	MemOrderKey   = "MemOrder-"
 	MemDepositKey = "MemDeposit-"
+	MemCancelKey  = "MemCancel-"
 )

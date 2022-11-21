@@ -24,6 +24,14 @@ func TestGenesis(t *testing.T) {
 		CodeId:       uint64(1),
 		ContractAddr: "sei14hj2tavq8fpesdwxxcu44rty3hh90vhujrvcmstl4zr3txmfvw9sh9m79m",
 	}
+	pairList := []types.Pair{
+		{
+			PriceDenom:       "USDC",
+			AssetDenom:       "SEI",
+			PriceTicksize:    &keepertest.TestTicksize,
+			QuantityTicksize: &keepertest.TestTicksize,
+		},
+	}
 	contractState := types.ContractState{
 		LongBookList: []types.LongBook{
 			{
@@ -42,6 +50,7 @@ func TestGenesis(t *testing.T) {
 			},
 		},
 		ContractInfo: contractInfo,
+		PairList:     pairList,
 	}
 	contractList = append(contractList, contractState)
 
@@ -59,5 +68,6 @@ func TestGenesis(t *testing.T) {
 
 	require.ElementsMatch(t, genesisState.ContractState[0].LongBookList, got.ContractState[0].LongBookList)
 	require.ElementsMatch(t, genesisState.ContractState[0].ShortBookList, got.ContractState[0].ShortBookList)
+	require.ElementsMatch(t, genesisState.ContractState[0].PairList, got.ContractState[0].PairList)
 	// this line is used by starport scaffolding # genesis/test/assert
 }

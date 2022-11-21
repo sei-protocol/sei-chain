@@ -72,7 +72,8 @@ func (suite *KeeperTestSuite) PrepareTest() {
 	suite.contract = "sei14hj2tavq8fpesdwxxcu44rty3hh90vhujrvcmstl4zr3txmfvw9sh9m79m"
 
 	suite.App.DexKeeper.AddRegisteredPair(suite.Ctx, suite.contract, keepertest.TestPair)
-	suite.App.DexKeeper.SetTickSizeForPair(suite.Ctx, suite.contract, keepertest.TestPair, *keepertest.TestPair.Ticksize)
+	suite.App.DexKeeper.SetPriceTickSizeForPair(suite.Ctx, suite.contract, keepertest.TestPair, *keepertest.TestPair.PriceTicksize)
+	suite.App.DexKeeper.SetQuantityTickSizeForPair(suite.Ctx, suite.contract, keepertest.TestPair, *keepertest.TestPair.PriceTicksize)
 
 	suite.msgPlaceOrders = &types.MsgPlaceOrders{
 		Creator:      suite.creator,

@@ -9,10 +9,6 @@ import (
 )
 
 func (suite *KeeperTestSuite) TestMsgCreateDenom() {
-	denomCreationFee := suite.App.TokenFactoryKeeper.GetParams(suite.Ctx).DenomCreationFee
-
-	// Get balance of acc 0 before creating a denom
-	preCreateBalance := suite.App.BankKeeper.GetBalance(suite.Ctx, suite.TestAccs[0], denomCreationFee[0].Denom)
 
 	// Creating a denom should work
 	res, err := suite.msgServer.CreateDenom(sdk.WrapSDKContext(suite.Ctx), types.NewMsgCreateDenom(suite.TestAccs[0].String(), "bitcoin"))
@@ -25,10 +21,6 @@ func (suite *KeeperTestSuite) TestMsgCreateDenom() {
 	})
 	suite.Require().NoError(err)
 	suite.Require().Equal(suite.TestAccs[0].String(), queryRes.AuthorityMetadata.Admin)
-
-	// Make sure that creation fee was deducted
-	postCreateBalance := suite.App.BankKeeper.GetBalance(suite.Ctx, suite.TestAccs[0], suite.App.TokenFactoryKeeper.GetParams(suite.Ctx).DenomCreationFee[0].Denom)
-	suite.Require().True(preCreateBalance.Sub(postCreateBalance).IsEqual(denomCreationFee[0]))
 
 	// Make sure that a second version of the same denom can't be recreated
 	res, err = suite.msgServer.CreateDenom(sdk.WrapSDKContext(suite.Ctx), types.NewMsgCreateDenom(suite.TestAccs[0].String(), "bitcoin"))

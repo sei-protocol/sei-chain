@@ -8,14 +8,26 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestTickSizeGet(t *testing.T) {
+func TestPriceTickSizeGet(t *testing.T) {
 	keeper, ctx := keepertest.DexKeeper(t)
 	// TEST_PAIR = atom/usdc pair
-	ticksize, found := keeper.GetTickSizeForPair(ctx, "sei14hj2tavq8fpesdwxxcu44rty3hh90vhujrvcmstl4zr3txmfvw9sh9m79m", keepertest.TestPair)
+	ticksize, found := keeper.GetPriceTickSizeForPair(ctx, "sei14hj2tavq8fpesdwxxcu44rty3hh90vhujrvcmstl4zr3txmfvw9sh9m79m", keepertest.TestPair)
 	assert.Equal(t, ticksize, sdk.ZeroDec())
 	assert.False(t, found)
-	keeper.SetTickSizeForPair(ctx, "sei14hj2tavq8fpesdwxxcu44rty3hh90vhujrvcmstl4zr3txmfvw9sh9m79m", keepertest.TestPair, sdk.NewDec(2))
-	ticksize, found = keeper.GetTickSizeForPair(ctx, "sei14hj2tavq8fpesdwxxcu44rty3hh90vhujrvcmstl4zr3txmfvw9sh9m79m", keepertest.TestPair)
+	keeper.SetPriceTickSizeForPair(ctx, "sei14hj2tavq8fpesdwxxcu44rty3hh90vhujrvcmstl4zr3txmfvw9sh9m79m", keepertest.TestPair, sdk.NewDec(2))
+	ticksize, found = keeper.GetPriceTickSizeForPair(ctx, "sei14hj2tavq8fpesdwxxcu44rty3hh90vhujrvcmstl4zr3txmfvw9sh9m79m", keepertest.TestPair)
+	assert.Equal(t, ticksize, sdk.NewDec(2))
+	assert.True(t, found)
+}
+
+func TestQuantityTickSizeGet(t *testing.T) {
+	keeper, ctx := keepertest.DexKeeper(t)
+	// TEST_PAIR = atom/usdc pair
+	ticksize, found := keeper.GetQuantityTickSizeForPair(ctx, "sei14hj2tavq8fpesdwxxcu44rty3hh90vhujrvcmstl4zr3txmfvw9sh9m79m", keepertest.TestPair)
+	assert.Equal(t, ticksize, sdk.ZeroDec())
+	assert.False(t, found)
+	keeper.SetQuantityTickSizeForPair(ctx, "sei14hj2tavq8fpesdwxxcu44rty3hh90vhujrvcmstl4zr3txmfvw9sh9m79m", keepertest.TestPair, sdk.NewDec(2))
+	ticksize, found = keeper.GetQuantityTickSizeForPair(ctx, "sei14hj2tavq8fpesdwxxcu44rty3hh90vhujrvcmstl4zr3txmfvw9sh9m79m", keepertest.TestPair)
 	assert.Equal(t, ticksize, sdk.NewDec(2))
 	assert.True(t, found)
 }

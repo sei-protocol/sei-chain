@@ -82,8 +82,13 @@ func DexPlaceOrdersDependencyGenerator(keeper aclkeeper.Keeper, ctx sdk.Context,
 		},
 		{
 			AccessType:         sdkacltypes.AccessType_READ,
-			ResourceType:       sdkacltypes.ResourceType_KV_DEX_TICK_SIZE,
-			IdentifierTemplate: string(dextypes.TickSizeKeyPrefix(contractAddr)),
+			ResourceType:       sdkacltypes.ResourceType_KV_DEX_PRICE_TICK_SIZE,
+			IdentifierTemplate: string(dextypes.PriceTickSizeKeyPrefix(contractAddr)),
+		},
+		{
+			AccessType:         sdkacltypes.AccessType_READ,
+			ResourceType:       sdkacltypes.ResourceType_KV_DEX_QUANTITY_TICK_SIZE,
+			IdentifierTemplate: string(dextypes.QuantityTickSizeKeyPrefix(contractAddr)),
 		},
 	}...)
 

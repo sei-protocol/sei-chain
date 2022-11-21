@@ -6,7 +6,7 @@ import (
 	"github.com/sei-protocol/sei-chain/x/dex/types"
 )
 
-// InitGenesis initializes the capability module's state from a provided genesis
+// InitGenesis initializes the dex module's state from a provided genesis
 // state.
 func InitGenesis(ctx sdk.Context, k keeper.Keeper, genState types.GenesisState) {
 	k.CreateModuleAccount(ctx)
@@ -26,10 +26,16 @@ func InitGenesis(ctx sdk.Context, k keeper.Keeper, genState types.GenesisState) 
 			k.SetTriggeredOrder(ctx, contractState.ContractInfo.ContractAddr, elem, elem.PriceDenom, elem.AssetDenom)
 		}
 
-		// Set initial tick size for each pair
-		// tick size is the minimum unit that can be traded for certain pair
 		for _, elem := range contractState.PairList {
-			k.SetTickSizeForPair(ctx, contractState.ContractInfo.ContractAddr, elem, *elem.Ticksize)
+			k.AddRegisteredPair(ctx, contractState.ContractInfo.ContractAddr, elem)
+		}
+
+		for _, elem := range contractState.PairList {
+			k.SetPriceTickSizeForPair(ctx, contractState.ContractInfo.ContractAddr, elem, *elem.PriceTicksize)
+		}
+
+		for _, elem := range contractState.PairList {
+			k.SetQuantityTickSizeForPair(ctx, contractState.ContractInfo.ContractAddr, elem, *elem.QuantityTicksize)
 		}
 
 	}
@@ -40,7 +46,7 @@ func InitGenesis(ctx sdk.Context, k keeper.Keeper, genState types.GenesisState) 
 	k.SetEpoch(ctx, genState.LastEpoch)
 }
 
-// ExportGenesis returns the capability module's exported genesis.
+// ExportGenesis returns the dex module's exported genesis.
 func ExportGenesis(ctx sdk.Context, k keeper.Keeper) *types.GenesisState {
 	genesis := types.DefaultGenesis()
 	genesis.Params = k.GetParams(ctx)

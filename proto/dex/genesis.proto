@@ -27,5 +27,5 @@ message ContractState {
   repeated LongBook longBookList = 2 [(gogoproto.nullable) = false];
   repeated ShortBook shortBookList = 3 [(gogoproto.nullable) = false];
   repeated Order triggeredOrdersList = 4 [(gogoproto.nullable) = false];
-  repeated Pair pairList = 5[(gogoproto.nullable) = false];
+  repeated Pair pairList = 5 [(gogoproto.nullable) = false];
 }
