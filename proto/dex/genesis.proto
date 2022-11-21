@@ -18,7 +18,7 @@ option go_package = "github.com/sei-protocol/sei-chain/x/dex/types";
 message GenesisState {
   Params params = 1 [(gogoproto.nullable) = false];
   repeated ContractState contractState = 2 [(gogoproto.nullable) = false];
-  uint64 lastEpoch = 7;
+  uint64 lastEpoch = 3;
   // this line is used by starport scaffolding # genesis/proto/state
 }
 
