@@ -45,9 +45,15 @@ func networkWithShortBookObjects(t *testing.T, n int) (*network.Network, []types
 		nullify.Fill(&shortBook)
 		shortBookList = append(shortBookList, shortBook)
 	}
+
+	contractInfo := types.ContractInfoV2{
+		CodeId:       uint64(1),
+		ContractAddr: "genesis",
+	}
 	contractState := []types.ContractState{
 		{
 			ShortBookList: shortBookList,
+			ContractInfo:  contractInfo,
 		},
 	}
 	state.ContractState = contractState

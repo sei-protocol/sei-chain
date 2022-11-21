@@ -39,9 +39,15 @@ func networkWithLongBookObjects(t *testing.T, n int) (*network.Network, []types.
 		nullify.Fill(&longBook)
 		longBookList = append(longBookList, longBook)
 	}
+
+	contractInfo := types.ContractInfoV2{
+		CodeId:       uint64(1),
+		ContractAddr: "genesis",
+	}
 	contractState := []types.ContractState{
 		{
 			LongBookList: longBookList,
+			ContractInfo: contractInfo,
 		},
 	}
 	state.ContractState = contractState
