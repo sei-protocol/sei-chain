@@ -78,7 +78,7 @@ func TestUpdateQuantityTickSize(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	storedTickSize, _ := keeper.GetPriceTickSizeForPair(ctx, contractAddr.String(), keepertest.TestPair)
+	storedTickSize, _ := keeper.GetQuantityTickSizeForPair(ctx, contractAddr.String(), keepertest.TestPair)
 	require.Equal(t, sdk.MustNewDecFromStr("0.1"), storedTickSize)
 }
 

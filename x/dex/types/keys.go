@@ -186,7 +186,7 @@ const (
 	NextOrderIDKey      = "noid"
 	RegisteredPairKey   = "rp"
 	RegisteredPairCount = "rpcnt"
-	PriceTickSizeKey    = "priceticks"
+	PriceTickSizeKey    = "ticks" // called ticks instead of priceticks since that was the original store key and makes it simpler this way since we don't need to do a migration
 	QuantityTickSizeKey = "quantityticks"
 	AssetListKey        = "AssetList-"
 	MatchResultKey      = "MatchResult-"
