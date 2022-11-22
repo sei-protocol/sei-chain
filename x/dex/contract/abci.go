@@ -42,7 +42,7 @@ func EndBlockerAtomic(ctx sdk.Context, keeper *keeper.Keeper, validContractsInfo
 	spanCtx, span := (*tracer).Start(tracingInfo.TracerContext, "DexEndBlockerAtomic")
 	defer span.End()
 	env := newEnv(ctx, validContractsInfo, keeper)
-	cachedCtx, msCached := cacheAndDecorateContext(ctx, env)
+	cachedCtx, msCached := cacheAndDecorateContext(ctx, env, keeper.GetParams(ctx).EndBlockGasLimit)
 	memStateCopy := dexutils.GetMemState(cachedCtx.Context()).DeepCopy()
 
 	handleDeposits(cachedCtx, env, keeper, tracer)
@@ -99,11 +99,11 @@ func newEnv(ctx sdk.Context, validContractsInfo []types.ContractInfoV2, keeper *
 	}
 }
 
-func cacheAndDecorateContext(ctx sdk.Context, env *environment) (sdk.Context, sdk.CacheMultiStore) {
+func cacheAndDecorateContext(ctx sdk.Context, env *environment, gasLimit uint64) (sdk.Context, sdk.CacheMultiStore) {
 	cachedCtx, msCached := store.GetCachedContext(ctx)
 	goCtx := context.WithValue(cachedCtx.Context(), dexcache.CtxKeyExecTermSignal, env.executionTerminationSignals)
 	cachedCtx = cachedCtx.WithContext(goCtx)
-	decoratedCtx := cachedCtx.WithGasMeter(seisync.NewGasWrapper(sdk.NewInfiniteGasMeter())).WithBlockGasMeter(
+	decoratedCtx := cachedCtx.WithGasMeter(seisync.NewGasWrapper(dexutils.GetGasMeterForLimit(gasLimit))).WithBlockGasMeter(
 		seisync.NewGasWrapper(cachedCtx.BlockGasMeter()),
 	)
 	return decoratedCtx, msCached

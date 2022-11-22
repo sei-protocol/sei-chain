@@ -30,6 +30,7 @@ import (
 	"github.com/sei-protocol/sei-chain/x/dex/migrations"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
 	dexutils "github.com/sei-protocol/sei-chain/x/dex/utils"
+	"github.com/sei-protocol/sei-chain/x/store"
 )
 
 var (
@@ -229,9 +230,13 @@ func (am AppModule) BeginBlock(ctx sdk.Context, _ abci.RequestBeginBlock) {
 	if isNewEpoch {
 		am.keeper.SetEpoch(ctx, currentEpoch)
 	}
+	cachedCtx, cachedStore := store.GetCachedContext(ctx)
+	cachedCtx = cachedCtx.WithGasMeter(dexutils.GetGasMeterForLimit(am.keeper.GetParams(ctx).BeginBlockGasLimit))
 	for _, contract := range am.getAllContractInfo(ctx) {
-		am.beginBlockForContract(ctx, contract, int64(currentEpoch))
+		am.beginBlockForContract(cachedCtx, contract, int64(currentEpoch))
 	}
+	// only write if all contracts have been processed
+	cachedStore.Write()
 }
 
 func (am AppModule) beginBlockForContract(ctx sdk.Context, contract types.ContractInfoV2, epoch int64) {

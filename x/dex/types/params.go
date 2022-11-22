@@ -11,10 +11,14 @@ import (
 var (
 	KeyPriceSnapshotRetention = []byte("PriceSnapshotRetention") // number of epochs to retain price snapshots for
 	KeySudoCallGasPrice       = []byte("KeySudoCallGasPrice")    // gas price for sudo calls from endblock
+	KeyBeginBlockGasLimit     = []byte("KeyBeginBlockGasLimit")
+	KeyEndBlockGasLimit       = []byte("KeyEndBlockGasLimit")
 )
 
 const (
-	DefaultPriceSnapshotRetention = 24 * 3600 // default to one day
+	DefaultPriceSnapshotRetention = 24 * 3600  // default to one day
+	DefaultBeginBlockGasLimit     = 200000000  // 200M
+	DefaultEndBlockGasLimit       = 1000000000 // 1B
 )
 
 var DefaultSudoCallGasPrice = sdk.ZeroDec() // 0
@@ -36,6 +40,8 @@ func DefaultParams() Params {
 	return Params{
 		PriceSnapshotRetention: DefaultPriceSnapshotRetention,
 		SudoCallGasPrice:       DefaultSudoCallGasPrice,
+		BeginBlockGasLimit:     DefaultBeginBlockGasLimit,
+		EndBlockGasLimit:       DefaultEndBlockGasLimit,
 	}
 }
 
@@ -44,6 +50,8 @@ func (p *Params) ParamSetPairs() paramtypes.ParamSetPairs {
 	return paramtypes.ParamSetPairs{
 		paramtypes.NewParamSetPair(KeyPriceSnapshotRetention, &p.PriceSnapshotRetention, validatePriceSnapshotRetention),
 		paramtypes.NewParamSetPair(KeySudoCallGasPrice, &p.SudoCallGasPrice, validateSudoCallGasPrice),
+		paramtypes.NewParamSetPair(KeyBeginBlockGasLimit, &p.BeginBlockGasLimit, validateBeginBlockGasLimit),
+		paramtypes.NewParamSetPair(KeyEndBlockGasLimit, &p.EndBlockGasLimit, validateEndBlockGasLimit),
 	}
 }
 
@@ -72,5 +80,23 @@ func validatePriceSnapshotRetention(i interface{}) error {
 }
 
 func validateSudoCallGasPrice(i interface{}) error {
+	return nil
+}
+
+func validateBeginBlockGasLimit(i interface{}) error {
+	_, ok := i.(uint64)
+	if !ok {
+		return fmt.Errorf("invalid parameter type: %T", i)
+	}
+
+	return nil
+}
+
+func validateEndBlockGasLimit(i interface{}) error {
+	_, ok := i.(uint64)
+	if !ok {
+		return fmt.Errorf("invalid parameter type: %T", i)
+	}
+
 	return nil
 }

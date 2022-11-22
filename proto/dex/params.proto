@@ -19,4 +19,12 @@ message Params {
     (gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Dec",
     (gogoproto.nullable)   = false
   ];
+  uint64 begin_block_gas_limit = 3 [
+    (gogoproto.jsontag)   = "begin_block_gas_limit",
+    (gogoproto.moretags) = "yaml:\"begin_block_gas_limit\""
+  ];
+  uint64 end_block_gas_limit = 4 [
+    (gogoproto.jsontag)   = "end_block_gas_limit",
+    (gogoproto.moretags) = "yaml:\"end_block_gas_limit\""
+  ];
 }
