@@ -78,10 +78,9 @@ func TestRegisterPairs(t *testing.T) {
 	require.NoError(t, err)
 	multiplePairs := []types.BatchContractPair{}
 	secondTestPair := types.Pair{
-		PriceDenom:       "sei",
-		AssetDenom:       "osmo",
-		PriceTicksize:    &keepertest.TestTicksize,
-		QuantityTicksize: &keepertest.TestTicksize,
+		PriceDenom: "sei",
+		AssetDenom: "osmo",
+		Ticksize:   &keepertest.TestTicksize,
 	}
 	multiplePairs = append(multiplePairs, types.BatchContractPair{
 		ContractAddr: contractAddrB.String(),

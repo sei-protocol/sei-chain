@@ -13,10 +13,10 @@ import (
 
 var _ = strconv.Itoa(0)
 
-func CmdUpdateQuantityTickSize() *cobra.Command {
+func CmdUpdateTickSize() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "update-quantity-tick-size [update-quantity-tick-size-file]",
-		Short: "Update quantity tick size for a market",
+		Use:   "update-tick-size [update-tick-size-file]",
+		Short: "Update tick size for a market",
 		Args:  cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) (err error) {
 			clientCtx, err := client.GetClientTxContext(cmd)
@@ -33,7 +33,7 @@ func CmdUpdateQuantityTickSize() *cobra.Command {
 				return err
 			}
 
-			msg := types.NewMsgUpdateQuantityTickSize(
+			msg := types.NewMsgUpdateTickSize(
 				clientCtx.GetFromAddress().String(),
 				txTick,
 			)

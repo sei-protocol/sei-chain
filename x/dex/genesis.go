@@ -28,12 +28,8 @@ func InitGenesis(ctx sdk.Context, k keeper.Keeper, genState types.GenesisState) 
 
 	// Set initial tick size for each pair
 	// tick size is the minimum unit that can be traded for certain pair
-	for _, elem := range genState.PriceTickSizeList {
-		k.SetDefaultPriceTickSizeForPair(ctx, *elem.Pair, elem.Ticksize)
-	}
-
-	for _, elem := range genState.QuantityTickSizeList {
-		k.SetDefaultQuantityTickSizeForPair(ctx, *elem.Pair, elem.Ticksize)
+	for _, elem := range genState.TickSizeList {
+		k.SetDefaultTickSizeForPair(ctx, *elem.Pair, elem.Ticksize)
 	}
 
 	// this line is used by starport scaffolding # genesis/module/init
