@@ -3,6 +3,7 @@ package keeper_test
 import (
 	"testing"
 
+	sdk "github.com/cosmos/cosmos-sdk/types"
 	keepertest "github.com/sei-protocol/sei-chain/testutil/keeper"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
 	"github.com/stretchr/testify/require"
@@ -10,6 +11,7 @@ import (
 
 func TestChargeRentForGas(t *testing.T) {
 	keeper, ctx := keepertest.DexKeeper(t)
+	keeper.SetParams(ctx, types.Params{SudoCallGasPrice: sdk.NewDecWithPrec(1, 1), PriceSnapshotRetention: 1})
 	err := keeper.SetContract(ctx, &types.ContractInfoV2{
 		Creator:      keepertest.TestAccount,
 		ContractAddr: keepertest.TestContract,
