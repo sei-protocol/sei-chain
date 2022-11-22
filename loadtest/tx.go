@@ -20,7 +20,7 @@ func SendTx(
 	failureExpected bool,
 	loadtestClient LoadTestClient,
 ) func() {
-	(*txBuilder).SetGasLimit(200000)
+	(*txBuilder).SetGasLimit(300000)
 	(*txBuilder).SetFeeAmount([]sdk.Coin{
 		sdk.NewCoin("usei", sdk.NewInt(10000)),
 	})
