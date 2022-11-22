@@ -24,6 +24,15 @@ func cacheTxContext(ctx sdk.Context) (sdk.Context, sdk.CacheMultiStore) {
 	return ctx.WithMultiStore(msCache), msCache
 }
 
+func TestMsgBankDependencyGenerator(t *testing.T) {
+	bankDependencyGenerator := GetBankDepedencyGenerator()
+	// verify that there's one entry, for bank send
+	require.Equal(t, 1, len(bankDependencyGenerator))
+	// check that bank send generator is in the map
+	_, ok := bankDependencyGenerator[acltypes.GenerateMessageKey(&banktypes.MsgSend{})]
+	require.True(t, ok)
+}
+
 func TestMsgBankSendAclOps(t *testing.T) {
 	priv1 := secp256k1.GenPrivKey()
 	addr1 := sdk.AccAddress(priv1.PubKey().Address())
