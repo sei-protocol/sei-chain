@@ -51,7 +51,7 @@ func (k msgServer) PlaceOrders(goCtx context.Context, msg *types.MsgPlaceOrders)
 	ctx := sdk.UnwrapSDKContext(goCtx)
 
 	if len(msg.Orders) == 0 {
-		return nil, errors.New("At least one order needs to be placed")
+		return nil, errors.New("at least one order needs to be placed")
 	}
 
 	for _, order := range msg.Orders {
