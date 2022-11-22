@@ -42,19 +42,19 @@ func EndBlockerAtomic(ctx sdk.Context, keeper *keeper.Keeper, validContractsInfo
 	spanCtx, span := (*tracer).Start(tracingInfo.TracerContext, "DexEndBlockerAtomic")
 	defer span.End()
 	env := newEnv(ctx, validContractsInfo, keeper)
-	ctx, msCached := cacheAndDecorateContext(ctx, env)
-	memStateCopy := dexutils.GetMemState(ctx.Context()).DeepCopy()
+	cachedCtx, msCached := cacheAndDecorateContext(ctx, env)
+	memStateCopy := dexutils.GetMemState(cachedCtx.Context()).DeepCopy()
 
-	handleDeposits(ctx, env, keeper, tracer)
+	handleDeposits(cachedCtx, env, keeper, tracer)
 
 	runner := NewParallelRunner(func(contract types.ContractInfoV2) {
-		orderMatchingRunnable(spanCtx, ctx, env, keeper, contract, tracer)
-	}, validContractsInfo, ctx)
+		orderMatchingRunnable(spanCtx, cachedCtx, env, keeper, contract, tracer)
+	}, validContractsInfo, cachedCtx)
 	runner.Run()
 
-	handleSettlements(spanCtx, ctx, env, keeper, tracer)
-	handleUnfulfilledMarketOrders(spanCtx, ctx, env, keeper, tracer)
-	handleFinalizedBlocks(spanCtx, ctx, env, keeper, tracer)
+	handleSettlements(spanCtx, cachedCtx, env, keeper, tracer)
+	handleUnfulfilledMarketOrders(spanCtx, cachedCtx, env, keeper, tracer)
+	handleFinalizedBlocks(spanCtx, cachedCtx, env, keeper, tracer)
 
 	// No error is thrown for any contract. This should happen most of the time.
 	if env.failedContractAddresses.Size() == 0 {
