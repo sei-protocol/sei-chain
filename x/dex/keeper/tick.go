@@ -10,8 +10,8 @@ import (
 const defaultAddr = "default"
 
 // contract_addr, pair -> tick size
-func (k Keeper) SetPriceTickSizeForPair(ctx sdk.Context, contractAddr string, pair types.Pair, ticksize sdk.Dec) {
-	store := prefix.NewStore(ctx.KVStore(k.storeKey), types.PriceTickSizeKeyPrefix(contractAddr))
+func (k Keeper) SetTickSizeForPair(ctx sdk.Context, contractAddr string, pair types.Pair, ticksize sdk.Dec) {
+	store := prefix.NewStore(ctx.KVStore(k.storeKey), types.TickSizeKeyPrefix(contractAddr))
 	bytes, err := ticksize.Marshal()
 	if err != nil {
 		panic(err)
@@ -19,8 +19,8 @@ func (k Keeper) SetPriceTickSizeForPair(ctx sdk.Context, contractAddr string, pa
 	store.Set(types.PairPrefix(pair.PriceDenom, pair.AssetDenom), bytes)
 }
 
-func (k Keeper) SetDefaultPriceTickSizeForPair(ctx sdk.Context, pair types.Pair, ticksize sdk.Dec) {
-	store := prefix.NewStore(ctx.KVStore(k.storeKey), types.PriceTickSizeKeyPrefix(defaultAddr))
+func (k Keeper) SetDefaultTickSizeForPair(ctx sdk.Context, pair types.Pair, ticksize sdk.Dec) {
+	store := prefix.NewStore(ctx.KVStore(k.storeKey), types.TickSizeKeyPrefix(defaultAddr))
 	bytes, err := ticksize.Marshal()
 	if err != nil {
 		panic(err)
@@ -28,8 +28,8 @@ func (k Keeper) SetDefaultPriceTickSizeForPair(ctx sdk.Context, pair types.Pair,
 	store.Set(types.PairPrefix(pair.PriceDenom, pair.AssetDenom), bytes)
 }
 
-func (k Keeper) GetPriceTickSizeForPair(ctx sdk.Context, contractAddr string, pair types.Pair) (sdk.Dec, bool) {
-	store := prefix.NewStore(ctx.KVStore(k.storeKey), types.PriceTickSizeKeyPrefix(contractAddr))
+func (k Keeper) GetTickSizeForPair(ctx sdk.Context, contractAddr string, pair types.Pair) (sdk.Dec, bool) {
+	store := prefix.NewStore(ctx.KVStore(k.storeKey), types.TickSizeKeyPrefix(contractAddr))
 	b := store.Get(types.PairPrefix(pair.PriceDenom, pair.AssetDenom))
 	if b == nil {
 		return sdk.ZeroDec(), false
@@ -42,55 +42,8 @@ func (k Keeper) GetPriceTickSizeForPair(ctx sdk.Context, contractAddr string, pa
 	return res, true
 }
 
-func (k Keeper) GetDefaultPriceTickSizeForPair(ctx sdk.Context, pair types.Pair) (sdk.Dec, bool) {
-	store := prefix.NewStore(ctx.KVStore(k.storeKey), types.PriceTickSizeKeyPrefix(defaultAddr))
-	b := store.Get(types.PairPrefix(pair.PriceDenom, pair.AssetDenom))
-	if b == nil {
-		return sdk.ZeroDec(), false
-	}
-	res := sdk.Dec{}
-	err := res.Unmarshal(b)
-	if err != nil {
-		panic(err)
-	}
-	return res, true
-}
-
-// contract_addr, pair -> tick size
-func (k Keeper) SetQuantityTickSizeForPair(ctx sdk.Context, contractAddr string, pair types.Pair, ticksize sdk.Dec) {
-	store := prefix.NewStore(ctx.KVStore(k.storeKey), types.QuantityTickSizeKeyPrefix(contractAddr))
-	bytes, err := ticksize.Marshal()
-	if err != nil {
-		panic(err)
-	}
-	store.Set(types.PairPrefix(pair.PriceDenom, pair.AssetDenom), bytes)
-}
-
-func (k Keeper) SetDefaultQuantityTickSizeForPair(ctx sdk.Context, pair types.Pair, ticksize sdk.Dec) {
-	store := prefix.NewStore(ctx.KVStore(k.storeKey), types.QuantityTickSizeKeyPrefix(defaultAddr))
-	bytes, err := ticksize.Marshal()
-	if err != nil {
-		panic(err)
-	}
-	store.Set(types.PairPrefix(pair.PriceDenom, pair.AssetDenom), bytes)
-}
-
-func (k Keeper) GetQuantityTickSizeForPair(ctx sdk.Context, contractAddr string, pair types.Pair) (sdk.Dec, bool) {
-	store := prefix.NewStore(ctx.KVStore(k.storeKey), types.QuantityTickSizeKeyPrefix(contractAddr))
-	b := store.Get(types.PairPrefix(pair.PriceDenom, pair.AssetDenom))
-	if b == nil {
-		return sdk.ZeroDec(), false
-	}
-	res := sdk.Dec{}
-	err := res.Unmarshal(b)
-	if err != nil {
-		panic(err)
-	}
-	return res, true
-}
-
-func (k Keeper) GetDefaultQuantityTickSizeForPair(ctx sdk.Context, pair types.Pair) (sdk.Dec, bool) {
-	store := prefix.NewStore(ctx.KVStore(k.storeKey), types.QuantityTickSizeKeyPrefix(defaultAddr))
+func (k Keeper) GetDefaultTickSizeForPair(ctx sdk.Context, pair types.Pair) (sdk.Dec, bool) {
+	store := prefix.NewStore(ctx.KVStore(k.storeKey), types.TickSizeKeyPrefix(defaultAddr))
 	b := store.Get(types.PairPrefix(pair.PriceDenom, pair.AssetDenom))
 	if b == nil {
 		return sdk.ZeroDec(), false

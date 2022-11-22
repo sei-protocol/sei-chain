@@ -85,12 +85,8 @@ func RegisteredPairPrefix(contractAddr string) []byte {
 	return append(KeyPrefix(RegisteredPairKey), KeyPrefix(contractAddr)...)
 }
 
-func PriceTickSizeKeyPrefix(contractAddr string) []byte {
-	return append(KeyPrefix(PriceTickSizeKey), KeyPrefix(contractAddr)...)
-}
-
-func QuantityTickSizeKeyPrefix(contractAddr string) []byte {
-	return append(KeyPrefix(QuantityTickSizeKey), KeyPrefix(contractAddr)...)
+func TickSizeKeyPrefix(contractAddr string) []byte {
+	return append(KeyPrefix(TickSizeKey), KeyPrefix(contractAddr)...)
 }
 
 func OrderPrefix(contractAddr string) []byte {
@@ -186,8 +182,7 @@ const (
 	NextOrderIDKey      = "noid"
 	RegisteredPairKey   = "rp"
 	RegisteredPairCount = "rpcnt"
-	PriceTickSizeKey    = "ticks" // called ticks instead of priceticks since that was the original store key and makes it simpler this way since we don't need to do a migration
-	QuantityTickSizeKey = "quantityticks"
+	TickSizeKey         = "ticks"
 	AssetListKey        = "AssetList-"
 	MatchResultKey      = "MatchResult-"
 

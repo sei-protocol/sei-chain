@@ -38,8 +38,7 @@ func fuzzTargetPlaceOrders(
 	keeper, ctx := keepertest.DexKeeper(t)
 	contract := fuzzutils.GetContract(contractIdx)
 	keeper.AddRegisteredPair(ctx, contract, keepertest.TestPair)
-	keeper.SetPriceTickSizeForPair(ctx, TestContract, keepertest.TestPair, *keepertest.TestPair.PriceTicksize)
-	keeper.SetQuantityTickSizeForPair(ctx, TestContract, keepertest.TestPair, *keepertest.TestPair.QuantityTicksize)
+	keeper.SetTickSizeForPair(ctx, contract, keepertest.TestPair, *keepertest.TestPair.Ticksize)
 	wctx := sdk.WrapSDKContext(ctx)
 	msg := &types.MsgPlaceOrders{
 		Creator:      fuzzutils.GetAccount(accountIdx),

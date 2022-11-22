@@ -11,10 +11,9 @@ import (
 
 type (
 	PairJSON struct {
-		PriceDenom       string `json:"price_denom" yaml:"price_denom"`
-		AssetDenom       string `json:"asset_denom" yaml:"asset_denom"`
-		PriceTickSize    string `json:"price_tick_size" yaml:"tick_size"`
-		QuantityTickSize string `json:"quantity_tick_size" yaml:"tick_size"`
+		PriceDenom string `json:"price_denom" yaml:"price_denom"`
+		AssetDenom string `json:"asset_denom" yaml:"asset_denom"`
+		TickSize   string `json:"tick_size" yaml:"tick_size"`
 	}
 
 	TickSizeJSON struct {
@@ -58,15 +57,11 @@ type (
 func NewPair(pair PairJSON) (dextypes.Pair, error) {
 	PriceDenom := pair.PriceDenom
 	AssetDenom := pair.AssetDenom
-	priceTicksize, err := sdk.NewDecFromStr(pair.PriceTickSize)
+	ticksize, err := sdk.NewDecFromStr(pair.TickSize)
 	if err != nil {
-		return dextypes.Pair{}, errors.New("price ticksize: str to decimal conversion err")
+		return dextypes.Pair{}, errors.New("ticksize: str to decimal conversion err")
 	}
-	quantityTicksize, err := sdk.NewDecFromStr(pair.QuantityTickSize)
-	if err != nil {
-		return dextypes.Pair{}, errors.New("quantity ticksize: str to decimal conversion err")
-	}
-	return dextypes.Pair{PriceDenom: PriceDenom, AssetDenom: AssetDenom, PriceTicksize: &priceTicksize, QuantityTicksize: &quantityTicksize}, nil
+	return dextypes.Pair{PriceDenom: PriceDenom, AssetDenom: AssetDenom, Ticksize: &ticksize}, nil
 }
 
 // ToParamChange converts a ParamChangeJSON object to ParamChange.

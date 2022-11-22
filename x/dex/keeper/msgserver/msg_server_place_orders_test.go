@@ -53,8 +53,7 @@ func TestPlaceOrder(t *testing.T) {
 	}
 	keeper, ctx := keepertest.DexKeeper(t)
 	keeper.AddRegisteredPair(ctx, TestContract, keepertest.TestPair)
-	keeper.SetPriceTickSizeForPair(ctx, TestContract, keepertest.TestPair, *keepertest.TestPair.PriceTicksize)
-	keeper.SetQuantityTickSizeForPair(ctx, TestContract, keepertest.TestPair, *keepertest.TestPair.QuantityTicksize)
+	keeper.SetTickSizeForPair(ctx, TestContract, keepertest.TestPair, *keepertest.TestPair.Ticksize)
 	wctx := sdk.WrapSDKContext(ctx)
 	server := msgserver.NewMsgServerImpl(*keeper)
 	res, err := server.PlaceOrders(wctx, msg)
@@ -71,8 +70,7 @@ func TestPlaceOrder(t *testing.T) {
 func TestPlaceInvalidOrder(t *testing.T) {
 	keeper, ctx := keepertest.DexKeeper(t)
 	keeper.AddRegisteredPair(ctx, TestContract, keepertest.TestPair)
-	keeper.SetPriceTickSizeForPair(ctx, TestContract, keepertest.TestPair, *keepertest.TestPair.PriceTicksize)
-	keeper.SetQuantityTickSizeForPair(ctx, TestContract, keepertest.TestPair, *keepertest.TestPair.QuantityTicksize)
+	keeper.SetTickSizeForPair(ctx, TestContract, keepertest.TestPair, *keepertest.TestPair.Ticksize)
 	wctx := sdk.WrapSDKContext(ctx)
 
 	// Empty quantity
