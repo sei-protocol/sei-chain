@@ -47,7 +47,8 @@ func TestCancelOrder(t *testing.T) {
 		},
 	}
 	keeper.AddRegisteredPair(ctx, keepertest.TestContract, keepertest.TestPair)
-	keeper.SetTickSizeForPair(ctx, keepertest.TestContract, keepertest.TestPair, *keepertest.TestPair.Ticksize)
+	keeper.SetPriceTickSizeForPair(ctx, TestContract, keepertest.TestPair, *keepertest.TestPair.PriceTicksize)
+	keeper.SetQuantityTickSizeForPair(ctx, TestContract, keepertest.TestPair, *keepertest.TestPair.QuantityTicksize)
 	wctx := sdk.WrapSDKContext(ctx)
 	server := msgserver.NewMsgServerImpl(*keeper)
 	_, err := server.CancelOrders(wctx, msg)
@@ -79,7 +80,8 @@ func TestInvalidCancels(t *testing.T) {
 		},
 	}
 	keeper.AddRegisteredPair(ctx, keepertest.TestContract, keepertest.TestPair)
-	keeper.SetTickSizeForPair(ctx, keepertest.TestContract, keepertest.TestPair, *keepertest.TestPair.Ticksize)
+	keeper.SetPriceTickSizeForPair(ctx, TestContract, keepertest.TestPair, *keepertest.TestPair.PriceTicksize)
+	keeper.SetQuantityTickSizeForPair(ctx, TestContract, keepertest.TestPair, *keepertest.TestPair.QuantityTicksize)
 	wctx := sdk.WrapSDKContext(ctx)
 	server := msgserver.NewMsgServerImpl(*keeper)
 	_, err := server.CancelOrders(wctx, msg)

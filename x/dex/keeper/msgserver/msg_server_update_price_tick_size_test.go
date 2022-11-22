@@ -19,7 +19,7 @@ import (
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 )
 
-func TestUpdateTickSize(t *testing.T) {
+func TestUpdatePriceTickSize(t *testing.T) {
 	// Instantiate and get contract address
 	testApp := keepertest.TestApp()
 	ctx := testApp.BaseApp.NewContext(false, tmproto.Header{Time: time.Now()})
@@ -72,17 +72,17 @@ func TestUpdateTickSize(t *testing.T) {
 		Pair:         &keepertest.TestPair,
 		Ticksize:     sdk.MustNewDecFromStr("0.1"),
 	})
-	_, err = server.UpdateTickSize(wctx, &types.MsgUpdateTickSize{
+	_, err = server.UpdatePriceTickSize(wctx, &types.MsgUpdatePriceTickSize{
 		Creator:      keepertest.TestAccount,
 		TickSizeList: tickUpdates,
 	})
 	require.NoError(t, err)
 
-	storedTickSize, _ := keeper.GetTickSizeForPair(ctx, contractAddr.String(), keepertest.TestPair)
+	storedTickSize, _ := keeper.GetPriceTickSizeForPair(ctx, contractAddr.String(), keepertest.TestPair)
 	require.Equal(t, sdk.MustNewDecFromStr("0.1"), storedTickSize)
 }
 
-func TestUpdateTickSizeInvalidMsg(t *testing.T) {
+func TestUpdatePriceTickSizeInvalidMsg(t *testing.T) {
 	// Instantiate and get contract address
 	testApp := keepertest.TestApp()
 	ctx := testApp.BaseApp.NewContext(false, tmproto.Header{Time: time.Now()})
@@ -134,7 +134,7 @@ func TestUpdateTickSizeInvalidMsg(t *testing.T) {
 		Pair:         &keepertest.TestPair,
 		Ticksize:     sdk.MustNewDecFromStr("0.1"),
 	})
-	_, err = server.UpdateTickSize(wctx, &types.MsgUpdateTickSize{
+	_, err = server.UpdatePriceTickSize(wctx, &types.MsgUpdatePriceTickSize{
 		Creator:      "",
 		TickSizeList: tickUpdates,
 	})
@@ -142,7 +142,7 @@ func TestUpdateTickSizeInvalidMsg(t *testing.T) {
 
 	// Test with empty msg
 	tickUpdates = []types.TickSize{}
-	_, err = server.UpdateTickSize(wctx, &types.MsgUpdateTickSize{
+	_, err = server.UpdatePriceTickSize(wctx, &types.MsgUpdatePriceTickSize{
 		Creator:      keepertest.TestAccount,
 		TickSizeList: tickUpdates,
 	})
@@ -155,7 +155,7 @@ func TestUpdateTickSizeInvalidMsg(t *testing.T) {
 		Pair:         &keepertest.TestPair,
 		Ticksize:     sdk.MustNewDecFromStr("0.1"),
 	})
-	_, err = server.UpdateTickSize(wctx, &types.MsgUpdateTickSize{
+	_, err = server.UpdatePriceTickSize(wctx, &types.MsgUpdatePriceTickSize{
 		Creator:      "invalidAddress",
 		TickSizeList: tickUpdates,
 	})
@@ -168,7 +168,7 @@ func TestUpdateTickSizeInvalidMsg(t *testing.T) {
 		Pair:         &keepertest.TestPair,
 		Ticksize:     sdk.MustNewDecFromStr("0.1"),
 	})
-	_, err = server.UpdateTickSize(wctx, &types.MsgUpdateTickSize{
+	_, err = server.UpdatePriceTickSize(wctx, &types.MsgUpdatePriceTickSize{
 		Creator:      keepertest.TestAccount,
 		TickSizeList: tickUpdates,
 	})
@@ -181,7 +181,7 @@ func TestUpdateTickSizeInvalidMsg(t *testing.T) {
 		Pair:         nil,
 		Ticksize:     sdk.MustNewDecFromStr("0.1"),
 	})
-	_, err = server.UpdateTickSize(wctx, &types.MsgUpdateTickSize{
+	_, err = server.UpdatePriceTickSize(wctx, &types.MsgUpdatePriceTickSize{
 		Creator:      keepertest.TestAccount,
 		TickSizeList: tickUpdates,
 	})
@@ -189,7 +189,7 @@ func TestUpdateTickSizeInvalidMsg(t *testing.T) {
 }
 
 // Test only contract creator can update tick size for contract
-func TestInvalidUpdateTickSizeCreator(t *testing.T) {
+func TestInvalidUpdatePriceTickSizeCreator(t *testing.T) {
 	// Instantiate and get contract address
 	testApp := keepertest.TestApp()
 	ctx := testApp.BaseApp.NewContext(false, tmproto.Header{Time: time.Now()})
@@ -242,7 +242,7 @@ func TestInvalidUpdateTickSizeCreator(t *testing.T) {
 		Pair:         &keepertest.TestPair,
 		Ticksize:     sdk.MustNewDecFromStr("0.1"),
 	})
-	_, err = server.UpdateTickSize(wctx, &types.MsgUpdateTickSize{
+	_, err = server.UpdatePriceTickSize(wctx, &types.MsgUpdatePriceTickSize{
 		Creator:      "sei18rrckuelmacz4fv4v2hl9t3kaw7mm4wpe8v36m",
 		TickSizeList: tickUpdates,
 	})
