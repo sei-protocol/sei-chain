@@ -78,7 +78,7 @@ enum ResourceType {
     KV_DEX_PRICE = 56; // child of KV_DEX
     KV_DEX_SETTLEMENT_ENTRY = 57; // child of KV_DEX
     KV_DEX_REGISTERED_PAIR = 58; // child of KV_DEX
-    KV_DEX_TICK_SIZE = 59; // child of KV_DEX
+    KV_DEX_PRICE_TICK_SIZE = 59; // child of KV_DEX
     KV_DEX_ORDER = 60; // child of KV_DEX
     KV_DEX_CANCEL = 61; // child of KV_DEX
     KV_DEX_ACCOUNT_ACTIVE_ORDERS = 62; // child of KV_DEX
@@ -89,4 +89,5 @@ enum ResourceType {
     KV_DEX_MATCH_RESULT = 67; // child of KV_DEX
     KV_DEX_SETTLEMENT_ORDER_ID = 68; // child of KV_DEX
     KV_DEX_ORDER_BOOK = 69; // child of KV_DEX
+    KV_DEX_QUANTITY_TICK_SIZE = 70; // child of KV_DEX
 }
