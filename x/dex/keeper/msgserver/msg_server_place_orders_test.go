@@ -195,3 +195,16 @@ func TestPlaceInvalidOrder(t *testing.T) {
 	_, err = server.PlaceOrders(wctx, msg)
 	require.NotNil(t, err)
 }
+
+func TestPlaceNoOrder(t *testing.T) {
+	msg := &types.MsgPlaceOrders{
+		Creator:      TestCreator,
+		ContractAddr: TestContract,
+		Orders:       []*types.Order{},
+	}
+	keeper, ctx := keepertest.DexKeeper(t)
+	wctx := sdk.WrapSDKContext(ctx)
+	server := msgserver.NewMsgServerImpl(*keeper)
+	_, err := server.PlaceOrders(wctx, msg)
+	require.NotNil(t, err)
+}

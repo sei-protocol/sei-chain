@@ -50,6 +50,10 @@ func (k msgServer) transferFunds(goCtx context.Context, msg *types.MsgPlaceOrder
 func (k msgServer) PlaceOrders(goCtx context.Context, msg *types.MsgPlaceOrders) (*types.MsgPlaceOrdersResponse, error) {
 	ctx := sdk.UnwrapSDKContext(goCtx)
 
+	if len(msg.Orders) == 0 {
+		return nil, errors.New("At least one order needs to be placed")
+	}
+
 	for _, order := range msg.Orders {
 		if err := k.validateOrder(order); err != nil {
 			return nil, err
