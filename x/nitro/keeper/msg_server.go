@@ -106,7 +106,5 @@ func (server msgServer) SubmitFraudChallenge(goCtx context.Context, msg *types.M
 		return nil, types.ErrInvalidMerkleProof
 	}
 
-	// TODO: charge gas fee if challenge fails
-
 	return &types.MsgSubmitFraudChallengeResponse{}, nil
 }

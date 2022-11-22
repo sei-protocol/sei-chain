@@ -54,8 +54,6 @@ type CustomQueryHandler struct {
 }
 
 func (queryHandler CustomQueryHandler) HandleQuery(ctx sdk.Context, caller sdk.AccAddress, request wasmvmtypes.QueryRequest) ([]byte, error) {
-	// TODO: we need to carry wasmDependency in ctx instead of loading again here since here has no access to original msg payload
-	//       which is required for populating id correctly.
 	wasmDependency, err := queryHandler.aclKeeper.GetWasmDependencyMapping(ctx, caller, []byte{}, false)
 	// If no mapping exists, or mapping is disabled, this message would behave as blocking for all resources
 	needToCheckDependencies := true
@@ -77,7 +75,6 @@ func (queryHandler CustomQueryHandler) HandleQuery(ctx sdk.Context, caller sdk.A
 		accessOp := accesscontrol.AccessOperation{
 			ResourceType: accesscontrol.ResourceType_KV_BANK,
 			AccessType:   accesscontrol.AccessType_READ,
-			// TODO: should IdentifierTemplate be based on the actual request?
 			IdentifierTemplate: "*",
 		}
 		if needToCheckDependencies {
@@ -90,7 +87,6 @@ func (queryHandler CustomQueryHandler) HandleQuery(ctx sdk.Context, caller sdk.A
 
 	}
 	if request.Custom != nil {
-		// TODO: specially break down the custom
 		var contractQuery SeiQueryWrapper
 		if err := json.Unmarshal(request.Custom, &contractQuery); err != nil {
 			return nil, sdkerrors.Wrap(err, "Error parsing request data")
@@ -104,7 +100,7 @@ func (queryHandler CustomQueryHandler) HandleQuery(ctx sdk.Context, caller sdk.A
 		case EpochRoute:
 			resourceType = accesscontrol.ResourceType_KV_EPOCH
 		case TokenFactoryRoute:
-			resourceType = accesscontrol.ResourceType_KV // TODO: change this to tokenfactory when rebasing a newer sei cosmos version with the enum
+			resourceType = accesscontrol.ResourceType_KV
 		}
 		accessOp := accesscontrol.AccessOperation{
 			ResourceType:       resourceType,
@@ -121,7 +117,6 @@ func (queryHandler CustomQueryHandler) HandleQuery(ctx sdk.Context, caller sdk.A
 	}
 	if request.IBC != nil {
 		// check for ANY resource type
-		// TODO: do we need a special resource type for IBC?
 		accessOp := accesscontrol.AccessOperation{
 			ResourceType:       accesscontrol.ResourceType_ANY,
 			AccessType:         accesscontrol.AccessType_READ,
@@ -152,7 +147,6 @@ func (queryHandler CustomQueryHandler) HandleQuery(ctx sdk.Context, caller sdk.A
 	}
 	if request.Stargate != nil {
 		// check for ANY resource type
-		// TODO: determine what Stargate dependency granularity looks like
 		accessOp := accesscontrol.AccessOperation{
 			ResourceType:       accesscontrol.ResourceType_ANY,
 			AccessType:         accesscontrol.AccessType_READ,

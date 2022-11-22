@@ -51,7 +51,6 @@ func (tsmd TickSizeMultipleDecorator) CheckTickSizeMultiple(ctx sdk.Context, msg
 						PriceDenom: order.PriceDenom,
 						AssetDenom: order.AssetDenom,
 					})
-				// todo may not need to throw err if ticksize unfound?
 				if !found {
 					return sdkerrors.Wrapf(sdkerrors.ErrKeyNotFound, "the pair {price:%s,asset:%s} has no price ticksize configured", order.PriceDenom, order.AssetDenom)
 				}
@@ -63,7 +62,6 @@ func (tsmd TickSizeMultipleDecorator) CheckTickSizeMultiple(ctx sdk.Context, msg
 						PriceDenom: order.PriceDenom,
 						AssetDenom: order.AssetDenom,
 					})
-				// todo may not need to throw err if ticksize unfound?
 				if !found {
 					return sdkerrors.Wrapf(sdkerrors.ErrKeyNotFound, "the pair {price:%s,asset:%s} has no quantity ticksize configured", order.PriceDenom, order.AssetDenom)
 				}

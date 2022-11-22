@@ -54,7 +54,6 @@ type (
 	}
 )
 
-// TODO: ADD utils to convert Each type to dex/type (string to denom)
 func NewPair(pair PairJSON) (dextypes.Pair, error) {
 	PriceDenom := pair.PriceDenom
 	AssetDenom := pair.AssetDenom

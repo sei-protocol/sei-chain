@@ -370,7 +370,6 @@ func initAppConfig() (string, interface{}) {
 	srvCfg.PruningInterval = fmt.Sprintf("%d", pruningInterval)
 
 	// Enable for frontend
-	// TODO: remove before mainnet launch
 	srvCfg.API.EnableUnsafeCORS = true
 	srvCfg.GRPCWeb.EnableUnsafeCORS = true
 

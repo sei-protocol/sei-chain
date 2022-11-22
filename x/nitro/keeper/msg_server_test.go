@@ -120,6 +120,4 @@ func TestSubmitFraudChallenge(t *testing.T) {
 		MerkleProof:      proof,
 	})
 	require.Equal(t, err, types.ErrInvalidFraudStatePubkey)
-
-	// TODO: add happy path with replayable account states
 }

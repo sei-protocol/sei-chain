@@ -40,8 +40,8 @@ func (k KeeperWrapper) GetMarketSummary(goCtx context.Context, req *types.QueryG
 
 	zero := sdk.ZeroDec()
 	return &types.QueryGetMarketSummaryResponse{
-		TotalVolume:         &zero, // TODO: replace once we start tracking volume
-		TotalVolumeNotional: &zero, // TODO: replace once we start tracking volume
+		TotalVolume:         &zero, 
+		TotalVolumeNotional: &zero, 
 		HighPrice:           &maxPrice,
 		LowPrice:            &minPrice,
 		LastPrice:           &lastPrice,

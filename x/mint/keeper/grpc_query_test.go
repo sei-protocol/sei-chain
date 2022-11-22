@@ -13,7 +13,7 @@ import (
 
 	"github.com/cosmos/cosmos-sdk/baseapp"
 	sdk "github.com/cosmos/cosmos-sdk/types"
-	"github.com/sei-protocol/sei-chain/x/mint/types" // TODO: Replace this with sei-chain. Leaving it for now otherwise tests fail
+	"github.com/sei-protocol/sei-chain/x/mint/types" 
 )
 
 type MintTestSuite struct {

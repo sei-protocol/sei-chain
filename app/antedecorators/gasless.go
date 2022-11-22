@@ -91,7 +91,6 @@ func (gd GaslessDecorator) AnteDeps(txDeps []sdkacltypes.AccessOperation, tx sdk
 				},
 			}...)
 		default:
-			// TODO: add tx gasless deps for nitro for nitrokeeper read
 			continue
 		}
 	}

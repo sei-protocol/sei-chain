@@ -121,8 +121,6 @@ func (decorator SDKMessageDependencyDecorator) DispatchMsg(ctx sdk.Context, cont
 		return nil, nil, err
 	}
 	// get the dependencies for the contract to validate against
-	// TODO: we need to carry wasmDependency in ctx instead of loading again here since here has no access to original msg payload
-	//       which is required for populating id correctly.
 	wasmDependency, err := decorator.aclKeeper.GetWasmDependencyMapping(ctx, contractAddr, []byte{}, false)
 	// If no mapping exists, or mapping is disabled, this message would behave as blocking for all resources
 	if err == aclkeeper.ErrWasmDependencyMappingNotFound {
@@ -134,7 +132,6 @@ func (decorator SDKMessageDependencyDecorator) DispatchMsg(ctx sdk.Context, cont
 	}
 	if !wasmDependency.Enabled {
 		// if not enabled, just move on
-		// TODO: confirm that this is ok, is there ever a case where we should still verify dependencies for a disabled dependency? IDTS
 		return decorator.wrapped.DispatchMsg(ctx, contractAddr, contractIBCPortID, msg)
 	}
 	// convert wasm dependency to a map of resource access and identifier we can look up in

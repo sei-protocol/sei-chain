@@ -19,7 +19,6 @@ func init() {
 	govtypes.RegisterProposalTypeCodec(&AddAssetMetadataProposal{}, "dex/AddAssetMetadataProposal")
 }
 
-// todo might be good to separate to different file when # of governance proposal increases
 func NewAddAssetMetadata(title, description string, assetList []AssetMetadata) AddAssetMetadataProposal {
 	return AddAssetMetadataProposal{
 		Title:       title,

@@ -26,7 +26,6 @@ func (k msgServer) RegisterContract(goCtx context.Context, msg *types.MsgRegiste
 	contractAddr, _ := sdk.AccAddressFromBech32(msg.Contract.ContractAddr)
 	contractInfo := k.Keeper.WasmKeeper.GetContractInfo(ctx, contractAddr)
 
-	// TODO: Add wasm fixture to write unit tests to verify this behavior
 	if contractInfo.Creator != msg.Creator {
 		return nil, sdkerrors.ErrUnauthorized
 	}
