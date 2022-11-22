@@ -59,9 +59,12 @@ func NewPair(pair PairJSON) (dextypes.Pair, error) {
 	PriceDenom := pair.PriceDenom
 	AssetDenom := pair.AssetDenom
 	priceTicksize, err := sdk.NewDecFromStr(pair.PriceTickSize)
+	if err != nil {
+		return dextypes.Pair{}, errors.New("price ticksize: str to decimal conversion err")
+	}
 	quantityTicksize, err := sdk.NewDecFromStr(pair.QuantityTickSize)
 	if err != nil {
-		return dextypes.Pair{}, errors.New("ticksize: str to decimal conversion err")
+		return dextypes.Pair{}, errors.New("quantity ticksize: str to decimal conversion err")
 	}
 	return dextypes.Pair{PriceDenom: PriceDenom, AssetDenom: AssetDenom, PriceTicksize: &priceTicksize, QuantityTicksize: &quantityTicksize}, nil
 }
