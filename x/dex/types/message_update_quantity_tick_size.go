@@ -7,29 +7,29 @@ import (
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 )
 
-const TypeMsgUpdateTickSize = "update_tick_size"
+const TypeMsgUpdateQuantityTickSize = "update_quantity_tick_size"
 
-var _ sdk.Msg = &MsgUpdateTickSize{}
+var _ sdk.Msg = &MsgUpdateQuantityTickSize{}
 
-func NewMsgUpdateTickSize(
+func NewMsgUpdateQuantityTickSize(
 	creator string,
 	tickSizeList []TickSize,
-) *MsgUpdateTickSize {
-	return &MsgUpdateTickSize{
+) *MsgUpdateQuantityTickSize {
+	return &MsgUpdateQuantityTickSize{
 		Creator:      creator,
 		TickSizeList: tickSizeList,
 	}
 }
 
-func (msg *MsgUpdateTickSize) Route() string {
+func (msg *MsgUpdateQuantityTickSize) Route() string {
 	return RouterKey
 }
 
-func (msg *MsgUpdateTickSize) Type() string {
-	return TypeMsgUpdateTickSize
+func (msg *MsgUpdateQuantityTickSize) Type() string {
+	return TypeMsgUpdateQuantityTickSize
 }
 
-func (msg *MsgUpdateTickSize) GetSigners() []sdk.AccAddress {
+func (msg *MsgUpdateQuantityTickSize) GetSigners() []sdk.AccAddress {
 	creator, err := sdk.AccAddressFromBech32(msg.Creator)
 	if err != nil {
 		panic(err)
@@ -37,12 +37,12 @@ func (msg *MsgUpdateTickSize) GetSigners() []sdk.AccAddress {
 	return []sdk.AccAddress{creator}
 }
 
-func (msg *MsgUpdateTickSize) GetSignBytes() []byte {
+func (msg *MsgUpdateQuantityTickSize) GetSignBytes() []byte {
 	bz := ModuleCdc.MustMarshalJSON(msg)
 	return sdk.MustSortJSON(bz)
 }
 
-func (msg *MsgUpdateTickSize) ValidateBasic() error {
+func (msg *MsgUpdateQuantityTickSize) ValidateBasic() error {
 	if msg.Creator == "" {
 		return errors.New("creator address is empty")
 	}
@@ -53,7 +53,7 @@ func (msg *MsgUpdateTickSize) ValidateBasic() error {
 	}
 
 	if len(msg.TickSizeList) == 0 {
-		return errors.New("no data provided in update tick size transaction")
+		return errors.New("no data provided in update quantity tick size transaction")
 	}
 
 	for _, tickSize := range msg.TickSizeList {

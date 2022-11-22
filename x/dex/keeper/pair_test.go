@@ -19,16 +19,18 @@ func TestSetGetPairCount(t *testing.T) {
 func TestAddGetPair(t *testing.T) {
 	keeper, ctx := keepertest.DexKeeper(t)
 	keeper.AddRegisteredPair(ctx, keepertest.TestContract, types.Pair{
-		PriceDenom: keepertest.TestPriceDenom,
-		AssetDenom: keepertest.TestAssetDenom,
-		Ticksize:   &keepertest.TestTicksize,
+		PriceDenom:       keepertest.TestPriceDenom,
+		AssetDenom:       keepertest.TestAssetDenom,
+		PriceTicksize:    &keepertest.TestTicksize,
+		QuantityTicksize: &keepertest.TestTicksize,
 	})
 	require.Equal(t, uint64(1), keeper.GetPairCount(ctx, keepertest.TestContract))
 	require.ElementsMatch(t,
 		nullify.Fill([]types.Pair{{
-			PriceDenom: keepertest.TestPriceDenom,
-			AssetDenom: keepertest.TestAssetDenom,
-			Ticksize:   &keepertest.TestTicksize,
+			PriceDenom:       keepertest.TestPriceDenom,
+			AssetDenom:       keepertest.TestAssetDenom,
+			PriceTicksize:    &keepertest.TestTicksize,
+			QuantityTicksize: &keepertest.TestTicksize,
 		}}),
 		nullify.Fill(keeper.GetAllRegisteredPairs(ctx, keepertest.TestContract)),
 	)
