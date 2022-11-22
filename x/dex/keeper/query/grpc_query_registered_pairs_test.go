@@ -15,9 +15,10 @@ func TestRegisteredPairsQuery(t *testing.T) {
 	wrapper := query.KeeperWrapper{Keeper: keeper}
 	wctx := sdk.WrapSDKContext(ctx)
 	expectedPair := types.Pair{
-		PriceDenom: keepertest.TestPriceDenom,
-		AssetDenom: keepertest.TestAssetDenom,
-		Ticksize:   &keepertest.TestTicksize,
+		PriceDenom:       keepertest.TestPriceDenom,
+		AssetDenom:       keepertest.TestAssetDenom,
+		PriceTicksize:    &keepertest.TestTicksize,
+		QuantityTicksize: &keepertest.TestTicksize,
 	}
 	keeper.AddRegisteredPair(ctx, keepertest.TestContract, expectedPair)
 
