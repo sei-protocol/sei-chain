@@ -17,7 +17,7 @@ const (
 	DefaultPriceSnapshotRetention = 24 * 3600 // default to one day
 )
 
-var DefaultSudoCallGasPrice = sdk.NewDecWithPrec(1, 1) // 0.1
+var DefaultSudoCallGasPrice = sdk.ZeroDec() // 0
 
 var _ paramtypes.ParamSet = (*Params)(nil)
 
