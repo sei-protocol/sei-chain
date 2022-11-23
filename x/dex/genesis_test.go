@@ -21,10 +21,10 @@ func TEST_PAIR() types.Pair {
 func TestGenesis(t *testing.T) {
 	contractList := []types.ContractState{}
 	contractDependencies := []*types.ContractDependencyInfo{
-		&types.ContractDependencyInfo{
+		{
 			Dependency: "dependency1",
 		},
-		&types.ContractDependencyInfo{
+		{
 			Dependency: "dependency2",
 		},
 	}
@@ -34,6 +34,7 @@ func TestGenesis(t *testing.T) {
 		ContractAddr: "sei14hj2tavq8fpesdwxxcu44rty3hh90vhujrvcmstl4zr3txmfvw9sh9m79m",
 		Dependencies: contractDependencies,
 	}
+
 	pairList := []types.Pair{
 		{
 			PriceDenom:       "USDC",
@@ -42,6 +43,20 @@ func TestGenesis(t *testing.T) {
 			QuantityTicksize: &keepertest.TestTicksize,
 		},
 	}
+
+	priceList := []types.ContractPairPrices{
+		{
+			PricePair: pairList[0],
+			Prices: []*types.Price{
+				{
+					SnapshotTimestampInSeconds: 2,
+					Pair:                       &(pairList[0]),
+					Price:                      sdk.MustNewDecFromStr("101"),
+				},
+			},
+		},
+	}
+
 	contractState := types.ContractState{
 		LongBookList: []types.LongBook{
 			{
@@ -61,6 +76,7 @@ func TestGenesis(t *testing.T) {
 		},
 		ContractInfo: contractInfo,
 		PairList:     pairList,
+		PriceList:    priceList,
 	}
 	contractList = append(contractList, contractState)
 
@@ -82,5 +98,6 @@ func TestGenesis(t *testing.T) {
 	require.Equal(t, genesisState.ContractState[0].ContractInfo.CodeId, got.ContractState[0].ContractInfo.CodeId)
 	require.Equal(t, genesisState.ContractState[0].ContractInfo.ContractAddr, got.ContractState[0].ContractInfo.ContractAddr)
 	require.ElementsMatch(t, genesisState.ContractState[0].ContractInfo.Dependencies, got.ContractState[0].ContractInfo.Dependencies)
+	require.ElementsMatch(t, genesisState.ContractState[0].PriceList, got.ContractState[0].PriceList)
 	// this line is used by starport scaffolding # genesis/test/assert
 }

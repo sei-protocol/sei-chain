@@ -10,6 +10,7 @@ import "dex/order.proto";
 import "dex/contract.proto";
 import "dex/pair.proto";
 import "dex/match_result.proto";
+import "dex/price.proto";
 // this line is used by starport scaffolding # genesis/proto/import
 
 option go_package = "github.com/sei-protocol/sei-chain/x/dex/types";
@@ -28,4 +29,10 @@ message ContractState {
   repeated ShortBook shortBookList = 3 [(gogoproto.nullable) = false];
   repeated Order triggeredOrdersList = 4 [(gogoproto.nullable) = false];
   repeated Pair pairList = 5 [(gogoproto.nullable) = false];
+  repeated ContractPairPrices priceList = 6 [(gogoproto.nullable) = false];
+}
+
+message ContractPairPrices {
+  Pair pricePair = 1 [(gogoproto.nullable) = false];
+  repeated Price prices = 6;
 }

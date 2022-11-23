@@ -27,7 +27,7 @@ func InitGenesis(ctx sdk.Context, k keeper.Keeper, genState types.GenesisState) 
 		for _, elem := range contractState.PairList {
 			k.SetQuantityTickSizeForPair(ctx, contractState.ContractInfo.ContractAddr, elem, *elem.QuantityTicksize)
 		}
-		
+
 		for _, elem := range contractState.LongBookList {
 			k.SetLongBook(ctx, contractState.ContractInfo.ContractAddr, elem)
 		}
@@ -39,6 +39,12 @@ func InitGenesis(ctx sdk.Context, k keeper.Keeper, genState types.GenesisState) 
 		for _, elem := range contractState.TriggeredOrdersList {
 			// not sure if it's guaranteed that the Order has the correct Price/Asset/Contract details...
 			k.SetTriggeredOrder(ctx, contractState.ContractInfo.ContractAddr, elem, elem.PriceDenom, elem.AssetDenom)
+		}
+
+		for _, elem := range contractState.PriceList {
+			for _, priceElem := range elem.Prices {
+				k.SetPriceState(ctx, *priceElem, contractState.ContractInfo.ContractAddr)
+			}
 		}
 
 	}
@@ -58,12 +64,23 @@ func ExportGenesis(ctx sdk.Context, k keeper.Keeper) *types.GenesisState {
 	contractStates := make([]types.ContractState, len(allContractInfo))
 	for i, contractInfo := range allContractInfo {
 		contractAddr := contractInfo.ContractAddr
+		registeredPairs := k.GetAllRegisteredPairs(ctx, contractAddr)
+		// Save all price info for contract, for all its pairs
+		contractPrices := []types.ContractPairPrices{}
+		for _, elem := range registeredPairs {
+			pairPrices := k.GetAllPrices(ctx, contractAddr, elem)
+			contractPrices = append(contractPrices, types.ContractPairPrices{
+				PricePair: elem,
+				Prices:    pairPrices,
+			})
+		}
 		contractStates[i] = types.ContractState{
 			ContractInfo:        contractInfo,
 			LongBookList:        k.GetAllLongBook(ctx, contractAddr),
 			ShortBookList:       k.GetAllShortBook(ctx, contractAddr),
 			TriggeredOrdersList: k.GetAllTriggeredOrders(ctx, contractAddr),
-			PairList:            k.GetAllRegisteredPairs(ctx, contractAddr),
+			PairList:            registeredPairs,
+			PriceList:           contractPrices,
 		}
 	}
 	genesis.ContractState = contractStates
