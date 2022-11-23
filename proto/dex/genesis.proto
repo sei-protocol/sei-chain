@@ -34,5 +34,5 @@ message ContractState {
 
 message ContractPairPrices {
   Pair pricePair = 1 [(gogoproto.nullable) = false];
-  repeated Price prices = 6;
+  repeated Price prices = 2;
 }

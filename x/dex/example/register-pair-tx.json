@@ -4,19 +4,10 @@
         "contract_addr": "sei14hj2tavq8fpesdwxxcu44rty3hh90vhujrvcmstl4zr3txmfvw9sh9m79m",
         "pairs": [
           {
-            "price_denom": "uusdc",
-            "asset_denom": "usei",
-            "tick_size": "0.2"
-          },
-          {
-            "price_denom": "uusdc",
+            "price_denom": "usei",
             "asset_denom": "uatom",
-            "tick_size": "1.1"
-          },
-          {
-            "price_denom": "uatom",
-            "asset_denom": "usei",
-            "tick_size": "1.5"
+            "price_tick_size": "0.0000001",
+            "quantity_tick_size": "0.0000001"
           }
         ]
       }
