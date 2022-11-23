@@ -84,6 +84,7 @@ pub fn process_bulk_order_placements(
             order_type: OrderType::Limit,
             data: "".to_string(),
             status_description: "".to_string(),
+            nominal: Decimal::zero(),
         };
         let order = sei_cosmwasm::SeiMsg::PlaceOrders {
             funds: vec![],
