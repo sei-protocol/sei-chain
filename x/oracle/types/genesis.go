@@ -11,6 +11,7 @@ func NewGenesisState(
 	params Params, rates []ExchangeRateTuple,
 	feederDelegations []FeederDelegation, penaltyCounters []PenaltyCounter,
 	aggregateExchangeRateVotes []AggregateExchangeRateVote,
+	priceSnapshots []PriceSnapshot,
 ) *GenesisState {
 	return &GenesisState{
 		Params:                     params,
@@ -18,6 +19,7 @@ func NewGenesisState(
 		FeederDelegations:          feederDelegations,
 		PenaltyCounters:            penaltyCounters,
 		AggregateExchangeRateVotes: aggregateExchangeRateVotes,
+		PriceSnapshots:             priceSnapshots,
 	}
 }
 
@@ -29,6 +31,7 @@ func DefaultGenesisState() *GenesisState {
 		FeederDelegations:          []FeederDelegation{},
 		PenaltyCounters:            []PenaltyCounter{},
 		AggregateExchangeRateVotes: []AggregateExchangeRateVote{},
+		PriceSnapshots:             PriceSnapshots{},
 	}
 }
 
