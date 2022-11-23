@@ -14,7 +14,10 @@ func InitGenesis(ctx sdk.Context, k keeper.Keeper, genState types.GenesisState) 
 	// Set all the longBook
 	for _, contractState := range genState.ContractState {
 
-		k.SetContract(ctx, &contractState.ContractInfo)
+		err := k.SetContract(ctx, &contractState.ContractInfo)
+		if err != nil {
+			panic(err)
+		}
 
 		for _, elem := range contractState.PairList {
 			k.AddRegisteredPair(ctx, contractState.ContractInfo.ContractAddr, elem)
