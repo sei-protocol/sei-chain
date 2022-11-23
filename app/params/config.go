@@ -79,7 +79,6 @@ func SetAddressPrefixes() {
 }
 
 func SetTendermintConfigs(config *tmcfg.Config) {
-	config.DBBackend = "pebbledb"
 	// P2P configs
 	config.P2P.MaxConnections = 200
 	config.P2P.SendRate = 20480000
