@@ -38,15 +38,17 @@ func getMsgType(msg interface{}) string {
 func sudo(sdkCtx sdk.Context, k *keeper.Keeper, contractAddress []byte, wasmMsg []byte, msgType string) ([]byte, uint64, error) {
 	// Measure the time it takes to execute the contract in WASM
 	defer metrics.MeasureSudoExecutionDuration(time.Now(), msgType)
-	gasConsumedBefore := sdkCtx.GasMeter().GasConsumed()
+	// set up a tmp context to prevent race condition in reading gas consumed
+	tmpCtx := sdkCtx.WithGasMeter(sdk.NewInfiniteGasMeter())
 	data, err := k.WasmKeeper.Sudo(
-		sdkCtx, contractAddress, wasmMsg,
+		tmpCtx, contractAddress, wasmMsg,
 	)
-	gasConsumedAfter := sdkCtx.GasMeter().GasConsumed()
+	gasConsumed := tmpCtx.GasMeter().GasConsumed()
+	sdkCtx.GasMeter().ConsumeGas(gasConsumed, "sudo")
 	if hasErrInstantiatingWasmModuleDueToCPUFeature(err) {
 		panic(utils.DecorateHardFailError(err))
 	}
-	return data, gasConsumedAfter - gasConsumedBefore, err
+	return data, gasConsumed, err
 }
 
 func hasErrInstantiatingWasmModuleDueToCPUFeature(err error) bool {

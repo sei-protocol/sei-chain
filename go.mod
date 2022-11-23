@@ -10,7 +10,7 @@ require (
 	github.com/cosmos/cosmos-sdk v0.45.4
 	github.com/cosmos/go-bip39 v1.0.0
 	github.com/cosmos/ibc-go/v3 v3.0.0
-	github.com/go-playground/validator/v10 v10.2.0
+	github.com/go-playground/validator/v10 v10.4.1
 	github.com/gogo/protobuf v1.3.3
 	github.com/golang/protobuf v1.5.2
 	github.com/golangci/golangci-lint v1.46.0
@@ -48,10 +48,8 @@ require (
 	github.com/99designs/keyring v1.1.6 // indirect
 	github.com/Antonboom/errname v0.1.6 // indirect
 	github.com/Antonboom/nilnil v0.1.1 // indirect
-	github.com/DataDog/zstd v1.4.5 // indirect
 	github.com/Djarvur/go-err113 v0.0.0-20210108212216-aea10b59be24 // indirect
 	github.com/GaijinEntertainment/go-exhaustruct/v2 v2.1.0 // indirect
-	github.com/HdrHistogram/hdrhistogram-go v1.1.2 // indirect
 	github.com/Masterminds/semver v1.5.0 // indirect
 	github.com/OpenPeeDeeP/depguard v1.1.0 // indirect
 	github.com/alexkohler/prealloc v1.0.0 // indirect
@@ -70,11 +68,6 @@ require (
 	github.com/cespare/xxhash/v2 v2.1.2 // indirect
 	github.com/charithe/durationcheck v0.0.9 // indirect
 	github.com/chavacava/garif v0.0.0-20220316182200-5cad0b5181d4 // indirect
-	github.com/cockroachdb/errors v1.8.1 // indirect
-	github.com/cockroachdb/logtags v0.0.0-20190617123548-eb05cc24525f // indirect
-	github.com/cockroachdb/pebble v0.0.0-20220726134658-7b78c71e4055 // indirect
-	github.com/cockroachdb/redact v1.0.8 // indirect
-	github.com/cockroachdb/sentry-go v0.6.1-cockroachdb.2 // indirect
 	github.com/coinbase/rosetta-sdk-go v0.7.0 // indirect
 	github.com/confio/ics23/go v0.7.0 // indirect
 	github.com/cosmos/btcutil v1.0.4 // indirect
@@ -102,6 +95,7 @@ require (
 	github.com/fsnotify/fsnotify v1.5.4 // indirect
 	github.com/fzipp/gocyclo v0.5.1 // indirect
 	github.com/ghodss/yaml v1.0.0 // indirect
+	github.com/gin-gonic/gin v1.7.7 // indirect
 	github.com/go-critic/go-critic v0.6.3 // indirect
 	github.com/go-kit/kit v0.12.0 // indirect
 	github.com/go-kit/log v0.2.0 // indirect
@@ -124,7 +118,7 @@ require (
 	github.com/gogo/gateway v1.1.0 // indirect
 	github.com/golang/glog v1.0.0 // indirect
 	github.com/golang/groupcache v0.0.0-20210331224755-41bb18bfe9da // indirect
-	github.com/golang/snappy v0.0.3 // indirect
+	github.com/golang/snappy v0.0.4 // indirect
 	github.com/golangci/check v0.0.0-20180506172741-cfe4005ccda2 // indirect
 	github.com/golangci/dupl v0.0.0-20180902072040-3e9179ac440a // indirect
 	github.com/golangci/go-misc v0.0.0-20220329215616-d24fe342adfe // indirect
@@ -154,7 +148,7 @@ require (
 	github.com/hashicorp/go-immutable-radix v1.3.1 // indirect
 	github.com/hashicorp/go-multierror v1.1.1 // indirect
 	github.com/hashicorp/go-version v1.6.0 // indirect
-	github.com/hashicorp/golang-lru v0.5.4 // indirect
+	github.com/hashicorp/golang-lru v0.5.5-0.20210104140557-80c98217689d // indirect
 	github.com/hashicorp/hcl v1.0.0 // indirect
 	github.com/hdevalence/ed25519consensus v0.0.0-20210204194344-59a8610d2b87 // indirect
 	github.com/hexops/gotextdiff v1.0.3 // indirect
@@ -169,8 +163,6 @@ require (
 	github.com/kisielk/errcheck v1.6.0 // indirect
 	github.com/kisielk/gotool v1.0.0 // indirect
 	github.com/klauspost/compress v1.15.1 // indirect
-	github.com/kr/pretty v0.3.0 // indirect
-	github.com/kr/text v0.2.0 // indirect
 	github.com/kulti/thelper v0.6.2 // indirect
 	github.com/kunwardeep/paralleltest v1.0.3 // indirect
 	github.com/kyoh86/exportloopref v0.1.8 // indirect
@@ -240,7 +232,7 @@ require (
 	github.com/stretchr/objx v0.4.0 // indirect
 	github.com/subosito/gotenv v1.3.0 // indirect
 	github.com/sylvia7788/contextcheck v1.0.4 // indirect
-	github.com/syndtr/goleveldb v1.0.1-0.20200815110645-5c35d600f0ca // indirect
+	github.com/syndtr/goleveldb v1.0.1-0.20210819022825-2ae1ddf74ef7 // indirect
 	github.com/tdakkota/asciicheck v0.1.1 // indirect
 	github.com/tendermint/btcd v0.1.1 // indirect
 	github.com/tendermint/crypto v0.0.0-20191022145703-50d29ede1e15 // indirect
@@ -267,6 +259,7 @@ require (
 	golang.org/x/term v0.2.0 // indirect
 	golang.org/x/text v0.4.0 // indirect
 	golang.org/x/tools v0.2.0 // indirect
+	gopkg.in/check.v1 v1.0.0-20201130134442-10cb98267c6c // indirect
 	gopkg.in/ini.v1 v1.66.4 // indirect
 	honnef.co/go/tools v0.3.1 // indirect
 	mvdan.cc/gofumpt v0.3.1 // indirect
@@ -280,8 +273,6 @@ replace (
 	github.com/cosmos/cosmos-sdk => github.com/sei-protocol/sei-cosmos v0.1.279
 	github.com/gogo/protobuf => github.com/regen-network/protobuf v1.3.3-alpha.regen.1
 	github.com/keybase/go-keychain => github.com/99designs/go-keychain v0.0.0-20191008050251-8e49817e8af4
-	github.com/tendermint/tendermint => github.com/sei-protocol/sei-tendermint v0.1.84
+	github.com/tendermint/tendermint => github.com/sei-protocol/sei-tendermint v0.1.91
 	google.golang.org/grpc => google.golang.org/grpc v1.33.2
 )
-
-replace github.com/tendermint/tm-db => github.com/baabeetaa/tm-db v0.6.7-0.20220827003937-31989c12be6f

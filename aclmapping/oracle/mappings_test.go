@@ -7,6 +7,7 @@ import (
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkacltypes "github.com/cosmos/cosmos-sdk/types/accesscontrol"
+	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
 	oracleacl "github.com/sei-protocol/sei-chain/aclmapping/oracle"
 	aclutils "github.com/sei-protocol/sei-chain/aclmapping/utils"
 	utils "github.com/sei-protocol/sei-chain/aclmapping/utils"
@@ -140,4 +141,22 @@ func TestMsgVoteDependencyGenerator(t *testing.T) {
 	require.NoError(t, err)
 	err = acltypes.ValidateAccessOps(accessOps)
 	require.NoError(t, err)
+}
+
+func TestMsgVoteDependencyGeneratorInvalidMsgType(t *testing.T) {
+	tm := time.Now().UTC()
+	valPub := secp256k1.GenPrivKey().PubKey()
+
+	testWrapper := app.NewTestWrapper(t, tm, valPub)
+	_, err := oracleacl.MsgVoteDependencyGenerator(testWrapper.App.AccessControlKeeper, testWrapper.Ctx, &banktypes.MsgSend{})
+	require.Error(t, err)
+}
+
+func TestOracleDependencyGenerator(t *testing.T) {
+	oracleDependencyGenerator := oracleacl.GetOracleDependencyGenerator()
+	// verify that there's one entry, for oracle aggregate vote
+	require.Equal(t, 1, len(oracleDependencyGenerator))
+	// check that oracle vote dep generator is in the map
+	_, ok := oracleDependencyGenerator[acltypes.GenerateMessageKey(&oracletypes.MsgAggregateExchangeRateVote{})]
+	require.True(t, ok)
 }
