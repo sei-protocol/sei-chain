@@ -2,13 +2,9 @@ package cmd
 
 import (
 	"errors"
-	"fmt"
 	"io"
-	"math"
-	"math/rand"
 	"os"
 	"path/filepath"
-	"time"
 
 	"github.com/CosmWasm/wasmd/x/wasm"
 	"github.com/cosmos/cosmos-sdk/baseapp"
@@ -301,25 +297,6 @@ func appExport(
 	return exportableApp.ExportAppStateAndValidators(forZeroHeight, jailAllowedAddrs)
 }
 
-func getPrimeNums(lo int, hi int) []int {
-	var primeNums []int
-
-	for lo <= hi {
-		isPrime := true
-		for i := 2; i <= int(math.Sqrt(float64(lo))); i++ {
-			if lo%i == 0 {
-				isPrime = false
-				break
-			}
-		}
-		if isPrime {
-			primeNums = append(primeNums, lo)
-		}
-		lo++
-	}
-	return primeNums
-}
-
 // initAppConfig helps to override default appConfig template and configs.
 // return "", nil if no custom configuration is required for the application.
 func initAppConfig() (string, interface{}) {
@@ -358,25 +335,10 @@ func initAppConfig() (string, interface{}) {
 	srvCfg.MinGasPrices = "0.01usei,0.001ibc/6D45A5CD1AADE4B527E459025AC1A5AEF41AE99091EF3069F3FEAACAFCECCD21"
 	srvCfg.API.Enable = true
 
-	// Pruning configs
-	srvCfg.Pruning = "custom"
-	srvCfg.PruningKeepRecent = "2000"
-	// Randomly generate pruning interval. We want the following properties:
-	//   - random: if everyone has the same value, the block that everyone prunes will be slow
-	//   - prime: no overlap
-	primes := getPrimeNums(2500, 4000)
-	rand.Seed(time.Now().Unix())
-	pruningInterval := primes[rand.Intn(len(primes))]
-	srvCfg.PruningInterval = fmt.Sprintf("%d", pruningInterval)
-
-	// Enable for frontend
 	// TODO: remove before mainnet launch
 	srvCfg.API.EnableUnsafeCORS = true
 	srvCfg.GRPCWeb.EnableUnsafeCORS = true
 
-	// Metrics
-	srvCfg.Telemetry.Enabled = true
-	srvCfg.Telemetry.PrometheusRetentionTime = 60
 	customAppConfig := CustomAppConfig{
 		Config: *srvCfg,
 		WASM: WASMConfig{
