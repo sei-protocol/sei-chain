@@ -20,9 +20,19 @@ func TEST_PAIR() types.Pair {
 
 func TestGenesis(t *testing.T) {
 	contractList := []types.ContractState{}
+	contractDependencies := []*types.ContractDependencyInfo{
+		&types.ContractDependencyInfo{
+			Dependency: "dependency1",
+		},
+		&types.ContractDependencyInfo{
+			Dependency: "dependency2",
+		},
+	}
+
 	contractInfo := types.ContractInfoV2{
 		CodeId:       uint64(1),
 		ContractAddr: "sei14hj2tavq8fpesdwxxcu44rty3hh90vhujrvcmstl4zr3txmfvw9sh9m79m",
+		Dependencies: contractDependencies,
 	}
 	pairList := []types.Pair{
 		{
@@ -69,5 +79,8 @@ func TestGenesis(t *testing.T) {
 	require.ElementsMatch(t, genesisState.ContractState[0].LongBookList, got.ContractState[0].LongBookList)
 	require.ElementsMatch(t, genesisState.ContractState[0].ShortBookList, got.ContractState[0].ShortBookList)
 	require.ElementsMatch(t, genesisState.ContractState[0].PairList, got.ContractState[0].PairList)
+	require.Equal(t, genesisState.ContractState[0].ContractInfo.CodeId, got.ContractState[0].ContractInfo.CodeId)
+	require.Equal(t, genesisState.ContractState[0].ContractInfo.ContractAddr, got.ContractState[0].ContractInfo.ContractAddr)
+	require.ElementsMatch(t, genesisState.ContractState[0].ContractInfo.Dependencies, got.ContractState[0].ContractInfo.Dependencies)
 	// this line is used by starport scaffolding # genesis/test/assert
 }

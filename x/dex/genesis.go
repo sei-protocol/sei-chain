@@ -13,18 +13,8 @@ func InitGenesis(ctx sdk.Context, k keeper.Keeper, genState types.GenesisState) 
 
 	// Set all the longBook
 	for _, contractState := range genState.ContractState {
-		for _, elem := range contractState.LongBookList {
-			k.SetLongBook(ctx, contractState.ContractInfo.ContractAddr, elem)
-		}
 
-		for _, elem := range contractState.ShortBookList {
-			k.SetShortBook(ctx, contractState.ContractInfo.ContractAddr, elem)
-		}
-
-		for _, elem := range contractState.TriggeredOrdersList {
-			// not sure if it's guaranteed that the Order has the correct Price/Asset/Contract details...
-			k.SetTriggeredOrder(ctx, contractState.ContractInfo.ContractAddr, elem, elem.PriceDenom, elem.AssetDenom)
-		}
+		k.SetContract(ctx, &contractState.ContractInfo)
 
 		for _, elem := range contractState.PairList {
 			k.AddRegisteredPair(ctx, contractState.ContractInfo.ContractAddr, elem)
@@ -36,6 +26,19 @@ func InitGenesis(ctx sdk.Context, k keeper.Keeper, genState types.GenesisState) 
 
 		for _, elem := range contractState.PairList {
 			k.SetQuantityTickSizeForPair(ctx, contractState.ContractInfo.ContractAddr, elem, *elem.QuantityTicksize)
+		}
+		
+		for _, elem := range contractState.LongBookList {
+			k.SetLongBook(ctx, contractState.ContractInfo.ContractAddr, elem)
+		}
+
+		for _, elem := range contractState.ShortBookList {
+			k.SetShortBook(ctx, contractState.ContractInfo.ContractAddr, elem)
+		}
+
+		for _, elem := range contractState.TriggeredOrdersList {
+			// not sure if it's guaranteed that the Order has the correct Price/Asset/Contract details...
+			k.SetTriggeredOrder(ctx, contractState.ContractInfo.ContractAddr, elem, elem.PriceDenom, elem.AssetDenom)
 		}
 
 	}
@@ -56,7 +59,7 @@ func ExportGenesis(ctx sdk.Context, k keeper.Keeper) *types.GenesisState {
 	for i, contractInfo := range allContractInfo {
 		contractAddr := contractInfo.ContractAddr
 		contractStates[i] = types.ContractState{
-			ContractInfo:        types.ContractInfoV2{},
+			ContractInfo:        contractInfo,
 			LongBookList:        k.GetAllLongBook(ctx, contractAddr),
 			ShortBookList:       k.GetAllShortBook(ctx, contractAddr),
 			TriggeredOrdersList: k.GetAllTriggeredOrders(ctx, contractAddr),
