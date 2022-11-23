@@ -12,6 +12,10 @@ import (
 	tokenfactorytypes "github.com/sei-protocol/sei-chain/x/tokenfactory/types"
 )
 
+const (
+	DefaultIDTemplate = "*"
+)
+
 var StoreKeyToResourceTypePrefixMap = aclsdktypes.StoreKeyToResourceTypePrefixMap{
 	aclsdktypes.ParentNodeKey: {
 		aclsdktypes.ResourceType_ANY:     aclsdktypes.EmptyPrefix,
