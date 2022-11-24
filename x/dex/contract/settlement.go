@@ -30,7 +30,7 @@ func callSettlementHook(
 			Entries: settlementEntries,
 		},
 	}
-	if _, err := dexkeeperutils.CallContractSudo(ctx, dexkeeper, contractAddr, nativeSettlementMsg); err != nil {
+	if _, err := dexkeeperutils.CallContractSudo(ctx, dexkeeper, contractAddr, nativeSettlementMsg, 0); err != nil {
 		return err
 	}
 	return nil

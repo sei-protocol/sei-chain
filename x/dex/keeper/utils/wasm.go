@@ -58,7 +58,7 @@ func hasErrInstantiatingWasmModuleDueToCPUFeature(err error) bool {
 	return strings.Contains(err.Error(), ErrWasmModuleInstCPUFeatureLiteral)
 }
 
-func CallContractSudo(sdkCtx sdk.Context, k *keeper.Keeper, contractAddr string, msg interface{}) ([]byte, error) {
+func CallContractSudo(sdkCtx sdk.Context, k *keeper.Keeper, contractAddr string, msg interface{}, userProvidedGas uint64) ([]byte, error) {
 	contractAddress, err := sdk.AccAddressFromBech32(contractAddr)
 	if err != nil {
 		sdkCtx.Logger().Error(err.Error())
@@ -76,7 +76,7 @@ func CallContractSudo(sdkCtx sdk.Context, k *keeper.Keeper, contractAddr string,
 		sdkCtx.Logger().Error(err.Error())
 		return []byte{}, err
 	}
-	if err := k.ChargeRentForGas(sdkCtx, contractAddr, gasUsed); err != nil {
+	if err := k.ChargeRentForGas(sdkCtx, contractAddr, gasUsed, userProvidedGas); err != nil {
 		metrics.IncrementSudoFailCount(msgType)
 		sdkCtx.Logger().Error(err.Error())
 		return []byte{}, err

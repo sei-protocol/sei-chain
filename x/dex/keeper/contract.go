@@ -67,7 +67,12 @@ func (k Keeper) GetAllContractInfo(ctx sdk.Context) []types.ContractInfoV2 {
 	return list
 }
 
-func (k Keeper) ChargeRentForGas(ctx sdk.Context, contractAddr string, gasUsed uint64) error {
+func (k Keeper) ChargeRentForGas(ctx sdk.Context, contractAddr string, gasUsed uint64, userProvidedGas uint64) error {
+	if gasUsed <= userProvidedGas {
+		// User provided can fully cover the consumed gas. Doing nothing
+		return nil
+	}
+	gasUsed -= userProvidedGas
 	contract, err := k.GetContract(ctx, contractAddr)
 	if err != nil {
 		return err

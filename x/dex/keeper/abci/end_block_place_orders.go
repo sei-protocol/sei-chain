@@ -30,7 +30,8 @@ func (w KeeperWrapper) HandleEBPlaceOrders(ctx context.Context, sdkCtx sdk.Conte
 	responses := []wasm.SudoOrderPlacementResponse{}
 
 	for _, msg := range msgs {
-		data, err := utils.CallContractSudo(sdkCtx, w.Keeper, contractAddr, msg)
+		userProvidedGas := w.GetParams(sdkCtx).DefaultGasPerOrder * uint64(len(msg.OrderPlacements.Orders))
+		data, err := utils.CallContractSudo(sdkCtx, w.Keeper, contractAddr, msg, userProvidedGas)
 		if err != nil {
 			sdkCtx.Logger().Error(fmt.Sprintf("Error during order placement: %s", err.Error()))
 			return err

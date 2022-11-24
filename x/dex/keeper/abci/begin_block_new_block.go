@@ -10,6 +10,6 @@ func (w KeeperWrapper) HandleBBNewBlock(sdkCtx sdk.Context, contractAddr string,
 	msg := wasm.SudoNewBlockMsg{
 		NewBlock: wasm.NewBlockRequest{Epoch: epoch},
 	}
-	_, err := utils.CallContractSudo(sdkCtx, w.Keeper, contractAddr, msg)
+	_, err := utils.CallContractSudo(sdkCtx, w.Keeper, contractAddr, msg, 0)
 	return err
 }
