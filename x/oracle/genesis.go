@@ -48,6 +48,10 @@ func InitGenesis(ctx sdk.Context, keeper keeper.Keeper, data *types.GenesisState
 		keeper.SetAggregateExchangeRateVote(ctx, valAddr, av)
 	}
 
+	for _, priceSnapshot := range data.PriceSnapshots {
+		keeper.AddPriceSnapshot(ctx, priceSnapshot)
+	}
+
 	keeper.SetParams(ctx, data.Params)
 
 	// check if the module account exists
@@ -92,9 +96,18 @@ func ExportGenesis(ctx sdk.Context, keeper keeper.Keeper) *types.GenesisState {
 		return false
 	})
 
-	return types.NewGenesisState(params,
+	priceSnapshots := types.PriceSnapshots{}
+	keeper.IteratePriceSnapshots(ctx, func(snapshot types.PriceSnapshot) bool {
+		priceSnapshots = append(priceSnapshots, snapshot)
+		return false
+	})
+
+	return types.NewGenesisState(
+		params,
 		exchangeRates,
 		feederDelegations,
 		penaltyCounters,
-		aggregateExchangeRateVotes)
+		aggregateExchangeRateVotes,
+		priceSnapshots,
+	)
 }
