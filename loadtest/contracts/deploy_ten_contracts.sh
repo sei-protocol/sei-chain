@@ -1,16 +1,8 @@
 #!/bin/bash
-echo -n Admin Key Name:
-read keyname
-echo
-echo -n Chain ID:
-read chainid
-echo
-echo -n seid binary:
-read seidbin
-echo
-echo -n sei-chain directory:
-read seihome
-echo
+keyname=$(printf "12345678\n" | seid keys list --output json | jq ".[0].name" | tr -d '"')
+seidbin=$(which seid | tr -d '"')
+chainid=$(seid status | jq ".NodeInfo.network" | tr -d '"')
+seihome=$(git rev-parse --show-toplevel | tr -d '"')
 
 cd $seihome/loadtest/contracts/mars && cargo build && docker run --rm -v "$(pwd)":/code \
   --mount type=volume,source="$(basename "$(pwd)")_cache",target=/code/target \
@@ -117,6 +109,14 @@ sleep 90
 
 printf "12345678\n" | $seidbin tx staking unbond $valaddr 1000000000usei --from=$keyname --chain-id=$chainid -b block -y --fees 2000usei
 
+jq '.contract_distribution = [{"contract_address": "'$marsaddr'", percentage: "0.1"}]' $seihome/loadtest/config.json > $seihome/loadtest/config_temp.json && mv $seihome/loadtest/config_temp.json $seihome/loadtest/config.json
+
+for addr in $saturnaddr $venusaddr $marsaddr2 $saturnaddr2 $venusaddr2 $marsaddr3 $saturnaddr3 $venusaddr3 $marsaddr4
+do
+  jq '.contract_distribution += [{"contract_address": "'$addr'", percentage: "0.1"}]' $seihome/loadtest/config.json > $seihome/loadtest/config_temp.json && mv $seihome/loadtest/config_temp.json $seihome/loadtest/config.json
+done
+
+echo "Deployed contracts:"
 echo $marsaddr
 echo $saturnaddr
 echo $venusaddr
@@ -127,5 +127,3 @@ echo $marsaddr3
 echo $saturnaddr3
 echo $venusaddr3
 echo $marsaddr4
-
-echo '{"batch_contract_pair":[{"contract_addr":"sei14hj2tavq8fpesdwxxcu44rty3hh90vhujrvcmstl4zr3txmfvw9sh9m79m","pairs":[{"price_denom":"SEI","asset_denom":"ATOM","price_tick_size":"0.0000001", "quantity_tick_size":"0.0000001"}]}]}' > mars4.json
