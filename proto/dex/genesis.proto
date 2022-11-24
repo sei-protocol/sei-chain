@@ -5,9 +5,12 @@ import "gogoproto/gogo.proto";
 import "dex/params.proto";
 import "dex/long_book.proto";
 import "dex/short_book.proto";
-import "dex/twap.proto";
 import "dex/tick_size.proto";
 import "dex/order.proto";
+import "dex/contract.proto";
+import "dex/pair.proto";
+import "dex/match_result.proto";
+import "dex/price.proto";
 // this line is used by starport scaffolding # genesis/proto/import
 
 option go_package = "github.com/sei-protocol/sei-chain/x/dex/types";
@@ -15,12 +18,21 @@ option go_package = "github.com/sei-protocol/sei-chain/x/dex/types";
 // GenesisState defines the dex module's genesis state.
 message GenesisState {
   Params params = 1 [(gogoproto.nullable) = false];
+  repeated ContractState contractState = 2 [(gogoproto.nullable) = false];
+  uint64 lastEpoch = 3;
+  // this line is used by starport scaffolding # genesis/proto/state
+}
+
+message ContractState {
+  ContractInfoV2 contractInfo = 1 [(gogoproto.nullable) = false];
   repeated LongBook longBookList = 2 [(gogoproto.nullable) = false];
   repeated ShortBook shortBookList = 3 [(gogoproto.nullable) = false];
-  repeated Twap twapList = 4;
-  repeated TickSize priceTickSizeList = 5; // if null, then no restriction, todo(zw) should set it to not nullable?
-  uint64 lastEpoch = 6;
-  repeated Order triggeredOrdersList = 7 [(gogoproto.nullable) = false];
-  repeated TickSize quantityTickSizeList = 8;
-  // this line is used by starport scaffolding # genesis/proto/state
+  repeated Order triggeredOrdersList = 4 [(gogoproto.nullable) = false];
+  repeated Pair pairList = 5 [(gogoproto.nullable) = false];
+  repeated ContractPairPrices priceList = 6 [(gogoproto.nullable) = false];
+}
+
+message ContractPairPrices {
+  Pair pricePair = 1 [(gogoproto.nullable) = false];
+  repeated Price prices = 2;
 }
