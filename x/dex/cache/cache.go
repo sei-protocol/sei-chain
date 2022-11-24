@@ -2,7 +2,6 @@ package dex
 
 import (
 	"fmt"
-	"sync"
 	"time"
 
 	"github.com/cosmos/cosmos-sdk/store/prefix"
@@ -14,56 +13,6 @@ import (
 )
 
 const SynchronizationTimeoutInSeconds = 5
-
-type memStateItem interface {
-	GetAccount() string
-}
-
-type memStateItems[T memStateItem] struct {
-	internal []T
-	copier   func(T) T
-
-	mu *sync.Mutex
-}
-
-func NewItems[T memStateItem](copier func(T) T) memStateItems[T] {
-	return memStateItems[T]{internal: []T{}, copier: copier, mu: &sync.Mutex{}}
-}
-
-func (i *memStateItems[T]) Get() []T {
-	i.mu.Lock()
-	defer i.mu.Unlock()
-	return i.internal
-}
-
-func (i *memStateItems[T]) Add(newItem T) {
-	i.mu.Lock()
-	defer i.mu.Unlock()
-	i.internal = append(i.internal, newItem)
-}
-
-func (i *memStateItems[T]) FilterByAccount(account string) {
-	i.mu.Lock()
-	defer i.mu.Unlock()
-	newItems := []T{}
-	for _, item := range i.internal {
-		if item.GetAccount() == account {
-			continue
-		}
-		newItems = append(newItems, item)
-	}
-	i.internal = newItems
-}
-
-func (i *memStateItems[T]) Copy() *memStateItems[T] {
-	i.mu.Lock()
-	defer i.mu.Unlock()
-	copy := NewItems(i.copier)
-	for _, item := range i.internal {
-		copy.Add(i.copier(item))
-	}
-	return &copy
-}
 
 type MemState struct {
 	storeKey    sdk.StoreKey

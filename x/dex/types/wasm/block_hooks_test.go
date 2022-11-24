@@ -1,6 +1,7 @@
 package wasm_test
 
 import (
+	"sync"
 	"testing"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -8,6 +9,19 @@ import (
 	"github.com/sei-protocol/sei-chain/x/dex/types/wasm"
 	"github.com/stretchr/testify/require"
 )
+
+func TestAddContractResult(t *testing.T) {
+	sudoFinalizeBlockMsg := wasm.NewSudoFinalizeBlockMsg()
+	result := wasm.NewContractOrderResult("TEST_CONTRACT")
+	mu := &sync.Mutex{}
+
+	sudoFinalizeBlockMsg.AddContractResult(result, mu)
+	require.Equal(t, wasm.ContractOrderResult{
+		ContractAddr:          "TEST_CONTRACT",
+		OrderPlacementResults: []wasm.OrderPlacementResult{},
+		OrderExecutionResults: []wasm.OrderExecutionResult{},
+	}, result)
+}
 
 func TestPopulateOrderPlacementResults(t *testing.T) {
 	account := "test"

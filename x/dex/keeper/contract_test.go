@@ -29,4 +29,36 @@ func TestChargeRentForGas(t *testing.T) {
 	contract, err = keeper.GetContract(ctx, keepertest.TestContract)
 	require.Nil(t, err)
 	require.Equal(t, uint64(0), contract.RentBalance)
+
+	// delete contract
+	keeper.DeleteContract(ctx, keepertest.TestContract)
+	_, err = keeper.GetContract(ctx, keepertest.TestContract)
+	require.NotNil(t, err)
+}
+
+func TestGetAllContractInfo(t *testing.T) {
+	keeper, ctx := keepertest.DexKeeper(t)
+	keeper.SetParams(ctx, types.Params{SudoCallGasPrice: sdk.NewDecWithPrec(1, 1), PriceSnapshotRetention: 1})
+	keeper.SetContract(ctx, &types.ContractInfoV2{
+		Creator:      keepertest.TestAccount,
+		ContractAddr: keepertest.TestContract,
+		CodeId:       1,
+		RentBalance:  1000000,
+	})
+	keeper.SetContract(ctx, &types.ContractInfoV2{
+		Creator:      "ta2",
+		ContractAddr: "tc2",
+		CodeId:       2,
+		RentBalance:  1000000,
+	})
+	contracts := keeper.GetAllContractInfo(ctx)
+	require.Equal(t, uint64(1000000), contracts[0].RentBalance)
+	require.Equal(t, uint64(1000000), contracts[1].RentBalance)
+	require.Equal(t, uint64(1), contracts[0].CodeId)
+	require.Equal(t, uint64(2), contracts[1].CodeId)
+	require.Equal(t, keepertest.TestAccount, contracts[0].Creator)
+	require.Equal(t, keepertest.TestContract, contracts[0].ContractAddr)
+	require.Equal(t, "ta2", contracts[1].Creator)
+	require.Equal(t, "tc2", contracts[1].ContractAddr)
+
 }

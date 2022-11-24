@@ -91,6 +91,35 @@ func TestClear(t *testing.T) {
 	require.Equal(t, 0, len(stateOne.GetBlockCancels(ctx, utils.ContractAddress(TEST_CONTRACT), utils.PairString(TEST_PAIR)).Get()))
 }
 
+func TestClearCancellationForPair(t *testing.T) {
+	keeper, ctx := keepertest.DexKeeper(t)
+	stateOne := dex.NewMemState(keeper.GetStoreKey())
+	stateOne.GetBlockCancels(ctx, utils.ContractAddress(TEST_CONTRACT), utils.PairString(TEST_PAIR)).Add(&types.Cancellation{
+		Id:           1,
+		ContractAddr: TEST_CONTRACT,
+		PriceDenom: "USDC",
+		AssetDenom: "ATOM",
+	})
+	stateOne.GetBlockCancels(ctx, utils.ContractAddress(TEST_CONTRACT), utils.PairString(TEST_PAIR)).Add(&types.Cancellation{
+		Id:           2,
+		ContractAddr: TEST_CONTRACT,
+		PriceDenom: "USDC",
+		AssetDenom: "ATOM",
+	})
+	stateOne.GetBlockCancels(ctx, utils.ContractAddress(TEST_CONTRACT), utils.PairString(TEST_PAIR)).Add(&types.Cancellation{
+		Id:           3,
+		ContractAddr: TEST_CONTRACT,
+		PriceDenom: "USDC",
+		AssetDenom: "SEI",
+	})
+	stateOne.ClearCancellationForPair(ctx, TEST_CONTRACT, utils.GetPairString(&types.Pair{
+		PriceDenom: "USDC",
+		AssetDenom: "ATOM",
+	}))
+	require.Equal(t, 1, len(stateOne.GetBlockCancels(ctx, utils.ContractAddress(TEST_CONTRACT), utils.PairString(TEST_PAIR)).Get()))
+	require.Equal(t, uint64(3), stateOne.GetBlockCancels(ctx, utils.ContractAddress(TEST_CONTRACT), utils.PairString(TEST_PAIR)).Get()[0].Id)
+}
+
 func TestSynchronization(t *testing.T) {
 	_, ctx := keepertest.DexKeeper(t)
 	stateOne := dex.NewMemState(sdk.NewKVStoreKey(types.StoreKey))
