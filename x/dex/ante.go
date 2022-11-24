@@ -89,3 +89,13 @@ func IsDecimalMultipleOf(a, b sdk.Dec) bool {
 	quotient := sdk.NewDecFromBigInt(a.Quo(b).RoundInt().BigInt())
 	return quotient.Mul(b).Equal(a)
 }
+
+type CheckDexGasDecorator struct {
+	dexKeeper keeper.Keeper
+}
+
+func NewCheckDexGasDecorator(dexKeeper keeper.Keeper) CheckDexGasDecorator {
+	return CheckDexGasDecorator{
+		dexKeeper: dexKeeper,
+	}
+}
