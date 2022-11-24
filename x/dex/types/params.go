@@ -13,15 +13,19 @@ var (
 	KeySudoCallGasPrice       = []byte("KeySudoCallGasPrice")    // gas price for sudo calls from endblock
 	KeyBeginBlockGasLimit     = []byte("KeyBeginBlockGasLimit")
 	KeyEndBlockGasLimit       = []byte("KeyEndBlockGasLimit")
+	KeyDefaultGasPerOrder     = []byte("KeyDefaultGasPerOrder")
+	KeyDefaultGasPerCancel    = []byte("KeyDefaultGasPerCancel")
 )
 
 const (
 	DefaultPriceSnapshotRetention = 24 * 3600  // default to one day
 	DefaultBeginBlockGasLimit     = 200000000  // 200M
 	DefaultEndBlockGasLimit       = 1000000000 // 1B
+	DefaultDefaultGasPerOrder     = 10000
+	DefaultDefaultGasPerCancel    = 5000
 )
 
-var DefaultSudoCallGasPrice = sdk.ZeroDec() // 0
+var DefaultSudoCallGasPrice = sdk.NewDecWithPrec(1, 1) // 0.1
 
 var _ paramtypes.ParamSet = (*Params)(nil)
 
@@ -42,6 +46,8 @@ func DefaultParams() Params {
 		SudoCallGasPrice:       DefaultSudoCallGasPrice,
 		BeginBlockGasLimit:     DefaultBeginBlockGasLimit,
 		EndBlockGasLimit:       DefaultEndBlockGasLimit,
+		DefaultGasPerOrder:     DefaultDefaultGasPerOrder,
+		DefaultGasPerCancel:    DefaultDefaultGasPerCancel,
 	}
 }
 
@@ -50,8 +56,10 @@ func (p *Params) ParamSetPairs() paramtypes.ParamSetPairs {
 	return paramtypes.ParamSetPairs{
 		paramtypes.NewParamSetPair(KeyPriceSnapshotRetention, &p.PriceSnapshotRetention, validatePriceSnapshotRetention),
 		paramtypes.NewParamSetPair(KeySudoCallGasPrice, &p.SudoCallGasPrice, validateSudoCallGasPrice),
-		paramtypes.NewParamSetPair(KeyBeginBlockGasLimit, &p.BeginBlockGasLimit, validateBeginBlockGasLimit),
-		paramtypes.NewParamSetPair(KeyEndBlockGasLimit, &p.EndBlockGasLimit, validateEndBlockGasLimit),
+		paramtypes.NewParamSetPair(KeyBeginBlockGasLimit, &p.BeginBlockGasLimit, validateUint64Param),
+		paramtypes.NewParamSetPair(KeyEndBlockGasLimit, &p.EndBlockGasLimit, validateUint64Param),
+		paramtypes.NewParamSetPair(KeyDefaultGasPerOrder, &p.DefaultGasPerOrder, validateUint64Param),
+		paramtypes.NewParamSetPair(KeyDefaultGasPerCancel, &p.DefaultGasPerCancel, validateUint64Param),
 	}
 }
 
@@ -83,16 +91,7 @@ func validateSudoCallGasPrice(i interface{}) error {
 	return nil
 }
 
-func validateBeginBlockGasLimit(i interface{}) error {
-	_, ok := i.(uint64)
-	if !ok {
-		return fmt.Errorf("invalid parameter type: %T", i)
-	}
-
-	return nil
-}
-
-func validateEndBlockGasLimit(i interface{}) error {
+func validateUint64Param(i interface{}) error {
 	_, ok := i.(uint64)
 	if !ok {
 		return fmt.Errorf("invalid parameter type: %T", i)

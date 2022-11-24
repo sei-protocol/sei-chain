@@ -90,6 +90,8 @@ func IsDecimalMultipleOf(a, b sdk.Dec) bool {
 	return quotient.Mul(b).Equal(a)
 }
 
+const DexGasFeeUnit = "usei"
+
 type CheckDexGasDecorator struct {
 	dexKeeper keeper.Keeper
 }
@@ -98,4 +100,34 @@ func NewCheckDexGasDecorator(dexKeeper keeper.Keeper) CheckDexGasDecorator {
 	return CheckDexGasDecorator{
 		dexKeeper: dexKeeper,
 	}
+}
+
+func (d CheckDexGasDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool, next sdk.AnteHandler) (newCtx sdk.Context, err error) {
+	if ctx.IsReCheckTx() {
+		return next(ctx, tx, simulate)
+	}
+	params := d.dexKeeper.GetParams(ctx)
+	dexGasRequired := uint64(0)
+	for _, msg := range tx.GetMsgs() {
+		switch m := msg.(type) {
+		case *types.MsgPlaceOrders:
+			dexGasRequired += params.DefaultGasPerOrder * uint64(len(m.Orders))
+		case *types.MsgCancelOrders:
+			dexGasRequired += params.DefaultGasPerCancel * uint64(len(m.Cancellations))
+		}
+	}
+	if dexGasRequired == 0 {
+		return next(ctx, tx, simulate)
+	}
+	dexFeeRequired := sdk.NewDecWithPrec(int64(dexGasRequired), 0).Mul(params.SudoCallGasPrice).RoundInt()
+	feeTx, ok := tx.(sdk.FeeTx)
+	if !ok {
+		return ctx, sdkerrors.Wrap(sdkerrors.ErrTxDecode, "Tx must be a FeeTx")
+	}
+	for _, fee := range feeTx.GetFee() {
+		if fee.Denom == DexGasFeeUnit && fee.Amount.GTE(dexFeeRequired) {
+			return next(ctx, tx, simulate)
+		}
+	}
+	return ctx, sdkerrors.ErrInsufficientFee
 }
