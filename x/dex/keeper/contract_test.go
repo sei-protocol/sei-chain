@@ -19,16 +19,33 @@ func TestChargeRentForGas(t *testing.T) {
 		RentBalance:  1000000,
 	})
 	require.Nil(t, err)
-	err = keeper.ChargeRentForGas(ctx, keepertest.TestContract, 5000000)
+	err = keeper.ChargeRentForGas(ctx, keepertest.TestContract, 5000000, 0)
 	require.Nil(t, err)
 	contract, err := keeper.GetContract(ctx, keepertest.TestContract)
 	require.Nil(t, err)
 	require.Equal(t, uint64(500000), contract.RentBalance)
-	err = keeper.ChargeRentForGas(ctx, keepertest.TestContract, 6000000)
+	err = keeper.ChargeRentForGas(ctx, keepertest.TestContract, 6000000, 0)
 	require.NotNil(t, err)
 	contract, err = keeper.GetContract(ctx, keepertest.TestContract)
 	require.Nil(t, err)
 	require.Equal(t, uint64(0), contract.RentBalance)
+	err = keeper.SetContract(ctx, &types.ContractInfoV2{
+		Creator:      keepertest.TestAccount,
+		ContractAddr: keepertest.TestContract,
+		CodeId:       1,
+		RentBalance:  1000000,
+	})
+	require.Nil(t, err)
+	err = keeper.ChargeRentForGas(ctx, keepertest.TestContract, 5000000, 4000000)
+	require.Nil(t, err)
+	contract, err = keeper.GetContract(ctx, keepertest.TestContract)
+	require.Nil(t, err)
+	require.Equal(t, uint64(900000), contract.RentBalance)
+	err = keeper.ChargeRentForGas(ctx, keepertest.TestContract, 5000000, 6000000)
+	require.Nil(t, err)
+	contract, err = keeper.GetContract(ctx, keepertest.TestContract)
+	require.Nil(t, err)
+	require.Equal(t, uint64(900000), contract.RentBalance)
 
 	// delete contract
 	keeper.DeleteContract(ctx, keepertest.TestContract)
