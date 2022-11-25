@@ -22,7 +22,7 @@ func NewStore(
 ) storetypes.ConcurrentCacheMultiStore {
 	return &Store{
 		sdkConcurrentCacheMultiStore: parent,
-		storeKeyToWriteWhitelist: storeKeyToWriteWhitelist,
+		storeKeyToWriteWhitelist:     storeKeyToWriteWhitelist,
 	}
 }
 

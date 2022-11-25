@@ -122,7 +122,9 @@ func NewMexcProvider(
 		Path:   mexcWSPath,
 	}
 
-	wsConn, _, err := websocket.DefaultDialer.Dial(wsURL.String(), nil)
+	wsConn, response, err := websocket.DefaultDialer.Dial(wsURL.String(), nil)
+	defer response.Body.Close()
+
 	if err != nil {
 		return nil, fmt.Errorf("error connecting to mexc websocket: %w", err)
 	}
@@ -394,7 +396,9 @@ func (p *MexcProvider) reconnect() error {
 	p.wsClient.Close()
 
 	p.logger.Debug().Msg("mexc: reconnecting websocket")
-	wsConn, _, err := websocket.DefaultDialer.Dial(p.wsURL.String(), nil)
+	wsConn, response, err := websocket.DefaultDialer.Dial(p.wsURL.String(), nil)
+	defer response.Body.Close()
+
 	if err != nil {
 		return fmt.Errorf("mexc: error reconnect to mexc websocket: %w", err)
 	}

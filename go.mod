@@ -229,7 +229,7 @@ require (
 	github.com/stretchr/objx v0.4.0 // indirect
 	github.com/subosito/gotenv v1.3.0 // indirect
 	github.com/sylvia7788/contextcheck v1.0.4 // indirect
-	github.com/syndtr/goleveldb v1.0.1-0.20220614013038-64ee5596c38a // indirect
+	github.com/syndtr/goleveldb v1.0.1-0.20210819022825-2ae1ddf74ef7 // indirect
 	github.com/tdakkota/asciicheck v0.1.1 // indirect
 	github.com/tendermint/btcd v0.1.1 // indirect
 	github.com/tendermint/crypto v0.0.0-20191022145703-50d29ede1e15 // indirect
@@ -266,7 +266,7 @@ require (
 )
 
 replace (
-	github.com/cosmos/cosmos-sdk => github.com/sei-protocol/sei-cosmos v0.1.295
+	github.com/cosmos/cosmos-sdk => github.com/sei-protocol/sei-cosmos v0.1.300
 	github.com/gogo/protobuf => github.com/regen-network/protobuf v1.3.3-alpha.regen.1
 	github.com/keybase/go-keychain => github.com/99designs/go-keychain v0.0.0-20191008050251-8e49817e8af4
 	github.com/tendermint/tendermint => github.com/sei-protocol/sei-tendermint v0.1.91

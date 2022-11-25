@@ -1,8 +1,13 @@
 #!/bin/bash
-keyname=$(printf "12345678\n" | seid keys list --output json | jq ".[0].name" | tr -d '"')
 seidbin=$(which seid | tr -d '"')
-chainid=$(seid status | jq ".NodeInfo.network" | tr -d '"')
+keyname=$(printf "12345678\n" | $seidbin keys list --output json | jq ".[0].name" | tr -d '"')
+chainid=$($seidbin status | jq ".NodeInfo.network" | tr -d '"')
 seihome=$(git rev-parse --show-toplevel | tr -d '"')
+
+echo $keyname
+echo $seidbin
+echo $chainid
+echo $seihome
 
 cd $seihome/loadtest/contracts/mars && cargo build && docker run --rm -v "$(pwd)":/code \
   --mount type=volume,source="$(basename "$(pwd)")_cache",target=/code/target \

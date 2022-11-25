@@ -204,6 +204,7 @@ func ExecutePairsInParallel(ctx sdk.Context, contractAddr string, dexkeeper *kee
 	wg := sync.WaitGroup{}
 	anyPanicked := false
 
+	// Branch a concurrent safe multistore for concurrent registered pair matching
 	ms := ctx.MultiStore()
 	concurrentSafeKvCache := ms.ConcurrentCacheMultiStore()
 
@@ -214,9 +215,9 @@ func ExecutePairsInParallel(ctx sdk.Context, contractAddr string, dexkeeper *kee
 		executePairStore := multi.NewStore(concurrentSafeKvCache, GetPerPairWhitelistMap(contractAddr, pair))
 		executePairEventManager := sdk.NewEventManager()
 		pairCtx := ctx.WithMultiStore(executePairStore).WithEventManager(executePairEventManager)
-
 		go func() {
 			defer wg.Done()
+			defer concurrentSafeKvCache.Write()
 			defer utils.PanicHandler(func(err any) {
 				mu.Lock()
 				defer mu.Unlock()
@@ -237,7 +238,7 @@ func ExecutePairsInParallel(ctx sdk.Context, contractAddr string, dexkeeper *kee
 
 			mu.Lock()
 			defer mu.Unlock()
-			orders, cancels := GetMatchResults(ctx, typedContractAddr, dextypesutils.GetPairString(&pairCopy))
+			orders, cancels := GetMatchResults(pairCtx, typedContractAddr, dextypesutils.GetPairString(&pairCopy))
 			orderResults = append(orderResults, orders...)
 			cancelResults = append(cancelResults, cancels...)
 			settlements = append(settlements, pairSettlements...)
@@ -246,6 +247,7 @@ func ExecutePairsInParallel(ctx sdk.Context, contractAddr string, dexkeeper *kee
 		}()
 	}
 	wg.Wait()
+	concurrentSafeKvCache.Write()
 	if anyPanicked {
 		// need to re-throw panic to the top level goroutine
 		panic("panicked during pair execution")

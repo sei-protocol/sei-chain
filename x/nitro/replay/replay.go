@@ -2,7 +2,6 @@ package replay
 
 import (
 	"fmt"
-	"io/ioutil"
 	"os"
 	"strconv"
 	"strings"
@@ -63,13 +62,13 @@ func Replay(ctx sdk.Context, txs [][]byte, accounts []*types.Account, sysvarAcco
 	if err := callReplayer(accountFilePaths, sysvarFilePaths, programFilePaths, txFilePaths, outputDirectory); err != nil {
 		return nil, err
 	}
-	files, err := ioutil.ReadDir(outputDirectory)
+	files, err := os.ReadDir(outputDirectory)
 	if err != nil {
 		return nil, err
 	}
 	res := []types.Account{}
 	for _, file := range files {
-		b, err := ioutil.ReadFile(fmt.Sprintf("%s%s", outputDirectory, file.Name()))
+		b, err := os.ReadFile(fmt.Sprintf("%s%s", outputDirectory, file.Name()))
 		if err != nil {
 			return nil, err
 		}

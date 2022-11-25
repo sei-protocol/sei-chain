@@ -562,10 +562,11 @@ func (o *Oracle) tick(ctx context.Context) error {
 func (o *Oracle) healthchecksPing() {
 	for url, client := range o.healthchecks {
 		o.logger.Info().Msg("updating healthcheck status")
-		_, err := client.Get(url)
+		response, err := client.Get(url)
 		if err != nil {
 			o.logger.Warn().Msg("healthcheck ping failed")
 		}
+		response.Body.Close()
 	}
 }
 
