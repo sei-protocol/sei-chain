@@ -102,6 +102,7 @@ func NewCheckDexGasDecorator(dexKeeper keeper.Keeper) CheckDexGasDecorator {
 	}
 }
 
+// for a TX that contains dex gas-incurring messages, check if it provides enough gas based on dex params
 func (d CheckDexGasDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool, next sdk.AnteHandler) (newCtx sdk.Context, err error) {
 	if ctx.IsReCheckTx() {
 		return next(ctx, tx, simulate)

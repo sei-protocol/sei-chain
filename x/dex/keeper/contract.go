@@ -67,6 +67,7 @@ func (k Keeper) GetAllContractInfo(ctx sdk.Context) []types.ContractInfoV2 {
 	return list
 }
 
+// Reduce `RentBalance` of a contract if `userProvidedGas` cannot cover `gasUsed`
 func (k Keeper) ChargeRentForGas(ctx sdk.Context, contractAddr string, gasUsed uint64, userProvidedGas uint64) error {
 	if gasUsed <= userProvidedGas {
 		// User provided can fully cover the consumed gas. Doing nothing
