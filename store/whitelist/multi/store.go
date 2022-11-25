@@ -19,8 +19,8 @@ func NewStore(parent storetypes.MultiStore, storeKeyToWriteWhitelist map[string]
 	}
 }
 
-func (cms Store) CacheMultiStore() storetypes.CacheMultiStore {
-	return cachemulti.NewStore(cms.MultiStore.CacheMultiStore(), cms.storeKeyToWriteWhitelist)
+func (cms Store) ConcurrentCacheMultiStore() storetypes.ConcurrentCacheMultiStore {
+	return cachemulti.NewStore(cms.MultiStore.ConcurrentCacheMultiStore(), cms.storeKeyToWriteWhitelist)
 }
 
 func (cms Store) GetKVStore(key storetypes.StoreKey) storetypes.KVStore {

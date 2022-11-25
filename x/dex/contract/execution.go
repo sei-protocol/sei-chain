@@ -204,11 +204,17 @@ func ExecutePairsInParallel(ctx sdk.Context, contractAddr string, dexkeeper *kee
 	wg := sync.WaitGroup{}
 	anyPanicked := false
 
+	ms := ctx.MultiStore()
+	concurrentSafeKvCache := ms.ConcurrentCacheMultiStore()
+
 	for _, pair := range registeredPairs {
 		wg.Add(1)
 
 		pair := pair
-		pairCtx := ctx.WithMultiStore(multi.NewStore(ctx.MultiStore(), GetPerPairWhitelistMap(contractAddr, pair))).WithEventManager(sdk.NewEventManager())
+		executePairStore := multi.NewStore(concurrentSafeKvCache, GetPerPairWhitelistMap(contractAddr, pair))
+		executePairEventManager := sdk.NewEventManager()
+		pairCtx := ctx.WithMultiStore(executePairStore).WithEventManager(executePairEventManager)
+
 		go func() {
 			defer wg.Done()
 			defer utils.PanicHandler(func(err any) {
