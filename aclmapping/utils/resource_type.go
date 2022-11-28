@@ -2,6 +2,7 @@ package utils
 
 import (
 	aclsdktypes "github.com/cosmos/cosmos-sdk/types/accesscontrol"
+	acltypes "github.com/cosmos/cosmos-sdk/x/accesscontrol/types"
 	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
 	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
 	distributiontypes "github.com/cosmos/cosmos-sdk/x/distribution/types"
@@ -107,5 +108,9 @@ var StoreKeyToResourceTypePrefixMap = aclsdktypes.StoreKeyToResourceTypePrefixMa
 	},
 	epochtypes.StoreKey: {
 		aclsdktypes.ResourceType_KV_EPOCH: aclsdktypes.EmptyPrefix,
+	},
+	acltypes.StoreKey: {
+		aclsdktypes.ResourceType_KV_ACCESSCONTROL:                         aclsdktypes.EmptyPrefix,
+		aclsdktypes.ResourceType_KV_ACCESSCONTROL_WASM_DEPENDENCY_MAPPING: acltypes.GetWasmMappingKey(),
 	},
 }
