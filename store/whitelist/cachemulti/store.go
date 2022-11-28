@@ -27,7 +27,7 @@ func NewStore(
 }
 
 func (cms Store) ConcurrentCacheMultiStore() storetypes.ConcurrentCacheMultiStore {
-	return NewStore(cms.sdkConcurrentCacheMultiStore.CacheMultiStore(), cms.storeKeyToWriteWhitelist)
+	return NewStore(cms.sdkConcurrentCacheMultiStore.ConcurrentCacheMultiStore(), cms.storeKeyToWriteWhitelist)
 }
 
 func (cms Store) GetKVStore(key storetypes.StoreKey) storetypes.KVStore {

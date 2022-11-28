@@ -20,9 +20,9 @@ func SendTx(
 	failureExpected bool,
 	loadtestClient LoadTestClient,
 ) func() {
-	(*txBuilder).SetGasLimit(300000)
+	(*txBuilder).SetGasLimit(900000)
 	(*txBuilder).SetFeeAmount([]sdk.Coin{
-		sdk.NewCoin("usei", sdk.NewInt(10000)),
+		sdk.NewCoin("usei", sdk.NewInt(50000)),
 	})
 	loadtestClient.SignerClient.SignTx(loadtestClient.ChainID, txBuilder, key, seqDelta)
 	txBytes, _ := TestConfig.TxConfig.TxEncoder()((*txBuilder).GetTx())

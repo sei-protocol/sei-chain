@@ -125,7 +125,6 @@ func NewOkxProvider(
 
 	wsConn, response, err := websocket.DefaultDialer.Dial(wsURL.String(), nil)
 	defer response.Body.Close()
-
 	if err != nil {
 		return nil, fmt.Errorf("error connecting to Okx websocket: %w", err)
 	}
@@ -432,7 +431,6 @@ func (p *OkxProvider) reconnect() error {
 	p.logger.Debug().Msg("reconnecting websocket")
 	wsConn, response, err := websocket.DefaultDialer.Dial(p.wsURL.String(), nil)
 	defer response.Body.Close()
-
 	if err != nil {
 		return fmt.Errorf("error reconnecting to Okx websocket: %w", err)
 	}

@@ -94,3 +94,11 @@ func IncrTxNotCommitted(count int) {
 		[]metrics.Label{telemetry.NewLabel("reason", "not_committed")},
 	)
 }
+
+// loadtest_client_sei_panicked
+func IncrPanickCount() {
+	metrics.IncrCounter(
+		[]string{"sei", "panicked"},
+		float32(1),
+	)
+}

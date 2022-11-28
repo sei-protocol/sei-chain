@@ -488,7 +488,6 @@ func (p *CoinbaseProvider) reconnect() error {
 	p.logger.Debug().Msg("reconnecting websocket")
 	wsConn, response, err := websocket.DefaultDialer.Dial(p.wsURL.String(), nil)
 	defer response.Body.Close()
-
 	if err != nil {
 		return fmt.Errorf("error reconnecting to Coinbase websocket: %w", err)
 	}

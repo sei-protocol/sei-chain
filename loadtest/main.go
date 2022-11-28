@@ -74,6 +74,13 @@ func run(config Config) {
 }
 
 func runOnce(config Config) {
+	defer func() {
+		if r := recover(); r != nil {
+			fmt.Println("Loadtest paniced", r)
+			IncrPanickCount()
+		}
+	}()
+
 	client := NewLoadTestClient(config)
 	client.SetValidators()
 
