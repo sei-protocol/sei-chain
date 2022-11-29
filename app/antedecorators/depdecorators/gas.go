@@ -1,6 +1,8 @@
 package depdecorators
 
 import (
+	"encoding/hex"
+
 	wasmtypes "github.com/CosmWasm/wasmd/x/wasm/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkacltypes "github.com/cosmos/cosmos-sdk/types/accesscontrol"
@@ -21,7 +23,7 @@ func (d GasMeterSetterDecorator) AnteDeps(txDeps []sdkacltypes.AccessOperation, 
 			txDeps = append(txDeps, sdkacltypes.AccessOperation{
 				AccessType:         sdkacltypes.AccessType_READ,
 				ResourceType:       sdkacltypes.ResourceType_KV_ACCESSCONTROL_WASM_DEPENDENCY_MAPPING,
-				IdentifierTemplate: string(acltypes.GetWasmContractAddressKey(accAddr)),
+				IdentifierTemplate: hex.EncodeToString(acltypes.GetWasmContractAddressKey(accAddr)),
 			})
 		}
 	}

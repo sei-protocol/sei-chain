@@ -1,6 +1,7 @@
 package utils
 
 import (
+	wasmtypes "github.com/CosmWasm/wasmd/x/wasm/types"
 	aclsdktypes "github.com/cosmos/cosmos-sdk/types/accesscontrol"
 	acltypes "github.com/cosmos/cosmos-sdk/x/accesscontrol/types"
 	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
@@ -19,10 +20,9 @@ const (
 
 var StoreKeyToResourceTypePrefixMap = aclsdktypes.StoreKeyToResourceTypePrefixMap{
 	aclsdktypes.ParentNodeKey: {
-		aclsdktypes.ResourceType_ANY:     aclsdktypes.EmptyPrefix,
-		aclsdktypes.ResourceType_KV:      aclsdktypes.EmptyPrefix,
-		aclsdktypes.ResourceType_Mem:     aclsdktypes.EmptyPrefix,
-		aclsdktypes.ResourceType_KV_WASM: aclsdktypes.EmptyPrefix,
+		aclsdktypes.ResourceType_ANY: aclsdktypes.EmptyPrefix,
+		aclsdktypes.ResourceType_KV:  aclsdktypes.EmptyPrefix,
+		aclsdktypes.ResourceType_Mem: aclsdktypes.EmptyPrefix,
 	},
 	dextypes.StoreKey: {
 		aclsdktypes.ResourceType_KV_DEX:                    aclsdktypes.EmptyPrefix,
@@ -112,5 +112,15 @@ var StoreKeyToResourceTypePrefixMap = aclsdktypes.StoreKeyToResourceTypePrefixMa
 	acltypes.StoreKey: {
 		aclsdktypes.ResourceType_KV_ACCESSCONTROL:                         aclsdktypes.EmptyPrefix,
 		aclsdktypes.ResourceType_KV_ACCESSCONTROL_WASM_DEPENDENCY_MAPPING: acltypes.GetWasmMappingKey(),
+	},
+	wasmtypes.StoreKey: {
+		aclsdktypes.ResourceType_KV_WASM:                       aclsdktypes.EmptyPrefix,
+		aclsdktypes.ResourceType_KV_WASM_CODE:                  wasmtypes.CodeKeyPrefix,
+		aclsdktypes.ResourceType_KV_WASM_CONTRACT_ADDRESS:      wasmtypes.ContractKeyPrefix,
+		aclsdktypes.ResourceType_KV_WASM_CONTRACT_STORE:        wasmtypes.ContractStorePrefix,
+		aclsdktypes.ResourceType_KV_WASM_SEQUENCE_KEY:          wasmtypes.SequenceKeyPrefix,
+		aclsdktypes.ResourceType_KV_WASM_CONTRACT_CODE_HISTORY: wasmtypes.ContractCodeHistoryElementPrefix,
+		aclsdktypes.ResourceType_KV_WASM_CONTRACT_BY_CODE_ID:   wasmtypes.ContractByCodeIDAndCreatedSecondaryIndexPrefix,
+		aclsdktypes.ResourceType_KV_WASM_PINNED_CODE_INDEX:     wasmtypes.PinnedCodeIndexPrefix,
 	},
 }

@@ -1,6 +1,8 @@
 package depdecorators
 
 import (
+	"encoding/hex"
+
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkacltypes "github.com/cosmos/cosmos-sdk/types/accesscontrol"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
@@ -27,7 +29,7 @@ func (d SignerDepDecorator) AnteDeps(txDeps []sdkacltypes.AccessOperation, tx sd
 		txDeps = append(txDeps, sdkacltypes.AccessOperation{
 			AccessType:         accessType,
 			ResourceType:       sdkacltypes.ResourceType_KV_AUTH_ADDRESS_STORE,
-			IdentifierTemplate: string(authtypes.AddressStoreKey(signer)),
+			IdentifierTemplate: hex.EncodeToString(authtypes.AddressStoreKey(signer)),
 		})
 	}
 	return next(txDeps, tx)

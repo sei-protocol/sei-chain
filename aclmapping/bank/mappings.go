@@ -1,6 +1,7 @@
 package aclbankmapping
 
 import (
+	"encoding/hex"
 	"fmt"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -65,19 +66,19 @@ func MsgSendDependencyGenerator(keeper aclkeeper.Keeper, ctx sdk.Context, msg sd
 		{
 			AccessType:         sdkacltypes.AccessType_READ,
 			ResourceType:       sdkacltypes.ResourceType_KV_AUTH_ADDRESS_STORE,
-			IdentifierTemplate: string(authtypes.CreateAddressStoreKeyFromBech32(msgSend.ToAddress)),
+			IdentifierTemplate: hex.EncodeToString(authtypes.CreateAddressStoreKeyFromBech32(msgSend.ToAddress)),
 		},
 		{
 			AccessType:         sdkacltypes.AccessType_WRITE,
 			ResourceType:       sdkacltypes.ResourceType_KV_AUTH_ADDRESS_STORE,
-			IdentifierTemplate: string(authtypes.CreateAddressStoreKeyFromBech32(msgSend.ToAddress)),
+			IdentifierTemplate: hex.EncodeToString(authtypes.CreateAddressStoreKeyFromBech32(msgSend.ToAddress)),
 		},
 
 		// Gets Account Info for the sender
 		{
 			AccessType:         sdkacltypes.AccessType_READ,
 			ResourceType:       sdkacltypes.ResourceType_KV_AUTH_ADDRESS_STORE,
-			IdentifierTemplate: string(authtypes.CreateAddressStoreKeyFromBech32(msgSend.FromAddress)),
+			IdentifierTemplate: hex.EncodeToString(authtypes.CreateAddressStoreKeyFromBech32(msgSend.FromAddress)),
 		},
 
 		{
