@@ -1,5 +1,5 @@
 #!/bin/bash
-seidbin=$(which ~/go/bin/seid | tr -d '"')
+seidbin="~/go/bin/seid"
 keyname=$(printf "12345678\n" | $seidbin keys list --output json | jq ".[0].name" | tr -d '"')
 chainid=$($seidbin status | jq ".NodeInfo.network" | tr -d '"')
 seihome=$(git rev-parse --show-toplevel | tr -d '"')
