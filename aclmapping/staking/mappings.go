@@ -46,10 +46,10 @@ func MsgDelegateDependencyGenerator(keeper aclkeeper.Keeper, ctx sdk.Context, ms
 	// validatorAddrCons := string(stakingtypes.GetValidatorByConsAddrKey(validatorCons))
 	// validatorOperatorAddr := validator.GetOperator().String()
 
-	delegationKey := string(stakingtypes.GetDelegationKey(delegateAddr, validatorAddr))
-	validatorKey := string(stakingtypes.GetValidatorKey(validatorAddr))
-	delegatorBalanceKey := string(banktypes.CreateAccountBalancesPrefixFromBech32(msgDelegate.DelegatorAddress))
-	validatorBalanceKey := string(banktypes.CreateAccountBalancesPrefixFromBech32(msgDelegate.ValidatorAddress))
+	delegationKey := hex.EncodeToString(stakingtypes.GetDelegationKey(delegateAddr, validatorAddr))
+	validatorKey := hex.EncodeToString(stakingtypes.GetValidatorKey(validatorAddr))
+	delegatorBalanceKey := hex.EncodeToString(banktypes.CreateAccountBalancesPrefixFromBech32(msgDelegate.DelegatorAddress))
+	validatorBalanceKey := hex.EncodeToString(banktypes.CreateAccountBalancesPrefixFromBech32(msgDelegate.ValidatorAddress))
 	// validatorOperatorBalanceKey := string(banktypes.CreateAccountBalancesPrefixFromBech32(validatorOperatorAddr))
 
 	accessOperations := []sdkacltypes.AccessOperation{
@@ -213,12 +213,12 @@ func MsgUndelegateDependencyGenerator(keeper aclkeeper.Keeper, ctx sdk.Context, 
 
 	validator, _ := keeper.StakingKeeper.GetValidator(ctx, validatorAddr)
 	validatorCons, _ := validator.GetConsAddr()
-	validatorAddrCons := string(stakingtypes.GetValidatorByConsAddrKey(validatorCons))
+	validatorAddrCons := hex.EncodeToString(stakingtypes.GetValidatorByConsAddrKey(validatorCons))
 
-	delegationKey := string(stakingtypes.GetDelegationKey(delegateAddr, validatorAddr))
-	validatorKey := string(stakingtypes.GetValidatorKey(validatorAddr))
-	delegatorBalanceKey := string(banktypes.CreateAccountBalancesPrefixFromBech32(msgUndelegate.DelegatorAddress))
-	validatorBalanceKey := string(banktypes.CreateAccountBalancesPrefixFromBech32(msgUndelegate.ValidatorAddress))
+	delegationKey := hex.EncodeToString(stakingtypes.GetDelegationKey(delegateAddr, validatorAddr))
+	validatorKey := hex.EncodeToString(stakingtypes.GetValidatorKey(validatorAddr))
+	delegatorBalanceKey := hex.EncodeToString(banktypes.CreateAccountBalancesPrefixFromBech32(msgUndelegate.DelegatorAddress))
+	validatorBalanceKey := hex.EncodeToString(banktypes.CreateAccountBalancesPrefixFromBech32(msgUndelegate.ValidatorAddress))
 
 	accessOperations := []sdkacltypes.AccessOperation{
 		// Treat Delegations and Undelegations to have the same ACL since they are highly coupled, no point in finer granularization
@@ -421,13 +421,13 @@ func MsgBeginRedelegateDependencyGenerator(keeper aclkeeper.Keeper, ctx sdk.Cont
 	srcValidator, _ := keeper.StakingKeeper.GetValidator(ctx, srcValidatorAddr)
 	dstValidator, _ := keeper.StakingKeeper.GetValidator(ctx, dstValidatorAddr)
 
-	srcDelegationKey := string(stakingtypes.GetDelegationKey(delegateAddr, srcValidatorAddr))
-	dstDelegationKey := string(stakingtypes.GetDelegationKey(delegateAddr, dstValidatorAddr))
+	srcDelegationKey := hex.EncodeToString(stakingtypes.GetDelegationKey(delegateAddr, srcValidatorAddr))
+	dstDelegationKey := hex.EncodeToString(stakingtypes.GetDelegationKey(delegateAddr, dstValidatorAddr))
 
-	srcValidatorKey := string(stakingtypes.GetValidatorKey(srcValidatorAddr))
-	dstValidatorKey := string(stakingtypes.GetValidatorKey(dstValidatorAddr))
+	srcValidatorKey := hex.EncodeToString(stakingtypes.GetValidatorKey(srcValidatorAddr))
+	dstValidatorKey := hex.EncodeToString(stakingtypes.GetValidatorKey(dstValidatorAddr))
 
-	dstValidatorBalanceKey := string(banktypes.CreateAccountBalancesPrefixFromBech32(msgBeingRedelegate.ValidatorDstAddress))
+	dstValidatorBalanceKey := hex.EncodeToString(banktypes.CreateAccountBalancesPrefixFromBech32(msgBeingRedelegate.ValidatorDstAddress))
 
 	accessOperations := []sdkacltypes.AccessOperation{
 		// Treat Delegations and Undelegations to have the same ACL since they are highly coupled, no point in finer granularization

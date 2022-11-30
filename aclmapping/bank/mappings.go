@@ -30,8 +30,8 @@ func MsgSendDependencyGenerator(keeper aclkeeper.Keeper, ctx sdk.Context, msg sd
 	if !ok {
 		return []sdkacltypes.AccessOperation{}, ErrorInvalidMsgType
 	}
-	fromAddrIdentifier := string(banktypes.CreateAccountBalancesPrefixFromBech32(msgSend.FromAddress))
-	toAddrIdentifier := string(banktypes.CreateAccountBalancesPrefixFromBech32(msgSend.ToAddress))
+	fromAddrIdentifier := hex.EncodeToString(banktypes.CreateAccountBalancesPrefixFromBech32(msgSend.FromAddress))
+	toAddrIdentifier := hex.EncodeToString(banktypes.CreateAccountBalancesPrefixFromBech32(msgSend.ToAddress))
 
 	accessOperations := []sdkacltypes.AccessOperation{
 		// MsgSend also checks if the coin denom is enabled, but the information is from the params.

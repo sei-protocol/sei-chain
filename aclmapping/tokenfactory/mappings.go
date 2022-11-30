@@ -37,7 +37,7 @@ func TokenFactoryMintDependencyGenerator(keeper aclkeeper.Keeper, ctx sdk.Contex
 	denomMetaDataKey := append([]byte(tfktypes.DenomAuthorityMetadataKey), []byte(denom)...)
 	tokenfactoryDenomKey := tfktypes.GetDenomPrefixStore(denom)
 	bankDenomMetaDataKey := banktypes.DenomMetadataKey(denom)
-	supplyKey := string(append(banktypes.SupplyKey, []byte(denom)...))
+	supplyKey := hex.EncodeToString(append(banktypes.SupplyKey, []byte(denom)...))
 
 	return []sdkacltypes.AccessOperation{
 		// Reads denom data From BankKeeper
@@ -127,7 +127,7 @@ func TokenFactoryBurnDependencyGenerator(keeper aclkeeper.Keeper, ctx sdk.Contex
 	denomMetaDataKey := append([]byte(tfktypes.DenomAuthorityMetadataKey), []byte(denom)...)
 	tokenfactoryDenomKey := tfktypes.GetDenomPrefixStore(denom)
 	bankDenomMetaDataKey := banktypes.DenomMetadataKey(denom)
-	supplyKey := string(append(banktypes.SupplyKey, []byte(denom)...))
+	supplyKey := hex.EncodeToString(append(banktypes.SupplyKey, []byte(denom)...))
 	return []sdkacltypes.AccessOperation{
 		// Reads denom data From BankKeeper
 		{
