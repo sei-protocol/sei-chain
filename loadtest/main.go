@@ -77,7 +77,7 @@ func runOnce(config Config) {
 	defer func() {
 		if r := recover(); r != nil {
 			fmt.Println("Loadtest paniced", r)
-			IncrPanickCount()
+			IncrPanickCount(config)
 		}
 	}()
 

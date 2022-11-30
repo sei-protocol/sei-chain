@@ -96,9 +96,14 @@ func IncrTxNotCommitted(count int) {
 }
 
 // loadtest_client_sei_panicked
-func IncrPanickCount() {
-	metrics.IncrCounter(
+func IncrPanickCount(config Config) {
+	testType := "constant"
+	if !config.Constant {
+		testType = "burst"
+	}
+	metrics.IncrCounterWithLabels(
 		[]string{"sei", "panicked"},
 		float32(1),
+		[]metrics.Label{telemetry.NewLabel("type", testType)},
 	)
 }
