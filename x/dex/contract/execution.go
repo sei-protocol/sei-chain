@@ -208,7 +208,9 @@ func ExecutePairsInParallel(ctx sdk.Context, contractAddr string, dexkeeper *kee
 	ms := ctx.MultiStore()
 	concurrentSafeKvCache := ms.ConcurrentCacheMultiStore()
 	defer concurrentSafeKvCache.Write()
+	oldCtx := ctx
 
+	ctx = ctx.WithMultiStore(concurrentSafeKvCache)
 	for _, pair := range registeredPairs {
 		wg.Add(1)
 
@@ -252,7 +254,7 @@ func ExecutePairsInParallel(ctx sdk.Context, contractAddr string, dexkeeper *kee
 		panic("panicked during pair execution")
 	}
 	dexkeeper.SetMatchResult(ctx, contractAddr, types.NewMatchResult(orderResults, cancelResults, settlements))
-
+	ctx = oldCtx
 	return settlements, cancelResults
 }
 
