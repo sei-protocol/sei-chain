@@ -46,6 +46,9 @@ func TestAllocateTokensToValidatorWithCommission(t *testing.T) {
 func TestAllocateTokensToManyValidators(t *testing.T) {
 	app := simapp.Setup(false)
 	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
+	params := app.StakingKeeper.GetParams(ctx)
+	params.MinCommissionRate = sdk.NewDec(0)
+	app.StakingKeeper.SetParams(ctx, params)
 
 	addrs := simapp.AddTestAddrs(app, ctx, 2, sdk.NewInt(1234))
 	valAddrs := simapp.ConvertAddrsToValAddrs(addrs)

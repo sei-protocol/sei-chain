@@ -12,6 +12,9 @@ import (
 func (suite *KeeperTestSuite) TestHandleDoubleSign() {
 	ctx := suite.ctx.WithIsCheckTx(false).WithBlockHeight(1)
 	suite.populateValidators(ctx)
+	params := suite.app.StakingKeeper.GetParams(ctx)
+	params.MinCommissionRate = sdk.NewDec(0)
+	suite.app.StakingKeeper.SetParams(ctx, params)
 
 	power := int64(100)
 	stakingParams := suite.app.StakingKeeper.GetParams(ctx)
@@ -78,6 +81,9 @@ func (suite *KeeperTestSuite) TestHandleDoubleSign() {
 func (suite *KeeperTestSuite) TestHandleDoubleSign_TooOld() {
 	ctx := suite.ctx.WithIsCheckTx(false).WithBlockHeight(1).WithBlockTime(time.Now())
 	suite.populateValidators(ctx)
+	params := suite.app.StakingKeeper.GetParams(ctx)
+	params.MinCommissionRate = sdk.NewDec(0)
+	suite.app.StakingKeeper.SetParams(ctx, params)
 
 	power := int64(100)
 	stakingParams := suite.app.StakingKeeper.GetParams(ctx)

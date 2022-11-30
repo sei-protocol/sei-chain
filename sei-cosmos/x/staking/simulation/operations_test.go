@@ -83,9 +83,9 @@ func TestSimulateMsgCreateValidator(t *testing.T) {
 	types.ModuleCdc.UnmarshalJSON(operationMsg.Msg, &msg)
 
 	require.True(t, operationMsg.OK)
-	require.Equal(t, "0.080000000000000000", msg.Commission.MaxChangeRate.String())
-	require.Equal(t, "0.080000000000000000", msg.Commission.MaxRate.String())
-	require.Equal(t, "0.019527679037870745", msg.Commission.Rate.String())
+	require.Equal(t, "0.758158506986253594", msg.Commission.MaxChangeRate.String())
+	require.Equal(t, "0.780000000000000000", msg.Commission.MaxRate.String())
+	require.Equal(t, "0.696209983631848991", msg.Commission.Rate.String())
 	require.Equal(t, types.TypeMsgCreateValidator, msg.Type())
 	require.Equal(t, []byte{0xa, 0x20, 0x51, 0xde, 0xbd, 0xe8, 0xfa, 0xdf, 0x4e, 0xfc, 0x33, 0xa5, 0x16, 0x94, 0xf6, 0xee, 0xd3, 0x69, 0x7a, 0x7a, 0x1c, 0x2d, 0x50, 0xb6, 0x2, 0xf7, 0x16, 0x4e, 0x66, 0x9f, 0xff, 0x38, 0x91, 0x9b}, msg.Pubkey.Value)
 	require.Equal(t, "cosmos1ghekyjucln7y67ntx7cf27m9dpuxxemn4c8g4r", msg.DelegatorAddress)

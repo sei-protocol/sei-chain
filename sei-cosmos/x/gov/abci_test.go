@@ -271,6 +271,9 @@ func TestProposalPassedEndblocker(t *testing.T) {
 	app := simapp.Setup(false)
 	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
 	addrs := simapp.AddTestAddrs(app, ctx, 10, valTokens)
+	params := app.StakingKeeper.GetParams(ctx)
+	params.MinCommissionRate = sdk.NewDec(0)
+	app.StakingKeeper.SetParams(ctx, params)
 
 	SortAddresses(addrs)
 
@@ -321,6 +324,9 @@ func TestEndBlockerProposalHandlerFailed(t *testing.T) {
 	app := simapp.Setup(false)
 	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
 	addrs := simapp.AddTestAddrs(app, ctx, 1, valTokens)
+	params := app.StakingKeeper.GetParams(ctx)
+	params.MinCommissionRate = sdk.NewDec(0)
+	app.StakingKeeper.SetParams(ctx, params)
 
 	SortAddresses(addrs)
 

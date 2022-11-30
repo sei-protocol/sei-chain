@@ -28,7 +28,7 @@ type Helper struct {
 
 // NewHelper creates staking Handler wrapper for tests
 func NewHelper(t *testing.T, ctx sdk.Context, k keeper.Keeper) *Helper {
-	return &Helper{t, staking.NewHandler(k), k, ctx, ZeroCommission(), sdk.DefaultBondDenom}
+	return &Helper{t, staking.NewHandler(k), k, ctx, DefaultCommission(), sdk.DefaultBondDenom}
 }
 
 // CreateValidator calls handler to create a new staking validator
@@ -127,7 +127,7 @@ func (sh *Helper) TurnBlockTimeDiff(diff time.Duration) sdk.Context {
 	return sh.Ctx
 }
 
-// ZeroCommission constructs a commission rates with all zeros.
-func ZeroCommission() stakingtypes.CommissionRates {
-	return stakingtypes.NewCommissionRates(sdk.ZeroDec(), sdk.ZeroDec(), sdk.ZeroDec())
+// DefaultCommission constructs a commission rates with all min commission (0.05).
+func DefaultCommission() stakingtypes.CommissionRates {
+	return stakingtypes.NewCommissionRates(sdk.NewDecWithPrec(5, 2), sdk.NewDecWithPrec(5, 2), sdk.ZeroDec())
 }
