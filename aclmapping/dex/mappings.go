@@ -34,12 +34,12 @@ func GetDexMemReadWrite(contract string) []sdkacltypes.AccessOperation {
 		{
 			AccessType:         sdkacltypes.AccessType_READ,
 			ResourceType:       sdkacltypes.ResourceType_DexMem,
-			IdentifierTemplate: contract,
+			IdentifierTemplate: hex.EncodeToString([]byte(contract)),
 		},
 		{
 			AccessType:         sdkacltypes.AccessType_WRITE,
 			ResourceType:       sdkacltypes.ResourceType_DexMem,
-			IdentifierTemplate: contract,
+			IdentifierTemplate: hex.EncodeToString([]byte(contract)),
 		},
 	}
 }
