@@ -26,16 +26,17 @@ jobs:
     - name: Test
       run: python3 runtests.py
 
+    - run: go install github.com/axw/gocov/gocov@latest
+    - run: go install github.com/AlekSi/gocov-xml@latest
+
     - name: Test coverage report
-      run: go install github.com/axw/gocov/gocov@latest
-      run: go install github.com/AlekSi/gocov-xml@latest
       run: go test ./...  -coverprofile=cover.out
-      run: gocov convert cover.out | gocov-xml > /coverage.xml
+    - run: gocov convert cover.out | gocov-xml > coverage.xml
       
     - name: Code Coverage Summary Report
       uses: irongut/CodeCoverageSummary@v1.3.0
       with:
-        filename: /coverage.xml
+        filename: coverage.xml
         badge: true
         format: 'markdown'
         output: 'both'
