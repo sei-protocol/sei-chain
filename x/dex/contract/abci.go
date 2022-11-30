@@ -44,12 +44,12 @@ func EndBlockerAtomic(ctx sdk.Context, keeper *keeper.Keeper, validContractsInfo
 	env := newEnv(ctx, validContractsInfo, keeper)
 	cachedCtx, msCached := cacheAndDecorateContext(ctx, env, keeper.GetParams(ctx).EndBlockGasLimit)
 	memStateCopy := dexutils.GetMemState(cachedCtx.Context()).DeepCopy()
-
 	handleDeposits(cachedCtx, env, keeper, tracer)
 
 	runner := NewParallelRunner(func(contract types.ContractInfoV2) {
 		orderMatchingRunnable(spanCtx, cachedCtx, env, keeper, contract, tracer)
 	}, validContractsInfo, cachedCtx)
+
 	runner.Run()
 
 	handleSettlements(spanCtx, cachedCtx, env, keeper, tracer)
@@ -61,9 +61,9 @@ func EndBlockerAtomic(ctx sdk.Context, keeper *keeper.Keeper, validContractsInfo
 		msCached.Write()
 		return env.validContractsInfo, ctx, true
 	}
+
 	// restore keeper in-memory state
 	newGoContext := context.WithValue(ctx.Context(), dexutils.DexMemStateContextKey, memStateCopy)
-
 	return filterNewValidContracts(ctx, env), ctx.WithContext(newGoContext), false
 }
 
@@ -194,7 +194,6 @@ func orderMatchingRunnable(ctx context.Context, sdkContext sdk.Context, env *env
 			channel <- struct{}{}
 		}
 	}()
-
 	if !contractInfo.NeedOrderMatching {
 		return
 	}
@@ -203,6 +202,7 @@ func orderMatchingRunnable(ctx context.Context, sdkContext sdk.Context, env *env
 	sdkContext.Logger().Info(fmt.Sprintf("End block for %s", contractInfo.ContractAddr))
 	pairs, pairFound := env.registeredPairs.Load(contractInfo.ContractAddr)
 	orderBooks, found := env.orderBooks.Load(contractInfo.ContractAddr)
+
 	if !pairFound || !found {
 		sdkContext.Logger().Error(fmt.Sprintf("No pair or order book for %s", contractInfo.ContractAddr))
 		env.failedContractAddresses.Add(contractInfo.ContractAddr)

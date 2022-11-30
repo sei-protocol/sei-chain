@@ -268,10 +268,8 @@ func HandleExecutionForContract(
 	if err := CallPreExecutionHooks(ctx, sdkCtx, contractAddr, dexkeeper, registeredPairs, tracer); err != nil {
 		return orderResults, []*types.SettlementEntry{}, err
 	}
-
 	settlements, cancellations := ExecutePairsInParallel(sdkCtx, contractAddr, dexkeeper, registeredPairs, orderBooks)
 	defer EmitSettlementMetrics(settlements)
-
 	// populate order placement results for FinalizeBlock hook
 	dextypeswasm.PopulateOrderPlacementResults(contractAddr, dexutils.GetMemState(sdkCtx.Context()).GetAllBlockOrders(sdkCtx, typedContractAddr), cancellations, orderResults)
 	dextypeswasm.PopulateOrderExecutionResults(contractAddr, settlements, orderResults)

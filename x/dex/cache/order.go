@@ -20,9 +20,7 @@ func NewOrders(orderStore prefix.Store) *BlockOrders {
 
 func (o *BlockOrders) Get() (list []*types.Order) {
 	iterator := sdk.KVStorePrefixIterator(o.orderStore, []byte{})
-
 	defer iterator.Close()
-
 	for ; iterator.Valid(); iterator.Next() {
 		var val types.Order
 		if err := val.Unmarshal(iterator.Value()); err != nil {
