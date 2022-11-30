@@ -2,6 +2,7 @@ package antedecorators
 
 import (
 	"bytes"
+	"encoding/hex"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkacltypes "github.com/cosmos/cosmos-sdk/types/accesscontrol"
@@ -75,19 +76,19 @@ func (gd GaslessDecorator) AnteDeps(txDeps []sdkacltypes.AccessOperation, tx sdk
 				{
 					ResourceType:       sdkacltypes.ResourceType_KV_ORACLE_FEEDERS,
 					AccessType:         sdkacltypes.AccessType_READ,
-					IdentifierTemplate: string(oracletypes.GetFeederDelegationKey(valAddr)),
+					IdentifierTemplate: hex.EncodeToString(oracletypes.GetFeederDelegationKey(valAddr)),
 				},
 				// read validator from staking - READ
 				{
 					ResourceType:       sdkacltypes.ResourceType_KV_STAKING_VALIDATOR,
 					AccessType:         sdkacltypes.AccessType_READ,
-					IdentifierTemplate: string(stakingtypes.GetValidatorKey(valAddr)),
+					IdentifierTemplate: hex.EncodeToString(stakingtypes.GetValidatorKey(valAddr)),
 				},
 				// check exchange rate vote exists - READ
 				{
 					ResourceType:       sdkacltypes.ResourceType_KV_ORACLE_AGGREGATE_VOTES,
 					AccessType:         sdkacltypes.AccessType_READ,
-					IdentifierTemplate: string(oracletypes.GetAggregateExchangeRateVoteKey(valAddr)),
+					IdentifierTemplate: hex.EncodeToString(oracletypes.GetAggregateExchangeRateVoteKey(valAddr)),
 				},
 			}...)
 		default:

@@ -1,6 +1,7 @@
 package acloraclemapping
 
 import (
+	"encoding/hex"
 	"fmt"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -37,7 +38,7 @@ func MsgVoteDependencyGenerator(keeper aclkeeper.Keeper, ctx sdk.Context, msg sd
 		{
 			ResourceType:       sdkacltypes.ResourceType_KV_ORACLE_FEEDERS,
 			AccessType:         sdkacltypes.AccessType_READ,
-			IdentifierTemplate: string(oracletypes.GetFeederDelegationKey(valAddr)),
+			IdentifierTemplate: hex.EncodeToString(oracletypes.GetFeederDelegationKey(valAddr)),
 		},
 		// read validator from staking - READ
 		// validator is bonded check - READ
@@ -45,7 +46,7 @@ func MsgVoteDependencyGenerator(keeper aclkeeper.Keeper, ctx sdk.Context, msg sd
 		{
 			ResourceType:       sdkacltypes.ResourceType_KV_STAKING_VALIDATOR,
 			AccessType:         sdkacltypes.AccessType_READ,
-			IdentifierTemplate: string(stakingtypes.GetValidatorKey(valAddr)),
+			IdentifierTemplate: hex.EncodeToString(stakingtypes.GetValidatorKey(valAddr)),
 		},
 
 		// get vote target (for all exchange rate tuples) -> blanket read on that prefix - READ
@@ -59,7 +60,7 @@ func MsgVoteDependencyGenerator(keeper aclkeeper.Keeper, ctx sdk.Context, msg sd
 		{
 			ResourceType:       sdkacltypes.ResourceType_KV_ORACLE_AGGREGATE_VOTES,
 			AccessType:         sdkacltypes.AccessType_WRITE,
-			IdentifierTemplate: string(oracletypes.GetAggregateExchangeRateVoteKey(valAddr)),
+			IdentifierTemplate: hex.EncodeToString(oracletypes.GetAggregateExchangeRateVoteKey(valAddr)),
 		},
 
 		// Last Operation should always be a commit

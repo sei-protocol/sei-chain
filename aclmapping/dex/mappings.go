@@ -1,6 +1,7 @@
 package acldexmapping
 
 import (
+	"encoding/hex"
 	"fmt"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -33,12 +34,12 @@ func GetDexMemReadWrite(contract string) []sdkacltypes.AccessOperation {
 		{
 			AccessType:         sdkacltypes.AccessType_READ,
 			ResourceType:       sdkacltypes.ResourceType_DexMem,
-			IdentifierTemplate: contract,
+			IdentifierTemplate: hex.EncodeToString([]byte(contract)),
 		},
 		{
 			AccessType:         sdkacltypes.AccessType_WRITE,
 			ResourceType:       sdkacltypes.ResourceType_DexMem,
-			IdentifierTemplate: contract,
+			IdentifierTemplate: hex.EncodeToString([]byte(contract)),
 		},
 	}
 }
@@ -48,13 +49,13 @@ func GetLongShortOrderBookOps(contractAddr string, priceDenom string, assetDenom
 		{
 			AccessType:         sdkacltypes.AccessType_READ,
 			ResourceType:       sdkacltypes.ResourceType_KV_DEX_CONTRACT_LONGBOOK,
-			IdentifierTemplate: string(dextypes.OrderBookPrefix(true, contractAddr, priceDenom, assetDenom)),
+			IdentifierTemplate: hex.EncodeToString(dextypes.OrderBookPrefix(true, contractAddr, priceDenom, assetDenom)),
 		},
 
 		{
 			AccessType:         sdkacltypes.AccessType_READ,
 			ResourceType:       sdkacltypes.ResourceType_KV_DEX_CONTRACT_SHORTBOOK,
-			IdentifierTemplate: string(dextypes.OrderBookPrefix(false, contractAddr, priceDenom, assetDenom)),
+			IdentifierTemplate: hex.EncodeToString(dextypes.OrderBookPrefix(false, contractAddr, priceDenom, assetDenom)),
 		},
 	}
 }
@@ -73,22 +74,22 @@ func DexPlaceOrdersDependencyGenerator(keeper aclkeeper.Keeper, ctx sdk.Context,
 		{
 			AccessType:         sdkacltypes.AccessType_READ,
 			ResourceType:       sdkacltypes.ResourceType_KV_DEX_NEXT_ORDER_ID,
-			IdentifierTemplate: string(dextypes.NextOrderIDPrefix(contractAddr)),
+			IdentifierTemplate: hex.EncodeToString(dextypes.NextOrderIDPrefix(contractAddr)),
 		},
 		{
 			AccessType:         sdkacltypes.AccessType_WRITE,
 			ResourceType:       sdkacltypes.ResourceType_KV_DEX_NEXT_ORDER_ID,
-			IdentifierTemplate: string(dextypes.NextOrderIDPrefix(contractAddr)),
+			IdentifierTemplate: hex.EncodeToString(dextypes.NextOrderIDPrefix(contractAddr)),
 		},
 		{
 			AccessType:         sdkacltypes.AccessType_READ,
 			ResourceType:       sdkacltypes.ResourceType_KV_DEX_PRICE_TICK_SIZE,
-			IdentifierTemplate: string(dextypes.PriceTickSizeKeyPrefix(contractAddr)),
+			IdentifierTemplate: hex.EncodeToString(dextypes.PriceTickSizeKeyPrefix(contractAddr)),
 		},
 		{
 			AccessType:         sdkacltypes.AccessType_READ,
 			ResourceType:       sdkacltypes.ResourceType_KV_DEX_QUANTITY_TICK_SIZE,
-			IdentifierTemplate: string(dextypes.QuantityTickSizeKeyPrefix(contractAddr)),
+			IdentifierTemplate: hex.EncodeToString(dextypes.QuantityTickSizeKeyPrefix(contractAddr)),
 		},
 	}...)
 

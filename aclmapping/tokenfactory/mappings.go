@@ -1,6 +1,7 @@
 package aclTokenFactorymapping
 
 import (
+	"encoding/hex"
 	"fmt"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -36,52 +37,52 @@ func TokenFactoryMintDependencyGenerator(keeper aclkeeper.Keeper, ctx sdk.Contex
 	denomMetaDataKey := append([]byte(tfktypes.DenomAuthorityMetadataKey), []byte(denom)...)
 	tokenfactoryDenomKey := tfktypes.GetDenomPrefixStore(denom)
 	bankDenomMetaDataKey := banktypes.DenomMetadataKey(denom)
-	supplyKey := string(append(banktypes.SupplyKey, []byte(denom)...))
+	supplyKey := hex.EncodeToString(append(banktypes.SupplyKey, []byte(denom)...))
 
 	return []sdkacltypes.AccessOperation{
 		// Reads denom data From BankKeeper
 		{
 			AccessType:         sdkacltypes.AccessType_READ,
 			ResourceType:       sdkacltypes.ResourceType_KV_BANK_DENOM,
-			IdentifierTemplate: string(bankDenomMetaDataKey),
+			IdentifierTemplate: hex.EncodeToString(bankDenomMetaDataKey),
 		},
 
 		// Gets Authoritity data related to the denom
 		{
 			AccessType:         sdkacltypes.AccessType_READ,
 			ResourceType:       sdkacltypes.ResourceType_KV_TOKENFACTORY_METADATA,
-			IdentifierTemplate: string(denomMetaDataKey),
+			IdentifierTemplate: hex.EncodeToString(denomMetaDataKey),
 		},
 
 		// Gets Authoritity data related to the denom
 		{
 			AccessType:         sdkacltypes.AccessType_READ,
 			ResourceType:       sdkacltypes.ResourceType_KV_TOKENFACTORY_DENOM,
-			IdentifierTemplate: string(tokenfactoryDenomKey),
+			IdentifierTemplate: hex.EncodeToString(tokenfactoryDenomKey),
 		},
 
 		// Gets Module Account information
 		{
 			AccessType:         sdkacltypes.AccessType_READ,
 			ResourceType:       sdkacltypes.ResourceType_KV_AUTH_ADDRESS_STORE,
-			IdentifierTemplate: string(authtypes.AddressStoreKey(moduleAdr)),
+			IdentifierTemplate: hex.EncodeToString(authtypes.AddressStoreKey(moduleAdr)),
 		},
 		{
 			AccessType:         sdkacltypes.AccessType_READ,
 			ResourceType:       sdkacltypes.ResourceType_KV_BANK_BALANCES,
-			IdentifierTemplate: string(banktypes.CreateAccountBalancesPrefix(moduleAdr)),
+			IdentifierTemplate: hex.EncodeToString(banktypes.CreateAccountBalancesPrefix(moduleAdr)),
 		},
 
 		// Deposit into Sender's Bank Balance
 		{
 			AccessType:         sdkacltypes.AccessType_READ,
 			ResourceType:       sdkacltypes.ResourceType_KV_BANK_BALANCES,
-			IdentifierTemplate: string(banktypes.CreateAccountBalancesPrefixFromBech32(mintMsg.GetSender())),
+			IdentifierTemplate: hex.EncodeToString(banktypes.CreateAccountBalancesPrefixFromBech32(mintMsg.GetSender())),
 		},
 		{
 			AccessType:         sdkacltypes.AccessType_WRITE,
 			ResourceType:       sdkacltypes.ResourceType_KV_BANK_BALANCES,
-			IdentifierTemplate: string(banktypes.CreateAccountBalancesPrefixFromBech32(mintMsg.GetSender())),
+			IdentifierTemplate: hex.EncodeToString(banktypes.CreateAccountBalancesPrefixFromBech32(mintMsg.GetSender())),
 		},
 
 		// Read and update supply after burn
@@ -99,12 +100,12 @@ func TokenFactoryMintDependencyGenerator(keeper aclkeeper.Keeper, ctx sdk.Contex
 		{
 			AccessType:         sdkacltypes.AccessType_READ,
 			ResourceType:       sdkacltypes.ResourceType_KV_AUTH_ADDRESS_STORE,
-			IdentifierTemplate: string(authtypes.CreateAddressStoreKeyFromBech32(mintMsg.GetSender())),
+			IdentifierTemplate: hex.EncodeToString(authtypes.CreateAddressStoreKeyFromBech32(mintMsg.GetSender())),
 		},
 		{
 			AccessType:         sdkacltypes.AccessType_WRITE,
 			ResourceType:       sdkacltypes.ResourceType_KV_AUTH_ADDRESS_STORE,
-			IdentifierTemplate: string(authtypes.CreateAddressStoreKeyFromBech32(mintMsg.GetSender())),
+			IdentifierTemplate: hex.EncodeToString(authtypes.CreateAddressStoreKeyFromBech32(mintMsg.GetSender())),
 		},
 
 		// Coins removed from Module account (Deferred)
@@ -126,34 +127,34 @@ func TokenFactoryBurnDependencyGenerator(keeper aclkeeper.Keeper, ctx sdk.Contex
 	denomMetaDataKey := append([]byte(tfktypes.DenomAuthorityMetadataKey), []byte(denom)...)
 	tokenfactoryDenomKey := tfktypes.GetDenomPrefixStore(denom)
 	bankDenomMetaDataKey := banktypes.DenomMetadataKey(denom)
-	supplyKey := string(append(banktypes.SupplyKey, []byte(denom)...))
+	supplyKey := hex.EncodeToString(append(banktypes.SupplyKey, []byte(denom)...))
 	return []sdkacltypes.AccessOperation{
 		// Reads denom data From BankKeeper
 		{
 			AccessType:         sdkacltypes.AccessType_READ,
 			ResourceType:       sdkacltypes.ResourceType_KV_BANK_DENOM,
-			IdentifierTemplate: string(bankDenomMetaDataKey),
+			IdentifierTemplate: hex.EncodeToString(bankDenomMetaDataKey),
 		},
 
 		// Gets Authoritity data related to the denom
 		{
 			AccessType:         sdkacltypes.AccessType_READ,
 			ResourceType:       sdkacltypes.ResourceType_KV_TOKENFACTORY_METADATA,
-			IdentifierTemplate: string(denomMetaDataKey),
+			IdentifierTemplate: hex.EncodeToString(denomMetaDataKey),
 		},
 
 		// Gets Authoritity data related to the denom
 		{
 			AccessType:         sdkacltypes.AccessType_READ,
 			ResourceType:       sdkacltypes.ResourceType_KV_TOKENFACTORY_DENOM,
-			IdentifierTemplate: string(tokenfactoryDenomKey),
+			IdentifierTemplate: hex.EncodeToString(tokenfactoryDenomKey),
 		},
 
 		// Gets Module Account Balance
 		{
 			AccessType:         sdkacltypes.AccessType_READ,
 			ResourceType:       sdkacltypes.ResourceType_KV_AUTH_ADDRESS_STORE,
-			IdentifierTemplate: string(authtypes.AddressStoreKey(moduleAdr)),
+			IdentifierTemplate: hex.EncodeToString(authtypes.AddressStoreKey(moduleAdr)),
 		},
 
 		// Sends from Sender to Module account (deferred deposit)
@@ -161,12 +162,12 @@ func TokenFactoryBurnDependencyGenerator(keeper aclkeeper.Keeper, ctx sdk.Contex
 		{
 			AccessType:         sdkacltypes.AccessType_READ,
 			ResourceType:       sdkacltypes.ResourceType_KV_BANK_BALANCES,
-			IdentifierTemplate: string(banktypes.CreateAccountBalancesPrefixFromBech32(burnMsg.GetSender())),
+			IdentifierTemplate: hex.EncodeToString(banktypes.CreateAccountBalancesPrefixFromBech32(burnMsg.GetSender())),
 		},
 		{
 			AccessType:         sdkacltypes.AccessType_WRITE,
 			ResourceType:       sdkacltypes.ResourceType_KV_BANK_BALANCES,
-			IdentifierTemplate: string(banktypes.CreateAccountBalancesPrefixFromBech32(burnMsg.GetSender())),
+			IdentifierTemplate: hex.EncodeToString(banktypes.CreateAccountBalancesPrefixFromBech32(burnMsg.GetSender())),
 		},
 
 		// Read and update supply after burn
@@ -184,12 +185,12 @@ func TokenFactoryBurnDependencyGenerator(keeper aclkeeper.Keeper, ctx sdk.Contex
 		{
 			AccessType:         sdkacltypes.AccessType_READ,
 			ResourceType:       sdkacltypes.ResourceType_KV_AUTH_ADDRESS_STORE,
-			IdentifierTemplate: string(authtypes.CreateAddressStoreKeyFromBech32(burnMsg.GetSender())),
+			IdentifierTemplate: hex.EncodeToString(authtypes.CreateAddressStoreKeyFromBech32(burnMsg.GetSender())),
 		},
 		{
 			AccessType:         sdkacltypes.AccessType_WRITE,
 			ResourceType:       sdkacltypes.ResourceType_KV_AUTH_ADDRESS_STORE,
-			IdentifierTemplate: string(authtypes.CreateAddressStoreKeyFromBech32(burnMsg.GetSender())),
+			IdentifierTemplate: hex.EncodeToString(authtypes.CreateAddressStoreKeyFromBech32(burnMsg.GetSender())),
 		},
 
 		// Coins removed from Module account (Deferred)
