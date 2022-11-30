@@ -90,4 +90,15 @@ enum ResourceType {
     KV_DEX_SETTLEMENT_ORDER_ID = 68; // child of KV_DEX
     KV_DEX_ORDER_BOOK = 69; // child of KV_DEX
     KV_DEX_QUANTITY_TICK_SIZE = 70; // child of KV_DEX
+
+    KV_ACCESSCONTROL = 71; // child of KV
+    KV_ACCESSCONTROL_WASM_DEPENDENCY_MAPPING = 72; // child of KV_ACCESSCONTROL
+
+    KV_WASM_CODE = 73; // child of KV_WASM
+    KV_WASM_CONTRACT_ADDRESS = 74; // child of KV_WASM
+    KV_WASM_CONTRACT_STORE = 75; // child of KV_WASM
+    KV_WASM_SEQUENCE_KEY = 76; // child of KV_WASM
+    KV_WASM_CONTRACT_CODE_HISTORY = 77; // child of KV_WASM
+    KV_WASM_CONTRACT_BY_CODE_ID = 78; // child of KV_WASM
+    KV_WASM_PINNED_CODE_INDEX = 79; // child of KV_WASM
 }

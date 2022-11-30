@@ -1,6 +1,7 @@
 package types
 
 import (
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"reflect"
@@ -26,18 +27,17 @@ type EventManager struct {
 
 // Common Event Types and Attributes
 const (
-	EventTypeResourceAccess   	= "resource_access"
+	EventTypeResourceAccess = "resource_access"
 
-	AttributeKeyStoreKey    	= "store_key"
-	AttributeKeyResourceValue   = "value"
-	AttributeKeyResourceKey    	= "key"
-	AttributeKeyOperation    	= "operation"
+	AttributeKeyStoreKey      = "store_key"
+	AttributeKeyResourceValue = "value"
+	AttributeKeyResourceKey   = "key"
+	AttributeKeyOperation     = "operation"
 
-	AttributeKeyAccessType		= "access_type"
+	AttributeKeyAccessType      = "access_type"
 	AttributeKeyAccessTypeWrite = "write"
 	AttributeKeyAccessTypeRead  = "read"
 )
-
 
 func NewEventManager() *EventManager {
 	return &EventManager{EmptyEvents()}
@@ -94,8 +94,8 @@ func (em *EventManager) EmitResourceAccessReadEvent(operation string, storeKey S
 			EventTypeResourceAccess,
 			NewAttribute(AttributeKeyAccessType, AttributeKeyAccessTypeRead),
 			NewAttribute(AttributeKeyStoreKey, storeKey.Name()),
-			NewAttribute(AttributeKeyResourceKey, string(key)),
-			NewAttribute(AttributeKeyResourceValue, string(value)),
+			NewAttribute(AttributeKeyResourceKey, hex.EncodeToString(key)),
+			NewAttribute(AttributeKeyResourceValue, hex.EncodeToString(value)),
 			NewAttribute(AttributeKeyOperation, operation),
 		),
 	)
@@ -107,8 +107,8 @@ func (em *EventManager) EmitResourceAccessWriteEvent(operation string, storeKey 
 			EventTypeResourceAccess,
 			NewAttribute(AttributeKeyAccessType, AttributeKeyAccessTypeWrite),
 			NewAttribute(AttributeKeyStoreKey, storeKey.Name()),
-			NewAttribute(AttributeKeyResourceKey, string(key)),
-			NewAttribute(AttributeKeyResourceValue, string(value)),
+			NewAttribute(AttributeKeyResourceKey, hex.EncodeToString(key)),
+			NewAttribute(AttributeKeyResourceValue, hex.EncodeToString(value)),
 			NewAttribute(AttributeKeyOperation, operation),
 		),
 	)

@@ -5,11 +5,11 @@ import (
 )
 
 var (
-	EmptyPrefix = []byte{}
+	EmptyPrefix   = []byte{}
 	ParentNodeKey = "ParentNode"
 )
 
-type StoreKeyToResourceTypePrefixMap map[string]map[ResourceType][]byte;
+type StoreKeyToResourceTypePrefixMap map[string]map[ResourceType][]byte
 
 func DefaultStoreKeyToResourceTypePrefixMap() StoreKeyToResourceTypePrefixMap {
 	return StoreKeyToResourceTypePrefixMap{
@@ -31,7 +31,6 @@ func NewMsgValidator(storeKeyToResourceTypePrefixMap StoreKeyToResourceTypePrefi
 		storeKeyToResourceTypePrefixMap: storeKeyToResourceTypePrefixMap,
 	}
 }
-
 
 // GetPrefix tries to get the prefix for the ResourceType from the StoreKey Mapping
 // and the default mapping, if it doesn't exist in either then it will return a nil, false
@@ -78,7 +77,7 @@ func (validator *MsgValidator) ValidateAccessOperations(accessOps []AccessOperat
 				continue
 			}
 
-			if  eventComparator.DependencyMatch(accessOp, prefix) {
+			if eventComparator.DependencyMatch(accessOp, prefix) {
 				matched = true
 				break
 			}

@@ -1,6 +1,7 @@
 package ante
 
 import (
+	"encoding/hex"
 	"fmt"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -48,16 +49,15 @@ func (d DeductFeeDecorator) AnteDeps(txDeps []sdkacltypes.AccessOperation, tx sd
 				{
 					AccessType:         sdkacltypes.AccessType_READ,
 					ResourceType:       sdkacltypes.ResourceType_KV_BANK_BALANCES,
-					IdentifierTemplate:  string(banktypes.CreateAccountBalancesPrefix(feeTx.FeePayer())),
+					IdentifierTemplate: hex.EncodeToString(banktypes.CreateAccountBalancesPrefix(feeTx.FeePayer())),
 				},
 				{
 					AccessType:         sdkacltypes.AccessType_WRITE,
 					ResourceType:       sdkacltypes.ResourceType_KV_BANK_BALANCES,
-					IdentifierTemplate:  string(banktypes.CreateAccountBalancesPrefix(feeTx.FeePayer())),
+					IdentifierTemplate: hex.EncodeToString(banktypes.CreateAccountBalancesPrefix(feeTx.FeePayer())),
 				},
 			}...)
 	}
-
 
 	if feeTx.FeeGranter() != nil {
 		deps = append(deps,
@@ -65,12 +65,12 @@ func (d DeductFeeDecorator) AnteDeps(txDeps []sdkacltypes.AccessOperation, tx sd
 				{
 					AccessType:         sdkacltypes.AccessType_READ,
 					ResourceType:       sdkacltypes.ResourceType_KV_BANK_BALANCES,
-					IdentifierTemplate:  string(banktypes.CreateAccountBalancesPrefix(feeTx.FeeGranter())),
+					IdentifierTemplate: hex.EncodeToString(banktypes.CreateAccountBalancesPrefix(feeTx.FeeGranter())),
 				},
 				{
 					AccessType:         sdkacltypes.AccessType_WRITE,
 					ResourceType:       sdkacltypes.ResourceType_KV_BANK_BALANCES,
-					IdentifierTemplate:  string(banktypes.CreateAccountBalancesPrefix(feeTx.FeeGranter())),
+					IdentifierTemplate: hex.EncodeToString(banktypes.CreateAccountBalancesPrefix(feeTx.FeeGranter())),
 				},
 			}...)
 	}

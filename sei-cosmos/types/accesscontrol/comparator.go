@@ -1,6 +1,7 @@
 package accesscontrol
 
 import (
+	"encoding/hex"
 	"fmt"
 	"strings"
 
@@ -13,17 +14,17 @@ var (
 	// Param Store Values can only be set during genesis and updated
 	// through a gov proposal and those are always processed sequentially
 	ConcurrentSafeIdentifiers = map[string]bool{
-		"bank/SendEnabled": true,
+		"bank/SendEnabled":        true,
 		"bank/DefaultSendEnabled": true,
-		"staking/BondDenom": true,
-		"staking/UnbondingTime": true,
+		"staking/BondDenom":       true,
+		"staking/UnbondingTime":   true,
 	}
 )
 
 type Comparator struct {
 	AccessType AccessType
-	Identifier 	string
-	StoreKey string
+	Identifier string
+	StoreKey   string
 }
 
 func AccessTypeStringToEnum(accessType string) AccessType {
@@ -52,18 +53,17 @@ func BuildComparatorFromEvents(events []abci.Event, storeKeyToResourceTypePrefix
 				identifier = attribute.Value
 			}
 			if attribute.Key == "access_type" {
-				accessType =  AccessTypeStringToEnum(attribute.Value)
+				accessType = AccessTypeStringToEnum(attribute.Value)
 			}
 			if attribute.Key == "store_key" {
-				storeKey =  attribute.Value
+				storeKey = attribute.Value
 			}
 		}
 
 		comparators = append(comparators, Comparator{
 			AccessType: accessType,
 			Identifier: identifier,
-			StoreKey: storeKey,
-
+			StoreKey:   storeKey,
 		})
 	}
 	return comparators
@@ -84,7 +84,8 @@ func (c *Comparator) DependencyMatch(accessOp AccessOperation, prefix []byte) bo
 
 	// Both Identifiers should be starting with the same prefix expected for the resource type
 	// e.g if the StoreKey and resource type is ResourceType_KV_BANK_BALANCES, then they both must start with BalancesPrefix
-	if !strings.HasPrefix(c.Identifier, string(prefix)) || !strings.HasPrefix(accessOp.GetIdentifierTemplate(), string(prefix)) {
+	encodedPrefix := hex.EncodeToString(prefix)
+	if !strings.HasPrefix(c.Identifier, encodedPrefix) || !strings.HasPrefix(accessOp.GetIdentifierTemplate(), encodedPrefix) {
 		return false
 	}
 

@@ -1,6 +1,8 @@
 package ante
 
 import (
+	"encoding/hex"
+
 	"github.com/cosmos/cosmos-sdk/codec/legacy"
 	"github.com/cosmos/cosmos-sdk/crypto/keys/multisig"
 	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
@@ -92,7 +94,7 @@ func (d ConsumeTxSizeGasDecorator) AnteDeps(txDeps []sdkacltypes.AccessOperation
 			sdkacltypes.AccessOperation{
 				AccessType:         sdkacltypes.AccessType_WRITE,
 				ResourceType:       sdkacltypes.ResourceType_KV_AUTH_ADDRESS_STORE, // TODO: change to ResourceType_KV_AUTH once merged
-				IdentifierTemplate:  string(authtypes.AddressStoreKey(signer)),
+				IdentifierTemplate: hex.EncodeToString(authtypes.AddressStoreKey(signer)),
 			},
 		)
 

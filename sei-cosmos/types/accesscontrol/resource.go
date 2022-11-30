@@ -17,6 +17,7 @@ var ResourceTree = map[ResourceType]TreeNode{
 		ResourceType_KV_AUTH,
 		ResourceType_KV_TOKENFACTORY,
 		ResourceType_KV_DISTRIBUTION,
+		ResourceType_KV_ACCESSCONTROL,
 	}},
 	ResourceType_Mem: {ResourceType_ANY, []ResourceType{
 		ResourceType_DexMem,
@@ -62,7 +63,6 @@ var ResourceTree = map[ResourceType]TreeNode{
 	ResourceType_KV_STAKING_VALIDATOR_QUEUE:          {ResourceType_KV_STAKING, []ResourceType{}},
 	ResourceType_KV_STAKING_HISTORICAL_INFO:          {ResourceType_KV_STAKING, []ResourceType{}},
 	ResourceType_KV_STAKING_UNBONDING:                {ResourceType_KV_STAKING, []ResourceType{}},
-	ResourceType_KV_WASM:                             {ResourceType_KV, []ResourceType{}},
 	ResourceType_KV_EPOCH:                            {ResourceType_KV, []ResourceType{}},
 	ResourceType_KV_ORACLE: {ResourceType_KV, []ResourceType{
 		ResourceType_KV_ORACLE_AGGREGATE_VOTES,
@@ -154,6 +154,26 @@ var ResourceTree = map[ResourceType]TreeNode{
 	ResourceType_KV_DISTRIBUTION_VAL_CURRENT_REWARDS:     {ResourceType_KV_DISTRIBUTION, []ResourceType{}},
 	ResourceType_KV_DISTRIBUTION_VAL_ACCUM_COMMISSION:    {ResourceType_KV_DISTRIBUTION, []ResourceType{}},
 	ResourceType_KV_DISTRIBUTION_SLASH_EVENT:             {ResourceType_KV_DISTRIBUTION, []ResourceType{}},
+	ResourceType_KV_ACCESSCONTROL: {ResourceType_KV, []ResourceType{
+		ResourceType_KV_ACCESSCONTROL_WASM_DEPENDENCY_MAPPING,
+	}},
+	ResourceType_KV_ACCESSCONTROL_WASM_DEPENDENCY_MAPPING: {ResourceType_KV_ACCESSCONTROL, []ResourceType{}},
+	ResourceType_KV_WASM: {ResourceType_KV, []ResourceType{
+		ResourceType_KV_WASM_CODE,
+		ResourceType_KV_WASM_CONTRACT_ADDRESS,
+		ResourceType_KV_WASM_CONTRACT_STORE,
+		ResourceType_KV_WASM_SEQUENCE_KEY,
+		ResourceType_KV_WASM_CONTRACT_CODE_HISTORY,
+		ResourceType_KV_WASM_CONTRACT_BY_CODE_ID,
+		ResourceType_KV_WASM_PINNED_CODE_INDEX,
+	}},
+	ResourceType_KV_WASM_CODE:                  {ResourceType_KV_WASM, []ResourceType{}},
+	ResourceType_KV_WASM_CONTRACT_ADDRESS:      {ResourceType_KV_WASM, []ResourceType{}},
+	ResourceType_KV_WASM_CONTRACT_STORE:        {ResourceType_KV_WASM, []ResourceType{}},
+	ResourceType_KV_WASM_SEQUENCE_KEY:          {ResourceType_KV_WASM, []ResourceType{}},
+	ResourceType_KV_WASM_CONTRACT_CODE_HISTORY: {ResourceType_KV_WASM, []ResourceType{}},
+	ResourceType_KV_WASM_CONTRACT_BY_CODE_ID:   {ResourceType_KV_WASM, []ResourceType{}},
+	ResourceType_KV_WASM_PINNED_CODE_INDEX:     {ResourceType_KV_WASM, []ResourceType{}},
 }
 
 // This returns a slice of all resource types that are dependent to a specific resource type

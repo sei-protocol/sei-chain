@@ -1,6 +1,11 @@
 package accesscontrol
 
-import "testing"
+import (
+	"encoding/hex"
+	"testing"
+
+	"github.com/stretchr/testify/require"
+)
 
 func TestComparator_DependencyMatch(t *testing.T) {
 	type fields struct {
@@ -12,6 +17,8 @@ func TestComparator_DependencyMatch(t *testing.T) {
 		accessOp AccessOperation
 		prefix   []byte
 	}
+	prefixA, err := hex.DecodeString("0a")
+	require.NoError(t, err)
 	tests := []struct {
 		name   string
 		fields fields
@@ -19,79 +26,79 @@ func TestComparator_DependencyMatch(t *testing.T) {
 		want   bool
 	}{
 		{
-			name: "Unknown Access Type",
-			fields: fields{AccessType: AccessType_READ, Identifier: "a/b/c/d", StoreKey: "123"},
+			name:   "Unknown Access Type",
+			fields: fields{AccessType: AccessType_READ, Identifier: "0abcdeff", StoreKey: "123"},
 			args: args{
-				prefix: []byte("a"),
+				prefix: prefixA,
 				accessOp: AccessOperation{
-					AccessType: AccessType_UNKNOWN,
-					IdentifierTemplate: "a/b/c",
-					ResourceType: ResourceType_KV_AUTH_ADDRESS_STORE,
+					AccessType:         AccessType_UNKNOWN,
+					IdentifierTemplate: "0abcde",
+					ResourceType:       ResourceType_KV_AUTH_ADDRESS_STORE,
 				},
 			},
 			want: true,
 		},
 		{
-			name: "No contain",
-			fields: fields{AccessType: AccessType_READ, Identifier: "a/b/c/d", StoreKey: "123"},
+			name:   "No contain",
+			fields: fields{AccessType: AccessType_READ, Identifier: "0abcde", StoreKey: "123"},
 			args: args{
-				prefix: []byte("a"),
+				prefix: prefixA,
 				accessOp: AccessOperation{
-					AccessType: AccessType_READ,
-					IdentifierTemplate: "a/b/d/e/c",
-					ResourceType: ResourceType_KV_AUTH_ADDRESS_STORE,
+					AccessType:         AccessType_READ,
+					IdentifierTemplate: "0abdec",
+					ResourceType:       ResourceType_KV_AUTH_ADDRESS_STORE,
 				},
 			},
 			want: false,
 		},
 		{
-			name: "No Prefix comparator",
-			fields: fields{AccessType: AccessType_WRITE, Identifier: "c/b/c/d", StoreKey: "123"},
+			name:   "No Prefix comparator",
+			fields: fields{AccessType: AccessType_WRITE, Identifier: "0cbcde", StoreKey: "123"},
 			args: args{
-				prefix: []byte("a"),
+				prefix: prefixA,
 				accessOp: AccessOperation{
-					AccessType: AccessType_WRITE,
-					IdentifierTemplate: "a/b/d/e/c",
-					ResourceType: ResourceType_KV_AUTH_ADDRESS_STORE,
+					AccessType:         AccessType_WRITE,
+					IdentifierTemplate: "0abdec",
+					ResourceType:       ResourceType_KV_AUTH_ADDRESS_STORE,
 				},
 			},
 			want: false,
 		},
 		{
-			name: "No Prefix accessop",
-			fields: fields{AccessType: AccessType_WRITE, Identifier: "a/b/c/d", StoreKey: "123"},
+			name:   "No Prefix accessop",
+			fields: fields{AccessType: AccessType_WRITE, Identifier: "0abcde", StoreKey: "123"},
 			args: args{
-				prefix: []byte("a"),
+				prefix: prefixA,
 				accessOp: AccessOperation{
-					AccessType: AccessType_WRITE,
-					IdentifierTemplate: "c/b/d/e/c",
-					ResourceType: ResourceType_KV_AUTH_ADDRESS_STORE,
+					AccessType:         AccessType_WRITE,
+					IdentifierTemplate: "0cbdec",
+					ResourceType:       ResourceType_KV_AUTH_ADDRESS_STORE,
 				},
 			},
 			want: false,
 		},
 		{
-			name: "Star type",
-			fields: fields{AccessType: AccessType_WRITE, Identifier: "a/b/c/d", StoreKey: "123"},
+			name:   "Star type",
+			fields: fields{AccessType: AccessType_WRITE, Identifier: "0abcde", StoreKey: "123"},
 			args: args{
-				prefix: []byte("a"),
+				prefix: prefixA,
 				accessOp: AccessOperation{
-					AccessType: AccessType_WRITE,
+					AccessType:         AccessType_WRITE,
 					IdentifierTemplate: "*",
-					ResourceType: ResourceType_KV_AUTH_ADDRESS_STORE,
+					ResourceType:       ResourceType_KV_AUTH_ADDRESS_STORE,
 				},
 			},
 			want: true,
 		},
 		{
-			name: "Star type only when accesstype equal",
-			fields: fields{AccessType: AccessType_READ, Identifier: "a/b/c/d", StoreKey: "123"},
+			name:   "Star type only when accesstype equal",
+			fields: fields{AccessType: AccessType_READ, Identifier: "0abcde", StoreKey: "123"},
 			args: args{
-				prefix: []byte("a"),
+				prefix: prefixA,
 				accessOp: AccessOperation{
-					AccessType: AccessType_WRITE,
+					AccessType:         AccessType_WRITE,
 					IdentifierTemplate: "*",
-					ResourceType: ResourceType_KV_AUTH_ADDRESS_STORE,
+					ResourceType:       ResourceType_KV_AUTH_ADDRESS_STORE,
 				},
 			},
 			want: false,
@@ -105,7 +112,7 @@ func TestComparator_DependencyMatch(t *testing.T) {
 				StoreKey:   tt.fields.StoreKey,
 			}
 			if got := c.DependencyMatch(tt.args.accessOp, tt.args.prefix); got != tt.want {
-				t.Errorf("Comparator.DependencyMatch() = %v, want %v", got, tt.want)
+				t.Errorf("Comparator.DependencyMatch() = '%v', want '%v' for comparator %v", got, tt.want, c)
 			}
 		})
 	}

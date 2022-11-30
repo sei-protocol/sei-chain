@@ -8,14 +8,20 @@
           "enabled": true,
           "access_ops": [
             {
-              "access_type": "UNKNOWN",
-              "resource_type": "ANY",
-              "identifier_template": "*"
+              "operation": {
+                "access_type": "UNKNOWN",
+                "resource_type": "ANY",
+                "identifier_template": "*"
+              },
+              "selector_type": "NONE"
             },
             {
-              "access_type": "COMMIT",
-              "resource_type": "ANY",
-              "identifier_template": "*"
+              "operation": {
+                "access_type": "COMMIT",
+                "resource_type": "ANY",
+                "identifier_template": "*"
+              },
+              "selector_type": "NONE"
             }
           ]
         }
