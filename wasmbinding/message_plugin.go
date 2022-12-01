@@ -123,7 +123,7 @@ func (decorator SDKMessageDependencyDecorator) DispatchMsg(ctx sdk.Context, cont
 	// get the dependencies for the contract to validate against
 	// TODO: we need to carry wasmDependency in ctx instead of loading again here since here has no access to original msg payload
 	//       which is required for populating id correctly.
-	wasmDependency, err := decorator.aclKeeper.GetWasmDependencyMapping(ctx, contractAddr, []byte{}, false)
+	wasmDependency, err := decorator.aclKeeper.GetWasmDependencyMapping(ctx, contractAddr, "", []byte{}, false)
 	// If no mapping exists, or mapping is disabled, this message would behave as blocking for all resources
 	if err == aclkeeper.ErrWasmDependencyMappingNotFound {
 		// no mapping, we can just continue
