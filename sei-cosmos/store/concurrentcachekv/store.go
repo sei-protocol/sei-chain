@@ -2,7 +2,6 @@ package cachekv
 
 import (
 	"bytes"
-	"fmt"
 	"io"
 	"sort"
 	"sync"
@@ -20,35 +19,73 @@ import (
 	dbm "github.com/tendermint/tm-db"
 )
 
-// If value is nil but deleted is false, it means the parent doesn't have the
-// key.  (No need to delete upon Write())
-type cValue struct {
-	value []byte
-	dirty bool
+type syncMapCacheBackend struct {
+	m sync.Map
+}
+
+func (b syncMapCacheBackend) Get(key string) (*types.CValue, bool) {
+	val, ok := b.m.Load(key)
+	if !ok {
+		return nil, false
+	}
+	typedVal, ok := val.(*types.CValue)
+	return typedVal, ok
+}
+
+func (b syncMapCacheBackend) Set(key string, val *types.CValue) {
+	b.m.Store(key, val)
+}
+
+func (b syncMapCacheBackend) Len() (len int) {
+	b.m.Range(func(_, _ any) bool {
+		len++
+		return true
+	})
+	return
+}
+
+func (b syncMapCacheBackend) Delete(key string) {
+	b.m.Delete(key)
+}
+
+func (b syncMapCacheBackend) Range(f func(string, *types.CValue) bool) {
+	// this is always called within a mutex so all operations below are atomic
+	keys := []string{}
+	b.m.Range(func(k, _ any) bool {
+		keys = append(keys, k.(string))
+		return true
+	})
+	for _, key := range keys {
+		val, _ := b.Get(key)
+		if !f(key, val) {
+			break
+		}
+	}
 }
 
 // Store wraps an in-memory cache around an underlying types.KVStore.
 // Concurrent Safe Version of CacheKV
 type Store struct {
 	mtx           sync.Mutex
-	cache         *sync.Map
+	cache         *types.BoundedCache
 	deleted       *sync.Map
 	unsortedCache *sync.Map
 	sortedCache   *dbm.MemDB // always ascending sorted
 	parent        types.KVStore
 	eventManager  *sdktypes.EventManager
-	storeKey	  types.StoreKey
+	storeKey      types.StoreKey
 }
 
 var _ types.CacheKVStore = (*Store)(nil)
 
 // NewStore creates a new Store object
-func NewStore(parent types.KVStore, storeKey types.StoreKey) *Store {
+func NewStore(parent types.KVStore, storeKey types.StoreKey, cacheSize int) *Store {
 	return &Store{
-		sortedCache:   dbm.NewMemDB(),
-		parent:        parent,
-		eventManager:  sdktypes.NewEventManager(),
-		storeKey: 	   storeKey,
+		cache:        types.NewBoundedCache(syncMapCacheBackend{sync.Map{}}, cacheSize),
+		sortedCache:  dbm.NewMemDB(),
+		parent:       parent,
+		eventManager: sdktypes.NewEventManager(),
+		storeKey:     storeKey,
 	}
 }
 
@@ -73,13 +110,12 @@ func (store *Store) Get(key []byte) (value []byte) {
 
 	types.AssertValidKey(key)
 
-	val, ok := store.cache.Load(conv.UnsafeBytesToStr(key))
-	cacheValue := val.(*cValue)
+	cacheValue, ok := store.cache.Get(conv.UnsafeBytesToStr(key))
 	if !ok {
 		value = store.parent.Get(key)
 		store.setCacheValue(key, value, false, false)
 	} else {
-		value = cacheValue.value
+		value = cacheValue.Value()
 	}
 	store.eventManager.EmitResourceAccessReadEvent("get", store.storeKey, key, value)
 
@@ -126,11 +162,9 @@ func (store *Store) Write() {
 	// Not the best, but probably not a bottleneck depending.
 	keys := make([]string, 0)
 
-	store.cache.Range(func(key, value any) bool {
-		stringKey := key.(string)
-		cacheValue := value.(*cValue)
-		if cacheValue.dirty {
-			keys = append(keys, stringKey)
+	store.cache.Range(func(key string, dbValue *types.CValue) bool {
+		if dbValue.Dirty() {
+			keys = append(keys, key)
 		}
 		return true
 	})
@@ -149,24 +183,17 @@ func (store *Store) Write() {
 			continue
 		}
 
-		value, ok := store.cache.Load(key)
-		if !ok {
-			panic(fmt.Sprintf("Cache Store key=%s should exist in ConcurrentCacheKV store", key))
-		}
-		cacheValue := value.(*cValue)
-		if cacheValue.value != nil {
+		cacheValue, _ := store.cache.Get(key)
+		if cacheValue.Value() != nil {
 			// It already exists in the parent, hence delete it.
-			store.parent.Set([]byte(key), cacheValue.value)
+			store.parent.Set([]byte(key), cacheValue.Value())
 		}
 	}
 
 	// Clear the cache using the map clearing idiom
 	// and not allocating fresh objects.
 	// Please see https://bencher.orijtech.com/perfclinic/mapclearing/
-	store.cache.Range(func(key, value any) bool {
-		store.cache.Delete(key)
-		return true
-	})
+	store.cache.DeleteAll()
 
 	store.deleted.Range(func(key, value any) bool {
 		store.deleted.Delete(key)
@@ -181,18 +208,18 @@ func (store *Store) Write() {
 }
 
 // CacheWrap implements CacheWrapper.
-func (store *Store) CacheWrap(storeKey types.StoreKey) types.CacheWrap {
-	return NewStore(store, storeKey)
+func (store *Store) CacheWrap(storeKey types.StoreKey, size int) types.CacheWrap {
+	return NewStore(store, storeKey, size)
 }
 
 // CacheWrapWithTrace implements the CacheWrapper interface.
-func (store *Store) CacheWrapWithTrace(storeKey types.StoreKey, w io.Writer, tc types.TraceContext) types.CacheWrap {
-	return NewStore(tracekv.NewStore(store, w, tc), storeKey)
+func (store *Store) CacheWrapWithTrace(storeKey types.StoreKey, w io.Writer, tc types.TraceContext, size int) types.CacheWrap {
+	return NewStore(tracekv.NewStore(store, w, tc), storeKey, size)
 }
 
 // CacheWrapWithListeners implements the CacheWrapper interface.
-func (store *Store) CacheWrapWithListeners(storeKey types.StoreKey, listeners []types.WriteListener) types.CacheWrap {
-	return NewStore(listenkv.NewStore(store, storeKey, listeners), storeKey)
+func (store *Store) CacheWrapWithListeners(storeKey types.StoreKey, listeners []types.WriteListener, size int) types.CacheWrap {
+	return NewStore(listenkv.NewStore(store, storeKey, listeners), storeKey, size)
 }
 
 //----------------------------------------
@@ -330,12 +357,8 @@ func (store *Store) dirtyItems(start, end []byte) {
 		store.unsortedCache.Range(func(key, value any) bool {
 			stringKey := key.(string)
 			if dbm.IsKeyInDomain(conv.UnsafeStrToBytes(stringKey), start, end) {
-				value, ok := store.cache.Load(key)
-				if !ok {
-					panic(fmt.Sprintf("key=%s should exist in ConcurrentCacheKv", stringKey))
-				}
-				cacheValue := value.(*cValue)
-				unsorted = append(unsorted, &kv.Pair{Key: []byte(stringKey), Value: cacheValue.value})
+				cacheValue, _ := store.cache.Get(stringKey)
+				unsorted = append(unsorted, &kv.Pair{Key: []byte(stringKey), Value: cacheValue.Value()})
 			}
 			return true
 		})
@@ -368,12 +391,8 @@ func (store *Store) dirtyItems(start, end []byte) {
 	kvL := make([]*kv.Pair, 0)
 	for i := startIndex; i <= endIndex; i++ {
 		key := strL[i]
-		value,  ok := store.cache.Load(key)
-		if !ok {
-			panic(fmt.Sprintf("key=%s should exist in ConcurrentCacheKv", key))
-		}
-		cacheValue := value.(*cValue)
-		kvL = append(kvL, &kv.Pair{Key: []byte(key), Value: cacheValue.value})
+		cacheValue, _ := store.cache.Get(key)
+		kvL = append(kvL, &kv.Pair{Key: []byte(key), Value: cacheValue.Value()})
 	}
 
 	// kvL was already sorted so pass it in as is.
@@ -412,10 +431,7 @@ func (store *Store) clearUnsortedCacheSubset(unsorted []*kv.Pair, sortState sort
 // Only entrypoint to mutate store.cache.
 func (store *Store) setCacheValue(key, value []byte, deleted bool, dirty bool) {
 	keyStr := conv.UnsafeBytesToStr(key)
-	store.cache.Store(
-		keyStr,
-		&cValue{ value: value, dirty: dirty},
-	)
+	store.cache.Set(keyStr, types.NewCValue(value, dirty))
 	if deleted {
 		store.deleted.Store(keyStr, struct{}{})
 	} else {

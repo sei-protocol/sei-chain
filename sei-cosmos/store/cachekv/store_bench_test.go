@@ -7,6 +7,7 @@ import (
 
 	"github.com/cosmos/cosmos-sdk/store/cachekv"
 	"github.com/cosmos/cosmos-sdk/store/dbadapter"
+	"github.com/cosmos/cosmos-sdk/store/types"
 )
 
 var sink interface{}
@@ -16,7 +17,7 @@ const defaultValueSizeBz = 1 << 12
 // This benchmark measures the time of iterator.Next() when the parent store is blank
 func benchmarkBlankParentIteratorNext(b *testing.B, keysize int) {
 	mem := dbadapter.Store{DB: dbm.NewMemDB()}
-	kvstore := cachekv.NewStore(mem, nil)
+	kvstore := cachekv.NewStore(mem, nil, types.DefaultCacheSizeLimit)
 	// Use a singleton for value, to not waste time computing it
 	value := randSlice(defaultValueSizeBz)
 	// Use simple values for keys, pick a random start,
@@ -44,7 +45,7 @@ func benchmarkBlankParentIteratorNext(b *testing.B, keysize int) {
 // Benchmark setting New keys to a store, where the new keys are in sequence.
 func benchmarkBlankParentAppend(b *testing.B, keysize int) {
 	mem := dbadapter.Store{DB: dbm.NewMemDB()}
-	kvstore := cachekv.NewStore(mem, nil)
+	kvstore := cachekv.NewStore(mem, nil, types.DefaultCacheSizeLimit)
 
 	// Use a singleton for value, to not waste time computing it
 	value := randSlice(32)
@@ -66,7 +67,7 @@ func benchmarkBlankParentAppend(b *testing.B, keysize int) {
 // the speed of this function does not depend on the values in the parent store
 func benchmarkRandomSet(b *testing.B, keysize int) {
 	mem := dbadapter.Store{DB: dbm.NewMemDB()}
-	kvstore := cachekv.NewStore(mem, nil)
+	kvstore := cachekv.NewStore(mem, nil, types.DefaultCacheSizeLimit)
 
 	// Use a singleton for value, to not waste time computing it
 	value := randSlice(defaultValueSizeBz)
@@ -105,7 +106,7 @@ func benchmarkIteratorOnParentWithManyDeletes(b *testing.B, numDeletes int) {
 	for _, k := range keys {
 		mem.Set(k, value)
 	}
-	kvstore := cachekv.NewStore(mem, nil)
+	kvstore := cachekv.NewStore(mem, nil, types.DefaultCacheSizeLimit)
 	// Delete all keys from the cache KV store.
 	// The keys[1:] is to keep at least one entry in parent, due to a bug in the SDK iterator design.
 	// Essentially the iterator will never be valid, in that it should never run.

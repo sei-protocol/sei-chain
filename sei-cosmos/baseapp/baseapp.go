@@ -20,6 +20,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/snapshots"
 	"github.com/cosmos/cosmos-sdk/store"
 	"github.com/cosmos/cosmos-sdk/store/rootmulti"
+	storetypes "github.com/cosmos/cosmos-sdk/store/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	acltypes "github.com/cosmos/cosmos-sdk/types/accesscontrol"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
@@ -161,6 +162,8 @@ type BaseApp struct { //nolint: maligned
 	// which informs Tendermint what to index. If empty, all events will be indexed.
 	indexEvents map[string]struct{}
 
+	CacheSize int
+
 	ChainID string
 }
 
@@ -198,6 +201,7 @@ func NewBaseApp(
 		msgServiceRouter: NewMsgServiceRouter(),
 		txDecoder:        txDecoder,
 		fauxMerkleMode:   false,
+		CacheSize:        storetypes.DefaultCacheSizeLimit,
 	}
 
 	for _, option := range options {
@@ -437,7 +441,7 @@ func (app *BaseApp) IsSealed() bool { return app.sealed }
 // provided header, and minimum gas prices set. It is set on InitChain and reset
 // on Commit.
 func (app *BaseApp) setCheckState(header tmproto.Header) {
-	ms := app.cms.CacheMultiStore()
+	ms := app.cms.CacheMultiStore(app.CacheSize)
 	app.checkState = &state{
 		ms:  ms,
 		ctx: sdk.NewContext(ms, header, true, app.logger).WithMinGasPrices(app.minGasPrices),
@@ -449,7 +453,7 @@ func (app *BaseApp) setCheckState(header tmproto.Header) {
 // and provided header. It is set on InitChain and BeginBlock and set to nil on
 // Commit.
 func (app *BaseApp) setDeliverState(header tmproto.Header) {
-	ms := app.cms.CacheMultiStore()
+	ms := app.cms.CacheMultiStore(app.CacheSize)
 	app.deliverState = &state{
 		ms:  ms,
 		ctx: sdk.NewContext(ms, header, false, app.logger),
@@ -457,7 +461,7 @@ func (app *BaseApp) setDeliverState(header tmproto.Header) {
 }
 
 func (app *BaseApp) setPrepareProposalState(header tmproto.Header) {
-	ms := app.cms.CacheMultiStore()
+	ms := app.cms.CacheMultiStore(app.CacheSize)
 	app.prepareProposalState = &state{
 		ms:  ms,
 		ctx: sdk.NewContext(ms, header, false, app.logger),
@@ -465,7 +469,7 @@ func (app *BaseApp) setPrepareProposalState(header tmproto.Header) {
 }
 
 func (app *BaseApp) setProcessProposalState(header tmproto.Header) {
-	ms := app.cms.CacheMultiStore()
+	ms := app.cms.CacheMultiStore(app.CacheSize)
 	app.processProposalState = &state{
 		ms:  ms,
 		ctx: sdk.NewContext(ms, header, false, app.logger),
@@ -648,7 +652,7 @@ func (app *BaseApp) getContextForTx(mode runTxMode, txBytes []byte) sdk.Context 
 	}
 
 	if mode == runTxModeSimulate {
-		ctx, _ = ctx.CacheContext()
+		ctx, _ = ctx.CacheContext(app.CacheSize)
 	}
 
 	return ctx
@@ -659,7 +663,7 @@ func (app *BaseApp) getContextForTx(mode runTxMode, txBytes []byte) sdk.Context 
 func (app *BaseApp) cacheTxContext(ctx sdk.Context, txBytes []byte) (sdk.Context, sdk.CacheMultiStore) {
 	ms := ctx.MultiStore()
 	// TODO: https://github.com/cosmos/cosmos-sdk/issues/2824
-	msCache := ms.CacheMultiStore()
+	msCache := ms.CacheMultiStore(app.CacheSize)
 	if msCache.TracingEnabled() {
 		msCache = msCache.SetTracingContext(
 			sdk.TraceContext(

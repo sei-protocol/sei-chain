@@ -41,12 +41,12 @@ type Context struct {
 	eventManager  *EventManager
 	priority      int64 // The tx priority, only relevant in CheckTx
 
-	txBlockingChannels		acltypes.MessageAccessOpsChannelMapping
-	txCompletionChannels	acltypes.MessageAccessOpsChannelMapping
-	txMsgAccessOps			map[int][]acltypes.AccessOperation
+	txBlockingChannels   acltypes.MessageAccessOpsChannelMapping
+	txCompletionChannels acltypes.MessageAccessOpsChannelMapping
+	txMsgAccessOps       map[int][]acltypes.AccessOperation
 
 	msgValidator *acltypes.MsgValidator
-	messageIndex int	// Used to track current message being processed
+	messageIndex int // Used to track current message being processed
 
 	contextMemCache *ContextMemCache
 }
@@ -70,12 +70,16 @@ func (c Context) IsReCheckTx() bool           { return c.recheckTx }
 func (c Context) MinGasPrices() DecCoins      { return c.minGasPrice }
 func (c Context) EventManager() *EventManager { return c.eventManager }
 func (c Context) Priority() int64             { return c.priority }
-func (c Context) TxCompletionChannels() acltypes.MessageAccessOpsChannelMapping { return c.txCompletionChannels }
-func (c Context) TxBlockingChannels() 	acltypes.MessageAccessOpsChannelMapping { return c.txBlockingChannels }
-func (c Context) TxMsgAccessOps() map[int][]acltypes.AccessOperation		  { return c.txMsgAccessOps }
-func (c Context) MessageIndex() int		  { return c.messageIndex }
-func (c Context) MsgValidator() *acltypes.MsgValidator { return c.msgValidator }
-func (c Context) ContextMemCache() *ContextMemCache { return c.contextMemCache }
+func (c Context) TxCompletionChannels() acltypes.MessageAccessOpsChannelMapping {
+	return c.txCompletionChannels
+}
+func (c Context) TxBlockingChannels() acltypes.MessageAccessOpsChannelMapping {
+	return c.txBlockingChannels
+}
+func (c Context) TxMsgAccessOps() map[int][]acltypes.AccessOperation { return c.txMsgAccessOps }
+func (c Context) MessageIndex() int                                  { return c.messageIndex }
+func (c Context) MsgValidator() *acltypes.MsgValidator               { return c.msgValidator }
+func (c Context) ContextMemCache() *ContextMemCache                  { return c.contextMemCache }
 
 // clone the header before returning
 func (c Context) BlockHeader() tmproto.Header {
@@ -105,20 +109,20 @@ func NewContext(ms MultiStore, header tmproto.Header, isCheckTx bool, logger log
 	// https://github.com/gogo/protobuf/issues/519
 	header.Time = header.Time.UTC()
 	return Context{
-		ctx:          context.Background(),
-		ms:           ms,
-		header:       header,
-		chainID:      header.ChainID,
-		checkTx:      isCheckTx,
-		logger:       logger,
-		gasMeter:     stypes.NewInfiniteGasMeter(),
-		minGasPrice:  DecCoins{},
-		eventManager: NewEventManager(),
+		ctx:             context.Background(),
+		ms:              ms,
+		header:          header,
+		chainID:         header.ChainID,
+		checkTx:         isCheckTx,
+		logger:          logger,
+		gasMeter:        stypes.NewInfiniteGasMeter(),
+		minGasPrice:     DecCoins{},
+		eventManager:    NewEventManager(),
 		contextMemCache: NewContextMemCache(),
 
-		txBlockingChannels:		make(acltypes.MessageAccessOpsChannelMapping),
-		txCompletionChannels:	make(acltypes.MessageAccessOpsChannelMapping),
-		txMsgAccessOps:			make(map[int][]acltypes.AccessOperation),
+		txBlockingChannels:   make(acltypes.MessageAccessOpsChannelMapping),
+		txCompletionChannels: make(acltypes.MessageAccessOpsChannelMapping),
+		txMsgAccessOps:       make(map[int][]acltypes.AccessOperation),
 	}
 }
 
@@ -249,7 +253,6 @@ func (c Context) WithTxMsgAccessOps(accessOps map[int][]acltypes.AccessOperation
 	return c
 }
 
-
 // WithTxCompletionChannels returns a Context with an updated list of completion channel
 func (c Context) WithTxCompletionChannels(completionChannels acltypes.MessageAccessOpsChannelMapping) Context {
 	c.txCompletionChannels = completionChannels
@@ -320,8 +323,8 @@ func (c Context) TransientStore(key StoreKey) KVStore {
 // CacheContext returns a new Context with the multi-store cached and a new
 // EventManager. The cached context is written to the context when writeCache
 // is called.
-func (c Context) CacheContext() (cc Context, writeCache func()) {
-	cms := c.MultiStore().CacheMultiStore()
+func (c Context) CacheContext(cacheSize int) (cc Context, writeCache func()) {
+	cms := c.MultiStore().CacheMultiStore(cacheSize)
 	cc = c.WithMultiStore(cms).WithEventManager(NewEventManager())
 	return cc, cms.Write
 }

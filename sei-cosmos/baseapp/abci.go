@@ -621,7 +621,7 @@ func (app *BaseApp) createQueryContext(height int64, prove bool) (sdk.Context, e
 			)
 	}
 
-	cacheMS, err := app.cms.CacheMultiStoreWithVersion(height)
+	cacheMS, err := app.cms.CacheMultiStoreWithVersion(height, app.CacheSize)
 	if err != nil {
 		return sdk.Context{},
 			sdkerrors.Wrapf(

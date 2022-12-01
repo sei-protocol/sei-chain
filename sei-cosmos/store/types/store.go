@@ -107,11 +107,11 @@ type MultiStore interface {
 	// Branches MultiStore into a cached storage object.
 	// NOTE: Caller should probably not call .Write() on each, but
 	// call CacheMultiStore.Write().
-	CacheMultiStore() CacheMultiStore
+	CacheMultiStore(size int) CacheMultiStore
 
 	// CacheMultiStoreWithVersion branches the underlying MultiStore where
 	// each stored is loaded at a specific version (height).
-	CacheMultiStoreWithVersion(version int64) (CacheMultiStore, error)
+	CacheMultiStoreWithVersion(version int64, size int) (CacheMultiStore, error)
 
 	// Convenience for fetching substores.
 	// If the store does not exist, panics.
@@ -276,24 +276,24 @@ type CacheWrap interface {
 	GetEvents() []abci.Event
 
 	// CacheWrap recursively wraps again.
-	CacheWrap(storeKey StoreKey) CacheWrap
+	CacheWrap(storeKey StoreKey, size int) CacheWrap
 
 	// CacheWrapWithTrace recursively wraps again with tracing enabled.
-	CacheWrapWithTrace(storeKey StoreKey, w io.Writer, tc TraceContext) CacheWrap
+	CacheWrapWithTrace(storeKey StoreKey, w io.Writer, tc TraceContext, size int) CacheWrap
 
 	// CacheWrapWithListeners recursively wraps again with listening enabled
-	CacheWrapWithListeners(storeKey StoreKey, listeners []WriteListener) CacheWrap
+	CacheWrapWithListeners(storeKey StoreKey, listeners []WriteListener, size int) CacheWrap
 }
 
 type CacheWrapper interface {
 	// CacheWrap branches a store.
-	CacheWrap(storeKey StoreKey) CacheWrap
+	CacheWrap(storeKey StoreKey, size int) CacheWrap
 
 	// CacheWrapWithTrace branches a store with tracing enabled.
-	CacheWrapWithTrace(storeKey StoreKey, w io.Writer, tc TraceContext) CacheWrap
+	CacheWrapWithTrace(storeKey StoreKey, w io.Writer, tc TraceContext, size int) CacheWrap
 
 	// CacheWrapWithListeners recursively wraps again with listening enabled
-	CacheWrapWithListeners(storeKey StoreKey, listeners []WriteListener) CacheWrap
+	CacheWrapWithListeners(storeKey StoreKey, listeners []WriteListener, size int) CacheWrap
 }
 
 func (cid CommitID) IsZero() bool {

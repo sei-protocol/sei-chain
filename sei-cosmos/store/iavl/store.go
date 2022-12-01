@@ -35,7 +35,8 @@ var (
 
 // Store Implements types.KVStore and CommitKVStore.
 type Store struct {
-	tree Tree
+	tree       Tree
+	cacheLimit int
 }
 
 // LoadStore returns an IAVL Store as a CommitKVStore. Internally, it will load the
@@ -158,18 +159,18 @@ func (st *Store) GetStoreType() types.StoreType {
 }
 
 // Implements Store.
-func (st *Store) CacheWrap(storeKey types.StoreKey) types.CacheWrap {
-	return cachekv.NewStore(st, storeKey)
+func (st *Store) CacheWrap(storeKey types.StoreKey, size int) types.CacheWrap {
+	return cachekv.NewStore(st, storeKey, size)
 }
 
 // CacheWrapWithTrace implements the Store interface.
-func (st *Store) CacheWrapWithTrace(storeKey types.StoreKey, w io.Writer, tc types.TraceContext) types.CacheWrap {
-	return cachekv.NewStore(tracekv.NewStore(st, w, tc), storeKey)
+func (st *Store) CacheWrapWithTrace(storeKey types.StoreKey, w io.Writer, tc types.TraceContext, size int) types.CacheWrap {
+	return cachekv.NewStore(tracekv.NewStore(st, w, tc), storeKey, size)
 }
 
 // CacheWrapWithListeners implements the CacheWrapper interface.
-func (st *Store) CacheWrapWithListeners(storeKey types.StoreKey, listeners []types.WriteListener) types.CacheWrap {
-	return cachekv.NewStore(listenkv.NewStore(st, storeKey, listeners), storeKey)
+func (st *Store) CacheWrapWithListeners(storeKey types.StoreKey, listeners []types.WriteListener, size int) types.CacheWrap {
+	return cachekv.NewStore(listenkv.NewStore(st, storeKey, listeners), storeKey, size)
 }
 
 // Implements types.KVStore.

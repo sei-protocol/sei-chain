@@ -284,15 +284,15 @@ func TestTraceKVStoreGetStoreType(t *testing.T) {
 
 func TestTraceKVStoreCacheWrap(t *testing.T) {
 	store := newEmptyTraceKVStore(nil)
-	require.Panics(t, func() { store.CacheWrap(nil) })
+	require.Panics(t, func() { store.CacheWrap(nil, types.DefaultCacheSizeLimit) })
 }
 
 func TestTraceKVStoreCacheWrapWithTrace(t *testing.T) {
 	store := newEmptyTraceKVStore(nil)
-	require.Panics(t, func() { store.CacheWrapWithTrace(nil, nil, nil) })
+	require.Panics(t, func() { store.CacheWrapWithTrace(nil, nil, nil, types.DefaultCacheSizeLimit) })
 }
 
 func TestTraceKVStoreCacheWrapWithListeners(t *testing.T) {
 	store := newEmptyTraceKVStore(nil)
-	require.Panics(t, func() { store.CacheWrapWithListeners(nil, nil) })
+	require.Panics(t, func() { store.CacheWrapWithListeners(nil, nil, types.DefaultCacheSizeLimit) })
 }

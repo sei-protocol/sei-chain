@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"math/rand"
 
+	storetypes "github.com/cosmos/cosmos-sdk/store/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/x/staking/types"
 )
@@ -41,7 +42,7 @@ func TestingUpdateValidator(keeper Keeper, ctx sdk.Context, validator types.Vali
 	keeper.SetValidatorByPowerIndex(ctx, validator)
 
 	if !apply {
-		ctx, _ = ctx.CacheContext()
+		ctx, _ = ctx.CacheContext(storetypes.DefaultCacheSizeLimit)
 	}
 	_, err := keeper.ApplyAndReturnValidatorSetUpdates(ctx)
 	if err != nil {

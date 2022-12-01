@@ -49,18 +49,18 @@ func (s Store) GetStoreType() types.StoreType {
 }
 
 // Implements CacheWrap
-func (s Store) CacheWrap(storeKey types.StoreKey) types.CacheWrap {
-	return cachekv.NewStore(s, storeKey)
+func (s Store) CacheWrap(storeKey types.StoreKey, size int) types.CacheWrap {
+	return cachekv.NewStore(s, storeKey, size)
 }
 
 // CacheWrapWithTrace implements the KVStore interface.
-func (s Store) CacheWrapWithTrace(storeKey types.StoreKey, w io.Writer, tc types.TraceContext) types.CacheWrap {
-	return cachekv.NewStore(tracekv.NewStore(s, w, tc), storeKey)
+func (s Store) CacheWrapWithTrace(storeKey types.StoreKey, w io.Writer, tc types.TraceContext, size int) types.CacheWrap {
+	return cachekv.NewStore(tracekv.NewStore(s, w, tc), storeKey, size)
 }
 
 // CacheWrapWithListeners implements the CacheWrapper interface.
-func (s Store) CacheWrapWithListeners(storeKey types.StoreKey, listeners []types.WriteListener) types.CacheWrap {
-	return cachekv.NewStore(listenkv.NewStore(s, storeKey, listeners), storeKey)
+func (s Store) CacheWrapWithListeners(storeKey types.StoreKey, listeners []types.WriteListener, size int) types.CacheWrap {
+	return cachekv.NewStore(listenkv.NewStore(s, storeKey, listeners), storeKey, size)
 }
 
 func (s Store) GetWorkingHash() []byte {

@@ -433,12 +433,12 @@ func TestCacheWraps(t *testing.T) {
 	db := dbm.NewMemDB()
 	store := dbadapter.Store{DB: db}
 
-	cacheWrapper := store.CacheWrap(nil)
+	cacheWrapper := store.CacheWrap(nil, types.DefaultCacheSizeLimit)
 	require.IsType(t, &cachekv.Store{}, cacheWrapper)
 
-	cacheWrappedWithTrace := store.CacheWrapWithTrace(nil, nil, nil)
+	cacheWrappedWithTrace := store.CacheWrapWithTrace(nil, nil, nil, types.DefaultCacheSizeLimit)
 	require.IsType(t, &cachekv.Store{}, cacheWrappedWithTrace)
 
-	cacheWrappedWithListeners := store.CacheWrapWithListeners(nil, nil)
+	cacheWrappedWithListeners := store.CacheWrapWithListeners(nil, nil, types.DefaultCacheSizeLimit)
 	require.IsType(t, &cachekv.Store{}, cacheWrappedWithListeners)
 }

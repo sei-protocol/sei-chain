@@ -11,6 +11,7 @@ import (
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 
 	"github.com/cosmos/cosmos-sdk/crypto/keys/secp256k1"
+	storetypes "github.com/cosmos/cosmos-sdk/store/types"
 	"github.com/cosmos/cosmos-sdk/tests/mocks"
 	"github.com/cosmos/cosmos-sdk/testutil"
 	"github.com/cosmos/cosmos-sdk/types"
@@ -37,7 +38,7 @@ func (s *contextTestSuite) TestCacheContext() {
 	s.Require().Equal(v1, store.Get(k1))
 	s.Require().Nil(store.Get(k2))
 
-	cctx, write := ctx.CacheContext()
+	cctx, write := ctx.CacheContext(storetypes.DefaultCacheSizeLimit)
 	cstore := cctx.KVStore(key)
 	s.Require().Equal(v1, cstore.Get(k1))
 	s.Require().Nil(cstore.Get(k2))

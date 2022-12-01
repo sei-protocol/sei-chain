@@ -91,17 +91,17 @@ func (gs *Store) ReverseIterator(start, end []byte) types.Iterator {
 }
 
 // Implements KVStore.
-func (gs *Store) CacheWrap(_ types.StoreKey) types.CacheWrap {
+func (gs *Store) CacheWrap(_ types.StoreKey, _ int) types.CacheWrap {
 	panic("cannot CacheWrap a GasKVStore")
 }
 
 // CacheWrapWithTrace implements the KVStore interface.
-func (gs *Store) CacheWrapWithTrace(_ types.StoreKey, _ io.Writer, _ types.TraceContext) types.CacheWrap {
+func (gs *Store) CacheWrapWithTrace(_ types.StoreKey, _ io.Writer, _ types.TraceContext, _ int) types.CacheWrap {
 	panic("cannot CacheWrapWithTrace a GasKVStore")
 }
 
 // CacheWrapWithListeners implements the CacheWrapper interface.
-func (gs *Store) CacheWrapWithListeners(_ types.StoreKey, _ []types.WriteListener) types.CacheWrap {
+func (gs *Store) CacheWrapWithListeners(_ types.StoreKey, _ []types.WriteListener, _ int) types.CacheWrap {
 	panic("cannot CacheWrapWithListeners a GasKVStore")
 }
 

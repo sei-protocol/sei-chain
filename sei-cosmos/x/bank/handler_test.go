@@ -9,6 +9,7 @@ import (
 
 	"github.com/cosmos/cosmos-sdk/crypto/keys/secp256k1"
 	"github.com/cosmos/cosmos-sdk/simapp"
+	storetypes "github.com/cosmos/cosmos-sdk/store/types"
 	"github.com/cosmos/cosmos-sdk/testutil/testdata"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
@@ -71,7 +72,7 @@ func TestSendToModuleAccount(t *testing.T) {
 	app.BankKeeper = bankkeeper.NewBaseKeeper(
 		app.AppCodec(), app.GetKey(types.StoreKey), app.AccountKeeper, app.GetSubspace(types.ModuleName), map[string]bool{
 			moduleAccAddr.String(): true,
-		},
+		}, storetypes.DefaultCacheSizeLimit,
 	)
 	handler := bank.NewHandler(app.BankKeeper)
 

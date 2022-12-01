@@ -9,6 +9,7 @@ import (
 
 	"github.com/cosmos/cosmos-sdk/codec"
 	"github.com/cosmos/cosmos-sdk/simapp"
+	storetypes "github.com/cosmos/cosmos-sdk/store/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/types/module"
 	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
@@ -72,7 +73,7 @@ func (suite *CapabilityTestSuite) TestInitializeMemStore() {
 
 	// Mock the first transaction getting capability and subsequently failing
 	// by using a cached context and discarding all cached writes.
-	cacheCtx, _ := ctx.CacheContext()
+	cacheCtx, _ := ctx.CacheContext(storetypes.DefaultCacheSizeLimit)
 	_, ok := newSk1.GetCapability(cacheCtx, "transfer")
 	suite.Require().True(ok)
 

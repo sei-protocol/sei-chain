@@ -66,7 +66,7 @@ func CanWithdrawInvariant(k Keeper) sdk.Invariant {
 	return func(ctx sdk.Context) (string, bool) {
 
 		// cache, we don't want to write changes
-		ctx, _ = ctx.CacheContext()
+		ctx, _ = ctx.CacheContext(k.cacheSize)
 
 		var remaining sdk.DecCoins
 

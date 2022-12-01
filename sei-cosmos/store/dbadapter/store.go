@@ -81,18 +81,18 @@ func (Store) GetStoreType() types.StoreType {
 }
 
 // CacheWrap branches the underlying store.
-func (dsa Store) CacheWrap(storeKey types.StoreKey) types.CacheWrap {
-	return cachekv.NewStore(dsa, storeKey)
+func (dsa Store) CacheWrap(storeKey types.StoreKey, size int) types.CacheWrap {
+	return cachekv.NewStore(dsa, storeKey, size)
 }
 
 // CacheWrapWithTrace implements KVStore.
-func (dsa Store) CacheWrapWithTrace(storeKey types.StoreKey, w io.Writer, tc types.TraceContext) types.CacheWrap {
-	return cachekv.NewStore(tracekv.NewStore(dsa, w, tc), storeKey)
+func (dsa Store) CacheWrapWithTrace(storeKey types.StoreKey, w io.Writer, tc types.TraceContext, size int) types.CacheWrap {
+	return cachekv.NewStore(tracekv.NewStore(dsa, w, tc), storeKey, size)
 }
 
 // CacheWrapWithListeners implements the CacheWrapper interface.
-func (dsa Store) CacheWrapWithListeners(storeKey types.StoreKey, listeners []types.WriteListener) types.CacheWrap {
-	return cachekv.NewStore(listenkv.NewStore(dsa, storeKey, listeners), storeKey)
+func (dsa Store) CacheWrapWithListeners(storeKey types.StoreKey, listeners []types.WriteListener, size int) types.CacheWrap {
+	return cachekv.NewStore(listenkv.NewStore(dsa, storeKey, listeners), storeKey, size)
 }
 
 // dbm.DB implements KVStore so we can CacheKVStore it.

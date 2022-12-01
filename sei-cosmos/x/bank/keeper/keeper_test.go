@@ -87,6 +87,7 @@ func (suite *IntegrationTestSuite) initKeepersWithmAccPerms(blockedAddrs map[str
 	keeper := keeper.NewBaseKeeper(
 		appCodec, app.GetKey(types.StoreKey), authKeeper,
 		app.GetSubspace(types.ModuleName), blockedAddrs,
+		100,
 	)
 
 	return authKeeper, keeper
@@ -297,7 +298,6 @@ func (suite *IntegrationTestSuite) TestSupply_DeferredMintCoins() {
 	suite.Require().Equal(sdk.Coins{}, getCoinsByName(ctx, keeper, authKeeper, multiPermAcc.GetName()))
 	keeper.WriteDeferredOperations(ctx)
 	suite.Require().Equal(initCoins, getCoinsByName(ctx, keeper, authKeeper, multiPermAcc.GetName()))
-
 
 	suite.Require().Equal(initialSupply.Add(initCoins...), totalSupply)
 	suite.Require().Panics(func() { keeper.DeferredMintCoins(ctx, authtypes.Burner, initCoins) }) // nolint:errcheck
@@ -1160,7 +1160,7 @@ func (suite *IntegrationTestSuite) TestBalanceTrackingEvents() {
 	)
 
 	suite.app.BankKeeper = keeper.NewBaseKeeper(suite.app.AppCodec(), suite.app.GetKey(types.StoreKey),
-		suite.app.AccountKeeper, suite.app.GetSubspace(types.ModuleName), nil)
+		suite.app.AccountKeeper, suite.app.GetSubspace(types.ModuleName), nil, 100)
 
 	// set account with multiple permissions
 	suite.app.AccountKeeper.SetModuleAccount(suite.ctx, multiPermAcc)
@@ -1320,7 +1320,7 @@ func (suite *IntegrationTestSuite) TestMintCoinRestrictions() {
 
 	for _, test := range tests {
 		suite.app.BankKeeper = keeper.NewBaseKeeper(suite.app.AppCodec(), suite.app.GetKey(types.StoreKey),
-			suite.app.AccountKeeper, suite.app.GetSubspace(types.ModuleName), nil).WithMintCoinsRestriction(keeper.MintingRestrictionFn(test.restrictionFn))
+			suite.app.AccountKeeper, suite.app.GetSubspace(types.ModuleName), nil, 100).WithMintCoinsRestriction(keeper.MintingRestrictionFn(test.restrictionFn))
 		for _, testCase := range test.testCases {
 			if testCase.expectPass {
 				suite.Require().NoError(
@@ -1402,7 +1402,6 @@ func (suite *IntegrationTestSuite) TestDeferredOperationsFromModuleToAccount() {
 	suite.Require().Equal(sdk.NewCoins().String(), getCoinsByName(ctx, keeper, authKeeper, holderAcc.GetName()).String())
 	suite.Require().Equal(totalSupply.String(), getCoinsByName(ctx, keeper, authKeeper, authtypes.Minter).String())
 }
-
 
 func TestKeeperTestSuite(t *testing.T) {
 	suite.Run(t, new(IntegrationTestSuite))
