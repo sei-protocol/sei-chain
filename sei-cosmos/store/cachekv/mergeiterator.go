@@ -211,7 +211,6 @@ func (iter *cacheMergeIterator) skipUntilExistsOrInvalid() bool {
 			return iter.cache.Valid()
 		}
 		// Parent is valid.
-
 		if !iter.cache.Valid() {
 			return true
 		}

@@ -2,6 +2,7 @@ package cachekv
 
 import (
 	"bytes"
+	"sync"
 
 	dbm "github.com/tendermint/tm-db"
 
@@ -16,7 +17,7 @@ type memIterator struct {
 	types.Iterator
 
 	lastKey []byte
-	deleted map[string]struct{}
+	deleted 	  *sync.Map
 	eventManager  *sdktypes.EventManager
 	storeKey sdktypes.StoreKey
 }
@@ -24,7 +25,7 @@ type memIterator struct {
 func newMemIterator(
 	start, end []byte,
 	items *dbm.MemDB,
-	deleted map[string]struct{},
+	deleted *sync.Map,
 	ascending bool,
 	eventManager *sdktypes.EventManager,
 	storeKey sdktypes.StoreKey,
@@ -60,7 +61,7 @@ func (mi *memIterator) Value() []byte {
 	// then we are calling value on the same thing as last time.
 	// Therefore we don't check the mi.deleted to see if this key is included in there.
 	reCallingOnOldLastKey := (mi.lastKey != nil) && bytes.Equal(key, mi.lastKey)
-	if _, ok := mi.deleted[string(key)]; ok && !reCallingOnOldLastKey {
+	if _, ok := mi.deleted.Load(string(key)); ok && !reCallingOnOldLastKey {
 		return nil
 	}
 

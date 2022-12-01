@@ -36,7 +36,7 @@ func (k msgServer) CreateValidator(goCtx context.Context, msg *types.MsgCreateVa
 	}
 
 	if msg.Commission.Rate.LT(k.MinCommissionRate(ctx)) {
-		return nil, sdkerrors.Wrapf(types.ErrCommissionLTMinRate, "cannot set validator commission to less than minimum rate of %s", k.MinCommissionRate(ctx))
+		return nil, sdkerrors.Wrapf(types.ErrCommissionLTMinRate, "cannot set validator commission=%s to less than minimum rate of %s", msg.Commission.Rate, k.MinCommissionRate(ctx))
 	}
 
 	// check to see if the pubkey or sender has been registered before
