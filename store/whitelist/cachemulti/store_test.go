@@ -48,7 +48,7 @@ func TestCacheStillWhitelist(t *testing.T) {
 	}
 	multistore := store.NewTestCacheMultiStore(stores)
 	whitelistMultistore := cachemulti.NewStore(multistore, TestStoreKeyToWriteWhitelist)
-	cacheWhitelistMultistore := whitelistMultistore.CacheMultiStore()
+	cacheWhitelistMultistore := whitelistMultistore.CacheMultiStore(storetypes.DefaultCacheSizeLimit)
 	kvStore := cacheWhitelistMultistore.GetKVStore(WhitelistedStoreKey)
 	require.Panics(t, func() { kvStore.Delete([]byte("bar")) })
 	require.NotPanics(t, func() { kvStore.Delete([]byte("foo")) })

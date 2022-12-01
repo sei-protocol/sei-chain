@@ -86,7 +86,7 @@ func DexKeeper(t testing.TB) (*keeper.Keeper, sdk.Context) {
 	)
 	paramsKeeper := paramskeeper.NewKeeper(cdc, codec.NewLegacyAmino(), keyParams, tKeyParams)
 	accountKeeper := authkeeper.NewAccountKeeper(cdc, keyAcc, paramsKeeper.Subspace(authtypes.ModuleName), authtypes.ProtoBaseAccount, maccPerms)
-	bankKeeper := bankkeeper.NewBaseKeeper(cdc, keyBank, accountKeeper, paramsKeeper.Subspace(banktypes.ModuleName), blackListAddrs)
+	bankKeeper := bankkeeper.NewBaseKeeper(cdc, keyBank, accountKeeper, paramsKeeper.Subspace(banktypes.ModuleName), blackListAddrs, storetypes.DefaultCacheSizeLimit)
 	epochKeeper := epochkeeper.NewKeeper(cdc, keyEpochs, memStoreKey, paramsKeeper.Subspace(epochtypes.ModuleName))
 	k := keeper.NewKeeper(
 		cdc,

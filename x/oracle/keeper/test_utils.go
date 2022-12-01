@@ -22,6 +22,7 @@ import (
 	simparams "github.com/cosmos/cosmos-sdk/simapp/params"
 	"github.com/cosmos/cosmos-sdk/std"
 	"github.com/cosmos/cosmos-sdk/store"
+	storetypes "github.com/cosmos/cosmos-sdk/store/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/types/module"
 	"github.com/cosmos/cosmos-sdk/x/auth"
@@ -176,7 +177,7 @@ func CreateTestInput(t *testing.T) TestInput {
 
 	paramsKeeper := paramskeeper.NewKeeper(appCodec, legacyAmino, keyParams, tKeyParams)
 	accountKeeper := authkeeper.NewAccountKeeper(appCodec, keyAcc, paramsKeeper.Subspace(authtypes.ModuleName), authtypes.ProtoBaseAccount, maccPerms)
-	bankKeeper := bankkeeper.NewBaseKeeper(appCodec, keyBank, accountKeeper, paramsKeeper.Subspace(banktypes.ModuleName), blackListAddrs)
+	bankKeeper := bankkeeper.NewBaseKeeper(appCodec, keyBank, accountKeeper, paramsKeeper.Subspace(banktypes.ModuleName), blackListAddrs, storetypes.DefaultCacheSizeLimit)
 
 	totalSupply := sdk.NewCoins(sdk.NewCoin(utils.MicroSeiDenom, InitTokens.MulRaw(int64(len(Addrs)*10))))
 	bankKeeper.MintCoins(ctx, faucetAccountName, totalSupply)
@@ -197,7 +198,7 @@ func CreateTestInput(t *testing.T) TestInput {
 		appCodec,
 		keyDistr, paramsKeeper.Subspace(distrtypes.ModuleName),
 		accountKeeper, bankKeeper, stakingKeeper,
-		authtypes.FeeCollectorName, blackListAddrs)
+		authtypes.FeeCollectorName, blackListAddrs, storetypes.DefaultCacheSizeLimit)
 
 	distrKeeper.SetFeePool(ctx, distrtypes.InitialFeePool())
 	distrParams := distrtypes.DefaultParams()
