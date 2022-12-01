@@ -89,7 +89,7 @@ func NewStore(parent types.KVStore, storeKey types.StoreKey, cacheSize int) *Sto
 	}
 }
 
-func (store *Store) GetWorkingHash() []byte {
+func (store *Store) GetWorkingHash() ([]byte, error) {
 	panic("should never attempt to get working hash from cache kv store")
 }
 

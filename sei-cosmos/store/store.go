@@ -1,6 +1,7 @@
 package store
 
 import (
+	"github.com/tendermint/tendermint/libs/log"
 	dbm "github.com/tendermint/tm-db"
 
 	"github.com/cosmos/cosmos-sdk/store/cache"
@@ -9,11 +10,11 @@ import (
 )
 
 func NewCommitMultiStore(db dbm.DB) types.CommitMultiStore {
-	return rootmulti.NewStore(db)
+	return rootmulti.NewStore(db, log.NewNopLogger())
 }
 
 func NewCommitMultiStoreWithArchival(db dbm.DB, archivalDb dbm.DB, archivalVersion int64) types.CommitMultiStore {
-	return rootmulti.NewStoreWithArchival(db, archivalDb, archivalVersion)
+	return rootmulti.NewStoreWithArchival(db, archivalDb, archivalVersion, log.NewNopLogger())
 }
 
 func NewCommitKVStoreCacheManager() types.MultiStorePersistentCache {

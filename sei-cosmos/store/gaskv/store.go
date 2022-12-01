@@ -33,7 +33,7 @@ func (gs *Store) GetStoreType() types.StoreType {
 	return gs.parent.GetStoreType()
 }
 
-func (gs *Store) GetWorkingHash() []byte {
+func (gs *Store) GetWorkingHash() ([]byte, error) {
 	return gs.parent.GetWorkingHash()
 }
 

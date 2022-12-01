@@ -6,11 +6,13 @@ import (
 )
 
 func ABCIToLegacyConsensusParams(params *tmproto.ConsensusParams) *abci.ConsensusParams {
+	block := abci.BlockParams{}
+	if params.Block != nil {
+		block.MaxBytes = params.Block.MaxBytes
+		block.MaxGas = params.Block.MaxGas
+	}
 	return &abci.ConsensusParams{
-		Block: &abci.BlockParams{
-			MaxBytes: params.Block.MaxBytes,
-			MaxGas:   params.Block.MaxGas,
-		},
+		Block:     &block,
 		Evidence:  params.Evidence,
 		Validator: params.Validator,
 		Version:   params.Version,

@@ -9,6 +9,8 @@ import (
 
 	"github.com/cosmos/cosmos-sdk/store/cachekv"
 	"github.com/cosmos/cosmos-sdk/store/dbadapter"
+	"github.com/cosmos/cosmos-sdk/store/listenkv"
+	"github.com/cosmos/cosmos-sdk/store/tracekv"
 	"github.com/cosmos/cosmos-sdk/store/types"
 )
 
@@ -40,6 +42,9 @@ func NewFromKVStore(
 	keys map[string]types.StoreKey, traceWriter io.Writer, traceContext types.TraceContext,
 	listeners map[types.StoreKey][]types.WriteListener, cacheLimit int,
 ) Store {
+	if listeners == nil {
+		listeners = make(map[types.StoreKey][]types.WriteListener)
+	}
 	cms := Store{
 		db:           cachekv.NewStore(store, nil, cacheLimit),
 		stores:       make(map[types.StoreKey]types.CacheWrap, len(stores)),
@@ -50,17 +55,13 @@ func NewFromKVStore(
 	}
 
 	for key, store := range stores {
-		var cacheWrapped types.CacheWrap
 		if cms.TracingEnabled() {
-			cacheWrapped = store.CacheWrapWithTrace(key, cms.traceWriter, cms.traceContext, cacheLimit)
-		} else {
-			cacheWrapped = store.CacheWrap(key, cacheLimit)
+			store = tracekv.NewStore(store.(types.KVStore), cms.traceWriter, cms.traceContext)
 		}
 		if cms.ListeningEnabled(key) {
-			cms.stores[key] = cacheWrapped.CacheWrapWithListeners(key, cms.listeners[key], cacheLimit)
-		} else {
-			cms.stores[key] = cacheWrapped
+			store = listenkv.NewStore(store.(types.KVStore), key, listeners[key])
 		}
+		cms.stores[key] = cachekv.NewStore(store.(types.KVStore), key, cacheLimit)
 	}
 
 	return cms
@@ -82,7 +83,8 @@ func newCacheMultiStoreFromCMS(cms Store, cacheLimit int) Store {
 		stores[k] = v
 	}
 
-	return NewFromKVStore(cms.db, stores, nil, cms.traceWriter, cms.traceContext, cms.listeners, cacheLimit)
+	// don't pass listeners to nested cache store.
+	return NewFromKVStore(cms.db, stores, nil, cms.traceWriter, cms.traceContext, nil, cacheLimit)
 }
 
 // SetTracer sets the tracer for the MultiStore that the underlying
@@ -199,6 +201,6 @@ func (cms Store) GetKVStore(key types.StoreKey) types.KVStore {
 	return store.(types.KVStore)
 }
 
-func (cms Store) GetWorkingHash() []byte {
+func (cms Store) GetWorkingHash() ([]byte, error) {
 	panic("should never attempt to get working hash from cache multi store")
 }

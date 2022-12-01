@@ -138,7 +138,7 @@ type MultiStore interface {
 	// It appends the listeners to a current set, if one already exists
 	AddListeners(key StoreKey, listeners []WriteListener)
 
-	GetWorkingHash() []byte
+	GetWorkingHash() ([]byte, error)
 
 	// Returns Events Emitted from the internal event manager
 	GetEvents() []abci.Event
@@ -199,6 +199,9 @@ type CommitMultiStore interface {
 	// SetIAVLCacheSize sets the cache size of the IAVL tree.
 	SetIAVLCacheSize(size int)
 
+	// SetIAVLDisableFastNode enables/disables fastnode feature on iavl.
+	SetIAVLDisableFastNode(disable bool)
+
 	// RollbackToVersion rollback the db to specific version(height).
 	RollbackToVersion(version int64) error
 }
@@ -237,7 +240,7 @@ type KVStore interface {
 	// Exceptionally allowed for cachekv.Store, safe to write in the modules.
 	ReverseIterator(start, end []byte) Iterator
 
-	GetWorkingHash() []byte
+	GetWorkingHash() ([]byte, error)
 }
 
 // Iterator is an alias db's Iterator for convenience.

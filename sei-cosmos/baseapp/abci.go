@@ -3,6 +3,7 @@ package baseapp
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -130,24 +131,6 @@ func (app *BaseApp) Info(ctx context.Context, req *abci.RequestInfo) (*abci.Resp
 	}, nil
 }
 
-// FilterPeerByAddrPort filters peers by address/port.
-func (app *BaseApp) FilterPeerByAddrPort(info string) abci.ResponseQuery {
-	if app.addrPeerFilter != nil {
-		return app.addrPeerFilter(info)
-	}
-
-	return abci.ResponseQuery{}
-}
-
-// FilterPeerByID filters peers by node ID.
-func (app *BaseApp) FilterPeerByID(info string) abci.ResponseQuery {
-	if app.idPeerFilter != nil {
-		return app.idPeerFilter(info)
-	}
-
-	return abci.ResponseQuery{}
-}
-
 // BeginBlock implements the ABCI application interface.
 func (app *BaseApp) BeginBlock(ctx sdk.Context, req abci.RequestBeginBlock) (res abci.ResponseBeginBlock) {
 	defer telemetry.MeasureSince(time.Now(), "abci", "begin_block")
@@ -159,6 +142,20 @@ func (app *BaseApp) BeginBlock(ctx sdk.Context, req abci.RequestBeginBlock) (res
 	if app.beginBlocker != nil {
 		res = app.beginBlocker(ctx, req)
 		res.Events = sdk.MarkEventsToIndex(res.Events, app.indexEvents)
+
+		// call the hooks with the BeginBlock messages
+		for _, streamingListener := range app.abciListeners {
+			if err := streamingListener.ListenBeginBlock(app.deliverState.ctx, req, res); err != nil {
+				app.logger.Error("BeginBlock listening hook failed", "height", req.Header.Height, "err", err)
+			}
+		}
+	}
+
+	// call the streaming service hooks with the EndBlock messages
+	for _, streamingListener := range app.abciListeners {
+		if err := streamingListener.ListenBeginBlock(app.deliverState.ctx, req, res); err != nil {
+			app.logger.Error("EndBlock listening hook failed", "height", req.Header.Height, "err", err)
+		}
 	}
 	return res
 }
@@ -174,6 +171,13 @@ func (app *BaseApp) EndBlock(ctx sdk.Context, req abci.RequestEndBlock) (res abc
 
 	if cp := app.GetConsensusParams(ctx); cp != nil {
 		res.ConsensusParamUpdates = legacytm.ABCIToLegacyConsensusParams(cp)
+	}
+
+	// call the streaming service hooks with the EndBlock messages
+	for _, streamingListener := range app.abciListeners {
+		if err := streamingListener.ListenEndBlock(app.deliverState.ctx, req, res); err != nil {
+			app.logger.Error("EndBlock listening hook failed", "height", req.Height, "err", err)
+		}
 	}
 
 	return res
@@ -220,8 +224,16 @@ func (app *BaseApp) CheckTx(ctx context.Context, req *abci.RequestCheckTx) (*abc
 // Otherwise, the ResponseDeliverTx will contain releveant error information.
 // Regardless of tx execution outcome, the ResponseDeliverTx will contain relevant
 // gas execution context.
-func (app *BaseApp) DeliverTx(ctx sdk.Context, req abci.RequestDeliverTx) abci.ResponseDeliverTx {
+func (app *BaseApp) DeliverTx(ctx sdk.Context, req abci.RequestDeliverTx) (res abci.ResponseDeliverTx) {
 	defer telemetry.MeasureSince(time.Now(), "abci", "deliver_tx")
+	defer func() {
+		for _, streamingListener := range app.abciListeners {
+			if err := streamingListener.ListenDeliverTx(app.deliverState.ctx, req, res); err != nil {
+				app.logger.Error("DeliverTx listening hook failed", "err", err)
+			}
+		}
+	}()
+
 	gInfo := sdk.GasInfo{}
 	resultStr := "successful"
 
@@ -235,7 +247,7 @@ func (app *BaseApp) DeliverTx(ctx sdk.Context, req abci.RequestDeliverTx) abci.R
 	gInfo, result, anteEvents, _, err := app.runTx(ctx.WithTxBytes(req.Tx).WithVoteInfos(app.voteInfos), runTxModeDeliver, req.Tx)
 	if err != nil {
 		resultStr = "failed"
-		return sdkerrors.ResponseDeliverTxWithEvents(err, gInfo.GasWanted, gInfo.GasUsed, anteEvents, app.trace)
+		return sdkerrors.ResponseDeliverTxWithEvents(err, gInfo.GasWanted, gInfo.GasUsed, sdk.MarkEventsToIndex(anteEvents, app.indexEvents), app.trace)
 	}
 
 	return abci.ResponseDeliverTx{
@@ -249,7 +261,12 @@ func (app *BaseApp) DeliverTx(ctx sdk.Context, req abci.RequestDeliverTx) abci.R
 
 func (app *BaseApp) WriteStateToCommitAndGetWorkingHash() []byte {
 	app.stateToCommit.ms.Write()
-	return app.cms.GetWorkingHash()
+	hash, err := app.cms.GetWorkingHash()
+	if err != nil {
+		// this should never happen
+		panic(fmt.Errorf("error when getting working hash: %s", err))
+	}
+	return hash
 }
 
 func (app *BaseApp) SetProcessProposalStateToCommit() {
@@ -397,11 +414,13 @@ func (app *BaseApp) Query(ctx context.Context, req *abci.RequestQuery) (res *abc
 	}
 
 	path := splitPath(req.Path)
-	if len(path) == 0 {
-		sdkerrors.QueryResultWithDebug(sdkerrors.Wrap(sdkerrors.ErrUnknownRequest, "no query path provided"), app.trace)
-	}
 
 	var resp abci.ResponseQuery
+	if len(path) == 0 {
+		resp = sdkerrors.QueryResultWithDebug(sdkerrors.Wrap(sdkerrors.ErrUnknownRequest, "no query path provided"), app.trace)
+		return &resp, nil
+	}
+
 	switch path[0] {
 	// "/app" prefix for special application queries
 	case "app":
@@ -759,6 +778,25 @@ func handleQueryApp(app *BaseApp, path []string, req abci.RequestQuery) abci.Res
 				Value:     []byte(app.version),
 			}
 
+		case "snapshots":
+			var responseValue []byte
+
+			response, err := app.ListSnapshots(context.Background(), &abci.RequestListSnapshots{})
+			if err != nil {
+				return sdkerrors.QueryResult(sdkerrors.Wrap(err, "list snapshots error"))
+			}
+
+			responseValue, err = json.Marshal(response)
+			if err != nil {
+				return sdkerrors.QueryResult(sdkerrors.Wrap(err, fmt.Sprintf("failed to marshal list snapshots response %v", response)))
+			}
+
+			return abci.ResponseQuery{
+				Codespace: sdkerrors.RootCodespace,
+				Height:    req.Height,
+				Value:     responseValue,
+			}
+
 		default:
 			return sdkerrors.QueryResultWithDebug(sdkerrors.Wrapf(sdkerrors.ErrUnknownRequest, "unknown query: %s", path), app.trace)
 		}
@@ -790,35 +828,6 @@ func handleQueryStore(app *BaseApp, path []string, req abci.RequestQuery) abci.R
 
 	resp := queryable.Query(req)
 	resp.Height = req.Height
-
-	return resp
-}
-
-func handleQueryP2P(app *BaseApp, path []string) abci.ResponseQuery {
-	// "/p2p" prefix for p2p queries
-	if len(path) < 4 {
-		return sdkerrors.QueryResultWithDebug(
-			sdkerrors.Wrap(
-				sdkerrors.ErrUnknownRequest, "path should be p2p filter <addr|id> <parameter>",
-			), app.trace)
-	}
-
-	var resp abci.ResponseQuery
-
-	cmd, typ, arg := path[1], path[2], path[3]
-	switch cmd {
-	case "filter":
-		switch typ {
-		case "addr":
-			resp = app.FilterPeerByAddrPort(arg)
-
-		case "id":
-			resp = app.FilterPeerByID(arg)
-		}
-
-	default:
-		resp = sdkerrors.QueryResultWithDebug(sdkerrors.Wrap(sdkerrors.ErrUnknownRequest, "expected second parameter to be 'filter'"), app.trace)
-	}
 
 	return resp
 }
@@ -1006,6 +1015,7 @@ func (app *BaseApp) FinalizeBlock(ctx context.Context, req *abci.RequestFinalize
 		res.Events = sdk.MarkEventsToIndex(res.Events, app.indexEvents)
 		// set the signed validators for addition to context in deliverTx
 		app.voteInfos = req.DecidedLastCommit.GetVotes()
+
 		return res, nil
 	} else {
 		return nil, errors.New("finalize block handler not set")

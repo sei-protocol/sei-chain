@@ -23,7 +23,7 @@ func NewStore(parent types.KVStore, parentStoreKey types.StoreKey, listeners []t
 	return &Store{parent: parent, listeners: listeners, parentStoreKey: parentStoreKey}
 }
 
-func (s *Store) GetWorkingHash() []byte {
+func (s *Store) GetWorkingHash() ([]byte, error) {
 	return s.parent.GetWorkingHash()
 }
 

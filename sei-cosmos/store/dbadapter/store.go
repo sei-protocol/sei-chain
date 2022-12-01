@@ -16,8 +16,8 @@ type Store struct {
 	dbm.DB
 }
 
-func (dsa Store) GetWorkingHash() []byte {
-	return []byte{}
+func (dsa Store) GetWorkingHash() ([]byte, error) {
+	return []byte{}, nil
 }
 
 // Get wraps the underlying DB's Get method panicing on error.

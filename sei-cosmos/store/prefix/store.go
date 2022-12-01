@@ -63,7 +63,7 @@ func (s Store) CacheWrapWithListeners(storeKey types.StoreKey, listeners []types
 	return cachekv.NewStore(listenkv.NewStore(s, storeKey, listeners), storeKey, size)
 }
 
-func (s Store) GetWorkingHash() []byte {
+func (s Store) GetWorkingHash() ([]byte, error) {
 	return s.parent.GetWorkingHash()
 }
 

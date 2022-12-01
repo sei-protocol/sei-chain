@@ -48,7 +48,7 @@ func NewStore(parent types.KVStore, writer io.Writer, tc types.TraceContext) *St
 	return &Store{parent: parent, writer: writer, context: tc}
 }
 
-func (tkv *Store) GetWorkingHash() []byte {
+func (tkv *Store) GetWorkingHash() ([]byte, error) {
 	return tkv.parent.GetWorkingHash()
 }
 

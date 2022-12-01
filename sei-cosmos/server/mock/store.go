@@ -129,6 +129,10 @@ func (ms multiStore) SetIAVLCacheSize(size int) {
 	panic("not implemented")
 }
 
+func (ms multiStore) SetIAVLDisableFastNode(disable bool) {
+	panic("not implemented")
+}
+
 func (ms multiStore) SetInitialVersion(version int64) error {
 	panic("not implemented")
 }
@@ -143,7 +147,7 @@ func (ms multiStore) Restore(
 	panic("not implemented")
 }
 
-func (ms multiStore) GetWorkingHash() []byte {
+func (ms multiStore) GetWorkingHash() ([]byte, error) {
 	panic("not implemented")
 }
 
@@ -169,7 +173,7 @@ func (kv kvStore) GetStoreType() sdk.StoreType {
 	panic("not implemented")
 }
 
-func (kv kvStore) GetWorkingHash() []byte {
+func (kv kvStore) GetWorkingHash() ([]byte, error) {
 	panic("not implemented")
 }
 

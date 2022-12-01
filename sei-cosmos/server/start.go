@@ -53,6 +53,8 @@ const (
 	FlagPruningInterval   = "pruning-interval"
 	FlagIndexEvents       = "index-events"
 	FlagMinRetainBlocks   = "min-retain-blocks"
+	FlagIAVLCacheSize     = "iavl-cache-size"
+	FlagIAVLFastNode      = "iavl-disable-fastnode"
 
 	// state sync-related flags
 	FlagStateSyncSnapshotInterval   = "state-sync.snapshot-interval"
@@ -176,6 +178,7 @@ is performed. Note, when enabled, gRPC will also be automatically enabled.
 	cmd.Flags().String(FlagArchivalDBType, "", "Archival DB type. Valid options: arweave")
 	cmd.Flags().String(FlagArchivalArweaveIndexDBFullPath, "", "Full local path to the levelDB used for indexing arweave data")
 	cmd.Flags().String(FlagArchivalArweaveNodeURL, "", "Arweave Node URL that stores archived data")
+	cmd.Flags().Bool(FlagIAVLFastNode, true, "Enable fast node for IAVL tree")
 
 	cmd.Flags().String(FlagChainID, "", "Chain ID")
 
@@ -259,7 +262,11 @@ func startInProcess(ctx *Context, clientCtx client.Context, appCreator types.App
 		return err
 	}
 
-	config := config.GetConfig(ctx.Viper)
+	config, err := config.GetConfig(ctx.Viper)
+	if err != nil {
+		return err
+	}
+
 	if err := config.ValidateBasic(); err != nil {
 		ctx.Logger.Error("WARNING: The minimum-gas-prices config in app.toml is set to the empty string. " +
 			"This defaults to 0 in the current version, but will error in the next version " +
