@@ -1,6 +1,7 @@
 package keeper_test
 
 import (
+	"encoding/hex"
 	"fmt"
 	"testing"
 
@@ -12,6 +13,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/simapp"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	acltypes "github.com/cosmos/cosmos-sdk/types/accesscontrol"
+	"github.com/cosmos/cosmos-sdk/types/address"
 	aclkeeper "github.com/cosmos/cosmos-sdk/x/accesscontrol/keeper"
 	acltestutil "github.com/cosmos/cosmos-sdk/x/accesscontrol/testutil"
 	"github.com/cosmos/cosmos-sdk/x/accesscontrol/types"
@@ -112,11 +114,11 @@ func TestWasmDependencyMapping(t *testing.T) {
 	err := app.AccessControlKeeper.SetWasmDependencyMapping(ctx, wasmContractAddress, wasmMapping)
 	require.NoError(t, err)
 	// test getting the dependency mapping
-	mapping, err := app.AccessControlKeeper.GetWasmDependencyMapping(ctx, wasmContractAddress, []byte{}, false)
+	mapping, err := app.AccessControlKeeper.GetWasmDependencyMapping(ctx, wasmContractAddress, "", []byte{}, false)
 	require.NoError(t, err)
 	require.Equal(t, wasmMapping, mapping)
 	// test getting a dependency mapping for something function that isn't present
-	_, err = app.AccessControlKeeper.GetWasmDependencyMapping(ctx, otherContractAddress, []byte{}, false)
+	_, err = app.AccessControlKeeper.GetWasmDependencyMapping(ctx, otherContractAddress, "", []byte{}, false)
 	require.Error(t, aclkeeper.ErrWasmDependencyMappingNotFound, err)
 }
 
@@ -142,19 +144,19 @@ func TestResetWasmDependencyMapping(t *testing.T) {
 	err := app.AccessControlKeeper.SetWasmDependencyMapping(ctx, wasmContractAddress, wasmMapping)
 	require.NoError(t, err)
 	// test getting the dependency mapping
-	mapping, err := app.AccessControlKeeper.GetWasmDependencyMapping(ctx, wasmContractAddress, []byte{}, false)
+	mapping, err := app.AccessControlKeeper.GetWasmDependencyMapping(ctx, wasmContractAddress, "", []byte{}, false)
 	require.NoError(t, err)
 	require.Equal(t, wasmMapping, mapping)
 	// test resetting
 	err = app.AccessControlKeeper.ResetWasmDependencyMapping(ctx, wasmContractAddress, "some reason")
 	require.NoError(t, err)
-	mapping, err = app.AccessControlKeeper.GetWasmDependencyMapping(ctx, wasmContractAddress, []byte{}, false)
+	mapping, err = app.AccessControlKeeper.GetWasmDependencyMapping(ctx, wasmContractAddress, "", []byte{}, false)
 	require.NoError(t, err)
 	require.Equal(t, types.SynchronousAccessOpsWithSelector(), mapping.AccessOps)
 	require.Equal(t, "some reason", mapping.ResetReason)
 }
 
-func TestWasmDependencyMappingWithSelector(t *testing.T) {
+func TestWasmDependencyMappingWithJQSelector(t *testing.T) {
 	app := simapp.Setup(false)
 	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
 
@@ -200,18 +202,220 @@ func TestWasmDependencyMappingWithSelector(t *testing.T) {
 	err := app.AccessControlKeeper.SetWasmDependencyMapping(ctx, wasmContractAddress, wasmMapping)
 	require.NoError(t, err)
 	// test getting the dependency mapping
-	mapping, err := app.AccessControlKeeper.GetWasmDependencyMapping(ctx, wasmContractAddress, []byte{}, false)
+	mapping, err := app.AccessControlKeeper.GetWasmDependencyMapping(ctx, wasmContractAddress, "", []byte{}, false)
 	require.NoError(t, err)
 	require.Equal(t, wasmMapping, mapping)
 	// test getting a dependency mapping with selector
 	mapping, err = app.AccessControlKeeper.GetWasmDependencyMapping(
 		ctx,
 		wasmContractAddress,
+		"",
 		[]byte("{\"send\":{\"from\":\"bob\",\"amount\":10}}"),
 		true,
 	)
-	require.Equal(t, fmt.Sprintf("%s/\"bob\"", wasmContractAddress.String()), mapping.AccessOps[0].Operation.IdentifierTemplate)
-	require.Equal(t, fmt.Sprintf("%s/10", wasmContractAddress.String()), mapping.AccessOps[1].Operation.IdentifierTemplate)
+	require.NoError(t, err)
+	require.Equal(t, fmt.Sprintf("%s/%s", wasmContractAddress.String(), hex.EncodeToString([]byte("bob"))), mapping.AccessOps[0].Operation.IdentifierTemplate)
+	require.Equal(t, fmt.Sprintf("%s/%s", wasmContractAddress.String(), hex.EncodeToString([]byte("10"))), mapping.AccessOps[1].Operation.IdentifierTemplate)
+}
+
+func TestWasmDependencyMappingWithJQBech32Selector(t *testing.T) {
+	app := simapp.Setup(false)
+	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
+
+	wasmContractAddresses := simapp.AddTestAddrsIncremental(app, ctx, 1, sdk.NewInt(30000000))
+	wasmContractAddress := wasmContractAddresses[0]
+	wasmBech32, err := sdk.Bech32ifyAddressBytes("cosmos", wasmContractAddress)
+	require.NoError(t, err)
+	wasmMapping := acltypes.WasmDependencyMapping{
+		Enabled: true,
+		AccessOps: []acltypes.AccessOperationWithSelector{
+			{
+				Operation: &acltypes.AccessOperation{
+					ResourceType:       acltypes.ResourceType_KV_WASM,
+					AccessType:         acltypes.AccessType_WRITE,
+					IdentifierTemplate: "someprefix%s",
+				},
+				SelectorType: acltypes.AccessOperationSelectorType_JQ_BECH32_ADDRESS,
+				Selector:     ".send.address",
+			},
+			{
+				Operation: &acltypes.AccessOperation{
+					ResourceType:       acltypes.ResourceType_KV_WASM,
+					AccessType:         acltypes.AccessType_WRITE,
+					IdentifierTemplate: "someprefix%s",
+				},
+				SelectorType: acltypes.AccessOperationSelectorType_JQ_BECH32_ADDRESS,
+				Selector:     ".receive.address",
+			},
+			{
+				Operation:    types.CommitAccessOp(),
+				SelectorType: acltypes.AccessOperationSelectorType_NONE,
+			},
+		},
+	}
+	// set the dependency mapping
+	err = app.AccessControlKeeper.SetWasmDependencyMapping(ctx, wasmContractAddress, wasmMapping)
+	require.NoError(t, err)
+	// test getting the dependency mapping
+	mapping, err := app.AccessControlKeeper.GetWasmDependencyMapping(ctx, wasmContractAddress, "", []byte{}, false)
+	require.NoError(t, err)
+	require.Equal(t, wasmMapping, mapping)
+	// test getting a dependency mapping with selector
+	require.NoError(t, err)
+	mapping, err = app.AccessControlKeeper.GetWasmDependencyMapping(
+		ctx,
+		wasmContractAddress,
+		"",
+		[]byte(fmt.Sprintf("{\"send\":{\"address\":\"%s\",\"amount\":10}}", wasmBech32)),
+		true,
+	)
+	require.NoError(t, err)
+	require.Equal(t, fmt.Sprintf("someprefix%s", hex.EncodeToString(wasmContractAddress)), mapping.AccessOps[0].Operation.IdentifierTemplate)
+}
+
+func TestWasmDependencyMappingWithJQLengthPrefixedAddressSelector(t *testing.T) {
+	app := simapp.Setup(false)
+	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
+
+	wasmContractAddresses := simapp.AddTestAddrsIncremental(app, ctx, 1, sdk.NewInt(30000000))
+	wasmContractAddress := wasmContractAddresses[0]
+	wasmBech32, err := sdk.Bech32ifyAddressBytes("cosmos", wasmContractAddress)
+	require.NoError(t, err)
+	wasmMapping := acltypes.WasmDependencyMapping{
+		Enabled: true,
+		AccessOps: []acltypes.AccessOperationWithSelector{
+			{
+				Operation: &acltypes.AccessOperation{
+					ResourceType:       acltypes.ResourceType_KV_WASM,
+					AccessType:         acltypes.AccessType_WRITE,
+					IdentifierTemplate: "someprefix%s",
+				},
+				SelectorType: acltypes.AccessOperationSelectorType_JQ_LENGTH_PREFIXED_ADDRESS,
+				Selector:     ".send.address",
+			},
+			{
+				Operation: &acltypes.AccessOperation{
+					ResourceType:       acltypes.ResourceType_KV_WASM,
+					AccessType:         acltypes.AccessType_WRITE,
+					IdentifierTemplate: "someprefix%s",
+				},
+				SelectorType: acltypes.AccessOperationSelectorType_JQ_LENGTH_PREFIXED_ADDRESS,
+				Selector:     ".receive.address",
+			},
+			{
+				Operation:    types.CommitAccessOp(),
+				SelectorType: acltypes.AccessOperationSelectorType_NONE,
+			},
+		},
+	}
+	// set the dependency mapping
+	err = app.AccessControlKeeper.SetWasmDependencyMapping(ctx, wasmContractAddress, wasmMapping)
+	require.NoError(t, err)
+	// test getting the dependency mapping
+	mapping, err := app.AccessControlKeeper.GetWasmDependencyMapping(ctx, wasmContractAddress, "", []byte{}, false)
+	require.NoError(t, err)
+	require.Equal(t, wasmMapping, mapping)
+	// test getting a dependency mapping with selector
+	require.NoError(t, err)
+	mapping, err = app.AccessControlKeeper.GetWasmDependencyMapping(
+		ctx,
+		wasmContractAddress,
+		"",
+		[]byte(fmt.Sprintf("{\"send\":{\"address\":\"%s\",\"amount\":10}}", wasmBech32)),
+		true,
+	)
+	require.NoError(t, err)
+	require.Equal(t, fmt.Sprintf("someprefix%s", hex.EncodeToString(address.MustLengthPrefix(wasmContractAddress))), mapping.AccessOps[0].Operation.IdentifierTemplate)
+}
+
+func TestWasmDependencyMappingWithSenderBech32Selector(t *testing.T) {
+	app := simapp.Setup(false)
+	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
+
+	wasmContractAddresses := simapp.AddTestAddrsIncremental(app, ctx, 1, sdk.NewInt(30000000))
+	wasmContractAddress := wasmContractAddresses[0]
+	wasmBech32, err := sdk.Bech32ifyAddressBytes("cosmos", wasmContractAddress)
+	require.NoError(t, err)
+	wasmMapping := acltypes.WasmDependencyMapping{
+		Enabled: true,
+		AccessOps: []acltypes.AccessOperationWithSelector{
+			{
+				Operation: &acltypes.AccessOperation{
+					ResourceType:       acltypes.ResourceType_KV_WASM,
+					AccessType:         acltypes.AccessType_WRITE,
+					IdentifierTemplate: "someprefix%s",
+				},
+				SelectorType: acltypes.AccessOperationSelectorType_SENDER_BECH32_ADDRESS,
+			},
+			{
+				Operation:    types.CommitAccessOp(),
+				SelectorType: acltypes.AccessOperationSelectorType_NONE,
+			},
+		},
+	}
+	// set the dependency mapping
+	err = app.AccessControlKeeper.SetWasmDependencyMapping(ctx, wasmContractAddress, wasmMapping)
+	require.NoError(t, err)
+	// test getting the dependency mapping
+	mapping, err := app.AccessControlKeeper.GetWasmDependencyMapping(ctx, wasmContractAddress, "", []byte{}, false)
+	require.NoError(t, err)
+	require.Equal(t, wasmMapping, mapping)
+	// test getting a dependency mapping with selector
+	require.NoError(t, err)
+	mapping, err = app.AccessControlKeeper.GetWasmDependencyMapping(
+		ctx,
+		wasmContractAddress,
+		wasmBech32,
+		[]byte(fmt.Sprintf("{\"send\":{\"address\":\"%s\",\"amount\":10}}", wasmBech32)),
+		true,
+	)
+	require.NoError(t, err)
+	require.Equal(t, fmt.Sprintf("someprefix%s", hex.EncodeToString(wasmContractAddress)), mapping.AccessOps[0].Operation.IdentifierTemplate)
+}
+
+func TestWasmDependencyMappingWithSenderLengthPrefixedSelector(t *testing.T) {
+	app := simapp.Setup(false)
+	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
+
+	wasmContractAddresses := simapp.AddTestAddrsIncremental(app, ctx, 1, sdk.NewInt(30000000))
+	wasmContractAddress := wasmContractAddresses[0]
+	wasmBech32, err := sdk.Bech32ifyAddressBytes("cosmos", wasmContractAddress)
+	require.NoError(t, err)
+	wasmMapping := acltypes.WasmDependencyMapping{
+		Enabled: true,
+		AccessOps: []acltypes.AccessOperationWithSelector{
+			{
+				Operation: &acltypes.AccessOperation{
+					ResourceType:       acltypes.ResourceType_KV_WASM,
+					AccessType:         acltypes.AccessType_WRITE,
+					IdentifierTemplate: "someprefix%s",
+				},
+				SelectorType: acltypes.AccessOperationSelectorType_SENDER_LENGTH_PREFIXED_ADDRESS,
+			},
+			{
+				Operation:    types.CommitAccessOp(),
+				SelectorType: acltypes.AccessOperationSelectorType_NONE,
+			},
+		},
+	}
+	// set the dependency mapping
+	err = app.AccessControlKeeper.SetWasmDependencyMapping(ctx, wasmContractAddress, wasmMapping)
+	require.NoError(t, err)
+	// test getting the dependency mapping
+	mapping, err := app.AccessControlKeeper.GetWasmDependencyMapping(ctx, wasmContractAddress, "", []byte{}, false)
+	require.NoError(t, err)
+	require.Equal(t, wasmMapping, mapping)
+	// test getting a dependency mapping with selector
+	require.NoError(t, err)
+	mapping, err = app.AccessControlKeeper.GetWasmDependencyMapping(
+		ctx,
+		wasmContractAddress,
+		wasmBech32,
+		[]byte(fmt.Sprintf("{\"send\":{\"address\":\"%s\",\"amount\":10}}", wasmBech32)),
+		true,
+	)
+	require.NoError(t, err)
+	require.Equal(t, fmt.Sprintf("someprefix%s", hex.EncodeToString(address.MustLengthPrefix(wasmContractAddress))), mapping.AccessOps[0].Operation.IdentifierTemplate)
 }
 
 func (suite *KeeperTestSuite) TestMessageDependencies() {

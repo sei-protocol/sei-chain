@@ -1,7 +1,9 @@
 package keeper
 
 import (
+	"encoding/hex"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/armon/go-metrics"
@@ -13,6 +15,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/telemetry"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	acltypes "github.com/cosmos/cosmos-sdk/types/accesscontrol"
+	"github.com/cosmos/cosmos-sdk/types/address"
 	"github.com/cosmos/cosmos-sdk/x/accesscontrol/types"
 	authkeeper "github.com/cosmos/cosmos-sdk/x/auth/keeper"
 	paramtypes "github.com/cosmos/cosmos-sdk/x/params/types"
@@ -120,7 +123,7 @@ func (k Keeper) SetDependencyMappingDynamicFlag(ctx sdk.Context, messageKey type
 	return k.SetResourceDependencyMapping(ctx, dependencyMapping)
 }
 
-func (k Keeper) GetWasmDependencyMapping(ctx sdk.Context, contractAddress sdk.AccAddress, msgBody []byte, applySelector bool) (acltypes.WasmDependencyMapping, error) {
+func (k Keeper) GetWasmDependencyMapping(ctx sdk.Context, contractAddress sdk.AccAddress, senderBech string, msgBody []byte, applySelector bool) (acltypes.WasmDependencyMapping, error) {
 	store := ctx.KVStore(k.storeKey)
 	b := store.Get(types.GetWasmContractAddressKey(contractAddress))
 	if b == nil {
@@ -134,28 +137,99 @@ func (k Keeper) GetWasmDependencyMapping(ctx sdk.Context, contractAddress sdk.Ac
 	dependencyMapping := acltypes.WasmDependencyMapping{}
 	k.cdc.MustUnmarshal(b, &dependencyMapping)
 	if dependencyMapping.Enabled && applySelector {
-		selectedAccessOps := []acltypes.AccessOperationWithSelector{}
-		for _, opWithSelector := range dependencyMapping.AccessOps {
-			if opWithSelector.SelectorType == acltypes.AccessOperationSelectorType_JQ {
-				op, err := jq.Parse(opWithSelector.Selector)
-				if err != nil {
-					return acltypes.WasmDependencyMapping{}, err
-				}
-				data, err := op.Apply(msgBody)
-				if err != nil {
-					// if the operation is not applicable to the message, skip it
-					continue
-				}
-				opWithSelector.Operation.IdentifierTemplate = fmt.Sprintf(
-					opWithSelector.Operation.IdentifierTemplate,
-					string(data),
-				)
-			}
-			selectedAccessOps = append(selectedAccessOps, opWithSelector)
+		fmt.Printf("Build Selector ops from msg: %v\n", string(msgBody))
+		selectedAccessOps, err := BuildSelectorOps(dependencyMapping.AccessOps, senderBech, msgBody)
+		if err != nil {
+			return acltypes.WasmDependencyMapping{}, err
 		}
 		dependencyMapping.AccessOps = selectedAccessOps
 	}
 	return dependencyMapping, nil
+}
+
+func BuildSelectorOps(accessOps []acltypes.AccessOperationWithSelector, senderBech string, msgBody []byte) ([]acltypes.AccessOperationWithSelector, error) {
+	selectedAccessOps := []acltypes.AccessOperationWithSelector{}
+	for _, opWithSelector := range accessOps {
+		switch opWithSelector.SelectorType {
+		case acltypes.AccessOperationSelectorType_JQ:
+			op, err := jq.Parse(opWithSelector.Selector)
+			if err != nil {
+				return []acltypes.AccessOperationWithSelector{}, err
+			}
+			data, err := op.Apply(msgBody)
+			if err != nil {
+				// if the operation is not applicable to the message, skip it
+				continue
+			}
+			trimmedData := strings.Trim(string(data), "\"") // we need to trim the quotes around the string
+			opWithSelector.Operation.IdentifierTemplate = fmt.Sprintf(
+				opWithSelector.Operation.IdentifierTemplate,
+				hex.EncodeToString([]byte(trimmedData)),
+			)
+		case acltypes.AccessOperationSelectorType_JQ_BECH32_ADDRESS:
+			op, err := jq.Parse(opWithSelector.Selector)
+			if err != nil {
+				return []acltypes.AccessOperationWithSelector{}, err
+			}
+			data, err := op.Apply(msgBody)
+			if err != nil {
+				// if the operation is not applicable to the message, skip it
+				continue
+			}
+			bech32Addr := strings.Trim(string(data), "\"") // we need to trim the quotes around the string
+			// we expect a bech32 prefixed address, so lets convert to account address
+			accAddr, err := sdk.AccAddressFromBech32(bech32Addr)
+			if err != nil {
+				return []acltypes.AccessOperationWithSelector{}, err
+			}
+			opWithSelector.Operation.IdentifierTemplate = fmt.Sprintf(
+				opWithSelector.Operation.IdentifierTemplate,
+				hex.EncodeToString(accAddr),
+			)
+		case acltypes.AccessOperationSelectorType_JQ_LENGTH_PREFIXED_ADDRESS:
+			op, err := jq.Parse(opWithSelector.Selector)
+			if err != nil {
+				return []acltypes.AccessOperationWithSelector{}, err
+			}
+			data, err := op.Apply(msgBody)
+			if err != nil {
+				// if the operation is not applicable to the message, skip it
+				continue
+			}
+			bech32Addr := strings.Trim(string(data), "\"") // we need to trim the quotes around the string
+			// we expect a bech32 prefixed address, so lets convert to account address
+			accAddr, err := sdk.AccAddressFromBech32(bech32Addr)
+			if err != nil {
+				return []acltypes.AccessOperationWithSelector{}, err
+			}
+			lengthPrefixed := address.MustLengthPrefix(accAddr)
+			opWithSelector.Operation.IdentifierTemplate = fmt.Sprintf(
+				opWithSelector.Operation.IdentifierTemplate,
+				hex.EncodeToString(lengthPrefixed),
+			)
+		case acltypes.AccessOperationSelectorType_SENDER_BECH32_ADDRESS:
+			senderAccAddress, err := sdk.AccAddressFromBech32(senderBech)
+			if err != nil {
+				return []acltypes.AccessOperationWithSelector{}, err
+			}
+			opWithSelector.Operation.IdentifierTemplate = fmt.Sprintf(
+				opWithSelector.Operation.IdentifierTemplate,
+				hex.EncodeToString(senderAccAddress),
+			)
+		case acltypes.AccessOperationSelectorType_SENDER_LENGTH_PREFIXED_ADDRESS:
+			senderAccAddress, err := sdk.AccAddressFromBech32(senderBech)
+			if err != nil {
+				return []acltypes.AccessOperationWithSelector{}, err
+			}
+			lengthPrefixed := address.MustLengthPrefix(senderAccAddress)
+			opWithSelector.Operation.IdentifierTemplate = fmt.Sprintf(
+				opWithSelector.Operation.IdentifierTemplate,
+				hex.EncodeToString(lengthPrefixed),
+			)
+		}
+		selectedAccessOps = append(selectedAccessOps, opWithSelector)
+	}
+	return selectedAccessOps, nil
 }
 
 func (k Keeper) SetWasmDependencyMapping(
@@ -179,7 +253,7 @@ func (k Keeper) ResetWasmDependencyMapping(
 	contractAddress sdk.AccAddress,
 	reason string,
 ) error {
-	dependencyMapping, err := k.GetWasmDependencyMapping(ctx, contractAddress, []byte{}, false)
+	dependencyMapping, err := k.GetWasmDependencyMapping(ctx, contractAddress, "", []byte{}, false)
 	if err != nil {
 		return err
 	}

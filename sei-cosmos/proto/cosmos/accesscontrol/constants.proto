@@ -13,6 +13,10 @@ enum AccessType {
 enum AccessOperationSelectorType {
     NONE = 0;
     JQ = 1;
+    JQ_BECH32_ADDRESS = 2;
+    JQ_LENGTH_PREFIXED_ADDRESS = 3;
+    SENDER_BECH32_ADDRESS = 4;
+    SENDER_LENGTH_PREFIXED_ADDRESS = 5;
 }
 
 enum ResourceType {
