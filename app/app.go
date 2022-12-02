@@ -1057,6 +1057,14 @@ func (app *App) ProcessTxConcurrent(
 	metrics.IncrTxProcessTypeCounter(metrics.CONCURRENT)
 }
 
+type ProcessBlockConcurrentFunction func(
+		ctx sdk.Context,
+		txs [][]byte,
+		completionSignalingMap map[int]acltypes.MessageCompletionSignalMapping,
+		blockingSignalsMap map[int]acltypes.MessageCompletionSignalMapping,
+		txMsgAccessOpMapping map[int]acltypes.MsgIndexToAccessOpMapping,
+) ([]*abci.ExecTxResult, bool)
+
 func (app *App) ProcessBlockConcurrent(
 	ctx sdk.Context,
 	txs [][]byte,
@@ -1121,9 +1129,43 @@ func (app *App) ProcessBlockConcurrent(
 	return txResults, ok
 }
 
+func (app *App) ProcessTxs(
+	ctx sdk.Context,
+	txs [][]byte,
+	dependencyDag *acltypes.Dag,
+	processBlockConcurrentFunction ProcessBlockConcurrentFunction,
+) []*abci.ExecTxResult {
+	// Only run concurrently if no error
+	// Branch off the current context and pass a cached context to the concurrent delivered TXs that are shared.
+	// runTx will write to this ephermeral CacheMultiStore, after the process block is done, Write() is called on this
+	// CacheMultiStore where it writes the data to the parent store (DeliverState) in sorted Key order to maintain
+	// deterministic ordering between validators in the case of concurrent deliverTXs
+	processBlockCtx, processBlockCache := app.CacheContext(ctx)
+	concurrentResults, ok := processBlockConcurrentFunction(
+		processBlockCtx,
+		txs,
+		dependencyDag.CompletionSignalingMap,
+		dependencyDag.BlockingSignalsMap,
+		dependencyDag.TxMsgAccessOpMapping,
+	)
+	if ok {
+		// Write the results back to the concurrent contexts - if concurrent execution fails,
+		// this should not be called and the state is rolled back and retried with synchronous execution
+		processBlockCache.Write()
+		return concurrentResults
+	}
+
+	ctx.Logger().Error("Concurrent Execution failed, retrying with Synchronous")
+	// Clear the memcache context from the previous state as it failed, we no longer need to commit the data
+	ctx = ctx.WithContextMemCache(sdk.NewContextMemCache())
+	txResults := app.ProcessBlockSynchronous(ctx, txs)
+	processBlockCache.Write()
+	return txResults
+}
+
 func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequest, lastCommit abci.CommitInfo) ([]abci.Event, []*abci.ExecTxResult, abci.ResponseEndBlock, error) {
 	goCtx := app.decorateContextWithDexMemState(ctx.Context())
-	ctx = ctx.WithContext(goCtx).WithContextMemCache(sdk.NewContextMemCache())
+	ctx = ctx.WithContext(goCtx)
 
 	events := []abci.Event{}
 	beginBlockReq := abci.RequestBeginBlock{
@@ -1151,48 +1193,15 @@ func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequ
 	beginBlockResp := app.BeginBlock(ctx, beginBlockReq)
 	events = append(events, beginBlockResp.Events...)
 
-	// typedTxs := []sdk.Tx{}
-	// for _, tx := range req.GetTxs() {
-	// 	typedTx, err := app.txDecoder(tx)
-	// 	if err != nil {
-	// 		typedTxs = append(typedTxs, nil)
-	// 	} else {
-	// 		typedTxs = append(typedTxs, typedTx)
-	// 	}
-	// }
-	// app.batchVerifier.VerifyTxs(ctx, typedTxs)
-
 	dependencyDag, err := app.AccessControlKeeper.BuildDependencyDag(ctx, app.txDecoder, app.GetAnteDepGenerator(), txs)
 
 	var txResults []*abci.ExecTxResult
 
 	switch err {
 	case nil:
-		// Only run concurrently if no error
-		// Branch off the current context and pass a cached context to the concurrent delivered TXs that are shared.
-		// runTx will write to this ephermeral CacheMultiStore, after the process block is done, Write() is called on this
-		// CacheMultiStore where it writes the data to the parent store (DeliverState) in sorted Key order to maintain
-		// deterministic ordering between validators in the case of concurrent deliverTXs
-		processBlockCtx, processBlockCache := app.CacheContext(ctx)
-		concurrentResults, ok := app.ProcessBlockConcurrent(
-			processBlockCtx,
-			txs,
-			dependencyDag.CompletionSignalingMap,
-			dependencyDag.BlockingSignalsMap,
-			dependencyDag.TxMsgAccessOpMapping,
-		)
-		if ok {
-			txResults = concurrentResults
-			// Write the results back to the concurrent contexts - if concurrent execution fails,
-			// this should not be called and the state is rolled back and retried with synchronous execution
-			processBlockCache.Write()
-		} else {
-			ctx.Logger().Error("Concurrent Execution failed, retrying with Synchronous")
-			txResults = app.ProcessBlockSynchronous(ctx, txs)
-		}
-
-		// Write the results back to the concurrent contexts
-		processBlockCache.Write()
+		// Start with a fresh state for the MemCache
+		ctx = ctx.WithContextMemCache(sdk.NewContextMemCache())
+		txResults = app.ProcessTxs(ctx, txs, dependencyDag, app.ProcessBlockConcurrent)
 	case acltypes.ErrGovMsgInBlock:
 		ctx.Logger().Info(fmt.Sprintf("Gov msg found while building DAG, processing synchronously: %s", err))
 		txResults = app.ProcessBlockSynchronous(ctx, txs)
@@ -1204,7 +1213,7 @@ func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequ
 	}
 
 	// Finalize all Bank Module Transfers here so that events are included
-	lazyWriteEvents := app.BankKeeper.WriteDeferredDepositsToModuleAccounts(ctx)
+	lazyWriteEvents := app.BankKeeper.WriteDeferredOperations(ctx)
 	events = append(events, lazyWriteEvents...)
 
 	ctx = app.enrichContextWithTxResults(ctx, txResults)
