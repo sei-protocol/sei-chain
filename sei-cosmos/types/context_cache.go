@@ -22,6 +22,14 @@ func NewContextMemCache() *ContextMemCache {
 	}
 }
 
+func (c *ContextMemCache) GetDeferredSends() *DeferredBankOperationMapping{
+	return c.deferredSends
+}
+
+func (c *ContextMemCache) GetDeferredWithdrawals() *DeferredBankOperationMapping{
+	return c.deferredWithdrawals
+}
+
 func (c *ContextMemCache) UpsertDeferredSends(moduleAccount string, amount Coins) error {
 	// Separate locks needed for all mappings - atmoic transaction needed
 	c.deferredBankOpsLock.Lock()

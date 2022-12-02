@@ -44,10 +44,10 @@ func (m *DeferredBankOperationMapping) UpsertMapping(moduleAccount string, amoun
 	m.deferredOperations[moduleAccount] = newAmount
 }
 
-func (m *DeferredBankOperationMapping) getSortedKeys(mapping map[string]Coins) []string{
+func (m *DeferredBankOperationMapping) GetSortedKeys() []string{
 
 	// Need to sort keys for deterministic iterating
-	keys := make([]string, 0, len(mapping))
+	keys := make([]string, 0, len(m.deferredOperations))
 	for key := range m.deferredOperations {
 		keys = append(keys, key)
 	}
@@ -60,7 +60,7 @@ func (m *DeferredBankOperationMapping) RangeOnMapping(apply func (recipient stri
 	m.mappingLock.Lock()
 	defer m.mappingLock.Unlock()
 
-	keys := m.getSortedKeys(m.deferredOperations)
+	keys := m.GetSortedKeys()
 
 	for _, moduleAccount := range keys {
 		apply(moduleAccount, m.deferredOperations[moduleAccount])
