@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	wasmkeeper "github.com/CosmWasm/wasmd/x/wasm/keeper"
+	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/sei-protocol/sei-chain/x/dex/keeper"
 	"github.com/sei-protocol/sei-chain/x/dex/keeper/abci"
 )
@@ -16,6 +17,7 @@ const (
 func TestHandleBBNewBlock(t *testing.T) {
 	// this test only ensures that HandleBBNewBlock doesn't crash. The actual logic
 	// is tested in module_test.go where an actual wasm file is deployed and invoked.
+	wasmkeeper.TestingStakeParams.MinCommissionRate = sdk.NewDecWithPrec(5, 2)
 	ctx, wasmkeepers := wasmkeeper.CreateTestInput(t, false, SupportedFeatures)
 	dexKeeper := keeper.Keeper{WasmKeeper: *wasmkeepers.WasmKeeper}
 	wrapper := abci.KeeperWrapper{Keeper: &dexKeeper}
