@@ -1157,7 +1157,8 @@ func (app *App) ProcessTxs(
 
 	ctx.Logger().Error("Concurrent Execution failed, retrying with Synchronous")
 	// Clear the memcache context from the previous state as it failed, we no longer need to commit the data
-	ctx = ctx.WithContextMemCache(sdk.NewContextMemCache())
+	ctx.ContextMemCache().Clear()
+
 	txResults := app.ProcessBlockSynchronous(ctx, txs)
 	processBlockCache.Write()
 	return txResults

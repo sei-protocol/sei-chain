@@ -114,10 +114,12 @@ func TestProcessTxsSuccess(t *testing.T) {
 		Denom:  "test",
 		Amount: sdk.NewInt(1),
 	}))
-	testWrapper.Ctx.ContextMemCache().UpsertDeferredWithdrawals("Some Account", sdk.NewCoins(sdk.Coin{
+	testWrapper.Ctx.ContextMemCache().UpsertDeferredWithdrawals("Some Other Account", sdk.NewCoins(sdk.Coin{
 		Denom:  "test",
 		Amount: sdk.NewInt(1),
 	}))
+	// It should be reset if it fails to prevent any values from being written
+	require.Equal(t, 1, len(testWrapper.Ctx.ContextMemCache().GetDeferredSends().GetSortedKeys()))
 	testWrapper.App.ProcessTxs(
 		testWrapper.Ctx,
 		[][]byte{},
