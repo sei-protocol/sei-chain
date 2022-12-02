@@ -1058,11 +1058,11 @@ func (app *App) ProcessTxConcurrent(
 }
 
 type ProcessBlockConcurrentFunction func(
-		ctx sdk.Context,
-		txs [][]byte,
-		completionSignalingMap map[int]acltypes.MessageCompletionSignalMapping,
-		blockingSignalsMap map[int]acltypes.MessageCompletionSignalMapping,
-		txMsgAccessOpMapping map[int]acltypes.MsgIndexToAccessOpMapping,
+	ctx sdk.Context,
+	txs [][]byte,
+	completionSignalingMap map[int]acltypes.MessageCompletionSignalMapping,
+	blockingSignalsMap map[int]acltypes.MessageCompletionSignalMapping,
+	txMsgAccessOpMapping map[int]acltypes.MsgIndexToAccessOpMapping,
 ) ([]*abci.ExecTxResult, bool)
 
 func (app *App) ProcessBlockConcurrent(
