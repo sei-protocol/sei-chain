@@ -28,13 +28,13 @@ func TestStore(t *testing.T) {
 	db.Delete(key)
 	require.Nil(t, db.Get(key))
 
-	cacheWrapper := db.CacheWrap(nil, types.DefaultCacheSizeLimit)
+	cacheWrapper := db.CacheWrap(nil)
 	require.IsType(t, &cachekv.Store{}, cacheWrapper)
 
-	cacheWrappedWithTrace := db.CacheWrapWithTrace(nil, nil, nil, types.DefaultCacheSizeLimit)
+	cacheWrappedWithTrace := db.CacheWrapWithTrace(nil, nil, nil)
 	require.IsType(t, &cachekv.Store{}, cacheWrappedWithTrace)
 
-	cacheWrappedWithListeners := db.CacheWrapWithListeners(nil, nil, types.DefaultCacheSizeLimit)
+	cacheWrappedWithListeners := db.CacheWrapWithListeners(nil, nil)
 	require.IsType(t, &cachekv.Store{}, cacheWrappedWithListeners)
 }
 

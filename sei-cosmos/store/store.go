@@ -18,5 +18,5 @@ func NewCommitMultiStoreWithArchival(db dbm.DB, archivalDb dbm.DB, archivalVersi
 }
 
 func NewCommitKVStoreCacheManager() types.MultiStorePersistentCache {
-	return cache.NewCommitKVStoreCacheManager(cache.DefaultCommitKVStoreCacheSize)
+	return cache.NewCommitKVStoreCacheManager(cache.DefaultCommitKVStoreCacheSize, types.DefaultCacheSizeLimit)
 }

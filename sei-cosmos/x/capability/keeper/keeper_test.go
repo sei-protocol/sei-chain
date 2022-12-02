@@ -8,7 +8,6 @@ import (
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 
 	"github.com/cosmos/cosmos-sdk/simapp"
-	storetypes "github.com/cosmos/cosmos-sdk/store/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
 	"github.com/cosmos/cosmos-sdk/x/capability/keeper"
@@ -280,7 +279,7 @@ func (suite KeeperTestSuite) TestRevertCapability() {
 
 	ms := suite.ctx.MultiStore()
 
-	msCache := ms.CacheMultiStore(storetypes.DefaultCacheSizeLimit)
+	msCache := ms.CacheMultiStore()
 	cacheCtx := suite.ctx.WithMultiStore(msCache)
 
 	capName := "revert"

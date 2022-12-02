@@ -3,7 +3,6 @@ package baseapp
 import (
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 
-	"github.com/cosmos/cosmos-sdk/store/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 )
@@ -23,7 +22,7 @@ func (app *BaseApp) Check(txEncoder sdk.TxEncoder, tx sdk.Tx) (sdk.GasInfo, *sdk
 
 func (app *BaseApp) Simulate(txBytes []byte) (sdk.GasInfo, *sdk.Result, error) {
 	ctx := app.checkState.ctx.WithTxBytes(txBytes).WithVoteInfos(app.voteInfos).WithConsensusParams(app.GetConsensusParams(app.checkState.ctx))
-	ctx, _ = ctx.CacheContext(types.DefaultCacheSizeLimit)
+	ctx, _ = ctx.CacheContext()
 	gasInfo, result, _, _, err := app.runTx(ctx, runTxModeSimulate, txBytes)
 	return gasInfo, result, err
 }

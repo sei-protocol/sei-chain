@@ -650,12 +650,12 @@ func TestCacheWraps(t *testing.T) {
 	tree, _ := newAlohaTree(t, db)
 	store := UnsafeNewStore(tree)
 
-	cacheWrapper := store.CacheWrap(nil, types.DefaultCacheSizeLimit)
+	cacheWrapper := store.CacheWrap(nil)
 	require.IsType(t, &cachekv.Store{}, cacheWrapper)
 
-	cacheWrappedWithTrace := store.CacheWrapWithTrace(nil, nil, nil, types.DefaultCacheSizeLimit)
+	cacheWrappedWithTrace := store.CacheWrapWithTrace(nil, nil, nil)
 	require.IsType(t, &cachekv.Store{}, cacheWrappedWithTrace)
 
-	cacheWrappedWithListeners := store.CacheWrapWithListeners(nil, nil, types.DefaultCacheSizeLimit)
+	cacheWrappedWithListeners := store.CacheWrapWithListeners(nil, nil)
 	require.IsType(t, &cachekv.Store{}, cacheWrappedWithListeners)
 }

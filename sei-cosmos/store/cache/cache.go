@@ -27,7 +27,8 @@ type (
 	// CommitKVStore and below is completely irrelevant to this layer.
 	CommitKVStoreCache struct {
 		types.CommitKVStore
-		cache *lru.ARCCache
+		cache       *lru.ARCCache
+		cacheKVSize int
 	}
 
 	// CommitKVStoreCacheManager maintains a mapping from a StoreKey to a
@@ -35,12 +36,13 @@ type (
 	// in an inter-block (persistent) manner and typically provided by a
 	// CommitMultiStore.
 	CommitKVStoreCacheManager struct {
-		cacheSize uint
-		caches    map[string]types.CommitKVStore
+		cacheSize   uint
+		caches      map[string]types.CommitKVStore
+		cacheKVSize int
 	}
 )
 
-func NewCommitKVStoreCache(store types.CommitKVStore, size uint) *CommitKVStoreCache {
+func NewCommitKVStoreCache(store types.CommitKVStore, size uint, cacheKVSize int) *CommitKVStoreCache {
 	cache, err := lru.NewARC(int(size))
 	if err != nil {
 		panic(fmt.Errorf("failed to create KVStore cache: %s", err))
@@ -49,13 +51,15 @@ func NewCommitKVStoreCache(store types.CommitKVStore, size uint) *CommitKVStoreC
 	return &CommitKVStoreCache{
 		CommitKVStore: store,
 		cache:         cache,
+		cacheKVSize:   cacheKVSize,
 	}
 }
 
-func NewCommitKVStoreCacheManager(size uint) *CommitKVStoreCacheManager {
+func NewCommitKVStoreCacheManager(size uint, cacheKVSize int) *CommitKVStoreCacheManager {
 	return &CommitKVStoreCacheManager{
-		cacheSize: size,
-		caches:    make(map[string]types.CommitKVStore),
+		cacheSize:   size,
+		caches:      make(map[string]types.CommitKVStore),
+		cacheKVSize: cacheKVSize,
 	}
 }
 
@@ -64,7 +68,7 @@ func NewCommitKVStoreCacheManager(size uint) *CommitKVStoreCacheManager {
 // The returned Cache is meant to be used in a persistent manner.
 func (cmgr *CommitKVStoreCacheManager) GetStoreCache(key types.StoreKey, store types.CommitKVStore) types.CommitKVStore {
 	if cmgr.caches[key.Name()] == nil {
-		cmgr.caches[key.Name()] = NewCommitKVStoreCache(store, cmgr.cacheSize)
+		cmgr.caches[key.Name()] = NewCommitKVStoreCache(store, cmgr.cacheSize, cmgr.cacheKVSize)
 	}
 
 	return cmgr.caches[key.Name()]
@@ -90,8 +94,8 @@ func (cmgr *CommitKVStoreCacheManager) Reset() {
 }
 
 // CacheWrap implements the CacheWrapper interface
-func (ckv *CommitKVStoreCache) CacheWrap(storeKey types.StoreKey, size int) types.CacheWrap {
-	return cachekv.NewStore(ckv, storeKey, size)
+func (ckv *CommitKVStoreCache) CacheWrap(storeKey types.StoreKey) types.CacheWrap {
+	return cachekv.NewStore(ckv, storeKey, ckv.cacheKVSize)
 }
 
 // Get retrieves a value by key. It will first look in the write-through cache.

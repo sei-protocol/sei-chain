@@ -110,7 +110,6 @@ func NewBaseKeeper(
 	ak types.AccountKeeper,
 	paramSpace paramtypes.Subspace,
 	blockedAddrs map[string]bool,
-	cacheSize int,
 ) BaseKeeper {
 
 	// set KeyTable if it has not already been set
@@ -125,7 +124,6 @@ func NewBaseKeeper(
 		storeKey:               storeKey,
 		paramSpace:             paramSpace,
 		mintCoinsRestrictionFn: func(ctx sdk.Context, coins sdk.Coins) error { return nil },
-		cacheSize:              cacheSize,
 	}
 }
 
@@ -365,7 +363,7 @@ func (k BaseKeeper) DeferredSendCoinsFromModuleToAccount(
 	if !ok {
 		// Branch Context for validation and fail if the module doesn't have enough coins
 		// but don't write this to the underlying store
-		validationContext, _ := ctx.CacheContext(k.cacheSize)
+		validationContext, _ := ctx.CacheContext()
 		err := k.subUnlockedCoins(validationContext, moduleAddr, amount)
 		if err != nil {
 			return err
@@ -653,7 +651,7 @@ func (k BaseKeeper) DeferredBurnCoins(ctx sdk.Context, moduleName string, amount
 
 		// Branch Context for validation and fail if the module doesn't have enough coins
 		// but don't write this to the underlying store
-		validationContext, _ := ctx.CacheContext(k.cacheSize)
+		validationContext, _ := ctx.CacheContext()
 		moduleAcc := k.ak.GetModuleAccount(ctx, moduleName)
 
 		// Try subtract from the in mem var first, prevents the condition where

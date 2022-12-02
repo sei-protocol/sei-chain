@@ -509,35 +509,35 @@ func (rs *Store) PruneStores(clearStorePruningHeihgts bool, pruningHeights []int
 }
 
 // CacheWrap implements CacheWrapper/Store/CommitStore.
-func (rs *Store) CacheWrap(storeKey types.StoreKey, size int) types.CacheWrap {
-	return rs.CacheMultiStore(size).(types.CacheWrap)
+func (rs *Store) CacheWrap(storeKey types.StoreKey) types.CacheWrap {
+	return rs.CacheMultiStore().(types.CacheWrap)
 }
 
 // CacheWrapWithTrace implements the CacheWrapper interface.
-func (rs *Store) CacheWrapWithTrace(storeKey types.StoreKey, _ io.Writer, _ types.TraceContext, size int) types.CacheWrap {
-	return rs.CacheWrap(storeKey, size)
+func (rs *Store) CacheWrapWithTrace(storeKey types.StoreKey, _ io.Writer, _ types.TraceContext) types.CacheWrap {
+	return rs.CacheWrap(storeKey)
 }
 
 // CacheWrapWithListeners implements the CacheWrapper interface.
-func (rs *Store) CacheWrapWithListeners(storeKey types.StoreKey, _ []types.WriteListener, size int) types.CacheWrap {
-	return rs.CacheWrap(storeKey, size)
+func (rs *Store) CacheWrapWithListeners(storeKey types.StoreKey, _ []types.WriteListener) types.CacheWrap {
+	return rs.CacheWrap(storeKey)
 }
 
 // CacheMultiStore creates ephemeral branch of the multi-store and returns a CacheMultiStore.
 // It implements the MultiStore interface.
-func (rs *Store) CacheMultiStore(size int) types.CacheMultiStore {
+func (rs *Store) CacheMultiStore() types.CacheMultiStore {
 	stores := make(map[types.StoreKey]types.CacheWrapper)
 	for k, v := range rs.stores {
 		stores[k] = v
 	}
-	return cachemulti.NewStore(rs.db, stores, rs.keysByName, rs.traceWriter, rs.getTracingContext(), rs.listeners, size)
+	return cachemulti.NewStore(rs.db, stores, rs.keysByName, rs.traceWriter, rs.getTracingContext(), rs.listeners)
 }
 
 // CacheMultiStoreWithVersion is analogous to CacheMultiStore except that it
 // attempts to load stores at a given version (height). An error is returned if
 // any store cannot be loaded. This should only be used for querying and
 // iterating at past heights.
-func (rs *Store) CacheMultiStoreWithVersion(version int64, size int) (types.CacheMultiStore, error) {
+func (rs *Store) CacheMultiStoreWithVersion(version int64) (types.CacheMultiStore, error) {
 	cachedStores := make(map[types.StoreKey]types.CacheWrapper)
 	for key, store := range rs.stores {
 		switch store.GetStoreType() {
@@ -560,7 +560,7 @@ func (rs *Store) CacheMultiStoreWithVersion(version int64, size int) (types.Cach
 		}
 	}
 
-	return cachemulti.NewStore(rs.db, cachedStores, rs.keysByName, rs.traceWriter, rs.getTracingContext(), rs.listeners, size), nil
+	return cachemulti.NewStore(rs.db, cachedStores, rs.keysByName, rs.traceWriter, rs.getTracingContext(), rs.listeners), nil
 }
 
 // GetStore returns a mounted Store for a given StoreKey. If the StoreKey does

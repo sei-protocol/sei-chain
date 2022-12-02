@@ -24,14 +24,13 @@ type Keeper struct {
 	blockedAddrs map[string]bool
 
 	feeCollectorName string // name of the FeeCollector ModuleAccount
-	cacheSize        int
 }
 
 // NewKeeper creates a new distribution Keeper instance
 func NewKeeper(
 	cdc codec.BinaryCodec, key sdk.StoreKey, paramSpace paramtypes.Subspace,
 	ak types.AccountKeeper, bk types.BankKeeper, sk types.StakingKeeper,
-	feeCollectorName string, blockedAddrs map[string]bool, cacheSize int,
+	feeCollectorName string, blockedAddrs map[string]bool,
 ) Keeper {
 
 	// ensure distribution module account is set
@@ -53,7 +52,6 @@ func NewKeeper(
 		stakingKeeper:    sk,
 		feeCollectorName: feeCollectorName,
 		blockedAddrs:     blockedAddrs,
-		cacheSize:        cacheSize,
 	}
 }
 

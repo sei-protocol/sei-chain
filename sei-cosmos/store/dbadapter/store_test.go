@@ -79,12 +79,12 @@ func TestCacheWraps(t *testing.T) {
 	mockDB := mocks.NewMockDB(mockCtrl)
 	store := dbadapter.Store{mockDB}
 
-	cacheWrapper := store.CacheWrap(nil, types.DefaultCacheSizeLimit)
+	cacheWrapper := store.CacheWrap(nil)
 	require.IsType(t, &cachekv.Store{}, cacheWrapper)
 
-	cacheWrappedWithTrace := store.CacheWrapWithTrace(nil, nil, nil, types.DefaultCacheSizeLimit)
+	cacheWrappedWithTrace := store.CacheWrapWithTrace(nil, nil, nil)
 	require.IsType(t, &cachekv.Store{}, cacheWrappedWithTrace)
 
-	cacheWrappedWithListeners := store.CacheWrapWithListeners(nil, nil, types.DefaultCacheSizeLimit)
+	cacheWrappedWithListeners := store.CacheWrapWithListeners(nil, nil)
 	require.IsType(t, &cachekv.Store{}, cacheWrappedWithListeners)
 }

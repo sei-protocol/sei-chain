@@ -21,23 +21,23 @@ func (ms multiStore) RollbackToVersion(version int64) error {
 	panic("not implemented")
 }
 
-func (ms multiStore) CacheMultiStore(_ int) sdk.CacheMultiStore {
+func (ms multiStore) CacheMultiStore() sdk.CacheMultiStore {
 	panic("not implemented")
 }
 
-func (ms multiStore) CacheMultiStoreWithVersion(_ int64, _ int) (sdk.CacheMultiStore, error) {
+func (ms multiStore) CacheMultiStoreWithVersion(_ int64) (sdk.CacheMultiStore, error) {
 	panic("not implemented")
 }
 
-func (ms multiStore) CacheWrap(_ store.StoreKey, _ int) sdk.CacheWrap {
+func (ms multiStore) CacheWrap(_ store.StoreKey) sdk.CacheWrap {
 	panic("not implemented")
 }
 
-func (ms multiStore) CacheWrapWithTrace(_ store.StoreKey, _ io.Writer, _ sdk.TraceContext, _ int) sdk.CacheWrap {
+func (ms multiStore) CacheWrapWithTrace(_ store.StoreKey, _ io.Writer, _ sdk.TraceContext) sdk.CacheWrap {
 	panic("not implemented")
 }
 
-func (ms multiStore) CacheWrapWithListeners(_ store.StoreKey, _ []store.WriteListener, _ int) store.CacheWrap {
+func (ms multiStore) CacheWrapWithListeners(_ store.StoreKey, _ []store.WriteListener) store.CacheWrap {
 	panic("not implemented")
 }
 
@@ -157,15 +157,15 @@ type kvStore struct {
 	store map[string][]byte
 }
 
-func (kv kvStore) CacheWrap(_ store.StoreKey, _ int) sdk.CacheWrap {
+func (kv kvStore) CacheWrap(_ store.StoreKey) sdk.CacheWrap {
 	panic("not implemented")
 }
 
-func (kv kvStore) CacheWrapWithTrace(_ store.StoreKey, w io.Writer, tc sdk.TraceContext, _ int) sdk.CacheWrap {
+func (kv kvStore) CacheWrapWithTrace(_ store.StoreKey, w io.Writer, tc sdk.TraceContext) sdk.CacheWrap {
 	panic("not implemented")
 }
 
-func (kv kvStore) CacheWrapWithListeners(_ store.StoreKey, _ []store.WriteListener, _ int) store.CacheWrap {
+func (kv kvStore) CacheWrapWithListeners(_ store.StoreKey, _ []store.WriteListener) store.CacheWrap {
 	panic("not implemented")
 }
 

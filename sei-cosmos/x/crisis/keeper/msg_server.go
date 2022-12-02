@@ -3,7 +3,6 @@ package keeper
 import (
 	"context"
 
-	storetypes "github.com/cosmos/cosmos-sdk/store/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/x/crisis/types"
 )
@@ -23,7 +22,7 @@ func (k Keeper) VerifyInvariant(goCtx context.Context, msg *types.MsgVerifyInvar
 	}
 
 	// use a cached context to avoid gas costs during invariants
-	cacheCtx, _ := ctx.CacheContext(storetypes.DefaultCacheSizeLimit)
+	cacheCtx, _ := ctx.CacheContext()
 
 	found := false
 	msgFullRoute := msg.FullInvariantRoute()

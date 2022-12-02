@@ -130,7 +130,7 @@ func queryDelegationRewards(ctx sdk.Context, _ []string, req abci.RequestQuery, 
 	}
 
 	// branch the context to isolate state changes
-	ctx, _ = ctx.CacheContext(k.cacheSize)
+	ctx, _ = ctx.CacheContext()
 
 	val := k.stakingKeeper.Validator(ctx, params.ValidatorAddress)
 	if val == nil {
@@ -164,7 +164,7 @@ func queryDelegatorTotalRewards(ctx sdk.Context, _ []string, req abci.RequestQue
 	}
 
 	// branch the context to isolate state changes
-	ctx, _ = ctx.CacheContext(k.cacheSize)
+	ctx, _ = ctx.CacheContext()
 
 	total := sdk.DecCoins{}
 
@@ -202,7 +202,7 @@ func queryDelegatorValidators(ctx sdk.Context, _ []string, req abci.RequestQuery
 	}
 
 	// branch the context to isolate state changes
-	ctx, _ = ctx.CacheContext(k.cacheSize)
+	ctx, _ = ctx.CacheContext()
 
 	var validators []sdk.ValAddress
 
@@ -230,7 +230,7 @@ func queryDelegatorWithdrawAddress(ctx sdk.Context, _ []string, req abci.Request
 	}
 
 	// branch the context to isolate state changes
-	ctx, _ = ctx.CacheContext(k.cacheSize)
+	ctx, _ = ctx.CacheContext()
 	withdrawAddr := k.GetDelegatorWithdrawAddr(ctx, params.DelegatorAddress)
 
 	bz, err := codec.MarshalJSONIndent(legacyQuerierCdc, withdrawAddr)

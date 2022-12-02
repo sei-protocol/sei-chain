@@ -15,7 +15,7 @@ import (
 
 func TestGetOrSetStoreCache(t *testing.T) {
 	db := dbm.NewMemDB()
-	mngr := cache.NewCommitKVStoreCacheManager(cache.DefaultCommitKVStoreCacheSize)
+	mngr := cache.NewCommitKVStoreCacheManager(cache.DefaultCommitKVStoreCacheSize, types.DefaultCacheSizeLimit)
 
 	sKey := types.NewKVStoreKey("test")
 	tree, err := iavl.NewMutableTree(db, 100, false)
@@ -29,7 +29,7 @@ func TestGetOrSetStoreCache(t *testing.T) {
 
 func TestUnwrap(t *testing.T) {
 	db := dbm.NewMemDB()
-	mngr := cache.NewCommitKVStoreCacheManager(cache.DefaultCommitKVStoreCacheSize)
+	mngr := cache.NewCommitKVStoreCacheManager(cache.DefaultCommitKVStoreCacheSize, types.DefaultCacheSizeLimit)
 
 	sKey := types.NewKVStoreKey("test")
 	tree, err := iavl.NewMutableTree(db, 100, false)
@@ -43,7 +43,7 @@ func TestUnwrap(t *testing.T) {
 
 func TestStoreCache(t *testing.T) {
 	db := dbm.NewMemDB()
-	mngr := cache.NewCommitKVStoreCacheManager(cache.DefaultCommitKVStoreCacheSize)
+	mngr := cache.NewCommitKVStoreCacheManager(cache.DefaultCommitKVStoreCacheSize, types.DefaultCacheSizeLimit)
 
 	sKey := types.NewKVStoreKey("test")
 	tree, err := iavl.NewMutableTree(db, 100, false)

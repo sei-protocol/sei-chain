@@ -135,19 +135,19 @@ func (s *Store) GetStoreType() types.StoreType {
 
 // CacheWrap implements the KVStore interface. It panics as a Store
 // cannot be cache wrapped.
-func (s *Store) CacheWrap(_ types.StoreKey, _ int) types.CacheWrap {
+func (s *Store) CacheWrap(_ types.StoreKey) types.CacheWrap {
 	panic("cannot CacheWrap a ListenKVStore")
 }
 
 // CacheWrapWithTrace implements the KVStore interface. It panics as a
 // Store cannot be cache wrapped.
-func (s *Store) CacheWrapWithTrace(_ types.StoreKey, _ io.Writer, _ types.TraceContext, _ int) types.CacheWrap {
+func (s *Store) CacheWrapWithTrace(_ types.StoreKey, _ io.Writer, _ types.TraceContext) types.CacheWrap {
 	panic("cannot CacheWrapWithTrace a ListenKVStore")
 }
 
 // CacheWrapWithListeners implements the KVStore interface. It panics as a
 // Store cannot be cache wrapped.
-func (s *Store) CacheWrapWithListeners(_ types.StoreKey, _ []types.WriteListener, _ int) types.CacheWrap {
+func (s *Store) CacheWrapWithListeners(_ types.StoreKey, _ []types.WriteListener) types.CacheWrap {
 	panic("cannot CacheWrapWithListeners a ListenKVStore")
 }
 

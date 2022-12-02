@@ -64,6 +64,7 @@ type Store struct {
 	parent        types.KVStore
 	eventManager  *sdktypes.EventManager
 	storeKey      types.StoreKey
+	cacheSize     int
 }
 
 var _ types.CacheKVStore = (*Store)(nil)
@@ -78,6 +79,7 @@ func NewStore(parent types.KVStore, storeKey types.StoreKey, cacheSize int) *Sto
 		parent:        parent,
 		eventManager:  sdktypes.NewEventManager(),
 		storeKey:      storeKey,
+		cacheSize:     cacheSize,
 	}
 }
 
@@ -197,18 +199,18 @@ func (store *Store) Write() {
 }
 
 // CacheWrap implements CacheWrapper.
-func (store *Store) CacheWrap(storeKey types.StoreKey, size int) types.CacheWrap {
-	return NewStore(store, storeKey, size)
+func (store *Store) CacheWrap(storeKey types.StoreKey) types.CacheWrap {
+	return NewStore(store, storeKey, store.cacheSize)
 }
 
 // CacheWrapWithTrace implements the CacheWrapper interface.
-func (store *Store) CacheWrapWithTrace(storeKey types.StoreKey, w io.Writer, tc types.TraceContext, size int) types.CacheWrap {
-	return NewStore(tracekv.NewStore(store, w, tc), storeKey, size)
+func (store *Store) CacheWrapWithTrace(storeKey types.StoreKey, w io.Writer, tc types.TraceContext) types.CacheWrap {
+	return NewStore(tracekv.NewStore(store, w, tc), storeKey, store.cacheSize)
 }
 
 // CacheWrapWithListeners implements the CacheWrapper interface.
-func (store *Store) CacheWrapWithListeners(storeKey types.StoreKey, listeners []types.WriteListener, size int) types.CacheWrap {
-	return NewStore(listenkv.NewStore(store, storeKey, listeners), storeKey, size)
+func (store *Store) CacheWrapWithListeners(storeKey types.StoreKey, listeners []types.WriteListener) types.CacheWrap {
+	return NewStore(listenkv.NewStore(store, storeKey, listeners), storeKey, store.cacheSize)
 }
 
 //----------------------------------------

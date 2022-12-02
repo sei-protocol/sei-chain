@@ -23,9 +23,9 @@ func TestGasKVStoreBasic(t *testing.T) {
 	st := gaskv.NewStore(mem, meter, types.KVGasConfig())
 
 	require.Equal(t, types.StoreTypeDB, st.GetStoreType())
-	require.Panics(t, func() { st.CacheWrap(nil, types.DefaultCacheSizeLimit) })
-	require.Panics(t, func() { st.CacheWrapWithTrace(nil, nil, nil, types.DefaultCacheSizeLimit) })
-	require.Panics(t, func() { st.CacheWrapWithListeners(nil, nil, types.DefaultCacheSizeLimit) })
+	require.Panics(t, func() { st.CacheWrap(nil) })
+	require.Panics(t, func() { st.CacheWrapWithTrace(nil, nil, nil) })
+	require.Panics(t, func() { st.CacheWrapWithListeners(nil, nil) })
 
 	require.Panics(t, func() { st.Set(nil, []byte("value")) }, "setting a nil key should panic")
 	require.Panics(t, func() { st.Set([]byte(""), []byte("value")) }, "setting an empty key should panic")

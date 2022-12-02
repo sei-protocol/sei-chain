@@ -40,13 +40,13 @@ var _ types.CacheMultiStore = Store{}
 func NewFromKVStore(
 	store types.KVStore, stores map[types.StoreKey]types.CacheWrapper,
 	keys map[string]types.StoreKey, traceWriter io.Writer, traceContext types.TraceContext,
-	listeners map[types.StoreKey][]types.WriteListener, cacheLimit int,
+	listeners map[types.StoreKey][]types.WriteListener,
 ) Store {
 	if listeners == nil {
 		listeners = make(map[types.StoreKey][]types.WriteListener)
 	}
 	cms := Store{
-		db:           cachekv.NewStore(store, nil, cacheLimit),
+		db:           cachekv.NewStore(store, nil, types.DefaultCacheSizeLimit),
 		stores:       make(map[types.StoreKey]types.CacheWrap, len(stores)),
 		keys:         keys,
 		traceWriter:  traceWriter,
@@ -61,7 +61,7 @@ func NewFromKVStore(
 		if cms.ListeningEnabled(key) {
 			store = listenkv.NewStore(store.(types.KVStore), key, listeners[key])
 		}
-		cms.stores[key] = cachekv.NewStore(store.(types.KVStore), key, cacheLimit)
+		cms.stores[key] = cachekv.NewStore(store.(types.KVStore), key, types.DefaultCacheSizeLimit)
 	}
 
 	return cms
@@ -71,20 +71,19 @@ func NewFromKVStore(
 // CacheWrapper objects. Each CacheWrapper store is a branched store.
 func NewStore(
 	db dbm.DB, stores map[types.StoreKey]types.CacheWrapper, keys map[string]types.StoreKey,
-	traceWriter io.Writer, traceContext types.TraceContext, listeners map[types.StoreKey][]types.WriteListener, cacheLimit int,
+	traceWriter io.Writer, traceContext types.TraceContext, listeners map[types.StoreKey][]types.WriteListener,
 ) Store {
 
-	return NewFromKVStore(dbadapter.Store{DB: db}, stores, keys, traceWriter, traceContext, listeners, cacheLimit)
+	return NewFromKVStore(dbadapter.Store{DB: db}, stores, keys, traceWriter, traceContext, listeners)
 }
 
-func newCacheMultiStoreFromCMS(cms Store, cacheLimit int) Store {
+func newCacheMultiStoreFromCMS(cms Store) Store {
 	stores := make(map[types.StoreKey]types.CacheWrapper)
 	for k, v := range cms.stores {
 		stores[k] = v
 	}
 
-	// don't pass listeners to nested cache store.
-	return NewFromKVStore(cms.db, stores, nil, cms.traceWriter, cms.traceContext, nil, cacheLimit)
+	return NewFromKVStore(cms.db, stores, nil, cms.traceWriter, cms.traceContext, nil)
 }
 
 // SetTracer sets the tracer for the MultiStore that the underlying
@@ -155,23 +154,23 @@ func (cms Store) GetEvents() []abci.Event {
 }
 
 // Implements CacheWrapper.
-func (cms Store) CacheWrap(_ types.StoreKey, size int) types.CacheWrap {
-	return cms.CacheMultiStore(size).(types.CacheWrap)
+func (cms Store) CacheWrap(_ types.StoreKey) types.CacheWrap {
+	return cms.CacheMultiStore().(types.CacheWrap)
 }
 
 // CacheWrapWithTrace implements the CacheWrapper interface.
-func (cms Store) CacheWrapWithTrace(storeKey types.StoreKey, _ io.Writer, _ types.TraceContext, size int) types.CacheWrap {
-	return cms.CacheWrap(storeKey, size)
+func (cms Store) CacheWrapWithTrace(storeKey types.StoreKey, _ io.Writer, _ types.TraceContext) types.CacheWrap {
+	return cms.CacheWrap(storeKey)
 }
 
 // CacheWrapWithListeners implements the CacheWrapper interface.
-func (cms Store) CacheWrapWithListeners(storeKey types.StoreKey, _ []types.WriteListener, size int) types.CacheWrap {
-	return cms.CacheWrap(storeKey, size)
+func (cms Store) CacheWrapWithListeners(storeKey types.StoreKey, _ []types.WriteListener) types.CacheWrap {
+	return cms.CacheWrap(storeKey)
 }
 
 // Implements MultiStore.
-func (cms Store) CacheMultiStore(size int) types.CacheMultiStore {
-	return newCacheMultiStoreFromCMS(cms, size)
+func (cms Store) CacheMultiStore() types.CacheMultiStore {
+	return newCacheMultiStoreFromCMS(cms)
 }
 
 // CacheMultiStoreWithVersion implements the MultiStore interface. It will panic
@@ -179,7 +178,7 @@ func (cms Store) CacheMultiStore(size int) types.CacheMultiStore {
 //
 // TODO: The store implementation can possibly be modified to support this as it
 // seems safe to load previous versions (heights).
-func (cms Store) CacheMultiStoreWithVersion(_ int64, _ int) (types.CacheMultiStore, error) {
+func (cms Store) CacheMultiStoreWithVersion(_ int64) (types.CacheMultiStore, error) {
 	panic("cannot branch cached multi-store with a version")
 }
 

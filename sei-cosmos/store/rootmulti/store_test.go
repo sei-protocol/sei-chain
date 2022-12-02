@@ -64,7 +64,7 @@ func TestCacheMultiStore(t *testing.T) {
 	var db dbm.DB = dbm.NewMemDB()
 	ms := newMultiStoreWithMounts(db, types.PruneNothing)
 
-	cacheMulti := ms.CacheMultiStore(types.DefaultCacheSizeLimit)
+	cacheMulti := ms.CacheMultiStore()
 	require.IsType(t, cachemulti.Store{}, cacheMulti)
 }
 
@@ -86,11 +86,11 @@ func TestCacheMultiStoreWithVersion(t *testing.T) {
 	require.Equal(t, int64(1), cID.Version)
 
 	// require no failure when given an invalid or pruned version
-	_, err = ms.CacheMultiStoreWithVersion(cID.Version+1, types.DefaultCacheSizeLimit)
+	_, err = ms.CacheMultiStoreWithVersion(cID.Version + 1)
 	require.NoError(t, err)
 
 	// require a valid version can be cache-loaded
-	cms, err := ms.CacheMultiStoreWithVersion(cID.Version, types.DefaultCacheSizeLimit)
+	cms, err := ms.CacheMultiStoreWithVersion(cID.Version)
 	require.NoError(t, err)
 
 	// require a valid key lookup yields the correct value
@@ -519,12 +519,12 @@ func TestMultiStore_Pruning(t *testing.T) {
 			}
 
 			for _, v := range tc.saved {
-				_, err := ms.CacheMultiStoreWithVersion(v, types.DefaultCacheSizeLimit)
+				_, err := ms.CacheMultiStoreWithVersion(v)
 				require.NoError(t, err, "expected error when loading height: %d", v)
 			}
 
 			for _, v := range tc.deleted {
-				_, err := ms.CacheMultiStoreWithVersion(v, types.DefaultCacheSizeLimit)
+				_, err := ms.CacheMultiStoreWithVersion(v)
 				require.NoError(t, err, "expected error when loading height: %d", v)
 			}
 		})
@@ -560,7 +560,7 @@ func TestMultiStore_PruningRestart(t *testing.T) {
 	require.Empty(t, ms.pruneHeights)
 
 	for _, v := range pruneHeights {
-		_, err := ms.CacheMultiStoreWithVersion(v, types.DefaultCacheSizeLimit)
+		_, err := ms.CacheMultiStoreWithVersion(v)
 		require.NoError(t, err, "expected error when loading height: %d", v)
 	}
 }
@@ -692,13 +692,13 @@ func TestCacheWraps(t *testing.T) {
 	db := dbm.NewMemDB()
 	multi := newMultiStoreWithMounts(db, types.PruneNothing)
 
-	cacheWrapper := multi.CacheWrap(nil, types.DefaultCacheSizeLimit)
+	cacheWrapper := multi.CacheWrap(nil)
 	require.IsType(t, cachemulti.Store{}, cacheWrapper)
 
-	cacheWrappedWithTrace := multi.CacheWrapWithTrace(nil, nil, nil, types.DefaultCacheSizeLimit)
+	cacheWrappedWithTrace := multi.CacheWrapWithTrace(nil, nil, nil)
 	require.IsType(t, cachemulti.Store{}, cacheWrappedWithTrace)
 
-	cacheWrappedWithListeners := multi.CacheWrapWithListeners(nil, nil, types.DefaultCacheSizeLimit)
+	cacheWrappedWithListeners := multi.CacheWrapWithListeners(nil, nil)
 	require.IsType(t, cachemulti.Store{}, cacheWrappedWithListeners)
 }
 
@@ -715,9 +715,9 @@ func TestTraceConcurrency(t *testing.T) {
 	multi.SetTracer(b)
 	multi.SetTracingContext(tc)
 
-	cms := multi.CacheMultiStore(types.DefaultCacheSizeLimit)
+	cms := multi.CacheMultiStore()
 	store1 := cms.GetKVStore(key)
-	cw := store1.CacheWrapWithTrace(nil, b, tc, types.DefaultCacheSizeLimit)
+	cw := store1.CacheWrapWithTrace(nil, b, tc)
 	_ = cw
 	require.NotNil(t, store1)
 
@@ -857,7 +857,7 @@ func TestStateListeners(t *testing.T) {
 	ms.AddListeners(testStoreKey1, []types.WriteListener{listener})
 
 	require.NoError(t, ms.LoadLatestVersion())
-	cacheMulti := ms.CacheMultiStore(types.DefaultCacheSizeLimit)
+	cacheMulti := ms.CacheMultiStore()
 
 	store1 := cacheMulti.GetKVStore(testStoreKey1)
 	store1.Set([]byte{1}, []byte{1})
@@ -869,7 +869,7 @@ func TestStateListeners(t *testing.T) {
 
 	// test nested cache store
 	listener.stateCache = []types.StoreKVPair{}
-	nested := cacheMulti.CacheMultiStore(types.DefaultCacheSizeLimit)
+	nested := cacheMulti.CacheMultiStore()
 
 	store1 = nested.GetKVStore(testStoreKey1)
 	store1.Set([]byte{1}, []byte{1})

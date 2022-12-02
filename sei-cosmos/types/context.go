@@ -323,8 +323,8 @@ func (c Context) TransientStore(key StoreKey) KVStore {
 // CacheContext returns a new Context with the multi-store cached and a new
 // EventManager. The cached context is written to the context when writeCache
 // is called.
-func (c Context) CacheContext(cacheSize int) (cc Context, writeCache func()) {
-	cms := c.MultiStore().CacheMultiStore(cacheSize)
+func (c Context) CacheContext() (cc Context, writeCache func()) {
+	cms := c.MultiStore().CacheMultiStore()
 	cc = c.WithMultiStore(cms).WithEventManager(NewEventManager())
 	return cc, cms.Write
 }
