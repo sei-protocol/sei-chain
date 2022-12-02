@@ -58,6 +58,10 @@ ldflags := $(strip $(ldflags))
 BUILD_FLAGS := -tags "$(build_tags)" -ldflags '$(ldflags)'
 
 #### Command List ####
+# Make sure you are using latest nitro replayer library before make install:
+# 1. git clone https://github.com/sei-protocol/nitro-replayer
+# 2. cd nitro-replayer && cargo build --release && cd ..
+# 3. cp nitro-replayer/target/release/libnitro_replayer.dylib sei-chain/x/nitro/replay
 
 all: lint install
 
