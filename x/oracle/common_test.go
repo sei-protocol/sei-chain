@@ -44,11 +44,6 @@ func setup(t *testing.T) (keeper.TestInput, sdk.Handler) {
 	params.VotePeriod = 1
 	params.SlashWindow = 100
 	input.OracleKeeper.SetParams(input.Ctx, params)
-
-	stakingParams := input.StakingKeeper.GetParams(input.Ctx)
-	stakingParams.MinCommissionRate = sdk.NewDecWithPrec(0, 2)
-	input.StakingKeeper.SetParams(input.Ctx, stakingParams)
-
 	h := oracle.NewHandler(input.OracleKeeper)
 
 	sh := staking.NewHandler(input.StakingKeeper)
