@@ -20,7 +20,7 @@ keyname=admin
 
 rm -rf ~/.sei
 echo "Building..."
-make install
+./build.sh sei-nitro
 #echo $password | sudo -S rm -r ~/.sei/
 #echo $password | sudo -S rm -r ~/test_accounts/
 ~/go/bin/seid init demo --chain-id sei-chain

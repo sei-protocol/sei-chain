@@ -1,7 +1,6 @@
 # min go compiler version >=1.18.2
 # gvm use go1.18.2
-# build seid
-go build -o build/seid ./cmd/seid/
+./build.sh seid-nitro
 # bootstrap from scratch
 rm -rf ~/.sei/
 rm -rf ~/test_accounts/
