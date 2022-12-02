@@ -62,9 +62,9 @@ func run(config Config) {
 	if config.Constant {
 		fmt.Printf("Running in constant mode with interval=%d\n", config.LoadInterval)
 		for {
-			runOnce(config)
 			fmt.Printf("Sleeping for %f seconds before next run...\n", sleepDuration.Seconds())
 			time.Sleep(sleepDuration)
+			runOnce(config)
 		}
 	} else {
 		runOnce(config)
