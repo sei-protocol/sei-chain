@@ -23,8 +23,8 @@ func NewStore(parent storetypes.CacheMultiStore, storeKeyToWriteWhitelist map[st
 	}
 }
 
-func (cms Store) CacheMultiStore(cacheSize int) storetypes.CacheMultiStore {
-	return NewStore(cms.sdkCacheMultiStore.CacheMultiStore(cacheSize), cms.storeKeyToWriteWhitelist)
+func (cms Store) CacheMultiStore() storetypes.CacheMultiStore {
+	return NewStore(cms.sdkCacheMultiStore.CacheMultiStore(), cms.storeKeyToWriteWhitelist)
 }
 
 func (cms Store) GetKVStore(key storetypes.StoreKey) storetypes.KVStore {

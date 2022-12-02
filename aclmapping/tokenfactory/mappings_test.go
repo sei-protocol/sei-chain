@@ -6,7 +6,6 @@ import (
 
 	"github.com/cosmos/cosmos-sdk/crypto/keys/secp256k1"
 	"github.com/cosmos/cosmos-sdk/simapp"
-	storetypes "github.com/cosmos/cosmos-sdk/store/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkacltypes "github.com/cosmos/cosmos-sdk/types/accesscontrol"
 	acltypes "github.com/cosmos/cosmos-sdk/x/accesscontrol/types"
@@ -83,7 +82,7 @@ func (suite *KeeperTestSuite) PrepareTest() {
 
 func cacheTxContext(ctx sdk.Context) (sdk.Context, sdk.CacheMultiStore) {
 	ms := ctx.MultiStore()
-	msCache := ms.CacheMultiStore(storetypes.DefaultCacheSizeLimit)
+	msCache := ms.CacheMultiStore()
 	return ctx.WithMultiStore(msCache), msCache
 }
 
