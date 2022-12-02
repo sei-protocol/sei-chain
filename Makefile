@@ -87,3 +87,32 @@ build:
 
 clean:
 	rm -rf ./build
+
+###############################################################################
+###                       Local testing using docker container              ###
+###############################################################################
+
+# Build linux binary on other platforms
+build-linux:
+	GOOS=linux GOARCH=amd64 CGO_ENABLED=1 $(MAKE) build
+.PHONY: build-linux
+
+# Build docker image
+build-docker-localnode:
+	@cd network && make
+.PHONY: build-docker-localnode
+
+# Run a single docker container
+run-docker-localnode:
+	docker run --rm -v $(CURDIR)/build:/sei-chain:Z sei-chain/localnode
+.PHONY: run-docker-localnode
+
+# Run a 4-node docker containers locally
+localnet-start: localnet-stop build-docker-localnode
+	docker-compose up
+.PHONY: localnet-start
+
+# Stop 4-node docker containers
+localnet-stop:
+	docker-compose down
+.PHONY: localnet-stop

@@ -1,0 +1,63 @@
+version: '3.8'
+
+services:
+  node0:
+    container_name: sei-node0
+    image: "sei-chain/localnode"
+    ports:
+      - "26656-26657:26656-26657"
+    environment:
+      - ID=0
+    volumes:
+      - ./build:/sei-chain:Z
+    networks:
+      localnet:
+        ipv4_address: 192.168.10.2
+
+  node1:
+    container_name: sei-node1
+    image: "sei-chain/localnode"
+    ports:
+      - "26659-26660:26656-26657"
+    environment:
+      - ID=1
+    volumes:
+      - ./build:/sei-chain:Z
+    networks:
+      localnet:
+        ipv4_address: 192.168.10.3
+
+  node2:
+    container_name: sei-node2
+    image: "sei-chain/localnode"
+    environment:
+      - ID=2
+    ports:
+      - "26661-26662:26656-26657"
+    volumes:
+      - ./build:/sei-chain:Z
+    networks:
+      localnet:
+        ipv4_address: 192.168.10.4
+
+  node3:
+    container_name: sei-node3
+    image: "sei-chain/localnode"
+    environment:
+      - ID=3
+    ports:
+      - "26663-26664:26656-26657"
+    volumes:
+      - ./build:/sei-chain:Z
+    networks:
+      localnet:
+        ipv4_address: 192.168.10.5
+
+networks:
+  localnet:
+    driver: bridge
+    ipam:
+      driver: default
+      config:
+        -
+          subnet: 192.168.10.0/16
