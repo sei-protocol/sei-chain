@@ -56,7 +56,7 @@ type CustomQueryHandler struct {
 func (queryHandler CustomQueryHandler) HandleQuery(ctx sdk.Context, caller sdk.AccAddress, request wasmvmtypes.QueryRequest) ([]byte, error) {
 	// TODO: we need to carry wasmDependency in ctx instead of loading again here since here has no access to original msg payload
 	//       which is required for populating id correctly.
-	wasmDependency, err := queryHandler.aclKeeper.GetWasmDependencyMapping(ctx, caller, []byte{}, false)
+	wasmDependency, err := queryHandler.aclKeeper.GetWasmDependencyMapping(ctx, caller, "", []byte{}, false)
 	// If no mapping exists, or mapping is disabled, this message would behave as blocking for all resources
 	needToCheckDependencies := true
 	if err == aclkeeper.ErrWasmDependencyMappingNotFound {

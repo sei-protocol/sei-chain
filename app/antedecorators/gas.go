@@ -37,7 +37,7 @@ func getMessageMultiplierDenominator(ctx sdk.Context, msg sdk.Msg, aclkeeper acl
 		if err != nil {
 			return DefaultGasMultiplierDenominator
 		}
-		mapping, err := aclkeeper.GetWasmDependencyMapping(ctx, addr, []byte{}, false)
+		mapping, err := aclkeeper.GetWasmDependencyMapping(ctx, addr, "", []byte{}, false)
 		if err != nil {
 			return DefaultGasMultiplierDenominator
 		}

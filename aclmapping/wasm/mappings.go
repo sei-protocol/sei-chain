@@ -42,7 +42,7 @@ func (wasmDepGen WasmDependencyGenerator) WasmExecuteContractGenerator(keeper ac
 	if err != nil {
 		return []sdkacltypes.AccessOperation{}, err
 	}
-	wasmDependencyMapping, err := keeper.GetWasmDependencyMapping(ctx, contractAddr, executeContractMsg.Msg, true)
+	wasmDependencyMapping, err := keeper.GetWasmDependencyMapping(ctx, contractAddr, executeContractMsg.Sender, executeContractMsg.Msg, true)
 	if err != nil {
 		return []sdkacltypes.AccessOperation{}, err
 	}
