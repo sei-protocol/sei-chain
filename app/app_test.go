@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/cosmos/cosmos-sdk/crypto/keys/secp256k1"
+	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkacltypes "github.com/cosmos/cosmos-sdk/types/accesscontrol"
 	acltypes "github.com/cosmos/cosmos-sdk/x/accesscontrol/types"
 	"github.com/k0kubun/pp/v3"
@@ -75,4 +76,87 @@ func TestGetChannelsFromSignalMapping(t *testing.T) {
 
 	require.True(t, len(resultCompletionSignalsMap) > 1)
 	require.True(t, len(resultBlockingSignalsMap) > 1)
+}
+
+
+// Mock method to fail
+func MockProcessBlockConcurrentFunctionFail(
+	ctx sdk.Context,
+	txs [][]byte,
+	completionSignalingMap map[int]acltypes.MessageCompletionSignalMapping,
+	blockingSignalsMap map[int]acltypes.MessageCompletionSignalMapping,
+	txMsgAccessOpMapping map[int]acltypes.MsgIndexToAccessOpMapping,
+) ([]*abci.ExecTxResult, bool) {
+	return []*abci.ExecTxResult{}, false
+}
+
+func MockProcessBlockConcurrentFunctionSuccess(
+	ctx sdk.Context,
+	txs [][]byte,
+	completionSignalingMap map[int]acltypes.MessageCompletionSignalMapping,
+	blockingSignalsMap map[int]acltypes.MessageCompletionSignalMapping,
+	txMsgAccessOpMapping map[int]acltypes.MsgIndexToAccessOpMapping,
+) ([]*abci.ExecTxResult, bool) {
+	return []*abci.ExecTxResult{}, true
+}
+
+
+func TestProcessTxsSuccess(t *testing.T) {
+	tm := time.Now().UTC()
+	valPub := secp256k1.GenPrivKey().PubKey()
+
+
+	testWrapper := app.NewTestWrapper(t, tm, valPub)
+	dag := acltypes.NewDag()
+
+	// Set some test context mem cache values
+	testWrapper.Ctx.ContextMemCache().UpsertDeferredSends("Some Account", sdk.NewCoins(sdk.Coin{
+		Denom:  "test",
+		Amount: sdk.NewInt(1),
+	}))
+	testWrapper.Ctx.ContextMemCache().UpsertDeferredWithdrawals("Some Other Account", sdk.NewCoins(sdk.Coin{
+		Denom:  "test",
+		Amount: sdk.NewInt(1),
+	}))
+	require.Equal(t, 1, len(testWrapper.Ctx.ContextMemCache().GetDeferredSends().GetSortedKeys()))
+	testWrapper.App.ProcessTxs(
+		testWrapper.Ctx,
+		[][]byte{},
+		&dag,
+		MockProcessBlockConcurrentFunctionSuccess,
+	)
+
+	// It should be reset if it fails to prevent any values from being written
+	require.Equal(t, 1, len(testWrapper.Ctx.ContextMemCache().GetDeferredWithdrawals().GetSortedKeys()))
+	require.Equal(t, 1, len(testWrapper.Ctx.ContextMemCache().GetDeferredSends().GetSortedKeys()))
+}
+
+
+func TestProcessTxsClearCacheOnFail(t *testing.T) {
+	tm := time.Now().UTC()
+	valPub := secp256k1.GenPrivKey().PubKey()
+
+
+	testWrapper := app.NewTestWrapper(t, tm, valPub)
+	dag := acltypes.NewDag()
+
+	// Set some test context mem cache values
+	testWrapper.Ctx.ContextMemCache().UpsertDeferredSends("Some Account", sdk.NewCoins(sdk.Coin{
+		Denom:  "test",
+		Amount: sdk.NewInt(1),
+	}))
+	testWrapper.Ctx.ContextMemCache().UpsertDeferredWithdrawals("Some Account", sdk.NewCoins(sdk.Coin{
+		Denom:  "test",
+		Amount: sdk.NewInt(1),
+	}))
+	testWrapper.App.ProcessTxs(
+		testWrapper.Ctx,
+		[][]byte{},
+		&dag,
+		MockProcessBlockConcurrentFunctionFail,
+	)
+
+	// It should be reset if it fails to prevent any values from being written
+	require.Equal(t, 0, len(testWrapper.Ctx.ContextMemCache().GetDeferredWithdrawals().GetSortedKeys()))
+	require.Equal(t, 0, len(testWrapper.Ctx.ContextMemCache().GetDeferredSends().GetSortedKeys()))
 }
