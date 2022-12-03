@@ -86,3 +86,11 @@ func (c *ContextMemCache) ApplyOnAllDeferredOperationsAndDelete(apply func (reci
 	c.RangeOnDeferredSendsAndDelete(apply)
 	c.RangeOnDeferredWithdrawalsAndDelete(apply)
 }
+
+
+func (c *ContextMemCache) Clear() {
+	c.deferredBankOpsLock.Lock()
+	defer c.deferredBankOpsLock.Unlock()
+	c.deferredSends = NewDeferredBankOperationMap()
+	c.deferredWithdrawals = NewDeferredBankOperationMap()
+}
