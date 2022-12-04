@@ -3,12 +3,11 @@
 # Input parameters
 NODE_ID=${ID:-0}
 
-# Executing
+# Greeting output
 echo "hello-sei"
-cd /sei-chain
-ls -l
 
 # Testing whether seid works or not
+cd /sei-chain
 ./seid version
 
 # TODO: Add sei-chain initialization logic
