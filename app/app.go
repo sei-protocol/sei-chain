@@ -1130,7 +1130,7 @@ func (app *App) ProcessBlockConcurrent(
 }
 
 func (app *App) ProcessTxs(
-	ctx sdk.Context,
+	ctx *sdk.Context,
 	txs [][]byte,
 	dependencyDag *acltypes.Dag,
 	processBlockConcurrentFunction ProcessBlockConcurrentFunction,
@@ -1140,7 +1140,7 @@ func (app *App) ProcessTxs(
 	// runTx will write to this ephermeral CacheMultiStore, after the process block is done, Write() is called on this
 	// CacheMultiStore where it writes the data to the parent store (DeliverState) in sorted Key order to maintain
 	// deterministic ordering between validators in the case of concurrent deliverTXs
-	processBlockCtx, processBlockCache := app.CacheContext(ctx)
+	processBlockCtx, processBlockCache := app.CacheContext(*ctx)
 	concurrentResults, ok := processBlockConcurrentFunction(
 		processBlockCtx,
 		txs,
@@ -1154,12 +1154,13 @@ func (app *App) ProcessTxs(
 		processBlockCache.Write()
 		return concurrentResults
 	}
-
+	// we need to add the wasm dependencies before we process synchronous otherwise it never gets included
+	*ctx = app.addBadWasmDependenciesToContext(*ctx, concurrentResults)
 	ctx.Logger().Error("Concurrent Execution failed, retrying with Synchronous")
 	// Clear the memcache context from the previous state as it failed, we no longer need to commit the data
 	ctx.ContextMemCache().Clear()
 
-	txResults := app.ProcessBlockSynchronous(ctx, txs)
+	txResults := app.ProcessBlockSynchronous(*ctx, txs)
 	processBlockCache.Write()
 	return txResults
 }
@@ -1202,7 +1203,9 @@ func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequ
 	case nil:
 		// Start with a fresh state for the MemCache
 		ctx = ctx.WithContextMemCache(sdk.NewContextMemCache())
-		txResults = app.ProcessTxs(ctx, txs, dependencyDag, app.ProcessBlockConcurrent)
+		txResults = app.ProcessTxs(&ctx, txs, dependencyDag, app.ProcessBlockConcurrent)
+		// debug log
+		fmt.Printf("Context bad dependencies: %v \n", ctx.Context().Value(aclconstants.BadWasmDependencyAddressesKey))
 	case acltypes.ErrGovMsgInBlock:
 		ctx.Logger().Info(fmt.Sprintf("Gov msg found while building DAG, processing synchronously: %s", err))
 		txResults = app.ProcessBlockSynchronous(ctx, txs)
@@ -1217,7 +1220,6 @@ func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequ
 	lazyWriteEvents := app.BankKeeper.WriteDeferredOperations(ctx)
 	events = append(events, lazyWriteEvents...)
 
-	ctx = app.enrichContextWithTxResults(ctx, txResults)
 	endBlockResp := app.EndBlock(ctx, abci.RequestEndBlock{
 		Height: req.GetHeight(),
 	})
@@ -1227,17 +1229,22 @@ func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequ
 	return events, txResults, endBlockResp, nil
 }
 
-func (app *App) enrichContextWithTxResults(ctx sdk.Context, txResults []*abci.ExecTxResult) sdk.Context {
+func (app *App) addBadWasmDependenciesToContext(ctx sdk.Context, txResults []*abci.ExecTxResult) sdk.Context {
 	wasmContractsWithIncorrectDependencies := []sdk.AccAddress{}
+	fmt.Println("Enriching Context")
 	for _, txResult := range txResults {
-		if txResult.Codespace == acltypes.ModuleName && txResult.Code == 2 {
+		fmt.Printf("TX Result: %v \n", txResult)
+		// we need to iterate in reverse and pick the first one
+		if txResult.Codespace == sdkerrors.RootCodespace && txResult.Code == sdkerrors.ErrInvalidConcurrencyExecution.ABCICode() {
 			for _, event := range txResult.Events {
-				if event.Type == wasmbinding.EventTypeWasmContractWithIncorrectDependency {
+				fmt.Printf("Event Info: %v \n", event)
+				if event.Type == wasmtypes.EventTypeExecute {
 					for _, attr := range event.Attributes {
-						if attr.Key == wasmbinding.AttributeKeyWasmContractAddress {
+						if attr.Key == wasmtypes.AttributeKeyContractAddr {
 							addr, err := sdk.AccAddressFromBech32(attr.Value)
 							if err == nil {
 								wasmContractsWithIncorrectDependencies = append(wasmContractsWithIncorrectDependencies, addr)
+								fmt.Printf("Added to wasm contracts with wrong dependencies: %s\n", attr.Value)
 							}
 						}
 					}

@@ -3,14 +3,10 @@ package wasmbinding
 import (
 	wasmkeeper "github.com/CosmWasm/wasmd/x/wasm/keeper"
 	wasmtypes "github.com/CosmWasm/wasmd/x/wasm/types"
-	wasmvmtypes "github.com/CosmWasm/wasmvm/types"
 	codectypes "github.com/cosmos/cosmos-sdk/codec/types"
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkacltypes "github.com/cosmos/cosmos-sdk/types/accesscontrol"
-	"github.com/cosmos/cosmos-sdk/x/accesscontrol"
 	aclkeeper "github.com/cosmos/cosmos-sdk/x/accesscontrol/keeper"
 	acltypes "github.com/cosmos/cosmos-sdk/x/accesscontrol/types"
-	"github.com/sei-protocol/sei-chain/utils"
 )
 
 // forked from wasm
@@ -29,25 +25,10 @@ func CustomMessageHandler(
 			Custom: CustomEncoder,
 		})
 	return wasmkeeper.NewMessageHandlerChain(
-		NewSDKMessageDependencyDecorator(wasmkeeper.NewSDKMessageHandler(router, encoders), aclKeeper, encoders),
+		wasmkeeper.NewSDKMessageHandler(router, encoders),
 		wasmkeeper.NewIBCRawPacketHandler(channelKeeper, capabilityKeeper),
 		wasmkeeper.NewBurnCoinMessageHandler(bankKeeper),
 	)
-}
-
-// SDKMessageHandler can handles messages that can be encoded into sdk.Message types and routed.
-type SDKMessageDependencyDecorator struct {
-	wrapped   wasmkeeper.Messenger
-	aclKeeper aclkeeper.Keeper
-	encoders  wasmkeeper.MessageEncoders
-}
-
-func NewSDKMessageDependencyDecorator(handler wasmkeeper.Messenger, aclKeeper aclkeeper.Keeper, encoders wasmkeeper.MessageEncoders) SDKMessageDependencyDecorator {
-	return SDKMessageDependencyDecorator{
-		wrapped:   handler,
-		aclKeeper: aclKeeper,
-		encoders:  encoders,
-	}
 }
 
 func BuildWasmDependencyLookupMap(accessOps []sdkacltypes.AccessOperation) map[acltypes.ResourceAccess]map[string]struct{} {
@@ -113,48 +94,4 @@ func AreDependenciesFulfilled(lookupMap map[acltypes.ResourceAccess]map[string]s
 		}
 	}
 	return false
-}
-
-func (decorator SDKMessageDependencyDecorator) DispatchMsg(ctx sdk.Context, contractAddr sdk.AccAddress, contractIBCPortID string, msg wasmvmtypes.CosmosMsg) (events []sdk.Event, data [][]byte, err error) {
-	sdkMsgs, err := decorator.encoders.Encode(ctx, contractAddr, contractIBCPortID, msg)
-	if err != nil {
-		return nil, nil, err
-	}
-	// get the dependencies for the contract to validate against
-	// TODO: we need to carry wasmDependency in ctx instead of loading again here since here has no access to original msg payload
-	//       which is required for populating id correctly.
-	wasmDependency, err := decorator.aclKeeper.GetWasmDependencyMapping(ctx, contractAddr, "", []byte{}, false)
-	// If no mapping exists, or mapping is disabled, this message would behave as blocking for all resources
-	if err == aclkeeper.ErrWasmDependencyMappingNotFound {
-		// no mapping, we can just continue
-		return decorator.wrapped.DispatchMsg(ctx, contractAddr, contractIBCPortID, msg)
-	}
-	if err != nil {
-		return nil, nil, err
-	}
-	if !wasmDependency.Enabled {
-		// if not enabled, just move on
-		// TODO: confirm that this is ok, is there ever a case where we should still verify dependencies for a disabled dependency? IDTS
-		return decorator.wrapped.DispatchMsg(ctx, contractAddr, contractIBCPortID, msg)
-	}
-	// convert wasm dependency to a map of resource access and identifier we can look up in
-	lookupMap := BuildWasmDependencyLookupMap(
-		utils.Map(wasmDependency.AccessOps, func(op sdkacltypes.AccessOperationWithSelector) sdkacltypes.AccessOperation { return *op.Operation }),
-	)
-	// wasm dependency enabled, we need to validate the message dependencies
-	for _, msg := range sdkMsgs {
-		accessOps := decorator.aclKeeper.GetMessageDependencies(ctx, msg)
-		// go through each access op, and check if there is a completion signal for it OR a parent
-		for _, accessOp := range accessOps {
-			// first check for our specific resource access AND identifier template
-			depsFulfilled := AreDependenciesFulfilled(lookupMap, accessOp)
-			if !depsFulfilled {
-				emitIncorrectDependencyWasmEvent(ctx, contractAddr.String())
-				return nil, nil, accesscontrol.ErrUnexpectedWasmDependency
-			}
-		}
-	}
-	// we've gone through all of the messages
-	// and verified their dependencies with the declared dependencies in the wasm contract dependencies, we can process it now
-	return decorator.wrapped.DispatchMsg(ctx, contractAddr, contractIBCPortID, msg)
 }
