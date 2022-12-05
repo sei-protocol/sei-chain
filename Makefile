@@ -94,7 +94,7 @@ clean:
 ###                       Local testing using docker container              ###
 ###############################################################################
 # To start a 4-node cluster from scratch:
-# make clean && make build-linux && build-docker-localnode && localnet-start
+# make clean && make build-linux && make build-docker-localnode && make localnet-start
 ###############################################################################
 
 

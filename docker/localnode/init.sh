@@ -10,7 +10,6 @@ echo "hello-sei"
 # ldd build/seid
 
 # Testing whether seid works or not
-pwd && ls -l
 ./build/seid version
 
 # TODO: Add sei-chain initialization logic
