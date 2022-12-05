@@ -1204,8 +1204,6 @@ func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequ
 		// Start with a fresh state for the MemCache
 		ctx = ctx.WithContextMemCache(sdk.NewContextMemCache())
 		txResults = app.ProcessTxs(&ctx, txs, dependencyDag, app.ProcessBlockConcurrent)
-		// debug log
-		fmt.Printf("Context bad dependencies: %v \n", ctx.Context().Value(aclconstants.BadWasmDependencyAddressesKey))
 	case acltypes.ErrGovMsgInBlock:
 		ctx.Logger().Info(fmt.Sprintf("Gov msg found while building DAG, processing synchronously: %s", err))
 		txResults = app.ProcessBlockSynchronous(ctx, txs)
@@ -1231,20 +1229,16 @@ func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequ
 
 func (app *App) addBadWasmDependenciesToContext(ctx sdk.Context, txResults []*abci.ExecTxResult) sdk.Context {
 	wasmContractsWithIncorrectDependencies := []sdk.AccAddress{}
-	fmt.Println("Enriching Context")
 	for _, txResult := range txResults {
-		fmt.Printf("TX Result: %v \n", txResult)
 		// we need to iterate in reverse and pick the first one
 		if txResult.Codespace == sdkerrors.RootCodespace && txResult.Code == sdkerrors.ErrInvalidConcurrencyExecution.ABCICode() {
 			for _, event := range txResult.Events {
-				fmt.Printf("Event Info: %v \n", event)
 				if event.Type == wasmtypes.EventTypeExecute {
 					for _, attr := range event.Attributes {
 						if attr.Key == wasmtypes.AttributeKeyContractAddr {
 							addr, err := sdk.AccAddressFromBech32(attr.Value)
 							if err == nil {
 								wasmContractsWithIncorrectDependencies = append(wasmContractsWithIncorrectDependencies, addr)
-								fmt.Printf("Added to wasm contracts with wrong dependencies: %s\n", attr.Value)
 							}
 						}
 					}
