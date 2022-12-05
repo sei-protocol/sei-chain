@@ -98,8 +98,6 @@ clean:
 ###############################################################################
 
 
-#
-
 # Build linux binary on other platforms
 # TODO: Support cross compile from Mac OS to Linux platforms
 build-linux:
