@@ -93,6 +93,12 @@ clean:
 ###############################################################################
 ###                       Local testing using docker container              ###
 ###############################################################################
+# To start a 4-node cluster from scratch:
+# make clean && make build-linux && build-docker-localnode && localnet-start
+###############################################################################
+
+
+#
 
 # Build linux binary on other platforms
 # TODO: Support cross compile from Mac OS to Linux platforms
