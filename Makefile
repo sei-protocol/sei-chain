@@ -3,6 +3,8 @@
 VERSION := $(shell echo $(shell git describe --tags) | sed 's/^v//')
 COMMIT := $(shell git log -1 --format='%H')
 
+export PROJECT_HOME=$(shell git rev-parse --show-toplevel)
+export GO_PKG_PATH=$(HOME)/go/pkg
 export GO111MODULE = on
 
 # process build tags
@@ -87,3 +89,41 @@ build:
 
 clean:
 	rm -rf ./build
+
+###############################################################################
+###                       Local testing using docker container              ###
+###############################################################################
+# To start a 4-node cluster from scratch:
+# make clean && make build-linux && make localnet-start
+###############################################################################
+
+
+# Build linux binary on other platforms
+# TODO: Support cross compile from Mac OS to Linux platforms
+build-linux:
+	GOOS=linux GOARCH=amd64 CGO_ENABLED=1 make build
+.PHONY: build-linux
+
+# Build docker image
+build-docker-localnode:
+	@cd docker && docker build --tag sei-chain/localnode localnode
+.PHONY: build-docker-localnode
+
+# Run a single docker container
+run-docker-localnode:
+	docker run --rm \
+	-v $(PROJECT_HOME)/build:/sei-protocol/sei-chain/build:Z \
+	-v $(PROJECT_HOME)/x/nitro:$(PROJECT_HOME)/x/nitro:Z \
+	-v $(GO_PKG_PATH)/mod:$(GO_PKG_PATH)/mod:Z \
+	sei-chain/localnode
+.PHONY: run-docker-localnode
+
+# Run a 4-node docker containers
+localnet-start: localnet-stop build-docker-localnode
+	@cd docker && docker-compose up
+.PHONY: localnet-start
+
+# Stop 4-node docker containers
+localnet-stop:
+	@cd docker && docker-compose down
+.PHONY: localnet-stop
