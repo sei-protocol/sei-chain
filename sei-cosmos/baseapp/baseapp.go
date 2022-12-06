@@ -855,12 +855,12 @@ func (app *BaseApp) runTx(ctx sdk.Context, mode runTxMode, txBytes []byte) (gInf
 
 		msCache.Write()
 
-		if len(anteEvents) > 0 {
-			// append the events in the order of occurrence
-			result.Events = append(anteEvents, result.Events...)
-		}
 	}
-
+	// we do this since we will only be looking at result in DeliverTx
+	if result != nil && len(anteEvents) > 0 {
+		// append the events in the order of occurrence
+		result.Events = append(anteEvents, result.Events...)
+	}
 	return gInfo, result, anteEvents, priority, err
 }
 
@@ -951,7 +951,11 @@ func (app *BaseApp) runMsgs(ctx sdk.Context, msgs []sdk.Msg, mode runTxMode) (*s
 				op.EmitValidationFailMetrics()
 			}
 			errMessage := fmt.Sprintf("Invalid Concurrent Execution messageIndex=%d, missing %d access operations", i, len(missingAccessOps))
-			return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidConcurrencyExecution, errMessage)
+			// we need to bubble up the events for inspection
+			return &sdk.Result{
+				Log:    strings.TrimSpace(msgLogs.String()),
+				Events: events.ToABCIEvents(),
+			}, sdkerrors.Wrap(sdkerrors.ErrInvalidConcurrencyExecution, errMessage)
 		}
 	}
 
