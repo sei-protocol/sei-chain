@@ -1130,17 +1130,17 @@ func (app *App) ProcessBlockConcurrent(
 }
 
 func (app *App) ProcessTxs(
-	ctx *sdk.Context,
+	ctx sdk.Context,
 	txs [][]byte,
 	dependencyDag *acltypes.Dag,
 	processBlockConcurrentFunction ProcessBlockConcurrentFunction,
-) []*abci.ExecTxResult {
+) ([]*abci.ExecTxResult, sdk.Context) {
 	// Only run concurrently if no error
 	// Branch off the current context and pass a cached context to the concurrent delivered TXs that are shared.
 	// runTx will write to this ephermeral CacheMultiStore, after the process block is done, Write() is called on this
 	// CacheMultiStore where it writes the data to the parent store (DeliverState) in sorted Key order to maintain
 	// deterministic ordering between validators in the case of concurrent deliverTXs
-	processBlockCtx, processBlockCache := app.CacheContext(*ctx)
+	processBlockCtx, processBlockCache := app.CacheContext(ctx)
 	concurrentResults, ok := processBlockConcurrentFunction(
 		processBlockCtx,
 		txs,
@@ -1152,17 +1152,17 @@ func (app *App) ProcessTxs(
 		// Write the results back to the concurrent contexts - if concurrent execution fails,
 		// this should not be called and the state is rolled back and retried with synchronous execution
 		processBlockCache.Write()
-		return concurrentResults
+		return concurrentResults, ctx
 	}
 	// we need to add the wasm dependencies before we process synchronous otherwise it never gets included
-	*ctx = app.addBadWasmDependenciesToContext(*ctx, concurrentResults)
+	ctx = app.addBadWasmDependenciesToContext(ctx, concurrentResults)
 	ctx.Logger().Error("Concurrent Execution failed, retrying with Synchronous")
 	// Clear the memcache context from the previous state as it failed, we no longer need to commit the data
 	ctx.ContextMemCache().Clear()
 
-	txResults := app.ProcessBlockSynchronous(*ctx, txs)
+	txResults := app.ProcessBlockSynchronous(ctx, txs)
 	processBlockCache.Write()
-	return txResults
+	return txResults, ctx
 }
 
 func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequest, lastCommit abci.CommitInfo) ([]abci.Event, []*abci.ExecTxResult, abci.ResponseEndBlock, error) {
@@ -1203,7 +1203,7 @@ func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequ
 	case nil:
 		// Start with a fresh state for the MemCache
 		ctx = ctx.WithContextMemCache(sdk.NewContextMemCache())
-		txResults = app.ProcessTxs(&ctx, txs, dependencyDag, app.ProcessBlockConcurrent)
+		txResults, ctx = app.ProcessTxs(ctx, txs, dependencyDag, app.ProcessBlockConcurrent)
 	case acltypes.ErrGovMsgInBlock:
 		ctx.Logger().Info(fmt.Sprintf("Gov msg found while building DAG, processing synchronously: %s", err))
 		txResults = app.ProcessBlockSynchronous(ctx, txs)

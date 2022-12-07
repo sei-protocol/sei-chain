@@ -117,7 +117,7 @@ func TestProcessTxsSuccess(t *testing.T) {
 	}))
 	require.Equal(t, 1, len(testWrapper.Ctx.ContextMemCache().GetDeferredSends().GetSortedKeys()))
 	testWrapper.App.ProcessTxs(
-		&testWrapper.Ctx,
+		testWrapper.Ctx,
 		[][]byte{},
 		&dag,
 		MockProcessBlockConcurrentFunctionSuccess,
@@ -145,7 +145,7 @@ func TestProcessTxsClearCacheOnFail(t *testing.T) {
 		Amount: sdk.NewInt(1),
 	}))
 	testWrapper.App.ProcessTxs(
-		&testWrapper.Ctx,
+		testWrapper.Ctx,
 		[][]byte{},
 		&dag,
 		MockProcessBlockConcurrentFunctionFail,
