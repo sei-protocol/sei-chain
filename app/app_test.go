@@ -78,7 +78,6 @@ func TestGetChannelsFromSignalMapping(t *testing.T) {
 	require.True(t, len(resultBlockingSignalsMap) > 1)
 }
 
-
 // Mock method to fail
 func MockProcessBlockConcurrentFunctionFail(
 	ctx sdk.Context,
@@ -100,11 +99,9 @@ func MockProcessBlockConcurrentFunctionSuccess(
 	return []*abci.ExecTxResult{}, true
 }
 
-
 func TestProcessTxsSuccess(t *testing.T) {
 	tm := time.Now().UTC()
 	valPub := secp256k1.GenPrivKey().PubKey()
-
 
 	testWrapper := app.NewTestWrapper(t, tm, valPub)
 	dag := acltypes.NewDag()
@@ -131,11 +128,9 @@ func TestProcessTxsSuccess(t *testing.T) {
 	require.Equal(t, 1, len(testWrapper.Ctx.ContextMemCache().GetDeferredSends().GetSortedKeys()))
 }
 
-
 func TestProcessTxsClearCacheOnFail(t *testing.T) {
 	tm := time.Now().UTC()
 	valPub := secp256k1.GenPrivKey().PubKey()
-
 
 	testWrapper := app.NewTestWrapper(t, tm, valPub)
 	dag := acltypes.NewDag()
