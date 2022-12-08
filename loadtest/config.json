@@ -27,7 +27,7 @@
     "constant": true,
     "loadtest_interval": 600,
     "message_type": "bank,dex,staking,tokenfactory",
-    "run_oracle": true,
+    "run_oracle": false,
     "metrics_port": 9696,
     "contract_distribution": [
       {
