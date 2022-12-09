@@ -9,13 +9,14 @@ import (
 
 	"github.com/cosmos/cosmos-sdk/simapp"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/cosmos/cosmos-sdk/x/staking"
 	"github.com/cosmos/cosmos-sdk/x/staking/keeper"
 	"github.com/cosmos/cosmos-sdk/x/staking/teststaking"
 	"github.com/cosmos/cosmos-sdk/x/staking/types"
 )
 
 // tests GetDelegation, GetDelegatorDelegations, SetDelegation, RemoveDelegation, GetDelegatorDelegations
-func TestDelegation(t *testing.T) {
+func TestSetDelegation(t *testing.T) {
 	_, app, ctx := createTestInput()
 
 	addrDels := simapp.AddTestAddrsIncremental(app, ctx, 3, sdk.NewInt(10000))
@@ -133,6 +134,47 @@ func TestDelegation(t *testing.T) {
 	require.False(t, found)
 	resBonds = app.StakingKeeper.GetDelegatorDelegations(ctx, addrDels[1], 5)
 	require.Equal(t, 0, len(resBonds))
+}
+func TestDelegation(t *testing.T) {
+	_, app, ctx := createTestInput()	
+
+	addrDels := simapp.AddTestAddrsIncremental(app, ctx, 3, app.StakingKeeper.TokensFromConsensusPower(ctx, 5100000000000))
+	valAddrs := simapp.ConvertAddrsToValAddrs(addrDels)
+
+	//construct the validators
+	amts := []sdk.Int{sdk.NewInt(0), sdk.NewInt(0), sdk.NewInt(0)}
+	var validators [3]types.Validator
+	for i, amt := range amts {
+		validators[i] = teststaking.NewValidator(t, valAddrs[i], PKs[i])
+		validators[i], _ = validators[i].AddTokensFromDel(amt)
+	}
+
+	validators[0] = keeper.TestingUpdateValidator(app.StakingKeeper, ctx, validators[0], true)
+	validators[1] = keeper.TestingUpdateValidator(app.StakingKeeper, ctx, validators[1], true)
+	validators[2] = keeper.TestingUpdateValidator(app.StakingKeeper, ctx, validators[2], true)
+
+	app.StakingKeeper.SetValidator(ctx, validators[0])
+	app.StakingKeeper.SetValidator(ctx, validators[1])
+	app.StakingKeeper.SetValidator(ctx, validators[2])
+	app.StakingKeeper.SetValidatorByConsAddr(ctx, validators[0])
+	app.StakingKeeper.SetValidatorByConsAddr(ctx, validators[1])
+	app.StakingKeeper.SetValidatorByConsAddr(ctx, validators[2])
+	app.StakingKeeper.SetNewValidatorByPowerIndex(ctx, validators[0])
+	app.StakingKeeper.SetNewValidatorByPowerIndex(ctx, validators[1])
+	app.StakingKeeper.SetNewValidatorByPowerIndex(ctx, validators[2])
+
+	_, _ = app.StakingKeeper.Delegate(ctx, addrDels[0], app.StakingKeeper.TokensFromConsensusPower(ctx, 3500000000000), types.Unbonded, validators[0], true)
+	_, _ = app.StakingKeeper.Delegate(ctx, addrDels[1], app.StakingKeeper.TokensFromConsensusPower(ctx, 3000000000000), types.Unbonded, validators[1], true)
+	_, _ = app.StakingKeeper.Delegate(ctx, addrDels[2], app.StakingKeeper.TokensFromConsensusPower(ctx, 3500000000000), types.Unbonded, validators[2], true)
+	_ = staking.EndBlocker(ctx, app.StakingKeeper)
+
+	// delegate until max voting power limit
+	allBonds := app.StakingKeeper.GetAllDelegations(ctx)
+	require.Equal(t, 3, len(allBonds))
+
+	// delegate until max voting power limit
+	_, err := app.StakingKeeper.Delegate(ctx, addrDels[1], app.StakingKeeper.TokensFromConsensusPower(ctx, 1), types.Unbonded, validators[0], true)
+	require.Equal(t, types.ErrExceedMaxVotingPowerRatio, err)
 }
 
 // tests Get/Set/Remove UnbondingDelegation
