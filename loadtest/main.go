@@ -106,6 +106,9 @@ func (c *LoadTestClient) generateMessage(config Config, key cryptotypes.PrivKey,
 	rand.Seed(time.Now().UnixNano())
 	messageType := messageTypes[rand.Intn(len(messageTypes))]
 	fmt.Printf("Message type: %s\n", messageType)
+
+	defer IncrTxMessageType(messageType)
+
 	switch messageType {
 	case Bank:
 		msg = &banktypes.MsgSend{

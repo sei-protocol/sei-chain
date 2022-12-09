@@ -44,7 +44,6 @@ func (w KeeperWrapper) HandleEBPlaceOrders(ctx context.Context, sdkCtx sdk.Conte
 		sdkCtx.Logger().Info(fmt.Sprintf("Sudo response data: %s", response))
 		responses = append(responses, response)
 	}
-
 	for _, pair := range registeredPairs {
 		typedPairStr := typesutils.GetPairString(&pair) //nolint:gosec // USING THE POINTER HERE COULD BE BAD, LET'S CHECK IT.
 		for _, response := range responses {
