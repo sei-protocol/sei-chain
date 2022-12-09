@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"time"
 
 	abciclient "github.com/tendermint/tendermint/abci/client"
@@ -424,6 +425,18 @@ func (blockExec *BlockExecutor) GetMissingTxs(txKeys []types.TxKey) []types.TxKe
 		}
 	}
 	return missingTxKeys
+}
+
+func (blockExec *BlockExecutor) CheckTxFromPeerProposal(ctx context.Context, tx types.Tx) {
+	// Ignore errors from CheckTx because there could be benign errors due to the same tx being
+	// inserted into the mempool from gossiping. Since such simultaneous insertion could result in
+	// multiple different kinds of errors, we will ignore them all here, and verify in the consensus
+	// state machine whether all txs in the proposal are present in the mempool at a later time.
+	if err := blockExec.mempool.CheckTx(ctx, tx, func(rct *abci.ResponseCheckTx) {}, mempool.TxInfo{
+		SenderID: math.MaxUint16,
+	}); err != nil {
+		blockExec.logger.Info(fmt.Sprintf("CheckTx for proposal tx from peer raised error %s. This could be ignored if the error is because the tx is added to the mempool while this check was happening", err))
+	}
 }
 
 func buildLastCommitInfo(block *types.Block, store Store, initialHeight int64) abci.CommitInfo {

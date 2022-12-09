@@ -1620,31 +1620,63 @@ func (cs *State) defaultDoPrevote(ctx context.Context, height int64, round int32
 		return
 	}
 
-	// If we're not the proposer, we need to build the block
-	if cs.config.GossipTransactionKeyOnly && cs.Proposal != nil && cs.ProposalBlock == nil {
-		txKeys := cs.Proposal.TxKeys
-		if cs.ProposalBlockParts.IsComplete() {
+	if cs.config.GossipTransactionKeyOnly {
+		if cs.ProposalBlock == nil {
+			// If we're not the proposer, we need to build the block
+			txKeys := cs.Proposal.TxKeys
+			if cs.ProposalBlockParts.IsComplete() {
+				block, err := cs.getBlockFromBlockParts()
+				if err != nil {
+					cs.logger.Error("Encountered error building block from parts", "block parts", cs.ProposalBlockParts)
+					return
+				}
+				// We have full proposal block and txs. Build proposal block with txKeys
+				proposalBlock := cs.buildProposalBlock(height, block.Header, block.LastCommit, block.Evidence, block.ProposerAddress, txKeys)
+				if proposalBlock == nil {
+					return
+				}
+				cs.ProposalBlock = proposalBlock
+			} else {
+				return
+			}
+		}
+	} else {
+		if cs.ProposalBlock == nil {
 			block, err := cs.getBlockFromBlockParts()
 			if err != nil {
 				cs.logger.Error("Encountered error building block from parts", "block parts", cs.ProposalBlockParts)
 				return
 			}
-			// We have full proposal block and txs. Build proposal block with txKeys
-			proposalBlock := cs.buildProposalBlock(height, block.Header, block.LastCommit, block.Evidence, block.ProposerAddress, txKeys)
-			if proposalBlock == nil {
+			if block == nil {
+				logger.Error("prevote step: ProposalBlock is nil")
+				cs.signAddVote(ctx, tmproto.PrevoteType, nil, types.PartSetHeader{})
 				return
 			}
-			cs.ProposalBlock = proposalBlock
-		} else {
+			cs.ProposalBlock = block
+		}
+		txKeys := cs.Proposal.TxKeys
+		// add missing tx keys to the mempool for CheckTx
+		missingTxKeys := cs.blockExec.GetMissingTxs(txKeys)
+		blockTxKeyToTx := map[types.TxKey]types.Tx{}
+		for _, tx := range cs.ProposalBlock.Txs {
+			blockTxKeyToTx[tx.Key()] = tx
+		}
+		for _, missingTxKey := range missingTxKeys {
+			if tx, ok := blockTxKeyToTx[missingTxKey]; !ok {
+				cs.logger.Error("Mismatch between cs.Proposal.TxKeys and cs.ProposalBlock.Txs")
+				return
+			} else {
+				cs.blockExec.CheckTxFromPeerProposal(ctx, tx)
+			}
+		}
+		missingTxKeys = cs.blockExec.GetMissingTxs(txKeys)
+		// if there is still any missing tx, it means CheckTx failed on application level for some txs, and
+		// we should not vote for this block
+		if len(missingTxKeys) > 0 {
+			logger.Error("prevote step: CheckTx failed for some txs")
+			cs.signAddVote(ctx, tmproto.PrevoteType, nil, types.PartSetHeader{})
 			return
 		}
-	}
-
-	// If ProposalBlock is still nil, prevote nil.
-	if cs.ProposalBlock == nil {
-		logger.Debug("prevote step: ProposalBlock is nil")
-		cs.signAddVote(ctx,tmproto.PrevoteType, nil, types.PartSetHeader{})
-		return
 	}
 
 	if !cs.Proposal.Timestamp.Equal(cs.ProposalBlock.Header.Time) {
