@@ -68,7 +68,7 @@ all: lint install
 install: go.sum
 		go install $(BUILD_FLAGS) ./cmd/seid
 
-# In case when running seid fails with nitro issue or ifi you makee changes to nitro, please use install-all
+# In case when running seid fails with nitro issue or if you make changes to nitro, please use install-all
 install-all: build-nitro install
 
 install-price-feeder: go.sum
