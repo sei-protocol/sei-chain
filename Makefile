@@ -101,7 +101,7 @@ build-nitro:
 		cp $(NITRO_RELEASE_PATH)/libnitro_replayer.dylib $(NITRO_LIB_PATH)/replay; \
 	fi
 	if [ -f "$(NITRO_RELEASE_PATH)/libnitro_replayer.x86_64.so" ]; then \
-		cp $(NITRO_RELEASE_PATH)/libnitro_replayer..x86_64.so $(NITRO_LIB_PATH)/replay; \
+		cp $(NITRO_RELEASE_PATH)/libnitro_replayer.x86_64.so $(NITRO_LIB_PATH)/replay; \
 	fi
 
 clean:
