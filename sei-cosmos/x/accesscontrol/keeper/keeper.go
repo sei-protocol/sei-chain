@@ -226,6 +226,25 @@ func BuildSelectorOps(accessOps []acltypes.AccessOperationWithSelector, senderBe
 				opWithSelector.Operation.IdentifierTemplate,
 				hex.EncodeToString(lengthPrefixed),
 			)
+		case acltypes.AccessOperationSelectorType_CONTRACT_ADDRESS:
+			contractAddress, err := sdk.AccAddressFromBech32(opWithSelector.Selector)
+			if err != nil {
+				return []acltypes.AccessOperationWithSelector{}, err
+			}
+			opWithSelector.Operation.IdentifierTemplate = fmt.Sprintf(
+				opWithSelector.Operation.IdentifierTemplate,
+				hex.EncodeToString(contractAddress),
+			)
+		case acltypes.AccessOperationSelectorType_JQ_MESSAGE_CONDITIONAL:
+			op, err := jq.Parse(opWithSelector.Selector)
+			if err != nil {
+				return []acltypes.AccessOperationWithSelector{}, err
+			}
+			_, err = op.Apply(msgBody)
+			if err != nil {
+				// if the operation is not applicable to the message, skip it
+				continue
+			}
 		}
 		selectedAccessOps = append(selectedAccessOps, opWithSelector)
 	}

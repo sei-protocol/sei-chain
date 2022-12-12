@@ -129,8 +129,10 @@ var ResourceTree = map[ResourceType]TreeNode{
 	ResourceType_KV_TOKENFACTORY_CREATOR:  {ResourceType_KV_TOKENFACTORY, []ResourceType{}},
 	ResourceType_KV_AUTH: {ResourceType_KV, []ResourceType{
 		ResourceType_KV_AUTH_ADDRESS_STORE,
+		ResourceType_KV_AUTH_GLOBAL_ACCOUNT_NUMBER,
 	}},
 	ResourceType_KV_AUTH_ADDRESS_STORE:          {ResourceType_KV_AUTH, []ResourceType{}},
+	ResourceType_KV_AUTH_GLOBAL_ACCOUNT_NUMBER:  {ResourceType_KV_AUTH, []ResourceType{}},
 	ResourceType_KV_ORACLE_EXCHANGE_RATE:        {ResourceType_KV_ORACLE, []ResourceType{}},
 	ResourceType_KV_ORACLE_VOTE_PENALTY_COUNTER: {ResourceType_KV_ORACLE, []ResourceType{}},
 	ResourceType_KV_ORACLE_PRICE_SNAPSHOT:       {ResourceType_KV_ORACLE, []ResourceType{}},

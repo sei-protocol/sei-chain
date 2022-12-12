@@ -17,6 +17,8 @@ enum AccessOperationSelectorType {
     JQ_LENGTH_PREFIXED_ADDRESS = 3;
     SENDER_BECH32_ADDRESS = 4;
     SENDER_LENGTH_PREFIXED_ADDRESS = 5;
+    CONTRACT_ADDRESS = 6;
+    JQ_MESSAGE_CONDITIONAL = 7;
 }
 
 enum ResourceType {
@@ -105,4 +107,6 @@ enum ResourceType {
     KV_WASM_CONTRACT_CODE_HISTORY = 77; // child of KV_WASM
     KV_WASM_CONTRACT_BY_CODE_ID = 78; // child of KV_WASM
     KV_WASM_PINNED_CODE_INDEX = 79; // child of KV_WASM
+
+    KV_AUTH_GLOBAL_ACCOUNT_NUMBER = 80; // child of KV_AUTH
 }
