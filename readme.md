@@ -69,7 +69,7 @@ Developers, traders, and users can all connect to Sei as ecosystem partners bene
 git clone https://github.com/sei-protocol/sei-chain
 cd sei-chain
 git checkout origin/1.0.1beta-upgrade
-make install
+make install # optionally use make install-all to rebuild nitro shared libraries
 mv $HOME/go/bin/seid /usr/bin/
 ```
 **Generate keys**
@@ -114,9 +114,16 @@ LimitMEMLOCK=209715200
 WantedBy=multi-user.target
 ```
 ## Start the node
+
+**Start seid on Linux**
+
 * Reload the service files: `sudo systemctl daemon-reload` 
 * Create the symlinlk: `sudo systemctl enable seid.service` 
 * Start the node sudo: `systemctl start seid && journalctl -u seid -f`
+
+**Troubleshooting**
+
+* If you see any errors related to nitro, try: `make install-all`
 
 ### Create Validator Transaction
 ```bash
