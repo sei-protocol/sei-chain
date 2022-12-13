@@ -19,6 +19,7 @@ enum AccessOperationSelectorType {
     SENDER_LENGTH_PREFIXED_ADDRESS = 5;
     CONTRACT_ADDRESS = 6;
     JQ_MESSAGE_CONDITIONAL = 7;
+    CONSTANT_STRING_TO_HEX = 8;
 }
 
 enum ResourceType {

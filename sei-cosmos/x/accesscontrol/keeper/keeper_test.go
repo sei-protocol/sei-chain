@@ -418,6 +418,108 @@ func TestWasmDependencyMappingWithSenderLengthPrefixedSelector(t *testing.T) {
 	require.Equal(t, fmt.Sprintf("someprefix%s", hex.EncodeToString(address.MustLengthPrefix(wasmContractAddress))), mapping.AccessOps[0].Operation.IdentifierTemplate)
 }
 
+func TestWasmDependencyMappingWithConditionalSelector(t *testing.T) {
+	app := simapp.Setup(false)
+	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
+
+	wasmContractAddresses := simapp.AddTestAddrsIncremental(app, ctx, 1, sdk.NewInt(30000000))
+	wasmContractAddress := wasmContractAddresses[0]
+	wasmBech32, err := sdk.Bech32ifyAddressBytes("cosmos", wasmContractAddress)
+	require.NoError(t, err)
+	wasmMapping := acltypes.WasmDependencyMapping{
+		Enabled: true,
+		AccessOps: []acltypes.AccessOperationWithSelector{
+			{
+				Operation: &acltypes.AccessOperation{
+					ResourceType:       acltypes.ResourceType_KV_WASM,
+					AccessType:         acltypes.AccessType_WRITE,
+					IdentifierTemplate: "*",
+				},
+				SelectorType: acltypes.AccessOperationSelectorType_JQ_MESSAGE_CONDITIONAL,
+				Selector:     ".send",
+			},
+			{
+				Operation: &acltypes.AccessOperation{
+					ResourceType:       acltypes.ResourceType_KV_BANK,
+					AccessType:         acltypes.AccessType_WRITE,
+					IdentifierTemplate: "*",
+				},
+				SelectorType: acltypes.AccessOperationSelectorType_JQ_MESSAGE_CONDITIONAL,
+				Selector:     ".other_execute",
+			},
+			{
+				Operation:    types.CommitAccessOp(),
+				SelectorType: acltypes.AccessOperationSelectorType_NONE,
+			},
+		},
+	}
+	// set the dependency mapping
+	err = app.AccessControlKeeper.SetWasmDependencyMapping(ctx, wasmContractAddress, wasmMapping)
+	require.NoError(t, err)
+	// test getting the dependency mapping
+	mapping, err := app.AccessControlKeeper.GetWasmDependencyMapping(ctx, wasmContractAddress, "", []byte{}, false)
+	require.NoError(t, err)
+	require.Equal(t, wasmMapping, mapping)
+	// test getting a dependency mapping with selector
+	require.NoError(t, err)
+	mapping, err = app.AccessControlKeeper.GetWasmDependencyMapping(
+		ctx,
+		wasmContractAddress,
+		wasmBech32,
+		[]byte(fmt.Sprintf("{\"send\":{\"address\":\"%s\",\"amount\":10}}", wasmBech32)),
+		true,
+	)
+	require.NoError(t, err)
+	require.Equal(t, 2, len(mapping.AccessOps))
+	require.Equal(t, acltypes.ResourceType_KV_WASM, mapping.AccessOps[0].Operation.ResourceType)
+}
+
+func TestWasmDependencyMappingWithConstantSelector(t *testing.T) {
+	app := simapp.Setup(false)
+	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
+
+	wasmContractAddresses := simapp.AddTestAddrsIncremental(app, ctx, 1, sdk.NewInt(30000000))
+	wasmContractAddress := wasmContractAddresses[0]
+	wasmBech32, err := sdk.Bech32ifyAddressBytes("cosmos", wasmContractAddress)
+	require.NoError(t, err)
+	wasmMapping := acltypes.WasmDependencyMapping{
+		Enabled: true,
+		AccessOps: []acltypes.AccessOperationWithSelector{
+			{
+				Operation: &acltypes.AccessOperation{
+					ResourceType:       acltypes.ResourceType_KV_WASM,
+					AccessType:         acltypes.AccessType_WRITE,
+					IdentifierTemplate: "prefix%s",
+				},
+				SelectorType: acltypes.AccessOperationSelectorType_CONSTANT_STRING_TO_HEX,
+				Selector:     "constantValue",
+			},
+			{
+				Operation:    types.CommitAccessOp(),
+				SelectorType: acltypes.AccessOperationSelectorType_NONE,
+			},
+		},
+	}
+	// set the dependency mapping
+	err = app.AccessControlKeeper.SetWasmDependencyMapping(ctx, wasmContractAddress, wasmMapping)
+	require.NoError(t, err)
+	// test getting the dependency mapping
+	mapping, err := app.AccessControlKeeper.GetWasmDependencyMapping(ctx, wasmContractAddress, "", []byte{}, false)
+	require.NoError(t, err)
+	require.Equal(t, wasmMapping, mapping)
+	// test getting a dependency mapping with selector
+	require.NoError(t, err)
+	mapping, err = app.AccessControlKeeper.GetWasmDependencyMapping(
+		ctx,
+		wasmContractAddress,
+		wasmBech32,
+		[]byte(fmt.Sprintf("{\"send\":{\"address\":\"%s\",\"amount\":10}}", wasmBech32)),
+		true,
+	)
+	require.NoError(t, err)
+	require.Equal(t, fmt.Sprintf("prefix%s", hex.EncodeToString([]byte("constantValue"))), mapping.AccessOps[0].Operation.IdentifierTemplate)
+}
+
 func (suite *KeeperTestSuite) TestMessageDependencies() {
 	suite.SetupTest()
 	app := suite.app

@@ -245,6 +245,12 @@ func BuildSelectorOps(accessOps []acltypes.AccessOperationWithSelector, senderBe
 				// if the operation is not applicable to the message, skip it
 				continue
 			}
+		case acltypes.AccessOperationSelectorType_CONSTANT_STRING_TO_HEX:
+			hexStr := hex.EncodeToString([]byte(opWithSelector.Selector))
+			opWithSelector.Operation.IdentifierTemplate = fmt.Sprintf(
+				opWithSelector.Operation.IdentifierTemplate,
+				hexStr,
+			)
 		}
 		selectedAccessOps = append(selectedAccessOps, opWithSelector)
 	}
