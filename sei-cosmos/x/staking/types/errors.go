@@ -50,5 +50,4 @@ var (
 	ErrNoHistoricalInfo                = sdkerrors.Register(ModuleName, 38, "no historical info found")
 	ErrEmptyValidatorPubKey            = sdkerrors.Register(ModuleName, 39, "empty validator public key")
 	ErrCommissionLTMinRate             = sdkerrors.Register(ModuleName, 40, "commission cannot be less than min rate")
-	ErrExceedMaxVotingPowerRatio       = sdkerrors.Register(ModuleName, 41, "exceed maximal voting power ratio")
 )

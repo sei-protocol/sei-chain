@@ -38,15 +38,13 @@ var (
 )
 
 var (
-	KeyUnbondingTime                      = []byte("UnbondingTime")
-	KeyMaxValidators                      = []byte("MaxValidators")
-	KeyMaxEntries                         = []byte("MaxEntries")
-	KeyMaxVotingPower                     = []byte("MaxVotingPower")
-	KeyMaxVotingPowerEnforcementThreshold = []byte("MaxVotingPowerEnforcementThreshold")
-	KeyBondDenom                          = []byte("BondDenom")
-	KeyHistoricalEntries                  = []byte("HistoricalEntries")
-	KeyPowerReduction                     = []byte("PowerReduction")
-	KeyMinCommissionRate                  = []byte("MinCommissionRate")
+	KeyUnbondingTime     = []byte("UnbondingTime")
+	KeyMaxValidators     = []byte("MaxValidators")
+	KeyMaxEntries        = []byte("MaxEntries")
+	KeyBondDenom         = []byte("BondDenom")
+	KeyHistoricalEntries = []byte("HistoricalEntries")
+	KeyPowerReduction    = []byte("PowerReduction")
+	KeyMinCommissionRate = []byte("MinCommissionRate")
 )
 
 var _ paramtypes.ParamSet = (*Params)(nil)
@@ -57,23 +55,14 @@ func ParamKeyTable() paramtypes.KeyTable {
 }
 
 // NewParams creates a new Params instance
-func NewParams(
-	unbondingTime time.Duration,
-	maxValidators, maxEntries, historicalEntries uint32,
-	bondDenom string,
-	minCommissionRate sdk.Dec,
-	maxVotingPowerRatio sdk.Dec,
-	maxVotingPowerEnforcementThreshold sdk.Int,
-) Params {
+func NewParams(unbondingTime time.Duration, maxValidators, maxEntries, historicalEntries uint32, bondDenom string, minCommissionRate sdk.Dec) Params {
 	return Params{
-		UnbondingTime:                      unbondingTime,
-		MaxValidators:                      maxValidators,
-		MaxEntries:                         maxEntries,
-		HistoricalEntries:                  historicalEntries,
-		BondDenom:                          bondDenom,
-		MinCommissionRate:                  minCommissionRate,
-		MaxVotingPowerRatio:                maxVotingPowerRatio,
-		MaxVotingPowerEnforcementThreshold: maxVotingPowerEnforcementThreshold,
+		UnbondingTime:     unbondingTime,
+		MaxValidators:     maxValidators,
+		MaxEntries:        maxEntries,
+		HistoricalEntries: historicalEntries,
+		BondDenom:         bondDenom,
+		MinCommissionRate: minCommissionRate,
 	}
 }
 
@@ -83,8 +72,6 @@ func (p *Params) ParamSetPairs() paramtypes.ParamSetPairs {
 		paramtypes.NewParamSetPair(KeyUnbondingTime, &p.UnbondingTime, validateUnbondingTime),
 		paramtypes.NewParamSetPair(KeyMaxValidators, &p.MaxValidators, validateMaxValidators),
 		paramtypes.NewParamSetPair(KeyMaxEntries, &p.MaxEntries, validateMaxEntries),
-		paramtypes.NewParamSetPair(KeyMaxVotingPower, &p.MaxVotingPowerRatio, validateMaxVotingPowerRatio),
-		paramtypes.NewParamSetPair(KeyMaxVotingPowerEnforcementThreshold, &p.MaxVotingPowerEnforcementThreshold, validateMaxVotingPowerEnforcementThreshold),
 		paramtypes.NewParamSetPair(KeyHistoricalEntries, &p.HistoricalEntries, validateHistoricalEntries),
 		paramtypes.NewParamSetPair(KeyBondDenom, &p.BondDenom, validateBondDenom),
 		paramtypes.NewParamSetPair(KeyMinCommissionRate, &p.MinCommissionRate, validateMinCommissionRate),
@@ -100,8 +87,6 @@ func DefaultParams() Params {
 		DefaultHistoricalEntries,
 		sdk.DefaultBondDenom,
 		DefaultMinCommissionRate,
-		sdk.MustNewDecFromStr(sdk.DefaultMaxVotingPowerRatio),
-		sdk.NewIntFromUint64(sdk.DefaultMaxVotingPowerEnforcementThreshold),
 	)
 }
 
@@ -189,41 +174,6 @@ func validateMaxEntries(i interface{}) error {
 
 	if v == 0 {
 		return fmt.Errorf("max entries must be positive: %d", v)
-	}
-
-	return nil
-}
-
-func validateMaxVotingPowerEnforcementThreshold(i interface{}) error {
-	v, ok := i.(sdk.Int)
-	if !ok {
-		return fmt.Errorf("invalid parameter type: %T", i)
-	}
-
-	if v.IsNil() {
-		return fmt.Errorf("max voting power must be not nil")
-	}
-	if v.IsNegative() {
-		return fmt.Errorf("max voting power must be positive: %s", v)
-	}
-
-	return nil
-}
-
-func validateMaxVotingPowerRatio(i interface{}) error {
-	v, ok := i.(sdk.Dec)
-	if !ok {
-		return fmt.Errorf("invalid parameter type: %T", i)
-	}
-
-	if v.IsNil() {
-		return fmt.Errorf("max voting power must be not nil")
-	}
-	if !v.IsPositive() {
-		return fmt.Errorf("max voting power must be positive: %s", v)
-	}
-	if v.GT(sdk.OneDec()) {
-		return fmt.Errorf("max voting power must be smaller than 1: %s", v)
 	}
 
 	return nil

@@ -39,18 +39,6 @@ func (k Keeper) BondDenom(ctx sdk.Context) (res string) {
 	return
 }
 
-// MaxVotingPowerRatio - maximal allowed voting power ratio of a validator
-func (k Keeper) MaxVotingPowerRatio(ctx sdk.Context) (res sdk.Dec) {
-	k.paramstore.Get(ctx, types.KeyMaxVotingPower, &res)
-	return
-}
-
-// MaxVotingPowerEnforcementThreshold - minimal bonded voting power of the max voting power ratio enforcement
-func (k Keeper) MaxVotingPowerEnforcementThreshold(ctx sdk.Context) (res sdk.Int) {
-	k.paramstore.Get(ctx, types.KeyMaxVotingPowerEnforcementThreshold, &res)
-	return
-}
-
 // PowerReduction - is the amount of staking tokens required for 1 unit of consensus-engine power.
 // Currently, this returns a global variable that the app developer can tweak.
 // TODO: we might turn this into an on-chain param:
@@ -74,8 +62,6 @@ func (k Keeper) GetParams(ctx sdk.Context) types.Params {
 		k.HistoricalEntries(ctx),
 		k.BondDenom(ctx),
 		k.MinCommissionRate(ctx),
-		k.MaxVotingPowerRatio(ctx),
-		k.MaxVotingPowerEnforcementThreshold(ctx),
 	)
 }
 

@@ -639,17 +639,6 @@ func (k Keeper) Delegate(
 		return sdk.ZeroDec(), types.ErrDelegatorShareExRateInvalid
 	}
 
-	// check if the validator voting power exceeds the upper bound after the delegation
-	// validator.Tokens
-	lastTotalPower := k.GetLastTotalPower(ctx)
-	maxVotingPowerEnforcementThreshold := k.MaxVotingPowerEnforcementThreshold(ctx)
-	if lastTotalPower.GTE(maxVotingPowerEnforcementThreshold) {
-		newVotingPowerRatio := sdk.NewDecFromInt(validator.Tokens.Add(bondAmt)).Quo(sdk.NewDecFromInt(lastTotalPower))
-		if newVotingPowerRatio.GT(k.MaxVotingPowerRatio(ctx)) {
-			return sdk.ZeroDec(), types.ErrExceedMaxVotingPowerRatio
-		}
-	}
-
 	// Get or create the delegation object
 	delegation, found := k.GetDelegation(ctx, delAddr, validator.GetOperator())
 	if !found {
