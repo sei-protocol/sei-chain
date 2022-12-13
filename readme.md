@@ -69,7 +69,7 @@ Developers, traders, and users can all connect to Sei as ecosystem partners bene
 git clone https://github.com/sei-protocol/sei-chain
 cd sei-chain
 git checkout origin/1.0.1beta-upgrade
-make install
+make install # optionally use make install-all to rebuild nitro shared libraries
 mv $HOME/go/bin/seid /usr/bin/
 ```
 **Generate keys**
