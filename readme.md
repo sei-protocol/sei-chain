@@ -114,9 +114,16 @@ LimitMEMLOCK=209715200
 WantedBy=multi-user.target
 ```
 ## Start the node
+
+**Start seid on Linux**
+
 * Reload the service files: `sudo systemctl daemon-reload` 
 * Create the symlinlk: `sudo systemctl enable seid.service` 
 * Start the node sudo: `systemctl start seid && journalctl -u seid -f`
+
+**Troubleshooting**
+
+* If you see any errors related to nitro, try: `make install-all`
 
 ### Create Validator Transaction
 ```bash
