@@ -26,7 +26,7 @@
     },
     "constant": true,
     "loadtest_interval": 600,
-    "message_type": "bank,dex,tokenfactory,failure_dex_malformed,failure_dex_invalid",
+    "message_type": "bank,dex,tokenfactory,staking,failure_dex_malformed,failure_dex_invalid",
     "run_oracle": false,
     "metrics_port": 9695,
     "contract_distribution": [

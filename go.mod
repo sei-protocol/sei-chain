@@ -18,7 +18,6 @@ require (
 	github.com/gorilla/websocket v1.5.0
 	github.com/grpc-ecosystem/grpc-gateway v1.16.0
 	github.com/justinas/alice v1.2.0
-	github.com/k0kubun/pp v3.0.1+incompatible
 	github.com/k0kubun/pp/v3 v3.2.0
 	github.com/mitchellh/mapstructure v1.5.0
 	github.com/pkg/errors v0.9.1
