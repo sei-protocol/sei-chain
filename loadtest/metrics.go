@@ -94,3 +94,12 @@ func IncrTxNotCommitted(count int) {
 		[]metrics.Label{telemetry.NewLabel("reason", "not_committed")},
 	)
 }
+
+// loadtest_client_sei_msg_type
+func IncrTxMessageType(msgType string) {
+	metrics.IncrCounterWithLabels(
+		[]string{"sei", "msg", "type"},
+		float32(1),
+		[]metrics.Label{telemetry.NewLabel("type", msgType)},
+	)
+}
