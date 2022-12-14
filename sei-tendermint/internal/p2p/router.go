@@ -8,6 +8,7 @@ import (
 	"math/rand"
 	"net"
 	"runtime"
+	"strings"
 	"sync"
 	"time"
 
@@ -546,6 +547,10 @@ func (r *Router) openConnection(ctx context.Context, conn Connection) {
 	}
 
 	if err := r.runWithPeerMutex(func() error { return r.peerManager.Accepted(peerInfo.NodeID) }); err != nil {
+		// If peer is trying to reconnect, error and let it reconnect
+		if strings.Contains(err.Error(), "is already connected") {
+			r.peerManager.Errored(peerInfo.NodeID, err)
+		}
 		r.logger.Error("failed to accept connection",
 			"op", "incoming/accepted", "peer", peerInfo.NodeID, "err", err)
 		return
@@ -637,6 +642,11 @@ func (r *Router) connectPeer(ctx context.Context, address NodeAddress) {
 	}
 
 	if err := r.runWithPeerMutex(func() error { return r.peerManager.Dialed(address) }); err != nil {
+		// If peer is trying to reconnect, fail it and let it reconnect
+		if strings.Contains(err.Error(), "is already connected") {
+			r.peerManager.Disconnected(ctx, address.NodeID)
+		}
+
 		r.logger.Error("failed to dial peer",
 			"op", "outgoing/dialing", "peer", address.NodeID, "err", err)
 		conn.Close()

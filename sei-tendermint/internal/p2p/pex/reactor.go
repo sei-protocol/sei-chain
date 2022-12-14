@@ -179,9 +179,6 @@ func (r *Reactor) processPexCh(ctx context.Context, pexCh *p2p.Channel) {
 				// channel just because of an error here?
 			}
 
-			// Note we do not update the poll timer upon making a request, only
-			// when we receive an update that updates our priors.
-
 		case envelope, ok := <-incoming:
 			if !ok {
 				return // channel closed
@@ -311,7 +308,7 @@ func (r *Reactor) sendRequestForPeers(ctx context.Context, pexCh *p2p.Channel) e
 	defer r.mtx.Unlock()
 	if len(r.availablePeers) == 0 {
 		// no peers are available
-		r.logger.Debug("no available peers to send a PEX request to (retrying)")
+		r.logger.Error("no available peers to send a PEX request to (retrying)")
 		return nil
 	}
 
