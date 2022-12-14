@@ -57,8 +57,8 @@ var StoreKeyToResourceTypePrefixMap = aclsdktypes.StoreKeyToResourceTypePrefixMa
 		aclsdktypes.ResourceType_KV_BANK_DENOM:    banktypes.DenomMetadataPrefix,
 	},
 	authtypes.StoreKey: {
-		aclsdktypes.ResourceType_KV_AUTH:               aclsdktypes.EmptyPrefix,
-		aclsdktypes.ResourceType_KV_AUTH_ADDRESS_STORE: authtypes.AddressStoreKeyPrefix,
+		aclsdktypes.ResourceType_KV_AUTH:                       aclsdktypes.EmptyPrefix,
+		aclsdktypes.ResourceType_KV_AUTH_ADDRESS_STORE:         authtypes.AddressStoreKeyPrefix,
 		aclsdktypes.ResourceType_KV_AUTH_GLOBAL_ACCOUNT_NUMBER: authtypes.GlobalAccountNumberKey,
 	},
 	distributiontypes.StoreKey: {
