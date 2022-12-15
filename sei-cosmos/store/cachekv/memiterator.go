@@ -45,7 +45,6 @@ func newMemIterator(
 
 	return &memIterator{
 		Iterator: iter,
-
 		lastKey: nil,
 		deleted: deleted,
 		eventManager: eventManager,
@@ -64,7 +63,6 @@ func (mi *memIterator) Value() []byte {
 	if _, ok := mi.deleted.Load(string(key)); ok && !reCallingOnOldLastKey {
 		return nil
 	}
-
 	value := mi.Iterator.Value()
 	mi.eventManager.EmitResourceAccessReadEvent("iterator", mi.storeKey, key, value)
 

@@ -48,6 +48,8 @@ Ref: https://keepachangelog.com/en/1.0.0/
 * [\#1](https://github.com/sei-protocol/sei-cosmos/pull/1) Integrate Cosmos with sei-tendermint and ABCI++
 * [\#14](https://github.com/sei-protocol/sei-cosmos/pull/14) Integrate Cosmos with Tendermint tracing
 * (x/auth/vesting) [\#11652](https://github.com/cosmos/cosmos-sdk/pull/11652) Add util functions for `Period(s)`
+* [\#14168](https://github.com/cosmos/cosmos-sdk/pull/14168) perf: store/cachekv: preallocate kvL in dirtyItems which gets appended too
+* [\#10024](https://github.com/cosmos/cosmos-sdk/pull/10024) fix!: store/cachekv: reduce growth factor for iterator ranging using binary searches #10024
 
 ### Features
 * [\#17](https://github.com/sei-protocol/sei-cosmos/pull/17) Support SR25519 algorithm for client transaction signing
