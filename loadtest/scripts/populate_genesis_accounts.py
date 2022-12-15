@@ -80,7 +80,7 @@ def create_genesis_account(account_index, account_name, local=False):
             "coins": [
                 {
                     "denom": "usei",
-                    "amount": "1000000000000000000000"
+                    "amount": "1000000000000000000000000"
                 }
             ]
         },
