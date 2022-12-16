@@ -36,3 +36,4 @@ loadtest_results.txt
 
 # nitro-replayer
 nitro-replayer/target
+nitro-replayer/Cargo.lock
