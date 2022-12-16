@@ -33,3 +33,6 @@ loadtest/contracts/**/target/
 loadtest/contracts/**.json
 
 loadtest_results.txt
+
+# nitro-replayer
+nitro-replayer/target/
