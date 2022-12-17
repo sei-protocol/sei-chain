@@ -101,7 +101,9 @@ func (AppModule) Name() string {
 func (am AppModule) RegisterInvariants(_ sdk.InvariantRegistry) {}
 
 // Route returns the message routing key for the accesscontrol module.
-func (AppModule) Route() sdk.Route { return sdk.Route{} }
+func (am AppModule) Route() sdk.Route {
+	return sdk.NewRoute(types.RouterKey, NewHandler(am.keeper))
+}
 
 // QuerierRoute returns the accesscontrol module's querier route name.
 func (AppModule) QuerierRoute() string {

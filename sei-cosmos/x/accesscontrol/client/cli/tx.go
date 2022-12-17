@@ -26,12 +26,12 @@ func GetTxCmd() *cobra.Command {
 
 	updateResourceDependencyMappingProposalCmd := MsgUpdateResourceDependencyMappingProposalCmd()
 	flags.AddTxFlagsToCmd(updateResourceDependencyMappingProposalCmd)
-	updateWasmDependencyMappingProposalCmd := MsgUpdateWasmDependencyMappingProposalCmd()
-	flags.AddTxFlagsToCmd(updateWasmDependencyMappingProposalCmd)
+	registerWasmDependencyMappingCmd := MsgRegisterWasmDependencyMappingCmd()
+	flags.AddTxFlagsToCmd(registerWasmDependencyMappingCmd)
 
 	cmd.AddCommand(
 		updateResourceDependencyMappingProposalCmd,
-		updateWasmDependencyMappingProposalCmd,
+		registerWasmDependencyMappingCmd,
 	)
 
 	return cmd
@@ -79,39 +79,26 @@ func MsgUpdateResourceDependencyMappingProposalCmd() *cobra.Command {
 	return cmd
 }
 
-func MsgUpdateWasmDependencyMappingProposalCmd() *cobra.Command {
+func MsgRegisterWasmDependencyMappingCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "update-wasm-dependency-mapping [proposal-file]",
+		Use:   "register-wasm-dependency-mapping [mapping-json-file]",
 		Args:  cobra.ExactArgs(1),
-		Short: "Submit an UpdateWasmDependencyMapping proposal",
+		Short: "Register dependencies for a wasm contract",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			clientCtx, err := client.GetClientTxContext(cmd)
 			if err != nil {
 				return err
 			}
 
-			proposal, err := utils.ParseUpdateWasmDependencyMappingProposalJSON(clientCtx.Codec, args[0])
+			wasmDependencyJson, err := utils.ParseRegisterWasmDependencyMappingJSON(clientCtx.Codec, args[0])
 			if err != nil {
 				return err
 			}
-
 			from := clientCtx.GetFromAddress()
-			content := types.NewMsgUpdateWasmDependencyMappingProposal(
-				proposal.Title, proposal.Description, proposal.ContractAddress, proposal.WasmDependencyMapping,
-			)
 
-			deposit, err := sdk.ParseCoinsNormalized(proposal.Deposit)
-			if err != nil {
-				return err
-			}
+			msgWasmRegisterDependency := types.NewMsgRegisterWasmDependencyFromJSON(from, wasmDependencyJson)
 
-			msg, err := govtypes.NewMsgSubmitProposal(content, deposit, from)
-			if err != nil {
-
-				return err
-			}
-
-			return tx.GenerateOrBroadcastTxCLI(clientCtx, cmd.Flags(), msg)
+			return tx.GenerateOrBroadcastTxCLI(clientCtx, cmd.Flags(), msgWasmRegisterDependency)
 		},
 	}
 

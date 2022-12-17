@@ -20,15 +20,15 @@ func ParseMsgUpdateResourceDependencyMappingProposalFile(cdc codec.JSONCodec, pr
 	return proposal, nil
 }
 
-func ParseUpdateWasmDependencyMappingProposalJSON(cdc codec.JSONCodec, proposalFile string) (types.MsgUpdateWasmDependencyMappingProposalJsonFile, error) {
-	proposal := types.MsgUpdateWasmDependencyMappingProposalJsonFile{}
+func ParseRegisterWasmDependencyMappingJSON(cdc codec.JSONCodec, dependencyFile string) (types.RegisterWasmDependencyJSONFile, error) {
+	wasmDependencyJson := types.RegisterWasmDependencyJSONFile{}
 
-	contents, err := ioutil.ReadFile(proposalFile)
+	contents, err := ioutil.ReadFile(dependencyFile)
 	if err != nil {
-		return proposal, err
+		return wasmDependencyJson, err
 	}
 
-	cdc.MustUnmarshalJSON(contents, &proposal)
+	cdc.MustUnmarshalJSON(contents, &wasmDependencyJson)
 
-	return proposal, nil
+	return wasmDependencyJson, nil
 }

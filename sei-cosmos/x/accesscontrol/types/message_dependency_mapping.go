@@ -82,6 +82,13 @@ func SynchronousAccessOpsWithSelector() []acltypes.AccessOperationWithSelector {
 	}
 }
 
+func SynchronousWasmDependencyMapping() acltypes.WasmDependencyMapping {
+	return acltypes.WasmDependencyMapping{
+		Enabled:   true,
+		AccessOps: SynchronousAccessOpsWithSelector(),
+	}
+}
+
 func IsDefaultSynchronousAccessOps(accessOps []acltypes.AccessOperation) bool {
 	defaultAccessOps := SynchronousAccessOps()
 	for index, accessOp := range accessOps {
@@ -91,7 +98,6 @@ func IsDefaultSynchronousAccessOps(accessOps []acltypes.AccessOperation) bool {
 	}
 	return true
 }
-
 
 func DefaultMessageDependencyMapping() []acltypes.MessageDependencyMapping {
 	return []acltypes.MessageDependencyMapping{

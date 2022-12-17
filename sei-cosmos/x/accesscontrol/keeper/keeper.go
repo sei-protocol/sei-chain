@@ -137,7 +137,6 @@ func (k Keeper) GetWasmDependencyMapping(ctx sdk.Context, contractAddress sdk.Ac
 	dependencyMapping := acltypes.WasmDependencyMapping{}
 	k.cdc.MustUnmarshal(b, &dependencyMapping)
 	if dependencyMapping.Enabled && applySelector {
-		fmt.Printf("Build Selector ops from msg: %v\n", string(msgBody))
 		selectedAccessOps, err := BuildSelectorOps(dependencyMapping.AccessOps, senderBech, msgBody)
 		if err != nil {
 			return acltypes.WasmDependencyMapping{}, err

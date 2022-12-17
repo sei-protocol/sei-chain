@@ -10,5 +10,6 @@ const (
 )
 
 var (
-	ErrUnexpectedWasmDependency = sdkerrors.Register(DefaultCodespace, 2, "unexpected wasm dependency detected")
+	ErrUnexpectedWasmDependency         = sdkerrors.Register(DefaultCodespace, 2, "unexpected wasm dependency detected")
+	ErrWasmDependencyRegistrationFailed = sdkerrors.Register(DefaultCodespace, 3, "wasm dependency registration failed")
 )

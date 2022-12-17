@@ -16,27 +16,31 @@ func HandleMsgUpdateResourceDependencyMappingProposal(ctx sdk.Context, k *keeper
 	return nil
 }
 
-func HandleMsgUpdateWasmDependencyMappingProposal(ctx sdk.Context, k *keeper.Keeper, p *types.MsgUpdateWasmDependencyMappingProposal) error {
-	addr, err := sdk.AccAddressFromBech32(p.ContractAddress)
-	if err != nil {
-		return err
-	}
-	err = k.SetWasmDependencyMapping(ctx, addr, p.WasmDependencyMapping)
-	if err != nil {
-		return err
-	}
-	return nil
-}
-
 func NewProposalHandler(k keeper.Keeper) govtypes.Handler {
 	return func(ctx sdk.Context, content govtypes.Content) error {
 		switch c := content.(type) {
 		case *types.MsgUpdateResourceDependencyMappingProposal:
 			return HandleMsgUpdateResourceDependencyMappingProposal(ctx, &k, c)
-		case *types.MsgUpdateWasmDependencyMappingProposal:
-			return HandleMsgUpdateWasmDependencyMappingProposal(ctx, &k, c)
 		default:
 			return sdkerrors.Wrapf(sdkerrors.ErrUnknownRequest, "unrecognized accesscontrol proposal content type: %T", c)
+		}
+	}
+}
+
+// NewHandler returns a handler for accesscontrol messages.
+func NewHandler(k keeper.Keeper) sdk.Handler {
+	msgServer := keeper.NewMsgServerImpl(k)
+
+	return func(ctx sdk.Context, msg sdk.Msg) (*sdk.Result, error) {
+		ctx = ctx.WithEventManager(sdk.NewEventManager())
+
+		switch msg := msg.(type) {
+		case *types.MsgRegisterWasmDependency:
+			res, err := msgServer.RegisterWasmDependency(sdk.WrapSDKContext(ctx), msg)
+			return sdk.WrapServiceResult(ctx, res, err)
+
+		default:
+			return nil, sdkerrors.Wrapf(sdkerrors.ErrUnknownRequest, "unrecognized accesscontrol message type: %T", msg)
 		}
 	}
 }

@@ -7,4 +7,3 @@ import (
 )
 
 var ResourceDependencyProposalHandler = govclient.NewProposalHandler(cli.MsgUpdateResourceDependencyMappingProposalCmd, rest.UpdateResourceDependencyProposalRESTHandler)
-var WasmDependencyProposalHandler = govclient.NewProposalHandler(cli.MsgUpdateWasmDependencyMappingProposalCmd, rest.UpdateWasmDependencyProposalRESTHandler)
