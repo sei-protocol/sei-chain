@@ -19,6 +19,7 @@ func TestHandleBBNewBlock(t *testing.T) {
 	// is tested in module_test.go where an actual wasm file is deployed and invoked.
 	wasmkeeper.TestingStakeParams.MinCommissionRate = sdk.NewDecWithPrec(5, 2)
 	ctx, wasmkeepers := wasmkeeper.CreateTestInput(t, false, SupportedFeatures)
+	ctx = ctx.WithGasMeter(sdk.NewInfiniteGasMeter())
 	dexKeeper := keeper.Keeper{WasmKeeper: *wasmkeepers.WasmKeeper}
 	wrapper := abci.KeeperWrapper{Keeper: &dexKeeper}
 	wrapper.HandleBBNewBlock(ctx, TestContract, 1)
