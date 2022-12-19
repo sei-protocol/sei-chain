@@ -39,12 +39,16 @@ func sudo(sdkCtx sdk.Context, k *keeper.Keeper, contractAddress []byte, wasmMsg 
 	// Measure the time it takes to execute the contract in WASM
 	defer metrics.MeasureSudoExecutionDuration(time.Now(), msgType)
 	// set up a tmp context to prevent race condition in reading gas consumed
-	tmpCtx := sdkCtx.WithGasMeter(sdk.NewInfiniteGasMeter())
+	tmpCtx := sdkCtx.WithGasMeter(sdk.NewGasMeter(sdkCtx.GasMeter().Limit()))
+	initialGasLevel := sdkCtx.GasMeter().GasConsumedToLimit() // gas consumed so far
+	tmpCtx.GasMeter().ConsumeGas(initialGasLevel, "initialize temp")
 	data, err := k.WasmKeeper.Sudo(
 		tmpCtx, contractAddress, wasmMsg,
 	)
-	gasConsumed := tmpCtx.GasMeter().GasConsumed()
-	sdkCtx.GasMeter().ConsumeGas(gasConsumed, "sudo")
+	gasConsumed := tmpCtx.GasMeter().GasConsumed() - initialGasLevel
+	if gasConsumed > 0 {
+		sdkCtx.GasMeter().ConsumeGas(gasConsumed, "sudo")
+	}
 	if hasErrInstantiatingWasmModuleDueToCPUFeature(err) {
 		panic(utils.DecorateHardFailError(err))
 	}
