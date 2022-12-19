@@ -101,7 +101,7 @@ func NewAnteHandlerAndDepGenerator(options HandlerOptions) (sdk.AnteHandler, sdk
 		sdk.DefaultWrappedAnteDecorator(ibcante.NewAnteDecorator(options.IBCKeeper)),
 		sdk.DefaultWrappedAnteDecorator(dex.NewTickSizeMultipleDecorator(*options.DexKeeper)),
 		sdk.DefaultWrappedAnteDecorator(dex.NewCheckDexGasDecorator(*options.DexKeeper)),
-		antedecorators.NewAclWasmDependencyDecorator(*options.AccessControlKeeper, *options.WasmKeeper),
+		antedecorators.NewACLWasmDependencyDecorator(*options.AccessControlKeeper, *options.WasmKeeper),
 	}
 
 	anteHandler, anteDepGenerator := sdk.ChainAnteDecorators(anteDecorators...)

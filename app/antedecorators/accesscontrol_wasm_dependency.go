@@ -13,16 +13,16 @@ import (
 	acltypes "github.com/cosmos/cosmos-sdk/x/accesscontrol/types"
 )
 
-type AclWasmDependencyDecorator struct {
+type ACLWasmDependencyDecorator struct {
 	aclKeeper  aclkeeper.Keeper
 	wasmKeeper wasm.Keeper
 }
 
-func NewAclWasmDependencyDecorator(aclKeeper aclkeeper.Keeper, wasmKeeper wasm.Keeper) AclWasmDependencyDecorator {
-	return AclWasmDependencyDecorator{aclKeeper: aclKeeper, wasmKeeper: wasmKeeper}
+func NewACLWasmDependencyDecorator(aclKeeper aclkeeper.Keeper, wasmKeeper wasm.Keeper) ACLWasmDependencyDecorator {
+	return ACLWasmDependencyDecorator{aclKeeper: aclKeeper, wasmKeeper: wasmKeeper}
 }
 
-func (ad AclWasmDependencyDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool, next sdk.AnteHandler) (newCtx sdk.Context, err error) {
+func (ad ACLWasmDependencyDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool, next sdk.AnteHandler) (newCtx sdk.Context, err error) {
 
 	for _, msg := range tx.GetMsgs() {
 		switch m := msg.(type) {
@@ -43,7 +43,7 @@ func (ad AclWasmDependencyDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simu
 	return next(ctx, tx, simulate)
 }
 
-func (ad AclWasmDependencyDecorator) SenderMatchesContractAdmin(ctx sdk.Context, msg *acltypes.MsgRegisterWasmDependency) (bool, error) {
+func (ad ACLWasmDependencyDecorator) SenderMatchesContractAdmin(ctx sdk.Context, msg *acltypes.MsgRegisterWasmDependency) (bool, error) {
 	contractAddr, err := sdk.AccAddressFromBech32(msg.WasmDependencyMapping.ContractAddress)
 	if err != nil {
 		return false, err
@@ -54,7 +54,7 @@ func (ad AclWasmDependencyDecorator) SenderMatchesContractAdmin(ctx sdk.Context,
 	return contractInfo.Admin == msg.FromAddress, nil
 }
 
-func (ad AclWasmDependencyDecorator) AnteDeps(txDeps []sdkacltypes.AccessOperation, tx sdk.Tx, next sdk.AnteDepGenerator) (newTxDeps []sdkacltypes.AccessOperation, err error) {
+func (ad ACLWasmDependencyDecorator) AnteDeps(txDeps []sdkacltypes.AccessOperation, tx sdk.Tx, next sdk.AnteDepGenerator) (newTxDeps []sdkacltypes.AccessOperation, err error) {
 	deps := []sdkacltypes.AccessOperation{}
 
 	for _, msg := range tx.GetMsgs() {
