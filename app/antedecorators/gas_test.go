@@ -36,8 +36,9 @@ func TestMultiplierGasSetter(t *testing.T) {
 	}
 	testTx := TestTx{msgs: []sdk.Msg{&testMsg}}
 	// discounted mapping
-	app.AccessControlKeeper.SetWasmDependencyMapping(ctx, contractAddr, accesscontrol.WasmDependencyMapping{
-		Enabled: true,
+	app.AccessControlKeeper.SetWasmDependencyMapping(ctx, accesscontrol.WasmDependencyMapping{
+		Enabled:         true,
+		ContractAddress: contractAddr.String(),
 		AccessOps: []accesscontrol.AccessOperationWithSelector{
 			{
 				Operation: &accesscontrol.AccessOperation{
@@ -56,8 +57,9 @@ func TestMultiplierGasSetter(t *testing.T) {
 	ctxWithGasMeter.GasMeter().ConsumeGas(2, "")
 	require.Equal(t, uint64(1), ctxWithGasMeter.GasMeter().GasConsumed())
 	// not discounted mapping
-	app.AccessControlKeeper.SetWasmDependencyMapping(ctx, contractAddr, accesscontrol.WasmDependencyMapping{
-		Enabled: true,
+	app.AccessControlKeeper.SetWasmDependencyMapping(ctx, accesscontrol.WasmDependencyMapping{
+		Enabled:         true,
+		ContractAddress: contractAddr.String(),
 		AccessOps: []accesscontrol.AccessOperationWithSelector{
 			{
 				Operation: &accesscontrol.AccessOperation{
