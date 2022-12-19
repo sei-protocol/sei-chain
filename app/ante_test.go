@@ -82,6 +82,7 @@ func (suite *AnteTestSuite) SetupTest(isCheckTx bool) {
 			},
 			IBCKeeper:           suite.App.IBCKeeper,
 			WasmConfig:          &wasmConfig,
+			WasmKeeper:          &suite.App.WasmKeeper,
 			OracleKeeper:        &suite.App.OracleKeeper,
 			DexKeeper:           &suite.App.DexKeeper,
 			NitroKeeper:         &suite.App.NitroKeeper,
