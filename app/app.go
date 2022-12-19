@@ -155,7 +155,6 @@ func getGovProposalHandlers() []govclient.ProposalHandler {
 		ibcclientclient.UpdateClientProposalHandler,
 		ibcclientclient.UpgradeProposalHandler,
 		aclclient.ResourceDependencyProposalHandler,
-		aclclient.WasmDependencyProposalHandler,
 		// this line is used by starport scaffolding # stargate/app/govProposalHandler
 	)
 
@@ -790,6 +789,7 @@ func New(
 			IBCKeeper:           app.IBCKeeper,
 			TXCounterStoreKey:   keys[wasm.StoreKey],
 			WasmConfig:          &wasmConfig,
+			WasmKeeper:          &app.WasmKeeper,
 			OracleKeeper:        &app.OracleKeeper,
 			DexKeeper:           &app.DexKeeper,
 			NitroKeeper:         &app.NitroKeeper,

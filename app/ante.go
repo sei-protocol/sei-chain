@@ -1,8 +1,9 @@
 package app
 
 import (
+	wasm "github.com/CosmWasm/wasmd/x/wasm"
 	wasmkeeper "github.com/CosmWasm/wasmd/x/wasm/keeper"
-	wasmTypes "github.com/CosmWasm/wasmd/x/wasm/types"
+	wasmtypes "github.com/CosmWasm/wasmd/x/wasm/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	aclkeeper "github.com/cosmos/cosmos-sdk/x/accesscontrol/keeper"
@@ -25,7 +26,8 @@ type HandlerOptions struct {
 	ante.HandlerOptions
 
 	IBCKeeper           *ibckeeper.Keeper
-	WasmConfig          *wasmTypes.WasmConfig
+	WasmConfig          *wasmtypes.WasmConfig
+	WasmKeeper          *wasm.Keeper
 	OracleKeeper        *oraclekeeper.Keeper
 	DexKeeper           *dexkeeper.Keeper
 	NitroKeeper         *nitrokeeper.Keeper
@@ -47,6 +49,9 @@ func NewAnteHandlerAndDepGenerator(options HandlerOptions) (sdk.AnteHandler, sdk
 	}
 	if options.WasmConfig == nil {
 		return nil, nil, sdkerrors.Wrap(sdkerrors.ErrLogic, "wasm config is required for ante builder")
+	}
+	if options.WasmKeeper == nil {
+		return nil, nil, sdkerrors.Wrap(sdkerrors.ErrLogic, "wasm keeper is required for ante builder")
 	}
 	if options.OracleKeeper == nil {
 		return nil, nil, sdkerrors.Wrap(sdkerrors.ErrLogic, "oracle keeper is required for ante builder")
@@ -96,6 +101,7 @@ func NewAnteHandlerAndDepGenerator(options HandlerOptions) (sdk.AnteHandler, sdk
 		sdk.DefaultWrappedAnteDecorator(ibcante.NewAnteDecorator(options.IBCKeeper)),
 		sdk.DefaultWrappedAnteDecorator(dex.NewTickSizeMultipleDecorator(*options.DexKeeper)),
 		sdk.DefaultWrappedAnteDecorator(dex.NewCheckDexGasDecorator(*options.DexKeeper)),
+		antedecorators.NewACLWasmDependencyDecorator(*options.AccessControlKeeper, *options.WasmKeeper),
 	}
 
 	anteHandler, anteDepGenerator := sdk.ChainAnteDecorators(anteDecorators...)
