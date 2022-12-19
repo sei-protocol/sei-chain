@@ -17,11 +17,7 @@ service Msg {
 message RegisterWasmDependencyJSONFile {
     option (gogoproto.equal)           = false;
 
-    string contract_address = 1 [
-        (gogoproto.moretags) = "yaml:\"contract_address\"",
-        (gogoproto.jsontag) = "contract_address"
-    ];
-    cosmos.accesscontrol.v1beta1.WasmDependencyMapping wasm_dependency_mapping = 2 [
+    cosmos.accesscontrol.v1beta1.WasmDependencyMapping wasm_dependency_mapping = 1 [
         (gogoproto.nullable) = false,
         (gogoproto.moretags) = "yaml:\"wasm_dependency_mapping\""
     ];
@@ -34,11 +30,7 @@ message MsgRegisterWasmDependency {
         (gogoproto.moretags) = "yaml:\"from_address\"",
         (gogoproto.jsontag) = "from_address"
     ];
-    string contract_address = 2 [
-        (gogoproto.moretags) = "yaml:\"contract_address\"",
-        (gogoproto.jsontag) = "contract_address"
-    ];
-    cosmos.accesscontrol.v1beta1.WasmDependencyMapping wasm_dependency_mapping = 3 [
+    cosmos.accesscontrol.v1beta1.WasmDependencyMapping wasm_dependency_mapping = 2 [
         (gogoproto.nullable) = false,
         (gogoproto.moretags) = "yaml:\"wasm_dependency_mapping\""
     ];

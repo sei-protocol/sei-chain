@@ -18,9 +18,8 @@ func (suite *KeeperTestSuite) TestMessageRegisterWasmDependency() {
 	fromAddr := suite.addrs[1]
 
 	registerWasmDependency := acltypes.MsgRegisterWasmDependency{
-		ContractAddress:       contractAddr.String(),
 		FromAddress:           fromAddr.String(),
-		WasmDependencyMapping: acltypes.SynchronousWasmDependencyMapping(),
+		WasmDependencyMapping: acltypes.SynchronousWasmDependencyMapping(contractAddr.String()),
 	}
 
 	resp, err := msgServer.RegisterWasmDependency(sdk.WrapSDKContext(ctx), &registerWasmDependency)
@@ -29,7 +28,7 @@ func (suite *KeeperTestSuite) TestMessageRegisterWasmDependency() {
 
 	deps, err := app.AccessControlKeeper.GetWasmDependencyMapping(ctx, contractAddr, fromAddr.String(), []byte{}, false)
 	req.NoError(err)
-	req.Equal(acltypes.SynchronousWasmDependencyMapping(), deps)
+	req.Equal(acltypes.SynchronousWasmDependencyMapping(contractAddr.String()), deps)
 }
 
 func (suite *KeeperTestSuite) TestMessageRegisterWasmDepFromJson() {
@@ -44,8 +43,7 @@ func (suite *KeeperTestSuite) TestMessageRegisterWasmDepFromJson() {
 	fromAddr := suite.addrs[1]
 
 	depJson := acltypes.RegisterWasmDependencyJSONFile{
-		ContractAddress:       contractAddr.String(),
-		WasmDependencyMapping: acltypes.SynchronousWasmDependencyMapping(),
+		WasmDependencyMapping: acltypes.SynchronousWasmDependencyMapping(contractAddr.String()),
 	}
 
 	registerWasmDependency := acltypes.NewMsgRegisterWasmDependencyFromJSON(fromAddr, depJson)
@@ -57,5 +55,5 @@ func (suite *KeeperTestSuite) TestMessageRegisterWasmDepFromJson() {
 
 	deps, err := app.AccessControlKeeper.GetWasmDependencyMapping(ctx, contractAddr, fromAddr.String(), []byte{}, false)
 	req.NoError(err)
-	req.Equal(acltypes.SynchronousWasmDependencyMapping(), deps)
+	req.Equal(acltypes.SynchronousWasmDependencyMapping(contractAddr.String()), deps)
 }

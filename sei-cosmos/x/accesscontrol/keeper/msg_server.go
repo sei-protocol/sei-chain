@@ -22,12 +22,7 @@ var _ types.MsgServer = msgServer{}
 func (k msgServer) RegisterWasmDependency(goCtx context.Context, msg *types.MsgRegisterWasmDependency) (*types.MsgRegisterWasmDependencyResponse, error) {
 	ctx := sdk.UnwrapSDKContext(goCtx)
 
-	contractAddr, err := sdk.AccAddressFromBech32(msg.ContractAddress)
-	if err != nil {
-		return nil, err
-	}
-
-	err = k.SetWasmDependencyMapping(ctx, contractAddr, msg.WasmDependencyMapping)
+	err := k.SetWasmDependencyMapping(ctx, msg.WasmDependencyMapping)
 	if err != nil {
 		return nil, err
 	}

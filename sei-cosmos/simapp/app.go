@@ -124,6 +124,7 @@ var (
 		evidence.AppModuleBasic{},
 		authzmodule.AppModuleBasic{},
 		vesting.AppModuleBasic{},
+		aclmodule.AppModuleBasic{},
 	)
 
 	// module account permissions

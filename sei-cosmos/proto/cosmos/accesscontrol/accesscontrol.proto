@@ -32,4 +32,5 @@ message WasmDependencyMapping {
         (gogoproto.nullable) = false
     ];
     string reset_reason = 3;
+    string contract_address = 4;
 }

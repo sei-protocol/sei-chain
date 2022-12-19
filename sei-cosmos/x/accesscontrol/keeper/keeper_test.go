@@ -109,9 +109,10 @@ func TestWasmDependencyMapping(t *testing.T) {
 				SelectorType: acltypes.AccessOperationSelectorType_NONE,
 			},
 		},
+		ContractAddress: wasmContractAddress.String(),
 	}
 	// set the dependency mapping
-	err := app.AccessControlKeeper.SetWasmDependencyMapping(ctx, wasmContractAddress, wasmMapping)
+	err := app.AccessControlKeeper.SetWasmDependencyMapping(ctx, wasmMapping)
 	require.NoError(t, err)
 	// test getting the dependency mapping
 	mapping, err := app.AccessControlKeeper.GetWasmDependencyMapping(ctx, wasmContractAddress, "", []byte{}, false)
@@ -139,9 +140,10 @@ func TestResetWasmDependencyMapping(t *testing.T) {
 				Operation: types.CommitAccessOp(),
 			},
 		},
+		ContractAddress: wasmContractAddress.String(),
 	}
 	// set the dependency mapping
-	err := app.AccessControlKeeper.SetWasmDependencyMapping(ctx, wasmContractAddress, wasmMapping)
+	err := app.AccessControlKeeper.SetWasmDependencyMapping(ctx, wasmMapping)
 	require.NoError(t, err)
 	// test getting the dependency mapping
 	mapping, err := app.AccessControlKeeper.GetWasmDependencyMapping(ctx, wasmContractAddress, "", []byte{}, false)
@@ -197,9 +199,10 @@ func TestWasmDependencyMappingWithJQSelector(t *testing.T) {
 				SelectorType: acltypes.AccessOperationSelectorType_NONE,
 			},
 		},
+		ContractAddress: wasmContractAddress.String(),
 	}
 	// set the dependency mapping
-	err := app.AccessControlKeeper.SetWasmDependencyMapping(ctx, wasmContractAddress, wasmMapping)
+	err := app.AccessControlKeeper.SetWasmDependencyMapping(ctx, wasmMapping)
 	require.NoError(t, err)
 	// test getting the dependency mapping
 	mapping, err := app.AccessControlKeeper.GetWasmDependencyMapping(ctx, wasmContractAddress, "", []byte{}, false)
@@ -252,9 +255,10 @@ func TestWasmDependencyMappingWithJQBech32Selector(t *testing.T) {
 				SelectorType: acltypes.AccessOperationSelectorType_NONE,
 			},
 		},
+		ContractAddress: wasmContractAddress.String(),
 	}
 	// set the dependency mapping
-	err = app.AccessControlKeeper.SetWasmDependencyMapping(ctx, wasmContractAddress, wasmMapping)
+	err = app.AccessControlKeeper.SetWasmDependencyMapping(ctx, wasmMapping)
 	require.NoError(t, err)
 	// test getting the dependency mapping
 	mapping, err := app.AccessControlKeeper.GetWasmDependencyMapping(ctx, wasmContractAddress, "", []byte{}, false)
@@ -307,9 +311,10 @@ func TestWasmDependencyMappingWithJQLengthPrefixedAddressSelector(t *testing.T) 
 				SelectorType: acltypes.AccessOperationSelectorType_NONE,
 			},
 		},
+		ContractAddress: wasmContractAddress.String(),
 	}
 	// set the dependency mapping
-	err = app.AccessControlKeeper.SetWasmDependencyMapping(ctx, wasmContractAddress, wasmMapping)
+	err = app.AccessControlKeeper.SetWasmDependencyMapping(ctx, wasmMapping)
 	require.NoError(t, err)
 	// test getting the dependency mapping
 	mapping, err := app.AccessControlKeeper.GetWasmDependencyMapping(ctx, wasmContractAddress, "", []byte{}, false)
@@ -352,9 +357,10 @@ func TestWasmDependencyMappingWithSenderBech32Selector(t *testing.T) {
 				SelectorType: acltypes.AccessOperationSelectorType_NONE,
 			},
 		},
+		ContractAddress: wasmContractAddress.String(),
 	}
 	// set the dependency mapping
-	err = app.AccessControlKeeper.SetWasmDependencyMapping(ctx, wasmContractAddress, wasmMapping)
+	err = app.AccessControlKeeper.SetWasmDependencyMapping(ctx, wasmMapping)
 	require.NoError(t, err)
 	// test getting the dependency mapping
 	mapping, err := app.AccessControlKeeper.GetWasmDependencyMapping(ctx, wasmContractAddress, "", []byte{}, false)
@@ -397,9 +403,10 @@ func TestWasmDependencyMappingWithSenderLengthPrefixedSelector(t *testing.T) {
 				SelectorType: acltypes.AccessOperationSelectorType_NONE,
 			},
 		},
+		ContractAddress: wasmContractAddress.String(),
 	}
 	// set the dependency mapping
-	err = app.AccessControlKeeper.SetWasmDependencyMapping(ctx, wasmContractAddress, wasmMapping)
+	err = app.AccessControlKeeper.SetWasmDependencyMapping(ctx, wasmMapping)
 	require.NoError(t, err)
 	// test getting the dependency mapping
 	mapping, err := app.AccessControlKeeper.GetWasmDependencyMapping(ctx, wasmContractAddress, "", []byte{}, false)
@@ -452,9 +459,10 @@ func TestWasmDependencyMappingWithConditionalSelector(t *testing.T) {
 				SelectorType: acltypes.AccessOperationSelectorType_NONE,
 			},
 		},
+		ContractAddress: wasmContractAddress.String(),
 	}
 	// set the dependency mapping
-	err = app.AccessControlKeeper.SetWasmDependencyMapping(ctx, wasmContractAddress, wasmMapping)
+	err = app.AccessControlKeeper.SetWasmDependencyMapping(ctx, wasmMapping)
 	require.NoError(t, err)
 	// test getting the dependency mapping
 	mapping, err := app.AccessControlKeeper.GetWasmDependencyMapping(ctx, wasmContractAddress, "", []byte{}, false)
@@ -499,9 +507,10 @@ func TestWasmDependencyMappingWithConstantSelector(t *testing.T) {
 				SelectorType: acltypes.AccessOperationSelectorType_NONE,
 			},
 		},
+		ContractAddress: wasmContractAddress.String(),
 	}
 	// set the dependency mapping
-	err = app.AccessControlKeeper.SetWasmDependencyMapping(ctx, wasmContractAddress, wasmMapping)
+	err = app.AccessControlKeeper.SetWasmDependencyMapping(ctx, wasmMapping)
 	require.NoError(t, err)
 	// test getting the dependency mapping
 	mapping, err := app.AccessControlKeeper.GetWasmDependencyMapping(ctx, wasmContractAddress, "", []byte{}, false)

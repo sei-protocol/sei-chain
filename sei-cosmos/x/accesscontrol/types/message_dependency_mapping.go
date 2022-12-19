@@ -82,10 +82,11 @@ func SynchronousAccessOpsWithSelector() []acltypes.AccessOperationWithSelector {
 	}
 }
 
-func SynchronousWasmDependencyMapping() acltypes.WasmDependencyMapping {
+func SynchronousWasmDependencyMapping(contractAddress string) acltypes.WasmDependencyMapping {
 	return acltypes.WasmDependencyMapping{
-		Enabled:   true,
-		AccessOps: SynchronousAccessOpsWithSelector(),
+		Enabled:         true,
+		AccessOps:       SynchronousAccessOpsWithSelector(),
+		ContractAddress: contractAddress,
 	}
 }
 
@@ -100,9 +101,7 @@ func IsDefaultSynchronousAccessOps(accessOps []acltypes.AccessOperation) bool {
 }
 
 func DefaultMessageDependencyMapping() []acltypes.MessageDependencyMapping {
-	return []acltypes.MessageDependencyMapping{
-		SynchronousMessageDependencyMapping(""),
-	}
+	return []acltypes.MessageDependencyMapping{}
 }
 
 func DefaultWasmDependencyMappings() []acltypes.WasmDependencyMapping {

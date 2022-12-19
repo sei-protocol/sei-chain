@@ -258,7 +258,6 @@ func BuildSelectorOps(accessOps []acltypes.AccessOperationWithSelector, senderBe
 
 func (k Keeper) SetWasmDependencyMapping(
 	ctx sdk.Context,
-	contractAddress sdk.AccAddress,
 	dependencyMapping acltypes.WasmDependencyMapping,
 ) error {
 	err := types.ValidateWasmDependencyMapping(dependencyMapping)
@@ -267,7 +266,12 @@ func (k Keeper) SetWasmDependencyMapping(
 	}
 	store := ctx.KVStore(k.storeKey)
 	b := k.cdc.MustMarshal(&dependencyMapping)
-	resourceKey := types.GetWasmContractAddressKey(contractAddress)
+
+	contractAddr, err := sdk.AccAddressFromBech32(dependencyMapping.ContractAddress)
+	if err != nil {
+		return err
+	}
+	resourceKey := types.GetWasmContractAddressKey(contractAddr)
 	store.Set(resourceKey, b)
 	return nil
 }
