@@ -39,6 +39,9 @@ func sudo(sdkCtx sdk.Context, k *keeper.Keeper, contractAddress []byte, wasmMsg 
 	// Measure the time it takes to execute the contract in WASM
 	defer metrics.MeasureSudoExecutionDuration(time.Now(), msgType)
 	// set up a tmp context to prevent race condition in reading gas consumed
+	// Note that the limit will effectively serve as a soft limit since it's
+	// possible for the actual computation to go above the specified limit, but
+	// the associated contract would be charged corresponding rent.
 	tmpCtx := sdkCtx.WithGasMeter(sdk.NewGasMeter(sdkCtx.GasMeter().Limit()))
 	data, err := sudoWithoutOutOfGasPanic(tmpCtx, k, contractAddress, wasmMsg)
 	gasConsumed := tmpCtx.GasMeter().GasConsumed()
