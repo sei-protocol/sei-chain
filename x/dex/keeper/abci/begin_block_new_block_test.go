@@ -7,6 +7,7 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/sei-protocol/sei-chain/x/dex/keeper"
 	"github.com/sei-protocol/sei-chain/x/dex/keeper/abci"
+	"github.com/sei-protocol/sei-chain/x/dex/types"
 )
 
 const (
@@ -21,6 +22,10 @@ func TestHandleBBNewBlock(t *testing.T) {
 	ctx, wasmkeepers := wasmkeeper.CreateTestInput(t, false, SupportedFeatures)
 	ctx = ctx.WithGasMeter(sdk.NewInfiniteGasMeter())
 	dexKeeper := keeper.Keeper{WasmKeeper: *wasmkeepers.WasmKeeper}
+	dexKeeper.SetContract(ctx, &types.ContractInfoV2{
+		ContractAddr: TestContract,
+		RentBalance:  100000000,
+	})
 	wrapper := abci.KeeperWrapper{Keeper: &dexKeeper}
 	wrapper.HandleBBNewBlock(ctx, TestContract, 1)
 }
