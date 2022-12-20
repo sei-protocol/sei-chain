@@ -39,16 +39,31 @@ func sudo(sdkCtx sdk.Context, k *keeper.Keeper, contractAddress []byte, wasmMsg 
 	// Measure the time it takes to execute the contract in WASM
 	defer metrics.MeasureSudoExecutionDuration(time.Now(), msgType)
 	// set up a tmp context to prevent race condition in reading gas consumed
-	tmpCtx := sdkCtx.WithGasMeter(sdk.NewInfiniteGasMeter())
-	data, err := k.WasmKeeper.Sudo(
-		tmpCtx, contractAddress, wasmMsg,
-	)
+	// Note that the limit will effectively serve as a soft limit since it's
+	// possible for the actual computation to go above the specified limit, but
+	// the associated contract would be charged corresponding rent.
+	tmpCtx := sdkCtx.WithGasMeter(sdk.NewGasMeter(sdkCtx.GasMeter().Limit()))
+	data, err := sudoWithoutOutOfGasPanic(tmpCtx, k, contractAddress, wasmMsg)
 	gasConsumed := tmpCtx.GasMeter().GasConsumed()
-	sdkCtx.GasMeter().ConsumeGas(gasConsumed, "sudo")
+	if gasConsumed > 0 {
+		sdkCtx.GasMeter().ConsumeGas(gasConsumed, "sudo")
+	}
 	if hasErrInstantiatingWasmModuleDueToCPUFeature(err) {
 		panic(utils.DecorateHardFailError(err))
 	}
 	return data, gasConsumed, err
+}
+
+func sudoWithoutOutOfGasPanic(ctx sdk.Context, k *keeper.Keeper, contractAddress []byte, wasmMsg []byte) ([]byte, error) {
+	defer func() {
+		if err := recover(); err != nil {
+			// only propagate panic if the error is out of gas
+			if _, ok := err.(sdk.ErrorOutOfGas); !ok {
+				panic(err)
+			}
+		}
+	}()
+	return k.WasmKeeper.Sudo(ctx, contractAddress, wasmMsg)
 }
 
 func hasErrInstantiatingWasmModuleDueToCPUFeature(err error) bool {

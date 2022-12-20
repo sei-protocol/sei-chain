@@ -1,12 +1,17 @@
 package abci_test
 
 import (
+	"context"
 	"testing"
+	"time"
 
-	wasmkeeper "github.com/CosmWasm/wasmd/x/wasm/keeper"
 	sdk "github.com/cosmos/cosmos-sdk/types"
-	"github.com/sei-protocol/sei-chain/x/dex/keeper"
+	keepertest "github.com/sei-protocol/sei-chain/testutil/keeper"
+	dexcache "github.com/sei-protocol/sei-chain/x/dex/cache"
 	"github.com/sei-protocol/sei-chain/x/dex/keeper/abci"
+	"github.com/sei-protocol/sei-chain/x/dex/types"
+	dexutils "github.com/sei-protocol/sei-chain/x/dex/utils"
+	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 )
 
 const (
@@ -17,9 +22,15 @@ const (
 func TestHandleBBNewBlock(t *testing.T) {
 	// this test only ensures that HandleBBNewBlock doesn't crash. The actual logic
 	// is tested in module_test.go where an actual wasm file is deployed and invoked.
-	wasmkeeper.TestingStakeParams.MinCommissionRate = sdk.NewDecWithPrec(5, 2)
-	ctx, wasmkeepers := wasmkeeper.CreateTestInput(t, false, SupportedFeatures)
-	dexKeeper := keeper.Keeper{WasmKeeper: *wasmkeepers.WasmKeeper}
-	wrapper := abci.KeeperWrapper{Keeper: &dexKeeper}
+	testApp := keepertest.TestApp()
+	ctx := testApp.BaseApp.NewContext(false, tmproto.Header{Time: time.Now()})
+	ctx = ctx.WithContext(context.WithValue(ctx.Context(), dexutils.DexMemStateContextKey, dexcache.NewMemState(testApp.GetKey(types.StoreKey))))
+	keeper := testApp.DexKeeper
+	ctx = ctx.WithGasMeter(sdk.NewInfiniteGasMeter())
+	keeper.SetContract(ctx, &types.ContractInfoV2{
+		ContractAddr: TestContract,
+		RentBalance:  100000000,
+	})
+	wrapper := abci.KeeperWrapper{Keeper: &keeper}
 	wrapper.HandleBBNewBlock(ctx, TestContract, 1)
 }
