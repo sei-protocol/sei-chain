@@ -671,6 +671,10 @@ func New(
 		acltypes.ModuleName,
 	)
 
+	app.mm.SetOrderMidBlockers(
+		oracletypes.ModuleName,
+	)
+
 	app.mm.SetOrderEndBlockers(
 		crisistypes.ModuleName,
 		govtypes.ModuleName,
@@ -803,6 +807,7 @@ func New(
 
 	app.SetAnteHandler(anteHandler)
 	app.SetAnteDepGenerator(anteDepGenerator)
+	app.SetMidBlocker(app.MidBlocker)
 	app.SetEndBlocker(app.EndBlocker)
 	app.SetPrepareProposalHandler(app.PrepareProposalHandler)
 	app.SetProcessProposalHandler(app.ProcessProposalHandler)
@@ -899,6 +904,11 @@ func (app *App) BeginBlocker(ctx sdk.Context, req abci.RequestBeginBlock) abci.R
 		EmittedSeidVersionMetric = true
 	}
 	return app.mm.BeginBlock(ctx, req)
+}
+
+// MidBlocker application updates every mid block
+func (app *App) MidBlocker(ctx sdk.Context, height int64) []abci.Event {
+	return app.mm.MidBlock(ctx, height)
 }
 
 // EndBlocker application updates every end block
@@ -1194,6 +1204,9 @@ func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequ
 
 	beginBlockResp := app.BeginBlock(ctx, beginBlockReq)
 	events = append(events, beginBlockResp.Events...)
+
+	midBlockEvents := app.MidBlock(ctx, req.GetHeight())
+	events = append(events, midBlockEvents...)
 
 	dependencyDag, err := app.AccessControlKeeper.BuildDependencyDag(ctx, app.txDecoder, app.GetAnteDepGenerator(), txs)
 

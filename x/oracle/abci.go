@@ -11,6 +11,12 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 )
 
+func MidBlocker(ctx sdk.Context, k keeper.Keeper) {
+	defer telemetry.ModuleMeasureSince(types.ModuleName, time.Now(), telemetry.MetricKeyMidBlocker)
+	ctx.Logger().Info("Running Oracle MidBlocker")
+	// TODO: this needs to be refactored to perform relevant endblocker logic to finalize oracle prices in a later PR
+}
+
 func EndBlocker(ctx sdk.Context, k keeper.Keeper) {
 	defer telemetry.ModuleMeasureSince(types.ModuleName, time.Now(), telemetry.MetricKeyEndBlocker)
 

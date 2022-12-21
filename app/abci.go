@@ -20,6 +20,12 @@ func (app *App) BeginBlock(ctx sdk.Context, req abci.RequestBeginBlock) (res abc
 	return app.BaseApp.BeginBlock(ctx, req)
 }
 
+func (app *App) MidBlock(ctx sdk.Context, height int64) []abci.Event {
+	_, span := (*app.tracingInfo.Tracer).Start(app.tracingInfo.TracerContext, "MidBlock")
+	defer span.End()
+	return app.BaseApp.MidBlock(ctx, height)
+}
+
 func (app *App) EndBlock(ctx sdk.Context, req abci.RequestEndBlock) (res abci.ResponseEndBlock) {
 	_, span := (*app.tracingInfo.Tracer).Start(app.tracingInfo.TracerContext, "EndBlock")
 	defer span.End()
