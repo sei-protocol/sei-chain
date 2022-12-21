@@ -150,6 +150,14 @@ func (app *BaseApp) SetBeginBlocker(beginBlocker sdk.BeginBlocker) {
 	app.beginBlocker = beginBlocker
 }
 
+func (app *BaseApp) SetMidBlocker(midBlocker sdk.MidBlocker) {
+	if app.sealed {
+		panic("SetMidBlocker() on sealed BaseApp")
+	}
+
+	app.midBlocker = midBlocker
+}
+
 func (app *BaseApp) SetEndBlocker(endBlocker sdk.EndBlocker) {
 	if app.sealed {
 		panic("SetEndBlocker() on sealed BaseApp")

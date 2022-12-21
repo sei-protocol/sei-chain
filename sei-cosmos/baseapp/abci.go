@@ -160,6 +160,24 @@ func (app *BaseApp) BeginBlock(ctx sdk.Context, req abci.RequestBeginBlock) (res
 	return res
 }
 
+func (app *BaseApp) MidBlock(ctx sdk.Context, height int64) (events []abci.Event) {
+	defer telemetry.MeasureSince(time.Now(), "abci", "mid_block")
+
+	if app.midBlocker != nil {
+		midBlockEvents := app.midBlocker(ctx, height)
+		events = sdk.MarkEventsToIndex(midBlockEvents, app.indexEvents)
+	}
+	// TODO: add listener handling
+	// // call the streaming service hooks with the EndBlock messages
+	// for _, streamingListener := range app.abciListeners {
+	// 	if err := streamingListener.ListenMidBlock(app.deliverState.ctx, req, res); err != nil {
+	// 		app.logger.Error("MidBlock listening hook failed", "height", req.Height, "err", err)
+	// 	}
+	// }
+
+	return events
+}
+
 // EndBlock implements the ABCI interface.
 func (app *BaseApp) EndBlock(ctx sdk.Context, req abci.RequestEndBlock) (res abci.ResponseEndBlock) {
 	defer telemetry.MeasureSince(time.Now(), "abci", "end_block")

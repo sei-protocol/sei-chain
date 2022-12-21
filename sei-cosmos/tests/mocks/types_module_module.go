@@ -395,6 +395,19 @@ func (mr *MockAppModuleMockRecorder) DefaultGenesis(arg0 interface{}) *gomock.Ca
 }
 
 // EndBlock mocks base method.
+func (m *MockAppModule) MidBlock(arg0 types0.Context, arg1 int64) {
+	m.ctrl.T.Helper()
+	m.ctrl.Call(m, "MidBlock", arg0, arg1)
+}
+
+// EndBlock indicates an expected call of EndBlock.
+func (mr *MockAppModuleMockRecorder) MidBlock(arg0, arg1 interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MidBlock", reflect.TypeOf((*MockAppModule)(nil).MidBlock), arg0, arg1)
+}
+
+
+// EndBlock mocks base method.
 func (m *MockAppModule) EndBlock(arg0 types0.Context, arg1 abci.RequestEndBlock) []abci.ValidatorUpdate {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "EndBlock", arg0, arg1)

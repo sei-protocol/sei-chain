@@ -186,6 +186,11 @@ type BeginBlockAppModule interface {
 	BeginBlock(sdk.Context, abci.RequestBeginBlock)
 }
 
+type MidBlockAppModule interface {
+	AppModule
+	MidBlock(sdk.Context, int64)
+}
+
 // EndBlockAppModule is an extension interface that contains information about the AppModule and EndBlock.
 type EndBlockAppModule interface {
 	AppModule
@@ -237,6 +242,7 @@ type Manager struct {
 	OrderInitGenesis   []string
 	OrderExportGenesis []string
 	OrderBeginBlockers []string
+	OrderMidBlockers   []string
 	OrderEndBlockers   []string
 	OrderMigrations    []string
 }
@@ -276,6 +282,13 @@ func (m *Manager) SetOrderExportGenesis(moduleNames ...string) {
 func (m *Manager) SetOrderBeginBlockers(moduleNames ...string) {
 	m.assertNoForgottenModules("SetOrderBeginBlockers", moduleNames)
 	m.OrderBeginBlockers = moduleNames
+}
+
+// SetOrderMidBlockers sets the order of set mid-blocker calls
+func (m *Manager) SetOrderMidBlockers(moduleNames ...string) {
+	// TODO: do we need this assertion? maybe its ok to not have it to only have some modules have MidBlock implementations
+	// m.assertNoForgottenModules("SetOrderMidBlockers", moduleNames)
+	m.OrderMidBlockers = moduleNames
 }
 
 // SetOrderEndBlockers sets the order of set end-blocker calls
@@ -496,6 +509,23 @@ func (m *Manager) BeginBlock(ctx sdk.Context, req abci.RequestBeginBlock) abci.R
 	return abci.ResponseBeginBlock{
 		Events: ctx.EventManager().ABCIEvents(),
 	}
+}
+
+// EndBlock performs end block functionality for all modules. It creates a
+// child context with an event manager to aggregate events emitted from all
+// modules.
+func (m *Manager) MidBlock(ctx sdk.Context, height int64) []abci.Event {
+	ctx = ctx.WithEventManager(sdk.NewEventManager())
+
+	for _, moduleName := range m.OrderMidBlockers {
+		module, ok := m.Modules[moduleName].(MidBlockAppModule)
+		if !ok {
+			continue
+		}
+		module.MidBlock(ctx, height)
+	}
+
+	return ctx.EventManager().ABCIEvents()
 }
 
 // EndBlock performs end block functionality for all modules. It creates a

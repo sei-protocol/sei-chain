@@ -108,6 +108,11 @@ func TestManagerOrderSetters(t *testing.T) {
 	mm.SetOrderBeginBlockers("module2", "module1")
 	require.Equal(t, []string{"module2", "module1"}, mm.OrderBeginBlockers)
 
+	// we expect none of the modules to be included by default
+	require.Empty(t, mm.OrderMidBlockers)
+	mm.SetOrderMidBlockers("module2", "module1")
+	require.Equal(t, []string{"module2", "module1"}, mm.OrderMidBlockers)
+
 	require.Equal(t, []string{"module1", "module2"}, mm.OrderEndBlockers)
 	mm.SetOrderEndBlockers("module2", "module1")
 	require.Equal(t, []string{"module2", "module1"}, mm.OrderEndBlockers)
@@ -256,6 +261,26 @@ func TestManager_BeginBlock(t *testing.T) {
 	mockAppModule1.EXPECT().BeginBlock(gomock.Any(), gomock.Eq(req)).Times(1)
 	mockAppModule2.EXPECT().BeginBlock(gomock.Any(), gomock.Eq(req)).Times(1)
 	mm.BeginBlock(sdk.Context{}, req)
+}
+
+func TestManager_MidBlock(t *testing.T) {
+	mockCtrl := gomock.NewController(t)
+	t.Cleanup(mockCtrl.Finish)
+
+	mockAppModule1 := mocks.NewMockAppModule(mockCtrl)
+	mockAppModule2 := mocks.NewMockAppModule(mockCtrl)
+	mockAppModule1.EXPECT().Name().Times(2).Return("module1")
+	mockAppModule2.EXPECT().Name().Times(2).Return("module2")
+	mm := module.NewManager(mockAppModule1, mockAppModule2)
+	require.NotNil(t, mm)
+	require.Equal(t, 2, len(mm.Modules))
+	mm.SetOrderMidBlockers("module2", "module1")
+
+	height := int64(10)
+
+	mockAppModule1.EXPECT().MidBlock(gomock.Any(), gomock.Eq(height)).Times(1)
+	mockAppModule2.EXPECT().MidBlock(gomock.Any(), gomock.Eq(height)).Times(1)
+	mm.MidBlock(sdk.Context{}, height)
 }
 
 func TestManager_EndBlock(t *testing.T) {

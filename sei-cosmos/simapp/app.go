@@ -569,6 +569,11 @@ func (app *SimApp) BeginBlocker(ctx sdk.Context, req abci.RequestBeginBlock) abc
 }
 
 // EndBlocker application updates every end block
+func (app *SimApp) MidBlocker(ctx sdk.Context, height int64) []abci.Event {
+	return app.mm.MidBlock(ctx, height)
+}
+
+// EndBlocker application updates every end block
 func (app *SimApp) EndBlocker(ctx sdk.Context, req abci.RequestEndBlock) abci.ResponseEndBlock {
 	return app.mm.EndBlock(ctx, req)
 }

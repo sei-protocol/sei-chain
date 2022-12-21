@@ -165,6 +165,7 @@ type moduleRouter struct {
 type abciData struct {
 	initChainer  sdk.InitChainer  // initialize state with validators and state blob
 	beginBlocker sdk.BeginBlocker // logic to run before any txs
+	midBlocker   sdk.MidBlocker   // logic to run after all txs, and to determine valset changes
 	endBlocker   sdk.EndBlocker   // logic to run after all txs, and to determine valset changes
 
 	// absent validators from begin block
