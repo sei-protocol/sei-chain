@@ -13,12 +13,6 @@ import (
 
 func MidBlocker(ctx sdk.Context, k keeper.Keeper) {
 	defer telemetry.ModuleMeasureSince(types.ModuleName, time.Now(), telemetry.MetricKeyMidBlocker)
-	ctx.Logger().Info("Running Oracle MidBlocker")
-	// TODO: this needs to be refactored to perform relevant endblocker logic to finalize oracle prices in a later PR
-}
-
-func EndBlocker(ctx sdk.Context, k keeper.Keeper) {
-	defer telemetry.ModuleMeasureSince(types.ModuleName, time.Now(), telemetry.MetricKeyEndBlocker)
 
 	params := k.GetParams(ctx)
 	if utils.IsPeriodLastBlock(ctx, params.VotePeriod) {
@@ -139,6 +133,12 @@ func EndBlocker(ctx sdk.Context, k keeper.Keeper) {
 		}
 	}
 
+}
+
+func EndBlocker(ctx sdk.Context, k keeper.Keeper) {
+	defer telemetry.ModuleMeasureSince(types.ModuleName, time.Now(), telemetry.MetricKeyEndBlocker)
+
+	params := k.GetParams(ctx)
 	// Do slash who did miss voting over threshold and
 	// reset miss counters of all validators at the last block of slash window
 	if utils.IsPeriodLastBlock(ctx, params.SlashWindow) {
