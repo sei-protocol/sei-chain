@@ -113,9 +113,11 @@ clean:
 ###                       Local testing using docker container              ###
 ###############################################################################
 # To start a 4-node cluster from scratch:
-# make clean && make build-docker-node && docker-cluster-start
+# make clean && make build-docker-node && make docker-cluster-start
 # To stop the 4-node cluster:
 # make docker-cluster-stop
+# If you have already built the binary, you can skip the build:
+# make build-docker-node && make docker-cluster-start-skipbuild
 ###############################################################################
 
 
