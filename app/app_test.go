@@ -158,6 +158,59 @@ func TestProcessTxsClearCacheOnFail(t *testing.T) {
 	require.Equal(t, 0, len(testWrapper.Ctx.ContextMemCache().GetDeferredSends().GetSortedKeys()))
 }
 
+func TestPartitionOracleTxs(t *testing.T) {
+	tm := time.Now().UTC()
+	valPub := secp256k1.GenPrivKey().PubKey()
+
+	testWrapper := app.NewTestWrapper(t, tm, valPub)
+
+	account := sdk.AccAddress(valPub.Address()).String()
+	validator := sdk.ValAddress(valPub.Address()).String()
+
+	oracleMsg := &oracletypes.MsgAggregateExchangeRateVote{
+		ExchangeRates: "1.2uatom",
+		Feeder:        account,
+		Validator:     validator,
+	}
+
+	otherMsg := &stakingtypes.MsgDelegate{
+		DelegatorAddress: account,
+		ValidatorAddress: validator,
+		Amount:           sdk.NewCoin("usei", sdk.NewInt(1)),
+	}
+
+	txEncoder := app.MakeEncodingConfig().TxConfig.TxEncoder()
+	oracleTxBuilder := app.MakeEncodingConfig().TxConfig.NewTxBuilder()
+	otherTxBuilder := app.MakeEncodingConfig().TxConfig.NewTxBuilder()
+	mixedTxBuilder := app.MakeEncodingConfig().TxConfig.NewTxBuilder()
+
+	err := oracleTxBuilder.SetMsgs(oracleMsg)
+	require.NoError(t, err)
+	oracleTx, err := txEncoder(oracleTxBuilder.GetTx())
+	require.NoError(t, err)
+
+	err = otherTxBuilder.SetMsgs(otherMsg)
+	require.NoError(t, err)
+	otherTx, err := txEncoder(otherTxBuilder.GetTx())
+	require.NoError(t, err)
+
+	// this should be treated as non-oracle vote
+	err = mixedTxBuilder.SetMsgs([]sdk.Msg{oracleMsg, otherMsg}...)
+	require.NoError(t, err)
+	mixedTx, err := txEncoder(mixedTxBuilder.GetTx())
+	require.NoError(t, err)
+
+	txs := [][]byte{
+		oracleTx,
+		otherTx,
+		mixedTx,
+	}
+
+	oracleTxs, otherTxs := testWrapper.App.PartitionOracleVoteTxs(testWrapper.Ctx, txs)
+	require.Equal(t, oracleTxs, [][]byte{oracleTx})
+	require.Equal(t, otherTxs, [][]byte{otherTx, mixedTx})
+}
+
 func TestProcessOracleAndOtherTxsSuccess(t *testing.T) {
 	tm := time.Now().UTC()
 	valPub := secp256k1.GenPrivKey().PubKey()
@@ -179,17 +232,18 @@ func TestProcessOracleAndOtherTxsSuccess(t *testing.T) {
 		Amount:           sdk.NewCoin("usei", sdk.NewInt(1)),
 	}
 
-	txBuilder := app.MakeEncodingConfig().TxConfig.NewTxBuilder()
+	oracleTxBuilder := app.MakeEncodingConfig().TxConfig.NewTxBuilder()
+	otherTxBuilder := app.MakeEncodingConfig().TxConfig.NewTxBuilder()
 	txEncoder := app.MakeEncodingConfig().TxConfig.TxEncoder()
 
-	err := txBuilder.SetMsgs(oracleMsg)
+	err := oracleTxBuilder.SetMsgs(oracleMsg)
 	require.NoError(t, err)
-	oracleTx, err := txEncoder(txBuilder.GetTx())
+	oracleTx, err := txEncoder(oracleTxBuilder.GetTx())
 	require.NoError(t, err)
 
-	err = txBuilder.SetMsgs(otherMsg)
+	err = otherTxBuilder.SetMsgs(otherMsg)
 	require.NoError(t, err)
-	otherTx, err := txEncoder(txBuilder.GetTx())
+	otherTx, err := txEncoder(otherTxBuilder.GetTx())
 	require.NoError(t, err)
 
 	txs := [][]byte{
