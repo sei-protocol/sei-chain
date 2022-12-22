@@ -1175,6 +1175,60 @@ func (app *App) ProcessTxs(
 	return txResults, ctx
 }
 
+func (app *App) PartitionOracleVoteTxs(ctx sdk.Context, txs [][]byte) (oracleVoteTxs, otherTxs [][]byte) {
+	for _, tx := range txs {
+		decodedTx, err := app.txDecoder(tx)
+		if err != nil {
+			ctx.Logger().Error(fmt.Sprintf("Error decoding tx for partitioning: %v", err))
+			// if theres an issue decoding, add it to `otherTxs` for normal processing and continue
+			otherTxs = append(otherTxs, tx)
+			continue
+		}
+		oracleVote := false
+		// if theres an oracle vote msg, we want to add to oracleVoteTxs
+	msgLoop:
+		for _, msg := range decodedTx.GetMsgs() {
+			switch msg.(type) {
+			case *oracletypes.MsgAggregateExchangeRateVote:
+				oracleVote = true
+			default:
+				oracleVote = false
+				break msgLoop
+			}
+		}
+		if oracleVote {
+			oracleVoteTxs = append(oracleVoteTxs, tx)
+		} else {
+			otherTxs = append(otherTxs, tx)
+		}
+
+	}
+	return oracleVoteTxs, otherTxs
+}
+
+func (app *App) BuildDependenciesAndRunTxs(ctx sdk.Context, txs [][]byte) ([]*abci.ExecTxResult, sdk.Context) {
+	var txResults []*abci.ExecTxResult
+
+	dependencyDag, err := app.AccessControlKeeper.BuildDependencyDag(ctx, app.txDecoder, app.GetAnteDepGenerator(), txs)
+
+	switch err {
+	case nil:
+		// Start with a fresh state for the MemCache
+		ctx = ctx.WithContextMemCache(sdk.NewContextMemCache())
+		txResults, ctx = app.ProcessTxs(ctx, txs, dependencyDag, app.ProcessBlockConcurrent)
+	case acltypes.ErrGovMsgInBlock:
+		ctx.Logger().Info(fmt.Sprintf("Gov msg found while building DAG, processing synchronously: %s", err))
+		txResults = app.ProcessBlockSynchronous(ctx, txs)
+		metrics.IncrDagBuildErrorCounter(metrics.GovMsgInBlock)
+	default:
+		ctx.Logger().Error(fmt.Sprintf("Error while building DAG, processing synchronously: %s", err))
+		txResults = app.ProcessBlockSynchronous(ctx, txs)
+		metrics.IncrDagBuildErrorCounter(metrics.FailedToBuild)
+	}
+
+	return txResults, ctx
+}
+
 func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequest, lastCommit abci.CommitInfo) ([]abci.Event, []*abci.ExecTxResult, abci.ResponseEndBlock, error) {
 	goCtx := app.decorateContextWithDexMemState(ctx.Context())
 	ctx = ctx.WithContext(goCtx)
@@ -1205,27 +1259,20 @@ func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequ
 	beginBlockResp := app.BeginBlock(ctx, beginBlockReq)
 	events = append(events, beginBlockResp.Events...)
 
+	var txResults []*abci.ExecTxResult
+
+	oracleTxs, txs := app.PartitionOracleVoteTxs(ctx, txs)
+
+	// run the oracle txs
+	oracleResults, ctx := app.BuildDependenciesAndRunTxs(ctx, oracleTxs)
+	txResults = append(txResults, oracleResults...)
+
 	midBlockEvents := app.MidBlock(ctx, req.GetHeight())
 	events = append(events, midBlockEvents...)
 
-	dependencyDag, err := app.AccessControlKeeper.BuildDependencyDag(ctx, app.txDecoder, app.GetAnteDepGenerator(), txs)
-
-	var txResults []*abci.ExecTxResult
-
-	switch err {
-	case nil:
-		// Start with a fresh state for the MemCache
-		ctx = ctx.WithContextMemCache(sdk.NewContextMemCache())
-		txResults, ctx = app.ProcessTxs(ctx, txs, dependencyDag, app.ProcessBlockConcurrent)
-	case acltypes.ErrGovMsgInBlock:
-		ctx.Logger().Info(fmt.Sprintf("Gov msg found while building DAG, processing synchronously: %s", err))
-		txResults = app.ProcessBlockSynchronous(ctx, txs)
-		metrics.IncrDagBuildErrorCounter(metrics.GovMsgInBlock)
-	default:
-		ctx.Logger().Error(fmt.Sprintf("Error while building DAG, processing synchronously: %s", err))
-		txResults = app.ProcessBlockSynchronous(ctx, txs)
-		metrics.IncrDagBuildErrorCounter(metrics.FailedToBuild)
-	}
+	// run other txs
+	otherResults, ctx := app.BuildDependenciesAndRunTxs(ctx, txs)
+	txResults = append(txResults, otherResults...)
 
 	// Finalize all Bank Module Transfers here so that events are included
 	lazyWriteEvents := app.BankKeeper.WriteDeferredOperations(ctx)

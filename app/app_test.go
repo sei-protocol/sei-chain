@@ -9,8 +9,10 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkacltypes "github.com/cosmos/cosmos-sdk/types/accesscontrol"
 	acltypes "github.com/cosmos/cosmos-sdk/x/accesscontrol/types"
+	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
 	"github.com/k0kubun/pp/v3"
 	"github.com/sei-protocol/sei-chain/app"
+	oracletypes "github.com/sei-protocol/sei-chain/x/oracle/types"
 	"github.com/stretchr/testify/require"
 	abci "github.com/tendermint/tendermint/abci/types"
 )
@@ -154,4 +156,60 @@ func TestProcessTxsClearCacheOnFail(t *testing.T) {
 	// It should be reset if it fails to prevent any values from being written
 	require.Equal(t, 0, len(testWrapper.Ctx.ContextMemCache().GetDeferredWithdrawals().GetSortedKeys()))
 	require.Equal(t, 0, len(testWrapper.Ctx.ContextMemCache().GetDeferredSends().GetSortedKeys()))
+}
+
+func TestProcessOracleAndOtherTxsSuccess(t *testing.T) {
+	tm := time.Now().UTC()
+	valPub := secp256k1.GenPrivKey().PubKey()
+
+	testWrapper := app.NewTestWrapper(t, tm, valPub)
+
+	account := sdk.AccAddress(valPub.Address()).String()
+	validator := sdk.ValAddress(valPub.Address()).String()
+
+	oracleMsg := &oracletypes.MsgAggregateExchangeRateVote{
+		ExchangeRates: "1.2uatom",
+		Feeder:        account,
+		Validator:     validator,
+	}
+
+	otherMsg := &stakingtypes.MsgDelegate{
+		DelegatorAddress: account,
+		ValidatorAddress: validator,
+		Amount:           sdk.NewCoin("usei", sdk.NewInt(1)),
+	}
+
+	txBuilder := app.MakeEncodingConfig().TxConfig.NewTxBuilder()
+	txEncoder := app.MakeEncodingConfig().TxConfig.TxEncoder()
+
+	err := txBuilder.SetMsgs(oracleMsg)
+	require.NoError(t, err)
+	oracleTx, err := txEncoder(txBuilder.GetTx())
+	require.NoError(t, err)
+
+	err = txBuilder.SetMsgs(otherMsg)
+	require.NoError(t, err)
+	otherTx, err := txEncoder(txBuilder.GetTx())
+	require.NoError(t, err)
+
+	txs := [][]byte{
+		oracleTx,
+		otherTx,
+	}
+
+	req := &abci.RequestFinalizeBlock{
+		Height: 1,
+	}
+	_, txResults, _, _ := testWrapper.App.ProcessBlock(
+		testWrapper.Ctx.WithBlockHeight(
+			1,
+		).WithBlockGasMeter(
+			sdk.NewInfiniteGasMeter(),
+		),
+		txs,
+		req,
+		req.DecidedLastCommit,
+	)
+
+	require.Equal(t, 2, len(txResults))
 }
