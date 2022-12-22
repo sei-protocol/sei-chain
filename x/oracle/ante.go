@@ -122,14 +122,14 @@ func (spd SpammingPreventionDecorator) CheckOracleSpamming(ctx sdk.Context, msgs
 	return nil
 }
 
-type OracleVoteAloneDecorator struct{}
+type VoteAloneDecorator struct{}
 
-func NewOracleVoteAloneDecorator() OracleVoteAloneDecorator {
-	return OracleVoteAloneDecorator{}
+func NewOracleVoteAloneDecorator() VoteAloneDecorator {
+	return VoteAloneDecorator{}
 }
 
 // AnteHandle handles msg tax fee checking
-func (OracleVoteAloneDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool, next sdk.AnteHandler) (newCtx sdk.Context, err error) {
+func (VoteAloneDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool, next sdk.AnteHandler) (newCtx sdk.Context, err error) {
 	oracleVote := false
 	otherMsg := false
 	for _, msg := range tx.GetMsgs() {
@@ -149,7 +149,7 @@ func (OracleVoteAloneDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate 
 	return next(ctx, tx, simulate)
 }
 
-func (OracleVoteAloneDecorator) AnteDeps(txDeps []sdkacltypes.AccessOperation, tx sdk.Tx, next sdk.AnteDepGenerator) (newTxDeps []sdkacltypes.AccessOperation, err error) {
+func (VoteAloneDecorator) AnteDeps(txDeps []sdkacltypes.AccessOperation, tx sdk.Tx, next sdk.AnteDepGenerator) (newTxDeps []sdkacltypes.AccessOperation, err error) {
 	// requires no dependencies
 	return next(txDeps, tx)
 }
