@@ -113,36 +113,43 @@ clean:
 ###                       Local testing using docker container              ###
 ###############################################################################
 # To start a 4-node cluster from scratch:
-# make clean && make build-linux && make localnet-start
+# make clean && make build-docker-node && docker-cluster-start
+# To stop the 4-node cluster:
+# make docker-cluster-stop
 ###############################################################################
 
 
 # Build linux binary on other platforms
-# TODO: Support cross compile from Mac OS to Linux platforms
 build-linux:
 	GOOS=linux GOARCH=amd64 CGO_ENABLED=1 make build
 .PHONY: build-linux
 
 # Build docker image
-build-docker-localnode:
+build-docker-node:
 	@cd docker && docker build --tag sei-chain/localnode localnode
 .PHONY: build-docker-localnode
 
 # Run a single docker container
-run-docker-localnode:
+run-docker-node:
+	@rm -rf $(PROJECT_HOME)/build/generated
 	docker run --rm \
-	-v $(PROJECT_HOME)/build:/sei-protocol/sei-chain/build:Z \
-	-v $(PROJECT_HOME)/x/nitro:$(PROJECT_HOME)/x/nitro:Z \
-	-v $(GO_PKG_PATH)/mod:$(GO_PKG_PATH)/mod:Z \
+	-v $(PROJECT_HOME):/sei-protocol/sei-chain:Z \
+	-v $(GO_PKG_PATH)/mod:/root/go/pkg/mod:Z \
 	sei-chain/localnode
 .PHONY: run-docker-localnode
 
 # Run a 4-node docker containers
-localnet-start: localnet-stop build-docker-localnode
+docker-cluster-start: localnet-stop build-docker-localnode
+	@rm -rf $(PROJECT_HOME)/build/generated
 	@cd docker && docker-compose up
 .PHONY: localnet-start
 
+docker-cluster-start-skipbuild: localnet-stop build-docker-localnode
+	@rm -rf $(PROJECT_HOME)/build/generated
+	@cd docker && SKIP_BUILD=true docker-compose up
+.PHONY: localnet-start
+
 # Stop 4-node docker containers
-localnet-stop:
+docker-cluster-stop:
 	@cd docker && docker-compose down
 .PHONY: localnet-stop
