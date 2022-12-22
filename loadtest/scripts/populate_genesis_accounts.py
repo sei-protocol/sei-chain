@@ -143,7 +143,7 @@ def main():
     genesis_json_file_path = f"{home_path}/.sei/config/genesis.json"
     genesis_file = read_genesis_file(genesis_json_file_path)
 
-    num_threads = number_of_accounts // PARALLEISM
+    num_threads = max(1, number_of_accounts // PARALLEISM)
     threads = []
     for i in range(0, number_of_accounts, num_threads):
         threads.append(threading.Thread(target=bulk_create_genesis_accounts, args=(num_threads, i, is_local)))
