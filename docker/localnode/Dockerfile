@@ -1,6 +1,6 @@
 FROM ubuntu:latest
 RUN apt-get update && \
-    apt-get install -y make git golang curl jq
+    apt-get install -y make git golang jq python3
 RUN rm -rf build/generated
 
 VOLUME [ "/sei-protocol" ]

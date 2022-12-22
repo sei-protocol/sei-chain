@@ -2,12 +2,15 @@
 
 # Input parameters
 NODE_ID=${ID:-0}
+NUM_ACCOUNTS=${NUM_ACCOUNTS:-5}
 echo "Configure and initialize environment"
 # Set up GO PATH
 export GOPATH=$HOME/go
 export GOBIN=$GOPATH/bin
 export BUILD_PATH=/sei-protocol/sei-chain/build
 export PATH=$GOBIN:$PATH:/usr/local/go/bin:$BUILD_PATH
+mkdir -p $GOBIN
+cp build/seid $GOBIN/
 
 # Prepare shared folders
 mkdir -p build/generated/gentx/
@@ -45,6 +48,11 @@ echo "$GENESIS_ACCOUNT_ADDRESS" >> build/generated/genesis_accounts.txt
 # Create gentx
 printf "12345678\n" | ./build/seid gentx "$ACCOUNT_NAME" 10000000usei --chain-id sei
 cp ~/.sei/config/gentx/* build/generated/gentx/
+
+# Creating some testing accounts
+echo "Creating $NUM_ACCOUNTS accounts"
+python3 loadtest/scripts/populate_genesis_accounts.py $NUM_ACCOUNTS loc >/dev/null 2>&1
+echo "Finished $NUM_ACCOUNTS accounts creation"
 
 # Set node0 seivaloper info
 NODE0_SEIVALOPER_INFO=$(printf "12345678\n" | ./build/seid keys show "$ACCOUNT_NAME" --bech=val -a)

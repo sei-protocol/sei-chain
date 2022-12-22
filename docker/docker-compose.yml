@@ -8,6 +8,7 @@ services:
       - "26656-26658:26656-26658"
     environment:
       - ID=0
+      - NUM_ACCOUNTS
       - SKIP_BUILD
     volumes:
       - "${PROJECT_HOME}:/sei-protocol/sei-chain:Z"
@@ -23,6 +24,7 @@ services:
       - "26659-26661:26656-26658"
     environment:
       - ID=1
+      - NUM_ACCOUNTS
       - SKIP_BUILD
     volumes:
       - "${PROJECT_HOME}:/sei-protocol/sei-chain:Z"
@@ -36,6 +38,7 @@ services:
     image: "sei-chain/localnode"
     environment:
       - ID=2
+      - NUM_ACCOUNTS
       - SKIP_BUILD
     ports:
       - "26662-26664:26656-26658"
@@ -51,6 +54,7 @@ services:
     image: "sei-chain/localnode"
     environment:
       - ID=3
+      - NUM_ACCOUNTS
       - SKIP_BUILD
     ports:
       - "26665-26667:26656-26658"

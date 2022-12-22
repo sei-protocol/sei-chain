@@ -113,11 +113,11 @@ clean:
 ###                       Local testing using docker container              ###
 ###############################################################################
 # To start a 4-node cluster from scratch:
-# make clean && make build-docker-node && make docker-cluster-start
+# make clean && make docker-cluster-start
 # To stop the 4-node cluster:
 # make docker-cluster-stop
 # If you have already built the binary, you can skip the build:
-# make build-docker-node && make docker-cluster-start-skipbuild
+# make docker-cluster-start-skipbuild
 ###############################################################################
 
 
@@ -141,15 +141,15 @@ run-docker-node:
 .PHONY: run-docker-localnode
 
 # Run a 4-node docker containers
-docker-cluster-start: localnet-stop build-docker-localnode
+docker-cluster-start: docker-cluster-stop build-docker-node
 	@rm -rf $(PROJECT_HOME)/build/generated
-	@cd docker && docker-compose up
+	@cd docker && NUM_ACCOUNTS=10 docker-compose up
 .PHONY: localnet-start
 
 # Use this to skip the seid build process
-docker-cluster-start-skipbuild: localnet-stop build-docker-localnode
+docker-cluster-start-skipbuild: docker-cluster-stop build-docker-node
 	@rm -rf $(PROJECT_HOME)/build/generated
-	@cd docker && SKIP_BUILD=true docker-compose up
+	@cd docker && NUM_ACCOUNTS=10 SKIP_BUILD=true docker-compose up
 .PHONY: localnet-start
 
 # Stop 4-node docker containers
