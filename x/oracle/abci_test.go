@@ -28,6 +28,7 @@ func TestOracleThreshold(t *testing.T) {
 	_, err := h(input.Ctx.WithBlockHeight(1), voteMsg)
 	require.NoError(t, err)
 
+	oracle.MidBlocker(input.Ctx.WithBlockHeight(1), input.OracleKeeper)
 	oracle.EndBlocker(input.Ctx.WithBlockHeight(1), input.OracleKeeper)
 
 	_, _, err = input.OracleKeeper.GetBaseExchangeRate(input.Ctx.WithBlockHeight(1), utils.MicroAtomDenom)
@@ -49,6 +50,7 @@ func TestOracleThreshold(t *testing.T) {
 	_, err = h(input.Ctx.WithBlockHeight(1), voteMsg)
 	require.NoError(t, err)
 
+	oracle.MidBlocker(input.Ctx.WithBlockHeight(1), input.OracleKeeper)
 	oracle.EndBlocker(input.Ctx.WithBlockHeight(1), input.OracleKeeper)
 
 	rate, lastUpdate, err := input.OracleKeeper.GetBaseExchangeRate(input.Ctx.WithBlockHeight(1), utils.MicroAtomDenom)
@@ -69,6 +71,7 @@ func TestOracleThreshold(t *testing.T) {
 	_, err = h(input.Ctx.WithBlockHeight(3), voteMsg)
 	require.NoError(t, err)
 
+	oracle.MidBlocker(input.Ctx.WithBlockHeight(3), input.OracleKeeper)
 	oracle.EndBlocker(input.Ctx.WithBlockHeight(3), input.OracleKeeper)
 
 	rate, lastUpdate, err = input.OracleKeeper.GetBaseExchangeRate(input.Ctx.WithBlockHeight(3), utils.MicroAtomDenom)
@@ -87,6 +90,7 @@ func TestOracleDrop(t *testing.T) {
 	makeAggregateVote(t, input, h, 0, sdk.DecCoins{{Denom: utils.MicroAtomDenom, Amount: randomExchangeRate}}, 0)
 
 	// Immediately swap halt after an illiquid oracle vote
+	oracle.MidBlocker(input.Ctx, input.OracleKeeper)
 	oracle.EndBlocker(input.Ctx, input.OracleKeeper)
 
 	rate, lastUpdate, err := input.OracleKeeper.GetBaseExchangeRate(input.Ctx, utils.MicroAtomDenom)
@@ -188,12 +192,14 @@ func TestOracleTallyTiming(t *testing.T) {
 	input.OracleKeeper.SetParams(input.Ctx, params)
 	require.Equal(t, 0, int(input.Ctx.BlockHeight()))
 
+	oracle.MidBlocker(input.Ctx, input.OracleKeeper)
 	oracle.EndBlocker(input.Ctx, input.OracleKeeper)
 	_, _, err := input.OracleKeeper.GetBaseExchangeRate(input.Ctx, utils.MicroAtomDenom)
 	require.Error(t, err)
 
 	input.Ctx = input.Ctx.WithBlockHeight(int64(params.VotePeriod - 1))
 
+	oracle.MidBlocker(input.Ctx, input.OracleKeeper)
 	oracle.EndBlocker(input.Ctx, input.OracleKeeper)
 	_, _, err = input.OracleKeeper.GetBaseExchangeRate(input.Ctx, utils.MicroAtomDenom)
 	require.NoError(t, err)
@@ -222,6 +228,7 @@ func TestInvalidVotesSlashing(t *testing.T) {
 		// Account 3, KRW
 		makeAggregateVote(t, input, h, 0, sdk.DecCoins{{Denom: utils.MicroAtomDenom, Amount: randomExchangeRate}}, 2)
 
+		oracle.MidBlocker(input.Ctx, input.OracleKeeper)
 		oracle.EndBlocker(input.Ctx, input.OracleKeeper)
 		require.Equal(t, uint64(0), input.OracleKeeper.GetAbstainCount(input.Ctx, keeper.ValAddrs[1]))
 		require.Equal(t, i+1, input.OracleKeeper.GetMissCount(input.Ctx, keeper.ValAddrs[1]))
@@ -241,6 +248,7 @@ func TestInvalidVotesSlashing(t *testing.T) {
 	makeAggregateVote(t, input, h, 0, sdk.DecCoins{{Denom: utils.MicroAtomDenom, Amount: randomExchangeRate}}, 2)
 
 	input.Ctx = input.Ctx.WithBlockHeight(votePeriodsPerWindow - 1)
+	oracle.MidBlocker(input.Ctx, input.OracleKeeper)
 	oracle.EndBlocker(input.Ctx, input.OracleKeeper)
 	validator = input.StakingKeeper.Validator(input.Ctx, keeper.ValAddrs[1])
 	require.Equal(t, sdk.OneDec().Sub(slashFraction).MulInt(stakingAmt).TruncateInt(), validator.GetBondedTokens())
@@ -260,6 +268,7 @@ func TestWhitelistSlashing(t *testing.T) {
 		// Account 3, KRW
 		makeAggregateVote(t, input, h, 0, sdk.DecCoins{{Denom: utils.MicroAtomDenom, Amount: randomExchangeRate}}, 2)
 
+		oracle.MidBlocker(input.Ctx, input.OracleKeeper)
 		oracle.EndBlocker(input.Ctx, input.OracleKeeper)
 		require.Equal(t, uint64(0), input.OracleKeeper.GetMissCount(input.Ctx, keeper.ValAddrs[0]))
 		require.Equal(t, i+1, input.OracleKeeper.GetAbstainCount(input.Ctx, keeper.ValAddrs[0]))
@@ -276,6 +285,7 @@ func TestWhitelistSlashing(t *testing.T) {
 	makeAggregateVote(t, input, h, 0, sdk.DecCoins{{Denom: utils.MicroAtomDenom, Amount: randomExchangeRate}}, 2)
 
 	input.Ctx = input.Ctx.WithBlockHeight(votePeriodsPerWindow - 1)
+	oracle.MidBlocker(input.Ctx, input.OracleKeeper)
 	oracle.EndBlocker(input.Ctx, input.OracleKeeper)
 	validator = input.StakingKeeper.Validator(input.Ctx, keeper.ValAddrs[0])
 	// because of implicit abstaining there shouldnt be slashing here
@@ -296,6 +306,7 @@ func TestNotPassedBallotSlashing(t *testing.T) {
 	// Account 1, KRW
 	makeAggregateVote(t, input, h, 0, sdk.DecCoins{{Denom: utils.MicroAtomDenom, Amount: randomExchangeRate}}, 0)
 
+	oracle.MidBlocker(input.Ctx, input.OracleKeeper)
 	oracle.EndBlocker(input.Ctx, input.OracleKeeper)
 	require.Equal(t, uint64(0), input.OracleKeeper.GetMissCount(input.Ctx, keeper.ValAddrs[0]))
 	require.Equal(t, uint64(0), input.OracleKeeper.GetMissCount(input.Ctx, keeper.ValAddrs[1]))
@@ -324,6 +335,7 @@ func TestNotPassedBallotSlashingInvalidVotes(t *testing.T) {
 	// Account 3
 	makeAggregateVote(t, input, h, 0, sdk.DecCoins{{Denom: utils.MicroAtomDenom, Amount: randomExchangeRate.Add(sdk.NewDec(100000000000000))}}, 2)
 
+	oracle.MidBlocker(input.Ctx, input.OracleKeeper)
 	oracle.EndBlocker(input.Ctx, input.OracleKeeper)
 
 	// 4-7 should be counted as abstained due to not voting
@@ -370,6 +382,7 @@ func TestInvalidVoteOnAssetUnderThresholdMisses(t *testing.T) {
 	makeAggregateVote(t, input, h, 0, sdk.DecCoins{{Denom: utils.MicroAtomDenom, Amount: randomExchangeRate}}, 5)
 	makeAggregateVote(t, input, h, 0, sdk.DecCoins{{Denom: utils.MicroAtomDenom, Amount: randomExchangeRate}}, 6)
 
+	oracle.MidBlocker(input.Ctx, input.OracleKeeper)
 	oracle.EndBlocker(input.Ctx, input.OracleKeeper)
 	endBlockerHeight := input.Ctx.BlockHeight()
 
@@ -409,6 +422,7 @@ func TestInvalidVoteOnAssetUnderThresholdMisses(t *testing.T) {
 	makeAggregateVote(t, input, h, 0, sdk.DecCoins{{Denom: utils.MicroAtomDenom, Amount: anotherRandomExchangeRate}}, 5)
 	makeAggregateVote(t, input, h, 0, sdk.DecCoins{{Denom: utils.MicroAtomDenom, Amount: anotherRandomExchangeRate}}, 6)
 
+	oracle.MidBlocker(input.Ctx, input.OracleKeeper)
 	oracle.EndBlocker(input.Ctx, input.OracleKeeper)
 	newEndBlockerHeight := input.Ctx.BlockHeight()
 
@@ -463,12 +477,14 @@ func TestAbstainSlashing(t *testing.T) {
 		// Account 3, KRW
 		makeAggregateVote(t, input, h, 0, sdk.DecCoins{{Denom: utils.MicroAtomDenom, Amount: randomExchangeRate}}, 2)
 
+		oracle.MidBlocker(input.Ctx, input.OracleKeeper)
 		oracle.EndBlocker(input.Ctx, input.OracleKeeper)
 		require.Equal(t, uint64(i+1%limit), input.OracleKeeper.GetMissCount(input.Ctx, keeper.ValAddrs[1]))
 		require.Equal(t, uint64(0), input.OracleKeeper.GetAbstainCount(input.Ctx, keeper.ValAddrs[1]))
 	}
 
 	input.Ctx = input.Ctx.WithBlockHeight(votePeriodsPerWindow - 1)
+	oracle.MidBlocker(input.Ctx, input.OracleKeeper)
 	oracle.EndBlocker(input.Ctx, input.OracleKeeper)
 	validator := input.StakingKeeper.Validator(input.Ctx, keeper.ValAddrs[1])
 	// validator got slashed and jailed
@@ -490,6 +506,7 @@ func TestVoteTargets(t *testing.T) {
 	makeAggregateVote(t, input, h, 0, sdk.DecCoins{{Denom: utils.MicroAtomDenom, Amount: randomExchangeRate}}, 1)
 	makeAggregateVote(t, input, h, 0, sdk.DecCoins{{Denom: utils.MicroAtomDenom, Amount: randomExchangeRate}}, 2)
 
+	oracle.MidBlocker(input.Ctx, input.OracleKeeper)
 	oracle.EndBlocker(input.Ctx, input.OracleKeeper)
 
 	// no missing current
@@ -512,6 +529,7 @@ func TestVoteTargets(t *testing.T) {
 	makeAggregateVote(t, input, h, 0, sdk.DecCoins{{Denom: utils.MicroAtomDenom, Amount: randomExchangeRate}}, 1)
 	makeAggregateVote(t, input, h, 0, sdk.DecCoins{{Denom: utils.MicroAtomDenom, Amount: randomExchangeRate}}, 2)
 
+	oracle.MidBlocker(input.Ctx, input.OracleKeeper)
 	oracle.EndBlocker(input.Ctx, input.OracleKeeper)
 
 	require.Equal(t, uint64(0), input.OracleKeeper.GetMissCount(input.Ctx, keeper.ValAddrs[0]))
@@ -532,6 +550,7 @@ func TestVoteTargets(t *testing.T) {
 	makeAggregateVote(t, input, h, 0, sdk.DecCoins{{Denom: utils.MicroAtomDenom, Amount: randomExchangeRate}}, 1)
 	makeAggregateVote(t, input, h, 0, sdk.DecCoins{{Denom: utils.MicroAtomDenom, Amount: randomExchangeRate}}, 2)
 
+	oracle.MidBlocker(input.Ctx, input.OracleKeeper)
 	oracle.EndBlocker(input.Ctx, input.OracleKeeper)
 
 	require.Equal(t, uint64(0), input.OracleKeeper.GetMissCount(input.Ctx, keeper.ValAddrs[0]))
@@ -549,6 +568,7 @@ func TestAbstainWithSmallStakingPower(t *testing.T) {
 	input.OracleKeeper.SetVoteTarget(input.Ctx, utils.MicroAtomDenom)
 	makeAggregateVote(t, input, h, 0, sdk.DecCoins{{Denom: utils.MicroAtomDenom, Amount: sdk.ZeroDec()}}, 0)
 
+	oracle.MidBlocker(input.Ctx, input.OracleKeeper)
 	oracle.EndBlocker(input.Ctx, input.OracleKeeper)
 	_, _, err := input.OracleKeeper.GetBaseExchangeRate(input.Ctx, utils.MicroAtomDenom)
 	require.Error(t, err)
@@ -567,6 +587,7 @@ func TestOraclePriceSnapshot(t *testing.T) {
 	makeAggregateVote(t, input, h, 0, sdk.DecCoins{{Denom: utils.MicroAtomDenom, Amount: randomExchangeRate}}, 1)
 	makeAggregateVote(t, input, h, 0, sdk.DecCoins{{Denom: utils.MicroAtomDenom, Amount: randomExchangeRate}}, 2)
 
+	oracle.MidBlocker(input.Ctx, input.OracleKeeper)
 	oracle.EndBlocker(input.Ctx, input.OracleKeeper)
 
 	rate, lastUpdate, err := input.OracleKeeper.GetBaseExchangeRate(input.Ctx, utils.MicroAtomDenom)
@@ -592,6 +613,7 @@ func TestOraclePriceSnapshot(t *testing.T) {
 	require.Equal(t, expected, snapshot)
 
 	input.Ctx = input.Ctx.WithBlockTime(time.Unix(200, 0))
+	oracle.MidBlocker(input.Ctx, input.OracleKeeper)
 	oracle.EndBlocker(input.Ctx, input.OracleKeeper)
 	expected2 := types.PriceSnapshot{
 		SnapshotTimestamp: 200,

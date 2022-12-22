@@ -25,6 +25,22 @@ import (
 
 const TestContract = "TEST"
 
+type TestTx struct {
+	msgs []sdk.Msg
+}
+
+func NewTestTx(msgs []sdk.Msg) TestTx {
+	return TestTx{msgs: msgs}
+}
+
+func (t TestTx) GetMsgs() []sdk.Msg {
+	return t.msgs
+}
+
+func (t TestTx) ValidateBasic() error {
+	return nil
+}
+
 type TestWrapper struct {
 	suite.Suite
 

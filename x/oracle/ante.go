@@ -121,3 +121,35 @@ func (spd SpammingPreventionDecorator) CheckOracleSpamming(ctx sdk.Context, msgs
 
 	return nil
 }
+
+type VoteAloneDecorator struct{}
+
+func NewOracleVoteAloneDecorator() VoteAloneDecorator {
+	return VoteAloneDecorator{}
+}
+
+// AnteHandle handles msg tax fee checking
+func (VoteAloneDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool, next sdk.AnteHandler) (newCtx sdk.Context, err error) {
+	oracleVote := false
+	otherMsg := false
+	for _, msg := range tx.GetMsgs() {
+		switch msg.(type) {
+		case *types.MsgAggregateExchangeRateVote:
+			oracleVote = true
+
+		default:
+			otherMsg = true
+		}
+	}
+
+	if oracleVote && otherMsg {
+		return ctx, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "oracle votes cannot be in the same tx as other messages")
+	}
+
+	return next(ctx, tx, simulate)
+}
+
+func (VoteAloneDecorator) AnteDeps(txDeps []sdkacltypes.AccessOperation, tx sdk.Tx, next sdk.AnteDepGenerator) (newTxDeps []sdkacltypes.AccessOperation, err error) {
+	// requires no dependencies
+	return next(txDeps, tx)
+}

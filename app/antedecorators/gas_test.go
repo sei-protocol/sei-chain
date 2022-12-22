@@ -13,30 +13,18 @@ import (
 	"github.com/tendermint/tendermint/proto/tendermint/types"
 )
 
-type TestTx struct {
-	msgs []sdk.Msg
-}
-
-func (t TestTx) GetMsgs() []sdk.Msg {
-	return t.msgs
-}
-
-func (t TestTx) ValidateBasic() error {
-	return nil
-}
-
 func TestMultiplierGasSetter(t *testing.T) {
-	app := app.Setup(false)
+	testApp := app.Setup(false)
 	contractAddr, err := sdk.AccAddressFromBech32("sei1y3pxq5dp900czh0mkudhjdqjq5m8cpmmps8yjw")
 	require.NoError(t, err)
-	ctx := app.NewContext(false, types.Header{}).WithBlockHeight(2)
+	ctx := testApp.NewContext(false, types.Header{}).WithBlockHeight(2)
 	testMsg := wasmtypes.MsgExecuteContract{
 		Contract: "sei1y3pxq5dp900czh0mkudhjdqjq5m8cpmmps8yjw",
 		Msg:      []byte("{}"),
 	}
-	testTx := TestTx{msgs: []sdk.Msg{&testMsg}}
+	testTx := app.NewTestTx([]sdk.Msg{&testMsg})
 	// discounted mapping
-	app.AccessControlKeeper.SetWasmDependencyMapping(ctx, accesscontrol.WasmDependencyMapping{
+	testApp.AccessControlKeeper.SetWasmDependencyMapping(ctx, accesscontrol.WasmDependencyMapping{
 		Enabled:         true,
 		ContractAddress: contractAddr.String(),
 		AccessOps: []accesscontrol.AccessOperationWithSelector{
@@ -52,12 +40,12 @@ func TestMultiplierGasSetter(t *testing.T) {
 			},
 		},
 	})
-	gasMeterSetter := antedecorators.GetGasMeterSetter(app.AccessControlKeeper)
+	gasMeterSetter := antedecorators.GetGasMeterSetter(testApp.AccessControlKeeper)
 	ctxWithGasMeter := gasMeterSetter(false, ctx, 1000, testTx)
 	ctxWithGasMeter.GasMeter().ConsumeGas(2, "")
 	require.Equal(t, uint64(1), ctxWithGasMeter.GasMeter().GasConsumed())
 	// not discounted mapping
-	app.AccessControlKeeper.SetWasmDependencyMapping(ctx, accesscontrol.WasmDependencyMapping{
+	testApp.AccessControlKeeper.SetWasmDependencyMapping(ctx, accesscontrol.WasmDependencyMapping{
 		Enabled:         true,
 		ContractAddress: contractAddr.String(),
 		AccessOps: []accesscontrol.AccessOperationWithSelector{

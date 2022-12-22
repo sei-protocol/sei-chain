@@ -9,8 +9,10 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkacltypes "github.com/cosmos/cosmos-sdk/types/accesscontrol"
 	acltypes "github.com/cosmos/cosmos-sdk/x/accesscontrol/types"
+	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
 	"github.com/k0kubun/pp/v3"
 	"github.com/sei-protocol/sei-chain/app"
+	oracletypes "github.com/sei-protocol/sei-chain/x/oracle/types"
 	"github.com/stretchr/testify/require"
 	abci "github.com/tendermint/tendermint/abci/types"
 )
@@ -154,4 +156,114 @@ func TestProcessTxsClearCacheOnFail(t *testing.T) {
 	// It should be reset if it fails to prevent any values from being written
 	require.Equal(t, 0, len(testWrapper.Ctx.ContextMemCache().GetDeferredWithdrawals().GetSortedKeys()))
 	require.Equal(t, 0, len(testWrapper.Ctx.ContextMemCache().GetDeferredSends().GetSortedKeys()))
+}
+
+func TestPartitionOracleTxs(t *testing.T) {
+	tm := time.Now().UTC()
+	valPub := secp256k1.GenPrivKey().PubKey()
+
+	testWrapper := app.NewTestWrapper(t, tm, valPub)
+
+	account := sdk.AccAddress(valPub.Address()).String()
+	validator := sdk.ValAddress(valPub.Address()).String()
+
+	oracleMsg := &oracletypes.MsgAggregateExchangeRateVote{
+		ExchangeRates: "1.2uatom",
+		Feeder:        account,
+		Validator:     validator,
+	}
+
+	otherMsg := &stakingtypes.MsgDelegate{
+		DelegatorAddress: account,
+		ValidatorAddress: validator,
+		Amount:           sdk.NewCoin("usei", sdk.NewInt(1)),
+	}
+
+	txEncoder := app.MakeEncodingConfig().TxConfig.TxEncoder()
+	oracleTxBuilder := app.MakeEncodingConfig().TxConfig.NewTxBuilder()
+	otherTxBuilder := app.MakeEncodingConfig().TxConfig.NewTxBuilder()
+	mixedTxBuilder := app.MakeEncodingConfig().TxConfig.NewTxBuilder()
+
+	err := oracleTxBuilder.SetMsgs(oracleMsg)
+	require.NoError(t, err)
+	oracleTx, err := txEncoder(oracleTxBuilder.GetTx())
+	require.NoError(t, err)
+
+	err = otherTxBuilder.SetMsgs(otherMsg)
+	require.NoError(t, err)
+	otherTx, err := txEncoder(otherTxBuilder.GetTx())
+	require.NoError(t, err)
+
+	// this should be treated as non-oracle vote
+	err = mixedTxBuilder.SetMsgs([]sdk.Msg{oracleMsg, otherMsg}...)
+	require.NoError(t, err)
+	mixedTx, err := txEncoder(mixedTxBuilder.GetTx())
+	require.NoError(t, err)
+
+	txs := [][]byte{
+		oracleTx,
+		otherTx,
+		mixedTx,
+	}
+
+	oracleTxs, otherTxs := testWrapper.App.PartitionOracleVoteTxs(testWrapper.Ctx, txs)
+	require.Equal(t, oracleTxs, [][]byte{oracleTx})
+	require.Equal(t, otherTxs, [][]byte{otherTx, mixedTx})
+}
+
+func TestProcessOracleAndOtherTxsSuccess(t *testing.T) {
+	tm := time.Now().UTC()
+	valPub := secp256k1.GenPrivKey().PubKey()
+
+	testWrapper := app.NewTestWrapper(t, tm, valPub)
+
+	account := sdk.AccAddress(valPub.Address()).String()
+	validator := sdk.ValAddress(valPub.Address()).String()
+
+	oracleMsg := &oracletypes.MsgAggregateExchangeRateVote{
+		ExchangeRates: "1.2uatom",
+		Feeder:        account,
+		Validator:     validator,
+	}
+
+	otherMsg := &stakingtypes.MsgDelegate{
+		DelegatorAddress: account,
+		ValidatorAddress: validator,
+		Amount:           sdk.NewCoin("usei", sdk.NewInt(1)),
+	}
+
+	oracleTxBuilder := app.MakeEncodingConfig().TxConfig.NewTxBuilder()
+	otherTxBuilder := app.MakeEncodingConfig().TxConfig.NewTxBuilder()
+	txEncoder := app.MakeEncodingConfig().TxConfig.TxEncoder()
+
+	err := oracleTxBuilder.SetMsgs(oracleMsg)
+	require.NoError(t, err)
+	oracleTx, err := txEncoder(oracleTxBuilder.GetTx())
+	require.NoError(t, err)
+
+	err = otherTxBuilder.SetMsgs(otherMsg)
+	require.NoError(t, err)
+	otherTx, err := txEncoder(otherTxBuilder.GetTx())
+	require.NoError(t, err)
+
+	txs := [][]byte{
+		oracleTx,
+		otherTx,
+	}
+
+	req := &abci.RequestFinalizeBlock{
+		Height: 1,
+	}
+	_, txResults, _, _ := testWrapper.App.ProcessBlock(
+		testWrapper.Ctx.WithBlockHeight(
+			1,
+		).WithBlockGasMeter(
+			sdk.NewInfiniteGasMeter(),
+		),
+		txs,
+		req,
+		req.DecidedLastCommit,
+	)
+
+	require.Equal(t, 2, len(txResults))
 }
