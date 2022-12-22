@@ -31,14 +31,14 @@ override_genesis '.app_state["genutil"]["gen_txs"]=[]'
 
 # gov parameters
 override_genesis '.app_state["gov"]["deposit_params"]["min_deposit"][0]["denom"]="usei"'
-override_genesis '.app_state["gov"]["deposit_params"]["min_expedited_deposit"][0]["denom"]="usei"'
-override_genesis '.app_state["gov"]["deposit_params"]["max_deposit_period"]="300s"'
+#override_genesis '.app_state["gov"]["deposit_params"]["min_expedited_deposit"][0]["denom"]="usei"'
+#override_genesis '.app_state["gov"]["deposit_params"]["max_deposit_period"]="300s"'
 override_genesis '.app_state["gov"]["voting_params"]["voting_period"]="300s"'
-override_genesis '.app_state["gov"]["voting_params"]["expedited_voting_period"]="120s"'
+#override_genesis '.app_state["gov"]["voting_params"]["expedited_voting_period"]="120s"'
 override_genesis '.app_state["gov"]["tally_params"]["quorum"]="0.5"'
 override_genesis '.app_state["gov"]["tally_params"]["threshold"]="0.5"'
-override_genesis '.app_state["gov"]["tally_params"]["expedited_quorum"]="0.9"'
-override_genesis '.app_state["gov"]["tally_params"]["expedited_threshold"]="0.9"'
+#override_genesis '.app_state["gov"]["tally_params"]["expedited_quorum"]="0.9"'
+#override_genesis '.app_state["gov"]["tally_params"]["expedited_threshold"]="0.9"'
 
 # add genesis accounts for each node
 while read account; do
