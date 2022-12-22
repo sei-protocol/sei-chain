@@ -6,7 +6,8 @@ echo "Configure and initialize environment"
 # Set up GO PATH
 export GOPATH=$HOME/go
 export GOBIN=$GOPATH/bin
-export PATH=$GOBIN:$PATH:/usr/local/go/bin
+export BUILD_PATH=/sei-protocol/sei-chain/build
+export PATH=$GOBIN:$PATH:/usr/local/go/bin:$BUILD_PATH
 
 # Prepare shared folders
 mkdir -p build/generated/gentx/
@@ -17,7 +18,7 @@ mkdir -p build/generated/exported_keys/
 
 # Initialize validator node
 MONIKER="sei-node-$NODE_ID"
-./build/seid init "$MONIKER" --chain-id sei
+./build/seid init "$MONIKER" --chain-id sei >/dev/null 2>&1
 
 # Copy configs
 cp docker/localnode/config/app.toml ~/.sei/config/app.toml
@@ -31,7 +32,8 @@ echo "$SEI_NODE_ID@$NODE_IP:26656" >> build/generated/persistent_peers.txt
 
 # Create a new account
 ACCOUNT_NAME="node_admin"
-printf "12345678\n12345678\ny\n" | ./build/seid keys add "$ACCOUNT_NAME"
+echo "Adding account $ACCOUNT_NAME"
+printf "12345678\n12345678\ny\n" | ./build/seid keys add "$ACCOUNT_NAME" >/dev/null 2>&1
 
 # Get genesis account info
 GENESIS_ACCOUNT_ADDRESS=$(printf "12345678\n" | ./build/seid keys show "$ACCOUNT_NAME" -a)
@@ -41,7 +43,7 @@ echo "$GENESIS_ACCOUNT_ADDRESS" >> build/generated/genesis_accounts.txt
 ./build/seid add-genesis-account "$GENESIS_ACCOUNT_ADDRESS" 10000000usei
 
 # Create gentx
-printf "12345678\n" | ./build/seid gentx "$ACCOUNT_NAME" 10000000usei --chain-id  sei
+printf "12345678\n" | ./build/seid gentx "$ACCOUNT_NAME" 10000000usei --chain-id sei
 cp ~/.sei/config/gentx/* build/generated/gentx/
 
 # Set node0 seivaloper info
@@ -53,3 +55,4 @@ echo "$PRIV_KEY" >> build/generated/exported_keys/"$NODE0_SEIVALOPER_INFO".txt
 sed -i'' -e 's/address = "sei"/address = \"'$GENESIS_ACCOUNT_ADDRESS'\"/g' ~/price_feeder_config.toml
 sed -i'' -e 's/validator = "seivaloper"/validator = \"'$NODE0_SEIVALOPER_INFO'\"/g' ~/price_feeder_config.toml
 
+echo "DONE" >> build/generated/init.complete

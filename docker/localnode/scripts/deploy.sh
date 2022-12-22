@@ -21,6 +21,15 @@ fi
 # Genesis on node 0
 if [ $NODE_ID = 0 ]
 then
+  # wait for other nodes init complete
+  until [ -f build/generated/init.complete ]
+  do
+       sleep 5
+  done
+  until [ $(cat build/generated/init.complete |wc -l) = 4 ]
+  do
+       sleep 5
+  done
   echo "Running genesis on node 0"
   /usr/bin/genesis.sh
 fi

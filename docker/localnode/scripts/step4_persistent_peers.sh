@@ -1,7 +1,7 @@
 #!/usr/bin/env sh
 
 # Greeting output
-echo "Uploading persistent peers"
+echo "Loading persistent peers"
 
 # Set up persistent peers
 NODE_IP=$(hostname -i | awk '{print $1}')

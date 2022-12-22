@@ -144,6 +144,7 @@ docker-cluster-start: localnet-stop build-docker-localnode
 	@cd docker && docker-compose up
 .PHONY: localnet-start
 
+# Use this to skip the seid build process
 docker-cluster-start-skipbuild: localnet-stop build-docker-localnode
 	@rm -rf $(PROJECT_HOME)/build/generated
 	@cd docker && SKIP_BUILD=true docker-compose up
