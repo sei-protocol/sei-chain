@@ -44,7 +44,7 @@ func TestMsgSubmitProposal(t *testing.T) {
 
 	for i, tc := range tests {
 		msg, err := NewMsgSubmitProposal(
-			ContentFromProposalType(tc.title, tc.description, tc.proposalType),
+			ContentFromProposalType(tc.title, tc.description, tc.proposalType, false),
 			tc.initialDeposit,
 			tc.proposerAddr,
 		)
@@ -164,7 +164,7 @@ func TestMsgVoteWeighted(t *testing.T) {
 
 // this tests that Amino JSON MsgSubmitProposal.GetSignBytes() still works with Content as Any using the ModuleCdc
 func TestMsgSubmitProposal_GetSignBytes(t *testing.T) {
-	msg, err := NewMsgSubmitProposal(NewTextProposal("test", "abcd"), sdk.NewCoins(), sdk.AccAddress{})
+	msg, err := NewMsgSubmitProposal(NewTextProposal("test", "abcd", false), sdk.NewCoins(), sdk.AccAddress{})
 	require.NoError(t, err)
 	var bz []byte
 	require.NotPanics(t, func() {

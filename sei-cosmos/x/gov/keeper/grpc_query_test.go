@@ -49,7 +49,7 @@ func (suite *KeeperTestSuite) TestGRPCQueryProposal() {
 			"valid request",
 			func() {
 				req = &types.QueryProposalRequest{ProposalId: 1}
-				testProposal := types.NewTextProposal("Proposal", "testing proposal")
+				testProposal := types.NewTextProposal("Proposal", "testing proposal", false)
 				submittedProposal, err := app.GovKeeper.SubmitProposal(ctx, testProposal)
 				suite.Require().NoError(err)
 				suite.Require().NotEmpty(submittedProposal)
@@ -105,7 +105,7 @@ func (suite *KeeperTestSuite) TestGRPCQueryProposals() {
 				// create 5 test proposals
 				for i := 0; i < 5; i++ {
 					num := strconv.Itoa(i + 1)
-					testProposal := types.NewTextProposal("Proposal"+num, "testing proposal "+num)
+					testProposal := types.NewTextProposal("Proposal"+num, "testing proposal "+num, false)
 					proposal, err := app.GovKeeper.SubmitProposal(ctx, testProposal)
 					suite.Require().NotEmpty(proposal)
 					suite.Require().NoError(err)
@@ -460,7 +460,7 @@ func (suite *KeeperTestSuite) TestGRPCQueryParams() {
 				req = &types.QueryParamsRequest{ParamsType: types.ParamDeposit}
 				expRes = &types.QueryParamsResponse{
 					DepositParams: types.DefaultDepositParams(),
-					TallyParams:   types.NewTallyParams(sdk.NewDec(0), sdk.NewDec(0), sdk.NewDec(0)),
+					TallyParams:   types.NewTallyParams(sdk.NewDec(0), sdk.NewDec(0), sdk.NewDec(0), sdk.NewDec(0), sdk.NewDec(0)),
 				}
 			},
 			true,
@@ -471,7 +471,7 @@ func (suite *KeeperTestSuite) TestGRPCQueryParams() {
 				req = &types.QueryParamsRequest{ParamsType: types.ParamVoting}
 				expRes = &types.QueryParamsResponse{
 					VotingParams: types.DefaultVotingParams(),
-					TallyParams:  types.NewTallyParams(sdk.NewDec(0), sdk.NewDec(0), sdk.NewDec(0)),
+					TallyParams:  types.NewTallyParams(sdk.NewDec(0), sdk.NewDec(0), sdk.NewDec(0), sdk.NewDec(0), sdk.NewDec(0)),
 				}
 			},
 			true,

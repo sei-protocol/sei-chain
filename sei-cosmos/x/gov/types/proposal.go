@@ -17,7 +17,7 @@ import (
 const DefaultStartingProposalID uint64 = 1
 
 // NewProposal creates a new Proposal instance
-func NewProposal(content Content, id uint64, submitTime, depositEndTime time.Time) (Proposal, error) {
+func NewProposal(content Content, id uint64, submitTime, depositEndTime time.Time, isExpedited bool) (Proposal, error) {
 	msg, ok := content.(proto.Message)
 	if !ok {
 		return Proposal{}, fmt.Errorf("%T does not implement proto.Message", content)
@@ -36,6 +36,7 @@ func NewProposal(content Content, id uint64, submitTime, depositEndTime time.Tim
 		TotalDeposit:     sdk.NewCoins(),
 		SubmitTime:       submitTime,
 		DepositEndTime:   depositEndTime,
+		IsExpedited:      isExpedited,
 	}
 
 	return p, nil
@@ -187,8 +188,8 @@ const (
 var _ Content = &TextProposal{}
 
 // NewTextProposal creates a text proposal Content
-func NewTextProposal(title, description string) Content {
-	return &TextProposal{title, description}
+func NewTextProposal(title, description string, isExpedited bool) Content {
+	return &TextProposal{title, description, isExpedited}
 }
 
 // GetTitle returns the proposal title
@@ -227,10 +228,10 @@ func RegisterProposalType(ty string) {
 }
 
 // ContentFromProposalType returns a Content object based on the proposal type.
-func ContentFromProposalType(title, desc, ty string) Content {
+func ContentFromProposalType(title, desc, ty string, isExpedited bool) Content {
 	switch ty {
 	case ProposalTypeText:
-		return NewTextProposal(title, desc)
+		return NewTextProposal(title, desc, isExpedited)
 
 	default:
 		return nil

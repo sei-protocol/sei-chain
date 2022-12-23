@@ -37,6 +37,7 @@ func EndBlocker(ctx sdk.Context, keeper keeper.Keeper) {
 			"proposal", proposal.ProposalId,
 			"title", proposal.GetTitle(),
 			"min_deposit", keeper.GetDepositParams(ctx).MinDeposit.String(),
+			"min_expedited_deposit", keeper.GetDepositParams(ctx).MinExpeditedDeposit.String(),
 			"total_deposit", proposal.TotalDeposit.String(),
 		)
 
@@ -49,11 +50,19 @@ func EndBlocker(ctx sdk.Context, keeper keeper.Keeper) {
 
 		passes, burnDeposits, tallyResults := keeper.Tally(ctx, proposal)
 
-		if burnDeposits {
-			keeper.DeleteDeposits(ctx, proposal.ProposalId)
-		} else {
-			keeper.RefundDeposits(ctx, proposal.ProposalId)
+		// If an expedited proposal fails, we do not want to update
+		// the deposit at this point since the proposal is converted to regular.
+		// As a result, the deposits are either deleted or refunded in all casses
+		// EXCEPT when an expedited proposal fails.
+		if !(proposal.IsExpedited && !passes) {
+			if burnDeposits {
+				keeper.DeleteDeposits(ctx, proposal.ProposalId)
+			} else {
+				keeper.RefundDeposits(ctx, proposal.ProposalId)
+			}
 		}
+
+		keeper.RemoveFromActiveProposalQueue(ctx, proposal.ProposalId, proposal.VotingEndTime)
 
 		if passes {
 			handler := keeper.Router().GetRoute(proposal.ProposalRoute())
@@ -82,15 +91,32 @@ func EndBlocker(ctx sdk.Context, keeper keeper.Keeper) {
 				logMsg = fmt.Sprintf("passed, but failed on execution: %s", err)
 			}
 		} else {
-			proposal.Status = types.StatusRejected
-			tagValue = types.AttributeValueProposalRejected
-			logMsg = "rejected"
+			// The proposal didn't pass after voting period ends
+			if proposal.IsExpedited {
+				// When expedited proposal fails, it is converted to a regular proposal.
+				// As a result, the voting period is extended.
+				// Once the regular voting period expires again, the tally is repeated
+				// according to the regular proposal rules.
+				proposal.IsExpedited = false
+				votingParams := keeper.GetVotingParams(ctx)
+				proposal.VotingEndTime = proposal.VotingStartTime.Add(votingParams.VotingPeriod)
+
+				keeper.InsertActiveProposalQueue(ctx, proposal.ProposalId, proposal.VotingEndTime)
+				tagValue = types.AttributeValueExpeditedConverted
+				logMsg = "expedited proposal converted to regular"
+			} else {
+				// When regular proposal fails, it is rejected and
+				// the proposal with that id is done forever.
+				proposal.Status = types.StatusRejected
+				tagValue = types.AttributeValueProposalRejected
+				logMsg = "rejected"
+			}
+
 		}
 
 		proposal.FinalTallyResult = tallyResults
 
 		keeper.SetProposal(ctx, proposal)
-		keeper.RemoveFromActiveProposalQueue(ctx, proposal.ProposalId, proposal.VotingEndTime)
 
 		// when proposal become active
 		keeper.AfterProposalVotingPeriodEnded(ctx, proposal.ProposalId)

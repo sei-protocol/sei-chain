@@ -34,7 +34,7 @@ func TestHandlerTestSuite(t *testing.T) {
 }
 
 func testProposal(changes ...proposal.ParamChange) *proposal.ParameterChangeProposal {
-	return proposal.NewParameterChangeProposal("title", "description", changes)
+	return proposal.NewParameterChangeProposal("title", "description", changes, false)
 }
 
 func (suite *HandlerTestSuite) TestProposalHandler() {
@@ -61,19 +61,32 @@ func (suite *HandlerTestSuite) TestProposalHandler() {
 		},
 		{
 			"omit empty fields",
-			testProposal(proposal.ParamChange{
-				Subspace: govtypes.ModuleName,
-				Key:      string(govtypes.ParamStoreKeyDepositParams),
-				Value:    `{"min_deposit": [{"denom": "uatom","amount": "64000000"}]}`,
-			}),
+			testProposal(
+				proposal.ParamChange{
+					Subspace: govtypes.ModuleName,
+					Key:      string(govtypes.ParamStoreKeyDepositParams),
+					Value:    `{"min_deposit": [{"denom": "uatom","amount": "64000000"}],"min_expedited_deposit": [{"denom": "uatom","amount": "64000001"}]}`,
+				}),
 			func() {
 				depositParams := suite.app.GovKeeper.GetDepositParams(suite.ctx)
 				suite.Require().Equal(govtypes.DepositParams{
-					MinDeposit:       sdk.NewCoins(sdk.NewCoin("uatom", sdk.NewInt(64000000))),
-					MaxDepositPeriod: govtypes.DefaultPeriod,
+					MinDeposit:          sdk.NewCoins(sdk.NewCoin("uatom", sdk.NewInt(64000000))),
+					MinExpeditedDeposit: sdk.NewCoins(sdk.NewCoin("uatom", sdk.NewInt(64000001))),
+					MaxDepositPeriod:    govtypes.DefaultPeriod,
 				}, depositParams)
 			},
 			false,
+		},
+		{
+			"min_deposit equals to min_expedited_deposit",
+			testProposal(proposal.ParamChange{
+				Subspace: govtypes.ModuleName,
+				Key:      string(govtypes.ParamStoreKeyDepositParams),
+				Value:    `{"min_deposit": [{"denom": "uatom","amount": "64000000"}],"min_expedited_deposit": [{"denom": "uatom","amount": "64000000"}]}`,
+			}),
+			func() {
+			},
+			true,
 		},
 	}
 

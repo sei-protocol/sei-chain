@@ -1,3 +1,4 @@
+//go:build norace
 // +build norace
 
 package testutil
@@ -20,8 +21,11 @@ func TestIntegrationTestSuite(t *testing.T) {
 	suite.Run(t, NewIntegrationTestSuite(cfg))
 
 	genesisState := types.DefaultGenesisState()
-	genesisState.DepositParams = types.NewDepositParams(sdk.NewCoins(sdk.NewCoin(cfg.BondDenom, types.DefaultMinDepositTokens)), time.Duration(15)*time.Second)
-	genesisState.VotingParams = types.NewVotingParams(time.Duration(5) * time.Second)
+	genesisState.DepositParams = types.NewDepositParams(
+		sdk.NewCoins(sdk.NewCoin(cfg.BondDenom, types.DefaultMinDepositTokens)),
+		sdk.NewCoins(sdk.NewCoin(cfg.BondDenom, types.DefaultMinExpeditedDepositTokens)),
+		time.Duration(15)*time.Second)
+	genesisState.VotingParams = types.NewVotingParams(time.Duration(5)*time.Second, time.Duration(2)*time.Second)
 	bz, err := cfg.Codec.MarshalJSON(genesisState)
 	require.NoError(t, err)
 	cfg.GenesisState["gov"] = bz

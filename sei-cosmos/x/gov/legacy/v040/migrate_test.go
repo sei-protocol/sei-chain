@@ -97,7 +97,8 @@ func TestMigrate(t *testing.T) {
 	expected := `{
 	"deposit_params": {
 		"max_deposit_period": "0s",
-		"min_deposit": []
+		"min_deposit": [],
+		"min_expedited_deposit": []
 	},
 	"deposits": [],
 	"proposals": [
@@ -105,6 +106,7 @@ func TestMigrate(t *testing.T) {
 			"content": {
 				"@type": "/cosmos.gov.v1beta1.TextProposal",
 				"description": "bar_text",
+				"is_expedited": false,
 				"title": "foo_text"
 			},
 			"deposit_end_time": "0001-01-01T00:00:00Z",
@@ -114,6 +116,7 @@ func TestMigrate(t *testing.T) {
 				"no_with_veto": "0",
 				"yes": "0"
 			},
+			"is_expedited": false,
 			"proposal_id": "0",
 			"status": "PROPOSAL_STATUS_UNSPECIFIED",
 			"submit_time": "0001-01-01T00:00:00Z",
@@ -141,6 +144,7 @@ func TestMigrate(t *testing.T) {
 				"no_with_veto": "0",
 				"yes": "0"
 			},
+			"is_expedited": false,
 			"proposal_id": "0",
 			"status": "PROPOSAL_STATUS_UNSPECIFIED",
 			"submit_time": "0001-01-01T00:00:00Z",
@@ -161,6 +165,7 @@ func TestMigrate(t *testing.T) {
 				"no_with_veto": "0",
 				"yes": "0"
 			},
+			"is_expedited": false,
 			"proposal_id": "0",
 			"status": "PROPOSAL_STATUS_UNSPECIFIED",
 			"submit_time": "0001-01-01T00:00:00Z",
@@ -188,6 +193,7 @@ func TestMigrate(t *testing.T) {
 				"no_with_veto": "0",
 				"yes": "0"
 			},
+			"is_expedited": false,
 			"proposal_id": "0",
 			"status": "PROPOSAL_STATUS_UNSPECIFIED",
 			"submit_time": "0001-01-01T00:00:00Z",
@@ -206,6 +212,7 @@ func TestMigrate(t *testing.T) {
 					}
 				],
 				"description": "bar_param_change",
+				"is_expedited": false,
 				"title": "foo_param_change"
 			},
 			"deposit_end_time": "0001-01-01T00:00:00Z",
@@ -215,6 +222,7 @@ func TestMigrate(t *testing.T) {
 				"no_with_veto": "0",
 				"yes": "0"
 			},
+			"is_expedited": false,
 			"proposal_id": "0",
 			"status": "PROPOSAL_STATUS_UNSPECIFIED",
 			"submit_time": "0001-01-01T00:00:00Z",
@@ -225,12 +233,15 @@ func TestMigrate(t *testing.T) {
 	],
 	"starting_proposal_id": "0",
 	"tally_params": {
+		"expedited_quorum": "0",
+		"expedited_threshold": "0",
 		"quorum": "0",
 		"threshold": "0",
 		"veto_threshold": "0"
 	},
 	"votes": [],
 	"voting_params": {
+		"expedited_voting_period": "0s",
 		"voting_period": "0s"
 	}
 }`

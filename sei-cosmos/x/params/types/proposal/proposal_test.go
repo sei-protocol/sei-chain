@@ -9,7 +9,7 @@ import (
 func TestParameterChangeProposal(t *testing.T) {
 	pc1 := NewParamChange("sub", "foo", "baz")
 	pc2 := NewParamChange("sub", "bar", "cat")
-	pcp := NewParameterChangeProposal("test title", "test description", []ParamChange{pc1, pc2})
+	pcp := NewParameterChangeProposal("test title", "test description", []ParamChange{pc1, pc2}, true)
 
 	require.Equal(t, "test title", pcp.GetTitle())
 	require.Equal(t, "test description", pcp.GetDescription())
@@ -18,10 +18,10 @@ func TestParameterChangeProposal(t *testing.T) {
 	require.Nil(t, pcp.ValidateBasic())
 
 	pc3 := NewParamChange("", "bar", "cat")
-	pcp = NewParameterChangeProposal("test title", "test description", []ParamChange{pc3})
+	pcp = NewParameterChangeProposal("test title", "test description", []ParamChange{pc3}, true)
 	require.Error(t, pcp.ValidateBasic())
 
 	pc4 := NewParamChange("sub", "", "cat")
-	pcp = NewParameterChangeProposal("test title", "test description", []ParamChange{pc4})
+	pcp = NewParameterChangeProposal("test title", "test description", []ParamChange{pc4}, true)
 	require.Error(t, pcp.ValidateBasic())
 }

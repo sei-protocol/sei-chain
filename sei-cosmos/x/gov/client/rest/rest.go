@@ -40,6 +40,7 @@ type PostProposalReq struct {
 	Title          string         `json:"title" yaml:"title"`                     // Title of the proposal
 	Description    string         `json:"description" yaml:"description"`         // Description of the proposal
 	ProposalType   string         `json:"proposal_type" yaml:"proposal_type"`     // Type of proposal. Initial set {PlainTextProposal }
+	IsExpedited    bool           `json:"is_expedited" yaml:"is_expedited"`       // Expedited proposal or not
 	Proposer       sdk.AccAddress `json:"proposer" yaml:"proposer"`               // Address of the proposer
 	InitialDeposit sdk.Coins      `json:"initial_deposit" yaml:"initial_deposit"` // Coins to add to the proposal's deposit
 }

@@ -29,5 +29,6 @@ func SimulateTextProposalContent(r *rand.Rand, _ sdk.Context, _ []simtypes.Accou
 	return types.NewTextProposal(
 		simtypes.RandStringOfLength(r, 140),
 		simtypes.RandStringOfLength(r, 5000),
+		false,
 	)
 }

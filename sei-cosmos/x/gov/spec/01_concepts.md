@@ -54,6 +54,12 @@ governance module (eg. `ParamChangeProposal`), which then execute the respective
 module's proposal handler when a proposal passes. This custom handler may perform
 arbitrary state changes.
 
+### Expedited Proposals
+
+A proposal can be expedited, making the proposal use shorter voting duration and a higher tally quorum and tally threshold by default. 
+
+If an expedited proposal fails to meet the threshold within the scope of shorter voting duration, the expedited proposal is then converted to a regular proposal and resume voting under regular voting conditions.
+
 ## Deposit
 
 To prevent spam, proposals must be submitted with a deposit in the coins defined in the `MinDeposit` param. The voting period will not start until the proposal's deposit equals `MinDeposit`.
@@ -99,6 +105,12 @@ the moment the vote closes. `Voting period` should always be shorter than
 `Unbonding period` to prevent double voting. The initial value of
 `Voting period` is 2 weeks.
 
+### Expedited Voting period
+
+Expedited Proposal will have a shorter `Expedited Voting Period` compared to a regular `Voting Period`. 
+If the proposal has not passed after the `Expedited Voting Period`, it will be automatically 
+converted back to a regular proposal and fall back to use `Voting Period` unless the proposal is vetoed.
+
 ### Option set
 
 The option set of a proposal refers to the set of choices a participant can
@@ -137,6 +149,8 @@ For a weighted vote to be valid, the `options` field must not contain duplicate 
 Quorum is defined as the minimum percentage of voting power that needs to be
 casted on a proposal for the result to be valid.
 
+For expedited proposals, it would need to reach a higher quorum.
+
 ### Threshold
 
 Threshold is defined as the minimum proportion of `Yes` votes (excluding
@@ -148,6 +162,8 @@ that proposals are accepted if the proportion of `Yes` votes (excluding
 `Abstain` votes) at the end of the voting period is superior to 50% and if the
 proportion of `NoWithVeto` votes is inferior to 1/3 (excluding `Abstain`
 votes).
+
+For expedited proposals, it would require a higher threshold.
 
 ### Inheritance
 

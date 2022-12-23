@@ -3,6 +3,7 @@ package types
 import (
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 )
@@ -21,4 +22,17 @@ func TestProposalStatus_Format(t *testing.T) {
 		got := fmt.Sprintf(tt.sprintFArgs, tt.pt)
 		require.Equal(t, tt.expectedStringOutput, got)
 	}
+}
+
+func TestProposalSetIsExpedited(t *testing.T) {
+	const expedited = true
+	testProposal := NewTextProposal("test", "description", false)
+	testExpeditedProposal := NewTextProposal("test", "description", true)
+
+	proposal, err := NewProposal(testExpeditedProposal, 1, time.Now(), time.Now(), expedited)
+	require.NoError(t, err)
+	require.Equal(t, expedited, proposal.IsExpedited)
+
+	proposal, err = NewProposal(testProposal, 1, time.Now(), time.Now(), !expedited)
+	require.Equal(t, !expedited, proposal.IsExpedited)
 }

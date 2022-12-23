@@ -37,6 +37,7 @@ func (m MockWeightedProposalContent) ContentSimulatorFn() simtypes.ContentSimula
 		return types.NewTextProposal(
 			fmt.Sprintf("title-%d: %s", m.n, simtypes.RandStringOfLength(r, 100)),
 			fmt.Sprintf("description-%d: %s", m.n, simtypes.RandStringOfLength(r, 4000)),
+			false,
 		)
 	}
 }
@@ -138,12 +139,12 @@ func TestSimulateMsgDeposit(t *testing.T) {
 	accounts := getTestingAccounts(t, r, app, ctx, 3)
 
 	// setup a proposal
-	content := types.NewTextProposal("Test", "description")
+	content := types.NewTextProposal("Test", "description", false)
 
 	submitTime := ctx.BlockHeader().Time
 	depositPeriod := app.GovKeeper.GetDepositParams(ctx).MaxDepositPeriod
 
-	proposal, err := types.NewProposal(content, 1, submitTime, submitTime.Add(depositPeriod))
+	proposal, err := types.NewProposal(content, 1, submitTime, submitTime.Add(depositPeriod), false)
 	require.NoError(t, err)
 
 	app.GovKeeper.SetProposal(ctx, proposal)
@@ -180,12 +181,12 @@ func TestSimulateMsgVote(t *testing.T) {
 	accounts := getTestingAccounts(t, r, app, ctx, 3)
 
 	// setup a proposal
-	content := types.NewTextProposal("Test", "description")
+	content := types.NewTextProposal("Test", "description", false)
 
 	submitTime := ctx.BlockHeader().Time
 	depositPeriod := app.GovKeeper.GetDepositParams(ctx).MaxDepositPeriod
 
-	proposal, err := types.NewProposal(content, 1, submitTime, submitTime.Add(depositPeriod))
+	proposal, err := types.NewProposal(content, 1, submitTime, submitTime.Add(depositPeriod), false)
 	require.NoError(t, err)
 
 	app.GovKeeper.ActivateVotingPeriod(ctx, proposal)
@@ -222,12 +223,12 @@ func TestSimulateMsgVoteWeighted(t *testing.T) {
 	accounts := getTestingAccounts(t, r, app, ctx, 3)
 
 	// setup a proposal
-	content := types.NewTextProposal("Test", "description")
+	content := types.NewTextProposal("Test", "description", false)
 
 	submitTime := ctx.BlockHeader().Time
 	depositPeriod := app.GovKeeper.GetDepositParams(ctx).MaxDepositPeriod
 
-	proposal, err := types.NewProposal(content, 1, submitTime, submitTime.Add(depositPeriod))
+	proposal, err := types.NewProposal(content, 1, submitTime, submitTime.Add(depositPeriod), false)
 	require.NoError(t, err)
 
 	app.GovKeeper.ActivateVotingPeriod(ctx, proposal)

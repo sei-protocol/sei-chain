@@ -3,7 +3,9 @@ package keeper_test
 import (
 	"errors"
 	"fmt"
+	"github.com/stretchr/testify/require"
 	"strings"
+	"testing"
 	"time"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -11,37 +13,77 @@ import (
 )
 
 func (suite *KeeperTestSuite) TestGetSetProposal() {
-	tp := TestProposal
-	proposal, err := suite.app.GovKeeper.SubmitProposal(suite.ctx, tp)
-	suite.Require().NoError(err)
-	proposalID := proposal.ProposalId
-	suite.app.GovKeeper.SetProposal(suite.ctx, proposal)
+	testcases := map[string]struct {
+		proposal    types.Content
+		isExpedited bool
+	}{
+		"regular proposal": {},
+		"expedited proposal": {
+			isExpedited: true,
+		},
+	}
 
-	gotProposal, ok := suite.app.GovKeeper.GetProposal(suite.ctx, proposalID)
-	suite.Require().True(ok)
-	suite.Require().True(proposal.Equal(gotProposal))
+	for _, tc := range testcases {
+		tp := TestProposal
+		proposal, err := suite.app.GovKeeper.SubmitProposalWithExpedite(suite.ctx, tp, tc.isExpedited)
+		suite.Require().NoError(err)
+		proposalID := proposal.ProposalId
+		suite.app.GovKeeper.SetProposal(suite.ctx, proposal)
+
+		gotProposal, ok := suite.app.GovKeeper.GetProposal(suite.ctx, proposalID)
+		suite.Require().True(ok)
+		suite.Require().True(proposal.Equal(gotProposal))
+	}
 }
 
 func (suite *KeeperTestSuite) TestActivateVotingPeriod() {
-	tp := TestProposal
-	proposal, err := suite.app.GovKeeper.SubmitProposal(suite.ctx, tp)
-	suite.Require().NoError(err)
+	testcases := []struct {
+		name        string
+		proposal    types.Content
+		isExpedited bool
+	}{
+		{
+			name:        "expedited",
+			isExpedited: true,
+		},
+		{
+			name: "not expedited",
+		},
+	}
+	for _, tc := range testcases {
+		suite.T().Run(tc.name, func(t *testing.T) {
+			tp := TestProposal
+			proposal, err := suite.app.GovKeeper.SubmitProposalWithExpedite(suite.ctx, tp, tc.isExpedited)
+			suite.Require().NoError(err)
 
-	suite.Require().True(proposal.VotingStartTime.Equal(time.Time{}))
+			suite.Require().True(proposal.VotingStartTime.Equal(time.Time{}))
 
-	suite.app.GovKeeper.ActivateVotingPeriod(suite.ctx, proposal)
+			suite.app.GovKeeper.ActivateVotingPeriod(suite.ctx, proposal)
 
-	suite.Require().True(proposal.VotingStartTime.Equal(suite.ctx.BlockHeader().Time))
+			suite.Require().True(proposal.VotingStartTime.Equal(suite.ctx.BlockHeader().Time))
+			proposal, ok := suite.app.GovKeeper.GetProposal(suite.ctx, proposal.ProposalId)
+			suite.Require().True(ok)
 
-	proposal, ok := suite.app.GovKeeper.GetProposal(suite.ctx, proposal.ProposalId)
-	suite.Require().True(ok)
+			activeIterator := suite.app.GovKeeper.ActiveProposalQueueIterator(suite.ctx, proposal.VotingEndTime)
+			suite.Require().True(activeIterator.Valid())
 
-	activeIterator := suite.app.GovKeeper.ActiveProposalQueueIterator(suite.ctx, proposal.VotingEndTime)
-	suite.Require().True(activeIterator.Valid())
+			proposalID := types.GetProposalIDFromBytes(activeIterator.Value())
+			suite.Require().Equal(proposalID, proposal.ProposalId)
+			require.NoError(t, activeIterator.Close())
 
-	proposalID := types.GetProposalIDFromBytes(activeIterator.Value())
-	suite.Require().Equal(proposalID, proposal.ProposalId)
-	activeIterator.Close()
+			votingParams := suite.app.GovKeeper.GetVotingParams(suite.ctx)
+
+			if tc.isExpedited {
+				require.Equal(t, proposal.VotingEndTime, proposal.VotingStartTime.Add(votingParams.ExpeditedVotingPeriod))
+			} else {
+				require.Equal(t, proposal.VotingEndTime, proposal.VotingStartTime.Add(votingParams.VotingPeriod))
+			}
+
+			// teardown
+			suite.app.GovKeeper.RemoveFromActiveProposalQueue(suite.ctx, proposalID, proposal.VotingEndTime)
+			suite.app.GovKeeper.DeleteProposal(suite.ctx, proposalID)
+		})
+	}
 }
 
 type invalidProposalRoute struct{ types.TextProposal }
@@ -77,7 +119,7 @@ func (suite *KeeperTestSuite) TestGetProposalsFiltered() {
 
 	for _, s := range status {
 		for i := 0; i < 50; i++ {
-			p, err := types.NewProposal(TestProposal, proposalID, time.Now(), time.Now())
+			p, err := types.NewProposal(TestProposal, proposalID, time.Now(), time.Now(), false)
 			suite.Require().NoError(err)
 
 			p.Status = s
