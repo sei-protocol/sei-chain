@@ -34,8 +34,6 @@ func (k msgServer) RegisterPairs(goCtx context.Context, msg *types.MsgRegisterPa
 		contractAddress := batchContractPair.ContractAddr
 		for _, pair := range batchContractPair.Pairs {
 			k.AddRegisteredPair(ctx, contractAddress, *pair)
-			k.SetPriceTickSizeForPair(ctx, contractAddress, *pair, *pair.PriceTicksize)
-			k.SetQuantityTickSizeForPair(ctx, contractAddress, *pair, *pair.QuantityTicksize)
 		}
 	}
 
