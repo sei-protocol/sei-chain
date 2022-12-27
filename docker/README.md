@@ -10,9 +10,9 @@ https://docs.docker.com/desktop/install/mac-install/
 
 Ubuntu:
 ```sh
-# Follow the below link to install docker on linux
+# Follow the below link to install docker on ubuntu
 https://docs.docker.com/engine/install/ubuntu/#install-using-the-repository
-# Use the below link to install standalone docker compose
+# Follow the below link to install standalone docker compose
 https://docs.docker.com/compose/install/other/
 ```
 
