@@ -95,8 +95,8 @@ func TestRegisterPairs(t *testing.T) {
 	require.NoError(t, err)
 	storedRegisteredPairs = keeper.GetAllRegisteredPairs(ctx, contractAddrB.String())
 	require.Equal(t, 2, len(storedRegisteredPairs))
-	require.Equal(t, keepertest.TestPair, storedRegisteredPairs[0])
-	require.Equal(t, secondTestPair, storedRegisteredPairs[1])
+	require.Equal(t, secondTestPair, storedRegisteredPairs[0])
+	require.Equal(t, keepertest.TestPair, storedRegisteredPairs[1])
 }
 
 func TestRegisterPairsInvalidMsg(t *testing.T) {

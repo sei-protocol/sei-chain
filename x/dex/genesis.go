@@ -23,14 +23,6 @@ func InitGenesis(ctx sdk.Context, k keeper.Keeper, genState types.GenesisState) 
 			k.AddRegisteredPair(ctx, contractState.ContractInfo.ContractAddr, elem)
 		}
 
-		for _, elem := range contractState.PairList {
-			k.SetPriceTickSizeForPair(ctx, contractState.ContractInfo.ContractAddr, elem, *elem.PriceTicksize)
-		}
-
-		for _, elem := range contractState.PairList {
-			k.SetQuantityTickSizeForPair(ctx, contractState.ContractInfo.ContractAddr, elem, *elem.QuantityTicksize)
-		}
-
 		for _, elem := range contractState.LongBookList {
 			k.SetLongBook(ctx, contractState.ContractInfo.ContractAddr, elem)
 		}

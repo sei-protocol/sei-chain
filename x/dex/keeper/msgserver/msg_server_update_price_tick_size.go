@@ -29,7 +29,10 @@ func (k msgServer) UpdatePriceTickSize(goCtx context.Context, msg *types.MsgUpda
 	}
 
 	for _, tickSize := range msg.TickSizeList {
-		k.SetPriceTickSizeForPair(ctx, tickSize.ContractAddr, *tickSize.Pair, tickSize.Ticksize)
+		err := k.SetPriceTickSizeForPair(ctx, tickSize.ContractAddr, *tickSize.Pair, tickSize.Ticksize)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	return &types.MsgUpdateTickSizeResponse{}, nil
