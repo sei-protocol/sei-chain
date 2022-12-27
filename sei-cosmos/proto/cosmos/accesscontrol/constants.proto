@@ -85,18 +85,18 @@ enum ResourceType {
     KV_DEX_PRICE = 56; // child of KV_DEX
     KV_DEX_SETTLEMENT_ENTRY = 57; // child of KV_DEX
     KV_DEX_REGISTERED_PAIR = 58; // child of KV_DEX
-    KV_DEX_PRICE_TICK_SIZE = 59; // child of KV_DEX
+    reserved 59;  // KV_DEX_PRICE_TICK_SIZE deprecated // child of KV_DEX
     KV_DEX_ORDER = 60; // child of KV_DEX
     KV_DEX_CANCEL = 61; // child of KV_DEX
     KV_DEX_ACCOUNT_ACTIVE_ORDERS = 62; // child of KV_DEX
-    KV_DEX_REGISTERED_PAIR_COUNT = 63; // child of KV_DEX
+    reserved 63; // KV_DEX_REGISTERED_PAIR_COUNT deprecated // child of KV_DEX
     KV_DEX_ASSET_LIST = 64; // child of KV_DEX
     KV_DEX_NEXT_ORDER_ID = 65; // child of KV_DEX
     KV_DEX_NEXT_SETTLEMENT_ID = 66; // child of KV_DEX
     KV_DEX_MATCH_RESULT = 67; // child of KV_DEX
     KV_DEX_SETTLEMENT_ORDER_ID = 68; // child of KV_DEX
     KV_DEX_ORDER_BOOK = 69; // child of KV_DEX
-    KV_DEX_QUANTITY_TICK_SIZE = 70; // child of KV_DEX
+    reserved 70; // KV_DEX_QUANTITY_TICK_SIZE deprecated // child of KV_DEX
 
     KV_ACCESSCONTROL = 71; // child of KV
     KV_ACCESSCONTROL_WASM_DEPENDENCY_MAPPING = 72; // child of KV_ACCESSCONTROL
