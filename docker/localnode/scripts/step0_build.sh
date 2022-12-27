@@ -3,8 +3,9 @@
 # Input parameters
 NODE_ID=${ID:-0}
 
-echo $"Build seid from local branch"
 # Build seid
+echo "Building seid from local branch"
+git config --global --add safe.directory /sei-protocol/sei-chain
 LEDGER_ENABLED=false
 make clean
 make build-linux
