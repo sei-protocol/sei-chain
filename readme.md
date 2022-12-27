@@ -121,7 +121,7 @@ WantedBy=multi-user.target
 * Create the symlinlk: `sudo systemctl enable seid.service` 
 * Start the node sudo: `systemctl start seid && journalctl -u seid -f`
 
-**Start seid on 4 node docker cluster**
+**Start a chain on 4 node docker cluster**
 
 * Start local 4 node cluster: `make docker-cluster-start`
 * SSH into a docker container: `docker exec -it [container_name] /bin/bash`
