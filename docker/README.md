@@ -48,7 +48,7 @@ tail -f build/generated/seid-0.log
 # List all containers
 docker ps -a
 # SSH into a running container
-docker exec -it <container_name> /bin/bash
+docker exec -it [container_name] /bin/bash
 ```
 
 ****
