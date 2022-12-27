@@ -42,7 +42,11 @@ func sudo(sdkCtx sdk.Context, k *keeper.Keeper, contractAddress []byte, wasmMsg 
 	// Note that the limit will effectively serve as a soft limit since it's
 	// possible for the actual computation to go above the specified limit, but
 	// the associated contract would be charged corresponding rent.
-	tmpCtx := sdkCtx.WithGasMeter(sdk.NewGasMeter(sdkCtx.GasMeter().Limit()))
+	gasLimit, err := k.GetContractGasLimit(sdkCtx, contractAddress)
+	if err != nil {
+		return nil, 0, err
+	}
+	tmpCtx := sdkCtx.WithGasMeter(sdk.NewGasMeter(gasLimit))
 	data, err := sudoWithoutOutOfGasPanic(tmpCtx, k, contractAddress, wasmMsg)
 	gasConsumed := tmpCtx.GasMeter().GasConsumed()
 	if gasConsumed > 0 {

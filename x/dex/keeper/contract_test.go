@@ -77,5 +77,19 @@ func TestGetAllContractInfo(t *testing.T) {
 	require.Equal(t, keepertest.TestContract, contracts[0].ContractAddr)
 	require.Equal(t, "ta2", contracts[1].Creator)
 	require.Equal(t, "tc2", contracts[1].ContractAddr)
+}
 
+func TestGetContractGasLimit(t *testing.T) {
+	keeper, ctx := keepertest.DexKeeper(t)
+	contractAddr := sdk.MustAccAddressFromBech32("sei1suhgf5svhu4usrurvxzlgn54ksxmn8gljarjtxqnapv8kjnp4nrsgshtdj")
+	keeper.SetParams(ctx, types.Params{SudoCallGasPrice: sdk.NewDecWithPrec(1, 1), PriceSnapshotRetention: 1})
+	keeper.SetContract(ctx, &types.ContractInfoV2{
+		Creator:      keepertest.TestAccount,
+		ContractAddr: "sei1suhgf5svhu4usrurvxzlgn54ksxmn8gljarjtxqnapv8kjnp4nrsgshtdj",
+		CodeId:       1,
+		RentBalance:  1000000,
+	})
+	gasLimit, err := keeper.GetContractGasLimit(ctx, contractAddr)
+	require.Nil(t, err)
+	require.Equal(t, uint64(10000000), gasLimit)
 }
