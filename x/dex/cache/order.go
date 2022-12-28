@@ -28,7 +28,7 @@ func (o *BlockOrders) Add(newItem *types.Order) {
 	}
 }
 
-func (o *BlockOrders) GetById(id uint64) *types.Order {
+func (o *BlockOrders) GetByID(id uint64) *types.Order {
 	keybz := make([]byte, 8)
 	binary.BigEndian.PutUint64(keybz, id)
 	var val types.Order

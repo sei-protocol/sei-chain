@@ -111,7 +111,7 @@ func UpdateOrderData(
 	blockOrders *cache.BlockOrders,
 ) {
 	// update order data in the memstate
-	orderStored := blockOrders.GetById(takerOrder.Id)
+	orderStored := blockOrders.GetByID(takerOrder.Id)
 	orderStored.Quantity = orderStored.Quantity.Sub(quantityTaken)
 	if orderStored.OrderType == types.OrderType_FOKMARKET || orderStored.OrderType == types.OrderType_FOKMARKETBYVALUE || orderStored.Quantity.IsZero() {
 		orderStored.Status = types.OrderStatus_FULFILLED

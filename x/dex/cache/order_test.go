@@ -31,7 +31,7 @@ func TestMarkFailedToPlace(t *testing.T) {
 		stateOne.GetBlockOrders(ctx, utils.ContractAddress(TEST_CONTRACT), utils.PairString(TEST_PAIR)).Get()[0].StatusDescription)
 }
 
-func TestGetById(t *testing.T) {
+func TestGetByID(t *testing.T) {
 	keeper, ctx := keepertest.DexKeeper(t)
 	stateOne := dex.NewMemState(keeper.GetStoreKey())
 	stateOne.GetBlockOrders(ctx, utils.ContractAddress(TEST_CONTRACT), utils.PairString(TEST_PAIR)).Add(&types.Order{
@@ -52,9 +52,9 @@ func TestGetById(t *testing.T) {
 	})
 
 	order1 := stateOne.GetBlockOrders(
-		ctx, utils.ContractAddress(TEST_CONTRACT), utils.PairString(TEST_PAIR)).GetById(uint64(1))
+		ctx, utils.ContractAddress(TEST_CONTRACT), utils.PairString(TEST_PAIR)).GetByID(uint64(1))
 	order2 := stateOne.GetBlockOrders(
-		ctx, utils.ContractAddress(TEST_CONTRACT), utils.PairString(TEST_PAIR)).GetById(uint64(2))
+		ctx, utils.ContractAddress(TEST_CONTRACT), utils.PairString(TEST_PAIR)).GetByID(uint64(2))
 	require.Equal(t, uint64(1), order1.Id)
 	require.Equal(t, uint64(2), order2.Id)
 	require.Equal(t, "test1", order1.Account)
