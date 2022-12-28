@@ -35,7 +35,7 @@ func getMsgType(msg interface{}) string {
 	}
 }
 
-func sudo(sdkCtx sdk.Context, k *keeper.Keeper, contractAddress []byte, wasmMsg []byte, msgType string) ([]byte, uint64, error) {
+func sudo(sdkCtx sdk.Context, k *keeper.Keeper, contractAddress sdk.AccAddress, wasmMsg []byte, msgType string) ([]byte, uint64, error) {
 	// Measure the time it takes to execute the contract in WASM
 	defer metrics.MeasureSudoExecutionDuration(time.Now(), msgType)
 	// set up a tmp context to prevent race condition in reading gas consumed

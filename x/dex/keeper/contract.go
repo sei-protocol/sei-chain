@@ -50,14 +50,17 @@ func (k Keeper) GetContract(ctx sdk.Context, contractAddr string) (types.Contrac
 	return res, nil
 }
 
-func (k Keeper) GetContractGasLimit(ctx sdk.Context, contractAddr []byte) (uint64, error) {
-	bech32ContractAddr := sdk.AccAddress(contractAddr).String()
+func (k Keeper) GetContractGasLimit(ctx sdk.Context, contractAddr sdk.AccAddress) (uint64, error) {
+	bech32ContractAddr := contractAddr.String()
 	contract, err := k.GetContract(ctx, bech32ContractAddr)
 	if err != nil {
 		return 0, err
 	}
 	rentBalance := contract.RentBalance
 	gasPrice := k.GetParams(ctx).SudoCallGasPrice
+	if gasPrice.LTE(sdk.ZeroDec()) {
+		return 0, errors.New("invalid gas price: must be positive")
+	}
 	gasDec := sdk.NewDec(int64(rentBalance)).Quo(gasPrice)
 	return gasDec.TruncateInt().Uint64(), nil // round down
 }
