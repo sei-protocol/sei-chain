@@ -1,0 +1,26 @@
+{
+    "wasm_dependency_mapping":
+        {
+          "enabled": true,
+          "contract_address": "sei1suhgf5svhu4usrurvxzlgn54ksxmn8gljarjtxqnapv8kjnp4nrsgshtdj",
+          "access_ops": [
+            {
+              "operation": {
+                "access_type": "WRITE",
+                "resource_type": "KV_BANK_BALANCES",
+                "identifier_template": "02%s"
+              },
+              "selector_type": "JQ",
+              "selector": ".send.destination"
+            },
+            {
+              "operation": {
+                "access_type": "COMMIT",
+                "resource_type": "ANY",
+                "identifier_template": "*"
+              },
+              "selector_type": "NONE"
+            }
+          ]
+        }
+}
