@@ -18,6 +18,26 @@ func NewOrders(orderStore prefix.Store) *BlockOrders {
 	return &BlockOrders{orderStore: &orderStore}
 }
 
+func (o *BlockOrders) Add(newItem *types.Order) {
+	keybz := make([]byte, 8)
+	binary.BigEndian.PutUint64(keybz, newItem.Id)
+	if valbz, err := newItem.Marshal(); err != nil {
+		panic(err)
+	} else {
+		o.orderStore.Set(keybz, valbz)
+	}
+}
+
+func (o *BlockOrders) GetById(id uint64) *types.Order {
+	keybz := make([]byte, 8)
+	binary.BigEndian.PutUint64(keybz, id)
+	var val types.Order
+	if err := val.Unmarshal(o.orderStore.Get(keybz)); err != nil {
+		panic(err)
+	}
+	return &val
+}
+
 func (o *BlockOrders) Get() (list []*types.Order) {
 	iterator := sdk.KVStorePrefixIterator(o.orderStore, []byte{})
 	defer iterator.Close()
@@ -146,14 +166,4 @@ func (o *BlockOrders) getOrdersByCriteriaMap(orderType map[types.OrderType]bool,
 		res = append(res, &val)
 	}
 	return res
-}
-
-func (o *BlockOrders) Add(newItem *types.Order) {
-	keybz := make([]byte, 8)
-	binary.BigEndian.PutUint64(keybz, newItem.Id)
-	if valbz, err := newItem.Marshal(); err != nil {
-		panic(err)
-	} else {
-		o.orderStore.Set(keybz, valbz)
-	}
 }

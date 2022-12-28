@@ -9,6 +9,7 @@ import (
 	"github.com/sei-protocol/sei-chain/testutil/fuzzing"
 	keepertest "github.com/sei-protocol/sei-chain/testutil/keeper"
 	"github.com/sei-protocol/sei-chain/utils/datastructures"
+	dex "github.com/sei-protocol/sei-chain/x/dex/cache"
 	"github.com/sei-protocol/sei-chain/x/dex/exchange"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
 	"github.com/stretchr/testify/require"
@@ -70,6 +71,6 @@ func fuzzTargetMatchMarketOrders(
 		exchange.MatchMarketOrders(TestFuzzMarketCtx, orders, &types.CachedSortedOrderBookEntries{
 			Entries:      entries,
 			DirtyEntries: datastructures.NewTypedSyncMap[string, types.OrderBookEntry](),
-		}, direction)
+		}, direction, &dex.BlockOrders{})
 	})
 }
