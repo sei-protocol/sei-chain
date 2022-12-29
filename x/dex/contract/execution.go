@@ -100,12 +100,14 @@ func matchMarketOrderForPair(
 		marketBuys,
 		orderbook.Shorts,
 		types.PositionDirection_LONG,
+		orders,
 	)
 	marketSellOutcome := exchange.MatchMarketOrders(
 		ctx,
 		marketSells,
 		orderbook.Longs,
 		types.PositionDirection_SHORT,
+		orders,
 	)
 	return marketBuyOutcome.Merge(&marketSellOutcome)
 }
@@ -169,16 +171,7 @@ func GetMatchResults(
 	typedContractAddr dextypesutils.ContractAddress,
 	typedPairStr dextypesutils.PairString,
 ) ([]*types.Order, []*types.Cancellation) {
-	orderResults := []*types.Order{}
-	orders := dexutils.GetMemState(ctx.Context()).GetBlockOrders(ctx, typedContractAddr, typedPairStr)
-	// First add any new order, whether successfully placed or not, to the store
-	for _, order := range orders.Get() {
-		if order.Quantity.IsZero() {
-			order.Status = types.OrderStatus_FULFILLED
-		}
-		orderResults = append(orderResults, order)
-	}
-	// Then update order status and insert cancel record for any cancellation
+	orderResults := dexutils.GetMemState(ctx.Context()).GetBlockOrders(ctx, typedContractAddr, typedPairStr).Get()
 	cancelResults := dexutils.GetMemState(ctx.Context()).GetBlockCancels(ctx, typedContractAddr, typedPairStr).Get()
 	return orderResults, cancelResults
 }

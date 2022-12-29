@@ -11,13 +11,13 @@ import (
 	"github.com/sei-protocol/sei-chain/utils/datastructures"
 	"github.com/sei-protocol/sei-chain/x/dex/exchange"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
+	dexutils "github.com/sei-protocol/sei-chain/x/dex/utils"
 	"github.com/stretchr/testify/require"
 )
 
 var TestFuzzMarketCtx = sdk.Context{}
 
 func FuzzMatchMarketOrders(f *testing.F) {
-	TestFuzzMarketCtx = TestFuzzMarketCtx.WithBlockHeight(1).WithBlockTime(time.Now())
 	f.Fuzz(fuzzTargetMatchMarketOrders)
 }
 
@@ -32,6 +32,9 @@ func fuzzTargetMatchMarketOrders(
 	accountIndices []byte,
 	allocationWeights []byte,
 ) {
+	_, TestFuzzMarketCtx := keepertest.DexKeeper(t)
+	TestFuzzMarketCtx = TestFuzzMarketCtx.WithBlockHeight(1).WithBlockTime(time.Now())
+	blockOrders := dexutils.GetMemState(TestFuzzMarketCtx.Context()).GetBlockOrders(TestFuzzMarketCtx, "testAccount", "USDC|ATOM")
 	entries := fuzzing.GetOrderBookEntries(!takerLong, keepertest.TestPriceDenom, keepertest.TestAssetDenom, entryWeights, accountIndices, allocationWeights)
 	var direction types.PositionDirection
 	if takerLong {
@@ -40,6 +43,9 @@ func fuzzTargetMatchMarketOrders(
 		direction = types.PositionDirection_SHORT
 	}
 	orders := fuzzing.GetPlacedOrders(direction, types.OrderType_MARKET, keepertest.TestPair, prices, quantities)
+	for _, order := range orders {
+		blockOrders.Add(order)
+	}
 
 	if orderSorted {
 		sort.Slice(orders, func(i, j int) bool {
@@ -70,6 +76,6 @@ func fuzzTargetMatchMarketOrders(
 		exchange.MatchMarketOrders(TestFuzzMarketCtx, orders, &types.CachedSortedOrderBookEntries{
 			Entries:      entries,
 			DirtyEntries: datastructures.NewTypedSyncMap[string, types.OrderBookEntry](),
-		}, direction)
+		}, direction, blockOrders)
 	})
 }

@@ -31,6 +31,44 @@ func TestMarkFailedToPlace(t *testing.T) {
 		stateOne.GetBlockOrders(ctx, utils.ContractAddress(TEST_CONTRACT), utils.PairString(TEST_PAIR)).Get()[0].StatusDescription)
 }
 
+func TestGetByID(t *testing.T) {
+	keeper, ctx := keepertest.DexKeeper(t)
+	stateOne := dex.NewMemState(keeper.GetStoreKey())
+	stateOne.GetBlockOrders(ctx, utils.ContractAddress(TEST_CONTRACT), utils.PairString(TEST_PAIR)).Add(&types.Order{
+		Id:                1,
+		Account:           "test1",
+		ContractAddr:      TEST_CONTRACT,
+		PositionDirection: types.PositionDirection_LONG,
+		OrderType:         types.OrderType_LIMIT,
+		Price:             sdk.MustNewDecFromStr("150"),
+	})
+	stateOne.GetBlockOrders(ctx, utils.ContractAddress(TEST_CONTRACT), utils.PairString(TEST_PAIR)).Add(&types.Order{
+		Id:                2,
+		Account:           "test2",
+		ContractAddr:      TEST_CONTRACT,
+		PositionDirection: types.PositionDirection_SHORT,
+		OrderType:         types.OrderType_MARKET,
+		Price:             sdk.MustNewDecFromStr("100"),
+	})
+
+	order1 := stateOne.GetBlockOrders(
+		ctx, utils.ContractAddress(TEST_CONTRACT), utils.PairString(TEST_PAIR)).GetByID(uint64(1))
+	order2 := stateOne.GetBlockOrders(
+		ctx, utils.ContractAddress(TEST_CONTRACT), utils.PairString(TEST_PAIR)).GetByID(uint64(2))
+	require.Equal(t, uint64(1), order1.Id)
+	require.Equal(t, uint64(2), order2.Id)
+	require.Equal(t, "test1", order1.Account)
+	require.Equal(t, "test2", order2.Account)
+	require.Equal(t, TEST_CONTRACT, order1.ContractAddr)
+	require.Equal(t, TEST_CONTRACT, order2.ContractAddr)
+	require.Equal(t, types.PositionDirection_LONG, order1.PositionDirection)
+	require.Equal(t, types.PositionDirection_SHORT, order2.PositionDirection)
+	require.Equal(t, types.OrderType_LIMIT, order1.OrderType)
+	require.Equal(t, types.OrderType_MARKET, order2.OrderType)
+	require.Equal(t, sdk.MustNewDecFromStr("150"), order1.Price)
+	require.Equal(t, sdk.MustNewDecFromStr("100"), order2.Price)
+}
+
 func TestGetSortedMarketOrders(t *testing.T) {
 	keeper, ctx := keepertest.DexKeeper(t)
 	stateOne := dex.NewMemState(keeper.GetStoreKey())
