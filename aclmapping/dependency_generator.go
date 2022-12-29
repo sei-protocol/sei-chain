@@ -6,6 +6,7 @@ import (
 	acldexmapping "github.com/sei-protocol/sei-chain/aclmapping/dex"
 	acltokenfactorymapping "github.com/sei-protocol/sei-chain/aclmapping/tokenfactory"
 	aclwasmmapping "github.com/sei-protocol/sei-chain/aclmapping/wasm"
+	acloraclemapping "github.com/sei-protocol/sei-chain/aclmapping/oracle"
 )
 
 type CustomDependencyGenerator struct{}
@@ -22,6 +23,7 @@ func (customDepGen CustomDependencyGenerator) GetCustomDependencyGenerators() ac
 	dependencyGeneratorMap = dependencyGeneratorMap.Merge(aclbankmapping.GetBankDepedencyGenerator())
 	dependencyGeneratorMap = dependencyGeneratorMap.Merge(acltokenfactorymapping.GetTokenFactoryDependencyGenerators())
 	dependencyGeneratorMap = dependencyGeneratorMap.Merge(wasmDependencyGenerators.GetWasmDependencyGenerators())
+	dependencyGeneratorMap = dependencyGeneratorMap.Merge(acloraclemapping.GetOracleDependencyGenerator())
 
 	return dependencyGeneratorMap
 }
