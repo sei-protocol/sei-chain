@@ -4,9 +4,9 @@ import (
 	aclkeeper "github.com/cosmos/cosmos-sdk/x/accesscontrol/keeper"
 	aclbankmapping "github.com/sei-protocol/sei-chain/aclmapping/bank"
 	acldexmapping "github.com/sei-protocol/sei-chain/aclmapping/dex"
+	acloraclemapping "github.com/sei-protocol/sei-chain/aclmapping/oracle"
 	acltokenfactorymapping "github.com/sei-protocol/sei-chain/aclmapping/tokenfactory"
 	aclwasmmapping "github.com/sei-protocol/sei-chain/aclmapping/wasm"
-	acloraclemapping "github.com/sei-protocol/sei-chain/aclmapping/oracle"
 )
 
 type CustomDependencyGenerator struct{}
