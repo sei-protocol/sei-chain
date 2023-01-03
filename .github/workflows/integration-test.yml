@@ -27,7 +27,9 @@ jobs:
           go-version: 1.18
 
       - name: Start 4 node docker cluster
-        run: make clean && make docker-cluster-start &
+        run: |
+          make clean && make docker-cluster-start &
+          sleep 360
 
       - name: Wait for docker cluster to start
         run: |
@@ -38,7 +40,7 @@ jobs:
 
       - name: Verify there are 4 validators running
         run: |
-          NUM_VALIDATORS=$(docker exec -it sei-node0 build/seid q tendermint-validator-set  |grep address |wc -l)
+          NUM_VALIDATORS=$(docker exec -i sei-node0 build/seid q tendermint-validator-set  |grep address |wc -l)
           if [[ "$NUM_VALIDATORS" -eq 4 ]];
           then
             echo "Number validators is correct: $NUM_VALIDATORS"
@@ -49,10 +51,10 @@ jobs:
 
       - name: Verify block height is keep increasing
         run: |
-          HEIGHT_1=$(docker exec -it sei-node0 build/seid status |jq -r .SyncInfo.latest_block_height)
+          HEIGHT_1=$(docker exec -i sei-node0 build/seid status |jq -r .SyncInfo.latest_block_height)
           echo $HEIGHT_1
           sleep 30
-          HEIGHT_2=$(docker exec -it sei-node0 build/seid status |jq -r .SyncInfo.latest_block_height)
+          HEIGHT_2=$(docker exec -i sei-node0 build/seid status |jq -r .SyncInfo.latest_block_height)
           echo $HEIGHT_2
           if [ "$HEIGHT_1" -le "$HEIGHT_2" ];
           then
