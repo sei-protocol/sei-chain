@@ -82,6 +82,17 @@ func MsgSendDependencyGenerator(keeper aclkeeper.Keeper, ctx sdk.Context, msg sd
 		},
 
 		{
+			AccessType:         sdkacltypes.AccessType_READ,
+			ResourceType:       sdkacltypes.ResourceType_KV_AUTH_GLOBAL_ACCOUNT_NUMBER,
+			IdentifierTemplate: hex.EncodeToString(authtypes.GlobalAccountNumberKey),
+		},
+		{
+			AccessType:         sdkacltypes.AccessType_WRITE,
+			ResourceType:       sdkacltypes.ResourceType_KV_AUTH_GLOBAL_ACCOUNT_NUMBER,
+			IdentifierTemplate: hex.EncodeToString(authtypes.GlobalAccountNumberKey),
+		},
+
+		{
 			ResourceType:       sdkacltypes.ResourceType_ANY,
 			AccessType:         sdkacltypes.AccessType_COMMIT,
 			IdentifierTemplate: utils.DefaultIDTemplate,

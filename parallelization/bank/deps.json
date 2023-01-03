@@ -2,7 +2,7 @@
     "wasm_dependency_mapping":
         {
           "enabled": true,
-          "contract_address": "sei1suhgf5svhu4usrurvxzlgn54ksxmn8gljarjtxqnapv8kjnp4nrsgshtdj",
+          "contract_address": "sei14hj2tavq8fpesdwxxcu44rty3hh90vhujrvcmstl4zr3txmfvw9sh9m79m",
           "access_ops": [
             {
               "operation": {
@@ -10,7 +10,7 @@
                 "resource_type": "KV_BANK_BALANCES",
                 "identifier_template": "02%s"
               },
-              "selector_type": "JQ",
+              "selector_type": "JQ_LENGTH_PREFIXED_ADDRESS",
               "selector": ".send.destination"
             },
             {
