@@ -9,10 +9,15 @@ on:
   pull_request:
     branches: [ "master" ]
 
+defaults:
+  run:
+    shell: bash
+
 jobs:
 
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v3
 
@@ -22,4 +27,34 @@ jobs:
           go-version: 1.18
 
       - name: Start 4 node docker cluster
-        run: make clean && make docker-cluster-start
+        run: make clean && make docker-cluster-start &
+
+      - name: Wait for docker cluster to start
+        run: |
+          until [ $(cat build/generated/launch.complete |wc -l) = 4 ]
+          do
+            sleep 5
+          done
+
+      - name: Verify there are 4 validators running
+        run: |
+          NUM_VALIDATORS=$(docker exec -it sei-node0 build/seid q tendermint-validator-set  |grep address |wc -l)
+          if [[ "$NUM_VALIDATORS" -eq 4 ]];
+          then
+            echo "Number validators is correct: $NUM_VALIDATORS"
+          fi
+          else
+            exit 1
+          fi
+
+      - name: Verify block height is keep increasing
+        run: |
+          HEIGHT_1=$(docker exec -it sei-node0 build/seid status |jq -r .SyncInfo.latest_block_height)
+          echo $HEIGHT_1
+          sleep 30
+          HEIGHT_2=$(docker exec -it sei-node0 build/seid status |jq -r .SyncInfo.latest_block_height)
+          echo $HEIGHT_2
+          if [ "$HEIGHT_1" -le "$HEIGHT_2" ];
+          then
+            exit 1
+          fi
