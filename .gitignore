@@ -43,3 +43,4 @@ x/nitro/replay/libnitro_replayer.dylib
 # parallelization test build artifact
 parallelization/**/artifacts/
 parallelization/**/target/
+parallelization/**/Cargo.lock
