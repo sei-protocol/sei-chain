@@ -1,0 +1,7 @@
+{
+    "title": "Test Proposal",
+    "description": "My awesome proposal",
+    "is_expedited": true,
+    "type": "Text",
+    "deposit": "1000000000usei"
+  }

@@ -123,12 +123,12 @@ clean:
 
 # Build linux binary on other platforms
 build-linux:
-	GOOS=linux GOARCH=amd64 CGO_ENABLED=1 make build
+	GOOS=linux GOARCH=amd64 CGO_ENABLED=1 CC=x86_64-linux-gnu-gcc make build
 .PHONY: build-linux
 
 # Build docker image
 build-docker-node:
-	@cd docker && docker build --tag sei-chain/localnode localnode
+	@cd docker && docker build --tag sei-chain/localnode localnode --platform linux/x86_64
 .PHONY: build-docker-localnode
 
 # Run a single docker container
@@ -137,6 +137,7 @@ run-docker-node:
 	docker run --rm \
 	-v $(PROJECT_HOME):/sei-protocol/sei-chain:Z \
 	-v $(GO_PKG_PATH)/mod:/root/go/pkg/mod:Z \
+	--platform linux/x86_64 \
 	sei-chain/localnode
 .PHONY: run-docker-localnode
 
