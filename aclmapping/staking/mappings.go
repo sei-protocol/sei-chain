@@ -194,6 +194,13 @@ func MsgDelegateDependencyGenerator(keeper aclkeeper.Keeper, ctx sdk.Context, ms
 			IdentifierTemplate: validatorKey,
 		},
 
+		// Get last total power for max voting power check
+		{
+			AccessType:         sdkacltypes.AccessType_READ,
+			ResourceType:       sdkacltypes.ResourceType_KV_STAKING_TOTAL_POWER,
+			IdentifierTemplate: hex.EncodeToString(stakingtypes.LastTotalPowerKey),
+		},
+
 		// Last Operation should always be a commit
 		*acltypes.CommitAccessOp(),
 	}
@@ -645,6 +652,13 @@ func MsgBeginRedelegateDependencyGenerator(keeper aclkeeper.Keeper, ctx sdk.Cont
 			AccessType:         sdkacltypes.AccessType_WRITE,
 			ResourceType:       sdkacltypes.ResourceType_KV_STAKING_VALIDATOR,
 			IdentifierTemplate: dstValidatorKey,
+		},
+
+		// Get last total power for max voting power check
+		{
+			AccessType:         sdkacltypes.AccessType_READ,
+			ResourceType:       sdkacltypes.ResourceType_KV_STAKING_TOTAL_POWER,
+			IdentifierTemplate: hex.EncodeToString(stakingtypes.LastTotalPowerKey),
 		},
 
 		// Last Operation should always be a commit
