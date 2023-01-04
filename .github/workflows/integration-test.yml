@@ -35,6 +35,7 @@ jobs:
           do
             sleep 10
           done
+          sleep 5
 
       - name: Verify Sei Chain is able to start up
         run: ./docker/integration_test/startup_test.sh
