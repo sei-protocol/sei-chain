@@ -1,0 +1,41 @@
+# This workflow will build a golang project
+# For more information see: https://docs.github.com/en/actions/automating-builds-and-tests/building-and-testing-go
+
+name: Docker Integration Test
+
+on:
+  push:
+    branches: [ "master" ]
+  pull_request:
+    branches: [ "master" ]
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Set up Go
+        uses: actions/setup-go@v3
+        with:
+          go-version: 1.18
+
+      - name: Start 4 node docker cluster
+        run: make clean && make docker-cluster-start &
+
+      - name: Wait for docker cluster to start
+        run: |
+          until [ $(cat build/generated/launch.complete |wc -l) = 4 ]
+          do
+            sleep 10
+          done
+          sleep 5
+
+      - name: Verify Sei Chain is able to start up
+        run: ./docker/integration_test/startup_test.sh
