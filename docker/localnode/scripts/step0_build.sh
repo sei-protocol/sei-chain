@@ -2,6 +2,7 @@
 
 # Input parameters
 NODE_ID=${ID:-0}
+ARCH=$(uname -m)
 
 # Build seid
 echo "Building seid from local branch"
