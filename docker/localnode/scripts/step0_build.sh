@@ -9,7 +9,6 @@ echo "Building seid from local branch"
 git config --global --add safe.directory /sei-protocol/sei-chain
 LEDGER_ENABLED=false
 make clean
-
 make build-linux
 mkdir -p build/generated
 echo "DONE" > build/generated/build.complete

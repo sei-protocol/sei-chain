@@ -145,6 +145,7 @@ run-docker-node:
 docker-cluster-start: docker-cluster-stop build-docker-node
 	@rm -rf $(PROJECT_HOME)/build/generated
 	@cd docker && NUM_ACCOUNTS=10 docker-compose up
+
 .PHONY: localnet-start
 
 # Use this to skip the seid build process

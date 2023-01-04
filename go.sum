@@ -1067,8 +1067,13 @@ github.com/seccomp/libseccomp-golang v0.9.2-0.20210429002308-3879420cc921/go.mod
 github.com/securego/gosec/v2 v2.11.0 h1:+PDkpzR41OI2jrw1q6AdXZCbsNGNGT7pQjal0H0cArI=
 github.com/securego/gosec/v2 v2.11.0/go.mod h1:SX8bptShuG8reGC0XS09+a4H2BoWSJi+fscA+Pulbpo=
 github.com/segmentio/fasthash v1.0.3/go.mod h1:waKX8l2N8yckOgmSsXJi7x1ZfdKZ4x7KRMzBtS3oedY=
+<<<<<<< HEAD
 github.com/sei-protocol/sei-cosmos v0.1.373 h1:VkM4AWgui28NnYgxkstMM/k54o8P5YygbNAv1mWvtC4=
 github.com/sei-protocol/sei-cosmos v0.1.373/go.mod h1:pmWgLJxzDS+WMVvBWoncAnlXBjb0lFJvMw5ULbjWVwc=
+=======
+github.com/sei-protocol/sei-cosmos v0.1.371 h1:6aMWfslm0ct4jUulEr89kQyTs5KcrOWNMxvweFte0Uc=
+github.com/sei-protocol/sei-cosmos v0.1.371/go.mod h1:pmWgLJxzDS+WMVvBWoncAnlXBjb0lFJvMw5ULbjWVwc=
+>>>>>>> c486b67 (Add support for local nodes for m1 laptops)
 github.com/sei-protocol/sei-tendermint v0.1.106 h1:CN/jjNxfvZgzL20w3ss8OqtcLIXl8r3WA1B23or7ob4=
 github.com/sei-protocol/sei-tendermint v0.1.106/go.mod h1:Olwbjyagrpoxj5DAUhHxMTWDVEfQ3FYdpypaJ3+6Hs8=
 github.com/sei-protocol/sei-tm-db v0.0.5 h1:3WONKdSXEqdZZeLuWYfK5hP37TJpfaUa13vAyAlvaQY=
