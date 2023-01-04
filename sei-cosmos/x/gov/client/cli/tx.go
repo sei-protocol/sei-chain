@@ -30,11 +30,11 @@ const (
 )
 
 type proposal struct {
-	Title       string
-	Description string
-	Type        string
-	IsExpedited bool
-	Deposit     string
+	Title       string  `json:"title"`
+	Description string  `json:"description"`
+	Type        string  `json:"type"`
+	IsExpedited bool    `json:"is_expedited,omitempty"`
+	Deposit     string  `json:"deposit,omitempty"`
 }
 
 // ProposalFlags defines the core required fields of a proposal. It is used to
@@ -124,7 +124,6 @@ $ %s tx gov submit-proposal --title="Test Proposal" --description="My awesome pr
 			}
 
 			content := types.ContentFromProposalType(proposal.Title, proposal.Description, proposal.Type, proposal.IsExpedited)
-
 			msg, err := types.NewMsgSubmitProposalWithExpedite(content, amount, clientCtx.GetFromAddress(), proposal.IsExpedited)
 
 			if err != nil {
