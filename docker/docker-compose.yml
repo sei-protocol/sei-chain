@@ -2,6 +2,7 @@ version: '3.3'
 
 services:
   node0:
+    platform: linux/amd64
     container_name: sei-node0
     image: "sei-chain/localnode"
     ports:
@@ -18,6 +19,7 @@ services:
         ipv4_address: 192.168.10.10
 
   node1:
+    platform: linux/amd64
     container_name: sei-node1
     image: "sei-chain/localnode"
     ports:
@@ -34,6 +36,7 @@ services:
         ipv4_address: 192.168.10.11
 
   node2:
+    platform: linux/amd64
     container_name: sei-node2
     image: "sei-chain/localnode"
     environment:
@@ -50,6 +53,7 @@ services:
         ipv4_address: 192.168.10.12
 
   node3:
+    platform: linux/amd64
     container_name: sei-node3
     image: "sei-chain/localnode"
     environment:
