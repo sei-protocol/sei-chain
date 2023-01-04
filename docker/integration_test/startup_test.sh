@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Verify there are 4 validators
-NUM_VALIDATORS=$(docker exec -i sei-node0 build/seid q tendermint-validator-set  |grep address |wc -l)
+NUM_VALIDATORS=$(docker exec -i sei-node0 build/seid q tendermint-validator-set |grep address |wc -l)
 if [[ "$NUM_VALIDATORS" -eq 4 ]];
 then
   echo "Number validators is correct: $NUM_VALIDATORS"
