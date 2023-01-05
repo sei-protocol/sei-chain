@@ -20,7 +20,6 @@ override_genesis '.app_state["oracle"]["params"]["vote_period"]="1"'
 override_genesis '.app_state["slashing"]["params"]["signed_blocks_window"]="10000"'
 override_genesis '.app_state["slashing"]["params"]["min_signed_per_window"]="0.050000000000000000"'
 override_genesis '.app_state["staking"]["params"]["max_validators"]="50"'
-override_genesis '.consensus_params["block"]["time_iota_ms"]="1"'
 override_genesis '.consensus_params["block"]["max_gas"]="5000000000"'
 override_genesis '.app_state["staking"]["params"]["unbonding_time"]="86400s"'
 
