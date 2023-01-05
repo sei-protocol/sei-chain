@@ -40,16 +40,38 @@ application.
 				ctx.Viper,
 			)
 
+			// App State
+			lastCommit := app.CommitMultiStore().LastCommitID()
+			fmt.Printf("Initial App state height=%d and hash=%X\n", lastCommit.GetVersion(), lastCommit.GetHash())
+
 			// rollback tendermint state
-			height, hash, err := tmcmd.RollbackState(ctx.Config, removeBlock)
+			tmHeight, hash, err := tmcmd.RollbackState(ctx.Config, removeBlock)
 			if err != nil {
 				return fmt.Errorf("failed to rollback tendermint state: %w", err)
 			}
-			// rollback the multistore
-			if err := app.CommitMultiStore().RollbackToVersion(height); err != nil {
+			fmt.Printf("Rolled back tendermint state to height %d and hash %X\n\n", tmHeight, hash)
+
+			// rollback the app state
+			lastCommit = app.CommitMultiStore().LastCommitID()
+			fmt.Printf("App state height %d and hash %X\n", lastCommit.GetVersion(), lastCommit.GetHash())
+			fmt.Printf("Attempting to rollback app state to height=%d\n", tmHeight)
+			if err := app.CommitMultiStore().RollbackToVersion(tmHeight); err != nil {
 				return fmt.Errorf("failed to rollback to version: %w", err)
 			}
-			fmt.Printf("Rolled back state to height %d and hash %X", height, hash)
+
+			lastCommit = app.CommitMultiStore().LastCommitID()
+			fmt.Printf("Rolled back app state to height %d and hash %X\n", lastCommit.GetVersion(), lastCommit.GetHash())
+
+			// This will cause issues when you try starting the chain. Something probably went wrong
+			if removeBlock && app.CommitMultiStore().LastCommitID().Version != tmHeight {
+				panic("Application state height does not match the tendermint state height")
+			}
+
+			if removeBlock && string(lastCommit.GetHash()) != string(hash) {
+				panic("Application state hash does not match the tendermint state hash")
+			}
+
+			// Need to delete entires in the WAL log to
 			return nil
 		},
 	}
