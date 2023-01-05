@@ -36,7 +36,7 @@ jq '.validators[0] += {"power":"70000000000000"}' ~/.sei/config/tmp_genesis.json
 jq '.validators[0] += {"pub_key":'$KEY'}' ~/.sei/config/tmp_genesis_2.json > ~/.sei/config/tmp_genesis_3.json
 mv ~/.sei/config/tmp_genesis_3.json ~/.sei/config/genesis.json && rm ~/.sei/config/tmp_genesis.json && rm ~/.sei/config/tmp_genesis_2.json
 
-# echo "Creating Accounts"
+echo "Creating Accounts"
 python3  loadtest/scripts/populate_genesis_accounts.py 50 loc
 
 ~/go/bin/seid collect-gentxs
