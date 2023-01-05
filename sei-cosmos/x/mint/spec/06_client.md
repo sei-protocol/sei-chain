@@ -142,7 +142,7 @@ Example Output:
 ```
 {
   "params": {
-    "mintDenom": "stake",
+    "mintDenom": "usei",
     "inflationRateChange": "130000000000000000",
     "inflationMax": "200000000000000000",
     "inflationMin": "70000000000000000",
@@ -213,7 +213,7 @@ Example Output:
 ```
 {
   "params": {
-    "mintDenom": "stake",
+    "mintDenom": "usei",
     "inflationRateChange": "130000000000000000",
     "inflationMax": "200000000000000000",
     "inflationMin": "70000000000000000",

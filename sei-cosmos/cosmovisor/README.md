@@ -143,7 +143,7 @@ Initialize the node and overwrite any previous genesis file (never do this in a 
 Set the minimum gas price to `0stake` in `~/.simapp/config/app.toml`:
 
 ```
-minimum-gas-prices = "0stake"
+minimum-gas-prices = "0usei"
 ```
 
 Create a new key for the validator, then add a genesis account and transaction:
@@ -199,7 +199,7 @@ app.UpgradeKeeper.SetUpgradeHandler("test1", func(ctx sdk.Context, plan upgradet
 	if err != nil {
 		panic(err)
 	}
-	err = app.BankKeeper.AddCoins(ctx, addr, sdk.Coins{sdk.Coin{Denom: "stake", Amount: sdk.NewInt(345600000)}})
+	err = app.BankKeeper.AddCoins(ctx, addr, sdk.Coins{sdk.Coin{Denom: "usei", Amount: sdk.NewInt(345600000)}})
 	if err != nil {
 		panic(err)
 	}

@@ -30,7 +30,7 @@ func genGrant(r *rand.Rand, accounts []simtypes.Account) []authz.GrantAuthorizat
 
 func generateRandomGrant(r *rand.Rand) *codectypes.Any {
 	authorizations := make([]*codectypes.Any, 2)
-	authorizations[0] = newAnyAuthorization(banktypes.NewSendAuthorization(sdk.NewCoins(sdk.NewCoin("stake", sdk.NewInt(1000)))))
+	authorizations[0] = newAnyAuthorization(banktypes.NewSendAuthorization(sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(1000)))))
 	authorizations[1] = newAnyAuthorization(authz.NewGenericAuthorization(sdk.MsgTypeURL(&govtypes.MsgSubmitProposal{})))
 
 	return authorizations[r.Intn(len(authorizations))]

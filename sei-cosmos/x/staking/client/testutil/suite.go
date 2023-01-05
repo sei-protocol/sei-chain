@@ -48,7 +48,7 @@ func (s *IntegrationTestSuite) SetupSuite() {
 	_, err := s.network.WaitForHeight(1)
 	s.Require().NoError(err)
 
-	unbond, err := sdk.ParseCoinNormalized("10stake")
+	unbond, err := sdk.ParseCoinNormalized("10usei")
 	s.Require().NoError(err)
 
 	val := s.network.Validators[0]
@@ -129,7 +129,7 @@ func (s *IntegrationTestSuite) TestNewCreateValidatorCmd() {
 		{
 			"invalid transaction (missing pubkey)",
 			[]string{
-				fmt.Sprintf("--%s=%dstake", cli.FlagAmount, 100),
+				fmt.Sprintf("--%s=%dusei", cli.FlagAmount, 100),
 				fmt.Sprintf("--%s=AFAF00C4", cli.FlagIdentity),
 				fmt.Sprintf("--%s=https://newvalidator.io", cli.FlagWebsite),
 				fmt.Sprintf("--%s=contact@newvalidator.io", cli.FlagSecurityContact),
@@ -149,7 +149,7 @@ func (s *IntegrationTestSuite) TestNewCreateValidatorCmd() {
 			"invalid transaction (missing moniker)",
 			[]string{
 				fmt.Sprintf("--%s=%s", cli.FlagPubKey, consPubKeyBz),
-				fmt.Sprintf("--%s=%dstake", cli.FlagAmount, 100),
+				fmt.Sprintf("--%s=%dusei", cli.FlagAmount, 100),
 				fmt.Sprintf("--%s=AFAF00C4", cli.FlagIdentity),
 				fmt.Sprintf("--%s=https://newvalidator.io", cli.FlagWebsite),
 				fmt.Sprintf("--%s=contact@newvalidator.io", cli.FlagSecurityContact),
@@ -169,7 +169,7 @@ func (s *IntegrationTestSuite) TestNewCreateValidatorCmd() {
 			"valid transaction",
 			[]string{
 				fmt.Sprintf("--%s=%s", cli.FlagPubKey, consPubKeyBz),
-				fmt.Sprintf("--%s=%dstake", cli.FlagAmount, 100),
+				fmt.Sprintf("--%s=%dusei", cli.FlagAmount, 100),
 				fmt.Sprintf("--%s=NewValidator", cli.FlagMoniker),
 				fmt.Sprintf("--%s=AFAF00C4", cli.FlagIdentity),
 				fmt.Sprintf("--%s=https://newvalidator.io", cli.FlagWebsite),
@@ -211,7 +211,7 @@ func (s *IntegrationTestSuite) TestNewCreateValidatorCmd() {
 				for i := 0; i < len(events); i++ {
 					if events[i].GetType() == "create_validator" {
 						attributes := events[i].GetAttributes()
-						require.Equal(attributes[1].Value, "100stake")
+						require.Equal(attributes[1].Value, "100usei")
 						break
 					}
 				}
@@ -882,7 +882,7 @@ unbonding_time: 1814400s`,
 		{
 			"with json output",
 			[]string{fmt.Sprintf("--%s=json", tmcli.OutputFlag)},
-			`{"unbonding_time":"1814400s","max_validators":100,"max_entries":7,"historical_entries":10000,"bond_denom":"stake",min_commission_rate: "0.000000000000000000"}`,
+			`{"unbonding_time":"1814400s","max_validators":100,"max_entries":7,"historical_entries":10000,"bond_denom":"usei",min_commission_rate: "0.000000000000000000"}`,
 		},
 	}
 	for _, tc := range testCases {

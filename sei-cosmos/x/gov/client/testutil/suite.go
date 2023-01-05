@@ -88,7 +88,7 @@ func (s *IntegrationTestSuite) TestCmdParams() {
 		{
 			"json output",
 			[]string{fmt.Sprintf("--%s=json", tmcli.OutputFlag)},
-			`{"voting_params":{"voting_period":"172800000000000"},"tally_params":{"quorum":"0.334000000000000000","threshold":"0.500000000000000000","veto_threshold":"0.334000000000000000"},"deposit_params":{"min_deposit":[{"denom":"stake","amount":"10000000"}],"max_deposit_period":"172800000000000"}, "min_expedited_deposit":[{"denom":"stake","amount":"20000000"}]}`,
+			`{"voting_params":{"voting_period":"172800000000000"},"tally_params":{"quorum":"0.334000000000000000","threshold":"0.500000000000000000","veto_threshold":"0.334000000000000000"},"deposit_params":{"min_deposit":[{"denom":"usei","amount":"10000000"}],"max_deposit_period":"172800000000000"}, "min_expedited_deposit":[{"denom":"usei","amount":"20000000"}]}`,
 		},
 		{
 			"text output",
@@ -156,7 +156,7 @@ func (s *IntegrationTestSuite) TestCmdParam() {
 				"deposit",
 				fmt.Sprintf("--%s=json", tmcli.OutputFlag),
 			},
-			`{"min_deposit":[{"denom":"stake","amount":"10000000"}],"max_deposit_period":"172800000000000", "min_expedited_deposit":[{"denom":"stake","amount":"20000000"}]}`,
+			`{"min_deposit":[{"denom":"usei","amount":"10000000"}],"max_deposit_period":"172800000000000", "min_expedited_deposit":[{"denom":"usei","amount":"20000000"}]}`,
 		},
 	}
 

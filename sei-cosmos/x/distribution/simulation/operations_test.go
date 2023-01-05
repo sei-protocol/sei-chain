@@ -146,14 +146,14 @@ func (suite *SimTestSuite) testSimulateMsgWithdrawValidatorCommission(tokenName 
 	distrAcc := suite.app.DistrKeeper.GetDistributionAccount(suite.ctx)
 	suite.Require().NoError(simapp.FundModuleAccount(suite.app.BankKeeper, suite.ctx, distrAcc.GetName(), sdk.NewCoins(
 		sdk.NewCoin(tokenName, sdk.NewInt(10)),
-		sdk.NewCoin("stake", sdk.NewInt(5)),
+		sdk.NewCoin("usei", sdk.NewInt(5)),
 	)))
 	suite.app.AccountKeeper.SetModuleAccount(suite.ctx, distrAcc)
 
 	// set outstanding rewards
 	valCommission := sdk.NewDecCoins(
 		sdk.NewDecCoinFromDec(tokenName, sdk.NewDec(5).Quo(sdk.NewDec(2))),
-		sdk.NewDecCoinFromDec("stake", sdk.NewDec(1).Quo(sdk.NewDec(1))),
+		sdk.NewDecCoinFromDec("usei", sdk.NewDec(1).Quo(sdk.NewDec(1))),
 	)
 
 	suite.app.DistrKeeper.SetValidatorOutstandingRewards(suite.ctx, validator0.GetOperator(), types.ValidatorOutstandingRewards{Rewards: valCommission})
@@ -199,7 +199,7 @@ func (suite *SimTestSuite) TestSimulateMsgFundCommunityPool() {
 	types.ModuleCdc.UnmarshalJSON(operationMsg.Msg, &msg)
 
 	suite.Require().True(operationMsg.OK)
-	suite.Require().Equal("4896096stake", msg.Amount.String())
+	suite.Require().Equal("4896096usei", msg.Amount.String())
 	suite.Require().Equal("cosmos1ghekyjucln7y67ntx7cf27m9dpuxxemn4c8g4r", msg.Depositor)
 	suite.Require().Equal(types.TypeMsgFundCommunityPool, msg.Type())
 	suite.Require().Equal(types.ModuleName, msg.Route())

@@ -233,14 +233,14 @@ func (s *ConverterTestSuite) TestSigningComponents() {
 	})
 
 	s.Run("length signers data does not match signers", func() {
-		_, _, err := s.c.ToRosetta().SigningComponents(s.unsignedTx, &rosetta.ConstructionMetadata{GasPrice: "10stake"}, nil)
+		_, _, err := s.c.ToRosetta().SigningComponents(s.unsignedTx, &rosetta.ConstructionMetadata{GasPrice: "10usei"}, nil)
 		s.Require().ErrorIs(err, crgerrs.ErrBadArgument)
 	})
 
 	s.Run("length pub keys does not match signers", func() {
 		_, _, err := s.c.ToRosetta().SigningComponents(
 			s.unsignedTx,
-			&rosetta.ConstructionMetadata{GasPrice: "10stake", SignersData: []*rosetta.SignerData{
+			&rosetta.ConstructionMetadata{GasPrice: "10usei", SignersData: []*rosetta.SignerData{
 				{
 					AccountNumber: 0,
 					Sequence:      0,
@@ -256,7 +256,7 @@ func (s *ConverterTestSuite) TestSigningComponents() {
 
 		_, _, err = s.c.ToRosetta().SigningComponents(
 			s.unsignedTx,
-			&rosetta.ConstructionMetadata{GasPrice: "10stake", SignersData: []*rosetta.SignerData{
+			&rosetta.ConstructionMetadata{GasPrice: "10usei", SignersData: []*rosetta.SignerData{
 				{
 					AccountNumber: 0,
 					Sequence:      0,
@@ -277,7 +277,7 @@ func (s *ConverterTestSuite) TestSigningComponents() {
 
 		_, _, err = s.c.ToRosetta().SigningComponents(
 			s.unsignedTx,
-			&rosetta.ConstructionMetadata{GasPrice: "10stake", SignersData: []*rosetta.SignerData{
+			&rosetta.ConstructionMetadata{GasPrice: "10usei", SignersData: []*rosetta.SignerData{
 				{
 					AccountNumber: 0,
 					Sequence:      0,

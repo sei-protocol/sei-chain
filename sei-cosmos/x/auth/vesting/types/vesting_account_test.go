@@ -15,7 +15,7 @@ import (
 )
 
 var (
-	stakeDenom = "stake"
+	stakeDenom = "usei"
 	feeDenom   = "fee"
 )
 

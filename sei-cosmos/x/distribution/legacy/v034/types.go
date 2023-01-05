@@ -21,7 +21,7 @@ type (
 
 	DelegatorStartingInfo struct {
 		PreviousPeriod uint64  `json:"previous_period"`
-		Stake          sdk.Dec `json:"stake"`
+		Stake          sdk.Dec `json:"usei"`
 		Height         uint64  `json:"height"`
 	}
 

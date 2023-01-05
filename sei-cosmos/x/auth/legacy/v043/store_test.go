@@ -634,7 +634,7 @@ func cleartTrackingFields(ctx sdk.Context, vesting exported.VestingAccount, app 
 }
 
 func dirtyTrackingFields(ctx sdk.Context, vesting exported.VestingAccount, app *simapp.SimApp) error {
-	dirt := sdk.NewCoins(sdk.NewInt64Coin("stake", 42))
+	dirt := sdk.NewCoins(sdk.NewInt64Coin("usei", 42))
 
 	switch t := vesting.(type) {
 	case *types.DelayedVestingAccount:

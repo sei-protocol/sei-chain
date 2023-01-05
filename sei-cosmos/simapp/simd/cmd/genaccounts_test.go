@@ -3,10 +3,11 @@ package cmd_test
 import (
 	"context"
 	"fmt"
+	"testing"
+
 	"github.com/cosmos/cosmos-sdk/crypto/hd"
 	"github.com/cosmos/cosmos-sdk/crypto/keyring"
 	sdk "github.com/cosmos/cosmos-sdk/types"
-	"testing"
 
 	"github.com/spf13/viper"
 	"github.com/stretchr/testify/require"
@@ -51,7 +52,7 @@ func TestAddGenesisAccountCmd(t *testing.T) {
 		{
 			name:        "multiple denoms",
 			addr:        addr1.String(),
-			denom:       "1000atom, 2000stake",
+			denom:       "1000atom, 2000usei",
 			withKeyring: false,
 			expectErr:   false,
 		},

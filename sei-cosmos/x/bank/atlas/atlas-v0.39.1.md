@@ -169,14 +169,14 @@ endpoint.
            "memo": "memo",
            "fees": [
                {
-                   "denom": "stake",
+                   "denom": "usei",
                    "amount": "25000"
                }
            ]
        },
        "amount": [
            {
-               "denom": "stake",
+               "denom": "usei",
                "amount": "400000000"
            }
        ]
@@ -200,7 +200,7 @@ endpoint.
                "amount": "1000000000"
            },
            {
-               "denom": "stake",
+               "denom": "usei",
                "amount": "400000000"
            }
        ]

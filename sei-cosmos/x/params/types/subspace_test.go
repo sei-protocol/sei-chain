@@ -145,7 +145,7 @@ func (suite *SubspaceTestSuite) TestGetParamSet() {
 	a := params{
 		UnbondingTime: time.Hour * 48,
 		MaxValidators: 100,
-		BondDenom:     "stake",
+		BondDenom:     "usei",
 	}
 	suite.Require().NotPanics(func() {
 		suite.ss.Set(suite.ctx, keyUnbondingTime, a.UnbondingTime)
@@ -166,7 +166,7 @@ func (suite *SubspaceTestSuite) TestGetParamSetIfExists() {
 	a := params{
 		UnbondingTime: time.Hour * 48,
 		MaxValidators: 100,
-		BondDenom:     "stake",
+		BondDenom:     "usei",
 	}
 	suite.Require().NotPanics(func() {
 		suite.ss.Set(suite.ctx, keyUnbondingTime, a.UnbondingTime)
@@ -190,7 +190,7 @@ func (suite *SubspaceTestSuite) TestSetParamSet() {
 		name string
 		ps   types.ParamSet
 	}{
-		{"invalid unbonding time", &params{time.Hour * 1, 100, "stake"}},
+		{"invalid unbonding time", &params{time.Hour * 1, 100, "usei"}},
 		{"invalid bond denom", &params{time.Hour * 48, 100, ""}},
 	}
 
@@ -206,7 +206,7 @@ func (suite *SubspaceTestSuite) TestSetParamSet() {
 	a := params{
 		UnbondingTime: time.Hour * 48,
 		MaxValidators: 100,
-		BondDenom:     "stake",
+		BondDenom:     "usei",
 	}
 	suite.Require().NotPanics(func() {
 		suite.ss.SetParamSet(suite.ctx, &a)

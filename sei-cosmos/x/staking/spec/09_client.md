@@ -645,7 +645,7 @@ simd tx staking create-validator \
   --min-self-delegation="1" \
   --gas="auto" \
   --gas-adjustment="1.2" \
-  --gas-prices="0.025stake" \
+  --gas-prices="0.025usei" \
   --from=mykey
 ```
 
@@ -832,7 +832,7 @@ Example Output:
         "shares": "10000000000000000000000000"
       },
       "balance": {
-        "denom": "stake",
+        "denom": "usei",
         "amount": "10000000"
       }
     }
@@ -925,7 +925,7 @@ Example Output:
       },
     "balance":
       {
-        "denom":"stake",
+        "denom":"usei",
         "amount":"25083119936"
       }
   }
@@ -994,7 +994,7 @@ Example Output:
 ```bash
 {
   "delegation_responses": [
-    {"delegation":{"delegator_address":"cosmos1y8nyfvmqh50p6ldpzljk3yrglppdv3t8phju77","validator_address":"cosmosvaloper1eh5mwu044gd5ntkkc2xgfg8247mgc56fww3vc8","shares":"25083339023.000000000000000000"},"balance":{"denom":"stake","amount":"25083339023"}}
+    {"delegation":{"delegator_address":"cosmos1y8nyfvmqh50p6ldpzljk3yrglppdv3t8phju77","validator_address":"cosmosvaloper1eh5mwu044gd5ntkkc2xgfg8247mgc56fww3vc8","shares":"25083339023.000000000000000000"},"balance":{"denom":"usei","amount":"25083339023"}}
   ],
   "pagination": {
     "next_key": null,
@@ -1331,7 +1331,7 @@ Example Output:
     "maxValidators": 100,
     "maxEntries": 7,
     "historicalEntries": 10000,
-    "bondDenom": "stake"
+    "bondDenom": "usei"
   }
 }
 ```
@@ -1366,7 +1366,7 @@ Example Output:
         "shares": "256250000.000000000000000000"
       },
       "balance": {
-        "denom": "stake",
+        "denom": "usei",
         "amount": "256250000"
       }
     },
@@ -1377,7 +1377,7 @@ Example Output:
         "shares": "255150000.000000000000000000"
       },
       "balance": {
-        "denom": "stake",
+        "denom": "usei",
         "amount": "255150000"
       }
     }
@@ -1716,7 +1716,7 @@ Example Output:
     "max_validators": 100,
     "max_entries": 7,
     "historical_entries": 10000,
-    "bond_denom": "stake"
+    "bond_denom": "usei"
   }
 }
 ```
@@ -1909,7 +1909,7 @@ Example Output:
         "shares": "31000000000.000000000000000000"
       },
       "balance": {
-        "denom": "stake",
+        "denom": "usei",
         "amount": "31000000000"
       }
     },
@@ -1920,7 +1920,7 @@ Example Output:
         "shares": "628470000.000000000000000000"
       },
       "balance": {
-        "denom": "stake",
+        "denom": "usei",
         "amount": "628470000"
       }
     },
@@ -1931,7 +1931,7 @@ Example Output:
         "shares": "838120000.000000000000000000"
       },
       "balance": {
-        "denom": "stake",
+        "denom": "usei",
         "amount": "838120000"
       }
     },
@@ -1942,7 +1942,7 @@ Example Output:
         "shares": "500000000.000000000000000000"
       },
       "balance": {
-        "denom": "stake",
+        "denom": "usei",
         "amount": "500000000"
       }
     },
@@ -1953,7 +1953,7 @@ Example Output:
         "shares": "61310000.000000000000000000"
       },
       "balance": {
-        "denom": "stake",
+        "denom": "usei",
         "amount": "61310000"
       }
     }
@@ -1992,7 +1992,7 @@ Example Output:
       "shares": "500000000.000000000000000000"
     },
     "balance": {
-      "denom": "stake",
+      "denom": "usei",
       "amount": "500000000"
     }
   }

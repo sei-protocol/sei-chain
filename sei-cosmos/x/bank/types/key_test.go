@@ -24,7 +24,7 @@ func TestAddressFromBalancesStore(t *testing.T) {
 	require.NoError(t, err)
 	addrLen := len(addr)
 	require.Equal(t, 20, addrLen)
-	key := cloneAppend(address.MustLengthPrefix(addr), []byte("stake"))
+	key := cloneAppend(address.MustLengthPrefix(addr), []byte("usei"))
 
 	tests := []struct {
 		name        string

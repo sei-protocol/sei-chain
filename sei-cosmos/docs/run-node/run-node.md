@@ -106,7 +106,7 @@ One example config to tweak is the `minimum-gas-prices` field inside `app.toml`,
  # The minimum gas prices a validator is willing to accept for processing a
  # transaction. A transaction's fees must meet the minimum of any denomination
  # specified in this config (e.g. 0.25token1;0.0001token2).
- minimum-gas-prices = "0stake"
+ minimum-gas-prices = "0usei"
 ```
 
 ## Run a Localnet

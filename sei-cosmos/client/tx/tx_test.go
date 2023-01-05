@@ -109,7 +109,7 @@ func TestBuildSimTx(t *testing.T) {
 		WithTxConfig(txCfg).
 		WithAccountNumber(50).
 		WithSequence(23).
-		WithFees("50stake").
+		WithFees("50usei").
 		WithMemo("memo").
 		WithChainID("test-chain").
 		WithSignMode(txCfg.SignModeHandler().DefaultMode()).
@@ -134,7 +134,7 @@ func TestBuildUnsignedTx(t *testing.T) {
 		WithTxConfig(NewTestTxConfig()).
 		WithAccountNumber(50).
 		WithSequence(23).
-		WithFees("50stake").
+		WithFees("50usei").
 		WithMemo("memo").
 		WithChainID("test-chain")
 
@@ -176,7 +176,7 @@ func TestSign(t *testing.T) {
 		WithTxConfig(NewTestTxConfig()).
 		WithAccountNumber(50).
 		WithSequence(23).
-		WithFees("50stake").
+		WithFees("50usei").
 		WithMemo("memo").
 		WithChainID("test-chain")
 	txfDirect := txfNoKeybase.

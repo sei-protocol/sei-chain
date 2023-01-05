@@ -4,7 +4,7 @@ package types
 const (
 
 	// default bond denomination
-	DefaultBondDenom = "stake"
+	DefaultBondDenom = "usei"
 
 	// default maximal voting power ratio
 	DefaultMaxVotingPowerRatio = "0.1"

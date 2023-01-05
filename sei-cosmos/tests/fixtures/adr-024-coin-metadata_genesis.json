@@ -34,7 +34,7 @@
               "amount": "1000"
             },
             {
-              "denom": "stake",
+              "denom": "usei",
               "amount": "100000000"
             }
           ]
@@ -47,7 +47,7 @@
               "amount": "1000"
             },
             {
-              "denom": "stake",
+              "denom": "usei",
               "amount": "100000000"
             }
           ]
@@ -95,7 +95,7 @@
         "annual_provisions": "0.000000000000000000"
       },
       "params": {
-        "mint_denom": "stake",
+        "mint_denom": "usei",
         "inflation_rate_change": "0.130000000000000000",
         "inflation_max": "0.200000000000000000",
         "inflation_min": "0.070000000000000000",
@@ -144,7 +144,7 @@
       "deposit_params": {
         "min_deposit": [
           {
-            "denom": "stake",
+            "denom": "usei",
             "amount": "10000000"
           }
         ],
@@ -165,7 +165,7 @@
     },
     "crisis": {
       "constant_fee": {
-        "denom": "stake",
+        "denom": "usei",
         "amount": "1000"
       }
     },
@@ -205,7 +205,7 @@
         "max_validators": 100,
         "max_entries": 7,
         "historical_entries": 100,
-        "bond_denom": "stake"
+        "bond_denom": "usei"
       },
       "last_total_power": "0",
       "last_validator_powers": null,

@@ -18,7 +18,7 @@ func TestKeyTable(t *testing.T) {
 	require.Panics(t, func() { table.RegisterType(types.ParamSetPair{[]byte("hello"), nil, nil}) })
 
 	require.NotPanics(t, func() {
-		table.RegisterType(types.ParamSetPair{keyBondDenom, string("stake"), validateBondDenom})
+		table.RegisterType(types.ParamSetPair{keyBondDenom, string("usei"), validateBondDenom})
 	})
 	require.NotPanics(t, func() {
 		table.RegisterType(types.ParamSetPair{keyMaxValidators, uint16(100), validateMaxValidators})
@@ -39,7 +39,7 @@ func TestKeyTable(t *testing.T) {
 
 	require.NotPanics(t, func() {
 		types.NewKeyTable(
-			types.ParamSetPair{[]byte("test"), string("stake"), validateBondDenom},
+			types.ParamSetPair{[]byte("test"), string("usei"), validateBondDenom},
 			types.ParamSetPair{[]byte("test2"), uint16(100), validateMaxValidators},
 		)
 	})

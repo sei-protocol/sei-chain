@@ -85,7 +85,7 @@ Initialize the node and overwrite any previous genesis file (never do this in a 
 Set the minimum gas price to `0stake` in `~/.simapp/config/app.toml`:
 
 ```
-minimum-gas-prices = "0stake"
+minimum-gas-prices = "0usei"
 ```
 
 For the purpose of this demonstration, change `voting_period` in `genesis.json` to a reduced time of 20 seconds (`20s`):

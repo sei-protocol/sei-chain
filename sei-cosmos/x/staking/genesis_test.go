@@ -126,7 +126,7 @@ func TestInitGenesis_PoolsBalanceMismatch(t *testing.T) {
 		UnbondingTime: 10000,
 		MaxValidators: 1,
 		MaxEntries:    10,
-		BondDenom:     "stake",
+		BondDenom:     "usei",
 	}
 
 	// test
@@ -192,8 +192,8 @@ func TestInitGenesisLargeValidatorSet(t *testing.T) {
 
 	vals := staking.InitGenesis(ctx, app.StakingKeeper, app.AccountKeeper, app.BankKeeper, genesisState)
 
-	abcivals := make([]abci.ValidatorUpdate, 100)
-	for i, val := range validators[:100] {
+	abcivals := make([]abci.ValidatorUpdate, 35)
+	for i, val := range validators[:35] {
 		abcivals[i] = val.ABCIValidatorUpdate(app.StakingKeeper.PowerReduction(ctx))
 	}
 

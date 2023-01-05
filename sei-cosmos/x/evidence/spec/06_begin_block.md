@@ -40,7 +40,7 @@ Where:
 If valid `Equivocation` evidence is included in a block, the validator's stake is
 reduced (slashed) by `SlashFractionDoubleSign` as defined by the `x/slashing` module
 of what their stake was when the infraction occurred, rather than when the evidence was discovered.
-We want to "follow the stake", i.e., the stake that contributed to the infraction
+We want to "follow the usei", i.e., the stake that contributed to the infraction
 should be slashed, even if it has since been redelegated or started unbonding.
 
 In addition, the validator is permanently jailed and tombstoned to make it impossible for that

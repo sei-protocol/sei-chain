@@ -153,7 +153,7 @@ func (s *IntegrationTestSuite) TestCLITxGrantAuthorization() {
 			[]string{
 				grantee.String(),
 				"delegate",
-				fmt.Sprintf("--%s=100stake", cli.FlagSpendLimit),
+				fmt.Sprintf("--%s=100usei", cli.FlagSpendLimit),
 				fmt.Sprintf("--%s=true", flags.FlagSkipConfirmation),
 				fmt.Sprintf("--%s=%s", flags.FlagFrom, val.Address.String()),
 				fmt.Sprintf("--%s=%s", flags.FlagBroadcastMode, flags.BroadcastBlock),
@@ -170,7 +170,7 @@ func (s *IntegrationTestSuite) TestCLITxGrantAuthorization() {
 			[]string{
 				grantee.String(),
 				"delegate",
-				fmt.Sprintf("--%s=100stake", cli.FlagSpendLimit),
+				fmt.Sprintf("--%s=100usei", cli.FlagSpendLimit),
 				fmt.Sprintf("--%s=true", flags.FlagSkipConfirmation),
 				fmt.Sprintf("--%s=%s", flags.FlagFrom, val.Address.String()),
 				fmt.Sprintf("--%s=%s", flags.FlagBroadcastMode, flags.BroadcastBlock),
@@ -186,7 +186,7 @@ func (s *IntegrationTestSuite) TestCLITxGrantAuthorization() {
 			[]string{
 				grantee.String(),
 				"delegate",
-				fmt.Sprintf("--%s=100stake", cli.FlagSpendLimit),
+				fmt.Sprintf("--%s=100usei", cli.FlagSpendLimit),
 				fmt.Sprintf("--%s=true", flags.FlagSkipConfirmation),
 				fmt.Sprintf("--%s=%s", flags.FlagFrom, val.Address.String()),
 				fmt.Sprintf("--%s=%s", flags.FlagBroadcastMode, flags.BroadcastBlock),
@@ -202,7 +202,7 @@ func (s *IntegrationTestSuite) TestCLITxGrantAuthorization() {
 			[]string{
 				grantee.String(),
 				"unbond",
-				fmt.Sprintf("--%s=100stake", cli.FlagSpendLimit),
+				fmt.Sprintf("--%s=100usei", cli.FlagSpendLimit),
 				fmt.Sprintf("--%s=true", flags.FlagSkipConfirmation),
 				fmt.Sprintf("--%s=%s", flags.FlagFrom, val.Address.String()),
 				fmt.Sprintf("--%s=%s", flags.FlagBroadcastMode, flags.BroadcastBlock),
@@ -218,7 +218,7 @@ func (s *IntegrationTestSuite) TestCLITxGrantAuthorization() {
 			[]string{
 				grantee.String(),
 				"redelegate",
-				fmt.Sprintf("--%s=100stake", cli.FlagSpendLimit),
+				fmt.Sprintf("--%s=100usei", cli.FlagSpendLimit),
 				fmt.Sprintf("--%s=true", flags.FlagSkipConfirmation),
 				fmt.Sprintf("--%s=%s", flags.FlagFrom, val.Address.String()),
 				fmt.Sprintf("--%s=%s", flags.FlagBroadcastMode, flags.BroadcastBlock),
@@ -687,7 +687,7 @@ func (s *IntegrationTestSuite) TestExecDelegateAuthorization() {
 		[]string{
 			grantee.String(),
 			"delegate",
-			fmt.Sprintf("--%s=100stake", cli.FlagSpendLimit),
+			fmt.Sprintf("--%s=100usei", cli.FlagSpendLimit),
 			fmt.Sprintf("--%s=true", flags.FlagSkipConfirmation),
 			fmt.Sprintf("--%s=%s", flags.FlagFrom, val.Address.String()),
 			fmt.Sprintf("--%s=%s", flags.FlagBroadcastMode, flags.BroadcastBlock),
@@ -699,7 +699,7 @@ func (s *IntegrationTestSuite) TestExecDelegateAuthorization() {
 	s.Require().NoError(err)
 
 	tokens := sdk.NewCoins(
-		sdk.NewCoin("stake", sdk.NewInt(50)),
+		sdk.NewCoin("usei", sdk.NewInt(50)),
 	)
 
 	delegateTx := fmt.Sprintf(`{"body":{"messages":[{"@type":"/cosmos.staking.v1beta1.MsgDelegate","delegator_address":"%s","validator_address":"%s","amount":{"denom":"%s","amount":"%s"}}],"memo":"","timeout_height":"0","extension_options":[],"non_critical_extension_options":[]},"auth_info":{"signer_infos":[],"fee":{"amount":[],"gas_limit":"200000","payer":"","granter":""}},"signatures":[]}`, val.Address.String(), val.ValAddress.String(),
@@ -789,7 +789,7 @@ func (s *IntegrationTestSuite) TestExecDelegateAuthorization() {
 	)
 	s.Require().NoError(err)
 	tokens = sdk.NewCoins(
-		sdk.NewCoin("stake", sdk.NewInt(50)),
+		sdk.NewCoin("usei", sdk.NewInt(50)),
 	)
 
 	delegateTx = fmt.Sprintf(`{"body":{"messages":[{"@type":"/cosmos.staking.v1beta1.MsgDelegate","delegator_address":"%s","validator_address":"%s","amount":{"denom":"%s","amount":"%s"}}],"memo":"","timeout_height":"0","extension_options":[],"non_critical_extension_options":[]},"auth_info":{"signer_infos":[],"fee":{"amount":[],"gas_limit":"200000","payer":"","granter":""}},"signatures":[]}`, val.Address.String(), val.ValAddress.String(),
@@ -856,7 +856,7 @@ func (s *IntegrationTestSuite) TestExecDelegateAuthorization() {
 		[]string{
 			grantee.String(),
 			"delegate",
-			fmt.Sprintf("--%s=100stake", cli.FlagSpendLimit),
+			fmt.Sprintf("--%s=100usei", cli.FlagSpendLimit),
 			fmt.Sprintf("--%s=true", flags.FlagSkipConfirmation),
 			fmt.Sprintf("--%s=%s", flags.FlagFrom, val.Address.String()),
 			fmt.Sprintf("--%s=%s", flags.FlagBroadcastMode, flags.BroadcastBlock),
@@ -891,7 +891,7 @@ func (s *IntegrationTestSuite) TestExecUndelegateAuthorization() {
 		[]string{
 			grantee.String(),
 			"unbond",
-			fmt.Sprintf("--%s=100stake", cli.FlagSpendLimit),
+			fmt.Sprintf("--%s=100usei", cli.FlagSpendLimit),
 			fmt.Sprintf("--%s=true", flags.FlagSkipConfirmation),
 			fmt.Sprintf("--%s=%s", flags.FlagFrom, val.Address.String()),
 			fmt.Sprintf("--%s=%s", flags.FlagBroadcastMode, flags.BroadcastBlock),
@@ -907,7 +907,7 @@ func (s *IntegrationTestSuite) TestExecUndelegateAuthorization() {
 		val,
 		[]string{
 			val.ValAddress.String(),
-			"100stake",
+			"100usei",
 			fmt.Sprintf("--%s=true", flags.FlagSkipConfirmation),
 			fmt.Sprintf("--%s=%s", flags.FlagFrom, val.Address.String()),
 			fmt.Sprintf("--%s=%s", flags.FlagBroadcastMode, flags.BroadcastBlock),
@@ -917,7 +917,7 @@ func (s *IntegrationTestSuite) TestExecUndelegateAuthorization() {
 	s.Require().NoError(err)
 
 	tokens := sdk.NewCoins(
-		sdk.NewCoin("stake", sdk.NewInt(50)),
+		sdk.NewCoin("usei", sdk.NewInt(50)),
 	)
 
 	undelegateTx := fmt.Sprintf(`{"body":{"messages":[{"@type":"/cosmos.staking.v1beta1.MsgUndelegate","delegator_address":"%s","validator_address":"%s","amount":{"denom":"%s","amount":"%s"}}],"memo":"","timeout_height":"0","extension_options":[],"non_critical_extension_options":[]},"auth_info":{"signer_infos":[],"fee":{"amount":[],"gas_limit":"200000","payer":"","granter":""}},"signatures":[]}`, val.Address.String(), val.ValAddress.String(),
@@ -1010,7 +1010,7 @@ func (s *IntegrationTestSuite) TestExecUndelegateAuthorization() {
 	)
 	s.Require().NoError(err)
 	tokens = sdk.NewCoins(
-		sdk.NewCoin("stake", sdk.NewInt(50)),
+		sdk.NewCoin("usei", sdk.NewInt(50)),
 	)
 
 	undelegateTx = fmt.Sprintf(`{"body":{"messages":[{"@type":"/cosmos.staking.v1beta1.MsgUndelegate","delegator_address":"%s","validator_address":"%s","amount":{"denom":"%s","amount":"%s"}}],"memo":"","timeout_height":"0","extension_options":[],"non_critical_extension_options":[]},"auth_info":{"signer_infos":[],"fee":{"amount":[],"gas_limit":"200000","payer":"","granter":""}},"signatures":[]}`, val.Address.String(), val.ValAddress.String(),

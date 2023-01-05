@@ -1,6 +1,6 @@
 request_funds(1){
   find_account{
-    currency = {"symbol":"stake", "decimals":0};
+    currency = {"symbol":"usei", "decimals":0};
     random_account = find_balance({
       "minimum_balance":{
         "value": "0",
@@ -50,7 +50,7 @@ create_account(1){
 transfer(3){
   transfer{
     transfer.network = {"network":"network", "blockchain":"app"};
-    currency = {"symbol":"stake", "decimals":0};
+    currency = {"symbol":"usei", "decimals":0};
     sender = find_balance({
       "minimum_balance":{
         "value": "100",
@@ -98,7 +98,7 @@ transfer(3){
       }
     ];
     transfer.preprocess_metadata = {
-        "gas_price": "1stake",
+        "gas_price": "1usei",
         "gas_limit": 250000
     };
   }

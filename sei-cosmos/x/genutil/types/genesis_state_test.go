@@ -84,7 +84,7 @@ func TestGenesisStateFromGenFile(t *testing.T) {
 	cdc.MustUnmarshalJSON(genesisState[banktypes.ModuleName], &bankGenesis)
 
 	require.True(t, bankGenesis.Params.DefaultSendEnabled)
-	require.Equal(t, "1000nametoken,100000000stake", bankGenesis.Balances[0].GetCoins().String())
+	require.Equal(t, "1000nametoken,100000000usei", bankGenesis.Balances[0].GetCoins().String())
 	require.Equal(t, "cosmos106vrzv5xkheqhjm023pxcxlqmcjvuhtfyachz4", bankGenesis.Balances[0].GetAddress().String())
 	require.Equal(t, "The native staking token of the Cosmos Hub.", bankGenesis.DenomMetadata[0].GetDescription())
 	require.Equal(t, "uatom", bankGenesis.DenomMetadata[0].GetBase())

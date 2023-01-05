@@ -23,7 +23,7 @@ func TestParseProposal(t *testing.T) {
       "value": 1
     }
   ],
-  "deposit": "1000stake"
+  "deposit": "1000usei"
 }
 `)
 	proposal, err := utils.ParseParamChangeProposalJSON(cdc, okJSON.Name())
@@ -31,7 +31,7 @@ func TestParseProposal(t *testing.T) {
 
 	require.Equal(t, "Staking Param Change", proposal.Title)
 	require.Equal(t, "Update max validators", proposal.Description)
-	require.Equal(t, "1000stake", proposal.Deposit)
+	require.Equal(t, "1000usei", proposal.Deposit)
 	require.Equal(t, utils.ParamChangesJSON{
 		{
 			Subspace: "staking",

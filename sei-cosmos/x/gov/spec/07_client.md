@@ -327,13 +327,13 @@ simd tx gov submit-proposal [command] [flags]
 Example:
 
 ```bash
-simd tx gov submit-proposal --title="Test Proposal" --description="testing, testing, 1, 2, 3" --type="Text" --deposit="10000000stake" --from cosmos1..
+simd tx gov submit-proposal --title="Test Proposal" --description="testing, testing, 1, 2, 3" --type="Text" --deposit="10000000usei" --from cosmos1..
 ```
 
 Example (`cancel-software-upgrade`):
 
 ```bash
-simd tx gov submit-proposal cancel-software-upgrade --title="Test Proposal" --description="testing, testing, 1, 2, 3" --deposit="10000000stake" --from cosmos1..
+simd tx gov submit-proposal cancel-software-upgrade --title="Test Proposal" --description="testing, testing, 1, 2, 3" --deposit="10000000usei" --from cosmos1..
 ```
 
 Example (`community-pool-spend`):
@@ -347,8 +347,8 @@ simd tx gov submit-proposal community-pool-spend proposal.json --from cosmos1..
   "title": "Test Proposal",
   "description": "testing, testing, 1, 2, 3",
   "recipient": "cosmos1..",
-  "amount": "10000000stake",
-  "deposit": "10000000stake"
+  "amount": "10000000usei",
+  "deposit": "10000000usei"
 }
 ```
 
@@ -369,7 +369,7 @@ simd tx gov submit-proposal param-change proposal.json --from cosmos1..
       "value": 100
     }
   ],
-  "deposit": "10000000stake"
+  "deposit": "10000000usei"
 }
 ```
 
@@ -446,7 +446,7 @@ Example Output:
     "depositEndTime": "2021-09-18T19:40:08.712440474Z",
     "totalDeposit": [
       {
-        "denom": "stake",
+        "denom": "usei",
         "amount": "10000000"
       }
     ],
@@ -491,7 +491,7 @@ Example Output:
       "depositEndTime": "2021-09-18T19:40:08.712440474Z",
       "totalDeposit": [
         {
-          "denom": "stake",
+          "denom": "usei",
           "amount": "10000000"
         }
       ],
@@ -658,7 +658,7 @@ Example Output:
     "depositor": "cosmos1..",
     "amount": [
       {
-        "denom": "stake",
+        "denom": "usei",
         "amount": "10000000"
       }
     ]
@@ -693,7 +693,7 @@ Example Output:
       "depositor": "cosmos1..",
       "amount": [
         {
-          "denom": "stake",
+          "denom": "usei",
           "amount": "10000000"
         }
       ]
@@ -775,7 +775,7 @@ Example Output:
     "deposit_end_time": "2021-09-18T19:40:08.712440474Z",
     "total_deposit": [
       {
-        "denom": "stake",
+        "denom": "usei",
         "amount": "10000000"
       }
     ],
@@ -822,7 +822,7 @@ Example Output:
       "deposit_end_time": "2021-09-18T19:40:08.712440474Z",
       "total_deposit": [
         {
-          "denom": "stake",
+          "denom": "usei",
           "amount": "10000000"
         }
       ],
@@ -987,7 +987,7 @@ Example Output:
     "depositor": "cosmos1..",
     "amount": [
       {
-        "denom": "stake",
+        "denom": "usei",
         "amount": "10000000"
       }
     ]
@@ -1019,7 +1019,7 @@ Example Output:
       "depositor": "cosmos1..",
       "amount": [
         {
-          "denom": "stake",
+          "denom": "usei",
           "amount": "10000000"
         }
       ]

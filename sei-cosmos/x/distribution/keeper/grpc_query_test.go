@@ -106,7 +106,7 @@ func (suite *KeeperTestSuite) TestGRPCValidatorOutstandingRewards() {
 
 	valCommission := sdk.DecCoins{
 		sdk.NewDecCoinFromDec("mytoken", sdk.NewDec(5000)),
-		sdk.NewDecCoinFromDec("stake", sdk.NewDec(300)),
+		sdk.NewDecCoinFromDec("usei", sdk.NewDec(300)),
 	}
 
 	// set outstanding rewards
@@ -464,7 +464,7 @@ func (suite *KeeperTestSuite) TestGRPCDelegationRewards() {
 				}
 
 				expectedDelReward := types.NewDelegationDelegatorReward(valAddrs[0],
-					sdk.DecCoins{sdk.NewInt64DecCoin("stake", 5)})
+					sdk.DecCoins{sdk.NewInt64DecCoin("usei", 5)})
 
 				expTotalRewardsRes = &types.QueryDelegationTotalRewardsResponse{
 					Rewards: []types.DelegationDelegatorReward{expectedDelReward},
@@ -622,7 +622,7 @@ func (suite *KeeperTestSuite) TestGRPCCommunityPool() {
 		{
 			"valid request",
 			func() {
-				amount := sdk.NewCoins(sdk.NewInt64Coin("stake", 100))
+				amount := sdk.NewCoins(sdk.NewInt64Coin("usei", 100))
 				suite.Require().NoError(simapp.FundAccount(app.BankKeeper, ctx, addrs[0], amount))
 
 				err := app.DistrKeeper.FundCommunityPool(ctx, amount, addrs[0])

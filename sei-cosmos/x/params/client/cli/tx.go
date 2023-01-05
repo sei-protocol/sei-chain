@@ -50,7 +50,7 @@ Where proposal.json contains:
       "value": 105
     }
   ],
-  "deposit": "1000stake"
+  "deposit": "1000usei"
 }
 `,
 				version.AppName,
