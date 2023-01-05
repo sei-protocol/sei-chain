@@ -18,9 +18,9 @@ import (
 BlockStore is a simple low level store for blocks.
 
 There are three types of information stored:
- - BlockMeta:   Meta information about each block
- - Block part:  Parts of each block, aggregated w/ PartSet
- - Commit:      The commit part of each block, for gossiping precommit votes
+  - BlockMeta:   Meta information about each block
+  - Block part:  Parts of each block, aggregated w/ PartSet
+  - Commit:      The commit part of each block, for gossiping precommit votes
 
 Currently the precommit signatures are duplicated in the Block parts as
 well as the Commit.  In the future this may change, perhaps by moving
@@ -467,9 +467,10 @@ func (bs *BlockStore) batchDelete(
 // SaveBlock persists the given block, blockParts, and seenCommit to the underlying db.
 // blockParts: Must be parts of the block
 // seenCommit: The +2/3 precommits that were seen which committed at height.
-//             If all the nodes restart after committing a block,
-//             we need this to reload the precommits to catch-up nodes to the
-//             most recent height.  Otherwise they'd stall at H-1.
+//
+//	If all the nodes restart after committing a block,
+//	we need this to reload the precommits to catch-up nodes to the
+//	most recent height.  Otherwise they'd stall at H-1.
 func (bs *BlockStore) SaveBlock(block *types.Block, blockParts *types.PartSet, seenCommit *types.Commit) {
 	if block == nil {
 		panic("BlockStore can only save a non-nil block")
@@ -749,8 +750,7 @@ func mustEncode(pb proto.Message) []byte {
 func (bs *BlockStore) DeleteLatestBlock() error {
 	targetHeight := bs.Height()
 	batch := bs.db.NewBatch()
-	defer batch.Close()
-
+	fmt.Printf("Permanently deleting target height=%d from block store\n", targetHeight)
 	// delete what we can, skipping what's already missing, to ensure partial
 	// blocks get deleted fully.
 	if meta := bs.LoadBlockMeta(targetHeight); meta != nil {
@@ -777,6 +777,10 @@ func (bs *BlockStore) DeleteLatestBlock() error {
 	err := batch.WriteSync()
 	if err != nil {
 		return fmt.Errorf("failed to delete height %v: %w", targetHeight, err)
+	}
+
+	if err := batch.Close(); err != nil {
+		panic(err)
 	}
 	return nil
 }
