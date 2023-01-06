@@ -152,7 +152,7 @@ func MemDepositPrefix(contractAddr string) []byte {
 }
 
 const (
-	DefaultPriceDenom = "stake"
+	DefaultPriceDenom = "usei"
 	DefaultAssetDenom = "dummy"
 )
 
