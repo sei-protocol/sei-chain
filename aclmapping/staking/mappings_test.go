@@ -55,7 +55,7 @@ func (suite *KeeperTestSuite) PrepareTest() {
 	suite.defaultExchangeRate = fmt.Sprintf("%dusei", sdk.NewDec(1700))
 
 	suite.initalBalance = sdk.Coins{sdk.NewInt64Coin(suite.defaultDenom, 100000000000)}
-	suite.initalBalance = sdk.Coins{sdk.NewInt64Coin("stake", 100000000000)}
+	suite.initalBalance = sdk.Coins{sdk.NewInt64Coin("usei", 100000000000)}
 	suite.FundAcc(suite.TestAccs[0], suite.initalBalance)
 
 	suite.queryClient = stakingtypes.NewQueryClient(suite.QueryHelper)
@@ -99,17 +99,17 @@ func (suite *KeeperTestSuite) PrepareTest() {
 	suite.App.AccountKeeper.SetModuleAccount(suite.Ctx, bondedPool)
 
 	suite.delegateMsg = &stakingtypes.MsgDelegate{
-		Amount:           sdk.NewInt64Coin("stake", 10),
+		Amount:           sdk.NewInt64Coin("usei", 10),
 		ValidatorAddress: suite.validator.String(),
 		DelegatorAddress: suite.TestAccs[0].String(),
 	}
 	suite.undelegateMsg = &stakingtypes.MsgUndelegate{
-		Amount:           sdk.NewInt64Coin("stake", 10),
+		Amount:           sdk.NewInt64Coin("usei", 10),
 		ValidatorAddress: suite.validator.String(),
 		DelegatorAddress: suite.TestAccs[0].String(),
 	}
 	suite.redelegateMsg = &stakingtypes.MsgBeginRedelegate{
-		Amount:              sdk.NewInt64Coin("stake", 10),
+		Amount:              sdk.NewInt64Coin("usei", 10),
 		ValidatorSrcAddress: suite.validator.String(),
 		ValidatorDstAddress: suite.newValidator.String(),
 		DelegatorAddress:    suite.TestAccs[0].String(),

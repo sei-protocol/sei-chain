@@ -56,7 +56,7 @@ func (suite *KeeperTestSuite) PrepareTest() {
 	suite.defaultExchangeRate = fmt.Sprintf("%dusei", sdk.NewDec(1700))
 
 	suite.initialBalance = sdk.Coins{sdk.NewInt64Coin(suite.defaultDenom, 100000000000)}
-	suite.initialBalance = sdk.Coins{sdk.NewInt64Coin("stake", 100000000000)}
+	suite.initialBalance = sdk.Coins{sdk.NewInt64Coin("usei", 100000000000)}
 	suite.FundAcc(suite.TestAccs[0], suite.initialBalance)
 
 	suite.queryClient = dextypes.NewQueryClient(suite.QueryHelper)
