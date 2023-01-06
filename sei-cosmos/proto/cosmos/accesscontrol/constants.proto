@@ -110,4 +110,17 @@ enum ResourceType {
     KV_WASM_PINNED_CODE_INDEX = 79; // child of KV_WASM
 
     KV_AUTH_GLOBAL_ACCOUNT_NUMBER = 80; // child of KV_AUTH
+
+    KV_AUTHZ = 81; // child of KV
+
+    KV_FEEGRANT = 82; // child of KV
+    KV_FEEGRANT_ALLOWANCE = 83; // child of KV_FEEGRANT
+
+    KV_SLASHING = 84; // child of KV
+    KV_SLASHING_VAL_SIGNING_INFO = 85; // child of KV_SLASHING
+    KV_SLASHING_ADDR_PUBKEY_RELATION_KEY = 86; // child of KV_SLASHING
+
+    KV_DEX_MEM_ORDER = 87;
+    KV_DEX_MEM_CANCEL = 88;
+    KV_DEX_MEM_DEPOSIT = 89;
 }
