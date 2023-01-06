@@ -10,7 +10,7 @@ export GOBIN=$GOPATH/bin
 export BUILD_PATH=/sei-protocol/sei-chain/build
 export PATH=$GOBIN:$PATH:/usr/local/go/bin:$BUILD_PATH
 mkdir -p $GOBIN
-cp ./build/seid $GOBIN/
+cp build/seid $GOBIN/
 
 # Prepare shared folders
 mkdir -p build/generated/gentx/
