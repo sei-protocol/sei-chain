@@ -23,7 +23,7 @@ echo "Building..."
 make install
 #echo $password | sudo -S rm -r ~/.sei/
 #echo $password | sudo -S rm -r ~/test_accounts/
-~/go/bin/seid init dev --chain-id sei-chain
+~/go/bin/seid init demo --chain-id sei-chain
 ~/go/bin/seid keys add $keyname --keyring-backend test
 #yes | ~/go/bin/seid keys add faucet
 ~/go/bin/seid add-genesis-account $(~/go/bin/seid keys show $keyname -a --keyring-backend test) 100000000000000000000usei,100000000000000000000uusdc,100000000000000000000uatom
@@ -50,6 +50,27 @@ if [ ! -z "$1" ]; then
   CONFIG_PATH="$1"
 else
   CONFIG_PATH="$HOME/.sei/config/config.toml"
+fi
+
+if [[ "$OSTYPE" == "linux-gnu"* ]]; then
+  sed -i 's/timeout_prevote =.*/timeout_prevote = "2000ms"/g' $CONFIG_PATH
+  sed -i 's/timeout_precommit =.*/timeout_precommit = "2000ms"/g' $CONFIG_PATH
+  sed -i 's/timeout_commit =.*/timeout_commit = "2000ms"/g' $CONFIG_PATH
+  sed -i 's/skip_timeout_commit =.*/skip_timeout_commit = false/g' $CONFIG_PATH
+elif [[ "$OSTYPE" == "darwin"* ]]; then
+  sed -i '' 's/# unsafe-propose-timeout-override = 0s =.*/unsafe-propose-timeout-override = "10s"/g' $CONFIG_PATH
+  sed -i '' 's/# unsafe-propose-timeout-delta-override = 0s =.*/unsafe-propose-timeout-delta-override = "10s"/g' $CONFIG_PATH
+  sed -i '' 's/# unsafe-vote-timeout-override = 0s =.*/unsafe-vote-timeout-override = "10s"/g' $CONFIG_PATH
+  sed -i '' 's/# unsafe-vote-timeout-delta-override = 0s =.*/unsafe-vote-timeout-delta-override = "10s"/g' $CONFIG_PATH
+  sed -i '' 's/# unsafe-commit-timeout-override = 0s =.*/unsafe-commit-timeout-override = "10s"/g' $CONFIG_PATH
+else
+  printf "Platform not supported, please ensure that the following values are set in your config.toml:\n"
+  printf "###         Consensus Configuration Options         ###\n"
+  printf "\t timeout_prevote = \"2000ms\"\n"
+  printf "\t timeout_precommit = \"2000ms\"\n"
+  printf "\t timeout_commit = \"2000ms\"\n"
+  printf "\t skip_timeout_commit = false\n"
+  exit 1
 fi
 
 ~/go/bin/seid config chain-id sei-chain

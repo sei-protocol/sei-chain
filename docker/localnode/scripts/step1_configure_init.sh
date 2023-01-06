@@ -10,7 +10,7 @@ export GOBIN=$GOPATH/bin
 export BUILD_PATH=/sei-protocol/sei-chain/build
 export PATH=$GOBIN:$PATH:/usr/local/go/bin:$BUILD_PATH
 mkdir -p $GOBIN
-cp build/seid $GOBIN/
+cp ./build/seid $GOBIN/
 
 # Prepare shared folders
 mkdir -p build/generated/gentx/
@@ -21,7 +21,7 @@ mkdir -p build/generated/exported_keys/
 
 # Initialize validator node
 MONIKER="sei-node-$NODE_ID"
-./build/seid init "$MONIKER" --chain-id sei >/dev/null 2>&1
+./build/seid init "$MONIKER" --chain-id sei
 
 # Copy configs
 cp docker/localnode/config/app.toml ~/.sei/config/app.toml
