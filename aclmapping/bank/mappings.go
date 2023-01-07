@@ -86,11 +86,6 @@ func MsgSendDependencyGenerator(keeper aclkeeper.Keeper, ctx sdk.Context, msg sd
 			ResourceType:       sdkacltypes.ResourceType_KV_AUTH_GLOBAL_ACCOUNT_NUMBER,
 			IdentifierTemplate: hex.EncodeToString(authtypes.GlobalAccountNumberKey),
 		},
-		{
-			AccessType:         sdkacltypes.AccessType_WRITE,
-			ResourceType:       sdkacltypes.ResourceType_KV_AUTH_GLOBAL_ACCOUNT_NUMBER,
-			IdentifierTemplate: hex.EncodeToString(authtypes.GlobalAccountNumberKey),
-		},
 
 		{
 			ResourceType:       sdkacltypes.ResourceType_ANY,
@@ -98,6 +93,30 @@ func MsgSendDependencyGenerator(keeper aclkeeper.Keeper, ctx sdk.Context, msg sd
 			IdentifierTemplate: utils.DefaultIDTemplate,
 		},
 	}
+
+	// check if the account exists and add additional write dependency if it doesn't
+	toAddr, err := sdk.AccAddressFromBech32(msgSend.ToAddress)
+	if err != nil {
+		// let msg server handle it
+		accessOperations = append(accessOperations, sdkacltypes.AccessOperation{
+			ResourceType:       sdkacltypes.ResourceType_ANY,
+			AccessType:         sdkacltypes.AccessType_COMMIT,
+			IdentifierTemplate: utils.DefaultIDTemplate,
+		})
+		return accessOperations, nil
+	}
+	if !keeper.AccountKeeper.HasAccount(ctx, toAddr) {
+		accessOperations = append(accessOperations, sdkacltypes.AccessOperation{
+			AccessType:         sdkacltypes.AccessType_WRITE,
+			ResourceType:       sdkacltypes.ResourceType_KV_AUTH_GLOBAL_ACCOUNT_NUMBER,
+			IdentifierTemplate: hex.EncodeToString(authtypes.GlobalAccountNumberKey),
+		})
+	}
+	accessOperations = append(accessOperations, sdkacltypes.AccessOperation{
+		ResourceType:       sdkacltypes.ResourceType_ANY,
+		AccessType:         sdkacltypes.AccessType_COMMIT,
+		IdentifierTemplate: utils.DefaultIDTemplate,
+	})
 
 	return accessOperations, nil
 }

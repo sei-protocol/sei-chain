@@ -46,6 +46,10 @@ var StoreKeyToResourceTypePrefixMap = aclsdktypes.StoreKeyToResourceTypePrefixMa
 		// SETTLEMENT keys are prefixed with account and order id
 		aclsdktypes.ResourceType_KV_DEX_SETTLEMENT_ORDER_ID: aclsdktypes.EmptyPrefix,
 		aclsdktypes.ResourceType_KV_DEX_SETTLEMENT:          aclsdktypes.EmptyPrefix,
+		// mem
+		aclsdktypes.ResourceType_KV_DEX_MEM_ORDER:   dextypes.KeyPrefix(dextypes.MemOrderKey),
+		aclsdktypes.ResourceType_KV_DEX_MEM_CANCEL:  dextypes.KeyPrefix(dextypes.MemCancelKey),
+		aclsdktypes.ResourceType_KV_DEX_MEM_DEPOSIT: dextypes.KeyPrefix(dextypes.MemDepositKey),
 	},
 	banktypes.StoreKey: {
 		aclsdktypes.ResourceType_KV_BANK:          aclsdktypes.EmptyPrefix,
