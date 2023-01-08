@@ -147,8 +147,16 @@ func MemOrderPrefix(contractAddr string) []byte {
 	return append(KeyPrefix(MemOrderKey), KeyPrefix(contractAddr)...)
 }
 
+func MemCancelPrefix(contractAddr string) []byte {
+	return append(KeyPrefix(MemCancelKey), KeyPrefix(contractAddr)...)
+}
+
 func MemDepositPrefix(contractAddr string) []byte {
 	return append(KeyPrefix(MemDepositKey), KeyPrefix(contractAddr)...)
+}
+
+func MemDepositSubprefix(creator, denom string) []byte {
+	return append([]byte(creator), []byte(denom)...)
 }
 
 const (
