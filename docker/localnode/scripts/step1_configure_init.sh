@@ -21,7 +21,7 @@ mkdir -p build/generated/exported_keys/
 
 # Initialize validator node
 MONIKER="sei-node-$NODE_ID"
-./build/seid init "$MONIKER" --chain-id sei
+./build/seid init "$MONIKER" --chain-id sei >/dev/null 2>&1
 
 # Copy configs
 cp docker/localnode/config/app.toml ~/.sei/config/app.toml
