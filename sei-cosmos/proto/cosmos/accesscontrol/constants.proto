@@ -20,6 +20,7 @@ enum AccessOperationSelectorType {
     CONTRACT_ADDRESS = 6;
     JQ_MESSAGE_CONDITIONAL = 7;
     CONSTANT_STRING_TO_HEX = 8;
+    CONTRACT_REFERENCE = 9;
 }
 
 enum ResourceType {

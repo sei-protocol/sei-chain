@@ -79,11 +79,12 @@ func (m *Params) GetWithdrawAddrEnabled() bool {
 // The reference count indicates the number of objects
 // which might need to reference this historical entry at any point.
 // ReferenceCount =
-//    number of outstanding delegations which ended the associated period (and
-//    might need to read that record)
-//  + number of slashes which ended the associated period (and might need to
-//  read that record)
-//  + one per validator for the zeroeth period, set on initialization
+//
+//	  number of outstanding delegations which ended the associated period (and
+//	  might need to read that record)
+//	+ number of slashes which ended the associated period (and might need to
+//	read that record)
+//	+ one per validator for the zeroeth period, set on initialization
 type ValidatorHistoricalRewards struct {
 	CumulativeRewardRatio github_com_cosmos_cosmos_sdk_types.DecCoins `protobuf:"bytes,1,rep,name=cumulative_reward_ratio,json=cumulativeRewardRatio,proto3,castrepeated=github.com/cosmos/cosmos-sdk/types.DecCoins" json:"cumulative_reward_ratio" yaml:"cumulative_reward_ratio"`
 	ReferenceCount        uint32                                      `protobuf:"varint,2,opt,name=reference_count,json=referenceCount,proto3" json:"reference_count,omitempty" yaml:"reference_count"`
@@ -471,7 +472,7 @@ var xxx_messageInfo_CommunityPoolSpendProposal proto.InternalMessageInfo
 // thus sdk.Dec is used.
 type DelegatorStartingInfo struct {
 	PreviousPeriod uint64                                 `protobuf:"varint,1,opt,name=previous_period,json=previousPeriod,proto3" json:"previous_period,omitempty" yaml:"previous_period"`
-	Stake          github_com_cosmos_cosmos_sdk_types.Dec `protobuf:"bytes,2,opt,name=stake,proto3,customtype=github.com/cosmos/cosmos-sdk/types.Dec" json:"usei" yaml:"usei"`
+	Stake          github_com_cosmos_cosmos_sdk_types.Dec `protobuf:"bytes,2,opt,name=stake,proto3,customtype=github.com/cosmos/cosmos-sdk/types.Dec" json:"stake" yaml:"stake"`
 	Height         uint64                                 `protobuf:"varint,3,opt,name=height,proto3" json:"creation_height" yaml:"creation_height"`
 }
 
