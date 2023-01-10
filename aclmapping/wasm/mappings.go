@@ -42,7 +42,8 @@ func (wasmDepGen WasmDependencyGenerator) WasmExecuteContractGenerator(keeper ac
 	if err != nil {
 		return []sdkacltypes.AccessOperation{}, err
 	}
-	wasmDependencyMapping, err := keeper.GetWasmDependencyMapping(ctx, contractAddr, executeContractMsg.Sender, executeContractMsg.Msg, true)
+	// TODO: need to test how errors from here affect the disabling of wasm execute dynamic dependencies
+	wasmDependencyMapping, err := keeper.GetWasmDependencyMapping(ctx, contractAddr, executeContractMsg.Sender, executeContractMsg.Msg, true, make(aclkeeper.ContractReferenceLookupMap))
 	if err != nil {
 		return []sdkacltypes.AccessOperation{}, err
 	}
