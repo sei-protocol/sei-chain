@@ -88,6 +88,10 @@ type TxMempool struct {
 	mtx       sync.RWMutex
 	preCheck  PreCheckFunc
 	postCheck PostCheckFunc
+
+	// NodeID to count of transactions failing CheckTx
+	failedCheckTxCounts    map[types.NodeID]uint64
+	mtxFailedCheckTxCounts sync.RWMutex
 }
 
 func NewTxMempool(
@@ -113,6 +117,7 @@ func NewTxMempool(
 		timestampIndex: NewWrappedTxList(func(wtx1, wtx2 *WrappedTx) bool {
 			return wtx1.timestamp.After(wtx2.timestamp) || wtx1.timestamp.Equal(wtx2.timestamp)
 		}),
+		failedCheckTxCounts: map[types.NodeID]uint64{},
 	}
 
 	if cfg.CacheSize > 0 {
@@ -539,6 +544,11 @@ func (txmp *TxMempool) initTxCallback(wtx *WrappedTx, res *abci.ResponseCheckTx,
 		if !txmp.config.KeepInvalidTxsInCache {
 			txmp.cache.Remove(wtx.tx)
 		}
+		if res.Code != abci.CodeTypeOK {
+			txmp.mtxFailedCheckTxCounts.Lock()
+			defer txmp.mtxFailedCheckTxCounts.Unlock()
+			txmp.failedCheckTxCounts[txInfo.SenderNodeID]++
+		}
 		return err
 	}
 
@@ -868,4 +878,10 @@ func (txmp *TxMempool) notifyTxsAvailable() {
 		default:
 		}
 	}
+}
+
+func (txmp *TxMempool) GetPeerFailedCheckTxCount(nodeID types.NodeID) uint64 {
+	txmp.mtxFailedCheckTxCounts.RLock()
+	defer txmp.mtxFailedCheckTxCounts.RUnlock()
+	return txmp.failedCheckTxCounts[nodeID]
 }

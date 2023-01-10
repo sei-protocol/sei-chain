@@ -636,3 +636,37 @@ func TestTxMempool_CheckTxPostCheckError(t *testing.T) {
 		})
 	}
 }
+
+func TestTxMempool_FailedCheckTxCount(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	client := abciclient.NewLocalClient(log.NewNopLogger(), &application{Application: kvstore.NewApplication()})
+	if err := client.Start(ctx); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(client.Wait)
+
+	postCheckFn := func(_ types.Tx, _ *abci.ResponseCheckTx) error {
+		return nil
+	}
+	txmp := setup(t, client, 0, WithPostCheck(postCheckFn))
+	tx := []byte("bad tx")
+
+	callback := func(res *abci.ResponseCheckTx) {
+		require.Equal(t, nil, txmp.postCheck(tx, res))
+	}
+	require.Equal(t, uint64(0), txmp.GetPeerFailedCheckTxCount("sender"))
+	// bad tx
+	require.NoError(t, txmp.CheckTx(ctx, tx, callback, TxInfo{SenderID: 0, SenderNodeID: "sender"}))
+	require.Equal(t, uint64(1), txmp.GetPeerFailedCheckTxCount("sender"))
+
+	// bad tx again
+	require.NoError(t, txmp.CheckTx(ctx, tx, callback, TxInfo{SenderID: 0, SenderNodeID: "sender"}))
+	require.Equal(t, uint64(2), txmp.GetPeerFailedCheckTxCount("sender"))
+
+	tx = []byte("sender=key=1")
+	// good tx
+	require.NoError(t, txmp.CheckTx(ctx, tx, callback, TxInfo{SenderID: 0, SenderNodeID: "sender"}))
+	require.Equal(t, uint64(2), txmp.GetPeerFailedCheckTxCount("sender"))
+}
