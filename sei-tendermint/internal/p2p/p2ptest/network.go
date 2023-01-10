@@ -268,6 +268,7 @@ func (n *Network) MakeNode(ctx context.Context, t *testing.T, opts NodeOptions) 
 		func() *types.NodeInfo { return &nodeInfo },
 		transport,
 		ep,
+		nil,
 		p2p.RouterOptions{DialSleep: func(_ context.Context) {}},
 	)
 

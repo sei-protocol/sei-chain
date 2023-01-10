@@ -308,6 +308,7 @@ func createRouter(
 		nodeInfoProducer,
 		transport,
 		ep,
+		nil, // TODO: replace with mempool CheckTx failure based filterer
 		getRouterConfig(cfg, appClient),
 	)
 }

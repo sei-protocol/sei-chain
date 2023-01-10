@@ -175,6 +175,8 @@ type Router struct {
 	channelMessages map[ChannelID]proto.Message
 
 	chDescsToBeAdded []chDescAdderWithCallback
+
+	dynamicIDFilterer func(context.Context, types.NodeID) error
 }
 
 type chDescAdderWithCallback struct {
@@ -193,6 +195,7 @@ func NewRouter(
 	nodeInfoProducer func() *types.NodeInfo,
 	transport Transport,
 	endpoint *Endpoint,
+	dynamicIDFilterer func(context.Context, types.NodeID) error,
 	options RouterOptions,
 ) (*Router, error) {
 
@@ -210,15 +213,16 @@ func NewRouter(
 			options.MaxIncomingConnectionAttempts,
 			options.IncomingConnectionWindow,
 		),
-		chDescs:         make([]*ChannelDescriptor, 0),
-		transport:       transport,
-		endpoint:        endpoint,
-		peerManager:     peerManager,
-		options:         options,
-		channelQueues:   map[ChannelID]queue{},
-		channelMessages: map[ChannelID]proto.Message{},
-		peerQueues:      map[types.NodeID]queue{},
-		peerChannels:    make(map[types.NodeID]ChannelIDSet),
+		chDescs:           make([]*ChannelDescriptor, 0),
+		transport:         transport,
+		endpoint:          endpoint,
+		peerManager:       peerManager,
+		options:           options,
+		channelQueues:     map[ChannelID]queue{},
+		channelMessages:   map[ChannelID]proto.Message{},
+		peerQueues:        map[types.NodeID]queue{},
+		peerChannels:      make(map[types.NodeID]ChannelIDSet),
+		dynamicIDFilterer: dynamicIDFilterer,
 	}
 
 	router.BaseService = service.NewBaseService(logger, "router", router)
@@ -442,6 +446,13 @@ func (r *Router) filterPeersIP(ctx context.Context, ip net.IP, port uint16) erro
 }
 
 func (r *Router) filterPeersID(ctx context.Context, id types.NodeID) error {
+	// apply dynamic filterer first
+	if r.dynamicIDFilterer != nil {
+		if err := r.dynamicIDFilterer(ctx, id); err != nil {
+			return err
+		}
+	}
+
 	if r.options.FilterPeerByID == nil {
 		return nil
 	}
