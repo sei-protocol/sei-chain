@@ -123,7 +123,19 @@ func (k Keeper) SetDependencyMappingDynamicFlag(ctx sdk.Context, messageKey type
 	return k.SetResourceDependencyMapping(ctx, dependencyMapping)
 }
 
-func (k Keeper) GetWasmDependencyMapping(ctx sdk.Context, contractAddress sdk.AccAddress, senderBech string, msgBody []byte, applySelector bool) (acltypes.WasmDependencyMapping, error) {
+type ContractReferenceLookupMap map[string]struct{}
+
+func (k Keeper) GetWasmDependencyMapping(ctx sdk.Context, contractAddress sdk.AccAddress, senderBech string, msgBody []byte, applySelector bool, circularDepLookup ContractReferenceLookupMap) (acltypes.WasmDependencyMapping, error) {
+	// TODO: check the circularDepLookup
+	uniqueIdentifier := contractAddress.String()
+
+	if _, ok := circularDepLookup[uniqueIdentifier]; ok {
+		// we've already seen this contract, we should simply return synchronous access Ops
+		return types.SynchronousWasmDependencyMapping(contractAddress.String()), nil
+	}
+	// add to our lookup so we know we've seen this identifier
+	circularDepLookup[uniqueIdentifier] = struct{}{}
+
 	store := ctx.KVStore(k.storeKey)
 	b := store.Get(types.GetWasmContractAddressKey(contractAddress))
 	if b == nil {
@@ -137,7 +149,7 @@ func (k Keeper) GetWasmDependencyMapping(ctx sdk.Context, contractAddress sdk.Ac
 	dependencyMapping := acltypes.WasmDependencyMapping{}
 	k.cdc.MustUnmarshal(b, &dependencyMapping)
 	if dependencyMapping.Enabled && applySelector {
-		selectedAccessOps, err := k.BuildSelectorOps(ctx, contractAddress, dependencyMapping.AccessOps, senderBech, msgBody)
+		selectedAccessOps, err := k.BuildSelectorOps(ctx, contractAddress, dependencyMapping.AccessOps, senderBech, msgBody, circularDepLookup)
 		if err != nil {
 			return acltypes.WasmDependencyMapping{}, err
 		}
@@ -146,7 +158,7 @@ func (k Keeper) GetWasmDependencyMapping(ctx sdk.Context, contractAddress sdk.Ac
 	return dependencyMapping, nil
 }
 
-func (k Keeper) BuildSelectorOps(ctx sdk.Context, contractAddr sdk.AccAddress, accessOps []acltypes.AccessOperationWithSelector, senderBech string, msgBody []byte) ([]acltypes.AccessOperationWithSelector, error) {
+func (k Keeper) BuildSelectorOps(ctx sdk.Context, contractAddr sdk.AccAddress, accessOps []acltypes.AccessOperationWithSelector, senderBech string, msgBody []byte, circularDepLookup ContractReferenceLookupMap) ([]acltypes.AccessOperationWithSelector, error) {
 	selectedAccessOps := []acltypes.AccessOperationWithSelector{}
 accessOpLoop:
 	for _, opWithSelector := range accessOps {
@@ -261,7 +273,7 @@ accessOpLoop:
 			// for now, we will just pass in the same message body, this needs to be changed later though
 			// TODO: build new msgbody for the new contract execute / query msg in later milestone tasks
 			emptyJSON := []byte("{}")
-			wasmDeps, err := k.GetWasmDependencyMapping(ctx, interContractAddress, contractAddr.String(), emptyJSON, true)
+			wasmDeps, err := k.GetWasmDependencyMapping(ctx, interContractAddress, contractAddr.String(), emptyJSON, true, circularDepLookup)
 
 			if err != nil || !wasmDeps.Enabled {
 				// if we have an error fetching the dependency mapping or the mapping is disabled, we want to use the synchronous mappings instead
@@ -305,7 +317,7 @@ func (k Keeper) ResetWasmDependencyMapping(
 	contractAddress sdk.AccAddress,
 	reason string,
 ) error {
-	dependencyMapping, err := k.GetWasmDependencyMapping(ctx, contractAddress, "", []byte{}, false)
+	dependencyMapping, err := k.GetWasmDependencyMapping(ctx, contractAddress, "", []byte{}, false, make(ContractReferenceLookupMap))
 	if err != nil {
 		return err
 	}
