@@ -591,6 +591,16 @@ func TestWasmDependencyMappingWithContractReferenceSelector(t *testing.T) {
 				SelectorType: acltypes.AccessOperationSelectorType_CONTRACT_REFERENCE,
 				Selector:     interContractAddress.String(),
 			},
+			// this one should be appropriately discarded because we are not processing a contract reference
+			{
+				Operation: &acltypes.AccessOperation{
+					ResourceType:       acltypes.ResourceType_KV_BANK_BALANCES,
+					AccessType:         acltypes.AccessType_WRITE,
+					IdentifierTemplate: "02%s",
+				},
+				SelectorType: acltypes.AccessOperationSelectorType_JQ_LENGTH_PREFIXED_ADDRESS,
+				Selector:     ".field.doesnt.exist",
+			},
 			{
 				Operation:    types.CommitAccessOp(),
 				SelectorType: acltypes.AccessOperationSelectorType_NONE,
@@ -618,10 +628,11 @@ func TestWasmDependencyMappingWithContractReferenceSelector(t *testing.T) {
 		make(aclkeeper.ContractReferenceLookupMap),
 	)
 	require.NoError(t, err)
-	// we should have 3 access ops, the first two from the inter-contract (because we discard the JQ one due to empty JSON body)
+	// we should have 4 access ops, the first three from the inter-contract
+	// the third is a "*" because we don't have the appropriate JSON body to infer the proper identifier via selector
 	// and the commit from wasm contract
 	// having two commits is fine
-	require.Len(t, mapping.AccessOps, 3)
+	require.Len(t, mapping.AccessOps, 4)
 	expectedAccessOps := []acltypes.AccessOperationWithSelector{
 		{
 			Operation: &acltypes.AccessOperation{
@@ -630,6 +641,15 @@ func TestWasmDependencyMappingWithContractReferenceSelector(t *testing.T) {
 				IdentifierTemplate: fmt.Sprintf("02%s", hex.EncodeToString(address.MustLengthPrefix(wasmContractAddress))),
 			},
 			SelectorType: acltypes.AccessOperationSelectorType_SENDER_LENGTH_PREFIXED_ADDRESS,
+		},
+		{
+			Operation: &acltypes.AccessOperation{
+				ResourceType:       acltypes.ResourceType_KV_BANK_BALANCES,
+				AccessType:         acltypes.AccessType_WRITE,
+				IdentifierTemplate: "*",
+			},
+			SelectorType: acltypes.AccessOperationSelectorType_JQ_LENGTH_PREFIXED_ADDRESS,
+			Selector:     ".send.address",
 		},
 		{
 			Operation:    types.CommitAccessOp(),

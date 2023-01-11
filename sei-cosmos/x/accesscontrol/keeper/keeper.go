@@ -126,9 +126,7 @@ func (k Keeper) SetDependencyMappingDynamicFlag(ctx sdk.Context, messageKey type
 type ContractReferenceLookupMap map[string]struct{}
 
 func (k Keeper) GetWasmDependencyMapping(ctx sdk.Context, contractAddress sdk.AccAddress, senderBech string, msgBody []byte, applySelector bool, circularDepLookup ContractReferenceLookupMap) (acltypes.WasmDependencyMapping, error) {
-	// TODO: check the circularDepLookup
 	uniqueIdentifier := contractAddress.String()
-
 	if _, ok := circularDepLookup[uniqueIdentifier]; ok {
 		// we've already seen this contract, we should simply return synchronous access Ops
 		return types.SynchronousWasmDependencyMapping(contractAddress.String()), nil
@@ -160,8 +158,13 @@ func (k Keeper) GetWasmDependencyMapping(ctx sdk.Context, contractAddress sdk.Ac
 
 func (k Keeper) BuildSelectorOps(ctx sdk.Context, contractAddr sdk.AccAddress, accessOps []acltypes.AccessOperationWithSelector, senderBech string, msgBody []byte, circularDepLookup ContractReferenceLookupMap) ([]acltypes.AccessOperationWithSelector, error) {
 	selectedAccessOps := []acltypes.AccessOperationWithSelector{}
+	// when we build selector ops here, we want to generate "*" if the proper fields aren't present
+	// if size of circular dep map > 1 then it means we're in a contract reference
+	// as a result, if the selector doesn't match properly, we need to conservatively assume "*" for the identifier
+	withinContractReference := len(circularDepLookup) > 1
 accessOpLoop:
 	for _, opWithSelector := range accessOps {
+	selectorSwitch:
 		switch opWithSelector.SelectorType {
 		case acltypes.AccessOperationSelectorType_JQ:
 			op, err := jq.Parse(opWithSelector.Selector)
@@ -170,6 +173,10 @@ accessOpLoop:
 			}
 			data, err := op.Apply(msgBody)
 			if err != nil {
+				if withinContractReference {
+					opWithSelector.Operation.IdentifierTemplate = "*"
+					break selectorSwitch
+				}
 				// if the operation is not applicable to the message, skip it
 				continue
 			}
@@ -185,6 +192,10 @@ accessOpLoop:
 			}
 			data, err := op.Apply(msgBody)
 			if err != nil {
+				if withinContractReference {
+					opWithSelector.Operation.IdentifierTemplate = "*"
+					break selectorSwitch
+				}
 				// if the operation is not applicable to the message, skip it
 				continue
 			}
@@ -205,6 +216,10 @@ accessOpLoop:
 			}
 			data, err := op.Apply(msgBody)
 			if err != nil {
+				if withinContractReference {
+					opWithSelector.Operation.IdentifierTemplate = "*"
+					break selectorSwitch
+				}
 				// if the operation is not applicable to the message, skip it
 				continue
 			}
@@ -253,7 +268,9 @@ accessOpLoop:
 				return []acltypes.AccessOperationWithSelector{}, err
 			}
 			_, err = op.Apply(msgBody)
-			if err != nil {
+			// if we are in a contract reference, we have to assume that this is necessary
+			// TODO: after partitioning changes are merged, the MESSAGE_CONDITIONAL can be deprecated in favor of partitioned deps
+			if err != nil && !withinContractReference {
 				// if the operation is not applicable to the message, skip it
 				continue
 			}
