@@ -31,13 +31,13 @@ func GetGasMeterSetter(aclkeeper aclkeeper.Keeper) func(bool, sdk.Context, uint6
 	}
 }
 
-func getMessageMultiplierDenominator(ctx sdk.Context, msg sdk.Msg, aclkeeper aclkeeper.Keeper) uint64 {
+func getMessageMultiplierDenominator(ctx sdk.Context, msg sdk.Msg, aclKeeper aclkeeper.Keeper) uint64 {
 	if wasmExecuteMsg, ok := msg.(*wasmtypes.MsgExecuteContract); ok {
 		addr, err := sdk.AccAddressFromBech32(wasmExecuteMsg.Contract)
 		if err != nil {
 			return DefaultGasMultiplierDenominator
 		}
-		mapping, err := aclkeeper.GetWasmDependencyMapping(ctx, addr, "", []byte{}, false)
+		mapping, err := aclKeeper.GetWasmDependencyMapping(ctx, addr, "", []byte{}, false, make(aclkeeper.ContractReferenceLookupMap))
 		if err != nil {
 			return DefaultGasMultiplierDenominator
 		}
