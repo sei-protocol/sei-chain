@@ -290,7 +290,7 @@ func (m *MsgUpdateWasmDependencyMappingProposalJsonFile) GetContractAddress() st
 	return ""
 }
 
-func (m *MsgUpdateWasmDependencyMappingProposalJsonFile) GetWasmDependencyMapping() accesscontrol.WasmDependencyMapping {
+func (m *MsgUpdateWasmDependencyMappingProposalJsonFile) GetWasmDependencyAccessOps() accesscontrol.WasmDependencyMapping {
 	if m != nil {
 		return m.WasmDependencyMapping
 	}

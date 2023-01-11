@@ -12,10 +12,15 @@ message AccessOperation {
     string identifier_template = 3;
 }
 
-message AccessOperationWithSelector {
+message WasmAccessOperation {
     AccessOperation operation = 1;
     AccessOperationSelectorType selector_type = 2;
     string selector = 3;
+}
+
+message WasmAccessOperations {
+    string message_name = 1;
+    repeated WasmAccessOperation wasm_operations = 2;
 }
 
 message MessageDependencyMapping {
@@ -27,10 +32,9 @@ message MessageDependencyMapping {
 }
 
 message WasmDependencyMapping {
-    bool enabled = 1;
-    repeated AccessOperationWithSelector access_ops = 2 [
-        (gogoproto.nullable) = false
-    ];
-    string reset_reason = 3;
-    string contract_address = 4;
+    repeated WasmAccessOperation base_access_ops = 1;
+    repeated WasmAccessOperations query_access_ops = 2;
+    repeated WasmAccessOperations execute_access_ops = 3;
+    string reset_reason = 4;
+    string contract_address = 5;
 }

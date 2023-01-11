@@ -125,3 +125,8 @@ enum ResourceType {
     KV_DEX_MEM_CANCEL = 88;
     KV_DEX_MEM_DEPOSIT = 89;
 }
+
+enum WasmMessageSubtype {
+    QUERY = 0;
+    EXECUTE = 1;
+}

@@ -31,11 +31,11 @@ func (k Keeper) WasmDependencyMapping(ctx context.Context, req *types.WasmDepend
 	if err != nil {
 		return nil, err
 	}
-	wasmDependency, err := k.GetWasmDependencyMapping(sdkCtx, address, "", []byte{}, false, make(ContractReferenceLookupMap))
+	wasmDependency, err := k.GetRawWasmDependencyMapping(sdkCtx, address)
 	if err != nil {
 		return nil, err
 	}
-	return &types.WasmDependencyMappingResponse{WasmDependencyMapping: wasmDependency}, nil
+	return &types.WasmDependencyMappingResponse{WasmDependencyMapping: *wasmDependency}, nil
 }
 
 func (k Keeper) ListResourceDependencyMapping(ctx context.Context, req *types.ListResourceDependencyMappingRequest) (*types.ListResourceDependencyMappingResponse, error) {

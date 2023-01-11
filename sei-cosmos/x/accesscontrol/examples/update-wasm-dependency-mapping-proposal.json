@@ -6,7 +6,7 @@
     "wasm_dependency_mapping":
         {
           "enabled": true,
-          "access_ops": [
+          "base_access_ops": [
             {
               "operation": {
                 "access_type": "UNKNOWN",
@@ -22,6 +22,36 @@
                 "identifier_template": "*"
               },
               "selector_type": "NONE"
+            }
+          ],
+          "query_access_ops": [
+            {
+              "message_name": "query_something",
+              "wasm_operations": [
+                {
+                  "operation": {
+                    "access_type": "READ",
+                    "resource_type": "KV_WASM",
+                    "identifier_template": "*"
+                  },
+                  "selector_type": "NONE"
+                }
+              ]
+            }
+          ],
+          "execute_access_ops": [
+            {
+              "message_name": "execute_something",
+              "wasm_operations": [
+                {
+                  "operation": {
+                    "access_type": "WRITE",
+                    "resource_type": "KV_WASM",
+                    "identifier_template": "*"
+                  },
+                  "selector_type": "NONE"
+                }
+              ]
             }
           ]
         }

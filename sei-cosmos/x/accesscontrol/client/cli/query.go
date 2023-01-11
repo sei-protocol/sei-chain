@@ -23,7 +23,7 @@ func GetQueryCmd() *cobra.Command {
 		GetParams(),
 		GetResourceDependencyMapping(),
 		ListResourceDependencyMapping(),
-		GetWasmDependencyMapping(),
+		GetWasmDependencyAccessOps(),
 		ListWasmDependencyMapping(),
 	)
 
@@ -115,7 +115,7 @@ func ListResourceDependencyMapping() *cobra.Command {
 	return cmd
 }
 
-func GetWasmDependencyMapping() *cobra.Command {
+func GetWasmDependencyAccessOps() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "wasm-dependency-mapping [contractAddr] [flags]",
 		Short: "Get the wasm contract dependency mapping for a specific contract address",

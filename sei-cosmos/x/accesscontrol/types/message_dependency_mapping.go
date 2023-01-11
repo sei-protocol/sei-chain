@@ -69,8 +69,8 @@ func SynchronousAccessOps() []acltypes.AccessOperation {
 	}
 }
 
-func SynchronousAccessOpsWithSelector() []acltypes.AccessOperationWithSelector {
-	return []acltypes.AccessOperationWithSelector{
+func SynchronousWasmAccessOps() []*acltypes.WasmAccessOperation {
+	return []*acltypes.WasmAccessOperation{
 		{
 			Operation:    &acltypes.AccessOperation{AccessType: acltypes.AccessType_UNKNOWN, ResourceType: acltypes.ResourceType_ANY, IdentifierTemplate: "*"},
 			SelectorType: acltypes.AccessOperationSelectorType_NONE,
@@ -82,10 +82,13 @@ func SynchronousAccessOpsWithSelector() []acltypes.AccessOperationWithSelector {
 	}
 }
 
+func SynchronousAccessOpsSet() *AccessOperationSet {
+	return NewAccessOperationSet(SynchronousAccessOps())
+}
+
 func SynchronousWasmDependencyMapping(contractAddress string) acltypes.WasmDependencyMapping {
 	return acltypes.WasmDependencyMapping{
-		Enabled:         true,
-		AccessOps:       SynchronousAccessOpsWithSelector(),
+		BaseAccessOps:   SynchronousWasmAccessOps(),
 		ContractAddress: contractAddress,
 	}
 }
@@ -100,6 +103,20 @@ func IsDefaultSynchronousAccessOps(accessOps []acltypes.AccessOperation) bool {
 	return true
 }
 
+func IsDefaultSynchronousWasmAccessOps(accessOps []*acltypes.WasmAccessOperation) bool {
+	defaultAccessOps := SynchronousWasmAccessOps()
+	for index, accessOp := range accessOps {
+		if *accessOp != *defaultAccessOps[index] {
+			return false
+		}
+	}
+	return true
+}
+
+func IsCommitOp(accessOp *acltypes.AccessOperation) bool {
+	return accessOp.AccessType == acltypes.AccessType_COMMIT
+}
+
 func DefaultMessageDependencyMapping() []acltypes.MessageDependencyMapping {
 	return []acltypes.MessageDependencyMapping{}
 }
@@ -108,8 +125,9 @@ func DefaultWasmDependencyMappings() []acltypes.WasmDependencyMapping {
 	return []acltypes.WasmDependencyMapping{}
 }
 
+// Base access operation list must end with access type commit
 func ValidateWasmDependencyMapping(mapping acltypes.WasmDependencyMapping) error {
-	lastAccessOp := mapping.AccessOps[len(mapping.AccessOps)-1]
+	lastAccessOp := mapping.BaseAccessOps[len(mapping.BaseAccessOps)-1]
 	if lastAccessOp.Operation.AccessType != acltypes.AccessType_COMMIT {
 		return ErrNoCommitAccessOp
 	}

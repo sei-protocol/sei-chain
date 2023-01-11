@@ -78,7 +78,7 @@ func (m *GenesisState) GetMessageDependencyMapping() []accesscontrol.MessageDepe
 	return nil
 }
 
-func (m *GenesisState) GetWasmDependencyMappings() []accesscontrol.WasmDependencyMapping {
+func (m *GenesisState) GetWasmDependencyAccessOpss() []accesscontrol.WasmDependencyMapping {
 	if m != nil {
 		return m.WasmDependencyMappings
 	}
