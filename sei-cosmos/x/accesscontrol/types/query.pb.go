@@ -289,7 +289,7 @@ func (m *WasmDependencyMappingResponse) XXX_DiscardUnknown() {
 
 var xxx_messageInfo_WasmDependencyMappingResponse proto.InternalMessageInfo
 
-func (m *WasmDependencyMappingResponse) GetWasmDependencyAccessOps() accesscontrol.WasmDependencyMapping {
+func (m *WasmDependencyMappingResponse) GetWasmDependencyMapping() accesscontrol.WasmDependencyMapping {
 	if m != nil {
 		return m.WasmDependencyMapping
 	}
@@ -449,7 +449,7 @@ func (m *ListWasmDependencyMappingResponse) XXX_DiscardUnknown() {
 
 var xxx_messageInfo_ListWasmDependencyMappingResponse proto.InternalMessageInfo
 
-func (m *ListWasmDependencyMappingResponse) GetWasmDependencyAccessOpsList() []accesscontrol.WasmDependencyMapping {
+func (m *ListWasmDependencyMappingResponse) GetWasmDependencyMappingList() []accesscontrol.WasmDependencyMapping {
 	if m != nil {
 		return m.WasmDependencyMappingList
 	}

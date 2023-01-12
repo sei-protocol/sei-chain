@@ -68,7 +68,7 @@ func (m *RegisterWasmDependencyJSONFile) XXX_DiscardUnknown() {
 
 var xxx_messageInfo_RegisterWasmDependencyJSONFile proto.InternalMessageInfo
 
-func (m *RegisterWasmDependencyJSONFile) GetWasmDependencyAccessOps() accesscontrol.WasmDependencyMapping {
+func (m *RegisterWasmDependencyJSONFile) GetWasmDependencyMapping() accesscontrol.WasmDependencyMapping {
 	if m != nil {
 		return m.WasmDependencyMapping
 	}
@@ -120,7 +120,7 @@ func (m *MsgRegisterWasmDependency) GetFromAddress() string {
 	return ""
 }
 
-func (m *MsgRegisterWasmDependency) GetWasmDependencyAccessOps() accesscontrol.WasmDependencyMapping {
+func (m *MsgRegisterWasmDependency) GetWasmDependencyMapping() accesscontrol.WasmDependencyMapping {
 	if m != nil {
 		return m.WasmDependencyMapping
 	}

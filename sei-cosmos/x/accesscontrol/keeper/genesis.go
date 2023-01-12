@@ -11,7 +11,7 @@ func (k Keeper) InitGenesis(ctx sdk.Context, genState types.GenesisState) {
 	for _, resourceDependencyMapping := range genState.GetMessageDependencyMapping() {
 		k.SetResourceDependencyMapping(ctx, resourceDependencyMapping)
 	}
-	for _, wasmDependencyMapping := range genState.GetWasmDependencyAccessOpss() {
+	for _, wasmDependencyMapping := range genState.GetWasmDependencyMappings() {
 		k.SetWasmDependencyMapping(ctx, wasmDependencyMapping)
 	}
 }

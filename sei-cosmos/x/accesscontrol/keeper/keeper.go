@@ -174,16 +174,77 @@ func (k Keeper) GetWasmDependencyAccessOps(ctx sdk.Context, contractAddress sdk.
 	if err != nil {
 		return nil, err
 	}
-	return selectedAccessOps, nil
+
+	// imports base contract references
+	contractRefs := dependencyMapping.BaseContractReferences
+	// add the specific execute or query contract references based on message type + name
+	specificContractRefs := []*acltypes.WasmContractReferences{}
+	if msgInfo.MessageType == acltypes.WasmMessageSubtype_EXECUTE && len(dependencyMapping.ExecuteContractReferences) != 0 {
+		specificContractRefs = dependencyMapping.ExecuteContractReferences
+	} else if msgInfo.MessageType == acltypes.WasmMessageSubtype_QUERY && len(dependencyMapping.QueryContractReferences) != 0 {
+		specificContractRefs = dependencyMapping.QueryContractReferences
+	}
+	for _, specificContractRef := range specificContractRefs {
+		if specificContractRef.MessageName == msgInfo.MessageName {
+			contractRefs = append(contractRefs, specificContractRef.ContractReferences...)
+			break
+		}
+	}
+	importedAccessOps, err := k.ImportContractReferences(ctx, contractAddress, contractRefs, senderBech, msgInfo, circularDepLookup)
+	if err != nil {
+		return nil, err
+	}
+	// combine the access ops to get the definitive list of access ops for the contract
+	selectedAccessOps.Merge(importedAccessOps)
+
+	return selectedAccessOps.ToSlice(), nil
 }
 
-func (k Keeper) BuildSelectorOps(ctx sdk.Context, contractAddr sdk.AccAddress, accessOps []*acltypes.WasmAccessOperation, senderBech string, msgInfo *types.WasmMessageInfo, circularDepLookup ContractReferenceLookupMap) ([]acltypes.AccessOperation, error) {
+func (k Keeper) ImportContractReferences(ctx sdk.Context, contractAddr sdk.AccAddress, contractReferences []*acltypes.WasmContractReference, senderBech string, msgInfo *types.WasmMessageInfo, circularDepLookup ContractReferenceLookupMap) (*types.AccessOperationSet, error) {
+	importedAccessOps := types.NewEmptyAccessOperationSet()
+
+	for _, contractReference := range contractReferences {
+		// We use this to import the dependencies from another contract address
+		importContractAddress, err := sdk.AccAddressFromBech32(contractReference.ContractAddress)
+		if err != nil {
+			return nil, err
+		}
+		// TODO: build new msgbody for the new contract execute / query msg in later milestone tasks based on the translation pattern
+		emptyJSON := []byte(fmt.Sprintf("{\"%s\":{}}", contractReference.MessageName))
+		var msgInfo *types.WasmMessageInfo
+		if contractReference.MessageType == acltypes.WasmMessageSubtype_EXECUTE {
+			msgInfo, err = types.NewExecuteMessageInfo(emptyJSON)
+			if err != nil {
+				return nil, err
+			}
+		} else if contractReference.MessageType == acltypes.WasmMessageSubtype_QUERY {
+			msgInfo, err = types.NewQueryMessageInfo(emptyJSON)
+			if err != nil {
+				return nil, err
+			}
+		}
+		wasmDeps, err := k.GetWasmDependencyAccessOps(ctx, importContractAddress, contractAddr.String(), msgInfo, circularDepLookup)
+
+		if err != nil {
+			// if we have an error fetching the dependency mapping or the mapping is disabled,
+			// we want to return the error and the fallback behavior can be defined in the caller function
+			// recommended fallback behavior is to use synchronous wasm access ops
+			return nil, err
+		} else {
+			// if we did get deps properly and they are enabled, now we want to add them to our access operations
+			importedAccessOps.AddMultiple(wasmDeps)
+		}
+	}
+	// if we imported all relevant contract references properly, we can return the access ops generated
+	return importedAccessOps, nil
+}
+
+func (k Keeper) BuildSelectorOps(ctx sdk.Context, contractAddr sdk.AccAddress, accessOps []*acltypes.WasmAccessOperation, senderBech string, msgInfo *types.WasmMessageInfo, circularDepLookup ContractReferenceLookupMap) (*types.AccessOperationSet, error) {
 	selectedAccessOps := types.NewEmptyAccessOperationSet()
 	// when we build selector ops here, we want to generate "*" if the proper fields aren't present
 	// if size of circular dep map > 1 then it means we're in a contract reference
 	// as a result, if the selector doesn't match properly, we need to conservatively assume "*" for the identifier
 	withinContractReference := len(circularDepLookup) > 1
-accessOpLoop:
 	for _, opWithSelector := range accessOps {
 	selectorSwitch:
 		switch opWithSelector.SelectorType {
@@ -302,35 +363,13 @@ accessOpLoop:
 				hexStr,
 			)
 		case acltypes.AccessOperationSelectorType_CONTRACT_REFERENCE:
-			// We use this to import the dependencies from another contract address
-			interContractAddress, err := sdk.AccAddressFromBech32(opWithSelector.Selector)
-			if err != nil {
-				return nil, err
-			}
-			// TODO: add a circular dependency check here to ignore if we've already seen this contract/identifier in our reference chain
-			// for now, we will just pass in the same message body, this needs to be changed later though
-			// TODO: build new msgbody for the new contract execute / query msg in later milestone tasks
-			emptyJSON := []byte("{\"\":{}}")
-			// TODO: add separate enum for query reference vs execute reference and build msgInfo according to whether
-			//       the reference is a query one or an execute one. For now defaulting to execute.
-			emptyMsgInfo, _ := types.NewExecuteMessageInfo(emptyJSON)
-			wasmDeps, err := k.GetWasmDependencyAccessOps(ctx, interContractAddress, contractAddr.String(), emptyMsgInfo, circularDepLookup)
-
-			if err != nil {
-				// if we have an error fetching the dependency mapping or the mapping is disabled, we want to use the synchronous mappings instead
-				selectedAccessOps = types.SynchronousAccessOpsSet()
-				break accessOpLoop
-			} else {
-				// if we did get deps properly and they are enabled, now we want to add them to our access operations
-				selectedAccessOps.AddMultiple(wasmDeps)
-			}
-			// we want to continue here to skip adding the original OpWithSelector (since that just represents instruction to fetch dependent contract)
+			// Deprecated for ImportContractReference function
 			continue
 		}
 		selectedAccessOps.Add(*opWithSelector.Operation)
 	}
 
-	return selectedAccessOps.ToSlice(), nil
+	return selectedAccessOps, nil
 }
 
 func (k Keeper) SetWasmDependencyMapping(

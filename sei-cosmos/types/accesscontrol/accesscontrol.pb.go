@@ -143,6 +143,118 @@ func (m *WasmAccessOperation) GetSelector() string {
 	return ""
 }
 
+type WasmContractReference struct {
+	ContractAddress string             `protobuf:"bytes,1,opt,name=contract_address,json=contractAddress,proto3" json:"contract_address,omitempty"`
+	MessageType     WasmMessageSubtype `protobuf:"varint,2,opt,name=message_type,json=messageType,proto3,enum=cosmos.accesscontrol.v1beta1.WasmMessageSubtype" json:"message_type,omitempty"`
+	MessageName     string             `protobuf:"bytes,3,opt,name=message_name,json=messageName,proto3" json:"message_name,omitempty"`
+}
+
+func (m *WasmContractReference) Reset()         { *m = WasmContractReference{} }
+func (m *WasmContractReference) String() string { return proto.CompactTextString(m) }
+func (*WasmContractReference) ProtoMessage()    {}
+func (*WasmContractReference) Descriptor() ([]byte, []int) {
+	return fileDescriptor_d636a082612ba091, []int{2}
+}
+func (m *WasmContractReference) XXX_Unmarshal(b []byte) error {
+	return m.Unmarshal(b)
+}
+func (m *WasmContractReference) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	if deterministic {
+		return xxx_messageInfo_WasmContractReference.Marshal(b, m, deterministic)
+	} else {
+		b = b[:cap(b)]
+		n, err := m.MarshalToSizedBuffer(b)
+		if err != nil {
+			return nil, err
+		}
+		return b[:n], nil
+	}
+}
+func (m *WasmContractReference) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_WasmContractReference.Merge(m, src)
+}
+func (m *WasmContractReference) XXX_Size() int {
+	return m.Size()
+}
+func (m *WasmContractReference) XXX_DiscardUnknown() {
+	xxx_messageInfo_WasmContractReference.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_WasmContractReference proto.InternalMessageInfo
+
+func (m *WasmContractReference) GetContractAddress() string {
+	if m != nil {
+		return m.ContractAddress
+	}
+	return ""
+}
+
+func (m *WasmContractReference) GetMessageType() WasmMessageSubtype {
+	if m != nil {
+		return m.MessageType
+	}
+	return WasmMessageSubtype_QUERY
+}
+
+func (m *WasmContractReference) GetMessageName() string {
+	if m != nil {
+		return m.MessageName
+	}
+	return ""
+}
+
+type WasmContractReferences struct {
+	MessageName        string                   `protobuf:"bytes,1,opt,name=message_name,json=messageName,proto3" json:"message_name,omitempty"`
+	ContractReferences []*WasmContractReference `protobuf:"bytes,2,rep,name=contract_references,json=contractReferences,proto3" json:"contract_references,omitempty"`
+}
+
+func (m *WasmContractReferences) Reset()         { *m = WasmContractReferences{} }
+func (m *WasmContractReferences) String() string { return proto.CompactTextString(m) }
+func (*WasmContractReferences) ProtoMessage()    {}
+func (*WasmContractReferences) Descriptor() ([]byte, []int) {
+	return fileDescriptor_d636a082612ba091, []int{3}
+}
+func (m *WasmContractReferences) XXX_Unmarshal(b []byte) error {
+	return m.Unmarshal(b)
+}
+func (m *WasmContractReferences) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	if deterministic {
+		return xxx_messageInfo_WasmContractReferences.Marshal(b, m, deterministic)
+	} else {
+		b = b[:cap(b)]
+		n, err := m.MarshalToSizedBuffer(b)
+		if err != nil {
+			return nil, err
+		}
+		return b[:n], nil
+	}
+}
+func (m *WasmContractReferences) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_WasmContractReferences.Merge(m, src)
+}
+func (m *WasmContractReferences) XXX_Size() int {
+	return m.Size()
+}
+func (m *WasmContractReferences) XXX_DiscardUnknown() {
+	xxx_messageInfo_WasmContractReferences.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_WasmContractReferences proto.InternalMessageInfo
+
+func (m *WasmContractReferences) GetMessageName() string {
+	if m != nil {
+		return m.MessageName
+	}
+	return ""
+}
+
+func (m *WasmContractReferences) GetContractReferences() []*WasmContractReference {
+	if m != nil {
+		return m.ContractReferences
+	}
+	return nil
+}
+
 type WasmAccessOperations struct {
 	MessageName    string                 `protobuf:"bytes,1,opt,name=message_name,json=messageName,proto3" json:"message_name,omitempty"`
 	WasmOperations []*WasmAccessOperation `protobuf:"bytes,2,rep,name=wasm_operations,json=wasmOperations,proto3" json:"wasm_operations,omitempty"`
@@ -152,7 +264,7 @@ func (m *WasmAccessOperations) Reset()         { *m = WasmAccessOperations{} }
 func (m *WasmAccessOperations) String() string { return proto.CompactTextString(m) }
 func (*WasmAccessOperations) ProtoMessage()    {}
 func (*WasmAccessOperations) Descriptor() ([]byte, []int) {
-	return fileDescriptor_d636a082612ba091, []int{2}
+	return fileDescriptor_d636a082612ba091, []int{4}
 }
 func (m *WasmAccessOperations) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
@@ -205,7 +317,7 @@ func (m *MessageDependencyMapping) Reset()         { *m = MessageDependencyMappi
 func (m *MessageDependencyMapping) String() string { return proto.CompactTextString(m) }
 func (*MessageDependencyMapping) ProtoMessage()    {}
 func (*MessageDependencyMapping) Descriptor() ([]byte, []int) {
-	return fileDescriptor_d636a082612ba091, []int{3}
+	return fileDescriptor_d636a082612ba091, []int{5}
 }
 func (m *MessageDependencyMapping) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
@@ -256,18 +368,21 @@ func (m *MessageDependencyMapping) GetDynamicEnabled() bool {
 }
 
 type WasmDependencyMapping struct {
-	BaseAccessOps    []*WasmAccessOperation  `protobuf:"bytes,1,rep,name=base_access_ops,json=baseAccessOps,proto3" json:"base_access_ops,omitempty"`
-	QueryAccessOps   []*WasmAccessOperations `protobuf:"bytes,2,rep,name=query_access_ops,json=queryAccessOps,proto3" json:"query_access_ops,omitempty"`
-	ExecuteAccessOps []*WasmAccessOperations `protobuf:"bytes,3,rep,name=execute_access_ops,json=executeAccessOps,proto3" json:"execute_access_ops,omitempty"`
-	ResetReason      string                  `protobuf:"bytes,4,opt,name=reset_reason,json=resetReason,proto3" json:"reset_reason,omitempty"`
-	ContractAddress  string                  `protobuf:"bytes,5,opt,name=contract_address,json=contractAddress,proto3" json:"contract_address,omitempty"`
+	BaseAccessOps             []*WasmAccessOperation    `protobuf:"bytes,1,rep,name=base_access_ops,json=baseAccessOps,proto3" json:"base_access_ops,omitempty"`
+	QueryAccessOps            []*WasmAccessOperations   `protobuf:"bytes,2,rep,name=query_access_ops,json=queryAccessOps,proto3" json:"query_access_ops,omitempty"`
+	ExecuteAccessOps          []*WasmAccessOperations   `protobuf:"bytes,3,rep,name=execute_access_ops,json=executeAccessOps,proto3" json:"execute_access_ops,omitempty"`
+	BaseContractReferences    []*WasmContractReference  `protobuf:"bytes,4,rep,name=base_contract_references,json=baseContractReferences,proto3" json:"base_contract_references,omitempty"`
+	QueryContractReferences   []*WasmContractReferences `protobuf:"bytes,5,rep,name=query_contract_references,json=queryContractReferences,proto3" json:"query_contract_references,omitempty"`
+	ExecuteContractReferences []*WasmContractReferences `protobuf:"bytes,6,rep,name=execute_contract_references,json=executeContractReferences,proto3" json:"execute_contract_references,omitempty"`
+	ResetReason               string                    `protobuf:"bytes,7,opt,name=reset_reason,json=resetReason,proto3" json:"reset_reason,omitempty"`
+	ContractAddress           string                    `protobuf:"bytes,8,opt,name=contract_address,json=contractAddress,proto3" json:"contract_address,omitempty"`
 }
 
 func (m *WasmDependencyMapping) Reset()         { *m = WasmDependencyMapping{} }
 func (m *WasmDependencyMapping) String() string { return proto.CompactTextString(m) }
 func (*WasmDependencyMapping) ProtoMessage()    {}
 func (*WasmDependencyMapping) Descriptor() ([]byte, []int) {
-	return fileDescriptor_d636a082612ba091, []int{4}
+	return fileDescriptor_d636a082612ba091, []int{6}
 }
 func (m *WasmDependencyMapping) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
@@ -317,6 +432,27 @@ func (m *WasmDependencyMapping) GetExecuteAccessOps() []*WasmAccessOperations {
 	return nil
 }
 
+func (m *WasmDependencyMapping) GetBaseContractReferences() []*WasmContractReference {
+	if m != nil {
+		return m.BaseContractReferences
+	}
+	return nil
+}
+
+func (m *WasmDependencyMapping) GetQueryContractReferences() []*WasmContractReferences {
+	if m != nil {
+		return m.QueryContractReferences
+	}
+	return nil
+}
+
+func (m *WasmDependencyMapping) GetExecuteContractReferences() []*WasmContractReferences {
+	if m != nil {
+		return m.ExecuteContractReferences
+	}
+	return nil
+}
+
 func (m *WasmDependencyMapping) GetResetReason() string {
 	if m != nil {
 		return m.ResetReason
@@ -334,6 +470,8 @@ func (m *WasmDependencyMapping) GetContractAddress() string {
 func init() {
 	proto.RegisterType((*AccessOperation)(nil), "cosmos.accesscontrol.v1beta1.AccessOperation")
 	proto.RegisterType((*WasmAccessOperation)(nil), "cosmos.accesscontrol.v1beta1.WasmAccessOperation")
+	proto.RegisterType((*WasmContractReference)(nil), "cosmos.accesscontrol.v1beta1.WasmContractReference")
+	proto.RegisterType((*WasmContractReferences)(nil), "cosmos.accesscontrol.v1beta1.WasmContractReferences")
 	proto.RegisterType((*WasmAccessOperations)(nil), "cosmos.accesscontrol.v1beta1.WasmAccessOperations")
 	proto.RegisterType((*MessageDependencyMapping)(nil), "cosmos.accesscontrol.v1beta1.MessageDependencyMapping")
 	proto.RegisterType((*WasmDependencyMapping)(nil), "cosmos.accesscontrol.v1beta1.WasmDependencyMapping")
@@ -344,44 +482,52 @@ func init() {
 }
 
 var fileDescriptor_d636a082612ba091 = []byte{
-	// 581 bytes of a gzipped FileDescriptorProto
-	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0x9c, 0x94, 0xcd, 0x6e, 0xd3, 0x40,
-	0x14, 0x85, 0xe3, 0xa6, 0xa0, 0xe6, 0xa6, 0x4d, 0xaa, 0x69, 0x91, 0xac, 0x0a, 0xb9, 0x6d, 0x84,
-	0x44, 0x40, 0x6a, 0x42, 0xc3, 0x8a, 0x65, 0x2b, 0x58, 0x40, 0x55, 0x2a, 0x99, 0x4a, 0x88, 0x0a,
-	0x61, 0x26, 0xe3, 0x4b, 0xb0, 0x1a, 0xcf, 0x18, 0xcf, 0x04, 0xf0, 0x8e, 0x47, 0x60, 0xc3, 0xbb,
-	0xf0, 0x08, 0x5d, 0x76, 0xc9, 0xaa, 0x42, 0xc9, 0x8b, 0x20, 0xcf, 0x4c, 0xfe, 0xda, 0x28, 0x22,
-	0x5d, 0xd9, 0xf7, 0xcc, 0x9d, 0xef, 0x9e, 0xe3, 0x9f, 0x81, 0x3a, 0x13, 0x32, 0x16, 0xb2, 0x49,
-	0x19, 0x43, 0x29, 0x99, 0xe0, 0x2a, 0x15, 0xdd, 0xe9, 0xaa, 0x91, 0xa4, 0x42, 0x09, 0x72, 0xdf,
-	0x74, 0x36, 0xa6, 0xd7, 0xbe, 0xee, 0xb7, 0x51, 0xd1, 0xfd, 0xad, 0xcd, 0x8e, 0xe8, 0x08, 0xdd,
-	0xd8, 0xcc, 0xef, 0xcc, 0x9e, 0xad, 0x07, 0x33, 0xe9, 0x4c, 0x70, 0xa9, 0x28, 0x57, 0xd2, 0x74,
-	0xd5, 0xae, 0x1c, 0xa8, 0x1e, 0xe8, 0x8e, 0x93, 0x04, 0x53, 0xaa, 0x22, 0xc1, 0xc9, 0x4b, 0x28,
-	0x9b, 0x4d, 0x81, 0xca, 0x12, 0x74, 0x9d, 0x1d, 0xa7, 0x5e, 0x69, 0xd5, 0x1b, 0xf3, 0x3c, 0x34,
-	0x0c, 0xe3, 0x34, 0x4b, 0xd0, 0x07, 0x3a, 0xba, 0x27, 0x27, 0xb0, 0x96, 0xa2, 0x14, 0xbd, 0x94,
-	0xa1, 0x81, 0x2d, 0x69, 0xd8, 0xe3, 0xf9, 0x30, 0xdf, 0x6e, 0xd1, 0xb8, 0xd5, 0x74, 0xa2, 0x22,
-	0x4d, 0xd8, 0x88, 0x42, 0xe4, 0x2a, 0xfa, 0x14, 0x61, 0x1a, 0x28, 0x8c, 0x93, 0x2e, 0x55, 0xe8,
-	0x16, 0x77, 0x9c, 0x7a, 0xc9, 0x27, 0xe3, 0xa5, 0x53, 0xbb, 0x92, 0x07, 0xdc, 0x78, 0x4b, 0x65,
-	0x7c, 0x3d, 0xe4, 0x11, 0x94, 0xc4, 0xb0, 0xd0, 0x11, 0xcb, 0xad, 0xbd, 0xff, 0x89, 0x38, 0x22,
-	0xf8, 0xe3, 0xfd, 0xe4, 0x03, 0xac, 0x49, 0xec, 0x22, 0x53, 0x22, 0x9d, 0x8c, 0xf9, 0x6c, 0x21,
-	0xe0, 0x1b, 0x4b, 0x30, 0xa9, 0xe5, 0x44, 0x45, 0xb6, 0x60, 0x65, 0x58, 0xdb, 0xa8, 0xa3, 0xba,
-	0xf6, 0xcb, 0x81, 0xcd, 0x19, 0x01, 0x25, 0xd9, 0x85, 0xd5, 0x18, 0xa5, 0xa4, 0x1d, 0x0c, 0x38,
-	0x8d, 0xcd, 0x7b, 0x2c, 0xf9, 0x65, 0xab, 0xbd, 0xa6, 0x31, 0x92, 0x33, 0xa8, 0x7e, 0xa3, 0x32,
-	0x0e, 0x46, 0x49, 0xa4, 0xbb, 0xb4, 0x53, 0xac, 0x97, 0x5b, 0xfb, 0xf3, 0x9d, 0xcf, 0x98, 0xe7,
-	0x57, 0x72, 0xd2, 0x78, 0x7c, 0xed, 0xb7, 0x03, 0xee, 0xb1, 0x99, 0xf5, 0x1c, 0x13, 0xe4, 0x21,
-	0x72, 0x96, 0x1d, 0xd3, 0x24, 0x89, 0x78, 0x87, 0x6c, 0xc3, 0xd0, 0x47, 0x70, 0x8e, 0x99, 0xb5,
-	0x06, 0x56, 0x3a, 0xc2, 0x8c, 0xf8, 0x60, 0x3f, 0xa3, 0x40, 0x24, 0x43, 0x53, 0x8b, 0xbd, 0x9f,
-	0xc3, 0xe5, 0x8b, 0xab, 0xed, 0x82, 0x5f, 0xa2, 0x56, 0x96, 0xe4, 0x21, 0x54, 0xc3, 0x8c, 0xd3,
-	0x38, 0x62, 0x01, 0x72, 0xda, 0xee, 0x62, 0xa8, 0x1f, 0xe6, 0x8a, 0x5f, 0xb1, 0xf2, 0x0b, 0xa3,
-	0xd6, 0x7e, 0x14, 0xe1, 0x5e, 0x1e, 0xf1, 0xa6, 0xef, 0x77, 0x50, 0x6d, 0x53, 0x89, 0xc1, 0x84,
-	0x37, 0xe7, 0xb6, 0x0f, 0x6c, 0x2d, 0x27, 0x1d, 0x8c, 0xdc, 0xbd, 0x87, 0xf5, 0x2f, 0x3d, 0x4c,
-	0xb3, 0xe0, 0x46, 0xee, 0xd6, 0xc2, 0x6c, 0xe9, 0x57, 0x34, 0x6b, 0x4c, 0xff, 0x08, 0x04, 0xbf,
-	0x23, 0xeb, 0xa9, 0x29, 0xef, 0xc5, 0x5b, 0xf3, 0xd7, 0x2d, 0x6d, 0x3c, 0x61, 0x17, 0xf2, 0x3f,
-	0x15, 0x55, 0x90, 0x22, 0x95, 0x82, 0xbb, 0xcb, 0xe6, 0x73, 0xd3, 0x9a, 0xaf, 0x25, 0xf2, 0x08,
-	0xd6, 0x35, 0x9c, 0x32, 0x15, 0xd0, 0x30, 0x4c, 0x51, 0x4a, 0xf7, 0x8e, 0x6e, 0xab, 0x0e, 0xf5,
-	0x03, 0x23, 0x1f, 0xbe, 0xba, 0xe8, 0x7b, 0xce, 0x65, 0xdf, 0x73, 0xfe, 0xf6, 0x3d, 0xe7, 0xe7,
-	0xc0, 0x2b, 0x5c, 0x0e, 0xbc, 0xc2, 0x9f, 0x81, 0x57, 0x38, 0x7b, 0xd2, 0x89, 0xd4, 0xe7, 0x5e,
-	0xbb, 0xc1, 0x44, 0xdc, 0xb4, 0x47, 0x9c, 0xb9, 0xec, 0xc9, 0xf0, 0xbc, 0x99, 0xff, 0x7d, 0xd7,
-	0xce, 0xbc, 0xf6, 0x5d, 0x7d, 0xd4, 0x3d, 0xfd, 0x17, 0x00, 0x00, 0xff, 0xff, 0x34, 0xad, 0xfd,
-	0x0b, 0x70, 0x05, 0x00, 0x00,
+	// 710 bytes of a gzipped FileDescriptorProto
+	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0xa4, 0x95, 0xcd, 0x6e, 0x13, 0x3b,
+	0x14, 0xc7, 0x33, 0xfd, 0xba, 0x8d, 0xd3, 0x26, 0x95, 0xdb, 0xdb, 0x9b, 0xf6, 0xa2, 0xb4, 0x44,
+	0x48, 0x04, 0xa4, 0x26, 0x6d, 0xca, 0x86, 0x65, 0x0b, 0x2c, 0xa0, 0x2a, 0x95, 0xdc, 0x4a, 0x88,
+	0x0a, 0x31, 0x38, 0x9e, 0xd3, 0x30, 0x6a, 0x66, 0x3c, 0x8c, 0x1d, 0x60, 0xde, 0x82, 0x0d, 0x0f,
+	0xc0, 0x5b, 0x20, 0x9e, 0xa0, 0xcb, 0xee, 0x60, 0x55, 0xa1, 0xf6, 0x45, 0xd0, 0xd8, 0x9e, 0x49,
+	0xd2, 0x8c, 0xfa, 0x11, 0x56, 0x33, 0xe7, 0xd8, 0xe7, 0x77, 0xfe, 0xc7, 0x3e, 0xb6, 0x51, 0x8d,
+	0x71, 0xe1, 0x71, 0xd1, 0xa0, 0x8c, 0x81, 0x10, 0x8c, 0xfb, 0x32, 0xe4, 0x9d, 0x41, 0xab, 0x1e,
+	0x84, 0x5c, 0x72, 0x7c, 0x47, 0xcf, 0xac, 0x0f, 0x8e, 0x7d, 0xdc, 0x68, 0x81, 0xa4, 0x1b, 0xcb,
+	0x0b, 0x6d, 0xde, 0xe6, 0x6a, 0x62, 0x23, 0xfe, 0xd3, 0x31, 0xcb, 0xf7, 0x32, 0xe9, 0x8c, 0xfb,
+	0x42, 0x52, 0x5f, 0x0a, 0x3d, 0xab, 0x7a, 0x66, 0xa1, 0xd2, 0x96, 0x9a, 0xb1, 0x17, 0x40, 0x48,
+	0xa5, 0xcb, 0x7d, 0xfc, 0x1c, 0x15, 0x74, 0x90, 0x2d, 0xa3, 0x00, 0xca, 0xd6, 0xaa, 0x55, 0x2b,
+	0x36, 0x6b, 0xf5, 0xab, 0x34, 0xd4, 0x35, 0xe3, 0x20, 0x0a, 0x80, 0x20, 0x9a, 0xfe, 0xe3, 0x3d,
+	0x34, 0x1b, 0x82, 0xe0, 0xdd, 0x90, 0x81, 0x86, 0x8d, 0x29, 0xd8, 0xc3, 0xab, 0x61, 0xc4, 0x84,
+	0x28, 0xdc, 0x4c, 0xd8, 0x67, 0xe1, 0x06, 0x9a, 0x77, 0x1d, 0xf0, 0xa5, 0x7b, 0xe4, 0x42, 0x68,
+	0x4b, 0xf0, 0x82, 0x0e, 0x95, 0x50, 0x1e, 0x5f, 0xb5, 0x6a, 0x79, 0x82, 0x7b, 0x43, 0x07, 0x66,
+	0x24, 0x2e, 0x70, 0xfe, 0x15, 0x15, 0xde, 0xe5, 0x22, 0x77, 0x50, 0x9e, 0x27, 0x86, 0x2a, 0xb1,
+	0xd0, 0x5c, 0xbb, 0x49, 0x89, 0x29, 0x81, 0xf4, 0xe2, 0xf1, 0x5b, 0x34, 0x2b, 0xa0, 0x03, 0x4c,
+	0xf2, 0xb0, 0xbf, 0xcc, 0xc7, 0xb7, 0x02, 0xee, 0x1b, 0x82, 0xae, 0x5a, 0xf4, 0x59, 0x78, 0x19,
+	0x4d, 0x27, 0xb6, 0x29, 0x35, 0xb5, 0xab, 0x3f, 0x2c, 0xf4, 0x6f, 0x5c, 0xe0, 0x93, 0x98, 0x4e,
+	0x99, 0x24, 0x70, 0x04, 0x21, 0xf8, 0x0c, 0xf0, 0x03, 0x34, 0xc7, 0x8c, 0xd3, 0xa6, 0x8e, 0x13,
+	0x82, 0x10, 0xaa, 0xd2, 0x3c, 0x29, 0x25, 0xfe, 0x2d, 0xed, 0xc6, 0xfb, 0x68, 0xc6, 0x03, 0x21,
+	0x68, 0x7b, 0x60, 0x9b, 0xd6, 0xaf, 0xd6, 0x1f, 0x67, 0xdd, 0xd5, 0x51, 0xfb, 0xdd, 0x56, 0x1c,
+	0x47, 0x0a, 0x86, 0xa2, 0x54, 0xdf, 0xed, 0x41, 0x7d, 0xea, 0x25, 0x9b, 0x94, 0x4c, 0x79, 0x49,
+	0x3d, 0xa8, 0x7e, 0xb3, 0xd0, 0x62, 0xa6, 0x78, 0x31, 0x14, 0x6d, 0x0d, 0x45, 0x63, 0x07, 0xcd,
+	0xa7, 0x05, 0x86, 0x69, 0x64, 0x79, 0x6c, 0x75, 0xbc, 0x56, 0x68, 0x6e, 0x5e, 0x2f, 0x7e, 0x28,
+	0x2b, 0xc1, 0x6c, 0x48, 0x48, 0xf5, 0xab, 0x85, 0x16, 0x32, 0x3a, 0xe8, 0x46, 0x0a, 0x0f, 0x51,
+	0xe9, 0x13, 0x15, 0x9e, 0x9d, 0xb6, 0x4a, 0xa2, 0x6e, 0xe3, 0x7a, 0x75, 0x97, 0xfb, 0xad, 0x18,
+	0x93, 0x7a, 0xe9, 0xab, 0xdf, 0x2d, 0x54, 0x36, 0xcb, 0xff, 0x14, 0x02, 0xf0, 0x1d, 0xf0, 0x59,
+	0xb4, 0x4b, 0x83, 0xc0, 0xf5, 0xdb, 0x78, 0x05, 0x25, 0x3a, 0xec, 0x63, 0x88, 0x8c, 0x34, 0x64,
+	0x5c, 0x3b, 0x10, 0x61, 0x82, 0xcc, 0x39, 0xb5, 0x79, 0x90, 0x88, 0xba, 0xdd, 0x01, 0xd8, 0x9e,
+	0x38, 0x39, 0x5b, 0xc9, 0x91, 0x3c, 0x35, 0x6e, 0x81, 0xef, 0xa3, 0x92, 0x13, 0xf9, 0xd4, 0x73,
+	0x99, 0x0d, 0x3e, 0x6d, 0x75, 0xc0, 0x51, 0x7b, 0x3e, 0x4d, 0x8a, 0xc6, 0xfd, 0x4c, 0x7b, 0xab,
+	0x3f, 0x27, 0x75, 0xcf, 0x0e, 0xeb, 0x7e, 0x8d, 0x4a, 0x2d, 0x2a, 0xc0, 0xee, 0xd3, 0x66, 0x8d,
+	0xba, 0x60, 0xb3, 0x31, 0x69, 0x2b, 0x55, 0xf7, 0x06, 0xcd, 0x7d, 0xe8, 0x42, 0x18, 0xd9, 0x43,
+	0x75, 0x37, 0x6f, 0xcd, 0x16, 0xa4, 0xa8, 0x58, 0x3d, 0xfa, 0x3b, 0x84, 0xe1, 0x33, 0xb0, 0xae,
+	0x1c, 0xd0, 0x3e, 0x3e, 0x32, 0x7f, 0xce, 0xd0, 0x7a, 0x19, 0x3c, 0x54, 0x56, 0x4b, 0x93, 0xd5,
+	0xf2, 0x13, 0xa3, 0xb7, 0xfc, 0x62, 0x0c, 0xcd, 0x38, 0x7f, 0x01, 0x5a, 0xd2, 0xcb, 0x95, 0x95,
+	0x6f, 0x52, 0xe5, 0x7b, 0x34, 0x42, 0x3e, 0x41, 0xfe, 0x53, 0xd8, 0x8c, 0x8c, 0x12, 0xfd, 0x9f,
+	0x2c, 0x61, 0x56, 0xce, 0xa9, 0xbf, 0xc8, 0xb9, 0x64, 0xc0, 0xd9, 0xf7, 0x4c, 0x08, 0x02, 0xe2,
+	0x54, 0x54, 0x70, 0xbf, 0xfc, 0x8f, 0x3e, 0xc5, 0xca, 0x47, 0x94, 0x2b, 0xf3, 0x22, 0x9d, 0xce,
+	0xbc, 0x48, 0xb7, 0x5f, 0x9c, 0x9c, 0x57, 0xac, 0xd3, 0xf3, 0x8a, 0xf5, 0xfb, 0xbc, 0x62, 0x7d,
+	0xb9, 0xa8, 0xe4, 0x4e, 0x2f, 0x2a, 0xb9, 0x5f, 0x17, 0x95, 0xdc, 0xe1, 0x7a, 0xdb, 0x95, 0xef,
+	0xbb, 0xad, 0x3a, 0xe3, 0x5e, 0xc3, 0x3c, 0xcd, 0xfa, 0xb3, 0x26, 0x9c, 0xe3, 0x46, 0x7c, 0x7b,
+	0x5e, 0x7a, 0xab, 0x5b, 0x53, 0xea, 0x89, 0xde, 0xfc, 0x13, 0x00, 0x00, 0xff, 0xff, 0x0f, 0x4b,
+	0x03, 0x63, 0x28, 0x08, 0x00, 0x00,
 }
 
 func (m *AccessOperation) Marshal() (dAtA []byte, err error) {
@@ -465,6 +611,92 @@ func (m *WasmAccessOperation) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 			i -= size
 			i = encodeVarintAccesscontrol(dAtA, i, uint64(size))
 		}
+		i--
+		dAtA[i] = 0xa
+	}
+	return len(dAtA) - i, nil
+}
+
+func (m *WasmContractReference) Marshal() (dAtA []byte, err error) {
+	size := m.Size()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalToSizedBuffer(dAtA[:size])
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *WasmContractReference) MarshalTo(dAtA []byte) (int, error) {
+	size := m.Size()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *WasmContractReference) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
+	_ = i
+	var l int
+	_ = l
+	if len(m.MessageName) > 0 {
+		i -= len(m.MessageName)
+		copy(dAtA[i:], m.MessageName)
+		i = encodeVarintAccesscontrol(dAtA, i, uint64(len(m.MessageName)))
+		i--
+		dAtA[i] = 0x1a
+	}
+	if m.MessageType != 0 {
+		i = encodeVarintAccesscontrol(dAtA, i, uint64(m.MessageType))
+		i--
+		dAtA[i] = 0x10
+	}
+	if len(m.ContractAddress) > 0 {
+		i -= len(m.ContractAddress)
+		copy(dAtA[i:], m.ContractAddress)
+		i = encodeVarintAccesscontrol(dAtA, i, uint64(len(m.ContractAddress)))
+		i--
+		dAtA[i] = 0xa
+	}
+	return len(dAtA) - i, nil
+}
+
+func (m *WasmContractReferences) Marshal() (dAtA []byte, err error) {
+	size := m.Size()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalToSizedBuffer(dAtA[:size])
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *WasmContractReferences) MarshalTo(dAtA []byte) (int, error) {
+	size := m.Size()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *WasmContractReferences) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
+	_ = i
+	var l int
+	_ = l
+	if len(m.ContractReferences) > 0 {
+		for iNdEx := len(m.ContractReferences) - 1; iNdEx >= 0; iNdEx-- {
+			{
+				size, err := m.ContractReferences[iNdEx].MarshalToSizedBuffer(dAtA[:i])
+				if err != nil {
+					return 0, err
+				}
+				i -= size
+				i = encodeVarintAccesscontrol(dAtA, i, uint64(size))
+			}
+			i--
+			dAtA[i] = 0x12
+		}
+	}
+	if len(m.MessageName) > 0 {
+		i -= len(m.MessageName)
+		copy(dAtA[i:], m.MessageName)
+		i = encodeVarintAccesscontrol(dAtA, i, uint64(len(m.MessageName)))
 		i--
 		dAtA[i] = 0xa
 	}
@@ -594,14 +826,56 @@ func (m *WasmDependencyMapping) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 		copy(dAtA[i:], m.ContractAddress)
 		i = encodeVarintAccesscontrol(dAtA, i, uint64(len(m.ContractAddress)))
 		i--
-		dAtA[i] = 0x2a
+		dAtA[i] = 0x42
 	}
 	if len(m.ResetReason) > 0 {
 		i -= len(m.ResetReason)
 		copy(dAtA[i:], m.ResetReason)
 		i = encodeVarintAccesscontrol(dAtA, i, uint64(len(m.ResetReason)))
 		i--
-		dAtA[i] = 0x22
+		dAtA[i] = 0x3a
+	}
+	if len(m.ExecuteContractReferences) > 0 {
+		for iNdEx := len(m.ExecuteContractReferences) - 1; iNdEx >= 0; iNdEx-- {
+			{
+				size, err := m.ExecuteContractReferences[iNdEx].MarshalToSizedBuffer(dAtA[:i])
+				if err != nil {
+					return 0, err
+				}
+				i -= size
+				i = encodeVarintAccesscontrol(dAtA, i, uint64(size))
+			}
+			i--
+			dAtA[i] = 0x32
+		}
+	}
+	if len(m.QueryContractReferences) > 0 {
+		for iNdEx := len(m.QueryContractReferences) - 1; iNdEx >= 0; iNdEx-- {
+			{
+				size, err := m.QueryContractReferences[iNdEx].MarshalToSizedBuffer(dAtA[:i])
+				if err != nil {
+					return 0, err
+				}
+				i -= size
+				i = encodeVarintAccesscontrol(dAtA, i, uint64(size))
+			}
+			i--
+			dAtA[i] = 0x2a
+		}
+	}
+	if len(m.BaseContractReferences) > 0 {
+		for iNdEx := len(m.BaseContractReferences) - 1; iNdEx >= 0; iNdEx-- {
+			{
+				size, err := m.BaseContractReferences[iNdEx].MarshalToSizedBuffer(dAtA[:i])
+				if err != nil {
+					return 0, err
+				}
+				i -= size
+				i = encodeVarintAccesscontrol(dAtA, i, uint64(size))
+			}
+			i--
+			dAtA[i] = 0x22
+		}
 	}
 	if len(m.ExecuteAccessOps) > 0 {
 		for iNdEx := len(m.ExecuteAccessOps) - 1; iNdEx >= 0; iNdEx-- {
@@ -698,6 +972,45 @@ func (m *WasmAccessOperation) Size() (n int) {
 	return n
 }
 
+func (m *WasmContractReference) Size() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	l = len(m.ContractAddress)
+	if l > 0 {
+		n += 1 + l + sovAccesscontrol(uint64(l))
+	}
+	if m.MessageType != 0 {
+		n += 1 + sovAccesscontrol(uint64(m.MessageType))
+	}
+	l = len(m.MessageName)
+	if l > 0 {
+		n += 1 + l + sovAccesscontrol(uint64(l))
+	}
+	return n
+}
+
+func (m *WasmContractReferences) Size() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	l = len(m.MessageName)
+	if l > 0 {
+		n += 1 + l + sovAccesscontrol(uint64(l))
+	}
+	if len(m.ContractReferences) > 0 {
+		for _, e := range m.ContractReferences {
+			l = e.Size()
+			n += 1 + l + sovAccesscontrol(uint64(l))
+		}
+	}
+	return n
+}
+
 func (m *WasmAccessOperations) Size() (n int) {
 	if m == nil {
 		return 0
@@ -759,6 +1072,24 @@ func (m *WasmDependencyMapping) Size() (n int) {
 	}
 	if len(m.ExecuteAccessOps) > 0 {
 		for _, e := range m.ExecuteAccessOps {
+			l = e.Size()
+			n += 1 + l + sovAccesscontrol(uint64(l))
+		}
+	}
+	if len(m.BaseContractReferences) > 0 {
+		for _, e := range m.BaseContractReferences {
+			l = e.Size()
+			n += 1 + l + sovAccesscontrol(uint64(l))
+		}
+	}
+	if len(m.QueryContractReferences) > 0 {
+		for _, e := range m.QueryContractReferences {
+			l = e.Size()
+			n += 1 + l + sovAccesscontrol(uint64(l))
+		}
+	}
+	if len(m.ExecuteContractReferences) > 0 {
+		for _, e := range m.ExecuteContractReferences {
 			l = e.Size()
 			n += 1 + l + sovAccesscontrol(uint64(l))
 		}
@@ -1015,6 +1346,255 @@ func (m *WasmAccessOperation) Unmarshal(dAtA []byte) error {
 				return io.ErrUnexpectedEOF
 			}
 			m.Selector = string(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
+		default:
+			iNdEx = preIndex
+			skippy, err := skipAccesscontrol(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
+				return ErrInvalidLengthAccesscontrol
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+func (m *WasmContractReference) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return ErrIntOverflowAccesscontrol
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= uint64(b&0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: WasmContractReference: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: WasmContractReference: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 1:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field ContractAddress", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowAccesscontrol
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLengthAccesscontrol
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return ErrInvalidLengthAccesscontrol
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.ContractAddress = string(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
+		case 2:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field MessageType", wireType)
+			}
+			m.MessageType = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowAccesscontrol
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.MessageType |= WasmMessageSubtype(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		case 3:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field MessageName", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowAccesscontrol
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLengthAccesscontrol
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return ErrInvalidLengthAccesscontrol
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.MessageName = string(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
+		default:
+			iNdEx = preIndex
+			skippy, err := skipAccesscontrol(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
+				return ErrInvalidLengthAccesscontrol
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+func (m *WasmContractReferences) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return ErrIntOverflowAccesscontrol
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= uint64(b&0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: WasmContractReferences: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: WasmContractReferences: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 1:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field MessageName", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowAccesscontrol
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLengthAccesscontrol
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return ErrInvalidLengthAccesscontrol
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.MessageName = string(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
+		case 2:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field ContractReferences", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowAccesscontrol
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthAccesscontrol
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthAccesscontrol
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.ContractReferences = append(m.ContractReferences, &WasmContractReference{})
+			if err := m.ContractReferences[len(m.ContractReferences)-1].Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
 			iNdEx = postIndex
 		default:
 			iNdEx = preIndex
@@ -1422,6 +2002,108 @@ func (m *WasmDependencyMapping) Unmarshal(dAtA []byte) error {
 			iNdEx = postIndex
 		case 4:
 			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field BaseContractReferences", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowAccesscontrol
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthAccesscontrol
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthAccesscontrol
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.BaseContractReferences = append(m.BaseContractReferences, &WasmContractReference{})
+			if err := m.BaseContractReferences[len(m.BaseContractReferences)-1].Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		case 5:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field QueryContractReferences", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowAccesscontrol
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthAccesscontrol
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthAccesscontrol
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.QueryContractReferences = append(m.QueryContractReferences, &WasmContractReferences{})
+			if err := m.QueryContractReferences[len(m.QueryContractReferences)-1].Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		case 6:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field ExecuteContractReferences", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowAccesscontrol
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthAccesscontrol
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthAccesscontrol
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.ExecuteContractReferences = append(m.ExecuteContractReferences, &WasmContractReferences{})
+			if err := m.ExecuteContractReferences[len(m.ExecuteContractReferences)-1].Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		case 7:
+			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field ResetReason", wireType)
 			}
 			var stringLen uint64
@@ -1452,7 +2134,7 @@ func (m *WasmDependencyMapping) Unmarshal(dAtA []byte) error {
 			}
 			m.ResetReason = string(dAtA[iNdEx:postIndex])
 			iNdEx = postIndex
-		case 5:
+		case 8:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field ContractAddress", wireType)
 			}

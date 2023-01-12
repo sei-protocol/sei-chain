@@ -18,6 +18,18 @@ message WasmAccessOperation {
     string selector = 3;
 }
 
+message WasmContractReference {
+    string contract_address = 1;
+    WasmMessageSubtype message_type = 2;
+    string message_name = 3;
+    // TODO: add wasm message adapter format here
+}
+
+message WasmContractReferences {
+    string message_name = 1;
+    repeated WasmContractReference contract_references = 2;
+}
+
 message WasmAccessOperations {
     string message_name = 1;
     repeated WasmAccessOperation wasm_operations = 2;
@@ -35,6 +47,9 @@ message WasmDependencyMapping {
     repeated WasmAccessOperation base_access_ops = 1;
     repeated WasmAccessOperations query_access_ops = 2;
     repeated WasmAccessOperations execute_access_ops = 3;
-    string reset_reason = 4;
-    string contract_address = 5;
+    repeated WasmContractReference base_contract_references = 4;
+    repeated WasmContractReferences query_contract_references = 5;
+    repeated WasmContractReferences execute_contract_references = 6;
+    string reset_reason = 7;
+    string contract_address = 8;
 }

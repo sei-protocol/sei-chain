@@ -12,7 +12,9 @@ var (
 	ErrNoCommitAccessOp                  = fmt.Errorf("MessageDependencyMapping doesn't terminate with AccessType_COMMIT")
 	ErrEmptyIdentifierString             = fmt.Errorf("IdentifierTemplate cannot be an empty string")
 	ErrNonLeafResourceTypeWithIdentifier = fmt.Errorf("IdentifierTemplate must be '*' for non leaf resource types")
-	ErrDuplicateWasmMethodName           = fmt.Errorf("A method name is defined multiple times in specific access operation list")
+	ErrDuplicateWasmMethodName           = fmt.Errorf("a method name is defined multiple times in specific access operation list")
+	ErrQueryRefNonQueryMessageType       = fmt.Errorf("query contract references can only have query message types")
+	ErrSelectorDeprecated                = fmt.Errorf("this selector type is deprecated")
 )
 
 type MessageKey string
@@ -132,12 +134,84 @@ func ValidateWasmDependencyMapping(mapping acltypes.WasmDependencyMapping) error
 	if lastAccessOp.Operation.AccessType != acltypes.AccessType_COMMIT {
 		return ErrNoCommitAccessOp
 	}
+
+	// ensure uniqueness for partitioned message names across access ops and contract references
 	seenMessageNames := map[string]struct{}{}
-	for _, ops := range append(mapping.ExecuteAccessOps, mapping.QueryAccessOps...) {
+	for _, ops := range mapping.ExecuteAccessOps {
 		if _, ok := seenMessageNames[ops.MessageName]; ok {
 			return ErrDuplicateWasmMethodName
 		}
 		seenMessageNames[ops.MessageName] = struct{}{}
+	}
+	seenMessageNames = map[string]struct{}{}
+	for _, ops := range mapping.QueryAccessOps {
+		if _, ok := seenMessageNames[ops.MessageName]; ok {
+			return ErrDuplicateWasmMethodName
+		}
+		seenMessageNames[ops.MessageName] = struct{}{}
+	}
+	seenMessageNames = map[string]struct{}{}
+	for _, ops := range mapping.ExecuteContractReferences {
+		if _, ok := seenMessageNames[ops.MessageName]; ok {
+			return ErrDuplicateWasmMethodName
+		}
+		seenMessageNames[ops.MessageName] = struct{}{}
+	}
+	seenMessageNames = map[string]struct{}{}
+	for _, ops := range mapping.QueryContractReferences {
+		if _, ok := seenMessageNames[ops.MessageName]; ok {
+			return ErrDuplicateWasmMethodName
+		}
+		seenMessageNames[ops.MessageName] = struct{}{}
+	}
+
+	// ensure deprecation for CONTRACT_REFERENCE access operation selector due to new contract references
+	for _, accessOp := range mapping.BaseAccessOps {
+		if accessOp.SelectorType == acltypes.AccessOperationSelectorType_CONTRACT_REFERENCE {
+			return ErrSelectorDeprecated
+		}
+	}
+	for _, accessOps := range mapping.ExecuteAccessOps {
+		for _, accessOp := range accessOps.WasmOperations {
+			if accessOp.SelectorType == acltypes.AccessOperationSelectorType_CONTRACT_REFERENCE {
+				return ErrSelectorDeprecated
+			}
+		}
+	}
+	for _, accessOps := range mapping.QueryAccessOps {
+		for _, accessOp := range accessOps.WasmOperations {
+			if accessOp.SelectorType == acltypes.AccessOperationSelectorType_CONTRACT_REFERENCE {
+				return ErrSelectorDeprecated
+			}
+		}
+	}
+
+	// verify contract address valid for contract references
+	for _, contractRef := range mapping.BaseContractReferences {
+		_, err := sdk.AccAddressFromBech32(contractRef.ContractAddress)
+		if err != nil {
+			return err
+		}
+	}
+	for _, msgContractRef := range mapping.ExecuteContractReferences {
+		for _, contractRef := range msgContractRef.ContractReferences {
+			_, err := sdk.AccAddressFromBech32(contractRef.ContractAddress)
+			if err != nil {
+				return err
+			}
+		}
+	}
+	for _, msgContractRef := range mapping.QueryContractReferences {
+		for _, contractRef := range msgContractRef.ContractReferences {
+			_, err := sdk.AccAddressFromBech32(contractRef.ContractAddress)
+			if err != nil {
+				return err
+			}
+			// query contract references CANNOT have execute contract message types
+			if contractRef.MessageType != acltypes.WasmMessageSubtype_QUERY {
+				return ErrQueryRefNonQueryMessageType
+			}
+		}
 	}
 	return nil
 }
