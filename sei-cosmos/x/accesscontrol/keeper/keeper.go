@@ -139,7 +139,7 @@ func (k Keeper) GetRawWasmDependencyMapping(ctx sdk.Context, contractAddress sdk
 	return &dependencyMapping, nil
 }
 
-func (k Keeper) GetWasmDependencyAccessOps(ctx sdk.Context, contractAddress sdk.AccAddress, senderBech string, msgBody []byte, circularDepLookup ContractReferenceLookupMap) ([]acltypes.AccessOperation, error) {
+func (k Keeper) GetWasmDependencyAccessOps(ctx sdk.Context, contractAddress sdk.AccAddress, senderBech string, msgInfo *types.WasmMessageInfo, circularDepLookup ContractReferenceLookupMap) ([]acltypes.AccessOperation, error) {
 	uniqueIdentifier := contractAddress.String()
 	if _, ok := circularDepLookup[uniqueIdentifier]; ok {
 		// we've already seen this contract, we should simply return synchronous access Ops
@@ -156,15 +156,28 @@ func (k Keeper) GetWasmDependencyAccessOps(ctx sdk.Context, contractAddress sdk.
 		return nil, err
 	}
 
-	// TODO: extend base access op with message-specific ops once message type identifier is passed in
-	selectedAccessOps, err := k.BuildSelectorOps(ctx, contractAddress, dependencyMapping.BaseAccessOps, senderBech, msgBody, circularDepLookup)
+	accessOps := dependencyMapping.BaseAccessOps
+	specificAccessOpsMapping := []*acltypes.WasmAccessOperations{}
+	if msgInfo.MessageType == acltypes.WasmMessageSubtype_EXECUTE && len(dependencyMapping.ExecuteAccessOps) > 0 {
+		specificAccessOpsMapping = dependencyMapping.ExecuteAccessOps
+	} else if msgInfo.MessageType == acltypes.WasmMessageSubtype_QUERY && len(dependencyMapping.QueryAccessOps) > 0 {
+		specificAccessOpsMapping = dependencyMapping.QueryAccessOps
+	}
+	for _, specificAccessOps := range specificAccessOpsMapping {
+		if specificAccessOps.MessageName == msgInfo.MessageName {
+			accessOps = append(accessOps, specificAccessOps.WasmOperations...)
+			break
+		}
+	}
+
+	selectedAccessOps, err := k.BuildSelectorOps(ctx, contractAddress, accessOps, senderBech, msgInfo, circularDepLookup)
 	if err != nil {
 		return nil, err
 	}
 	return selectedAccessOps, nil
 }
 
-func (k Keeper) BuildSelectorOps(ctx sdk.Context, contractAddr sdk.AccAddress, accessOps []*acltypes.WasmAccessOperation, senderBech string, msgBody []byte, circularDepLookup ContractReferenceLookupMap) ([]acltypes.AccessOperation, error) {
+func (k Keeper) BuildSelectorOps(ctx sdk.Context, contractAddr sdk.AccAddress, accessOps []*acltypes.WasmAccessOperation, senderBech string, msgInfo *types.WasmMessageInfo, circularDepLookup ContractReferenceLookupMap) ([]acltypes.AccessOperation, error) {
 	selectedAccessOps := types.NewEmptyAccessOperationSet()
 	// when we build selector ops here, we want to generate "*" if the proper fields aren't present
 	// if size of circular dep map > 1 then it means we're in a contract reference
@@ -179,7 +192,7 @@ accessOpLoop:
 			if err != nil {
 				return nil, err
 			}
-			data, err := op.Apply(msgBody)
+			data, err := op.Apply(msgInfo.MessageFullBody)
 			if err != nil {
 				if withinContractReference {
 					opWithSelector.Operation.IdentifierTemplate = "*"
@@ -198,7 +211,7 @@ accessOpLoop:
 			if err != nil {
 				return nil, err
 			}
-			data, err := op.Apply(msgBody)
+			data, err := op.Apply(msgInfo.MessageFullBody)
 			if err != nil {
 				if withinContractReference {
 					opWithSelector.Operation.IdentifierTemplate = "*"
@@ -222,7 +235,7 @@ accessOpLoop:
 			if err != nil {
 				return nil, err
 			}
-			data, err := op.Apply(msgBody)
+			data, err := op.Apply(msgInfo.MessageFullBody)
 			if err != nil {
 				if withinContractReference {
 					opWithSelector.Operation.IdentifierTemplate = "*"
@@ -275,7 +288,7 @@ accessOpLoop:
 			if err != nil {
 				return nil, err
 			}
-			_, err = op.Apply(msgBody)
+			_, err = op.Apply(msgInfo.MessageFullBody)
 			// if we are in a contract reference, we have to assume that this is necessary
 			// TODO: after partitioning changes are merged, the MESSAGE_CONDITIONAL can be deprecated in favor of partitioned deps
 			if err != nil && !withinContractReference {
@@ -297,8 +310,11 @@ accessOpLoop:
 			// TODO: add a circular dependency check here to ignore if we've already seen this contract/identifier in our reference chain
 			// for now, we will just pass in the same message body, this needs to be changed later though
 			// TODO: build new msgbody for the new contract execute / query msg in later milestone tasks
-			emptyJSON := []byte("{}")
-			wasmDeps, err := k.GetWasmDependencyAccessOps(ctx, interContractAddress, contractAddr.String(), emptyJSON, circularDepLookup)
+			emptyJSON := []byte("{\"\":{}}")
+			// TODO: add separate enum for query reference vs execute reference and build msgInfo according to whether
+			//       the reference is a query one or an execute one. For now defaulting to execute.
+			emptyMsgInfo, _ := types.NewExecuteMessageInfo(emptyJSON)
+			wasmDeps, err := k.GetWasmDependencyAccessOps(ctx, interContractAddress, contractAddr.String(), emptyMsgInfo, circularDepLookup)
 
 			if err != nil {
 				// if we have an error fetching the dependency mapping or the mapping is disabled, we want to use the synchronous mappings instead
@@ -313,7 +329,7 @@ accessOpLoop:
 		}
 		selectedAccessOps.Add(*opWithSelector.Operation)
 	}
-	// TODO: add logic to deduplicate access operations that are the same
+
 	return selectedAccessOps.ToSlice(), nil
 }
 

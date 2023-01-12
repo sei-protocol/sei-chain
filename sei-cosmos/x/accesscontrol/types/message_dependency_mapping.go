@@ -12,6 +12,7 @@ var (
 	ErrNoCommitAccessOp                  = fmt.Errorf("MessageDependencyMapping doesn't terminate with AccessType_COMMIT")
 	ErrEmptyIdentifierString             = fmt.Errorf("IdentifierTemplate cannot be an empty string")
 	ErrNonLeafResourceTypeWithIdentifier = fmt.Errorf("IdentifierTemplate must be '*' for non leaf resource types")
+	ErrDuplicateWasmMethodName           = fmt.Errorf("A method name is defined multiple times in specific access operation list")
 )
 
 type MessageKey string
@@ -130,6 +131,13 @@ func ValidateWasmDependencyMapping(mapping acltypes.WasmDependencyMapping) error
 	lastAccessOp := mapping.BaseAccessOps[len(mapping.BaseAccessOps)-1]
 	if lastAccessOp.Operation.AccessType != acltypes.AccessType_COMMIT {
 		return ErrNoCommitAccessOp
+	}
+	seenMessageNames := map[string]struct{}{}
+	for _, ops := range append(mapping.ExecuteAccessOps, mapping.QueryAccessOps...) {
+		if _, ok := seenMessageNames[ops.MessageName]; ok {
+			return ErrDuplicateWasmMethodName
+		}
+		seenMessageNames[ops.MessageName] = struct{}{}
 	}
 	return nil
 }

@@ -122,6 +122,92 @@ func TestWasmDependencyMapping(t *testing.T) {
 	require.Error(t, aclkeeper.ErrWasmDependencyMappingNotFound, err)
 }
 
+func TestWasmDependencyMappingWithExecuteMsgInfo(t *testing.T) {
+	app := simapp.Setup(false)
+	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
+
+	wasmContractAddresses := simapp.AddTestAddrsIncremental(app, ctx, 1, sdk.NewInt(30000000))
+	wasmContractAddress := wasmContractAddresses[0]
+	wasmMapping := acltypes.WasmDependencyMapping{
+		BaseAccessOps: []*acltypes.WasmAccessOperation{
+			{
+				Operation:    types.CommitAccessOp(),
+				SelectorType: acltypes.AccessOperationSelectorType_NONE,
+			},
+		},
+		ExecuteAccessOps: []*acltypes.WasmAccessOperations{
+			{
+				MessageName: "test",
+				WasmOperations: []*acltypes.WasmAccessOperation{
+					{
+						Operation:    &acltypes.AccessOperation{ResourceType: acltypes.ResourceType_KV, AccessType: acltypes.AccessType_WRITE, IdentifierTemplate: "someResource"},
+						SelectorType: acltypes.AccessOperationSelectorType_NONE,
+					},
+				},
+			},
+		},
+		ContractAddress: wasmContractAddress.String(),
+	}
+	// set the dependency mapping
+	err := app.AccessControlKeeper.SetWasmDependencyMapping(ctx, wasmMapping)
+	require.NoError(t, err)
+	// test getting the access operations
+	info, _ := types.NewExecuteMessageInfo(
+		[]byte("{\"test\":{}}"),
+	)
+	ops, err := app.AccessControlKeeper.GetWasmDependencyAccessOps(ctx, wasmContractAddress, "", info, make(aclkeeper.ContractReferenceLookupMap))
+	require.NoError(t, err)
+
+	expectedAccessOps := []acltypes.AccessOperation{
+		{ResourceType: acltypes.ResourceType_KV, AccessType: acltypes.AccessType_WRITE, IdentifierTemplate: "someResource"},
+		*types.CommitAccessOp(),
+	}
+	require.Equal(t, ops, expectedAccessOps)
+}
+
+func TestWasmDependencyMappingWithQueryMsgInfo(t *testing.T) {
+	app := simapp.Setup(false)
+	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
+
+	wasmContractAddresses := simapp.AddTestAddrsIncremental(app, ctx, 1, sdk.NewInt(30000000))
+	wasmContractAddress := wasmContractAddresses[0]
+	wasmMapping := acltypes.WasmDependencyMapping{
+		BaseAccessOps: []*acltypes.WasmAccessOperation{
+			{
+				Operation:    types.CommitAccessOp(),
+				SelectorType: acltypes.AccessOperationSelectorType_NONE,
+			},
+		},
+		QueryAccessOps: []*acltypes.WasmAccessOperations{
+			{
+				MessageName: "test",
+				WasmOperations: []*acltypes.WasmAccessOperation{
+					{
+						Operation:    &acltypes.AccessOperation{ResourceType: acltypes.ResourceType_KV, AccessType: acltypes.AccessType_WRITE, IdentifierTemplate: "someResource"},
+						SelectorType: acltypes.AccessOperationSelectorType_NONE,
+					},
+				},
+			},
+		},
+		ContractAddress: wasmContractAddress.String(),
+	}
+	// set the dependency mapping
+	err := app.AccessControlKeeper.SetWasmDependencyMapping(ctx, wasmMapping)
+	require.NoError(t, err)
+	// test getting the access operations
+	info, _ := types.NewQueryMessageInfo(
+		[]byte("{\"test\":{}}"),
+	)
+	ops, err := app.AccessControlKeeper.GetWasmDependencyAccessOps(ctx, wasmContractAddress, "", info, make(aclkeeper.ContractReferenceLookupMap))
+	require.NoError(t, err)
+
+	expectedAccessOps := []acltypes.AccessOperation{
+		{ResourceType: acltypes.ResourceType_KV, AccessType: acltypes.AccessType_WRITE, IdentifierTemplate: "someResource"},
+		*types.CommitAccessOp(),
+	}
+	require.Equal(t, ops, expectedAccessOps)
+}
+
 func TestResetWasmDependencyMapping(t *testing.T) {
 	app := simapp.Setup(false)
 	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
@@ -206,11 +292,12 @@ func TestWasmDependencyMappingWithJQSelector(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, wasmMapping, *mapping)
 	// test getting a dependency mapping with selector
+	info, _ := types.NewExecuteMessageInfo([]byte("{\"send\":{\"from\":\"bob\",\"amount\":10}}"))
 	deps, err := app.AccessControlKeeper.GetWasmDependencyAccessOps(
 		ctx,
 		wasmContractAddress,
 		"",
-		[]byte("{\"send\":{\"from\":\"bob\",\"amount\":10}}"),
+		info,
 		make(aclkeeper.ContractReferenceLookupMap),
 	)
 	require.NoError(t, err)
@@ -262,11 +349,12 @@ func TestWasmDependencyMappingWithJQBech32Selector(t *testing.T) {
 	require.Equal(t, wasmMapping, *mapping)
 	// test getting a dependency mapping with selector
 	require.NoError(t, err)
+	info, _ := types.NewExecuteMessageInfo([]byte(fmt.Sprintf("{\"send\":{\"address\":\"%s\",\"amount\":10}}", wasmBech32)))
 	deps, err := app.AccessControlKeeper.GetWasmDependencyAccessOps(
 		ctx,
 		wasmContractAddress,
 		"",
-		[]byte(fmt.Sprintf("{\"send\":{\"address\":\"%s\",\"amount\":10}}", wasmBech32)),
+		info,
 		make(aclkeeper.ContractReferenceLookupMap),
 	)
 	require.NoError(t, err)
@@ -317,11 +405,12 @@ func TestWasmDependencyMappingWithJQLengthPrefixedAddressSelector(t *testing.T) 
 	require.Equal(t, wasmMapping, *mapping)
 	// test getting a dependency mapping with selector
 	require.NoError(t, err)
+	info, _ := types.NewExecuteMessageInfo([]byte(fmt.Sprintf("{\"send\":{\"address\":\"%s\",\"amount\":10}}", wasmBech32)))
 	deps, err := app.AccessControlKeeper.GetWasmDependencyAccessOps(
 		ctx,
 		wasmContractAddress,
 		"",
-		[]byte(fmt.Sprintf("{\"send\":{\"address\":\"%s\",\"amount\":10}}", wasmBech32)),
+		info,
 		make(aclkeeper.ContractReferenceLookupMap),
 	)
 	require.NoError(t, err)
@@ -362,11 +451,12 @@ func TestWasmDependencyMappingWithSenderBech32Selector(t *testing.T) {
 	require.Equal(t, wasmMapping, *mapping)
 	// test getting a dependency mapping with selector
 	require.NoError(t, err)
+	info, _ := types.NewExecuteMessageInfo([]byte(fmt.Sprintf("{\"send\":{\"address\":\"%s\",\"amount\":10}}", wasmBech32)))
 	deps, err := app.AccessControlKeeper.GetWasmDependencyAccessOps(
 		ctx,
 		wasmContractAddress,
 		wasmBech32,
-		[]byte(fmt.Sprintf("{\"send\":{\"address\":\"%s\",\"amount\":10}}", wasmBech32)),
+		info,
 		make(aclkeeper.ContractReferenceLookupMap),
 	)
 	require.NoError(t, err)
@@ -407,11 +497,12 @@ func TestWasmDependencyMappingWithSenderLengthPrefixedSelector(t *testing.T) {
 	require.Equal(t, wasmMapping, *mapping)
 	// test getting a dependency mapping with selector
 	require.NoError(t, err)
+	info, _ := types.NewExecuteMessageInfo([]byte(fmt.Sprintf("{\"send\":{\"address\":\"%s\",\"amount\":10}}", wasmBech32)))
 	deps, err := app.AccessControlKeeper.GetWasmDependencyAccessOps(
 		ctx,
 		wasmContractAddress,
 		wasmBech32,
-		[]byte(fmt.Sprintf("{\"send\":{\"address\":\"%s\",\"amount\":10}}", wasmBech32)),
+		info,
 		make(aclkeeper.ContractReferenceLookupMap),
 	)
 	require.NoError(t, err)
@@ -462,11 +553,12 @@ func TestWasmDependencyMappingWithConditionalSelector(t *testing.T) {
 	require.Equal(t, wasmMapping, *mapping)
 	// test getting a dependency mapping with selector
 	require.NoError(t, err)
+	info, _ := types.NewExecuteMessageInfo([]byte(fmt.Sprintf("{\"send\":{\"address\":\"%s\",\"amount\":10}}", wasmBech32)))
 	deps, err := app.AccessControlKeeper.GetWasmDependencyAccessOps(
 		ctx,
 		wasmContractAddress,
 		wasmBech32,
-		[]byte(fmt.Sprintf("{\"send\":{\"address\":\"%s\",\"amount\":10}}", wasmBech32)),
+		info,
 		make(aclkeeper.ContractReferenceLookupMap),
 	)
 	require.NoError(t, err)
@@ -509,11 +601,12 @@ func TestWasmDependencyMappingWithConstantSelector(t *testing.T) {
 	require.Equal(t, wasmMapping, *mapping)
 	// test getting a dependency mapping with selector
 	require.NoError(t, err)
+	info, _ := types.NewExecuteMessageInfo([]byte(fmt.Sprintf("{\"send\":{\"address\":\"%s\",\"amount\":10}}", wasmBech32)))
 	deps, err := app.AccessControlKeeper.GetWasmDependencyAccessOps(
 		ctx,
 		wasmContractAddress,
 		wasmBech32,
-		[]byte(fmt.Sprintf("{\"send\":{\"address\":\"%s\",\"amount\":10}}", wasmBech32)),
+		info,
 		make(aclkeeper.ContractReferenceLookupMap),
 	)
 	require.NoError(t, err)
@@ -601,11 +694,12 @@ func TestWasmDependencyMappingWithContractReferenceSelector(t *testing.T) {
 
 	// test getting a dependency mapping with selector that expands the inter-contract reference into the contract's dependencies
 	require.NoError(t, err)
+	info, _ := types.NewExecuteMessageInfo([]byte(fmt.Sprintf("{\"send\":{\"address\":\"%s\",\"amount\":10}}", thirdAddr.String())))
 	deps, err := app.AccessControlKeeper.GetWasmDependencyAccessOps(
 		ctx,
 		wasmContractAddress,
 		thirdAddr.String(),
-		[]byte(fmt.Sprintf("{\"send\":{\"address\":\"%s\",\"amount\":10}}", thirdAddr.String())),
+		info,
 		make(aclkeeper.ContractReferenceLookupMap),
 	)
 	require.NoError(t, err)
@@ -720,11 +814,12 @@ func TestWasmDependencyMappingWithContractReferenceSelectorMultipleReferences(t 
 
 	// test getting a dependency mapping with selector that expands the inter-contract reference into the contract's dependencies
 	require.NoError(t, err)
+	info, _ := types.NewExecuteMessageInfo([]byte(fmt.Sprintf("{\"send\":{\"address\":\"%s\",\"amount\":10}}", otherAddr.String())))
 	deps, err := app.AccessControlKeeper.GetWasmDependencyAccessOps(
 		ctx,
 		wasmContractAddress,
 		otherAddr.String(),
-		[]byte(fmt.Sprintf("{\"send\":{\"address\":\"%s\",\"amount\":10}}", otherAddr.String())),
+		info,
 		make(aclkeeper.ContractReferenceLookupMap),
 	)
 	require.NoError(t, err)
@@ -848,11 +943,12 @@ func TestWasmDependencyMappingWithContractReferenceSelectorCircularDependency(t 
 
 	// test getting a dependency mapping with selector that expands the inter-contract reference into the contract's dependencies
 	require.NoError(t, err)
+	info, _ := types.NewExecuteMessageInfo([]byte(fmt.Sprintf("{\"send\":{\"address\":\"%s\",\"amount\":10}}", otherAddr.String())))
 	deps, err := app.AccessControlKeeper.GetWasmDependencyAccessOps(
 		ctx,
 		wasmContractAddress,
 		otherAddr.String(),
-		[]byte(fmt.Sprintf("{\"send\":{\"address\":\"%s\",\"amount\":10}}", otherAddr.String())),
+		info,
 		make(aclkeeper.ContractReferenceLookupMap),
 	)
 	require.NoError(t, err)
@@ -915,11 +1011,12 @@ func TestWasmDependencyMappingWithContractReferenceDisabled(t *testing.T) {
 
 	// test getting a dependency mapping with selector that expands the inter-contract reference into the contract's dependencies
 	require.NoError(t, err)
+	info, _ := types.NewExecuteMessageInfo([]byte(fmt.Sprintf("{\"send\":{\"address\":\"%s\",\"amount\":10}}", wasmBech32)))
 	deps, err := app.AccessControlKeeper.GetWasmDependencyAccessOps(
 		ctx,
 		wasmContractAddress,
 		wasmContractAddresses[2].String(),
-		[]byte(fmt.Sprintf("{\"send\":{\"address\":\"%s\",\"amount\":10}}", wasmBech32)),
+		info,
 		make(aclkeeper.ContractReferenceLookupMap),
 	)
 	require.NoError(t, err)
@@ -968,11 +1065,12 @@ func TestWasmDependencyMappingWithContractReferenceDNE(t *testing.T) {
 
 	// test getting a dependency mapping with selector that expands the inter-contract reference into the contract's dependencies
 	require.NoError(t, err)
+	info, _ := types.NewExecuteMessageInfo([]byte(fmt.Sprintf("{\"send\":{\"address\":\"%s\",\"amount\":10}}", wasmBech32)))
 	deps, err := app.AccessControlKeeper.GetWasmDependencyAccessOps(
 		ctx,
 		wasmContractAddress,
 		wasmContractAddresses[2].String(),
-		[]byte(fmt.Sprintf("{\"send\":{\"address\":\"%s\",\"amount\":10}}", wasmBech32)),
+		info,
 		make(aclkeeper.ContractReferenceLookupMap),
 	)
 	require.NoError(t, err)
