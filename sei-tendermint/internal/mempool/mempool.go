@@ -92,12 +92,15 @@ type TxMempool struct {
 	// NodeID to count of transactions failing CheckTx
 	failedCheckTxCounts    map[types.NodeID]uint64
 	mtxFailedCheckTxCounts sync.RWMutex
+
+	peerManager PeerEvictor
 }
 
 func NewTxMempool(
 	logger log.Logger,
 	cfg *config.MempoolConfig,
 	proxyAppConn abciclient.Client,
+	peerManager PeerEvictor,
 	options ...TxMempoolOption,
 ) *TxMempool {
 
@@ -118,6 +121,7 @@ func NewTxMempool(
 			return wtx1.timestamp.After(wtx2.timestamp) || wtx1.timestamp.Equal(wtx2.timestamp)
 		}),
 		failedCheckTxCounts: map[types.NodeID]uint64{},
+		peerManager:         peerManager,
 	}
 
 	if cfg.CacheSize > 0 {
@@ -548,6 +552,10 @@ func (txmp *TxMempool) initTxCallback(wtx *WrappedTx, res *abci.ResponseCheckTx,
 			txmp.mtxFailedCheckTxCounts.Lock()
 			defer txmp.mtxFailedCheckTxCounts.Unlock()
 			txmp.failedCheckTxCounts[txInfo.SenderNodeID]++
+			if txmp.config.CheckTxErrorBlacklistEnabled && txmp.failedCheckTxCounts[txInfo.SenderNodeID] > uint64(txmp.config.CheckTxErrorThreshold) {
+				// evict peer
+				txmp.peerManager.Errored(txInfo.SenderNodeID, errors.New("checkTx error exceeded threshold"))
+			}
 		}
 		return err
 	}

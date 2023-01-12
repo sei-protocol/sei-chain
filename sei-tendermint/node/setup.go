@@ -145,6 +145,7 @@ func createMempoolReactor(
 	store sm.Store,
 	memplMetrics *mempool.Metrics,
 	peerEvents p2p.PeerEventSubscriber,
+	peerManager *p2p.PeerManager,
 ) (*mempool.Reactor, mempool.Mempool) {
 	logger = logger.With("module", "mempool")
 
@@ -152,6 +153,7 @@ func createMempoolReactor(
 		logger,
 		cfg.Mempool,
 		appClient,
+		peerManager,
 		mempool.WithMetrics(memplMetrics),
 		mempool.WithPreCheck(sm.TxPreCheckFromStore(store)),
 		mempool.WithPostCheck(sm.TxPostCheckFromStore(store)),

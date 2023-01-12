@@ -83,7 +83,7 @@ func setup(t testing.TB, app abciclient.Client, cacheSize int, options ...TxMemp
 
 	t.Cleanup(func() { os.RemoveAll(cfg.RootDir) })
 
-	return NewTxMempool(logger.With("test", t.Name()), cfg.Mempool, app, options...)
+	return NewTxMempool(logger.With("test", t.Name()), cfg.Mempool, app, NewTestPeerEvictor(), options...)
 }
 
 func checkTxs(ctx context.Context, t *testing.T, txmp *TxMempool, numTxs int, peerID uint16) []testTx {
@@ -119,6 +119,23 @@ func convertTex(in []testTx) types.Txs {
 	}
 
 	return out
+}
+
+type TestPeerEvictor struct {
+	evicting map[types.NodeID]struct{}
+}
+
+func NewTestPeerEvictor() *TestPeerEvictor {
+	return &TestPeerEvictor{evicting: map[types.NodeID]struct{}{}}
+}
+
+func (e *TestPeerEvictor) IsEvicted(peerID types.NodeID) bool {
+	_, ok := e.evicting[peerID]
+	return ok
+}
+
+func (e *TestPeerEvictor) Errored(peerID types.NodeID, err error) {
+	e.evicting[peerID] = struct{}{}
 }
 
 func TestTxMempool_TxsAvailable(t *testing.T) {
@@ -669,4 +686,11 @@ func TestTxMempool_FailedCheckTxCount(t *testing.T) {
 	// good tx
 	require.NoError(t, txmp.CheckTx(ctx, tx, callback, TxInfo{SenderID: 0, SenderNodeID: "sender"}))
 	require.Equal(t, uint64(2), txmp.GetPeerFailedCheckTxCount("sender"))
+
+	// enable blacklisting
+	txmp.config.CheckTxErrorBlacklistEnabled = true
+	txmp.config.CheckTxErrorThreshold = 0
+	tx = []byte("bad tx")
+	require.NoError(t, txmp.CheckTx(ctx, tx, callback, TxInfo{SenderID: 0, SenderNodeID: "sender"}))
+	require.True(t, txmp.peerManager.(*TestPeerEvictor).IsEvicted("sender"))
 }

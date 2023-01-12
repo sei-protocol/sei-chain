@@ -151,3 +151,7 @@ func PostCheckMaxGas(maxGas int64) PostCheckFunc {
 		return nil
 	}
 }
+
+type PeerEvictor interface {
+	Errored(types.NodeID, error)
+}

@@ -774,6 +774,11 @@ type MempoolConfig struct {
 	// TxNotifyThreshold, if non-zero, defines the minimum number of transactions
 	// needed to trigger a notification in mempool's Tx notifier
 	TxNotifyThreshold int `mapstructure:"tx-notify-threshold"`
+
+	// If a peer has sent more transactions failing CheckTx than this threshold,
+	// blacklist the peer.
+	CheckTxErrorBlacklistEnabled bool `mapstructure:"check-tx-error-blacklist-enabled"`
+	CheckTxErrorThreshold        int  `mapstructure:"check-tx-error-threshold"`
 }
 
 // DefaultMempoolConfig returns a default configuration for the Tendermint mempool.
@@ -782,13 +787,15 @@ func DefaultMempoolConfig() *MempoolConfig {
 		Broadcast: true,
 		// Each signature verification takes .5ms, Size reduced until we implement
 		// ABCI Recheck
-		Size:              5000,
-		MaxTxsBytes:       1024 * 1024 * 1024, // 1GB
-		CacheSize:         10000,
-		MaxTxBytes:        1024 * 1024, // 1MB
-		TTLDuration:       0 * time.Second,
-		TTLNumBlocks:      0,
-		TxNotifyThreshold: 0,
+		Size:                         5000,
+		MaxTxsBytes:                  1024 * 1024 * 1024, // 1GB
+		CacheSize:                    10000,
+		MaxTxBytes:                   1024 * 1024, // 1MB
+		TTLDuration:                  0 * time.Second,
+		TTLNumBlocks:                 0,
+		TxNotifyThreshold:            0,
+		CheckTxErrorBlacklistEnabled: false,
+		CheckTxErrorThreshold:        0,
 	}
 }
 
@@ -822,6 +829,9 @@ func (cfg *MempoolConfig) ValidateBasic() error {
 	}
 	if cfg.TxNotifyThreshold < 0 {
 		return errors.New("tx-notify-threshold can't be negative")
+	}
+	if cfg.CheckTxErrorThreshold < 0 {
+		return errors.New("check-tx-error-threshold can't be negative")
 	}
 
 	return nil
@@ -1032,7 +1042,7 @@ func DefaultConsensusConfig() *ConsensusConfig {
 		PeerQueryMaj23SleepDuration: 2000 * time.Millisecond,
 		DoubleSignCheckHeight:       int64(0),
 		// Sei Configurations
-		GossipTransactionKeyOnly: 	 true,
+		GossipTransactionKeyOnly:          true,
 		UnsafeBypassCommitTimeoutOverride: &UnsafeBypassCommitTimeoutOverride,
 	}
 }

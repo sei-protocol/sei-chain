@@ -472,6 +472,7 @@ func TestReactorWithEvidence(t *testing.T) {
 			log.NewNopLogger().With("module", "mempool"),
 			thisConfig.Mempool,
 			proxyAppConnMem,
+			nil,
 		)
 
 		if thisConfig.Consensus.WaitForTxs() {

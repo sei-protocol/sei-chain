@@ -398,6 +398,10 @@ ttl-num-blocks = {{ .Mempool.TTLNumBlocks }}
 
 tx-notify-threshold = {{ .Mempool.TxNotifyThreshold }}
 
+check-tx-error-blacklist-enabled = {{ .Mempool.CheckTxErrorBlacklistEnabled }}
+
+check-tx-error-threshold = {{ .Mempool.CheckTxErrorThreshold }}
+
 #######################################################
 ###         State Sync Configuration Options        ###
 #######################################################

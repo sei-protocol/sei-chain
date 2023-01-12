@@ -485,6 +485,7 @@ func newStateWithConfigAndBlockStore(
 		logger.With("module", "mempool"),
 		thisConfig.Mempool,
 		proxyAppConnMem,
+		nil,
 	)
 
 	if thisConfig.Consensus.WaitForTxs() {
