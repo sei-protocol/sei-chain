@@ -97,20 +97,20 @@ func TestClearCancellationForPair(t *testing.T) {
 	stateOne.GetBlockCancels(ctx, utils.ContractAddress(TEST_CONTRACT), utils.PairString(TEST_PAIR)).Add(&types.Cancellation{
 		Id:           1,
 		ContractAddr: TEST_CONTRACT,
-		PriceDenom: "USDC",
-		AssetDenom: "ATOM",
+		PriceDenom:   "USDC",
+		AssetDenom:   "ATOM",
 	})
 	stateOne.GetBlockCancels(ctx, utils.ContractAddress(TEST_CONTRACT), utils.PairString(TEST_PAIR)).Add(&types.Cancellation{
 		Id:           2,
 		ContractAddr: TEST_CONTRACT,
-		PriceDenom: "USDC",
-		AssetDenom: "ATOM",
+		PriceDenom:   "USDC",
+		AssetDenom:   "ATOM",
 	})
 	stateOne.GetBlockCancels(ctx, utils.ContractAddress(TEST_CONTRACT), utils.PairString(TEST_PAIR)).Add(&types.Cancellation{
 		Id:           3,
 		ContractAddr: TEST_CONTRACT,
-		PriceDenom: "USDC",
-		AssetDenom: "SEI",
+		PriceDenom:   "USDC",
+		AssetDenom:   "SEI",
 	})
 	stateOne.ClearCancellationForPair(ctx, TEST_CONTRACT, utils.GetPairString(&types.Pair{
 		PriceDenom: "USDC",

@@ -105,7 +105,7 @@ func TestInvalidCancels(t *testing.T) {
 
 	// invalid creator address
 	msg = &types.MsgCancelOrders{
-		Creator: "invalid",
+		Creator:      "invalid",
 		ContractAddr: keepertest.TestContract,
 		Cancellations: []*types.Cancellation{
 			{
