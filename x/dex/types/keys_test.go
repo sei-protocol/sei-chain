@@ -4,14 +4,16 @@ import (
 	"testing"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/cosmos/cosmos-sdk/types/address"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
 	"github.com/stretchr/testify/require"
 )
 
 func TestOrderPrefix(t *testing.T) {
 	testContract := "sei14hj2tavq8fpesdwxxcu44rty3hh90vhujrvcmstl4zr3txmfvw9sh9m79m"
-	address, _ := sdk.AccAddressFromBech32(testContract)
-	expected := append([]byte(types.OrderKey), address.Bytes()...)
+	addr, _ := sdk.AccAddressFromBech32(testContract)
+	addr = address.MustLengthPrefix(addr)
+	expected := append([]byte(types.OrderKey), addr...)
 	require.Equal(t, expected, types.OrderPrefix(testContract))
 }
 

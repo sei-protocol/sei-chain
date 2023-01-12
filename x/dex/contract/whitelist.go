@@ -3,7 +3,6 @@ package contract
 import (
 	wasmtypes "github.com/CosmWasm/wasmd/x/wasm/types"
 	storetypes "github.com/cosmos/cosmos-sdk/store/types"
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/sei-protocol/sei-chain/utils"
 	"github.com/sei-protocol/sei-chain/x/dex/keeper"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
@@ -50,28 +49,25 @@ func GetPerPairWhitelistMap(contractAddr string, pair types.Pair) map[string][]s
 }
 
 func GetDexWhitelistedPrefixes(contractAddr string) []string {
-	address, _ := sdk.AccAddressFromBech32(contractAddr)
 	return utils.Map(DexWhitelistedKeys, func(key string) string {
 		return string(append(
-			types.KeyPrefix(key), address.Bytes()...,
+			types.KeyPrefix(key), types.AddressKeyPrefix(contractAddr)...,
 		))
 	})
 }
 
 func GetWasmWhitelistedPrefixes(contractAddr string) []string {
-	addr, _ := sdk.AccAddressFromBech32(contractAddr)
 	return utils.Map(WasmWhitelistedKeys, func(key string) string {
 		return string(append(
-			[]byte(key), addr...,
+			[]byte(key), types.AddressKeyPrefix(contractAddr)...,
 		))
 	})
 }
 
 func GetDexPerPairWhitelistedPrefixes(contractAddr string, pair types.Pair) []string {
-	address, _ := sdk.AccAddressFromBech32(contractAddr)
 	return utils.Map(DexWhitelistedKeys, func(key string) string {
 		return string(append(append(
-			types.KeyPrefix(key), address.Bytes()...,
+			types.KeyPrefix(key), types.AddressKeyPrefix(contractAddr)...,
 		), types.PairPrefix(pair.PriceDenom, pair.AssetDenom)...))
 	})
 }

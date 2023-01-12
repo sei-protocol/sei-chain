@@ -6,6 +6,7 @@ import (
 
 	"github.com/cosmos/cosmos-sdk/store/prefix"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	sdkaddress "github.com/cosmos/cosmos-sdk/types/address"
 	keepertest "github.com/sei-protocol/sei-chain/testutil/keeper"
 	"github.com/sei-protocol/sei-chain/x/dex/migrations"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
@@ -35,6 +36,7 @@ func TestMigrate9to10(t *testing.T) {
 	binary.BigEndian.PutUint64(countBytes, 1)
 	// simulate legacy store where registered pairs are indexed by auto increment count
 	address, _ := sdk.AccAddressFromBech32(keepertest.TestContract)
+	address = sdkaddress.MustLengthPrefix(address)
 	rpStore.Set(append(address, countBytes...), pairBytes)
 
 	bytes := rpStore.Get(append(address, countBytes...))
