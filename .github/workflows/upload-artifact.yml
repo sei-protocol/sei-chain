@@ -1,0 +1,36 @@
+name: Auto Upload Artifact
+
+on:
+  push:
+    branches: [ "master" ]
+  pull_request:
+    branches: [ "master" ]
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  bundle-upload:
+    runs-on: ubuntu-latest
+    env:
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      REPO_NAME: ${{ github.event.repository.name }}
+    steps:
+      - uses: actions/checkout@v2
+
+      - name: Set up Go
+        uses: actions/setup-go@v2
+        with:
+          go-version: 1.19
+
+      - name: Install aws cli
+        uses: unfor19/install-aws-cli-action@master
+        with:
+          version: "2"
+
+      - name: Bundle & Upload seid
+        run: |
+          ./scripts/bundle_seid.sh
+          ./scripts/upload_seid.sh
