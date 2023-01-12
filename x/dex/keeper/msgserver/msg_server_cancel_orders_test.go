@@ -103,6 +103,23 @@ func TestInvalidCancels(t *testing.T) {
 	_, err = server.CancelOrders(wctx, msg)
 	require.NotNil(t, err)
 
+	// invalid creator address
+	msg = &types.MsgCancelOrders{
+		Creator: "invalid",
+		ContractAddr: keepertest.TestContract,
+		Cancellations: []*types.Cancellation{
+			{
+				PositionDirection: types.PositionDirection_LONG,
+				PriceDenom:        keepertest.TestPriceDenom,
+				AssetDenom:        keepertest.TestAssetDenom,
+				Id:                1,
+				Price:             sdk.OneDec(),
+			},
+		},
+	}
+	_, err = server.CancelOrders(wctx, msg)
+	require.NotNil(t, err)
+
 	// nil contract address
 	msg = &types.MsgCancelOrders{
 		Creator: keepertest.TestAccount,
@@ -115,6 +132,23 @@ func TestInvalidCancels(t *testing.T) {
 				Id:                1,
 			},
 		},
+	}
+	_, err = server.CancelOrders(wctx, msg)
+	require.NotNil(t, err)
+
+	// invalid contract address
+	msg = &types.MsgCancelOrders{
+		Creator: keepertest.TestAccount,
+		Cancellations: []*types.Cancellation{
+			{
+				Price:             sdk.OneDec(),
+				PositionDirection: types.PositionDirection_LONG,
+				PriceDenom:        keepertest.TestPriceDenom,
+				AssetDenom:        keepertest.TestAssetDenom,
+				Id:                1,
+			},
+		},
+		ContractAddr: "invalid",
 	}
 	_, err = server.CancelOrders(wctx, msg)
 	require.NotNil(t, err)

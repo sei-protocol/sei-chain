@@ -14,8 +14,8 @@ import (
 func (k msgServer) CancelOrders(goCtx context.Context, msg *types.MsgCancelOrders) (*types.MsgCancelOrdersResponse, error) {
 	ctx := sdk.UnwrapSDKContext(goCtx)
 
-	// validate cancellation requests
-	if err := k.validateCancels(msg); err != nil {
+	if err := msg.ValidateBasic(); err != nil {
+		ctx.Logger().Error(fmt.Sprintf("request invalid: %s", err))
 		return nil, err
 	}
 
@@ -53,27 +53,4 @@ func (k msgServer) CancelOrders(goCtx context.Context, msg *types.MsgCancelOrder
 	}
 
 	return &types.MsgCancelOrdersResponse{}, nil
-}
-
-func (k msgServer) validateCancels(cancels *types.MsgCancelOrders) error {
-	if len(cancels.Creator) == 0 {
-		return fmt.Errorf("invalid cancellation, creator cannot be empty")
-	}
-	if len(cancels.ContractAddr) == 0 {
-		return fmt.Errorf("invalid cancellation, contract address cannot be empty")
-	}
-
-	for _, cancellation := range cancels.GetCancellations() {
-		if cancellation.Price.IsNil() {
-			return fmt.Errorf("invalid cancellation price: %s", cancellation.Price)
-		}
-		if len(cancellation.AssetDenom) == 0 {
-			return fmt.Errorf("invalid cancellation, asset denom is empty")
-		}
-		if len(cancellation.PriceDenom) == 0 {
-			return fmt.Errorf("invalid cancellation, price denom is empty")
-		}
-	}
-
-	return nil
 }

@@ -24,7 +24,7 @@ func TestMigrate8to9(t *testing.T) {
 		NeedOrderMatching: true,
 	}
 	contractBytes, _ := contract.Marshal()
-	store.Set([]byte(contract.ContractAddr), contractBytes)
+	store.Set(types.ContractKey(contract.ContractAddr), contractBytes)
 
 	err := migrations.V8ToV9(ctx, *dexkeeper)
 	require.NoError(t, err)

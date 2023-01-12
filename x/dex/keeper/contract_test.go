@@ -63,8 +63,8 @@ func TestGetAllContractInfo(t *testing.T) {
 		RentBalance:  1000000,
 	})
 	keeper.SetContract(ctx, &types.ContractInfoV2{
-		Creator:      "ta2",
-		ContractAddr: "tc2",
+		Creator:      keepertest.TestAccount2,
+		ContractAddr: keepertest.TestContract2,
 		CodeId:       2,
 		RentBalance:  1000000,
 	})
@@ -75,8 +75,8 @@ func TestGetAllContractInfo(t *testing.T) {
 	require.Equal(t, uint64(2), contracts[1].CodeId)
 	require.Equal(t, keepertest.TestAccount, contracts[0].Creator)
 	require.Equal(t, keepertest.TestContract, contracts[0].ContractAddr)
-	require.Equal(t, "ta2", contracts[1].Creator)
-	require.Equal(t, "tc2", contracts[1].ContractAddr)
+	require.Equal(t, keepertest.TestAccount2, contracts[1].Creator)
+	require.Equal(t, keepertest.TestContract2, contracts[1].ContractAddr)
 }
 
 func TestGetContractGasLimit(t *testing.T) {

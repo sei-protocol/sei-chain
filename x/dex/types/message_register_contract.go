@@ -58,5 +58,20 @@ func (msg *MsgRegisterContract) ValidateBasic() error {
 	if err != nil {
 		return sdkerrors.Wrapf(sdkerrors.ErrInvalidAddress, "invalid creator address (%s)", err)
 	}
+
+	_, err = sdk.AccAddressFromBech32(msg.Contract.ContractAddr)
+	if err != nil {
+		return sdkerrors.Wrapf(sdkerrors.ErrInvalidAddress, "invalid contract address (%s)", err)
+	}
+
+	for _, dependency := range msg.Contract.Dependencies {
+		contractAddress := dependency.Dependency
+
+		_, err = sdk.AccAddressFromBech32(contractAddress)
+		if err != nil {
+			return sdkerrors.Wrapf(sdkerrors.ErrInvalidAddress, "invalid dependency contract address (%s)", err)
+		}
+	}
+
 	return nil
 }

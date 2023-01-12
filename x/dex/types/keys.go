@@ -1,6 +1,10 @@
 package types
 
-import "encoding/binary"
+import (
+	"encoding/binary"
+
+	sdk "github.com/cosmos/cosmos-sdk/types"
+)
 
 const (
 	// ModuleName defines the module name
@@ -27,7 +31,8 @@ func KeyPrefix(p string) []byte {
 }
 
 func ContractKeyPrefix(p string, contractAddr string) []byte {
-	return append([]byte(p), []byte(contractAddr)...)
+	address, _ := sdk.AccAddressFromBech32(contractAddr)
+	return append([]byte(p), address.Bytes()...)
 }
 
 func PairPrefix(priceDenom string, assetDenom string) []byte {
@@ -41,36 +46,41 @@ func OrderBookPrefix(long bool, contractAddr string, priceDenom string, assetDen
 	} else {
 		prefix = KeyPrefix(ShortBookKey)
 	}
+	address, _ := sdk.AccAddressFromBech32(contractAddr)
 	return append(
-		append(prefix, KeyPrefix(contractAddr)...),
+		append(prefix, address.Bytes()...),
 		PairPrefix(priceDenom, assetDenom)...,
 	)
 }
 
 func TriggerOrderBookPrefix(contractAddr string, priceDenom string, assetDenom string) []byte {
 	prefix := KeyPrefix(TriggerBookKey)
+	address, _ := sdk.AccAddressFromBech32(contractAddr)
 
 	return append(
-		append(prefix, KeyPrefix(contractAddr)...),
+		append(prefix, address.Bytes()...),
 		PairPrefix(priceDenom, assetDenom)...,
 	)
 }
 
 func TwapPrefix(contractAddr string) []byte {
-	return append(KeyPrefix(TwapKey), KeyPrefix(contractAddr)...)
+	address, _ := sdk.AccAddressFromBech32(contractAddr)
+	return append(KeyPrefix(TwapKey), address.Bytes()...)
 }
 
 // `Price` constant + contract + price denom + asset denom
 func PricePrefix(contractAddr string, priceDenom string, assetDenom string) []byte {
+	address, _ := sdk.AccAddressFromBech32(contractAddr)
 	return append(
-		append(KeyPrefix(PriceKey), KeyPrefix(contractAddr)...),
+		append(KeyPrefix(PriceKey), address.Bytes()...),
 		PairPrefix(priceDenom, assetDenom)...,
 	)
 }
 
 func SettlementEntryPrefix(contractAddr string, priceDenom string, assetDenom string) []byte {
+	address, _ := sdk.AccAddressFromBech32(contractAddr)
 	return append(
-		append(KeyPrefix(SettlementEntryKey), KeyPrefix(contractAddr)...),
+		append(KeyPrefix(SettlementEntryKey), address.Bytes()...),
 		PairPrefix(priceDenom, assetDenom)...,
 	)
 }
@@ -82,19 +92,23 @@ func GetKeyForHeight(height uint64) []byte {
 }
 
 func RegisteredPairPrefix(contractAddr string) []byte {
-	return append(KeyPrefix(RegisteredPairKey), KeyPrefix(contractAddr)...)
+	address, _ := sdk.AccAddressFromBech32(contractAddr)
+	return append(KeyPrefix(RegisteredPairKey), address.Bytes()...)
 }
 
 func OrderPrefix(contractAddr string) []byte {
-	return append(KeyPrefix(OrderKey), KeyPrefix(contractAddr)...)
+	address, _ := sdk.AccAddressFromBech32(contractAddr)
+	return append(KeyPrefix(OrderKey), address.Bytes()...)
 }
 
 func Cancel(contractAddr string) []byte {
-	return append(KeyPrefix(CancelKey), KeyPrefix(contractAddr)...)
+	address, _ := sdk.AccAddressFromBech32(contractAddr)
+	return append(KeyPrefix(CancelKey), address.Bytes()...)
 }
 
 func AccountActiveOrdersPrefix(contractAddr string) []byte {
-	return append(KeyPrefix(AccountActiveOrdersKey), KeyPrefix(contractAddr)...)
+	address, _ := sdk.AccAddressFromBech32(contractAddr)
+	return append(KeyPrefix(AccountActiveOrdersKey), address.Bytes()...)
 }
 
 func AssetListPrefix(assetDenom string) []byte {
@@ -102,18 +116,21 @@ func AssetListPrefix(assetDenom string) []byte {
 }
 
 func NextOrderIDPrefix(contractAddr string) []byte {
-	return append(KeyPrefix(NextOrderIDKey), KeyPrefix(contractAddr)...)
+	address, _ := sdk.AccAddressFromBech32(contractAddr)
+	return append(KeyPrefix(NextOrderIDKey), address.Bytes()...)
 }
 
 func NextSettlementIDPrefix(contractAddr string, priceDenom string, assetDenom string) []byte {
+	address, _ := sdk.AccAddressFromBech32(contractAddr)
 	return append(
-		append(KeyPrefix(NextSettlementIDKey), KeyPrefix(contractAddr)...),
+		append(KeyPrefix(NextSettlementIDKey), address.Bytes()...),
 		PairPrefix(priceDenom, assetDenom)...,
 	)
 }
 
 func MatchResultPrefix(contractAddr string) []byte {
-	return append(KeyPrefix(MatchResultKey), KeyPrefix(contractAddr)...)
+	address, _ := sdk.AccAddressFromBech32(contractAddr)
+	return append(KeyPrefix(MatchResultKey), address.Bytes()...)
 }
 
 func GetSettlementOrderIDPrefix(orderID uint64, account string) []byte {
@@ -130,33 +147,43 @@ func GetSettlementKey(orderID uint64, account string, settlementID uint64) []byt
 }
 
 func MemOrderPrefixForPair(contractAddr string, pairString string) []byte {
+	address, _ := sdk.AccAddressFromBech32(contractAddr)
 	return append(
-		append(KeyPrefix(MemOrderKey), KeyPrefix(contractAddr)...),
+		append(KeyPrefix(MemOrderKey), address.Bytes()...),
 		[]byte(pairString)...,
 	)
 }
 
 func MemCancelPrefixForPair(contractAddr string, pairString string) []byte {
+	address, _ := sdk.AccAddressFromBech32(contractAddr)
 	return append(
-		append(KeyPrefix(MemCancelKey), KeyPrefix(contractAddr)...),
+		append(KeyPrefix(MemCancelKey), address.Bytes()...),
 		[]byte(pairString)...,
 	)
 }
 
 func MemOrderPrefix(contractAddr string) []byte {
-	return append(KeyPrefix(MemOrderKey), KeyPrefix(contractAddr)...)
+	address, _ := sdk.AccAddressFromBech32(contractAddr)
+	return append(KeyPrefix(MemOrderKey), address.Bytes()...)
 }
 
 func MemCancelPrefix(contractAddr string) []byte {
-	return append(KeyPrefix(MemCancelKey), KeyPrefix(contractAddr)...)
+	address, _ := sdk.AccAddressFromBech32(contractAddr)
+	return append(KeyPrefix(MemCancelKey), address.Bytes()...)
 }
 
 func MemDepositPrefix(contractAddr string) []byte {
-	return append(KeyPrefix(MemDepositKey), KeyPrefix(contractAddr)...)
+	address, _ := sdk.AccAddressFromBech32(contractAddr)
+	return append(KeyPrefix(MemDepositKey), address.Bytes()...)
 }
 
 func MemDepositSubprefix(creator, denom string) []byte {
 	return append([]byte(creator), []byte(denom)...)
+}
+
+func ContractKey(contractAddr string) []byte {
+	address, _ := sdk.AccAddressFromBech32(contractAddr)
+	return address.Bytes()
 }
 
 const (

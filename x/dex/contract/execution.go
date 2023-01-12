@@ -62,6 +62,7 @@ func ExecutePair(
 	orders := dexutils.GetMemState(ctx.Context()).GetBlockOrders(ctx, typedContractAddr, typedPairStr)
 	limitBuys := orders.GetLimitOrders(types.PositionDirection_LONG)
 	limitSells := orders.GetLimitOrders(types.PositionDirection_SHORT)
+	fmt.Println("limit orders", orders)
 	exchange.AddOutstandingLimitOrdersToOrderbook(orderbook, limitBuys, limitSells)
 	// Fill market orders
 	marketOrderOutcome := matchMarketOrderForPair(ctx, typedContractAddr, typedPairStr, orderbook)
@@ -197,6 +198,7 @@ func ExecutePairsInParallel(ctx sdk.Context, contractAddr string, dexkeeper *kee
 	wg := sync.WaitGroup{}
 	anyPanicked := false
 
+	fmt.Println("registerd pairs ", registeredPairs)
 	for _, pair := range registeredPairs {
 		wg.Add(1)
 

@@ -30,7 +30,9 @@ import (
 
 const (
 	TestAccount    = "sei1yezq49upxhunjjhudql2fnj5dgvcwjj87pn2wx"
-	TestContract   = "tc"
+	TestContract   = "sei1ghd753shjuwexxywmgs4xz7x2q732vcnkm6h2pyv9s6ah3hylvrqladqwc"
+	TestAccount2    = "sei1vk2f6aps83xahv2sql4equx8fa95jgcnsdxkvr"
+	TestContract2   = "sei17p9rzwnnfxcjp32un9ug7yhhzgtkhvl9jfksztgw5uh69wac2pgsrtqewe"
 	TestPriceDenom = "usdc"
 	TestAssetDenom = "atom"
 )
