@@ -21,8 +21,8 @@ const (
 	Bech32PrefixAccAddr = "sei"
 )
 
-// Commits block as soon as we reach consensus instead of waiting for timeout, this may
-// cause validators to not get their votes in time
+// UnsafeBypassCommitTimeoutOverride commits block as soon as we reach consensus instead of waiting
+// for timeout, this may cause validators to not get their votes in time
 var UnsafeBypassCommitTimeoutOverride = false
 
 var (
