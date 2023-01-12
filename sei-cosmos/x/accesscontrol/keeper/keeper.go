@@ -139,10 +139,16 @@ func (k Keeper) GetRawWasmDependencyMapping(ctx sdk.Context, contractAddress sdk
 	return &dependencyMapping, nil
 }
 
+func GetCircularDependencyIdentifier(contractAddr sdk.AccAddress, msgInfo *types.WasmMessageInfo) string {
+	separator := ";"
+	identifier := contractAddr.String() + separator + msgInfo.MessageType.String() + separator + msgInfo.MessageName
+	return identifier
+}
+
 func (k Keeper) GetWasmDependencyAccessOps(ctx sdk.Context, contractAddress sdk.AccAddress, senderBech string, msgInfo *types.WasmMessageInfo, circularDepLookup ContractReferenceLookupMap) ([]acltypes.AccessOperation, error) {
-	uniqueIdentifier := contractAddress.String()
+	uniqueIdentifier := GetCircularDependencyIdentifier(contractAddress, msgInfo)
 	if _, ok := circularDepLookup[uniqueIdentifier]; ok {
-		// we've already seen this contract, we should simply return synchronous access Ops
+		// we've already seen this identifier, we should simply return synchronous access Ops
 		return types.SynchronousAccessOps(), nil
 	}
 	// add to our lookup so we know we've seen this identifier
