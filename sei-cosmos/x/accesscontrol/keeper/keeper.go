@@ -209,22 +209,27 @@ func (k Keeper) GetWasmDependencyAccessOps(ctx sdk.Context, contractAddress sdk.
 func (k Keeper) ImportContractReferences(ctx sdk.Context, contractAddr sdk.AccAddress, contractReferences []*acltypes.WasmContractReference, senderBech string, msgInfo *types.WasmMessageInfo, circularDepLookup ContractReferenceLookupMap) (*types.AccessOperationSet, error) {
 	importedAccessOps := types.NewEmptyAccessOperationSet()
 
+	jsonTranslator := types.NewWasmMessageTranslator(senderBech, contractAddr.String(), msgInfo)
 	for _, contractReference := range contractReferences {
 		// We use this to import the dependencies from another contract address
 		importContractAddress, err := sdk.AccAddressFromBech32(contractReference.ContractAddress)
 		if err != nil {
 			return nil, err
 		}
-		// TODO: build new msgbody for the new contract execute / query msg in later milestone tasks based on the translation pattern
-		emptyJSON := []byte(fmt.Sprintf("{\"%s\":{}}", contractReference.MessageName))
+		newJson, err := jsonTranslator.TranslateMessageBody(contractReference.JsonTranslationTemplate)
+		if err != nil {
+			// if there's a problem translating, log it and then pass in empty json
+			ctx.Logger().Error("Error translating JSON body", err)
+			newJson = []byte(fmt.Sprintf("{\"%s\":{}}", contractReference.MessageName))
+		}
 		var msgInfo *types.WasmMessageInfo
 		if contractReference.MessageType == acltypes.WasmMessageSubtype_EXECUTE {
-			msgInfo, err = types.NewExecuteMessageInfo(emptyJSON)
+			msgInfo, err = types.NewExecuteMessageInfo(newJson)
 			if err != nil {
 				return nil, err
 			}
 		} else if contractReference.MessageType == acltypes.WasmMessageSubtype_QUERY {
-			msgInfo, err = types.NewQueryMessageInfo(emptyJSON)
+			msgInfo, err = types.NewQueryMessageInfo(newJson)
 			if err != nil {
 				return nil, err
 			}

@@ -22,7 +22,8 @@ message WasmContractReference {
     string contract_address = 1;
     WasmMessageSubtype message_type = 2;
     string message_name = 3;
-    // TODO: add wasm message adapter format here
+    // byte encoded JSON for translation instructions
+    bytes json_translation_template = 4;
 }
 
 message WasmContractReferences {
