@@ -31,7 +31,7 @@ func (d *DepositInfo) Get() (list []*types.DepositInfoEntry) {
 }
 
 func (d *DepositInfo) Add(newItem *types.DepositInfoEntry) {
-	key := append([]byte(newItem.Creator), []byte(newItem.Denom)...)
+	key := types.MemDepositSubprefix(newItem.Creator, newItem.Denom)
 	if val, err := newItem.Marshal(); err != nil {
 		panic(err)
 	} else if existing := d.store.Get(key); existing == nil {
