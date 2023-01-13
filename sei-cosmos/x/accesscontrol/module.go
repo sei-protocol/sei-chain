@@ -20,6 +20,7 @@ import (
 	cli "github.com/cosmos/cosmos-sdk/x/accesscontrol/client/cli"
 	"github.com/cosmos/cosmos-sdk/x/accesscontrol/constants"
 	"github.com/cosmos/cosmos-sdk/x/accesscontrol/keeper"
+	"github.com/cosmos/cosmos-sdk/x/accesscontrol/migrations"
 	"github.com/cosmos/cosmos-sdk/x/accesscontrol/types"
 )
 
@@ -125,6 +126,10 @@ func (am AppModule) LegacyQuerierHandler(legacyQuerierCdc *codec.LegacyAmino) sd
 func (am AppModule) RegisterServices(cfg module.Configurator) {
 	types.RegisterMsgServer(cfg.MsgServer(), keeper.NewMsgServerImpl(am.keeper))
 	types.RegisterQueryServer(cfg.QueryServer(), am.keeper)
+
+	_ = cfg.RegisterMigration(types.ModuleName, 1, func(ctx sdk.Context) error {
+		return migrations.V1ToV2(ctx, am.keeper.GetStoreKey())
+	})
 }
 
 // InitGenesis performs genesis initialization for the accesscontrol module. It returns
@@ -146,7 +151,7 @@ func (am AppModule) ExportGenesis(ctx sdk.Context, cdc codec.JSONCodec) json.Raw
 }
 
 // ConsensusVersion implements AppModule/ConsensusVersion.
-func (AppModule) ConsensusVersion() uint64 { return 1 }
+func (AppModule) ConsensusVersion() uint64 { return 2 }
 
 // BeginBlock returns the begin blocker for the accesscontrol module.
 func (am AppModule) BeginBlock(ctx sdk.Context, _ abci.RequestBeginBlock) {}

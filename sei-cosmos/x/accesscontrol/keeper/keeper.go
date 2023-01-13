@@ -530,3 +530,7 @@ func DefaultMessageDependencyGenerator() DependencyGeneratorMap {
 		//TODO: define default granular behavior here
 	}
 }
+
+func (k Keeper) GetStoreKey() sdk.StoreKey {
+	return k.storeKey
+}
