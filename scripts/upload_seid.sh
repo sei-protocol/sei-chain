@@ -9,6 +9,6 @@ COMPONENT_NAME="seid"
 while IFS="" read -r REGION || [ -n "$REGION" ]
 do
   export AWS_DEFAULT_REGION=$REGION
-    BUCKET_URI="s3://sei-artifacts-$REGION/$REPO_NAME/$COMPONENT_NAME/release/$BRANCH_NAME_$GIT_HASH.zip"
+    BUCKET_URI="s3://sei-artifacts-$REGION/$REPO_NAME/$COMPONENT_NAME/release/$GIT_HASH.zip"
     aws s3 cp $BUNDLE_FILE $BUCKET_URI
 done < scripts/REGIONS

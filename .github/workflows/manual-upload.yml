@@ -1,17 +1,13 @@
-name: Auto Upload Artifact
+name: Manual Release Artifacts
 
-on:
-  push:
-    branches: [ "master" ]
-  pull_request:
-    branches: [ "master" ]
+on: workflow_dispatch
 
 defaults:
   run:
     shell: bash
 
 jobs:
-  bundle-upload:
+  release-artifact:
     runs-on: ubuntu-latest
     env:
       AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
@@ -30,7 +26,7 @@ jobs:
         with:
           version: "2"
 
-      - name: Bundle & Upload seid
+      - name: Bundle & Upload Artifacts
         run: |
           ./scripts/bundle_seid.sh
           ./scripts/upload_seid.sh
