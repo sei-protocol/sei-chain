@@ -7,7 +7,7 @@ export PATH=$GOPATH/bin:$PATH
 make clean
 make build-linux
 cd build || exit
-ls -l $GOPATH
 ls -l $GOPATH/pkg/mod
-cp -r "$GOPATH/pkg/mod/github.com/\!cosm\!wasm" ./
+ls -l $GOPATH/pkg/mod/github.com
+cp -r "$GOPATH/pkg/mod/github.com/'!cosm!wasm'" ./
 zip -r seid_bundle.zip ./*
