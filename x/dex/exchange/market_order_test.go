@@ -7,9 +7,9 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/sei-protocol/sei-chain/utils/datastructures"
 	dex "github.com/sei-protocol/sei-chain/x/dex/cache"
-	dexutils "github.com/sei-protocol/sei-chain/x/dex/utils"
 	"github.com/sei-protocol/sei-chain/x/dex/exchange"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
+	dexutils "github.com/sei-protocol/sei-chain/x/dex/utils"
 	"github.com/stretchr/testify/assert"
 
 	keepertest "github.com/sei-protocol/sei-chain/testutil/keeper"

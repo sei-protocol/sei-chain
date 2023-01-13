@@ -2,6 +2,7 @@ package msgserver
 
 import (
 	"context"
+	"fmt"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
@@ -11,6 +12,11 @@ import (
 
 func (k msgServer) ContractDepositRent(goCtx context.Context, msg *types.MsgContractDepositRent) (*types.MsgContractDepositRentResponse, error) {
 	ctx := sdk.UnwrapSDKContext(goCtx)
+
+	if err := msg.ValidateBasic(); err != nil {
+		ctx.Logger().Error(fmt.Sprintf("request invalid: %s", err))
+		return nil, err
+	}
 
 	contract, err := k.GetContract(ctx, msg.ContractAddr)
 	if err != nil {

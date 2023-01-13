@@ -276,13 +276,31 @@ func TestRegisterContractSetSiblings(t *testing.T) {
 
 	// A -> X, B -> X, C -> Y
 	server := msgserver.NewMsgServerImpl(keeper)
-	RegisterContractUtil(server, wctx, contractAddrX.String(), nil)
-	RegisterContractUtil(server, wctx, contractAddrY.String(), nil)
-	RegisterContractUtil(server, wctx, contractAddrA.String(), []string{contractAddrX.String()})
-	RegisterContractUtil(server, wctx, contractAddrB.String(), []string{contractAddrX.String()})
-	RegisterContractUtil(server, wctx, contractAddrC.String(), []string{contractAddrY.String()})
+	err = RegisterContractUtil(server, wctx, contractAddrX.String(), nil)
+	if err != nil {
+		panic(err)
+	}
+	err = RegisterContractUtil(server, wctx, contractAddrY.String(), nil)
+	if err != nil {
+		panic(err)
+	}
+	err = RegisterContractUtil(server, wctx, contractAddrA.String(), []string{contractAddrX.String()})
+	if err != nil {
+		panic(err)
+	}
+	err = RegisterContractUtil(server, wctx, contractAddrB.String(), []string{contractAddrX.String()})
+	if err != nil {
+		panic(err)
+	}
+	err = RegisterContractUtil(server, wctx, contractAddrC.String(), []string{contractAddrY.String()})
+	if err != nil {
+		panic(err)
+	}
 	// add D -> X, D -> Y
-	RegisterContractUtil(server, wctx, contractAddrD.String(), []string{contractAddrX.String(), contractAddrY.String()})
+	err = RegisterContractUtil(server, wctx, contractAddrD.String(), []string{contractAddrX.String(), contractAddrY.String()})
+	if err != nil {
+		panic(err)
+	}
 	contract, _ := keeper.GetContract(ctx, contractAddrA.String())
 	require.Equal(t, "", contract.Dependencies[0].ImmediateElderSibling)
 	require.Equal(t, contractAddrB.String(), contract.Dependencies[0].ImmediateYoungerSibling)
@@ -298,7 +316,14 @@ func TestRegisterContractSetSiblings(t *testing.T) {
 	require.Equal(t, contractAddrC.String(), contract.Dependencies[1].ImmediateElderSibling)
 	require.Equal(t, "", contract.Dependencies[1].ImmediateYoungerSibling)
 	// update D -> X only
-	RegisterContractUtil(server, wctx, contractAddrD.String(), []string{contractAddrX.String()})
+	err = RegisterContractUtil(server, wctx, contractAddrD.String(), []string{contractAddrX.String()})
+	if err != nil {
+		panic(err)
+	}
+	contract, _ = keeper.GetContract(ctx, contractAddrD.String())
+	require.Equal(t, 1, len(contract.Dependencies))
+	require.Equal(t, contractAddrB.String(), contract.Dependencies[0].ImmediateElderSibling)
+	require.Equal(t, "", contract.Dependencies[0].ImmediateYoungerSibling)
 	contract, _ = keeper.GetContract(ctx, contractAddrA.String())
 	require.Equal(t, "", contract.Dependencies[0].ImmediateElderSibling)
 	require.Equal(t, contractAddrB.String(), contract.Dependencies[0].ImmediateYoungerSibling)
@@ -307,10 +332,6 @@ func TestRegisterContractSetSiblings(t *testing.T) {
 	require.Equal(t, contractAddrD.String(), contract.Dependencies[0].ImmediateYoungerSibling)
 	contract, _ = keeper.GetContract(ctx, contractAddrC.String())
 	require.Equal(t, "", contract.Dependencies[0].ImmediateElderSibling)
-	require.Equal(t, "", contract.Dependencies[0].ImmediateYoungerSibling)
-	contract, _ = keeper.GetContract(ctx, contractAddrD.String())
-	require.Equal(t, 1, len(contract.Dependencies))
-	require.Equal(t, contractAddrB.String(), contract.Dependencies[0].ImmediateElderSibling)
 	require.Equal(t, "", contract.Dependencies[0].ImmediateYoungerSibling)
 }
 

@@ -7,21 +7,6 @@ echo -n Release to Build \(please find the latest release on https://github.com/
 read release
 echo
 
-docker stop jaeger
-docker rm jaeger
-docker run -d --name jaeger \
-  -e COLLECTOR_ZIPKIN_HOST_PORT=:9411 \
-  -p 5775:5775/udp \
-  -p 6831:6831/udp \
-  -p 6832:6832/udp \
-  -p 5778:5778 \
-  -p 16686:16686 \
-  -p 14250:14250 \
-  -p 14268:14268 \
-  -p 14269:14269 \
-  -p 9411:9411 \
-  jaegertracing/all-in-one:1.33
-
 echo "Building..."
 git fetch --tags -f
 git checkout $release
@@ -57,26 +42,27 @@ else
 fi
 
 if [[ "$OSTYPE" == "linux-gnu"* ]]; then
-  sed -i 's/timeout_prevote =.*/timeout_prevote = "2000ms"/g' $CONFIG_PATH
-  sed -i 's/timeout_precommit =.*/timeout_precommit = "2000ms"/g' $CONFIG_PATH
-  sed -i 's/timeout_commit =.*/timeout_commit = "2000ms"/g' $CONFIG_PATH
-  sed -i 's/skip_timeout_commit =.*/skip_timeout_commit = false/g' $CONFIG_PATH
+  sed -i 's/unsafe-propose-timeout-override =.*/unsafe-propose-timeout-override = "2000ms"/g' $CONFIG_PATH
+  sed -i 's/unsafe-vote-timeout-override =.*/unsafe-vote-timeout-override = "2000ms"/g' $CONFIG_PATH
+  sed -i 's/unsafe-commit-timeout-override =.*/unsafe-commit-timeout-override = "2000ms"/g' $CONFIG_PATH
+  sed -i 's/unsafe-bypass-commit-timeout-override =.*/unsafe-bypass-commit-timeout-override = false/g' $CONFIG_PATH
   sed -i 's/mode = "full"/mode = "validator"/g' $HOME/.sei/config/config.toml
   sed -i 's/indexer = \["null"\]/indexer = \["kv"\]/g' $HOME/.sei/config/config.toml
 elif [[ "$OSTYPE" == "darwin"* ]]; then
-  sed -i '' 's/timeout_prevote =.*/timeout_prevote = "2000ms"/g' $CONFIG_PATH
-  sed -i '' 's/timeout_precommit =.*/timeout_precommit = "2000ms"/g' $CONFIG_PATH
-  sed -i '' 's/timeout_commit =.*/timeout_commit = "2000ms"/g' $CONFIG_PATH
-  sed -i '' 's/skip_timeout_commit =.*/skip_timeout_commit = false/g' $CONFIG_PATH
+  printf "Platform darwin\n\n\n"
+  sed -i '' 's/unsafe-propose-timeout-override =.*/unsafe-propose-timeout-override = "2000ms"/g' $CONFIG_PATH
+  sed -i '' 's/unsafe-vote-timeout-override =.*/unsafe-vote-timeout-override = "2000ms"/g' $CONFIG_PATH
+  sed -i '' 's/unsafe-commit-timeout-override =.*/unsafe-commit-timeout-override = "2000ms"/g' $CONFIG_PATH
+  sed -i '' 's/unsafe-bypass-commit-timeout-override =.*/unsafe-bypass-commit-timeout-override = false/g' $CONFIG_PATH
   sed -i '' 's/mode = "full"/mode = "validator"/g' $HOME/.sei/config/config.toml
   sed -i '' 's/indexer = \["null"\]/indexer = \["kv"\]/g' $HOME/.sei/config/config.toml
 else
   printf "Platform not supported, please ensure that the following values are set in your config.toml:\n"
   printf "###         Consensus Configuration Options         ###\n"
-  printf "\t timeout_prevote = \"2000ms\"\n"
-  printf "\t timeout_precommit = \"2000ms\"\n"
-  printf "\t timeout_commit = \"2000ms\"\n"
-  printf "\t skip_timeout_commit = false\n"
+  printf "\t unsafe-propose-timeout-override = \"2000ms\"\n"
+  printf "\t unsafe-vote-timeout-override = \"2000ms\"\n"
+  printf "\t unsafe-commit-timeout-override = \"2000ms\"\n"
+  printf "\t unsafe-bypass-commit-timeout-override = false\n"
   printf "\t mode = validator\n"
   printf "\t indexer = [\"kv\"]\n"
   exit 1

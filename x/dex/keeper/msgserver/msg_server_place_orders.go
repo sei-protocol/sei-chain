@@ -50,14 +50,9 @@ func (k msgServer) transferFunds(goCtx context.Context, msg *types.MsgPlaceOrder
 func (k msgServer) PlaceOrders(goCtx context.Context, msg *types.MsgPlaceOrders) (*types.MsgPlaceOrdersResponse, error) {
 	ctx := sdk.UnwrapSDKContext(goCtx)
 
-	if len(msg.Orders) == 0 {
-		return nil, errors.New("at least one order needs to be placed")
-	}
-
-	for _, order := range msg.Orders {
-		if err := k.validateOrder(order); err != nil {
-			return nil, err
-		}
+	if err := msg.ValidateBasic(); err != nil {
+		ctx.Logger().Error(fmt.Sprintf("request invalid: %s", err))
+		return nil, err
 	}
 
 	if err := k.transferFunds(goCtx, msg); err != nil {
@@ -89,27 +84,4 @@ func (k msgServer) PlaceOrders(goCtx context.Context, msg *types.MsgPlaceOrders)
 	return &types.MsgPlaceOrdersResponse{
 		OrderIds: idsInResp,
 	}, nil
-}
-
-func (k msgServer) validateOrder(order *types.Order) error {
-	if order.Quantity.IsNil() || order.Quantity.IsNegative() {
-		return fmt.Errorf("invalid order quantity: %s", order.Quantity)
-	}
-	if order.Price.IsNil() || order.Price.IsNegative() {
-		return fmt.Errorf("invalid order price: %s", order.Price)
-	}
-	if len(order.AssetDenom) == 0 {
-		return fmt.Errorf("invalid order, asset denom is empty")
-	}
-	if len(order.PriceDenom) == 0 {
-		return fmt.Errorf("invalid order, price denom is empty")
-	}
-	if order.OrderType == types.OrderType_FOKMARKETBYVALUE && (order.Nominal.IsNil() || order.Nominal.IsNegative()) {
-		return fmt.Errorf("invalid nominal value for market by value order: %s", order.Nominal)
-	}
-	if (order.OrderType == types.OrderType_STOPLIMIT || order.OrderType == types.OrderType_STOPLOSS) &&
-		(order.TriggerPrice.IsNil() || order.TriggerPrice.IsNegative()) {
-		return fmt.Errorf("invalid trigger price for stop loss/limit order: %s", order.TriggerPrice)
-	}
-	return nil
 }

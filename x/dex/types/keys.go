@@ -1,6 +1,11 @@
 package types
 
-import "encoding/binary"
+import (
+	"encoding/binary"
+
+	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/cosmos/cosmos-sdk/types/address"
+)
 
 const (
 	// ModuleName defines the module name
@@ -26,8 +31,13 @@ func KeyPrefix(p string) []byte {
 	return []byte(p)
 }
 
+func AddressKeyPrefix(contractAddr string) []byte {
+	addr, _ := sdk.AccAddressFromBech32(contractAddr)
+	return address.MustLengthPrefix(addr)
+}
+
 func ContractKeyPrefix(p string, contractAddr string) []byte {
-	return append([]byte(p), []byte(contractAddr)...)
+	return append([]byte(p), AddressKeyPrefix(contractAddr)...)
 }
 
 func PairPrefix(priceDenom string, assetDenom string) []byte {
@@ -42,7 +52,7 @@ func OrderBookPrefix(long bool, contractAddr string, priceDenom string, assetDen
 		prefix = KeyPrefix(ShortBookKey)
 	}
 	return append(
-		append(prefix, KeyPrefix(contractAddr)...),
+		append(prefix, AddressKeyPrefix(contractAddr)...),
 		PairPrefix(priceDenom, assetDenom)...,
 	)
 }
@@ -51,26 +61,26 @@ func TriggerOrderBookPrefix(contractAddr string, priceDenom string, assetDenom s
 	prefix := KeyPrefix(TriggerBookKey)
 
 	return append(
-		append(prefix, KeyPrefix(contractAddr)...),
+		append(prefix, AddressKeyPrefix(contractAddr)...),
 		PairPrefix(priceDenom, assetDenom)...,
 	)
 }
 
 func TwapPrefix(contractAddr string) []byte {
-	return append(KeyPrefix(TwapKey), KeyPrefix(contractAddr)...)
+	return append(KeyPrefix(TwapKey), AddressKeyPrefix(contractAddr)...)
 }
 
 // `Price` constant + contract + price denom + asset denom
 func PricePrefix(contractAddr string, priceDenom string, assetDenom string) []byte {
 	return append(
-		append(KeyPrefix(PriceKey), KeyPrefix(contractAddr)...),
+		append(KeyPrefix(PriceKey), AddressKeyPrefix(contractAddr)...),
 		PairPrefix(priceDenom, assetDenom)...,
 	)
 }
 
 func SettlementEntryPrefix(contractAddr string, priceDenom string, assetDenom string) []byte {
 	return append(
-		append(KeyPrefix(SettlementEntryKey), KeyPrefix(contractAddr)...),
+		append(KeyPrefix(SettlementEntryKey), AddressKeyPrefix(contractAddr)...),
 		PairPrefix(priceDenom, assetDenom)...,
 	)
 }
@@ -82,19 +92,19 @@ func GetKeyForHeight(height uint64) []byte {
 }
 
 func RegisteredPairPrefix(contractAddr string) []byte {
-	return append(KeyPrefix(RegisteredPairKey), KeyPrefix(contractAddr)...)
+	return append(KeyPrefix(RegisteredPairKey), AddressKeyPrefix(contractAddr)...)
 }
 
 func OrderPrefix(contractAddr string) []byte {
-	return append(KeyPrefix(OrderKey), KeyPrefix(contractAddr)...)
+	return append(KeyPrefix(OrderKey), AddressKeyPrefix(contractAddr)...)
 }
 
 func Cancel(contractAddr string) []byte {
-	return append(KeyPrefix(CancelKey), KeyPrefix(contractAddr)...)
+	return append(KeyPrefix(CancelKey), AddressKeyPrefix(contractAddr)...)
 }
 
 func AccountActiveOrdersPrefix(contractAddr string) []byte {
-	return append(KeyPrefix(AccountActiveOrdersKey), KeyPrefix(contractAddr)...)
+	return append(KeyPrefix(AccountActiveOrdersKey), AddressKeyPrefix(contractAddr)...)
 }
 
 func AssetListPrefix(assetDenom string) []byte {
@@ -102,18 +112,18 @@ func AssetListPrefix(assetDenom string) []byte {
 }
 
 func NextOrderIDPrefix(contractAddr string) []byte {
-	return append(KeyPrefix(NextOrderIDKey), KeyPrefix(contractAddr)...)
+	return append(KeyPrefix(NextOrderIDKey), AddressKeyPrefix(contractAddr)...)
 }
 
 func NextSettlementIDPrefix(contractAddr string, priceDenom string, assetDenom string) []byte {
 	return append(
-		append(KeyPrefix(NextSettlementIDKey), KeyPrefix(contractAddr)...),
+		append(KeyPrefix(NextSettlementIDKey), AddressKeyPrefix(contractAddr)...),
 		PairPrefix(priceDenom, assetDenom)...,
 	)
 }
 
 func MatchResultPrefix(contractAddr string) []byte {
-	return append(KeyPrefix(MatchResultKey), KeyPrefix(contractAddr)...)
+	return append(KeyPrefix(MatchResultKey), AddressKeyPrefix(contractAddr)...)
 }
 
 func GetSettlementOrderIDPrefix(orderID uint64, account string) []byte {
@@ -131,32 +141,36 @@ func GetSettlementKey(orderID uint64, account string, settlementID uint64) []byt
 
 func MemOrderPrefixForPair(contractAddr string, pairString string) []byte {
 	return append(
-		append(KeyPrefix(MemOrderKey), KeyPrefix(contractAddr)...),
+		append(KeyPrefix(MemOrderKey), AddressKeyPrefix(contractAddr)...),
 		[]byte(pairString)...,
 	)
 }
 
 func MemCancelPrefixForPair(contractAddr string, pairString string) []byte {
 	return append(
-		append(KeyPrefix(MemCancelKey), KeyPrefix(contractAddr)...),
+		append(KeyPrefix(MemCancelKey), AddressKeyPrefix(contractAddr)...),
 		[]byte(pairString)...,
 	)
 }
 
 func MemOrderPrefix(contractAddr string) []byte {
-	return append(KeyPrefix(MemOrderKey), KeyPrefix(contractAddr)...)
+	return append(KeyPrefix(MemOrderKey), AddressKeyPrefix(contractAddr)...)
 }
 
 func MemCancelPrefix(contractAddr string) []byte {
-	return append(KeyPrefix(MemCancelKey), KeyPrefix(contractAddr)...)
+	return append(KeyPrefix(MemCancelKey), AddressKeyPrefix(contractAddr)...)
 }
 
 func MemDepositPrefix(contractAddr string) []byte {
-	return append(KeyPrefix(MemDepositKey), KeyPrefix(contractAddr)...)
+	return append(KeyPrefix(MemDepositKey), AddressKeyPrefix(contractAddr)...)
 }
 
 func MemDepositSubprefix(creator, denom string) []byte {
 	return append([]byte(creator), []byte(denom)...)
+}
+
+func ContractKey(contractAddr string) []byte {
+	return AddressKeyPrefix(contractAddr)
 }
 
 const (

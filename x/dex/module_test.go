@@ -74,7 +74,10 @@ func TestEndBlockMarketOrder(t *testing.T) {
 	if err != nil {
 		panic(err)
 	}
-	dexkeeper.SetContract(ctx, &types.ContractInfoV2{CodeId: 123, ContractAddr: contractAddr.String(), NeedHook: false, NeedOrderMatching: true, RentBalance: 100000000})
+	err = dexkeeper.SetContract(ctx, &types.ContractInfoV2{CodeId: 123, ContractAddr: contractAddr.String(), NeedHook: false, NeedOrderMatching: true, RentBalance: 100000000})
+	if err != nil {
+		panic(err)
+	}
 	dexkeeper.AddRegisteredPair(ctx, contractAddr.String(), pair)
 	dexutils.GetMemState(ctx.Context()).GetBlockOrders(ctx, utils.ContractAddress(contractAddr.String()), utils.GetPairString(&pair)).Add(
 		&types.Order{
