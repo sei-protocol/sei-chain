@@ -8,7 +8,6 @@ import (
 	sdkacltypes "github.com/cosmos/cosmos-sdk/types/accesscontrol"
 	aclkeeper "github.com/cosmos/cosmos-sdk/x/accesscontrol/keeper"
 	acltypes "github.com/cosmos/cosmos-sdk/x/accesscontrol/types"
-	"github.com/sei-protocol/sei-chain/utils"
 )
 
 var (
@@ -43,12 +42,13 @@ func (wasmDepGen WasmDependencyGenerator) WasmExecuteContractGenerator(keeper ac
 		return []sdkacltypes.AccessOperation{}, err
 	}
 	// TODO: need to test how errors from here affect the disabling of wasm execute dynamic dependencies
-	wasmDependencyMapping, err := keeper.GetWasmDependencyMapping(ctx, contractAddr, executeContractMsg.Sender, executeContractMsg.Msg, true, make(aclkeeper.ContractReferenceLookupMap))
+	msgInfo, err := acltypes.NewExecuteMessageInfo(executeContractMsg.Msg)
 	if err != nil {
 		return []sdkacltypes.AccessOperation{}, err
 	}
-	if !wasmDependencyMapping.Enabled {
-		return []sdkacltypes.AccessOperation{}, ErrWasmFunctionDependenciesDisabled
+	wasmAccessOps, err := keeper.GetWasmDependencyAccessOps(ctx, contractAddr, executeContractMsg.Sender, msgInfo, make(aclkeeper.ContractReferenceLookupMap))
+	if err != nil {
+		return []sdkacltypes.AccessOperation{}, err
 	}
-	return utils.Map(wasmDependencyMapping.AccessOps, func(op sdkacltypes.AccessOperationWithSelector) sdkacltypes.AccessOperation { return *op.Operation }), nil
+	return wasmAccessOps, nil
 }
