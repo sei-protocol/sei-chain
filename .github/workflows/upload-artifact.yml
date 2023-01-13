@@ -17,6 +17,7 @@ jobs:
       AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
       REPO_NAME: ${{ github.event.repository.name }}
+      BRANCH_NAME: ${GITHUB_REF##*/}
     steps:
       - uses: actions/checkout@v2
 
