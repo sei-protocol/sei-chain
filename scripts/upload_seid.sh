@@ -3,7 +3,7 @@
 SOURCE_ROOT=$(git rev-parse --show-toplevel)
 cd "${SOURCE_ROOT}" || exit
 GIT_HASH=$(git rev-parse --short "$GITHUB_SHA")
-BUNDLE_FILE="build/seid_bundle.zip"
+BUNDLE_FILE="seid_bundle.zip"
 COMPONENT_NAME="seid"
 
 while IFS="" read -r REGION || [ -n "$REGION" ]
