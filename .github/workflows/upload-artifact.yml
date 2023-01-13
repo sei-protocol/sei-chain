@@ -3,8 +3,6 @@ name: Auto Upload Artifact
 on:
   push:
     branches: [ "master" ]
-  pull_request:
-    branches: [ "master" ]
 
 defaults:
   run:
