@@ -9,5 +9,5 @@ make build-linux
 cd build || exit
 ls -l $GOPATH/pkg/mod
 ls -l $GOPATH/pkg/mod/github.com
-cp -r "$GOPATH/pkg/mod/github.com/'!cosm!wasm'" ./
+cp -r "$GOPATH/pkg/mod/github.com/!cosm!wasm" ./
 zip -r seid_bundle.zip ./*
