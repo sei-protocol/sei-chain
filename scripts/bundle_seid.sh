@@ -2,6 +2,8 @@
 
 SOURCE_ROOT=$(git rev-parse --show-toplevel)
 cd "${SOURCE_ROOT}" || exit
+export GOPATH=$HOME/go
+export PATH=$GOPATH/bin:$PATH
 make clean
 make build
 cd build || exit
