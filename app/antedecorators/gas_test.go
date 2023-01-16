@@ -20,7 +20,7 @@ func TestMultiplierGasSetter(t *testing.T) {
 	ctx := testApp.NewContext(false, types.Header{}).WithBlockHeight(2)
 	testMsg := wasmtypes.MsgExecuteContract{
 		Contract: "sei1y3pxq5dp900czh0mkudhjdqjq5m8cpmmps8yjw",
-		Msg:      []byte("{}"),
+		Msg:      []byte("{\"xyz\":{}}"),
 	}
 	testTx := app.NewTestTx([]sdk.Msg{&testMsg})
 	// discounted mapping
@@ -72,7 +72,7 @@ func TestMultiplierGasSetterWithWasmReference(t *testing.T) {
 	ctx := testApp.NewContext(false, types.Header{}).WithBlockHeight(2)
 	testMsg := wasmtypes.MsgExecuteContract{
 		Contract: "sei1y3pxq5dp900czh0mkudhjdqjq5m8cpmmps8yjw",
-		Msg:      []byte("{}"),
+		Msg:      []byte("{\"xyz\":{}}"),
 	}
 	testTx := app.NewTestTx([]sdk.Msg{&testMsg})
 	// discounted mapping
