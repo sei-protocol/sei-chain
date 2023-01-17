@@ -3,6 +3,7 @@ package contract
 import (
 	wasmtypes "github.com/CosmWasm/wasmd/x/wasm/types"
 	storetypes "github.com/cosmos/cosmos-sdk/store/types"
+	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/sei-protocol/sei-chain/utils"
 	"github.com/sei-protocol/sei-chain/x/dex/keeper"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
@@ -57,9 +58,10 @@ func GetDexWhitelistedPrefixes(contractAddr string) []string {
 }
 
 func GetWasmWhitelistedPrefixes(contractAddr string) []string {
+	addr, _ := sdk.AccAddressFromBech32(contractAddr)
 	return utils.Map(WasmWhitelistedKeys, func(key string) string {
 		return string(append(
-			[]byte(key), types.AddressKeyPrefix(contractAddr)...,
+			[]byte(key), addr...,
 		))
 	})
 }
