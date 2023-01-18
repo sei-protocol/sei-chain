@@ -2,6 +2,7 @@ package oracle
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
 	"math"
 	"net/http"
@@ -12,6 +13,7 @@ import (
 	"github.com/rs/zerolog"
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
 
 	"github.com/sei-protocol/sei-chain/oracle/price-feeder/config"
 	"github.com/sei-protocol/sei-chain/oracle/price-feeder/oracle/client"
@@ -391,8 +393,8 @@ func (o *Oracle) GetParamCache(ctx context.Context, currentBlockHeight int64) (o
 func (o *Oracle) GetParams(ctx context.Context) (oracletypes.Params, error) {
 	grpcConn, err := grpc.Dial(
 		o.oracleClient.GRPCEndpoint,
-		// the Cosmos SDK doesn't support any transport security mechanism
-		grpc.WithInsecure(),
+		grpc.WithTransportCredentials(credentials.NewTLS(&tls.Config{InsecureSkipVerify: true})),
+		grpc.WithBlock(),
 		grpc.WithContextDialer(dialerFunc),
 	)
 	if err != nil {
@@ -545,6 +547,8 @@ func (o *Oracle) tick(ctx context.Context) error {
 		Str("validator", voteMsg.Validator).
 		Str("feeder", voteMsg.Feeder).
 		Float64("vote_period", currentVotePeriod).
+		Int64("next_height", nextBlockHeight).
+		Int64("timeout_height", oracleVotePeriod-indexInVotePeriod).
 		Msg("broadcasting vote")
 	if err := o.oracleClient.BroadcastTx(
 		nextBlockHeight,
