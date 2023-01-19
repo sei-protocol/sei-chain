@@ -67,6 +67,8 @@ func AddNodeFlags(cmd *cobra.Command, conf *cfg.Config) {
 	cmd.Flags().Bool("p2p.upnp", conf.P2P.UPNP, "enable/disable UPNP port forwarding")
 	cmd.Flags().Bool("p2p.pex", conf.P2P.PexReactor, "enable/disable Peer-Exchange")
 	cmd.Flags().String("p2p.private-peer-ids", conf.P2P.PrivatePeerIDs, "comma-delimited private peer IDs")
+	cmd.Flags().String("p2p.unconditional_peer_ids",
+		conf.P2P.UnconditionalPeerIDs, "comma-delimited IDs of unconditional peers")
 
 	// consensus flags
 	cmd.Flags().Bool(

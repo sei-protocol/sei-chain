@@ -342,6 +342,9 @@ send-rate = {{ .P2P.SendRate }}
 # TODO: Remove once MConnConnection is removed.
 recv-rate = {{ .P2P.RecvRate }}
 
+# List of node IDs, to which a connection will be (re)established ignoring any existing limits
+unconditional-peer-ids = "{{ .P2P.UnconditionalPeerIDs }}"
+
 
 #######################################################
 ###          Mempool Configuration Option          ###

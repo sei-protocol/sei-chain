@@ -254,6 +254,10 @@ func createPeerManager(
 		peers = append(peers, address)
 	}
 
+	for _, p := range tmstrings.SplitAndTrimEmpty(cfg.P2P.UnconditionalPeerIDs, ",", " ") {
+		options.UnconditionalPeers = append(options.UnconditionalPeers, types.NodeID(p))
+	}
+
 	peerDB, err := dbProvider(&config.DBContext{ID: "peerstore", Config: cfg})
 	if err != nil {
 		return nil, func() error { return nil }, fmt.Errorf("unable to initialize peer store: %w", err)

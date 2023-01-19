@@ -42,7 +42,8 @@ const (
 type PeerScore uint8
 
 const (
-	PeerScorePersistent       PeerScore = math.MaxUint8 // persistent peers
+	PeerScoreUnconditional    PeerScore = math.MaxUint8              // unconditional peers
+	PeerScorePersistent       PeerScore = PeerScoreUnconditional - 1 // persistent peers
 	MaxPeerScoreNotPersistent PeerScore = PeerScorePersistent - 1
 )
 
@@ -91,6 +92,9 @@ type PeerManagerOptions struct {
 	// MaxConnectedUpgrade is non-zero any lower-scored peers will be evicted if
 	// necessary to make room for these.
 	PersistentPeers []types.NodeID
+
+	// Peers to which a connection will be (re)established ignoring any existing limits
+	UnconditionalPeers []types.NodeID
 
 	// MaxPeers is the maximum number of peers to track information about, i.e.
 	// store in the peer store. When exceeded, the lowest-scored unconnected peers
@@ -145,6 +149,9 @@ type PeerManagerOptions struct {
 	// persistentPeers provides fast PersistentPeers lookups. It is built
 	// by optimize().
 	persistentPeers map[types.NodeID]bool
+
+	// List of node IDs, to which a connection will be (re)established ignoring any existing limits
+	unconditionalPeers map[types.NodeID]struct{}
 }
 
 // Validate validates the options.
@@ -205,6 +212,14 @@ func (o *PeerManagerOptions) isPersistent(id types.NodeID) bool {
 	return o.persistentPeers[id]
 }
 
+func (o *PeerManagerOptions) isUnconditional(id types.NodeID) bool {
+	if o.unconditionalPeers == nil {
+		panic("isUnconditional() called before optimize()")
+	}
+	_, ok := o.unconditionalPeers[id]
+	return ok
+}
+
 // optimize optimizes operations by pregenerating lookup structures. It's a
 // separate method instead of memoizing during calls to avoid dealing with
 // concurrency and mutex overhead.
@@ -212,6 +227,11 @@ func (o *PeerManagerOptions) optimize() {
 	o.persistentPeers = make(map[types.NodeID]bool, len(o.PersistentPeers))
 	for _, p := range o.PersistentPeers {
 		o.persistentPeers[p] = true
+	}
+
+	o.unconditionalPeers = make(map[types.NodeID]struct{}, len(o.UnconditionalPeers))
+	for _, p := range o.UnconditionalPeers {
+		o.unconditionalPeers[p] = struct{}{}
 	}
 }
 
@@ -223,27 +243,27 @@ func (o *PeerManagerOptions) optimize() {
 // by the Router), only the peer lifecycle state.
 //
 // For an outbound connection, the flow is as follows:
-// - DialNext: return a peer address to dial, mark peer as dialing.
-// - DialFailed: report a dial failure, unmark as dialing.
-// - Dialed: report a dial success, unmark as dialing and mark as connected
-//   (errors if already connected, e.g. by Accepted).
-// - Ready: report routing is ready, mark as ready and broadcast PeerStatusUp.
-// - Disconnected: report peer disconnect, unmark as connected and broadcasts
-//   PeerStatusDown.
+//   - DialNext: return a peer address to dial, mark peer as dialing.
+//   - DialFailed: report a dial failure, unmark as dialing.
+//   - Dialed: report a dial success, unmark as dialing and mark as connected
+//     (errors if already connected, e.g. by Accepted).
+//   - Ready: report routing is ready, mark as ready and broadcast PeerStatusUp.
+//   - Disconnected: report peer disconnect, unmark as connected and broadcasts
+//     PeerStatusDown.
 //
 // For an inbound connection, the flow is as follows:
-// - Accepted: report inbound connection success, mark as connected (errors if
-//   already connected, e.g. by Dialed).
-// - Ready: report routing is ready, mark as ready and broadcast PeerStatusUp.
-// - Disconnected: report peer disconnect, unmark as connected and broadcasts
-//   PeerStatusDown.
+//   - Accepted: report inbound connection success, mark as connected (errors if
+//     already connected, e.g. by Dialed).
+//   - Ready: report routing is ready, mark as ready and broadcast PeerStatusUp.
+//   - Disconnected: report peer disconnect, unmark as connected and broadcasts
+//     PeerStatusDown.
 //
 // When evicting peers, either because peers are explicitly scheduled for
 // eviction or we are connected to too many peers, the flow is as follows:
-// - EvictNext: if marked evict and connected, unmark evict and mark evicting.
-//   If beyond MaxConnected, pick lowest-scored peer and mark evicting.
-// - Disconnected: unmark connected, evicting, evict, and broadcast a
-//   PeerStatusDown peer update.
+//   - EvictNext: if marked evict and connected, unmark evict and mark evicting.
+//     If beyond MaxConnected, pick lowest-scored peer and mark evicting.
+//   - Disconnected: unmark connected, evicting, evict, and broadcast a
+//     PeerStatusDown peer update.
 //
 // If all connection slots are full (at MaxConnections), we can use up to
 // MaxConnectionsUpgrade additional connections to probe any higher-scored
@@ -251,13 +271,13 @@ func (o *PeerManagerOptions) optimize() {
 // connection and evict a lower-scored peer. We mark the lower-scored peer as
 // upgrading[from]=to to make sure no other higher-scored peers can claim the
 // same one for an upgrade. The flow is as follows:
-// - Accepted: if upgrade is possible, mark connected and add lower-scored to evict.
-// - DialNext: if upgrade is possible, mark upgrading[from]=to and dialing.
-// - DialFailed: unmark upgrading[from]=to and dialing.
-// - Dialed: unmark upgrading[from]=to and dialing, mark as connected, add
-//   lower-scored to evict.
-// - EvictNext: pick peer from evict, mark as evicting.
-// - Disconnected: unmark connected, upgrading[from]=to, evict, evicting.
+//   - Accepted: if upgrade is possible, mark connected and add lower-scored to evict.
+//   - DialNext: if upgrade is possible, mark upgrading[from]=to and dialing.
+//   - DialFailed: unmark upgrading[from]=to and dialing.
+//   - Dialed: unmark upgrading[from]=to and dialing, mark as connected, add
+//     lower-scored to evict.
+//   - EvictNext: pick peer from evict, mark as evicting.
+//   - Disconnected: unmark connected, upgrading[from]=to, evict, evicting.
 type PeerManager struct {
 	selfID     types.NodeID
 	options    PeerManagerOptions
@@ -329,6 +349,9 @@ func (m *PeerManager) configurePeers() error {
 	for _, id := range m.options.PersistentPeers {
 		configure[id] = true
 	}
+	for _, id := range m.options.UnconditionalPeers {
+		configure[id] = true
+	}
 	for id := range m.options.PeerScores {
 		configure[id] = true
 	}
@@ -345,6 +368,7 @@ func (m *PeerManager) configurePeers() error {
 // configurePeer configures a peer with ephemeral runtime configuration.
 func (m *PeerManager) configurePeer(peer peerInfo) peerInfo {
 	peer.Persistent = m.options.isPersistent(peer.ID)
+	peer.Unconditional = m.options.isUnconditional(peer.ID)
 	peer.FixedScore = m.options.PeerScores[peer.ID]
 	return peer
 }
@@ -434,7 +458,7 @@ func (m *PeerManager) HasMaxPeerCapacity() bool {
 	m.mtx.Lock()
 	defer m.mtx.Unlock()
 
-	return len(m.connected) >= int(m.options.MaxConnected)
+	return m.NumConnected() >= int(m.options.MaxConnected)
 }
 
 // DialNext finds an appropriate peer address to dial, and marks it as dialing.
@@ -464,7 +488,7 @@ func (m *PeerManager) TryDialNext() (NodeAddress, error) {
 	// We allow dialing MaxConnected+MaxConnectedUpgrade peers. Including
 	// MaxConnectedUpgrade allows us to probe additional peers that have a
 	// higher score than any other peers, and if successful evict it.
-	if m.options.MaxConnected > 0 && len(m.connected)+len(m.dialing) >=
+	if m.options.MaxConnected > 0 && m.NumConnected()+len(m.dialing) >=
 		int(m.options.MaxConnected)+int(m.options.MaxConnectedUpgrade) {
 		return NodeAddress{}, nil
 	}
@@ -486,7 +510,7 @@ func (m *PeerManager) TryDialNext() (NodeAddress, error) {
 			// If we don't find one, there is no point in trying additional
 			// peers, since they will all have the same or lower score than this
 			// peer (since they're ordered by score via peerStore.Ranked).
-			if m.options.MaxConnected > 0 && len(m.connected) >= int(m.options.MaxConnected) {
+			if m.options.MaxConnected > 0 && m.NumConnected() >= int(m.options.MaxConnected) {
 				upgradeFromPeer := m.findUpgradeCandidate(peer.ID, peer.Score())
 				if upgradeFromPeer == "" {
 					return NodeAddress{}, nil
@@ -578,8 +602,8 @@ func (m *PeerManager) Dialed(address NodeAddress) error {
 		dupeConnectionErr := fmt.Errorf("cant dial, peer=%q is already connected", address.NodeID)
 		return dupeConnectionErr
 	}
-	if m.options.MaxConnected > 0 && len(m.connected) >= int(m.options.MaxConnected) {
-		if upgradeFromPeer == "" || len(m.connected) >=
+	if m.options.MaxConnected > 0 && m.NumConnected() >= int(m.options.MaxConnected) {
+		if upgradeFromPeer == "" || m.NumConnected() >=
 			int(m.options.MaxConnected)+int(m.options.MaxConnectedUpgrade) {
 			return fmt.Errorf("already connected to maximum number of peers")
 		}
@@ -602,7 +626,7 @@ func (m *PeerManager) Dialed(address NodeAddress) error {
 	}
 
 	if upgradeFromPeer != "" && m.options.MaxConnected > 0 &&
-		len(m.connected) >= int(m.options.MaxConnected) {
+		m.NumConnected() >= int(m.options.MaxConnected) {
 		// Look for an even lower-scored peer that may have appeared since we
 		// started the upgrade.
 		if p, ok := m.store.Get(upgradeFromPeer); ok {
@@ -647,7 +671,7 @@ func (m *PeerManager) Accepted(peerID types.NodeID) error {
 		return dupeConnectionErr
 	}
 	if m.options.MaxConnected > 0 &&
-		len(m.connected) >= int(m.options.MaxConnected)+int(m.options.MaxConnectedUpgrade) {
+		m.NumConnected() >= int(m.options.MaxConnected)+int(m.options.MaxConnectedUpgrade) {
 		return fmt.Errorf("already connected to maximum number of peers")
 	}
 
@@ -665,7 +689,7 @@ func (m *PeerManager) Accepted(peerID types.NodeID) error {
 	// above that we have upgrade capacity), then we can look for a lower-scored
 	// peer to replace and if found accept the connection anyway and evict it.
 	var upgradeFromPeer types.NodeID
-	if m.options.MaxConnected > 0 && len(m.connected) >= int(m.options.MaxConnected) {
+	if m.options.MaxConnected > 0 && m.NumConnected() >= int(m.options.MaxConnected) {
 		upgradeFromPeer = m.findUpgradeCandidate(peer.ID, peer.Score())
 		if upgradeFromPeer == "" {
 			return fmt.Errorf("already connected to maximum number of peers")
@@ -740,7 +764,7 @@ func (m *PeerManager) TryEvictNext() (types.NodeID, error) {
 
 	// If we're below capacity, we don't need to evict anything.
 	if m.options.MaxConnected == 0 ||
-		len(m.connected)-len(m.evicting) <= int(m.options.MaxConnected) {
+		m.NumConnected()-len(m.evicting) <= int(m.options.MaxConnected) {
 		return "", nil
 	}
 
@@ -835,6 +859,16 @@ func (m *PeerManager) Advertise(peerID types.NodeID, limit uint16) []NodeAddress
 	}
 
 	return addresses
+}
+
+func (m *PeerManager) NumConnected() int {
+	cnt := 0
+	for peer := range m.connected {
+		if !m.options.isUnconditional(peer) {
+			cnt++
+		}
+	}
+	return cnt
 }
 
 // PeerEventSubscriber describes the type of the subscription method, to assist
@@ -1186,7 +1220,14 @@ func (s *peerStore) Ranked() []*peerInfo {
 
 // Size returns the number of peers in the peer store.
 func (s *peerStore) Size() int {
-	return len(s.peers)
+	// exclude unconditional peers
+	cnt := 0
+	for _, peer := range s.peers {
+		if !peer.Unconditional {
+			cnt++
+		}
+	}
+	return cnt
 }
 
 // peerInfo contains peer information stored in a peerStore.
@@ -1196,10 +1237,11 @@ type peerInfo struct {
 	LastConnected time.Time
 
 	// These fields are ephemeral, i.e. not persisted to the database.
-	Persistent bool
-	Seed       bool
-	Height     int64
-	FixedScore PeerScore // mainly for tests
+	Persistent    bool
+	Unconditional bool
+	Seed          bool
+	Height        int64
+	FixedScore    PeerScore // mainly for tests
 
 	MutableScore int64 // updated by router
 }
@@ -1261,6 +1303,9 @@ func (p *peerInfo) Copy() peerInfo {
 func (p *peerInfo) Score() PeerScore {
 	if p.FixedScore > 0 {
 		return p.FixedScore
+	}
+	if p.Unconditional {
+		return PeerScoreUnconditional
 	}
 	if p.Persistent {
 		return PeerScorePersistent

@@ -665,6 +665,9 @@ type P2PConfig struct { //nolint: maligned
 	// layer uses. Options are: "fifo" and "priority",
 	// with the default being "priority".
 	QueueType string `mapstructure:"queue-type"`
+
+	// List of node IDs, to which a connection will be (re)established ignoring any existing limits
+	UnconditionalPeerIDs string `mapstructure:"unconditional-peer-ids"`
 }
 
 // DefaultP2PConfig returns a default configuration for the peer-to-peer layer

@@ -191,6 +191,67 @@ func TestNewPeerManager_Persistence(t *testing.T) {
 	}, peerManager.Scores())
 }
 
+func TestNewPeerManager_Unconditional(t *testing.T) {
+	aID := types.NodeID(strings.Repeat("a", 40))
+	aAddresses := []p2p.NodeAddress{
+		{Protocol: "tcp", NodeID: aID, Hostname: "127.0.0.1", Port: 26657, Path: "/path"},
+		{Protocol: "memory", NodeID: aID},
+	}
+
+	bID := types.NodeID(strings.Repeat("b", 40))
+	bAddresses := []p2p.NodeAddress{
+		{Protocol: "tcp", NodeID: bID, Hostname: "b10c::1", Port: 26657, Path: "/path"},
+		{Protocol: "memory", NodeID: bID},
+	}
+
+	cID := types.NodeID(strings.Repeat("c", 40))
+	cAddresses := []p2p.NodeAddress{
+		{Protocol: "tcp", NodeID: cID, Hostname: "host.domain", Port: 80},
+		{Protocol: "memory", NodeID: cID},
+	}
+
+	// Create an initial peer manager and add the peers.
+	db := dbm.NewMemDB()
+	peerManager, err := p2p.NewPeerManager(selfID, db, p2p.PeerManagerOptions{
+		UnconditionalPeers: []types.NodeID{aID},
+		PeerScores:         map[types.NodeID]p2p.PeerScore{bID: 1},
+	})
+	require.NoError(t, err)
+
+	for _, addr := range append(append(aAddresses, bAddresses...), cAddresses...) {
+		added, err := peerManager.Add(addr)
+		require.NoError(t, err)
+		require.True(t, added)
+	}
+
+	require.ElementsMatch(t, aAddresses, peerManager.Addresses(aID))
+	require.ElementsMatch(t, bAddresses, peerManager.Addresses(bID))
+	require.ElementsMatch(t, cAddresses, peerManager.Addresses(cID))
+	require.Equal(t, map[types.NodeID]p2p.PeerScore{
+		aID: p2p.PeerScoreUnconditional,
+		bID: 1,
+		cID: 0,
+	}, peerManager.Scores())
+
+	// Creating a new peer manager with the same database should retain the
+	// peers, but they should have updated scores from the new PersistentPeers
+	// configuration.
+	peerManager, err = p2p.NewPeerManager(selfID, db, p2p.PeerManagerOptions{
+		UnconditionalPeers: []types.NodeID{bID},
+		PeerScores:         map[types.NodeID]p2p.PeerScore{cID: 1},
+	})
+	require.NoError(t, err)
+
+	require.ElementsMatch(t, aAddresses, peerManager.Addresses(aID))
+	require.ElementsMatch(t, bAddresses, peerManager.Addresses(bID))
+	require.ElementsMatch(t, cAddresses, peerManager.Addresses(cID))
+	require.Equal(t, map[types.NodeID]p2p.PeerScore{
+		aID: 0,
+		bID: p2p.PeerScoreUnconditional,
+		cID: 1,
+	}, peerManager.Scores())
+}
+
 func TestNewPeerManager_SelfIDChange(t *testing.T) {
 	a := p2p.NodeAddress{Protocol: "memory", NodeID: types.NodeID(strings.Repeat("a", 40))}
 	b := p2p.NodeAddress{Protocol: "memory", NodeID: types.NodeID(strings.Repeat("b", 40))}
