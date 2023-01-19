@@ -5,6 +5,7 @@ import (
 	"errors"
 
 	"github.com/cosmos/cosmos-sdk/store/types"
+	sdktypes "github.com/cosmos/cosmos-sdk/types"
 )
 
 // cacheMergeIterator merges a parent Iterator and a cache Iterator.
@@ -18,15 +19,24 @@ type cacheMergeIterator struct {
 	parent    types.Iterator
 	cache     types.Iterator
 	ascending bool
+	eventManager  *sdktypes.EventManager
+	storeKey sdktypes.StoreKey
 }
 
 var _ types.Iterator = (*cacheMergeIterator)(nil)
 
-func NewCacheMergeIterator(parent, cache types.Iterator, ascending bool) *cacheMergeIterator {
+func NewCacheMergeIterator(
+	parent, cache types.Iterator, 
+	ascending bool,
+	eventManager *sdktypes.EventManager,
+	storeKey sdktypes.StoreKey,
+) *cacheMergeIterator {
 	iter := &cacheMergeIterator{
 		parent:    parent,
 		cache:     cache,
 		ascending: ascending,
+		eventManager: eventManager,
+		storeKey: storeKey,
 	}
 
 	return iter
@@ -127,12 +137,16 @@ func (iter *cacheMergeIterator) Value() []byte {
 
 	// If parent is invalid, get the cache value.
 	if !iter.parent.Valid() {
-		return iter.cache.Value()
+		value := iter.cache.Value()
+		iter.eventManager.EmitResourceAccessReadEvent("iterator", iter.storeKey, iter.cache.Key(), value)
+		return value
 	}
 
 	// If cache is invalid, get the parent value.
 	if !iter.cache.Valid() {
-		return iter.parent.Value()
+		value := iter.parent.Value()
+		iter.eventManager.EmitResourceAccessReadEvent("iterator", iter.storeKey, iter.parent.Key(), value)
+		return value
 	}
 
 	// Both are valid.  Compare keys.
@@ -141,11 +155,13 @@ func (iter *cacheMergeIterator) Value() []byte {
 	cmp := iter.compare(keyP, keyC)
 	switch cmp {
 	case -1: // parent < cache
-		return iter.parent.Value()
-	case 0: // parent == cache
-		return iter.cache.Value()
-	case 1: // parent > cache
-		return iter.cache.Value()
+		value := iter.parent.Value()
+		iter.eventManager.EmitResourceAccessReadEvent("iterator", iter.storeKey, keyP, value)
+		return value
+	case 0, 1: // parent >= cache
+		value := iter.cache.Value()
+		iter.eventManager.EmitResourceAccessReadEvent("iterator", iter.storeKey, keyC, value)
+		return value
 	default:
 		panic("invalid comparison result")
 	}
