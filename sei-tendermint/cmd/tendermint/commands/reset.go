@@ -180,3 +180,23 @@ func ResetPeerStore(dbDir string) error {
 	}
 	return nil
 }
+
+func MakeUnsafeResetAllCommand(conf *config.Config, logger log.Logger) *cobra.Command {
+	var keyType string
+
+	resetAllCmd := &cobra.Command{
+		Use:   "unsafe-reset-all",
+		Short: "Removes all tendermint data including signing state",
+		Long: `Removes all tendermint data including signing state.
+Only use in testing. This can cause the node to double sign`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return ResetAll(conf.DBDir(), conf.PrivValidator.KeyFile(),
+				conf.PrivValidator.StateFile(), logger, keyType)
+		},
+	}
+
+	resetAllCmd.Flags().StringVar(&keyType, "key", types.ABCIPubKeyTypeEd25519,
+		"Signer key type. Options: ed25519, secp256k1")
+
+	return resetAllCmd
+}

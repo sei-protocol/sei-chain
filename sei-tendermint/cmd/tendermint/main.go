@@ -34,6 +34,7 @@ func main() {
 		commands.MakeReplayCommand(conf, logger),
 		commands.MakeReplayConsoleCommand(conf, logger),
 		commands.MakeResetCommand(conf, logger),
+		commands.MakeUnsafeResetAllCommand(conf, logger),
 		commands.MakeShowValidatorCommand(conf, logger),
 		commands.MakeTestnetFilesCommand(conf, logger),
 		commands.MakeShowNodeIDCommand(conf),
