@@ -2,6 +2,7 @@ package utils
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 	"time"
 
@@ -47,8 +48,9 @@ func sudo(sdkCtx sdk.Context, k *keeper.Keeper, contractAddress sdk.AccAddress, 
 		return nil, 0, err
 	}
 	tmpCtx := sdkCtx.WithGasMeter(sdk.NewGasMeter(gasLimit))
-	data, err := sudoWithoutOutOfGasPanic(tmpCtx, k, contractAddress, wasmMsg)
+	data, err := sudoWithoutOutOfGasPanic(tmpCtx, k, contractAddress, wasmMsg, msgType)
 	gasConsumed := tmpCtx.GasMeter().GasConsumed()
+	sdkCtx.Logger().Info(fmt.Sprintf("%s %s consumed %d gas", contractAddress.String(), msgType, gasConsumed))
 	if gasConsumed > 0 {
 		sdkCtx.GasMeter().ConsumeGas(gasConsumed, "sudo")
 	}
@@ -58,12 +60,14 @@ func sudo(sdkCtx sdk.Context, k *keeper.Keeper, contractAddress sdk.AccAddress, 
 	return data, gasConsumed, err
 }
 
-func sudoWithoutOutOfGasPanic(ctx sdk.Context, k *keeper.Keeper, contractAddress []byte, wasmMsg []byte) ([]byte, error) {
+func sudoWithoutOutOfGasPanic(ctx sdk.Context, k *keeper.Keeper, contractAddress []byte, wasmMsg []byte, logName string) ([]byte, error) {
 	defer func() {
 		if err := recover(); err != nil {
 			// only propagate panic if the error is out of gas
 			if _, ok := err.(sdk.ErrorOutOfGas); !ok {
 				panic(err)
+			} else {
+				ctx.Logger().Error(fmt.Sprintf("%s %s is out of gas", sdk.AccAddress(contractAddress).String(), logName))
 			}
 		}
 	}()
