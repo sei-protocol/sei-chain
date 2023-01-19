@@ -1,7 +1,6 @@
 package keeper
 
 import (
-	"fmt"
 	"sort"
 	"strings"
 
@@ -89,7 +88,8 @@ func (k Keeper) ApplyWhitelist(ctx sdk.Context, whitelist types.DenomList, voteT
 			if _, ok := k.bankKeeper.GetDenomMetaData(ctx, item.Name); !ok {
 				base := item.Name
 				display := base[1:]
-				nameSymbol := fmt.Sprintf("%s", strings.ToUpper(display))
+				nameSymbol := strings.ToUpper(display)
+
 				k.bankKeeper.SetDenomMetaData(ctx, banktypes.Metadata{
 					Description: display,
 					DenomUnits: []*banktypes.DenomUnit{
