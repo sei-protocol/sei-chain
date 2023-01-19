@@ -199,7 +199,7 @@ func orderMatchingRunnable(ctx context.Context, sdkContext sdk.Context, env *env
 	}
 	parentSdkContext := sdkContext
 	sdkContext = decorateContextForContract(sdkContext, contractInfo)
-	sdkContext.Logger().Info(fmt.Sprintf("End block for %s", contractInfo.ContractAddr))
+	sdkContext.Logger().Info(fmt.Sprintf("End block for %s with balance of %d", contractInfo.ContractAddr, contractInfo.RentBalance))
 	pairs, pairFound := env.registeredPairs.Load(contractInfo.ContractAddr)
 	orderBooks, found := env.orderBooks.Load(contractInfo.ContractAddr)
 

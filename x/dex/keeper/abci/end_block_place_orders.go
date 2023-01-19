@@ -41,7 +41,9 @@ func (w KeeperWrapper) HandleEBPlaceOrders(ctx context.Context, sdkCtx sdk.Conte
 			sdkCtx.Logger().Error("Failed to parse order placement response")
 			return err
 		}
-		sdkCtx.Logger().Info(fmt.Sprintf("Sudo response data: %s", response))
+		if len(response.UnsuccessfulOrders) > 0 {
+			sdkCtx.Logger().Info(fmt.Sprintf("%s has %d unsuccessful order placements", contractAddr, len(response.UnsuccessfulOrders)))
+		}
 		responses = append(responses, response)
 	}
 
