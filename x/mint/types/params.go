@@ -35,8 +35,11 @@ func NewParams(
 // default minting module parameters
 func DefaultParams() Params {
 	return Params{
-		MintDenom:            sdk.DefaultBondDenom,
-		TokenReleaseSchedule: []ScheduledTokenRelease{},
+		MintDenom: sdk.DefaultBondDenom,
+		TokenReleaseSchedule: []ScheduledTokenRelease{
+			{"2023-01-20", 123456789},
+			{"2023-01-21", 123456789},
+		},
 	}
 }
 

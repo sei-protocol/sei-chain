@@ -12,10 +12,10 @@ import (
 // provisions values.
 func NewMinter(lastMintAmount sdk.Dec, lastMintDate string, lastMintHeight int64, denom string) Minter {
 	return Minter{
-		LastMintAmount: 	lastMintAmount,
-		LastMintDate: 	lastMintDate,
+		LastMintAmount: lastMintAmount,
+		LastMintDate:   lastMintDate,
 		LastMintHeight: lastMintHeight,
-		Denom: denom,
+		Denom:          denom,
 	}
 }
 
