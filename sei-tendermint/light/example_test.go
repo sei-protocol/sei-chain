@@ -2,6 +2,7 @@ package light_test
 
 import (
 	"context"
+	"github.com/tendermint/tendermint/light/provider"
 	"testing"
 	"time"
 
@@ -67,7 +68,7 @@ func TestExampleClient(t *testing.T) {
 			Hash:   block.Hash(),
 		},
 		primary,
-		nil,
+		[]provider.Provider{primary},
 		dbs.New(db),
 		light.Logger(logger),
 	)

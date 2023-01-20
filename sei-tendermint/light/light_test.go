@@ -2,6 +2,7 @@ package light_test
 
 import (
 	"context"
+	"os"
 	"testing"
 	"time"
 
@@ -42,6 +43,9 @@ func TestClientIntegration_Update(t *testing.T) {
 	time.Sleep(5 * time.Second)
 
 	dbDir := t.TempDir()
+	require.NoError(t, err)
+	defer os.RemoveAll(dbDir)
+
 	chainID := conf.ChainID()
 
 	primary, err := httpp.New(chainID, conf.RPC.ListenAddress)
@@ -63,7 +67,7 @@ func TestClientIntegration_Update(t *testing.T) {
 			Hash:   block.Hash(),
 		},
 		primary,
-		nil,
+		[]provider.Provider{primary},
 		dbs.New(db),
 		light.Logger(logger),
 	)
@@ -120,7 +124,7 @@ func TestClientIntegration_VerifyLightBlockAtHeight(t *testing.T) {
 			Hash:   block.Hash(),
 		},
 		primary,
-		nil,
+		[]provider.Provider{primary},
 		dbs.New(db),
 		light.Logger(logger),
 	)
@@ -187,9 +191,9 @@ func TestClientStatusRPC(t *testing.T) {
 	db, err := dbm.NewGoLevelDB("light-client-db", dbDir)
 	require.NoError(t, err)
 
-	// In order to not create a full testnet we create the light client with no witnesses
-	// and only verify the primary IP address.
-	witnesses := []provider.Provider{}
+	// In order to not create a full testnet to verify whether we get the correct IPs
+	// if we have more than one witness, we add the primary multiple times
+	witnesses := []provider.Provider{primary, primary, primary}
 
 	c, err := light.NewClient(ctx,
 		chainID,

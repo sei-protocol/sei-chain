@@ -84,7 +84,7 @@ func BenchmarkSequence(b *testing.B) {
 			Hash:   genesisBlock.Hash(),
 		},
 		benchmarkFullNode,
-		nil,
+		[]provider.Provider{benchmarkFullNode},
 		dbs.New(dbm.NewMemDB()),
 		light.Logger(logger),
 		light.SequentialVerification(),
@@ -121,7 +121,7 @@ func BenchmarkBisection(b *testing.B) {
 			Hash:   genesisBlock.Hash(),
 		},
 		benchmarkFullNode,
-		nil,
+		[]provider.Provider{benchmarkFullNode},
 		dbs.New(dbm.NewMemDB()),
 		light.Logger(logger),
 	)
@@ -157,7 +157,7 @@ func BenchmarkBackwards(b *testing.B) {
 			Hash:   trustedBlock.Hash(),
 		},
 		benchmarkFullNode,
-		nil,
+		[]provider.Provider{benchmarkFullNode},
 		dbs.New(dbm.NewMemDB()),
 		light.Logger(logger),
 	)

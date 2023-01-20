@@ -3,6 +3,7 @@ package light_test
 import (
 	"bytes"
 	"context"
+	provider_mocks "github.com/tendermint/tendermint/light/provider/mocks"
 	"testing"
 	"time"
 
@@ -15,7 +16,6 @@ import (
 	"github.com/tendermint/tendermint/libs/log"
 	"github.com/tendermint/tendermint/light"
 	"github.com/tendermint/tendermint/light/provider"
-	provider_mocks "github.com/tendermint/tendermint/light/provider/mocks"
 	dbs "github.com/tendermint/tendermint/light/store/db"
 	"github.com/tendermint/tendermint/types"
 )
@@ -56,7 +56,7 @@ func TestLightClientAttackEvidence_Lunatic(t *testing.T) {
 	delete(primaryHeaders, 2)
 
 	mockWitness := mockNodeFromHeadersAndVals(witnessHeaders, witnessValidators)
-	mockWitness.On("ID").Return("mockWitness")
+	mockPrimary := mockNodeFromHeadersAndVals(primaryHeaders, primaryValidators)
 	mockWitness.On("ReportEvidence", mock.Anything, mock.MatchedBy(func(evidence types.Evidence) bool {
 		evAgainstPrimary := &types.LightClientAttackEvidence{
 			// after the divergence height the valset doesn't change so we expect the evidence to be for the latest height
@@ -69,8 +69,6 @@ func TestLightClientAttackEvidence_Lunatic(t *testing.T) {
 		return bytes.Equal(evidence.Hash(), evAgainstPrimary.Hash())
 	})).Return(nil)
 
-	mockPrimary := mockNodeFromHeadersAndVals(primaryHeaders, primaryValidators)
-	mockPrimary.On("ID").Return("mockPrimary")
 	mockPrimary.On("ReportEvidence", mock.Anything, mock.MatchedBy(func(evidence types.Evidence) bool {
 		evAgainstWitness := &types.LightClientAttackEvidence{
 			// when forming evidence against witness we learn that the canonical chain continued to change validator sets
@@ -174,13 +172,11 @@ func TestLightClientAttackEvidence_Equivocation(t *testing.T) {
 				delete(witnessHeaders, height)
 			}
 			mockWitness := mockNodeFromHeadersAndVals(witnessHeaders, witnessValidators)
-			mockWitness.On("ID").Return("mockWitness")
 
 			for _, height := range testCase.unusedPrimaryBlockHeights {
 				delete(primaryHeaders, height)
 			}
 			mockPrimary := mockNodeFromHeadersAndVals(primaryHeaders, primaryValidators)
-			mockPrimary.On("ID").Return("mockPrimary")
 
 			// Check evidence was sent to both full nodes.
 			// Common height should be set to the height of the divergent header in the instance
@@ -279,13 +275,11 @@ func TestLightClientAttackEvidence_ForwardLunatic(t *testing.T) {
 		0, len(forgedKeys),
 	)
 	mockPrimary := mockNodeFromHeadersAndVals(primaryHeaders, primaryValidators)
-	mockPrimary.On("ID").Return("mockPrimary")
 	lastBlock, _ := mockPrimary.LightBlock(ctx, forgedHeight)
 	mockPrimary.On("LightBlock", mock.Anything, int64(0)).Return(lastBlock, nil)
 	mockPrimary.On("LightBlock", mock.Anything, mock.Anything).Return(nil, provider.ErrLightBlockNotFound)
 
 	mockWitness := mockNodeFromHeadersAndVals(witnessHeaders, witnessValidators)
-	mockWitness.On("ID").Return("mockWitness")
 	lastBlock, _ = mockWitness.LightBlock(ctx, latestHeight)
 	mockWitness.On("LightBlock", mock.Anything, int64(0)).Return(lastBlock, nil).Once()
 	mockWitness.On("LightBlock", mock.Anything, int64(12)).Return(nil, provider.ErrHeightTooHigh)
@@ -304,11 +298,7 @@ func TestLightClientAttackEvidence_ForwardLunatic(t *testing.T) {
 
 	// In order to perform the attack, the primary needs at least one accomplice as a witness to also
 	// send the forged block
-	accomplice := mockNodeFromHeadersAndVals(primaryHeaders, primaryValidators)
-	accomplice.On("ID").Return("accomplice")
-	lastBlock, _ = accomplice.LightBlock(ctx, forgedHeight)
-	accomplice.On("LightBlock", mock.Anything, int64(0)).Return(lastBlock, nil)
-	accomplice.On("LightBlock", mock.Anything, mock.Anything).Return(nil, provider.ErrLightBlockNotFound)
+	accomplice := mockPrimary
 
 	c, err := light.NewClient(
 		ctx,
@@ -367,7 +357,6 @@ func TestLightClientAttackEvidence_ForwardLunatic(t *testing.T) {
 	// Lastly we test the unfortunate case where the light clients supporting witness doesn't update
 	// in enough time
 	mockLaggingWitness := mockNodeFromHeadersAndVals(witnessHeaders, witnessValidators)
-	mockLaggingWitness.On("ID").Return("mockLaggingWitness")
 	mockLaggingWitness.On("LightBlock", mock.Anything, int64(12)).Return(nil, provider.ErrHeightTooHigh)
 	lastBlock, _ = mockLaggingWitness.LightBlock(ctx, latestHeight)
 	mockLaggingWitness.On("LightBlock", mock.Anything, int64(0)).Return(lastBlock, nil)
@@ -391,7 +380,6 @@ func TestLightClientAttackEvidence_ForwardLunatic(t *testing.T) {
 	_, err = c.Update(ctx, bTime.Add(time.Duration(forgedHeight)*time.Minute))
 	assert.NoError(t, err)
 	mockPrimary.AssertExpectations(t)
-	mockWitness.AssertExpectations(t)
 }
 
 // 1. Different nodes therefore a divergent header is produced.
@@ -403,13 +391,11 @@ func TestClientDivergentTraces1(t *testing.T) {
 
 	headers, vals, _ := genLightBlocksWithKeys(t, 1, 5, 2, bTime)
 	mockPrimary := mockNodeFromHeadersAndVals(headers, vals)
-	mockPrimary.On("ID").Return("mockPrimary")
 
 	firstBlock, err := mockPrimary.LightBlock(ctx, 1)
 	require.NoError(t, err)
 	headers, vals, _ = genLightBlocksWithKeys(t, 1, 5, 2, bTime)
 	mockWitness := mockNodeFromHeadersAndVals(headers, vals)
-	mockWitness.On("ID").Return("mockWitness")
 
 	logger := log.NewNopLogger()
 
@@ -441,19 +427,8 @@ func TestClientDivergentTraces2(t *testing.T) {
 
 	headers, vals, _ := genLightBlocksWithKeys(t, 2, 5, 2, bTime)
 	mockPrimaryNode := mockNodeFromHeadersAndVals(headers, vals)
-	mockPrimaryNode.On("ID").Return("mockPrimaryNode")
-
-	mockGoodWitness := mockNodeFromHeadersAndVals(headers, vals)
-	mockGoodWitness.On("ID").Return("mockGoodWitness")
-
-	mockDeadNode1 := &provider_mocks.Provider{}
-	mockDeadNode1.On("ID").Return("mockDeadNode1")
-	mockDeadNode1.On("LightBlock", mock.Anything, mock.Anything).Return(nil, provider.ErrNoResponse)
-
-	mockDeadNode2 := &provider_mocks.Provider{}
-	mockDeadNode2.On("ID").Return("mockDeadNode2")
-	mockDeadNode2.On("LightBlock", mock.Anything, mock.Anything).Return(nil, provider.ErrNoResponse)
-
+	mockDeadNode := &provider_mocks.Provider{}
+	mockDeadNode.On("LightBlock", mock.Anything, mock.Anything).Return(nil, provider.ErrNoResponse)
 	firstBlock, err := mockPrimaryNode.LightBlock(ctx, 1)
 	require.NoError(t, err)
 	c, err := light.NewClient(
@@ -465,7 +440,7 @@ func TestClientDivergentTraces2(t *testing.T) {
 			Period: 4 * time.Hour,
 		},
 		mockPrimaryNode,
-		[]provider.Provider{mockDeadNode1, mockDeadNode2, mockGoodWitness},
+		[]provider.Provider{mockDeadNode, mockDeadNode, mockPrimaryNode},
 		dbs.New(dbm.NewMemDB()),
 		light.Logger(logger),
 	)
@@ -474,20 +449,19 @@ func TestClientDivergentTraces2(t *testing.T) {
 	_, err = c.VerifyLightBlockAtHeight(ctx, 2, bTime.Add(1*time.Hour))
 	assert.NoError(t, err)
 	assert.Equal(t, 3, len(c.Witnesses()))
-	mockDeadNode1.AssertExpectations(t)
+	mockDeadNode.AssertExpectations(t)
 	mockPrimaryNode.AssertExpectations(t)
 }
 
 // 3. witness has the same first header, but different second header
 // => creation should succeed, but the verification should fail
-//nolint: dupl
+// nolint: dupl
 func TestClientDivergentTraces3(t *testing.T) {
 	logger := log.NewNopLogger()
 
 	//
 	primaryHeaders, primaryVals, _ := genLightBlocksWithKeys(t, 2, 5, 2, bTime)
 	mockPrimary := mockNodeFromHeadersAndVals(primaryHeaders, primaryVals)
-	mockPrimary.On("ID").Return("mockPrimary")
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -499,7 +473,6 @@ func TestClientDivergentTraces3(t *testing.T) {
 	mockHeaders[1] = primaryHeaders[1]
 	mockVals[1] = primaryVals[1]
 	mockWitness := mockNodeFromHeadersAndVals(mockHeaders, mockVals)
-	mockWitness.On("ID").Return("mockWitness")
 
 	c, err := light.NewClient(
 		ctx,
@@ -525,14 +498,13 @@ func TestClientDivergentTraces3(t *testing.T) {
 
 // 4. Witness has a divergent header but can not produce a valid trace to back it up.
 // It should be ignored
-//nolint: dupl
+// nolint: dupl
 func TestClientDivergentTraces4(t *testing.T) {
 	logger := log.NewNopLogger()
 
 	//
 	primaryHeaders, primaryVals, _ := genLightBlocksWithKeys(t, 2, 5, 2, bTime)
 	mockPrimary := mockNodeFromHeadersAndVals(primaryHeaders, primaryVals)
-	mockPrimary.On("ID").Return("mockPrimary")
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -544,7 +516,6 @@ func TestClientDivergentTraces4(t *testing.T) {
 	primaryHeaders[2] = witnessHeaders[2]
 	primaryVals[2] = witnessVals[2]
 	mockWitness := mockNodeFromHeadersAndVals(primaryHeaders, primaryVals)
-	mockWitness.On("ID").Return("mockWitness")
 
 	c, err := light.NewClient(
 		ctx,

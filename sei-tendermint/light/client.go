@@ -142,20 +142,6 @@ type Client struct {
 	logger log.Logger
 }
 
-func validatePrimaryAndWitnesses(primary provider.Provider, witnesses []provider.Provider) error {
-	witnessMap := make(map[string]struct{})
-	for _, w := range witnesses {
-		if w.ID() == primary.ID() {
-			return fmt.Errorf("primary (%s) cannot be also configured as witness", primary.ID())
-		}
-		if _, duplicate := witnessMap[w.ID()]; duplicate {
-			return fmt.Errorf("witness list must not contain duplicates; duplicate found: %s", w.ID())
-		}
-		witnessMap[w.ID()] = struct{}{}
-	}
-	return nil
-}
-
 // NewClient returns a new light client. It returns an error if it fails to
 // obtain the light block from the primary, or they are invalid (e.g. trust
 // hash does not match with the one from the headers).
@@ -189,9 +175,9 @@ func NewClient(
 		)
 	}
 
-	// Check that the witness list does not include duplicates or the primary
-	if err := validatePrimaryAndWitnesses(primary, witnesses); err != nil {
-		return nil, err
+	// Validate the number of witnesses.
+	if len(witnesses) < 1 {
+		return nil, ErrNoWitnesses
 	}
 
 	// Validate trust options
@@ -240,11 +226,6 @@ func NewClientFromTrustedStore(
 	witnesses []provider.Provider,
 	trustedStore store.Store,
 	options ...Option) (*Client, error) {
-
-	// Check that the witness list does not include duplicates or the primary
-	if err := validatePrimaryAndWitnesses(primary, witnesses); err != nil {
-		return nil, err
-	}
 
 	c := &Client{
 		chainID:          chainID,
@@ -331,10 +312,10 @@ func (c *Client) initializeWithTrustOptions(ctx context.Context, options TrustOp
 // TrustedLightBlock returns a trusted light block at the given height (0 - the latest).
 //
 // It returns an error if:
-//  - there are some issues with the trusted store, although that should not
-//  happen normally;
-//  - negative height is passed;
-//  - header has not been verified yet and is therefore not in the store
+//   - there are some issues with the trusted store, although that should not
+//     happen normally;
+//   - negative height is passed;
+//   - header has not been verified yet and is therefore not in the store
 //
 // Safe for concurrent use by multiple goroutines.
 func (c *Client) TrustedLightBlock(height int64) (*types.LightBlock, error) {
@@ -448,8 +429,9 @@ func (c *Client) VerifyLightBlockAtHeight(ctx context.Context, height int64, now
 //
 // If the header, which is older than the currently trusted header, is
 // requested and the light client does not have it, VerifyHeader will perform:
-//		a) verifySkipping verification if nearest trusted header is found & not expired
-//		b) backwards verification in all other cases
+//
+//	a) verifySkipping verification if nearest trusted header is found & not expired
+//	b) backwards verification in all other cases
 //
 // It returns ErrOldHeaderExpired if the latest trusted header expired.
 //
@@ -930,12 +912,12 @@ func (c *Client) backwards(
 // lightBlockFromPrimary retrieves the lightBlock from the primary provider
 // at the specified height. This method also handles provider behavior as follows:
 //
-// 1. If the provider does not respond or does not have the block, it tries again
-//    with a different provider
-// 2. If all providers return the same error, the light client forwards the error to
-//    where the initial request came from
-// 3. If the provider provides an invalid light block, is deemed unreliable or returns
-//    any other error, the primary is permanently dropped and is replaced by a witness.
+//  1. If the provider does not respond or does not have the block, it tries again
+//     with a different provider
+//  2. If all providers return the same error, the light client forwards the error to
+//     where the initial request came from
+//  3. If the provider provides an invalid light block, is deemed unreliable or returns
+//     any other error, the primary is permanently dropped and is replaced by a witness.
 func (c *Client) lightBlockFromPrimary(ctx context.Context, height int64) (*types.LightBlock, error) {
 	c.providerMutex.Lock()
 	l, err := c.getLightBlock(ctx, c.primary, height)
@@ -1096,7 +1078,7 @@ func (c *Client) compareFirstHeaderWithWitnesses(ctx context.Context, h *types.S
 	defer c.providerMutex.Unlock()
 
 	if len(c.witnesses) < 1 {
-		return nil
+		return ErrNoWitnesses
 	}
 
 	errc := make(chan error, len(c.witnesses))
