@@ -15,9 +15,9 @@ service Query {
   }
 
   // EpochProvisions current minting epoch provisions value.
-  rpc EpochProvisions(QueryEpochProvisionsRequest)
-      returns (QueryEpochProvisionsResponse) {
-    option (google.api.http).get = "/seichain/mint/v1beta1/epoch_provisions";
+  rpc Minter(QueryMinterRequest)
+      returns (QueryMinterResponse) {
+    option (google.api.http).get = "/seichain/mint/v1beta1/minter";
   }
 }
 
@@ -30,16 +30,25 @@ message QueryParamsResponse {
   Params params = 1 [(gogoproto.nullable) = false];
 }
 
-// QueryEpochProvisionsRequest is the request type for the
-// Query/EpochProvisions RPC method.
-message QueryEpochProvisionsRequest {}
+// QueryMinterRequest is the request type for the
+// Query/Minter RPC method.
+message QueryMinterRequest {}
 
-// QueryEpochProvisionsResponse is the response type for the
-// Query/EpochProvisions RPC method.
-message QueryEpochProvisionsResponse {
-  // epoch_provisions is the current minting per epoch provisions value.
-  bytes epoch_provisions = 1 [
+// QueryMinterResponse is the response type for the
+// Query/Minter RPC method.
+message QueryMinterResponse {
+  string last_mint_amount = 1 [
+    (gogoproto.moretags) = "yaml:\"last_mint_amount\"",
     (gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Dec",
     (gogoproto.nullable) = false
+    ];
+  string last_mint_date = 2 [
+    (gogoproto.moretags) = "yaml:\"last_mint_date\""
+  ];
+  int64 last_mint_height = 3 [
+    (gogoproto.moretags) = "yaml:\"last_mint_height\""
+  ];
+  string denom = 4 [
+    (gogoproto.moretags) = "yaml:\"denom\""
   ];
 }

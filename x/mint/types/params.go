@@ -14,9 +14,8 @@ import (
 
 // Parameter store keys
 var (
-	KeyMintDenom              = []byte("MintDenom")
-	KeyGenesisEpochProvisions = []byte("GenesisEpochProvisions")
-	KeyTokenReleaseSchedule   = []byte("TokenReleaseSchedule")
+	KeyMintDenom            = []byte("MintDenom")
+	KeyTokenReleaseSchedule = []byte("TokenReleaseSchedule")
 )
 
 // ParamTable for minting module.
@@ -25,30 +24,25 @@ func ParamKeyTable() paramtypes.KeyTable {
 }
 
 func NewParams(
-	mintDenom string, genesisEpochProvisions sdk.Dec, tokenReleaseSchedule []ScheduledTokenRelease,
+	mintDenom string, tokenReleaseSchedule []ScheduledTokenRelease,
 ) Params {
 	return Params{
-		MintDenom:              mintDenom,
-		GenesisEpochProvisions: genesisEpochProvisions,
-		TokenReleaseSchedule:   tokenReleaseSchedule,
+		MintDenom:            mintDenom,
+		TokenReleaseSchedule: tokenReleaseSchedule,
 	}
 }
 
 // default minting module parameters
 func DefaultParams() Params {
 	return Params{
-		MintDenom:              "usei",
-		GenesisEpochProvisions: sdk.NewDec(5000000),
-		TokenReleaseSchedule:   []ScheduledTokenRelease{},
+		MintDenom:            sdk.DefaultBondDenom,
+		TokenReleaseSchedule: []ScheduledTokenRelease{},
 	}
 }
 
 // validate params
 func (p Params) Validate() error {
 	if err := validateMintDenom(p.MintDenom); err != nil {
-		return err
-	}
-	if err := validateGenesisEpochProvisions(p.GenesisEpochProvisions); err != nil {
 		return err
 	}
 	if err := validateTokenReleaseSchedule(p.TokenReleaseSchedule); err != nil {
@@ -67,35 +61,25 @@ func (p Params) String() string {
 func (p *Params) ParamSetPairs() paramtypes.ParamSetPairs {
 	return paramtypes.ParamSetPairs{
 		paramtypes.NewParamSetPair(KeyMintDenom, &p.MintDenom, validateMintDenom),
-		paramtypes.NewParamSetPair(KeyGenesisEpochProvisions, &p.GenesisEpochProvisions, validateGenesisEpochProvisions),
 		paramtypes.NewParamSetPair(KeyTokenReleaseSchedule, &p.TokenReleaseSchedule, validateTokenReleaseSchedule),
 	}
 }
 
 func validateMintDenom(i interface{}) error {
-	v, ok := i.(string)
+	denomString, ok := i.(string)
+	denomTrimed := strings.TrimSpace(denomString)
+
 	if !ok {
 		return fmt.Errorf("invalid parameter type: %T", i)
 	}
-
-	if strings.TrimSpace(v) == "" {
+	if denomTrimed == "" {
 		return errors.New("mint denom cannot be blank")
 	}
-	if err := sdk.ValidateDenom(v); err != nil {
+	if denomTrimed != sdk.DefaultBondDenom {
+		return fmt.Errorf("mint denom must be the same as the default bond denom=%s", sdk.DefaultBondDenom)
+	}
+	if err := sdk.ValidateDenom(denomString); err != nil {
 		return err
-	}
-
-	return nil
-}
-
-func validateGenesisEpochProvisions(i interface{}) error {
-	v, ok := i.(sdk.Dec)
-	if !ok {
-		return fmt.Errorf("invalid parameter type: %T", i)
-	}
-
-	if v.LT(sdk.ZeroDec()) {
-		return fmt.Errorf("genesis epoch provision must be non-negative")
 	}
 
 	return nil
