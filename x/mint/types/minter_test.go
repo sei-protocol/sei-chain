@@ -32,7 +32,7 @@ func getTestTokenReleaseSchedule(currTime time.Time, numReleases int) []Schedule
 	for i := 1; i <= numReleases; i++ {
 		// Token release every year
 		currTime = currTime.AddDate(1, 0, 0)
-		scheduledRelease := ScheduledTokenRelease{Date: currTime.AddDate(1, 0, 0).Format(TokenReleaseDateFormat), TokenReleaseAmount: 2500000 / int64(i)}
+		scheduledRelease := ScheduledTokenRelease{Date: currTime.Format(TokenReleaseDateFormat), TokenReleaseAmount: 2500000 / int64(i)}
 		tokenReleaseSchedule = append(tokenReleaseSchedule, scheduledRelease)
 	}
 
@@ -87,7 +87,7 @@ func TestGetScheduledTokenReleaseNil(t *testing.T) {
 
 	scheduledTokenRelease := GetScheduledTokenRelease(
 		epoch,
-		genesisTime,
+		genesisTime.AddDate(10, 0, 0),
 		tokenReleaseSchedule,
 	)
 	// Should return nil if there are no scheduled releases
@@ -101,12 +101,12 @@ func TestGetScheduledTokenRelease(t *testing.T) {
 
 	scheduledTokenRelease := GetScheduledTokenRelease(
 		epoch,
-		genesisTime,
+		genesisTime.AddDate(4, 0, 0),
 		tokenReleaseSchedule,
 	)
 
 	require.NotNil(t, scheduledTokenRelease)
-	require.Equal(t, scheduledTokenRelease.GetTokenReleaseAmount(), int64(2500000/4))
+	require.Equal(t, scheduledTokenRelease.GetTokenReleaseAmount(), int64(2500000/5))
 	require.Equal(t, scheduledTokenRelease.GetDate(), genesisTime.AddDate(5, 0, 0).Format(TokenReleaseDateFormat))
 }
 

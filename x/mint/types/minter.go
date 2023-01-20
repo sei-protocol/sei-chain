@@ -53,7 +53,7 @@ func GetScheduledTokenRelease(
 	lastTokenReleaseDateString := lastTokenReleaseDate.Format(TokenReleaseDateFormat)
 	for _, scheduledRelease := range tokenReleaseSchedule {
 		scheduledReleaseDate := scheduledRelease.GetDate()
-		if blockDateString >= scheduledReleaseDate && scheduledReleaseDate != lastTokenReleaseDateString {
+		if blockDateString >= scheduledReleaseDate && scheduledReleaseDate > lastTokenReleaseDateString {
 			return &scheduledRelease
 		}
 	}
