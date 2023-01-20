@@ -185,9 +185,9 @@ func (k Keeper) GetWasmDependencyAccessOps(ctx sdk.Context, contractAddress sdk.
 	contractRefs := dependencyMapping.BaseContractReferences
 	// add the specific execute or query contract references based on message type + name
 	specificContractRefs := []*acltypes.WasmContractReferences{}
-	if msgInfo.MessageType == acltypes.WasmMessageSubtype_EXECUTE && len(dependencyMapping.ExecuteContractReferences) != 0 {
+	if msgInfo.MessageType == acltypes.WasmMessageSubtype_EXECUTE && len(dependencyMapping.ExecuteContractReferences) > 0 {
 		specificContractRefs = dependencyMapping.ExecuteContractReferences
-	} else if msgInfo.MessageType == acltypes.WasmMessageSubtype_QUERY && len(dependencyMapping.QueryContractReferences) != 0 {
+	} else if msgInfo.MessageType == acltypes.WasmMessageSubtype_QUERY && len(dependencyMapping.QueryContractReferences) > 0 {
 		specificContractRefs = dependencyMapping.QueryContractReferences
 	}
 	for _, specificContractRef := range specificContractRefs {
