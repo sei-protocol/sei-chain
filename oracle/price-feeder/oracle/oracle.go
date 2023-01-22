@@ -120,21 +120,20 @@ func (o *Oracle) Start(ctx context.Context) error {
 			o.logger.Debug().Msg("starting oracle tick")
 
 			// Wait for next block height to be available in the channel
-			nextBlockHeight := <-o.oracleClient.BlockHeightEvents
+			currBlockHeight := <-o.oracleClient.BlockHeightEvents
 
+			// Track how many pending goroutines are there
+			telemetry.IncrCounter(1, "num_pending_blocks", "tick")
 			go func() {
 				startTime := time.Now()
+				defer telemetry.MeasureSince(startTime, "runtime", "tick")
+				defer telemetry.IncrCounter(1, "new", "tick")
+				defer telemetry.IncrCounter(-1, "num_pending_blocks", "tick")
 
-				if err := o.tick(ctx, clientCtx, txFactory, nextBlockHeight); err != nil {
+				if err := o.tick(ctx, clientCtx, txFactory, currBlockHeight); err != nil {
 					telemetry.IncrCounter(1, "failure", "tick")
-					o.logger.Err(err).Msg(fmt.Sprintf("oracle tick failed for height %d", nextBlockHeight))
+					o.logger.Err(err).Msg(fmt.Sprintf("oracle tick failed for height %d", currBlockHeight))
 				}
-
-				o.lastPriceSyncTS = time.Now()
-
-				telemetry.MeasureSince(startTime, "runtime", "tick")
-				telemetry.IncrCounter(1, "new", "tick")
-
 			}()
 
 		}
@@ -175,7 +174,7 @@ func (o *Oracle) GetPrices() sdk.DecCoins {
 // SetPrices retrieves all the prices and candles from our set of providers as
 // determined in the config. If candles are available, uses TVWAP in order
 // to determine prices. If candles are not available, uses the most recent prices
-// with VWAP. Warns the the user of any missing prices, and filters out any faulty
+// with VWAP. Warns the user of any missing prices, and filters out any faulty
 // providers which do not report prices or candles within 2𝜎 of the others.
 func (o *Oracle) SetPrices(ctx context.Context) error {
 	g := new(errgroup.Group)
@@ -515,6 +514,7 @@ func (o *Oracle) tick(
 	if err := o.SetPrices(ctx); err != nil {
 		return err
 	}
+	o.lastPriceSyncTS = time.Now()
 
 	// Get oracle vote period, next block height, current vote period, and index
 	// in the vote period.
