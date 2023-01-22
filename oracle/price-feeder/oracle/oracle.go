@@ -134,7 +134,7 @@ func (o *Oracle) Start(ctx context.Context) error {
 				}
 
 				// Catch any missing blocks (should never happen)
-				if currBlockHeight > lastProcessedBlock-1 && lastProcessedBlock > 0 {
+				if currBlockHeight > (lastProcessedBlock+1) && lastProcessedBlock > 0 {
 					missedBlocks := currBlockHeight - (lastProcessedBlock + 1)
 					telemetry.IncrCounter(float32(missedBlocks), "num_missed_blocks", "tick")
 				}
