@@ -110,6 +110,7 @@ func (o *Oracle) Start(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	var lastProcessedBlock int64 = 0
 
 	for {
 		select {
@@ -134,6 +135,13 @@ func (o *Oracle) Start(ctx context.Context) error {
 					telemetry.IncrCounter(1, "failure", "tick")
 					o.logger.Err(err).Msg(fmt.Sprintf("oracle tick failed for height %d", currBlockHeight))
 				}
+
+				// Catch any missing blocks (should never happen)
+				if currBlockHeight > lastProcessedBlock-1 && lastProcessedBlock > 0 {
+					missedBlocks := currBlockHeight - (lastProcessedBlock + 1)
+					telemetry.IncrCounter(float32(missedBlocks), "num_missed_blocks", "tick")
+				}
+				lastProcessedBlock = currBlockHeight
 			}()
 
 		}
