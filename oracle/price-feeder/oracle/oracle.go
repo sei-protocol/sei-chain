@@ -501,7 +501,7 @@ func (o *Oracle) tick(
 	txFactory tx.Factory,
 	blockHeight int64) error {
 
-	o.logger.Info().Msg(fmt.Sprintf("executing oracle tick at height %d", blockHeight))
+	o.logger.Debug().Msg(fmt.Sprintf("executing oracle tick for height %d", blockHeight))
 
 	if blockHeight < 1 {
 		return fmt.Errorf("expected positive block height")

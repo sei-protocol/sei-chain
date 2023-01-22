@@ -60,7 +60,7 @@ func (heightUpdater HeightUpdater) subscribe(
 			if eventHeight > heightUpdater.LastHeight {
 				heightUpdater.ChBlockHeight <- eventHeight
 				heightUpdater.LastHeight = eventHeight
-				logger.Debug().Msg(fmt.Sprintf("Received new Chain Height: %d", eventDataNewBlockHeader.Header.Height))
+				logger.Info().Msg(fmt.Sprintf("Received new Chain Height: %d", eventDataNewBlockHeader.Header.Height))
 			} else {
 				time.Sleep(queryInterval)
 			}
