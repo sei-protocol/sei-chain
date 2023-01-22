@@ -112,8 +112,7 @@ func NewOracleClient(
 		ChBlockHeight: oracleClient.BlockHeightEvents,
 	}
 
-	chainHeightUpdater.Start(ctx, clientCtx.Client, oracleClient.Logger)
-
+	err = chainHeightUpdater.Start(ctx, clientCtx.Client, oracleClient.Logger)
 	if err != nil {
 		return OracleClient{}, err
 	}

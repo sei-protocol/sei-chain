@@ -36,7 +36,6 @@ func (heightUpdater HeightUpdater) Start(
 		go heightUpdater.subscribe(ctx, rpcClient, logger)
 		started = true
 	}
-
 	return nil
 }
 
