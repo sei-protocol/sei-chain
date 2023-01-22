@@ -36,10 +36,7 @@ func NewParams(
 func DefaultParams() Params {
 	return Params{
 		MintDenom: sdk.DefaultBondDenom,
-		TokenReleaseSchedule: []ScheduledTokenRelease{
-			{"2023-01-20", 123456789},
-			{"2023-01-21", 123456789},
-		},
+		TokenReleaseSchedule: []ScheduledTokenRelease{},
 	}
 }
 
