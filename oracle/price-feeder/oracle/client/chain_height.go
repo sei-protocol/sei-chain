@@ -6,11 +6,13 @@ import (
 	"github.com/rs/zerolog"
 	tmrpcclient "github.com/tendermint/tendermint/rpc/client"
 	tmtypes "github.com/tendermint/tendermint/types"
+	"time"
 )
 
 var (
 	started                  = false
 	queryEventNewBlockHeader = tmtypes.QueryForEvent(tmtypes.EventNewBlockHeaderValue)
+	queryInterval            = 20 * time.Millisecond
 )
 
 // HeightUpdater is used to provide the updates of the latest chain
@@ -61,7 +63,7 @@ func (heightUpdater HeightUpdater) subscribe(
 				heightUpdater.LastHeight = eventHeight
 				logger.Debug().Msg(fmt.Sprintf("Received new Chain Height: %d", eventDataNewBlockHeader.Header.Height))
 			} else {
-				fmt.Printf("Received a new event with same height: %d\n", eventHeight)
+				time.Sleep(queryInterval)
 			}
 		}
 	}
