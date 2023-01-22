@@ -500,7 +500,7 @@ func (o *Oracle) tick(
 	clientContext cosmosclient.Context,
 	txFactory tx.Factory,
 	blockHeight int64) error {
-	
+
 	o.logger.Info().Msg(fmt.Sprintf("executing oracle tick at height %d", blockHeight))
 
 	if blockHeight < 1 {

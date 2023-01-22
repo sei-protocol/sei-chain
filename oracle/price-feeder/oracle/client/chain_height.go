@@ -47,7 +47,7 @@ func (heightUpdater HeightUpdater) subscribe(
 ) {
 	for {
 		eventData, err := tmrpcclient.WaitForOneEvent(ctx, eventsClient, queryEventNewBlockHeader.String())
-		fmt.Println("Received a new event ")
+
 		if err != nil {
 			logger.Err(err).Msg("Failed to query EventNewBlockHeader")
 		}
@@ -60,6 +60,8 @@ func (heightUpdater HeightUpdater) subscribe(
 				heightUpdater.ChBlockHeight <- eventHeight
 				heightUpdater.LastHeight = eventHeight
 				logger.Debug().Msg(fmt.Sprintf("Received new Chain Height: %d", eventDataNewBlockHeader.Header.Height))
+			} else {
+				fmt.Printf("Received a new event with same height: %d\n", eventHeight)
 			}
 		}
 	}
