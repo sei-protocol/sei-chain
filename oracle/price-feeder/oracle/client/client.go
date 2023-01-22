@@ -3,7 +3,6 @@ package client
 import (
 	"bytes"
 	"context"
-	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -45,7 +44,7 @@ type (
 		GasAdjustment       float64
 		GRPCEndpoint        string
 		KeyringPassphrase   string
-		ChainHeight         *ChainHeight
+		BlockHeightEvents   chan int64
 	}
 
 	passReader struct {
@@ -94,6 +93,7 @@ func NewOracleClient(
 		GasAdjustment:       gasAdjustment,
 		GRPCEndpoint:        grpcEndpoint,
 		GasPrices:           gasPrices,
+		BlockHeightEvents:   make(chan int64, 16),
 	}
 
 	clientCtx, err := oracleClient.CreateClientContext()
@@ -106,16 +106,17 @@ func NewOracleClient(
 		return OracleClient{}, err
 	}
 
-	chainHeight, err := NewChainHeight(
-		ctx,
-		clientCtx.Client,
-		oracleClient.Logger,
-		blockHeight,
-	)
+	chainHeightUpdater := HeightUpdater{
+		Logger:        logger,
+		LastHeight:    blockHeight,
+		ChBlockHeight: oracleClient.BlockHeightEvents,
+	}
+
+	chainHeightUpdater.Start(ctx, clientCtx.Client, oracleClient.Logger)
+
 	if err != nil {
 		return OracleClient{}, err
 	}
-	oracleClient.ChainHeight = chainHeight
 
 	return oracleClient, nil
 }
@@ -141,72 +142,44 @@ func (r *passReader) Read(p []byte) (n int, err error) {
 // BroadcastTx attempts to broadcast a signed transaction. If it fails, a few re-attempts
 // will be made until the transaction succeeds or ultimately times out or fails.
 // Ref: https://github.com/terra-money/oracle-feeder/blob/baef2a4a02f57a2ffeaa207932b2e03d7fb0fb25/feeder/src/vote.ts#L230
-func (oc OracleClient) BroadcastTx(nextBlockHeight, timeoutHeight int64, msgs ...sdk.Msg) error {
-	maxBlockHeight := nextBlockHeight + timeoutHeight
-	lastCheckHeight := nextBlockHeight - 2
+func (oc OracleClient) BroadcastTx(
+	blockHeight int64,
+	clientCtx client.Context,
+	factory tx.Factory,
+	msgs ...sdk.Msg) error {
 
-	clientCtx, err := oc.CreateClientContext()
-	if err != nil {
+	resp, err := BroadcastTx(clientCtx, factory, msgs...)
+
+	if resp != nil && resp.Code != 0 {
+		telemetry.IncrCounter(1, "failure", "tx", "code")
+		err = fmt.Errorf("invalid response code from tx: %d", resp.Code)
 		return err
 	}
 
-	factory, err := oc.CreateTxFactory()
 	if err != nil {
+		var (
+			code uint32
+			hash string
+		)
+		if resp != nil {
+			code = resp.Code
+			hash = resp.TxHash
+		}
+		oc.Logger.Debug().
+			Err(err).
+			Int64("height", blockHeight).
+			Str("tx_hash", hash).
+			Uint32("tx_code", code).
+			Msg("failed to broadcast tx; retrying...")
 		return err
 	}
 
-	// re-try voting until timeout
-	for lastCheckHeight < maxBlockHeight {
-		latestBlockHeight, err := oc.ChainHeight.GetChainHeight()
-		if err != nil {
-			return err
-		}
-
-		if latestBlockHeight <= lastCheckHeight {
-			continue
-		}
-
-		// set last check height to latest block height
-		lastCheckHeight = latestBlockHeight
-
-		resp, err := BroadcastTx(clientCtx, factory, msgs...)
-		if resp != nil && resp.Code != 0 {
-			telemetry.IncrCounter(1, "failure", "tx", "code")
-			err = fmt.Errorf("invalid response code from tx: %d", resp.Code)
-		}
-		if err != nil {
-			var (
-				code uint32
-				hash string
-			)
-			if resp != nil {
-				code = resp.Code
-				hash = resp.TxHash
-			}
-
-			oc.Logger.Debug().
-				Err(err).
-				Int64("max_height", maxBlockHeight).
-				Int64("last_check_height", lastCheckHeight).
-				Str("tx_hash", hash).
-				Uint32("tx_code", code).
-				Msg("failed to broadcast tx; retrying...")
-
-			time.Sleep(time.Second * 1)
-			continue
-		}
-
-		oc.Logger.Info().
-			Uint32("tx_code", resp.Code).
-			Str("tx_hash", resp.TxHash).
-			Int64("tx_height", resp.Height).
-			Msg("successfully broadcasted tx")
-
-		return nil
-	}
-
-	telemetry.IncrCounter(1, "failure", "tx", "timeout")
-	return errors.New("broadcasting tx timed out")
+	oc.Logger.Info().
+		Uint32("tx_code", resp.Code).
+		Str("tx_hash", resp.TxHash).
+		Int64("tx_height", resp.Height).
+		Msg(fmt.Sprintf("successfully broadcasted tx at height %d", blockHeight))
+	return nil
 }
 
 // CreateClientContext creates an SDK client Context instance used for transaction
