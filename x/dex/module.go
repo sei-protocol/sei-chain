@@ -18,6 +18,7 @@ import (
 	cdctypes "github.com/cosmos/cosmos-sdk/codec/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/types/module"
+	seisync "github.com/sei-protocol/sei-chain/sync"
 	"github.com/sei-protocol/sei-chain/utils"
 	"github.com/sei-protocol/sei-chain/utils/tracing"
 	"github.com/sei-protocol/sei-chain/x/dex/client/cli/query"
@@ -237,19 +238,21 @@ func (am AppModule) BeginBlock(ctx sdk.Context, _ abci.RequestBeginBlock) {
 		am.keeper.SetEpoch(ctx, currentEpoch)
 	}
 	cachedCtx, cachedStore := store.GetCachedContext(ctx)
-	cachedCtx = cachedCtx.WithGasMeter(dexutils.GetGasMeterForLimit(am.keeper.GetParams(ctx).BeginBlockGasLimit))
+	gasLimit := am.keeper.GetParams(ctx).BeginBlockGasLimit
 	for _, contract := range am.getAllContractInfo(ctx) {
-		am.beginBlockForContract(cachedCtx, contract, int64(currentEpoch))
+		am.beginBlockForContract(cachedCtx, contract, int64(currentEpoch), gasLimit)
 	}
 	// only write if all contracts have been processed
 	cachedStore.Write()
 }
 
-func (am AppModule) beginBlockForContract(ctx sdk.Context, contract types.ContractInfoV2, epoch int64) {
+func (am AppModule) beginBlockForContract(ctx sdk.Context, contract types.ContractInfoV2, epoch int64, gasLimit uint64) {
 	_, span := (*am.tracingInfo.Tracer).Start(am.tracingInfo.TracerContext, "DexBeginBlock")
 	contractAddr := contract.ContractAddr
 	span.SetAttributes(attribute.String("contract", contractAddr))
 	defer span.End()
+
+	ctx = ctx.WithGasMeter(seisync.NewGasWrapper(dexutils.GetGasMeterForLimit(gasLimit)))
 
 	if contract.NeedHook {
 		if err := am.abciWrapper.HandleBBNewBlock(ctx, contractAddr, epoch); err != nil {

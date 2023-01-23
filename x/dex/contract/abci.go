@@ -42,7 +42,7 @@ func EndBlockerAtomic(ctx sdk.Context, keeper *keeper.Keeper, validContractsInfo
 	spanCtx, span := (*tracer).Start(tracingInfo.TracerContext, "DexEndBlockerAtomic")
 	defer span.End()
 	env := newEnv(ctx, validContractsInfo, keeper)
-	cachedCtx, msCached := cacheAndDecorateContext(ctx, env, keeper.GetParams(ctx).EndBlockGasLimit)
+	cachedCtx, msCached := cacheContext(ctx, env)
 	memStateCopy := dexutils.GetMemState(cachedCtx.Context()).DeepCopy()
 	handleDeposits(cachedCtx, env, keeper, tracer)
 
@@ -99,21 +99,20 @@ func newEnv(ctx sdk.Context, validContractsInfo []types.ContractInfoV2, keeper *
 	}
 }
 
-func cacheAndDecorateContext(ctx sdk.Context, env *environment, gasLimit uint64) (sdk.Context, sdk.CacheMultiStore) {
+func cacheContext(ctx sdk.Context, env *environment) (sdk.Context, sdk.CacheMultiStore) {
 	cachedCtx, msCached := store.GetCachedContext(ctx)
 	goCtx := context.WithValue(cachedCtx.Context(), dexcache.CtxKeyExecTermSignal, env.executionTerminationSignals)
 	cachedCtx = cachedCtx.WithContext(goCtx)
-	decoratedCtx := cachedCtx.WithGasMeter(seisync.NewGasWrapper(dexutils.GetGasMeterForLimit(gasLimit))).WithBlockGasMeter(
-		seisync.NewGasWrapper(cachedCtx.BlockGasMeter()),
-	)
-	return decoratedCtx, msCached
+	return cachedCtx, msCached
 }
 
-func decorateContextForContract(ctx sdk.Context, contractInfo types.ContractInfoV2) sdk.Context {
+func decorateContextForContract(ctx sdk.Context, contractInfo types.ContractInfoV2, gasLimit uint64) sdk.Context {
 	goCtx := context.WithValue(ctx.Context(), dexcache.CtxKeyExecutingContract, contractInfo)
 	whitelistedStore := multi.NewStore(ctx.MultiStore(), GetWhitelistMap(contractInfo.ContractAddr))
 	newEventManager := sdk.NewEventManager()
-	return ctx.WithContext(goCtx).WithMultiStore(whitelistedStore).WithEventManager(newEventManager)
+	return ctx.WithContext(goCtx).WithMultiStore(whitelistedStore).WithEventManager(newEventManager).WithGasMeter(
+		seisync.NewGasWrapper(dexutils.GetGasMeterForLimit(gasLimit)),
+	)
 }
 
 func handleDeposits(ctx sdk.Context, env *environment, keeper *keeper.Keeper, tracer *otrace.Tracer) {
@@ -198,7 +197,7 @@ func orderMatchingRunnable(ctx context.Context, sdkContext sdk.Context, env *env
 		return
 	}
 	parentSdkContext := sdkContext
-	sdkContext = decorateContextForContract(sdkContext, contractInfo)
+	sdkContext = decorateContextForContract(sdkContext, contractInfo, keeper.GetParams(sdkContext).EndBlockGasLimit)
 	sdkContext.Logger().Info(fmt.Sprintf("End block for %s with balance of %d", contractInfo.ContractAddr, contractInfo.RentBalance))
 	pairs, pairFound := env.registeredPairs.Load(contractInfo.ContractAddr)
 	orderBooks, found := env.orderBooks.Load(contractInfo.ContractAddr)
