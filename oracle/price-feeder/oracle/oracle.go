@@ -122,24 +122,24 @@ func (o *Oracle) Start(ctx context.Context) error {
 
 			// Track how many pending goroutines are there
 			telemetry.IncrCounter(1, "num_pending_blocks", "tick")
-			go func() {
+			go func(blockHeight int64) {
 				startTime := time.Now()
 				defer telemetry.MeasureSince(startTime, "runtime", "tick")
 				defer telemetry.IncrCounter(1, "new", "tick")
 				defer telemetry.IncrCounter(-1, "num_pending_blocks", "tick")
 
-				if err := o.tick(ctx, clientCtx, txFactory, currBlockHeight); err != nil {
+				if err := o.tick(ctx, clientCtx, txFactory, blockHeight); err != nil {
 					telemetry.IncrCounter(1, "failure", "tick")
-					o.logger.Err(err).Msg(fmt.Sprintf("oracle tick failed for height %d", currBlockHeight))
+					o.logger.Err(err).Msg(fmt.Sprintf("oracle tick failed for height %d", blockHeight))
 				}
+			}(currBlockHeight)
 
-				// Catch any missing blocks (should never happen)
-				if currBlockHeight > (lastProcessedBlock+1) && lastProcessedBlock > 0 {
-					missedBlocks := currBlockHeight - (lastProcessedBlock + 1)
-					telemetry.IncrCounter(float32(missedBlocks), "num_missed_blocks", "tick")
-				}
-				lastProcessedBlock = currBlockHeight
-			}()
+			// Catch any missing blocks (should never happen)
+			if currBlockHeight > (lastProcessedBlock+1) && lastProcessedBlock > 0 {
+				missedBlocks := currBlockHeight - (lastProcessedBlock + 1)
+				telemetry.IncrCounter(float32(missedBlocks), "num_missed_blocks", "tick")
+			}
+			lastProcessedBlock = currBlockHeight
 
 		}
 	}
