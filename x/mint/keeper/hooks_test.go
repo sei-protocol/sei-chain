@@ -1,14 +1,18 @@
 package keeper_test
 
 import (
+	"context"
 	"testing"
 	"time"
 
-	"github.com/sei-protocol/sei-chain/app"
+	keepertest "github.com/sei-protocol/sei-chain/testutil/keeper"
+	dexcache "github.com/sei-protocol/sei-chain/x/dex/cache"
+	dexutils "github.com/sei-protocol/sei-chain/x/dex/utils"
 	"github.com/sei-protocol/sei-chain/x/epoch/types"
 	minttypes "github.com/sei-protocol/sei-chain/x/mint/types"
 	"github.com/stretchr/testify/require"
 	abci "github.com/tendermint/tendermint/abci/types"
+
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 )
 
@@ -24,8 +28,9 @@ func getEpoch(genesisTime time.Time, currTime time.Time) types.Epoch {
 }
 
 func TestEndOfEpochMintedCoinDistribution(t *testing.T) {
-	seiApp := app.Setup(false)
-	ctx := seiApp.BaseApp.NewContext(false, tmproto.Header{})
+	seiApp := keepertest.TestApp()
+	ctx := seiApp.BaseApp.NewContext(false, tmproto.Header{Time: time.Now()})
+	ctx = ctx.WithContext(context.WithValue(ctx.Context(), dexutils.DexMemStateContextKey, dexcache.NewMemState(seiApp.GetKey(types.StoreKey))))
 
 	genesisTime := time.Date(2022, time.Month(7), 18, 10, 0, 0, 0, time.UTC)
 
@@ -75,8 +80,10 @@ func TestEndOfEpochMintedCoinDistribution(t *testing.T) {
 }
 
 func TestNoEpochPassedNoDistribution(t *testing.T) {
-	seiApp := app.Setup(false)
-	ctx := seiApp.BaseApp.NewContext(false, tmproto.Header{})
+	seiApp := keepertest.TestApp()
+	ctx := seiApp.BaseApp.NewContext(false, tmproto.Header{Time: time.Now()})
+	ctx = ctx.WithContext(context.WithValue(ctx.Context(), dexutils.DexMemStateContextKey, dexcache.NewMemState(seiApp.GetKey(types.StoreKey))))
+
 	header := tmproto.Header{Height: seiApp.LastBlockHeight() + 1}
 	seiApp.BeginBlock(ctx, abci.RequestBeginBlock{Header: header})
 	// Get mint params
