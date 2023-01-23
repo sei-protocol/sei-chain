@@ -2,6 +2,7 @@ package cache
 
 import (
 	"fmt"
+	"sync"
 
 	"github.com/cosmos/cosmos-sdk/store/cachekv"
 	"github.com/cosmos/cosmos-sdk/store/types"
@@ -29,6 +30,10 @@ type (
 		types.CommitKVStore
 		cache       *lru.ARCCache
 		cacheKVSize int
+
+		// the same CommitKVStoreCache may be accessed concurrently by multiple
+		// goroutines due to transaction parallelization
+		mtx sync.Mutex
 	}
 
 	// CommitKVStoreCacheManager maintains a mapping from a StoreKey to a
@@ -102,6 +107,9 @@ func (ckv *CommitKVStoreCache) CacheWrap(storeKey types.StoreKey) types.CacheWra
 // If the value doesn't exist in the write-through cache, the query is delegated
 // to the underlying CommitKVStore.
 func (ckv *CommitKVStoreCache) Get(key []byte) []byte {
+	ckv.mtx.Lock()
+	defer ckv.mtx.Unlock()
+
 	types.AssertValidKey(key)
 
 	keyStr := string(key)
@@ -121,6 +129,9 @@ func (ckv *CommitKVStoreCache) Get(key []byte) []byte {
 // Set inserts a key/value pair into both the write-through cache and the
 // underlying CommitKVStore.
 func (ckv *CommitKVStoreCache) Set(key, value []byte) {
+	ckv.mtx.Lock()
+	defer ckv.mtx.Unlock()
+
 	types.AssertValidKey(key)
 	types.AssertValidValue(value)
 
@@ -131,6 +142,9 @@ func (ckv *CommitKVStoreCache) Set(key, value []byte) {
 // Delete removes a key/value pair from both the write-through cache and the
 // underlying CommitKVStore.
 func (ckv *CommitKVStoreCache) Delete(key []byte) {
+	ckv.mtx.Lock()
+	defer ckv.mtx.Unlock()
+
 	ckv.cache.Remove(string(key))
 	ckv.CommitKVStore.Delete(key)
 }
