@@ -3,6 +3,7 @@ package epoch
 import (
 	"encoding/json"
 	"fmt"
+	"math"
 
 	// this line is used by starport scaffolding # 1
 
@@ -171,14 +172,14 @@ func (AppModule) ConsensusVersion() uint64 { return 2 }
 // BeginBlock executes all ABCI BeginBlock logic respective to the capability module.
 func (am AppModule) BeginBlock(ctx sdk.Context, _ abci.RequestBeginBlock) {
 	lastEpoch := am.keeper.GetEpoch(ctx)
-	ctx.Logger().Info(fmt.Sprintf("Current block time %s, last %s; duration %d", ctx.BlockTime().String(), lastEpoch.CurrentEpochStartTime.String(), lastEpoch.EpochDuration))
+	ctx.Logger().Info(fmt.Sprintf("Current block time %s, last %s; epoch duration %f seconds", ctx.BlockTime().String(), lastEpoch.CurrentEpochStartTime.String(), lastEpoch.EpochDuration.Seconds()))
 	if ctx.BlockTime().Sub(lastEpoch.CurrentEpochStartTime) > lastEpoch.EpochDuration {
-		epoch := lastEpoch.CurrentEpochStartTime.Sub(lastEpoch.GenesisTime) / lastEpoch.EpochDuration
+		currentEpoch := ctx.BlockTime().Sub(lastEpoch.GenesisTime).Seconds() / lastEpoch.EpochDuration.Seconds()
 		am.keeper.AfterEpochEnd(ctx, lastEpoch)
 		newEpoch := types.Epoch{
 			GenesisTime:           lastEpoch.GenesisTime,
 			EpochDuration:         lastEpoch.EpochDuration,
-			CurrentEpoch:          uint64(epoch.Abs()),
+			CurrentEpoch:          uint64(math.Ceil(currentEpoch)),
 			CurrentEpochStartTime: ctx.BlockTime(),
 			CurrentEpochHeight:    ctx.BlockHeight(),
 		}
