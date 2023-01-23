@@ -173,11 +173,12 @@ func (am AppModule) BeginBlock(ctx sdk.Context, _ abci.RequestBeginBlock) {
 	lastEpoch := am.keeper.GetEpoch(ctx)
 	ctx.Logger().Info(fmt.Sprintf("Current block time %s, last %s; duration %d", ctx.BlockTime().String(), lastEpoch.CurrentEpochStartTime.String(), lastEpoch.EpochDuration))
 	if ctx.BlockTime().Sub(lastEpoch.CurrentEpochStartTime) > lastEpoch.EpochDuration {
+		epoch := lastEpoch.CurrentEpochStartTime.Sub(lastEpoch.GenesisTime) / lastEpoch.EpochDuration
 		am.keeper.AfterEpochEnd(ctx, lastEpoch)
 		newEpoch := types.Epoch{
 			GenesisTime:           lastEpoch.GenesisTime,
 			EpochDuration:         lastEpoch.EpochDuration,
-			CurrentEpoch:          lastEpoch.CurrentEpoch + 1,
+			CurrentEpoch:          uint64(epoch.Abs()),
 			CurrentEpochStartTime: ctx.BlockTime(),
 			CurrentEpochHeight:    ctx.BlockHeight(),
 		}
