@@ -216,7 +216,7 @@ func (k Keeper) ImportContractReferences(ctx sdk.Context, contractAddr sdk.AccAd
 		if err != nil {
 			return nil, err
 		}
-		newJson, err := jsonTranslator.TranslateMessageBody(contractReference.JsonTranslationTemplate)
+		newJson, err := jsonTranslator.TranslateMessageBody([]byte(contractReference.JsonTranslationTemplate))
 		if err != nil {
 			// if there's a problem translating, log it and then pass in empty json
 			ctx.Logger().Error("Error translating JSON body", err)

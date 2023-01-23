@@ -785,7 +785,7 @@ func TestWasmDependencyMappingWithContractReferenceWasmTranslator(t *testing.T) 
 						ContractAddress:         interContractAddress.String(),
 						MessageType:             acltypes.WasmMessageSubtype_EXECUTE,
 						MessageName:             "some_message",
-						JsonTranslationTemplate: []byte("{\"some_message\":{\"address\":\".send.address\"}}"),
+						JsonTranslationTemplate: "{\"some_message\":{\"address\":\".send.address\"}}",
 					},
 				},
 			},
