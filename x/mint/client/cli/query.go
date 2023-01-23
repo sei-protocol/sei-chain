@@ -2,7 +2,6 @@ package cli
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/spf13/cobra"
 
@@ -62,8 +61,8 @@ func GetCmdQueryParams() *cobra.Command {
 // epoch provisions value.
 func GetCmdQueryEpochProvisions() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "epoch-provisions",
-		Short: "Query the current minting epoch provisions value",
+		Use:   "minter",
+		Short: "Query the most recent minting state",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			clientCtx, err := client.GetClientQueryContext(cmd)
@@ -72,13 +71,13 @@ func GetCmdQueryEpochProvisions() *cobra.Command {
 			}
 			queryClient := types.NewQueryClient(clientCtx)
 
-			params := &types.QueryEpochProvisionsRequest{}
-			res, err := queryClient.EpochProvisions(context.Background(), params)
+			params := &types.QueryMinterRequest{}
+			res, err := queryClient.Minter(context.Background(), params)
 			if err != nil {
 				return err
 			}
 
-			return clientCtx.PrintString(fmt.Sprintf("%s\n", res.EpochProvisions))
+			return clientCtx.PrintProto(res)
 		},
 	}
 

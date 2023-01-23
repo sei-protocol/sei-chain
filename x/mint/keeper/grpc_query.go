@@ -27,10 +27,10 @@ func (q Querier) Params(c context.Context, _ *types.QueryParamsRequest) (*types.
 	return &types.QueryParamsResponse{Params: params}, nil
 }
 
-// EpochProvisions returns minter.EpochProvisions of the mint module.
-func (q Querier) EpochProvisions(c context.Context, _ *types.QueryEpochProvisionsRequest) (*types.QueryEpochProvisionsResponse, error) {
+// Returns the most last mint state
+func (q Querier) Minter(c context.Context, _ *types.QueryMinterRequest) (*types.QueryMinterResponse, error) {
 	ctx := sdk.UnwrapSDKContext(c)
 	minter := q.Keeper.GetMinter(ctx)
-
-	return &types.QueryEpochProvisionsResponse{EpochProvisions: minter.EpochProvisions}, nil
+	response := types.QueryMinterResponse(minter)
+	return &response, nil
 }
