@@ -871,6 +871,13 @@ type StateSyncConfig struct {
 	// one day less than the unbonding period should suffice.
 	TrustPeriod time.Duration `mapstructure:"trust-period"`
 
+	// Backfill sequentially fetches, verifies and stores light blocks in reverse order.
+	// It does not stop verifying blocks until reaching a height
+	// that is less or equal to the latestBlock - backfill-blocks and latest block time - backfill-duration.
+	// Default: no backfill
+	BackfillBlocks   int64         `mapstructure:"backfill-blocks"`
+	BackfillDuration time.Duration `mapstructure:"backfill-duration"`
+
 	// Time to spend discovering snapshots before initiating a restore.
 	DiscoveryTime time.Duration `mapstructure:"discovery-time"`
 
@@ -903,6 +910,8 @@ func DefaultStateSyncConfig() *StateSyncConfig {
 		DiscoveryTime:       15 * time.Second,
 		ChunkRequestTimeout: 15 * time.Second,
 		Fetchers:            4,
+		BackfillBlocks:      0,
+		BackfillDuration:    0 * time.Second,
 	}
 }
 
@@ -945,6 +954,14 @@ func (cfg *StateSyncConfig) ValidateBasic() error {
 
 	if len(cfg.TrustHash) == 0 {
 		return errors.New("trusted-hash is required")
+	}
+
+	if cfg.BackfillBlocks < 0 {
+		return errors.New("backfill-blocks must not be negative")
+	}
+
+	if cfg.BackfillDuration < 0 {
+		return errors.New("backfill-duration must not be negative")
 	}
 
 	_, err := hex.DecodeString(cfg.TrustHash)

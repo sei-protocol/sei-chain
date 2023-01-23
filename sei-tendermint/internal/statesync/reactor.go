@@ -419,9 +419,8 @@ func (r *Reactor) Sync(ctx context.Context) (sm.State, error) {
 // and time that is less or equal to the stopHeight and stopTime. The
 // trustedBlockID should be of the header at startHeight.
 func (r *Reactor) Backfill(ctx context.Context, state sm.State) error {
-	params := state.ConsensusParams.Evidence
-	stopHeight := state.LastBlockHeight - params.MaxAgeNumBlocks
-	stopTime := state.LastBlockTime.Add(-params.MaxAgeDuration)
+	stopHeight := state.LastBlockHeight - r.cfg.BackfillBlocks
+	stopTime := state.LastBlockTime.Add(-r.cfg.BackfillDuration)
 	// ensure that stop height doesn't go below the initial height
 	if stopHeight < state.InitialHeight {
 		stopHeight = state.InitialHeight
