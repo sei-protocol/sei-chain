@@ -19,7 +19,6 @@ import (
 	"github.com/cosmos/cosmos-sdk/types/module"
 	simtypes "github.com/cosmos/cosmos-sdk/types/simulation"
 
-	"github.com/sei-protocol/sei-chain/utils"
 	"github.com/sei-protocol/sei-chain/x/oracle/client/cli"
 	"github.com/sei-protocol/sei-chain/x/oracle/client/rest"
 	"github.com/sei-protocol/sei-chain/x/oracle/keeper"
@@ -171,17 +170,11 @@ func (AppModule) BeginBlock(_ sdk.Context, _ abci.RequestBeginBlock) {}
 
 // EndBlock returns the end blocker for the oracle module.
 func (am AppModule) MidBlock(ctx sdk.Context, _ int64) {
-	// TODO (codchen): Revert before mainnet so we don't silently fail on errors
-	defer utils.PanicHandler(func(err any) { utils.MetricsPanicCallback(err, ctx, types.ModuleName) })()
-
 	MidBlocker(ctx, am.keeper)
 }
 
 // EndBlock returns the end blocker for the oracle module.
 func (am AppModule) EndBlock(ctx sdk.Context, _ abci.RequestEndBlock) (ret []abci.ValidatorUpdate) {
-	// TODO (codchen): Revert before mainnet so we don't silently fail on errors
-	defer utils.PanicHandler(func(err any) { utils.MetricsPanicCallback(err, ctx, types.ModuleName) })()
-
 	EndBlocker(ctx, am.keeper)
 	return []abci.ValidatorUpdate{}
 }
