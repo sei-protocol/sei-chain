@@ -1,16 +1,19 @@
 package client
 
 import (
-	"fmt"
 	"github.com/cosmos/cosmos-sdk/client"
 	"github.com/cosmos/cosmos-sdk/client/tx"
 	sdk "github.com/cosmos/cosmos-sdk/types"
-	"sync/atomic"
+	"sync"
 )
 
-var (
-	AtomicSequenceNumber atomic.Uint64
-)
+type AccountInfo struct {
+	AccountNumber   uint64
+	AccountSequence uint64
+	mtx             sync.Mutex
+}
+
+var oracleAccountInfo = AccountInfo{}
 
 // BroadcastTx attempts to generate, sign and broadcast a transaction with the
 // given set of messages. It will also simulate gas requirements if necessary.
@@ -20,7 +23,7 @@ var (
 // things like prompting for confirmation and printing the response. Instead,
 // we return the TxResponse.
 func BroadcastTx(clientCtx client.Context, txf tx.Factory, msgs ...sdk.Msg) (*sdk.TxResponse, error) {
-	txf, err := prepareFactory(clientCtx, txf)
+	err := prepareFactory(clientCtx, txf)
 	if err != nil {
 		return nil, err
 	}
@@ -41,27 +44,43 @@ func BroadcastTx(clientCtx client.Context, txf tx.Factory, msgs ...sdk.Msg) (*sd
 	if err != nil {
 		return nil, err
 	}
-	fmt.Printf("[Price Feeder] Sending broadcast tx with account %d sequence %d\n", txf.AccountNumber(), txf.Sequence())
+	res, err := clientCtx.BroadcastTx(txBytes)
+	if err != nil {
+		// When error happen, it could be that the sequence number are mismatching
+		// We need to reset sequence number to 0 so that it query latest value from the chain next time
+		resetAccountSequence()
+	}
 
-	return clientCtx.BroadcastTx(txBytes)
+	return res, err
 }
 
-// prepareFactory ensures the account defined by ctx.GetFromAddress() exists and
-// if the account number and/or the account sequence number are zero (not set),
-// they will be queried for and set on the provided Factory. A new Factory with
-// the updated fields will be returned.
-func prepareFactory(clientCtx client.Context, txf tx.Factory) (tx.Factory, error) {
-	fromAddr := clientCtx.GetFromAddress()
-	if err := txf.AccountRetriever().EnsureExists(clientCtx, fromAddr); err != nil {
-		return txf, err
+// prepareFactory ensures the account defined by ctx.GetFromAddress() exists.
+// We keep a local copy of account sequence number and manually increment it.
+// If the local sequence number is 0, we will initialize it with the latest value getting from the chain.
+func prepareFactory(ctx client.Context, txf tx.Factory) error {
+	oracleAccountInfo.mtx.Lock()
+	defer oracleAccountInfo.mtx.Unlock()
+	fromAddr := ctx.GetFromAddress()
+	if err := txf.AccountRetriever().EnsureExists(ctx, fromAddr); err != nil {
+		return err
 	}
-	accountNum, sequence, err := txf.AccountRetriever().GetAccountNumberSequence(clientCtx, fromAddr)
-	if err != nil {
-		return txf, err
+	if oracleAccountInfo.AccountNumber == 0 || oracleAccountInfo.AccountSequence == 0 {
+
+		accountNum, sequence, err := txf.AccountRetriever().GetAccountNumberSequence(ctx, fromAddr)
+		if err != nil {
+			return err
+		}
+		oracleAccountInfo.AccountNumber = accountNum
+		oracleAccountInfo.AccountSequence = sequence
+	} else {
+		oracleAccountInfo.AccountSequence++
 	}
-	if !AtomicSequenceNumber.CompareAndSwap(0, sequence) {
-		sequence = AtomicSequenceNumber.Add(1)
-	}
-	txf = txf.WithAccountNumber(accountNum).WithSequence(sequence).WithGas(0)
-	return txf, nil
+	txf.WithAccountNumber(oracleAccountInfo.AccountNumber).WithAccountNumber(oracleAccountInfo.AccountSequence).WithGas(0)
+	return nil
+}
+
+func resetAccountSequence() {
+	oracleAccountInfo.mtx.Lock()
+	defer oracleAccountInfo.mtx.Unlock()
+	oracleAccountInfo.AccountSequence = 0
 }
