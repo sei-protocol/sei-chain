@@ -2,6 +2,7 @@ package keeper
 
 import (
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -206,13 +207,40 @@ func (k Keeper) GetWasmDependencyAccessOps(ctx sdk.Context, contractAddress sdk.
 	return selectedAccessOps.ToSlice(), nil
 }
 
+func ParseContractReferenceAddress(maybeContractAddress string, sender string, msgInfo *types.WasmMessageInfo) string {
+	// sender in case the use case is expected to be one contract calling another expecting a separate call
+	const reservedSender = "_sender"
+	if maybeContractAddress == reservedSender {
+		return sender
+	}
+	// parse the jq instruction from the template - if we can't then assume that its ACTUALLY an address
+	op, err := jq.Parse(maybeContractAddress)
+	if err != nil {
+		return maybeContractAddress
+	}
+	// retrieve the appropriate item from the original msg
+	data, err := op.Apply(msgInfo.MessageFullBody)
+	// if we do have a jq selector but it doesn't apply properly, return maybeContractAddress
+	if err != nil {
+		return maybeContractAddress
+	}
+	// if we parse it properly convert to string and return
+	var newValBytes string
+	err = json.Unmarshal(data, &newValBytes)
+	if err != nil {
+		return maybeContractAddress
+	}
+	return newValBytes
+}
+
 func (k Keeper) ImportContractReferences(ctx sdk.Context, contractAddr sdk.AccAddress, contractReferences []*acltypes.WasmContractReference, senderBech string, msgInfo *types.WasmMessageInfo, circularDepLookup ContractReferenceLookupMap) (*types.AccessOperationSet, error) {
 	importedAccessOps := types.NewEmptyAccessOperationSet()
 
 	jsonTranslator := types.NewWasmMessageTranslator(senderBech, contractAddr.String(), msgInfo)
 	for _, contractReference := range contractReferences {
-		// We use this to import the dependencies from another contract address
-		importContractAddress, err := sdk.AccAddressFromBech32(contractReference.ContractAddress)
+		parsedContractReferenceAddress := ParseContractReferenceAddress(contractReference.ContractAddress, senderBech, msgInfo)
+		// if parsing failed and contractAddress is invalid, this step will error and indicate invalid address
+		importContractAddress, err := sdk.AccAddressFromBech32(parsedContractReferenceAddress)
 		if err != nil {
 			return nil, err
 		}
@@ -234,6 +262,7 @@ func (k Keeper) ImportContractReferences(ctx sdk.Context, contractAddr sdk.AccAd
 				return nil, err
 			}
 		}
+		// We use this to import the dependencies from another contract address
 		wasmDeps, err := k.GetWasmDependencyAccessOps(ctx, importContractAddress, contractAddr.String(), msgInfo, circularDepLookup)
 
 		if err != nil {

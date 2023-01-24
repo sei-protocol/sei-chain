@@ -1570,6 +1570,35 @@ func TestWasmDependencyMappingWithContractReferencePartitioned(t *testing.T) {
 	require.Equal(t, types.NewAccessOperationSet(expectedAccessOps2), types.NewAccessOperationSet(deps2))
 }
 
+func TestContractReferenceAddressParser(t *testing.T) {
+	app := simapp.Setup(false)
+	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
+
+	wasmContractAddresses := simapp.AddTestAddrsIncremental(app, ctx, 1, sdk.NewInt(30000000))
+	wasmContractAddress := wasmContractAddresses[0]
+	wasmBech32, err := sdk.Bech32ifyAddressBytes("cosmos", wasmContractAddress)
+	require.NoError(t, err)
+
+	msgInfo := types.WasmMessageInfo{
+		MessageType:     acltypes.WasmMessageSubtype_EXECUTE,
+		MessageName:     "some_name",
+		MessageBody:     []byte("{\"test_msg\": {}}"),
+		MessageFullBody: []byte(fmt.Sprintf("{\"test_msg\": {\"some_addr\": \"%s\"}}", wasmBech32)),
+	}
+
+	parsedLiteral := aclkeeper.ParseContractReferenceAddress(wasmBech32, "someSender", &msgInfo)
+	require.Equal(t, wasmBech32, parsedLiteral)
+
+	parsedSender := aclkeeper.ParseContractReferenceAddress("_sender", wasmBech32, &msgInfo)
+	require.Equal(t, wasmBech32, parsedSender)
+
+	parsedJQ := aclkeeper.ParseContractReferenceAddress(".test_msg.some_addr", wasmBech32, &msgInfo)
+	require.Equal(t, wasmBech32, parsedJQ)
+
+	parsedJQInvalid := aclkeeper.ParseContractReferenceAddress(".test_msg.other_addr", wasmBech32, &msgInfo)
+	require.Equal(t, ".test_msg.other_addr", parsedJQInvalid)
+}
+
 func (suite *KeeperTestSuite) TestMessageDependencies() {
 	suite.SetupTest()
 	app := suite.app

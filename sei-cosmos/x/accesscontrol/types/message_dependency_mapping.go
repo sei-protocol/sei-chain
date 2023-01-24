@@ -186,32 +186,5 @@ func ValidateWasmDependencyMapping(mapping acltypes.WasmDependencyMapping) error
 		}
 	}
 
-	// verify contract address valid for contract references
-	for _, contractRef := range mapping.BaseContractReferences {
-		_, err := sdk.AccAddressFromBech32(contractRef.ContractAddress)
-		if err != nil {
-			return err
-		}
-	}
-	for _, msgContractRef := range mapping.ExecuteContractReferences {
-		for _, contractRef := range msgContractRef.ContractReferences {
-			_, err := sdk.AccAddressFromBech32(contractRef.ContractAddress)
-			if err != nil {
-				return err
-			}
-		}
-	}
-	for _, msgContractRef := range mapping.QueryContractReferences {
-		for _, contractRef := range msgContractRef.ContractReferences {
-			_, err := sdk.AccAddressFromBech32(contractRef.ContractAddress)
-			if err != nil {
-				return err
-			}
-			// query contract references CANNOT have execute contract message types
-			if contractRef.MessageType != acltypes.WasmMessageSubtype_QUERY {
-				return ErrQueryRefNonQueryMessageType
-			}
-		}
-	}
 	return nil
 }
