@@ -112,8 +112,6 @@ marspair4=$(printf "12345678\n" | $seidbin tx dex register-pairs mars4.json -y -
 
 sleep 90
 
-printf "12345678\n" | $seidbin tx staking unbond $valaddr 1000000000usei --from=$keyname --chain-id=$chainid -b block -y --fees 2000usei
-
 jq '.contract_distribution = [{"contract_address": "'$marsaddr'", percentage: "0.1"}]' $seihome/loadtest/config.json > $seihome/loadtest/config_temp.json && mv $seihome/loadtest/config_temp.json $seihome/loadtest/config.json
 
 for addr in $saturnaddr $venusaddr $marsaddr2 $saturnaddr2 $venusaddr2 $marsaddr3 $saturnaddr3 $venusaddr3 $marsaddr4
