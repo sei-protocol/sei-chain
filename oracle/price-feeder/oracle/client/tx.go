@@ -47,8 +47,8 @@ func BroadcastTx(clientCtx client.Context, txf tx.Factory, msgs ...sdk.Msg) (*sd
 	res, err := clientCtx.BroadcastTx(txBytes)
 	if err != nil {
 		// When error happen, it could be that the sequence number are mismatching
-		// We need to reset sequence number to 0 so that it query latest value from the chain next time
-		resetAccountSequence()
+		// We need to reset sequence number to query the latest value from the chain
+		_ = resetAccountSequence(clientCtx, txf)
 	}
 
 	return res, err
@@ -60,18 +60,11 @@ func BroadcastTx(clientCtx client.Context, txf tx.Factory, msgs ...sdk.Msg) (*sd
 func prepareFactory(ctx client.Context, txf tx.Factory) error {
 	oracleAccountInfo.mtx.Lock()
 	defer oracleAccountInfo.mtx.Unlock()
-	fromAddr := ctx.GetFromAddress()
-	if err := txf.AccountRetriever().EnsureExists(ctx, fromAddr); err != nil {
-		return err
-	}
 	if oracleAccountInfo.AccountNumber == 0 || oracleAccountInfo.AccountSequence == 0 {
-
-		accountNum, sequence, err := txf.AccountRetriever().GetAccountNumberSequence(ctx, fromAddr)
+		err := resetAccountSequence(ctx, txf)
 		if err != nil {
 			return err
 		}
-		oracleAccountInfo.AccountNumber = accountNum
-		oracleAccountInfo.AccountSequence = sequence
 	} else {
 		oracleAccountInfo.AccountSequence++
 	}
@@ -79,8 +72,19 @@ func prepareFactory(ctx client.Context, txf tx.Factory) error {
 	return nil
 }
 
-func resetAccountSequence() {
+// resetAccountSequence will reset account sequence number to the latest sequence number in the chain
+func resetAccountSequence(ctx client.Context, txf tx.Factory) error {
 	oracleAccountInfo.mtx.Lock()
 	defer oracleAccountInfo.mtx.Unlock()
-	oracleAccountInfo.AccountSequence = 0
+	fromAddr := ctx.GetFromAddress()
+	if err := txf.AccountRetriever().EnsureExists(ctx, fromAddr); err != nil {
+		return err
+	}
+	accountNum, sequence, err := txf.AccountRetriever().GetAccountNumberSequence(ctx, fromAddr)
+	if err != nil {
+		return err
+	}
+	oracleAccountInfo.AccountNumber = accountNum
+	oracleAccountInfo.AccountSequence = sequence
+	return nil
 }
