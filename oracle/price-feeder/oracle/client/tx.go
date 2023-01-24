@@ -1,7 +1,6 @@
 package client
 
 import (
-	"fmt"
 	"github.com/cosmos/cosmos-sdk/client"
 	"github.com/cosmos/cosmos-sdk/client/tx"
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -46,14 +45,13 @@ func BroadcastTx(clientCtx client.Context, txf tx.Factory, logger zerolog.Logger
 	if err != nil {
 		return nil, err
 	}
-	logger.Info().Msg(fmt.Sprintf("Sending broadcastTx with account sequence number %d", txf.Sequence()))
+	logger.Debug().Uint64("sequence_num", txf.Sequence()).Msg("Sending broadcastTx with account sequence number")
 	res, err := clientCtx.BroadcastTx(txBytes)
 	if err != nil {
 		// When error happen, it could be that the sequence number are mismatching
 		// We need to reset sequence number to query the latest value from the chain
-		oracleAccountInfo.mtx.Lock()
 		_ = resetAccountSequence(clientCtx, txf)
-		oracleAccountInfo.mtx.Unlock()
+
 	}
 
 	return res, err
@@ -71,9 +69,7 @@ func prepareFactory(ctx client.Context, txf tx.Factory) error {
 			return err
 		}
 	} else {
-
 		oracleAccountInfo.AccountSequence++
-		oracleAccountInfo.mtx.Unlock()
 	}
 	txf.WithAccountNumber(oracleAccountInfo.AccountNumber).WithAccountNumber(oracleAccountInfo.AccountSequence).WithGas(0)
 	return nil
@@ -81,6 +77,8 @@ func prepareFactory(ctx client.Context, txf tx.Factory) error {
 
 // resetAccountSequence will reset account sequence number to the latest sequence number in the chain
 func resetAccountSequence(ctx client.Context, txf tx.Factory) error {
+	oracleAccountInfo.mtx.Lock()
+	defer oracleAccountInfo.mtx.Unlock()
 	fromAddr := ctx.GetFromAddress()
 	if err := txf.AccountRetriever().EnsureExists(ctx, fromAddr); err != nil {
 		return err

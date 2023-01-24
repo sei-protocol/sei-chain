@@ -50,7 +50,7 @@ func (heightUpdater HeightUpdater) subscribe(
 	for {
 		eventData, err := tmrpcclient.WaitForOneEvent(ctx, eventsClient, queryEventNewBlockHeader.String())
 		if err != nil {
-			logger.Err(err).Msg("Failed to query EventNewBlockHeader")
+			logger.Debug().Err(err).Msg("Failed to query EventNewBlockHeader")
 		}
 		eventDataNewBlockHeader, ok := eventData.(tmtypes.EventDataNewBlockHeader)
 		if !ok {
