@@ -154,7 +154,7 @@ func (oc OracleClient) BroadcastTx(
 		return err
 	}
 
-	resp, err := BroadcastTx(clientCtx, txFactory, msgs...)
+	resp, err := BroadcastTx(clientCtx, txFactory, oc.Logger, msgs...)
 
 	if resp != nil && resp.Code != 0 {
 		telemetry.IncrCounter(1, "failure", "tx", "code")
