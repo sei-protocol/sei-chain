@@ -1,9 +1,11 @@
 package client
 
 import (
+	"fmt"
 	"github.com/cosmos/cosmos-sdk/client"
 	"github.com/cosmos/cosmos-sdk/client/tx"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/rs/zerolog"
 	"sync"
 )
 
@@ -22,7 +24,7 @@ var oracleAccountInfo = AccountInfo{}
 // Note, BroadcastTx is copied from the SDK except it removes a few unnecessary
 // things like prompting for confirmation and printing the response. Instead,
 // we return the TxResponse.
-func BroadcastTx(clientCtx client.Context, txf tx.Factory, msgs ...sdk.Msg) (*sdk.TxResponse, error) {
+func BroadcastTx(clientCtx client.Context, txf tx.Factory, logger zerolog.Logger, msgs ...sdk.Msg) (*sdk.TxResponse, error) {
 	err := prepareFactory(clientCtx, txf)
 	if err != nil {
 		return nil, err
@@ -44,11 +46,14 @@ func BroadcastTx(clientCtx client.Context, txf tx.Factory, msgs ...sdk.Msg) (*sd
 	if err != nil {
 		return nil, err
 	}
+	logger.Info().Msg(fmt.Sprintf("Sending broadcastTx with account sequence number %d", txf.Sequence()))
 	res, err := clientCtx.BroadcastTx(txBytes)
 	if err != nil {
 		// When error happen, it could be that the sequence number are mismatching
 		// We need to reset sequence number to query the latest value from the chain
+		oracleAccountInfo.mtx.Lock()
 		_ = resetAccountSequence(clientCtx, txf)
+		oracleAccountInfo.mtx.Unlock()
 	}
 
 	return res, err
@@ -66,7 +71,9 @@ func prepareFactory(ctx client.Context, txf tx.Factory) error {
 			return err
 		}
 	} else {
+
 		oracleAccountInfo.AccountSequence++
+		oracleAccountInfo.mtx.Unlock()
 	}
 	txf.WithAccountNumber(oracleAccountInfo.AccountNumber).WithAccountNumber(oracleAccountInfo.AccountSequence).WithGas(0)
 	return nil
@@ -74,8 +81,6 @@ func prepareFactory(ctx client.Context, txf tx.Factory) error {
 
 // resetAccountSequence will reset account sequence number to the latest sequence number in the chain
 func resetAccountSequence(ctx client.Context, txf tx.Factory) error {
-	oracleAccountInfo.mtx.Lock()
-	defer oracleAccountInfo.mtx.Unlock()
 	fromAddr := ctx.GetFromAddress()
 	if err := txf.AccountRetriever().EnsureExists(ctx, fromAddr); err != nil {
 		return err
