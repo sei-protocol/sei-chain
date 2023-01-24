@@ -1,6 +1,7 @@
 package client
 
 import (
+	"fmt"
 	"github.com/cosmos/cosmos-sdk/client"
 	"github.com/cosmos/cosmos-sdk/client/tx"
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -40,6 +41,7 @@ func BroadcastTx(clientCtx client.Context, txf tx.Factory, msgs ...sdk.Msg) (*sd
 	if err != nil {
 		return nil, err
 	}
+	fmt.Printf("[Price Feeder] Sending broadcast tx with account %d sequence %d\n", txf.AccountNumber(), txf.Sequence())
 
 	return clientCtx.BroadcastTx(txBytes)
 }
