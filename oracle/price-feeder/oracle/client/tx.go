@@ -1,11 +1,12 @@
 package client
 
 import (
+	"sync"
+
 	"github.com/cosmos/cosmos-sdk/client"
 	"github.com/cosmos/cosmos-sdk/client/tx"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/rs/zerolog"
-	"sync"
 )
 
 type AccountInfo struct {
