@@ -4,6 +4,11 @@ import (
 	"github.com/cosmos/cosmos-sdk/client"
 	"github.com/cosmos/cosmos-sdk/client/tx"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	"sync/atomic"
+)
+
+var (
+	AtomicSequenceNumber atomic.Uint64
 )
 
 // BroadcastTx attempts to generate, sign and broadcast a transaction with the
@@ -19,27 +24,19 @@ func BroadcastTx(clientCtx client.Context, txf tx.Factory, msgs ...sdk.Msg) (*sd
 		return nil, err
 	}
 
-	// _, adjusted, err := tx.CalculateGas(clientCtx, txf, msgs...)
-	// if err != nil {
-	// 	return nil, err
-	// }
-
-	// txf = txf.WithGas(adjusted)
-	txf = txf.WithGas(0)
-	// txf = txf.WithFees("0usei")
-
-	unsignedTx, err := tx.BuildUnsignedTx(txf, msgs...)
+	// Build unsigned tx
+	transaction, err := tx.BuildUnsignedTx(txf, msgs...)
 	if err != nil {
 		return nil, err
 	}
 
-	// unsignedTx.SetFeeAmount(sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(2000))))
-
-	if err = tx.Sign(txf, clientCtx.GetFromName(), unsignedTx, true); err != nil {
+	// Sign the transaction
+	if err = tx.Sign(txf, clientCtx.GetFromName(), transaction, true); err != nil {
 		return nil, err
 	}
 
-	txBytes, err := clientCtx.TxConfig.TxEncoder()(unsignedTx.GetTx())
+	// Get bytes to send
+	txBytes, err := clientCtx.TxConfig.TxEncoder()(transaction.GetTx())
 	if err != nil {
 		return nil, err
 	}
@@ -52,27 +49,17 @@ func BroadcastTx(clientCtx client.Context, txf tx.Factory, msgs ...sdk.Msg) (*sd
 // they will be queried for and set on the provided Factory. A new Factory with
 // the updated fields will be returned.
 func prepareFactory(clientCtx client.Context, txf tx.Factory) (tx.Factory, error) {
-	from := clientCtx.GetFromAddress()
-
-	if err := txf.AccountRetriever().EnsureExists(clientCtx, from); err != nil {
+	fromAddr := clientCtx.GetFromAddress()
+	if err := txf.AccountRetriever().EnsureExists(clientCtx, fromAddr); err != nil {
 		return txf, err
 	}
-
-	initNum, initSeq := txf.AccountNumber(), txf.Sequence()
-	if initNum == 0 || initSeq == 0 {
-		num, seq, err := txf.AccountRetriever().GetAccountNumberSequence(clientCtx, from)
-		if err != nil {
-			return txf, err
-		}
-
-		if initNum == 0 {
-			txf = txf.WithAccountNumber(num)
-		}
-
-		if initSeq == 0 {
-			txf = txf.WithSequence(seq)
-		}
+	accountNum, sequence, err := txf.AccountRetriever().GetAccountNumberSequence(clientCtx, fromAddr)
+	if err != nil {
+		return txf, err
 	}
-
+	if !AtomicSequenceNumber.CompareAndSwap(0, sequence) {
+		sequence = AtomicSequenceNumber.Add(1)
+	}
+	txf = txf.WithAccountNumber(accountNum).WithSequence(sequence).WithGas(0)
 	return txf, nil
 }

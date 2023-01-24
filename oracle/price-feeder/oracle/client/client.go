@@ -143,11 +143,18 @@ func (r *passReader) Read(p []byte) (n int, err error) {
 // Ref: https://github.com/terra-money/oracle-feeder/blob/baef2a4a02f57a2ffeaa207932b2e03d7fb0fb25/feeder/src/vote.ts#L230
 func (oc OracleClient) BroadcastTx(
 	blockHeight int64,
-	clientCtx client.Context,
-	factory tx.Factory,
 	msgs ...sdk.Msg) error {
 
-	resp, err := BroadcastTx(clientCtx, factory, msgs...)
+	clientCtx, err := oc.CreateClientContext()
+	if err != nil {
+		return err
+	}
+	txFactory, err := oc.CreateTxFactory()
+	if err != nil {
+		return err
+	}
+
+	resp, err := BroadcastTx(clientCtx, txFactory, msgs...)
 
 	if resp != nil && resp.Code != 0 {
 		telemetry.IncrCounter(1, "failure", "tx", "code")
