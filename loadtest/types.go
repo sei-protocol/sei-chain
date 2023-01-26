@@ -26,6 +26,7 @@ const (
 
 type Config struct {
 	ChainID       string                `json:"chain_id"`
+	GrpcEndpoint  string                `json:"grpc_endpoint"`
 	TxsPerBlock   uint64                `json:"txs_per_block"`
 	MsgsPerTx     uint64                `json:"msgs_per_tx"`
 	Rounds        uint64                `json:"rounds"`

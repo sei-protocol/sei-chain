@@ -17,6 +17,8 @@ import (
 
 	"github.com/k0kubun/pp/v3"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
+	"crypto/tls"
 )
 
 type LoadTestClient struct {
@@ -41,8 +43,8 @@ type LoadTestClient struct {
 
 func NewLoadTestClient(config Config) *LoadTestClient {
 	grpcConn, _ := grpc.Dial(
-		"127.0.0.1:9090",
-		grpc.WithInsecure(),
+		config.GrpcEndpoint,
+		grpc.WithTransportCredentials(credentials.NewTLS(&tls.Config{InsecureSkipVerify: true})),
 	)
 	TxClient := typestx.NewServiceClient(grpcConn)
 
