@@ -1,0 +1,14 @@
+version: v1beta1
+
+build:
+  roots:
+    - proto
+    - third_party
+lint:
+  use:
+    - MINIMAL
+    - FILE_LOWER_SNAKE_CASE
+    - FILE_LAYOUT
+breaking:
+  use:
+    - FILE
