@@ -12,7 +12,7 @@ HEIGHT=$1
 if ! command -v $HOME/go/bin/iaviewer &> /dev/null
 then
     cd $HOME
-    sudo rm -r iavl
+    rm -rf iavl
     git clone https://github.com/cosmos/iavl.git
     cd iavl
     git checkout v0.17.3
