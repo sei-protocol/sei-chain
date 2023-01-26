@@ -51,9 +51,10 @@ type nodeImpl struct {
 	logger log.Logger
 
 	// config
-	config        *config.Config
-	genesisDoc    *types.GenesisDoc   // initial validator set
-	privValidator types.PrivValidator // local node's validator key
+	config          *config.Config
+	genesisDoc      *types.GenesisDoc   // initial validator set
+	privValidator   types.PrivValidator // local node's validator key
+	shouldStateSync bool                // set during makeNode
 
 	// network
 	peerManager *p2p.PeerManager
@@ -396,6 +397,7 @@ func makeNode(
 		},
 		stateSync,
 	)
+	node.shouldStateSync = stateSync
 	node.services = append(node.services, ssReactor)
 	node.router.AddChDescToBeAdded(statesync.GetSnapshotChannelDescriptor(), ssReactor.SetSnapshotChannel)
 	node.router.AddChDescToBeAdded(statesync.GetChunkChannelDescriptor(), ssReactor.SetChunkChannel)
@@ -432,12 +434,17 @@ func (n *nodeImpl) OnStart(ctx context.Context) error {
 		return err
 	}
 
-	// Create the handshaker, which calls RequestInfo, sets the AppVersion on the state,
-	// and replays any blocks as necessary to sync tendermint with the app.
-	if err := consensus.NewHandshaker(n.logger.With("module", "handshaker"),
-		n.stateStore, n.initialState, n.blockStore, n.rpcEnv.EventBus, n.genesisDoc,
-	).Handshake(ctx, n.rpcEnv.ProxyApp); err != nil {
-		return err
+	// state sync will cover initialization the chain. Also calling InitChain isn't safe
+	// when there is state sync as InitChain itself doesn't commit application state which
+	// would get mixed up with application state writes by state sync.
+	if !n.shouldStateSync {
+		// Create the handshaker, which calls RequestInfo, sets the AppVersion on the state,
+		// and replays any blocks as necessary to sync tendermint with the app.
+		if err := consensus.NewHandshaker(n.logger.With("module", "handshaker"),
+			n.stateStore, n.initialState, n.blockStore, n.rpcEnv.EventBus, n.genesisDoc,
+		).Handshake(ctx, n.rpcEnv.ProxyApp); err != nil {
+			return err
+		}
 	}
 
 	// Reload the state. It will have the Version.Consensus.App set by the
