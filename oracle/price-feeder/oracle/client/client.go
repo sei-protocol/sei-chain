@@ -93,7 +93,7 @@ func NewOracleClient(
 		GasAdjustment:       gasAdjustment,
 		GRPCEndpoint:        grpcEndpoint,
 		GasPrices:           gasPrices,
-		BlockHeightEvents:   make(chan int64, 16),
+		BlockHeightEvents:   make(chan int64, 1),
 	}
 
 	clientCtx, err := oracleClient.CreateClientContext()
