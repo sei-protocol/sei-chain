@@ -22,9 +22,11 @@ func GetGasMeterSetter(aclkeeper aclkeeper.Keeper) func(bool, sdk.Context, uint6
 		}
 
 		denominator := uint64(1)
+		updatedGasDenominator := false
 		for _, msg := range tx.GetMsgs() {
 			candidateDenominator := getMessageMultiplierDenominator(ctx, msg, aclkeeper)
-			if candidateDenominator > denominator {
+			if !updatedGasDenominator || candidateDenominator < denominator {
+				updatedGasDenominator = true
 				denominator = candidateDenominator
 			}
 		}
