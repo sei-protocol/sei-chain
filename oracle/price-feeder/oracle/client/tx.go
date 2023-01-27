@@ -13,7 +13,7 @@ import (
 type AccountInfo struct {
 	AccountNumber   uint64
 	AccountSequence uint64
-	mtx             sync.Mutex
+	mtx             sync.RWMutex
 }
 
 var oracleAccountInfo = AccountInfo{}
@@ -47,8 +47,7 @@ func BroadcastTx(clientCtx client.Context, txf tx.Factory, logger zerolog.Logger
 	if err != nil {
 		return nil, err
 	}
-	logger.Debug().Uint64("sequence_num", txf.Sequence()).Msg("Sending broadcastTx with account sequence number")
-	fmt.Printf("[Oracle] Sending tx with account sequence number %d\n", txf.Sequence())
+	logger.Info().Msg(fmt.Sprintf("Sending broadcastTx with account sequence number %d", txf.Sequence()))
 	res, err := clientCtx.BroadcastTx(txBytes)
 	if err != nil {
 		// When error happen, it could be that the sequence number are mismatching
@@ -64,11 +63,7 @@ func BroadcastTx(clientCtx client.Context, txf tx.Factory, logger zerolog.Logger
 // We keep a local copy of account sequence number and manually increment it.
 // If the local sequence number is 0, we will initialize it with the latest value getting from the chain.
 func prepareFactory(ctx client.Context, txf tx.Factory) error {
-	oracleAccountInfo.mtx.Lock()
-	defer oracleAccountInfo.mtx.Unlock()
-	fmt.Println("[Oracle] Preparing factory ")
 	if oracleAccountInfo.AccountNumber == 0 || oracleAccountInfo.AccountSequence == 0 {
-		fmt.Println("[Oracle] Initializing account into ")
 		err := resetAccountSequence(ctx, txf)
 		if err != nil {
 			return err
@@ -82,9 +77,6 @@ func prepareFactory(ctx client.Context, txf tx.Factory) error {
 
 // resetAccountSequence will reset account sequence number to the latest sequence number in the chain
 func resetAccountSequence(ctx client.Context, txf tx.Factory) error {
-	oracleAccountInfo.mtx.Lock()
-	defer oracleAccountInfo.mtx.Unlock()
-	fmt.Println("[Oracle] Resetting account sequence number ")
 	fromAddr := ctx.GetFromAddress()
 	if err := txf.AccountRetriever().EnsureExists(ctx, fromAddr); err != nil {
 		return err
@@ -95,5 +87,6 @@ func resetAccountSequence(ctx client.Context, txf tx.Factory) error {
 	}
 	oracleAccountInfo.AccountNumber = accountNum
 	oracleAccountInfo.AccountSequence = sequence
+
 	return nil
 }
