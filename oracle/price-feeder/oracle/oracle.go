@@ -8,8 +8,6 @@ import (
 	"sync"
 	"time"
 
-	cosmosclient "github.com/cosmos/cosmos-sdk/client"
-	"github.com/cosmos/cosmos-sdk/client/tx"
 	"github.com/cosmos/cosmos-sdk/telemetry"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/rs/zerolog"
@@ -99,14 +97,6 @@ func New(
 
 // Start starts the oracle process in a blocking fashion.
 func (o *Oracle) Start(ctx context.Context) error {
-	clientCtx, err := o.oracleClient.CreateClientContext()
-	if err != nil {
-		return err
-	}
-	txFactory, err := o.oracleClient.CreateTxFactory()
-	if err != nil {
-		return err
-	}
 	var lastProcessedBlock int64 = 0
 
 	for {
@@ -121,7 +111,7 @@ func (o *Oracle) Start(ctx context.Context) error {
 			currBlockHeight := <-o.oracleClient.BlockHeightEvents
 
 			startTime := time.Now()
-			if err := o.tick(ctx, clientCtx, txFactory, currBlockHeight); err != nil {
+			if err := o.tick(ctx, currBlockHeight); err != nil {
 				telemetry.IncrCounter(1, "failure", "tick")
 				o.logger.Err(err).Msg(fmt.Sprintf("oracle tick failed for height %d", currBlockHeight))
 			} else {
@@ -497,8 +487,6 @@ func (o *Oracle) checkWhitelist(params oracletypes.Params) {
 
 func (o *Oracle) tick(
 	ctx context.Context,
-	clientCtx cosmosclient.Context,
-	txFactory tx.Factory,
 	blockHeight int64) error {
 
 	o.logger.Debug().Msg(fmt.Sprintf("executing oracle tick for height %d", blockHeight))
@@ -556,7 +544,7 @@ func (o *Oracle) tick(
 		Float64("vote_period", currentVotePeriod).
 		Msg("broadcasting vote")
 
-	if err := o.oracleClient.BroadcastTx(clientCtx, txFactory, blockHeight, voteMsg); err != nil {
+	if err := o.oracleClient.BroadcastTx(blockHeight, voteMsg); err != nil {
 		return err
 	}
 	o.previousVotePeriod = currentVotePeriod
