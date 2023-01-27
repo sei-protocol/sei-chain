@@ -184,7 +184,7 @@ func (oc OracleClient) BroadcastTx(
 		Uint32("tx_code", resp.Code).
 		Str("tx_hash", resp.TxHash).
 		Int64("tx_height", resp.Height).
-		Msg(fmt.Sprintf("successfully broadcasted tx at height %d", blockHeight))
+		Msg(fmt.Sprintf("Successfully broadcasted tx at height %d", blockHeight))
 	return nil
 }
 
