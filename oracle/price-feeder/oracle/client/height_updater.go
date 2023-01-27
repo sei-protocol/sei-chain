@@ -49,22 +49,27 @@ func (heightUpdater HeightUpdater) subscribe(
 ) {
 	for {
 		eventData, err := tmrpcclient.WaitForOneEvent(ctx, eventsClient, queryEventNewBlockHeader.String())
-
 		if err != nil {
-			logger.Err(err).Msg("Failed to query EventNewBlockHeader")
+			logger.Debug().Err(err).Msg("Failed to query EventNewBlockHeader")
 		}
 		eventDataNewBlockHeader, ok := eventData.(tmtypes.EventDataNewBlockHeader)
 		if !ok {
 			logger.Err(err).Msg("Failed to parse event from eventDataNewBlockHeader")
+			continue
 		} else {
 			eventHeight := eventDataNewBlockHeader.Header.Height
 			if eventHeight > heightUpdater.LastHeight {
-				heightUpdater.ChBlockHeight <- eventHeight
+				logger.Info().Msg(fmt.Sprintf("Received new Chain Height: %d", eventHeight))
 				heightUpdater.LastHeight = eventHeight
-				logger.Info().Msg(fmt.Sprintf("Received new Chain Height: %d", eventDataNewBlockHeader.Header.Height))
-			} else {
-				time.Sleep(queryInterval)
+				if len(heightUpdater.ChBlockHeight) < 1 {
+					heightUpdater.ChBlockHeight <- eventHeight
+				} else {
+					// skip this block height since price feeder is still sending previous transaction
+					logger.Info().Msg(fmt.Sprintf("Skipped Block Height: %d due to in progress tx", eventHeight))
+				}
 			}
+
 		}
+		time.Sleep(queryInterval)
 	}
 }
