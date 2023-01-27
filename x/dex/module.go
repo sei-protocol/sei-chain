@@ -260,7 +260,7 @@ func (am AppModule) beginBlockForContract(ctx sdk.Context, contract types.Contra
 
 	if contract.NeedOrderMatching {
 		currentTimestamp := uint64(ctx.BlockTime().Unix())
-		ctx.Logger().Info(fmt.Sprintf("Removing stale prices for ts %d", currentTimestamp))
+		ctx.Logger().Debug(fmt.Sprintf("Removing stale prices for ts %d", currentTimestamp))
 		priceRetention := am.keeper.GetParams(ctx).PriceSnapshotRetention
 		for _, pair := range am.keeper.GetAllRegisteredPairs(ctx, contractAddr) {
 			am.keeper.DeletePriceStateBefore(ctx, contractAddr, currentTimestamp-priceRetention, pair)
