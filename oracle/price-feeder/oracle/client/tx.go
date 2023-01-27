@@ -1,6 +1,7 @@
 package client
 
 import (
+	"fmt"
 	"sync"
 
 	"github.com/cosmos/cosmos-sdk/client"
@@ -47,6 +48,7 @@ func BroadcastTx(clientCtx client.Context, txf tx.Factory, logger zerolog.Logger
 		return nil, err
 	}
 	logger.Debug().Uint64("sequence_num", txf.Sequence()).Msg("Sending broadcastTx with account sequence number")
+	fmt.Printf("[Oracle] Sending tx with account sequence number %d\n", txf.Sequence())
 	res, err := clientCtx.BroadcastTx(txBytes)
 	if err != nil {
 		// When error happen, it could be that the sequence number are mismatching
@@ -64,7 +66,9 @@ func BroadcastTx(clientCtx client.Context, txf tx.Factory, logger zerolog.Logger
 func prepareFactory(ctx client.Context, txf tx.Factory) error {
 	oracleAccountInfo.mtx.Lock()
 	defer oracleAccountInfo.mtx.Unlock()
+	fmt.Println("[Oracle] Preparing factory ")
 	if oracleAccountInfo.AccountNumber == 0 || oracleAccountInfo.AccountSequence == 0 {
+		fmt.Println("[Oracle] Initializing account into ")
 		err := resetAccountSequence(ctx, txf)
 		if err != nil {
 			return err
@@ -80,6 +84,7 @@ func prepareFactory(ctx client.Context, txf tx.Factory) error {
 func resetAccountSequence(ctx client.Context, txf tx.Factory) error {
 	oracleAccountInfo.mtx.Lock()
 	defer oracleAccountInfo.mtx.Unlock()
+	fmt.Println("[Oracle] Resetting account sequence number ")
 	fromAddr := ctx.GetFromAddress()
 	if err := txf.AccountRetriever().EnsureExists(ctx, fromAddr); err != nil {
 		return err
