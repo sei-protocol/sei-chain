@@ -26,7 +26,7 @@ var oracleAccountInfo = AccountInfo{}
 // things like prompting for confirmation and printing the response. Instead,
 // we return the TxResponse.
 func BroadcastTx(clientCtx client.Context, txf tx.Factory, logger zerolog.Logger, msgs ...sdk.Msg) (*sdk.TxResponse, error) {
-	err := prepareFactory(clientCtx, txf)
+	txf, err := prepareFactory(clientCtx, txf)
 	if err != nil {
 		return nil, err
 	}
@@ -62,17 +62,19 @@ func BroadcastTx(clientCtx client.Context, txf tx.Factory, logger zerolog.Logger
 // prepareFactory ensures the account defined by ctx.GetFromAddress() exists.
 // We keep a local copy of account sequence number and manually increment it.
 // If the local sequence number is 0, we will initialize it with the latest value getting from the chain.
-func prepareFactory(ctx client.Context, txf tx.Factory) error {
+func prepareFactory(ctx client.Context, txf tx.Factory) (tx.Factory, error) {
 	if oracleAccountInfo.AccountNumber == 0 || oracleAccountInfo.AccountSequence == 0 {
 		err := resetAccountSequence(ctx, txf)
 		if err != nil {
-			return err
+			return txf, err
 		}
 	} else {
 		oracleAccountInfo.AccountSequence++
 	}
-	txf.WithAccountNumber(oracleAccountInfo.AccountNumber).WithAccountNumber(oracleAccountInfo.AccountSequence).WithGas(0)
-	return nil
+	txf = txf.WithAccountNumber(oracleAccountInfo.AccountNumber)
+	txf = txf.WithSequence(oracleAccountInfo.AccountSequence)
+	txf = txf.WithGas(0)
+	return txf, nil
 }
 
 // resetAccountSequence will reset account sequence number to the latest sequence number in the chain
