@@ -61,11 +61,11 @@ func (heightUpdater HeightUpdater) subscribe(
 			if eventHeight > heightUpdater.LastHeight {
 				logger.Info().Msg(fmt.Sprintf("Received new Chain Height: %d", eventHeight))
 				heightUpdater.LastHeight = eventHeight
-				if len(heightUpdater.ChBlockHeight) <= 1 {
+				if len(heightUpdater.ChBlockHeight) < 1 {
 					heightUpdater.ChBlockHeight <- eventHeight
 				} else {
 					// skip this block height since price feeder is still sending previous transaction
-					logger.Info().Msg(fmt.Sprintf("Skipped Block Height: %d", eventHeight))
+					logger.Info().Msg(fmt.Sprintf("Skipped Block Height: %d due to in progress tx", eventHeight))
 				}
 			}
 
