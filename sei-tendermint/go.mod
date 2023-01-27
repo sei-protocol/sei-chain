@@ -242,6 +242,7 @@ require (
 
 require (
 	github.com/creachadair/tomledit v0.0.22
+	github.com/hashicorp/golang-lru v0.5.4
 	github.com/pkg/errors v0.9.1
 	github.com/prometheus/client_model v0.2.0
 	github.com/prometheus/common v0.34.0
