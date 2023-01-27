@@ -542,7 +542,7 @@ func (o *Oracle) tick(
 		Str("validator", voteMsg.Validator).
 		Str("feeder", voteMsg.Feeder).
 		Float64("vote_period", currentVotePeriod).
-		Msg("broadcasting vote")
+		Msg("Going to broadcast vote")
 
 	if err := o.oracleClient.BroadcastTx(blockHeight, voteMsg); err != nil {
 		return err
