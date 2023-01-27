@@ -820,6 +820,50 @@ func (tree *MutableTree) GetVersioned(key []byte, version int64) ([]byte, error)
 	return nil, nil
 }
 
+// SaveCurrentVersion overwrites the current version without bumping.
+// It will return an error if the version does not exist in tree, or if
+// the hash being saved is different. In
+// other words, only SaveVersion can insert new node into the tree.
+func (tree *MutableTree) SaveCurrentVersion() ([]byte, int64, error) {
+	version := tree.version
+	if version == 1 && tree.ndb.opts.InitialVersion > 0 {
+		version = int64(tree.ndb.opts.InitialVersion)
+	}
+
+	if !tree.VersionExists(version) {
+		return nil, version, errors.New(fmt.Sprintf("attempting to overwrite non-existent version %d", version))
+	}
+
+	existingHash, err := tree.ndb.getRoot(version)
+	if err != nil {
+		return nil, version, err
+	}
+
+	// If the existing root hash is empty (because the tree is empty), then we need to
+	// compare with the hash of an empty input which is what `WorkingHash()` returns.
+	if len(existingHash) == 0 {
+		existingHash = sha256.New().Sum(nil)
+	}
+
+	newHash, err := tree.WorkingHash()
+	if err != nil {
+		return nil, version, err
+	}
+
+	if bytes.Equal(existingHash, newHash) {
+		if v, err := tree.commitVersion(version, true); err != nil {
+			return nil, v, err
+		}
+		tree.version = version
+		tree.ImmutableTree = tree.ImmutableTree.clone()
+		tree.lastSaved = tree.ImmutableTree.clone()
+		tree.orphans = map[string]int64{}
+		return existingHash, version, nil
+	}
+
+	return nil, version, fmt.Errorf("version %d was already saved to different hash %X (existing hash %X)", version, newHash, existingHash)
+}
+
 // SaveVersion saves a new tree version to disk, based on the current state of
 // the tree. Returns the hash and new version number.
 func (tree *MutableTree) SaveVersion() ([]byte, int64, error) {
@@ -858,37 +902,8 @@ func (tree *MutableTree) SaveVersion() ([]byte, int64, error) {
 		return nil, version, fmt.Errorf("version %d was already saved to different hash %X (existing hash %X)", version, newHash, existingHash)
 	}
 
-	if tree.root == nil {
-		// There can still be orphans, for example if the root is the node being
-		// removed.
-		logger.Debug("SAVE EMPTY TREE %v\n", version)
-		if err := tree.ndb.SaveOrphans(version, tree.orphans); err != nil {
-			return nil, 0, err
-		}
-		if err := tree.ndb.SaveEmptyRoot(version); err != nil {
-			return nil, 0, err
-		}
-	} else {
-		logger.Debug("SAVE TREE %v\n", version)
-		if _, err := tree.ndb.SaveBranch(tree.root); err != nil {
-			return nil, 0, err
-		}
-		if err := tree.ndb.SaveOrphans(version, tree.orphans); err != nil {
-			return nil, 0, err
-		}
-		if err := tree.ndb.SaveRoot(tree.root, version); err != nil {
-			return nil, 0, err
-		}
-	}
-
-	if !tree.skipFastStorageUpgrade {
-		if err := tree.saveFastNodeVersion(); err != nil {
-			return nil, version, err
-		}
-	}
-
-	if err := tree.ndb.Commit(); err != nil {
-		return nil, version, err
+	if v, err := tree.commitVersion(version, false); err != nil {
+		return nil, v, err
 	}
 
 	tree.mtx.Lock()
@@ -921,6 +936,43 @@ func (tree *MutableTree) saveFastNodeVersion() error {
 		return err
 	}
 	return tree.ndb.setFastStorageVersionToBatch()
+}
+
+func (tree *MutableTree) commitVersion(version int64, silentSaveRootError bool) (int64, error) {
+	if tree.root == nil {
+		// There can still be orphans, for example if the root is the node being
+		// removed.
+		logger.Debug("SAVE EMPTY TREE %v\n", version)
+		if err := tree.ndb.SaveOrphans(version, tree.orphans); err != nil {
+			return 0, err
+		}
+		if err := tree.ndb.SaveEmptyRoot(version); !silentSaveRootError && err != nil {
+			return 0, err
+		}
+	} else {
+		logger.Debug("SAVE TREE %v\n", version)
+		if _, err := tree.ndb.SaveBranch(tree.root); err != nil {
+			return 0, err
+		}
+		if err := tree.ndb.SaveOrphans(version, tree.orphans); err != nil {
+			return 0, err
+		}
+		if err := tree.ndb.SaveRoot(tree.root, version); !silentSaveRootError && err != nil {
+			return 0, err
+		}
+	}
+
+	if !tree.skipFastStorageUpgrade {
+		if err := tree.saveFastNodeVersion(); err != nil {
+			return version, err
+		}
+	}
+
+	if err := tree.ndb.Commit(); err != nil {
+		return version, err
+	}
+
+	return version, nil
 }
 
 // nolint: unused
