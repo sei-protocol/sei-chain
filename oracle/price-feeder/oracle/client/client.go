@@ -145,11 +145,11 @@ func (oc OracleClient) BroadcastTx(
 	blockHeight int64,
 	msgs ...sdk.Msg) error {
 
-	ctx, err := o.oracleClient.CreateClientContext()
+	ctx, err := oc.CreateClientContext()
 	if err != nil {
 		return err
 	}
-	txf, err := o.oracleClient.CreateTxFactory()
+	txf, err := oc.CreateTxFactory()
 	if err != nil {
 		return err
 	}
