@@ -146,6 +146,20 @@ func GetCircularDependencyIdentifier(contractAddr sdk.AccAddress, msgInfo *types
 	return identifier
 }
 
+func FilterReadOnlyAccessOps(accessOps []*acltypes.WasmAccessOperation) []*acltypes.WasmAccessOperation {
+	filteredOps := []*acltypes.WasmAccessOperation{}
+	for _, accessOp := range accessOps {
+		if accessOp.Operation.AccessType != acltypes.AccessType_WRITE {
+			// if access type is UNKNOWN, convert it to READ so it becomes non blocking since KNOW queries can't perform writes
+			if accessOp.Operation.AccessType == acltypes.AccessType_UNKNOWN {
+				accessOp.Operation.AccessType = acltypes.AccessType_READ
+			}
+			filteredOps = append(filteredOps, accessOp)
+		}
+	}
+	return filteredOps
+}
+
 func (k Keeper) GetWasmDependencyAccessOps(ctx sdk.Context, contractAddress sdk.AccAddress, senderBech string, msgInfo *types.WasmMessageInfo, circularDepLookup ContractReferenceLookupMap) ([]acltypes.AccessOperation, error) {
 	uniqueIdentifier := GetCircularDependencyIdentifier(contractAddress, msgInfo)
 	if _, ok := circularDepLookup[uniqueIdentifier]; ok {
@@ -165,12 +179,17 @@ func (k Keeper) GetWasmDependencyAccessOps(ctx sdk.Context, contractAddress sdk.
 	}
 
 	accessOps := dependencyMapping.BaseAccessOps
+	if msgInfo.MessageType == acltypes.WasmMessageSubtype_QUERY {
+		// If we have a query, filter out any WRITES
+		accessOps = FilterReadOnlyAccessOps(accessOps)
+	}
 	specificAccessOpsMapping := []*acltypes.WasmAccessOperations{}
 	if msgInfo.MessageType == acltypes.WasmMessageSubtype_EXECUTE && len(dependencyMapping.ExecuteAccessOps) > 0 {
 		specificAccessOpsMapping = dependencyMapping.ExecuteAccessOps
 	} else if msgInfo.MessageType == acltypes.WasmMessageSubtype_QUERY && len(dependencyMapping.QueryAccessOps) > 0 {
 		specificAccessOpsMapping = dependencyMapping.QueryAccessOps
 	}
+
 	for _, specificAccessOps := range specificAccessOpsMapping {
 		if specificAccessOps.MessageName == msgInfo.MessageName {
 			accessOps = append(accessOps, specificAccessOps.WasmOperations...)

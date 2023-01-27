@@ -1468,6 +1468,20 @@ func TestWasmDependencyMappingWithContractReferencePartitioned(t *testing.T) {
 		BaseAccessOps: []*acltypes.WasmAccessOperation{
 			{
 				Operation: &acltypes.AccessOperation{
+					ResourceType:       acltypes.ResourceType_KV_STAKING,
+					AccessType:         acltypes.AccessType_WRITE,
+					IdentifierTemplate: "*",
+				},
+			},
+			{
+				Operation: &acltypes.AccessOperation{
+					ResourceType:       acltypes.ResourceType_KV_BANK_BALANCES,
+					AccessType:         acltypes.AccessType_UNKNOWN,
+					IdentifierTemplate: "*",
+				},
+			},
+			{
+				Operation: &acltypes.AccessOperation{
 					ResourceType:       acltypes.ResourceType_KV_ORACLE_EXCHANGE_RATE,
 					AccessType:         acltypes.AccessType_READ,
 					IdentifierTemplate: "*",
@@ -1558,8 +1572,14 @@ func TestWasmDependencyMappingWithContractReferencePartitioned(t *testing.T) {
 		make(aclkeeper.ContractReferenceLookupMap),
 	)
 	require.NoError(t, err)
-	require.Equal(t, 2, types.NewAccessOperationSet(deps2).Size())
+	require.Equal(t, 3, types.NewAccessOperationSet(deps2).Size())
 	expectedAccessOps2 := []acltypes.AccessOperation{
+		// this was turned to READ from UNKNOWN
+		{
+			ResourceType:       acltypes.ResourceType_KV_BANK_BALANCES,
+			AccessType:         acltypes.AccessType_READ,
+			IdentifierTemplate: "*",
+		},
 		{
 			ResourceType:       acltypes.ResourceType_KV_ORACLE_EXCHANGE_RATE,
 			AccessType:         acltypes.AccessType_READ,
