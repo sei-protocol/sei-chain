@@ -2,8 +2,6 @@ package client
 
 import (
 	"fmt"
-	"sync"
-
 	"github.com/cosmos/cosmos-sdk/client"
 	"github.com/cosmos/cosmos-sdk/client/tx"
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -13,7 +11,6 @@ import (
 type AccountInfo struct {
 	AccountNumber   uint64
 	AccountSequence uint64
-	mtx             sync.RWMutex
 }
 
 var oracleAccountInfo = AccountInfo{}
