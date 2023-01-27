@@ -87,6 +87,5 @@ func resetAccountSequence(ctx client.Context, txf tx.Factory) error {
 	}
 	oracleAccountInfo.AccountNumber = accountNum
 	oracleAccountInfo.AccountSequence = sequence
-
 	return nil
 }
