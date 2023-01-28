@@ -8,7 +8,7 @@ VOLUME [ "/root/go/pkg/mod" ]
 
 WORKDIR /sei-protocol/sei-chain
 
-EXPOSE 26656 26657 26658 9091 9090
+EXPOSE 26656 26657 26658 9090 9091 7171
 
 CMD ["/usr/bin/deploy.sh"]
 
