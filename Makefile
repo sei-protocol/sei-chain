@@ -135,6 +135,7 @@ build-docker-node:
 run-docker-node:
 	@rm -rf $(PROJECT_HOME)/build/generated
 	docker run --rm \
+	--network host \
 	-v $(PROJECT_HOME):/sei-protocol/sei-chain:Z \
 	-v $(GO_PKG_PATH)/mod:/root/go/pkg/mod:Z \
 	--platform linux/x86_64 \

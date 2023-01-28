@@ -1,13 +1,14 @@
 FROM ubuntu:latest
 RUN apt-get update && \
-    apt-get install -y make git golang jq python3
+    apt-get install -y make git golang jq python3 curl vim
 RUN rm -rf build/generated
 
 VOLUME [ "/sei-protocol" ]
 VOLUME [ "/root/go/pkg/mod" ]
+
 WORKDIR /sei-protocol/sei-chain
 
-EXPOSE 26656 26657 26658
+EXPOSE 26656 26657 26658 9091 9090
 
 CMD ["/usr/bin/deploy.sh"]
 

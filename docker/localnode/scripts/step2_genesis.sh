@@ -7,7 +7,7 @@ echo "Preparing genesis file"
 
 ACCOUNT_NAME="admin"
 echo "Adding account $ACCOUNT_NAME"
-printf "12345678\n12345678\ny\n" | ./build/seid keys add $ACCOUNT_NAME >/dev/null 2>&1
+printf "12345678\n12345678\ny\n" | seid keys add $ACCOUNT_NAME >/dev/null 2>&1
 
 override_genesis() {
   cat ~/.sei/config/genesis.json | jq $1 > ~/.sei/config/tmp_genesis.json && mv ~/.sei/config/tmp_genesis.json ~/.sei/config/genesis.json;
@@ -42,11 +42,11 @@ override_genesis '.app_state["gov"]["tally_params"]["threshold"]="0.5"'
 # add genesis accounts for each node
 while read account; do
   echo "Adding: $account"
-  ./build/seid add-genesis-account "$account" 1000000000000000000000usei
+  seid add-genesis-account "$account" 1000000000000000000000usei
 done <build/generated/genesis_accounts.txt
 
 # add funds to admin account
-printf "12345678\n" | ./build/seid add-genesis-account admin 1000000000000000000000usei
+printf "12345678\n" | seid add-genesis-account admin 1000000000000000000000usei
 
 mkdir -p ~/exported_keys
 cp -r build/generated/gentx/* ~/.sei/config/gentx
@@ -57,7 +57,7 @@ cp -r build/generated/exported_keys ~/exported_keys
 
 # collect gentxs
 echo "Collecting all gentx"
-./build/seid collect-gentxs >/dev/null 2>&1
+seid collect-gentxs >/dev/null 2>&1
 
 cp ~/.sei/config/genesis.json build/generated/genesis-sei.json
 echo "Genesis file has been created successfully"
