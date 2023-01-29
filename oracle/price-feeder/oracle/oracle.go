@@ -102,7 +102,7 @@ func (o *Oracle) Start(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	var lastProcessedBlock int64 = 0
+	var previousBlockHeight int64 = 0
 
 	for {
 		select {
@@ -116,7 +116,7 @@ func (o *Oracle) Start(ctx context.Context) error {
 			currBlockHeight := <-o.oracleClient.BlockHeightEvents
 
 			startTime := time.Now()
-			err = o.tick(clientCtx, ctx, currBlockHeight)
+			err = o.tick(ctx, clientCtx, currBlockHeight)
 			if err != nil {
 				telemetry.IncrCounter(1, "failure", "tick")
 				o.logger.Err(err).Msg(fmt.Sprintf("Oracle tick failed for height %d", currBlockHeight))
@@ -125,14 +125,13 @@ func (o *Oracle) Start(ctx context.Context) error {
 			}
 			telemetry.MeasureSince(startTime, "latency", "tick")
 			telemetry.IncrCounter(1, "num_ticks", "tick")
-			lastProcessedBlock = currBlockHeight
 
 			// Catch any missing blocks
-			if currBlockHeight > (lastProcessedBlock+1) && lastProcessedBlock > 0 {
-				missedBlocks := currBlockHeight - (lastProcessedBlock + 1)
+			if currBlockHeight > (previousBlockHeight+1) && previousBlockHeight > 0 {
+				missedBlocks := currBlockHeight - (previousBlockHeight + 1)
 				telemetry.IncrCounter(float32(missedBlocks), "skipped_blocks", "tick")
 			}
-
+			previousBlockHeight = currBlockHeight
 		}
 	}
 }
@@ -492,8 +491,8 @@ func (o *Oracle) checkWhitelist(params oracletypes.Params) {
 }
 
 func (o *Oracle) tick(
-	clientCtx sdkclient.Context,
 	ctx context.Context,
+	clientCtx sdkclient.Context,
 	blockHeight int64) error {
 
 	o.logger.Debug().Msg(fmt.Sprintf("executing oracle tick for height %d", blockHeight))
@@ -554,13 +553,13 @@ func (o *Oracle) tick(
 	if err != nil {
 		telemetry.IncrCounter(1, "failure", "broadcast")
 		return err
-	} else {
-		o.logger.Info().
-			Uint32("response_code", resp.Code).
-			Str("tx_hash", resp.TxHash).
-			Msg(fmt.Sprintf("Successfully broadcasted for height %d", blockHeight))
-		telemetry.IncrCounter(1, "success", "broadcast")
 	}
+	o.logger.Info().
+		Uint32("response_code", resp.Code).
+		Str("tx_hash", resp.TxHash).
+		Msg(fmt.Sprintf("Successfully broadcasted for height %d", blockHeight))
+	telemetry.IncrCounter(1, "success", "broadcast")
+
 	o.previousVotePeriod = currentVotePeriod
 	o.healthchecksPing()
 
