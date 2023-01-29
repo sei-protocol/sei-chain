@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	sdkclient "github.com/cosmos/cosmos-sdk/client"
 	"github.com/cosmos/cosmos-sdk/telemetry"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/rs/zerolog"
@@ -97,6 +98,10 @@ func New(
 
 // Start starts the oracle process in a blocking fashion.
 func (o *Oracle) Start(ctx context.Context) error {
+	clientCtx, err := o.oracleClient.CreateClientContext()
+	if err != nil {
+		return err
+	}
 	var lastProcessedBlock int64 = 0
 
 	for {
@@ -111,21 +116,22 @@ func (o *Oracle) Start(ctx context.Context) error {
 			currBlockHeight := <-o.oracleClient.BlockHeightEvents
 
 			startTime := time.Now()
-			if err := o.tick(ctx, currBlockHeight); err != nil {
+			err = o.tick(clientCtx, ctx, currBlockHeight)
+			if err != nil {
 				telemetry.IncrCounter(1, "failure", "tick")
-				o.logger.Err(err).Msg(fmt.Sprintf("oracle tick failed for height %d", currBlockHeight))
+				o.logger.Err(err).Msg(fmt.Sprintf("Oracle tick failed for height %d", currBlockHeight))
 			} else {
 				telemetry.IncrCounter(1, "success", "tick")
 			}
 			telemetry.MeasureSince(startTime, "latency", "tick")
 			telemetry.IncrCounter(1, "num_ticks", "tick")
+			lastProcessedBlock = currBlockHeight
 
 			// Catch any missing blocks
 			if currBlockHeight > (lastProcessedBlock+1) && lastProcessedBlock > 0 {
 				missedBlocks := currBlockHeight - (lastProcessedBlock + 1)
 				telemetry.IncrCounter(float32(missedBlocks), "skipped_blocks", "tick")
 			}
-			lastProcessedBlock = currBlockHeight
 
 		}
 	}
@@ -486,6 +492,7 @@ func (o *Oracle) checkWhitelist(params oracletypes.Params) {
 }
 
 func (o *Oracle) tick(
+	clientCtx sdkclient.Context,
 	ctx context.Context,
 	blockHeight int64) error {
 
@@ -500,7 +507,7 @@ func (o *Oracle) tick(
 		return err
 	}
 
-	if err := o.SetPrices(ctx); err != nil {
+	if err = o.SetPrices(ctx); err != nil {
 		return err
 	}
 	o.lastPriceSyncTS = time.Now()
@@ -516,10 +523,9 @@ func (o *Oracle) tick(
 	if currentVotePeriod == o.previousVotePeriod {
 		o.logger.Info().
 			Int64("vote_period", oracleVotePeriod).
-			Float64("previous_vote_period", o.previousVotePeriod).
-			Float64("current_vote_period", currentVotePeriod).
+			Float64("previous", o.previousVotePeriod).
+			Float64("current", currentVotePeriod).
 			Msg("skipping until next voting period")
-
 		return nil
 	}
 
@@ -544,8 +550,16 @@ func (o *Oracle) tick(
 		Float64("vote_period", currentVotePeriod).
 		Msg("Going to broadcast vote")
 
-	if err := o.oracleClient.BroadcastTx(blockHeight, voteMsg); err != nil {
+	resp, err := o.oracleClient.BroadcastTx(clientCtx, voteMsg)
+	if err != nil {
+		telemetry.IncrCounter(1, "failure", "broadcast")
 		return err
+	} else {
+		o.logger.Info().
+			Uint32("response_code", resp.Code).
+			Str("tx_hash", resp.TxHash).
+			Msg(fmt.Sprintf("Successfully broadcasted for height %d", blockHeight))
+		telemetry.IncrCounter(1, "success", "broadcast")
 	}
 	o.previousVotePeriod = currentVotePeriod
 	o.healthchecksPing()

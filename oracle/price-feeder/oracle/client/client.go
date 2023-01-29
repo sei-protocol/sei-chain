@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"github.com/cosmos/cosmos-sdk/telemetry"
 	"io"
 	"os"
 	"time"
@@ -15,7 +16,6 @@ import (
 	"github.com/cosmos/cosmos-sdk/crypto/keyring"
 	"github.com/cosmos/cosmos-sdk/simapp"
 	simappparams "github.com/cosmos/cosmos-sdk/simapp/params"
-	"github.com/cosmos/cosmos-sdk/telemetry"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/types/tx/signing"
 	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
@@ -141,51 +141,63 @@ func (r *passReader) Read(p []byte) (n int, err error) {
 // BroadcastTx attempts to broadcast a signed transaction in best effort mode.
 // Retry is not needed since we are doing this for every new block.
 // Ref: https://github.com/terra-money/oracle-feeder/blob/baef2a4a02f57a2ffeaa207932b2e03d7fb0fb25/feeder/src/vote.ts#L230
+// BroadcastTx attempts to generate, sign and broadcast a transaction with the
+// given set of messages. It will also simulate gas requirements if necessary.
+// It will return an error upon failure.
+//
+// Note, BroadcastTx is copied from the SDK except it removes a few unnecessary
+// things like prompting for confirmation and printing the response. Instead,
+// we return the TxResponse.
 func (oc OracleClient) BroadcastTx(
-	blockHeight int64,
-	msgs ...sdk.Msg) error {
+	clientCtx client.Context,
+	msgs ...sdk.Msg) (*sdk.TxResponse, error) {
 
-	clientCtx, err := oc.CreateClientContext()
+	startTime := time.Now()
+	defer telemetry.MeasureSince(startTime, "latency", "broadcast")
+
+	txf, err := oc.CreateTxFactory()
 	if err != nil {
-		return err
+		return nil, err
 	}
-	txFactory, err := oc.CreateTxFactory()
+
+	// Getting account number and next sequence
+	txf, err = txAccountInfo.ObtainAccountInfo(clientCtx, txf, oc.Logger)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
-	resp, err := BroadcastTx(clientCtx, txFactory, oc.Logger, msgs...)
+	// Build unsigned tx
+	transaction, err := tx.BuildUnsignedTx(txf, msgs...)
+	if err != nil {
+		return nil, err
+	}
 
+	// Sign the transaction
+	if err = tx.Sign(txf, clientCtx.GetFromName(), transaction, true); err != nil {
+		return nil, err
+	}
+
+	// Get bytes to send
+	txBytes, err := clientCtx.TxConfig.TxEncoder()(transaction.GetTx())
+	if err != nil {
+		return nil, err
+	}
+
+	oc.Logger.Info().Msg(fmt.Sprintf("Sending broadcastTx with account sequence number %d", txf.Sequence()))
+	resp, err := clientCtx.BroadcastTx(txBytes)
 	if resp != nil && resp.Code != 0 {
-		telemetry.IncrCounter(1, "failure", "tx", "code")
-		err = fmt.Errorf("invalid response code from tx: %d", resp.Code)
-		return err
+		err = fmt.Errorf("received error response code from broadcast tx: %d", resp.Code)
 	}
-
 	if err != nil {
-		var (
-			code uint32
-			hash string
-		)
-		if resp != nil {
-			code = resp.Code
-			hash = resp.TxHash
-		}
-		oc.Logger.Debug().
-			Err(err).
-			Int64("height", blockHeight).
-			Str("tx_hash", hash).
-			Uint32("tx_code", code).
-			Msg("failed to broadcast tx; retrying...")
-		return err
-	}
+		// When error happen, it could be that the sequence number are mismatching
+		// We need to reset sequence number to query the latest value from the chain
+		txAccountInfo.ShouldResetSequence = true
+	} else {
+		// Only increment sequence number if we successfully broadcast the previous transaction
+		txAccountInfo.AccountSequence++
 
-	oc.Logger.Info().
-		Uint32("tx_code", resp.Code).
-		Str("tx_hash", resp.TxHash).
-		Int64("tx_height", resp.Height).
-		Msg(fmt.Sprintf("Successfully broadcasted tx at height %d", blockHeight))
-	return nil
+	}
+	return resp, err
 }
 
 // CreateClientContext creates an SDK client Context instance used for transaction
