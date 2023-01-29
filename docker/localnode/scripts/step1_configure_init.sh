@@ -5,13 +5,14 @@ NODE_ID=${ID:-0}
 NUM_ACCOUNTS=${NUM_ACCOUNTS:-5}
 echo "Configure and initialize environment"
 
-cp build/seid $GOBIN/
+cp build/seid "$GOBIN"/
+cp build/price-feeder "$GOBIN"/
 
 # Prepare shared folders
 mkdir -p build/generated/gentx/
 mkdir -p build/generated/exported_keys/
 mkdir -p build/node_"$NODE_ID"
-ORACLE_CONFIG_FILE="build/node_$NODE_ID/price_feeder_config.toml"
+
 # Testing whether seid works or not
 seid version # Uncomment the below line if there are any dependency issues
 # ldd build/seid
@@ -21,6 +22,7 @@ MONIKER="sei-node-$NODE_ID"
 seid init "$MONIKER" --chain-id sei
 
 # Copy configs
+ORACLE_CONFIG_FILE="build/node_$NODE_ID/price_feeder_config.toml"
 cp docker/localnode/config/app.toml ~/.sei/config/app.toml
 cp docker/localnode/config/config.toml ~/.sei/config/config.toml
 cp docker/localnode/config/price_feeder_config.toml "$ORACLE_CONFIG_FILE"
@@ -48,7 +50,7 @@ cp ~/.sei/config/gentx/* build/generated/gentx/
 
 # Creating some testing accounts
 echo "Creating $NUM_ACCOUNTS accounts"
-python3 loadtest/scripts/populate_genesis_accounts.py $NUM_ACCOUNTS loc >/dev/null 2>&1
+python3 loadtest/scripts/populate_genesis_accounts.py "$NUM_ACCOUNTS" loc >/dev/null 2>&1
 echo "Finished $NUM_ACCOUNTS accounts creation"
 
 # Set node seivaloper info
@@ -59,6 +61,5 @@ echo "$PRIV_KEY" >> build/generated/exported_keys/"$SEIVALOPER_INFO".txt
 # Update price_feeder_config.toml with address info
 sed -i.bak -e "s|^address *=.*|address = \"$GENESIS_ACCOUNT_ADDRESS\"|" $ORACLE_CONFIG_FILE
 sed -i.bak -e "s|^validator *=.*|validator = \"$SEIVALOPER_INFO\"|" $ORACLE_CONFIG_FILE
-
 
 echo "DONE" >> build/generated/init.complete

@@ -10,6 +10,6 @@ git config --global --add safe.directory /sei-protocol/sei-chain
 LEDGER_ENABLED=false
 make clean
 make build-linux
-make install-price-feeder
+make build-price-feeder-linux
 mkdir -p build/generated
 echo "DONE" > build/generated/build.complete
