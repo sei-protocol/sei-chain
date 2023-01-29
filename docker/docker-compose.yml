@@ -15,8 +15,9 @@ services:
       - SKIP_BUILD
     volumes:
       - "${PROJECT_HOME}:/sei-protocol/sei-chain:Z"
+      - "${PROJECT_HOME}/../sei-tendermint:/sei-protocol/sei-tendermint:Z"
+      - "${PROJECT_HOME}/../sei-cosmos:/sei-protocol/sei-cosmos:Z"
       - "${GO_PKG_PATH}/mod:/root/go/pkg/mod:Z"
-      - "/tmp/node_0/.sei:/root/.sei"
     networks:
       localnet:
         ipv4_address: 192.168.10.10
@@ -35,8 +36,9 @@ services:
       - SKIP_BUILD
     volumes:
       - "${PROJECT_HOME}:/sei-protocol/sei-chain:Z"
+      - "${PROJECT_HOME}/../sei-tendermint:/sei-protocol/sei-tendermint:Z"
+      - "${PROJECT_HOME}/../sei-cosmos:/sei-protocol/sei-cosmos:Z"
       - "${GO_PKG_PATH}/mod:/root/go/pkg/mod:Z"
-      - "/tmp/node_1/.sei:/root/.sei"
     networks:
       localnet:
         ipv4_address: 192.168.10.11
@@ -55,8 +57,9 @@ services:
       - "9094-9095:9090-9091"
     volumes:
       - "${PROJECT_HOME}:/sei-protocol/sei-chain:Z"
+      - "${PROJECT_HOME}/../sei-tendermint:/sei-protocol/sei-tendermint:Z"
+      - "${PROJECT_HOME}/../sei-cosmos:/sei-protocol/sei-cosmos:Z"
       - "${GO_PKG_PATH}/mod:/root/go/pkg/mod:Z"
-      - "/tmp/node_2/.sei:/root/.sei"
     networks:
       localnet:
         ipv4_address: 192.168.10.12
@@ -75,8 +78,9 @@ services:
       - "9096-9097:9090-9091"
     volumes:
       - "${PROJECT_HOME}:/sei-protocol/sei-chain:Z"
+      - "${PROJECT_HOME}/../sei-tendermint:/sei-protocol/sei-tendermint:Z"
+      - "${PROJECT_HOME}/../sei-cosmos:/sei-protocol/sei-cosmos:Z"
       - "${GO_PKG_PATH}/mod:/root/go/pkg/mod:Z"
-      - "/tmp/node_3/.sei:/root/.sei"
     networks:
       localnet:
         ipv4_address: 192.168.10.13

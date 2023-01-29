@@ -24,7 +24,7 @@ var oracleAccountInfo = AccountInfo{}
 // things like prompting for confirmation and printing the response. Instead,
 // we return the TxResponse.
 func BroadcastTx(clientCtx client.Context, txf tx.Factory, logger zerolog.Logger, msgs ...sdk.Msg) (*sdk.TxResponse, error) {
-	txf, err := prepareFactory(clientCtx, txf)
+	txf, err := prepareFactory(clientCtx, txf, logger)
 	if err != nil {
 		return nil, err
 	}
@@ -50,10 +50,11 @@ func BroadcastTx(clientCtx client.Context, txf tx.Factory, logger zerolog.Logger
 	if err != nil {
 		// When error happen, it could be that the sequence number are mismatching
 		// We need to reset sequence number to query the latest value from the chain
-		_ = resetAccountSequence(clientCtx, txf)
+		_ = resetAccountSequence(clientCtx, txf, logger)
 	} else {
 		// Only increment sequence number if we successfully broadcast the previous transaction
-		oracleAccountInfo.AccountSequence++
+		oracleAccountInfo.AccountSequence = oracleAccountInfo.AccountSequence + 1
+		logger.Info().Msg(fmt.Sprintf("Setting sequence number to %d", oracleAccountInfo.AccountSequence))
 	}
 
 	return res, err
@@ -62,9 +63,9 @@ func BroadcastTx(clientCtx client.Context, txf tx.Factory, logger zerolog.Logger
 // prepareFactory ensures the account defined by ctx.GetFromAddress() exists.
 // We keep a local copy of account sequence number and manually increment it.
 // If the local sequence number is 0, we will initialize it with the latest value getting from the chain.
-func prepareFactory(ctx client.Context, txf tx.Factory) (tx.Factory, error) {
+func prepareFactory(ctx client.Context, txf tx.Factory, logger zerolog.Logger) (tx.Factory, error) {
 	if oracleAccountInfo.AccountNumber == 0 || oracleAccountInfo.AccountSequence == 0 {
-		err := resetAccountSequence(ctx, txf)
+		err := resetAccountSequence(ctx, txf, logger)
 		if err != nil {
 			return txf, err
 		}
@@ -76,7 +77,7 @@ func prepareFactory(ctx client.Context, txf tx.Factory) (tx.Factory, error) {
 }
 
 // resetAccountSequence will reset account sequence number to the latest sequence number in the chain
-func resetAccountSequence(ctx client.Context, txf tx.Factory) error {
+func resetAccountSequence(ctx client.Context, txf tx.Factory, logger zerolog.Logger) error {
 	fromAddr := ctx.GetFromAddress()
 	if err := txf.AccountRetriever().EnsureExists(ctx, fromAddr); err != nil {
 		return err
@@ -85,6 +86,7 @@ func resetAccountSequence(ctx client.Context, txf tx.Factory) error {
 	if err != nil {
 		return err
 	}
+	logger.Info().Msg(fmt.Sprintf("Reset account number to %d and sequence number to %d", accountNum, sequence))
 	oracleAccountInfo.AccountNumber = accountNum
 	oracleAccountInfo.AccountSequence = sequence
 	return nil

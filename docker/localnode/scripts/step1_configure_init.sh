@@ -57,10 +57,8 @@ PRIV_KEY=$(printf "12345678\n12345678\n" | seid keys export "$ACCOUNT_NAME")
 echo "$PRIV_KEY" >> build/generated/exported_keys/"$SEIVALOPER_INFO".txt
 
 # Update price_feeder_config.toml with address info
-SEI_DIR="/tmp/node_$NODE_ID/.sei"
 sed -i.bak -e "s|^address *=.*|address = \"$GENESIS_ACCOUNT_ADDRESS\"|" $ORACLE_CONFIG_FILE
 sed -i.bak -e "s|^validator *=.*|validator = \"$SEIVALOPER_INFO\"|" $ORACLE_CONFIG_FILE
-sed -i.bak -e "s|^dir *=.*|dir = \"$SEI_DIR\"|" $ORACLE_CONFIG_FILE
 
 
 echo "DONE" >> build/generated/init.complete
