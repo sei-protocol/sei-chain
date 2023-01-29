@@ -2,8 +2,6 @@ package keeper
 
 import (
 	"encoding/binary"
-	"fmt"
-
 	"github.com/cosmos/cosmos-sdk/store/prefix"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
@@ -24,7 +22,6 @@ func (k Keeper) DeletePriceStateBefore(ctx sdk.Context, contractAddr string, tim
 	for ; iterator.Valid(); iterator.Next() {
 		priceKey := iterator.Key()
 		priceTs := binary.BigEndian.Uint64(priceKey)
-		fmt.Printf("Price timestamp: %d\n", priceTs)
 		if priceTs < timestamp {
 			store.Delete(priceKey)
 		} else {

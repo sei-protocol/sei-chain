@@ -195,9 +195,9 @@ func (oc OracleClient) BroadcastTx(
 	} else {
 		// Only increment sequence number if we successfully broadcast the previous transaction
 		txAccountInfo.AccountSequence++
-
 	}
 	return resp, err
+
 }
 
 // CreateClientContext creates an SDK client Context instance used for transaction
