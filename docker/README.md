@@ -59,7 +59,7 @@ Requirement: Follow the above steps to start a 4 node docker cluster before star
 ```sh
 # Be sure to start up a 4-node cluster before you start a state sync node
 make docker-cluster-start
-# Wait for at least a few minutes till the latest block height exceed 1000
+# Wait for at least a few minutes till the latest block height exceed 500 (this can be changed via app.toml)
 seid status |jq
 # Start up a state sync node
 make run-rpc-node
