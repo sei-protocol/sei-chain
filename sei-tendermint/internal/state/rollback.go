@@ -98,13 +98,6 @@ func Rollback(bs BlockStore, ss Store, removeBlock bool, privValidatorConfig *co
 	rolledBackAppHash := latestBlock.Header.AppHash
 	rolledBackLastResultHash := latestBlock.Header.LastResultsHash
 
-	// When removing the latest block, the rolledback state should reflect the previous block instead
-	// of the block that's going to be removed
-	if removeBlock {
-		rolledBackAppHash = rollbackBlock.Header.AppHash
-		rolledBackLastResultHash = rollbackBlock.Header.LastResultsHash
-	}
-
 	fmt.Printf("Rollback block Height=%d, appHash=%X\n", rollbackBlock.Header.Height, rollbackBlock.Header.AppHash)
 	fmt.Printf("Latest block Height=%d, appHash=%X\n", latestBlock.Header.Height, latestBlock.Header.AppHash)
 
