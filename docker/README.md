@@ -80,8 +80,8 @@ git clone https://github.com/sei-protocol/sei-tendermint.git
 git clone https://github.com/sei-protocol/sei-cosmos.git
 
 # Modify go.mod file to point to local repo, must use the exact same path as below:
-github.com/cosmos/cosmos-sdk => ../sei-cosmos
-github.com/tendermint/tendermint => ../sei-tendermint
+go mod edit -replace github.com/cosmos/cosmos-sdk=../sei-cosmos
+go mod edit -replace github.com/tendermint/tendermint=../sei-tendermint
 
 # You are good to go now! Make changes as you wish to any of the dependency repo and run docker to test it out.
 
