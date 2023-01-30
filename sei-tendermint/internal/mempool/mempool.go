@@ -279,10 +279,6 @@ func (txmp *TxMempool) CheckTx(
 		return err
 	}
 
-	if txmp.recheckCursor != nil {
-		return errors.New("recheck cursor is non-nil")
-	}
-
 	wtx := &WrappedTx{
 		tx:        tx,
 		hash:      txHash,
@@ -290,8 +286,7 @@ func (txmp *TxMempool) CheckTx(
 		height:    txmp.height,
 	}
 
-	txmp.defaultTxCallback(tx, res)
-	err = txmp.initTxCallback(wtx, res, txInfo)
+	err = txmp.addNewTransaction(wtx, res, txInfo)
 
 	if err != nil {
 		return err
@@ -507,14 +502,15 @@ func (txmp *TxMempool) Update(
 	return nil
 }
 
-// initTxCallback is the callback invoked for a new unique transaction after CheckTx
+// addNewTransaction is invoked for a new unique transaction after CheckTx
 // has been executed by the ABCI application for the first time on that transaction.
 // CheckTx can be called again for the same transaction later when re-checking;
-// however, this callback will not be called.
+// however, this function will not be called. A recheck after a block is committed
+// goes to handleRecheckResult.
 //
-// initTxCallback runs after the ABCI application executes CheckTx.
+// addNewTransaction runs after the ABCI application executes CheckTx.
 // It runs the postCheck hook if one is defined on the mempool.
-// If the CheckTx response response code is not OK, or if the postCheck hook
+// If the CheckTx response code is not OK, or if the postCheck hook
 // reports an error, the transaction is rejected. Otherwise, we attempt to insert
 // the transaction into the mempool.
 //
@@ -526,7 +522,7 @@ func (txmp *TxMempool) Update(
 //
 // NOTE:
 // - An explicit lock is NOT required.
-func (txmp *TxMempool) initTxCallback(wtx *WrappedTx, res *abci.ResponseCheckTx, txInfo TxInfo) error {
+func (txmp *TxMempool) addNewTransaction(wtx *WrappedTx, res *abci.ResponseCheckTx, txInfo TxInfo) error {
 	var err error
 	if txmp.postCheck != nil {
 		err = txmp.postCheck(wtx.tx, res)
@@ -635,14 +631,19 @@ func (txmp *TxMempool) initTxCallback(wtx *WrappedTx, res *abci.ResponseCheckTx,
 	return nil
 }
 
-// defaultTxCallback is the CheckTx application callback used when a
-// transaction is being re-checked (if re-checking is enabled). The
-// caller must hold a mempool write-lock (via Lock()) and when
+// handleRecheckResult handles the responses from ABCI CheckTx calls issued
+// during the recheck phase of a block Update.  It removes any transactions
+// invalidated by the application.
+//
+// The caller must hold a mempool write-lock (via Lock()) and when
 // executing Update(), if the mempool is non-empty and Recheck is
 // enabled, then all remaining transactions will be rechecked via
 // CheckTx. The order transactions are rechecked must be the same as
 // the order in which this callback is called.
-func (txmp *TxMempool) defaultTxCallback(tx types.Tx, res *abci.ResponseCheckTx) {
+//
+// This method is NOT executed for the initial CheckTx on a new transaction;
+// that case is handled by addNewTransaction instead.
+func (txmp *TxMempool) handleRecheckResult(tx types.Tx, res *abci.ResponseCheckTx) {
 	if txmp.recheckCursor == nil {
 		return
 	}
@@ -755,7 +756,7 @@ func (txmp *TxMempool) updateReCheckTxs(ctx context.Context) {
 				txmp.logger.Error("failed to execute CheckTx during rechecking", "err", err)
 				continue
 			}
-			txmp.defaultTxCallback(wtx.tx, res)
+			txmp.handleRecheckResult(wtx.tx, res)
 		}
 	}
 
@@ -874,7 +875,7 @@ func (txmp *TxMempool) purgeExpiredTxs(blockHeight int64) {
 
 func (txmp *TxMempool) notifyTxsAvailable() {
 	if txmp.Size() == 0 {
-		panic("attempt to notify txs available but mempool is empty!")
+		return
 	}
 
 	if txmp.txsAvailable != nil && !txmp.notifiedTxsAvailable {
