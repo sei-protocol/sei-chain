@@ -11,7 +11,7 @@ cp build/price-feeder "$GOBIN"/
 # Prepare shared folders
 mkdir -p build/generated/gentx/
 mkdir -p build/generated/exported_keys/
-mkdir -p build/node_"$NODE_ID"
+mkdir -p build/generated/node_"$NODE_ID"
 
 # Testing whether seid works or not
 seid version # Uncomment the below line if there are any dependency issues

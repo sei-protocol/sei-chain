@@ -59,5 +59,5 @@ cp -r build/generated/exported_keys ~/exported_keys
 echo "Collecting all gentx"
 seid collect-gentxs >/dev/null 2>&1
 
-cp ~/.sei/config/genesis.json build/generated/genesis-sei.json
+cp ~/.sei/config/genesis.json build/generated/genesis.json
 echo "Genesis file has been created successfully"

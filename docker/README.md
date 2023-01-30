@@ -20,7 +20,7 @@ https://docs.docker.com/compose/install/other/
 
 Detailed instruction: see the `Makefile` in the root of [the repo](https://github.com/sei-protocol/sei-chain/blob/master/Makefile) 
 
-**To start a single local node**
+**To start a single local node (Not Recommended)**
 
 ```sh
 make build-docker-node && make run-docker-node
@@ -28,6 +28,7 @@ make build-docker-node && make run-docker-node
 
 **To start 4 node cluster**
 
+This will start a 4 node sei chain cluster as well as having the oracle price feeder run for each node. 
 ```sh
 # If this is the first time or you want to rebuild the binary:
 make docker-cluster-start
@@ -51,6 +52,40 @@ docker ps -a
 docker exec -it [container_name] /bin/bash
 ```
 
+## State Sync RPC Node
+
+Requirement: Follow the above steps to start a 4 node docker cluster before starting any state sync node
+
+```sh
+# Be sure to start up a 4-node cluster before you start a state sync node
+make docker-cluster-start
+# Wait for at least a few minutes till the latest block height exceed 500 (this can be changed via app.toml)
+seid status |jq
+# Start up a state sync node
+make run-rpc-node
+```
+
+## Local Debugging & Testing
+One of the fanciest thing of using docker is fast iteration. Here we support:
+- Being able to make changes locally and start up the chain to see the immediate impact
+- Being able to make changes to local dependency repo (Cosmo SDK/Tendermint) and start the chain with the latest changes without bumping or release any binary version
+
+
+In order to make local debugging work, you can follow these steps:
+```sh
+# Clone your dependency repo and put them under the same path as sei-chain
+cd sei-chain
+cd ../
+git clone https://github.com/sei-protocol/sei-tendermint.git
+git clone https://github.com/sei-protocol/sei-cosmos.git
+
+# Modify go.mod file to point to local repo, must use the exact same path as below:
+go mod edit -replace github.com/cosmos/cosmos-sdk=../sei-cosmos
+go mod edit -replace github.com/tendermint/tendermint=../sei-tendermint
+
+# You are good to go now! Make changes as you wish to any of the dependency repo and run docker to test it out.
+
+```
 ****
 
 
