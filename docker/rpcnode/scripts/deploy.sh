@@ -19,3 +19,5 @@ mkdir -p $GOBIN
 
 # Start the chain
 /usr/bin/start_sei.sh
+
+tail -f /dev/null
