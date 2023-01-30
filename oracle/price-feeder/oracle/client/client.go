@@ -140,7 +140,6 @@ func (r *passReader) Read(p []byte) (n int, err error) {
 
 // BroadcastTx attempts to broadcast a signed transaction in best effort mode.
 // Retry is not needed since we are doing this for every new block.
-// Ref: https://github.com/terra-money/oracle-feeder/blob/baef2a4a02f57a2ffeaa207932b2e03d7fb0fb25/feeder/src/vote.ts#L230
 func (oc OracleClient) BroadcastTx(
 	blockHeight int64,
 	msgs ...sdk.Msg) error {

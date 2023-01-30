@@ -45,7 +45,7 @@ Delegate the permission to submit exchange rate votes for the oracle to an addre
 
 Delegation can keep your validator operator key offline and use a separate replaceable key online.
 
-$ terrad tx oracle set-feeder terra1...
+$ seid tx oracle set-feeder terra1...
 
 where "terra1..." is the address you want to delegate your voting rights to.
 `),
@@ -94,7 +94,7 @@ Submit a aggregate vote for the exchange_rates of the base denom w.r.t the input
 
 $ seid tx oracle aggregate-vote 8888.0ukrw,1.243uusd,0.99usdr
 
-where "ukrw,uusd,usdr" is the denominating currencies, and "8888.0,1.243,0.99" is the exchange rates of micro Luna in micro denoms from the voter's point of view.
+where "ukrw,uusd,usdr" is the denominating currencies, and "8888.0,1.243,0.99" is the exchange rates of micro Sei in micro denoms from the voter's point of view.
 
 If voting from a voting delegate, set "validator" to the address of the validator to vote on behalf of:
 $ seid tx oracle aggregate-vote 1234 8888.0ukrw,1.243uusd,0.99usdr seivaloper1....

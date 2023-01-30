@@ -97,7 +97,7 @@ func New(
 
 // Start starts the oracle process in a blocking fashion.
 func (o *Oracle) Start(ctx context.Context) error {
-	var lastProcessedBlock int64 = 0
+	var lastProcessedBlock int64
 
 	for {
 		select {
