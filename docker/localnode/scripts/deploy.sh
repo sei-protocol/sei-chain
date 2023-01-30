@@ -47,7 +47,7 @@ then
   /usr/bin/genesis.sh
 fi
 
-until [ -f build/generated/genesis-sei.json ]
+until [ -f build/generated/genesis.json ]
 do
      sleep 1
 done
