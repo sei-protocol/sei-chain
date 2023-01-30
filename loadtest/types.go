@@ -22,6 +22,7 @@ const (
 	Tokenfactory         string = "tokenfactory"
 	Limit                string = "limit"
 	Market               string = "market"
+	Wasm                 string = "wasm"
 )
 
 type Config struct {

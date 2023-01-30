@@ -26,6 +26,7 @@ import (
 	"github.com/sei-protocol/sei-chain/app"
 	dextypes "github.com/sei-protocol/sei-chain/x/dex/types"
 	oracletypes "github.com/sei-protocol/sei-chain/x/oracle/types"
+	wasmtypes "github.com/CosmWasm/wasmd/x/wasm/types"
 )
 
 var TestConfig EncodingConfig
@@ -110,6 +111,20 @@ func (c *LoadTestClient) generateMessage(config Config, key cryptotypes.PrivKey,
 	defer IncrTxMessageType(messageType)
 
 	switch messageType {
+	case Wasm:
+		contract := config.ContractDistr.Sample()
+		price := config.PriceDistr.Sample()
+		quantity := config.QuantityDistr.Sample()
+		amount, err := sdk.ParseCoinsNormalized(fmt.Sprintf("%d%s", price.Mul(quantity).Ceil().RoundInt64(), "usei"))
+		if err != nil {
+			panic(err)
+		}
+		msg = &wasmtypes.MsgExecuteContract{
+			Sender:   sdk.AccAddress(key.PubKey().Address()).String(),
+			Contract: contract,
+			Msg:      wasmtypes.RawContractMessage([]byte("{\"mint\":{}}")),
+			Funds:    amount,
+		}
 	case Bank:
 		msg = &banktypes.MsgSend{
 			FromAddress: sdk.AccAddress(key.PubKey().Address()).String(),

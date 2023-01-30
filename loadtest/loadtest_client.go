@@ -114,7 +114,7 @@ func (c *LoadTestClient) BuildTxs() (workgroups []*sync.WaitGroup, sendersList [
 		}
 	}
 
-	valKeys := c.SignerClient.GetValKeys()
+	// valKeys := c.SignerClient.GetValKeys()
 
 	for i := 0; i < int(config.Rounds); i++ {
 		fmt.Printf("Preparing %d-th round\n", i)
@@ -146,7 +146,7 @@ func (c *LoadTestClient) BuildTxs() (workgroups []*sync.WaitGroup, sendersList [
 			})
 		}
 
-		senders = append(senders, c.GenerateOracleSenders(i, config, valKeys, wg)...)
+		// senders = append(senders, c.GenerateOracleSenders(i, config, valKeys, wg)...)
 
 		sendersList = append(sendersList, senders)
 		inactiveAccounts, activeAccounts = activeAccounts, inactiveAccounts
