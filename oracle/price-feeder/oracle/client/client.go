@@ -139,15 +139,14 @@ func (r *passReader) Read(p []byte) (n int, err error) {
 }
 
 // BroadcastTx attempts to broadcast a signed transaction in best effort mode.
-// Retry is not needed since we are doing this for every new block.
+// Retry is not needed since we are doing this for every new block as fast as we could.
 // Ref: https://github.com/terra-money/oracle-feeder/blob/baef2a4a02f57a2ffeaa207932b2e03d7fb0fb25/feeder/src/vote.ts#L230
+//
 // BroadcastTx attempts to generate, sign and broadcast a transaction with the
 // given set of messages. It will also simulate gas requirements if necessary.
-// It will return an error upon failure.
+// It will return an error upon failure. We maintain a local account sequence number in txAccount
+// and we manually increment the sequence number by 1 if the previous broadcastTx succeed.
 //
-// Note, BroadcastTx is copied from the SDK except it removes a few unnecessary
-// things like prompting for confirmation and printing the response. Instead,
-// we return the TxResponse.
 func (oc OracleClient) BroadcastTx(
 	clientCtx client.Context,
 	msgs ...sdk.Msg) (*sdk.TxResponse, error) {

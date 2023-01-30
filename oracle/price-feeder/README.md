@@ -1,10 +1,10 @@
 # Oracle Price Feeder
 
-This is a standalone version of [Umee's fantastic work](https://github.com/umee-network/umee/tree/main/price-feeder) migrating [Terra's oracle-feeder](https://github.com/terra-money/oracle-feeder) app to Go, and integrating it more closely with the Cosmos SDK.
+This is a standalone version of [Umee's fantastic work](https://github.com/umee-network/umee/tree/main/price-feeder) and integrating it more closely with the Cosmos SDK.
 
 ## Changes
 
-- `exchange_rates` when broadcasting votes has been reverted to the Cosmos SDK denom string, as is used in Terra's Oracle module
+- `exchange_rates` when broadcasting votes has been reverted to the Cosmos SDK denom string, as is used in Se's Oracle module
 - `config.toml` supports an `account.prefix` property, to provide compatibility across multiple networks
 
 ---

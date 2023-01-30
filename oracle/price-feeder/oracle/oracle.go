@@ -98,6 +98,7 @@ func New(
 
 // Start starts the oracle process in a blocking fashion.
 func (o *Oracle) Start(ctx context.Context) error {
+
 	clientCtx, err := o.oracleClient.CreateClientContext()
 	if err != nil {
 		return err
