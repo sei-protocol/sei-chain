@@ -21,7 +21,7 @@ func TestTransientStore(t *testing.T) {
 
 	require.Equal(t, v, tstore.Get(k))
 
-	tstore.Commit()
+	tstore.Commit(true)
 
 	require.Nil(t, tstore.Get(k))
 

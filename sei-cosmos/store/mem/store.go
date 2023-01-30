@@ -52,7 +52,7 @@ func (s Store) CacheWrapWithListeners(storeKey types.StoreKey, listeners []types
 }
 
 // Commit performs a no-op as entries are persistent between commitments.
-func (s *Store) Commit() (id types.CommitID) { return }
+func (s *Store) Commit(_ bool) (id types.CommitID) { return }
 
 func (s *Store) SetPruning(pruning types.PruningOptions) {}
 

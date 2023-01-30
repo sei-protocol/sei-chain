@@ -43,7 +43,7 @@ func TestCommit(t *testing.T) {
 	key, value := []byte("key"), []byte("value")
 
 	db.Set(key, value)
-	id := db.Commit()
+	id := db.Commit(true)
 	require.True(t, id.IsZero())
 	require.True(t, db.LastCommitID().IsZero())
 	require.Equal(t, value, db.Get(key))

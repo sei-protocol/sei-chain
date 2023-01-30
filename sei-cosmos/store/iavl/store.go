@@ -128,10 +128,19 @@ func (st *Store) GetWorkingHash() ([]byte, error) {
 
 // Commit commits the current store state and returns a CommitID with the new
 // version and hash.
-func (st *Store) Commit() types.CommitID {
+// Normally commit should always bump version. Commit without version bump is
+// needed by use cases like rollback
+func (st *Store) Commit(bumpVersion bool) types.CommitID {
 	defer telemetry.MeasureSince(time.Now(), "store", "iavl", "commit")
 
-	hash, version, err := st.tree.SaveVersion()
+	var hash []byte
+	var version int64
+	var err error
+	if bumpVersion {
+		hash, version, err = st.tree.SaveVersion()
+	} else {
+		hash, version, err = st.tree.SaveCurrentVersion()
+	}
 	if err != nil {
 		panic(err)
 	}

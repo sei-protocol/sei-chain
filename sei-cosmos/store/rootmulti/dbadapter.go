@@ -16,7 +16,7 @@ type commitDBStoreAdapter struct {
 	dbadapter.Store
 }
 
-func (cdsa commitDBStoreAdapter) Commit() types.CommitID {
+func (cdsa commitDBStoreAdapter) Commit(_ bool) types.CommitID {
 	return types.CommitID{
 		Version: -1,
 		Hash:    commithash,

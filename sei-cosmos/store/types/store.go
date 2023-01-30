@@ -19,7 +19,7 @@ type Store interface {
 
 // something that can persist to disk
 type Committer interface {
-	Commit() CommitID
+	Commit(bool) CommitID
 	LastCommitID() CommitID
 
 	SetPruning(PruningOptions)

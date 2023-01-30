@@ -1813,7 +1813,7 @@ func initStore(t *testing.T, db dbm.DB, storeKey string, k, v []byte) {
 	kv, _ := rs.GetStore(key).(store.KVStore)
 	require.NotNil(t, kv)
 	kv.Set(k, v)
-	commitID := rs.Commit()
+	commitID := rs.Commit(true)
 	require.Equal(t, int64(1), commitID.Version)
 }
 

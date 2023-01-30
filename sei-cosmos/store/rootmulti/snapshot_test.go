@@ -48,7 +48,7 @@ func newMultiStoreWithGeneratedData(db dbm.DB, stores uint8, storeKeys uint64) *
 		}
 	}
 
-	multiStore.Commit()
+	multiStore.Commit(true)
 	multiStore.LoadLatestVersion()
 
 	return multiStore
@@ -76,17 +76,17 @@ func newMultiStoreWithMixedMountsAndBasicData(db dbm.DB) *rootmulti.Store {
 	store2.Set([]byte("X"), []byte{255})
 	store2.Set([]byte("A"), []byte{101})
 	trans1.Set([]byte("x1"), []byte{91})
-	store.Commit()
+	store.Commit(true)
 
 	store1.Set([]byte("b"), []byte{2})
 	store1.Set([]byte("c"), []byte{3})
 	store2.Set([]byte("B"), []byte{102})
-	store.Commit()
+	store.Commit(true)
 
 	store2.Set([]byte("C"), []byte{103})
 	store2.Delete([]byte("X"))
 	trans1.Set([]byte("x2"), []byte{92})
-	store.Commit()
+	store.Commit(true)
 
 	return store
 }

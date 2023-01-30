@@ -444,14 +444,14 @@ func (rs *Store) GetWorkingHash() ([]byte, error) {
 }
 
 // Commit implements Committer/CommitStore.
-func (rs *Store) Commit() types.CommitID {
+func (rs *Store) Commit(bumpVersion bool) types.CommitID {
 	var previousHeight, version int64
 	if rs.lastCommitInfo.GetVersion() == 0 && rs.initialVersion > 1 {
 		// This case means that no commit has been made in the store, we
 		// start from initialVersion.
 		version = rs.initialVersion
 
-	} else {
+	} else if bumpVersion {
 		// This case can means two things:
 		// - either there was already a previous commit in the store, in which
 		// case we increment the version from there,
@@ -459,9 +459,11 @@ func (rs *Store) Commit() types.CommitID {
 		// in which case we start at version 1.
 		previousHeight = rs.lastCommitInfo.GetVersion()
 		version = previousHeight + 1
+	} else {
+		version = rs.lastCommitInfo.GetVersion()
 	}
 
-	rs.lastCommitInfo = commitStores(version, rs.stores)
+	rs.lastCommitInfo = commitStores(version, rs.stores, bumpVersion)
 	defer rs.flushMetadata(rs.db, version, rs.lastCommitInfo)
 
 	// Determine if pruneHeight height needs to be added to the list of heights to
@@ -986,14 +988,14 @@ func (rs *Store) RollbackToVersion(target int64) error {
 			// If the store is wrapped with an inter-block cache, we must first unwrap
 			// it to get the underlying IAVL store.
 			store = rs.GetCommitKVStore(key)
-			latestVersion, err := store.(*iavl.Store).LoadVersionForOverwriting(target - 1)
+			latestVersion, err := store.(*iavl.Store).LoadVersionForOverwriting(target)
 			if err != nil {
 				return err
 			}
 			fmt.Printf("Reset key=%s to height=%d\n", key.Name(), latestVersion)
 		}
 	}
-	rs.lastCommitInfo = commitStores(target, rs.stores)
+	rs.lastCommitInfo = commitStores(target, rs.stores, false)
 	rs.flushMetadata(rs.db, target, rs.lastCommitInfo)
 	return rs.LoadLatestVersion()
 }
@@ -1037,11 +1039,11 @@ func GetLatestVersion(db dbm.DB) int64 {
 }
 
 // Commits each store and returns a new commitInfo.
-func commitStores(version int64, storeMap map[types.StoreKey]types.CommitKVStore) *types.CommitInfo {
+func commitStores(version int64, storeMap map[types.StoreKey]types.CommitKVStore, bumpVersion bool) *types.CommitInfo {
 	storeInfos := make([]types.StoreInfo, 0, len(storeMap))
 
 	for key, store := range storeMap {
-		commitID := store.Commit()
+		commitID := store.Commit(bumpVersion)
 
 		if store.GetStoreType() == types.StoreTypeTransient {
 			continue

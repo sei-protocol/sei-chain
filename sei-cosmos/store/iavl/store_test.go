@@ -143,7 +143,7 @@ func TestGetImmutable(t *testing.T) {
 
 	require.Panics(t, func() { newStore.Set(nil, nil) })
 	require.Panics(t, func() { newStore.Delete(nil) })
-	require.Panics(t, func() { newStore.Commit() })
+	require.Panics(t, func() { newStore.Commit(true) })
 }
 
 func TestTestGetImmutableIterator(t *testing.T) {
@@ -441,7 +441,7 @@ func nextVersion(iavl *Store) {
 	key := []byte(fmt.Sprintf("Key for tree: %d", iavl.LastCommitID().Version))
 	value := []byte(fmt.Sprintf("Value for tree: %d", iavl.LastCommitID().Version))
 	iavl.Set(key, value)
-	iavl.Commit()
+	iavl.Commit(true)
 }
 
 func TestIAVLNoPrune(t *testing.T) {
@@ -498,7 +498,7 @@ func TestIAVLStoreQuery(t *testing.T) {
 	valExpSub2, err := KVs2.Marshal()
 	require.NoError(t, err)
 
-	cid := iavlStore.Commit()
+	cid := iavlStore.Commit(true)
 	ver := cid.Version
 	query := abci.RequestQuery{Path: "/key", Data: k1, Height: ver}
 	querySub := abci.RequestQuery{Path: "/subspace", Data: ksub, Height: ver}
@@ -518,7 +518,7 @@ func TestIAVLStoreQuery(t *testing.T) {
 	require.Nil(t, qres.Value)
 
 	// commit it, but still don't see on old version
-	cid = iavlStore.Commit()
+	cid = iavlStore.Commit(true)
 	qres = iavlStore.Query(query)
 	require.Equal(t, uint32(0), qres.Code)
 	require.Nil(t, qres.Value)
@@ -536,7 +536,7 @@ func TestIAVLStoreQuery(t *testing.T) {
 
 	// modify
 	iavlStore.Set(k1, v3)
-	cid = iavlStore.Commit()
+	cid = iavlStore.Commit(true)
 
 	// query will return old values, as height is fixed
 	qres = iavlStore.Query(query)
@@ -638,7 +638,7 @@ func TestSetInitialVersion(t *testing.T) {
 				require.Panics(t, func() { store.SetInitialVersion(5) })
 			} else {
 				store.SetInitialVersion(5)
-				cid := store.Commit()
+				cid := store.Commit(true)
 				require.Equal(t, int64(5), cid.GetVersion())
 			}
 		})
