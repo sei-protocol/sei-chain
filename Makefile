@@ -136,18 +136,43 @@ build-price-feeder-linux:
 # Build docker image
 build-docker-node:
 	@cd docker && docker build --tag sei-chain/localnode localnode --platform linux/x86_64
-.PHONY: build-docker-localnode
+.PHONY: build-docker-node
 
-# Run a single docker container
-run-docker-node:
+build-rpc-node:
+	@cd docker && docker build --tag sei-chain/rpcnode rpcnode --platform linux/x86_64
+.PHONY: build-rpc-node
+
+# Run a single node docker container
+run-local-node: kill-sei-node build-docker-node
 	@rm -rf $(PROJECT_HOME)/build/generated
 	docker run --rm \
+	--name sei-node \
 	--network host \
 	-v $(PROJECT_HOME):/sei-protocol/sei-chain:Z \
 	-v $(GO_PKG_PATH)/mod:/root/go/pkg/mod:Z \
 	--platform linux/x86_64 \
 	sei-chain/localnode
-.PHONY: run-docker-localnode
+.PHONY: run-local-node
+
+# Run a single rpc state sync node docker container
+run-rpc-node: kill-rpc-node build-rpc-node
+	docker run --rm \
+	--name sei-rpc-node \
+	--network docker_localnet \
+	-v $(PROJECT_HOME):/sei-protocol/sei-chain:Z \
+	-v $(PROJECT_HOME)/../sei-tendermint:/sei-protocol/sei-tendermint:Z \
+    -v $(PROJECT_HOME)/../sei-cosmos:/sei-protocol/sei-cosmos:Z \
+	-v $(GO_PKG_PATH)/mod:/root/go/pkg/mod:Z \
+	-p 26668-26670:26656-26658 \
+	--platform linux/x86_64 \
+	sei-chain/rpcnode
+.PHONY: run-rpc-node
+
+kill-sei-node:
+	docker ps --filter name=sei-node --filter status=running -aq | xargs docker kill
+
+kill-rpc-node:
+	docker ps --filter name=sei-rpc-node --filter status=running -aq | xargs docker kill
 
 # Run a 4-node docker containers
 docker-cluster-start: docker-cluster-stop build-docker-node
