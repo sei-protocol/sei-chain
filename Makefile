@@ -92,6 +92,9 @@ lint:
 build:
 	go build $(BUILD_FLAGS) -o ./build/seid ./cmd/seid
 
+build-price-feeder:
+	go build $(BUILD_FLAGS) -o ./build/price-feeder ./oracle/price-feeder
+
 # In case running seid fails with nitro issue or if you make changes to nitro, please use build-all
 build-all: build-nitro build
 
@@ -126,6 +129,10 @@ build-linux:
 	GOOS=linux GOARCH=amd64 CGO_ENABLED=1 CC=x86_64-linux-gnu-gcc make build
 .PHONY: build-linux
 
+build-price-feeder-linux:
+	GOOS=linux GOARCH=amd64 CGO_ENABLED=1 CC=x86_64-linux-gnu-gcc make build-price-feeder
+.PHONY: build-price-feeder-linux
+
 # Build docker image
 build-docker-node:
 	@cd docker && docker build --tag sei-chain/localnode localnode --platform linux/x86_64
@@ -135,6 +142,7 @@ build-docker-node:
 run-docker-node:
 	@rm -rf $(PROJECT_HOME)/build/generated
 	docker run --rm \
+	--network host \
 	-v $(PROJECT_HOME):/sei-protocol/sei-chain:Z \
 	-v $(GO_PKG_PATH)/mod:/root/go/pkg/mod:Z \
 	--platform linux/x86_64 \

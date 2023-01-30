@@ -17,8 +17,8 @@ minimum-gas-prices = "0.01usei,0.001ibc/6D45A5CD1AADE4B527E459025AC1A5AEF41AE990
 pruning = "custom"
 
 # These are applied if and only if the pruning strategy is custom.
-pruning-keep-recent = "0"
-pruning-keep-every = "10"
+pruning-keep-recent = "10000"
+pruning-keep-every = "0"
 pruning-interval = "1000"
 
 # HaltHeight contains a non-zero block height at which a node will gracefully
@@ -48,7 +48,7 @@ halt-time = 0
 # with the unbonding (safety threshold) period, state pruning and state sync
 # snapshot parameters to determine the correct minimum value of
 # ResponseCommit.RetainHeight.
-min-retain-blocks = 0
+min-retain-blocks = 4000
 
 # InterBlockCache enables inter-block caching.
 inter-block-cache = true
@@ -190,7 +190,7 @@ enable-unsafe-cors = true
 
 # snapshot-interval specifies the block interval at which local state sync snapshots are
 # taken (0 to disable). Must be a multiple of pruning-keep-every.
-snapshot-interval = 0
+snapshot-interval = 1000
 
 # snapshot-keep-recent specifies the number of recent snapshots to keep and serve (0 to keep all).
 snapshot-keep-recent = 2
