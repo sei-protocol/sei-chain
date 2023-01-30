@@ -22,7 +22,7 @@ MONIKER="sei-node-$NODE_ID"
 seid init "$MONIKER" --chain-id sei
 
 # Copy configs
-ORACLE_CONFIG_FILE="build/node_$NODE_ID/price_feeder_config.toml"
+ORACLE_CONFIG_FILE="build/generated/node_$NODE_ID/price_feeder_config.toml"
 cp docker/localnode/config/app.toml ~/.sei/config/app.toml
 cp docker/localnode/config/config.toml ~/.sei/config/config.toml
 cp docker/localnode/config/price_feeder_config.toml "$ORACLE_CONFIG_FILE"

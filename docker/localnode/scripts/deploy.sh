@@ -5,7 +5,6 @@ CLUSTER_SIZE=${CLUSTER_SIZE:-1}
 
 
 # Clean up and env set up
-rm -rf /root/.sei/*
 export GOPATH=$HOME/go
 export GOBIN=$GOPATH/bin
 export BUILD_PATH=/sei-protocol/sei-chain/build

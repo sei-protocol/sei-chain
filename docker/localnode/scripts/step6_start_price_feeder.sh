@@ -4,7 +4,6 @@ NODE_ID=${ID:-0}
 
 LOG_DIR="build/generated/logs"
 mkdir -p $LOG_DIR
-ORACLE_CONFIG_FILE="build/node_$NODE_ID/price_feeder_config.toml"
 
 # Starting oracle price feeder
 echo "Starting the oracle price feeder daemon"
