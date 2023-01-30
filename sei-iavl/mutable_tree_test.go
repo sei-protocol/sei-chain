@@ -1466,6 +1466,7 @@ func TestSaveCurrentVersion_BadVersion(t *testing.T) {
 	tree.version = 10
 	_, version, err = tree.SaveCurrentVersion()
 	require.Error(t, err)
+	assert.EqualValues(t, 10, version)
 }
 
 func TestSaveCurrentVersion_ChangedHash(t *testing.T) {
