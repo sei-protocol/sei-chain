@@ -1441,3 +1441,43 @@ func TestNoFastStorageUpgrade_Integration_SaveVersion_Load_Iterate_Success(t *te
 		})
 	})
 }
+
+func TestSaveCurrentVersion(t *testing.T) {
+	tree := setupMutableTree(t)
+	tree.SetInitialVersion(9)
+
+	tree.Set([]byte("a"), []byte{0x01})
+	_, version, err := tree.SaveVersion()
+	require.NoError(t, err)
+	assert.EqualValues(t, 9, version)
+	_, version, err = tree.SaveCurrentVersion()
+	require.NoError(t, err)
+	assert.EqualValues(t, 9, version)
+}
+
+func TestSaveCurrentVersion_BadVersion(t *testing.T) {
+	tree := setupMutableTree(t)
+	tree.SetInitialVersion(9)
+
+	tree.Set([]byte("a"), []byte{0x01})
+	_, version, err := tree.SaveVersion()
+	require.NoError(t, err)
+	assert.EqualValues(t, 9, version)
+	tree.version = 10
+	_, version, err = tree.SaveCurrentVersion()
+	require.Error(t, err)
+	assert.EqualValues(t, 10, version)
+}
+
+func TestSaveCurrentVersion_ChangedHash(t *testing.T) {
+	tree := setupMutableTree(t)
+	tree.SetInitialVersion(9)
+
+	tree.Set([]byte("a"), []byte{0x01})
+	_, version, err := tree.SaveVersion()
+	require.NoError(t, err)
+	assert.EqualValues(t, 9, version)
+	tree.Set([]byte("b"), []byte{0x02})
+	_, version, err = tree.SaveCurrentVersion()
+	require.Error(t, err)
+}
