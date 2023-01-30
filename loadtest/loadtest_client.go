@@ -15,10 +15,10 @@ import (
 	typestx "github.com/cosmos/cosmos-sdk/types/tx"
 	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
 
+	"crypto/tls"
 	"github.com/k0kubun/pp/v3"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
-	"crypto/tls"
 )
 
 type LoadTestClient struct {

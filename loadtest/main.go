@@ -20,13 +20,13 @@ import (
 	"github.com/cosmos/cosmos-sdk/x/auth/tx"
 	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
 
+	wasmtypes "github.com/CosmWasm/wasmd/x/wasm/types"
 	"github.com/cosmos/cosmos-sdk/codec"
 	"github.com/cosmos/cosmos-sdk/codec/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/sei-protocol/sei-chain/app"
 	dextypes "github.com/sei-protocol/sei-chain/x/dex/types"
 	oracletypes "github.com/sei-protocol/sei-chain/x/oracle/types"
-	wasmtypes "github.com/CosmWasm/wasmd/x/wasm/types"
 )
 
 var TestConfig EncodingConfig
