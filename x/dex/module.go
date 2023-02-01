@@ -250,7 +250,7 @@ func (am AppModule) beginBlockForContract(ctx sdk.Context, contract types.Contra
 	span.SetAttributes(attribute.String("contract", contractAddr))
 	defer span.End()
 
-	ctx = ctx.WithGasMeter(seisync.NewGasWrapper(dexutils.GetGasMeterForLimit(gasLimit)))
+	ctx = ctx.WithGasMeter(seisync.NewGasWrapper(dexutils.GetGasMeterForLimit(gasLimit, ctx.Logger(), fmt.Sprintf("dex-BeginBlock-%s", contract.GetContractAddr()))))
 
 	if contract.NeedHook {
 		if err := am.abciWrapper.HandleBBNewBlock(ctx, contractAddr, epoch); err != nil {

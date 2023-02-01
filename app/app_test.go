@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/cosmos/cosmos-sdk/crypto/keys/secp256k1"
+	sdkstoretypes "github.com/cosmos/cosmos-sdk/store/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkacltypes "github.com/cosmos/cosmos-sdk/types/accesscontrol"
 	acltypes "github.com/cosmos/cosmos-sdk/x/accesscontrol/types"
@@ -258,7 +259,7 @@ func TestProcessOracleAndOtherTxsSuccess(t *testing.T) {
 		testWrapper.Ctx.WithBlockHeight(
 			1,
 		).WithBlockGasMeter(
-			sdk.NewInfiniteGasMeter(),
+			sdk.NewInfiniteGasMeterWithLogger(&sdkstoretypes.NoOpLogger{}, "test"),
 		),
 		txs,
 		req,

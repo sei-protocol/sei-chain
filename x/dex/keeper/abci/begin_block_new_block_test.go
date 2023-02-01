@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	sdkstoretypes "github.com/cosmos/cosmos-sdk/store/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	keepertest "github.com/sei-protocol/sei-chain/testutil/keeper"
 	dexcache "github.com/sei-protocol/sei-chain/x/dex/cache"
@@ -26,7 +27,7 @@ func TestHandleBBNewBlock(t *testing.T) {
 	ctx := testApp.BaseApp.NewContext(false, tmproto.Header{Time: time.Now()})
 	ctx = ctx.WithContext(context.WithValue(ctx.Context(), dexutils.DexMemStateContextKey, dexcache.NewMemState(testApp.GetKey(types.StoreKey))))
 	keeper := testApp.DexKeeper
-	ctx = ctx.WithGasMeter(sdk.NewInfiniteGasMeter())
+	ctx = ctx.WithGasMeter(sdk.NewInfiniteGasMeterWithLogger(&sdkstoretypes.NoOpLogger{}, "test"))
 	keeper.SetContract(ctx, &types.ContractInfoV2{
 		ContractAddr: TestContract,
 		RentBalance:  100000000,

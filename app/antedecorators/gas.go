@@ -18,7 +18,7 @@ const (
 func GetGasMeterSetter(aclkeeper aclkeeper.Keeper) func(bool, sdk.Context, uint64, sdk.Tx) sdk.Context {
 	return func(simulate bool, ctx sdk.Context, gasLimit uint64, tx sdk.Tx) sdk.Context {
 		if simulate || ctx.BlockHeight() == 0 {
-			return ctx.WithGasMeter(sdk.NewInfiniteGasMeter())
+			return ctx.WithGasMeter(sdk.NewInfiniteGasMeterWithLogger(ctx.Logger(), ctx.TxID()))
 		}
 
 		denominator := uint64(1)
@@ -30,7 +30,7 @@ func GetGasMeterSetter(aclkeeper aclkeeper.Keeper) func(bool, sdk.Context, uint6
 				denominator = candidateDenominator
 			}
 		}
-		return ctx.WithGasMeter(types.NewMultiplierGasMeter(gasLimit, DefaultGasMultiplierDenominator, denominator))
+		return ctx.WithGasMeter(types.NewMultiplierGasMeter(gasLimit, DefaultGasMultiplierDenominator, denominator, ctx.Logger(), ctx.TxID()))
 	}
 }
 

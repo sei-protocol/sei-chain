@@ -28,7 +28,7 @@ func NewGaslessDecorator(wrapped []sdk.AnteFullDecorator, oracleKeeper oraclekee
 func (gd GaslessDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool, next sdk.AnteHandler) (newCtx sdk.Context, err error) {
 	originalGasMeter := ctx.GasMeter()
 	// eagerly set infinite gas meter so that queries performed by isTxGasless will not incur gas cost
-	ctx = ctx.WithGasMeter(sdk.NewInfiniteGasMeter())
+	ctx = ctx.WithGasMeter(sdk.NewInfiniteGasMeterWithLogger(ctx.Logger(), ctx.TxID()))
 
 	feeTx, ok := tx.(sdk.FeeTx)
 	if !ok {
