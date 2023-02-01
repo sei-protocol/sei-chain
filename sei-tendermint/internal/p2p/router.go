@@ -932,6 +932,7 @@ func (r *Router) sendPeer(ctx context.Context, peerID types.NodeID, conn Connect
 			}
 
 			if err = conn.SendMessage(ctx, envelope.ChannelID, bz); err != nil {
+				r.logger.Error("failed to send message", "peer", peerID, "err", err)
 				return err
 			}
 
