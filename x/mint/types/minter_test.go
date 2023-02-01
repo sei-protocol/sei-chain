@@ -101,7 +101,7 @@ func TestGetScheduledTokenReleaseOverdue(t *testing.T) {
 
 	require.NotNil(t, scheduledTokenRelease)
 	// Year 3 release should still happen (second time)
-	require.Equal(t, scheduledTokenRelease.GetTokenReleaseAmount(), int64(2500000 / 3))
+	require.Equal(t, scheduledTokenRelease.GetTokenReleaseAmount(), int64(2500000/3))
 	require.Equal(t, scheduledTokenRelease.GetDate(), genesisTime.AddDate(3, 0, 0).Format(TokenReleaseDateFormat))
 }
 
