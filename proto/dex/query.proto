@@ -349,9 +349,6 @@ message QueryGetMatchResultRequest {
 	string contractAddr = 1 [
 		(gogoproto.jsontag) = "contract_address"
 	];
-	int64 height = 2 [
-		(gogoproto.jsontag) = "height"
-	];
 }
 
 message QueryGetMatchResultResponse {
