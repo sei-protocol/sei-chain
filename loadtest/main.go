@@ -111,7 +111,7 @@ func (c *LoadTestClient) generateMessage(config Config, key cryptotypes.PrivKey,
 	defer IncrTxMessageType(messageType)
 
 	switch messageType {
-	case Wasm:
+	case WasmMintNft:
 		contract := config.ContractDistr.Sample()
 		price := config.PriceDistr.Sample()
 		quantity := config.QuantityDistr.Sample()

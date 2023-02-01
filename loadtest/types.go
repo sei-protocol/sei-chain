@@ -22,7 +22,7 @@ const (
 	Tokenfactory         string = "tokenfactory"
 	Limit                string = "limit"
 	Market               string = "market"
-	Wasm                 string = "wasm"
+	WasmMintNft          string = "wasm_mint_nft"
 )
 
 type Config struct {
