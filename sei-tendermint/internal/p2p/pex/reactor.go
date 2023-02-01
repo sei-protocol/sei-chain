@@ -3,7 +3,6 @@ package pex
 import (
 	"context"
 	"fmt"
-	lru "github.com/hashicorp/golang-lru"
 	"sync"
 	"time"
 
@@ -84,8 +83,6 @@ type Reactor struct {
 	peerEvents  p2p.PeerEventSubscriber
 	// list of available peers to loop through and send peer requests to
 	availablePeers map[types.NodeID]struct{}
-	// LRU cache of recently available peers. Used if we exhaust available peers and need to retry
-	recentlyAvailablePeers *lru.Cache
 
 	mtx sync.RWMutex
 
@@ -112,15 +109,13 @@ func NewReactor(
 	peerManager *p2p.PeerManager,
 	peerEvents p2p.PeerEventSubscriber,
 ) *Reactor {
-	recentlyAvailablePeersLru, _ := lru.New(maxAddresses)
 	r := &Reactor{
-		logger:                 logger,
-		peerManager:            peerManager,
-		peerEvents:             peerEvents,
-		availablePeers:         make(map[types.NodeID]struct{}),
-		recentlyAvailablePeers: recentlyAvailablePeersLru,
-		requestsSent:           make(map[types.NodeID]struct{}),
-		lastReceivedRequests:   make(map[types.NodeID]time.Time),
+		logger:               logger,
+		peerManager:          peerManager,
+		peerEvents:           peerEvents,
+		availablePeers:       make(map[types.NodeID]struct{}),
+		requestsSent:         make(map[types.NodeID]struct{}),
+		lastReceivedRequests: make(map[types.NodeID]time.Time),
 	}
 
 	r.BaseService = *service.NewBaseService(logger, "PEX", r)
@@ -179,15 +174,9 @@ func (r *Reactor) processPexCh(ctx context.Context, pexCh *p2p.Channel) {
 		case <-timer.C:
 			// Send a request for more peer addresses.
 			if err := r.sendRequestForPeers(ctx, pexCh); err != nil {
+				return
 				// TODO(creachadair): Do we really want to stop processing the PEX
 				// channel just because of an error here?
-				// return
-				// TODO(psu): From comment above, rather than exiting, let's reset available peers and try again
-				recentlyAvailablePeersList := r.recentlyAvailablePeers.Keys()
-				for _, peer := range recentlyAvailablePeersList {
-					r.availablePeers[peer.(types.NodeID)] = struct{}{}
-				}
-				continue
 			}
 
 		case envelope, ok := <-incoming:
@@ -302,7 +291,6 @@ func (r *Reactor) processPeerUpdate(peerUpdate p2p.PeerUpdate) {
 	switch peerUpdate.Status {
 	case p2p.PeerStatusUp:
 		r.availablePeers[peerUpdate.NodeID] = struct{}{}
-		r.recentlyAvailablePeers.Add(peerUpdate.NodeID, struct{}{})
 	case p2p.PeerStatusDown:
 		delete(r.availablePeers, peerUpdate.NodeID)
 		delete(r.requestsSent, peerUpdate.NodeID)
@@ -321,7 +309,7 @@ func (r *Reactor) sendRequestForPeers(ctx context.Context, pexCh *p2p.Channel) e
 	if len(r.availablePeers) == 0 {
 		// no peers are available
 		r.logger.Error("no available peers to send a PEX request to (retrying)")
-		return fmt.Errorf("no available peers to send a PEX request to")
+		return nil
 	}
 
 	// Select an arbitrary peer from the available set.
@@ -410,6 +398,5 @@ func (r *Reactor) markPeerResponse(peer types.NodeID) error {
 	// future requests
 
 	r.availablePeers[peer] = struct{}{}
-	r.recentlyAvailablePeers.Add(peer, struct{}{})
 	return nil
 }
