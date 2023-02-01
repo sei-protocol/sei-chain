@@ -66,8 +66,6 @@ marsaddr4=$(python3 parser.py contract_address $marsinsres4)
 # register
 echo "Registering..."
 
-valaddr=$(printf "12345678\n" | $seidbin keys show $(printf "12345678\n" | $seidbin keys show node_admin --output json | jq -r .address) --bech=val --output json | jq -r '.address')
-
 printf "12345678\n" | $seidbin tx dex register-contract $marsaddr $marsid false true 10000000000000 -y --from=$keyname --chain-id=$chainid --fees=10000000usei --gas=500000 --broadcast-mode=block
 printf "12345678\n" | $seidbin tx dex register-contract $saturnaddr $saturnid false true 10000000000000 -y --from=$keyname --chain-id=$chainid --fees=10000000usei --gas=500000 --broadcast-mode=block
 printf "12345678\n" | $seidbin tx dex register-contract $venusaddr $venusid false true 10000000000000 -y --from=$keyname --chain-id=$chainid --fees=10000000usei --gas=500000 --broadcast-mode=block
