@@ -737,6 +737,11 @@ func (txmp *TxMempool) updateReCheckTxs(ctx context.Context) {
 	if txmp.Size() == 0 {
 		panic("attempted to update re-CheckTx txs when mempool is empty")
 	}
+	txmp.logger.Debug(
+		"executing re-CheckTx for all remaining transactions",
+		"num_txs", txmp.Size(),
+		"height", txmp.height,
+	)
 
 	txmp.recheckCursor = txmp.gossipIndex.Front()
 	txmp.recheckEnd = txmp.gossipIndex.Back()
@@ -753,7 +758,7 @@ func (txmp *TxMempool) updateReCheckTxs(ctx context.Context) {
 			})
 			if err != nil {
 				// no need in retrying since the tx will be rechecked after the next block
-				txmp.logger.Error("failed to execute CheckTx during rechecking", "err", err)
+				txmp.logger.Error("failed to execute CheckTx during recheck", "err", err, "hash", fmt.Sprintf("%x", wtx.tx.Hash()))
 				continue
 			}
 			txmp.handleRecheckResult(wtx.tx, res)
