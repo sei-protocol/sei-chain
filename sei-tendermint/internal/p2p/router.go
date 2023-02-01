@@ -76,8 +76,9 @@ type RouterOptions struct {
 }
 
 const (
-	queueTypeFifo     = "fifo"
-	queueTypePriority = "priority"
+	queueTypeFifo           = "fifo"
+	queueTypePriority       = "priority"
+	queueTypeSimplePriority = "simple-priority"
 )
 
 // Validate validates router options.
@@ -85,7 +86,7 @@ func (o *RouterOptions) Validate() error {
 	switch o.QueueType {
 	case "":
 		o.QueueType = queueTypeFifo
-	case queueTypeFifo, queueTypePriority:
+	case queueTypeFifo, queueTypePriority, queueTypeSimplePriority:
 		// pass
 	default:
 		return fmt.Errorf("queue type %q is not supported", o.QueueType)
@@ -246,6 +247,9 @@ func (r *Router) createQueueFactory(ctx context.Context) (func(int) queue, error
 			return q
 		}, nil
 
+	case queueTypeSimplePriority:
+		return func(size int) queue { return newSimplePriorityQueue(ctx, size, r.chDescs) }, nil
+
 	default:
 		return nil, fmt.Errorf("cannot construct queue of type %q", r.options.QueueType)
 	}
@@ -325,6 +329,9 @@ func (r *Router) routeChannel(
 		case envelope, ok := <-outCh:
 			if !ok {
 				return
+			}
+			if envelope.IsZero() {
+				continue
 			}
 
 			// Mark the envelope with the channel ID to allow sendPeer() to pass

@@ -19,6 +19,10 @@ type Envelope struct {
 	ChannelID ChannelID
 }
 
+func (e Envelope) IsZero() bool {
+	return e.From == "" && e.To == "" && e.Message == nil
+}
+
 // Wrapper is a Protobuf message that can contain a variety of inner messages
 // (e.g. via oneof fields). If a Channel's message type implements Wrapper, the
 // Router will automatically wrap outbound messages and unwrap inbound messages,
@@ -142,11 +146,10 @@ func iteratorWorker(ctx context.Context, ch *Channel, pipe chan Envelope) {
 // it will never return true again.
 // in general, use Next, as in:
 //
-//     for iter.Next(ctx) {
-//          envelope := iter.Envelope()
-//          // ... do things ...
-//     }
-//
+//	for iter.Next(ctx) {
+//	     envelope := iter.Envelope()
+//	     // ... do things ...
+//	}
 func (iter *ChannelIterator) Next(ctx context.Context) bool {
 	select {
 	case <-ctx.Done():
