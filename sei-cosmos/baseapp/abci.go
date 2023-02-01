@@ -562,9 +562,14 @@ func (app *BaseApp) ApplySnapshotChunk(context context.Context, req *abci.Reques
 		return &abci.ResponseApplySnapshotChunk{Result: abci.ResponseApplySnapshotChunk_ABORT}, nil
 	}
 
-	_, err := app.snapshotManager.RestoreChunk(req.Chunk)
+	done, err := app.snapshotManager.RestoreChunk(req.Chunk)
 	switch {
 	case err == nil:
+		if done {
+			if app.interBlockCache != nil {
+				app.interBlockCache.Reset()
+			}
+		}
 		return &abci.ResponseApplySnapshotChunk{Result: abci.ResponseApplySnapshotChunk_ACCEPT}, nil
 
 	case errors.Is(err, snapshottypes.ErrChunkHashMismatch):
