@@ -1658,29 +1658,6 @@ func (cs *State) defaultDoPrevote(ctx context.Context, height int64, round int32
 			}
 			cs.ProposalBlock = block
 		}
-		txKeys := cs.Proposal.TxKeys
-		// add missing tx keys to the mempool for CheckTx
-		missingTxKeys := cs.blockExec.GetMissingTxs(txKeys)
-		blockTxKeyToTx := map[types.TxKey]types.Tx{}
-		for _, tx := range cs.ProposalBlock.Txs {
-			blockTxKeyToTx[tx.Key()] = tx
-		}
-		for _, missingTxKey := range missingTxKeys {
-			if tx, ok := blockTxKeyToTx[missingTxKey]; !ok {
-				cs.logger.Error("Mismatch between cs.Proposal.TxKeys and cs.ProposalBlock.Txs")
-				return
-			} else {
-				cs.blockExec.CheckTxFromPeerProposal(ctx, tx)
-			}
-		}
-		missingTxKeys = cs.blockExec.GetMissingTxs(txKeys)
-		// if there is still any missing tx, it means CheckTx failed on application level for some txs, and
-		// we should not vote for this block
-		if len(missingTxKeys) > 0 {
-			logger.Error("prevote step: CheckTx failed for some txs")
-			cs.signAddVote(ctx, tmproto.PrevoteType, nil, types.PartSetHeader{})
-			return
-		}
 	}
 
 	if !cs.Proposal.Timestamp.Equal(cs.ProposalBlock.Header.Time) {
