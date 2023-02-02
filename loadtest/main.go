@@ -112,7 +112,8 @@ func (c *LoadTestClient) generateMessage(config Config, key cryptotypes.PrivKey,
 
 	switch messageType {
 	case WasmMintNft:
-		contract := config.ContractDistr.Sample()
+		contract := config.WasmMsgTypes.MintNftType.ContractAddr
+		// TODO: Potentially just hard code the Funds amount here
 		price := config.PriceDistr.Sample()
 		quantity := config.QuantityDistr.Sample()
 		amount, err := sdk.ParseCoinsNormalized(fmt.Sprintf("%d%s", price.Mul(quantity).Ceil().RoundInt64(), "usei"))

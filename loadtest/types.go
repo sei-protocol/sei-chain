@@ -36,6 +36,7 @@ type Config struct {
 	PriceDistr    NumericDistribution   `json:"price_distribution"`
 	QuantityDistr NumericDistribution   `json:"quantity_distribution"`
 	MsgTypeDistr  MsgTypeDistribution   `json:"message_type_distribution"`
+	WasmMsgTypes  WasmMessageTypes      `json:"wasm_msg_types"`
 	ContractDistr ContractDistributions `json:"contract_distribution"`
 	MetricsPort   uint64                `json:"metrics_port"`
 	Constant      bool                  `json:"constant"`
@@ -83,6 +84,17 @@ type StakingMsgTypeDistribution struct {
 type MsgTypeDistribution struct {
 	Dex     DexMsgTypeDistribution     `json:"dex"`
 	Staking StakingMsgTypeDistribution `json:"staking"`
+}
+
+// Struct containing contract address
+// For a specific wasm message type.
+// TODO: Abstract interface for any wasm type + execute msg
+type WasmMessageTypes struct {
+	MintNftType WasmMintNftType `json:"wasm_mint_nft"`
+}
+
+type WasmMintNftType struct {
+	ContractAddr string `json:"contract_address"`
 }
 
 func (d *MsgTypeDistribution) SampleDexMsgs() string {

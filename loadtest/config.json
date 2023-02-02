@@ -30,6 +30,11 @@
     "message_type": "bank,dex,tokenfactory,staking,failure_dex_malformed,failure_dex_invalid",
     "run_oracle": false,
     "metrics_port": 9695,
+    "wasm_msg_types": {
+      "wasm_mint_nft": {
+        "contract_address": ""
+      }
+    },
     "contract_distribution": [
       {
         "contract_address": "sei1zwv6feuzhy6a9wekh96cd57lsarmqlwxdypdsplw6zhfncqw6ftqr428wx",
