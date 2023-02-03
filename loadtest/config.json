@@ -2,7 +2,7 @@
     "grpc_endpoint": "127.0.0.1:9090",
     "tls": false,
     "msgs_per_tx": 10,
-    "chain_id": "sei-devnet-3-pre-internal",
+    "chain_id": "sei-loadtest-testnet",
     "txs_per_block": 400,
     "rounds": 5,
     "price_distribution": {
@@ -38,43 +38,43 @@
     },
     "contract_distribution": [
       {
-        "contract_address": "sei1nc5tatafv6eyq7llkr2gv50ff9e22mnf70qgjlv737ktmt4eswrqms7u8a",
+        "contract_address": "sei1zwv6feuzhy6a9wekh96cd57lsarmqlwxdypdsplw6zhfncqw6ftqr428wx",
         "percentage": "0.1"
       },
       {
-        "contract_address": "sei17p9rzwnnfxcjp32un9ug7yhhzgtkhvl9jfksztgw5uh69wac2pgsrtqewe",
+        "contract_address": "sei1436kxs0w2es6xlqpp9rd35e3d0cjnw4sv8j3a7483sgks29jqwgs5z6axv",
         "percentage": "0.1"
       },
       {
-        "contract_address": "sei1ghd753shjuwexxywmgs4xz7x2q732vcnkm6h2pyv9s6ah3hylvrqladqwc",
+        "contract_address": "sei1mf6ptkssddfmxvhdx0ech0k03ktp6kf9yk59renau2gvht3nq2gqw4umh9",
         "percentage": "0.1"
       },
       {
-        "contract_address": "sei1hulx7cgvpfcvg83wk5h96sedqgn72n026w6nl47uht554xhvj9nstdktte",
+        "contract_address": "sei1kj8q8g2pmhnagmfepp9jh9g2mda7gzd0m5zdq0s08ulvac8ck4dqky7tlh",
         "percentage": "0.1"
       },
       {
-        "contract_address": "sei1fzm6gzyccl8jvdv3qq6hp9vs6ylaruervs4m06c7k0ntzn2f8faq8un0p6",
+        "contract_address": "sei1sthrn5ep8ls5vzz8f9gp89khhmedahhdqd244dh9uqzk3hx2pzrsfgf5u9",
         "percentage": "0.1"
       },
       {
-        "contract_address": "sei1ma0g752dl0yujasnfs9yrk6uew7d0a2zrgvg62cfnlfftu2y0egq483uht",
+        "contract_address": "sei1sr06m8yqg0wzqqyqvzvp5t07dj4nevx9u8qc7j4qa72qu8e3ct8q6c6arh",
         "percentage": "0.1"
       },
       {
-        "contract_address": "sei182nff4ttmvshn6yjlqj5czapfcav9434l2qzz8aahf5pxnyd33ts2pdy3l",
+        "contract_address": "sei1w798gp0zqv3s9hjl3jlnwxtwhykga6rn93p46q2crsdqhaj3y4gslx7gpp",
         "percentage": "0.1"
       },
       {
-        "contract_address": "sei1k8re7jwz6rnnwrktnejdwkwnncte7ek7gt29gvnl3sdrg9mtnqksw4tqd9",
+        "contract_address": "sei149ltwdnpxrhx9al42s359glcjnsuc6x3dalz28f04dsxhlu7jhmq8ymcll",
         "percentage": "0.1"
       },
       {
-        "contract_address": "sei1hw5n2l4v5vz8lk4sj69j7pwdaut0kkn90mw09snlkdd3f7ckld0smdtvee",
+        "contract_address": "sei1qu43pvag5hu95hmml7y658t3k8sd9plnmpj8xmw9qgy0t458nyrqdcjxxz",
         "percentage": "0.1"
       },
       {
-        "contract_address": "sei182jzjwdyl5fw43yujnlljddgtrkr04dpd30ywp2yn724u7qhtaqsjev6mv",
+        "contract_address": "sei1nwp0ynjv84wxysf2f5ctvysl6dpm8ngm70hss6jeqt8q7e7u345s8zru6u",
         "percentage": "0.1"
       }
   ]
