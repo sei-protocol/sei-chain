@@ -103,7 +103,7 @@ func (o *Oracle) Start(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	var previousBlockHeight int64 = 0
+	var previousBlockHeight int64
 
 	for {
 		select {

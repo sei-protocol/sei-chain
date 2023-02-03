@@ -146,7 +146,6 @@ func (r *passReader) Read(p []byte) (n int, err error) {
 // given set of messages. It will also simulate gas requirements if necessary.
 // It will return an error upon failure. We maintain a local account sequence number in txAccount
 // and we manually increment the sequence number by 1 if the previous broadcastTx succeed.
-//
 func (oc OracleClient) BroadcastTx(
 	clientCtx client.Context,
 	msgs ...sdk.Msg) (*sdk.TxResponse, error) {
