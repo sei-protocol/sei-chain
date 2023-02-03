@@ -268,7 +268,7 @@ require (
 
 replace (
 	github.com/confio/ics23/go => github.com/cosmos/cosmos-sdk/ics23/go v0.8.0
-	github.com/cosmos/cosmos-sdk => github.com/sei-protocol/sei-cosmos v0.1.417
+	github.com/cosmos/cosmos-sdk => github.com/sei-protocol/sei-cosmos v0.1.419
 	github.com/cosmos/iavl => github.com/sei-protocol/sei-iavl v0.0.1
 	github.com/gogo/protobuf => github.com/regen-network/protobuf v1.3.3-alpha.regen.1
 	github.com/keybase/go-keychain => github.com/99designs/go-keychain v0.0.0-20191008050251-8e49817e8af4
