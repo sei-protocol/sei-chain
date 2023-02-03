@@ -107,7 +107,7 @@ func (c *LoadTestClient) WriteTxHashToFile() {
 	}
 }
 
-func (c *LoadTestClient) BuildTxs() (workgroups []*sync.WaitGroup, sendersList [][]func()) {
+func (c *LoadTestClient) BuildTxs(prevSeqDelta uint64) (workgroups []*sync.WaitGroup, sendersList [][]func()) {
 	config := c.LoadTestConfig
 	numberOfAccounts := config.TxsPerBlock / config.MsgsPerTx * 2 // * 2 because we need two sets of accounts
 	activeAccounts := []int{}
@@ -136,7 +136,7 @@ func (c *LoadTestClient) BuildTxs() (workgroups []*sync.WaitGroup, sendersList [
 			msg, failureExpected := c.generateMessage(config, key, config.MsgsPerTx)
 			txBuilder := TestConfig.TxConfig.NewTxBuilder()
 			_ = txBuilder.SetMsgs(msg)
-			seqDelta := uint64(i / 2)
+			seqDelta := uint64(i / 2) + prevSeqDelta
 			mode := typestx.BroadcastMode_BROADCAST_MODE_SYNC
 			if j == len(activeAccounts)-1 {
 				mode = typestx.BroadcastMode_BROADCAST_MODE_BLOCK

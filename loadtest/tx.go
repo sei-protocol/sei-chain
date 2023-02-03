@@ -27,6 +27,7 @@ func SendTx(
 	loadtestClient.SignerClient.SignTx(loadtestClient.ChainID, txBuilder, key, seqDelta)
 	txBytes, _ := TestConfig.TxConfig.TxEncoder()((*txBuilder).GetTx())
 	return func() {
+		fmt.Printf("Sequence delta %d\n", seqDelta)
 		grpcRes, err := loadtestClient.TxClient.BroadcastTx(
 			context.Background(),
 			&typestx.BroadcastTxRequest{

@@ -91,7 +91,7 @@ func runOnce(config Config) {
 	fmt.Printf("Running with \n %s \n", string(configString))
 
 	fmt.Printf("%s - Starting block prepare\n", time.Now().Format("2006-01-02T15:04:05"))
-	workgroups, sendersList := client.BuildTxs()
+	workgroups, sendersList := client.BuildTxs(0)
 
 	go client.SendTxs(workgroups, sendersList)
 
@@ -118,14 +118,19 @@ func runContinously(config Config) {
 
 	configString, _ := json.Marshal(config)
 	fmt.Printf("Running with \n %s \n", string(configString))
+
+	prevSeqDelta := uint64(0)
+	// TODO: Specify more granular conditions for stopping continuous run
 	for {
 		fmt.Printf("%s - Starting block prepare\n", time.Now().Format("2006-01-02T15:04:05"))
-		workgroups, sendersList := client.BuildTxs()
+		workgroups, sendersList := client.BuildTxs(prevSeqDelta)
 
 		go client.SendTxs(workgroups, sendersList)
 
 		// Waits until SendTx is done processing before proceeding to write and validate TXs
 		client.GatherTxHashes()
+
+		prevSeqDelta += config.Rounds
 
 		// Records the resulting TxHash to file
 		client.WriteTxHashToFile()
