@@ -508,7 +508,7 @@ unsafe-vote-timeout-delta-override = "{{ .Consensus.UnsafeVoteTimeoutDeltaOverri
 # This field configures how long the consensus engine will wait after receiving
 # +2/3 precommits before beginning the next height.
 # If this field is set to a value greater than 0, it will take effect.
-unsafe-commit-timeout-override = "{{ .Consensus.UnsafeCommitTimeoutOverride }}"
+# unsafe-commit-timeout-override = "{{ .Consensus.UnsafeCommitTimeoutOverride }}"
 
 # This field provides an unsafe override of the BypassCommitTimeout consensus parameter.
 # This field configures if the consensus engine will wait for the full Commit timeout
