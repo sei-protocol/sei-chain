@@ -59,7 +59,7 @@ ldflags += $(LDFLAGS)
 ldflags := $(strip $(ldflags))
 
 # BUILD_FLAGS := -tags "$(build_tags)" -ldflags '$(ldflags)' -race
-BUILD_FLAGS := -tags "$(build_tags)" -ldflags '$(ldflags)' -v
+BUILD_FLAGS := -tags "$(build_tags)" -ldflags '$(ldflags)'
 
 #### Command List ####
 
