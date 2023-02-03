@@ -33,7 +33,7 @@ jobs:
         run: |
           until [ $(cat build/generated/launch.complete |wc -l) = 4 ]
           do
-            sleep 10
+            sleep 60
           done
           sleep 5
 
