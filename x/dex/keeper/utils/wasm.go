@@ -14,6 +14,7 @@ import (
 )
 
 const ErrWasmModuleInstCPUFeatureLiteral = "Error instantiating module: CpuFeature"
+const SudoGasEventKey = "sudo-gas"
 
 func getMsgType(msg interface{}) string {
 	switch msg.(type) {
@@ -50,7 +51,14 @@ func sudo(sdkCtx sdk.Context, k *keeper.Keeper, contractAddress sdk.AccAddress, 
 	tmpCtx := sdkCtx.WithGasMeter(sdk.NewGasMeter(gasLimit))
 	data, err := sudoWithoutOutOfGasPanic(tmpCtx, k, contractAddress, wasmMsg, msgType)
 	gasConsumed := tmpCtx.GasMeter().GasConsumed()
-	sdkCtx.Logger().Info(fmt.Sprintf("%s %s consumed %d gas", contractAddress.String(), msgType, gasConsumed))
+	sdkCtx.EventManager().EmitEvent(
+		sdk.NewEvent(
+			SudoGasEventKey,
+			sdk.NewAttribute("consumed", fmt.Sprintf("%d", gasConsumed)),
+			sdk.NewAttribute("type", msgType),
+			sdk.NewAttribute("contract", contractAddress.String()),
+		),
+	)
 	if gasConsumed > 0 {
 		sdkCtx.GasMeter().ConsumeGas(gasConsumed, "sudo")
 	}
