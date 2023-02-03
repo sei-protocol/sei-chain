@@ -35,6 +35,8 @@ var (
 	DefaultRewardBand    = sdk.NewDecWithPrec(2, 2)  // 2% (-1, 1)
 	DefaultWhitelist     = DenomList{
 		{Name: utils.MicroAtomDenom},
+// 		{Name: utils.MicroUsdcDenom},
+// 		{Name: utils.MicroSeiDenom},
 		{Name: utils.MicroEthDenom},
 	}
 	DefaultSlashFraction     = sdk.NewDecWithPrec(1, 4) // 0.01%
