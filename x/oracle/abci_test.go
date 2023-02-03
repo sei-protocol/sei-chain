@@ -277,7 +277,7 @@ func TestWhitelistSlashing(t *testing.T) {
 	validator := input.StakingKeeper.Validator(input.Ctx, keeper.ValAddrs[0])
 	require.Equal(t, stakingAmt, validator.GetBondedTokens())
 
-	// one more miss vote will not incur in slashing because of implicit abstaining
+	// one more miss vote will incur in slashing because of abstaining
 
 	// Account 2, KRW
 	makeAggregateVote(t, input, h, 0, sdk.DecCoins{{Denom: utils.MicroAtomDenom, Amount: randomExchangeRate}}, 1)
@@ -288,8 +288,9 @@ func TestWhitelistSlashing(t *testing.T) {
 	oracle.MidBlocker(input.Ctx, input.OracleKeeper)
 	oracle.EndBlocker(input.Ctx, input.OracleKeeper)
 	validator = input.StakingKeeper.Validator(input.Ctx, keeper.ValAddrs[0])
-	// because of implicit abstaining there shouldnt be slashing here
-	require.Equal(t, stakingAmt, validator.GetBondedTokens())
+
+	slashFraction := input.OracleKeeper.SlashFraction(input.Ctx)
+	require.Equal(t, sdk.OneDec().Sub(slashFraction).MulInt(stakingAmt).TruncateInt(), validator.GetBondedTokens())
 }
 
 func TestNotPassedBallotSlashing(t *testing.T) {
