@@ -376,7 +376,7 @@ unsafe-commit-timeout-override = "50ms"
 double-sign-check-height = 0
 
 # Make progress as soon as we have all the precommits (as if TimeoutCommit = 0)
-unsafe-bypass-commit-timeout-override = true
+unsafe-bypass-commit-timeout-override = false
 
 # EmptyBlocks mode and possible interval between empty blocks
 create-empty-blocks = true
