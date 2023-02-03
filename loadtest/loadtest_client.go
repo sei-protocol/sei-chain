@@ -212,7 +212,6 @@ func (c *LoadTestClient) GatherTxHashes() {
 }
 
 func (c *LoadTestClient) ValidateTxs() {
-	// Close channel if we are are not running continuously
 	defer c.Close()
 	numTxs := len(c.TxHashList)
 	resultChan := make(chan *types.TxResponse, numTxs)
