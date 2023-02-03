@@ -1009,7 +1009,7 @@ func (cs *State) receiveRoutine(ctx context.Context, maxSteps int) {
 func (cs *State) fsyncAndCompleteProposal(ctx context.Context, fsyncUponCompletion bool, height int64, span otrace.Span) {
 	if fsyncUponCompletion {
 		if err := cs.wal.FlushAndSync(); err != nil { // fsync
-			panic("error flushing wal after receiving all block parts")
+			panic(fmt.Sprintf("error flushing wal after receiving all block parts error=%s", err))
 		}
 	}
 	cs.handleCompleteProposal(ctx, height, span)
