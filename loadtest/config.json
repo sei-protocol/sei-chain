@@ -1,5 +1,6 @@
 {
     "grpc_endpoint": "127.0.0.1:9090",
+    "tls": false,
     "msgs_per_tx": 10,
     "chain_id": "sei-loadtest-testnet",
     "txs_per_block": 400,

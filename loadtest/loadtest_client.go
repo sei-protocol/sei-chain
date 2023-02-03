@@ -42,9 +42,16 @@ type LoadTestClient struct {
 }
 
 func NewLoadTestClient(config Config) *LoadTestClient {
+	var dialOptions []grpc.DialOption
+
+	if config.Tls {
+		dialOptions = append(dialOptions, grpc.WithTransportCredentials(credentials.NewTLS(&tls.Config{InsecureSkipVerify: true})))
+	} else {
+		dialOptions = append(dialOptions, grpc.WithInsecure())
+	}
 	grpcConn, _ := grpc.Dial(
 		config.GrpcEndpoint,
-		grpc.WithTransportCredentials(credentials.NewTLS(&tls.Config{InsecureSkipVerify: true})),
+		dialOptions...,
 	)
 	TxClient := typestx.NewServiceClient(grpcConn)
 

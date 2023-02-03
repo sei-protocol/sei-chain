@@ -41,6 +41,7 @@ type Config struct {
 	MetricsPort   uint64                `json:"metrics_port"`
 	Constant      bool                  `json:"constant"`
 	LoadInterval  int64                 `json:"loadtest_interval"`
+	Tls           bool                  `json:"tls"`
 }
 
 type EncodingConfig struct {
