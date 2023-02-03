@@ -7,7 +7,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/store/cachekv"
 	"github.com/cosmos/cosmos-sdk/store/types"
 
-	lru "github.com/hashicorp/golang-lru"
+	lru "github.com/hashicorp/golang-lru/v2"
 )
 
 var (
@@ -28,7 +28,7 @@ type (
 	// CommitKVStore and below is completely irrelevant to this layer.
 	CommitKVStoreCache struct {
 		types.CommitKVStore
-		cache       *lru.TwoQueueCache
+		cache       *lru.TwoQueueCache[string, []byte]
 		cacheKVSize int
 
 		// the same CommitKVStoreCache may be accessed concurrently by multiple
@@ -48,7 +48,7 @@ type (
 )
 
 func NewCommitKVStoreCache(store types.CommitKVStore, size uint, cacheKVSize int) *CommitKVStoreCache {
-	cache, err := lru.New2Q(int(size))
+	cache, err := lru.New2Q[string, []byte](int(size))
 	if err != nil {
 		panic(fmt.Errorf("failed to create KVStore cache: %s", err))
 	}
@@ -112,14 +112,14 @@ func (ckv *CommitKVStoreCache) Get(key []byte) []byte {
 	types.AssertValidKey(key)
 
 	keyStr := string(key)
-	valueI, ok := ckv.cache.Get(keyStr)
+	value, ok := ckv.cache.Get(keyStr)
 	if ok {
 		// cache hit
-		return valueI.([]byte)
+		return value
 	}
 
 	// cache miss; write to cache
-	value := ckv.CommitKVStore.Get(key)
+	value = ckv.CommitKVStore.Get(key)
 	ckv.cache.Add(keyStr, value)
 
 	return value
