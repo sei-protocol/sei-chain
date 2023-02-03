@@ -101,42 +101,6 @@ func runOnce(config Config) {
 	go client.ValidateTxs()
 }
 
-// TODO: runContinuously continously sends transactions without closing and reopening channel
-// Ran into seq acc mismatch issues
-// func runContinously(config Config) {
-// 	client := NewLoadTestClient(config)
-// 	defer client.Close()
-
-// 	client.SetValidators()
-
-// 	if config.TxsPerBlock < config.MsgsPerTx {
-// 		panic("Must have more TxsPerBlock than MsgsPerTx")
-// 	}
-
-// 	configString, _ := json.Marshal(config)
-// 	fmt.Printf("Running with \n %s \n", string(configString))
-
-// 	prevSeqDelta := uint64(0)
-// 	for {
-// 		fmt.Printf("%s - Starting block prepare\n", time.Now().Format("2006-01-02T15:04:05"))
-// 		workgroups, sendersList := client.BuildTxs(prevSeqDelta)
-
-// 		go client.SendTxs(workgroups, sendersList)
-
-// 		// Waits until SendTx is done processing before proceeding to write and validate TXs
-// 		client.GatherTxHashes()
-
-// 		prevSeqDelta += config.Rounds
-
-// 		// Records the resulting TxHash to file
-// 		client.WriteTxHashToFile()
-// 		fmt.Printf("%s - Finished\n", time.Now().Format("2006-01-02T15:04:05"))
-
-// 		// TODO: More testing, possibly call validate after all txs are complete
-// 		go client.ValidateTxs(false)
-// 	}
-// }
-
 func (c *LoadTestClient) generateMessage(config Config, key cryptotypes.PrivKey, msgPerTx uint64) (sdk.Msg, bool) {
 	var msg sdk.Msg
 	messageTypes := strings.Split(config.MessageType, ",")
