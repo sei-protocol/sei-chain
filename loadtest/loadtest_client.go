@@ -204,8 +204,11 @@ func (c *LoadTestClient) GatherTxHashes() {
 	fmt.Printf("Transactions Sent=%d\n", len(c.TxHashList))
 }
 
-func (c *LoadTestClient) ValidateTxs() {
-	defer c.Close()
+func (c *LoadTestClient) ValidateTxs(closeChannel bool) {
+	// Close channel if we are are not running continuously
+	if closeChannel {
+		defer c.Close()
+	}
 	numTxs := len(c.TxHashList)
 	resultChan := make(chan *types.TxResponse, numTxs)
 	var waitGroup sync.WaitGroup

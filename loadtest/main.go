@@ -60,17 +60,22 @@ func run(config Config) {
 	go metricsServer.StartMetricsClient(config)
 	sleepDuration := time.Duration(config.LoadInterval) * time.Second
 
-	if config.Constant {
-		fmt.Printf("Running in constant mode with interval=%d\n", config.LoadInterval)
-		for {
-			fmt.Printf("Sleeping for %f seconds before next run...\n", sleepDuration.Seconds())
-			time.Sleep(sleepDuration)
-			runOnce(config)
-		}
+	if config.LoadInterval == 0 {
+		fmt.Printf("Running in breaking mode\n")
+		runContinously(config)
 	} else {
-		runOnce(config)
-		fmt.Print("Sleeping for 60 seconds for metrics to be scraped...\n")
-		time.Sleep(time.Duration(60))
+		if config.Constant {
+			fmt.Printf("Running in constant mode with interval=%d\n", config.LoadInterval)
+			for {
+				fmt.Printf("Sleeping for %f seconds before next run...\n", sleepDuration.Seconds())
+				time.Sleep(sleepDuration)
+				runOnce(config)
+			}
+		} else {
+			runOnce(config)
+			fmt.Print("Sleeping for 60 seconds for metrics to be scraped...\n")
+			time.Sleep(time.Duration(60))
+		}
 	}
 }
 
@@ -98,7 +103,37 @@ func runOnce(config Config) {
 	fmt.Printf("%s - Finished\n", time.Now().Format("2006-01-02T15:04:05"))
 
 	// Validate Tx will close the connection when it's done
-	go client.ValidateTxs()
+	go client.ValidateTxs(true)
+}
+
+func runContinously(config Config) {
+	client := NewLoadTestClient(config)
+	defer client.Close()
+
+	client.SetValidators()
+
+	if config.TxsPerBlock < config.MsgsPerTx {
+		panic("Must have more TxsPerBlock than MsgsPerTx")
+	}
+
+	configString, _ := json.Marshal(config)
+	fmt.Printf("Running with \n %s \n", string(configString))
+	for {
+		fmt.Printf("%s - Starting block prepare\n", time.Now().Format("2006-01-02T15:04:05"))
+		workgroups, sendersList := client.BuildTxs()
+
+		go client.SendTxs(workgroups, sendersList)
+
+		// Waits until SendTx is done processing before proceeding to write and validate TXs
+		client.GatherTxHashes()
+
+		// Records the resulting TxHash to file
+		client.WriteTxHashToFile()
+		fmt.Printf("%s - Finished\n", time.Now().Format("2006-01-02T15:04:05"))
+
+		// TODO: More testing, possibly call validate after all txs are complete
+		go client.ValidateTxs(false)
+	}
 }
 
 func (c *LoadTestClient) generateMessage(config Config, key cryptotypes.PrivKey, msgPerTx uint64) (sdk.Msg, bool) {

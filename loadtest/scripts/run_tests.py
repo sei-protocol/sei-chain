@@ -16,6 +16,11 @@ BURST = 'BURST'
 STEADY = 'STEADY'
 
 
+# This strategy is used to generate heavy load over a long period of time to simulate
+# traffic that may break nodes that fall behind.
+BREAKING = 'BREAKING'
+
+
 @dataclass
 class LoadTestConfig:
     config_file_path: str
@@ -48,6 +53,16 @@ def create_steady_loadtest_config(base_config_json):
     new_config["loadtest_interval"] = 60
     return new_config
 
+def create_breaking_loadtest_config(base_config_json):
+    new_config = base_config_json.copy()
+    new_config["constant"] = True
+    new_config["metrics_port"] = 9696
+    new_config["txs_per_block"] = 100
+    new_config["msgs_per_tx"] = 10
+    # TODO: Remove with testing so no breaks in between txs
+    new_config["loadtest_interval"] = 1
+    return new_config
+
 
 def read_config_json(config_json_file_path):
     # Default path for running on EC2 instances
@@ -75,6 +90,8 @@ def run_test(test_type, loadtest_config):
         config = create_burst_loadtest_config(base_config_json)
     elif test_type == STEADY:
         config = create_steady_loadtest_config(base_config_json)
+    elif test_type == BREAKING:
+        config = create_breaking_loadtest_config(base_config_json)
 
     temp_file_path = write_to_temp_json_file(config)
     try:
@@ -88,9 +105,9 @@ def run():
                         description = 'Wrapper for the golang client to run loadtests with different configs')
     parser.add_argument(
         'type',
-        help='Type of loadtest to run (e.g constant, burst)',
+        help='Type of loadtest to run (e.g constant, burst, breaking)',
         type = lambda s : s.upper(),
-        choices=[BURST, STEADY],
+        choices=[BURST, STEADY, BREAKING],
     )
     parser.add_argument(
         '--config-file',
