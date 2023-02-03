@@ -27,4 +27,5 @@ var (
 	ErrGettingOracleTwaps    = sdkerrors.Register(ModuleName, 21, "Error while getting Oracle Twaps in wasmd")
 	ErrEncodingOracleTwaps   = sdkerrors.Register(ModuleName, 22, "Error encoding oracle twaps as JSON")
 	ErrUnknownSeiOracleQuery = sdkerrors.Register(ModuleName, 23, "Error unknown sei oracle query")
+	ErrAggregateVoteExist    = sdkerrors.Register(ModuleName, 24, "aggregate vote still present in current voting window")
 )
