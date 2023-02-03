@@ -107,7 +107,7 @@ func (c *LoadTestClient) WriteTxHashToFile() {
 	}
 }
 
-func (c *LoadTestClient) BuildTxs(prevSeqDelta uint64) (workgroups []*sync.WaitGroup, sendersList [][]func()) {
+func (c *LoadTestClient) BuildTxs() (workgroups []*sync.WaitGroup, sendersList [][]func()) {
 	config := c.LoadTestConfig
 	numberOfAccounts := config.TxsPerBlock / config.MsgsPerTx * 2 // * 2 because we need two sets of accounts
 	activeAccounts := []int{}
@@ -136,7 +136,7 @@ func (c *LoadTestClient) BuildTxs(prevSeqDelta uint64) (workgroups []*sync.WaitG
 			msg, failureExpected := c.generateMessage(config, key, config.MsgsPerTx)
 			txBuilder := TestConfig.TxConfig.NewTxBuilder()
 			_ = txBuilder.SetMsgs(msg)
-			seqDelta := uint64(i / 2) + prevSeqDelta
+			seqDelta := uint64(i / 2)
 			mode := typestx.BroadcastMode_BROADCAST_MODE_SYNC
 			if j == len(activeAccounts)-1 {
 				mode = typestx.BroadcastMode_BROADCAST_MODE_BLOCK
@@ -211,11 +211,9 @@ func (c *LoadTestClient) GatherTxHashes() {
 	fmt.Printf("Transactions Sent=%d\n", len(c.TxHashList))
 }
 
-func (c *LoadTestClient) ValidateTxs(closeChannel bool) {
+func (c *LoadTestClient) ValidateTxs() {
 	// Close channel if we are are not running continuously
-	if closeChannel {
-		defer c.Close()
-	}
+	defer c.Close()
 	numTxs := len(c.TxHashList)
 	resultChan := make(chan *types.TxResponse, numTxs)
 	var waitGroup sync.WaitGroup

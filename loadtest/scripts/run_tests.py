@@ -59,8 +59,8 @@ def create_breaking_loadtest_config(base_config_json):
     new_config["metrics_port"] = 9696
     new_config["txs_per_block"] = 100
     new_config["msgs_per_tx"] = 10
-    # TODO: Remove with testing so no breaks in between txs
-    new_config["loadtest_interval"] = 1
+    # TODO: Potentially increase the number of rounds here
+    new_config["loadtest_interval"] = 0
     return new_config
 
 
