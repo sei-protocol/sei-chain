@@ -57,6 +57,7 @@ func sudo(sdkCtx sdk.Context, k *keeper.Keeper, contractAddress sdk.AccAddress, 
 			sdk.NewAttribute("consumed", fmt.Sprintf("%d", gasConsumed)),
 			sdk.NewAttribute("type", msgType),
 			sdk.NewAttribute("contract", contractAddress.String()),
+			sdk.NewAttribute("height", fmt.Sprintf("%d", sdkCtx.BlockHeight())),
 		),
 	)
 	if gasConsumed > 0 {
