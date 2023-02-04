@@ -55,6 +55,7 @@ func startInProcess(cfg Config, val *Validator) error {
 		val.GoCtx,
 		tmCfg,
 		logger,
+		make(chan struct{}),
 		abciclient.NewLocalClient(logger, app),
 		defaultGensis,
 		[]trace.TracerProviderOption{},
