@@ -100,7 +100,7 @@ func StartTendermint(
 
 	}
 	papp := abciclient.NewLocalClient(logger, app)
-	tmNode, err := node.New(ctx, conf, logger, papp, nil, []trace.TracerProviderOption{})
+	tmNode, err := node.New(ctx, conf, logger, make(chan struct{}), papp, nil, []trace.TracerProviderOption{})
 	if err != nil {
 		return nil, func(_ context.Context) error { cancel(); return nil }, err
 	}

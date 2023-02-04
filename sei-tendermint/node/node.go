@@ -57,10 +57,11 @@ type nodeImpl struct {
 	shouldStateSync bool                // set during makeNode
 
 	// network
-	peerManager *p2p.PeerManager
-	router      *p2p.Router
-	nodeInfo    types.NodeInfo
-	nodeKey     types.NodeKey // our node privkey
+	peerManager     *p2p.PeerManager
+	router          *p2p.Router
+	routerRestartCh chan struct{} // due to p2p flakiness, have a way to signal when to restart router
+	nodeInfo        types.NodeInfo
+	nodeKey         types.NodeKey // our node privkey
 
 	// services
 	eventSinks     []indexer.EventSink
@@ -83,6 +84,7 @@ func newDefaultNode(
 	ctx context.Context,
 	cfg *config.Config,
 	logger log.Logger,
+	restartCh chan struct{},
 ) (service.Service, error) {
 	nodeKey, err := types.LoadOrGenNodeKey(cfg.NodeKeyFile())
 	if err != nil {
@@ -90,8 +92,10 @@ func newDefaultNode(
 	}
 	if cfg.Mode == config.ModeSeed {
 		return makeSeedNode(
+			ctx,
 			logger,
 			cfg,
+			restartCh,
 			config.DefaultDBProvider,
 			nodeKey,
 			defaultGenesisDocProviderFunc(cfg),
@@ -110,6 +114,7 @@ func newDefaultNode(
 	return makeNode(
 		ctx,
 		cfg,
+		restartCh,
 		pval,
 		nodeKey,
 		appClient,
@@ -124,6 +129,7 @@ func newDefaultNode(
 func makeNode(
 	ctx context.Context,
 	cfg *config.Config,
+	restartCh chan struct{},
 	filePrivval *privval.FilePV,
 	nodeKey types.NodeKey,
 	client abciclient.Client,
@@ -358,7 +364,7 @@ func makeNode(
 	}
 
 	if cfg.P2P.PexReactor {
-		pxReactor := pex.NewReactor(logger, peerManager, peerManager.Subscribe)
+		pxReactor := pex.NewReactor(logger, peerManager, peerManager.Subscribe, restartCh)
 		node.services = append(node.services, pxReactor)
 		node.router.AddChDescToBeAdded(pex.ChannelDescriptor(), pxReactor.SetChannel)
 	}
@@ -558,13 +564,15 @@ func (n *nodeImpl) OnStop() {
 	}
 
 	for _, reactor := range n.services {
-		reactor.Wait()
+		reactor.Stop()
 	}
 
+	n.router.Stop()
 	n.router.Wait()
 	n.rpcEnv.IsListening = false
 
 	if pvsc, ok := n.privValidator.(service.Service); ok {
+		pvsc.Stop()
 		pvsc.Wait()
 	}
 

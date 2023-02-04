@@ -39,8 +39,10 @@ type seedNodeImpl struct {
 
 // makeSeedNode returns a new seed node, containing only p2p, pex reactor
 func makeSeedNode(
+	ctx context.Context,
 	logger log.Logger,
 	cfg *config.Config,
+	restartCh chan struct{},
 	dbProvider config.DBProvider,
 	nodeKey types.NodeKey,
 	genesisDocProvider genesisDocProvider,
@@ -80,8 +82,24 @@ func makeSeedNode(
 			fmt.Errorf("failed to create router: %w", err),
 			closer)
 	}
+	// Register a listener to restart router if signalled to do so
+	go func() {
+		for {
+			select {
+			case <-restartCh:
+				logger.Info("Received signal to restart router, restarting...")
+				router.OnStop()
+				router.Wait()
+				logger.Info("Router successfully stopped. Restarting...")
+				// Start the transport.
+				if err := router.Start(ctx); err != nil {
+					logger.Error("Unable to start router, retrying...", err)
+				}
+			}
+		}
+	}()
 
-	pexReactor := pex.NewReactor(logger, peerManager, peerManager.Subscribe)
+	pexReactor := pex.NewReactor(logger, peerManager, peerManager.Subscribe, restartCh)
 	node := &seedNodeImpl{
 		config:     cfg,
 		logger:     logger,

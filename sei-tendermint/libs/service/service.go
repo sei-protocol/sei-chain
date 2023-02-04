@@ -23,6 +23,9 @@ type Service interface {
 	// must report an error.
 	Start(context.Context) error
 
+	// Manually terminates the service
+	Stop()
+
 	// Return true if the service is running
 	IsRunning() bool
 

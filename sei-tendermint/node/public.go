@@ -22,8 +22,9 @@ func NewDefault(
 	ctx context.Context,
 	conf *config.Config,
 	logger log.Logger,
+	restartCh chan struct{},
 ) (service.Service, error) {
-	return newDefaultNode(ctx, conf, logger)
+	return newDefaultNode(ctx, conf, logger, restartCh)
 }
 
 // New constructs a tendermint node. The ClientCreator makes it
@@ -36,6 +37,7 @@ func New(
 	ctx context.Context,
 	conf *config.Config,
 	logger log.Logger,
+	restartCh chan struct{},
 	cf abciclient.Client,
 	gen *types.GenesisDoc,
 	tracerProviderOptions []trace.TracerProviderOption,
@@ -63,6 +65,7 @@ func New(
 		return makeNode(
 			ctx,
 			conf,
+			restartCh,
 			pval,
 			nodeKey,
 			cf,
@@ -71,7 +74,7 @@ func New(
 			logger,
 			tracerProviderOptions)
 	case config.ModeSeed:
-		return makeSeedNode(logger, conf, config.DefaultDBProvider, nodeKey, genProvider)
+		return makeSeedNode(ctx, logger, conf, restartCh, config.DefaultDBProvider, nodeKey, genProvider)
 	default:
 		return nil, fmt.Errorf("%q is not a valid mode", conf.Mode)
 	}

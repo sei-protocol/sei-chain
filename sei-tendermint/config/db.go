@@ -10,7 +10,7 @@ import (
 )
 
 // ServiceProvider takes a config and a logger and returns a ready to go Node.
-type ServiceProvider func(context.Context, *Config, log.Logger) (service.Service, error)
+type ServiceProvider func(context.Context, *Config, log.Logger, chan struct{}) (service.Service, error)
 
 // DBContext specifies config information for loading a new DB.
 type DBContext struct {

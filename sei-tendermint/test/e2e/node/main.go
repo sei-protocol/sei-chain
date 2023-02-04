@@ -151,6 +151,7 @@ func startNode(ctx context.Context, cfg *Config) error {
 		ctx,
 		tmcfg,
 		nodeLogger,
+		make(chan struct{}),
 		abciclient.NewLocalClient(nodeLogger, app),
 		nil,
 		[]trace.TracerProviderOption{},
@@ -169,7 +170,7 @@ func startSeedNode(ctx context.Context) error {
 
 	tmcfg.Mode = config.ModeSeed
 
-	n, err := node.New(ctx, tmcfg, nodeLogger, nil, nil, []trace.TracerProviderOption{})
+	n, err := node.New(ctx, tmcfg, nodeLogger, make(chan struct{}), nil, nil, []trace.TracerProviderOption{})
 	if err != nil {
 		return err
 	}

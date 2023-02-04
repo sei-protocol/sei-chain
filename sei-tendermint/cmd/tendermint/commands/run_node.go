@@ -4,12 +4,11 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"fmt"
+	"github.com/spf13/cobra"
 	"io"
 	"os"
 	"os/signal"
 	"syscall"
-
-	"github.com/spf13/cobra"
 
 	cfg "github.com/tendermint/tendermint/config"
 	"github.com/tendermint/tendermint/libs/log"
@@ -100,7 +99,7 @@ func addDBFlags(cmd *cobra.Command, conf *cfg.Config) {
 
 // NewRunNodeCmd returns the command that allows the CLI to start a node.
 // It can be used with a custom PrivValidator and in-process ABCI application.
-func NewRunNodeCmd(nodeProvider cfg.ServiceProvider, conf *cfg.Config, logger log.Logger) *cobra.Command {
+func NewRunNodeCmd(nodeProvider cfg.ServiceProvider, conf *cfg.Config, logger log.Logger, restartCh chan struct{}) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:     "start",
 		Aliases: []string{"node", "run"},
@@ -113,7 +112,7 @@ func NewRunNodeCmd(nodeProvider cfg.ServiceProvider, conf *cfg.Config, logger lo
 			ctx, cancel := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
 			defer cancel()
 
-			n, err := nodeProvider(ctx, conf, logger)
+			n, err := nodeProvider(ctx, conf, logger, restartCh)
 			if err != nil {
 				return fmt.Errorf("failed to create node: %w", err)
 			}
@@ -124,8 +123,16 @@ func NewRunNodeCmd(nodeProvider cfg.ServiceProvider, conf *cfg.Config, logger lo
 
 			logger.Info("started node", "chain", conf.ChainID())
 
-			<-ctx.Done()
-			return nil
+			for {
+				select {
+				case <-ctx.Done():
+					return nil
+				case <-restartCh:
+					logger.Info("Received signal to restart node.")
+					n.Stop()
+					os.Exit(1)
+				}
+			}
 		},
 	}
 
