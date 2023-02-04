@@ -227,6 +227,7 @@ func (r *Reactor) handlePexMessage(ctx context.Context, envelope *p2p.Envelope, 
 	case *protop2p.PexRequest:
 		// Verify that this peer hasn't sent us another request too recently.
 		if err := r.markPeerRequest(envelope.From); err != nil {
+			r.logger.Error(fmt.Sprintf("PEX mark peer req from %s error %s", envelope.From, err))
 			return 0, err
 		}
 
@@ -247,11 +248,14 @@ func (r *Reactor) handlePexMessage(ctx context.Context, envelope *p2p.Envelope, 
 	case *protop2p.PexResponse:
 		// Verify that this response corresponds to one of our pending requests.
 		if err := r.markPeerResponse(envelope.From); err != nil {
+			r.logger.Error(fmt.Sprintf("PEX mark peer resp from %s error %s", envelope.From, err))
 			return 0, err
 		}
 
 		// Verify that the response does not exceed the safety limit.
 		if len(msg.Addresses) > maxAddresses {
+			r.logger.Error(fmt.Sprintf("peer %s sent too many addresses (%d > maxiumum %d)",
+				envelope.From, len(msg.Addresses), maxAddresses))
 			return 0, fmt.Errorf("peer sent too many addresses (%d > maxiumum %d)",
 				len(msg.Addresses), maxAddresses)
 		}
@@ -260,6 +264,7 @@ func (r *Reactor) handlePexMessage(ctx context.Context, envelope *p2p.Envelope, 
 		for _, pexAddress := range msg.Addresses {
 			peerAddress, err := p2p.ParseNodeAddress(pexAddress.URL)
 			if err != nil {
+				r.logger.Error(fmt.Sprintf("PEX parse node address error %s", err))
 				continue
 			}
 			added, err := r.peerManager.Add(peerAddress)

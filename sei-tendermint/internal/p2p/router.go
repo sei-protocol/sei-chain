@@ -512,7 +512,7 @@ func (r *Router) acceptPeers(ctx context.Context, transport Transport) {
 		incomingIP := conn.RemoteEndpoint().IP
 		if err := r.connTracker.AddConn(incomingIP); err != nil {
 			closeErr := conn.Close()
-			r.logger.Debug("rate limiting incoming peer",
+			r.logger.Error("rate limiting incoming peer",
 				"err", err,
 				"ip", incomingIP.String(),
 				"close_err", closeErr,
@@ -665,6 +665,7 @@ func (r *Router) connectPeer(ctx context.Context, address NodeAddress) {
 	if err := r.runWithPeerMutex(func() error { return r.peerManager.Dialed(address) }); err != nil {
 		// If peer is trying to reconnect, fail it and let it reconnect
 		if strings.Contains(err.Error(), "is already connected") {
+			r.logger.Error(fmt.Sprintf("Disconnecting %s because of %s", address.NodeID, err))
 			r.peerManager.Disconnected(ctx, address.NodeID)
 		}
 

@@ -64,6 +64,7 @@ The byte id and the relative priorities of each `Channel` are configured upon
 initialization of the connection.
 
 There are two methods for sending messages:
+
 	func (m MConnection) Send(chID byte, msgBytes []byte) bool {}
 
 `Send(chID, msgBytes)` is a blocking call that waits until `msg` is
@@ -545,7 +546,7 @@ FOR_LOOP:
 			channel, ok := c.channelsIdx[channelID]
 			if pkt.PacketMsg.ChannelID < 0 || pkt.PacketMsg.ChannelID > math.MaxUint8 || !ok || channel == nil {
 				err := fmt.Errorf("unknown channel %X", pkt.PacketMsg.ChannelID)
-				c.logger.Debug("Connection failed @ recvRoutine", "conn", c, "err", err)
+				c.logger.Error("Connection failed @ recvRoutine", "conn", c, "err", err)
 				c.stopForError(ctx, err)
 				break FOR_LOOP
 			}
@@ -553,7 +554,7 @@ FOR_LOOP:
 			msgBytes, err := channel.recvPacketMsg(*pkt.PacketMsg)
 			if err != nil {
 				if c.IsRunning() {
-					c.logger.Debug("Connection failed @ recvRoutine", "conn", c, "err", err)
+					c.logger.Error("Connection failed @ recvRoutine recvPacketMsg", "conn", c, "err", err)
 					c.stopForError(ctx, err)
 				}
 				break FOR_LOOP
@@ -599,7 +600,7 @@ type ChannelStatus struct {
 	RecentlySent      int64
 }
 
-//-----------------------------------------------------------------------------
+// -----------------------------------------------------------------------------
 // ChannelID is an arbitrary channel ID.
 type ChannelID uint16
 
