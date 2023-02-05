@@ -302,8 +302,7 @@ func (i *Importer) Commit() error {
 }
 
 // waitAndCloseChannels will try to close all the channels for importer and wait for remaining work to be done.
-// This function is guarded by atomic boolean, so it will only close the channels once. Closing channels usually
-// should happen in the Commit or Close action. If any error happens when draining the remaining data in the channel,
+// This function should only be called in the Commit or Close action. If any error happens when draining the remaining data in the channel,
 // The error will be popped out and returned.
 func (i *Importer) waitAndCloseChannels() error {
 	// Make sure all pending works are drained and close the channels in order
