@@ -2,11 +2,10 @@ package iavl
 
 import (
 	"bytes"
-	"errors"
 	"fmt"
 	"sync"
-	"sync/atomic"
 
+	"github.com/pkg/errors"
 	db "github.com/tendermint/tm-db"
 )
 
@@ -42,7 +41,7 @@ type Importer struct {
 	chBatch          chan db.Batch
 	chBatchWg        sync.WaitGroup
 	chError          chan error
-	allChannelClosed atomic.Bool
+	allChannelClosed bool
 }
 
 type NodeData struct {
@@ -60,7 +59,7 @@ func newImporter(tree *MutableTree, version int64) (*Importer, error) {
 		return nil, errors.New("imported version cannot be negative")
 	}
 	if tree.ndb.latestVersion > 0 {
-		return nil, fmt.Errorf("found database at version %d, must be 0", tree.ndb.latestVersion)
+		return nil, errors.Errorf("found database at version %d, must be 0", tree.ndb.latestVersion)
 	}
 	if !tree.IsEmpty() {
 		return nil, errors.New("tree must be empty")
@@ -79,7 +78,7 @@ func newImporter(tree *MutableTree, version int64) (*Importer, error) {
 		chBatch:          make(chan db.Batch, 1),
 		chBatchWg:        sync.WaitGroup{},
 		chError:          make(chan error, 1),
-		allChannelClosed: atomic.Bool{},
+		allChannelClosed: false,
 	}
 
 	importer.chNodeDataWg.Add(1)
@@ -174,7 +173,7 @@ func (i *Importer) Add(exportNode *ExportNode) error {
 		return errors.New("node cannot be nil")
 	}
 	if exportNode.Version > i.version {
-		return fmt.Errorf("node version %v can't be greater than import version %v",
+		return errors.Errorf("node version %v can't be greater than import version %v",
 			exportNode.Version, i.version)
 	}
 
@@ -308,7 +307,8 @@ func (i *Importer) Commit() error {
 // The error will be popped out and returned.
 func (i *Importer) waitAndCloseChannels() error {
 	// Make sure all pending works are drained and close the channels in order
-	if i.allChannelClosed.CompareAndSwap(false, true) {
+	if !i.allChannelClosed {
+		i.allChannelClosed = true
 		close(i.chNodeData)
 		i.chNodeDataWg.Wait()
 		close(i.chBatch)
