@@ -266,6 +266,7 @@ require (
 )
 
 replace (
+	github.com/CosmWasm/wasmd => github.com/sei-protocol/sei-wasmd v0.0.1
 	github.com/confio/ics23/go => github.com/cosmos/cosmos-sdk/ics23/go v0.8.0
 	github.com/cosmos/cosmos-sdk => github.com/sei-protocol/sei-cosmos v0.1.420
 	github.com/cosmos/iavl => github.com/sei-protocol/sei-iavl v0.0.1
