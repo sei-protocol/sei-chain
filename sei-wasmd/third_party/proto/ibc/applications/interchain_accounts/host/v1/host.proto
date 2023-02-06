@@ -1,0 +1,16 @@
+syntax = "proto3";
+
+package ibc.applications.interchain_accounts.host.v1;
+
+option go_package = "github.com/cosmos/ibc-go/v3/modules/apps/27-interchain-accounts/host/types";
+
+import "gogoproto/gogo.proto";
+
+// Params defines the set of on-chain interchain accounts parameters.
+// The following parameters may be used to disable the host submodule.
+message Params {
+  // host_enabled enables or disables the host submodule.
+  bool host_enabled = 1 [(gogoproto.moretags) = "yaml:\"host_enabled\""];
+  // allow_messages defines a list of sdk message typeURLs allowed to be executed on a host chain.
+  repeated string allow_messages = 2 [(gogoproto.moretags) = "yaml:\"allow_messages\""];
+}

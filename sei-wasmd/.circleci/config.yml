@@ -1,0 +1,220 @@
+version: 2.1
+
+executors:
+  golang:
+    docker:
+      - image: circleci/golang:1.17
+    working_directory: /go/src/github.com/cosmwasm/wasmd
+
+commands:
+  make:
+    parameters:
+      description:
+        type: string
+      target:
+        type: string
+    steps:
+      - attach_workspace:
+          at: /tmp/bin
+      - restore_cache:
+          name: "Restore source code cache"
+          keys:
+            - go-src-v1-{{ .Revision }}
+      - checkout
+      - restore_cache:
+          name: "Restore go modules cache"
+          keys:
+            - go-mod-v1-{{ checksum "go.sum" }}
+      - run:
+          name: << parameters.description >>
+          command: |
+            export BINDIR=/tmp/bin
+            make << parameters.target >>
+
+jobs:
+  setup-dependencies:
+    executor: golang
+    steps:
+      - checkout
+      - restore_cache:
+          name: "Restore go modules cache"
+          keys:
+            - go-mod-v1-{{ checksum "go.sum" }}
+      - run:
+          name: Cache go modules
+          command: make go-mod-cache
+      - run:
+          name: Build
+          command: make build
+      - run:
+          name: "Git garbage collection"
+          command: git gc
+      - save_cache:
+          name: "Save go modules cache"
+          key: go-mod-v1-{{ checksum "go.sum" }}
+          paths:
+            - "/go/pkg/mod"
+      - save_cache:
+          name: "Save source code cache"
+          key: go-src-v1-{{ .Revision }}
+          paths:
+            - ".git"
+
+  lint:
+    docker:
+      - image: golangci/golangci-lint:v1.43.0
+    steps:
+      - checkout
+      - run:
+          name: Lint
+          command: |
+            golangci-lint run --version
+            golangci-lint run --tests=false --timeout=5m0s
+
+  test-cover:
+    executor: golang
+    parallelism: 4
+    steps:
+      - checkout
+      - restore_cache:
+          keys:
+            - go-mod-v1-{{ checksum "go.sum" }}
+      - run:
+          name: Run tests with coverage
+          command: |
+            export GORACE=halt_on_error=1
+            export VERSION="$(git describe --tags --long | sed 's/v\(.*\)/\1/')"
+            export GO111MODULE=on
+            mkdir -p /tmp/logs /tmp/workspace/profiles
+            for pkg in $(go list ./... | grep -v '/simulation' | circleci tests split); do
+              id=$(echo "$pkg" | sed 's|[/.]|_|g')
+              go test -mod=readonly -timeout 8m -race -coverprofile=/tmp/workspace/profiles/$id.out -covermode=atomic -tags='ledger test_ledger_mock' "$pkg" | tee "/tmp/logs/$id-$RANDOM.log"
+            done
+      - persist_to_workspace:
+          root: /tmp/workspace
+          paths:
+            - "profiles/*"
+      - store_artifacts:
+          path: /tmp/logs
+
+  benchmark:
+    executor: golang
+    parallelism: 1
+    steps:
+      - checkout
+      - restore_cache:
+          keys:
+            - go-mod-v1-{{ checksum "go.sum" }}
+      - run:
+          name: Benchmarks for gas calculations
+          command: |
+            cd ./x/wasm/keeper
+            go test -bench .
+      - run:
+          name: Benchmarks to compare with native modules
+          command: |
+            cd ./benchmarks
+            go test -bench .
+
+  upload-coverage:
+    executor: golang
+    steps:
+      - attach_workspace:
+          at: /tmp/workspace
+      - checkout
+      - run:
+          name: gather
+          command: |
+            set -ex
+
+            echo "--> Concatenating profiles:"
+            ls /tmp/workspace/profiles/
+            echo "mode: atomic" > coverage.txt
+            for prof in $(ls /tmp/workspace/profiles/); do
+              tail -n +2 /tmp/workspace/profiles/"$prof" >> coverage.txt
+            done
+      - run:
+          name: upload
+          command: bash <(curl -s https://codecov.io/bash) -f coverage.txt
+
+  docker-image:
+    executor: golang
+    steps:
+      - attach_workspace:
+          at: /tmp/workspace
+      - checkout
+      - setup_remote_docker:
+          # >= v20.10 https://wiki.alpinelinux.org/wiki/Release_Notes_for_Alpine_3.14.0#faccessat2
+          version: 20.10.11
+      - run:
+          name: Build Docker artifact
+          command: docker build --pull -t "cosmwasm/wasmd:${CIRCLE_SHA1}" .
+      - run:
+          name: Push application Docker image to docker hub
+          command: |
+            if [ "${CIRCLE_BRANCH}" = "master" ]; then
+              docker tag "cosmwasm/wasmd:${CIRCLE_SHA1}" cosmwasm/wasmd:latest
+              docker login --password-stdin -u "$DOCKER_USER" \<<<"$DOCKER_PASS"
+              docker push cosmwasm/wasmd:latest
+              docker logout
+            fi
+
+  docker-tagged:
+    executor: golang
+    steps:
+      - attach_workspace:
+          at: /tmp/workspace
+      - checkout
+      - setup_remote_docker:
+          # >= v20.10 https://wiki.alpinelinux.org/wiki/Release_Notes_for_Alpine_3.14.0#faccessat2
+          version: 20.10.11
+      - run:
+          name: Build Docker artifact
+          command: docker build --pull -t "cosmwasm/wasmd:${CIRCLE_TAG}" .
+      - run:
+          name: Push application Docker image to docker hub
+          command: |
+            docker login --password-stdin -u "$DOCKER_USER" \<<<"$DOCKER_PASS"
+            docker push "cosmwasm/wasmd:${CIRCLE_TAG}"
+            docker logout
+
+workflows:
+  version: 2
+  test-suite:
+    jobs:
+      # this is now a slow process... let's only run on master
+      - docker-image:
+          requires:
+            - setup-dependencies
+          filters:
+            branches:
+              only:
+                - master
+      - docker-tagged:
+          filters:
+            tags:
+              only:
+                - /^v.*/
+            branches:
+              ignore:
+                - /.*/
+          requires:
+            - setup-dependencies
+      - setup-dependencies:
+          # filters here are needed to enable this job also for tags
+          filters:
+            tags:
+              only:
+                - /^v.*/
+      - lint:
+          requires:
+            - setup-dependencies
+      - test-cover:
+          requires:
+            - setup-dependencies
+      - upload-coverage:
+          requires:
+            - test-cover
+      - benchmark:
+          requires:
+            - test-cover
