@@ -118,7 +118,7 @@ func NewKeeper(
 	keeper := &Keeper{
 		storeKey:          storeKey,
 		cdc:               cdc,
-		wasmVM:            wasmer,
+		wasmVM:            NewVMWrapper(wasmer),
 		accountKeeper:     accountKeeper,
 		bank:              NewBankCoinTransferrer(bankKeeper),
 		portKeeper:        portKeeper,
