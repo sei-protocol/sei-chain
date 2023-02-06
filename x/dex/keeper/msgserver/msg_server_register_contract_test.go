@@ -3,6 +3,7 @@ package msgserver_test
 import (
 	"context"
 	"io/ioutil"
+	"math"
 	"testing"
 	"time"
 
@@ -333,6 +334,49 @@ func TestRegisterContractSetSiblings(t *testing.T) {
 	contract, _ = keeper.GetContract(ctx, contractAddrC.String())
 	require.Equal(t, "", contract.Dependencies[0].ImmediateElderSibling)
 	require.Equal(t, "", contract.Dependencies[0].ImmediateYoungerSibling)
+}
+
+func TestRegisterContractWithInvalidRentBalance(t *testing.T) {
+	// Instantiate and get contract address
+	testApp := keepertest.TestApp()
+	ctx := testApp.BaseApp.NewContext(false, tmproto.Header{Time: time.Now()})
+	ctx = ctx.WithContext(context.WithValue(ctx.Context(), dexutils.DexMemStateContextKey, dexcache.NewMemState(testApp.GetKey(types.StoreKey))))
+	wctx := sdk.WrapSDKContext(ctx)
+	keeper := testApp.DexKeeper
+
+	testAccount, _ := sdk.AccAddressFromBech32("sei1yezq49upxhunjjhudql2fnj5dgvcwjj87pn2wx")
+	amounts := sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(10000000)), sdk.NewCoin("uusdc", sdk.NewInt(10000000)))
+	bankkeeper := testApp.BankKeeper
+	bankkeeper.MintCoins(ctx, minttypes.ModuleName, amounts)
+	bankkeeper.SendCoinsFromModuleToAccount(ctx, minttypes.ModuleName, testAccount, amounts)
+	wasm, err := ioutil.ReadFile("../../testdata/mars.wasm")
+	if err != nil {
+		panic(err)
+	}
+	wasmKeeper := testApp.WasmKeeper
+	contractKeeper := wasmkeeper.NewDefaultPermissionKeeper(&wasmKeeper)
+	var perm *wasmtypes.AccessConfig
+	codeId, err := contractKeeper.Create(ctx, testAccount, wasm, perm)
+	if err != nil {
+		panic(err)
+	}
+	contractAddr, _, err := contractKeeper.Instantiate(ctx, codeId, testAccount, testAccount, []byte(GOOD_CONTRACT_INSTANTIATE), "test",
+		sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(100000))))
+	if err != nil {
+		panic(err)
+	}
+
+	server := msgserver.NewMsgServerImpl(keeper)
+	contract := types.ContractInfoV2{
+		CodeId:       1,
+		ContractAddr: contractAddr.String(),
+		RentBalance:  math.MaxUint64,
+	}
+	_, err = server.RegisterContract(wctx, &types.MsgRegisterContract{
+		Creator:  keepertest.TestAccount,
+		Contract: &contract,
+	})
+	require.Error(t, err)
 }
 
 func RegisterContractUtil(server types.MsgServer, ctx context.Context, contractAddr string, dependencies []string) error {
