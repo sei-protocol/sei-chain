@@ -3,6 +3,7 @@ package msgserver_test
 import (
 	"context"
 	"io/ioutil"
+	"math"
 	"testing"
 	"time"
 
@@ -99,4 +100,26 @@ func TestDepositRent(t *testing.T) {
 	require.NoError(t, err)
 	balance = dexkeeper.BankKeeper.GetBalance(ctx, testAccount, "usei")
 	require.Equal(t, int64(7900000), balance.Amount.Int64())
+
+	// deposit exceeds limit
+	_, err = server.ContractDepositRent(wctx, &types.MsgContractDepositRent{
+		Sender:       testAccount.String(),
+		ContractAddr: TestContractA,
+		Amount:       math.MaxUint64,
+	})
+	require.Error(t, err)
+	// deposit + prev balance exceeds limit
+	_, err = server.ContractDepositRent(wctx, &types.MsgContractDepositRent{
+		Sender:       testAccount.String(),
+		ContractAddr: TestContractA,
+		Amount:       math.MaxUint64/140000000 - 500000,
+	})
+	require.Error(t, err)
+	// deposit + prev balance overflows
+	_, err = server.ContractDepositRent(wctx, &types.MsgContractDepositRent{
+		Sender:       testAccount.String(),
+		ContractAddr: TestContractA,
+		Amount:       math.MaxUint64 - 500000,
+	})
+	require.Error(t, err)
 }

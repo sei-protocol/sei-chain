@@ -18,9 +18,19 @@ func (k msgServer) ContractDepositRent(goCtx context.Context, msg *types.MsgCont
 		return nil, err
 	}
 
+	// first check if the deposit itself exceeds the limit
+	if err := k.ValidateRentBalance(msg.GetAmount()); err != nil {
+		return nil, err
+	}
+
 	contract, err := k.GetContract(ctx, msg.ContractAddr)
 	if err != nil {
 		return nil, err
+	}
+	// check if the balance post deposit exceeds the limit.
+	// not checking the sum because it might overflow.
+	if k.maxAllowedRentBalance()-msg.GetAmount() < contract.RentBalance {
+		return nil, fmt.Errorf("rent balance %d will exceed the limit of %d after depositing %d", contract.RentBalance, k.maxAllowedRentBalance(), msg.GetAmount())
 	}
 	if contract.RentBalance > 0 && contract.Creator != msg.Sender {
 		// a sender can only "claim" the contract if the rent balance is 0
