@@ -121,3 +121,31 @@ Ex :
 `export PRICE_FEEDER_PASS=keyringPassword`
 
 If this environment variable is not set, the price feeder will prompt the user for input.
+
+## Systemd Configuration
+
+In order to run the price feeder as a background process, you can set up a systemd service for it. Here is an example of the service that will run the price feeder process:
+
+```ini
+[Unit]
+Description=Oracle Price Feeder
+After=network.target
+
+[Service]
+User=root
+Type=simple
+Environment="PRICE_FEEDER_PASS={KEYRING_PASSWORD}"
+ExecStart=/root/go/bin/price-feeder {PATH-TO-CONFIG-TOML}
+Restart=on-failure
+LimitNOFILE=6553500
+
+[Install]
+WantedBy=multi-user.target
+```
+
+## Feeder Delegation
+
+It is suggested to run the oracle price feeder with an account that is configured as a feeder as opposed to the validator account. Here is the command to set up the feeder:
+```bash
+seid tx oracle set-feeder {feeder-bech32} --from {validator-account} --fees 2000usei -b block -y --chain-id {chain-id}
+```
