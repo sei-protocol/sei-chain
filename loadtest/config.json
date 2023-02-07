@@ -1,5 +1,6 @@
 {
     "grpc_endpoint": "127.0.0.1:9090",
+    "node_uri": "tcp://localhost:26657",
     "tls": false,
     "msgs_per_tx": 10,
     "chain_id": "sei-loadtest-testnet",

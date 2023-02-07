@@ -66,7 +66,7 @@ func NewLoadTestClient(config Config) *LoadTestClient {
 		TestConfig:             TestConfig,
 		TxClient:               TxClient,
 		TxHashFile:             outputFile,
-		SignerClient:           NewSignerClient(),
+		SignerClient:           NewSignerClient(config.NodeURI),
 		ChainID:                config.ChainID,
 		TxHashList:             []string{},
 		TxResponseChan:         make(chan *string),
