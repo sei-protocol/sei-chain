@@ -115,10 +115,14 @@ func (r *ParallelRunner) Run() {
 		})
 		// This corresponds to the "wait for any existing run (could be
 		// from previous iteration) to finish" part in the pseudocode above.
-		logging.LogIfNotDoneAfter(r.sdkCtx.Logger(), func() (struct{}, error) {
+		_, err := logging.LogIfNotDoneAfter(r.sdkCtx.Logger(), func() (struct{}, error) {
 			<-r.someContractFinished
 			return struct{}{}, nil
 		}, LogAfter, "runner wait for some contract to finish")
+		if err != nil {
+			// this should never happen
+			panic(err)
+		}
 	}
 }
 

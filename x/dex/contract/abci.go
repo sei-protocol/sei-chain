@@ -55,10 +55,14 @@ func EndBlockerAtomic(ctx sdk.Context, keeper *keeper.Keeper, validContractsInfo
 		orderMatchingRunnable(spanCtx, cachedCtx, env, keeper, contract, tracer)
 	}, validContractsInfo, cachedCtx)
 
-	logging.LogIfNotDoneAfter(ctx.Logger(), func() (struct{}, error) {
+	_, err := logging.LogIfNotDoneAfter(ctx.Logger(), func() (struct{}, error) {
 		runner.Run()
 		return struct{}{}, nil
 	}, LogRunnerRunAfter, "runner run")
+	if err != nil {
+		// this should never happen
+		panic(err)
+	}
 
 	handleSettlements(spanCtx, cachedCtx, env, keeper, tracer)
 	handleUnfulfilledMarketOrders(spanCtx, cachedCtx, env, keeper, tracer)
@@ -198,10 +202,14 @@ func orderMatchingRunnable(ctx context.Context, sdkContext sdk.Context, env *env
 	defer utils.PanicHandler(func(err any) { orderMatchingRecoverCallback(err, sdkContext, env, contractInfo) })()
 	defer func() {
 		if channel, ok := env.executionTerminationSignals.Load(contractInfo.ContractAddr); ok {
-			logging.LogIfNotDoneAfter(sdkContext.Logger(), func() (struct{}, error) {
+			_, err := logging.LogIfNotDoneAfter(sdkContext.Logger(), func() (struct{}, error) {
 				channel <- struct{}{}
 				return struct{}{}, nil
 			}, LogExecSigSendAfter, fmt.Sprintf("send execution terminal signal for %s", contractInfo.ContractAddr))
+			if err != nil {
+				// this should never happen
+				panic(err)
+			}
 		}
 	}()
 	if !contractInfo.NeedOrderMatching {
