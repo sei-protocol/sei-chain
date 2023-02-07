@@ -22,6 +22,7 @@ type ParallelRunner struct {
 	readyCnt             int64
 	inProgressCnt        int64
 	someContractFinished chan struct{}
+	done                 chan struct{}
 	sdkCtx               sdk.Context
 }
 
@@ -44,6 +45,7 @@ func NewParallelRunner(runnable func(contract types.ContractInfoV2), contracts [
 		readyCnt:             int64(contractsFrontier.Len()),
 		inProgressCnt:        0,
 		someContractFinished: make(chan struct{}),
+		done:                 make(chan struct{}, 1),
 		sdkCtx:               ctx,
 	}
 }
@@ -124,6 +126,9 @@ func (r *ParallelRunner) Run() {
 			panic(err)
 		}
 	}
+
+	// make sure there is no orphaned goroutine blocked on channel send
+	r.done <- struct{}{}
 }
 
 func (r *ParallelRunner) wrapRunnable(contractAddr utils.ContractAddress) {
@@ -154,5 +159,10 @@ func (r *ParallelRunner) wrapRunnable(contractAddr utils.ContractAddress) {
 	}
 
 	atomic.AddInt64(&r.inProgressCnt, -1) // this has to happen after any potential increment to readyCnt
-	r.someContractFinished <- struct{}{}
+	select {
+	case r.someContractFinished <- struct{}{}:
+	case <-r.done:
+		// make sure other goroutines can also receive from 'done'
+		r.done <- struct{}{}
+	}
 }
