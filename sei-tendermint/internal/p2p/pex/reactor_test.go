@@ -299,7 +299,12 @@ func setupSingle(ctx context.Context, t *testing.T) *singleTestReactor {
 	peerManager, err := p2p.NewPeerManager(nodeID, dbm.NewMemDB(), p2p.PeerManagerOptions{})
 	require.NoError(t, err)
 
-	reactor := pex.NewReactor(log.NewNopLogger(), peerManager, func(_ context.Context) *p2p.PeerUpdates { return peerUpdates })
+	reactor := pex.NewReactor(
+		log.NewNopLogger(),
+		peerManager,
+		func(_ context.Context) *p2p.PeerUpdates { return peerUpdates },
+		make(chan struct{}),
+	)
 	reactor.SetChannel(pexCh)
 
 	require.NoError(t, reactor.Start(ctx))
@@ -393,6 +398,7 @@ func setupNetwork(ctx context.Context, t *testing.T, opts testOptions) *reactorT
 				rts.logger.With("nodeID", nodeID),
 				rts.network.Nodes[nodeID].PeerManager,
 				func(_ context.Context) *p2p.PeerUpdates { return rts.peerUpdates[nodeID] },
+				make(chan struct{}),
 			)
 			rts.reactors[nodeID].SetChannel(rts.pexChannels[nodeID])
 		}
@@ -445,6 +451,7 @@ func (r *reactorTestSuite) addNodes(ctx context.Context, t *testing.T, nodes int
 			r.logger.With("nodeID", nodeID),
 			r.network.Nodes[nodeID].PeerManager,
 			func(_ context.Context) *p2p.PeerUpdates { return r.peerUpdates[nodeID] },
+			make(chan struct{}),
 		)
 		r.nodes = append(r.nodes, nodeID)
 		r.total++

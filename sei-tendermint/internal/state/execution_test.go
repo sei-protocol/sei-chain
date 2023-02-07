@@ -995,6 +995,7 @@ func TestPrepareProposalErrorOnPrepareProposalError(t *testing.T) {
 	cm.On("Error").Return(nil)
 	cm.On("Start", mock.Anything).Return(nil).Once()
 	cm.On("Wait").Return(nil).Once()
+	cm.On("Stop").Return(nil).Once()
 	cm.On("PrepareProposal", mock.Anything, mock.Anything).Return(nil, errors.New("an injected error")).Once()
 
 	proxyApp := proxy.New(cm, logger, proxy.NopMetrics())

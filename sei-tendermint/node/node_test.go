@@ -50,7 +50,7 @@ func TestNodeStartStop(t *testing.T) {
 
 	logger := log.NewNopLogger()
 	// create & start node
-	ns, err := newDefaultNode(ctx, cfg, logger)
+	ns, err := newDefaultNode(ctx, cfg, logger, make(chan struct{}))
 	require.NoError(t, err)
 
 	n, ok := ns.(*nodeImpl)
@@ -87,7 +87,7 @@ func getTestNode(ctx context.Context, t *testing.T, conf *config.Config, logger 
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	ns, err := newDefaultNode(ctx, conf, logger)
+	ns, err := newDefaultNode(ctx, conf, logger, make(chan struct{}))
 	require.NoError(t, err)
 
 	n, ok := ns.(*nodeImpl)
@@ -207,7 +207,7 @@ func TestPrivValidatorListenAddrNoProtocol(t *testing.T) {
 
 	logger := log.NewNopLogger()
 
-	n, err := newDefaultNode(ctx, cfg, logger)
+	n, err := newDefaultNode(ctx, cfg, logger, make(chan struct{}))
 
 	assert.Error(t, err)
 
@@ -604,6 +604,7 @@ func TestNodeNewSeedNode(t *testing.T) {
 		ctx,
 		logger,
 		cfg,
+		make(chan struct{}),
 		config.DefaultDBProvider,
 		nodeKey,
 		defaultGenesisDocProviderFunc(cfg),
@@ -683,7 +684,7 @@ func TestNodeSetEventSink(t *testing.T) {
 	assert.Equal(t, indexer.NULL, eventSinks[0].Type())
 
 	cfg.TxIndex.Indexer = []string{"kvv"}
-	ns, err := newDefaultNode(ctx, cfg, logger)
+	ns, err := newDefaultNode(ctx, cfg, logger, make(chan struct{}))
 	assert.Nil(t, ns)
 	assert.Contains(t, err.Error(), "unsupported event sink type")
 	t.Cleanup(cleanup(ns))
@@ -695,7 +696,7 @@ func TestNodeSetEventSink(t *testing.T) {
 	assert.Equal(t, indexer.NULL, eventSinks[0].Type())
 
 	cfg.TxIndex.Indexer = []string{"psql"}
-	ns, err = newDefaultNode(ctx, cfg, logger)
+	ns, err = newDefaultNode(ctx, cfg, logger, make(chan struct{}))
 	assert.Nil(t, ns)
 	assert.Contains(t, err.Error(), "the psql connection settings cannot be empty")
 	t.Cleanup(cleanup(ns))
@@ -705,13 +706,13 @@ func TestNodeSetEventSink(t *testing.T) {
 
 	var e = errors.New("found duplicated sinks, please check the tx-index section in the config.toml")
 	cfg.TxIndex.Indexer = []string{"null", "kv", "Kv"}
-	ns, err = newDefaultNode(ctx, cfg, logger)
+	ns, err = newDefaultNode(ctx, cfg, logger, make(chan struct{}))
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), e.Error())
 	t.Cleanup(cleanup(ns))
 
 	cfg.TxIndex.Indexer = []string{"Null", "kV", "kv", "nUlL"}
-	ns, err = newDefaultNode(ctx, cfg, logger)
+	ns, err = newDefaultNode(ctx, cfg, logger, make(chan struct{}))
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), e.Error())
 	t.Cleanup(cleanup(ns))

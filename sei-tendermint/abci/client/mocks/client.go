@@ -392,6 +392,11 @@ func (_m *Client) Start(_a0 context.Context) error {
 	return r0
 }
 
+// Stop provides a mock function with given fields:
+func (_m *Client) Stop() {
+	_m.Called()
+}
+
 // VerifyVoteExtension provides a mock function with given fields: _a0, _a1
 func (_m *Client) VerifyVoteExtension(_a0 context.Context, _a1 *types.RequestVerifyVoteExtension) (*types.ResponseVerifyVoteExtension, error) {
 	ret := _m.Called(_a0, _a1)
