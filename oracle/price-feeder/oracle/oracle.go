@@ -11,6 +11,7 @@ import (
 	sdkclient "github.com/cosmos/cosmos-sdk/client"
 	"github.com/cosmos/cosmos-sdk/telemetry"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
 	"github.com/rs/zerolog"
 	"github.com/sei-protocol/sei-chain/oracle/price-feeder/config"
 	"github.com/sei-protocol/sei-chain/oracle/price-feeder/oracle/client"
@@ -42,6 +43,7 @@ type Oracle struct {
 	lastPriceSyncTS time.Time
 	prices          map[string]sdk.Dec
 	paramCache      ParamCache
+	jailCache       JailCache
 	healthchecks    map[string]http.Client
 }
 
@@ -91,6 +93,7 @@ func New(
 		providerTimeout:   providerTimeout,
 		deviations:        deviations,
 		paramCache:        ParamCache{},
+		jailCache:         JailCache{},
 		endpoints:         endpoints,
 		healthchecks:      healthchecks,
 	}
@@ -417,6 +420,46 @@ func (o *Oracle) GetParams(ctx context.Context) (oracletypes.Params, error) {
 	return queryResponse.Params, nil
 }
 
+func (o *Oracle) GetJailedStateCache(ctx context.Context, currentBlockHeight int64) (bool, error) {
+	if !o.jailCache.IsOutdated(currentBlockHeight) {
+		return o.jailCache.isJailed, nil
+	}
+
+	isJailed, err := o.GetJailedState(ctx)
+	if err != nil {
+		return false, err
+	}
+
+	o.jailCache.Update(currentBlockHeight, isJailed)
+	return isJailed, nil
+}
+
+// GetJailedState returns the current on-chain jailing state of the validator
+func (o *Oracle) GetJailedState(ctx context.Context) (bool, error) {
+	grpcConn, err := grpc.Dial(
+		o.oracleClient.GRPCEndpoint,
+		// the Cosmos SDK doesn't support any transport security mechanism
+		grpc.WithInsecure(),
+		grpc.WithContextDialer(dialerFunc),
+	)
+	if err != nil {
+		return false, fmt.Errorf("failed to dial Cosmos gRPC service: %w", err)
+	}
+
+	defer grpcConn.Close()
+	queryClient := stakingtypes.NewQueryClient(grpcConn)
+
+	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+
+	queryResponse, err := queryClient.Validator(ctx, &stakingtypes.QueryValidatorRequest{ValidatorAddr: o.oracleClient.ValidatorAddrString})
+	if err != nil {
+		return false, fmt.Errorf("failed to get staking validator: %w", err)
+	}
+
+	return queryResponse.Validator.Jailed, nil
+}
+
 func (o *Oracle) getOrSetProvider(ctx context.Context, providerName string) (provider.Provider, error) {
 	var (
 		priceProvider provider.Provider
@@ -500,6 +543,14 @@ func (o *Oracle) tick(
 
 	if blockHeight < 1 {
 		return fmt.Errorf("expected positive block height")
+	}
+
+	isJailed, err := o.GetJailedStateCache(ctx, blockHeight)
+	if err != nil {
+		return err
+	}
+	if isJailed {
+		return fmt.Errorf("validator %s is jailed", o.oracleClient.ValidatorAddrString)
 	}
 
 	oracleParams, err := o.GetParamCache(ctx, blockHeight)
