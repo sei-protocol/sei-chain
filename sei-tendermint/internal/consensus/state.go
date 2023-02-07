@@ -1631,16 +1631,18 @@ func (cs *State) defaultDoPrevote(ctx context.Context, height int64, round int32
 			if cs.ProposalBlockParts.IsComplete() {
 				block, err := cs.getBlockFromBlockParts()
 				if err != nil {
-					cs.logger.Error("Encountered error building block from parts", "block parts", cs.ProposalBlockParts)
+					cs.signAddVote(ctx, tmproto.PrevoteType, nil, types.PartSetHeader{})
 					return
 				}
 				// We have full proposal block and txs. Build proposal block with txKeys
 				proposalBlock := cs.buildProposalBlock(height, block.Header, block.LastCommit, block.Evidence, block.ProposerAddress, txKeys)
 				if proposalBlock == nil {
+					cs.signAddVote(ctx, tmproto.PrevoteType, nil, types.PartSetHeader{})
 					return
 				}
 				cs.ProposalBlock = proposalBlock
 			} else {
+				cs.signAddVote(ctx, tmproto.PrevoteType, nil, types.PartSetHeader{})
 				return
 			}
 		}
@@ -1649,6 +1651,7 @@ func (cs *State) defaultDoPrevote(ctx context.Context, height int64, round int32
 			block, err := cs.getBlockFromBlockParts()
 			if err != nil {
 				cs.logger.Error("Encountered error building block from parts", "block parts", cs.ProposalBlockParts)
+				cs.signAddVote(ctx, tmproto.PrevoteType, nil, types.PartSetHeader{})
 				return
 			}
 			if block == nil {
@@ -2858,7 +2861,7 @@ func (cs *State) signAddVote(
 		vote.StripExtension()
 	}
 	cs.sendInternalMessage(ctx, msgInfo{&VoteMessage{vote}, "", tmtime.Now()})
-	cs.logger.Debug("signed and pushed vote", "height", cs.Height, "round", cs.Round, "vote", vote)
+	cs.logger.Info("signed and pushed vote", "height", cs.Height, "round", cs.Round, "vote", vote)
 	return vote
 }
 
