@@ -98,6 +98,9 @@ func NewParallelRunner(runnable func(contract types.ContractInfoV2), contracts [
 //
 // The following `Run` method implements the pseudocode above.
 func (r *ParallelRunner) Run() {
+	if atomic.LoadInt64(&r.inProgressCnt) == 0 && atomic.LoadInt64(&r.readyCnt) == 0 {
+		return
+	}
 	// The ordering of the two conditions below matters, since readyCnt
 	// is updated before inProgressCnt.
 	for atomic.LoadInt64(&r.inProgressCnt) > 0 || atomic.LoadInt64(&r.readyCnt) > 0 {
