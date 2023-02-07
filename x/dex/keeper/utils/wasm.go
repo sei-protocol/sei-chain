@@ -8,6 +8,7 @@ import (
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/sei-protocol/sei-chain/utils"
+	"github.com/sei-protocol/sei-chain/utils/logging"
 	"github.com/sei-protocol/sei-chain/utils/metrics"
 	"github.com/sei-protocol/sei-chain/x/dex/keeper"
 	dextypeswasm "github.com/sei-protocol/sei-chain/x/dex/types/wasm"
@@ -15,6 +16,7 @@ import (
 
 const ErrWasmModuleInstCPUFeatureLiteral = "Error instantiating module: CpuFeature"
 const SudoGasEventKey = "sudo-gas"
+const LogAfter = 5 * time.Second
 
 func getMsgType(msg interface{}) string {
 	switch msg.(type) {
@@ -80,7 +82,9 @@ func sudoWithoutOutOfGasPanic(ctx sdk.Context, k *keeper.Keeper, contractAddress
 			}
 		}
 	}()
-	return k.WasmKeeper.Sudo(ctx, contractAddress, wasmMsg)
+	return logging.LogIfNotDoneAfter(ctx.Logger(), func() ([]byte, error) {
+		return k.WasmKeeper.Sudo(ctx, contractAddress, wasmMsg)
+	}, LogAfter, logName)
 }
 
 func hasErrInstantiatingWasmModuleDueToCPUFeature(err error) bool {
