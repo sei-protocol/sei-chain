@@ -3,12 +3,16 @@ package contract
 import (
 	"fmt"
 	"sync/atomic"
+	"time"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/sei-protocol/sei-chain/utils/datastructures"
+	"github.com/sei-protocol/sei-chain/utils/logging"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
 	"github.com/sei-protocol/sei-chain/x/dex/types/utils"
 )
+
+const LogAfter = 10 * time.Second
 
 type ParallelRunner struct {
 	runnable func(contract types.ContractInfoV2)
@@ -111,7 +115,10 @@ func (r *ParallelRunner) Run() {
 		})
 		// This corresponds to the "wait for any existing run (could be
 		// from previous iteration) to finish" part in the pseudocode above.
-		<-r.someContractFinished
+		logging.LogIfNotDoneAfter(r.sdkCtx.Logger(), func() (struct{}, error) {
+			<-r.someContractFinished
+			return struct{}{}, nil
+		}, LogAfter, "runner wait for some contract to finish")
 	}
 }
 

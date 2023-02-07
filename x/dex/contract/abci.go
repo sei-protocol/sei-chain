@@ -4,7 +4,9 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"time"
 
+	"github.com/sei-protocol/sei-chain/utils/logging"
 	"github.com/sei-protocol/sei-chain/utils/tracing"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -23,6 +25,9 @@ import (
 	"github.com/sei-protocol/sei-chain/x/store"
 	otrace "go.opentelemetry.io/otel/trace"
 )
+
+const LogRunnerRunAfter = 10 * time.Second
+const LogExecSigSendAfter = 2 * time.Second
 
 type environment struct {
 	validContractsInfo          []types.ContractInfoV2
@@ -50,7 +55,10 @@ func EndBlockerAtomic(ctx sdk.Context, keeper *keeper.Keeper, validContractsInfo
 		orderMatchingRunnable(spanCtx, cachedCtx, env, keeper, contract, tracer)
 	}, validContractsInfo, cachedCtx)
 
-	runner.Run()
+	logging.LogIfNotDoneAfter(ctx.Logger(), func() (struct{}, error) {
+		runner.Run()
+		return struct{}{}, nil
+	}, LogRunnerRunAfter, "runner run")
 
 	handleSettlements(spanCtx, cachedCtx, env, keeper, tracer)
 	handleUnfulfilledMarketOrders(spanCtx, cachedCtx, env, keeper, tracer)
@@ -190,7 +198,10 @@ func orderMatchingRunnable(ctx context.Context, sdkContext sdk.Context, env *env
 	defer utils.PanicHandler(func(err any) { orderMatchingRecoverCallback(err, sdkContext, env, contractInfo) })()
 	defer func() {
 		if channel, ok := env.executionTerminationSignals.Load(contractInfo.ContractAddr); ok {
-			channel <- struct{}{}
+			logging.LogIfNotDoneAfter(sdkContext.Logger(), func() (struct{}, error) {
+				channel <- struct{}{}
+				return struct{}{}, nil
+			}, LogExecSigSendAfter, fmt.Sprintf("send execution terminal signal for %s", contractInfo.ContractAddr))
 		}
 	}()
 	if !contractInfo.NeedOrderMatching {
