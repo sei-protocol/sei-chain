@@ -11,7 +11,7 @@ func CmdGetMatchResult() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "get-match-result [contract-address]",
 		Short: "Query get match result by contract",
-		Args:  cobra.ExactArgs(2),
+		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) (err error) {
 			contractAddr := args[0]
 			if err != nil {
