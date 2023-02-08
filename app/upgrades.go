@@ -49,6 +49,7 @@ var upgradesList = []string{
 	"1.2.2beta",
 	// 1.2.2beta-postfix
 	"1.2.2beta-postfix",
+	"2.0.20beta-bweng-upgrade-test-2",
 }
 
 func (app App) RegisterUpgradeHandlers() {
