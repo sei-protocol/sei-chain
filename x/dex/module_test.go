@@ -610,4 +610,8 @@ func TestEndBlockRollbackWithRentCharge(t *testing.T) {
 	// no state change should've been persisted for good contract because it should've run out of gas
 	matchResult, _ := dexkeeper.GetMatchResultState(ctx, contractAddr.String())
 	require.Equal(t, 0, len(matchResult.Orders))
+	// rent should still be charged even if the contract failed
+	contract, err := dexkeeper.GetContract(ctx, contractAddr.String())
+	require.Nil(t, err)
+	require.Zero(t, contract.RentBalance)
 }
