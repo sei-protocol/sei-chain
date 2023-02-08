@@ -31,9 +31,9 @@ func TestDistributionCommunityTaxParamMigration(t *testing.T) {
 }
 
 func TestSkipOptimisticProcessingOnUpgrade(t *testing.T) {
+	println("TestSkipOptimisticProcessingOnUpgrade")
 	tm := time.Now().UTC()
 	valPub := secp256k1.GenPrivKey().PubKey()
-
 	testWrapper := app.NewTestWrapper(t, tm, valPub)
 
 	testCtx := testWrapper.App.BaseApp.NewContext(false, tmproto.Header{Height: 1, ChainID: "sei-test", Time: tm})
@@ -41,7 +41,9 @@ func TestSkipOptimisticProcessingOnUpgrade(t *testing.T) {
 		Name: "test-plan",
 		Height: 4,
 	})
-	res, _ := testWrapper.App.ProcessProposalHandler(testCtx.WithBlockHeight(4), &abci.RequestProcessProposal{})
+	res, _ := testWrapper.App.ProcessProposalHandler(testCtx.WithBlockHeight(4), &abci.RequestProcessProposal{
+		Height: 1,
+	})
 	require.Equal(t, res.Status, abci.ResponseProcessProposal_ACCEPT)
 	require.True(t, testWrapper.App.GetOptimisticProcessingInfo().Aborted)
 
@@ -51,7 +53,9 @@ func TestSkipOptimisticProcessingOnUpgrade(t *testing.T) {
 		Name: "test-plan",
 		Height: 5,
 	})
-	res, _ = testWrapper.App.ProcessProposalHandler(testCtx.WithBlockHeight(4), &abci.RequestProcessProposal{})
+	res, _ = testWrapper.App.ProcessProposalHandler(testCtx.WithBlockHeight(4), &abci.RequestProcessProposal{
+		Height: 1,
+	})
 
 	require.Equal(t, res.Status, abci.ResponseProcessProposal_ACCEPT)
 	require.False(t, testWrapper.App.GetOptimisticProcessingInfo().Aborted)
