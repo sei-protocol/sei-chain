@@ -70,3 +70,19 @@ func TestSlowError(t *testing.T) {
 	require.Empty(t, res)
 	require.Equal(t, fmt.Sprintf("test still not finished after %s", after), logger.lastError)
 }
+
+func TestPanic(t *testing.T) {
+	logger := mockLogger{}
+	task := func() (bool, error) {
+		panic("test")
+	}
+	after := 1 * time.Second
+	outer := func() {
+		defer func() {
+			if err := recover(); err != nil {
+			}
+		}()
+		LogIfNotDoneAfter(&logger, task, after, "test")
+	}
+	require.NotPanics(t, outer)
+}
