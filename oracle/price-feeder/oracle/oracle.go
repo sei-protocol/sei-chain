@@ -42,6 +42,7 @@ type Oracle struct {
 	lastPriceSyncTS time.Time
 	prices          map[string]sdk.Dec
 	paramCache      ParamCache
+	jailCache       JailCache
 	healthchecks    map[string]http.Client
 }
 
@@ -91,6 +92,7 @@ func New(
 		providerTimeout:   providerTimeout,
 		deviations:        deviations,
 		paramCache:        ParamCache{},
+		jailCache:         JailCache{},
 		endpoints:         endpoints,
 		healthchecks:      healthchecks,
 	}
@@ -500,6 +502,14 @@ func (o *Oracle) tick(
 
 	if blockHeight < 1 {
 		return fmt.Errorf("expected positive block height")
+	}
+
+	isJailed, err := o.GetCachedJailedState(ctx, blockHeight)
+	if err != nil {
+		return err
+	}
+	if isJailed {
+		return fmt.Errorf("validator %s is jailed", o.oracleClient.ValidatorAddrString)
 	}
 
 	oracleParams, err := o.GetParamCache(ctx, blockHeight)
