@@ -84,5 +84,6 @@ func TestPanic(t *testing.T) {
 		}()
 		LogIfNotDoneAfter(&logger, task, after, "test")
 	}
+	require.Panics(t, func() { LogIfNotDoneAfter(&logger, task, after, "test") })
 	require.NotPanics(t, outer)
 }
