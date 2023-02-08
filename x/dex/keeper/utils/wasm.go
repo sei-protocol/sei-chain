@@ -74,7 +74,7 @@ func sudo(sdkCtx sdk.Context, k *keeper.Keeper, contractAddress sdk.AccAddress, 
 func sudoWithoutOutOfGasPanic(ctx sdk.Context, k *keeper.Keeper, contractAddress []byte, wasmMsg []byte, logName string) ([]byte, error) {
 	defer func() {
 		if err := recover(); err != nil {
-			// only propagate panic if the error is out of gas
+			// only propagate panic if the error is NOT out of gas
 			if _, ok := err.(sdk.ErrorOutOfGas); !ok {
 				panic(err)
 			} else {
