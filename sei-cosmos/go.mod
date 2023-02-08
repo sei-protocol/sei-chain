@@ -150,5 +150,4 @@ replace (
 	// latest grpc doesn't work with with our modified proto compiler, so we need to enforce
 	// the following version across all dependencies.
 	google.golang.org/grpc => google.golang.org/grpc v1.33.2
-// github.com/hashicorp/golang-lru => github.com/hashicorp/golang-lru/v2 v2.0.1
 )
