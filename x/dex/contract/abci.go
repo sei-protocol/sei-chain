@@ -74,6 +74,26 @@ func EndBlockerAtomic(ctx sdk.Context, keeper *keeper.Keeper, validContractsInfo
 		return env.validContractsInfo, ctx, true
 	}
 
+	// persistent contract rent charges for failed contracts and discard everything else
+	for _, failedContractAddress := range env.failedContractAddresses.ToOrderedSlice(datastructures.StringComparator) {
+		cachedContract, err := keeper.GetContract(cachedCtx, failedContractAddress)
+		if err != nil {
+			ctx.Logger().Error(fmt.Sprintf("error %s when getting updated contract %s to persist rent balance", err, failedContractAddress))
+			continue
+		}
+		contract, err := keeper.GetContract(ctx, failedContractAddress)
+		if err != nil {
+			ctx.Logger().Error(fmt.Sprintf("error %s when getting contract %s to persist rent balance", err, failedContractAddress))
+			continue
+		}
+		contract.RentBalance = cachedContract.RentBalance
+		err = keeper.SetContract(ctx, &contract)
+		if err != nil {
+			ctx.Logger().Error(fmt.Sprintf("error %s when persisting contract %s's rent balance", err, failedContractAddress))
+			continue
+		}
+	}
+
 	// restore keeper in-memory state
 	newGoContext := context.WithValue(ctx.Context(), dexutils.DexMemStateContextKey, memStateCopy)
 	return filterNewValidContracts(ctx, env), ctx.WithContext(newGoContext), false
