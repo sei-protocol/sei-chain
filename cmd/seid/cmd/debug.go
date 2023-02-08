@@ -1,10 +1,12 @@
 package cmd
 
 import (
+	"archive/zip"
 	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -80,6 +82,7 @@ func dumpIavlCmdHandler(cmd *cobra.Command, args []string) error {
 	if outputDir == "" {
 		outputDir = fmt.Sprintf("%s/state_%s/", home, args[0])
 	}
+	outputZipPath := strings.TrimRight(outputDir, "/") + ".zip"
 	err = os.Mkdir(outputDir, os.ModePerm)
 	if err != nil {
 		return err
@@ -128,6 +131,40 @@ func dumpIavlCmdHandler(cmd *cobra.Command, args []string) error {
 			return err
 		}
 	}
+	destinationFile, err := os.Create(outputZipPath)
+	if err != nil {
+		return err
+	}
+	outputZip := zip.NewWriter(destinationFile)
+	err = filepath.Walk(outputDir, func(filePath string, info os.FileInfo, err error) error {
+		if info.IsDir() {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		relPath := strings.TrimPrefix(filePath, filepath.Dir(outputZipPath))
+		zipFile, err := outputZip.Create(relPath)
+		if err != nil {
+			return err
+		}
+		fsFile, err := os.Open(filePath)
+		if err != nil {
+			return err
+		}
+		_, err = io.Copy(zipFile, fsFile)
+		if err != nil {
+			return err
+		}
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	err = outputZip.Close()
+	if err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -168,7 +205,6 @@ func OpenDB(dir string) (dbm.DB, error) {
 // The prefix represents which iavl tree you want to read. The iaviwer will always set a prefix.
 func ReadTree(db dbm.DB, version int, prefix []byte) (*iavl.MutableTree, error) {
 	if len(prefix) != 0 {
-		fmt.Printf("Loading prefix: %s", prefix)
 		db = dbm.NewPrefixDB(db, prefix)
 	}
 
