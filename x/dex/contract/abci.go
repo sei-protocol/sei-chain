@@ -72,6 +72,22 @@ func EndBlockerAtomic(ctx sdk.Context, keeper *keeper.Keeper, validContractsInfo
 	if env.failedContractAddresses.Size() == 0 {
 		msCached.Write()
 		return env.validContractsInfo, ctx, true
+	} else {
+		// persistent contract rent charges for failed contracts and discard everything else
+		for _, failedContractAddress := range env.failedContractAddresses.ToOrderedSlice(datastructures.StringComparator) {
+			cachedContract, err := keeper.GetContract(cachedCtx, failedContractAddress)
+			if err != nil {
+				ctx.Logger().Error(fmt.Sprintf("error %s when getting updated contract %s to persist rent balance", err, failedContractAddress))
+				continue
+			}
+			contract, err := keeper.GetContract(ctx, failedContractAddress)
+			if err != nil {
+				ctx.Logger().Error(fmt.Sprintf("error %s when getting contract %s to persist rent balance", err, failedContractAddress))
+				continue
+			}
+			contract.RentBalance = cachedContract.RentBalance
+			keeper.SetContract(ctx, &contract)
+		}
 	}
 
 	// restore keeper in-memory state
