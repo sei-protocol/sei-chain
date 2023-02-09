@@ -42,7 +42,7 @@ func bootstrapHandlerGenesisTest(t *testing.T, power int64, numAddrs int, accAmo
 }
 
 func TestValidatorByPowerIndex(t *testing.T) {
-	initPower := int64(1000000)
+	initPower := int64(1000)
 	app, ctx, _, valAddrs := bootstrapHandlerGenesisTest(t, initPower, 10, sdk.TokensFromConsensusPower(initPower, sdk.DefaultPowerReduction))
 	validatorAddr, validatorAddr3 := valAddrs[0], valAddrs[1]
 	tstaking := teststaking.NewHelper(t, ctx, app.StakingKeeper)

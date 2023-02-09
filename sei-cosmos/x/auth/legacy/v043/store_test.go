@@ -553,6 +553,9 @@ func TestMigrateVestingAccounts(t *testing.T) {
 			ctx := app.BaseApp.NewContext(false, tmproto.Header{
 				Time: time.Now(),
 			})
+			params := app.StakingKeeper.GetParams(ctx)
+			params.MaxVotingPowerEnforcementThreshold = sdk.NewIntFromUint64(10000000000000)
+			app.StakingKeeper.SetParams(ctx, params)
 
 			addrs := simapp.AddTestAddrs(app, ctx, 1, sdk.NewInt(tc.tokenAmount))
 			delegatorAddr := addrs[0]
