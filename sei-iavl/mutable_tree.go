@@ -130,6 +130,10 @@ func (tree *MutableTree) prepareOrphansSlice() []*Node {
 // to slices stored within IAVL. It returns true when an existing value was
 // updated, while false means it was a new key.
 func (tree *MutableTree) Set(key, value []byte) (updated bool, err error) {
+	if !tree.mtx.TryLock() {
+		panic("TONYTEST: error acquiring lock on iavl Remove")
+	}
+	defer tree.mtx.Unlock()
 	var orphaned []*Node
 	orphaned, updated, err = tree.set(key, value)
 	if err != nil {
@@ -319,6 +323,11 @@ func (tree *MutableTree) recursiveSet(node *Node, key []byte, value []byte, orph
 // Remove removes a key from the working tree. The given key byte slice should not be modified
 // after this call, since it may point to data stored inside IAVL.
 func (tree *MutableTree) Remove(key []byte) ([]byte, bool, error) {
+	if !tree.mtx.TryLock() {
+		panic("TONYTEST: error acquiring lock on iavl Remove")
+	}
+	defer tree.mtx.Unlock()
+
 	val, orphaned, removed, err := tree.remove(key)
 	if err != nil {
 		return nil, false, err
