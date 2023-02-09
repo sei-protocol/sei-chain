@@ -6,6 +6,8 @@ import (
 	"io"
 	"math"
 	"math/rand"
+	"net/http"
+	_ "net/http/pprof"
 	"os"
 	"path/filepath"
 	"time"
@@ -61,6 +63,9 @@ func (s *rootOptions) apply(options ...Option) { //nolint:unused // I figure thi
 
 // NewRootCmd creates a new root command for a Cosmos SDK application
 func NewRootCmd() (*cobra.Command, params.EncodingConfig) {
+	go func() {
+		http.ListenAndServe(":6060", nil)
+	}()
 	encodingConfig := app.MakeEncodingConfig()
 	initClientCtx := client.Context{}.
 		WithCodec(encodingConfig.Marshaler).
