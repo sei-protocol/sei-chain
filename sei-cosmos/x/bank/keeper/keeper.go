@@ -130,7 +130,8 @@ func NewBaseKeeper(
 // WithMintCoinsRestriction restricts the bank Keeper used within a specific module to
 // have restricted permissions on minting via function passed in parameter.
 // Previous restriction functions can be nested as such:
-//  bankKeeper.WithMintCoinsRestriction(restriction1).WithMintCoinsRestriction(restriction2)
+//
+//	bankKeeper.WithMintCoinsRestriction(restriction1).WithMintCoinsRestriction(restriction2)
 func (k BaseKeeper) WithMintCoinsRestriction(check MintingRestrictionFn) BaseKeeper {
 	oldRestrictionFn := k.mintCoinsRestrictionFn
 	k.mintCoinsRestrictionFn = func(ctx sdk.Context, coins sdk.Coins) error {
@@ -375,8 +376,7 @@ func (k BaseKeeper) DeferredSendCoinsFromModuleToAccount(
 		return err
 	}
 
-	ctx.ContextMemCache().UpsertDeferredWithdrawals(moduleAccount, amount)
-	return nil
+	return ctx.ContextMemCache().UpsertDeferredWithdrawals(moduleAccount, amount)
 }
 
 // SendCoinsFromModuleToModule transfers coins from a ModuleAccount to another.
@@ -431,7 +431,10 @@ func (k BaseKeeper) DeferredSendCoinsFromAccountToModule(
 		return err
 	}
 
-	ctx.ContextMemCache().UpsertDeferredSends(recipientModule, amount)
+	err = ctx.ContextMemCache().UpsertDeferredSends(recipientModule, amount)
+	if err != nil {
+		return err
+	}
 
 	return nil
 }
@@ -439,11 +442,11 @@ func (k BaseKeeper) DeferredSendCoinsFromAccountToModule(
 func (k BaseKeeper) WriteDeferredOperations(ctx sdk.Context) []abci.Event {
 	return append(
 		k.WriteDeferredDepositsToModuleAccounts(ctx),
-		k.WriteDeferredWrithdrawlFromModuleAccounts(ctx)...,
+		k.WriteDeferredWithdrawalFromModuleAccounts(ctx)...,
 	)
 }
 
-// Iterates on all the lazy deposits and deposit them into the store
+// WriteDeferredDepositsToModuleAccounts Iterates on all the lazy deposits and deposit them into the store
 func (k BaseKeeper) WriteDeferredDepositsToModuleAccounts(ctx sdk.Context) []abci.Event {
 	ctx = ctx.WithEventManager(sdk.NewEventManager())
 	ctx.ContextMemCache().RangeOnDeferredSendsAndDelete(
@@ -453,14 +456,17 @@ func (k BaseKeeper) WriteDeferredDepositsToModuleAccounts(ctx sdk.Context) []abc
 				panic(sdkerrors.Wrapf(sdkerrors.ErrUnknownAddress, "module account %s does not exist", recipient))
 			}
 			log.Printf("Adding coin=%s to module=%s address=%s", amount, recipient, recipientAcc.GetAddress())
-			k.addCoins(ctx, recipientAcc.GetAddress(), amount)
+			err := k.addCoins(ctx, recipientAcc.GetAddress(), amount)
+			if err != nil {
+				ctx.Logger().Error(fmt.Sprintf("Failed to add coin=%s to module=%s address=%s, error is: %s", amount, recipient, recipientAcc.GetAddress(), err))
+			}
 		},
 	)
 	return ctx.EventManager().ABCIEvents()
 }
 
 // Process all lazy withdrawls stored previously
-func (k BaseKeeper) WriteDeferredWrithdrawlFromModuleAccounts(ctx sdk.Context) []abci.Event {
+func (k BaseKeeper) WriteDeferredWithdrawalFromModuleAccounts(ctx sdk.Context) []abci.Event {
 	ctx = ctx.WithEventManager(sdk.NewEventManager())
 	ctx.ContextMemCache().RangeOnDeferredWithdrawalsAndDelete(
 		func(recipient string, amount sdk.Coins) {
@@ -474,7 +480,10 @@ func (k BaseKeeper) WriteDeferredWrithdrawlFromModuleAccounts(ctx sdk.Context) [
 			}
 
 			log.Printf("Removing coin=%s from module=%s address=%s", amount, recipient, recipientAcc.GetAddress())
-			k.subUnlockedCoins(ctx, recipientAcc.GetAddress(), amount)
+			err := k.subUnlockedCoins(ctx, recipientAcc.GetAddress(), amount)
+			if err != nil {
+				ctx.Logger().Error(fmt.Sprintf("Failed to remove coin=%s from module=%s address=%s, error is: %s", amount, recipient, recipientAcc.GetAddress(), err))
+			}
 		},
 	)
 	return ctx.EventManager().ABCIEvents()
@@ -623,7 +632,7 @@ func (k BaseKeeper) destroyCoins(ctx sdk.Context, moduleName string, amounts sdk
 func (k BaseKeeper) BurnCoins(ctx sdk.Context, moduleName string, amounts sdk.Coins) error {
 	subFn := func(ctx sdk.Context, moduleName string, amounts sdk.Coins) error {
 
-		// Try subtract from the in mem var first, prevents the condition where
+		// Try to subtract from the in mem var first, prevents the condition where
 		// the module may have a pending deposit that would be enough to pay for this send
 		ok := ctx.ContextMemCache().SafeSubDeferredSends(moduleName, amounts)
 		if ok {
