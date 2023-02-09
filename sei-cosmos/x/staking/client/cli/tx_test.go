@@ -20,6 +20,7 @@ func TestPrepareConfigForTxCreateValidator(t *testing.T) {
 	mkTxValCfg := func(amount, commission, commissionMax, commissionMaxChange, minSelfDelegation string) TxCreateValidatorConfig {
 		return TxCreateValidatorConfig{
 			IP:                      ip,
+			P2PPort:                 "26656",
 			ChainID:                 chainID,
 			NodeID:                  nodeID,
 			PubKey:                  valPubKey,

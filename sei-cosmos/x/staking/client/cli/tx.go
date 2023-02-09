@@ -77,6 +77,7 @@ func NewCreateValidatorCmd() *cobra.Command {
 	cmd.Flags().AddFlagSet(FlagSetMinSelfDelegation())
 
 	cmd.Flags().String(FlagIP, "", fmt.Sprintf("The node's public IP. It takes effect only when used in combination with --%s", flags.FlagGenerateOnly))
+	cmd.Flags().String(FlagP2PPort, "", fmt.Sprintf("The node's public port. It takes effect only when used in combination with --%s", flags.FlagGenerateOnly))
 	cmd.Flags().String(FlagNodeID, "", "The node's ID")
 	flags.AddTxFlagsToCmd(cmd)
 
@@ -339,10 +340,11 @@ func newBuildCreateValidatorMsg(clientCtx client.Context, txf tx.Factory, fs *fl
 	genOnly, _ := fs.GetBool(flags.FlagGenerateOnly)
 	if genOnly {
 		ip, _ := fs.GetString(FlagIP)
+		p2pPort, _ := fs.GetString(FlagP2PPort)
 		nodeID, _ := fs.GetString(FlagNodeID)
 
 		if nodeID != "" && ip != "" {
-			txf = txf.WithMemo(fmt.Sprintf("%s@%s:26656", nodeID, ip))
+			txf = txf.WithMemo(fmt.Sprintf("%s@%s:%s", nodeID, ip, p2pPort))
 		}
 	}
 
@@ -354,6 +356,7 @@ func newBuildCreateValidatorMsg(clientCtx client.Context, txf tx.Factory, fs *fl
 func CreateValidatorMsgFlagSet(ipDefault string) (fs *flag.FlagSet, defaultsDesc string) {
 	fsCreateValidator := flag.NewFlagSet("", flag.ContinueOnError)
 	fsCreateValidator.String(FlagIP, ipDefault, "The node's public IP")
+	fsCreateValidator.String(FlagP2PPort, "26656", "The node's public IP port")
 	fsCreateValidator.String(FlagNodeID, "", "The node's NodeID")
 	fsCreateValidator.String(FlagMoniker, "", "The validator's (optional) moniker")
 	fsCreateValidator.String(FlagWebsite, "", "The validator's (optional) website")
@@ -393,6 +396,7 @@ type TxCreateValidatorConfig struct {
 	PubKey cryptotypes.PubKey
 
 	IP              string
+	P2PPort         string
 	Website         string
 	SecurityContact string
 	Details         string
@@ -411,6 +415,12 @@ func PrepareConfigForTxCreateValidator(flagSet *flag.FlagSet, moniker, nodeID, c
 			"the tx's memo field will be unset")
 	}
 	c.IP = ip
+
+	port, err := flagSet.GetString(FlagP2PPort)
+	if err != nil {
+		return c, err
+	}
+	c.P2PPort = port
 
 	website, err := flagSet.GetString(FlagWebsite)
 	if err != nil {
@@ -537,10 +547,11 @@ func BuildCreateValidatorMsg(clientCtx client.Context, config TxCreateValidatorC
 	}
 	if generateOnly {
 		ip := config.IP
+		p2pPort := config.P2PPort
 		nodeID := config.NodeID
 
-		if nodeID != "" && ip != "" {
-			txBldr = txBldr.WithMemo(fmt.Sprintf("%s@%s:26656", nodeID, ip))
+		if nodeID != "" && ip != "" && p2pPort != "" {
+			txBldr = txBldr.WithMemo(fmt.Sprintf("%s@%s:%s", nodeID, ip, p2pPort))
 		}
 	}
 
