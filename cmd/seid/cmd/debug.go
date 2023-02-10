@@ -19,11 +19,10 @@ import (
 )
 
 const (
-	DefaultCacheSize  int    = 10000
-	FlagDBPath        string = "db-path"
-	FlagOutputDir     string = "output-dir"
-	FlagModuleName    string = "module"
-	FlagHumanReadable string = "human"
+	DefaultCacheSize int    = 10000
+	FlagDBPath       string = "db-path"
+	FlagOutputDir    string = "output-dir"
+	FlagModuleName   string = "module"
 )
 
 var modules = []string{
@@ -46,7 +45,6 @@ $ %s debug dump-iavl 12345
 	cmd.Flags().String(FlagOutputDir, "", "The output directory for the iavl dump, if none specified, the home directory will be used")
 	cmd.Flags().StringP(FlagDBPath, "d", "", "The path to the db, default is $HOME/.sei/data/application.db")
 	cmd.Flags().StringP(FlagModuleName, "m", "", "The specific module to dump IAVL for, if none specified, all modules will be dumped")
-	cmd.Flags().Bool(FlagHumanReadable, false, "Whether to parse the iavl data into human readable format. Default is false")
 
 	return cmd
 }
@@ -93,14 +91,6 @@ func dumpIavlCmdHandler(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	humanFmt, err := cmd.Flags().GetBool(FlagHumanReadable)
-	if err != nil {
-		return err
-	}
-	if humanFmt {
-		return fmt.Errorf("human readable not supported yet")
-	}
-
 	if moduleName != "" {
 		// if module name passed in, override `modules`
 		modules = []string{moduleName}
@@ -117,7 +107,8 @@ func dumpIavlCmdHandler(cmd *cobra.Command, args []string) error {
 			continue
 			// os.Exit(1)
 		}
-		lines := PrintKeys(tree)
+		parser := ModuleParserMap[module]
+		lines := PrintKeys(tree, parser)
 		hash, err := tree.Hash()
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error hashing tree: %s\n", err)
@@ -127,6 +118,17 @@ func dumpIavlCmdHandler(cmd *cobra.Command, args []string) error {
 		lines = append(lines, []byte(fmt.Sprintf("Size: %X\n", tree.Size()))...)
 		// write lines to file
 		err = os.WriteFile(fmt.Sprintf("%s/%s.data", outputDir, module), lines, os.ModePerm)
+		if err != nil {
+			return err
+		}
+
+		shapeLines, err := PrintShape(tree)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error building tree shape: %s\n", err)
+			os.Exit(1)
+		}
+		// write lines to file
+		err = os.WriteFile(fmt.Sprintf("%s/%s.shape", outputDir, module), shapeLines, os.ModePerm)
 		if err != nil {
 			return err
 		}
@@ -217,11 +219,20 @@ func ReadTree(db dbm.DB, version int, prefix []byte) (*iavl.MutableTree, error) 
 	return tree, err
 }
 
-func PrintKeys(tree *iavl.MutableTree) []byte {
+func PrintKeys(tree *iavl.MutableTree, moduleParser ModuleParser) []byte {
 	fmt.Println("Printing all keys with hashed values (to detect diff)")
 	lines := []byte{}
 	tree.Iterate(func(key []byte, value []byte) bool { //nolint:errcheck
 		printKey := parseWeaveKey(key)
+		// parse key if we have a parser
+		if moduleParser != nil {
+			parsed, err := moduleParser(key)
+			if err != nil {
+				printKey = strings.Join([]string{printKey, err.Error()}, " | ")
+			} else {
+				printKey = strings.Join(append([]string{printKey}, parsed...), " | ")
+			}
+		}
 		digest := sha256.Sum256(value)
 		lines = append(lines, []byte(fmt.Sprintf("  %s\n    %X\n", printKey, digest))...)
 		return false
@@ -251,11 +262,13 @@ func encodeID(id []byte) string {
 	return string(id)
 }
 
-func PrintShape(tree *iavl.MutableTree) {
+func PrintShape(tree *iavl.MutableTree) ([]byte, error) {
 	// shape := tree.RenderShape("  ", nil)
-	// TODO: handle this error
-	shape, _ := tree.RenderShape("  ", nodeEncoder)
-	fmt.Println(strings.Join(shape, "\n"))
+	shape, err := tree.RenderShape("  ", nodeEncoder)
+	if err != nil {
+		return []byte{}, err
+	}
+	return []byte(strings.Join(shape, "\n")), nil
 }
 
 func nodeEncoder(id []byte, depth int, isLeaf bool) string {
