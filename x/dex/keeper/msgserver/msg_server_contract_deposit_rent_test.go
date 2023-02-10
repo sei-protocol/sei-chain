@@ -11,6 +11,7 @@ import (
 	wasmtypes "github.com/CosmWasm/wasmd/x/wasm/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	keepertest "github.com/sei-protocol/sei-chain/testutil/keeper"
+	"github.com/sei-protocol/sei-chain/x/dex"
 	dexcache "github.com/sei-protocol/sei-chain/x/dex/cache"
 	"github.com/sei-protocol/sei-chain/x/dex/keeper/msgserver"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
@@ -90,7 +91,9 @@ func TestDepositRent(t *testing.T) {
 	require.NoError(t, err)
 	balance := dexkeeper.BankKeeper.GetBalance(ctx, testAccount, "usei")
 	require.Equal(t, int64(8900000), balance.Amount.Int64())
-	_, err = server.ContractDepositRent(wctx, &types.MsgContractDepositRent{
+
+	handler := dex.NewHandler(dexkeeper)
+	_, err = handler(ctx, &types.MsgContractDepositRent{
 		Sender:       testAccount.String(),
 		ContractAddr: TestContractA,
 		Amount:       1000000,
@@ -102,21 +105,21 @@ func TestDepositRent(t *testing.T) {
 	require.Equal(t, int64(7900000), balance.Amount.Int64())
 
 	// deposit exceeds limit
-	_, err = server.ContractDepositRent(wctx, &types.MsgContractDepositRent{
+	_, err = handler(ctx, &types.MsgContractDepositRent{
 		Sender:       testAccount.String(),
 		ContractAddr: TestContractA,
 		Amount:       math.MaxUint64,
 	})
 	require.Error(t, err)
 	// deposit + prev balance exceeds limit
-	_, err = server.ContractDepositRent(wctx, &types.MsgContractDepositRent{
+	_, err = handler(ctx, &types.MsgContractDepositRent{
 		Sender:       testAccount.String(),
 		ContractAddr: TestContractA,
 		Amount:       math.MaxUint64/140000000 - 500000,
 	})
 	require.Error(t, err)
 	// deposit + prev balance overflows
-	_, err = server.ContractDepositRent(wctx, &types.MsgContractDepositRent{
+	_, err = handler(ctx, &types.MsgContractDepositRent{
 		Sender:       testAccount.String(),
 		ContractAddr: TestContractA,
 		Amount:       math.MaxUint64 - 500000,
