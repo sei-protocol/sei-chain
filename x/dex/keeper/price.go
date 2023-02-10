@@ -59,6 +59,10 @@ func (k Keeper) GetAllPrices(ctx sdk.Context, contractAddr string, pair types.Pa
 	return
 }
 
+func (k Keeper) RemoveAllPricesForContract(ctx sdk.Context, contractAddr string) {
+	k.removeAllForPrefix(ctx, types.PriceContractPrefix(contractAddr))
+}
+
 func GetKeyForTs(ts uint64) []byte {
 	tsKey := make([]byte, 8)
 	binary.BigEndian.PutUint64(tsKey, ts)

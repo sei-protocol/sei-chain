@@ -60,6 +60,10 @@ func (k Keeper) GetAllTriggeredOrders(ctx sdk.Context, contractAddr string) (lis
 	return
 }
 
+func (k Keeper) RemoveAllTriggeredOrders(ctx sdk.Context, contractAddr string) {
+	k.removeAllForPrefix(ctx, types.ContractKeyPrefix(types.TriggerBookKey, contractAddr))
+}
+
 func GetKeyForOrderID(orderID uint64) []byte {
 	key := make([]byte, 8)
 	binary.LittleEndian.PutUint64(key, orderID)
