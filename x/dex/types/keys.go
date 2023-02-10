@@ -45,16 +45,20 @@ func PairPrefix(priceDenom string, assetDenom string) []byte {
 }
 
 func OrderBookPrefix(long bool, contractAddr string, priceDenom string, assetDenom string) []byte {
+	return append(
+		OrderBookContractPrefix(long, contractAddr),
+		PairPrefix(priceDenom, assetDenom)...,
+	)
+}
+
+func OrderBookContractPrefix(long bool, contractAddr string) []byte {
 	var prefix []byte
 	if long {
 		prefix = KeyPrefix(LongBookKey)
 	} else {
 		prefix = KeyPrefix(ShortBookKey)
 	}
-	return append(
-		append(prefix, AddressKeyPrefix(contractAddr)...),
-		PairPrefix(priceDenom, assetDenom)...,
-	)
+	return append(prefix, AddressKeyPrefix(contractAddr)...)
 }
 
 func TriggerOrderBookPrefix(contractAddr string, priceDenom string, assetDenom string) []byte {
@@ -73,9 +77,13 @@ func TwapPrefix(contractAddr string) []byte {
 // `Price` constant + contract + price denom + asset denom
 func PricePrefix(contractAddr string, priceDenom string, assetDenom string) []byte {
 	return append(
-		append(KeyPrefix(PriceKey), AddressKeyPrefix(contractAddr)...),
+		PriceContractPrefix(contractAddr),
 		PairPrefix(priceDenom, assetDenom)...,
 	)
+}
+
+func PriceContractPrefix(contractAddr string) []byte {
+	return append(KeyPrefix(PriceKey), AddressKeyPrefix(contractAddr)...)
 }
 
 func SettlementEntryPrefix(contractAddr string, priceDenom string, assetDenom string) []byte {

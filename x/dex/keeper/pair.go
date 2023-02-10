@@ -50,3 +50,7 @@ func (k Keeper) GetAllRegisteredPairs(ctx sdk.Context, contractAddr string) []ty
 
 	return list
 }
+
+func (k Keeper) DeleteAllRegisteredPairsForContract(ctx sdk.Context, contractAddr string) {
+	k.removeAllForPrefix(ctx, types.RegisteredPairPrefix(contractAddr))
+}

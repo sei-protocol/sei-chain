@@ -31,5 +31,12 @@ func (k msgServer) UnregisterContract(goCtx context.Context, msg *types.MsgUnreg
 		return nil, err
 	}
 	k.DeleteContract(ctx, msg.ContractAddr)
+	k.RemoveAllLongBooksForContract(ctx, msg.ContractAddr)
+	k.RemoveAllShortBooksForContract(ctx, msg.ContractAddr)
+	k.RemoveAllPricesForContract(ctx, msg.ContractAddr)
+	k.DeleteMatchResultState(ctx, msg.ContractAddr)
+	k.DeleteNextOrderID(ctx, msg.ContractAddr)
+	k.DeleteAllRegisteredPairsForContract(ctx, msg.ContractAddr)
+	k.RemoveAllTriggeredOrders(ctx, msg.ContractAddr)
 	return &types.MsgUnregisterContractResponse{}, nil
 }
