@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"fmt"
+	"runtime/debug"
 	"sort"
 	"sync"
 
@@ -38,7 +39,9 @@ type MutableTree struct {
 	ndb                      *nodeDB
 	skipFastStorageUpgrade   bool // If true, the tree will work like no fast storage and always not upgrade fast storage
 
-	mtx sync.Mutex
+	mtx        sync.Mutex
+	entryMtx   sync.Mutex
+	entryStack []byte
 }
 
 // NewMutableTree returns a new tree with the specified cache size and datastore.
@@ -130,10 +133,12 @@ func (tree *MutableTree) prepareOrphansSlice() []*Node {
 // to slices stored within IAVL. It returns true when an existing value was
 // updated, while false means it was a new key.
 func (tree *MutableTree) Set(key, value []byte) (updated bool, err error) {
-	if !tree.mtx.TryLock() {
-		panic("TONYTEST: error acquiring lock on iavl Remove")
+	if !tree.entryMtx.TryLock() {
+		fmt.Println(string(tree.entryStack))
+		panic("TONYTEST: error acquiring lock on iavl Set")
 	}
-	defer tree.mtx.Unlock()
+	tree.entryStack = debug.Stack()
+	defer tree.entryMtx.Unlock()
 	var orphaned []*Node
 	orphaned, updated, err = tree.set(key, value)
 	if err != nil {
@@ -323,10 +328,12 @@ func (tree *MutableTree) recursiveSet(node *Node, key []byte, value []byte, orph
 // Remove removes a key from the working tree. The given key byte slice should not be modified
 // after this call, since it may point to data stored inside IAVL.
 func (tree *MutableTree) Remove(key []byte) ([]byte, bool, error) {
-	if !tree.mtx.TryLock() {
+	if !tree.entryMtx.TryLock() {
+		fmt.Println(string(tree.entryStack))
 		panic("TONYTEST: error acquiring lock on iavl Remove")
 	}
-	defer tree.mtx.Unlock()
+	tree.entryStack = debug.Stack()
+	defer tree.entryMtx.Unlock()
 
 	val, orphaned, removed, err := tree.remove(key)
 	if err != nil {
