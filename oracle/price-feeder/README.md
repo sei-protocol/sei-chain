@@ -42,9 +42,9 @@ You need to setup a config.toml file (see [this for example](./config.example.to
 ```bash
 ...
 [account]
-address = "sei..." <-- $PRICE_FEEDER_DELEGATE_ADDR from above
-chain_id = "sei-chain"
-validator = "seivaloper..." <-- validator address
+address = "<UPDATE ME>"  <-- $PRICE_FEEDER_DELEGATE_ADDR from above
+chain_id = "<UPDATE ME>"
+validator = "<UPDATE ME>" <-- validator address
 ...
 ```
 
