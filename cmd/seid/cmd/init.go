@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"github.com/cosmos/go-bip39"
 	"github.com/pkg/errors"
@@ -16,6 +17,7 @@ import (
 	"github.com/tendermint/tendermint/types"
 
 	"github.com/cosmos/cosmos-sdk/client"
+	clientconfig "github.com/cosmos/cosmos-sdk/client/config"
 	"github.com/cosmos/cosmos-sdk/client/flags"
 	"github.com/cosmos/cosmos-sdk/client/input"
 	"github.com/cosmos/cosmos-sdk/server"
@@ -80,6 +82,7 @@ func InitCmd(mbm module.BasicManager, defaultNodeHome string) *cobra.Command {
 			params.SetTendermintConfigs(config)
 
 			config.SetRoot(clientCtx.HomeDir)
+			configPath := filepath.Join(config.RootDir, "config")
 
 			chainID, _ := cmd.Flags().GetString(flags.FlagChainID)
 			if chainID == "" {
@@ -137,6 +140,12 @@ func InitCmd(mbm module.BasicManager, defaultNodeHome string) *cobra.Command {
 			if err = genutil.ExportGenesisFile(genDoc, genFile); err != nil {
 				return errors.Wrap(err, "Failed to export genesis file")
 			}
+
+			clientConfig, err := clientconfig.GetClientConfig(configPath, clientCtx.Viper)
+			if err != nil {
+				return err
+			}
+			clientconfig.SetClientConfig(flags.FlagChainID, chainID, configPath, clientConfig)
 
 			toPrint := newPrintInfo(config.Moniker, chainID, nodeID, "", appState)
 
