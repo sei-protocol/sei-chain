@@ -1,7 +1,7 @@
 package utils
 
 import (
-	"io/ioutil"
+	"os"
 
 	"github.com/cosmos/cosmos-sdk/codec"
 	"github.com/cosmos/cosmos-sdk/x/accesscontrol/types"
@@ -10,7 +10,7 @@ import (
 func ParseMsgUpdateResourceDependencyMappingProposalFile(cdc codec.JSONCodec, proposalFile string) (types.MsgUpdateResourceDependencyMappingProposalJsonFile, error) {
 	proposal := types.MsgUpdateResourceDependencyMappingProposalJsonFile{}
 
-	contents, err := ioutil.ReadFile(proposalFile)
+	contents, err := os.ReadFile(proposalFile)
 	if err != nil {
 		return proposal, err
 	}
@@ -23,7 +23,7 @@ func ParseMsgUpdateResourceDependencyMappingProposalFile(cdc codec.JSONCodec, pr
 func ParseRegisterWasmDependencyMappingJSON(cdc codec.JSONCodec, dependencyFile string) (types.RegisterWasmDependencyJSONFile, error) {
 	wasmDependencyJson := types.RegisterWasmDependencyJSONFile{}
 
-	contents, err := ioutil.ReadFile(dependencyFile)
+	contents, err := os.ReadFile(dependencyFile)
 	if err != nil {
 		return wasmDependencyJson, err
 	}

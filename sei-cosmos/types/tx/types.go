@@ -122,7 +122,6 @@ func (t *Tx) GetSigners() []sdk.AccAddress {
 	if feePayer != "" && !seen[feePayer] {
 		payerAddr := sdk.MustAccAddressFromBech32(feePayer)
 		signers = append(signers, payerAddr)
-		seen[feePayer] = true
 	}
 
 	return signers

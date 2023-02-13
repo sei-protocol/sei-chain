@@ -6,27 +6,25 @@ import (
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 )
 
-
 type ContextMemCache struct {
-	deferredBankOpsLock		  *sync.Mutex
-	deferredSends 			  *DeferredBankOperationMapping
-	deferredWithdrawals 	  *DeferredBankOperationMapping
-
+	deferredBankOpsLock *sync.Mutex
+	deferredSends       *DeferredBankOperationMapping
+	deferredWithdrawals *DeferredBankOperationMapping
 }
 
 func NewContextMemCache() *ContextMemCache {
 	return &ContextMemCache{
 		deferredBankOpsLock: &sync.Mutex{},
-		deferredSends: NewDeferredBankOperationMap(),
+		deferredSends:       NewDeferredBankOperationMap(),
 		deferredWithdrawals: NewDeferredBankOperationMap(),
 	}
 }
 
-func (c *ContextMemCache) GetDeferredSends() *DeferredBankOperationMapping{
+func (c *ContextMemCache) GetDeferredSends() *DeferredBankOperationMapping {
 	return c.deferredSends
 }
 
-func (c *ContextMemCache) GetDeferredWithdrawals() *DeferredBankOperationMapping{
+func (c *ContextMemCache) GetDeferredWithdrawals() *DeferredBankOperationMapping {
 	return c.deferredWithdrawals
 }
 
@@ -56,18 +54,18 @@ func (c *ContextMemCache) SafeSubDeferredSends(moduleAccount string, amount Coin
 	return c.deferredSends.SafeSub(moduleAccount, amount)
 }
 
-func (c *ContextMemCache) RangeOnDeferredSendsAndDelete(apply func (recipient string, amount Coins)) {
+func (c *ContextMemCache) RangeOnDeferredSendsAndDelete(apply func(recipient string, amount Coins)) {
 	c.deferredSends.RangeOnMapping(apply)
 }
 
 func (c *ContextMemCache) UpsertDeferredWithdrawals(moduleAccount string, amount Coins) error {
-	// Separate locks needed for all mappings - atmoic transaction needed
-	c.deferredBankOpsLock.Lock()
-	defer c.deferredBankOpsLock.Unlock()
-
 	if !amount.IsValid() {
 		return sdkerrors.Wrap(sdkerrors.ErrInvalidCoins, amount.String())
 	}
+
+	// Separate locks needed for all mappings - atmoic transaction needed
+	c.deferredBankOpsLock.Lock()
+	defer c.deferredBankOpsLock.Unlock()
 
 	// If there's already a pending deposit then subtract it from that amount first
 	// or else add it to the deferredWithdrawals mapping
@@ -78,15 +76,14 @@ func (c *ContextMemCache) UpsertDeferredWithdrawals(moduleAccount string, amount
 	return nil
 }
 
-func (c *ContextMemCache) RangeOnDeferredWithdrawalsAndDelete(apply func (recipient string, amount Coins)) {
+func (c *ContextMemCache) RangeOnDeferredWithdrawalsAndDelete(apply func(recipient string, amount Coins)) {
 	c.deferredWithdrawals.RangeOnMapping(apply)
 }
 
-func (c *ContextMemCache) ApplyOnAllDeferredOperationsAndDelete(apply func (recipient string, amount Coins)) {
+func (c *ContextMemCache) ApplyOnAllDeferredOperationsAndDelete(apply func(recipient string, amount Coins)) {
 	c.RangeOnDeferredSendsAndDelete(apply)
 	c.RangeOnDeferredWithdrawalsAndDelete(apply)
 }
-
 
 func (c *ContextMemCache) Clear() {
 	c.deferredBankOpsLock.Lock()

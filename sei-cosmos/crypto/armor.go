@@ -146,7 +146,6 @@ func encryptPrivKey(privKeyBytes []byte, passphrase string) (saltBytes []byte, e
 	}
 
 	key = cosmoscrypto.Sha256(key) // get 32 bytes
-	// privKeyBytes := legacy.Cdc.MustMarshal(privKey)
 
 	return saltBytes, EncryptSymmetric(privKeyBytes, key)
 }

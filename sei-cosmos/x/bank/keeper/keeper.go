@@ -1,6 +1,7 @@
 package keeper
 
 import (
+	"errors"
 	"fmt"
 	"log"
 
@@ -568,6 +569,9 @@ func (k BaseKeeper) createCoins(ctx sdk.Context, moduleName string, amounts sdk.
 func (k BaseKeeper) MintCoins(ctx sdk.Context, moduleName string, amounts sdk.Coins) error {
 	addFn := func(ctx sdk.Context, moduleName string, amounts sdk.Coins) error {
 		acc := k.ak.GetModuleAccount(ctx, moduleName)
+		if acc == nil {
+			return errors.New(fmt.Sprintf("module account for %s not found", moduleName))
+		}
 		return k.addCoins(ctx, acc.GetAddress(), amounts)
 	}
 
