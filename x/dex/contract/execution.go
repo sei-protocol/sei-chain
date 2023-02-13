@@ -12,7 +12,6 @@ import (
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/sei-protocol/sei-chain/store/whitelist/multi"
-	"github.com/sei-protocol/sei-chain/utils"
 	"github.com/sei-protocol/sei-chain/utils/datastructures"
 	"github.com/sei-protocol/sei-chain/x/dex/exchange"
 	"github.com/sei-protocol/sei-chain/x/dex/keeper"
@@ -204,13 +203,6 @@ func ExecutePairsInParallel(ctx sdk.Context, contractAddr string, dexkeeper *kee
 		pairCtx := ctx.WithMultiStore(multi.NewStore(ctx.MultiStore(), GetPerPairWhitelistMap(contractAddr, pair))).WithEventManager(sdk.NewEventManager())
 		go func() {
 			defer wg.Done()
-			defer utils.PanicHandler(func(err any) {
-				mu.Lock()
-				defer mu.Unlock()
-				anyPanicked = true
-				utils.MetricsPanicCallback(err, ctx, fmt.Sprintf("%s-%s|%s", contractAddr, pair.PriceDenom, pair.AssetDenom))
-			})()
-
 			pairCopy := pair
 			pairStr := dextypesutils.GetPairString(&pairCopy)
 			MoveTriggeredOrderForPair(ctx, typedContractAddr, pairStr, dexkeeper)
@@ -233,10 +225,6 @@ func ExecutePairsInParallel(ctx sdk.Context, contractAddr string, dexkeeper *kee
 		}()
 	}
 	wg.Wait()
-	if anyPanicked {
-		// need to re-throw panic to the top level goroutine
-		panic("panicked during pair execution")
-	}
 	dexkeeper.SetMatchResult(ctx, contractAddr, types.NewMatchResult(orderResults, cancelResults, settlements))
 
 	return settlements, cancelResults
