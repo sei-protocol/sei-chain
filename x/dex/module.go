@@ -274,13 +274,6 @@ func (am AppModule) EndBlock(ctx sdk.Context, _ abci.RequestEndBlock) (ret []abc
 	_, span := (*am.tracingInfo.Tracer).Start(am.tracingInfo.TracerContext, "DexEndBlock")
 	defer span.End()
 	defer dexutils.GetMemState(ctx.Context()).Clear(ctx)
-	// TODO (codchen): Revert https://github.com/sei-protocol/sei-chain/pull/176/files before mainnet so we don't silently fail on errors
-	defer utils.PanicHandler(func(err any) {
-		_, span := (*am.tracingInfo.Tracer).Start(am.tracingInfo.TracerContext, "DexEndBlockRollback")
-		defer span.End()
-		utils.MetricsPanicCallback(err, ctx, types.ModuleName)
-		ret = []abci.ValidatorUpdate{}
-	})()
 
 	validContractsInfo := am.getAllContractInfo(ctx)
 	// Each iteration is atomic. If an iteration finishes without any error, it will return,

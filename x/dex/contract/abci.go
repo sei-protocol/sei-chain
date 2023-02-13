@@ -12,7 +12,6 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/sei-protocol/sei-chain/store/whitelist/multi"
 	seisync "github.com/sei-protocol/sei-chain/sync"
-	"github.com/sei-protocol/sei-chain/utils"
 	"github.com/sei-protocol/sei-chain/utils/datastructures"
 	dexcache "github.com/sei-protocol/sei-chain/x/dex/cache"
 	"github.com/sei-protocol/sei-chain/x/dex/keeper"
@@ -219,7 +218,6 @@ func handleFinalizedBlocks(ctx context.Context, sdkCtx sdk.Context, env *environ
 }
 
 func orderMatchingRunnable(ctx context.Context, sdkContext sdk.Context, env *environment, keeper *keeper.Keeper, contractInfo types.ContractInfoV2, tracer *otrace.Tracer) {
-	defer utils.PanicHandler(func(err any) { orderMatchingRecoverCallback(err, sdkContext, env, contractInfo) })()
 	defer func() {
 		if channel, ok := env.executionTerminationSignals.Load(contractInfo.ContractAddr); ok {
 			_, err := logging.LogIfNotDoneAfter(sdkContext.Logger(), func() (struct{}, error) {
@@ -264,12 +262,6 @@ func orderMatchingRunnable(ctx context.Context, sdkContext sdk.Context, env *env
 	env.eventManagerMutex.Lock()
 	defer env.eventManagerMutex.Unlock()
 	parentSdkContext.EventManager().EmitEvents(sdkContext.EventManager().Events())
-}
-
-func orderMatchingRecoverCallback(err any, ctx sdk.Context, env *environment, contractInfo types.ContractInfoV2) {
-	utils.MetricsPanicCallback(err, ctx, fmt.Sprintf("%s%s", types.ModuleName, "endblockpanic"))
-	// idempotent
-	env.failedContractAddresses.Add(contractInfo.ContractAddr)
 }
 
 func filterNewValidContracts(ctx sdk.Context, env *environment) []types.ContractInfoV2 {
