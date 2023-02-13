@@ -6,6 +6,7 @@ import (
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
+	dexkeeper "github.com/sei-protocol/sei-chain/x/dex/keeper"
 	dextypes "github.com/sei-protocol/sei-chain/x/dex/types"
 	minttypes "github.com/sei-protocol/sei-chain/x/mint/types"
 )
@@ -71,6 +72,8 @@ func DexParser(key []byte) ([]string, error) {
 		return keyItems, nil
 	}
 	switch {
+	case bytes.HasPrefix(key, []byte(dexkeeper.EpochKey)):
+		// do nothing since the key is a string and no other data to be parsed
 	default:
 		keyItems = append(keyItems, "Unrecognized prefix")
 	}
@@ -96,6 +99,7 @@ func MatchAndExtractDexAddressPrefixKeys(key []byte) (bool, []string, []byte, er
 		dextypes.MemOrderKey,
 		dextypes.MemCancelKey,
 		dextypes.MemDepositKey,
+		dexkeeper.ContractPrefixKey,
 	}
 
 	for _, prefix := range keysToMatch {
