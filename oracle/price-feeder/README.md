@@ -9,6 +9,66 @@ This is a standalone version of [Umee's fantastic work](https://github.com/umee-
 
 ---
 
+
+# Setup
+If a cluster is running Oracle price-feeder, your validator is also required to run a price feeder or your validator will be jailed for missing votes.
+
+
+## Create an account for Oracle Price Feeder Delegate
+1) To avoid account sequence errors with the admin account, it's reccomended to create a different account as an Oracle delegate. To do so, you'll need to create the account with
+`seid keys add price-feeder-delegate` or any other account name. This may still cause account sequence errors for the delegate account but since it's only being used for the Oracle price feeder, it's not a concern 
+2) With the account address output, `export PRICE_FEEDER_DELEGATE_ADDR=<output>`
+3) `seid tx oracle set-feeder $PRICE_FEEDER_DELEGATE_ADDR --from <validator-wallet> --fees 2000usei -b block -y --chain-id {chain-id}`
+
+Then you need to export `PRICE_FEEDER_PASS` environment variable to set up the keyring password. That was entered during the account setup.
+
+Ex :
+`export PRICE_FEEDER_PASS=keyringPassword`
+
+If this environment variable is not set, the price feeder will prompt the user for input.
+
+## Make and install the binary
+From the root of the Git repo
+
+```bash
+make install-price-feeder
+```
+
+## Run Price Feeder
+You can run it as a seperate binary but it's reccomedned to run it as a systemd serivce, you can use the following as an example.
+
+You need to setup a config.toml file (see [this for example](./config.example.toml)), you need to set the following fields in
+
+```bash
+...
+[account]
+address = "<UPDATE ME>"  <-- $PRICE_FEEDER_DELEGATE_ADDR from above
+chain_id = "<UPDATE ME>"
+validator = "<UPDATE ME>" <-- validator address
+...
+```
+
+## Systemd Configuration
+
+In order to run the price feeder as a background process, you can set up a systemd service for it. Here is an example of the service that will run the price feeder process. Then you just need to run `systemctl enable <service-name>` and `systemctl start <service-name>`
+
+```ini
+[Unit]
+Description=Oracle Price Feeder
+After=network.target
+
+[Service]
+User=root
+Type=simple
+Environment="PRICE_FEEDER_PASS={KEYRING_PASSWORD}"
+ExecStart=/root/go/bin/price-feeder {PATH-TO-CONFIG-TOML}
+Restart=on-failure
+LimitNOFILE=6553500
+
+[Install]
+WantedBy=multi-user.target
+```
+
 ## Providers
 
 The list of current supported providers:
@@ -112,40 +172,3 @@ Additional info on the different keyring modes is available [here](https://docs.
 **Please note that the `test` and `memory` modes are only for testing purposes.**
 **Do not use these modes for running the price feeder against mainnet.**
 
-### Setup
-
-The keyring `dir` and `backend` are defined in the config file.
-You may use the `PRICE_FEEDER_PASS` environment variable to set up the keyring password.
-
-Ex :
-`export PRICE_FEEDER_PASS=keyringPassword`
-
-If this environment variable is not set, the price feeder will prompt the user for input.
-
-## Systemd Configuration
-
-In order to run the price feeder as a background process, you can set up a systemd service for it. Here is an example of the service that will run the price feeder process:
-
-```ini
-[Unit]
-Description=Oracle Price Feeder
-After=network.target
-
-[Service]
-User=root
-Type=simple
-Environment="PRICE_FEEDER_PASS={KEYRING_PASSWORD}"
-ExecStart=/root/go/bin/price-feeder {PATH-TO-CONFIG-TOML}
-Restart=on-failure
-LimitNOFILE=6553500
-
-[Install]
-WantedBy=multi-user.target
-```
-
-## Feeder Delegation
-
-It is suggested to run the oracle price feeder with an account that is configured as a feeder as opposed to the validator account. Here is the command to set up the feeder:
-```bash
-seid tx oracle set-feeder {feeder-bech32} --from {validator-account} --fees 2000usei -b block -y --chain-id {chain-id}
-```

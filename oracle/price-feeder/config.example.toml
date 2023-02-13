@@ -15,24 +15,33 @@ threshold = "2"
 
 [[currency_pairs]]
 base = "ATOM"
+chain_denom = "uatom"
 providers = [
-  "binance",
+  "huobi",
+  "kraken",
+  "coinbase",
+]
+quote = "USD"
+
+[[currency_pairs]]
+base = "ETH"
+chain_denom = "ueth"
+providers = [
+  "huobi",
   "kraken",
   "coinbase",
 ]
 quote = "USD"
 
 [account]
-address = "sei..."
-chain_id = "sei-chain"
-validator = "seivaloper..."
+address = "<UPDATE ME>"
+chain_id = "<UPDATE ME>"
+validator = "<UPDATE ME>"
 prefix = "sei"
-# Optional
-fee_granter = "sei..."
 
 [keyring]
-backend = "file"
-dir = "/home/<user>/.sei"
+backend = "os"
+dir = "/root/.sei"
 
 [rpc]
 grpc_endpoint = "localhost:9090"
@@ -53,5 +62,5 @@ name = "binance"
 rest = "https://api1.binance.com"
 websocket = "stream.binance.com:9443"
 
-[[healthchecks]]
-url = "https://hc-ping.com/HEALTHCHECK-UUID"
+# [[healthchecks]]
+# url = "https://hc-ping.com/HEALTHCHECK-UUID"
