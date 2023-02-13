@@ -63,69 +63,62 @@ func BankParser(key []byte) ([]string, error) {
 
 func DexParser(key []byte) ([]string, error) {
 	keyItems := []string{}
+	if matched, items, _, err := MatchAndExtractDexAddressPrefixKeys(key); matched {
+		if err != nil {
+			return keyItems, err
+		}
+		keyItems = append(keyItems, items...)
+		return keyItems, nil
+	}
 	switch {
-	case bytes.HasPrefix(key, dextypes.KeyPrefix(dextypes.LongBookKey)):
-		keyItems = append(keyItems, "LongBook")
-		remaining := bytes.TrimPrefix(key, dextypes.KeyPrefix(dextypes.LongBookKey))
-		items, remaining, err := parseLengthPrefixedAddress(remaining)
-		if err != nil {
-			return keyItems, err
-		}
-		keyItems = append(keyItems, items...)
-		// TODO: make this better
-		keyItems = append(keyItems, fmt.Sprintf("RemainingString: %s", string(remaining)))
-	case bytes.HasPrefix(key, dextypes.KeyPrefix(dextypes.ShortBookKey)):
-		keyItems = append(keyItems, "ShortBook")
-		remaining := bytes.TrimPrefix(key, dextypes.KeyPrefix(dextypes.ShortBookKey))
-		items, remaining, err := parseLengthPrefixedAddress(remaining)
-		if err != nil {
-			return keyItems, err
-		}
-		keyItems = append(keyItems, items...)
-		// TODO: make this better
-		keyItems = append(keyItems, fmt.Sprintf("RemainingString: %s", string(remaining)))
-	case bytes.HasPrefix(key, dextypes.KeyPrefix(dextypes.TriggerBookKey)):
-		keyItems = append(keyItems, "TriggerBook")
-		remaining := bytes.TrimPrefix(key, dextypes.KeyPrefix(dextypes.TriggerBookKey))
-		items, remaining, err := parseLengthPrefixedAddress(remaining)
-		if err != nil {
-			return keyItems, err
-		}
-		keyItems = append(keyItems, items...)
-		// TODO: make this better
-		keyItems = append(keyItems, fmt.Sprintf("RemainingString: %s", string(remaining)))
-	case bytes.HasPrefix(key, dextypes.KeyPrefix(dextypes.TwapKey)):
-		keyItems = append(keyItems, "TWAP")
-		remaining := bytes.TrimPrefix(key, dextypes.KeyPrefix(dextypes.TwapKey))
-		items, remaining, err := parseLengthPrefixedAddress(remaining)
-		if err != nil {
-			return keyItems, err
-		}
-		keyItems = append(keyItems, items...)
-		if len(remaining) > 0 {
-			keyItems = append(keyItems, fmt.Sprintf("RemainingString: %s", string(remaining)))
-		}
-	case bytes.HasPrefix(key, dextypes.KeyPrefix(dextypes.PriceKey)):
-		keyItems = append(keyItems, "Price")
-		remaining := bytes.TrimPrefix(key, dextypes.KeyPrefix(dextypes.PriceKey))
-		items, remaining, err := parseLengthPrefixedAddress(remaining)
-		if err != nil {
-			return keyItems, err
-		}
-		keyItems = append(keyItems, items...)
-		if len(remaining) > 0 {
-			keyItems = append(keyItems, fmt.Sprintf("RemainingString: %s", string(remaining)))
-		}
 	default:
 		keyItems = append(keyItems, "Unrecognized prefix")
 	}
 	return keyItems, nil
 }
 
+func MatchAndExtractDexAddressPrefixKeys(key []byte) (bool, []string, []byte, error) {
+	keyItems := []string{}
+	keysToMatch := []string{
+		dextypes.LongBookKey,
+		dextypes.ShortBookKey,
+		dextypes.TriggerBookKey,
+		dextypes.PriceKey,
+		dextypes.TwapKey,
+		dextypes.SettlementEntryKey,
+		dextypes.RegisteredPairKey,
+		dextypes.OrderKey,
+		dextypes.CancelKey,
+		dextypes.AccountActiveOrdersKey,
+		dextypes.NextOrderIDKey,
+		dextypes.NextSettlementIDKey,
+		dextypes.MatchResultKey,
+		dextypes.MemOrderKey,
+		dextypes.MemCancelKey,
+		dextypes.MemDepositKey,
+	}
+
+	for _, prefix := range keysToMatch {
+		if bytes.HasPrefix(key, dextypes.KeyPrefix(prefix)) {
+			keyItems = append(keyItems, prefix)
+			remaining := bytes.TrimPrefix(key, dextypes.KeyPrefix(prefix))
+			items, remaining, err := parseLengthPrefixedAddress(remaining)
+			if err != nil {
+				return true, keyItems, remaining, err
+			}
+			keyItems = append(keyItems, items...)
+			if len(remaining) > 0 {
+				keyItems = append(keyItems, fmt.Sprintf("RemainingString: %s", string(remaining)))
+			}
+			return true, keyItems, remaining, nil
+		}
+	}
+	return false, keyItems, key, nil
+}
+
 func parseLengthPrefixedAddress(remainingKey []byte) ([]string, []byte, error) {
 	keyItems := []string{}
 	lengthPrefix, remaining := int(remainingKey[0]), remainingKey[1:]
-	keyItems = append(keyItems, fmt.Sprintf("AddrLength: %d", lengthPrefix))
 	accountAddr := remaining[0:lengthPrefix]
 	remaining = remaining[lengthPrefix:]
 	bech32Addr, err := sdk.Bech32ifyAddressBytes("sei", accountAddr)
