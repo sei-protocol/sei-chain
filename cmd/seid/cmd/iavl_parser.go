@@ -10,7 +10,7 @@ import (
 
 type ModuleParser func([]byte) ([]string, error)
 
-var ModuleParserMap map[string]ModuleParser = map[string]ModuleParser{
+var ModuleParserMap = map[string]ModuleParser{
 	"bank": BankParser,
 }
 
@@ -22,17 +22,18 @@ func BankParser(key []byte) ([]string, error) {
 	// 	return keyItems, err
 	// }
 	// iterate through, attempt to match against the Bank key prefixes
-	if bytes.HasPrefix(key, banktypes.SupplyKey) {
+	switch {
+	case bytes.HasPrefix(key, banktypes.SupplyKey):
 		keyItems = append(keyItems, "Supply")
 		// rest of the key is the denom
 		remaining := bytes.TrimPrefix(key, banktypes.SupplyKey)
 		keyItems = append(keyItems, fmt.Sprintf("Denom: %s", string(remaining)))
-	} else if bytes.HasPrefix(key, banktypes.DenomMetadataPrefix) {
+	case bytes.HasPrefix(key, banktypes.DenomMetadataPrefix):
 		keyItems = append(keyItems, "DenomMetadata")
 		// rest of the key is the denom
 		remaining := bytes.TrimPrefix(key, banktypes.DenomMetadataPrefix)
 		keyItems = append(keyItems, fmt.Sprintf("Denom: %s", string(remaining)))
-	} else if bytes.HasPrefix(key, banktypes.BalancesPrefix) {
+	case bytes.HasPrefix(key, banktypes.BalancesPrefix):
 		keyItems = append(keyItems, "Balances")
 		// remaining is length prefixed addr + denom
 		remaining := bytes.TrimPrefix(key, banktypes.BalancesPrefix)
@@ -46,8 +47,9 @@ func BankParser(key []byte) ([]string, error) {
 		}
 		keyItems = append(keyItems, fmt.Sprintf("AddrBech32: %s", bech32Addr))
 		keyItems = append(keyItems, fmt.Sprintf("Denom: %s", string(denom)))
-	} else {
+	default:
 		keyItems = append(keyItems, "Unrecognized prefix")
 	}
+
 	return keyItems, nil
 }
