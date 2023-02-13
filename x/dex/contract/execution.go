@@ -194,7 +194,6 @@ func ExecutePairsInParallel(ctx sdk.Context, contractAddr string, dexkeeper *kee
 
 	mu := sync.Mutex{}
 	wg := sync.WaitGroup{}
-	anyPanicked := false
 
 	for _, pair := range registeredPairs {
 		wg.Add(1)
