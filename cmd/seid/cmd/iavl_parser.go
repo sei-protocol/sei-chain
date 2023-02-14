@@ -168,7 +168,7 @@ func StakingParser(key []byte) ([]string, error) {
 	case bytes.HasPrefix(key, stakingtypes.LastValidatorPowerKey):
 		keyItems = append(keyItems, "LastValidatorPower")
 		remaining := bytes.TrimPrefix(key, stakingtypes.LastValidatorPowerKey)
-		items, remaining, err := parseLengthPrefixedOperAddress(remaining)
+		items, _, err := parseLengthPrefixedOperAddress(remaining)
 		if err != nil {
 			return keyItems, err
 		}
