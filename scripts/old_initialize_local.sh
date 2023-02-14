@@ -73,7 +73,6 @@ else
   exit 1
 fi
 
-~/go/bin/seid config chain-id sei-chain
 ~/go/bin/seid config keyring-backend test
 
 # start the chain with log tracing
