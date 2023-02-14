@@ -7,12 +7,15 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
 	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
+	"github.com/sei-protocol/sei-chain/app/params"
 	dexkeeper "github.com/sei-protocol/sei-chain/x/dex/keeper"
 	dextypes "github.com/sei-protocol/sei-chain/x/dex/types"
 	minttypes "github.com/sei-protocol/sei-chain/x/mint/types"
 )
 
 type ModuleParser func([]byte) ([]string, error)
+
+const UNRECOGNIZED = "Unrecognized Prefix"
 
 var ModuleParserMap = map[string]ModuleParser{
 	"bank":    BankParser,
@@ -29,7 +32,7 @@ func MintParser(key []byte) ([]string, error) {
 	case bytes.HasPrefix(key, minttypes.LastTokenReleaseDate):
 		keyItems = append(keyItems, "LastTokenReleaseDate")
 	default:
-		keyItems = append(keyItems, "Unrecognized prefix")
+		keyItems = append(keyItems, UNRECOGNIZED)
 	}
 	return keyItems, nil
 }
@@ -58,7 +61,7 @@ func BankParser(key []byte) ([]string, error) {
 		keyItems = append(keyItems, items...)
 		keyItems = append(keyItems, fmt.Sprintf("Denom: %s", string(denom)))
 	default:
-		keyItems = append(keyItems, "Unrecognized prefix")
+		keyItems = append(keyItems, UNRECOGNIZED)
 	}
 
 	return keyItems, nil
@@ -77,7 +80,7 @@ func DexParser(key []byte) ([]string, error) {
 	case bytes.HasPrefix(key, []byte(dexkeeper.EpochKey)):
 		// do nothing since the key is a string and no other data to be parsed
 	default:
-		keyItems = append(keyItems, "Unrecognized prefix")
+		keyItems = append(keyItems, UNRECOGNIZED)
 	}
 	return keyItems, nil
 }
@@ -128,7 +131,7 @@ func parseLengthPrefixedAddress(remainingKey []byte) ([]string, []byte, error) {
 	lengthPrefix, remaining := int(remainingKey[0]), remainingKey[1:]
 	accountAddr := remaining[0:lengthPrefix]
 	remaining = remaining[lengthPrefix:]
-	bech32Addr, err := sdk.Bech32ifyAddressBytes("sei", accountAddr)
+	bech32Addr, err := sdk.Bech32ifyAddressBytes(params.Bech32PrefixAccAddr, accountAddr)
 	if err != nil {
 		return keyItems, remaining, err
 	}
@@ -141,7 +144,7 @@ func parseLengthPrefixedOperAddress(remainingKey []byte) ([]string, []byte, erro
 	lengthPrefix, remaining := int(remainingKey[0]), remainingKey[1:]
 	accountAddr := remaining[0:lengthPrefix]
 	remaining = remaining[lengthPrefix:]
-	bech32Addr, err := sdk.Bech32ifyAddressBytes("seivaloper", accountAddr)
+	bech32Addr, err := sdk.Bech32ifyAddressBytes(params.Bech32PrefixValAddr, accountAddr)
 	if err != nil {
 		return keyItems, remaining, err
 	}
@@ -154,7 +157,7 @@ func parseLengthPrefixedConsAddress(remainingKey []byte) ([]string, []byte, erro
 	lengthPrefix, remaining := int(remainingKey[0]), remainingKey[1:]
 	accountAddr := remaining[0:lengthPrefix]
 	remaining = remaining[lengthPrefix:]
-	bech32Addr, err := sdk.Bech32ifyAddressBytes("seivalcons", accountAddr)
+	bech32Addr, err := sdk.Bech32ifyAddressBytes(params.Bech32PrefixConsAddr, accountAddr)
 	if err != nil {
 		return keyItems, remaining, err
 	}
@@ -194,7 +197,7 @@ func StakingParser(key []byte) ([]string, error) {
 	case bytes.HasPrefix(key, stakingtypes.ValidatorsByPowerIndexKey):
 		keyItems = append(keyItems, "ValidatorsByPowerIndex")
 		operAddr := stakingtypes.ParseValidatorPowerRankKey(key)
-		valAddr, err := sdk.Bech32ifyAddressBytes("seivaloper", operAddr)
+		valAddr, err := sdk.Bech32ifyAddressBytes(params.Bech32PrefixValAddr, operAddr)
 		if err != nil {
 			return keyItems, err
 		}
@@ -303,7 +306,7 @@ func StakingParser(key []byte) ([]string, error) {
 		remaining := bytes.TrimPrefix(key, stakingtypes.HistoricalInfoKey)
 		keyItems = append(keyItems, fmt.Sprintf("Height: %s", remaining))
 	default:
-		keyItems = append(keyItems, "Unrecognized prefix")
+		keyItems = append(keyItems, UNRECOGNIZED)
 	}
 	return keyItems, nil
 }
