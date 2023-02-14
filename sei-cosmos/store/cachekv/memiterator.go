@@ -16,10 +16,10 @@ import (
 type memIterator struct {
 	types.Iterator
 
-	lastKey []byte
-	deleted 	  *sync.Map
-	eventManager  *sdktypes.EventManager
-	storeKey sdktypes.StoreKey
+	lastKey      []byte
+	deleted      *sync.Map
+	eventManager *sdktypes.EventManager
+	storeKey     sdktypes.StoreKey
 }
 
 func newMemIterator(
@@ -40,15 +40,18 @@ func newMemIterator(
 	}
 
 	if err != nil {
+		if iter != nil {
+			iter.Close()
+		}
 		panic(err)
 	}
 
 	return &memIterator{
-		Iterator: iter,
-		lastKey: nil,
-		deleted: deleted,
+		Iterator:     iter,
+		lastKey:      nil,
+		deleted:      deleted,
 		eventManager: eventManager,
-		storeKey: storeKey,
+		storeKey:     storeKey,
 	}
 }
 
@@ -64,6 +67,6 @@ func (mi *memIterator) Value() []byte {
 		return nil
 	}
 	mi.lastKey = key
-	
+
 	return mi.Iterator.Value()
 }

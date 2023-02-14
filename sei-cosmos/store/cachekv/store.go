@@ -237,6 +237,15 @@ func (store *Store) iterator(start, end []byte, ascending bool) types.Iterator {
 	} else {
 		parent = store.parent.ReverseIterator(start, end)
 	}
+	defer func() {
+		if err := recover(); err != nil {
+			// close out parent iterator, then reraise panic
+			if parent != nil {
+				parent.Close()
+			}
+			panic(err)
+		}
+	}()
 	store.dirtyItems(start, end)
 	cache = newMemIterator(start, end, store.sortedCache, store.deleted, ascending, store.eventManager, store.storeKey)
 	return NewCacheMergeIterator(parent, cache, ascending, store.eventManager, store.storeKey)

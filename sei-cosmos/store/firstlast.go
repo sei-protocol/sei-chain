@@ -10,10 +10,10 @@ import (
 // Gets the first item.
 func First(st KVStore, start, end []byte) (kv sdkkv.Pair, ok bool) {
 	iter := st.Iterator(start, end)
+	defer iter.Close()
 	if !iter.Valid() {
 		return kv, false
 	}
-	defer iter.Close()
 
 	return sdkkv.Pair{Key: iter.Key(), Value: iter.Value()}, true
 }

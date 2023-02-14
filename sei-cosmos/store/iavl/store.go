@@ -256,6 +256,9 @@ func (st *Store) LoadVersionForOverwriting(targetVersion int64) (int64, error) {
 func (st *Store) Iterator(start, end []byte) types.Iterator {
 	iterator, err := st.tree.Iterator(start, end, true)
 	if err != nil {
+		if iterator != nil {
+			iterator.Close()
+		}
 		panic(err)
 	}
 	return iterator
@@ -265,6 +268,9 @@ func (st *Store) Iterator(start, end []byte) types.Iterator {
 func (st *Store) ReverseIterator(start, end []byte) types.Iterator {
 	iterator, err := st.tree.Iterator(start, end, false)
 	if err != nil {
+		if iterator != nil {
+			iterator.Close()
+		}
 		panic(err)
 	}
 	return iterator

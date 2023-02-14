@@ -16,27 +16,27 @@ import (
 //
 // TODO: Optimize by memoizing.
 type cacheMergeIterator struct {
-	parent    types.Iterator
-	cache     types.Iterator
-	ascending bool
-	eventManager  *sdktypes.EventManager
-	storeKey sdktypes.StoreKey
+	parent       types.Iterator
+	cache        types.Iterator
+	ascending    bool
+	eventManager *sdktypes.EventManager
+	storeKey     sdktypes.StoreKey
 }
 
 var _ types.Iterator = (*cacheMergeIterator)(nil)
 
 func NewCacheMergeIterator(
-	parent, cache types.Iterator, 
+	parent, cache types.Iterator,
 	ascending bool,
 	eventManager *sdktypes.EventManager,
 	storeKey sdktypes.StoreKey,
 ) *cacheMergeIterator {
 	iter := &cacheMergeIterator{
-		parent:    parent,
-		cache:     cache,
-		ascending: ascending,
+		parent:       parent,
+		cache:        cache,
+		ascending:    ascending,
 		eventManager: eventManager,
-		storeKey: storeKey,
+		storeKey:     storeKey,
 	}
 
 	return iter
@@ -170,6 +170,8 @@ func (iter *cacheMergeIterator) Value() []byte {
 // Close implements Iterator
 func (iter *cacheMergeIterator) Close() error {
 	if err := iter.parent.Close(); err != nil {
+		// still want to close cache iterator regardless
+		iter.cache.Close()
 		return err
 	}
 

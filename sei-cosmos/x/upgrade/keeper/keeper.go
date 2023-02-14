@@ -120,9 +120,9 @@ func (k Keeper) SetModuleVersionMap(ctx sdk.Context, vm module.VersionMap) {
 func (k Keeper) GetModuleVersionMap(ctx sdk.Context) module.VersionMap {
 	store := ctx.KVStore(k.storeKey)
 	it := sdk.KVStorePrefixIterator(store, []byte{types.VersionMapByte})
+	defer it.Close()
 
 	vm := make(module.VersionMap)
-	defer it.Close()
 	for ; it.Valid(); it.Next() {
 		moduleBytes := it.Key()
 		// first byte is prefix key, so we remove it here

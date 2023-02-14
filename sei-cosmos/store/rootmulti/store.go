@@ -317,11 +317,11 @@ func deleteKVStore(kv types.KVStore) {
 	// Note that we cannot write while iterating, so load all keys here, delete below
 	var keys [][]byte
 	itr := kv.Iterator(nil, nil)
+	defer itr.Close()
 	for itr.Valid() {
 		keys = append(keys, itr.Key())
 		itr.Next()
 	}
-	itr.Close()
 
 	for _, k := range keys {
 		kv.Delete(k)
@@ -332,11 +332,11 @@ func deleteKVStore(kv types.KVStore) {
 func moveKVStoreData(oldDB types.KVStore, newDB types.KVStore) {
 	// we read from one and write to another
 	itr := oldDB.Iterator(nil, nil)
+	defer itr.Close()
 	for itr.Valid() {
 		newDB.Set(itr.Key(), itr.Value())
 		itr.Next()
 	}
-	itr.Close()
 
 	// then delete the old store
 	deleteKVStore(oldDB)

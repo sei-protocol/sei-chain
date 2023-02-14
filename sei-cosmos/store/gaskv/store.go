@@ -114,6 +114,13 @@ func (gs *Store) iterator(start, end []byte, ascending bool) types.Iterator {
 	}
 
 	gi := newGasIterator(gs.gasMeter, gs.gasConfig, parent)
+	defer func() {
+		if err := recover(); err != nil {
+			// if there is a panic, we close the iterator then reraise
+			gi.Close()
+			panic(err)
+		}
+	}()
 	gi.(*gasIterator).consumeSeekGas()
 
 	return gi
