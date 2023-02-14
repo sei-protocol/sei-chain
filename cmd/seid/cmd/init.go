@@ -145,7 +145,9 @@ func InitCmd(mbm module.BasicManager, defaultNodeHome string) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			clientconfig.SetClientConfig(flags.FlagChainID, chainID, configPath, clientConfig)
+			if err = clientconfig.SetClientConfig(flags.FlagChainID, chainID, configPath, clientConfig); err != nil {
+				return err
+			}
 
 			toPrint := newPrintInfo(config.Moniker, chainID, nodeID, "", appState)
 
