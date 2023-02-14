@@ -21,6 +21,7 @@ import (
 	"google.golang.org/grpc"
 
 	"github.com/cosmos/cosmos-sdk/client"
+	clientconfig "github.com/cosmos/cosmos-sdk/client/config"
 	"github.com/cosmos/cosmos-sdk/client/flags"
 	"github.com/cosmos/cosmos-sdk/codec"
 	"github.com/cosmos/cosmos-sdk/server/api"
@@ -126,13 +127,26 @@ is performed. Note, when enabled, gRPC will also be automatically enabled.
 			if err != nil {
 				return err
 			}
+			clientCtx, err = clientconfig.ReadFromClientConfig(clientCtx)
+			if err != nil {
+				return err
+			}
+
+			chainID := clientCtx.ChainID
+			flagChainID, _ := cmd.Flags().GetString(FlagChainID)
+			if flagChainID != "" {
+				if flagChainID != chainID {
+					panic(fmt.Sprintf("chain-id mismatch: %s vs %s. The chain-id passed in is different from the value in ~/.sei/config/client.toml \n", flagChainID, chainID))
+				}
+				chainID = flagChainID
+			}
+			serverCtx.Viper.Set(flags.FlagChainID, chainID)
 
 			withTM, _ := cmd.Flags().GetBool(flagWithTendermint)
 			if !withTM {
 				serverCtx.Logger.Info("starting ABCI without Tendermint")
 				return startStandAlone(serverCtx, appCreator)
 			}
-
 			// amino is needed here for backwards compatibility of REST routes
 			err = startInProcess(serverCtx, clientCtx, appCreator, tracerProviderOptions)
 			errCode, ok := err.(ErrorCode)
@@ -276,7 +290,6 @@ func startInProcess(ctx *Context, clientCtx client.Context, appCreator types.App
 			"This defaults to 0 in the current version, but will error in the next version " +
 			"(SDK v0.45). Please explicitly put the desired minimum-gas-prices in your app.toml.")
 	}
-
 	app := appCreator(ctx.Logger, db, traceWriter, ctx.Viper)
 
 	var (

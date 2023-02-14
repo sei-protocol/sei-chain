@@ -241,7 +241,7 @@ func NewBaseApp(
 	app.runTxRecoveryMiddleware = newDefaultRecoveryMiddleware()
 	app.ChainID = cast.ToString(appOpts.Get(FlagChainID))
 	if app.ChainID == "" {
-		panic("must pass --chain-id during startup")
+		panic("must pass --chain-id when calling 'seid start' or set in ~/.sei/config/client.toml")
 	}
 
 	return app

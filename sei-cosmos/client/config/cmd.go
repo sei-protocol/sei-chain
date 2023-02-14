@@ -29,7 +29,7 @@ func runConfigCmd(cmd *cobra.Command, args []string) error {
 	clientCtx := client.GetClientContextFromCmd(cmd)
 	configPath := filepath.Join(clientCtx.HomeDir, "config")
 
-	conf, err := getClientConfig(configPath, clientCtx.Viper)
+	conf, err := GetClientConfig(configPath, clientCtx.Viper)
 	if err != nil {
 		return fmt.Errorf("couldn't get client config: %v", err)
 	}
@@ -66,27 +66,7 @@ func runConfigCmd(cmd *cobra.Command, args []string) error {
 	case 2:
 		// it's set
 		key, value := args[0], args[1]
-
-		switch key {
-		case flags.FlagChainID:
-			conf.SetChainID(value)
-		case flags.FlagKeyringBackend:
-			conf.SetKeyringBackend(value)
-		case tmcli.OutputFlag:
-			conf.SetOutput(value)
-		case flags.FlagNode:
-			conf.SetNode(value)
-		case flags.FlagBroadcastMode:
-			conf.SetBroadcastMode(value)
-		default:
-			return errUnknownConfigKey(key)
-		}
-
-		confFile := filepath.Join(configPath, "client.toml")
-		if err := writeConfigToFile(confFile, conf); err != nil {
-			return fmt.Errorf("could not write client config to the file: %v", err)
-		}
-
+		SetClientConfig(key, value, configPath, conf)
 	default:
 		panic("cound not execute config command")
 	}

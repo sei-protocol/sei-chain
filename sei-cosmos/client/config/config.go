@@ -67,7 +67,7 @@ func ReadFromClientConfig(ctx client.Context) (client.Context, error) {
 		}
 	}
 
-	conf, err := getClientConfig(configPath, ctx.Viper)
+	conf, err := GetClientConfig(configPath, ctx.Viper)
 	if err != nil {
 		return ctx, fmt.Errorf("couldn't get client config: %v", err)
 	}

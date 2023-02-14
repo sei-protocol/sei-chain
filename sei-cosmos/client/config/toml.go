@@ -2,11 +2,15 @@ package config
 
 import (
 	"bytes"
+	"fmt"
 	"io/ioutil"
 	"os"
+	"path/filepath"
 	"text/template"
 
+	"github.com/cosmos/cosmos-sdk/client/flags"
 	"github.com/spf13/viper"
+	tmcli "github.com/tendermint/tendermint/libs/cli"
 )
 
 const defaultConfigTemplate = `# This is a TOML config file.
@@ -27,6 +31,29 @@ node = "{{ .Node }}"
 # Transaction broadcasting mode (sync|async|block)
 broadcast-mode = "{{ .BroadcastMode }}"
 `
+
+func SetClientConfig(key string, value string, configPath string, config *ClientConfig) error {
+	switch key {
+	case flags.FlagChainID:
+		config.SetChainID(value)
+	case flags.FlagKeyringBackend:
+		config.SetKeyringBackend(value)
+	case tmcli.OutputFlag:
+		config.SetOutput(value)
+	case flags.FlagNode:
+		config.SetNode(value)
+	case flags.FlagBroadcastMode:
+		config.SetBroadcastMode(value)
+	default:
+		return errUnknownConfigKey(key)
+	}
+
+	confFile := filepath.Join(configPath, "client.toml")
+	if err := writeConfigToFile(confFile, config); err != nil {
+		return fmt.Errorf("could not write client config to the file: %v", err)
+	}
+	return nil
+}
 
 // writeConfigToFile parses defaultConfigTemplate, renders config using the template and writes it to
 // configFilePath.
@@ -52,7 +79,7 @@ func ensureConfigPath(configPath string) error {
 }
 
 // getClientConfig reads values from client.toml file and unmarshalls them into ClientConfig
-func getClientConfig(configPath string, v *viper.Viper) (*ClientConfig, error) {
+func GetClientConfig(configPath string, v *viper.Viper) (*ClientConfig, error) {
 	v.AddConfigPath(configPath)
 	v.SetConfigName("client")
 	v.SetConfigType("toml")
