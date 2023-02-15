@@ -104,3 +104,15 @@ func MeasureDeliverTxDuration(start time.Time) {
 		start.UTC(),
 	)
 }
+
+// sei_oracle_vote_penalty_count
+func SetOracleVotePenaltyCount(count uint64, valAddr string, penaltyType string) {
+	metrics.SetGaugeWithLabels(
+		[]string{"sei", "oracle", "vote", "penalty", "count"},
+		float32(count),
+		[]metrics.Label{
+			telemetry.NewLabel("type", penaltyType),
+			telemetry.NewLabel("validator", valAddr),
+		},
+	)
+}
