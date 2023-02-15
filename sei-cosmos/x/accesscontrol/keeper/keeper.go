@@ -500,15 +500,17 @@ func (k Keeper) BuildDependencyDag(ctx sdk.Context, txDecoder sdk.TxDecoder, ant
 		}
 		// get the ante dependencies and add them to the dag
 		anteDeps, err := anteDepGen([]acltypes.AccessOperation{}, tx)
-		anteDepSet := make(map[acltypes.AccessOperation]struct{})
-		for _, dep := range anteDeps {
-			anteDepSet[dep] = struct{}{}
-		}
-		// pass through set to dedup
 		if err != nil {
 			return nil, err
 		}
-		for accessOp := range anteDepSet {
+
+		anteDepSet := make(map[acltypes.AccessOperation]struct{})
+		for _, accessOp := range anteDeps {
+			// if found in set, we've already included this access Op in out ante dependencies, so skip it
+			if _, found := anteDepSet[accessOp]; found {
+				continue
+			}
+			anteDepSet[accessOp] = struct{}{}
 			err = types.ValidateAccessOp(accessOp)
 			if err != nil {
 				return nil, err

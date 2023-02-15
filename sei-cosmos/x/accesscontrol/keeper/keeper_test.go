@@ -18,6 +18,7 @@ import (
 	acltestutil "github.com/cosmos/cosmos-sdk/x/accesscontrol/testutil"
 	"github.com/cosmos/cosmos-sdk/x/accesscontrol/types"
 	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
+	govtypes "github.com/cosmos/cosmos-sdk/x/gov/types"
 	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
 )
 
@@ -1617,6 +1618,52 @@ func TestContractReferenceAddressParser(t *testing.T) {
 
 	parsedJQInvalid := aclkeeper.ParseContractReferenceAddress(".test_msg.other_addr", wasmBech32, &msgInfo)
 	require.Equal(t, ".test_msg.other_addr", parsedJQInvalid)
+}
+
+func TestBuildDependencyDag(t *testing.T) {
+	app := simapp.Setup(false)
+	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
+
+	accounts := simapp.AddTestAddrsIncremental(app, ctx, 2, sdk.NewInt(30000000))
+	// setup test txs
+	msgs := []sdk.Msg{
+		banktypes.NewMsgSend(accounts[0], accounts[1], sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(1)))),
+	}
+
+	txBuilder := simapp.MakeTestEncodingConfig().TxConfig.NewTxBuilder()
+	err := txBuilder.SetMsgs(msgs...)
+	require.NoError(t, err)
+	bz, err := simapp.MakeTestEncodingConfig().TxConfig.TxEncoder()(txBuilder.GetTx())
+	require.NoError(t, err)
+	txs := [][]byte{
+		bz,
+	}
+	// ensure no errors creating dag
+	_, err = app.AccessControlKeeper.BuildDependencyDag(ctx, simapp.MakeTestEncodingConfig().TxConfig.TxDecoder(), app.GetAnteDepGenerator(), txs)
+	require.NoError(t, err)
+}
+
+func TestBuildDependencyDagWithGovMessage(t *testing.T) {
+	app := simapp.Setup(false)
+	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
+
+	accounts := simapp.AddTestAddrsIncremental(app, ctx, 2, sdk.NewInt(30000000))
+	// setup test txs
+	msgs := []sdk.Msg{
+		govtypes.NewMsgVote(accounts[0], 1, govtypes.OptionYes),
+	}
+
+	txBuilder := simapp.MakeTestEncodingConfig().TxConfig.NewTxBuilder()
+	err := txBuilder.SetMsgs(msgs...)
+	require.NoError(t, err)
+	bz, err := simapp.MakeTestEncodingConfig().TxConfig.TxEncoder()(txBuilder.GetTx())
+	require.NoError(t, err)
+	txs := [][]byte{
+		bz,
+	}
+	// ensure no errors creating dag
+	_, err = app.AccessControlKeeper.BuildDependencyDag(ctx, simapp.MakeTestEncodingConfig().TxConfig.TxDecoder(), app.GetAnteDepGenerator(), txs)
+	require.Error(t, types.ErrGovMsgInBlock)
 }
 
 func (suite *KeeperTestSuite) TestMessageDependencies() {

@@ -338,8 +338,8 @@ func (isd IncrementSequenceDecorator) AnteDeps(txDeps []sdkacltypes.AccessOperat
 		}
 		deps = append(deps, sdkacltypes.AccessOperation{
 			AccessType:         sdkacltypes.AccessType_WRITE,
-			ResourceType:       sdkacltypes.ResourceType_KV, // TODO: change to ResourceType_KV_AUTH once merged
-			IdentifierTemplate: addr.String(),
+			ResourceType:       sdkacltypes.ResourceType_KV_AUTH_ADDRESS_STORE,
+			IdentifierTemplate: hex.EncodeToString(types.AddressStoreKey(addr)),
 		})
 	}
 
