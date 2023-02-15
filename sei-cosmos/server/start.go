@@ -20,6 +20,9 @@ import (
 	"go.opentelemetry.io/otel/sdk/trace"
 	"google.golang.org/grpc"
 
+	//nolint:gosec,G108
+	_ "net/http/pprof"
+
 	"github.com/cosmos/cosmos-sdk/client"
 	clientconfig "github.com/cosmos/cosmos-sdk/client/config"
 	"github.com/cosmos/cosmos-sdk/client/flags"
@@ -46,6 +49,7 @@ const (
 	FlagInterBlockCache    = "inter-block-cache"
 	FlagUnsafeSkipUpgrades = "unsafe-skip-upgrades"
 	FlagTrace              = "trace"
+	FlagProfile             = "profile"
 	FlagInvCheckPeriod     = "inv-check-period"
 
 	FlagPruning           = "pruning"
@@ -123,6 +127,17 @@ is performed. Note, when enabled, gRPC will also be automatically enabled.
 		},
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			serverCtx := GetServerContextFromCmd(cmd)
+
+			if enableProfile, _ := cmd.Flags().GetBool(FlagProfile); enableProfile {
+				go func() {
+					serverCtx.Logger.Info("Listening for profiling at http://localhost:6060/debug/pprof/")
+					err := http.ListenAndServe(":6060", nil)
+					if err != nil {
+						serverCtx.Logger.Error("Error from profiling server", "error", err)
+					}
+				}()
+			}
+
 			clientCtx, err := client.GetClientQueryContext(cmd)
 			if err != nil {
 				return err
@@ -171,6 +186,7 @@ is performed. Note, when enabled, gRPC will also be automatically enabled.
 	cmd.Flags().Bool(FlagInterBlockCache, true, "Enable inter-block caching")
 	cmd.Flags().String(flagCPUProfile, "", "Enable CPU profiling and write to the provided file")
 	cmd.Flags().Bool(FlagTrace, false, "Provide full stack traces for errors in ABCI Log")
+	cmd.Flags().Bool(FlagProfile, false, "Enable Profiling in the application")
 	cmd.Flags().String(FlagPruning, storetypes.PruningOptionDefault, "Pruning strategy (default|nothing|everything|custom)")
 	cmd.Flags().Uint64(FlagPruningKeepRecent, 0, "Number of recent heights to keep on disk (ignored if pruning is not 'custom')")
 	cmd.Flags().Uint64(FlagPruningKeepEvery, 0, "Offset heights to keep on disk after 'keep-every' (ignored if pruning is not 'custom')")
