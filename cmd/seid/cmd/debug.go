@@ -221,6 +221,9 @@ func ReadTree(db dbm.DB, version int, prefix []byte) (*iavl.MutableTree, error) 
 
 func PrintKeys(tree *iavl.MutableTree, moduleParser ModuleParser) []byte {
 	fmt.Println("Printing all keys with hashed values (to detect diff)")
+	if moduleParser != nil {
+		fmt.Println("Parsing module with human readable keys")
+	}
 	lines := []byte{}
 	tree.Iterate(func(key []byte, value []byte) bool { //nolint:errcheck
 		printKey := parseWeaveKey(key)
