@@ -88,7 +88,7 @@ func sudoWithoutOutOfGasPanic(ctx sdk.Context, k *keeper.Keeper, contractAddress
 	}()
 	return logging.LogIfNotDoneAfter(ctx.Logger(), func() ([]byte, error) {
 		return k.WasmKeeper.Sudo(ctx, contractAddress, wasmMsg)
-	}, LogAfter, logName)
+	}, LogAfter, fmt.Sprintf("wasm_sudo_%s", logName))
 }
 
 func hasErrInstantiatingWasmModuleDueToCPUFeature(err error) bool {

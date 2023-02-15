@@ -92,6 +92,21 @@ func IncrFailedConcurrentDeliverTxCounter() {
 	)
 }
 
+// Counts the number of concurrent transactions that failed
+// Metric Names:
+//
+//	sei_log_not_done_after_counter
+func IncrLogIfNotDoneAfter(label string) {
+	metrics.IncrCounterWithLabels(
+		[]string{"sei", "log", "not", "done", "after"},
+		1,
+		[]metrics.Label{
+			telemetry.NewLabel("label", label),
+		},
+	)
+}
+
+
 // Measures the time taken to execute a sudo msg
 // Metric Names:
 //

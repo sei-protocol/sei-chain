@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/sei-protocol/sei-chain/utils/metrics"
 	"github.com/tendermint/tendermint/libs/log"
 )
 
@@ -35,6 +36,7 @@ func LogIfNotDoneAfter[R any](logger log.Logger, task func() (R, error), after t
 			// reraise panic in main goroutine
 			panic(err)
 		case <-time.After(after):
+			metrics.IncrLogIfNotDoneAfter(label)
 			logger.Error(fmt.Sprintf("%s still not finished after %s", label, after))
 		}
 	}

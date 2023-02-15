@@ -123,7 +123,7 @@ func (r *ParallelRunner) Run() {
 		_, err := logging.LogIfNotDoneAfter(r.sdkCtx.Logger(), func() (struct{}, error) {
 			<-r.someContractFinished
 			return struct{}{}, nil
-		}, LogAfter, "runner wait for some contract to finish")
+		}, LogAfter, "dex_parallel_runner_wait")
 		if err != nil {
 			// this should never happen
 			panic(err)
