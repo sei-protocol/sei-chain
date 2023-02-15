@@ -106,7 +106,6 @@ func IncrLogIfNotDoneAfter(label string) {
 	)
 }
 
-
 // Measures the time taken to execute a sudo msg
 // Metric Names:
 //
