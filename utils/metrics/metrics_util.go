@@ -92,7 +92,7 @@ func IncrFailedConcurrentDeliverTxCounter() {
 	)
 }
 
-// Counts the number of concurrent transactions that failed
+// Counts the number of operations that failed due to operation timeout
 // Metric Names:
 //
 //	sei_log_not_done_after_counter
