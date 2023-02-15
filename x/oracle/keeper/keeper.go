@@ -183,8 +183,8 @@ func (k Keeper) GetVotePenaltyCounter(ctx sdk.Context, operator sdk.ValAddress) 
 
 // SetVotePenaltyCounter updates the # of vote periods missed in this oracle slash window
 func (k Keeper) SetVotePenaltyCounter(ctx sdk.Context, operator sdk.ValAddress, missCount uint64, abstainCount uint64) {
-	defer metrics.SetOracleVotePenaltyCount(missCount, "miss")
-	defer metrics.SetOracleVotePenaltyCount(abstainCount, "abstain")
+	defer metrics.SetOracleVotePenaltyCount(missCount, operator.String(),  "miss")
+	defer metrics.SetOracleVotePenaltyCount(abstainCount, operator.String(), "abstain")
 
 	store := ctx.KVStore(k.storeKey)
 	bz := k.cdc.MustMarshal(&types.VotePenaltyCounter{MissCount: missCount, AbstainCount: abstainCount})
