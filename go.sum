@@ -1066,8 +1066,8 @@ github.com/seccomp/libseccomp-golang v0.9.2-0.20210429002308-3879420cc921/go.mod
 github.com/securego/gosec/v2 v2.11.0 h1:+PDkpzR41OI2jrw1q6AdXZCbsNGNGT7pQjal0H0cArI=
 github.com/securego/gosec/v2 v2.11.0/go.mod h1:SX8bptShuG8reGC0XS09+a4H2BoWSJi+fscA+Pulbpo=
 github.com/segmentio/fasthash v1.0.3/go.mod h1:waKX8l2N8yckOgmSsXJi7x1ZfdKZ4x7KRMzBtS3oedY=
-github.com/sei-protocol/sei-cosmos v0.1.426 h1:qk3QVUuEEVYjWVf7oo1Cwm58zxsR2hGAYqDlRMHb9AQ=
-github.com/sei-protocol/sei-cosmos v0.1.426/go.mod h1:luUxbQqdQ/xHQi2iSHQjsGV22644e0omq1kFlxwnEoc=
+github.com/sei-protocol/sei-cosmos v0.1.429 h1:bkD5FSvaR2Ba0uKL+RVq00pOAc18otiGAauCLMo01QQ=
+github.com/sei-protocol/sei-cosmos v0.1.429/go.mod h1:luUxbQqdQ/xHQi2iSHQjsGV22644e0omq1kFlxwnEoc=
 github.com/sei-protocol/sei-iavl v0.0.2 h1:83CizhXdebrwQEcUMKL0jk21NMvakkKii+RvcoPCoFI=
 github.com/sei-protocol/sei-iavl v0.0.2/go.mod h1:7PfkEVT5dcoQE+s/9KWdoXJ8VVVP1QpYYPLdxlkSXFk=
 github.com/sei-protocol/sei-tendermint v0.1.171 h1:G3ZRnQgiLQ06/3iKrj5UicpHfRWJWruaJFxVYHFOcjA=
