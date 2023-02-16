@@ -3,6 +3,10 @@ import logging
 import os
 import subprocess
 
+from datetime import datetime
+from shutil import copytree
+
+
 logging.basicConfig(
     level=logging.INFO,
     encoding='utf-8',
@@ -47,6 +51,22 @@ def validate_clean_state():
     logging.info('Validated clean state.')
 
 
+def cleanup_sei():
+    """Cleanup the SEI state."""
+    if os.path.isdir(SEI_ROOT_DIR):
+        backup_file = f'{SEI_ROOT_DIR}_backup_{datetime.now().strftime("%Y%m%d_%H%M%S")}'
+        copytree(f'{SEI_ROOT_DIR}', backup_file)
+        logging.info('Backed up SEI state to %s', backup_file)
+    run_command('rm -rf ~/.sei')
+
+
+def init_sei(chain_id, moniker):
+    """Initialize the SEI blockchain."""
+    logging.info('Initializing SEI blockchain...')
+    run_command(f'seid init {moniker} --chain-id {chain_id}')
+    logging.info('Initialized SEI blockchain.')
+
+
 def run():
     """Run the setup script."""
     parser = argparse.ArgumentParser(description='Command line tool for specifying chain information')
@@ -62,9 +82,11 @@ def run():
     logging.info('Moniker: %s', args.moniker)
     logging.info('P2P Endpoint: %s', args.p2p_endpoint)
 
+    cleanup_sei()
     set_git_root_as_current_working_dir()
     if not args.skip_validation:
         validate_clean_state()
+    init_sei(args.chain_id, args.moniker)
 
 
 if __name__ == '__main__':
