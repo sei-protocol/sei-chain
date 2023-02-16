@@ -49,6 +49,7 @@ var (
 )
 
 var msgQueueSize = 1000
+var heartbeatIntervalInSecs = 10
 
 // msgs from the reactor which may update the state
 type msgInfo struct {
@@ -490,6 +491,8 @@ func (cs *State) OnStart(ctx context.Context) error {
 
 	// now start the receiveRoutine
 	go cs.receiveRoutine(ctx, 0)
+	// start heartbeater
+	go cs.heartbeater(ctx)
 
 	// schedule the first round!
 	// use GetRoundState so we don't race the receiveRoutine for access
@@ -892,6 +895,23 @@ func (cs *State) newStep() {
 
 		cs.evsw.FireEvent(types.EventNewRoundStepValue, &cs.RoundState)
 	}
+}
+
+func (cs *State) heartbeater(ctx context.Context) {
+	for {
+		select {
+		case <-time.After(time.Duration(heartbeatIntervalInSecs) * time.Second):
+			cs.fireHeartbeatEvent()
+		case <-ctx.Done():
+			return
+		}
+	}
+}
+
+func (cs *State) fireHeartbeatEvent() {
+	cs.mtx.Lock()
+	defer cs.mtx.Unlock()
+	cs.evsw.FireEvent(types.EventNewRoundStepValue, &cs.RoundState)
 }
 
 //-----------------------------------------
