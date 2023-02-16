@@ -57,11 +57,19 @@ func (o *BlockOrders) MarkFailedToPlace(failedOrders []wasm.UnsuccessfulOrder) {
 	for _, failedOrder := range failedOrders {
 		failedOrdersMap[failedOrder.ID] = failedOrder
 	}
+	keys, vals := o.getKVsToSet(failedOrdersMap)
+	for i, key := range keys {
+		o.orderStore.Set(key, vals[i])
+	}
+}
 
+func (o *BlockOrders) getKVsToSet(failedOrdersMap map[uint64]wasm.UnsuccessfulOrder) ([][]byte, [][]byte) {
 	iterator := sdk.KVStorePrefixIterator(o.orderStore, []byte{})
 
 	defer iterator.Close()
 
+	keys := [][]byte{}
+	vals := [][]byte{}
 	for ; iterator.Valid(); iterator.Next() {
 		var val types.Order
 		if err := val.Unmarshal(iterator.Value()); err != nil {
@@ -74,9 +82,11 @@ func (o *BlockOrders) MarkFailedToPlace(failedOrders []wasm.UnsuccessfulOrder) {
 		if bz, err := val.Marshal(); err != nil {
 			panic(err)
 		} else {
-			o.orderStore.Set(iterator.Key(), bz)
+			keys = append(keys, iterator.Key())
+			vals = append(vals, bz)
 		}
 	}
+	return keys, vals
 }
 
 func (o *BlockOrders) GetSortedMarketOrders(direction types.PositionDirection, includeLiquidationOrders bool) []*types.Order {
