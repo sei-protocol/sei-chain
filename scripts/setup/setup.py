@@ -265,7 +265,7 @@ def run():
     parser.add_argument('--chain-id', type=str, help='ID of the blockchain network', required=False)
     parser.add_argument('--moniker', type=str, help='Moniker of the validator node', required=False)
     parser.add_argument('--version', type=str, help='Version of the blockchain software')
-    parser.add_argument('--gentx-args', type=str, help="args to pass to the gentx call e.g '--ip seinetwork.io --port 123'", required=False)
+    parser.add_argument('--gentx-args', type=str, help="args to pass to the gentx call e.g '--ip seinetwork.io --port 123'", required=False, default='')
 
     # setup-price-feeder
     parser.add_argument('--feeder-addr', type=str, help="Wallet address of the oracle feeder account", required=False)
