@@ -105,9 +105,20 @@ def save_content_to_file(content, file_path):
         f.write(content)
 
 
+def try_seid_delete_key(account_name, key_password):
+    try:
+        run_with_password(f'seid keys delete {account_name} -y', key_password)
+        logging.info("Deleted existing key if it exists.")
+    except Exception:
+        logging.info("No existing key found.")
+
+
 def seid_add_key(account_name):
     """Add a key to the SEI blockchain."""
     key_password = getpass('Please enter a password for the validator key: \n')
+    try_seid_delete_key(account_name, key_password)
+    logging.info("Deleted existing key if it exists.")
+
     add_key_output = run_with_password(f'seid keys add {account_name} --output json', key_password)
 
     json_output = json.loads(add_key_output)
