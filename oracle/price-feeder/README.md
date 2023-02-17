@@ -19,7 +19,7 @@ If a cluster is running Oracle price-feeder, your validator is also required to 
 `seid keys add price-feeder-delegate` or any other account name. This may still cause account sequence errors for the delegate account but since it's only being used for the Oracle price feeder, it's not a concern
 2) With the account address output, `export PRICE_FEEDER_DELEGATE_ADDR=<output>`
 3) `seid tx oracle set-feeder $PRICE_FEEDER_DELEGATE_ADDR --from <validator-wallet> --fees 2000usei -b block -y --chain-id {chain-id}`
-4) Make sure to send bank a tiny amount to the account in order for the account to be created
+4) Make sure to send bank a tiny amount to the account in order for the account to be created `seid tx bank send [VALIDATOR_ACCOUNT] $PRICE_FEEDER_DELEGATE_ADDR --from [VALIDATOR_ACCOUNT] [AMOUNT] --fees=2000usei -b block -y`
 
 Then you need to export `PRICE_FEEDER_PASS` environment variable to set up the keyring password. That was entered during the account setup.
 
