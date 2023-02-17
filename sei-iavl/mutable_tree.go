@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"fmt"
+	"runtime/debug"
 	"sort"
 	"sync"
 
@@ -38,7 +39,9 @@ type MutableTree struct {
 	ndb                      *nodeDB
 	skipFastStorageUpgrade   bool // If true, the tree will work like no fast storage and always not upgrade fast storage
 
-	mtx sync.Mutex
+	mtx        sync.Mutex
+	entryMtx   sync.RWMutex
+	entryStack []byte
 }
 
 // NewMutableTree returns a new tree with the specified cache size and datastore.
@@ -130,6 +133,16 @@ func (tree *MutableTree) prepareOrphansSlice() []*Node {
 // to slices stored within IAVL. It returns true when an existing value was
 // updated, while false means it was a new key.
 func (tree *MutableTree) Set(key, value []byte) (updated bool, err error) {
+	if !tree.entryMtx.TryLock() {
+		fmt.Printf("Competing goroutine: %s\n", string(tree.entryStack))
+		fmt.Printf("Current goroutine: %s\n", string(debug.Stack()))
+		panic("IAVL-MT: error acquiring lock on iavl Set")
+	}
+	tree.entryStack = debug.Stack()
+	defer func() {
+		tree.entryStack = []byte{}
+		tree.entryMtx.Unlock()
+	}()
 	var orphaned []*Node
 	orphaned, updated, err = tree.set(key, value)
 	if err != nil {
@@ -145,6 +158,13 @@ func (tree *MutableTree) Set(key, value []byte) (updated bool, err error) {
 // Get returns the value of the specified key if it exists, or nil otherwise.
 // The returned value must not be modified, since it may point to data stored within IAVL.
 func (tree *MutableTree) Get(key []byte) ([]byte, error) {
+	if !tree.entryMtx.TryRLock() {
+		fmt.Printf("Competing goroutine: %s\n", string(tree.entryStack))
+		fmt.Printf("Current goroutine: %s\n", string(debug.Stack()))
+		panic("IAVL-MT: error acquiring lock on iavl Get")
+	}
+	defer tree.entryMtx.RUnlock()
+
 	if tree.root == nil {
 		return nil, nil
 	}
@@ -177,6 +197,13 @@ func (tree *MutableTree) Import(version int64) (*Importer, error) {
 // Iterate iterates over all keys of the tree. The keys and values must not be modified,
 // since they may point to data stored within IAVL. Returns true if stopped by callnack, false otherwise
 func (tree *MutableTree) Iterate(fn func(key []byte, value []byte) bool) (stopped bool, err error) {
+	if !tree.entryMtx.TryRLock() {
+		fmt.Printf("Competing goroutine: %s\n", string(tree.entryStack))
+		fmt.Printf("Current goroutine: %s\n", string(debug.Stack()))
+		panic("IAVL-MT: error acquiring lock on iavl Iterate")
+	}
+	defer tree.entryMtx.RUnlock()
+
 	if tree.root == nil {
 		return false, nil
 	}
@@ -206,6 +233,13 @@ func (tree *MutableTree) Iterate(fn func(key []byte, value []byte) bool) (stoppe
 // Iterator returns an iterator over the mutable tree.
 // CONTRACT: no updates are made to the tree while an iterator is active.
 func (tree *MutableTree) Iterator(start, end []byte, ascending bool) (dbm.Iterator, error) {
+	if !tree.entryMtx.TryRLock() {
+		fmt.Printf("Competing goroutine: %s\n", string(tree.entryStack))
+		fmt.Printf("Current goroutine: %s\n", string(debug.Stack()))
+		panic("IAVL-MT: error acquiring lock on iavl Iterator")
+	}
+	defer tree.entryMtx.RUnlock()
+
 	if !tree.skipFastStorageUpgrade {
 		isFastCacheEnabled, err := tree.IsFastCacheEnabled()
 		if err != nil {
@@ -319,6 +353,17 @@ func (tree *MutableTree) recursiveSet(node *Node, key []byte, value []byte, orph
 // Remove removes a key from the working tree. The given key byte slice should not be modified
 // after this call, since it may point to data stored inside IAVL.
 func (tree *MutableTree) Remove(key []byte) ([]byte, bool, error) {
+	if !tree.entryMtx.TryLock() {
+		fmt.Printf("Competing goroutine: %s\n", string(tree.entryStack))
+		fmt.Printf("Current goroutine: %s\n", string(debug.Stack()))
+		panic("IAVL-MT: error acquiring lock on iavl Remove")
+	}
+	tree.entryStack = debug.Stack()
+	defer func() {
+		tree.entryStack = []byte{}
+		tree.entryMtx.Unlock()
+	}()
+
 	val, orphaned, removed, err := tree.remove(key)
 	if err != nil {
 		return nil, false, err
@@ -467,6 +512,16 @@ func (tree *MutableTree) Load() (int64, error) {
 // performs a no-op. Otherwise, if the root does not exist, an error will be
 // returned.
 func (tree *MutableTree) LazyLoadVersion(targetVersion int64) (int64, error) {
+	if !tree.entryMtx.TryLock() {
+		fmt.Printf("Competing goroutine: %s\n", string(tree.entryStack))
+		fmt.Printf("Current goroutine: %s\n", string(debug.Stack()))
+		panic("IAVL-MT: error acquiring lock on iavl LazyLoadVersion")
+	}
+	tree.entryStack = debug.Stack()
+	defer func() {
+		tree.entryStack = []byte{}
+		tree.entryMtx.Unlock()
+	}()
 	latestVersion, err := tree.ndb.getLatestVersion()
 	if err != nil {
 		return 0, err
@@ -537,6 +592,17 @@ func (tree *MutableTree) LazyLoadVersion(targetVersion int64) (int64, error) {
 
 // Returns the version number of the latest version found
 func (tree *MutableTree) LoadVersion(targetVersion int64) (int64, error) {
+	if !tree.entryMtx.TryLock() {
+		fmt.Printf("Competing goroutine: %s\n", string(tree.entryStack))
+		fmt.Printf("Current goroutine: %s\n", string(debug.Stack()))
+		panic("IAVL-MT: error acquiring lock on iavl LoadVersion")
+	}
+	tree.entryStack = debug.Stack()
+	defer func() {
+		tree.entryStack = []byte{}
+		tree.entryMtx.Unlock()
+	}()
+
 	roots, err := tree.ndb.getRoots()
 	if err != nil {
 		return 0, err
