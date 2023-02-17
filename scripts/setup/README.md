@@ -48,7 +48,7 @@ User=root
 Type=simple
 Environment="PRICE_FEEDER_PASS={KEYRING_PASSWORD}"
 ExecStart=/root/go/bin/price-feeder {PATH-TO-CONFIG-TOML}
-Restart=on-failure
+Restart=always
 LimitNOFILE=6553500
 
 [Install]
