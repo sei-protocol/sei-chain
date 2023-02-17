@@ -135,10 +135,13 @@ func (tree *MutableTree) prepareOrphansSlice() []*Node {
 func (tree *MutableTree) Set(key, value []byte) (updated bool, err error) {
 	if !tree.entryMtx.TryLock() {
 		fmt.Println(string(tree.entryStack))
-		panic("TONYTEST: error acquiring lock on iavl Set")
+		panic("IAVL-MT: error acquiring lock on iavl Set")
 	}
 	tree.entryStack = debug.Stack()
-	defer tree.entryMtx.Unlock()
+	defer func() {
+		tree.entryStack = []byte{}
+		tree.entryMtx.Unlock()
+	}()
 	var orphaned []*Node
 	orphaned, updated, err = tree.set(key, value)
 	if err != nil {
@@ -156,7 +159,7 @@ func (tree *MutableTree) Set(key, value []byte) (updated bool, err error) {
 func (tree *MutableTree) Get(key []byte) ([]byte, error) {
 	if !tree.entryMtx.TryRLock() {
 		fmt.Println(string(tree.entryStack))
-		panic("TONYTEST: error acquiring lock on iavl Get")
+		panic("IAVL-MT: error acquiring lock on iavl Get")
 	}
 	defer tree.entryMtx.RUnlock()
 
@@ -194,7 +197,7 @@ func (tree *MutableTree) Import(version int64) (*Importer, error) {
 func (tree *MutableTree) Iterate(fn func(key []byte, value []byte) bool) (stopped bool, err error) {
 	if !tree.entryMtx.TryRLock() {
 		fmt.Println(string(tree.entryStack))
-		panic("TONYTEST: error acquiring lock on iavl Iterate")
+		panic("IAVL-MT: error acquiring lock on iavl Iterate")
 	}
 	defer tree.entryMtx.RUnlock()
 
@@ -229,7 +232,7 @@ func (tree *MutableTree) Iterate(fn func(key []byte, value []byte) bool) (stoppe
 func (tree *MutableTree) Iterator(start, end []byte, ascending bool) (dbm.Iterator, error) {
 	if !tree.entryMtx.TryRLock() {
 		fmt.Println(string(tree.entryStack))
-		panic("TONYTEST: error acquiring lock on iavl Iterator")
+		panic("IAVL-MT: error acquiring lock on iavl Iterator")
 	}
 	defer tree.entryMtx.RUnlock()
 
@@ -348,10 +351,13 @@ func (tree *MutableTree) recursiveSet(node *Node, key []byte, value []byte, orph
 func (tree *MutableTree) Remove(key []byte) ([]byte, bool, error) {
 	if !tree.entryMtx.TryLock() {
 		fmt.Println(string(tree.entryStack))
-		panic("TONYTEST: error acquiring lock on iavl Remove")
+		panic("IAVL-MT: error acquiring lock on iavl Remove")
 	}
 	tree.entryStack = debug.Stack()
-	defer tree.entryMtx.Unlock()
+	defer func() {
+		tree.entryStack = []byte{}
+		tree.entryMtx.Unlock()
+	}()
 
 	val, orphaned, removed, err := tree.remove(key)
 	if err != nil {
@@ -503,10 +509,13 @@ func (tree *MutableTree) Load() (int64, error) {
 func (tree *MutableTree) LazyLoadVersion(targetVersion int64) (int64, error) {
 	if !tree.entryMtx.TryLock() {
 		fmt.Println(string(tree.entryStack))
-		panic("TONYTEST: error acquiring lock on iavl LazyLoadVersion")
+		panic("IAVL-MT: error acquiring lock on iavl LazyLoadVersion")
 	}
 	tree.entryStack = debug.Stack()
-	defer tree.entryMtx.Unlock()
+	defer func() {
+		tree.entryStack = []byte{}
+		tree.entryMtx.Unlock()
+	}()
 	latestVersion, err := tree.ndb.getLatestVersion()
 	if err != nil {
 		return 0, err
@@ -579,10 +588,13 @@ func (tree *MutableTree) LazyLoadVersion(targetVersion int64) (int64, error) {
 func (tree *MutableTree) LoadVersion(targetVersion int64) (int64, error) {
 	if !tree.entryMtx.TryLock() {
 		fmt.Println(string(tree.entryStack))
-		panic("TONYTEST: error acquiring lock on iavl LoadVersion")
+		panic("IAVL-MT: error acquiring lock on iavl LoadVersion")
 	}
 	tree.entryStack = debug.Stack()
-	defer tree.entryMtx.Unlock()
+	defer func() {
+		tree.entryStack = []byte{}
+		tree.entryMtx.Unlock()
+	}()
 
 	roots, err := tree.ndb.getRoots()
 	if err != nil {
