@@ -50,7 +50,7 @@ def run_command(command):
 
 def run_with_password(command, password):
     """Run a command with a password."""
-    return run_command(f"printf '{password}\\n' | {command}")
+    return run_command(f"printf '{password}\\n{password}\\n' | {command}")
 
 def get_git_root_dir():
     """Get the root directory of the git repository."""
