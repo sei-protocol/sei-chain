@@ -108,8 +108,7 @@ def save_content_to_file(content, file_path):
 def seid_add_key(account_name):
     """Add a key to the SEI blockchain."""
     key_password = getpass('Please enter a password for the validator key: \n')
-    # TODO:: SET KEYRING TO OS
-    add_key_output = run_with_password(f'seid keys add {account_name} --output json --keyring-backend test', key_password)
+    add_key_output = run_with_password(f'seid keys add {account_name} --output json', key_password)
 
     json_output = json.loads(add_key_output)
     address = json_output['address']
