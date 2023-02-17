@@ -145,7 +145,7 @@ def add_genesis_account(account_name, starting_balance):
 def gentx(chain_id, account_name, starting_delegation, gentx_args):
     """Generate a gentx for the validator node."""
     account = account_cache[account_name]
-    output = run_with_password(f'seid gentx {account.account_name} {starting_delegation} --chain-id={chain_id} --ip={ip} --p2p-port={p2p_port}', account.password)
+    output = run_with_password(f'seid gentx {account.account_name} {starting_delegation} --chain-id={chain_id} {gentx_args}', account.password)
     logging.info(output)
 
 
