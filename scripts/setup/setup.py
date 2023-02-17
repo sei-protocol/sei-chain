@@ -44,9 +44,9 @@ def run_command(command):
         output = subprocess.check_output(command, shell=True, stderr=subprocess.STDOUT)
         return output.decode().strip()
     except subprocess.CalledProcessError as err:
-        command = " ".join(err.cmd)
-        error_msg = f"Error running command '{command}'"
-        raise RuntimeError(error_msg) from err
+        error_msg = f"Error running command '{command}': \n {err.output.decode()}"
+        logging.error(error_msg)
+        exit(-1)
 
 def run_with_password(command, password):
     """Run a command with a password."""
@@ -132,10 +132,10 @@ def add_genesis_account(account_name, starting_balance):
     return address, mnemonic
 
 
-def gentx(account_name, starting_delegation):
+def gentx(chain_id, account_name, starting_delegation):
     """Generate a gentx for the validator node."""
     account = account_cache[account_name]
-    output = run_with_password(f'seid gentx {account.account_name} {starting_delegation}', account.password)
+    output = run_with_password(f'seid gentx {account.account_name} {starting_delegation} --chain-id={chain_id}', account.password)
     logging.info(output)
 
 
@@ -152,7 +152,7 @@ def prepare_genesis(args):
 
     # TODO(bweng): Decrease starting balance after testnet
     add_genesis_account(DEFAULT_VALIDATOR_ACC_NAME, '100000000sei')
-    gentx(DEFAULT_VALIDATOR_ACC_NAME, '10000sei')
+    gentx(args.chain_id, DEFAULT_VALIDATOR_ACC_NAME, '10000sei')
 
 def run():
     """Run the setup script."""
