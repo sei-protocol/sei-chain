@@ -28,8 +28,13 @@ func MidBlocker(ctx sdk.Context, k keeper.Keeper) {
 		powerReduction := k.StakingKeeper.PowerReduction(ctx)
 
 		i := 0
+		powerOrderedValAddrs := []sdk.ValAddress{}
 		for ; iterator.Valid() && i < int(maxValidators); iterator.Next() {
-			validator := k.StakingKeeper.Validator(ctx, iterator.Value())
+			powerOrderedValAddrs = append(powerOrderedValAddrs, iterator.Value())
+		}
+
+		for _, valAddr := range powerOrderedValAddrs {
+			validator := k.StakingKeeper.Validator(ctx, valAddr)
 
 			// Exclude not bonded validator
 			if validator.IsBonded() {
