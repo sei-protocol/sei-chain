@@ -142,10 +142,10 @@ def add_genesis_account(account_name, starting_balance):
     return address, mnemonic
 
 
-def gentx(chain_id, account_name, starting_delegation):
+def gentx(chain_id, account_name, starting_delegation, gentx_args):
     """Generate a gentx for the validator node."""
     account = account_cache[account_name]
-    output = run_with_password(f'seid gentx {account.account_name} {starting_delegation} --chain-id={chain_id}', account.password)
+    output = run_with_password(f'seid gentx {account.account_name} {starting_delegation} --chain-id={chain_id} --ip={ip} --p2p-port={p2p_port}', account.password)
     logging.info(output)
 
 
@@ -162,7 +162,7 @@ def prepare_genesis(args):
 
     # TODO(bweng): Decrease starting balance after testnet
     add_genesis_account(DEFAULT_VALIDATOR_ACC_NAME, '100000000sei')
-    gentx(args.chain_id, DEFAULT_VALIDATOR_ACC_NAME, '10000sei')
+    gentx(args.chain_id, DEFAULT_VALIDATOR_ACC_NAME, '10000sei', args.gentx_args)
 
 def run():
     """Run the setup script."""
@@ -171,7 +171,7 @@ def run():
     parser.add_argument('--chain-id', type=str, help='ID of the blockchain network', required=False)
     parser.add_argument('--moniker', type=str, help='Moniker of the validator node', required=False)
     parser.add_argument('--version', type=str, help='Version of the blockchain software')
-    parser.add_argument('--p2p-endpoint', type=str, help='P2P endpoint of the validator node', required=False)
+    parser.add_argument('--gentx-args', type=str, help="args to pass to the gentx call e.g '--ip seinetwork.io --port 123'", required=False)
 
     args = parser.parse_args()
     logging.info('Chain ID: %s', args.chain_id)
