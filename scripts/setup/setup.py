@@ -276,7 +276,7 @@ def run():
     logging.info('Moniker: %s', args.moniker)
 
     # Always validate that the required argument version, is the correct
-    # validate_version(args.version)
+    validate_version(args.version)
 
     try:
         if args.action in {SETUP_VALIDATOR, PREPARE_GENESIS}:
