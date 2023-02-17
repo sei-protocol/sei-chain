@@ -46,7 +46,7 @@ def run_command(command):
     except subprocess.CalledProcessError as err:
         error_msg = f"Error running command '{command}': \n {err.output.decode()}"
         logging.error(error_msg)
-        exit(-1)
+        raise RuntimeError(error_msg) from err
 
 def run_with_password(command, password):
     """Run a command with a password."""
@@ -182,11 +182,14 @@ def run():
     # Always validate that the required argument version, is the correct
     # validate_version(args.version)
 
-    if args.action == PREPARE_GENESIS:
-        prepare_genesis(args)
-    elif args.action == SETUP_ORACLE:
-        print('Not implemented yet')
-        # Setup Oracle
+    try:
+        if args.action == PREPARE_GENESIS:
+            prepare_genesis(args)
+        elif args.action == SETUP_ORACLE:
+            print('Not implemented yet')
+            # Setup Oracle
+    except RuntimeError as err:
+        logging.error(f"Unable to run {args.action}")
 
 if __name__ == '__main__':
     run()
