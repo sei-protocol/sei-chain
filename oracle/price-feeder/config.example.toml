@@ -34,9 +34,9 @@ providers = [
 quote = "USD"
 
 [account]
-address = "<UPDATE ME>"
-chain_id = "<UPDATE ME>"
-validator = "<UPDATE ME>"
+address = "<FEEDER_ADDR>"
+chain_id = "<CHAIN_ID>"
+validator = "<VALIDATOR_ADDR>"
 prefix = "sei"
 
 [keyring]

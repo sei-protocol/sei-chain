@@ -23,11 +23,12 @@ SEI_ROOT_DIR = f'{HOME_PATH}/.sei'
 SEI_CONFIG_DIR = f'{SEI_ROOT_DIR}/config'
 SEI_CONFIG_TOML_PATH = f'{SEI_CONFIG_DIR}/config.toml'
 
-SETUP_VALIDATOR = "setup-validator"
 PREPARE_GENESIS = "prepare-genesis"
+SETUP_VALIDATOR = "setup-validator"
 SETUP_PRICE_FEEDER = "setup-price-feeder"
 
 DEFAULT_VALIDATOR_ACC_NAME = 'admin'
+ORACLE_PRICE_FEEDER_ACC_NAME = 'oracle-price-feeder'
 
 account_cache = {}
 class Account:
@@ -85,8 +86,35 @@ def validate_version(version):
 def install_price_feeder():
     """Make the oracle binary."""
     logging.info('Making oracle binary...')
-    run_command('make install-price-feeder')
+    run_command('make install price-feeder')
     logging.info('Made oracle binary.')
+
+
+def set_price_feeder():
+    """Set the price feeder."""
+    logging.info('Setting price feeder...')
+    addr, _ = seid_add_key(ORACLE_PRICE_FEEDER_ACC_NAME)
+    run_command(f'seid tx oracle set-feeder $(seid keys show {ORACLE_PRICE_FEEDER_ACC_NAME} -a) --from admin --yes --fees=2000usei')
+    logging.info("Please send sei tokens to the feeder account '%s' to fund it", addr)
+
+
+def output_price_feeder_config(chain_id):
+    config_path = f'{SEI_ROOT_DIR}/oracle-price-feeder.toml'
+
+    with open('./oracle/price-feeder/config.example.toml', 'r', encoding='utf8') as f:
+        config = f.read()
+
+    key_password = getpass('Please enter a password for the validator account key: \n')
+    val_addr = json.loads(run_with_password(f'seid keys show {DEFAULT_VALIDATOR_ACC_NAME} --bech=val --output json', key_password))['address']
+
+    config = config.replace('<FEEDER_ADDR>', account_cache[ORACLE_PRICE_FEEDER_ACC_NAME].address)
+    config = config.replace('<CHAIN_ID>', chain_id)
+    config = config.replace('<VALIDATOR_ADDR>', val_addr)
+
+    with open(config_path, 'w+', encoding='utf8') as f:
+        f.write(config)
+
+    logging.info('Price feeder config file created at %s', config_path)
 
 def cleanup_sei():
     """Cleanup the SEI state."""
@@ -139,9 +167,6 @@ def seid_add_key(account_name):
 
     return address, mnemonic
 
-def add_key(account_name):
-    return seid_add_key(account_name)
-
 def add_genesis_account(account_name, starting_balance):
     """Add a genesis account to the SEI blockchain."""
     address = account_cache[account_name].address
@@ -166,7 +191,7 @@ def setup_validator(args):
     set_git_root_as_current_working_dir()
     validate_clean_state()
     init_sei(args.chain_id, args.moniker)
-    add_key(DEFAULT_VALIDATOR_ACC_NAME)
+    seid_add_key(DEFAULT_VALIDATOR_ACC_NAME)
 
 def prepare_genesis(args):
     """Prepare the genesis file."""
@@ -179,9 +204,14 @@ def prepare_genesis(args):
     add_genesis_account(DEFAULT_VALIDATOR_ACC_NAME, '100000000sei')
     gentx(args.chain_id, DEFAULT_VALIDATOR_ACC_NAME, '10000sei', args.gentx_args)
 
+
 def setup_oracle(args):
-    if args.feeder_adder:
-        raise RuntimeError('Please specify a feeder wallet adder')
+    if not args.chain_id:
+        raise RuntimeError('Please specify a chain ID')
+
+    install_price_feeder()
+    set_price_feeder()
+    output_price_feeder_config(args.chain_id)
 
 
 def run():
@@ -237,6 +267,9 @@ def run():
     parser.add_argument('--version', type=str, help='Version of the blockchain software')
     parser.add_argument('--gentx-args', type=str, help="args to pass to the gentx call e.g '--ip seinetwork.io --port 123'", required=False)
 
+    # setup-price-feeder
+    parser.add_argument('--feeder-addr', type=str, help="Wallet address of the oracle feeder account", required=False)
+
     args = parser.parse_args()
     logging.info('Chain ID: %s', args.chain_id)
     logging.info('Version: %s', args.version)
@@ -252,8 +285,8 @@ def run():
         if args.action == PREPARE_GENESIS:
             prepare_genesis(args)
         elif args.action == SETUP_PRICE_FEEDER:
-            print('Not implemented yet')
-            # Setup Oracle
+            setup_oracle(args)
+
     except RuntimeError as err:
         logging.error("Unable to run %s due to \n: %s", args.action, err)
 
