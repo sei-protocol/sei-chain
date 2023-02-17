@@ -317,11 +317,19 @@ func (k Keeper) IterateVoteTargets(ctx sdk.Context, handler func(denom string, d
 
 func (k Keeper) ClearVoteTargets(ctx sdk.Context) {
 	store := ctx.KVStore(k.storeKey)
-	iter := sdk.KVStorePrefixIterator(store, types.VoteTargetKey)
+	for _, key := range k.getAllKeysForPrefix(store, types.VoteTargetKey) {
+		store.Delete(key)
+	}
+}
+
+func (k Keeper) getAllKeysForPrefix(store sdk.KVStore, prefix []byte) [][]byte {
+	keys := [][]byte{}
+	iter := sdk.KVStorePrefixIterator(store, prefix)
 	defer iter.Close()
 	for ; iter.Valid(); iter.Next() {
-		store.Delete(iter.Key())
+		keys = append(keys, iter.Key())
 	}
+	return keys
 }
 
 // ValidateFeeder return the given feeder is allowed to feed the message or not

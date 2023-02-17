@@ -182,17 +182,24 @@ func DeepDelete(kvStore sdk.KVStore, storePrefix []byte, matcher func([]byte) bo
 		kvStore,
 		storePrefix,
 	)
-	iterator := sdk.KVStorePrefixIterator(store, []byte{})
-
-	defer iterator.Close()
-
-	keysToDelete := [][]byte{}
-	for ; iterator.Valid(); iterator.Next() {
-		if matcher(iterator.Value()) {
-			keysToDelete = append(keysToDelete, iterator.Key())
+	// Getting all KVs first before applying `matcher` in case `matcher` contains
+	// store read/write logics.
+	// Wrapping getter into its own function to make sure iterator is always closed
+	// before `matcher` logic runs.
+	keyValuesGetter := func() ([][]byte, [][]byte) {
+		iterator := sdk.KVStorePrefixIterator(store, []byte{})
+		defer iterator.Close()
+		keys, values := [][]byte{}, [][]byte{}
+		for ; iterator.Valid(); iterator.Next() {
+			keys = append(keys, iterator.Key())
+			values = append(values, iterator.Value())
 		}
+		return keys, values
 	}
-	for _, keyToDelete := range keysToDelete {
-		store.Delete(keyToDelete)
+	keys, values := keyValuesGetter()
+	for i, key := range keys {
+		if matcher(values[i]) {
+			store.Delete(key)
+		}
 	}
 }
