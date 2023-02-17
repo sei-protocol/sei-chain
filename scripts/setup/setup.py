@@ -129,7 +129,7 @@ def seid_add_key(account_name):
 
     # Cache the account info used to gentx later
     account_cache[account_name] = Account(account_name, address, mnemonic, key_password)
-    save_content_to_file(json.dumps(add_key_output), f'{SEI_CONFIG_DIR}/{account_name}_key_info.txt')
+    save_content_to_file(json.dumps(json_output, indent=4), f'{SEI_CONFIG_DIR}/{account_name}_key_info.txt')
     logging.info('Saved key info to %s', f'{SEI_CONFIG_DIR}/{account_name}_key_info.txt')
 
     return address, mnemonic
