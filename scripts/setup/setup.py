@@ -45,7 +45,6 @@ def run_command(command):
         return output.decode().strip()
     except subprocess.CalledProcessError as err:
         error_msg = f"Error running command '{command}': \n {err.output.decode()}"
-        logging.error(error_msg)
         raise RuntimeError(error_msg) from err
 
 def run_with_password(command, password):
@@ -189,7 +188,7 @@ def run():
             print('Not implemented yet')
             # Setup Oracle
     except RuntimeError as err:
-        logging.error(f"Unable to run {args.action}")
+        logging.error("Unable to run %s due to \n: %s", args.action, err)
 
 if __name__ == '__main__':
     run()
