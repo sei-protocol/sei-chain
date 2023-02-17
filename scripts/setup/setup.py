@@ -82,6 +82,11 @@ def validate_version(version):
     if version_json_output['version'] != version:
         raise RuntimeError(f'Expected version {version} but got {version_json_output["version"]}')
 
+def install_price_feeder():
+    """Make the oracle binary."""
+    logging.info('Making oracle binary...')
+    run_command('make install-price-feeder')
+    logging.info('Made oracle binary.')
 
 def cleanup_sei():
     """Cleanup the SEI state."""
@@ -174,6 +179,11 @@ def prepare_genesis(args):
     add_genesis_account(DEFAULT_VALIDATOR_ACC_NAME, '100000000sei')
     gentx(args.chain_id, DEFAULT_VALIDATOR_ACC_NAME, '10000sei', args.gentx_args)
 
+def setup_oracle(args):
+    if args.feeder_adder:
+        raise RuntimeError('Please specify a feeder wallet adder')
+
+
 def run():
     """
         Setp script for decentralized launches of Sei networks.
@@ -186,6 +196,39 @@ def run():
             You will need to distribute the genesis file to all the other nodes and the gentx file to the validator node.
         setup-price-feeder:
             run this if you're trying to setup a price feeder service on a validator node post genesis
+
+        For seid and price-feeder processes, it's reccomended to run as a systemd service.
+
+        e.g seid
+            [Unit]
+            Description=Sei Node
+            After=network.target
+
+            [Service]
+            User=root
+            Type=simple
+            ExecStart=/root/go/bin/seid start --chain-id ${CHAIN_ID}
+            Restart=always
+            LimitNOFILE=6553500
+
+            [Install]
+            WantedBy=multi-user.target
+
+        e.g price-feeder
+            [Unit]
+            Description=Oracle Price Feeder
+            After=network.target
+
+            [Service]
+            User=root
+            Type=simple
+            Environment="PRICE_FEEDER_PASS={KEYRING_PASSWORD}"
+            ExecStart=/root/go/bin/price-feeder {PATH-TO-CONFIG-TOML}
+            Restart=on-failure
+            LimitNOFILE=6553500
+
+            [Install]
+            WantedBy=multi-user.target
     """
     parser = argparse.ArgumentParser(description='Command line tool for specifying chain information')
     parser.add_argument('action', type=str, help='Action to preform', choices=[SETUP_VALIDATOR, PREPARE_GENESIS, SETUP_PRICE_FEEDER])
