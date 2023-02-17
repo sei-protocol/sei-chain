@@ -23,8 +23,9 @@ SEI_ROOT_DIR = f'{HOME_PATH}/.sei'
 SEI_CONFIG_DIR = f'{SEI_ROOT_DIR}/config'
 SEI_CONFIG_TOML_PATH = f'{SEI_CONFIG_DIR}/config.toml'
 
+SETUP_VALIDATOR = "setup-validator"
 PREPARE_GENESIS = "prepare-genesis"
-SETUP_ORACLE = "setup-oracle"
+SETUP_PRICE_FEEDER = "setup-price-feeder"
 
 DEFAULT_VALIDATOR_ACC_NAME = 'admin'
 
@@ -133,13 +134,15 @@ def seid_add_key(account_name):
 
     return address, mnemonic
 
+def add_key(account_name):
+    return seid_add_key(account_name)
 
 def add_genesis_account(account_name, starting_balance):
     """Add a genesis account to the SEI blockchain."""
-    address, mnemonic = seid_add_key(account_name)
+    address = account_cache[account_name].address
     run_command(f'seid add-genesis-account {address} {starting_balance}')
     logging.info('Added genesis account %s with address %s', account_name, address)
-    return address, mnemonic
+    return address
 
 
 def gentx(chain_id, account_name, starting_delegation, gentx_args):
@@ -148,9 +151,8 @@ def gentx(chain_id, account_name, starting_delegation, gentx_args):
     output = run_with_password(f'seid gentx {account.account_name} {starting_delegation} --chain-id={chain_id} {gentx_args}', account.password)
     logging.info(output)
 
-
-def prepare_genesis(args):
-    """Prepare the genesis file."""
+def setup_validator(args):
+    """Setup the validator node."""
     if not args.chain_id:
         raise RuntimeError('Please specify a chain ID')
     if not args.moniker:
@@ -159,15 +161,34 @@ def prepare_genesis(args):
     set_git_root_as_current_working_dir()
     validate_clean_state()
     init_sei(args.chain_id, args.moniker)
+    add_key(DEFAULT_VALIDATOR_ACC_NAME)
+
+def prepare_genesis(args):
+    """Prepare the genesis file."""
+    if not args.chain_id:
+        raise RuntimeError('Please specify a chain ID')
+    if not args.moniker:
+        raise RuntimeError('Please specify a version')
 
     # TODO(bweng): Decrease starting balance after testnet
     add_genesis_account(DEFAULT_VALIDATOR_ACC_NAME, '100000000sei')
     gentx(args.chain_id, DEFAULT_VALIDATOR_ACC_NAME, '10000sei', args.gentx_args)
 
 def run():
-    """Run the setup script."""
+    """
+        Setp script for decentralized launches of Sei networks.
+
+        setup-validator:
+            run this if you're trying to join an existing network and just need to provision the validator node.
+            Once provisioned, you'll need to request/get Sei tokens in order to stake as a validator
+        prepare-genesis:
+            run this if you're trying to launch a new network. This will generate the genesis file and the gentx file.
+            You will need to distribute the genesis file to all the other nodes and the gentx file to the validator node.
+        setup-price-feeder:
+            run this if you're trying to setup a price feeder service on a validator node post genesis
+    """
     parser = argparse.ArgumentParser(description='Command line tool for specifying chain information')
-    parser.add_argument('action', type=str, help='Action to preform', choices=[PREPARE_GENESIS, SETUP_ORACLE])
+    parser.add_argument('action', type=str, help='Action to preform', choices=[SETUP_VALIDATOR, PREPARE_GENESIS, SETUP_PRICE_FEEDER])
     parser.add_argument('--chain-id', type=str, help='ID of the blockchain network', required=False)
     parser.add_argument('--moniker', type=str, help='Moniker of the validator node', required=False)
     parser.add_argument('--version', type=str, help='Version of the blockchain software')
@@ -182,9 +203,12 @@ def run():
     # validate_version(args.version)
 
     try:
+        if args.action in {SETUP_VALIDATOR, PREPARE_GENESIS}:
+            setup_validator(args)
+
         if args.action == PREPARE_GENESIS:
             prepare_genesis(args)
-        elif args.action == SETUP_ORACLE:
+        elif args.action == SETUP_PRICE_FEEDER:
             print('Not implemented yet')
             # Setup Oracle
     except RuntimeError as err:
