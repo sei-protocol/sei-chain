@@ -275,9 +275,6 @@ def run():
     logging.info('Version: %s', args.version)
     logging.info('Moniker: %s', args.moniker)
 
-    # Always validate that the required argument version, is the correct
-    validate_version(args.version)
-
     try:
         if args.action in {SETUP_VALIDATOR, PREPARE_GENESIS}:
             setup_validator(args)
@@ -289,6 +286,9 @@ def run():
 
     except RuntimeError as err:
         logging.error("Unable to run %s due to \n: %s", args.action, err)
+
+    # Always validate that the required argument version, is the correct
+    validate_version(args.version)
 
 if __name__ == '__main__':
     run()
