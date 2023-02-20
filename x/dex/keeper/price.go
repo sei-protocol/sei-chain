@@ -16,6 +16,13 @@ func (k Keeper) SetPriceState(ctx sdk.Context, price types.Price, contractAddr s
 
 func (k Keeper) DeletePriceStateBefore(ctx sdk.Context, contractAddr string, timestamp uint64, pair types.Pair) {
 	store := prefix.NewStore(ctx.KVStore(k.storeKey), types.PricePrefix(contractAddr, pair.PriceDenom, pair.AssetDenom))
+	for _, key := range k.getPriceKeysToDelete(store, timestamp) {
+		store.Delete(key)
+	}
+}
+
+func (k Keeper) getPriceKeysToDelete(store sdk.KVStore, timestamp uint64) [][]byte {
+	keys := [][]byte{}
 	iterator := sdk.KVStorePrefixIterator(store, []byte{})
 	defer iterator.Close()
 
@@ -24,11 +31,12 @@ func (k Keeper) DeletePriceStateBefore(ctx sdk.Context, contractAddr string, tim
 		priceKey := iterator.Key()
 		priceTs := binary.BigEndian.Uint64(priceKey)
 		if priceTs < timestamp {
-			store.Delete(priceKey)
+			keys = append(keys, priceKey)
 		} else {
 			break
 		}
 	}
+	return keys
 }
 
 func (k Keeper) GetPriceState(ctx sdk.Context, contractAddr string, timestamp uint64, pair types.Pair) (types.Price, bool) {
