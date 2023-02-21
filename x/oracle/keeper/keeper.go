@@ -422,7 +422,7 @@ func (k Keeper) DeletePriceSnapshot(ctx sdk.Context, timestamp int64) {
 	store.Delete(types.GetPriceSnapshotKey(uint64(timestamp)))
 }
 
-func (k Keeper) CalculateTwaps(ctx sdk.Context, lookbackSeconds int64) (types.OracleTwaps, error) {
+func (k Keeper) CalculateTwaps(ctx sdk.Context, lookbackSeconds uint64) (types.OracleTwaps, error) {
 	oracleTwaps := types.OracleTwaps{}
 	currentTime := ctx.BlockTime().Unix()
 	err := k.ValidateLookbackSeconds(ctx, lookbackSeconds)
@@ -436,8 +436,8 @@ func (k Keeper) CalculateTwaps(ctx sdk.Context, lookbackSeconds int64) (types.Or
 	k.IteratePriceSnapshotsReverse(ctx, func(snapshot types.PriceSnapshot) (stop bool) {
 		stop = false
 		snapshotTimestamp := snapshot.SnapshotTimestamp
-		if currentTime-lookbackSeconds > snapshotTimestamp {
-			snapshotTimestamp = currentTime - lookbackSeconds
+		if currentTime-int64(lookbackSeconds) > snapshotTimestamp {
+			snapshotTimestamp = currentTime - int64(lookbackSeconds)
 			stop = true
 		}
 		// update time traversed to represent current snapshot
@@ -507,9 +507,9 @@ func (k Keeper) CalculateTwaps(ctx sdk.Context, lookbackSeconds int64) (types.Or
 	return oracleTwaps, nil
 }
 
-func (k Keeper) ValidateLookbackSeconds(ctx sdk.Context, lookbackSeconds int64) error {
+func (k Keeper) ValidateLookbackSeconds(ctx sdk.Context, lookbackSeconds uint64) error {
 	lookbackDuration := k.LookbackDuration(ctx)
-	if lookbackSeconds > lookbackDuration || lookbackSeconds <= 0 {
+	if lookbackSeconds > lookbackDuration || lookbackSeconds == 0 {
 		return types.ErrInvalidTwapLookback
 	}
 

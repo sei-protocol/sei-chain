@@ -229,7 +229,7 @@ func validateMinValidPerWindow(i interface{}) error {
 }
 
 func validateLookbackDuration(i interface{}) error {
-	_, ok := i.(int64)
+	_, ok := i.(uint64)
 	if !ok {
 		return fmt.Errorf("invalid parameter type: %T", i)
 	}
