@@ -26,14 +26,11 @@ func (k msgServer) RegisterPairs(goCtx context.Context, msg *types.MsgRegisterPa
 		if msg.Creator != contractInfo.Creator {
 			return nil, sdkerrors.ErrUnauthorized
 		}
-	}
 
-	// Loop through each batch contract pair an individual contract pair, token pair
-	// tuple and register them individually
-	for _, batchContractPair := range msg.Batchcontractpair {
-		contractAddress := batchContractPair.ContractAddr
-		for _, pair := range batchContractPair.Pairs {
-			k.AddRegisteredPair(ctx, contractAddress, *pair)
+		// Loop through each batch contract pair an individual contract pair, token pair
+		// tuple and register them individually
+		for _, pair := range batchPair.Pairs {
+			k.AddRegisteredPair(ctx, contractAddr, *pair)
 		}
 	}
 
