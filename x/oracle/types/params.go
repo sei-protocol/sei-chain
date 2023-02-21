@@ -41,7 +41,7 @@ var (
 	}
 	DefaultSlashFraction     = sdk.NewDecWithPrec(1, 4) // 0.01%
 	DefaultMinValidPerWindow = sdk.NewDecWithPrec(5, 2) // 5%
-	DefaultLookbackDuration  = int64(3600)              // in seconds
+	DefaultLookbackDuration  = uint64(3600)             // in seconds
 )
 
 var _ paramstypes.ParamSet = &Params{}

@@ -376,7 +376,7 @@ func (k Keeper) AddPriceSnapshot(ctx sdk.Context, snapshot types.PriceSnapshot) 
 	var lastOutOfRangeSnapshotTimestamp int64 = -1
 	// we need to evict old snapshots (except for one that is out of range)
 	k.IteratePriceSnapshots(ctx, func(snapshot types.PriceSnapshot) (stop bool) {
-		if snapshot.SnapshotTimestamp+lookbackDuration >= ctx.BlockTime().Unix() {
+		if snapshot.SnapshotTimestamp + int64(lookbackDuration) >= ctx.BlockTime().Unix() {
 			return true
 		}
 		// delete the previous out of range snapshot
