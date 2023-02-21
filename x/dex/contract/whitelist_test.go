@@ -16,7 +16,6 @@ func TestGetWasmPrefixes(t *testing.T) {
 	require.Equal(t, []byte(wasmWhitelistedPrefixes[0]), wasmPrefixBytes)
 }
 
-
 func TestGetDexPrefixes(t *testing.T) {
 	dexWhitelistedPrefixes := contract.GetDexWhitelistedPrefixes("sei14hj2tavq8fpesdwxxcu44rty3hh90vhujrvcmstl4zr3txmfvw9sh9m79m")
 	addr, _ := sdk.AccAddressFromBech32("sei14hj2tavq8fpesdwxxcu44rty3hh90vhujrvcmstl4zr3txmfvw9sh9m79m")
