@@ -643,9 +643,22 @@ func (k Keeper) Delegate(
 	// validator.Tokens
 	lastTotalPower := k.GetLastTotalPower(ctx)
 	maxVotingPowerEnforcementThreshold := k.MaxVotingPowerEnforcementThreshold(ctx)
-	if lastTotalPower.GTE(maxVotingPowerEnforcementThreshold) {
-		newVotingPowerRatio := sdk.NewDecFromInt(validator.Tokens.Add(bondAmt)).Quo(sdk.NewDecFromInt(lastTotalPower))
-		if newVotingPowerRatio.GT(k.MaxVotingPowerRatio(ctx)) {
+
+	// 1 power = Bond Amount / Power Reduction
+	validatorAddtionalPower := bondAmt.Quo(k.PowerReduction(ctx))
+	newTotalPower := lastTotalPower.Add(validatorAddtionalPower)
+
+	// If it's beyond genesis then enforce power ratio per validator if there's more than maxVotingPowerEnforcementThreshold
+	if newTotalPower.GTE(maxVotingPowerEnforcementThreshold) && ctx.BlockHeight() > 0 {
+		// Convert bond amount to power first
+		validatorNewTotalPower := validator.Tokens.Add(bondAmt).Quo(k.PowerReduction(ctx))
+		// Validator's new total power cannot exceed the max power ratio that's allowed
+		newVotingPowerRatio := validatorNewTotalPower.ToDec().Quo(newTotalPower.ToDec())
+		maxVotingPowerRatio := k.MaxVotingPowerRatio(ctx)
+		if newVotingPowerRatio.GT(maxVotingPowerRatio) {
+			k.Logger(ctx).Error(
+				fmt.Sprintf("validator's voting power ratio exceeds the max allowed ratio: %s > %s\n", newVotingPowerRatio.String(), maxVotingPowerRatio.String()),
+			)
 			return sdk.ZeroDec(), types.ErrExceedMaxVotingPowerRatio
 		}
 	}

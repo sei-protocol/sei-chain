@@ -8,11 +8,11 @@ const (
 
 	// default maximal voting power ratio
 	// Max percentage of the total voting power a single validator can have
-	DefaultMaxVotingPowerRatio = "0.1"
+	DefaultMaxVotingPowerRatio = "0.2"
 
 	// Maximum amount of staking power we allow per validator before the max voting power ratio is enforced
 	// Threshold for number of token staked = DefaultPowerReduction * DefaultMaxVotingPowerEnforcementThreshold
-	DefaultMaxVotingPowerEnforcementThreshold uint64 = 10000
+	DefaultMaxVotingPowerEnforcementThreshold uint64 = 1000000
 
 	// Delay, in blocks, between when validator updates are returned to the
 	// consensus-engine and when they are applied. For example, if

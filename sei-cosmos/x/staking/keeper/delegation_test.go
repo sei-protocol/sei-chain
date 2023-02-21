@@ -135,8 +135,41 @@ func TestSetDelegation(t *testing.T) {
 	resBonds = app.StakingKeeper.GetDelegatorDelegations(ctx, addrDels[1], 5)
 	require.Equal(t, 0, len(resBonds))
 }
+
+
+func TestDelegationGentx(t *testing.T) {
+	_, app, ctx := createTestInput()
+
+	addrDels := simapp.AddTestAddrsIncremental(app, ctx, 3, app.StakingKeeper.TokensFromConsensusPower(ctx, 5100000000000))
+	valAddrs := simapp.ConvertAddrsToValAddrs(addrDels)
+
+	//construct the validators
+	amts := []sdk.Int{sdk.NewInt(0)}
+	var validators [1]types.Validator
+	for i, amt := range amts {
+		validators[i] = teststaking.NewValidator(t, valAddrs[i], PKs[i])
+		validators[i], _ = validators[i].AddTokensFromDel(amt)
+	}
+
+	validators[0] = keeper.TestingUpdateValidator(app.StakingKeeper, ctx, validators[0], true)
+
+	app.StakingKeeper.SetValidator(ctx, validators[0])
+	app.StakingKeeper.SetValidatorByConsAddr(ctx, validators[0])
+	app.StakingKeeper.SetNewValidatorByPowerIndex(ctx, validators[0])
+
+	// Test Genesis gentx delegation
+	ctx = ctx.WithBlockHeight(0)
+	_, err := app.StakingKeeper.Delegate(ctx, addrDels[0], app.StakingKeeper.TokensFromConsensusPower(ctx, 100000000000), types.Unbonded, validators[0], true)
+	_ = staking.EndBlocker(ctx, app.StakingKeeper)
+
+	require.Nil(t, err)
+	allBonds := app.StakingKeeper.GetAllDelegations(ctx)
+	require.Equal(t, 1, len(allBonds))
+}
+
+
 func TestDelegation(t *testing.T) {
-	_, app, ctx := createTestInput()	
+	_, app, ctx := createTestInput()
 
 	addrDels := simapp.AddTestAddrsIncremental(app, ctx, 3, app.StakingKeeper.TokensFromConsensusPower(ctx, 5100000000000))
 	valAddrs := simapp.ConvertAddrsToValAddrs(addrDels)
@@ -163,17 +196,34 @@ func TestDelegation(t *testing.T) {
 	app.StakingKeeper.SetNewValidatorByPowerIndex(ctx, validators[1])
 	app.StakingKeeper.SetNewValidatorByPowerIndex(ctx, validators[2])
 
-	_, _ = app.StakingKeeper.Delegate(ctx, addrDels[0], app.StakingKeeper.TokensFromConsensusPower(ctx, 3500000000000), types.Unbonded, validators[0], true)
-	_, _ = app.StakingKeeper.Delegate(ctx, addrDels[1], app.StakingKeeper.TokensFromConsensusPower(ctx, 3000000000000), types.Unbonded, validators[1], true)
-	_, _ = app.StakingKeeper.Delegate(ctx, addrDels[2], app.StakingKeeper.TokensFromConsensusPower(ctx, 3500000000000), types.Unbonded, validators[2], true)
+	// Test post genesis state
+	ctx = ctx.WithBlockHeight(10)
+	_, _ = app.StakingKeeper.Delegate(ctx, addrDels[0], app.StakingKeeper.TokensFromConsensusPower(ctx, 10000), types.Unbonded, validators[0], true)
+	_, _ = app.StakingKeeper.Delegate(ctx, addrDels[1], app.StakingKeeper.TokensFromConsensusPower(ctx, 10000), types.Unbonded, validators[1], true)
+	_, _ = app.StakingKeeper.Delegate(ctx, addrDels[2], app.StakingKeeper.TokensFromConsensusPower(ctx, 20000), types.Unbonded, validators[2], true)
 	_ = staking.EndBlocker(ctx, app.StakingKeeper)
 
-	// delegate until max voting power limit
 	allBonds := app.StakingKeeper.GetAllDelegations(ctx)
 	require.Equal(t, 3, len(allBonds))
 
-	// delegate until max voting power limit
-	_, err := app.StakingKeeper.Delegate(ctx, addrDels[1], app.StakingKeeper.TokensFromConsensusPower(ctx, 1), types.Unbonded, validators[0], true)
+	// delegate past threshold will fail
+	_, err := app.StakingKeeper.Delegate(ctx, addrDels[1], app.StakingKeeper.TokensFromConsensusPower(ctx, 1000000), types.Unbonded, validators[0], true)
+	_ = staking.EndBlocker(ctx, app.StakingKeeper)
+	require.Equal(t, types.ErrExceedMaxVotingPowerRatio, err)
+
+	// delegate more than ratio but under threshold will also succeed
+	_, err = app.StakingKeeper.Delegate(ctx, addrDels[1], app.StakingKeeper.TokensFromConsensusPower(ctx, 950000), types.Unbonded, validators[0], true)
+	_ = staking.EndBlocker(ctx, app.StakingKeeper)
+	require.Nil(t, err)
+
+	// delegate more than total power but less than ratio
+	_, err = app.StakingKeeper.Delegate(ctx, addrDels[2], app.StakingKeeper.TokensFromConsensusPower(ctx, 100000), types.Unbonded, validators[0], true)
+	_ = staking.EndBlocker(ctx, app.StakingKeeper)
+	require.Nil(t, err)
+
+	// delegate more than total power exceed ratio
+	_, err = app.StakingKeeper.Delegate(ctx, addrDels[2], app.StakingKeeper.TokensFromConsensusPower(ctx, 900000), types.Unbonded, validators[0], true)
+	_ = staking.EndBlocker(ctx, app.StakingKeeper)
 	require.Equal(t, types.ErrExceedMaxVotingPowerRatio, err)
 }
 
