@@ -30,7 +30,7 @@ func InitialMinter() Minter {
 }
 
 // DefaultInitialMinter returns a default initial Minter object for a new chain
-// which uses an inflation rate of 13%.
+// which uses an inflation rate of 0%.
 func DefaultInitialMinter() Minter {
 	return InitialMinter()
 }
