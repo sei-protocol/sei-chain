@@ -24,13 +24,19 @@ func CmdRegisterContract() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			argNeedHook := args[2] == "true"
-			argNeedMatching := args[3] == "true"
+			argNeedHook, err := strconv.ParseBool(args[2])
+			if err != nil {
+				return err
+			}
+			argNeedMatching, err := strconv.ParseBool(args[3])
+			if err != nil {
+				return err
+			}
 			argDeposit, err := cast.ToUint64E(args[4])
 			if err != nil {
 				return err
 			}
-			dependencies := []*types.ContractDependencyInfo{}
+			var dependencies []*types.ContractDependencyInfo
 			for _, dependency := range args[5:] {
 				dependencies = append(dependencies, &types.ContractDependencyInfo{Dependency: dependency})
 			}
