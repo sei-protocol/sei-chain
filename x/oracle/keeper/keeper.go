@@ -213,6 +213,9 @@ func (k Keeper) GetAbstainCount(ctx sdk.Context, operator sdk.ValAddress) uint64
 
 // DeleteVotePenaltyCounter removes miss counter for the validator
 func (k Keeper) DeleteVotePenaltyCounter(ctx sdk.Context, operator sdk.ValAddress) {
+	defer metrics.SetOracleVotePenaltyCount(0, operator.String(), "miss")
+	defer metrics.SetOracleVotePenaltyCount(0, operator.String(), "abstain")
+
 	store := ctx.KVStore(k.storeKey)
 	store.Delete(types.GetVotePenaltyCounterKey(operator))
 }
