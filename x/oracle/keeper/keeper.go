@@ -3,6 +3,7 @@ package keeper
 import (
 	"fmt"
 	"sort"
+	"math"
 
 	"github.com/sei-protocol/sei-chain/utils/metrics"
 
@@ -370,13 +371,21 @@ func (k Keeper) SetPriceSnapshot(ctx sdk.Context, snapshot types.PriceSnapshot) 
 
 func (k Keeper) AddPriceSnapshot(ctx sdk.Context, snapshot types.PriceSnapshot) {
 	params := k.GetParams(ctx)
-	lookbackDuration := params.LookbackDuration
+
+	// Sanity check to make sure LookbackDuration can be converted to int64
+	// Lookback duration should never get this large
+	if params.LookbackDuration > uint64(math.MaxInt64) {
+		panic(fmt.Sprintf("Lookback duration %d exceeds int64 bounds", params.LookbackDuration))
+	}
+	lookbackDuration := int64(params.LookbackDuration)
+
+	// Check 
 	k.SetPriceSnapshot(ctx, snapshot)
 
 	var lastOutOfRangeSnapshotTimestamp int64 = -1
 	// we need to evict old snapshots (except for one that is out of range)
 	k.IteratePriceSnapshots(ctx, func(snapshot types.PriceSnapshot) (stop bool) {
-		if snapshot.SnapshotTimestamp+int64(lookbackDuration) >= ctx.BlockTime().Unix() {
+		if snapshot.SnapshotTimestamp+lookbackDuration >= ctx.BlockTime().Unix() {
 			return true
 		}
 		// delete the previous out of range snapshot
