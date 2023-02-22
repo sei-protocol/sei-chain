@@ -60,7 +60,7 @@ func TestComputeVWAP(t *testing.T) {
 			expected: map[string]sdk.Dec{
 				"ATOM": sdk.MustNewDecFromStr("28.185812745610043621"),
 				"UMEE": sdk.MustNewDecFromStr("1.13000000"),
-				"SEI": sdk.MustNewDecFromStr("64.870470848638112395"),
+				"SEI":  sdk.MustNewDecFromStr("64.870470848638112395"),
 			},
 		},
 	}
@@ -102,12 +102,12 @@ func TestStandardDeviation(t *testing.T) {
 				config.ProviderBinance: {
 					"ATOM": sdk.MustNewDecFromStr("28.21000000"),
 					"UMEE": sdk.MustNewDecFromStr("1.13000000"),
-					"SEI": sdk.MustNewDecFromStr("64.87000000"),
+					"SEI":  sdk.MustNewDecFromStr("64.87000000"),
 				},
 				config.ProviderKraken: {
 					"ATOM": sdk.MustNewDecFromStr("28.23000000"),
 					"UMEE": sdk.MustNewDecFromStr("1.13050000"),
-					"SEI": sdk.MustNewDecFromStr("64.85000000"),
+					"SEI":  sdk.MustNewDecFromStr("64.85000000"),
 				},
 			},
 			expected: map[string]deviation{},
@@ -117,7 +117,7 @@ func TestStandardDeviation(t *testing.T) {
 				config.ProviderBinance: {
 					"ATOM": sdk.MustNewDecFromStr("28.21000000"),
 					"UMEE": sdk.MustNewDecFromStr("1.13000000"),
-					"SEI": sdk.MustNewDecFromStr("64.87000000"),
+					"SEI":  sdk.MustNewDecFromStr("64.87000000"),
 				},
 				config.ProviderKraken: {
 					"ATOM": sdk.MustNewDecFromStr("28.23000000"),
@@ -126,7 +126,7 @@ func TestStandardDeviation(t *testing.T) {
 				config.ProviderCoinbase: {
 					"ATOM": sdk.MustNewDecFromStr("28.40000000"),
 					"UMEE": sdk.MustNewDecFromStr("1.14000000"),
-					"SEI": sdk.MustNewDecFromStr("64.10000000"),
+					"SEI":  sdk.MustNewDecFromStr("64.10000000"),
 				},
 			},
 			expected: map[string]deviation{
@@ -147,17 +147,17 @@ func TestStandardDeviation(t *testing.T) {
 					"ATOM": sdk.MustNewDecFromStr("28.21000000"),
 
 					"UMEE": sdk.MustNewDecFromStr("1.13000000"),
-					"SEI": sdk.MustNewDecFromStr("64.87000000"),
+					"SEI":  sdk.MustNewDecFromStr("64.87000000"),
 				},
 				config.ProviderKraken: {
 					"ATOM": sdk.MustNewDecFromStr("28.23000000"),
 					"UMEE": sdk.MustNewDecFromStr("1.13050000"),
-					"SEI": sdk.MustNewDecFromStr("64.85000000"),
+					"SEI":  sdk.MustNewDecFromStr("64.85000000"),
 				},
 				config.ProviderCoinbase: {
 					"ATOM": sdk.MustNewDecFromStr("28.40000000"),
 					"UMEE": sdk.MustNewDecFromStr("1.14000000"),
-					"SEI": sdk.MustNewDecFromStr("64.10000000"),
+					"SEI":  sdk.MustNewDecFromStr("64.10000000"),
 				},
 			},
 			expected: map[string]deviation{

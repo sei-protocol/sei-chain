@@ -2,6 +2,7 @@ package keeper
 
 import (
 	"fmt"
+	"math"
 	"sort"
 
 	"github.com/sei-protocol/sei-chain/utils/metrics"
@@ -373,7 +374,15 @@ func (k Keeper) SetPriceSnapshot(ctx sdk.Context, snapshot types.PriceSnapshot) 
 
 func (k Keeper) AddPriceSnapshot(ctx sdk.Context, snapshot types.PriceSnapshot) {
 	params := k.GetParams(ctx)
-	lookbackDuration := params.LookbackDuration
+
+	// Sanity check to make sure LookbackDuration can be converted to int64
+	// Lookback duration should never get this large
+	if params.LookbackDuration > uint64(math.MaxInt64) {
+		panic(fmt.Sprintf("Lookback duration %d exceeds int64 bounds", params.LookbackDuration))
+	}
+	lookbackDuration := int64(params.LookbackDuration)
+
+	// Check
 	k.SetPriceSnapshot(ctx, snapshot)
 
 	var lastOutOfRangeSnapshotTimestamp int64 = -1
@@ -425,7 +434,7 @@ func (k Keeper) DeletePriceSnapshot(ctx sdk.Context, timestamp int64) {
 	store.Delete(types.GetPriceSnapshotKey(uint64(timestamp)))
 }
 
-func (k Keeper) CalculateTwaps(ctx sdk.Context, lookbackSeconds int64) (types.OracleTwaps, error) {
+func (k Keeper) CalculateTwaps(ctx sdk.Context, lookbackSeconds uint64) (types.OracleTwaps, error) {
 	oracleTwaps := types.OracleTwaps{}
 	currentTime := ctx.BlockTime().Unix()
 	err := k.ValidateLookbackSeconds(ctx, lookbackSeconds)
@@ -439,8 +448,8 @@ func (k Keeper) CalculateTwaps(ctx sdk.Context, lookbackSeconds int64) (types.Or
 	k.IteratePriceSnapshotsReverse(ctx, func(snapshot types.PriceSnapshot) (stop bool) {
 		stop = false
 		snapshotTimestamp := snapshot.SnapshotTimestamp
-		if currentTime-lookbackSeconds > snapshotTimestamp {
-			snapshotTimestamp = currentTime - lookbackSeconds
+		if currentTime-int64(lookbackSeconds) > snapshotTimestamp {
+			snapshotTimestamp = currentTime - int64(lookbackSeconds)
 			stop = true
 		}
 		// update time traversed to represent current snapshot
@@ -510,9 +519,9 @@ func (k Keeper) CalculateTwaps(ctx sdk.Context, lookbackSeconds int64) (types.Or
 	return oracleTwaps, nil
 }
 
-func (k Keeper) ValidateLookbackSeconds(ctx sdk.Context, lookbackSeconds int64) error {
+func (k Keeper) ValidateLookbackSeconds(ctx sdk.Context, lookbackSeconds uint64) error {
 	lookbackDuration := k.LookbackDuration(ctx)
-	if lookbackSeconds > lookbackDuration || lookbackSeconds <= 0 {
+	if lookbackSeconds > lookbackDuration || lookbackSeconds == 0 {
 		return types.ErrInvalidTwapLookback
 	}
 

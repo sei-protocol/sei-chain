@@ -37,7 +37,7 @@ message Params {
     (gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Dec",
     (gogoproto.nullable)   = false
   ];
-  int64 lookback_duration = 9 [
+  uint64 lookback_duration = 9 [
     (gogoproto.moretags)   = "yaml:\"lookback_duration\""
   ];
 }
