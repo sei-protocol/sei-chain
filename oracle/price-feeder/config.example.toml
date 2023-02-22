@@ -53,7 +53,7 @@ enable_hostname = true
 enable_hostname_label = true
 enable_service_label = true
 enabled = true
-global_labels = [["chain-id", "sei-chain"]]
+global_labels = [["chain_id", "sei-chain"]]
 service_name = "price-feeder"
 prometheus_retention = 60
 
