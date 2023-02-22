@@ -196,6 +196,57 @@ func TestPlaceInvalidOrder(t *testing.T) {
 	server = msgserver.NewMsgServerImpl(*keeper)
 	_, err = server.PlaceOrders(wctx, msg)
 	require.NotNil(t, err)
+
+	// Nil Fund Amount
+	msg = &types.MsgPlaceOrders{
+		Creator:      TestCreator,
+		ContractAddr: TestContract,
+		Orders: []*types.Order{
+			{
+				Price:             sdk.MustNewDecFromStr("10"),
+				Quantity:          sdk.MustNewDecFromStr("10"),
+				Data:              "",
+				PositionDirection: types.PositionDirection_LONG,
+				OrderType:         types.OrderType_LIMIT,
+				PriceDenom:        keepertest.TestPriceDenom,
+				AssetDenom:        keepertest.TestAssetDenom,
+			},
+		},
+		Funds: sdk.Coins{
+			sdk.Coin{
+				Denom: "TEST",
+			},
+		},
+	}
+	server = msgserver.NewMsgServerImpl(*keeper)
+	_, err = server.PlaceOrders(wctx, msg)
+	require.NotNil(t, err)
+
+	// Negative Fund Amount
+	msg = &types.MsgPlaceOrders{
+		Creator:      TestCreator,
+		ContractAddr: TestContract,
+		Orders: []*types.Order{
+			{
+				Price:             sdk.MustNewDecFromStr("10"),
+				Quantity:          sdk.MustNewDecFromStr("10"),
+				Data:              "",
+				PositionDirection: types.PositionDirection_LONG,
+				OrderType:         types.OrderType_LIMIT,
+				PriceDenom:        keepertest.TestPriceDenom,
+				AssetDenom:        keepertest.TestAssetDenom,
+			},
+		},
+		Funds: sdk.Coins{
+			sdk.Coin{
+				Denom:  "TEST",
+				Amount: sdk.NewInt(-10),
+			},
+		},
+	}
+	server = msgserver.NewMsgServerImpl(*keeper)
+	_, err = server.PlaceOrders(wctx, msg)
+	require.NotNil(t, err)
 }
 
 func TestPlaceNoOrder(t *testing.T) {

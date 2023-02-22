@@ -19,7 +19,8 @@ seid version # Uncomment the below line if there are any dependency issues
 
 # Initialize validator node
 MONIKER="sei-node-$NODE_ID"
-seid init "$MONIKER" --chain-id sei
+
+seid init "$MONIKER" --chain-id sei >/dev/null 2>&1
 
 # Copy configs
 ORACLE_CONFIG_FILE="build/generated/node_$NODE_ID/price_feeder_config.toml"

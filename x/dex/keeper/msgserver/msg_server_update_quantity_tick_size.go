@@ -26,10 +26,8 @@ func (k msgServer) UpdateQuantityTickSize(goCtx context.Context, msg *types.MsgU
 		if msg.Creator != contractInfo.Creator {
 			return nil, sdkerrors.ErrUnauthorized
 		}
-	}
 
-	for _, tickSize := range msg.TickSizeList {
-		err := k.SetQuantityTickSizeForPair(ctx, tickSize.ContractAddr, *tickSize.Pair, tickSize.Ticksize)
+		err = k.SetQuantityTickSizeForPair(ctx, tickSize.ContractAddr, *tickSize.Pair, tickSize.Ticksize)
 		if err != nil {
 			return nil, err
 		}
