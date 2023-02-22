@@ -2,8 +2,8 @@ package keeper
 
 import (
 	"fmt"
-	"sort"
 	"math"
+	"sort"
 
 	"github.com/sei-protocol/sei-chain/utils/metrics"
 
@@ -379,7 +379,7 @@ func (k Keeper) AddPriceSnapshot(ctx sdk.Context, snapshot types.PriceSnapshot) 
 	}
 	lookbackDuration := int64(params.LookbackDuration)
 
-	// Check 
+	// Check
 	k.SetPriceSnapshot(ctx, snapshot)
 
 	var lastOutOfRangeSnapshotTimestamp int64 = -1
