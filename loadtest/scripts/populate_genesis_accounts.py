@@ -88,29 +88,7 @@ def create_genesis_account(account_index, account_name, local=False):
           "@type": "/cosmos.auth.v1beta1.BaseAccount",
           "address": address,
           "pub_key": None,
-          "account_number": "0",
-          "sequence": "0"
-        }
-    }
-
-    if retry_counter >= 1000:
-        exit(-1)
-
-    global_accounts_mapping[account_index] = {
-        "balance": {
-            "address": address,
-            "coins": [
-                {
-                    "denom": "usei",
-                    "amount": "1000000000000000000000000"
-                }
-            ]
-        },
-        "account": {
-          "@type": "/cosmos.auth.v1beta1.BaseAccount",
-          "address": address,
-          "pub_key": None,
-          "account_number": "0",
+          "account_number": f"{account_index}",
           "sequence": "0"
         }
     }
@@ -154,7 +132,11 @@ def main():
 
     print("Waiting for threads")
     for t in threads:
-        t.join()
+        try:
+            t.join()
+        except Exception as error:
+            print(f"Error waiting for thread, skipping: {error}")
+
 
     sorted_keys = sorted(list(global_accounts_mapping.keys()))
     account_info = [0] * len(sorted_keys)
