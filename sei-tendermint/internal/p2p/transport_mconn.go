@@ -48,9 +48,6 @@ type MConnTransport struct {
 	closeOnce sync.Once
 	doneCh    chan struct{}
 	listener  net.Listener
-
-	lastConnsMutex *sync.Mutex
-	lastConns      map[string]net.Conn
 }
 
 // NewMConnTransport sets up a new MConnection transport. This uses the
@@ -63,13 +60,11 @@ func NewMConnTransport(
 	options MConnTransportOptions,
 ) *MConnTransport {
 	return &MConnTransport{
-		logger:         logger,
-		options:        options,
-		mConnConfig:    mConnConfig,
-		doneCh:         make(chan struct{}),
-		channelDescs:   channelDescs,
-		lastConns:      make(map[string]net.Conn),
-		lastConnsMutex: &sync.Mutex{},
+		logger:       logger,
+		options:      options,
+		mConnConfig:  mConnConfig,
+		doneCh:       make(chan struct{}),
+		channelDescs: channelDescs,
 	}
 }
 
@@ -169,15 +164,6 @@ func (m *MConnTransport) Accept(ctx context.Context) (Connection, error) {
 	case err := <-errCh:
 		return nil, err
 	case tcpConn := <-conCh:
-		if tcpConn == nil || tcpConn.RemoteAddr() == nil {
-			m.logger.Error("accepting a nil connection")
-		} else if tcpAddr, ok := tcpConn.RemoteAddr().(*net.TCPAddr); ok {
-			m.lastConnsMutex.Lock()
-			defer m.lastConnsMutex.Unlock()
-			m.lastConns[formatAddr(tcpAddr.IP, uint16(tcpAddr.Port))] = tcpConn
-		} else {
-			m.logger.Error("accepting a connection whose remote address is not TCPAddr")
-		}
 		return newMConnConnection(m.logger, tcpConn, m.mConnConfig, m.channelDescs), nil
 	}
 
@@ -191,23 +177,10 @@ func (m *MConnTransport) Dial(ctx context.Context, endpoint *Endpoint) (Connecti
 	if endpoint.Port == 0 {
 		endpoint.Port = 26657
 	}
-	m.lastConnsMutex.Lock()
-	defer m.lastConnsMutex.Unlock()
-	formattedRemoteAddr := formatAddr(endpoint.IP, endpoint.Port)
-	if lastConn, ok := m.lastConns[formattedRemoteAddr]; ok && lastConn != nil {
-		// normally this should have already been closed by here, but just to make sure
-		err := lastConn.Close()
-		if err == nil {
-			m.logger.Info(fmt.Sprintf("last connection to %s was closed just before dialing", formattedRemoteAddr))
-		}
-	}
 
 	dialer := net.Dialer{}
 	tcpConn, err := dialer.DialContext(ctx, "tcp", net.JoinHostPort(
 		endpoint.IP.String(), strconv.Itoa(int(endpoint.Port))))
-	// setting last conn here even if there is an error, in case a connection has still been established
-	// despite the error.
-	m.lastConns[formattedRemoteAddr] = tcpConn
 	if err != nil {
 		select {
 		case <-ctx.Done():
@@ -258,10 +231,6 @@ func (m *MConnTransport) validateEndpoint(endpoint *Endpoint) error {
 		return fmt.Errorf("endpoints with path not supported (got %q)", endpoint.Path)
 	}
 	return nil
-}
-
-func formatAddr(ip net.IP, port uint16) string {
-	return fmt.Sprintf("%s:%d", ip, port)
 }
 
 // mConnConnection implements Connection for MConnTransport.
