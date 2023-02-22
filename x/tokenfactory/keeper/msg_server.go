@@ -144,6 +144,11 @@ func (server msgServer) ChangeAdmin(goCtx context.Context, msg *types.MsgChangeA
 		return nil, types.ErrUnauthorized
 	}
 
+	// Validate new admin we change to should be different from current admin
+	if msg.NewAdmin == authorityMetadata.GetAdmin() {
+		return nil, types.ErrInvalidAuthorityMetadata
+	}
+
 	err = server.Keeper.setAdmin(ctx, msg.Denom, msg.NewAdmin)
 	if err != nil {
 		return nil, err
