@@ -59,10 +59,12 @@ type consensusState interface {
 
 type peerManager interface {
 	Peers() []types.NodeID
+	Score(types.NodeID) int
+	State(types.NodeID) string
 	Addresses(types.NodeID) []p2p.NodeAddress
 }
 
-//----------------------------------------------
+// ----------------------------------------------
 // Environment contains objects and interfaces used by the RPC. It is expected
 // to be setup once during startup.
 type Environment struct {

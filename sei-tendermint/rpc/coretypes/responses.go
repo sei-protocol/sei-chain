@@ -174,10 +174,11 @@ func (s *ResultStatus) TxIndexEnabled() bool {
 
 // Info about peer connections
 type ResultNetInfo struct {
-	Listening bool     `json:"listening"`
-	Listeners []string `json:"listeners"`
-	NPeers    int      `json:"n_peers,string"`
-	Peers     []Peer   `json:"peers"`
+	Listening       bool             `json:"listening"`
+	Listeners       []string         `json:"listeners"`
+	NPeers          int              `json:"n_peers,string"`
+	Peers           []Peer           `json:"peers"`
+	PeerConnections []PeerConnection `json:"peer_connections"`
 }
 
 // Log from dialing seeds
@@ -194,6 +195,13 @@ type ResultDialPeers struct {
 type Peer struct {
 	ID  types.NodeID `json:"node_id"`
 	URL string       `json:"url"`
+}
+
+// A peer connection
+type PeerConnection struct {
+	ID    types.NodeID `json:"node_id"`
+	State string       `json:"state"`
+	Score int          `json:"score,string"`
 }
 
 // Validators for a height.

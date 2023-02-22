@@ -14,6 +14,7 @@ func (env *Environment) NetInfo(ctx context.Context) (*coretypes.ResultNetInfo, 
 	peerList := env.PeerManager.Peers()
 
 	peers := make([]coretypes.Peer, 0, len(peerList))
+	peerConnections := make([]coretypes.PeerConnection, 0, len(peerList))
 	for _, peer := range peerList {
 		addrs := env.PeerManager.Addresses(peer)
 		if len(addrs) == 0 {
@@ -24,13 +25,19 @@ func (env *Environment) NetInfo(ctx context.Context) (*coretypes.ResultNetInfo, 
 			ID:  peer,
 			URL: addrs[0].String(),
 		})
+		peerConnections = append(peerConnections, coretypes.PeerConnection{
+			ID:    peer,
+			State: env.PeerManager.State(peer),
+			Score: env.PeerManager.Score(peer),
+		})
 	}
 
 	return &coretypes.ResultNetInfo{
-		Listening: env.IsListening,
-		Listeners: env.Listeners,
-		NPeers:    len(peers),
-		Peers:     peers,
+		Listening:       env.IsListening,
+		Listeners:       env.Listeners,
+		NPeers:          len(peers),
+		Peers:           peers,
+		PeerConnections: peerConnections,
 	}, nil
 }
 

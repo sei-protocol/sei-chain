@@ -7,6 +7,7 @@ import (
 	"math"
 	"math/rand"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -1002,6 +1003,17 @@ func (m *PeerManager) Scores() map[types.NodeID]PeerScore {
 	return scores
 }
 
+func (m *PeerManager) Score(id types.NodeID) int {
+	m.mtx.Lock()
+	defer m.mtx.Unlock()
+
+	peer, ok := m.store.Get(id)
+	if ok {
+		return int(peer.Score())
+	}
+	return -1
+}
+
 // Status returns the status for a peer, primarily for testing.
 func (m *PeerManager) Status(id types.NodeID) PeerStatus {
 	m.mtx.Lock()
@@ -1012,6 +1024,32 @@ func (m *PeerManager) Status(id types.NodeID) PeerStatus {
 	default:
 		return PeerStatusDown
 	}
+}
+
+func (m *PeerManager) State(id types.NodeID) string {
+	m.mtx.Lock()
+	defer m.mtx.Unlock()
+
+	states := []string{}
+	if _, ok := m.ready[id]; ok {
+		states = append(states, "ready")
+	}
+	if _, ok := m.dialing[id]; ok {
+		states = append(states, "dialing")
+	}
+	if _, ok := m.upgrading[id]; ok {
+		states = append(states, "upgrading")
+	}
+	if _, ok := m.connected[id]; ok {
+		states = append(states, "connected")
+	}
+	if _, ok := m.evict[id]; ok {
+		states = append(states, "evict")
+	}
+	if _, ok := m.evicting[id]; ok {
+		states = append(states, "evicting")
+	}
+	return strings.Join(states, ",")
 }
 
 // findUpgradeCandidate looks for a lower-scored peer that we could evict
