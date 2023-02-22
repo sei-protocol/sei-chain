@@ -1,13 +1,18 @@
 package msgserver_test
 
 import (
+	"context"
 	"testing"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	keepertest "github.com/sei-protocol/sei-chain/testutil/keeper"
+	dexcache "github.com/sei-protocol/sei-chain/x/dex/cache"
 	"github.com/sei-protocol/sei-chain/x/dex/keeper/msgserver"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
+	dexutils "github.com/sei-protocol/sei-chain/x/dex/utils"
+	minttypes "github.com/sei-protocol/sei-chain/x/mint/types"
 	"github.com/stretchr/testify/require"
+	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 )
 
 const (
@@ -66,6 +71,61 @@ func TestPlaceOrder(t *testing.T) {
 	// Ensure that contract addr and account is set in the order
 	require.Equal(t, msg.Orders[0].ContractAddr, TestContract)
 	require.Equal(t, msg.Orders[0].Account, TestCreator)
+}
+
+func TestPlaceOrderWithDeposit(t *testing.T) {
+	msg := &types.MsgPlaceOrders{
+		Creator:      TestCreator,
+		ContractAddr: TestContract,
+		Orders: []*types.Order{
+			{
+				Price:             sdk.MustNewDecFromStr("10"),
+				Quantity:          sdk.MustNewDecFromStr("10"),
+				Data:              "",
+				PositionDirection: types.PositionDirection_LONG,
+				OrderType:         types.OrderType_LIMIT,
+				PriceDenom:        keepertest.TestPriceDenom,
+				AssetDenom:        keepertest.TestAssetDenom,
+			},
+		},
+		Funds: []sdk.Coin{
+			{
+				Denom:  "usei",
+				Amount: sdk.NewInt(10),
+			},
+		},
+	}
+	testApp := keepertest.TestApp()
+	ctx := testApp.BaseApp.NewContext(false, tmproto.Header{})
+	ctx = ctx.WithContext(context.WithValue(ctx.Context(), dexutils.DexMemStateContextKey, dexcache.NewMemState(testApp.GetKey(types.StoreKey))))
+	bankkeeper := testApp.BankKeeper
+	testAccount, _ := sdk.AccAddressFromBech32(TestCreator)
+	amounts := sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(10)))
+	bankkeeper.MintCoins(ctx, minttypes.ModuleName, amounts)
+	bankkeeper.SendCoinsFromModuleToAccount(ctx, minttypes.ModuleName, testAccount, amounts)
+	keeper := testApp.DexKeeper
+	keeper.AddRegisteredPair(ctx, TestContract, keepertest.TestPair)
+	keeper.SetPriceTickSizeForPair(ctx, TestContract, keepertest.TestPair, *keepertest.TestPair.PriceTicksize)
+	keeper.SetQuantityTickSizeForPair(ctx, TestContract, keepertest.TestPair, *keepertest.TestPair.QuantityTicksize)
+	wctx := sdk.WrapSDKContext(ctx)
+	server := msgserver.NewMsgServerImpl(keeper)
+	res, err := server.PlaceOrders(wctx, msg)
+	require.Nil(t, err)
+	require.Equal(t, 1, len(res.OrderIds))
+	require.Equal(t, uint64(0), res.OrderIds[0])
+	senderBalance := bankkeeper.GetBalance(ctx, testAccount, "usei")
+	require.Equal(t, sdk.ZeroInt(), senderBalance.Amount)
+	contractAddr, _ := sdk.AccAddressFromBech32(TestContract)
+	contractBalance := bankkeeper.GetBalance(ctx, contractAddr, "usei")
+	require.Equal(t, sdk.NewInt(10), contractBalance.Amount)
+
+	// insufficient fund
+	res, err = server.PlaceOrders(wctx, msg)
+	require.NotNil(t, err)
+	senderBalance = bankkeeper.GetBalance(ctx, testAccount, "usei")
+	require.Equal(t, sdk.ZeroInt(), senderBalance.Amount)
+	contractBalance = bankkeeper.GetBalance(ctx, contractAddr, "usei")
+	require.Equal(t, sdk.NewInt(10), contractBalance.Amount)
 }
 
 func TestPlaceInvalidOrder(t *testing.T) {

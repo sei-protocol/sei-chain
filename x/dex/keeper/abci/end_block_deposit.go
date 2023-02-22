@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	seiutils "github.com/sei-protocol/sei-chain/utils"
 	"github.com/sei-protocol/sei-chain/x/dex/keeper/utils"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
 	typesutils "github.com/sei-protocol/sei-chain/x/dex/types/utils"
@@ -31,23 +32,10 @@ func (w KeeperWrapper) HandleEBDeposit(ctx context.Context, sdkCtx sdk.Context, 
 }
 
 func (w KeeperWrapper) GetDepositSudoMsg(ctx sdk.Context, typedContractAddr typesutils.ContractAddress) wasm.SudoOrderPlacementMsg {
-	contractDepositInfo := []types.ContractDepositInfo{}
-	for _, depositInfo := range dexutils.GetMemState(ctx.Context()).GetDepositInfo(ctx, typedContractAddr).Get() {
-		fund := sdk.NewCoins(sdk.NewCoin(depositInfo.Denom, depositInfo.Amount.RoundInt()))
-		sender, err := sdk.AccAddressFromBech32(depositInfo.Creator)
-		if err != nil {
-			ctx.Logger().Error("Invalid deposit creator")
-		}
-		receiver, err := sdk.AccAddressFromBech32(string(typedContractAddr))
-		if err != nil {
-			ctx.Logger().Error("Invalid deposit contract")
-		}
-		if err := w.BankKeeper.SendCoins(ctx, sender, receiver, fund); err == nil {
-			contractDepositInfo = append(contractDepositInfo, depositInfo.ToContractDepositInfo())
-		} else {
-			ctx.Logger().Error(err.Error())
-		}
-	}
+	contractDepositInfo := seiutils.Map(
+		dexutils.GetMemState(ctx.Context()).GetDepositInfo(ctx, typedContractAddr).Get(),
+		func(d *types.DepositInfoEntry) types.ContractDepositInfo { return d.ToContractDepositInfo() },
+	)
 	return wasm.SudoOrderPlacementMsg{
 		OrderPlacements: wasm.OrderPlacementMsgDetails{
 			Orders:   []types.Order{},
