@@ -38,7 +38,7 @@ func TestSkipOptimisticProcessingOnUpgrade(t *testing.T) {
 
 	testCtx := testWrapper.App.BaseApp.NewContext(false, tmproto.Header{Height: 1, ChainID: "sei-test", Time: tm})
 	testWrapper.App.UpgradeKeeper.ScheduleUpgrade(testWrapper.Ctx, types.Plan{
-		Name: "test-plan",
+		Name:   "test-plan",
 		Height: 4,
 	})
 	res, _ := testWrapper.App.ProcessProposalHandler(testCtx.WithBlockHeight(4), &abci.RequestProcessProposal{
@@ -47,10 +47,9 @@ func TestSkipOptimisticProcessingOnUpgrade(t *testing.T) {
 	require.Equal(t, res.Status, abci.ResponseProcessProposal_ACCEPT)
 	require.True(t, testWrapper.App.GetOptimisticProcessingInfo().Aborted)
 
-
 	testWrapper.App.ClearOptimisticProcessingInfo()
 	testWrapper.App.UpgradeKeeper.ScheduleUpgrade(testWrapper.Ctx, types.Plan{
-		Name: "test-plan",
+		Name:   "test-plan",
 		Height: 5,
 	})
 	res, _ = testWrapper.App.ProcessProposalHandler(testCtx.WithBlockHeight(4), &abci.RequestProcessProposal{

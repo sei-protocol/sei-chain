@@ -10,8 +10,11 @@ func CancelOrders(
 	orderbook *types.OrderBook,
 ) {
 	for _, cancel := range cancels {
-		cancelOrder(cancel, orderbook.Longs)
-		cancelOrder(cancel, orderbook.Shorts)
+		if cancel.PositionDirection == types.PositionDirection_LONG {
+			cancelOrder(cancel, orderbook.Longs)
+		} else {
+			cancelOrder(cancel, orderbook.Shorts)
+		}
 	}
 }
 

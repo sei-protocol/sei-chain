@@ -55,9 +55,9 @@ func NewContractOrderResult(contractAddr string) ContractOrderResult {
 
 func PopulateOrderPlacementResults(contractAddr string, orders []*types.Order, cancellations []*types.Cancellation, resultMap map[string]ContractOrderResult) {
 	// get cancelled order ids
-	cancels := make(map[uint64]bool)
+	cancels := make(map[uint64]struct{})
 	for _, cancel := range cancellations {
-		cancels[cancel.Id] = true
+		cancels[cancel.Id] = struct{}{}
 	}
 
 	for _, order := range orders {

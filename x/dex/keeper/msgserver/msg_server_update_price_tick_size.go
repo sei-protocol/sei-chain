@@ -26,10 +26,8 @@ func (k msgServer) UpdatePriceTickSize(goCtx context.Context, msg *types.MsgUpda
 		if msg.Creator != contractInfo.Creator {
 			return nil, sdkerrors.ErrUnauthorized
 		}
-	}
 
-	for _, tickSize := range msg.TickSizeList {
-		err := k.SetPriceTickSizeForPair(ctx, tickSize.ContractAddr, *tickSize.Pair, tickSize.Ticksize)
+		err = k.SetPriceTickSizeForPair(ctx, tickSize.ContractAddr, *tickSize.Pair, tickSize.Ticksize)
 		if err != nil {
 			return nil, err
 		}

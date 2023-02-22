@@ -647,8 +647,8 @@ func TestCalculateTwaps(t *testing.T) {
 	require.Error(t, err)
 	require.Equal(t, types.ErrInvalidTwapLookback, err)
 
-	// test error when lookback is negative
-	_, err = input.OracleKeeper.CalculateTwaps(input.Ctx, -10)
+	// test error when lookback is 0
+	_, err = input.OracleKeeper.CalculateTwaps(input.Ctx, 0)
 	require.Error(t, err)
 	require.Equal(t, types.ErrInvalidTwapLookback, err)
 }
