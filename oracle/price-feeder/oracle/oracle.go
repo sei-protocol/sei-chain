@@ -8,28 +8,18 @@ import (
 	"sync"
 	"time"
 
+	sdkclient "github.com/cosmos/cosmos-sdk/client"
+	"github.com/cosmos/cosmos-sdk/telemetry"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/rs/zerolog"
-	"golang.org/x/sync/errgroup"
-	"google.golang.org/grpc"
-
 	"github.com/sei-protocol/sei-chain/oracle/price-feeder/config"
 	"github.com/sei-protocol/sei-chain/oracle/price-feeder/oracle/client"
 	"github.com/sei-protocol/sei-chain/oracle/price-feeder/oracle/provider"
 	"github.com/sei-protocol/sei-chain/oracle/price-feeder/oracle/types"
 	pfsync "github.com/sei-protocol/sei-chain/oracle/price-feeder/pkg/sync"
-
 	oracletypes "github.com/sei-protocol/sei-chain/x/oracle/types"
-
-	"github.com/cosmos/cosmos-sdk/telemetry"
-)
-
-// We define tickerSleep as the minimum timeout between each oracle loop. We
-// define this value empirically based on enough time to collect exchange rates,
-// and broadcast pre-vote and vote transactions such that they're committed in
-// at least one block during each voting period.
-const (
-	tickerSleep = 100 * time.Millisecond
+	"golang.org/x/sync/errgroup"
+	"google.golang.org/grpc"
 )
 
 // Oracle implements the core component responsible for fetching exchange rates
@@ -52,6 +42,7 @@ type Oracle struct {
 	lastPriceSyncTS time.Time
 	prices          map[string]sdk.Dec
 	paramCache      ParamCache
+	jailCache       JailCache
 	healthchecks    map[string]http.Client
 }
 
@@ -101,6 +92,7 @@ func New(
 		providerTimeout:   providerTimeout,
 		deviations:        deviations,
 		paramCache:        ParamCache{},
+		jailCache:         JailCache{},
 		endpoints:         endpoints,
 		healthchecks:      healthchecks,
 	}
@@ -108,6 +100,13 @@ func New(
 
 // Start starts the oracle process in a blocking fashion.
 func (o *Oracle) Start(ctx context.Context) error {
+
+	clientCtx, err := o.oracleClient.CreateClientContext()
+	if err != nil {
+		return err
+	}
+	var previousBlockHeight int64
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -116,19 +115,26 @@ func (o *Oracle) Start(ctx context.Context) error {
 		default:
 			o.logger.Debug().Msg("starting oracle tick")
 
+			// Wait for next block height to be available in the channel
+			currBlockHeight := <-o.oracleClient.BlockHeightEvents
+
 			startTime := time.Now()
-
-			if err := o.tick(ctx); err != nil {
+			err = o.tick(ctx, clientCtx, currBlockHeight)
+			if err != nil {
 				telemetry.IncrCounter(1, "failure", "tick")
-				o.logger.Err(err).Msg("oracle tick failed")
+				o.logger.Err(err).Msg(fmt.Sprintf("Oracle tick failed for height %d", currBlockHeight))
+			} else {
+				telemetry.IncrCounter(1, "success", "tick")
 			}
+			telemetry.MeasureSince(startTime, "latency", "tick")
+			telemetry.IncrCounter(1, "num_ticks", "tick")
 
-			o.lastPriceSyncTS = time.Now()
-
-			telemetry.MeasureSince(startTime, "runtime", "tick")
-			telemetry.IncrCounter(1, "new", "tick")
-
-			time.Sleep(tickerSleep)
+			// Catch any missing blocks
+			if currBlockHeight > (previousBlockHeight+1) && previousBlockHeight > 0 {
+				missedBlocks := currBlockHeight - (previousBlockHeight + 1)
+				telemetry.IncrCounter(float32(missedBlocks), "skipped_blocks", "tick")
+			}
+			previousBlockHeight = currBlockHeight
 		}
 	}
 }
@@ -167,7 +173,7 @@ func (o *Oracle) GetPrices() sdk.DecCoins {
 // SetPrices retrieves all the prices and candles from our set of providers as
 // determined in the config. If candles are available, uses TVWAP in order
 // to determine prices. If candles are not available, uses the most recent prices
-// with VWAP. Warns the the user of any missing prices, and filters out any faulty
+// with VWAP. Warns the user of any missing prices, and filters out any faulty
 // providers which do not report prices or candles within 2𝜎 of the others.
 func (o *Oracle) SetPrices(ctx context.Context) error {
 	g := new(errgroup.Group)
@@ -487,15 +493,23 @@ func (o *Oracle) checkWhitelist(params oracletypes.Params) {
 	}
 }
 
-func (o *Oracle) tick(ctx context.Context) error {
-	o.logger.Debug().Msg("executing oracle tick")
+func (o *Oracle) tick(
+	ctx context.Context,
+	clientCtx sdkclient.Context,
+	blockHeight int64) error {
 
-	blockHeight, err := o.oracleClient.ChainHeight.GetChainHeight()
+	o.logger.Debug().Msg(fmt.Sprintf("executing oracle tick for height %d", blockHeight))
+
+	if blockHeight < 1 {
+		return fmt.Errorf("expected positive block height")
+	}
+
+	isJailed, err := o.GetCachedJailedState(ctx, blockHeight)
 	if err != nil {
 		return err
 	}
-	if blockHeight < 1 {
-		return fmt.Errorf("expected positive block height")
+	if isJailed {
+		return fmt.Errorf("validator %s is jailed", o.oracleClient.ValidatorAddrString)
 	}
 
 	oracleParams, err := o.GetParamCache(ctx, blockHeight)
@@ -503,26 +517,25 @@ func (o *Oracle) tick(ctx context.Context) error {
 		return err
 	}
 
-	if err := o.SetPrices(ctx); err != nil {
+	if err = o.SetPrices(ctx); err != nil {
 		return err
 	}
+	o.lastPriceSyncTS = time.Now()
 
 	// Get oracle vote period, next block height, current vote period, and index
 	// in the vote period.
 	oracleVotePeriod := int64(oracleParams.VotePeriod)
 	nextBlockHeight := blockHeight + 1
 	currentVotePeriod := math.Floor(float64(nextBlockHeight) / float64(oracleVotePeriod))
-	indexInVotePeriod := nextBlockHeight % oracleVotePeriod
 
 	// Skip until new voting period. Specifically, skip when:
 	// index [0, oracleVotePeriod - 1] > oracleVotePeriod - 2 OR index is 0
 	if currentVotePeriod == o.previousVotePeriod {
 		o.logger.Info().
 			Int64("vote_period", oracleVotePeriod).
-			Float64("previous_vote_period", o.previousVotePeriod).
-			Float64("current_vote_period", currentVotePeriod).
+			Float64("previous", o.previousVotePeriod).
+			Float64("current", currentVotePeriod).
 			Msg("skipping until next voting period")
-
 		return nil
 	}
 
@@ -545,14 +558,19 @@ func (o *Oracle) tick(ctx context.Context) error {
 		Str("validator", voteMsg.Validator).
 		Str("feeder", voteMsg.Feeder).
 		Float64("vote_period", currentVotePeriod).
-		Msg("broadcasting vote")
-	if err := o.oracleClient.BroadcastTx(
-		nextBlockHeight,
-		oracleVotePeriod-indexInVotePeriod,
-		voteMsg,
-	); err != nil {
+		Msg("Going to broadcast vote")
+
+	resp, err := o.oracleClient.BroadcastTx(clientCtx, voteMsg)
+	if err != nil {
+		telemetry.IncrCounter(1, "failure", "broadcast")
 		return err
 	}
+	o.logger.Info().
+		Uint32("response_code", resp.Code).
+		Str("tx_hash", resp.TxHash).
+		Msg(fmt.Sprintf("Successfully broadcasted for height %d", blockHeight))
+	telemetry.IncrCounter(1, "success", "broadcast")
+
 	o.previousVotePeriod = currentVotePeriod
 	o.healthchecksPing()
 

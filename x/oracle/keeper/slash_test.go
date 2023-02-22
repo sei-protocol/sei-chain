@@ -55,7 +55,7 @@ func TestSlashAndResetMissCounters(t *testing.T) {
 	require.Equal(t, amt.Sub(slashFraction.MulInt(amt).TruncateInt()), validator.GetBondedTokens())
 	require.True(t, validator.IsJailed())
 
-	// Case 2.5, slash w/ no jail for abstaining
+	// Case 2.5, slash w/ jail for abstaining too much along with misses
 	validator, _ = input.StakingKeeper.GetValidator(input.Ctx, ValAddrs[0])
 	validator.Jailed = false
 	validator.Tokens = amt
@@ -64,9 +64,9 @@ func TestSlashAndResetMissCounters(t *testing.T) {
 	input.OracleKeeper.SetVotePenaltyCounter(input.Ctx, ValAddrs[0], 0, uint64(votePeriodsPerWindow-minValidVotes+1))
 	input.OracleKeeper.SlashAndResetCounters(input.Ctx)
 	validator, _ = input.StakingKeeper.GetValidator(input.Ctx, ValAddrs[0])
-	// no slashing for abstaining
-	require.Equal(t, amt, validator.GetBondedTokens())
-	require.False(t, validator.IsJailed())
+	// slashing for not voting validly sufficiently
+	require.Equal(t, amt.Sub(slashFraction.MulInt(amt).TruncateInt()), validator.GetBondedTokens())
+	require.True(t, validator.IsJailed())
 
 	// Case 3, slash unbonded validator
 	validator, _ = input.StakingKeeper.GetValidator(input.Ctx, ValAddrs[0])

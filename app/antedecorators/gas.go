@@ -6,6 +6,7 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkacltypes "github.com/cosmos/cosmos-sdk/types/accesscontrol"
 	aclkeeper "github.com/cosmos/cosmos-sdk/x/accesscontrol/keeper"
+	acltypes "github.com/cosmos/cosmos-sdk/x/accesscontrol/types"
 )
 
 const (
@@ -21,9 +22,11 @@ func GetGasMeterSetter(aclkeeper aclkeeper.Keeper) func(bool, sdk.Context, uint6
 		}
 
 		denominator := uint64(1)
+		updatedGasDenominator := false
 		for _, msg := range tx.GetMsgs() {
 			candidateDenominator := getMessageMultiplierDenominator(ctx, msg, aclkeeper)
-			if candidateDenominator > denominator {
+			if !updatedGasDenominator || candidateDenominator < denominator {
+				updatedGasDenominator = true
 				denominator = candidateDenominator
 			}
 		}
@@ -31,23 +34,49 @@ func GetGasMeterSetter(aclkeeper aclkeeper.Keeper) func(bool, sdk.Context, uint6
 	}
 }
 
-func getMessageMultiplierDenominator(ctx sdk.Context, msg sdk.Msg, aclkeeper aclkeeper.Keeper) uint64 {
+func getMessageMultiplierDenominator(ctx sdk.Context, msg sdk.Msg, aclKeeper aclkeeper.Keeper) uint64 {
+	// TODO: reason through whether it's reasonable to require non-* identifier for all operations
+	//       under the context of inter-contract changes
+	// only give gas discount if none of the dependency (except COMMIT) has id "*"
 	if wasmExecuteMsg, ok := msg.(*wasmtypes.MsgExecuteContract); ok {
-		addr, err := sdk.AccAddressFromBech32(wasmExecuteMsg.Contract)
+		msgInfo, err := acltypes.NewExecuteMessageInfo(wasmExecuteMsg.Msg)
 		if err != nil {
 			return DefaultGasMultiplierDenominator
 		}
-		mapping, err := aclkeeper.GetWasmDependencyMapping(ctx, addr, "", []byte{}, false)
-		if err != nil {
-			return DefaultGasMultiplierDenominator
+		if messageContainsNoWildcardDependencies(
+			ctx,
+			aclKeeper,
+			wasmExecuteMsg.Contract,
+			msgInfo,
+			wasmExecuteMsg.Sender,
+		) {
+			return WasmCorrectDependencyDiscountDenominator
 		}
-		// only give gas discount if none of the dependency (except COMMIT) has id "*"
-		for _, op := range mapping.AccessOps {
-			if op.Operation.AccessType != sdkacltypes.AccessType_COMMIT && op.Operation.IdentifierTemplate == "*" {
-				return DefaultGasMultiplierDenominator
-			}
-		}
-		return WasmCorrectDependencyDiscountDenominator
 	}
 	return DefaultGasMultiplierDenominator
+}
+
+// TODO: add tracing to measure latency
+func messageContainsNoWildcardDependencies(
+	ctx sdk.Context,
+	aclKeeper aclkeeper.Keeper,
+	contractAddrStr string,
+	msgInfo *acltypes.WasmMessageInfo,
+	sender string,
+) bool {
+	addr, err := sdk.AccAddressFromBech32(contractAddrStr)
+	if err != nil {
+		return false
+	}
+	accessOps, err := aclKeeper.GetWasmDependencyAccessOps(ctx, addr, sender, msgInfo, make(aclkeeper.ContractReferenceLookupMap))
+	if err != nil {
+		return false
+	}
+	for _, op := range accessOps {
+		if op.AccessType != sdkacltypes.AccessType_COMMIT && op.IdentifierTemplate == "*" {
+			return false
+		}
+	}
+
+	return true
 }

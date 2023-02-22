@@ -74,6 +74,17 @@ func TestDeepFilterAccounts(t *testing.T) {
 	require.Equal(t, 1, len(stateOne.GetDepositInfo(ctx, utils.ContractAddress(TEST_CONTRACT)).Get()))
 }
 
+func TestDeepDelete(t *testing.T) {
+	keeper, ctx := keepertest.DexKeeper(t)
+	stateOne := dex.NewMemState(keeper.GetStoreKey())
+	stateOne.GetBlockOrders(ctx, utils.ContractAddress(TEST_CONTRACT), utils.PairString(TEST_PAIR)).Add(&types.Order{
+		Id:           1,
+		Account:      "test",
+		ContractAddr: TEST_CONTRACT,
+	})
+	dex.DeepDelete(ctx.KVStore(keeper.GetStoreKey()), types.KeyPrefix(types.MemOrderKey), func(_ []byte) bool { return true })
+}
+
 func TestClear(t *testing.T) {
 	keeper, ctx := keepertest.DexKeeper(t)
 	stateOne := dex.NewMemState(keeper.GetStoreKey())
@@ -97,20 +108,20 @@ func TestClearCancellationForPair(t *testing.T) {
 	stateOne.GetBlockCancels(ctx, utils.ContractAddress(TEST_CONTRACT), utils.PairString(TEST_PAIR)).Add(&types.Cancellation{
 		Id:           1,
 		ContractAddr: TEST_CONTRACT,
-		PriceDenom: "USDC",
-		AssetDenom: "ATOM",
+		PriceDenom:   "USDC",
+		AssetDenom:   "ATOM",
 	})
 	stateOne.GetBlockCancels(ctx, utils.ContractAddress(TEST_CONTRACT), utils.PairString(TEST_PAIR)).Add(&types.Cancellation{
 		Id:           2,
 		ContractAddr: TEST_CONTRACT,
-		PriceDenom: "USDC",
-		AssetDenom: "ATOM",
+		PriceDenom:   "USDC",
+		AssetDenom:   "ATOM",
 	})
 	stateOne.GetBlockCancels(ctx, utils.ContractAddress(TEST_CONTRACT), utils.PairString(TEST_PAIR)).Add(&types.Cancellation{
 		Id:           3,
 		ContractAddr: TEST_CONTRACT,
-		PriceDenom: "USDC",
-		AssetDenom: "SEI",
+		PriceDenom:   "USDC",
+		AssetDenom:   "SEI",
 	})
 	stateOne.ClearCancellationForPair(ctx, TEST_CONTRACT, utils.GetPairString(&types.Pair{
 		PriceDenom: "USDC",

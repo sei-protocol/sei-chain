@@ -18,6 +18,7 @@ import (
 	cdctypes "github.com/cosmos/cosmos-sdk/codec/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/types/module"
+	seisync "github.com/sei-protocol/sei-chain/sync"
 	"github.com/sei-protocol/sei-chain/utils"
 	"github.com/sei-protocol/sei-chain/utils/tracing"
 	"github.com/sei-protocol/sei-chain/x/dex/client/cli/query"
@@ -188,6 +189,9 @@ func (am AppModule) RegisterServices(cfg module.Configurator) {
 	_ = cfg.RegisterMigration(types.ModuleName, 9, func(ctx sdk.Context) error {
 		return migrations.V9ToV10(ctx, am.keeper)
 	})
+	_ = cfg.RegisterMigration(types.ModuleName, 10, func(ctx sdk.Context) error {
+		return migrations.V10ToV11(ctx, am.keeper)
+	})
 }
 
 // RegisterInvariants registers the capability module's invariants.
@@ -212,7 +216,7 @@ func (am AppModule) ExportGenesis(ctx sdk.Context, cdc codec.JSONCodec) json.Raw
 }
 
 // ConsensusVersion implements ConsensusVersion.
-func (AppModule) ConsensusVersion() uint64 { return 10 }
+func (AppModule) ConsensusVersion() uint64 { return 11 }
 
 func (am AppModule) getAllContractInfo(ctx sdk.Context) []types.ContractInfoV2 {
 	// Do not process any contract that has a non-zero rent balance
@@ -221,12 +225,10 @@ func (am AppModule) getAllContractInfo(ctx sdk.Context) []types.ContractInfoV2 {
 
 // BeginBlock executes all ABCI BeginBlock logic respective to the capability module.
 func (am AppModule) BeginBlock(ctx sdk.Context, _ abci.RequestBeginBlock) {
-	// TODO (codchen): Revert before mainnet so we don't silently fail on errors
 	defer func() {
 		_, span := (*am.tracingInfo.Tracer).Start(am.tracingInfo.TracerContext, "DexBeginBlockRollback")
 		defer span.End()
 	}()
-	defer utils.PanicHandler(func(err any) { utils.MetricsPanicCallback(err, ctx, types.ModuleName) })()
 
 	dexutils.GetMemState(ctx.Context()).Clear(ctx)
 	isNewEpoch, currentEpoch := am.keeper.IsNewEpoch(ctx)
@@ -234,19 +236,21 @@ func (am AppModule) BeginBlock(ctx sdk.Context, _ abci.RequestBeginBlock) {
 		am.keeper.SetEpoch(ctx, currentEpoch)
 	}
 	cachedCtx, cachedStore := store.GetCachedContext(ctx)
-	cachedCtx = cachedCtx.WithGasMeter(dexutils.GetGasMeterForLimit(am.keeper.GetParams(ctx).BeginBlockGasLimit))
+	gasLimit := am.keeper.GetParams(ctx).BeginBlockGasLimit
 	for _, contract := range am.getAllContractInfo(ctx) {
-		am.beginBlockForContract(cachedCtx, contract, int64(currentEpoch))
+		am.beginBlockForContract(cachedCtx, contract, int64(currentEpoch), gasLimit)
 	}
 	// only write if all contracts have been processed
 	cachedStore.Write()
 }
 
-func (am AppModule) beginBlockForContract(ctx sdk.Context, contract types.ContractInfoV2, epoch int64) {
+func (am AppModule) beginBlockForContract(ctx sdk.Context, contract types.ContractInfoV2, epoch int64, gasLimit uint64) {
 	_, span := (*am.tracingInfo.Tracer).Start(am.tracingInfo.TracerContext, "DexBeginBlock")
 	contractAddr := contract.ContractAddr
 	span.SetAttributes(attribute.String("contract", contractAddr))
 	defer span.End()
+
+	ctx = ctx.WithGasMeter(seisync.NewGasWrapper(dexutils.GetGasMeterForLimit(gasLimit)))
 
 	if contract.NeedHook {
 		if err := am.abciWrapper.HandleBBNewBlock(ctx, contractAddr, epoch); err != nil {
@@ -256,7 +260,7 @@ func (am AppModule) beginBlockForContract(ctx sdk.Context, contract types.Contra
 
 	if contract.NeedOrderMatching {
 		currentTimestamp := uint64(ctx.BlockTime().Unix())
-		ctx.Logger().Info(fmt.Sprintf("Removing stale prices for ts %d", currentTimestamp))
+		ctx.Logger().Debug(fmt.Sprintf("Removing stale prices for ts %d", currentTimestamp))
 		priceRetention := am.keeper.GetParams(ctx).PriceSnapshotRetention
 		for _, pair := range am.keeper.GetAllRegisteredPairs(ctx, contractAddr) {
 			am.keeper.DeletePriceStateBefore(ctx, contractAddr, currentTimestamp-priceRetention, pair)
@@ -270,13 +274,6 @@ func (am AppModule) EndBlock(ctx sdk.Context, _ abci.RequestEndBlock) (ret []abc
 	_, span := (*am.tracingInfo.Tracer).Start(am.tracingInfo.TracerContext, "DexEndBlock")
 	defer span.End()
 	defer dexutils.GetMemState(ctx.Context()).Clear(ctx)
-	// TODO (codchen): Revert https://github.com/sei-protocol/sei-chain/pull/176/files before mainnet so we don't silently fail on errors
-	defer utils.PanicHandler(func(err any) {
-		_, span := (*am.tracingInfo.Tracer).Start(am.tracingInfo.TracerContext, "DexEndBlockRollback")
-		defer span.End()
-		utils.MetricsPanicCallback(err, ctx, types.ModuleName)
-		ret = []abci.ValidatorUpdate{}
-	})()
 
 	validContractsInfo := am.getAllContractInfo(ctx)
 	// Each iteration is atomic. If an iteration finishes without any error, it will return,

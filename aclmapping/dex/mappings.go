@@ -25,25 +25,6 @@ func GetDexDependencyGenerators() aclkeeper.DependencyGeneratorMap {
 	return dependencyGeneratorMap
 }
 
-func GetDexMemReadWrite(contract string) []sdkacltypes.AccessOperation {
-	if contract == "" {
-		return []sdkacltypes.AccessOperation{}
-	}
-
-	return []sdkacltypes.AccessOperation{
-		{
-			AccessType:         sdkacltypes.AccessType_READ,
-			ResourceType:       sdkacltypes.ResourceType_DexMem,
-			IdentifierTemplate: hex.EncodeToString([]byte(contract)),
-		},
-		{
-			AccessType:         sdkacltypes.AccessType_WRITE,
-			ResourceType:       sdkacltypes.ResourceType_DexMem,
-			IdentifierTemplate: hex.EncodeToString([]byte(contract)),
-		},
-	}
-}
-
 func GetLongShortOrderBookOps(contractAddr string, priceDenom string, assetDenom string) []sdkacltypes.AccessOperation {
 	return []sdkacltypes.AccessOperation{
 		{
@@ -68,9 +49,7 @@ func DexPlaceOrdersDependencyGenerator(keeper aclkeeper.Keeper, ctx sdk.Context,
 
 	contractAddr := placeOrdersMsg.ContractAddr
 
-	aclOps := GetDexMemReadWrite(contractAddr)
-
-	aclOps = append(aclOps, []sdkacltypes.AccessOperation{
+	aclOps := []sdkacltypes.AccessOperation{
 		{
 			AccessType:         sdkacltypes.AccessType_READ,
 			ResourceType:       sdkacltypes.ResourceType_KV_DEX_NEXT_ORDER_ID,
@@ -86,7 +65,33 @@ func DexPlaceOrdersDependencyGenerator(keeper aclkeeper.Keeper, ctx sdk.Context,
 			ResourceType:       sdkacltypes.ResourceType_KV_DEX_REGISTERED_PAIR,
 			IdentifierTemplate: hex.EncodeToString(dextypes.RegisteredPairPrefix(contractAddr)),
 		},
-	}...)
+		{
+			AccessType:   sdkacltypes.AccessType_READ,
+			ResourceType: sdkacltypes.ResourceType_KV_DEX_MEM_DEPOSIT,
+			IdentifierTemplate: hex.EncodeToString(append(
+				dextypes.MemDepositPrefix(contractAddr),
+				[]byte(placeOrdersMsg.Creator)...,
+			)),
+		},
+		{
+			AccessType:   sdkacltypes.AccessType_WRITE,
+			ResourceType: sdkacltypes.ResourceType_KV_DEX_MEM_DEPOSIT,
+			IdentifierTemplate: hex.EncodeToString(append(
+				dextypes.MemDepositPrefix(contractAddr),
+				[]byte(placeOrdersMsg.Creator)...,
+			)),
+		},
+		{
+			AccessType:         sdkacltypes.AccessType_READ,
+			ResourceType:       sdkacltypes.ResourceType_KV_DEX_MEM_ORDER,
+			IdentifierTemplate: hex.EncodeToString(dextypes.MemOrderPrefix(contractAddr)),
+		},
+		{
+			AccessType:         sdkacltypes.AccessType_WRITE,
+			ResourceType:       sdkacltypes.ResourceType_KV_DEX_MEM_ORDER,
+			IdentifierTemplate: hex.EncodeToString(dextypes.MemOrderPrefix(contractAddr)),
+		},
+	}
 
 	// Last Operation should always be a commit
 	aclOps = append(aclOps, *acltypes.CommitAccessOp())
@@ -100,7 +105,18 @@ func DexCancelOrdersDependencyGenerator(keeper aclkeeper.Keeper, ctx sdk.Context
 	}
 	contractAddr := cancelOrdersMsg.ContractAddr
 
-	aclOps := GetDexMemReadWrite(contractAddr)
+	aclOps := []sdkacltypes.AccessOperation{
+		{
+			AccessType:         sdkacltypes.AccessType_READ,
+			ResourceType:       sdkacltypes.ResourceType_KV_DEX_MEM_CANCEL,
+			IdentifierTemplate: hex.EncodeToString(dextypes.MemCancelPrefix(contractAddr)),
+		},
+		{
+			AccessType:         sdkacltypes.AccessType_WRITE,
+			ResourceType:       sdkacltypes.ResourceType_KV_DEX_MEM_CANCEL,
+			IdentifierTemplate: hex.EncodeToString(dextypes.MemCancelPrefix(contractAddr)),
+		},
+	}
 
 	for _, order := range cancelOrdersMsg.GetCancellations() {
 		priceDenom := order.GetPriceDenom()

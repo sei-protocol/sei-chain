@@ -72,7 +72,7 @@ func TestMsgBeginWasmExecuteGenerator(t *testing.T) {
 	execMsg := wasmtypes.MsgExecuteContract{
 		Sender:   addr1.String(),
 		Contract: addr2.String(),
-		Msg:      wasmtypes.RawContractMessage{},
+		Msg:      wasmtypes.RawContractMessage([]byte("{\"test\":{}}")),
 		Funds:    coins,
 	}
 

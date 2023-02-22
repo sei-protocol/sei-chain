@@ -35,3 +35,11 @@ func (k Keeper) GetMatchResultState(ctx sdk.Context, contractAddr string) (*type
 	}
 	return &result, true
 }
+
+func (k Keeper) DeleteMatchResultState(ctx sdk.Context, contractAddr string) {
+	store := prefix.NewStore(
+		ctx.KVStore(k.storeKey),
+		types.MatchResultPrefix(contractAddr),
+	)
+	store.Delete([]byte(MatchResultKey))
+}

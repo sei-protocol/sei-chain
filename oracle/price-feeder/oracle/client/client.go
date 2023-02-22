@@ -3,7 +3,6 @@ package client
 import (
 	"bytes"
 	"context"
-	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -45,7 +44,7 @@ type (
 		GasAdjustment       float64
 		GRPCEndpoint        string
 		KeyringPassphrase   string
-		ChainHeight         *ChainHeight
+		BlockHeightEvents   chan int64
 	}
 
 	passReader struct {
@@ -94,6 +93,7 @@ func NewOracleClient(
 		GasAdjustment:       gasAdjustment,
 		GRPCEndpoint:        grpcEndpoint,
 		GasPrices:           gasPrices,
+		BlockHeightEvents:   make(chan int64, 1),
 	}
 
 	clientCtx, err := oracleClient.CreateClientContext()
@@ -106,16 +106,16 @@ func NewOracleClient(
 		return OracleClient{}, err
 	}
 
-	chainHeight, err := NewChainHeight(
-		ctx,
-		clientCtx.Client,
-		oracleClient.Logger,
-		blockHeight,
-	)
+	chainHeightUpdater := HeightUpdater{
+		Logger:        logger,
+		LastHeight:    blockHeight,
+		ChBlockHeight: oracleClient.BlockHeightEvents,
+	}
+
+	err = chainHeightUpdater.Start(ctx, clientCtx.Client, oracleClient.Logger)
 	if err != nil {
 		return OracleClient{}, err
 	}
-	oracleClient.ChainHeight = chainHeight
 
 	return oracleClient, nil
 }
@@ -138,75 +138,64 @@ func (r *passReader) Read(p []byte) (n int, err error) {
 	return n, err
 }
 
-// BroadcastTx attempts to broadcast a signed transaction. If it fails, a few re-attempts
-// will be made until the transaction succeeds or ultimately times out or fails.
+// BroadcastTx attempts to broadcast a signed transaction in best effort mode.
+// Retry is not needed since we are doing this for every new block as fast as we could.
 // Ref: https://github.com/terra-money/oracle-feeder/blob/baef2a4a02f57a2ffeaa207932b2e03d7fb0fb25/feeder/src/vote.ts#L230
-func (oc OracleClient) BroadcastTx(nextBlockHeight, timeoutHeight int64, msgs ...sdk.Msg) error {
-	maxBlockHeight := nextBlockHeight + timeoutHeight
-	lastCheckHeight := nextBlockHeight - 2
+//
+// BroadcastTx attempts to generate, sign and broadcast a transaction with the
+// given set of messages. It will also simulate gas requirements if necessary.
+// It will return an error upon failure. We maintain a local account sequence number in txAccount
+// and we manually increment the sequence number by 1 if the previous broadcastTx succeed.
+func (oc OracleClient) BroadcastTx(
+	clientCtx client.Context,
+	msgs ...sdk.Msg) (*sdk.TxResponse, error) {
 
-	clientCtx, err := oc.CreateClientContext()
+	startTime := time.Now()
+	defer telemetry.MeasureSince(startTime, "latency", "broadcast")
+
+	txf, err := oc.CreateTxFactory()
 	if err != nil {
-		return err
+		return nil, err
 	}
 
-	factory, err := oc.CreateTxFactory()
+	// Getting account number and next sequence
+	txf, err = txAccountInfo.ObtainAccountInfo(clientCtx, txf, oc.Logger)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
-	// re-try voting until timeout
-	for lastCheckHeight < maxBlockHeight {
-		latestBlockHeight, err := oc.ChainHeight.GetChainHeight()
-		if err != nil {
-			return err
-		}
-
-		if latestBlockHeight <= lastCheckHeight {
-			continue
-		}
-
-		// set last check height to latest block height
-		lastCheckHeight = latestBlockHeight
-
-		resp, err := BroadcastTx(clientCtx, factory, msgs...)
-		if resp != nil && resp.Code != 0 {
-			telemetry.IncrCounter(1, "failure", "tx", "code")
-			err = fmt.Errorf("invalid response code from tx: %d", resp.Code)
-		}
-		if err != nil {
-			var (
-				code uint32
-				hash string
-			)
-			if resp != nil {
-				code = resp.Code
-				hash = resp.TxHash
-			}
-
-			oc.Logger.Debug().
-				Err(err).
-				Int64("max_height", maxBlockHeight).
-				Int64("last_check_height", lastCheckHeight).
-				Str("tx_hash", hash).
-				Uint32("tx_code", code).
-				Msg("failed to broadcast tx; retrying...")
-
-			time.Sleep(time.Second * 1)
-			continue
-		}
-
-		oc.Logger.Info().
-			Uint32("tx_code", resp.Code).
-			Str("tx_hash", resp.TxHash).
-			Int64("tx_height", resp.Height).
-			Msg("successfully broadcasted tx")
-
-		return nil
+	// Build unsigned tx
+	transaction, err := tx.BuildUnsignedTx(txf, msgs...)
+	if err != nil {
+		return nil, err
 	}
 
-	telemetry.IncrCounter(1, "failure", "tx", "timeout")
-	return errors.New("broadcasting tx timed out")
+	// Sign the transaction
+	if err = tx.Sign(txf, clientCtx.GetFromName(), transaction, true); err != nil {
+		return nil, err
+	}
+
+	// Get bytes to send
+	txBytes, err := clientCtx.TxConfig.TxEncoder()(transaction.GetTx())
+	if err != nil {
+		return nil, err
+	}
+
+	oc.Logger.Info().Msg(fmt.Sprintf("Sending broadcastTx with account sequence number %d", txf.Sequence()))
+	resp, err := clientCtx.BroadcastTx(txBytes)
+	if resp != nil && resp.Code != 0 {
+		err = fmt.Errorf("received error response code from broadcast tx: %d", resp.Code)
+	}
+	if err != nil {
+		// When error happen, it could be that the sequence number are mismatching
+		// We need to reset sequence number to query the latest value from the chain
+		txAccountInfo.ShouldResetSequence = true
+	} else {
+		// Only increment sequence number if we successfully broadcast the previous transaction
+		txAccountInfo.AccountSequence++
+	}
+	return resp, err
+
 }
 
 // CreateClientContext creates an SDK client Context instance used for transaction

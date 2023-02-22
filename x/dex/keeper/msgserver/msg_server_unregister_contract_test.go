@@ -10,6 +10,7 @@ import (
 	wasmtypes "github.com/CosmWasm/wasmd/x/wasm/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	keepertest "github.com/sei-protocol/sei-chain/testutil/keeper"
+	"github.com/sei-protocol/sei-chain/x/dex"
 	dexcache "github.com/sei-protocol/sei-chain/x/dex/cache"
 	"github.com/sei-protocol/sei-chain/x/dex/keeper/msgserver"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
@@ -64,7 +65,28 @@ func TestUnregisterContractSetSiblings(t *testing.T) {
 	require.NoError(t, err)
 	balance := keeper.BankKeeper.GetBalance(ctx, testAccount, "usei")
 	require.Equal(t, int64(8900000), balance.Amount.Int64())
-	_, err = server.UnregisterContract(wctx, &types.MsgUnregisterContract{
+
+	handler := dex.NewHandler(keeper)
+	tickSize := sdk.OneDec()
+	_, err = handler(ctx, &types.MsgRegisterPairs{
+		Creator: testAccount.String(),
+		Batchcontractpair: []types.BatchContractPair{
+			{
+				ContractAddr: contractAddr.String(),
+				Pairs: []*types.Pair{
+					{
+						PriceDenom:       "usei",
+						AssetDenom:       "uatom",
+						PriceTicksize:    &tickSize,
+						QuantityTicksize: &tickSize,
+					},
+				},
+			},
+		},
+	})
+	require.NoError(t, err)
+
+	_, err = handler(ctx, &types.MsgUnregisterContract{
 		Creator:      testAccount.String(),
 		ContractAddr: contractAddr.String(),
 	})
@@ -73,4 +95,6 @@ func TestUnregisterContractSetSiblings(t *testing.T) {
 	require.Error(t, err)
 	balance = keeper.BankKeeper.GetBalance(ctx, testAccount, "usei")
 	require.Equal(t, int64(9900000), balance.Amount.Int64())
+	pairs := keeper.GetAllRegisteredPairs(ctx, contractAddr.String())
+	require.Empty(t, pairs)
 }

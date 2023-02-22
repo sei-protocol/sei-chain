@@ -58,11 +58,11 @@ if [[ "$OSTYPE" == "linux-gnu"* ]]; then
   sed -i 's/timeout_commit =.*/timeout_commit = "2000ms"/g' $CONFIG_PATH
   sed -i 's/skip_timeout_commit =.*/skip_timeout_commit = false/g' $CONFIG_PATH
 elif [[ "$OSTYPE" == "darwin"* ]]; then
-  sed -i '' 's/# unsafe-propose-timeout-override = 0s =.*/unsafe-propose-timeout-override = "10s"/g' $CONFIG_PATH
-  sed -i '' 's/# unsafe-propose-timeout-delta-override = 0s =.*/unsafe-propose-timeout-delta-override = "10s"/g' $CONFIG_PATH
-  sed -i '' 's/# unsafe-vote-timeout-override = 0s =.*/unsafe-vote-timeout-override = "10s"/g' $CONFIG_PATH
-  sed -i '' 's/# unsafe-vote-timeout-delta-override = 0s =.*/unsafe-vote-timeout-delta-override = "10s"/g' $CONFIG_PATH
-  sed -i '' 's/# unsafe-commit-timeout-override = 0s =.*/unsafe-commit-timeout-override = "10s"/g' $CONFIG_PATH
+  sed -i '' 's/unsafe-propose-timeout-override =.*/unsafe-propose-timeout-override = "2s"/g' $CONFIG_PATH
+  sed -i '' 's/unsafe-propose-timeout-delta-override =.*/unsafe-propose-timeout-delta-override = "2s"/g' $CONFIG_PATH
+  sed -i '' 's/unsafe-vote-timeout-override =.*/unsafe-vote-timeout-override = "2s"/g' $CONFIG_PATH
+  sed -i '' 's/unsafe-vote-timeout-delta-override =.*/unsafe-vote-timeout-delta-override = "2s"/g' $CONFIG_PATH
+  sed -i '' 's/unsafe-commit-timeout-override =.*/unsafe-commit-timeout-override = "2s"/g' $CONFIG_PATH
 else
   printf "Platform not supported, please ensure that the following values are set in your config.toml:\n"
   printf "###         Consensus Configuration Options         ###\n"
@@ -73,7 +73,6 @@ else
   exit 1
 fi
 
-~/go/bin/seid config chain-id sei-chain
 ~/go/bin/seid config keyring-backend test
 
 # start the chain with log tracing

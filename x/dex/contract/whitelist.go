@@ -52,7 +52,7 @@ func GetPerPairWhitelistMap(contractAddr string, pair types.Pair) map[string][]s
 func GetDexWhitelistedPrefixes(contractAddr string) []string {
 	return utils.Map(DexWhitelistedKeys, func(key string) string {
 		return string(append(
-			types.KeyPrefix(key), types.KeyPrefix(contractAddr)...,
+			types.KeyPrefix(key), types.AddressKeyPrefix(contractAddr)...,
 		))
 	})
 }
@@ -69,7 +69,7 @@ func GetWasmWhitelistedPrefixes(contractAddr string) []string {
 func GetDexPerPairWhitelistedPrefixes(contractAddr string, pair types.Pair) []string {
 	return utils.Map(DexWhitelistedKeys, func(key string) string {
 		return string(append(append(
-			types.KeyPrefix(key), types.KeyPrefix(contractAddr)...,
+			types.KeyPrefix(key), types.AddressKeyPrefix(contractAddr)...,
 		), types.PairPrefix(pair.PriceDenom, pair.AssetDenom)...))
 	})
 }

@@ -2,7 +2,6 @@ package keeper
 
 import (
 	"errors"
-	"fmt"
 
 	"github.com/cosmos/cosmos-sdk/store/prefix"
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -20,8 +19,7 @@ func (k Keeper) SetContract(ctx sdk.Context, contract *types.ContractInfoV2) err
 	if err != nil {
 		return errors.New("failed to marshal contract info")
 	}
-	ctx.Logger().Info(fmt.Sprintf("Setting contract address %s", contract.ContractAddr))
-	store.Set(contractKey(contract.ContractAddr), bz)
+	store.Set(types.ContractKey(contract.ContractAddr), bz)
 	return nil
 }
 
@@ -30,7 +28,7 @@ func (k Keeper) DeleteContract(ctx sdk.Context, contractAddr string) {
 		ctx.KVStore(k.storeKey),
 		[]byte(ContractPrefixKey),
 	)
-	key := contractKey(contractAddr)
+	key := types.ContractKey(contractAddr)
 	store.Delete(key)
 }
 
@@ -39,7 +37,7 @@ func (k Keeper) GetContract(ctx sdk.Context, contractAddr string) (types.Contrac
 		ctx.KVStore(k.storeKey),
 		[]byte(ContractPrefixKey),
 	)
-	key := contractKey(contractAddr)
+	key := types.ContractKey(contractAddr)
 	res := types.ContractInfoV2{}
 	if !store.Has(key) {
 		return res, errors.New("cannot find contract info")
@@ -104,8 +102,4 @@ func (k Keeper) ChargeRentForGas(ctx sdk.Context, contractAddr string, gasUsed u
 	}
 	contract.RentBalance -= uint64(gasPrice)
 	return k.SetContract(ctx, &contract)
-}
-
-func contractKey(contractAddr string) []byte {
-	return []byte(contractAddr)
 }

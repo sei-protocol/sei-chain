@@ -1,15 +1,18 @@
 package keeper_test
 
 import (
+	"context"
 	"testing"
 	"time"
 
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	"github.com/sei-protocol/sei-chain/app"
+	keepertest "github.com/sei-protocol/sei-chain/testutil/keeper"
+	dexcache "github.com/sei-protocol/sei-chain/x/dex/cache"
+	dexutils "github.com/sei-protocol/sei-chain/x/dex/utils"
 	"github.com/sei-protocol/sei-chain/x/epoch/types"
 	minttypes "github.com/sei-protocol/sei-chain/x/mint/types"
 	"github.com/stretchr/testify/require"
 	abci "github.com/tendermint/tendermint/abci/types"
+
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 )
 
@@ -25,8 +28,9 @@ func getEpoch(genesisTime time.Time, currTime time.Time) types.Epoch {
 }
 
 func TestEndOfEpochMintedCoinDistribution(t *testing.T) {
-	seiApp := app.Setup(false)
-	ctx := seiApp.BaseApp.NewContext(false, tmproto.Header{})
+	seiApp := keepertest.TestApp()
+	ctx := seiApp.BaseApp.NewContext(false, tmproto.Header{Time: time.Now()})
+	ctx = ctx.WithContext(context.WithValue(ctx.Context(), dexutils.DexMemStateContextKey, dexcache.NewMemState(seiApp.GetKey(types.StoreKey))))
 
 	genesisTime := time.Date(2022, time.Month(7), 18, 10, 0, 0, 0, time.UTC)
 
@@ -36,7 +40,6 @@ func TestEndOfEpochMintedCoinDistribution(t *testing.T) {
 	}
 	mintParams := minttypes.NewParams(
 		"usei",
-		sdk.NewDec(5000000),
 		tokenReleaseSchedle,
 	)
 
@@ -56,7 +59,7 @@ func TestEndOfEpochMintedCoinDistribution(t *testing.T) {
 	mintParams = seiApp.MintKeeper.GetParams(ctx)
 
 	// Year 1
-	mintedCoinYear1 := seiApp.MintKeeper.GetMinter(ctx).EpochProvision(mintParams)
+	mintedCoinYear1 := seiApp.MintKeeper.GetMinter(ctx).GetCoin()
 	postsupplyYear1 := seiApp.BankKeeper.GetSupply(ctx, mintParams.MintDenom)
 	require.True(t, postsupplyYear1.IsEqual(presupply.Add(mintedCoinYear1)))
 	require.Equal(t, mintedCoinYear1.Amount.Int64(), int64(2500000))
@@ -70,22 +73,24 @@ func TestEndOfEpochMintedCoinDistribution(t *testing.T) {
 	seiApp.EpochKeeper.AfterEpochEnd(ctx, currEpoch)
 	mintParams = seiApp.MintKeeper.GetParams(ctx)
 
-	mintedCoinYear2 := seiApp.MintKeeper.GetMinter(ctx).EpochProvision(mintParams)
+	mintedCoinYear2 := seiApp.MintKeeper.GetMinter(ctx).GetCoin()
 	postsupplyYear2 := seiApp.BankKeeper.GetSupply(ctx, mintParams.MintDenom)
 	require.True(t, postsupplyYear2.IsEqual(postsupplyYear1.Add(mintedCoinYear2)))
 	require.Equal(t, mintedCoinYear2.Amount.Int64(), int64(1250000))
 }
 
 func TestNoEpochPassedNoDistribution(t *testing.T) {
-	seiApp := app.Setup(false)
-	ctx := seiApp.BaseApp.NewContext(false, tmproto.Header{})
+	seiApp := keepertest.TestApp()
+	ctx := seiApp.BaseApp.NewContext(false, tmproto.Header{Time: time.Now()})
+	ctx = ctx.WithContext(context.WithValue(ctx.Context(), dexutils.DexMemStateContextKey, dexcache.NewMemState(seiApp.GetKey(types.StoreKey))))
+
 	header := tmproto.Header{Height: seiApp.LastBlockHeight() + 1}
 	seiApp.BeginBlock(ctx, abci.RequestBeginBlock{Header: header})
 	// Get mint params
 	mintParams := seiApp.MintKeeper.GetParams(ctx)
 	genesisTime := time.Date(2022, time.Month(7), 18, 10, 0, 0, 0, time.UTC)
 	presupply := seiApp.BankKeeper.GetSupply(ctx, mintParams.MintDenom)
-	epochProvisions := seiApp.MintKeeper.GetMinter(ctx).EpochProvision(mintParams)
+	startLastMintAmount := seiApp.MintKeeper.GetMinter(ctx).GetLastMintAmount()
 	// Loops through epochs under a year
 	for i := 0; i < 60*24*7*52-1; i++ {
 		currTime := genesisTime.Add(time.Minute)
@@ -98,6 +103,6 @@ func TestNoEpochPassedNoDistribution(t *testing.T) {
 		require.True(t, currSupply.IsEqual(presupply))
 	}
 	// Ensure that EpochProvision hasn't changed
-	endEpochProvisions := seiApp.MintKeeper.GetMinter(ctx).EpochProvision(mintParams)
-	require.True(t, epochProvisions.Equal(endEpochProvisions))
+	endLastMintAmount := seiApp.MintKeeper.GetMinter(ctx).GetLastMintAmount()
+	require.True(t, startLastMintAmount.Equal(endLastMintAmount))
 }

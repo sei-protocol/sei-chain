@@ -44,16 +44,16 @@ func GetCmdQueryExchangeRates() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "exchange-rates [denom]",
 		Args:  cobra.RangeArgs(0, 1),
-		Short: "Query the current Luna exchange rate w.r.t an asset",
+		Short: "Query the current Sei exchange rate w.r.t an asset",
 		Long: strings.TrimSpace(`
-Query the current exchange rate of Luna with an asset.
+Query the current exchange rate of Sei with an asset.
 You can find the current list of active denoms by running
 
-$ terrad query oracle exchange-rates
+$ seid query oracle exchange-rates
 
 Or, can filter with denom
 
-$ terrad query oracle exchange-rates ukrw
+$ seid query oracle exchange-rates ukrw
 `),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			clientCtx, err := client.GetClientQueryContext(cmd)
@@ -163,11 +163,11 @@ func GetCmdQueryActives() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "actives",
 		Args:  cobra.NoArgs,
-		Short: "Query the active list of Terra assets recognized by the oracle",
+		Short: "Query the active list of Sei assets recognized by the oracle",
 		Long: strings.TrimSpace(`
-Query the active list of Terra assets recognized by the types.
+Query the active list of Sei assets recognized by the types.
 
-$ terrad query oracle actives
+$ seid query oracle actives
 `),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			clientCtx, err := client.GetClientQueryContext(cmd)
@@ -224,7 +224,7 @@ func GetCmdQueryFeederDelegation() *cobra.Command {
 		Long: strings.TrimSpace(`
 Query the account the validator's oracle voting right is delegated to.
 
-$ terrad query oracle feeder terravaloper...
+$ seid query oracle feeder terravaloper...
 `),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			clientCtx, err := client.GetClientQueryContext(cmd)
@@ -304,11 +304,11 @@ func GetCmdQueryAggregateVote() *cobra.Command {
 		Long: strings.TrimSpace(`
 Query outstanding oracle aggregate vote.
 
-$ terrad query oracle aggregate-votes
+$ seid query oracle aggregate-votes
 
 Or, can filter with voter address
 
-$ terrad query oracle aggregate-votes terravaloper...
+$ seid query oracle aggregate-votes terravaloper...
 `),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			clientCtx, err := client.GetClientQueryContext(cmd)

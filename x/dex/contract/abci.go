@@ -4,13 +4,14 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"time"
 
+	"github.com/sei-protocol/sei-chain/utils/logging"
 	"github.com/sei-protocol/sei-chain/utils/tracing"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/sei-protocol/sei-chain/store/whitelist/multi"
 	seisync "github.com/sei-protocol/sei-chain/sync"
-	"github.com/sei-protocol/sei-chain/utils"
 	"github.com/sei-protocol/sei-chain/utils/datastructures"
 	dexcache "github.com/sei-protocol/sei-chain/x/dex/cache"
 	"github.com/sei-protocol/sei-chain/x/dex/keeper"
@@ -23,6 +24,9 @@ import (
 	"github.com/sei-protocol/sei-chain/x/store"
 	otrace "go.opentelemetry.io/otel/trace"
 )
+
+const LogRunnerRunAfter = 10 * time.Second
+const LogExecSigSendAfter = 2 * time.Second
 
 type environment struct {
 	validContractsInfo          []types.ContractInfoV2
@@ -42,7 +46,7 @@ func EndBlockerAtomic(ctx sdk.Context, keeper *keeper.Keeper, validContractsInfo
 	spanCtx, span := (*tracer).Start(tracingInfo.TracerContext, "DexEndBlockerAtomic")
 	defer span.End()
 	env := newEnv(ctx, validContractsInfo, keeper)
-	cachedCtx, msCached := cacheAndDecorateContext(ctx, env, keeper.GetParams(ctx).EndBlockGasLimit)
+	cachedCtx, msCached := cacheContext(ctx, env)
 	memStateCopy := dexutils.GetMemState(cachedCtx.Context()).DeepCopy()
 	handleDeposits(cachedCtx, env, keeper, tracer)
 
@@ -50,7 +54,14 @@ func EndBlockerAtomic(ctx sdk.Context, keeper *keeper.Keeper, validContractsInfo
 		orderMatchingRunnable(spanCtx, cachedCtx, env, keeper, contract, tracer)
 	}, validContractsInfo, cachedCtx)
 
-	runner.Run()
+	_, err := logging.LogIfNotDoneAfter(ctx.Logger(), func() (struct{}, error) {
+		runner.Run()
+		return struct{}{}, nil
+	}, LogRunnerRunAfter, "runner run")
+	if err != nil {
+		// this should never happen
+		panic(err)
+	}
 
 	handleSettlements(spanCtx, cachedCtx, env, keeper, tracer)
 	handleUnfulfilledMarketOrders(spanCtx, cachedCtx, env, keeper, tracer)
@@ -60,6 +71,26 @@ func EndBlockerAtomic(ctx sdk.Context, keeper *keeper.Keeper, validContractsInfo
 	if env.failedContractAddresses.Size() == 0 {
 		msCached.Write()
 		return env.validContractsInfo, ctx, true
+	}
+
+	// persistent contract rent charges for failed contracts and discard everything else
+	for _, failedContractAddress := range env.failedContractAddresses.ToOrderedSlice(datastructures.StringComparator) {
+		cachedContract, err := keeper.GetContract(cachedCtx, failedContractAddress)
+		if err != nil {
+			ctx.Logger().Error(fmt.Sprintf("error %s when getting updated contract %s to persist rent balance", err, failedContractAddress))
+			continue
+		}
+		contract, err := keeper.GetContract(ctx, failedContractAddress)
+		if err != nil {
+			ctx.Logger().Error(fmt.Sprintf("error %s when getting contract %s to persist rent balance", err, failedContractAddress))
+			continue
+		}
+		contract.RentBalance = cachedContract.RentBalance
+		err = keeper.SetContract(ctx, &contract)
+		if err != nil {
+			ctx.Logger().Error(fmt.Sprintf("error %s when persisting contract %s's rent balance", err, failedContractAddress))
+			continue
+		}
 	}
 
 	// restore keeper in-memory state
@@ -99,21 +130,20 @@ func newEnv(ctx sdk.Context, validContractsInfo []types.ContractInfoV2, keeper *
 	}
 }
 
-func cacheAndDecorateContext(ctx sdk.Context, env *environment, gasLimit uint64) (sdk.Context, sdk.CacheMultiStore) {
+func cacheContext(ctx sdk.Context, env *environment) (sdk.Context, sdk.CacheMultiStore) {
 	cachedCtx, msCached := store.GetCachedContext(ctx)
 	goCtx := context.WithValue(cachedCtx.Context(), dexcache.CtxKeyExecTermSignal, env.executionTerminationSignals)
 	cachedCtx = cachedCtx.WithContext(goCtx)
-	decoratedCtx := cachedCtx.WithGasMeter(seisync.NewGasWrapper(dexutils.GetGasMeterForLimit(gasLimit))).WithBlockGasMeter(
-		seisync.NewGasWrapper(cachedCtx.BlockGasMeter()),
-	)
-	return decoratedCtx, msCached
+	return cachedCtx, msCached
 }
 
-func decorateContextForContract(ctx sdk.Context, contractInfo types.ContractInfoV2) sdk.Context {
+func decorateContextForContract(ctx sdk.Context, contractInfo types.ContractInfoV2, gasLimit uint64) sdk.Context {
 	goCtx := context.WithValue(ctx.Context(), dexcache.CtxKeyExecutingContract, contractInfo)
 	whitelistedStore := multi.NewStore(ctx.MultiStore(), GetWhitelistMap(contractInfo.ContractAddr))
 	newEventManager := sdk.NewEventManager()
-	return ctx.WithContext(goCtx).WithMultiStore(whitelistedStore).WithEventManager(newEventManager)
+	return ctx.WithContext(goCtx).WithMultiStore(whitelistedStore).WithEventManager(newEventManager).WithGasMeter(
+		seisync.NewGasWrapper(dexutils.GetGasMeterForLimit(gasLimit)),
+	)
 }
 
 func handleDeposits(ctx sdk.Context, env *environment, keeper *keeper.Keeper, tracer *otrace.Tracer) {
@@ -188,18 +218,24 @@ func handleFinalizedBlocks(ctx context.Context, sdkCtx sdk.Context, env *environ
 }
 
 func orderMatchingRunnable(ctx context.Context, sdkContext sdk.Context, env *environment, keeper *keeper.Keeper, contractInfo types.ContractInfoV2, tracer *otrace.Tracer) {
-	defer utils.PanicHandler(func(err any) { orderMatchingRecoverCallback(err, sdkContext, env, contractInfo) })()
 	defer func() {
 		if channel, ok := env.executionTerminationSignals.Load(contractInfo.ContractAddr); ok {
-			channel <- struct{}{}
+			_, err := logging.LogIfNotDoneAfter(sdkContext.Logger(), func() (struct{}, error) {
+				channel <- struct{}{}
+				return struct{}{}, nil
+			}, LogExecSigSendAfter, fmt.Sprintf("send execution terminal signal for %s", contractInfo.ContractAddr))
+			if err != nil {
+				// this should never happen
+				panic(err)
+			}
 		}
 	}()
 	if !contractInfo.NeedOrderMatching {
 		return
 	}
 	parentSdkContext := sdkContext
-	sdkContext = decorateContextForContract(sdkContext, contractInfo)
-	sdkContext.Logger().Info(fmt.Sprintf("End block for %s", contractInfo.ContractAddr))
+	sdkContext = decorateContextForContract(sdkContext, contractInfo, keeper.GetParams(sdkContext).EndBlockGasLimit)
+	sdkContext.Logger().Debug(fmt.Sprintf("End block for %s with balance of %d", contractInfo.ContractAddr, contractInfo.RentBalance))
 	pairs, pairFound := env.registeredPairs.Load(contractInfo.ContractAddr)
 	orderBooks, found := env.orderBooks.Load(contractInfo.ContractAddr)
 
@@ -226,12 +262,6 @@ func orderMatchingRunnable(ctx context.Context, sdkContext sdk.Context, env *env
 	env.eventManagerMutex.Lock()
 	defer env.eventManagerMutex.Unlock()
 	parentSdkContext.EventManager().EmitEvents(sdkContext.EventManager().Events())
-}
-
-func orderMatchingRecoverCallback(err any, ctx sdk.Context, env *environment, contractInfo types.ContractInfoV2) {
-	utils.MetricsPanicCallback(err, ctx, fmt.Sprintf("%s%s", types.ModuleName, "endblockpanic"))
-	// idempotent
-	env.failedContractAddresses.Add(contractInfo.ContractAddr)
 }
 
 func filterNewValidContracts(ctx sdk.Context, env *environment) []types.ContractInfoV2 {

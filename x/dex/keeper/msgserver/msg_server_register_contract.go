@@ -17,9 +17,9 @@ import (
 func (k msgServer) RegisterContract(goCtx context.Context, msg *types.MsgRegisterContract) (*types.MsgRegisterContractResponse, error) {
 	ctx := sdk.UnwrapSDKContext(goCtx)
 
-	if err := k.ValidateBasics(ctx, msg); err != nil {
+	if err := msg.ValidateBasic(); err != nil {
 		ctx.Logger().Error(fmt.Sprintf("request invalid: %s", err))
-		return &types.MsgRegisterContractResponse{}, err
+		return nil, err
 	}
 
 	// Validation such that only the user who instantiated the contract can register contract
@@ -31,6 +31,10 @@ func (k msgServer) RegisterContract(goCtx context.Context, msg *types.MsgRegiste
 		return nil, sdkerrors.ErrUnauthorized
 	}
 
+	if err := k.ValidateRentBalance(msg.GetContract().GetRentBalance()); err != nil {
+		ctx.Logger().Error("invalid rent balance")
+		return &types.MsgRegisterContractResponse{}, err
+	}
 	if err := k.ValidateUniqueDependencies(msg); err != nil {
 		ctx.Logger().Error(fmt.Sprintf("dependencies of contract %s are not unique", msg.Contract.ContractAddr))
 		return &types.MsgRegisterContractResponse{}, err
@@ -62,20 +66,6 @@ func (k msgServer) RegisterContract(goCtx context.Context, msg *types.MsgRegiste
 	}
 
 	return &types.MsgRegisterContractResponse{}, nil
-}
-
-func (k msgServer) ValidateBasics(ctx sdk.Context, msg *types.MsgRegisterContract) error {
-	if msg.Contract == nil {
-		return errors.New("empty contract info")
-	}
-	if msg.Contract.ContractAddr == "" {
-		return errors.New("contract address is empty")
-	}
-	_, err := sdk.AccAddressFromBech32(msg.Contract.ContractAddr)
-	if err != nil {
-		return errors.New("contract address format is not bech32")
-	}
-	return nil
 }
 
 func (k msgServer) ValidateUniqueDependencies(msg *types.MsgRegisterContract) error {
@@ -242,6 +232,9 @@ func (k msgServer) SetNewContract(ctx sdk.Context, msg *types.MsgRegisterContrac
 		dependency.ImmediateYoungerSibling = ""
 		found := false
 		for _, contractInfo := range allContractInfo {
+			if contractInfo.ContractAddr == newContract.ContractAddr {
+				continue
+			}
 			for _, otherDependency := range contractInfo.Dependencies {
 				if otherDependency.ImmediateYoungerSibling != "" {
 					continue

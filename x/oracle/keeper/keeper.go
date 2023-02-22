@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"sort"
 
+	"github.com/sei-protocol/sei-chain/utils/metrics"
+
 	"github.com/tendermint/tendermint/libs/log"
 
 	"github.com/cosmos/cosmos-sdk/codec"
@@ -181,6 +183,9 @@ func (k Keeper) GetVotePenaltyCounter(ctx sdk.Context, operator sdk.ValAddress) 
 
 // SetVotePenaltyCounter updates the # of vote periods missed in this oracle slash window
 func (k Keeper) SetVotePenaltyCounter(ctx sdk.Context, operator sdk.ValAddress, missCount uint64, abstainCount uint64) {
+	defer metrics.SetOracleVotePenaltyCount(missCount, operator.String(), "miss")
+	defer metrics.SetOracleVotePenaltyCount(abstainCount, operator.String(), "abstain")
+
 	store := ctx.KVStore(k.storeKey)
 	bz := k.cdc.MustMarshal(&types.VotePenaltyCounter{MissCount: missCount, AbstainCount: abstainCount})
 	store.Set(types.GetVotePenaltyCounterKey(operator), bz)
@@ -208,6 +213,9 @@ func (k Keeper) GetAbstainCount(ctx sdk.Context, operator sdk.ValAddress) uint64
 
 // DeleteVotePenaltyCounter removes miss counter for the validator
 func (k Keeper) DeleteVotePenaltyCounter(ctx sdk.Context, operator sdk.ValAddress) {
+	defer metrics.SetOracleVotePenaltyCount(0, operator.String(), "miss")
+	defer metrics.SetOracleVotePenaltyCount(0, operator.String(), "abstain")
+
 	store := ctx.KVStore(k.storeKey)
 	store.Delete(types.GetVotePenaltyCounterKey(operator))
 }
@@ -312,11 +320,19 @@ func (k Keeper) IterateVoteTargets(ctx sdk.Context, handler func(denom string, d
 
 func (k Keeper) ClearVoteTargets(ctx sdk.Context) {
 	store := ctx.KVStore(k.storeKey)
-	iter := sdk.KVStorePrefixIterator(store, types.VoteTargetKey)
+	for _, key := range k.getAllKeysForPrefix(store, types.VoteTargetKey) {
+		store.Delete(key)
+	}
+}
+
+func (k Keeper) getAllKeysForPrefix(store sdk.KVStore, prefix []byte) [][]byte {
+	keys := [][]byte{}
+	iter := sdk.KVStorePrefixIterator(store, prefix)
 	defer iter.Close()
 	for ; iter.Valid(); iter.Next() {
-		store.Delete(iter.Key())
+		keys = append(keys, iter.Key())
 	}
+	return keys
 }
 
 // ValidateFeeder return the given feeder is allowed to feed the message or not
