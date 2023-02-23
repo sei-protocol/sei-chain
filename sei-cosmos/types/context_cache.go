@@ -29,13 +29,13 @@ func (c *ContextMemCache) GetDeferredWithdrawals() *DeferredBankOperationMapping
 }
 
 func (c *ContextMemCache) UpsertDeferredSends(moduleAccount string, amount Coins) error {
-	// Separate locks needed for all mappings - atmoic transaction needed
-	c.deferredBankOpsLock.Lock()
-	defer c.deferredBankOpsLock.Unlock()
-
 	if !amount.IsValid() {
 		return sdkerrors.Wrap(sdkerrors.ErrInvalidCoins, amount.String())
 	}
+
+	// Separate locks needed for all mappings - atomic transaction needed
+	c.deferredBankOpsLock.Lock()
+	defer c.deferredBankOpsLock.Unlock()
 
 	// If there's already a pending withdrawal then subtract it from that amount first
 	// or else add it to the deferredSends mapping
