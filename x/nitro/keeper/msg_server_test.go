@@ -71,7 +71,7 @@ func TestSubmitFraudChallenge(t *testing.T) {
 	server := nitrokeeper.NewMsgServerImpl(*keeper)
 	stateRoot, proof := createMockMerkleProof()
 	// set state root with mock merkle root
-	keeper.SetParams(ctx, types.Params{WhitelistedTxSenders: []string{"sei14hj2tavq8fpesdwxxcu44rty3hh90vhujrvcmstl4zr3txmfvw9sh9m79m"}})
+	keeper.SetParams(ctx, types.Params{WhitelistedTxSenders: []string{"sei14hj2tavq8fpesdwxxcu44rty3hh90vhujrvcmstl4zr3txmfvw9sh9m79m"}, Enabled: true})
 	_, err := server.RecordTransactionData(sdk.WrapSDKContext(ctx), &types.MsgRecordTransactionData{
 		Sender:    "sei14hj2tavq8fpesdwxxcu44rty3hh90vhujrvcmstl4zr3txmfvw9sh9m79m",
 		Slot:      1,
@@ -121,5 +121,13 @@ func TestSubmitFraudChallenge(t *testing.T) {
 	})
 	require.Equal(t, err, types.ErrInvalidFraudStatePubkey)
 
+	keeper.SetParams(ctx, types.Params{WhitelistedTxSenders: []string{"sei14hj2tavq8fpesdwxxcu44rty3hh90vhujrvcmstl4zr3txmfvw9sh9m79m"}})
+	_, err = server.SubmitFraudChallenge(sdk.WrapSDKContext(ctx), &types.MsgSubmitFraudChallenge{
+		StartSlot:        0,
+		EndSlot:          2,
+		FraudStatePubKey: "123",
+		MerkleProof:      proof,
+	})
+	require.Equal(t, err, types.ErrFraudChallengeDisabled)
 	// TODO: add happy path with replayable account states
 }
