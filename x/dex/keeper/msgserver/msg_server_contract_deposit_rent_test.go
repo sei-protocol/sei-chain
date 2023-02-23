@@ -126,3 +126,60 @@ func TestDepositRent(t *testing.T) {
 	})
 	require.Error(t, err)
 }
+
+// TestClaimContract: Claim the contract with a different account should not throw any error when RentBalance=0
+func TestClaimContract(t *testing.T) {
+	testApp := keepertest.TestApp()
+	ctx := testApp.BaseApp.NewContext(false, tmproto.Header{Time: time.Now()})
+	ctx = ctx.WithContext(context.WithValue(ctx.Context(), dexutils.DexMemStateContextKey, dexcache.NewMemState(testApp.GetKey(types.StoreKey))))
+	wctx := sdk.WrapSDKContext(ctx)
+	dexkeeper := testApp.DexKeeper
+
+	testAccount1, _ := sdk.AccAddressFromBech32("sei1yezq49upxhunjjhudql2fnj5dgvcwjj87pn2wx")
+	testAccount2, _ := sdk.AccAddressFromBech32("sei1h9yjz89tl0dl6zu65dpxcqnxfhq60wxx8s5kag")
+	amounts := sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(10000000)), sdk.NewCoin("uusdc", sdk.NewInt(10000000)))
+	bankkeeper := testApp.BankKeeper
+	bankkeeper.MintCoins(ctx, minttypes.ModuleName, amounts)
+	bankkeeper.SendCoinsFromModuleToAccount(ctx, minttypes.ModuleName, testAccount1, amounts)
+	bankkeeper.MintCoins(ctx, minttypes.ModuleName, amounts)
+	bankkeeper.SendCoinsFromModuleToAccount(ctx, minttypes.ModuleName, testAccount2, amounts)
+	wasm, err := ioutil.ReadFile("../../testdata/mars.wasm")
+	if err != nil {
+		panic(err)
+	}
+	wasmKeeper := testApp.WasmKeeper
+	contractKeeper := wasmkeeper.NewDefaultPermissionKeeper(&wasmKeeper)
+	var perm *wasmtypes.AccessConfig
+	codeId, err := contractKeeper.Create(ctx, testAccount1, wasm, perm)
+	if err != nil {
+		panic(err)
+	}
+	contractAddr, _, err := contractKeeper.Instantiate(ctx, codeId, testAccount1, testAccount1, []byte(GOOD_CONTRACT_INSTANTIATE), "test",
+		sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(100000))))
+	if err != nil {
+		panic(err)
+	}
+
+	server := msgserver.NewMsgServerImpl(dexkeeper)
+	contract := types.ContractInfoV2{
+		CodeId:       codeId,
+		ContractAddr: contractAddr.String(),
+		Creator:      testAccount1.String(),
+		RentBalance:  0,
+	}
+	_, err = server.RegisterContract(wctx, &types.MsgRegisterContract{
+		Creator:  testAccount1.String(),
+		Contract: &contract,
+	})
+	require.NoError(t, err)
+	_, err = dexkeeper.GetContract(ctx, TestContractA)
+	require.NoError(t, err)
+
+	handler := dex.NewHandler(dexkeeper)
+	_, err = handler(ctx, &types.MsgContractDepositRent{
+		Sender:       testAccount2.String(),
+		ContractAddr: TestContractA,
+		Amount:       1000000,
+	})
+	require.NoError(t, err)
+}

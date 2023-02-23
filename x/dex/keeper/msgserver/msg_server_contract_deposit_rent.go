@@ -36,12 +36,18 @@ func (k msgServer) ContractDepositRent(goCtx context.Context, msg *types.MsgCont
 		// a sender can only "claim" the contract if the rent balance is 0
 		return nil, sdkerrors.ErrUnauthorized
 	}
-	// deposit
-	creatorAddr, err := sdk.AccAddressFromBech32(contract.Creator)
+
+	senderAddr, err := sdk.AccAddressFromBech32(contract.Creator)
+	// claim a contract when the contract.RentBalance==0 should be executed from msg.Sender
+	if contract.RentBalance == 0 {
+		senderAddr, err = sdk.AccAddressFromBech32(msg.Sender)
+	}
 	if err != nil {
 		return nil, err
 	}
-	if err := k.BankKeeper.SendCoins(ctx, creatorAddr, k.AccountKeeper.GetModuleAddress(types.ModuleName), sdk.NewCoins(sdk.NewCoin(appparams.BaseCoinUnit, sdk.NewInt(int64(msg.Amount))))); err != nil {
+
+	// deposit
+	if err := k.BankKeeper.SendCoins(ctx, senderAddr, k.AccountKeeper.GetModuleAddress(types.ModuleName), sdk.NewCoins(sdk.NewCoin(appparams.BaseCoinUnit, sdk.NewInt(int64(msg.Amount))))); err != nil {
 		return nil, err
 	}
 	contract.Creator = msg.Sender
