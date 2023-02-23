@@ -202,7 +202,7 @@ def prepare_genesis(args):
 
     # TODO(bweng): Decrease starting balance after testnet
     add_genesis_account(DEFAULT_VALIDATOR_ACC_NAME, '2sei')
-    gentx(args.chain_id, DEFAULT_VALIDATOR_ACC_NAME, '1sei', args.gentx_args)
+    gentx(args.chain_id, DEFAULT_VALIDATOR_ACC_NAME, '10sei', args.gentx_args)
 
 
 def setup_oracle(args):
@@ -236,7 +236,7 @@ def run():
     try:
         if args.action in {SETUP_VALIDATOR, PREPARE_GENESIS}:
             setup_validator(args)
-            run_command(f"'sed -i -e 's/mode = \"full\"/mode = \"validator\"/' {SEI_CONFIG_DIR}/config.toml'")
+            run_command(f"sed -i -e 's/mode = \"full\"/mode = \"validator\"/' {SEI_CONFIG_DIR}/config.toml")
 
         if args.action == PREPARE_GENESIS:
             prepare_genesis(args)
