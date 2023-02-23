@@ -16,7 +16,7 @@ var _ = strconv.Itoa(0)
 func CmdContractDepositRent() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "contract-deposit-rent [contract address] [amount]",
-		Short: "Unregister exchange contract",
+		Short: "Contract deposit rent",
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) (err error) {
 			argContractAddr := args[0]
