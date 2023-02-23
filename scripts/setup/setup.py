@@ -236,7 +236,7 @@ def run():
     try:
         if args.action in {SETUP_VALIDATOR, PREPARE_GENESIS}:
             setup_validator(args)
-            run_command(f"'sed -i -e 's/mode = \"full\"/mode = \"validator\"/' {SEI_CONFIG_DIR}/config.toml'")
+            run_command(f"sed -i -e 's/mode = \"full\"/mode = \"validator\"/' {SEI_CONFIG_DIR}/config.toml")
 
         if args.action == PREPARE_GENESIS:
             prepare_genesis(args)
