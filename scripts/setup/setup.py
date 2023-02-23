@@ -201,7 +201,7 @@ def prepare_genesis(args):
         raise RuntimeError('Please specify a version')
 
     # TODO(bweng): Decrease starting balance after testnet
-    add_genesis_account(DEFAULT_VALIDATOR_ACC_NAME, '2sei')
+    add_genesis_account(DEFAULT_VALIDATOR_ACC_NAME, '10sei')
     gentx(args.chain_id, DEFAULT_VALIDATOR_ACC_NAME, '1sei', args.gentx_args)
 
 
