@@ -23,6 +23,8 @@ var (
 	ErrEncodingLatestPrice        = sdkerrors.Register(ModuleName, 14, "Error encoding latest price as JSON")
 	ErrUnknownSeiDexQuery         = sdkerrors.Register(ModuleName, 15, "Error unknown sei dex query")
 	ErrPairNotRegistered          = sdkerrors.Register(ModuleName, 16, "pair is not registered")
+	ErrContractNotExists          = sdkerrors.Register(ModuleName, 17, "Error finding contract info")
+	ErrParsingContractInfo        = sdkerrors.Register(ModuleName, 18, "Error parsing contract info")
 	ErrSample                     = sdkerrors.Register(ModuleName, 1100, "sample error")
 	InsufficientAssetError        = sdkerrors.Register(ModuleName, 1101, "insufficient fund")
 	UnknownCustomMessageError     = sdkerrors.Register(ModuleName, 1102, "unknown custom message")

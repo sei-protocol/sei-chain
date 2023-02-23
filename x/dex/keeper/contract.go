@@ -40,10 +40,10 @@ func (k Keeper) GetContract(ctx sdk.Context, contractAddr string) (types.Contrac
 	key := types.ContractKey(contractAddr)
 	res := types.ContractInfoV2{}
 	if !store.Has(key) {
-		return res, errors.New("cannot find contract info")
+		return res, types.ErrContractNotExists
 	}
 	if err := res.Unmarshal(store.Get(key)); err != nil {
-		return res, errors.New("cannot parse contract info")
+		return res, types.ErrParsingContractInfo
 	}
 	return res, nil
 }
