@@ -117,9 +117,8 @@ func (k msgServer) UpdateOldSiblings(ctx sdk.Context, msg *types.MsgRegisterCont
 	if err != nil {
 		if err == types.ErrContractNotExists {
 			return nil
-		} else {
-			return err
 		}
+		return err
 	}
 	// update siblings for old dependencies
 	for _, oldDependency := range contractInfo.Dependencies {
