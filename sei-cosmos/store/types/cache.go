@@ -63,7 +63,10 @@ func (c *BoundedCache) Set(key string, val *CValue) {
 	if c.Len() >= c.limit {
 		len := c.Len()
 		keysToEvict := []string{}
-		c.CacheBackend.Range(func(key string, _ *CValue) bool {
+		c.CacheBackend.Range(func(key string, val *CValue) bool {
+			if val.dirty {
+				return true
+			}
 			keysToEvict = append(keysToEvict, key)
 			len--
 			return len >= c.limit
