@@ -8,7 +8,7 @@ import (
 // constants
 const (
 	TypeMsgRecordTransactionData = "record_transaction_data"
-	TypeMsgSubmitFraudChallenge = "submit_frud_challenge"
+	TypeMsgSubmitFraudChallenge  = "submit_frud_challenge"
 )
 
 var (
