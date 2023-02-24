@@ -5,13 +5,6 @@ import (
 	"github.com/sei-protocol/sei-chain/x/dex/types"
 )
 
-const (
-	LongPositionDirection  string = "Long"
-	ShortPositionDirection string = "Short"
-	OpenPositionEffect     string = "Open"
-	ClosePositionEffect    string = "Close"
-)
-
 type SudoSettlementMsg struct {
 	Settlement types.Settlements `json:"settlement"`
 }
