@@ -71,13 +71,7 @@ func NewAnteHandlerAndDepGenerator(options HandlerOptions) (sdk.AnteHandler, sdk
 		sigGasConsumer = ante.DefaultSigVerificationGasConsumer
 	}
 
-	// var sigVerifyDecorator sdk.AnteDecorator
 	sequentialVerifyDecorator := ante.NewSigVerificationDecorator(options.AccountKeeper, options.SignModeHandler)
-	// if options.BatchVerifier == nil {
-	// 	sigVerifyDecorator = sequentialVerifyDecorator
-	// } else {
-	// 	sigVerifyDecorator = ante.NewBatchSigVerificationDecorator(options.BatchVerifier, sequentialVerifyDecorator)
-	// }
 
 	anteDecorators := []sdk.AnteFullDecorator{
 		sdk.CustomDepWrappedAnteDecorator(ante.NewSetUpContextDecorator(antedecorators.GetGasMeterSetter(*options.AccessControlKeeper)), depdecorators.GasMeterSetterDecorator{}), // outermost AnteDecorator. SetUpContext must be called first

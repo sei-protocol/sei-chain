@@ -2,16 +2,12 @@ package tx
 
 import (
 	"fmt"
-	"time"
 
 	"github.com/spf13/cobra"
 
 	"github.com/cosmos/cosmos-sdk/client"
-	// "github.com/cosmos/cosmos-sdk/client/flags"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
 )
-
-var DefaultRelativePacketTimeoutTimestamp = uint64((time.Duration(10) * time.Minute).Nanoseconds())
 
 //nolint:deadcode,unused // I assume we'll use this later.
 const (

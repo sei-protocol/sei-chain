@@ -8,7 +8,7 @@ import (
 
 // x/dex module sentinel errors
 var (
-	ErrEncodeDexPlaceOrders       = sdkerrors.Register(ModuleName, 2, "Error while encoding dex order placement msgin wasmd")
+	ErrEncodeDexPlaceOrders       = sdkerrors.Register(ModuleName, 2, "Error while encoding dex order placement msg in wasmd")
 	ErrEncodeDexCancelOrders      = sdkerrors.Register(ModuleName, 3, "Error while encoding dex order cancellation msg in wasmd")
 	ErrParsingSeiDexQuery         = sdkerrors.Register(ModuleName, 4, "Error parsing SeiDexQuery")
 	ErrGettingDexTwaps            = sdkerrors.Register(ModuleName, 5, "Error while getting dex Twaps")

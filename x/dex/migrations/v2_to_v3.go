@@ -5,8 +5,6 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 )
 
-const ContractAddressAddressLength = 62
-
 /**
  * No `dex` state exists in any public chain at the time this data type update happened.
  * Any new chain (including local ones) should be based on a Sei version newer than this update

@@ -221,6 +221,7 @@ var (
 	// WasmProposalsEnabled enables all x/wasm proposals when it's value is "true"
 	// and EnableSpecificWasmProposals is empty. Otherwise, all x/wasm proposals
 	// are disabled.
+	// Used as a flag to turn it on and off
 	WasmProposalsEnabled = "true"
 
 	// EnableSpecificWasmProposals, if set, must be comma-separated list of values

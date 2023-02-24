@@ -93,12 +93,6 @@ func SettlementEntryPrefix(contractAddr string, priceDenom string, assetDenom st
 	)
 }
 
-func GetKeyForHeight(height uint64) []byte {
-	key := make([]byte, 8)
-	binary.BigEndian.PutUint64(key, height)
-	return key
-}
-
 func RegisteredPairPrefix(contractAddr string) []byte {
 	return append(KeyPrefix(RegisteredPairKey), AddressKeyPrefix(contractAddr)...)
 }
@@ -180,11 +174,6 @@ func MemDepositSubprefix(creator, denom string) []byte {
 func ContractKey(contractAddr string) []byte {
 	return AddressKeyPrefix(contractAddr)
 }
-
-const (
-	DefaultPriceDenom = "usei"
-	DefaultAssetDenom = "dummy"
-)
 
 const (
 	LongBookKey = "LongBook-value-"
