@@ -8,6 +8,7 @@ import (
 // constants
 const (
 	TypeMsgRecordTransactionData = "record_transaction_data"
+	TypeMsgSubmitFraudChallenge = "submit_frud_challenge"
 )
 
 var (
@@ -67,7 +68,7 @@ func NewMsgSubmitFraudChallenge(
 }
 
 func (m MsgSubmitFraudChallenge) Route() string { return RouterKey }
-func (m MsgSubmitFraudChallenge) Type() string  { return TypeMsgRecordTransactionData }
+func (m MsgSubmitFraudChallenge) Type() string  { return TypeMsgSubmitFraudChallenge }
 func (m MsgSubmitFraudChallenge) ValidateBasic() error {
 	_, err := sdk.AccAddressFromBech32(m.Sender)
 	if err != nil {

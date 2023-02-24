@@ -9,7 +9,7 @@ import (
 	"github.com/sei-protocol/sei-chain/x/tokenfactory/types"
 )
 
-// ConvertToBaseToken converts a fee amount in a whitelisted fee token to the base fee token amount
+// CreateDenom creates a new token denom with the given subdenom.
 func (k Keeper) CreateDenom(ctx sdk.Context, creatorAddr string, subdenom string) (newTokenDenom string, err error) {
 	denom, err := k.validateCreateDenom(ctx, creatorAddr, subdenom)
 	if err != nil {

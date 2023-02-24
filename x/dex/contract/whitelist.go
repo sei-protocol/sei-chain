@@ -30,12 +30,6 @@ var WasmWhitelistedKeys = []string{
 	string(wasmtypes.ContractStorePrefix),
 }
 
-var DexPerPairWhitelistedKeys = []string{
-	types.LongBookKey,
-	types.ShortBookKey,
-	types.PriceKey,
-}
-
 func GetWhitelistMap(contractAddr string) map[string][]string {
 	res := map[string][]string{}
 	res[storetypes.NewKVStoreKey(types.StoreKey).Name()] = GetDexWhitelistedPrefixes(contractAddr)
