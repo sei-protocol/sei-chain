@@ -35,6 +35,7 @@ func GetParams() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "params [flags]",
 		Short: "Get the params for the x/accesscontrol module",
+		Long:  "Get the params for the x/accesscontrol module",
 		Args:  cobra.ExactArgs(0),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			clientCtx, err := client.GetClientQueryContext(cmd)
@@ -61,7 +62,9 @@ func GetResourceDependencyMapping() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "resource-dependency-mapping [messageKey] [flags]",
 		Short: "Get the resource dependency mapping for a specific message key",
-		Args:  cobra.ExactArgs(1),
+		Long: "Get the resource dependency mapping for a specific message key. E.g.\n" +
+			"$ seid q accesscontrol resource-dependency-mapping [messageKey] [flags]",
+		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			clientCtx, err := client.GetClientQueryContext(cmd)
 			if err != nil {
@@ -90,6 +93,7 @@ func ListResourceDependencyMapping() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "list-resource-dependency-mapping [flags]",
 		Short: "List all resource dependency mappings",
+		Long:  "List all resource dependency mappings",
 		Args:  cobra.ExactArgs(0),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			clientCtx, err := client.GetClientQueryContext(cmd)
@@ -119,7 +123,9 @@ func GetWasmDependencyAccessOps() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "wasm-dependency-mapping [contractAddr] [flags]",
 		Short: "Get the wasm contract dependency mapping for a specific contract address",
-		Args:  cobra.ExactArgs(1),
+		Long: "Get the wasm contract dependency mapping for a specific contract address. E.g.\n" +
+			"$ seid q accesscontrol wasm-dependency-mapping [contractAddr] [flags]",
+		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			clientCtx, err := client.GetClientQueryContext(cmd)
 			if err != nil {
@@ -148,6 +154,7 @@ func ListWasmDependencyMapping() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "list-wasm-dependency-mapping [flags]",
 		Short: "List all wasm contract dependency mappings",
+		Long:  "List all wasm contract dependency mappings",
 		Args:  cobra.ExactArgs(0),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			clientCtx, err := client.GetClientQueryContext(cmd)

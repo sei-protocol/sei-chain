@@ -42,6 +42,15 @@ func MsgUpdateResourceDependencyMappingProposalCmd() *cobra.Command {
 		Use:   "update-resource-dependency-mapping [proposal-file]",
 		Args:  cobra.ExactArgs(1),
 		Short: "Submit an UpdateResourceDependencyMapping proposal",
+		Long: "Submit a proposal to update resource dependencies between objects. \n" +
+			"E.g. $ seid update-resource-dependency-mapping [proposal-file]\n" +
+			"The proposal file should contain the following:\n" +
+			"{\n" +
+			"\t title: [title],\n" +
+			"\t description: [description],\n" +
+			"\t deposit: [deposit],\n" +
+			"\t message_dependency_mapping: [<list of message dependency mappings>]\n" +
+			"}",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			clientCtx, err := client.GetClientTxContext(cmd)
 			if err != nil {
@@ -84,6 +93,12 @@ func MsgRegisterWasmDependencyMappingCmd() *cobra.Command {
 		Use:   "register-wasm-dependency-mapping [mapping-json-file]",
 		Args:  cobra.ExactArgs(1),
 		Short: "Register dependencies for a wasm contract",
+		Long: "Registers dependencies for a wasm contract\n" +
+			"E.g. $seid register-wasm-dependency-mapping [mapping-json-file]\n" +
+			"The mapping JSON file should contain the following:\n" +
+			"{\n" +
+			"\t wasm_dependency_mapping: <wasm dependency mapping>\n" +
+			"}",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			clientCtx, err := client.GetClientTxContext(cmd)
 			if err != nil {
