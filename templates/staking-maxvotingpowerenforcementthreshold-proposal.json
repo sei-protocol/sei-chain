@@ -1,5 +1,5 @@
 {
-  "title": "Change Max Voting PowerEnforcement",
+  "title": "Change Max Voting Power Enforcement",
   "description": "Change MaxVotingPowerEnforcementThreshold to 10000",
   "changes": [
     {
