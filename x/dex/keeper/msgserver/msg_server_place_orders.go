@@ -30,7 +30,7 @@ func (k msgServer) transferFunds(goCtx context.Context, msg *types.MsgPlaceOrder
 	}
 
 	for _, fund := range msg.Funds {
-		if fund.IsNegative() {
+		if fund.Amount.IsNil() || fund.IsNegative() {
 			return errors.New("fund deposits cannot be nil or negative")
 		}
 		dexutils.GetMemState(ctx.Context()).GetDepositInfo(ctx, typesutils.ContractAddress(msg.GetContractAddr())).Add(&types.DepositInfoEntry{
