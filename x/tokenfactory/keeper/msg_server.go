@@ -103,35 +103,6 @@ func (server msgServer) Burn(goCtx context.Context, msg *types.MsgBurn) (*types.
 	return &types.MsgBurnResponse{}, nil
 }
 
-// func (server msgServer) ForceTransfer(goCtx context.Context, msg *types.MsgForceTransfer) (*types.MsgForceTransferResponse, error) {
-// 	ctx := sdk.UnwrapSDKContext(goCtx)
-
-// 	authorityMetadata, err := server.Keeper.GetAuthorityMetadata(ctx, msg.Amount.GetDenom())
-// 	if err != nil {
-// 		return nil, err
-// 	}
-
-// 	if msg.Sender != authorityMetadata.GetAdmin() {
-// 		return nil, types.ErrUnauthorized
-// 	}
-
-// 	err = server.Keeper.forceTransfer(ctx, msg.Amount, msg.TransferFromAddress, msg.TransferToAddress)
-// 	if err != nil {
-// 		return nil, err
-// 	}
-
-// 	ctx.EventManager().EmitEvents(sdk.Events{
-// 		sdk.NewEvent(
-// 			types.TypeMsgForceTransfer,
-// 			sdk.NewAttribute(types.AttributeTransferFromAddress, msg.TransferFromAddress),
-// 			sdk.NewAttribute(types.AttributeTransferToAddress, msg.TransferToAddress),
-// 			sdk.NewAttribute(types.AttributeAmount, msg.Amount.String()),
-// 		),
-// 	})
-
-// 	return &types.MsgForceTransferResponse{}, nil
-// }
-
 func (server msgServer) ChangeAdmin(goCtx context.Context, msg *types.MsgChangeAdmin) (*types.MsgChangeAdminResponse, error) {
 	ctx := sdk.UnwrapSDKContext(goCtx)
 

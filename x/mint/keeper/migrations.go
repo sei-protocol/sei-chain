@@ -15,7 +15,7 @@ func NewMigrator(keeper Keeper) Migrator {
 	return Migrator{keeper: keeper}
 }
 
-// Migrate2to3 migrates from version 2 to 3.
+// Migrate1to2 migrates from version 1 to 2
 func (m Migrator) Migrate1to2(ctx sdk.Context) error {
 	defaultParams := types.DefaultParams()
 	m.keeper.paramSpace.SetParamSet(ctx, &defaultParams)

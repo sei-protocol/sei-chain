@@ -76,7 +76,7 @@ func (AppModuleBasic) DefaultGenesis(cdc codec.JSONCodec) json.RawMessage {
 }
 
 // ValidateGenesis performs genesis state validation for the capability module.
-func (AppModuleBasic) ValidateGenesis(cdc codec.JSONCodec, config client.TxEncodingConfig, bz json.RawMessage) error {
+func (AppModuleBasic) ValidateGenesis(cdc codec.JSONCodec, _ client.TxEncodingConfig, bz json.RawMessage) error {
 	var genState types.GenesisState
 	if err := cdc.UnmarshalJSON(bz, &genState); err != nil {
 		return fmt.Errorf("failed to unmarshal %s genesis state: %w", types.ModuleName, err)
@@ -100,7 +100,7 @@ func (a AppModuleBasic) GetTxCmd() *cobra.Command {
 
 // GetQueryCmd returns the capability module's root query command.
 func (AppModuleBasic) GetQueryCmd() *cobra.Command {
-	return query.GetQueryCmd(types.StoreKey)
+	return query.GetQueryCmd()
 }
 
 // ----------------------------------------------------------------------------
@@ -219,7 +219,7 @@ func (am AppModule) ExportGenesis(ctx sdk.Context, cdc codec.JSONCodec) json.Raw
 func (AppModule) ConsensusVersion() uint64 { return 11 }
 
 func (am AppModule) getAllContractInfo(ctx sdk.Context) []types.ContractInfoV2 {
-	// Do not process any contract that has a non-zero rent balance
+	// Do not process any contract that has zero rent balance
 	return utils.Filter(am.keeper.GetAllContractInfo(ctx), func(c types.ContractInfoV2) bool { return c.RentBalance > 0 })
 }
 

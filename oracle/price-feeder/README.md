@@ -89,7 +89,7 @@ file defines what exchange rates to fetch and what providers to get them from.
 In addition, it defines the oracle's keyring and feeder account information.
 The keyring's password is defined via environment variables or user input.
 More information on the keyring can be found [here](#keyring)
-Please see the [example configuration](price-feeder.example.toml) for more details.
+Please see the [example configuration](./config.example.toml) for more details.
 
 ```shell
 $ price-feeder /path/to/price_feeder_config.toml
