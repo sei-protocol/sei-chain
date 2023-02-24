@@ -5,7 +5,7 @@
     {
       "subspace": "oracle",
       "key": "MinValidPerWindow",
-      "value": "0.000000"
+      "value": "0.000000000000000000"
     }
   ],
   "deposit": "10000000usei"
