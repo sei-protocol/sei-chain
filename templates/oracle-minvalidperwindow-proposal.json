@@ -1,0 +1,12 @@
+{
+  "title": "Change Oracle Min Valid Window",
+  "description": "Change Oracle Min Valid Window to 0",
+  "changes": [
+    {
+      "subspace": "oracle",
+      "key": "MinValidPerWindow",
+      "value": "0.000000"
+    }
+  ],
+  "deposit": "10000000usei"
+}

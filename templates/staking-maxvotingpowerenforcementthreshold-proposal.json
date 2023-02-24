@@ -1,0 +1,12 @@
+{
+  "title": "Change Max Voting PowerEnforcement",
+  "description": "Change MaxVotingPowerEnforcementThreshold to 10000",
+  "changes": [
+    {
+      "subspace": "staking",
+      "key": "MaxVotingPowerEnforcementThreshold",
+      "value": "10000"
+    }
+  ],
+  "deposit": "10000000usei"
+}

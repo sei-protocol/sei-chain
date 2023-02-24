@@ -1,0 +1,12 @@
+{
+  "title": "Change Max Voting Power",
+  "description": "Change MaxVotingPower to 0.2",
+  "changes": [
+    {
+      "subspace": "staking",
+      "key": "MaxVotingPower",
+      "value": "0.2"
+    }
+  ],
+  "deposit": "10000000usei"
+}

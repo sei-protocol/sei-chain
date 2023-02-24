@@ -1,0 +1,16 @@
+{
+  "title": "Decrease voting period",
+  "description": "Decrease voting to 3 hours and expedited to 1 hour",
+  "changes": [
+    {
+      "subspace": "gov",
+      "key": "votingparams",
+      "value": {
+        "voting_period": "10800000000000",
+        "expedited_voting_period": "3600000000000"
+      }
+    }
+  ],
+  "is_expedited": true,
+  "deposit": "10000000usei"
+}
