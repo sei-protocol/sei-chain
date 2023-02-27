@@ -94,7 +94,10 @@ def set_price_feeder():
     """Set the price feeder."""
     logging.info('Setting price feeder...')
     addr, _ = seid_add_key(ORACLE_PRICE_FEEDER_ACC_NAME)
-    run_command(f'seid tx oracle set-feeder $(seid keys show {ORACLE_PRICE_FEEDER_ACC_NAME} -a) --from admin --yes --fees=2000usei')
+    run_with_password(
+        f'seid tx oracle set-feeder $(seid keys show {ORACLE_PRICE_FEEDER_ACC_NAME} -a) --from admin --yes --fees=2000usei',
+        account_cache[ORACLE_PRICE_FEEDER_ACC_NAME].password
+    )
     logging.info("Please send sei tokens to the feeder account '%s' to fund it", addr)
 
 
@@ -200,9 +203,8 @@ def prepare_genesis(args):
     if not args.moniker:
         raise RuntimeError('Please specify a version')
 
-    # TODO(bweng): Decrease starting balance after testnet
-    add_genesis_account(DEFAULT_VALIDATOR_ACC_NAME, '100000000sei')
-    gentx(args.chain_id, DEFAULT_VALIDATOR_ACC_NAME, '10000sei', args.gentx_args)
+    add_genesis_account(DEFAULT_VALIDATOR_ACC_NAME, '12sei')
+    gentx(args.chain_id, DEFAULT_VALIDATOR_ACC_NAME, '10sei', args.gentx_args)
 
 
 def setup_oracle(args):
@@ -236,7 +238,7 @@ def run():
     try:
         if args.action in {SETUP_VALIDATOR, PREPARE_GENESIS}:
             setup_validator(args)
-            run_command(f"'sed -i -e 's/mode = \"full\"/mode = \"validator\"/' {SEI_CONFIG_DIR}/config.toml'")
+            run_command(f"sed -i -e 's/mode = \"full\"/mode = \"validator\"/' {SEI_CONFIG_DIR}/config.toml")
 
         if args.action == PREPARE_GENESIS:
             prepare_genesis(args)
