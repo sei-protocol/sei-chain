@@ -411,7 +411,6 @@ func (k Keeper) BuildSelectorOps(ctx sdk.Context, contractAddr sdk.AccAddress, a
 			}
 			_, err = op.Apply(msgInfo.MessageFullBody)
 			// if we are in a contract reference, we have to assume that this is necessary
-			// TODO: after partitioning changes are merged, the MESSAGE_CONDITIONAL can be deprecated in favor of partitioned deps
 			if err != nil && !withinContractReference {
 				// if the operation is not applicable to the message, skip it
 				continue

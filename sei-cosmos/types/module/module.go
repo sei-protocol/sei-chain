@@ -286,8 +286,6 @@ func (m *Manager) SetOrderBeginBlockers(moduleNames ...string) {
 
 // SetOrderMidBlockers sets the order of set mid-blocker calls
 func (m *Manager) SetOrderMidBlockers(moduleNames ...string) {
-	// TODO: do we need this assertion? maybe its ok to not have it to only have some modules have MidBlock implementations
-	// m.assertNoForgottenModules("SetOrderMidBlockers", moduleNames)
 	m.OrderMidBlockers = moduleNames
 }
 
