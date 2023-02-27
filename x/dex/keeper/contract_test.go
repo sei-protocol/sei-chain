@@ -1,6 +1,7 @@
 package keeper_test
 
 import (
+	"github.com/cosmos/cosmos-sdk/store/prefix"
 	"testing"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -51,6 +52,38 @@ func TestChargeRentForGas(t *testing.T) {
 	keeper.DeleteContract(ctx, keepertest.TestContract)
 	_, err = keeper.GetContract(ctx, keepertest.TestContract)
 	require.NotNil(t, err)
+}
+
+func TestGetContractInfo(t *testing.T) {
+	keeper, ctx := keepertest.DexKeeper(t)
+	keeper.SetParams(ctx, types.Params{SudoCallGasPrice: sdk.NewDecWithPrec(1, 1), PriceSnapshotRetention: 1})
+	keeper.SetContract(ctx, &types.ContractInfoV2{
+		Creator:      keepertest.TestAccount,
+		ContractAddr: keepertest.TestContract,
+		CodeId:       1,
+		RentBalance:  1000000,
+	})
+	// Successfully get a contract
+	contract, err := keeper.GetContract(ctx, keepertest.TestContract)
+	require.Equal(t, uint64(1000000), contract.RentBalance)
+	require.Equal(t, uint64(1), contract.CodeId)
+	require.Equal(t, keepertest.TestAccount, contract.Creator)
+
+	// Getting a non exist contract should throw error for contract not exist
+	_, err = keeper.GetContract(ctx, keepertest.TestContract2)
+	require.Error(t, err)
+	require.Equal(t, err, types.ErrContractNotExists)
+
+	// Getting a corrupted record should throw error for unable to parse
+	store := prefix.NewStore(
+		ctx.KVStore(keeper.GetStoreKey()),
+		[]byte("x-wasm-contract"),
+	)
+	bz := []byte("bad_contract")
+	store.Set(types.ContractKey(keepertest.TestContract), bz)
+	_, err = keeper.GetContract(ctx, keepertest.TestContract)
+	require.Error(t, err)
+	require.Equal(t, err, types.ErrParsingContractInfo)
 }
 
 func TestGetAllContractInfo(t *testing.T) {
