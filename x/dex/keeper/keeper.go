@@ -31,25 +31,6 @@ type (
 	}
 )
 
-func NewPlainKeeper(
-	cdc codec.BinaryCodec,
-	storeKey,
-	memKey sdk.StoreKey,
-	ps paramtypes.Subspace,
-) *Keeper {
-	// set KeyTable if it has not already been set
-	if !ps.HasKeyTable() {
-		ps = ps.WithKeyTable(types.ParamKeyTable())
-	}
-	return &Keeper{
-		Cdc:        cdc,
-		storeKey:   storeKey,
-		memKey:     memKey,
-		Paramstore: ps,
-		MemState:   dexcache.NewMemState(storeKey),
-	}
-}
-
 func NewKeeper(
 	cdc codec.BinaryCodec,
 	storeKey,

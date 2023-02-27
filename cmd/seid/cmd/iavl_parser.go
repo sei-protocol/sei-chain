@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
 	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
 	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
 	"github.com/sei-protocol/sei-chain/app/params"
@@ -22,6 +23,7 @@ var ModuleParserMap = map[string]ModuleParser{
 	"mint":    MintParser,
 	"dex":     DexParser,
 	"staking": StakingParser,
+	"acc":     AccountParser,
 }
 
 func MintParser(key []byte) ([]string, error) {
@@ -31,6 +33,23 @@ func MintParser(key []byte) ([]string, error) {
 		keyItems = append(keyItems, "MinterKey")
 	case bytes.HasPrefix(key, minttypes.LastTokenReleaseDate):
 		keyItems = append(keyItems, "LastTokenReleaseDate")
+	default:
+		keyItems = append(keyItems, UNRECOGNIZED)
+	}
+	return keyItems, nil
+}
+
+func AccountParser(key []byte) ([]string, error) {
+	keyItems := []string{}
+	switch {
+	case bytes.HasPrefix(key, authtypes.AddressStoreKeyPrefix):
+		keyItems = append(keyItems, "AddressStore")
+		remaining := bytes.TrimPrefix(key, authtypes.AddressStoreKeyPrefix)
+		bech32Addr, err := sdk.Bech32ifyAddressBytes(params.Bech32PrefixAccAddr, remaining)
+		if err != nil {
+			return keyItems, err
+		}
+		keyItems = append(keyItems, fmt.Sprintf("AddrBech32: %s", bech32Addr))
 	default:
 		keyItems = append(keyItems, UNRECOGNIZED)
 	}

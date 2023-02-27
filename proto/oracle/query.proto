@@ -129,7 +129,7 @@ message QueryPriceSnapshotHistoryResponse {
 
 // request type for twap RPC method
 message QueryTwapsRequest {
-  int64 lookback_seconds = 1;
+  uint64 lookback_seconds = 1;
 }
 
 message QueryTwapsResponse {

@@ -41,7 +41,7 @@ var (
 	}
 	DefaultSlashFraction     = sdk.NewDecWithPrec(1, 4) // 0.01%
 	DefaultMinValidPerWindow = sdk.NewDecWithPrec(5, 2) // 5%
-	DefaultLookbackDuration  = int64(3600)              // in seconds
+	DefaultLookbackDuration  = uint64(3600)             // in seconds
 )
 
 var _ paramstypes.ParamSet = &Params{}
@@ -229,7 +229,7 @@ func validateMinValidPerWindow(i interface{}) error {
 }
 
 func validateLookbackDuration(i interface{}) error {
-	_, ok := i.(int64)
+	_, ok := i.(uint64)
 	if !ok {
 		return fmt.Errorf("invalid parameter type: %T", i)
 	}

@@ -16,19 +16,6 @@ import (
 
 var ErrorInvalidMsgType = fmt.Errorf("invalid message received for staking module")
 
-func GetStakingDependencyGenerator() aclkeeper.DependencyGeneratorMap {
-	dependencyGeneratorMap := make(aclkeeper.DependencyGeneratorMap)
-
-	delegateKey := acltypes.GenerateMessageKey(&stakingtypes.MsgDelegate{})
-	undelegateKey := acltypes.GenerateMessageKey(&stakingtypes.MsgUndelegate{})
-	beginRedelegateKey := acltypes.GenerateMessageKey(&stakingtypes.MsgBeginRedelegate{})
-	dependencyGeneratorMap[delegateKey] = MsgDelegateDependencyGenerator
-	dependencyGeneratorMap[undelegateKey] = MsgUndelegateDependencyGenerator
-	dependencyGeneratorMap[beginRedelegateKey] = MsgBeginRedelegateDependencyGenerator
-
-	return dependencyGeneratorMap
-}
-
 func MsgDelegateDependencyGenerator(keeper aclkeeper.Keeper, ctx sdk.Context, msg sdk.Msg) ([]sdkacltypes.AccessOperation, error) {
 	msgDelegate, ok := msg.(*stakingtypes.MsgDelegate)
 	if !ok {

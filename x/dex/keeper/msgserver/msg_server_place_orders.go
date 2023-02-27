@@ -22,11 +22,6 @@ func (k msgServer) transferFunds(goCtx context.Context, msg *types.MsgPlaceOrder
 	if err != nil {
 		return err
 	}
-	for _, fund := range msg.Funds {
-		if fund.Amount.IsNil() {
-			return errors.New("deposit amount cannot be nil")
-		}
-	}
 	if err := k.BankKeeper.IsSendEnabledCoins(ctx, msg.Funds...); err != nil {
 		return err
 	}
