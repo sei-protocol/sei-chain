@@ -51,6 +51,7 @@ func (k Keeper) SlashAndResetCounters(ctx sdk.Context) {
 				sdk.NewAttribute(types.AttributeKeyOperator, operator.String()),
 				sdk.NewAttribute(types.AttributeKeyMissCount, strconv.FormatUint(votePenaltyCounter.MissCount, 10)),
 				sdk.NewAttribute(types.AttributeKeyAbstainCount, strconv.FormatUint(votePenaltyCounter.AbstainCount, 10)),
+				sdk.NewAttribute(types.AttributeKeySuccessCount, strconv.FormatUint(votePenaltyCounter.SuccessCount, 10)),
 				sdk.NewAttribute(types.AttributeKeyWinCount, strconv.FormatUint(winCount, 10)),
 			),
 		)
