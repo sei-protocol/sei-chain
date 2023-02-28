@@ -189,7 +189,7 @@ func (k Keeper) SetVotePenaltyCounter(ctx sdk.Context, operator sdk.ValAddress, 
 	defer metrics.SetOracleVotePenaltyCount(successCount, operator.String(), "success")
 
 	store := ctx.KVStore(k.storeKey)
-	bz := k.cdc.MustMarshal(&types.VotePenaltyCounter{MissCount: missCount, AbstainCount: abstainCount})
+	bz := k.cdc.MustMarshal(&types.VotePenaltyCounter{MissCount: missCount, AbstainCount: abstainCount: SuccessCount: successCount})
 	store.Set(types.GetVotePenaltyCounterKey(operator), bz)
 }
 
