@@ -18,10 +18,7 @@ func (k msgServer) transferFunds(goCtx context.Context, msg *types.MsgPlaceOrder
 	}
 
 	ctx := sdk.UnwrapSDKContext(goCtx)
-	contractAddr, err := sdk.AccAddressFromBech32(msg.ContractAddr)
-	if err != nil {
-		return err
-	}
+	contractAddr := sdk.MustAccAddressFromBech32(msg.ContractAddr)
 	if err := k.BankKeeper.IsSendEnabledCoins(ctx, msg.Funds...); err != nil {
 		return err
 	}
@@ -29,10 +26,7 @@ func (k msgServer) transferFunds(goCtx context.Context, msg *types.MsgPlaceOrder
 		return sdkerrors.Wrapf(sdkerrors.ErrUnauthorized, "%s is not allowed to receive funds", contractAddr.String())
 	}
 
-	sender, err := sdk.AccAddressFromBech32(msg.Creator)
-	if err != nil {
-		return fmt.Errorf("failed to parse sender address: %s", err)
-	}
+	sender := sdk.MustAccAddressFromBech32(msg.Creator)
 	for _, fund := range msg.Funds {
 		if fund.Amount.IsNil() || fund.IsNegative() {
 			return errors.New("fund deposits cannot be nil or negative")
@@ -43,7 +37,8 @@ func (k msgServer) transferFunds(goCtx context.Context, msg *types.MsgPlaceOrder
 			Amount:  sdk.NewDec(fund.Amount.Int64()),
 		})
 	}
-	if err := k.BankKeeper.SendCoins(ctx, sender, contractAddr, msg.Funds); err != nil {
+	escrow := k.AccountKeeper.GetModuleAccount(ctx, types.ModuleName).GetAddress()
+	if err := k.BankKeeper.SendCoins(ctx, sender, escrow, msg.Funds); err != nil {
 		return fmt.Errorf("error sending coins to contract: %s", err)
 	}
 	return nil

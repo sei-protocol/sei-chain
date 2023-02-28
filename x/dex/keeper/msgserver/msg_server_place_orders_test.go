@@ -104,6 +104,7 @@ func TestPlaceOrderWithDeposit(t *testing.T) {
 	bankkeeper.MintCoins(ctx, minttypes.ModuleName, amounts)
 	bankkeeper.SendCoinsFromModuleToAccount(ctx, minttypes.ModuleName, testAccount, amounts)
 	keeper := testApp.DexKeeper
+	keeper.CreateModuleAccount(ctx)
 	keeper.AddRegisteredPair(ctx, TestContract, keepertest.TestPair)
 	keeper.SetPriceTickSizeForPair(ctx, TestContract, keepertest.TestPair, *keepertest.TestPair.PriceTicksize)
 	keeper.SetQuantityTickSizeForPair(ctx, TestContract, keepertest.TestPair, *keepertest.TestPair.QuantityTicksize)
@@ -115,17 +116,16 @@ func TestPlaceOrderWithDeposit(t *testing.T) {
 	require.Equal(t, uint64(0), res.OrderIds[0])
 	senderBalance := bankkeeper.GetBalance(ctx, testAccount, "usei")
 	require.Equal(t, sdk.ZeroInt(), senderBalance.Amount)
-	contractAddr, _ := sdk.AccAddressFromBech32(TestContract)
-	contractBalance := bankkeeper.GetBalance(ctx, contractAddr, "usei")
-	require.Equal(t, sdk.NewInt(10), contractBalance.Amount)
+	escrowBalance := bankkeeper.GetBalance(ctx, keeper.AccountKeeper.GetModuleAddress("dex"), "usei")
+	require.Equal(t, sdk.NewInt(10), escrowBalance.Amount)
 
 	// insufficient fund
 	res, err = server.PlaceOrders(wctx, msg)
 	require.NotNil(t, err)
 	senderBalance = bankkeeper.GetBalance(ctx, testAccount, "usei")
 	require.Equal(t, sdk.ZeroInt(), senderBalance.Amount)
-	contractBalance = bankkeeper.GetBalance(ctx, contractAddr, "usei")
-	require.Equal(t, sdk.NewInt(10), contractBalance.Amount)
+	escrowBalance = bankkeeper.GetBalance(ctx, keeper.AccountKeeper.GetModuleAddress("dex"), "usei")
+	require.Equal(t, sdk.NewInt(10), escrowBalance.Amount)
 }
 
 func TestPlaceInvalidOrder(t *testing.T) {

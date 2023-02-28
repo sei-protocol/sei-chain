@@ -32,10 +32,22 @@ func (w KeeperWrapper) HandleEBDeposit(ctx context.Context, sdkCtx sdk.Context, 
 }
 
 func (w KeeperWrapper) GetDepositSudoMsg(ctx sdk.Context, typedContractAddr typesutils.ContractAddress) wasm.SudoOrderPlacementMsg {
+	depositMemState := dexutils.GetMemState(ctx.Context()).GetDepositInfo(ctx, typedContractAddr).Get()
 	contractDepositInfo := seiutils.Map(
-		dexutils.GetMemState(ctx.Context()).GetDepositInfo(ctx, typedContractAddr).Get(),
+		depositMemState,
 		func(d *types.DepositInfoEntry) types.ContractDepositInfo { return d.ToContractDepositInfo() },
 	)
+	escrowed := sdk.NewCoins()
+	for _, deposit := range depositMemState {
+		escrowed.Add(sdk.NewCoin(deposit.Denom, deposit.Amount.TruncateInt()))
+	}
+	contractAddr, err := sdk.AccAddressFromBech32(string(typedContractAddr))
+	if err != nil {
+		panic(err)
+	}
+	if err := w.BankKeeper.SendCoins(ctx, w.AccountKeeper.GetModuleAccount(ctx, types.ModuleName).GetAddress(), contractAddr, escrowed); err != nil {
+		panic(err)
+	}
 	return wasm.SudoOrderPlacementMsg{
 		OrderPlacements: wasm.OrderPlacementMsgDetails{
 			Orders:   []types.Order{},
