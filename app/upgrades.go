@@ -52,7 +52,6 @@ var upgradesList = []string{
 	"2.0.29beta",
 	"2.0.32beta",
 	"2.0.36beta",
-	// TODO: Next upgrade need to update oracle vote success counter: https://github.com/sei-protocol/sei-chain/pull/621
 }
 
 func (app App) RegisterUpgradeHandlers() {
