@@ -70,3 +70,27 @@ func (m Migrator) Migrate4to5(ctx sdk.Context) error {
 	}
 	return nil
 }
+
+func (m Migrator) Migrate5To6(ctx sdk.Context) error {
+	// Do a one time backfill for success count in the vote penalty counter
+	store := ctx.KVStore(m.keeper.storeKey)
+
+	// previously the data was stored as uint64, now it is VotePenaltyCounter proto
+	iter := sdk.KVStorePrefixIterator(store, types.VotePenaltyCounterKey)
+	defer iter.Close()
+	for ; iter.Valid(); iter.Next() {
+		var votePenaltyCounter types.VotePenaltyCounter
+		m.keeper.cdc.MustUnmarshal(iter.Value(), &votePenaltyCounter)
+		slashWindow := m.keeper.GetParams(ctx).SlashWindow
+		totalPenaltyCount := votePenaltyCounter.MissCount + votePenaltyCounter.AbstainCount
+		successCount := ((uint64)(ctx.BlockHeight()) % slashWindow) - totalPenaltyCount
+		newVotePenaltyCounter := types.VotePenaltyCounter{
+			MissCount:    votePenaltyCounter.MissCount,
+			AbstainCount: votePenaltyCounter.AbstainCount,
+			SuccessCount: successCount,
+		}
+		bz := m.keeper.cdc.MustMarshal(&newVotePenaltyCounter)
+		store.Set(iter.Key(), bz)
+	}
+	return nil
+}
