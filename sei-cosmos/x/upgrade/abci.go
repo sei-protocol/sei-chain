@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/armon/go-metrics"
 	"github.com/cosmos/cosmos-sdk/telemetry"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/x/upgrade/keeper"
@@ -42,6 +43,15 @@ func BeginBlocker(k keeper.Keeper, ctx sdk.Context, _ abci.RequestBeginBlock) {
 	if !found {
 		return
 	}
+
+	telemetry.SetGaugeWithLabels(
+		[]string{"cosmos", "upgrade", "plan", "height"},
+		float32(plan.Height),
+		[]metrics.Label{
+			{Name: "name", Value: plan.Name},
+			{Name: "info", Value: plan.Info},
+		},
+	)
 
 	// To make sure clear upgrade is executed at the same block
 	if plan.ShouldExecute(ctx) {
