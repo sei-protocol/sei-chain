@@ -53,6 +53,9 @@ def get_transaction_breakdown(height):
                 for attr in event["attributes"]:
                     if attr["key"] == "module":
                         module = attr["value"]
+        # Attributes may not be defined for custom module
+        if module == None:
+            module = "other"
         if module not in tx_mapping:
             tx_mapping[module] = 1
         else:
@@ -76,14 +79,18 @@ def get_metrics():
     average_txs_num = total_txs_num / len(skip_edge_blocks)
 
     # Best block stats:
-    max_tx, max_tx_height, max_tx_height_block_time = -1, -1, -1
-    for block in block_info_list:
-        if block["number_of_txs"] > max_tx:
-            max_tx, max_tx_height, max_tx_height_block_time = block["number_of_txs"], block["height"], block["timestamp"]
+    max_throughput, max_block_height, max_block_time = -1, -1, -1
+    for i in range(len(block_info_list)):
+        block = block_info_list[i]
+        next_block_time = get_block_time(block["height"] + 1)
+        block_time = (next_block_time - block["timestamp"]) // timedelta(milliseconds=1)
+        throughput = block["number_of_txs"] / block_time
+        if throughput > max_throughput:
+            max_throughput = throughput
+            max_block_height = block["height"]
+            max_block_time = block_time
 
-  # Block times are set at proposal, so the best estimate is to compare block n with n+1 for block time
-    tx_mapping = get_transaction_breakdown(max_tx_height)
-    max_tx_height_block_time = (get_block_time(max_tx_height + 1) - max_tx_height_block_time) // timedelta(milliseconds=1)
+    tx_mapping = get_transaction_breakdown(max_block_height)
 
     return {
         "Summary (excl. edge block)": {
@@ -99,10 +106,10 @@ def get_metrics():
             "txs_per_block": [block["number_of_txs"] for block in block_info_list]
         },
         "Best block": {
-            "height": max_tx_height,
-            "num_txs": max_tx,
+            "height": max_block_height,
+            "tps": max_throughput * 1000,
             "tx_mapping": tx_mapping,
-            "block_time_ms": max_tx_height_block_time
+            "block_time_ms": max_block_time
         }
     }
 
