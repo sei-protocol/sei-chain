@@ -125,3 +125,30 @@ func TestMigrate4to5(t *testing.T) {
 	require.Equal(t, store.Has(genPrevoteKey(addr)), false)
 	require.Equal(t, store.Has(genPrevoteKey(ValAddrs[1])), false)
 }
+
+func TestMigrate5to6(t *testing.T) {
+	input := CreateTestInput(t)
+
+	addr := ValAddrs[0]
+	input.Ctx.KVStore(input.OracleKeeper.storeKey)
+	input.OracleKeeper.SetVotePenaltyCounter(
+		input.Ctx,
+		addr,
+		12,
+		13,
+		0,
+	)
+
+	// Migrate store
+	m := NewMigrator(input.OracleKeeper)
+	input.Ctx = input.Ctx.WithBlockHeight(int64(input.OracleKeeper.GetParams(input.Ctx).SlashWindow) + 10000)
+	m.Migrate5To6(input.Ctx)
+
+	// Get rate
+	votePenaltyCounter := input.OracleKeeper.GetVotePenaltyCounter(input.Ctx, addr)
+	require.Equal(t, types.VotePenaltyCounter{
+		MissCount: 12,
+		AbstainCount: 13,
+		SuccessCount: 9975,
+	}, votePenaltyCounter)
+}

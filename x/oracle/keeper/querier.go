@@ -150,6 +150,7 @@ func (q querier) VotePenaltyCounter(c context.Context, req *types.QueryVotePenal
 		VotePenaltyCounter: &types.VotePenaltyCounter{
 			MissCount:    q.GetMissCount(ctx, valAddr),
 			AbstainCount: q.GetAbstainCount(ctx, valAddr),
+			SuccessCount: q.GetSuccessCount(ctx, valAddr),
 		},
 	}, nil
 }
