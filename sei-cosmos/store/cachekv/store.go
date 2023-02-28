@@ -143,7 +143,7 @@ func (store *Store) Delete(key []byte) {
 
 	types.AssertValidKey(key)
 	store.setCacheValue(key, nil, true, true)
-	store.eventManager.EmitResourceAccessReadEvent("delete", store.storeKey, key, []byte{})
+	store.eventManager.EmitResourceAccessWriteEvent("delete", store.storeKey, key, []byte{})
 }
 
 // Implements Cachetypes.KVStore.
