@@ -19,7 +19,7 @@ type ImmutableTree struct {
 	ndb                    *nodeDB
 	version                int64
 	skipFastStorageUpgrade bool
-	mtx                    *sync.RWMutex
+	mtx                    *sync.Mutex
 }
 
 // NewImmutableTree creates both in-memory and persistent instances
