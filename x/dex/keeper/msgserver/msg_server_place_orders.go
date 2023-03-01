@@ -37,8 +37,7 @@ func (k msgServer) transferFunds(goCtx context.Context, msg *types.MsgPlaceOrder
 			Amount:  sdk.NewDec(fund.Amount.Int64()),
 		})
 	}
-	escrow := k.AccountKeeper.GetModuleAccount(ctx, types.ModuleName).GetAddress()
-	if err := k.BankKeeper.SendCoins(ctx, sender, escrow, msg.Funds); err != nil {
+	if err := k.BankKeeper.DeferredSendCoinsFromAccountToModule(ctx, sender, types.ModuleName, msg.Funds); err != nil {
 		return fmt.Errorf("error sending coins to contract: %s", err)
 	}
 	return nil

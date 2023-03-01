@@ -51,7 +51,6 @@ func DexPlaceOrdersDependencyGenerator(keeper aclkeeper.Keeper, ctx sdk.Context,
 	}
 
 	senderBankAddrIdentifier := hex.EncodeToString(banktypes.CreateAccountBalancesPrefixFromBech32(placeOrdersMsg.Creator))
-	contractBankAddrIdentifier := hex.EncodeToString(banktypes.CreateAccountBalancesPrefixFromBech32(placeOrdersMsg.ContractAddr))
 	contractAddr := placeOrdersMsg.ContractAddr
 
 	aclOps := []sdkacltypes.AccessOperation{
@@ -109,30 +108,6 @@ func DexPlaceOrdersDependencyGenerator(keeper aclkeeper.Keeper, ctx sdk.Context,
 			AccessType:         sdkacltypes.AccessType_WRITE,
 			ResourceType:       sdkacltypes.ResourceType_KV_BANK_BALANCES,
 			IdentifierTemplate: senderBankAddrIdentifier,
-		},
-
-		// Checks balance for receiver
-		{
-			AccessType:         sdkacltypes.AccessType_READ,
-			ResourceType:       sdkacltypes.ResourceType_KV_BANK_BALANCES,
-			IdentifierTemplate: contractBankAddrIdentifier,
-		},
-		{
-			AccessType:         sdkacltypes.AccessType_WRITE,
-			ResourceType:       sdkacltypes.ResourceType_KV_BANK_BALANCES,
-			IdentifierTemplate: contractBankAddrIdentifier,
-		},
-
-		// Tries to create the reciever's account if it doesn't exist
-		{
-			AccessType:         sdkacltypes.AccessType_READ,
-			ResourceType:       sdkacltypes.ResourceType_KV_AUTH_ADDRESS_STORE,
-			IdentifierTemplate: hex.EncodeToString(authtypes.CreateAddressStoreKeyFromBech32(placeOrdersMsg.ContractAddr)),
-		},
-		{
-			AccessType:         sdkacltypes.AccessType_WRITE,
-			ResourceType:       sdkacltypes.ResourceType_KV_AUTH_ADDRESS_STORE,
-			IdentifierTemplate: hex.EncodeToString(authtypes.CreateAddressStoreKeyFromBech32(placeOrdersMsg.ContractAddr)),
 		},
 
 		// Gets Account Info for the sender

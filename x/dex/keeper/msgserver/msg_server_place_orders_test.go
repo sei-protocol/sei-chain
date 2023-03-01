@@ -124,8 +124,6 @@ func TestPlaceOrderWithDeposit(t *testing.T) {
 	require.NotNil(t, err)
 	senderBalance = bankkeeper.GetBalance(ctx, testAccount, "usei")
 	require.Equal(t, sdk.ZeroInt(), senderBalance.Amount)
-	escrowBalance = bankkeeper.GetBalance(ctx, keeper.AccountKeeper.GetModuleAddress("dex"), "usei")
-	require.Equal(t, sdk.NewInt(10), escrowBalance.Amount)
 }
 
 func TestPlaceInvalidOrder(t *testing.T) {
