@@ -5,7 +5,6 @@ import (
 	"crypto/sha256"
 	"fmt"
 	"sort"
-	"sync"
 
 	"github.com/pkg/errors"
 	dbm "github.com/tendermint/tm-db"
@@ -37,8 +36,6 @@ type MutableTree struct {
 	unsavedFastNodeRemovals  map[string]interface{} // FastNodes that have not yet been removed from disk
 	ndb                      *nodeDB
 	skipFastStorageUpgrade   bool // If true, the tree will work like no fast storage and always not upgrade fast storage
-
-	mtx sync.RWMutex
 }
 
 // NewMutableTree returns a new tree with the specified cache size and datastore.
@@ -226,7 +223,7 @@ func (tree *MutableTree) Iterator(start, end []byte, ascending bool) (dbm.Iterat
 		}
 	}
 
-	return tree.ImmutableTree.Iterator(start, end, ascending, &tree.mtx)
+	return tree.ImmutableTree.Iterator(start, end, ascending)
 }
 
 func (tree *MutableTree) set(key []byte, value []byte) (orphans []*Node, updated bool, err error) {
