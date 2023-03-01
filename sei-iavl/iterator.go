@@ -6,6 +6,7 @@ package iavl
 import (
 	"bytes"
 	"errors"
+	"sync"
 
 	dbm "github.com/tendermint/tm-db"
 )
@@ -76,19 +77,19 @@ func (nodes *delayedNodes) length() int {
 // 1. If it is not an delayed node (node.delayed == false) it immediately returns it.
 //
 // A. If the `node` is a branch node:
-// 1. If the traversal is postorder, then append the current node to the t.delayedNodes,
-//    with `delayed` set to false. This makes the current node returned *after* all the children
-//    are traversed, without being expanded.
-// 2. Append the traversable children nodes into the `delayedNodes`, with `delayed` set to true. This
-//    makes the children nodes to be traversed, and expanded with their respective children.
-// 3. If the traversal is preorder, (with the children to be traversed already pushed to the
-//    `delayedNodes`), returns the current node.
-// 4. Call `traversal.next()` to further traverse through the `delayedNodes`.
+//  1. If the traversal is postorder, then append the current node to the t.delayedNodes,
+//     with `delayed` set to false. This makes the current node returned *after* all the children
+//     are traversed, without being expanded.
+//  2. Append the traversable children nodes into the `delayedNodes`, with `delayed` set to true. This
+//     makes the children nodes to be traversed, and expanded with their respective children.
+//  3. If the traversal is preorder, (with the children to be traversed already pushed to the
+//     `delayedNodes`), returns the current node.
+//  4. Call `traversal.next()` to further traverse through the `delayedNodes`.
 //
 // B. If the `node` is a leaf node, it will be returned without expand, by the following process:
-// 1. If the traversal is postorder, the current node will be append to the `delayedNodes` with `delayed`
-//    set to false, and immediately returned at the subsequent call of `traversal.next()` at the last line.
-// 2. If the traversal is preorder, the current node will be returned.
+//  1. If the traversal is postorder, the current node will be append to the `delayedNodes` with `delayed`
+//     set to false, and immediately returned at the subsequent call of `traversal.next()` at the last line.
+//  2. If the traversal is preorder, the current node will be returned.
 func (t *traversal) next() (*Node, error) {
 	// End of traversal.
 	if t.delayedNodes.length() == 0 {
@@ -179,18 +180,24 @@ type Iterator struct {
 	err error
 
 	t *traversal
+
+	mtx *sync.RWMutex
 }
 
 var _ dbm.Iterator = (*Iterator)(nil)
 
 // Returns a new iterator over the immutable tree. If the tree is nil, the iterator will be invalid.
-func NewIterator(start, end []byte, ascending bool, tree *ImmutableTree) dbm.Iterator {
+func NewIterator(start, end []byte, ascending bool, tree *ImmutableTree, mtx *sync.RWMutex) dbm.Iterator {
 	iter := &Iterator{
 		start: start,
 		end:   end,
+		mtx:   mtx,
 	}
 
 	if tree == nil {
+		if mtx != nil {
+			mtx.Unlock()
+		}
 		iter.err = errIteratorNilTreeGiven
 	} else {
 		iter.valid = true
@@ -232,6 +239,9 @@ func (iter *Iterator) Next() {
 	if node == nil || err != nil {
 		iter.t = nil
 		iter.valid = false
+		if iter.mtx != nil {
+			iter.mtx.Unlock()
+		}
 		return
 	}
 
@@ -247,6 +257,9 @@ func (iter *Iterator) Next() {
 func (iter *Iterator) Close() error {
 	iter.t = nil
 	iter.valid = false
+	if iter.mtx != nil {
+		iter.mtx.Unlock()
+	}
 	return iter.err
 }
 
