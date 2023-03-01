@@ -6,7 +6,6 @@ package iavl
 import (
 	"bytes"
 	"errors"
-	"sync"
 
 	dbm "github.com/tendermint/tm-db"
 )
@@ -91,16 +90,29 @@ func (nodes *delayedNodes) length() int {
 //     set to false, and immediately returned at the subsequent call of `traversal.next()` at the last line.
 //  2. If the traversal is preorder, the current node will be returned.
 func (t *traversal) next() (*Node, error) {
+	n, err, shouldReturn := t.doNext()
+	if shouldReturn {
+		return n, err
+	}
+
+	// Keep traversing and expanding the remaning delayed nodes. A-4.
+	return t.next()
+}
+
+func (t *traversal) doNext() (*Node, error, bool) {
+	t.tree.mtx.Lock()
+	defer t.tree.mtx.Unlock()
+
 	// End of traversal.
 	if t.delayedNodes.length() == 0 {
-		return nil, nil
+		return nil, nil, true
 	}
 
 	node, delayed := t.delayedNodes.pop()
 
 	// Already expanded, immediately return.
 	if !delayed || node == nil {
-		return node, nil
+		return node, nil, true
 	}
 
 	afterStart := t.start == nil || bytes.Compare(t.start, node.key) < 0
@@ -125,7 +137,7 @@ func (t *traversal) next() (*Node, error) {
 				// push the delayed traversal for the right nodes,
 				rightNode, err := node.getRightNode(t.tree)
 				if err != nil {
-					return nil, err
+					return nil, err, true
 				}
 				t.delayedNodes.push(rightNode, true)
 			}
@@ -133,7 +145,7 @@ func (t *traversal) next() (*Node, error) {
 				// push the delayed traversal for the left nodes,
 				leftNode, err := node.getLeftNode(t.tree)
 				if err != nil {
-					return nil, err
+					return nil, err, true
 				}
 				t.delayedNodes.push(leftNode, true)
 			}
@@ -144,7 +156,7 @@ func (t *traversal) next() (*Node, error) {
 				// push the delayed traversal for the left nodes,
 				leftNode, err := node.getLeftNode(t.tree)
 				if err != nil {
-					return nil, err
+					return nil, err, true
 				}
 				t.delayedNodes.push(leftNode, true)
 			}
@@ -152,7 +164,7 @@ func (t *traversal) next() (*Node, error) {
 				// push the delayed traversal for the right nodes,
 				rightNode, err := node.getRightNode(t.tree)
 				if err != nil {
-					return nil, err
+					return nil, err, true
 				}
 				t.delayedNodes.push(rightNode, true)
 			}
@@ -162,11 +174,10 @@ func (t *traversal) next() (*Node, error) {
 	// case of preorder traversal. A-3 and B-2.
 	// Process root then (recursively) processing left child, then process right child
 	if !t.post && (!node.isLeaf() || (startOrAfter && beforeEnd)) {
-		return node, nil
+		return node, nil, true
 	}
 
-	// Keep traversing and expanding the remaning delayed nodes. A-4.
-	return t.next()
+	return nil, nil, false
 }
 
 // Iterator is a dbm.Iterator for ImmutableTree
@@ -180,26 +191,18 @@ type Iterator struct {
 	err error
 
 	t *traversal
-
-	mtx       sync.Mutex
-	locked    bool
-	unlockMtx sync.Mutex
 }
 
 var _ dbm.Iterator = (*Iterator)(nil)
 
 // Returns a new iterator over the immutable tree. If the tree is nil, the iterator will be invalid.
-func NewIterator(start, end []byte, ascending bool, tree *ImmutableTree, mtx sync.Mutex, locked bool) dbm.Iterator {
+func NewIterator(start, end []byte, ascending bool, tree *ImmutableTree) dbm.Iterator {
 	iter := &Iterator{
-		start:     start,
-		end:       end,
-		mtx:       mtx,
-		locked:    locked,
-		unlockMtx: sync.Mutex{},
+		start: start,
+		end:   end,
 	}
 
 	if tree == nil {
-		iter.unlock()
 		iter.err = errIteratorNilTreeGiven
 	} else {
 		iter.valid = true
@@ -241,7 +244,6 @@ func (iter *Iterator) Next() {
 	if node == nil || err != nil {
 		iter.t = nil
 		iter.valid = false
-		iter.unlock()
 		return
 	}
 
@@ -257,7 +259,6 @@ func (iter *Iterator) Next() {
 func (iter *Iterator) Close() error {
 	iter.t = nil
 	iter.valid = false
-	iter.unlock()
 	return iter.err
 }
 
@@ -269,14 +270,4 @@ func (iter *Iterator) Error() error {
 // IsFast returnts true if iterator uses fast strategy
 func (iter *Iterator) IsFast() bool {
 	return false
-}
-
-func (iter *Iterator) unlock() {
-	iter.unlockMtx.Lock()
-	defer iter.unlockMtx.Unlock()
-	if !iter.locked {
-		return
-	}
-	iter.mtx.Unlock()
-	iter.locked = false
 }

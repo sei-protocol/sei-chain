@@ -136,7 +136,7 @@ func runIterationFast(b *testing.B, t *iavl.MutableTree, expectedSize int) {
 
 func runIterationSlow(b *testing.B, t *iavl.MutableTree, expectedSize int) {
 	for i := 0; i < b.N; i++ {
-		itr := iavl.NewIterator(nil, nil, false, t.ImmutableTree, nil) // create slow iterator directly
+		itr := iavl.NewIterator(nil, nil, false, t.ImmutableTree) // create slow iterator directly
 		iterate(b, itr, expectedSize)
 		require.Nil(b, itr.Close(), ".Close should not error out")
 	}

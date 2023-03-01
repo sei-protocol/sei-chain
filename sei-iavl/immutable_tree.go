@@ -258,8 +258,8 @@ func (t *ImmutableTree) Iterator(start, end []byte, ascending bool) (dbm.Iterato
 			return NewFastIterator(start, end, ascending, t.ndb), nil
 		}
 	}
-	t.mtx.Lock()
-	return NewIterator(start, end, ascending, t, t.mtx, true), nil
+
+	return NewIterator(start, end, ascending, t), nil
 }
 
 // IterateRange makes a callback for all nodes with key between start and end non-inclusive.
