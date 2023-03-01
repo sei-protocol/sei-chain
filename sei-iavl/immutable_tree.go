@@ -19,7 +19,7 @@ type ImmutableTree struct {
 	ndb                    *nodeDB
 	version                int64
 	skipFastStorageUpgrade bool
-	mtx                    *sync.Mutex
+	mtx                    sync.Mutex
 }
 
 // NewImmutableTree creates both in-memory and persistent instances
@@ -259,7 +259,7 @@ func (t *ImmutableTree) Iterator(start, end []byte, ascending bool) (dbm.Iterato
 		}
 	}
 	t.mtx.Lock()
-	return NewIterator(start, end, ascending, t, t.mtx), nil
+	return NewIterator(start, end, ascending, t, t.mtx, true), nil
 }
 
 // IterateRange makes a callback for all nodes with key between start and end non-inclusive.
