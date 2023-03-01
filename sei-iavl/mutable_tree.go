@@ -5,7 +5,6 @@ import (
 	"crypto/sha256"
 	"fmt"
 	"sort"
-	"sync"
 
 	"github.com/pkg/errors"
 	dbm "github.com/tendermint/tm-db"
@@ -717,7 +716,7 @@ func (tree *MutableTree) enableFastStorageAndCommitLocked() error {
 func (tree *MutableTree) enableFastStorageAndCommit() error {
 	var err error
 
-	itr := NewIterator(nil, nil, true, tree.ImmutableTree, sync.Mutex{}, false)
+	itr := NewIterator(nil, nil, true, tree.ImmutableTree)
 	defer itr.Close()
 	var upgradedFastNodes uint64
 	for ; itr.Valid(); itr.Next() {
