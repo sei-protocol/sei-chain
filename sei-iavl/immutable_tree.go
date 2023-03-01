@@ -19,7 +19,7 @@ type ImmutableTree struct {
 	ndb                    *nodeDB
 	version                int64
 	skipFastStorageUpgrade bool
-	mtx                    sync.Mutex
+	mtx                    *sync.Mutex
 }
 
 // NewImmutableTree creates both in-memory and persistent instances
@@ -320,6 +320,7 @@ func (t *ImmutableTree) clone() *ImmutableTree {
 		ndb:                    t.ndb,
 		version:                t.version,
 		skipFastStorageUpgrade: t.skipFastStorageUpgrade,
+		mtx:                    t.mtx,
 	}
 }
 

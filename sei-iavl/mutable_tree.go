@@ -519,6 +519,7 @@ func (tree *MutableTree) LazyLoadVersion(targetVersion int64) (int64, error) {
 		ndb:                    tree.ndb,
 		version:                targetVersion,
 		skipFastStorageUpgrade: tree.skipFastStorageUpgrade,
+		mtx:                    tree.mtx,
 	}
 	if len(rootHash) > 0 {
 		// If rootHash is empty then root of tree should be nil
@@ -595,6 +596,7 @@ func (tree *MutableTree) LoadVersion(targetVersion int64) (int64, error) {
 		ndb:                    tree.ndb,
 		version:                latestVersion,
 		skipFastStorageUpgrade: tree.skipFastStorageUpgrade,
+		mtx:                    tree.mtx,
 	}
 
 	if len(latestRoot) != 0 {
@@ -759,6 +761,7 @@ func (tree *MutableTree) GetImmutable(version int64) (*ImmutableTree, error) {
 			ndb:                    tree.ndb,
 			version:                version,
 			skipFastStorageUpgrade: tree.skipFastStorageUpgrade,
+			mtx:                    tree.mtx,
 		}, nil
 	}
 	tree.versions[version] = true
@@ -772,6 +775,7 @@ func (tree *MutableTree) GetImmutable(version int64) (*ImmutableTree, error) {
 		ndb:                    tree.ndb,
 		version:                version,
 		skipFastStorageUpgrade: tree.skipFastStorageUpgrade,
+		mtx:                    tree.mtx,
 	}, nil
 }
 
@@ -785,6 +789,7 @@ func (tree *MutableTree) Rollback() {
 			ndb:                    tree.ndb,
 			version:                0,
 			skipFastStorageUpgrade: tree.skipFastStorageUpgrade,
+			mtx:                    tree.mtx,
 		}
 	}
 	tree.orphans = map[string]int64{}
