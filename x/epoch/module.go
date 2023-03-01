@@ -183,6 +183,13 @@ func (am AppModule) BeginBlock(ctx sdk.Context, _ abci.RequestBeginBlock) {
 		}
 		am.keeper.SetEpoch(ctx, newEpoch)
 		am.keeper.BeforeEpochStart(ctx, newEpoch)
+		ctx.EventManager().EmitEvent(
+			sdk.NewEvent(types.EventTypeNewEpoch,
+				sdk.NewAttribute(types.AttributeEpochNumber, fmt.Sprint(newEpoch.CurrentEpoch)),
+				sdk.NewAttribute(types.AttributeEpochTime, newEpoch.CurrentEpochStartTime.String()),
+				sdk.NewAttribute(types.AttributeEpochHeight, fmt.Sprint(newEpoch.CurrentEpochHeight)),
+			),
+		)
 	}
 }
 
