@@ -23,7 +23,7 @@ func TestIterator_NewIterator_NilTree_Failure(t *testing.T) {
 	}
 
 	t.Run("Iterator", func(t *testing.T) {
-		itr := NewIterator(start, end, ascending, nil)
+		itr := NewIterator(start, end, ascending, nil, nil)
 		performTest(t, itr)
 		require.ErrorIs(t, errIteratorNilTreeGiven, itr.Error())
 	})
@@ -198,7 +198,7 @@ func TestIterator_WithDelete_Full_Ascending_Success(t *testing.T) {
 	})
 
 	t.Run("Iterator", func(t *testing.T) {
-		itr := NewIterator(config.startIterate, config.endIterate, config.ascending, immutableTree)
+		itr := NewIterator(config.startIterate, config.endIterate, config.ascending, immutableTree, nil)
 		require.True(t, itr.Valid())
 		assertIterator(t, itr, sortedMirror, config.ascending)
 	})
@@ -259,7 +259,7 @@ func setupIteratorAndMirror(t *testing.T, config *iteratorTestConfig) (dbm.Itera
 	immutableTree, err := tree.GetImmutable(latestVersion)
 	require.NoError(t, err)
 
-	itr := NewIterator(config.startIterate, config.endIterate, config.ascending, immutableTree)
+	itr := NewIterator(config.startIterate, config.endIterate, config.ascending, immutableTree, nil)
 	return itr, mirror
 }
 

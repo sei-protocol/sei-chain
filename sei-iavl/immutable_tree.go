@@ -19,6 +19,7 @@ type ImmutableTree struct {
 	ndb                    *nodeDB
 	version                int64
 	skipFastStorageUpgrade bool
+	mtx                    sync.RWMutex
 }
 
 // NewImmutableTree creates both in-memory and persistent instances
@@ -231,7 +232,7 @@ func (t *ImmutableTree) Iterate(fn func(key []byte, value []byte) bool) (bool, e
 		return false, nil
 	}
 
-	itr, err := t.Iterator(nil, nil, true, nil)
+	itr, err := t.Iterator(nil, nil, true)
 	defer itr.Close()
 	if err != nil {
 		return false, err
@@ -246,7 +247,7 @@ func (t *ImmutableTree) Iterate(fn func(key []byte, value []byte) bool) (bool, e
 }
 
 // Iterator returns an iterator over the immutable tree.
-func (t *ImmutableTree) Iterator(start, end []byte, ascending bool, mtx *sync.RWMutex) (dbm.Iterator, error) {
+func (t *ImmutableTree) Iterator(start, end []byte, ascending bool) (dbm.Iterator, error) {
 	if !t.skipFastStorageUpgrade {
 		isFastCacheEnabled, err := t.IsFastCacheEnabled()
 		if err != nil {
@@ -257,7 +258,8 @@ func (t *ImmutableTree) Iterator(start, end []byte, ascending bool, mtx *sync.RW
 			return NewFastIterator(start, end, ascending, t.ndb), nil
 		}
 	}
-	return NewIterator(start, end, ascending, t, mtx), nil
+	t.mtx.Lock()
+	return NewIterator(start, end, ascending, t, &t.mtx), nil
 }
 
 // IterateRange makes a callback for all nodes with key between start and end non-inclusive.
