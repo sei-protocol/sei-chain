@@ -181,8 +181,9 @@ type Iterator struct {
 
 	t *traversal
 
-	mtx    *sync.RWMutex
-	locked bool
+	mtx       *sync.RWMutex
+	locked    bool
+	unlockMtx *sync.Mutex
 }
 
 var _ dbm.Iterator = (*Iterator)(nil)
@@ -190,10 +191,11 @@ var _ dbm.Iterator = (*Iterator)(nil)
 // Returns a new iterator over the immutable tree. If the tree is nil, the iterator will be invalid.
 func NewIterator(start, end []byte, ascending bool, tree *ImmutableTree, mtx *sync.RWMutex) dbm.Iterator {
 	iter := &Iterator{
-		start:  start,
-		end:    end,
-		mtx:    mtx,
-		locked: true,
+		start:     start,
+		end:       end,
+		mtx:       mtx,
+		locked:    true,
+		unlockMtx: &sync.Mutex{},
 	}
 
 	if tree == nil {
@@ -270,12 +272,14 @@ func (iter *Iterator) IsFast() bool {
 }
 
 func (iter *Iterator) unlock() {
+	iter.unlockMtx.Lock()
+	defer iter.unlockMtx.Unlock()
 	if iter.mtx == nil {
 		return
 	}
 	if !iter.locked {
 		return
 	}
-	defer iter.mtx.Unlock()
+	iter.mtx.Unlock()
 	iter.locked = false
 }
