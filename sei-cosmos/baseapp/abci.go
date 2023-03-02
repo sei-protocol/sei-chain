@@ -41,7 +41,7 @@ func (app *BaseApp) InitChain(ctx context.Context, req *abci.RequestInitChain) (
 		initHeader = tmproto.Header{ChainID: req.ChainId, Height: req.InitialHeight, Time: req.Time}
 		err := app.cms.SetInitialVersion(req.InitialHeight)
 		if err != nil {
-			panic(err)
+			return nil, err
 		}
 	}
 
@@ -79,12 +79,11 @@ func (app *BaseApp) InitChain(ctx context.Context, req *abci.RequestInitChain) (
 	// sanity check
 	if len(req.Validators) > 0 {
 		if len(req.Validators) != len(res.Validators) {
-			panic(
+			return nil,
 				fmt.Errorf(
 					"len(RequestInitChain.Validators) != len(GenesisValidators) (%d != %d)",
 					len(req.Validators), len(res.Validators),
-				),
-			)
+				)
 		}
 
 		sort.Sort(abci.ValidatorUpdates(req.Validators))
@@ -92,7 +91,7 @@ func (app *BaseApp) InitChain(ctx context.Context, req *abci.RequestInitChain) (
 
 		for i := range res.Validators {
 			if !proto.Equal(&res.Validators[i], &req.Validators[i]) {
-				panic(fmt.Errorf("genesisValidators[%d] != req.Validators[%d] ", i, i))
+				return nil, fmt.Errorf("genesisValidators[%d] != req.Validators[%d] ", i, i)
 			}
 		}
 	}
