@@ -706,6 +706,9 @@ func (r *Router) dialPeer(ctx context.Context, address NodeAddress) (Connection,
 	endpoints, err := address.Resolve(resolveCtx)
 	switch {
 	case err != nil:
+		// Mark the peer as private so it's not broadcasted to other peers.
+		// This is reset upon restart of the node.
+		r.peerManager.options.PrivatePeers[address.NodeID] = struct{}{}
 		return nil, fmt.Errorf("failed to resolve address %q: %w", address, err)
 	case len(endpoints) == 0:
 		return nil, fmt.Errorf("address %q did not resolve to any endpoints", address)

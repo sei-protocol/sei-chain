@@ -202,6 +202,7 @@ func TestReactorSmallPeerStoreInALargeNetwork(t *testing.T) {
 		MaxPeers:     4,
 		MaxConnected: 3,
 		BufferSize:   8,
+		MaxRetryTime: 5 * time.Minute,
 	})
 	testNet.connectN(ctx, t, 1)
 	testNet.start(ctx, t)
@@ -225,6 +226,7 @@ func TestReactorLargePeerStoreInASmallNetwork(t *testing.T) {
 		MaxPeers:     25,
 		MaxConnected: 25,
 		BufferSize:   5,
+		MaxRetryTime: 5 * time.Minute,
 	})
 	testNet.connectN(ctx, t, 1)
 	testNet.start(ctx, t)
@@ -343,6 +345,7 @@ type testOptions struct {
 	BufferSize   int
 	MaxPeers     uint16
 	MaxConnected uint16
+	MaxRetryTime time.Duration
 }
 
 // setup setups a test suite with a network of nodes. Mocknodes represent the
@@ -360,6 +363,7 @@ func setupNetwork(ctx context.Context, t *testing.T, opts testOptions) *reactorT
 		NodeOpts: p2ptest.NodeOptions{
 			MaxPeers:     opts.MaxPeers,
 			MaxConnected: opts.MaxConnected,
+			MaxRetryTime: opts.MaxRetryTime,
 		},
 	}
 	chBuf := opts.BufferSize
@@ -439,6 +443,7 @@ func (r *reactorTestSuite) addNodes(ctx context.Context, t *testing.T, nodes int
 		node := r.network.MakeNode(ctx, t, p2ptest.NodeOptions{
 			MaxPeers:     r.opts.MaxPeers,
 			MaxConnected: r.opts.MaxConnected,
+			MaxRetryTime: r.opts.MaxRetryTime,
 		})
 		r.network.Nodes[node.NodeID] = node
 		nodeID := node.NodeID

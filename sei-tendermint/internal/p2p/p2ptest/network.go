@@ -38,6 +38,7 @@ type NetworkOptions struct {
 type NodeOptions struct {
 	MaxPeers     uint16
 	MaxConnected uint16
+	MaxRetryTime time.Duration
 }
 
 func (opts *NetworkOptions) setDefaults() {
@@ -251,9 +252,14 @@ func (n *Network) MakeNode(ctx context.Context, t *testing.T, opts NodeOptions) 
 	require.NoError(t, err)
 	require.NotNil(t, ep, "transport not listening an endpoint")
 
+	maxRetryTime := 500 * time.Millisecond
+	if opts.MaxRetryTime > 0 {
+		maxRetryTime = opts.MaxRetryTime
+	}
+
 	peerManager, err := p2p.NewPeerManager(nodeID, dbm.NewMemDB(), p2p.PeerManagerOptions{
 		MinRetryTime:    10 * time.Millisecond,
-		MaxRetryTime:    100 * time.Millisecond,
+		MaxRetryTime:    maxRetryTime,
 		RetryTimeJitter: time.Millisecond,
 		MaxPeers:        opts.MaxPeers,
 		MaxConnected:    opts.MaxConnected,
