@@ -181,9 +181,6 @@ func (tree *MutableTree) Import(version int64) (*Importer, error) {
 // Iterate iterates over all keys of the tree. The keys and values must not be modified,
 // since they may point to data stored within IAVL. Returns true if stopped by callnack, false otherwise
 func (tree *MutableTree) Iterate(fn func(key []byte, value []byte) bool) (stopped bool, err error) {
-	tree.mtx.Lock()
-	defer tree.mtx.Unlock()
-
 	if tree.root == nil {
 		return false, nil
 	}
