@@ -25,9 +25,8 @@ func CmdPlaceOrders() *cobra.Command {
 		Short: "Bulk place orders",
 		Long: strings.TrimSpace(`
 			Place orders on an orderbook specified by contract-address. Orders are represented as strings with the cancellation details separated by "?". Cancellation details format is OrderDirection?Quantity?Price?PriceAsset?QuoteAsset?OrderType?OrderData?AdditionalParams.
-
-			Example: "LONG?1.01?5?USDC?ATOM?LIMIT?"
-		`), // TODO: cyson clarify the formatting + provide some examples, it's a bit confusing how exactly the order detail should be composed
+			More info here: https://docs.seinetwork.io/smart-contracts-and-local-development/dex-module-tutorial#placeorders
+		`),
 		Args: cobra.MinimumNArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) (err error) {
 			argContractAddr := args[0]
