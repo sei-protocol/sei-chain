@@ -17,6 +17,7 @@ import (
 	cdctypes "github.com/cosmos/cosmos-sdk/codec/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/types/module"
+	"github.com/sei-protocol/sei-chain/utils/metrics"
 	"github.com/sei-protocol/sei-chain/x/epoch/client/cli"
 	"github.com/sei-protocol/sei-chain/x/epoch/keeper"
 	"github.com/sei-protocol/sei-chain/x/epoch/types"
@@ -190,6 +191,7 @@ func (am AppModule) BeginBlock(ctx sdk.Context, _ abci.RequestBeginBlock) {
 				sdk.NewAttribute(types.AttributeEpochHeight, fmt.Sprint(newEpoch.CurrentEpochHeight)),
 			),
 		)
+		metrics.SetEpochNew(newEpoch.CurrentEpoch)
 	}
 }
 
