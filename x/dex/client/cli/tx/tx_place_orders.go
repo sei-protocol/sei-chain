@@ -23,7 +23,12 @@ func CmdPlaceOrders() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "place-orders [contract address] [orders...] --amount [coins,optional]",
 		Short: "Bulk place orders",
-		Args:  cobra.MinimumNArgs(2),
+		Long: strings.TrimSpace(`
+			Place orders on an orderbook specified by contract-address. Orders are represented as strings with the cancellation details separated by "?". Cancellation details format is OrderDirection?Quantity?Price?PriceAsset?QuoteAsset?OrderType?OrderData?AdditionalParams.
+
+			Example: "LONG?1.01?5?USDC?ATOM?LIMIT?"
+		`), // TODO: cyson clarify the formatting + provide some examples, it's a bit confusing how exactly the order detail should be composed
+		Args: cobra.MinimumNArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) (err error) {
 			argContractAddr := args[0]
 			orders := []*types.Order{}

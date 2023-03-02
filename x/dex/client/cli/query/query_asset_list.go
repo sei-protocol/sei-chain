@@ -2,6 +2,7 @@ package query
 
 import (
 	"strconv"
+	"strings"
 
 	"github.com/cosmos/cosmos-sdk/client"
 	"github.com/cosmos/cosmos-sdk/client/flags"
@@ -15,7 +16,10 @@ func CmdGetAssetList() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "get-asset-list",
 		Short: "Query Asset List",
-		Args:  cobra.NoArgs,
+		Long: strings.TrimSpace(`
+			Returns the metadata for all assets. Dex asset metadata includes information such as IBC info (for IBC assets), the asset type, and standard token metadata from the bank module.
+		`),
+		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) (err error) {
 			clientCtx, err := client.GetClientTxContext(cmd)
 			if err != nil {
@@ -44,7 +48,10 @@ func CmdGetAssetMetadata() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "get-asset-metadata [denom]",
 		Short: "Query Asset Metadata",
-		Args:  cobra.ExactArgs(1),
+		Long: strings.TrimSpace(`
+			Returns the metadata for a specific asset based on the passed in denom. Dex asset metadata includes information such as IBC info (for IBC assets), the asset type, and standard token metadata from the bank module.
+		`),
+		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) (err error) {
 			denom := args[0]
 			clientCtx, err := client.GetClientTxContext(cmd)
