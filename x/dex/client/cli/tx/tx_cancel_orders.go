@@ -19,7 +19,12 @@ func CmdCancelOrders() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "cancel-orders [contract address] [cancellations...]",
 		Short: "Bulk cancel orders",
-		Args:  cobra.MinimumNArgs(2),
+		Long: strings.TrimSpace(`
+			Cancel orders placed on an orderbook specified by contract-address. Cancellations are represented as strings with the cancellation details separated by "?". Cancellation details format is OrderID?PositionDirection?Price?PriceDenom?AssetDenom.
+
+			Example: "1234?LONG?1.01?USDC?ATOM"
+		`),
+		Args: cobra.MinimumNArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) (err error) {
 			argContractAddr := args[0]
 			if err != nil {

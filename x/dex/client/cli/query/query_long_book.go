@@ -2,6 +2,7 @@ package query
 
 import (
 	"context"
+	"strings"
 
 	"github.com/cosmos/cosmos-sdk/client"
 	"github.com/cosmos/cosmos-sdk/client/flags"
@@ -13,7 +14,10 @@ func CmdListLongBook() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "list-long-book [contract address] [price denom] [asset denom]",
 		Short: "list all longBook",
-		Args:  cobra.ExactArgs(3),
+		Long: strings.TrimSpace(`
+			Lists all of a long book's information for a given contract address and pair specified by price denopm and asset denom.
+		`),
+		Args: cobra.ExactArgs(3),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			clientCtx := client.GetClientContextFromCmd(cmd)
 
@@ -53,7 +57,10 @@ func CmdShowLongBook() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "show-long-book [contract address] [price] [price denom] [asset denom]",
 		Short: "shows a longBook",
-		Args:  cobra.ExactArgs(4),
+		Long: strings.TrimSpace(`
+			Gets a long book's information at a specific price for a given contract address and pair specified by price denopm and asset denom.
+		`),
+		Args: cobra.ExactArgs(4),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			clientCtx := client.GetClientContextFromCmd(cmd)
 

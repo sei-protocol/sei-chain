@@ -2,6 +2,7 @@ package query
 
 import (
 	"strconv"
+	"strings"
 
 	"github.com/cosmos/cosmos-sdk/client"
 	"github.com/cosmos/cosmos-sdk/client/flags"
@@ -15,7 +16,10 @@ func CmdGetOrders() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "get-orders [contract-address] [account]",
 		Short: "Query get orders for account",
-		Args:  cobra.ExactArgs(2),
+		Long: strings.TrimSpace(`
+			Get all orders for an account and orderbook specified by contract address.
+		`),
+		Args: cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) (err error) {
 			reqContractAddr := args[0]
 			reqAccount := args[1]
@@ -50,7 +54,10 @@ func CmdGetOrdersByID() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "get-orders-by-id [contract-address] [price-denom] [asset-denom] [id]",
 		Short: "Query get order by ID",
-		Args:  cobra.ExactArgs(4),
+		Long: strings.TrimSpace(`
+			Get a specific order by ID for an account and orderbook specified by contract address.
+		`),
+		Args: cobra.ExactArgs(4),
 		RunE: func(cmd *cobra.Command, args []string) (err error) {
 			contractAddr := args[0]
 			priceDenom := args[1]
