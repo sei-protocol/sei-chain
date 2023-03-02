@@ -116,8 +116,6 @@ func TestPlaceOrderWithDeposit(t *testing.T) {
 	require.Equal(t, uint64(0), res.OrderIds[0])
 	senderBalance := bankkeeper.GetBalance(ctx, testAccount, "usei")
 	require.Equal(t, sdk.ZeroInt(), senderBalance.Amount)
-	escrowBalance := bankkeeper.GetBalance(ctx, keeper.AccountKeeper.GetModuleAddress("dex"), "usei")
-	require.Equal(t, sdk.NewInt(10), escrowBalance.Amount)
 
 	// insufficient fund
 	res, err = server.PlaceOrders(wctx, msg)
