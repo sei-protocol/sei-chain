@@ -183,23 +183,29 @@ func (k Keeper) GetVotePenaltyCounter(ctx sdk.Context, operator sdk.ValAddress) 
 }
 
 // SetVotePenaltyCounter updates the # of vote periods missed in this oracle slash window
-func (k Keeper) SetVotePenaltyCounter(ctx sdk.Context, operator sdk.ValAddress, missCount uint64, abstainCount uint64) {
+func (k Keeper) SetVotePenaltyCounter(ctx sdk.Context, operator sdk.ValAddress, missCount, abstainCount, successCount uint64) {
 	defer metrics.SetOracleVotePenaltyCount(missCount, operator.String(), "miss")
 	defer metrics.SetOracleVotePenaltyCount(abstainCount, operator.String(), "abstain")
+	defer metrics.SetOracleVotePenaltyCount(successCount, operator.String(), "success")
 
 	store := ctx.KVStore(k.storeKey)
-	bz := k.cdc.MustMarshal(&types.VotePenaltyCounter{MissCount: missCount, AbstainCount: abstainCount})
+	bz := k.cdc.MustMarshal(&types.VotePenaltyCounter{MissCount: missCount, AbstainCount: abstainCount, SuccessCount: successCount})
 	store.Set(types.GetVotePenaltyCounterKey(operator), bz)
 }
 
 func (k Keeper) IncrementMissCount(ctx sdk.Context, operator sdk.ValAddress) {
 	votePenaltyCounter := k.GetVotePenaltyCounter(ctx, operator)
-	k.SetVotePenaltyCounter(ctx, operator, votePenaltyCounter.MissCount+1, votePenaltyCounter.AbstainCount)
+	k.SetVotePenaltyCounter(ctx, operator, votePenaltyCounter.MissCount+1, votePenaltyCounter.AbstainCount, votePenaltyCounter.SuccessCount)
 }
 
 func (k Keeper) IncrementAbstainCount(ctx sdk.Context, operator sdk.ValAddress) {
 	votePenaltyCounter := k.GetVotePenaltyCounter(ctx, operator)
-	k.SetVotePenaltyCounter(ctx, operator, votePenaltyCounter.MissCount, votePenaltyCounter.AbstainCount+1)
+	k.SetVotePenaltyCounter(ctx, operator, votePenaltyCounter.MissCount, votePenaltyCounter.AbstainCount+1, votePenaltyCounter.SuccessCount)
+}
+
+func (k Keeper) IncrementSuccessCount(ctx sdk.Context, operator sdk.ValAddress) {
+	votePenaltyCounter := k.GetVotePenaltyCounter(ctx, operator)
+	k.SetVotePenaltyCounter(ctx, operator, votePenaltyCounter.MissCount, votePenaltyCounter.AbstainCount, votePenaltyCounter.SuccessCount+1)
 }
 
 func (k Keeper) GetMissCount(ctx sdk.Context, operator sdk.ValAddress) uint64 {
@@ -212,10 +218,16 @@ func (k Keeper) GetAbstainCount(ctx sdk.Context, operator sdk.ValAddress) uint64
 	return votePenaltyCounter.AbstainCount
 }
 
+func (k Keeper) GetSuccessCount(ctx sdk.Context, operator sdk.ValAddress) uint64 {
+	votePenaltyCounter := k.GetVotePenaltyCounter(ctx, operator)
+	return votePenaltyCounter.SuccessCount
+}
+
 // DeleteVotePenaltyCounter removes miss counter for the validator
 func (k Keeper) DeleteVotePenaltyCounter(ctx sdk.Context, operator sdk.ValAddress) {
 	defer metrics.SetOracleVotePenaltyCount(0, operator.String(), "miss")
 	defer metrics.SetOracleVotePenaltyCount(0, operator.String(), "abstain")
+	defer metrics.SetOracleVotePenaltyCount(0, operator.String(), "success")
 
 	store := ctx.KVStore(k.storeKey)
 	store.Delete(types.GetVotePenaltyCounterKey(operator))
@@ -386,6 +398,7 @@ func (k Keeper) AddPriceSnapshot(ctx sdk.Context, snapshot types.PriceSnapshot) 
 	k.SetPriceSnapshot(ctx, snapshot)
 
 	var lastOutOfRangeSnapshotTimestamp int64 = -1
+	timestampsToDelete := []int64{}
 	// we need to evict old snapshots (except for one that is out of range)
 	k.IteratePriceSnapshots(ctx, func(snapshot types.PriceSnapshot) (stop bool) {
 		if snapshot.SnapshotTimestamp+lookbackDuration >= ctx.BlockTime().Unix() {
@@ -393,12 +406,15 @@ func (k Keeper) AddPriceSnapshot(ctx sdk.Context, snapshot types.PriceSnapshot) 
 		}
 		// delete the previous out of range snapshot
 		if lastOutOfRangeSnapshotTimestamp >= 0 {
-			k.DeletePriceSnapshot(ctx, lastOutOfRangeSnapshotTimestamp)
+			timestampsToDelete = append(timestampsToDelete, lastOutOfRangeSnapshotTimestamp)
 		}
 		// update last out of range snapshot
 		lastOutOfRangeSnapshotTimestamp = snapshot.SnapshotTimestamp
 		return false
 	})
+	for _, ts := range timestampsToDelete {
+		k.DeletePriceSnapshot(ctx, ts)
+	}
 }
 
 func (k Keeper) IteratePriceSnapshots(ctx sdk.Context, handler func(snapshot types.PriceSnapshot) (stop bool)) {

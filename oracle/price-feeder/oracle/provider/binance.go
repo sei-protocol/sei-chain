@@ -104,7 +104,11 @@ func NewBinanceProvider(
 	}
 
 	wsConn, response, err := websocket.DefaultDialer.Dial(wsURL.String(), nil)
-	defer response.Body.Close()
+	defer func() {
+		if response != nil {
+			response.Body.Close()
+		}
+	}()
 	if err != nil {
 		return nil, fmt.Errorf("error connecting to Binance websocket: %w", err)
 	}
@@ -366,7 +370,11 @@ func (p *BinanceProvider) reconnect() error {
 
 	p.logger.Debug().Msg("reconnecting websocket")
 	wsConn, response, err := websocket.DefaultDialer.Dial(p.wsURL.String(), nil)
-	defer response.Body.Close()
+	defer func() {
+		if response != nil {
+			response.Body.Close()
+		}
+	}()
 	if err != nil {
 		return fmt.Errorf("error reconnect to binance websocket: %w", err)
 	}

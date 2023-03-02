@@ -29,3 +29,8 @@ func (k Keeper) IsTxSenderWhitelisted(ctx sdk.Context, addr string) bool {
 	}
 	return false
 }
+
+func (k Keeper) IsFraudChallengeEnabled(ctx sdk.Context) bool {
+	params := k.GetParams(ctx)
+	return params.Enabled
+}

@@ -28,6 +28,15 @@ Ref: https://keepachangelog.com/en/1.0.0/
 
 # Changelog
 
+## 2.0.37beta - 2023-02-27
+### Features
+* [#621](https://github.com/sei-protocol/sei-chain/pull/621) Add success count to the oracle query
+* [#600](https://github.com/sei-protocol/sei-chain/pull/600) Add params to guard Nitro fraud challenge
+* [sei-tendermint #73](https://github.com/sei-protocol/sei-tendermint/pull/73) reduce checktx log noise
+### Bug Fixes
+* [#617](https://github.com/sei-protocol/sei-chain/pull/617) gracefully handle nil response for new provider
+* [#619](https://github.com/sei-protocol/sei-chain/pull/619) Move store operations outside of iterator
+
 ## 2.0.36beta - 2023-02-27
 ### Features
 * [#603](https://github.com/sei-protocol/sei-chain/pull/603) Set mempool ttl

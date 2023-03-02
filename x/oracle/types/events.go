@@ -17,6 +17,7 @@ const (
 	AttributeKeyMissCount     = "miss_count"
 	AttributeKeyAbstainCount  = "abstain_count"
 	AttributeKeyWinCount      = "win_count"
+	AttributeKeySuccessCount  = "success_count"
 
 	AttributeValueCategory = ModuleName
 )
