@@ -194,7 +194,7 @@ func (q querier) AggregateVotes(c context.Context, req *types.QueryAggregateVote
 
 func (q querier) SlashWindow(
 	goCtx context.Context,
-	req *types.QuerySlashWindow,
+	req *types.QuerySlashWindowRequest,
 ) (*types.QuerySlashWindowResponse, error) {
 	if req == nil {
 		return nil, status.Error(codes.InvalidArgument, "empty request")
