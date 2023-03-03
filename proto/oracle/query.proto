@@ -59,7 +59,7 @@ service Query {
   }
 
   // SlashWindow returns slash window information
-  rpc SlashWindow(QuerySlashWindow) returns (QuerySlashWindowResponse) {
+  rpc SlashWindow(QuerySlashWindowRequest) returns (QuerySlashWindowResponse) {
     option (google.api.http).get =
         "/sei-protocol/sei-chain/oracle/slash_window";
   }
@@ -204,7 +204,7 @@ message QueryAggregateVotesResponse {
 
 // QuerySlashWindow is the request type for the
 // Query/SlashWindow RPC method.
-message QuerySlashWindow {}
+message QuerySlashWindowRequest {}
 
 // QuerySlashWindowResponse is response type for the
 // Query/SlashWindow RPC method.
