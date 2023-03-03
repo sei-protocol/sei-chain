@@ -2,6 +2,7 @@ package query
 
 import (
 	"strconv"
+	"strings"
 
 	"github.com/cosmos/cosmos-sdk/client"
 	"github.com/cosmos/cosmos-sdk/client/flags"
@@ -15,7 +16,10 @@ func CmdGetTwaps() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "get-twaps [contract-address] [lookback]",
 		Short: "Query getPrice",
-		Args:  cobra.ExactArgs(2),
+		Long: strings.TrimSpace(`
+			Get the TWAPs (Time weighted average prices) for all registered dex pairs for a specific orderbook by [contract-address] with a specific lookback duration over which to compute the weighted average.
+		`),
+		Args: cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) (err error) {
 			reqContractAddr := args[0]
 			reqLookback, err := strconv.ParseUint(args[1], 10, 64)

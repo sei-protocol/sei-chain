@@ -2,6 +2,7 @@ package tx
 
 import (
 	"strconv"
+	"strings"
 
 	"github.com/cosmos/cosmos-sdk/client"
 	"github.com/cosmos/cosmos-sdk/client/flags"
@@ -17,7 +18,10 @@ func CmdUpdatePriceTickSize() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "update-price-tick-size [update-price-tick-size-file]",
 		Short: "Update price tick size for a market",
-		Args:  cobra.MinimumNArgs(1),
+		Long: strings.TrimSpace(`
+			Updates the price tick size for a specific pair for an orderbook specified by contract address. The file contains a list of pair info, new tick size, and contract addresses to allow for updating multiple tick sizes in one transaction.
+		`),
+		Args: cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) (err error) {
 			clientCtx, err := client.GetClientTxContext(cmd)
 			if err != nil {
