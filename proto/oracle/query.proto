@@ -58,6 +58,12 @@ service Query {
     option (google.api.http).get = "/sei-protocol/sei-chain/oracle/validators/aggregate_votes";
   }
 
+  // SlashWindow returns slash window information
+  rpc SlashWindow(QuerySlashWindow) returns (QuerySlashWindowResponse) {
+    option (google.api.http).get =
+        "/sei-protocol/sei-chain/oracle/slash_window";
+  }
+
   // Params queries all parameters.
   rpc Params(QueryParamsRequest) returns (QueryParamsResponse) {
     option (google.api.http).get = "/sei-protocol/sei-chain/oracle/params";
@@ -194,6 +200,18 @@ message QueryAggregateVotesRequest {}
 message QueryAggregateVotesResponse {
   // aggregate_votes defines all oracle aggregate votes submitted in the current vote period
   repeated AggregateExchangeRateVote aggregate_votes = 1 [(gogoproto.nullable) = false];
+}
+
+// QuerySlashWindow is the request type for the
+// Query/SlashWindow RPC method.
+message QuerySlashWindow {}
+
+// QuerySlashWindowResponse is response type for the
+// Query/SlashWindow RPC method.
+message QuerySlashWindowResponse {
+  // window_progress defines the number of voting periods
+  // since the last slashing event would have taken place.
+  uint64 window_progress = 1;
 }
 
 // QueryParamsRequest is the request type for the Query/Params RPC method.

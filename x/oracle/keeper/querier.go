@@ -191,3 +191,20 @@ func (q querier) AggregateVotes(c context.Context, req *types.QueryAggregateVote
 		AggregateVotes: votes,
 	}, nil
 }
+
+func (q querier) SlashWindow(
+	goCtx context.Context,
+	req *types.QuerySlashWindow,
+) (*types.QuerySlashWindowResponse, error) {
+	if req == nil {
+		return nil, status.Error(codes.InvalidArgument, "empty request")
+	}
+
+	ctx := sdk.UnwrapSDKContext(goCtx)
+	params := q.GetParams(ctx)
+
+	return &types.QuerySlashWindowResponse{
+		WindowProgress: (uint64(ctx.BlockHeight()) % params.SlashWindow) /
+			params.VotePeriod,
+	}, nil
+}

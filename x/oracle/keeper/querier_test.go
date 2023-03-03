@@ -134,6 +134,23 @@ func TestQueryAggregateVotes(t *testing.T) {
 	require.Equal(t, expectedVotes, res.AggregateVotes)
 }
 
+func TestQuerySlashingWindow(t *testing.T) {
+	input := CreateTestInput(t)
+	querier := NewQuerier(input.OracleKeeper)
+
+	input.Ctx = input.Ctx.WithBlockHeight(12502)
+	ctx := sdk.WrapSDKContext(input.Ctx)
+	res, err := querier.SlashWindow(ctx, &types.QuerySlashWindow{})
+	require.NoError(t, err)
+	require.Equal(t, 1250, int(res.WindowProgress))
+
+	input.Ctx = input.Ctx.WithBlockHeight(300501)
+	ctx = sdk.WrapSDKContext(input.Ctx)
+	res, err = querier.SlashWindow(ctx, &types.QuerySlashWindow{})
+	require.NoError(t, err)
+	require.Equal(t, 9890, int(res.WindowProgress))
+}
+
 func TestQueryVoteTargets(t *testing.T) {
 	input := CreateTestInput(t)
 	ctx := sdk.WrapSDKContext(input.Ctx)
