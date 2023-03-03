@@ -19,7 +19,7 @@ func CmdGetRegisteredContract() *cobra.Command {
 		Long: strings.TrimSpace(`
 			List the registered contract information specified by contract address.
 		`),
-		Args:  cobra.ExactArgs(1),
+		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) (err error) {
 			contractAddr := args[0]
 			clientCtx, err := client.GetClientTxContext(cmd)

@@ -29,7 +29,7 @@ func (k msgServer) ContractDepositRent(goCtx context.Context, msg *types.MsgCont
 
 	// check if the balance post deposit exceeds the limit.
 	// not checking the sum because it might overflow.
-	if k.maxAllowedRentBalance() - msg.GetAmount() < contract.RentBalance {
+	if k.maxAllowedRentBalance()-msg.GetAmount() < contract.RentBalance {
 		return nil, fmt.Errorf("rent balance %d will exceed the limit of %d after depositing %d", contract.RentBalance, k.maxAllowedRentBalance(), msg.GetAmount())
 	}
 

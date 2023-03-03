@@ -14,7 +14,7 @@ func (k KeeperWrapper) GetRegisteredContract(c context.Context, req *types.Query
 		return nil, status.Error(codes.InvalidArgument, "invalid request")
 	}
 	ctx := sdk.UnwrapSDKContext(c)
-	
+
 	contractInfo, err := k.GetContract(ctx, req.ContractAddr)
 	if err != nil {
 		return nil, err
