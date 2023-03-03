@@ -10,7 +10,6 @@ import (
 	acltypes "github.com/cosmos/cosmos-sdk/x/accesscontrol/types"
 	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
 	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
-	"github.com/sei-protocol/sei-chain/aclmapping/utils"
 	dextypes "github.com/sei-protocol/sei-chain/x/dex/types"
 )
 
@@ -116,30 +115,6 @@ func DexPlaceOrdersDependencyGenerator(keeper aclkeeper.Keeper, ctx sdk.Context,
 			ResourceType:       sdkacltypes.ResourceType_KV_AUTH_ADDRESS_STORE,
 			IdentifierTemplate: hex.EncodeToString(authtypes.CreateAddressStoreKeyFromBech32(placeOrdersMsg.Creator)),
 		},
-
-		{
-			AccessType:         sdkacltypes.AccessType_READ,
-			ResourceType:       sdkacltypes.ResourceType_KV_AUTH_GLOBAL_ACCOUNT_NUMBER,
-			IdentifierTemplate: hex.EncodeToString(authtypes.GlobalAccountNumberKey),
-		},
-	}
-
-	toAddr, err := sdk.AccAddressFromBech32(placeOrdersMsg.ContractAddr)
-	if err != nil {
-		// let msg server handle it
-		aclOps = append(aclOps, sdkacltypes.AccessOperation{
-			ResourceType:       sdkacltypes.ResourceType_ANY,
-			AccessType:         sdkacltypes.AccessType_COMMIT,
-			IdentifierTemplate: utils.DefaultIDTemplate,
-		})
-		return aclOps, nil
-	}
-	if !keeper.AccountKeeper.HasAccount(ctx, toAddr) {
-		aclOps = append(aclOps, sdkacltypes.AccessOperation{
-			AccessType:         sdkacltypes.AccessType_WRITE,
-			ResourceType:       sdkacltypes.ResourceType_KV_AUTH_GLOBAL_ACCOUNT_NUMBER,
-			IdentifierTemplate: hex.EncodeToString(authtypes.GlobalAccountNumberKey),
-		})
 	}
 
 	// Last Operation should always be a commit
