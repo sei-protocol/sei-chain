@@ -122,6 +122,7 @@ def get_metrics():
         },
         "Best block": {
             "height": max_block_height,
+            "tps": max_throughput * 1000,
             "tx_mapping": tx_mapping,
             "block_time_ms": max_block_time
         }
