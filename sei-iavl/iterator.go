@@ -76,30 +76,43 @@ func (nodes *delayedNodes) length() int {
 // 1. If it is not an delayed node (node.delayed == false) it immediately returns it.
 //
 // A. If the `node` is a branch node:
-// 1. If the traversal is postorder, then append the current node to the t.delayedNodes,
-//    with `delayed` set to false. This makes the current node returned *after* all the children
-//    are traversed, without being expanded.
-// 2. Append the traversable children nodes into the `delayedNodes`, with `delayed` set to true. This
-//    makes the children nodes to be traversed, and expanded with their respective children.
-// 3. If the traversal is preorder, (with the children to be traversed already pushed to the
-//    `delayedNodes`), returns the current node.
-// 4. Call `traversal.next()` to further traverse through the `delayedNodes`.
+//  1. If the traversal is postorder, then append the current node to the t.delayedNodes,
+//     with `delayed` set to false. This makes the current node returned *after* all the children
+//     are traversed, without being expanded.
+//  2. Append the traversable children nodes into the `delayedNodes`, with `delayed` set to true. This
+//     makes the children nodes to be traversed, and expanded with their respective children.
+//  3. If the traversal is preorder, (with the children to be traversed already pushed to the
+//     `delayedNodes`), returns the current node.
+//  4. Call `traversal.next()` to further traverse through the `delayedNodes`.
 //
 // B. If the `node` is a leaf node, it will be returned without expand, by the following process:
-// 1. If the traversal is postorder, the current node will be append to the `delayedNodes` with `delayed`
-//    set to false, and immediately returned at the subsequent call of `traversal.next()` at the last line.
-// 2. If the traversal is preorder, the current node will be returned.
+//  1. If the traversal is postorder, the current node will be append to the `delayedNodes` with `delayed`
+//     set to false, and immediately returned at the subsequent call of `traversal.next()` at the last line.
+//  2. If the traversal is preorder, the current node will be returned.
 func (t *traversal) next() (*Node, error) {
+	n, err, shouldReturn := t.doNext()
+	if shouldReturn {
+		return n, err
+	}
+
+	// Keep traversing and expanding the remaning delayed nodes. A-4.
+	return t.next()
+}
+
+func (t *traversal) doNext() (*Node, error, bool) {
+	t.tree.mtx.Lock()
+	defer t.tree.mtx.Unlock()
+
 	// End of traversal.
 	if t.delayedNodes.length() == 0 {
-		return nil, nil
+		return nil, nil, true
 	}
 
 	node, delayed := t.delayedNodes.pop()
 
 	// Already expanded, immediately return.
 	if !delayed || node == nil {
-		return node, nil
+		return node, nil, true
 	}
 
 	afterStart := t.start == nil || bytes.Compare(t.start, node.key) < 0
@@ -124,7 +137,7 @@ func (t *traversal) next() (*Node, error) {
 				// push the delayed traversal for the right nodes,
 				rightNode, err := node.getRightNode(t.tree)
 				if err != nil {
-					return nil, err
+					return nil, err, true
 				}
 				t.delayedNodes.push(rightNode, true)
 			}
@@ -132,7 +145,7 @@ func (t *traversal) next() (*Node, error) {
 				// push the delayed traversal for the left nodes,
 				leftNode, err := node.getLeftNode(t.tree)
 				if err != nil {
-					return nil, err
+					return nil, err, true
 				}
 				t.delayedNodes.push(leftNode, true)
 			}
@@ -143,7 +156,7 @@ func (t *traversal) next() (*Node, error) {
 				// push the delayed traversal for the left nodes,
 				leftNode, err := node.getLeftNode(t.tree)
 				if err != nil {
-					return nil, err
+					return nil, err, true
 				}
 				t.delayedNodes.push(leftNode, true)
 			}
@@ -151,7 +164,7 @@ func (t *traversal) next() (*Node, error) {
 				// push the delayed traversal for the right nodes,
 				rightNode, err := node.getRightNode(t.tree)
 				if err != nil {
-					return nil, err
+					return nil, err, true
 				}
 				t.delayedNodes.push(rightNode, true)
 			}
@@ -161,11 +174,10 @@ func (t *traversal) next() (*Node, error) {
 	// case of preorder traversal. A-3 and B-2.
 	// Process root then (recursively) processing left child, then process right child
 	if !t.post && (!node.isLeaf() || (startOrAfter && beforeEnd)) {
-		return node, nil
+		return node, nil, true
 	}
 
-	// Keep traversing and expanding the remaning delayed nodes. A-4.
-	return t.next()
+	return nil, nil, false
 }
 
 // Iterator is a dbm.Iterator for ImmutableTree
