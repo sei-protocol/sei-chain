@@ -77,4 +77,4 @@ fi
 ~/go/bin/seid config keyring-backend test
 
 # start the chain with log tracing
-GORACE="log_path=/tmp/race/seid_race" ~/go/bin/seid start --trace --chain-id sei-chain
+GORACE="log_path=/tmp/race/seid_race" ~/go/bin/seid start --trace --chain-id sei-chain --profile=true
