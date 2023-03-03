@@ -53,11 +53,14 @@ func TestDepositRent(t *testing.T) {
 	wctx := sdk.WrapSDKContext(ctx)
 	dexkeeper := testApp.DexKeeper
 
-	testAccount, _ := sdk.AccAddressFromBech32("sei1yezq49upxhunjjhudql2fnj5dgvcwjj87pn2wx")
+	testAccount, _ := sdk.AccAddressFromBech32("sei1h9yjz89tl0dl6zu65dpxcqnxfhq60wxx8s5kag")
+	depositAccount, _ := sdk.AccAddressFromBech32("sei1yezq49upxhunjjhudql2fnj5dgvcwjj87pn2wx")
 	amounts := sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(10000000)), sdk.NewCoin("uusdc", sdk.NewInt(10000000)))
 	bankkeeper := testApp.BankKeeper
 	bankkeeper.MintCoins(ctx, minttypes.ModuleName, amounts)
 	bankkeeper.SendCoinsFromModuleToAccount(ctx, minttypes.ModuleName, testAccount, amounts)
+	bankkeeper.MintCoins(ctx, minttypes.ModuleName, amounts)
+	bankkeeper.SendCoinsFromModuleToAccount(ctx, minttypes.ModuleName, depositAccount, amounts)
 	wasm, err := ioutil.ReadFile("../../testdata/mars.wasm")
 	if err != nil {
 		panic(err)
@@ -94,7 +97,7 @@ func TestDepositRent(t *testing.T) {
 
 	handler := dex.NewHandler(dexkeeper)
 	_, err = handler(ctx, &types.MsgContractDepositRent{
-		Sender:       testAccount.String(),
+		Sender:       depositAccount.String(),
 		ContractAddr: TestContractA,
 		Amount:       1000000,
 	})
@@ -102,7 +105,9 @@ func TestDepositRent(t *testing.T) {
 	_, err = dexkeeper.GetContract(ctx, TestContractA)
 	require.NoError(t, err)
 	balance = dexkeeper.BankKeeper.GetBalance(ctx, testAccount, "usei")
-	require.Equal(t, int64(7900000), balance.Amount.Int64())
+	require.Equal(t, int64(8900000), balance.Amount.Int64())
+	balance = dexkeeper.BankKeeper.GetBalance(ctx, depositAccount, "usei")
+	require.Equal(t, int64(9000000), balance.Amount.Int64())
 
 	// deposit exceeds limit
 	_, err = handler(ctx, &types.MsgContractDepositRent{
