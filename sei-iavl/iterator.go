@@ -100,8 +100,8 @@ func (t *traversal) next() (*Node, error) {
 }
 
 func (t *traversal) doNext() (*Node, error, bool) {
-	t.tree.mtx.Lock()
-	defer t.tree.mtx.Unlock()
+	// t.tree.mtx.Lock()
+	// defer t.tree.mtx.Unlock()
 
 	// End of traversal.
 	if t.delayedNodes.length() == 0 {

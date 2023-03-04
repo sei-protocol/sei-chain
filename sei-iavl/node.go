@@ -147,6 +147,21 @@ func (node *Node) clone(version int64) (*Node, error) {
 	}, nil
 }
 
+func (node *Node) cloneAny() *Node {
+	return &Node{
+		key:       node.key,
+		height:    node.height,
+		version:   node.version,
+		size:      node.size,
+		hash:      nil,
+		leftHash:  node.leftHash,
+		leftNode:  node.leftNode,
+		rightHash: node.rightHash,
+		rightNode: node.rightNode,
+		persisted: false,
+	}
+}
+
 func (node *Node) isLeaf() bool {
 	return node.height == 0
 }
