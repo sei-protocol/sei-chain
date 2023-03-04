@@ -118,7 +118,7 @@ func (ndb *nodeDB) GetNode(hash []byte) (*Node, error) {
 	// Check the cache.
 	if cachedNode := ndb.nodeCache.Get(hash); cachedNode != nil {
 		ndb.opts.Stat.IncCacheHitCnt()
-		return cachedNode.(*Node), nil
+		return cachedNode.(*Node).cloneAny(), nil
 	}
 
 	ndb.opts.Stat.IncCacheMissCnt()
@@ -139,7 +139,7 @@ func (ndb *nodeDB) GetNode(hash []byte) (*Node, error) {
 
 	node.hash = hash
 	node.persisted = true
-	ndb.nodeCache.Add(node)
+	ndb.nodeCache.Add(node.cloneAny())
 
 	return node, nil
 }
@@ -206,7 +206,7 @@ func (ndb *nodeDB) SaveNode(node *Node) error {
 	}
 	logger.Debug("BATCH SAVE %X %p\n", node.hash, node)
 	node.persisted = true
-	ndb.nodeCache.Add(node)
+	ndb.nodeCache.Add(node.cloneAny())
 	return nil
 }
 
@@ -1008,6 +1008,7 @@ func (ndb *nodeDB) orphans() ([][]byte, error) {
 // Not efficient.
 // NOTE: DB cannot implement Size() because
 // mutations are not always synchronous.
+//
 //nolint:unused
 func (ndb *nodeDB) size() int {
 	size := 0
