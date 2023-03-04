@@ -1,9 +1,12 @@
+import base64
 import json
 import requests
 import os
 from datetime import datetime, timedelta
 
 DATE_TIME_FMT = "%Y-%m-%dT%H:%M:%S.%f"
+DEX_MSGS = ["MsgPlaceOrder"]
+
 def get_block_height(tx_hash_str):
     res = requests.get(f"http://0.0.0.0:1317/txs/{tx_hash_str}")
     body = res.json()
@@ -38,21 +41,33 @@ def get_block_info(height):
 def get_block_time(height):
     return get_block_info(height)["timestamp"]
 
+"""
+This code is quite brittle as it handles different message types differently, and if we ever change the names of
+the proto or want to test more modules, we'll need to modify this. However, it works for now.
+"""
 def get_transaction_breakdown(height):
-    res = requests.get(f"http://localhost:26657/tx_search?query=tx.height%3D{height}&prove=false&page=1&per_page=100000")
-    output = res.json()["txs"]
+    res = requests.get(f"http://localhost:26657/block?height={height}")
+    output = res.json()["block"]["data"]["txs"]
     tx_mapping = {}
     for tx in output:
         module = None
-        # Ignore failed txs
-        if "code" in tx["tx_result"] and tx["tx_result"]["code"] != 0:
-            continue
-        if "events" in tx["tx_result"]:
-            events = tx["tx_result"]["events"]
-            for event in events:
-                for attr in event["attributes"]:
-                    if attr["key"] == "module":
-                        module = attr["value"]
+        b64_decoded = str(base64.b64decode(tx))
+        if "MsgSend" in b64_decoded:
+            module = "bank"
+        elif "MsgAggregateExchangeRateVote" in b64_decoded:
+            module = "oracle"
+        elif "MsgDelegate" in b64_decoded:
+            module = "staking"
+        elif  "MsgCreateDenom" in b64_decoded:
+            module = "tokenfactory"
+        else:
+            # Dex orders
+            for dex_msg in DEX_MSGS:
+                if dex_msg in b64_decoded:
+                    module = "dex"
+                    break
+
+
         # Attributes may not be defined for custom module
         if module == None:
             module = "other"
