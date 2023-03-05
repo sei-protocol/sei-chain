@@ -53,6 +53,14 @@ const (
 	restartNoAvailablePeersWindow = 10 * time.Minute
 )
 
+type NoPeersAvailableError struct {
+	error
+}
+
+func (e *NoPeersAvailableError) Error() string {
+    return fmt.Sprintf("no available peers to send a PEX request to (retrying)")
+}
+
 // TODO: We should decide whether we want channel descriptors to be housed
 // within each reactor (as they are now) or, considering that the reactor doesn't
 // really need to care about the channel descriptors, if they should be housed
@@ -169,6 +177,8 @@ func (r *Reactor) processPexCh(ctx context.Context, pexCh *p2p.Channel) {
 	// Initially, we will request peers quickly to bootstrap.  This duration
 	// will be adjusted upward as knowledge of the network grows.
 	var nextPeerRequest = minReceiveRequestInterval
+	noAvailablePeerFailCounter := 0
+	lastNoAvailablePeersTime := time.Now()
 
 	timer := time.NewTimer(0)
 	defer timer.Stop()
@@ -181,13 +191,27 @@ func (r *Reactor) processPexCh(ctx context.Context, pexCh *p2p.Channel) {
 			return
 
 		case <-timer.C:
-			// Send a request for more peer addresses.
-			if err := r.sendRequestForPeers(ctx, pexCh); err != nil {
-				return
-				// TODO(creachadair): Do we really want to stop processing the PEX
-				// channel just because of an error here?
+			// back off sending peer requests if there's none available.
+			// Let the loop continue to handle incoming pex messages
+			if noAvailablePeerFailCounter > 0 {
+				waitPeriod := float64(noAvailablePeersWaitPeriod) * float64(noAvailablePeerFailCounter)
+				if time.Since(lastNoAvailablePeersTime).Seconds() < time.Duration(waitPeriod).Seconds() {
+					r.logger.Debug(fmt.Sprintf("waiting for more peers to become available still in the waitPeriod=%f\n", time.Duration(waitPeriod).Seconds()))
+					continue
+				}
 			}
 
+			// Send a request for more peer addresses.
+			if err := r.sendRequestForPeers(ctx, pexCh); err != nil {
+				r.logger.Error("failed to send request for peers", "err", err)
+				if _, ok := err.(*NoPeersAvailableError); ok {
+					noAvailablePeerFailCounter++
+					lastNoAvailablePeersTime = time.Now()
+					continue
+				}
+				return
+			}
+			noAvailablePeerFailCounter = 0
 		case envelope, ok := <-incoming:
 			if !ok {
 				return // channel closed
@@ -331,9 +355,7 @@ func (r *Reactor) sendRequestForPeers(ctx context.Context, pexCh *p2p.Channel) e
 	r.mtx.Lock()
 	defer r.mtx.Unlock()
 	if len(r.availablePeers) == 0 {
-		// no peers are available
-		r.logger.Error("no available peers to send a PEX request to (retrying)")
-		return nil
+		return &NoPeersAvailableError{}
 	}
 
 	// Select an arbitrary peer from the available set.
