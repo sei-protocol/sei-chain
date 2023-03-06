@@ -26,23 +26,24 @@ const (
 )
 
 type Config struct {
-	ChainID       string                `json:"chain_id"`
-	GrpcEndpoint  string                `json:"grpc_endpoint"`
-	NodeURI       string                `json:"node_uri"`
-	TxsPerBlock   uint64                `json:"txs_per_block"`
-	MsgsPerTx     uint64                `json:"msgs_per_tx"`
-	Rounds        uint64                `json:"rounds"`
-	MessageType   string                `json:"message_type"`
-	RunOracle     bool                  `json:"run_oracle"`
-	PriceDistr    NumericDistribution   `json:"price_distribution"`
-	QuantityDistr NumericDistribution   `json:"quantity_distribution"`
-	MsgTypeDistr  MsgTypeDistribution   `json:"message_type_distribution"`
-	WasmMsgTypes  WasmMessageTypes      `json:"wasm_msg_types"`
-	ContractDistr ContractDistributions `json:"contract_distribution"`
-	MetricsPort   uint64                `json:"metrics_port"`
-	Constant      bool                  `json:"constant"`
-	LoadInterval  int64                 `json:"loadtest_interval"`
-	Tls           bool                  `json:"tls"`
+	ChainID            string                `json:"chain_id"`
+	GrpcEndpoint       string                `json:"grpc_endpoint"`
+	BlockchainEndpoint string                `json:"blockchain_endpoint"`
+	NodeURI            string                `json:"node_uri"`
+	TxsPerBlock        uint64                `json:"txs_per_block"`
+	MsgsPerTx          uint64                `json:"msgs_per_tx"`
+	Rounds             uint64                `json:"rounds"`
+	MessageType        string                `json:"message_type"`
+	RunOracle          bool                  `json:"run_oracle"`
+	PriceDistr         NumericDistribution   `json:"price_distribution"`
+	QuantityDistr      NumericDistribution   `json:"quantity_distribution"`
+	MsgTypeDistr       MsgTypeDistribution   `json:"message_type_distribution"`
+	WasmMsgTypes       WasmMessageTypes      `json:"wasm_msg_types"`
+	ContractDistr      ContractDistributions `json:"contract_distribution"`
+	MetricsPort        uint64                `json:"metrics_port"`
+	Constant           bool                  `json:"constant"`
+	LoadInterval       int64                 `json:"loadtest_interval"`
+	Tls                bool                  `json:"tls"`
 }
 
 type EncodingConfig struct {

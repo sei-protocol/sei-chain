@@ -123,7 +123,7 @@ func (c *LoadTestClient) generateMessage(config Config, key cryptotypes.PrivKey,
 		msg = &wasmtypes.MsgExecuteContract{
 			Sender:   sdk.AccAddress(key.PubKey().Address()).String(),
 			Contract: contract,
-			Msg:      wasmtypes.RawContractMessage([]byte("{\"mint\":{}}")),
+			Msg:      wasmtypes.RawContractMessage([]byte("{\"mint\":{\"owner\": \"sei1a27kj2j27c6uz58rn9zmhcjee9s3h3nhyhtvjj\"}}")),
 			Funds:    amount,
 		}
 	case Bank:
@@ -355,8 +355,8 @@ func (c *LoadTestClient) generateStakingMsg(delegatorAddr string, chosenValidato
 	return msg
 }
 
-func getLastHeight() int {
-	out, err := exec.Command("curl", "http://localhost:26657/blockchain").Output()
+func getLastHeight(blockchain_endpoint string) int {
+	out, err := exec.Command("curl", blockchain_endpoint).Output()
 	if err != nil {
 		panic(err)
 	}

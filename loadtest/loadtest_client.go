@@ -186,12 +186,12 @@ func (c *LoadTestClient) GenerateOracleSenders(i int, config Config, valKeys []c
 func (c *LoadTestClient) SendTxs(workgroups []*sync.WaitGroup, sendersList [][]func()) {
 	defer close(c.TxResponseChan)
 
-	lastHeight := getLastHeight()
+	lastHeight := getLastHeight(c.LoadTestConfig.BlockchainEndpoint)
 	for i := 0; i < int(c.LoadTestConfig.Rounds); i++ {
-		newHeight := getLastHeight()
+		newHeight := getLastHeight(c.LoadTestConfig.BlockchainEndpoint)
 		for newHeight == lastHeight {
 			time.Sleep(10 * time.Millisecond)
-			newHeight = getLastHeight()
+			newHeight = getLastHeight(c.LoadTestConfig.BlockchainEndpoint)
 		}
 		fmt.Printf("Sending %d-th block\n", i)
 		senders := sendersList[i]
