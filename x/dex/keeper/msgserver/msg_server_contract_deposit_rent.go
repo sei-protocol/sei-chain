@@ -47,5 +47,10 @@ func (k msgServer) ContractDepositRent(goCtx context.Context, msg *types.MsgCont
 		return nil, err
 	}
 
+	ctx.EventManager().EmitEvent(sdk.NewEvent(
+		types.EventTypeDepositRent,
+		sdk.NewAttribute(types.AttributeKeyContractAddress, msg.ContractAddr),
+		sdk.NewAttribute(types.AttributeKeyRentBalance, fmt.Sprint(contract.RentBalance)),
+	))
 	return &types.MsgContractDepositRentResponse{}, nil
 }
