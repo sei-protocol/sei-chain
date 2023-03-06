@@ -662,7 +662,7 @@ func (txmp *TxMempool) handleRecheckResult(tx types.Tx, res *abci.ResponseCheckT
 			break
 		}
 
-		txmp.logger.Error(
+		txmp.logger.Debug(
 			"re-CheckTx transaction mismatch",
 			"got", wtx.tx.Hash(),
 			"expected", tx.Key(),
@@ -758,7 +758,7 @@ func (txmp *TxMempool) updateReCheckTxs(ctx context.Context) {
 			})
 			if err != nil {
 				// no need in retrying since the tx will be rechecked after the next block
-				txmp.logger.Error("failed to execute CheckTx during recheck", "err", err, "hash", fmt.Sprintf("%x", wtx.tx.Hash()))
+				txmp.logger.Debug("failed to execute CheckTx during recheck", "err", err, "hash", fmt.Sprintf("%x", wtx.tx.Hash()))
 				continue
 			}
 			txmp.handleRecheckResult(wtx.tx, res)

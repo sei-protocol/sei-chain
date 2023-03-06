@@ -1117,7 +1117,7 @@ func (r *Reactor) handleDataMessage(ctx context.Context, envelope *p2p.Envelope,
 	}
 
 	if r.WaitSync() {
-		logger.Info("ignoring message received during sync", "msg", fmt.Sprintf("%T", msgI))
+		logger.Debug("ignoring message received during sync", "msg", fmt.Sprintf("%T", msgI))
 		return nil
 	}
 
@@ -1166,7 +1166,7 @@ func (r *Reactor) handleVoteMessage(ctx context.Context, envelope *p2p.Envelope,
 	}
 
 	if r.WaitSync() {
-		logger.Info("ignoring message received during sync", "msg", msgI)
+		logger.Debug("ignoring message received during sync", "msg", msgI)
 		return nil
 	}
 
@@ -1209,7 +1209,7 @@ func (r *Reactor) handleVoteSetBitsMessage(ctx context.Context, envelope *p2p.En
 	}
 
 	if r.WaitSync() {
-		logger.Info("ignoring message received during sync", "msg", msgI)
+		logger.Debug("ignoring message received during sync", "msg", msgI)
 		return nil
 	}
 
