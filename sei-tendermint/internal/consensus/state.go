@@ -2476,7 +2476,7 @@ func (cs *State) buildProposalBlock(height int64, header types.Header, lastCommi
 	missingTxs := cs.blockExec.GetMissingTxs(txKeys)
 	if len(missingTxs) > 0 {
 		cs.metrics.ProposalMissingTxs.Set(float64(len(missingTxs)))
-		cs.logger.Error("Missing txs when trying to build block", "missing_txs", cs.blockExec.GetMissingTxs(txKeys))
+		cs.logger.Debug("Missing txs when trying to build block", "missing_txs", cs.blockExec.GetMissingTxs(txKeys))
 		return nil
 	}
 	txs := cs.blockExec.GetTxsForKeys(txKeys)
