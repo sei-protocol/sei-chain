@@ -19,6 +19,7 @@ func (k msgServer) CancelOrders(goCtx context.Context, msg *types.MsgCancelOrder
 		return nil, err
 	}
 
+	events := []sdk.Event{}
 	for _, cancellation := range msg.GetCancellations() {
 		var allocation *types.Allocation
 		var found bool
@@ -49,8 +50,12 @@ func (k msgServer) CancelOrders(goCtx context.Context, msg *types.MsgCancelOrder
 				PositionDirection: cancellation.PositionDirection,
 			}
 			pairBlockCancellations.Add(&cancel)
+			events = append(events, sdk.NewEvent(
+				types.EventTypeCancelOrder,
+				sdk.NewAttribute(types.AttributeKeyCancellationID, fmt.Sprint(cancellation.Id)),
+			))
 		}
 	}
-
+	ctx.EventManager().EmitEvents(events)
 	return &types.MsgCancelOrdersResponse{}, nil
 }
