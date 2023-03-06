@@ -23,9 +23,9 @@ func (k Keeper) SlashAndResetCounters(ctx sdk.Context) {
 	powerReduction := k.StakingKeeper.PowerReduction(ctx)
 
 	k.IterateVotePenaltyCounters(ctx, func(operator sdk.ValAddress, votePenaltyCounter types.VotePenaltyCounter) bool {
-		// Calculate valid vote rate; (SlashWindow - MissCounter)/SlashWindow
+		// Calculate valid vote rate; (SlashWindow - (MissCounter + AbstainCounter))/SlashWindow
 		validVoteRate := sdk.NewDecFromInt(
-			sdk.NewInt(int64(votePeriodsPerWindow - votePenaltyCounter.MissCount))).
+			sdk.NewInt(int64(votePeriodsPerWindow - (votePenaltyCounter.MissCount + votePenaltyCounter.AbstainCount)))).
 			QuoInt64(int64(votePeriodsPerWindow))
 
 		// Penalize the validator whose the valid vote rate is smaller than min threshold
@@ -51,6 +51,7 @@ func (k Keeper) SlashAndResetCounters(ctx sdk.Context) {
 				sdk.NewAttribute(types.AttributeKeyOperator, operator.String()),
 				sdk.NewAttribute(types.AttributeKeyMissCount, strconv.FormatUint(votePenaltyCounter.MissCount, 10)),
 				sdk.NewAttribute(types.AttributeKeyAbstainCount, strconv.FormatUint(votePenaltyCounter.AbstainCount, 10)),
+				sdk.NewAttribute(types.AttributeKeySuccessCount, strconv.FormatUint(votePenaltyCounter.SuccessCount, 10)),
 				sdk.NewAttribute(types.AttributeKeyWinCount, strconv.FormatUint(winCount, 10)),
 			),
 		)

@@ -8,8 +8,7 @@ import (
 	"sync"
 	"time"
 
-	cosmosclient "github.com/cosmos/cosmos-sdk/client"
-	"github.com/cosmos/cosmos-sdk/client/tx"
+	sdkclient "github.com/cosmos/cosmos-sdk/client"
 	"github.com/cosmos/cosmos-sdk/telemetry"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/rs/zerolog"
@@ -43,6 +42,7 @@ type Oracle struct {
 	lastPriceSyncTS time.Time
 	prices          map[string]sdk.Dec
 	paramCache      ParamCache
+	jailCache       JailCache
 	healthchecks    map[string]http.Client
 }
 
@@ -92,6 +92,7 @@ func New(
 		providerTimeout:   providerTimeout,
 		deviations:        deviations,
 		paramCache:        ParamCache{},
+		jailCache:         JailCache{},
 		endpoints:         endpoints,
 		healthchecks:      healthchecks,
 	}
@@ -99,15 +100,12 @@ func New(
 
 // Start starts the oracle process in a blocking fashion.
 func (o *Oracle) Start(ctx context.Context) error {
+
 	clientCtx, err := o.oracleClient.CreateClientContext()
 	if err != nil {
 		return err
 	}
-	txFactory, err := o.oracleClient.CreateTxFactory()
-	if err != nil {
-		return err
-	}
-	var lastProcessedBlock int64 = 0
+	var previousBlockHeight int64
 
 	for {
 		select {
@@ -120,27 +118,23 @@ func (o *Oracle) Start(ctx context.Context) error {
 			// Wait for next block height to be available in the channel
 			currBlockHeight := <-o.oracleClient.BlockHeightEvents
 
-			// Track how many pending goroutines are there
-			telemetry.IncrCounter(1, "num_pending_blocks", "tick")
-			go func(blockHeight int64) {
-				startTime := time.Now()
-				defer telemetry.MeasureSince(startTime, "runtime", "tick")
-				defer telemetry.IncrCounter(1, "new", "tick")
-				defer telemetry.IncrCounter(-1, "num_pending_blocks", "tick")
-
-				if err := o.tick(ctx, clientCtx, txFactory, blockHeight); err != nil {
-					telemetry.IncrCounter(1, "failure", "tick")
-					o.logger.Err(err).Msg(fmt.Sprintf("oracle tick failed for height %d", blockHeight))
-				}
-			}(currBlockHeight)
-
-			// Catch any missing blocks (should never happen)
-			if currBlockHeight > (lastProcessedBlock+1) && lastProcessedBlock > 0 {
-				missedBlocks := currBlockHeight - (lastProcessedBlock + 1)
-				telemetry.IncrCounter(float32(missedBlocks), "num_missed_blocks", "tick")
+			startTime := time.Now()
+			err = o.tick(ctx, clientCtx, currBlockHeight)
+			if err != nil {
+				telemetry.IncrCounter(1, "failure", "tick")
+				o.logger.Err(err).Msg(fmt.Sprintf("Oracle tick failed for height %d", currBlockHeight))
+			} else {
+				telemetry.IncrCounter(1, "success", "tick")
 			}
-			lastProcessedBlock = currBlockHeight
+			telemetry.MeasureSince(startTime, "latency", "tick")
+			telemetry.IncrCounter(1, "num_ticks", "tick")
 
+			// Catch any missing blocks
+			if currBlockHeight > (previousBlockHeight+1) && previousBlockHeight > 0 {
+				missedBlocks := currBlockHeight - (previousBlockHeight + 1)
+				telemetry.IncrCounter(float32(missedBlocks), "skipped_blocks", "tick")
+			}
+			previousBlockHeight = currBlockHeight
 		}
 	}
 }
@@ -501,8 +495,7 @@ func (o *Oracle) checkWhitelist(params oracletypes.Params) {
 
 func (o *Oracle) tick(
 	ctx context.Context,
-	clientContext cosmosclient.Context,
-	txFactory tx.Factory,
+	clientCtx sdkclient.Context,
 	blockHeight int64) error {
 
 	o.logger.Debug().Msg(fmt.Sprintf("executing oracle tick for height %d", blockHeight))
@@ -511,12 +504,20 @@ func (o *Oracle) tick(
 		return fmt.Errorf("expected positive block height")
 	}
 
+	isJailed, err := o.GetCachedJailedState(ctx, blockHeight)
+	if err != nil {
+		return err
+	}
+	if isJailed {
+		return fmt.Errorf("validator %s is jailed", o.oracleClient.ValidatorAddrString)
+	}
+
 	oracleParams, err := o.GetParamCache(ctx, blockHeight)
 	if err != nil {
 		return err
 	}
 
-	if err := o.SetPrices(ctx); err != nil {
+	if err = o.SetPrices(ctx); err != nil {
 		return err
 	}
 	o.lastPriceSyncTS = time.Now()
@@ -532,10 +533,9 @@ func (o *Oracle) tick(
 	if currentVotePeriod == o.previousVotePeriod {
 		o.logger.Info().
 			Int64("vote_period", oracleVotePeriod).
-			Float64("previous_vote_period", o.previousVotePeriod).
-			Float64("current_vote_period", currentVotePeriod).
+			Float64("previous", o.previousVotePeriod).
+			Float64("current", currentVotePeriod).
 			Msg("skipping until next voting period")
-
 		return nil
 	}
 
@@ -558,15 +558,19 @@ func (o *Oracle) tick(
 		Str("validator", voteMsg.Validator).
 		Str("feeder", voteMsg.Feeder).
 		Float64("vote_period", currentVotePeriod).
-		Msg("broadcasting vote")
-	if err := o.oracleClient.BroadcastTx(
-		blockHeight,
-		clientContext,
-		txFactory,
-		voteMsg,
-	); err != nil {
+		Msg("Going to broadcast vote")
+
+	resp, err := o.oracleClient.BroadcastTx(clientCtx, voteMsg)
+	if err != nil {
+		telemetry.IncrCounter(1, "failure", "broadcast")
 		return err
 	}
+	o.logger.Info().
+		Uint32("response_code", resp.Code).
+		Str("tx_hash", resp.TxHash).
+		Msg(fmt.Sprintf("Successfully broadcasted for height %d", blockHeight))
+	telemetry.IncrCounter(1, "success", "broadcast")
+
 	o.previousVotePeriod = currentVotePeriod
 	o.healthchecksPing()
 

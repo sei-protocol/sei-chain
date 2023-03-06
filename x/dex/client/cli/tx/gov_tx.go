@@ -1,6 +1,8 @@
 package tx
 
 import (
+	"strings"
+
 	"github.com/sei-protocol/sei-chain/x/dex/types"
 
 	"github.com/cosmos/cosmos-sdk/client"
@@ -20,6 +22,9 @@ func NewAddAssetProposalTxCmd() *cobra.Command {
 		Use:   "add-asset-proposal [proposal-file]",
 		Args:  cobra.ExactArgs(1),
 		Short: "Submit an add asset proposal",
+		Long: strings.TrimSpace(`
+			Submit a proposal to add a list of assets and corresponding metadata to dex assets.
+		`),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			clientCtx, err := client.GetClientTxContext(cmd)
 			if err != nil {

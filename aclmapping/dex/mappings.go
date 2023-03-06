@@ -8,6 +8,8 @@ import (
 	sdkacltypes "github.com/cosmos/cosmos-sdk/types/accesscontrol"
 	aclkeeper "github.com/cosmos/cosmos-sdk/x/accesscontrol/keeper"
 	acltypes "github.com/cosmos/cosmos-sdk/x/accesscontrol/types"
+	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
+	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
 	dextypes "github.com/sei-protocol/sei-chain/x/dex/types"
 )
 
@@ -47,6 +49,7 @@ func DexPlaceOrdersDependencyGenerator(keeper aclkeeper.Keeper, ctx sdk.Context,
 		return []sdkacltypes.AccessOperation{}, ErrPlaceOrdersGenerator
 	}
 
+	senderBankAddrIdentifier := hex.EncodeToString(banktypes.CreateAccountBalancesPrefixFromBech32(placeOrdersMsg.Creator))
 	contractAddr := placeOrdersMsg.ContractAddr
 
 	aclOps := []sdkacltypes.AccessOperation{
@@ -81,6 +84,7 @@ func DexPlaceOrdersDependencyGenerator(keeper aclkeeper.Keeper, ctx sdk.Context,
 				[]byte(placeOrdersMsg.Creator)...,
 			)),
 		},
+
 		{
 			AccessType:         sdkacltypes.AccessType_READ,
 			ResourceType:       sdkacltypes.ResourceType_KV_DEX_MEM_ORDER,
@@ -90,6 +94,26 @@ func DexPlaceOrdersDependencyGenerator(keeper aclkeeper.Keeper, ctx sdk.Context,
 			AccessType:         sdkacltypes.AccessType_WRITE,
 			ResourceType:       sdkacltypes.ResourceType_KV_DEX_MEM_ORDER,
 			IdentifierTemplate: hex.EncodeToString(dextypes.MemOrderPrefix(contractAddr)),
+		},
+
+		// Checks balance of sender
+		{
+			AccessType:         sdkacltypes.AccessType_READ,
+			ResourceType:       sdkacltypes.ResourceType_KV_BANK_BALANCES,
+			IdentifierTemplate: senderBankAddrIdentifier,
+		},
+		// Reduce the amount from the sender's balance
+		{
+			AccessType:         sdkacltypes.AccessType_WRITE,
+			ResourceType:       sdkacltypes.ResourceType_KV_BANK_BALANCES,
+			IdentifierTemplate: senderBankAddrIdentifier,
+		},
+
+		// Gets Account Info for the sender
+		{
+			AccessType:         sdkacltypes.AccessType_READ,
+			ResourceType:       sdkacltypes.ResourceType_KV_AUTH_ADDRESS_STORE,
+			IdentifierTemplate: hex.EncodeToString(authtypes.CreateAddressStoreKeyFromBech32(placeOrdersMsg.Creator)),
 		},
 	}
 

@@ -58,6 +58,12 @@ service Query {
     option (google.api.http).get = "/sei-protocol/sei-chain/oracle/validators/aggregate_votes";
   }
 
+  // SlashWindow returns slash window information
+  rpc SlashWindow(QuerySlashWindowRequest) returns (QuerySlashWindowResponse) {
+    option (google.api.http).get =
+        "/sei-protocol/sei-chain/oracle/slash_window";
+  }
+
   // Params queries all parameters.
   rpc Params(QueryParamsRequest) returns (QueryParamsResponse) {
     option (google.api.http).get = "/sei-protocol/sei-chain/oracle/params";
@@ -76,7 +82,7 @@ message QueryExchangeRateRequest {
 // QueryExchangeRateResponse is response type for the
 // Query/ExchangeRate RPC method.
 message QueryExchangeRateResponse {
-  // exchange_rate defines the exchange rate of Luna denominated in various Terra
+  // exchange_rate defines the exchange rate of Sei denominated in various Sei
   OracleExchangeRate oracle_exchange_rate = 1 [(gogoproto.nullable) = false];
 }
 
@@ -129,7 +135,7 @@ message QueryPriceSnapshotHistoryResponse {
 
 // request type for twap RPC method
 message QueryTwapsRequest {
-  int64 lookback_seconds = 1;
+  uint64 lookback_seconds = 1;
 }
 
 message QueryTwapsResponse {
@@ -194,6 +200,18 @@ message QueryAggregateVotesRequest {}
 message QueryAggregateVotesResponse {
   // aggregate_votes defines all oracle aggregate votes submitted in the current vote period
   repeated AggregateExchangeRateVote aggregate_votes = 1 [(gogoproto.nullable) = false];
+}
+
+// QuerySlashWindow is the request type for the
+// Query/SlashWindow RPC method.
+message QuerySlashWindowRequest {}
+
+// QuerySlashWindowResponse is response type for the
+// Query/SlashWindow RPC method.
+message QuerySlashWindowResponse {
+  // window_progress defines the number of voting periods
+  // since the last slashing event would have taken place.
+  uint64 window_progress = 1;
 }
 
 // QueryParamsRequest is the request type for the Query/Params RPC method.

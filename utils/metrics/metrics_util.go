@@ -92,6 +92,20 @@ func IncrFailedConcurrentDeliverTxCounter() {
 	)
 }
 
+// Counts the number of operations that failed due to operation timeout
+// Metric Names:
+//
+//	sei_log_not_done_after_counter
+func IncrLogIfNotDoneAfter(label string) {
+	metrics.IncrCounterWithLabels(
+		[]string{"sei", "log", "not", "done", "after"},
+		1,
+		[]metrics.Label{
+			telemetry.NewLabel("label", label),
+		},
+	)
+}
+
 // Measures the time taken to execute a sudo msg
 // Metric Names:
 //
@@ -102,5 +116,25 @@ func MeasureDeliverTxDuration(start time.Time) {
 	metrics.MeasureSince(
 		[]string{"sei", "deliver", "tx", "milliseconds"},
 		start.UTC(),
+	)
+}
+
+// sei_oracle_vote_penalty_count
+func SetOracleVotePenaltyCount(count uint64, valAddr string, penaltyType string) {
+	metrics.SetGaugeWithLabels(
+		[]string{"sei", "oracle", "vote", "penalty", "count"},
+		float32(count),
+		[]metrics.Label{
+			telemetry.NewLabel("type", penaltyType),
+			telemetry.NewLabel("validator", valAddr),
+		},
+	)
+}
+
+// sei_epoch_new
+func SetEpochNew(epochNum uint64) {
+	metrics.SetGauge(
+		[]string{"sei", "epoch", "new"},
+		float32(epochNum),
 	)
 }

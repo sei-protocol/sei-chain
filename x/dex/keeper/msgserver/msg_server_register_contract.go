@@ -31,6 +31,10 @@ func (k msgServer) RegisterContract(goCtx context.Context, msg *types.MsgRegiste
 		return nil, sdkerrors.ErrUnauthorized
 	}
 
+	if err := k.ValidateRentBalance(msg.GetContract().GetRentBalance()); err != nil {
+		ctx.Logger().Error("invalid rent balance")
+		return &types.MsgRegisterContractResponse{}, err
+	}
 	if err := k.ValidateUniqueDependencies(msg); err != nil {
 		ctx.Logger().Error(fmt.Sprintf("dependencies of contract %s are not unique", msg.Contract.ContractAddr))
 		return &types.MsgRegisterContractResponse{}, err
@@ -92,9 +96,13 @@ func (k msgServer) RemoveExistingDependencies(ctx sdk.Context, msg *types.MsgReg
 	for _, oldDependency := range contractInfo.Dependencies {
 		dependencyInfo, err := k.GetContract(ctx, oldDependency.Dependency)
 		if err != nil {
-			// old dependency doesn't exist. Do nothing.
-			ctx.Logger().Info(fmt.Sprintf("existing contract %s old dependency %s does not exist", msg.Contract.ContractAddr, oldDependency.Dependency))
-			continue
+			if err == types.ErrContractNotExists {
+				// old dependency doesn't exist. Do nothing.
+				ctx.Logger().Info(fmt.Sprintf("existing contract %s old dependency %s does not exist", msg.Contract.ContractAddr, oldDependency.Dependency))
+				continue
+			} else {
+				return err
+			}
 		}
 		dependencyInfo.NumIncomingDependencies--
 		if err := k.SetContract(ctx, &dependencyInfo); err != nil {
@@ -107,7 +115,10 @@ func (k msgServer) RemoveExistingDependencies(ctx sdk.Context, msg *types.MsgReg
 func (k msgServer) UpdateOldSiblings(ctx sdk.Context, msg *types.MsgRegisterContract) error {
 	contractInfo, err := k.GetContract(ctx, msg.Contract.ContractAddr)
 	if err != nil {
-		return nil
+		if err == types.ErrContractNotExists {
+			return nil
+		}
+		return err
 	}
 	// update siblings for old dependencies
 	for _, oldDependency := range contractInfo.Dependencies {

@@ -7,12 +7,16 @@ services:
     image: "sei-chain/localnode"
     ports:
       - "26656-26658:26656-26658"
+      - "9090-9091:9090-9091"
     environment:
       - ID=0
+      - CLUSTER_SIZE=4
       - NUM_ACCOUNTS
       - SKIP_BUILD
     volumes:
       - "${PROJECT_HOME}:/sei-protocol/sei-chain:Z"
+      - "${PROJECT_HOME}/../sei-tendermint:/sei-protocol/sei-tendermint:Z"
+      - "${PROJECT_HOME}/../sei-cosmos:/sei-protocol/sei-cosmos:Z"
       - "${GO_PKG_PATH}/mod:/root/go/pkg/mod:Z"
     networks:
       localnet:
@@ -24,12 +28,16 @@ services:
     image: "sei-chain/localnode"
     ports:
       - "26659-26661:26656-26658"
+      - "9092-9093:9090-9091"
     environment:
       - ID=1
+      - CLUSTER_SIZE=4
       - NUM_ACCOUNTS
       - SKIP_BUILD
     volumes:
       - "${PROJECT_HOME}:/sei-protocol/sei-chain:Z"
+      - "${PROJECT_HOME}/../sei-tendermint:/sei-protocol/sei-tendermint:Z"
+      - "${PROJECT_HOME}/../sei-cosmos:/sei-protocol/sei-cosmos:Z"
       - "${GO_PKG_PATH}/mod:/root/go/pkg/mod:Z"
     networks:
       localnet:
@@ -41,12 +49,16 @@ services:
     image: "sei-chain/localnode"
     environment:
       - ID=2
+      - CLUSTER_SIZE=4
       - NUM_ACCOUNTS
       - SKIP_BUILD
     ports:
       - "26662-26664:26656-26658"
+      - "9094-9095:9090-9091"
     volumes:
       - "${PROJECT_HOME}:/sei-protocol/sei-chain:Z"
+      - "${PROJECT_HOME}/../sei-tendermint:/sei-protocol/sei-tendermint:Z"
+      - "${PROJECT_HOME}/../sei-cosmos:/sei-protocol/sei-cosmos:Z"
       - "${GO_PKG_PATH}/mod:/root/go/pkg/mod:Z"
     networks:
       localnet:
@@ -58,12 +70,16 @@ services:
     image: "sei-chain/localnode"
     environment:
       - ID=3
+      - CLUSTER_SIZE=4
       - NUM_ACCOUNTS
       - SKIP_BUILD
     ports:
       - "26665-26667:26656-26658"
+      - "9096-9097:9090-9091"
     volumes:
       - "${PROJECT_HOME}:/sei-protocol/sei-chain:Z"
+      - "${PROJECT_HOME}/../sei-tendermint:/sei-protocol/sei-tendermint:Z"
+      - "${PROJECT_HOME}/../sei-cosmos:/sei-protocol/sei-cosmos:Z"
       - "${GO_PKG_PATH}/mod:/root/go/pkg/mod:Z"
     networks:
       localnet:

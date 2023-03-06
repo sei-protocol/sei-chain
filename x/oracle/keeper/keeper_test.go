@@ -22,7 +22,7 @@ func TestExchangeRate(t *testing.T) {
 	cnyExchangeRate := sdk.NewDecWithPrec(839, int64(OracleDecPrecision)).MulInt64(utils.MicroUnit)
 	gbpExchangeRate := sdk.NewDecWithPrec(4995, int64(OracleDecPrecision)).MulInt64(utils.MicroUnit)
 	krwExchangeRate := sdk.NewDecWithPrec(2838, int64(OracleDecPrecision)).MulInt64(utils.MicroUnit)
-	lunaExchangeRate := sdk.NewDecWithPrec(3282384, int64(OracleDecPrecision)).MulInt64(utils.MicroUnit)
+	seiExchangeRate := sdk.NewDecWithPrec(3282384, int64(OracleDecPrecision)).MulInt64(utils.MicroUnit)
 
 	// Set & get rates
 	input.OracleKeeper.SetBaseExchangeRate(input.Ctx, utils.MicroSeiDenom, cnyExchangeRate)
@@ -52,7 +52,7 @@ func TestExchangeRate(t *testing.T) {
 	require.Equal(t, krwExchangeRate, rate)
 	require.Equal(t, sdk.NewInt(15), lastUpdate)
 
-	input.OracleKeeper.SetBaseExchangeRate(input.Ctx, utils.MicroBaseDenom, lunaExchangeRate)
+	input.OracleKeeper.SetBaseExchangeRate(input.Ctx, utils.MicroBaseDenom, seiExchangeRate)
 	rate, lastUpdate, _ = input.OracleKeeper.GetBaseExchangeRate(input.Ctx, utils.MicroBaseDenom)
 	require.Equal(t, sdk.OneDec(), rate)
 	// with votePeriod == 10 blocks, the last end of vote period is 9
@@ -72,19 +72,19 @@ func TestExchangeRate(t *testing.T) {
 	require.True(t, numExchangeRates == 3)
 }
 
-func TestIterateLunaExchangeRates(t *testing.T) {
+func TestIterateSeiExchangeRates(t *testing.T) {
 	input := CreateTestInput(t)
 
 	cnyExchangeRate := sdk.NewDecWithPrec(839, int64(OracleDecPrecision)).MulInt64(utils.MicroUnit)
 	gbpExchangeRate := sdk.NewDecWithPrec(4995, int64(OracleDecPrecision)).MulInt64(utils.MicroUnit)
 	krwExchangeRate := sdk.NewDecWithPrec(2838, int64(OracleDecPrecision)).MulInt64(utils.MicroUnit)
-	lunaExchangeRate := sdk.NewDecWithPrec(3282384, int64(OracleDecPrecision)).MulInt64(utils.MicroUnit)
+	seiExchangeRate := sdk.NewDecWithPrec(3282384, int64(OracleDecPrecision)).MulInt64(utils.MicroUnit)
 
 	// Set & get rates
 	input.OracleKeeper.SetBaseExchangeRate(input.Ctx, utils.MicroSeiDenom, cnyExchangeRate)
 	input.OracleKeeper.SetBaseExchangeRate(input.Ctx, utils.MicroEthDenom, gbpExchangeRate)
 	input.OracleKeeper.SetBaseExchangeRate(input.Ctx, utils.MicroAtomDenom, krwExchangeRate)
-	input.OracleKeeper.SetBaseExchangeRate(input.Ctx, utils.MicroBaseDenom, lunaExchangeRate)
+	input.OracleKeeper.SetBaseExchangeRate(input.Ctx, utils.MicroBaseDenom, seiExchangeRate)
 
 	input.OracleKeeper.IterateBaseExchangeRates(input.Ctx, func(denom string, rate types.OracleExchangeRate) (stop bool) {
 		switch denom {
@@ -95,7 +95,7 @@ func TestIterateLunaExchangeRates(t *testing.T) {
 		case utils.MicroAtomDenom:
 			require.Equal(t, krwExchangeRate, rate.ExchangeRate)
 		case utils.MicroBaseDenom:
-			require.Equal(t, lunaExchangeRate, rate.ExchangeRate)
+			require.Equal(t, seiExchangeRate, rate.ExchangeRate)
 		}
 		return false
 	})
@@ -194,21 +194,24 @@ func TestVotePenaltyCounter(t *testing.T) {
 	counter := input.OracleKeeper.GetVotePenaltyCounter(input.Ctx, ValAddrs[0])
 	require.Equal(t, uint64(0), counter.MissCount)
 	require.Equal(t, uint64(0), counter.AbstainCount)
+	require.Equal(t, uint64(0), counter.SuccessCount)
 	require.Equal(t, uint64(0), input.OracleKeeper.GetMissCount(input.Ctx, ValAddrs[0]))
 	require.Equal(t, uint64(0), input.OracleKeeper.GetAbstainCount(input.Ctx, ValAddrs[0]))
 
 	missCounter := uint64(10)
-	input.OracleKeeper.SetVotePenaltyCounter(input.Ctx, ValAddrs[0], missCounter, 0)
+	input.OracleKeeper.SetVotePenaltyCounter(input.Ctx, ValAddrs[0], missCounter, 0, 0)
 	counter = input.OracleKeeper.GetVotePenaltyCounter(input.Ctx, ValAddrs[0])
 	require.Equal(t, missCounter, counter.MissCount)
 	require.Equal(t, uint64(0), counter.AbstainCount)
+	require.Equal(t, uint64(0), counter.SuccessCount)
 	require.Equal(t, missCounter, input.OracleKeeper.GetMissCount(input.Ctx, ValAddrs[0]))
 	require.Equal(t, uint64(0), input.OracleKeeper.GetAbstainCount(input.Ctx, ValAddrs[0]))
 
-	input.OracleKeeper.SetVotePenaltyCounter(input.Ctx, ValAddrs[0], missCounter, missCounter)
+	input.OracleKeeper.SetVotePenaltyCounter(input.Ctx, ValAddrs[0], missCounter, missCounter, missCounter)
 	counter = input.OracleKeeper.GetVotePenaltyCounter(input.Ctx, ValAddrs[0])
 	require.Equal(t, missCounter, counter.MissCount)
 	require.Equal(t, missCounter, counter.AbstainCount)
+	require.Equal(t, missCounter, counter.SuccessCount)
 	require.Equal(t, missCounter, input.OracleKeeper.GetMissCount(input.Ctx, ValAddrs[0]))
 	require.Equal(t, missCounter, input.OracleKeeper.GetAbstainCount(input.Ctx, ValAddrs[0]))
 
@@ -216,6 +219,7 @@ func TestVotePenaltyCounter(t *testing.T) {
 	counter = input.OracleKeeper.GetVotePenaltyCounter(input.Ctx, ValAddrs[0])
 	require.Equal(t, uint64(0), counter.MissCount)
 	require.Equal(t, uint64(0), counter.AbstainCount)
+	require.Equal(t, uint64(0), counter.SuccessCount)
 	require.Equal(t, uint64(0), input.OracleKeeper.GetMissCount(input.Ctx, ValAddrs[0]))
 	require.Equal(t, uint64(0), input.OracleKeeper.GetAbstainCount(input.Ctx, ValAddrs[0]))
 }
@@ -229,7 +233,7 @@ func TestIterateMissCounters(t *testing.T) {
 	require.Equal(t, uint64(0), counter.MissCount)
 
 	missCounter := uint64(10)
-	input.OracleKeeper.SetVotePenaltyCounter(input.Ctx, ValAddrs[1], missCounter, missCounter)
+	input.OracleKeeper.SetVotePenaltyCounter(input.Ctx, ValAddrs[1], missCounter, missCounter, 0)
 
 	var operators []sdk.ValAddress
 	var votePenaltyCounters types.VotePenaltyCounters
@@ -647,8 +651,8 @@ func TestCalculateTwaps(t *testing.T) {
 	require.Error(t, err)
 	require.Equal(t, types.ErrInvalidTwapLookback, err)
 
-	// test error when lookback is negative
-	_, err = input.OracleKeeper.CalculateTwaps(input.Ctx, -10)
+	// test error when lookback is 0
+	_, err = input.OracleKeeper.CalculateTwaps(input.Ctx, 0)
 	require.Error(t, err)
 	require.Equal(t, types.ErrInvalidTwapLookback, err)
 }

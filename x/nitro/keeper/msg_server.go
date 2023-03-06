@@ -52,9 +52,12 @@ func (server msgServer) RecordTransactionData(goCtx context.Context, msg *types.
 	return &types.MsgRecordTransactionDataResponse{}, nil
 }
 
-// allow whitelisted accounts to post L2 transaction data/state root onto Sei
 func (server msgServer) SubmitFraudChallenge(goCtx context.Context, msg *types.MsgSubmitFraudChallenge) (*types.MsgSubmitFraudChallengeResponse, error) {
 	ctx := sdk.UnwrapSDKContext(goCtx)
+
+	if !server.IsFraudChallengeEnabled(ctx) {
+		return nil, types.ErrFraudChallengeDisabled
+	}
 
 	if len(msg.FraudStatePubKey) == 0 {
 		return nil, types.ErrInvalidFraudStatePubkey

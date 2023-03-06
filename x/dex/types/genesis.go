@@ -4,9 +4,6 @@ import (
 	"fmt"
 )
 
-// DefaultIndex is the default capability global index
-const DefaultIndex uint64 = 1
-
 // DefaultGenesis returns the default Capability genesis state
 func DefaultGenesis() *GenesisState {
 	return &GenesisState{
@@ -36,20 +33,20 @@ func (cs ContractState) Validate() error {
 		return fmt.Errorf("empty contract addr")
 	}
 	// Check for duplicated ID in shortBook
-	longBookIDMap := make(map[uint64]bool)
+	longBookIDMap := make(map[uint64]struct{})
 	for _, elem := range cs.LongBookList {
 		if _, ok := longBookIDMap[elem.Price.BigInt().Uint64()]; ok {
 			return fmt.Errorf("duplicated price for longBook")
 		}
-		longBookIDMap[elem.Price.BigInt().Uint64()] = true
+		longBookIDMap[elem.Price.BigInt().Uint64()] = struct{}{}
 	}
 	// Check for duplicated ID in shortBook
-	shortBookIDMap := make(map[uint64]bool)
+	shortBookIDMap := make(map[uint64]struct{})
 	for _, elem := range cs.ShortBookList {
 		if _, ok := shortBookIDMap[elem.Price.BigInt().Uint64()]; ok {
 			return fmt.Errorf("duplicated price for shortBook")
 		}
-		shortBookIDMap[elem.Price.BigInt().Uint64()] = true
+		shortBookIDMap[elem.Price.BigInt().Uint64()] = struct{}{}
 	}
 	return nil
 }

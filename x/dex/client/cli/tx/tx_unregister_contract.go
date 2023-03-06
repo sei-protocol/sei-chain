@@ -2,6 +2,7 @@ package tx
 
 import (
 	"strconv"
+	"strings"
 
 	"github.com/cosmos/cosmos-sdk/client"
 	"github.com/cosmos/cosmos-sdk/client/flags"
@@ -16,7 +17,10 @@ func CmdUnregisterContract() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "unregister-contract [contract address]",
 		Short: "Unregister exchange contract",
-		Args:  cobra.ExactArgs(1),
+		Long: strings.TrimSpace(`
+			Unregisters an exchange contract so it no longer receives the execution hooks or order matching hooks.
+		`),
+		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) (err error) {
 			argContractAddr := args[0]
 

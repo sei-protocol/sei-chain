@@ -17,7 +17,7 @@ threshold = "2"
 base = "ATOM"
 chain_denom = "uatom"
 providers = [
-  "binance",
+  "huobi",
   "kraken",
   "coinbase",
 ]
@@ -27,16 +27,16 @@ quote = "USD"
 base = "ETH"
 chain_denom = "ueth"
 providers = [
-  "binance",
+  "huobi",
   "kraken",
   "coinbase",
 ]
 quote = "USD"
 
 [account]
-address = "sei"
+address = "address"
 chain_id = "sei"
-validator = "seivaloper"
+validator = "validator"
 prefix = "sei"
 
 [keyring]
@@ -61,6 +61,3 @@ type = "prometheus"
 name = "binance"
 rest = "https://api1.binance.com"
 websocket = "stream.binance.com:9443"
-
-# [[healthchecks]]
-# url = "https://hc-ping.com/HEALTHCHECK-UUID"

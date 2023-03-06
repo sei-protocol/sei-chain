@@ -551,3 +551,67 @@ func TestEndBlockPanicHandling(t *testing.T) {
 	_, found := dexkeeper.GetLongBookByPrice(ctx, contractAddr.String(), sdk.MustNewDecFromStr("1"), pair.PriceDenom, pair.AssetDenom)
 	require.False(t, found)
 }
+
+func TestEndBlockRollbackWithRentCharge(t *testing.T) {
+	testApp := keepertest.TestApp()
+	ctx := testApp.BaseApp.NewContext(false, tmproto.Header{Time: time.Now()})
+	ctx = ctx.WithContext(context.WithValue(ctx.Context(), dexutils.DexMemStateContextKey, dexcache.NewMemState(testApp.GetKey(types.StoreKey))))
+	dexkeeper := testApp.DexKeeper
+	pair := TEST_PAIR()
+	// GOOD CONTRACT
+	testAccount, _ := sdk.AccAddressFromBech32("sei1yezq49upxhunjjhudql2fnj5dgvcwjj87pn2wx")
+	amounts := sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(1000000)), sdk.NewCoin("uusdc", sdk.NewInt(1000000)))
+	bankkeeper := testApp.BankKeeper
+	bankkeeper.MintCoins(ctx, minttypes.ModuleName, amounts)
+	bankkeeper.SendCoinsFromModuleToAccount(ctx, minttypes.ModuleName, testAccount, amounts)
+	wasm, err := ioutil.ReadFile("./testdata/mars.wasm")
+	if err != nil {
+		panic(err)
+	}
+	wasmKeeper := testApp.WasmKeeper
+	contractKeeper := wasmkeeper.NewDefaultPermissionKeeper(&wasmKeeper)
+	var perm *wasmtypes.AccessConfig
+	codeId, err := contractKeeper.Create(ctx, testAccount, wasm, perm)
+	if err != nil {
+		panic(err)
+	}
+	contractAddr, _, err := contractKeeper.Instantiate(ctx, codeId, testAccount, testAccount, []byte(GOOD_CONTRACT_INSTANTIATE), "test",
+		sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(100000))))
+	if err != nil {
+		panic(err)
+	}
+	dexkeeper.SetContract(ctx, &types.ContractInfoV2{CodeId: 123, ContractAddr: contractAddr.String(), NeedHook: false, NeedOrderMatching: true, RentBalance: 1})
+	dexkeeper.AddRegisteredPair(ctx, contractAddr.String(), pair)
+	// place one order to a nonexistent contract
+	dexutils.GetMemState(ctx.Context()).GetBlockOrders(ctx, utils.ContractAddress(contractAddr.String()), utils.GetPairString(&pair)).Add(
+		&types.Order{
+			Id:                2,
+			Account:           testAccount.String(),
+			ContractAddr:      contractAddr.String(),
+			Price:             sdk.MustNewDecFromStr("0.0001"),
+			Quantity:          sdk.MustNewDecFromStr("0.0001"),
+			PriceDenom:        pair.PriceDenom,
+			AssetDenom:        pair.AssetDenom,
+			OrderType:         types.OrderType_LIMIT,
+			PositionDirection: types.PositionDirection_LONG,
+			Data:              "{\"position_effect\":\"Open\",\"leverage\":\"1\"}",
+		},
+	)
+	dexutils.GetMemState(ctx.Context()).GetDepositInfo(ctx, utils.ContractAddress(contractAddr.String())).Add(
+		&types.DepositInfoEntry{
+			Creator: testAccount.String(),
+			Denom:   "uusdc",
+			Amount:  sdk.MustNewDecFromStr("10000"),
+		},
+	)
+
+	ctx = ctx.WithBlockHeight(1)
+	testApp.EndBlocker(ctx, abci.RequestEndBlock{})
+	// no state change should've been persisted for good contract because it should've run out of gas
+	matchResult, _ := dexkeeper.GetMatchResultState(ctx, contractAddr.String())
+	require.Equal(t, 0, len(matchResult.Orders))
+	// rent should still be charged even if the contract failed
+	contract, err := dexkeeper.GetContract(ctx, contractAddr.String())
+	require.Nil(t, err)
+	require.Zero(t, contract.RentBalance)
+}

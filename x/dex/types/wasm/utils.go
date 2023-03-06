@@ -12,11 +12,6 @@ func GetContractPositionDirection(direction types.PositionDirection) string {
 }
 
 //nolint:staticcheck // following the linter here requires changes in the sdk, I reckon.
-func GetContractPositionEffect(effect types.PositionEffect) string {
-	return strings.Title(strings.ToLower(types.PositionEffect_name[int32(effect)]))
-}
-
-//nolint:staticcheck // following the linter here requires changes in the sdk, I reckon.
 func GetContractOrderType(orderType types.OrderType) string {
 	return strings.Title(strings.ToLower(types.OrderType_name[int32(orderType)]))
 }

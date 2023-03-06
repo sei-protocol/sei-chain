@@ -36,7 +36,11 @@ func (gd GaslessDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool,
 	}
 	gas := feeTx.GetGas()
 	// If non-zero gas limit is provided by the TX, we then consider it exempt from the gasless TX, and then prioritize it accordingly
-	if gas > 0 || !isTxGasless(tx, ctx, gd.oracleKeeper, gd.nitroKeeper) {
+	isGasless, err := isTxGasless(tx, ctx, gd.oracleKeeper, gd.nitroKeeper)
+	if err != nil {
+		return ctx, err
+	}
+	if gas > 0 || !isGasless {
 		ctx = ctx.WithGasMeter(originalGasMeter)
 		// if not gasless, then we use the wrappers
 
@@ -100,48 +104,46 @@ func (gd GaslessDecorator) AnteDeps(txDeps []sdkacltypes.AccessOperation, tx sdk
 	return next(append(txDeps, deps...), tx)
 }
 
-func isTxGasless(tx sdk.Tx, ctx sdk.Context, oracleKeeper oraclekeeper.Keeper, nitroKeeper nitrokeeper.Keeper) bool {
+func isTxGasless(tx sdk.Tx, ctx sdk.Context, oracleKeeper oraclekeeper.Keeper, nitroKeeper nitrokeeper.Keeper) (bool, error) {
 	if len(tx.GetMsgs()) == 0 {
 		// empty TX shouldn't be gasless
-		return false
+		return false, nil
 	}
 	for _, msg := range tx.GetMsgs() {
 		switch m := msg.(type) {
 		case *dextypes.MsgPlaceOrders:
-			if DexPlaceOrdersIsGasless(m) {
-				continue
+			if !dexPlaceOrdersIsGasless(m) {
+				return false, nil
 			}
-			return false
+
 		case *dextypes.MsgCancelOrders:
-			if DexCancelOrdersIsGasless(m) {
-				continue
+			if !dexCancelOrdersIsGasless(m) {
+				return false, nil
 			}
-			return false
 		case *oracletypes.MsgAggregateExchangeRateVote:
-			if OracleVoteIsGasless(m, ctx, oracleKeeper) {
-				continue
+			isGasless, err := oracleVoteIsGasless(m, ctx, oracleKeeper)
+			if err != nil || !isGasless {
+				return false, err
 			}
-			return false
 		case *nitrotypes.MsgRecordTransactionData:
-			if NitroRecordTxDataGasless(m, ctx, nitroKeeper) {
-				continue
+			if !nitroRecordTxDataGasless(m, ctx, nitroKeeper) {
+				return false, nil
 			}
-			return false
 		default:
-			return false
+			return false, nil
 		}
 	}
-	return true
+	return true, nil
 }
 
-func DexPlaceOrdersIsGasless(msg *dextypes.MsgPlaceOrders) bool {
+func dexPlaceOrdersIsGasless(msg *dextypes.MsgPlaceOrders) bool {
 	return true
 }
 
 // WhitelistedGaslessCancellationAddrs TODO: migrate this into params state
 var WhitelistedGaslessCancellationAddrs = []sdk.AccAddress{}
 
-func DexCancelOrdersIsGasless(msg *dextypes.MsgCancelOrders) bool {
+func dexCancelOrdersIsGasless(msg *dextypes.MsgCancelOrders) bool {
 	return allSignersWhitelisted(msg)
 }
 
@@ -161,30 +163,35 @@ func allSignersWhitelisted(msg *dextypes.MsgCancelOrders) bool {
 	return true
 }
 
-func OracleVoteIsGasless(msg *oracletypes.MsgAggregateExchangeRateVote, ctx sdk.Context, keeper oraclekeeper.Keeper) bool {
+func oracleVoteIsGasless(msg *oracletypes.MsgAggregateExchangeRateVote, ctx sdk.Context, keeper oraclekeeper.Keeper) (bool, error) {
 	feederAddr, err := sdk.AccAddressFromBech32(msg.Feeder)
 	if err != nil {
-		return false
+		return false, err
 	}
 
 	valAddr, err := sdk.ValAddressFromBech32(msg.Validator)
 	if err != nil {
-		return false
+		return false, err
 	}
 
 	err = keeper.ValidateFeeder(ctx, feederAddr, valAddr)
 	if err != nil {
-		return false
+		return false, err
 	}
 
 	// this returns an error IFF there is no vote present
 	// this also gets cleared out after every vote window, so if there is no vote present, we may want to allow gasless tx
 	_, err = keeper.GetAggregateExchangeRateVote(ctx, valAddr)
-	// if there is no error that means there is a vote present, so we dont allow gasless tx otherwise we allow it
-	return err != nil
+	if err == nil {
+		// if there is no error that means there is a vote present, so we don't allow gasless tx
+		err = sdkerrors.Wrap(oracletypes.ErrAggregateVoteExist, valAddr.String())
+		return false, err
+	}
+	// otherwise we allow it
+	return true, nil
 }
 
-func NitroRecordTxDataGasless(msg *nitrotypes.MsgRecordTransactionData, ctx sdk.Context, keeper nitrokeeper.Keeper) bool {
+func nitroRecordTxDataGasless(msg *nitrotypes.MsgRecordTransactionData, ctx sdk.Context, keeper nitrokeeper.Keeper) bool {
 	for _, signer := range msg.GetSigners() {
 		if !keeper.IsTxSenderWhitelisted(ctx, signer.String()) {
 			return false

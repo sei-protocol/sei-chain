@@ -221,6 +221,7 @@ var (
 	// WasmProposalsEnabled enables all x/wasm proposals when it's value is "true"
 	// and EnableSpecificWasmProposals is empty. Otherwise, all x/wasm proposals
 	// are disabled.
+	// Used as a flag to turn it on and off
 	WasmProposalsEnabled = "true"
 
 	// EnableSpecificWasmProposals, if set, must be comma-separated list of values
@@ -934,6 +935,14 @@ func (app *App) PrepareProposalHandler(ctx sdk.Context, req *abci.RequestPrepare
 	}, nil
 }
 
+func (app *App) GetOptimisticProcessingInfo() OptimisticProcessingInfo {
+	return *app.optimisticProcessingInfo
+}
+
+func (app *App) ClearOptimisticProcessingInfo() {
+	app.optimisticProcessingInfo = nil
+}
+
 func (app *App) ProcessProposalHandler(ctx sdk.Context, req *abci.RequestProcessProposal) (*abci.ResponseProcessProposal, error) {
 	if app.optimisticProcessingInfo == nil {
 		completionSignal := make(chan struct{}, 1)
@@ -943,13 +952,20 @@ func (app *App) ProcessProposalHandler(ctx sdk.Context, req *abci.RequestProcess
 			Completion: completionSignal,
 		}
 		app.optimisticProcessingInfo = optimisticProcessingInfo
-		go func() {
-			events, txResults, endBlockResp, _ := app.ProcessBlock(ctx, req.Txs, req, req.ProposedLastCommit)
-			optimisticProcessingInfo.Events = events
-			optimisticProcessingInfo.TxRes = txResults
-			optimisticProcessingInfo.EndBlockResp = endBlockResp
-			optimisticProcessingInfo.Completion <- struct{}{}
-		}()
+
+		plan, found := app.UpgradeKeeper.GetUpgradePlan(ctx)
+		if found && plan.ShouldExecute(ctx) {
+			app.Logger().Info(fmt.Sprintf("Potential upgrade planned for height=%d skipping optimistic processing", plan.Height))
+			app.optimisticProcessingInfo.Aborted = true
+		} else {
+			go func() {
+				events, txResults, endBlockResp, _ := app.ProcessBlock(ctx, req.Txs, req, req.ProposedLastCommit)
+				optimisticProcessingInfo.Events = events
+				optimisticProcessingInfo.TxRes = txResults
+				optimisticProcessingInfo.EndBlockResp = endBlockResp
+				optimisticProcessingInfo.Completion <- struct{}{}
+			}()
+		}
 	} else if !bytes.Equal(app.optimisticProcessingInfo.Hash, req.Hash) {
 		app.optimisticProcessingInfo.Aborted = true
 	}
@@ -966,16 +982,13 @@ func (app *App) FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBlock)
 		ctx.Logger().Info(fmt.Sprintf("FinalizeBlock took %dms", duration/time.Millisecond))
 	}()
 
-	if app.optimisticProcessingInfo != nil && !app.optimisticProcessingInfo.Aborted && bytes.Equal(app.optimisticProcessingInfo.Hash, req.Hash) {
-		select {
-		case <-app.optimisticProcessingInfo.Completion:
+	if app.optimisticProcessingInfo != nil {
+		<-app.optimisticProcessingInfo.Completion
+		if !app.optimisticProcessingInfo.Aborted && bytes.Equal(app.optimisticProcessingInfo.Hash, req.Hash) {
 			app.SetProcessProposalStateToCommit()
 			appHash := app.WriteStateToCommitAndGetWorkingHash()
 			resp := app.getFinalizeBlockResponse(appHash, app.optimisticProcessingInfo.Events, app.optimisticProcessingInfo.TxRes, app.optimisticProcessingInfo.EndBlockResp)
 			return &resp, nil
-		case <-time.After(OptimisticProcessingTimeoutInSeconds * time.Second):
-			ctx.Logger().Info("optimistic processing timed out")
-			break
 		}
 	}
 	ctx.Logger().Info("optimistic processing ineligible")

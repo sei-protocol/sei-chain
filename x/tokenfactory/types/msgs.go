@@ -164,7 +164,7 @@ func (m MsgBurn) GetSigners() []sdk.AccAddress {
 
 var _ sdk.Msg = &MsgChangeAdmin{}
 
-// NewMsgChangeAdmin creates a message to burn tokens
+// NewMsgChangeAdmin creates a message to change admin for a denom
 func NewMsgChangeAdmin(sender, denom, newAdmin string) *MsgChangeAdmin {
 	return &MsgChangeAdmin{
 		Sender:   sender,

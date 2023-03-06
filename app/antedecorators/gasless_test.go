@@ -157,10 +157,8 @@ func TestOracleVoteGasless(t *testing.T) {
 	}
 
 	// reset gasless
-	gasless = true
 	err = CallGaslessDecoratorWithMsg(ctx, &vote1, input.OracleKeeper, nitrokeeper.Keeper{})
-	require.NoError(t, err)
-	require.False(t, gasless)
+	require.Error(t, err)
 
 	// reset gasless
 	gasless = true

@@ -8,12 +8,15 @@ import (
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/sei-protocol/sei-chain/utils"
+	"github.com/sei-protocol/sei-chain/utils/logging"
 	"github.com/sei-protocol/sei-chain/utils/metrics"
 	"github.com/sei-protocol/sei-chain/x/dex/keeper"
 	dextypeswasm "github.com/sei-protocol/sei-chain/x/dex/types/wasm"
 )
 
 const ErrWasmModuleInstCPUFeatureLiteral = "Error instantiating module: CpuFeature"
+const SudoGasEventKey = "sudo-gas"
+const LogAfter = 5 * time.Second
 
 func getMsgType(msg interface{}) string {
 	switch msg.(type) {
@@ -37,6 +40,10 @@ func getMsgType(msg interface{}) string {
 }
 
 func sudo(sdkCtx sdk.Context, k *keeper.Keeper, contractAddress sdk.AccAddress, wasmMsg []byte, msgType string) ([]byte, uint64, error) {
+	defer utils.PanicHandler(func(err any) {
+		utils.MetricsPanicCallback(err, sdkCtx, fmt.Sprintf("%s|%s", contractAddress, msgType))
+	})()
+
 	// Measure the time it takes to execute the contract in WASM
 	defer metrics.MeasureSudoExecutionDuration(time.Now(), msgType)
 	// set up a tmp context to prevent race condition in reading gas consumed
@@ -50,7 +57,15 @@ func sudo(sdkCtx sdk.Context, k *keeper.Keeper, contractAddress sdk.AccAddress, 
 	tmpCtx := sdkCtx.WithGasMeter(sdk.NewGasMeter(gasLimit))
 	data, err := sudoWithoutOutOfGasPanic(tmpCtx, k, contractAddress, wasmMsg, msgType)
 	gasConsumed := tmpCtx.GasMeter().GasConsumed()
-	sdkCtx.Logger().Info(fmt.Sprintf("%s %s consumed %d gas", contractAddress.String(), msgType, gasConsumed))
+	sdkCtx.EventManager().EmitEvent(
+		sdk.NewEvent(
+			SudoGasEventKey,
+			sdk.NewAttribute("consumed", fmt.Sprintf("%d", gasConsumed)),
+			sdk.NewAttribute("type", msgType),
+			sdk.NewAttribute("contract", contractAddress.String()),
+			sdk.NewAttribute("height", fmt.Sprintf("%d", sdkCtx.BlockHeight())),
+		),
+	)
 	if gasConsumed > 0 {
 		sdkCtx.GasMeter().ConsumeGas(gasConsumed, "sudo")
 	}
@@ -63,7 +78,7 @@ func sudo(sdkCtx sdk.Context, k *keeper.Keeper, contractAddress sdk.AccAddress, 
 func sudoWithoutOutOfGasPanic(ctx sdk.Context, k *keeper.Keeper, contractAddress []byte, wasmMsg []byte, logName string) ([]byte, error) {
 	defer func() {
 		if err := recover(); err != nil {
-			// only propagate panic if the error is out of gas
+			// only propagate panic if the error is NOT out of gas
 			if _, ok := err.(sdk.ErrorOutOfGas); !ok {
 				panic(err)
 			} else {
@@ -71,7 +86,9 @@ func sudoWithoutOutOfGasPanic(ctx sdk.Context, k *keeper.Keeper, contractAddress
 			}
 		}
 	}()
-	return k.WasmKeeper.Sudo(ctx, contractAddress, wasmMsg)
+	return logging.LogIfNotDoneAfter(ctx.Logger(), func() ([]byte, error) {
+		return k.WasmKeeper.Sudo(ctx, contractAddress, wasmMsg)
+	}, LogAfter, fmt.Sprintf("wasm_sudo_%s", logName))
 }
 
 func hasErrInstantiatingWasmModuleDueToCPUFeature(err error) bool {
