@@ -29,6 +29,7 @@ Ref: https://keepachangelog.com/en/1.0.0/
 # Changelog
 
 ## 2.0.39beta - 2023-03-06
+* [#632](https://github.com/sei-protocol/sei-chain/pull/632) Bump Sei-tendermint to reduce log volume
 * [#631](https://github.com/sei-protocol/sei-chain/pull/631) Nondeterminism deadlock fixes
 * [#630](https://github.com/sei-protocol/sei-chain/pull/630) Mempool configs to avoid node slow down
 
