@@ -38,5 +38,10 @@ func (k msgServer) UnregisterContract(goCtx context.Context, msg *types.MsgUnreg
 	k.DeleteNextOrderID(ctx, msg.ContractAddr)
 	k.DeleteAllRegisteredPairsForContract(ctx, msg.ContractAddr)
 	k.RemoveAllTriggeredOrders(ctx, msg.ContractAddr)
+
+	ctx.EventManager().EmitEvent(sdk.NewEvent(
+		types.EventTypeUnregisterContract,
+		sdk.NewAttribute(types.AttributeKeyContractAddress, msg.ContractAddr),
+	))
 	return &types.MsgUnregisterContractResponse{}, nil
 }

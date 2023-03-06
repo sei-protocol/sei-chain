@@ -54,7 +54,7 @@ func (k msgServer) PlaceOrders(goCtx context.Context, msg *types.MsgPlaceOrders)
 	if err := k.transferFunds(goCtx, msg); err != nil {
 		return nil, err
 	}
-
+	events := []sdk.Event{}
 	nextID := k.GetNextOrderID(ctx, msg.ContractAddr)
 	idsInResp := []uint64{}
 	for _, order := range msg.GetOrders() {
@@ -73,10 +73,14 @@ func (k msgServer) PlaceOrders(goCtx context.Context, msg *types.MsgPlaceOrders)
 		order.ContractAddr = msg.GetContractAddr()
 		dexutils.GetMemState(ctx.Context()).GetBlockOrders(ctx, typesutils.ContractAddress(msg.GetContractAddr()), pairStr).Add(order)
 		idsInResp = append(idsInResp, nextID)
+		events = append(events, sdk.NewEvent(
+			types.EventTypePlaceOrder,
+			sdk.NewAttribute(types.AttributeKeyOrderID, fmt.Sprint(nextID)),
+		))
 		nextID++
 	}
 	k.SetNextOrderID(ctx, msg.ContractAddr, nextID)
-
+	ctx.EventManager().EmitEvents(events)
 	return &types.MsgPlaceOrdersResponse{
 		OrderIds: idsInResp,
 	}, nil

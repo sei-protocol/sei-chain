@@ -15,6 +15,7 @@ func (k msgServer) RegisterPairs(goCtx context.Context, msg *types.MsgRegisterPa
 
 	ctx := sdk.UnwrapSDKContext(goCtx)
 
+	events := []sdk.Event{}
 	// Validation such that only the user who stored the code can register pairs
 	for _, batchPair := range msg.Batchcontractpair {
 		contractAddr := batchPair.ContractAddr
@@ -31,8 +32,16 @@ func (k msgServer) RegisterPairs(goCtx context.Context, msg *types.MsgRegisterPa
 		// tuple and register them individually
 		for _, pair := range batchPair.Pairs {
 			k.AddRegisteredPair(ctx, contractAddr, *pair)
+			events = append(events, sdk.NewEvent(
+				types.EventTypeRegisterPair,
+				sdk.NewAttribute(types.AttributeKeyContractAddress, contractAddr),
+				sdk.NewAttribute(types.AttributeKeyPriceDenom, pair.PriceDenom),
+				sdk.NewAttribute(types.AttributeKeyContractAddress, pair.AssetDenom),
+			))
 		}
 	}
+
+	ctx.EventManager().EmitEvents(events)
 
 	return &types.MsgRegisterPairsResponse{}, nil
 }

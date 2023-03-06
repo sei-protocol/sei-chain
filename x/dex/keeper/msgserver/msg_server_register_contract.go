@@ -65,6 +65,11 @@ func (k msgServer) RegisterContract(goCtx context.Context, msg *types.MsgRegiste
 		return &types.MsgRegisterContractResponse{}, err
 	}
 
+	ctx.EventManager().EmitEvent(sdk.NewEvent(
+		types.EventTypeRegisterContract,
+		sdk.NewAttribute(types.AttributeKeyContractAddress, msg.Contract.ContractAddr),
+	))
+
 	return &types.MsgRegisterContractResponse{}, nil
 }
 
