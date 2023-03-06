@@ -472,7 +472,7 @@ func (tree *MutableTree) Load() (int64, error) {
 // will be loaded by default. If the latest version is non-positive, this method
 // performs a no-op. Otherwise, if the root does not exist, an error will be
 // returned.
-func (tree *MutableTree) LazyLoadVersion(targetVersion int64) (int64, error) {
+func (tree *MutableTree) LazyLoadVersion(targetVersion int64) (toReturn int64, toErr error) {
 	latestVersion, err := tree.ndb.getLatestVersion()
 	if err != nil {
 		return 0, err
@@ -509,7 +509,16 @@ func (tree *MutableTree) LazyLoadVersion(targetVersion int64) (int64, error) {
 	}
 
 	tree.mtx.Lock()
-	defer tree.mtx.Unlock()
+	defer func() {
+		tree.mtx.Unlock()
+		if !tree.skipFastStorageUpgrade {
+			// Attempt to upgrade
+			if _, err := tree.enableFastStorageAndCommitIfNotEnabled(); err != nil {
+				toReturn = 0
+				toErr = err
+			}
+		}
+	}()
 
 	tree.versions[targetVersion] = true
 
@@ -532,18 +541,11 @@ func (tree *MutableTree) LazyLoadVersion(targetVersion int64) (int64, error) {
 	tree.ImmutableTree = iTree
 	tree.lastSaved = iTree.clone()
 
-	if !tree.skipFastStorageUpgrade {
-		// Attempt to upgrade
-		if _, err := tree.enableFastStorageAndCommitIfNotEnabled(); err != nil {
-			return 0, err
-		}
-	}
-
 	return targetVersion, nil
 }
 
 // Returns the version number of the latest version found
-func (tree *MutableTree) LoadVersion(targetVersion int64) (int64, error) {
+func (tree *MutableTree) LoadVersion(targetVersion int64) (toReturn int64, toErr error) {
 	roots, err := tree.ndb.getRoots()
 	if err != nil {
 		return 0, err
@@ -552,8 +554,6 @@ func (tree *MutableTree) LoadVersion(targetVersion int64) (int64, error) {
 	if len(roots) == 0 {
 		if targetVersion <= 0 {
 			if !tree.skipFastStorageUpgrade {
-				tree.mtx.Lock()
-				defer tree.mtx.Unlock()
 				_, err := tree.enableFastStorageAndCommitIfNotEnabled()
 				return 0, err
 			}
@@ -566,7 +566,16 @@ func (tree *MutableTree) LoadVersion(targetVersion int64) (int64, error) {
 	latestVersion := int64(0)
 
 	tree.mtx.Lock()
-	defer tree.mtx.Unlock()
+	defer func() {
+		tree.mtx.Unlock()
+		if !tree.skipFastStorageUpgrade {
+			// Attempt to upgrade
+			if _, err := tree.enableFastStorageAndCommitIfNotEnabled(); err != nil {
+				toReturn = 0
+				toErr = err
+			}
+		}
+	}()
 
 	var latestRoot []byte
 	for version, r := range roots {
@@ -609,13 +618,6 @@ func (tree *MutableTree) LoadVersion(targetVersion int64) (int64, error) {
 	tree.lastSaved = t.clone()
 	tree.allRootLoaded = true
 
-	if !tree.skipFastStorageUpgrade {
-		// Attempt to upgrade
-		if _, err := tree.enableFastStorageAndCommitIfNotEnabled(); err != nil {
-			return 0, err
-		}
-	}
-
 	return latestVersion, nil
 }
 
@@ -632,7 +634,7 @@ func (tree *MutableTree) LoadVersionForOverwriting(targetVersion int64) (int64, 
 	}
 
 	if !tree.skipFastStorageUpgrade {
-		if err := tree.enableFastStorageAndCommitLocked(); err != nil {
+		if err := tree.enableFastStorageAndCommit(); err != nil {
 			return latestVersion, err
 		}
 	}
@@ -707,16 +709,10 @@ func (tree *MutableTree) enableFastStorageAndCommitIfNotEnabled() (bool, error) 
 	return true, nil
 }
 
-func (tree *MutableTree) enableFastStorageAndCommitLocked() error {
-	tree.mtx.Lock()
-	defer tree.mtx.Unlock()
-	return tree.enableFastStorageAndCommit()
-}
-
 func (tree *MutableTree) enableFastStorageAndCommit() error {
 	var err error
 
-	itr := NewIterator(nil, nil, true, tree.ImmutableTree)
+	itr := NewIteratorUnlocked(nil, nil, true, tree.ImmutableTree)
 	defer itr.Close()
 	var upgradedFastNodes uint64
 	for ; itr.Valid(); itr.Next() {
@@ -1069,9 +1065,6 @@ func (tree *MutableTree) SetInitialVersion(version uint64) {
 // DeleteVersions deletes a series of versions from the MutableTree.
 // Deprecated: please use DeleteVersionsRange instead.
 func (tree *MutableTree) DeleteVersions(versions ...int64) error {
-	tree.mtx.Lock()
-	defer tree.mtx.Unlock()
-
 	logger.Debug("DELETING VERSIONS: %v\n", versions)
 
 	if len(versions) == 0 {
@@ -1127,12 +1120,13 @@ func (tree *MutableTree) DeleteVersionsRange(fromVersion, toVersion int64) error
 // longer be accessed.
 func (tree *MutableTree) DeleteVersion(version int64) error {
 	logger.Debug("DELETE VERSION: %d\n", version)
-	tree.mtx.Lock()
-	defer tree.mtx.Unlock()
 
 	if err := tree.deleteVersion(version); err != nil {
 		return err
 	}
+
+	tree.mtx.Lock()
+	defer tree.mtx.Unlock()
 
 	if err := tree.ndb.Commit(); err != nil {
 		return err
