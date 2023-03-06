@@ -22,22 +22,28 @@ const (
 	Tokenfactory         string = "tokenfactory"
 	Limit                string = "limit"
 	Market               string = "market"
+	WasmMintNft          string = "wasm_mint_nft"
 )
 
 type Config struct {
-	ChainID       string                `json:"chain_id"`
-	TxsPerBlock   uint64                `json:"txs_per_block"`
-	MsgsPerTx     uint64                `json:"msgs_per_tx"`
-	Rounds        uint64                `json:"rounds"`
-	MessageType   string                `json:"message_type"`
-	RunOracle     bool                  `json:"run_oracle"`
-	PriceDistr    NumericDistribution   `json:"price_distribution"`
-	QuantityDistr NumericDistribution   `json:"quantity_distribution"`
-	MsgTypeDistr  MsgTypeDistribution   `json:"message_type_distribution"`
-	ContractDistr ContractDistributions `json:"contract_distribution"`
-	MetricsPort   uint64                `json:"metrics_port"`
-	Constant      bool                  `json:"constant"`
-	LoadInterval  int64                 `json:"loadtest_interval"`
+	ChainID            string                `json:"chain_id"`
+	GrpcEndpoint       string                `json:"grpc_endpoint"`
+	BlockchainEndpoint string                `json:"blockchain_endpoint"`
+	NodeURI            string                `json:"node_uri"`
+	TxsPerBlock        uint64                `json:"txs_per_block"`
+	MsgsPerTx          uint64                `json:"msgs_per_tx"`
+	Rounds             uint64                `json:"rounds"`
+	MessageType        string                `json:"message_type"`
+	RunOracle          bool                  `json:"run_oracle"`
+	PriceDistr         NumericDistribution   `json:"price_distribution"`
+	QuantityDistr      NumericDistribution   `json:"quantity_distribution"`
+	MsgTypeDistr       MsgTypeDistribution   `json:"message_type_distribution"`
+	WasmMsgTypes       WasmMessageTypes      `json:"wasm_msg_types"`
+	ContractDistr      ContractDistributions `json:"contract_distribution"`
+	MetricsPort        uint64                `json:"metrics_port"`
+	Constant           bool                  `json:"constant"`
+	LoadInterval       int64                 `json:"loadtest_interval"`
+	TLS                bool                  `json:"tls"`
 }
 
 type EncodingConfig struct {
@@ -81,6 +87,17 @@ type StakingMsgTypeDistribution struct {
 type MsgTypeDistribution struct {
 	Dex     DexMsgTypeDistribution     `json:"dex"`
 	Staking StakingMsgTypeDistribution `json:"staking"`
+}
+
+// Struct containing contract address
+// For a specific wasm message type.
+// TODO: Abstract interface for any wasm type + execute msg
+type WasmMessageTypes struct {
+	MintNftType WasmMintNftType `json:"wasm_mint_nft"`
+}
+
+type WasmMintNftType struct {
+	ContractAddr string `json:"contract_address"`
 }
 
 func (d *MsgTypeDistribution) SampleDexMsgs() string {
