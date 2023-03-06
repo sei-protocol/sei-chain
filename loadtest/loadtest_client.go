@@ -16,6 +16,7 @@ import (
 	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
 
 	"crypto/tls"
+
 	"github.com/k0kubun/pp/v3"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
@@ -46,7 +47,7 @@ func NewLoadTestClient(config Config) *LoadTestClient {
 
 	// NOTE: Will likely need to whitelist node from elb rate limits - add ip to producer ip set
 	if config.TLS {
-		dialOptions = append(dialOptions, grpc.WithTransportCredentials(credentials.NewTLS(&tls.Config{InsecureSkipVerify: true})))
+		dialOptions = append(dialOptions, grpc.WithTransportCredentials(credentials.NewTLS(&tls.Config{InsecureSkipVerify: true}))) //nolint:gosec // Use insecure skip verify.
 	} else {
 		dialOptions = append(dialOptions, grpc.WithInsecure())
 	}
