@@ -983,7 +983,7 @@ func (app *App) FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBlock)
 	}()
 
 	if app.optimisticProcessingInfo != nil {
-		completion := <- app.optimisticProcessingInfo.Completion
+		completion := <-app.optimisticProcessingInfo.Completion
 		if completion && bytes.Equal(app.optimisticProcessingInfo.Hash, req.Hash) {
 			app.SetProcessProposalStateToCommit()
 			appHash := app.WriteStateToCommitAndGetWorkingHash()

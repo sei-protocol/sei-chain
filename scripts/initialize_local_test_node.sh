@@ -8,10 +8,10 @@ read release
 echo
 
 echo "Building..."
-# git fetch --tags -f
-# git checkout $release
-# make install
-# git checkout master
+git fetch --tags -f
+git checkout $release
+make install
+git checkout master
 sudo -S rm -r ~/.sei/
 sudo -S rm -r ~/test_accounts/
 ~/go/bin/seid tendermint unsafe-reset-all
