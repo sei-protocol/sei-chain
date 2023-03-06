@@ -28,6 +28,17 @@ Ref: https://keepachangelog.com/en/1.0.0/
 
 # Changelog
 
+## 2.0.39beta - 2023-03-06
+* [#631](https://github.com/sei-protocol/sei-chain/pull/631) Nondeterminism deadlock fixes
+* [#630](https://github.com/sei-protocol/sei-chain/pull/630) Mempool configs to avoid node slow down
+
+## 2.0.38beta - 2023-03-04
+* [#623](https://github.com/sei-protocol/sei-chain/pull/623) [epoch] Add new epoch events by @udpatil in #623
+* [#624](https://github.com/sei-protocol/sei-chain/pull/624) [dex][mint] Add long messages for dex and mint by @udpatil in #624
+* [#588](https://github.com/sei-protocol/sei-chain/pull/588) Send deposit funds in message server instead of EndBlock by @codchen in #588
+* [#627](https://github.com/sei-protocol/sei-chain/pull/627) [oracle] Add slash window progress query by @udpatil in #627
+[label](x/oracle/README.md)* [#625](https://github.com/sei-protocol/sei-chain/pull/625) Update contract rent deposit logic + add query endpoint by @LCyson in #625
+
 ## 2.0.37beta - 2023-02-27
 ### Features
 * [#621](https://github.com/sei-protocol/sei-chain/pull/621) Add success count to the oracle query
