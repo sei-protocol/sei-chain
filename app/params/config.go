@@ -88,10 +88,11 @@ func SetTendermintConfigs(config *tmcfg.Config) {
 	config.P2P.MaxPacketMsgPayloadSize = 1000000 // 1MB
 	config.P2P.FlushThrottleTimeout = 10 * time.Millisecond
 	// Mempool configs
-	config.Mempool.Size = 5000
+	config.Mempool.Size = 1000
 	config.Mempool.MaxTxsBytes = 10737418240
 	config.Mempool.MaxTxBytes = 2048576
-	config.Mempool.TTLDuration = 3 * time.Hour
+	config.Mempool.TTLDuration = 30 * time.Second
+	config.Mempool.TTLNumBlocks = 100
 	// Consensus Configs
 	config.Consensus.GossipTransactionKeyOnly = true
 	config.Consensus.UnsafeProposeTimeoutOverride = 1 * time.Second
