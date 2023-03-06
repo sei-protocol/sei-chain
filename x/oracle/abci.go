@@ -114,6 +114,7 @@ func MidBlocker(ctx sdk.Context, k keeper.Keeper) {
 			// we require validator to have submitted in-range data
 			// for all assets to not be counted as a miss
 			if int(claim.WinCount) == totalTargets {
+				k.IncrementSuccessCount(ctx, claim.Recipient)
 				continue
 			}
 			if !claim.DidVote {

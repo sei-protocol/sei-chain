@@ -5,11 +5,9 @@ import "gogoproto/gogo.proto";
 import "dex/params.proto";
 import "dex/long_book.proto";
 import "dex/short_book.proto";
-import "dex/tick_size.proto";
 import "dex/order.proto";
 import "dex/contract.proto";
 import "dex/pair.proto";
-import "dex/match_result.proto";
 import "dex/price.proto";
 // this line is used by starport scaffolding # genesis/proto/import
 

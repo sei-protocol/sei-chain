@@ -36,7 +36,7 @@ func InitGenesis(ctx sdk.Context, keeper keeper.Keeper, data *types.GenesisState
 			panic(err)
 		}
 
-		keeper.SetVotePenaltyCounter(ctx, operator, pc.VotePenaltyCounter.MissCount, pc.VotePenaltyCounter.AbstainCount)
+		keeper.SetVotePenaltyCounter(ctx, operator, pc.VotePenaltyCounter.MissCount, pc.VotePenaltyCounter.AbstainCount, pc.VotePenaltyCounter.SuccessCount)
 	}
 
 	for _, av := range data.AggregateExchangeRateVotes {

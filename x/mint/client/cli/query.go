@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -63,7 +64,10 @@ func GetCmdQueryEpochProvisions() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "minter",
 		Short: "Query the most recent minting state",
-		Args:  cobra.NoArgs,
+		Long: strings.TrimSpace(`
+			Returns the minter state with information such as LastMintAmount, LastMintDate, LastMintHeight, and MintDenom.
+		`),
+		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			clientCtx, err := client.GetClientQueryContext(cmd)
 			if err != nil {

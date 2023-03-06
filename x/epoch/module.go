@@ -17,6 +17,7 @@ import (
 	cdctypes "github.com/cosmos/cosmos-sdk/codec/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/types/module"
+	"github.com/sei-protocol/sei-chain/utils/metrics"
 	"github.com/sei-protocol/sei-chain/x/epoch/client/cli"
 	"github.com/sei-protocol/sei-chain/x/epoch/keeper"
 	"github.com/sei-protocol/sei-chain/x/epoch/types"
@@ -183,6 +184,14 @@ func (am AppModule) BeginBlock(ctx sdk.Context, _ abci.RequestBeginBlock) {
 		}
 		am.keeper.SetEpoch(ctx, newEpoch)
 		am.keeper.BeforeEpochStart(ctx, newEpoch)
+		ctx.EventManager().EmitEvent(
+			sdk.NewEvent(types.EventTypeNewEpoch,
+				sdk.NewAttribute(types.AttributeEpochNumber, fmt.Sprint(newEpoch.CurrentEpoch)),
+				sdk.NewAttribute(types.AttributeEpochTime, newEpoch.CurrentEpochStartTime.String()),
+				sdk.NewAttribute(types.AttributeEpochHeight, fmt.Sprint(newEpoch.CurrentEpochHeight)),
+			),
+		)
+		metrics.SetEpochNew(newEpoch.CurrentEpoch)
 	}
 }
 

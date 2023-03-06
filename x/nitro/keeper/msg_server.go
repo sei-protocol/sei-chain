@@ -55,6 +55,10 @@ func (server msgServer) RecordTransactionData(goCtx context.Context, msg *types.
 func (server msgServer) SubmitFraudChallenge(goCtx context.Context, msg *types.MsgSubmitFraudChallenge) (*types.MsgSubmitFraudChallengeResponse, error) {
 	ctx := sdk.UnwrapSDKContext(goCtx)
 
+	if !server.IsFraudChallengeEnabled(ctx) {
+		return nil, types.ErrFraudChallengeDisabled
+	}
+
 	if len(msg.FraudStatePubKey) == 0 {
 		return nil, types.ErrInvalidFraudStatePubkey
 	}

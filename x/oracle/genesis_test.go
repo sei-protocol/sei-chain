@@ -20,8 +20,8 @@ func TestExportInitGenesis(t *testing.T) {
 	input.OracleKeeper.SetAggregateExchangeRateVote(input.Ctx, keeper.ValAddrs[0], types.NewAggregateExchangeRateVote(types.ExchangeRateTuples{{Denom: "foo", ExchangeRate: sdk.NewDec(123)}}, keeper.ValAddrs[0]))
 	input.OracleKeeper.SetVoteTarget(input.Ctx, "denom")
 	input.OracleKeeper.SetVoteTarget(input.Ctx, "denom2")
-	input.OracleKeeper.SetVotePenaltyCounter(input.Ctx, keeper.ValAddrs[0], 2, 3)
-	input.OracleKeeper.SetVotePenaltyCounter(input.Ctx, keeper.ValAddrs[1], 4, 5)
+	input.OracleKeeper.SetVotePenaltyCounter(input.Ctx, keeper.ValAddrs[0], 2, 3, 0)
+	input.OracleKeeper.SetVotePenaltyCounter(input.Ctx, keeper.ValAddrs[1], 4, 5, 0)
 	input.OracleKeeper.AddPriceSnapshot(input.Ctx, types.NewPriceSnapshot(
 		types.PriceSnapshotItems{
 			{

@@ -41,7 +41,7 @@ func TestSlashAndResetMissCounters(t *testing.T) {
 	slashFraction := input.OracleKeeper.SlashFraction(input.Ctx)
 	minValidVotes := input.OracleKeeper.MinValidPerWindow(input.Ctx).MulInt64(votePeriodsPerWindow).TruncateInt64()
 	// Case 1, no slash
-	input.OracleKeeper.SetVotePenaltyCounter(input.Ctx, ValAddrs[0], uint64(votePeriodsPerWindow-minValidVotes), 0)
+	input.OracleKeeper.SetVotePenaltyCounter(input.Ctx, ValAddrs[0], uint64(votePeriodsPerWindow-minValidVotes), 0, 0)
 	input.OracleKeeper.SlashAndResetCounters(input.Ctx)
 	staking.EndBlocker(input.Ctx, input.StakingKeeper)
 
@@ -49,7 +49,7 @@ func TestSlashAndResetMissCounters(t *testing.T) {
 	require.Equal(t, amt, validator.GetBondedTokens())
 
 	// Case 2, slash
-	input.OracleKeeper.SetVotePenaltyCounter(input.Ctx, ValAddrs[0], uint64(votePeriodsPerWindow-minValidVotes+1), 0)
+	input.OracleKeeper.SetVotePenaltyCounter(input.Ctx, ValAddrs[0], uint64(votePeriodsPerWindow-minValidVotes+1), 0, 0)
 	input.OracleKeeper.SlashAndResetCounters(input.Ctx)
 	validator, _ = input.StakingKeeper.GetValidator(input.Ctx, ValAddrs[0])
 	require.Equal(t, amt.Sub(slashFraction.MulInt(amt).TruncateInt()), validator.GetBondedTokens())
@@ -61,7 +61,7 @@ func TestSlashAndResetMissCounters(t *testing.T) {
 	validator.Tokens = amt
 	input.StakingKeeper.SetValidator(input.Ctx, validator)
 	require.Equal(t, amt, validator.GetBondedTokens())
-	input.OracleKeeper.SetVotePenaltyCounter(input.Ctx, ValAddrs[0], 0, uint64(votePeriodsPerWindow-minValidVotes+1))
+	input.OracleKeeper.SetVotePenaltyCounter(input.Ctx, ValAddrs[0], 0, uint64(votePeriodsPerWindow-minValidVotes+1), 0)
 	input.OracleKeeper.SlashAndResetCounters(input.Ctx)
 	validator, _ = input.StakingKeeper.GetValidator(input.Ctx, ValAddrs[0])
 	// slashing for not voting validly sufficiently
@@ -75,7 +75,7 @@ func TestSlashAndResetMissCounters(t *testing.T) {
 	validator.Tokens = amt
 	input.StakingKeeper.SetValidator(input.Ctx, validator)
 
-	input.OracleKeeper.SetVotePenaltyCounter(input.Ctx, ValAddrs[0], uint64(votePeriodsPerWindow-minValidVotes+1), 0)
+	input.OracleKeeper.SetVotePenaltyCounter(input.Ctx, ValAddrs[0], uint64(votePeriodsPerWindow-minValidVotes+1), 0, 0)
 	input.OracleKeeper.SlashAndResetCounters(input.Ctx)
 	validator, _ = input.StakingKeeper.GetValidator(input.Ctx, ValAddrs[0])
 	require.Equal(t, amt, validator.Tokens)
@@ -88,7 +88,7 @@ func TestSlashAndResetMissCounters(t *testing.T) {
 	validator.Tokens = amt
 	input.StakingKeeper.SetValidator(input.Ctx, validator)
 
-	input.OracleKeeper.SetVotePenaltyCounter(input.Ctx, ValAddrs[0], uint64(votePeriodsPerWindow-minValidVotes+1), 0)
+	input.OracleKeeper.SetVotePenaltyCounter(input.Ctx, ValAddrs[0], uint64(votePeriodsPerWindow-minValidVotes+1), 0, 0)
 	input.OracleKeeper.SlashAndResetCounters(input.Ctx)
 	validator, _ = input.StakingKeeper.GetValidator(input.Ctx, ValAddrs[0])
 	require.Equal(t, amt, validator.Tokens)

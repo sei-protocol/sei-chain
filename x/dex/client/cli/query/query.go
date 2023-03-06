@@ -36,6 +36,7 @@ func GetQueryCmd() *cobra.Command {
 	cmd.AddCommand(CmdGetAssetList())
 	cmd.AddCommand(CmdGetAssetMetadata())
 	cmd.AddCommand(CmdGetRegisteredPairs())
+	cmd.AddCommand(CmdGetRegisteredContract())
 	cmd.AddCommand(CmdGetOrders())
 	cmd.AddCommand(CmdGetOrdersByID())
 	cmd.AddCommand(CmdGetMatchResult())

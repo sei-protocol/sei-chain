@@ -12,4 +12,5 @@ var (
 	ErrInvalidMerkleProof      = sdkerrors.Register(ModuleName, 3, "Error invalid merkle proof")
 	ErrInvalidAccountState     = sdkerrors.Register(ModuleName, 4, "Error invalid provided account state")
 	ErrInvalidFraudStatePubkey = sdkerrors.Register(ModuleName, 6, "Error invalid provided fraud state public key")
+	ErrFraudChallengeDisabled  = sdkerrors.Register(ModuleName, 7, "Error fraud challenge is not enabled yet")
 )
