@@ -355,8 +355,8 @@ func (c *LoadTestClient) generateStakingMsg(delegatorAddr string, chosenValidato
 	return msg
 }
 
-func getLastHeight(blockchain_endpoint string) int {
-	out, err := exec.Command("curl", blockchain_endpoint).Output()
+func getLastHeight(blockchainEndpoint string) int {
+	out, err := exec.Command("curl", blockchainEndpoint).Output()
 	if err != nil {
 		panic(err)
 	}

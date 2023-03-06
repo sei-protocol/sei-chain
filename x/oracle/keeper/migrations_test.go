@@ -147,7 +147,7 @@ func TestMigrate5to6(t *testing.T) {
 	// Get rate
 	votePenaltyCounter := input.OracleKeeper.GetVotePenaltyCounter(input.Ctx, addr)
 	require.Equal(t, types.VotePenaltyCounter{
-		MissCount: 12,
+		MissCount:    12,
 		AbstainCount: 13,
 		SuccessCount: 9975,
 	}, votePenaltyCounter)
