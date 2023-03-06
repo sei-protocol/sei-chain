@@ -712,7 +712,7 @@ func (tree *MutableTree) enableFastStorageAndCommitIfNotEnabled() (bool, error) 
 func (tree *MutableTree) enableFastStorageAndCommit() error {
 	var err error
 
-	itr := NewIterator(nil, nil, true, tree.ImmutableTree)
+	itr := NewIteratorUnlocked(nil, nil, true, tree.ImmutableTree)
 	defer itr.Close()
 	var upgradedFastNodes uint64
 	for ; itr.Valid(); itr.Next() {
@@ -1120,12 +1120,13 @@ func (tree *MutableTree) DeleteVersionsRange(fromVersion, toVersion int64) error
 // longer be accessed.
 func (tree *MutableTree) DeleteVersion(version int64) error {
 	logger.Debug("DELETE VERSION: %d\n", version)
-	tree.mtx.Lock()
-	defer tree.mtx.Unlock()
 
 	if err := tree.deleteVersion(version); err != nil {
 		return err
 	}
+
+	tree.mtx.Lock()
+	defer tree.mtx.Unlock()
 
 	if err := tree.ndb.Commit(); err != nil {
 		return err

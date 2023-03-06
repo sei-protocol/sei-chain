@@ -147,21 +147,6 @@ func (node *Node) clone(version int64) (*Node, error) {
 	}, nil
 }
 
-func (node *Node) cloneAny() *Node {
-	return &Node{
-		key:       node.key,
-		height:    node.height,
-		version:   node.version,
-		size:      node.size,
-		hash:      nil,
-		leftHash:  node.leftHash,
-		leftNode:  node.leftNode,
-		rightHash: node.rightHash,
-		rightNode: node.rightNode,
-		persisted: false,
-	}
-}
-
 func (node *Node) isLeaf() bool {
 	return node.height == 0
 }
@@ -552,7 +537,7 @@ func (node *Node) traversePost(t *ImmutableTree, ascending bool, cb func(*Node) 
 
 func (node *Node) traverseInRange(tree *ImmutableTree, start, end []byte, ascending bool, inclusive bool, post bool, cb func(*Node) bool) bool {
 	stop := false
-	t := node.newTraversal(tree, start, end, ascending, inclusive, post)
+	t := node.newTraversal(tree, start, end, ascending, inclusive, post, false)
 	// TODO: figure out how to handle these errors
 	for node2, err := t.next(); node2 != nil && err == nil; node2, err = t.next() {
 		stop = cb(node2)

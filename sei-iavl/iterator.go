@@ -17,11 +17,12 @@ type traversal struct {
 	inclusive    bool          // end key inclusiveness
 	post         bool          // postorder traversal
 	delayedNodes *delayedNodes // delayed nodes to be traversed
+	unlocked     bool          // whether traversal should not lock tree's mutex
 }
 
 var errIteratorNilTreeGiven = errors.New("iterator must be created with an immutable tree but the tree was nil")
 
-func (node *Node) newTraversal(tree *ImmutableTree, start, end []byte, ascending bool, inclusive bool, post bool) *traversal {
+func (node *Node) newTraversal(tree *ImmutableTree, start, end []byte, ascending bool, inclusive bool, post bool, unlocked bool) *traversal {
 	return &traversal{
 		tree:         tree,
 		start:        start,
@@ -30,6 +31,7 @@ func (node *Node) newTraversal(tree *ImmutableTree, start, end []byte, ascending
 		inclusive:    inclusive,
 		post:         post,
 		delayedNodes: &delayedNodes{{node, true}}, // set initial traverse to the node
+		unlocked:     unlocked,
 	}
 }
 
@@ -100,8 +102,10 @@ func (t *traversal) next() (*Node, error) {
 }
 
 func (t *traversal) doNext() (*Node, error, bool) {
-	// t.tree.mtx.Lock()
-	// defer t.tree.mtx.Unlock()
+	if !t.unlocked {
+		t.tree.mtx.Lock()
+		defer t.tree.mtx.Unlock()
+	}
 
 	// End of traversal.
 	if t.delayedNodes.length() == 0 {
@@ -206,7 +210,24 @@ func NewIterator(start, end []byte, ascending bool, tree *ImmutableTree) dbm.Ite
 		iter.err = errIteratorNilTreeGiven
 	} else {
 		iter.valid = true
-		iter.t = tree.root.newTraversal(tree, start, end, ascending, false, false)
+		iter.t = tree.root.newTraversal(tree, start, end, ascending, false, false, false)
+		// Move iterator before the first element
+		iter.Next()
+	}
+	return iter
+}
+
+func NewIteratorUnlocked(start, end []byte, ascending bool, tree *ImmutableTree) dbm.Iterator {
+	iter := &Iterator{
+		start: start,
+		end:   end,
+	}
+
+	if tree == nil {
+		iter.err = errIteratorNilTreeGiven
+	} else {
+		iter.valid = true
+		iter.t = tree.root.newTraversal(tree, start, end, ascending, false, false, true)
 		// Move iterator before the first element
 		iter.Next()
 	}
