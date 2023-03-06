@@ -153,10 +153,12 @@ func (r *Reactor) handleMempoolMessage(ctx context.Context, envelope *p2p.Envelo
 				// The following mempool errors are rpetty noisy and not too useful:
 				// 1. "the validator has already submitted a vote" typically occurs when a node is catching up but still receiving oracle votes
 				// 2. "please verify account number" is flaky or if the client passes in the wrong sequence number / retries the same tx multiple times
-				// 3. "account sequence mismatch" is usually when a client forgets to supply a flag
+				// 3. "is not active set" when the validator tries to vote for oracle when they're jailed or not in the active sets
+				// 4. "account sequence mismatch" is usually when a client forgets to supply a flag
 				// The last 2 of these errors are surfaced to the client anyways
 				if strings.Contains(err.Error(), "the validator has already submitted a vote") ||
 					strings.Contains(err.Error(), "please verify account number") ||
+					strings.Contains(err.Error(), "is not active set") ||
 					strings.Contains(err.Error(), "account sequence mismatch") {
 					logger.Debug("checktx failed for tx",
 						"tx", fmt.Sprintf("%X", types.Tx(tx).Hash()),
