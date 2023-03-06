@@ -20,6 +20,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/x/auth/tx"
 	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
 
+	wasmtypes "github.com/CosmWasm/wasmd/x/wasm/types"
 	"github.com/cosmos/cosmos-sdk/codec"
 	"github.com/cosmos/cosmos-sdk/codec/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -110,6 +111,21 @@ func (c *LoadTestClient) generateMessage(config Config, key cryptotypes.PrivKey,
 	defer IncrTxMessageType(messageType)
 
 	switch messageType {
+	case WasmMintNft:
+		contract := config.WasmMsgTypes.MintNftType.ContractAddr
+		// TODO: Potentially just hard code the Funds amount here
+		price := config.PriceDistr.Sample()
+		quantity := config.QuantityDistr.Sample()
+		amount, err := sdk.ParseCoinsNormalized(fmt.Sprintf("%d%s", price.Mul(quantity).Ceil().RoundInt64(), "usei"))
+		if err != nil {
+			panic(err)
+		}
+		msg = &wasmtypes.MsgExecuteContract{
+			Sender:   sdk.AccAddress(key.PubKey().Address()).String(),
+			Contract: contract,
+			Msg:      wasmtypes.RawContractMessage([]byte("{\"mint\":{\"owner\": \"sei1a27kj2j27c6uz58rn9zmhcjee9s3h3nhyhtvjj\"}}")),
+			Funds:    amount,
+		}
 	case Bank:
 		msg = &banktypes.MsgSend{
 			FromAddress: sdk.AccAddress(key.PubKey().Address()).String(),
@@ -339,8 +355,8 @@ func (c *LoadTestClient) generateStakingMsg(delegatorAddr string, chosenValidato
 	return msg
 }
 
-func getLastHeight() int {
-	out, err := exec.Command("curl", "http://localhost:26657/blockchain").Output()
+func getLastHeight(blockchainEndpoint string) int {
+	out, err := exec.Command("curl", blockchainEndpoint).Output()
 	if err != nil {
 		panic(err)
 	}
