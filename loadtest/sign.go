@@ -23,8 +23,6 @@ import (
 	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
 )
 
-const NodeURI = "tcp://localhost:26657"
-
 type AccountInfo struct {
 	Address  string `json:"address"`
 	Mnemonic string `json:"mnemonic"`
@@ -53,12 +51,14 @@ func (si *SignerInfo) IncrementAccountNumber() {
 type SignerClient struct {
 	CachedAccountSeqNum *sync.Map
 	CachedAccountKey    *sync.Map
+	NodeURI             string
 }
 
-func NewSignerClient() *SignerClient {
+func NewSignerClient(nodeURI string) *SignerClient {
 	return &SignerClient{
 		CachedAccountSeqNum: &sync.Map{},
 		CachedAccountKey:    &sync.Map{},
+		NodeURI:             nodeURI,
 	}
 }
 
@@ -179,12 +179,12 @@ func (sc *SignerClient) GetAccountNumberSequenceNumber(privKey cryptotypes.PrivK
 		panic(err)
 	}
 	accountRetriever := authtypes.AccountRetriever{}
-	cl, err := client.NewClientFromNode(NodeURI)
+	cl, err := client.NewClientFromNode(sc.NodeURI)
 	if err != nil {
 		panic(err)
 	}
 	context := client.Context{}
-	context = context.WithNodeURI(NodeURI)
+	context = context.WithNodeURI(sc.NodeURI)
 	context = context.WithClient(cl)
 	context = context.WithInterfaceRegistry(TestConfig.InterfaceRegistry)
 	userHomeDir, _ := os.UserHomeDir()
