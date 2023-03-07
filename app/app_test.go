@@ -15,6 +15,7 @@ import (
 	oracletypes "github.com/sei-protocol/sei-chain/x/oracle/types"
 	"github.com/stretchr/testify/require"
 	abci "github.com/tendermint/tendermint/abci/types"
+	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 )
 
 func TestEmptyBlockIdempotency(t *testing.T) {
@@ -267,3 +268,86 @@ func TestProcessOracleAndOtherTxsSuccess(t *testing.T) {
 
 	require.Equal(t, 2, len(txResults))
 }
+
+// we want to test all possible deadlock paths in this test, i.e. we will test every scenario followed a different one 
+func TestOptimisticProcessingDeadlocks(t *testing.T) {
+	tm := time.Now().UTC()
+	valPub := secp256k1.GenPrivKey().PubKey()
+	testWrapper := app.NewTestWrapper(t, tm, valPub)
+
+	testCtx := testWrapper.App.BaseApp.NewContext(false, tmproto.Header{Height: 1, ChainID: "sei-test", Time: tm})
+
+	// scenario 1, optimisticProcessingInfo is not nil
+	testWrapper.PopulateOptimisticProcessingInfo(testWrapper.Ctx, &abci.RequestProcessProposal{
+		Height: 1,
+	})
+	testWrapper.App.ProcessProposalHandler(testCtx.WithBlockHeight(4), &abci.RequestProcessProposal{
+		Height: 1,
+	})
+	testWrapper.App.FinalizeBlocker(testWrapper.Ctx, &abci.RequestFinalizeBlock{
+		Height: 1,
+	})
+
+	// scenario 2, optimisticProcessingInfo is not nil but hash doesn't match
+	testWrapper.PopulateOptimisticProcessingInfo(testWrapper.Ctx, &abci.RequestProcessProposal{
+		Height: 1,
+	})
+	testWrapper.App.ProcessProposalHandler(testCtx.WithBlockHeight(4), &abci.RequestProcessProposal{
+		Hash: []byte("test_hash"),
+		Height: 1,
+	})
+	testWrapper.App.FinalizeBlocker(testWrapper.Ctx, &abci.RequestFinalizeBlock{
+		Height: 1,
+	})
+
+	// scenario 3, optimisticProcessingInfo is nil
+	testWrapper.App.ProcessProposalHandler(testCtx.WithBlockHeight(4), &abci.RequestProcessProposal{
+		Height: 1,
+	})
+	testWrapper.App.FinalizeBlocker(testWrapper.Ctx, &abci.RequestFinalizeBlock{
+		Height: 1,
+	})
+
+	// scenario 1, optimisticProcessingInfo is not nil
+	testWrapper.PopulateOptimisticProcessingInfo(testWrapper.Ctx, &abci.RequestProcessProposal{
+		Height: 1,
+	})
+	testWrapper.App.ProcessProposalHandler(testCtx.WithBlockHeight(4), &abci.RequestProcessProposal{
+		Height: 1,
+	})
+	testWrapper.App.FinalizeBlocker(testWrapper.Ctx, &abci.RequestFinalizeBlock{
+		Height: 1,
+	})
+
+	// scenario 3, optimisticProcessingInfo is nil
+	testWrapper.App.ProcessProposalHandler(testCtx.WithBlockHeight(4), &abci.RequestProcessProposal{
+		Height: 1,
+	})
+	testWrapper.App.FinalizeBlocker(testWrapper.Ctx, &abci.RequestFinalizeBlock{
+		Height: 1,
+	})
+
+	// scenario 2, optimisticProcessingInfo is not nil but hash doesn't match
+	testWrapper.PopulateOptimisticProcessingInfo(testWrapper.Ctx, &abci.RequestProcessProposal{
+		Height: 1,
+	})
+	testWrapper.App.ProcessProposalHandler(testCtx.WithBlockHeight(4), &abci.RequestProcessProposal{
+		Hash: []byte("test_hash"),
+		Height: 1,
+	})
+	testWrapper.App.FinalizeBlocker(testWrapper.Ctx, &abci.RequestFinalizeBlock{
+		Height: 1,
+	})
+
+	// scenario 1, optimisticProcessingInfo is not nil
+	testWrapper.PopulateOptimisticProcessingInfo(testWrapper.Ctx, &abci.RequestProcessProposal{
+		Height: 1,
+	})
+	testWrapper.App.ProcessProposalHandler(testCtx.WithBlockHeight(4), &abci.RequestProcessProposal{
+		Height: 1,
+	})
+	testWrapper.App.FinalizeBlocker(testWrapper.Ctx, &abci.RequestFinalizeBlock{
+		Height: 1,
+	})
+}
+

@@ -59,6 +59,20 @@ func NewTestWrapper(t *testing.T, tm time.Time, valPub crptotypes.PubKey) *TestW
 	return wrapper
 }
 
+func (s *TestWrapper) PopulateOptimisticProcessingInfo(ctx sdk.Context, req *abci.RequestProcessProposal) {
+	optimisticProcessingInfo := OptimisticProcessingInfo{
+		Height:     req.Height,
+		Hash:       req.Hash,
+	}
+
+	events, txResults, endBlockResp, _ := s.App.ProcessBlock(ctx, req.Txs, req, req.ProposedLastCommit)
+	optimisticProcessingInfo.Events = events
+	optimisticProcessingInfo.TxRes = txResults
+	optimisticProcessingInfo.EndBlockResp = endBlockResp
+
+	s.App.optimisticProcessingInfo = &optimisticProcessingInfo
+}
+
 func (s *TestWrapper) FundAcc(acc sdk.AccAddress, amounts sdk.Coins) {
 	err := s.App.BankKeeper.MintCoins(s.Ctx, minttypes.ModuleName, amounts)
 	s.Require().NoError(err)

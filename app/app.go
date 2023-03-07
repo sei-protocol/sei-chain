@@ -944,8 +944,8 @@ func (app *App) ClearOptimisticProcessingInfo() {
 }
 
 func (app *App) ProcessProposalHandler(ctx sdk.Context, req *abci.RequestProcessProposal) (*abci.ResponseProcessProposal, error) {
+	completionSignal := make(chan bool, 1)
 	if app.optimisticProcessingInfo == nil {
-		completionSignal := make(chan bool, 1)
 		optimisticProcessingInfo := &OptimisticProcessingInfo{
 			Height:     req.Height,
 			Hash:       req.Hash,
@@ -966,9 +966,15 @@ func (app *App) ProcessProposalHandler(ctx sdk.Context, req *abci.RequestProcess
 				optimisticProcessingInfo.Completion <- true
 			}()
 		}
-	} else if !bytes.Equal(app.optimisticProcessingInfo.Hash, req.Hash) {
-		app.optimisticProcessingInfo.Completion <- false
+	} else {
+		app.optimisticProcessingInfo.Completion = completionSignal
+		if !bytes.Equal(app.optimisticProcessingInfo.Hash, req.Hash) {
+			app.optimisticProcessingInfo.Completion <- false
+		} else {
+			app.optimisticProcessingInfo.Completion <- true
+		}
 	}
+
 	return &abci.ResponseProcessProposal{
 		Status: abci.ResponseProcessProposal_ACCEPT,
 	}, nil
