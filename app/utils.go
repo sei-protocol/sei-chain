@@ -9,8 +9,7 @@ import (
 type OptimisticProcessingInfo struct {
 	Height     int64
 	Hash       []byte
-	Aborted    bool
-	Completion chan struct{}
+	Completion chan bool
 	// result fields
 	Events       []abci.Event
 	TxRes        []*abci.ExecTxResult

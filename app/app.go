@@ -339,6 +339,8 @@ type App struct {
 
 	// batchVerifier *ante.SR25519BatchVerifier
 	txDecoder sdk.TxDecoder
+
+	versionInfo version.Info
 }
 
 // New returns a reference to an initialized blockchain app
@@ -399,7 +401,8 @@ func New(
 			Tracer:        &tr,
 			TracerContext: context.Background(),
 		},
-		txDecoder: encodingConfig.TxConfig.TxDecoder(),
+		txDecoder:   encodingConfig.TxConfig.TxDecoder(),
+		versionInfo: version.NewInfo(),
 	}
 
 	app.ParamsKeeper = initParamsKeeper(appCodec, cdc, keys[paramstypes.StoreKey], tkeys[paramstypes.TStoreKey])
@@ -895,15 +898,7 @@ func (app App) GetBaseApp() *baseapp.BaseApp { return app.BaseApp }
 
 // BeginBlocker application updates every begin block
 func (app *App) BeginBlocker(ctx sdk.Context, req abci.RequestBeginBlock) abci.ResponseBeginBlock {
-	// newCtx := ctx.WithContext(
-	// 	context.WithValue(ctx.Context(), dexcache.GOCTX_KEY, dexcache.NewOrders()),
-	// )
-	// app.Logger().Info(fmt.Sprintf("BeginBlocker context %s", newCtx.Context().Value(dexcache.GOCTX_KEY).(dexcache.Orders)))
-	if !EmittedSeidVersionMetric {
-		verInfo := version.NewInfo()
-		metrics.GaugeSeidVersionAndCommit(verInfo.Version, verInfo.GitCommit)
-		EmittedSeidVersionMetric = true
-	}
+	metrics.GaugeSeidVersionAndCommit(app.versionInfo.Version, app.versionInfo.GitCommit)
 	return app.mm.BeginBlock(ctx, req)
 }
 
@@ -945,7 +940,7 @@ func (app *App) ClearOptimisticProcessingInfo() {
 
 func (app *App) ProcessProposalHandler(ctx sdk.Context, req *abci.RequestProcessProposal) (*abci.ResponseProcessProposal, error) {
 	if app.optimisticProcessingInfo == nil {
-		completionSignal := make(chan struct{}, 1)
+		completionSignal := make(chan bool, 1)
 		optimisticProcessingInfo := &OptimisticProcessingInfo{
 			Height:     req.Height,
 			Hash:       req.Hash,
@@ -956,18 +951,18 @@ func (app *App) ProcessProposalHandler(ctx sdk.Context, req *abci.RequestProcess
 		plan, found := app.UpgradeKeeper.GetUpgradePlan(ctx)
 		if found && plan.ShouldExecute(ctx) {
 			app.Logger().Info(fmt.Sprintf("Potential upgrade planned for height=%d skipping optimistic processing", plan.Height))
-			app.optimisticProcessingInfo.Aborted = true
+			optimisticProcessingInfo.Completion <- false
 		} else {
 			go func() {
 				events, txResults, endBlockResp, _ := app.ProcessBlock(ctx, req.Txs, req, req.ProposedLastCommit)
 				optimisticProcessingInfo.Events = events
 				optimisticProcessingInfo.TxRes = txResults
 				optimisticProcessingInfo.EndBlockResp = endBlockResp
-				optimisticProcessingInfo.Completion <- struct{}{}
+				optimisticProcessingInfo.Completion <- true
 			}()
 		}
 	} else if !bytes.Equal(app.optimisticProcessingInfo.Hash, req.Hash) {
-		app.optimisticProcessingInfo.Aborted = true
+		app.optimisticProcessingInfo.Completion <- false
 	}
 	return &abci.ResponseProcessProposal{
 		Status: abci.ResponseProcessProposal_ACCEPT,
@@ -983,8 +978,8 @@ func (app *App) FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBlock)
 	}()
 
 	if app.optimisticProcessingInfo != nil {
-		<-app.optimisticProcessingInfo.Completion
-		if !app.optimisticProcessingInfo.Aborted && bytes.Equal(app.optimisticProcessingInfo.Hash, req.Hash) {
+		completion := <-app.optimisticProcessingInfo.Completion
+		if completion && bytes.Equal(app.optimisticProcessingInfo.Hash, req.Hash) {
 			app.SetProcessProposalStateToCommit()
 			appHash := app.WriteStateToCommitAndGetWorkingHash()
 			resp := app.getFinalizeBlockResponse(appHash, app.optimisticProcessingInfo.Events, app.optimisticProcessingInfo.TxRes, app.optimisticProcessingInfo.EndBlockResp)
