@@ -65,7 +65,7 @@ def create_genesis_account(account_index, account_name, local=False):
                 timeout=20,
             )
             break
-        except subprocess.CalledProcessError as e:
+        except Exception as e:
             print(f"Encountered error {e}, retried {retry_counter} times")
             retry_counter += 1
             sleep_time += 0.5
