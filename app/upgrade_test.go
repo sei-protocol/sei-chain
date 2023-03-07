@@ -45,7 +45,7 @@ func TestSkipOptimisticProcessingOnUpgrade(t *testing.T) {
 		Height: 1,
 	})
 	require.Equal(t, res.Status, abci.ResponseProcessProposal_ACCEPT)
-	require.False(t, <-testWrapper.App.GetOptimisticProcessingInfo().Completion)
+	require.True(t, testWrapper.App.GetOptimisticProcessingInfo().Aborted)
 
 	testWrapper.App.ClearOptimisticProcessingInfo()
 	testWrapper.App.UpgradeKeeper.ScheduleUpgrade(testWrapper.Ctx, types.Plan{
@@ -57,5 +57,5 @@ func TestSkipOptimisticProcessingOnUpgrade(t *testing.T) {
 	})
 
 	require.Equal(t, res.Status, abci.ResponseProcessProposal_ACCEPT)
-	require.True(t, <-testWrapper.App.GetOptimisticProcessingInfo().Completion)
+	require.False(t, testWrapper.App.GetOptimisticProcessingInfo().Aborted)
 }
