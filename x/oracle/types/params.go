@@ -34,10 +34,12 @@ var (
 	DefaultVoteThreshold = sdk.NewDecWithPrec(50, 2) // 50%
 	DefaultRewardBand    = sdk.NewDecWithPrec(2, 2)  // 2% (-1, 1)
 	DefaultWhitelist     = DenomList{
-		{Name: utils.MicroAtomDenom},
 		// 		{Name: utils.MicroUsdcDenom},
-		// 		{Name: utils.MicroSeiDenom},
+		{Name: utils.MicroAtomDenom},
+		{Name: utils.MicroSeiDenom},
+		{Name: utils.MicroBtcDenom},
 		{Name: utils.MicroEthDenom},
+		{Name: utils.MicroUst2Denom},
 	}
 	DefaultSlashFraction     = sdk.NewDecWithPrec(1, 4) // 0.01%
 	DefaultMinValidPerWindow = sdk.NewDecWithPrec(5, 2) // 5%

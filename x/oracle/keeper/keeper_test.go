@@ -131,8 +131,11 @@ func TestParams(t *testing.T) {
 	slashWindow := uint64(1000)
 	minValidPerWindow := sdk.NewDecWithPrec(1, 4)
 	whitelist := types.DenomList{
-		{Name: utils.MicroEthDenom},
 		{Name: utils.MicroAtomDenom},
+		{Name: utils.MicroSeiDenom},
+		{Name: utils.MicroBtcDenom},
+		{Name: utils.MicroEthDenom},
+		{Name: utils.MicroUst2Denom},
 	}
 
 	// Should really test validateParams, but skipping because obvious

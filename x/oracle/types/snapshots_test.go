@@ -35,6 +35,18 @@ func TestNewPriceSnapshot(t *testing.T) {
 			ExchangeRate: sdk.NewDec(12),
 			LastUpdate:   sdk.NewInt(20),
 		}),
+		NewPriceSnapshotItem(utils.MicroBtcDenom, OracleExchangeRate{
+			ExchangeRate: sdk.NewDec(13),
+			LastUpdate:   sdk.NewInt(20),
+		}),
+		NewPriceSnapshotItem(utils.MicroSeiDenom, OracleExchangeRate{
+			ExchangeRate: sdk.NewDec(14),
+			LastUpdate:   sdk.NewInt(20),
+		}),
+		NewPriceSnapshotItem(utils.MicroUst2Denom, OracleExchangeRate{
+			ExchangeRate: sdk.NewDec(15),
+			LastUpdate:   sdk.NewInt(20),
+		}),
 	}, 1)
 
 	expected := PriceSnapshot{
@@ -51,6 +63,27 @@ func TestNewPriceSnapshot(t *testing.T) {
 				Denom: utils.MicroAtomDenom,
 				OracleExchangeRate: OracleExchangeRate{
 					ExchangeRate: sdk.NewDec(12),
+					LastUpdate:   sdk.NewInt(20),
+				},
+			},
+			{
+				Denom: utils.MicroBtcDenom,
+				OracleExchangeRate: OracleExchangeRate{
+					ExchangeRate: sdk.NewDec(13),
+					LastUpdate:   sdk.NewInt(20),
+				},
+			},
+			{
+				Denom: utils.MicroSeiDenom,
+				OracleExchangeRate: OracleExchangeRate{
+					ExchangeRate: sdk.NewDec(14),
+					LastUpdate:   sdk.NewInt(20),
+				},
+			},
+			{
+				Denom: utils.MicroUst2Denom,
+				OracleExchangeRate: OracleExchangeRate{
+					ExchangeRate: sdk.NewDec(15),
 					LastUpdate:   sdk.NewInt(20),
 				},
 			},
