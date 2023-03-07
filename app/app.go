@@ -339,6 +339,8 @@ type App struct {
 
 	// batchVerifier *ante.SR25519BatchVerifier
 	txDecoder sdk.TxDecoder
+
+	versionInfo version.Info
 }
 
 // New returns a reference to an initialized blockchain app
@@ -399,7 +401,8 @@ func New(
 			Tracer:        &tr,
 			TracerContext: context.Background(),
 		},
-		txDecoder: encodingConfig.TxConfig.TxDecoder(),
+		txDecoder:   encodingConfig.TxConfig.TxDecoder(),
+		versionInfo: version.NewInfo(),
 	}
 
 	app.ParamsKeeper = initParamsKeeper(appCodec, cdc, keys[paramstypes.StoreKey], tkeys[paramstypes.TStoreKey])
@@ -895,15 +898,7 @@ func (app App) GetBaseApp() *baseapp.BaseApp { return app.BaseApp }
 
 // BeginBlocker application updates every begin block
 func (app *App) BeginBlocker(ctx sdk.Context, req abci.RequestBeginBlock) abci.ResponseBeginBlock {
-	// newCtx := ctx.WithContext(
-	// 	context.WithValue(ctx.Context(), dexcache.GOCTX_KEY, dexcache.NewOrders()),
-	// )
-	// app.Logger().Info(fmt.Sprintf("BeginBlocker context %s", newCtx.Context().Value(dexcache.GOCTX_KEY).(dexcache.Orders)))
-	if !EmittedSeidVersionMetric {
-		verInfo := version.NewInfo()
-		metrics.GaugeSeidVersionAndCommit(verInfo.Version, verInfo.GitCommit)
-		EmittedSeidVersionMetric = true
-	}
+	metrics.GaugeSeidVersionAndCommit(app.versionInfo.Version, app.versionInfo.GitCommit)
 	return app.mm.BeginBlock(ctx, req)
 }
 
