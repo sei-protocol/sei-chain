@@ -47,6 +47,11 @@ func TestSkipOptimisticProcessingOnUpgrade(t *testing.T) {
 	require.Equal(t, res.Status, abci.ResponseProcessProposal_ACCEPT)
 	require.True(t, testWrapper.App.GetOptimisticProcessingInfo().Aborted)
 
+	// verify FinalizeBlock won't run into deadlock 
+	testWrapper.App.FinalizeBlocker(testWrapper.Ctx, &abci.RequestFinalizeBlock{
+		Height: 1,
+	})
+
 	testWrapper.App.ClearOptimisticProcessingInfo()
 	testWrapper.App.UpgradeKeeper.ScheduleUpgrade(testWrapper.Ctx, types.Plan{
 		Name:   "test-plan",
@@ -58,4 +63,9 @@ func TestSkipOptimisticProcessingOnUpgrade(t *testing.T) {
 
 	require.Equal(t, res.Status, abci.ResponseProcessProposal_ACCEPT)
 	require.False(t, testWrapper.App.GetOptimisticProcessingInfo().Aborted)
+
+	// verify FinalizeBlock won't run into deadlock 
+	testWrapper.App.FinalizeBlocker(testWrapper.Ctx, &abci.RequestFinalizeBlock{
+		Height: 1,
+	})
 }
