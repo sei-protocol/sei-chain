@@ -55,7 +55,7 @@ quote = "USD"
 
 [[currency_pairs]]
 base = "USDT"
-chain_denom = "factory/sei1jdppe6fnj2q7hjsepty5crxtrryzhuqsjrj95y/uust2"
+chain_denom = "uust2"
 providers = [
   "huobi",
   "kraken",
