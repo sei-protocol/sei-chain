@@ -269,7 +269,7 @@ func TestProcessOracleAndOtherTxsSuccess(t *testing.T) {
 	require.Equal(t, 2, len(txResults))
 }
 
-// we want to test all possible deadlock paths in this test, i.e. we will test every scenario followed a different one 
+// we want to test all possible deadlock paths in this test, i.e. we will test every scenario followed a different one
 func TestOptimisticProcessingDeadlocks(t *testing.T) {
 	tm := time.Now().UTC()
 	valPub := secp256k1.GenPrivKey().PubKey()
@@ -293,7 +293,7 @@ func TestOptimisticProcessingDeadlocks(t *testing.T) {
 		Height: 1,
 	})
 	testWrapper.App.ProcessProposalHandler(testCtx.WithBlockHeight(4), &abci.RequestProcessProposal{
-		Hash: []byte("test_hash"),
+		Hash:   []byte("test_hash"),
 		Height: 1,
 	})
 	testWrapper.App.FinalizeBlocker(testWrapper.Ctx, &abci.RequestFinalizeBlock{
@@ -332,7 +332,7 @@ func TestOptimisticProcessingDeadlocks(t *testing.T) {
 		Height: 1,
 	})
 	testWrapper.App.ProcessProposalHandler(testCtx.WithBlockHeight(4), &abci.RequestProcessProposal{
-		Hash: []byte("test_hash"),
+		Hash:   []byte("test_hash"),
 		Height: 1,
 	})
 	testWrapper.App.FinalizeBlocker(testWrapper.Ctx, &abci.RequestFinalizeBlock{
@@ -350,4 +350,3 @@ func TestOptimisticProcessingDeadlocks(t *testing.T) {
 		Height: 1,
 	})
 }
-

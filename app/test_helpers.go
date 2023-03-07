@@ -61,8 +61,8 @@ func NewTestWrapper(t *testing.T, tm time.Time, valPub crptotypes.PubKey) *TestW
 
 func (s *TestWrapper) PopulateOptimisticProcessingInfo(ctx sdk.Context, req *abci.RequestProcessProposal) {
 	optimisticProcessingInfo := OptimisticProcessingInfo{
-		Height:     req.Height,
-		Hash:       req.Hash,
+		Height: req.Height,
+		Hash:   req.Hash,
 	}
 
 	events, txResults, endBlockResp, _ := s.App.ProcessBlock(ctx, req.Txs, req, req.ProposedLastCommit)
