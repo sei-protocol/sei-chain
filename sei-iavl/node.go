@@ -398,7 +398,7 @@ func (node *Node) _hash() ([]byte, error) {
 	defer node.mtx.Unlock()
 	node.hash = h.Sum(nil)
 
-	return node.GetHash(), nil
+	return node.hash, nil
 }
 
 // Hash the node and its descendants recursively. This usually mutates all
@@ -427,7 +427,7 @@ func (node *Node) hashWithCount() ([]byte, int64, error) {
 	defer node.mtx.Unlock()
 	node.hash = h.Sum(nil)
 
-	return node.GetHash(), hashCount + 1, nil
+	return node.hash, hashCount + 1, nil
 }
 
 // validate validates the node contents
