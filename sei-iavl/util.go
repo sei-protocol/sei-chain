@@ -22,10 +22,10 @@ func printNode(ndb *nodeDB, node *Node, indent int) error {
 		fmt.Printf("%s<nil>\n", indentPrefix)
 		return nil
 	}
-	if node.rightNode != nil {
-		printNode(ndb, node.rightNode, indent+1)
-	} else if node.rightHash != nil {
-		rightNode, err := ndb.GetNode(node.rightHash)
+	if node.GetRightNode() != nil {
+		printNode(ndb, node.GetRightNode(), indent+1)
+	} else if node.GetRightHash() != nil {
+		rightNode, err := ndb.GetNode(node.GetRightHash())
 		if err != nil {
 			return err
 		}
@@ -39,13 +39,13 @@ func printNode(ndb *nodeDB, node *Node, indent int) error {
 
 	fmt.Printf("%sh:%X\n", indentPrefix, hash)
 	if node.isLeaf() {
-		fmt.Printf("%s%X:%X (%v)\n", indentPrefix, node.key, node.value, node.height)
+		fmt.Printf("%s%X:%X (%v)\n", indentPrefix, node.GetNodeKey(), node.GetValue(), node.GetHeight())
 	}
 
-	if node.leftNode != nil {
-		printNode(ndb, node.leftNode, indent+1)
-	} else if node.leftHash != nil {
-		leftNode, err := ndb.GetNode(node.leftHash)
+	if node.GetLeftNode() != nil {
+		printNode(ndb, node.GetLeftNode(), indent+1)
+	} else if node.GetLeftHash() != nil {
+		leftNode, err := ndb.GetNode(node.GetLeftHash())
 		if err != nil {
 			return err
 		}
