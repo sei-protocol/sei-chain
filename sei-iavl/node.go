@@ -432,11 +432,11 @@ func (node *Node) hashWithCount() ([]byte, int64, error) {
 
 // validate validates the node contents
 func (node *Node) validate() error {
-	node.mtx.RLock()
-	defer node.mtx.RUnlock()
 	if node == nil {
 		return errors.New("node cannot be nil")
 	}
+	node.mtx.RLock()
+	defer node.mtx.RUnlock()
 	if node.key == nil {
 		return errors.New("key cannot be nil")
 	}
