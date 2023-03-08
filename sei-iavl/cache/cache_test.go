@@ -35,7 +35,7 @@ type testcase struct {
 	expectedNodeIndexes []int // contents of the cache once test case completes represent by indexes in testNodes
 }
 
-func (tn *testNode) GetKey() []byte {
+func (tn *testNode) GetCacheKey() []byte {
 	return tn.key
 }
 
@@ -271,7 +271,7 @@ func Test_Cache_Remove(t *testing.T) {
 
 			for _, op := range tc.cacheOps {
 
-				actualResult := cache.Remove(testNodes[op.testNodexIdx].GetKey())
+				actualResult := cache.Remove(testNodes[op.testNodexIdx].GetCacheKey())
 
 				expectedResult := op.expectedResult
 
@@ -296,8 +296,8 @@ func validateCacheContentsAfterTest(t *testing.T, tc testcase, cache cache.Cache
 	require.Equal(t, len(tc.expectedNodeIndexes), cache.Len())
 	for _, idx := range tc.expectedNodeIndexes {
 		expectedNode := testNodes[idx]
-		require.True(t, cache.Has(expectedNode.GetKey()))
-		require.Equal(t, expectedNode, cache.Get(expectedNode.GetKey()))
+		require.True(t, cache.Has(expectedNode.GetCacheKey()))
+		require.Equal(t, expectedNode, cache.Get(expectedNode.GetCacheKey()))
 	}
 }
 

@@ -102,11 +102,6 @@ func (t *traversal) next() (*Node, error) {
 }
 
 func (t *traversal) doNext() (*Node, error, bool) {
-	if !t.unlocked {
-		t.tree.mtx.Lock()
-		defer t.tree.mtx.Unlock()
-	}
-
 	// End of traversal.
 	if t.delayedNodes.length() == 0 {
 		return nil, nil, true
@@ -119,11 +114,11 @@ func (t *traversal) doNext() (*Node, error, bool) {
 		return node, nil, true
 	}
 
-	afterStart := t.start == nil || bytes.Compare(t.start, node.key) < 0
-	startOrAfter := afterStart || bytes.Equal(t.start, node.key)
-	beforeEnd := t.end == nil || bytes.Compare(node.key, t.end) < 0
+	afterStart := t.start == nil || bytes.Compare(t.start, node.GetNodeKey()) < 0
+	startOrAfter := afterStart || bytes.Equal(t.start, node.GetNodeKey())
+	beforeEnd := t.end == nil || bytes.Compare(node.GetNodeKey(), t.end) < 0
 	if t.inclusive {
-		beforeEnd = beforeEnd || bytes.Equal(node.key, t.end)
+		beforeEnd = beforeEnd || bytes.Equal(node.GetNodeKey(), t.end)
 	}
 
 	// case of postorder. A-1 and B-1
@@ -268,8 +263,8 @@ func (iter *Iterator) Next() {
 		return
 	}
 
-	if node.height == 0 {
-		iter.key, iter.value = node.key, node.value
+	if node.GetHeight() == 0 {
+		iter.key, iter.value = node.GetNodeKey(), node.GetValue()
 		return
 	}
 

@@ -49,29 +49,29 @@ func WriteDOTGraph(w io.Writer, tree *ImmutableTree, paths []PathToLeaf) {
 	tree.root.traverse(tree, true, func(node *Node) bool {
 		graphNode := &graphNode{
 			Attrs: map[string]string{},
-			Hash:  fmt.Sprintf("%x", node.hash),
+			Hash:  fmt.Sprintf("%x", node.GetHash()),
 		}
 		for k, v := range defaultGraphNodeAttrs {
 			graphNode.Attrs[k] = v
 		}
 		shortHash := graphNode.Hash[:7]
 
-		graphNode.Label = mkLabel(unsafeToStr(node.key), 16, "sans-serif")
+		graphNode.Label = mkLabel(unsafeToStr(node.GetNodeKey()), 16, "sans-serif")
 		graphNode.Label += mkLabel(shortHash, 10, "monospace")
-		graphNode.Label += mkLabel(fmt.Sprintf("version=%d", node.version), 10, "monospace")
+		graphNode.Label += mkLabel(fmt.Sprintf("version=%d", node.GetVersion()), 10, "monospace")
 
-		if node.value != nil {
-			graphNode.Label += mkLabel(unsafeToStr(node.value), 10, "sans-serif")
+		if node.GetValue() != nil {
+			graphNode.Label += mkLabel(unsafeToStr(node.GetValue()), 10, "sans-serif")
 		}
 
-		if node.height == 0 {
+		if node.GetHeight() == 0 {
 			graphNode.Attrs["fillcolor"] = "lightgrey"
 			graphNode.Attrs["style"] = "filled"
 		}
 
 		for _, path := range paths {
 			for _, n := range path {
-				if bytes.Equal(n.Left, node.hash) || bytes.Equal(n.Right, node.hash) {
+				if bytes.Equal(n.Left, node.GetHash()) || bytes.Equal(n.Right, node.GetHash()) {
 					graphNode.Attrs["peripheries"] = "2"
 					graphNode.Attrs["style"] = "filled"
 					graphNode.Attrs["fillcolor"] = "lightblue"
@@ -81,16 +81,16 @@ func WriteDOTGraph(w io.Writer, tree *ImmutableTree, paths []PathToLeaf) {
 		}
 		ctx.Nodes = append(ctx.Nodes, graphNode)
 
-		if node.leftNode != nil {
+		if node.GetLeftNode() != nil {
 			ctx.Edges = append(ctx.Edges, &graphEdge{
 				From: graphNode.Hash,
-				To:   fmt.Sprintf("%x", node.leftNode.hash),
+				To:   fmt.Sprintf("%x", node.GetLeftNode().GetHash()),
 			})
 		}
-		if node.rightNode != nil {
+		if node.GetRightNode() != nil {
 			ctx.Edges = append(ctx.Edges, &graphEdge{
 				From: graphNode.Hash,
-				To:   fmt.Sprintf("%x", node.rightNode.hash),
+				To:   fmt.Sprintf("%x", node.GetRightNode().GetHash()),
 			})
 		}
 		return false

@@ -8,7 +8,7 @@ import (
 
 // Node represents a node eligible for caching.
 type Node interface {
-	GetKey() []byte
+	GetCacheKey() []byte
 }
 
 // Cache is an in-memory structure to persist nodes for quick access.
@@ -61,7 +61,7 @@ func New(maxElementCount int) Cache {
 }
 
 func (c *lruCache) Add(node Node) Node {
-	keyStr := ibytes.UnsafeBytesToStr(node.GetKey())
+	keyStr := ibytes.UnsafeBytesToStr(node.GetCacheKey())
 	if e, exists := c.dict[keyStr]; exists {
 		c.ll.MoveToFront(e)
 		old := e.Value
@@ -105,6 +105,6 @@ func (c *lruCache) Remove(key []byte) Node {
 
 func (c *lruCache) remove(e *list.Element) Node {
 	removed := c.ll.Remove(e).(Node)
-	delete(c.dict, ibytes.UnsafeBytesToStr(removed.GetKey()))
+	delete(c.dict, ibytes.UnsafeBytesToStr(removed.GetCacheKey()))
 	return removed
 }

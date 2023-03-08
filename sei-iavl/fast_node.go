@@ -50,7 +50,7 @@ func DeserializeFastNode(key []byte, buf []byte) (*FastNode, error) {
 	return fastNode, nil
 }
 
-func (fn *FastNode) GetKey() []byte {
+func (fn *FastNode) GetCacheKey() []byte {
 	return fn.key
 }
 

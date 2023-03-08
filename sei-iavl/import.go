@@ -110,7 +110,7 @@ func setBatchData(i *Importer) {
 		if nodeData, open := <-i.chNodeData; open {
 			i.batchMtx.RLock()
 			if i.batch != nil {
-				err := i.batch.Set(i.tree.ndb.nodeKey(nodeData.node.hash), nodeData.data)
+				err := i.batch.Set(i.tree.ndb.nodeKey(nodeData.node.GetHash()), nodeData.data)
 				if err != nil {
 					i.batchMtx.RUnlock()
 					i.chError <- err
@@ -193,24 +193,24 @@ func (i *Importer) Add(exportNode *ExportNode) error {
 	// importer in an inconsistent state when we return an error.
 	stackSize := len(i.stack)
 	switch {
-	case stackSize >= 2 && i.stack[stackSize-1].height < node.height && i.stack[stackSize-2].height < node.height:
-		node.leftNode = i.stack[stackSize-2]
-		node.leftHash = node.leftNode.hash
-		node.rightNode = i.stack[stackSize-1]
-		node.rightHash = node.rightNode.hash
-	case stackSize >= 1 && i.stack[stackSize-1].height < node.height:
-		node.leftNode = i.stack[stackSize-1]
-		node.leftHash = node.leftNode.hash
+	case stackSize >= 2 && i.stack[stackSize-1].GetHeight() < node.GetHeight() && i.stack[stackSize-2].GetHeight() < node.GetHeight():
+		node.SetLeftNode(i.stack[stackSize-2])
+		node.SetLeftHash(node.GetLeftNode().GetHash())
+		node.SetRightNode(i.stack[stackSize-1])
+		node.SetRightHash(node.GetRightNode().GetHash())
+	case stackSize >= 1 && i.stack[stackSize-1].GetHeight() < node.GetHeight():
+		node.SetLeftNode(i.stack[stackSize-1])
+		node.SetLeftHash(node.GetLeftNode().GetHash())
 	}
 
-	if node.height == 0 {
-		node.size = 1
+	if node.GetHeight() == 0 {
+		node.SetSize(1)
 	}
-	if node.leftNode != nil {
-		node.size += node.leftNode.size
+	if node.GetLeftNode() != nil {
+		node.SetSize(node.GetSize() + node.GetLeftNode().GetSize())
 	}
-	if node.rightNode != nil {
-		node.size += node.rightNode.size
+	if node.GetRightNode() != nil {
+		node.SetSize(node.GetSize() + node.GetRightNode().GetSize())
 	}
 
 	_, err := node._hash()
@@ -248,13 +248,13 @@ func (i *Importer) Add(exportNode *ExportNode) error {
 
 	// Update the stack now that we know there were no errors
 	switch {
-	case node.leftHash != nil && node.rightHash != nil:
+	case node.GetLeftHash() != nil && node.GetRightHash() != nil:
 		i.stack = i.stack[:stackSize-2]
-	case node.leftHash != nil || node.rightHash != nil:
+	case node.GetLeftHash() != nil || node.GetRightHash() != nil:
 		i.stack = i.stack[:stackSize-1]
 	}
 	// Only hash\height\size of the node will be used after it be pushed into the stack.
-	i.stack = append(i.stack, &Node{hash: node.hash, height: node.height, size: node.size})
+	i.stack = append(i.stack, &Node{hash: node.GetHash(), height: node.GetHeight(), size: node.GetSize()})
 
 	return nil
 }
@@ -278,7 +278,7 @@ func (i *Importer) Commit() error {
 			return err
 		}
 	case 1:
-		if err := i.batch.Set(i.tree.ndb.rootKey(i.version), i.stack[0].hash); err != nil {
+		if err := i.batch.Set(i.tree.ndb.rootKey(i.version), i.stack[0].GetHash()); err != nil {
 			return err
 		}
 	default:

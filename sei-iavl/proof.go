@@ -229,8 +229,8 @@ func (node *Node) PathToLeaf(t *ImmutableTree, key []byte) (PathToLeaf, *Node, e
 // As an optimization the already constructed path is passed in as an argument
 // and is shared among recursive calls.
 func (node *Node) pathToLeaf(t *ImmutableTree, key []byte, path *PathToLeaf) (*Node, error) {
-	if node.height == 0 {
-		if bytes.Equal(node.key, key) {
+	if node.GetHeight() == 0 {
+		if bytes.Equal(node.GetNodeKey(), key) {
 			return node, nil
 		}
 		return node, errors.New("key does not exist")
@@ -240,7 +240,7 @@ func (node *Node) pathToLeaf(t *ImmutableTree, key []byte, path *PathToLeaf) (*N
 	// left node as part of the path, similarly we don't store the right child info when going down
 	// the right child node. This is done as an optimization since the child info is going to be
 	// already stored in the next ProofInnerNode in PathToLeaf.
-	if bytes.Compare(key, node.key) < 0 {
+	if bytes.Compare(key, node.GetNodeKey()) < 0 {
 		// left side
 		rightNode, err := node.getRightNode(t)
 		if err != nil {
@@ -248,11 +248,11 @@ func (node *Node) pathToLeaf(t *ImmutableTree, key []byte, path *PathToLeaf) (*N
 		}
 
 		pin := ProofInnerNode{
-			Height:  node.height,
-			Size:    node.size,
-			Version: node.version,
+			Height:  node.GetHeight(),
+			Size:    node.GetSize(),
+			Version: node.GetVersion(),
 			Left:    nil,
-			Right:   rightNode.hash,
+			Right:   rightNode.GetHash(),
 		}
 		*path = append(*path, pin)
 
@@ -270,10 +270,10 @@ func (node *Node) pathToLeaf(t *ImmutableTree, key []byte, path *PathToLeaf) (*N
 	}
 
 	pin := ProofInnerNode{
-		Height:  node.height,
-		Size:    node.size,
-		Version: node.version,
-		Left:    leftNode.hash,
+		Height:  node.GetHeight(),
+		Size:    node.GetSize(),
+		Version: node.GetVersion(),
+		Left:    leftNode.GetHash(),
 		Right:   nil,
 	}
 	*path = append(*path, pin)
