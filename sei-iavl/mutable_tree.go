@@ -287,10 +287,11 @@ func (tree *MutableTree) recursiveSet(node *Node, key []byte, value []byte, orph
 			if err != nil {
 				return nil, false, err
 			}
-			lNode, updated, err := tree.recursiveSet(leftNode, key, value, orphans)
-			if err != nil {
-				return nil, updated, err
+			lNode, u, e := tree.recursiveSet(leftNode, key, value, orphans)
+			if e != nil {
+				return nil, u, e
 			}
+			updated = u
 			node.SetLeftNode(lNode)
 			node.SetLeftHash(nil) // leftHash is yet unknown
 		} else {
@@ -298,10 +299,11 @@ func (tree *MutableTree) recursiveSet(node *Node, key []byte, value []byte, orph
 			if err != nil {
 				return nil, false, err
 			}
-			rNode, updated, err := tree.recursiveSet(rightNode, key, value, orphans)
-			if err != nil {
-				return nil, updated, err
+			rNode, u, e := tree.recursiveSet(rightNode, key, value, orphans)
+			if e != nil {
+				return nil, u, e
 			}
+			updated = u
 			node.SetRightNode(rNode)
 			node.SetRightHash(nil) // rightHash is yet unknown
 		}
@@ -1257,10 +1259,11 @@ func (tree *MutableTree) balance(node *Node, orphans *[]*Node) (newSelf *Node, e
 			return nil, err
 		}
 		node.SetLeftHash(nil)
-		lNode, leftOrphaned, err := tree.rotateLeft(left)
+		lNode, lOrphaned, err := tree.rotateLeft(left)
 		if err != nil {
 			return nil, err
 		}
+		leftOrphaned = lOrphaned
 		node.SetLeftNode(lNode)
 
 		newNode, rightOrphaned, err := tree.rotateRight(node)
@@ -1297,10 +1300,11 @@ func (tree *MutableTree) balance(node *Node, orphans *[]*Node) (newSelf *Node, e
 			return nil, err
 		}
 		node.SetRightHash(nil)
-		rNode, rightOrphaned, err := tree.rotateRight(right)
+		rNode, rOrphaned, err := tree.rotateRight(right)
 		if err != nil {
 			return nil, err
 		}
+		rightOrphaned = rOrphaned
 		node.SetRightNode(rNode)
 		newNode, leftOrphaned, err := tree.rotateLeft(node)
 		if err != nil {
