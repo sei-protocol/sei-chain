@@ -79,11 +79,34 @@ func TestSubmitFraudChallenge(t *testing.T) {
 		Txs:       []string{"5678"},
 	})
 	require.Nil(t, err)
+	_, err = server.RecordTransactionData(sdk.WrapSDKContext(ctx), &types.MsgRecordTransactionData{
+		Sender:    "sei14hj2tavq8fpesdwxxcu44rty3hh90vhujrvcmstl4zr3txmfvw9sh9m79m",
+		Slot:      2,
+		StateRoot: hex.EncodeToString(stateRoot),
+		Txs:       []string{"091011"},
+	})
+	require.Nil(t, err)
+	_, err = server.RecordTransactionData(sdk.WrapSDKContext(ctx), &types.MsgRecordTransactionData{
+		Sender:    "sei14hj2tavq8fpesdwxxcu44rty3hh90vhujrvcmstl4zr3txmfvw9sh9m79m",
+		Slot:      4,
+		StateRoot: hex.EncodeToString(stateRoot),
+		Txs:       []string{"121314"},
+	})
+	require.Nil(t, err)
+
+	// err getting non-existent transaction data
+	_, err = server.SubmitFraudChallenge(sdk.WrapSDKContext(ctx), &types.MsgSubmitFraudChallenge{
+		StartSlot:        0,
+		EndSlot:          4,
+		FraudStatePubKey: "123",
+		MerkleProof:      proof,
+	})
+	require.Equal(t, err, types.ErrFindingTransctionData)
 
 	// end slot doesn't exist
 	_, err = server.SubmitFraudChallenge(sdk.WrapSDKContext(ctx), &types.MsgSubmitFraudChallenge{
 		StartSlot:        0,
-		EndSlot:          2,
+		EndSlot:          5,
 		FraudStatePubKey: "123",
 		MerkleProof:      proof,
 	})
