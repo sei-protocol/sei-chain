@@ -7,6 +7,7 @@ import (
 	"reflect"
 	"sort"
 	"strings"
+	"sync"
 
 	"golang.org/x/exp/maps"
 	"golang.org/x/exp/slices"
@@ -26,6 +27,8 @@ import (
 // can be emitted from.
 type EventManager struct {
 	events Events
+
+	mtx sync.RWMutex
 }
 
 // Common Event Types and Attributes
@@ -43,7 +46,9 @@ const (
 )
 
 func NewEventManager() *EventManager {
-	return &EventManager{EmptyEvents()}
+	return &EventManager{
+		events: EmptyEvents(),
+	}
 }
 
 func (em *EventManager) Events() Events { return em.events }
@@ -51,17 +56,23 @@ func (em *EventManager) Events() Events { return em.events }
 // EmitEvent stores a single Event object.
 // Deprecated: Use EmitTypedEvent
 func (em *EventManager) EmitEvent(event Event) {
+	em.mtx.Lock()
+	defer em.mtx.Unlock()
 	em.events = em.events.AppendEvent(event)
 }
 
 // EmitEvents stores a series of Event objects.
 // Deprecated: Use EmitTypedEvents
 func (em *EventManager) EmitEvents(events Events) {
+	em.mtx.Lock()
+	defer em.mtx.Unlock()
 	em.events = em.events.AppendEvents(events)
 }
 
 // ABCIEvents returns all stored Event objects as abci.Event objects.
-func (em EventManager) ABCIEvents() []abci.Event {
+func (em *EventManager) ABCIEvents() []abci.Event {
+	em.mtx.RLock()
+	defer em.mtx.RUnlock()
 	return em.events.ToABCIEvents()
 }
 

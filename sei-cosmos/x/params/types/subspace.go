@@ -21,23 +21,26 @@ const (
 // Transient store persists for a block, so we use it for
 // recording whether the parameter has been changed or not
 type Subspace struct {
-	cdc         codec.BinaryCodec
-	legacyAmino *codec.LegacyAmino
-	key         sdk.StoreKey // []byte -> []byte, stores parameter
-	tkey        sdk.StoreKey // []byte -> bool, stores parameter change
-	name        []byte
-	table       KeyTable
+	cdc          codec.BinaryCodec
+	legacyAmino  *codec.LegacyAmino
+	key          sdk.StoreKey // []byte -> []byte, stores parameter
+	tkey         sdk.StoreKey // []byte -> bool, stores parameter change
+	name         []byte
+	suffixedName []byte
+	table        KeyTable
 }
 
 // NewSubspace constructs a store with namestore
 func NewSubspace(cdc codec.BinaryCodec, legacyAmino *codec.LegacyAmino, key sdk.StoreKey, tkey sdk.StoreKey, name string) Subspace {
+	nameBz := []byte(name)
 	return Subspace{
-		cdc:         cdc,
-		legacyAmino: legacyAmino,
-		key:         key,
-		tkey:        tkey,
-		name:        []byte(name),
-		table:       NewKeyTable(),
+		cdc:          cdc,
+		legacyAmino:  legacyAmino,
+		key:          key,
+		tkey:         tkey,
+		name:         nameBz,
+		suffixedName: append(nameBz, '/'),
+		table:        NewKeyTable(),
 	}
 }
 
@@ -64,22 +67,19 @@ func (s Subspace) WithKeyTable(table KeyTable) Subspace {
 	name := s.name
 	s.name = make([]byte, len(name), len(name)+table.maxKeyLength())
 	copy(s.name, name)
+	s.suffixedName = append(s.name, '/')
 
 	return s
 }
 
 // Returns a KVStore identical with ctx.KVStore(s.key).Prefix()
 func (s Subspace) kvStore(ctx sdk.Context) sdk.KVStore {
-	// append here is safe, appends within a function won't cause
-	// weird side effects when its singlethreaded
-	return prefix.NewStore(ctx.KVStore(s.key), append(s.name, '/'))
+	return prefix.NewStore(ctx.KVStore(s.key), s.suffixedName)
 }
 
 // Returns a transient store for modification
 func (s Subspace) transientStore(ctx sdk.Context) sdk.KVStore {
-	// append here is safe, appends within a function won't cause
-	// weird side effects when its singlethreaded
-	return prefix.NewStore(ctx.TransientStore(s.tkey), append(s.name, '/'))
+	return prefix.NewStore(ctx.TransientStore(s.tkey), s.suffixedName)
 }
 
 // Validate attempts to validate a parameter value by its key. If the key is not
