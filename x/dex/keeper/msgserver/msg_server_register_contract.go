@@ -65,6 +65,11 @@ func (k msgServer) RegisterContract(goCtx context.Context, msg *types.MsgRegiste
 		return &types.MsgRegisterContractResponse{}, err
 	}
 
+	ctx.EventManager().EmitEvent(sdk.NewEvent(
+		types.EventTypeRegisterContract,
+		sdk.NewAttribute(types.AttributeKeyContractAddress, msg.Contract.ContractAddr),
+	))
+
 	return &types.MsgRegisterContractResponse{}, nil
 }
 
@@ -96,9 +101,13 @@ func (k msgServer) RemoveExistingDependencies(ctx sdk.Context, msg *types.MsgReg
 	for _, oldDependency := range contractInfo.Dependencies {
 		dependencyInfo, err := k.GetContract(ctx, oldDependency.Dependency)
 		if err != nil {
-			// old dependency doesn't exist. Do nothing.
-			ctx.Logger().Info(fmt.Sprintf("existing contract %s old dependency %s does not exist", msg.Contract.ContractAddr, oldDependency.Dependency))
-			continue
+			if err == types.ErrContractNotExists {
+				// old dependency doesn't exist. Do nothing.
+				ctx.Logger().Info(fmt.Sprintf("existing contract %s old dependency %s does not exist", msg.Contract.ContractAddr, oldDependency.Dependency))
+				continue
+			} else {
+				return err
+			}
 		}
 		dependencyInfo.NumIncomingDependencies--
 		if err := k.SetContract(ctx, &dependencyInfo); err != nil {
@@ -111,7 +120,10 @@ func (k msgServer) RemoveExistingDependencies(ctx sdk.Context, msg *types.MsgReg
 func (k msgServer) UpdateOldSiblings(ctx sdk.Context, msg *types.MsgRegisterContract) error {
 	contractInfo, err := k.GetContract(ctx, msg.Contract.ContractAddr)
 	if err != nil {
-		return nil
+		if err == types.ErrContractNotExists {
+			return nil
+		}
+		return err
 	}
 	// update siblings for old dependencies
 	for _, oldDependency := range contractInfo.Dependencies {

@@ -339,6 +339,8 @@ type App struct {
 
 	// batchVerifier *ante.SR25519BatchVerifier
 	txDecoder sdk.TxDecoder
+
+	versionInfo version.Info
 }
 
 // New returns a reference to an initialized blockchain app
@@ -396,11 +398,12 @@ func New(
 		tkeys:             tkeys,
 		memKeys:           memKeys,
 		tracingInfo: &tracing.Info{
-			Tracer:        &tr,
-			TracerContext: context.Background(),
+			Tracer: &tr,
 		},
-		txDecoder: encodingConfig.TxConfig.TxDecoder(),
+		txDecoder:   encodingConfig.TxConfig.TxDecoder(),
+		versionInfo: version.NewInfo(),
 	}
+	app.tracingInfo.SetContext(context.Background())
 
 	app.ParamsKeeper = initParamsKeeper(appCodec, cdc, keys[paramstypes.StoreKey], tkeys[paramstypes.TStoreKey])
 
@@ -895,15 +898,7 @@ func (app App) GetBaseApp() *baseapp.BaseApp { return app.BaseApp }
 
 // BeginBlocker application updates every begin block
 func (app *App) BeginBlocker(ctx sdk.Context, req abci.RequestBeginBlock) abci.ResponseBeginBlock {
-	// newCtx := ctx.WithContext(
-	// 	context.WithValue(ctx.Context(), dexcache.GOCTX_KEY, dexcache.NewOrders()),
-	// )
-	// app.Logger().Info(fmt.Sprintf("BeginBlocker context %s", newCtx.Context().Value(dexcache.GOCTX_KEY).(dexcache.Orders)))
-	if !EmittedSeidVersionMetric {
-		verInfo := version.NewInfo()
-		metrics.GaugeSeidVersionAndCommit(verInfo.Version, verInfo.GitCommit)
-		EmittedSeidVersionMetric = true
-	}
+	metrics.GaugeSeidVersionAndCommit(app.versionInfo.Version, app.versionInfo.GitCommit)
 	return app.mm.BeginBlock(ctx, req)
 }
 
@@ -957,6 +952,7 @@ func (app *App) ProcessProposalHandler(ctx sdk.Context, req *abci.RequestProcess
 		if found && plan.ShouldExecute(ctx) {
 			app.Logger().Info(fmt.Sprintf("Potential upgrade planned for height=%d skipping optimistic processing", plan.Height))
 			app.optimisticProcessingInfo.Aborted = true
+			app.optimisticProcessingInfo.Completion <- struct{}{}
 		} else {
 			go func() {
 				events, txResults, endBlockResp, _ := app.ProcessBlock(ctx, req.Txs, req, req.ProposedLastCommit)
@@ -982,16 +978,13 @@ func (app *App) FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBlock)
 		ctx.Logger().Info(fmt.Sprintf("FinalizeBlock took %dms", duration/time.Millisecond))
 	}()
 
-	if app.optimisticProcessingInfo != nil && !app.optimisticProcessingInfo.Aborted && bytes.Equal(app.optimisticProcessingInfo.Hash, req.Hash) {
-		select {
-		case <-app.optimisticProcessingInfo.Completion:
+	if app.optimisticProcessingInfo != nil {
+		<-app.optimisticProcessingInfo.Completion
+		if !app.optimisticProcessingInfo.Aborted && bytes.Equal(app.optimisticProcessingInfo.Hash, req.Hash) {
 			app.SetProcessProposalStateToCommit()
 			appHash := app.WriteStateToCommitAndGetWorkingHash()
 			resp := app.getFinalizeBlockResponse(appHash, app.optimisticProcessingInfo.Events, app.optimisticProcessingInfo.TxRes, app.optimisticProcessingInfo.EndBlockResp)
 			return &resp, nil
-		case <-time.After(OptimisticProcessingTimeoutInSeconds * time.Second):
-			ctx.Logger().Info("optimistic processing timed out")
-			break
 		}
 	}
 	ctx.Logger().Info("optimistic processing ineligible")

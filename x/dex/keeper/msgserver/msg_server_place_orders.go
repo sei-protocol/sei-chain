@@ -18,10 +18,7 @@ func (k msgServer) transferFunds(goCtx context.Context, msg *types.MsgPlaceOrder
 	}
 
 	ctx := sdk.UnwrapSDKContext(goCtx)
-	contractAddr, err := sdk.AccAddressFromBech32(msg.ContractAddr)
-	if err != nil {
-		return err
-	}
+	contractAddr := sdk.MustAccAddressFromBech32(msg.ContractAddr)
 	if err := k.BankKeeper.IsSendEnabledCoins(ctx, msg.Funds...); err != nil {
 		return err
 	}
@@ -29,6 +26,7 @@ func (k msgServer) transferFunds(goCtx context.Context, msg *types.MsgPlaceOrder
 		return sdkerrors.Wrapf(sdkerrors.ErrUnauthorized, "%s is not allowed to receive funds", contractAddr.String())
 	}
 
+	sender := sdk.MustAccAddressFromBech32(msg.Creator)
 	for _, fund := range msg.Funds {
 		if fund.Amount.IsNil() || fund.IsNegative() {
 			return errors.New("fund deposits cannot be nil or negative")
@@ -38,6 +36,9 @@ func (k msgServer) transferFunds(goCtx context.Context, msg *types.MsgPlaceOrder
 			Denom:   fund.Denom,
 			Amount:  sdk.NewDec(fund.Amount.Int64()),
 		})
+	}
+	if err := k.BankKeeper.DeferredSendCoinsFromAccountToModule(ctx, sender, types.ModuleName, msg.Funds); err != nil {
+		return fmt.Errorf("error sending coins to contract: %s", err)
 	}
 	return nil
 }
@@ -53,7 +54,7 @@ func (k msgServer) PlaceOrders(goCtx context.Context, msg *types.MsgPlaceOrders)
 	if err := k.transferFunds(goCtx, msg); err != nil {
 		return nil, err
 	}
-
+	events := []sdk.Event{}
 	nextID := k.GetNextOrderID(ctx, msg.ContractAddr)
 	idsInResp := []uint64{}
 	for _, order := range msg.GetOrders() {
@@ -72,10 +73,14 @@ func (k msgServer) PlaceOrders(goCtx context.Context, msg *types.MsgPlaceOrders)
 		order.ContractAddr = msg.GetContractAddr()
 		dexutils.GetMemState(ctx.Context()).GetBlockOrders(ctx, typesutils.ContractAddress(msg.GetContractAddr()), pairStr).Add(order)
 		idsInResp = append(idsInResp, nextID)
+		events = append(events, sdk.NewEvent(
+			types.EventTypePlaceOrder,
+			sdk.NewAttribute(types.AttributeKeyOrderID, fmt.Sprint(nextID)),
+		))
 		nextID++
 	}
 	k.SetNextOrderID(ctx, msg.ContractAddr, nextID)
-
+	ctx.EventManager().EmitEvents(events)
 	return &types.MsgPlaceOrdersResponse{
 		OrderIds: idsInResp,
 	}, nil

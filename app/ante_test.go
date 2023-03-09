@@ -70,6 +70,10 @@ func (suite *AnteTestSuite) SetupTest(isCheckTx bool) {
 	otel.SetTracerProvider(defaultTracer)
 	tr := defaultTracer.Tracer("component-main")
 
+	tracingInfo := &tracing.Info{
+		Tracer: &tr,
+	}
+	tracingInfo.SetContext(context.Background())
 	antehandler, anteDepGenerator, err := app.NewAnteHandlerAndDepGenerator(
 		app.HandlerOptions{
 			HandlerOptions: ante.HandlerOptions{
@@ -87,10 +91,7 @@ func (suite *AnteTestSuite) SetupTest(isCheckTx bool) {
 			DexKeeper:           &suite.App.DexKeeper,
 			NitroKeeper:         &suite.App.NitroKeeper,
 			AccessControlKeeper: &suite.App.AccessControlKeeper,
-			TracingInfo: &tracing.Info{
-				Tracer:        &tr,
-				TracerContext: context.Background(),
-			},
+			TracingInfo:         tracingInfo,
 		},
 	)
 

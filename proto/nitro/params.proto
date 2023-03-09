@@ -9,4 +9,7 @@ message Params {
   repeated string whitelisted_tx_senders = 1 [
     (gogoproto.jsontag) = "whitelisted_tx_senders"
   ];
+  bool enabled = 2 [
+    (gogoproto.jsontag) = "enabled"
+  ];
 }

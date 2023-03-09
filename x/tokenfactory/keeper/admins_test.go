@@ -229,6 +229,14 @@ func (suite *KeeperTestSuite) TestChangeAdminDenom() {
 			expectedAdminIndex:      0,
 		},
 		{
+			desc: "change to same admin should fail",
+			msgChangeAdmin: func(denom string) *types.MsgChangeAdmin {
+				return types.NewMsgChangeAdmin(suite.TestAccs[0].String(), denom, suite.TestAccs[0].String())
+			},
+			expectedChangeAdminPass: false,
+			expectedAdminIndex:      0,
+		},
+		{
 			desc: "success change admin",
 			msgChangeAdmin: func(denom string) *types.MsgChangeAdmin {
 				return types.NewMsgChangeAdmin(suite.TestAccs[0].String(), denom, suite.TestAccs[1].String())

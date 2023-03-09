@@ -123,4 +123,5 @@ message OracleTwap {
 message VotePenaltyCounter {
   uint64 miss_count = 1;
   uint64 abstain_count = 2;
+  uint64 success_count = 3;
 }

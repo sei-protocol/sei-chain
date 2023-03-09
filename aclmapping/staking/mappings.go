@@ -452,6 +452,11 @@ func MsgBeginRedelegateDependencyGenerator(keeper aclkeeper.Keeper, ctx sdk.Cont
 		{
 			AccessType:         sdkacltypes.AccessType_WRITE,
 			ResourceType:       sdkacltypes.ResourceType_KV_STAKING_DELEGATION,
+			IdentifierTemplate: srcDelegationKey,
+		},
+		{
+			AccessType:         sdkacltypes.AccessType_WRITE,
+			ResourceType:       sdkacltypes.ResourceType_KV_STAKING_DELEGATION,
 			IdentifierTemplate: dstDelegationKey,
 		},
 

@@ -1,4 +1,8 @@
 {
+    "grpc_endpoint": "127.0.0.1:9090",
+    "blockchain_endpoint": "http://localhost:26657/blockchain",
+    "node_uri": "tcp://localhost:26657",
+    "tls": false,
     "msgs_per_tx": 10,
     "chain_id": "sei-loadtest-testnet",
     "txs_per_block": 400,
@@ -29,6 +33,11 @@
     "message_type": "bank,dex,tokenfactory,staking,failure_dex_malformed,failure_dex_invalid",
     "run_oracle": false,
     "metrics_port": 9695,
+    "wasm_msg_types": {
+      "wasm_mint_nft": {
+        "contract_address": "sei1k83mp2vdgk57rgyuzrmm8yhume44lwtwmku5a7v3waanqe0qxkvssfjfvj"
+      }
+    },
     "contract_distribution": [
       {
         "contract_address": "sei1zwv6feuzhy6a9wekh96cd57lsarmqlwxdypdsplw6zhfncqw6ftqr428wx",

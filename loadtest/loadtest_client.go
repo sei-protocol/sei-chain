@@ -15,8 +15,11 @@ import (
 	typestx "github.com/cosmos/cosmos-sdk/types/tx"
 	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
 
+	"crypto/tls"
+
 	"github.com/k0kubun/pp/v3"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
 )
 
 type LoadTestClient struct {
@@ -40,9 +43,17 @@ type LoadTestClient struct {
 }
 
 func NewLoadTestClient(config Config) *LoadTestClient {
+	var dialOptions []grpc.DialOption
+
+	// NOTE: Will likely need to whitelist node from elb rate limits - add ip to producer ip set
+	if config.TLS {
+		dialOptions = append(dialOptions, grpc.WithTransportCredentials(credentials.NewTLS(&tls.Config{InsecureSkipVerify: true}))) //nolint:gosec // Use insecure skip verify.
+	} else {
+		dialOptions = append(dialOptions, grpc.WithInsecure())
+	}
 	grpcConn, _ := grpc.Dial(
-		"127.0.0.1:9090",
-		grpc.WithInsecure(),
+		config.GrpcEndpoint,
+		dialOptions...,
 	)
 	TxClient := typestx.NewServiceClient(grpcConn)
 
@@ -57,7 +68,7 @@ func NewLoadTestClient(config Config) *LoadTestClient {
 		TestConfig:             TestConfig,
 		TxClient:               TxClient,
 		TxHashFile:             outputFile,
-		SignerClient:           NewSignerClient(),
+		SignerClient:           NewSignerClient(config.NodeURI),
 		ChainID:                config.ChainID,
 		TxHashList:             []string{},
 		TxResponseChan:         make(chan *string),
@@ -177,12 +188,12 @@ func (c *LoadTestClient) GenerateOracleSenders(i int, config Config, valKeys []c
 func (c *LoadTestClient) SendTxs(workgroups []*sync.WaitGroup, sendersList [][]func()) {
 	defer close(c.TxResponseChan)
 
-	lastHeight := getLastHeight()
+	lastHeight := getLastHeight(c.LoadTestConfig.BlockchainEndpoint)
 	for i := 0; i < int(c.LoadTestConfig.Rounds); i++ {
-		newHeight := getLastHeight()
+		newHeight := getLastHeight(c.LoadTestConfig.BlockchainEndpoint)
 		for newHeight == lastHeight {
 			time.Sleep(10 * time.Millisecond)
-			newHeight = getLastHeight()
+			newHeight = getLastHeight(c.LoadTestConfig.BlockchainEndpoint)
 		}
 		fmt.Printf("Sending %d-th block\n", i)
 		senders := sendersList[i]

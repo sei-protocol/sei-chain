@@ -12,12 +12,12 @@ import (
 
 var _ = strconv.Itoa(0)
 
-func CmdGetRegisteredPairs() *cobra.Command {
+func CmdGetRegisteredContract() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "get-registered-pairs [contract address]",
-		Short: "Query Registered Pairs",
+		Use:   "get-registered-contract [contract address]",
+		Short: "Query Registered Contract",
 		Long: strings.TrimSpace(`
-			List all of the registered pairs for an orderbook specified by contract address.
+			List the registered contract information specified by contract address.
 		`),
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) (err error) {
@@ -29,11 +29,11 @@ func CmdGetRegisteredPairs() *cobra.Command {
 
 			queryClient := types.NewQueryClient(clientCtx)
 
-			params := &types.QueryRegisteredPairsRequest{
+			params := &types.QueryRegisteredContractRequest{
 				ContractAddr: contractAddr,
 			}
 
-			res, err := queryClient.GetRegisteredPairs(cmd.Context(), params)
+			res, err := queryClient.GetRegisteredContract(cmd.Context(), params)
 			if err != nil {
 				return err
 			}

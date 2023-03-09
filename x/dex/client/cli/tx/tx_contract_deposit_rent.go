@@ -2,6 +2,7 @@ package tx
 
 import (
 	"strconv"
+	"strings"
 
 	"github.com/cosmos/cosmos-sdk/client"
 	"github.com/cosmos/cosmos-sdk/client/flags"
@@ -17,7 +18,10 @@ func CmdContractDepositRent() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "contract-deposit-rent [contract address] [amount]",
 		Short: "Contract deposit rent",
-		Args:  cobra.ExactArgs(2),
+		Long: strings.TrimSpace(`
+			Deposit rent for an orderbook specified by contract-address. This rent allows the contract to be executed via dex hooks for calculating order updates and position settlement.
+		`),
+		Args: cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) (err error) {
 			argContractAddr := args[0]
 			argDeposit, err := cast.ToUint64E(args[1])

@@ -130,3 +130,11 @@ func SetOracleVotePenaltyCount(count uint64, valAddr string, penaltyType string)
 		},
 	)
 }
+
+// sei_epoch_new
+func SetEpochNew(epochNum uint64) {
+	metrics.SetGauge(
+		[]string{"sei", "epoch", "new"},
+		float32(epochNum),
+	)
+}
