@@ -76,7 +76,11 @@ func (server msgServer) SubmitFraudChallenge(goCtx context.Context, msg *types.M
 	txsBz := [][]byte{}
 	slot := msg.StartSlot
 	for slot <= msg.EndSlot {
-		bz, _ := server.GetTransactionData(ctx, slot)
+		bz, err := server.GetTransactionData(ctx, slot)
+		if err != nil {
+			return nil, types.ErrFindingTransctionData
+		}
+
 		txsBz = append(txsBz, bz...)
 		slot++
 	}
