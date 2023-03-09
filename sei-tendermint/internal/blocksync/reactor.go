@@ -34,7 +34,7 @@ const (
 	switchToConsensusIntervalSeconds = 1
 
 	// switch to consensus after this duration of inactivity
-	syncTimeout = 60 * time.Second
+	syncTimeout = 180 * time.Second
 )
 
 func GetChannelDescriptor() *p2p.ChannelDescriptor {
