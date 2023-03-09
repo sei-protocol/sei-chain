@@ -186,7 +186,7 @@ func GetOrderIDToSettledQuantities(settlements []*types.SettlementEntry) map[uin
 	return res
 }
 
-func ExecutePairsInParallel(ctx sdk.Context, contractAddr string, dexkeeper *keeper.Keeper, registeredPairs []types.Pair, orderBooks *datastructures.TypedSyncMap[dextypesutils.PairString, *types.OrderBook]) ([]*types.SettlementEntry, []*types.Cancellation) {
+func ExecutePairsInParallel(ctx2 context.Context, ctx sdk.Context, contractAddr string, dexkeeper *keeper.Keeper, registeredPairs []types.Pair, orderBooks *datastructures.TypedSyncMap[dextypesutils.PairString, *types.OrderBook], tracer *otrace.Tracer) ([]*types.SettlementEntry, []*types.Cancellation) {
 	typedContractAddr := dextypesutils.ContractAddress(contractAddr)
 	orderResults := []*types.Order{}
 	cancelResults := []*types.Cancellation{}
@@ -202,17 +202,25 @@ func ExecutePairsInParallel(ctx sdk.Context, contractAddr string, dexkeeper *kee
 		pairCtx := ctx.WithMultiStore(multi.NewStore(ctx.MultiStore(), GetPerPairWhitelistMap(contractAddr, pair))).WithEventManager(sdk.NewEventManager())
 		go func() {
 			defer wg.Done()
+			_, span := (*tracer).Start(ctx2, "DEBUGExecutePairsInParallelInnerProcessPair")
+			defer span.End()
 			pairCopy := pair
 			pairStr := dextypesutils.GetPairString(&pairCopy)
+			_, span1 := (*tracer).Start(ctx2, "DEBUGMoveTriggeredOrderForPair+OrderBookLoad")
 			MoveTriggeredOrderForPair(ctx, typedContractAddr, pairStr, dexkeeper)
 			orderbook, found := orderBooks.Load(pairStr)
+			span1.End()
 			if !found {
 				panic(fmt.Sprintf("Orderbook not found for %s", pairStr))
 			}
+			_, span2 := (*tracer).Start(ctx2, "DEBUGExecutePair+GetOrderIDToSettledQuantities+PrepareCancelUnfulfilledMarketOrders")
 			pairSettlements := ExecutePair(pairCtx, contractAddr, pair, dexkeeper, orderbook.DeepCopy())
 			orderIDToSettledQuantities := GetOrderIDToSettledQuantities(pairSettlements)
 			PrepareCancelUnfulfilledMarketOrders(pairCtx, typedContractAddr, pairStr, orderIDToSettledQuantities)
+			span2.End()
 
+			_, span3 := (*tracer).Start(ctx2, "DEBUGGetMatchResults")
+			defer span3.End()
 			mu.Lock()
 			defer mu.Unlock()
 			orders, cancels := GetMatchResults(ctx, typedContractAddr, dextypesutils.GetPairString(&pairCopy))
@@ -221,6 +229,7 @@ func ExecutePairsInParallel(ctx sdk.Context, contractAddr string, dexkeeper *kee
 			settlements = append(settlements, pairSettlements...)
 			// ordering of events doesn't matter since events aren't part of consensus
 			ctx.EventManager().EmitEvents(pairCtx.EventManager().Events())
+
 		}()
 	}
 	wg.Wait()
@@ -247,14 +256,22 @@ func HandleExecutionForContract(
 	orderResults := map[string]dextypeswasm.ContractOrderResult{}
 
 	// Call contract hooks so that contracts can do internal bookkeeping
+	_, span1 := (*tracer).Start(ctx, "DEBUGCallPreExecutionHooks")
 	if err := CallPreExecutionHooks(ctx, sdkCtx, contractAddr, dexkeeper, registeredPairs, tracer); err != nil {
 		return orderResults, []*types.SettlementEntry{}, err
 	}
-	settlements, cancellations := ExecutePairsInParallel(sdkCtx, contractAddr, dexkeeper, registeredPairs, orderBooks)
+	span1.End()
+	_, span2 := (*tracer).Start(ctx, "DEBUGExecutePairsInParallel")
+	settlements, cancellations := ExecutePairsInParallel(ctx, sdkCtx, contractAddr, dexkeeper, registeredPairs, orderBooks, tracer)
+	span2.End()
 	defer EmitSettlementMetrics(settlements)
 	// populate order placement results for FinalizeBlock hook
+	_, span3 := (*tracer).Start(ctx, "DEBUGPopulateOrderPlacementResults")
 	dextypeswasm.PopulateOrderPlacementResults(contractAddr, dexutils.GetMemState(sdkCtx.Context()).GetAllBlockOrders(sdkCtx, typedContractAddr), cancellations, orderResults)
+	span3.End()
+	_, span4 := (*tracer).Start(ctx, "DEBUGPopulateOrderExecutionResults")
 	dextypeswasm.PopulateOrderExecutionResults(contractAddr, settlements, orderResults)
+	span4.End()
 
 	return orderResults, settlements, nil
 }
