@@ -24,6 +24,9 @@ func callSettlementHook(
 	dexkeeper *keeper.Keeper,
 	settlementEntries []*types.SettlementEntry,
 ) error {
+	if len(settlementEntries) == 0 {
+		return nil
+	}
 	_, currentEpoch := dexkeeper.IsNewEpoch(ctx)
 	nativeSettlementMsg := dextypeswasm.SudoSettlementMsg{
 		Settlement: types.Settlements{

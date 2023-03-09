@@ -209,6 +209,9 @@ func handleFinalizedBlocks(ctx context.Context, sdkCtx sdk.Context, env *environ
 		if !contractsNeedHook.Contains(contractAddr) {
 			return true
 		}
+		if len(finalizeBlockMsg.FinalizeBlock.Results) == 0 {
+			return true
+		}
 		if _, err := dexkeeperutils.CallContractSudo(sdkCtx, keeper, contractAddr, finalizeBlockMsg, dexutils.ZeroUserProvidedGas); err != nil {
 			sdkCtx.Logger().Error(fmt.Sprintf("Error calling FinalizeBlock of %s", contractAddr))
 			env.failedContractAddresses.Add(contractAddr)

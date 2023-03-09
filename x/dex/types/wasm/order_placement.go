@@ -15,6 +15,10 @@ type OrderPlacementMsgDetails struct {
 	Deposits []types.ContractDepositInfo `json:"deposits"`
 }
 
+func (m *SudoOrderPlacementMsg) IsEmpty() bool {
+	return len(m.OrderPlacements.Deposits) == 0 && len(m.OrderPlacements.Orders) == 0
+}
+
 type SudoOrderPlacementResponse struct {
 	UnsuccessfulOrders []UnsuccessfulOrder `json:"unsuccessful_orders"`
 }
