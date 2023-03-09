@@ -46,31 +46,46 @@ func CallPreExecutionHooks(
 }
 
 func ExecutePair(
+	ctx2 context.Context,
 	ctx sdk.Context,
 	contractAddr string,
 	pair types.Pair,
 	dexkeeper *keeper.Keeper,
 	orderbook *types.OrderBook,
+	tracer *otrace.Tracer,
 ) []*types.SettlementEntry {
+
 	typedContractAddr := dextypesutils.ContractAddress(contractAddr)
 	typedPairStr := dextypesutils.GetPairString(&pair)
 
+	_, span := (*tracer).Start(ctx2, "DEBUGcancelForPair")
 	// First cancel orders
 	cancelForPair(ctx, typedContractAddr, typedPairStr, orderbook)
+	span.End()
 	// Add all limit orders to the orderbook
+	_, span1 := (*tracer).Start(ctx2, "DEBUGAddLimitOrdersToOrderBook")
 	orders := dexutils.GetMemState(ctx.Context()).GetBlockOrders(ctx, typedContractAddr, typedPairStr)
 	limitBuys := orders.GetLimitOrders(types.PositionDirection_LONG)
 	limitSells := orders.GetLimitOrders(types.PositionDirection_SHORT)
 	exchange.AddOutstandingLimitOrdersToOrderbook(orderbook, limitBuys, limitSells)
+	span1.End()
 	// Fill market orders
+	_, span2 := (*tracer).Start(ctx2, "DEBUGFillMarketOrder")
 	marketOrderOutcome := matchMarketOrderForPair(ctx, typedContractAddr, typedPairStr, orderbook)
+	span2.End()
 	// Fill limit orders
+	_, span3 := (*tracer).Start(ctx2, "DEBUGFillLimitOrders")
 	limitOrderOutcome := exchange.MatchLimitOrders(ctx, orderbook)
 	totalOutcome := marketOrderOutcome.Merge(&limitOrderOutcome)
 	UpdateTriggeredOrderForPair(ctx, typedContractAddr, typedPairStr, dexkeeper, totalOutcome)
+	span3.End()
 
+	_, span4 := (*tracer).Start(ctx2, "DEBUGSetPriceStateFromExecutionOutcome")
 	dexkeeperutils.SetPriceStateFromExecutionOutcome(ctx, dexkeeper, typedContractAddr, pair, totalOutcome)
+	span4.End()
+	_, span5 := (*tracer).Start(ctx2, "DEBUGFlushOrderbook")
 	dexkeeperutils.FlushOrderbook(ctx, dexkeeper, typedContractAddr, orderbook)
+	span5.End()
 
 	return totalOutcome.Settlements
 }
@@ -213,14 +228,18 @@ func ExecutePairsInParallel(ctx2 context.Context, ctx sdk.Context, contractAddr 
 			if !found {
 				panic(fmt.Sprintf("Orderbook not found for %s", pairStr))
 			}
-			_, span2 := (*tracer).Start(ctx2, "DEBUGExecutePair+GetOrderIDToSettledQuantities+PrepareCancelUnfulfilledMarketOrders")
-			pairSettlements := ExecutePair(pairCtx, contractAddr, pair, dexkeeper, orderbook.DeepCopy())
-			orderIDToSettledQuantities := GetOrderIDToSettledQuantities(pairSettlements)
-			PrepareCancelUnfulfilledMarketOrders(pairCtx, typedContractAddr, pairStr, orderIDToSettledQuantities)
+			_, span2 := (*tracer).Start(ctx2, "DEBUGExecutePair")
+			pairSettlements := ExecutePair(ctx2, pairCtx, contractAddr, pair, dexkeeper, orderbook.DeepCopy(), tracer)
 			span2.End()
+			_, span3 := (*tracer).Start(ctx2, "DEBUGGetOrderIDToSettledQuantities")
+			orderIDToSettledQuantities := GetOrderIDToSettledQuantities(pairSettlements)
+			span3.End()
+			_, span4 := (*tracer).Start(ctx2, "DEBUGPrepareCancelUnfulfilledMarketOrders")
+			PrepareCancelUnfulfilledMarketOrders(pairCtx, typedContractAddr, pairStr, orderIDToSettledQuantities)
+			span4.End()
 
-			_, span3 := (*tracer).Start(ctx2, "DEBUGGetMatchResults")
-			defer span3.End()
+			_, span5 := (*tracer).Start(ctx2, "DEBUGGetMatchResults")
+			defer span5.End()
 			mu.Lock()
 			defer mu.Unlock()
 			orders, cancels := GetMatchResults(ctx, typedContractAddr, dextypesutils.GetPairString(&pairCopy))
