@@ -67,10 +67,12 @@ func ExecutePair(
 	orders := dexutils.GetMemState(ctx.Context()).GetBlockOrders(ctx, typedContractAddr, typedPairStr)
 	limitBuys := orders.GetLimitOrders(types.PositionDirection_LONG)
 	limitSells := orders.GetLimitOrders(types.PositionDirection_SHORT)
+	fmt.Printf("DEBUGDEX ExecutePair - contract %s, num limitBuys %d,  num limitSells: %d\n", contractAddr, len(limitBuys), len(limitSells))
 	exchange.AddOutstandingLimitOrdersToOrderbook(orderbook, limitBuys, limitSells)
 	span1.End()
 	// Fill market orders
 	_, span2 := (*tracer).Start(ctx2, "DEBUGFillMarketOrder")
+
 	marketOrderOutcome := matchMarketOrderForPair(ctx, typedContractAddr, typedPairStr, orderbook)
 	span2.End()
 	// Fill limit orders
@@ -96,6 +98,7 @@ func cancelForPair(
 	typedPairStr dextypesutils.PairString,
 	orderbook *types.OrderBook,
 ) {
+	fmt.Printf("DEBUGDEX cancelForPair - contract %s\n", typedContractAddr)
 	cancels := dexutils.GetMemState(ctx.Context()).GetBlockCancels(ctx, typedContractAddr, typedPairStr)
 	exchange.CancelOrders(cancels.Get(), orderbook)
 }
@@ -109,6 +112,7 @@ func matchMarketOrderForPair(
 	orders := dexutils.GetMemState(ctx.Context()).GetBlockOrders(ctx, typedContractAddr, typedPairStr)
 	marketBuys := orders.GetSortedMarketOrders(types.PositionDirection_LONG, true)
 	marketSells := orders.GetSortedMarketOrders(types.PositionDirection_SHORT, true)
+	fmt.Printf("DEBUGDEX matchMarketOrderForPair - contract %s, num market Buys: %d num market sells%d\n", typedContractAddr, len(marketBuys), len(marketSells))
 	marketBuyOutcome := exchange.MatchMarketOrders(
 		ctx,
 		marketBuys,
@@ -210,6 +214,8 @@ func ExecutePairsInParallel(ctx2 context.Context, ctx sdk.Context, contractAddr 
 	mu := sync.Mutex{}
 	wg := sync.WaitGroup{}
 
+	fmt.Printf("DEBUGDEX ExecutePairsInParallel - contract %s,  num pairs: %d\n", contractAddr, len(registeredPairs))
+
 	for _, pair := range registeredPairs {
 		wg.Add(1)
 
@@ -217,23 +223,17 @@ func ExecutePairsInParallel(ctx2 context.Context, ctx sdk.Context, contractAddr 
 		pairCtx := ctx.WithMultiStore(multi.NewStore(ctx.MultiStore(), GetPerPairWhitelistMap(contractAddr, pair))).WithEventManager(sdk.NewEventManager())
 		go func() {
 			defer wg.Done()
-			_, span := (*tracer).Start(ctx2, "DEBUGExecutePairsInParallelInnerProcessPair")
-			defer span.End()
 			pairCopy := pair
 			pairStr := dextypesutils.GetPairString(&pairCopy)
-			_, span1 := (*tracer).Start(ctx2, "DEBUGMoveTriggeredOrderForPair+OrderBookLoad")
 			MoveTriggeredOrderForPair(ctx, typedContractAddr, pairStr, dexkeeper)
 			orderbook, found := orderBooks.Load(pairStr)
-			span1.End()
 			if !found {
 				panic(fmt.Sprintf("Orderbook not found for %s", pairStr))
 			}
 			_, span2 := (*tracer).Start(ctx2, "DEBUGExecutePair")
 			pairSettlements := ExecutePair(ctx2, pairCtx, contractAddr, pair, dexkeeper, orderbook.DeepCopy(), tracer)
 			span2.End()
-			_, span3 := (*tracer).Start(ctx2, "DEBUGGetOrderIDToSettledQuantities")
 			orderIDToSettledQuantities := GetOrderIDToSettledQuantities(pairSettlements)
-			span3.End()
 			_, span4 := (*tracer).Start(ctx2, "DEBUGPrepareCancelUnfulfilledMarketOrders")
 			PrepareCancelUnfulfilledMarketOrders(pairCtx, typedContractAddr, pairStr, orderIDToSettledQuantities)
 			span4.End()

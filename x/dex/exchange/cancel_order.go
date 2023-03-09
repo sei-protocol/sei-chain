@@ -1,6 +1,8 @@
 package exchange
 
 import (
+	"fmt"
+
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
 )
@@ -9,6 +11,7 @@ func CancelOrders(
 	cancels []*types.Cancellation,
 	orderbook *types.OrderBook,
 ) {
+	fmt.Printf("DEBUGDEX CancelOrders - numCancels %d\n", len(cancels))
 	for _, cancel := range cancels {
 		if cancel.PositionDirection == types.PositionDirection_LONG {
 			cancelOrder(cancel, orderbook.Longs)
