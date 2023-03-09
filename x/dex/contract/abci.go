@@ -48,8 +48,11 @@ func EndBlockerAtomic(ctx sdk.Context, keeper *keeper.Keeper, validContractsInfo
 	env := newEnv(ctx, validContractsInfo, keeper)
 	cachedCtx, msCached := cacheContext(ctx, env)
 	memStateCopy := dexutils.GetMemState(cachedCtx.Context()).DeepCopy()
-	handleDeposits(cachedCtx, env, keeper, tracer)
+	_, span2 := (*tracer).Start(spanCtx, "DEBUGHandleDeposits")
 
+	handleDeposits(cachedCtx, env, keeper, tracer)
+	span2.End()
+	_, span3 := (*tracer).Start(spanCtx, "DEBUGOrderMatchingRunnable")
 	runner := NewParallelRunner(func(contract types.ContractInfoV2) {
 		orderMatchingRunnable(spanCtx, cachedCtx, env, keeper, contract, tracer)
 	}, validContractsInfo, cachedCtx)
@@ -63,6 +66,7 @@ func EndBlockerAtomic(ctx sdk.Context, keeper *keeper.Keeper, validContractsInfo
 		panic(err)
 	}
 
+	span3.End()
 	handleSettlements(spanCtx, cachedCtx, env, keeper, tracer)
 	handleUnfulfilledMarketOrders(spanCtx, cachedCtx, env, keeper, tracer)
 	handleFinalizedBlocks(spanCtx, cachedCtx, env, keeper, tracer)
@@ -168,16 +172,19 @@ func handleSettlements(ctx context.Context, sdkCtx sdk.Context, env *environment
 			contractsNeedOrderMatching.Add(contract.ContractAddr)
 		}
 	}
+	settlementCalls := 0
 	env.settlementsByContract.Range(func(contractAddr string, settlements []*types.SettlementEntry) bool {
+		settlementCalls += 1
 		if !contractsNeedOrderMatching.Contains(contractAddr) {
 			return true
 		}
-		if err := HandleSettlements(sdkCtx, contractAddr, keeper, settlements); err != nil {
+		if err := HandleSettlements(ctx, sdkCtx, contractAddr, keeper, settlements, tracer); err != nil {
 			sdkCtx.Logger().Error(fmt.Sprintf("Error handling settlements for %s", contractAddr))
 			env.failedContractAddresses.Add(contractAddr)
 		}
 		return true
 	})
+	fmt.Printf("DEXDEBUG - num contracts: %d num settlements %d\n", contractsNeedOrderMatching.Size(), settlementCalls)
 }
 
 func handleUnfulfilledMarketOrders(ctx context.Context, sdkCtx sdk.Context, env *environment, keeper *keeper.Keeper, tracer *otrace.Tracer) {
