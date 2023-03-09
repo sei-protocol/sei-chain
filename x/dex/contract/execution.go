@@ -238,6 +238,8 @@ func HandleExecutionForContract(
 	orderBooks *datastructures.TypedSyncMap[dextypesutils.PairString, *types.OrderBook],
 	tracer *otrace.Tracer,
 ) (map[string]dextypeswasm.ContractOrderResult, []*types.SettlementEntry, error) {
+	_, span := (*tracer).Start(ctx, "DEBUGHandleExecutionForContract")
+	defer span.End()
 	executionStart := time.Now()
 	defer telemetry.ModuleSetGauge(types.ModuleName, float32(time.Since(executionStart).Milliseconds()), "handle_execution_for_contract_ms")
 	contractAddr := contract.ContractAddr

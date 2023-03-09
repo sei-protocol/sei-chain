@@ -228,6 +228,8 @@ func handleFinalizedBlocks(ctx context.Context, sdkCtx sdk.Context, env *environ
 }
 
 func orderMatchingRunnable(ctx context.Context, sdkContext sdk.Context, env *environment, keeper *keeper.Keeper, contractInfo types.ContractInfoV2, tracer *otrace.Tracer) {
+	_, span := (*tracer).Start(ctx, "DEBUGorderMatchingRunnableInner")
+	defer span.End()
 	defer func() {
 		if channel, ok := env.executionTerminationSignals.Load(contractInfo.ContractAddr); ok {
 			_, err := logging.LogIfNotDoneAfter(sdkContext.Logger(), func() (struct{}, error) {
