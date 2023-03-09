@@ -46,9 +46,13 @@ const (
 )
 
 func NewEventManager() *EventManager {
-	return &EventManager{
-		events: EmptyEvents(),
+	em := EventManager{
+		mtx: sync.RWMutex{},
 	}
+	em.mtx.Lock()
+	defer em.mtx.Unlock()
+	em.events = EmptyEvents()
+	return &em
 }
 
 func (em *EventManager) Events() Events { return em.events }
