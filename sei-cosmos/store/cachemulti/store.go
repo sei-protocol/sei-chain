@@ -144,13 +144,18 @@ func (cms Store) Write() {
 	}
 }
 
-// Write calls Write on each underlying store.
 func (cms Store) GetEvents() []abci.Event {
 	events := []abci.Event{}
 	for _, store := range cms.stores {
 		events = append(events, store.GetEvents()...)
 	}
 	return events
+}
+
+func (cms Store) ResetEvents() {
+	for _, store := range cms.stores {
+		store.ResetEvents()
+	}
 }
 
 // Implements CacheWrapper.

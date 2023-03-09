@@ -196,6 +196,10 @@ func (rs *Store) GetEvents() []abci.Event {
 	panic("getevents should not be called on the root multi store")
 }
 
+func (rs *Store) ResetEvents() {
+	panic("reset events should not be called on the root multi store")
+}
+
 // LoadLatestVersionAndUpgrade implements CommitMultiStore
 func (rs *Store) LoadLatestVersionAndUpgrade(upgrades *types.StoreUpgrades) error {
 	ver := GetLatestVersion(rs.db)

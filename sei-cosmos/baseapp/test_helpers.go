@@ -17,6 +17,9 @@ func (app *BaseApp) Check(txEncoder sdk.TxEncoder, tx sdk.Tx) (sdk.GasInfo, *sdk
 	}
 	ctx := app.checkState.ctx.WithTxBytes(bz).WithVoteInfos(app.voteInfos).WithConsensusParams(app.GetConsensusParams(app.checkState.ctx))
 	gasInfo, result, _, _, err := app.runTx(ctx, runTxModeCheck, bz)
+	if len(ctx.MultiStore().GetEvents()) > 0 {
+		panic("Expected checkTx events to be empty")
+	}
 	return gasInfo, result, err
 }
 
@@ -24,6 +27,9 @@ func (app *BaseApp) Simulate(txBytes []byte) (sdk.GasInfo, *sdk.Result, error) {
 	ctx := app.checkState.ctx.WithTxBytes(txBytes).WithVoteInfos(app.voteInfos).WithConsensusParams(app.GetConsensusParams(app.checkState.ctx))
 	ctx, _ = ctx.CacheContext()
 	gasInfo, result, _, _, err := app.runTx(ctx, runTxModeSimulate, txBytes)
+	if len(ctx.MultiStore().GetEvents()) > 0 {
+		panic("Expected simulate events to be empty")
+	}
 	return gasInfo, result, err
 }
 
@@ -35,6 +41,10 @@ func (app *BaseApp) Deliver(txEncoder sdk.TxEncoder, tx sdk.Tx) (sdk.GasInfo, *s
 	}
 	ctx := app.deliverState.ctx.WithTxBytes(bz).WithVoteInfos(app.voteInfos).WithConsensusParams(app.GetConsensusParams(app.deliverState.ctx))
 	gasInfo, result, _, _, err := app.runTx(ctx, runTxModeDeliver, bz)
+
+	if len(ctx.MultiStore().GetEvents()) > 0 {
+		panic("Expected deliverTx events to be empty")
+	}
 	return gasInfo, result, err
 }
 

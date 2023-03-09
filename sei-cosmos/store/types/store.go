@@ -142,6 +142,9 @@ type MultiStore interface {
 
 	// Returns Events Emitted from the internal event manager
 	GetEvents() []abci.Event
+
+	// Resets the tracked event list
+	ResetEvents()
 }
 
 // From MultiStore.CacheMultiStore()....
@@ -257,6 +260,9 @@ type CacheKVStore interface {
 
 	// Returns Events Emitted from the internal event manager
 	GetEvents() []abci.Event
+
+	// Resets the tracked event list
+	ResetEvents()
 }
 
 // CommitKVStore is an interface for MultiStore.
@@ -277,6 +283,9 @@ type CacheWrap interface {
 	Write()
 
 	GetEvents() []abci.Event
+
+	// Resets the tracked event list
+	ResetEvents()
 
 	// CacheWrap recursively wraps again.
 	CacheWrap(storeKey StoreKey) CacheWrap

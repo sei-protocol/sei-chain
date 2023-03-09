@@ -92,6 +92,11 @@ func (store *Store) GetEvents() []abci.Event {
 	return store.eventManager.ABCIEvents()
 }
 
+// Implements Store
+func (store *Store) ResetEvents() {
+	store.eventManager = sdktypes.NewEventManager()
+}
+
 // GetStoreType implements Store.
 func (store *Store) GetStoreType() types.StoreType {
 	return store.parent.GetStoreType()

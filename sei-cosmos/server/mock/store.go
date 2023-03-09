@@ -113,8 +113,11 @@ func (ms multiStore) GetStore(key sdk.StoreKey) sdk.Store {
 	panic("not implemented")
 }
 
-// GetStores returns mounted stores
 func (ms multiStore) GetEvents() []abci.Event {
+	panic("not implemented")
+}
+
+func (ms multiStore) ResetEvents() {
 	panic("not implemented")
 }
 
