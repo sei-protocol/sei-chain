@@ -407,20 +407,20 @@ func (t *ImmutableTree) getRangeProof(keyStart, keyEnd []byte, limit int) (proof
 		// first or last leaf), which provides proof of absence).
 		err = nil
 	}
-	startOK := keyStart == nil || bytes.Compare(keyStart, left.key) <= 0
-	endOK := keyEnd == nil || bytes.Compare(left.key, keyEnd) < 0
+	startOK := keyStart == nil || bytes.Compare(keyStart, left.GetNodeKey()) <= 0
+	endOK := keyEnd == nil || bytes.Compare(left.GetNodeKey(), keyEnd) < 0
 	// If left.key is in range, add it to key/values.
 	if startOK && endOK {
-		keys = append(keys, left.key) // == keyStart
-		values = append(values, left.value)
+		keys = append(keys, left.GetNodeKey()) // == keyStart
+		values = append(values, left.GetValue())
 	}
 
-	h := sha256.Sum256(left.value)
+	h := sha256.Sum256(left.GetValue())
 	var leaves = []ProofLeafNode{
 		{
-			Key:       left.key,
+			Key:       left.GetNodeKey(),
 			ValueHash: h[:],
-			Version:   left.version,
+			Version:   left.GetVersion(),
 		},
 	}
 
@@ -429,7 +429,7 @@ func (t *ImmutableTree) getRangeProof(keyStart, keyEnd []byte, limit int) (proof
 	_stop := false
 	if limit == 1 {
 		_stop = true // case 1
-	} else if keyEnd != nil && bytes.Compare(cpIncr(left.key), keyEnd) >= 0 {
+	} else if keyEnd != nil && bytes.Compare(cpIncr(left.GetNodeKey()), keyEnd) >= 0 {
 		_stop = true // case 2
 	}
 	if _stop {
@@ -440,7 +440,7 @@ func (t *ImmutableTree) getRangeProof(keyStart, keyEnd []byte, limit int) (proof
 	}
 
 	// Get the key after left.key to iterate from.
-	afterLeft := cpIncr(left.key)
+	afterLeft := cpIncr(left.GetNodeKey())
 
 	// Traverse starting from afterLeft, until keyEnd or the next leaf
 	// after keyEnd.
@@ -460,9 +460,9 @@ func (t *ImmutableTree) getRangeProof(keyStart, keyEnd []byte, limit int) (proof
 					pathCount = -1
 				} else {
 					pn := path[pathCount]
-					if pn.Height != node.height ||
-						pn.Left != nil && !bytes.Equal(pn.Left, node.leftHash) ||
-						pn.Right != nil && !bytes.Equal(pn.Right, node.rightHash) {
+					if pn.Height != node.GetHeight() ||
+						pn.Left != nil && !bytes.Equal(pn.Left, node.GetLeftHash()) ||
+						pn.Right != nil && !bytes.Equal(pn.Right, node.GetRightHash()) {
 
 						// We've diverged, so start appending to allPathToLeaf.
 						pathCount = -1
@@ -472,17 +472,17 @@ func (t *ImmutableTree) getRangeProof(keyStart, keyEnd []byte, limit int) (proof
 				}
 			}
 
-			if node.height == 0 { // Leaf node
+			if node.GetHeight() == 0 { // Leaf node
 				// Append all paths that we tracked so far to get to this leaf node.
 				allPathToLeafs = append(allPathToLeafs, currentPathToLeaf)
 				// Start a new one to track as we traverse the tree.
 				currentPathToLeaf = PathToLeaf(nil)
 
-				h := sha256.Sum256(node.value)
+				h := sha256.Sum256(node.GetValue())
 				leaves = append(leaves, ProofLeafNode{
-					Key:       node.key,
+					Key:       node.GetNodeKey(),
 					ValueHash: h[:],
-					Version:   node.version,
+					Version:   node.GetVersion(),
 				})
 
 				leafCount++
@@ -493,17 +493,17 @@ func (t *ImmutableTree) getRangeProof(keyStart, keyEnd []byte, limit int) (proof
 				}
 
 				// Terminate if we've found keyEnd or after.
-				if keyEnd != nil && bytes.Compare(node.key, keyEnd) >= 0 {
+				if keyEnd != nil && bytes.Compare(node.GetNodeKey(), keyEnd) >= 0 {
 					return true
 				}
 
 				// Value is in range, append to keys and values.
-				keys = append(keys, node.key)
-				values = append(values, node.value)
+				keys = append(keys, node.GetNodeKey())
+				values = append(values, node.GetValue())
 
 				// Terminate if we've found keyEnd-1 or after.
 				// We don't want to fetch any leaves for it.
-				if keyEnd != nil && bytes.Compare(cpIncr(node.key), keyEnd) >= 0 {
+				if keyEnd != nil && bytes.Compare(cpIncr(node.GetNodeKey()), keyEnd) >= 0 {
 					return true
 				}
 
@@ -515,11 +515,11 @@ func (t *ImmutableTree) getRangeProof(keyStart, keyEnd []byte, limit int) (proof
 				// and don't need to store unnecessary info as we only need to go down the right
 				// path.
 				currentPathToLeaf = append(currentPathToLeaf, ProofInnerNode{
-					Height:  node.height,
-					Size:    node.size,
-					Version: node.version,
+					Height:  node.GetHeight(),
+					Size:    node.GetSize(),
+					Version: node.GetVersion(),
 					Left:    nil,
-					Right:   node.rightHash,
+					Right:   node.GetRightHash(),
 				})
 			}
 			return false
