@@ -11,6 +11,7 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/sei-protocol/sei-chain/x/nitro/types"
 	"github.com/stretchr/testify/require"
+	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 )
 
 func testAccount() *types.Account {
@@ -59,7 +60,7 @@ func testTransaction() types.TransactionData {
 }
 
 func TestReplay(t *testing.T) {
-	ctx := sdk.Context{}.WithBlockHeight(1)
+	ctx := sdk.NewContext(nil, tmproto.Header{}, false, nil).WithBlockHeight(1)
 	tx := testTransaction()
 	txbz, _ := tx.Marshal()
 	_, err := Replay(ctx, [][]byte{txbz}, []*types.Account{}, []*types.Account{testAccount()}, []*types.Account{})

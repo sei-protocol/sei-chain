@@ -13,9 +13,11 @@ import (
 	"github.com/sei-protocol/sei-chain/x/dex/types"
 	dexutils "github.com/sei-protocol/sei-chain/x/dex/utils"
 	"github.com/stretchr/testify/require"
+	"github.com/tendermint/tendermint/libs/log"
+	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 )
 
-var TestFuzzMarketCtx = sdk.Context{}
+var TestFuzzMarketCtx = sdk.NewContext(nil, tmproto.Header{}, false, log.NewNopLogger())
 
 func FuzzMatchMarketOrders(f *testing.F) {
 	f.Fuzz(fuzzTargetMatchMarketOrders)

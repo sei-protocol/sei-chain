@@ -9,6 +9,7 @@ import (
 	"github.com/sei-protocol/sei-chain/x/oracle"
 	oracletypes "github.com/sei-protocol/sei-chain/x/oracle/types"
 	"github.com/stretchr/testify/require"
+	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 )
 
 func TestOracleVoteAloneAnteHandler(t *testing.T) {
@@ -32,7 +33,7 @@ func TestOracleVoteAloneAnteHandler(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			_, err := anteHandler(sdk.Context{}, tc.tx, false)
+			_, err := anteHandler(sdk.NewContext(nil, tmproto.Header{}, false, nil), tc.tx, false)
 			if tc.expErr {
 				require.Error(t, err)
 			} else {

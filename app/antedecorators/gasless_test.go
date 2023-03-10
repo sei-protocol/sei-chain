@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/cosmos/cosmos-sdk/store"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/types/accesscontrol"
 	"github.com/cosmos/cosmos-sdk/x/staking"
@@ -16,6 +17,9 @@ import (
 	oracletypes "github.com/sei-protocol/sei-chain/x/oracle/types"
 	"github.com/stretchr/testify/require"
 	"github.com/tendermint/tendermint/crypto/secp256k1"
+	"github.com/tendermint/tendermint/libs/log"
+	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
+	tmdb "github.com/tendermint/tm-db"
 )
 
 var output = ""
@@ -118,7 +122,12 @@ func TestGaslessDecorator(t *testing.T) {
 		FakeAnteDecoratorThree{},
 	}
 	chainedHandler, depGen := sdk.ChainAnteDecorators(anteDecorators...)
-	_, err := chainedHandler(sdk.Context{}, FakeTx{}, false)
+
+	db := tmdb.NewMemDB()
+	stateStore := store.NewCommitMultiStore(db)
+	ctx := sdk.NewContext(stateStore, tmproto.Header{}, false, log.NewNopLogger())
+
+	_, err := chainedHandler(ctx, FakeTx{}, false)
 	require.NoError(t, err)
 	require.Equal(t, "onetwothree", output)
 	_, err = depGen([]accesscontrol.AccessOperation{}, FakeTx{})
@@ -171,7 +180,7 @@ func TestDexPlaceOrderGasless(t *testing.T) {
 	// this needs to be updated if its changed from constant true
 	// reset gasless
 	gasless = true
-	err := CallGaslessDecoratorWithMsg(sdk.Context{}, &types.MsgPlaceOrders{}, oraclekeeper.Keeper{}, nitrokeeper.Keeper{})
+	err := CallGaslessDecoratorWithMsg(sdk.NewContext(nil, tmproto.Header{}, false, nil), &types.MsgPlaceOrders{}, oraclekeeper.Keeper{}, nitrokeeper.Keeper{})
 	require.NoError(t, err)
 	require.True(t, gasless)
 }
@@ -193,14 +202,14 @@ func TestDexCancelOrderGasless(t *testing.T) {
 	// not whitelisted
 	// reset gasless
 	gasless = true
-	err := CallGaslessDecoratorWithMsg(sdk.Context{}, &cancelMsg1, oraclekeeper.Keeper{}, nitrokeeper.Keeper{})
+	err := CallGaslessDecoratorWithMsg(sdk.NewContext(nil, tmproto.Header{}, false, nil), &cancelMsg1, oraclekeeper.Keeper{}, nitrokeeper.Keeper{})
 	require.NoError(t, err)
 	require.False(t, gasless)
 
 	// whitelisted
 	// reset gasless
 	gasless = true
-	err = CallGaslessDecoratorWithMsg(sdk.Context{}, &cancelMsg2, oraclekeeper.Keeper{}, nitrokeeper.Keeper{})
+	err = CallGaslessDecoratorWithMsg(sdk.NewContext(nil, tmproto.Header{}, false, nil), &cancelMsg2, oraclekeeper.Keeper{}, nitrokeeper.Keeper{})
 	require.NoError(t, err)
 	require.True(t, gasless)
 }
@@ -239,7 +248,7 @@ func TestNonGaslessMsg(t *testing.T) {
 	// this needs to be updated if its changed from constant true
 	// reset gasless
 	gasless = true
-	err := CallGaslessDecoratorWithMsg(sdk.Context{}, &types.MsgRegisterContract{}, oraclekeeper.Keeper{}, nitrokeeper.Keeper{})
+	err := CallGaslessDecoratorWithMsg(sdk.NewContext(nil, tmproto.Header{}, false, nil), &types.MsgRegisterContract{}, oraclekeeper.Keeper{}, nitrokeeper.Keeper{})
 	require.NoError(t, err)
 	require.False(t, gasless)
 }
