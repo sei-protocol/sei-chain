@@ -11,40 +11,40 @@ import (
 )
 
 func (app *App) BeginBlock(ctx sdk.Context, req abci.RequestBeginBlock) (res abci.ResponseBeginBlock) {
-	tracectx, topSpan := (*app.tracingInfo.Tracer).Start(context.Background(), "Block")
+	tracectx, topSpan := app.tracingInfo.Start("Block")
 	topSpan.SetAttributes(attribute.Int64("height", req.Header.Height))
 	app.tracingInfo.BlockSpan = &topSpan
-	app.tracingInfo.TracerContext = tracectx
-	_, beginBlockSpan := (*app.tracingInfo.Tracer).Start(app.tracingInfo.TracerContext, "BeginBlock")
+	app.tracingInfo.SetContext(tracectx)
+	_, beginBlockSpan := (*app.tracingInfo.Tracer).Start(app.tracingInfo.GetContext(), "BeginBlock")
 	defer beginBlockSpan.End()
 	return app.BaseApp.BeginBlock(ctx, req)
 }
 
 func (app *App) MidBlock(ctx sdk.Context, height int64) []abci.Event {
-	_, span := (*app.tracingInfo.Tracer).Start(app.tracingInfo.TracerContext, "MidBlock")
+	_, span := app.tracingInfo.Start("MidBlock")
 	defer span.End()
 	return app.BaseApp.MidBlock(ctx, height)
 }
 
 func (app *App) EndBlock(ctx sdk.Context, req abci.RequestEndBlock) (res abci.ResponseEndBlock) {
-	_, span := (*app.tracingInfo.Tracer).Start(app.tracingInfo.TracerContext, "EndBlock")
+	_, span := app.tracingInfo.Start("EndBlock")
 	defer span.End()
 	return app.BaseApp.EndBlock(ctx, req)
 }
 
 func (app *App) CheckTx(ctx context.Context, req *abci.RequestCheckTx) (*abci.ResponseCheckTx, error) {
-	_, span := (*app.tracingInfo.Tracer).Start(app.tracingInfo.TracerContext, "CheckTx")
+	_, span := app.tracingInfo.Start("CheckTx")
 	defer span.End()
 	return app.BaseApp.CheckTx(ctx, req)
 }
 
 func (app *App) DeliverTx(ctx sdk.Context, req abci.RequestDeliverTx) abci.ResponseDeliverTx {
 	defer metrics.MeasureDeliverTxDuration(time.Now())
-	tracectx, span := (*app.tracingInfo.Tracer).Start(app.tracingInfo.TracerContext, "DeliverTx")
-	oldCtx := app.tracingInfo.TracerContext
-	app.tracingInfo.TracerContext = tracectx
+	tracectx, span := app.tracingInfo.Start("DeliverTx")
+	oldCtx := app.tracingInfo.GetContext()
+	app.tracingInfo.SetContext(tracectx)
 	defer span.End()
-	defer func() { app.tracingInfo.TracerContext = oldCtx }()
+	defer func() { app.tracingInfo.SetContext(oldCtx) }()
 	return app.BaseApp.DeliverTx(ctx, req)
 }
 
@@ -52,9 +52,9 @@ func (app *App) Commit(ctx context.Context) (res *abci.ResponseCommit, err error
 	if app.tracingInfo.BlockSpan != nil {
 		defer (*app.tracingInfo.BlockSpan).End()
 	}
-	_, span := (*app.tracingInfo.Tracer).Start(app.tracingInfo.TracerContext, "Commit")
+	_, span := app.tracingInfo.Start("Commit")
 	defer span.End()
-	app.tracingInfo.TracerContext = context.Background()
+	app.tracingInfo.SetContext(context.Background())
 	app.tracingInfo.BlockSpan = nil
 	return app.BaseApp.Commit(ctx)
 }

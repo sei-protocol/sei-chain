@@ -2,6 +2,7 @@ package tracing
 
 import (
 	"context"
+	"sync"
 
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/exporters/jaeger"
@@ -46,6 +47,29 @@ func GetTracerProviderOptions(url string) ([]trace.TracerProviderOption, error) 
 
 type Info struct {
 	Tracer        *otrace.Tracer
-	TracerContext context.Context
+	tracerContext context.Context
 	BlockSpan     *otrace.Span
+
+	mtx sync.RWMutex
+}
+
+func (i *Info) Start(name string) (context.Context, otrace.Span) {
+	i.mtx.Lock()
+	defer i.mtx.Unlock()
+	if i.tracerContext == nil {
+		i.tracerContext = context.Background()
+	}
+	return (*i.Tracer).Start(i.tracerContext, "DeliverTx")
+}
+
+func (i *Info) GetContext() context.Context {
+	i.mtx.RLock()
+	defer i.mtx.RUnlock()
+	return i.tracerContext
+}
+
+func (i *Info) SetContext(c context.Context) {
+	i.mtx.Lock()
+	defer i.mtx.Unlock()
+	i.tracerContext = c
 }
