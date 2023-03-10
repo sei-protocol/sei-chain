@@ -3,7 +3,6 @@ package iavl
 import (
 	"fmt"
 	"strings"
-	"sync"
 
 	dbm "github.com/tendermint/tm-db"
 )
@@ -19,7 +18,6 @@ type ImmutableTree struct {
 	ndb                    *nodeDB
 	version                int64
 	skipFastStorageUpgrade bool
-	mtx                    *sync.Mutex
 }
 
 // NewImmutableTree creates both in-memory and persistent instances
@@ -32,7 +30,6 @@ func NewImmutableTree(db dbm.DB, cacheSize int, skipFastStorageUpgrade bool) *Im
 		// NodeDB-backed Tree.
 		ndb:                    newNodeDB(db, cacheSize, nil),
 		skipFastStorageUpgrade: skipFastStorageUpgrade,
-		mtx:                    &sync.Mutex{},
 	}
 }
 
@@ -42,7 +39,6 @@ func NewImmutableTreeWithOpts(db dbm.DB, cacheSize int, opts *Options, skipFastS
 		// NodeDB-backed Tree.
 		ndb:                    newNodeDB(db, cacheSize, opts),
 		skipFastStorageUpgrade: skipFastStorageUpgrade,
-		mtx:                    &sync.Mutex{},
 	}
 }
 
@@ -322,7 +318,6 @@ func (t *ImmutableTree) clone() *ImmutableTree {
 		ndb:                    t.ndb,
 		version:                t.version,
 		skipFastStorageUpgrade: t.skipFastStorageUpgrade,
-		mtx:                    t.mtx,
 	}
 }
 
