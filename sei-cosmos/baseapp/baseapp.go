@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"reflect"
 	"strings"
+	"sync"
 
 	"github.com/gogo/protobuf/proto"
 	sdbm "github.com/sei-protocol/sei-tm-db/backends"
@@ -471,6 +472,7 @@ func (app *BaseApp) setCheckState(header tmproto.Header) {
 	app.checkState = &state{
 		ms:  ms,
 		ctx: sdk.NewContext(ms, header, true, app.logger).WithMinGasPrices(app.minGasPrices),
+		mtx: &sync.RWMutex{},
 	}
 }
 
@@ -483,6 +485,7 @@ func (app *BaseApp) setDeliverState(header tmproto.Header) {
 	app.deliverState = &state{
 		ms:  ms,
 		ctx: sdk.NewContext(ms, header, false, app.logger),
+		mtx: &sync.RWMutex{},
 	}
 }
 
@@ -491,6 +494,7 @@ func (app *BaseApp) setPrepareProposalState(header tmproto.Header) {
 	app.prepareProposalState = &state{
 		ms:  ms,
 		ctx: sdk.NewContext(ms, header, false, app.logger),
+		mtx: &sync.RWMutex{},
 	}
 }
 
@@ -499,6 +503,7 @@ func (app *BaseApp) setProcessProposalState(header tmproto.Header) {
 	app.processProposalState = &state{
 		ms:  ms,
 		ctx: sdk.NewContext(ms, header, false, app.logger),
+		mtx: &sync.RWMutex{},
 	}
 }
 

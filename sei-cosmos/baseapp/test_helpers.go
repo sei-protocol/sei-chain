@@ -1,10 +1,9 @@
 package baseapp
 
 import (
-	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
-
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
+	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 )
 
 func (app *BaseApp) Check(txEncoder sdk.TxEncoder, tx sdk.Tx) (sdk.GasInfo, *sdk.Result, error) {

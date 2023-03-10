@@ -3,6 +3,7 @@ package module_test
 import (
 	"encoding/json"
 	"errors"
+	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 	"testing"
 
 	"github.com/cosmos/cosmos-sdk/codec/types"
@@ -260,7 +261,7 @@ func TestManager_BeginBlock(t *testing.T) {
 
 	mockAppModule1.EXPECT().BeginBlock(gomock.Any(), gomock.Eq(req)).Times(1)
 	mockAppModule2.EXPECT().BeginBlock(gomock.Any(), gomock.Eq(req)).Times(1)
-	mm.BeginBlock(sdk.Context{}, req)
+	mm.BeginBlock(sdk.NewContext(nil, tmproto.Header{}, false, nil), req)
 }
 
 func TestManager_MidBlock(t *testing.T) {
@@ -280,7 +281,7 @@ func TestManager_MidBlock(t *testing.T) {
 
 	mockAppModule1.EXPECT().MidBlock(gomock.Any(), gomock.Eq(height)).Times(1)
 	mockAppModule2.EXPECT().MidBlock(gomock.Any(), gomock.Eq(height)).Times(1)
-	mm.MidBlock(sdk.Context{}, height)
+	mm.MidBlock(sdk.NewContext(nil, tmproto.Header{}, false, nil), height)
 }
 
 func TestManager_EndBlock(t *testing.T) {
@@ -299,11 +300,11 @@ func TestManager_EndBlock(t *testing.T) {
 
 	mockAppModule1.EXPECT().EndBlock(gomock.Any(), gomock.Eq(req)).Times(1).Return([]abci.ValidatorUpdate{{}})
 	mockAppModule2.EXPECT().EndBlock(gomock.Any(), gomock.Eq(req)).Times(1)
-	ret := mm.EndBlock(sdk.Context{}, req)
+	ret := mm.EndBlock(sdk.NewContext(nil, tmproto.Header{}, false, nil), req)
 	require.Equal(t, []abci.ValidatorUpdate{{}}, ret.ValidatorUpdates)
 
 	// test panic
 	mockAppModule1.EXPECT().EndBlock(gomock.Any(), gomock.Eq(req)).Times(1).Return([]abci.ValidatorUpdate{{}})
 	mockAppModule2.EXPECT().EndBlock(gomock.Any(), gomock.Eq(req)).Times(1).Return([]abci.ValidatorUpdate{{}})
-	require.Panics(t, func() { mm.EndBlock(sdk.Context{}, req) })
+	require.Panics(t, func() { mm.EndBlock(sdk.NewContext(nil, tmproto.Header{}, false, nil), req) })
 }

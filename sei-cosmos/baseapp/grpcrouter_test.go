@@ -2,6 +2,7 @@ package baseapp_test
 
 import (
 	"context"
+	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -23,7 +24,7 @@ func TestGRPCGatewayRouter(t *testing.T) {
 	testdata.RegisterQueryServer(qr, testdata.QueryImpl{})
 	helper := &baseapp.QueryServiceTestHelper{
 		GRPCQueryRouter: qr,
-		Ctx:             sdk.Context{}.WithContext(context.Background()),
+		Ctx:             sdk.NewContext(nil, tmproto.Header{}, false, nil).WithContext(context.Background()),
 	}
 	client := testdata.NewQueryClient(helper)
 

@@ -3,6 +3,7 @@ package types_test
 import (
 	"encoding/hex"
 	"fmt"
+	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 	"strings"
 	"testing"
 
@@ -214,7 +215,7 @@ func (s *resultTestSuite) TestResponseFormatBroadcastTxCommit() {
 }
 
 func TestWrapServiceResult(t *testing.T) {
-	ctx := sdk.Context{}
+	ctx := sdk.NewContext(nil, tmproto.Header{}, false, nil)
 
 	res, err := sdk.WrapServiceResult(ctx, nil, fmt.Errorf("test"))
 	require.Nil(t, res)

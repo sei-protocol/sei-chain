@@ -2,6 +2,7 @@ package types_test
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -146,10 +147,13 @@ func (s *contextTestSuite) TestContextHeader() {
 
 	ctx = types.NewContext(nil, tmproto.Header{}, false, nil)
 
+	fmt.Printf("Start ctx\n")
+
 	ctx = ctx.
 		WithBlockHeight(height).
 		WithBlockTime(time).
 		WithProposer(proposer)
+	fmt.Printf("Finished ctx\n")
 	s.Require().Equal(height, ctx.BlockHeight())
 	s.Require().Equal(height, ctx.BlockHeader().Height)
 	s.Require().Equal(time.UTC(), ctx.BlockHeader().Time)

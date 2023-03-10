@@ -1031,9 +1031,7 @@ func (app *BaseApp) FinalizeBlock(ctx context.Context, req *abci.RequestFinalize
 	// we also set block gas meter to checkState in case the application needs to
 	// verify gas consumption during (Re)CheckTx
 	if app.checkState != nil {
-		app.checkState.ctx = app.checkState.ctx.
-			WithBlockGasMeter(gasMeter).
-			WithHeaderHash(req.Hash)
+		app.checkState.SetContext(app.checkState.ctx.WithBlockGasMeter(gasMeter).WithHeaderHash(req.Hash))
 	}
 
 	if app.finalizeBlocker != nil {
