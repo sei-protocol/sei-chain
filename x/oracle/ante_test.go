@@ -9,6 +9,7 @@ import (
 	"github.com/sei-protocol/sei-chain/x/oracle"
 	oracletypes "github.com/sei-protocol/sei-chain/x/oracle/types"
 	"github.com/stretchr/testify/require"
+	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 )
 
 func TestOracleVoteAloneAnteHandler(t *testing.T) {
