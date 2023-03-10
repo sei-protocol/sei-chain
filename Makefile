@@ -66,7 +66,7 @@ BUILD_FLAGS := -tags "$(build_tags)" -ldflags '$(ldflags)'
 all: lint install
 
 install: go.sum
-		go installe $(BUILD_FLAGS) ./cmd/seid
+		go install $(BUILD_FLAGS) ./cmd/seid
 
 # In case when running seid fails with nitro issue or if you make changes to nitro, please use install-all
 install-all: build-nitro install
