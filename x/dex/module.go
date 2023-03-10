@@ -226,7 +226,7 @@ func (am AppModule) getAllContractInfo(ctx sdk.Context) []types.ContractInfoV2 {
 // BeginBlock executes all ABCI BeginBlock logic respective to the capability module.
 func (am AppModule) BeginBlock(ctx sdk.Context, _ abci.RequestBeginBlock) {
 	defer func() {
-		_, span := (*am.tracingInfo.Tracer).Start(am.tracingInfo.TracerContext, "DexBeginBlockRollback")
+		_, span := am.tracingInfo.Start("DexBeginBlockRollback")
 		defer span.End()
 	}()
 
@@ -245,7 +245,7 @@ func (am AppModule) BeginBlock(ctx sdk.Context, _ abci.RequestBeginBlock) {
 }
 
 func (am AppModule) beginBlockForContract(ctx sdk.Context, contract types.ContractInfoV2, epoch int64, gasLimit uint64) {
-	_, span := (*am.tracingInfo.Tracer).Start(am.tracingInfo.TracerContext, "DexBeginBlock")
+	_, span := am.tracingInfo.Start("DexBeginBlock")
 	contractAddr := contract.ContractAddr
 	span.SetAttributes(attribute.String("contract", contractAddr))
 	defer span.End()
@@ -271,7 +271,7 @@ func (am AppModule) beginBlockForContract(ctx sdk.Context, contract types.Contra
 // EndBlock executes all ABCI EndBlock logic respective to the capability module. It
 // returns no validator updates.
 func (am AppModule) EndBlock(ctx sdk.Context, _ abci.RequestEndBlock) (ret []abci.ValidatorUpdate) {
-	_, span := (*am.tracingInfo.Tracer).Start(am.tracingInfo.TracerContext, "DexEndBlock")
+	_, span := am.tracingInfo.Start("DexEndBlock")
 	defer span.End()
 	defer dexutils.GetMemState(ctx.Context()).Clear(ctx)
 

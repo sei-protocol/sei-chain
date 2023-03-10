@@ -398,12 +398,12 @@ func New(
 		tkeys:             tkeys,
 		memKeys:           memKeys,
 		tracingInfo: &tracing.Info{
-			Tracer:        &tr,
-			TracerContext: context.Background(),
+			Tracer: &tr,
 		},
 		txDecoder:   encodingConfig.TxConfig.TxDecoder(),
 		versionInfo: version.NewInfo(),
 	}
+	app.tracingInfo.SetContext(context.Background())
 
 	app.ParamsKeeper = initParamsKeeper(appCodec, cdc, keys[paramstypes.StoreKey], tkeys[paramstypes.TStoreKey])
 
