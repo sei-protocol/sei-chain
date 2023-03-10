@@ -41,10 +41,6 @@ func (app *BaseApp) Deliver(txEncoder sdk.TxEncoder, tx sdk.Tx) (sdk.GasInfo, *s
 	}
 	ctx := app.deliverState.ctx.WithTxBytes(bz).WithVoteInfos(app.voteInfos).WithConsensusParams(app.GetConsensusParams(app.deliverState.ctx))
 	gasInfo, result, _, _, err := app.runTx(ctx, runTxModeDeliver, bz)
-
-	if len(ctx.MultiStore().GetEvents()) > 0 {
-		panic("Expected deliverTx events to be empty")
-	}
 	return gasInfo, result, err
 }
 

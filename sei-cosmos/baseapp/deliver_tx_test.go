@@ -269,6 +269,8 @@ func TestBaseApp_EndBlock(t *testing.T) {
 	app.setDeliverState(tmproto.Header{})
 	app.deliverState.ctx = app.deliverState.ctx.WithBlockGasMeter(sdk.NewInfiniteGasMeter())
 	res := app.EndBlock(app.deliverState.ctx, abci.RequestEndBlock{})
+	require.Empty(t, app.deliverState.ctx.MultiStore().GetEvents())
+
 	require.Len(t, res.GetValidatorUpdates(), 1)
 	require.Equal(t, int64(100), res.GetValidatorUpdates()[0].Power)
 	require.Equal(t, cp.Block.MaxGas, res.ConsensusParamUpdates.Block.MaxGas)
@@ -551,6 +553,8 @@ func TestSimulateTx(t *testing.T) {
 		require.True(t, bytes.Equal(result.Data, simRes.Result.Data))
 
 		app.EndBlock(app.deliverState.ctx, abci.RequestEndBlock{})
+		require.Empty(t, app.deliverState.ctx.MultiStore().GetEvents())
+
 		app.SetDeliverStateToCommit()
 		app.Commit(context.Background())
 	}
@@ -972,6 +976,8 @@ func TestBaseAppAnteHandler(t *testing.T) {
 
 	// commit
 	app.EndBlock(app.deliverState.ctx, abci.RequestEndBlock{})
+	require.Empty(t, app.deliverState.ctx.MultiStore().GetEvents())
+
 	app.SetDeliverStateToCommit()
 	app.Commit(context.Background())
 }
@@ -1467,6 +1473,8 @@ func TestCheckTx(t *testing.T) {
 	require.NotEmpty(t, app.checkState.ctx.HeaderHash())
 
 	app.EndBlock(app.deliverState.ctx, abci.RequestEndBlock{})
+	require.Empty(t, app.deliverState.ctx.MultiStore().GetEvents())
+
 	app.SetDeliverStateToCommit()
 	app.Commit(context.Background())
 
@@ -1521,6 +1529,7 @@ func TestDeliverTx(t *testing.T) {
 		}
 
 		app.EndBlock(app.deliverState.ctx, abci.RequestEndBlock{})
+		require.Empty(t, app.deliverState.ctx.MultiStore().GetEvents())
 		app.SetDeliverStateToCommit()
 		app.Commit(context.Background())
 	}
@@ -1724,6 +1733,8 @@ func setupBaseAppWithSnapshots(t *testing.T, blocks uint, blockTxs int, options 
 			require.True(t, resp.IsOK(), "%v", resp.String())
 		}
 		app.EndBlock(app.deliverState.ctx, abci.RequestEndBlock{Height: height})
+		require.Empty(t, app.deliverState.ctx.MultiStore().GetEvents())
+
 		app.SetDeliverStateToCommit()
 		app.Commit(context.Background())
 

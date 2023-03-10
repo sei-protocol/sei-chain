@@ -179,6 +179,9 @@ func (app *BaseApp) MidBlock(ctx sdk.Context, height int64) (events []abci.Event
 
 // EndBlock implements the ABCI interface.
 func (app *BaseApp) EndBlock(ctx sdk.Context, req abci.RequestEndBlock) (res abci.ResponseEndBlock) {
+	// Clear DeliverTx Events
+	ctx.MultiStore().ResetEvents()
+
 	defer telemetry.MeasureSince(time.Now(), "abci", "end_block")
 
 	if app.endBlocker != nil {
