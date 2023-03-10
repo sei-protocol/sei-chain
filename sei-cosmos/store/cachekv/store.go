@@ -94,6 +94,8 @@ func (store *Store) GetEvents() []abci.Event {
 
 // Implements Store
 func (store *Store) ResetEvents() {
+	store.mtx.Lock()
+	defer store.mtx.Unlock()
 	store.eventManager = sdktypes.NewEventManager()
 }
 
