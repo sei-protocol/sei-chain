@@ -180,7 +180,7 @@ func TestDexPlaceOrderGasless(t *testing.T) {
 	// this needs to be updated if its changed from constant true
 	// reset gasless
 	gasless = true
-	err := CallGaslessDecoratorWithMsg(sdk.Context{}, &types.MsgPlaceOrders{}, oraclekeeper.Keeper{}, nitrokeeper.Keeper{})
+	err := CallGaslessDecoratorWithMsg(sdk.NewContext(nil, tmproto.Header{}, false, nil), &types.MsgPlaceOrders{}, oraclekeeper.Keeper{}, nitrokeeper.Keeper{})
 	require.NoError(t, err)
 	require.True(t, gasless)
 }
@@ -202,14 +202,14 @@ func TestDexCancelOrderGasless(t *testing.T) {
 	// not whitelisted
 	// reset gasless
 	gasless = true
-	err := CallGaslessDecoratorWithMsg(sdk.Context{}, &cancelMsg1, oraclekeeper.Keeper{}, nitrokeeper.Keeper{})
+	err := CallGaslessDecoratorWithMsg(sdk.NewContext(nil, tmproto.Header{}, false, nil), &cancelMsg1, oraclekeeper.Keeper{}, nitrokeeper.Keeper{})
 	require.NoError(t, err)
 	require.False(t, gasless)
 
 	// whitelisted
 	// reset gasless
 	gasless = true
-	err = CallGaslessDecoratorWithMsg(sdk.Context{}, &cancelMsg2, oraclekeeper.Keeper{}, nitrokeeper.Keeper{})
+	err = CallGaslessDecoratorWithMsg(sdk.NewContext(nil, tmproto.Header{}, false, nil), &cancelMsg2, oraclekeeper.Keeper{}, nitrokeeper.Keeper{})
 	require.NoError(t, err)
 	require.True(t, gasless)
 }
@@ -248,7 +248,7 @@ func TestNonGaslessMsg(t *testing.T) {
 	// this needs to be updated if its changed from constant true
 	// reset gasless
 	gasless = true
-	err := CallGaslessDecoratorWithMsg(sdk.Context{}, &types.MsgRegisterContract{}, oraclekeeper.Keeper{}, nitrokeeper.Keeper{})
+	err := CallGaslessDecoratorWithMsg(sdk.NewContext(nil, tmproto.Header{}, false, nil), &types.MsgRegisterContract{}, oraclekeeper.Keeper{}, nitrokeeper.Keeper{})
 	require.NoError(t, err)
 	require.False(t, gasless)
 }

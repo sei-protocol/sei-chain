@@ -4,7 +4,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/cosmos/cosmos-sdk/store"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/sei-protocol/sei-chain/testutil/fuzzing"
 	keepertest "github.com/sei-protocol/sei-chain/testutil/keeper"
@@ -14,13 +13,9 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/tendermint/tendermint/libs/log"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
-	tmdb "github.com/tendermint/tm-db"
 )
 
-var db = tmdb.NewMemDB()
-var stateStore = store.NewCommitMultiStore(db)
-var ctx = sdk.NewContext(stateStore, tmproto.Header{}, false, log.NewNopLogger())
-var TestFuzzSettleCtx = sdk.NewContext(stateStore, tmproto.Header{}, false, log.NewNopLogger())
+var TestFuzzSettleCtx = sdk.NewContext(nil, tmproto.Header{}, false, log.NewNopLogger())
 
 func FuzzSettleMarketOrder(f *testing.F) {
 	TestFuzzSettleCtx = TestFuzzSettleCtx.WithBlockHeight(1).WithBlockTime(time.Now())

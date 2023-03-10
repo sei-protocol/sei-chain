@@ -59,7 +59,7 @@ func testTransaction() types.TransactionData {
 }
 
 func TestReplay(t *testing.T) {
-	ctx := sdk.Context{}.WithBlockHeight(1)
+	ctx := sdk.NewContext(nil, tmproto.Header{}, false, nil).WithBlockHeight(1)
 	tx := testTransaction()
 	txbz, _ := tx.Marshal()
 	_, err := Replay(ctx, [][]byte{txbz}, []*types.Account{}, []*types.Account{testAccount()}, []*types.Account{})

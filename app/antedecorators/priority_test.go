@@ -10,6 +10,7 @@ import (
 	"github.com/sei-protocol/sei-chain/x/dex/types"
 	oracletypes "github.com/sei-protocol/sei-chain/x/oracle/types"
 	"github.com/stretchr/testify/require"
+	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 )
 
 func TestPriorityAnteDecorator(t *testing.T) {
@@ -17,7 +18,7 @@ func TestPriorityAnteDecorator(t *testing.T) {
 	anteDecorators := []sdk.AnteFullDecorator{
 		sdk.DefaultWrappedAnteDecorator(antedecorators.NewPriorityDecorator()),
 	}
-	ctx := sdk.Context{}
+	ctx := sdk.NewContext(nil, tmproto.Header{}, false, nil)
 	chainedHandler, _ := sdk.ChainAnteDecorators(anteDecorators...)
 	// test with normal priority
 	newCtx, err := chainedHandler(
@@ -34,7 +35,7 @@ func TestPriorityAnteDecoratorTooHighPriority(t *testing.T) {
 	anteDecorators := []sdk.AnteFullDecorator{
 		sdk.DefaultWrappedAnteDecorator(antedecorators.NewPriorityDecorator()),
 	}
-	ctx := sdk.Context{}
+	ctx := sdk.NewContext(nil, tmproto.Header{}, false, nil)
 	chainedHandler, _ := sdk.ChainAnteDecorators(anteDecorators...)
 	// test with too high priority, should be auto capped
 	newCtx, err := chainedHandler(
@@ -55,7 +56,7 @@ func TestPriorityAnteDecoratorOracleMsg(t *testing.T) {
 	anteDecorators := []sdk.AnteFullDecorator{
 		sdk.DefaultWrappedAnteDecorator(antedecorators.NewPriorityDecorator()),
 	}
-	ctx := sdk.Context{}
+	ctx := sdk.NewContext(nil, tmproto.Header{}, false, nil)
 	chainedHandler, _ := sdk.ChainAnteDecorators(anteDecorators...)
 	// test with zero priority, should be bumped up to oracle priority
 	newCtx, err := chainedHandler(

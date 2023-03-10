@@ -15,7 +15,7 @@ import (
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 )
 
-var TestFuzzLimitCtx = sdk.NewContext(stateStore, tmproto.Header{}, false, log.NewNopLogger())
+var TestFuzzLimitCtx = sdk.NewContext(nil, tmproto.Header{}, false, log.NewNopLogger())
 
 func FuzzMatchLimitOrders(f *testing.F) {
 	TestFuzzLimitCtx = TestFuzzLimitCtx.WithBlockHeight(1).WithBlockTime(time.Now())

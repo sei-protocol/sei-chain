@@ -7,6 +7,7 @@ import (
 	"github.com/sei-protocol/sei-chain/app/antedecorators"
 	"github.com/sei-protocol/sei-chain/utils"
 	"github.com/stretchr/testify/require"
+	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 )
 
 func TestTracedDecorator(t *testing.T) {
@@ -20,6 +21,6 @@ func TestTracedDecorator(t *testing.T) {
 		return sdk.DefaultWrappedAnteDecorator(antedecorators.NewTracedAnteDecorator(d, nil))
 	})
 	chainedHandler, _ := sdk.ChainAnteDecorators(tracedDecorators...)
-	chainedHandler(sdk.Context{}, FakeTx{}, false)
+	chainedHandler(sdk.NewContext(nil, tmproto.Header{}, false, nil), FakeTx{}, false)
 	require.Equal(t, "onetwothree", output)
 }
