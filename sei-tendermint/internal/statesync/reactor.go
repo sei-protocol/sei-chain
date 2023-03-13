@@ -70,6 +70,9 @@ const (
 	// maxLightBlockRequestRetries is the amount of retries acceptable before
 	// the backfill process aborts
 	maxLightBlockRequestRetries = 20
+
+	// How long to wait when there's no available epers to restart the router
+	restartNoAvailablePeersWindow = 10 * time.Minute
 )
 
 func GetSnapshotChannelDescriptor() *p2p.ChannelDescriptor {
@@ -180,6 +183,11 @@ type Reactor struct {
 	chunkChannel      *p2p.Channel
 	lightBlockChannel *p2p.Channel
 	paramsChannel     *p2p.Channel
+
+	// keep track of the last time we saw no available peers, so we can restart if it's been too long
+	lastNoAvailablePeers time.Time
+	// a way to signal we should restart router b/c p2p is flaky
+	restartCh chan struct{}
 }
 
 // NewReactor returns a reference to a new state sync reactor, which implements
@@ -200,6 +208,7 @@ func NewReactor(
 	eventBus *eventbus.EventBus,
 	postSyncHook func(context.Context, sm.State) error,
 	needsStateSync bool,
+	restartCh chan struct{},
 ) *Reactor {
 	r := &Reactor{
 		logger:         logger,
@@ -217,6 +226,8 @@ func NewReactor(
 		eventBus:       eventBus,
 		postSyncHook:   postSyncHook,
 		needsStateSync: needsStateSync,
+		lastNoAvailablePeers: time.Time{},
+		restartCh:		restartCh,
 	}
 
 	r.BaseService = *service.NewBaseService(logger, "StateSync", r)
@@ -968,17 +979,28 @@ func (r *Reactor) processPeerUpdate(ctx context.Context, peerUpdate p2p.PeerUpda
 			peerUpdate.Channels.Contains(ParamsChannel) {
 
 			r.peers.Append(peerUpdate.NodeID)
-
 		} else {
-			r.logger.Error("could not use peer for statesync", "peer", peerUpdate.NodeID)
+			r.logger.Error("could not use peer for statesync (removing)", "peer", peerUpdate.NodeID)
+			r.peers.Remove(peerUpdate.NodeID)
 		}
-
 	case p2p.PeerStatusDown:
 		r.peers.Remove(peerUpdate.NodeID)
 	}
 
 	r.mtx.Lock()
 	defer r.mtx.Unlock()
+
+	if r.peers.Len() == 0 {
+		if r.lastNoAvailablePeers.IsZero() {
+			r.lastNoAvailablePeers = time.Now()
+		} else if time.Since(r.lastNoAvailablePeers) > restartNoAvailablePeersWindow {
+			r.logger.Error("no available peers left for statesync (restarting router)")
+			r.restartCh <- struct{}{}
+		}
+	} else {
+		// Reset
+		r.lastNoAvailablePeers = time.Time{}
+	}
 
 	if r.syncer == nil {
 		return

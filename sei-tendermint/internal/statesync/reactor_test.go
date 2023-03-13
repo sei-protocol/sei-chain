@@ -149,6 +149,7 @@ func setup(
 		nil,   // eventbus can be nil
 		nil,   // post-sync-hook
 		false, // run Sync during Start()
+		make(chan struct{}),
 	)
 	rts.reactor.SetSnapshotChannel(rts.snapshotChannel)
 	rts.reactor.SetChunkChannel(rts.chunkChannel)

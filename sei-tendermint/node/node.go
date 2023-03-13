@@ -402,6 +402,7 @@ func makeNode(
 			return nil
 		},
 		stateSync,
+		restartCh,
 	)
 	node.shouldStateSync = stateSync
 	node.services = append(node.services, ssReactor)
