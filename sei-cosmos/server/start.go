@@ -17,6 +17,7 @@ import (
 	"github.com/tendermint/tendermint/libs/service"
 	"github.com/tendermint/tendermint/node"
 	"github.com/tendermint/tendermint/rpc/client/local"
+	tmtypes "github.com/tendermint/tendermint/types"
 	"go.opentelemetry.io/otel/sdk/trace"
 	"google.golang.org/grpc"
 
@@ -157,6 +158,11 @@ is performed. Note, when enabled, gRPC will also be automatically enabled.
 			}
 			serverCtx.Viper.Set(flags.FlagChainID, chainID)
 
+			genesisFile, _ := tmtypes.GenesisDocFromFile(serverCtx.Config.GenesisFile())
+			if genesisFile.ChainID != clientCtx.ChainID {
+				panic(fmt.Sprintf("genesis file chain-id=%s does not equal config.toml chain-id=%s", genesisFile.ChainID, clientCtx.ChainID))
+			}
+
 			withTM, _ := cmd.Flags().GetBool(flagWithTendermint)
 			if !withTM {
 				serverCtx.Logger.Info("starting ABCI without Tendermint")
@@ -266,7 +272,6 @@ func startInProcess(ctx *Context, clientCtx client.Context, appCreator types.App
 	goCtx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	var cpuProfileCleanup func()
-
 	if cpuProfile := ctx.Viper.GetString(flagCPUProfile); cpuProfile != "" {
 		f, err := os.Create(cpuProfile)
 		if err != nil {
@@ -356,7 +361,6 @@ func startInProcess(ctx *Context, clientCtx client.Context, appCreator types.App
 	var apiSrv *api.Server
 	if config.API.Enable {
 		clientCtx := clientCtx.WithHomeDir(home).WithChainID(clientCtx.ChainID)
-
 		apiSrv = api.New(clientCtx, ctx.Logger.With("module", "api-server"))
 		app.RegisterAPIRoutes(apiSrv, config.API)
 		errCh := make(chan error)
