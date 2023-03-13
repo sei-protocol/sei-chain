@@ -32,7 +32,6 @@ func GetQueryCmd() *cobra.Command {
 		GetCmdQueryParams(),
 		GetCmdQueryFeederDelegation(),
 		GetCmdQueryVotePenaltyCounter(),
-		GetCmdQueryAggregateVote(),
 		GetCmdQueryVoteTargets(),
 	)
 
@@ -282,62 +281,6 @@ $ seid query oracle miss seivaloper...
 			res, err := queryClient.VotePenaltyCounter(
 				context.Background(),
 				&types.QueryVotePenaltyCounterRequest{ValidatorAddr: validator.String()},
-			)
-			if err != nil {
-				return err
-			}
-
-			return clientCtx.PrintProto(res)
-		},
-	}
-
-	flags.AddQueryFlagsToCmd(cmd)
-	return cmd
-}
-
-// GetCmdQueryAggregateVote implements the query aggregate vote of the validator command
-func GetCmdQueryAggregateVote() *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   "aggregate-votes [validator]",
-		Args:  cobra.RangeArgs(0, 1),
-		Short: "Query outstanding oracle aggregate votes.",
-		Long: strings.TrimSpace(`
-Query outstanding oracle aggregate vote.
-
-$ seid query oracle aggregate-votes
-
-Or, can filter with voter address
-
-$ seid query oracle aggregate-votes terravaloper...
-`),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			clientCtx, err := client.GetClientQueryContext(cmd)
-			if err != nil {
-				return err
-			}
-			queryClient := types.NewQueryClient(clientCtx)
-
-			if len(args) == 0 {
-				res, err := queryClient.AggregateVotes(
-					context.Background(),
-					&types.QueryAggregateVotesRequest{},
-				)
-				if err != nil {
-					return err
-				}
-
-				return clientCtx.PrintProto(res)
-			}
-
-			valString := args[0]
-			validator, err := sdk.ValAddressFromBech32(valString)
-			if err != nil {
-				return err
-			}
-
-			res, err := queryClient.AggregateVote(
-				context.Background(),
-				&types.QueryAggregateVoteRequest{ValidatorAddr: validator.String()},
 			)
 			if err != nil {
 				return err
