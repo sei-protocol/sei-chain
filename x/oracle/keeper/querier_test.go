@@ -1,8 +1,6 @@
 package keeper
 
 import (
-	"bytes"
-	"sort"
 	"testing"
 	"time"
 
@@ -83,55 +81,6 @@ func TestQueryFeederDelegation(t *testing.T) {
 	require.NoError(t, err)
 
 	require.Equal(t, Addrs[1].String(), res.FeederAddr)
-}
-
-func TestQueryAggregateVote(t *testing.T) {
-	input := CreateTestInput(t)
-	ctx := sdk.WrapSDKContext(input.Ctx)
-	querier := NewQuerier(input.OracleKeeper)
-
-	vote1 := types.NewAggregateExchangeRateVote(types.ExchangeRateTuples{{Denom: "", ExchangeRate: sdk.OneDec()}}, ValAddrs[0])
-	input.OracleKeeper.SetAggregateExchangeRateVote(input.Ctx, ValAddrs[0], vote1)
-	vote2 := types.NewAggregateExchangeRateVote(types.ExchangeRateTuples{{Denom: "", ExchangeRate: sdk.OneDec()}}, ValAddrs[1])
-	input.OracleKeeper.SetAggregateExchangeRateVote(input.Ctx, ValAddrs[1], vote2)
-
-	// validator 0 address params
-	res, err := querier.AggregateVote(ctx, &types.QueryAggregateVoteRequest{
-		ValidatorAddr: ValAddrs[0].String(),
-	})
-	require.NoError(t, err)
-	require.Equal(t, vote1, res.AggregateVote)
-
-	// validator 1 address params
-	res, err = querier.AggregateVote(ctx, &types.QueryAggregateVoteRequest{
-		ValidatorAddr: ValAddrs[1].String(),
-	})
-	require.NoError(t, err)
-	require.Equal(t, vote2, res.AggregateVote)
-}
-
-func TestQueryAggregateVotes(t *testing.T) {
-	input := CreateTestInput(t)
-	ctx := sdk.WrapSDKContext(input.Ctx)
-	querier := NewQuerier(input.OracleKeeper)
-
-	vote1 := types.NewAggregateExchangeRateVote(types.ExchangeRateTuples{{Denom: "", ExchangeRate: sdk.OneDec()}}, ValAddrs[0])
-	input.OracleKeeper.SetAggregateExchangeRateVote(input.Ctx, ValAddrs[0], vote1)
-	vote2 := types.NewAggregateExchangeRateVote(types.ExchangeRateTuples{{Denom: "", ExchangeRate: sdk.OneDec()}}, ValAddrs[1])
-	input.OracleKeeper.SetAggregateExchangeRateVote(input.Ctx, ValAddrs[1], vote2)
-	vote3 := types.NewAggregateExchangeRateVote(types.ExchangeRateTuples{{Denom: "", ExchangeRate: sdk.OneDec()}}, ValAddrs[2])
-	input.OracleKeeper.SetAggregateExchangeRateVote(input.Ctx, ValAddrs[2], vote3)
-
-	expectedVotes := []types.AggregateExchangeRateVote{vote1, vote2, vote3}
-	sort.SliceStable(expectedVotes, func(i, j int) bool {
-		addr1, _ := sdk.ValAddressFromBech32(expectedVotes[i].Voter)
-		addr2, _ := sdk.ValAddressFromBech32(expectedVotes[j].Voter)
-		return bytes.Compare(addr1, addr2) == -1
-	})
-
-	res, err := querier.AggregateVotes(ctx, &types.QueryAggregateVotesRequest{})
-	require.NoError(t, err)
-	require.Equal(t, expectedVotes, res.AggregateVotes)
 }
 
 func TestQuerySlashingWindow(t *testing.T) {

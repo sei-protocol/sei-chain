@@ -48,16 +48,6 @@ service Query {
     option (google.api.http).get = "/sei-protocol/sei-chain/oracle/validators/{validator_addr}/vote_penalty_counter";
   }
 
-  // AggregateVote returns an aggregate vote of a validator
-  rpc AggregateVote(QueryAggregateVoteRequest) returns (QueryAggregateVoteResponse) {
-    option (google.api.http).get = "/sei-protocol/sei-chain/oracle/validators/{validator_addr}/aggregate_vote";
-  }
-
-  // AggregateVotes returns aggregate votes of all validators
-  rpc AggregateVotes(QueryAggregateVotesRequest) returns (QueryAggregateVotesResponse) {
-    option (google.api.http).get = "/sei-protocol/sei-chain/oracle/validators/aggregate_votes";
-  }
-
   // SlashWindow returns slash window information
   rpc SlashWindow(QuerySlashWindowRequest) returns (QuerySlashWindowResponse) {
     option (google.api.http).get =
@@ -174,32 +164,6 @@ message QueryVotePenaltyCounterRequest {
 // Query/VotePenaltyCounter RPC method.
 message QueryVotePenaltyCounterResponse {
   VotePenaltyCounter vote_penalty_counter = 1;
-}
-
-// QueryAggregateVoteRequest is the request type for the Query/AggregateVote RPC method.
-message QueryAggregateVoteRequest {
-  option (gogoproto.equal)           = false;
-  option (gogoproto.goproto_getters) = false;
-
-  // validator defines the validator address to query for.
-  string validator_addr = 1;
-}
-
-// QueryAggregateVoteResponse is response type for the
-// Query/AggregateVote RPC method.
-message QueryAggregateVoteResponse {
-  // aggregate_vote defines oracle aggregate vote submitted by a validator in the current vote period
-  AggregateExchangeRateVote aggregate_vote = 1 [(gogoproto.nullable) = false];
-}
-
-// QueryAggregateVotesRequest is the request type for the Query/AggregateVotes RPC method.
-message QueryAggregateVotesRequest {}
-
-// QueryAggregateVotesResponse is response type for the
-// Query/AggregateVotes RPC method.
-message QueryAggregateVotesResponse {
-  // aggregate_votes defines all oracle aggregate votes submitted in the current vote period
-  repeated AggregateExchangeRateVote aggregate_votes = 1 [(gogoproto.nullable) = false];
 }
 
 // QuerySlashWindow is the request type for the
