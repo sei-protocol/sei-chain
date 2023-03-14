@@ -53,7 +53,7 @@ func LoadStore(db dbm.DB, logger log.Logger, key types.StoreKey, id types.Commit
 func LoadStoreWithInitialVersion(db dbm.DB, logger log.Logger, key types.StoreKey, id types.CommitID, lazyLoading bool, initialVersion uint64, cacheSize int, disableFastNode bool) (types.CommitKVStore, error) {
 	tree, err := iavl.NewMutableTreeWithOpts(db, cacheSize, &iavl.Options{
 		InitialVersion: initialVersion,
-		Sync:           true,
+		Sync:           false,
 	}, disableFastNode)
 	if err != nil {
 		return nil, err
