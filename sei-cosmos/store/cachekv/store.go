@@ -138,6 +138,8 @@ func (store *Store) Set(key []byte, value []byte) {
 // Has implements types.KVStore.
 func (store *Store) Has(key []byte) bool {
 	value := store.Get(key)
+	store.mtx.Lock()
+	defer store.mtx.Unlock()
 	store.eventManager.EmitResourceAccessReadEvent("has", store.storeKey, key, value)
 	return value != nil
 }

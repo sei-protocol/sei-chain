@@ -48,6 +48,7 @@ type Store struct {
 	logger              log.Logger
 	archivalDb          dbm.DB
 	lastCommitInfo      *types.CommitInfo
+	lastCommitInfoMtx   sync.RWMutex
 	pruningOpts         types.PruningOptions
 	iavlCacheSize       int
 	iavlDisableFastNode bool
@@ -418,6 +419,8 @@ func (rs *Store) ListeningEnabled(key types.StoreKey) bool {
 
 // LastCommitID implements Committer/CommitStore.
 func (rs *Store) LastCommitID() types.CommitID {
+	rs.lastCommitInfoMtx.RLock()
+	defer rs.lastCommitInfoMtx.RUnlock()
 	if rs.lastCommitInfo == nil {
 		return types.CommitID{
 			Version: GetLatestVersion(rs.db),
@@ -467,7 +470,9 @@ func (rs *Store) Commit(bumpVersion bool) types.CommitID {
 		version = rs.lastCommitInfo.GetVersion()
 	}
 
+	rs.lastCommitInfoMtx.Lock()
 	rs.lastCommitInfo = commitStores(version, rs.stores, bumpVersion)
+	rs.lastCommitInfoMtx.Unlock()
 	defer rs.flushMetadata(rs.db, version, rs.lastCommitInfo)
 
 	// Determine if pruneHeight height needs to be added to the list of heights to

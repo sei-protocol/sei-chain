@@ -327,10 +327,7 @@ func (app *BaseApp) Commit(ctx context.Context) (res *abci.ResponseCommit, err e
 	app.setCheckState(header)
 
 	// empty/reset the deliver state
-	app.prepareProposalState = nil
-	app.processProposalState = nil
-	app.deliverState = nil
-	app.stateToCommit = nil
+	app.resetStatesExceptCheckState()
 
 	var halt bool
 
@@ -678,9 +675,10 @@ func (app *BaseApp) createQueryContext(height int64, prove bool) (sdk.Context, e
 			)
 	}
 
+	checkStateCtx := app.checkState.Context()
 	// branch the commit-multistore for safety
 	ctx := sdk.NewContext(
-		cacheMS, app.checkState.ctx.BlockHeader(), true, app.logger,
+		cacheMS, checkStateCtx.BlockHeader(), true, app.logger,
 	).WithMinGasPrices(app.minGasPrices).WithBlockHeight(height)
 
 	return ctx, nil
@@ -922,13 +920,10 @@ func (app *BaseApp) PrepareProposal(ctx context.Context, req *abci.RequestPrepar
 	} else {
 		// In the first block, app.prepareProposalState.ctx will already be initialized
 		// by InitChain. Context is now updated with Header information.
-		app.prepareProposalState.ctx = app.prepareProposalState.ctx.
-			WithBlockHeader(header)
+		app.setPrepareProposalHeader(header)
 	}
 
-	if app.prepareProposalState.ms.TracingEnabled() {
-		app.prepareProposalState.ms = app.prepareProposalState.ms.SetTracingContext(nil).(sdk.CacheMultiStore)
-	}
+	app.preparePrepareProposalState()
 
 	if app.prepareProposalHandler != nil {
 		res, err := app.prepareProposalHandler(app.prepareProposalState.ctx, req)
@@ -953,8 +948,7 @@ func (app *BaseApp) ProcessProposal(ctx context.Context, req *abci.RequestProces
 	} else {
 		// In the first block, app.processProposalState.ctx will already be initialized
 		// by InitChain. Context is now updated with Header information.
-		app.processProposalState.ctx = app.processProposalState.ctx.
-			WithBlockHeader(header)
+		app.setProcessProposalHeader(header)
 	}
 
 	// add block gas meter
@@ -967,14 +961,7 @@ func (app *BaseApp) ProcessProposal(ctx context.Context, req *abci.RequestProces
 
 	// NOTE: header hash is not set in NewContext, so we manually set it here
 
-	app.processProposalState.ctx = app.processProposalState.ctx.
-		WithBlockGasMeter(gasMeter).
-		WithHeaderHash(req.Hash).
-		WithConsensusParams(app.GetConsensusParams(app.processProposalState.ctx))
-
-	if app.processProposalState.ms.TracingEnabled() {
-		app.processProposalState.ms = app.processProposalState.ms.SetTracingContext(nil).(sdk.CacheMultiStore)
-	}
+	app.prepareProcessProposalState(gasMeter, req.Hash)
 
 	if app.processProposalHandler != nil {
 		res, err := app.processProposalHandler(app.processProposalState.ctx, req)
@@ -1008,9 +995,7 @@ func (app *BaseApp) FinalizeBlock(ctx context.Context, req *abci.RequestFinalize
 	} else {
 		// In the first block, app.deliverState.ctx will already be initialized
 		// by InitChain. Context is now updated with Header information.
-		app.deliverState.ctx = app.deliverState.ctx.
-			WithBlockHeader(header).
-			WithBlockHeight(header.Height)
+		app.setDeliverStateHeader(header)
 	}
 
 	// add block gas meter
@@ -1023,10 +1008,7 @@ func (app *BaseApp) FinalizeBlock(ctx context.Context, req *abci.RequestFinalize
 
 	// NOTE: header hash is not set in NewContext, so we manually set it here
 
-	app.deliverState.ctx = app.deliverState.ctx.
-		WithBlockGasMeter(gasMeter).
-		WithHeaderHash(req.Hash).
-		WithConsensusParams(app.GetConsensusParams(app.deliverState.ctx))
+	app.prepareDeliverState(gasMeter, req.Hash)
 
 	// we also set block gas meter to checkState in case the application needs to
 	// verify gas consumption during (Re)CheckTx
@@ -1041,7 +1023,7 @@ func (app *BaseApp) FinalizeBlock(ctx context.Context, req *abci.RequestFinalize
 		}
 		res.Events = sdk.MarkEventsToIndex(res.Events, app.indexEvents)
 		// set the signed validators for addition to context in deliverTx
-		app.voteInfos = req.DecidedLastCommit.GetVotes()
+		app.setVotesInfo(req.DecidedLastCommit.GetVotes())
 
 		return res, nil
 	} else {
