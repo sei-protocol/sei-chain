@@ -2,6 +2,7 @@ package utils
 
 import (
 	"sort"
+	"sync"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/sei-protocol/sei-chain/utils/datastructures"
@@ -30,6 +31,27 @@ func PopulateOrderbook(
 			DirtyEntries: datastructures.NewTypedSyncMap[string, types.OrderBookEntry](),
 		},
 	}
+}
+
+func PopulateAllOrderbooks(
+	ctx sdk.Context,
+	keeper *keeper.Keeper,
+	contractsAndPairs map[string][]types.Pair,
+) *datastructures.TypedNestedSyncMap[string, dextypesutils.PairString, *types.OrderBook] {
+	var orderBooks = datastructures.NewTypedNestedSyncMap[string, dextypesutils.PairString, *types.OrderBook]()
+	wg := sync.WaitGroup{}
+	for contractAddr, pairs := range contractsAndPairs {
+		for _, pair := range pairs {
+			wg.Add(1)
+			go func(contractAddr string, pair types.Pair) {
+				defer wg.Done()
+				orderBook := PopulateOrderbook(ctx, keeper, dextypesutils.ContractAddress(contractAddr), pair)
+				orderBooks.StoreNested(contractAddr, dextypesutils.GetPairString(&pair), orderBook)
+			}(contractAddr, pair)
+		}
+	}
+	wg.Wait()
+	return orderBooks
 }
 
 func sortOrderBookEntries(entries []types.OrderBookEntry) {
