@@ -50,16 +50,3 @@ func (h sha256trunc) Size() int {
 func (h sha256trunc) BlockSize() int {
 	return h.sha256.BlockSize()
 }
-
-// NewTruncated returns a new hash.Hash.
-func NewTruncated() hash.Hash {
-	return sha256trunc{
-		sha256: sha256.New(),
-	}
-}
-
-// SumTruncated returns the first 20 bytes of SHA256 of the bz.
-func SumTruncated(bz []byte) []byte {
-	hash := sha256.Sum256(bz)
-	return hash[:TruncatedSize]
-}

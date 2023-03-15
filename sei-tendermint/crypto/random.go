@@ -2,7 +2,6 @@ package crypto
 
 import (
 	"crypto/rand"
-	"encoding/hex"
 	"io"
 )
 
@@ -14,10 +13,6 @@ func CRandBytes(numBytes int) []byte {
 		panic(err)
 	}
 	return b
-}
-
-func CRandHex(numDigits int) string {
-	return hex.EncodeToString(CRandBytes(numDigits / 2))
 }
 
 // Returns a crand.Reader.
