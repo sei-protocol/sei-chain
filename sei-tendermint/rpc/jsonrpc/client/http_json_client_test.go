@@ -86,7 +86,7 @@ func Test_parsedURL(t *testing.T) {
 }
 
 func TestMakeHTTPDialerURL(t *testing.T) {
-	remotes := []string{"https://foo-bar.com", "http://foo-bar.com"}
+	remotes := []string{"https://google.com", "http://google.com"}
 
 	for _, remote := range remotes {
 		u, err := newParsedURL(remote)
@@ -95,11 +95,12 @@ func TestMakeHTTPDialerURL(t *testing.T) {
 		require.NoError(t, err)
 
 		addr, err := dialFn(u.Scheme, u.GetHostWithPath())
+
 		require.NoError(t, err)
 		require.NotNil(t, addr)
 	}
 
-	errorURLs := []string{"tcp://foo-bar.com", "ftp://foo-bar.com"}
+	errorURLs := []string{"tcp://google.com", "ftp://google.com"}
 
 	for _, errorURL := range errorURLs {
 		u, err := newParsedURL(errorURL)
