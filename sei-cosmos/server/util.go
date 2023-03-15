@@ -19,6 +19,8 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 	"github.com/spf13/viper"
+	"github.com/tendermint/tendermint/cmd/tendermint/commands"
+	"github.com/tendermint/tendermint/cmd/tendermint/commands/debug"
 	tmcfg "github.com/tendermint/tendermint/config"
 	tmlog "github.com/tendermint/tendermint/libs/log"
 	dbm "github.com/tendermint/tm-db"
@@ -276,11 +278,32 @@ func AddCommands(
 		Short: "Tendermint subcommands",
 	}
 
+	conf, err := commands.ParseConfig(tmcfg.DefaultConfig())
+	if err != nil {
+		panic(err)
+	}
+
+	logger, err := tmlog.NewDefaultLogger(conf.LogFormat, conf.LogLevel)
+	if err != nil {
+		panic(err)
+	}
 	tendermintCmd.AddCommand(
 		ShowNodeIDCmd(),
 		ShowValidatorCmd(),
 		ShowAddressCmd(),
 		VersionCmd(),
+		commands.MakeGenValidatorCommand(),
+		commands.MakeReindexEventCommand(conf, logger),
+		commands.MakeLightCommand(conf, logger),
+		commands.MakeReplayCommand(conf, logger),
+		commands.MakeReplayConsoleCommand(conf, logger),
+		commands.MakeResetCommand(conf, logger),
+		commands.MakeUnsafeResetAllCommand(conf, logger),
+		commands.GenNodeKeyCmd,
+		commands.MakeInspectCommand(conf, logger),
+		commands.MakeKeyMigrateCommand(conf, logger),
+		debug.GetDebugCommand(logger),
+		commands.NewCompletionCmd(tendermintCmd, true),
 	)
 
 	startCmd := StartCmd(appCreator, defaultNodeHome, tracerProviderOptions)
