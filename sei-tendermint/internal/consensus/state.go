@@ -2149,7 +2149,6 @@ func (cs *State) finalizeCommit(ctx context.Context, height int64) {
 		} else {
 			cs.blockStore.SaveBlock(block, blockParts, seenExtendedCommit.ToCommit())
 		}
-		storeBlockSpan.End()
 	} else {
 		// Happens during replay if we already saved the block but didn't commit
 		logger.Debug("calling finalizeCommit on already stored block", "height", block.Height)
