@@ -100,6 +100,9 @@ func (r *Reactor) OnStart(ctx context.Context) error {
 		r.logger.Info("tx broadcasting is disabled")
 	}
 
+	if r.channel == nil {
+		return errors.New("mempool channel is not set")
+	}
 	go r.processMempoolCh(ctx, r.channel)
 	go r.processPeerUpdates(ctx, r.peerEvents(ctx), r.channel)
 
