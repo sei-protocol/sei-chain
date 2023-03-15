@@ -5,10 +5,15 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/gogo/protobuf/proto"
 	"github.com/spf13/cobra"
 
 	"github.com/cosmos/cosmos-sdk/client"
 	"github.com/cosmos/cosmos-sdk/client/flags"
+	"github.com/cosmos/cosmos-sdk/crypto/keys/ed25519"
+	"github.com/cosmos/cosmos-sdk/crypto/keys/secp256k1"
+	"github.com/cosmos/cosmos-sdk/crypto/keys/secp256r1"
+	"github.com/cosmos/cosmos-sdk/crypto/keys/sr25519"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/version"
 	"github.com/cosmos/cosmos-sdk/x/staking/types"
@@ -39,6 +44,7 @@ func GetQueryCmd() *cobra.Command {
 		GetCmdQueryHistoricalInfo(),
 		GetCmdQueryParams(),
 		GetCmdQueryPool(),
+		GetCmdQueryHexAddress(),
 	)
 
 	return stakingQueryCmd
@@ -128,6 +134,87 @@ $ %s query staking validators
 
 	flags.AddQueryFlagsToCmd(cmd)
 	flags.AddPaginationFlagsToCmd(cmd, "validators")
+
+	return cmd
+}
+// GetCmdQueryHexAddress returns the validator that matches the hex address
+func GetCmdQueryHexAddress() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "hex-address",
+		Short: "Query validator that matches the Tendermint hex address representation of a validator",
+		Args: cobra.ExactArgs(1),
+		Long: strings.TrimSpace(
+			fmt.Sprintf(`Query details about matches a hex byte representation of a validator
+
+Example:
+$ %s query staking hex-address A0F18FCE3DA235FE18845CDD50302A44A5CD9A3C
+`,
+				version.AppName,
+			),
+		),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			clientCtx, err := client.GetClientQueryContext(cmd)
+			if err != nil {
+				return err
+			}
+			queryClient := types.NewQueryClient(clientCtx)
+			pageReq, err := client.ReadPageRequest(cmd.Flags())
+			if err != nil {
+				return err
+			}
+
+			result, err := queryClient.Validators(cmd.Context(), &types.QueryValidatorsRequest{
+				Pagination: pageReq,
+			})
+			if err != nil {
+				return err
+			}
+
+			hexAddr, err := sdk.ConsAddressFromHex(args[0])
+			if err != nil {
+				return err
+			}
+
+			for _, val := range result.Validators {
+				pk := val.ConsensusPubkey
+				var valConsAddr sdk.ConsAddress
+				// Based on type URL, do different decoding
+				scp256r1Type, _ := secp256r1.GenPrivKey()
+
+				switch {
+				case strings.Contains(pk.TypeUrl, ed25519.GenPrivKey().PubKey().Type()):
+					actualPk := &ed25519.PubKey{}
+					proto.Unmarshal(pk.Value, actualPk)
+					valConsAddr = sdk.ConsAddress(actualPk.Address())
+				case strings.Contains(pk.TypeUrl, sr25519.GenPrivKey().PubKey().Type()):
+					actualPk := &sr25519.PubKey{}
+					proto.Unmarshal(pk.Value, actualPk)
+					valConsAddr = sdk.ConsAddress(actualPk.Address())
+				case strings.Contains(pk.TypeUrl, secp256k1.GenPrivKey().PubKey().Type()):
+					actualPk := &secp256k1.PubKey{}
+					proto.Unmarshal(pk.Value, actualPk)
+					valConsAddr = sdk.ConsAddress(actualPk.Address())
+				case strings.Contains(pk.TypeUrl, scp256r1Type.PubKey().Type()):
+					actualPk := &secp256r1.PubKey{}
+					proto.Unmarshal(pk.Value, actualPk)
+					valConsAddr = sdk.ConsAddress(actualPk.Address())
+				default:
+					return fmt.Errorf("invalid key type found=%s", pk.TypeUrl)
+				}
+
+				if valConsAddr.Equals(hexAddr) {
+					res := types.QueryValidatorResponse{Validator: val}
+					clientCtx.PrintProto(&res)
+					return nil
+				}
+
+			}
+			return fmt.Errorf("validator with hex-address=%s and acc address=%s does not exist", args[0], hexAddr.String())
+		},
+	}
+
+	flags.AddQueryFlagsToCmd(cmd)
+	flags.AddPaginationFlagsToCmd(cmd, "hex-address")
 
 	return cmd
 }
