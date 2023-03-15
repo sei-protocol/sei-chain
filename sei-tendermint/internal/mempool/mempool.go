@@ -375,7 +375,7 @@ func (txmp *TxMempool) ReapMaxBytesMaxGas(maxBytes, maxGas int64) types.Txs {
 	}()
 
 	txs := make([]types.Tx, 0, txmp.priorityIndex.NumTxs())
-	if txmp.Size() < txmp.config.TxNotifyThreshold {
+	if txmp.Size() < int(txmp.config.TxNotifyThreshold) {
 		// do not reap anything if threshold is not met
 		return txs
 	}

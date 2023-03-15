@@ -780,7 +780,7 @@ type MempoolConfig struct {
 
 	// TxNotifyThreshold, if non-zero, defines the minimum number of transactions
 	// needed to trigger a notification in mempool's Tx notifier
-	TxNotifyThreshold int `mapstructure:"tx-notify-threshold"`
+	TxNotifyThreshold uint64 `mapstructure:"tx-notify-threshold"`
 
 	// If a peer has sent more transactions failing CheckTx than this threshold,
 	// blacklist the peer.
