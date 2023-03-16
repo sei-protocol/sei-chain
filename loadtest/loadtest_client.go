@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"google.golang.org/grpc/credentials/insecure"
 	"os"
 	"path/filepath"
 	"strings"
@@ -49,7 +50,7 @@ func NewLoadTestClient(config Config) *LoadTestClient {
 	if config.TLS {
 		dialOptions = append(dialOptions, grpc.WithTransportCredentials(credentials.NewTLS(&tls.Config{InsecureSkipVerify: true}))) //nolint:gosec // Use insecure skip verify.
 	} else {
-		dialOptions = append(dialOptions, grpc.WithInsecure())
+		dialOptions = append(dialOptions, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	}
 	grpcConn, _ := grpc.Dial(
 		config.GrpcEndpoint,
