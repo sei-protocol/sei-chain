@@ -4,12 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"google.golang.org/grpc/credentials/insecure"
 	"net"
 	"sync"
 	"time"
 
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 
 	"github.com/tendermint/tendermint/abci/types"
 	"github.com/tendermint/tendermint/libs/log"
