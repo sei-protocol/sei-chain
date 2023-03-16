@@ -3,8 +3,9 @@ package oracle
 import (
 	"context"
 	"fmt"
-	"google.golang.org/grpc/credentials/insecure"
 	"time"
+
+	"google.golang.org/grpc/credentials/insecure"
 
 	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
 	"google.golang.org/grpc"

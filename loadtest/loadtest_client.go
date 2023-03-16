@@ -3,12 +3,13 @@ package main
 import (
 	"context"
 	"fmt"
-	"google.golang.org/grpc/credentials/insecure"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
 	"time"
+
+	"google.golang.org/grpc/credentials/insecure"
 
 	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
 	"github.com/cosmos/cosmos-sdk/types"

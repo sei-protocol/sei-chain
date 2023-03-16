@@ -3,11 +3,12 @@ package oracle
 import (
 	"context"
 	"fmt"
-	"google.golang.org/grpc/credentials/insecure"
 	"math"
 	"net/http"
 	"sync"
 	"time"
+
+	"google.golang.org/grpc/credentials/insecure"
 
 	sdkclient "github.com/cosmos/cosmos-sdk/client"
 	"github.com/cosmos/cosmos-sdk/telemetry"
