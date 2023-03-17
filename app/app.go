@@ -405,6 +405,7 @@ func New(
 		},
 		txDecoder:   encodingConfig.TxConfig.TxDecoder(),
 		versionInfo: version.NewInfo(),
+		metricCounter: &map[string]uint64{},
 	}
 	app.tracingInfo.SetContext(context.Background())
 
@@ -1001,6 +1002,7 @@ func (app *App) FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBlock)
 }
 
 func (app *App) RecordAndEmitMetrics(ctx sdk.Context) {
+	app.Logger().Info("Recording and emitting metrics")
 	for metricName, value := range *ctx.ContextMemCache().GetMetricCounters() {
 		(*app.metricCounter)[metricName] += value
 	}
