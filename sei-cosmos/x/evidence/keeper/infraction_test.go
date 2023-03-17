@@ -5,8 +5,10 @@ import (
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/x/evidence/types"
+	"github.com/cosmos/cosmos-sdk/x/slashing"
 	"github.com/cosmos/cosmos-sdk/x/staking"
 	"github.com/cosmos/cosmos-sdk/x/staking/teststaking"
+	abcitypes "github.com/tendermint/tendermint/abci/types"
 )
 
 func (suite *KeeperTestSuite) TestHandleDoubleSign() {
@@ -32,7 +34,20 @@ func (suite *KeeperTestSuite) TestHandleDoubleSign() {
 	suite.Equal(selfDelegation, suite.app.StakingKeeper.Validator(ctx, operatorAddr).GetBondedTokens())
 
 	// handle a signature to set signing info
-	suite.app.SlashingKeeper.HandleValidatorSignature(ctx, val.Address(), selfDelegation.Int64(), true)
+	req := abcitypes.RequestBeginBlock{
+		LastCommitInfo: abcitypes.LastCommitInfo{
+			Votes: []abcitypes.VoteInfo{
+				{
+					Validator: abcitypes.Validator{
+						Address: val.Address().Bytes(),
+						Power:   selfDelegation.Int64(),
+					},
+					SignedLastBlock: true,
+				},
+			},
+		},
+	}
+	slashing.BeginBlocker(ctx, req, suite.app.SlashingKeeper)
 
 	// double sign less than max age
 	oldTokens := suite.app.StakingKeeper.Validator(ctx, operatorAddr).GetTokens()

@@ -174,7 +174,7 @@ func TestHandleAbsentValidator(t *testing.T) {
 	// 1000 first blocks OK
 	for ; height < app.SlashingKeeper.SignedBlocksWindow(ctx); height++ {
 		ctx = ctx.WithBlockHeight(height)
-		app.SlashingKeeper.HandleValidatorSignature(ctx, val.Address(), power, true)
+		slashing.BeginBlocker(ctx, testslashing.CreateBeginBlockReq(val.Address(), power, true), app.SlashingKeeper)
 	}
 	info, found = app.SlashingKeeper.GetValidatorSigningInfo(ctx, sdk.ConsAddress(val.Address()))
 	require.True(t, found)
@@ -184,7 +184,7 @@ func TestHandleAbsentValidator(t *testing.T) {
 	// 500 blocks missed
 	for ; height < app.SlashingKeeper.SignedBlocksWindow(ctx)+(app.SlashingKeeper.SignedBlocksWindow(ctx)-app.SlashingKeeper.MinSignedPerWindow(ctx)); height++ {
 		ctx = ctx.WithBlockHeight(height)
-		app.SlashingKeeper.HandleValidatorSignature(ctx, val.Address(), power, false)
+		slashing.BeginBlocker(ctx, testslashing.CreateBeginBlockReq(val.Address(), power, false), app.SlashingKeeper)
 	}
 	info, found = app.SlashingKeeper.GetValidatorSigningInfo(ctx, sdk.ConsAddress(val.Address()))
 	require.True(t, found)
@@ -200,7 +200,7 @@ func TestHandleAbsentValidator(t *testing.T) {
 
 	// 501st block missed
 	ctx = ctx.WithBlockHeight(height)
-	app.SlashingKeeper.HandleValidatorSignature(ctx, val.Address(), power, false)
+	slashing.BeginBlocker(ctx, testslashing.CreateBeginBlockReq(val.Address(), power, false), app.SlashingKeeper)
 	info, found = app.SlashingKeeper.GetValidatorSigningInfo(ctx, sdk.ConsAddress(val.Address()))
 	require.True(t, found)
 	require.Equal(t, int64(0), info.StartHeight)
@@ -222,7 +222,7 @@ func TestHandleAbsentValidator(t *testing.T) {
 	// 502nd block *also* missed (since the LastCommit would have still included the just-unbonded validator)
 	height++
 	ctx = ctx.WithBlockHeight(height)
-	app.SlashingKeeper.HandleValidatorSignature(ctx, val.Address(), power, false)
+	slashing.BeginBlocker(ctx, testslashing.CreateBeginBlockReq(val.Address(), power, false), app.SlashingKeeper)
 	info, found = app.SlashingKeeper.GetValidatorSigningInfo(ctx, sdk.ConsAddress(val.Address()))
 	require.True(t, found)
 	require.Equal(t, int64(0), info.StartHeight)
@@ -266,7 +266,7 @@ func TestHandleAbsentValidator(t *testing.T) {
 	// validator should not be immediately jailed again
 	height++
 	ctx = ctx.WithBlockHeight(height)
-	app.SlashingKeeper.HandleValidatorSignature(ctx, val.Address(), power, false)
+	slashing.BeginBlocker(ctx, testslashing.CreateBeginBlockReq(val.Address(), power, false), app.SlashingKeeper)
 	validator, _ = app.StakingKeeper.GetValidatorByConsAddr(ctx, sdk.GetConsAddress(val))
 	require.Equal(t, stakingtypes.Bonded, validator.GetStatus())
 
@@ -274,7 +274,7 @@ func TestHandleAbsentValidator(t *testing.T) {
 	nextHeight := height + app.SlashingKeeper.MinSignedPerWindow(ctx) + 1
 	for ; height < nextHeight; height++ {
 		ctx = ctx.WithBlockHeight(height)
-		app.SlashingKeeper.HandleValidatorSignature(ctx, val.Address(), power, false)
+		slashing.BeginBlocker(ctx, testslashing.CreateBeginBlockReq(val.Address(), power, false), app.SlashingKeeper)
 	}
 
 	// end block
@@ -284,7 +284,7 @@ func TestHandleAbsentValidator(t *testing.T) {
 	nextHeight = height + app.SlashingKeeper.MinSignedPerWindow(ctx) + 1
 	for ; height <= nextHeight; height++ {
 		ctx = ctx.WithBlockHeight(height)
-		app.SlashingKeeper.HandleValidatorSignature(ctx, val.Address(), power, false)
+		slashing.BeginBlocker(ctx, testslashing.CreateBeginBlockReq(val.Address(), power, false), app.SlashingKeeper)
 	}
 
 	// end block

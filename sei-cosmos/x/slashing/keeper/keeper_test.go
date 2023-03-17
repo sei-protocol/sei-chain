@@ -9,6 +9,7 @@ import (
 
 	"github.com/cosmos/cosmos-sdk/simapp"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/cosmos/cosmos-sdk/x/slashing"
 	"github.com/cosmos/cosmos-sdk/x/slashing/testslashing"
 	"github.com/cosmos/cosmos-sdk/x/staking"
 	"github.com/cosmos/cosmos-sdk/x/staking/teststaking"
@@ -101,9 +102,9 @@ func TestHandleNewValidator(t *testing.T) {
 	require.Equal(t, amt, app.StakingKeeper.Validator(ctx, addr).GetBondedTokens())
 
 	// Now a validator, for two blocks
-	app.SlashingKeeper.HandleValidatorSignature(ctx, val.Address(), 100, true)
+	slashing.BeginBlocker(ctx, testslashing.CreateBeginBlockReq(val.Address(), 100, true), app.SlashingKeeper)
 	ctx = ctx.WithBlockHeight(app.SlashingKeeper.SignedBlocksWindow(ctx) + 2)
-	app.SlashingKeeper.HandleValidatorSignature(ctx, val.Address(), 100, false)
+	slashing.BeginBlocker(ctx, testslashing.CreateBeginBlockReq(val.Address(), 100, false), app.SlashingKeeper)
 
 	info, found := app.SlashingKeeper.GetValidatorSigningInfo(ctx, sdk.ConsAddress(val.Address()))
 	require.True(t, found)
@@ -142,13 +143,13 @@ func TestHandleAlreadyJailed(t *testing.T) {
 	height := int64(0)
 	for ; height < app.SlashingKeeper.SignedBlocksWindow(ctx); height++ {
 		ctx = ctx.WithBlockHeight(height)
-		app.SlashingKeeper.HandleValidatorSignature(ctx, val.Address(), power, true)
+		slashing.BeginBlocker(ctx, testslashing.CreateBeginBlockReq(val.Address(), power, true), app.SlashingKeeper)
 	}
 
 	// 501 blocks missed
 	for ; height < app.SlashingKeeper.SignedBlocksWindow(ctx)+(app.SlashingKeeper.SignedBlocksWindow(ctx)-app.SlashingKeeper.MinSignedPerWindow(ctx))+1; height++ {
 		ctx = ctx.WithBlockHeight(height)
-		app.SlashingKeeper.HandleValidatorSignature(ctx, val.Address(), power, false)
+		slashing.BeginBlocker(ctx, testslashing.CreateBeginBlockReq(val.Address(), power, false), app.SlashingKeeper)
 	}
 
 	// end block
@@ -164,7 +165,7 @@ func TestHandleAlreadyJailed(t *testing.T) {
 
 	// another block missed
 	ctx = ctx.WithBlockHeight(height)
-	app.SlashingKeeper.HandleValidatorSignature(ctx, val.Address(), power, false)
+	slashing.BeginBlocker(ctx, testslashing.CreateBeginBlockReq(val.Address(), power, false), app.SlashingKeeper)
 
 	// validator should not have been slashed twice
 	validator, _ = app.StakingKeeper.GetValidatorByConsAddr(ctx, sdk.GetConsAddress(val))
@@ -202,7 +203,7 @@ func TestValidatorDippingInAndOut(t *testing.T) {
 	height := int64(0)
 	for ; height < int64(100); height++ {
 		ctx = ctx.WithBlockHeight(height)
-		app.SlashingKeeper.HandleValidatorSignature(ctx, val.Address(), power, true)
+		slashing.BeginBlocker(ctx, testslashing.CreateBeginBlockReq(val.Address(), power, true), app.SlashingKeeper)
 	}
 
 	// kick first validator out of validator set
@@ -224,7 +225,7 @@ func TestValidatorDippingInAndOut(t *testing.T) {
 	newPower := int64(150)
 
 	// validator misses a block
-	app.SlashingKeeper.HandleValidatorSignature(ctx, val.Address(), newPower, false)
+	slashing.BeginBlocker(ctx, testslashing.CreateBeginBlockReq(val.Address(), newPower, false), app.SlashingKeeper)
 	height++
 
 	// shouldn't be jailed/kicked yet
@@ -234,7 +235,7 @@ func TestValidatorDippingInAndOut(t *testing.T) {
 	latest := height
 	for ; height < latest+500; height++ {
 		ctx = ctx.WithBlockHeight(height)
-		app.SlashingKeeper.HandleValidatorSignature(ctx, val.Address(), newPower, false)
+		slashing.BeginBlocker(ctx, testslashing.CreateBeginBlockReq(val.Address(), newPower, false), app.SlashingKeeper)
 	}
 
 	// should now be jailed & kicked
@@ -258,7 +259,7 @@ func TestValidatorDippingInAndOut(t *testing.T) {
 
 	// validator rejoins and starts signing again
 	app.StakingKeeper.Unjail(ctx, consAddr)
-	app.SlashingKeeper.HandleValidatorSignature(ctx, val.Address(), newPower, true)
+	slashing.BeginBlocker(ctx, testslashing.CreateBeginBlockReq(val.Address(), newPower, true), app.SlashingKeeper)
 	height++
 
 	// validator should not be kicked since we reset counter/array when it was jailed
@@ -269,7 +270,7 @@ func TestValidatorDippingInAndOut(t *testing.T) {
 	latest = height
 	for ; height < latest+501; height++ {
 		ctx = ctx.WithBlockHeight(height)
-		app.SlashingKeeper.HandleValidatorSignature(ctx, val.Address(), newPower, false)
+		slashing.BeginBlocker(ctx, testslashing.CreateBeginBlockReq(val.Address(), newPower, false), app.SlashingKeeper)
 	}
 
 	// validator should now be jailed & kicked

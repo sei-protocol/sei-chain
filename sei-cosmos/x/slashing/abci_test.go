@@ -20,71 +20,80 @@ func TestBeginBlocker(t *testing.T) {
 	app := simapp.Setup(false)
 	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
 
-	pks := simapp.CreateTestPubKeys(1)
+	pks := simapp.CreateTestPubKeys(5)
 	simapp.AddTestAddrsFromPubKeys(app, ctx, pks, app.StakingKeeper.TokensFromConsensusPower(ctx, 200))
-	addr, pk := sdk.ValAddress(pks[0].Address()), pks[0]
 	tstaking := teststaking.NewHelper(t, ctx, app.StakingKeeper)
 
-	// bond the validator
-	power := int64(100)
-	amt := tstaking.CreateValidatorWithValPower(addr, pk, power, true)
-	staking.EndBlocker(ctx, app.StakingKeeper)
-	require.Equal(
-		t, app.BankKeeper.GetAllBalances(ctx, sdk.AccAddress(addr)),
-		sdk.NewCoins(sdk.NewCoin(app.StakingKeeper.GetParams(ctx).BondDenom, InitTokens.Sub(amt))),
-	)
-	require.Equal(t, amt, app.StakingKeeper.Validator(ctx, addr).GetBondedTokens())
+	trueVotes := []abci.VoteInfo{}
+	falseVotes := []abci.VoteInfo{}
 
-	val := abci.Validator{
-		Address: pk.Address(),
-		Power:   power,
+	for i := 0; i < 5; i++ {
+		addr, pk := sdk.ValAddress(pks[i].Address()), pks[i]
+		// bond the validator
+		power := int64(100)
+		amt := tstaking.CreateValidatorWithValPower(addr, pk, power, true)
+		staking.EndBlocker(ctx, app.StakingKeeper)
+		require.Equal(
+			t, app.BankKeeper.GetAllBalances(ctx, sdk.AccAddress(addr)),
+			sdk.NewCoins(sdk.NewCoin(app.StakingKeeper.GetParams(ctx).BondDenom, InitTokens.Sub(amt))),
+		)
+		require.Equal(t, amt, app.StakingKeeper.Validator(ctx, addr).GetBondedTokens())
+		val := abci.Validator{
+			Address: pk.Address(),
+			Power:   power,
+		}
+		trueVotes = append(trueVotes, abci.VoteInfo{
+			Validator:       val,
+			SignedLastBlock: true,
+		})
+		falseVotes = append(falseVotes, abci.VoteInfo{
+			Validator:       val,
+			SignedLastBlock: i != 0,
+		})
 	}
+
+	params := app.SlashingKeeper.GetParams(ctx)
+	params.SignedBlocksWindow = 10000
+	params.MinSignedPerWindow = sdk.MustNewDecFromStr("0.5")
+	app.SlashingKeeper.SetParams(ctx, params)
 
 	// mark the validator as having signed
 	req := abci.RequestBeginBlock{
 		LastCommitInfo: abci.LastCommitInfo{
-			Votes: []abci.VoteInfo{{
-				Validator:       val,
-				SignedLastBlock: true,
-			}},
+			Votes: trueVotes,
 		},
 	}
-
 	slashing.BeginBlocker(ctx, req, app.SlashingKeeper)
 
-	info, found := app.SlashingKeeper.GetValidatorSigningInfo(ctx, sdk.ConsAddress(pk.Address()))
-	require.True(t, found)
-	require.Equal(t, ctx.BlockHeight(), info.StartHeight)
-	require.Equal(t, int64(1), info.IndexOffset)
-	require.Equal(t, time.Unix(0, 0).UTC(), info.JailedUntil)
-	require.Equal(t, int64(0), info.MissedBlocksCounter)
+	for i := 0; i < 5; i++ {
+		info, found := app.SlashingKeeper.GetValidatorSigningInfo(ctx, sdk.ConsAddress(pks[i].Address()))
+		require.True(t, found)
+		require.Equal(t, ctx.BlockHeight(), info.StartHeight)
+		require.Equal(t, int64(1), info.IndexOffset)
+		require.Equal(t, time.Unix(0, 0).UTC(), info.JailedUntil)
+		require.Equal(t, int64(0), info.MissedBlocksCounter)
+	}
 
 	height := int64(0)
 
-	// for 1000 blocks, mark the validator as having signed
+	// for 10000 blocks, mark the validator as having signed
 	for ; height < app.SlashingKeeper.SignedBlocksWindow(ctx); height++ {
 		ctx = ctx.WithBlockHeight(height)
 		req = abci.RequestBeginBlock{
 			LastCommitInfo: abci.LastCommitInfo{
-				Votes: []abci.VoteInfo{{
-					Validator:       val,
-					SignedLastBlock: true,
-				}},
+				Votes: trueVotes,
 			},
 		}
 
 		slashing.BeginBlocker(ctx, req, app.SlashingKeeper)
 	}
 
-	// for 500 blocks, mark the validator as having not signed
+	// for 5000 blocks, mark the validator as having not signed
 	for ; height < ((app.SlashingKeeper.SignedBlocksWindow(ctx) * 2) - app.SlashingKeeper.MinSignedPerWindow(ctx) + 1); height++ {
 		ctx = ctx.WithBlockHeight(height)
 		req = abci.RequestBeginBlock{
 			LastCommitInfo: abci.LastCommitInfo{
-				Votes: []abci.VoteInfo{{
-					Validator:       val,
-					SignedLastBlock: false,
-				}},
+				Votes: falseVotes,
 			},
 		}
 
@@ -95,7 +104,13 @@ func TestBeginBlocker(t *testing.T) {
 	staking.EndBlocker(ctx, app.StakingKeeper)
 
 	// validator should be jailed
-	validator, found := app.StakingKeeper.GetValidatorByConsAddr(ctx, sdk.GetConsAddress(pk))
-	require.True(t, found)
-	require.Equal(t, stakingtypes.Unbonding, validator.GetStatus())
+	for i := 0; i < 5; i++ {
+		validator, found := app.StakingKeeper.GetValidatorByConsAddr(ctx, sdk.GetConsAddress(pks[i]))
+		require.True(t, found)
+		if i == 0 {
+			require.Equal(t, stakingtypes.Unbonding, validator.GetStatus())
+		} else {
+			require.Equal(t, stakingtypes.Bonded, validator.GetStatus())
+		}
+	}
 }
