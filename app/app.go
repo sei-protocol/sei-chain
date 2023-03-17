@@ -341,6 +341,9 @@ type App struct {
 	txDecoder sdk.TxDecoder
 
 	versionInfo version.Info
+
+	// Stores mapping counter name to counter value
+	metricCounter *map[string]uint64
 }
 
 // New returns a reference to an initialized blockchain app
