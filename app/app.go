@@ -964,6 +964,7 @@ func (app *App) ProcessProposalHandler(ctx sdk.Context, req *abci.RequestProcess
 				optimisticProcessingInfo.TxRes = txResults
 				optimisticProcessingInfo.EndBlockResp = endBlockResp
 				optimisticProcessingInfo.Completion <- struct{}{}
+				app.RecordAndEmitMetrics(ctx)
 			}()
 		}
 	} else if !bytes.Equal(app.optimisticProcessingInfo.Hash, req.Hash) {
@@ -975,8 +976,6 @@ func (app *App) ProcessProposalHandler(ctx sdk.Context, req *abci.RequestProcess
 }
 
 func (app *App) FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBlock) (*abci.ResponseFinalizeBlock, error) {
-	defer app.RecordAndEmitMetrics(ctx)
-
 	startTime := time.Now()
 	defer func() {
 		app.optimisticProcessingInfo = nil
@@ -995,6 +994,7 @@ func (app *App) FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBlock)
 	}
 	ctx.Logger().Info("optimistic processing ineligible")
 	events, txResults, endBlockResp, _ := app.ProcessBlock(ctx, req.Txs, req, req.DecidedLastCommit)
+	app.RecordAndEmitMetrics(ctx)
 
 	app.SetDeliverStateToCommit()
 	appHash := app.WriteStateToCommitAndGetWorkingHash()
@@ -1003,7 +1003,7 @@ func (app *App) FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBlock)
 }
 
 func (app *App) RecordAndEmitMetrics(ctx sdk.Context) {
-	app.Logger().Info("Recording and emitting metrics")
+	app.Logger().Info("Recording and emitting metrics", "size", len(*ctx.ContextMemCache().GetMetricCounters()))
 	for metricName, value := range *ctx.ContextMemCache().GetMetricCounters() {
 		(*app.metricCounter)[metricName] += value
 	}
