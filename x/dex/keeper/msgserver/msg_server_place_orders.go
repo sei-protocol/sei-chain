@@ -47,6 +47,7 @@ func (k msgServer) PlaceOrders(goCtx context.Context, msg *types.MsgPlaceOrders)
 	ctx := sdk.UnwrapSDKContext(goCtx)
 
 	defer ctx.ContextMemCache().IncrMetricCounter(uint64(len(msg.Orders)), sdk.ORDER_COUNT)
+	ctx.Logger().Info(fmt.Sprintf("received request to place orders: %s", msg.String()))
 
 	if err := msg.ValidateBasic(); err != nil {
 		ctx.Logger().Error(fmt.Sprintf("request invalid: %s", err))
