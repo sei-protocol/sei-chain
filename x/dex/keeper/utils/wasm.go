@@ -110,7 +110,10 @@ func CallContractSudo(sdkCtx sdk.Context, k *keeper.Keeper, contractAddr string,
 		return []byte{}, err
 	}
 	msgType := getMsgType(msg)
+	sudoStartTime := time.Now().UnixMicro()
 	data, gasUsed, err := sudo(sdkCtx, k, contractAddress, wasmMsg, msgType)
+	sudoEndTime := time.Now().UnixMicro()
+	sdkCtx.Logger().Info(fmt.Sprintf("[SeiChain-Debug] Sudo latency is: %d", sudoEndTime-sudoStartTime))
 	if err != nil {
 		metrics.IncrementSudoFailCount(msgType)
 		sdkCtx.Logger().Error(err.Error())
