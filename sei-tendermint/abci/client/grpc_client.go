@@ -8,13 +8,11 @@ import (
 	"sync"
 	"time"
 
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
-
 	"github.com/tendermint/tendermint/abci/types"
 	"github.com/tendermint/tendermint/libs/log"
 	tmnet "github.com/tendermint/tendermint/libs/net"
 	"github.com/tendermint/tendermint/libs/service"
+	"google.golang.org/grpc"
 )
 
 // A gRPC client.
@@ -58,7 +56,7 @@ func (cli *grpcClient) OnStart(ctx context.Context) error {
 RETRY_LOOP:
 	for {
 		conn, err := grpc.Dial(cli.addr,
-			grpc.WithTransportCredentials(insecure.NewCredentials()),
+			grpc.WithInsecure(),
 			grpc.WithContextDialer(dialerFunc),
 		)
 		if err != nil {
