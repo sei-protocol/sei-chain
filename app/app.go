@@ -993,10 +993,21 @@ func (app *App) FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBlock)
 	ctx.Logger().Info("optimistic processing ineligible")
 	events, txResults, endBlockResp, _ := app.ProcessBlock(ctx, req.Txs, req, req.DecidedLastCommit)
 
+	app.RecordAndEmitMetrics(ctx)
 	app.SetDeliverStateToCommit()
 	appHash := app.WriteStateToCommitAndGetWorkingHash()
 	resp := app.getFinalizeBlockResponse(appHash, events, txResults, endBlockResp)
 	return &resp, nil
+}
+
+func (app *App) RecordAndEmitMetrics(ctx sdk.Context) {
+	for metricName, value := range *ctx.ContextMemCache().GetMetricCounters() {
+		(*app.metricCounter)[metricName] += value
+	}
+
+	for metricName, value := range *(app.metricCounter) {
+		metrics.IncrementThroughputMetrics(metricName, float32(value))
+	}
 }
 
 func (app *App) DeliverTxWithResult(ctx sdk.Context, tx []byte) *abci.ExecTxResult {
