@@ -1220,10 +1220,10 @@ func (app *App) BuildDependenciesAndRunTxs(ctx sdk.Context, txs [][]byte) ([]*ab
 
 	dependencyDag, err := app.AccessControlKeeper.BuildDependencyDag(ctx, app.txDecoder, app.GetAnteDepGenerator(), txs)
 
+	// Start with a fresh state for the MemCache
+	ctx = ctx.WithContextMemCache(sdk.NewContextMemCache())
 	switch err {
 	case nil:
-		// Start with a fresh state for the MemCache
-		ctx = ctx.WithContextMemCache(sdk.NewContextMemCache())
 		txResults, ctx = app.ProcessTxs(ctx, txs, dependencyDag, app.ProcessBlockConcurrent)
 	case acltypes.ErrGovMsgInBlock:
 		ctx.Logger().Info(fmt.Sprintf("Gov msg found while building DAG, processing synchronously: %s", err))
