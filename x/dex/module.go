@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"time"
 
 	"github.com/CosmWasm/wasmd/x/wasm"
 	"github.com/gorilla/mux"
@@ -237,9 +238,14 @@ func (am AppModule) BeginBlock(ctx sdk.Context, _ abci.RequestBeginBlock) {
 	}
 	cachedCtx, cachedStore := store.GetCachedContext(ctx)
 	gasLimit := am.keeper.GetParams(ctx).BeginBlockGasLimit
-	for _, contract := range am.getAllContractInfo(ctx) {
+	startTime := time.Now().UnixMicro()
+	contracts := am.getAllContractInfo(ctx)
+	for _, contract := range contracts {
 		am.beginBlockForContract(cachedCtx, contract, int64(currentEpoch), gasLimit)
 	}
+	endTime := time.Now().UnixMicro()
+	ctx.Logger().Info(fmt.Sprintf("[Seichain-Debug] Finished begin block with gas limit %d for %d contracts, latency is: %d", gasLimit, len(contracts), endTime-startTime))
+
 	// only write if all contracts have been processed
 	cachedStore.Write()
 }
@@ -252,12 +258,15 @@ func (am AppModule) beginBlockForContract(ctx sdk.Context, contract types.Contra
 
 	ctx = ctx.WithGasMeter(seisync.NewGasWrapper(dexutils.GetGasMeterForLimit(gasLimit)))
 
+	hookStartTime := time.Now().UnixMicro()
 	if contract.NeedHook {
 		if err := am.abciWrapper.HandleBBNewBlock(ctx, contractAddr, epoch); err != nil {
 			ctx.Logger().Error(fmt.Sprintf("New block hook error for %s: %s", contractAddr, err.Error()))
 		}
 	}
+	hookEndTime := time.Now().UnixMicro()
 
+	matchingStartTime := time.Now().UnixMicro()
 	if contract.NeedOrderMatching {
 		currentTimestamp := uint64(ctx.BlockTime().Unix())
 		ctx.Logger().Debug(fmt.Sprintf("Removing stale prices for ts %d", currentTimestamp))
@@ -266,6 +275,11 @@ func (am AppModule) beginBlockForContract(ctx sdk.Context, contract types.Contra
 			am.keeper.DeletePriceStateBefore(ctx, contractAddr, currentTimestamp-priceRetention, pair)
 		}
 	}
+	matchingEndTime := time.Now().UnixMicro()
+	if contract.NeedHook {
+		ctx.Logger().Info(fmt.Sprintf("[Seichain-Debug] %s need hook: %v, hook latency: %d, match latency: %d", contractAddr, contract.NeedHook, hookEndTime-hookStartTime, matchingEndTime-matchingStartTime))
+	}
+
 }
 
 // EndBlock executes all ABCI EndBlock logic respective to the capability module. It
