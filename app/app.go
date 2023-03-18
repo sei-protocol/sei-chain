@@ -1015,6 +1015,8 @@ func (app *App) RecordAndEmitMetrics(ctx sdk.Context) {
 	for metricName, value := range *(app.metricCounter) {
 		metrics.IncrementThroughputMetrics(metricName, float32(value))
 	}
+
+	ctx.ContextMemCache().Clear()
 }
 
 func (app *App) DeliverTxWithResult(ctx sdk.Context, tx []byte) *abci.ExecTxResult {
