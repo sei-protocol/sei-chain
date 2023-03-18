@@ -1008,13 +1008,11 @@ func (app *App) RecordAndEmitMetrics(ctx sdk.Context) {
 	}
 
 	for metricName, value := range *ctx.ContextMemCache().GetMetricCounters() {
-		app.Logger().Info("debug metrics", "metricName", metricName, "value", value, "height", height)
 		(*app.metricCounter)[metricName] += float32(value)
 	}
 	(*app.metricCounter)["last_updated_height"] = height
 
 	for metricName, value := range *(app.metricCounter) {
-		app.Logger().Info("debug metrics", "emit metricName", metricName, "value", value, "height", height)
 		metrics.SetThroughputMetric(metricName, value)
 	}
 
