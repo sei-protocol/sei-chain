@@ -6,10 +6,19 @@ import (
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 )
 
+const (
+	MESSAGE_COUNT	= "message_count"
+	TX_COUNT		= "transaction_count"
+	ORDER_COUNT		= "order_count"
+)
+
 type ContextMemCache struct {
 	deferredBankOpsLock *sync.Mutex
 	deferredSends       *DeferredBankOperationMapping
 	deferredWithdrawals *DeferredBankOperationMapping
+
+	metricsLock 		*sync.RWMutex
+	metricsCounterMapping *map[string]uint32
 }
 
 func NewContextMemCache() *ContextMemCache {
@@ -17,6 +26,8 @@ func NewContextMemCache() *ContextMemCache {
 		deferredBankOpsLock: &sync.Mutex{},
 		deferredSends:       NewDeferredBankOperationMap(),
 		deferredWithdrawals: NewDeferredBankOperationMap(),
+		metricsLock: &sync.RWMutex{},
+		metricsCounterMapping: &map[string]uint32{},
 	}
 }
 
@@ -26,6 +37,20 @@ func (c *ContextMemCache) GetDeferredSends() *DeferredBankOperationMapping {
 
 func (c *ContextMemCache) GetDeferredWithdrawals() *DeferredBankOperationMapping {
 	return c.deferredWithdrawals
+}
+
+func (c *ContextMemCache) IncrMetricCounter(count uint32, metric_name string)  {
+	c.metricsLock.Lock()
+	defer c.metricsLock.Unlock()
+
+	newCounter := (*c.metricsCounterMapping)[metric_name] + count
+	(*c.metricsCounterMapping)[metric_name] = newCounter
+}
+
+func (c *ContextMemCache) GetMetricCounters() *map[string]uint32{
+	c.metricsLock.RLock()
+	defer c.metricsLock.RUnlock()
+	return c.metricsCounterMapping
 }
 
 func (c *ContextMemCache) UpsertDeferredSends(moduleAccount string, amount Coins) error {
@@ -90,4 +115,8 @@ func (c *ContextMemCache) Clear() {
 	defer c.deferredBankOpsLock.Unlock()
 	c.deferredSends = NewDeferredBankOperationMap()
 	c.deferredWithdrawals = NewDeferredBankOperationMap()
+
+	c.metricsLock.Lock()
+	defer c.metricsLock.Unlock()
+	c.metricsCounterMapping = &map[string]uint32{}
 }
