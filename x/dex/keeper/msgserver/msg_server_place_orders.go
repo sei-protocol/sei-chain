@@ -46,7 +46,7 @@ func (k msgServer) transferFunds(goCtx context.Context, msg *types.MsgPlaceOrder
 func (k msgServer) PlaceOrders(goCtx context.Context, msg *types.MsgPlaceOrders) (*types.MsgPlaceOrdersResponse, error) {
 	ctx := sdk.UnwrapSDKContext(goCtx)
 
-	defer ctx.ContextMemCache().IncrMetricCounter(uint64(len(msg.Orders)), sdk.ORDER_COUNT)
+	defer ctx.ContextMemCache().IncrMetricCounter(uint32(len(msg.Orders)), sdk.ORDER_COUNT)
 	ctx.Logger().Info("received request to place orders", "num_orders", len(msg.Orders), "height", ctx.BlockHeight())
 
 	if err := msg.ValidateBasic(); err != nil {

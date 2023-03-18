@@ -405,7 +405,7 @@ func New(
 		},
 		txDecoder:   encodingConfig.TxConfig.TxDecoder(),
 		versionInfo: version.NewInfo(),
-		metricCounter: &map[string]uint64{},
+		metricCounter: &map[string]float32{},
 	}
 	app.tracingInfo.SetContext(context.Background())
 
