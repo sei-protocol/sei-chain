@@ -13,6 +13,7 @@ import (
 	"time"
 
 	storetypes "github.com/cosmos/cosmos-sdk/store/types"
+	"github.com/cosmos/iavl/internal/logger"
 
 	"github.com/sei-protocol/sei-chain/aclmapping"
 	aclutils "github.com/sei-protocol/sei-chain/aclmapping/utils"
@@ -1001,10 +1002,16 @@ func (app *App) FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBlock)
 }
 
 func (app *App) RecordAndEmitMetrics(ctx sdk.Context) {
+	if (*app.metricCounter)["last_updated_height"] == uint64(ctx.BlockHeight()) {
+		logger.Debug("Metrics already recorded for this block", "height", ctx.BlockHeight())
+		return
+	}
+
 	app.Logger().Info("Recording and emitting metrics", "size", len(*ctx.ContextMemCache().GetMetricCounters()))
 	for metricName, value := range *ctx.ContextMemCache().GetMetricCounters() {
 		(*app.metricCounter)[metricName] += value
 	}
+	(*app.metricCounter)["last_updated_height"] = uint64(ctx.BlockHeight())
 
 	for metricName, value := range *(app.metricCounter) {
 		metrics.IncrementThroughputMetrics(metricName, float32(value))
