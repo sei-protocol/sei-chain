@@ -1023,6 +1023,10 @@ func (app *App) DeliverTxWithResult(ctx sdk.Context, tx []byte) *abci.ExecTxResu
 	deliverTxResp := app.DeliverTx(ctx, abci.RequestDeliverTx{
 		Tx: tx,
 	})
+
+	ctx.ContextMemCache().IncrMetricCounter(uint32(deliverTxResp.GasWanted), "gas_wanted")
+	ctx.ContextMemCache().IncrMetricCounter(uint32(deliverTxResp.GasUsed), "gas_used")
+
 	return &abci.ExecTxResult{
 		Code:      deliverTxResp.Code,
 		Data:      deliverTxResp.Data,
