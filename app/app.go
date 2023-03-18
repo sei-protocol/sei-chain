@@ -1008,6 +1008,7 @@ func (app *App) RecordAndEmitMetrics(ctx sdk.Context) {
 
 	app.Logger().Info("Recording and emitting metrics", "size", len(*ctx.ContextMemCache().GetMetricCounters()))
 	for metricName, value := range *ctx.ContextMemCache().GetMetricCounters() {
+		app.Logger().Info("debug metrics", "metricName", metricName, "value", value, "height", ctx.BlockHeight())
 		(*app.metricCounter)[metricName] += value
 	}
 	(*app.metricCounter)["last_updated_height"] = uint64(ctx.BlockHeight())
