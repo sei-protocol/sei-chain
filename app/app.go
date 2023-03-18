@@ -343,7 +343,7 @@ type App struct {
 	versionInfo version.Info
 
 	// Stores mapping counter name to counter value
-	metricCounter *map[string]uint64
+	metricCounter *map[string]float32
 }
 
 // New returns a reference to an initialized blockchain app
@@ -1001,20 +1001,21 @@ func (app *App) FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBlock)
 }
 
 func (app *App) RecordAndEmitMetrics(ctx sdk.Context) {
-	if (*app.metricCounter)["last_updated_height"] == uint64(ctx.BlockHeight()) {
-		app.Logger().Debug("Metrics already recorded for this block", "height", ctx.BlockHeight())
+	height := float32(ctx.BlockHeight())
+	if (*app.metricCounter)["last_updated_height"] == height {
+		app.Logger().Debug("Metrics already recorded for this block", "height", height)
 		return
 	}
 
-	app.Logger().Info("Recording and emitting metrics", "size", len(*ctx.ContextMemCache().GetMetricCounters()))
 	for metricName, value := range *ctx.ContextMemCache().GetMetricCounters() {
-		app.Logger().Info("debug metrics", "metricName", metricName, "value", value, "height", ctx.BlockHeight())
-		(*app.metricCounter)[metricName] += value
+		app.Logger().Info("debug metrics", "metricName", metricName, "value", value, "height", height)
+		(*app.metricCounter)[metricName] += float32(value)
 	}
-	(*app.metricCounter)["last_updated_height"] = uint64(ctx.BlockHeight())
+	(*app.metricCounter)["last_updated_height"] = height
 
 	for metricName, value := range *(app.metricCounter) {
-		metrics.IncrementThroughputMetrics(metricName, float32(value))
+		app.Logger().Info("debug metrics", "emit metricName", metricName, "value", value, "height", height)
+		metrics.IncrementThroughputMetrics(metricName, value)
 	}
 
 	ctx.ContextMemCache().Clear()
