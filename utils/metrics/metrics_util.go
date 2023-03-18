@@ -143,8 +143,8 @@ func SetEpochNew(epochNum uint64) {
 // Metric Name:
 //
 //	sei_throughput_<metric_name>
-func IncrementThroughputMetrics(metricName string, value float32) {
-	telemetry.IncrCounter(
+func SetThroughputMetric(metricName string, value float32) {
+	telemetry.SetGauge(
 		value,
 		"sei", "throughput", metricName,
 	)

@@ -1015,7 +1015,7 @@ func (app *App) RecordAndEmitMetrics(ctx sdk.Context) {
 
 	for metricName, value := range *(app.metricCounter) {
 		app.Logger().Info("debug metrics", "emit metricName", metricName, "value", value, "height", height)
-		metrics.IncrementThroughputMetrics(metricName, value)
+		metrics.SetThroughputMetric(metricName, value)
 	}
 
 	ctx.ContextMemCache().Clear()
