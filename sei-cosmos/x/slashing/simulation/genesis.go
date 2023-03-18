@@ -85,7 +85,7 @@ func RandomizedGenState(simState *module.SimulationState) {
 		slashFractionDoubleSign, slashFractionDowntime,
 	)
 
-	slashingGenesis := types.NewGenesisState(params, []types.SigningInfo{}, []types.ValidatorMissedBlocks{})
+	slashingGenesis := types.NewGenesisState(params, []types.SigningInfo{}, []types.ValidatorMissedBlockArray{})
 
 	bz, err := json.MarshalIndent(&slashingGenesis, "", " ")
 	if err != nil {

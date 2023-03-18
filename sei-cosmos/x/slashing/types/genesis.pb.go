@@ -32,7 +32,7 @@ type GenesisState struct {
 	SigningInfos []SigningInfo `protobuf:"bytes,2,rep,name=signing_infos,json=signingInfos,proto3" json:"signing_infos" yaml:"signing_infos"`
 	// missed_blocks represents a map between validator addresses and their
 	// missed blocks.
-	MissedBlocks []ValidatorMissedBlocks `protobuf:"bytes,3,rep,name=missed_blocks,json=missedBlocks,proto3" json:"missed_blocks" yaml:"missed_blocks"`
+	MissedBlocks []ValidatorMissedBlockArray `protobuf:"bytes,3,rep,name=missed_blocks,json=missedBlocks,proto3" json:"missed_blocks" yaml:"missed_blocks"`
 }
 
 func (m *GenesisState) Reset()         { *m = GenesisState{} }
@@ -82,11 +82,132 @@ func (m *GenesisState) GetSigningInfos() []SigningInfo {
 	return nil
 }
 
-func (m *GenesisState) GetMissedBlocks() []ValidatorMissedBlocks {
+func (m *GenesisState) GetMissedBlocks() []ValidatorMissedBlockArray {
 	if m != nil {
 		return m.MissedBlocks
 	}
 	return nil
+}
+
+// GenesisState defines the slashing module's genesis state.
+type GenesisStateLegacyV43 struct {
+	// params defines all the paramaters of related to deposit.
+	Params Params `protobuf:"bytes,1,opt,name=params,proto3" json:"params"`
+	// signing_infos represents a map between validator addresses and their
+	// signing infos.
+	SigningInfos []SigningInfoLegacyV43 `protobuf:"bytes,2,rep,name=signing_infos,json=signingInfos,proto3" json:"signing_infos" yaml:"signing_infos"`
+	// missed_blocks represents a map between validator addresses and their
+	// missed blocks.
+	MissedBlocks []ValidatorMissedBlocks `protobuf:"bytes,3,rep,name=missed_blocks,json=missedBlocks,proto3" json:"missed_blocks" yaml:"missed_blocks"`
+}
+
+func (m *GenesisStateLegacyV43) Reset()         { *m = GenesisStateLegacyV43{} }
+func (m *GenesisStateLegacyV43) String() string { return proto.CompactTextString(m) }
+func (*GenesisStateLegacyV43) ProtoMessage()    {}
+func (*GenesisStateLegacyV43) Descriptor() ([]byte, []int) {
+	return fileDescriptor_1923b9188b635394, []int{1}
+}
+func (m *GenesisStateLegacyV43) XXX_Unmarshal(b []byte) error {
+	return m.Unmarshal(b)
+}
+func (m *GenesisStateLegacyV43) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	if deterministic {
+		return xxx_messageInfo_GenesisStateLegacyV43.Marshal(b, m, deterministic)
+	} else {
+		b = b[:cap(b)]
+		n, err := m.MarshalToSizedBuffer(b)
+		if err != nil {
+			return nil, err
+		}
+		return b[:n], nil
+	}
+}
+func (m *GenesisStateLegacyV43) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_GenesisStateLegacyV43.Merge(m, src)
+}
+func (m *GenesisStateLegacyV43) XXX_Size() int {
+	return m.Size()
+}
+func (m *GenesisStateLegacyV43) XXX_DiscardUnknown() {
+	xxx_messageInfo_GenesisStateLegacyV43.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_GenesisStateLegacyV43 proto.InternalMessageInfo
+
+func (m *GenesisStateLegacyV43) GetParams() Params {
+	if m != nil {
+		return m.Params
+	}
+	return Params{}
+}
+
+func (m *GenesisStateLegacyV43) GetSigningInfos() []SigningInfoLegacyV43 {
+	if m != nil {
+		return m.SigningInfos
+	}
+	return nil
+}
+
+func (m *GenesisStateLegacyV43) GetMissedBlocks() []ValidatorMissedBlocks {
+	if m != nil {
+		return m.MissedBlocks
+	}
+	return nil
+}
+
+// SigningInfo stores validator signing info of corresponding address.
+type SigningInfoLegacyV43 struct {
+	// address is the validator address.
+	Address string `protobuf:"bytes,1,opt,name=address,proto3" json:"address,omitempty"`
+	// validator_signing_info represents the signing info of this validator.
+	ValidatorSigningInfo ValidatorSigningInfoLegacyV43 `protobuf:"bytes,2,opt,name=validator_signing_info,json=validatorSigningInfo,proto3" json:"validator_signing_info" yaml:"validator_signing_info"`
+}
+
+func (m *SigningInfoLegacyV43) Reset()         { *m = SigningInfoLegacyV43{} }
+func (m *SigningInfoLegacyV43) String() string { return proto.CompactTextString(m) }
+func (*SigningInfoLegacyV43) ProtoMessage()    {}
+func (*SigningInfoLegacyV43) Descriptor() ([]byte, []int) {
+	return fileDescriptor_1923b9188b635394, []int{2}
+}
+func (m *SigningInfoLegacyV43) XXX_Unmarshal(b []byte) error {
+	return m.Unmarshal(b)
+}
+func (m *SigningInfoLegacyV43) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	if deterministic {
+		return xxx_messageInfo_SigningInfoLegacyV43.Marshal(b, m, deterministic)
+	} else {
+		b = b[:cap(b)]
+		n, err := m.MarshalToSizedBuffer(b)
+		if err != nil {
+			return nil, err
+		}
+		return b[:n], nil
+	}
+}
+func (m *SigningInfoLegacyV43) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_SigningInfoLegacyV43.Merge(m, src)
+}
+func (m *SigningInfoLegacyV43) XXX_Size() int {
+	return m.Size()
+}
+func (m *SigningInfoLegacyV43) XXX_DiscardUnknown() {
+	xxx_messageInfo_SigningInfoLegacyV43.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_SigningInfoLegacyV43 proto.InternalMessageInfo
+
+func (m *SigningInfoLegacyV43) GetAddress() string {
+	if m != nil {
+		return m.Address
+	}
+	return ""
+}
+
+func (m *SigningInfoLegacyV43) GetValidatorSigningInfo() ValidatorSigningInfoLegacyV43 {
+	if m != nil {
+		return m.ValidatorSigningInfo
+	}
+	return ValidatorSigningInfoLegacyV43{}
 }
 
 // SigningInfo stores validator signing info of corresponding address.
@@ -101,7 +222,7 @@ func (m *SigningInfo) Reset()         { *m = SigningInfo{} }
 func (m *SigningInfo) String() string { return proto.CompactTextString(m) }
 func (*SigningInfo) ProtoMessage()    {}
 func (*SigningInfo) Descriptor() ([]byte, []int) {
-	return fileDescriptor_1923b9188b635394, []int{1}
+	return fileDescriptor_1923b9188b635394, []int{3}
 }
 func (m *SigningInfo) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
@@ -157,7 +278,7 @@ func (m *ValidatorMissedBlocks) Reset()         { *m = ValidatorMissedBlocks{} }
 func (m *ValidatorMissedBlocks) String() string { return proto.CompactTextString(m) }
 func (*ValidatorMissedBlocks) ProtoMessage()    {}
 func (*ValidatorMissedBlocks) Descriptor() ([]byte, []int) {
-	return fileDescriptor_1923b9188b635394, []int{2}
+	return fileDescriptor_1923b9188b635394, []int{4}
 }
 func (m *ValidatorMissedBlocks) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
@@ -212,7 +333,7 @@ func (m *MissedBlock) Reset()         { *m = MissedBlock{} }
 func (m *MissedBlock) String() string { return proto.CompactTextString(m) }
 func (*MissedBlock) ProtoMessage()    {}
 func (*MissedBlock) Descriptor() ([]byte, []int) {
-	return fileDescriptor_1923b9188b635394, []int{3}
+	return fileDescriptor_1923b9188b635394, []int{5}
 }
 func (m *MissedBlock) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
@@ -257,6 +378,8 @@ func (m *MissedBlock) GetMissed() bool {
 
 func init() {
 	proto.RegisterType((*GenesisState)(nil), "cosmos.slashing.v1beta1.GenesisState")
+	proto.RegisterType((*GenesisStateLegacyV43)(nil), "cosmos.slashing.v1beta1.GenesisStateLegacyV43")
+	proto.RegisterType((*SigningInfoLegacyV43)(nil), "cosmos.slashing.v1beta1.SigningInfoLegacyV43")
 	proto.RegisterType((*SigningInfo)(nil), "cosmos.slashing.v1beta1.SigningInfo")
 	proto.RegisterType((*ValidatorMissedBlocks)(nil), "cosmos.slashing.v1beta1.ValidatorMissedBlocks")
 	proto.RegisterType((*MissedBlock)(nil), "cosmos.slashing.v1beta1.MissedBlock")
@@ -267,34 +390,38 @@ func init() {
 }
 
 var fileDescriptor_1923b9188b635394 = []byte{
-	// 424 bytes of a gzipped FileDescriptorProto
-	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0x94, 0x53, 0x3d, 0x8e, 0xd3, 0x40,
-	0x14, 0xf6, 0x24, 0x10, 0x60, 0x9c, 0x6d, 0x46, 0x66, 0xb1, 0x56, 0xe0, 0xac, 0x2c, 0x16, 0x6d,
-	0x13, 0x5b, 0xbb, 0x74, 0x20, 0x1a, 0x37, 0x2b, 0x0a, 0x24, 0xe4, 0x95, 0x28, 0x68, 0xa2, 0x71,
-	0x3c, 0x3b, 0x19, 0xc5, 0xf6, 0x04, 0x3f, 0x13, 0x25, 0x57, 0xa0, 0xa2, 0xe6, 0x06, 0xf4, 0x1c,
-	0x22, 0x65, 0x4a, 0xaa, 0x08, 0x25, 0x37, 0xe0, 0x04, 0x28, 0x33, 0x0e, 0x71, 0xa2, 0x98, 0x88,
-	0xca, 0x7e, 0xd2, 0xf7, 0xf7, 0xbe, 0xd1, 0xc3, 0x17, 0x7d, 0x09, 0xa9, 0x04, 0x1f, 0x12, 0x0a,
-	0x03, 0x91, 0x71, 0x7f, 0x7c, 0x15, 0xb1, 0x82, 0x5e, 0xf9, 0x9c, 0x65, 0x0c, 0x04, 0x78, 0xa3,
-	0x5c, 0x16, 0x92, 0x3c, 0xd1, 0x30, 0x6f, 0x03, 0xf3, 0x4a, 0xd8, 0x99, 0xc5, 0x25, 0x97, 0x0a,
-	0xe3, 0xaf, 0xff, 0x34, 0xfc, 0xec, 0x45, 0x9d, 0xea, 0x5f, 0xbe, 0xc2, 0xb9, 0xdf, 0x1b, 0xb8,
-	0x7d, 0xa3, 0x8d, 0x6e, 0x0b, 0x5a, 0x30, 0xf2, 0x06, 0xb7, 0x46, 0x34, 0xa7, 0x29, 0xd8, 0xe8,
-	0x1c, 0x5d, 0x9a, 0xd7, 0x1d, 0xaf, 0xc6, 0xd8, 0x7b, 0xaf, 0x60, 0xc1, 0xbd, 0xd9, 0xa2, 0x63,
-	0x84, 0x25, 0x89, 0x70, 0x7c, 0x02, 0x82, 0x67, 0x22, 0xe3, 0x3d, 0x91, 0xdd, 0x49, 0xb0, 0x1b,
-	0xe7, 0xcd, 0x4b, 0xf3, 0xfa, 0x79, 0xad, 0xca, 0xad, 0x46, 0xbf, 0xcd, 0xee, 0x64, 0xf0, 0x74,
-	0x2d, 0xf5, 0x7b, 0xd1, 0xb1, 0xa6, 0x34, 0x4d, 0x5e, 0xb9, 0x3b, 0x42, 0x6e, 0xd8, 0x86, 0x2d,
-	0x14, 0xc8, 0x27, 0x7c, 0x92, 0x0a, 0x00, 0x16, 0xf7, 0xa2, 0x44, 0xf6, 0x87, 0x60, 0x37, 0x95,
-	0x91, 0x57, 0x6b, 0xf4, 0x81, 0x26, 0x22, 0xa6, 0x85, 0xcc, 0xdf, 0x29, 0x5a, 0xa0, 0x58, 0xfb,
-	0x96, 0x3b, 0x92, 0x6e, 0xd8, 0x4e, 0x2b, 0x58, 0xf7, 0x07, 0xc2, 0x66, 0x25, 0x2e, 0xb1, 0xf1,
-	0x03, 0x1a, 0xc7, 0x39, 0x03, 0xdd, 0xd5, 0xa3, 0x70, 0x33, 0x92, 0x2f, 0x08, 0x9f, 0x8e, 0x37,
-	0x7e, 0xbd, 0xea, 0x1e, 0x76, 0x43, 0xb5, 0xda, 0x3d, 0x1e, 0xb3, 0x5a, 0xcc, 0x45, 0x99, 0xf2,
-	0x99, 0x4e, 0x79, 0x58, 0xda, 0x0d, 0xad, 0xf1, 0x01, 0xb2, 0xfb, 0x0d, 0xe1, 0xc7, 0x07, 0x97,
-	0xff, 0xc7, 0x02, 0x7c, 0xbf, 0xdd, 0x63, 0xcf, 0x58, 0xd1, 0xfd, 0xaf, 0x4e, 0x5f, 0x63, 0xb3,
-	0x42, 0x25, 0x16, 0xbe, 0x2f, 0xb2, 0x98, 0x4d, 0x54, 0x9e, 0x66, 0xa8, 0x07, 0x72, 0x8a, 0x5b,
-	0x9a, 0xa4, 0xda, 0x7b, 0x18, 0x96, 0x53, 0x70, 0x33, 0x5b, 0x3a, 0x68, 0xbe, 0x74, 0xd0, 0xaf,
-	0xa5, 0x83, 0xbe, 0xae, 0x1c, 0x63, 0xbe, 0x72, 0x8c, 0x9f, 0x2b, 0xc7, 0xf8, 0xd8, 0xe5, 0xa2,
-	0x18, 0x7c, 0x8e, 0xbc, 0xbe, 0x4c, 0xfd, 0xf2, 0x12, 0xf4, 0xa7, 0x0b, 0xf1, 0xd0, 0x9f, 0x6c,
-	0xcf, 0xa2, 0x98, 0x8e, 0x18, 0x44, 0x2d, 0x75, 0x0c, 0x2f, 0xff, 0x04, 0x00, 0x00, 0xff, 0xff,
-	0x03, 0x3c, 0xa8, 0xf6, 0x8c, 0x03, 0x00, 0x00,
+	// 492 bytes of a gzipped FileDescriptorProto
+	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0xa4, 0x54, 0xbf, 0x6e, 0xd3, 0x40,
+	0x18, 0xcf, 0x25, 0x10, 0xe0, 0x92, 0x2e, 0x27, 0xb7, 0x58, 0x15, 0x38, 0x95, 0x45, 0x51, 0x97,
+	0xd8, 0x6a, 0x8a, 0x18, 0x40, 0x0c, 0x64, 0xa9, 0x90, 0x40, 0x42, 0xae, 0xd4, 0x81, 0x25, 0xba,
+	0xc4, 0xd7, 0xeb, 0xa9, 0xb1, 0x2f, 0xf8, 0x73, 0xa3, 0xfa, 0x15, 0x98, 0x90, 0xd8, 0x78, 0x07,
+	0x36, 0x36, 0x76, 0xd4, 0xb1, 0x23, 0x53, 0x85, 0x92, 0x37, 0xe0, 0x09, 0x50, 0xee, 0x9c, 0xc6,
+	0xad, 0xec, 0xa6, 0x56, 0x26, 0xfb, 0x93, 0x7e, 0xff, 0xee, 0xe7, 0xf3, 0x87, 0xb7, 0x07, 0x12,
+	0x02, 0x09, 0x2e, 0x0c, 0x29, 0x1c, 0x8b, 0x90, 0xbb, 0xe3, 0xdd, 0x3e, 0x8b, 0xe9, 0xae, 0xcb,
+	0x59, 0xc8, 0x40, 0x80, 0x33, 0x8a, 0x64, 0x2c, 0xc9, 0x63, 0x0d, 0x73, 0xe6, 0x30, 0x27, 0x85,
+	0x6d, 0x1a, 0x5c, 0x72, 0xa9, 0x30, 0xee, 0xec, 0x4d, 0xc3, 0x37, 0x9f, 0x17, 0xa9, 0x5e, 0xf1,
+	0x15, 0xce, 0xfe, 0x51, 0xc5, 0xcd, 0x7d, 0x6d, 0x74, 0x10, 0xd3, 0x98, 0x91, 0x37, 0xb8, 0x3e,
+	0xa2, 0x11, 0x0d, 0xc0, 0x44, 0x5b, 0x68, 0xa7, 0xd1, 0x69, 0x39, 0x05, 0xc6, 0xce, 0x47, 0x05,
+	0xeb, 0xde, 0x3b, 0xbf, 0x6c, 0x55, 0xbc, 0x94, 0x44, 0x38, 0x5e, 0x03, 0xc1, 0x43, 0x11, 0xf2,
+	0x9e, 0x08, 0x8f, 0x24, 0x98, 0xd5, 0xad, 0xda, 0x4e, 0xa3, 0xf3, 0xac, 0x50, 0xe5, 0x40, 0xa3,
+	0xdf, 0x85, 0x47, 0xb2, 0xfb, 0x64, 0x26, 0xf5, 0xef, 0xb2, 0x65, 0x24, 0x34, 0x18, 0xbe, 0xb2,
+	0xaf, 0x09, 0xd9, 0x5e, 0x13, 0x16, 0x50, 0x20, 0xa7, 0x78, 0x2d, 0x10, 0x00, 0xcc, 0xef, 0xf5,
+	0x87, 0x72, 0x70, 0x02, 0x66, 0x4d, 0x19, 0x75, 0x0a, 0x8d, 0x0e, 0xe9, 0x50, 0xf8, 0x34, 0x96,
+	0xd1, 0x07, 0x45, 0xeb, 0xce, 0x58, 0x6f, 0xa3, 0x88, 0x26, 0x37, 0x6d, 0xaf, 0xc9, 0xda, 0x5e,
+	0x33, 0x58, 0xe0, 0xc1, 0xfe, 0x55, 0xc5, 0xeb, 0xd9, 0xbe, 0xde, 0x33, 0x4e, 0x07, 0xc9, 0xe1,
+	0x8b, 0xbd, 0x55, 0x8b, 0x1b, 0xe5, 0x17, 0xd7, 0xbe, 0x4b, 0x71, 0x57, 0x21, 0x4a, 0x35, 0xf8,
+	0x39, 0xbf, 0x41, 0xa7, 0x54, 0x83, 0x50, 0xaa, 0xbd, 0xdf, 0x08, 0x1b, 0x79, 0xb9, 0x89, 0x89,
+	0x1f, 0x50, 0xdf, 0x8f, 0x18, 0xe8, 0xf6, 0x1e, 0x79, 0xf3, 0x91, 0x7c, 0x43, 0x78, 0x63, 0x3c,
+	0x37, 0xee, 0x65, 0x0f, 0x64, 0x56, 0x55, 0xcf, 0x2f, 0x97, 0xe7, 0xcd, 0xad, 0x6a, 0x3b, 0xcd,
+	0xfd, 0x54, 0xe7, 0xce, 0xf7, 0xb0, 0x3d, 0x63, 0x9c, 0xa3, 0x62, 0xff, 0x44, 0xb8, 0x91, 0x99,
+	0x6f, 0xc9, 0xff, 0x65, 0x59, 0xfe, 0x76, 0xa9, 0xfc, 0xab, 0xc5, 0xfe, 0x8e, 0xf0, 0x7a, 0xee,
+	0x57, 0xbc, 0xe5, 0x00, 0xfc, 0xe6, 0x35, 0x59, 0xf6, 0x47, 0x67, 0x74, 0x4b, 0x5d, 0x8e, 0xd7,
+	0xb8, 0x91, 0xa1, 0x12, 0x03, 0xdf, 0x17, 0xa1, 0xcf, 0xce, 0x54, 0x9e, 0x9a, 0xa7, 0x07, 0xb2,
+	0x81, 0xeb, 0x9a, 0xa4, 0xda, 0x7b, 0xe8, 0xa5, 0x53, 0x77, 0xff, 0x7c, 0x62, 0xa1, 0x8b, 0x89,
+	0x85, 0xfe, 0x4e, 0x2c, 0xf4, 0x75, 0x6a, 0x55, 0x2e, 0xa6, 0x56, 0xe5, 0xcf, 0xd4, 0xaa, 0x7c,
+	0x6a, 0x73, 0x11, 0x1f, 0x9f, 0xf6, 0x9d, 0x81, 0x0c, 0xdc, 0x74, 0x29, 0xea, 0x47, 0x1b, 0xfc,
+	0x13, 0xf7, 0x6c, 0xb1, 0x21, 0xe3, 0x64, 0xc4, 0xa0, 0x5f, 0x57, 0x7b, 0x71, 0xef, 0x7f, 0x00,
+	0x00, 0x00, 0xff, 0xff, 0x8d, 0x33, 0x8c, 0x09, 0x97, 0x05, 0x00, 0x00,
 }
 
 func (m *GenesisState) Marshal() (dAtA []byte, err error) {
@@ -355,6 +482,107 @@ func (m *GenesisState) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	}
 	i--
 	dAtA[i] = 0xa
+	return len(dAtA) - i, nil
+}
+
+func (m *GenesisStateLegacyV43) Marshal() (dAtA []byte, err error) {
+	size := m.Size()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalToSizedBuffer(dAtA[:size])
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *GenesisStateLegacyV43) MarshalTo(dAtA []byte) (int, error) {
+	size := m.Size()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *GenesisStateLegacyV43) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
+	_ = i
+	var l int
+	_ = l
+	if len(m.MissedBlocks) > 0 {
+		for iNdEx := len(m.MissedBlocks) - 1; iNdEx >= 0; iNdEx-- {
+			{
+				size, err := m.MissedBlocks[iNdEx].MarshalToSizedBuffer(dAtA[:i])
+				if err != nil {
+					return 0, err
+				}
+				i -= size
+				i = encodeVarintGenesis(dAtA, i, uint64(size))
+			}
+			i--
+			dAtA[i] = 0x1a
+		}
+	}
+	if len(m.SigningInfos) > 0 {
+		for iNdEx := len(m.SigningInfos) - 1; iNdEx >= 0; iNdEx-- {
+			{
+				size, err := m.SigningInfos[iNdEx].MarshalToSizedBuffer(dAtA[:i])
+				if err != nil {
+					return 0, err
+				}
+				i -= size
+				i = encodeVarintGenesis(dAtA, i, uint64(size))
+			}
+			i--
+			dAtA[i] = 0x12
+		}
+	}
+	{
+		size, err := m.Params.MarshalToSizedBuffer(dAtA[:i])
+		if err != nil {
+			return 0, err
+		}
+		i -= size
+		i = encodeVarintGenesis(dAtA, i, uint64(size))
+	}
+	i--
+	dAtA[i] = 0xa
+	return len(dAtA) - i, nil
+}
+
+func (m *SigningInfoLegacyV43) Marshal() (dAtA []byte, err error) {
+	size := m.Size()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalToSizedBuffer(dAtA[:size])
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *SigningInfoLegacyV43) MarshalTo(dAtA []byte) (int, error) {
+	size := m.Size()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *SigningInfoLegacyV43) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
+	_ = i
+	var l int
+	_ = l
+	{
+		size, err := m.ValidatorSigningInfo.MarshalToSizedBuffer(dAtA[:i])
+		if err != nil {
+			return 0, err
+		}
+		i -= size
+		i = encodeVarintGenesis(dAtA, i, uint64(size))
+	}
+	i--
+	dAtA[i] = 0x12
+	if len(m.Address) > 0 {
+		i -= len(m.Address)
+		copy(dAtA[i:], m.Address)
+		i = encodeVarintGenesis(dAtA, i, uint64(len(m.Address)))
+		i--
+		dAtA[i] = 0xa
+	}
 	return len(dAtA) - i, nil
 }
 
@@ -511,6 +739,44 @@ func (m *GenesisState) Size() (n int) {
 			n += 1 + l + sovGenesis(uint64(l))
 		}
 	}
+	return n
+}
+
+func (m *GenesisStateLegacyV43) Size() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	l = m.Params.Size()
+	n += 1 + l + sovGenesis(uint64(l))
+	if len(m.SigningInfos) > 0 {
+		for _, e := range m.SigningInfos {
+			l = e.Size()
+			n += 1 + l + sovGenesis(uint64(l))
+		}
+	}
+	if len(m.MissedBlocks) > 0 {
+		for _, e := range m.MissedBlocks {
+			l = e.Size()
+			n += 1 + l + sovGenesis(uint64(l))
+		}
+	}
+	return n
+}
+
+func (m *SigningInfoLegacyV43) Size() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	l = len(m.Address)
+	if l > 0 {
+		n += 1 + l + sovGenesis(uint64(l))
+	}
+	l = m.ValidatorSigningInfo.Size()
+	n += 1 + l + sovGenesis(uint64(l))
 	return n
 }
 
@@ -694,8 +960,274 @@ func (m *GenesisState) Unmarshal(dAtA []byte) error {
 			if postIndex > l {
 				return io.ErrUnexpectedEOF
 			}
+			m.MissedBlocks = append(m.MissedBlocks, ValidatorMissedBlockArray{})
+			if err := m.MissedBlocks[len(m.MissedBlocks)-1].Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		default:
+			iNdEx = preIndex
+			skippy, err := skipGenesis(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
+				return ErrInvalidLengthGenesis
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+func (m *GenesisStateLegacyV43) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return ErrIntOverflowGenesis
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= uint64(b&0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: GenesisStateLegacyV43: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: GenesisStateLegacyV43: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 1:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Params", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowGenesis
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthGenesis
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthGenesis
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if err := m.Params.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		case 2:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field SigningInfos", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowGenesis
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthGenesis
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthGenesis
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.SigningInfos = append(m.SigningInfos, SigningInfoLegacyV43{})
+			if err := m.SigningInfos[len(m.SigningInfos)-1].Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		case 3:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field MissedBlocks", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowGenesis
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthGenesis
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthGenesis
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
 			m.MissedBlocks = append(m.MissedBlocks, ValidatorMissedBlocks{})
 			if err := m.MissedBlocks[len(m.MissedBlocks)-1].Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		default:
+			iNdEx = preIndex
+			skippy, err := skipGenesis(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
+				return ErrInvalidLengthGenesis
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+func (m *SigningInfoLegacyV43) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return ErrIntOverflowGenesis
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= uint64(b&0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: SigningInfoLegacyV43: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: SigningInfoLegacyV43: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 1:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Address", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowGenesis
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLengthGenesis
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return ErrInvalidLengthGenesis
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.Address = string(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
+		case 2:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field ValidatorSigningInfo", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowGenesis
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthGenesis
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthGenesis
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if err := m.ValidatorSigningInfo.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
 				return err
 			}
 			iNdEx = postIndex

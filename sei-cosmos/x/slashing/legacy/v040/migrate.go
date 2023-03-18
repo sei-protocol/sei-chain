@@ -13,14 +13,14 @@ import (
 // - Chaning SigningInfos and MissedBlocks from map to array.
 // - Convert addresses from bytes to bech32 strings.
 // - Re-encode in v0.40 GenesisState.
-func Migrate(oldGenState v039slashing.GenesisState) *v040slashing.GenesisState {
+func Migrate(oldGenState v039slashing.GenesisState) *v040slashing.GenesisStateLegacyV43 {
 	// Note that the two following `for` loop over a map's keys, so are not
 	// deterministic.
-	var newSigningInfos = make([]v040slashing.SigningInfo, 0, len(oldGenState.SigningInfos))
+	var newSigningInfos = make([]v040slashing.SigningInfoLegacyV43, 0, len(oldGenState.SigningInfos))
 	for address, signingInfo := range oldGenState.SigningInfos {
-		newSigningInfos = append(newSigningInfos, v040slashing.SigningInfo{
+		newSigningInfos = append(newSigningInfos, v040slashing.SigningInfoLegacyV43{
 			Address: address,
-			ValidatorSigningInfo: v040slashing.ValidatorSigningInfo{
+			ValidatorSigningInfo: v040slashing.ValidatorSigningInfoLegacyV43{
 				Address:             signingInfo.Address.String(),
 				StartHeight:         signingInfo.StartHeight,
 				IndexOffset:         signingInfo.IndexOffset,
@@ -50,7 +50,7 @@ func Migrate(oldGenState v039slashing.GenesisState) *v040slashing.GenesisState {
 	sort.Slice(newSigningInfos, func(i, j int) bool { return newSigningInfos[i].Address < newSigningInfos[j].Address })
 	sort.Slice(newValidatorMissedBlocks, func(i, j int) bool { return newValidatorMissedBlocks[i].Address < newValidatorMissedBlocks[j].Address })
 
-	return &v040slashing.GenesisState{
+	return &v040slashing.GenesisStateLegacyV43{
 		Params: v040slashing.Params{
 			SignedBlocksWindow:      oldGenState.Params.SignedBlocksWindow,
 			MinSignedPerWindow:      oldGenState.Params.MinSignedPerWindow,

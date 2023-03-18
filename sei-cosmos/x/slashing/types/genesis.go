@@ -9,7 +9,7 @@ import (
 
 // NewGenesisState creates a new GenesisState object
 func NewGenesisState(
-	params Params, signingInfos []SigningInfo, missedBlocks []ValidatorMissedBlocks,
+	params Params, signingInfos []SigningInfo, missedBlocks []ValidatorMissedBlockArray,
 ) *GenesisState {
 
 	return &GenesisState{
@@ -19,20 +19,12 @@ func NewGenesisState(
 	}
 }
 
-// NewMissedBlock creates a new MissedBlock instance
-func NewMissedBlock(index int64, missed bool) MissedBlock {
-	return MissedBlock{
-		Index:  index,
-		Missed: missed,
-	}
-}
-
 // DefaultGenesisState - default GenesisState used by Cosmos Hub
 func DefaultGenesisState() *GenesisState {
 	return &GenesisState{
 		Params:       DefaultParams(),
 		SigningInfos: []SigningInfo{},
-		MissedBlocks: []ValidatorMissedBlocks{},
+		MissedBlocks: []ValidatorMissedBlockArray{},
 	}
 }
 

@@ -70,7 +70,7 @@ func TestSimulateMsgUnjail(t *testing.T) {
 	app.StakingKeeper.SetValidatorByConsAddr(ctx, validator0)
 	val0ConsAddress, err := validator0.GetConsAddr()
 	require.NoError(t, err)
-	info := types.NewValidatorSigningInfo(val0ConsAddress, int64(4), int64(3),
+	info := types.NewValidatorSigningInfo(val0ConsAddress, int64(4),
 		time.Unix(2, 0), false, int64(10))
 	app.SlashingKeeper.SetValidatorSigningInfo(ctx, val0ConsAddress, info)
 

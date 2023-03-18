@@ -109,7 +109,6 @@ func TestHandleNewValidator(t *testing.T) {
 	info, found := app.SlashingKeeper.GetValidatorSigningInfo(ctx, sdk.ConsAddress(val.Address()))
 	require.True(t, found)
 	require.Equal(t, app.SlashingKeeper.SignedBlocksWindow(ctx)+1, info.StartHeight)
-	require.Equal(t, int64(2), info.IndexOffset)
 	require.Equal(t, int64(1), info.MissedBlocksCounter)
 	require.Equal(t, time.Unix(0, 0).UTC(), info.JailedUntil)
 
@@ -138,6 +137,10 @@ func TestHandleAlreadyJailed(t *testing.T) {
 	amt := tstaking.CreateValidatorWithValPower(addr, val, power, true)
 
 	staking.EndBlocker(ctx, app.StakingKeeper)
+
+	params := app.SlashingKeeper.GetParams(ctx)
+	params.SignedBlocksWindow = 1000
+	app.SlashingKeeper.SetParams(ctx, params)
 
 	// 1000 first blocks OK
 	height := int64(0)
@@ -246,11 +249,10 @@ func TestValidatorDippingInAndOut(t *testing.T) {
 	signInfo, found := app.SlashingKeeper.GetValidatorSigningInfo(ctx, consAddr)
 	require.True(t, found)
 	require.Equal(t, int64(0), signInfo.MissedBlocksCounter)
-	require.Equal(t, int64(0), signInfo.IndexOffset)
 	// array should be cleared
 	for offset := int64(0); offset < app.SlashingKeeper.SignedBlocksWindow(ctx); offset++ {
-		missed := app.SlashingKeeper.GetValidatorMissedBlockBitArray(ctx, consAddr, offset)
-		require.False(t, missed)
+		_, found := app.SlashingKeeper.GetValidatorMissedBlocks(ctx, consAddr)
+		require.False(t, found)
 	}
 
 	// some blocks pass

@@ -94,3 +94,7 @@ func (k Keeper) deleteAddrPubkeyRelation(ctx sdk.Context, addr cryptotypes.Addre
 	store := ctx.KVStore(k.storeKey)
 	store.Delete(types.AddrPubkeyRelationKey(addr))
 }
+
+func (k Keeper) GetStoreKey() sdk.StoreKey {
+	return k.storeKey
+}

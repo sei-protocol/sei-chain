@@ -18,7 +18,7 @@ type SlashInfo struct {
 
 // This performs similar logic to the above HandleValidatorSignature, but only performs READs such that it can be performed in parallel for all validators.
 // Instead of updating appropriate validator bit arrays / signing infos, this will return the pending values to be written in a consistent order
-func (k Keeper) HandleValidatorSignatureConcurrent(ctx sdk.Context, addr cryptotypes.Address, power int64, signed bool) (consAddr sdk.ConsAddress, index int64, previous bool, missed bool, signInfo types.ValidatorSigningInfo, shouldSlash bool, slashInfo SlashInfo) {
+func (k Keeper) HandleValidatorSignatureConcurrent(ctx sdk.Context, addr cryptotypes.Address, power int64, signed bool) (consAddr sdk.ConsAddress, missedInfo types.ValidatorMissedBlockArray, signInfo types.ValidatorSigningInfo, shouldSlash bool, slashInfo SlashInfo) {
 	logger := k.Logger(ctx)
 	height := ctx.BlockHeight()
 
@@ -34,29 +34,34 @@ func (k Keeper) HandleValidatorSignatureConcurrent(ctx sdk.Context, addr cryptot
 		panic(fmt.Sprintf("Expected signing info for validator %s but not found", consAddr))
 	}
 
-	// this is a relative index, so it counts blocks the validator *should* have signed
-	// will use the 0-value default signing info if not present, except for start height
-	index = signInfo.IndexOffset % k.SignedBlocksWindow(ctx)
-	signInfo.IndexOffset++
+	window := k.SignedBlocksWindow(ctx)
 
-	// Update signed block bit array & counter
-	// This counter just tracks the sum of the bit array
-	// That way we avoid needing to read/write the whole array each time
-	previous = k.GetValidatorMissedBlockBitArray(ctx, consAddr, index)
-	missed = !signed
-	switch {
-	case !previous && missed:
-		// Array value has changed from not missed to missed, increment counter
-		signInfo.MissedBlocksCounter++
-	case previous && !missed:
-		// Array value has changed from missed to not missed, decrement counter
-		signInfo.MissedBlocksCounter--
-	default:
-		// Array value at this index has not changed, no need to update counter
+	missedInfo, found = k.GetValidatorMissedBlocks(ctx, consAddr)
+	if !found {
+		missedInfo = types.ValidatorMissedBlockArray{
+			Address:       consAddr.String(),
+			MissedHeights: make([]int64, 0),
+		}
 	}
+	cutoff := height - window
+	// go through and increment number evicted as necessary
+	numberEvicted := 0
+	for _, missedHeight := range missedInfo.MissedHeights {
+		if missedHeight <= cutoff {
+			numberEvicted += 1
+		} else {
+			break
+		}
+	}
+	// update Missed Heights by excluding heights outside of the window
+	missedInfo.MissedHeights = missedInfo.MissedHeights[numberEvicted:]
+	missed := !signed
+	if missed {
+		missedInfo.MissedHeights = append(missedInfo.MissedHeights, height-1)
+	}
+	signInfo.MissedBlocksCounter = int64(len(missedInfo.MissedHeights))
 
 	minSignedPerWindow := k.MinSignedPerWindow(ctx)
-
 	if missed {
 		ctx.EventManager().EmitEvent(
 			sdk.NewEvent(
@@ -77,7 +82,7 @@ func (k Keeper) HandleValidatorSignatureConcurrent(ctx sdk.Context, addr cryptot
 	}
 
 	minHeight := signInfo.StartHeight + k.SignedBlocksWindow(ctx)
-	maxMissed := k.SignedBlocksWindow(ctx) - minSignedPerWindow
+	maxMissed := window - minSignedPerWindow
 	shouldSlash = false
 	// if we are past the minimum height and the validator has missed too many blocks, punish them
 	if height > minHeight && signInfo.MissedBlocksCounter > maxMissed {
@@ -126,7 +131,6 @@ func (k Keeper) SlashJailAndUpdateSigningInfo(ctx sdk.Context, consAddr sdk.Cons
 	k.sk.Jail(ctx, consAddr)
 	signInfo.JailedUntil = ctx.BlockHeader().Time.Add(k.DowntimeJailDuration(ctx))
 	signInfo.MissedBlocksCounter = 0
-	signInfo.IndexOffset = 0
 	logger.Info(
 		"slashing and jailing validator due to liveness fault",
 		"height", slashInfo.height,

@@ -13,9 +13,7 @@ import (
 
 type SlashingWriteInfo struct {
 	ConsAddr    sdk.ConsAddress
-	Index       int64
-	Previous    bool
-	Missed      bool
+	MissedInfo  types.ValidatorMissedBlockArray
 	SigningInfo types.ValidatorSigningInfo
 	ShouldSlash bool
 	SlashInfo   keeper.SlashInfo
@@ -38,12 +36,10 @@ func BeginBlocker(ctx sdk.Context, req abci.RequestBeginBlock, k keeper.Keeper) 
 		wg.Add(1)
 		go func(valIndex int, vInfo abci.VoteInfo) {
 			defer wg.Done()
-			consAddr, index, previous, missed, signInfo, shouldSlash, slashInfo := k.HandleValidatorSignatureConcurrent(ctx, vInfo.Validator.Address, vInfo.Validator.Power, vInfo.SignedLastBlock)
+			consAddr, missedInfo, signInfo, shouldSlash, slashInfo := k.HandleValidatorSignatureConcurrent(ctx, vInfo.Validator.Address, vInfo.Validator.Power, vInfo.SignedLastBlock)
 			slashingWriteInfo[valIndex] = &SlashingWriteInfo{
 				ConsAddr:    consAddr,
-				Index:       index,
-				Previous:    previous,
-				Missed:      missed,
+				MissedInfo:  missedInfo,
 				SigningInfo: signInfo,
 				ShouldSlash: shouldSlash,
 				SlashInfo:   slashInfo,
@@ -57,16 +53,10 @@ func BeginBlocker(ctx sdk.Context, req abci.RequestBeginBlock, k keeper.Keeper) 
 			panic("Expected slashing write info to be non-nil")
 		}
 		// Update the validator missed block bit array by index if different from last value at the index
-		switch {
-		case writeInfo.ShouldSlash:
-			// this differs from the original switch, since we know that we are going to be slashing + jailing the validator, we can proactively just clear their bit array instead of updating it and THEN clearing it
+		if writeInfo.ShouldSlash {
 			k.ClearValidatorMissedBlockBitArray(ctx, writeInfo.ConsAddr)
-		case !writeInfo.Previous && writeInfo.Missed:
-			k.SetValidatorMissedBlockBitArray(ctx, writeInfo.ConsAddr, writeInfo.Index, true)
-		case writeInfo.Previous && !writeInfo.Missed:
-			k.SetValidatorMissedBlockBitArray(ctx, writeInfo.ConsAddr, writeInfo.Index, false)
-		default:
-			// noop
+		} else {
+			k.SetValidatorMissedBlocks(ctx, writeInfo.ConsAddr, writeInfo.MissedInfo)
 		}
 		if writeInfo.ShouldSlash {
 			writeInfo.SigningInfo = k.SlashJailAndUpdateSigningInfo(ctx, writeInfo.ConsAddr, writeInfo.SlashInfo, writeInfo.SigningInfo)
