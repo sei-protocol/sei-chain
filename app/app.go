@@ -403,8 +403,8 @@ func New(
 		tracingInfo: &tracing.Info{
 			Tracer: &tr,
 		},
-		txDecoder:   encodingConfig.TxConfig.TxDecoder(),
-		versionInfo: version.NewInfo(),
+		txDecoder:     encodingConfig.TxConfig.TxDecoder(),
+		versionInfo:   version.NewInfo(),
 		metricCounter: &map[string]float32{},
 	}
 	app.tracingInfo.SetContext(context.Background())
