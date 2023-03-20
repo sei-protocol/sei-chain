@@ -202,7 +202,7 @@ LOOP:
 			t.Fatal("context canceled before test completed")
 		case err := <-walPanicked:
 			// make sure we can make blocks after a crash
-			startNewStateAndWaitForBlock(ctx, t, consensusReplayConfig, cs.Height, blockDB, stateStore)
+			startNewStateAndWaitForBlock(ctx, t, consensusReplayConfig, cs.roundState.Height(), blockDB, stateStore)
 
 			// stop consensus state and transactions sender (initFn)
 			cs.Stop()
@@ -355,7 +355,7 @@ func setupSimulator(ctx context.Context, t *testing.T) *simulatorTestSuite {
 	for i := 0; i < nPeers; i++ {
 		vss[i] = newValidatorStub(css[i].privValidator, int32(i))
 	}
-	height, round := css[0].Height, css[0].Round
+	height, round := css[0].roundState.Height(), css[0].roundState.Round()
 
 	// start the machine
 	startTestRound(ctx, css[0], height, round)
@@ -1237,7 +1237,6 @@ func (bs *mockBlockStore) PruneBlocks(height int64) (uint64, error) {
 	bs.base = height
 	return pruned, nil
 }
-
 
 func (bs *mockBlockStore) DeleteLatestBlock() error { return nil }
 

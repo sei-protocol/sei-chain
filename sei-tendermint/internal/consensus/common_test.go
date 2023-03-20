@@ -252,7 +252,7 @@ func decideProposal(
 	require.NoError(t, err)
 	blockParts, err := block.MakePartSet(types.BlockPartSizeBytes)
 	require.NoError(t, err)
-	validRound := cs1.ValidRound
+	validRound := cs1.roundState.ValidRound()
 	chainID := cs1.state.ChainID
 	cs1.mtx.Unlock()
 
@@ -304,7 +304,7 @@ func validatePrevote(
 	cs.mtx.RLock()
 	defer cs.mtx.RUnlock()
 
-	prevotes := cs.Votes.Prevotes(round)
+	prevotes := cs.roundState.Votes().Prevotes(round)
 	pubKey, err := privVal.GetPubKey(ctx)
 	require.NoError(t, err)
 
@@ -323,7 +323,7 @@ func validatePrevote(
 func validateLastPrecommit(ctx context.Context, t *testing.T, cs *State, privVal *validatorStub, blockHash []byte) {
 	t.Helper()
 
-	votes := cs.LastCommit
+	votes := cs.roundState.LastCommit()
 	pv, err := privVal.GetPubKey(ctx)
 	require.NoError(t, err)
 	address := pv.Address()
@@ -347,7 +347,7 @@ func validatePrecommit(
 ) {
 	t.Helper()
 
-	precommits := cs.Votes.Precommits(thisRound)
+	precommits := cs.roundState.Votes().Precommits(thisRound)
 	pv, err := privVal.GetPubKey(ctx)
 	require.NoError(t, err)
 	address := pv.Address()

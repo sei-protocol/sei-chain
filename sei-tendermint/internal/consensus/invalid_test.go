@@ -123,15 +123,15 @@ func invalidDoPrevoteFunc(
 		require.NoError(t, err)
 
 		addr := pubKey.Address()
-		valIndex, _ := cs.Validators.GetByAddress(addr)
+		valIndex, _ := cs.roundState.Validators().GetByAddress(addr)
 
 		// precommit a random block
 		blockHash := bytes.HexBytes(tmrand.Bytes(32))
 		precommit := &types.Vote{
 			ValidatorAddress: addr,
 			ValidatorIndex:   valIndex,
-			Height:           cs.Height,
-			Round:            cs.Round,
+			Height:           cs.roundState.Height(),
+			Round:            cs.roundState.Round(),
 			Timestamp:        tmtime.Now(),
 			Type:             tmproto.PrecommitType,
 			BlockID: types.BlockID{

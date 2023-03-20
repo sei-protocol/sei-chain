@@ -1052,7 +1052,7 @@ func (r *Reactor) handleStateMessage(ctx context.Context, envelope *p2p.Envelope
 		}
 	case *tmcons.VoteSetMaj23:
 		r.state.mtx.RLock()
-		height, votes := r.state.Height, r.state.Votes
+		height, votes := r.state.roundState.Height(), r.state.roundState.Votes()
 		r.state.mtx.RUnlock()
 
 		if height != msg.Height {
@@ -1176,7 +1176,7 @@ func (r *Reactor) handleVoteMessage(ctx context.Context, envelope *p2p.Envelope,
 	switch msg := envelope.Message.(type) {
 	case *tmcons.Vote:
 		r.state.mtx.RLock()
-		height, valSize, lastCommitSize := r.state.Height, r.state.Validators.Size(), r.state.LastCommit.Size()
+		height, valSize, lastCommitSize := r.state.roundState.Height(), r.state.roundState.Validators().Size(), r.state.roundState.LastCommit().Size()
 		r.state.mtx.RUnlock()
 
 		vMsg := msgI.(*VoteMessage)
@@ -1219,7 +1219,7 @@ func (r *Reactor) handleVoteSetBitsMessage(ctx context.Context, envelope *p2p.En
 	switch msg := envelope.Message.(type) {
 	case *tmcons.VoteSetBits:
 		r.state.mtx.RLock()
-		height, votes := r.state.Height, r.state.Votes
+		height, votes := r.state.roundState.Height(), r.state.roundState.Votes()
 		r.state.mtx.RUnlock()
 
 		vsbMsg := msgI.(*VoteSetBitsMessage)

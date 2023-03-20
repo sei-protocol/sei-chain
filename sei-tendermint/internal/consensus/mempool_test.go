@@ -48,7 +48,7 @@ func TestMempoolNoProgressUntilTxsAvailable(t *testing.T) {
 		Params:     factory.ConsensusParams()})
 	cs := newStateWithConfig(ctx, t, log.NewNopLogger(), config, state, privVals[0], NewCounterApplication())
 	assertMempool(t, cs.txNotifier).EnableTxsAvailable()
-	height, round := cs.Height, cs.Round
+	height, round := cs.roundState.Height(), cs.roundState.Round()
 	newBlockCh := subscribe(ctx, t, cs.eventBus, types.EventQueryNewBlock)
 	startTestRound(ctx, cs, height, round)
 
@@ -79,7 +79,7 @@ func TestMempoolProgressAfterCreateEmptyBlocksInterval(t *testing.T) {
 	assertMempool(t, cs.txNotifier).EnableTxsAvailable()
 
 	newBlockCh := subscribe(ctx, t, cs.eventBus, types.EventQueryNewBlock)
-	startTestRound(ctx, cs, cs.Height, cs.Round)
+	startTestRound(ctx, cs, cs.roundState.Height(), cs.roundState.Round())
 
 	ensureNewEventOnChannel(t, newBlockCh)   // first block gets committed
 	ensureNoNewEventOnChannel(t, newBlockCh) // then we dont make a block ...
@@ -102,12 +102,12 @@ func TestMempoolProgressInHigherRound(t *testing.T) {
 		Params:     factory.ConsensusParams()})
 	cs := newStateWithConfig(ctx, t, log.NewNopLogger(), config, state, privVals[0], NewCounterApplication())
 	assertMempool(t, cs.txNotifier).EnableTxsAvailable()
-	height, round := cs.Height, cs.Round
+	height, round := cs.roundState.Height(), cs.roundState.Round()
 	newBlockCh := subscribe(ctx, t, cs.eventBus, types.EventQueryNewBlock)
 	newRoundCh := subscribe(ctx, t, cs.eventBus, types.EventQueryNewRound)
 	timeoutCh := subscribe(ctx, t, cs.eventBus, types.EventQueryTimeoutPropose)
 	cs.setProposal = func(proposal *types.Proposal, recvTime time.Time) error {
-		if cs.Height == 2 && cs.Round == 0 {
+		if cs.roundState.Height() == 2 && cs.roundState.Round() == 0 {
 			// dont set the proposal in round 0 so we timeout and
 			// go to next round
 			return nil
@@ -169,7 +169,7 @@ func TestMempoolTxConcurrentWithCommit(t *testing.T) {
 	const numTxs int64 = 100
 	go checkTxsRange(ctx, t, cs, 0, int(numTxs))
 
-	startTestRound(ctx, cs, cs.Height, cs.Round)
+	startTestRound(ctx, cs, cs.roundState.Height(), cs.roundState.Round())
 	for n := int64(0); n < numTxs; {
 		select {
 		case msg := <-newBlockHeaderCh:

@@ -3,6 +3,7 @@ package types
 import (
 	"encoding/json"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/tendermint/tendermint/libs/bytes"
@@ -57,6 +58,294 @@ func (rs RoundStepType) String() string {
 	default:
 		return "RoundStepUnknown" // Cannot panic.
 	}
+}
+
+type SafeRoundState struct {
+	internal RoundState
+	mtx      sync.RWMutex
+}
+
+func (s *SafeRoundState) CopyInternal() *RoundState {
+	s.mtx.RLock()
+	defer s.mtx.RUnlock()
+	copy := s.internal
+	return &copy
+}
+
+func (s *SafeRoundState) GetInternalPointer() *RoundState {
+	s.mtx.RLock()
+	defer s.mtx.RUnlock()
+	return &s.internal
+}
+
+func (s *SafeRoundState) Height() int64 {
+	s.mtx.RLock()
+	defer s.mtx.RUnlock()
+	return s.internal.Height
+}
+
+func (s *SafeRoundState) SetHeight(h int64) {
+	s.mtx.Lock()
+	defer s.mtx.Unlock()
+	s.internal.Height = h
+}
+
+func (s *SafeRoundState) Round() int32 {
+	s.mtx.RLock()
+	defer s.mtx.RUnlock()
+	return s.internal.Round
+}
+
+func (s *SafeRoundState) SetRound(r int32) {
+	s.mtx.Lock()
+	defer s.mtx.Unlock()
+	s.internal.Round = r
+}
+
+func (s *SafeRoundState) Step() RoundStepType {
+	s.mtx.RLock()
+	defer s.mtx.RUnlock()
+	return s.internal.Step
+}
+
+func (s *SafeRoundState) SetStep(t RoundStepType) {
+	s.mtx.Lock()
+	defer s.mtx.Unlock()
+	s.internal.Step = t
+}
+
+func (s *SafeRoundState) StartTime() time.Time {
+	s.mtx.RLock()
+	defer s.mtx.RUnlock()
+	return s.internal.StartTime
+}
+
+func (s *SafeRoundState) SetStartTime(t time.Time) {
+	s.mtx.Lock()
+	defer s.mtx.Unlock()
+	s.internal.StartTime = t
+}
+
+func (s *SafeRoundState) CommitTime() time.Time {
+	s.mtx.RLock()
+	defer s.mtx.RUnlock()
+	return s.internal.CommitTime
+}
+
+func (s *SafeRoundState) SetCommitTime(t time.Time) {
+	s.mtx.Lock()
+	defer s.mtx.Unlock()
+	s.internal.CommitTime = t
+}
+
+func (s *SafeRoundState) LastCommit() *types.VoteSet {
+	s.mtx.RLock()
+	defer s.mtx.RUnlock()
+	return s.internal.LastCommit
+}
+
+func (s *SafeRoundState) SetLastCommit(c *types.VoteSet) {
+	s.mtx.Lock()
+	defer s.mtx.Unlock()
+	s.internal.LastCommit = c
+}
+
+func (s *SafeRoundState) CommitRound() int32 {
+	s.mtx.RLock()
+	defer s.mtx.RUnlock()
+	return s.internal.CommitRound
+}
+
+func (s *SafeRoundState) SetCommitRound(r int32) {
+	s.mtx.Lock()
+	defer s.mtx.Unlock()
+	s.internal.CommitRound = r
+}
+
+func (s *SafeRoundState) Votes() *HeightVoteSet {
+	s.mtx.RLock()
+	defer s.mtx.RUnlock()
+	return s.internal.Votes
+}
+
+func (s *SafeRoundState) SetVotes(v *HeightVoteSet) {
+	s.mtx.Lock()
+	defer s.mtx.Unlock()
+	s.internal.Votes = v
+}
+
+func (s *SafeRoundState) Validators() *types.ValidatorSet {
+	s.mtx.RLock()
+	defer s.mtx.RUnlock()
+	return s.internal.Validators
+}
+
+func (s *SafeRoundState) SetValidators(v *types.ValidatorSet) {
+	s.mtx.Lock()
+	defer s.mtx.Unlock()
+	s.internal.Validators = v
+}
+
+func (s *SafeRoundState) Proposal() *types.Proposal {
+	s.mtx.RLock()
+	defer s.mtx.RUnlock()
+	return s.internal.Proposal
+}
+
+func (s *SafeRoundState) SetProposal(p *types.Proposal) {
+	s.mtx.Lock()
+	defer s.mtx.Unlock()
+	s.internal.Proposal = p
+}
+
+func (s *SafeRoundState) ProposalReceiveTime() time.Time {
+	s.mtx.RLock()
+	defer s.mtx.RUnlock()
+	return s.internal.ProposalReceiveTime
+}
+
+func (s *SafeRoundState) SetProposalReceiveTime(p time.Time) {
+	s.mtx.Lock()
+	defer s.mtx.Unlock()
+	s.internal.ProposalReceiveTime = p
+}
+
+func (s *SafeRoundState) ProposalBlock() *types.Block {
+	s.mtx.RLock()
+	defer s.mtx.RUnlock()
+	return s.internal.ProposalBlock
+}
+
+func (s *SafeRoundState) SetProposalBlock(p *types.Block) {
+	s.mtx.Lock()
+	defer s.mtx.Unlock()
+	s.internal.ProposalBlock = p
+}
+
+func (s *SafeRoundState) ProposalBlockParts() *types.PartSet {
+	s.mtx.RLock()
+	defer s.mtx.RUnlock()
+	return s.internal.ProposalBlockParts
+}
+
+func (s *SafeRoundState) SetProposalBlockParts(p *types.PartSet) {
+	s.mtx.Lock()
+	defer s.mtx.Unlock()
+	s.internal.ProposalBlockParts = p
+}
+
+func (s *SafeRoundState) LockedRound() int32 {
+	s.mtx.RLock()
+	defer s.mtx.RUnlock()
+	return s.internal.LockedRound
+}
+
+func (s *SafeRoundState) SetLockedRound(p int32) {
+	s.mtx.Lock()
+	defer s.mtx.Unlock()
+	s.internal.LockedRound = p
+}
+
+func (s *SafeRoundState) LockedBlock() *types.Block {
+	s.mtx.RLock()
+	defer s.mtx.RUnlock()
+	return s.internal.LockedBlock
+}
+
+func (s *SafeRoundState) SetLockedBlock(p *types.Block) {
+	s.mtx.Lock()
+	defer s.mtx.Unlock()
+	s.internal.LockedBlock = p
+}
+
+func (s *SafeRoundState) LockedBlockParts() *types.PartSet {
+	s.mtx.RLock()
+	defer s.mtx.RUnlock()
+	return s.internal.LockedBlockParts
+}
+
+func (s *SafeRoundState) SetLockedBlockParts(p *types.PartSet) {
+	s.mtx.Lock()
+	defer s.mtx.Unlock()
+	s.internal.LockedBlockParts = p
+}
+
+func (s *SafeRoundState) ValidRound() int32 {
+	s.mtx.RLock()
+	defer s.mtx.RUnlock()
+	return s.internal.ValidRound
+}
+
+func (s *SafeRoundState) SetValidRound(p int32) {
+	s.mtx.Lock()
+	defer s.mtx.Unlock()
+	s.internal.ValidRound = p
+}
+
+func (s *SafeRoundState) ValidBlock() *types.Block {
+	s.mtx.RLock()
+	defer s.mtx.RUnlock()
+	return s.internal.ValidBlock
+}
+
+func (s *SafeRoundState) SetValidBlock(p *types.Block) {
+	s.mtx.Lock()
+	defer s.mtx.Unlock()
+	s.internal.ValidBlock = p
+}
+
+func (s *SafeRoundState) ValidBlockParts() *types.PartSet {
+	s.mtx.RLock()
+	defer s.mtx.RUnlock()
+	return s.internal.ValidBlockParts
+}
+
+func (s *SafeRoundState) SetValidBlockParts(p *types.PartSet) {
+	s.mtx.Lock()
+	defer s.mtx.Unlock()
+	s.internal.ValidBlockParts = p
+}
+
+func (s *SafeRoundState) LastValidators() *types.ValidatorSet {
+	s.mtx.RLock()
+	defer s.mtx.RUnlock()
+	return s.internal.LastValidators
+}
+
+func (s *SafeRoundState) SetLastValidators(p *types.ValidatorSet) {
+	s.mtx.Lock()
+	defer s.mtx.Unlock()
+	s.internal.LastValidators = p
+}
+
+func (s *SafeRoundState) TriggeredTimeoutPrecommit() bool {
+	s.mtx.RLock()
+	defer s.mtx.RUnlock()
+	return s.internal.TriggeredTimeoutPrecommit
+}
+
+func (s *SafeRoundState) SetTriggeredTimeoutPrecommit(p bool) {
+	s.mtx.Lock()
+	defer s.mtx.Unlock()
+	s.internal.TriggeredTimeoutPrecommit = p
+}
+
+func (s *SafeRoundState) RoundStateEvent() types.EventDataRoundState {
+	s.mtx.RLock()
+	defer s.mtx.RUnlock()
+	return s.internal.RoundStateEvent()
+}
+
+func (s *SafeRoundState) NewRoundEvent() types.EventDataNewRound {
+	s.mtx.RLock()
+	defer s.mtx.RUnlock()
+	return s.internal.NewRoundEvent()
+}
+
+func (s *SafeRoundState) CompleteProposalEvent() types.EventDataCompleteProposal {
+	s.mtx.RLock()
+	defer s.mtx.RUnlock()
+	return s.internal.CompleteProposalEvent()
 }
 
 //-----------------------------------------------------------------------------
