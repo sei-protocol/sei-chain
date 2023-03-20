@@ -138,3 +138,14 @@ func SetEpochNew(epochNum uint64) {
 		float32(epochNum),
 	)
 }
+
+// Measures throughput
+// Metric Name:
+//
+//	sei_throughput_<metric_name>
+func SetThroughputMetric(metricName string, value float32) {
+	telemetry.SetGauge(
+		value,
+		"sei", "throughput", metricName,
+	)
+}

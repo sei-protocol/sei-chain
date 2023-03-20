@@ -341,6 +341,9 @@ type App struct {
 	txDecoder sdk.TxDecoder
 
 	versionInfo version.Info
+
+	// Stores mapping counter name to counter value
+	metricCounter *map[string]float32
 }
 
 // New returns a reference to an initialized blockchain app
@@ -400,8 +403,9 @@ func New(
 		tracingInfo: &tracing.Info{
 			Tracer: &tr,
 		},
-		txDecoder:   encodingConfig.TxConfig.TxDecoder(),
-		versionInfo: version.NewInfo(),
+		txDecoder:     encodingConfig.TxConfig.TxDecoder(),
+		versionInfo:   version.NewInfo(),
+		metricCounter: &map[string]float32{},
 	}
 	app.tracingInfo.SetContext(context.Background())
 
@@ -996,10 +1000,33 @@ func (app *App) FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBlock)
 	return &resp, nil
 }
 
+func (app *App) RecordAndEmitMetrics(ctx sdk.Context) {
+	height := float32(ctx.BlockHeight())
+	if (*app.metricCounter)["last_updated_height"] == height {
+		app.Logger().Debug("Metrics already recorded for this block", "height", height)
+		return
+	}
+
+	for metricName, value := range *ctx.ContextMemCache().GetMetricCounters() {
+		(*app.metricCounter)[metricName] += float32(value)
+	}
+	(*app.metricCounter)["last_updated_height"] = height
+
+	for metricName, value := range *(app.metricCounter) {
+		metrics.SetThroughputMetric(metricName, value)
+	}
+
+	ctx.ContextMemCache().Clear()
+}
+
 func (app *App) DeliverTxWithResult(ctx sdk.Context, tx []byte) *abci.ExecTxResult {
 	deliverTxResp := app.DeliverTx(ctx, abci.RequestDeliverTx{
 		Tx: tx,
 	})
+
+	ctx.ContextMemCache().IncrMetricCounter(uint32(deliverTxResp.GasWanted), "gas_wanted")
+	ctx.ContextMemCache().IncrMetricCounter(uint32(deliverTxResp.GasUsed), "gas_used")
+
 	return &abci.ExecTxResult{
 		Code:      deliverTxResp.Code,
 		Data:      deliverTxResp.Data,
@@ -1220,10 +1247,10 @@ func (app *App) BuildDependenciesAndRunTxs(ctx sdk.Context, txs [][]byte) ([]*ab
 
 	dependencyDag, err := app.AccessControlKeeper.BuildDependencyDag(ctx, app.txDecoder, app.GetAnteDepGenerator(), txs)
 
+	// Start with a fresh state for the MemCache
+	ctx = ctx.WithContextMemCache(sdk.NewContextMemCache())
 	switch err {
 	case nil:
-		// Start with a fresh state for the MemCache
-		ctx = ctx.WithContextMemCache(sdk.NewContextMemCache())
 		txResults, ctx = app.ProcessTxs(ctx, txs, dependencyDag, app.ProcessBlockConcurrent)
 	case acltypes.ErrGovMsgInBlock:
 		ctx.Logger().Info(fmt.Sprintf("Gov msg found while building DAG, processing synchronously: %s", err))
@@ -1292,7 +1319,7 @@ func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequ
 	})
 
 	events = append(events, endBlockResp.Events...)
-
+	app.RecordAndEmitMetrics(ctx)
 	return events, txResults, endBlockResp, nil
 }
 

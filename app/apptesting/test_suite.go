@@ -101,7 +101,6 @@ func (s *KeeperTestHelper) SetupValidator(bondStatus stakingtypes.BondStatus) sd
 	signingInfo := slashingtypes.NewValidatorSigningInfo(
 		consAddr,
 		s.Ctx.BlockHeight(),
-		0,
 		time.Unix(0, 0),
 		false,
 		0,
