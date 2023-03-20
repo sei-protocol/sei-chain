@@ -67,6 +67,26 @@ func (k Keeper) GetAllPrices(ctx sdk.Context, contractAddr string, pair types.Pa
 	return
 }
 
+func (k Keeper) GetPricesForTwap(ctx sdk.Context, contractAddr string, pair types.Pair, lookback uint64) (list []*types.Price) {
+	store := prefix.NewStore(ctx.KVStore(k.storeKey), types.PricePrefix(contractAddr, pair.PriceDenom, pair.AssetDenom))
+	iterator := sdk.KVStoreReversePrefixIterator(store, []byte{})
+
+	defer iterator.Close()
+
+	cutoff := uint64(ctx.BlockTime().Unix()) - lookback
+	for ; iterator.Valid(); iterator.Next() {
+		var val types.Price
+		k.Cdc.MustUnmarshal(iterator.Value(), &val)
+		// add to list before breaking since we want to include one older price if there is any
+		list = append(list, &val)
+		if val.SnapshotTimestampInSeconds < cutoff {
+			break
+		}
+	}
+
+	return
+}
+
 func (k Keeper) RemoveAllPricesForContract(ctx sdk.Context, contractAddr string) {
 	k.removeAllForPrefix(ctx, types.PriceContractPrefix(contractAddr))
 }
