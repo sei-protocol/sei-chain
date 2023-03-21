@@ -11,8 +11,7 @@ echo "Stopping seid systemctl process"
 systemctl stop seid
 
 echo "Updating Binary to $ROLLBACK_COMMIT"
-git checkout $ROLLBACK_COMMIT
-make install
+git checkout $ROLLBACK_COMMIT && make install
 
 if [ ${COMMIT} != $1 ]
 then
