@@ -20,12 +20,6 @@ const LogAfter = 5 * time.Second
 
 func getMsgType(msg interface{}) string {
 	switch msg.(type) {
-	case dextypeswasm.SudoNewBlockMsg:
-		return "new_block"
-	case dextypeswasm.SudoFinalizeBlockMsg:
-		return "finalize_block"
-	case *dextypeswasm.SudoFinalizeBlockMsg:
-		return "finalize_block"
 	case dextypeswasm.SudoSettlementMsg:
 		return "settlement"
 	case dextypeswasm.SudoOrderPlacementMsg:

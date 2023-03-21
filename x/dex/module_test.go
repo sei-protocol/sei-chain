@@ -11,7 +11,6 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	keepertest "github.com/sei-protocol/sei-chain/testutil/keeper"
 	dexcache "github.com/sei-protocol/sei-chain/x/dex/cache"
-	dexkeeperabci "github.com/sei-protocol/sei-chain/x/dex/keeper/abci"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
 	"github.com/sei-protocol/sei-chain/x/dex/types/utils"
 	dexutils "github.com/sei-protocol/sei-chain/x/dex/utils"
@@ -487,10 +486,6 @@ func TestBeginBlock(t *testing.T) {
 
 	// right now just make sure it doesn't crash since it doesn't register any state to be checked against
 	testApp.BeginBlocker(ctx, abci.RequestBeginBlock{})
-
-	wrapper := dexkeeperabci.KeeperWrapper{Keeper: &testApp.DexKeeper}
-	err = wrapper.HandleBBNewBlock(ctx, contractAddr.String(), 1)
-	require.Nil(t, err)
 }
 
 // Note that once the bug that causes EndBlock to panic is fixed, this test will need to be

@@ -19,7 +19,6 @@ import (
 	dexkeeperutils "github.com/sei-protocol/sei-chain/x/dex/keeper/utils"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
 	dextypesutils "github.com/sei-protocol/sei-chain/x/dex/types/utils"
-	dextypeswasm "github.com/sei-protocol/sei-chain/x/dex/types/wasm"
 	dexutils "github.com/sei-protocol/sei-chain/x/dex/utils"
 	"go.opentelemetry.io/otel/attribute"
 )
@@ -186,7 +185,7 @@ func GetOrderIDToSettledQuantities(settlements []*types.SettlementEntry) map[uin
 	return res
 }
 
-func ExecutePairsInParallel(ctx sdk.Context, contractAddr string, dexkeeper *keeper.Keeper, registeredPairs []types.Pair, orderBooks *datastructures.TypedSyncMap[dextypesutils.PairString, *types.OrderBook]) ([]*types.SettlementEntry, []*types.Cancellation) {
+func ExecutePairsInParallel(ctx sdk.Context, contractAddr string, dexkeeper *keeper.Keeper, registeredPairs []types.Pair, orderBooks *datastructures.TypedSyncMap[dextypesutils.PairString, *types.OrderBook]) []*types.SettlementEntry {
 	typedContractAddr := dextypesutils.ContractAddress(contractAddr)
 	orderResults := []*types.Order{}
 	cancelResults := []*types.Cancellation{}
@@ -226,7 +225,7 @@ func ExecutePairsInParallel(ctx sdk.Context, contractAddr string, dexkeeper *kee
 	wg.Wait()
 	dexkeeper.SetMatchResult(ctx, contractAddr, types.NewMatchResult(orderResults, cancelResults, settlements))
 
-	return settlements, cancelResults
+	return settlements
 }
 
 func HandleExecutionForContract(
@@ -237,24 +236,19 @@ func HandleExecutionForContract(
 	registeredPairs []types.Pair,
 	orderBooks *datastructures.TypedSyncMap[dextypesutils.PairString, *types.OrderBook],
 	tracer *otrace.Tracer,
-) (map[string]dextypeswasm.ContractOrderResult, []*types.SettlementEntry, error) {
+) ([]*types.SettlementEntry, error) {
 	executionStart := time.Now()
 	defer telemetry.ModuleMeasureSince(types.ModuleName, executionStart, "handle_execution_for_contract_ms")
 	contractAddr := contract.ContractAddr
-	typedContractAddr := dextypesutils.ContractAddress(contractAddr)
-	orderResults := map[string]dextypeswasm.ContractOrderResult{}
 
 	// Call contract hooks so that contracts can do internal bookkeeping
 	if err := CallPreExecutionHooks(ctx, sdkCtx, contractAddr, dexkeeper, registeredPairs, tracer); err != nil {
-		return orderResults, []*types.SettlementEntry{}, err
+		return []*types.SettlementEntry{}, err
 	}
-	settlements, cancellations := ExecutePairsInParallel(sdkCtx, contractAddr, dexkeeper, registeredPairs, orderBooks)
+	settlements := ExecutePairsInParallel(sdkCtx, contractAddr, dexkeeper, registeredPairs, orderBooks)
 	defer EmitSettlementMetrics(settlements)
-	// populate order placement results for FinalizeBlock hook
-	dextypeswasm.PopulateOrderPlacementResults(contractAddr, dexutils.GetMemState(sdkCtx.Context()).GetAllBlockOrders(sdkCtx, typedContractAddr), cancellations, orderResults)
-	dextypeswasm.PopulateOrderExecutionResults(contractAddr, settlements, orderResults)
 
-	return orderResults, settlements, nil
+	return settlements, nil
 }
 
 // Emit metrics for settlements
