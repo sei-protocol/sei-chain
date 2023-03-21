@@ -13,7 +13,7 @@ systemctl stop seid
 echo "Updating Binary to $ROLLBACK_COMMIT"
 git checkout $ROLLBACK_COMMIT && make install
 
-if [ ${COMMIT} != $1 ]
+if [ "$COMMIT" != "$1" ]
 then
   echo "incorrect seid version"
   exit 1
