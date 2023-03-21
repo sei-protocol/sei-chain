@@ -32,10 +32,13 @@ func (m Migrator) Migrate2to3(ctx sdk.Context) error {
 	store := ctx.KVStore(m.keeper.storeKey)
 	valMissedMap := make(map[string]types.ValidatorMissedBlockArray)
 
-	// TODO: migrate the signing info first
+	ctx.Logger().Info("Migrating Signing Info")
 	signInfoIter := sdk.KVStorePrefixIterator(store, types.ValidatorSigningInfoKeyPrefix)
+	newSignInfoKeys := [][]byte{}
+	newSignInfoVals := []types.ValidatorSigningInfo{}
 	defer signInfoIter.Close()
 	for ; signInfoIter.Valid(); signInfoIter.Next() {
+		ctx.Logger().Info(fmt.Sprintf("Migrating Signing Info for key: %v\n", signInfoIter.Key()))
 		var oldInfo types.ValidatorSigningInfoLegacyV43
 		m.keeper.cdc.MustUnmarshal(signInfoIter.Value(), &oldInfo)
 
@@ -46,11 +49,22 @@ func (m Migrator) Migrate2to3(ctx sdk.Context) error {
 			Tombstoned:          oldInfo.Tombstoned,
 			MissedBlocksCounter: oldInfo.MissedBlocksCounter,
 		}
+		newSignInfoKeys = append(newSignInfoKeys, signInfoIter.Key())
+		newSignInfoVals = append(newSignInfoVals, newInfo)
+	}
+	signInfoIter.Close()
 
-		bz := m.keeper.cdc.MustMarshal(&newInfo)
-		store.Set(signInfoIter.Key(), bz)
+	if len(newSignInfoKeys) != len(newSignInfoVals) {
+		return fmt.Errorf("new sign info data length doesn't match up")
+	}
+	ctx.Logger().Info("Writing New Signing Info")
+	for i := range newSignInfoKeys {
+		bz := m.keeper.cdc.MustMarshal(&newSignInfoVals[i])
+		store.Set(newSignInfoKeys[i], bz)
 	}
 
+	ctx.Logger().Info("Migrating Missed Block Bit Array")
+	keysToDelete := [][]byte{}
 	iter := sdk.KVStorePrefixIterator(store, types.ValidatorMissedBlockBitArrayKeyPrefix)
 	defer iter.Close()
 	for ; iter.Valid(); iter.Next() {
@@ -69,6 +83,7 @@ func (m Migrator) Migrate2to3(ctx sdk.Context) error {
 		}
 		arr, ok := valMissedMap[consAddr.String()]
 		if !ok {
+			ctx.Logger().Info(fmt.Sprintf("Migrating for next validator with consAddr: %s\n", consAddr.String()))
 			arr = types.ValidatorMissedBlockArray{
 				Address:       consAddr.String(),
 				MissedHeights: make([]int64, 0),
@@ -81,15 +96,30 @@ func (m Migrator) Migrate2to3(ctx sdk.Context) error {
 		}
 
 		valMissedMap[consAddr.String()] = arr
-		store.Delete(iter.Key())
+		keysToDelete = append(keysToDelete, iter.Key())
 	}
 
+	ctx.Logger().Info(fmt.Sprintf("Starting deletion of missed bit array keys (total %d)", len(keysToDelete)))
+	interval := len(keysToDelete) / 50
+	if interval == 0 {
+		interval = 1
+	}
+	for i, key := range keysToDelete {
+		store.Delete(key)
+		if i%interval == 0 {
+			ctx.Logger().Info(fmt.Sprintf("Processing index %d", i))
+		}
+	}
+
+	ctx.Logger().Info("Writing new validator missed heights")
 	for key, missedBlockArray := range valMissedMap {
 		consAddrKey, err := sdk.ConsAddressFromBech32(key)
+		ctx.Logger().Info(fmt.Sprintf("Writing missed heights for validator: %s\n", consAddrKey.String()))
 		if err != nil {
 			return err
 		}
 		m.keeper.SetValidatorMissedBlocks(ctx, consAddrKey, missedBlockArray)
 	}
+	ctx.Logger().Info("Done migrating")
 	return nil
 }

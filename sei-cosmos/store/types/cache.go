@@ -2,7 +2,7 @@ package types
 
 import "sync"
 
-const DefaultCacheSizeLimit = 1000000
+const DefaultCacheSizeLimit = 2000000 // TODO: revert back to 1000000
 
 // If value is nil but deleted is false, it means the parent doesn't have the
 // key.  (No need to delete upon Write())
