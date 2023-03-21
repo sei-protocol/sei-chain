@@ -680,15 +680,13 @@ func (app *BaseApp) getMaximumBlockGas(ctx sdk.Context) uint64 {
 
 	maxGas := cp.Block.MaxGas
 
+	// TODO::: This is a temporary fix, max gas causes non-deterministic behavior
+	// 			with parallel TX
 	switch {
 	case maxGas < -1:
 		panic(fmt.Sprintf("invalid maximum block gas: %d", maxGas))
-
-	case maxGas == -1:
-		return 0
-
 	default:
-		return uint64(maxGas)
+		return 0
 	}
 }
 
