@@ -1,8 +1,8 @@
 #!/bin/bash
 
-ROLLBACK_COMMIT=$(echo $1 | xargs)
+NEW_COMMIT=$(echo $1 | xargs)
 
-echo "Rolling back to commit $ROLLBACK_COMMIT"
+echo "New commit: $NEW_COMMIT"
 
 COMMIT_INFO=$(seid version --long | grep commit)
 COMMIT=$(echo $COMMIT_INFO | awk '{ print $NF }' | xargs)
