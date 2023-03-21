@@ -1,11 +1,13 @@
 #!/bin/bash
 
-ROLLBACK_COMMIT=(echo $1 | xargs)
+ROLLBACK_COMMIT=$(echo $1 | xargs)
 
 echo "Rolling back to commit $ROLLBACK_COMMIT"
 
-COMMIT=$(echo $(seid version --long | grep commit) | awk '{ print $NF }' | xargs)
-if [ ${COMMIT[1]} != $1 ]
+COMMIT_INFO=$(seid version --long | grep commit)
+COMMIT=$(echo $COMMIT_INFO | awk '{ print $NF }' | xargs)
+
+if [ ${COMMIT} != $1 ]
 then
   echo "incorrect seid version"
   exit 1
