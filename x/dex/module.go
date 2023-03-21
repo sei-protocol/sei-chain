@@ -238,25 +238,19 @@ func (am AppModule) BeginBlock(ctx sdk.Context, _ abci.RequestBeginBlock) {
 	cachedCtx, cachedStore := store.GetCachedContext(ctx)
 	gasLimit := am.keeper.GetParams(ctx).BeginBlockGasLimit
 	for _, contract := range am.getAllContractInfo(ctx) {
-		am.beginBlockForContract(cachedCtx, contract, int64(currentEpoch), gasLimit)
+		am.beginBlockForContract(cachedCtx, contract, gasLimit)
 	}
 	// only write if all contracts have been processed
 	cachedStore.Write()
 }
 
-func (am AppModule) beginBlockForContract(ctx sdk.Context, contract types.ContractInfoV2, epoch int64, gasLimit uint64) {
+func (am AppModule) beginBlockForContract(ctx sdk.Context, contract types.ContractInfoV2, gasLimit uint64) {
 	_, span := am.tracingInfo.Start("DexBeginBlock")
 	contractAddr := contract.ContractAddr
 	span.SetAttributes(attribute.String("contract", contractAddr))
 	defer span.End()
 
 	ctx = ctx.WithGasMeter(seisync.NewGasWrapper(dexutils.GetGasMeterForLimit(gasLimit)))
-
-	if contract.NeedHook {
-		if err := am.abciWrapper.HandleBBNewBlock(ctx, contractAddr, epoch); err != nil {
-			ctx.Logger().Error(fmt.Sprintf("New block hook error for %s: %s", contractAddr, err.Error()))
-		}
-	}
 
 	if contract.NeedOrderMatching {
 		currentTimestamp := uint64(ctx.BlockTime().Unix())
