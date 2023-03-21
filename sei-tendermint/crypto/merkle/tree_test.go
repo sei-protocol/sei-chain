@@ -1,13 +1,17 @@
 package merkle
 
 import (
+	"bytes"
+	"encoding/binary"
 	"encoding/hex"
+	"io"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/tendermint/tendermint/crypto"
+	"github.com/tendermint/tendermint/crypto/tmhash"
 	ctest "github.com/tendermint/tendermint/internal/libs/test"
 	tmrand "github.com/tendermint/tendermint/libs/rand"
 )
@@ -114,6 +118,23 @@ func TestHashAlternatives(t *testing.T) {
 	require.Equal(t, rootHash1, rootHash2, "Unmatched root hashes: %X vs %X", rootHash1, rootHash2)
 }
 
+// See https://blog.verichains.io/p/vsa-2022-100-tendermint-forging-membership-proof?utm_source=substack&utm_campaign=post_embed&utm_medium=web
+// for context
+func TestForgeEmptyMerkleTreeAttack(t *testing.T) {
+	key := []byte{0x13}
+	value := []byte{0x37}
+	vhash := tmhash.Sum(value)
+	bz := new(bytes.Buffer)
+	_ = EncodeByteSlice(bz, key)
+	_ = EncodeByteSlice(bz, vhash)
+	kvhash := tmhash.Sum(append([]byte{0}, bz.Bytes()...))
+	op := NewValueOp(key, &Proof{LeafHash: kvhash})
+	var root []byte
+	err := ProofOperators{op}.Verify(root, "/"+string(key), [][]byte{value})
+	// Must return error or else the attack would be possible
+	require.NotNil(t, err)
+}
+
 func BenchmarkHashAlternatives(b *testing.B) {
 	total := 100
 
@@ -157,4 +178,20 @@ func Test_getSplitPoint(t *testing.T) {
 		got := getSplitPoint(tt.length)
 		require.EqualValues(t, tt.want, got, "getSplitPoint(%d) = %v, want %v", tt.length, got, tt.want)
 	}
+}
+
+func EncodeUvarint(w io.Writer, u uint64) (err error) {
+	var buf [10]byte
+	n := binary.PutUvarint(buf[:], u)
+	_, err = w.Write(buf[0:n])
+	return
+}
+
+func EncodeByteSlice(w io.Writer, bz []byte) (err error) {
+	err = EncodeUvarint(w, uint64(len(bz)))
+	if err != nil {
+		return
+	}
+	_, err = w.Write(bz)
+	return
 }

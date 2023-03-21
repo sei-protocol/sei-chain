@@ -92,9 +92,11 @@ func (op ValueOp) Run(args [][]byte) ([][]byte, error) {
 		return nil, fmt.Errorf("leaf hash mismatch: want %X got %X", op.Proof.LeafHash, kvhash)
 	}
 
-	return [][]byte{
-		op.Proof.ComputeRootHash(),
-	}, nil
+	rootHash, err := op.Proof.ComputeRootHash()
+	if err != nil {
+		return nil, err
+	}
+	return [][]byte{rootHash}, nil
 }
 
 func (op ValueOp) GetKey() []byte {
