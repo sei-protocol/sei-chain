@@ -19,7 +19,6 @@ import (
 	dexkeeperutils "github.com/sei-protocol/sei-chain/x/dex/keeper/utils"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
 	dextypesutils "github.com/sei-protocol/sei-chain/x/dex/types/utils"
-	dextypeswasm "github.com/sei-protocol/sei-chain/x/dex/types/wasm"
 	dexutils "github.com/sei-protocol/sei-chain/x/dex/utils"
 	"github.com/sei-protocol/sei-chain/x/store"
 	otrace "go.opentelemetry.io/otel/trace"
@@ -31,7 +30,6 @@ const LogExecSigSendAfter = 2 * time.Second
 type environment struct {
 	validContractsInfo          []types.ContractInfoV2
 	failedContractAddresses     datastructures.SyncSet[string]
-	finalizeBlockMessages       *datastructures.TypedSyncMap[string, *dextypeswasm.SudoFinalizeBlockMsg]
 	settlementsByContract       *datastructures.TypedSyncMap[string, []*types.SettlementEntry]
 	executionTerminationSignals *datastructures.TypedSyncMap[string, chan struct{}]
 	registeredPairs             *datastructures.TypedSyncMap[string, []types.Pair]
@@ -65,7 +63,6 @@ func EndBlockerAtomic(ctx sdk.Context, keeper *keeper.Keeper, validContractsInfo
 
 	handleSettlements(spanCtx, cachedCtx, env, keeper, tracer)
 	handleUnfulfilledMarketOrders(spanCtx, cachedCtx, env, keeper, tracer)
-	handleFinalizedBlocks(spanCtx, cachedCtx, env, keeper, tracer)
 
 	// No error is thrown for any contract. This should happen most of the time.
 	if env.failedContractAddresses.Size() == 0 {
@@ -99,13 +96,11 @@ func EndBlockerAtomic(ctx sdk.Context, keeper *keeper.Keeper, validContractsInfo
 }
 
 func newEnv(ctx sdk.Context, validContractsInfo []types.ContractInfoV2, keeper *keeper.Keeper) *environment {
-	finalizeBlockMessages := datastructures.NewTypedSyncMap[string, *dextypeswasm.SudoFinalizeBlockMsg]()
 	settlementsByContract := datastructures.NewTypedSyncMap[string, []*types.SettlementEntry]()
 	executionTerminationSignals := datastructures.NewTypedSyncMap[string, chan struct{}]()
 	registeredPairs := datastructures.NewTypedSyncMap[string, []types.Pair]()
 	allContractAndPairs := map[string][]types.Pair{}
 	for _, contract := range validContractsInfo {
-		finalizeBlockMessages.Store(contract.ContractAddr, dextypeswasm.NewSudoFinalizeBlockMsg())
 		settlementsByContract.Store(contract.ContractAddr, []*types.SettlementEntry{})
 		executionTerminationSignals.Store(contract.ContractAddr, make(chan struct{}, 1))
 		contractPairs := keeper.GetAllRegisteredPairs(ctx, contract.ContractAddr)
@@ -117,7 +112,6 @@ func newEnv(ctx sdk.Context, validContractsInfo []types.ContractInfoV2, keeper *
 	return &environment{
 		validContractsInfo:          validContractsInfo,
 		failedContractAddresses:     datastructures.NewSyncSet([]string{}),
-		finalizeBlockMessages:       finalizeBlockMessages,
 		settlementsByContract:       settlementsByContract,
 		executionTerminationSignals: executionTerminationSignals,
 		registeredPairs:             registeredPairs,
@@ -195,30 +189,6 @@ func handleUnfulfilledMarketOrders(ctx context.Context, sdkCtx sdk.Context, env 
 	}
 }
 
-func handleFinalizedBlocks(ctx context.Context, sdkCtx sdk.Context, env *environment, keeper *keeper.Keeper, tracer *otrace.Tracer) {
-	_, span := (*tracer).Start(ctx, "DexEndBlockerHandleFinalizedBlocks")
-	defer span.End()
-	contractsNeedHook := datastructures.NewSyncSet([]string{})
-	for _, contract := range env.validContractsInfo {
-		if contract.NeedHook {
-			contractsNeedHook.Add(contract.ContractAddr)
-		}
-	}
-	env.finalizeBlockMessages.Range(func(contractAddr string, finalizeBlockMsg *dextypeswasm.SudoFinalizeBlockMsg) bool {
-		if !contractsNeedHook.Contains(contractAddr) {
-			return true
-		}
-		if len(finalizeBlockMsg.FinalizeBlock.Results) == 0 {
-			return true
-		}
-		if _, err := dexkeeperutils.CallContractSudo(sdkCtx, keeper, contractAddr, finalizeBlockMsg, dexutils.ZeroUserProvidedGas); err != nil {
-			sdkCtx.Logger().Error(fmt.Sprintf("Error calling FinalizeBlock of %s", contractAddr))
-			env.failedContractAddresses.Add(contractAddr)
-		}
-		return true
-	})
-}
-
 func orderMatchingRunnable(ctx context.Context, sdkContext sdk.Context, env *environment, keeper *keeper.Keeper, contractInfo types.ContractInfoV2, tracer *otrace.Tracer) {
 	_, span := (*tracer).Start(ctx, "orderMatchingRunnable")
 	defer span.End()
@@ -246,19 +216,10 @@ func orderMatchingRunnable(ctx context.Context, sdkContext sdk.Context, env *env
 	if !pairFound || !found {
 		sdkContext.Logger().Error(fmt.Sprintf("No pair or order book for %s", contractInfo.ContractAddr))
 		env.failedContractAddresses.Add(contractInfo.ContractAddr)
-	} else if orderResultsMap, settlements, err := HandleExecutionForContract(ctx, sdkContext, contractInfo, keeper, pairs, orderBooks, tracer); err != nil {
+	} else if settlements, err := HandleExecutionForContract(ctx, sdkContext, contractInfo, keeper, pairs, orderBooks, tracer); err != nil {
 		sdkContext.Logger().Error(fmt.Sprintf("Error for EndBlock of %s", contractInfo.ContractAddr))
 		env.failedContractAddresses.Add(contractInfo.ContractAddr)
 	} else {
-		for account, orderResults := range orderResultsMap {
-			// only add to finalize message for contract addresses
-			if msg, ok := env.finalizeBlockMessages.Load(account); ok {
-				// ordering of `AddContractResult` among multiple orderMatchingRunnable instances doesn't matter
-				// since it's not persisted as state, and it's only used for invoking registered contracts'
-				// FinalizeBlock sudo endpoints, whose state updates are gated by whitelist stores anyway.
-				msg.AddContractResult(orderResults, env.finalizeMsgMutex)
-			}
-		}
 		env.settlementsByContract.Store(contractInfo.ContractAddr, settlements)
 	}
 

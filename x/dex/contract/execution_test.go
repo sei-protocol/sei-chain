@@ -265,7 +265,7 @@ func TestExecutePairInParallel(t *testing.T) {
 	// execute in parallel simple path
 	orderbooks := datastructures.NewTypedSyncMap[dextypesutils.PairString, *types.OrderBook]()
 	orderbooks.Store(utils.GetPairString(&pair), orderbook)
-	settlements, cancels := contract.ExecutePairsInParallel(
+	settlements := contract.ExecutePairsInParallel(
 		ctx,
 		TEST_CONTRACT,
 		dexkeeper,
@@ -274,7 +274,6 @@ func TestExecutePairInParallel(t *testing.T) {
 	)
 
 	require.Equal(t, len(settlements), 0)
-	require.Equal(t, len(cancels), 0)
 
 	// add Market orders to the orderbook
 	dexutils.GetMemState(ctx.Context()).GetBlockOrders(ctx, utils.ContractAddress(TEST_CONTRACT), utils.GetPairString(&pair)).Add(
@@ -334,7 +333,7 @@ func TestExecutePairInParallel(t *testing.T) {
 		},
 	)
 
-	settlements, cancels = contract.ExecutePairsInParallel(
+	settlements = contract.ExecutePairsInParallel(
 		ctx,
 		TEST_CONTRACT,
 		dexkeeper,
@@ -343,7 +342,6 @@ func TestExecutePairInParallel(t *testing.T) {
 	)
 
 	require.Equal(t, 2, len(settlements))
-	require.Equal(t, 1, len(cancels))
 	require.Equal(t, uint64(7), settlements[0].OrderId)
 	require.Equal(t, uint64(3), settlements[1].OrderId)
 }
