@@ -59,7 +59,7 @@ func (i *Info) Start(name string) (context.Context, otrace.Span) {
 	if i.tracerContext == nil {
 		i.tracerContext = context.Background()
 	}
-	return (*i.Tracer).Start(i.tracerContext, "DeliverTx")
+	return (*i.Tracer).Start(i.tracerContext, name)
 }
 
 func (i *Info) GetContext() context.Context {

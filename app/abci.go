@@ -40,11 +40,8 @@ func (app *App) CheckTx(ctx context.Context, req *abci.RequestCheckTx) (*abci.Re
 
 func (app *App) DeliverTx(ctx sdk.Context, req abci.RequestDeliverTx) abci.ResponseDeliverTx {
 	defer metrics.MeasureDeliverTxDuration(time.Now())
-	tracectx, span := app.tracingInfo.Start("DeliverTx")
-	oldCtx := app.tracingInfo.GetContext()
-	app.tracingInfo.SetContext(tracectx)
+	_, span := app.tracingInfo.Start("DeliverTx")
 	defer span.End()
-	defer func() { app.tracingInfo.SetContext(oldCtx) }()
 	return app.BaseApp.DeliverTx(ctx, req)
 }
 
