@@ -46,7 +46,7 @@ func EndBlockerAtomic(ctx sdk.Context, keeper *keeper.Keeper, validContractsInfo
 	env := newEnv(ctx, validContractsInfo, keeper)
 	cachedCtx, msCached := cacheContext(ctx, env)
 	memStateCopy := dexutils.GetMemState(cachedCtx.Context()).DeepCopy()
-	handleDeposits(cachedCtx, env, keeper, tracer)
+	handleDeposits(spanCtx, cachedCtx, env, keeper, tracer)
 
 	runner := NewParallelRunner(func(contract types.ContractInfoV2) {
 		orderMatchingRunnable(spanCtx, cachedCtx, env, keeper, contract, tracer)
@@ -99,19 +99,16 @@ func newEnv(ctx sdk.Context, validContractsInfo []types.ContractInfoV2, keeper *
 	settlementsByContract := datastructures.NewTypedSyncMap[string, []*types.SettlementEntry]()
 	executionTerminationSignals := datastructures.NewTypedSyncMap[string, chan struct{}]()
 	registeredPairs := datastructures.NewTypedSyncMap[string, []types.Pair]()
-	orderBooks := datastructures.NewTypedNestedSyncMap[string, dextypesutils.PairString, *types.OrderBook]()
+	allContractAndPairs := map[string][]types.Pair{}
 	for _, contract := range validContractsInfo {
 		settlementsByContract.Store(contract.ContractAddr, []*types.SettlementEntry{})
 		executionTerminationSignals.Store(contract.ContractAddr, make(chan struct{}, 1))
 		contractPairs := keeper.GetAllRegisteredPairs(ctx, contract.ContractAddr)
 		registeredPairs.Store(contract.ContractAddr, contractPairs)
-		for _, pair := range contractPairs {
-			pair := pair
-			orderBooks.StoreNested(contract.ContractAddr, dextypesutils.GetPairString(&pair), dexkeeperutils.PopulateOrderbook(
-				ctx, keeper, dextypesutils.ContractAddress(contract.ContractAddr), pair,
-			))
-		}
+		allContractAndPairs[contract.ContractAddr] = contractPairs
 	}
+	// Parallelize populating orderbooks for performance improvements
+	orderBooks := dexkeeperutils.PopulateAllOrderbooks(ctx, keeper, allContractAndPairs)
 	return &environment{
 		validContractsInfo:          validContractsInfo,
 		failedContractAddresses:     datastructures.NewSyncSet([]string{}),
@@ -140,14 +137,16 @@ func decorateContextForContract(ctx sdk.Context, contractInfo types.ContractInfo
 	)
 }
 
-func handleDeposits(ctx sdk.Context, env *environment, keeper *keeper.Keeper, tracer *otrace.Tracer) {
+func handleDeposits(spanCtx context.Context, ctx sdk.Context, env *environment, keeper *keeper.Keeper, tracer *otrace.Tracer) {
 	// Handle deposit sequentially since they mutate `bank` state which is shared by all contracts
+	_, span := (*tracer).Start(spanCtx, "handleDeposits")
+	defer span.End()
 	keeperWrapper := dexkeeperabci.KeeperWrapper{Keeper: keeper}
 	for _, contract := range env.validContractsInfo {
 		if !contract.NeedOrderMatching {
 			continue
 		}
-		if err := keeperWrapper.HandleEBDeposit(ctx.Context(), ctx, tracer, contract.ContractAddr); err != nil {
+		if err := keeperWrapper.HandleEBDeposit(spanCtx, ctx, tracer, contract.ContractAddr); err != nil {
 			env.failedContractAddresses.Add(contract.ContractAddr)
 		}
 	}
@@ -191,6 +190,8 @@ func handleUnfulfilledMarketOrders(ctx context.Context, sdkCtx sdk.Context, env 
 }
 
 func orderMatchingRunnable(ctx context.Context, sdkContext sdk.Context, env *environment, keeper *keeper.Keeper, contractInfo types.ContractInfoV2, tracer *otrace.Tracer) {
+	_, span := (*tracer).Start(ctx, "orderMatchingRunnable")
+	defer span.End()
 	defer func() {
 		if channel, ok := env.executionTerminationSignals.Load(contractInfo.ContractAddr); ok {
 			_, err := logging.LogIfNotDoneAfter(sdkContext.Logger(), func() (struct{}, error) {
