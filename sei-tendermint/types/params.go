@@ -130,7 +130,9 @@ func DefaultConsensusParams() *ConsensusParams {
 func DefaultBlockParams() BlockParams {
 	return BlockParams{
 		MaxBytes: 22020096, // 21MB
-		MaxGas:   -1,
+		// Default, can be increased and tuned as needed
+		// match sei-devnet-3 and atlantic-2 current values
+		MaxGas:   600000,
 	}
 }
 

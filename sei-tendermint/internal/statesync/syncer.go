@@ -162,7 +162,7 @@ func (s *syncer) SyncAny(
 			if discoveryTime == 0 {
 				return sm.State{}, nil, errNoSnapshots
 			}
-			s.logger.Info(fmt.Sprintf("Discovering snapshots for %v", discoveryTime))
+			s.logger.Info(fmt.Sprintf("No snapshots discovered sleeping for %v", discoveryTime))
 			time.Sleep(discoveryTime)
 			continue
 		}
