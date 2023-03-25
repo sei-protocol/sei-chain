@@ -71,7 +71,7 @@ const (
 	// the backfill process aborts
 	maxLightBlockRequestRetries = 20
 
-	// How long to wait when there's no available epers to restart the router
+	// How long to wait when there's no available peers to restart the router
 	restartNoAvailablePeersWindow = 10 * time.Minute
 )
 
@@ -211,23 +211,23 @@ func NewReactor(
 	restartCh chan struct{},
 ) *Reactor {
 	r := &Reactor{
-		logger:         logger,
-		chainID:        chainID,
-		initialHeight:  initialHeight,
-		cfg:            cfg,
-		conn:           conn,
-		peerEvents:     peerEvents,
-		tempDir:        tempDir,
-		stateStore:     stateStore,
-		blockStore:     blockStore,
-		peers:          newPeerList(),
-		providers:      make(map[types.NodeID]*BlockProvider),
-		metrics:        ssMetrics,
-		eventBus:       eventBus,
-		postSyncHook:   postSyncHook,
-		needsStateSync: needsStateSync,
+		logger:               logger,
+		chainID:              chainID,
+		initialHeight:        initialHeight,
+		cfg:                  cfg,
+		conn:                 conn,
+		peerEvents:           peerEvents,
+		tempDir:              tempDir,
+		stateStore:           stateStore,
+		blockStore:           blockStore,
+		peers:                newPeerList(),
+		providers:            make(map[types.NodeID]*BlockProvider),
+		metrics:              ssMetrics,
+		eventBus:             eventBus,
+		postSyncHook:         postSyncHook,
+		needsStateSync:       needsStateSync,
 		lastNoAvailablePeers: time.Time{},
-		restartCh:		restartCh,
+		restartCh:            restartCh,
 	}
 
 	r.BaseService = *service.NewBaseService(logger, "StateSync", r)
@@ -969,7 +969,7 @@ func (r *Reactor) processChannels(ctx context.Context, chanTable map[p2p.Channel
 // processPeerUpdate processes a PeerUpdate, returning an error upon failing to
 // handle the PeerUpdate or if a panic is recovered.
 func (r *Reactor) processPeerUpdate(ctx context.Context, peerUpdate p2p.PeerUpdate) {
-	r.logger.Info("received peer update", "peer", peerUpdate.NodeID, "status", peerUpdate.Status)
+	r.logger.Debug("received peer update", "peer", peerUpdate.NodeID, "status", peerUpdate.Status)
 
 	switch peerUpdate.Status {
 	case p2p.PeerStatusUp:
@@ -1026,7 +1026,7 @@ func (r *Reactor) processPeerUpdate(ctx context.Context, peerUpdate p2p.PeerUpda
 		delete(r.providers, peerUpdate.NodeID)
 		r.syncer.RemovePeer(peerUpdate.NodeID)
 	}
-	r.logger.Info("processed peer update", "peer", peerUpdate.NodeID, "status", peerUpdate.Status)
+	r.logger.Debug("processed peer update", "peer", peerUpdate.NodeID, "status", peerUpdate.Status)
 }
 
 // processPeerUpdates initiates a blocking process where we listen for and handle

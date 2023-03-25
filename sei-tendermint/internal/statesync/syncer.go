@@ -111,7 +111,7 @@ func (s *syncer) AddSnapshot(peerID types.NodeID, snapshot *snapshot) (bool, err
 // AddPeer adds a peer to the pool. For now we just keep it simple and send a
 // single request to discover snapshots, later we may want to do retries and stuff.
 func (s *syncer) AddPeer(ctx context.Context, peerID types.NodeID) error {
-	s.logger.Debug("Requesting snapshots from peer", "peer", peerID)
+	s.logger.Info("Requesting snapshots from peer", "peer", peerID)
 
 	return s.snapshotCh.Send(ctx, p2p.Envelope{
 		To:      peerID,

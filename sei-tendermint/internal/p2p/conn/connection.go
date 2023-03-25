@@ -515,7 +515,7 @@ FOR_LOOP:
 
 			if c.IsRunning() {
 				if err == io.EOF {
-					c.logger.Info("Connection is closed @ recvRoutine (likely by the other side)", "conn", c)
+					c.logger.Debug("Connection is closed @ recvRoutine (likely by the other side)", "conn", c)
 				} else {
 					c.logger.Debug("Connection failed @ recvRoutine (reading byte)", "conn", c, "err", err)
 				}
