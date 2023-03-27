@@ -1,6 +1,11 @@
 package types
 
-import "sync"
+import (
+	"sync"
+
+	"github.com/armon/go-metrics"
+	"github.com/cosmos/cosmos-sdk/telemetry"
+)
 
 const DefaultCacheSizeLimit = 2000000 // TODO: revert back to 1000000
 
@@ -43,6 +48,7 @@ type BoundedCache struct {
 	limit int
 
 	mu *sync.Mutex
+	metricName []string
 }
 
 func NewBoundedCache(backend CacheBackend, limit int) *BoundedCache {
@@ -53,27 +59,52 @@ func NewBoundedCache(backend CacheBackend, limit int) *BoundedCache {
 		CacheBackend: backend,
 		limit:        limit,
 		mu:           &sync.Mutex{},
+		// cosmos_bounded_cache
+		metricName: []string{"cosmos", "bounded", "cache"},
 	}
+}
+
+func (c *BoundedCache) emitCacheSizeMetric() {
+	telemetry.SetGaugeWithLabels(
+		c.metricName,
+		float32(c.Len()),
+		[]metrics.Label{telemetry.NewLabel("type", "bounded_cache_size")},
+	)
+	telemetry.SetGaugeWithLabels(
+		c.metricName,
+		float32(c.limit),
+		[]metrics.Label{telemetry.NewLabel("type", "bounded_cache_limit")},
+	)
+}
+
+func (c *BoundedCache) emitKeysEvictedMetrics(keysToEvict int) {
+	telemetry.SetGaugeWithLabels(
+		c.metricName,
+		float32(keysToEvict),
+		[]metrics.Label{telemetry.NewLabel("type", "keys_evicted")},
+	)
 }
 
 func (c *BoundedCache) Set(key string, val *CValue) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	defer c.emitCacheSizeMetric()
 
 	if c.Len() >= c.limit {
-		len := c.Len()
+		numEntries := c.Len()
 		keysToEvict := []string{}
 		c.CacheBackend.Range(func(key string, val *CValue) bool {
 			if val.dirty {
 				return true
 			}
 			keysToEvict = append(keysToEvict, key)
-			len--
-			return len >= c.limit
+			numEntries--
+			return numEntries >= c.limit
 		})
 		for _, key := range keysToEvict {
 			c.CacheBackend.Delete(key)
 		}
+		c.emitKeysEvictedMetrics(len(keysToEvict))
 	}
 	c.CacheBackend.Set(key, val)
 }
@@ -81,6 +112,7 @@ func (c *BoundedCache) Set(key string, val *CValue) {
 func (c *BoundedCache) Delete(key string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	defer c.emitCacheSizeMetric()
 
 	c.CacheBackend.Delete(key)
 }
@@ -88,6 +120,7 @@ func (c *BoundedCache) Delete(key string) {
 func (c *BoundedCache) DeleteAll() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	defer c.emitCacheSizeMetric()
 
 	c.CacheBackend.Range(func(key string, _ *CValue) bool {
 		c.CacheBackend.Delete(key)
