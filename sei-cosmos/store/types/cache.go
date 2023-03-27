@@ -7,7 +7,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/telemetry"
 )
 
-const DefaultCacheSizeLimit = 2000000 // TODO: revert back to 1000000
+const DefaultCacheSizeLimit = 4000000 // TODO: revert back to 1000000 after paritioning r/w caches
 
 // If value is nil but deleted is false, it means the parent doesn't have the
 // key.  (No need to delete upon Write())
