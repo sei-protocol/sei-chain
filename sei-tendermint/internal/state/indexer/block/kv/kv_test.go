@@ -26,8 +26,8 @@ func TestBlockIndexer(t *testing.T) {
 					Type: "finalize_event1",
 					Attributes: []abci.EventAttribute{
 						{
-							Key:   "proposer",
-							Value: "FCAA001",
+							Key:   []byte("proposer"),
+							Value: []byte("FCAA001"),
 							Index: true,
 						},
 					},
@@ -36,8 +36,8 @@ func TestBlockIndexer(t *testing.T) {
 					Type: "finalize_event2",
 					Attributes: []abci.EventAttribute{
 						{
-							Key:   "foo",
-							Value: "100",
+							Key:   []byte("foo"),
+							Value: []byte("100"),
 							Index: true,
 						},
 					},
@@ -59,8 +59,8 @@ func TestBlockIndexer(t *testing.T) {
 						Type: "finalize_event1",
 						Attributes: []abci.EventAttribute{
 							{
-								Key:   "proposer",
-								Value: "FCAA001",
+								Key:   []byte("proposer"),
+								Value: []byte("FCAA001"),
 								Index: true,
 							},
 						},
@@ -69,8 +69,8 @@ func TestBlockIndexer(t *testing.T) {
 						Type: "finalize_event2",
 						Attributes: []abci.EventAttribute{
 							{
-								Key:   "foo",
-								Value: fmt.Sprintf("%d", i),
+								Key:   []byte("foo"),
+								Value: []byte(fmt.Sprintf("%d", i)),
 								Index: index,
 							},
 						},

@@ -173,7 +173,7 @@ func TestDifferentClients(t *testing.T) {
 
 	events := []abci.Event{{
 		Type:       "tm.events",
-		Attributes: []abci.EventAttribute{{Key: "type", Value: "NewBlock"}},
+		Attributes: []abci.EventAttribute{{Key: []byte("type"), Value: []byte("NewBlock")}},
 	}}
 
 	require.NoError(t, s.PublishWithEvents(pubstring("Iceman"), events))
@@ -187,11 +187,11 @@ func TestDifferentClients(t *testing.T) {
 	events = []abci.Event{
 		{
 			Type:       "tm.events",
-			Attributes: []abci.EventAttribute{{Key: "type", Value: "NewBlock"}},
+			Attributes: []abci.EventAttribute{{Key: []byte("type"), Value: []byte("NewBlock")}},
 		},
 		{
 			Type:       "abci.account",
-			Attributes: []abci.EventAttribute{{Key: "name", Value: "Igor"}},
+			Attributes: []abci.EventAttribute{{Key: []byte("name"), Value: []byte("Igor")}},
 		},
 	}
 
@@ -207,7 +207,7 @@ func TestDifferentClients(t *testing.T) {
 
 	events = []abci.Event{{
 		Type:       "tm.events",
-		Attributes: []abci.EventAttribute{{Key: "type", Value: "NewRoundStep"}},
+		Attributes: []abci.EventAttribute{{Key: []byte("type"), Value: []byte("NewRoundStep")}},
 	}}
 
 	require.NoError(t, s.PublishWithEvents(pubstring("Valeria Richards"), events))
@@ -244,17 +244,17 @@ func TestSubscribeDuplicateKeys(t *testing.T) {
 				{
 					Type: "transfer",
 					Attributes: []abci.EventAttribute{
-						{Key: "sender", Value: "foo"},
-						{Key: "sender", Value: "bar"},
-						{Key: "sender", Value: "baz"},
+						{Key: []byte("sender"), Value: []byte("foo")},
+						{Key: []byte("sender"), Value: []byte("bar")},
+						{Key: []byte("sender"), Value: []byte("baz")},
 					},
 				},
 				{
 					Type: "withdraw",
 					Attributes: []abci.EventAttribute{
-						{Key: "rewards", Value: "1"},
-						{Key: "rewards", Value: "17"},
-						{Key: "rewards", Value: "22"},
+						{Key: []byte("rewards"), Value: []byte("1")},
+						{Key: []byte("rewards"), Value: []byte("17")},
+						{Key: []byte("rewards"), Value: []byte("22")},
 					},
 				},
 			}
@@ -280,7 +280,7 @@ func TestClientSubscribesTwice(t *testing.T) {
 	q := query.MustCompile(`tm.events.type='NewBlock'`)
 	events := []abci.Event{{
 		Type:       "tm.events",
-		Attributes: []abci.EventAttribute{{Key: "type", Value: "NewBlock"}},
+		Attributes: []abci.EventAttribute{{Key: []byte("type"), Value: []byte("NewBlock")}},
 	}}
 
 	sub1 := newTestSub(t).must(s.SubscribeWithArgs(ctx, pubsub.SubscribeArgs{

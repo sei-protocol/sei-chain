@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
-	"encoding/json"
 	"fmt"
 	"math"
 	"net/http"
@@ -24,6 +23,7 @@ import (
 	rpccore "github.com/tendermint/tendermint/internal/rpc/core"
 	"github.com/tendermint/tendermint/libs/log"
 	tmmath "github.com/tendermint/tendermint/libs/math"
+	tmjson "github.com/tendermint/tendermint/libs/json"
 	"github.com/tendermint/tendermint/libs/service"
 	"github.com/tendermint/tendermint/privval"
 	"github.com/tendermint/tendermint/rpc/client"
@@ -287,7 +287,7 @@ func TestClientMethodCalls(t *testing.T) {
 				doc := []byte(strings.Join(decoded, ""))
 
 				var out types.GenesisDoc
-				require.NoError(t, json.Unmarshal(doc, &out),
+				require.NoError(t, tmjson.Unmarshal(doc, &out),
 					"first: %+v, doc: %s", first, string(doc))
 			})
 			t.Run("ABCIQuery", func(t *testing.T) {

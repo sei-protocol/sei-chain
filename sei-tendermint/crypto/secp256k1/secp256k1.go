@@ -13,6 +13,7 @@ import (
 
 	"github.com/tendermint/tendermint/crypto"
 	"github.com/tendermint/tendermint/internal/jsontypes"
+	tmjson "github.com/tendermint/tendermint/libs/json"
 
 	// necessary for Bitcoin address format
 	"golang.org/x/crypto/ripemd160" //nolint:staticcheck
@@ -28,6 +29,9 @@ const (
 )
 
 func init() {
+	tmjson.RegisterType(PubKey{}, PubKeyName)
+	tmjson.RegisterType(PrivKey{}, PrivKeyName)
+
 	jsontypes.MustRegister(PubKey{})
 	jsontypes.MustRegister(PrivKey{})
 }

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 
+	tmjson "github.com/tendermint/tendermint/libs/json"
 	rpctypes "github.com/tendermint/tendermint/rpc/jsonrpc/types"
 )
 
@@ -11,7 +12,7 @@ func unmarshalResponseBytes(responseBytes []byte, expectedID string, result inte
 	// Read response.  If rpc/core/types is imported, the result will unmarshal
 	// into the correct type.
 	var response rpctypes.RPCResponse
-	if err := json.Unmarshal(responseBytes, &response); err != nil {
+	if err := tmjson.Unmarshal(responseBytes, &response); err != nil {
 		return fmt.Errorf("unmarshaling response test: %w, bytes: %d", err, len(responseBytes))
 	}
 
@@ -24,7 +25,7 @@ func unmarshalResponseBytes(responseBytes []byte, expectedID string, result inte
 	}
 
 	// Unmarshal the RawMessage into the result.
-	if err := json.Unmarshal(response.Result, result); err != nil {
+	if err := tmjson.Unmarshal(response.Result, result); err != nil {
 		return fmt.Errorf("error unmarshaling result: %w", err)
 	}
 	return nil

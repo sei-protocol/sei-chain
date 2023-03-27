@@ -352,9 +352,19 @@ func TestProcessProposal(t *testing.T) {
 			Round: 0,
 			Votes: voteInfos,
 		},
-		NextValidatorsHash: block1.NextValidatorsHash,
-		ProposerAddress:    block1.ProposerAddress,
-		SigsVerified:       blockExec.GetSigsVerified(block1.Txs.ToSliceOfBytes()),
+		NextValidatorsHash:    block1.NextValidatorsHash,
+		ProposerAddress:       block1.ProposerAddress,
+		SigsVerified:          blockExec.GetSigsVerified(block1.Txs.ToSliceOfBytes()),
+		AppHash:               block1.AppHash,
+		ValidatorsHash:        block1.ValidatorsHash,
+		ConsensusHash:         block1.ConsensusHash,
+		DataHash:              block1.DataHash,
+		EvidenceHash:          block1.EvidenceHash,
+		LastBlockHash:         block1.LastBlockID.Hash,
+		LastBlockPartSetTotal: int64(block1.LastBlockID.PartSetHeader.Total),
+		LastBlockPartSetHash:  block1.LastBlockID.Hash,
+		LastCommitHash:        block1.LastCommitHash,
+		LastResultsHash:       block1.LastResultsHash,
 	}
 
 	app.On("ProcessProposal", mock.Anything, mock.Anything).Return(&abci.ResponseProcessProposal{Status: abci.ResponseProcessProposal_ACCEPT}, nil)

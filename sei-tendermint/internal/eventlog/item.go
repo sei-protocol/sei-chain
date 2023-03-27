@@ -52,7 +52,7 @@ func makeEvents(etype string, data types.EventData) []abci.Event {
 	base := []abci.Event{{
 		Type: tmTypeTag,
 		Attributes: []abci.EventAttribute{{
-			Key: tmTypeKey, Value: etype,
+			Key: []byte(tmTypeKey), Value: []byte(etype),
 		}},
 	}}
 	if evt, ok := data.(ABCIEventer); ok {
@@ -69,8 +69,8 @@ func FindType(events []abci.Event) (string, bool) {
 			continue
 		}
 		for _, attr := range evt.Attributes {
-			if attr.Key == tmTypeKey {
-				return attr.Value, true
+			if string(attr.Key) == tmTypeKey {
+				return string(attr.Value), true
 			}
 		}
 	}

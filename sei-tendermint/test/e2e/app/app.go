@@ -216,12 +216,12 @@ func (app *Application) FinalizeBlock(_ context.Context, req *abci.RequestFinali
 				Type: "val_updates",
 				Attributes: []abci.EventAttribute{
 					{
-						Key:   "size",
-						Value: strconv.Itoa(valUpdates.Len()),
+						Key:   []byte("size"),
+						Value: []byte(strconv.Itoa(valUpdates.Len())),
 					},
 					{
-						Key:   "height",
-						Value: strconv.Itoa(int(req.Height)),
+						Key:   []byte("height"),
+						Value: []byte(strconv.Itoa(int(req.Height))),
 					},
 				},
 			},

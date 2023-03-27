@@ -8,7 +8,7 @@ import (
 
 	"github.com/tendermint/tendermint/config"
 	"github.com/tendermint/tendermint/crypto"
-	"github.com/tendermint/tendermint/internal/jsontypes"
+	tmjson "github.com/tendermint/tendermint/libs/json"
 	"github.com/tendermint/tendermint/libs/log"
 	tmnet "github.com/tendermint/tendermint/libs/net"
 	tmos "github.com/tendermint/tendermint/libs/os"
@@ -70,7 +70,7 @@ func MakeShowValidatorCommand(conf *config.Config, logger log.Logger) *cobra.Com
 				}
 			}
 
-			bz, err := jsontypes.Marshal(pubKey)
+			bz, err := tmjson.Marshal(pubKey)
 			if err != nil {
 				return fmt.Errorf("failed to marshal private validator pubkey: %w", err)
 			}

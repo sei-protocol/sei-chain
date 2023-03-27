@@ -26,7 +26,7 @@ func TestExample(t *testing.T) {
 	events := []abci.Event{
 		{
 			Type:       "abci.account",
-			Attributes: []abci.EventAttribute{{Key: "name", Value: "John"}},
+			Attributes: []abci.EventAttribute{{Key: []byte("name"), Value: []byte("John")}},
 		},
 	}
 	require.NoError(t, s.PublishWithEvents(pubstring("Tombstone"), events))

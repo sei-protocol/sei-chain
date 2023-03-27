@@ -1,11 +1,11 @@
 package commands
 
 import (
-	"encoding/json"
 	"fmt"
 
 	"github.com/spf13/cobra"
 
+	tmjson "github.com/tendermint/tendermint/libs/json"
 	"github.com/tendermint/tendermint/privval"
 	"github.com/tendermint/tendermint/types"
 )
@@ -23,7 +23,7 @@ func MakeGenValidatorCommand() *cobra.Command {
 				return err
 			}
 
-			jsbz, err := json.Marshal(pv)
+			jsbz, err := tmjson.Marshal(pv)
 			if err != nil {
 				return fmt.Errorf("validator -> json: %w", err)
 			}

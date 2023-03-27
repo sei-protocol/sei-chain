@@ -2,13 +2,13 @@ package http
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/tendermint/tendermint/internal/pubsub"
+	tmjson "github.com/tendermint/tendermint/libs/json"
 	"github.com/tendermint/tendermint/libs/log"
 	rpcclient "github.com/tendermint/tendermint/rpc/client"
 	"github.com/tendermint/tendermint/rpc/coretypes"
@@ -184,7 +184,7 @@ func (w *wsEvents) eventListener(ctx context.Context) {
 			}
 
 			result := new(coretypes.ResultEvent)
-			err := json.Unmarshal(resp.Result, result)
+			err := tmjson.Unmarshal(resp.Result, result)
 			if err != nil {
 				w.Logger.Error("failed to unmarshal response", "err", err)
 				continue

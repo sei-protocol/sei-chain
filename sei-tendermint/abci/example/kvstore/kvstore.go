@@ -149,10 +149,10 @@ func (app *Application) handleTx(tx []byte) *types.ExecTxResult {
 		{
 			Type: "app",
 			Attributes: []types.EventAttribute{
-				{Key: "creator", Value: "Cosmoshi Netowoko", Index: true},
-				{Key: "key", Value: key, Index: true},
-				{Key: "index_key", Value: "index is working", Index: true},
-				{Key: "noindex_key", Value: "index is working", Index: false},
+				{Key: []byte("creator"), Value: []byte("Cosmoshi Netowoko"), Index: true},
+				{Key: []byte("key"), Value: []byte(key), Index: true},
+				{Key: []byte("index_key"), Value: []byte("index is working"), Index: true},
+				{Key: []byte("noindex_key"), Value: []byte("index is working"), Index: false},
 			},
 		},
 	}

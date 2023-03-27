@@ -30,7 +30,7 @@ func TestEventBusPublishEventTx(t *testing.T) {
 	result := abci.ExecTxResult{
 		Data: []byte("bar"),
 		Events: []abci.Event{
-			{Type: "testType", Attributes: []abci.EventAttribute{{Key: "baz", Value: "1"}}},
+			{Type: "testType", Attributes: []abci.EventAttribute{{Key:[]byte( "baz"), Value: []byte("1")}}},
 		},
 	}
 
@@ -86,8 +86,8 @@ func TestEventBusPublishEventNewBlock(t *testing.T) {
 	resultFinalizeBlock := abci.ResponseFinalizeBlock{
 		Events: []abci.Event{
 			{Type: "testType", Attributes: []abci.EventAttribute{
-				{Key: "baz", Value: "1"},
-				{Key: "foz", Value: "2"},
+				{Key: []byte("baz"), Value: []byte("1")},
+				{Key: []byte("foz"), Value: []byte("2")},
 			}},
 		},
 	}
@@ -140,25 +140,25 @@ func TestEventBusPublishEventTxDuplicateKeys(t *testing.T) {
 			{
 				Type: "transfer",
 				Attributes: []abci.EventAttribute{
-					{Key: "sender", Value: "foo"},
-					{Key: "recipient", Value: "bar"},
-					{Key: "amount", Value: "5"},
+					{Key: []byte("sender"), Value: []byte("foo")},
+					{Key: []byte("recipient"), Value: []byte("bar")},
+					{Key: []byte("amount"), Value: []byte("5")},
 				},
 			},
 			{
 				Type: "transfer",
 				Attributes: []abci.EventAttribute{
-					{Key: "sender", Value: "baz"},
-					{Key: "recipient", Value: "cat"},
-					{Key: "amount", Value: "13"},
+					{Key: []byte("sender"), Value: []byte("baz")},
+					{Key: []byte("recipient"), Value: []byte("cat")},
+					{Key: []byte("amount"), Value: []byte("13")},
 				},
 			},
 			{
 				Type: "withdraw.rewards",
 				Attributes: []abci.EventAttribute{
-					{Key: "address", Value: "bar"},
-					{Key: "source", Value: "iceman"},
-					{Key: "amount", Value: "33"},
+					{Key: []byte("address"), Value: []byte("bar")},
+					{Key: []byte("source"), Value: []byte("iceman")},
+					{Key: []byte("amount"), Value: []byte("33")},
 				},
 			},
 		},
@@ -255,8 +255,8 @@ func TestEventBusPublishEventNewBlockHeader(t *testing.T) {
 	resultFinalizeBlock := abci.ResponseFinalizeBlock{
 		Events: []abci.Event{
 			{Type: "testType", Attributes: []abci.EventAttribute{
-				{Key: "baz", Value: "1"},
-				{Key: "foz", Value: "2"},
+				{Key: []byte("baz"), Value: []byte("1")},
+				{Key: []byte("foz"), Value: []byte("2")},
 			}},
 		},
 	}

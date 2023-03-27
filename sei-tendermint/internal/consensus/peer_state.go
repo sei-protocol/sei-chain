@@ -2,7 +2,6 @@ package consensus
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"sync"
@@ -11,6 +10,7 @@ import (
 	cstypes "github.com/tendermint/tendermint/internal/consensus/types"
 	"github.com/tendermint/tendermint/libs/bits"
 	"github.com/tendermint/tendermint/libs/log"
+	tmjson "github.com/tendermint/tendermint/libs/json"
 	tmtime "github.com/tendermint/tendermint/libs/time"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 	"github.com/tendermint/tendermint/types"
@@ -95,7 +95,7 @@ func (ps *PeerState) GetRoundState() *cstypes.PeerRoundState {
 func (ps *PeerState) ToJSON() ([]byte, error) {
 	ps.mtx.Lock()
 	defer ps.mtx.Unlock()
-	return json.Marshal(ps)
+	return tmjson.Marshal(ps)
 }
 
 // GetHeight returns an atomic snapshot of the PeerRoundState's height used by

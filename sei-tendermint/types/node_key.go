@@ -7,6 +7,7 @@ import (
 	"github.com/tendermint/tendermint/crypto"
 	"github.com/tendermint/tendermint/crypto/ed25519"
 	"github.com/tendermint/tendermint/internal/jsontypes"
+	tmjson "github.com/tendermint/tendermint/libs/json"
 	tmos "github.com/tendermint/tendermint/libs/os"
 )
 
@@ -58,7 +59,7 @@ func (nk NodeKey) PubKey() crypto.PubKey {
 
 // SaveAs persists the NodeKey to filePath.
 func (nk NodeKey) SaveAs(filePath string) error {
-	jsonBytes, err := json.Marshal(nk)
+	jsonBytes, err := tmjson.Marshal(nk)
 	if err != nil {
 		return err
 	}
@@ -101,7 +102,7 @@ func LoadNodeKey(filePath string) (NodeKey, error) {
 		return NodeKey{}, err
 	}
 	nodeKey := NodeKey{}
-	err = json.Unmarshal(jsonBytes, &nodeKey)
+	err = tmjson.Unmarshal(jsonBytes, &nodeKey)
 	if err != nil {
 		return NodeKey{}, err
 	}

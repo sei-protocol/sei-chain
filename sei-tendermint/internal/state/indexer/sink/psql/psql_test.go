@@ -184,7 +184,7 @@ func TestIndexing(t *testing.T) {
 			makeIndexedEvent("account.owner", "Ivan"),
 			makeIndexedEvent("account.owner", "Yulieta"),
 
-			{Type: "", Attributes: []abci.EventAttribute{{Key: "not_allowed", Value: "Vlad", Index: true}}},
+			{Type: "", Attributes: []abci.EventAttribute{{Key: []byte("not_allowed"), Value: []byte("Vlad"), Index: true}}},
 		})
 		require.NoError(t, indexer.IndexTxEvents([]*abci.TxResult{txResult}))
 

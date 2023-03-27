@@ -2,7 +2,6 @@ package config
 
 import (
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -11,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	tmjson "github.com/tendermint/tendermint/libs/json"
 	"github.com/tendermint/tendermint/libs/log"
 	tmos "github.com/tendermint/tendermint/libs/os"
 	"github.com/tendermint/tendermint/types"
@@ -275,7 +275,7 @@ func (cfg BaseConfig) LoadNodeKeyID() (types.NodeID, error) {
 		return "", err
 	}
 	nodeKey := types.NodeKey{}
-	err = json.Unmarshal(jsonBytes, &nodeKey)
+	err = tmjson.Unmarshal(jsonBytes, &nodeKey)
 	if err != nil {
 		return "", err
 	}
