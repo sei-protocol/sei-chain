@@ -11,8 +11,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/tendermint/tendermint/rpc/coretypes"
 	tmjson "github.com/tendermint/tendermint/libs/json"
+	"github.com/tendermint/tendermint/rpc/coretypes"
 )
 
 // ErrorCode is the type of JSON-RPC error codes.
@@ -302,7 +302,6 @@ func (ci *CallInfo) RemoteAddr() string {
 //----------------------------------------
 // SOCKETS
 
-//
 // Determine if its a unix or tcp socket.
 // If tcp, must specify the port; `0.0.0.0` will return incorrectly as "unix" since there's no port
 // TODO: deprecate

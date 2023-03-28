@@ -34,6 +34,8 @@ type eventData string
 
 func (eventData) TypeTag() string { return "eventData" }
 
+func (e eventData) ToLegacy() types.LegacyEventData { return e }
+
 func TestNewError(t *testing.T) {
 	lg, err := eventlog.New(eventlog.LogSettings{})
 	if err == nil {

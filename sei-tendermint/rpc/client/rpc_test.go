@@ -21,9 +21,9 @@ import (
 	"github.com/tendermint/tendermint/crypto/encoding"
 	"github.com/tendermint/tendermint/internal/mempool"
 	rpccore "github.com/tendermint/tendermint/internal/rpc/core"
+	tmjson "github.com/tendermint/tendermint/libs/json"
 	"github.com/tendermint/tendermint/libs/log"
 	tmmath "github.com/tendermint/tendermint/libs/math"
-	tmjson "github.com/tendermint/tendermint/libs/json"
 	"github.com/tendermint/tendermint/libs/service"
 	"github.com/tendermint/tendermint/privval"
 	"github.com/tendermint/tendermint/rpc/client"
@@ -494,7 +494,15 @@ func TestClientMethodCalls(t *testing.T) {
 					var firstBlockHeight int64
 					for i := int64(0); i < 3; i++ {
 						event := <-eventCh
-						blockEvent, ok := event.Data.(types.EventDataNewBlock)
+
+						blockEvent, ok := event.Data.(types.LegacyEventDataNewBlock)
+						if !ok {
+							blockEventPtr, okPtr := event.Data.(*types.LegacyEventDataNewBlock)
+							if okPtr {
+								blockEvent = *blockEventPtr
+							}
+							ok = okPtr
+						}
 						require.True(t, ok)
 
 						block := blockEvent.Block

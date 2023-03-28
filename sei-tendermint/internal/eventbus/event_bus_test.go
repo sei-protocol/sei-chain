@@ -30,7 +30,7 @@ func TestEventBusPublishEventTx(t *testing.T) {
 	result := abci.ExecTxResult{
 		Data: []byte("bar"),
 		Events: []abci.Event{
-			{Type: "testType", Attributes: []abci.EventAttribute{{Key:[]byte( "baz"), Value: []byte("1")}}},
+			{Type: "testType", Attributes: []abci.EventAttribute{{Key: []byte("baz"), Value: []byte("1")}}},
 		},
 	}
 

@@ -86,5 +86,7 @@ func (msg Message) SubscriptionID() string { return msg.subID }
 // Data returns an original data published.
 func (msg Message) Data() types.EventData { return msg.data }
 
+func (msg Message) LegacyData() types.LegacyEventData { return msg.data.ToLegacy() }
+
 // Events returns events, which matched the client's query.
 func (msg Message) Events() []abci.Event { return msg.events }

@@ -26,6 +26,8 @@ type pubstring string
 
 func (pubstring) TypeTag() string { return "pubstring" }
 
+func (e pubstring) ToLegacy() types.LegacyEventData { return e }
+
 func TestSubscribeWithArgs(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

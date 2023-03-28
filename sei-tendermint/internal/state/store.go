@@ -192,7 +192,7 @@ func (store dbStore) save(state State, key []byte) error {
 	if err := batch.Set(key, stateBz); err != nil {
 		return err
 	}
-	fmt.Printf("Tendermint State Saved height=%d hash=%X lastResultHash=%X\n", state.LastBlockHeight, state.AppHash, state.LastResultsHash)
+	// fmt.Printf("Tendermint State Saved height=%d hash=%X lastResultHash=%X\n", state.LastBlockHeight, state.AppHash, state.LastResultsHash)
 	return batch.WriteSync()
 }
 
