@@ -49,14 +49,14 @@ func BuildComparatorFromEvents(events []abci.Event, storeKeyToResourceTypePrefix
 		accessType := AccessType_UNKNOWN
 		storeKey := ""
 		for _, attribute := range attributes {
-			if attribute.Key == "key" {
-				identifier = attribute.Value
+			if string(attribute.Key) == "key" {
+				identifier = string(attribute.Value)
 			}
-			if attribute.Key == "access_type" {
-				accessType = AccessTypeStringToEnum(attribute.Value)
+			if string(attribute.Key) == "access_type" {
+				accessType = AccessTypeStringToEnum(string(attribute.Value))
 			}
-			if attribute.Key == "store_key" {
-				storeKey = attribute.Value
+			if string(attribute.Key) == "store_key" {
+				storeKey = string(attribute.Value)
 			}
 		}
 

@@ -96,8 +96,8 @@ func TestValidateAccessOperations(t *testing.T) {
 							{
 								Type: "resource_access",
 								Attributes: []abci.EventAttribute{
-									{Key: "key", Value: "a/b/c/d/e"},
-									{Key: "access_type", Value: "write"},
+									{Key: []byte("key"), Value: []byte("a/b/c/d/e")},
+									{Key: []byte("access_type"), Value: []byte("write")},
 								},
 							},
 						},
@@ -114,9 +114,9 @@ func TestValidateAccessOperations(t *testing.T) {
 							{
 								Type: "resource_access",
 								Attributes: []abci.EventAttribute{
-									{Key: "key", Value: "a/b/c/d/e"},
-									{Key: "access_type", Value: "write"},
-									{Key: "store_key", Value: "storex"},
+									{Key: []byte("key"), Value: []byte("a/b/c/d/e")},
+									{Key: []byte("access_type"), Value: []byte("write")},
+									{Key: []byte("store_key"), Value: []byte("storex")},
 								},
 							},
 						},
@@ -145,8 +145,8 @@ func TestValidateAccessOperations(t *testing.T) {
 							{
 								Type: "resource_access",
 								Attributes: []abci.EventAttribute{
-									{Key: "key", Value: "abc/defg/e"},
-									{Key: "access_type", Value: "write"},
+									{Key: []byte("key"), Value: []byte("abc/defg/e")},
+									{Key: []byte("access_type"), Value: []byte("write")},
 								},
 							},
 						},
@@ -163,9 +163,9 @@ func TestValidateAccessOperations(t *testing.T) {
 							{
 								Type: "resource_access",
 								Attributes: []abci.EventAttribute{
-									{Key: "key", Value: "abc/defg/e"},
-									{Key: "access_type", Value: "write"},
-									{Key: "store_key", Value: "ParentNode"},
+									{Key: []byte("key"), Value: []byte("abc/defg/e")},
+									{Key: []byte("access_type"), Value: []byte("write")},
+									{Key: []byte("store_key"), Value: []byte("ParentNode")},
 								},
 							},
 						},
@@ -182,9 +182,9 @@ func TestValidateAccessOperations(t *testing.T) {
 							{
 								Type: "resource_access",
 								Attributes: []abci.EventAttribute{
-									{Key: "key", Value: "abc/defg/e"},
-									{Key: "access_type", Value: "write"},
-									{Key: "store_key", Value: "ParentNode"},
+									{Key: []byte("key"), Value: []byte("abc/defg/e")},
+									{Key: []byte("access_type"), Value: []byte("write")},
+									{Key: []byte("store_key"), Value: []byte("ParentNode")},
 								},
 							},
 						},
@@ -201,9 +201,9 @@ func TestValidateAccessOperations(t *testing.T) {
 							{
 								Type: "resource_access",
 								Attributes: []abci.EventAttribute{
-									{Key: "key", Value: "abc/defg/e"},
-									{Key: "access_type", Value: "write"},
-									{Key: "store_key", Value: "ParentNode"},
+									{Key: []byte("key"), Value: []byte("abc/defg/e")},
+									{Key: []byte("access_type"), Value: []byte("write")},
+									{Key: []byte("store_key"), Value: []byte("ParentNode")},
 								},
 							},
 						},

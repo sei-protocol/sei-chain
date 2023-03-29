@@ -36,10 +36,10 @@ func TestEmitEventMangerInIterator(t *testing.T) {
 	iter.Value()
 
 	// assert the resource access is still emitted correctly when the cache store is unavailable
-	require.Equal(t, "access_type", eventManager.Events()[0].Attributes[0].Key)
-	require.Equal(t, "read", eventManager.Events()[0].Attributes[0].Value)
-	require.Equal(t, "store_key", eventManager.Events()[0].Attributes[1].Key)
-	require.Equal(t, "CacheKvTest", eventManager.Events()[0].Attributes[1].Value)
+	require.Equal(t, "access_type", string(eventManager.Events()[0].Attributes[0].Key))
+	require.Equal(t, "read", string(eventManager.Events()[0].Attributes[0].Value))
+	require.Equal(t, "store_key", string(eventManager.Events()[0].Attributes[1].Key))
+	require.Equal(t, "CacheKvTest", string(eventManager.Events()[0].Attributes[1].Value))
 
 	// assert event emission when cache is available
 	cache = kvstore.Iterator(keys[1], keys[2])
@@ -49,8 +49,8 @@ func TestEmitEventMangerInIterator(t *testing.T) {
 	iter.Value()
 
 	// assert the resource access is still emitted correctly when the cache store is available
-	require.Equal(t, "access_type", eventManager.Events()[0].Attributes[0].Key)
-	require.Equal(t, "read", eventManager.Events()[0].Attributes[0].Value)
-	require.Equal(t, "store_key", eventManager.Events()[0].Attributes[1].Key)
-	require.Equal(t, "CacheKvTest", eventManager.Events()[0].Attributes[1].Value)
+	require.Equal(t, "access_type", string(eventManager.Events()[0].Attributes[0].Key))
+	require.Equal(t, "read", string(eventManager.Events()[0].Attributes[0].Value))
+	require.Equal(t, "store_key", string(eventManager.Events()[0].Attributes[1].Key))
+	require.Equal(t, "CacheKvTest", string(eventManager.Events()[0].Attributes[1].Value))
 }

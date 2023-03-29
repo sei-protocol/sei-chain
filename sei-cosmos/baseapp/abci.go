@@ -914,7 +914,27 @@ func splitPath(requestPath string) (path []string) {
 func (app *BaseApp) PrepareProposal(ctx context.Context, req *abci.RequestPrepareProposal) (*abci.ResponsePrepareProposal, error) {
 	defer telemetry.MeasureSince(time.Now(), "abci", "prepare_proposal")
 
-	header := tmproto.Header{ChainID: app.ChainID, Height: req.Height, Time: req.Time, ProposerAddress: req.ProposerAddress}
+	header := tmproto.Header{
+		ChainID:            app.ChainID,
+		Height:             req.Height,
+		Time:               req.Time,
+		ProposerAddress:    req.ProposerAddress,
+		AppHash:            req.AppHash,
+		NextValidatorsHash: req.NextValidatorsHash,
+		DataHash:           req.DataHash,
+		ConsensusHash:      req.ConsensusHash,
+		EvidenceHash:       req.EvidenceHash,
+		ValidatorsHash:     req.ValidatorsHash,
+		LastCommitHash:     req.LastCommitHash,
+		LastResultsHash:    req.LastResultsHash,
+		LastBlockId: tmproto.BlockID{
+			Hash: req.LastBlockHash,
+			PartSetHeader: tmproto.PartSetHeader{
+				Total: uint32(req.LastBlockPartSetTotal),
+				Hash:  req.LastBlockPartSetHash,
+			},
+		},
+	}
 	if app.prepareProposalState == nil {
 		app.setPrepareProposalState(header)
 	} else {
@@ -942,7 +962,27 @@ func (app *BaseApp) PrepareProposal(ctx context.Context, req *abci.RequestPrepar
 func (app *BaseApp) ProcessProposal(ctx context.Context, req *abci.RequestProcessProposal) (*abci.ResponseProcessProposal, error) {
 	defer telemetry.MeasureSince(time.Now(), "abci", "process_proposal")
 
-	header := tmproto.Header{ChainID: app.ChainID, Height: req.Height, Time: req.Time, ProposerAddress: req.ProposerAddress}
+	header := tmproto.Header{
+		ChainID:            app.ChainID,
+		Height:             req.Height,
+		Time:               req.Time,
+		ProposerAddress:    req.ProposerAddress,
+		AppHash:            req.AppHash,
+		NextValidatorsHash: req.NextValidatorsHash,
+		DataHash:           req.DataHash,
+		ConsensusHash:      req.ConsensusHash,
+		EvidenceHash:       req.EvidenceHash,
+		ValidatorsHash:     req.ValidatorsHash,
+		LastCommitHash:     req.LastCommitHash,
+		LastResultsHash:    req.LastResultsHash,
+		LastBlockId: tmproto.BlockID{
+			Hash: req.LastBlockHash,
+			PartSetHeader: tmproto.PartSetHeader{
+				Total: uint32(req.LastBlockPartSetTotal),
+				Hash:  req.LastBlockPartSetHash,
+			},
+		},
+	}
 	if app.processProposalState == nil {
 		app.setProcessProposalState(header)
 	} else {
@@ -989,7 +1029,27 @@ func (app *BaseApp) FinalizeBlock(ctx context.Context, req *abci.RequestFinalize
 	// Initialize the DeliverTx state. If this is the first block, it should
 	// already be initialized in InitChain. Otherwise app.deliverState will be
 	// nil, since it is reset on Commit.
-	header := tmproto.Header{ChainID: app.ChainID, Height: req.Height, Time: req.Time, ProposerAddress: req.ProposerAddress}
+	header := tmproto.Header{
+		ChainID:            app.ChainID,
+		Height:             req.Height,
+		Time:               req.Time,
+		ProposerAddress:    req.ProposerAddress,
+		AppHash:            req.AppHash,
+		NextValidatorsHash: req.NextValidatorsHash,
+		DataHash:           req.DataHash,
+		ConsensusHash:      req.ConsensusHash,
+		EvidenceHash:       req.EvidenceHash,
+		ValidatorsHash:     req.ValidatorsHash,
+		LastCommitHash:     req.LastCommitHash,
+		LastResultsHash:    req.LastResultsHash,
+		LastBlockId: tmproto.BlockID{
+			Hash: req.LastBlockHash,
+			PartSetHeader: tmproto.PartSetHeader{
+				Total: uint32(req.LastBlockPartSetTotal),
+				Hash:  req.LastBlockPartSetHash,
+			},
+		},
+	}
 	if app.deliverState == nil {
 		app.setDeliverState(header)
 	} else {
