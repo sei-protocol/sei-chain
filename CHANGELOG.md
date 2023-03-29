@@ -28,6 +28,23 @@ Ref: https://keepachangelog.com/en/1.0.0/
 
 # Changelog
 
+## 2.0.42beta
+
+sei-chain:
+* [#670] (https://github.com/sei-protocol/sei-chain/pull/670) Add add-wasm-genesis-message to seid
+* [#654] (https://github.com/sei-protocol/sei-chain/pull/654) Improve endblock performance and fix trace
+
+sei-cosmos: https://github.com/sei-protocol/sei-cosmos/compare/v0.2.8...v0.2.12
+* improvements around monitoring for sei-cosmos
+* dont enforce gas limit on deliverTx
+* refactor slashing module
+
+
+sei-tendermint:
+* [#95] (https://github.com/sei-protocol/sei-tendermint/pull/95) Patch forging empty merkle tree attack vector
+* set default max gas param to 6mil
+* log tunning for p2p
+
 ## 2.0.40beta - 2023-03-10
 * [#646] (https://github.com/sei-protocol/sei-chain/pull/646) Optimizations for FinalizeBlock
 * [#644] (https://github.com/sei-protocol/sei-chain/pull/644) [Oak Audit] Add check for non-existent transaction
