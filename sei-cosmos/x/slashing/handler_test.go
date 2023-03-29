@@ -96,7 +96,7 @@ func TestJailedValidatorDelegations(t *testing.T) {
 	staking.EndBlocker(ctx, app.StakingKeeper)
 
 	// set dummy signing info
-	newInfo := types.NewValidatorSigningInfo(consAddr, 0, time.Unix(0, 0), false, 0)
+	newInfo := types.NewValidatorSigningInfo(consAddr, 0, 0, time.Unix(0, 0), false, 0)
 	app.SlashingKeeper.SetValidatorSigningInfo(ctx, consAddr, newInfo)
 
 	// delegate tokens to the validator

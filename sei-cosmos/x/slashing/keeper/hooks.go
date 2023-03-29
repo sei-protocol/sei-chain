@@ -16,6 +16,7 @@ func (k Keeper) AfterValidatorBonded(ctx sdk.Context, address sdk.ConsAddress, _
 		signingInfo := types.NewValidatorSigningInfo(
 			address,
 			ctx.BlockHeight(),
+			0,
 			time.Unix(0, 0),
 			false,
 			0,

@@ -7,6 +7,8 @@ import (
 	"github.com/cosmos/cosmos-sdk/x/slashing/types"
 )
 
+const UINT_64_NUM_BITS = 64
+
 // GetValidatorSigningInfo retruns the ValidatorSigningInfo for a specific validator
 // ConsAddress
 func (k Keeper) GetValidatorSigningInfo(ctx sdk.Context, address sdk.ConsAddress) (info types.ValidatorSigningInfo, found bool) {
@@ -70,6 +72,58 @@ func (k Keeper) SetValidatorMissedBlocks(ctx sdk.Context, address sdk.ConsAddres
 	store := ctx.KVStore(k.storeKey)
 	bz := k.cdc.MustMarshal(&missedInfo)
 	store.Set(types.ValidatorMissedBlockBitArrayKey(address), bz)
+}
+
+// Get a boolean representing whether a validator missed a block with a specific index offset
+func (k Keeper) GetBooleanFromBitGroups(bitGroupArray []uint64, index int64) bool {
+	// convert the index into indexKey + indexShift
+	indexKey := index / UINT_64_NUM_BITS
+	indexShift := index % UINT_64_NUM_BITS
+	if indexKey >= int64(len(bitGroupArray)) {
+		return false
+	}
+	// shift 1 by the indexShift value to generate bit mask (to index into the bitGroup)
+	indexMask := uint64(1) << indexShift
+	// apply the mask and if the value at that `indexShift` is 1 (indicating miss), then the value would be non-zero
+	missed := (bitGroupArray[indexKey] & indexMask) != 0
+	return missed
+}
+
+// Set the missed value for whether a validator missed a block
+func (k Keeper) SetBooleanInBitGroups(bitGroupArray []uint64, index int64, missed bool) []uint64 {
+	// convert the index into indexKey + indexShift
+	indexKey := index / UINT_64_NUM_BITS
+	indexShift := index % UINT_64_NUM_BITS
+	indexMask := uint64(1) << indexShift
+	if missed {
+		// set bit to 1 by ORing with the specific position as 1
+		bitGroupArray[indexKey] |= indexMask
+	} else {
+		// set bit to 0 by AND NOTing with the specific position as 1
+		bitGroupArray[indexKey] &^= indexMask
+	}
+	// set after updating the position
+	return bitGroupArray
+}
+
+func (k Keeper) ParseBitGroupsToBoolArray(bitGroups []uint64, window int64) []bool {
+	boolArray := make([]bool, window)
+
+	for i := int64(0); i < window; i++ {
+		boolArray[i] = k.GetBooleanFromBitGroups(bitGroups, i)
+	}
+	return boolArray
+}
+
+func (k Keeper) ParseBoolArrayToBitGroups(boolArray []bool) []uint64 {
+	arrLen := (len(boolArray) + UINT_64_NUM_BITS - 1) / UINT_64_NUM_BITS
+	bitGroups := make([]uint64, arrLen)
+
+	for index, boolVal := range boolArray {
+		bitGroups = k.SetBooleanInBitGroups(bitGroups, int64(index), boolVal)
+	}
+
+	return bitGroups
 }
 
 // JailUntil attempts to set a validator's JailedUntil attribute in its signing

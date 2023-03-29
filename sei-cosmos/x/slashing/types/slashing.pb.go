@@ -29,9 +29,7 @@ var _ = time.Kitchen
 // proto package needs to be updated.
 const _ = proto.GoGoProtoPackageIsVersion3 // please upgrade the proto package
 
-// ValidatorSigningInfo defines a validator's signing info for monitoring their
-// liveness activity.
-type ValidatorSigningInfo struct {
+type ValidatorSigningInfoLegacyMissedHeights struct {
 	Address string `protobuf:"bytes,1,opt,name=address,proto3" json:"address,omitempty"`
 	// Height at which validator was first a candidate OR was unjailed
 	StartHeight int64 `protobuf:"varint,2,opt,name=start_height,json=startHeight,proto3" json:"start_height,omitempty" yaml:"start_height"`
@@ -45,10 +43,100 @@ type ValidatorSigningInfo struct {
 	MissedBlocksCounter int64 `protobuf:"varint,5,opt,name=missed_blocks_counter,json=missedBlocksCounter,proto3" json:"missed_blocks_counter,omitempty" yaml:"missed_blocks_counter"`
 }
 
+func (m *ValidatorSigningInfoLegacyMissedHeights) Reset() {
+	*m = ValidatorSigningInfoLegacyMissedHeights{}
+}
+func (m *ValidatorSigningInfoLegacyMissedHeights) String() string { return proto.CompactTextString(m) }
+func (*ValidatorSigningInfoLegacyMissedHeights) ProtoMessage()    {}
+func (*ValidatorSigningInfoLegacyMissedHeights) Descriptor() ([]byte, []int) {
+	return fileDescriptor_1078e5d96a74cc52, []int{0}
+}
+func (m *ValidatorSigningInfoLegacyMissedHeights) XXX_Unmarshal(b []byte) error {
+	return m.Unmarshal(b)
+}
+func (m *ValidatorSigningInfoLegacyMissedHeights) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	if deterministic {
+		return xxx_messageInfo_ValidatorSigningInfoLegacyMissedHeights.Marshal(b, m, deterministic)
+	} else {
+		b = b[:cap(b)]
+		n, err := m.MarshalToSizedBuffer(b)
+		if err != nil {
+			return nil, err
+		}
+		return b[:n], nil
+	}
+}
+func (m *ValidatorSigningInfoLegacyMissedHeights) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_ValidatorSigningInfoLegacyMissedHeights.Merge(m, src)
+}
+func (m *ValidatorSigningInfoLegacyMissedHeights) XXX_Size() int {
+	return m.Size()
+}
+func (m *ValidatorSigningInfoLegacyMissedHeights) XXX_DiscardUnknown() {
+	xxx_messageInfo_ValidatorSigningInfoLegacyMissedHeights.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_ValidatorSigningInfoLegacyMissedHeights proto.InternalMessageInfo
+
+func (m *ValidatorSigningInfoLegacyMissedHeights) GetAddress() string {
+	if m != nil {
+		return m.Address
+	}
+	return ""
+}
+
+func (m *ValidatorSigningInfoLegacyMissedHeights) GetStartHeight() int64 {
+	if m != nil {
+		return m.StartHeight
+	}
+	return 0
+}
+
+func (m *ValidatorSigningInfoLegacyMissedHeights) GetJailedUntil() time.Time {
+	if m != nil {
+		return m.JailedUntil
+	}
+	return time.Time{}
+}
+
+func (m *ValidatorSigningInfoLegacyMissedHeights) GetTombstoned() bool {
+	if m != nil {
+		return m.Tombstoned
+	}
+	return false
+}
+
+func (m *ValidatorSigningInfoLegacyMissedHeights) GetMissedBlocksCounter() int64 {
+	if m != nil {
+		return m.MissedBlocksCounter
+	}
+	return 0
+}
+
+// ValidatorSigningInfo defines a validator's signing info for monitoring their
+// liveness activity.
+type ValidatorSigningInfo struct {
+	Address string `protobuf:"bytes,1,opt,name=address,proto3" json:"address,omitempty"`
+	// Height at which validator was first a candidate OR was unjailed
+	StartHeight int64 `protobuf:"varint,2,opt,name=start_height,json=startHeight,proto3" json:"start_height,omitempty" yaml:"start_height"`
+	// Index which is incremented each time the validator was a bonded
+	// in a block and may have signed a precommit or not. This in conjunction with the
+	// `SignedBlocksWindow` param determines the index in the `MissedBlocksBitArray`.
+	IndexOffset int64 `protobuf:"varint,3,opt,name=index_offset,json=indexOffset,proto3" json:"index_offset,omitempty" yaml:"index_offset"`
+	// Timestamp until which the validator is jailed due to liveness downtime.
+	JailedUntil time.Time `protobuf:"bytes,4,opt,name=jailed_until,json=jailedUntil,proto3,stdtime" json:"jailed_until" yaml:"jailed_until"`
+	// Whether or not a validator has been tombstoned (killed out of validator set). It is set
+	// once the validator commits an equivocation or for any other configured misbehiavor.
+	Tombstoned bool `protobuf:"varint,5,opt,name=tombstoned,proto3" json:"tombstoned,omitempty"`
+	// A counter kept to avoid unnecessary array reads.
+	// Note that `Sum(MissedBlocksBitArray)` always equals `MissedBlocksCounter`.
+	MissedBlocksCounter int64 `protobuf:"varint,6,opt,name=missed_blocks_counter,json=missedBlocksCounter,proto3" json:"missed_blocks_counter,omitempty" yaml:"missed_blocks_counter"`
+}
+
 func (m *ValidatorSigningInfo) Reset()      { *m = ValidatorSigningInfo{} }
 func (*ValidatorSigningInfo) ProtoMessage() {}
 func (*ValidatorSigningInfo) Descriptor() ([]byte, []int) {
-	return fileDescriptor_1078e5d96a74cc52, []int{0}
+	return fileDescriptor_1078e5d96a74cc52, []int{1}
 }
 func (m *ValidatorSigningInfo) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
@@ -91,6 +179,13 @@ func (m *ValidatorSigningInfo) GetStartHeight() int64 {
 	return 0
 }
 
+func (m *ValidatorSigningInfo) GetIndexOffset() int64 {
+	if m != nil {
+		return m.IndexOffset
+	}
+	return 0
+}
+
 func (m *ValidatorSigningInfo) GetJailedUntil() time.Time {
 	if m != nil {
 		return m.JailedUntil
@@ -112,36 +207,29 @@ func (m *ValidatorSigningInfo) GetMissedBlocksCounter() int64 {
 	return 0
 }
 
-type ValidatorSigningInfoLegacyV43 struct {
+// Stores a sliding window of the last `signed_blocks_window` blocks indicating whether the validator missed the block
+type ValidatorMissedBlockArrayLegacyMissedHeights struct {
 	Address string `protobuf:"bytes,1,opt,name=address,proto3" json:"address,omitempty"`
-	// Height at which validator was first a candidate OR was unjailed
-	StartHeight int64 `protobuf:"varint,2,opt,name=start_height,json=startHeight,proto3" json:"start_height,omitempty" yaml:"start_height"`
-	// Index which is incremented each time the validator was a bonded
-	// in a block and may have signed a precommit or not. This in conjunction with the
-	// `SignedBlocksWindow` param determines the index in the `MissedBlocksBitArray`.
-	IndexOffset int64 `protobuf:"varint,3,opt,name=index_offset,json=indexOffset,proto3" json:"index_offset,omitempty" yaml:"index_offset"`
-	// Timestamp until which the validator is jailed due to liveness downtime.
-	JailedUntil time.Time `protobuf:"bytes,4,opt,name=jailed_until,json=jailedUntil,proto3,stdtime" json:"jailed_until" yaml:"jailed_until"`
-	// Whether or not a validator has been tombstoned (killed out of validator set). It is set
-	// once the validator commits an equivocation or for any other configured misbehiavor.
-	Tombstoned bool `protobuf:"varint,5,opt,name=tombstoned,proto3" json:"tombstoned,omitempty"`
-	// A counter kept to avoid unnecessary array reads.
-	// Note that `Sum(MissedBlocksBitArray)` always equals `MissedBlocksCounter`.
-	MissedBlocksCounter int64 `protobuf:"varint,6,opt,name=missed_blocks_counter,json=missedBlocksCounter,proto3" json:"missed_blocks_counter,omitempty" yaml:"missed_blocks_counter"`
+	// Array of contains the heights when the validator missed the block
+	MissedHeights []int64 `protobuf:"varint,2,rep,packed,name=missed_heights,json=missedHeights,proto3" json:"missed_heights,omitempty" yaml:"missed_heights"`
 }
 
-func (m *ValidatorSigningInfoLegacyV43) Reset()         { *m = ValidatorSigningInfoLegacyV43{} }
-func (m *ValidatorSigningInfoLegacyV43) String() string { return proto.CompactTextString(m) }
-func (*ValidatorSigningInfoLegacyV43) ProtoMessage()    {}
-func (*ValidatorSigningInfoLegacyV43) Descriptor() ([]byte, []int) {
-	return fileDescriptor_1078e5d96a74cc52, []int{1}
+func (m *ValidatorMissedBlockArrayLegacyMissedHeights) Reset() {
+	*m = ValidatorMissedBlockArrayLegacyMissedHeights{}
 }
-func (m *ValidatorSigningInfoLegacyV43) XXX_Unmarshal(b []byte) error {
+func (m *ValidatorMissedBlockArrayLegacyMissedHeights) String() string {
+	return proto.CompactTextString(m)
+}
+func (*ValidatorMissedBlockArrayLegacyMissedHeights) ProtoMessage() {}
+func (*ValidatorMissedBlockArrayLegacyMissedHeights) Descriptor() ([]byte, []int) {
+	return fileDescriptor_1078e5d96a74cc52, []int{2}
+}
+func (m *ValidatorMissedBlockArrayLegacyMissedHeights) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
 }
-func (m *ValidatorSigningInfoLegacyV43) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+func (m *ValidatorMissedBlockArrayLegacyMissedHeights) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
 	if deterministic {
-		return xxx_messageInfo_ValidatorSigningInfoLegacyV43.Marshal(b, m, deterministic)
+		return xxx_messageInfo_ValidatorMissedBlockArrayLegacyMissedHeights.Marshal(b, m, deterministic)
 	} else {
 		b = b[:cap(b)]
 		n, err := m.MarshalToSizedBuffer(b)
@@ -151,72 +239,46 @@ func (m *ValidatorSigningInfoLegacyV43) XXX_Marshal(b []byte, deterministic bool
 		return b[:n], nil
 	}
 }
-func (m *ValidatorSigningInfoLegacyV43) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_ValidatorSigningInfoLegacyV43.Merge(m, src)
+func (m *ValidatorMissedBlockArrayLegacyMissedHeights) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_ValidatorMissedBlockArrayLegacyMissedHeights.Merge(m, src)
 }
-func (m *ValidatorSigningInfoLegacyV43) XXX_Size() int {
+func (m *ValidatorMissedBlockArrayLegacyMissedHeights) XXX_Size() int {
 	return m.Size()
 }
-func (m *ValidatorSigningInfoLegacyV43) XXX_DiscardUnknown() {
-	xxx_messageInfo_ValidatorSigningInfoLegacyV43.DiscardUnknown(m)
+func (m *ValidatorMissedBlockArrayLegacyMissedHeights) XXX_DiscardUnknown() {
+	xxx_messageInfo_ValidatorMissedBlockArrayLegacyMissedHeights.DiscardUnknown(m)
 }
 
-var xxx_messageInfo_ValidatorSigningInfoLegacyV43 proto.InternalMessageInfo
+var xxx_messageInfo_ValidatorMissedBlockArrayLegacyMissedHeights proto.InternalMessageInfo
 
-func (m *ValidatorSigningInfoLegacyV43) GetAddress() string {
+func (m *ValidatorMissedBlockArrayLegacyMissedHeights) GetAddress() string {
 	if m != nil {
 		return m.Address
 	}
 	return ""
 }
 
-func (m *ValidatorSigningInfoLegacyV43) GetStartHeight() int64 {
+func (m *ValidatorMissedBlockArrayLegacyMissedHeights) GetMissedHeights() []int64 {
 	if m != nil {
-		return m.StartHeight
+		return m.MissedHeights
 	}
-	return 0
-}
-
-func (m *ValidatorSigningInfoLegacyV43) GetIndexOffset() int64 {
-	if m != nil {
-		return m.IndexOffset
-	}
-	return 0
-}
-
-func (m *ValidatorSigningInfoLegacyV43) GetJailedUntil() time.Time {
-	if m != nil {
-		return m.JailedUntil
-	}
-	return time.Time{}
-}
-
-func (m *ValidatorSigningInfoLegacyV43) GetTombstoned() bool {
-	if m != nil {
-		return m.Tombstoned
-	}
-	return false
-}
-
-func (m *ValidatorSigningInfoLegacyV43) GetMissedBlocksCounter() int64 {
-	if m != nil {
-		return m.MissedBlocksCounter
-	}
-	return 0
+	return nil
 }
 
 // Stores a sliding window of the last `signed_blocks_window` blocks indicating whether the validator missed the block
 type ValidatorMissedBlockArray struct {
 	Address string `protobuf:"bytes,1,opt,name=address,proto3" json:"address,omitempty"`
-	// Array of contains the heights when the validator missed the block
-	MissedHeights []int64 `protobuf:"varint,2,rep,packed,name=missed_heights,json=missedHeights,proto3" json:"missed_heights,omitempty" yaml:"missed_heights"`
+	// store this in case window size changes but doesn't affect number of bit groups
+	WindowSize int64 `protobuf:"varint,2,opt,name=window_size,json=windowSize,proto3" json:"window_size,omitempty"`
+	// Array of contains the missed block bits packed into uint64s
+	MissedBlocks []uint64 `protobuf:"varint,3,rep,packed,name=missed_blocks,json=missedBlocks,proto3" json:"missed_blocks,omitempty" yaml:"missed_blocks"`
 }
 
 func (m *ValidatorMissedBlockArray) Reset()         { *m = ValidatorMissedBlockArray{} }
 func (m *ValidatorMissedBlockArray) String() string { return proto.CompactTextString(m) }
 func (*ValidatorMissedBlockArray) ProtoMessage()    {}
 func (*ValidatorMissedBlockArray) Descriptor() ([]byte, []int) {
-	return fileDescriptor_1078e5d96a74cc52, []int{2}
+	return fileDescriptor_1078e5d96a74cc52, []int{3}
 }
 func (m *ValidatorMissedBlockArray) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
@@ -252,9 +314,16 @@ func (m *ValidatorMissedBlockArray) GetAddress() string {
 	return ""
 }
 
-func (m *ValidatorMissedBlockArray) GetMissedHeights() []int64 {
+func (m *ValidatorMissedBlockArray) GetWindowSize() int64 {
 	if m != nil {
-		return m.MissedHeights
+		return m.WindowSize
+	}
+	return 0
+}
+
+func (m *ValidatorMissedBlockArray) GetMissedBlocks() []uint64 {
+	if m != nil {
+		return m.MissedBlocks
 	}
 	return nil
 }
@@ -272,7 +341,7 @@ func (m *Params) Reset()         { *m = Params{} }
 func (m *Params) String() string { return proto.CompactTextString(m) }
 func (*Params) ProtoMessage()    {}
 func (*Params) Descriptor() ([]byte, []int) {
-	return fileDescriptor_1078e5d96a74cc52, []int{3}
+	return fileDescriptor_1078e5d96a74cc52, []int{4}
 }
 func (m *Params) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
@@ -316,8 +385,9 @@ func (m *Params) GetDowntimeJailDuration() time.Duration {
 }
 
 func init() {
+	proto.RegisterType((*ValidatorSigningInfoLegacyMissedHeights)(nil), "cosmos.slashing.v1beta1.ValidatorSigningInfoLegacyMissedHeights")
 	proto.RegisterType((*ValidatorSigningInfo)(nil), "cosmos.slashing.v1beta1.ValidatorSigningInfo")
-	proto.RegisterType((*ValidatorSigningInfoLegacyV43)(nil), "cosmos.slashing.v1beta1.ValidatorSigningInfoLegacyV43")
+	proto.RegisterType((*ValidatorMissedBlockArrayLegacyMissedHeights)(nil), "cosmos.slashing.v1beta1.ValidatorMissedBlockArrayLegacyMissedHeights")
 	proto.RegisterType((*ValidatorMissedBlockArray)(nil), "cosmos.slashing.v1beta1.ValidatorMissedBlockArray")
 	proto.RegisterType((*Params)(nil), "cosmos.slashing.v1beta1.Params")
 }
@@ -327,62 +397,66 @@ func init() {
 }
 
 var fileDescriptor_1078e5d96a74cc52 = []byte{
-	// 720 bytes of a gzipped FileDescriptorProto
-	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0xb4, 0x55, 0xbf, 0x53, 0x13, 0x41,
-	0x14, 0xce, 0x91, 0x80, 0xb8, 0x89, 0x16, 0x47, 0x30, 0x21, 0xca, 0x5d, 0xbc, 0x82, 0x89, 0x05,
-	0xc9, 0x20, 0x56, 0xa9, 0xf4, 0x64, 0x1c, 0xfc, 0x8d, 0x07, 0xe2, 0x8c, 0x85, 0x37, 0x9b, 0xdc,
-	0xe6, 0xb2, 0x72, 0x77, 0x9b, 0xb9, 0xdd, 0x18, 0x62, 0x67, 0x67, 0xe3, 0x0c, 0x25, 0x25, 0xa5,
-	0x7f, 0x0a, 0x85, 0x05, 0xa5, 0x63, 0x11, 0x9d, 0xd0, 0x58, 0xa7, 0xb3, 0x73, 0x6e, 0x77, 0x8f,
-	0x04, 0x08, 0x8c, 0x8c, 0x43, 0x95, 0xbc, 0xef, 0x7d, 0xfb, 0xde, 0xb7, 0xef, 0x7b, 0xd9, 0x80,
-	0x85, 0x3a, 0xa1, 0x3e, 0xa1, 0x15, 0xea, 0x41, 0xda, 0xc4, 0x81, 0x5b, 0xf9, 0xb0, 0x54, 0x43,
-	0x0c, 0x2e, 0x1d, 0x01, 0xe5, 0x56, 0x48, 0x18, 0x51, 0x73, 0x82, 0x57, 0x3e, 0x82, 0x25, 0xaf,
-	0x90, 0x75, 0x89, 0x4b, 0x38, 0xa7, 0x12, 0x7d, 0x13, 0xf4, 0x82, 0xe6, 0x12, 0xe2, 0x7a, 0xa8,
-	0xc2, 0xa3, 0x5a, 0xbb, 0x51, 0x71, 0xda, 0x21, 0x64, 0x98, 0x04, 0x32, 0xaf, 0x9f, 0xcc, 0x33,
-	0xec, 0x23, 0xca, 0xa0, 0xdf, 0x12, 0x04, 0xe3, 0xdb, 0x04, 0xc8, 0x6e, 0x42, 0x0f, 0x3b, 0x90,
-	0x91, 0x70, 0x1d, 0xbb, 0x01, 0x0e, 0xdc, 0xc7, 0x41, 0x83, 0xa8, 0x79, 0x70, 0x05, 0x3a, 0x4e,
-	0x88, 0x28, 0xcd, 0x2b, 0x45, 0xa5, 0x74, 0xd5, 0x8a, 0x43, 0xb5, 0x0a, 0x32, 0x94, 0xc1, 0x90,
-	0xd9, 0x4d, 0x84, 0xdd, 0x26, 0xcb, 0x4f, 0x14, 0x95, 0x52, 0xd2, 0xcc, 0x0d, 0x7a, 0xfa, 0x4c,
-	0x17, 0xfa, 0x5e, 0xd5, 0x18, 0xcd, 0x1a, 0x56, 0x9a, 0x87, 0xab, 0x3c, 0x52, 0xdf, 0x81, 0xcc,
-	0x7b, 0x88, 0x3d, 0xe4, 0xd8, 0xed, 0x80, 0x61, 0x2f, 0x9f, 0x2c, 0x2a, 0xa5, 0xf4, 0xdd, 0x42,
-	0x59, 0xc8, 0x2c, 0xc7, 0x32, 0xcb, 0x1b, 0xb1, 0x4c, 0x53, 0xdf, 0xef, 0xe9, 0x89, 0x61, 0xed,
-	0xd1, 0xd3, 0xc6, 0xce, 0x4f, 0x5d, 0xb1, 0xd2, 0x02, 0x7a, 0x1d, 0x21, 0xaa, 0x06, 0x00, 0x23,
-	0x7e, 0x8d, 0x32, 0x12, 0x20, 0x27, 0x9f, 0x2a, 0x2a, 0xa5, 0x69, 0x6b, 0x04, 0x51, 0x37, 0xc0,
-	0xac, 0x8f, 0x29, 0x45, 0x8e, 0x5d, 0xf3, 0x48, 0x7d, 0x8b, 0xda, 0x75, 0xd2, 0x0e, 0x18, 0x0a,
-	0xf3, 0x93, 0xfc, 0x12, 0xc5, 0x41, 0x4f, 0xbf, 0x25, 0x1a, 0x8d, 0xa5, 0x19, 0xd6, 0x8c, 0xc0,
-	0x4d, 0x0e, 0x3f, 0x14, 0x68, 0x75, 0x7a, 0x77, 0x4f, 0x4f, 0xfc, 0xde, 0xd3, 0x15, 0xe3, 0x4b,
-	0x12, 0xcc, 0x8f, 0x1b, 0xe7, 0x33, 0xe4, 0xc2, 0x7a, 0x77, 0xf3, 0xde, 0xf2, 0x25, 0xcd, 0xb5,
-	0x0a, 0x32, 0x38, 0x70, 0xd0, 0xb6, 0x4d, 0x1a, 0x0d, 0x8a, 0x18, 0x9f, 0xeb, 0xb1, 0xb3, 0xa3,
-	0x59, 0xc3, 0x4a, 0xf3, 0xf0, 0x25, 0x8f, 0x4e, 0x79, 0x92, 0xba, 0x54, 0x4f, 0x26, 0xff, 0xdd,
-	0x93, 0xa9, 0xff, 0xf1, 0x24, 0xc5, 0xfd, 0xe8, 0x80, 0xb9, 0x23, 0x3b, 0x9e, 0x0f, 0x59, 0x0f,
-	0xc2, 0x10, 0x76, 0xcf, 0xb1, 0xe2, 0x3e, 0xb8, 0x2e, 0x7b, 0x89, 0x69, 0xd3, 0xfc, 0x44, 0x31,
-	0x59, 0x4a, 0x9a, 0x73, 0x83, 0x9e, 0x3e, 0x7b, 0x4c, 0x8b, 0xcc, 0x1b, 0xd6, 0x35, 0x01, 0xac,
-	0xca, 0xf8, 0x4f, 0x0a, 0x4c, 0xad, 0xc1, 0x10, 0xfa, 0x54, 0x7d, 0x05, 0xb2, 0x14, 0xbb, 0xc1,
-	0x50, 0x78, 0x07, 0x07, 0x0e, 0xe9, 0xf0, 0x9e, 0x49, 0x53, 0x1f, 0xf4, 0xf4, 0x9b, 0xd2, 0xdf,
-	0x31, 0x2c, 0xc3, 0x52, 0x05, 0x2c, 0x6e, 0xf7, 0x86, 0x83, 0xea, 0x27, 0x25, 0x9a, 0x59, 0x60,
-	0xcb, 0x13, 0x2d, 0x14, 0xc6, 0x45, 0xa3, 0xa5, 0xc9, 0x98, 0x2f, 0x22, 0x83, 0x7e, 0xf4, 0xf4,
-	0x05, 0x17, 0xb3, 0x66, 0xbb, 0x56, 0xae, 0x13, 0xbf, 0x22, 0x1f, 0x20, 0xf1, 0xb1, 0x48, 0x9d,
-	0xad, 0x0a, 0xeb, 0xb6, 0x10, 0x2d, 0xaf, 0xa0, 0xfa, 0xe8, 0x84, 0xc7, 0x14, 0x35, 0x2c, 0xd5,
-	0xc7, 0xc1, 0x3a, 0x87, 0xd7, 0x50, 0x28, 0x35, 0x7c, 0x04, 0x37, 0x1c, 0xd2, 0x09, 0xa2, 0x07,
-	0xc5, 0x8e, 0xec, 0xb6, 0xe3, 0xa7, 0x47, 0xfe, 0xa8, 0xe7, 0x4e, 0x2d, 0xd0, 0x8a, 0x24, 0x98,
-	0x77, 0xe4, 0xfe, 0xcc, 0x8b, 0xa6, 0xe3, 0xcb, 0x18, 0xbb, 0xd1, 0x26, 0x65, 0xe3, 0xe4, 0x13,
-	0x88, 0xbd, 0xb8, 0x80, 0xba, 0xa3, 0x80, 0x02, 0x7f, 0x21, 0xed, 0x46, 0x08, 0xeb, 0x11, 0x64,
-	0x3b, 0xa4, 0x5d, 0xf3, 0x10, 0x17, 0xcf, 0x37, 0x38, 0x63, 0xae, 0x5f, 0x78, 0x08, 0xb7, 0xa5,
-	0x0f, 0x67, 0x56, 0x36, 0xac, 0x1c, 0x4f, 0x3e, 0x92, 0xb9, 0x15, 0x9e, 0x8a, 0x26, 0xa3, 0x7e,
-	0x56, 0x40, 0xee, 0xd4, 0x41, 0x21, 0x9d, 0xef, 0x7c, 0xc6, 0x5c, 0xbb, 0xb0, 0x1e, 0xed, 0x0c,
-	0x3d, 0xa2, 0xac, 0x61, 0xcd, 0x9e, 0x10, 0x23, 0x70, 0xf3, 0xe9, 0xd7, 0xbe, 0xa6, 0xec, 0xf7,
-	0x35, 0xe5, 0xa0, 0xaf, 0x29, 0xbf, 0xfa, 0x9a, 0xb2, 0x73, 0xa8, 0x25, 0x0e, 0x0e, 0xb5, 0xc4,
-	0xf7, 0x43, 0x2d, 0xf1, 0x76, 0xf1, 0xdc, 0xf6, 0xdb, 0xc3, 0x7f, 0x28, 0xae, 0xa4, 0x36, 0xc5,
-	0xed, 0x5b, 0xfe, 0x1b, 0x00, 0x00, 0xff, 0xff, 0x38, 0x22, 0xff, 0x8a, 0xc1, 0x06, 0x00, 0x00,
+	// 780 bytes of a gzipped FileDescriptorProto
+	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0xb4, 0x55, 0xbf, 0x4f, 0x23, 0x47,
+	0x18, 0xf5, 0xb0, 0x86, 0x90, 0xb1, 0x49, 0xb1, 0x98, 0x78, 0x71, 0x92, 0x5d, 0x67, 0x0a, 0xe2,
+	0x48, 0xc1, 0x16, 0x49, 0x67, 0x29, 0x52, 0xb2, 0x41, 0x51, 0x7e, 0x91, 0x90, 0x35, 0x49, 0xa4,
+	0x14, 0xb7, 0x1a, 0x7b, 0xc7, 0xeb, 0x39, 0x76, 0x77, 0xac, 0x9d, 0xf1, 0x81, 0xe9, 0xae, 0x43,
+	0x57, 0xd1, 0x9c, 0x44, 0x49, 0x79, 0x7f, 0x0a, 0x25, 0xe5, 0xe9, 0x4e, 0xf2, 0x9d, 0x4c, 0x73,
+	0xb5, 0xbb, 0xeb, 0x4e, 0x3b, 0xb3, 0xc6, 0x06, 0x0c, 0x3a, 0x74, 0xa2, 0x82, 0x79, 0xdf, 0x9b,
+	0x37, 0x6f, 0xbe, 0xf7, 0xed, 0x18, 0xae, 0xb5, 0x18, 0x0f, 0x19, 0xaf, 0xf1, 0x00, 0xf3, 0x0e,
+	0x8d, 0xfc, 0xda, 0xa3, 0x8d, 0x26, 0x11, 0x78, 0xe3, 0x02, 0xa8, 0x76, 0x63, 0x26, 0x98, 0x5e,
+	0x54, 0xbc, 0xea, 0x05, 0x9c, 0xf2, 0x4a, 0x05, 0x9f, 0xf9, 0x4c, 0x72, 0x6a, 0xc9, 0x7f, 0x8a,
+	0x5e, 0x32, 0x7d, 0xc6, 0xfc, 0x80, 0xd4, 0xe4, 0xaa, 0xd9, 0x6b, 0xd7, 0xbc, 0x5e, 0x8c, 0x05,
+	0x65, 0x51, 0x5a, 0xb7, 0xae, 0xd6, 0x05, 0x0d, 0x09, 0x17, 0x38, 0xec, 0x2a, 0x02, 0x7a, 0x39,
+	0x07, 0xbf, 0xfa, 0x17, 0x07, 0xd4, 0xc3, 0x82, 0xc5, 0x0d, 0xea, 0x47, 0x34, 0xf2, 0x7f, 0x8d,
+	0xda, 0xec, 0x0f, 0xe2, 0xe3, 0x56, 0x7f, 0x8b, 0x72, 0x4e, 0xbc, 0x5f, 0x08, 0xf5, 0x3b, 0x82,
+	0xeb, 0x06, 0xfc, 0x08, 0x7b, 0x5e, 0x4c, 0x38, 0x37, 0x40, 0x19, 0x54, 0x3e, 0x76, 0xc6, 0x4b,
+	0xbd, 0x0e, 0xf3, 0x5c, 0xe0, 0x58, 0xb8, 0x1d, 0x49, 0x35, 0xe6, 0xca, 0xa0, 0xa2, 0xd9, 0xc5,
+	0xd1, 0xc0, 0x5a, 0xee, 0xe3, 0x30, 0xa8, 0xa3, 0xe9, 0x2a, 0x72, 0x72, 0x72, 0xa9, 0x64, 0xf5,
+	0x07, 0x30, 0xff, 0x10, 0xd3, 0x80, 0x78, 0x6e, 0x2f, 0x12, 0x34, 0x30, 0xb4, 0x32, 0xa8, 0xe4,
+	0xbe, 0x2d, 0x55, 0x95, 0xf3, 0xea, 0xd8, 0x79, 0x75, 0x67, 0xec, 0xdc, 0xb6, 0x4e, 0x07, 0x56,
+	0x66, 0xa2, 0x3d, 0xbd, 0x1b, 0x1d, 0xbd, 0xb2, 0x80, 0x93, 0x53, 0xd0, 0x3f, 0x09, 0xa2, 0x9b,
+	0x10, 0x0a, 0x16, 0x36, 0xb9, 0x60, 0x11, 0xf1, 0x8c, 0x6c, 0x19, 0x54, 0x16, 0x9d, 0x29, 0x44,
+	0xdf, 0x81, 0x2b, 0xa1, 0xbc, 0xa6, 0xdb, 0x0c, 0x58, 0x6b, 0x97, 0xbb, 0x2d, 0xd6, 0x8b, 0x04,
+	0x89, 0x8d, 0x79, 0x79, 0x89, 0xf2, 0x68, 0x60, 0x7d, 0xae, 0x0e, 0x9a, 0x49, 0x43, 0xce, 0xb2,
+	0xc2, 0x6d, 0x09, 0xff, 0xa4, 0xd0, 0x7a, 0xf6, 0xcd, 0x89, 0x05, 0xd0, 0xa1, 0x06, 0x0b, 0xb3,
+	0xba, 0x7b, 0x4f, 0xad, 0xac, 0xc3, 0x3c, 0x8d, 0x3c, 0xb2, 0xef, 0xb2, 0x76, 0x9b, 0x13, 0x21,
+	0x5b, 0x79, 0x69, 0xef, 0x74, 0x15, 0x39, 0x39, 0xb9, 0xfc, 0x4b, 0xae, 0xae, 0xc5, 0x90, 0xbd,
+	0xd7, 0x18, 0xe6, 0xdf, 0x3f, 0x86, 0x85, 0x0f, 0x89, 0x61, 0xf1, 0xf8, 0xc4, 0xca, 0xc8, 0x28,
+	0x9e, 0x00, 0xf8, 0xcd, 0x45, 0x14, 0x5b, 0x13, 0xea, 0x8f, 0x71, 0x8c, 0xfb, 0x77, 0x9b, 0xf6,
+	0x1f, 0xe0, 0x27, 0xa9, 0x07, 0x95, 0x02, 0x37, 0xe6, 0xca, 0x5a, 0x45, 0xb3, 0x57, 0x47, 0x03,
+	0x6b, 0xe5, 0x92, 0xc7, 0xb4, 0x8e, 0x9c, 0xa5, 0x70, 0x5a, 0x1b, 0x3d, 0x05, 0x70, 0xf5, 0x46,
+	0x33, 0xb7, 0x9c, 0x6c, 0xc1, 0xdc, 0x1e, 0x8d, 0x3c, 0xb6, 0xe7, 0x72, 0x7a, 0x40, 0xd4, 0x6c,
+	0x38, 0x50, 0x41, 0x0d, 0x7a, 0x40, 0xf4, 0xef, 0xe1, 0xd2, 0xa5, 0xf6, 0x18, 0x5a, 0x59, 0xab,
+	0x64, 0x6d, 0x63, 0x34, 0xb0, 0x0a, 0x33, 0xba, 0x87, 0x9c, 0xfc, 0x74, 0xd7, 0xd0, 0xdb, 0x2c,
+	0x5c, 0xd8, 0xc6, 0x31, 0x0e, 0xb9, 0xfe, 0x37, 0x2c, 0x70, 0xea, 0x47, 0x93, 0x46, 0xab, 0x53,
+	0xa4, 0x23, 0xcd, 0xb6, 0x46, 0x03, 0xeb, 0xb3, 0x74, 0x1e, 0x67, 0xb0, 0x90, 0xa3, 0x2b, 0x58,
+	0xe9, 0xfe, 0x27, 0x41, 0xfd, 0x31, 0x48, 0x32, 0x8e, 0xdc, 0x74, 0x47, 0x97, 0xc4, 0x63, 0xd1,
+	0xe4, 0x22, 0x79, 0xfb, 0xcf, 0x64, 0xa0, 0x5e, 0x0c, 0xac, 0x35, 0x9f, 0x8a, 0x4e, 0xaf, 0x59,
+	0x6d, 0xb1, 0xb0, 0x96, 0x3e, 0x9b, 0xea, 0xcf, 0x3a, 0xf7, 0x76, 0x6b, 0xa2, 0xdf, 0x25, 0xbc,
+	0xba, 0x49, 0x5a, 0xd3, 0x13, 0x31, 0x43, 0x14, 0x39, 0x7a, 0x48, 0xa3, 0x86, 0x84, 0xb7, 0x49,
+	0x9c, 0x7a, 0x38, 0x80, 0x9f, 0x7a, 0x6c, 0x2f, 0x4a, 0x9e, 0x41, 0x37, 0x19, 0x4f, 0x77, 0xfc,
+	0x60, 0xa6, 0xef, 0xce, 0xea, 0xb5, 0x81, 0xdf, 0x4c, 0x09, 0xf6, 0xd7, 0xe9, 0xbc, 0x7f, 0xa1,
+	0x0e, 0x9d, 0x2d, 0x83, 0x8e, 0x93, 0xc9, 0x2f, 0x8c, 0x8b, 0xbf, 0x61, 0x1a, 0x8c, 0x05, 0xf4,
+	0x23, 0x00, 0x4b, 0xf2, 0x5d, 0x77, 0xdb, 0x31, 0x6e, 0x25, 0x90, 0xeb, 0xb1, 0x5e, 0x33, 0x20,
+	0xd2, 0xbc, 0xfc, 0xe2, 0xf2, 0x76, 0xe3, 0xce, 0x4d, 0xf8, 0x32, 0xcd, 0xe1, 0x46, 0x65, 0xe4,
+	0x14, 0x65, 0xf1, 0xe7, 0xb4, 0xb6, 0x29, 0x4b, 0x49, 0x67, 0xf4, 0x43, 0x00, 0x8b, 0xd7, 0x36,
+	0x2a, 0xeb, 0xf2, 0x1b, 0xcd, 0xdb, 0xdb, 0x77, 0xf6, 0x63, 0xde, 0xe0, 0x47, 0xc9, 0x22, 0x67,
+	0xe5, 0x8a, 0x19, 0x85, 0xdb, 0xbf, 0x3f, 0x1b, 0x9a, 0xe0, 0x74, 0x68, 0x82, 0xb3, 0xa1, 0x09,
+	0x5e, 0x0f, 0x4d, 0x70, 0x74, 0x6e, 0x66, 0xce, 0xce, 0xcd, 0xcc, 0xf3, 0x73, 0x33, 0xf3, 0xff,
+	0xfa, 0xad, 0xc7, 0xef, 0x4f, 0x7e, 0x57, 0xa5, 0x93, 0xe6, 0x82, 0x8c, 0xef, 0xbb, 0x77, 0x01,
+	0x00, 0x00, 0xff, 0xff, 0xc9, 0x25, 0x35, 0xca, 0x77, 0x07, 0x00, 0x00,
 }
 
-func (this *ValidatorSigningInfo) Equal(that interface{}) bool {
+func (this *ValidatorSigningInfoLegacyMissedHeights) Equal(that interface{}) bool {
 	if that == nil {
 		return this == nil
 	}
 
-	that1, ok := that.(*ValidatorSigningInfo)
+	that1, ok := that.(*ValidatorSigningInfoLegacyMissedHeights)
 	if !ok {
-		that2, ok := that.(ValidatorSigningInfo)
+		that2, ok := that.(ValidatorSigningInfoLegacyMissedHeights)
 		if ok {
 			that1 = &that2
 		} else {
@@ -411,14 +485,14 @@ func (this *ValidatorSigningInfo) Equal(that interface{}) bool {
 	}
 	return true
 }
-func (this *ValidatorSigningInfoLegacyV43) Equal(that interface{}) bool {
+func (this *ValidatorSigningInfo) Equal(that interface{}) bool {
 	if that == nil {
 		return this == nil
 	}
 
-	that1, ok := that.(*ValidatorSigningInfoLegacyV43)
+	that1, ok := that.(*ValidatorSigningInfo)
 	if !ok {
-		that2, ok := that.(ValidatorSigningInfoLegacyV43)
+		that2, ok := that.(ValidatorSigningInfo)
 		if ok {
 			that1 = &that2
 		} else {
@@ -450,6 +524,38 @@ func (this *ValidatorSigningInfoLegacyV43) Equal(that interface{}) bool {
 	}
 	return true
 }
+func (this *ValidatorMissedBlockArrayLegacyMissedHeights) Equal(that interface{}) bool {
+	if that == nil {
+		return this == nil
+	}
+
+	that1, ok := that.(*ValidatorMissedBlockArrayLegacyMissedHeights)
+	if !ok {
+		that2, ok := that.(ValidatorMissedBlockArrayLegacyMissedHeights)
+		if ok {
+			that1 = &that2
+		} else {
+			return false
+		}
+	}
+	if that1 == nil {
+		return this == nil
+	} else if this == nil {
+		return false
+	}
+	if this.Address != that1.Address {
+		return false
+	}
+	if len(this.MissedHeights) != len(that1.MissedHeights) {
+		return false
+	}
+	for i := range this.MissedHeights {
+		if this.MissedHeights[i] != that1.MissedHeights[i] {
+			return false
+		}
+	}
+	return true
+}
 func (this *ValidatorMissedBlockArray) Equal(that interface{}) bool {
 	if that == nil {
 		return this == nil
@@ -472,11 +578,14 @@ func (this *ValidatorMissedBlockArray) Equal(that interface{}) bool {
 	if this.Address != that1.Address {
 		return false
 	}
-	if len(this.MissedHeights) != len(that1.MissedHeights) {
+	if this.WindowSize != that1.WindowSize {
 		return false
 	}
-	for i := range this.MissedHeights {
-		if this.MissedHeights[i] != that1.MissedHeights[i] {
+	if len(this.MissedBlocks) != len(that1.MissedBlocks) {
+		return false
+	}
+	for i := range this.MissedBlocks {
+		if this.MissedBlocks[i] != that1.MissedBlocks[i] {
 			return false
 		}
 	}
@@ -518,7 +627,7 @@ func (this *Params) Equal(that interface{}) bool {
 	}
 	return true
 }
-func (m *ValidatorSigningInfo) Marshal() (dAtA []byte, err error) {
+func (m *ValidatorSigningInfoLegacyMissedHeights) Marshal() (dAtA []byte, err error) {
 	size := m.Size()
 	dAtA = make([]byte, size)
 	n, err := m.MarshalToSizedBuffer(dAtA[:size])
@@ -528,12 +637,12 @@ func (m *ValidatorSigningInfo) Marshal() (dAtA []byte, err error) {
 	return dAtA[:n], nil
 }
 
-func (m *ValidatorSigningInfo) MarshalTo(dAtA []byte) (int, error) {
+func (m *ValidatorSigningInfoLegacyMissedHeights) MarshalTo(dAtA []byte) (int, error) {
 	size := m.Size()
 	return m.MarshalToSizedBuffer(dAtA[:size])
 }
 
-func (m *ValidatorSigningInfo) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+func (m *ValidatorSigningInfoLegacyMissedHeights) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	i := len(dAtA)
 	_ = i
 	var l int
@@ -576,7 +685,7 @@ func (m *ValidatorSigningInfo) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	return len(dAtA) - i, nil
 }
 
-func (m *ValidatorSigningInfoLegacyV43) Marshal() (dAtA []byte, err error) {
+func (m *ValidatorSigningInfo) Marshal() (dAtA []byte, err error) {
 	size := m.Size()
 	dAtA = make([]byte, size)
 	n, err := m.MarshalToSizedBuffer(dAtA[:size])
@@ -586,12 +695,12 @@ func (m *ValidatorSigningInfoLegacyV43) Marshal() (dAtA []byte, err error) {
 	return dAtA[:n], nil
 }
 
-func (m *ValidatorSigningInfoLegacyV43) MarshalTo(dAtA []byte) (int, error) {
+func (m *ValidatorSigningInfo) MarshalTo(dAtA []byte) (int, error) {
 	size := m.Size()
 	return m.MarshalToSizedBuffer(dAtA[:size])
 }
 
-func (m *ValidatorSigningInfoLegacyV43) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+func (m *ValidatorSigningInfo) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	i := len(dAtA)
 	_ = i
 	var l int
@@ -639,7 +748,7 @@ func (m *ValidatorSigningInfoLegacyV43) MarshalToSizedBuffer(dAtA []byte) (int, 
 	return len(dAtA) - i, nil
 }
 
-func (m *ValidatorMissedBlockArray) Marshal() (dAtA []byte, err error) {
+func (m *ValidatorMissedBlockArrayLegacyMissedHeights) Marshal() (dAtA []byte, err error) {
 	size := m.Size()
 	dAtA = make([]byte, size)
 	n, err := m.MarshalToSizedBuffer(dAtA[:size])
@@ -649,12 +758,12 @@ func (m *ValidatorMissedBlockArray) Marshal() (dAtA []byte, err error) {
 	return dAtA[:n], nil
 }
 
-func (m *ValidatorMissedBlockArray) MarshalTo(dAtA []byte) (int, error) {
+func (m *ValidatorMissedBlockArrayLegacyMissedHeights) MarshalTo(dAtA []byte) (int, error) {
 	size := m.Size()
 	return m.MarshalToSizedBuffer(dAtA[:size])
 }
 
-func (m *ValidatorMissedBlockArray) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+func (m *ValidatorMissedBlockArrayLegacyMissedHeights) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	i := len(dAtA)
 	_ = i
 	var l int
@@ -677,6 +786,59 @@ func (m *ValidatorMissedBlockArray) MarshalToSizedBuffer(dAtA []byte) (int, erro
 		i = encodeVarintSlashing(dAtA, i, uint64(j3))
 		i--
 		dAtA[i] = 0x12
+	}
+	if len(m.Address) > 0 {
+		i -= len(m.Address)
+		copy(dAtA[i:], m.Address)
+		i = encodeVarintSlashing(dAtA, i, uint64(len(m.Address)))
+		i--
+		dAtA[i] = 0xa
+	}
+	return len(dAtA) - i, nil
+}
+
+func (m *ValidatorMissedBlockArray) Marshal() (dAtA []byte, err error) {
+	size := m.Size()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalToSizedBuffer(dAtA[:size])
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *ValidatorMissedBlockArray) MarshalTo(dAtA []byte) (int, error) {
+	size := m.Size()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *ValidatorMissedBlockArray) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
+	_ = i
+	var l int
+	_ = l
+	if len(m.MissedBlocks) > 0 {
+		dAtA6 := make([]byte, len(m.MissedBlocks)*10)
+		var j5 int
+		for _, num := range m.MissedBlocks {
+			for num >= 1<<7 {
+				dAtA6[j5] = uint8(uint64(num)&0x7f | 0x80)
+				num >>= 7
+				j5++
+			}
+			dAtA6[j5] = uint8(num)
+			j5++
+		}
+		i -= j5
+		copy(dAtA[i:], dAtA6[:j5])
+		i = encodeVarintSlashing(dAtA, i, uint64(j5))
+		i--
+		dAtA[i] = 0x1a
+	}
+	if m.WindowSize != 0 {
+		i = encodeVarintSlashing(dAtA, i, uint64(m.WindowSize))
+		i--
+		dAtA[i] = 0x10
 	}
 	if len(m.Address) > 0 {
 		i -= len(m.Address)
@@ -728,12 +890,12 @@ func (m *Params) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	}
 	i--
 	dAtA[i] = 0x22
-	n5, err5 := github_com_gogo_protobuf_types.StdDurationMarshalTo(m.DowntimeJailDuration, dAtA[i-github_com_gogo_protobuf_types.SizeOfStdDuration(m.DowntimeJailDuration):])
-	if err5 != nil {
-		return 0, err5
+	n7, err7 := github_com_gogo_protobuf_types.StdDurationMarshalTo(m.DowntimeJailDuration, dAtA[i-github_com_gogo_protobuf_types.SizeOfStdDuration(m.DowntimeJailDuration):])
+	if err7 != nil {
+		return 0, err7
 	}
-	i -= n5
-	i = encodeVarintSlashing(dAtA, i, uint64(n5))
+	i -= n7
+	i = encodeVarintSlashing(dAtA, i, uint64(n7))
 	i--
 	dAtA[i] = 0x1a
 	{
@@ -765,7 +927,7 @@ func encodeVarintSlashing(dAtA []byte, offset int, v uint64) int {
 	dAtA[offset] = uint8(v)
 	return base
 }
-func (m *ValidatorSigningInfo) Size() (n int) {
+func (m *ValidatorSigningInfoLegacyMissedHeights) Size() (n int) {
 	if m == nil {
 		return 0
 	}
@@ -789,7 +951,7 @@ func (m *ValidatorSigningInfo) Size() (n int) {
 	return n
 }
 
-func (m *ValidatorSigningInfoLegacyV43) Size() (n int) {
+func (m *ValidatorSigningInfo) Size() (n int) {
 	if m == nil {
 		return 0
 	}
@@ -816,7 +978,7 @@ func (m *ValidatorSigningInfoLegacyV43) Size() (n int) {
 	return n
 }
 
-func (m *ValidatorMissedBlockArray) Size() (n int) {
+func (m *ValidatorMissedBlockArrayLegacyMissedHeights) Size() (n int) {
 	if m == nil {
 		return 0
 	}
@@ -829,6 +991,29 @@ func (m *ValidatorMissedBlockArray) Size() (n int) {
 	if len(m.MissedHeights) > 0 {
 		l = 0
 		for _, e := range m.MissedHeights {
+			l += sovSlashing(uint64(e))
+		}
+		n += 1 + sovSlashing(uint64(l)) + l
+	}
+	return n
+}
+
+func (m *ValidatorMissedBlockArray) Size() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	l = len(m.Address)
+	if l > 0 {
+		n += 1 + l + sovSlashing(uint64(l))
+	}
+	if m.WindowSize != 0 {
+		n += 1 + sovSlashing(uint64(m.WindowSize))
+	}
+	if len(m.MissedBlocks) > 0 {
+		l = 0
+		for _, e := range m.MissedBlocks {
 			l += sovSlashing(uint64(e))
 		}
 		n += 1 + sovSlashing(uint64(l)) + l
@@ -862,7 +1047,7 @@ func sovSlashing(x uint64) (n int) {
 func sozSlashing(x uint64) (n int) {
 	return sovSlashing(uint64((x << 1) ^ uint64((int64(x) >> 63))))
 }
-func (m *ValidatorSigningInfo) Unmarshal(dAtA []byte) error {
+func (m *ValidatorSigningInfoLegacyMissedHeights) Unmarshal(dAtA []byte) error {
 	l := len(dAtA)
 	iNdEx := 0
 	for iNdEx < l {
@@ -885,10 +1070,10 @@ func (m *ValidatorSigningInfo) Unmarshal(dAtA []byte) error {
 		fieldNum := int32(wire >> 3)
 		wireType := int(wire & 0x7)
 		if wireType == 4 {
-			return fmt.Errorf("proto: ValidatorSigningInfo: wiretype end group for non-group")
+			return fmt.Errorf("proto: ValidatorSigningInfoLegacyMissedHeights: wiretype end group for non-group")
 		}
 		if fieldNum <= 0 {
-			return fmt.Errorf("proto: ValidatorSigningInfo: illegal tag %d (wire type %d)", fieldNum, wire)
+			return fmt.Errorf("proto: ValidatorSigningInfoLegacyMissedHeights: illegal tag %d (wire type %d)", fieldNum, wire)
 		}
 		switch fieldNum {
 		case 1:
@@ -1035,7 +1220,7 @@ func (m *ValidatorSigningInfo) Unmarshal(dAtA []byte) error {
 	}
 	return nil
 }
-func (m *ValidatorSigningInfoLegacyV43) Unmarshal(dAtA []byte) error {
+func (m *ValidatorSigningInfo) Unmarshal(dAtA []byte) error {
 	l := len(dAtA)
 	iNdEx := 0
 	for iNdEx < l {
@@ -1058,10 +1243,10 @@ func (m *ValidatorSigningInfoLegacyV43) Unmarshal(dAtA []byte) error {
 		fieldNum := int32(wire >> 3)
 		wireType := int(wire & 0x7)
 		if wireType == 4 {
-			return fmt.Errorf("proto: ValidatorSigningInfoLegacyV43: wiretype end group for non-group")
+			return fmt.Errorf("proto: ValidatorSigningInfo: wiretype end group for non-group")
 		}
 		if fieldNum <= 0 {
-			return fmt.Errorf("proto: ValidatorSigningInfoLegacyV43: illegal tag %d (wire type %d)", fieldNum, wire)
+			return fmt.Errorf("proto: ValidatorSigningInfo: illegal tag %d (wire type %d)", fieldNum, wire)
 		}
 		switch fieldNum {
 		case 1:
@@ -1227,7 +1412,7 @@ func (m *ValidatorSigningInfoLegacyV43) Unmarshal(dAtA []byte) error {
 	}
 	return nil
 }
-func (m *ValidatorMissedBlockArray) Unmarshal(dAtA []byte) error {
+func (m *ValidatorMissedBlockArrayLegacyMissedHeights) Unmarshal(dAtA []byte) error {
 	l := len(dAtA)
 	iNdEx := 0
 	for iNdEx < l {
@@ -1250,10 +1435,10 @@ func (m *ValidatorMissedBlockArray) Unmarshal(dAtA []byte) error {
 		fieldNum := int32(wire >> 3)
 		wireType := int(wire & 0x7)
 		if wireType == 4 {
-			return fmt.Errorf("proto: ValidatorMissedBlockArray: wiretype end group for non-group")
+			return fmt.Errorf("proto: ValidatorMissedBlockArrayLegacyMissedHeights: wiretype end group for non-group")
 		}
 		if fieldNum <= 0 {
-			return fmt.Errorf("proto: ValidatorMissedBlockArray: illegal tag %d (wire type %d)", fieldNum, wire)
+			return fmt.Errorf("proto: ValidatorMissedBlockArrayLegacyMissedHeights: illegal tag %d (wire type %d)", fieldNum, wire)
 		}
 		switch fieldNum {
 		case 1:
@@ -1363,6 +1548,183 @@ func (m *ValidatorMissedBlockArray) Unmarshal(dAtA []byte) error {
 				}
 			} else {
 				return fmt.Errorf("proto: wrong wireType = %d for field MissedHeights", wireType)
+			}
+		default:
+			iNdEx = preIndex
+			skippy, err := skipSlashing(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
+				return ErrInvalidLengthSlashing
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+func (m *ValidatorMissedBlockArray) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return ErrIntOverflowSlashing
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= uint64(b&0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: ValidatorMissedBlockArray: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: ValidatorMissedBlockArray: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 1:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Address", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowSlashing
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLengthSlashing
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return ErrInvalidLengthSlashing
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.Address = string(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
+		case 2:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field WindowSize", wireType)
+			}
+			m.WindowSize = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowSlashing
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.WindowSize |= int64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		case 3:
+			if wireType == 0 {
+				var v uint64
+				for shift := uint(0); ; shift += 7 {
+					if shift >= 64 {
+						return ErrIntOverflowSlashing
+					}
+					if iNdEx >= l {
+						return io.ErrUnexpectedEOF
+					}
+					b := dAtA[iNdEx]
+					iNdEx++
+					v |= uint64(b&0x7F) << shift
+					if b < 0x80 {
+						break
+					}
+				}
+				m.MissedBlocks = append(m.MissedBlocks, v)
+			} else if wireType == 2 {
+				var packedLen int
+				for shift := uint(0); ; shift += 7 {
+					if shift >= 64 {
+						return ErrIntOverflowSlashing
+					}
+					if iNdEx >= l {
+						return io.ErrUnexpectedEOF
+					}
+					b := dAtA[iNdEx]
+					iNdEx++
+					packedLen |= int(b&0x7F) << shift
+					if b < 0x80 {
+						break
+					}
+				}
+				if packedLen < 0 {
+					return ErrInvalidLengthSlashing
+				}
+				postIndex := iNdEx + packedLen
+				if postIndex < 0 {
+					return ErrInvalidLengthSlashing
+				}
+				if postIndex > l {
+					return io.ErrUnexpectedEOF
+				}
+				var elementCount int
+				var count int
+				for _, integer := range dAtA[iNdEx:postIndex] {
+					if integer < 128 {
+						count++
+					}
+				}
+				elementCount = count
+				if elementCount != 0 && len(m.MissedBlocks) == 0 {
+					m.MissedBlocks = make([]uint64, 0, elementCount)
+				}
+				for iNdEx < postIndex {
+					var v uint64
+					for shift := uint(0); ; shift += 7 {
+						if shift >= 64 {
+							return ErrIntOverflowSlashing
+						}
+						if iNdEx >= l {
+							return io.ErrUnexpectedEOF
+						}
+						b := dAtA[iNdEx]
+						iNdEx++
+						v |= uint64(b&0x7F) << shift
+						if b < 0x80 {
+							break
+						}
+					}
+					m.MissedBlocks = append(m.MissedBlocks, v)
+				}
+			} else {
+				return fmt.Errorf("proto: wrong wireType = %d for field MissedBlocks", wireType)
 			}
 		default:
 			iNdEx = preIndex

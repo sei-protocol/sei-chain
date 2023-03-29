@@ -8,11 +8,8 @@ import "gogoproto/gogo.proto";
 import "google/protobuf/duration.proto";
 import "google/protobuf/timestamp.proto";
 
-// ValidatorSigningInfo defines a validator's signing info for monitoring their
-// liveness activity.
-message ValidatorSigningInfo {
+message ValidatorSigningInfoLegacyMissedHeights {
   option (gogoproto.equal)            = true;
-  option (gogoproto.goproto_stringer) = false;
 
   string address = 1;
   // Height at which validator was first a candidate OR was unjailed
@@ -28,8 +25,11 @@ message ValidatorSigningInfo {
   int64 missed_blocks_counter = 5 [(gogoproto.moretags) = "yaml:\"missed_blocks_counter\""];
 }
 
-message ValidatorSigningInfoLegacyV43 {
+// ValidatorSigningInfo defines a validator's signing info for monitoring their
+// liveness activity.
+message ValidatorSigningInfo {
   option (gogoproto.equal)            = true;
+  option (gogoproto.goproto_stringer) = false;
 
   string address = 1;
   // Height at which validator was first a candidate OR was unjailed
@@ -50,10 +50,19 @@ message ValidatorSigningInfoLegacyV43 {
 }
 
 // Stores a sliding window of the last `signed_blocks_window` blocks indicating whether the validator missed the block
-message ValidatorMissedBlockArray {
+message ValidatorMissedBlockArrayLegacyMissedHeights {
   string address = 1;
   // Array of contains the heights when the validator missed the block
   repeated int64 missed_heights = 2 [(gogoproto.moretags) = "yaml:\"missed_heights\""];
+}
+
+// Stores a sliding window of the last `signed_blocks_window` blocks indicating whether the validator missed the block
+message ValidatorMissedBlockArray {
+  string address = 1;
+  // store this in case window size changes but doesn't affect number of bit groups
+  int64 window_size = 2;
+  // Array of contains the missed block bits packed into uint64s
+  repeated uint64 missed_blocks = 3 [(gogoproto.moretags) = "yaml:\"missed_blocks\""];
 }
 
 // Params represents the parameters used for by the slashing module.

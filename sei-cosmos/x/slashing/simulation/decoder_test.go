@@ -27,10 +27,10 @@ func TestDecodeStore(t *testing.T) {
 	cdc := simapp.MakeTestEncodingConfig().Marshaler
 	dec := simulation.NewDecodeStore(cdc)
 
-	info := types.NewValidatorSigningInfo(consAddr1, 0, time.Now().UTC(), false, 0)
+	info := types.NewValidatorSigningInfo(consAddr1, 0, 1, time.Now().UTC(), false, 0)
 	missed := types.ValidatorMissedBlockArray{
-		Address:       consAddr1.String(),
-		MissedHeights: []int64{4, 8},
+		Address:      consAddr1.String(),
+		MissedBlocks: []uint64{((1 << 4) + (1 << 8))},
 	}
 	bz, err := cdc.MarshalInterface(delPk1)
 	require.NoError(t, err)

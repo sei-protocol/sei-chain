@@ -36,30 +36,37 @@ func (k Keeper) HandleValidatorSignatureConcurrent(ctx sdk.Context, addr cryptot
 
 	window := k.SignedBlocksWindow(ctx)
 
+	index := signInfo.IndexOffset
+
 	missedInfo, found = k.GetValidatorMissedBlocks(ctx, consAddr)
+
 	if !found {
+		arrLen := (window + UINT_64_NUM_BITS - 1) / UINT_64_NUM_BITS
 		missedInfo = types.ValidatorMissedBlockArray{
-			Address:       consAddr.String(),
-			MissedHeights: make([]int64, 0),
+			Address:      consAddr.String(),
+			WindowSize:   window,
+			MissedBlocks: make([]uint64, arrLen),
 		}
 	}
-	cutoff := height - window
-	// go through and increment number evicted as necessary
-	numberEvicted := 0
-	for _, missedHeight := range missedInfo.MissedHeights {
-		if missedHeight <= cutoff {
-			numberEvicted += 1
-		} else {
-			break
-		}
+	if found && missedInfo.WindowSize != window {
+		missedInfo, signInfo, index = k.ResizeMissedBlockArray(missedInfo, signInfo, window, index)
 	}
-	// update Missed Heights by excluding heights outside of the window
-	missedInfo.MissedHeights = missedInfo.MissedHeights[numberEvicted:]
+	previous := k.GetBooleanFromBitGroups(missedInfo.MissedBlocks, index)
 	missed := !signed
-	if missed {
-		missedInfo.MissedHeights = append(missedInfo.MissedHeights, height-1)
+	missedInfo.MissedBlocks = k.SetBooleanInBitGroups(missedInfo.MissedBlocks, index, missed)
+	switch {
+	case !previous && missed:
+		// Array value has changed from not missed to missed, increment counter
+		signInfo.MissedBlocksCounter++
+	case previous && !missed:
+		// Array value has changed from missed to not missed, decrement counter
+		signInfo.MissedBlocksCounter--
+	default:
+		// Array value at this index has not changed, no need to update counter
 	}
-	signInfo.MissedBlocksCounter = int64(len(missedInfo.MissedHeights))
+
+	// bump index offset (and mod circular) after performing potential resizing
+	signInfo.IndexOffset = (signInfo.IndexOffset + 1) % window
 
 	minSignedPerWindow := k.MinSignedPerWindow(ctx)
 	if missed {
@@ -131,6 +138,7 @@ func (k Keeper) SlashJailAndUpdateSigningInfo(ctx sdk.Context, consAddr sdk.Cons
 	k.sk.Jail(ctx, consAddr)
 	signInfo.JailedUntil = ctx.BlockHeader().Time.Add(k.DowntimeJailDuration(ctx))
 	signInfo.MissedBlocksCounter = 0
+	signInfo.IndexOffset = 0
 	logger.Info(
 		"slashing and jailing validator due to liveness fault",
 		"height", slashInfo.height,
@@ -141,4 +149,30 @@ func (k Keeper) SlashJailAndUpdateSigningInfo(ctx sdk.Context, consAddr sdk.Cons
 		"jailed_until", signInfo.JailedUntil,
 	)
 	return signInfo
+}
+
+func (k Keeper) ResizeMissedBlockArray(missedInfo types.ValidatorMissedBlockArray, signInfo types.ValidatorSigningInfo, window int64, index int64) (types.ValidatorMissedBlockArray, types.ValidatorSigningInfo, int64) {
+	// we need to resize the missed block array AND update the signing info accordingly
+	switch {
+	case missedInfo.WindowSize < window:
+		// missed block array too short, lets expand it
+		boolArray := k.ParseBitGroupsToBoolArray(missedInfo.MissedBlocks, missedInfo.WindowSize)
+		newArray := make([]bool, window)
+		copy(newArray[0:index], boolArray[0:index])
+		if index+1 < missedInfo.WindowSize {
+			// insert `0`s corresponding to the difference between the new window size and old window size
+			copy(newArray[index+(window-missedInfo.WindowSize):], boolArray[index:])
+		}
+		missedInfo.MissedBlocks = k.ParseBoolArrayToBitGroups(newArray)
+		missedInfo.WindowSize = window
+	case missedInfo.WindowSize > window:
+		// if window size is reduced, we would like to make a clean state so that no validators are unexpectedly jailed due to more recent missed blocks
+		newMissedBlocks := make([]bool, window)
+		missedInfo.MissedBlocks = k.ParseBoolArrayToBitGroups(newMissedBlocks)
+		signInfo.MissedBlocksCounter = int64(0)
+		missedInfo.WindowSize = window
+		signInfo.IndexOffset = 0
+		index = 0
+	}
+	return missedInfo, signInfo, index
 }

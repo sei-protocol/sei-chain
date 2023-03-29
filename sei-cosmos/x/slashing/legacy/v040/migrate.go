@@ -16,11 +16,11 @@ import (
 func Migrate(oldGenState v039slashing.GenesisState) *v040slashing.GenesisStateLegacyV43 {
 	// Note that the two following `for` loop over a map's keys, so are not
 	// deterministic.
-	var newSigningInfos = make([]v040slashing.SigningInfoLegacyV43, 0, len(oldGenState.SigningInfos))
+	var newSigningInfos = make([]v040slashing.SigningInfo, 0, len(oldGenState.SigningInfos))
 	for address, signingInfo := range oldGenState.SigningInfos {
-		newSigningInfos = append(newSigningInfos, v040slashing.SigningInfoLegacyV43{
+		newSigningInfos = append(newSigningInfos, v040slashing.SigningInfo{
 			Address: address,
-			ValidatorSigningInfo: v040slashing.ValidatorSigningInfoLegacyV43{
+			ValidatorSigningInfo: v040slashing.ValidatorSigningInfo{
 				Address:             signingInfo.Address.String(),
 				StartHeight:         signingInfo.StartHeight,
 				IndexOffset:         signingInfo.IndexOffset,

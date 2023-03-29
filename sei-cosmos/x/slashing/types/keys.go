@@ -53,14 +53,6 @@ func ValidatorMissedBlockBitArrayKey(v sdk.ConsAddress) []byte {
 	return append(ValidatorMissedBlockBitArrayKeyPrefix, address.MustLengthPrefix(v.Bytes())...)
 }
 
-// // ValidatorMissedBlockBitArrayKey - stored by *Consensus* address (not operator address)
-// func ValidatorMissedBlockBitArrayKey(v sdk.ConsAddress, i int64) []byte {
-// 	b := make([]byte, 8)
-// 	binary.LittleEndian.PutUint64(b, uint64(i))
-
-// 	return append(ValidatorMissedBlockBitArrayPrefixKey(v), b...)
-// }
-
 // AddrPubkeyRelationKey gets pubkey relation key used to get the pubkey from the address
 func AddrPubkeyRelationKey(addr []byte) []byte {
 	return append(AddrPubkeyRelationKeyPrefix, address.MustLengthPrefix(addr)...)
