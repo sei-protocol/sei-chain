@@ -136,7 +136,7 @@ type EventDataNewBlock struct {
 }
 
 // TypeTag implements the required method of jsontypes.Tagged.
-func (EventDataNewBlock) TypeTag() string { return "tendermint/event/NewBlock" }
+func (EventDataNewBlock) TypeTag() string { return "tendermint/event/NewBlock_new" }
 
 // ABCIEvents implements the eventlog.ABCIEventer interface.
 func (e EventDataNewBlock) ABCIEvents() []abci.Event {
@@ -150,7 +150,7 @@ type LegacyEventDataNewBlock struct {
 	ResultEndBlock   LegacyResponseEndBlock  `json:"result_end_block"`
 }
 
-func (LegacyEventDataNewBlock) TypeTag() string { return "tendermint/event/NewBlock_legacy" }
+func (LegacyEventDataNewBlock) TypeTag() string { return "tendermint/event/NewBlock" }
 
 type LegacyEvidence struct {
 	Evidence EvidenceList `json:"evidence"`
@@ -277,7 +277,7 @@ type EventDataTx struct {
 }
 
 // TypeTag implements the required method of jsontypes.Tagged.
-func (EventDataTx) TypeTag() string { return "tendermint/event/Tx" }
+func (EventDataTx) TypeTag() string { return "tendermint/event/Tx_new" }
 
 // ABCIEvents implements the eventlog.ABCIEventer interface.
 func (e EventDataTx) ABCIEvents() []abci.Event {
@@ -307,7 +307,7 @@ type LegacyResult struct {
 }
 
 func (LegacyEventDataTx) TypeTag() string {
-	return "tendermint/event/Tx_legacy"
+	return "tendermint/event/Tx"
 }
 
 func (e EventDataTx) ToLegacy() LegacyEventData {
