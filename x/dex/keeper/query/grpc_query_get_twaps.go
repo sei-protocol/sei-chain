@@ -2,7 +2,9 @@ package query
 
 import (
 	"context"
+	"fmt"
 	"sort"
+	"time"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
@@ -13,12 +15,15 @@ func (k KeeperWrapper) GetTwaps(goCtx context.Context, req *types.QueryGetTwapsR
 	allRegisteredPairs := k.GetAllRegisteredPairs(ctx, req.ContractAddr)
 	twaps := []*types.Twap{}
 	for _, pair := range allRegisteredPairs {
+		twapPairStartTime := time.Now().UnixMicro()
 		prices := k.GetAllPrices(ctx, req.ContractAddr, pair)
 		twaps = append(twaps, &types.Twap{
 			Pair:            &pair, //nolint:gosec,exportloopref // USING THE POINTER HERE COULD BE BAD, LET'S CHECK IT.
 			Twap:            calculateTwap(ctx, prices, req.LookbackSeconds),
 			LookbackSeconds: req.LookbackSeconds,
 		})
+		twapPairEndTime := time.Now().UnixMicro()
+		ctx.Logger().Info(fmt.Sprintf("[Seichain-Debug] GetTwap pair priceDenom %s, assetDenom: %s, num prices %d,  latency is %d", pair.PriceDenom, pair.AssetDenom, len(prices), twapPairEndTime-twapPairStartTime))
 	}
 
 	return &types.QueryGetTwapsResponse{
