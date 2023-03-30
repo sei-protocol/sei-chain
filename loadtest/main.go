@@ -101,15 +101,31 @@ func runOnce(config Config) {
 	go client.ValidateTxs()
 }
 
-func (c *LoadTestClient) generateMessage(config Config, key cryptotypes.PrivKey, msgPerTx uint64) (sdk.Msg, bool) {
-	var msg sdk.Msg
-	messageTypes := strings.Split(config.MessageType, ",")
+// Generate a random message, only generate one admin message per block to prevent acc seq errors
+func (c *LoadTestClient) getRandomMessageType(messageTypes []string) string {
 	rand.Seed(time.Now().UnixNano())
 	messageType := messageTypes[rand.Intn(len(messageTypes))]
+	for c.generatedAdminMessageForBlock && c.isAdminMessageMapping[messageType] {
+		messageType = messageTypes[rand.Intn(len(messageTypes))]
+	}
+
+	if c.isAdminMessageMapping[messageType] {
+		c.generatedAdminMessageForBlock = true
+	}
+	return messageType
+}
+
+func (c *LoadTestClient) generateMessage(config Config, key cryptotypes.PrivKey, msgPerTx uint64) (sdk.Msg, bool, cryptotypes.PrivKey, uint64, int64) {
+	var msg sdk.Msg
+	messageTypes := strings.Split(config.MessageType, ",")
+	messageType := c.getRandomMessageType(messageTypes)
 	fmt.Printf("Message type: %s\n", messageType)
 
 	defer IncrTxMessageType(messageType)
 
+	signer := key
+	gas := 3000000
+	fee := 50000
 	switch messageType {
 	case WasmMintNft:
 		contract := config.WasmMsgTypes.MintNftType.ContractAddr
@@ -142,13 +158,18 @@ func (c *LoadTestClient) generateMessage(config Config, key cryptotypes.PrivKey,
 			ToAddress:   sdk.AccAddress(key.PubKey().Address()).String(),
 			Amount: sdk.NewCoins(sdk.Coin{
 				Denom:  "usei",
-				Amount: sdk.NewInt(rand.Int63n(10000000)),
+				Amount: sdk.NewInt(10000000),
 			}),
 		}
+		signer = adminKey
+		gas = 10000000
+		fee = 1000000
+		fmt.Printf("Distribute rewards to %s \n", sdk.AccAddress(key.PubKey().Address()).String())
 	case CollectRewards:
 		adminKey := c.SignerClient.GetAdminKey()
 		delegatorAddr := sdk.AccAddress(adminKey.PubKey().Address())
-		randomValidatorAddr, err := sdk.ValAddressFromBech32(c.Validators[rand.Intn(len(c.Validators))].OperatorAddress)
+		operatorAddress := c.Validators[rand.Intn(len(c.Validators))].OperatorAddress
+		randomValidatorAddr, err := sdk.ValAddressFromBech32(operatorAddress)
 		if err != nil {
 			panic(err.Error())
 		}
@@ -156,6 +177,10 @@ func (c *LoadTestClient) generateMessage(config Config, key cryptotypes.PrivKey,
 			delegatorAddr,
 			randomValidatorAddr,
 		)
+		fmt.Printf("Collecting rewards from %s \n", operatorAddress)
+		signer = adminKey
+		gas = 10000000
+		fee = 1000000
 	case Dex:
 		price := config.PriceDistr.Sample()
 		quantity := config.QuantityDistr.Sample()
@@ -277,9 +302,9 @@ func (c *LoadTestClient) generateMessage(config Config, key cryptotypes.PrivKey,
 	}
 
 	if strings.Contains(config.MessageType, "failure") {
-		return msg, true
+		return msg, true, signer, uint64(gas), int64(fee)
 	}
-	return msg, false
+	return msg, false, signer, uint64(gas), int64(fee)
 }
 
 func sampleDexOrderType(config Config) (orderType dextypes.OrderType) {

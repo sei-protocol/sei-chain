@@ -62,14 +62,14 @@ func NewSignerClient(nodeURI string) *SignerClient {
 	}
 }
 
-func (sc *SignerClient) GetTestAccountKeyPath(accountID string) string {
+func (sc *SignerClient) GetTestAccountKeyPath(accountID uint64) string {
 	userHomeDir, _ := os.UserHomeDir()
-	return filepath.Join(userHomeDir, "test_accounts", fmt.Sprintf("ta%s.json", accountID))
+	return filepath.Join(userHomeDir, "test_accounts", fmt.Sprintf("ta%d.json", accountID))
 }
 
 func (sc *SignerClient) GetAdminAccountKeyPath() string {
 	userHomeDir, _ := os.UserHomeDir()
-	return filepath.Join(userHomeDir, "admin_key.json")
+	return filepath.Join(userHomeDir, ".sei", "config", "admin_key.json")
 }
 
 func (sc *SignerClient) GetAdminKey() cryptotypes.PrivKey {

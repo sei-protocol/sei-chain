@@ -19,10 +19,12 @@ func SendTx(
 	seqDelta uint64,
 	failureExpected bool,
 	loadtestClient LoadTestClient,
+	gas uint64,
+	fee int64,
 ) func() {
-	(*txBuilder).SetGasLimit(300000)
+	(*txBuilder).SetGasLimit(gas)
 	(*txBuilder).SetFeeAmount([]sdk.Coin{
-		sdk.NewCoin("usei", sdk.NewInt(10000)),
+		sdk.NewCoin("usei", sdk.NewInt(fee)),
 	})
 	loadtestClient.SignerClient.SignTx(loadtestClient.ChainID, txBuilder, key, seqDelta)
 	txBytes, _ := TestConfig.TxConfig.TxEncoder()((*txBuilder).GetTx())
@@ -40,7 +42,12 @@ func SendTx(
 			} else {
 				panic(err)
 			}
+
+			if grpcRes == nil || grpcRes.TxResponse == nil {
+				return
+			}
 		}
+
 		for grpcRes.TxResponse.Code == sdkerrors.ErrMempoolIsFull.ABCICode() {
 			// retry after a second until either succeed or fail for some other reason
 			fmt.Printf("Mempool full\n")
@@ -54,7 +61,7 @@ func SendTx(
 			)
 			if err != nil {
 				if failureExpected {
-					fmt.Printf("Error: %s\n", err)
+					fmt.Printf("key=%s error=%s\n", key.PubKey().Address().String(), err)
 				} else {
 					panic(err)
 				}

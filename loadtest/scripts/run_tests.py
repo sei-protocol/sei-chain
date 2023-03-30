@@ -38,7 +38,7 @@ def create_burst_loadtest_config(base_config_json):
     new_config["txs_per_block"] = 600
     new_config["msgs_per_tx"] = 40
     # Run every 20 mins
-    new_config["loadtest_interval"] = 1200
+    new_config["loadtest_interval"] = 60
     return new_config
 
 
@@ -49,7 +49,7 @@ def create_steady_loadtest_config(base_config_json):
     new_config["txs_per_block"] = 500
     new_config["msgs_per_tx"] = 30
     # Run every min
-    new_config["loadtest_interval"] = 30
+    new_config["loadtest_interval"] = 10
     return new_config
 
 def create_continuous_loadtest_config(base_config_json):
