@@ -277,7 +277,7 @@ func TestInvalidProposalWithExcessiveGasWanted(t *testing.T) {
 	ap := testWrapper.App
 	ctx := testWrapper.Ctx.WithConsensusParams(&types.ConsensusParams{
 		Block: &types.BlockParams{MaxGas: 10},
-	})
+	}).WithBlockHeight(1)
 	emptyTxBuilder := app.MakeEncodingConfig().TxConfig.NewTxBuilder()
 	txEncoder := app.MakeEncodingConfig().TxConfig.TxEncoder()
 	emptyTxBuilder.SetGasLimit(10)
