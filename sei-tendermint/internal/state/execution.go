@@ -237,12 +237,15 @@ func (blockExec *BlockExecutor) ApplyBlock(
 	if err := blockExec.ValidateBlock(ctx, state, block); err != nil {
 		return state, ErrInvalidBlock(err)
 	}
+	startTime := time.Now()
+	defer func() {
+		blockExec.metrics.BlockProcessingTime.Observe(time.Since(startTime).Seconds())
+	}()
 	var finalizeBlockSpan otrace.Span = nil
 	if tracer != nil {
 		_, finalizeBlockSpan = tracer.Start(ctx, "cs.state.ApplyBlock.FinalizeBlock")
 		defer finalizeBlockSpan.End()
 	}
-	startTime := time.Now().UnixNano()
 	txs := block.Data.Txs.ToSliceOfBytes()
 	fBlockRes, err := blockExec.appClient.FinalizeBlock(
 		ctx,
@@ -268,11 +271,9 @@ func (blockExec *BlockExecutor) ApplyBlock(
 			LastResultsHash:       block.LastResultsHash,
 		},
 	)
-	endTime := time.Now().UnixNano()
 	if finalizeBlockSpan != nil {
 		finalizeBlockSpan.End()
 	}
-	blockExec.metrics.BlockProcessingTime.Observe(float64(endTime-startTime) / 1000000)
 	if err != nil {
 		return state, ErrProxyAppConn(err)
 	}
@@ -280,6 +281,7 @@ func (blockExec *BlockExecutor) ApplyBlock(
 	blockExec.logger.Info(
 		"finalized block",
 		"height", block.Height,
+		"latency_ms", time.Now().Sub(startTime).Milliseconds(),
 		"num_txs_res", len(fBlockRes.TxResults),
 		"num_val_updates", len(fBlockRes.ValidatorUpdates),
 		"block_app_hash", fmt.Sprintf("%X", fBlockRes.AppHash),

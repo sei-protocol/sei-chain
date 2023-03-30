@@ -139,7 +139,25 @@ type Metrics struct {
 	// correspond to earlier heights and rounds than this node is currently
 	// in.
 	//metrics:Number of votes received by the node since process start that correspond to earlier heights and rounds than this node is currently in.
-	LateVotes metrics.Counter `metrics_labels:"vote_type"`
+	LateVotes metrics.Counter `metrics_labels:"validator_address"`
+
+	// FinalRound stores the final round id the proposal block reach consensus in.
+	//metrics:The final round number for where the proposal block reach consensus in, starting at 0.
+	FinalRound metrics.Histogram `metrics_labels:"proposer_address" metrics_bucketsizes:"0,1,2,3,5,10"`
+
+	// ProposeLatency stores the latency in seconds from when the initial round
+	// starts till the proposal is created and received
+	//metrics:Number of seconds from when the consensus round started till the proposal receive time
+	ProposeLatency metrics.Histogram `metrics_labels:"proposer_address" metrics_buckettype:"exprange" metrics_bucketsizes:"0.01, 10, 10"`
+
+	// PrevoteLatency is measuring the relative delay in seconds from when the first vote arrive in each round
+	// till all remaining following prevote arrives from different validators to reach consensus.
+	//metrics:Number of seconds from when first prevote arrive till other remaining prevote arrives for each validator
+	PrevoteLatency metrics.Histogram `metrics_labels:"validator_address" metrics_buckettype:"exprange" metrics_bucketsizes:"0.01, 10, 10"`
+
+	// ConsensusTime the metric to track how long the consensus takes in each block
+	//metrics: Number of seconds spent on consensus
+	ConsensusTime metrics.Histogram
 }
 
 // RecordConsMetrics uses for recording the block related metrics during fast-sync.
@@ -194,9 +212,21 @@ func (m *Metrics) MarkRound(r int32, st time.Time) {
 	m.RoundVotingPowerPercent.With("vote_type", pcn).Set(0)
 }
 
-func (m *Metrics) MarkLateVote(vt tmproto.SignedMsgType) {
-	n := strings.ToLower(strings.TrimPrefix(vt.String(), "SIGNED_MSG_TYPE_"))
-	m.LateVotes.With("vote_type", n).Add(1)
+func (m *Metrics) MarkLateVote(vote *types.Vote) {
+	validator := vote.ValidatorAddress.String()
+	m.LateVotes.With("validator_address", validator).Add(1)
+}
+
+func (m *Metrics) MarkFinalRound(round int32, proposer string) {
+	m.FinalRound.With("proposer_address", proposer).Observe(float64(round))
+}
+
+func (m *Metrics) MarkProposeLatency(proposer string, seconds float64) {
+	m.ProposeLatency.With("proposer_address", proposer).Observe(seconds)
+}
+
+func (m *Metrics) MarkPrevoteLatency(validator string, seconds float64) {
+	m.PrevoteLatency.With("validator_address", validator).Observe(seconds)
 }
 
 func (m *Metrics) MarkStep(s cstypes.RoundStepType) {

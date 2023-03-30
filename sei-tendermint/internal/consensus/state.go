@@ -2141,6 +2141,8 @@ func (cs *State) finalizeCommit(ctx context.Context, height int64) {
 		} else {
 			cs.blockStore.SaveBlock(block, blockParts, seenExtendedCommit.ToCommit())
 		}
+		// Calculate consensus time
+		cs.metrics.ConsensusTime.Observe(time.Since(cs.roundState.StartTime()).Seconds())
 	} else {
 		// Happens during replay if we already saved the block but didn't commit
 		logger.Debug("calling finalizeCommit on already stored block", "height", block.Height)
@@ -2174,7 +2176,8 @@ func (cs *State) finalizeCommit(ctx context.Context, height int64) {
 	stateCopy := cs.state.Copy()
 
 	// Execute and commit the block, update and save the state, and update the mempool.
-	// NOTE The block.AppHash wont reflect these txs until the next block.
+	// NOTE The block.AppHash won't reflect these txs until the next block.
+
 	stateCopy, err := cs.blockExec.ApplyBlock(spanCtx,
 		stateCopy,
 		types.BlockID{
@@ -2249,6 +2252,9 @@ func (cs *State) RecordMetrics(height int64, block *types.Block) {
 			if commitSig.BlockIDFlag == types.BlockIDFlagAbsent {
 				missingValidators++
 				missingValidatorsPower += val.VotingPower
+				cs.metrics.MissingValidatorsPower.With("validator_address", val.Address.String()).Set(float64(val.VotingPower))
+			} else {
+				cs.metrics.MissingValidatorsPower.With("validator_address", val.Address.String()).Set(0)
 			}
 
 			if bytes.Equal(val.Address, address) {
@@ -2266,7 +2272,6 @@ func (cs *State) RecordMetrics(height int64, block *types.Block) {
 		}
 	}
 	cs.metrics.MissingValidators.Set(float64(missingValidators))
-	cs.metrics.MissingValidatorsPower.Set(float64(missingValidatorsPower))
 
 	// NOTE: byzantine validators power and count is only for consensus evidence i.e. duplicate vote
 	var (
@@ -2281,10 +2286,12 @@ func (cs *State) RecordMetrics(height int64, block *types.Block) {
 				byzantineValidatorsPower += val.VotingPower
 			}
 		}
+
 	}
 	cs.metrics.ByzantineValidators.Set(float64(byzantineValidatorsCount))
 	cs.metrics.ByzantineValidatorsPower.Set(float64(byzantineValidatorsPower))
 
+	// Block Interval metric
 	if height > 1 {
 		lastBlockMeta := cs.blockStore.LoadBlockMeta(height - 1)
 		if lastBlockMeta != nil {
@@ -2294,6 +2301,27 @@ func (cs *State) RecordMetrics(height int64, block *types.Block) {
 		}
 	}
 
+	roundState := cs.GetRoundState()
+	proposal := roundState.Proposal
+
+	// Latency metric for prevote delay
+	if proposal != nil {
+		cs.metrics.MarkFinalRound(roundState.Round, proposal.ProposerAddress.String())
+		cs.metrics.MarkProposeLatency(proposal.ProposerAddress.String(), proposal.Timestamp.Sub(roundState.StartTime).Seconds())
+		for roundId := 0; int32(roundId) <= roundState.ValidRound; roundId++ {
+			preVotes := roundState.Votes.Prevotes(int32(roundId))
+			pl := preVotes.List()
+			sort.Slice(pl, func(i, j int) bool {
+				return pl[i].Timestamp.Before(pl[j].Timestamp)
+			})
+			firstVoteDelay := pl[0].Timestamp.Sub(roundState.StartTime).Seconds()
+			for _, vote := range pl {
+				currVoteDelay := vote.Timestamp.Sub(roundState.StartTime).Seconds()
+				relativeVoteDelay := currVoteDelay - firstVoteDelay
+				cs.metrics.MarkPrevoteLatency(vote.ValidatorAddress.String(), relativeVoteDelay)
+			}
+		}
+	}
 	cs.metrics.NumTxs.Set(float64(len(block.Data.Txs)))
 	cs.metrics.TotalTxs.Add(float64(len(block.Data.Txs)))
 	cs.metrics.BlockSizeBytes.Observe(float64(block.Size()))
@@ -2581,7 +2609,7 @@ func (cs *State) addVote(
 		"cs_height", cs.roundState.Height(),
 	)
 	if vote.Height < cs.roundState.Height() || (vote.Height == cs.roundState.Height() && vote.Round < cs.roundState.Round()) {
-		cs.metrics.MarkLateVote(vote.Type)
+		cs.metrics.MarkLateVote(vote)
 	}
 
 	// A precommit for the previous height?
