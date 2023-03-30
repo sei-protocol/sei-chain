@@ -23,7 +23,7 @@ func (k KeeperWrapper) GetTwaps(goCtx context.Context, req *types.QueryGetTwapsR
 			LookbackSeconds: req.LookbackSeconds,
 		})
 		twapPairEndTime := time.Now().UnixMicro()
-		ctx.Logger().Info(fmt.Sprintf("[Seichain-Debug] GetTwap pair priceDenom %s, assetDenom: %s, num prices %d,  latency is %d", pair.PriceDenom, pair.AssetDenom, len(prices), twapPairEndTime-twapPairStartTime))
+		ctx.Logger().Info(fmt.Sprintf("[Seichain-Debug] GetTwap pair priceDenom %s, assetDenom: %s, num prices %d, lookBack Seconds %d,  latency is %d", pair.PriceDenom, pair.AssetDenom, len(prices), req.LookbackSeconds, twapPairEndTime-twapPairStartTime))
 	}
 
 	return &types.QueryGetTwapsResponse{
