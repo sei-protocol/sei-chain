@@ -62,13 +62,26 @@ func NewSignerClient(nodeURI string) *SignerClient {
 	}
 }
 
-func (sc *SignerClient) GetKey(accountIdx uint64) cryptotypes.PrivKey {
-	if val, ok := sc.CachedAccountKey.Load(accountIdx); ok {
+func (sc *SignerClient) GetTestAccountKeyPath(accountID string) string {
+	userHomeDir, _ := os.UserHomeDir()
+	return filepath.Join(userHomeDir, "test_accounts", fmt.Sprintf("ta%s.json", accountID))
+}
+
+func (sc *SignerClient) GetAdminAccountKeyPath() string {
+	userHomeDir, _ := os.UserHomeDir()
+	return filepath.Join(userHomeDir, "admin_key.json")
+}
+
+func (sc *SignerClient) GetAdminKey() cryptotypes.PrivKey {
+	return sc.GetKey("admin", "os", sc.GetAdminAccountKeyPath())
+}
+
+func (sc *SignerClient) GetKey(accountID, backend, accountKeyFilePath string) cryptotypes.PrivKey {
+	if val, ok := sc.CachedAccountKey.Load(accountID); ok {
 		privKey := val.(cryptotypes.PrivKey)
 		return privKey
 	}
 	userHomeDir, _ := os.UserHomeDir()
-	accountKeyFilePath := filepath.Join(userHomeDir, "test_accounts", fmt.Sprintf("ta%d.json", accountIdx))
 	jsonFile, err := os.Open(accountKeyFilePath)
 	if err != nil {
 		panic(err)
@@ -91,7 +104,7 @@ func (sc *SignerClient) GetKey(accountIdx uint64) cryptotypes.PrivKey {
 	privKey := algo.Generate()(derivedPriv)
 
 	// Cache this so we don't need to regenerate it
-	sc.CachedAccountKey.Store(accountIdx, privKey)
+	sc.CachedAccountKey.Store(accountID, privKey)
 	return privKey
 }
 

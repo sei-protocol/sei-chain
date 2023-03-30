@@ -133,7 +133,9 @@ func (c *LoadTestClient) BuildTxs() (workgroups []*sync.WaitGroup, sendersList [
 		workgroups = append(workgroups, wg)
 
 		for j, account := range activeAccounts {
-			key := c.SignerClient.GetKey(uint64(account))
+			accountIdentifier := string(account)
+			accountKeyPath := c.SignerClient.GetTestAccountKeyPath(accountIdentifier)
+			key := c.SignerClient.GetKey(accountIdentifier, "test", accountKeyPath)
 
 			msg, failureExpected := c.generateMessage(config, key, config.MsgsPerTx)
 			txBuilder := TestConfig.TxConfig.NewTxBuilder()
