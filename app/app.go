@@ -943,6 +943,13 @@ func (app *App) ClearOptimisticProcessingInfo() {
 }
 
 func (app *App) ProcessProposalHandler(ctx sdk.Context, req *abci.RequestProcessProposal) (*abci.ResponseProcessProposal, error) {
+	// TODO: this check decodes transactions which is redone in subsequent processing. We might be able to optimize performance
+	// by recording the decoding results and avoid decoding again later on.
+	if !app.checkTotalBlockGasWanted(ctx, req.Txs) {
+		return &abci.ResponseProcessProposal{
+			Status: abci.ResponseProcessProposal_REJECT,
+		}, nil
+	}
 	if app.optimisticProcessingInfo == nil {
 		completionSignal := make(chan struct{}, 1)
 		optimisticProcessingInfo := &OptimisticProcessingInfo{
@@ -1466,6 +1473,28 @@ func (app *App) RegisterTxService(clientCtx client.Context) {
 // RegisterTendermintService implements the Application.RegisterTendermintService method.
 func (app *App) RegisterTendermintService(clientCtx client.Context) {
 	tmservice.RegisterTendermintService(app.BaseApp.GRPCQueryRouter(), clientCtx, app.interfaceRegistry)
+}
+
+func (app *App) checkTotalBlockGasWanted(ctx sdk.Context, txs [][]byte) bool {
+	totalGasWanted := uint64(0)
+	for _, tx := range txs {
+		decoded, err := app.txDecoder(tx)
+		if err != nil {
+			// such tx will not be processed and thus won't consume gas. Skipping
+			continue
+		}
+		feeTx, ok := decoded.(sdk.FeeTx)
+		if !ok {
+			// such tx will not be processed and thus won't consume gas. Skipping
+			continue
+		}
+		totalGasWanted += feeTx.GetGas()
+		if totalGasWanted > uint64(ctx.ConsensusParams().Block.MaxGas) {
+			// early return
+			return false
+		}
+	}
+	return true
 }
 
 // GetMaccPerms returns a copy of the module account permissions
