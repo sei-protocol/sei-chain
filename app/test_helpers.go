@@ -90,6 +90,7 @@ func (s *TestWrapper) setupValidator(bondStatus stakingtypes.BondStatus, valPub 
 	signingInfo := slashingtypes.NewValidatorSigningInfo(
 		consAddr,
 		s.Ctx.BlockHeight(),
+		0,
 		time.Unix(0, 0),
 		false,
 		0,
