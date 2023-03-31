@@ -75,6 +75,10 @@ type BaseConfig struct {
 
 	// IAVLDisableFastNode enables or disables the fast sync node.
 	IAVLDisableFastNode bool `mapstructure:"iavl-disable-fastnode"`
+
+	// CompactionInterval sets (in seconds) the interval between forced levelDB
+	// compaction. A value of 0 means no forced levelDB
+	CompactionInterval uint64 `mapstructure:"compaction-interval"`
 }
 
 // APIConfig defines the API listener configuration.
@@ -217,6 +221,7 @@ func DefaultConfig() *Config {
 			IndexEvents:         make([]string, 0),
 			IAVLCacheSize:       781250, // 50 MB
 			IAVLDisableFastNode: true,
+			CompactionInterval:  0,
 		},
 		Telemetry: telemetry.Config{
 			Enabled:      false,
@@ -284,6 +289,7 @@ func GetConfig(v *viper.Viper) (Config, error) {
 			MinRetainBlocks:     v.GetUint64("min-retain-blocks"),
 			IAVLCacheSize:       v.GetUint64("iavl-cache-size"),
 			IAVLDisableFastNode: v.GetBool("iavl-disable-fastnode"),
+			CompactionInterval:  v.GetUint64("compaction-interval"),
 		},
 		Telemetry: telemetry.Config{
 			ServiceName:             v.GetString("telemetry.service-name"),

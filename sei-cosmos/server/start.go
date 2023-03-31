@@ -50,17 +50,18 @@ const (
 	FlagInterBlockCache    = "inter-block-cache"
 	FlagUnsafeSkipUpgrades = "unsafe-skip-upgrades"
 	FlagTrace              = "trace"
-	FlagProfile             = "profile"
+	FlagProfile            = "profile"
 	FlagInvCheckPeriod     = "inv-check-period"
 
-	FlagPruning           = "pruning"
-	FlagPruningKeepRecent = "pruning-keep-recent"
-	FlagPruningKeepEvery  = "pruning-keep-every"
-	FlagPruningInterval   = "pruning-interval"
-	FlagIndexEvents       = "index-events"
-	FlagMinRetainBlocks   = "min-retain-blocks"
-	FlagIAVLCacheSize     = "iavl-cache-size"
-	FlagIAVLFastNode      = "iavl-disable-fastnode"
+	FlagPruning            = "pruning"
+	FlagPruningKeepRecent  = "pruning-keep-recent"
+	FlagPruningKeepEvery   = "pruning-keep-every"
+	FlagPruningInterval    = "pruning-interval"
+	FlagIndexEvents        = "index-events"
+	FlagMinRetainBlocks    = "min-retain-blocks"
+	FlagIAVLCacheSize      = "iavl-cache-size"
+	FlagIAVLFastNode       = "iavl-disable-fastnode"
+	FlagCompactionInterval = "compaction-interval"
 
 	// state sync-related flags
 	FlagStateSyncSnapshotInterval   = "state-sync.snapshot-interval"
@@ -199,6 +200,7 @@ is performed. Note, when enabled, gRPC will also be automatically enabled.
 	cmd.Flags().Uint64(FlagPruningInterval, 0, "Height interval at which pruned heights are removed from disk (ignored if pruning is not 'custom')")
 	cmd.Flags().Uint(FlagInvCheckPeriod, 0, "Assert registered invariants every N blocks")
 	cmd.Flags().Uint64(FlagMinRetainBlocks, 0, "Minimum block height offset during ABCI commit to prune Tendermint blocks")
+	cmd.Flags().Uint64(FlagCompactionInterval, 0, "Time interval in between forced levelDB compaction. 0 means no forced compaction.")
 
 	cmd.Flags().Bool(flagGRPCOnly, false, "Start the node in gRPC query only mode (no Tendermint process is started)")
 	cmd.Flags().Bool(flagGRPCEnable, true, "Define if the gRPC server should be enabled")

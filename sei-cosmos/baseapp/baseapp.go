@@ -7,10 +7,12 @@ import (
 	"reflect"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/gogo/protobuf/proto"
 	sdbm "github.com/sei-protocol/sei-tm-db/backends"
 	"github.com/spf13/cast"
+	leveldbutils "github.com/syndtr/goleveldb/leveldb/util"
 	abci "github.com/tendermint/tendermint/abci/types"
 	"github.com/tendermint/tendermint/libs/log"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
@@ -145,6 +147,8 @@ type BaseApp struct { //nolint: maligned
 	ChainID string
 
 	votesInfoLock sync.RWMutex
+
+	compactionInterval uint64
 }
 
 type appStore struct {
@@ -246,6 +250,7 @@ func NewBaseApp(
 	if app.ChainID == "" {
 		panic("must pass --chain-id when calling 'seid start' or set in ~/.sei/config/client.toml")
 	}
+	app.startCompactionRoutine(db)
 
 	return app
 }
@@ -431,6 +436,10 @@ func (app *BaseApp) setMinRetainBlocks(minRetainBlocks uint64) {
 
 func (app *BaseApp) setInterBlockCache(cache sdk.MultiStorePersistentCache) {
 	app.interBlockCache = cache
+}
+
+func (app *BaseApp) setCompactionInterval(compactionInterval uint64) {
+	app.compactionInterval = compactionInterval
 }
 
 func (app *BaseApp) setTrace(trace bool) {
@@ -1064,4 +1073,22 @@ func (app *BaseApp) runMsgs(ctx sdk.Context, msgs []sdk.Msg, mode runTxMode) (*s
 
 func (app *BaseApp) GetAnteDepGenerator() sdk.AnteDepGenerator {
 	return app.anteDepGenerator
+}
+
+func (app *BaseApp) startCompactionRoutine(db dbm.DB) {
+	if app.compactionInterval == 0 {
+		return
+	}
+	go func() {
+		if goleveldb, ok := db.(*dbm.GoLevelDB); ok {
+			for {
+				time.Sleep(time.Duration(app.compactionInterval) * time.Second)
+				if err := goleveldb.DB().CompactRange(leveldbutils.Range{Start: nil, Limit: nil}); err != nil {
+					app.Logger().Error(fmt.Sprintf("error compacting DB: %s", err))
+				}
+			}
+		} else {
+			app.Logger().Info("exit compaction routine because underlying DB does not support compaction")
+		}
+	}()
 }

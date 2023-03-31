@@ -80,6 +80,11 @@ iavl-cache-size = {{ .BaseConfig.IAVLCacheSize }}
 # Default is true.
 iavl-disable-fastnode = {{ .BaseConfig.IAVLDisableFastNode }}
 
+# CompactionInterval sets (in seconds) the interval between forced levelDB
+# compaction. A value of 0 means no forced levelDB.
+# Default is 0.
+compaction-interval = {{ .BaseConfig.CompactionInterval }}
+
 ###############################################################################
 ###                         Telemetry Configuration                         ###
 ###############################################################################

@@ -47,6 +47,10 @@ func SetMinRetainBlocks(minRetainBlocks uint64) func(*BaseApp) {
 	return func(bapp *BaseApp) { bapp.setMinRetainBlocks(minRetainBlocks) }
 }
 
+func SetCompactionInterval(compactionInterval uint64) func(*BaseApp) {
+	return func(bapp *BaseApp) { bapp.setCompactionInterval(compactionInterval) }
+}
+
 // SetTrace will turn on or off trace flag
 func SetTrace(trace bool) func(*BaseApp) {
 	return func(app *BaseApp) { app.setTrace(trace) }
