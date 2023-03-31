@@ -29,6 +29,10 @@ Ref: https://keepachangelog.com/en/1.0.0/
 # Changelog
 
 
+## 2.0.44beta
+sei-tendermint:
+* [#109] (https://github.com/sei-protocol/sei-tendermint/pull/109) Update Encoding for Genesis file and node key
+
 ## 2.0.43beta
 
 sei-chain:
