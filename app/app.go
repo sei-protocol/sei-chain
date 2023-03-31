@@ -1331,8 +1331,8 @@ func (app *App) addBadWasmDependenciesToContext(ctx sdk.Context, txResults []*ab
 			for _, event := range txResult.Events {
 				if event.Type == wasmtypes.EventTypeExecute {
 					for _, attr := range event.Attributes {
-						if attr.Key == wasmtypes.AttributeKeyContractAddr {
-							addr, err := sdk.AccAddressFromBech32(attr.Value)
+						if string(attr.Key) == wasmtypes.AttributeKeyContractAddr {
+							addr, err := sdk.AccAddressFromBech32(string(attr.Value))
 							if err == nil {
 								wasmContractsWithIncorrectDependencies = append(wasmContractsWithIncorrectDependencies, addr)
 							}
