@@ -29,6 +29,19 @@ Ref: https://keepachangelog.com/en/1.0.0/
 # Changelog
 
 
+## 2.0.43beta
+
+sei-chain:
+* [#658] (https://github.com/sei-protocol/sei-chain/pull/658) Revert EventAttribute fields to byte array
+
+sei-cosmos: https://github.com/sei-protocol/sei-cosmos/compare/sei-cosmos-2.0.42beta...v2.0.43beta-release
+* [#204] (https://github.com/sei-protocol/sei-cosmos/pull/204) IBC Compatibility Fix
+
+sei-tendermint: https://github.com/sei-protocol/sei-tendermint/compare/2.0.42beta-release...2.0.43beta-release
+* IBC Compatibility Fix
+* Bump default max gas limit
+- Add metrics & visibility for high block time
+
 ## 2.0.42beta
 
 sei-chain:
