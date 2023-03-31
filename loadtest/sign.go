@@ -95,7 +95,7 @@ func (sc *SignerClient) GetKey(accountID, backend, accountKeyFilePath string) cr
 	if err := json.Unmarshal(byteVal, &accountInfo); err != nil {
 		panic(err)
 	}
-	kr, _ := keyring.New(sdk.KeyringServiceName(), "test", filepath.Join(userHomeDir, ".sei"), os.Stdin)
+	kr, _ := keyring.New(sdk.KeyringServiceName(), backend, filepath.Join(userHomeDir, ".sei"), os.Stdin)
 	keyringAlgos, _ := kr.SupportedAlgorithms()
 	algoStr := string(hd.Sr25519Type)
 	algo, _ := keyring.NewSigningAlgoFromString(algoStr, keyringAlgos)
