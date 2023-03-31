@@ -15,6 +15,7 @@ import (
 	oracletypes "github.com/sei-protocol/sei-chain/x/oracle/types"
 	"github.com/stretchr/testify/require"
 	abci "github.com/tendermint/tendermint/abci/types"
+	"github.com/tendermint/tendermint/proto/tendermint/types"
 )
 
 func TestEmptyBlockIdempotency(t *testing.T) {
@@ -266,4 +267,27 @@ func TestProcessOracleAndOtherTxsSuccess(t *testing.T) {
 	)
 
 	require.Equal(t, 2, len(txResults))
+}
+
+func TestInvalidProposalWithExcessiveGasWanted(t *testing.T) {
+	tm := time.Now().UTC()
+	valPub := secp256k1.GenPrivKey().PubKey()
+
+	testWrapper := app.NewTestWrapper(t, tm, valPub)
+	ap := testWrapper.App
+	ctx := testWrapper.Ctx.WithConsensusParams(&types.ConsensusParams{
+		Block: &types.BlockParams{MaxGas: 10},
+	})
+	emptyTxBuilder := app.MakeEncodingConfig().TxConfig.NewTxBuilder()
+	txEncoder := app.MakeEncodingConfig().TxConfig.TxEncoder()
+	emptyTxBuilder.SetGasLimit(10)
+	emptyTx, _ := txEncoder(emptyTxBuilder.GetTx())
+
+	badProposal := abci.RequestProcessProposal{
+		Txs:    [][]byte{emptyTx, emptyTx},
+		Height: 1,
+	}
+	res, err := ap.ProcessProposalHandler(ctx, &badProposal)
+	require.Nil(t, err)
+	require.Equal(t, abci.ResponseProcessProposal_REJECT, res.Status)
 }
