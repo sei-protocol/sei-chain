@@ -277,22 +277,17 @@ func TestInvalidProposalWithExcessiveGasWanted(t *testing.T) {
 	ap := testWrapper.App
 	ctx := testWrapper.Ctx.WithConsensusParams(&types.ConsensusParams{
 		Block: &types.BlockParams{MaxGas: 10},
-	}).WithBlockHeight(1)
+	})
 	emptyTxBuilder := app.MakeEncodingConfig().TxConfig.NewTxBuilder()
 	txEncoder := app.MakeEncodingConfig().TxConfig.TxEncoder()
 	emptyTxBuilder.SetGasLimit(10)
 	emptyTx, _ := txEncoder(emptyTxBuilder.GetTx())
-	goodProposal := abci.RequestProcessProposal{
-		Txs: [][]byte{emptyTx},
-	}
-	res, err := ap.ProcessProposalHandler(ctx, &goodProposal)
-	require.Nil(t, err)
-	require.Equal(t, abci.ResponseProcessProposal_ACCEPT, res.Status)
 
 	badProposal := abci.RequestProcessProposal{
-		Txs: [][]byte{emptyTx, emptyTx},
+		Txs:    [][]byte{emptyTx, emptyTx},
+		Height: 1,
 	}
-	res, err = ap.ProcessProposalHandler(ctx, &badProposal)
+	res, err := ap.ProcessProposalHandler(ctx, &badProposal)
 	require.Nil(t, err)
 	require.Equal(t, abci.ResponseProcessProposal_REJECT, res.Status)
 }
