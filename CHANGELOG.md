@@ -29,7 +29,7 @@ Ref: https://keepachangelog.com/en/1.0.0/
 # Changelog
 
 
-## 2.0.43beta
+## 2.0.44beta
 
 sei-chain:
 * [#658] (https://github.com/sei-protocol/sei-chain/pull/658) Revert EventAttribute fields to byte array
