@@ -50,8 +50,8 @@ type Metrics struct {
 	// Total power of the byzantine validators.
 	ByzantineValidatorsPower metrics.Gauge
 
-	// Time between this and the last block.
-	BlockIntervalSeconds metrics.Histogram
+	// Time in seconds between this and the last block.
+	BlockIntervalSeconds metrics.Histogram `metrics_bucketsizes:".3, .5, 1, 1.5, 2, 5, 10"`
 
 	// Number of transactions.
 	NumTxs metrics.Gauge
@@ -82,9 +82,16 @@ type Metrics struct {
 	// was relevant to the block the node is trying to gather or not.
 	BlockGossipPartsReceived metrics.Counter `metrics_labels:"matches_current"`
 
+	// Number of proposal blocks created on propose received.
 	ProposalBlockCreatedOnPropose metrics.Counter `metrics_labels:"success"`
+
+	// Number of txs in a proposal.
 	ProposalTxs                   metrics.Gauge
+
+	// Number of missing txs when trying to create proposal.
 	ProposalMissingTxs            metrics.Gauge
+
+	//Number of missing txs when a proposal is received
 	MissingTxs                    metrics.Gauge `metrics_labels:"proposer_address"`
 
 	// QuroumPrevoteMessageDelay is the interval in seconds between the proposal

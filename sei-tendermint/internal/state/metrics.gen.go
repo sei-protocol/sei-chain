@@ -18,7 +18,8 @@ func PrometheusMetrics(namespace string, labelsAndValues ...string) *Metrics {
 			Namespace: namespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "block_processing_time",
-			Help:      "Time in seconds between BeginBlock and EndBlock.",
+			Help:      "Time between BeginBlock and EndBlock.",
+
 			Buckets: stdprometheus.ExponentialBucketsRange(0.01, 10, 10),
 		}, labels).With(labelsAndValues...),
 		ConsensusParamUpdates: prometheus.NewCounterFrom(stdprometheus.CounterOpts{
