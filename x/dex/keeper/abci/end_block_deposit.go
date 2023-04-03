@@ -42,7 +42,7 @@ func (w KeeperWrapper) GetDepositSudoMsg(ctx sdk.Context, typedContractAddr type
 	)
 	escrowed := sdk.NewCoins()
 	for _, deposit := range depositMemState {
-		escrowed.Add(sdk.NewCoin(deposit.Denom, deposit.Amount.TruncateInt()))
+		escrowed = escrowed.Add(sdk.NewCoin(deposit.Denom, deposit.Amount.TruncateInt()))
 	}
 	contractAddr, err := sdk.AccAddressFromBech32(string(typedContractAddr))
 	if err != nil {
