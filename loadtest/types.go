@@ -42,7 +42,7 @@ type Config struct {
 	MsgTypeDistr       MsgTypeDistribution   `json:"message_type_distribution"`
 	WasmMsgTypes       WasmMessageTypes      `json:"wasm_msg_types"`
 	ContractDistr      ContractDistributions `json:"contract_distribution"`
-	PerMessageConfigs   MessageConfigs		   `json:"message_configs"`
+	PerMessageConfigs  MessageConfigs        `json:"message_configs"`
 	MetricsPort        uint64                `json:"metrics_port"`
 	Constant           bool                  `json:"constant"`
 	LoadInterval       int64                 `json:"loadtest_interval"`

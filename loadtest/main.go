@@ -311,9 +311,9 @@ func (c *LoadTestClient) generateMessage(config Config, key cryptotypes.PrivKey,
 	}
 
 	if strings.Contains(config.MessageType, "failure") {
-		return msg, true, signer, uint64(gas), int64(fee)
+		return msg, true, signer, gas, int64(fee)
 	}
-	return msg, false, signer, uint64(gas), int64(fee)
+	return msg, false, signer, gas, int64(fee)
 }
 
 func sampleDexOrderType(config Config) (orderType dextypes.OrderType) {
