@@ -17,6 +17,20 @@
         "max": "21",
         "number_of_distinct_values": 20
     },
+    "message_configs": {
+      "default": {
+        "gas": "3000000",
+        "fees": "50000"
+      },
+      "collect_rewards": {
+        "gas": "10000000",
+        "fees": "1000000"
+      },
+      "distribute_rewards": {
+        "gas": "10000000",
+        "fees": "1000000"
+      }
+    },
     "message_type_distribution": {
         "dex": {
             "limit_order_percentage": "0.2",

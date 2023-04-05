@@ -42,6 +42,7 @@ type Config struct {
 	MsgTypeDistr       MsgTypeDistribution   `json:"message_type_distribution"`
 	WasmMsgTypes       WasmMessageTypes      `json:"wasm_msg_types"`
 	ContractDistr      ContractDistributions `json:"contract_distribution"`
+	PerMessageConfigs   MessageConfigs		   `json:"message_configs"`
 	MetricsPort        uint64                `json:"metrics_port"`
 	Constant           bool                  `json:"constant"`
 	LoadInterval       int64                 `json:"loadtest_interval"`
@@ -55,6 +56,15 @@ type EncodingConfig struct {
 	TxConfig  client.TxConfig
 	Amino     *codec.LegacyAmino
 }
+
+// MessageConfig is the configuration for a message
+// Specify the gas and fee for the message type
+type MessageTypeConfig struct {
+	Gas uint64
+	Fee uint64
+}
+
+type MessageConfigs map[string]MessageTypeConfig
 
 type NumericDistribution struct {
 	Min         sdk.Dec `json:"min"`

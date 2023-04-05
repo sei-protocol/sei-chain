@@ -124,8 +124,17 @@ func (c *LoadTestClient) generateMessage(config Config, key cryptotypes.PrivKey,
 	defer IncrTxMessageType(messageType)
 
 	signer := key
-	gas := 3000000
-	fee := 50000
+
+	defaultMessageTypeConfig := c.LoadTestConfig.PerMessageConfigs["default"]
+	gas := defaultMessageTypeConfig.Gas
+	fee := defaultMessageTypeConfig.Fee
+
+	messageTypeConfig, ok := c.LoadTestConfig.PerMessageConfigs[messageType]
+	if ok {
+		gas = messageTypeConfig.Gas
+		fee = messageTypeConfig.Fee
+	}
+
 	switch messageType {
 	case WasmMintNft:
 		contract := config.WasmMsgTypes.MintNftType.ContractAddr
