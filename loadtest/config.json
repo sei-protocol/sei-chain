@@ -19,16 +19,16 @@
     },
     "message_configs": {
       "default": {
-        "gas": "3000000",
-        "fees": "50000"
+        "gas": 3000000,
+        "fees": 50000
       },
       "collect_rewards": {
-        "gas": "10000000",
-        "fees": "1000000"
+        "gas": 10000000,
+        "fees": 1000000
       },
       "distribute_rewards": {
-        "gas": "10000000",
-        "fees": "1000000"
+        "gas": 10000000,
+        "fees": 1000000
       }
     },
     "message_type_distribution": {
