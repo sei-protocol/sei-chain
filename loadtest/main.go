@@ -17,13 +17,13 @@ import (
 	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
 	"github.com/cosmos/cosmos-sdk/std"
 
-	"github.com/cosmos/cosmos-sdk/x/auth/tx"
-	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
-
 	wasmtypes "github.com/CosmWasm/wasmd/x/wasm/types"
 	"github.com/cosmos/cosmos-sdk/codec"
 	"github.com/cosmos/cosmos-sdk/codec/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/cosmos/cosmos-sdk/x/auth/tx"
+	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
+	distributiontypes "github.com/cosmos/cosmos-sdk/x/distribution/types"
 	"github.com/sei-protocol/sei-chain/app"
 	dextypes "github.com/sei-protocol/sei-chain/x/dex/types"
 	oracletypes "github.com/sei-protocol/sei-chain/x/oracle/types"
@@ -101,14 +101,39 @@ func runOnce(config Config) {
 	go client.ValidateTxs()
 }
 
-func (c *LoadTestClient) generateMessage(config Config, key cryptotypes.PrivKey, msgPerTx uint64) (sdk.Msg, bool) {
-	var msg sdk.Msg
-	messageTypes := strings.Split(config.MessageType, ",")
+// Generate a random message, only generate one admin message per block to prevent acc seq errors
+func (c *LoadTestClient) getRandomMessageType(messageTypes []string) string {
 	rand.Seed(time.Now().UnixNano())
 	messageType := messageTypes[rand.Intn(len(messageTypes))]
+	for c.generatedAdminMessageForBlock && c.isAdminMessageMapping[messageType] {
+		messageType = messageTypes[rand.Intn(len(messageTypes))]
+	}
+
+	if c.isAdminMessageMapping[messageType] {
+		c.generatedAdminMessageForBlock = true
+	}
+	return messageType
+}
+
+func (c *LoadTestClient) generateMessage(config Config, key cryptotypes.PrivKey, msgPerTx uint64) (sdk.Msg, bool, cryptotypes.PrivKey, uint64, int64) {
+	var msg sdk.Msg
+	messageTypes := strings.Split(config.MessageType, ",")
+	messageType := c.getRandomMessageType(messageTypes)
 	fmt.Printf("Message type: %s\n", messageType)
 
 	defer IncrTxMessageType(messageType)
+
+	signer := key
+
+	defaultMessageTypeConfig := c.LoadTestConfig.PerMessageConfigs["default"]
+	gas := defaultMessageTypeConfig.Gas
+	fee := defaultMessageTypeConfig.Fee
+
+	messageTypeConfig, ok := c.LoadTestConfig.PerMessageConfigs[messageType]
+	if ok {
+		gas = messageTypeConfig.Gas
+		fee = messageTypeConfig.Fee
+	}
 
 	switch messageType {
 	case WasmMintNft:
@@ -135,6 +160,36 @@ func (c *LoadTestClient) generateMessage(config Config, key cryptotypes.PrivKey,
 				Amount: sdk.NewInt(1),
 			}),
 		}
+	case DistributeRewards:
+		adminKey := c.SignerClient.GetAdminKey()
+		msg = &banktypes.MsgSend{
+			FromAddress: sdk.AccAddress(adminKey.PubKey().Address()).String(),
+			ToAddress:   sdk.AccAddress(key.PubKey().Address()).String(),
+			Amount: sdk.NewCoins(sdk.Coin{
+				Denom:  "usei",
+				Amount: sdk.NewInt(10000000),
+			}),
+		}
+		signer = adminKey
+		gas = 10000000
+		fee = 1000000
+		fmt.Printf("Distribute rewards to %s \n", sdk.AccAddress(key.PubKey().Address()).String())
+	case CollectRewards:
+		adminKey := c.SignerClient.GetAdminKey()
+		delegatorAddr := sdk.AccAddress(adminKey.PubKey().Address())
+		operatorAddress := c.Validators[rand.Intn(len(c.Validators))].OperatorAddress
+		randomValidatorAddr, err := sdk.ValAddressFromBech32(operatorAddress)
+		if err != nil {
+			panic(err.Error())
+		}
+		msg = distributiontypes.NewMsgWithdrawDelegatorReward(
+			delegatorAddr,
+			randomValidatorAddr,
+		)
+		fmt.Printf("Collecting rewards from %s \n", operatorAddress)
+		signer = adminKey
+		gas = 10000000
+		fee = 1000000
 	case Dex:
 		price := config.PriceDistr.Sample()
 		quantity := config.QuantityDistr.Sample()
@@ -151,7 +206,6 @@ func (c *LoadTestClient) generateMessage(config Config, key cryptotypes.PrivKey,
 			Funds:        amount,
 		}
 	case Staking:
-
 		delegatorAddr := sdk.AccAddress(key.PubKey().Address()).String()
 		chosenValidator := c.Validators[rand.Intn(len(c.Validators))].OperatorAddress
 		// Randomly pick someone to redelegate / unbond from
@@ -257,9 +311,9 @@ func (c *LoadTestClient) generateMessage(config Config, key cryptotypes.PrivKey,
 	}
 
 	if strings.Contains(config.MessageType, "failure") {
-		return msg, true
+		return msg, true, signer, gas, int64(fee)
 	}
-	return msg, false
+	return msg, false, signer, gas, int64(fee)
 }
 
 func sampleDexOrderType(config Config) (orderType dextypes.OrderType) {

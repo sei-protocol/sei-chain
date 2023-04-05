@@ -17,6 +17,20 @@
         "max": "21",
         "number_of_distinct_values": 20
     },
+    "message_configs": {
+      "default": {
+        "gas": 3000000,
+        "fees": 50000
+      },
+      "collect_rewards": {
+        "gas": 10000000,
+        "fees": 1000000
+      },
+      "distribute_rewards": {
+        "gas": 10000000,
+        "fees": 1000000
+      }
+    },
     "message_type_distribution": {
         "dex": {
             "limit_order_percentage": "0.2",
@@ -30,7 +44,7 @@
     },
     "constant": true,
     "loadtest_interval": 600,
-    "message_type": "bank,dex,tokenfactory,staking,failure_dex_malformed,failure_dex_invalid",
+    "message_type": "bank,dex,tokenfactory,staking,failure_dex_malformed,failure_dex_invalid,collect_rewards,distribute_rewards",
     "run_oracle": false,
     "metrics_port": 9695,
     "wasm_msg_types": {
