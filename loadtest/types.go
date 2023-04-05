@@ -60,8 +60,8 @@ type EncodingConfig struct {
 // MessageConfig is the configuration for a message
 // Specify the gas and fee for the message type
 type MessageTypeConfig struct {
-	Gas uint64
-	Fee uint64
+	Gas uint64 `json:"gas"`
+	Fee uint64 `json:"fee"`
 }
 
 type MessageConfigs map[string]MessageTypeConfig
