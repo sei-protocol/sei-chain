@@ -199,13 +199,13 @@ func makeNode(
 	}
 
 	var pubKey crypto.PubKey
-	if cfg.Mode == config.ModeValidator {
-		pubKey, err = privValidator.GetPubKey(ctx)
-		if err != nil {
-			return nil, combineCloseError(fmt.Errorf("can't get pubkey: %w", err),
-				makeCloser(closers))
+	pubKey, err = privValidator.GetPubKey(ctx)
+	if err != nil {
+		return nil, combineCloseError(fmt.Errorf("can't get pubkey: %w", err),
+			makeCloser(closers))
+	}
 
-		}
+	if cfg.Mode == config.ModeValidator {
 		if pubKey == nil {
 			return nil, combineCloseError(
 				errors.New("could not retrieve public key from private validator"),
@@ -415,8 +415,8 @@ func makeNode(
 		if privValidator != nil {
 			csState.SetPrivValidator(ctx, privValidator)
 		}
-		node.rpcEnv.PubKey = pubKey
 	}
+	node.rpcEnv.PubKey = pubKey
 
 	node.BaseService = *service.NewBaseService(logger, "Node", node)
 
