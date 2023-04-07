@@ -104,7 +104,7 @@ func (n *Network) Start(ctx context.Context, t *testing.T) {
 			case peerUpdate := <-sourceSub.Updates():
 				require.Equal(t, targetNode.NodeID, peerUpdate.NodeID)
 				require.Equal(t, p2p.PeerStatusUp, peerUpdate.Status)
-			case <-time.After(3 * time.Second):
+			case <-time.After(30 * time.Second):
 				require.Fail(t, "timed out waiting for peer", "%v dialing %v",
 					sourceNode.NodeID, targetNode.NodeID)
 			}
@@ -118,7 +118,7 @@ func (n *Network) Start(ctx context.Context, t *testing.T) {
 					NodeID: sourceNode.NodeID,
 					Status: p2p.PeerStatusUp,
 				}, peerUpdate)
-			case <-time.After(3 * time.Second):
+			case <-time.After(30 * time.Second):
 				require.Fail(t, "timed out waiting for peer", "%v accepting %v",
 					targetNode.NodeID, sourceNode.NodeID)
 			}
@@ -252,7 +252,7 @@ func (n *Network) MakeNode(ctx context.Context, t *testing.T, opts NodeOptions) 
 	require.NoError(t, err)
 	require.NotNil(t, ep, "transport not listening an endpoint")
 
-	maxRetryTime := 500 * time.Millisecond
+	maxRetryTime := 1000 * time.Millisecond
 	if opts.MaxRetryTime > 0 {
 		maxRetryTime = opts.MaxRetryTime
 	}

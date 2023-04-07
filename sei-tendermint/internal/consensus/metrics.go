@@ -44,7 +44,7 @@ type Metrics struct {
 	// Number of validators who did not sign.
 	MissingValidators metrics.Gauge
 	// Total power of the missing validators.
-	MissingValidatorsPower metrics.Gauge
+	MissingValidatorsPower metrics.Gauge `metrics_labels:"validator_address"`
 	// Number of validators who tried to double sign.
 	ByzantineValidators metrics.Gauge
 	// Total power of the byzantine validators.
