@@ -149,3 +149,15 @@ func SetThroughputMetric(metricName string, value float32) {
 		"sei", "throughput", metricName,
 	)
 }
+
+// Measures number of times a denom's price is updated
+// Metric Name:
+//
+//	sei_oracle_price_update_count
+func IncrPriceUpdateDenom(denom string) {
+	telemetry.IncrCounterWithLabels(
+		[]string{"sei", "oracle", "price", "update"},
+		1,
+		[]metrics.Label{telemetry.NewLabel("denom", denom)},
+	)
+}

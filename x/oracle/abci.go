@@ -4,6 +4,7 @@ import (
 	"sort"
 	"time"
 
+	"github.com/sei-protocol/sei-chain/utils/metrics"
 	"github.com/sei-protocol/sei-chain/x/oracle/keeper"
 	"github.com/sei-protocol/sei-chain/x/oracle/types"
 	"github.com/sei-protocol/sei-chain/x/oracle/utils"
@@ -90,6 +91,7 @@ func MidBlocker(ctx sdk.Context, k keeper.Keeper) {
 				}
 
 				// Set the exchange rate, emit ABCI event
+				metrics.IncrPriceUpdateDenom(denom)
 				k.SetBaseExchangeRateWithEvent(ctx, denom, exchangeRate)
 			}
 		}
