@@ -28,6 +28,20 @@ Ref: https://keepachangelog.com/en/1.0.0/
 
 # Changelog
 
+## 2.0.45beta
+
+sei-chain: https://github.com/sei-protocol/sei-chain/compare/2.0.44beta...2.0.45beta-release
+* [#666](https://github.com/sei-protocol/sei-chain/pull/666) [DEX] remove BeginBlock/FinalizeBlock sudo hooks
+* [#674](https://github.com/sei-protocol/sei-chain/pull/674) Longterm fix for max gas enforcement
+* [#666](https://github.com/sei-protocol/sei-chain/pull/666) [DEX] remove BeginBlock/FinalizeBlock sudo hooks
+
+sei-cosmos: https://github.com/sei-protocol/sei-cosmos/compare/v0.2.13...v0.2.14
+* [#110](https://github.com/sei-protocol/sei-cosmos/pull/210) Add levelDB compaction goroutine
+
+sei-tendermint: https://github.com/sei-protocol/sei-tendermint/compare/v0.2.3...v0.2.4
+* [#110](https://github.com/sei-protocol/sei-tendermint/pull/110) Add more granular buckets for block interval
+* [#111](https://github.com/sei-protocol/sei-tendermint/pull/111) Add unused prival pubKey back to node info - fix for IBC on full nodes
+* [#113](https://github.com/sei-protocol/sei-tendermint/pull/113) Add metrics label for missing val power
 
 ## 2.0.44beta
 
