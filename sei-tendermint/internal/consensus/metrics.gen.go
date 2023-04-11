@@ -264,6 +264,12 @@ func PrometheusMetrics(namespace string, labelsAndValues ...string) *Metrics {
 			Name:      "consensus_time",
 			Help:      "Number of seconds spent on consensus",
 		}, labels).With(labelsAndValues...),
+		CompleteProposalTime: prometheus.NewHistogramFrom(stdprometheus.HistogramOpts{
+			Namespace: namespace,
+			Subsystem: MetricsSubsystem,
+			Name:      "complete_proposal_time",
+			Help:      "CompleteProposalTime measures how long it takes between receiving a proposal and finishing processing all of its parts. Note that this means it also includes network latency from block parts gossip",
+		}, labels).With(labelsAndValues...),
 	}
 }
 
@@ -308,5 +314,6 @@ func NopMetrics() *Metrics {
 		ProposeLatency:                discard.NewHistogram(),
 		PrevoteLatency:                discard.NewHistogram(),
 		ConsensusTime:                 discard.NewHistogram(),
+		CompleteProposalTime:          discard.NewHistogram(),
 	}
 }

@@ -1024,6 +1024,7 @@ func (cs *State) fsyncAndCompleteProposal(ctx context.Context, fsyncUponCompleti
 			cs.logger.Error("Error flushing wal after receiving all block parts", "error", err)
 		}
 	}
+	cs.metrics.CompleteProposalTime.Observe(float64(time.Since(cs.roundState.ProposalReceiveTime())))
 	cs.handleCompleteProposal(ctx, height, span)
 }
 

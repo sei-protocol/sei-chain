@@ -413,18 +413,22 @@ func (blockExec *BlockExecutor) Commit(
 
 	// while mempool is Locked, flush to ensure all async requests have completed
 	// in the ABCI app before Commit.
+	start := time.Now()
 	err := blockExec.mempool.FlushAppConn(ctx)
 	if err != nil {
 		blockExec.logger.Error("client error during mempool.FlushAppConn", "err", err)
 		return 0, err
 	}
+	blockExec.metrics.FlushAppConnectionTime.Observe(float64(time.Since(start)))
 
 	// Commit block, get hash back
+	start = time.Now()
 	res, err := blockExec.appClient.Commit(ctx)
 	if err != nil {
 		blockExec.logger.Error("client error during proxyAppConn.Commit", "err", err)
 		return 0, err
 	}
+	blockExec.metrics.ApplicationCommitTime.Observe(float64(time.Since(start)))
 
 	// ResponseCommit has no error code - just data
 	blockExec.logger.Info(
@@ -436,6 +440,7 @@ func (blockExec *BlockExecutor) Commit(
 	)
 
 	// Update mempool.
+	start = time.Now()
 	err = blockExec.mempool.Update(
 		ctx,
 		block.Height,
@@ -445,6 +450,7 @@ func (blockExec *BlockExecutor) Commit(
 		TxPostCheckForState(state),
 		state.ConsensusParams.ABCI.RecheckTx,
 	)
+	blockExec.metrics.UpdateMempoolTime.Observe(float64(time.Since(start)))
 
 	return res.RetainHeight, err
 }

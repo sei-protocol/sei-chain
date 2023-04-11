@@ -86,13 +86,13 @@ type Metrics struct {
 	ProposalBlockCreatedOnPropose metrics.Counter `metrics_labels:"success"`
 
 	// Number of txs in a proposal.
-	ProposalTxs                   metrics.Gauge
+	ProposalTxs metrics.Gauge
 
 	// Number of missing txs when trying to create proposal.
-	ProposalMissingTxs            metrics.Gauge
+	ProposalMissingTxs metrics.Gauge
 
 	//Number of missing txs when a proposal is received
-	MissingTxs                    metrics.Gauge `metrics_labels:"proposer_address"`
+	MissingTxs metrics.Gauge `metrics_labels:"proposer_address"`
 
 	// QuroumPrevoteMessageDelay is the interval in seconds between the proposal
 	// timestamp and the timestamp of the earliest prevote that achieved a quorum
@@ -165,6 +165,11 @@ type Metrics struct {
 	// ConsensusTime the metric to track how long the consensus takes in each block
 	//metrics: Number of seconds spent on consensus
 	ConsensusTime metrics.Histogram
+
+	// CompleteProposalTime measures how long it takes between receiving a proposal and finishing
+	// processing all of its parts. Note that this means it also includes network latency from
+	// block parts gossip
+	CompleteProposalTime metrics.Histogram
 }
 
 // RecordConsMetrics uses for recording the block related metrics during fast-sync.
