@@ -90,6 +90,12 @@ func newDefaultNode(
 	if err != nil {
 		return nil, fmt.Errorf("failed to load or gen node key %s: %w", cfg.NodeKeyFile(), err)
 	}
+
+	appClient, _, err := proxy.ClientFactory(logger, cfg.ProxyApp, cfg.ABCI, cfg.DBDir())
+	if err != nil {
+		return nil, err
+	}
+
 	if cfg.Mode == config.ModeSeed {
 		return makeSeedNode(
 			ctx,
@@ -99,6 +105,7 @@ func newDefaultNode(
 			config.DefaultDBProvider,
 			nodeKey,
 			defaultGenesisDocProviderFunc(cfg),
+			appClient,
 		)
 	}
 	pval, err := makeDefaultPrivval(cfg)
@@ -106,10 +113,7 @@ func newDefaultNode(
 		return nil, err
 	}
 
-	appClient, _, err := proxy.ClientFactory(logger, cfg.ProxyApp, cfg.ABCI, cfg.DBDir())
-	if err != nil {
-		return nil, err
-	}
+
 
 	return makeNode(
 		ctx,

@@ -8,10 +8,15 @@ import (
 	"strings"
 	"time"
 
+	abciclient "github.com/tendermint/tendermint/abci/client"
 	"github.com/tendermint/tendermint/config"
+	"github.com/tendermint/tendermint/internal/eventbus"
 	"github.com/tendermint/tendermint/internal/p2p"
 	"github.com/tendermint/tendermint/internal/p2p/pex"
+	"github.com/tendermint/tendermint/internal/proxy"
+	rpccore "github.com/tendermint/tendermint/internal/rpc/core"
 	sm "github.com/tendermint/tendermint/internal/state"
+	"github.com/tendermint/tendermint/internal/state/indexer/sink"
 	"github.com/tendermint/tendermint/libs/log"
 	"github.com/tendermint/tendermint/libs/service"
 	tmtime "github.com/tendermint/tendermint/libs/time"
@@ -26,6 +31,8 @@ type seedNodeImpl struct {
 	config     *config.Config
 	genesisDoc *types.GenesisDoc // initial validator set
 
+	nodeInfo        types.NodeInfo
+
 	// network
 	peerManager *p2p.PeerManager
 	router      *p2p.Router
@@ -35,6 +42,7 @@ type seedNodeImpl struct {
 	// services
 	pexReactor  service.Service // for exchanging peer addresses
 	shutdownOps closer
+	rpcEnv         *rpccore.Environment
 }
 
 // makeSeedNode returns a new seed node, containing only p2p, pex reactor
@@ -46,7 +54,11 @@ func makeSeedNode(
 	dbProvider config.DBProvider,
 	nodeKey types.NodeKey,
 	genesisDocProvider genesisDocProvider,
+	client abciclient.Client,
 ) (service.Service, error) {
+	var cancel context.CancelFunc
+	ctx, cancel = context.WithCancel(ctx)
+
 	if !cfg.P2P.PexReactor {
 		return nil, errors.New("cannot run seed nodes with PEX disabled")
 	}
@@ -69,18 +81,18 @@ func makeSeedNode(
 	// Setup Transport and Switch.
 	p2pMetrics := p2p.PrometheusMetrics(cfg.Instrumentation.Namespace, "chain_id", genDoc.ChainID)
 
-	peerManager, closer, err := createPeerManager(cfg, dbProvider, nodeKey.ID)
+	peerManager, peerCloser, err := createPeerManager(cfg, dbProvider, nodeKey.ID)
 	if err != nil {
 		return nil, combineCloseError(
 			fmt.Errorf("failed to create peer manager: %w", err),
-			closer)
+			peerCloser)
 	}
 
 	router, err := createRouter(logger, p2pMetrics, func() *types.NodeInfo { return &nodeInfo }, nodeKey, peerManager, cfg, nil)
 	if err != nil {
 		return nil, combineCloseError(
 			fmt.Errorf("failed to create router: %w", err),
-			closer)
+			peerCloser)
 	}
 	// Register a listener to restart router if signalled to do so
 	go func() {
@@ -100,6 +112,24 @@ func makeSeedNode(
 	}()
 
 	pexReactor := pex.NewReactor(logger, peerManager, peerManager.Subscribe, restartCh)
+
+	proxyApp := proxy.New(client, logger.With("module", "proxy"), proxy.NopMetrics())
+
+	closers := []closer{convertCancelCloser(cancel)}
+	blockStore, stateDB, dbCloser, err := initDBs(cfg, dbProvider)
+	if err != nil {
+		return nil, combineCloseError(err, dbCloser)
+	}
+	closers = append(closers, dbCloser)
+
+	eventSinks, err := sink.EventSinksFromConfig(cfg, dbProvider, genDoc.ChainID)
+	if err != nil {
+		return nil, combineCloseError(err, makeCloser(closers))
+	}
+	eventBus := eventbus.NewDefault(logger.With("module", "events"))
+
+	stateStore := sm.NewStore(stateDB)
+
 	node := &seedNodeImpl{
 		config:     cfg,
 		logger:     logger,
@@ -109,18 +139,35 @@ func makeSeedNode(
 		peerManager: peerManager,
 		router:      router,
 
-		shutdownOps: closer,
+		shutdownOps: peerCloser,
 
 		pexReactor: pexReactor,
+		rpcEnv: &rpccore.Environment{
+			ProxyApp: proxyApp,
+
+			StateStore: stateStore,
+			BlockStore: blockStore,
+
+			PeerManager: peerManager,
+
+			GenDoc:     genDoc,
+			EventSinks: eventSinks,
+			EventBus:   eventBus,
+			Logger:     logger.With("module", "rpc"),
+			Config:     *cfg.RPC,
+		},
+		nodeInfo: nodeInfo,
 	}
 	node.router.AddChDescToBeAdded(pex.ChannelDescriptor(), pexReactor.SetChannel)
 	node.BaseService = *service.NewBaseService(logger, "SeedNode", node)
+
 
 	return node, nil
 }
 
 // OnStart starts the Seed Node. It implements service.Service.
 func (n *seedNodeImpl) OnStart(ctx context.Context) error {
+
 	if n.config.RPC.PprofListenAddress != "" {
 		rpcCtx, rpcCancel := context.WithCancel(ctx)
 		srv := &http.Server{Addr: n.config.RPC.PprofListenAddress, Handler: nil}
@@ -179,4 +226,18 @@ func (n *seedNodeImpl) OnStop() {
 			n.logger.Error("problem shutting down additional services", "err", err)
 		}
 	}
+}
+
+// EventBus returns the Node's EventBus.
+func (n *seedNodeImpl) EventBus() *eventbus.EventBus {
+	return n.rpcEnv.EventBus
+}
+
+// RPCEnvironment makes sure RPC has all the objects it needs to operate.
+func (n *seedNodeImpl) RPCEnvironment() *rpccore.Environment {
+	return n.rpcEnv
+}
+
+func (n *seedNodeImpl) NodeInfo() *types.NodeInfo {
+	return &n.nodeInfo
 }
