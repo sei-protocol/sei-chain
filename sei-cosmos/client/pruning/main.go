@@ -103,6 +103,7 @@ func PruningCmd(appCreator servertypes.AppCreator) *cobra.Command {
 
 	cmd.Flags().String(flags.FlagHome, "", "The database home directory")
 	cmd.Flags().String(FlagAppDBBackend, "", "The type of database for application and snapshots databases")
+	cmd.Flags().String(server.FlagChainID, "", "Chain ID")
 	cmd.Flags().String(server.FlagPruning, storetypes.PruningOptionDefault, "Pruning strategy (default|nothing|everything|custom)")
 	cmd.Flags().Uint64(server.FlagPruningKeepRecent, 0, "Number of recent heights to keep on disk (ignored if pruning is not 'custom')")
 	cmd.Flags().Uint64(server.FlagPruningKeepEvery, 0,
