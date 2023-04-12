@@ -141,13 +141,20 @@ func InterceptConfigsPreRunHandler(cmd *cobra.Command, customAppConfigTemplate s
 	}
 
 	var logWriter io.Writer
-	if strings.ToLower(serverCtx.Viper.GetString(flags.FlagLogFormat)) == tmlog.LogFormatPlain {
+	logLvlFormat := serverCtx.Viper.GetString(flags.FlagLogFormat)
+	if logLvlFormat == "" {
+		logLvlFormat = serverCtx.Config.LogFormat
+	}
+	if strings.ToLower(logLvlFormat) == tmlog.LogFormatPlain {
 		logWriter = zerolog.ConsoleWriter{Out: os.Stderr}
 	} else {
 		logWriter = os.Stderr
 	}
 
 	logLvlStr := serverCtx.Viper.GetString(flags.FlagLogLevel)
+	if logLvlStr == "" {
+		logLvlStr = serverCtx.Config.LogLevel
+	}
 	logLvl, err := zerolog.ParseLevel(logLvlStr)
 	if err != nil {
 		return fmt.Errorf("failed to parse log level (%s): %w", logLvlStr, err)

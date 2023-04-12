@@ -3,10 +3,8 @@ package cmd
 import (
 	"context"
 
-	"github.com/rs/zerolog"
 	"github.com/spf13/cobra"
 	tmcli "github.com/tendermint/tendermint/libs/cli"
-	"github.com/tendermint/tendermint/libs/log"
 
 	"github.com/cosmos/cosmos-sdk/client"
 	"github.com/cosmos/cosmos-sdk/client/flags"
@@ -29,8 +27,9 @@ func Execute(rootCmd *cobra.Command, defaultHome string) error {
 	ctx = context.WithValue(ctx, client.ClientContextKey, &client.Context{})
 	ctx = context.WithValue(ctx, server.ServerContextKey, srvCtx)
 
-	rootCmd.PersistentFlags().String(flags.FlagLogLevel, zerolog.InfoLevel.String(), "The logging level (trace|debug|info|warn|error|fatal|panic)")
-	rootCmd.PersistentFlags().String(flags.FlagLogFormat, log.LogFormatPlain, "The logging format (json|plain)")
+	// Config.toml not yet initialized so we can't use the config file to set
+	rootCmd.PersistentFlags().String(flags.FlagLogLevel, "", "The logging level (trace|debug|info|warn|error|fatal|panic)")
+	rootCmd.PersistentFlags().String(flags.FlagLogFormat, "", "The logging format (json|plain)")
 
 	executor := tmcli.PrepareBaseCmd(rootCmd, "", defaultHome)
 	return executor.ExecuteContext(ctx)
