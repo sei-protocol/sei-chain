@@ -5,6 +5,7 @@ package server
 import (
 	"context"
 	"fmt"
+	clientconfig "github.com/cosmos/cosmos-sdk/client/config"
 	"net/http"
 	"os"
 	"runtime/pprof"
@@ -25,7 +26,6 @@ import (
 	_ "net/http/pprof"
 
 	"github.com/cosmos/cosmos-sdk/client"
-	clientconfig "github.com/cosmos/cosmos-sdk/client/config"
 	"github.com/cosmos/cosmos-sdk/client/flags"
 	"github.com/cosmos/cosmos-sdk/codec"
 	"github.com/cosmos/cosmos-sdk/server/api"
@@ -157,6 +157,7 @@ is performed. Note, when enabled, gRPC will also be automatically enabled.
 				}
 				chainID = flagChainID
 			}
+
 			serverCtx.Viper.Set(flags.FlagChainID, chainID)
 
 			genesisFile, _ := tmtypes.GenesisDocFromFile(serverCtx.Config.GenesisFile())
