@@ -376,7 +376,7 @@ func (c *mConnConnection) handshake(
 		return nil, types.NodeInfo{}, nil, err
 	}
 
-	c.logger.Info(fmt.Sprintf("Creating a new MConnection with peerId %s, moniker %s, listenAddr %s", peerInfo.NodeID, peerInfo.Moniker, peerInfo.ListenAddr))
+	c.logger.Debug(fmt.Sprintf("Creating a new MConnection with peerId %s, moniker %s, listenAddr %s", peerInfo.NodeID, peerInfo.Moniker, peerInfo.ListenAddr))
 
 	mconn := conn.NewMConnection(
 		c.logger.With("peer", c.RemoteEndpoint().NodeAddress(peerInfo.NodeID)),

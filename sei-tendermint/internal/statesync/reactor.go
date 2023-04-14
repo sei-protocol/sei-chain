@@ -367,6 +367,7 @@ func (r *Reactor) Sync(ctx context.Context) (sm.State, error) {
 	if err := r.waitForEnoughPeers(ctx, 2); err != nil {
 		return sm.State{}, err
 	}
+	r.logger.Info("Finished waiting for 2 peers to start state sync")
 
 	r.mtx.Lock()
 	if r.syncer != nil {

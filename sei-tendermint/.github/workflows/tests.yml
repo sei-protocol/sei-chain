@@ -14,11 +14,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        part: ["00", "01", "02", "03", "04", "05"]
+        part: ["00", "01", "02", "03", "04", "05", "06", "07", "08", "09"]
     steps:
       - uses: actions/setup-go@v3
         with:
-          go-version: "1.18"
+          go-version: "1.19"
       - uses: actions/checkout@v3
       - uses: technote-space/get-diff-action@v6
         with:
@@ -30,5 +30,6 @@ jobs:
             Makefile
       - name: Run Go Tests
         run: |
-          make test-group-${{ matrix.part }} NUM_SPLIT=6
+          NUM_SPLIT=10
+          make test-group-${{matrix.part}} NUM_SPLIT=10
         if: env.GIT_DIFF

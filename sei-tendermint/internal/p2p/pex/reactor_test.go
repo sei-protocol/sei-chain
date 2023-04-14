@@ -298,7 +298,7 @@ func setupSingle(ctx context.Context, t *testing.T) *singleTestReactor {
 
 	peerCh := make(chan p2p.PeerUpdate, chBuf)
 	peerUpdates := p2p.NewPeerUpdates(peerCh, chBuf)
-	peerManager, err := p2p.NewPeerManager(nodeID, dbm.NewMemDB(), p2p.PeerManagerOptions{})
+	peerManager, err := p2p.NewPeerManager(log.NewNopLogger(), nodeID, dbm.NewMemDB(), p2p.PeerManagerOptions{})
 	require.NoError(t, err)
 
 	reactor := pex.NewReactor(

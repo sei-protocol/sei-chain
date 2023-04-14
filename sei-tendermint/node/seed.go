@@ -31,7 +31,7 @@ type seedNodeImpl struct {
 	config     *config.Config
 	genesisDoc *types.GenesisDoc // initial validator set
 
-	nodeInfo        types.NodeInfo
+	nodeInfo types.NodeInfo
 
 	// network
 	peerManager *p2p.PeerManager
@@ -42,7 +42,7 @@ type seedNodeImpl struct {
 	// services
 	pexReactor  service.Service // for exchanging peer addresses
 	shutdownOps closer
-	rpcEnv         *rpccore.Environment
+	rpcEnv      *rpccore.Environment
 }
 
 // makeSeedNode returns a new seed node, containing only p2p, pex reactor
@@ -81,7 +81,7 @@ func makeSeedNode(
 	// Setup Transport and Switch.
 	p2pMetrics := p2p.PrometheusMetrics(cfg.Instrumentation.Namespace, "chain_id", genDoc.ChainID)
 
-	peerManager, peerCloser, err := createPeerManager(cfg, dbProvider, nodeKey.ID)
+	peerManager, peerCloser, err := createPeerManager(logger, cfg, dbProvider, nodeKey.ID)
 	if err != nil {
 		return nil, combineCloseError(
 			fmt.Errorf("failed to create peer manager: %w", err),
@@ -160,7 +160,6 @@ func makeSeedNode(
 	}
 	node.router.AddChDescToBeAdded(pex.ChannelDescriptor(), pexReactor.SetChannel)
 	node.BaseService = *service.NewBaseService(logger, "SeedNode", node)
-
 
 	return node, nil
 }

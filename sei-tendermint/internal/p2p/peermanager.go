@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/tendermint/tendermint/libs/log"
 	"math"
 	"math/rand"
 	"sort"
@@ -23,6 +24,8 @@ import (
 const (
 	// retryNever is returned by retryDelay() when retries are disabled.
 	retryNever time.Duration = math.MaxInt64
+	// DefaultScore is the default score for a peer during initialization
+	DefaultMutableScore int64 = 10
 )
 
 // PeerStatus is a peer status.
@@ -280,6 +283,7 @@ func (o *PeerManagerOptions) optimize() {
 //   - EvictNext: pick peer from evict, mark as evicting.
 //   - Disconnected: unmark connected, upgrading[from]=to, evict, evicting.
 type PeerManager struct {
+	logger     log.Logger
 	selfID     types.NodeID
 	options    PeerManagerOptions
 	rand       *rand.Rand
@@ -298,7 +302,12 @@ type PeerManager struct {
 }
 
 // NewPeerManager creates a new peer manager.
-func NewPeerManager(selfID types.NodeID, peerDB dbm.DB, options PeerManagerOptions) (*PeerManager, error) {
+func NewPeerManager(
+	logger log.Logger,
+	selfID types.NodeID,
+	peerDB dbm.DB,
+	options PeerManagerOptions,
+) (*PeerManager, error) {
 	if selfID == "" {
 		return nil, errors.New("self ID not given")
 	}
@@ -314,6 +323,7 @@ func NewPeerManager(selfID types.NodeID, peerDB dbm.DB, options PeerManagerOptio
 	}
 
 	peerManager := &PeerManager{
+		logger:     logger,
 		selfID:     selfID,
 		options:    options,
 		rand:       rand.New(rand.NewSource(time.Now().UnixNano())), // nolint:gosec
@@ -374,11 +384,13 @@ func (m *PeerManager) configurePeer(peer peerInfo) peerInfo {
 	return peer
 }
 
-// newPeerInfo creates a peerInfo for a new peer.
+// newPeerInfo creates a peerInfo for a new peer. Each peer will start with a positive MutableScore.
+// If a peer is misbehaving, we will decrease the MutableScore, and it will be ranked down.
 func (m *PeerManager) newPeerInfo(id types.NodeID) peerInfo {
 	peerInfo := peerInfo{
-		ID:          id,
-		AddressInfo: map[NodeAddress]*peerAddressInfo{},
+		ID:           id,
+		AddressInfo:  map[NodeAddress]*peerAddressInfo{},
+		MutableScore: DefaultMutableScore, // Should start with a default value above 0
 	}
 	return m.configurePeer(peerInfo)
 }
@@ -433,6 +445,7 @@ func (m *PeerManager) Add(address NodeAddress) (bool, error) {
 
 	// else add the new address
 	peer.AddressInfo[address] = &peerAddressInfo{Address: address}
+	m.logger.Info(fmt.Sprintf("Adding new peer %s with address %s to peer store\n", peer.ID, address.String()))
 	if err := m.store.Set(peer); err != nil {
 		return false, err
 	}
@@ -550,6 +563,8 @@ func (m *PeerManager) DialFailed(ctx context.Context, address NodeAddress) error
 
 	addressInfo.LastDialFailure = time.Now().UTC()
 	addressInfo.DialFailures++
+	// We need to invalidate the cache after score changed
+	m.store.ranked = nil
 	if err := m.store.Set(peer); err != nil {
 		return err
 	}
@@ -793,6 +808,12 @@ func (m *PeerManager) Disconnected(ctx context.Context, peerID types.NodeID) {
 	m.mtx.Lock()
 	defer m.mtx.Unlock()
 
+	// Update score and invalidate cache if a peer got disconnected
+	if _, ok := m.store.peers[peerID]; ok {
+		m.store.peers[peerID].NumOfDisconnections++
+		m.store.ranked = nil
+	}
+
 	ready := m.ready[peerID]
 
 	delete(m.connected, peerID)
@@ -946,6 +967,8 @@ func (m *PeerManager) processPeerEvent(ctx context.Context, pu PeerUpdate) {
 	case PeerStatusGood:
 		m.store.peers[pu.NodeID].MutableScore++
 	}
+	// Invalidate the cache after score changed
+	m.store.ranked = nil
 }
 
 // broadcast broadcasts a peer update to all subscriptions. The caller must
@@ -1274,9 +1297,10 @@ func (s *peerStore) Size() int {
 
 // peerInfo contains peer information stored in a peerStore.
 type peerInfo struct {
-	ID            types.NodeID
-	AddressInfo   map[NodeAddress]*peerAddressInfo
-	LastConnected time.Time
+	ID                  types.NodeID
+	AddressInfo         map[NodeAddress]*peerAddressInfo
+	LastConnected       time.Time
+	NumOfDisconnections int64
 
 	// These fields are ephemeral, i.e. not persisted to the database.
 	Persistent    bool
@@ -1354,14 +1378,16 @@ func (p *peerInfo) Score() PeerScore {
 	}
 
 	score := p.MutableScore
-	if score > int64(MaxPeerScoreNotPersistent) {
-		score = int64(MaxPeerScoreNotPersistent)
-	}
-
 	for _, addr := range p.AddressInfo {
 		// DialFailures is reset when dials succeed, so this
 		// is either the number of dial failures or 0.
 		score -= int64(addr.DialFailures)
+	}
+	// We consider lowering the score for every 3 disconnection events
+	score -= p.NumOfDisconnections / 3
+
+	if score > int64(MaxPeerScoreNotPersistent) {
+		score = int64(MaxPeerScoreNotPersistent)
 	}
 
 	if score <= 0 {

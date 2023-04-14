@@ -2,6 +2,7 @@ package p2p
 
 import (
 	"context"
+	"github.com/tendermint/tendermint/libs/log"
 	"strings"
 	"testing"
 	"time"
@@ -20,7 +21,7 @@ func TestPeerScoring(t *testing.T) {
 
 	// create a mock peer manager
 	db := dbm.NewMemDB()
-	peerManager, err := NewPeerManager(selfID, db, PeerManagerOptions{})
+	peerManager, err := NewPeerManager(log.NewNopLogger(), selfID, db, PeerManagerOptions{})
 	require.NoError(t, err)
 
 	// create a fake node
@@ -34,7 +35,8 @@ func TestPeerScoring(t *testing.T) {
 
 	t.Run("Synchronous", func(t *testing.T) {
 		// update the manager and make sure it's correct
-		require.EqualValues(t, 0, peerManager.Scores()[id])
+		defaultScore := DefaultMutableScore
+		require.EqualValues(t, defaultScore, peerManager.Scores()[id])
 
 		// add a bunch of good status updates and watch things increase.
 		for i := 1; i < 10; i++ {
@@ -42,17 +44,26 @@ func TestPeerScoring(t *testing.T) {
 				NodeID: id,
 				Status: PeerStatusGood,
 			})
-			require.EqualValues(t, i, peerManager.Scores()[id])
+			require.EqualValues(t, defaultScore+int64(i), peerManager.Scores()[id])
 		}
-
 		// watch the corresponding decreases respond to update
-		for i := 10; i == 0; i-- {
+		for i := 1; i < 10; i++ {
 			peerManager.processPeerEvent(ctx, PeerUpdate{
 				NodeID: id,
 				Status: PeerStatusBad,
 			})
-			require.EqualValues(t, i, peerManager.Scores()[id])
+			require.EqualValues(t, DefaultMutableScore+int64(9)-int64(i), peerManager.Scores()[id])
 		}
+
+		// Dial failure should decrease score
+		_ = peerManager.DialFailed(ctx, NodeAddress{NodeID: id, Protocol: "memory"})
+		require.EqualValues(t, DefaultMutableScore-1, peerManager.Scores()[id])
+
+		// Disconnect every 3 times should also decrease score
+		for i := 1; i < 7; i++ {
+			peerManager.Disconnected(ctx, id)
+		}
+		require.EqualValues(t, DefaultMutableScore-3, peerManager.Scores()[id])
 	})
 	t.Run("AsynchronousIncrement", func(t *testing.T) {
 		start := peerManager.Scores()[id]
@@ -82,14 +93,15 @@ func TestPeerScoring(t *testing.T) {
 	})
 	t.Run("TestNonPersistantPeerUpperBound", func(t *testing.T) {
 		start := int64(peerManager.Scores()[id] + 1)
-
-		for i := start; i <= int64(PeerScorePersistent); i++ {
+		println(peerManager.Scores()[id])
+		for i := start; i <= int64(PeerScorePersistent)+start; i++ {
 			peerManager.processPeerEvent(ctx, PeerUpdate{
 				NodeID: id,
 				Status: PeerStatusGood,
 			})
 
-			if i == int64(PeerScorePersistent) {
+			println(peerManager.Scores()[id])
+			if i >= int64(PeerScorePersistent) {
 				require.EqualValues(t, MaxPeerScoreNotPersistent, peerManager.Scores()[id])
 			} else {
 				require.EqualValues(t, i, peerManager.Scores()[id])

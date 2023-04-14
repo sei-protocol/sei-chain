@@ -871,6 +871,7 @@ func (c *Client) backwards(
 		interimHeader  *types.Header
 	)
 
+	c.logger.Info(fmt.Sprintf("starting the backward verification process from %d to %d", newHeader.Height, verifiedHeader.Height))
 	for verifiedHeader.Height > newHeader.Height {
 		interimBlock, err := c.lightBlockFromPrimary(ctx, verifiedHeader.Height-1)
 		if err != nil {

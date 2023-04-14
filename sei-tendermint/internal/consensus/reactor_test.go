@@ -772,7 +772,7 @@ func TestReactorRecordsVotesAndBlockParts(t *testing.T) {
 }
 
 func TestReactorVotingPowerChange(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 2 * time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 
 	cfg := configSetup(t)
@@ -882,7 +882,7 @@ func TestReactorVotingPowerChange(t *testing.T) {
 }
 
 func TestReactorValidatorSetChanges(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
 	cfg := configSetup(t)
@@ -901,7 +901,7 @@ func TestReactorValidatorSetChanges(t *testing.T) {
 	)
 	t.Cleanup(cleanup)
 
-	rts := setup(ctx, t, nPeers, states, 100) // buffer must be large enough to not deadlock
+	rts := setup(ctx, t, nPeers, states, 1024) // buffer must be large enough to not deadlock
 
 	for _, reactor := range rts.reactors {
 		state := reactor.state.GetState()

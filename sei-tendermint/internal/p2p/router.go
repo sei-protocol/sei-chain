@@ -601,6 +601,7 @@ func (r *Router) dialPeers(ctx context.Context) {
 				case <-ctx.Done():
 					return
 				case address := <-addresses:
+					r.logger.Debug(fmt.Sprintf("Going to dial next peer %s", address.NodeID))
 					r.connectPeer(ctx, address)
 				}
 			}
@@ -641,9 +642,9 @@ func (r *Router) connectPeer(ctx context.Context, address NodeAddress) {
 	case errors.Is(err, context.Canceled):
 		return
 	case err != nil:
-		r.logger.Error("failed to dial peer", "peer", address, "err", err)
+		r.logger.Debug("failed to dial peer", "peer", address, "err", err)
 		if err = r.peerManager.DialFailed(ctx, address); err != nil {
-			r.logger.Error("failed to report dial failure", "peer", address, "err", err)
+			r.logger.Debug("failed to report dial failure", "peer", address, "err", err)
 		}
 		return
 	}
@@ -669,7 +670,7 @@ func (r *Router) connectPeer(ctx context.Context, address NodeAddress) {
 			r.peerManager.Disconnected(ctx, address.NodeID)
 		}
 
-		r.logger.Error("failed to dial peer",
+		r.logger.Debug("failed to dial peer",
 			"op", "outgoing/dialing", "peer", address.NodeID, "err", err)
 		conn.Close()
 		return
@@ -702,7 +703,7 @@ func (r *Router) dialPeer(ctx context.Context, address NodeAddress) (Connection,
 		defer cancel()
 	}
 
-	r.logger.Debug("resolving peer address", "peer", address)
+	r.logger.Debug("dialing peer address", "peer", address)
 	endpoints, err := address.Resolve(resolveCtx)
 	switch {
 	case err != nil:
@@ -816,7 +817,7 @@ func (r *Router) routePeer(ctx context.Context, peerID types.NodeID, conn Connec
 		r.metrics.Peers.Add(-1)
 	}()
 
-	r.logger.Info("peer connected", "peer", peerID, "endpoint", conn, "connected peers", r.peerManager.connected)
+	r.logger.Info("peer connected", "peer", peerID, "endpoint", conn)
 
 	errCh := make(chan error, 2)
 

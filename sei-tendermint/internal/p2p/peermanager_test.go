@@ -3,6 +3,7 @@ package p2p_test
 import (
 	"context"
 	"errors"
+	"github.com/tendermint/tendermint/libs/log"
 	"math"
 	"strings"
 	"testing"
@@ -112,21 +113,21 @@ func TestPeerManagerOptions_Validate(t *testing.T) {
 
 func TestNewPeerManager(t *testing.T) {
 	// Zero options should be valid.
-	_, err := p2p.NewPeerManager(selfID, dbm.NewMemDB(), p2p.PeerManagerOptions{})
+	_, err := p2p.NewPeerManager(log.NewNopLogger(), selfID, dbm.NewMemDB(), p2p.PeerManagerOptions{})
 	require.NoError(t, err)
 
 	// Invalid options should error.
-	_, err = p2p.NewPeerManager(selfID, dbm.NewMemDB(), p2p.PeerManagerOptions{
+	_, err = p2p.NewPeerManager(log.NewNopLogger(), selfID, dbm.NewMemDB(), p2p.PeerManagerOptions{
 		PersistentPeers: []types.NodeID{"foo"},
 	})
 	require.Error(t, err)
 
 	// Invalid database should error.
-	_, err = p2p.NewPeerManager(selfID, nil, p2p.PeerManagerOptions{})
+	_, err = p2p.NewPeerManager(log.NewNopLogger(), selfID, nil, p2p.PeerManagerOptions{})
 	require.Error(t, err)
 
 	// Empty self ID should error.
-	_, err = p2p.NewPeerManager("", nil, p2p.PeerManagerOptions{})
+	_, err = p2p.NewPeerManager(log.NewNopLogger(), "", nil, p2p.PeerManagerOptions{})
 	require.Error(t, err)
 }
 
@@ -151,7 +152,7 @@ func TestNewPeerManager_Persistence(t *testing.T) {
 
 	// Create an initial peer manager and add the peers.
 	db := dbm.NewMemDB()
-	peerManager, err := p2p.NewPeerManager(selfID, db, p2p.PeerManagerOptions{
+	peerManager, err := p2p.NewPeerManager(log.NewNopLogger(), selfID, db, p2p.PeerManagerOptions{
 		PersistentPeers: []types.NodeID{aID},
 		PeerScores:      map[types.NodeID]p2p.PeerScore{bID: 1},
 	})
@@ -169,13 +170,13 @@ func TestNewPeerManager_Persistence(t *testing.T) {
 	require.Equal(t, map[types.NodeID]p2p.PeerScore{
 		aID: p2p.PeerScorePersistent,
 		bID: 1,
-		cID: 0,
+		cID: 10,
 	}, peerManager.Scores())
 
 	// Creating a new peer manager with the same database should retain the
 	// peers, but they should have updated scores from the new PersistentPeers
 	// configuration.
-	peerManager, err = p2p.NewPeerManager(selfID, db, p2p.PeerManagerOptions{
+	peerManager, err = p2p.NewPeerManager(log.NewNopLogger(), selfID, db, p2p.PeerManagerOptions{
 		PersistentPeers: []types.NodeID{bID},
 		PeerScores:      map[types.NodeID]p2p.PeerScore{cID: 1},
 	})
@@ -212,7 +213,7 @@ func TestNewPeerManager_Unconditional(t *testing.T) {
 
 	// Create an initial peer manager and add the peers.
 	db := dbm.NewMemDB()
-	peerManager, err := p2p.NewPeerManager(selfID, db, p2p.PeerManagerOptions{
+	peerManager, err := p2p.NewPeerManager(log.NewNopLogger(), selfID, db, p2p.PeerManagerOptions{
 		UnconditionalPeers: []types.NodeID{aID},
 		PeerScores:         map[types.NodeID]p2p.PeerScore{bID: 1},
 	})
@@ -230,13 +231,13 @@ func TestNewPeerManager_Unconditional(t *testing.T) {
 	require.Equal(t, map[types.NodeID]p2p.PeerScore{
 		aID: p2p.PeerScoreUnconditional,
 		bID: 1,
-		cID: 0,
+		cID: 10,
 	}, peerManager.Scores())
 
 	// Creating a new peer manager with the same database should retain the
 	// peers, but they should have updated scores from the new PersistentPeers
 	// configuration.
-	peerManager, err = p2p.NewPeerManager(selfID, db, p2p.PeerManagerOptions{
+	peerManager, err = p2p.NewPeerManager(log.NewNopLogger(), selfID, db, p2p.PeerManagerOptions{
 		UnconditionalPeers: []types.NodeID{bID},
 		PeerScores:         map[types.NodeID]p2p.PeerScore{cID: 1},
 	})
@@ -257,7 +258,7 @@ func TestNewPeerManager_SelfIDChange(t *testing.T) {
 	b := p2p.NodeAddress{Protocol: "memory", NodeID: types.NodeID(strings.Repeat("b", 40))}
 
 	db := dbm.NewMemDB()
-	peerManager, err := p2p.NewPeerManager(selfID, db, p2p.PeerManagerOptions{})
+	peerManager, err := p2p.NewPeerManager(log.NewNopLogger(), selfID, db, p2p.PeerManagerOptions{})
 	require.NoError(t, err)
 
 	added, err := peerManager.Add(a)
@@ -270,7 +271,7 @@ func TestNewPeerManager_SelfIDChange(t *testing.T) {
 
 	// If we change our selfID to one of the peers in the peer store, it
 	// should be removed from the store.
-	peerManager, err = p2p.NewPeerManager(a.NodeID, db, p2p.PeerManagerOptions{})
+	peerManager, err = p2p.NewPeerManager(log.NewNopLogger(), a.NodeID, db, p2p.PeerManagerOptions{})
 	require.NoError(t, err)
 	require.Equal(t, []types.NodeID{b.NodeID}, peerManager.Peers())
 }
@@ -280,7 +281,7 @@ func TestPeerManager_Add(t *testing.T) {
 	bID := types.NodeID(strings.Repeat("b", 40))
 	cID := types.NodeID(strings.Repeat("c", 40))
 
-	peerManager, err := p2p.NewPeerManager(selfID, dbm.NewMemDB(), p2p.PeerManagerOptions{
+	peerManager, err := p2p.NewPeerManager(log.NewNopLogger(), selfID, dbm.NewMemDB(), p2p.PeerManagerOptions{
 		PersistentPeers: []types.NodeID{aID, cID},
 		MaxPeers:        2,
 		MaxConnected:    2,
@@ -336,7 +337,7 @@ func TestPeerManager_DialNext(t *testing.T) {
 
 	a := p2p.NodeAddress{Protocol: "memory", NodeID: types.NodeID(strings.Repeat("a", 40))}
 
-	peerManager, err := p2p.NewPeerManager(selfID, dbm.NewMemDB(), p2p.PeerManagerOptions{})
+	peerManager, err := p2p.NewPeerManager(log.NewNopLogger(), selfID, dbm.NewMemDB(), p2p.PeerManagerOptions{})
 	require.NoError(t, err)
 
 	// Add an address. DialNext should return it.
@@ -366,7 +367,7 @@ func TestPeerManager_DialNext_Retry(t *testing.T) {
 		MinRetryTime: 100 * time.Millisecond,
 		MaxRetryTime: 1000 * time.Millisecond,
 	}
-	peerManager, err := p2p.NewPeerManager(selfID, dbm.NewMemDB(), options)
+	peerManager, err := p2p.NewPeerManager(log.NewNopLogger(), selfID, dbm.NewMemDB(), options)
 	require.NoError(t, err)
 
 	added, err := peerManager.Add(a)
@@ -401,7 +402,7 @@ func TestPeerManagerDeleteOnMaxRetries(t *testing.T) {
 		MinRetryTime: 100 * time.Millisecond,
 		MaxRetryTime: 1000 * time.Millisecond,
 	}
-	peerManager, err := p2p.NewPeerManager(selfID, dbm.NewMemDB(), options)
+	peerManager, err := p2p.NewPeerManager(log.NewNopLogger(), selfID, dbm.NewMemDB(), options)
 	require.NoError(t, err)
 
 	added, err := peerManager.Add(a)
@@ -430,12 +431,11 @@ func TestPeerManagerDeleteOnMaxRetries(t *testing.T) {
 	}
 }
 
-
 func TestPeerManager_DialNext_WakeOnDialFailed(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	peerManager, err := p2p.NewPeerManager(selfID, dbm.NewMemDB(), p2p.PeerManagerOptions{
+	peerManager, err := p2p.NewPeerManager(log.NewNopLogger(), selfID, dbm.NewMemDB(), p2p.PeerManagerOptions{
 		MaxConnected: 1,
 	})
 	require.NoError(t, err)
@@ -481,7 +481,7 @@ func TestPeerManager_DialNext_WakeOnDialFailedRetry(t *testing.T) {
 	defer cancel()
 
 	options := p2p.PeerManagerOptions{MinRetryTime: 200 * time.Millisecond}
-	peerManager, err := p2p.NewPeerManager(selfID, dbm.NewMemDB(), options)
+	peerManager, err := p2p.NewPeerManager(log.NewNopLogger(), selfID, dbm.NewMemDB(), options)
 	require.NoError(t, err)
 
 	a := p2p.NodeAddress{Protocol: "memory", NodeID: types.NodeID(strings.Repeat("a", 40))}
@@ -512,7 +512,7 @@ func TestPeerManager_DialNext_WakeOnDisconnected(t *testing.T) {
 
 	a := p2p.NodeAddress{Protocol: "memory", NodeID: types.NodeID(strings.Repeat("a", 40))}
 
-	peerManager, err := p2p.NewPeerManager(selfID, dbm.NewMemDB(), p2p.PeerManagerOptions{})
+	peerManager, err := p2p.NewPeerManager(log.NewNopLogger(), selfID, dbm.NewMemDB(), p2p.PeerManagerOptions{})
 	require.NoError(t, err)
 
 	added, err := peerManager.Add(a)
@@ -544,7 +544,7 @@ func TestPeerManager_TryDialNext_MaxConnected(t *testing.T) {
 	b := p2p.NodeAddress{Protocol: "memory", NodeID: types.NodeID(strings.Repeat("b", 40))}
 	c := p2p.NodeAddress{Protocol: "memory", NodeID: types.NodeID(strings.Repeat("c", 40))}
 
-	peerManager, err := p2p.NewPeerManager(selfID, dbm.NewMemDB(), p2p.PeerManagerOptions{
+	peerManager, err := p2p.NewPeerManager(log.NewNopLogger(), selfID, dbm.NewMemDB(), p2p.PeerManagerOptions{
 		MaxConnected: 2,
 	})
 	require.NoError(t, err)
@@ -585,13 +585,13 @@ func TestPeerManager_TryDialNext_MaxConnectedUpgrade(t *testing.T) {
 	d := p2p.NodeAddress{Protocol: "memory", NodeID: types.NodeID(strings.Repeat("d", 40))}
 	e := p2p.NodeAddress{Protocol: "memory", NodeID: types.NodeID(strings.Repeat("e", 40))}
 
-	peerManager, err := p2p.NewPeerManager(selfID, dbm.NewMemDB(), p2p.PeerManagerOptions{
+	peerManager, err := p2p.NewPeerManager(log.NewNopLogger(), selfID, dbm.NewMemDB(), p2p.PeerManagerOptions{
 		PeerScores: map[types.NodeID]p2p.PeerScore{
-			a.NodeID: 0,
-			b.NodeID: 1,
-			c.NodeID: 2,
-			d.NodeID: 3,
-			e.NodeID: 0,
+			a.NodeID: 10,
+			b.NodeID: 11,
+			c.NodeID: 12,
+			d.NodeID: 13,
+			e.NodeID: 10,
 		},
 		PersistentPeers:     []types.NodeID{c.NodeID, d.NodeID},
 		MaxConnected:        2,
@@ -667,8 +667,8 @@ func TestPeerManager_TryDialNext_UpgradeReservesPeer(t *testing.T) {
 	b := p2p.NodeAddress{Protocol: "memory", NodeID: types.NodeID(strings.Repeat("b", 40))}
 	c := p2p.NodeAddress{Protocol: "memory", NodeID: types.NodeID(strings.Repeat("c", 40))}
 
-	peerManager, err := p2p.NewPeerManager(selfID, dbm.NewMemDB(), p2p.PeerManagerOptions{
-		PeerScores:          map[types.NodeID]p2p.PeerScore{b.NodeID: 1, c.NodeID: 1},
+	peerManager, err := p2p.NewPeerManager(log.NewNopLogger(), selfID, dbm.NewMemDB(), p2p.PeerManagerOptions{
+		PeerScores:          map[types.NodeID]p2p.PeerScore{b.NodeID: 11, c.NodeID: 11},
 		MaxConnected:        1,
 		MaxConnectedUpgrade: 2,
 	})
@@ -709,7 +709,7 @@ func TestPeerManager_TryDialNext_DialingConnected(t *testing.T) {
 	bID := types.NodeID(strings.Repeat("b", 40))
 	b := p2p.NodeAddress{Protocol: "memory", NodeID: bID}
 
-	peerManager, err := p2p.NewPeerManager(selfID, dbm.NewMemDB(), p2p.PeerManagerOptions{
+	peerManager, err := p2p.NewPeerManager(log.NewNopLogger(), selfID, dbm.NewMemDB(), p2p.PeerManagerOptions{
 		MaxConnected: 2,
 	})
 	require.NoError(t, err)
@@ -759,7 +759,7 @@ func TestPeerManager_TryDialNext_Multiple(t *testing.T) {
 		{Protocol: "tcp", NodeID: bID, Hostname: "::1"},
 	}
 
-	peerManager, err := p2p.NewPeerManager(selfID, dbm.NewMemDB(), p2p.PeerManagerOptions{})
+	peerManager, err := p2p.NewPeerManager(log.NewNopLogger(), selfID, dbm.NewMemDB(), p2p.PeerManagerOptions{})
 	require.NoError(t, err)
 
 	for _, address := range addresses {
@@ -792,7 +792,7 @@ func TestPeerManager_DialFailed(t *testing.T) {
 	bID := types.NodeID(strings.Repeat("b", 40))
 	b := p2p.NodeAddress{Protocol: "memory", NodeID: bID}
 
-	peerManager, err := p2p.NewPeerManager(selfID, dbm.NewMemDB(), p2p.PeerManagerOptions{})
+	peerManager, err := p2p.NewPeerManager(log.NewNopLogger(), selfID, dbm.NewMemDB(), p2p.PeerManagerOptions{})
 	require.NoError(t, err)
 
 	added, err := peerManager.Add(a)
@@ -833,8 +833,8 @@ func TestPeerManager_DialFailed_UnreservePeer(t *testing.T) {
 	b := p2p.NodeAddress{Protocol: "memory", NodeID: types.NodeID(strings.Repeat("b", 40))}
 	c := p2p.NodeAddress{Protocol: "memory", NodeID: types.NodeID(strings.Repeat("c", 40))}
 
-	peerManager, err := p2p.NewPeerManager(selfID, dbm.NewMemDB(), p2p.PeerManagerOptions{
-		PeerScores:          map[types.NodeID]p2p.PeerScore{b.NodeID: 1, c.NodeID: 1},
+	peerManager, err := p2p.NewPeerManager(log.NewNopLogger(), selfID, dbm.NewMemDB(), p2p.PeerManagerOptions{
+		PeerScores:          map[types.NodeID]p2p.PeerScore{b.NodeID: 11, c.NodeID: 11},
 		MaxConnected:        1,
 		MaxConnectedUpgrade: 2,
 	})
@@ -878,7 +878,7 @@ func TestPeerManager_Dialed_Connected(t *testing.T) {
 	a := p2p.NodeAddress{Protocol: "memory", NodeID: types.NodeID(strings.Repeat("a", 40))}
 	b := p2p.NodeAddress{Protocol: "memory", NodeID: types.NodeID(strings.Repeat("b", 40))}
 
-	peerManager, err := p2p.NewPeerManager(selfID, dbm.NewMemDB(), p2p.PeerManagerOptions{})
+	peerManager, err := p2p.NewPeerManager(log.NewNopLogger(), selfID, dbm.NewMemDB(), p2p.PeerManagerOptions{})
 	require.NoError(t, err)
 
 	// Marking a as dialed twice should error.
@@ -905,7 +905,7 @@ func TestPeerManager_Dialed_Connected(t *testing.T) {
 }
 
 func TestPeerManager_Dialed_Self(t *testing.T) {
-	peerManager, err := p2p.NewPeerManager(selfID, dbm.NewMemDB(), p2p.PeerManagerOptions{})
+	peerManager, err := p2p.NewPeerManager(log.NewNopLogger(), selfID, dbm.NewMemDB(), p2p.PeerManagerOptions{})
 	require.NoError(t, err)
 
 	// Dialing self should error.
@@ -917,7 +917,7 @@ func TestPeerManager_Dialed_MaxConnected(t *testing.T) {
 	a := p2p.NodeAddress{Protocol: "memory", NodeID: types.NodeID(strings.Repeat("a", 40))}
 	b := p2p.NodeAddress{Protocol: "memory", NodeID: types.NodeID(strings.Repeat("b", 40))}
 
-	peerManager, err := p2p.NewPeerManager(selfID, dbm.NewMemDB(), p2p.PeerManagerOptions{
+	peerManager, err := p2p.NewPeerManager(log.NewNopLogger(), selfID, dbm.NewMemDB(), p2p.PeerManagerOptions{
 		MaxConnected: 1,
 	})
 	require.NoError(t, err)
@@ -947,10 +947,10 @@ func TestPeerManager_Dialed_MaxConnectedUpgrade(t *testing.T) {
 	c := p2p.NodeAddress{Protocol: "memory", NodeID: types.NodeID(strings.Repeat("c", 40))}
 	d := p2p.NodeAddress{Protocol: "memory", NodeID: types.NodeID(strings.Repeat("d", 40))}
 
-	peerManager, err := p2p.NewPeerManager(selfID, dbm.NewMemDB(), p2p.PeerManagerOptions{
+	peerManager, err := p2p.NewPeerManager(log.NewNopLogger(), selfID, dbm.NewMemDB(), p2p.PeerManagerOptions{
 		MaxConnected:        2,
 		MaxConnectedUpgrade: 1,
-		PeerScores:          map[types.NodeID]p2p.PeerScore{c.NodeID: 1, d.NodeID: 1},
+		PeerScores:          map[types.NodeID]p2p.PeerScore{c.NodeID: 11, d.NodeID: 11},
 	})
 	require.NoError(t, err)
 
@@ -985,7 +985,7 @@ func TestPeerManager_Dialed_MaxConnectedUpgrade(t *testing.T) {
 func TestPeerManager_Dialed_Unknown(t *testing.T) {
 	a := p2p.NodeAddress{Protocol: "memory", NodeID: types.NodeID(strings.Repeat("a", 40))}
 
-	peerManager, err := p2p.NewPeerManager(selfID, dbm.NewMemDB(), p2p.PeerManagerOptions{})
+	peerManager, err := p2p.NewPeerManager(log.NewNopLogger(), selfID, dbm.NewMemDB(), p2p.PeerManagerOptions{})
 	require.NoError(t, err)
 
 	// Marking an unknown node as dialed should error.
@@ -997,10 +997,10 @@ func TestPeerManager_Dialed_Upgrade(t *testing.T) {
 	b := p2p.NodeAddress{Protocol: "memory", NodeID: types.NodeID(strings.Repeat("b", 40))}
 	c := p2p.NodeAddress{Protocol: "memory", NodeID: types.NodeID(strings.Repeat("c", 40))}
 
-	peerManager, err := p2p.NewPeerManager(selfID, dbm.NewMemDB(), p2p.PeerManagerOptions{
+	peerManager, err := p2p.NewPeerManager(log.NewNopLogger(), selfID, dbm.NewMemDB(), p2p.PeerManagerOptions{
 		MaxConnected:        1,
 		MaxConnectedUpgrade: 2,
-		PeerScores:          map[types.NodeID]p2p.PeerScore{b.NodeID: 1, c.NodeID: 1},
+		PeerScores:          map[types.NodeID]p2p.PeerScore{b.NodeID: 11, c.NodeID: 11},
 	})
 	require.NoError(t, err)
 
@@ -1043,7 +1043,7 @@ func TestPeerManager_Dialed_UpgradeEvenLower(t *testing.T) {
 	c := p2p.NodeAddress{Protocol: "memory", NodeID: types.NodeID(strings.Repeat("c", 40))}
 	d := p2p.NodeAddress{Protocol: "memory", NodeID: types.NodeID(strings.Repeat("d", 40))}
 
-	peerManager, err := p2p.NewPeerManager(selfID, dbm.NewMemDB(), p2p.PeerManagerOptions{
+	peerManager, err := p2p.NewPeerManager(log.NewNopLogger(), selfID, dbm.NewMemDB(), p2p.PeerManagerOptions{
 		MaxConnected:        2,
 		MaxConnectedUpgrade: 1,
 		PeerScores: map[types.NodeID]p2p.PeerScore{
@@ -1099,7 +1099,7 @@ func TestPeerManager_Dialed_UpgradeNoEvict(t *testing.T) {
 	b := p2p.NodeAddress{Protocol: "memory", NodeID: types.NodeID(strings.Repeat("b", 40))}
 	c := p2p.NodeAddress{Protocol: "memory", NodeID: types.NodeID(strings.Repeat("c", 40))}
 
-	peerManager, err := p2p.NewPeerManager(selfID, dbm.NewMemDB(), p2p.PeerManagerOptions{
+	peerManager, err := p2p.NewPeerManager(log.NewNopLogger(), selfID, dbm.NewMemDB(), p2p.PeerManagerOptions{
 		MaxConnected:        2,
 		MaxConnectedUpgrade: 1,
 		PeerScores: map[types.NodeID]p2p.PeerScore{
@@ -1147,7 +1147,7 @@ func TestPeerManager_Accepted(t *testing.T) {
 	c := p2p.NodeAddress{Protocol: "memory", NodeID: types.NodeID(strings.Repeat("c", 40))}
 	d := p2p.NodeAddress{Protocol: "memory", NodeID: types.NodeID(strings.Repeat("d", 40))}
 
-	peerManager, err := p2p.NewPeerManager(selfID, dbm.NewMemDB(), p2p.PeerManagerOptions{})
+	peerManager, err := p2p.NewPeerManager(log.NewNopLogger(), selfID, dbm.NewMemDB(), p2p.PeerManagerOptions{})
 	require.NoError(t, err)
 
 	// Accepting a connection from self should error.
@@ -1193,7 +1193,7 @@ func TestPeerManager_Accepted_MaxConnected(t *testing.T) {
 	b := p2p.NodeAddress{Protocol: "memory", NodeID: types.NodeID(strings.Repeat("b", 40))}
 	c := p2p.NodeAddress{Protocol: "memory", NodeID: types.NodeID(strings.Repeat("c", 40))}
 
-	peerManager, err := p2p.NewPeerManager(selfID, dbm.NewMemDB(), p2p.PeerManagerOptions{
+	peerManager, err := p2p.NewPeerManager(log.NewNopLogger(), selfID, dbm.NewMemDB(), p2p.PeerManagerOptions{
 		MaxConnected: 2,
 	})
 	require.NoError(t, err)
@@ -1222,10 +1222,10 @@ func TestPeerManager_Accepted_MaxConnectedUpgrade(t *testing.T) {
 	c := p2p.NodeAddress{Protocol: "memory", NodeID: types.NodeID(strings.Repeat("c", 40))}
 	d := p2p.NodeAddress{Protocol: "memory", NodeID: types.NodeID(strings.Repeat("d", 40))}
 
-	peerManager, err := p2p.NewPeerManager(selfID, dbm.NewMemDB(), p2p.PeerManagerOptions{
+	peerManager, err := p2p.NewPeerManager(log.NewNopLogger(), selfID, dbm.NewMemDB(), p2p.PeerManagerOptions{
 		PeerScores: map[types.NodeID]p2p.PeerScore{
-			c.NodeID: 1,
-			d.NodeID: 2,
+			c.NodeID: 11,
+			d.NodeID: 12,
 		},
 		MaxConnected:        1,
 		MaxConnectedUpgrade: 1,
@@ -1270,10 +1270,10 @@ func TestPeerManager_Accepted_Upgrade(t *testing.T) {
 	b := p2p.NodeAddress{Protocol: "memory", NodeID: types.NodeID(strings.Repeat("b", 40))}
 	c := p2p.NodeAddress{Protocol: "memory", NodeID: types.NodeID(strings.Repeat("c", 40))}
 
-	peerManager, err := p2p.NewPeerManager(selfID, dbm.NewMemDB(), p2p.PeerManagerOptions{
+	peerManager, err := p2p.NewPeerManager(log.NewNopLogger(), selfID, dbm.NewMemDB(), p2p.PeerManagerOptions{
 		PeerScores: map[types.NodeID]p2p.PeerScore{
-			b.NodeID: 1,
-			c.NodeID: 1,
+			b.NodeID: 11,
+			c.NodeID: 11,
 		},
 		MaxConnected:        1,
 		MaxConnectedUpgrade: 2,
@@ -1313,10 +1313,10 @@ func TestPeerManager_Accepted_UpgradeDialing(t *testing.T) {
 	b := p2p.NodeAddress{Protocol: "memory", NodeID: types.NodeID(strings.Repeat("b", 40))}
 	c := p2p.NodeAddress{Protocol: "memory", NodeID: types.NodeID(strings.Repeat("c", 40))}
 
-	peerManager, err := p2p.NewPeerManager(selfID, dbm.NewMemDB(), p2p.PeerManagerOptions{
+	peerManager, err := p2p.NewPeerManager(log.NewNopLogger(), selfID, dbm.NewMemDB(), p2p.PeerManagerOptions{
 		PeerScores: map[types.NodeID]p2p.PeerScore{
-			b.NodeID: 1,
-			c.NodeID: 1,
+			b.NodeID: 11,
+			c.NodeID: 11,
 		},
 		MaxConnected:        1,
 		MaxConnectedUpgrade: 2,
@@ -1362,7 +1362,7 @@ func TestPeerManager_Ready(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	peerManager, err := p2p.NewPeerManager(selfID, dbm.NewMemDB(), p2p.PeerManagerOptions{})
+	peerManager, err := p2p.NewPeerManager(log.NewNopLogger(), selfID, dbm.NewMemDB(), p2p.PeerManagerOptions{})
 	require.NoError(t, err)
 
 	sub := peerManager.Subscribe(ctx)
@@ -1396,7 +1396,7 @@ func TestPeerManager_Ready_Channels(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	pm, err := p2p.NewPeerManager(selfID, dbm.NewMemDB(), p2p.PeerManagerOptions{})
+	pm, err := p2p.NewPeerManager(log.NewNopLogger(), selfID, dbm.NewMemDB(), p2p.PeerManagerOptions{})
 	require.NoError(t, err)
 
 	sub := pm.Subscribe(ctx)
@@ -1422,7 +1422,7 @@ func TestPeerManager_EvictNext(t *testing.T) {
 
 	a := p2p.NodeAddress{Protocol: "memory", NodeID: types.NodeID(strings.Repeat("a", 40))}
 
-	peerManager, err := p2p.NewPeerManager(selfID, dbm.NewMemDB(), p2p.PeerManagerOptions{})
+	peerManager, err := p2p.NewPeerManager(log.NewNopLogger(), selfID, dbm.NewMemDB(), p2p.PeerManagerOptions{})
 	require.NoError(t, err)
 
 	added, err := peerManager.Add(a)
@@ -1458,7 +1458,7 @@ func TestPeerManager_EvictNext_WakeOnError(t *testing.T) {
 
 	a := p2p.NodeAddress{Protocol: "memory", NodeID: types.NodeID(strings.Repeat("a", 40))}
 
-	peerManager, err := p2p.NewPeerManager(selfID, dbm.NewMemDB(), p2p.PeerManagerOptions{})
+	peerManager, err := p2p.NewPeerManager(log.NewNopLogger(), selfID, dbm.NewMemDB(), p2p.PeerManagerOptions{})
 	require.NoError(t, err)
 
 	added, err := peerManager.Add(a)
@@ -1488,10 +1488,10 @@ func TestPeerManager_EvictNext_WakeOnUpgradeDialed(t *testing.T) {
 	a := p2p.NodeAddress{Protocol: "memory", NodeID: types.NodeID(strings.Repeat("a", 40))}
 	b := p2p.NodeAddress{Protocol: "memory", NodeID: types.NodeID(strings.Repeat("b", 40))}
 
-	peerManager, err := p2p.NewPeerManager(selfID, dbm.NewMemDB(), p2p.PeerManagerOptions{
+	peerManager, err := p2p.NewPeerManager(log.NewNopLogger(), selfID, dbm.NewMemDB(), p2p.PeerManagerOptions{
 		MaxConnected:        1,
 		MaxConnectedUpgrade: 1,
-		PeerScores:          map[types.NodeID]p2p.PeerScore{b.NodeID: 1},
+		PeerScores:          map[types.NodeID]p2p.PeerScore{b.NodeID: 11},
 	})
 	require.NoError(t, err)
 
@@ -1529,10 +1529,10 @@ func TestPeerManager_EvictNext_WakeOnUpgradeAccepted(t *testing.T) {
 	a := p2p.NodeAddress{Protocol: "memory", NodeID: types.NodeID(strings.Repeat("a", 40))}
 	b := p2p.NodeAddress{Protocol: "memory", NodeID: types.NodeID(strings.Repeat("b", 40))}
 
-	peerManager, err := p2p.NewPeerManager(selfID, dbm.NewMemDB(), p2p.PeerManagerOptions{
+	peerManager, err := p2p.NewPeerManager(log.NewNopLogger(), selfID, dbm.NewMemDB(), p2p.PeerManagerOptions{
 		MaxConnected:        1,
 		MaxConnectedUpgrade: 1,
-		PeerScores:          map[types.NodeID]p2p.PeerScore{b.NodeID: 1},
+		PeerScores:          map[types.NodeID]p2p.PeerScore{b.NodeID: 11},
 	})
 	require.NoError(t, err)
 
@@ -1562,7 +1562,7 @@ func TestPeerManager_TryEvictNext(t *testing.T) {
 
 	a := p2p.NodeAddress{Protocol: "memory", NodeID: types.NodeID(strings.Repeat("a", 40))}
 
-	peerManager, err := p2p.NewPeerManager(selfID, dbm.NewMemDB(), p2p.PeerManagerOptions{})
+	peerManager, err := p2p.NewPeerManager(log.NewNopLogger(), selfID, dbm.NewMemDB(), p2p.PeerManagerOptions{})
 	require.NoError(t, err)
 
 	added, err := peerManager.Add(a)
@@ -1598,7 +1598,7 @@ func TestPeerManager_TryEvictNext(t *testing.T) {
 func TestPeerManager_Disconnected(t *testing.T) {
 	a := p2p.NodeAddress{Protocol: "memory", NodeID: types.NodeID(strings.Repeat("a", 40))}
 
-	peerManager, err := p2p.NewPeerManager(selfID, dbm.NewMemDB(), p2p.PeerManagerOptions{})
+	peerManager, err := p2p.NewPeerManager(log.NewNopLogger(), selfID, dbm.NewMemDB(), p2p.PeerManagerOptions{})
 	require.NoError(t, err)
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -1657,7 +1657,7 @@ func TestPeerManager_Errored(t *testing.T) {
 
 	a := p2p.NodeAddress{Protocol: "memory", NodeID: types.NodeID(strings.Repeat("a", 40))}
 
-	peerManager, err := p2p.NewPeerManager(selfID, dbm.NewMemDB(), p2p.PeerManagerOptions{})
+	peerManager, err := p2p.NewPeerManager(log.NewNopLogger(), selfID, dbm.NewMemDB(), p2p.PeerManagerOptions{})
 	require.NoError(t, err)
 
 	// Erroring an unknown peer does nothing.
@@ -1696,7 +1696,7 @@ func TestPeerManager_Subscribe(t *testing.T) {
 
 	a := p2p.NodeAddress{Protocol: "memory", NodeID: types.NodeID(strings.Repeat("a", 40))}
 
-	peerManager, err := p2p.NewPeerManager(selfID, dbm.NewMemDB(), p2p.PeerManagerOptions{})
+	peerManager, err := p2p.NewPeerManager(log.NewNopLogger(), selfID, dbm.NewMemDB(), p2p.PeerManagerOptions{})
 	require.NoError(t, err)
 
 	// This tests all subscription events for full peer lifecycles.
@@ -1759,7 +1759,7 @@ func TestPeerManager_Subscribe_Close(t *testing.T) {
 
 	a := p2p.NodeAddress{Protocol: "memory", NodeID: types.NodeID(strings.Repeat("a", 40))}
 
-	peerManager, err := p2p.NewPeerManager(selfID, dbm.NewMemDB(), p2p.PeerManagerOptions{})
+	peerManager, err := p2p.NewPeerManager(log.NewNopLogger(), selfID, dbm.NewMemDB(), p2p.PeerManagerOptions{})
 	require.NoError(t, err)
 
 	sub := peerManager.Subscribe(ctx)
@@ -1788,7 +1788,7 @@ func TestPeerManager_Subscribe_Broadcast(t *testing.T) {
 
 	a := p2p.NodeAddress{Protocol: "memory", NodeID: types.NodeID(strings.Repeat("a", 40))}
 
-	peerManager, err := p2p.NewPeerManager(selfID, dbm.NewMemDB(), p2p.PeerManagerOptions{})
+	peerManager, err := p2p.NewPeerManager(log.NewNopLogger(), selfID, dbm.NewMemDB(), p2p.PeerManagerOptions{})
 	require.NoError(t, err)
 
 	s2ctx, s2cancel := context.WithCancel(ctx)
@@ -1836,7 +1836,7 @@ func TestPeerManager_Close(t *testing.T) {
 
 	a := p2p.NodeAddress{Protocol: "memory", NodeID: types.NodeID(strings.Repeat("a", 40))}
 
-	peerManager, err := p2p.NewPeerManager(selfID, dbm.NewMemDB(), p2p.PeerManagerOptions{
+	peerManager, err := p2p.NewPeerManager(log.NewNopLogger(), selfID, dbm.NewMemDB(), p2p.PeerManagerOptions{
 		MinRetryTime: 10 * time.Second,
 	})
 	require.NoError(t, err)
@@ -1872,7 +1872,7 @@ func TestPeerManager_Advertise(t *testing.T) {
 	dID := types.NodeID(strings.Repeat("d", 40))
 
 	// Create an initial peer manager and add the peers.
-	peerManager, err := p2p.NewPeerManager(selfID, dbm.NewMemDB(), p2p.PeerManagerOptions{
+	peerManager, err := p2p.NewPeerManager(log.NewNopLogger(), selfID, dbm.NewMemDB(), p2p.PeerManagerOptions{
 		PeerScores: map[types.NodeID]p2p.PeerScore{aID: 3, bID: 2, cID: 1},
 	})
 	require.NoError(t, err)
@@ -1921,7 +1921,7 @@ func TestPeerManager_Advertise_Self(t *testing.T) {
 	self := p2p.NodeAddress{Protocol: "tcp", NodeID: selfID, Hostname: "2001:db8::1", Port: 26657}
 
 	// Create a peer manager with SelfAddress defined.
-	peerManager, err := p2p.NewPeerManager(selfID, dbm.NewMemDB(), p2p.PeerManagerOptions{
+	peerManager, err := p2p.NewPeerManager(log.NewNopLogger(), selfID, dbm.NewMemDB(), p2p.PeerManagerOptions{
 		SelfAddress: self,
 	})
 	require.NoError(t, err)
