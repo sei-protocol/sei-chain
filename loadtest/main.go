@@ -414,7 +414,8 @@ func (c *LoadTestClient) generateStakingMsg(delegatorAddr string, chosenValidato
 func (c *LoadTestClient) generateVortexOrder(config Config, key cryptotypes.PrivKey) []sdk.Msg {
 	var msgs []sdk.Msg
 	contract := config.WasmMsgTypes.Vortex.ContractAddr
-	// If short order
+
+	// Randomly select Position Direction
 	var direction dextypes.PositionDirection
 	if rand.Float64() < 0.5 {
 		direction = dextypes.PositionDirection_LONG
@@ -422,6 +423,7 @@ func (c *LoadTestClient) generateVortexOrder(config Config, key cryptotypes.Priv
 		direction = dextypes.PositionDirection_SHORT
 	}
 
+	// Sample Dex Order Type
 	var orderType dextypes.OrderType
 	msgType := config.MsgTypeDistr.SampleDexMsgs()
 
@@ -434,6 +436,7 @@ func (c *LoadTestClient) generateVortexOrder(config Config, key cryptotypes.Priv
 		panic(fmt.Sprintf("Unknown message type %s\n", msgType))
 	}
 
+	// Generate Amount
 	price := config.PriceDistr.Sample()
 	quantity := config.QuantityDistr.Sample()
 	amount, err := sdk.ParseCoinsNormalized(fmt.Sprintf("%d%s", price.Mul(quantity).Ceil().RoundInt64(), "usei"))
