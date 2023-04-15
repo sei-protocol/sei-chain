@@ -44,12 +44,15 @@
     },
     "constant": true,
     "loadtest_interval": 600,
-    "message_type": "bank,dex,tokenfactory,staking,failure_dex_malformed,failure_dex_invalid,collect_rewards,distribute_rewards",
+    "message_type": "bank,dex,tokenfactory,staking,failure_dex_malformed,failure_dex_invalid,collect_rewards,distribute_rewards,vortex",
     "run_oracle": false,
     "metrics_port": 9695,
     "wasm_msg_types": {
       "wasm_mint_nft": {
         "contract_address": "sei1k83mp2vdgk57rgyuzrmm8yhume44lwtwmku5a7v3waanqe0qxkvssfjfvj"
+      },
+      "vortex": {
+        "contract_address": "sei12k3aacdygvjuran5hz60067pgu2uuuscz3styw2zk3q4aedj0v2sjq3tsj"
       }
     },
     "contract_distribution": [

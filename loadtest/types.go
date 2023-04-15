@@ -25,6 +25,7 @@ const (
 	Limit                string = "limit"
 	Market               string = "market"
 	WasmMintNft          string = "wasm_mint_nft"
+	Vortex               string = "vortex"
 )
 
 type Config struct {
@@ -106,6 +107,7 @@ type MsgTypeDistribution struct {
 // TODO: Abstract interface for any wasm type + execute msg
 type WasmMessageTypes struct {
 	MintNftType WasmMintNftType `json:"wasm_mint_nft"`
+	Vortex      VortexContract  `json:"vortex"`
 }
 
 type WasmMintNftType struct {
@@ -156,4 +158,8 @@ func (d *ContractDistributions) Sample() string {
 type ContractDistribution struct {
 	ContractAddr string  `json:"contract_address"`
 	Percentage   sdk.Dec `json:"percentage"`
+}
+
+type VortexContract struct {
+	ContractAddr string `json:"contract_address"`
 }

@@ -115,8 +115,8 @@ func (c *LoadTestClient) getRandomMessageType(messageTypes []string) string {
 	return messageType
 }
 
-func (c *LoadTestClient) generateMessage(config Config, key cryptotypes.PrivKey, msgPerTx uint64) (sdk.Msg, bool, cryptotypes.PrivKey, uint64, int64) {
-	var msg sdk.Msg
+func (c *LoadTestClient) generateMessage(config Config, key cryptotypes.PrivKey, msgPerTx uint64) ([]sdk.Msg, bool, cryptotypes.PrivKey, uint64, int64) {
+	var msgs []sdk.Msg
 	messageTypes := strings.Split(config.MessageType, ",")
 	messageType := c.getRandomMessageType(messageTypes)
 	fmt.Printf("Message type: %s\n", messageType)
@@ -136,6 +136,8 @@ func (c *LoadTestClient) generateMessage(config Config, key cryptotypes.PrivKey,
 	}
 
 	switch messageType {
+	case Vortex:
+		msgs = c.generateVortexOrder(config, key)
 	case WasmMintNft:
 		contract := config.WasmMsgTypes.MintNftType.ContractAddr
 		// TODO: Potentially just hard code the Funds amount here
@@ -145,31 +147,31 @@ func (c *LoadTestClient) generateMessage(config Config, key cryptotypes.PrivKey,
 		if err != nil {
 			panic(err)
 		}
-		msg = &wasmtypes.MsgExecuteContract{
+		msgs = []sdk.Msg{&wasmtypes.MsgExecuteContract{
 			Sender:   sdk.AccAddress(key.PubKey().Address()).String(),
 			Contract: contract,
 			Msg:      wasmtypes.RawContractMessage([]byte("{\"mint\":{\"owner\": \"sei1a27kj2j27c6uz58rn9zmhcjee9s3h3nhyhtvjj\"}}")),
 			Funds:    amount,
-		}
+		}}
 	case Bank:
-		msg = &banktypes.MsgSend{
+		msgs = []sdk.Msg{&banktypes.MsgSend{
 			FromAddress: sdk.AccAddress(key.PubKey().Address()).String(),
 			ToAddress:   sdk.AccAddress(key.PubKey().Address()).String(),
 			Amount: sdk.NewCoins(sdk.Coin{
 				Denom:  "usei",
 				Amount: sdk.NewInt(1),
 			}),
-		}
+		}}
 	case DistributeRewards:
 		adminKey := c.SignerClient.GetAdminKey()
-		msg = &banktypes.MsgSend{
+		msgs = []sdk.Msg{&banktypes.MsgSend{
 			FromAddress: sdk.AccAddress(adminKey.PubKey().Address()).String(),
 			ToAddress:   sdk.AccAddress(key.PubKey().Address()).String(),
 			Amount: sdk.NewCoins(sdk.Coin{
 				Denom:  "usei",
 				Amount: sdk.NewInt(10000000),
 			}),
-		}
+		}}
 		signer = adminKey
 		gas = 10000000
 		fee = 1000000
@@ -182,10 +184,10 @@ func (c *LoadTestClient) generateMessage(config Config, key cryptotypes.PrivKey,
 		if err != nil {
 			panic(err.Error())
 		}
-		msg = distributiontypes.NewMsgWithdrawDelegatorReward(
+		msgs = []sdk.Msg{distributiontypes.NewMsgWithdrawDelegatorReward(
 			delegatorAddr,
 			randomValidatorAddr,
-		)
+		)}
 		fmt.Printf("Collecting rewards from %s \n", operatorAddress)
 		signer = adminKey
 		gas = 10000000
@@ -199,12 +201,12 @@ func (c *LoadTestClient) generateMessage(config Config, key cryptotypes.PrivKey,
 		if err != nil {
 			panic(err)
 		}
-		msg = &dextypes.MsgPlaceOrders{
+		msgs = []sdk.Msg{&dextypes.MsgPlaceOrders{
 			Creator:      sdk.AccAddress(key.PubKey().Address()).String(),
 			Orders:       orderPlacements,
 			ContractAddr: contract,
 			Funds:        amount,
-		}
+		}}
 	case Staking:
 		delegatorAddr := sdk.AccAddress(key.PubKey().Address()).String()
 		chosenValidator := c.Validators[rand.Intn(len(c.Validators))].OperatorAddress
@@ -217,7 +219,7 @@ func (c *LoadTestClient) generateMessage(config Config, key cryptotypes.PrivKey,
 			srcAddr = k
 			break
 		}
-		msg = c.generateStakingMsg(delegatorAddr, chosenValidator, srcAddr)
+		msgs = []sdk.Msg{c.generateStakingMsg(delegatorAddr, chosenValidator, srcAddr)}
 	case Tokenfactory:
 		denomCreatorAddr := sdk.AccAddress(key.PubKey().Address()).String()
 		// No denoms, let's mint
@@ -227,21 +229,21 @@ func (c *LoadTestClient) generateMessage(config Config, key cryptotypes.PrivKey,
 		case !ok || randNum <= 0.33:
 			subDenom := fmt.Sprintf("tokenfactory-created-denom-%d", time.Now().UnixMilli())
 			denom = fmt.Sprintf("factory/%s/%s", denomCreatorAddr, subDenom)
-			msg = &tokenfactorytypes.MsgCreateDenom{
+			msgs = []sdk.Msg{&tokenfactorytypes.MsgCreateDenom{
 				Sender:   denomCreatorAddr,
 				Subdenom: subDenom,
-			}
+			}}
 			c.TokenFactoryDenomOwner[denomCreatorAddr] = denom
 		case randNum <= 0.66:
-			msg = &tokenfactorytypes.MsgMint{
+			msgs = []sdk.Msg{&tokenfactorytypes.MsgMint{
 				Sender: denomCreatorAddr,
 				Amount: sdk.Coin{Denom: denom, Amount: sdk.NewInt(10)},
-			}
+			}}
 		default:
-			msg = &tokenfactorytypes.MsgBurn{
+			msgs = []sdk.Msg{&tokenfactorytypes.MsgBurn{
 				Sender: denomCreatorAddr,
 				Amount: sdk.Coin{Denom: denom, Amount: sdk.NewInt(1)},
-			}
+			}}
 		}
 	case FailureBankMalformed:
 		var denom string
@@ -250,25 +252,25 @@ func (c *LoadTestClient) generateMessage(config Config, key cryptotypes.PrivKey,
 		} else {
 			denom = "other"
 		}
-		msg = &banktypes.MsgSend{
+		msgs = []sdk.Msg{&banktypes.MsgSend{
 			FromAddress: sdk.AccAddress(key.PubKey().Address()).String(),
 			ToAddress:   sdk.AccAddress(key.PubKey().Address()).String(),
 			Amount: sdk.NewCoins(sdk.Coin{
 				Denom:  denom,
 				Amount: sdk.NewInt(1),
 			}),
-		}
+		}}
 	case FailureBankInvalid:
 		var amountUsei int64
 		amountUsei = 1000000000000000000
-		msg = &banktypes.MsgSend{
+		msgs = []sdk.Msg{&banktypes.MsgSend{
 			FromAddress: sdk.AccAddress(key.PubKey().Address()).String(),
 			ToAddress:   sdk.AccAddress(key.PubKey().Address()).String(),
 			Amount: sdk.NewCoins(sdk.Coin{
 				Denom:  "usei",
 				Amount: sdk.NewInt(amountUsei),
 			}),
-		}
+		}}
 	case FailureDexMalformed:
 		price := config.PriceDistr.InvalidSample()
 		quantity := config.QuantityDistr.InvalidSample()
@@ -278,12 +280,12 @@ func (c *LoadTestClient) generateMessage(config Config, key cryptotypes.PrivKey,
 		if err != nil {
 			panic(err)
 		}
-		msg = &dextypes.MsgPlaceOrders{
+		msgs = []sdk.Msg{&dextypes.MsgPlaceOrders{
 			Creator:      sdk.AccAddress(key.PubKey().Address()).String(),
 			Orders:       orderPlacements,
 			ContractAddr: contract,
 			Funds:        amount,
-		}
+		}}
 	case FailureDexInvalid:
 		price := config.PriceDistr.Sample()
 		quantity := config.QuantityDistr.Sample()
@@ -299,21 +301,21 @@ func (c *LoadTestClient) generateMessage(config Config, key cryptotypes.PrivKey,
 		if err != nil {
 			panic(err)
 		}
-		msg = &dextypes.MsgPlaceOrders{
+		msgs = []sdk.Msg{&dextypes.MsgPlaceOrders{
 			Creator:      sdk.AccAddress(key.PubKey().Address()).String(),
 			Orders:       orderPlacements,
 			ContractAddr: contract,
 			Funds:        amount,
-		}
+		}}
 
 	default:
 		fmt.Printf("Unrecognized message type %s", config.MessageType)
 	}
 
 	if strings.Contains(config.MessageType, "failure") {
-		return msg, true, signer, gas, int64(fee)
+		return msgs, true, signer, gas, int64(fee)
 	}
-	return msg, false, signer, gas, int64(fee)
+	return msgs, false, signer, gas, int64(fee)
 }
 
 func sampleDexOrderType(config Config) (orderType dextypes.OrderType) {
@@ -407,6 +409,70 @@ func (c *LoadTestClient) generateStakingMsg(delegatorAddr string, chosenValidato
 		}
 	}
 	return msg
+}
+
+func (c *LoadTestClient) generateVortexOrder(config Config, key cryptotypes.PrivKey) []sdk.Msg {
+	var msgs []sdk.Msg
+	contract := config.WasmMsgTypes.Vortex.ContractAddr
+	// If short order
+	var direction dextypes.PositionDirection
+	if rand.Float64() < 0.5 {
+		direction = dextypes.PositionDirection_LONG
+	} else {
+		direction = dextypes.PositionDirection_SHORT
+	}
+
+	var orderType dextypes.OrderType
+	msgType := config.MsgTypeDistr.SampleDexMsgs()
+
+	switch msgType {
+	case Limit:
+		orderType = dextypes.OrderType_LIMIT
+	case Market:
+		orderType = dextypes.OrderType_MARKET
+	default:
+		panic(fmt.Sprintf("Unknown message type %s\n", msgType))
+	}
+
+	price := config.PriceDistr.Sample()
+	quantity := config.QuantityDistr.Sample()
+	amount, err := sdk.ParseCoinsNormalized(fmt.Sprintf("%d%s", price.Mul(quantity).Ceil().RoundInt64(), "usei"))
+	if err != nil {
+		panic(err)
+	}
+
+	// If placing short order on vortex, first deposit for buying power
+	if direction == dextypes.PositionDirection_SHORT {
+		vortexDeposit := &wasmtypes.MsgExecuteContract{
+			Sender:   sdk.AccAddress(key.PubKey().Address()).String(),
+			Contract: contract,
+			Msg:      wasmtypes.RawContractMessage([]byte("{\"deposit\":{}}")),
+			Funds:    amount,
+		}
+		msgs = append(msgs, vortexDeposit)
+	}
+
+	vortexOrder := &dextypes.Order{
+		Account:           sdk.AccAddress(key.PubKey().Address()).String(),
+		ContractAddr:      contract,
+		PositionDirection: direction,
+		Price:             price.Quo(FromMili),
+		Quantity:          quantity.Quo(FromMili),
+		PriceDenom:        "SEI",
+		AssetDenom:        "ATOM",
+		OrderType:         orderType,
+		Data:              VortexData,
+	}
+	vortexOrderMsg := &dextypes.MsgPlaceOrders{
+		Creator:      sdk.AccAddress(key.PubKey().Address()).String(),
+		Orders:       []*dextypes.Order{vortexOrder},
+		ContractAddr: contract,
+		Funds:        amount,
+	}
+
+	msgs = append(msgs, vortexOrderMsg)
+
+	return msgs
 }
 
 func getLastHeight(blockchainEndpoint string) int {
