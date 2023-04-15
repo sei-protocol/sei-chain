@@ -137,7 +137,9 @@ func (c *LoadTestClient) generateMessage(config Config, key cryptotypes.PrivKey,
 
 	switch messageType {
 	case Vortex:
-		msgs = c.generateVortexOrder(config, key, config.WasmMsgTypes.Vortex.NumOrdersPerTx)
+		price := config.PriceDistr.Sample()
+		quantity := config.QuantityDistr.Sample()
+		msgs = c.generateVortexOrder(config, key, config.WasmMsgTypes.Vortex.NumOrdersPerTx, price, quantity)
 	case WasmMintNft:
 		contract := config.WasmMsgTypes.MintNftType.ContractAddr
 		// TODO: Potentially just hard code the Funds amount here
@@ -412,7 +414,7 @@ func (c *LoadTestClient) generateStakingMsg(delegatorAddr string, chosenValidato
 }
 
 // generateVortexOrder generates Vortex order messages. If short order, creates a deposit message first
-func (c *LoadTestClient) generateVortexOrder(config Config, key cryptotypes.PrivKey, numOrders int64) []sdk.Msg {
+func (c *LoadTestClient) generateVortexOrder(config Config, key cryptotypes.PrivKey, numOrders int64, price sdk.Dec, quantity sdk.Dec) []sdk.Msg {
 	var msgs []sdk.Msg
 	contract := config.WasmMsgTypes.Vortex.ContractAddr
 
@@ -424,26 +426,7 @@ func (c *LoadTestClient) generateVortexOrder(config Config, key cryptotypes.Priv
 		direction = dextypes.PositionDirection_SHORT
 	}
 
-	// Sample Dex Order Type
-	var orderType dextypes.OrderType
-	msgType := config.MsgTypeDistr.SampleDexMsgs()
-
-	switch msgType {
-	case Limit:
-		orderType = dextypes.OrderType_LIMIT
-	case Market:
-		orderType = dextypes.OrderType_MARKET
-	default:
-		panic(fmt.Sprintf("Unknown message type %s\n", msgType))
-	}
-
-	// Generate Amount
-	price := config.PriceDistr.Sample()
-	quantity := config.QuantityDistr.Sample()
-	amount, err := sdk.ParseCoinsNormalized(fmt.Sprintf("%d%s", price.Mul(quantity).Ceil().RoundInt64(), "usei"))
-	if err != nil {
-		panic(err)
-	}
+	orderType := sampleDexOrderType(config)
 
 	// If placing short order on vortex, first deposit for buying power
 	if direction == dextypes.PositionDirection_SHORT {
@@ -461,8 +444,8 @@ func (c *LoadTestClient) generateVortexOrder(config Config, key cryptotypes.Priv
 		msgs = append(msgs, vortexDeposit)
 	}
 
+	// Create a MsgPlaceOrders with numOrders Orders
 	var orderPlacements []*dextypes.Order
-
 	for j := 0; j < int(numOrders); j++ {
 		vortexOrder := &dextypes.Order{
 			Account:           sdk.AccAddress(key.PubKey().Address()).String(),
@@ -476,6 +459,11 @@ func (c *LoadTestClient) generateVortexOrder(config Config, key cryptotypes.Priv
 			Data:              VortexData,
 		}
 		orderPlacements = append(orderPlacements, vortexOrder)
+	}
+
+	amount, err := sdk.ParseCoinsNormalized(fmt.Sprintf("%d%s", price.Mul(quantity).Ceil().RoundInt64(), "usei"))
+	if err != nil {
+		panic(err)
 	}
 	vortexOrderMsg := &dextypes.MsgPlaceOrders{
 		Creator:      sdk.AccAddress(key.PubKey().Address()).String(),
