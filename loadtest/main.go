@@ -137,7 +137,7 @@ func (c *LoadTestClient) generateMessage(config Config, key cryptotypes.PrivKey,
 
 	switch messageType {
 	case Vortex:
-		msgs = c.generateVortexOrder(config, key)
+		msgs = c.generateVortexOrder(config, key, config.WasmMsgTypes.Vortex.NumOrdersPerTx)
 	case WasmMintNft:
 		contract := config.WasmMsgTypes.MintNftType.ContractAddr
 		// TODO: Potentially just hard code the Funds amount here
@@ -411,7 +411,7 @@ func (c *LoadTestClient) generateStakingMsg(delegatorAddr string, chosenValidato
 	return msg
 }
 
-func (c *LoadTestClient) generateVortexOrder(config Config, key cryptotypes.PrivKey) []sdk.Msg {
+func (c *LoadTestClient) generateVortexOrder(config Config, key cryptotypes.PrivKey, numOrders int64) []sdk.Msg {
 	var msgs []sdk.Msg
 	contract := config.WasmMsgTypes.Vortex.ContractAddr
 
@@ -446,29 +446,39 @@ func (c *LoadTestClient) generateVortexOrder(config Config, key cryptotypes.Priv
 
 	// If placing short order on vortex, first deposit for buying power
 	if direction == dextypes.PositionDirection_SHORT {
+		// TODO: Considering depositing more up front when numOrders > 1
+		amountDeposit, err := sdk.ParseCoinsNormalized(fmt.Sprintf("%d%s", price.Mul(quantity).Ceil().RoundInt64(), "usei"))
+		if err != nil {
+			panic(err)
+		}
 		vortexDeposit := &wasmtypes.MsgExecuteContract{
 			Sender:   sdk.AccAddress(key.PubKey().Address()).String(),
 			Contract: contract,
 			Msg:      wasmtypes.RawContractMessage([]byte("{\"deposit\":{}}")),
-			Funds:    amount,
+			Funds:    amountDeposit,
 		}
 		msgs = append(msgs, vortexDeposit)
 	}
 
-	vortexOrder := &dextypes.Order{
-		Account:           sdk.AccAddress(key.PubKey().Address()).String(),
-		ContractAddr:      contract,
-		PositionDirection: direction,
-		Price:             price.Quo(FromMili),
-		Quantity:          quantity.Quo(FromMili),
-		PriceDenom:        "SEI",
-		AssetDenom:        "ATOM",
-		OrderType:         orderType,
-		Data:              VortexData,
+	var orderPlacements []*dextypes.Order
+
+	for j := 0; j < int(numOrders); j++ {
+		vortexOrder := &dextypes.Order{
+			Account:           sdk.AccAddress(key.PubKey().Address()).String(),
+			ContractAddr:      contract,
+			PositionDirection: direction,
+			Price:             price.Quo(FromMili),
+			Quantity:          quantity.Quo(FromMili),
+			PriceDenom:        "SEI",
+			AssetDenom:        "ATOM",
+			OrderType:         orderType,
+			Data:              VortexData,
+		}
+		orderPlacements = append(orderPlacements, vortexOrder)
 	}
 	vortexOrderMsg := &dextypes.MsgPlaceOrders{
 		Creator:      sdk.AccAddress(key.PubKey().Address()).String(),
-		Orders:       []*dextypes.Order{vortexOrder},
+		Orders:       orderPlacements,
 		ContractAddr: contract,
 		Funds:        amount,
 	}

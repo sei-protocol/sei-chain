@@ -161,5 +161,6 @@ type ContractDistribution struct {
 }
 
 type VortexContract struct {
-	ContractAddr string `json:"contract_address"`
+	ContractAddr   string `json:"contract_address"`
+	NumOrdersPerTx int64  `json:"num_orders_per_tx"`
 }
