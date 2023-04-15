@@ -411,6 +411,7 @@ func (c *LoadTestClient) generateStakingMsg(delegatorAddr string, chosenValidato
 	return msg
 }
 
+// generateVortexOrder generates Vortex order messages. If short order, creates a deposit message first
 func (c *LoadTestClient) generateVortexOrder(config Config, key cryptotypes.PrivKey, numOrders int64) []sdk.Msg {
 	var msgs []sdk.Msg
 	contract := config.WasmMsgTypes.Vortex.ContractAddr
