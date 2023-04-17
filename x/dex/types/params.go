@@ -24,7 +24,7 @@ const (
 	DefaultEndBlockGasLimit       = 1000000000 // 1B
 	DefaultDefaultGasPerOrder     = 10000
 	DefaultDefaultGasPerCancel    = 5000
-	DefaultMinRentDeposit         = 50000000 // 50 sei
+	DefaultMinRentDeposit         = 10000000 // 10 sei
 )
 
 var DefaultSudoCallGasPrice = sdk.NewDecWithPrec(1, 1) // 0.1
