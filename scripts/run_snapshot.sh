@@ -19,18 +19,7 @@ do
     sed -i -e 's/halt-height = .*/halt-height = '$HALT_HEIGHT'/' /root/.sei/config/app.toml
     /root/go/bin/seid start --trace --chain-id $CHAIN_ID
     start_time=$(date +%s)
-    cd /root/snapshots
-    rm -f LATEST_HEIGHT
-    touch LATEST_HEIGHT
-    echo $HALT_HEIGHT >> LATEST_HEIGHT
-	mkdir /root/snapshots/snapshot_$HALT_HEIGHT
-    cp -r /root/.sei/data/application.db/* /root/snapshots/snapshot_$HALT_HEIGHT/
-    cd /root/snapshots/snapshot_$HALT_HEIGHT
-    touch METADATA
-    for FILE in *;
-    do
-        echo $FILE >> METADATA;
-    done
+    /root/go/bin/seid tendermint snapshot
     end_time=$(date +%s)
     elapsed=$(( end_time - start_time ))
 	echo "Backed up snapshot for height "$HALT_HEIGHT" which took "$elapsed" seconds"
