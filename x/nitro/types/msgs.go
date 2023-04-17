@@ -75,6 +75,23 @@ func (m MsgSubmitFraudChallenge) ValidateBasic() error {
 		return sdkerrors.Wrapf(sdkerrors.ErrInvalidAddress, "Invalid sender address (%s)", err)
 	}
 
+	// check if merkle proof hash has proper length
+	if len(m.MerkleProof.Hash) > int(DefaultMaxHashLength) {
+		return sdkerrors.Wrapf(sdkerrors.ErrInvalidRequest, "Invalid hash length (%s)", err)
+	}
+
+	// check if challenge period is too long
+	if m.EndSlot - m.StartSlot > DefaultMaxChallengePeriod {
+		return sdkerrors.Wrapf(sdkerrors.ErrInvalidRequest, "Invalid challenge period (%s)", err)
+	}
+
+	// check if merkle proof hash size is too large
+	for _, hash := range m.MerkleProof.Hash {
+        if len(hash) >= int(DefaultMaxHashSize) {
+			return sdkerrors.Wrapf(sdkerrors.ErrInvalidRequest, "Invalid challenge period (%s)", err)
+        }
+    }
+
 	return nil
 }
 
