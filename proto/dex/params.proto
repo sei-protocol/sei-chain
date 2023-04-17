@@ -35,4 +35,8 @@ message Params {
     (gogoproto.jsontag)   = "default_gas_per_cancel",
     (gogoproto.moretags) = "yaml:\"default_gas_per_cancel\""
   ];
+  uint64 min_rent_deposit = 7 [
+    (gogoproto.jsontag)   = "min_rent_deposit",
+    (gogoproto.moretags) = "yaml:\"min_rent_deposit\""
+  ];
 }
