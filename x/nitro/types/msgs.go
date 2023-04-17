@@ -81,16 +81,16 @@ func (m MsgSubmitFraudChallenge) ValidateBasic() error {
 	}
 
 	// check if challenge period is too long
-	if m.EndSlot - m.StartSlot > DefaultMaxChallengePeriod {
+	if m.EndSlot-m.StartSlot > DefaultMaxChallengePeriod {
 		return sdkerrors.Wrapf(sdkerrors.ErrInvalidRequest, "Invalid challenge period (%s)", err)
 	}
 
 	// check if merkle proof hash size is too large
 	for _, hash := range m.MerkleProof.Hash {
-        if len(hash) >= int(DefaultMaxHashSize) {
+		if len(hash) >= int(DefaultMaxHashSize) {
 			return sdkerrors.Wrapf(sdkerrors.ErrInvalidRequest, "Invalid challenge period (%s)", err)
-        }
-    }
+		}
+	}
 
 	return nil
 }
