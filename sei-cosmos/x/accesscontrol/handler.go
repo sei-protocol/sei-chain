@@ -11,7 +11,10 @@ import (
 
 func HandleMsgUpdateResourceDependencyMappingProposal(ctx sdk.Context, k *keeper.Keeper, p *types.MsgUpdateResourceDependencyMappingProposal) error {
 	for _, resourceDepMapping := range p.MessageDependencyMapping {
-		k.SetResourceDependencyMapping(ctx, resourceDepMapping)
+		err := k.SetResourceDependencyMapping(ctx, resourceDepMapping)
+		if err != nil {
+			return err
+		}
 	}
 	return nil
 }
