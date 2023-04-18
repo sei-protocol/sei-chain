@@ -18,7 +18,7 @@ func (k msgServer) ContractDepositRent(goCtx context.Context, msg *types.MsgCont
 	}
 
 	// first check if the deposit itself exceeds the limit
-	if err := k.ValidateRentBalance(msg.GetAmount()); err != nil {
+	if err := k.ValidateRentBalance(ctx, msg.GetAmount()); err != nil {
 		return nil, err
 	}
 
