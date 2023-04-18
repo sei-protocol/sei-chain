@@ -28,7 +28,7 @@ func TestUnregisterContractSetSiblings(t *testing.T) {
 	keeper := testApp.DexKeeper
 
 	testAccount, _ := sdk.AccAddressFromBech32("sei1yezq49upxhunjjhudql2fnj5dgvcwjj87pn2wx")
-	amounts := sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(10000000)), sdk.NewCoin("uusdc", sdk.NewInt(10000000)))
+	amounts := sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(100000000)), sdk.NewCoin("uusdc", sdk.NewInt(100000000)))
 	bankkeeper := testApp.BankKeeper
 	bankkeeper.MintCoins(ctx, minttypes.ModuleName, amounts)
 	bankkeeper.SendCoinsFromModuleToAccount(ctx, minttypes.ModuleName, testAccount, amounts)
@@ -54,7 +54,7 @@ func TestUnregisterContractSetSiblings(t *testing.T) {
 		CodeId:       1,
 		ContractAddr: contractAddr.String(),
 		Creator:      testAccount.String(),
-		RentBalance:  1000000,
+		RentBalance:  types.DefaultParams().MinRentDeposit,
 	}
 	_, err = server.RegisterContract(wctx, &types.MsgRegisterContract{
 		Creator:  testAccount.String(),
@@ -64,7 +64,7 @@ func TestUnregisterContractSetSiblings(t *testing.T) {
 	_, err = keeper.GetContract(ctx, contractAddr.String())
 	require.NoError(t, err)
 	balance := keeper.BankKeeper.GetBalance(ctx, testAccount, "usei")
-	require.Equal(t, int64(8900000), balance.Amount.Int64())
+	require.Equal(t, int64(89900000), balance.Amount.Int64())
 
 	handler := dex.NewHandler(keeper)
 	tickSize := sdk.OneDec()
@@ -94,7 +94,7 @@ func TestUnregisterContractSetSiblings(t *testing.T) {
 	_, err = keeper.GetContract(ctx, contractAddr.String())
 	require.Error(t, err)
 	balance = keeper.BankKeeper.GetBalance(ctx, testAccount, "usei")
-	require.Equal(t, int64(9900000), balance.Amount.Int64())
+	require.Equal(t, int64(99900000), balance.Amount.Int64())
 	pairs := keeper.GetAllRegisteredPairs(ctx, contractAddr.String())
 	require.Empty(t, pairs)
 }

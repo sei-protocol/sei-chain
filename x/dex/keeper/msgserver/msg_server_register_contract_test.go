@@ -39,7 +39,7 @@ func TestRegisterContract(t *testing.T) {
 	keeper := testApp.DexKeeper
 
 	testAccount, _ := sdk.AccAddressFromBech32("sei1yezq49upxhunjjhudql2fnj5dgvcwjj87pn2wx")
-	amounts := sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(10000000)), sdk.NewCoin("uusdc", sdk.NewInt(10000000)))
+	amounts := sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(100000000)), sdk.NewCoin("uusdc", sdk.NewInt(100000000)))
 	bankkeeper := testApp.BankKeeper
 	bankkeeper.MintCoins(ctx, minttypes.ModuleName, amounts)
 	bankkeeper.SendCoinsFromModuleToAccount(ctx, minttypes.ModuleName, testAccount, amounts)
@@ -83,7 +83,7 @@ func TestRegisterContractCircularDependency(t *testing.T) {
 	keeper := testApp.DexKeeper
 
 	testAccount, _ := sdk.AccAddressFromBech32("sei1yezq49upxhunjjhudql2fnj5dgvcwjj87pn2wx")
-	amounts := sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(10000000)), sdk.NewCoin("uusdc", sdk.NewInt(10000000)))
+	amounts := sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(100000000)), sdk.NewCoin("uusdc", sdk.NewInt(100000000)))
 	bankkeeper := testApp.BankKeeper
 	bankkeeper.MintCoins(ctx, minttypes.ModuleName, amounts)
 	bankkeeper.SendCoinsFromModuleToAccount(ctx, minttypes.ModuleName, testAccount, amounts)
@@ -133,7 +133,7 @@ func TestRegisterContractDuplicateDependency(t *testing.T) {
 	keeper := testApp.DexKeeper
 
 	testAccount, _ := sdk.AccAddressFromBech32("sei1yezq49upxhunjjhudql2fnj5dgvcwjj87pn2wx")
-	amounts := sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(10000000)), sdk.NewCoin("uusdc", sdk.NewInt(10000000)))
+	amounts := sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(100000000)), sdk.NewCoin("uusdc", sdk.NewInt(100000000)))
 	bankkeeper := testApp.BankKeeper
 	bankkeeper.MintCoins(ctx, minttypes.ModuleName, amounts)
 	bankkeeper.SendCoinsFromModuleToAccount(ctx, minttypes.ModuleName, testAccount, amounts)
@@ -170,7 +170,7 @@ func TestRegisterContractNumIncomingPaths(t *testing.T) {
 	keeper := testApp.DexKeeper
 
 	testAccount, _ := sdk.AccAddressFromBech32("sei1yezq49upxhunjjhudql2fnj5dgvcwjj87pn2wx")
-	amounts := sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(10000000)), sdk.NewCoin("uusdc", sdk.NewInt(10000000)))
+	amounts := sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(100000000)), sdk.NewCoin("uusdc", sdk.NewInt(100000000)))
 	bankkeeper := testApp.BankKeeper
 	bankkeeper.MintCoins(ctx, minttypes.ModuleName, amounts)
 	bankkeeper.SendCoinsFromModuleToAccount(ctx, minttypes.ModuleName, testAccount, amounts)
@@ -197,7 +197,8 @@ func TestRegisterContractNumIncomingPaths(t *testing.T) {
 	}
 
 	server := msgserver.NewMsgServerImpl(keeper)
-	RegisterContractUtil(server, wctx, contractAddrFirst.String(), nil)
+	err = RegisterContractUtil(server, wctx, contractAddrFirst.String(), nil)
+	require.Nil(t, err)
 	storedContract, err := keeper.GetContract(ctx, contractAddrFirst.String())
 	require.Nil(t, err)
 	require.Equal(t, int64(0), storedContract.NumIncomingDependencies)
@@ -228,7 +229,7 @@ func TestRegisterContractSetSiblings(t *testing.T) {
 	keeper := testApp.DexKeeper
 
 	testAccount, _ := sdk.AccAddressFromBech32("sei1yezq49upxhunjjhudql2fnj5dgvcwjj87pn2wx")
-	amounts := sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(10000000)), sdk.NewCoin("uusdc", sdk.NewInt(10000000)))
+	amounts := sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(100000000)), sdk.NewCoin("uusdc", sdk.NewInt(100000000)))
 	bankkeeper := testApp.BankKeeper
 	bankkeeper.MintCoins(ctx, minttypes.ModuleName, amounts)
 	bankkeeper.SendCoinsFromModuleToAccount(ctx, minttypes.ModuleName, testAccount, amounts)
@@ -345,7 +346,7 @@ func TestRegisterContractWithInvalidRentBalance(t *testing.T) {
 	keeper := testApp.DexKeeper
 
 	testAccount, _ := sdk.AccAddressFromBech32("sei1yezq49upxhunjjhudql2fnj5dgvcwjj87pn2wx")
-	amounts := sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(10000000)), sdk.NewCoin("uusdc", sdk.NewInt(10000000)))
+	amounts := sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(100000000)), sdk.NewCoin("uusdc", sdk.NewInt(100000000)))
 	bankkeeper := testApp.BankKeeper
 	bankkeeper.MintCoins(ctx, minttypes.ModuleName, amounts)
 	bankkeeper.SendCoinsFromModuleToAccount(ctx, minttypes.ModuleName, testAccount, amounts)
@@ -379,10 +380,72 @@ func TestRegisterContractWithInvalidRentBalance(t *testing.T) {
 	require.Error(t, err)
 }
 
+func TestRegisterContractInvalidRentBalance(t *testing.T) {
+	// Instantiate and get contract address
+	testApp := keepertest.TestApp()
+	ctx := testApp.BaseApp.NewContext(false, tmproto.Header{Time: time.Now()})
+	ctx = ctx.WithContext(context.WithValue(ctx.Context(), dexutils.DexMemStateContextKey, dexcache.NewMemState(testApp.GetKey(types.StoreKey))))
+	wctx := sdk.WrapSDKContext(ctx)
+	keeper := testApp.DexKeeper
+
+	testAccount, _ := sdk.AccAddressFromBech32("sei1yezq49upxhunjjhudql2fnj5dgvcwjj87pn2wx")
+	amounts := sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(100000000)), sdk.NewCoin("uusdc", sdk.NewInt(100000000)))
+	bankkeeper := testApp.BankKeeper
+	bankkeeper.MintCoins(ctx, minttypes.ModuleName, amounts)
+	bankkeeper.SendCoinsFromModuleToAccount(ctx, minttypes.ModuleName, testAccount, amounts)
+	wasm, err := ioutil.ReadFile("../../testdata/mars.wasm")
+	if err != nil {
+		panic(err)
+	}
+	wasmKeeper := testApp.WasmKeeper
+	contractKeeper := wasmkeeper.NewDefaultPermissionKeeper(&wasmKeeper)
+	var perm *wasmtypes.AccessConfig
+	codeId, err := contractKeeper.Create(ctx, testAccount, wasm, perm)
+	if err != nil {
+		panic(err)
+	}
+
+	contractAddrX, _, err := contractKeeper.Instantiate(ctx, codeId, testAccount, testAccount, []byte(GOOD_CONTRACT_INSTANTIATE), "test",
+		sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(100000))))
+	if err != nil {
+		panic(err)
+	}
+
+	// register with rent balance amount more than allowed
+	server := msgserver.NewMsgServerImpl(keeper)
+	rentBalance := uint64(math.MaxUint64) / wasmkeeper.DefaultGasMultiplier + 1
+	contract := types.ContractInfoV2{
+		CodeId:       1,
+		ContractAddr: contractAddrX.String(),
+		RentBalance: rentBalance,
+	}
+
+	_, err = server.RegisterContract(wctx, &types.MsgRegisterContract{
+		Creator:  keepertest.TestAccount,
+		Contract: &contract,
+	})
+	require.Error(t, err)
+
+	// register with rent balance less than allowed
+	rentBalance = keeper.GetParams(ctx).MinRentDeposit - 1
+	contract = types.ContractInfoV2{
+		CodeId:       1,
+		ContractAddr: contractAddrX.String(),
+		RentBalance: rentBalance,
+	}
+
+	_, err = server.RegisterContract(wctx, &types.MsgRegisterContract{
+		Creator:  keepertest.TestAccount,
+		Contract: &contract,
+	})
+	require.Error(t, err)
+}
+
 func RegisterContractUtil(server types.MsgServer, ctx context.Context, contractAddr string, dependencies []string) error {
 	contract := types.ContractInfoV2{
 		CodeId:       1,
 		ContractAddr: contractAddr,
+		RentBalance: types.DefaultMinRentDeposit,
 	}
 	if dependencies != nil {
 		contract.Dependencies = utils.Map(dependencies, func(addr string) *types.ContractDependencyInfo {
