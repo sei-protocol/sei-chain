@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/cosmos/cosmos-sdk/server"
 	storetypes "github.com/cosmos/cosmos-sdk/store/types"
 
 	"github.com/sei-protocol/sei-chain/aclmapping"
@@ -143,6 +144,7 @@ import (
 	wasmtypes "github.com/CosmWasm/wasmd/x/wasm/types"
 
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/trace"
 )
 
 // this line is used by starport scaffolding # stargate/wasm/app/enabledProposals
@@ -385,12 +387,19 @@ func New(
 	tkeys := sdk.NewTransientStoreKeys(paramstypes.TStoreKey)
 	memKeys := sdk.NewMemoryStoreKeys(capabilitytypes.MemStoreKey)
 
-	tp, err := tracing.DefaultTracerProvider()
-	if err != nil {
-		panic(err)
-	}
-	otel.SetTracerProvider(tp)
+	tp := trace.NewNoopTracerProvider()
+	otel.SetTracerProvider(trace.NewNoopTracerProvider())
 	tr := tp.Tracer("component-main")
+
+	if tracingEnabled := cast.ToBool(appOpts.Get(server.FlagTracing)); tracingEnabled {
+		tp, err := tracing.DefaultTracerProvider()
+		if err != nil {
+			panic(err)
+		}
+		otel.SetTracerProvider(tp)
+		tr = tp.Tracer("component-main")
+	}
+
 	app := &App{
 		BaseApp:           bApp,
 		cdc:               cdc,
@@ -401,7 +410,7 @@ func New(
 		tkeys:             tkeys,
 		memKeys:           memKeys,
 		tracingInfo: &tracing.Info{
-			Tracer: &tr,
+			Tracer:  &tr,
 		},
 		txDecoder:     encodingConfig.TxConfig.TxDecoder(),
 		versionInfo:   version.NewInfo(),
