@@ -5,11 +5,12 @@ package server
 import (
 	"context"
 	"fmt"
-	clientconfig "github.com/cosmos/cosmos-sdk/client/config"
 	"net/http"
 	"os"
 	"runtime/pprof"
 	"time"
+
+	clientconfig "github.com/cosmos/cosmos-sdk/client/config"
 
 	"github.com/spf13/cobra"
 	abciclient "github.com/tendermint/tendermint/abci/client"
@@ -50,6 +51,7 @@ const (
 	FlagInterBlockCache    = "inter-block-cache"
 	FlagUnsafeSkipUpgrades = "unsafe-skip-upgrades"
 	FlagTrace              = "trace"
+	FlagTracing            = "tracing"
 	FlagProfile            = "profile"
 	FlagInvCheckPeriod     = "inv-check-period"
 
@@ -165,11 +167,17 @@ is performed. Note, when enabled, gRPC will also be automatically enabled.
 				panic(fmt.Sprintf("genesis file chain-id=%s does not equal config.toml chain-id=%s", genesisFile.ChainID, clientCtx.ChainID))
 			}
 
+			if enableTracing, _ := cmd.Flags().GetBool(FlagTracing); !enableTracing {
+				serverCtx.Logger.Info("--tracing not passed in, tracing is not enabled")
+				tracerProviderOptions = []trace.TracerProviderOption{}
+			}
+
 			withTM, _ := cmd.Flags().GetBool(flagWithTendermint)
 			if !withTM {
 				serverCtx.Logger.Info("starting ABCI without Tendermint")
 				return startStandAlone(serverCtx, appCreator)
 			}
+
 			// amino is needed here for backwards compatibility of REST routes
 			err = startInProcess(serverCtx, clientCtx, appCreator, tracerProviderOptions)
 			errCode, ok := err.(ErrorCode)
@@ -194,6 +202,7 @@ is performed. Note, when enabled, gRPC will also be automatically enabled.
 	cmd.Flags().Bool(FlagInterBlockCache, true, "Enable inter-block caching")
 	cmd.Flags().String(flagCPUProfile, "", "Enable CPU profiling and write to the provided file")
 	cmd.Flags().Bool(FlagTrace, false, "Provide full stack traces for errors in ABCI Log")
+	cmd.Flags().Bool(FlagTracing, false, "Enable Tracing for the app")
 	cmd.Flags().Bool(FlagProfile, false, "Enable Profiling in the application")
 	cmd.Flags().String(FlagPruning, storetypes.PruningOptionDefault, "Pruning strategy (default|nothing|everything|custom)")
 	cmd.Flags().Uint64(FlagPruningKeepRecent, 0, "Number of recent heights to keep on disk (ignored if pruning is not 'custom')")
