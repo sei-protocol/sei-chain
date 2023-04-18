@@ -1079,9 +1079,14 @@ github.com/sei-protocol/sei-cosmos v0.2.14-statesync h1:+Fn8x5iiyanqMB3SHX+316Xu
 github.com/sei-protocol/sei-cosmos v0.2.14-statesync/go.mod h1:xxl0qzrGBTJE9+OsBMZDcX00TzjoHXzYumoKpj+G+wM=
 github.com/sei-protocol/sei-iavl v0.1.3 h1:0hvW1NtmBlZ7ZkerQcM/n+2tFKg0vUlYWK8q/OeuCgw=
 github.com/sei-protocol/sei-iavl v0.1.3/go.mod h1:7PfkEVT5dcoQE+s/9KWdoXJ8VVVP1QpYYPLdxlkSXFk=
+<<<<<<< HEAD
 github.com/sei-protocol/sei-tendermint v0.2.5-newstatesync-3 h1:JEvr9mM5IE8WUZSonN8jWZhyYAK6qIzhY9YaUwQpIwU=
 github.com/sei-protocol/sei-tendermint v0.2.5-newstatesync-3/go.mod h1:+BtDvAwTkE64BlxzpH9ZP7S6vUYT9wRXiZa/WW8/o4g=
 >>>>>>> 29975566 (bump)
+=======
+github.com/sei-protocol/sei-tendermint v0.2.5-newstatesync-4 h1:05yyN0qDz7FdjeMIuUs/tW9jXskV0AGZHGfhW1RMcS4=
+github.com/sei-protocol/sei-tendermint v0.2.5-newstatesync-4/go.mod h1:+BtDvAwTkE64BlxzpH9ZP7S6vUYT9wRXiZa/WW8/o4g=
+>>>>>>> 7b43c241 (bump)
 github.com/sei-protocol/sei-tm-db v0.0.5 h1:3WONKdSXEqdZZeLuWYfK5hP37TJpfaUa13vAyAlvaQY=
 github.com/sei-protocol/sei-tm-db v0.0.5/go.mod h1:Cpa6rGyczgthq7/0pI31jys2Fw0Nfrc+/jKdP1prVqY=
 github.com/sei-protocol/sei-wasmd v0.0.1 h1:dRvdapc1sqWxhIB2+DKS5LfilFjOsaFwWkGkSWwQIow=
