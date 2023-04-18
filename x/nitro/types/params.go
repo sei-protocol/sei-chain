@@ -13,6 +13,12 @@ var (
 	KeyEnabled              = []byte("Enabled")
 )
 
+const (
+	DefaultMaxHashLength      = 20    // default allowed number of merkle proof hashes
+	DefaultMaxChallengePeriod = 10000 // default number of slots allowed for challenge
+	DefaultMaxHashSize        = 128   // default max hash size allowed of merkle proof
+)
+
 // ParamTable for gamm module.
 func ParamKeyTable() paramtypes.KeyTable {
 	return paramtypes.NewKeyTable().RegisterParamSet(&Params{})
