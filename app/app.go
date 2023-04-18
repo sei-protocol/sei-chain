@@ -410,7 +410,7 @@ func New(
 		tkeys:             tkeys,
 		memKeys:           memKeys,
 		tracingInfo: &tracing.Info{
-			Tracer:  &tr,
+			Tracer: &tr,
 		},
 		txDecoder:     encodingConfig.TxConfig.TxDecoder(),
 		versionInfo:   version.NewInfo(),
