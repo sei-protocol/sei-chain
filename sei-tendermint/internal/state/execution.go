@@ -172,7 +172,6 @@ func (blockExec *BlockExecutor) ProcessProposal(
 		ByzantineValidators:   block.Evidence.ToABCI(),
 		ProposerAddress:       block.ProposerAddress,
 		NextValidatorsHash:    block.NextValidatorsHash,
-		SigsVerified:          blockExec.GetSigsVerified(txs),
 		AppHash:               block.AppHash,
 		ValidatorsHash:        block.ValidatorsHash,
 		ConsensusHash:         block.ConsensusHash,
@@ -258,7 +257,6 @@ func (blockExec *BlockExecutor) ApplyBlock(
 			ByzantineValidators:   block.Evidence.ToABCI(),
 			ProposerAddress:       block.ProposerAddress,
 			NextValidatorsHash:    block.NextValidatorsHash,
-			SigsVerified:          blockExec.GetSigsVerified(txs),
 			AppHash:               block.AppHash,
 			ValidatorsHash:        block.ValidatorsHash,
 			ConsensusHash:         block.ConsensusHash,
@@ -842,16 +840,4 @@ func (blockExec *BlockExecutor) pruneBlocks(retainHeight int64) (uint64, error) 
 		return 0, fmt.Errorf("failed to prune state store: %w", err)
 	}
 	return pruned, nil
-}
-
-func (blockExec *BlockExecutor) GetSigsVerified(txs [][]byte) []bool {
-	sigsVerified := make([]bool, len(txs))
-	txStore := blockExec.mempool.TxStore()
-	for i, tx := range txs {
-		typedTx := types.Tx(tx)
-		if txStore != nil && txStore.GetTxByHash(typedTx.Key()) != nil {
-			sigsVerified[i] = true
-		}
-	}
-	return sigsVerified
 }

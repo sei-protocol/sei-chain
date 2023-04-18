@@ -142,7 +142,6 @@ message RequestProcessProposal {
   bytes                     next_validators_hash = 7;
   // address of the public key of the original proposer of the block.
   bytes proposer_address = 8;
-  repeated bool sigs_verified = 9;
   bytes app_hash = 10;
   bytes validators_hash = 11;
   bytes consensus_hash = 12;
@@ -180,7 +179,6 @@ message RequestFinalizeBlock {
   bytes                     next_validators_hash = 7;
   // proposer_address is the address of the public key of the original proposer of the block.
   bytes proposer_address = 8;
-  repeated bool sigs_verified = 9;
   bytes app_hash = 10;
   bytes validators_hash = 11;
   bytes consensus_hash = 12;

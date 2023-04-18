@@ -354,7 +354,6 @@ func TestProcessProposal(t *testing.T) {
 		},
 		NextValidatorsHash:    block1.NextValidatorsHash,
 		ProposerAddress:       block1.ProposerAddress,
-		SigsVerified:          blockExec.GetSigsVerified(block1.Txs.ToSliceOfBytes()),
 		AppHash:               block1.AppHash,
 		ValidatorsHash:        block1.ValidatorsHash,
 		ConsensusHash:         block1.ConsensusHash,
