@@ -50,6 +50,9 @@ do
   sleep 5
 done
 
+############################
+# Set initial halt height ##
+############################
 CURRENT_HEIGHT=$(seid status |jq -r .SyncInfo.latest_block_height)
 if [[ $CURRENT_HEIGHT -le 0 ]]
 then
@@ -64,20 +67,23 @@ HALT_HEIGHT=$INITIAL_HALT_HEIGHT
 sed -i -e 's/halt-height = .*/halt-height = '$HALT_HEIGHT'/' /root/.sei/config/app.toml
 systemctl restart seid
 
+
+#######################################
+# Main Loop to keep creating snapshot #
+#######################################
 while true
 do
   #TODO: Wait until node height reaches the next halt height, e.g. persist latest block height via a file before it hits halt height
+  sleep 15
   while seid status > /dev/null 2>&1 ;
   do
     echo "Waiting for the node to hit next halt height"
     sleep 15
   done
-
   systemctl stop seid
   seid tendermint snapshot $HALT_HEIGHT
   HALT_HEIGHT=$(expr $HALT_HEIGHT + $SNAPSHOT_INTERVAL)
   sed -i -e 's/halt-height = .*/halt-height = '$HALT_HEIGHT'/' /root/.sei/config/app.toml
   systemctl daemon-reload
   systemctl restart seid
-  sleep 15
 done
