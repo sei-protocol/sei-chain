@@ -1070,6 +1070,7 @@ github.com/segmentio/fasthash v1.0.3/go.mod h1:waKX8l2N8yckOgmSsXJi7x1ZfdKZ4x7KR
 <<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
 github.com/sei-protocol/sei-cosmos v0.2.22 h1:uKdG4QdoxtSUnrFQZeDQiEi//gVKNlDCErNV/dyIwBU=
 github.com/sei-protocol/sei-cosmos v0.2.22/go.mod h1:HaL4lCXp1N4BITUzrT3m7ztLQ27ac4yWNdrnsAT3d+I=
 github.com/sei-protocol/sei-iavl v0.1.3 h1:0hvW1NtmBlZ7ZkerQcM/n+2tFKg0vUlYWK8q/OeuCgw=
@@ -1106,6 +1107,10 @@ github.com/sei-protocol/sei-cosmos v0.2.14-tonytest-2/go.mod h1:Vu3grJXGsp5sOCJP
 github.com/sei-protocol/sei-cosmos v0.2.14-tonytest-3 h1:2Js6YI5Hcmea00JC19CE2oyZBsiHoF8WsPusH7jytCQ=
 github.com/sei-protocol/sei-cosmos v0.2.14-tonytest-3/go.mod h1:Vu3grJXGsp5sOCJPFGkG01zKVz6nfdFR0fRV93E3vMc=
 >>>>>>> ea3e5f4e (bum[)
+=======
+github.com/sei-protocol/sei-cosmos v0.2.14-tonytest-4 h1:iDBzzLdK2nEakgxsJ5LHiRNsU+NOh+y9Dga+fWJ0vz4=
+github.com/sei-protocol/sei-cosmos v0.2.14-tonytest-4/go.mod h1:Vu3grJXGsp5sOCJPFGkG01zKVz6nfdFR0fRV93E3vMc=
+>>>>>>> 834ff9bf (remount)
 github.com/sei-protocol/sei-iavl v0.1.3 h1:0hvW1NtmBlZ7ZkerQcM/n+2tFKg0vUlYWK8q/OeuCgw=
 github.com/sei-protocol/sei-iavl v0.1.3/go.mod h1:7PfkEVT5dcoQE+s/9KWdoXJ8VVVP1QpYYPLdxlkSXFk=
 github.com/sei-protocol/sei-tendermint v0.2.5-newstatesync-7 h1:lZxnVDZX8RpSKcHb+6oIdXQqEWtrqxyYYfZTiyTRp48=
