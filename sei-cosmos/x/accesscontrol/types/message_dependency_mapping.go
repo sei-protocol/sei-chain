@@ -96,16 +96,6 @@ func SynchronousWasmDependencyMapping(contractAddress string) acltypes.WasmDepen
 	}
 }
 
-func IsDefaultSynchronousAccessOps(accessOps []acltypes.AccessOperation) bool {
-	defaultAccessOps := SynchronousAccessOps()
-	for index, accessOp := range accessOps {
-		if accessOp != defaultAccessOps[index] {
-			return false
-		}
-	}
-	return true
-}
-
 func IsDefaultSynchronousWasmAccessOps(accessOps []*acltypes.WasmAccessOperation) bool {
 	defaultAccessOps := SynchronousWasmAccessOps()
 	for index, accessOp := range accessOps {
