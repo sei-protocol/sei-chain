@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/tendermint/tendermint/config"
 	"github.com/tendermint/tendermint/internal/p2p"
 	"github.com/tendermint/tendermint/internal/p2p/conn"
 	"github.com/tendermint/tendermint/libs/log"
@@ -49,8 +50,6 @@ const (
 	// The reactor should still look to add new peers in order to flush out low
 	// scoring peers that are still in the peer store
 	fullCapacityInterval = 10 * time.Minute
-
-	restartNoAvailablePeersWindow = 10 * time.Minute
 )
 
 type NoPeersAvailableError struct {
@@ -114,7 +113,9 @@ type Reactor struct {
 
 	channel *p2p.Channel
 
-	restartCh chan struct{} // a way to signal we should restart router b/c p2p is flaky
+	// Used to signal a restart the node on the application level
+	restartCh chan struct{}
+	restartNoAvailablePeersWindow time.Duration
 }
 
 // NewReactor returns a reference to a new reactor.
@@ -123,6 +124,7 @@ func NewReactor(
 	peerManager *p2p.PeerManager,
 	peerEvents p2p.PeerEventSubscriber,
 	restartCh chan struct{},
+	selfRemediationConfig *config.SelfRemediationConfig,
 ) *Reactor {
 	r := &Reactor{
 		logger:               logger,
@@ -133,6 +135,7 @@ func NewReactor(
 		requestsSent:         make(map[types.NodeID]struct{}),
 		lastReceivedRequests: make(map[types.NodeID]time.Time),
 		restartCh:            restartCh,
+		restartNoAvailablePeersWindow: time.Duration(selfRemediationConfig.P2pNoPeersRestarWindowSeconds) * time.Second,
 	}
 
 	r.BaseService = *service.NewBaseService(logger, "PEX", r)
@@ -334,12 +337,13 @@ func (r *Reactor) processPeerUpdate(peerUpdate p2p.PeerUpdate) {
 		delete(r.availablePeers, peerUpdate.NodeID)
 		delete(r.requestsSent, peerUpdate.NodeID)
 		delete(r.lastReceivedRequests, peerUpdate.NodeID)
+
 		// p2p can be flaky. If no peers are available, let's restart the entire router
-		if len(r.availablePeers) == 0 {
+		if len(r.availablePeers) == 0 && r.restartNoAvailablePeersWindow > 0 {
 			r.logger.Error("no available peers to send a PEX request to (restarting router)")
 			if r.lastNoAvailablePeers.IsZero() {
 				r.lastNoAvailablePeers = time.Now()
-			} else if time.Now().Sub(r.lastNoAvailablePeers) > restartNoAvailablePeersWindow {
+			} else if time.Since(r.lastNoAvailablePeers) > r.restartNoAvailablePeersWindow {
 				r.restartCh <- struct{}{}
 			}
 		}

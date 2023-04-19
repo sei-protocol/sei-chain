@@ -8,6 +8,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/tendermint/tendermint/config"
 	"github.com/tendermint/tendermint/internal/consensus"
 	"github.com/tendermint/tendermint/internal/eventbus"
 	"github.com/tendermint/tendermint/internal/p2p"
@@ -90,6 +91,10 @@ type Reactor struct {
 	eventBus *eventbus.EventBus
 
 	syncStartTime time.Time
+
+	restartCh chan struct{}
+	blocksBehindThreshold uint64
+	blocksBehindCheckInterval time.Duration
 }
 
 // NewReactor returns new reactor instance.
@@ -103,6 +108,8 @@ func NewReactor(
 	blockSync bool,
 	metrics *consensus.Metrics,
 	eventBus *eventbus.EventBus,
+	restartCh chan struct{},
+	selfRemediationConfig *config.SelfRemediationConfig,
 ) *Reactor {
 	r := &Reactor{
 		logger:      logger,
@@ -114,6 +121,9 @@ func NewReactor(
 		peerEvents:  peerEvents,
 		metrics:     metrics,
 		eventBus:    eventBus,
+		restartCh: restartCh,
+		blocksBehindThreshold: selfRemediationConfig.BlocksBehindThreshold,
+		blocksBehindCheckInterval: time.Duration(selfRemediationConfig.BlocksBehindCheckIntervalSeconds) * time.Second,
 	}
 
 	r.BaseService = *service.NewBaseService(logger, "BlockSync", r)
@@ -162,6 +172,8 @@ func (r *Reactor) OnStart(ctx context.Context) error {
 		go r.poolRoutine(ctx, false, r.channel)
 	}
 
+	go r.autoRestartIfBehind(ctx)
+
 	go r.processBlockSyncCh(ctx, r.channel)
 	go r.processPeerUpdates(ctx, r.peerEvents(ctx), r.channel)
 
@@ -175,6 +187,7 @@ func (r *Reactor) OnStop() {
 		r.pool.Stop()
 	}
 }
+
 
 // respondToPeer loads a block and sends it to the requesting peer, if we have it.
 // Otherwise, we'll respond saying we do not have it.
@@ -309,6 +322,40 @@ func (r *Reactor) processBlockSyncCh(ctx context.Context, blockSyncCh *p2p.Chann
 			}); serr != nil {
 				return
 			}
+		}
+	}
+}
+
+// autoRestartIfBehind will check if the node is behind the max peer height by
+// a certain threshold. If it is, the node will attempt to restart itself
+func (r *Reactor) autoRestartIfBehind(ctx context.Context) {
+	if r.blocksBehindThreshold == 0 {
+		r.logger.Info("blocks behind threshold is 0, not checking if node is behind")
+		return
+	}
+
+	for {
+		select {
+		case <-time.After(r.blocksBehindCheckInterval):
+			selfHeight := r.store.Height()
+			maxPeerHeight := r.pool.MaxPeerHeight()
+			threshold := int64(r.blocksBehindThreshold)
+			behindHeight := maxPeerHeight - selfHeight
+			// No peer info yet so maxPeerHeight will be 0
+
+			blockSyncIsSet := r.blockSync.IsSet()
+			if maxPeerHeight == 0 || behindHeight < threshold || blockSyncIsSet {
+				r.logger.Debug("does not exceed threshold or is already in block sync mode", "threshold", threshold, "behindHeight", behindHeight, "maxPeerHeight", maxPeerHeight, "selfHeight", selfHeight, "blockSyncIsSet", blockSyncIsSet)
+				continue
+			}
+
+			r.logger.Info("Blocks behind threshold restarting node", "threshold", threshold, "behindHeight", behindHeight, "maxPeerHeight", maxPeerHeight, "selfHeight", selfHeight)
+
+			// Send signal to restart the node
+			r.blockSync.Set()
+			r.restartCh <- struct{}{}
+		case <-ctx.Done():
+			return
 		}
 	}
 }
@@ -517,6 +564,7 @@ func (r *Reactor) poolRoutine(ctx context.Context, stateSynced bool, blockSyncCh
 			r.blockSync.UnSet()
 
 			if r.consReactor != nil {
+				r.logger.Info("switching to consensus reactor", "height", height, "blocks_synced", blocksSynced, "state_synced", stateSynced, "max_peer_height", r.pool.MaxPeerHeight())
 				r.consReactor.SwitchToConsensus(ctx, state, blocksSynced > 0 || stateSynced)
 			}
 

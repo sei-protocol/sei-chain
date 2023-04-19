@@ -72,6 +72,7 @@ type Config struct {
 	TxIndex         *TxIndexConfig         `mapstructure:"tx-index"`
 	Instrumentation *InstrumentationConfig `mapstructure:"instrumentation"`
 	PrivValidator   *PrivValidatorConfig   `mapstructure:"priv-validator"`
+	SelfRemediation *SelfRemediationConfig `mapstructure:"self-remediation"`
 }
 
 // DefaultConfig returns a default configuration for a Tendermint node
@@ -86,6 +87,7 @@ func DefaultConfig() *Config {
 		TxIndex:         DefaultTxIndexConfig(),
 		Instrumentation: DefaultInstrumentationConfig(),
 		PrivValidator:   DefaultPrivValidatorConfig(),
+		SelfRemediation: DefaultSelfRemediationConfig(),
 	}
 }
 
@@ -108,6 +110,7 @@ func TestConfig() *Config {
 		TxIndex:         TestTxIndexConfig(),
 		Instrumentation: TestInstrumentationConfig(),
 		PrivValidator:   DefaultPrivValidatorConfig(),
+		SelfRemediation: DefaultSelfRemediationConfig(),
 	}
 }
 
@@ -142,6 +145,9 @@ func (cfg *Config) ValidateBasic() error {
 	}
 	if err := cfg.Instrumentation.ValidateBasic(); err != nil {
 		return fmt.Errorf("error in [instrumentation] section: %w", err)
+	}
+	if err := cfg.SelfRemediation.ValidateBasic(); err != nil {
+		return fmt.Errorf("error in [self-remediation] section: %w", err)
 	}
 	return nil
 }
@@ -634,9 +640,6 @@ type P2PConfig struct { //nolint: maligned
 	// Set true to enable the peer-exchange reactor
 	PexReactor bool `mapstructure:"pex"`
 
-	// Set true to enable self kill when there are no peers
-	SelfKillNoPeers bool `mapstructure:"self-kill-no-peers"`
-
 	// Comma separated list of peer IDs to keep private (will not be gossiped to
 	// other peers)
 	PrivatePeerIDs string `mapstructure:"private-peer-ids"`
@@ -691,7 +694,6 @@ func DefaultP2PConfig() *P2PConfig {
 		SendRate:                5120000, // 5 mB/s
 		RecvRate:                5120000, // 5 mB/s
 		PexReactor:              true,
-		SelfKillNoPeers:         false,
 		AllowDuplicateIP:        false,
 		HandshakeTimeout:        20 * time.Second,
 		DialTimeout:             3 * time.Second,
@@ -1280,3 +1282,52 @@ func getDefaultMoniker() string {
 	}
 	return moniker
 }
+
+
+//-----------------------------------------------------------------------------
+// SelfRemediationConfig
+
+// SelfRemediationConfig defines the behaviors of self-remediation.
+type SelfRemediationConfig struct {
+	// If the node has no p2p peers available then trigger a restart
+	// Set to 0 to disable
+	P2pNoPeersRestarWindowSeconds uint64 `mapstructure:"p2p-no-peers-available-window-seconds"`
+
+	// If node has no peers for statesync after a period of time then restart
+	// Set to 0 to disable
+	StatesyncNoPeersRestartWindowSeconds uint64 `mapstructure:"statesync-no-peers-available-window-seconds"`
+
+	// Threshold for how far back the node can be behind the current block height before triggering a restart
+	// Set to 0 to disable
+	BlocksBehindThreshold uint64 `mapstructure:"blocks-behind-threshold"`
+
+	// How often to check if node is behind in seconds
+	BlocksBehindCheckIntervalSeconds uint64 `mapstructure:"blocks-behind-check-interval-seconds"`
+
+	// Cooldown between each restart
+	RestartCooldownSeconds uint64 `mapstructure:"restart-cooldown-seconds"`
+}
+
+// DefaultInstrumentationConfig returns a default configuration for metrics
+// reporting.
+func DefaultSelfRemediationConfig() *SelfRemediationConfig {
+	return &SelfRemediationConfig{
+		P2pNoPeersRestarWindowSeconds: 0,
+		StatesyncNoPeersRestartWindowSeconds: 0,
+		BlocksBehindThreshold: 0,
+		BlocksBehindCheckIntervalSeconds: 30,
+		// 30 minutes
+		RestartCooldownSeconds: 1800,
+	}
+}
+
+func TestSelfRemediationConfig() *SelfRemediationConfig {
+	return DefaultSelfRemediationConfig()
+}
+
+// ValidateBasic performs basic validation (checking param bounds, etc.) and
+// returns an error if any check fails.
+func (cfg *SelfRemediationConfig) ValidateBasic() error {
+	return nil
+}
+

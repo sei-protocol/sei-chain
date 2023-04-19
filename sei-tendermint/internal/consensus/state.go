@@ -2369,7 +2369,7 @@ func (cs *State) defaultSetProposal(proposal *types.Proposal, recvTime time.Time
 		cs.roundState.SetProposalBlockParts(types.NewPartSetFromHeader(proposal.BlockID.PartSetHeader))
 	}
 
-	cs.logger.Info("received proposal", "proposal", proposal)
+	cs.logger.Debug("received proposal", "proposal", proposal)
 	return nil
 }
 

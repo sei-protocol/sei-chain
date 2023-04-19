@@ -173,17 +173,20 @@ func waitForAndValidateBlock(
 ) {
 	t.Helper()
 
-	ctx, cancel := context.WithCancel(bctx)
+	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Minute)
 	defer cancel()
 
 	fn := func(j int) {
 		msg, err := blocksSubs[j].Next(ctx)
 		switch {
 		case errors.Is(err, context.DeadlineExceeded):
+			t.Error("timed out waiting for block")
 			return
 		case errors.Is(err, context.Canceled):
+			t.Error("context canceled")
 			return
 		case err != nil:
+			t.Error(err)
 			cancel() // terminate other workers
 			require.NoError(t, err)
 			return
@@ -195,6 +198,7 @@ func waitForAndValidateBlock(
 		for _, tx := range txs {
 			err := assertMempool(t, states[j].txNotifier).CheckTx(ctx, tx, nil, mempool.TxInfo{})
 			if errors.Is(err, types.ErrTxInCache) {
+				println("tx in cache")
 				continue
 			}
 			require.NoError(t, err)
@@ -228,18 +232,22 @@ func waitForAndValidateBlockWithTx(
 ) {
 	t.Helper()
 
-	ctx, cancel := context.WithCancel(bctx)
+	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Minute)
 	defer cancel()
+
 	fn := func(j int) {
 		ntxs := 0
 		for {
 			msg, err := blocksSubs[j].Next(ctx)
 			switch {
 			case errors.Is(err, context.DeadlineExceeded):
+				t.Error("timed out waiting for block with tx", j)
 				return
 			case errors.Is(err, context.Canceled):
+				t.Error("context canceled waiting for block with tx", j)
 				return
 			case err != nil:
+				println(err)
 				cancel() // terminate other workers
 				t.Fatalf("problem waiting for %d subscription: %v", j, err)
 				return
@@ -815,7 +823,7 @@ func TestReactorVotingPowerChange(t *testing.T) {
 			defer wg.Done()
 			_, err := s.Next(ctx)
 			if !assert.NoError(t, err) {
-				cancel()
+				panic(err)
 			}
 		}(sub)
 	}
@@ -841,9 +849,14 @@ func TestReactorVotingPowerChange(t *testing.T) {
 	waitForAndValidateBlock(ctx, t, n, activeVals, blocksSubs, states)
 	waitForAndValidateBlock(ctx, t, n, activeVals, blocksSubs, states)
 
-	time.Sleep(time.Second)
-	require.NotEqualf(
-		t, previousTotalVotingPower, states[0].GetRoundState().LastValidators.TotalVotingPower(),
+	// Msg sent to mempool, needs to be processed by nodes
+	require.Eventually(
+		t,
+		func() bool {
+			return previousTotalVotingPower != states[0].GetRoundState().LastValidators.TotalVotingPower()
+		},
+		time.Second,
+		300*time.Millisecond,
 		"expected voting power to change (before: %d, after: %d)",
 		previousTotalVotingPower,
 		states[0].GetRoundState().LastValidators.TotalVotingPower(),
@@ -857,13 +870,18 @@ func TestReactorVotingPowerChange(t *testing.T) {
 	waitForAndValidateBlock(ctx, t, n, activeVals, blocksSubs, states)
 	waitForAndValidateBlock(ctx, t, n, activeVals, blocksSubs, states)
 
-	time.Sleep(time.Second)
-	require.NotEqualf(
-		t, states[0].GetRoundState().LastValidators.TotalVotingPower(), previousTotalVotingPower,
+	// Msg sent to mempool, needs to be processed by nodes
+	require.Eventually(
+		t,
+		func() bool {
+			return previousTotalVotingPower != states[0].GetRoundState().LastValidators.TotalVotingPower()
+		},
+		time.Second,
+		300*time.Millisecond,
 		"expected voting power to change (before: %d, after: %d)",
-		previousTotalVotingPower, states[0].GetRoundState().LastValidators.TotalVotingPower(),
+		previousTotalVotingPower,
+		states[0].GetRoundState().LastValidators.TotalVotingPower(),
 	)
-
 	updateValidatorTx = kvstore.MakeValSetChangeTx(val1PubKeyABCI, 26)
 	previousTotalVotingPower = states[0].GetRoundState().LastValidators.TotalVotingPower()
 
@@ -872,9 +890,14 @@ func TestReactorVotingPowerChange(t *testing.T) {
 	waitForAndValidateBlock(ctx, t, n, activeVals, blocksSubs, states)
 	waitForAndValidateBlock(ctx, t, n, activeVals, blocksSubs, states)
 
-	time.Sleep(time.Second)
-	require.NotEqualf(
-		t, previousTotalVotingPower, states[0].GetRoundState().LastValidators.TotalVotingPower(),
+	// Msg sent to mempool, needs to be processed by nodes
+	require.Eventually(
+		t,
+		func() bool {
+			return previousTotalVotingPower != states[0].GetRoundState().LastValidators.TotalVotingPower()
+		},
+		time.Second,
+		300*time.Millisecond,
 		"expected voting power to change (before: %d, after: %d)",
 		previousTotalVotingPower,
 		states[0].GetRoundState().LastValidators.TotalVotingPower(),

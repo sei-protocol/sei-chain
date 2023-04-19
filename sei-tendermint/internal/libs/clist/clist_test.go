@@ -250,7 +250,6 @@ func TestScanRightDeleteRandom(t *testing.T) {
 
 	// Stop scanners
 	close(stop)
-	// time.Sleep(time.Second * 1)
 
 	// And remove all the elements.
 	for el := l.Front(); el != nil; el = el.Next() {

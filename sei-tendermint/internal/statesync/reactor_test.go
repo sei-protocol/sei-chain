@@ -150,6 +150,7 @@ func setup(
 		nil,   // post-sync-hook
 		false, // run Sync during Start()
 		make(chan struct{}),
+		config.DefaultSelfRemediationConfig(),
 	)
 	rts.reactor.SetSnapshotChannel(rts.snapshotChannel)
 	rts.reactor.SetChunkChannel(rts.chunkChannel)

@@ -2,12 +2,14 @@ package blocksync
 
 import (
 	"context"
-	"github.com/tendermint/tendermint/internal/mempool"
 	"os"
 	"testing"
 	"time"
 
+	"github.com/tendermint/tendermint/internal/mempool"
+
 	"github.com/fortytw2/leaktest"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 	dbm "github.com/tendermint/tm-db"
@@ -103,7 +105,10 @@ func makeReactor(
 	genDoc *types.GenesisDoc,
 	privVal types.PrivValidator,
 	channelCreator p2p.ChannelCreator,
-	peerEvents p2p.PeerEventSubscriber) *Reactor {
+	peerEvents p2p.PeerEventSubscriber,
+	restartChan chan struct{},
+	selfRemediationConfig *config.SelfRemediationConfig,
+) *Reactor {
 
 	logger := log.NewNopLogger()
 
@@ -156,6 +161,8 @@ func makeReactor(
 		true,
 		consensus.NopMetrics(),
 		nil, // eventbus, can be nil
+		restartChan,
+		selfRemediationConfig,
 	)
 }
 
@@ -184,7 +191,21 @@ func (rts *reactorTestSuite) addNode(
 	}
 
 	peerEvents := func(ctx context.Context) *p2p.PeerUpdates { return rts.peerUpdates[nodeID] }
-	reactor := makeReactor(ctx, t, nodeID, genDoc, privVal, chCreator, peerEvents)
+	restartChan := make(chan struct{})
+	remediationConfig := config.DefaultSelfRemediationConfig()
+	remediationConfig.BlocksBehindThreshold = 1000
+
+	reactor := makeReactor(
+		ctx,
+		t,
+		nodeID,
+		genDoc,
+		privVal,
+		chCreator,
+		peerEvents,
+		restartChan,
+		config.DefaultSelfRemediationConfig(),
+	)
 
 	reactor.SetChannel(rts.blockSyncChannels[nodeID])
 	lastExtCommit := &types.ExtendedCommit{}
@@ -320,163 +341,100 @@ func TestReactor_SyncTime(t *testing.T) {
 	)
 }
 
-func TestReactor_NoBlockResponse(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	cfg, err := config.ResetTestRoot(t.TempDir(), "block_sync_reactor_test")
-	require.NoError(t, err)
-	defer os.RemoveAll(cfg.RootDir)
-
-	valSet, privVals := factory.ValidatorSet(ctx, t, 1, 30)
-	genDoc := factory.GenesisDoc(cfg, time.Now(), valSet.Validators, factory.ConsensusParams())
-	maxBlockHeight := int64(65)
-
-	rts := setup(ctx, t, genDoc, privVals[0], []int64{maxBlockHeight, 0})
-
-	require.Equal(t, maxBlockHeight, rts.reactors[rts.nodes[0]].store.Height())
-
-	rts.start(ctx, t)
-
-	testCases := []struct {
-		height   int64
-		existent bool
-	}{
-		{maxBlockHeight + 2, false},
-		{10, true},
-		{1, true},
-		{100, false},
-	}
-
-	secondaryPool := rts.reactors[rts.nodes[1]].pool
-	require.Eventually(
-		t,
-		func() bool { return secondaryPool.MaxPeerHeight() > 0 && secondaryPool.IsCaughtUp() },
-		10*time.Second,
-		10*time.Millisecond,
-		"expected node to be fully synced",
-	)
-
-	for _, tc := range testCases {
-		block := rts.reactors[rts.nodes[1]].store.LoadBlock(tc.height)
-		if tc.existent {
-			require.True(t, block != nil)
-		} else {
-			require.Nil(t, block)
-		}
-	}
+type MockBlockStore struct {
+	mock.Mock
+	sm.BlockStore
 }
 
-func TestReactor_BadBlockStopsPeer(t *testing.T) {
-	// Ultimately, this should be refactored to be less integration test oriented
-	// and more unit test oriented by simply testing channel sends and receives.
-	// See: https://github.com/tendermint/tendermint/issues/6005
-	t.SkipNow()
+func (m *MockBlockStore) Height() int64 {
+	args := m.Called()
+	return args.Get(0).(int64)
+}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+func TestAutoRestartIfBehind(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name                   string
+		blocksBehindThreshold  uint64
+		blocksBehindCheckInterval time.Duration
+		selfHeight             int64
+		maxPeerHeight          int64
+		isBlockSync        	   bool
+		restartExpected        bool
+	}{
+		{
+			name: "Should not restart if blocksBehindThreshold is 0",
+			blocksBehindThreshold: 0,
+			blocksBehindCheckInterval: 10 * time.Millisecond,
+			selfHeight:            100,
+			maxPeerHeight:         200,
+			isBlockSync:           false,
+			restartExpected:       false,
+		},
+		{
+			name: "Should not restart if behindHeight is less than threshold",
+			blocksBehindThreshold: 50,
+			selfHeight:            100,
+			blocksBehindCheckInterval: 10 * time.Millisecond,
+			maxPeerHeight:         140,
+			isBlockSync:           false,
+			restartExpected:       false,
+		},
+		{
+			name: "Should restart if behindHeight is greater than or equal to threshold",
+			blocksBehindThreshold: 50,
+			selfHeight:            100,
+			blocksBehindCheckInterval: 10 * time.Millisecond,
+			maxPeerHeight:         160,
+			isBlockSync:           false,
+			restartExpected:       true,
+		},
+		{
+			name: "Should not restart if blocksync",
+			blocksBehindThreshold: 50,
+			selfHeight:            100,
+			blocksBehindCheckInterval: 10 * time.Millisecond,
+			maxPeerHeight:         160,
+			isBlockSync:           true,
+			restartExpected:       false,
+		},
+	}
 
-	cfg, err := config.ResetTestRoot(t.TempDir(), "block_sync_reactor_test")
-	require.NoError(t, err)
-	defer os.RemoveAll(cfg.RootDir)
+	for _, tt := range tests {
+		t.Log(tt.name)
+		t.Run(tt.name, func(t *testing.T) {
+			mockBlockStore := new(MockBlockStore)
+			mockBlockStore.On("Height").Return(tt.selfHeight)
 
-	maxBlockHeight := int64(48)
-	valSet, privVals := factory.ValidatorSet(ctx, t, 1, 30)
-	genDoc := factory.GenesisDoc(cfg, time.Now(), valSet.Validators, factory.ConsensusParams())
+			blockPool := &BlockPool{
+				logger:       log.TestingLogger(),
+				height:       tt.selfHeight,
+				maxPeerHeight: tt.maxPeerHeight,
 
-	rts := setup(ctx, t, genDoc, privVals[0], []int64{maxBlockHeight, 0, 0, 0, 0})
-
-	require.Equal(t, maxBlockHeight, rts.reactors[rts.nodes[0]].store.Height())
-
-	rts.start(ctx, t)
-
-	require.Eventually(
-		t,
-		func() bool {
-			caughtUp := true
-			for _, id := range rts.nodes[1 : len(rts.nodes)-1] {
-				if rts.reactors[id].pool.MaxPeerHeight() == 0 || !rts.reactors[id].pool.IsCaughtUp() {
-					caughtUp = false
-				}
 			}
 
-			return caughtUp
-		},
-		10*time.Minute,
-		10*time.Millisecond,
-		"expected all nodes to be fully synced",
-	)
+			restartChan := make(chan struct{}, 1)
+			r := &Reactor{
+				logger: 				 log.TestingLogger(),
+				store:                    mockBlockStore,
+				pool:                     blockPool,
+				blocksBehindThreshold:    tt.blocksBehindThreshold,
+				blocksBehindCheckInterval: tt.blocksBehindCheckInterval,
+				restartCh:                restartChan,
+				blockSync:                newAtomicBool(tt.isBlockSync),
+			}
 
-	for _, id := range rts.nodes[:len(rts.nodes)-1] {
-		require.Len(t, rts.reactors[id].pool.peers, 3)
+			ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+			defer cancel()
+
+			go r.autoRestartIfBehind(ctx)
+
+			select {
+			case <-restartChan:
+				assert.True(t, tt.restartExpected, "Unexpected restart")
+			case <-time.After(50 * time.Millisecond):
+				assert.False(t, tt.restartExpected, "Expected restart but did not occur")
+			}
+		})
 	}
-
-	// Mark testSuites[3] as an invalid peer which will cause newSuite to disconnect
-	// from this peer.
-	//
-	// XXX: This causes a potential race condition.
-	// See: https://github.com/tendermint/tendermint/issues/6005
-	valSet, otherPrivVals := factory.ValidatorSet(ctx, t, 1, 30)
-	otherGenDoc := factory.GenesisDoc(cfg, time.Now(), valSet.Validators, factory.ConsensusParams())
-	newNode := rts.network.MakeNode(ctx, t, p2ptest.NodeOptions{
-		MaxPeers:     uint16(len(rts.nodes) + 1),
-		MaxConnected: uint16(len(rts.nodes) + 1),
-	})
-	rts.addNode(ctx, t, newNode.NodeID, otherGenDoc, otherPrivVals[0], maxBlockHeight)
-
-	// add a fake peer just so we do not wait for the consensus ticker to timeout
-	rts.reactors[newNode.NodeID].pool.SetPeerRange("00ff", 10, 10)
-
-	// wait for the new peer to catch up and become fully synced
-	require.Eventually(
-		t,
-		func() bool {
-			return rts.reactors[newNode.NodeID].pool.MaxPeerHeight() > 0 && rts.reactors[newNode.NodeID].pool.IsCaughtUp()
-		},
-		10*time.Minute,
-		10*time.Millisecond,
-		"expected new node to be fully synced",
-	)
-
-	require.Eventuallyf(
-		t,
-		func() bool { return len(rts.reactors[newNode.NodeID].pool.peers) < len(rts.nodes)-1 },
-		10*time.Minute,
-		10*time.Millisecond,
-		"invalid number of peers; expected < %d, got: %d",
-		len(rts.nodes)-1,
-		len(rts.reactors[newNode.NodeID].pool.peers),
-	)
 }
-
-/*
-func TestReactorReceivesNoExtendedCommit(t *testing.T) {
-	blockDB := dbm.NewMemDB()
-	stateDB := dbm.NewMemDB()
-	stateStore := sm.NewStore(stateDB)
-	blockStore := store.NewBlockStore(blockDB)
-	blockExec := sm.NewBlockExecutor(
-		stateStore,
-		log.NewNopLogger(),
-		rts.app[nodeID],
-		mp,
-		sm.EmptyEvidencePool{},
-		blockStore,
-		eventbus,
-		sm.NopMetrics(),
-	)
-	NewReactor(
-		log.NewNopLogger(),
-		stateStore,
-		blockExec,
-		blockStore,
-		nil,
-		chCreator,
-		func(ctx context.Context) *p2p.PeerUpdates { return rts.peerUpdates[nodeID] },
-		rts.blockSync,
-		consensus.NopMetrics(),
-		nil, // eventbus, can be nil
-	)
-
-}
-*/

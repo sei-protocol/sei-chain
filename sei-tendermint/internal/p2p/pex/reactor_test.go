@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 	dbm "github.com/tendermint/tm-db"
 
+	"github.com/tendermint/tendermint/config"
 	"github.com/tendermint/tendermint/crypto/ed25519"
 	"github.com/tendermint/tendermint/internal/p2p"
 	"github.com/tendermint/tendermint/internal/p2p/p2ptest"
@@ -306,6 +307,7 @@ func setupSingle(ctx context.Context, t *testing.T) *singleTestReactor {
 		peerManager,
 		func(_ context.Context) *p2p.PeerUpdates { return peerUpdates },
 		make(chan struct{}),
+		config.DefaultSelfRemediationConfig(),
 	)
 	reactor.SetChannel(pexCh)
 
@@ -403,6 +405,7 @@ func setupNetwork(ctx context.Context, t *testing.T, opts testOptions) *reactorT
 				rts.network.Nodes[nodeID].PeerManager,
 				func(_ context.Context) *p2p.PeerUpdates { return rts.peerUpdates[nodeID] },
 				make(chan struct{}),
+				config.DefaultSelfRemediationConfig(),
 			)
 			rts.reactors[nodeID].SetChannel(rts.pexChannels[nodeID])
 		}
@@ -457,6 +460,7 @@ func (r *reactorTestSuite) addNodes(ctx context.Context, t *testing.T, nodes int
 			r.network.Nodes[nodeID].PeerManager,
 			func(_ context.Context) *p2p.PeerUpdates { return r.peerUpdates[nodeID] },
 			make(chan struct{}),
+			config.DefaultSelfRemediationConfig(),
 		)
 		r.nodes = append(r.nodes, nodeID)
 		r.total++

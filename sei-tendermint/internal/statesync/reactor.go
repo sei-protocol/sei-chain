@@ -70,9 +70,6 @@ const (
 	// maxLightBlockRequestRetries is the amount of retries acceptable before
 	// the backfill process aborts
 	maxLightBlockRequestRetries = 20
-
-	// How long to wait when there's no available peers to restart the router
-	restartNoAvailablePeersWindow = 10 * time.Minute
 )
 
 func GetSnapshotChannelDescriptor() *p2p.ChannelDescriptor {
@@ -186,8 +183,10 @@ type Reactor struct {
 
 	// keep track of the last time we saw no available peers, so we can restart if it's been too long
 	lastNoAvailablePeers time.Time
-	// a way to signal we should restart router b/c p2p is flaky
+
+	// Used to signal a restart the node on the application level
 	restartCh chan struct{}
+	restartNoAvailablePeersWindow time.Duration
 }
 
 // NewReactor returns a reference to a new state sync reactor, which implements
@@ -209,6 +208,7 @@ func NewReactor(
 	postSyncHook func(context.Context, sm.State) error,
 	needsStateSync bool,
 	restartCh chan struct{},
+	selfRemediationConfig *config.SelfRemediationConfig,
 ) *Reactor {
 	r := &Reactor{
 		logger:               logger,
@@ -228,6 +228,7 @@ func NewReactor(
 		needsStateSync:       needsStateSync,
 		lastNoAvailablePeers: time.Time{},
 		restartCh:            restartCh,
+		restartNoAvailablePeersWindow: time.Duration(selfRemediationConfig.StatesyncNoPeersRestartWindowSeconds) * time.Second,
 	}
 
 	r.BaseService = *service.NewBaseService(logger, "StateSync", r)
@@ -991,10 +992,10 @@ func (r *Reactor) processPeerUpdate(ctx context.Context, peerUpdate p2p.PeerUpda
 	r.mtx.Lock()
 	defer r.mtx.Unlock()
 
-	if r.peers.Len() == 0 {
+	if r.peers.Len() == 0 && r.restartNoAvailablePeersWindow > 0 {
 		if r.lastNoAvailablePeers.IsZero() {
 			r.lastNoAvailablePeers = time.Now()
-		} else if time.Since(r.lastNoAvailablePeers) > restartNoAvailablePeersWindow {
+		} else if time.Since(r.lastNoAvailablePeers) > r.restartNoAvailablePeersWindow {
 			r.logger.Error("no available peers left for statesync (restarting router)")
 			r.restartCh <- struct{}{}
 		}

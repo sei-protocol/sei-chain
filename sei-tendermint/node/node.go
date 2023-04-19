@@ -59,7 +59,8 @@ type nodeImpl struct {
 	// network
 	peerManager     *p2p.PeerManager
 	router          *p2p.Router
-	routerRestartCh chan struct{} // due to p2p flakiness, have a way to signal when to restart router
+	routerRestartCh  chan struct{} // Used to signal a restart the node on the application level
+	ServiceRestartCh chan []string
 	nodeInfo        types.NodeInfo
 	nodeKey         types.NodeKey // our node privkey
 
@@ -70,7 +71,7 @@ type nodeImpl struct {
 	blockStore     *store.BlockStore // store the blockchain to disk
 	evPool         *evidence.Pool
 	indexerService *indexer.Service
-	services       []service.Service
+	services 	   []service.Service
 	rpcListeners   []net.Listener // rpc servers
 	shutdownOps    closer
 	rpcEnv         *rpccore.Environment
@@ -124,6 +125,7 @@ func newDefaultNode(
 		config.DefaultDBProvider,
 		logger,
 		[]trace.TracerProviderOption{},
+		DefaultMetricsProvider(cfg.Instrumentation)(cfg.ChainID()),
 	)
 }
 
@@ -139,7 +141,9 @@ func makeNode(
 	dbProvider config.DBProvider,
 	logger log.Logger,
 	tracerProviderOptions []trace.TracerProviderOption,
+	nodeMetrics *NodeMetrics,
 ) (service.Service, error) {
+
 	var cancel context.CancelFunc
 	ctx, cancel = context.WithCancel(ctx)
 
@@ -166,8 +170,6 @@ func makeNode(
 	if err != nil {
 		return nil, combineCloseError(err, makeCloser(closers))
 	}
-
-	nodeMetrics := defaultMetricsProvider(cfg.Instrumentation)(genDoc.ChainID)
 
 	proxyApp := proxy.New(client, logger.With("module", "proxy"), nodeMetrics.proxy)
 	eventBus := eventbus.NewDefault(logger.With("module", "events"))
@@ -333,6 +335,7 @@ func makeNode(
 		waitSync,
 		nodeMetrics.consensus,
 	)
+
 	node.router.AddChDescToBeAdded(consensus.GetStateChannelDescriptor(), csReactor.SetStateChannel)
 	node.router.AddChDescToBeAdded(consensus.GetDataChannelDescriptor(), csReactor.SetDataChannel)
 	node.router.AddChDescToBeAdded(consensus.GetVoteChannelDescriptor(), csReactor.SetVoteChannel)
@@ -352,6 +355,8 @@ func makeNode(
 		blockSync && !stateSync,
 		nodeMetrics.consensus,
 		eventBus,
+		restartCh,
+		cfg.SelfRemediation,
 	)
 	node.router.AddChDescToBeAdded(blocksync.GetChannelDescriptor(), bcReactor.SetChannel)
 	node.services = append(node.services, bcReactor)
@@ -366,7 +371,13 @@ func makeNode(
 	}
 
 	if cfg.P2P.PexReactor {
-		pxReactor := pex.NewReactor(logger, peerManager, peerManager.Subscribe, restartCh)
+		pxReactor := pex.NewReactor(
+			logger,
+			peerManager,
+			peerManager.Subscribe,
+			restartCh,
+			cfg.SelfRemediation,
+		)
 		node.services = append(node.services, pxReactor)
 		node.router.AddChDescToBeAdded(pex.ChannelDescriptor(), pxReactor.SetChannel)
 	}
@@ -405,6 +416,7 @@ func makeNode(
 		},
 		stateSync,
 		restartCh,
+		cfg.SelfRemediation,
 	)
 	node.shouldStateSync = stateSync
 	node.services = append(node.services, ssReactor)
@@ -671,7 +683,7 @@ func defaultGenesisDocProviderFunc(cfg *config.Config) genesisDocProvider {
 	}
 }
 
-type nodeMetrics struct {
+type NodeMetrics struct {
 	consensus *consensus.Metrics
 	eventlog  *eventlog.Metrics
 	indexer   *indexer.Metrics
@@ -684,14 +696,27 @@ type nodeMetrics struct {
 }
 
 // metricsProvider returns consensus, p2p, mempool, state, statesync Metrics.
-type metricsProvider func(chainID string) *nodeMetrics
+type metricsProvider func(chainID string) *NodeMetrics
+
+func NoOpMetricsProvider() *NodeMetrics {
+	return &NodeMetrics{
+		consensus: consensus.NopMetrics(),
+		indexer:   indexer.NopMetrics(),
+		mempool:   mempool.NopMetrics(),
+		p2p:       p2p.NopMetrics(),
+		proxy:     proxy.NopMetrics(),
+		state:     sm.NopMetrics(),
+		statesync: statesync.NopMetrics(),
+		evidence:  evidence.NopMetrics(),
+	}
+}
 
 // defaultMetricsProvider returns Metrics build using Prometheus client library
 // if Prometheus is enabled. Otherwise, it returns no-op Metrics.
-func defaultMetricsProvider(cfg *config.InstrumentationConfig) metricsProvider {
-	return func(chainID string) *nodeMetrics {
+func DefaultMetricsProvider(cfg *config.InstrumentationConfig) metricsProvider {
+	return func(chainID string) *NodeMetrics {
 		if cfg.Prometheus {
-			return &nodeMetrics{
+			return &NodeMetrics{
 				consensus: consensus.PrometheusMetrics(cfg.Namespace, "chain_id", chainID),
 				eventlog:  eventlog.PrometheusMetrics(cfg.Namespace, "chain_id", chainID),
 				indexer:   indexer.PrometheusMetrics(cfg.Namespace, "chain_id", chainID),
@@ -703,16 +728,7 @@ func defaultMetricsProvider(cfg *config.InstrumentationConfig) metricsProvider {
 				evidence:  evidence.PrometheusMetrics(cfg.Namespace, "chain_id", chainID),
 			}
 		}
-		return &nodeMetrics{
-			consensus: consensus.NopMetrics(),
-			indexer:   indexer.NopMetrics(),
-			mempool:   mempool.NopMetrics(),
-			p2p:       p2p.NopMetrics(),
-			proxy:     proxy.NopMetrics(),
-			state:     sm.NopMetrics(),
-			statesync: statesync.NopMetrics(),
-			evidence:  evidence.NopMetrics(),
-		}
+		return NoOpMetricsProvider()
 	}
 }
 

@@ -2448,7 +2448,7 @@ func TestWaitingTimeoutOnNilPolka(t *testing.T) {
 
 	signAddVotes(ctx, t, cs1, tmproto.PrecommitType, config.ChainID(), types.BlockID{}, vs2, vs3, vs4)
 
-	ensureNewTimeout(t, timeoutWaitCh, height, round, cs1.voteTimeout(round).Nanoseconds())
+	ensureNewTimeout(t, timeoutWaitCh, height, round, cs1.voteTimeout(round).Milliseconds())
 	ensureNewRound(t, newRoundCh, height, round+1)
 }
 
@@ -2486,7 +2486,7 @@ func TestWaitingTimeoutProposeOnNewRound(t *testing.T) {
 	rs := cs1.GetRoundState()
 	assert.Equal(t, rs.Step, cstypes.RoundStepPropose) // P0 does not prevote before timeoutPropose expires
 
-	ensureNewTimeout(t, timeoutWaitCh, height, round, cs1.proposeTimeout(round).Nanoseconds())
+	ensureNewTimeout(t, timeoutWaitCh, height, round, cs1.proposeTimeout(round).Milliseconds())
 
 	ensurePrevoteMatch(t, voteCh, height, round, nil)
 }

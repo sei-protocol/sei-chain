@@ -41,6 +41,7 @@ func New(
 	cf abciclient.Client,
 	gen *types.GenesisDoc,
 	tracerProviderOptions []trace.TracerProviderOption,
+	nodeMetrics *NodeMetrics,
 ) (service.Service, error) {
 	nodeKey, err := types.LoadOrGenNodeKey(conf.NodeKeyFile())
 	if err != nil {
@@ -72,7 +73,9 @@ func New(
 			genProvider,
 			config.DefaultDBProvider,
 			logger,
-			tracerProviderOptions)
+			tracerProviderOptions,
+			nodeMetrics,
+		)
 	case config.ModeSeed:
 		return makeSeedNode(
 			ctx,

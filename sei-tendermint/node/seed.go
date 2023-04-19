@@ -111,7 +111,13 @@ func makeSeedNode(
 		}
 	}()
 
-	pexReactor := pex.NewReactor(logger, peerManager, peerManager.Subscribe, restartCh)
+	pexReactor := pex.NewReactor(
+		logger,
+		peerManager,
+		peerManager.Subscribe,
+		restartCh,
+		cfg.SelfRemediation,
+	)
 
 	proxyApp := proxy.New(client, logger.With("module", "proxy"), proxy.NopMetrics())
 

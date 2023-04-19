@@ -315,9 +315,6 @@ max-incoming-connection-attempts = {{ .P2P.MaxIncomingConnectionAttempts }}
 # Set true to enable the peer-exchange reactor
 pex = {{ .P2P.PexReactor }}
 
-# Set true to enable self kill when there are no available peers
-self-kill-no-peers = {{ .P2P.SelfKillNoPeers }}
-
 # Comma separated list of peer IDs to keep private (will not be gossiped to other peers)
 # Warning: IPs will be exposed at /net_info, for more information https://github.com/tendermint/tendermint/issues/3055
 private-peer-ids = "{{ .P2P.PrivatePeerIDs }}"
@@ -563,6 +560,30 @@ max-open-connections = {{ .Instrumentation.MaxOpenConnections }}
 
 # Instrumentation namespace
 namespace = "{{ .Instrumentation.Namespace }}"
+
+#######################################################
+###       SelfRemediation Configuration Options     ###
+#######################################################
+[self-remediation]
+
+# If the node has no p2p peers available then trigger a restart
+# Set to 0 to disable
+p2p-no-peers-available-window-seconds = {{ .SelfRemediation.P2pNoPeersRestarWindowSeconds }}
+
+# If node has no peers for statesync after a period of time then restart
+# Set to 0 to disable
+statesync-no-peers-available-window-seconds = {{ .SelfRemediation.StatesyncNoPeersRestartWindowSeconds }}
+
+# Threshold for how far back the node can be behind the current block height before triggering a restart
+# Set to 0 to disable
+blocks-behind-threshold = {{ .SelfRemediation.BlocksBehindThreshold }}
+
+# How often to check if node is behind
+blocks-behind-check-interval = {{ .SelfRemediation.BlocksBehindCheckIntervalSeconds }}
+
+# Cooldown between each restart
+restart-cooldown-seconds = {{ .SelfRemediation.RestartCooldownSeconds }}
+
 `
 
 /****** these are for test settings ***********/
