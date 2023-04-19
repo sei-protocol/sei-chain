@@ -34,12 +34,16 @@ type LoadTestClient struct {
 	TxHashListMutex    *sync.Mutex
 	GrpcConn           *grpc.ClientConn
 	StakingQueryClient stakingtypes.QueryClient
-	//// Staking specific variables
+	// Staking specific variables
 	Validators []stakingtypes.Validator
 	// DelegationMap is a map of delegator -> validator -> delegated amount
 	DelegationMap map[string]map[string]int
-	//// Tokenfactory specific variables
+	// Tokenfactory specific variables
 	TokenFactoryDenomOwner map[string]string
+	// Only one admin message can go in per block
+	generatedAdminMessageForBlock bool
+	// Messages that has to be sent from the admin account
+	isAdminMessageMapping map[string]bool
 }
 
 func NewLoadTestClient(config Config) *LoadTestClient {
@@ -64,19 +68,21 @@ func NewLoadTestClient(config Config) *LoadTestClient {
 	_ = os.Remove(filename)
 	outputFile, _ := os.OpenFile(filename, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
 	return &LoadTestClient{
-		LoadTestConfig:         config,
-		TestConfig:             TestConfig,
-		TxClient:               TxClient,
-		TxHashFile:             outputFile,
-		SignerClient:           NewSignerClient(config.NodeURI),
-		ChainID:                config.ChainID,
-		TxHashList:             []string{},
-		TxResponseChan:         make(chan *string),
-		TxHashListMutex:        &sync.Mutex{},
-		GrpcConn:               grpcConn,
-		StakingQueryClient:     stakingtypes.NewQueryClient(grpcConn),
-		DelegationMap:          map[string]map[string]int{},
-		TokenFactoryDenomOwner: map[string]string{},
+		LoadTestConfig:                config,
+		TestConfig:                    TestConfig,
+		TxClient:                      TxClient,
+		TxHashFile:                    outputFile,
+		SignerClient:                  NewSignerClient(config.NodeURI),
+		ChainID:                       config.ChainID,
+		TxHashList:                    []string{},
+		TxResponseChan:                make(chan *string),
+		TxHashListMutex:               &sync.Mutex{},
+		GrpcConn:                      grpcConn,
+		StakingQueryClient:            stakingtypes.NewQueryClient(grpcConn),
+		DelegationMap:                 map[string]map[string]int{},
+		TokenFactoryDenomOwner:        map[string]string{},
+		generatedAdminMessageForBlock: false,
+		isAdminMessageMapping:         map[string]bool{CollectRewards: true, DistributeRewards: true},
 	}
 }
 
@@ -131,11 +137,13 @@ func (c *LoadTestClient) BuildTxs() (workgroups []*sync.WaitGroup, sendersList [
 		wg := &sync.WaitGroup{}
 		var senders []func()
 		workgroups = append(workgroups, wg)
-
+		c.generatedAdminMessageForBlock = false
 		for j, account := range activeAccounts {
-			key := c.SignerClient.GetKey(uint64(account))
+			accountIdentifier := fmt.Sprint(account)
+			accountKeyPath := c.SignerClient.GetTestAccountKeyPath(uint64(account))
+			key := c.SignerClient.GetKey(accountIdentifier, "test", accountKeyPath)
 
-			msg, failureExpected := c.generateMessage(config, key, config.MsgsPerTx)
+			msg, failureExpected, signer, gas, fee := c.generateMessage(config, key, config.MsgsPerTx)
 			txBuilder := TestConfig.TxConfig.NewTxBuilder()
 			_ = txBuilder.SetMsgs(msg)
 			seqDelta := uint64(i / 2)
@@ -147,7 +155,7 @@ func (c *LoadTestClient) BuildTxs() (workgroups []*sync.WaitGroup, sendersList [
 			// in which a later seqno is delievered before an earlier seqno
 			// In practice, we haven't run into this issue so we'll leave this
 			// as is.
-			sender := SendTx(key, &txBuilder, mode, seqDelta, failureExpected, *c)
+			sender := SendTx(signer, &txBuilder, mode, seqDelta, failureExpected, *c, gas, fee)
 			wg.Add(1)
 			senders = append(senders, func() {
 				defer wg.Done()
@@ -174,7 +182,7 @@ func (c *LoadTestClient) GenerateOracleSenders(i int, config Config, valKeys []c
 			_ = txBuilder.SetMsgs(msg)
 			seqDelta := uint64(i / 2)
 			mode := typestx.BroadcastMode_BROADCAST_MODE_SYNC
-			sender := SendTx(valKey, &txBuilder, mode, seqDelta, false, *c)
+			sender := SendTx(valKey, &txBuilder, mode, seqDelta, false, *c, 30000, 100000)
 			waitGroup.Add(1)
 			senders = append(senders, func() {
 				defer waitGroup.Done()

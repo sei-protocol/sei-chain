@@ -13,6 +13,8 @@ import (
 
 const (
 	Bank                 string = "bank"
+	CollectRewards       string = "collect_rewards"
+	DistributeRewards    string = "distribute_rewards"
 	FailureBankMalformed string = "failure_bank_malformed"
 	FailureBankInvalid   string = "failure_bank_invalid"
 	FailureDexMalformed  string = "failure_dex_malformed"
@@ -40,6 +42,7 @@ type Config struct {
 	MsgTypeDistr       MsgTypeDistribution   `json:"message_type_distribution"`
 	WasmMsgTypes       WasmMessageTypes      `json:"wasm_msg_types"`
 	ContractDistr      ContractDistributions `json:"contract_distribution"`
+	PerMessageConfigs  MessageConfigs        `json:"message_configs"`
 	MetricsPort        uint64                `json:"metrics_port"`
 	Constant           bool                  `json:"constant"`
 	LoadInterval       int64                 `json:"loadtest_interval"`
@@ -53,6 +56,15 @@ type EncodingConfig struct {
 	TxConfig  client.TxConfig
 	Amino     *codec.LegacyAmino
 }
+
+// MessageConfig is the configuration for a message
+// Specify the gas and fee for the message type
+type MessageTypeConfig struct {
+	Gas uint64 `json:"gas"`
+	Fee uint64 `json:"fee"`
+}
+
+type MessageConfigs map[string]MessageTypeConfig
 
 type NumericDistribution struct {
 	Min         sdk.Dec `json:"min"`

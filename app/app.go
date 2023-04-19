@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/cosmos/cosmos-sdk/server"
 	storetypes "github.com/cosmos/cosmos-sdk/store/types"
 
 	"github.com/sei-protocol/sei-chain/aclmapping"
@@ -143,6 +144,7 @@ import (
 	wasmtypes "github.com/CosmWasm/wasmd/x/wasm/types"
 
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/trace"
 )
 
 // this line is used by starport scaffolding # stargate/wasm/app/enabledProposals
@@ -385,12 +387,19 @@ func New(
 	tkeys := sdk.NewTransientStoreKeys(paramstypes.TStoreKey)
 	memKeys := sdk.NewMemoryStoreKeys(capabilitytypes.MemStoreKey)
 
-	tp, err := tracing.DefaultTracerProvider()
-	if err != nil {
-		panic(err)
-	}
-	otel.SetTracerProvider(tp)
+	tp := trace.NewNoopTracerProvider()
+	otel.SetTracerProvider(trace.NewNoopTracerProvider())
 	tr := tp.Tracer("component-main")
+
+	if tracingEnabled := cast.ToBool(appOpts.Get(server.FlagTracing)); tracingEnabled {
+		tp, err := tracing.DefaultTracerProvider()
+		if err != nil {
+			panic(err)
+		}
+		otel.SetTracerProvider(tp)
+		tr = tp.Tracer("component-main")
+	}
+
 	app := &App{
 		BaseApp:           bApp,
 		cdc:               cdc,
@@ -943,6 +952,13 @@ func (app *App) ClearOptimisticProcessingInfo() {
 }
 
 func (app *App) ProcessProposalHandler(ctx sdk.Context, req *abci.RequestProcessProposal) (*abci.ResponseProcessProposal, error) {
+	// TODO: this check decodes transactions which is redone in subsequent processing. We might be able to optimize performance
+	// by recording the decoding results and avoid decoding again later on.
+	if !app.checkTotalBlockGasWanted(ctx, req.Txs) {
+		return &abci.ResponseProcessProposal{
+			Status: abci.ResponseProcessProposal_REJECT,
+		}, nil
+	}
 	if app.optimisticProcessingInfo == nil {
 		completionSignal := make(chan struct{}, 1)
 		optimisticProcessingInfo := &OptimisticProcessingInfo{
@@ -1331,8 +1347,8 @@ func (app *App) addBadWasmDependenciesToContext(ctx sdk.Context, txResults []*ab
 			for _, event := range txResult.Events {
 				if event.Type == wasmtypes.EventTypeExecute {
 					for _, attr := range event.Attributes {
-						if attr.Key == wasmtypes.AttributeKeyContractAddr {
-							addr, err := sdk.AccAddressFromBech32(attr.Value)
+						if string(attr.Key) == wasmtypes.AttributeKeyContractAddr {
+							addr, err := sdk.AccAddressFromBech32(string(attr.Value))
 							if err == nil {
 								wasmContractsWithIncorrectDependencies = append(wasmContractsWithIncorrectDependencies, addr)
 							}
@@ -1466,6 +1482,28 @@ func (app *App) RegisterTxService(clientCtx client.Context) {
 // RegisterTendermintService implements the Application.RegisterTendermintService method.
 func (app *App) RegisterTendermintService(clientCtx client.Context) {
 	tmservice.RegisterTendermintService(app.BaseApp.GRPCQueryRouter(), clientCtx, app.interfaceRegistry)
+}
+
+func (app *App) checkTotalBlockGasWanted(ctx sdk.Context, txs [][]byte) bool {
+	totalGasWanted := uint64(0)
+	for _, tx := range txs {
+		decoded, err := app.txDecoder(tx)
+		if err != nil {
+			// such tx will not be processed and thus won't consume gas. Skipping
+			continue
+		}
+		feeTx, ok := decoded.(sdk.FeeTx)
+		if !ok {
+			// such tx will not be processed and thus won't consume gas. Skipping
+			continue
+		}
+		totalGasWanted += feeTx.GetGas()
+		if totalGasWanted > uint64(ctx.ConsensusParams().Block.MaxGas) {
+			// early return
+			return false
+		}
+	}
+	return true
 }
 
 // GetMaccPerms returns a copy of the module account permissions

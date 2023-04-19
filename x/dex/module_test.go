@@ -57,6 +57,8 @@ func TestEndBlockMarketOrder(t *testing.T) {
 	bankkeeper := testApp.BankKeeper
 	bankkeeper.MintCoins(ctx, minttypes.ModuleName, amounts)
 	bankkeeper.SendCoinsFromModuleToAccount(ctx, minttypes.ModuleName, testAccount, amounts)
+	dexAmounts := sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(5000000)), sdk.NewCoin("uusdc", sdk.NewInt(10000000)))
+	bankkeeper.SendCoinsFromAccountToModule(ctx, testAccount, types.ModuleName, dexAmounts)
 	wasm, err := ioutil.ReadFile("./testdata/mars.wasm")
 	if err != nil {
 		panic(err)
@@ -187,6 +189,8 @@ func TestEndBlockLimitOrder(t *testing.T) {
 	bankkeeper := testApp.BankKeeper
 	bankkeeper.MintCoins(ctx, minttypes.ModuleName, amounts)
 	bankkeeper.SendCoinsFromModuleToAccount(ctx, minttypes.ModuleName, testAccount, amounts)
+	dexAmounts := sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(5000000)), sdk.NewCoin("uusdc", sdk.NewInt(10000000)))
+	bankkeeper.SendCoinsFromAccountToModule(ctx, testAccount, types.ModuleName, dexAmounts)
 	wasm, err := ioutil.ReadFile("./testdata/mars.wasm")
 	if err != nil {
 		panic(err)
@@ -402,6 +406,8 @@ func TestEndBlockPartialRollback(t *testing.T) {
 	bankkeeper := testApp.BankKeeper
 	bankkeeper.MintCoins(ctx, minttypes.ModuleName, amounts)
 	bankkeeper.SendCoinsFromModuleToAccount(ctx, minttypes.ModuleName, testAccount, amounts)
+	dexAmounts := sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(500000)), sdk.NewCoin("uusdc", sdk.NewInt(1000000)))
+	bankkeeper.SendCoinsFromAccountToModule(ctx, testAccount, types.ModuleName, dexAmounts)
 	wasm, err := ioutil.ReadFile("./testdata/mars.wasm")
 	if err != nil {
 		panic(err)
@@ -502,6 +508,8 @@ func TestEndBlockPanicHandling(t *testing.T) {
 	bankkeeper := testApp.BankKeeper
 	bankkeeper.MintCoins(ctx, minttypes.ModuleName, amounts)
 	bankkeeper.SendCoinsFromModuleToAccount(ctx, minttypes.ModuleName, testAccount, amounts)
+	dexAmounts := sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(5000000)))
+	bankkeeper.SendCoinsFromAccountToModule(ctx, testAccount, types.ModuleName, dexAmounts)
 	wasm, err := ioutil.ReadFile("./testdata/mars.wasm")
 	if err != nil {
 		panic(err)
@@ -559,6 +567,8 @@ func TestEndBlockRollbackWithRentCharge(t *testing.T) {
 	bankkeeper := testApp.BankKeeper
 	bankkeeper.MintCoins(ctx, minttypes.ModuleName, amounts)
 	bankkeeper.SendCoinsFromModuleToAccount(ctx, minttypes.ModuleName, testAccount, amounts)
+	dexAmounts := sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(500000)), sdk.NewCoin("uusdc", sdk.NewInt(1000000)))
+	bankkeeper.SendCoinsFromAccountToModule(ctx, testAccount, types.ModuleName, dexAmounts)
 	wasm, err := ioutil.ReadFile("./testdata/mars.wasm")
 	if err != nil {
 		panic(err)

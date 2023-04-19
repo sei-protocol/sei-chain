@@ -55,7 +55,7 @@ func TestDepositRent(t *testing.T) {
 
 	testAccount, _ := sdk.AccAddressFromBech32("sei1h9yjz89tl0dl6zu65dpxcqnxfhq60wxx8s5kag")
 	depositAccount, _ := sdk.AccAddressFromBech32("sei1yezq49upxhunjjhudql2fnj5dgvcwjj87pn2wx")
-	amounts := sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(10000000)), sdk.NewCoin("uusdc", sdk.NewInt(10000000)))
+	amounts := sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(100000000)), sdk.NewCoin("uusdc", sdk.NewInt(100000000)))
 	bankkeeper := testApp.BankKeeper
 	bankkeeper.MintCoins(ctx, minttypes.ModuleName, amounts)
 	bankkeeper.SendCoinsFromModuleToAccount(ctx, minttypes.ModuleName, testAccount, amounts)
@@ -83,7 +83,7 @@ func TestDepositRent(t *testing.T) {
 		CodeId:       codeId,
 		ContractAddr: contractAddr.String(),
 		Creator:      testAccount.String(),
-		RentBalance:  1000000,
+		RentBalance:  types.DefaultParams().MinRentDeposit,
 	}
 	_, err = server.RegisterContract(wctx, &types.MsgRegisterContract{
 		Creator:  testAccount.String(),
@@ -93,21 +93,21 @@ func TestDepositRent(t *testing.T) {
 	_, err = dexkeeper.GetContract(ctx, TestContractA)
 	require.NoError(t, err)
 	balance := dexkeeper.BankKeeper.GetBalance(ctx, testAccount, "usei")
-	require.Equal(t, int64(8900000), balance.Amount.Int64())
+	require.Equal(t, int64(89900000), balance.Amount.Int64())
 
 	handler := dex.NewHandler(dexkeeper)
 	_, err = handler(ctx, &types.MsgContractDepositRent{
 		Sender:       depositAccount.String(),
 		ContractAddr: TestContractA,
-		Amount:       1000000,
+		Amount:       types.DefaultParams().MinRentDeposit,
 	})
 	require.NoError(t, err)
 	_, err = dexkeeper.GetContract(ctx, TestContractA)
 	require.NoError(t, err)
 	balance = dexkeeper.BankKeeper.GetBalance(ctx, testAccount, "usei")
-	require.Equal(t, int64(8900000), balance.Amount.Int64())
+	require.Equal(t, int64(89900000), balance.Amount.Int64())
 	balance = dexkeeper.BankKeeper.GetBalance(ctx, depositAccount, "usei")
-	require.Equal(t, int64(9000000), balance.Amount.Int64())
+	require.Equal(t, int64(90000000), balance.Amount.Int64())
 
 	// deposit exceeds limit
 	_, err = handler(ctx, &types.MsgContractDepositRent{
