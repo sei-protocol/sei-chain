@@ -252,7 +252,7 @@ func newApp(
 		logger,
 		db,
 		traceStore,
-		true,
+		cast.ToBool(appOpts.Get(server.FlagLoadLatest)),
 		skipUpgradeHeights,
 		cast.ToString(appOpts.Get(flags.FlagHome)),
 		cast.ToUint(appOpts.Get(server.FlagInvCheckPeriod)),
