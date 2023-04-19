@@ -8,6 +8,7 @@ import (
 
 	"github.com/cosmos/cosmos-sdk/crypto/codec"
 	tmtime "github.com/cosmos/cosmos-sdk/std"
+	"github.com/cosmos/cosmos-sdk/telemetry"
 	abciclient "github.com/tendermint/tendermint/abci/client"
 	tmos "github.com/tendermint/tendermint/libs/os"
 	"github.com/tendermint/tendermint/node"
@@ -59,6 +60,7 @@ func startInProcess(cfg Config, val *Validator) error {
 		abciclient.NewLocalClient(logger, app),
 		defaultGensis,
 		[]trace.TracerProviderOption{},
+		node.NoOpMetricsProvider(),
 	)
 
 	if err != nil {
@@ -95,7 +97,7 @@ func startInProcess(cfg Config, val *Validator) error {
 		errCh := make(chan error)
 
 		go func() {
-			if err := apiSrv.Start(*val.AppConfig); err != nil {
+			if err := apiSrv.Start(*val.AppConfig, &telemetry.Metrics{}); err != nil {
 				errCh <- err
 			}
 		}()

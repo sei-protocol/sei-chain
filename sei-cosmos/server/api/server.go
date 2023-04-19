@@ -89,16 +89,10 @@ func New(clientCtx client.Context, logger log.Logger) *Server {
 // JSON RPC server. Configuration options are provided via config.APIConfig
 // and are delegated to the Tendermint JSON RPC server. The process is
 // non-blocking, so an external signal handler must be used.
-func (s *Server) Start(cfg config.Config) error {
+func (s *Server) Start(cfg config.Config, apiMetrics *telemetry.Metrics) error {
 	s.mtx.Lock()
 	if cfg.Telemetry.Enabled {
-		m, err := telemetry.New(cfg.Telemetry)
-		if err != nil {
-			s.mtx.Unlock()
-			return err
-		}
-
-		s.metrics = m
+		s.metrics = apiMetrics
 		s.registerMetrics()
 	}
 

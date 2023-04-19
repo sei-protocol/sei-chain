@@ -78,6 +78,10 @@ func NewManagerWithExtensions(store *Store, multistore types.Snapshotter, extens
 	}
 }
 
+func (m *Manager) Close() error {
+	return m.store.db.Close()
+}
+
 // RegisterExtensions register extension snapshotters to manager
 func (m *Manager) RegisterExtensions(extensions ...types.ExtensionSnapshotter) error {
 	for _, extension := range extensions {

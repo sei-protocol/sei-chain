@@ -5,10 +5,13 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/signal"
 	"path"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
+	"time"
 
 	"github.com/spf13/cobra"
 	"go.opentelemetry.io/otel/sdk/trace"
@@ -400,4 +403,79 @@ func TestInterceptConfigsWithBadPermissions(t *testing.T) {
 	if err := cmd.ExecuteContext(ctx); !os.IsPermission(err) {
 		t.Fatalf("Failed to catch permissions error, got: [%T] %v", err, err)
 	}
+}
+
+func TestWaitForQuitSignals(t *testing.T) {
+	t.Run("WithRestartChannelAndCanRestartAfterNotReached", func(t *testing.T) {
+		restartCh := make(chan struct{})
+		go func() {
+			time.Sleep(100 * time.Millisecond)
+			restartCh <- struct{}{}
+		}()
+
+		go func() {
+			time.Sleep(200 * time.Millisecond)
+			syscall.Kill(syscall.Getpid(), syscall.SIGTERM)
+		}()
+
+		errCode := server.WaitForQuitSignals(
+			restartCh,
+			time.Now().Add(500*time.Millisecond),
+		)
+		expectedCode := int(syscall.SIGTERM) + 128
+		if errCode.Code != expectedCode {
+			t.Errorf("Expected error code %d, got %d", expectedCode, errCode.Code)
+		}
+	})
+
+	t.Run("WithRestartChannelAndCanRestartAfterReached", func(t *testing.T) {
+		restartCh := make(chan struct{})
+		go func() {
+			time.Sleep(100 * time.Millisecond)
+			restartCh <- struct{}{}
+		}()
+
+		errCode := server.WaitForQuitSignals(
+			restartCh,
+			time.Now().Add(-100*time.Millisecond),
+		)
+		if errCode.Code != server.RestartErrorCode {
+			t.Errorf("Expected error code %d, got %d", server.RestartErrorCode, errCode.Code)
+		}
+	})
+
+	t.Run("WithSIGINT", func(t *testing.T) {
+		sigs := make(chan os.Signal, 1)
+		signal.Notify(sigs, syscall.SIGINT)
+
+		go func() {
+			time.Sleep(100 * time.Millisecond)
+			syscall.Kill(syscall.Getpid(), syscall.SIGINT)
+		}()
+
+		errCode := server.WaitForQuitSignals(
+			make(chan struct{}),
+			time.Now(),
+		)
+		expectedCode := int(syscall.SIGINT) + 128
+		if errCode.Code != expectedCode {
+			t.Errorf("Expected error code %d, got %d", expectedCode, errCode.Code)
+		}
+	})
+
+	t.Run("WithSIGTERM", func(t *testing.T) {
+		go func() {
+			time.Sleep(100 * time.Millisecond)
+			syscall.Kill(syscall.Getpid(), syscall.SIGTERM)
+		}()
+
+		errCode := server.WaitForQuitSignals(
+			make(chan struct{}),
+			time.Now(),
+		)
+		expectedCode := int(syscall.SIGTERM) + 128
+		if errCode.Code != expectedCode {
+			t.Errorf("Expected error code %d, got %d", expectedCode, errCode.Code)
+		}
+	})
 }

@@ -1092,3 +1092,10 @@ func (app *BaseApp) startCompactionRoutine(db dbm.DB) {
 		}
 	}()
 }
+
+func (app *BaseApp) Close() error {
+	if err := app.appStore.db.Close(); err != nil {
+		return err
+	}
+	return app.snapshotManager.Close()
+}

@@ -56,6 +56,9 @@ type (
 
 		// CommitMultiStore Returns the multistore instance
 		CommitMultiStore() sdk.CommitMultiStore
+
+		// Close any open resources
+		Close() error
 	}
 
 	// AppCreator is a function that allows us to lazily initialize an

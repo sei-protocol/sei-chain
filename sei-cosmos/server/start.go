@@ -36,6 +36,7 @@ import (
 	crgserver "github.com/cosmos/cosmos-sdk/server/rosetta/lib/server"
 	"github.com/cosmos/cosmos-sdk/server/types"
 	storetypes "github.com/cosmos/cosmos-sdk/store/types"
+	"github.com/cosmos/cosmos-sdk/telemetry"
 )
 
 const (
@@ -179,13 +180,41 @@ is performed. Note, when enabled, gRPC will also be automatically enabled.
 			}
 
 			// amino is needed here for backwards compatibility of REST routes
-			err = startInProcess(serverCtx, clientCtx, appCreator, tracerProviderOptions)
-			errCode, ok := err.(ErrorCode)
-			if !ok {
-				return err
+			exitCode := RestartErrorCode
+
+			serverCtx.Logger.Info("Creating node metrics provider")
+			nodeMetricsProvider := node.DefaultMetricsProvider(serverCtx.Config.Instrumentation)(clientCtx.ChainID)
+
+			config, _ := config.GetConfig(serverCtx.Viper)
+			apiMetrics,  err := telemetry.New(config.Telemetry)
+			if err != nil {
+				return fmt.Errorf("failed to initialize telemetry: %w", err)
 			}
 
-			serverCtx.Logger.Debug(fmt.Sprintf("received quit signal: %d", errCode.Code))
+			restartCoolDownDuration := time.Second * time.Duration(serverCtx.Config.SelfRemediation.RestartCooldownSeconds)
+			// Set the first restart time to be now - restartCoolDownDuration so that the first restart can trigger whenever
+			canRestartAfter := time.Now().Add(-restartCoolDownDuration)
+			for {
+				err = startInProcess(
+					serverCtx,
+					clientCtx,
+					appCreator,
+					tracerProviderOptions,
+					nodeMetricsProvider,
+					apiMetrics,
+					canRestartAfter,
+				)
+				errCode, ok := err.(ErrorCode)
+				exitCode = errCode.Code
+				if !ok {
+					return err
+				}
+				if exitCode != RestartErrorCode {
+					break
+				}
+				serverCtx.Logger.Info("restarting node...")
+				canRestartAfter = time.Now().Add(restartCoolDownDuration)
+			}
 			return nil
 		},
 	}
@@ -270,15 +299,21 @@ func startStandAlone(ctx *Context, appCreator types.AppCreator) error {
 		svr.Wait()
 	}()
 
-	var restartCh chan struct{}
-	if ctx.Config.P2P.SelfKillNoPeers {
-		restartCh = make(chan struct{})
-	}
+	restartCh := make(chan struct{})
+
 	// Wait for SIGINT or SIGTERM signal
-	return WaitForQuitSignals(restartCh)
+	return WaitForQuitSignals(restartCh, time.Now())
 }
 
-func startInProcess(ctx *Context, clientCtx client.Context, appCreator types.AppCreator, tracerProviderOptions []trace.TracerProviderOption) error {
+func startInProcess(
+	ctx *Context,
+	clientCtx client.Context,
+	appCreator types.AppCreator,
+	tracerProviderOptions []trace.TracerProviderOption,
+	nodeMetricsProvider *node.NodeMetrics,
+	apiMetrics *telemetry.Metrics,
+	canRestartAfter time.Time,
+) error {
 	cfg := ctx.Config
 	home := cfg.RootDir
 	goCtx, cancel := context.WithCancel(context.Background())
@@ -287,12 +322,11 @@ func startInProcess(ctx *Context, clientCtx client.Context, appCreator types.App
 	if cpuProfile := ctx.Viper.GetString(flagCPUProfile); cpuProfile != "" {
 		f, err := os.Create(cpuProfile)
 		if err != nil {
-			return err
+			return fmt.Errorf("failed to create cpuProfile file %w", err)
 		}
 
-		ctx.Logger.Info("starting CPU profiler", "profile", cpuProfile)
 		if err := pprof.StartCPUProfile(f); err != nil {
-			return err
+			return fmt.Errorf("failed to start CPU Profiler %w", err)
 		}
 
 		cpuProfileCleanup = func() {
@@ -330,9 +364,8 @@ func startInProcess(ctx *Context, clientCtx client.Context, appCreator types.App
 		restartCh chan struct{}
 		gRPCOnly  = ctx.Viper.GetBool(flagGRPCOnly)
 	)
-	if ctx.Config.P2P.SelfKillNoPeers {
-		restartCh = make(chan struct{})
-	}
+
+	restartCh = make(chan struct{})
 
 	if gRPCOnly {
 		ctx.Logger.Info("starting node in gRPC only mode; Tendermint is disabled")
@@ -347,12 +380,13 @@ func startInProcess(ctx *Context, clientCtx client.Context, appCreator types.App
 			abciclient.NewLocalClient(ctx.Logger, app),
 			nil,
 			tracerProviderOptions,
+			nodeMetricsProvider,
 		)
 		if err != nil {
-			return err
+			return fmt.Errorf("error creating node: %w", err)
 		}
 		if err := tmNode.Start(goCtx); err != nil {
-			return err
+			return fmt.Errorf("error starting node: %w", err)
 		}
 	}
 
@@ -378,14 +412,14 @@ func startInProcess(ctx *Context, clientCtx client.Context, appCreator types.App
 		errCh := make(chan error)
 
 		go func() {
-			if err := apiSrv.Start(config); err != nil {
+			if err := apiSrv.Start(config, apiMetrics); err != nil {
 				errCh <- err
 			}
 		}()
 
 		select {
 		case err := <-errCh:
-			return err
+			return fmt.Errorf("error starting api server: %w", err)
 
 		case <-time.After(types.ServerStartTime): // assume server started successfully
 		}
@@ -415,7 +449,7 @@ func startInProcess(ctx *Context, clientCtx client.Context, appCreator types.App
 	// we do not need to start Rosetta or handle any Tendermint related processes.
 	if gRPCOnly {
 		// wait for signal capture and gracefully return
-		return WaitForQuitSignals(restartCh)
+		return WaitForQuitSignals(restartCh, canRestartAfter)
 	}
 
 	var rosettaSrv crgserver.Server
@@ -481,9 +515,12 @@ func startInProcess(ctx *Context, clientCtx client.Context, appCreator types.App
 			}
 		}
 
-		ctx.Logger.Info("exiting...")
+		ctx.Logger.Info("close any other open resource...")
+		if err := app.Close(); err != nil {
+			ctx.Logger.Error("error closing database", "err", err)
+		}
 	}()
 
 	// wait for signal capture and gracefully return
-	return WaitForQuitSignals(restartCh)
+	return WaitForQuitSignals(restartCh, canRestartAfter)
 }

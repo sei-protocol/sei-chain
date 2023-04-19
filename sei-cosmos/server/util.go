@@ -39,6 +39,9 @@ import (
 // a command's Context.
 const ServerContextKey = sdk.ContextKey("server.context")
 
+// Error code reserved for signalled
+const RestartErrorCode = 100
+
 // server context
 type Context struct {
 	Viper  *viper.Viper
@@ -382,7 +385,7 @@ func TrapSignal(cleanupFunc func()) {
 }
 
 // WaitForQuitSignals waits for SIGINT and SIGTERM and returns.
-func WaitForQuitSignals(restartCh chan struct{}) ErrorCode {
+func WaitForQuitSignals(restartCh chan struct{}, canRestartAfter time.Time) ErrorCode {
 	sigs := make(chan os.Signal, 1)
 	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
 	if restartCh != nil {
@@ -391,7 +394,11 @@ func WaitForQuitSignals(restartCh chan struct{}) ErrorCode {
 			case sig := <-sigs:
 				return ErrorCode{Code: int(sig.(syscall.Signal)) + 128}
 			case <-restartCh:
-				return ErrorCode{Code: 1}
+				// If it's in the restart cooldown period
+				if time.Now().Before(canRestartAfter) {
+					continue
+				}
+				return ErrorCode{Code: RestartErrorCode}
 			}
 		}
 	} else {
