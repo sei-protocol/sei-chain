@@ -58,7 +58,18 @@ func (s msgServer) CreateVestingAccount(goCtx context.Context, msg *types.MsgCre
 		return nil, sdkerrors.Wrapf(sdkerrors.ErrInvalidRequest, "invalid account type; expected: BaseAccount, got: %T", baseAccount)
 	}
 
-	baseVestingAccount := types.NewBaseVestingAccount(baseAccount.(*authtypes.BaseAccount), msg.Amount.Sort(), msg.EndTime)
+	var admin sdk.AccAddress
+	if len(msg.Admin) > 0 {
+		admin, err = sdk.AccAddressFromBech32(msg.Admin)
+		if err != nil {
+			return nil, err
+		}
+		if acc := ak.GetAccount(ctx, admin); acc == nil {
+			return nil, sdkerrors.Wrapf(sdkerrors.ErrInvalidRequest, "admin account %s doesn't exist", msg.ToAddress)
+		}
+	}
+
+	baseVestingAccount := types.NewBaseVestingAccount(baseAccount.(*authtypes.BaseAccount), msg.Amount.Sort(), msg.EndTime, admin)
 
 	var acc authtypes.AccountI
 

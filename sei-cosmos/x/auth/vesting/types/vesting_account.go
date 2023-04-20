@@ -25,13 +25,14 @@ var (
 // NewBaseVestingAccount creates a new BaseVestingAccount object. It is the
 // callers responsibility to ensure the base account has sufficient funds with
 // regards to the original vesting amount.
-func NewBaseVestingAccount(baseAccount *authtypes.BaseAccount, originalVesting sdk.Coins, endTime int64) *BaseVestingAccount {
+func NewBaseVestingAccount(baseAccount *authtypes.BaseAccount, originalVesting sdk.Coins, endTime int64, admin sdk.AccAddress) *BaseVestingAccount {
 	return &BaseVestingAccount{
 		BaseAccount:      baseAccount,
 		OriginalVesting:  originalVesting,
 		DelegatedFree:    sdk.NewCoins(),
 		DelegatedVesting: sdk.NewCoins(),
 		EndTime:          endTime,
+		Admin:            admin.String(),
 	}
 }
 
@@ -160,6 +161,7 @@ type vestingAccountYAML struct {
 	DelegatedFree    sdk.Coins      `json:"delegated_free" yaml:"delegated_free"`
 	DelegatedVesting sdk.Coins      `json:"delegated_vesting" yaml:"delegated_vesting"`
 	EndTime          int64          `json:"end_time" yaml:"end_time"`
+	Admin            string         `json:"admin" yaml:"admin"`
 
 	// custom fields based on concrete vesting type which can be omitted
 	StartTime      int64   `json:"start_time,omitempty" yaml:"start_time,omitempty"`
@@ -205,11 +207,12 @@ func NewContinuousVestingAccountRaw(bva *BaseVestingAccount, startTime int64) *C
 }
 
 // NewContinuousVestingAccount returns a new ContinuousVestingAccount
-func NewContinuousVestingAccount(baseAcc *authtypes.BaseAccount, originalVesting sdk.Coins, startTime, endTime int64) *ContinuousVestingAccount {
+func NewContinuousVestingAccount(baseAcc *authtypes.BaseAccount, originalVesting sdk.Coins, startTime, endTime int64, admin sdk.AccAddress) *ContinuousVestingAccount {
 	baseVestingAcc := &BaseVestingAccount{
 		BaseAccount:     baseAcc,
 		OriginalVesting: originalVesting,
 		EndTime:         endTime,
+		Admin:           admin.String(),
 	}
 
 	return &ContinuousVestingAccount{
@@ -320,7 +323,7 @@ func NewPeriodicVestingAccountRaw(bva *BaseVestingAccount, startTime int64, peri
 }
 
 // NewPeriodicVestingAccount returns a new PeriodicVestingAccount
-func NewPeriodicVestingAccount(baseAcc *authtypes.BaseAccount, originalVesting sdk.Coins, startTime int64, periods Periods) *PeriodicVestingAccount {
+func NewPeriodicVestingAccount(baseAcc *authtypes.BaseAccount, originalVesting sdk.Coins, startTime int64, periods Periods, admin sdk.AccAddress) *PeriodicVestingAccount {
 	endTime := startTime
 	for _, p := range periods {
 		endTime += p.Length
@@ -329,6 +332,7 @@ func NewPeriodicVestingAccount(baseAcc *authtypes.BaseAccount, originalVesting s
 		BaseAccount:     baseAcc,
 		OriginalVesting: originalVesting,
 		EndTime:         endTime,
+		Admin:           admin.String(),
 	}
 
 	return &PeriodicVestingAccount{
@@ -462,11 +466,12 @@ func NewDelayedVestingAccountRaw(bva *BaseVestingAccount) *DelayedVestingAccount
 }
 
 // NewDelayedVestingAccount returns a DelayedVestingAccount
-func NewDelayedVestingAccount(baseAcc *authtypes.BaseAccount, originalVesting sdk.Coins, endTime int64) *DelayedVestingAccount {
+func NewDelayedVestingAccount(baseAcc *authtypes.BaseAccount, originalVesting sdk.Coins, endTime int64, admin sdk.AccAddress) *DelayedVestingAccount {
 	baseVestingAcc := &BaseVestingAccount{
 		BaseAccount:     baseAcc,
 		OriginalVesting: originalVesting,
 		EndTime:         endTime,
+		Admin:           admin.String(),
 	}
 
 	return &DelayedVestingAccount{baseVestingAcc}
@@ -523,11 +528,12 @@ var _ vestexported.VestingAccount = (*PermanentLockedAccount)(nil)
 var _ authtypes.GenesisAccount = (*PermanentLockedAccount)(nil)
 
 // NewPermanentLockedAccount returns a PermanentLockedAccount
-func NewPermanentLockedAccount(baseAcc *authtypes.BaseAccount, coins sdk.Coins) *PermanentLockedAccount {
+func NewPermanentLockedAccount(baseAcc *authtypes.BaseAccount, coins sdk.Coins, admin sdk.AccAddress) *PermanentLockedAccount {
 	baseVestingAcc := &BaseVestingAccount{
 		BaseAccount:     baseAcc,
 		OriginalVesting: coins,
 		EndTime:         0, // ensure EndTime is set to 0, as PermanentLockedAccount's do not have an EndTime
+		Admin:           admin.String(),
 	}
 
 	return &PermanentLockedAccount{baseVestingAcc}

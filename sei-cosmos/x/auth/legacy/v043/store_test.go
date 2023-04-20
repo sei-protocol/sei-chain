@@ -35,7 +35,7 @@ func TestMigrateVestingAccounts(t *testing.T) {
 
 				baseAccount := authtypes.NewBaseAccountWithAddress(delegatorAddr)
 				vestedCoins := sdk.NewCoins(sdk.NewCoin(app.StakingKeeper.BondDenom(ctx), sdk.NewInt(200)))
-				delayedAccount := types.NewDelayedVestingAccount(baseAccount, vestedCoins, ctx.BlockTime().Unix())
+				delayedAccount := types.NewDelayedVestingAccount(baseAccount, vestedCoins, ctx.BlockTime().Unix(), nil)
 
 				ctx = ctx.WithBlockTime(ctx.BlockTime().AddDate(1, 0, 0))
 
@@ -60,7 +60,7 @@ func TestMigrateVestingAccounts(t *testing.T) {
 
 				baseAccount := authtypes.NewBaseAccountWithAddress(delegatorAddr)
 				vestedCoins := sdk.NewCoins(sdk.NewCoin(app.StakingKeeper.BondDenom(ctx), sdk.NewInt(200)))
-				delayedAccount := types.NewDelayedVestingAccount(baseAccount, vestedCoins, ctx.BlockTime().Unix())
+				delayedAccount := types.NewDelayedVestingAccount(baseAccount, vestedCoins, ctx.BlockTime().Unix(), nil)
 
 				ctx = ctx.WithBlockTime(ctx.BlockTime().AddDate(1, 0, 0))
 
@@ -81,7 +81,7 @@ func TestMigrateVestingAccounts(t *testing.T) {
 
 				baseAccount := authtypes.NewBaseAccountWithAddress(delegatorAddr)
 				vestedCoins := sdk.NewCoins(sdk.NewCoin(app.StakingKeeper.BondDenom(ctx), sdk.NewInt(200)))
-				delayedAccount := types.NewDelayedVestingAccount(baseAccount, vestedCoins, ctx.BlockTime().Unix())
+				delayedAccount := types.NewDelayedVestingAccount(baseAccount, vestedCoins, ctx.BlockTime().Unix(), nil)
 
 				ctx = ctx.WithBlockTime(ctx.BlockTime().AddDate(1, 0, 0))
 
@@ -106,7 +106,7 @@ func TestMigrateVestingAccounts(t *testing.T) {
 
 				baseAccount := authtypes.NewBaseAccountWithAddress(delegatorAddr)
 				vestedCoins := sdk.NewCoins(sdk.NewCoin(app.StakingKeeper.BondDenom(ctx), sdk.NewInt(200)))
-				delayedAccount := types.NewDelayedVestingAccount(baseAccount, vestedCoins, ctx.BlockTime().AddDate(1, 0, 0).Unix())
+				delayedAccount := types.NewDelayedVestingAccount(baseAccount, vestedCoins, ctx.BlockTime().AddDate(1, 0, 0).Unix(), nil)
 
 				app.AccountKeeper.SetAccount(ctx, delayedAccount)
 
@@ -125,7 +125,7 @@ func TestMigrateVestingAccounts(t *testing.T) {
 
 				baseAccount := authtypes.NewBaseAccountWithAddress(delegatorAddr)
 				vestedCoins := sdk.NewCoins(sdk.NewCoin(app.StakingKeeper.BondDenom(ctx), sdk.NewInt(200)))
-				delayedAccount := types.NewDelayedVestingAccount(baseAccount, vestedCoins, ctx.BlockTime().AddDate(1, 0, 0).Unix())
+				delayedAccount := types.NewDelayedVestingAccount(baseAccount, vestedCoins, ctx.BlockTime().AddDate(1, 0, 0).Unix(), nil)
 
 				app.AccountKeeper.SetAccount(ctx, delayedAccount)
 
@@ -147,7 +147,7 @@ func TestMigrateVestingAccounts(t *testing.T) {
 			func(app *simapp.SimApp, ctx sdk.Context, validator stakingtypes.Validator, delegatorAddr sdk.AccAddress) {
 				baseAccount := authtypes.NewBaseAccountWithAddress(delegatorAddr)
 				vestedCoins := sdk.NewCoins(sdk.NewCoin(app.StakingKeeper.BondDenom(ctx), sdk.NewInt(300)))
-				delayedAccount := types.NewDelayedVestingAccount(baseAccount, vestedCoins, ctx.BlockTime().AddDate(1, 0, 0).Unix())
+				delayedAccount := types.NewDelayedVestingAccount(baseAccount, vestedCoins, ctx.BlockTime().AddDate(1, 0, 0).Unix(), nil)
 
 				app.AccountKeeper.SetAccount(ctx, delayedAccount)
 
@@ -169,7 +169,7 @@ func TestMigrateVestingAccounts(t *testing.T) {
 			func(app *simapp.SimApp, ctx sdk.Context, validator stakingtypes.Validator, delegatorAddr sdk.AccAddress) {
 				baseAccount := authtypes.NewBaseAccountWithAddress(delegatorAddr)
 				vestedCoins := sdk.NewCoins(sdk.NewCoin(app.StakingKeeper.BondDenom(ctx), sdk.NewInt(300)))
-				delayedAccount := types.NewDelayedVestingAccount(baseAccount, vestedCoins, ctx.BlockTime().AddDate(1, 0, 0).Unix())
+				delayedAccount := types.NewDelayedVestingAccount(baseAccount, vestedCoins, ctx.BlockTime().AddDate(1, 0, 0).Unix(), nil)
 
 				app.AccountKeeper.SetAccount(ctx, delayedAccount)
 
@@ -188,7 +188,7 @@ func TestMigrateVestingAccounts(t *testing.T) {
 
 				baseAccount := authtypes.NewBaseAccountWithAddress(delegatorAddr)
 				vestedCoins := sdk.NewCoins(sdk.NewCoin(app.StakingKeeper.BondDenom(ctx), sdk.NewInt(300)))
-				delayedAccount := types.NewDelayedVestingAccount(baseAccount, vestedCoins, ctx.BlockTime().Unix())
+				delayedAccount := types.NewDelayedVestingAccount(baseAccount, vestedCoins, ctx.BlockTime().Unix(), nil)
 
 				ctx = ctx.WithBlockTime(ctx.BlockTime().AddDate(1, 0, 0))
 
@@ -211,7 +211,7 @@ func TestMigrateVestingAccounts(t *testing.T) {
 				endTime := ctx.BlockTime().AddDate(2, 0, 0).Unix()
 				baseAccount := authtypes.NewBaseAccountWithAddress(delegatorAddr)
 				vestedCoins := sdk.NewCoins(sdk.NewCoin(app.StakingKeeper.BondDenom(ctx), sdk.NewInt(300)))
-				delayedAccount := types.NewContinuousVestingAccount(baseAccount, vestedCoins, startTime, endTime)
+				delayedAccount := types.NewContinuousVestingAccount(baseAccount, vestedCoins, startTime, endTime, nil)
 
 				ctx = ctx.WithBlockTime(ctx.BlockTime().AddDate(1, 0, 0))
 
@@ -234,7 +234,7 @@ func TestMigrateVestingAccounts(t *testing.T) {
 				endTime := ctx.BlockTime().AddDate(2, 0, 0).Unix()
 				baseAccount := authtypes.NewBaseAccountWithAddress(delegatorAddr)
 				vestedCoins := sdk.NewCoins(sdk.NewCoin(app.StakingKeeper.BondDenom(ctx), sdk.NewInt(300)))
-				delayedAccount := types.NewContinuousVestingAccount(baseAccount, vestedCoins, startTime, endTime)
+				delayedAccount := types.NewContinuousVestingAccount(baseAccount, vestedCoins, startTime, endTime, nil)
 
 				ctx = ctx.WithBlockTime(ctx.BlockTime().AddDate(1, 0, 0))
 
@@ -257,7 +257,7 @@ func TestMigrateVestingAccounts(t *testing.T) {
 				endTime := ctx.BlockTime().AddDate(-1, 0, 0).Unix()
 				baseAccount := authtypes.NewBaseAccountWithAddress(delegatorAddr)
 				vestedCoins := sdk.NewCoins(sdk.NewCoin(app.StakingKeeper.BondDenom(ctx), sdk.NewInt(300)))
-				delayedAccount := types.NewContinuousVestingAccount(baseAccount, vestedCoins, startTime, endTime)
+				delayedAccount := types.NewContinuousVestingAccount(baseAccount, vestedCoins, startTime, endTime, nil)
 
 				ctx = ctx.WithBlockTime(ctx.BlockTime().AddDate(1, 0, 0))
 
@@ -288,7 +288,7 @@ func TestMigrateVestingAccounts(t *testing.T) {
 					},
 				}
 
-				account := types.NewPeriodicVestingAccount(baseAccount, vestedCoins, start, periods)
+				account := types.NewPeriodicVestingAccount(baseAccount, vestedCoins, start, periods, nil)
 
 				app.AccountKeeper.SetAccount(ctx, account)
 
@@ -331,7 +331,7 @@ func TestMigrateVestingAccounts(t *testing.T) {
 					},
 				}
 
-				delayedAccount := types.NewPeriodicVestingAccount(baseAccount, vestedCoins, startTime, periods)
+				delayedAccount := types.NewPeriodicVestingAccount(baseAccount, vestedCoins, startTime, periods, nil)
 
 				app.AccountKeeper.SetAccount(ctx, delayedAccount)
 
@@ -375,7 +375,7 @@ func TestMigrateVestingAccounts(t *testing.T) {
 					},
 				}
 
-				delayedAccount := types.NewPeriodicVestingAccount(baseAccount, vestedCoins, startTime, periods)
+				delayedAccount := types.NewPeriodicVestingAccount(baseAccount, vestedCoins, startTime, periods, nil)
 
 				ctx = ctx.WithBlockTime(time.Unix(1601042400+31536000+15897600+15897600+1, 0))
 
@@ -421,7 +421,7 @@ func TestMigrateVestingAccounts(t *testing.T) {
 					},
 				}
 
-				delayedAccount := types.NewPeriodicVestingAccount(baseAccount, vestedCoins, startTime, periods)
+				delayedAccount := types.NewPeriodicVestingAccount(baseAccount, vestedCoins, startTime, periods, nil)
 
 				ctx = ctx.WithBlockTime(time.Unix(1601042400+31536000+1, 0))
 
@@ -467,7 +467,7 @@ func TestMigrateVestingAccounts(t *testing.T) {
 					},
 				}
 
-				delayedAccount := types.NewPeriodicVestingAccount(baseAccount, vestedCoins, startTime, periods)
+				delayedAccount := types.NewPeriodicVestingAccount(baseAccount, vestedCoins, startTime, periods, nil)
 
 				ctx = ctx.WithBlockTime(time.Unix(1601042400+31536000+15638400+1, 0))
 
@@ -489,7 +489,7 @@ func TestMigrateVestingAccounts(t *testing.T) {
 				baseAccount := authtypes.NewBaseAccountWithAddress(delegatorAddr)
 				vestedCoins := sdk.NewCoins(sdk.NewCoin(app.StakingKeeper.BondDenom(ctx), sdk.NewInt(300)))
 
-				delayedAccount := types.NewDelayedVestingAccount(baseAccount, vestedCoins, ctx.BlockTime().AddDate(10, 0, 0).Unix())
+				delayedAccount := types.NewDelayedVestingAccount(baseAccount, vestedCoins, ctx.BlockTime().AddDate(10, 0, 0).Unix(), nil)
 
 				app.AccountKeeper.SetAccount(ctx, delayedAccount)
 
@@ -518,7 +518,7 @@ func TestMigrateVestingAccounts(t *testing.T) {
 				baseAccount := authtypes.NewBaseAccountWithAddress(delegatorAddr)
 				vestedCoins := sdk.NewCoins(sdk.NewCoin(app.StakingKeeper.BondDenom(ctx), sdk.NewInt(300)))
 
-				delayedAccount := types.NewDelayedVestingAccount(baseAccount, vestedCoins, ctx.BlockTime().AddDate(10, 0, 0).Unix())
+				delayedAccount := types.NewDelayedVestingAccount(baseAccount, vestedCoins, ctx.BlockTime().AddDate(10, 0, 0).Unix(), nil)
 
 				app.AccountKeeper.SetAccount(ctx, delayedAccount)
 			},
@@ -534,7 +534,7 @@ func TestMigrateVestingAccounts(t *testing.T) {
 				baseAccount := authtypes.NewBaseAccountWithAddress(delegatorAddr)
 				vestedCoins := sdk.NewCoins(sdk.NewCoin(app.StakingKeeper.BondDenom(ctx), sdk.NewInt(300)))
 
-				delayedAccount := types.NewDelayedVestingAccount(baseAccount, vestedCoins, ctx.BlockTime().AddDate(10, 0, 0).Unix())
+				delayedAccount := types.NewDelayedVestingAccount(baseAccount, vestedCoins, ctx.BlockTime().AddDate(10, 0, 0).Unix(), nil)
 
 				app.AccountKeeper.SetAccount(ctx, delayedAccount)
 			},

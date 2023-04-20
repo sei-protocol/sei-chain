@@ -113,6 +113,7 @@ func TestMigrate(t *testing.T) {
     },
     {
       "@type": "/cosmos.vesting.v1beta1.BaseVestingAccount",
+      "admin": "",
       "base_account": {
         "account_number": "1",
         "address": "cosmos18hnp9fjflrkeeqn4gmhjhzljusxzmjeartdckw",
@@ -122,6 +123,7 @@ func TestMigrate(t *testing.T) {
         },
         "sequence": "0"
       },
+      "cancelled_time": "0",
       "delegated_free": [
         {
           "amount": "50",
@@ -145,6 +147,7 @@ func TestMigrate(t *testing.T) {
     {
       "@type": "/cosmos.vesting.v1beta1.ContinuousVestingAccount",
       "base_vesting_account": {
+        "admin": "",
         "base_account": {
           "account_number": "1",
           "address": "cosmos1t9kvvejvk6hjtddx6antck39s206csqduq3ke3",
@@ -154,6 +157,7 @@ func TestMigrate(t *testing.T) {
           },
           "sequence": "0"
         },
+        "cancelled_time": "0",
         "delegated_free": [],
         "delegated_vesting": [],
         "end_time": "3160620846",
@@ -169,6 +173,7 @@ func TestMigrate(t *testing.T) {
     {
       "@type": "/cosmos.vesting.v1beta1.PeriodicVestingAccount",
       "base_vesting_account": {
+        "admin": "",
         "base_account": {
           "account_number": "1",
           "address": "cosmos1s4ss9zquz7skvguechzlk3na635jdrecl0sgy2",
@@ -178,6 +183,7 @@ func TestMigrate(t *testing.T) {
           },
           "sequence": "0"
         },
+        "cancelled_time": "0",
         "delegated_free": [],
         "delegated_vesting": [],
         "end_time": "3160620846",
@@ -204,6 +210,7 @@ func TestMigrate(t *testing.T) {
     {
       "@type": "/cosmos.vesting.v1beta1.DelayedVestingAccount",
       "base_vesting_account": {
+        "admin": "",
         "base_account": {
           "account_number": "1",
           "address": "cosmos1mcc6rwrj4hswf8p9ct82c7lmf77w9tuk07rha4",
@@ -213,6 +220,7 @@ func TestMigrate(t *testing.T) {
           },
           "sequence": "0"
         },
+        "cancelled_time": "0",
         "delegated_free": [],
         "delegated_vesting": [],
         "end_time": "3160620846",

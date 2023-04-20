@@ -15,6 +15,7 @@ import (
 // Transaction command flags
 const (
 	FlagDelayed = "delayed"
+	FlagAdmin   = "admin"
 )
 
 // GetTxCmd returns vesting module's transaction commands.
@@ -44,7 +45,7 @@ func NewMsgCreateVestingAccountCmd() *cobra.Command {
 account can either be a delayed or continuous vesting account, which is determined
 by the '--delayed' flag. All vesting accouts created will have their start time
 set by the committed block's time. The end_time must be provided as a UNIX epoch
-timestamp.`,
+timestamp. You can also optionally configure the 'admin' field using the flag '--admin {addr}. This admin will be able to perform some administrative actions on the vesting account if set.`,
 		Args: cobra.ExactArgs(3),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			clientCtx, err := client.GetClientTxContext(cmd)
@@ -68,13 +69,23 @@ timestamp.`,
 
 			delayed, _ := cmd.Flags().GetBool(FlagDelayed)
 
-			msg := types.NewMsgCreateVestingAccount(clientCtx.GetFromAddress(), toAddr, amount, endTime, delayed)
+			var adminAddr sdk.AccAddress
+			admin, _ := cmd.Flags().GetString(FlagAdmin)
+			if len(admin) > 0 {
+				adminAddr, err = sdk.AccAddressFromBech32(admin)
+				if err != nil {
+					return err
+				}
+			}
+
+			msg := types.NewMsgCreateVestingAccount(clientCtx.GetFromAddress(), toAddr, amount, endTime, delayed, adminAddr)
 
 			return tx.GenerateOrBroadcastTxCLI(clientCtx, cmd.Flags(), msg)
 		},
 	}
 
 	cmd.Flags().Bool(FlagDelayed, false, "Create a delayed vesting account if true")
+	cmd.Flags().String(FlagAdmin, "", "Add an admin to the vesting account if set")
 	flags.AddTxFlagsToCmd(cmd)
 
 	return cmd

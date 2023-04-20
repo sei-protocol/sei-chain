@@ -118,6 +118,7 @@ func (suite *IntegrationTestSuite) TestSpendableBalances() {
 		sdk.NewCoins(fooCoins),
 		ctx.BlockTime().Unix(),
 		ctx.BlockTime().Add(time.Hour).Unix(),
+		nil,
 	)
 
 	app.AccountKeeper.SetAccount(ctx, acc)

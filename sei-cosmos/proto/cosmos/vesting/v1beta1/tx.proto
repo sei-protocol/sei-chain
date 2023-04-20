@@ -25,6 +25,7 @@ message MsgCreateVestingAccount {
 
   int64 end_time = 4 [(gogoproto.moretags) = "yaml:\"end_time\""];
   bool  delayed  = 5;
+  string admin = 6;
 }
 
 // MsgCreateVestingAccountResponse defines the Msg/CreateVestingAccount response type.

@@ -47,7 +47,7 @@ func RandomGenesisAccounts(simState *module.SimulationState) types.GenesisAccoun
 			endTime = int64(simulation.RandIntBetween(simState.Rand, int(startTime)+1, int(startTime+(60*60*12))))
 		}
 
-		bva := vestingtypes.NewBaseVestingAccount(bacc, initialVesting, endTime)
+		bva := vestingtypes.NewBaseVestingAccount(bacc, initialVesting, endTime, nil)
 
 		if simState.Rand.Intn(100) < 50 {
 			genesisAccs[i] = vestingtypes.NewContinuousVestingAccountRaw(bva, startTime)

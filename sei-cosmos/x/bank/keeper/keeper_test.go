@@ -584,7 +584,7 @@ func (suite *IntegrationTestSuite) TestValidateBalance() {
 	suite.Require().NoError(app.BankKeeper.ValidateBalance(ctx, addr1))
 
 	bacc := authtypes.NewBaseAccountWithAddress(addr2)
-	vacc := vesting.NewContinuousVestingAccount(bacc, balances.Add(balances...), now.Unix(), endTime.Unix())
+	vacc := vesting.NewContinuousVestingAccount(bacc, balances.Add(balances...), now.Unix(), endTime.Unix(), nil)
 
 	app.AccountKeeper.SetAccount(ctx, vacc)
 	suite.Require().NoError(simapp.FundAccount(app.BankKeeper, ctx, addr2, balances))
@@ -807,7 +807,7 @@ func (suite *IntegrationTestSuite) TestSpendableCoins() {
 
 	macc := app.AccountKeeper.NewAccountWithAddress(ctx, addrModule)
 	bacc := authtypes.NewBaseAccountWithAddress(addr1)
-	vacc := vesting.NewContinuousVestingAccount(bacc, origCoins, ctx.BlockHeader().Time.Unix(), endTime.Unix())
+	vacc := vesting.NewContinuousVestingAccount(bacc, origCoins, ctx.BlockHeader().Time.Unix(), endTime.Unix(), nil)
 	acc := app.AccountKeeper.NewAccountWithAddress(ctx, addr2)
 
 	app.AccountKeeper.SetAccount(ctx, macc)
@@ -836,7 +836,7 @@ func (suite *IntegrationTestSuite) TestVestingAccountSend() {
 	addr2 := sdk.AccAddress([]byte("addr2_______________"))
 
 	bacc := authtypes.NewBaseAccountWithAddress(addr1)
-	vacc := vesting.NewContinuousVestingAccount(bacc, origCoins, now.Unix(), endTime.Unix())
+	vacc := vesting.NewContinuousVestingAccount(bacc, origCoins, now.Unix(), endTime.Unix(), nil)
 
 	app.AccountKeeper.SetAccount(ctx, vacc)
 	suite.Require().NoError(simapp.FundAccount(app.BankKeeper, ctx, addr1, origCoins))
@@ -868,7 +868,7 @@ func (suite *IntegrationTestSuite) TestPeriodicVestingAccountSend() {
 	}
 
 	bacc := authtypes.NewBaseAccountWithAddress(addr1)
-	vacc := vesting.NewPeriodicVestingAccount(bacc, origCoins, ctx.BlockHeader().Time.Unix(), periods)
+	vacc := vesting.NewPeriodicVestingAccount(bacc, origCoins, ctx.BlockHeader().Time.Unix(), periods, nil)
 
 	app.AccountKeeper.SetAccount(ctx, vacc)
 	suite.Require().NoError(simapp.FundAccount(app.BankKeeper, ctx, addr1, origCoins))
@@ -898,7 +898,7 @@ func (suite *IntegrationTestSuite) TestVestingAccountReceive() {
 	addr2 := sdk.AccAddress([]byte("addr2_______________"))
 
 	bacc := authtypes.NewBaseAccountWithAddress(addr1)
-	vacc := vesting.NewContinuousVestingAccount(bacc, origCoins, ctx.BlockHeader().Time.Unix(), endTime.Unix())
+	vacc := vesting.NewContinuousVestingAccount(bacc, origCoins, ctx.BlockHeader().Time.Unix(), endTime.Unix(), nil)
 	acc := app.AccountKeeper.NewAccountWithAddress(ctx, addr2)
 
 	app.AccountKeeper.SetAccount(ctx, vacc)
@@ -937,7 +937,7 @@ func (suite *IntegrationTestSuite) TestPeriodicVestingAccountReceive() {
 		vesting.Period{Length: int64(6 * 60 * 60), Amount: sdk.Coins{sdk.NewInt64Coin("usei", 25)}},
 	}
 
-	vacc := vesting.NewPeriodicVestingAccount(bacc, origCoins, ctx.BlockHeader().Time.Unix(), periods)
+	vacc := vesting.NewPeriodicVestingAccount(bacc, origCoins, ctx.BlockHeader().Time.Unix(), periods, nil)
 	acc := app.AccountKeeper.NewAccountWithAddress(ctx, addr2)
 
 	app.AccountKeeper.SetAccount(ctx, vacc)
@@ -974,7 +974,7 @@ func (suite *IntegrationTestSuite) TestDelegateCoins() {
 	macc := app.AccountKeeper.NewAccountWithAddress(ctx, addrModule) // we don't need to define an actual module account bc we just need the address for testing
 	acc := app.AccountKeeper.NewAccountWithAddress(ctx, addr2)
 	bacc := authtypes.NewBaseAccountWithAddress(addr1)
-	vacc := vesting.NewContinuousVestingAccount(bacc, origCoins, ctx.BlockHeader().Time.Unix(), endTime.Unix())
+	vacc := vesting.NewContinuousVestingAccount(bacc, origCoins, ctx.BlockHeader().Time.Unix(), endTime.Unix(), nil)
 
 	app.AccountKeeper.SetAccount(ctx, vacc)
 	app.AccountKeeper.SetAccount(ctx, acc)
@@ -1037,7 +1037,7 @@ func (suite *IntegrationTestSuite) TestUndelegateCoins() {
 	bacc := authtypes.NewBaseAccountWithAddress(addr1)
 	macc := app.AccountKeeper.NewAccountWithAddress(ctx, addrModule) // we don't need to define an actual module account bc we just need the address for testing
 
-	vacc := vesting.NewContinuousVestingAccount(bacc, origCoins, ctx.BlockHeader().Time.Unix(), endTime.Unix())
+	vacc := vesting.NewContinuousVestingAccount(bacc, origCoins, ctx.BlockHeader().Time.Unix(), endTime.Unix(), nil)
 	acc := app.AccountKeeper.NewAccountWithAddress(ctx, addr2)
 
 	app.AccountKeeper.SetAccount(ctx, vacc)

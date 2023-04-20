@@ -34,10 +34,18 @@ func (suite *HandlerTestSuite) TestMsgCreateVestingAccount() {
 	addr1 := sdk.AccAddress([]byte("addr1_______________"))
 	addr2 := sdk.AccAddress([]byte("addr2_______________"))
 	addr3 := sdk.AccAddress([]byte("addr3_______________"))
+	addr4 := sdk.AccAddress([]byte("addr4_______________"))
+	addr5 := sdk.AccAddress([]byte("addr5_______________"))
+	addr6 := sdk.AccAddress([]byte("addr6_______________"))
+	addr7 := sdk.AccAddress([]byte("addr7_______________"))
+	addr8 := sdk.AccAddress([]byte("addr8_______________"))
 
 	acc1 := suite.app.AccountKeeper.NewAccountWithAddress(ctx, addr1)
 	suite.app.AccountKeeper.SetAccount(ctx, acc1)
 	suite.Require().NoError(simapp.FundAccount(suite.app.BankKeeper, ctx, addr1, balances))
+	acc4 := suite.app.AccountKeeper.NewAccountWithAddress(ctx, addr4)
+	suite.app.AccountKeeper.SetAccount(ctx, acc4)
+	suite.Require().NoError(simapp.FundAccount(suite.app.BankKeeper, ctx, addr4, balances))
 
 	testCases := []struct {
 		name      string
@@ -46,17 +54,32 @@ func (suite *HandlerTestSuite) TestMsgCreateVestingAccount() {
 	}{
 		{
 			name:      "create delayed vesting account",
-			msg:       types.NewMsgCreateVestingAccount(addr1, addr2, sdk.NewCoins(sdk.NewInt64Coin("test", 100)), ctx.BlockTime().Unix()+10000, true),
+			msg:       types.NewMsgCreateVestingAccount(addr1, addr2, sdk.NewCoins(sdk.NewInt64Coin("test", 100)), ctx.BlockTime().Unix()+10000, true, nil),
 			expectErr: false,
 		},
 		{
 			name:      "create continuous vesting account",
-			msg:       types.NewMsgCreateVestingAccount(addr1, addr3, sdk.NewCoins(sdk.NewInt64Coin("test", 100)), ctx.BlockTime().Unix()+10000, false),
+			msg:       types.NewMsgCreateVestingAccount(addr1, addr3, sdk.NewCoins(sdk.NewInt64Coin("test", 100)), ctx.BlockTime().Unix()+10000, false, nil),
 			expectErr: false,
 		},
 		{
+			name:      "create delayed vesting account with admin",
+			msg:       types.NewMsgCreateVestingAccount(addr1, addr5, sdk.NewCoins(sdk.NewInt64Coin("test", 100)), ctx.BlockTime().Unix()+10000, true, addr4),
+			expectErr: false,
+		},
+		{
+			name:      "create continuous vesting account with admin",
+			msg:       types.NewMsgCreateVestingAccount(addr1, addr6, sdk.NewCoins(sdk.NewInt64Coin("test", 100)), ctx.BlockTime().Unix()+10000, false, addr4),
+			expectErr: false,
+		},
+		{
+			name:      "create continuous vesting account with non-existing admin",
+			msg:       types.NewMsgCreateVestingAccount(addr1, addr7, sdk.NewCoins(sdk.NewInt64Coin("test", 100)), ctx.BlockTime().Unix()+10000, false, addr8),
+			expectErr: true,
+		},
+		{
 			name:      "continuous vesting account already exists",
-			msg:       types.NewMsgCreateVestingAccount(addr1, addr3, sdk.NewCoins(sdk.NewInt64Coin("test", 100)), ctx.BlockTime().Unix()+10000, false),
+			msg:       types.NewMsgCreateVestingAccount(addr1, addr3, sdk.NewCoins(sdk.NewInt64Coin("test", 100)), ctx.BlockTime().Unix()+10000, false, nil),
 			expectErr: true,
 		},
 	}
