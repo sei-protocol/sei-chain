@@ -18,7 +18,7 @@ def add_key(account_name, local=False):
     if local:
         add_key_cmd = f"yes | ~/go/bin/seid keys add {account_name} --keyring-backend test"
     else:
-        add_key_cmd = f"printf '12345678\n' | ~/go/bin/seid keys add {account_name}"
+        add_key_cmd = f"printf '12345678\n' | ~/go/bin/seid keys add {account_name} --algo secp256k1"
     add_key_output = subprocess.check_output(
         [add_key_cmd],
         stderr=subprocess.STDOUT,
