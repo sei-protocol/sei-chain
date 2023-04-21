@@ -25,8 +25,8 @@ var (
 
 // Default parameter values
 const (
-	DefaultVotePeriod  = 1 									// Voting every block
-	DefaultSlashWindow = utils.BlocksPerWeek       // window for a week
+	DefaultVotePeriod  = 1                   // Voting every block
+	DefaultSlashWindow = utils.BlocksPerWeek // window for a week
 )
 
 // Default parameter values
