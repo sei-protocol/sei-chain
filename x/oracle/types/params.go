@@ -25,7 +25,7 @@ var (
 
 // Default parameter values
 const (
-	DefaultVotePeriod  = utils.BlocksPerMinute / 2 // 30 seconds
+	DefaultVotePeriod  = 1 									// Voting every block
 	DefaultSlashWindow = utils.BlocksPerWeek       // window for a week
 )
 
