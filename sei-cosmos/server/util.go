@@ -325,6 +325,7 @@ func AddCommands(
 		ExportCmd(appExport, defaultNodeHome),
 		version.NewVersionCommand(),
 		NewRollbackCmd(appCreator, defaultNodeHome),
+		LatestVersionCmd(defaultNodeHome),
 	)
 }
 
