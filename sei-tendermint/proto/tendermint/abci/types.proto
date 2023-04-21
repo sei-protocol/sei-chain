@@ -285,12 +285,13 @@ message ResponseBeginBlock {
 message ResponseCheckTx {
   uint32         code       = 1;
   bytes          data       = 2;
+  string         log        = 3;  // nondeterministic
   int64          gas_wanted = 5;
   string         codespace  = 8;
   string         sender     = 9;
   int64          priority   = 10;
 
-  reserved 3, 4, 6, 7, 11; // see https://github.com/tendermint/tendermint/issues/8543
+  reserved 4, 6, 7, 11; // see https://github.com/tendermint/tendermint/issues/8543
 }
 
 message ResponseDeliverTx {

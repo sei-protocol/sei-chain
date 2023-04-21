@@ -93,7 +93,7 @@ func (env *Environment) BroadcastTxCommit(ctx context.Context, req *coretypes.Re
 			return &coretypes.ResultBroadcastTxCommit{
 				CheckTx: *r,
 				Hash:    req.Tx.Hash(),
-			}, fmt.Errorf("wrong ABCI CodeType, got (%d) instead of OK", r.Code)
+			}, nil
 		}
 
 		if !indexer.KVSinkEnabled(env.EventSinks) {

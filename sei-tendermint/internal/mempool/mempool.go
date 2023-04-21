@@ -276,7 +276,7 @@ func (txmp *TxMempool) CheckTx(
 	res, err := txmp.proxyAppConn.CheckTx(ctx, &abci.RequestCheckTx{Tx: tx})
 	if err != nil {
 		txmp.cache.Remove(tx)
-		return err
+		res.Log = err.Error()
 	}
 
 	wtx := &WrappedTx{
@@ -286,11 +286,15 @@ func (txmp *TxMempool) CheckTx(
 		height:    txmp.height,
 	}
 
-	err = txmp.addNewTransaction(wtx, res, txInfo)
+	// only add new transaction if checkTx passes
+	if err == nil {
+		err = txmp.addNewTransaction(wtx, res, txInfo)
 
-	if err != nil {
-		return err
+		if err != nil {
+			return err
+		}
 	}
+
 	if cb != nil {
 		cb(res)
 	}
