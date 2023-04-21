@@ -4,106 +4,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sei-protocol/sei-chain/x/epoch/types"
 	"github.com/stretchr/testify/require"
 )
-
-func getGenesisTime() time.Time {
-	return time.Date(2022, time.Month(7), 18, 10, 0, 0, 0, time.UTC)
-}
-
-func getEpoch(currTime time.Time) types.Epoch {
-	genesisTime := getGenesisTime()
-	// Epochs increase every minute, so derive based on the time
-	return types.Epoch{
-		GenesisTime:           genesisTime,
-		EpochDuration:         time.Minute,
-		CurrentEpoch:          uint64(currTime.Sub(genesisTime).Minutes()),
-		CurrentEpochStartTime: currTime,
-		CurrentEpochHeight:    0,
-	}
-}
-
-func getTestTokenReleaseSchedule(currTime time.Time, numReleases int) []ScheduledTokenRelease {
-	tokenReleaseSchedule := []ScheduledTokenRelease{}
-
-	for i := 1; i <= numReleases; i++ {
-		// Token release every year
-		currTime = currTime.AddDate(1, 0, 0)
-		scheduledRelease := ScheduledTokenRelease{Date: currTime.Format(TokenReleaseDateFormat), TokenReleaseAmount: 2500000 / int64(i)}
-		tokenReleaseSchedule = append(tokenReleaseSchedule, scheduledRelease)
-	}
-
-	return tokenReleaseSchedule
-}
-
-// Next epoch provisions benchmarking
-// cpu: Intel(R) Core(TM) i9-9880H CPU @ 2.30GHz
-// BenchmarkGetScheduledTokenRelease-16               319.7 ns/op            56 B/op          3 allocs/op
-func BenchmarkGetScheduledTokenRelease(b *testing.B) {
-	b.ReportAllocs()
-
-	genesisTime := getGenesisTime()
-	epoch := getEpoch(genesisTime)
-	tokenReleaseSchedule := getTestTokenReleaseSchedule(genesisTime, 10)
-
-	// run the GetScheduledTokenRelease function b.N times
-	for n := 0; n < b.N; n++ {
-		GetScheduledTokenRelease(
-			epoch,
-			genesisTime,
-			tokenReleaseSchedule,
-		)
-	}
-}
-
-func TestGetScheduledTokenReleaseNil(t *testing.T) {
-	genesisTime := getGenesisTime()
-	epoch := getEpoch(genesisTime.AddDate(20, 0, 0))
-	tokenReleaseSchedule := getTestTokenReleaseSchedule(genesisTime, 10)
-
-	scheduledTokenRelease := GetScheduledTokenRelease(
-		epoch,
-		genesisTime.AddDate(10, 0, 0),
-		tokenReleaseSchedule,
-	)
-	// Should return nil if there are no scheduled releases
-	require.Nil(t, scheduledTokenRelease)
-}
-
-func TestGetScheduledTokenRelease(t *testing.T) {
-	genesisTime := getGenesisTime()
-	epoch := getEpoch(genesisTime.AddDate(5, 0, 0))
-	tokenReleaseSchedule := getTestTokenReleaseSchedule(genesisTime, 10)
-
-	scheduledTokenRelease := GetScheduledTokenRelease(
-		epoch,
-		genesisTime.AddDate(4, 0, 0),
-		tokenReleaseSchedule,
-	)
-
-	require.NotNil(t, scheduledTokenRelease)
-	require.Equal(t, scheduledTokenRelease.GetTokenReleaseAmount(), int64(2500000/5))
-	require.Equal(t, scheduledTokenRelease.GetDate(), genesisTime.AddDate(5, 0, 0).Format(TokenReleaseDateFormat))
-}
-
-func TestGetScheduledTokenReleaseOverdue(t *testing.T) {
-	genesisTime := getGenesisTime()
-	tokenReleaseSchedule := getTestTokenReleaseSchedule(genesisTime, 10)
-	scheduledTokenRelease := GetScheduledTokenRelease(
-		// 10 days past the first token release schedule
-		// possible if the chain was down more than a day
-		getEpoch(genesisTime.AddDate(3, 0, 10)),
-		// Last release was the year before
-		genesisTime.AddDate(2, 0, 0),
-		tokenReleaseSchedule,
-	)
-
-	require.NotNil(t, scheduledTokenRelease)
-	// Year 3 release should still happen (second time)
-	require.Equal(t, scheduledTokenRelease.GetTokenReleaseAmount(), int64(2500000/3))
-	require.Equal(t, scheduledTokenRelease.GetDate(), genesisTime.AddDate(3, 0, 0).Format(TokenReleaseDateFormat))
-}
 
 func TestParamsUsei(t *testing.T) {
 	params := DefaultParams()
@@ -113,4 +15,76 @@ func TestParamsUsei(t *testing.T) {
 	params.MintDenom = "sei"
 	err = params.Validate()
 	require.NotNil(t, err)
+}
+
+func TestDaysBetween(t *testing.T) {
+	t.Parallel()
+	testCases := []struct {
+		name      string
+		date1     string
+		date2     string
+		expected  uint64
+	}{
+		{
+			name:      "Same day",
+			date1:     "2023-04-20T00:00:00Z",
+			date2:     "2023-04-20T23:59:59Z",
+			expected:  0,
+		},
+		{
+			name:      "One day apart",
+			date1:     "2023-04-20T00:00:00Z",
+			date2:     "2023-04-21T00:00:00Z",
+			expected:  1,
+		},
+		{
+			name:      "Five days apart",
+			date1:     "2023-04-20T00:00:00Z",
+			date2:     "2023-04-25T00:00:00Z",
+			expected:  5,
+		},
+		{
+			name:      "Inverted dates",
+			date1:     "2023-04-25T00:00:00Z",
+			date2:     "2023-04-20T00:00:00Z",
+			expected:  5,
+		},
+		{
+			name:      "Less than 24 hours apart, crossing day boundary",
+			date1:     "2023-04-20T23:00:00Z",
+			date2:     "2023-04-21T22:59:59Z",
+			expected:  0,
+		},
+		{
+			name:      "Exactly 24 hours apart",
+			date1:     "2023-04-20T12:34:56Z",
+			date2:     "2023-04-21T12:34:56Z",
+			expected:  1,
+		},
+		{
+			name:      "One minute less than 24 hours apart",
+			date1:     "2023-04-20T12:34:56Z",
+			date2:     "2023-04-21T12:33:56Z",
+			expected:  0,
+		},
+		{
+			name:      "Inverted dates with times",
+			date1:     "2023-04-25T15:30:00Z",
+			date2:     "2023-04-20T10:00:00Z",
+			expected:  5,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			date1, _ := time.Parse(time.RFC3339, tc.date1)
+			date2, _ := time.Parse(time.RFC3339, tc.date2)
+
+			result := daysBetween(date1, date2)
+
+			if result != tc.expected {
+				t.Errorf("Expected days between %s and %s to be %d, but got %d", tc.date1, tc.date2, tc.expected, result)
+			}
+		})
+	}
 }

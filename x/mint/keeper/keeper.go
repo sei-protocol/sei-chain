@@ -9,6 +9,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/codec"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	paramtypes "github.com/cosmos/cosmos-sdk/x/params/types"
+	epochTypes "github.com/sei-protocol/sei-chain/x/epoch/types"
 	"github.com/sei-protocol/sei-chain/x/mint/types"
 )
 
@@ -63,30 +64,6 @@ func (k *Keeper) SetHooks(h types.MintHooks) *Keeper {
 	return k
 }
 
-func (k Keeper) GetLastTokenReleaseDate(ctx sdk.Context) time.Time {
-	store := ctx.KVStore(k.storeKey)
-	b := store.Get(types.LastTokenReleaseDate)
-	if b == nil {
-		// Return 0001-01-01 00:00:00 +0000 UTC
-		return time.Time{}
-	}
-	lastTokenReleaseDate, err := time.Parse(types.TokenReleaseDateFormat, string(b))
-	if err != nil {
-		panic(fmt.Errorf("invalid last token release date: %s", err))
-	}
-	return lastTokenReleaseDate
-}
-
-func (k Keeper) SetLastTokenReleaseDate(ctx sdk.Context, date string) {
-	store := ctx.KVStore(k.storeKey)
-	// MarshalText returns timestamp in RFC3339 format
-	_, err := time.Parse(types.TokenReleaseDateFormat, date)
-	if err != nil {
-		panic(fmt.Errorf("invalid unable to get timestamp string: %s", err))
-	}
-	store.Set(types.LastTokenReleaseDate, []byte(date))
-}
-
 // get the minter
 func (k Keeper) GetMinter(ctx sdk.Context) (minter types.Minter) {
 	store := ctx.KVStore(k.storeKey)
@@ -96,7 +73,7 @@ func (k Keeper) GetMinter(ctx sdk.Context) (minter types.Minter) {
 	}
 
 	k.cdc.MustUnmarshal(b, &minter)
-	return
+	return minter
 }
 
 // set the minter
@@ -147,4 +124,45 @@ func (k Keeper) AddCollectedFees(ctx sdk.Context, fees sdk.Coins) error {
 // GetProportions gets the balance of the `MintedDenom` from minted coins and returns coins according to the `AllocationRatio`.
 func (k Keeper) GetProportions(ctx sdk.Context, mintedCoin sdk.Coin, ratio sdk.Dec) sdk.Coin {
 	return sdk.NewCoin(mintedCoin.Denom, mintedCoin.Amount.ToDec().Mul(ratio).TruncateInt())
+}
+
+// GetProportions gets the balance of the `MintedDenom` from minted coins and returns coins according to the `AllocationRatio`.
+func (k Keeper) GetOrUpdateLatestMinter(
+	ctx sdk.Context,
+	epoch epochTypes.Epoch,
+) types.Minter {
+	params := k.GetParams(ctx)
+	currentReleaseMinter := k.GetMinter(ctx)
+	nextScheduledRelease := GetNextScheduledTokenRelease(epoch, params.TokenReleaseSchedule, currentReleaseMinter)
+	// There's still an ongoing release
+	if currentReleaseMinter.OngoingRelease() || nextScheduledRelease == nil {
+		k.Logger(ctx).Debug("Ongoing token release or no nextScheduledRelease", "minter", currentReleaseMinter, "nextScheduledRelease", nextScheduledRelease)
+		return currentReleaseMinter
+	}
+
+	return types.NewMinter(
+		nextScheduledRelease.GetStartDate(),
+		nextScheduledRelease.GetEndDate(),
+		params.GetMintDenom(),
+		nextScheduledRelease.GetTokenReleaseAmount(),
+	)
+}
+
+func GetNextScheduledTokenRelease(
+	epoch epochTypes.Epoch,
+	tokenReleaseSchedule []types.ScheduledTokenRelease,
+	currentMinter types.Minter,
+) *types.ScheduledTokenRelease {
+	for _, scheduledRelease := range tokenReleaseSchedule {
+		scheduledStartDate, err := time.Parse(types.TokenReleaseDateFormat, scheduledRelease.GetStartDate())
+		if err != nil {
+			// This should not happen as the scheduled release date is validated when the param is updated
+			panic(fmt.Errorf("invalid scheduled release date: %s", err))
+		}
+		// If blocktime is after the currentScheduled date and it's after the current release
+		if epoch.GetCurrentEpochStartTime().After(scheduledStartDate) && scheduledStartDate.After(currentMinter.GetEndDateTime()) {
+			return &scheduledRelease
+		}
+	}
+	return nil
 }

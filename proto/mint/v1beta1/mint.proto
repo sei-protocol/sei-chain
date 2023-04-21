@@ -7,25 +7,20 @@ import "gogoproto/gogo.proto";
 
 // Minter represents the most recent
 message Minter {
-  string last_mint_amount = 1 [
-    (gogoproto.moretags) = "yaml:\"last_mint_amount\"",
-    (gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Dec",
-    (gogoproto.nullable) = false
-    ];
-  string last_mint_date = 2 [
-    (gogoproto.moretags) = "yaml:\"last_mint_date\""
-  ];
-  int64 last_mint_height = 3 [
-    (gogoproto.moretags) = "yaml:\"last_mint_height\""
-  ];
-  string denom = 4 [
-    (gogoproto.moretags) = "yaml:\"denom\""
-  ];
+  string  start_date = 1;  // yyyy-mm-dd
+  string  end_date = 2;    // yyyy-mm-dd
+  string  denom = 3;
+  uint64   total_mint_amount = 4;
+  uint64   remaining_mint_amount = 5;
+  uint64   last_mint_amount = 6;
+  string  last_mint_date = 7;
+  uint64   last_mint_height = 8; // yyyy-mm-dd
 }
 
 message ScheduledTokenRelease {
-  string date = 1; // yyyy-mm-dd
-  int64 token_release_amount = 2;
+  string  start_date = 1;  // yyyy-mm-dd
+  string  end_date = 2;    // yyyy-mm-dd
+  uint64  token_release_amount = 3;
 }
 
 // Params holds parameters for the mint module.

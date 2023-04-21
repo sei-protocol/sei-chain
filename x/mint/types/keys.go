@@ -3,9 +3,6 @@ package types
 // MinterKey is the key to use for the keeper store.
 var MinterKey = []byte{0x00}
 
-// LastTokenReleaseDate is the key to use for when the last token release was done.
-var LastTokenReleaseDate = []byte{0x03}
-
 const (
 	// module name
 	ModuleName = "mint"
