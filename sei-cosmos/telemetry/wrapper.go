@@ -70,3 +70,16 @@ func SetGaugeWithLabels(keys []string, val float32, labels []metrics.Label) {
 func MeasureSince(start time.Time, keys ...string) {
 	metrics.MeasureSinceWithLabels(keys, start.UTC(), globalLabels)
 }
+
+// Measure Validator slashing events
+// validator_slashed
+func IncrValidatorSlashedCounter(validator string, slashingType string) {
+	metrics.IncrCounterWithLabels(
+		[]string{"validator", "slashed"},
+		1,
+		[]metrics.Label{
+			NewLabel("type", slashingType),
+			NewLabel("validator", validator),
+		},
+	)
+}

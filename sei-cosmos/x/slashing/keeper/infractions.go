@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
+	"github.com/cosmos/cosmos-sdk/telemetry"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/x/slashing/types"
 )
@@ -134,6 +135,8 @@ func (k Keeper) SlashJailAndUpdateSigningInfo(ctx sdk.Context, consAddr sdk.Cons
 		),
 	)
 
+	// Slashed for missing too many block
+	telemetry.IncrValidatorSlashedCounter(consAddr.String(), types.AttributeValueMissingSignature)
 	k.sk.Slash(ctx, consAddr, slashInfo.distributionHeight, slashInfo.power, k.SlashFractionDowntime(ctx))
 	k.sk.Jail(ctx, consAddr)
 	signInfo.JailedUntil = ctx.BlockHeader().Time.Add(k.DowntimeJailDuration(ctx))

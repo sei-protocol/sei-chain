@@ -7,6 +7,7 @@ import (
 
 	"github.com/cosmos/cosmos-sdk/codec"
 	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
+	"github.com/cosmos/cosmos-sdk/telemetry"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/x/slashing/types"
 )
@@ -73,7 +74,7 @@ func (k Keeper) Slash(ctx sdk.Context, consAddr sdk.ConsAddress, fraction sdk.De
 			sdk.NewAttribute(types.AttributeKeyReason, types.AttributeValueDoubleSign),
 		),
 	)
-
+	telemetry.IncrValidatorSlashedCounter(consAddr.String(), types.AttributeValueDoubleSign)
 	k.sk.Slash(ctx, consAddr, distributionHeight, power, fraction)
 }
 
