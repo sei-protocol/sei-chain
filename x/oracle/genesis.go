@@ -53,7 +53,6 @@ func InitGenesis(ctx sdk.Context, keeper keeper.Keeper, data *types.GenesisState
 		keeper.AddPriceSnapshot(ctx, priceSnapshot)
 	}
 
-
 	// check if the module account exists
 	moduleAcc := keeper.GetOracleAccount(ctx)
 	if moduleAcc == nil {
