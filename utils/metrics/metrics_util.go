@@ -161,3 +161,15 @@ func IncrPriceUpdateDenom(denom string) {
 		[]metrics.Label{telemetry.NewLabel("denom", denom)},
 	)
 }
+
+// Measures the number of times the total block gas wanted in the proposal exceeds the max
+// Metric Name:
+//
+//	sei_failed_total_gas_wanted_check
+func IncrFailedTotalGasWantedCheck(proposer string) {
+	telemetry.IncrCounterWithLabels(
+		[]string{"sei", "failed", "total", "gas", "wanted", "check"},
+		1,
+		[]metrics.Label{telemetry.NewLabel("proposer", proposer)},
+	)
+}
