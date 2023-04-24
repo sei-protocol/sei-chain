@@ -609,6 +609,7 @@ func TestNodeNewSeedNode(t *testing.T) {
 		nodeKey,
 		defaultGenesisDocProviderFunc(cfg),
 		abciclient.NewLocalClient(logger, kvstore.NewApplication()),
+		DefaultMetricsProvider(cfg.Instrumentation)(cfg.ChainID()),
 	)
 	t.Cleanup(ns.Wait)
 	t.Cleanup(leaktest.CheckTimeout(t, time.Second))

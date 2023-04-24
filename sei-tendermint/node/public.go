@@ -86,6 +86,7 @@ func New(
 			nodeKey,
 			genProvider,
 			cf,
+			nodeMetrics,
 		)
 	default:
 		return nil, fmt.Errorf("%q is not a valid mode", conf.Mode)

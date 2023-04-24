@@ -55,9 +55,10 @@ func makeSeedNode(
 	nodeKey types.NodeKey,
 	genesisDocProvider genesisDocProvider,
 	client abciclient.Client,
+	nodeMetrics *NodeMetrics,
 ) (service.Service, error) {
-	var cancel context.CancelFunc
-	ctx, cancel = context.WithCancel(ctx)
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
 
 	if !cfg.P2P.PexReactor {
 		return nil, errors.New("cannot run seed nodes with PEX disabled")
@@ -79,8 +80,6 @@ func makeSeedNode(
 	}
 
 	// Setup Transport and Switch.
-	p2pMetrics := p2p.PrometheusMetrics(cfg.Instrumentation.Namespace, "chain_id", genDoc.ChainID)
-
 	peerManager, peerCloser, err := createPeerManager(logger, cfg, dbProvider, nodeKey.ID)
 	if err != nil {
 		return nil, combineCloseError(
@@ -88,7 +87,7 @@ func makeSeedNode(
 			peerCloser)
 	}
 
-	router, err := createRouter(logger, p2pMetrics, func() *types.NodeInfo { return &nodeInfo }, nodeKey, peerManager, cfg, nil)
+	router, err := createRouter(logger, nodeMetrics.p2p, func() *types.NodeInfo { return &nodeInfo }, nodeKey, peerManager, cfg, nil)
 	if err != nil {
 		return nil, combineCloseError(
 			fmt.Errorf("failed to create router: %w", err),
@@ -119,7 +118,7 @@ func makeSeedNode(
 		cfg.SelfRemediation,
 	)
 
-	proxyApp := proxy.New(client, logger.With("module", "proxy"), proxy.NopMetrics())
+	proxyApp := proxy.New(client, logger.With("module", "proxy"), nodeMetrics.proxy)
 
 	closers := []closer{convertCancelCloser(cancel)}
 	blockStore, stateDB, dbCloser, err := initDBs(cfg, dbProvider)

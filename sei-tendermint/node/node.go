@@ -108,6 +108,7 @@ func newDefaultNode(
 			nodeKey,
 			defaultGenesisDocProviderFunc(cfg),
 			appClient,
+			DefaultMetricsProvider(cfg.Instrumentation)(cfg.ChainID()),
 		)
 	}
 	pval, err := makeDefaultPrivval(cfg)

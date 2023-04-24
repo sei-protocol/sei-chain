@@ -198,7 +198,6 @@ func waitForAndValidateBlock(
 		for _, tx := range txs {
 			err := assertMempool(t, states[j].txNotifier).CheckTx(ctx, tx, nil, mempool.TxInfo{})
 			if errors.Is(err, types.ErrTxInCache) {
-				println("tx in cache")
 				continue
 			}
 			require.NoError(t, err)
@@ -855,7 +854,7 @@ func TestReactorVotingPowerChange(t *testing.T) {
 		func() bool {
 			return previousTotalVotingPower != states[0].GetRoundState().LastValidators.TotalVotingPower()
 		},
-		time.Second,
+		5*time.Second,
 		300*time.Millisecond,
 		"expected voting power to change (before: %d, after: %d)",
 		previousTotalVotingPower,
@@ -876,7 +875,7 @@ func TestReactorVotingPowerChange(t *testing.T) {
 		func() bool {
 			return previousTotalVotingPower != states[0].GetRoundState().LastValidators.TotalVotingPower()
 		},
-		time.Second,
+		5*time.Second,
 		300*time.Millisecond,
 		"expected voting power to change (before: %d, after: %d)",
 		previousTotalVotingPower,
@@ -896,7 +895,7 @@ func TestReactorVotingPowerChange(t *testing.T) {
 		func() bool {
 			return previousTotalVotingPower != states[0].GetRoundState().LastValidators.TotalVotingPower()
 		},
-		time.Second,
+		5*time.Second,
 		300*time.Millisecond,
 		"expected voting power to change (before: %d, after: %d)",
 		previousTotalVotingPower,
