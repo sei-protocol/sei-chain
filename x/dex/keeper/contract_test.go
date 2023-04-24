@@ -1,8 +1,9 @@
 package keeper_test
 
 import (
-	"github.com/cosmos/cosmos-sdk/store/prefix"
 	"testing"
+
+	"github.com/cosmos/cosmos-sdk/store/prefix"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	keepertest "github.com/sei-protocol/sei-chain/testutil/keeper"
@@ -125,4 +126,18 @@ func TestGetContractGasLimit(t *testing.T) {
 	gasLimit, err := keeper.GetContractGasLimit(ctx, contractAddr)
 	require.Nil(t, err)
 	require.Equal(t, uint64(10000000), gasLimit)
+}
+
+func TestGetRentsForContracts(t *testing.T) {
+	keeper, ctx := keepertest.DexKeeper(t)
+	addr := "sei1suhgf5svhu4usrurvxzlgn54ksxmn8gljarjtxqnapv8kjnp4nrsgshtdj"
+	require.Equal(t, 0, len(keeper.GetRentsForContracts(ctx, []string{addr})))
+
+	keeper.SetContract(ctx, &types.ContractInfoV2{
+		Creator:      keepertest.TestAccount,
+		ContractAddr: addr,
+		CodeId:       1,
+		RentBalance:  100,
+	})
+	require.Equal(t, map[string]uint64{addr: uint64(100)}, keeper.GetRentsForContracts(ctx, []string{addr}))
 }
