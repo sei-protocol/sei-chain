@@ -150,6 +150,7 @@ func (s *resultTestSuite) TestResponseFormatBroadcastTxCommit() {
 			Data:      nil,
 			GasWanted: 99,
 			Codespace: "codespace",
+			Log:       "rawlog",
 		},
 	}
 	deliverTxResult := &ctypes.ResultBroadcastTxCommit{
@@ -183,6 +184,7 @@ func (s *resultTestSuite) TestResponseFormatBroadcastTxCommit() {
 		Codespace: "codespace",
 		Code:      90,
 		Data:      "",
+		RawLog:    "rawlog",
 		GasWanted: 99,
 	}
 	deliverWant := &sdk.TxResponse{

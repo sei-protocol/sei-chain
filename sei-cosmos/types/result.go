@@ -113,6 +113,7 @@ func newTxResponseCheckTx(res *ctypes.ResultBroadcastTxCommit) *TxResponse {
 		Codespace: res.CheckTx.Codespace,
 		Code:      res.CheckTx.Code,
 		Data:      strings.ToUpper(hex.EncodeToString(res.CheckTx.Data)),
+		RawLog:    res.CheckTx.Log,
 		GasWanted: res.CheckTx.GasWanted,
 	}
 }
@@ -154,6 +155,7 @@ func NewResponseFormatBroadcastTx(res *ctypes.ResultBroadcastTx) *TxResponse {
 		Code:      res.Code,
 		Codespace: res.Codespace,
 		Data:      res.Data.String(),
+		RawLog:    res.Log,
 		TxHash:    res.Hash.String(),
 	}
 }
