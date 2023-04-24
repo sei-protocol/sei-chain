@@ -41,7 +41,8 @@ type Reactor struct {
 	mtx          sync.Mutex
 	peerRoutines map[types.NodeID]context.CancelFunc
 
-	channel *p2p.Channel
+	channel      *p2p.Channel
+	readyToStart chan struct{}
 }
 
 // NewReactor returns a reference to a new reactor.
@@ -59,10 +60,15 @@ func NewReactor(
 		peerEvents:   peerEvents,
 		peerRoutines: make(map[types.NodeID]context.CancelFunc),
 		observePanic: defaultObservePanic,
+		readyToStart: make(chan struct{}, 1),
 	}
 
 	r.BaseService = *service.NewBaseService(logger, "Mempool", r)
 	return r
+}
+
+func (r *Reactor) MarkReadyToStart() {
+	r.readyToStart <- struct{}{}
 }
 
 func (r *Reactor) SetChannel(ch *p2p.Channel) {
@@ -196,6 +202,7 @@ func (r *Reactor) handleMessage(ctx context.Context, envelope *p2p.Envelope) (er
 // processMempoolCh implements a blocking event loop where we listen for p2p
 // Envelope messages from the mempoolCh.
 func (r *Reactor) processMempoolCh(ctx context.Context, mempoolCh *p2p.Channel) {
+	<-r.readyToStart
 	iter := mempoolCh.Receive(ctx)
 	for iter.Next(ctx) {
 		envelope := iter.Envelope()

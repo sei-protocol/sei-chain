@@ -1,4 +1,4 @@
-package statesync
+package light
 
 import (
 	"context"
@@ -9,12 +9,14 @@ import (
 	"time"
 
 	"github.com/fortytw2/leaktest"
+	"github.com/gogo/protobuf/proto"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/tendermint/tendermint/internal/p2p"
 	"github.com/tendermint/tendermint/internal/test/factory"
 	ssproto "github.com/tendermint/tendermint/proto/tendermint/statesync"
+	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 	"github.com/tendermint/tendermint/types"
 )
 
@@ -42,7 +44,11 @@ func TestDispatcherBasic(t *testing.T) {
 
 	chans, ch := testChannel(100)
 
-	d := NewDispatcher(ch)
+	d := NewDispatcher(ch, func(height uint64) proto.Message {
+		return &ssproto.LightBlockRequest{
+			Height: height,
+		}
+	})
 	go handleRequests(ctx, t, d, chans.Out)
 
 	peers := createPeerSet(numPeers)
@@ -74,7 +80,11 @@ func TestDispatcherReturnsNoBlock(t *testing.T) {
 
 	chans, ch := testChannel(100)
 
-	d := NewDispatcher(ch)
+	d := NewDispatcher(ch, func(height uint64) proto.Message {
+		return &ssproto.LightBlockRequest{
+			Height: height,
+		}
+	})
 
 	peer := factory.NodeID(t, "a")
 
@@ -98,7 +108,11 @@ func TestDispatcherTimeOutWaitingOnLightBlock(t *testing.T) {
 	defer cancel()
 
 	_, ch := testChannel(100)
-	d := NewDispatcher(ch)
+	d := NewDispatcher(ch, func(height uint64) proto.Message {
+		return &ssproto.LightBlockRequest{
+			Height: height,
+		}
+	})
 	peer := factory.NodeID(t, "a")
 
 	ctx, cancelFunc := context.WithTimeout(ctx, 10*time.Millisecond)
@@ -121,7 +135,11 @@ func TestDispatcherProviders(t *testing.T) {
 
 	chans, ch := testChannel(100)
 
-	d := NewDispatcher(ch)
+	d := NewDispatcher(ch, func(height uint64) proto.Message {
+		return &ssproto.LightBlockRequest{
+			Height: height,
+		}
+	})
 	go handleRequests(ctx, t, d, chans.Out)
 
 	peers := createPeerSet(5)
@@ -145,7 +163,7 @@ func TestPeerListBasic(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	peerList := newPeerList()
+	peerList := NewPeerList()
 	assert.Zero(t, peerList.Len())
 	numPeers := 10
 	peerSet := createPeerSet(numPeers)
@@ -186,7 +204,7 @@ func TestPeerListBasic(t *testing.T) {
 
 func TestPeerListBlocksWhenEmpty(t *testing.T) {
 	t.Cleanup(leaktest.Check(t))
-	peerList := newPeerList()
+	peerList := NewPeerList()
 	require.Zero(t, peerList.Len())
 	doneCh := make(chan struct{})
 	ctx, cancel := context.WithCancel(context.Background())
@@ -204,7 +222,7 @@ func TestPeerListBlocksWhenEmpty(t *testing.T) {
 
 func TestEmptyPeerListReturnsWhenContextCanceled(t *testing.T) {
 	t.Cleanup(leaktest.Check(t))
-	peerList := newPeerList()
+	peerList := NewPeerList()
 	require.Zero(t, peerList.Len())
 	doneCh := make(chan struct{})
 
@@ -236,7 +254,7 @@ func TestPeerListConcurrent(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	peerList := newPeerList()
+	peerList := NewPeerList()
 	numPeers := 10
 
 	wg := sync.WaitGroup{}
@@ -280,7 +298,7 @@ func TestPeerListConcurrent(t *testing.T) {
 }
 
 func TestPeerListRemove(t *testing.T) {
-	peerList := newPeerList()
+	peerList := NewPeerList()
 	numPeers := 10
 
 	peerSet := createPeerSet(numPeers)
@@ -322,4 +340,49 @@ func createPeerSet(num int) []types.NodeID {
 		peers[i], _ = types.NewNodeID(strings.Repeat(fmt.Sprintf("%d", i), 2*types.NodeIDByteLength))
 	}
 	return peers
+}
+
+const testAppVersion = 9
+
+type lightBlockResponse struct {
+	block *types.LightBlock
+	peer  types.NodeID
+}
+
+func mockLBResp(ctx context.Context, t *testing.T, peer types.NodeID, height int64, time time.Time) lightBlockResponse {
+	t.Helper()
+	vals, pv := factory.ValidatorSet(ctx, t, 3, 10)
+	_, _, lb := mockLB(ctx, t, height, time, factory.MakeBlockID(), vals, pv)
+	return lightBlockResponse{
+		block: lb,
+		peer:  peer,
+	}
+}
+
+func mockLB(ctx context.Context, t *testing.T, height int64, time time.Time, lastBlockID types.BlockID,
+	currentVals *types.ValidatorSet, currentPrivVals []types.PrivValidator,
+) (*types.ValidatorSet, []types.PrivValidator, *types.LightBlock) {
+	t.Helper()
+	header := factory.MakeHeader(t, &types.Header{
+		Height:      height,
+		LastBlockID: lastBlockID,
+		Time:        time,
+	})
+	header.Version.App = testAppVersion
+
+	nextVals, nextPrivVals := factory.ValidatorSet(ctx, t, 3, 10)
+	header.ValidatorsHash = currentVals.Hash()
+	header.NextValidatorsHash = nextVals.Hash()
+	header.ConsensusHash = types.DefaultConsensusParams().HashConsensusParams()
+	lastBlockID = factory.MakeBlockIDWithHash(header.Hash())
+	voteSet := types.NewExtendedVoteSet(factory.DefaultTestChainID, height, 0, tmproto.PrecommitType, currentVals)
+	extCommit, err := factory.MakeExtendedCommit(ctx, lastBlockID, height, 0, voteSet, currentPrivVals, time)
+	require.NoError(t, err)
+	return nextVals, nextPrivVals, &types.LightBlock{
+		SignedHeader: &types.SignedHeader{
+			Header: header,
+			Commit: extCommit.ToCommit(),
+		},
+		ValidatorSet: currentVals,
+	}
 }

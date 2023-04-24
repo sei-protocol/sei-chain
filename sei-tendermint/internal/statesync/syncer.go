@@ -53,7 +53,7 @@ var (
 // snapshot. Snapshots and chunks are fed via AddSnapshot() and AddChunk() as appropriate.
 type syncer struct {
 	logger        log.Logger
-	stateProvider StateProvider
+	stateProvider light.StateProvider
 	conn          abciclient.Client
 	snapshots     *snapshotPool
 	snapshotCh    *p2p.Channel

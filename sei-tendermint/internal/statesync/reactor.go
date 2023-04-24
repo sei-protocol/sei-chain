@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/gogo/protobuf/proto"
 	abciclient "github.com/tendermint/tendermint/abci/client"
 	abci "github.com/tendermint/tendermint/abci/types"
 	"github.com/tendermint/tendermint/config"
@@ -62,10 +63,6 @@ const (
 	// lightBlockResponseTimeout is how long the dispatcher waits for a peer to
 	// return a light block
 	lightBlockResponseTimeout = 10 * time.Second
-
-	// consensusParamsResponseTimeout is the time the p2p state provider waits
-	// before performing a secondary call
-	consensusParamsResponseTimeout = 5 * time.Second
 
 	// maxLightBlockRequestRetries is the amount of retries acceptable before
 	// the backfill process aborts
@@ -157,8 +154,8 @@ type Reactor struct {
 
 	// Dispatcher is used to multiplex light block requests and responses over multiple
 	// peers used by the p2p state provider and in reverse sync.
-	dispatcher *Dispatcher
-	peers      *peerList
+	dispatcher *light.Dispatcher
+	peers      *light.PeerList
 
 	// These will only be set when a state sync is in progress. It is used to feed
 	// received snapshots and chunks into the syncer and manage incoming and outgoing
@@ -167,9 +164,9 @@ type Reactor struct {
 	initSyncer        func() *syncer
 	requestSnaphot    func() error
 	syncer            *syncer
-	providers         map[types.NodeID]*BlockProvider
+	providers         map[types.NodeID]*light.BlockProvider
 	initStateProvider func(ctx context.Context, chainID string, initialHeight int64) error
-	stateProvider     StateProvider
+	stateProvider     light.StateProvider
 
 	eventBus           *eventbus.EventBus
 	metrics            *Metrics
@@ -220,8 +217,8 @@ func NewReactor(
 		tempDir:              tempDir,
 		stateStore:           stateStore,
 		blockStore:           blockStore,
-		peers:                newPeerList(),
-		providers:            make(map[types.NodeID]*BlockProvider),
+		peers:                light.NewPeerList(),
+		providers:            make(map[types.NodeID]*light.BlockProvider),
 		metrics:              ssMetrics,
 		eventBus:             eventBus,
 		postSyncHook:         postSyncHook,
@@ -275,7 +272,11 @@ func (r *Reactor) OnStart(ctx context.Context) error {
 			metrics:       r.metrics,
 		}
 	}
-	r.dispatcher = NewDispatcher(r.lightBlockChannel)
+	r.dispatcher = light.NewDispatcher(r.lightBlockChannel, func(height uint64) proto.Message {
+		return &ssproto.LightBlockRequest{
+			Height: height,
+		}
+	})
 	r.requestSnaphot = func() error {
 		// request snapshots from all currently connected peers
 		return r.snapshotChannel.Send(ctx, p2p.Envelope{
@@ -303,10 +304,14 @@ func (r *Reactor) OnStart(ctx context.Context) error {
 			peers := r.peers.All()
 			providers := make([]provider.Provider, len(peers))
 			for idx, p := range peers {
-				providers[idx] = NewBlockProvider(p, chainID, r.dispatcher)
+				providers[idx] = light.NewBlockProvider(p, chainID, r.dispatcher)
 			}
 
-			stateProvider, err := NewP2PStateProvider(ctx, chainID, initialHeight, providers, to, r.paramsChannel, r.logger.With("module", "stateprovider"))
+			stateProvider, err := light.NewP2PStateProvider(ctx, chainID, initialHeight, providers, to, r.paramsChannel, r.logger.With("module", "stateprovider"), func(height uint64) proto.Message {
+				return &ssproto.ParamsRequest{
+					Height: height,
+				}
+			})
 			if err != nil {
 				return fmt.Errorf("failed to initialize P2P state provider: %w", err)
 			}
@@ -314,7 +319,7 @@ func (r *Reactor) OnStart(ctx context.Context) error {
 			return nil
 		}
 
-		stateProvider, err := NewRPCStateProvider(ctx, chainID, initialHeight, r.cfg.RPCServers, to, spLogger)
+		stateProvider, err := light.NewRPCStateProvider(ctx, chainID, initialHeight, r.cfg.RPCServers, to, spLogger)
 		if err != nil {
 			return fmt.Errorf("failed to initialize RPC state provider: %w", err)
 		}
@@ -503,7 +508,7 @@ func (r *Reactor) backfill(
 					}
 					if err != nil {
 						queue.retry(height)
-						if errors.Is(err, errNoConnectedPeers) {
+						if errors.Is(err, light.ErrNoConnectedPeers) {
 							r.logger.Info("backfill: no connected peers to fetch light blocks from; sleeping...",
 								"sleepTime", sleepTime)
 							time.Sleep(sleepTime)
@@ -873,9 +878,9 @@ func (r *Reactor) handleParamsMessage(ctx context.Context, envelope *p2p.Envelop
 
 		cp := types.ConsensusParamsFromProto(msg.ConsensusParams)
 
-		if sp, ok := r.stateProvider.(*stateProviderP2P); ok {
+		if sp, ok := r.stateProvider.(*light.StateProviderP2P); ok {
 			select {
-			case sp.paramsRecvCh <- cp:
+			case sp.ParamsRecvCh() <- cp:
 			case <-ctx.Done():
 				return ctx.Err()
 			case <-time.After(time.Second):
@@ -1010,7 +1015,7 @@ func (r *Reactor) processPeerUpdate(ctx context.Context, peerUpdate p2p.PeerUpda
 
 	switch peerUpdate.Status {
 	case p2p.PeerStatusUp:
-		newProvider := NewBlockProvider(peerUpdate.NodeID, r.chainID, r.dispatcher)
+		newProvider := light.NewBlockProvider(peerUpdate.NodeID, r.chainID, r.dispatcher)
 
 		r.providers[peerUpdate.NodeID] = newProvider
 		err := r.syncer.AddPeer(ctx, peerUpdate.NodeID)
@@ -1018,10 +1023,10 @@ func (r *Reactor) processPeerUpdate(ctx context.Context, peerUpdate p2p.PeerUpda
 			r.logger.Error("error adding peer to syncer", "error", err)
 			return
 		}
-		if sp, ok := r.stateProvider.(*stateProviderP2P); ok {
+		if sp, ok := r.stateProvider.(*light.StateProviderP2P); ok {
 			// we do this in a separate routine to not block whilst waiting for the light client to finish
 			// whatever call it's currently executing
-			go sp.addProvider(newProvider)
+			go sp.AddProvider(newProvider)
 		}
 
 	case p2p.PeerStatusDown:

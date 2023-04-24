@@ -2,9 +2,10 @@ package types
 
 import "context"
 
-//go:generate ../../scripts/mockery_generate.sh Application
 // Application is an interface that enables any finite, deterministic state machine
 // to be driven by a blockchain-based replication engine via the ABCI.
+//
+//go:generate ../../scripts/mockery_generate.sh Application
 type Application interface {
 	// Info/Query Connection
 	Info(context.Context, *RequestInfo) (*ResponseInfo, error)    // Return application info
@@ -31,6 +32,8 @@ type Application interface {
 	OfferSnapshot(context.Context, *RequestOfferSnapshot) (*ResponseOfferSnapshot, error)                // Offer a snapshot to the application
 	LoadSnapshotChunk(context.Context, *RequestLoadSnapshotChunk) (*ResponseLoadSnapshotChunk, error)    // Load a snapshot chunk
 	ApplySnapshotChunk(context.Context, *RequestApplySnapshotChunk) (*ResponseApplySnapshotChunk, error) // Apply a shapshot chunk
+	// Notify application to load latest application state (e.g. after DBSync finishes)
+	LoadLatest(context.Context, *RequestLoadLatest) (*ResponseLoadLatest, error)
 }
 
 //-------------------------------------------------------
@@ -118,4 +121,8 @@ func (BaseApplication) FinalizeBlock(_ context.Context, req *RequestFinalizeBloc
 	return &ResponseFinalizeBlock{
 		TxResults: txs,
 	}, nil
+}
+
+func (BaseApplication) LoadLatest(_ context.Context, _ *RequestLoadLatest) (*ResponseLoadLatest, error) {
+	return &ResponseLoadLatest{}, nil
 }

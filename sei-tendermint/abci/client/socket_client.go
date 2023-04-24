@@ -361,6 +361,14 @@ func (cli *socketClient) FinalizeBlock(ctx context.Context, req *types.RequestFi
 	return res.GetFinalizeBlock(), nil
 }
 
+func (cli *socketClient) LoadLatest(ctx context.Context, req *types.RequestLoadLatest) (*types.ResponseLoadLatest, error) {
+	res, err := cli.doRequest(ctx, types.ToRequestLoadLatest(req))
+	if err != nil {
+		return nil, err
+	}
+	return res.GetLoadLatest(), nil
+}
+
 //----------------------------------------
 
 func resMatchesReq(req *types.Request, res *types.Response) (ok bool) {

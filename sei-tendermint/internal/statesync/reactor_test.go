@@ -23,6 +23,7 @@ import (
 	"github.com/tendermint/tendermint/internal/store"
 	"github.com/tendermint/tendermint/internal/test/factory"
 	"github.com/tendermint/tendermint/libs/log"
+	"github.com/tendermint/tendermint/light"
 	"github.com/tendermint/tendermint/light/provider"
 	ssproto "github.com/tendermint/tendermint/proto/tendermint/statesync"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
@@ -505,7 +506,7 @@ func TestReactor_BlockProviders(t *testing.T) {
 
 	providers := make([]provider.Provider, len(peers))
 	for idx, peer := range peers {
-		providers[idx] = NewBlockProvider(peer, factory.DefaultTestChainID, rts.reactor.dispatcher)
+		providers[idx] = light.NewBlockProvider(peer, factory.DefaultTestChainID, rts.reactor.dispatcher)
 	}
 
 	wg := sync.WaitGroup{}

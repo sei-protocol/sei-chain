@@ -123,6 +123,12 @@ func ToRequestFinalizeBlock(req *RequestFinalizeBlock) *Request {
 	}
 }
 
+func ToRequestLoadLatest(req *RequestLoadLatest) *Request {
+	return &Request{
+		Value: &Request_LoadLatest{req},
+	}
+}
+
 //----------------------------------------
 
 func ToResponseException(errStr string) *Response {
@@ -224,5 +230,11 @@ func ToResponseProcessProposal(res *ResponseProcessProposal) *Response {
 func ToResponseFinalizeBlock(res *ResponseFinalizeBlock) *Response {
 	return &Response{
 		Value: &Response_FinalizeBlock{res},
+	}
+}
+
+func ToResponseLoadLatest(res *ResponseLoadLatest) *Response {
+	return &Response{
+		Value: &Response_LoadLatest{res},
 	}
 }

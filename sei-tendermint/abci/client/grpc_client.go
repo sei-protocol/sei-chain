@@ -181,3 +181,7 @@ func (cli *grpcClient) VerifyVoteExtension(ctx context.Context, params *types.Re
 func (cli *grpcClient) FinalizeBlock(ctx context.Context, params *types.RequestFinalizeBlock) (*types.ResponseFinalizeBlock, error) {
 	return cli.client.FinalizeBlock(ctx, types.ToRequestFinalizeBlock(params).GetFinalizeBlock(), grpc.WaitForReady(true))
 }
+
+func (cli *grpcClient) LoadLatest(ctx context.Context, params *types.RequestLoadLatest) (*types.ResponseLoadLatest, error) {
+	return cli.client.LoadLatest(ctx, types.ToRequestLoadLatest(params).GetLoadLatest(), grpc.WaitForReady(true))
+}

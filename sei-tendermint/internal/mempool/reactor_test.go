@@ -81,6 +81,7 @@ func setupReactors(ctx context.Context, t *testing.T, logger log.Logger, numNode
 			mempool,
 			func(ctx context.Context) *p2p.PeerUpdates { return rts.peerUpdates[nodeID] },
 		)
+		rts.reactors[nodeID].MarkReadyToStart()
 		rts.reactors[nodeID].SetChannel(rts.mempoolChannels[nodeID])
 		rts.nodes = append(rts.nodes, nodeID)
 

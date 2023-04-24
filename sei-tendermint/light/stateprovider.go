@@ -1,4 +1,4 @@
-package statesync
+package light
 
 import (
 	"bytes"
@@ -9,20 +9,23 @@ import (
 	"sync"
 	"time"
 
+	"github.com/gogo/protobuf/proto"
 	dbm "github.com/tendermint/tm-db"
 
 	"github.com/tendermint/tendermint/internal/p2p"
 	sm "github.com/tendermint/tendermint/internal/state"
 	"github.com/tendermint/tendermint/libs/log"
-	"github.com/tendermint/tendermint/light"
 	lightprovider "github.com/tendermint/tendermint/light/provider"
 	lighthttp "github.com/tendermint/tendermint/light/provider/http"
 	lightrpc "github.com/tendermint/tendermint/light/rpc"
 	lightdb "github.com/tendermint/tendermint/light/store/db"
-	ssproto "github.com/tendermint/tendermint/proto/tendermint/statesync"
 	rpchttp "github.com/tendermint/tendermint/rpc/client/http"
 	"github.com/tendermint/tendermint/types"
 	"github.com/tendermint/tendermint/version"
+)
+
+const (
+	consensusParamsResponseTimeout = 5 * time.Second
 )
 
 //go:generate ../../scripts/mockery_generate.sh StateProvider
@@ -41,7 +44,7 @@ type StateProvider interface {
 
 type stateProviderRPC struct {
 	sync.Mutex    // light.Client is not concurrency-safe
-	lc            *light.Client
+	lc            *Client
 	initialHeight int64
 	providers     map[lightprovider.Provider]string
 	logger        log.Logger
@@ -53,7 +56,7 @@ func NewRPCStateProvider(
 	chainID string,
 	initialHeight int64,
 	servers []string,
-	trustOptions light.TrustOptions,
+	trustOptions TrustOptions,
 	logger log.Logger,
 ) (StateProvider, error) {
 	if len(servers) < 2 {
@@ -74,8 +77,8 @@ func NewRPCStateProvider(
 		providerRemotes[provider] = server
 	}
 
-	lc, err := light.NewClient(ctx, chainID, trustOptions, providers[0], providers[1:],
-		lightdb.New(dbm.NewMemDB()), light.Logger(logger))
+	lc, err := NewClient(ctx, chainID, trustOptions, providers[0], providers[1:],
+		lightdb.New(dbm.NewMemDB()), Logger(logger))
 	if err != nil {
 		return nil, err
 	}
@@ -204,12 +207,13 @@ func rpcClient(server string) (*rpchttp.HTTP, error) {
 	return rpchttp.New(server)
 }
 
-type stateProviderP2P struct {
-	sync.Mutex    // light.Client is not concurrency-safe
-	lc            *light.Client
-	initialHeight int64
-	paramsSendCh  *p2p.Channel
-	paramsRecvCh  chan types.ConsensusParams
+type StateProviderP2P struct {
+	sync.Mutex       // light.Client is not concurrency-safe
+	lc               *Client
+	initialHeight    int64
+	paramsSendCh     *p2p.Channel
+	paramsRecvCh     chan types.ConsensusParams
+	paramsReqCreator func(uint64) proto.Message
 }
 
 // NewP2PStateProvider creates a light client state
@@ -219,36 +223,38 @@ func NewP2PStateProvider(
 	chainID string,
 	initialHeight int64,
 	providers []lightprovider.Provider,
-	trustOptions light.TrustOptions,
+	trustOptions TrustOptions,
 	paramsSendCh *p2p.Channel,
 	logger log.Logger,
+	paramsReqCreator func(uint64) proto.Message,
 ) (StateProvider, error) {
 	if len(providers) < 2 {
 		return nil, fmt.Errorf("at least 2 peers are required, got %d", len(providers))
 	}
 
-	lc, err := light.NewClient(ctx, chainID, trustOptions, providers[0], providers[1:],
-		lightdb.New(dbm.NewMemDB()), light.Logger(logger))
+	lc, err := NewClient(ctx, chainID, trustOptions, providers[0], providers[1:],
+		lightdb.New(dbm.NewMemDB()), Logger(logger))
 	if err != nil {
 		return nil, err
 	}
 
-	return &stateProviderP2P{
-		lc:            lc,
-		initialHeight: initialHeight,
-		paramsSendCh:  paramsSendCh,
-		paramsRecvCh:  make(chan types.ConsensusParams),
+	return &StateProviderP2P{
+		lc:               lc,
+		initialHeight:    initialHeight,
+		paramsSendCh:     paramsSendCh,
+		paramsRecvCh:     make(chan types.ConsensusParams),
+		paramsReqCreator: paramsReqCreator,
 	}, nil
 }
 
-func (s *stateProviderP2P) verifyLightBlockAtHeight(ctx context.Context, height uint64, ts time.Time) (*types.LightBlock, error) {
+func (s *StateProviderP2P) verifyLightBlockAtHeight(ctx context.Context, height uint64, ts time.Time) (*types.LightBlock, error) {
 	ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
 	return s.lc.VerifyLightBlockAtHeight(ctx, int64(height), ts)
 }
 
 // AppHash implements StateProvider.
-func (s *stateProviderP2P) AppHash(ctx context.Context, height uint64) ([]byte, error) {
+func (s *StateProviderP2P) AppHash(ctx context.Context, height uint64) ([]byte, error) {
 	s.Lock()
 	defer s.Unlock()
 
@@ -269,7 +275,7 @@ func (s *stateProviderP2P) AppHash(ctx context.Context, height uint64) ([]byte, 
 }
 
 // Commit implements StateProvider.
-func (s *stateProviderP2P) Commit(ctx context.Context, height uint64) (*types.Commit, error) {
+func (s *StateProviderP2P) Commit(ctx context.Context, height uint64) (*types.Commit, error) {
 	s.Lock()
 	defer s.Unlock()
 	header, err := s.verifyLightBlockAtHeight(ctx, height, time.Now())
@@ -280,7 +286,7 @@ func (s *stateProviderP2P) Commit(ctx context.Context, height uint64) (*types.Co
 }
 
 // State implements StateProvider.
-func (s *stateProviderP2P) State(ctx context.Context, height uint64) (sm.State, error) {
+func (s *StateProviderP2P) State(ctx context.Context, height uint64) (sm.State, error) {
 	s.Lock()
 	defer s.Unlock()
 
@@ -345,10 +351,14 @@ func (s *stateProviderP2P) State(ctx context.Context, height uint64) (sm.State, 
 
 // addProvider dynamically adds a peer as a new witness. A limit of 6 providers is kept as a
 // heuristic. Too many overburdens the network and too little compromises the second layer of security.
-func (s *stateProviderP2P) addProvider(p lightprovider.Provider) {
+func (s *StateProviderP2P) AddProvider(p lightprovider.Provider) {
 	if len(s.lc.Witnesses()) < 6 {
 		s.lc.AddProvider(p)
 	}
+}
+
+func (s *StateProviderP2P) ParamsRecvCh() chan types.ConsensusParams {
+	return s.paramsRecvCh
 }
 
 // consensusParams sends out a request for consensus params blocking
@@ -358,7 +368,7 @@ func (s *stateProviderP2P) addProvider(p lightprovider.Provider) {
 // none responds it will retry them all sometime later until it
 // receives some response. This operation will block until it receives
 // a response or the context is canceled.
-func (s *stateProviderP2P) consensusParams(ctx context.Context, height int64) (types.ConsensusParams, error) {
+func (s *StateProviderP2P) consensusParams(ctx context.Context, height int64) (types.ConsensusParams, error) {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
@@ -389,10 +399,8 @@ func (s *stateProviderP2P) consensusParams(ctx context.Context, height int64) (t
 				for {
 					iterCount++
 					if err := s.paramsSendCh.Send(ctx, p2p.Envelope{
-						To: peer,
-						Message: &ssproto.ParamsRequest{
-							Height: uint64(height),
-						},
+						To:      peer,
+						Message: s.paramsReqCreator(uint64(height)),
 					}); err != nil {
 						// this only errors if
 						// the context is

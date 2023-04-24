@@ -20,6 +20,7 @@ import (
 	"github.com/tendermint/tendermint/crypto"
 	"github.com/tendermint/tendermint/internal/blocksync"
 	"github.com/tendermint/tendermint/internal/consensus"
+	"github.com/tendermint/tendermint/internal/dbsync"
 	"github.com/tendermint/tendermint/internal/eventbus"
 	"github.com/tendermint/tendermint/internal/eventlog"
 	"github.com/tendermint/tendermint/internal/evidence"
@@ -54,15 +55,15 @@ type nodeImpl struct {
 	config          *config.Config
 	genesisDoc      *types.GenesisDoc   // initial validator set
 	privValidator   types.PrivValidator // local node's validator key
-	shouldStateSync bool                // set during makeNode
+	shouldHandshake bool                // set during makeNode
 
 	// network
-	peerManager     *p2p.PeerManager
-	router          *p2p.Router
+	peerManager      *p2p.PeerManager
+	router           *p2p.Router
 	routerRestartCh  chan struct{} // Used to signal a restart the node on the application level
 	ServiceRestartCh chan []string
-	nodeInfo        types.NodeInfo
-	nodeKey         types.NodeKey // our node privkey
+	nodeInfo         types.NodeInfo
+	nodeKey          types.NodeKey // our node privkey
 
 	// services
 	eventSinks     []indexer.EventSink
@@ -71,7 +72,7 @@ type nodeImpl struct {
 	blockStore     *store.BlockStore // store the blockchain to disk
 	evPool         *evidence.Pool
 	indexerService *indexer.Service
-	services 	   []service.Service
+	services       []service.Service
 	rpcListeners   []net.Listener // rpc servers
 	shutdownOps    closer
 	rpcEnv         *rpccore.Environment
@@ -283,6 +284,9 @@ func makeNode(
 	mpReactor, mp := createMempoolReactor(logger, cfg, proxyApp, stateStore, nodeMetrics.mempool,
 		peerManager.Subscribe, peerManager)
 	node.router.AddChDescToBeAdded(mempool.GetChannelDescriptor(cfg.Mempool), mpReactor.SetChannel)
+	if !cfg.DBSync.Enable {
+		mpReactor.MarkReadyToStart()
+	}
 	node.rpcEnv.Mempool = mp
 	node.services = append(node.services, mpReactor)
 
@@ -305,10 +309,14 @@ func makeNode(
 		stateSync = false
 	}
 
+	if stateSync && cfg.DBSync.Enable {
+		panic("statesync and dbsync cannot be turned on at the same time")
+	}
+
 	// Determine whether we should do block sync. This must happen after the handshake, since the
 	// app may modify the validator set, specifying ourself as the only validator.
 	blockSync := !onlyValidatorIsUs(state, pubKey)
-	waitSync := stateSync || blockSync
+	waitSync := stateSync || blockSync || cfg.DBSync.Enable
 
 	csState, err := consensus.NewState(logger.With("module", "consensus"),
 		cfg.Consensus,
@@ -352,7 +360,7 @@ func makeNode(
 		blockStore,
 		csReactor,
 		peerManager.Subscribe,
-		blockSync && !stateSync,
+		blockSync && !stateSync && !cfg.DBSync.Enable,
 		nodeMetrics.consensus,
 		eventBus,
 		restartCh,
@@ -382,6 +390,21 @@ func makeNode(
 		node.router.AddChDescToBeAdded(pex.ChannelDescriptor(), pxReactor.SetChannel)
 	}
 
+	postSyncHook := func(ctx context.Context, state sm.State) error {
+		csReactor.SetStateSyncingMetrics(0)
+
+		// TODO: Some form of orchestrator is needed here between the state
+		// advancing reactors to be able to control which one of the three
+		// is running
+		// FIXME Very ugly to have these metrics bleed through here.
+		csReactor.SetBlockSyncingMetrics(1)
+		if err := bcReactor.SwitchToBlockSync(ctx, state); err != nil {
+			logger.Error("failed to switch to block sync", "err", err)
+			return err
+		}
+
+		return nil
+	}
 	// Set up state sync reactor, and schedule a sync if requested.
 	// FIXME The way we do phased startups (e.g. replay -> block sync -> consensus) is very messy,
 	// we should clean this whole thing up. See:
@@ -399,31 +422,42 @@ func makeNode(
 		nodeMetrics.statesync,
 		eventBus,
 		// the post-sync operation
-		func(ctx context.Context, state sm.State) error {
-			csReactor.SetStateSyncingMetrics(0)
-
-			// TODO: Some form of orchestrator is needed here between the state
-			// advancing reactors to be able to control which one of the three
-			// is running
-			// FIXME Very ugly to have these metrics bleed through here.
-			csReactor.SetBlockSyncingMetrics(1)
-			if err := bcReactor.SwitchToBlockSync(ctx, state); err != nil {
-				logger.Error("failed to switch to block sync", "err", err)
-				return err
-			}
-
-			return nil
-		},
+		postSyncHook,
 		stateSync,
 		restartCh,
 		cfg.SelfRemediation,
 	)
-	node.shouldStateSync = stateSync
+
+	node.shouldHandshake = !stateSync && !cfg.DBSync.Enable
 	node.services = append(node.services, ssReactor)
 	node.router.AddChDescToBeAdded(statesync.GetSnapshotChannelDescriptor(), ssReactor.SetSnapshotChannel)
 	node.router.AddChDescToBeAdded(statesync.GetChunkChannelDescriptor(), ssReactor.SetChunkChannel)
 	node.router.AddChDescToBeAdded(statesync.GetLightBlockChannelDescriptor(), ssReactor.SetLightBlockChannel)
 	node.router.AddChDescToBeAdded(statesync.GetParamsChannelDescriptor(), ssReactor.SetParamsChannel)
+
+	dbsyncReactor := dbsync.NewReactor(
+		logger.With("module", "dbsync"),
+		*cfg.DBSync,
+		cfg.BaseConfig,
+		peerManager.Subscribe,
+		stateStore,
+		blockStore,
+		genDoc.InitialHeight,
+		genDoc.ChainID,
+		eventBus,
+		func(ctx context.Context, state sm.State) error {
+			if _, err := client.LoadLatest(ctx, &abci.RequestLoadLatest{}); err != nil {
+				return err
+			}
+			mpReactor.MarkReadyToStart()
+			return postSyncHook(ctx, state)
+		},
+	)
+	node.services = append(node.services, dbsyncReactor)
+	node.router.AddChDescToBeAdded(dbsync.GetMetadataChannelDescriptor(), dbsyncReactor.SetMetadataChannel)
+	node.router.AddChDescToBeAdded(dbsync.GetFileChannelDescriptor(), dbsyncReactor.SetFileChannel)
+	node.router.AddChDescToBeAdded(dbsync.GetLightBlockChannelDescriptor(), dbsyncReactor.SetLightBlockChannel)
+	node.router.AddChDescToBeAdded(dbsync.GetParamsChannelDescriptor(), dbsyncReactor.SetParamsChannel)
 
 	if cfg.Mode == config.ModeValidator {
 		if privValidator != nil {
@@ -458,7 +492,7 @@ func (n *nodeImpl) OnStart(ctx context.Context) error {
 	// state sync will cover initialization the chain. Also calling InitChain isn't safe
 	// when there is state sync as InitChain itself doesn't commit application state which
 	// would get mixed up with application state writes by state sync.
-	if !n.shouldStateSync {
+	if n.shouldHandshake {
 		// Create the handshaker, which calls RequestInfo, sets the AppVersion on the state,
 		// and replays any blocks as necessary to sync tendermint with the app.
 		if err := consensus.NewHandshaker(n.logger.With("module", "handshaker"),

@@ -198,6 +198,29 @@ func (_m *Application) ListSnapshots(_a0 context.Context, _a1 *types.RequestList
 	return r0, r1
 }
 
+// LoadLatest provides a mock function with given fields: _a0, _a1
+func (_m *Application) LoadLatest(_a0 context.Context, _a1 *types.RequestLoadLatest) (*types.ResponseLoadLatest, error) {
+	ret := _m.Called(_a0, _a1)
+
+	var r0 *types.ResponseLoadLatest
+	if rf, ok := ret.Get(0).(func(context.Context, *types.RequestLoadLatest) *types.ResponseLoadLatest); ok {
+		r0 = rf(_a0, _a1)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*types.ResponseLoadLatest)
+		}
+	}
+
+	var r1 error
+	if rf, ok := ret.Get(1).(func(context.Context, *types.RequestLoadLatest) error); ok {
+		r1 = rf(_a0, _a1)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
 // LoadSnapshotChunk provides a mock function with given fields: _a0, _a1
 func (_m *Application) LoadSnapshotChunk(_a0 context.Context, _a1 *types.RequestLoadSnapshotChunk) (*types.ResponseLoadSnapshotChunk, error) {
 	ret := _m.Called(_a0, _a1)
@@ -336,13 +359,13 @@ func (_m *Application) VerifyVoteExtension(_a0 context.Context, _a1 *types.Reque
 	return r0, r1
 }
 
-type mockConstructorTestingTNewApplication interface {
+type NewApplicationT interface {
 	mock.TestingT
 	Cleanup(func())
 }
 
 // NewApplication creates a new instance of Application. It also registers a testing interface on the mock and a cleanup function to assert the mocks expectations.
-func NewApplication(t mockConstructorTestingTNewApplication) *Application {
+func NewApplication(t NewApplicationT) *Application {
 	mock := &Application{}
 	mock.Mock.Test(t)
 

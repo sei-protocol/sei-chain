@@ -38,6 +38,7 @@ message Request {
     RequestBeginBlock         begin_block          = 20;
     RequestDeliverTx          deliver_tx           = 21;
     RequestEndBlock           end_block            = 22;
+    RequestLoadLatest load_latest = 23;
   }
   reserved 6, 8, 9; // RequestBeginBlock, RequestDeliverTx, RequestEndBlock
 }
@@ -207,6 +208,8 @@ message RequestEndBlock {
   int64 height = 1;
 }
 
+message RequestLoadLatest {}
+
 //----------------------------------------
 // Response types
 
@@ -232,6 +235,7 @@ message Response {
     ResponseBeginBlock         begin_block          = 21;
     ResponseDeliverTx          deliver_tx           = 22;
     ResponseEndBlock           end_block            = 23;
+    ResponseLoadLatest load_latest = 24;
   }
   reserved 7, 9, 10; // ResponseBeginBlock, ResponseDeliverTx, ResponseEndBlock
 }
@@ -399,6 +403,8 @@ message ResponseFinalizeBlock {
   tendermint.types.ConsensusParams consensus_param_updates = 4;
   bytes                            app_hash                = 5;
 }
+
+message ResponseLoadLatest {}
 
 //----------------------------------------
 // Misc.
@@ -591,4 +597,5 @@ service ABCIApplication {
   rpc ExtendVote(RequestExtendVote) returns (ResponseExtendVote);
   rpc VerifyVoteExtension(RequestVerifyVoteExtension) returns (ResponseVerifyVoteExtension);
   rpc FinalizeBlock(RequestFinalizeBlock) returns (ResponseFinalizeBlock);
+  rpc LoadLatest(RequestLoadLatest) returns (ResponseLoadLatest);
 }
