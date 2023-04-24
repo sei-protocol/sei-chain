@@ -27,13 +27,26 @@ Ref: https://keepachangelog.com/en/1.0.0/
 -->
 
 # Changelog
+## 2.0.46beta
+sei-chain:
+* [#694] (https://github.com/sei-protocol/sei-chain/pull/694) Register prune command
+* [#702] (https://github.com/sei-protocol/sei-chain/pull/702) Change tick failure log to warning
+
+sei-cosmos:
+* [#227] (https://github.com/sei-protocol/sei-cosmos/pull/227) Add checkTxResponse log to RPCResponse
+* [#224] (https://github.com/sei-protocol/sei-cosmos/pull/224) Default to secp256k1
+* [#220] (https://github.com/sei-protocol/sei-cosmos/pull/220) Add admin field to base vesting account
+* [#218] (https://github.com/sei-protocol/sei-cosmos/pull/218) Restart node instead of panicking
+* [#216] (https://github.com/sei-protocol/sei-cosmos/pull/216) Fix pruning command
+
+sei-tendermint:
+* [#118] (https://github.com/sei-protocol/sei-tendermint/pull/118) Add DBSync module
 
 ## 2.0.45beta
 
 sei-chain: https://github.com/sei-protocol/sei-chain/compare/2.0.44beta...2.0.45beta-release
 * [#666](https://github.com/sei-protocol/sei-chain/pull/666) [DEX] remove BeginBlock/FinalizeBlock sudo hooks
 * [#674](https://github.com/sei-protocol/sei-chain/pull/674) Longterm fix for max gas enforcement
-* [#666](https://github.com/sei-protocol/sei-chain/pull/666) [DEX] remove BeginBlock/FinalizeBlock sudo hooks
 
 sei-cosmos: https://github.com/sei-protocol/sei-cosmos/releases/tag/v0.2.14
 * [#210](https://github.com/sei-protocol/sei-cosmos/pull/210) Add levelDB compaction goroutine
