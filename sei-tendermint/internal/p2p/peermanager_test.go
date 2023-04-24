@@ -167,6 +167,7 @@ func TestNewPeerManager_Persistence(t *testing.T) {
 	require.ElementsMatch(t, aAddresses, peerManager.Addresses(aID))
 	require.ElementsMatch(t, bAddresses, peerManager.Addresses(bID))
 	require.ElementsMatch(t, cAddresses, peerManager.Addresses(cID))
+
 	require.Equal(t, map[types.NodeID]p2p.PeerScore{
 		aID: p2p.PeerScorePersistent,
 		bID: 1,
@@ -188,6 +189,15 @@ func TestNewPeerManager_Persistence(t *testing.T) {
 	require.Equal(t, map[types.NodeID]p2p.PeerScore{
 		aID: 0,
 		bID: p2p.PeerScorePersistent,
+		cID: 1,
+	}, peerManager.Scores())
+
+	// Introduce a dial failure and persistent peer score should be reduced by one
+	ctx, _ := context.WithCancel(context.Background())
+	peerManager.DialFailed(ctx, bAddresses[0])
+	require.Equal(t, map[types.NodeID]p2p.PeerScore{
+		aID: 0,
+		bID: p2p.PeerScorePersistent - 1,
 		cID: 1,
 	}, peerManager.Scores())
 }
