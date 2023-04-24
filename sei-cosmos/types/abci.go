@@ -30,3 +30,5 @@ type PrepareProposalHandler func(ctx Context, req *abci.RequestPrepareProposal) 
 type ProcessProposalHandler func(ctx Context, req *abci.RequestProcessProposal) (*abci.ResponseProcessProposal, error)
 
 type FinalizeBlocker func(ctx Context, req *abci.RequestFinalizeBlock) (*abci.ResponseFinalizeBlock, error)
+
+type LoadVersionHandler func() error

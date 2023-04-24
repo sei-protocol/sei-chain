@@ -55,6 +55,7 @@ const (
 	FlagTracing            = "tracing"
 	FlagProfile            = "profile"
 	FlagInvCheckPeriod     = "inv-check-period"
+	FlagLoadLatest         = "load-latest"
 
 	FlagPruning            = "pruning"
 	FlagPruningKeepRecent  = "pruning-keep-recent"
@@ -186,7 +187,7 @@ is performed. Note, when enabled, gRPC will also be automatically enabled.
 			nodeMetricsProvider := node.DefaultMetricsProvider(serverCtx.Config.Instrumentation)(clientCtx.ChainID)
 
 			config, _ := config.GetConfig(serverCtx.Viper)
-			apiMetrics,  err := telemetry.New(config.Telemetry)
+			apiMetrics, err := telemetry.New(config.Telemetry)
 			if err != nil {
 				return fmt.Errorf("failed to initialize telemetry: %w", err)
 			}
@@ -240,6 +241,7 @@ is performed. Note, when enabled, gRPC will also be automatically enabled.
 	cmd.Flags().Uint(FlagInvCheckPeriod, 0, "Assert registered invariants every N blocks")
 	cmd.Flags().Uint64(FlagMinRetainBlocks, 0, "Minimum block height offset during ABCI commit to prune Tendermint blocks")
 	cmd.Flags().Uint64(FlagCompactionInterval, 0, "Time interval in between forced levelDB compaction. 0 means no forced compaction.")
+	cmd.Flags().Bool(FlagLoadLatest, true, "Whether to load latest version from store immediately after app creation")
 
 	cmd.Flags().Bool(flagGRPCOnly, false, "Start the node in gRPC query only mode (no Tendermint process is started)")
 	cmd.Flags().Bool(flagGRPCEnable, true, "Define if the gRPC server should be enabled")
@@ -352,12 +354,13 @@ func startInProcess(
 		return err
 	}
 
-	if err := config.ValidateBasic(); err != nil {
+	if err := config.ValidateBasic(ctx.Config); err != nil {
 		ctx.Logger.Error("WARNING: The minimum-gas-prices config in app.toml is set to the empty string. " +
 			"This defaults to 0 in the current version, but will error in the next version " +
 			"(SDK v0.45). Please explicitly put the desired minimum-gas-prices in your app.toml.")
 	}
 	app := appCreator(ctx.Logger, db, traceWriter, ctx.Viper)
+	app.SetTendermintConfig(ctx.Config)
 
 	var (
 		tmNode    service.Service

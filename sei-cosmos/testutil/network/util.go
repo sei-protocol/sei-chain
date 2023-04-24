@@ -30,7 +30,7 @@ func startInProcess(cfg Config, val *Validator) error {
 	tmCfg := val.Ctx.Config
 	tmCfg.Instrumentation.Prometheus = false
 
-	if err := val.AppConfig.ValidateBasic(); err != nil {
+	if err := val.AppConfig.ValidateBasic(tmCfg); err != nil {
 		return err
 	}
 

@@ -10,6 +10,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/telemetry"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
+	tmcfg "github.com/tendermint/tendermint/config"
 )
 
 const (
@@ -79,6 +80,8 @@ type BaseConfig struct {
 	// CompactionInterval sets (in seconds) the interval between forced levelDB
 	// compaction. A value of 0 means no forced levelDB
 	CompactionInterval uint64 `mapstructure:"compaction-interval"`
+
+	LoadLatest bool `mapstructure:"load-latest"`
 }
 
 // APIConfig defines the API listener configuration.
@@ -222,6 +225,7 @@ func DefaultConfig() *Config {
 			IAVLCacheSize:       781250, // 50 MB
 			IAVLDisableFastNode: true,
 			CompactionInterval:  0,
+			LoadLatest:          true,
 		},
 		Telemetry: telemetry.Config{
 			Enabled:      false,
@@ -290,6 +294,7 @@ func GetConfig(v *viper.Viper) (Config, error) {
 			IAVLCacheSize:       v.GetUint64("iavl-cache-size"),
 			IAVLDisableFastNode: v.GetBool("iavl-disable-fastnode"),
 			CompactionInterval:  v.GetUint64("compaction-interval"),
+			LoadLatest:          v.GetBool("load-latest"),
 		},
 		Telemetry: telemetry.Config{
 			ServiceName:             v.GetString("telemetry.service-name"),
@@ -335,7 +340,7 @@ func GetConfig(v *viper.Viper) (Config, error) {
 }
 
 // ValidateBasic returns an error if min-gas-prices field is empty in BaseConfig. Otherwise, it returns nil.
-func (c Config) ValidateBasic() error {
+func (c Config) ValidateBasic(tendermintConfig *tmcfg.Config) error {
 	if c.BaseConfig.MinGasPrices == "" {
 		return sdkerrors.ErrAppConfig.Wrap("set min gas price in app.toml or flag or env variable")
 	}
@@ -343,6 +348,12 @@ func (c Config) ValidateBasic() error {
 		return sdkerrors.ErrAppConfig.Wrapf(
 			"cannot enable state sync snapshots with '%s' pruning setting", storetypes.PruningOptionEverything,
 		)
+	}
+	if c.BaseConfig.LoadLatest && tendermintConfig.DBSync.Enable {
+		return sdkerrors.ErrAppConfig.Wrap("cannot load latest with DB sync enabled")
+	}
+	if !c.BaseConfig.LoadLatest && !tendermintConfig.DBSync.Enable {
+		return sdkerrors.ErrAppConfig.Wrap("shoulkd load latest with DB sync disabled")
 	}
 
 	return nil

@@ -101,6 +101,30 @@ func bindFlags(basename string, cmd *cobra.Command, v *viper.Viper) (err error) 
 	return
 }
 
+func InterceptConfigs(cmd *cobra.Command) (*tmcfg.Config, error) {
+	serverCtx := NewDefaultContext()
+
+	// Get the executable name and configure the viper instance so that environmental
+	// variables are checked based off that name. The underscore character is used
+	// as a separator
+	executableName, err := os.Executable()
+	if err != nil {
+		return nil, err
+	}
+
+	basename := path.Base(executableName)
+
+	// Configure the viper instance
+	serverCtx.Viper.BindPFlags(cmd.Flags())
+	serverCtx.Viper.BindPFlags(cmd.PersistentFlags())
+	serverCtx.Viper.SetEnvPrefix(basename)
+	serverCtx.Viper.SetEnvKeyReplacer(strings.NewReplacer(".", "_", "-", "_"))
+	serverCtx.Viper.AutomaticEnv()
+
+	// intercept configuration files, using both Viper instances separately
+	return interceptConfigs(serverCtx.Viper, "", nil)
+}
+
 // InterceptConfigsPreRunHandler performs a pre-run function for the root daemon
 // application command. It will create a Viper literal and a default server
 // Context. The server Tendermint configuration will either be read and parsed
@@ -314,6 +338,7 @@ func AddCommands(
 		commands.MakeKeyMigrateCommand(conf, logger),
 		debug.GetDebugCommand(logger),
 		commands.NewCompletionCmd(tendermintCmd, true),
+		commands.MakeSnapshotCommand(InterceptConfigs),
 	)
 
 	startCmd := StartCmd(appCreator, defaultNodeHome, tracerProviderOptions)
@@ -430,6 +455,10 @@ func addrToIP(addr net.Addr) net.IP {
 		ip = v.IP
 	}
 	return ip
+}
+
+func OpenDB(rootDir string) (dbm.DB, error) {
+	return openDB(rootDir)
 }
 
 func openDB(rootDir string) (dbm.DB, error) {

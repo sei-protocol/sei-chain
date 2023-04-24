@@ -194,6 +194,14 @@ func (app *BaseApp) SetFinalizeBlocker(finalizeBlocker sdk.FinalizeBlocker) {
 	app.finalizeBlocker = finalizeBlocker
 }
 
+func (app *BaseApp) SetLoadVersionHandler(loadVersionHandler sdk.LoadVersionHandler) {
+	if app.sealed {
+		panic("SetLoadVersionHandler() on sealed BaseApp")
+	}
+
+	app.loadVersionHandler = loadVersionHandler
+}
+
 func (app *BaseApp) SetAnteHandler(ah sdk.AnteHandler) {
 	if app.sealed {
 		panic("SetAnteHandler() on sealed BaseApp")

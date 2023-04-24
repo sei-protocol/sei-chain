@@ -14,6 +14,7 @@ import (
 	"github.com/spf13/cast"
 	leveldbutils "github.com/syndtr/goleveldb/leveldb/util"
 	abci "github.com/tendermint/tendermint/abci/types"
+	tmcfg "github.com/tendermint/tendermint/config"
 	"github.com/tendermint/tendermint/libs/log"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 	dbm "github.com/tendermint/tm-db"
@@ -80,6 +81,7 @@ type BaseApp struct { //nolint: maligned
 	processProposalHandler sdk.ProcessProposalHandler
 	finalizeBlocker        sdk.FinalizeBlocker
 	anteHandler            sdk.AnteHandler // ante handler for fee and auth
+	loadVersionHandler     sdk.LoadVersionHandler
 
 	appStore
 	baseappVersions
@@ -149,6 +151,8 @@ type BaseApp struct { //nolint: maligned
 	votesInfoLock sync.RWMutex
 
 	compactionInterval uint64
+
+	tmConfig *tmcfg.Config
 }
 
 type appStore struct {
@@ -253,6 +257,10 @@ func NewBaseApp(
 	app.startCompactionRoutine(db)
 
 	return app
+}
+
+func (app *BaseApp) SetTendermintConfig(cfg *tmcfg.Config) {
+	app.tmConfig = cfg
 }
 
 // Name returns the name of the BaseApp.
@@ -1098,4 +1106,17 @@ func (app *BaseApp) Close() error {
 		return err
 	}
 	return app.snapshotManager.Close()
+}
+
+func (app *BaseApp) ReloadDB() error {
+	if err := app.db.Close(); err != nil {
+		return err
+	}
+	db, err := sdk.NewLevelDB("application", app.tmConfig.DBDir())
+	if err != nil {
+		return err
+	}
+	app.db = db
+	app.cms = store.NewCommitMultiStore(db)
+	return nil
 }
