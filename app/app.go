@@ -858,7 +858,9 @@ func New(
 	}
 
 	if loadLatest {
-		loadVersionHandler()
+		if err := loadVersionHandler(); err != nil {
+			panic(err)
+		}
 	} else {
 		app.SetLoadVersionHandler(loadVersionHandler)
 	}
