@@ -346,6 +346,8 @@ type App struct {
 
 	// Stores mapping counter name to counter value
 	metricCounter *map[string]float32
+
+	mounter func()
 }
 
 // New returns a reference to an initialized blockchain app
@@ -786,9 +788,12 @@ func New(
 	app.SetStoreUpgradeHandlers()
 
 	// initialize stores
-	app.MountKVStores(keys)
-	app.MountTransientStores(tkeys)
-	app.MountMemoryStores(memKeys)
+	app.mounter = func() {
+		app.MountKVStores(keys)
+		app.MountTransientStores(tkeys)
+		app.MountMemoryStores(memKeys)
+	}
+	app.mounter()
 
 	// initialize BaseApp
 	app.SetInitChainer(app.InitChainer)
@@ -840,7 +845,7 @@ func New(
 		}
 	}
 
-	if loadLatest {
+	loadVersionHandler := func() error {
 		if err := app.LoadLatestVersion(); err != nil {
 			tmos.Exit(err.Error())
 		}
@@ -849,6 +854,15 @@ func New(
 		if err := app.WasmKeeper.InitializePinnedCodes(ctx); err != nil {
 			tmos.Exit(fmt.Sprintf("failed initialize pinned codes %s", err))
 		}
+		return nil
+	}
+
+	if loadLatest {
+		if err := loadVersionHandler(); err != nil {
+			panic(err)
+		}
+	} else {
+		app.SetLoadVersionHandler(loadVersionHandler)
 	}
 
 	app.ScopedIBCKeeper = scopedIBCKeeper
