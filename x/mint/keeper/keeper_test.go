@@ -15,7 +15,7 @@ import (
 func TestGetNextScheduledTokenRelease(t *testing.T) {
 	t.Parallel()
 
-	currentTime := time.Now()
+	currentTime := time.Now().UTC()
 	epoch := epochTypes.Epoch{
 		CurrentEpochStartTime: currentTime,
 		CurrentEpochHeight: 100,
@@ -41,13 +41,23 @@ func TestGetNextScheduledTokenRelease(t *testing.T) {
 	}
 
 	t.Run("Get the next scheduled token release", func(t *testing.T) {
-		epoch.CurrentEpochStartTime = currentTime.AddDate(0, 0, 1)
+		// No next scheduled token release intially
+		epoch.CurrentEpochStartTime = currentTime.AddDate(0, 0, 0)
 		nextScheduledRelease := mintKeeper.GetNextScheduledTokenRelease(epoch, tokenReleaseSchedule, currentMinter)
+		require.Nil(t, nextScheduledRelease)
+
+		epoch.CurrentEpochStartTime = currentTime.AddDate(0, 0, 1)
+		nextScheduledRelease = mintKeeper.GetNextScheduledTokenRelease(epoch, tokenReleaseSchedule, currentMinter)
 		require.NotNil(t, nextScheduledRelease)
-		require.Equal(t, int64(100), nextScheduledRelease.TokenReleaseAmount)
+		require.Equal(t, uint64(100), nextScheduledRelease.TokenReleaseAmount)
 	})
 
 	t.Run("No next scheduled token release, assume we are on the second period", func(t *testing.T) {
+		// No next scheduled token release intially
+		epoch.CurrentEpochStartTime = currentTime.AddDate(0, 0, 0)
+		nextScheduledRelease := mintKeeper.GetNextScheduledTokenRelease(epoch, tokenReleaseSchedule, currentMinter)
+		require.Nil(t, nextScheduledRelease)
+
 		secondMinter := mintTypes.NewMinter(
 			currentTime.AddDate(0, 0, 30).Format(minttypes.TokenReleaseDateFormat),
 			currentTime.AddDate(0, 2, 0).Format(minttypes.TokenReleaseDateFormat),
@@ -55,7 +65,7 @@ func TestGetNextScheduledTokenRelease(t *testing.T) {
 			200,
 		)
 		epoch.CurrentEpochStartTime = currentTime.AddDate(0, 5, 0)
-		nextScheduledRelease := mintKeeper.GetNextScheduledTokenRelease(epoch, tokenReleaseSchedule, secondMinter)
+		nextScheduledRelease = mintKeeper.GetNextScheduledTokenRelease(epoch, tokenReleaseSchedule, secondMinter)
 		require.Nil(t, nextScheduledRelease)
 	})
 
@@ -68,7 +78,7 @@ func TestGetNextScheduledTokenRelease(t *testing.T) {
 		// First mint was +1 but the chain recoverd on +3
 		epoch.CurrentEpochStartTime = currentTime.AddDate(0, 0, 3)
 		nextScheduledRelease = mintKeeper.GetNextScheduledTokenRelease(epoch, tokenReleaseSchedule, currentMinter)
-		require.Equal(t, int64(100), nextScheduledRelease.GetTokenReleaseAmount())
+		require.Equal(t, uint64(100), nextScheduledRelease.GetTokenReleaseAmount())
 		require.Equal(t, currentTime.AddDate(0, 0, 1).Format(minttypes.TokenReleaseDateFormat), nextScheduledRelease.GetStartDate())
 	})
 }

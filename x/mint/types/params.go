@@ -29,7 +29,7 @@ func NewParams(
 ) Params {
 	return Params{
 		MintDenom:            mintDenom,
-		TokenReleaseSchedule: sortTokenReleaseCalendar(tokenReleaseSchedule),
+		TokenReleaseSchedule: SortTokenReleaseCalendar(tokenReleaseSchedule),
 	}
 }
 
@@ -86,7 +86,7 @@ func validateMintDenom(i interface{}) error {
 	return nil
 }
 
-func sortTokenReleaseCalendar(tokenReleaseSchedule []ScheduledTokenRelease) []ScheduledTokenRelease {
+func SortTokenReleaseCalendar(tokenReleaseSchedule []ScheduledTokenRelease) []ScheduledTokenRelease {
 	sort.Slice(tokenReleaseSchedule, func(i, j int) bool {
 		startDate1, _ := time.Parse(TokenReleaseDateFormat, tokenReleaseSchedule[i].GetStartDate())
 		startDate2, _ := time.Parse(TokenReleaseDateFormat, tokenReleaseSchedule[j].GetStartDate())
@@ -101,10 +101,10 @@ func validateTokenReleaseSchedule(i interface{}) error {
 		return fmt.Errorf("invalid parameter type: %T", i)
 	}
 
-	tokenReleaseSchedule = sortTokenReleaseCalendar(tokenReleaseSchedule)
+	sortedTokenReleaseSchedule := SortTokenReleaseCalendar(tokenReleaseSchedule)
 
 	prevReleaseEndDate := time.Time{}
-	for _, scheduledTokenRelease := range tokenReleaseSchedule {
+	for _, scheduledTokenRelease := range sortedTokenReleaseSchedule {
 		startDate, err := time.Parse(TokenReleaseDateFormat, scheduledTokenRelease.GetStartDate())
 		if err != nil {
 			return fmt.Errorf("error: invalid start date format use yyyy-mm-dd: %s", err)

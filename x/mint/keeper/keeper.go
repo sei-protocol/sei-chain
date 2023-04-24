@@ -134,9 +134,10 @@ func (k Keeper) GetOrUpdateLatestMinter(
 	params := k.GetParams(ctx)
 	currentReleaseMinter := k.GetMinter(ctx)
 	nextScheduledRelease := GetNextScheduledTokenRelease(epoch, params.TokenReleaseSchedule, currentReleaseMinter)
+
 	// There's still an ongoing release
 	if currentReleaseMinter.OngoingRelease() || nextScheduledRelease == nil {
-		k.Logger(ctx).Debug("Ongoing token release or no nextScheduledRelease", "minter", currentReleaseMinter, "nextScheduledRelease", nextScheduledRelease)
+		k.Logger(ctx).Debug("Ongoing token release or no nextScheduledRelease", "minter", currentReleaseMinter)
 		return currentReleaseMinter
 	}
 
@@ -159,9 +160,13 @@ func GetNextScheduledTokenRelease(
 			// This should not happen as the scheduled release date is validated when the param is updated
 			panic(fmt.Errorf("invalid scheduled release date: %s", err))
 		}
-		// If blocktime is after the currentScheduled date and it's after the current release
-		if epoch.GetCurrentEpochStartTime().After(scheduledStartDate) && scheduledStartDate.After(currentMinter.GetEndDateTime()) {
-			return &scheduledRelease
+		scheduledStartDateTime := scheduledStartDate.UTC()
+
+		// If epoch is after the currentScheduled date and it's after the current release
+		if epoch.GetCurrentEpochStartTime().After(scheduledStartDateTime) {
+			if scheduledStartDateTime.After(currentMinter.GetEndDateTime()) || scheduledStartDateTime.Equal(currentMinter.GetEndDateTime()) {
+				return &scheduledRelease
+			}
 		}
 	}
 	return nil
