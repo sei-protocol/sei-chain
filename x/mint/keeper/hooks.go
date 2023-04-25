@@ -29,6 +29,7 @@ func (k Keeper) AfterEpochEnd(ctx sdk.Context, epoch epochTypes.Epoch) {
 	// Released Succssfully, decrement the remaining amount by the daily release amount and update minter
 	amountMinted := coinsToMint.AmountOf(latestMinter.GetDenom())
 	updatedMinter := latestMinter.RecordSuccessfulMint(ctx, epoch, amountMinted.Uint64())
+	k.Logger(ctx).Info("Minted coins", "minter", updatedMinter, "amount", amountMinted)
 	k.SetMinter(ctx, updatedMinter)
 }
 

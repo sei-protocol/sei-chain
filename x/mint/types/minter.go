@@ -124,7 +124,6 @@ func (m Minter) getReleaseAmountToday(currentTime time.Time) uint64 {
 
 	numberOfDaysLeft := m.getNumberOfDaysLeft(currentTime)
 	if numberOfDaysLeft == 0 {
-		fmt.Printf("Minter: Nothing Left!: %d\n", m.GetRemainingMintAmount())
 		return 0
 	}
 	return m.GetRemainingMintAmount() / numberOfDaysLeft
