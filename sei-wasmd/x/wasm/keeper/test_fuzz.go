@@ -5,7 +5,6 @@ import (
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	fuzz "github.com/google/gofuzz"
-	tmBytes "github.com/tendermint/tendermint/libs/bytes"
 
 	"github.com/CosmWasm/wasmd/x/wasm/types"
 )
@@ -50,9 +49,9 @@ func FuzzContractCodeHistory(m *types.ContractCodeHistoryEntry, c fuzz.Continue)
 }
 
 func FuzzStateModel(m *types.Model, c fuzz.Continue) {
-	m.Key = tmBytes.HexBytes(c.RandString())
+	m.Key = types.HexBytes(c.RandString())
 	if len(m.Key) == 0 {
-		m.Key = tmBytes.HexBytes("non empty key")
+		m.Key = types.HexBytes("non empty key")
 	}
 	c.Fuzz(&m.Value)
 }
