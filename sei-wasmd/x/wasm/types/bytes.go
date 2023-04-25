@@ -24,7 +24,7 @@ func (bz *HexBytes) Unmarshal(data []byte) error {
 
 // MarshalText encodes a HexBytes value as hexadecimal digits.
 // This method is used by json.Marshal.
-func (bz HexBytes) MarshalText() ([]byte, error) {
+func (bz HexBytes) MarshalJSON() ([]byte, error) {
 	enc := hex.EncodeToString([]byte(bz))
 	return []byte(strings.ToUpper(enc)), nil
 }
@@ -32,7 +32,7 @@ func (bz HexBytes) MarshalText() ([]byte, error) {
 // UnmarshalText handles decoding of HexBytes from JSON strings.
 // This method is used by json.Unmarshal.
 // It allows decoding of both hex and base64-encoded byte arrays.
-func (bz *HexBytes) UnmarshalText(data []byte) error {
+func (bz *HexBytes) UnmarshalJSON(data []byte) error {
 	input := string(data)
 	if input == "" || input == "null" {
 		return nil
@@ -66,12 +66,4 @@ func (bz HexBytes) Format(s fmt.State, verb rune) {
 	default:
 		s.Write([]byte(fmt.Sprintf("%X", []byte(bz))))
 	}
-}
-
-func (bz HexBytes) MarshalJSON() ([]byte, error) {
-	return bz.MarshalText()
-}
-
-func (bz *HexBytes) UnmarshalJSON(data []byte) error {
-	return bz.UnmarshalText(data)
 }
