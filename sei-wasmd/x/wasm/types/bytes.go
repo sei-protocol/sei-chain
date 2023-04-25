@@ -1,7 +1,6 @@
 package types
 
 import (
-	"encoding/base64"
 	"encoding/hex"
 	"fmt"
 	"strings"
@@ -19,32 +18,6 @@ func (bz HexBytes) Marshal() ([]byte, error) {
 // Unmarshal needed for protobuf compatibility
 func (bz *HexBytes) Unmarshal(data []byte) error {
 	*bz = data
-	return nil
-}
-
-// MarshalText encodes a HexBytes value as hexadecimal digits.
-// This method is used by json.Marshal.
-func (bz HexBytes) MarshalJSON() ([]byte, error) {
-	enc := hex.EncodeToString([]byte(bz))
-	return []byte(strings.ToUpper(enc)), nil
-}
-
-// UnmarshalText handles decoding of HexBytes from JSON strings.
-// This method is used by json.Unmarshal.
-// It allows decoding of both hex and base64-encoded byte arrays.
-func (bz *HexBytes) UnmarshalJSON(data []byte) error {
-	input := string(data)
-	if input == "" || input == "null" {
-		return nil
-	}
-	dec, err := hex.DecodeString(input)
-	if err != nil {
-		dec, err = base64.StdEncoding.DecodeString(input)
-		if err != nil {
-			return err
-		}
-	}
-	*bz = HexBytes(dec)
 	return nil
 }
 
