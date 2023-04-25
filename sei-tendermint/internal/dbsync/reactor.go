@@ -349,7 +349,9 @@ func (r *Reactor) handleFileMessage(ctx context.Context, envelope *p2p.Envelope)
 		return r.handleFileRequest(ctx, msg, envelope.From)
 
 	case *dstypes.FileResponse:
-		if len(msg.Data) == 0 {
+		// using msg.Height is a more reliable check for empty response than
+		// check msg.Data since it's valid to have empty files sync'ed over
+		if msg.Height == 0 {
 			return nil
 		}
 		r.syncer.PushFile(msg)

@@ -1261,7 +1261,14 @@ func (cfg *InstrumentationConfig) ValidateBasic() error {
 }
 
 type DBSyncConfig struct {
-	Enable               bool          `mapstructure:"db-sync-enable"`
+	// When true, the node will try to import DB files that overwrite its
+	// application DB. Note that it will NOT automatically detect whether
+	// the application DB is good-to-go or not upon start, and will always
+	// perform the import, so if the import is complete, this flag should
+	// be turned off the next time the chain restarts.
+	Enable bool `mapstructure:"db-sync-enable"`
+	// This is NOT currently used but reserved for future implementation
+	// of snapshotting logics that don't require chain halts.
 	SnapshotInterval     int           `mapstructure:"snapshot-interval"`
 	SnapshotDirectory    string        `mapstructure:"snapshot-directory"`
 	SnapshotWorkerCount  int           `mapstructure:"snapshot-worker-count"`
