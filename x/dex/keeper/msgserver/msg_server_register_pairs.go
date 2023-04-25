@@ -36,7 +36,7 @@ func (k msgServer) RegisterPairs(goCtx context.Context, msg *types.MsgRegisterPa
 				types.EventTypeRegisterPair,
 				sdk.NewAttribute(types.AttributeKeyContractAddress, contractAddr),
 				sdk.NewAttribute(types.AttributeKeyPriceDenom, pair.PriceDenom),
-				sdk.NewAttribute(types.AttributeKeyContractAddress, pair.AssetDenom),
+				sdk.NewAttribute(types.AttributeKeyAssetDenom, pair.AssetDenom),
 			))
 		}
 	}
