@@ -82,7 +82,7 @@ func TestEndOfEpochMintedCoinDistribution(t *testing.T) {
 			expectedAmount := int64(100000)
 			newMinter := seiApp.MintKeeper.GetMinter(ctx)
 
-			if i == 25 {
+			if i == 24 {
 				require.Zero(t, newMinter.GetRemainingMintAmount(), "Remaining amount should be zero")
 				break
 			}
@@ -250,6 +250,27 @@ func TestEndOfEpochMintedCoinDistribution(t *testing.T) {
 		require.Equal(t, postOutageTime.Format(minttypes.TokenReleaseDateFormat), newMinter.GetLastMintDate(), "Last mint date should be correct")
 		require.InDelta(t, 127315, newMinter.GetLastMintAmountCoin().Amount.Int64(), 1, "Minted amount should be correct")
 		require.InDelta(t, int64(1018522), int64(newMinter.GetRemainingMintAmount()), 24, "Remaining amount should be correct")
+
+		// Continue and ensure that eventually reaches zero
+		for i := 16; i < 25; i++ {
+			currTime := genesisTime.AddDate(0, 0, i)
+			currEpoch := getEpoch(genesisTime, currTime)
+			seiApp.EpochKeeper.BeforeEpochStart(ctx, currEpoch)
+			seiApp.EpochKeeper.AfterEpochEnd(ctx, currEpoch)
+			mintParams = seiApp.MintKeeper.GetParams(ctx)
+
+			newMinter := seiApp.MintKeeper.GetMinter(ctx)
+			expectedAmount := int64(127315)
+
+			if i == 24 {
+				require.Zero(t, newMinter.GetRemainingMintAmount(), "Remaining amount should be zero")
+				break
+			}
+
+			require.Equal(t, currTime.Format(minttypes.TokenReleaseDateFormat), newMinter.GetLastMintDate(), "Last mint date should be correct")
+			require.InDelta(t, expectedAmount, newMinter.GetLastMintAmountCoin().Amount.Int64(), 1, "Minted amount should be correct")
+		}
+
 	})
 }
 
