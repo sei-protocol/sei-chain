@@ -6,10 +6,13 @@ import (
 	"sync"
 	"time"
 
+	seiutils "github.com/sei-protocol/sei-chain/utils"
 	"github.com/sei-protocol/sei-chain/utils/logging"
 	"github.com/sei-protocol/sei-chain/utils/tracing"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
+	bankkeeper "github.com/cosmos/cosmos-sdk/x/bank/keeper"
 	"github.com/sei-protocol/sei-chain/store/whitelist/multi"
 	seisync "github.com/sei-protocol/sei-chain/sync"
 	"github.com/sei-protocol/sei-chain/utils/datastructures"
@@ -46,6 +49,8 @@ func EndBlockerAtomic(ctx sdk.Context, keeper *keeper.Keeper, validContractsInfo
 	env := newEnv(ctx, validContractsInfo, keeper)
 	cachedCtx, msCached := cacheContext(ctx, env)
 	memStateCopy := dexutils.GetMemState(cachedCtx.Context()).DeepCopy()
+	preRunRents := keeper.GetRentsForContracts(cachedCtx, seiutils.Map(validContractsInfo, func(c types.ContractInfoV2) string { return c.ContractAddr }))
+
 	handleDeposits(spanCtx, cachedCtx, env, keeper, tracer)
 
 	runner := NewParallelRunner(func(contract types.ContractInfoV2) {
@@ -66,6 +71,8 @@ func EndBlockerAtomic(ctx sdk.Context, keeper *keeper.Keeper, validContractsInfo
 
 	// No error is thrown for any contract. This should happen most of the time.
 	if env.failedContractAddresses.Size() == 0 {
+		postRunRents := keeper.GetRentsForContracts(cachedCtx, seiutils.Map(validContractsInfo, func(c types.ContractInfoV2) string { return c.ContractAddr }))
+		TransferRentFromDexToCollector(ctx, keeper.BankKeeper, preRunRents, postRunRents)
 		msCached.Write()
 		return env.validContractsInfo, ctx, true
 	}
@@ -240,4 +247,18 @@ func filterNewValidContracts(ctx sdk.Context, env *environment) []types.Contract
 		dexutils.GetMemState(ctx.Context()).DeepFilterAccount(ctx, failedContractAddress)
 	}
 	return newValidContracts
+}
+
+func TransferRentFromDexToCollector(ctx sdk.Context, bankKeeper bankkeeper.Keeper, preRents map[string]uint64, postRents map[string]uint64) {
+	total := uint64(0)
+	for addr, preRent := range preRents {
+		if postRent, ok := postRents[addr]; ok {
+			total += preRent - postRent
+		} else {
+			total += preRent
+		}
+	}
+	if err := bankKeeper.SendCoinsFromModuleToModule(ctx, types.ModuleName, authtypes.FeeCollectorName, sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(int64(total))))); err != nil {
+		ctx.Logger().Error("sending coints from dex to fee collector failed due to %s", err)
+	}
 }
