@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/cosmos/cosmos-sdk/server"
 	storetypes "github.com/cosmos/cosmos-sdk/store/types"
 
 	"github.com/sei-protocol/sei-chain/aclmapping"
@@ -143,6 +144,7 @@ import (
 	wasmtypes "github.com/CosmWasm/wasmd/x/wasm/types"
 
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/trace"
 )
 
 // this line is used by starport scaffolding # stargate/wasm/app/enabledProposals
@@ -344,6 +346,8 @@ type App struct {
 
 	// Stores mapping counter name to counter value
 	metricCounter *map[string]float32
+
+	mounter func()
 }
 
 // New returns a reference to an initialized blockchain app
@@ -385,12 +389,19 @@ func New(
 	tkeys := sdk.NewTransientStoreKeys(paramstypes.TStoreKey)
 	memKeys := sdk.NewMemoryStoreKeys(capabilitytypes.MemStoreKey)
 
-	tp, err := tracing.DefaultTracerProvider()
-	if err != nil {
-		panic(err)
-	}
-	otel.SetTracerProvider(tp)
+	tp := trace.NewNoopTracerProvider()
+	otel.SetTracerProvider(trace.NewNoopTracerProvider())
 	tr := tp.Tracer("component-main")
+
+	if tracingEnabled := cast.ToBool(appOpts.Get(server.FlagTracing)); tracingEnabled {
+		tp, err := tracing.DefaultTracerProvider()
+		if err != nil {
+			panic(err)
+		}
+		otel.SetTracerProvider(tp)
+		tr = tp.Tracer("component-main")
+	}
+
 	app := &App{
 		BaseApp:           bApp,
 		cdc:               cdc,
@@ -777,9 +788,12 @@ func New(
 	app.SetStoreUpgradeHandlers()
 
 	// initialize stores
-	app.MountKVStores(keys)
-	app.MountTransientStores(tkeys)
-	app.MountMemoryStores(memKeys)
+	app.mounter = func() {
+		app.MountKVStores(keys)
+		app.MountTransientStores(tkeys)
+		app.MountMemoryStores(memKeys)
+	}
+	app.mounter()
 
 	// initialize BaseApp
 	app.SetInitChainer(app.InitChainer)
@@ -831,7 +845,7 @@ func New(
 		}
 	}
 
-	if loadLatest {
+	loadVersionHandler := func() error {
 		if err := app.LoadLatestVersion(); err != nil {
 			tmos.Exit(err.Error())
 		}
@@ -840,6 +854,15 @@ func New(
 		if err := app.WasmKeeper.InitializePinnedCodes(ctx); err != nil {
 			tmos.Exit(fmt.Sprintf("failed initialize pinned codes %s", err))
 		}
+		return nil
+	}
+
+	if loadLatest {
+		if err := loadVersionHandler(); err != nil {
+			panic(err)
+		}
+	} else {
+		app.SetLoadVersionHandler(loadVersionHandler)
 	}
 
 	app.ScopedIBCKeeper = scopedIBCKeeper
@@ -946,6 +969,7 @@ func (app *App) ProcessProposalHandler(ctx sdk.Context, req *abci.RequestProcess
 	// TODO: this check decodes transactions which is redone in subsequent processing. We might be able to optimize performance
 	// by recording the decoding results and avoid decoding again later on.
 	if !app.checkTotalBlockGasWanted(ctx, req.Txs) {
+		metrics.IncrFailedTotalGasWantedCheck(string(req.GetProposerAddress()))
 		return &abci.ResponseProcessProposal{
 			Status: abci.ResponseProcessProposal_REJECT,
 		}, nil

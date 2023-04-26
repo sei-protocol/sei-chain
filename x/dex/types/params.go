@@ -15,6 +15,7 @@ var (
 	KeyEndBlockGasLimit       = []byte("KeyEndBlockGasLimit")
 	KeyDefaultGasPerOrder     = []byte("KeyDefaultGasPerOrder")
 	KeyDefaultGasPerCancel    = []byte("KeyDefaultGasPerCancel")
+	KeyMinRentDeposit         = []byte("KeyMinRentDeposit")
 )
 
 const (
@@ -23,6 +24,7 @@ const (
 	DefaultEndBlockGasLimit       = 1000000000 // 1B
 	DefaultDefaultGasPerOrder     = 10000
 	DefaultDefaultGasPerCancel    = 5000
+	DefaultMinRentDeposit         = 10000000 // 10 sei
 )
 
 var DefaultSudoCallGasPrice = sdk.NewDecWithPrec(1, 1) // 0.1
@@ -43,6 +45,7 @@ func DefaultParams() Params {
 		EndBlockGasLimit:       DefaultEndBlockGasLimit,
 		DefaultGasPerOrder:     DefaultDefaultGasPerOrder,
 		DefaultGasPerCancel:    DefaultDefaultGasPerCancel,
+		MinRentDeposit:         DefaultMinRentDeposit,
 	}
 }
 
@@ -55,6 +58,7 @@ func (p *Params) ParamSetPairs() paramtypes.ParamSetPairs {
 		paramtypes.NewParamSetPair(KeyEndBlockGasLimit, &p.EndBlockGasLimit, validateUint64Param),
 		paramtypes.NewParamSetPair(KeyDefaultGasPerOrder, &p.DefaultGasPerOrder, validateUint64Param),
 		paramtypes.NewParamSetPair(KeyDefaultGasPerCancel, &p.DefaultGasPerCancel, validateUint64Param),
+		paramtypes.NewParamSetPair(KeyMinRentDeposit, &p.MinRentDeposit, validateUint64Param),
 	}
 }
 

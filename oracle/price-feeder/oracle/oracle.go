@@ -122,7 +122,7 @@ func (o *Oracle) Start(ctx context.Context) error {
 			err = o.tick(ctx, clientCtx, currBlockHeight)
 			if err != nil {
 				telemetry.IncrCounter(1, "failure", "tick")
-				o.logger.Err(err).Msg(fmt.Sprintf("Oracle tick failed for height %d", currBlockHeight))
+				o.logger.Warn().Msg(fmt.Sprintf("Oracle tick failed for height %d, err: %s", currBlockHeight, err.Error()))
 			} else {
 				telemetry.IncrCounter(1, "success", "tick")
 			}
