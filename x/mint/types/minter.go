@@ -112,7 +112,6 @@ func (m *Minter) RecordSuccessfulMint(ctx sdk.Context, epoch epochTypes.Epoch, m
 func (m *Minter) getReleaseAmountToday(currentTime time.Time) uint64 {
 	// Not yet started or already minted today
 	if currentTime.Before(m.GetStartDateTime()) || currentTime.Format(TokenReleaseDateFormat) == m.GetLastMintDate() {
-		println("not yet started or already minted today")
 		return 0
 	}
 
