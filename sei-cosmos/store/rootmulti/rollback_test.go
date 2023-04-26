@@ -17,7 +17,7 @@ import (
 
 func setup(withGenesis bool, invCheckPeriod uint, db dbm.DB) (*simapp.SimApp, simapp.GenesisState) {
 	encCdc := simapp.MakeTestEncodingConfig()
-	app := simapp.NewSimApp(log.NewNopLogger(), db, nil, true, map[int64]bool{}, simapp.DefaultNodeHome, invCheckPeriod, encCdc, simapp.EmptyAppOptions{})
+	app := simapp.NewSimApp(log.NewNopLogger(), db, nil, true, map[int64]bool{}, simapp.DefaultNodeHome, invCheckPeriod, nil, encCdc, simapp.EmptyAppOptions{})
 	if withGenesis {
 		return app, simapp.NewDefaultGenesisState(encCdc.Marshaler)
 	}
@@ -78,7 +78,7 @@ func TestRollback(t *testing.T) {
 
 	// recreate app to have clean check state
 	encCdc := simapp.MakeTestEncodingConfig()
-	app = simapp.NewSimApp(log.NewNopLogger(), db, nil, true, map[int64]bool{}, simapp.DefaultNodeHome, 5, encCdc, simapp.EmptyAppOptions{})
+	app = simapp.NewSimApp(log.NewNopLogger(), db, nil, true, map[int64]bool{}, simapp.DefaultNodeHome, 5, nil, encCdc, simapp.EmptyAppOptions{})
 	store = app.NewContext(true, tmproto.Header{}).KVStore(app.GetKey("bank"))
 	require.Equal(t, []byte("value5"), store.Get([]byte("key")))
 

@@ -65,9 +65,6 @@ min-retain-blocks = {{ .BaseConfig.MinRetainBlocks }}
 # InterBlockCache enables inter-block caching.
 inter-block-cache = {{ .BaseConfig.InterBlockCache }}
 
-# Whether to load the latest version of store immediately upon start
-load-latest = {{ .BaseConfig.LoadLatest }}
-
 # IndexEvents defines the set of events in the form {eventType}.{attributeKey},
 # which informs Tendermint what to index. If empty, all events will be indexed.
 #

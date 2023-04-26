@@ -2,8 +2,9 @@ package baseapp_test
 
 import (
 	"context"
-	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 	"testing"
+
+	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 
 	"github.com/stretchr/testify/require"
 	"github.com/tendermint/tendermint/libs/log"
@@ -55,7 +56,7 @@ func TestRegisterQueryServiceTwice(t *testing.T) {
 	// Setup baseapp.
 	db := dbm.NewMemDB()
 	encCfg := simapp.MakeTestEncodingConfig()
-	app := baseapp.NewBaseApp("test", log.NewTestingLogger(t), db, encCfg.TxConfig.TxDecoder(), &testutil.TestAppOpts{})
+	app := baseapp.NewBaseApp("test", log.NewTestingLogger(t), db, encCfg.TxConfig.TxDecoder(), nil, &testutil.TestAppOpts{})
 	app.SetInterfaceRegistry(encCfg.InterfaceRegistry)
 	testdata.RegisterInterfaces(encCfg.InterfaceRegistry)
 

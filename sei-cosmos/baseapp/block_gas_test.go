@@ -67,7 +67,7 @@ func TestBaseApp_BlockGas(t *testing.T) {
 			encCfg.InterfaceRegistry.RegisterImplementations((*sdk.Msg)(nil),
 				&testdata.TestMsg{},
 			)
-			app = simapp.NewSimApp(log.NewNopLogger(), dbm.NewMemDB(), nil, true, map[int64]bool{}, "", 0, encCfg, &simapp.EmptyAppOptions{}, routerOpt)
+			app = simapp.NewSimApp(log.NewNopLogger(), dbm.NewMemDB(), nil, true, map[int64]bool{}, "", 0, nil, encCfg, &simapp.EmptyAppOptions{}, routerOpt)
 			genState := simapp.NewDefaultGenesisState(encCfg.Marshaler)
 			stateBytes, err := json.MarshalIndent(genState, "", " ")
 			require.NoError(t, err)

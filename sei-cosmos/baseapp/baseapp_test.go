@@ -36,7 +36,7 @@ func newBaseApp(name string, options ...func(*BaseApp)) *BaseApp {
 	db := dbm.NewMemDB()
 	codec := codec.NewLegacyAmino()
 	registerTestCodec(codec)
-	return NewBaseApp(name, logger, db, testTxDecoder(codec), &testutil.TestAppOpts{}, options...)
+	return NewBaseApp(name, logger, db, testTxDecoder(codec), nil, &testutil.TestAppOpts{}, options...)
 }
 
 func registerTestCodec(cdc *codec.LegacyAmino) {
@@ -83,7 +83,7 @@ func TestLoadVersionPruning(t *testing.T) {
 	pruningOpt := SetPruning(pruningOptions)
 	db := dbm.NewMemDB()
 	name := t.Name()
-	app := NewBaseApp(name, logger, db, nil, &testutil.TestAppOpts{}, pruningOpt)
+	app := NewBaseApp(name, logger, db, nil, nil, &testutil.TestAppOpts{}, pruningOpt)
 
 	// make a cap key and mount the store
 	capKey := sdk.NewKVStoreKey("key1")
@@ -122,7 +122,7 @@ func TestLoadVersionPruning(t *testing.T) {
 	}
 
 	// reload with LoadLatestVersion, check it loads last version
-	app = NewBaseApp(name, logger, db, nil, &testutil.TestAppOpts{}, pruningOpt)
+	app = NewBaseApp(name, logger, db, nil, nil, &testutil.TestAppOpts{}, pruningOpt)
 	app.MountStores(capKey)
 
 	err = app.LoadLatestVersion()

@@ -152,7 +152,7 @@ type BaseApp struct { //nolint: maligned
 
 	compactionInterval uint64
 
-	tmConfig *tmcfg.Config
+	TmConfig *tmcfg.Config
 }
 
 type appStore struct {
@@ -207,7 +207,7 @@ type snapshotData struct {
 //
 // NOTE: The db is used to store the version number for now.
 func NewBaseApp(
-	name string, logger log.Logger, db dbm.DB, txDecoder sdk.TxDecoder, appOpts servertypes.AppOptions, options ...func(*BaseApp),
+	name string, logger log.Logger, db dbm.DB, txDecoder sdk.TxDecoder, tmConfig *tmcfg.Config, appOpts servertypes.AppOptions, options ...func(*BaseApp),
 ) *BaseApp {
 	cms := store.NewCommitMultiStore(db)
 	archivalVersion := cast.ToInt64(appOpts.Get(FlagArchivalVersion))
@@ -239,6 +239,7 @@ func NewBaseApp(
 			msgServiceRouter: NewMsgServiceRouter(),
 		},
 		txDecoder: txDecoder,
+		TmConfig:  tmConfig,
 	}
 
 	for _, option := range options {
@@ -257,10 +258,6 @@ func NewBaseApp(
 	app.startCompactionRoutine(db)
 
 	return app
-}
-
-func (app *BaseApp) SetTendermintConfig(cfg *tmcfg.Config) {
-	app.tmConfig = cfg
 }
 
 // Name returns the name of the BaseApp.
@@ -1112,7 +1109,7 @@ func (app *BaseApp) ReloadDB() error {
 	if err := app.db.Close(); err != nil {
 		return err
 	}
-	db, err := sdk.NewLevelDB("application", app.tmConfig.DBDir())
+	db, err := sdk.NewLevelDB("application", app.TmConfig.DBDir())
 	if err != nil {
 		return err
 	}

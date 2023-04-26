@@ -127,7 +127,7 @@ func setupApp(t *testing.T, tempDir string) (*simapp.SimApp, context.Context, *t
 	logger := log.NewTestingLogger(t)
 	db := dbm.NewMemDB()
 	encCfg := simapp.MakeTestEncodingConfig()
-	app := simapp.NewSimApp(logger, db, nil, true, map[int64]bool{}, tempDir, 0, encCfg, &simapp.EmptyAppOptions{})
+	app := simapp.NewSimApp(logger, db, nil, true, map[int64]bool{}, tempDir, 0, nil, encCfg, &simapp.EmptyAppOptions{})
 
 	serverCtx := server.NewDefaultContext()
 	serverCtx.Config.RootDir = tempDir
@@ -152,13 +152,13 @@ func setupApp(t *testing.T, tempDir string) (*simapp.SimApp, context.Context, *t
 
 			var simApp *simapp.SimApp
 			if height != -1 {
-				simApp = simapp.NewSimApp(logger, db, nil, false, map[int64]bool{}, "", 0, encCfg, &simapp.EmptyAppOptions{})
+				simApp = simapp.NewSimApp(logger, db, nil, false, map[int64]bool{}, "", 0, nil, encCfg, &simapp.EmptyAppOptions{})
 
 				if err := simApp.LoadHeight(height); err != nil {
 					return types.ExportedApp{}, err
 				}
 			} else {
-				simApp = simapp.NewSimApp(logger, db, nil, true, map[int64]bool{}, "", 0, encCfg, &simapp.EmptyAppOptions{})
+				simApp = simapp.NewSimApp(logger, db, nil, true, map[int64]bool{}, "", 0, nil, encCfg, &simapp.EmptyAppOptions{})
 			}
 
 			return simApp.ExportAppStateAndValidators(forZeroHeight, jailAllowedAddrs)

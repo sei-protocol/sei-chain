@@ -9,7 +9,7 @@ import (
 	"github.com/gogo/protobuf/grpc"
 	"github.com/spf13/cobra"
 	abci "github.com/tendermint/tendermint/abci/types"
-	tmconfig "github.com/tendermint/tendermint/config"
+	tmcfg "github.com/tendermint/tendermint/config"
 	"github.com/tendermint/tendermint/libs/log"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 	tmtypes "github.com/tendermint/tendermint/types"
@@ -58,15 +58,13 @@ type (
 		// CommitMultiStore Returns the multistore instance
 		CommitMultiStore() sdk.CommitMultiStore
 
-		SetTendermintConfig(*tmconfig.Config)
-
 		// Close any open resources
 		Close() error
 	}
 
 	// AppCreator is a function that allows us to lazily initialize an
 	// application using various configurations.
-	AppCreator func(log.Logger, dbm.DB, io.Writer, AppOptions) Application
+	AppCreator func(log.Logger, dbm.DB, io.Writer, *tmcfg.Config, AppOptions) Application
 
 	// ModuleInitFlags takes a start command and adds modules specific init flags.
 	ModuleInitFlags func(startCmd *cobra.Command)

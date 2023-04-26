@@ -37,6 +37,7 @@ application.
 				ctx.Logger,
 				db,
 				nil,
+				nil,
 				ctx.Viper,
 			)
 

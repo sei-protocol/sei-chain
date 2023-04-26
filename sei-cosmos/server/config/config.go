@@ -80,8 +80,6 @@ type BaseConfig struct {
 	// CompactionInterval sets (in seconds) the interval between forced levelDB
 	// compaction. A value of 0 means no forced levelDB
 	CompactionInterval uint64 `mapstructure:"compaction-interval"`
-
-	LoadLatest bool `mapstructure:"load-latest"`
 }
 
 // APIConfig defines the API listener configuration.
@@ -225,7 +223,6 @@ func DefaultConfig() *Config {
 			IAVLCacheSize:       781250, // 50 MB
 			IAVLDisableFastNode: true,
 			CompactionInterval:  0,
-			LoadLatest:          true,
 		},
 		Telemetry: telemetry.Config{
 			Enabled:      false,
@@ -294,7 +291,6 @@ func GetConfig(v *viper.Viper) (Config, error) {
 			IAVLCacheSize:       v.GetUint64("iavl-cache-size"),
 			IAVLDisableFastNode: v.GetBool("iavl-disable-fastnode"),
 			CompactionInterval:  v.GetUint64("compaction-interval"),
-			LoadLatest:          v.GetBool("load-latest"),
 		},
 		Telemetry: telemetry.Config{
 			ServiceName:             v.GetString("telemetry.service-name"),
@@ -348,12 +344,6 @@ func (c Config) ValidateBasic(tendermintConfig *tmcfg.Config) error {
 		return sdkerrors.ErrAppConfig.Wrapf(
 			"cannot enable state sync snapshots with '%s' pruning setting", storetypes.PruningOptionEverything,
 		)
-	}
-	if c.BaseConfig.LoadLatest && tendermintConfig.DBSync.Enable {
-		return sdkerrors.ErrAppConfig.Wrap("cannot load latest with DB sync enabled")
-	}
-	if !c.BaseConfig.LoadLatest && !tendermintConfig.DBSync.Enable {
-		return sdkerrors.ErrAppConfig.Wrap("shoulkd load latest with DB sync disabled")
 	}
 
 	return nil

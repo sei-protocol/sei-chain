@@ -13,8 +13,8 @@ import (
 
 	bam "github.com/cosmos/cosmos-sdk/baseapp"
 	"github.com/cosmos/cosmos-sdk/codec"
-	"github.com/cosmos/cosmos-sdk/testutil"
 	storetypes "github.com/cosmos/cosmos-sdk/store/types"
+	"github.com/cosmos/cosmos-sdk/testutil"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 )
 
@@ -31,7 +31,7 @@ func NewApp(rootDir string, logger log.Logger) (abci.Application, error) {
 	capKeyMainStore := sdk.NewKVStoreKey("main")
 
 	// Create BaseApp.
-	baseApp := bam.NewBaseApp("kvstore", logger, db, decodeTx, &testutil.TestAppOpts{})
+	baseApp := bam.NewBaseApp("kvstore", logger, db, decodeTx, nil, &testutil.TestAppOpts{})
 
 	// Set mounts for BaseApp's MultiStore.
 	baseApp.MountStores(capKeyMainStore)

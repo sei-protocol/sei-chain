@@ -251,7 +251,7 @@ func TestBaseApp_EndBlock(t *testing.T) {
 	}
 
 	codec := codec.NewLegacyAmino()
-	app := NewBaseApp(name, logger, db, testTxDecoder(codec), &testutil.TestAppOpts{})
+	app := NewBaseApp(name, logger, db, testTxDecoder(codec), nil, &testutil.TestAppOpts{})
 	app.SetParamStore(&paramStore{db: dbm.NewMemDB()})
 	app.InitChain(context.Background(), &abci.RequestInitChain{
 		ConsensusParams: cp,
@@ -1062,7 +1062,7 @@ func TestInitChainer(t *testing.T) {
 	db := dbm.NewMemDB()
 	logger := defaultLogger()
 	cc := codec.NewLegacyAmino()
-	app := NewBaseApp(name, logger, db, testTxDecoder(cc), &testutil.TestAppOpts{})
+	app := NewBaseApp(name, logger, db, testTxDecoder(cc), nil, &testutil.TestAppOpts{})
 	capKey := sdk.NewKVStoreKey("main")
 	capKey2 := sdk.NewKVStoreKey("key2")
 	app.MountStores(capKey, capKey2)
@@ -1118,7 +1118,7 @@ func TestInitChainer(t *testing.T) {
 
 	// reload app
 	cc = codec.NewLegacyAmino()
-	app = NewBaseApp(name, logger, db, testTxDecoder(cc), &testutil.TestAppOpts{})
+	app = NewBaseApp(name, logger, db, testTxDecoder(cc), nil, &testutil.TestAppOpts{})
 	app.SetInitChainer(initChainer)
 	app.MountStores(capKey, capKey2)
 	err = app.LoadLatestVersion() // needed to make stores non-nil
@@ -1146,7 +1146,7 @@ func TestInitChain_WithInitialHeight(t *testing.T) {
 	db := dbm.NewMemDB()
 	logger := defaultLogger()
 	cc := codec.NewLegacyAmino()
-	app := NewBaseApp(name, logger, db, testTxDecoder(cc), &testutil.TestAppOpts{})
+	app := NewBaseApp(name, logger, db, testTxDecoder(cc), nil, &testutil.TestAppOpts{})
 
 	app.InitChain(
 		context.Background(), &abci.RequestInitChain{
@@ -1163,7 +1163,7 @@ func TestBeginBlock_WithInitialHeight(t *testing.T) {
 	db := dbm.NewMemDB()
 	logger := defaultLogger()
 	cc := codec.NewLegacyAmino()
-	app := NewBaseApp(name, logger, db, testTxDecoder(cc), &testutil.TestAppOpts{})
+	app := NewBaseApp(name, logger, db, testTxDecoder(cc), nil, &testutil.TestAppOpts{})
 
 	app.InitChain(
 		context.Background(), &abci.RequestInitChain{
@@ -1539,7 +1539,7 @@ func TestOptionFunction(t *testing.T) {
 	logger := defaultLogger()
 	db := dbm.NewMemDB()
 	cc := codec.NewLegacyAmino()
-	bap := NewBaseApp("starting name", logger, db, testTxDecoder(cc), &testutil.TestAppOpts{}, testChangeNameHelper("new name"))
+	bap := NewBaseApp("starting name", logger, db, testTxDecoder(cc), nil, &testutil.TestAppOpts{}, testChangeNameHelper("new name"))
 	require.Equal(t, bap.name, "new name", "BaseApp should have had name changed via option function")
 }
 
@@ -1631,7 +1631,7 @@ func TestVersionSetterGetter(t *testing.T) {
 	db := dbm.NewMemDB()
 	name := t.Name()
 	cc := codec.NewLegacyAmino()
-	app := NewBaseApp(name, logger, db, testTxDecoder(cc), &testutil.TestAppOpts{}, pruningOpt)
+	app := NewBaseApp(name, logger, db, testTxDecoder(cc), nil, &testutil.TestAppOpts{}, pruningOpt)
 
 	require.Equal(t, "", app.Version())
 	res, _ := app.Query(context.Background(), &abci.RequestQuery{Path: "app/version"})
@@ -1652,7 +1652,7 @@ func TestLoadVersionInvalid(t *testing.T) {
 	db := dbm.NewMemDB()
 	name := t.Name()
 	cc := codec.NewLegacyAmino()
-	app := NewBaseApp(name, logger, db, testTxDecoder(cc), &testutil.TestAppOpts{}, pruningOpt)
+	app := NewBaseApp(name, logger, db, testTxDecoder(cc), nil, &testutil.TestAppOpts{}, pruningOpt)
 
 	err := app.LoadLatestVersion()
 	require.Nil(t, err)
@@ -1670,7 +1670,7 @@ func TestLoadVersionInvalid(t *testing.T) {
 
 	// create a new app with the stores mounted under the same cap key
 	cc = codec.NewLegacyAmino()
-	app = NewBaseApp(name, logger, db, testTxDecoder(cc), &testutil.TestAppOpts{}, pruningOpt)
+	app = NewBaseApp(name, logger, db, testTxDecoder(cc), nil, &testutil.TestAppOpts{}, pruningOpt)
 
 	// require we can load the latest version
 	err = app.LoadVersion(1)
@@ -1776,7 +1776,7 @@ func TestLoadVersion(t *testing.T) {
 	db := dbm.NewMemDB()
 	name := t.Name()
 	cc := codec.NewLegacyAmino()
-	app := NewBaseApp(name, logger, db, testTxDecoder(cc), &testutil.TestAppOpts{}, pruningOpt)
+	app := NewBaseApp(name, logger, db, testTxDecoder(cc), nil, &testutil.TestAppOpts{}, pruningOpt)
 
 	// make a cap key and mount the store
 	err := app.LoadLatestVersion() // needed to make stores non-nil
@@ -1878,7 +1878,7 @@ func TestSetLoader(t *testing.T) {
 				opts = append(opts, tc.setLoader)
 			}
 			cc := codec.NewLegacyAmino()
-			app := NewBaseApp(t.Name(), defaultLogger(), db, testTxDecoder(cc), &testutil.TestAppOpts{}, opts...)
+			app := NewBaseApp(t.Name(), defaultLogger(), db, testTxDecoder(cc), nil, &testutil.TestAppOpts{}, opts...)
 			app.MountStores(sdk.NewKVStoreKey(tc.loadStoreKey))
 			err := app.LoadLatestVersion()
 			require.Nil(t, err)

@@ -55,7 +55,6 @@ const (
 	FlagTracing            = "tracing"
 	FlagProfile            = "profile"
 	FlagInvCheckPeriod     = "inv-check-period"
-	FlagLoadLatest         = "load-latest"
 
 	FlagPruning            = "pruning"
 	FlagPruningKeepRecent  = "pruning-keep-recent"
@@ -241,7 +240,6 @@ is performed. Note, when enabled, gRPC will also be automatically enabled.
 	cmd.Flags().Uint(FlagInvCheckPeriod, 0, "Assert registered invariants every N blocks")
 	cmd.Flags().Uint64(FlagMinRetainBlocks, 0, "Minimum block height offset during ABCI commit to prune Tendermint blocks")
 	cmd.Flags().Uint64(FlagCompactionInterval, 0, "Time interval in between forced levelDB compaction. 0 means no forced compaction.")
-	cmd.Flags().Bool(FlagLoadLatest, true, "Whether to load latest version from store immediately after app creation")
 
 	cmd.Flags().Bool(flagGRPCOnly, false, "Start the node in gRPC query only mode (no Tendermint process is started)")
 	cmd.Flags().Bool(flagGRPCEnable, true, "Define if the gRPC server should be enabled")
@@ -282,7 +280,7 @@ func startStandAlone(ctx *Context, appCreator types.AppCreator) error {
 		return err
 	}
 
-	app := appCreator(ctx.Logger, db, traceWriter, ctx.Viper)
+	app := appCreator(ctx.Logger, db, traceWriter, nil, ctx.Viper)
 
 	svr, err := server.NewServer(ctx.Logger.With("module", "abci-server"), addr, transport, app)
 	if err != nil {
@@ -359,8 +357,7 @@ func startInProcess(
 			"This defaults to 0 in the current version, but will error in the next version " +
 			"(SDK v0.45). Please explicitly put the desired minimum-gas-prices in your app.toml.")
 	}
-	app := appCreator(ctx.Logger, db, traceWriter, ctx.Viper)
-	app.SetTendermintConfig(ctx.Config)
+	app := appCreator(ctx.Logger, db, traceWriter, ctx.Config, ctx.Viper)
 
 	var (
 		tmNode    service.Service
