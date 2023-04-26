@@ -134,9 +134,10 @@ func (k Keeper) GetOrUpdateLatestMinter(
 	currentReleaseMinter := k.GetMinter(ctx)
 	nextScheduledRelease := GetNextScheduledTokenRelease(epoch, params.TokenReleaseSchedule, currentReleaseMinter)
 
-	// There's still an ongoing release or there's no release scheduled
-	if currentReleaseMinter.OngoingRelease() || nextScheduledRelease == nil {
+	// There's still an ongoing release (> 0 remaining amount or same start date) or there's no release scheduled
+	if currentReleaseMinter.OngoingRelease() || nextScheduledRelease.GetStartDate() == currentReleaseMinter.GetStartDate() || nextScheduledRelease == nil {
 		k.Logger(ctx).Debug("Ongoing token release or no nextScheduledRelease", "minter", currentReleaseMinter)
+		println("RETURN!")
 		return currentReleaseMinter
 	}
 

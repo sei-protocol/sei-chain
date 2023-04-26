@@ -85,7 +85,7 @@ func (m *Minter) GetEndDateTime() time.Time {
 	return endDateTime.UTC()
 }
 
-func (m *Minter) GetLastMintAmountCoin() sdk.Coin {
+func (m Minter) GetLastMintAmountCoin() sdk.Coin {
 	return sdk.NewCoin(m.GetDenom(), sdk.NewInt(int64(m.GetLastMintAmount())))
 }
 

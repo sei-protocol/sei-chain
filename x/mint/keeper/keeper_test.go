@@ -111,6 +111,40 @@ func TestGetOrUpdateLatestMinter(t *testing.T) {
 		mintKeeper.SetMinter(ctx, mintTypes.DefaultInitialMinter())
 	})
 
+	t.Run("Ongoing release same day", func(t *testing.T) {
+		params := mintKeeper.GetParams(ctx)
+		params.TokenReleaseSchedule = []types.ScheduledTokenRelease{
+			{
+				StartDate:          currentTime.AddDate(0,0,0).Format(minttypes.TokenReleaseDateFormat),
+				EndDate:            currentTime.AddDate(0,0,0).Format(minttypes.TokenReleaseDateFormat),
+				TokenReleaseAmount: 1000,
+			},
+		}
+		mintKeeper.SetParams(ctx, params)
+
+		minter := types.Minter{
+			StartDate: currentTime.Format(minttypes.TokenReleaseDateFormat),
+			EndDate: currentTime.Format(minttypes.TokenReleaseDateFormat),
+			Denom: "usei",
+			TotalMintAmount: 100,
+			RemainingMintAmount: 0,
+			LastMintAmount: 100,
+			LastMintDate: "2023-04-01",
+			LastMintHeight: 0,
+		}
+		mintKeeper.SetMinter(ctx, minter)
+
+		epoch.CurrentEpochStartTime = currentTime
+		currentMinter := mintKeeper.GetOrUpdateLatestMinter(ctx, epoch)
+		amount := currentMinter.GetReleaseAmountToday(currentTime).IsZero()
+		require.Zero(t, currentMinter.GetRemainingMintAmount())
+		require.True(t, amount)
+		require.False(t, currentMinter.OngoingRelease())
+		require.Equal(t, currentTime.Format(minttypes.TokenReleaseDateFormat), currentMinter.StartDate)
+		mintKeeper.SetMinter(ctx, mintTypes.DefaultInitialMinter())
+	})
+
+
 	t.Run("TokenReleaseSchedule not sorted", func(t *testing.T) {
 		params := mintKeeper.GetParams(ctx)
 		params.TokenReleaseSchedule = []types.ScheduledTokenRelease{
