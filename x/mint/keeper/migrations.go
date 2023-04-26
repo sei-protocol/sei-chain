@@ -13,7 +13,7 @@ type Migrator struct {
 	keeper Keeper
 }
 
-// NewMigrator returns a new Migrator.
+// NewMigrator returns a v3 Migrator.
 func NewMigrator(keeper Keeper) Migrator {
 	return Migrator{keeper: keeper}
 }
@@ -32,54 +32,54 @@ func (m Migrator) Migrate2to3(ctx sdk.Context) error {
 		panic("stored minter should not have been nil")
 	}
 
-	var oldMinter types.Version2Minter
-	m.keeper.cdc.MustUnmarshal(minterBytes, &oldMinter)
+	var v2Minter types.Version2Minter
+	m.keeper.cdc.MustUnmarshal(minterBytes, &v2Minter)
 
-	newMinter := types.Minter{
-		StartDate:           oldMinter.GetLastMintDate(),
-		EndDate:             oldMinter.GetLastMintDate(),
+	v3Minter := types.Minter{
+		StartDate:           v2Minter.GetLastMintDate(),
+		EndDate:             v2Minter.GetLastMintDate(),
 		Denom:               sdk.DefaultBondDenom,
-		TotalMintAmount:     oldMinter.LastMintAmount.RoundInt().Uint64(),
+		TotalMintAmount:     v2Minter.LastMintAmount.RoundInt().Uint64(),
 		RemainingMintAmount: 0,
-		LastMintDate:        oldMinter.GetLastMintDate(),
-		LastMintHeight:      uint64(oldMinter.GetLastMintHeight()),
-		LastMintAmount:      oldMinter.LastMintAmount.RoundInt().Uint64(),
+		LastMintDate:        v2Minter.GetLastMintDate(),
+		LastMintHeight:      uint64(v2Minter.GetLastMintHeight()),
+		LastMintAmount:      v2Minter.LastMintAmount.RoundInt().Uint64(),
 	}
-	ctx.Logger().Info("Migrating minter from v2 to v3", "oldMinter", oldMinter.String(), "newMinter", newMinter.String())
-	m.keeper.SetMinter(ctx, newMinter)
+	ctx.Logger().Info("Migrating minter from v2 to v3", "v2Minter", v2Minter.String(), "v3Minter", v3Minter.String())
+	m.keeper.SetMinter(ctx, v3Minter)
 
 	// Migrate TokenReleaseSchedule
 
-	var oldTokenReleaseSchedules []types.Version2ScheduledTokenRelease
-	oldTokenReleaseSchedulesBytes := m.keeper.GetParamSpace().GetRaw(ctx, types.KeyTokenReleaseSchedule)
-	err := codec.NewLegacyAmino().UnmarshalJSON(oldTokenReleaseSchedulesBytes, &oldTokenReleaseSchedules)
+	var v2TokenReleaseSchedules []types.Version2ScheduledTokenRelease
+	v2TokenReleaseSchedulesBytes := m.keeper.GetParamSpace().GetRaw(ctx, types.KeyTokenReleaseSchedule)
+	err := codec.NewLegacyAmino().UnmarshalJSON(v2TokenReleaseSchedulesBytes, &v2TokenReleaseSchedules)
 	if err != nil {
 		panic(fmt.Sprintf("Key not found or error: %s", err))
 	}
 
-	var oldMintDenom string
-	oldMintDenomBytes := m.keeper.GetParamSpace().GetRaw(ctx, types.KeyMintDenom)
-	err = codec.NewLegacyAmino().UnmarshalJSON(oldMintDenomBytes, &oldMintDenom)
+	var v2MintDenom string
+	v2MintDenomBytes := m.keeper.GetParamSpace().GetRaw(ctx, types.KeyMintDenom)
+	err = codec.NewLegacyAmino().UnmarshalJSON(v2MintDenomBytes, &v2MintDenom)
 	if err != nil {
 		panic(fmt.Sprintf("Key not found or error: %s", err))
 	}
-	ctx.Logger().Info("Migrating mint params from v2 to v3", "oldTokenReleaseSchedules", oldTokenReleaseSchedules, "oldMintDenom", oldMintDenom)
+	ctx.Logger().Info("Migrating mint params from v2 to v3", "v2TokenReleaseSchedules", v2TokenReleaseSchedules, "v2MintDenom", v2MintDenom)
 
-	newTokenReleaseSchedule := []types.ScheduledTokenRelease{}
-	for _, oldTokenReleaseSchedule := range oldTokenReleaseSchedules {
-		newSchedule := types.ScheduledTokenRelease{
-			TokenReleaseAmount: uint64(oldTokenReleaseSchedule.GetTokenReleaseAmount()),
-			StartDate:          oldTokenReleaseSchedule.GetDate(),
-			EndDate:            oldTokenReleaseSchedule.GetDate(),
+	v3TokenReleaseSchedule := []types.ScheduledTokenRelease{}
+	for _, v2TokenReleaseSchedule := range v2TokenReleaseSchedules {
+		v3Schedule := types.ScheduledTokenRelease{
+			TokenReleaseAmount: uint64(v2TokenReleaseSchedule.GetTokenReleaseAmount()),
+			StartDate:          v2TokenReleaseSchedule.GetDate(),
+			EndDate:            v2TokenReleaseSchedule.GetDate(),
 		}
-		newTokenReleaseSchedule = append(newTokenReleaseSchedule, newSchedule)
+		v3TokenReleaseSchedule = append(v3TokenReleaseSchedule, v3Schedule)
 	}
-	newParams := types.Params{
-		MintDenom:            oldMintDenom,
-		TokenReleaseSchedule: newTokenReleaseSchedule,
+	v3Params := types.Params{
+		MintDenom:            v2MintDenom,
+		TokenReleaseSchedule: v3TokenReleaseSchedule,
 	}
-	m.keeper.SetParams(ctx, newParams)
-	ctx.Logger().Info("Migrating mint module from v2 to v3", "newParams", newParams.String())
+	m.keeper.SetParams(ctx, v3Params)
+	ctx.Logger().Info("Migrating mint module from v2 to v3", "v3Params", v3Params.String())
 
 	return nil
 }
