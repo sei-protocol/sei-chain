@@ -282,10 +282,16 @@ func makeNode(
 	node.rpcEnv.EvidencePool = evPool
 	node.evPool = evPool
 
+	info, err := client.Info(ctx, &abci.RequestInfo{})
+	if err != nil {
+		return nil, err
+	}
+	shoulddbsync := cfg.DBSync.Enable && info.LastBlockHeight == 0
+
 	mpReactor, mp := createMempoolReactor(logger, cfg, proxyApp, stateStore, nodeMetrics.mempool,
 		peerManager.Subscribe, peerManager)
 	node.router.AddChDescToBeAdded(mempool.GetChannelDescriptor(cfg.Mempool), mpReactor.SetChannel)
-	if !cfg.DBSync.Enable {
+	if !shoulddbsync {
 		mpReactor.MarkReadyToStart()
 	}
 	node.rpcEnv.Mempool = mp
@@ -310,14 +316,14 @@ func makeNode(
 		stateSync = false
 	}
 
-	if stateSync && cfg.DBSync.Enable {
+	if stateSync && shoulddbsync {
 		panic("statesync and dbsync cannot be turned on at the same time")
 	}
 
 	// Determine whether we should do block sync. This must happen after the handshake, since the
 	// app may modify the validator set, specifying ourself as the only validator.
 	blockSync := !onlyValidatorIsUs(state, pubKey)
-	waitSync := stateSync || blockSync || cfg.DBSync.Enable
+	waitSync := stateSync || blockSync || shoulddbsync
 
 	csState, err := consensus.NewState(logger.With("module", "consensus"),
 		cfg.Consensus,
@@ -361,7 +367,7 @@ func makeNode(
 		blockStore,
 		csReactor,
 		peerManager.Subscribe,
-		blockSync && !stateSync && !cfg.DBSync.Enable,
+		blockSync && !stateSync && !shoulddbsync,
 		nodeMetrics.consensus,
 		eventBus,
 		restartCh,
@@ -429,7 +435,7 @@ func makeNode(
 		cfg.SelfRemediation,
 	)
 
-	node.shouldHandshake = !stateSync && !cfg.DBSync.Enable
+	node.shouldHandshake = !stateSync && !shoulddbsync
 	node.services = append(node.services, ssReactor)
 	node.router.AddChDescToBeAdded(statesync.GetSnapshotChannelDescriptor(), ssReactor.SetSnapshotChannel)
 	node.router.AddChDescToBeAdded(statesync.GetChunkChannelDescriptor(), ssReactor.SetChunkChannel)
@@ -446,6 +452,7 @@ func makeNode(
 		genDoc.InitialHeight,
 		genDoc.ChainID,
 		eventBus,
+		shoulddbsync,
 		func(ctx context.Context, state sm.State) error {
 			if _, err := client.LoadLatest(ctx, &abci.RequestLoadLatest{}); err != nil {
 				return err

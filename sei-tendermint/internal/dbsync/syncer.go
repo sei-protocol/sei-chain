@@ -70,6 +70,7 @@ func NewSyncer(
 	logger log.Logger,
 	dbsyncConfig config.DBSyncConfig,
 	baseConfig config.BaseConfig,
+	enable bool,
 	metadataRequestFn func(context.Context) error,
 	fileRequestFn func(context.Context, types.NodeID, uint64, string) error,
 	commitStateFn func(context.Context, uint64) (sm.State, *types.Commit, error),
@@ -78,7 +79,7 @@ func NewSyncer(
 ) *Syncer {
 	return &Syncer{
 		logger:                 logger,
-		active:                 dbsyncConfig.Enable,
+		active:                 enable,
 		timeoutInSeconds:       time.Duration(dbsyncConfig.TimeoutInSeconds) * time.Second,
 		fileQueue:              []*dstypes.FileResponse{},
 		applicationDBDirectory: path.Join(baseConfig.DBDir(), ApplicationDBSubdirectory),

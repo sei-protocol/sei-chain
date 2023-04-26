@@ -107,6 +107,7 @@ type Reactor struct {
 	stateStore    sm.Store
 	blockStore    *store.BlockStore
 	initialHeight int64
+	shouldSync    bool
 
 	chainID       string
 	config        config.DBSyncConfig
@@ -138,6 +139,7 @@ func NewReactor(
 	initialHeight int64,
 	chainID string,
 	eventBus *eventbus.EventBus,
+	shouldSync bool,
 	postSyncHook func(context.Context, sm.State) error,
 ) *Reactor {
 	reactor := &Reactor{
@@ -152,8 +154,9 @@ func NewReactor(
 		eventBus:      eventBus,
 		config:        config,
 		postSyncHook:  postSyncHook,
+		shouldSync:    shouldSync,
 	}
-	syncer := NewSyncer(logger, config, baseConfig, reactor.requestMetadata, reactor.requestFile, reactor.commitState, reactor.postSync, defaultResetDirFn)
+	syncer := NewSyncer(logger, config, baseConfig, shouldSync, reactor.requestMetadata, reactor.requestFile, reactor.commitState, reactor.postSync, defaultResetDirFn)
 	reactor.syncer = syncer
 
 	reactor.BaseService = *service.NewBaseService(logger, "DBSync", reactor)
@@ -187,7 +190,7 @@ func (r *Reactor) OnStart(ctx context.Context) error {
 	go r.processFileCh(ctx, r.fileChannel)
 	go r.processLightBlockCh(ctx, r.lightBlockChannel)
 	go r.processParamsCh(ctx, r.paramsChannel)
-	if r.config.Enable {
+	if r.shouldSync {
 		to := light.TrustOptions{
 			Period: r.config.TrustPeriod,
 			Height: r.config.TrustHeight,
