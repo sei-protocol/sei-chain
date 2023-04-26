@@ -226,7 +226,7 @@ func TestGetReleaseAmountToday(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			releaseAmount := tc.minter.getReleaseAmountToday(tc.currentTime)
+			releaseAmount := tc.minter.getReleaseAmountToday(tc.currentTime.UTC())
 			if releaseAmount != tc.expectedAmount {
 				t.Errorf("Expected release amount to be %d, but got %d", tc.expectedAmount, releaseAmount)
 			}

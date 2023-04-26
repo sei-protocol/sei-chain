@@ -116,14 +116,11 @@ func (m *Minter) getReleaseAmountToday(currentTime time.Time) uint64 {
 	}
 
 	// if it's already past the end date then release the remaining amount likely caused by outage
-	if currentTime.After(m.GetEndDateTime()) {
+	numberOfDaysLeft := m.getNumberOfDaysLeft(currentTime)
+	if currentTime.After(m.GetEndDateTime()) || numberOfDaysLeft == 0 {
 		return m.GetRemainingMintAmount()
 	}
 
-	numberOfDaysLeft := m.getNumberOfDaysLeft(currentTime)
-	if numberOfDaysLeft == 0 {
-		return 0
-	}
 	return m.GetRemainingMintAmount() / numberOfDaysLeft
 }
 
