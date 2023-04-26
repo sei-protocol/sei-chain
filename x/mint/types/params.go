@@ -58,11 +58,24 @@ func (p Params) String() string {
 	return string(out)
 }
 
+func (p Version2Params) String() string {
+	out, _ := yaml.Marshal(p)
+	return string(out)
+}
+
 // Implements params.ParamSet
 func (p *Params) ParamSetPairs() paramtypes.ParamSetPairs {
 	return paramtypes.ParamSetPairs{
 		paramtypes.NewParamSetPair(KeyMintDenom, &p.MintDenom, validateMintDenom),
 		paramtypes.NewParamSetPair(KeyTokenReleaseSchedule, &p.TokenReleaseSchedule, validateTokenReleaseSchedule),
+	}
+}
+
+// Used for v2 -> v3 migration
+func (p *Version2Params) ParamSetPairs() paramtypes.ParamSetPairs {
+	return paramtypes.ParamSetPairs{
+		paramtypes.NewParamSetPair(KeyMintDenom, &p.MintDenom, func(i interface{}) error { return nil }),
+		paramtypes.NewParamSetPair(KeyTokenReleaseSchedule, &p.TokenReleaseSchedule, func(i interface{}) error { return nil }),
 	}
 }
 

@@ -10,6 +10,8 @@ const (
 	// StoreKey is the default store key for mint
 	StoreKey = ModuleName
 
+	MemStoreKey = "mem_mint"
+
 	// QuerierRoute is the querier route for the minting store.
 	QuerierRoute = StoreKey
 

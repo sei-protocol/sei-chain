@@ -5,6 +5,7 @@ package types
 
 import (
 	fmt "fmt"
+	github_com_cosmos_cosmos_sdk_types "github.com/cosmos/cosmos-sdk/types"
 	_ "github.com/gogo/protobuf/gogoproto"
 	proto "github.com/gogo/protobuf/proto"
 	io "io"
@@ -238,44 +239,225 @@ func (m *Params) GetTokenReleaseSchedule() []ScheduledTokenRelease {
 	return nil
 }
 
+// Minter represents the most recent
+type Version2Minter struct {
+	LastMintAmount github_com_cosmos_cosmos_sdk_types.Dec `protobuf:"bytes,1,opt,name=last_mint_amount,json=lastMintAmount,proto3,customtype=github.com/cosmos/cosmos-sdk/types.Dec" json:"last_mint_amount" yaml:"last_mint_amount"`
+	LastMintDate   string                                 `protobuf:"bytes,2,opt,name=last_mint_date,json=lastMintDate,proto3" json:"last_mint_date,omitempty" yaml:"last_mint_date"`
+	LastMintHeight int64                                  `protobuf:"varint,3,opt,name=last_mint_height,json=lastMintHeight,proto3" json:"last_mint_height,omitempty" yaml:"last_mint_height"`
+	Denom          string                                 `protobuf:"bytes,4,opt,name=denom,proto3" json:"denom,omitempty" yaml:"denom"`
+}
+
+func (m *Version2Minter) Reset()         { *m = Version2Minter{} }
+func (m *Version2Minter) String() string { return proto.CompactTextString(m) }
+func (*Version2Minter) ProtoMessage()    {}
+func (*Version2Minter) Descriptor() ([]byte, []int) {
+	return fileDescriptor_06339c129491fd39, []int{3}
+}
+func (m *Version2Minter) XXX_Unmarshal(b []byte) error {
+	return m.Unmarshal(b)
+}
+func (m *Version2Minter) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	if deterministic {
+		return xxx_messageInfo_Version2Minter.Marshal(b, m, deterministic)
+	} else {
+		b = b[:cap(b)]
+		n, err := m.MarshalToSizedBuffer(b)
+		if err != nil {
+			return nil, err
+		}
+		return b[:n], nil
+	}
+}
+func (m *Version2Minter) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_Version2Minter.Merge(m, src)
+}
+func (m *Version2Minter) XXX_Size() int {
+	return m.Size()
+}
+func (m *Version2Minter) XXX_DiscardUnknown() {
+	xxx_messageInfo_Version2Minter.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_Version2Minter proto.InternalMessageInfo
+
+func (m *Version2Minter) GetLastMintDate() string {
+	if m != nil {
+		return m.LastMintDate
+	}
+	return ""
+}
+
+func (m *Version2Minter) GetLastMintHeight() int64 {
+	if m != nil {
+		return m.LastMintHeight
+	}
+	return 0
+}
+
+func (m *Version2Minter) GetDenom() string {
+	if m != nil {
+		return m.Denom
+	}
+	return ""
+}
+
+type Version2ScheduledTokenRelease struct {
+	Date               string `protobuf:"bytes,1,opt,name=date,proto3" json:"date,omitempty"`
+	TokenReleaseAmount int64  `protobuf:"varint,2,opt,name=token_release_amount,json=tokenReleaseAmount,proto3" json:"token_release_amount,omitempty"`
+}
+
+func (m *Version2ScheduledTokenRelease) Reset()         { *m = Version2ScheduledTokenRelease{} }
+func (m *Version2ScheduledTokenRelease) String() string { return proto.CompactTextString(m) }
+func (*Version2ScheduledTokenRelease) ProtoMessage()    {}
+func (*Version2ScheduledTokenRelease) Descriptor() ([]byte, []int) {
+	return fileDescriptor_06339c129491fd39, []int{4}
+}
+func (m *Version2ScheduledTokenRelease) XXX_Unmarshal(b []byte) error {
+	return m.Unmarshal(b)
+}
+func (m *Version2ScheduledTokenRelease) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	if deterministic {
+		return xxx_messageInfo_Version2ScheduledTokenRelease.Marshal(b, m, deterministic)
+	} else {
+		b = b[:cap(b)]
+		n, err := m.MarshalToSizedBuffer(b)
+		if err != nil {
+			return nil, err
+		}
+		return b[:n], nil
+	}
+}
+func (m *Version2ScheduledTokenRelease) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_Version2ScheduledTokenRelease.Merge(m, src)
+}
+func (m *Version2ScheduledTokenRelease) XXX_Size() int {
+	return m.Size()
+}
+func (m *Version2ScheduledTokenRelease) XXX_DiscardUnknown() {
+	xxx_messageInfo_Version2ScheduledTokenRelease.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_Version2ScheduledTokenRelease proto.InternalMessageInfo
+
+func (m *Version2ScheduledTokenRelease) GetDate() string {
+	if m != nil {
+		return m.Date
+	}
+	return ""
+}
+
+func (m *Version2ScheduledTokenRelease) GetTokenReleaseAmount() int64 {
+	if m != nil {
+		return m.TokenReleaseAmount
+	}
+	return 0
+}
+
+// Params holds parameters for the mint module.
+type Version2Params struct {
+	// type of coin to mint
+	MintDenom string `protobuf:"bytes,1,opt,name=mint_denom,json=mintDenom,proto3" json:"mint_denom,omitempty"`
+	// List of token release schedules
+	TokenReleaseSchedule []Version2ScheduledTokenRelease `protobuf:"bytes,2,rep,name=token_release_schedule,json=tokenReleaseSchedule,proto3" json:"token_release_schedule" yaml:"token_release_schedule"`
+}
+
+func (m *Version2Params) Reset()      { *m = Version2Params{} }
+func (*Version2Params) ProtoMessage() {}
+func (*Version2Params) Descriptor() ([]byte, []int) {
+	return fileDescriptor_06339c129491fd39, []int{5}
+}
+func (m *Version2Params) XXX_Unmarshal(b []byte) error {
+	return m.Unmarshal(b)
+}
+func (m *Version2Params) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	if deterministic {
+		return xxx_messageInfo_Version2Params.Marshal(b, m, deterministic)
+	} else {
+		b = b[:cap(b)]
+		n, err := m.MarshalToSizedBuffer(b)
+		if err != nil {
+			return nil, err
+		}
+		return b[:n], nil
+	}
+}
+func (m *Version2Params) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_Version2Params.Merge(m, src)
+}
+func (m *Version2Params) XXX_Size() int {
+	return m.Size()
+}
+func (m *Version2Params) XXX_DiscardUnknown() {
+	xxx_messageInfo_Version2Params.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_Version2Params proto.InternalMessageInfo
+
+func (m *Version2Params) GetMintDenom() string {
+	if m != nil {
+		return m.MintDenom
+	}
+	return ""
+}
+
+func (m *Version2Params) GetTokenReleaseSchedule() []Version2ScheduledTokenRelease {
+	if m != nil {
+		return m.TokenReleaseSchedule
+	}
+	return nil
+}
+
 func init() {
 	proto.RegisterType((*Minter)(nil), "seiprotocol.seichain.mint.Minter")
 	proto.RegisterType((*ScheduledTokenRelease)(nil), "seiprotocol.seichain.mint.ScheduledTokenRelease")
 	proto.RegisterType((*Params)(nil), "seiprotocol.seichain.mint.Params")
+	proto.RegisterType((*Version2Minter)(nil), "seiprotocol.seichain.mint.Version2Minter")
+	proto.RegisterType((*Version2ScheduledTokenRelease)(nil), "seiprotocol.seichain.mint.Version2ScheduledTokenRelease")
+	proto.RegisterType((*Version2Params)(nil), "seiprotocol.seichain.mint.Version2Params")
 }
 
 func init() { proto.RegisterFile("mint/v1beta1/mint.proto", fileDescriptor_06339c129491fd39) }
 
 var fileDescriptor_06339c129491fd39 = []byte{
-	// 442 bytes of a gzipped FileDescriptorProto
-	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0xa4, 0x52, 0x31, 0x6f, 0xd3, 0x40,
-	0x18, 0xf5, 0x25, 0x69, 0xda, 0x1e, 0xa8, 0x80, 0x49, 0xc1, 0x45, 0xaa, 0x13, 0x59, 0x20, 0x45,
-	0x48, 0xd8, 0x6d, 0xd9, 0xba, 0x51, 0x75, 0xe8, 0x82, 0x84, 0x02, 0x13, 0x8b, 0x75, 0xb1, 0x3f,
-	0xd9, 0x27, 0xec, 0xbb, 0xca, 0xf7, 0x05, 0xd1, 0x99, 0x19, 0x89, 0x91, 0x91, 0xdf, 0xc0, 0xce,
-	0xde, 0xb1, 0x23, 0x53, 0x85, 0x92, 0x7f, 0xc0, 0x2f, 0x40, 0xf7, 0xb9, 0x06, 0x5b, 0x0a, 0x13,
-	0x9b, 0xbf, 0xf7, 0xde, 0xbd, 0xef, 0x3d, 0xdf, 0xf1, 0x87, 0xa5, 0x54, 0x18, 0xbd, 0x3f, 0x9c,
-	0x03, 0x8a, 0xc3, 0xc8, 0x0e, 0xe1, 0x79, 0xa5, 0x51, 0xbb, 0x7b, 0x06, 0x24, 0x7d, 0x25, 0xba,
-	0x08, 0x0d, 0xc8, 0x24, 0x17, 0x52, 0x85, 0x56, 0xf0, 0x68, 0x94, 0xe9, 0x4c, 0x13, 0x17, 0xd9,
-	0xaf, 0xfa, 0x40, 0xf0, 0xad, 0xc7, 0x87, 0x2f, 0xa5, 0x42, 0xa8, 0xdc, 0x7d, 0xce, 0x0d, 0x8a,
-	0x0a, 0xe3, 0x54, 0x20, 0x78, 0x6c, 0xc2, 0xa6, 0xdb, 0xb3, 0x6d, 0x42, 0x4e, 0x05, 0x82, 0xbb,
-	0xc7, 0xb7, 0x40, 0xa5, 0x35, 0xd9, 0x23, 0x72, 0x13, 0x54, 0x4a, 0xd4, 0x88, 0x6f, 0xa4, 0xa0,
-	0x74, 0xe9, 0xf5, 0x09, 0xaf, 0x07, 0xf7, 0x29, 0xbf, 0x87, 0x1a, 0x45, 0x11, 0xdb, 0xf5, 0xb1,
-	0x28, 0xf5, 0x42, 0xa1, 0x37, 0x98, 0xb0, 0xe9, 0x60, 0x76, 0x87, 0x08, 0xbb, 0xf7, 0x05, 0xc1,
-	0xee, 0x11, 0xdf, 0xad, 0xa0, 0x14, 0x52, 0x49, 0x95, 0x75, 0xf4, 0x1b, 0xa4, 0xbf, 0xff, 0x87,
-	0x6c, 0x9d, 0x99, 0xf2, 0xbb, 0x85, 0x30, 0xd8, 0x91, 0x0f, 0x49, 0xbe, 0x63, 0xf1, 0x96, 0xf2,
-	0x31, 0xdf, 0xf9, 0xab, 0xa4, 0x02, 0x9b, 0x14, 0xf4, 0x76, 0xa3, 0xa3, 0x16, 0x1d, 0xbf, 0x1c,
-	0x64, 0x96, 0xa3, 0xb7, 0xd5, 0xf5, 0x3b, 0x23, 0x34, 0xf8, 0xc8, 0xf8, 0xee, 0xeb, 0x24, 0x87,
-	0x74, 0x51, 0x40, 0xfa, 0x46, 0xbf, 0x03, 0x35, 0x83, 0x02, 0x84, 0x81, 0xff, 0xf8, 0x87, 0x07,
-	0x7c, 0x84, 0xd6, 0x29, 0xae, 0x6a, 0xab, 0xa6, 0x51, 0x9f, 0x12, 0xb8, 0xd8, 0xda, 0x52, 0xb7,
-	0x0a, 0xbe, 0x33, 0x3e, 0x7c, 0x25, 0x2a, 0x51, 0x1a, 0xbb, 0xb6, 0xee, 0x46, 0xb7, 0x70, 0xb3,
-	0xd6, 0x22, 0xa7, 0x74, 0x13, 0x9f, 0x18, 0x7f, 0xd0, 0x35, 0x37, 0x37, 0xe9, 0xbd, 0xde, 0xa4,
-	0x3f, 0xbd, 0x75, 0x74, 0x10, 0xfe, 0xf3, 0xdd, 0x84, 0x6b, 0x8b, 0x9e, 0x3c, 0xb9, 0xbc, 0x1e,
-	0x3b, 0xbf, 0xae, 0xc7, 0xfb, 0x17, 0xa2, 0x2c, 0x8e, 0x83, 0xf5, 0xee, 0xc1, 0x6c, 0xd4, 0xce,
-	0xdd, 0x38, 0x1d, 0x0f, 0xbe, 0x7c, 0x1d, 0x3b, 0x27, 0x67, 0x97, 0x4b, 0x9f, 0x5d, 0x2d, 0x7d,
-	0xf6, 0x73, 0xe9, 0xb3, 0xcf, 0x2b, 0xdf, 0xb9, 0x5a, 0xf9, 0xce, 0x8f, 0x95, 0xef, 0xbc, 0x0d,
-	0x33, 0x89, 0xf9, 0x62, 0x1e, 0x26, 0xba, 0x8c, 0x0c, 0xc8, 0x67, 0x4d, 0x32, 0x1a, 0x28, 0x5a,
-	0xf4, 0x81, 0x5e, 0x7d, 0x84, 0x17, 0xe7, 0x60, 0xe6, 0x43, 0x12, 0x3c, 0xff, 0x1d, 0x00, 0x00,
-	0xff, 0xff, 0x9f, 0x5b, 0x5a, 0x63, 0x17, 0x03, 0x00, 0x00,
+	// 601 bytes of a gzipped FileDescriptorProto
+	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0xac, 0x54, 0x41, 0x6b, 0x13, 0x41,
+	0x14, 0xce, 0x26, 0x69, 0xda, 0x8e, 0x25, 0xd6, 0x35, 0xb1, 0x89, 0x92, 0xdd, 0xb0, 0x68, 0x09,
+	0x42, 0x77, 0xdb, 0x78, 0x91, 0x5e, 0xc4, 0x10, 0xa1, 0x1e, 0x04, 0x89, 0xe2, 0xc1, 0x4b, 0x98,
+	0xec, 0x3e, 0x92, 0xa5, 0xbb, 0x3b, 0x65, 0x67, 0x22, 0xf6, 0xec, 0x59, 0xf0, 0x22, 0x78, 0xf4,
+	0x37, 0x08, 0x1e, 0xbd, 0xf7, 0x22, 0xf4, 0x28, 0x1e, 0x16, 0x49, 0xfe, 0x41, 0x7e, 0x81, 0xcc,
+	0xdb, 0xac, 0xdd, 0xa4, 0xdb, 0x2a, 0xd8, 0xd3, 0xce, 0xbc, 0xf7, 0xcd, 0xf7, 0xde, 0x37, 0xef,
+	0x9b, 0x25, 0x5b, 0xbe, 0x1b, 0x08, 0xeb, 0xcd, 0xde, 0x00, 0x04, 0xdd, 0xb3, 0xe4, 0xc6, 0x3c,
+	0x0a, 0x99, 0x60, 0x6a, 0x9d, 0x83, 0x8b, 0x2b, 0x9b, 0x79, 0x26, 0x07, 0xd7, 0x1e, 0x51, 0x37,
+	0x30, 0x25, 0xe0, 0x76, 0x65, 0xc8, 0x86, 0x0c, 0x73, 0x96, 0x5c, 0xc5, 0x07, 0x8c, 0x2f, 0x79,
+	0x52, 0x7a, 0xe6, 0x06, 0x02, 0x42, 0xb5, 0x41, 0x08, 0x17, 0x34, 0x14, 0x7d, 0x87, 0x0a, 0xa8,
+	0x29, 0x4d, 0xa5, 0xb5, 0xde, 0x5b, 0xc7, 0x48, 0x97, 0x0a, 0x50, 0xeb, 0x64, 0x0d, 0x02, 0x27,
+	0x4e, 0xe6, 0x31, 0xb9, 0x0a, 0x81, 0x83, 0xa9, 0x0a, 0x59, 0x71, 0x20, 0x60, 0x7e, 0xad, 0x80,
+	0xf1, 0x78, 0xa3, 0xde, 0x27, 0x37, 0x04, 0x13, 0xd4, 0xeb, 0xcb, 0xf2, 0x7d, 0xea, 0xb3, 0x71,
+	0x20, 0x6a, 0xc5, 0xa6, 0xd2, 0x2a, 0xf6, 0xae, 0x63, 0x42, 0xd6, 0x7d, 0x8c, 0x61, 0xb5, 0x4d,
+	0xaa, 0x21, 0xf8, 0xd4, 0x0d, 0xdc, 0x60, 0xb8, 0x80, 0x5f, 0x41, 0xfc, 0xcd, 0x3f, 0xc9, 0xd4,
+	0x99, 0x16, 0xd9, 0xf4, 0x28, 0x17, 0x0b, 0xf0, 0x12, 0xc2, 0xcb, 0x32, 0x9e, 0x42, 0xde, 0x25,
+	0xe5, 0x33, 0x24, 0x0a, 0x58, 0xc5, 0x46, 0x37, 0x12, 0x1c, 0xaa, 0x58, 0xe0, 0x1b, 0x81, 0x3b,
+	0x1c, 0x89, 0xda, 0xda, 0x22, 0xdf, 0x01, 0x46, 0x8d, 0x77, 0x0a, 0xa9, 0xbe, 0xb0, 0x47, 0xe0,
+	0x8c, 0x3d, 0x70, 0x5e, 0xb2, 0x43, 0x08, 0x7a, 0xe0, 0x01, 0xe5, 0xf0, 0x1f, 0x77, 0xb8, 0x4b,
+	0x2a, 0x42, 0x32, 0xf5, 0xc3, 0x98, 0x2a, 0x51, 0x54, 0xc0, 0x0e, 0x54, 0x91, 0xaa, 0x12, 0xab,
+	0x32, 0xbe, 0x29, 0xa4, 0xf4, 0x9c, 0x86, 0xd4, 0xe7, 0xb2, 0x6c, 0xac, 0x0d, 0xa7, 0x30, 0x2f,
+	0x2b, 0x23, 0x5d, 0x9c, 0xc4, 0x7b, 0x85, 0xdc, 0x5a, 0x24, 0xe7, 0xf3, 0xee, 0x6b, 0xf9, 0x66,
+	0xa1, 0x75, 0xad, 0xbd, 0x6b, 0x5e, 0xe8, 0x1b, 0x33, 0x53, 0x68, 0xe7, 0xde, 0x49, 0xa4, 0xe7,
+	0x66, 0x91, 0xde, 0x38, 0xa6, 0xbe, 0xb7, 0x6f, 0x64, 0xb3, 0x1b, 0xbd, 0x4a, 0xba, 0xef, 0x84,
+	0x69, 0xbf, 0xf8, 0xe9, 0xb3, 0x9e, 0x33, 0xbe, 0xe6, 0x49, 0xf9, 0x15, 0x84, 0xdc, 0x65, 0x41,
+	0x7b, 0x6e, 0x41, 0x9e, 0x31, 0x52, 0x54, 0xd3, 0x79, 0x2a, 0xeb, 0xfd, 0x8c, 0xf4, 0xed, 0xa1,
+	0x2b, 0x46, 0xe3, 0x81, 0x69, 0x33, 0xdf, 0xb2, 0x19, 0xf7, 0x19, 0x9f, 0x7f, 0x76, 0xb8, 0x73,
+	0x68, 0x89, 0xe3, 0x23, 0xe0, 0x66, 0x17, 0xec, 0x59, 0xa4, 0x6f, 0xc5, 0x9d, 0x2d, 0xf3, 0x19,
+	0xe7, 0xdc, 0xf1, 0xe8, 0x9c, 0x3b, 0x70, 0x34, 0x9d, 0xfa, 0x2c, 0xd2, 0xab, 0xcb, 0x24, 0x32,
+	0x6f, 0x2c, 0x19, 0xe7, 0x49, 0x86, 0x71, 0xe4, 0xd8, 0x0a, 0x9d, 0x3b, 0x59, 0x7d, 0xc4, 0x08,
+	0x63, 0xd9, 0x55, 0xea, 0x76, 0xf2, 0x8a, 0x8a, 0x58, 0x7e, 0x73, 0x16, 0xe9, 0x1b, 0xf1, 0x59,
+	0x0c, 0x1b, 0xf3, 0x77, 0x65, 0x00, 0x69, 0x24, 0xd7, 0x96, 0x6d, 0x42, 0x95, 0x14, 0x53, 0xf6,
+	0xc3, 0xf5, 0x85, 0xf6, 0x92, 0x52, 0x0b, 0x99, 0xf6, 0xfa, 0xae, 0x9c, 0x8d, 0xe7, 0xdf, 0x6c,
+	0xf6, 0xf1, 0x6f, 0x36, 0x7b, 0x78, 0x89, 0xcd, 0x2e, 0x95, 0x74, 0x05, 0x76, 0xeb, 0x1c, 0x9c,
+	0x4c, 0x34, 0xe5, 0x74, 0xa2, 0x29, 0xbf, 0x26, 0x9a, 0xf2, 0x61, 0xaa, 0xe5, 0x4e, 0xa7, 0x5a,
+	0xee, 0xc7, 0x54, 0xcb, 0xbd, 0x36, 0x53, 0x9e, 0xe2, 0xe0, 0xee, 0x24, 0x1d, 0xe2, 0x06, 0x5b,
+	0xb4, 0xde, 0xe2, 0x4f, 0x36, 0xf6, 0xd7, 0xa0, 0x84, 0x80, 0x07, 0xbf, 0x03, 0x00, 0x00, 0xff,
+	0xff, 0xec, 0x81, 0x8e, 0x2d, 0x86, 0x05, 0x00, 0x00,
 }
 
 func (m *Minter) Marshal() (dAtA []byte, err error) {
@@ -435,6 +617,137 @@ func (m *Params) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	return len(dAtA) - i, nil
 }
 
+func (m *Version2Minter) Marshal() (dAtA []byte, err error) {
+	size := m.Size()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalToSizedBuffer(dAtA[:size])
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *Version2Minter) MarshalTo(dAtA []byte) (int, error) {
+	size := m.Size()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *Version2Minter) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
+	_ = i
+	var l int
+	_ = l
+	if len(m.Denom) > 0 {
+		i -= len(m.Denom)
+		copy(dAtA[i:], m.Denom)
+		i = encodeVarintMint(dAtA, i, uint64(len(m.Denom)))
+		i--
+		dAtA[i] = 0x22
+	}
+	if m.LastMintHeight != 0 {
+		i = encodeVarintMint(dAtA, i, uint64(m.LastMintHeight))
+		i--
+		dAtA[i] = 0x18
+	}
+	if len(m.LastMintDate) > 0 {
+		i -= len(m.LastMintDate)
+		copy(dAtA[i:], m.LastMintDate)
+		i = encodeVarintMint(dAtA, i, uint64(len(m.LastMintDate)))
+		i--
+		dAtA[i] = 0x12
+	}
+	{
+		size := m.LastMintAmount.Size()
+		i -= size
+		if _, err := m.LastMintAmount.MarshalTo(dAtA[i:]); err != nil {
+			return 0, err
+		}
+		i = encodeVarintMint(dAtA, i, uint64(size))
+	}
+	i--
+	dAtA[i] = 0xa
+	return len(dAtA) - i, nil
+}
+
+func (m *Version2ScheduledTokenRelease) Marshal() (dAtA []byte, err error) {
+	size := m.Size()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalToSizedBuffer(dAtA[:size])
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *Version2ScheduledTokenRelease) MarshalTo(dAtA []byte) (int, error) {
+	size := m.Size()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *Version2ScheduledTokenRelease) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
+	_ = i
+	var l int
+	_ = l
+	if m.TokenReleaseAmount != 0 {
+		i = encodeVarintMint(dAtA, i, uint64(m.TokenReleaseAmount))
+		i--
+		dAtA[i] = 0x10
+	}
+	if len(m.Date) > 0 {
+		i -= len(m.Date)
+		copy(dAtA[i:], m.Date)
+		i = encodeVarintMint(dAtA, i, uint64(len(m.Date)))
+		i--
+		dAtA[i] = 0xa
+	}
+	return len(dAtA) - i, nil
+}
+
+func (m *Version2Params) Marshal() (dAtA []byte, err error) {
+	size := m.Size()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalToSizedBuffer(dAtA[:size])
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *Version2Params) MarshalTo(dAtA []byte) (int, error) {
+	size := m.Size()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *Version2Params) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
+	_ = i
+	var l int
+	_ = l
+	if len(m.TokenReleaseSchedule) > 0 {
+		for iNdEx := len(m.TokenReleaseSchedule) - 1; iNdEx >= 0; iNdEx-- {
+			{
+				size, err := m.TokenReleaseSchedule[iNdEx].MarshalToSizedBuffer(dAtA[:i])
+				if err != nil {
+					return 0, err
+				}
+				i -= size
+				i = encodeVarintMint(dAtA, i, uint64(size))
+			}
+			i--
+			dAtA[i] = 0x12
+		}
+	}
+	if len(m.MintDenom) > 0 {
+		i -= len(m.MintDenom)
+		copy(dAtA[i:], m.MintDenom)
+		i = encodeVarintMint(dAtA, i, uint64(len(m.MintDenom)))
+		i--
+		dAtA[i] = 0xa
+	}
+	return len(dAtA) - i, nil
+}
+
 func encodeVarintMint(dAtA []byte, offset int, v uint64) int {
 	offset -= sovMint(v)
 	base := offset
@@ -504,6 +817,63 @@ func (m *ScheduledTokenRelease) Size() (n int) {
 }
 
 func (m *Params) Size() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	l = len(m.MintDenom)
+	if l > 0 {
+		n += 1 + l + sovMint(uint64(l))
+	}
+	if len(m.TokenReleaseSchedule) > 0 {
+		for _, e := range m.TokenReleaseSchedule {
+			l = e.Size()
+			n += 1 + l + sovMint(uint64(l))
+		}
+	}
+	return n
+}
+
+func (m *Version2Minter) Size() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	l = m.LastMintAmount.Size()
+	n += 1 + l + sovMint(uint64(l))
+	l = len(m.LastMintDate)
+	if l > 0 {
+		n += 1 + l + sovMint(uint64(l))
+	}
+	if m.LastMintHeight != 0 {
+		n += 1 + sovMint(uint64(m.LastMintHeight))
+	}
+	l = len(m.Denom)
+	if l > 0 {
+		n += 1 + l + sovMint(uint64(l))
+	}
+	return n
+}
+
+func (m *Version2ScheduledTokenRelease) Size() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	l = len(m.Date)
+	if l > 0 {
+		n += 1 + l + sovMint(uint64(l))
+	}
+	if m.TokenReleaseAmount != 0 {
+		n += 1 + sovMint(uint64(m.TokenReleaseAmount))
+	}
+	return n
+}
+
+func (m *Version2Params) Size() (n int) {
 	if m == nil {
 		return 0
 	}
@@ -1006,6 +1376,390 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 				return io.ErrUnexpectedEOF
 			}
 			m.TokenReleaseSchedule = append(m.TokenReleaseSchedule, ScheduledTokenRelease{})
+			if err := m.TokenReleaseSchedule[len(m.TokenReleaseSchedule)-1].Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		default:
+			iNdEx = preIndex
+			skippy, err := skipMint(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
+				return ErrInvalidLengthMint
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+func (m *Version2Minter) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return ErrIntOverflowMint
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= uint64(b&0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: Version2Minter: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: Version2Minter: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 1:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field LastMintAmount", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowMint
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLengthMint
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return ErrInvalidLengthMint
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if err := m.LastMintAmount.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		case 2:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field LastMintDate", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowMint
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLengthMint
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return ErrInvalidLengthMint
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.LastMintDate = string(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
+		case 3:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field LastMintHeight", wireType)
+			}
+			m.LastMintHeight = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowMint
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.LastMintHeight |= int64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		case 4:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Denom", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowMint
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLengthMint
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return ErrInvalidLengthMint
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.Denom = string(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
+		default:
+			iNdEx = preIndex
+			skippy, err := skipMint(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
+				return ErrInvalidLengthMint
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+func (m *Version2ScheduledTokenRelease) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return ErrIntOverflowMint
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= uint64(b&0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: Version2ScheduledTokenRelease: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: Version2ScheduledTokenRelease: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 1:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Date", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowMint
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLengthMint
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return ErrInvalidLengthMint
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.Date = string(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
+		case 2:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field TokenReleaseAmount", wireType)
+			}
+			m.TokenReleaseAmount = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowMint
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.TokenReleaseAmount |= int64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		default:
+			iNdEx = preIndex
+			skippy, err := skipMint(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
+				return ErrInvalidLengthMint
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+func (m *Version2Params) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return ErrIntOverflowMint
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= uint64(b&0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: Version2Params: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: Version2Params: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 1:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field MintDenom", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowMint
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLengthMint
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return ErrInvalidLengthMint
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.MintDenom = string(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
+		case 2:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field TokenReleaseSchedule", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowMint
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthMint
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthMint
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.TokenReleaseSchedule = append(m.TokenReleaseSchedule, Version2ScheduledTokenRelease{})
 			if err := m.TokenReleaseSchedule[len(m.TokenReleaseSchedule)-1].Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
 				return err
 			}

@@ -4,13 +4,12 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/tendermint/tendermint/libs/log"
-
 	"github.com/cosmos/cosmos-sdk/codec"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	paramtypes "github.com/cosmos/cosmos-sdk/x/params/types"
 	epochTypes "github.com/sei-protocol/sei-chain/x/epoch/types"
 	"github.com/sei-protocol/sei-chain/x/mint/types"
+	"github.com/tendermint/tendermint/libs/log"
 )
 
 // Keeper of the mint store
@@ -147,6 +146,22 @@ func (k Keeper) GetOrUpdateLatestMinter(
 		params.GetMintDenom(),
 		nextScheduledRelease.GetTokenReleaseAmount(),
 	)
+}
+
+func (k Keeper) GetCdc() codec.BinaryCodec {
+	return k.cdc
+}
+
+func (k Keeper) GetStoreKey() sdk.StoreKey {
+	return k.storeKey
+}
+
+func (k Keeper) GetParamSpace() paramtypes.Subspace {
+	return k.paramSpace
+}
+
+func (k *Keeper) SetParamSpace(subspace paramtypes.Subspace) {
+	k.paramSpace = subspace
 }
 
 func GetNextScheduledTokenRelease(
