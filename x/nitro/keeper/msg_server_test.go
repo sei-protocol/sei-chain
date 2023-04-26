@@ -96,6 +96,7 @@ func TestSubmitFraudChallenge(t *testing.T) {
 
 	// err getting non-existent transaction data
 	_, err = server.SubmitFraudChallenge(sdk.WrapSDKContext(ctx), &types.MsgSubmitFraudChallenge{
+		Sender:           "sei14hj2tavq8fpesdwxxcu44rty3hh90vhujrvcmstl4zr3txmfvw9sh9m79m",
 		StartSlot:        0,
 		EndSlot:          4,
 		FraudStatePubKey: "123",
@@ -103,8 +104,49 @@ func TestSubmitFraudChallenge(t *testing.T) {
 	})
 	require.Equal(t, err, types.ErrFindingTransctionData)
 
+	// invalid hash length
+	corruptedProof := &types.MerkleProof{
+		Commitment: proof.Commitment,
+		Direction:  proof.Direction,
+		Hash:       make([]string, 21),
+	}
+	_, err = server.SubmitFraudChallenge(sdk.WrapSDKContext(ctx), &types.MsgSubmitFraudChallenge{
+		Sender:           "sei14hj2tavq8fpesdwxxcu44rty3hh90vhujrvcmstl4zr3txmfvw9sh9m79m",
+		StartSlot:        0,
+		EndSlot:          4,
+		FraudStatePubKey: "123",
+		MerkleProof:      corruptedProof,
+	})
+	require.NotNil(t, err)
+
+	// invalid challenge period
+	_, err = server.SubmitFraudChallenge(sdk.WrapSDKContext(ctx), &types.MsgSubmitFraudChallenge{
+		Sender:           "sei14hj2tavq8fpesdwxxcu44rty3hh90vhujrvcmstl4zr3txmfvw9sh9m79m",
+		StartSlot:        0,
+		EndSlot:          10001,
+		FraudStatePubKey: "123",
+		MerkleProof:      proof,
+	})
+	require.NotNil(t, err)
+
+	// invalid hash size
+	corruptedProof = &types.MerkleProof{
+		Commitment: proof.Commitment,
+		Direction:  proof.Direction,
+		Hash:       []string{"badhashxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"},
+	}
+	_, err = server.SubmitFraudChallenge(sdk.WrapSDKContext(ctx), &types.MsgSubmitFraudChallenge{
+		Sender:           "sei14hj2tavq8fpesdwxxcu44rty3hh90vhujrvcmstl4zr3txmfvw9sh9m79m",
+		StartSlot:        0,
+		EndSlot:          4,
+		FraudStatePubKey: "123",
+		MerkleProof:      corruptedProof,
+	})
+	require.NotNil(t, err)
+
 	// end slot doesn't exist
 	_, err = server.SubmitFraudChallenge(sdk.WrapSDKContext(ctx), &types.MsgSubmitFraudChallenge{
+		Sender:           "sei14hj2tavq8fpesdwxxcu44rty3hh90vhujrvcmstl4zr3txmfvw9sh9m79m",
 		StartSlot:        0,
 		EndSlot:          5,
 		FraudStatePubKey: "123",
@@ -115,6 +157,7 @@ func TestSubmitFraudChallenge(t *testing.T) {
 	// invalid merkle proof
 	proof.Hash[0] = "efg"
 	_, err = server.SubmitFraudChallenge(sdk.WrapSDKContext(ctx), &types.MsgSubmitFraudChallenge{
+		Sender:           "sei14hj2tavq8fpesdwxxcu44rty3hh90vhujrvcmstl4zr3txmfvw9sh9m79m",
 		StartSlot:        0,
 		EndSlot:          1,
 		FraudStatePubKey: "123",
@@ -126,6 +169,7 @@ func TestSubmitFraudChallenge(t *testing.T) {
 	_, proof = createMockMerkleProof()
 	proof.Commitment = "efg"
 	_, err = server.SubmitFraudChallenge(sdk.WrapSDKContext(ctx), &types.MsgSubmitFraudChallenge{
+		Sender:           "sei14hj2tavq8fpesdwxxcu44rty3hh90vhujrvcmstl4zr3txmfvw9sh9m79m",
 		StartSlot:        0,
 		EndSlot:          1,
 		FraudStatePubKey: "123",
@@ -137,6 +181,7 @@ func TestSubmitFraudChallenge(t *testing.T) {
 	_, proof = createMockMerkleProof()
 	proof.Commitment = "efg"
 	_, err = server.SubmitFraudChallenge(sdk.WrapSDKContext(ctx), &types.MsgSubmitFraudChallenge{
+		Sender:           "sei14hj2tavq8fpesdwxxcu44rty3hh90vhujrvcmstl4zr3txmfvw9sh9m79m",
 		StartSlot:        0,
 		EndSlot:          1,
 		FraudStatePubKey: "",
@@ -146,6 +191,7 @@ func TestSubmitFraudChallenge(t *testing.T) {
 
 	keeper.SetParams(ctx, types.Params{WhitelistedTxSenders: []string{"sei14hj2tavq8fpesdwxxcu44rty3hh90vhujrvcmstl4zr3txmfvw9sh9m79m"}})
 	_, err = server.SubmitFraudChallenge(sdk.WrapSDKContext(ctx), &types.MsgSubmitFraudChallenge{
+		Sender:           "sei14hj2tavq8fpesdwxxcu44rty3hh90vhujrvcmstl4zr3txmfvw9sh9m79m",
 		StartSlot:        0,
 		EndSlot:          2,
 		FraudStatePubKey: "123",

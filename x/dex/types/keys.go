@@ -70,10 +70,6 @@ func TriggerOrderBookPrefix(contractAddr string, priceDenom string, assetDenom s
 	)
 }
 
-func TwapPrefix(contractAddr string) []byte {
-	return append(KeyPrefix(TwapKey), AddressKeyPrefix(contractAddr)...)
-}
-
 // `Price` constant + contract + price denom + asset denom
 func PricePrefix(contractAddr string, priceDenom string, assetDenom string) []byte {
 	return append(
@@ -99,14 +95,6 @@ func RegisteredPairPrefix(contractAddr string) []byte {
 
 func OrderPrefix(contractAddr string) []byte {
 	return append(KeyPrefix(OrderKey), AddressKeyPrefix(contractAddr)...)
-}
-
-func Cancel(contractAddr string) []byte {
-	return append(KeyPrefix(CancelKey), AddressKeyPrefix(contractAddr)...)
-}
-
-func AccountActiveOrdersPrefix(contractAddr string) []byte {
-	return append(KeyPrefix(AccountActiveOrdersKey), AddressKeyPrefix(contractAddr)...)
 }
 
 func AssetListPrefix(assetDenom string) []byte {

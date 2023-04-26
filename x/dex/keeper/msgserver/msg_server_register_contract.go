@@ -31,7 +31,7 @@ func (k msgServer) RegisterContract(goCtx context.Context, msg *types.MsgRegiste
 		return nil, sdkerrors.ErrUnauthorized
 	}
 
-	if err := k.ValidateRentBalance(msg.GetContract().GetRentBalance()); err != nil {
+	if err := k.ValidateRentBalance(ctx, msg.GetContract().GetRentBalance()); err != nil {
 		ctx.Logger().Error("invalid rent balance")
 		return &types.MsgRegisterContractResponse{}, err
 	}

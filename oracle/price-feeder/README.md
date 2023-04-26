@@ -28,6 +28,15 @@ Ex :
 
 If this environment variable is not set, the price feeder will prompt the user for input.
 
+## Setup Healthchecks
+Add this to the config.toml, you need to add the timeout field as it's required
+```
+[[healthchecks]]
+url = "https://hc-ping.com/xxxxxx"
+timeout = "5s"
+```
+
+
 ## Make and install the binary
 From the root of the Git repo
 

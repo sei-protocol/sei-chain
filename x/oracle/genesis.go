@@ -12,6 +12,7 @@ import (
 // InitGenesis initialize default parameters
 // and the keeper's address to pubkey map
 func InitGenesis(ctx sdk.Context, keeper keeper.Keeper, data *types.GenesisState) {
+	keeper.SetParams(ctx, data.Params)
 	for _, d := range data.FeederDelegations {
 		voter, err := sdk.ValAddressFromBech32(d.ValidatorAddress)
 		if err != nil {
@@ -51,8 +52,6 @@ func InitGenesis(ctx sdk.Context, keeper keeper.Keeper, data *types.GenesisState
 	for _, priceSnapshot := range data.PriceSnapshots {
 		keeper.AddPriceSnapshot(ctx, priceSnapshot)
 	}
-
-	keeper.SetParams(ctx, data.Params)
 
 	// check if the module account exists
 	moduleAcc := keeper.GetOracleAccount(ctx)

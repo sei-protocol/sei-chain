@@ -35,8 +35,8 @@ func TestExchangeRate(t *testing.T) {
 
 	rate, lastUpdate, _ = input.OracleKeeper.GetBaseExchangeRate(input.Ctx, utils.MicroBaseDenom)
 	require.Equal(t, sdk.OneDec(), rate)
-	// because we haven't reached end of a vote period, we should return 0
-	require.Equal(t, sdk.ZeroInt(), lastUpdate)
+	// Vote period of 1, so last update should be 2 with a block height of 3
+	require.Equal(t, int64(2), lastUpdate.Int64())
 
 	input.OracleKeeper.SetBaseExchangeRate(input.Ctx, utils.MicroEthDenom, gbpExchangeRate)
 	rate, lastUpdate, err = input.OracleKeeper.GetBaseExchangeRate(input.Ctx, utils.MicroEthDenom)
@@ -55,8 +55,8 @@ func TestExchangeRate(t *testing.T) {
 	input.OracleKeeper.SetBaseExchangeRate(input.Ctx, utils.MicroBaseDenom, seiExchangeRate)
 	rate, lastUpdate, _ = input.OracleKeeper.GetBaseExchangeRate(input.Ctx, utils.MicroBaseDenom)
 	require.Equal(t, sdk.OneDec(), rate)
-	// with votePeriod == 10 blocks, the last end of vote period is 9
-	require.Equal(t, sdk.NewInt(9), lastUpdate)
+	// Vote period of 1, so last update should be 14 with a block height of 15
+	require.Equal(t, int64(14), lastUpdate.Int64())
 
 	input.OracleKeeper.DeleteBaseExchangeRate(input.Ctx, utils.MicroAtomDenom)
 	_, _, err = input.OracleKeeper.GetBaseExchangeRate(input.Ctx, utils.MicroAtomDenom)

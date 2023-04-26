@@ -103,3 +103,13 @@ func (k Keeper) ChargeRentForGas(ctx sdk.Context, contractAddr string, gasUsed u
 	contract.RentBalance -= uint64(gasPrice)
 	return k.SetContract(ctx, &contract)
 }
+
+func (k Keeper) GetRentsForContracts(ctx sdk.Context, contractAddrs []string) map[string]uint64 {
+	res := map[string]uint64{}
+	for _, contractAddr := range contractAddrs {
+		if contract, err := k.GetContract(ctx, contractAddr); err == nil {
+			res[contractAddr] = contract.RentBalance
+		}
+	}
+	return res
+}

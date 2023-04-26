@@ -59,6 +59,10 @@ func (server msgServer) SubmitFraudChallenge(goCtx context.Context, msg *types.M
 		return nil, types.ErrFraudChallengeDisabled
 	}
 
+	// validate request message
+	if err := msg.ValidateBasic(); err != nil {
+		return nil, err
+	}
 	if len(msg.FraudStatePubKey) == 0 {
 		return nil, types.ErrInvalidFraudStatePubkey
 	}
