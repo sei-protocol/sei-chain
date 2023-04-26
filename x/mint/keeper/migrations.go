@@ -18,14 +18,12 @@ func NewMigrator(keeper Keeper) Migrator {
 	return Migrator{keeper: keeper}
 }
 
-// Migrate1to2 migrates from version 1 to 2
 func (m Migrator) Migrate1to2(ctx sdk.Context) error {
 	defaultParams := types.DefaultParams()
 	m.keeper.paramSpace.SetParamSet(ctx, &defaultParams)
 	return nil
 }
 
-// Migrate1to2 migrates from version 1 to 2
 func (m Migrator) Migrate2to3(ctx sdk.Context) error {
 	ctx.Logger().Info("Migrating mint module from v2 to v3")
 	store := ctx.KVStore(m.keeper.storeKey)
@@ -67,7 +65,6 @@ func (m Migrator) Migrate2to3(ctx sdk.Context) error {
 		panic(fmt.Sprintf("Key not found or error: %s", err))
 	}
 	ctx.Logger().Info("Migrating mint module from v2 to v3", "oldTokenReleaseSchedules", oldTokenReleaseSchedules, "oldMintDenom", oldMintDenom)
-	fmt.Println("Migrating mint module from v2 to v3", "oldTokenReleaseSchedules", oldTokenReleaseSchedules, "oldMintDenom", oldMintDenom)
 
 	newTokenReleaseSchedule := []types.ScheduledTokenRelease{}
 	for _, oldTokenReleaseSchedule := range oldTokenReleaseSchedules {
