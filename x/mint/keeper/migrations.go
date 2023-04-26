@@ -72,14 +72,14 @@ func (m Migrator) Migrate2to3(ctx sdk.Context) error {
 	newTokenReleaseSchedule := []types.ScheduledTokenRelease{}
 	for _, oldTokenReleaseSchedule := range oldTokenReleaseSchedules {
 		newSchedule := types.ScheduledTokenRelease{
-			TokenReleaseAmount:		uint64(oldTokenReleaseSchedule.GetTokenReleaseAmount()),
-			StartDate:   			oldTokenReleaseSchedule.GetDate(),
-			EndDate:   				oldTokenReleaseSchedule.GetDate(),
+			TokenReleaseAmount: uint64(oldTokenReleaseSchedule.GetTokenReleaseAmount()),
+			StartDate:          oldTokenReleaseSchedule.GetDate(),
+			EndDate:            oldTokenReleaseSchedule.GetDate(),
 		}
 		newTokenReleaseSchedule = append(newTokenReleaseSchedule, newSchedule)
 	}
 	newParams := types.Params{
-		MintDenom:           oldMintDenom,
+		MintDenom:            oldMintDenom,
 		TokenReleaseSchedule: newTokenReleaseSchedule,
 	}
 	m.keeper.SetParams(ctx, newParams)
