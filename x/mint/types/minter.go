@@ -58,7 +58,7 @@ func ValidateMinter(minter Minter) error {
 	return nil
 }
 
-func (m Minter) GetLastMintDateTime() time.Time {
+func (m *Minter) GetLastMintDateTime() time.Time {
 	lastMinteDateTime, err := time.Parse(TokenReleaseDateFormat, m.GetLastMintDate())
 	if err != nil {
 		// This should not happen as the date is validated when the minter is created
@@ -67,7 +67,7 @@ func (m Minter) GetLastMintDateTime() time.Time {
 	return lastMinteDateTime.UTC()
 }
 
-func (m Minter) GetStartDateTime() time.Time {
+func (m *Minter) GetStartDateTime() time.Time {
 	startDateTime, err := time.Parse(TokenReleaseDateFormat, m.GetStartDate())
 	if err != nil {
 		// This should not happen as the date is validated when the minter is created
@@ -76,7 +76,7 @@ func (m Minter) GetStartDateTime() time.Time {
 	return startDateTime.UTC()
 }
 
-func (m Minter) GetEndDateTime() time.Time {
+func (m *Minter) GetEndDateTime() time.Time {
 	endDateTime, err := time.Parse(TokenReleaseDateFormat, m.GetEndDate())
 	if err != nil {
 		// This should not happen as the date is validated when the minter is created
@@ -85,15 +85,15 @@ func (m Minter) GetEndDateTime() time.Time {
 	return endDateTime.UTC()
 }
 
-func (m Minter) GetLastMintAmountCoin() sdk.Coin {
+func (m *Minter) GetLastMintAmountCoin() sdk.Coin {
 	return sdk.NewCoin(m.GetDenom(), sdk.NewInt(int64(m.GetLastMintAmount())))
 }
 
-func (m Minter) GetReleaseAmountToday(currentTime time.Time) sdk.Coins {
-	return sdk.NewCoins(sdk.NewCoin(m.GetDenom(), sdk.NewInt(int64(m.getReleaseAmountToday(currentTime)))))
+func (m *Minter) GetReleaseAmountToday(currentTime time.Time) sdk.Coins {
+	return sdk.NewCoins(sdk.NewCoin(m.GetDenom(), sdk.NewInt(int64(m.getReleaseAmountToday(currentTime.UTC())))))
 }
 
-func (m Minter) RecordSuccessfulMint(ctx sdk.Context, epoch epochTypes.Epoch, mintedAmount uint64) Minter {
+func (m *Minter) RecordSuccessfulMint(ctx sdk.Context, epoch epochTypes.Epoch, mintedAmount uint64) {
 	m.RemainingMintAmount -= mintedAmount
 	m.LastMintDate = epoch.CurrentEpochStartTime.Format(TokenReleaseDateFormat)
 	m.LastMintHeight = uint64(epoch.CurrentEpochHeight)
@@ -107,18 +107,17 @@ func (m Minter) RecordSuccessfulMint(ctx sdk.Context, epoch epochTypes.Epoch, mi
 			sdk.NewAttribute(sdk.AttributeKeyAmount, fmt.Sprintf("%d", mintedAmount)),
 		),
 	)
-	return m
 }
 
-func (m Minter) getReleaseAmountToday(currentTime time.Time) uint64 {
+func (m *Minter) getReleaseAmountToday(currentTime time.Time) uint64 {
 	// Not yet started or already minted today
 	if currentTime.Before(m.GetStartDateTime()) || currentTime.Format(TokenReleaseDateFormat) == m.GetLastMintDate() {
+		println("not yet started or already minted today")
 		return 0
 	}
 
-	// if it's already past the end date then release the remaining amount
-	// likely caused by outage
-	if currentTime.After(m.GetEndDateTime()) && m.GetRemainingMintAmount() > 0 {
+	// if it's already past the end date then release the remaining amount likely caused by outage
+	if currentTime.After(m.GetEndDateTime()) {
 		return m.GetRemainingMintAmount()
 	}
 
@@ -129,13 +128,13 @@ func (m Minter) getReleaseAmountToday(currentTime time.Time) uint64 {
 	return m.GetRemainingMintAmount() / numberOfDaysLeft
 }
 
-func (m Minter) getNumberOfDaysLeft(currentTime time.Time) uint64 {
+func (m *Minter) getNumberOfDaysLeft(currentTime time.Time) uint64 {
 	// If the last mint date is after the start date then use the last mint date as there's an ongoing release
 	daysBetween := daysBetween(currentTime, m.GetEndDateTime())
 	return daysBetween
 }
 
-func (m Minter) OngoingRelease() bool {
+func (m *Minter) OngoingRelease() bool {
 	return m.GetRemainingMintAmount() != 0
 }
 

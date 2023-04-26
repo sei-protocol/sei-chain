@@ -25,7 +25,6 @@ func (m Migrator) Migrate1to2(ctx sdk.Context) error {
 }
 
 func (m Migrator) Migrate2to3(ctx sdk.Context) error {
-	ctx.Logger().Info("Migrating mint module from v2 to v3")
 	store := ctx.KVStore(m.keeper.storeKey)
 	// Migrate Minter First
 	minterBytes := store.Get(types.MinterKey)
@@ -46,7 +45,7 @@ func (m Migrator) Migrate2to3(ctx sdk.Context) error {
 		LastMintHeight:      uint64(oldMinter.GetLastMintHeight()),
 		LastMintAmount:      oldMinter.LastMintAmount.RoundInt().Uint64(),
 	}
-	ctx.Logger().Info("Migrating mint module from v2 to v3", "oldMinter", oldMinter.String(), "newMinter", newMinter.String())
+	ctx.Logger().Info("Migrating minter from v2 to v3", "oldMinter", oldMinter.String(), "newMinter", newMinter.String())
 	m.keeper.SetMinter(ctx, newMinter)
 
 	// Migrate TokenReleaseSchedule
@@ -64,7 +63,7 @@ func (m Migrator) Migrate2to3(ctx sdk.Context) error {
 	if err != nil {
 		panic(fmt.Sprintf("Key not found or error: %s", err))
 	}
-	ctx.Logger().Info("Migrating mint module from v2 to v3", "oldTokenReleaseSchedules", oldTokenReleaseSchedules, "oldMintDenom", oldMintDenom)
+	ctx.Logger().Info("Migrating mint params from v2 to v3", "oldTokenReleaseSchedules", oldTokenReleaseSchedules, "oldMintDenom", oldMintDenom)
 
 	newTokenReleaseSchedule := []types.ScheduledTokenRelease{}
 	for _, oldTokenReleaseSchedule := range oldTokenReleaseSchedules {

@@ -10,9 +10,9 @@ func (k Keeper) BeforeEpochStart(ctx sdk.Context, epoch epochTypes.Epoch) {
 
 func (k Keeper) AfterEpochEnd(ctx sdk.Context, epoch epochTypes.Epoch) {
 	latestMinter := k.GetOrUpdateLatestMinter(ctx, epoch)
-	coinsToMint := latestMinter.GetReleaseAmountToday(epoch.CurrentEpochStartTime)
+	coinsToMint := latestMinter.GetReleaseAmountToday(epoch.CurrentEpochStartTime.UTC())
 
-	if coinsToMint.IsZero() {
+	if coinsToMint.IsZero() || latestMinter.GetRemainingMintAmount() == 0 {
 		k.Logger(ctx).Debug("No coins to mint", "minter", latestMinter)
 		return
 	}
@@ -28,9 +28,10 @@ func (k Keeper) AfterEpochEnd(ctx sdk.Context, epoch epochTypes.Epoch) {
 
 	// Released Succssfully, decrement the remaining amount by the daily release amount and update minter
 	amountMinted := coinsToMint.AmountOf(latestMinter.GetDenom())
-	updatedMinter := latestMinter.RecordSuccessfulMint(ctx, epoch, amountMinted.Uint64())
-	k.Logger(ctx).Info("Minted coins", "minter", updatedMinter, "amount", amountMinted)
-	k.SetMinter(ctx, updatedMinter)
+	amountMinted.IsZero()
+	latestMinter.RecordSuccessfulMint(ctx, epoch, amountMinted.Uint64())
+	k.Logger(ctx).Info("Minted coins", "minter", latestMinter, "amount", coinsToMint.String())
+	k.SetMinter(ctx, latestMinter)
 }
 
 type Hooks struct {

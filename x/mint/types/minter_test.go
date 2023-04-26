@@ -191,6 +191,32 @@ func TestGetReleaseAmountToday(t *testing.T) {
 			expectedAmount: 11,
 		},
 		{
+			name: "One day mint",
+			minter: NewMinter(
+				"2023-04-01",
+				"2023-04-01",
+				"test",
+				100,
+			),
+			currentTime:  time.Date(2023, 4, 1, 0, 0, 0, 0, time.UTC),
+			expectedAmount: 100,
+		},
+		{
+			name: "One day mint - alreaddy minted",
+			minter: Minter{
+				StartDate: "2023-04-01",
+				EndDate: "2023-04-01",
+				Denom: "test",
+				TotalMintAmount: 100,
+				RemainingMintAmount: 0,
+				LastMintAmount: 100,
+				LastMintDate: "2023-04-01",
+				LastMintHeight: 0,
+			},
+			currentTime:  time.Date(2023, 4, 1, 0, 1, 0, 0, time.UTC),
+			expectedAmount: 0,
+		},
+		{
 			name: "No minter",
 			minter: InitialMinter(),
 			currentTime:   time.Date(2023, 4, 5, 0, 0, 0, 0, time.UTC),
