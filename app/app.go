@@ -857,7 +857,7 @@ func New(
 		return nil
 	}
 
-	if loadLatest {
+	if !app.TmConfig.DBSync.Enable || app.LastCommitID().Version > 0 {
 		if err := loadVersionHandler(); err != nil {
 			panic(err)
 		}
