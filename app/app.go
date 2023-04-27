@@ -151,8 +151,7 @@ import (
 
 // this line is used by starport scaffolding # stargate/wasm/app/enabledProposals
 func getGovProposalHandlers() []govclient.ProposalHandler {
-	govProposalHandlers := append(
-		wasmclient.ProposalHandlers, //nolint:gocritic // ignore: appending to a slice is OK
+	govProposalHandlers := append(wasmclient.ProposalHandlers, //nolint:gocritic // ignore: appending to a slice is OK
 		paramsclient.ProposalHandler,
 		distrclient.ProposalHandler,
 		upgradeclient.ProposalHandler,
