@@ -1581,5 +1581,5 @@ func (app *App) decorateContextWithDexMemState(base context.Context) context.Con
 
 func init() {
 	// override max wasm size to 1MB
-	wasmtypes.MaxWasmSize = 1024 * 1024
+	wasmtypes.MaxWasmSize = 1280 * 1024
 }
