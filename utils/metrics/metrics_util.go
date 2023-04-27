@@ -185,3 +185,15 @@ func IncrValidatorSlashed(proposer string) {
 		[]metrics.Label{telemetry.NewLabel("proposer", proposer)},
 	)
 }
+
+// Measures number of times a denom's price is updated
+// Metric Name:
+//
+//	sei_oracle_price_update_count
+func SetCoinsMinted(amount uint64, denom string) {
+	telemetry.SetGaugeWithLabels(
+		[]string{"sei", "mint", "coins"},
+		float32(amount),
+		[]metrics.Label{telemetry.NewLabel("denom", denom)},
+	)
+}

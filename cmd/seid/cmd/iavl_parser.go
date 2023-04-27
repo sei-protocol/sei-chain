@@ -31,8 +31,6 @@ func MintParser(key []byte) ([]string, error) {
 	switch {
 	case bytes.HasPrefix(key, minttypes.MinterKey):
 		keyItems = append(keyItems, "MinterKey")
-	case bytes.HasPrefix(key, minttypes.LastTokenReleaseDate):
-		keyItems = append(keyItems, "LastTokenReleaseDate")
 	default:
 		keyItems = append(keyItems, UNRECOGNIZED)
 	}
