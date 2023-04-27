@@ -135,10 +135,6 @@ import (
 	tokenfactorykeeper "github.com/sei-protocol/sei-chain/x/tokenfactory/keeper"
 	tokenfactorytypes "github.com/sei-protocol/sei-chain/x/tokenfactory/types"
 
-	nitromodule "github.com/sei-protocol/sei-chain/x/nitro"
-	nitrokeeper "github.com/sei-protocol/sei-chain/x/nitro/keeper"
-	nitrotypes "github.com/sei-protocol/sei-chain/x/nitro/types"
-
 	// this line is used by starport scaffolding # stargate/app/moduleImport
 
 	"github.com/CosmWasm/wasmd/x/wasm"
@@ -197,7 +193,6 @@ var (
 		dexmodule.AppModuleBasic{},
 		epochmodule.AppModuleBasic{},
 		tokenfactorymodule.AppModuleBasic{},
-		nitromodule.AppModuleBasic{},
 		// this line is used by starport scaffolding # stargate/app/moduleBasic
 	)
 
@@ -215,7 +210,6 @@ var (
 		wasm.ModuleName:                {authtypes.Burner},
 		dexmoduletypes.ModuleName:      nil,
 		tokenfactorytypes.ModuleName:   {authtypes.Minter, authtypes.Burner},
-		nitrotypes.ModuleName:          nil,
 		// this line is used by starport scaffolding # stargate/app/maccPerms
 	}
 
@@ -329,8 +323,6 @@ type App struct {
 
 	TokenFactoryKeeper tokenfactorykeeper.Keeper
 
-	NitroKeeper nitrokeeper.Keeper
-
 	// mm is the module manager
 	mm *module.Manager
 
@@ -387,7 +379,6 @@ func New(
 		dexmoduletypes.StoreKey,
 		epochmoduletypes.StoreKey,
 		tokenfactorytypes.StoreKey,
-		nitrotypes.StoreKey,
 		// this line is used by starport scaffolding # stargate/app/storeKey
 	)
 	tkeys := sdk.NewTransientStoreKeys(paramstypes.TStoreKey)
@@ -536,11 +527,6 @@ func New(
 		app.BankKeeper.(bankkeeper.BaseKeeper).WithMintCoinsRestriction(tokenfactorytypes.NewTokenFactoryDenomMintCoinsRestriction()),
 		app.DistrKeeper,
 	)
-	app.NitroKeeper = nitrokeeper.NewKeeper(
-		appCodec,
-		app.keys[nitrotypes.StoreKey],
-		app.GetSubspace(nitrotypes.ModuleName),
-	)
 
 	customDependencyGenerators := aclmapping.NewCustomDependencyGenerator()
 	aclOpts = append(aclOpts, aclkeeper.WithDependencyGeneratorMappings(customDependencyGenerators.GetCustomDependencyGenerators()))
@@ -660,7 +646,6 @@ func New(
 		dexModule,
 		epochModule,
 		tokenfactorymodule.NewAppModule(app.TokenFactoryKeeper, app.AccountKeeper, app.BankKeeper),
-		nitromodule.NewAppModule(app.NitroKeeper),
 		// this line is used by starport scaffolding # stargate/app/appModule
 	)
 
@@ -691,7 +676,6 @@ func New(
 		dexmoduletypes.ModuleName,
 		wasm.ModuleName,
 		tokenfactorytypes.ModuleName,
-		nitrotypes.ModuleName,
 		acltypes.ModuleName,
 	)
 
@@ -722,7 +706,6 @@ func New(
 		dexmoduletypes.ModuleName,
 		wasm.ModuleName,
 		tokenfactorytypes.ModuleName,
-		nitrotypes.ModuleName,
 		acltypes.ModuleName,
 	)
 
@@ -753,7 +736,6 @@ func New(
 		oracletypes.ModuleName,
 		tokenfactorytypes.ModuleName,
 		epochmoduletypes.ModuleName,
-		nitrotypes.ModuleName,
 		wasm.ModuleName,
 		acltypes.ModuleName,
 		// this line is used by starport scaffolding # stargate/app/initGenesis
@@ -784,7 +766,6 @@ func New(
 		dexModule,
 		epochModule,
 		tokenfactorymodule.NewAppModule(app.TokenFactoryKeeper, app.AccountKeeper, app.BankKeeper),
-		nitromodule.NewAppModule(app.NitroKeeper),
 		// this line is used by starport scaffolding # stargate/app/appModule
 	)
 	app.sm.RegisterStoreDecoders()
@@ -823,7 +804,6 @@ func New(
 			WasmKeeper:          &app.WasmKeeper,
 			OracleKeeper:        &app.OracleKeeper,
 			DexKeeper:           &app.DexKeeper,
-			NitroKeeper:         &app.NitroKeeper,
 			TracingInfo:         app.tracingInfo,
 			AccessControlKeeper: &app.AccessControlKeeper,
 		},
@@ -904,12 +884,7 @@ func (app *App) SetStoreUpgradeHandlers() {
 	}
 
 	if upgradeInfo.Name == "1.2.2beta" && !app.UpgradeKeeper.IsSkipHeight(upgradeInfo.Height) {
-		storeUpgrades := storetypes.StoreUpgrades{
-			Added: []string{nitrotypes.StoreKey},
-		}
-
-		// configure store loader that checks if version == upgradeHeight and applies store upgrades
-		app.SetStoreLoader(upgradetypes.UpgradeStoreLoader(upgradeInfo.Height, &storeUpgrades))
+		// DO NOTHING
 	}
 
 	if upgradeInfo.Name == "2.0.0beta" && !app.UpgradeKeeper.IsSkipHeight(upgradeInfo.Height) {
@@ -1555,7 +1530,6 @@ func initParamsKeeper(appCodec codec.BinaryCodec, legacyAmino *codec.LegacyAmino
 	paramsKeeper.Subspace(dexmoduletypes.ModuleName)
 	paramsKeeper.Subspace(epochmoduletypes.ModuleName)
 	paramsKeeper.Subspace(tokenfactorytypes.ModuleName)
-	paramsKeeper.Subspace(nitrotypes.ModuleName)
 	// this line is used by starport scaffolding # stargate/app/paramSubspace
 
 	return paramsKeeper

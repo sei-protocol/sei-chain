@@ -9,10 +9,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/types/accesscontrol"
 	"github.com/cosmos/cosmos-sdk/x/staking"
 	"github.com/sei-protocol/sei-chain/app/antedecorators"
-	keepertest "github.com/sei-protocol/sei-chain/testutil/keeper"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
-	nitrokeeper "github.com/sei-protocol/sei-chain/x/nitro/keeper"
-	nitrotypes "github.com/sei-protocol/sei-chain/x/nitro/types"
 	oraclekeeper "github.com/sei-protocol/sei-chain/x/oracle/keeper"
 	oracletypes "github.com/sei-protocol/sei-chain/x/oracle/types"
 	"github.com/stretchr/testify/require"
@@ -96,9 +93,9 @@ func (t FakeTx) FeeGranter() sdk.AccAddress {
 	return nil
 }
 
-func CallGaslessDecoratorWithMsg(ctx sdk.Context, msg sdk.Msg, oracleKeeper oraclekeeper.Keeper, nitroKeeper nitrokeeper.Keeper) error {
+func CallGaslessDecoratorWithMsg(ctx sdk.Context, msg sdk.Msg, oracleKeeper oraclekeeper.Keeper) error {
 	anteDecorators := []sdk.AnteFullDecorator{
-		antedecorators.NewGaslessDecorator([]sdk.AnteFullDecorator{sdk.DefaultWrappedAnteDecorator(FakeAnteDecoratorGasReqd{})}, oracleKeeper, nitroKeeper),
+		antedecorators.NewGaslessDecorator([]sdk.AnteFullDecorator{sdk.DefaultWrappedAnteDecorator(FakeAnteDecoratorGasReqd{})}, oracleKeeper),
 	}
 	chainedHandler, depGen := sdk.ChainAnteDecorators(anteDecorators...)
 	fakeTx := FakeTx{
@@ -118,7 +115,7 @@ func TestGaslessDecorator(t *testing.T) {
 	output = ""
 	anteDecorators := []sdk.AnteFullDecorator{
 		FakeAnteDecoratorOne{},
-		antedecorators.NewGaslessDecorator([]sdk.AnteFullDecorator{FakeAnteDecoratorTwo{}}, oraclekeeper.Keeper{}, nitrokeeper.Keeper{}),
+		antedecorators.NewGaslessDecorator([]sdk.AnteFullDecorator{FakeAnteDecoratorTwo{}}, oraclekeeper.Keeper{}),
 		FakeAnteDecoratorThree{},
 	}
 	chainedHandler, depGen := sdk.ChainAnteDecorators(anteDecorators...)
@@ -166,12 +163,12 @@ func TestOracleVoteGasless(t *testing.T) {
 	}
 
 	// reset gasless
-	err = CallGaslessDecoratorWithMsg(ctx, &vote1, input.OracleKeeper, nitrokeeper.Keeper{})
+	err = CallGaslessDecoratorWithMsg(ctx, &vote1, input.OracleKeeper)
 	require.Error(t, err)
 
 	// reset gasless
 	gasless = true
-	err = CallGaslessDecoratorWithMsg(ctx, &vote2, input.OracleKeeper, nitrokeeper.Keeper{})
+	err = CallGaslessDecoratorWithMsg(ctx, &vote2, input.OracleKeeper)
 	require.NoError(t, err)
 	require.True(t, gasless)
 }
@@ -180,7 +177,7 @@ func TestDexPlaceOrderGasless(t *testing.T) {
 	// this needs to be updated if its changed from constant true
 	// reset gasless
 	gasless = true
-	err := CallGaslessDecoratorWithMsg(sdk.NewContext(nil, tmproto.Header{}, false, nil), &types.MsgPlaceOrders{}, oraclekeeper.Keeper{}, nitrokeeper.Keeper{})
+	err := CallGaslessDecoratorWithMsg(sdk.NewContext(nil, tmproto.Header{}, false, nil), &types.MsgPlaceOrders{}, oraclekeeper.Keeper{})
 	require.NoError(t, err)
 	require.True(t, gasless)
 }
@@ -202,44 +199,14 @@ func TestDexCancelOrderGasless(t *testing.T) {
 	// not whitelisted
 	// reset gasless
 	gasless = true
-	err := CallGaslessDecoratorWithMsg(sdk.NewContext(nil, tmproto.Header{}, false, nil), &cancelMsg1, oraclekeeper.Keeper{}, nitrokeeper.Keeper{})
+	err := CallGaslessDecoratorWithMsg(sdk.NewContext(nil, tmproto.Header{}, false, nil), &cancelMsg1, oraclekeeper.Keeper{})
 	require.NoError(t, err)
 	require.False(t, gasless)
 
 	// whitelisted
 	// reset gasless
 	gasless = true
-	err = CallGaslessDecoratorWithMsg(sdk.NewContext(nil, tmproto.Header{}, false, nil), &cancelMsg2, oraclekeeper.Keeper{}, nitrokeeper.Keeper{})
-	require.NoError(t, err)
-	require.True(t, gasless)
-}
-
-func TestNitroRecordTxDataGasless(t *testing.T) {
-	keeper, ctx := keepertest.NitroKeeper(t)
-	// set with non-whitelisted addr
-	nonWhitelistedMsg := nitrotypes.MsgRecordTransactionData{
-		Sender:    "someone",
-		Slot:      1,
-		StateRoot: "1234",
-		Txs:       []string{"5678"},
-	}
-	// reset gasless
-	gasless = true
-	err := CallGaslessDecoratorWithMsg(ctx, &nonWhitelistedMsg, oraclekeeper.Keeper{}, *keeper)
-	require.NoError(t, err)
-	require.False(t, gasless)
-
-	// set with whitelisted addr
-	keeper.SetParams(ctx, nitrotypes.Params{WhitelistedTxSenders: []string{"sei14hj2tavq8fpesdwxxcu44rty3hh90vhujrvcmstl4zr3txmfvw9sh9m79m"}})
-	whitelistedMsg := nitrotypes.MsgRecordTransactionData{
-		Sender:    "sei14hj2tavq8fpesdwxxcu44rty3hh90vhujrvcmstl4zr3txmfvw9sh9m79m",
-		Slot:      1,
-		StateRoot: "1234",
-		Txs:       []string{"5678"},
-	}
-	// reset gasless
-	gasless = true
-	err = CallGaslessDecoratorWithMsg(ctx, &whitelistedMsg, oraclekeeper.Keeper{}, *keeper)
+	err = CallGaslessDecoratorWithMsg(sdk.NewContext(nil, tmproto.Header{}, false, nil), &cancelMsg2, oraclekeeper.Keeper{})
 	require.NoError(t, err)
 	require.True(t, gasless)
 }
@@ -248,7 +215,7 @@ func TestNonGaslessMsg(t *testing.T) {
 	// this needs to be updated if its changed from constant true
 	// reset gasless
 	gasless = true
-	err := CallGaslessDecoratorWithMsg(sdk.NewContext(nil, tmproto.Header{}, false, nil), &types.MsgRegisterContract{}, oraclekeeper.Keeper{}, nitrokeeper.Keeper{})
+	err := CallGaslessDecoratorWithMsg(sdk.NewContext(nil, tmproto.Header{}, false, nil), &types.MsgRegisterContract{}, oraclekeeper.Keeper{})
 	require.NoError(t, err)
 	require.False(t, gasless)
 }
