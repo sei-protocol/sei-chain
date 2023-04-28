@@ -55,8 +55,8 @@ func TestSkipOptimisticProcessingOnUpgrade(t *testing.T) {
 		Height: 1,
 	})
 
-	// Wait for completion signal before proceeding
-	<- testWrapper.App.GetOptimisticProcessingInfo().Completion
+	// Sleep for 1 second in case the ProcessProposalHandler goroutine is still running
+	time.Sleep(1 * time.Second)
 
 	require.Equal(t, res.Status, abci.ResponseProcessProposal_ACCEPT)
 	require.False(t, testWrapper.App.GetOptimisticProcessingInfo().Aborted)
