@@ -92,12 +92,9 @@ func (o *BlockOrders) getKVsToSet(failedOrdersMap map[uint64]wasm.UnsuccessfulOr
 	return keys, vals
 }
 
-func (o *BlockOrders) GetSortedMarketOrders(direction types.PositionDirection, includeLiquidationOrders bool) []*types.Order {
+func (o *BlockOrders) GetSortedMarketOrders(direction types.PositionDirection) []*types.Order {
 	res := o.getOrdersByCriteria(types.OrderType_MARKET, direction)
 	res = append(res, o.getOrdersByCriteria(types.OrderType_FOKMARKET, direction)...)
-	if includeLiquidationOrders {
-		res = append(res, o.getOrdersByCriteria(types.OrderType_LIQUIDATION, direction)...)
-	}
 	sort.SliceStable(res, func(i, j int) bool {
 		// a price of 0 indicates that there is no worst price for the order, so it should
 		// always be ranked at the top.

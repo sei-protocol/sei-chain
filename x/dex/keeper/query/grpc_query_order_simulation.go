@@ -86,9 +86,7 @@ func (k KeeperWrapper) getMatchedPriceQuantities(ctx sdk.Context, req *types.Que
 
 	// exclude liquidity to be taken
 	ptr := 0
-	for _, order := range dexutils.GetMemState(ctx.Context()).GetBlockOrders(ctx, utils.ContractAddress(req.ContractAddr), utils.GetPairString(&pair)).GetSortedMarketOrders(
-		orderDirection, false,
-	) {
+	for _, order := range dexutils.GetMemState(ctx.Context()).GetBlockOrders(ctx, utils.ContractAddress(req.ContractAddr), utils.GetPairString(&pair)).GetSortedMarketOrders(orderDirection) {
 		// If existing market order has price zero, it means it doesn't specify a worst price and will always have precedence over the simulated
 		// order
 		if !order.Price.IsZero() {

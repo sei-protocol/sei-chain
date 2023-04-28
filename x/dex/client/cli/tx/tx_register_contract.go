@@ -16,20 +16,16 @@ var _ = strconv.Itoa(0)
 
 func CmdRegisterContract() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "register-contract [contract address] [code id] [need hook] [need order matching] [deposit] [dependency1,dependency2,...]",
+		Use:   "register-contract [contract address] [code id] [(deprecated)] [need order matching] [deposit] [dependency1,dependency2,...]",
 		Short: "Register exchange contract",
 		Long: strings.TrimSpace(`
-			Register a contract with the dex module for specific execution hooks and order matching hooks. The available hooks include NewBlock, FinalizeBlock, and available order matching functions are BulkOrderPlacements, BulkOrderCancellations, Settlement, and Liquidation. A deposit can also be specified as the initial rent to allocate for the execution of the contract hooks and order matching.
+			Register a contract with the dex module for order matching hooks. The available order matching functions are BulkOrderPlacements, BulkOrderCancellations, Settlement. A deposit can also be specified as the initial rent to allocate for the execution of the order matching.
 			Other orderbooks that are dependencies can also be specified so that dex orderbook processing can be performed in the appropriate order.
 		`),
 		Args: cobra.MinimumNArgs(5),
 		RunE: func(cmd *cobra.Command, args []string) (err error) {
 			argContractAddr := args[0]
 			argCodeID, err := cast.ToUint64E(args[1])
-			if err != nil {
-				return err
-			}
-			argNeedHook, err := strconv.ParseBool(args[2])
 			if err != nil {
 				return err
 			}
@@ -55,7 +51,6 @@ func CmdRegisterContract() *cobra.Command {
 				clientCtx.GetFromAddress().String(),
 				argCodeID,
 				argContractAddr,
-				argNeedHook,
 				argNeedMatching,
 				dependencies,
 				argDeposit,

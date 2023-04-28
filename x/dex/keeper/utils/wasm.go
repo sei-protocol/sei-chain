@@ -26,8 +26,6 @@ func getMsgType(msg interface{}) string {
 		return "bulk_order_placements"
 	case dextypeswasm.SudoOrderCancellationMsg:
 		return "bulk_order_cancellations"
-	case dextypeswasm.SudoLiquidationMsg:
-		return "liquidation"
 	default:
 		return "unknown"
 	}

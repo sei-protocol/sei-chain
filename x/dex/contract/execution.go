@@ -91,8 +91,8 @@ func matchMarketOrderForPair(
 	orderbook *types.OrderBook,
 ) exchange.ExecutionOutcome {
 	orders := dexutils.GetMemState(ctx.Context()).GetBlockOrders(ctx, typedContractAddr, typedPairStr)
-	marketBuys := orders.GetSortedMarketOrders(types.PositionDirection_LONG, true)
-	marketSells := orders.GetSortedMarketOrders(types.PositionDirection_SHORT, true)
+	marketBuys := orders.GetSortedMarketOrders(types.PositionDirection_LONG)
+	marketSells := orders.GetSortedMarketOrders(types.PositionDirection_SHORT)
 	marketBuyOutcome := exchange.MatchMarketOrders(
 		ctx,
 		marketBuys,
