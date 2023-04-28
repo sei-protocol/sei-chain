@@ -51,12 +51,22 @@ func TestSkipOptimisticProcessingOnUpgrade(t *testing.T) {
 		Name:   "test-plan",
 		Height: 5,
 	})
+
+	metricsCounters := *testWrapper.App.GetMetricCounters()
+	require.Equal(t, metricsCounters["last_updated_height"], float32(0))
+
 	res, _ = testWrapper.App.ProcessProposalHandler(testCtx.WithBlockHeight(4), &abci.RequestProcessProposal{
 		Height: 1,
 	})
 
-	// Sleep for 1 second in case the ProcessProposalHandler goroutine is still running
-	time.Sleep(1 * time.Second)
+	// Wait for height too be updated to be sure that the block is processed
+	require.Eventually(t, func() bool {
+		metricsCounters := *testWrapper.App.GetMetricCounters()
+		if  value := metricsCounters["last_updated_height"]; value == 4 {
+			return true
+		}
+		return false
+	}, 5 * time.Second, time.Millisecond*100)
 
 	require.Equal(t, res.Status, abci.ResponseProcessProposal_ACCEPT)
 	require.False(t, testWrapper.App.GetOptimisticProcessingInfo().Aborted)

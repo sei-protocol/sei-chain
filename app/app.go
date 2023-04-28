@@ -1014,6 +1014,10 @@ func (app *App) FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBlock)
 	return &resp, nil
 }
 
+func (app *App) GetMetricCounters() *map[string]float32 {
+	return app.metricCounter
+}
+
 func (app *App) RecordAndEmitMetrics(ctx sdk.Context) {
 	height := float32(ctx.BlockHeight())
 	if (*app.metricCounter)["last_updated_height"] == height {
