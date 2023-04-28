@@ -31,7 +31,6 @@ func TestDistributionCommunityTaxParamMigration(t *testing.T) {
 }
 
 func TestSkipOptimisticProcessingOnUpgrade(t *testing.T) {
-	println("TestSkipOptimisticProcessingOnUpgrade")
 	tm := time.Now().UTC()
 	valPub := secp256k1.GenPrivKey().PubKey()
 	testWrapper := app.NewTestWrapper(t, tm, valPub)
@@ -55,6 +54,9 @@ func TestSkipOptimisticProcessingOnUpgrade(t *testing.T) {
 	res, _ = testWrapper.App.ProcessProposalHandler(testCtx.WithBlockHeight(4), &abci.RequestProcessProposal{
 		Height: 1,
 	})
+
+	// Wait for completion signal before proceeding
+	<- testWrapper.App.GetOptimisticProcessingInfo().Completion
 
 	require.Equal(t, res.Status, abci.ResponseProcessProposal_ACCEPT)
 	require.False(t, testWrapper.App.GetOptimisticProcessingInfo().Aborted)
