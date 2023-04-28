@@ -1,362 +1,196 @@
 # x/mint
 
-## Concepts
+## Overview
 
-### The Minting Mechanism
+The minting mechanism was designed for creating new tokens according to a predefined schedule. It allows the creation of scheduled token release structures that define the release of tokens over a period of time. The Mint module provides a system for managing token minting, release schedule, and related parameters. It has been designed to be flexible and adaptable to a range of use-cases.
 
-The minting mechanism was designed to:
+A key aim of the minting mechanism is to reach a state where there is no more inflation and the network enters a deflationary state, with no additional tokens being introduced into the network.
 
-* allow for a flexible inflation rate determined by market demand targeting a particular bonded-stake ratio
-* effect a balance between market liquidity and staked supply
+Minting is designed to occur over a specified period with a proportion of the total mint amount distributed daily (UTC). This approach incentivizes users to stake their tokens for longer durations.
 
-In order to best determine the appropriate market rate for inflation rewards, a
-moving change rate is used.  The moving change rate mechanism ensures that if
-the % bonded is either over or under the goal %-bonded, the inflation rate will
-adjust to further incentivize or disincentivize being bonded, respectively. Setting the goal
-%-bonded at less than 100% encourages the network to maintain some non-staked tokens
-which should help provide some liquidity.
+### Minting Mechanism
 
-It can be broken down in the following way:
+The minting mechanism is built on a daily distribution model. The total_mint_amount is a predefined amount of tokens set to be minted within the duration specified by a start and end date. This total amount is evenly distributed over each day of the minting period, ensuring a consistent daily distribution of tokens.
 
-* If the inflation rate is below the goal %-bonded the inflation rate will
-   increase until a maximum value is reached
-* If the goal % bonded (67% in Cosmos-Hub) is maintained, then the inflation
-   rate will stay constant
-* If the inflation rate is above the goal %-bonded the inflation rate will
-   decrease until a minimum value is reached
+### Daily Mint Calculation
 
+The daily mint amount is derived by dividing the `remaining_mint_amount` by the number of days left in the minting period. This calculation is based on the assumption of a uniform distribution of tokens throughout the period, barring any instances where the chain is down for more than a day.
+
+For example, if the `total_mint_amount` is set to 1,000,000 tokens and the minting period is 100 days, the daily mint amount would be 10,000 tokens. However, if there was a network outage and the chain was down for 1 day, the daily mint amount would be recalculated. If 500,000 tokens had already been distributed in the first 50 days, with 49 days remaining and a `remaining_mint_amount` of 500,000 tokens, the revised daily mint amount would be 10,204 tokens. This adjusted amount would be minted daily until the 100th day, when 10,208 tokens would be minted to achieve the total of 1,000,000 tokens.
+
+### Minting Process
+
+Every day, at a configured time (typically the start of the day), the daily mint amount is created and distributed to the fee_collector account. From here, it's distributed to stakers in the same manner as transaction fees (percentage-based).
+
+### Updating the Minting Schedule
+
+The minting schedule, including the start date, end date, and `total_mint_amount`, can be updated through a governance proposal. This feature allows network participants to adjust the minting parameters as necessary in response to the network's needs and conditions.
+
+This flexibility ensures that the minting process can be adjusted and managed effectively over time, supporting the growth and sustainability of the Sei-chain network.
+
+Note: Changes to the `total_mint_amount` or `remaining_mint_amont` after the start date will not impact tokens already minted.
 
 ## State
 
 ### Minter
 
-The minter is a space for holding current inflation information.
+The minter is a space for holding current inflation information. This can be updated through a proposal, it will be discussed more in the later sections.
 
-* Minter: `0x00 -> ProtocolBuffer(minter)`
-
-```protobuf reference
-https://github.com/cosmos/cosmos-sdk/blob/v0.47.0-rc1/proto/cosmos/mint/v1beta1/mint.proto#L10-L24
+```go
+type Minter struct {
+    // The day where the mint begins
+    StartDate           string `protobuf:"bytes,1,opt,name=start_date,json=startDate,proto3" json:"start_date,omitempty"`
+    // The day where the mint ends
+    EndDate             string `protobuf:"bytes,2,opt,name=end_date,json=endDate,proto3" json:"end_date,omitempty"`
+    // Denom for the coins minted, defaults to usei
+    Denom               string `protobuf:"bytes,3,opt,name=denom,proto3" json:"denom,omitempty"`
+    // Total amount to be minted
+    TotalMintAmount     uint64 `protobuf:"varint,4,opt,name=total_mint_amount,json=totalMintAmount,proto3" json:"total_mint_amount,omitempty"`
+    // Remaining amount to be minted
+    RemainingMintAmount uint64 `protobuf:"varint,5,opt,name=remaining_mint_amount,json=remainingMintAmount,proto3" json:"remaining_mint_amount,omitempty"`
+    // Last amount minted (usually from the day before)
+    LastMintAmount      uint64 `protobuf:"varint,6,opt,name=last_mint_amount,json=lastMintAmount,proto3" json:"last_mint_amount,omitempty"`
+    // Last day minted
+    LastMintDate        string `protobuf:"bytes,7,opt,name=last_mint_date,json=lastMintDate,proto3" json:"last_mint_date,omitempty"`
+    // The height of the last mint
+    LastMintHeight      uint64 `protobuf:"varint,8,opt,name=last_mint_height,json=lastMintHeight,proto3" json:"last_mint_height,omitempty"`
+}
 ```
 
 ### Params
 
-The mint module stores it's params in state with the prefix of `0x01`,
-it can be updated with governance or the address with authority.
+The mint module stores it's params in state, it can be updated with governance or the address with authority.
 
-* Params: `mint/params -> legacy_amino(params)`
+```go
+type Params struct {
+    // type of coin to mint
+    MintDenom string `protobuf:"bytes,1,opt,name=mint_denom,json=mintDenom,proto3" json:"mint_denom,omitempty"`
+    // List of token release schedules
+    TokenReleaseSchedule []ScheduledTokenRelease `protobuf:"bytes,2,rep,name=token_release_schedule,json=tokenReleaseSchedule,proto3" json:"token_release_schedule" yaml:"token_release_schedule"`
+}
+...
+type ScheduledTokenRelease struct {
+    // The day where the mint begins
+    StartDate          string `protobuf:"bytes,1,opt,name=start_date,json=startDate,proto3" json:"start_date,omitempty"`
+    // The day where the mint ends
+    EndDate            string `protobuf:"bytes,2,opt,name=end_date,json=endDate,proto3" json:"end_date,omitempty"`
+    // Total amount to be minted
+    TokenReleaseAmount uint64 `protobuf:"varint,3,opt,name=token_release_amount,json=tokenReleaseAmount,proto3" json:"token_release_amount,omitempty"`
+}
 
-```protobuf reference
-https://github.com/cosmos/cosmos-sdk/blob/v0.47.0-rc1/proto/cosmos/mint/v1beta1/mint.proto#L26-L59
+```
+
+### Governance
+
+#### Minter Governance Proposal
+Here is an example of how to submit a governance proposal to update the Minter parameters:
+
+First, prepare a proposal in JSON format, like the minter_prop.json file below:
+
+```json
+{
+  "title": "Test Update Minter",
+  "description": "Updating test minter",
+  "minter": {
+    "start_date": "2023-10-05",
+    "end_date": "2023-11-22",
+    "denom": "usei",
+    "total_mint_amount": 100000
+  }
+}
+```
+
+Then, submit the proposal with the following command:
+
+```bash
+seid tx gov submit-proposal update-minter ./minter_prop.json --deposit 20sei --from admin -b block -y --gas 200000 --fees 2000usei
+```
+
+This command submits a proposal to update the minter. The --deposit flag is used to provide the initial deposit. The proposal is submitted by the address provided with the --from flag.
+
+Before the proposal, the Minter parameters might look like this:
+
+```**bash**
+> seid q mint minter
+denom: usei
+end_date: "2023-04-30"
+last_mint_amount: "333333333333"
+last_mint_date: "2023-04-27"
+last_mint_height: "0"
+remaining_mint_amount: "666666666666"
+start_date: "2023-04-27"
+total_mint_amount: "999999999999"
+```
+
+After the proposal is passed, the Minter parameters would be updated as per the proposal:
+
+```bash
+> seid q mint minter
+denom: usei
+end_date: "2023-11-22"
+last_mint_amount: "0"
+last_mint_date: ""
+last_mint_height: "0"
+remaining_mint_amount: "0"
+start_date: "2023-10-05"
+total_mint_amount: "100000"
+```
+
+In this example, the end_date has been changed to "2023-11-22", start_date is now "2023-10-05", and total_mint_amount has been reduced to "100000".
+
+### Params Governance Proposal
+
+Here is an example for updating the params for the mint module
+
+```json
+{
+  "title": "Param Change Proposal",
+  "description": "Proposal to change some parameters",
+  "changes": [
+    {
+      "subspace": "mint",
+      "key": "MintDenom",
+      "value": "usei"
+    },
+    {
+      "subspace": "mint",
+      "key": "TokenReleaseSchedule",
+      "value": [
+        {
+          "token_release_amount": 500,
+          "start_date": "2023-10-01",
+          "end_date": "2023-10-30"
+        },
+        {
+          "token_release_amount": 1000,
+          "start_date": "2023-11-01",
+          "end_date": "2023-11-30"
+        }
+      ]
+    }
+  ]
+}
+```
+
+Submit the proposal
+
+```bash
+seid tx gov submit-proposal param-change ./param_change_prop.json --from admin -b block -y --gas 200000 --fees 200000usei
 ```
 
 ## Begin-Block
 
-Minting parameters are recalculated and inflation paid at the beginning of each block.
+At the end of each epoch (defaults to 60s), the chain checks if it's the minting start date, if it is, it will mint the amount of tokens specified in the params or continue the current release period and mint a subset of the remaining amount.
 
-### Inflation rate calculation
+### Minting events
 
-Inflation rate is calculated using an "inflation calculation function" that's
-passed to the `NewAppModule` function. If no function is passed, then the SDK's
-default inflation function will be used (`NextInflationRate`). In case a custom
-inflation calculation logic is needed, this can be achieved by defining and
-passing a function that matches `InflationCalculationFn`'s signature.
+#### Type: Mint
 
-```go
-type InflationCalculationFn func(ctx sdk.Context, minter Minter, params Params, bondedRatio math.LegacyDec) math.LegacyDec
-```
+- mint_date: date of the mint
+- mint_epoch: epoch of the mint
+- amount: amount minted
 
-#### NextInflationRate
 
-The target annual inflation rate is recalculated each block.
-The inflation is also subject to a rate change (positive or negative)
-depending on the distance from the desired ratio (67%). The maximum rate change
-possible is defined to be 13% per year, however the annual inflation is capped
-as between 7% and 20%.
+### Metrics
 
-```go
-NextInflationRate(params Params, bondedRatio math.LegacyDec) (inflation math.LegacyDec) {
-	inflationRateChangePerYear = (1 - bondedRatio/params.GoalBonded) * params.InflationRateChange
-	inflationRateChange = inflationRateChangePerYear/blocksPerYr
-
-	// increase the new annual inflation for this next block
-	inflation += inflationRateChange
-	if inflation > params.InflationMax {
-		inflation = params.InflationMax
-	}
-	if inflation < params.InflationMin {
-		inflation = params.InflationMin
-	}
-
-	return inflation
-}
-```
-
-### NextAnnualProvisions
-
-Calculate the annual provisions based on current total supply and inflation
-rate. This parameter is calculated once per block.
-
-```go
-NextAnnualProvisions(params Params, totalSupply math.LegacyDec) (provisions math.LegacyDec) {
-	return Inflation * totalSupply
-```
-
-### BlockProvision
-
-Calculate the provisions generated for each block based on current annual provisions. The provisions are then minted by the `mint` module's `ModuleMinterAccount` and then transferred to the `auth`'s `FeeCollector` `ModuleAccount`.
-
-```go
-BlockProvision(params Params) sdk.Coin {
-	provisionAmt = AnnualProvisions/ params.BlocksPerYear
-	return sdk.NewCoin(params.MintDenom, provisionAmt.Truncate())
-```
-
-
-## Parameters
-
-The minting module contains the following parameters:
-
-| Key                 | Type            | Example                |
-|---------------------|-----------------|------------------------|
-| MintDenom           | string          | "uatom"                |
-| InflationRateChange | string (dec)    | "0.130000000000000000" |
-| InflationMax        | string (dec)    | "0.200000000000000000" |
-| InflationMin        | string (dec)    | "0.070000000000000000" |
-| GoalBonded          | string (dec)    | "0.670000000000000000" |
-| BlocksPerYear       | string (uint64) | "6311520"              |
-
-
-## Events
-
-The minting module emits the following events:
-
-### BeginBlocker
-
-| Type | Attribute Key     | Attribute Value    |
-|------|-------------------|--------------------|
-| mint | bonded_ratio      | {bondedRatio}      |
-| mint | inflation         | {inflation}        |
-| mint | annual_provisions | {annualProvisions} |
-| mint | amount            | {amount}           |
-
-
-## Client
-
-### CLI
-
-A user can query and interact with the `mint` module using the CLI.
-
-#### Query
-
-The `query` commands allow users to query `mint` state.
-
-```shell
-simd query mint --help
-```
-
-##### annual-provisions
-
-The `annual-provisions` command allow users to query the current minting annual provisions value
-
-```shell
-simd query mint annual-provisions [flags]
-```
-
-Example:
-
-```shell
-simd query mint annual-provisions
-```
-
-Example Output:
-
-```shell
-22268504368893.612100895088410693
-```
-
-##### inflation
-
-The `inflation` command allow users to query the current minting inflation value
-
-```shell
-simd query mint inflation [flags]
-```
-
-Example:
-
-```shell
-simd query mint inflation
-```
-
-Example Output:
-
-```shell
-0.199200302563256955
-```
-
-##### params
-
-The `params` command allow users to query the current minting parameters
-
-```shell
-simd query mint params [flags]
-```
-
-Example:
-
-```yml
-blocks_per_year: "4360000"
-goal_bonded: "0.670000000000000000"
-inflation_max: "0.200000000000000000"
-inflation_min: "0.070000000000000000"
-inflation_rate_change: "0.130000000000000000"
-mint_denom: stake
-```
-
-### gRPC
-
-A user can query the `mint` module using gRPC endpoints.
-
-#### AnnualProvisions
-
-The `AnnualProvisions` endpoint allow users to query the current minting annual provisions value
-
-```shell
-/cosmos.mint.v1beta1.Query/AnnualProvisions
-```
-
-Example:
-
-```shell
-grpcurl -plaintext localhost:9090 cosmos.mint.v1beta1.Query/AnnualProvisions
-```
-
-Example Output:
-
-```json
-{
-  "annualProvisions": "1432452520532626265712995618"
-}
-```
-
-#### Inflation
-
-The `Inflation` endpoint allow users to query the current minting inflation value
-
-```shell
-/cosmos.mint.v1beta1.Query/Inflation
-```
-
-Example:
-
-```shell
-grpcurl -plaintext localhost:9090 cosmos.mint.v1beta1.Query/Inflation
-```
-
-Example Output:
-
-```json
-{
-  "inflation": "130197115720711261"
-}
-```
-
-#### Params
-
-The `Params` endpoint allow users to query the current minting parameters
-
-```shell
-/cosmos.mint.v1beta1.Query/Params
-```
-
-Example:
-
-```shell
-grpcurl -plaintext localhost:9090 cosmos.mint.v1beta1.Query/Params
-```
-
-Example Output:
-
-```json
-{
-  "params": {
-    "mintDenom": "stake",
-    "inflationRateChange": "130000000000000000",
-    "inflationMax": "200000000000000000",
-    "inflationMin": "70000000000000000",
-    "goalBonded": "670000000000000000",
-    "blocksPerYear": "6311520"
-  }
-}
-```
-
-### REST
-
-A user can query the `mint` module using REST endpoints.
-
-#### annual-provisions
-
-```shell
-/cosmos/mint/v1beta1/annual_provisions
-```
-
-Example:
-
-```shell
-curl "localhost:1317/cosmos/mint/v1beta1/annual_provisions"
-```
-
-Example Output:
-
-```json
-{
-  "annualProvisions": "1432452520532626265712995618"
-}
-```
-
-#### inflation
-
-```shell
-/cosmos/mint/v1beta1/inflation
-```
-
-Example:
-
-```shell
-curl "localhost:1317/cosmos/mint/v1beta1/inflation"
-```
-
-Example Output:
-
-```json
-{
-  "inflation": "130197115720711261"
-}
-```
-
-#### params
-
-```shell
-/cosmos/mint/v1beta1/params
-```
-
-Example:
-
-```shell
-curl "localhost:1317/cosmos/mint/v1beta1/params"
-```
-
-Example Output:
-
-```json
-{
-  "params": {
-    "mintDenom": "stake",
-    "inflationRateChange": "130000000000000000",
-    "inflationMax": "200000000000000000",
-    "inflationMin": "70000000000000000",
-    "goalBonded": "670000000000000000",
-    "blocksPerYear": "6311520"
-  }
-}
-```
+The minting module emits a `sei_mint_coins{denom}` each time there's a successful minting event.
