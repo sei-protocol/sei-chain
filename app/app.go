@@ -341,7 +341,7 @@ type App struct {
 
 	// Stores mapping counter name to counter value
 	metricCounter      *map[string]float32
-	metricCounterMutex sync.Mutex
+	metricCounterMutex *sync.Mutex
 
 	mounter func()
 }
@@ -413,7 +413,7 @@ func New(
 		txDecoder:          encodingConfig.TxConfig.TxDecoder(),
 		versionInfo:        version.NewInfo(),
 		metricCounter:      &map[string]float32{},
-		metricCounterMutex: sync.Mutex{},
+		metricCounterMutex: &sync.Mutex{},
 	}
 	app.tracingInfo.SetContext(context.Background())
 
