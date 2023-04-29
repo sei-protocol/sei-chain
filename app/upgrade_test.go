@@ -70,11 +70,6 @@ func TestSkipOptimisticProcessingOnUpgrade(t *testing.T) {
 		require.True(t, found)
 		require.False(t, plan.ShouldExecute(testCtx))
 
-		// Should be zero intiially
-		metricsCounters := *testWrapper.App.GetMetricCounters()
-		require.Equal(t, metricsCounters["last_updated_height"], float32(0))
-
-
 		go func() {
 			testWrapper.App.ProcessProposalHandler(testCtx, &abci.RequestProcessProposal{Height: 1})
 		}()

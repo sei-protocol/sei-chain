@@ -340,8 +340,7 @@ type App struct {
 	versionInfo version.Info
 
 	// Stores mapping counter name to counter value
-	metricCounter      *map[string]float32
-	metricCounterMutex *sync.Mutex
+	metricCounter *map[string]float32
 
 	mounter func()
 }
@@ -410,10 +409,9 @@ func New(
 		tracingInfo: &tracing.Info{
 			Tracer: &tr,
 		},
-		txDecoder:          encodingConfig.TxConfig.TxDecoder(),
-		versionInfo:        version.NewInfo(),
-		metricCounter:      &map[string]float32{},
-		metricCounterMutex: &sync.Mutex{},
+		txDecoder:     encodingConfig.TxConfig.TxDecoder(),
+		versionInfo:   version.NewInfo(),
+		metricCounter: &map[string]float32{},
 	}
 	app.tracingInfo.SetContext(context.Background())
 
@@ -1016,25 +1014,19 @@ func (app *App) FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBlock)
 	return &resp, nil
 }
 
-func (app *App) GetMetricCounters() *map[string]float32 {
-	app.metricCounterMutex.Lock()
-	defer app.metricCounterMutex.Unlock()
-	return app.metricCounter
-}
-
 func (app *App) RecordAndEmitMetrics(ctx sdk.Context) {
 	height := float32(ctx.BlockHeight())
-	if (*app.GetMetricCounters())["last_updated_height"] == height {
+	if (*app.metricCounter)["last_updated_height"] == height {
 		app.Logger().Debug("Metrics already recorded for this block", "height", height)
 		return
 	}
 
 	for metricName, value := range *ctx.ContextMemCache().GetMetricCounters() {
-		(*app.GetMetricCounters())[metricName] += float32(value)
+		(*app.metricCounter)[metricName] += float32(value)
 	}
-	(*app.GetMetricCounters())["last_updated_height"] = height
+	(*app.metricCounter)["last_updated_height"] = height
 
-	for metricName, value := range *(app.GetMetricCounters()) {
+	for metricName, value := range *(app.metricCounter) {
 		metrics.SetThroughputMetric(metricName, value)
 	}
 
