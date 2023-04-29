@@ -35,39 +35,60 @@ func TestSkipOptimisticProcessingOnUpgrade(t *testing.T) {
 	valPub := secp256k1.GenPrivKey().PubKey()
 	testWrapper := app.NewTestWrapper(t, tm, valPub)
 
-	testCtx := testWrapper.App.BaseApp.NewContext(false, tmproto.Header{Height: 1, ChainID: "sei-test", Time: tm})
-	testWrapper.App.UpgradeKeeper.ScheduleUpgrade(testWrapper.Ctx, types.Plan{
-		Name:   "test-plan",
-		Height: 4,
-	})
-	res, _ := testWrapper.App.ProcessProposalHandler(testCtx.WithBlockHeight(4), &abci.RequestProcessProposal{
-		Height: 1,
-	})
-	require.Equal(t, res.Status, abci.ResponseProcessProposal_ACCEPT)
-	require.True(t, testWrapper.App.GetOptimisticProcessingInfo().Aborted)
+	t.Parallel()
 
-	testWrapper.App.ClearOptimisticProcessingInfo()
-	testWrapper.App.UpgradeKeeper.ScheduleUpgrade(testWrapper.Ctx, types.Plan{
-		Name:   "test-plan",
-		Height: 5,
+	t.Cleanup(func() {
+		testWrapper.App.ClearOptimisticProcessingInfo()
 	})
 
-	metricsCounters := *testWrapper.App.GetMetricCounters()
-	require.Equal(t, metricsCounters["last_updated_height"], float32(0))
+	t.Run("Test optimistic processing is skipped on upgrade", func(t *testing.T) {
+		// No optimistic processing with upgrade scheduled
+		testCtx := testWrapper.App.BaseApp.NewContext(false, tmproto.Header{Height: 3, ChainID: "sei-test", Time: tm})
 
-	res, _ = testWrapper.App.ProcessProposalHandler(testCtx.WithBlockHeight(4), &abci.RequestProcessProposal{
-		Height: 1,
+		testWrapper.App.UpgradeKeeper.ScheduleUpgrade(testWrapper.Ctx, types.Plan{
+			Name:   "test-plan",
+			Height: testCtx.BlockHeight(),
+		})
+		plan, found := testWrapper.App.UpgradeKeeper.GetUpgradePlan(testCtx)
+		require.True(t, found)
+		require.True(t, plan.ShouldExecute(testCtx))
+
+		res, _ := testWrapper.App.ProcessProposalHandler(testCtx, &abci.RequestProcessProposal{
+			Height: 1,
+		})
+		require.Equal(t, res.Status, abci.ResponseProcessProposal_ACCEPT)
+		require.True(t, testWrapper.App.GetOptimisticProcessingInfo().Aborted)
 	})
 
-	// Wait for height too be updated to be sure that the block is processed
-	require.Eventually(t, func() bool {
+	t.Run("Test optimistic processing if no upgrade", func(t *testing.T) {
+		testCtx := testWrapper.App.BaseApp.NewContext(false, tmproto.Header{Height: 3, ChainID: "sei-test", Time: tm})
+
+		testWrapper.App.UpgradeKeeper.ScheduleUpgrade(testWrapper.Ctx, types.Plan{
+			Name:   "test-plan",
+			Height: testCtx.BlockHeight() + 1,
+		})
+		plan, found := testWrapper.App.UpgradeKeeper.GetUpgradePlan(testCtx)
+		require.True(t, found)
+		require.False(t, plan.ShouldExecute(testCtx))
+
+		// Should be zero intiially
 		metricsCounters := *testWrapper.App.GetMetricCounters()
-		if  value := metricsCounters["last_updated_height"]; value == 4 {
-			return true
-		}
-		return false
-	}, 5 * time.Second, time.Millisecond*100)
+		require.Equal(t, metricsCounters["last_updated_height"], float32(0))
 
-	require.Equal(t, res.Status, abci.ResponseProcessProposal_ACCEPT)
-	require.False(t, testWrapper.App.GetOptimisticProcessingInfo().Aborted)
+		res, _ := testWrapper.App.ProcessProposalHandler(testCtx, &abci.RequestProcessProposal{
+			Height: 1,
+		})
+		// Wait for height too be updated to be sure that the block is processed
+		require.Eventually(t, func() bool {
+			metricsCounters := *testWrapper.App.GetMetricCounters()
+			if  value := metricsCounters["last_updated_height"]; value == 3 {
+				return true
+			}
+			println(metricsCounters["last_updated_height"])
+			return false
+		}, 5 * time.Second, time.Millisecond*100)
+
+		require.Equal(t, res.Status, abci.ResponseProcessProposal_ACCEPT)
+		require.False(t, testWrapper.App.GetOptimisticProcessingInfo().Aborted)
+	})
 }
