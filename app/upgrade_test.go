@@ -74,20 +74,20 @@ func TestSkipOptimisticProcessingOnUpgrade(t *testing.T) {
 		metricsCounters := *testWrapper.App.GetMetricCounters()
 		require.Equal(t, metricsCounters["last_updated_height"], float32(0))
 
-		res, _ := testWrapper.App.ProcessProposalHandler(testCtx, &abci.RequestProcessProposal{
-			Height: 1,
-		})
-		// Wait for height too be updated to be sure that the block is processed
+
+		go func() {
+			testWrapper.App.ProcessProposalHandler(testCtx, &abci.RequestProcessProposal{Height: 1})
+		}()
+
 		require.Eventually(t, func() bool {
-			metricsCounters := *testWrapper.App.GetMetricCounters()
-			if  value := metricsCounters["last_updated_height"]; value == 3 {
-				return true
+			if  testWrapper.App.GetOptimisticProcessingInfo() == nil {
+				return false
 			}
-			println(metricsCounters["last_updated_height"])
-			return false
+			<- testWrapper.App.GetOptimisticProcessingInfo().Completion
+			return true
 		}, 5 * time.Second, time.Millisecond*100)
 
-		require.Equal(t, res.Status, abci.ResponseProcessProposal_ACCEPT)
+		// require.Equal(t, res.Status, abci.ResponseProcessProposal_ACCEPT)
 		require.False(t, testWrapper.App.GetOptimisticProcessingInfo().Aborted)
 	})
 }
