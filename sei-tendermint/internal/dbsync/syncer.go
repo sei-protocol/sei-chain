@@ -61,9 +61,9 @@ type Syncer struct {
 
 func defaultResetDirFn(s *Syncer) {
 	os.RemoveAll(s.applicationDBDirectory)
-	os.MkdirAll(s.applicationDBDirectory, fs.ModeDir)
+	os.MkdirAll(s.applicationDBDirectory, fs.ModePerm)
 	os.RemoveAll(s.wasmStateDirectory)
-	os.MkdirAll(s.wasmStateDirectory, fs.ModeDir)
+	os.MkdirAll(s.wasmStateDirectory, fs.ModePerm)
 }
 
 func NewSyncer(
