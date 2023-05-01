@@ -32,21 +32,39 @@ func (cs ContractState) Validate() error {
 	if len(cs.ContractInfo.ContractAddr) == 0 {
 		return fmt.Errorf("empty contract addr")
 	}
-	// Check for duplicated ID in shortBook
-	longBookIDMap := make(map[uint64]struct{})
+	// Check for duplicated price in a single market
+	// Can only be a one price per pair per contract
+	type MarketPrice struct {
+		priceDenom string
+		assetDenom string
+		price      uint64
+	}
+
+	// Check for duplication in longbook
+	longBookPriceMap := make(map[MarketPrice]struct{})
 	for _, elem := range cs.LongBookList {
-		if _, ok := longBookIDMap[elem.Price.BigInt().Uint64()]; ok {
+		priceElem := MarketPrice{
+			priceDenom: elem.Entry.PriceDenom,
+			assetDenom: elem.Entry.AssetDenom,
+			price:      elem.Price.BigInt().Uint64(),
+		}
+		if _, ok := longBookPriceMap[priceElem]; ok {
 			return fmt.Errorf("duplicated price for longBook")
 		}
-		longBookIDMap[elem.Price.BigInt().Uint64()] = struct{}{}
+		longBookPriceMap[priceElem] = struct{}{}
 	}
-	// Check for duplicated ID in shortBook
-	shortBookIDMap := make(map[uint64]struct{})
+	// Check for duplication in shortbook
+	shortBookPriceMap := make(map[MarketPrice]struct{})
 	for _, elem := range cs.ShortBookList {
-		if _, ok := shortBookIDMap[elem.Price.BigInt().Uint64()]; ok {
+		priceElem := MarketPrice{
+			priceDenom: elem.Entry.PriceDenom,
+			assetDenom: elem.Entry.AssetDenom,
+			price:      elem.Price.BigInt().Uint64(),
+		}
+		if _, ok := shortBookPriceMap[priceElem]; ok {
 			return fmt.Errorf("duplicated price for shortBook")
 		}
-		shortBookIDMap[elem.Price.BigInt().Uint64()] = struct{}{}
+		shortBookPriceMap[priceElem] = struct{}{}
 	}
 	return nil
 }
