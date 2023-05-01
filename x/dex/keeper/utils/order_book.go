@@ -41,6 +41,7 @@ func PopulateAllOrderbooks(
 	var orderBooks = datastructures.NewTypedNestedSyncMap[string, dextypesutils.PairString, *types.OrderBook]()
 	wg := sync.WaitGroup{}
 	for contractAddr, pairs := range contractsAndPairs {
+		orderBooks.Store(contractAddr, datastructures.NewTypedSyncMap[dextypesutils.PairString, *types.OrderBook]())
 		for _, pair := range pairs {
 			wg.Add(1)
 			go func(contractAddr string, pair types.Pair) {
