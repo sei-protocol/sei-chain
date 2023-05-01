@@ -1,10 +1,14 @@
 package types
 
 import (
+	"encoding/json"
 	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"github.com/tendermint/tendermint/abci/types"
+	"github.com/tendermint/tendermint/internal/jsontypes"
 )
 
 // Verify that the event data types satisfy their shared interface.
@@ -40,4 +44,23 @@ func TestQueryForEvent(t *testing.T) {
 		"tm.event = 'NewEvidence'",
 		QueryForEvent(EventNewEvidenceValue).String(),
 	)
+}
+
+func TestTryUnmarshalForEvent(t *testing.T) {
+	eventData := EventDataTx{
+		TxResult: types.TxResult{
+			Height: 123,
+		},
+	}
+	garbage := json.RawMessage("stuff")
+
+	bz, err := jsontypes.Marshal(eventData)
+	require.NoError(t, err)
+
+	unmarshaled, err := TryUnmarshalEventData(json.RawMessage(bz))
+	require.NoError(t, err)
+	assert.Equal(t, eventData, unmarshaled)
+
+	_, err = TryUnmarshalEventData(garbage)
+	require.Error(t, err)
 }

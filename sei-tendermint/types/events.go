@@ -1,6 +1,7 @@
 package types
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -518,4 +519,13 @@ func eventWithAttr(etype, value string) abci.Event {
 			Key: []byte(parts[1]), Value: []byte(value),
 		}},
 	}
+}
+
+func TryUnmarshalEventData(data json.RawMessage) (EventData, error) {
+	var eventData EventData
+	err := jsontypes.Unmarshal(data, &eventData)
+	if err != nil {
+		return nil, err
+	}
+	return eventData, nil
 }
