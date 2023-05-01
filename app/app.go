@@ -940,8 +940,8 @@ func (app *App) PrepareProposalHandler(ctx sdk.Context, req *abci.RequestPrepare
 	}, nil
 }
 
-func (app *App) GetOptimisticProcessingInfo() OptimisticProcessingInfo {
-	return *app.optimisticProcessingInfo
+func (app *App) GetOptimisticProcessingInfo() *OptimisticProcessingInfo {
+	return app.optimisticProcessingInfo
 }
 
 func (app *App) ClearOptimisticProcessingInfo() {
