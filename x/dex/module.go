@@ -301,6 +301,7 @@ func (am AppModule) EndBlock(ctx sdk.Context, _ abci.RequestEndBlock) (ret []abc
 	}
 	for _, c := range validContractsInfoAtBeginning {
 		if _, ok := validContractAddrs[c.ContractAddr]; !ok {
+			ctx.Logger().Error(fmt.Sprintf("Unregistering invalid contract %s", c.ContractAddr))
 			am.keeper.DoUnregisterContract(ctx, c)
 		}
 	}
