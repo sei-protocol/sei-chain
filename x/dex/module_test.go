@@ -458,6 +458,9 @@ func TestEndBlockPartialRollback(t *testing.T) {
 	// No state change should've been persisted for bad contract
 	matchResult, _ := dexkeeper.GetMatchResultState(ctx, keepertest.TestContract)
 	require.Equal(t, &types.MatchResult{}, matchResult)
+	// bad contract should be unregistered
+	_, err = dexkeeper.GetContract(ctx, keepertest.TestContract)
+	require.Equal(t, types.ErrContractNotExists, err)
 	// state change should've been persisted for good contract
 	matchResult, _ = dexkeeper.GetMatchResultState(ctx, contractAddr.String())
 	require.Equal(t, 1, len(matchResult.Orders))
