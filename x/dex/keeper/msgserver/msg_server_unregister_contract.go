@@ -24,7 +24,7 @@ func (k msgServer) UnregisterContract(goCtx context.Context, msg *types.MsgUnreg
 	if contract.Creator != msg.Creator {
 		return nil, sdkerrors.ErrUnauthorized
 	}
-	if err := k.DoUnregisterContract(ctx, contract); err != nil {
+	if err := k.DoUnregisterContractWithRefund(ctx, contract); err != nil {
 		return nil, err
 	}
 

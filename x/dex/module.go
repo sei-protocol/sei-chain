@@ -301,10 +301,7 @@ func (am AppModule) EndBlock(ctx sdk.Context, _ abci.RequestEndBlock) (ret []abc
 	}
 	for _, c := range validContractsInfoAtBeginning {
 		if _, ok := validContractAddrs[c.ContractAddr]; !ok {
-			// unregister here also refunds rents, which might be a behavior we want to revisit if spamming becomes bad
-			if err := am.keeper.DoUnregisterContract(ctx, c); err != nil {
-				ctx.Logger().Error("unregister %s encountered error %s", c.ContractAddr, err)
-			}
+			am.keeper.DoUnregisterContract(ctx, c)
 		}
 	}
 
