@@ -618,14 +618,17 @@ func TestEndBlockRollbackWithRentCharge(t *testing.T) {
 	)
 
 	ctx = ctx.WithBlockHeight(1)
+	creatorBalanceBefore := bankkeeper.GetBalance(ctx, testAccount, "usei")
 	testApp.EndBlocker(ctx, abci.RequestEndBlock{})
 	// no state change should've been persisted for good contract because it should've run out of gas
 	matchResult, _ := dexkeeper.GetMatchResultState(ctx, contractAddr.String())
 	require.Equal(t, 0, len(matchResult.Orders))
-	// rent should still be charged even if the contract failed
-	contract, err := dexkeeper.GetContract(ctx, contractAddr.String())
-	require.Nil(t, err)
-	require.Zero(t, contract.RentBalance)
+	// rent should still be charged even if the contract failed, so no rent should be sent to the creator after
+	// auto unregister
+	_, err = dexkeeper.GetContract(ctx, contractAddr.String())
+	require.NotNil(t, err) // auto-unregistered
+	creatorBalanceAfter := bankkeeper.GetBalance(ctx, testAccount, "usei")
+	require.Equal(t, creatorBalanceBefore, creatorBalanceAfter)
 }
 
 func TestEndBlockContractWithoutPair(t *testing.T) {
