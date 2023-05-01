@@ -273,6 +273,7 @@ func (am AppModule) EndBlock(ctx sdk.Context, _ abci.RequestEndBlock) (ret []abc
 	defer dexutils.GetMemState(ctx.Context()).Clear(ctx)
 
 	validContractsInfo := am.getAllContractInfo(ctx)
+	validContractsInfoAtBeginning := validContractsInfo
 	// Each iteration is atomic. If an iteration finishes without any error, it will return,
 	// otherwise it will rollback any state change, filter out contracts that cause the error,
 	// and proceed to the next iteration. The loop is guaranteed to finish since
@@ -292,6 +293,15 @@ func (am AppModule) EndBlock(ctx sdk.Context, _ abci.RequestEndBlock) (ret []abc
 		if iterCounter == 0 {
 			ctx.Logger().Error("All contracts failed in dex EndBlock. Doing nothing.")
 			break
+		}
+	}
+	validContractAddrs := map[string]struct{}{}
+	for _, c := range validContractsInfo {
+		validContractAddrs[c.ContractAddr] = struct{}{}
+	}
+	for _, c := range validContractsInfoAtBeginning {
+		if _, ok := validContractAddrs[c.ContractAddr]; !ok {
+			am.keeper.DoUnregisterContract(ctx, c)
 		}
 	}
 
