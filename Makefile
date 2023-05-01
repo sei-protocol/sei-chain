@@ -7,8 +7,6 @@ BUILDDIR ?= $(CURDIR)/build
 export PROJECT_HOME=$(shell git rev-parse --show-toplevel)
 export GO_PKG_PATH=$(HOME)/go/pkg
 export GO111MODULE = on
-NITRO_RELEASE_PATH := $(PROJECT_HOME)/nitro-replayer/target/release
-NITRO_LIB_PATH := $(PROJECT_HOME)/x/nitro/
 
 # process build tags
 
@@ -69,9 +67,6 @@ all: lint install
 install: go.sum
 		go install $(BUILD_FLAGS) ./cmd/seid
 
-# In case when running seid fails with nitro issue or if you make changes to nitro, please use install-all
-install-all: build-nitro install
-
 install-price-feeder: go.sum
 		go install $(BUILD_FLAGS) ./oracle/price-feeder
 
@@ -95,18 +90,6 @@ build:
 
 build-price-feeder:
 	go build $(BUILD_FLAGS) -o ./build/price-feeder ./oracle/price-feeder
-
-# In case running seid fails with nitro issue or if you make changes to nitro, please use build-all
-build-all: build-nitro build
-
-build-nitro:
-	@cd $(PROJECT_HOME)/nitro-replayer && cargo build --release
-	if [ -f "$(NITRO_RELEASE_PATH)/libnitro_replayer.dylib" ]; then \
-		cp $(NITRO_RELEASE_PATH)/libnitro_replayer.dylib $(NITRO_LIB_PATH)/replay; \
-	fi
-	if [ -f "$(NITRO_RELEASE_PATH)/libnitro_replayer.x86_64.so" ]; then \
-		cp $(NITRO_RELEASE_PATH)/libnitro_replayer.x86_64.so $(NITRO_LIB_PATH)/replay; \
-	fi
 
 clean:
 	rm -rf ./build
