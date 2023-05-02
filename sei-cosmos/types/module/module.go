@@ -32,7 +32,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
+	"time"
 
+	"github.com/cosmos/cosmos-sdk/telemetry"
 	"github.com/gorilla/mux"
 	"github.com/grpc-ecosystem/grpc-gateway/runtime"
 	"github.com/spf13/cobra"
@@ -497,10 +499,13 @@ func (m Manager) RunMigrations(ctx sdk.Context, cfg Configurator, fromVM Version
 func (m *Manager) BeginBlock(ctx sdk.Context, req abci.RequestBeginBlock) abci.ResponseBeginBlock {
 	ctx = ctx.WithEventManager(sdk.NewEventManager())
 
+	defer telemetry.MeasureSince(time.Now(), "module", "total_begin_block")
 	for _, moduleName := range m.OrderBeginBlockers {
 		module, ok := m.Modules[moduleName].(BeginBlockAppModule)
 		if ok {
+			moduleStartTime := time.Now()
 			module.BeginBlock(ctx, req)
+			telemetry.ModuleMeasureSince(moduleName, moduleStartTime, "module", "begin_block")
 		}
 	}
 
@@ -515,12 +520,15 @@ func (m *Manager) BeginBlock(ctx sdk.Context, req abci.RequestBeginBlock) abci.R
 func (m *Manager) MidBlock(ctx sdk.Context, height int64) []abci.Event {
 	ctx = ctx.WithEventManager(sdk.NewEventManager())
 
+	defer telemetry.MeasureSince(time.Now(), "module", "total_mid_block")
 	for _, moduleName := range m.OrderMidBlockers {
 		module, ok := m.Modules[moduleName].(MidBlockAppModule)
 		if !ok {
 			continue
 		}
+		moduleStartTime := time.Now()
 		module.MidBlock(ctx, height)
+		telemetry.ModuleMeasureSince(moduleName, moduleStartTime, "module", "mid_block")
 	}
 
 	return ctx.EventManager().ABCIEvents()
@@ -532,14 +540,15 @@ func (m *Manager) MidBlock(ctx sdk.Context, height int64) []abci.Event {
 func (m *Manager) EndBlock(ctx sdk.Context, req abci.RequestEndBlock) abci.ResponseEndBlock {
 	ctx = ctx.WithEventManager(sdk.NewEventManager())
 	validatorUpdates := []abci.ValidatorUpdate{}
-
+	defer telemetry.MeasureSince(time.Now(), "module", "total_end_block")
 	for _, moduleName := range m.OrderEndBlockers {
 		module, ok := m.Modules[moduleName].(EndBlockAppModule)
 		if !ok {
 			continue
 		}
+		moduleStartTime := time.Now()
 		moduleValUpdates := module.EndBlock(ctx, req)
-
+		telemetry.ModuleMeasureSince(moduleName, moduleStartTime, "module", "end_block")
 		// use these validator updates if provided, the module manager assumes
 		// only one module will update the validator set
 		if len(moduleValUpdates) > 0 {
@@ -549,6 +558,7 @@ func (m *Manager) EndBlock(ctx sdk.Context, req abci.RequestEndBlock) abci.Respo
 
 			validatorUpdates = moduleValUpdates
 		}
+
 	}
 
 	return abci.ResponseEndBlock{
