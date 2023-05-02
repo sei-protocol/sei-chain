@@ -4,8 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"time"
 
 	"github.com/CosmWasm/wasmd/x/wasm"
+	"github.com/cosmos/cosmos-sdk/telemetry"
 	"github.com/gorilla/mux"
 	"github.com/grpc-ecosystem/grpc-gateway/runtime"
 	"github.com/spf13/cobra"
@@ -223,7 +225,13 @@ func (AppModule) ConsensusVersion() uint64 { return 12 }
 
 func (am AppModule) getAllContractInfo(ctx sdk.Context) []types.ContractInfoV2 {
 	// Do not process any contract that has zero rent balance
-	return utils.Filter(am.keeper.GetAllContractInfo(ctx), func(c types.ContractInfoV2) bool { return c.RentBalance > 0 })
+	defer telemetry.MeasureSince(time.Now(), am.Name(), "get_all_contract_info")
+	allRegisteredContracts := am.keeper.GetAllContractInfo(ctx)
+	validContracts := utils.Filter(allRegisteredContracts, func(c types.ContractInfoV2) bool { return c.RentBalance > 0 })
+	telemetry.SetGauge(float32(len(allRegisteredContracts)), am.Name(), "num_of_registered_contracts")
+	telemetry.SetGauge(float32(len(validContracts)), am.Name(), "num_of_valid_contracts")
+	telemetry.SetGauge(float32(len(allRegisteredContracts)-len(validContracts)), am.Name(), "num_of_zero_balance_contracts")
+	return validContracts
 }
 
 // BeginBlock executes all ABCI BeginBlock logic respective to the capability module.
@@ -279,6 +287,7 @@ func (am AppModule) EndBlock(ctx sdk.Context, _ abci.RequestEndBlock) (ret []abc
 	// and proceed to the next iteration. The loop is guaranteed to finish since
 	// `validContractAddresses` will always decrease in size every iteration.
 	iterCounter := len(validContractsInfo)
+	endBlockerStartTime := time.Now()
 	for len(validContractsInfo) > 0 {
 		newValidContractsInfo, ctx, ok := contract.EndBlockerAtomic(ctx, &am.keeper, validContractsInfo, am.tracingInfo)
 		if ok {
@@ -295,6 +304,7 @@ func (am AppModule) EndBlock(ctx sdk.Context, _ abci.RequestEndBlock) (ret []abc
 			break
 		}
 	}
+	telemetry.MeasureSince(endBlockerStartTime, am.Name(), "total_end_blocker_atomic")
 	validContractAddrs := map[string]struct{}{}
 	for _, c := range validContractsInfo {
 		validContractAddrs[c.ContractAddr] = struct{}{}
@@ -303,6 +313,7 @@ func (am AppModule) EndBlock(ctx sdk.Context, _ abci.RequestEndBlock) (ret []abc
 		if _, ok := validContractAddrs[c.ContractAddr]; !ok {
 			ctx.Logger().Error(fmt.Sprintf("Unregistering invalid contract %s", c.ContractAddr))
 			am.keeper.DoUnregisterContract(ctx, c)
+			telemetry.IncrCounter(float32(1), am.Name(), "total_unregistered_contracts")
 		}
 	}
 
