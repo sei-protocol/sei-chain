@@ -229,7 +229,8 @@ func (am AppModule) getAllContractInfo(ctx sdk.Context) []types.ContractInfoV2 {
 	allRegisteredContracts := am.keeper.GetAllContractInfo(ctx)
 	validContracts := utils.Filter(allRegisteredContracts, func(c types.ContractInfoV2) bool { return c.RentBalance > 0 })
 	telemetry.SetGauge(float32(len(allRegisteredContracts)), am.Name(), "num_of_registered_contracts")
-	telemetry.SetGauge(float32(len(validContracts)), am.Name(), "num_of_valid_contracts_count")
+	telemetry.SetGauge(float32(len(validContracts)), am.Name(), "num_of_valid_contracts")
+	telemetry.SetGauge(float32(len(allRegisteredContracts)-len(validContracts)), am.Name(), "num_of_invalid_contracts")
 	return validContracts
 }
 
