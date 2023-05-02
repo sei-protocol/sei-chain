@@ -230,7 +230,7 @@ func (am AppModule) getAllContractInfo(ctx sdk.Context) []types.ContractInfoV2 {
 	validContracts := utils.Filter(allRegisteredContracts, func(c types.ContractInfoV2) bool { return c.RentBalance > 0 })
 	telemetry.SetGauge(float32(len(allRegisteredContracts)), am.Name(), "num_of_registered_contracts")
 	telemetry.SetGauge(float32(len(validContracts)), am.Name(), "num_of_valid_contracts")
-	telemetry.SetGauge(float32(len(allRegisteredContracts)-len(validContracts)), am.Name(), "num_of_invalid_contracts")
+	telemetry.SetGauge(float32(len(allRegisteredContracts)-len(validContracts)), am.Name(), "num_of_zero_balance_contracts")
 	return validContracts
 }
 
@@ -313,6 +313,7 @@ func (am AppModule) EndBlock(ctx sdk.Context, _ abci.RequestEndBlock) (ret []abc
 		if _, ok := validContractAddrs[c.ContractAddr]; !ok {
 			ctx.Logger().Error(fmt.Sprintf("Unregistering invalid contract %s", c.ContractAddr))
 			am.keeper.DoUnregisterContract(ctx, c)
+			telemetry.IncrCounter(float32(1), am.Name(), "total_unregistered_contracts")
 		}
 	}
 
