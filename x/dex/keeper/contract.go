@@ -99,7 +99,7 @@ func (k Keeper) ChargeRentForGas(ctx sdk.Context, contractAddr string, gasUsed u
 		if err := k.SetContract(ctx, &contract); err != nil {
 			return err
 		}
-		return errors.New("insufficient rent")
+		return types.ErrInsufficientRent
 	}
 	contract.RentBalance -= uint64(gasPrice)
 	return k.SetContract(ctx, &contract)

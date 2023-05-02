@@ -2,6 +2,7 @@ package contract
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -34,6 +35,7 @@ const LogExecSigSendAfter = 2 * time.Second
 type environment struct {
 	validContractsInfo          []types.ContractInfoV2
 	failedContractAddresses     datastructures.SyncSet[string]
+	outOfRentContractAddresses  datastructures.SyncSet[string]
 	settlementsByContract       *datastructures.TypedSyncMap[string, []*types.SettlementEntry]
 	executionTerminationSignals *datastructures.TypedSyncMap[string, chan struct{}]
 	registeredPairs             *datastructures.TypedSyncMap[string, []types.Pair]
@@ -43,7 +45,7 @@ type environment struct {
 	eventManagerMutex *sync.Mutex
 }
 
-func EndBlockerAtomic(ctx sdk.Context, keeper *keeper.Keeper, validContractsInfo []types.ContractInfoV2, tracingInfo *tracing.Info) ([]types.ContractInfoV2, sdk.Context, bool) {
+func EndBlockerAtomic(ctx sdk.Context, keeper *keeper.Keeper, validContractsInfo []types.ContractInfoV2, tracingInfo *tracing.Info) ([]types.ContractInfoV2, []types.ContractInfoV2, sdk.Context, bool) {
 	tracer := tracingInfo.Tracer
 	spanCtx, span := tracingInfo.Start("DexEndBlockerAtomic")
 	defer span.End()
@@ -78,7 +80,7 @@ func EndBlockerAtomic(ctx sdk.Context, keeper *keeper.Keeper, validContractsInfo
 		postRunRents := keeper.GetRentsForContracts(cachedCtx, seiutils.Map(validContractsInfo, func(c types.ContractInfoV2) string { return c.ContractAddr }))
 		TransferRentFromDexToCollector(ctx, keeper.BankKeeper, preRunRents, postRunRents)
 		msCached.Write()
-		return env.validContractsInfo, ctx, true
+		return env.validContractsInfo, []types.ContractInfoV2{}, ctx, true
 	}
 
 	// persistent contract rent charges for failed contracts and discard everything else
@@ -103,7 +105,7 @@ func EndBlockerAtomic(ctx sdk.Context, keeper *keeper.Keeper, validContractsInfo
 
 	// restore keeper in-memory state
 	newGoContext := context.WithValue(ctx.Context(), dexutils.DexMemStateContextKey, memStateCopy)
-	return filterNewValidContracts(ctx, env), ctx.WithContext(newGoContext), false
+	return filterNewValidContracts(ctx, env), getOutOfRentContracts(ctx, env), ctx.WithContext(newGoContext), false
 }
 
 func newEnv(ctx sdk.Context, validContractsInfo []types.ContractInfoV2, keeper *keeper.Keeper) *environment {
@@ -123,6 +125,7 @@ func newEnv(ctx sdk.Context, validContractsInfo []types.ContractInfoV2, keeper *
 	return &environment{
 		validContractsInfo:          validContractsInfo,
 		failedContractAddresses:     datastructures.NewSyncSet([]string{}),
+		outOfRentContractAddresses:  datastructures.NewSyncSet([]string{}),
 		settlementsByContract:       settlementsByContract,
 		executionTerminationSignals: executionTerminationSignals,
 		registeredPairs:             registeredPairs,
@@ -130,6 +133,14 @@ func newEnv(ctx sdk.Context, validContractsInfo []types.ContractInfoV2, keeper *
 		finalizeMsgMutex:            &sync.Mutex{},
 		eventManagerMutex:           &sync.Mutex{},
 	}
+}
+
+func (e *environment) addError(contractAddr string, err error) {
+	if err == types.ErrInsufficientRent {
+		e.outOfRentContractAddresses.Add(contractAddr)
+		return
+	}
+	e.failedContractAddresses.Add(contractAddr)
 }
 
 func cacheContext(ctx sdk.Context, env *environment) (sdk.Context, sdk.CacheMultiStore) {
@@ -159,7 +170,7 @@ func handleDeposits(spanCtx context.Context, ctx sdk.Context, env *environment, 
 			continue
 		}
 		if err := keeperWrapper.HandleEBDeposit(spanCtx, ctx, tracer, contract.ContractAddr); err != nil {
-			env.failedContractAddresses.Add(contract.ContractAddr)
+			env.addError(contract.ContractAddr, err)
 		}
 	}
 }
@@ -180,7 +191,7 @@ func handleSettlements(ctx context.Context, sdkCtx sdk.Context, env *environment
 		}
 		if err := HandleSettlements(sdkCtx, contractAddr, keeper, settlements); err != nil {
 			sdkCtx.Logger().Error(fmt.Sprintf("Error handling settlements for %s", contractAddr))
-			env.failedContractAddresses.Add(contractAddr)
+			env.addError(contractAddr, err)
 		}
 		return true
 	})
@@ -197,7 +208,7 @@ func handleUnfulfilledMarketOrders(ctx context.Context, sdkCtx sdk.Context, env 
 			}
 			if err := CancelUnfulfilledMarketOrders(ctx, sdkCtx, contract.ContractAddr, keeper, registeredPairs, tracer); err != nil {
 				sdkCtx.Logger().Error(fmt.Sprintf("Error cancelling unfulfilled market orders for %s", contract.ContractAddr))
-				env.failedContractAddresses.Add(contract.ContractAddr)
+				env.addError(contract.ContractAddr, err)
 			}
 		}
 	}
@@ -230,10 +241,10 @@ func orderMatchingRunnable(ctx context.Context, sdkContext sdk.Context, env *env
 
 	if !pairFound || !found {
 		sdkContext.Logger().Error(fmt.Sprintf("No pair or order book for %s", contractInfo.ContractAddr))
-		env.failedContractAddresses.Add(contractInfo.ContractAddr)
+		env.addError(contractInfo.ContractAddr, errors.New("no pair found (internal error)"))
 	} else if settlements, err := HandleExecutionForContract(ctx, sdkContext, contractInfo, keeper, pairs, orderBooks, tracer); err != nil {
 		sdkContext.Logger().Error(fmt.Sprintf("Error for EndBlock of %s", contractInfo.ContractAddr))
-		env.failedContractAddresses.Add(contractInfo.ContractAddr)
+		env.addError(contractInfo.ContractAddr, err)
 	} else {
 		env.settlementsByContract.Store(contractInfo.ContractAddr, settlements)
 	}
@@ -247,14 +258,27 @@ func orderMatchingRunnable(ctx context.Context, sdkContext sdk.Context, env *env
 func filterNewValidContracts(ctx sdk.Context, env *environment) []types.ContractInfoV2 {
 	newValidContracts := []types.ContractInfoV2{}
 	for _, contract := range env.validContractsInfo {
-		if !env.failedContractAddresses.Contains(contract.ContractAddr) {
+		if !env.failedContractAddresses.Contains(contract.ContractAddr) && !env.outOfRentContractAddresses.Contains(contract.ContractAddr) {
 			newValidContracts = append(newValidContracts, contract)
 		}
 	}
 	for _, failedContractAddress := range env.failedContractAddresses.ToOrderedSlice(datastructures.StringComparator) {
 		dexutils.GetMemState(ctx.Context()).DeepFilterAccount(ctx, failedContractAddress)
 	}
+	for _, outOfRentContractAddress := range env.outOfRentContractAddresses.ToOrderedSlice(datastructures.StringComparator) {
+		dexutils.GetMemState(ctx.Context()).DeepFilterAccount(ctx, outOfRentContractAddress)
+	}
 	return newValidContracts
+}
+
+func getOutOfRentContracts(ctx sdk.Context, env *environment) []types.ContractInfoV2 {
+	outOfRentContracts := []types.ContractInfoV2{}
+	for _, contract := range env.validContractsInfo {
+		if env.outOfRentContractAddresses.Contains(contract.ContractAddr) {
+			outOfRentContracts = append(outOfRentContracts, contract)
+		}
+	}
+	return outOfRentContracts
 }
 
 func TransferRentFromDexToCollector(ctx sdk.Context, bankKeeper bankkeeper.Keeper, preRents map[string]uint64, postRents map[string]uint64) {
