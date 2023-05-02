@@ -304,7 +304,7 @@ func (am AppModule) EndBlock(ctx sdk.Context, _ abci.RequestEndBlock) (ret []abc
 			break
 		}
 	}
-	telemetry.MeasureSince(endBlockerStartTime, am.Name(), am.Name(), "total_end_blocker_atomic")
+	telemetry.MeasureSince(endBlockerStartTime, am.Name(), "total_end_blocker_atomic")
 	validContractAddrs := map[string]struct{}{}
 	for _, c := range validContractsInfo {
 		validContractAddrs[c.ContractAddr] = struct{}{}
