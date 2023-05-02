@@ -72,7 +72,7 @@ func EndBlockerAtomic(ctx sdk.Context, keeper *keeper.Keeper, validContractsInfo
 	handleSettlements(spanCtx, cachedCtx, env, keeper, tracer)
 	handleUnfulfilledMarketOrders(spanCtx, cachedCtx, env, keeper, tracer)
 
-	telemetry.SetGauge(float32(env.failedContractAddresses.Size()), "dex", "failed_contracts_count")
+	telemetry.SetGauge(float32(env.failedContractAddresses.Size()), "dex", "num_of_failed_contracts")
 	// No error is thrown for any contract. This should happen most of the time.
 	if env.failedContractAddresses.Size() == 0 {
 		postRunRents := keeper.GetRentsForContracts(cachedCtx, seiutils.Map(validContractsInfo, func(c types.ContractInfoV2) string { return c.ContractAddr }))
