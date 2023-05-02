@@ -58,6 +58,7 @@ func (app *BaseApp) InitChain(ctx context.Context, req *abci.RequestInitChain) (
 		app.StoreConsensusParams(app.deliverState.ctx, req.ConsensusParams)
 		app.StoreConsensusParams(app.prepareProposalState.ctx, req.ConsensusParams)
 		app.StoreConsensusParams(app.processProposalState.ctx, req.ConsensusParams)
+		app.StoreConsensusParams(app.checkState.ctx, req.ConsensusParams)
 	}
 
 	app.SetDeliverStateToCommit()

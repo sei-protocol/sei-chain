@@ -1120,3 +1120,7 @@ func (app *BaseApp) ReloadDB() error {
 	}
 	return nil
 }
+
+func (app *BaseApp) GetCheckCtx() sdk.Context {
+	return app.checkState.ctx
+}
