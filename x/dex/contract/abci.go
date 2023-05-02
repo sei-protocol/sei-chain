@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/cosmos/cosmos-sdk/telemetry"
 	seiutils "github.com/sei-protocol/sei-chain/utils"
 	"github.com/sei-protocol/sei-chain/utils/logging"
 	"github.com/sei-protocol/sei-chain/utils/tracing"
@@ -46,6 +47,8 @@ func EndBlockerAtomic(ctx sdk.Context, keeper *keeper.Keeper, validContractsInfo
 	tracer := tracingInfo.Tracer
 	spanCtx, span := tracingInfo.Start("DexEndBlockerAtomic")
 	defer span.End()
+	defer telemetry.MeasureSince(time.Now(), "dex", "end_blocker_atomic")
+
 	env := newEnv(ctx, validContractsInfo, keeper)
 	cachedCtx, msCached := cacheContext(ctx, env)
 	memStateCopy := dexutils.GetMemState(cachedCtx.Context()).DeepCopy()
@@ -69,6 +72,7 @@ func EndBlockerAtomic(ctx sdk.Context, keeper *keeper.Keeper, validContractsInfo
 	handleSettlements(spanCtx, cachedCtx, env, keeper, tracer)
 	handleUnfulfilledMarketOrders(spanCtx, cachedCtx, env, keeper, tracer)
 
+	telemetry.SetGauge(float32(env.failedContractAddresses.Size()), "dex", "failed_contracts_count")
 	// No error is thrown for any contract. This should happen most of the time.
 	if env.failedContractAddresses.Size() == 0 {
 		postRunRents := keeper.GetRentsForContracts(cachedCtx, seiutils.Map(validContractsInfo, func(c types.ContractInfoV2) string { return c.ContractAddr }))
@@ -148,6 +152,7 @@ func handleDeposits(spanCtx context.Context, ctx sdk.Context, env *environment, 
 	// Handle deposit sequentially since they mutate `bank` state which is shared by all contracts
 	_, span := (*tracer).Start(spanCtx, "handleDeposits")
 	defer span.End()
+	defer telemetry.MeasureSince(time.Now(), "dex", "handle_deposits")
 	keeperWrapper := dexkeeperabci.KeeperWrapper{Keeper: keeper}
 	for _, contract := range env.validContractsInfo {
 		if !contract.NeedOrderMatching {
@@ -162,6 +167,7 @@ func handleDeposits(spanCtx context.Context, ctx sdk.Context, env *environment, 
 func handleSettlements(ctx context.Context, sdkCtx sdk.Context, env *environment, keeper *keeper.Keeper, tracer *otrace.Tracer) {
 	_, span := (*tracer).Start(ctx, "DexEndBlockerHandleSettlements")
 	defer span.End()
+	defer telemetry.MeasureSince(time.Now(), "dex", "handle_settlements")
 	contractsNeedOrderMatching := datastructures.NewSyncSet([]string{})
 	for _, contract := range env.validContractsInfo {
 		if contract.NeedOrderMatching {
@@ -182,6 +188,7 @@ func handleSettlements(ctx context.Context, sdkCtx sdk.Context, env *environment
 
 func handleUnfulfilledMarketOrders(ctx context.Context, sdkCtx sdk.Context, env *environment, keeper *keeper.Keeper, tracer *otrace.Tracer) {
 	// Cancel unfilled market orders
+	defer telemetry.MeasureSince(time.Now(), "dex", "handle_unfulfilled_market_orders")
 	for _, contract := range env.validContractsInfo {
 		if contract.NeedOrderMatching {
 			registeredPairs, found := env.registeredPairs.Load(contract.ContractAddr)
@@ -199,6 +206,7 @@ func handleUnfulfilledMarketOrders(ctx context.Context, sdkCtx sdk.Context, env 
 func orderMatchingRunnable(ctx context.Context, sdkContext sdk.Context, env *environment, keeper *keeper.Keeper, contractInfo types.ContractInfoV2, tracer *otrace.Tracer) {
 	_, span := (*tracer).Start(ctx, "orderMatchingRunnable")
 	defer span.End()
+	defer telemetry.MeasureSince(time.Now(), "dex", "order_matching_runnable")
 	defer func() {
 		if channel, ok := env.executionTerminationSignals.Load(contractInfo.ContractAddr); ok {
 			_, err := logging.LogIfNotDoneAfter(sdkContext.Logger(), func() (struct{}, error) {
