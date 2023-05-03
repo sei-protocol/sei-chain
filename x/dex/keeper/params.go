@@ -12,6 +12,10 @@ func (k Keeper) GetParams(ctx sdk.Context) types.Params {
 	return params
 }
 
+func (k Keeper) GetSettlementGasAllowance(ctx sdk.Context, numSettlements int) uint64 {
+	return k.GetParams(ctx).GasAllowancePerSettlement * uint64(numSettlements)
+}
+
 // SetParams set the params
 func (k Keeper) SetParams(ctx sdk.Context, params types.Params) {
 	k.Paramstore.SetParamSet(ctx, &params)

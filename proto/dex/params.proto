@@ -39,4 +39,8 @@ message Params {
     (gogoproto.jsontag)   = "min_rent_deposit",
     (gogoproto.moretags) = "yaml:\"min_rent_deposit\""
   ];
+  uint64 gas_allowance_per_settlement = 8 [
+    (gogoproto.jsontag)   = "gas_allowance_per_settlement",
+    (gogoproto.moretags) = "yaml:\"gas_allowance_per_settlement\""
+  ];
 }
