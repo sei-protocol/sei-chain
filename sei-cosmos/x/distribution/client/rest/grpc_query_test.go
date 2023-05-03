@@ -238,7 +238,7 @@ func (s *IntegrationTestSuite) TestQueryDelegatorRewardsGRPC() {
 	val := s.network.Validators[0]
 	baseUrl := val.APIAddress
 
-	rewards, err := sdk.ParseDecCoins("9.8usei")
+	rewards, err := sdk.ParseDecCoins("10.0usei")
 	s.Require().NoError(err)
 
 	testCases := []struct {
