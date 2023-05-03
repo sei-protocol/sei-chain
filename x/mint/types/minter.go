@@ -102,8 +102,8 @@ func (m *Minter) RecordSuccessfulMint(ctx sdk.Context, epoch epochTypes.Epoch, m
 	ctx.EventManager().EmitEvent(
 		sdk.NewEvent(
 			EventTypeMint,
-			sdk.NewAttribute(AttributeEpochNumber, fmt.Sprintf("%d", epoch.GetCurrentEpoch())),
-			sdk.NewAttribute(AttributeKeyEpochProvisions, m.GetLastMintDate()),
+			sdk.NewAttribute(AttributeMintEpoch, fmt.Sprintf("%d", epoch.GetCurrentEpoch())),
+			sdk.NewAttribute(AttribtueMintDate, m.GetLastMintDate()),
 			sdk.NewAttribute(sdk.AttributeKeyAmount, fmt.Sprintf("%d", mintedAmount)),
 		),
 	)

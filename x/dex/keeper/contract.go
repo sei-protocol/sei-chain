@@ -5,6 +5,7 @@ import (
 
 	"github.com/cosmos/cosmos-sdk/store/prefix"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	appparams "github.com/sei-protocol/sei-chain/app/params"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
 )
 
@@ -112,4 +113,26 @@ func (k Keeper) GetRentsForContracts(ctx sdk.Context, contractAddrs []string) ma
 		}
 	}
 	return res
+}
+
+// Unregistrate and refund the creator
+func (k Keeper) DoUnregisterContractWithRefund(ctx sdk.Context, contract types.ContractInfoV2) error {
+	k.DoUnregisterContract(ctx, contract)
+	creatorAddr, _ := sdk.AccAddressFromBech32(contract.Creator)
+	if err := k.BankKeeper.SendCoins(ctx, k.AccountKeeper.GetModuleAddress(types.ModuleName), creatorAddr, sdk.NewCoins(sdk.NewCoin(appparams.BaseCoinUnit, sdk.NewInt(int64(contract.RentBalance))))); err != nil {
+		return err
+	}
+	return nil
+}
+
+// Contract unregistration will remove all orderbook data stored for the contract
+func (k Keeper) DoUnregisterContract(ctx sdk.Context, contract types.ContractInfoV2) {
+	k.DeleteContract(ctx, contract.ContractAddr)
+	k.RemoveAllLongBooksForContract(ctx, contract.ContractAddr)
+	k.RemoveAllShortBooksForContract(ctx, contract.ContractAddr)
+	k.RemoveAllPricesForContract(ctx, contract.ContractAddr)
+	k.DeleteMatchResultState(ctx, contract.ContractAddr)
+	k.DeleteNextOrderID(ctx, contract.ContractAddr)
+	k.DeleteAllRegisteredPairsForContract(ctx, contract.ContractAddr)
+	k.RemoveAllTriggeredOrders(ctx, contract.ContractAddr)
 }
