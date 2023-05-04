@@ -6,6 +6,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/store/prefix"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	appparams "github.com/sei-protocol/sei-chain/app/params"
+	"github.com/sei-protocol/sei-chain/utils"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
 )
 
@@ -128,6 +129,7 @@ func (k Keeper) DoUnregisterContractWithRefund(ctx sdk.Context, contract types.C
 // Contract unregistration will remove all orderbook data stored for the contract
 func (k Keeper) DoUnregisterContract(ctx sdk.Context, contract types.ContractInfoV2) {
 	k.DeleteContract(ctx, contract.ContractAddr)
+	k.ClearDependenciesForContract(ctx, contract)
 	k.RemoveAllLongBooksForContract(ctx, contract.ContractAddr)
 	k.RemoveAllShortBooksForContract(ctx, contract.ContractAddr)
 	k.RemoveAllPricesForContract(ctx, contract.ContractAddr)
@@ -135,4 +137,74 @@ func (k Keeper) DoUnregisterContract(ctx sdk.Context, contract types.ContractInf
 	k.DeleteNextOrderID(ctx, contract.ContractAddr)
 	k.DeleteAllRegisteredPairsForContract(ctx, contract.ContractAddr)
 	k.RemoveAllTriggeredOrders(ctx, contract.ContractAddr)
+}
+
+func (k Keeper) ClearDependenciesForContract(ctx sdk.Context, removedContract types.ContractInfoV2) {
+	// handle upstreams
+	allContracts := k.GetAllContractInfo(ctx)
+	for _, c := range allContracts {
+		contract := c
+		dependsOnRemovedContract := false
+		for _, dep := range contract.Dependencies {
+			if dep.Dependency == removedContract.ContractAddr {
+				dependsOnRemovedContract = true
+				break
+			}
+		}
+		if !dependsOnRemovedContract {
+			continue
+		}
+		contract.Dependencies = utils.Filter(contract.Dependencies, func(dep *types.ContractDependencyInfo) bool { return dep.Dependency != removedContract.ContractAddr })
+		_ = k.SetContract(ctx, &contract)
+	}
+
+	// handle downstreams
+	allContractsMap := map[string]types.ContractInfoV2{}
+	for _, contract := range allContracts {
+		allContractsMap[contract.ContractAddr] = contract
+	}
+	for _, dep := range removedContract.Dependencies {
+		if dependedContract, ok := allContractsMap[dep.Dependency]; ok {
+			dependedContract.NumIncomingDependencies--
+			_ = k.SetContract(ctx, &dependedContract)
+		}
+
+		if dep.ImmediateElderSibling != "" {
+			if immediateElderSibling, ok := allContractsMap[dep.ImmediateElderSibling]; ok {
+				newDependencies := []*types.ContractDependencyInfo{}
+				for _, elderSiblingDep := range immediateElderSibling.Dependencies {
+					if elderSiblingDep.Dependency != dep.Dependency {
+						newDependencies = append(newDependencies, elderSiblingDep)
+					} else {
+						newDependencies = append(newDependencies, &types.ContractDependencyInfo{
+							Dependency:              elderSiblingDep.Dependency,
+							ImmediateElderSibling:   elderSiblingDep.ImmediateElderSibling,
+							ImmediateYoungerSibling: dep.ImmediateYoungerSibling,
+						})
+					}
+				}
+				immediateElderSibling.Dependencies = newDependencies
+				_ = k.SetContract(ctx, &immediateElderSibling)
+			}
+		}
+
+		if dep.ImmediateYoungerSibling != "" {
+			if immediateYoungerSibling, ok := allContractsMap[dep.ImmediateYoungerSibling]; ok {
+				newDependencies := []*types.ContractDependencyInfo{}
+				for _, youngerSiblingDep := range immediateYoungerSibling.Dependencies {
+					if youngerSiblingDep.Dependency != dep.Dependency {
+						newDependencies = append(newDependencies, youngerSiblingDep)
+					} else {
+						newDependencies = append(newDependencies, &types.ContractDependencyInfo{
+							Dependency:              youngerSiblingDep.Dependency,
+							ImmediateElderSibling:   dep.ImmediateElderSibling,
+							ImmediateYoungerSibling: youngerSiblingDep.ImmediateYoungerSibling,
+						})
+					}
+				}
+				immediateYoungerSibling.Dependencies = newDependencies
+				_ = k.SetContract(ctx, &immediateYoungerSibling)
+			}
+		}
+	}
 }
