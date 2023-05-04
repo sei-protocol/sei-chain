@@ -11,7 +11,7 @@ import (
 func EncodeDexPlaceOrders(rawMsg json.RawMessage, sender sdk.AccAddress) ([]sdk.Msg, error) {
 	encodedPlaceOrdersMsg := bindings.PlaceOrders{}
 	if err := json.Unmarshal(rawMsg, &encodedPlaceOrdersMsg); err != nil {
-		return []sdk.Msg{}, err
+		return []sdk.Msg{}, types.ErrEncodeDexPlaceOrders
 	}
 	placeOrdersMsg := types.MsgPlaceOrders{
 		Creator:      sender.String(),
@@ -25,7 +25,7 @@ func EncodeDexPlaceOrders(rawMsg json.RawMessage, sender sdk.AccAddress) ([]sdk.
 func EncodeDexCancelOrders(rawMsg json.RawMessage, sender sdk.AccAddress) ([]sdk.Msg, error) {
 	encodedCancelOrdersMsg := bindings.CancelOrders{}
 	if err := json.Unmarshal(rawMsg, &encodedCancelOrdersMsg); err != nil {
-		return []sdk.Msg{}, err
+		return []sdk.Msg{}, types.ErrEncodeDexCancelOrders
 	}
 	cancelOrdersMsg := types.MsgCancelOrders{
 		Creator:       sender.String(),

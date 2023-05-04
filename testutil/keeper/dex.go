@@ -1,10 +1,10 @@
 package keeper
 
 import (
+	"context"
 	"testing"
 
 	"github.com/cosmos/cosmos-sdk/codec"
-	codectypes "github.com/cosmos/cosmos-sdk/codec/types"
 	"github.com/cosmos/cosmos-sdk/store"
 	storetypes "github.com/cosmos/cosmos-sdk/store/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -15,10 +15,13 @@ import (
 	paramskeeper "github.com/cosmos/cosmos-sdk/x/params/keeper"
 	typesparams "github.com/cosmos/cosmos-sdk/x/params/types"
 	"github.com/sei-protocol/sei-chain/app"
+	dexcache "github.com/sei-protocol/sei-chain/x/dex/cache"
 	"github.com/sei-protocol/sei-chain/x/dex/keeper"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
+	dexutils "github.com/sei-protocol/sei-chain/x/dex/utils"
 	epochkeeper "github.com/sei-protocol/sei-chain/x/epoch/keeper"
 	epochtypes "github.com/sei-protocol/sei-chain/x/epoch/types"
+	minttypes "github.com/sei-protocol/sei-chain/x/mint/types"
 	"github.com/stretchr/testify/require"
 	"github.com/tendermint/tendermint/libs/log"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
@@ -26,8 +29,10 @@ import (
 )
 
 const (
-	TestAccount    = "accnt"
-	TestContract   = "tc"
+	TestAccount    = "sei1yezq49upxhunjjhudql2fnj5dgvcwjj87pn2wx"
+	TestContract   = "sei1ghd753shjuwexxywmgs4xz7x2q732vcnkm6h2pyv9s6ah3hylvrqladqwc"
+	TestAccount2   = "sei1vk2f6aps83xahv2sql4equx8fa95jgcnsdxkvr"
+	TestContract2  = "sei17p9rzwnnfxcjp32un9ug7yhhzgtkhvl9jfksztgw5uh69wac2pgsrtqewe"
 	TestPriceDenom = "usdc"
 	TestAssetDenom = "atom"
 )
@@ -35,9 +40,10 @@ const (
 var (
 	TestTicksize = sdk.OneDec()
 	TestPair     = types.Pair{
-		PriceDenom: TestPriceDenom,
-		AssetDenom: TestAssetDenom,
-		Ticksize:   &TestTicksize,
+		PriceDenom:       TestPriceDenom,
+		AssetDenom:       TestAssetDenom,
+		PriceTicksize:    &TestTicksize,
+		QuantityTicksize: &TestTicksize,
 	}
 )
 
@@ -56,7 +62,10 @@ func DexKeeper(t testing.TB) (*keeper.Keeper, sdk.Context) {
 
 	blackListAddrs := map[string]bool{}
 
-	maccPerms := map[string][]string{}
+	maccPerms := map[string][]string{
+		types.ModuleName:     nil,
+		minttypes.ModuleName: {authtypes.Minter},
+	}
 
 	db := tmdb.NewMemDB()
 	stateStore := store.NewCommitMultiStore(db)
@@ -69,8 +78,7 @@ func DexKeeper(t testing.TB) (*keeper.Keeper, sdk.Context) {
 	stateStore.MountStoreWithDB(keyParams, sdk.StoreTypeIAVL, db)
 	require.NoError(t, stateStore.LoadLatestVersion())
 
-	registry := codectypes.NewInterfaceRegistry()
-	cdc := codec.NewProtoCodec(registry)
+	cdc := codec.NewProtoCodec(app.MakeEncodingConfig().InterfaceRegistry)
 
 	paramsSubspace := typesparams.NewSubspace(cdc,
 		types.Amino,
@@ -89,9 +97,11 @@ func DexKeeper(t testing.TB) (*keeper.Keeper, sdk.Context) {
 		paramsSubspace,
 		*epochKeeper,
 		bankKeeper,
+		accountKeeper,
 	)
 
 	ctx := sdk.NewContext(stateStore, tmproto.Header{}, false, log.NewNopLogger())
+	k.CreateModuleAccount(ctx)
 
 	// Initialize params
 	k.SetParams(ctx, types.DefaultParams())
@@ -104,7 +114,7 @@ func DexKeeper(t testing.TB) (*keeper.Keeper, sdk.Context) {
 	}
 	bankKeeper.SetParams(ctx, bankParams)
 
-	return k, ctx
+	return k, ctx.WithContext(context.WithValue(ctx.Context(), dexutils.DexMemStateContextKey, dexcache.NewMemState(storeKey)))
 }
 
 func CreateAssetMetadata(keeper *keeper.Keeper, ctx sdk.Context) types.AssetMetadata {

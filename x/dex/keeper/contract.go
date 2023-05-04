@@ -2,16 +2,16 @@ package keeper
 
 import (
 	"errors"
-	"fmt"
 
 	"github.com/cosmos/cosmos-sdk/store/prefix"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	appparams "github.com/sei-protocol/sei-chain/app/params"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
 )
 
 const ContractPrefixKey = "x-wasm-contract"
 
-func (k Keeper) SetContract(ctx sdk.Context, contract *types.ContractInfo) error {
+func (k Keeper) SetContract(ctx sdk.Context, contract *types.ContractInfoV2) error {
 	store := prefix.NewStore(
 		ctx.KVStore(k.storeKey),
 		[]byte(ContractPrefixKey),
@@ -20,36 +20,59 @@ func (k Keeper) SetContract(ctx sdk.Context, contract *types.ContractInfo) error
 	if err != nil {
 		return errors.New("failed to marshal contract info")
 	}
-	ctx.Logger().Info(fmt.Sprintf("Setting contract address %s", contract.ContractAddr))
-	store.Set(contractKey(contract.ContractAddr), bz)
+	store.Set(types.ContractKey(contract.ContractAddr), bz)
 	return nil
 }
 
-func (k Keeper) GetContract(ctx sdk.Context, contractAddr string) (types.ContractInfo, error) {
+func (k Keeper) DeleteContract(ctx sdk.Context, contractAddr string) {
 	store := prefix.NewStore(
 		ctx.KVStore(k.storeKey),
 		[]byte(ContractPrefixKey),
 	)
-	key := contractKey(contractAddr)
-	res := types.ContractInfo{}
+	key := types.ContractKey(contractAddr)
+	store.Delete(key)
+}
+
+func (k Keeper) GetContract(ctx sdk.Context, contractAddr string) (types.ContractInfoV2, error) {
+	store := prefix.NewStore(
+		ctx.KVStore(k.storeKey),
+		[]byte(ContractPrefixKey),
+	)
+	key := types.ContractKey(contractAddr)
+	res := types.ContractInfoV2{}
 	if !store.Has(key) {
-		return res, errors.New("cannot find contract info")
+		return res, types.ErrContractNotExists
 	}
 	if err := res.Unmarshal(store.Get(key)); err != nil {
-		return res, errors.New("cannot parse contract info")
+		return res, types.ErrParsingContractInfo
 	}
 	return res, nil
 }
 
-func (k Keeper) GetAllContractInfo(ctx sdk.Context) []types.ContractInfo {
+func (k Keeper) GetContractGasLimit(ctx sdk.Context, contractAddr sdk.AccAddress) (uint64, error) {
+	bech32ContractAddr := contractAddr.String()
+	contract, err := k.GetContract(ctx, bech32ContractAddr)
+	if err != nil {
+		return 0, err
+	}
+	rentBalance := contract.RentBalance
+	gasPrice := k.GetParams(ctx).SudoCallGasPrice
+	if gasPrice.LTE(sdk.ZeroDec()) {
+		return 0, errors.New("invalid gas price: must be positive")
+	}
+	gasDec := sdk.NewDec(int64(rentBalance)).Quo(gasPrice)
+	return gasDec.TruncateInt().Uint64(), nil // round down
+}
+
+func (k Keeper) GetAllContractInfo(ctx sdk.Context) []types.ContractInfoV2 {
 	store := prefix.NewStore(ctx.KVStore(k.storeKey), []byte(ContractPrefixKey))
 	iterator := sdk.KVStorePrefixIterator(store, []byte{})
 
 	defer iterator.Close()
 
-	list := []types.ContractInfo{}
+	list := []types.ContractInfoV2{}
 	for ; iterator.Valid(); iterator.Next() {
-		contract := types.ContractInfo{}
+		contract := types.ContractInfoV2{}
 		if err := contract.Unmarshal(iterator.Value()); err == nil {
 			list = append(list, contract)
 		}
@@ -58,6 +81,58 @@ func (k Keeper) GetAllContractInfo(ctx sdk.Context) []types.ContractInfo {
 	return list
 }
 
-func contractKey(contractAddr string) []byte {
-	return []byte(contractAddr)
+// Reduce `RentBalance` of a contract if `userProvidedGas` cannot cover `gasUsed`
+func (k Keeper) ChargeRentForGas(ctx sdk.Context, contractAddr string, gasUsed uint64, gasAllowance uint64) error {
+	if gasUsed <= gasAllowance {
+		// Allowance can fully cover the consumed gas. Doing nothing
+		return nil
+	}
+	gasUsed -= gasAllowance
+	contract, err := k.GetContract(ctx, contractAddr)
+	if err != nil {
+		return err
+	}
+	params := k.GetParams(ctx)
+	gasPrice := sdk.NewDec(int64(gasUsed)).Mul(params.SudoCallGasPrice).RoundInt().Int64()
+	if gasPrice > int64(contract.RentBalance) {
+		contract.RentBalance = 0
+		if err := k.SetContract(ctx, &contract); err != nil {
+			return err
+		}
+		return types.ErrInsufficientRent
+	}
+	contract.RentBalance -= uint64(gasPrice)
+	return k.SetContract(ctx, &contract)
+}
+
+func (k Keeper) GetRentsForContracts(ctx sdk.Context, contractAddrs []string) map[string]uint64 {
+	res := map[string]uint64{}
+	for _, contractAddr := range contractAddrs {
+		if contract, err := k.GetContract(ctx, contractAddr); err == nil {
+			res[contractAddr] = contract.RentBalance
+		}
+	}
+	return res
+}
+
+// Unregistrate and refund the creator
+func (k Keeper) DoUnregisterContractWithRefund(ctx sdk.Context, contract types.ContractInfoV2) error {
+	k.DoUnregisterContract(ctx, contract)
+	creatorAddr, _ := sdk.AccAddressFromBech32(contract.Creator)
+	if err := k.BankKeeper.SendCoins(ctx, k.AccountKeeper.GetModuleAddress(types.ModuleName), creatorAddr, sdk.NewCoins(sdk.NewCoin(appparams.BaseCoinUnit, sdk.NewInt(int64(contract.RentBalance))))); err != nil {
+		return err
+	}
+	return nil
+}
+
+// Contract unregistration will remove all orderbook data stored for the contract
+func (k Keeper) DoUnregisterContract(ctx sdk.Context, contract types.ContractInfoV2) {
+	k.DeleteContract(ctx, contract.ContractAddr)
+	k.RemoveAllLongBooksForContract(ctx, contract.ContractAddr)
+	k.RemoveAllShortBooksForContract(ctx, contract.ContractAddr)
+	k.RemoveAllPricesForContract(ctx, contract.ContractAddr)
+	k.DeleteMatchResultState(ctx, contract.ContractAddr)
+	k.DeleteNextOrderID(ctx, contract.ContractAddr)
+	k.DeleteAllRegisteredPairsForContract(ctx, contract.ContractAddr)
+	k.RemoveAllTriggeredOrders(ctx, contract.ContractAddr)
 }

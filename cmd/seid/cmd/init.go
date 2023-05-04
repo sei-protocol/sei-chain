@@ -17,6 +17,7 @@ import (
 	"github.com/tendermint/tendermint/types"
 
 	"github.com/cosmos/cosmos-sdk/client"
+	clientconfig "github.com/cosmos/cosmos-sdk/client/config"
 	"github.com/cosmos/cosmos-sdk/client/flags"
 	"github.com/cosmos/cosmos-sdk/client/input"
 	"github.com/cosmos/cosmos-sdk/server"
@@ -73,7 +74,6 @@ func InitCmd(mbm module.BasicManager, defaultNodeHome string) *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			clientCtx := client.GetClientContextFromCmd(cmd)
 			cdc := clientCtx.Codec
-
 			serverCtx := server.GetServerContextFromCmd(cmd)
 			config := serverCtx.Config
 
@@ -81,10 +81,11 @@ func InitCmd(mbm module.BasicManager, defaultNodeHome string) *cobra.Command {
 			params.SetTendermintConfigs(config)
 
 			config.SetRoot(clientCtx.HomeDir)
+			configPath := filepath.Join(config.RootDir, "config")
 
 			chainID, _ := cmd.Flags().GetString(flags.FlagChainID)
 			if chainID == "" {
-				chainID = "sei"
+				panic("chain-id is required, please set using --chain-id")
 			}
 
 			// Get bip39 mnemonic
@@ -139,9 +140,20 @@ func InitCmd(mbm module.BasicManager, defaultNodeHome string) *cobra.Command {
 				return errors.Wrap(err, "Failed to export genesis file")
 			}
 
+			clientConfig, err := clientconfig.GetClientConfig(configPath, clientCtx.Viper)
+			if err != nil {
+				return err
+			}
+			if err = clientconfig.SetClientConfig(flags.FlagChainID, chainID, configPath, clientConfig); err != nil {
+				return err
+			}
+
 			toPrint := newPrintInfo(config.Moniker, chainID, nodeID, "", appState)
 
-			tmcfg.WriteConfigFile(filepath.Join(config.RootDir, "config", "config.toml"), config)
+			err = tmcfg.WriteConfigFile(config.RootDir, config)
+			if err != nil {
+				panic(err)
+			}
 
 			return displayInfo(toPrint)
 		},

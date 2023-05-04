@@ -3,8 +3,9 @@ import { txClient, queryClient, MissingWalletError, registry } from './module';
 import { SpVuexError } from '@starport/vuex';
 import { DenomAuthorityMetadata } from "./module/types/tokenfactory/authorityMetadata";
 import { GenesisDenom } from "./module/types/tokenfactory/genesis";
+import { AddCreatorsToDenomFeeWhitelistProposal } from "./module/types/tokenfactory/gov";
 import { Params } from "./module/types/tokenfactory/params";
-export { DenomAuthorityMetadata, GenesisDenom, Params };
+export { DenomAuthorityMetadata, GenesisDenom, AddCreatorsToDenomFeeWhitelistProposal, Params };
 async function initTxClient(vuexGetters) {
     return await txClient(vuexGetters['common/wallet/signer'], {
         addr: vuexGetters['common/env/apiTendermint']
@@ -41,9 +42,12 @@ const getDefaultState = () => {
         Params: {},
         DenomAuthorityMetadata: {},
         DenomsFromCreator: {},
+        DenomCreationFeeWhitelist: {},
+        CreatorInDenomFeeWhitelist: {},
         _Structure: {
             DenomAuthorityMetadata: getStructure(DenomAuthorityMetadata.fromPartial({})),
             GenesisDenom: getStructure(GenesisDenom.fromPartial({})),
+            AddCreatorsToDenomFeeWhitelistProposal: getStructure(AddCreatorsToDenomFeeWhitelistProposal.fromPartial({})),
             Params: getStructure(Params.fromPartial({})),
         },
         _Registry: registry,
@@ -87,6 +91,18 @@ export default {
                 params.query = null;
             }
             return state.DenomsFromCreator[JSON.stringify(params)] ?? {};
+        },
+        getDenomCreationFeeWhitelist: (state) => (params = { params: {} }) => {
+            if (!params.query) {
+                params.query = null;
+            }
+            return state.DenomCreationFeeWhitelist[JSON.stringify(params)] ?? {};
+        },
+        getCreatorInDenomFeeWhitelist: (state) => (params = { params: {} }) => {
+            if (!params.query) {
+                params.query = null;
+            }
+            return state.CreatorInDenomFeeWhitelist[JSON.stringify(params)] ?? {};
         },
         getTypeStructure: (state) => (type) => {
             return state._Structure[type].fields;
@@ -163,20 +179,48 @@ export default {
                 throw new SpVuexError('QueryClient:QueryDenomsFromCreator', 'API Node Unavailable. Could not perform query: ' + e.message);
             }
         },
-        async sendMsgCreateDenom({ rootGetters }, { value, fee = [], memo = '' }) {
+        async QueryDenomCreationFeeWhitelist({ commit, rootGetters, getters }, { options: { subscribe, all } = { subscribe: false, all: false }, params, query = null }) {
+            try {
+                const key = params ?? {};
+                const queryClient = await initQueryClient(rootGetters);
+                let value = (await queryClient.queryDenomCreationFeeWhitelist()).data;
+                commit('QUERY', { query: 'DenomCreationFeeWhitelist', key: { params: { ...key }, query }, value });
+                if (subscribe)
+                    commit('SUBSCRIBE', { action: 'QueryDenomCreationFeeWhitelist', payload: { options: { all }, params: { ...key }, query } });
+                return getters['getDenomCreationFeeWhitelist']({ params: { ...key }, query }) ?? {};
+            }
+            catch (e) {
+                throw new SpVuexError('QueryClient:QueryDenomCreationFeeWhitelist', 'API Node Unavailable. Could not perform query: ' + e.message);
+            }
+        },
+        async QueryCreatorInDenomFeeWhitelist({ commit, rootGetters, getters }, { options: { subscribe, all } = { subscribe: false, all: false }, params, query = null }) {
+            try {
+                const key = params ?? {};
+                const queryClient = await initQueryClient(rootGetters);
+                let value = (await queryClient.queryCreatorInDenomFeeWhitelist(key.creator)).data;
+                commit('QUERY', { query: 'CreatorInDenomFeeWhitelist', key: { params: { ...key }, query }, value });
+                if (subscribe)
+                    commit('SUBSCRIBE', { action: 'QueryCreatorInDenomFeeWhitelist', payload: { options: { all }, params: { ...key }, query } });
+                return getters['getCreatorInDenomFeeWhitelist']({ params: { ...key }, query }) ?? {};
+            }
+            catch (e) {
+                throw new SpVuexError('QueryClient:QueryCreatorInDenomFeeWhitelist', 'API Node Unavailable. Could not perform query: ' + e.message);
+            }
+        },
+        async sendMsgChangeAdmin({ rootGetters }, { value, fee = [], memo = '' }) {
             try {
                 const txClient = await initTxClient(rootGetters);
-                const msg = await txClient.msgCreateDenom(value);
+                const msg = await txClient.msgChangeAdmin(value);
                 const result = await txClient.signAndBroadcast([msg], { fee: { amount: fee,
                         gas: "200000" }, memo });
                 return result;
             }
             catch (e) {
                 if (e == MissingWalletError) {
-                    throw new SpVuexError('TxClient:MsgCreateDenom:Init', 'Could not initialize signing client. Wallet is required.');
+                    throw new SpVuexError('TxClient:MsgChangeAdmin:Init', 'Could not initialize signing client. Wallet is required.');
                 }
                 else {
-                    throw new SpVuexError('TxClient:MsgCreateDenom:Send', 'Could not broadcast Tx: ' + e.message);
+                    throw new SpVuexError('TxClient:MsgChangeAdmin:Send', 'Could not broadcast Tx: ' + e.message);
                 }
             }
         },
@@ -197,23 +241,6 @@ export default {
                 }
             }
         },
-        async sendMsgChangeAdmin({ rootGetters }, { value, fee = [], memo = '' }) {
-            try {
-                const txClient = await initTxClient(rootGetters);
-                const msg = await txClient.msgChangeAdmin(value);
-                const result = await txClient.signAndBroadcast([msg], { fee: { amount: fee,
-                        gas: "200000" }, memo });
-                return result;
-            }
-            catch (e) {
-                if (e == MissingWalletError) {
-                    throw new SpVuexError('TxClient:MsgChangeAdmin:Init', 'Could not initialize signing client. Wallet is required.');
-                }
-                else {
-                    throw new SpVuexError('TxClient:MsgChangeAdmin:Send', 'Could not broadcast Tx: ' + e.message);
-                }
-            }
-        },
         async sendMsgMint({ rootGetters }, { value, fee = [], memo = '' }) {
             try {
                 const txClient = await initTxClient(rootGetters);
@@ -231,33 +258,20 @@ export default {
                 }
             }
         },
-        async MsgCreateDenom({ rootGetters }, { value }) {
+        async sendMsgCreateDenom({ rootGetters }, { value, fee = [], memo = '' }) {
             try {
                 const txClient = await initTxClient(rootGetters);
                 const msg = await txClient.msgCreateDenom(value);
-                return msg;
+                const result = await txClient.signAndBroadcast([msg], { fee: { amount: fee,
+                        gas: "200000" }, memo });
+                return result;
             }
             catch (e) {
                 if (e == MissingWalletError) {
                     throw new SpVuexError('TxClient:MsgCreateDenom:Init', 'Could not initialize signing client. Wallet is required.');
                 }
                 else {
-                    throw new SpVuexError('TxClient:MsgCreateDenom:Create', 'Could not create message: ' + e.message);
-                }
-            }
-        },
-        async MsgBurn({ rootGetters }, { value }) {
-            try {
-                const txClient = await initTxClient(rootGetters);
-                const msg = await txClient.msgBurn(value);
-                return msg;
-            }
-            catch (e) {
-                if (e == MissingWalletError) {
-                    throw new SpVuexError('TxClient:MsgBurn:Init', 'Could not initialize signing client. Wallet is required.');
-                }
-                else {
-                    throw new SpVuexError('TxClient:MsgBurn:Create', 'Could not create message: ' + e.message);
+                    throw new SpVuexError('TxClient:MsgCreateDenom:Send', 'Could not broadcast Tx: ' + e.message);
                 }
             }
         },
@@ -276,6 +290,21 @@ export default {
                 }
             }
         },
+        async MsgBurn({ rootGetters }, { value }) {
+            try {
+                const txClient = await initTxClient(rootGetters);
+                const msg = await txClient.msgBurn(value);
+                return msg;
+            }
+            catch (e) {
+                if (e == MissingWalletError) {
+                    throw new SpVuexError('TxClient:MsgBurn:Init', 'Could not initialize signing client. Wallet is required.');
+                }
+                else {
+                    throw new SpVuexError('TxClient:MsgBurn:Create', 'Could not create message: ' + e.message);
+                }
+            }
+        },
         async MsgMint({ rootGetters }, { value }) {
             try {
                 const txClient = await initTxClient(rootGetters);
@@ -288,6 +317,21 @@ export default {
                 }
                 else {
                     throw new SpVuexError('TxClient:MsgMint:Create', 'Could not create message: ' + e.message);
+                }
+            }
+        },
+        async MsgCreateDenom({ rootGetters }, { value }) {
+            try {
+                const txClient = await initTxClient(rootGetters);
+                const msg = await txClient.msgCreateDenom(value);
+                return msg;
+            }
+            catch (e) {
+                if (e == MissingWalletError) {
+                    throw new SpVuexError('TxClient:MsgCreateDenom:Init', 'Could not initialize signing client. Wallet is required.');
+                }
+                else {
+                    throw new SpVuexError('TxClient:MsgCreateDenom:Create', 'Could not create message: ' + e.message);
                 }
             }
         },

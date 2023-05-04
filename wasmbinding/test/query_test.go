@@ -1,17 +1,23 @@
 package wasmbinding
 
 import (
+	"context"
 	"encoding/json"
 	"testing"
 	"time"
 
+	wasmkeeper "github.com/CosmWasm/wasmd/x/wasm/keeper"
+	wasmvmtypes "github.com/CosmWasm/wasmvm/types"
 	"github.com/cosmos/cosmos-sdk/crypto/keys/secp256k1"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/sei-protocol/sei-chain/app"
+	keepertest "github.com/sei-protocol/sei-chain/testutil/keeper"
 	"github.com/sei-protocol/sei-chain/wasmbinding"
+	dexcache "github.com/sei-protocol/sei-chain/x/dex/cache"
 	dexwasm "github.com/sei-protocol/sei-chain/x/dex/client/wasm"
 	dexbinding "github.com/sei-protocol/sei-chain/x/dex/client/wasm/bindings"
 	dextypes "github.com/sei-protocol/sei-chain/x/dex/types"
+	dexutils "github.com/sei-protocol/sei-chain/x/dex/utils"
 	epochwasm "github.com/sei-protocol/sei-chain/x/epoch/client/wasm"
 	epochbinding "github.com/sei-protocol/sei-chain/x/epoch/client/wasm/bindings"
 	epochtypes "github.com/sei-protocol/sei-chain/x/epoch/types"
@@ -20,8 +26,6 @@ import (
 	oracletypes "github.com/sei-protocol/sei-chain/x/oracle/types"
 	oracleutils "github.com/sei-protocol/sei-chain/x/oracle/utils"
 	tokenfactorywasm "github.com/sei-protocol/sei-chain/x/tokenfactory/client/wasm"
-	tokenfactorybinding "github.com/sei-protocol/sei-chain/x/tokenfactory/client/wasm/bindings"
-	tokenfactorytypes "github.com/sei-protocol/sei-chain/x/tokenfactory/types"
 	"github.com/stretchr/testify/require"
 )
 
@@ -37,6 +41,43 @@ func SetupWasmbindingTest(t *testing.T) (*app.TestWrapper, func(ctx sdk.Context,
 	th := tokenfactorywasm.NewTokenFactoryWasmQueryHandler(&testWrapper.App.TokenFactoryKeeper)
 	qp := wasmbinding.NewQueryPlugin(oh, dh, eh, th)
 	return testWrapper, wasmbinding.CustomQuerier(qp)
+}
+
+func TestWasmUnknownQuery(t *testing.T) {
+	testWrapper, customQuerier := SetupWasmbindingTest(t)
+
+	oracle_req := oraclebinding.SeiOracleQuery{}
+	queryData, err := json.Marshal(oracle_req)
+	require.NoError(t, err)
+	query := wasmbinding.SeiQueryWrapper{Route: wasmbinding.OracleRoute, QueryData: queryData}
+	rawQuery, err := json.Marshal(query)
+	require.NoError(t, err)
+
+	_, err = customQuerier(testWrapper.Ctx, rawQuery)
+	require.Error(t, err)
+	require.Equal(t, err, oracletypes.ErrUnknownSeiOracleQuery)
+
+	dex_req := dexbinding.SeiDexQuery{}
+	queryData, err = json.Marshal(dex_req)
+	require.NoError(t, err)
+	query = wasmbinding.SeiQueryWrapper{Route: wasmbinding.DexRoute, QueryData: queryData}
+	rawQuery, err = json.Marshal(query)
+	require.NoError(t, err)
+
+	_, err = customQuerier(testWrapper.Ctx, rawQuery)
+	require.Error(t, err)
+	require.Equal(t, err, dextypes.ErrUnknownSeiDexQuery)
+
+	epoch_req := epochbinding.SeiEpochQuery{}
+	queryData, err = json.Marshal(epoch_req)
+	require.NoError(t, err)
+	query = wasmbinding.SeiQueryWrapper{Route: wasmbinding.EpochRoute, QueryData: queryData}
+	rawQuery, err = json.Marshal(query)
+	require.NoError(t, err)
+
+	_, err = customQuerier(testWrapper.Ctx, rawQuery)
+	require.Error(t, err)
+	require.Equal(t, err, epochtypes.ErrUnknownSeiEpochQuery)
 }
 
 func TestWasmGetOracleExchangeRates(t *testing.T) {
@@ -107,6 +148,32 @@ func TestWasmGetOracleTwaps(t *testing.T) {
 	}}, parsedRes2)
 }
 
+func TestWasmGetOracleTwapsErrorHandling(t *testing.T) {
+	testWrapper, customQuerier := SetupWasmbindingTest(t)
+
+	req := oraclebinding.SeiOracleQuery{OracleTwaps: &oracletypes.QueryTwapsRequest{LookbackSeconds: 200}}
+	queryData, err := json.Marshal(req)
+	require.NoError(t, err)
+	query := wasmbinding.SeiQueryWrapper{Route: wasmbinding.OracleRoute, QueryData: queryData}
+	rawQuery, err := json.Marshal(query)
+	require.NoError(t, err)
+
+	_, err = customQuerier(testWrapper.Ctx, rawQuery)
+	require.Error(t, err)
+	require.Equal(t, err, oracletypes.ErrNoTwapData)
+
+	req = oraclebinding.SeiOracleQuery{OracleTwaps: &oracletypes.QueryTwapsRequest{LookbackSeconds: 3601}}
+	queryData, err = json.Marshal(req)
+	require.NoError(t, err)
+	query = wasmbinding.SeiQueryWrapper{Route: wasmbinding.OracleRoute, QueryData: queryData}
+	rawQuery, err = json.Marshal(query)
+	require.NoError(t, err)
+
+	_, err = customQuerier(testWrapper.Ctx, rawQuery)
+	require.Error(t, err)
+	require.Equal(t, err, oracletypes.ErrInvalidTwapLookback)
+}
+
 func TestWasmGetDexTwaps(t *testing.T) {
 	testWrapper, customQuerier := SetupWasmbindingTest(t)
 
@@ -148,6 +215,27 @@ func TestWasmGetDexTwaps(t *testing.T) {
 	require.Equal(t, sdk.NewDec(20), twap.Twap)
 }
 
+func TestWasmDexGetOrderByIdErrorHandling(t *testing.T) {
+	testWrapper, customQuerier := SetupWasmbindingTest(t)
+
+	req := dexbinding.SeiDexQuery{GetOrderByID: &dextypes.QueryGetOrderByIDRequest{
+		ContractAddr: keepertest.TestContract,
+		PriceDenom:   keepertest.TestPriceDenom,
+		AssetDenom:   keepertest.TestAssetDenom,
+		Id:           1,
+	}}
+	queryData, err := json.Marshal(req)
+	require.NoError(t, err)
+	query := wasmbinding.SeiQueryWrapper{Route: wasmbinding.DexRoute, QueryData: queryData}
+
+	rawQuery, err := json.Marshal(query)
+	require.NoError(t, err)
+
+	_, err = customQuerier(testWrapper.Ctx, rawQuery)
+	require.Error(t, err)
+	require.IsType(t, dextypes.ErrInvalidOrderID, err)
+}
+
 func TestWasmGetOrderSimulation(t *testing.T) {
 	testWrapper, customQuerier := SetupWasmbindingTest(t)
 
@@ -172,6 +260,7 @@ func TestWasmGetOrderSimulation(t *testing.T) {
 	require.NoError(t, err)
 
 	testWrapper.Ctx = testWrapper.Ctx.WithBlockHeight(11).WithBlockTime(time.Unix(3600, 0))
+	testWrapper.Ctx = testWrapper.Ctx.WithContext(context.WithValue(testWrapper.Ctx.Context(), dexutils.DexMemStateContextKey, dexcache.NewMemState(testWrapper.App.GetKey(dextypes.StoreKey))))
 	testWrapper.App.DexKeeper.AddRegisteredPair(
 		testWrapper.Ctx,
 		app.TestContract,
@@ -184,6 +273,7 @@ func TestWasmGetOrderSimulation(t *testing.T) {
 	}, app.TestContract)
 	testWrapper.App.OracleKeeper.SetBaseExchangeRate(testWrapper.Ctx, oracleutils.MicroAtomDenom, sdk.NewDec(12))
 	testWrapper.Ctx = testWrapper.Ctx.WithBlockHeight(14).WithBlockTime(time.Unix(3700, 0))
+	testWrapper.Ctx = testWrapper.Ctx.WithContext(context.WithValue(testWrapper.Ctx.Context(), dexutils.DexMemStateContextKey, dexcache.NewMemState(testWrapper.App.GetKey(dextypes.StoreKey))))
 
 	res, err := customQuerier(testWrapper.Ctx, rawQuery)
 	require.NoError(t, err)
@@ -231,80 +321,17 @@ func TestWasmGetEpoch(t *testing.T) {
 	require.Equal(t, int64(40), epoch.CurrentEpochHeight)
 }
 
-func TestWasmGetDenomCreationFeeWhitelist(t *testing.T) {
-	testWrapper, customQuerier := SetupWasmbindingTest(t)
-
-	req := tokenfactorybinding.SeiTokenFactoryQuery{
-		GetDenomFeeWhitelist: &tokenfactorytypes.QueryDenomCreationFeeWhitelistRequest{},
+func MockQueryPlugins() wasmkeeper.QueryPlugins {
+	return wasmkeeper.QueryPlugins{
+		Bank: func(ctx sdk.Context, request *wasmvmtypes.BankQuery) ([]byte, error) { return []byte{}, nil },
+		IBC: func(ctx sdk.Context, caller sdk.AccAddress, request *wasmvmtypes.IBCQuery) ([]byte, error) {
+			return []byte{}, nil
+		},
+		Custom: func(ctx sdk.Context, request json.RawMessage) ([]byte, error) {
+			return []byte{}, nil
+		},
+		Stargate: func(ctx sdk.Context, request *wasmvmtypes.StargateQuery) ([]byte, error) { return []byte{}, nil },
+		Staking:  func(ctx sdk.Context, request *wasmvmtypes.StakingQuery) ([]byte, error) { return []byte{}, nil },
+		Wasm:     func(ctx sdk.Context, request *wasmvmtypes.WasmQuery) ([]byte, error) { return []byte{}, nil },
 	}
-
-	queryData, err := json.Marshal(req)
-	require.NoError(t, err)
-	query := wasmbinding.SeiQueryWrapper{Route: wasmbinding.TokenFactoryRoute, QueryData: queryData}
-
-	rawQuery, err := json.Marshal(query)
-	require.NoError(t, err)
-
-	// Should be an empty whitelist
-	res, err := customQuerier(testWrapper.Ctx, rawQuery)
-	require.NoError(t, err)
-
-	var parsedRes1 tokenfactorytypes.QueryDenomCreationFeeWhitelistResponse
-	err = json.Unmarshal(res, &parsedRes1)
-	require.NoError(t, err)
-	require.Equal(t, tokenfactorytypes.QueryDenomCreationFeeWhitelistResponse{Creators: []string(nil)}, parsedRes1)
-
-	// Add two creators to whitelist
-	testWrapper.Ctx = testWrapper.Ctx.WithBlockHeight(11).WithBlockTime(time.Unix(3600, 0))
-	testWrapper.App.TokenFactoryKeeper.AddCreatorToWhitelist(testWrapper.Ctx, "creator_1")
-	testWrapper.App.TokenFactoryKeeper.AddCreatorToWhitelist(testWrapper.Ctx, "creator_2")
-
-	testWrapper.Ctx = testWrapper.Ctx.WithBlockHeight(14).WithBlockTime(time.Unix(3700, 0))
-
-	res, err = customQuerier(testWrapper.Ctx, rawQuery)
-	require.NoError(t, err)
-
-	var parsedRes2 tokenfactorytypes.QueryDenomCreationFeeWhitelistResponse
-	err = json.Unmarshal(res, &parsedRes2)
-	require.NoError(t, err)
-	require.Equal(t, tokenfactorytypes.QueryDenomCreationFeeWhitelistResponse{Creators: []string{"creator_1", "creator_2"}}, parsedRes2)
-}
-
-func TestWasmGetCreatorInDenomFeeWhitelist(t *testing.T) {
-	testWrapper, customQuerier := SetupWasmbindingTest(t)
-
-	req := tokenfactorybinding.SeiTokenFactoryQuery{
-		CreatorInDenomFeeWhitelist: &tokenfactorytypes.QueryCreatorInDenomFeeWhitelistRequest{Creator: "creator_1"},
-	}
-
-	queryData, err := json.Marshal(req)
-	require.NoError(t, err)
-	query := wasmbinding.SeiQueryWrapper{Route: wasmbinding.TokenFactoryRoute, QueryData: queryData}
-
-	rawQuery, err := json.Marshal(query)
-	require.NoError(t, err)
-
-	// Should not be in whitelist
-	res, err := customQuerier(testWrapper.Ctx, rawQuery)
-	require.NoError(t, err)
-
-	var parsedRes1 tokenfactorytypes.QueryCreatorInDenomFeeWhitelistResponse
-	err = json.Unmarshal(res, &parsedRes1)
-	require.NoError(t, err)
-	require.Equal(t, tokenfactorytypes.QueryCreatorInDenomFeeWhitelistResponse{Whitelisted: false}, parsedRes1)
-
-	// Add two creators to whitelist and check membership
-	testWrapper.Ctx = testWrapper.Ctx.WithBlockHeight(11).WithBlockTime(time.Unix(3600, 0))
-	testWrapper.App.TokenFactoryKeeper.AddCreatorToWhitelist(testWrapper.Ctx, "creator_1")
-	testWrapper.App.TokenFactoryKeeper.AddCreatorToWhitelist(testWrapper.Ctx, "creator_2")
-
-	testWrapper.Ctx = testWrapper.Ctx.WithBlockHeight(14).WithBlockTime(time.Unix(3700, 0))
-
-	res, err = customQuerier(testWrapper.Ctx, rawQuery)
-	require.NoError(t, err)
-
-	var parsedRes2 tokenfactorytypes.QueryCreatorInDenomFeeWhitelistResponse
-	err = json.Unmarshal(res, &parsedRes2)
-	require.NoError(t, err)
-	require.Equal(t, tokenfactorytypes.QueryCreatorInDenomFeeWhitelistResponse{Whitelisted: true}, parsedRes2)
 }

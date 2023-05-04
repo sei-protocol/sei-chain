@@ -19,7 +19,12 @@ func CmdCancelOrders() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "cancel-orders [contract address] [cancellations...]",
 		Short: "Bulk cancel orders",
-		Args:  cobra.MinimumNArgs(2),
+		Long: strings.TrimSpace(`
+			Cancel orders placed on an orderbook specified by contract-address. Cancellations are represented as strings with the cancellation details separated by "?". Cancellation details format is OrderID?PositionDirection?Price?PriceDenom?AssetDenom.
+
+			Example: "1234?LONG?1.01?USDC?ATOM"
+		`),
+		Args: cobra.MinimumNArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) (err error) {
 			argContractAddr := args[0]
 			if err != nil {
@@ -29,18 +34,22 @@ func CmdCancelOrders() *cobra.Command {
 			for _, cancellation := range args[1:] {
 				newCancel := types.Cancellation{}
 				cancelDetails := strings.Split(cancellation, "?")
-				argPositionDir, err := utils.GetPositionDirectionFromStr(cancelDetails[0])
+				newCancel.Id, err = strconv.ParseUint(cancelDetails[0], 10, 64)
+				if err != nil {
+					return err
+				}
+				argPositionDir, err := utils.GetPositionDirectionFromStr(cancelDetails[1])
 				if err != nil {
 					return err
 				}
 				newCancel.PositionDirection = argPositionDir
-				argPrice, err := sdk.NewDecFromStr(cancelDetails[1])
+				argPrice, err := sdk.NewDecFromStr(cancelDetails[2])
 				if err != nil {
 					return err
 				}
 				newCancel.Price = argPrice
-				newCancel.PriceDenom = cancelDetails[2]
-				newCancel.AssetDenom = cancelDetails[3]
+				newCancel.PriceDenom = cancelDetails[3]
+				newCancel.AssetDenom = cancelDetails[4]
 				cancellations = append(cancellations, &newCancel)
 			}
 

@@ -6,15 +6,16 @@ import (
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/sei-protocol/sei-chain/testutil/fuzzing"
+	keepertest "github.com/sei-protocol/sei-chain/testutil/keeper"
 	"github.com/sei-protocol/sei-chain/utils/datastructures"
 	"github.com/sei-protocol/sei-chain/x/dex/exchange"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
 	"github.com/stretchr/testify/require"
-
-	keepertest "github.com/sei-protocol/sei-chain/testutil/keeper"
+	"github.com/tendermint/tendermint/libs/log"
+	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 )
 
-var TestFuzzLimitCtx = sdk.Context{}
+var TestFuzzLimitCtx = sdk.NewContext(nil, tmproto.Header{}, false, log.NewNopLogger())
 
 func FuzzMatchLimitOrders(f *testing.F) {
 	TestFuzzLimitCtx = TestFuzzLimitCtx.WithBlockHeight(1).WithBlockTime(time.Now())
@@ -42,5 +43,6 @@ func fuzzTargetMatchLimitOrders(
 		Longs:  &types.CachedSortedOrderBookEntries{Entries: buyEntries, DirtyEntries: datastructures.NewTypedSyncMap[string, types.OrderBookEntry]()},
 		Shorts: &types.CachedSortedOrderBookEntries{Entries: sellEntries, DirtyEntries: datastructures.NewTypedSyncMap[string, types.OrderBookEntry]()},
 	}
-	require.NotPanics(t, func() { exchange.MatchLimitOrders(TestFuzzLimitCtx, buyOrders, sellOrders, &orderBook) })
+	exchange.AddOutstandingLimitOrdersToOrderbook(&orderBook, buyOrders, sellOrders)
+	require.NotPanics(t, func() { exchange.MatchLimitOrders(TestFuzzLimitCtx, &orderBook) })
 }

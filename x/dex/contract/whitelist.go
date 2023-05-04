@@ -5,6 +5,7 @@ import (
 	storetypes "github.com/cosmos/cosmos-sdk/store/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/sei-protocol/sei-chain/utils"
+	"github.com/sei-protocol/sei-chain/x/dex/keeper"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
 )
 
@@ -19,16 +20,14 @@ var DexWhitelistedKeys = []string{
 	types.SettlementEntryKey,
 	types.NextOrderIDKey,
 	types.MatchResultKey,
+	keeper.ContractPrefixKey,
+	types.MemOrderKey,
+	types.MemDepositKey,
+	types.MemCancelKey,
 }
 
 var WasmWhitelistedKeys = []string{
 	string(wasmtypes.ContractStorePrefix),
-}
-
-var DexPerPairWhitelistedKeys = []string{
-	types.LongBookKey,
-	types.ShortBookKey,
-	types.PriceKey,
 }
 
 func GetWhitelistMap(contractAddr string) map[string][]string {
@@ -47,7 +46,7 @@ func GetPerPairWhitelistMap(contractAddr string, pair types.Pair) map[string][]s
 func GetDexWhitelistedPrefixes(contractAddr string) []string {
 	return utils.Map(DexWhitelistedKeys, func(key string) string {
 		return string(append(
-			types.KeyPrefix(key), types.KeyPrefix(contractAddr)...,
+			types.KeyPrefix(key), types.AddressKeyPrefix(contractAddr)...,
 		))
 	})
 }
@@ -64,7 +63,7 @@ func GetWasmWhitelistedPrefixes(contractAddr string) []string {
 func GetDexPerPairWhitelistedPrefixes(contractAddr string, pair types.Pair) []string {
 	return utils.Map(DexWhitelistedKeys, func(key string) string {
 		return string(append(append(
-			types.KeyPrefix(key), types.KeyPrefix(contractAddr)...,
+			types.KeyPrefix(key), types.AddressKeyPrefix(contractAddr)...,
 		), types.PairPrefix(pair.PriceDenom, pair.AssetDenom)...))
 	})
 }

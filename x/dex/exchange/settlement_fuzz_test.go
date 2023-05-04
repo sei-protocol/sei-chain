@@ -7,12 +7,15 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/sei-protocol/sei-chain/testutil/fuzzing"
 	keepertest "github.com/sei-protocol/sei-chain/testutil/keeper"
+	dex "github.com/sei-protocol/sei-chain/x/dex/cache"
 	"github.com/sei-protocol/sei-chain/x/dex/exchange"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
 	"github.com/stretchr/testify/require"
+	"github.com/tendermint/tendermint/libs/log"
+	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 )
 
-var TestFuzzSettleCtx = sdk.Context{}
+var TestFuzzSettleCtx = sdk.NewContext(nil, tmproto.Header{}, false, log.NewNopLogger())
 
 func FuzzSettleMarketOrder(f *testing.F) {
 	TestFuzzSettleCtx = TestFuzzSettleCtx.WithBlockHeight(1).WithBlockTime(time.Now())
@@ -52,7 +55,7 @@ func fuzzTargetSettle(
 
 	for i, entry := range entries {
 		require.NotPanics(t, func() {
-			exchange.Settle(TestFuzzSettleCtx, orders[i], quantity, entry, price)
+			exchange.Settle(TestFuzzSettleCtx, orders[i], quantity, entry, price, &dex.BlockOrders{})
 		})
 	}
 }

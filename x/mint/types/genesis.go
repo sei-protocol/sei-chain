@@ -1,20 +1,18 @@
 package types
 
 // NewGenesisState creates a new GenesisState object.
-func NewGenesisState(minter Minter, params Params, halvenStartedEpoch int64) *GenesisState {
+func NewGenesisState(minter Minter, params Params) *GenesisState {
 	return &GenesisState{
-		Minter:             minter,
-		Params:             params,
-		HalvenStartedEpoch: halvenStartedEpoch,
+		Minter: minter,
+		Params: params,
 	}
 }
 
 // DefaultGenesisState creates a default GenesisState object.
 func DefaultGenesisState() *GenesisState {
 	return &GenesisState{
-		Minter:             DefaultInitialMinter(),
-		Params:             DefaultParams(),
-		HalvenStartedEpoch: 0,
+		Minter: DefaultInitialMinter(),
+		Params: DefaultParams(),
 	}
 }
 

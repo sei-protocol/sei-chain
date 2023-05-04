@@ -32,22 +32,6 @@ service Query {
     option (google.api.http).get =
         "/sei-protocol/seichain/tokenfactory/denoms_from_creator/{creator}";
   }
-
-  // DenomCreationFeeWhitelist defines a gRPC query method for fetching all
-  // creators who are whitelisted from paying the denom creation fee.
-  rpc DenomCreationFeeWhitelist(QueryDenomCreationFeeWhitelistRequest)
-      returns (QueryDenomCreationFeeWhitelistResponse) {
-    option (google.api.http).get =
-        "/sei-protocol/seichain/tokenfactory/denom_creation_fee_whitelist";
-  }
-
-  // CreatorInDenomFeeWhitelist defines a gRPC query method for fetching
-  // whether a creator is whitelisted from denom creation fees.
-  rpc CreatorInDenomFeeWhitelist(QueryCreatorInDenomFeeWhitelistRequest)
-      returns (QueryCreatorInDenomFeeWhitelistResponse) {
-    option (google.api.http).get =
-        "/sei-protocol/seichain/tokenfactory/denom_creation_fee_whitelist/{creator}";
-  }
   
 }
 
@@ -85,26 +69,4 @@ message QueryDenomsFromCreatorRequest {
 // DenomsFromCreator gRPC query.
 message QueryDenomsFromCreatorResponse {
   repeated string denoms = 1 [ (gogoproto.moretags) = "yaml:\"denoms\"" ];
-}
-
-// QueryDenomCreationFeeWhitelistRequest defines the request structure for the
-// DenomCreationFeeWhitelist gRPC query.
-message QueryDenomCreationFeeWhitelistRequest {}
-
-// QueryDenomCreationFeeWhitelistResponse defines the response structure for the
-// DenomsFromCreator gRPC query.
-message QueryDenomCreationFeeWhitelistResponse {
-  repeated string creators = 1 [ (gogoproto.moretags) = "yaml:\"creators\"" ];
-}
-
-// QueryCreatorInDenomFeeWhitelistRequest defines the request structure for the
-// CreatorInDenomFeeWhitelist gRPC query.
-message QueryCreatorInDenomFeeWhitelistRequest {
-  string creator = 1 [ (gogoproto.moretags) = "yaml:\"creator\"" ];
-}
-
-// QueryCreatorInDenomFeeWhitelistResponse defines the response structure for the
-// CreatorInDenomFeeWhitelist gRPC query.
-message QueryCreatorInDenomFeeWhitelistResponse {
-  bool whitelisted = 1 [ (gogoproto.moretags) = "yaml:\"whitelisted\"" ];
 }

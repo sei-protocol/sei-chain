@@ -12,7 +12,7 @@ HEIGHT=$1
 if ! command -v $HOME/go/bin/iaviewer &> /dev/null
 then
     cd $HOME
-    sudo rm -r iavl
+    rm -rf iavl
     git clone https://github.com/cosmos/iavl.git
     cd iavl
     git checkout v0.17.3
@@ -23,7 +23,7 @@ fi
 cd $HOME
 sudo rm -r state_$HEIGHT
 mkdir state_$HEIGHT
-for key in dex wasm oracle epoch mint
+for key in dex wasm accesscontrol oracle epoch mint acc bank crisis feegrant staking distribution slashing gov params ibc upgrade evidence transfer tokenfactory
 do
     $HOME/go/bin/iaviewer data $HOME/.sei/data/application.db "s/k:"$key"/" $HEIGHT > $HOME/state_$HEIGHT/$key.data
     $HOME/go/bin/iaviewer shape $HOME/.sei/data/application.db "s/k:"$key"/" $HEIGHT > $HOME/state_$HEIGHT/$key.shape

@@ -3,7 +3,9 @@ package types
 import (
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
+	"time"
 
 	yaml "gopkg.in/yaml.v2"
 
@@ -13,10 +15,8 @@ import (
 
 // Parameter store keys
 var (
-	KeyMintDenom               = []byte("MintDenom")
-	KeyGenesisEpochProvisions  = []byte("GenesisEpochProvisions")
-	KeyReductionPeriodInEpochs = []byte("ReductionPeriodInEpochs")
-	KeyReductionFactor         = []byte("ReductionFactor")
+	KeyMintDenom            = []byte("MintDenom")
+	KeyTokenReleaseSchedule = []byte("TokenReleaseSchedule")
 )
 
 // ParamTable for minting module.
@@ -25,23 +25,19 @@ func ParamKeyTable() paramtypes.KeyTable {
 }
 
 func NewParams(
-	mintDenom string, genesisEpochProvisions sdk.Dec, reductionFactor sdk.Dec, reductionPeriodInEpochs int64,
+	mintDenom string, tokenReleaseSchedule []ScheduledTokenRelease,
 ) Params {
 	return Params{
-		MintDenom:               mintDenom,
-		GenesisEpochProvisions:  genesisEpochProvisions,
-		ReductionFactor:         reductionFactor,
-		ReductionPeriodInEpochs: reductionPeriodInEpochs,
+		MintDenom:            mintDenom,
+		TokenReleaseSchedule: SortTokenReleaseCalendar(tokenReleaseSchedule),
 	}
 }
 
 // default minting module parameters
 func DefaultParams() Params {
 	return Params{
-		MintDenom:               "usei",
-		GenesisEpochProvisions:  sdk.NewDec(5000000),
-		ReductionPeriodInEpochs: 60 * 24,                  // Epochs are 1 min - this is 1 day
-		ReductionFactor:         sdk.NewDecWithPrec(5, 1), // 0.5
+		MintDenom:            sdk.DefaultBondDenom,
+		TokenReleaseSchedule: []ScheduledTokenRelease{},
 	}
 }
 
@@ -50,13 +46,7 @@ func (p Params) Validate() error {
 	if err := validateMintDenom(p.MintDenom); err != nil {
 		return err
 	}
-	if err := validateGenesisEpochProvisions(p.GenesisEpochProvisions); err != nil {
-		return err
-	}
-	if err := validateReductionPeriodInEpochs(p.ReductionPeriodInEpochs); err != nil {
-		return err
-	}
-	if err := validateReductionFactor(p.ReductionFactor); err != nil {
+	if err := validateTokenReleaseSchedule(p.TokenReleaseSchedule); err != nil {
 		return err
 	}
 	return nil
@@ -68,70 +58,84 @@ func (p Params) String() string {
 	return string(out)
 }
 
+func (p Version2Params) String() string {
+	out, _ := yaml.Marshal(p)
+	return string(out)
+}
+
 // Implements params.ParamSet
 func (p *Params) ParamSetPairs() paramtypes.ParamSetPairs {
 	return paramtypes.ParamSetPairs{
 		paramtypes.NewParamSetPair(KeyMintDenom, &p.MintDenom, validateMintDenom),
-		paramtypes.NewParamSetPair(KeyGenesisEpochProvisions, &p.GenesisEpochProvisions, validateGenesisEpochProvisions),
-		paramtypes.NewParamSetPair(KeyReductionPeriodInEpochs, &p.ReductionPeriodInEpochs, validateReductionPeriodInEpochs),
-		paramtypes.NewParamSetPair(KeyReductionFactor, &p.ReductionFactor, validateReductionFactor),
+		paramtypes.NewParamSetPair(KeyTokenReleaseSchedule, &p.TokenReleaseSchedule, validateTokenReleaseSchedule),
+	}
+}
+
+// Used for v2 -> v3 migration
+func (p *Version2Params) ParamSetPairs() paramtypes.ParamSetPairs {
+	return paramtypes.ParamSetPairs{
+		paramtypes.NewParamSetPair(KeyMintDenom, &p.MintDenom, func(i interface{}) error { return nil }),
+		paramtypes.NewParamSetPair(KeyTokenReleaseSchedule, &p.TokenReleaseSchedule, func(i interface{}) error { return nil }),
 	}
 }
 
 func validateMintDenom(i interface{}) error {
-	v, ok := i.(string)
+	denomString, ok := i.(string)
+	denomTrimed := strings.TrimSpace(denomString)
+
 	if !ok {
 		return fmt.Errorf("invalid parameter type: %T", i)
 	}
-
-	if strings.TrimSpace(v) == "" {
+	if denomTrimed == "" {
 		return errors.New("mint denom cannot be blank")
 	}
-	if err := sdk.ValidateDenom(v); err != nil {
+	if denomTrimed != sdk.DefaultBondDenom {
+		return fmt.Errorf("mint denom must be the same as the default bond denom=%s", sdk.DefaultBondDenom)
+	}
+	if err := sdk.ValidateDenom(denomString); err != nil {
 		return err
 	}
 
 	return nil
 }
 
-func validateGenesisEpochProvisions(i interface{}) error {
-	v, ok := i.(sdk.Dec)
-	if !ok {
-		return fmt.Errorf("invalid parameter type: %T", i)
-	}
-
-	if v.LT(sdk.ZeroDec()) {
-		return fmt.Errorf("genesis epoch provision must be non-negative")
-	}
-
-	return nil
+func SortTokenReleaseCalendar(tokenReleaseSchedule []ScheduledTokenRelease) []ScheduledTokenRelease {
+	sort.Slice(tokenReleaseSchedule, func(i, j int) bool {
+		startDate1, _ := time.Parse(TokenReleaseDateFormat, tokenReleaseSchedule[i].GetStartDate())
+		startDate2, _ := time.Parse(TokenReleaseDateFormat, tokenReleaseSchedule[j].GetStartDate())
+		return startDate1.Before(startDate2)
+	})
+	return tokenReleaseSchedule
 }
 
-func validateReductionPeriodInEpochs(i interface{}) error {
-	v, ok := i.(int64)
+func validateTokenReleaseSchedule(i interface{}) error {
+	tokenReleaseSchedule, ok := i.([]ScheduledTokenRelease)
 	if !ok {
 		return fmt.Errorf("invalid parameter type: %T", i)
 	}
 
-	if v <= 0 {
-		return fmt.Errorf("max validators must be positive: %d", v)
-	}
+	sortedTokenReleaseSchedule := SortTokenReleaseCalendar(tokenReleaseSchedule)
 
-	return nil
-}
+	prevReleaseEndDate := time.Time{}
+	for _, scheduledTokenRelease := range sortedTokenReleaseSchedule {
+		startDate, err := time.Parse(TokenReleaseDateFormat, scheduledTokenRelease.GetStartDate())
+		if err != nil {
+			return fmt.Errorf("error: invalid start date format use yyyy-mm-dd: %s", err)
+		}
 
-func validateReductionFactor(i interface{}) error {
-	v, ok := i.(sdk.Dec)
-	if !ok {
-		return fmt.Errorf("invalid parameter type: %T", i)
-	}
+		endDate, err := time.Parse(TokenReleaseDateFormat, scheduledTokenRelease.GetEndDate())
+		if err != nil {
+			return fmt.Errorf("error: invalid end date format use yyyy-mm-dd: %s", err)
+		}
 
-	if v.GT(sdk.NewDec(1)) {
-		return fmt.Errorf("reduction factor cannot be greater than 1")
-	}
+		if startDate.After(endDate) {
+			return fmt.Errorf("error: start date must be before end date %s > %s", startDate, endDate)
+		}
 
-	if v.IsNegative() {
-		return fmt.Errorf("reduction factor cannot be negative")
+		if startDate.Before(prevReleaseEndDate) {
+			return fmt.Errorf("error: overlapping release period detected startDate=%s < prevReleaseEndDate=%s", startDate, prevReleaseEndDate)
+		}
+		prevReleaseEndDate = endDate
 	}
 
 	return nil

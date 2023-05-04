@@ -38,7 +38,7 @@ MsgChangeAdmin message.
 export type TokenfactoryMsgChangeAdminResponse = object;
 
 export interface TokenfactoryMsgCreateDenomResponse {
-  newTokenDenom?: string;
+  new_token_denom?: string;
 }
 
 export type TokenfactoryMsgMintResponse = object;
@@ -47,7 +47,15 @@ export type TokenfactoryMsgMintResponse = object;
  * Params defines the parameters for the tokenfactory module.
  */
 export interface TokenfactoryParams {
-  denomCreationFee?: V1Beta1Coin[];
+  denom_creation_fee?: V1Beta1Coin[];
+}
+
+/**
+* QueryCreatorInDenomFeeWhitelistResponse defines the response structure for the
+CreatorInDenomFeeWhitelist gRPC query.
+*/
+export interface TokenfactoryQueryCreatorInDenomFeeWhitelistResponse {
+  whitelisted?: boolean;
 }
 
 /**
@@ -60,7 +68,15 @@ export interface TokenfactoryQueryDenomAuthorityMetadataResponse {
    * capabilities over a token factory denom. Right now there is only one Admin
    * permission, but is planned to be extended to the future.
    */
-  authorityMetadata?: TokenfactoryDenomAuthorityMetadata;
+  authority_metadata?: TokenfactoryDenomAuthorityMetadata;
+}
+
+/**
+* QueryDenomCreationFeeWhitelistResponse defines the response structure for the
+DenomsFromCreator gRPC query.
+*/
+export interface TokenfactoryQueryDenomCreationFeeWhitelistResponse {
+  creators?: string[];
 }
 
 /**
@@ -286,6 +302,40 @@ export class HttpClient<SecurityDataType = unknown> {
  * @version version not set
  */
 export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDataType> {
+  /**
+ * No description
+ * 
+ * @tags Query
+ * @name QueryDenomCreationFeeWhitelist
+ * @summary DenomCreationFeeWhitelist defines a gRPC query method for fetching all
+creators who are whitelisted from paying the denom creation fee.
+ * @request GET:/sei-protocol/seichain/tokenfactory/denom_creation_fee_whitelist
+ */
+  queryDenomCreationFeeWhitelist = (params: RequestParams = {}) =>
+    this.request<TokenfactoryQueryDenomCreationFeeWhitelistResponse, RpcStatus>({
+      path: `/sei-protocol/seichain/tokenfactory/denom_creation_fee_whitelist`,
+      method: "GET",
+      format: "json",
+      ...params,
+    });
+
+  /**
+ * No description
+ * 
+ * @tags Query
+ * @name QueryCreatorInDenomFeeWhitelist
+ * @summary CreatorInDenomFeeWhitelist defines a gRPC query method for fetching
+whether a creator is whitelisted from denom creation fees.
+ * @request GET:/sei-protocol/seichain/tokenfactory/denom_creation_fee_whitelist/{creator}
+ */
+  queryCreatorInDenomFeeWhitelist = (creator: string, params: RequestParams = {}) =>
+    this.request<TokenfactoryQueryCreatorInDenomFeeWhitelistResponse, RpcStatus>({
+      path: `/sei-protocol/seichain/tokenfactory/denom_creation_fee_whitelist/${creator}`,
+      method: "GET",
+      format: "json",
+      ...params,
+    });
+
   /**
  * No description
  * 

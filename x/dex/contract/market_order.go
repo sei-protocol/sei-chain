@@ -8,6 +8,7 @@ import (
 	dexkeeperabci "github.com/sei-protocol/sei-chain/x/dex/keeper/abci"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
 	dextypesutils "github.com/sei-protocol/sei-chain/x/dex/types/utils"
+	dexutils "github.com/sei-protocol/sei-chain/x/dex/utils"
 	"go.opentelemetry.io/otel/attribute"
 	otrace "go.opentelemetry.io/otel/trace"
 )
@@ -16,12 +17,11 @@ func PrepareCancelUnfulfilledMarketOrders(
 	ctx sdk.Context,
 	typedContractAddr dextypesutils.ContractAddress,
 	typedPairStr dextypesutils.PairString,
-	dexkeeper *keeper.Keeper,
 	orderIDToSettledQuantities map[uint64]sdk.Dec,
 ) {
-	dexkeeper.MemState.ClearCancellationForPair(ctx, typedContractAddr, typedPairStr)
-	for _, marketOrderID := range getUnfulfilledPlacedMarketOrderIds(ctx, typedContractAddr, typedPairStr, dexkeeper, orderIDToSettledQuantities) {
-		dexkeeper.MemState.GetBlockCancels(ctx, typedContractAddr, typedPairStr).Add(&types.Cancellation{
+	dexutils.GetMemState(ctx.Context()).ClearCancellationForPair(ctx, typedContractAddr, typedPairStr)
+	for _, marketOrderID := range getUnfulfilledPlacedMarketOrderIds(ctx, typedContractAddr, typedPairStr, orderIDToSettledQuantities) {
+		dexutils.GetMemState(ctx.Context()).GetBlockCancels(ctx, typedContractAddr, typedPairStr).Add(&types.Cancellation{
 			Id:        marketOrderID,
 			Initiator: types.CancellationInitiator_USER,
 		})
@@ -32,16 +32,20 @@ func getUnfulfilledPlacedMarketOrderIds(
 	ctx sdk.Context,
 	typedContractAddr dextypesutils.ContractAddress,
 	typedPairStr dextypesutils.PairString,
-	dexkeeper *keeper.Keeper,
 	orderIDToSettledQuantities map[uint64]sdk.Dec,
 ) []uint64 {
 	res := []uint64{}
-	for _, order := range dexkeeper.MemState.GetBlockOrders(ctx, typedContractAddr, typedPairStr).Get() {
+	for _, order := range dexutils.GetMemState(ctx.Context()).GetBlockOrders(ctx, typedContractAddr, typedPairStr).Get() {
 		if order.Status == types.OrderStatus_FAILED_TO_PLACE {
 			continue
 		}
-		if order.OrderType == types.OrderType_MARKET || order.OrderType == types.OrderType_LIQUIDATION || order.OrderType == types.OrderType_FOKMARKET {
+		if order.OrderType == types.OrderType_MARKET || order.OrderType == types.OrderType_FOKMARKET {
 			if settledQuantity, ok := orderIDToSettledQuantities[order.Id]; !ok || settledQuantity.LT(order.Quantity) {
+				res = append(res, order.Id)
+			}
+		} else if order.OrderType == types.OrderType_FOKMARKETBYVALUE {
+			// cancel market order by nominal if zero quantity is executed
+			if _, ok := orderIDToSettledQuantities[order.Id]; !ok {
 				res = append(res, order.Id)
 			}
 		}

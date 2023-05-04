@@ -2,6 +2,7 @@ package query
 
 import (
 	"strconv"
+	"strings"
 
 	"github.com/cosmos/cosmos-sdk/client"
 	"github.com/cosmos/cosmos-sdk/client/flags"
@@ -15,7 +16,10 @@ func CmdGetRegisteredPairs() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "get-registered-pairs [contract address]",
 		Short: "Query Registered Pairs",
-		Args:  cobra.ExactArgs(1),
+		Long: strings.TrimSpace(`
+			List all of the registered pairs for an orderbook specified by contract address.
+		`),
+		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) (err error) {
 			contractAddr := args[0]
 			clientCtx, err := client.GetClientTxContext(cmd)

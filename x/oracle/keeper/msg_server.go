@@ -20,47 +20,6 @@ func NewMsgServerImpl(keeper Keeper) types.MsgServer {
 	return &msgServer{Keeper: keeper}
 }
 
-func (ms msgServer) AggregateExchangeRatePrevote(goCtx context.Context, msg *types.MsgAggregateExchangeRatePrevote) (*types.MsgAggregateExchangeRatePrevoteResponse, error) {
-	ctx := sdk.UnwrapSDKContext(goCtx)
-
-	valAddr, err := sdk.ValAddressFromBech32(msg.Validator)
-	if err != nil {
-		return nil, err
-	}
-
-	feederAddr, err := sdk.AccAddressFromBech32(msg.Feeder)
-	if err != nil {
-		return nil, err
-	}
-
-	if err := ms.ValidateFeeder(ctx, feederAddr, valAddr); err != nil {
-		return nil, err
-	}
-
-	// Convert hex string to votehash
-	voteHash, err := types.AggregateVoteHashFromHexString(msg.Hash)
-	if err != nil {
-		return nil, sdkerrors.Wrap(types.ErrInvalidHash, err.Error())
-	}
-
-	aggregatePrevote := types.NewAggregateExchangeRatePrevote(voteHash, valAddr, uint64(ctx.BlockHeight()))
-	ms.SetAggregateExchangeRatePrevote(ctx, valAddr, aggregatePrevote)
-
-	ctx.EventManager().EmitEvents(sdk.Events{
-		sdk.NewEvent(
-			types.EventTypeAggregatePrevote,
-			sdk.NewAttribute(types.AttributeKeyVoter, msg.Validator),
-		),
-		sdk.NewEvent(
-			sdk.EventTypeMessage,
-			sdk.NewAttribute(sdk.AttributeKeyModule, types.AttributeValueCategory),
-			sdk.NewAttribute(sdk.AttributeKeySender, msg.Feeder),
-		),
-	})
-
-	return &types.MsgAggregateExchangeRatePrevoteResponse{}, nil
-}
-
 func (ms msgServer) AggregateExchangeRateVote(goCtx context.Context, msg *types.MsgAggregateExchangeRateVote) (*types.MsgAggregateExchangeRateVoteResponse, error) {
 	ctx := sdk.UnwrapSDKContext(goCtx)
 
@@ -78,16 +37,6 @@ func (ms msgServer) AggregateExchangeRateVote(goCtx context.Context, msg *types.
 		return nil, err
 	}
 
-	aggregatePrevote, err := ms.GetAggregateExchangeRatePrevote(ctx, valAddr)
-	if err != nil {
-		return nil, sdkerrors.Wrap(types.ErrNoAggregatePrevote, msg.Validator)
-	}
-
-	// Check a msg is submitted proper period
-	if !ms.IsPrevoteFromPreviousWindow(ctx, valAddr) {
-		return nil, types.ErrRevealPeriodMissMatch
-	}
-
 	exchangeRateTuples, err := types.ParseExchangeRateTuples(msg.ExchangeRates)
 	if err != nil {
 		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidCoins, err.Error())
@@ -100,15 +49,7 @@ func (ms msgServer) AggregateExchangeRateVote(goCtx context.Context, msg *types.
 		}
 	}
 
-	// Verify a exchange rate with aggregate prevote hash
-	hash := types.GetAggregateVoteHash(msg.Salt, msg.ExchangeRates, valAddr)
-	if aggregatePrevote.Hash != hash.String() {
-		return nil, sdkerrors.Wrapf(types.ErrVerificationFailed, "must be given %s not %s", aggregatePrevote.Hash, hash)
-	}
-
-	// Move aggregate prevote to aggregate vote with given exchange rates
 	ms.SetAggregateExchangeRateVote(ctx, valAddr, types.NewAggregateExchangeRateVote(exchangeRateTuples, valAddr))
-	ms.DeleteAggregateExchangeRatePrevote(ctx, valAddr)
 
 	ctx.EventManager().EmitEvents(sdk.Events{
 		sdk.NewEvent(
@@ -124,49 +65,6 @@ func (ms msgServer) AggregateExchangeRateVote(goCtx context.Context, msg *types.
 	})
 
 	return &types.MsgAggregateExchangeRateVoteResponse{}, nil
-}
-
-func (ms msgServer) AggregateExchangeRateCombinedVote(goCtx context.Context, msg *types.MsgAggregateExchangeRateCombinedVote) (*types.MsgAggregateExchangeRateCombinedVoteResponse, error) {
-	ctx := sdk.UnwrapSDKContext(goCtx)
-	valAddr, err := sdk.ValAddressFromBech32(msg.Validator)
-	if err != nil {
-		return nil, err
-	}
-
-	var voteErr error
-	// if there isn't a prevote, we want to no-op the vote so we don't get an error
-	// this way, it is safe to use combined vote regardless of a missed vote window
-	if err == nil && ms.IsPrevoteFromPreviousWindow(ctx, valAddr) {
-		_, voteErr = ms.AggregateExchangeRateVote(goCtx, msg.GetVoteFromCombinedVote())
-	}
-
-	_, prevoteErr := ms.AggregateExchangeRatePrevote(goCtx, msg.GetPrevoteFromCombinedVote())
-
-	if voteErr != nil {
-		return nil, voteErr
-	}
-	if prevoteErr != nil {
-		return nil, prevoteErr
-	}
-
-	ctx.EventManager().EmitEvents(sdk.Events{
-		sdk.NewEvent(
-			types.EventTypeAggregateVote,
-			sdk.NewAttribute(types.AttributeKeyVoter, msg.Validator),
-			sdk.NewAttribute(types.AttributeKeyExchangeRates, msg.VoteExchangeRates),
-		),
-		sdk.NewEvent(
-			types.EventTypeAggregatePrevote,
-			sdk.NewAttribute(types.AttributeKeyVoter, msg.Validator),
-		),
-		sdk.NewEvent(
-			sdk.EventTypeMessage,
-			sdk.NewAttribute(sdk.AttributeKeyModule, types.AttributeValueCategory),
-			sdk.NewAttribute(sdk.AttributeKeySender, msg.Feeder),
-		),
-	})
-
-	return &types.MsgAggregateExchangeRateCombinedVoteResponse{}, nil
 }
 
 func (ms msgServer) DelegateFeedConsent(goCtx context.Context, msg *types.MsgDelegateFeedConsent) (*types.MsgDelegateFeedConsentResponse, error) {

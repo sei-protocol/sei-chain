@@ -1,6 +1,11 @@
 package types
 
-import "encoding/binary"
+import (
+	"encoding/binary"
+
+	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/cosmos/cosmos-sdk/types/address"
+)
 
 const (
 	// ModuleName defines the module name
@@ -26,8 +31,13 @@ func KeyPrefix(p string) []byte {
 	return []byte(p)
 }
 
+func AddressKeyPrefix(contractAddr string) []byte {
+	addr, _ := sdk.AccAddressFromBech32(contractAddr)
+	return address.MustLengthPrefix(addr)
+}
+
 func ContractKeyPrefix(p string, contractAddr string) []byte {
-	return append([]byte(p), []byte(contractAddr)...)
+	return append([]byte(p), AddressKeyPrefix(contractAddr)...)
 }
 
 func PairPrefix(priceDenom string, assetDenom string) []byte {
@@ -35,65 +45,56 @@ func PairPrefix(priceDenom string, assetDenom string) []byte {
 }
 
 func OrderBookPrefix(long bool, contractAddr string, priceDenom string, assetDenom string) []byte {
+	return append(
+		OrderBookContractPrefix(long, contractAddr),
+		PairPrefix(priceDenom, assetDenom)...,
+	)
+}
+
+func OrderBookContractPrefix(long bool, contractAddr string) []byte {
 	var prefix []byte
 	if long {
 		prefix = KeyPrefix(LongBookKey)
 	} else {
 		prefix = KeyPrefix(ShortBookKey)
 	}
-	return append(
-		append(prefix, KeyPrefix(contractAddr)...),
-		PairPrefix(priceDenom, assetDenom)...,
-	)
+	return append(prefix, AddressKeyPrefix(contractAddr)...)
 }
 
-func TwapPrefix(contractAddr string) []byte {
-	return append(KeyPrefix(TwapKey), KeyPrefix(contractAddr)...)
+func TriggerOrderBookPrefix(contractAddr string, priceDenom string, assetDenom string) []byte {
+	prefix := KeyPrefix(TriggerBookKey)
+
+	return append(
+		append(prefix, AddressKeyPrefix(contractAddr)...),
+		PairPrefix(priceDenom, assetDenom)...,
+	)
 }
 
 // `Price` constant + contract + price denom + asset denom
 func PricePrefix(contractAddr string, priceDenom string, assetDenom string) []byte {
 	return append(
-		append(KeyPrefix(PriceKey), KeyPrefix(contractAddr)...),
+		PriceContractPrefix(contractAddr),
 		PairPrefix(priceDenom, assetDenom)...,
 	)
+}
+
+func PriceContractPrefix(contractAddr string) []byte {
+	return append(KeyPrefix(PriceKey), AddressKeyPrefix(contractAddr)...)
 }
 
 func SettlementEntryPrefix(contractAddr string, priceDenom string, assetDenom string) []byte {
 	return append(
-		append(KeyPrefix(SettlementEntryKey), KeyPrefix(contractAddr)...),
+		append(KeyPrefix(SettlementEntryKey), AddressKeyPrefix(contractAddr)...),
 		PairPrefix(priceDenom, assetDenom)...,
 	)
 }
 
-func GetKeyForHeight(height uint64) []byte {
-	key := make([]byte, 8)
-	binary.BigEndian.PutUint64(key, height)
-	return key
-}
-
 func RegisteredPairPrefix(contractAddr string) []byte {
-	return append(KeyPrefix(RegisteredPairKey), KeyPrefix(contractAddr)...)
-}
-
-func TickSizeKeyPrefix(contractAddr string) []byte {
-	return append(KeyPrefix(TickSizeKey), KeyPrefix(contractAddr)...)
+	return append(KeyPrefix(RegisteredPairKey), AddressKeyPrefix(contractAddr)...)
 }
 
 func OrderPrefix(contractAddr string) []byte {
-	return append(KeyPrefix(OrderKey), KeyPrefix(contractAddr)...)
-}
-
-func Cancel(contractAddr string) []byte {
-	return append(KeyPrefix(CancelKey), KeyPrefix(contractAddr)...)
-}
-
-func AccountActiveOrdersPrefix(contractAddr string) []byte {
-	return append(KeyPrefix(AccountActiveOrdersKey), KeyPrefix(contractAddr)...)
-}
-
-func RegisteredPairCountPrefix() []byte {
-	return KeyPrefix(RegisteredPairCount)
+	return append(KeyPrefix(OrderKey), AddressKeyPrefix(contractAddr)...)
 }
 
 func AssetListPrefix(assetDenom string) []byte {
@@ -101,18 +102,18 @@ func AssetListPrefix(assetDenom string) []byte {
 }
 
 func NextOrderIDPrefix(contractAddr string) []byte {
-	return append(KeyPrefix(NextOrderIDKey), KeyPrefix(contractAddr)...)
+	return append(KeyPrefix(NextOrderIDKey), AddressKeyPrefix(contractAddr)...)
 }
 
 func NextSettlementIDPrefix(contractAddr string, priceDenom string, assetDenom string) []byte {
 	return append(
-		append(KeyPrefix(NextSettlementIDKey), KeyPrefix(contractAddr)...),
+		append(KeyPrefix(NextSettlementIDKey), AddressKeyPrefix(contractAddr)...),
 		PairPrefix(priceDenom, assetDenom)...,
 	)
 }
 
 func MatchResultPrefix(contractAddr string) []byte {
-	return append(KeyPrefix(MatchResultKey), KeyPrefix(contractAddr)...)
+	return append(KeyPrefix(MatchResultKey), AddressKeyPrefix(contractAddr)...)
 }
 
 func GetSettlementOrderIDPrefix(orderID uint64, account string) []byte {
@@ -128,15 +129,46 @@ func GetSettlementKey(orderID uint64, account string, settlementID uint64) []byt
 	return append(GetSettlementOrderIDPrefix(orderID, account), settlementIDBytes...)
 }
 
-const (
-	DefaultPriceDenom = "stake"
-	DefaultAssetDenom = "dummy"
-)
+func MemOrderPrefixForPair(contractAddr string, pairString string) []byte {
+	return append(
+		append(KeyPrefix(MemOrderKey), AddressKeyPrefix(contractAddr)...),
+		[]byte(pairString)...,
+	)
+}
+
+func MemCancelPrefixForPair(contractAddr string, pairString string) []byte {
+	return append(
+		append(KeyPrefix(MemCancelKey), AddressKeyPrefix(contractAddr)...),
+		[]byte(pairString)...,
+	)
+}
+
+func MemOrderPrefix(contractAddr string) []byte {
+	return append(KeyPrefix(MemOrderKey), AddressKeyPrefix(contractAddr)...)
+}
+
+func MemCancelPrefix(contractAddr string) []byte {
+	return append(KeyPrefix(MemCancelKey), AddressKeyPrefix(contractAddr)...)
+}
+
+func MemDepositPrefix(contractAddr string) []byte {
+	return append(KeyPrefix(MemDepositKey), AddressKeyPrefix(contractAddr)...)
+}
+
+func MemDepositSubprefix(creator, denom string) []byte {
+	return append([]byte(creator), []byte(denom)...)
+}
+
+func ContractKey(contractAddr string) []byte {
+	return AddressKeyPrefix(contractAddr)
+}
 
 const (
 	LongBookKey = "LongBook-value-"
 
 	ShortBookKey = "ShortBook-value-"
+
+	TriggerBookKey = "TriggerBook-value-"
 
 	OrderKey               = "order"
 	AccountActiveOrdersKey = "account-active-orders"
@@ -148,8 +180,10 @@ const (
 	NextSettlementIDKey = "NextSettlementID-"
 	NextOrderIDKey      = "noid"
 	RegisteredPairKey   = "rp"
-	RegisteredPairCount = "rpcnt"
-	TickSizeKey         = "ticks"
 	AssetListKey        = "AssetList-"
 	MatchResultKey      = "MatchResult-"
+
+	MemOrderKey   = "MemOrder-"
+	MemDepositKey = "MemDeposit-"
+	MemCancelKey  = "MemCancel-"
 )

@@ -9,21 +9,6 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 )
 
-// NewAggregateExchangeRatePrevote returns AggregateExchangeRatePrevote object
-func NewAggregateExchangeRatePrevote(hash AggregateVoteHash, voter sdk.ValAddress, submitBlock uint64) AggregateExchangeRatePrevote {
-	return AggregateExchangeRatePrevote{
-		Hash:        hash.String(),
-		Voter:       voter.String(),
-		SubmitBlock: submitBlock,
-	}
-}
-
-// String implement stringify
-func (v AggregateExchangeRatePrevote) String() string {
-	out, _ := yaml.Marshal(v)
-	return string(out)
-}
-
 // NewAggregateExchangeRateVote creates a AggregateExchangeRateVote instance
 func NewAggregateExchangeRateVote(exchangeRateTuples ExchangeRateTuples, voter sdk.ValAddress) AggregateExchangeRateVote {
 	return AggregateExchangeRateVote{

@@ -53,6 +53,21 @@ message Order {
     string statusDescription = 12 [
         (gogoproto.jsontag) = "status_description"
     ];
+    string nominal = 13 [
+        (gogoproto.moretags)   = "yaml:\"nominal\"",
+        (gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Dec",
+        (gogoproto.nullable)   = false,
+        (gogoproto.jsontag)    = "nominal"
+    ];
+    string triggerPrice = 14 [
+        (gogoproto.moretags)   = "yaml:\"trigger_price\"",
+        (gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Dec",
+        (gogoproto.nullable)   = false,
+        (gogoproto.jsontag)    = "trigger_price"
+    ];
+    bool triggerStatus = 15 [
+        (gogoproto.jsontag) = "trigger_status"
+    ];
 }
 
 message Cancellation {

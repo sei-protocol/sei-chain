@@ -10,7 +10,7 @@ import (
 
 // A -> B -> C
 func TestTopologicalSortContractInfoSimple(t *testing.T) {
-	a := types.ContractInfo{
+	a := types.ContractInfoV2{
 		ContractAddr: "A",
 		Dependencies: []*types.ContractDependencyInfo{
 			{
@@ -18,7 +18,7 @@ func TestTopologicalSortContractInfoSimple(t *testing.T) {
 			},
 		},
 	}
-	b := types.ContractInfo{
+	b := types.ContractInfoV2{
 		ContractAddr: "B",
 		Dependencies: []*types.ContractDependencyInfo{
 			{
@@ -26,10 +26,10 @@ func TestTopologicalSortContractInfoSimple(t *testing.T) {
 			},
 		},
 	}
-	c := types.ContractInfo{
+	c := types.ContractInfoV2{
 		ContractAddr: "C",
 	}
-	res, err := contract.TopologicalSortContractInfo([]types.ContractInfo{b, c, a})
+	res, err := contract.TopologicalSortContractInfo([]types.ContractInfoV2{b, c, a})
 	require.Nil(t, err)
 	require.Equal(t, "A", res[0].ContractAddr)
 	require.Equal(t, "B", res[1].ContractAddr)
@@ -38,7 +38,7 @@ func TestTopologicalSortContractInfoSimple(t *testing.T) {
 
 // A -> B, C -> D
 func TestTopologicalSortContractInfoIsolated(t *testing.T) {
-	a := types.ContractInfo{
+	a := types.ContractInfoV2{
 		ContractAddr: "A",
 		Dependencies: []*types.ContractDependencyInfo{
 			{
@@ -46,10 +46,10 @@ func TestTopologicalSortContractInfoIsolated(t *testing.T) {
 			},
 		},
 	}
-	b := types.ContractInfo{
+	b := types.ContractInfoV2{
 		ContractAddr: "B",
 	}
-	c := types.ContractInfo{
+	c := types.ContractInfoV2{
 		ContractAddr: "C",
 		Dependencies: []*types.ContractDependencyInfo{
 			{
@@ -57,10 +57,10 @@ func TestTopologicalSortContractInfoIsolated(t *testing.T) {
 			},
 		},
 	}
-	d := types.ContractInfo{
+	d := types.ContractInfoV2{
 		ContractAddr: "D",
 	}
-	res, err := contract.TopologicalSortContractInfo([]types.ContractInfo{b, c, a, d})
+	res, err := contract.TopologicalSortContractInfo([]types.ContractInfoV2{b, c, a, d})
 	require.Nil(t, err)
 	aidx, bidx, cidx, didx := -1, -1, -1, -1
 	for i, c := range res {
@@ -80,7 +80,7 @@ func TestTopologicalSortContractInfoIsolated(t *testing.T) {
 
 // A -> B -> C -> A
 func TestTopologicalSortContractInfoCircular(t *testing.T) {
-	a := types.ContractInfo{
+	a := types.ContractInfoV2{
 		ContractAddr: "A",
 		Dependencies: []*types.ContractDependencyInfo{
 			{
@@ -88,7 +88,7 @@ func TestTopologicalSortContractInfoCircular(t *testing.T) {
 			},
 		},
 	}
-	b := types.ContractInfo{
+	b := types.ContractInfoV2{
 		ContractAddr: "B",
 		Dependencies: []*types.ContractDependencyInfo{
 			{
@@ -96,7 +96,7 @@ func TestTopologicalSortContractInfoCircular(t *testing.T) {
 			},
 		},
 	}
-	c := types.ContractInfo{
+	c := types.ContractInfoV2{
 		ContractAddr: "C",
 		Dependencies: []*types.ContractDependencyInfo{
 			{
@@ -104,7 +104,7 @@ func TestTopologicalSortContractInfoCircular(t *testing.T) {
 			},
 		},
 	}
-	res, err := contract.TopologicalSortContractInfo([]types.ContractInfo{b, c, a})
+	res, err := contract.TopologicalSortContractInfo([]types.ContractInfoV2{b, c, a})
 	require.NotNil(t, err)
 	require.Equal(t, 0, len(res))
 }

@@ -9,16 +9,8 @@ import (
 	"github.com/sei-protocol/sei-chain/x/tokenfactory/types"
 )
 
-// ConvertToBaseToken converts a fee amount in a whitelisted fee token to the base fee token amount
+// CreateDenom creates a new token denom with the given subdenom.
 func (k Keeper) CreateDenom(ctx sdk.Context, creatorAddr string, subdenom string) (newTokenDenom string, err error) {
-	// Don't charge denom creation fee for those in whitelist
-	if !(k.IsCreatorInDenomFeeWhitelist(ctx, creatorAddr)) {
-		err = k.chargeForCreateDenom(ctx, creatorAddr)
-		if err != nil {
-			return "", err
-		}
-	}
-
 	denom, err := k.validateCreateDenom(ctx, creatorAddr, subdenom)
 	if err != nil {
 		return "", err
@@ -71,20 +63,4 @@ func (k Keeper) validateCreateDenom(ctx sdk.Context, creatorAddr string, subdeno
 	}
 
 	return denom, nil
-}
-
-func (k Keeper) chargeForCreateDenom(ctx sdk.Context, creatorAddr string) (err error) {
-	// Send creation fee to community pool
-	creationFee := k.GetParams(ctx).DenomCreationFee
-	accAddr, err := sdk.AccAddressFromBech32(creatorAddr)
-	if err != nil {
-		return err
-	}
-	if len(creationFee) > 0 {
-		// TODO(kartik): Possibly remove community funding
-		if err := k.distrKeeper.FundCommunityPool(ctx, creationFee, accAddr); err != nil {
-			return err
-		}
-	}
-	return nil
 }

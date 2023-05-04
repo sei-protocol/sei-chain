@@ -23,7 +23,11 @@ func CmdPlaceOrders() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "place-orders [contract address] [orders...] --amount [coins,optional]",
 		Short: "Bulk place orders",
-		Args:  cobra.MinimumNArgs(2),
+		Long: strings.TrimSpace(`
+			Place orders on an orderbook specified by contract-address. Orders are represented as strings with the cancellation details separated by "?". Cancellation details format is OrderDirection?Quantity?Price?PriceAsset?QuoteAsset?OrderType?OrderData?AdditionalParams.
+			More info here: https://docs.seinetwork.io/smart-contracts-and-local-development/dex-module-tutorial#placeorders
+		`),
+		Args: cobra.MinimumNArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) (err error) {
 			argContractAddr := args[0]
 			orders := []*types.Order{}
@@ -53,6 +57,26 @@ func CmdPlaceOrders() *cobra.Command {
 				}
 				newOrder.OrderType = argOrderType
 				newOrder.Data = orderDetails[6]
+				if newOrder.OrderType == types.OrderType_FOKMARKETBYVALUE {
+					argNominal, err := sdk.NewDecFromStr(orderDetails[7])
+					if err != nil {
+						return err
+					}
+					newOrder.Nominal = argNominal
+				}
+				if newOrder.OrderType == types.OrderType_STOPLOSS || newOrder.OrderType == types.OrderType_STOPLIMIT {
+					triggerPrice, err := sdk.NewDecFromStr(orderDetails[7])
+					if err != nil {
+						return err
+					}
+					triggerStatus, err := strconv.ParseBool(orderDetails[8])
+					if err != nil {
+						return err
+					}
+
+					newOrder.TriggerPrice = triggerPrice
+					newOrder.TriggerStatus = triggerStatus
+				}
 				orders = append(orders, &newOrder)
 			}
 
@@ -77,9 +101,6 @@ func CmdPlaceOrders() *cobra.Command {
 				argContractAddr,
 				amount,
 			)
-			if err := msg.ValidateBasic(); err != nil {
-				return err
-			}
 			return tx.GenerateOrBroadcastTxCLI(clientCtx, cmd.Flags(), msg)
 		},
 	}

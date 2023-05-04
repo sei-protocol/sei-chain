@@ -140,6 +140,36 @@ export class Api extends HttpClient {
        * No description
        *
        * @tags Query
+       * @name QueryDenomCreationFeeWhitelist
+       * @summary DenomCreationFeeWhitelist defines a gRPC query method for fetching all
+      creators who are whitelisted from paying the denom creation fee.
+       * @request GET:/sei-protocol/seichain/tokenfactory/denom_creation_fee_whitelist
+       */
+        this.queryDenomCreationFeeWhitelist = (params = {}) => this.request({
+            path: `/sei-protocol/seichain/tokenfactory/denom_creation_fee_whitelist`,
+            method: "GET",
+            format: "json",
+            ...params,
+        });
+        /**
+       * No description
+       *
+       * @tags Query
+       * @name QueryCreatorInDenomFeeWhitelist
+       * @summary CreatorInDenomFeeWhitelist defines a gRPC query method for fetching
+      whether a creator is whitelisted from denom creation fees.
+       * @request GET:/sei-protocol/seichain/tokenfactory/denom_creation_fee_whitelist/{creator}
+       */
+        this.queryCreatorInDenomFeeWhitelist = (creator, params = {}) => this.request({
+            path: `/sei-protocol/seichain/tokenfactory/denom_creation_fee_whitelist/${creator}`,
+            method: "GET",
+            format: "json",
+            ...params,
+        });
+        /**
+       * No description
+       *
+       * @tags Query
        * @name QueryDenomAuthorityMetadata
        * @summary DenomAuthorityMetadata defines a gRPC query method for fetching
       DenomAuthorityMetadata for a particular denom.
