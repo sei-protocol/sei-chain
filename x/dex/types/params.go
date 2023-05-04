@@ -25,7 +25,7 @@ const (
 	DefaultBeginBlockGasLimit        = 200000000  // 200M
 	DefaultEndBlockGasLimit          = 1000000000 // 1B
 	DefaultDefaultGasPerOrder        = 55000
-	DefaultDefaultGasPerCancel       = 55000
+	DefaultDefaultGasPerCancel       = 53000
 	DefaultMinRentDeposit            = 10000000 // 10 sei
 	DefaultGasAllowancePerSettlement = 10000
 	DefaultMinProcessableRent        = 100000
