@@ -7,9 +7,6 @@ import (
 )
 
 func V12ToV13(ctx sdk.Context, dexkeeper keeper.Keeper) error {
-	// This isn't the cleanest migration since it could potentially revert any dex params we have changed
-	// but we haven't, so we'll just do this.
-
 	oldParams := dexkeeper.GetParams(ctx)
 
 	newParams := types.DefaultParams()

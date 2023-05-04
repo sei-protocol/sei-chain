@@ -63,7 +63,7 @@ var upgradesList = []string{
 	"2.0.45beta",
 	"2.0.46beta",
 	"2.0.47beta",
-	"2.0.48beta",
+	"2.0.48",
 }
 
 func (app App) RegisterUpgradeHandlers() {
