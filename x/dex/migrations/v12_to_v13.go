@@ -16,6 +16,7 @@ func V12ToV13(ctx sdk.Context, dexkeeper keeper.Keeper) error {
 	newParams.EndBlockGasLimit = oldParams.EndBlockGasLimit
 	newParams.DefaultGasPerOrder = oldParams.DefaultGasPerOrder
 	newParams.DefaultGasPerCancel = oldParams.DefaultGasPerCancel
+	newParams.MinRentDeposit = oldParams.MinRentDeposit
 	newParams.GasAllowancePerSettlement = oldParams.GasAllowancePerSettlement
 
 	dexkeeper.SetParams(ctx, newParams)
