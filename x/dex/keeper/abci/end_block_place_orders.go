@@ -10,6 +10,7 @@ import (
 	"github.com/sei-protocol/sei-chain/x/dex/types"
 	typesutils "github.com/sei-protocol/sei-chain/x/dex/types/utils"
 	"github.com/sei-protocol/sei-chain/x/dex/types/wasm"
+	dexutils "github.com/sei-protocol/sei-chain/x/dex/utils"
 	"go.opentelemetry.io/otel/attribute"
 	otrace "go.opentelemetry.io/otel/trace"
 )
@@ -29,7 +30,11 @@ func (w KeeperWrapper) HandleEBPlaceOrders(ctx context.Context, sdkCtx sdk.Conte
 	responses := []wasm.SudoOrderPlacementResponse{}
 
 	for _, msg := range msgs {
-		data, err := utils.CallContractSudo(sdkCtx, w.Keeper, contractAddr, msg)
+		if msg.IsEmpty() {
+			continue
+		}
+		userProvidedGas := w.GetParams(sdkCtx).DefaultGasPerOrder * uint64(len(msg.OrderPlacements.Orders))
+		data, err := utils.CallContractSudo(sdkCtx, w.Keeper, contractAddr, msg, userProvidedGas)
 		if err != nil {
 			sdkCtx.Logger().Error(fmt.Sprintf("Error during order placement: %s", err.Error()))
 			return err
@@ -39,14 +44,16 @@ func (w KeeperWrapper) HandleEBPlaceOrders(ctx context.Context, sdkCtx sdk.Conte
 			sdkCtx.Logger().Error("Failed to parse order placement response")
 			return err
 		}
-		sdkCtx.Logger().Info(fmt.Sprintf("Sudo response data: %s", response))
+		if len(response.UnsuccessfulOrders) > 0 {
+			sdkCtx.Logger().Info(fmt.Sprintf("%s has %d unsuccessful order placements", contractAddr, len(response.UnsuccessfulOrders)))
+		}
 		responses = append(responses, response)
 	}
 
 	for _, pair := range registeredPairs {
 		typedPairStr := typesutils.GetPairString(&pair) //nolint:gosec // USING THE POINTER HERE COULD BE BAD, LET'S CHECK IT.
 		for _, response := range responses {
-			w.MemState.GetBlockOrders(sdkCtx, typedContractAddr, typedPairStr).MarkFailedToPlace(response.UnsuccessfulOrders)
+			dexutils.GetMemState(sdkCtx.Context()).GetBlockOrders(sdkCtx, typedContractAddr, typedPairStr).MarkFailedToPlace(response.UnsuccessfulOrders)
 		}
 	}
 	return nil
@@ -57,13 +64,13 @@ func (w KeeperWrapper) GetPlaceSudoMsg(ctx sdk.Context, typedContractAddr typesu
 	contractOrderPlacements := []types.Order{}
 	for _, pair := range registeredPairs {
 		typedPairStr := typesutils.GetPairString(&pair) //nolint:gosec // USING THE POINTER HERE COULD BE BAD, LET'S CHECK IT.
-		for _, order := range w.MemState.GetBlockOrders(ctx, typedContractAddr, typedPairStr).Get() {
+		for _, order := range dexutils.GetMemState(ctx.Context()).GetBlockOrders(ctx, typedContractAddr, typedPairStr).Get() {
 			contractOrderPlacements = append(contractOrderPlacements, *order)
 			if len(contractOrderPlacements) == MaxOrdersPerSudoCall {
 				msgs = append(msgs, wasm.SudoOrderPlacementMsg{
 					OrderPlacements: wasm.OrderPlacementMsgDetails{
 						Orders:   contractOrderPlacements,
-						Deposits: []wasm.ContractDepositInfo{},
+						Deposits: []types.ContractDepositInfo{},
 					},
 				})
 				contractOrderPlacements = []types.Order{}
@@ -73,7 +80,7 @@ func (w KeeperWrapper) GetPlaceSudoMsg(ctx sdk.Context, typedContractAddr typesu
 	msgs = append(msgs, wasm.SudoOrderPlacementMsg{
 		OrderPlacements: wasm.OrderPlacementMsgDetails{
 			Orders:   contractOrderPlacements,
-			Deposits: []wasm.ContractDepositInfo{},
+			Deposits: []types.ContractDepositInfo{},
 		},
 	})
 	return msgs

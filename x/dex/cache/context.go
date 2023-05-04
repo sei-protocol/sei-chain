@@ -13,7 +13,7 @@ const (
 	CtxKeyExecutingContract = CtxKeyType("executing-contract")
 )
 
-func GetExecutingContract(ctx sdk.Context) *types.ContractInfo {
+func GetExecutingContract(ctx sdk.Context) *types.ContractInfoV2 {
 	if ctx.Context() == nil {
 		return nil
 	}
@@ -21,7 +21,7 @@ func GetExecutingContract(ctx sdk.Context) *types.ContractInfo {
 	if executingContract == nil {
 		return nil
 	}
-	contract, ok := executingContract.(types.ContractInfo)
+	contract, ok := executingContract.(types.ContractInfoV2)
 	if !ok {
 		return nil
 	}

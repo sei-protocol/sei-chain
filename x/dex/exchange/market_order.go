@@ -4,6 +4,7 @@ import (
 	"math"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	cache "github.com/sei-protocol/sei-chain/x/dex/cache"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
 )
 
@@ -12,6 +13,7 @@ func MatchMarketOrders(
 	marketOrders []*types.Order,
 	orderBookEntries *types.CachedSortedOrderBookEntries,
 	direction types.PositionDirection,
+	blockOrders *cache.BlockOrders,
 ) ExecutionOutcome {
 	totalExecuted, totalPrice := sdk.ZeroDec(), sdk.ZeroDec()
 	minPrice, maxPrice := sdk.NewDecFromInt(sdk.NewIntFromUint64(math.MaxInt64)), sdk.OneDec().Neg()
@@ -21,13 +23,13 @@ func MatchMarketOrders(
 		switch marketOrder.OrderType {
 		case types.OrderType_FOKMARKETBYVALUE:
 			settlements, allTakerSettlements = MatchByValueFOKMarketOrder(
-				ctx, marketOrder, orderBookEntries, direction, &totalExecuted, &totalPrice, &minPrice, &maxPrice, settlements, allTakerSettlements)
+				ctx, marketOrder, orderBookEntries, direction, &totalExecuted, &totalPrice, &minPrice, &maxPrice, settlements, allTakerSettlements, blockOrders)
 		case types.OrderType_FOKMARKET:
 			settlements, allTakerSettlements = MatchFOKMarketOrder(
-				ctx, marketOrder, orderBookEntries, direction, &totalExecuted, &totalPrice, &minPrice, &maxPrice, settlements, allTakerSettlements)
+				ctx, marketOrder, orderBookEntries, direction, &totalExecuted, &totalPrice, &minPrice, &maxPrice, settlements, allTakerSettlements, blockOrders)
 		default:
 			settlements, allTakerSettlements = MatchMarketOrder(
-				ctx, marketOrder, orderBookEntries, direction, &totalExecuted, &totalPrice, &minPrice, &maxPrice, settlements, allTakerSettlements)
+				ctx, marketOrder, orderBookEntries, direction, &totalExecuted, &totalPrice, &minPrice, &maxPrice, settlements, allTakerSettlements, blockOrders)
 		}
 	}
 
@@ -59,6 +61,7 @@ func MatchMarketOrder(
 	maxPrice *sdk.Dec,
 	settlements []*types.SettlementEntry,
 	allTakerSettlements []*types.SettlementEntry,
+	blockOrders *cache.BlockOrders,
 ) ([]*types.SettlementEntry, []*types.SettlementEntry) {
 	remainingQuantity := marketOrder.Quantity
 	for i := range orderBookEntries.Entries {
@@ -102,6 +105,7 @@ func MatchMarketOrder(
 			executed,
 			existingOrder,
 			marketOrder.Price,
+			blockOrders,
 		)
 		settlements = append(settlements, makerSettlements...)
 		// taker settlements' clearing price will need to be adjusted after all market order executions finish
@@ -125,6 +129,7 @@ func MatchFOKMarketOrder(
 	maxPrice *sdk.Dec,
 	settlements []*types.SettlementEntry,
 	allTakerSettlements []*types.SettlementEntry,
+	blockOrders *cache.BlockOrders,
 ) ([]*types.SettlementEntry, []*types.SettlementEntry) {
 	// check if there is enough liquidity for fill-or-kill market order, if not skip them
 	remainingQuantity := marketOrder.Quantity
@@ -181,6 +186,7 @@ func MatchFOKMarketOrder(
 				executed,
 				existingOrder,
 				marketOrder.Price,
+				blockOrders,
 			)
 			settlements = append(settlements, makerSettlements...)
 			allTakerSettlements = append(allTakerSettlements, takerSettlements...)
@@ -201,6 +207,7 @@ func MatchByValueFOKMarketOrder(
 	maxPrice *sdk.Dec,
 	settlements []*types.SettlementEntry,
 	allTakerSettlements []*types.SettlementEntry,
+	blockOrders *cache.BlockOrders,
 ) ([]*types.SettlementEntry, []*types.SettlementEntry) {
 	remainingFund := marketOrder.Nominal
 	remainingQuantity := marketOrder.Quantity
@@ -263,6 +270,7 @@ func MatchByValueFOKMarketOrder(
 				executed,
 				existingOrder,
 				marketOrder.Price,
+				blockOrders,
 			)
 			settlements = append(settlements, makerSettlements...)
 			marketByNominalSettlement = MergeByNominalTakerSettlements(append(marketByNominalSettlement, takerSettlements...))

@@ -2,6 +2,7 @@ package tx
 
 import (
 	"strconv"
+	"strings"
 
 	"github.com/cosmos/cosmos-sdk/client"
 	"github.com/cosmos/cosmos-sdk/client/flags"
@@ -15,19 +16,29 @@ var _ = strconv.Itoa(0)
 
 func CmdRegisterContract() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "register-contract [contract address] [code id] [need hook] [need order matching] [dependency1,dependency2,...]",
+		Use:   "register-contract [contract address] [code id] [(deprecated)] [need order matching] [deposit] [dependency1,dependency2,...]",
 		Short: "Register exchange contract",
-		Args:  cobra.MinimumNArgs(4),
+		Long: strings.TrimSpace(`
+			Register a contract with the dex module for order matching hooks. The available order matching functions are BulkOrderPlacements, BulkOrderCancellations, Settlement. A deposit can also be specified as the initial rent to allocate for the execution of the order matching.
+			Other orderbooks that are dependencies can also be specified so that dex orderbook processing can be performed in the appropriate order.
+		`),
+		Args: cobra.MinimumNArgs(5),
 		RunE: func(cmd *cobra.Command, args []string) (err error) {
 			argContractAddr := args[0]
 			argCodeID, err := cast.ToUint64E(args[1])
 			if err != nil {
 				return err
 			}
-			argNeedHook := args[2] == "true"
-			argNeedMatching := args[3] == "true"
-			dependencies := []*types.ContractDependencyInfo{}
-			for _, dependency := range args[4:] {
+			argNeedMatching, err := strconv.ParseBool(args[3])
+			if err != nil {
+				return err
+			}
+			argDeposit, err := cast.ToUint64E(args[4])
+			if err != nil {
+				return err
+			}
+			var dependencies []*types.ContractDependencyInfo
+			for _, dependency := range args[5:] {
 				dependencies = append(dependencies, &types.ContractDependencyInfo{Dependency: dependency})
 			}
 
@@ -40,9 +51,9 @@ func CmdRegisterContract() *cobra.Command {
 				clientCtx.GetFromAddress().String(),
 				argCodeID,
 				argContractAddr,
-				argNeedHook,
 				argNeedMatching,
 				dependencies,
+				argDeposit,
 			)
 			if err := msg.ValidateBasic(); err != nil {
 				return err

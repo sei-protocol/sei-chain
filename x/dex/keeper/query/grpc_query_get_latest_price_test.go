@@ -21,9 +21,9 @@ func TestGetLatestPrice(t *testing.T) {
 	wctx := sdk.WrapSDKContext(ctx)
 	wrapper := query.KeeperWrapper{Keeper: keeper}
 	resp, err := wrapper.GetLatestPrice(wctx, &types.QueryGetLatestPriceRequest{
-		ContractAddr:      keepertest.TestContract,
-		PriceDenom:        keepertest.TestPair.PriceDenom,
-		AssetDenom:        keepertest.TestPair.AssetDenom,
+		ContractAddr: keepertest.TestContract,
+		PriceDenom:   keepertest.TestPair.PriceDenom,
+		AssetDenom:   keepertest.TestPair.AssetDenom,
 	})
 	require.Nil(t, err)
 	require.Equal(t, sdk.MustNewDecFromStr("99"), resp.Price.Price)

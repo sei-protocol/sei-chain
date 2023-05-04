@@ -1,7 +1,6 @@
 package keeper_test
 
 import (
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 
@@ -41,7 +40,6 @@ func (suite *KeeperTestSuite) TestGenesis() {
 		}
 	}
 
-	app.TokenFactoryKeeper.SetParams(suite.Ctx, types.Params{DenomCreationFee: sdk.Coins{sdk.NewInt64Coin("usei", 100)}})
 	app.TokenFactoryKeeper.InitGenesis(suite.Ctx, genesisState)
 	exportedGenesis := app.TokenFactoryKeeper.ExportGenesis(suite.Ctx)
 	suite.Require().NotNil(exportedGenesis)

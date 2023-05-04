@@ -4,8 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"time"
 
 	"github.com/CosmWasm/wasmd/x/wasm"
+	"github.com/cosmos/cosmos-sdk/telemetry"
 	"github.com/gorilla/mux"
 	"github.com/grpc-ecosystem/grpc-gateway/runtime"
 	"github.com/spf13/cobra"
@@ -18,6 +20,7 @@ import (
 	cdctypes "github.com/cosmos/cosmos-sdk/codec/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/types/module"
+	seisync "github.com/sei-protocol/sei-chain/sync"
 	"github.com/sei-protocol/sei-chain/utils"
 	"github.com/sei-protocol/sei-chain/utils/tracing"
 	"github.com/sei-protocol/sei-chain/x/dex/client/cli/query"
@@ -29,6 +32,8 @@ import (
 	dexkeeperquery "github.com/sei-protocol/sei-chain/x/dex/keeper/query"
 	"github.com/sei-protocol/sei-chain/x/dex/migrations"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
+	dexutils "github.com/sei-protocol/sei-chain/x/dex/utils"
+	"github.com/sei-protocol/sei-chain/x/store"
 )
 
 var (
@@ -73,7 +78,7 @@ func (AppModuleBasic) DefaultGenesis(cdc codec.JSONCodec) json.RawMessage {
 }
 
 // ValidateGenesis performs genesis state validation for the capability module.
-func (AppModuleBasic) ValidateGenesis(cdc codec.JSONCodec, config client.TxEncodingConfig, bz json.RawMessage) error {
+func (AppModuleBasic) ValidateGenesis(cdc codec.JSONCodec, _ client.TxEncodingConfig, bz json.RawMessage) error {
 	var genState types.GenesisState
 	if err := cdc.UnmarshalJSON(bz, &genState); err != nil {
 		return fmt.Errorf("failed to unmarshal %s genesis state: %w", types.ModuleName, err)
@@ -97,7 +102,7 @@ func (a AppModuleBasic) GetTxCmd() *cobra.Command {
 
 // GetQueryCmd returns the capability module's root query command.
 func (AppModuleBasic) GetQueryCmd() *cobra.Command {
-	return query.GetQueryCmd(types.StoreKey)
+	return query.GetQueryCmd()
 }
 
 // ----------------------------------------------------------------------------
@@ -180,6 +185,18 @@ func (am AppModule) RegisterServices(cfg module.Configurator) {
 	_ = cfg.RegisterMigration(types.ModuleName, 7, func(ctx sdk.Context) error {
 		return migrations.V7ToV8(ctx, am.keeper.GetStoreKey())
 	})
+	_ = cfg.RegisterMigration(types.ModuleName, 8, func(ctx sdk.Context) error {
+		return migrations.V8ToV9(ctx, am.keeper)
+	})
+	_ = cfg.RegisterMigration(types.ModuleName, 9, func(ctx sdk.Context) error {
+		return migrations.V9ToV10(ctx, am.keeper)
+	})
+	_ = cfg.RegisterMigration(types.ModuleName, 10, func(ctx sdk.Context) error {
+		return migrations.V10ToV11(ctx, am.keeper)
+	})
+	_ = cfg.RegisterMigration(types.ModuleName, 11, func(ctx sdk.Context) error {
+		return migrations.V11ToV12(ctx, am.keeper)
+	})
 }
 
 // RegisterInvariants registers the capability module's invariants.
@@ -204,46 +221,51 @@ func (am AppModule) ExportGenesis(ctx sdk.Context, cdc codec.JSONCodec) json.Raw
 }
 
 // ConsensusVersion implements ConsensusVersion.
-func (AppModule) ConsensusVersion() uint64 { return 8 }
+func (AppModule) ConsensusVersion() uint64 { return 12 }
 
-func (am AppModule) getAllContractInfo(ctx sdk.Context) []types.ContractInfo {
-	return am.keeper.GetAllContractInfo(ctx)
+func (am AppModule) getAllContractInfo(ctx sdk.Context) []types.ContractInfoV2 {
+	// Do not process any contract that has zero rent balance
+	defer telemetry.MeasureSince(time.Now(), am.Name(), "get_all_contract_info")
+	allRegisteredContracts := am.keeper.GetAllContractInfo(ctx)
+	validContracts := utils.Filter(allRegisteredContracts, func(c types.ContractInfoV2) bool { return c.RentBalance > am.keeper.GetMinProcessableRent(ctx) })
+	telemetry.SetGauge(float32(len(allRegisteredContracts)), am.Name(), "num_of_registered_contracts")
+	telemetry.SetGauge(float32(len(validContracts)), am.Name(), "num_of_valid_contracts")
+	telemetry.SetGauge(float32(len(allRegisteredContracts)-len(validContracts)), am.Name(), "num_of_zero_balance_contracts")
+	return validContracts
 }
 
 // BeginBlock executes all ABCI BeginBlock logic respective to the capability module.
 func (am AppModule) BeginBlock(ctx sdk.Context, _ abci.RequestBeginBlock) {
-	// TODO (codchen): Revert before mainnet so we don't silently fail on errors
 	defer func() {
-		_, span := (*am.tracingInfo.Tracer).Start(am.tracingInfo.TracerContext, "DexBeginBlockRollback")
+		_, span := am.tracingInfo.Start("DexBeginBlockRollback")
 		defer span.End()
 	}()
-	defer utils.PanicHandler(func(err any) { utils.MetricsPanicCallback(err, ctx, types.ModuleName) })()
 
-	am.keeper.MemState.Clear()
+	dexutils.GetMemState(ctx.Context()).Clear(ctx)
 	isNewEpoch, currentEpoch := am.keeper.IsNewEpoch(ctx)
 	if isNewEpoch {
 		am.keeper.SetEpoch(ctx, currentEpoch)
 	}
+	cachedCtx, cachedStore := store.GetCachedContext(ctx)
+	gasLimit := am.keeper.GetParams(ctx).BeginBlockGasLimit
 	for _, contract := range am.getAllContractInfo(ctx) {
-		am.beginBlockForContract(ctx, contract, int64(currentEpoch))
+		am.beginBlockForContract(cachedCtx, contract, gasLimit)
 	}
+	// only write if all contracts have been processed
+	cachedStore.Write()
 }
 
-func (am AppModule) beginBlockForContract(ctx sdk.Context, contract types.ContractInfo, epoch int64) {
-	_, span := (*am.tracingInfo.Tracer).Start(am.tracingInfo.TracerContext, "DexBeginBlock")
+func (am AppModule) beginBlockForContract(ctx sdk.Context, contract types.ContractInfoV2, gasLimit uint64) {
+	_, span := am.tracingInfo.Start("DexBeginBlock")
 	contractAddr := contract.ContractAddr
 	span.SetAttributes(attribute.String("contract", contractAddr))
 	defer span.End()
 
-	if contract.NeedHook {
-		if err := am.abciWrapper.HandleBBNewBlock(ctx, contractAddr, epoch); err != nil {
-			ctx.Logger().Error(fmt.Sprintf("New block hook error for %s: %s", contractAddr, err.Error()))
-		}
-	}
+	ctx = ctx.WithGasMeter(seisync.NewGasWrapper(dexutils.GetGasMeterForLimit(gasLimit)))
 
 	if contract.NeedOrderMatching {
 		currentTimestamp := uint64(ctx.BlockTime().Unix())
-		ctx.Logger().Info(fmt.Sprintf("Removing stale prices for ts %d", currentTimestamp))
+		ctx.Logger().Debug(fmt.Sprintf("Removing stale prices for ts %d", currentTimestamp))
 		priceRetention := am.keeper.GetParams(ctx).PriceSnapshotRetention
 		for _, pair := range am.keeper.GetAllRegisteredPairs(ctx, contractAddr) {
 			am.keeper.DeletePriceStateBefore(ctx, contractAddr, currentTimestamp-priceRetention, pair)
@@ -254,28 +276,26 @@ func (am AppModule) beginBlockForContract(ctx sdk.Context, contract types.Contra
 // EndBlock executes all ABCI EndBlock logic respective to the capability module. It
 // returns no validator updates.
 func (am AppModule) EndBlock(ctx sdk.Context, _ abci.RequestEndBlock) (ret []abci.ValidatorUpdate) {
-	_, span := (*am.tracingInfo.Tracer).Start(am.tracingInfo.TracerContext, "DexEndBlock")
+	_, span := am.tracingInfo.Start("DexEndBlock")
 	defer span.End()
-	// TODO (codchen): Revert https://github.com/sei-protocol/sei-chain/pull/176/files before mainnet so we don't silently fail on errors
-	defer utils.PanicHandler(func(err any) {
-		_, span := (*am.tracingInfo.Tracer).Start(am.tracingInfo.TracerContext, "DexEndBlockRollback")
-		defer span.End()
-		utils.MetricsPanicCallback(err, ctx, types.ModuleName)
-		ret = []abci.ValidatorUpdate{}
-	})()
+	defer dexutils.GetMemState(ctx.Context()).Clear(ctx)
 
 	validContractsInfo := am.getAllContractInfo(ctx)
+	validContractsInfoAtBeginning := validContractsInfo
+	outOfRentContractsInfo := []types.ContractInfoV2{}
 	// Each iteration is atomic. If an iteration finishes without any error, it will return,
 	// otherwise it will rollback any state change, filter out contracts that cause the error,
 	// and proceed to the next iteration. The loop is guaranteed to finish since
 	// `validContractAddresses` will always decrease in size every iteration.
 	iterCounter := len(validContractsInfo)
+	endBlockerStartTime := time.Now()
 	for len(validContractsInfo) > 0 {
-		newValidContractsInfo, ok := contract.EndBlockerAtomic(ctx, &am.keeper, validContractsInfo, am.tracingInfo)
+		newValidContractsInfo, newOutOfRentContractsInfo, ctx, ok := contract.EndBlockerAtomic(ctx, &am.keeper, validContractsInfo, am.tracingInfo)
 		if ok {
 			break
 		}
 		validContractsInfo = newValidContractsInfo
+		outOfRentContractsInfo = newOutOfRentContractsInfo
 
 		// technically we don't really need this if `EndBlockerAtomic` guarantees that `validContractsInfo` size will
 		// always shrink if not `ok`, but just in case, we decided to have an explicit termination criteria here to
@@ -285,6 +305,26 @@ func (am AppModule) EndBlock(ctx sdk.Context, _ abci.RequestEndBlock) (ret []abc
 			ctx.Logger().Error("All contracts failed in dex EndBlock. Doing nothing.")
 			break
 		}
+	}
+	telemetry.MeasureSince(endBlockerStartTime, am.Name(), "total_end_blocker_atomic")
+	validContractAddrs, outOfRentContractAddrs := map[string]struct{}{}, map[string]struct{}{}
+	for _, c := range validContractsInfo {
+		validContractAddrs[c.ContractAddr] = struct{}{}
+	}
+	for _, c := range outOfRentContractsInfo {
+		outOfRentContractAddrs[c.ContractAddr] = struct{}{}
+	}
+	for _, c := range validContractsInfoAtBeginning {
+		if _, ok := validContractAddrs[c.ContractAddr]; ok {
+			continue
+		}
+		if _, ok := outOfRentContractAddrs[c.ContractAddr]; ok {
+			telemetry.IncrCounter(float32(1), am.Name(), "total_out_of_rent_contracts")
+			continue
+		}
+		ctx.Logger().Error(fmt.Sprintf("Unregistering invalid contract %s", c.ContractAddr))
+		am.keeper.DoUnregisterContract(ctx, c)
+		telemetry.IncrCounter(float32(1), am.Name(), "total_unregistered_contracts")
 	}
 
 	return []abci.ValidatorUpdate{}

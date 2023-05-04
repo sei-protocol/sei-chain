@@ -8,6 +8,7 @@ import (
 	"github.com/sei-protocol/sei-chain/x/dex/keeper/msgserver"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
 	typesutils "github.com/sei-protocol/sei-chain/x/dex/types/utils"
+	dexutils "github.com/sei-protocol/sei-chain/x/dex/utils"
 	"github.com/stretchr/testify/require"
 )
 
@@ -46,12 +47,13 @@ func TestCancelOrder(t *testing.T) {
 		},
 	}
 	keeper.AddRegisteredPair(ctx, keepertest.TestContract, keepertest.TestPair)
-	keeper.SetTickSizeForPair(ctx, keepertest.TestContract, keepertest.TestPair, *keepertest.TestPair.Ticksize)
+	keeper.SetPriceTickSizeForPair(ctx, TestContract, keepertest.TestPair, *keepertest.TestPair.PriceTicksize)
+	keeper.SetQuantityTickSizeForPair(ctx, TestContract, keepertest.TestPair, *keepertest.TestPair.QuantityTicksize)
 	wctx := sdk.WrapSDKContext(ctx)
 	server := msgserver.NewMsgServerImpl(*keeper)
 	_, err := server.CancelOrders(wctx, msg)
 
-	pairBlockCancellations := keeper.MemState.GetBlockCancels(ctx, keepertest.TestContract, typesutils.GetPairString(&keepertest.TestPair))
+	pairBlockCancellations := dexutils.GetMemState(ctx.Context()).GetBlockCancels(ctx, keepertest.TestContract, typesutils.GetPairString(&keepertest.TestPair))
 	require.Nil(t, err)
 	require.Equal(t, 1, len(pairBlockCancellations.Get()))
 	require.Equal(t, uint64(1), pairBlockCancellations.Get()[0].Id)
@@ -78,7 +80,8 @@ func TestInvalidCancels(t *testing.T) {
 		},
 	}
 	keeper.AddRegisteredPair(ctx, keepertest.TestContract, keepertest.TestPair)
-	keeper.SetTickSizeForPair(ctx, keepertest.TestContract, keepertest.TestPair, *keepertest.TestPair.Ticksize)
+	keeper.SetPriceTickSizeForPair(ctx, TestContract, keepertest.TestPair, *keepertest.TestPair.PriceTicksize)
+	keeper.SetQuantityTickSizeForPair(ctx, TestContract, keepertest.TestPair, *keepertest.TestPair.QuantityTicksize)
 	wctx := sdk.WrapSDKContext(ctx)
 	server := msgserver.NewMsgServerImpl(*keeper)
 	_, err := server.CancelOrders(wctx, msg)
@@ -86,6 +89,23 @@ func TestInvalidCancels(t *testing.T) {
 
 	// nil creator
 	msg = &types.MsgCancelOrders{
+		ContractAddr: keepertest.TestContract,
+		Cancellations: []*types.Cancellation{
+			{
+				PositionDirection: types.PositionDirection_LONG,
+				PriceDenom:        keepertest.TestPriceDenom,
+				AssetDenom:        keepertest.TestAssetDenom,
+				Id:                1,
+				Price:             sdk.OneDec(),
+			},
+		},
+	}
+	_, err = server.CancelOrders(wctx, msg)
+	require.NotNil(t, err)
+
+	// invalid creator address
+	msg = &types.MsgCancelOrders{
+		Creator:      "invalid",
 		ContractAddr: keepertest.TestContract,
 		Cancellations: []*types.Cancellation{
 			{
@@ -112,6 +132,23 @@ func TestInvalidCancels(t *testing.T) {
 				Id:                1,
 			},
 		},
+	}
+	_, err = server.CancelOrders(wctx, msg)
+	require.NotNil(t, err)
+
+	// invalid contract address
+	msg = &types.MsgCancelOrders{
+		Creator: keepertest.TestAccount,
+		Cancellations: []*types.Cancellation{
+			{
+				Price:             sdk.OneDec(),
+				PositionDirection: types.PositionDirection_LONG,
+				PriceDenom:        keepertest.TestPriceDenom,
+				AssetDenom:        keepertest.TestAssetDenom,
+				Id:                1,
+			},
+		},
+		ContractAddr: "invalid",
 	}
 	_, err = server.CancelOrders(wctx, msg)
 	require.NotNil(t, err)

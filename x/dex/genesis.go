@@ -6,28 +6,42 @@ import (
 	"github.com/sei-protocol/sei-chain/x/dex/types"
 )
 
-// InitGenesis initializes the capability module's state from a provided genesis
+// InitGenesis initializes the dex module's state from a provided genesis
 // state.
 func InitGenesis(ctx sdk.Context, k keeper.Keeper, genState types.GenesisState) {
+	k.CreateModuleAccount(ctx)
+
 	// Set all the longBook
-	for _, elem := range genState.LongBookList {
-		k.SetLongBook(ctx, "genesis", elem)
-	}
+	for _, contractState := range genState.ContractState {
 
-	// Set all the shortBook
-	for _, elem := range genState.ShortBookList {
-		k.SetShortBook(ctx, "genesis", elem)
-	}
+		err := k.SetContract(ctx, &contractState.ContractInfo)
+		if err != nil {
+			panic(err)
+		}
 
-	for _, elem := range genState.TriggeredOrdersList {
-		// not sure if it's guaranteed that the Order has the correct Price/Asset/Contract details...
-		k.SetTriggeredOrder(ctx, "genesis", elem, elem.PriceDenom, elem.AssetDenom)
-	}
+		for _, elem := range contractState.PairList {
+			k.AddRegisteredPair(ctx, contractState.ContractInfo.ContractAddr, elem)
+		}
 
-	// Set initial tick size for each pair
-	// tick size is the minimum unit that can be traded for certain pair
-	for _, elem := range genState.TickSizeList {
-		k.SetDefaultTickSizeForPair(ctx, *elem.Pair, elem.Ticksize)
+		for _, elem := range contractState.LongBookList {
+			k.SetLongBook(ctx, contractState.ContractInfo.ContractAddr, elem)
+		}
+
+		for _, elem := range contractState.ShortBookList {
+			k.SetShortBook(ctx, contractState.ContractInfo.ContractAddr, elem)
+		}
+
+		for _, elem := range contractState.TriggeredOrdersList {
+			// not sure if it's guaranteed that the Order has the correct Price/Asset/Contract details...
+			k.SetTriggeredOrder(ctx, contractState.ContractInfo.ContractAddr, elem, elem.PriceDenom, elem.AssetDenom)
+		}
+
+		for _, elem := range contractState.PriceList {
+			for _, priceElem := range elem.Prices {
+				k.SetPriceState(ctx, *priceElem, contractState.ContractInfo.ContractAddr)
+			}
+		}
+
 	}
 
 	// this line is used by starport scaffolding # genesis/module/init
@@ -36,14 +50,38 @@ func InitGenesis(ctx sdk.Context, k keeper.Keeper, genState types.GenesisState) 
 	k.SetEpoch(ctx, genState.LastEpoch)
 }
 
-// ExportGenesis returns the capability module's exported genesis.
+// ExportGenesis returns the dex module's exported genesis.
 func ExportGenesis(ctx sdk.Context, k keeper.Keeper) *types.GenesisState {
 	genesis := types.DefaultGenesis()
 	genesis.Params = k.GetParams(ctx)
 
-	genesis.LongBookList = k.GetAllLongBook(ctx, "genesis")
-	genesis.ShortBookList = k.GetAllShortBook(ctx, "genesis")
-	// this line is used by starport scaffolding # genesis/module/export
+	allContractInfo := k.GetAllContractInfo(ctx)
+	contractStates := make([]types.ContractState, len(allContractInfo))
+	for i, contractInfo := range allContractInfo {
+		contractAddr := contractInfo.ContractAddr
+		registeredPairs := k.GetAllRegisteredPairs(ctx, contractAddr)
+		// Save all price info for contract, for all its pairs
+		contractPrices := []types.ContractPairPrices{}
+		for _, elem := range registeredPairs {
+			pairPrices := k.GetAllPrices(ctx, contractAddr, elem)
+			contractPrices = append(contractPrices, types.ContractPairPrices{
+				PricePair: elem,
+				Prices:    pairPrices,
+			})
+		}
+		contractStates[i] = types.ContractState{
+			ContractInfo:        contractInfo,
+			LongBookList:        k.GetAllLongBook(ctx, contractAddr),
+			ShortBookList:       k.GetAllShortBook(ctx, contractAddr),
+			TriggeredOrdersList: k.GetAllTriggeredOrders(ctx, contractAddr),
+			PairList:            registeredPairs,
+			PriceList:           contractPrices,
+		}
+	}
+	genesis.ContractState = contractStates
+
+	_, currentEpoch := k.IsNewEpoch(ctx)
+	genesis.LastEpoch = currentEpoch
 
 	return genesis
 }

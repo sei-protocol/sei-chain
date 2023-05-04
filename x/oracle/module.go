@@ -19,7 +19,6 @@ import (
 	"github.com/cosmos/cosmos-sdk/types/module"
 	simtypes "github.com/cosmos/cosmos-sdk/types/simulation"
 
-	"github.com/sei-protocol/sei-chain/utils"
 	"github.com/sei-protocol/sei-chain/x/oracle/client/cli"
 	"github.com/sei-protocol/sei-chain/x/oracle/client/rest"
 	"github.com/sei-protocol/sei-chain/x/oracle/keeper"
@@ -60,7 +59,7 @@ func (AppModuleBasic) DefaultGenesis(cdc codec.JSONCodec) json.RawMessage {
 }
 
 // ValidateGenesis performs genesis state validation for the oracle module.
-func (AppModuleBasic) ValidateGenesis(cdc codec.JSONCodec, config client.TxEncodingConfig, bz json.RawMessage) error {
+func (AppModuleBasic) ValidateGenesis(cdc codec.JSONCodec, _ client.TxEncodingConfig, bz json.RawMessage) error {
 	var data types.GenesisState
 	if err := cdc.UnmarshalJSON(bz, &data); err != nil {
 		return fmt.Errorf("failed to unmarshal %s genesis state: %w", types.ModuleName, err)
@@ -144,6 +143,7 @@ func (am AppModule) RegisterServices(cfg module.Configurator) {
 	_ = cfg.RegisterMigration(types.ModuleName, 2, m.Migrate2to3)
 	_ = cfg.RegisterMigration(types.ModuleName, 3, m.Migrate3to4)
 	_ = cfg.RegisterMigration(types.ModuleName, 4, m.Migrate4to5)
+	_ = cfg.RegisterMigration(types.ModuleName, 5, m.Migrate5To6)
 }
 
 // InitGenesis performs genesis initialization for the oracle module. It returns
@@ -164,16 +164,18 @@ func (am AppModule) ExportGenesis(ctx sdk.Context, cdc codec.JSONCodec) json.Raw
 }
 
 // ConsensusVersion implements AppModule/ConsensusVersion.
-func (AppModule) ConsensusVersion() uint64 { return 5 }
+func (AppModule) ConsensusVersion() uint64 { return 6 }
 
 // BeginBlock returns the begin blocker for the oracle module.
 func (AppModule) BeginBlock(_ sdk.Context, _ abci.RequestBeginBlock) {}
 
 // EndBlock returns the end blocker for the oracle module.
-func (am AppModule) EndBlock(ctx sdk.Context, _ abci.RequestEndBlock) (ret []abci.ValidatorUpdate) {
-	// TODO (codchen): Revert before mainnet so we don't silently fail on errors
-	defer utils.PanicHandler(func(err any) { utils.MetricsPanicCallback(err, ctx, types.ModuleName) })()
+func (am AppModule) MidBlock(ctx sdk.Context, _ int64) {
+	MidBlocker(ctx, am.keeper)
+}
 
+// EndBlock returns the end blocker for the oracle module.
+func (am AppModule) EndBlock(ctx sdk.Context, _ abci.RequestEndBlock) (ret []abci.ValidatorUpdate) {
 	EndBlocker(ctx, am.keeper)
 	return []abci.ValidatorUpdate{}
 }

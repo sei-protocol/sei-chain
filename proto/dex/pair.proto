@@ -12,8 +12,13 @@ message Pair {
     string assetDenom = 2 [
         (gogoproto.jsontag) = "asset_denom"
     ];
-    string ticksize = 3 [
-        (gogoproto.jsontag) = "tick_size",
+    string priceTicksize = 3 [
+        (gogoproto.jsontag) = "price_tick_size",
+        (gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Dec",
+        (gogoproto.nullable)   = true
+    ];
+    string quantityTicksize = 4 [
+        (gogoproto.jsontag) = "quantity_tick_size",
         (gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Dec",
         (gogoproto.nullable)   = true
     ];

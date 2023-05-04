@@ -114,9 +114,18 @@ LimitMEMLOCK=209715200
 WantedBy=multi-user.target
 ```
 ## Start the node
+
+**Start seid on Linux**
+
 * Reload the service files: `sudo systemctl daemon-reload` 
 * Create the symlinlk: `sudo systemctl enable seid.service` 
 * Start the node sudo: `systemctl start seid && journalctl -u seid -f`
+
+**Start a chain on 4 node docker cluster**
+
+* Start local 4 node cluster: `make docker-cluster-start`
+* SSH into a docker container: `docker exec -it [container_name] /bin/bash`
+* Stop local 4 node cluster: `make docker-cluster-stop`
 
 ### Create Validator Transaction
 ```bash

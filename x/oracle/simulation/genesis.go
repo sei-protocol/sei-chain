@@ -110,6 +110,7 @@ func RandomizedGenState(simState *module.SimulationState) {
 		[]types.FeederDelegation{},
 		[]types.PenaltyCounter{},
 		[]types.AggregateExchangeRateVote{},
+		types.PriceSnapshots{},
 	)
 
 	bz, err := json.MarshalIndent(&oracleGenesis.Params, "", " ")

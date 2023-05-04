@@ -2,107 +2,34 @@ package main
 
 import (
 	"encoding/json"
+	"flag"
 	"fmt"
 	"math/rand"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strconv"
-	"sync"
+	"strings"
 	"time"
 
+	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
+	tokenfactorytypes "github.com/sei-protocol/sei-chain/x/tokenfactory/types"
+
 	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
+	"github.com/cosmos/cosmos-sdk/std"
 
-	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
-
-	"github.com/cosmos/cosmos-sdk/client"
+	wasmtypes "github.com/CosmWasm/wasmd/x/wasm/types"
 	"github.com/cosmos/cosmos-sdk/codec"
 	"github.com/cosmos/cosmos-sdk/codec/types"
-	"github.com/cosmos/cosmos-sdk/std"
 	sdk "github.com/cosmos/cosmos-sdk/types"
-	typestx "github.com/cosmos/cosmos-sdk/types/tx"
 	"github.com/cosmos/cosmos-sdk/x/auth/tx"
+	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
+	distributiontypes "github.com/cosmos/cosmos-sdk/x/distribution/types"
 	"github.com/sei-protocol/sei-chain/app"
-	"github.com/sei-protocol/sei-chain/utils"
 	dextypes "github.com/sei-protocol/sei-chain/x/dex/types"
-	"google.golang.org/grpc"
+	oracletypes "github.com/sei-protocol/sei-chain/x/oracle/types"
 )
 
-type EncodingConfig struct {
-	InterfaceRegistry types.InterfaceRegistry
-	// NOTE: this field will be renamed to Codec
-	Marshaler codec.Codec
-	TxConfig  client.TxConfig
-	Amino     *codec.LegacyAmino
-}
-
-type Config struct {
-	BatchSize      uint64                `json:"batch_size"`
-	ChainID        string                `json:"chain_id"`
-	OrdersPerBlock uint64                `json:"orders_per_block"`
-	Rounds         uint64                `json:"rounds"`
-	MessageType    string                `json:"message_type"`
-	PriceDistr     NumericDistribution   `json:"price_distribution"`
-	QuantityDistr  NumericDistribution   `json:"quantity_distribution"`
-	MsgTypeDistr   MsgTypeDistribution   `json:"message_type_distribution"`
-	ContractDistr  ContractDistributions `json:"contract_distribution"`
-}
-
-type NumericDistribution struct {
-	Min         sdk.Dec `json:"min"`
-	Max         sdk.Dec `json:"max"`
-	NumDistinct int64   `json:"number_of_distinct_values"`
-}
-
-func (d *NumericDistribution) Sample() sdk.Dec {
-	steps := sdk.NewDec(rand.Int63n(d.NumDistinct))
-	return d.Min.Add(d.Max.Sub(d.Min).QuoInt64(d.NumDistinct).Mul(steps))
-}
-
-type MsgTypeDistribution struct {
-	LimitOrderPct  sdk.Dec `json:"limit_order_percentage"`
-	MarketOrderPct sdk.Dec `json:"market_order_percentage"`
-}
-
-func (d *MsgTypeDistribution) Sample() string {
-	if !d.LimitOrderPct.Add(d.MarketOrderPct).Equal(sdk.OneDec()) {
-		panic("Distribution percentages must add up to 1")
-	}
-	randNum := sdk.MustNewDecFromStr(fmt.Sprintf("%f", rand.Float64()))
-	if randNum.LT(d.LimitOrderPct) {
-		return "limit"
-	}
-	return "market"
-}
-
-type ContractDistributions []ContractDistribution
-
-func (d *ContractDistributions) Sample() string {
-	if !utils.Reduce(*d, func(i ContractDistribution, o sdk.Dec) sdk.Dec { return o.Add(i.Percentage) }, sdk.ZeroDec()).Equal(sdk.OneDec()) {
-		panic("Distribution percentages must add up to 1")
-	}
-	randNum := sdk.MustNewDecFromStr(fmt.Sprintf("%f", rand.Float64()))
-	cumPct := sdk.ZeroDec()
-	for _, dist := range *d {
-		cumPct = cumPct.Add(dist.Percentage)
-		if randNum.LTE(cumPct) {
-			return dist.ContractAddr
-		}
-	}
-	panic("this should never be triggered")
-}
-
-type ContractDistribution struct {
-	ContractAddr string  `json:"contract_address"`
-	Percentage   sdk.Dec `json:"percentage"`
-}
-
-var (
-	TestConfig EncodingConfig
-	TxClient   typestx.ServiceClient
-	TxHashFile *os.File
-	ChainID    string
-)
+var TestConfig EncodingConfig
 
 const (
 	VortexData = "{\"position_effect\":\"Open\",\"leverage\":\"1\"}"
@@ -128,152 +55,430 @@ func init() {
 }
 
 func run(config Config) {
-	ChainID = config.ChainID
-	grpcConn, _ := grpc.Dial(
-		"127.0.0.1:9090",
-		grpc.WithInsecure(),
-	)
-	defer grpcConn.Close()
-	TxClient = typestx.NewServiceClient(grpcConn)
-	userHomeDir, _ := os.UserHomeDir()
-	_ = os.Mkdir(filepath.Join(userHomeDir, "outputs"), os.ModePerm)
-	filename := filepath.Join(userHomeDir, "outputs", "test_tx_hash")
-	_ = os.Remove(filename)
-	file, _ := os.OpenFile(filename, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
-	TxHashFile = file
-	var mu sync.Mutex
-	batchSize := config.BatchSize
-	if config.OrdersPerBlock < batchSize {
-		panic("Must have more orders per block than batch size")
-	}
+	// Start metrics collector in another thread
+	metricsServer := MetricsServer{}
+	go metricsServer.StartMetricsClient(config)
+	sleepDuration := time.Duration(config.LoadInterval) * time.Second
 
-	numberOfAccounts := config.OrdersPerBlock / batchSize * 2 // * 2 because we need two sets of accounts
-	activeAccounts := []int{}
-	inactiveAccounts := []int{}
-	for i := 0; i < int(numberOfAccounts); i++ {
-		if i%2 == 0 {
-			activeAccounts = append(activeAccounts, i)
-		} else {
-			inactiveAccounts = append(inactiveAccounts, i)
+	if config.Constant {
+		fmt.Printf("Running in constant mode with interval=%d\n", config.LoadInterval)
+		for {
+			fmt.Printf("Sleeping for %f seconds before next run...\n", sleepDuration.Seconds())
+			time.Sleep(sleepDuration)
+			runOnce(config)
 		}
+	} else {
+		runOnce(config)
+		fmt.Print("Sleeping for 60 seconds for metrics to be scraped...\n")
+		time.Sleep(time.Duration(60))
 	}
-	wgs := []*sync.WaitGroup{}
-	sendersList := [][]func(){}
-
-	configString, _ := json.Marshal(config)
-	fmt.Printf("Running with \n %s \ns", string(configString))
-
-	fmt.Printf("%s - Starting block prepare\n", time.Now().Format("2006-01-02T15:04:05"))
-	for i := 0; i < int(config.Rounds); i++ {
-		fmt.Printf("Preparing %d-th round\n", i)
-		wg := &sync.WaitGroup{}
-		var senders []func()
-		wgs = append(wgs, wg)
-		for _, account := range activeAccounts {
-			key := GetKey(uint64(account))
-
-			msg := generateMessage(config, key, batchSize)
-			txBuilder := TestConfig.TxConfig.NewTxBuilder()
-			_ = txBuilder.SetMsgs(msg)
-			seqDelta := uint64(i / 2)
-			mode := typestx.BroadcastMode_BROADCAST_MODE_SYNC
-
-			// Note: There is a potential race condition here with seqnos
-			// in which a later seqno is delievered before an earlier seqno
-			// In practice, we haven't run into this issue so we'll leave this
-			// as is.
-			sender := SendTx(key, &txBuilder, mode, seqDelta, &mu)
-			wg.Add(1)
-			senders = append(senders, func() {
-				defer wg.Done()
-				sender()
-			})
-		}
-		sendersList = append(sendersList, senders)
-
-		inactiveAccounts, activeAccounts = activeAccounts, inactiveAccounts
-	}
-
-	lastHeight := getLastHeight()
-	for i := 0; i < int(config.Rounds); i++ {
-		newHeight := getLastHeight()
-		for newHeight == lastHeight {
-			time.Sleep(10 * time.Millisecond)
-			newHeight = getLastHeight()
-		}
-		fmt.Printf("Sending %d-th block\n", i)
-		senders := sendersList[i]
-		wg := wgs[i]
-		for _, sender := range senders {
-			go sender()
-		}
-		wg.Wait()
-		lastHeight = newHeight
-	}
-	fmt.Printf("%s - Finished\n", time.Now().Format("2006-01-02T15:04:05"))
 }
 
-func generateMessage(config Config, key cryptotypes.PrivKey, batchSize uint64) sdk.Msg {
-	var msg sdk.Msg
-	switch config.MessageType {
-	case "basic":
-		msg = &banktypes.MsgSend{
+func runOnce(config Config) {
+	client := NewLoadTestClient(config)
+	client.SetValidators()
+
+	if config.TxsPerBlock < config.MsgsPerTx {
+		panic("Must have more TxsPerBlock than MsgsPerTx")
+	}
+
+	configString, _ := json.Marshal(config)
+	fmt.Printf("Running with \n %s \n", string(configString))
+
+	fmt.Printf("%s - Starting block prepare\n", time.Now().Format("2006-01-02T15:04:05"))
+	workgroups, sendersList := client.BuildTxs()
+
+	go client.SendTxs(workgroups, sendersList)
+
+	// Waits until SendTx is done processing before proceeding to write and validate TXs
+	client.GatherTxHashes()
+
+	// Records the resulting TxHash to file
+	client.WriteTxHashToFile()
+	fmt.Printf("%s - Finished\n", time.Now().Format("2006-01-02T15:04:05"))
+
+	// Validate Tx will close the connection when it's done
+	go client.ValidateTxs()
+}
+
+// Generate a random message, only generate one admin message per block to prevent acc seq errors
+func (c *LoadTestClient) getRandomMessageType(messageTypes []string) string {
+	rand.Seed(time.Now().UnixNano())
+	messageType := messageTypes[rand.Intn(len(messageTypes))]
+	for c.generatedAdminMessageForBlock && c.isAdminMessageMapping[messageType] {
+		messageType = messageTypes[rand.Intn(len(messageTypes))]
+	}
+
+	if c.isAdminMessageMapping[messageType] {
+		c.generatedAdminMessageForBlock = true
+	}
+	return messageType
+}
+
+func (c *LoadTestClient) generateMessage(config Config, key cryptotypes.PrivKey, msgPerTx uint64) ([]sdk.Msg, bool, cryptotypes.PrivKey, uint64, int64) {
+	var msgs []sdk.Msg
+	messageTypes := strings.Split(config.MessageType, ",")
+	messageType := c.getRandomMessageType(messageTypes)
+	fmt.Printf("Message type: %s\n", messageType)
+
+	defer IncrTxMessageType(messageType)
+
+	signer := key
+
+	defaultMessageTypeConfig := c.LoadTestConfig.PerMessageConfigs["default"]
+	gas := defaultMessageTypeConfig.Gas
+	fee := defaultMessageTypeConfig.Fee
+
+	messageTypeConfig, ok := c.LoadTestConfig.PerMessageConfigs[messageType]
+	if ok {
+		gas = messageTypeConfig.Gas
+		fee = messageTypeConfig.Fee
+	}
+
+	switch messageType {
+	case Vortex:
+		price := config.PriceDistr.Sample()
+		quantity := config.QuantityDistr.Sample()
+		msgs = c.generateVortexOrder(config, key, config.WasmMsgTypes.Vortex.NumOrdersPerTx, price, quantity)
+	case WasmMintNft:
+		contract := config.WasmMsgTypes.MintNftType.ContractAddr
+		// TODO: Potentially just hard code the Funds amount here
+		price := config.PriceDistr.Sample()
+		quantity := config.QuantityDistr.Sample()
+		amount, err := sdk.ParseCoinsNormalized(fmt.Sprintf("%d%s", price.Mul(quantity).Ceil().RoundInt64(), "usei"))
+		if err != nil {
+			panic(err)
+		}
+		msgs = []sdk.Msg{&wasmtypes.MsgExecuteContract{
+			Sender:   sdk.AccAddress(key.PubKey().Address()).String(),
+			Contract: contract,
+			Msg:      wasmtypes.RawContractMessage([]byte("{\"mint\":{\"owner\": \"sei1a27kj2j27c6uz58rn9zmhcjee9s3h3nhyhtvjj\"}}")),
+			Funds:    amount,
+		}}
+	case Bank:
+		msgs = []sdk.Msg{&banktypes.MsgSend{
 			FromAddress: sdk.AccAddress(key.PubKey().Address()).String(),
 			ToAddress:   sdk.AccAddress(key.PubKey().Address()).String(),
 			Amount: sdk.NewCoins(sdk.Coin{
 				Denom:  "usei",
 				Amount: sdk.NewInt(1),
 			}),
+		}}
+	case DistributeRewards:
+		adminKey := c.SignerClient.GetAdminKey()
+		msgs = []sdk.Msg{&banktypes.MsgSend{
+			FromAddress: sdk.AccAddress(adminKey.PubKey().Address()).String(),
+			ToAddress:   sdk.AccAddress(key.PubKey().Address()).String(),
+			Amount: sdk.NewCoins(sdk.Coin{
+				Denom:  "usei",
+				Amount: sdk.NewInt(10000000),
+			}),
+		}}
+		signer = adminKey
+		gas = 10000000
+		fee = 1000000
+		fmt.Printf("Distribute rewards to %s \n", sdk.AccAddress(key.PubKey().Address()).String())
+	case CollectRewards:
+		adminKey := c.SignerClient.GetAdminKey()
+		delegatorAddr := sdk.AccAddress(adminKey.PubKey().Address())
+		operatorAddress := c.Validators[rand.Intn(len(c.Validators))].OperatorAddress
+		randomValidatorAddr, err := sdk.ValAddressFromBech32(operatorAddress)
+		if err != nil {
+			panic(err.Error())
 		}
-	case "dex":
-		msgType := config.MsgTypeDistr.Sample()
-		orderPlacements := []*dextypes.Order{}
-		var orderType dextypes.OrderType
-		if msgType == "limit" {
-			orderType = dextypes.OrderType_LIMIT
-		} else {
-			orderType = dextypes.OrderType_MARKET
-		}
-		var direction dextypes.PositionDirection
-		if rand.Float64() < 0.5 {
-			direction = dextypes.PositionDirection_LONG
-		} else {
-			direction = dextypes.PositionDirection_SHORT
-		}
+		msgs = []sdk.Msg{distributiontypes.NewMsgWithdrawDelegatorReward(
+			delegatorAddr,
+			randomValidatorAddr,
+		)}
+		fmt.Printf("Collecting rewards from %s \n", operatorAddress)
+		signer = adminKey
+		gas = 10000000
+		fee = 1000000
+	case Dex:
 		price := config.PriceDistr.Sample()
 		quantity := config.QuantityDistr.Sample()
 		contract := config.ContractDistr.Sample()
-		for j := 0; j < int(batchSize); j++ {
-			orderPlacements = append(orderPlacements, &dextypes.Order{
-				Account:           sdk.AccAddress(key.PubKey().Address()).String(),
-				ContractAddr:      contract,
-				PositionDirection: direction,
-				Price:             price.Quo(FromMili),
-				Quantity:          quantity.Quo(FromMili),
-				PriceDenom:        "SEI",
-				AssetDenom:        "ATOM",
-				OrderType:         orderType,
-				Data:              VortexData,
-			})
-		}
+		orderPlacements := generateDexOrderPlacements(config, key, msgPerTx, price, quantity)
 		amount, err := sdk.ParseCoinsNormalized(fmt.Sprintf("%d%s", price.Mul(quantity).Ceil().RoundInt64(), "usei"))
 		if err != nil {
 			panic(err)
 		}
-		msg = &dextypes.MsgPlaceOrders{
+		msgs = []sdk.Msg{&dextypes.MsgPlaceOrders{
 			Creator:      sdk.AccAddress(key.PubKey().Address()).String(),
 			Orders:       orderPlacements,
 			ContractAddr: contract,
 			Funds:        amount,
+		}}
+	case Staking:
+		delegatorAddr := sdk.AccAddress(key.PubKey().Address()).String()
+		chosenValidator := c.Validators[rand.Intn(len(c.Validators))].OperatorAddress
+		// Randomly pick someone to redelegate / unbond from
+		srcAddr := ""
+		for k := range c.DelegationMap[delegatorAddr] {
+			if k == chosenValidator {
+				continue
+			}
+			srcAddr = k
+			break
 		}
+		msgs = []sdk.Msg{c.generateStakingMsg(delegatorAddr, chosenValidator, srcAddr)}
+	case Tokenfactory:
+		denomCreatorAddr := sdk.AccAddress(key.PubKey().Address()).String()
+		// No denoms, let's mint
+		randNum := rand.Float64()
+		denom, ok := c.TokenFactoryDenomOwner[denomCreatorAddr]
+		switch {
+		case !ok || randNum <= 0.33:
+			subDenom := fmt.Sprintf("tokenfactory-created-denom-%d", time.Now().UnixMilli())
+			denom = fmt.Sprintf("factory/%s/%s", denomCreatorAddr, subDenom)
+			msgs = []sdk.Msg{&tokenfactorytypes.MsgCreateDenom{
+				Sender:   denomCreatorAddr,
+				Subdenom: subDenom,
+			}}
+			c.TokenFactoryDenomOwner[denomCreatorAddr] = denom
+		case randNum <= 0.66:
+			msgs = []sdk.Msg{&tokenfactorytypes.MsgMint{
+				Sender: denomCreatorAddr,
+				Amount: sdk.Coin{Denom: denom, Amount: sdk.NewInt(10)},
+			}}
+		default:
+			msgs = []sdk.Msg{&tokenfactorytypes.MsgBurn{
+				Sender: denomCreatorAddr,
+				Amount: sdk.Coin{Denom: denom, Amount: sdk.NewInt(1)},
+			}}
+		}
+	case FailureBankMalformed:
+		var denom string
+		if rand.Float64() < 0.5 {
+			denom = "unknown"
+		} else {
+			denom = "other"
+		}
+		msgs = []sdk.Msg{&banktypes.MsgSend{
+			FromAddress: sdk.AccAddress(key.PubKey().Address()).String(),
+			ToAddress:   sdk.AccAddress(key.PubKey().Address()).String(),
+			Amount: sdk.NewCoins(sdk.Coin{
+				Denom:  denom,
+				Amount: sdk.NewInt(1),
+			}),
+		}}
+	case FailureBankInvalid:
+		var amountUsei int64
+		amountUsei = 1000000000000000000
+		msgs = []sdk.Msg{&banktypes.MsgSend{
+			FromAddress: sdk.AccAddress(key.PubKey().Address()).String(),
+			ToAddress:   sdk.AccAddress(key.PubKey().Address()).String(),
+			Amount: sdk.NewCoins(sdk.Coin{
+				Denom:  "usei",
+				Amount: sdk.NewInt(amountUsei),
+			}),
+		}}
+	case FailureDexMalformed:
+		price := config.PriceDistr.InvalidSample()
+		quantity := config.QuantityDistr.InvalidSample()
+		contract := config.ContractDistr.Sample()
+		orderPlacements := generateDexOrderPlacements(config, key, msgPerTx, price, quantity)
+		amount, err := sdk.ParseCoinsNormalized(fmt.Sprintf("%d%s", price.Mul(quantity).Ceil().RoundInt64(), "usei"))
+		if err != nil {
+			panic(err)
+		}
+		msgs = []sdk.Msg{&dextypes.MsgPlaceOrders{
+			Creator:      sdk.AccAddress(key.PubKey().Address()).String(),
+			Orders:       orderPlacements,
+			ContractAddr: contract,
+			Funds:        amount,
+		}}
+	case FailureDexInvalid:
+		price := config.PriceDistr.Sample()
+		quantity := config.QuantityDistr.Sample()
+		contract := config.ContractDistr.Sample()
+		orderPlacements := generateDexOrderPlacements(config, key, msgPerTx, price, quantity)
+		var amountUsei int64
+		if rand.Float64() < 0.5 {
+			amountUsei = 10000 * price.Mul(quantity).Ceil().RoundInt64()
+		} else {
+			amountUsei = 0
+		}
+		amount, err := sdk.ParseCoinsNormalized(fmt.Sprintf("%d%s", amountUsei, "usei"))
+		if err != nil {
+			panic(err)
+		}
+		msgs = []sdk.Msg{&dextypes.MsgPlaceOrders{
+			Creator:      sdk.AccAddress(key.PubKey().Address()).String(),
+			Orders:       orderPlacements,
+			ContractAddr: contract,
+			Funds:        amount,
+		}}
+
 	default:
 		fmt.Printf("Unrecognized message type %s", config.MessageType)
+	}
+
+	if strings.Contains(config.MessageType, "failure") {
+		return msgs, true, signer, gas, int64(fee)
+	}
+	return msgs, false, signer, gas, int64(fee)
+}
+
+func sampleDexOrderType(config Config) (orderType dextypes.OrderType) {
+	if config.MessageType == "failure_bank_malformed" {
+		orderType = -1
+	} else {
+		msgType := config.MsgTypeDistr.SampleDexMsgs()
+		switch msgType {
+		case Limit:
+			orderType = dextypes.OrderType_LIMIT
+		case Market:
+			orderType = dextypes.OrderType_MARKET
+		default:
+			panic(fmt.Sprintf("Unknown message type %s\n", msgType))
+		}
+	}
+	return orderType
+}
+
+func generateDexOrderPlacements(config Config, key cryptotypes.PrivKey, msgPerTx uint64, price sdk.Dec, quantity sdk.Dec) (orderPlacements []*dextypes.Order) {
+	orderType := sampleDexOrderType(config)
+
+	var direction dextypes.PositionDirection
+	if rand.Float64() < 0.5 {
+		direction = dextypes.PositionDirection_LONG
+	} else {
+		direction = dextypes.PositionDirection_SHORT
+	}
+
+	contract := config.ContractDistr.Sample()
+	for j := 0; j < int(msgPerTx); j++ {
+		orderPlacements = append(orderPlacements, &dextypes.Order{
+			Account:           sdk.AccAddress(key.PubKey().Address()).String(),
+			ContractAddr:      contract,
+			PositionDirection: direction,
+			Price:             price.Quo(FromMili),
+			Quantity:          quantity.Quo(FromMili),
+			PriceDenom:        "SEI",
+			AssetDenom:        "ATOM",
+			OrderType:         orderType,
+			Data:              VortexData,
+		})
+	}
+	return orderPlacements
+}
+
+func generateOracleMessage(key cryptotypes.PrivKey) sdk.Msg {
+	valAddr := sdk.ValAddress(key.PubKey().Address()).String()
+	addr := sdk.AccAddress(key.PubKey().Address()).String()
+	msg := &oracletypes.MsgAggregateExchangeRateVote{
+		ExchangeRates: "1usei,2uatom",
+		Feeder:        addr,
+		Validator:     valAddr,
 	}
 	return msg
 }
 
-func getLastHeight() int {
-	out, err := exec.Command("curl", "http://localhost:26657/blockchain").Output()
+func (c *LoadTestClient) generateStakingMsg(delegatorAddr string, chosenValidator string, srcAddr string) sdk.Msg {
+	// Randomly unbond, redelegate or delegate
+	// However, if there are no delegations, do so first
+	var msg sdk.Msg
+	msgType := c.LoadTestConfig.MsgTypeDistr.SampleStakingMsgs()
+	if _, ok := c.DelegationMap[delegatorAddr]; !ok || msgType == "delegate" || srcAddr == "" {
+		msg = &stakingtypes.MsgDelegate{
+			DelegatorAddress: delegatorAddr,
+			ValidatorAddress: chosenValidator,
+			Amount:           sdk.Coin{Denom: "usei", Amount: sdk.NewInt(1)},
+		}
+		c.DelegationMap[delegatorAddr] = map[string]int{}
+		c.DelegationMap[delegatorAddr][chosenValidator] = 1
+	} else {
+		if msgType == "redelegate" {
+			msg = &stakingtypes.MsgBeginRedelegate{
+				DelegatorAddress:    delegatorAddr,
+				ValidatorSrcAddress: srcAddr,
+				ValidatorDstAddress: chosenValidator,
+				Amount:              sdk.Coin{Denom: "usei", Amount: sdk.NewInt(1)},
+			}
+			c.DelegationMap[delegatorAddr][chosenValidator]++
+		} else {
+			msg = &stakingtypes.MsgUndelegate{
+				DelegatorAddress: delegatorAddr,
+				ValidatorAddress: srcAddr,
+				Amount:           sdk.Coin{Denom: "usei", Amount: sdk.NewInt(1)},
+			}
+		}
+		// Update delegation map
+		c.DelegationMap[delegatorAddr][srcAddr]--
+		if c.DelegationMap[delegatorAddr][srcAddr] == 0 {
+			delete(c.DelegationMap, delegatorAddr)
+		}
+	}
+	return msg
+}
+
+// generateVortexOrder generates Vortex order messages. If short order, creates a deposit message first
+func (c *LoadTestClient) generateVortexOrder(config Config, key cryptotypes.PrivKey, numOrders int64, price sdk.Dec, quantity sdk.Dec) []sdk.Msg {
+	var msgs []sdk.Msg
+	contract := config.WasmMsgTypes.Vortex.ContractAddr
+
+	// Randomly select Position Direction
+	var direction dextypes.PositionDirection
+	if rand.Float64() < 0.5 {
+		direction = dextypes.PositionDirection_LONG
+	} else {
+		direction = dextypes.PositionDirection_SHORT
+	}
+
+	orderType := sampleDexOrderType(config)
+
+	// If placing short order on vortex, first deposit for buying power
+	if direction == dextypes.PositionDirection_SHORT {
+		// TODO: Considering depositing more up front when numOrders > 1
+		amountDeposit, err := sdk.ParseCoinsNormalized(fmt.Sprintf("%d%s", price.Mul(quantity).Ceil().RoundInt64(), "usei"))
+		if err != nil {
+			panic(err)
+		}
+		vortexDeposit := &wasmtypes.MsgExecuteContract{
+			Sender:   sdk.AccAddress(key.PubKey().Address()).String(),
+			Contract: contract,
+			Msg:      wasmtypes.RawContractMessage([]byte("{\"deposit\":{}}")),
+			Funds:    amountDeposit,
+		}
+		msgs = append(msgs, vortexDeposit)
+	}
+
+	// Create a MsgPlaceOrders with numOrders Orders
+	var orderPlacements []*dextypes.Order
+	for j := 0; j < int(numOrders); j++ {
+		vortexOrder := &dextypes.Order{
+			Account:           sdk.AccAddress(key.PubKey().Address()).String(),
+			ContractAddr:      contract,
+			PositionDirection: direction,
+			Price:             price.Quo(FromMili),
+			Quantity:          quantity.Quo(FromMili),
+			PriceDenom:        "SEI",
+			AssetDenom:        "ATOM",
+			OrderType:         orderType,
+			Data:              VortexData,
+		}
+		orderPlacements = append(orderPlacements, vortexOrder)
+	}
+
+	amount, err := sdk.ParseCoinsNormalized(fmt.Sprintf("%d%s", price.Mul(quantity).Ceil().RoundInt64(), "usei"))
+	if err != nil {
+		panic(err)
+	}
+	vortexOrderMsg := &dextypes.MsgPlaceOrders{
+		Creator:      sdk.AccAddress(key.PubKey().Address()).String(),
+		Orders:       orderPlacements,
+		ContractAddr: contract,
+		Funds:        amount,
+	}
+
+	msgs = append(msgs, vortexOrderMsg)
+
+	return msgs
+}
+
+func getLastHeight(blockchainEndpoint string) int {
+	out, err := exec.Command("curl", blockchainEndpoint).Output()
 	if err != nil {
 		panic(err)
 	}
@@ -288,12 +493,25 @@ func getLastHeight() int {
 	return height
 }
 
-func main() {
-	config := Config{}
+func GetDefaultConfigFilePath() string {
 	pwd, _ := os.Getwd()
-	file, _ := os.ReadFile(pwd + "/loadtest/config.json")
+	return pwd + "/loadtest/config.json"
+}
+
+func ReadConfig(path string) Config {
+	config := Config{}
+	file, _ := os.ReadFile(path)
 	if err := json.Unmarshal(file, &config); err != nil {
 		panic(err)
 	}
+	return config
+}
+
+func main() {
+	configFilePath := flag.String("config-file", GetDefaultConfigFilePath(), "Path to the config.json file to use for this run")
+	flag.Parse()
+
+	config := ReadConfig(*configFilePath)
+	fmt.Printf("Using config file: %s\n", *configFilePath)
 	run(config)
 }

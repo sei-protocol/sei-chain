@@ -1,7 +1,6 @@
 package keeper
 
 import (
-	"fmt"
 	"sort"
 	"strings"
 
@@ -89,6 +88,7 @@ func (k Keeper) ApplyWhitelist(ctx sdk.Context, whitelist types.DenomList, voteT
 			if _, ok := k.bankKeeper.GetDenomMetaData(ctx, item.Name); !ok {
 				base := item.Name
 				display := base[1:]
+				nameSymbol := strings.ToUpper(display)
 
 				k.bankKeeper.SetDenomMetaData(ctx, banktypes.Metadata{
 					Description: display,
@@ -99,8 +99,8 @@ func (k Keeper) ApplyWhitelist(ctx sdk.Context, whitelist types.DenomList, voteT
 					},
 					Base:    base,
 					Display: display,
-					Name:    fmt.Sprintf("%s TERRA", strings.ToUpper(display)),
-					Symbol:  fmt.Sprintf("%sT", strings.ToUpper(display[:len(display)-1])),
+					Name:    nameSymbol,
+					Symbol:  nameSymbol,
 				})
 			}
 		}

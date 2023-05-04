@@ -15,7 +15,7 @@ func (k KeeperWrapper) GetMatchResult(c context.Context, req *types.QueryGetMatc
 	}
 	ctx := sdk.UnwrapSDKContext(c)
 
-	result, found := k.GetMatchResultState(ctx, req.ContractAddr, req.Height)
+	result, found := k.GetMatchResultState(ctx, req.ContractAddr)
 	if !found {
 		return nil, status.Error(codes.NotFound, "result not found")
 	}

@@ -6,8 +6,10 @@ import (
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/sei-protocol/sei-chain/utils/datastructures"
+	dex "github.com/sei-protocol/sei-chain/x/dex/cache"
 	"github.com/sei-protocol/sei-chain/x/dex/exchange"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
+	dexutils "github.com/sei-protocol/sei-chain/x/dex/utils"
 	"github.com/stretchr/testify/assert"
 
 	keepertest "github.com/sei-protocol/sei-chain/testutil/keeper"
@@ -50,12 +52,25 @@ func TestMatchFoKMarketOrderFromShortBookNotEnoughLiquidity(t *testing.T) {
 			},
 		},
 	}
+	blockOrders := dexutils.GetMemState(ctx.Context()).GetBlockOrders(ctx, "testAccount", "USDC|ATOM")
+	blockOrders.Add(&types.Order{
+		Id:                1,
+		Account:           "abc",
+		ContractAddr:      "test",
+		Price:             sdk.NewDec(100),
+		Quantity:          sdk.NewDec(5),
+		PriceDenom:        "USDC",
+		AssetDenom:        "ATOM",
+		OrderType:         types.OrderType_FOKMARKET,
+		PositionDirection: types.PositionDirection_LONG,
+		Data:              "{\"position_effect\":\"Open\",\"leverage\":\"1\"}",
+	})
 	entries := &types.CachedSortedOrderBookEntries{
 		Entries:      shortBook,
 		DirtyEntries: datastructures.NewTypedSyncMap[string, types.OrderBookEntry](),
 	}
 	outcome := exchange.MatchMarketOrders(
-		ctx, longOrders, entries, types.PositionDirection_LONG,
+		ctx, longOrders, entries, types.PositionDirection_LONG, blockOrders,
 	)
 	totalPrice := outcome.TotalNotional
 	totalExecuted := outcome.TotalQuantity
@@ -68,6 +83,8 @@ func TestMatchFoKMarketOrderFromShortBookNotEnoughLiquidity(t *testing.T) {
 	assert.Equal(t, shortBook[0].GetEntry().Price, sdk.NewDec(100))
 	assert.Equal(t, shortBook[0].GetEntry().Quantity, sdk.NewDec(4))
 	assert.Equal(t, len(settlements), 0)
+	assert.Equal(t, blockOrders.Get()[0].Quantity, sdk.NewDec(5))
+	assert.Equal(t, blockOrders.Get()[0].Status, types.OrderStatus_PLACED)
 }
 
 func TestMatchFoKMarketOrderFromShortBookHappyPath(t *testing.T) {
@@ -106,8 +123,21 @@ func TestMatchFoKMarketOrderFromShortBookHappyPath(t *testing.T) {
 		Entries:      shortBook,
 		DirtyEntries: datastructures.NewTypedSyncMap[string, types.OrderBookEntry](),
 	}
+	blockOrders := dexutils.GetMemState(ctx.Context()).GetBlockOrders(ctx, "testAccount", "USDC|ATOM")
+	blockOrders.Add(&types.Order{
+		Id:                1,
+		Account:           "abc",
+		ContractAddr:      "test",
+		Price:             sdk.NewDec(100),
+		Quantity:          sdk.NewDec(5),
+		PriceDenom:        "USDC",
+		AssetDenom:        "ATOM",
+		OrderType:         types.OrderType_FOKMARKET,
+		PositionDirection: types.PositionDirection_LONG,
+		Data:              "{\"position_effect\":\"Open\",\"leverage\":\"1\"}",
+	})
 	outcome := exchange.MatchMarketOrders(
-		ctx, longOrders, entries, types.PositionDirection_LONG,
+		ctx, longOrders, entries, types.PositionDirection_LONG, blockOrders,
 	)
 	totalPrice := outcome.TotalNotional
 	totalExecuted := outcome.TotalQuantity
@@ -148,6 +178,8 @@ func TestMatchFoKMarketOrderFromShortBookHappyPath(t *testing.T) {
 		Timestamp:              TestTimestamp,
 		Height:                 TestHeight,
 	})
+	assert.Equal(t, blockOrders.Get()[0].Quantity, sdk.ZeroDec())
+	assert.Equal(t, blockOrders.Get()[0].Status, types.OrderStatus_FULFILLED)
 }
 
 func TestMatchByValueFOKMarketOrderFromShortBookNotEnoughLiquidity(t *testing.T) {
@@ -197,12 +229,14 @@ func TestMatchByValueFOKMarketOrderFromShortBookNotEnoughLiquidity(t *testing.T)
 			},
 		},
 	}
+	blockOrders := dexutils.GetMemState(ctx.Context()).GetBlockOrders(ctx, "testAccount", "USDC|ATOM")
+	blockOrders.Add(longOrders[0])
 	entries := &types.CachedSortedOrderBookEntries{
 		Entries:      shortBook,
 		DirtyEntries: datastructures.NewTypedSyncMap[string, types.OrderBookEntry](),
 	}
 	outcome := exchange.MatchMarketOrders(
-		ctx, longOrders, entries, types.PositionDirection_LONG,
+		ctx, longOrders, entries, types.PositionDirection_LONG, &dex.BlockOrders{},
 	)
 	totalPrice := outcome.TotalNotional
 	totalExecuted := outcome.TotalQuantity
@@ -215,9 +249,11 @@ func TestMatchByValueFOKMarketOrderFromShortBookNotEnoughLiquidity(t *testing.T)
 	assert.Equal(t, shortBook[0].GetEntry().Price, sdk.NewDec(90))
 	assert.Equal(t, shortBook[0].GetEntry().Quantity, sdk.NewDec(5))
 	assert.Equal(t, len(settlements), 0)
+	assert.Equal(t, blockOrders.Get()[0].Quantity, sdk.NewDec(5))
+	assert.Equal(t, blockOrders.Get()[0].Status, types.OrderStatus_PLACED)
 }
 
-func TestMatcByValueFOKMarketOrderFromShortBookHappyPath(t *testing.T) {
+func TestMatchByValueFOKMarketOrderFromShortBookHappyPath(t *testing.T) {
 	_, ctx := keepertest.DexKeeper(t)
 	ctx = ctx.WithBlockHeight(int64(TestHeight)).WithBlockTime(time.Unix(int64(TestTimestamp), 0))
 	longOrders := []*types.Order{
@@ -264,12 +300,14 @@ func TestMatcByValueFOKMarketOrderFromShortBookHappyPath(t *testing.T) {
 			},
 		},
 	}
+	blockOrders := dexutils.GetMemState(ctx.Context()).GetBlockOrders(ctx, "testAccount", "USDC|ATOM")
+	blockOrders.Add(longOrders[0])
 	entries := &types.CachedSortedOrderBookEntries{
 		Entries:      shortBook,
 		DirtyEntries: datastructures.NewTypedSyncMap[string, types.OrderBookEntry](),
 	}
 	outcome := exchange.MatchMarketOrders(
-		ctx, longOrders, entries, types.PositionDirection_LONG,
+		ctx, longOrders, entries, types.PositionDirection_LONG, blockOrders,
 	)
 	totalPrice := outcome.TotalNotional
 	totalExecuted := outcome.TotalQuantity
@@ -307,6 +345,8 @@ func TestMatcByValueFOKMarketOrderFromShortBookHappyPath(t *testing.T) {
 		Timestamp:              TestTimestamp,
 		Height:                 TestHeight,
 	})
+	assert.Equal(t, blockOrders.Get()[0].Quantity, sdk.MustNewDecFromStr("0.5"))
+	assert.Equal(t, blockOrders.Get()[0].Status, types.OrderStatus_FULFILLED)
 }
 
 func TestMatchSingleMarketOrderFromShortBook(t *testing.T) {
@@ -341,12 +381,14 @@ func TestMatchSingleMarketOrderFromShortBook(t *testing.T) {
 			},
 		},
 	}
+	blockOrders := dexutils.GetMemState(ctx.Context()).GetBlockOrders(ctx, "testAccount", "USDC|ATOM")
+	blockOrders.Add(longOrders[0])
 	entries := &types.CachedSortedOrderBookEntries{
 		Entries:      shortBook,
 		DirtyEntries: datastructures.NewTypedSyncMap[string, types.OrderBookEntry](),
 	}
 	outcome := exchange.MatchMarketOrders(
-		ctx, longOrders, entries, types.PositionDirection_LONG,
+		ctx, longOrders, entries, types.PositionDirection_LONG, blockOrders,
 	)
 	totalPrice := outcome.TotalNotional
 	totalExecuted := outcome.TotalQuantity
@@ -387,6 +429,8 @@ func TestMatchSingleMarketOrderFromShortBook(t *testing.T) {
 		Timestamp:              TestTimestamp,
 		Height:                 TestHeight,
 	})
+	assert.Equal(t, blockOrders.Get()[0].Quantity, sdk.ZeroDec())
+	assert.Equal(t, blockOrders.Get()[0].Status, types.OrderStatus_FULFILLED)
 }
 
 func TestMatchSingleMarketOrderFromLongBook(t *testing.T) {
@@ -421,12 +465,14 @@ func TestMatchSingleMarketOrderFromLongBook(t *testing.T) {
 			},
 		},
 	}
+	blockOrders := dexutils.GetMemState(ctx.Context()).GetBlockOrders(ctx, "testAccount", "USDC|ATOM")
+	blockOrders.Add(shortOrders[0])
 	entries := &types.CachedSortedOrderBookEntries{
 		Entries:      longBook,
 		DirtyEntries: datastructures.NewTypedSyncMap[string, types.OrderBookEntry](),
 	}
 	outcome := exchange.MatchMarketOrders(
-		ctx, shortOrders, entries, types.PositionDirection_SHORT,
+		ctx, shortOrders, entries, types.PositionDirection_SHORT, blockOrders,
 	)
 	totalPrice := outcome.TotalNotional
 	totalExecuted := outcome.TotalQuantity
@@ -467,6 +513,8 @@ func TestMatchSingleMarketOrderFromLongBook(t *testing.T) {
 		Timestamp:              TestTimestamp,
 		Height:                 TestHeight,
 	})
+	assert.Equal(t, blockOrders.Get()[0].Quantity, sdk.ZeroDec())
+	assert.Equal(t, blockOrders.Get()[0].Status, types.OrderStatus_FULFILLED)
 }
 
 func TestMatchSingleMarketOrderFromMultipleShortBook(t *testing.T) {
@@ -519,12 +567,14 @@ func TestMatchSingleMarketOrderFromMultipleShortBook(t *testing.T) {
 			},
 		},
 	}
+	blockOrders := dexutils.GetMemState(ctx.Context()).GetBlockOrders(ctx, "testAccount", "USDC|ATOM")
+	blockOrders.Add(longOrders[0])
 	entries := &types.CachedSortedOrderBookEntries{
 		Entries:      shortBook,
 		DirtyEntries: datastructures.NewTypedSyncMap[string, types.OrderBookEntry](),
 	}
 	outcome := exchange.MatchMarketOrders(
-		ctx, longOrders, entries, types.PositionDirection_LONG,
+		ctx, longOrders, entries, types.PositionDirection_LONG, blockOrders,
 	)
 	totalPrice := outcome.TotalNotional
 	totalExecuted := outcome.TotalQuantity
@@ -609,6 +659,8 @@ func TestMatchSingleMarketOrderFromMultipleShortBook(t *testing.T) {
 		Timestamp:              TestTimestamp,
 		Height:                 TestHeight,
 	})
+	assert.Equal(t, blockOrders.Get()[0].Quantity, sdk.ZeroDec())
+	assert.Equal(t, blockOrders.Get()[0].Status, types.OrderStatus_FULFILLED)
 }
 
 func TestMatchSingleMarketOrderFromMultipleLongBook(t *testing.T) {
@@ -661,12 +713,14 @@ func TestMatchSingleMarketOrderFromMultipleLongBook(t *testing.T) {
 			},
 		},
 	}
+	blockOrders := dexutils.GetMemState(ctx.Context()).GetBlockOrders(ctx, "testAccount", "USDC|ATOM")
+	blockOrders.Add(shortOrders[0])
 	entries := &types.CachedSortedOrderBookEntries{
 		Entries:      longBook,
 		DirtyEntries: datastructures.NewTypedSyncMap[string, types.OrderBookEntry](),
 	}
 	outcome := exchange.MatchMarketOrders(
-		ctx, shortOrders, entries, types.PositionDirection_SHORT,
+		ctx, shortOrders, entries, types.PositionDirection_SHORT, blockOrders,
 	)
 	totalPrice := outcome.TotalNotional
 	totalExecuted := outcome.TotalQuantity
@@ -751,6 +805,8 @@ func TestMatchSingleMarketOrderFromMultipleLongBook(t *testing.T) {
 		Timestamp:              TestTimestamp,
 		Height:                 TestHeight,
 	})
+	assert.Equal(t, blockOrders.Get()[0].Quantity, sdk.ZeroDec())
+	assert.Equal(t, blockOrders.Get()[0].Status, types.OrderStatus_FULFILLED)
 }
 
 func TestMatchMultipleMarketOrderFromMultipleShortBook(t *testing.T) {
@@ -825,12 +881,16 @@ func TestMatchMultipleMarketOrderFromMultipleShortBook(t *testing.T) {
 			},
 		},
 	}
+	blockOrders := dexutils.GetMemState(ctx.Context()).GetBlockOrders(ctx, "testAccount", "USDC|ATOM")
+	blockOrders.Add(longOrders[0])
+	blockOrders.Add(longOrders[1])
+	blockOrders.Add(longOrders[2])
 	entries := &types.CachedSortedOrderBookEntries{
 		Entries:      shortBook,
 		DirtyEntries: datastructures.NewTypedSyncMap[string, types.OrderBookEntry](),
 	}
 	outcome := exchange.MatchMarketOrders(
-		ctx, longOrders, entries, types.PositionDirection_LONG,
+		ctx, longOrders, entries, types.PositionDirection_LONG, blockOrders,
 	)
 	totalPrice := outcome.TotalNotional
 	totalExecuted := outcome.TotalQuantity
@@ -937,6 +997,12 @@ func TestMatchMultipleMarketOrderFromMultipleShortBook(t *testing.T) {
 		Timestamp:              TestTimestamp,
 		Height:                 TestHeight,
 	})
+	assert.Equal(t, blockOrders.Get()[0].Quantity, sdk.ZeroDec())
+	assert.Equal(t, blockOrders.Get()[0].Status, types.OrderStatus_FULFILLED)
+	assert.Equal(t, blockOrders.Get()[1].Quantity, sdk.ZeroDec())
+	assert.Equal(t, blockOrders.Get()[1].Status, types.OrderStatus_FULFILLED)
+	assert.Equal(t, blockOrders.Get()[2].Quantity, sdk.NewDec(2))
+	assert.Equal(t, blockOrders.Get()[2].Status, types.OrderStatus_PLACED)
 }
 
 func TestMatchMultipleMarketOrderFromMultipleLongBook(t *testing.T) {
@@ -1011,12 +1077,16 @@ func TestMatchMultipleMarketOrderFromMultipleLongBook(t *testing.T) {
 			},
 		},
 	}
+	blockOrders := dexutils.GetMemState(ctx.Context()).GetBlockOrders(ctx, "testAccount", "USDC|ATOM")
+	blockOrders.Add(shortOrders[0])
+	blockOrders.Add(shortOrders[1])
+	blockOrders.Add(shortOrders[2])
 	entries := &types.CachedSortedOrderBookEntries{
 		Entries:      longBook,
 		DirtyEntries: datastructures.NewTypedSyncMap[string, types.OrderBookEntry](),
 	}
 	outcome := exchange.MatchMarketOrders(
-		ctx, shortOrders, entries, types.PositionDirection_SHORT,
+		ctx, shortOrders, entries, types.PositionDirection_SHORT, blockOrders,
 	)
 	totalPrice := outcome.TotalNotional
 	totalExecuted := outcome.TotalQuantity
@@ -1127,4 +1197,10 @@ func TestMatchMultipleMarketOrderFromMultipleLongBook(t *testing.T) {
 		Timestamp:              TestTimestamp,
 		Height:                 TestHeight,
 	})
+	assert.Equal(t, blockOrders.Get()[0].Quantity, sdk.ZeroDec())
+	assert.Equal(t, blockOrders.Get()[0].Status, types.OrderStatus_FULFILLED)
+	assert.Equal(t, blockOrders.Get()[1].Quantity, sdk.ZeroDec())
+	assert.Equal(t, blockOrders.Get()[1].Status, types.OrderStatus_FULFILLED)
+	assert.Equal(t, blockOrders.Get()[2].Quantity, sdk.NewDec(2))
+	assert.Equal(t, blockOrders.Get()[2].Status, types.OrderStatus_PLACED)
 }

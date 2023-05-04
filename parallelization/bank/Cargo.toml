@@ -1,0 +1,27 @@
+[package]
+name = "bank"
+version = "0.1.0"
+edition = "2018"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+doctest = false
+
+[dependencies]
+cosmwasm-std = { version = "1.0.0" }
+cosmwasm-storage = { version = "1.0.0" }
+cw-storage-plus = "0.13.2"
+serde-json-wasm = "0.4.1"
+cw2 = "0.13.2"
+cw20 = "0.13.2"
+schemars = "0.8.3"
+serde = { version = "1.0.127", default-features = false, features = ["derive"] }
+serde_json = { version = "1.0", default-features = false, features = ["alloc"] }
+thiserror = { version = "1.0.26" }
+base64 = { version = "0.13.0" }
+
+[dependencies.forward_ref]
+version = "1"
+
+[dev-dependencies]
+cosmwasm-schema = { version = "1.0.0" }

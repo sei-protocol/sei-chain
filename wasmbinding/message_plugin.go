@@ -1,129 +1,97 @@
 package wasmbinding
 
 import (
-	"encoding/json"
-
 	wasmkeeper "github.com/CosmWasm/wasmd/x/wasm/keeper"
-	wasmvmtypes "github.com/CosmWasm/wasmvm/types"
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
-	authkeeper "github.com/cosmos/cosmos-sdk/x/auth/keeper"
-	"github.com/sei-protocol/sei-chain/wasmbinding/bindings"
-	dexwasm "github.com/sei-protocol/sei-chain/x/dex/client/wasm"
-	tokenfactorywasm "github.com/sei-protocol/sei-chain/x/tokenfactory/client/wasm"
+	wasmtypes "github.com/CosmWasm/wasmd/x/wasm/types"
+	codectypes "github.com/cosmos/cosmos-sdk/codec/types"
+	sdkacltypes "github.com/cosmos/cosmos-sdk/types/accesscontrol"
+	aclkeeper "github.com/cosmos/cosmos-sdk/x/accesscontrol/keeper"
+	acltypes "github.com/cosmos/cosmos-sdk/x/accesscontrol/types"
 )
 
-// CustomMessageDecorator returns decorator for custom CosmWasm bindings messages
-func CustomMessageDecorator(
+// forked from wasm
+func CustomMessageHandler(
 	router wasmkeeper.MessageRouter,
-	accountKeeper *authkeeper.AccountKeeper,
-) func(wasmkeeper.Messenger) wasmkeeper.Messenger {
-	return func(old wasmkeeper.Messenger) wasmkeeper.Messenger {
-		return &CustomMessenger{
-			router:        router,
-			wrapped:       old,
-			accountKeeper: accountKeeper,
+	channelKeeper wasmtypes.ChannelKeeper,
+	capabilityKeeper wasmtypes.CapabilityKeeper,
+	bankKeeper wasmtypes.Burner,
+	unpacker codectypes.AnyUnpacker,
+	portSource wasmtypes.ICS20TransferPortSource,
+	aclKeeper aclkeeper.Keeper,
+) wasmkeeper.Messenger {
+	encoders := wasmkeeper.DefaultEncoders(unpacker, portSource)
+	encoders = encoders.Merge(
+		&wasmkeeper.MessageEncoders{
+			Custom: CustomEncoder,
+		})
+	return wasmkeeper.NewMessageHandlerChain(
+		wasmkeeper.NewSDKMessageHandler(router, encoders),
+		wasmkeeper.NewIBCRawPacketHandler(channelKeeper, capabilityKeeper),
+		wasmkeeper.NewBurnCoinMessageHandler(bankKeeper),
+	)
+}
+
+func BuildWasmDependencyLookupMap(accessOps []sdkacltypes.AccessOperation) map[acltypes.ResourceAccess]map[string]struct{} {
+	lookupMap := make(map[acltypes.ResourceAccess]map[string]struct{})
+	for _, accessOp := range accessOps {
+		resourceAccess := acltypes.ResourceAccess{
+			ResourceType: accessOp.ResourceType,
+			AccessType:   accessOp.AccessType,
 		}
-	}
-}
-
-type CustomMessenger struct {
-	router        wasmkeeper.MessageRouter
-	wrapped       wasmkeeper.Messenger
-	accountKeeper *authkeeper.AccountKeeper
-}
-
-type SeiWasmMessage struct {
-	PlaceOrders  json.RawMessage `json:"place_orders,omitempty"`
-	CancelOrders json.RawMessage `json:"cancel_orders,omitempty"`
-	CreateDenom  json.RawMessage `json:"create_denom,omitempty"`
-	MintTokens   json.RawMessage `json:"mint_tokens,omitempty"`
-	BurnTokens   json.RawMessage `json:"burn_tokens,omitempty"`
-	ChangeAdmin  json.RawMessage `json:"change_admin,omitempty"`
-}
-
-var _ wasmkeeper.Messenger = &CustomMessenger{}
-
-// DispatchMsg executes on the bindingMsgs
-func (m *CustomMessenger) DispatchMsg(ctx sdk.Context, contractAddr sdk.AccAddress, contractIBCPortID string, msg wasmvmtypes.CosmosMsg) ([]sdk.Event, [][]byte, error) {
-	if msg.Custom != nil {
-		return m.DispatchCustomMsg(ctx, contractAddr, contractIBCPortID, msg)
-	}
-	return m.wrapped.DispatchMsg(ctx, contractAddr, contractIBCPortID, msg)
-}
-
-// DispatchCustomMsg function is forked from wasmd. sdk.Msg will be validated and routed to the corresponding module msg server in this function.
-func (m *CustomMessenger) DispatchCustomMsg(
-	ctx sdk.Context,
-	contractAddr sdk.AccAddress,
-	contractIBCPortID string,
-	msg wasmvmtypes.CosmosMsg,
-) (events []sdk.Event, data [][]byte, err error) {
-	var parsedMessage SeiWasmMessage
-	if err := json.Unmarshal(msg.Custom, &parsedMessage); err != nil {
-		return nil, nil, bindings.ErrParsingSeiWasmMsg
-	}
-
-	var sdkMsgs []sdk.Msg
-	switch {
-	case parsedMessage.PlaceOrders != nil:
-		sdkMsgs, err = dexwasm.EncodeDexPlaceOrders(parsedMessage.PlaceOrders, contractAddr)
-	case parsedMessage.CancelOrders != nil:
-		sdkMsgs, err = dexwasm.EncodeDexCancelOrders(parsedMessage.CancelOrders, contractAddr)
-	case parsedMessage.CreateDenom != nil:
-		sdkMsgs, err = tokenfactorywasm.EncodeTokenFactoryCreateDenom(parsedMessage.CreateDenom, contractAddr)
-	case parsedMessage.MintTokens != nil:
-		sdkMsgs, err = tokenfactorywasm.EncodeTokenFactoryMint(parsedMessage.MintTokens, contractAddr)
-	case parsedMessage.BurnTokens != nil:
-		sdkMsgs, err = tokenfactorywasm.EncodeTokenFactoryBurn(parsedMessage.BurnTokens, contractAddr)
-	case parsedMessage.ChangeAdmin != nil:
-		sdkMsgs, err = tokenfactorywasm.EncodeTokenFactoryChangeAdmin(parsedMessage.ChangeAdmin, contractAddr)
-	default:
-		sdkMsgs, err = []sdk.Msg{}, wasmvmtypes.UnsupportedRequest{Kind: "Unknown Sei Wasm Message"}
-	}
-	if err != nil {
-		return nil, nil, err
-	}
-
-	for _, sdkMsg := range sdkMsgs {
-		res, err := m.handleSdkMessage(ctx, contractAddr, sdkMsg)
-		if err != nil {
-			return nil, nil, err
+		if _, ok := lookupMap[resourceAccess]; !ok {
+			// we haven't added any identifiers for this resource type, so lets initialize the nested map (set)
+			lookupMap[resourceAccess] = make(map[string]struct{})
 		}
-		// append data
-		data = append(data, res.Data)
-		// append events
-		sdkEvents := make([]sdk.Event, len(res.Events))
-		for i := range res.Events {
-			sdkEvents[i] = sdk.Event(res.Events[i])
-		}
-		events = append(events, sdkEvents...)
+		lookupMap[resourceAccess][accessOp.IdentifierTemplate] = struct{}{}
 	}
-	return events, data, nil
+	return lookupMap
 }
 
-// This function is forked from wasmd. sdk.Msg will be validated and routed to the corresponding module msg server in this function.
-func (m *CustomMessenger) handleSdkMessage(ctx sdk.Context, contractAddr sdk.Address, msg sdk.Msg) (*sdk.Result, error) {
-	if err := msg.ValidateBasic(); err != nil {
-		return nil, err
+func GenerateAllowedResourceAccess(resource sdkacltypes.ResourceType, access sdkacltypes.AccessType) []acltypes.ResourceAccess {
+	// by default, write, and unknown are ok
+	accesses := []acltypes.ResourceAccess{
+		{
+			ResourceType: resource,
+			AccessType:   sdkacltypes.AccessType_WRITE,
+		},
+		{
+			ResourceType: resource,
+			AccessType:   sdkacltypes.AccessType_UNKNOWN,
+		},
 	}
-	// make sure this account can send it
-	for _, acct := range msg.GetSigners() {
-		if !acct.Equals(contractAddr) {
-			return nil, sdkerrors.Wrap(sdkerrors.ErrUnauthorized, "contract doesn't have permission")
+	if access == sdkacltypes.AccessType_READ {
+		accesses = append(accesses, acltypes.ResourceAccess{
+			ResourceType: resource,
+			AccessType:   access,
+		})
+	}
+	return accesses
+}
+
+func AreDependenciesFulfilled(lookupMap map[acltypes.ResourceAccess]map[string]struct{}, accessOp sdkacltypes.AccessOperation) bool {
+	currResourceAccesses := GenerateAllowedResourceAccess(accessOp.ResourceType, accessOp.AccessType)
+	for _, currResourceAccess := range currResourceAccesses {
+		if identifierMap, ok := lookupMap[currResourceAccess]; ok {
+			if _, ok := identifierMap[accessOp.IdentifierTemplate]; ok {
+				// we found a proper listed dependency, we can go to the next access op
+				return true
+			}
 		}
 	}
 
-	// find the handler and execute it
-	if handler := m.router.Handler(msg); handler != nil {
-		// ADR 031 request type routing
-		msgResult, err := handler(ctx, msg)
-		return msgResult, err
+	// what about parent resources
+	parentResources := accessOp.ResourceType.GetParentResources()
+	// for each of the parent resources, we need at least one to be defined in the wasmDependencies
+	for _, parentResource := range parentResources {
+		// make parent resource access with same access type
+		parentResourceAccesses := GenerateAllowedResourceAccess(parentResource, accessOp.AccessType)
+		// for each of the parent resources, we check to see if its in the lookup map (identifier doesnt matter bc parent)
+		for _, parentResourceAccess := range parentResourceAccesses {
+			if _, parentResourcePresent := lookupMap[parentResourceAccess]; parentResourcePresent {
+				// we can continue to the next access op
+				return true
+			}
+		}
 	}
-	// legacy sdk.Msg routing
-	// Assuming that the app developer has migrated all their Msgs to
-	// proto messages and has registered all `Msg services`, then this
-	// path should never be called, because all those Msgs should be
-	// registered within the `msgServiceRouter` already.
-	return nil, sdkerrors.Wrapf(sdkerrors.ErrUnknownRequest, "can't route message %+v", msg)
+	return false
 }

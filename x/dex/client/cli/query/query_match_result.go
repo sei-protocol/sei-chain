@@ -1,7 +1,7 @@
 package query
 
 import (
-	"strconv"
+	"strings"
 
 	"github.com/cosmos/cosmos-sdk/client"
 	"github.com/cosmos/cosmos-sdk/client/flags"
@@ -11,12 +11,14 @@ import (
 
 func CmdGetMatchResult() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "get-match-result [contract-address] [height]",
-		Short: "Query get match result by contract and height",
-		Args:  cobra.ExactArgs(2),
+		Use:   "get-match-result [contract-address]",
+		Short: "Query get match result by contract",
+		Long: strings.TrimSpace(`
+			Gets the match result information for an orderbook specified by the given contract address. The match result information includes the orders, settlements, and cancellations for the orderbook.
+		`),
+		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) (err error) {
 			contractAddr := args[0]
-			height, err := strconv.ParseInt(args[1], 10, 64)
 			if err != nil {
 				return err
 			}
@@ -30,7 +32,6 @@ func CmdGetMatchResult() *cobra.Command {
 
 			params := &types.QueryGetMatchResultRequest{
 				ContractAddr: contractAddr,
-				Height:       height,
 			}
 
 			res, err := queryClient.GetMatchResult(cmd.Context(), params)

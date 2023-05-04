@@ -71,7 +71,7 @@ var xxx_messageInfo_QueryExchangeRateRequest proto.InternalMessageInfo
 // QueryExchangeRateResponse is response type for the
 // Query/ExchangeRate RPC method.
 type QueryExchangeRateResponse struct {
-	// exchange_rate defines the exchange rate of Luna denominated in various Terra
+	// exchange_rate defines the exchange rate of Sei denominated in various Sei
 	OracleExchangeRate OracleExchangeRate `protobuf:"bytes,1,opt,name=oracle_exchange_rate,json=oracleExchangeRate,proto3" json:"oracle_exchange_rate"`
 }
 
@@ -503,7 +503,7 @@ func (m *QueryPriceSnapshotHistoryResponse) GetPriceSnapshots() PriceSnapshots {
 
 // request type for twap RPC method
 type QueryTwapsRequest struct {
-	LookbackSeconds int64 `protobuf:"varint,1,opt,name=lookback_seconds,json=lookbackSeconds,proto3" json:"lookback_seconds,omitempty"`
+	LookbackSeconds uint64 `protobuf:"varint,1,opt,name=lookback_seconds,json=lookbackSeconds,proto3" json:"lookback_seconds,omitempty"`
 }
 
 func (m *QueryTwapsRequest) Reset()         { *m = QueryTwapsRequest{} }
@@ -539,7 +539,7 @@ func (m *QueryTwapsRequest) XXX_DiscardUnknown() {
 
 var xxx_messageInfo_QueryTwapsRequest proto.InternalMessageInfo
 
-func (m *QueryTwapsRequest) GetLookbackSeconds() int64 {
+func (m *QueryTwapsRequest) GetLookbackSeconds() uint64 {
 	if m != nil {
 		return m.LookbackSeconds
 	}
@@ -761,24 +761,23 @@ func (m *QueryVotePenaltyCounterResponse) GetVotePenaltyCounter() *VotePenaltyCo
 	return nil
 }
 
-// QueryAggregateVoteRequest is the request type for the Query/AggregateVote RPC method.
-type QueryAggregateVoteRequest struct {
-	// validator defines the validator address to query for.
-	ValidatorAddr string `protobuf:"bytes,1,opt,name=validator_addr,json=validatorAddr,proto3" json:"validator_addr,omitempty"`
+// QuerySlashWindow is the request type for the
+// Query/SlashWindow RPC method.
+type QuerySlashWindowRequest struct {
 }
 
-func (m *QueryAggregateVoteRequest) Reset()         { *m = QueryAggregateVoteRequest{} }
-func (m *QueryAggregateVoteRequest) String() string { return proto.CompactTextString(m) }
-func (*QueryAggregateVoteRequest) ProtoMessage()    {}
-func (*QueryAggregateVoteRequest) Descriptor() ([]byte, []int) {
+func (m *QuerySlashWindowRequest) Reset()         { *m = QuerySlashWindowRequest{} }
+func (m *QuerySlashWindowRequest) String() string { return proto.CompactTextString(m) }
+func (*QuerySlashWindowRequest) ProtoMessage()    {}
+func (*QuerySlashWindowRequest) Descriptor() ([]byte, []int) {
 	return fileDescriptor_562b782cb9ac197e, []int{17}
 }
-func (m *QueryAggregateVoteRequest) XXX_Unmarshal(b []byte) error {
+func (m *QuerySlashWindowRequest) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
 }
-func (m *QueryAggregateVoteRequest) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+func (m *QuerySlashWindowRequest) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
 	if deterministic {
-		return xxx_messageInfo_QueryAggregateVoteRequest.Marshal(b, m, deterministic)
+		return xxx_messageInfo_QuerySlashWindowRequest.Marshal(b, m, deterministic)
 	} else {
 		b = b[:cap(b)]
 		n, err := m.MarshalToSizedBuffer(b)
@@ -788,37 +787,38 @@ func (m *QueryAggregateVoteRequest) XXX_Marshal(b []byte, deterministic bool) ([
 		return b[:n], nil
 	}
 }
-func (m *QueryAggregateVoteRequest) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_QueryAggregateVoteRequest.Merge(m, src)
+func (m *QuerySlashWindowRequest) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_QuerySlashWindowRequest.Merge(m, src)
 }
-func (m *QueryAggregateVoteRequest) XXX_Size() int {
+func (m *QuerySlashWindowRequest) XXX_Size() int {
 	return m.Size()
 }
-func (m *QueryAggregateVoteRequest) XXX_DiscardUnknown() {
-	xxx_messageInfo_QueryAggregateVoteRequest.DiscardUnknown(m)
+func (m *QuerySlashWindowRequest) XXX_DiscardUnknown() {
+	xxx_messageInfo_QuerySlashWindowRequest.DiscardUnknown(m)
 }
 
-var xxx_messageInfo_QueryAggregateVoteRequest proto.InternalMessageInfo
+var xxx_messageInfo_QuerySlashWindowRequest proto.InternalMessageInfo
 
-// QueryAggregateVoteResponse is response type for the
-// Query/AggregateVote RPC method.
-type QueryAggregateVoteResponse struct {
-	// aggregate_vote defines oracle aggregate vote submitted by a validator in the current vote period
-	AggregateVote AggregateExchangeRateVote `protobuf:"bytes,1,opt,name=aggregate_vote,json=aggregateVote,proto3" json:"aggregate_vote"`
+// QuerySlashWindowResponse is response type for the
+// Query/SlashWindow RPC method.
+type QuerySlashWindowResponse struct {
+	// window_progress defines the number of voting periods
+	// since the last slashing event would have taken place.
+	WindowProgress uint64 `protobuf:"varint,1,opt,name=window_progress,json=windowProgress,proto3" json:"window_progress,omitempty"`
 }
 
-func (m *QueryAggregateVoteResponse) Reset()         { *m = QueryAggregateVoteResponse{} }
-func (m *QueryAggregateVoteResponse) String() string { return proto.CompactTextString(m) }
-func (*QueryAggregateVoteResponse) ProtoMessage()    {}
-func (*QueryAggregateVoteResponse) Descriptor() ([]byte, []int) {
+func (m *QuerySlashWindowResponse) Reset()         { *m = QuerySlashWindowResponse{} }
+func (m *QuerySlashWindowResponse) String() string { return proto.CompactTextString(m) }
+func (*QuerySlashWindowResponse) ProtoMessage()    {}
+func (*QuerySlashWindowResponse) Descriptor() ([]byte, []int) {
 	return fileDescriptor_562b782cb9ac197e, []int{18}
 }
-func (m *QueryAggregateVoteResponse) XXX_Unmarshal(b []byte) error {
+func (m *QuerySlashWindowResponse) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
 }
-func (m *QueryAggregateVoteResponse) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+func (m *QuerySlashWindowResponse) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
 	if deterministic {
-		return xxx_messageInfo_QueryAggregateVoteResponse.Marshal(b, m, deterministic)
+		return xxx_messageInfo_QuerySlashWindowResponse.Marshal(b, m, deterministic)
 	} else {
 		b = b[:cap(b)]
 		n, err := m.MarshalToSizedBuffer(b)
@@ -828,107 +828,23 @@ func (m *QueryAggregateVoteResponse) XXX_Marshal(b []byte, deterministic bool) (
 		return b[:n], nil
 	}
 }
-func (m *QueryAggregateVoteResponse) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_QueryAggregateVoteResponse.Merge(m, src)
+func (m *QuerySlashWindowResponse) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_QuerySlashWindowResponse.Merge(m, src)
 }
-func (m *QueryAggregateVoteResponse) XXX_Size() int {
+func (m *QuerySlashWindowResponse) XXX_Size() int {
 	return m.Size()
 }
-func (m *QueryAggregateVoteResponse) XXX_DiscardUnknown() {
-	xxx_messageInfo_QueryAggregateVoteResponse.DiscardUnknown(m)
+func (m *QuerySlashWindowResponse) XXX_DiscardUnknown() {
+	xxx_messageInfo_QuerySlashWindowResponse.DiscardUnknown(m)
 }
 
-var xxx_messageInfo_QueryAggregateVoteResponse proto.InternalMessageInfo
+var xxx_messageInfo_QuerySlashWindowResponse proto.InternalMessageInfo
 
-func (m *QueryAggregateVoteResponse) GetAggregateVote() AggregateExchangeRateVote {
+func (m *QuerySlashWindowResponse) GetWindowProgress() uint64 {
 	if m != nil {
-		return m.AggregateVote
+		return m.WindowProgress
 	}
-	return AggregateExchangeRateVote{}
-}
-
-// QueryAggregateVotesRequest is the request type for the Query/AggregateVotes RPC method.
-type QueryAggregateVotesRequest struct {
-}
-
-func (m *QueryAggregateVotesRequest) Reset()         { *m = QueryAggregateVotesRequest{} }
-func (m *QueryAggregateVotesRequest) String() string { return proto.CompactTextString(m) }
-func (*QueryAggregateVotesRequest) ProtoMessage()    {}
-func (*QueryAggregateVotesRequest) Descriptor() ([]byte, []int) {
-	return fileDescriptor_562b782cb9ac197e, []int{19}
-}
-func (m *QueryAggregateVotesRequest) XXX_Unmarshal(b []byte) error {
-	return m.Unmarshal(b)
-}
-func (m *QueryAggregateVotesRequest) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
-	if deterministic {
-		return xxx_messageInfo_QueryAggregateVotesRequest.Marshal(b, m, deterministic)
-	} else {
-		b = b[:cap(b)]
-		n, err := m.MarshalToSizedBuffer(b)
-		if err != nil {
-			return nil, err
-		}
-		return b[:n], nil
-	}
-}
-func (m *QueryAggregateVotesRequest) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_QueryAggregateVotesRequest.Merge(m, src)
-}
-func (m *QueryAggregateVotesRequest) XXX_Size() int {
-	return m.Size()
-}
-func (m *QueryAggregateVotesRequest) XXX_DiscardUnknown() {
-	xxx_messageInfo_QueryAggregateVotesRequest.DiscardUnknown(m)
-}
-
-var xxx_messageInfo_QueryAggregateVotesRequest proto.InternalMessageInfo
-
-// QueryAggregateVotesResponse is response type for the
-// Query/AggregateVotes RPC method.
-type QueryAggregateVotesResponse struct {
-	// aggregate_votes defines all oracle aggregate votes submitted in the current vote period
-	AggregateVotes []AggregateExchangeRateVote `protobuf:"bytes,1,rep,name=aggregate_votes,json=aggregateVotes,proto3" json:"aggregate_votes"`
-}
-
-func (m *QueryAggregateVotesResponse) Reset()         { *m = QueryAggregateVotesResponse{} }
-func (m *QueryAggregateVotesResponse) String() string { return proto.CompactTextString(m) }
-func (*QueryAggregateVotesResponse) ProtoMessage()    {}
-func (*QueryAggregateVotesResponse) Descriptor() ([]byte, []int) {
-	return fileDescriptor_562b782cb9ac197e, []int{20}
-}
-func (m *QueryAggregateVotesResponse) XXX_Unmarshal(b []byte) error {
-	return m.Unmarshal(b)
-}
-func (m *QueryAggregateVotesResponse) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
-	if deterministic {
-		return xxx_messageInfo_QueryAggregateVotesResponse.Marshal(b, m, deterministic)
-	} else {
-		b = b[:cap(b)]
-		n, err := m.MarshalToSizedBuffer(b)
-		if err != nil {
-			return nil, err
-		}
-		return b[:n], nil
-	}
-}
-func (m *QueryAggregateVotesResponse) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_QueryAggregateVotesResponse.Merge(m, src)
-}
-func (m *QueryAggregateVotesResponse) XXX_Size() int {
-	return m.Size()
-}
-func (m *QueryAggregateVotesResponse) XXX_DiscardUnknown() {
-	xxx_messageInfo_QueryAggregateVotesResponse.DiscardUnknown(m)
-}
-
-var xxx_messageInfo_QueryAggregateVotesResponse proto.InternalMessageInfo
-
-func (m *QueryAggregateVotesResponse) GetAggregateVotes() []AggregateExchangeRateVote {
-	if m != nil {
-		return m.AggregateVotes
-	}
-	return nil
+	return 0
 }
 
 // QueryParamsRequest is the request type for the Query/Params RPC method.
@@ -939,7 +855,7 @@ func (m *QueryParamsRequest) Reset()         { *m = QueryParamsRequest{} }
 func (m *QueryParamsRequest) String() string { return proto.CompactTextString(m) }
 func (*QueryParamsRequest) ProtoMessage()    {}
 func (*QueryParamsRequest) Descriptor() ([]byte, []int) {
-	return fileDescriptor_562b782cb9ac197e, []int{21}
+	return fileDescriptor_562b782cb9ac197e, []int{19}
 }
 func (m *QueryParamsRequest) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
@@ -978,7 +894,7 @@ func (m *QueryParamsResponse) Reset()         { *m = QueryParamsResponse{} }
 func (m *QueryParamsResponse) String() string { return proto.CompactTextString(m) }
 func (*QueryParamsResponse) ProtoMessage()    {}
 func (*QueryParamsResponse) Descriptor() ([]byte, []int) {
-	return fileDescriptor_562b782cb9ac197e, []int{22}
+	return fileDescriptor_562b782cb9ac197e, []int{20}
 }
 func (m *QueryParamsResponse) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
@@ -1032,10 +948,8 @@ func init() {
 	proto.RegisterType((*QueryFeederDelegationResponse)(nil), "seiprotocol.seichain.oracle.QueryFeederDelegationResponse")
 	proto.RegisterType((*QueryVotePenaltyCounterRequest)(nil), "seiprotocol.seichain.oracle.QueryVotePenaltyCounterRequest")
 	proto.RegisterType((*QueryVotePenaltyCounterResponse)(nil), "seiprotocol.seichain.oracle.QueryVotePenaltyCounterResponse")
-	proto.RegisterType((*QueryAggregateVoteRequest)(nil), "seiprotocol.seichain.oracle.QueryAggregateVoteRequest")
-	proto.RegisterType((*QueryAggregateVoteResponse)(nil), "seiprotocol.seichain.oracle.QueryAggregateVoteResponse")
-	proto.RegisterType((*QueryAggregateVotesRequest)(nil), "seiprotocol.seichain.oracle.QueryAggregateVotesRequest")
-	proto.RegisterType((*QueryAggregateVotesResponse)(nil), "seiprotocol.seichain.oracle.QueryAggregateVotesResponse")
+	proto.RegisterType((*QuerySlashWindowRequest)(nil), "seiprotocol.seichain.oracle.QuerySlashWindowRequest")
+	proto.RegisterType((*QuerySlashWindowResponse)(nil), "seiprotocol.seichain.oracle.QuerySlashWindowResponse")
 	proto.RegisterType((*QueryParamsRequest)(nil), "seiprotocol.seichain.oracle.QueryParamsRequest")
 	proto.RegisterType((*QueryParamsResponse)(nil), "seiprotocol.seichain.oracle.QueryParamsResponse")
 }
@@ -1043,80 +957,76 @@ func init() {
 func init() { proto.RegisterFile("oracle/query.proto", fileDescriptor_562b782cb9ac197e) }
 
 var fileDescriptor_562b782cb9ac197e = []byte{
-	// 1162 bytes of a gzipped FileDescriptorProto
-	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0xac, 0x56, 0xcf, 0x6f, 0x1b, 0x45,
-	0x14, 0xf6, 0xb4, 0x34, 0xa5, 0xcf, 0x89, 0x13, 0x26, 0x06, 0xd2, 0x4d, 0xb0, 0xd3, 0x85, 0xaa,
-	0x05, 0x14, 0x6f, 0x48, 0x93, 0xd0, 0xe6, 0x97, 0x70, 0x12, 0x10, 0x05, 0xa4, 0x24, 0x6e, 0x05,
-	0x88, 0xcb, 0x6a, 0x62, 0x0f, 0xce, 0x2a, 0x8e, 0x67, 0xbb, 0xb3, 0x09, 0x8d, 0xaa, 0x1e, 0x40,
-	0x39, 0x70, 0xac, 0xc4, 0x0d, 0x81, 0xd4, 0x0b, 0x1c, 0xf8, 0x03, 0x38, 0x72, 0x40, 0x02, 0xf5,
-	0x58, 0xa9, 0x1c, 0x90, 0x90, 0x00, 0x25, 0x1c, 0x2a, 0xfe, 0x0a, 0xb4, 0xb3, 0x6f, 0x9d, 0xdd,
-	0x64, 0xbd, 0x5e, 0x27, 0x9c, 0xd6, 0xfb, 0xde, 0xbc, 0x6f, 0xbe, 0x6f, 0x3c, 0xfb, 0xbe, 0x07,
-	0x54, 0x38, 0xac, 0xda, 0xe0, 0xc6, 0x9d, 0x6d, 0xee, 0xec, 0x96, 0x6c, 0x47, 0xb8, 0x82, 0x0e,
-	0x4b, 0x6e, 0xa9, 0x5f, 0x55, 0xd1, 0x28, 0x49, 0x6e, 0x55, 0x37, 0x98, 0xd5, 0x2c, 0xf9, 0x0b,
-	0xb5, 0x7c, 0x5d, 0xd4, 0x85, 0xca, 0x1a, 0xde, 0x2f, 0xbf, 0x44, 0x1b, 0xa9, 0x0b, 0x51, 0x6f,
-	0x70, 0x83, 0xd9, 0x96, 0xc1, 0x9a, 0x4d, 0xe1, 0x32, 0xd7, 0x12, 0x4d, 0x89, 0xd9, 0x41, 0xdc,
-	0xc4, 0x7f, 0xf8, 0x41, 0x7d, 0x06, 0x86, 0xd6, 0xbc, 0x4d, 0xdf, 0xbe, 0x5b, 0xdd, 0x60, 0xcd,
-	0x3a, 0xaf, 0x30, 0x97, 0x57, 0xf8, 0x9d, 0x6d, 0x2e, 0x5d, 0x9a, 0x87, 0x73, 0x35, 0xde, 0x14,
-	0x5b, 0x43, 0x64, 0x94, 0x5c, 0xbd, 0x50, 0xf1, 0x5f, 0x66, 0x9e, 0xfd, 0xf2, 0x61, 0x31, 0xf3,
-	0xf4, 0x61, 0x31, 0xa3, 0xef, 0x11, 0xb8, 0x18, 0x53, 0x2c, 0x6d, 0xd1, 0x94, 0x9c, 0xd6, 0x21,
-	0xef, 0xef, 0x64, 0x72, 0x4c, 0x9b, 0x0e, 0x73, 0xb9, 0x02, 0xcb, 0x4e, 0x18, 0xa5, 0x04, 0x79,
-	0xa5, 0x15, 0xf5, 0x08, 0xc3, 0x2e, 0x3e, 0xf3, 0xe8, 0xcf, 0x62, 0xa6, 0x82, 0x07, 0x15, 0xce,
-	0xe8, 0xc3, 0x31, 0x2c, 0x24, 0x6a, 0xd0, 0xbf, 0x21, 0x30, 0xbc, 0xec, 0xf1, 0x3e, 0x0e, 0xb9,
-	0xca, 0x2c, 0x27, 0x5e, 0x63, 0x5b, 0xee, 0x67, 0xfe, 0x6f, 0xee, 0xbf, 0x10, 0xd0, 0xe2, 0xc8,
-	0xe3, 0x19, 0x7e, 0x4f, 0x60, 0x54, 0x31, 0x32, 0xe3, 0xe8, 0x98, 0x36, 0xb3, 0x1c, 0x39, 0x44,
-	0x46, 0xcf, 0x5e, 0xcd, 0x4e, 0x5c, 0x4f, 0x24, 0x95, 0x70, 0x04, 0x8b, 0xaf, 0x78, 0xec, 0x7e,
-	0xf8, 0xab, 0x38, 0x92, 0xb0, 0x48, 0x56, 0x46, 0x6a, 0x09, 0x59, 0xfd, 0x79, 0x18, 0x54, 0x32,
-	0xca, 0x55, 0xd7, 0xda, 0x39, 0x3c, 0xfd, 0x71, 0xc8, 0x47, 0xc3, 0xa8, 0x6b, 0x08, 0xce, 0x33,
-	0x3f, 0xa4, 0xd8, 0x5f, 0xa8, 0x04, 0xaf, 0xfa, 0x45, 0x78, 0x51, 0x55, 0x7c, 0x28, 0x5c, 0x7e,
-	0x9b, 0x39, 0x75, 0xee, 0xb6, 0xc0, 0xe6, 0xf1, 0xaa, 0x46, 0x52, 0x08, 0x78, 0x09, 0x7a, 0x77,
-	0x84, 0xcb, 0x4d, 0xd7, 0x8f, 0x23, 0x6a, 0x76, 0xe7, 0x70, 0xa9, 0xae, 0xc3, 0xa8, 0x2a, 0x5f,
-	0x75, 0xac, 0x2a, 0xbf, 0xd5, 0x64, 0xb6, 0xdc, 0x10, 0xee, 0xbb, 0x96, 0x74, 0x85, 0xb3, 0x1b,
-	0x6c, 0xf1, 0x80, 0xc0, 0xa5, 0x84, 0x45, 0xb8, 0xd9, 0x26, 0xf4, 0xdb, 0x5e, 0xde, 0x94, 0xb8,
-	0x20, 0xf8, 0x0f, 0x5e, 0x4b, 0xfc, 0x0f, 0x22, 0x98, 0x8b, 0x2f, 0xe0, 0xa9, 0xe7, 0x22, 0x61,
-	0x59, 0xc9, 0xd9, 0x91, 0x77, 0x7d, 0x01, 0x9e, 0x53, 0x8c, 0x6e, 0x7f, 0xc6, 0xec, 0xe0, 0x28,
-	0xe8, 0xab, 0x30, 0xd0, 0x10, 0x62, 0x73, 0x9d, 0x55, 0x37, 0x4d, 0xc9, 0xab, 0xa2, 0x59, 0x93,
-	0xea, 0x02, 0x9f, 0xad, 0xf4, 0x07, 0xf1, 0x5b, 0x7e, 0x58, 0xdf, 0x06, 0x1a, 0xae, 0x47, 0x09,
-	0x26, 0xf4, 0xe2, 0x8d, 0x72, 0xbd, 0x38, 0xf2, 0xbf, 0x92, 0xe2, 0x62, 0x7b, 0x38, 0x8b, 0x83,
-	0x48, 0x3e, 0x7b, 0x18, 0x93, 0x95, 0xac, 0x38, 0x7c, 0xd1, 0x57, 0x60, 0x44, 0x6d, 0xfb, 0x0e,
-	0xe7, 0x35, 0xee, 0x2c, 0xf3, 0x06, 0xaf, 0xab, 0x66, 0x14, 0x28, 0xb8, 0x0c, 0xb9, 0x1d, 0xd6,
-	0xb0, 0x6a, 0xcc, 0x15, 0x8e, 0xc9, 0x6a, 0x35, 0x07, 0x3f, 0xc0, 0xbe, 0x56, 0xb4, 0x5c, 0xab,
-	0x39, 0xa1, 0x66, 0xf3, 0x16, 0xbc, 0xd4, 0x06, 0x10, 0x25, 0x15, 0x21, 0xfb, 0xa9, 0xca, 0x85,
-	0xe1, 0xc0, 0x0f, 0x79, 0x58, 0xfa, 0x1a, 0x14, 0x5a, 0xf7, 0x67, 0x95, 0x37, 0x59, 0xc3, 0xdd,
-	0x5d, 0x12, 0xdb, 0x4d, 0x97, 0x3b, 0x27, 0x26, 0xb5, 0x47, 0xa0, 0xd8, 0x16, 0x13, 0x79, 0x31,
-	0xc8, 0xab, 0xab, 0x69, 0xfb, 0x69, 0xb3, 0xea, 0xe7, 0x53, 0xf5, 0xc1, 0x18, 0x58, 0xba, 0x73,
-	0x2c, 0xa6, 0x7f, 0x80, 0x1d, 0xb0, 0x5c, 0xaf, 0x3b, 0xde, 0xb1, 0x70, 0xaf, 0xee, 0xc4, 0xa2,
-	0x3e, 0x0f, 0x7a, 0xd2, 0x11, 0x38, 0xd4, 0x53, 0x85, 0x1c, 0x0b, 0x12, 0xa6, 0x47, 0x06, 0x95,
-	0x4c, 0x27, 0x2a, 0x69, 0x61, 0x85, 0x7b, 0x87, 0x87, 0x8b, 0xcd, 0xb1, 0x8f, 0x85, 0x37, 0xd3,
-	0x47, 0xe2, 0x28, 0xb4, 0x3a, 0xc1, 0x1e, 0x81, 0xe1, 0xd8, 0x34, 0x52, 0xe4, 0xd0, 0x1f, 0xa5,
-	0x18, 0x5c, 0xf0, 0xd3, 0x71, 0xcc, 0x45, 0x38, 0x4a, 0x3d, 0x8f, 0x9f, 0xd6, 0x2a, 0x73, 0xd8,
-	0x56, 0x8b, 0xdc, 0xc7, 0xd8, 0x0a, 0x83, 0x28, 0x72, 0x2a, 0x43, 0x8f, 0xad, 0x22, 0x78, 0x5c,
-	0x2f, 0x27, 0xf7, 0x0a, 0xb5, 0x14, 0xf7, 0xc5, 0xc2, 0x89, 0x7f, 0x07, 0xe0, 0x9c, 0x82, 0xa6,
-	0x3f, 0x13, 0xe8, 0x0d, 0x93, 0xa4, 0x53, 0x89, 0x68, 0xed, 0x1c, 0x5e, 0x9b, 0xee, 0xb6, 0xcc,
-	0x17, 0xa3, 0x2f, 0x7d, 0xf1, 0xe4, 0x9f, 0xaf, 0xce, 0xcc, 0xd3, 0x59, 0x43, 0x72, 0x6b, 0x2c,
-	0x00, 0x50, 0x2f, 0x0a, 0x01, 0x67, 0x0c, 0x43, 0x79, 0x86, 0x34, 0xee, 0xa9, 0xe7, 0x7d, 0x23,
-	0xe2, 0x5e, 0xf4, 0x27, 0x02, 0x7d, 0x11, 0xdb, 0xa3, 0x5d, 0xd2, 0x09, 0x8e, 0x5c, 0x7b, 0xb3,
-	0xeb, 0x3a, 0xd4, 0x31, 0xa7, 0x74, 0x4c, 0xd3, 0xc9, 0x74, 0x3a, 0x22, 0xfc, 0x25, 0xfd, 0x8e,
-	0xc0, 0x79, 0x74, 0x36, 0x3a, 0xde, 0x99, 0x42, 0xd4, 0x1b, 0xb5, 0x37, 0xba, 0xa8, 0x40, 0xba,
-	0x53, 0x8a, 0xae, 0x41, 0xc7, 0xd2, 0xd1, 0x45, 0x4f, 0xa5, 0x3f, 0x12, 0xc8, 0x86, 0x4c, 0x93,
-	0x4e, 0x76, 0xde, 0xf9, 0xb8, 0xfd, 0x6a, 0x53, 0x5d, 0x56, 0x21, 0xe7, 0x19, 0xc5, 0x79, 0x92,
-	0x4e, 0xa4, 0xe3, 0x1c, 0x76, 0x71, 0xfa, 0x07, 0x81, 0x7c, 0x9c, 0x13, 0xd3, 0xf9, 0xce, 0x5c,
-	0x12, 0x6c, 0x5e, 0x5b, 0x38, 0x69, 0x39, 0x6a, 0x5a, 0x56, 0x9a, 0x16, 0xe8, 0x5c, 0x3a, 0x4d,
-	0xd1, 0x61, 0xc1, 0xdc, 0x40, 0x11, 0xdf, 0x12, 0x38, 0xa7, 0xcc, 0x92, 0x96, 0x3a, 0xf3, 0x09,
-	0xdb, 0xbf, 0x66, 0xa4, 0x5e, 0x8f, 0x84, 0xaf, 0x29, 0xc2, 0x63, 0xf4, 0xf5, 0x74, 0x84, 0xd5,
-	0x4c, 0x40, 0x7f, 0x23, 0x30, 0x70, 0xd4, 0x6d, 0xe9, 0x8d, 0xce, 0x5b, 0xb7, 0xb1, 0x7c, 0x6d,
-	0xe6, 0x24, 0xa5, 0x28, 0xe0, 0xa6, 0x12, 0xb0, 0x44, 0xcb, 0x1d, 0x04, 0xb4, 0x3c, 0x4d, 0x1a,
-	0xf7, 0xa2, 0xae, 0x77, 0xdf, 0xf0, 0x47, 0x01, 0xfa, 0x94, 0x00, 0x3d, 0xee, 0xab, 0x74, 0x36,
-	0xdd, 0xf5, 0x8e, 0x1d, 0x1c, 0xb4, 0xb9, 0x93, 0x15, 0xa3, 0xb8, 0x8f, 0x94, 0xb8, 0x35, 0xba,
-	0x72, 0x0a, 0x71, 0x71, 0x23, 0x06, 0x7d, 0x42, 0xa0, 0x2f, 0x62, 0x91, 0x69, 0x3a, 0x6c, 0xdc,
-	0x10, 0x91, 0xa6, 0xc3, 0xc6, 0x4e, 0x0b, 0xfa, 0x9a, 0xd2, 0xf6, 0x3e, 0xbd, 0x79, 0x0a, 0x6d,
-	0x51, 0x2f, 0xa7, 0xbf, 0x12, 0xc8, 0x45, 0x8d, 0x9f, 0x76, 0x4b, 0xaf, 0xf5, 0x25, 0x5d, 0xef,
-	0xbe, 0x10, 0x85, 0x95, 0x95, 0xb0, 0x59, 0x7a, 0x23, 0xbd, 0xb0, 0x23, 0x33, 0x09, 0xfd, 0x9a,
-	0x40, 0x8f, 0x6f, 0xf4, 0x34, 0xc5, 0x17, 0x1d, 0x99, 0x32, 0xb4, 0xf1, 0xf4, 0x05, 0x48, 0x78,
-	0x4c, 0x11, 0xbe, 0x42, 0x2f, 0x77, 0x20, 0xec, 0x0f, 0x1b, 0x8b, 0xef, 0x3d, 0xda, 0x2f, 0x90,
-	0xc7, 0xfb, 0x05, 0xf2, 0xf7, 0x7e, 0x81, 0x3c, 0x38, 0x28, 0x64, 0x1e, 0x1f, 0x14, 0x32, 0xbf,
-	0x1f, 0x14, 0x32, 0x9f, 0x8c, 0xd7, 0x2d, 0x77, 0x63, 0x7b, 0xbd, 0x54, 0x15, 0x5b, 0xed, 0xa0,
-	0xee, 0x06, 0x60, 0xee, 0xae, 0xcd, 0xe5, 0x7a, 0x8f, 0x5a, 0x72, 0xed, 0xbf, 0x00, 0x00, 0x00,
-	0xff, 0xff, 0x39, 0xd6, 0x1b, 0x5c, 0xe7, 0x10, 0x00, 0x00,
+	// 1093 bytes of a gzipped FileDescriptorProto
+	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0xac, 0x55, 0xcf, 0x6f, 0xdc, 0x44,
+	0x14, 0xde, 0x29, 0x4d, 0x4a, 0xdf, 0xa6, 0x49, 0x99, 0x2c, 0x90, 0x3a, 0x61, 0x37, 0x35, 0x54,
+	0x29, 0xa0, 0xac, 0x43, 0x9a, 0x14, 0x48, 0x93, 0x88, 0xfc, 0x00, 0x01, 0x97, 0x24, 0x9b, 0x8a,
+	0x22, 0x2e, 0xd6, 0x64, 0x3d, 0x78, 0xad, 0x6c, 0x3c, 0xae, 0xc7, 0x49, 0x1a, 0x55, 0xbd, 0xa0,
+	0x1e, 0x38, 0x56, 0xe2, 0x86, 0x40, 0xea, 0x05, 0x0e, 0x5c, 0xb8, 0x71, 0xe4, 0x80, 0x84, 0xd4,
+	0x63, 0x25, 0x38, 0x20, 0x21, 0x01, 0x4a, 0x38, 0xf4, 0x9f, 0x40, 0x42, 0x3b, 0x7e, 0xde, 0xd8,
+	0xc4, 0xeb, 0xf5, 0x86, 0x9e, 0xbc, 0xf3, 0xde, 0xbc, 0x6f, 0xbe, 0x6f, 0xf6, 0xcd, 0xfb, 0x80,
+	0x0a, 0x9f, 0xd5, 0x9b, 0xdc, 0xb8, 0xbd, 0xcb, 0xfd, 0x83, 0xaa, 0xe7, 0x8b, 0x40, 0xd0, 0x51,
+	0xc9, 0x1d, 0xf5, 0xab, 0x2e, 0x9a, 0x55, 0xc9, 0x9d, 0x7a, 0x83, 0x39, 0x6e, 0x35, 0xdc, 0xa8,
+	0x95, 0x6c, 0x61, 0x0b, 0x95, 0x35, 0x5a, 0xbf, 0xc2, 0x12, 0x6d, 0xcc, 0x16, 0xc2, 0x6e, 0x72,
+	0x83, 0x79, 0x8e, 0xc1, 0x5c, 0x57, 0x04, 0x2c, 0x70, 0x84, 0x2b, 0x31, 0x3b, 0x8c, 0x87, 0x84,
+	0x9f, 0x30, 0xa8, 0xcf, 0xc1, 0xc8, 0x46, 0xeb, 0xd0, 0x77, 0xef, 0xd4, 0x1b, 0xcc, 0xb5, 0x79,
+	0x8d, 0x05, 0xbc, 0xc6, 0x6f, 0xef, 0x72, 0x19, 0xd0, 0x12, 0xf4, 0x59, 0xdc, 0x15, 0x3b, 0x23,
+	0x64, 0x9c, 0x5c, 0x3d, 0x5f, 0x0b, 0x17, 0x73, 0xcf, 0x7e, 0xfe, 0xb0, 0x52, 0x78, 0xf2, 0xb0,
+	0x52, 0xd0, 0xef, 0x13, 0xb8, 0x94, 0x52, 0x2c, 0x3d, 0xe1, 0x4a, 0x4e, 0x6d, 0x28, 0x85, 0x27,
+	0x99, 0x1c, 0xd3, 0xa6, 0xcf, 0x02, 0xae, 0xc0, 0x8a, 0xd3, 0x46, 0x35, 0x43, 0x5e, 0x75, 0x4d,
+	0x7d, 0xe2, 0xb0, 0xcb, 0x67, 0x1f, 0xfd, 0x51, 0x29, 0xd4, 0xf0, 0xa2, 0xe2, 0x19, 0x7d, 0x34,
+	0x85, 0x85, 0x44, 0x0d, 0xfa, 0x57, 0x04, 0x46, 0x57, 0x5b, 0xbc, 0x4f, 0x42, 0xae, 0x33, 0xc7,
+	0x4f, 0xd7, 0xd8, 0x91, 0xfb, 0x99, 0xa7, 0xcd, 0xfd, 0x67, 0x02, 0x5a, 0x1a, 0x79, 0xbc, 0xc3,
+	0x6f, 0x09, 0x8c, 0x2b, 0x46, 0x66, 0x1a, 0x1d, 0xd3, 0x63, 0x8e, 0x2f, 0x47, 0xc8, 0xf8, 0x33,
+	0x57, 0x8b, 0xd3, 0x6f, 0x65, 0x92, 0xca, 0xb8, 0x82, 0xe5, 0x57, 0x5a, 0xec, 0xbe, 0xfb, 0xb3,
+	0x32, 0x96, 0xb1, 0x49, 0xd6, 0xc6, 0xac, 0x8c, 0xac, 0xfe, 0x3c, 0x0c, 0x2b, 0x19, 0x4b, 0xf5,
+	0xc0, 0xd9, 0x3b, 0xbe, 0xfd, 0x29, 0x28, 0x25, 0xc3, 0xa8, 0x6b, 0x04, 0xce, 0xb1, 0x30, 0xa4,
+	0xd8, 0x9f, 0xaf, 0x45, 0x4b, 0xfd, 0x12, 0xbc, 0xa8, 0x2a, 0x3e, 0x12, 0x01, 0xbf, 0xc9, 0x7c,
+	0x9b, 0x07, 0x6d, 0xb0, 0x05, 0x6c, 0xd5, 0x44, 0x0a, 0x01, 0x2f, 0xc3, 0xc0, 0x9e, 0x08, 0xb8,
+	0x19, 0x84, 0x71, 0x44, 0x2d, 0xee, 0x1d, 0x6f, 0xd5, 0x75, 0x18, 0x57, 0xe5, 0xeb, 0xbe, 0x53,
+	0xe7, 0x9b, 0x2e, 0xf3, 0x64, 0x43, 0x04, 0xef, 0x3b, 0x32, 0x10, 0xfe, 0x41, 0x74, 0xc4, 0x03,
+	0x02, 0x97, 0x33, 0x36, 0xe1, 0x61, 0xdb, 0x30, 0xe4, 0xb5, 0xf2, 0xa6, 0xc4, 0x0d, 0xd1, 0x7f,
+	0xf0, 0x5a, 0xe6, 0x7f, 0x90, 0xc0, 0x5c, 0x7e, 0x01, 0x6f, 0x7d, 0x30, 0x11, 0x96, 0xb5, 0x41,
+	0x2f, 0xb1, 0xd6, 0x17, 0xe1, 0x39, 0xc5, 0xe8, 0xe6, 0x3e, 0xf3, 0xa2, 0xab, 0xa0, 0xaf, 0xc2,
+	0xc5, 0xa6, 0x10, 0xdb, 0x5b, 0xac, 0xbe, 0x6d, 0x4a, 0x5e, 0x17, 0xae, 0x25, 0x55, 0x03, 0x9f,
+	0xad, 0x0d, 0x45, 0xf1, 0xcd, 0x30, 0xac, 0xef, 0x02, 0x8d, 0xd7, 0xa3, 0x04, 0x13, 0x06, 0xb0,
+	0xa3, 0x82, 0x56, 0x1c, 0xf9, 0x4f, 0xe4, 0x68, 0xec, 0x16, 0xce, 0xf2, 0x30, 0x92, 0x2f, 0x1e,
+	0xc7, 0x64, 0xad, 0x28, 0x8e, 0x17, 0xfa, 0x1a, 0x8c, 0xa9, 0x63, 0xdf, 0xe3, 0xdc, 0xe2, 0xfe,
+	0x2a, 0x6f, 0x72, 0x5b, 0x0d, 0xa3, 0x48, 0xc1, 0x15, 0x18, 0xdc, 0x63, 0x4d, 0xc7, 0x62, 0x81,
+	0xf0, 0x4d, 0x66, 0x59, 0x3e, 0x3e, 0xc0, 0x0b, 0xed, 0xe8, 0x92, 0x65, 0xf9, 0xb1, 0x61, 0xf3,
+	0x0e, 0xbc, 0xd4, 0x01, 0x10, 0x25, 0x55, 0xa0, 0xf8, 0xa9, 0xca, 0xc5, 0xe1, 0x20, 0x0c, 0xb5,
+	0xb0, 0xf4, 0x0d, 0x28, 0xb7, 0xfb, 0x67, 0x9d, 0xbb, 0xac, 0x19, 0x1c, 0xac, 0x88, 0x5d, 0x37,
+	0xe0, 0xfe, 0xa9, 0x49, 0xdd, 0x27, 0x50, 0xe9, 0x88, 0x89, 0xbc, 0x18, 0x94, 0x54, 0x6b, 0x7a,
+	0x61, 0xda, 0xac, 0x87, 0xf9, 0x5c, 0x73, 0x30, 0x05, 0x96, 0xee, 0x9d, 0x88, 0xb5, 0x1f, 0xcd,
+	0x66, 0x93, 0xc9, 0xc6, 0x2d, 0xc7, 0xb5, 0xc4, 0x7e, 0xd4, 0xd1, 0x2b, 0xf8, 0x68, 0x12, 0x29,
+	0x64, 0x36, 0x01, 0x43, 0xfb, 0x2a, 0x62, 0x7a, 0xbe, 0xb0, 0x7d, 0x2e, 0xa3, 0x26, 0x1a, 0x0c,
+	0xc3, 0xeb, 0x18, 0xd5, 0x4b, 0xd8, 0x43, 0xeb, 0xcc, 0x67, 0x3b, 0xed, 0xf7, 0xf8, 0x31, 0xbe,
+	0xf9, 0x28, 0x8a, 0xa8, 0x4b, 0xd0, 0xef, 0xa9, 0x08, 0x2a, 0x7c, 0x39, 0xfb, 0x51, 0xa8, 0xad,
+	0x38, 0x21, 0xb1, 0x70, 0xfa, 0x9f, 0x41, 0xe8, 0x53, 0xd0, 0xf4, 0x27, 0x02, 0x03, 0xf1, 0x69,
+	0x43, 0x67, 0x33, 0xd1, 0x3a, 0x59, 0x99, 0x76, 0xbd, 0xd7, 0xb2, 0x50, 0x8c, 0xbe, 0xf2, 0xd9,
+	0x2f, 0x7f, 0x7f, 0x71, 0x66, 0x81, 0xde, 0x30, 0x24, 0x77, 0x26, 0x23, 0x00, 0xb5, 0x50, 0x08,
+	0x68, 0xa6, 0x86, 0x1a, 0x8e, 0xd2, 0xb8, 0xab, 0xbe, 0xf7, 0x8c, 0xc4, 0x98, 0xa6, 0x3f, 0x12,
+	0xb8, 0x90, 0x98, 0xef, 0xb4, 0x47, 0x3a, 0xd1, 0x95, 0x6b, 0x6f, 0xf6, 0x5c, 0x87, 0x3a, 0xe6,
+	0x95, 0x8e, 0xeb, 0x74, 0x26, 0x9f, 0x8e, 0x04, 0x7f, 0x49, 0xbf, 0x21, 0x70, 0x0e, 0x47, 0x38,
+	0x9d, 0xea, 0x4e, 0x21, 0x69, 0x02, 0xda, 0x1b, 0x3d, 0x54, 0x20, 0xdd, 0x59, 0x45, 0xd7, 0xa0,
+	0x93, 0xf9, 0xe8, 0xa2, 0x79, 0xd0, 0x1f, 0x08, 0x14, 0x63, 0xee, 0x40, 0x67, 0xba, 0x9f, 0x7c,
+	0xd2, 0x67, 0xb4, 0xd9, 0x1e, 0xab, 0x90, 0xf3, 0x9c, 0xe2, 0x3c, 0x43, 0xa7, 0xf3, 0x71, 0x8e,
+	0xdb, 0x15, 0xfd, 0x9d, 0x40, 0x29, 0xcd, 0x72, 0xe8, 0x42, 0x77, 0x2e, 0x19, 0x7e, 0xa6, 0x2d,
+	0x9e, 0xb6, 0x1c, 0x35, 0xad, 0x2a, 0x4d, 0x8b, 0x74, 0x3e, 0x9f, 0xa6, 0xa4, 0x2b, 0x9a, 0x0d,
+	0x14, 0xf1, 0x35, 0x81, 0x3e, 0xe5, 0x0a, 0xb4, 0xda, 0x9d, 0x4f, 0xdc, 0xe7, 0x34, 0x23, 0xf7,
+	0x7e, 0x24, 0x7c, 0x4d, 0x11, 0x9e, 0xa4, 0xaf, 0xe7, 0x23, 0xac, 0xcc, 0x8f, 0xfe, 0x4a, 0xe0,
+	0xe2, 0x7f, 0x6d, 0x85, 0xbe, 0xdd, 0xfd, 0xe8, 0x0e, 0xde, 0xa6, 0xcd, 0x9d, 0xa6, 0x14, 0x05,
+	0x7c, 0xa0, 0x04, 0xac, 0xd0, 0xa5, 0x2e, 0x02, 0xda, 0x8e, 0x24, 0x8d, 0xbb, 0x49, 0xcf, 0xba,
+	0x67, 0x84, 0x9e, 0x47, 0x9f, 0x10, 0xa0, 0x27, 0x0d, 0x84, 0xde, 0xc8, 0xd7, 0xde, 0xa9, 0x0e,
+	0xa9, 0xcd, 0x9f, 0xae, 0x18, 0xc5, 0xdd, 0x52, 0xe2, 0x36, 0xe8, 0xda, 0xff, 0x10, 0x97, 0xe6,
+	0xa5, 0xf4, 0x7b, 0x02, 0xc5, 0x98, 0xc3, 0xe5, 0x79, 0xf8, 0x27, 0xbd, 0x32, 0xcf, 0xc3, 0x4f,
+	0xb1, 0xd1, 0xdc, 0x3d, 0x27, 0x5b, 0xb5, 0x66, 0x68, 0xad, 0xf4, 0x4b, 0x02, 0xfd, 0xa1, 0xf7,
+	0xd1, 0x1c, 0x4d, 0x9e, 0x30, 0x5e, 0x6d, 0x2a, 0x7f, 0x01, 0x52, 0x9c, 0x54, 0x14, 0x27, 0xe8,
+	0x95, 0x2e, 0x14, 0x43, 0xff, 0x5d, 0xfe, 0xf0, 0xd1, 0x61, 0x99, 0x3c, 0x3e, 0x2c, 0x93, 0xbf,
+	0x0e, 0xcb, 0xe4, 0xc1, 0x51, 0xb9, 0xf0, 0xf8, 0xa8, 0x5c, 0xf8, 0xed, 0xa8, 0x5c, 0xf8, 0x64,
+	0xca, 0x76, 0x82, 0xc6, 0xee, 0x56, 0xb5, 0x2e, 0x76, 0x3a, 0x41, 0xdd, 0x89, 0xc0, 0x82, 0x03,
+	0x8f, 0xcb, 0xad, 0x7e, 0xb5, 0xe5, 0xda, 0xbf, 0x01, 0x00, 0x00, 0xff, 0xff, 0x14, 0xad, 0x63,
+	0x68, 0xe3, 0x0e, 0x00, 0x00,
 }
 
 // Reference imports to suppress errors if they are not otherwise used.
@@ -1146,10 +1056,8 @@ type QueryClient interface {
 	FeederDelegation(ctx context.Context, in *QueryFeederDelegationRequest, opts ...grpc.CallOption) (*QueryFeederDelegationResponse, error)
 	// MissCounter returns oracle miss counter of a validator
 	VotePenaltyCounter(ctx context.Context, in *QueryVotePenaltyCounterRequest, opts ...grpc.CallOption) (*QueryVotePenaltyCounterResponse, error)
-	// AggregateVote returns an aggregate vote of a validator
-	AggregateVote(ctx context.Context, in *QueryAggregateVoteRequest, opts ...grpc.CallOption) (*QueryAggregateVoteResponse, error)
-	// AggregateVotes returns aggregate votes of all validators
-	AggregateVotes(ctx context.Context, in *QueryAggregateVotesRequest, opts ...grpc.CallOption) (*QueryAggregateVotesResponse, error)
+	// SlashWindow returns slash window information
+	SlashWindow(ctx context.Context, in *QuerySlashWindowRequest, opts ...grpc.CallOption) (*QuerySlashWindowResponse, error)
 	// Params queries all parameters.
 	Params(ctx context.Context, in *QueryParamsRequest, opts ...grpc.CallOption) (*QueryParamsResponse, error)
 }
@@ -1234,18 +1142,9 @@ func (c *queryClient) VotePenaltyCounter(ctx context.Context, in *QueryVotePenal
 	return out, nil
 }
 
-func (c *queryClient) AggregateVote(ctx context.Context, in *QueryAggregateVoteRequest, opts ...grpc.CallOption) (*QueryAggregateVoteResponse, error) {
-	out := new(QueryAggregateVoteResponse)
-	err := c.cc.Invoke(ctx, "/seiprotocol.seichain.oracle.Query/AggregateVote", in, out, opts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func (c *queryClient) AggregateVotes(ctx context.Context, in *QueryAggregateVotesRequest, opts ...grpc.CallOption) (*QueryAggregateVotesResponse, error) {
-	out := new(QueryAggregateVotesResponse)
-	err := c.cc.Invoke(ctx, "/seiprotocol.seichain.oracle.Query/AggregateVotes", in, out, opts...)
+func (c *queryClient) SlashWindow(ctx context.Context, in *QuerySlashWindowRequest, opts ...grpc.CallOption) (*QuerySlashWindowResponse, error) {
+	out := new(QuerySlashWindowResponse)
+	err := c.cc.Invoke(ctx, "/seiprotocol.seichain.oracle.Query/SlashWindow", in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -1278,10 +1177,8 @@ type QueryServer interface {
 	FeederDelegation(context.Context, *QueryFeederDelegationRequest) (*QueryFeederDelegationResponse, error)
 	// MissCounter returns oracle miss counter of a validator
 	VotePenaltyCounter(context.Context, *QueryVotePenaltyCounterRequest) (*QueryVotePenaltyCounterResponse, error)
-	// AggregateVote returns an aggregate vote of a validator
-	AggregateVote(context.Context, *QueryAggregateVoteRequest) (*QueryAggregateVoteResponse, error)
-	// AggregateVotes returns aggregate votes of all validators
-	AggregateVotes(context.Context, *QueryAggregateVotesRequest) (*QueryAggregateVotesResponse, error)
+	// SlashWindow returns slash window information
+	SlashWindow(context.Context, *QuerySlashWindowRequest) (*QuerySlashWindowResponse, error)
 	// Params queries all parameters.
 	Params(context.Context, *QueryParamsRequest) (*QueryParamsResponse, error)
 }
@@ -1314,11 +1211,8 @@ func (*UnimplementedQueryServer) FeederDelegation(ctx context.Context, req *Quer
 func (*UnimplementedQueryServer) VotePenaltyCounter(ctx context.Context, req *QueryVotePenaltyCounterRequest) (*QueryVotePenaltyCounterResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method VotePenaltyCounter not implemented")
 }
-func (*UnimplementedQueryServer) AggregateVote(ctx context.Context, req *QueryAggregateVoteRequest) (*QueryAggregateVoteResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method AggregateVote not implemented")
-}
-func (*UnimplementedQueryServer) AggregateVotes(ctx context.Context, req *QueryAggregateVotesRequest) (*QueryAggregateVotesResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method AggregateVotes not implemented")
+func (*UnimplementedQueryServer) SlashWindow(ctx context.Context, req *QuerySlashWindowRequest) (*QuerySlashWindowResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method SlashWindow not implemented")
 }
 func (*UnimplementedQueryServer) Params(ctx context.Context, req *QueryParamsRequest) (*QueryParamsResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Params not implemented")
@@ -1472,38 +1366,20 @@ func _Query_VotePenaltyCounter_Handler(srv interface{}, ctx context.Context, dec
 	return interceptor(ctx, in, info, handler)
 }
 
-func _Query_AggregateVote_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(QueryAggregateVoteRequest)
+func _Query_SlashWindow_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(QuerySlashWindowRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(QueryServer).AggregateVote(ctx, in)
+		return srv.(QueryServer).SlashWindow(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: "/seiprotocol.seichain.oracle.Query/AggregateVote",
+		FullMethod: "/seiprotocol.seichain.oracle.Query/SlashWindow",
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(QueryServer).AggregateVote(ctx, req.(*QueryAggregateVoteRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
-func _Query_AggregateVotes_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(QueryAggregateVotesRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(QueryServer).AggregateVotes(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: "/seiprotocol.seichain.oracle.Query/AggregateVotes",
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(QueryServer).AggregateVotes(ctx, req.(*QueryAggregateVotesRequest))
+		return srv.(QueryServer).SlashWindow(ctx, req.(*QuerySlashWindowRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -1563,12 +1439,8 @@ var _Query_serviceDesc = grpc.ServiceDesc{
 			Handler:    _Query_VotePenaltyCounter_Handler,
 		},
 		{
-			MethodName: "AggregateVote",
-			Handler:    _Query_AggregateVote_Handler,
-		},
-		{
-			MethodName: "AggregateVotes",
-			Handler:    _Query_AggregateVotes_Handler,
+			MethodName: "SlashWindow",
+			Handler:    _Query_SlashWindow_Handler,
 		},
 		{
 			MethodName: "Params",
@@ -2102,7 +1974,7 @@ func (m *QueryVotePenaltyCounterResponse) MarshalToSizedBuffer(dAtA []byte) (int
 	return len(dAtA) - i, nil
 }
 
-func (m *QueryAggregateVoteRequest) Marshal() (dAtA []byte, err error) {
+func (m *QuerySlashWindowRequest) Marshal() (dAtA []byte, err error) {
 	size := m.Size()
 	dAtA = make([]byte, size)
 	n, err := m.MarshalToSizedBuffer(dAtA[:size])
@@ -2112,115 +1984,43 @@ func (m *QueryAggregateVoteRequest) Marshal() (dAtA []byte, err error) {
 	return dAtA[:n], nil
 }
 
-func (m *QueryAggregateVoteRequest) MarshalTo(dAtA []byte) (int, error) {
+func (m *QuerySlashWindowRequest) MarshalTo(dAtA []byte) (int, error) {
 	size := m.Size()
 	return m.MarshalToSizedBuffer(dAtA[:size])
 }
 
-func (m *QueryAggregateVoteRequest) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+func (m *QuerySlashWindowRequest) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	i := len(dAtA)
 	_ = i
 	var l int
 	_ = l
-	if len(m.ValidatorAddr) > 0 {
-		i -= len(m.ValidatorAddr)
-		copy(dAtA[i:], m.ValidatorAddr)
-		i = encodeVarintQuery(dAtA, i, uint64(len(m.ValidatorAddr)))
+	return len(dAtA) - i, nil
+}
+
+func (m *QuerySlashWindowResponse) Marshal() (dAtA []byte, err error) {
+	size := m.Size()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalToSizedBuffer(dAtA[:size])
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *QuerySlashWindowResponse) MarshalTo(dAtA []byte) (int, error) {
+	size := m.Size()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *QuerySlashWindowResponse) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
+	_ = i
+	var l int
+	_ = l
+	if m.WindowProgress != 0 {
+		i = encodeVarintQuery(dAtA, i, uint64(m.WindowProgress))
 		i--
-		dAtA[i] = 0xa
-	}
-	return len(dAtA) - i, nil
-}
-
-func (m *QueryAggregateVoteResponse) Marshal() (dAtA []byte, err error) {
-	size := m.Size()
-	dAtA = make([]byte, size)
-	n, err := m.MarshalToSizedBuffer(dAtA[:size])
-	if err != nil {
-		return nil, err
-	}
-	return dAtA[:n], nil
-}
-
-func (m *QueryAggregateVoteResponse) MarshalTo(dAtA []byte) (int, error) {
-	size := m.Size()
-	return m.MarshalToSizedBuffer(dAtA[:size])
-}
-
-func (m *QueryAggregateVoteResponse) MarshalToSizedBuffer(dAtA []byte) (int, error) {
-	i := len(dAtA)
-	_ = i
-	var l int
-	_ = l
-	{
-		size, err := m.AggregateVote.MarshalToSizedBuffer(dAtA[:i])
-		if err != nil {
-			return 0, err
-		}
-		i -= size
-		i = encodeVarintQuery(dAtA, i, uint64(size))
-	}
-	i--
-	dAtA[i] = 0xa
-	return len(dAtA) - i, nil
-}
-
-func (m *QueryAggregateVotesRequest) Marshal() (dAtA []byte, err error) {
-	size := m.Size()
-	dAtA = make([]byte, size)
-	n, err := m.MarshalToSizedBuffer(dAtA[:size])
-	if err != nil {
-		return nil, err
-	}
-	return dAtA[:n], nil
-}
-
-func (m *QueryAggregateVotesRequest) MarshalTo(dAtA []byte) (int, error) {
-	size := m.Size()
-	return m.MarshalToSizedBuffer(dAtA[:size])
-}
-
-func (m *QueryAggregateVotesRequest) MarshalToSizedBuffer(dAtA []byte) (int, error) {
-	i := len(dAtA)
-	_ = i
-	var l int
-	_ = l
-	return len(dAtA) - i, nil
-}
-
-func (m *QueryAggregateVotesResponse) Marshal() (dAtA []byte, err error) {
-	size := m.Size()
-	dAtA = make([]byte, size)
-	n, err := m.MarshalToSizedBuffer(dAtA[:size])
-	if err != nil {
-		return nil, err
-	}
-	return dAtA[:n], nil
-}
-
-func (m *QueryAggregateVotesResponse) MarshalTo(dAtA []byte) (int, error) {
-	size := m.Size()
-	return m.MarshalToSizedBuffer(dAtA[:size])
-}
-
-func (m *QueryAggregateVotesResponse) MarshalToSizedBuffer(dAtA []byte) (int, error) {
-	i := len(dAtA)
-	_ = i
-	var l int
-	_ = l
-	if len(m.AggregateVotes) > 0 {
-		for iNdEx := len(m.AggregateVotes) - 1; iNdEx >= 0; iNdEx-- {
-			{
-				size, err := m.AggregateVotes[iNdEx].MarshalToSizedBuffer(dAtA[:i])
-				if err != nil {
-					return 0, err
-				}
-				i -= size
-				i = encodeVarintQuery(dAtA, i, uint64(size))
-			}
-			i--
-			dAtA[i] = 0xa
-		}
+		dAtA[i] = 0x8
 	}
 	return len(dAtA) - i, nil
 }
@@ -2506,31 +2306,7 @@ func (m *QueryVotePenaltyCounterResponse) Size() (n int) {
 	return n
 }
 
-func (m *QueryAggregateVoteRequest) Size() (n int) {
-	if m == nil {
-		return 0
-	}
-	var l int
-	_ = l
-	l = len(m.ValidatorAddr)
-	if l > 0 {
-		n += 1 + l + sovQuery(uint64(l))
-	}
-	return n
-}
-
-func (m *QueryAggregateVoteResponse) Size() (n int) {
-	if m == nil {
-		return 0
-	}
-	var l int
-	_ = l
-	l = m.AggregateVote.Size()
-	n += 1 + l + sovQuery(uint64(l))
-	return n
-}
-
-func (m *QueryAggregateVotesRequest) Size() (n int) {
+func (m *QuerySlashWindowRequest) Size() (n int) {
 	if m == nil {
 		return 0
 	}
@@ -2539,17 +2315,14 @@ func (m *QueryAggregateVotesRequest) Size() (n int) {
 	return n
 }
 
-func (m *QueryAggregateVotesResponse) Size() (n int) {
+func (m *QuerySlashWindowResponse) Size() (n int) {
 	if m == nil {
 		return 0
 	}
 	var l int
 	_ = l
-	if len(m.AggregateVotes) > 0 {
-		for _, e := range m.AggregateVotes {
-			l = e.Size()
-			n += 1 + l + sovQuery(uint64(l))
-		}
+	if m.WindowProgress != 0 {
+		n += 1 + sovQuery(uint64(m.WindowProgress))
 	}
 	return n
 }
@@ -3435,7 +3208,7 @@ func (m *QueryTwapsRequest) Unmarshal(dAtA []byte) error {
 				}
 				b := dAtA[iNdEx]
 				iNdEx++
-				m.LookbackSeconds |= int64(b&0x7F) << shift
+				m.LookbackSeconds |= uint64(b&0x7F) << shift
 				if b < 0x80 {
 					break
 				}
@@ -3877,7 +3650,7 @@ func (m *QueryVotePenaltyCounterResponse) Unmarshal(dAtA []byte) error {
 	}
 	return nil
 }
-func (m *QueryAggregateVoteRequest) Unmarshal(dAtA []byte) error {
+func (m *QuerySlashWindowRequest) Unmarshal(dAtA []byte) error {
 	l := len(dAtA)
 	iNdEx := 0
 	for iNdEx < l {
@@ -3900,175 +3673,10 @@ func (m *QueryAggregateVoteRequest) Unmarshal(dAtA []byte) error {
 		fieldNum := int32(wire >> 3)
 		wireType := int(wire & 0x7)
 		if wireType == 4 {
-			return fmt.Errorf("proto: QueryAggregateVoteRequest: wiretype end group for non-group")
+			return fmt.Errorf("proto: QuerySlashWindowRequest: wiretype end group for non-group")
 		}
 		if fieldNum <= 0 {
-			return fmt.Errorf("proto: QueryAggregateVoteRequest: illegal tag %d (wire type %d)", fieldNum, wire)
-		}
-		switch fieldNum {
-		case 1:
-			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field ValidatorAddr", wireType)
-			}
-			var stringLen uint64
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return ErrIntOverflowQuery
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				stringLen |= uint64(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-			intStringLen := int(stringLen)
-			if intStringLen < 0 {
-				return ErrInvalidLengthQuery
-			}
-			postIndex := iNdEx + intStringLen
-			if postIndex < 0 {
-				return ErrInvalidLengthQuery
-			}
-			if postIndex > l {
-				return io.ErrUnexpectedEOF
-			}
-			m.ValidatorAddr = string(dAtA[iNdEx:postIndex])
-			iNdEx = postIndex
-		default:
-			iNdEx = preIndex
-			skippy, err := skipQuery(dAtA[iNdEx:])
-			if err != nil {
-				return err
-			}
-			if (skippy < 0) || (iNdEx+skippy) < 0 {
-				return ErrInvalidLengthQuery
-			}
-			if (iNdEx + skippy) > l {
-				return io.ErrUnexpectedEOF
-			}
-			iNdEx += skippy
-		}
-	}
-
-	if iNdEx > l {
-		return io.ErrUnexpectedEOF
-	}
-	return nil
-}
-func (m *QueryAggregateVoteResponse) Unmarshal(dAtA []byte) error {
-	l := len(dAtA)
-	iNdEx := 0
-	for iNdEx < l {
-		preIndex := iNdEx
-		var wire uint64
-		for shift := uint(0); ; shift += 7 {
-			if shift >= 64 {
-				return ErrIntOverflowQuery
-			}
-			if iNdEx >= l {
-				return io.ErrUnexpectedEOF
-			}
-			b := dAtA[iNdEx]
-			iNdEx++
-			wire |= uint64(b&0x7F) << shift
-			if b < 0x80 {
-				break
-			}
-		}
-		fieldNum := int32(wire >> 3)
-		wireType := int(wire & 0x7)
-		if wireType == 4 {
-			return fmt.Errorf("proto: QueryAggregateVoteResponse: wiretype end group for non-group")
-		}
-		if fieldNum <= 0 {
-			return fmt.Errorf("proto: QueryAggregateVoteResponse: illegal tag %d (wire type %d)", fieldNum, wire)
-		}
-		switch fieldNum {
-		case 1:
-			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field AggregateVote", wireType)
-			}
-			var msglen int
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return ErrIntOverflowQuery
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				msglen |= int(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-			if msglen < 0 {
-				return ErrInvalidLengthQuery
-			}
-			postIndex := iNdEx + msglen
-			if postIndex < 0 {
-				return ErrInvalidLengthQuery
-			}
-			if postIndex > l {
-				return io.ErrUnexpectedEOF
-			}
-			if err := m.AggregateVote.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
-				return err
-			}
-			iNdEx = postIndex
-		default:
-			iNdEx = preIndex
-			skippy, err := skipQuery(dAtA[iNdEx:])
-			if err != nil {
-				return err
-			}
-			if (skippy < 0) || (iNdEx+skippy) < 0 {
-				return ErrInvalidLengthQuery
-			}
-			if (iNdEx + skippy) > l {
-				return io.ErrUnexpectedEOF
-			}
-			iNdEx += skippy
-		}
-	}
-
-	if iNdEx > l {
-		return io.ErrUnexpectedEOF
-	}
-	return nil
-}
-func (m *QueryAggregateVotesRequest) Unmarshal(dAtA []byte) error {
-	l := len(dAtA)
-	iNdEx := 0
-	for iNdEx < l {
-		preIndex := iNdEx
-		var wire uint64
-		for shift := uint(0); ; shift += 7 {
-			if shift >= 64 {
-				return ErrIntOverflowQuery
-			}
-			if iNdEx >= l {
-				return io.ErrUnexpectedEOF
-			}
-			b := dAtA[iNdEx]
-			iNdEx++
-			wire |= uint64(b&0x7F) << shift
-			if b < 0x80 {
-				break
-			}
-		}
-		fieldNum := int32(wire >> 3)
-		wireType := int(wire & 0x7)
-		if wireType == 4 {
-			return fmt.Errorf("proto: QueryAggregateVotesRequest: wiretype end group for non-group")
-		}
-		if fieldNum <= 0 {
-			return fmt.Errorf("proto: QueryAggregateVotesRequest: illegal tag %d (wire type %d)", fieldNum, wire)
+			return fmt.Errorf("proto: QuerySlashWindowRequest: illegal tag %d (wire type %d)", fieldNum, wire)
 		}
 		switch fieldNum {
 		default:
@@ -4092,7 +3700,7 @@ func (m *QueryAggregateVotesRequest) Unmarshal(dAtA []byte) error {
 	}
 	return nil
 }
-func (m *QueryAggregateVotesResponse) Unmarshal(dAtA []byte) error {
+func (m *QuerySlashWindowResponse) Unmarshal(dAtA []byte) error {
 	l := len(dAtA)
 	iNdEx := 0
 	for iNdEx < l {
@@ -4115,17 +3723,17 @@ func (m *QueryAggregateVotesResponse) Unmarshal(dAtA []byte) error {
 		fieldNum := int32(wire >> 3)
 		wireType := int(wire & 0x7)
 		if wireType == 4 {
-			return fmt.Errorf("proto: QueryAggregateVotesResponse: wiretype end group for non-group")
+			return fmt.Errorf("proto: QuerySlashWindowResponse: wiretype end group for non-group")
 		}
 		if fieldNum <= 0 {
-			return fmt.Errorf("proto: QueryAggregateVotesResponse: illegal tag %d (wire type %d)", fieldNum, wire)
+			return fmt.Errorf("proto: QuerySlashWindowResponse: illegal tag %d (wire type %d)", fieldNum, wire)
 		}
 		switch fieldNum {
 		case 1:
-			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field AggregateVotes", wireType)
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field WindowProgress", wireType)
 			}
-			var msglen int
+			m.WindowProgress = 0
 			for shift := uint(0); ; shift += 7 {
 				if shift >= 64 {
 					return ErrIntOverflowQuery
@@ -4135,26 +3743,11 @@ func (m *QueryAggregateVotesResponse) Unmarshal(dAtA []byte) error {
 				}
 				b := dAtA[iNdEx]
 				iNdEx++
-				msglen |= int(b&0x7F) << shift
+				m.WindowProgress |= uint64(b&0x7F) << shift
 				if b < 0x80 {
 					break
 				}
 			}
-			if msglen < 0 {
-				return ErrInvalidLengthQuery
-			}
-			postIndex := iNdEx + msglen
-			if postIndex < 0 {
-				return ErrInvalidLengthQuery
-			}
-			if postIndex > l {
-				return io.ErrUnexpectedEOF
-			}
-			m.AggregateVotes = append(m.AggregateVotes, AggregateExchangeRateVote{})
-			if err := m.AggregateVotes[len(m.AggregateVotes)-1].Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
-				return err
-			}
-			iNdEx = postIndex
 		default:
 			iNdEx = preIndex
 			skippy, err := skipQuery(dAtA[iNdEx:])

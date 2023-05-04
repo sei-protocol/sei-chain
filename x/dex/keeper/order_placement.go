@@ -25,3 +25,9 @@ func (k Keeper) SetNextOrderID(ctx sdk.Context, contractAddr string, nextID uint
 	binary.BigEndian.PutUint64(bz, nextID)
 	store.Set(byteKey, bz)
 }
+
+func (k Keeper) DeleteNextOrderID(ctx sdk.Context, contractAddr string) {
+	store := prefix.NewStore(ctx.KVStore(k.storeKey), types.NextOrderIDPrefix(contractAddr))
+	byteKey := types.KeyPrefix(types.NextOrderIDKey)
+	store.Delete(byteKey)
+}

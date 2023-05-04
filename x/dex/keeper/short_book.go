@@ -89,6 +89,10 @@ func (k Keeper) GetShortAllocationForOrderID(ctx sdk.Context, contractAddr strin
 	return nil, false
 }
 
+func (k Keeper) RemoveAllShortBooksForContract(ctx sdk.Context, contractAddr string) {
+	k.removeAllForPrefix(ctx, types.OrderBookContractPrefix(false, contractAddr))
+}
+
 func GetKeyForShortBook(shortBook types.ShortBook) []byte {
 	return GetKeyForPrice(shortBook.Entry.Price)
 }

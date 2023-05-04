@@ -2,16 +2,12 @@ package tx
 
 import (
 	"fmt"
-	"time"
 
 	"github.com/spf13/cobra"
 
 	"github.com/cosmos/cosmos-sdk/client"
-	// "github.com/cosmos/cosmos-sdk/client/flags"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
 )
-
-var DefaultRelativePacketTimeoutTimestamp = uint64((time.Duration(10) * time.Minute).Nanoseconds())
 
 //nolint:deadcode,unused // I assume we'll use this later.
 const (
@@ -31,8 +27,11 @@ func GetTxCmd() *cobra.Command {
 	cmd.AddCommand(CmdPlaceOrders())
 	cmd.AddCommand(CmdCancelOrders())
 	cmd.AddCommand(CmdRegisterContract())
-	cmd.AddCommand(NewRegisterPairsProposalTxCmd())
-	cmd.AddCommand(NewUpdateTickSizeProposalTxCmd())
+	cmd.AddCommand(CmdRegisterPairs())
+	cmd.AddCommand(CmdUnregisterContract())
+	cmd.AddCommand(CmdContractDepositRent())
+	cmd.AddCommand(CmdUpdatePriceTickSize())
+	cmd.AddCommand(CmdUpdateQuantityTickSize())
 	cmd.AddCommand(NewAddAssetProposalTxCmd())
 	// this line is used by starport scaffolding # 1
 

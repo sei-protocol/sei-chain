@@ -8,16 +8,18 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
 	typesutils "github.com/sei-protocol/sei-chain/x/dex/types/utils"
+	dexutils "github.com/sei-protocol/sei-chain/x/dex/utils"
 )
 
 func (k msgServer) CancelOrders(goCtx context.Context, msg *types.MsgCancelOrders) (*types.MsgCancelOrdersResponse, error) {
 	ctx := sdk.UnwrapSDKContext(goCtx)
 
-	// validate cancellation requests
-	if err := k.validateCancels(msg); err != nil {
+	if err := msg.ValidateBasic(); err != nil {
+		ctx.Logger().Error(fmt.Sprintf("request invalid: %s", err))
 		return nil, err
 	}
 
+	events := []sdk.Event{}
 	for _, cancellation := range msg.GetCancellations() {
 		var allocation *types.Allocation
 		var found bool
@@ -34,15 +36,8 @@ func (k msgServer) CancelOrders(goCtx context.Context, msg *types.MsgCancelOrder
 		}
 		pair := types.Pair{PriceDenom: cancellation.PriceDenom, AssetDenom: cancellation.AssetDenom}
 		pairStr := typesutils.GetPairString(&pair)
-		pairBlockCancellations := k.MemState.GetBlockCancels(ctx, typesutils.ContractAddress(msg.GetContractAddr()), pairStr)
-		cancelledInCurrentBlock := false
-		for _, cancelInCurrentBlock := range pairBlockCancellations.Get() {
-			if cancelInCurrentBlock.Id == cancellation.Id {
-				cancelledInCurrentBlock = true
-				break
-			}
-		}
-		if !cancelledInCurrentBlock {
+		pairBlockCancellations := dexutils.GetMemState(ctx.Context()).GetBlockCancels(ctx, typesutils.ContractAddress(msg.GetContractAddr()), pairStr)
+		if !pairBlockCancellations.Has(cancellation) {
 			// only cancel if it's not cancelled in a previous tx in the same block
 			cancel := types.Cancellation{
 				Id:                cancellation.Id,
@@ -55,31 +50,12 @@ func (k msgServer) CancelOrders(goCtx context.Context, msg *types.MsgCancelOrder
 				PositionDirection: cancellation.PositionDirection,
 			}
 			pairBlockCancellations.Add(&cancel)
+			events = append(events, sdk.NewEvent(
+				types.EventTypeCancelOrder,
+				sdk.NewAttribute(types.AttributeKeyCancellationID, fmt.Sprint(cancellation.Id)),
+			))
 		}
 	}
-
+	ctx.EventManager().EmitEvents(events)
 	return &types.MsgCancelOrdersResponse{}, nil
-}
-
-func (k msgServer) validateCancels(cancels *types.MsgCancelOrders) error {
-	if len(cancels.Creator) == 0 {
-		return fmt.Errorf("invalid cancellation, creator cannot be empty")
-	}
-	if len(cancels.ContractAddr) == 0 {
-		return fmt.Errorf("invalid cancellation, contract address cannot be empty")
-	}
-
-	for _, cancellation := range cancels.GetCancellations() {
-		if cancellation.Price.IsNil() {
-			return fmt.Errorf("invalid cancellation price: %s", cancellation.Price)
-		}
-		if len(cancellation.AssetDenom) == 0 {
-			return fmt.Errorf("invalid cancellation, asset denom is empty")
-		}
-		if len(cancellation.PriceDenom) == 0 {
-			return fmt.Errorf("invalid cancellation, price denom is empty")
-		}
-	}
-
-	return nil
 }

@@ -3,8 +3,7 @@ package types
 import (
 	"fmt"
 
-	"github.com/tendermint/tendermint/crypto/tmhash"
-
+	"github.com/cosmos/cosmos-sdk/crypto/keys/ed25519"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 )
 
@@ -14,7 +13,7 @@ var (
 	ErrNoVote                = sdkerrors.Register(ModuleName, 4, "no vote")
 	ErrNoVotingPermission    = sdkerrors.Register(ModuleName, 5, "unauthorized voter")
 	ErrInvalidHash           = sdkerrors.Register(ModuleName, 6, "invalid hash")
-	ErrInvalidHashLength     = sdkerrors.Register(ModuleName, 7, fmt.Sprintf("invalid hash length; should equal %d", tmhash.TruncatedSize))
+	ErrInvalidHashLength     = sdkerrors.Register(ModuleName, 7, fmt.Sprintf("invalid hash length; should equal %d", ed25519.TruncatedSize))
 	ErrVerificationFailed    = sdkerrors.Register(ModuleName, 8, "hash verification failed")
 	ErrNoAggregateVote       = sdkerrors.Register(ModuleName, 12, "no aggregate vote")
 	ErrNoVoteTarget          = sdkerrors.Register(ModuleName, 13, "no vote target")
@@ -28,4 +27,5 @@ var (
 	ErrGettingOracleTwaps    = sdkerrors.Register(ModuleName, 21, "Error while getting Oracle Twaps in wasmd")
 	ErrEncodingOracleTwaps   = sdkerrors.Register(ModuleName, 22, "Error encoding oracle twaps as JSON")
 	ErrUnknownSeiOracleQuery = sdkerrors.Register(ModuleName, 23, "Error unknown sei oracle query")
+	ErrAggregateVoteExist    = sdkerrors.Register(ModuleName, 24, "aggregate vote still present in current voting window")
 )
