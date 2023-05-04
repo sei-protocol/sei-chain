@@ -31,7 +31,6 @@ func (s *IntegrationTestSuite) SetupSuite() {
 
 	s.cfg = cfg
 	s.network = network.New(s.T(), cfg)
-
 	_, err := s.network.WaitForHeight(1)
 	s.Require().NoError(err)
 }
@@ -71,7 +70,7 @@ func (s *IntegrationTestSuite) TestQueryOutstandingRewardsGRPC() {
 	val := s.network.Validators[0]
 	baseURL := val.APIAddress
 
-	rewards, err := sdk.ParseDecCoins("19.6usei")
+	rewards, err := sdk.ParseDecCoins("20usei")
 	s.Require().NoError(err)
 
 	testCases := []struct {
@@ -125,7 +124,7 @@ func (s *IntegrationTestSuite) TestQueryValidatorCommissionGRPC() {
 	val := s.network.Validators[0]
 	baseURL := val.APIAddress
 
-	commission, err := sdk.ParseDecCoins("9.8usei")
+	commission, err := sdk.ParseDecCoins("10usei")
 	s.Require().NoError(err)
 
 	testCases := []struct {
@@ -418,7 +417,7 @@ func (s *IntegrationTestSuite) TestQueryValidatorCommunityPoolGRPC() {
 	val := s.network.Validators[0]
 	baseURL := val.APIAddress
 
-	communityPool, err := sdk.ParseDecCoins("0.4usei")
+	communityPool, err := sdk.ParseDecCoins("0usei")
 	s.Require().NoError(err)
 
 	testCases := []struct {

@@ -10,6 +10,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/simapp"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/x/auth/types"
+	disttypes "github.com/cosmos/cosmos-sdk/x/distribution/types"
 	"github.com/cosmos/cosmos-sdk/x/staking/teststaking"
 	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
 )
@@ -49,6 +50,17 @@ func TestAllocateTokensToManyValidators(t *testing.T) {
 	params := app.StakingKeeper.GetParams(ctx)
 	params.MinCommissionRate = sdk.NewDec(0)
 	app.StakingKeeper.SetParams(ctx, params)
+
+	testDistrParms := disttypes.Params{
+		CommunityTax:        sdk.NewDecWithPrec(2, 2), // 2%
+		BaseProposerReward:  sdk.NewDecWithPrec(1, 2), // 1%
+		BonusProposerReward: sdk.NewDecWithPrec(4, 2), // 4%
+		WithdrawAddrEnabled: true,
+	}
+	app.DistrKeeper.SetParams(
+		ctx,
+		testDistrParms,
+	)
 
 	addrs := simapp.AddTestAddrs(app, ctx, 2, sdk.NewInt(1234))
 	valAddrs := simapp.ConvertAddrsToValAddrs(addrs)
