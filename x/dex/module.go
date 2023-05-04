@@ -227,7 +227,7 @@ func (am AppModule) getAllContractInfo(ctx sdk.Context) []types.ContractInfoV2 {
 	// Do not process any contract that has zero rent balance
 	defer telemetry.MeasureSince(time.Now(), am.Name(), "get_all_contract_info")
 	allRegisteredContracts := am.keeper.GetAllContractInfo(ctx)
-	validContracts := utils.Filter(allRegisteredContracts, func(c types.ContractInfoV2) bool { return c.RentBalance > 0 })
+	validContracts := utils.Filter(allRegisteredContracts, func(c types.ContractInfoV2) bool { return c.RentBalance > am.keeper.GetMinProcessableRent(ctx) })
 	telemetry.SetGauge(float32(len(allRegisteredContracts)), am.Name(), "num_of_registered_contracts")
 	telemetry.SetGauge(float32(len(validContracts)), am.Name(), "num_of_valid_contracts")
 	telemetry.SetGauge(float32(len(allRegisteredContracts)-len(validContracts)), am.Name(), "num_of_zero_balance_contracts")
@@ -282,6 +282,7 @@ func (am AppModule) EndBlock(ctx sdk.Context, _ abci.RequestEndBlock) (ret []abc
 
 	validContractsInfo := am.getAllContractInfo(ctx)
 	validContractsInfoAtBeginning := validContractsInfo
+	outOfRentContractsInfo := []types.ContractInfoV2{}
 	// Each iteration is atomic. If an iteration finishes without any error, it will return,
 	// otherwise it will rollback any state change, filter out contracts that cause the error,
 	// and proceed to the next iteration. The loop is guaranteed to finish since
@@ -289,11 +290,12 @@ func (am AppModule) EndBlock(ctx sdk.Context, _ abci.RequestEndBlock) (ret []abc
 	iterCounter := len(validContractsInfo)
 	endBlockerStartTime := time.Now()
 	for len(validContractsInfo) > 0 {
-		newValidContractsInfo, ctx, ok := contract.EndBlockerAtomic(ctx, &am.keeper, validContractsInfo, am.tracingInfo)
+		newValidContractsInfo, newOutOfRentContractsInfo, ctx, ok := contract.EndBlockerAtomic(ctx, &am.keeper, validContractsInfo, am.tracingInfo)
 		if ok {
 			break
 		}
 		validContractsInfo = newValidContractsInfo
+		outOfRentContractsInfo = newOutOfRentContractsInfo
 
 		// technically we don't really need this if `EndBlockerAtomic` guarantees that `validContractsInfo` size will
 		// always shrink if not `ok`, but just in case, we decided to have an explicit termination criteria here to
@@ -305,16 +307,24 @@ func (am AppModule) EndBlock(ctx sdk.Context, _ abci.RequestEndBlock) (ret []abc
 		}
 	}
 	telemetry.MeasureSince(endBlockerStartTime, am.Name(), "total_end_blocker_atomic")
-	validContractAddrs := map[string]struct{}{}
+	validContractAddrs, outOfRentContractAddrs := map[string]struct{}{}, map[string]struct{}{}
 	for _, c := range validContractsInfo {
 		validContractAddrs[c.ContractAddr] = struct{}{}
 	}
+	for _, c := range outOfRentContractsInfo {
+		outOfRentContractAddrs[c.ContractAddr] = struct{}{}
+	}
 	for _, c := range validContractsInfoAtBeginning {
-		if _, ok := validContractAddrs[c.ContractAddr]; !ok {
-			ctx.Logger().Error(fmt.Sprintf("Unregistering invalid contract %s", c.ContractAddr))
-			am.keeper.DoUnregisterContract(ctx, c)
-			telemetry.IncrCounter(float32(1), am.Name(), "total_unregistered_contracts")
+		if _, ok := validContractAddrs[c.ContractAddr]; ok {
+			continue
 		}
+		if _, ok := outOfRentContractAddrs[c.ContractAddr]; ok {
+			telemetry.IncrCounter(float32(1), am.Name(), "total_out_of_rent_contracts")
+			continue
+		}
+		ctx.Logger().Error(fmt.Sprintf("Unregistering invalid contract %s", c.ContractAddr))
+		am.keeper.DoUnregisterContract(ctx, c)
+		telemetry.IncrCounter(float32(1), am.Name(), "total_unregistered_contracts")
 	}
 
 	return []abci.ValidatorUpdate{}
