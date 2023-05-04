@@ -1,0 +1,48 @@
+syntax = "proto3";
+package seiprotocol.seichain.mint;
+
+import "gogoproto/gogo.proto";
+import "google/api/annotations.proto";
+import "mint/v1beta1/mint.proto";
+
+option go_package = "github.com/sei-protocol/sei-chain/x/mint/types";
+
+// Query provides defines the gRPC querier service.
+service Query {
+  // Params returns the total set of minting parameters.
+  rpc Params(QueryParamsRequest) returns (QueryParamsResponse) {
+    option (google.api.http).get = "/seichain/mint/v1beta1/params";
+  }
+
+  // EpochProvisions current minting epoch provisions value.
+  rpc Minter(QueryMinterRequest)
+      returns (QueryMinterResponse) {
+    option (google.api.http).get = "/seichain/mint/v1beta1/minter";
+  }
+}
+
+// QueryParamsRequest is the request type for the Query/Params RPC method.
+message QueryParamsRequest {}
+
+// QueryParamsResponse is the response type for the Query/Params RPC method.
+message QueryParamsResponse {
+  // params defines the parameters of the module.
+  Params params = 1 [(gogoproto.nullable) = false];
+}
+
+// QueryMinterRequest is the request type for the
+// Query/Minter RPC method.
+message QueryMinterRequest {}
+
+// QueryMinterResponse is the response type for the
+// Query/Minter RPC method.
+message QueryMinterResponse {
+  string  start_date = 1 [(gogoproto.moretags) = "yaml:\"start_date\""];
+  string  end_date = 2 [(gogoproto.moretags) = "yaml:\"end_date\""];
+  string  denom = 3 [(gogoproto.moretags) = "yaml:\"denom\""];
+  uint64   total_mint_amount = 4 [(gogoproto.moretags) = "yaml:\"total_mint_amount\""];
+  uint64   remaining_mint_amount = 5 [(gogoproto.moretags) = "yaml:\"remaining_mint_amount\""];
+  uint64   last_mint_amount = 6 [(gogoproto.moretags) = "yaml:\"last_mint_amount\""];
+  string  last_mint_date = 7 [(gogoproto.moretags) = "yaml:\"last_mint_date\""];
+  uint64   last_mint_height = 8 [(gogoproto.moretags) = "yaml:\"last_mint_height\""];
+}

@@ -19,7 +19,7 @@ def runtest_exists(dir):
     return os.path.exists(f"{dir}/runtest.sh")
 
 def run():
-    cpu_count = multiprocessing.cpu_count()
+    cpu_count = max(multiprocessing.cpu_count() - 2, 1)
     print(f"Starting tests on {cpu_count} processes")
 
     dirs = get_directories_with_go_test()
@@ -28,7 +28,7 @@ def run():
     pool = multiprocessing.Pool(cpu_count)
     commands = []
     results = []
-    
+
     for dir in dirs:
         if runtest_exists(dir):
             command = f"cd {root}/{dir}; ./runtest.sh"
@@ -43,7 +43,7 @@ def run():
         print(result)
         if "FAIL" in result:
             success = False
-    
+
     if success:
         print("test success")
     else:

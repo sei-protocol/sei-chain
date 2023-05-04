@@ -30,20 +30,20 @@ const (
 //
 // - 0x03<valAddress_Bytes>: int64
 //
-// - 0x04<valAddress_Bytes>: AggregateExchangeRatePrevote
+// - 0x04<valAddress_Bytes>: DEPRECATED: AggregateExchangeRatePrevote
 //
 // - 0x05<valAddress_Bytes>: AggregateExchangeRateVote
 //
 // - 0x06<denom_Bytes>: sdk.Dec
 var (
 	// Keys for store prefixes
-	ExchangeRateKey                 = []byte{0x01} // prefix for each key to a rate
-	FeederDelegationKey             = []byte{0x02} // prefix for each key to a feeder delegation
-	VotePenaltyCounterKey           = []byte{0x03} // prefix for each key to a miss counter
-	AggregateExchangeRatePrevoteKey = []byte{0x04} // prefix for each key to a aggregate prevote
-	AggregateExchangeRateVoteKey    = []byte{0x05} // prefix for each key to a aggregate vote
-	VoteTargetKey                   = []byte{0x06} // prefix for each key to a vote target
-	PriceSnapshotKey                = []byte{0x07} // key for price snapshots history
+	ExchangeRateKey       = []byte{0x01} // prefix for each key to a rate
+	FeederDelegationKey   = []byte{0x02} // prefix for each key to a feeder delegation
+	VotePenaltyCounterKey = []byte{0x03} // prefix for each key to a miss counter
+	// DEPRECATED AggregateExchangeRatePrevoteKey = []byte{0x04}
+	AggregateExchangeRateVoteKey = []byte{0x05} // prefix for each key to a aggregate vote
+	VoteTargetKey                = []byte{0x06} // prefix for each key to a vote target
+	PriceSnapshotKey             = []byte{0x07} // key for price snapshots history
 )
 
 // GetExchangeRateKey - stored by *denom*
@@ -59,11 +59,6 @@ func GetFeederDelegationKey(v sdk.ValAddress) []byte {
 // GetVotePenaltyCounterKey - stored by *Validator* address
 func GetVotePenaltyCounterKey(v sdk.ValAddress) []byte {
 	return append(VotePenaltyCounterKey, address.MustLengthPrefix(v)...)
-}
-
-// GetAggregateExchangeRatePrevoteKey - stored by *Validator* address
-func GetAggregateExchangeRatePrevoteKey(v sdk.ValAddress) []byte {
-	return append(AggregateExchangeRatePrevoteKey, address.MustLengthPrefix(v)...)
 }
 
 // GetAggregateExchangeRateVoteKey - stored by *Validator* address

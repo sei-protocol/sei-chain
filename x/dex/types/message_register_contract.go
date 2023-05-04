@@ -13,16 +13,19 @@ func NewMsgRegisterContract(
 	creator string,
 	codeID uint64,
 	contractAddr string,
-	needHook bool,
 	needOrderMatching bool,
+	dependencies []*ContractDependencyInfo,
+	deposit uint64,
 ) *MsgRegisterContract {
 	return &MsgRegisterContract{
 		Creator: creator,
-		Contract: &ContractInfo{
+		Contract: &ContractInfoV2{
 			CodeId:            codeID,
 			ContractAddr:      contractAddr,
-			NeedHook:          needHook,
 			NeedOrderMatching: needOrderMatching,
+			Dependencies:      dependencies,
+			Creator:           creator,
+			RentBalance:       deposit,
 		},
 	}
 }
@@ -53,5 +56,20 @@ func (msg *MsgRegisterContract) ValidateBasic() error {
 	if err != nil {
 		return sdkerrors.Wrapf(sdkerrors.ErrInvalidAddress, "invalid creator address (%s)", err)
 	}
+
+	_, err = sdk.AccAddressFromBech32(msg.Contract.ContractAddr)
+	if err != nil {
+		return sdkerrors.Wrapf(sdkerrors.ErrInvalidAddress, "invalid contract address (%s)", err)
+	}
+
+	for _, dependency := range msg.Contract.Dependencies {
+		contractAddress := dependency.Dependency
+
+		_, err = sdk.AccAddressFromBech32(contractAddress)
+		if err != nil {
+			return sdkerrors.Wrapf(sdkerrors.ErrInvalidAddress, "invalid dependency contract address (%s)", err)
+		}
+	}
+
 	return nil
 }

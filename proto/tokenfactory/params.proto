@@ -1,0 +1,7 @@
+syntax = "proto3";
+package seiprotocol.seichain.tokenfactory;
+
+option go_package = "github.com/sei-protocol/sei-chain/x/tokenfactory/types";
+
+// Params defines the parameters for the tokenfactory module.
+message Params {}

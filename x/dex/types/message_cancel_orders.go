@@ -11,13 +11,13 @@ var _ sdk.Msg = &MsgCancelOrders{}
 
 func NewMsgCancelOrders(
 	creator string,
-	orderIds []uint64,
+	cancellations []*Cancellation,
 	contractAddr string,
 ) *MsgCancelOrders {
 	return &MsgCancelOrders{
-		Creator:      creator,
-		OrderIds:     orderIds,
-		ContractAddr: contractAddr,
+		Creator:       creator,
+		Cancellations: cancellations,
+		ContractAddr:  contractAddr,
 	}
 }
 
@@ -47,5 +47,23 @@ func (msg *MsgCancelOrders) ValidateBasic() error {
 	if err != nil {
 		return sdkerrors.Wrapf(sdkerrors.ErrInvalidAddress, "invalid creator address (%s)", err)
 	}
+
+	_, err = sdk.AccAddressFromBech32(msg.ContractAddr)
+	if err != nil {
+		return sdkerrors.Wrapf(sdkerrors.ErrInvalidAddress, "invalid contract address (%s)", err)
+	}
+
+	for _, cancellation := range msg.Cancellations {
+		if cancellation.Price.IsNil() {
+			return sdkerrors.Wrapf(sdkerrors.ErrInvalidRequest, "invalid cancellation price (%s)", err)
+		}
+		if len(cancellation.AssetDenom) == 0 {
+			return sdkerrors.Wrapf(sdkerrors.ErrInvalidRequest, "invalid cancellation, asset denom is empty (%s)", err)
+		}
+		if len(cancellation.PriceDenom) == 0 {
+			return sdkerrors.Wrapf(sdkerrors.ErrInvalidRequest, "invalid cancellation, price denom is empty (%s)", err)
+		}
+	}
+
 	return nil
 }

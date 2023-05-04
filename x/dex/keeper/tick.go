@@ -7,51 +7,44 @@ import (
 	"github.com/sei-protocol/sei-chain/x/dex/types"
 )
 
-const defaultAddr = "default"
+// contract_addr, pair -> tick size
+func (k Keeper) SetPriceTickSizeForPair(ctx sdk.Context, contractAddr string, pair types.Pair, ticksize sdk.Dec) error {
+	store := prefix.NewStore(ctx.KVStore(k.storeKey), types.RegisteredPairPrefix(contractAddr))
+
+	pair, found := k.GetRegisteredPair(ctx, contractAddr, pair.PriceDenom, pair.AssetDenom)
+	if !found {
+		return types.ErrPairNotRegistered
+	}
+	pair.PriceTicksize = &ticksize
+	store.Set(types.PairPrefix(pair.PriceDenom, pair.AssetDenom), k.Cdc.MustMarshal(&pair))
+	return nil
+}
+
+func (k Keeper) GetPriceTickSizeForPair(ctx sdk.Context, contractAddr string, pair types.Pair) (sdk.Dec, bool) {
+	pair, found := k.GetRegisteredPair(ctx, contractAddr, pair.PriceDenom, pair.AssetDenom)
+	if !found {
+		return sdk.ZeroDec(), false
+	}
+	return *pair.PriceTicksize, true
+}
 
 // contract_addr, pair -> tick size
-func (k Keeper) SetTickSizeForPair(ctx sdk.Context, contractAddr string, pair types.Pair, ticksize sdk.Dec) {
-	store := prefix.NewStore(ctx.KVStore(k.storeKey), types.TickSizeKeyPrefix(contractAddr))
-	bytes, err := ticksize.Marshal()
-	if err != nil {
-		panic(err)
+func (k Keeper) SetQuantityTickSizeForPair(ctx sdk.Context, contractAddr string, pair types.Pair, ticksize sdk.Dec) error {
+	store := prefix.NewStore(ctx.KVStore(k.storeKey), types.RegisteredPairPrefix(contractAddr))
+
+	pair, found := k.GetRegisteredPair(ctx, contractAddr, pair.PriceDenom, pair.AssetDenom)
+	if !found {
+		return types.ErrPairNotRegistered
 	}
-	store.Set(types.PairPrefix(pair.PriceDenom, pair.AssetDenom), bytes)
+	pair.QuantityTicksize = &ticksize
+	store.Set(types.PairPrefix(pair.PriceDenom, pair.AssetDenom), k.Cdc.MustMarshal(&pair))
+	return nil
 }
 
-func (k Keeper) SetDefaultTickSizeForPair(ctx sdk.Context, pair types.Pair, ticksize sdk.Dec) {
-	store := prefix.NewStore(ctx.KVStore(k.storeKey), types.TickSizeKeyPrefix(defaultAddr))
-	bytes, err := ticksize.Marshal()
-	if err != nil {
-		panic(err)
-	}
-	store.Set(types.PairPrefix(pair.PriceDenom, pair.AssetDenom), bytes)
-}
-
-func (k Keeper) GetTickSizeForPair(ctx sdk.Context, contractAddr string, pair types.Pair) (sdk.Dec, bool) {
-	store := prefix.NewStore(ctx.KVStore(k.storeKey), types.TickSizeKeyPrefix(contractAddr))
-	b := store.Get(types.PairPrefix(pair.PriceDenom, pair.AssetDenom))
-	if b == nil {
+func (k Keeper) GetQuantityTickSizeForPair(ctx sdk.Context, contractAddr string, pair types.Pair) (sdk.Dec, bool) {
+	pair, found := k.GetRegisteredPair(ctx, contractAddr, pair.PriceDenom, pair.AssetDenom)
+	if !found {
 		return sdk.ZeroDec(), false
 	}
-	res := sdk.Dec{}
-	err := res.Unmarshal(b)
-	if err != nil {
-		panic(err)
-	}
-	return res, true
-}
-
-func (k Keeper) GetDefaultTickSizeForPair(ctx sdk.Context, pair types.Pair) (sdk.Dec, bool) {
-	store := prefix.NewStore(ctx.KVStore(k.storeKey), types.TickSizeKeyPrefix(defaultAddr))
-	b := store.Get(types.PairPrefix(pair.PriceDenom, pair.AssetDenom))
-	if b == nil {
-		return sdk.ZeroDec(), false
-	}
-	res := sdk.Dec{}
-	err := res.Unmarshal(b)
-	if err != nil {
-		panic(err)
-	}
-	return res, true
+	return *pair.QuantityTicksize, true
 }

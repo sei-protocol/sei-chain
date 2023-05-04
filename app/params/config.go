@@ -21,6 +21,10 @@ const (
 	Bech32PrefixAccAddr = "sei"
 )
 
+// UnsafeBypassCommitTimeoutOverride commits block as soon as we reach consensus instead of waiting
+// for timeout, this may cause validators to not get their votes in time
+var UnsafeBypassCommitTimeoutOverride = false
+
 var (
 	// Bech32PrefixAccPub defines the Bech32 prefix of an account's public key.
 	Bech32PrefixAccPub = Bech32PrefixAccAddr + "pub"
@@ -77,18 +81,26 @@ func SetAddressPrefixes() {
 }
 
 func SetTendermintConfigs(config *tmcfg.Config) {
-	config.P2P.MaxNumInboundPeers = 100
-	config.P2P.MaxNumOutboundPeers = 100
+	// P2P configs
+	config.P2P.MaxConnections = 200
 	config.P2P.SendRate = 20480000
 	config.P2P.RecvRate = 20480000
-	config.P2P.MaxPacketMsgPayloadSize = 10240
+	config.P2P.MaxPacketMsgPayloadSize = 1000000 // 1MB
+	config.P2P.FlushThrottleTimeout = 10 * time.Millisecond
 	// Mempool configs
-	config.Mempool.Size = 5000
+	config.Mempool.Size = 1000
 	config.Mempool.MaxTxsBytes = 10737418240
 	config.Mempool.MaxTxBytes = 2048576
+	config.Mempool.TTLDuration = 30 * time.Second
+	config.Mempool.TTLNumBlocks = 100
 	// Consensus Configs
-	config.Consensus.TimeoutPrevote = 250 * time.Millisecond
-	config.Consensus.TimeoutPrecommit = 250 * time.Millisecond
-	config.Consensus.TimeoutCommit = 250 * time.Millisecond
-	config.Consensus.SkipTimeoutCommit = true
+	config.Consensus.GossipTransactionKeyOnly = true
+	config.Consensus.UnsafeProposeTimeoutOverride = 1 * time.Second
+	config.Consensus.UnsafeProposeTimeoutDeltaOverride = 500 * time.Millisecond
+	config.Consensus.UnsafeVoteTimeoutOverride = 50 * time.Millisecond
+	config.Consensus.UnsafeVoteTimeoutDeltaOverride = 500 * time.Millisecond
+	config.Consensus.UnsafeCommitTimeoutOverride = 100 * time.Millisecond
+	config.Consensus.UnsafeBypassCommitTimeoutOverride = &UnsafeBypassCommitTimeoutOverride
+	// Metrics
+	config.Instrumentation.Prometheus = true
 }

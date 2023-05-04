@@ -2,8 +2,10 @@ package exchange_test
 
 import (
 	"testing"
+	"time"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/sei-protocol/sei-chain/utils/datastructures"
 	"github.com/sei-protocol/sei-chain/x/dex/exchange"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
 	"github.com/stretchr/testify/assert"
@@ -20,7 +22,8 @@ func TEST_PAIR() types.Pair {
 
 func TestMatchSingleOrder(t *testing.T) {
 	_, ctx := keepertest.DexKeeper(t)
-	longOrders := []types.Order{
+	ctx = ctx.WithBlockHeight(int64(TestHeight)).WithBlockTime(time.Unix(int64(TestTimestamp), 0))
+	longOrders := []*types.Order{
 		{
 			Id:                1,
 			Price:             sdk.NewDec(100),
@@ -33,7 +36,7 @@ func TestMatchSingleOrder(t *testing.T) {
 			OrderType:         types.OrderType_LIMIT,
 		},
 	}
-	shortOrders := []types.Order{
+	shortOrders := []*types.Order{
 		{
 			Id:                2,
 			Price:             sdk.NewDec(100),
@@ -46,20 +49,35 @@ func TestMatchSingleOrder(t *testing.T) {
 			OrderType:         types.OrderType_LIMIT,
 		},
 	}
-	longBook := []types.OrderBook{}
-	shortBook := []types.OrderBook{}
-	dirtyLongPrices := exchange.NewDirtyPrices()
-	dirtyShortPrices := exchange.NewDirtyPrices()
-	settlements := []*types.SettlementEntry{}
-	totalPrice, totalExecuted := exchange.MatchLimitOrders(
-		ctx, longOrders, shortOrders, &longBook, &shortBook, TEST_PAIR(), &dirtyLongPrices, &dirtyShortPrices, &settlements, &[]exchange.AccountOrderID{},
+	longBook := []types.OrderBookEntry{}
+	shortBook := []types.OrderBookEntry{}
+	orderbook := types.OrderBook{
+		Longs: &types.CachedSortedOrderBookEntries{
+			Entries:      longBook,
+			DirtyEntries: datastructures.NewTypedSyncMap[string, types.OrderBookEntry](),
+		},
+		Shorts: &types.CachedSortedOrderBookEntries{
+			Entries:      shortBook,
+			DirtyEntries: datastructures.NewTypedSyncMap[string, types.OrderBookEntry](),
+		},
+	}
+	exchange.AddOutstandingLimitOrdersToOrderbook(&orderbook, longOrders, shortOrders)
+	outcome := exchange.MatchLimitOrders(
+		ctx, &orderbook,
 	)
+	totalPrice := outcome.TotalNotional
+	totalExecuted := outcome.TotalQuantity
+	settlements := outcome.Settlements
 	assert.Equal(t, totalPrice, sdk.NewDec(1000))
 	assert.Equal(t, totalExecuted, sdk.NewDec(10))
-	assert.Equal(t, len(dirtyLongPrices.Get()), 1)
-	assert.Equal(t, len(dirtyShortPrices.Get()), 1)
-	assert.Equal(t, dirtyLongPrices.Has(sdk.NewDec(100)), true)
-	assert.Equal(t, dirtyShortPrices.Has(sdk.NewDec(100)), true)
+	assert.Equal(t, orderbook.Longs.DirtyEntries.Len(), 1)
+	assert.Equal(t, orderbook.Shorts.DirtyEntries.Len(), 1)
+	_, ok := orderbook.Longs.DirtyEntries.Load(sdk.MustNewDecFromStr("100").String())
+	assert.True(t, ok)
+	_, ok = orderbook.Shorts.DirtyEntries.Load(sdk.MustNewDecFromStr("100").String())
+	assert.True(t, ok)
+	longBook = orderbook.Longs.Entries
+	shortBook = orderbook.Shorts.Entries
 	assert.Equal(t, len(longBook), 1)
 	assert.Equal(t, longBook[0].GetPrice(), sdk.NewDec(100))
 	assert.Equal(t, longBook[0].GetEntry().Price, sdk.NewDec(100))
@@ -79,6 +97,8 @@ func TestMatchSingleOrder(t *testing.T) {
 		Account:                "abc",
 		OrderType:              "Limit",
 		OrderId:                1,
+		Timestamp:              TestTimestamp,
+		Height:                 TestHeight,
 	})
 	assert.Equal(t, *settlements[1], types.SettlementEntry{
 		PositionDirection:      "Short",
@@ -90,12 +110,15 @@ func TestMatchSingleOrder(t *testing.T) {
 		Account:                "def",
 		OrderType:              "Limit",
 		OrderId:                2,
+		Timestamp:              TestTimestamp,
+		Height:                 TestHeight,
 	})
 }
 
 func TestAddOrders(t *testing.T) {
 	_, ctx := keepertest.DexKeeper(t)
-	longOrders := []types.Order{
+	ctx = ctx.WithBlockHeight(int64(TestHeight)).WithBlockTime(time.Unix(int64(TestTimestamp), 0))
+	longOrders := []*types.Order{
 		{
 			Id:                1,
 			Price:             sdk.NewDec(100),
@@ -119,7 +142,7 @@ func TestAddOrders(t *testing.T) {
 			OrderType:         types.OrderType_LIMIT,
 		},
 	}
-	shortOrders := []types.Order{
+	shortOrders := []*types.Order{
 		{
 			Id:                3,
 			Price:             sdk.NewDec(105),
@@ -143,7 +166,7 @@ func TestAddOrders(t *testing.T) {
 			OrderType:         types.OrderType_LIMIT,
 		},
 	}
-	longBook := []types.OrderBook{
+	longBook := []types.OrderBookEntry{
 		&types.LongBook{
 			Price: sdk.NewDec(98),
 			Entry: &types.OrderEntry{
@@ -173,7 +196,7 @@ func TestAddOrders(t *testing.T) {
 			},
 		},
 	}
-	shortBook := []types.OrderBook{
+	shortBook := []types.OrderBookEntry{
 		&types.ShortBook{
 			Price: sdk.NewDec(101),
 			Entry: &types.OrderEntry{
@@ -203,20 +226,38 @@ func TestAddOrders(t *testing.T) {
 			},
 		},
 	}
-	dirtyLongPrices := exchange.NewDirtyPrices()
-	dirtyShortPrices := exchange.NewDirtyPrices()
-	settlements := []*types.SettlementEntry{}
-	totalPrice, totalExecuted := exchange.MatchLimitOrders(
-		ctx, longOrders, shortOrders, &longBook, &shortBook, TEST_PAIR(), &dirtyLongPrices, &dirtyShortPrices, &settlements, &[]exchange.AccountOrderID{},
+	orderbook := types.OrderBook{
+		Longs: &types.CachedSortedOrderBookEntries{
+			Entries:      longBook,
+			DirtyEntries: datastructures.NewTypedSyncMap[string, types.OrderBookEntry](),
+		},
+		Shorts: &types.CachedSortedOrderBookEntries{
+			Entries:      shortBook,
+			DirtyEntries: datastructures.NewTypedSyncMap[string, types.OrderBookEntry](),
+		},
+	}
+
+	exchange.AddOutstandingLimitOrdersToOrderbook(&orderbook, longOrders, shortOrders)
+	outcome := exchange.MatchLimitOrders(
+		ctx, &orderbook,
 	)
+	totalPrice := outcome.TotalNotional
+	totalExecuted := outcome.TotalQuantity
+	settlements := outcome.Settlements
 	assert.Equal(t, totalPrice, sdk.NewDec(0))
 	assert.Equal(t, totalExecuted, sdk.NewDec(0))
-	assert.Equal(t, len(dirtyLongPrices.Get()), 2)
-	assert.Equal(t, len(dirtyShortPrices.Get()), 2)
-	assert.Equal(t, dirtyLongPrices.Has(sdk.NewDec(95)), true)
-	assert.Equal(t, dirtyLongPrices.Has(sdk.NewDec(100)), true)
-	assert.Equal(t, dirtyShortPrices.Has(sdk.NewDec(105)), true)
-	assert.Equal(t, dirtyShortPrices.Has(sdk.NewDec(115)), true)
+	assert.Equal(t, orderbook.Longs.DirtyEntries.Len(), 2)
+	assert.Equal(t, orderbook.Shorts.DirtyEntries.Len(), 2)
+	_, ok := orderbook.Longs.DirtyEntries.Load(sdk.MustNewDecFromStr("95").String())
+	assert.True(t, ok)
+	_, ok = orderbook.Longs.DirtyEntries.Load(sdk.MustNewDecFromStr("100").String())
+	assert.True(t, ok)
+	_, ok = orderbook.Shorts.DirtyEntries.Load(sdk.MustNewDecFromStr("105").String())
+	assert.True(t, ok)
+	_, ok = orderbook.Shorts.DirtyEntries.Load(sdk.MustNewDecFromStr("115").String())
+	assert.True(t, ok)
+	longBook = orderbook.Longs.Entries
+	shortBook = orderbook.Shorts.Entries
 	assert.Equal(t, len(longBook), 3)
 	assert.Equal(t, longBook[0].GetPrice(), sdk.NewDec(95))
 	assert.Equal(t, *longBook[0].GetEntry(), types.OrderEntry{
@@ -304,7 +345,8 @@ func TestAddOrders(t *testing.T) {
 
 func TestMatchSingleOrderFromShortBook(t *testing.T) {
 	_, ctx := keepertest.DexKeeper(t)
-	longOrders := []types.Order{
+	ctx = ctx.WithBlockHeight(int64(TestHeight)).WithBlockTime(time.Unix(int64(TestTimestamp), 0))
+	longOrders := []*types.Order{
 		{
 			Id:                1,
 			Price:             sdk.NewDec(100),
@@ -317,9 +359,9 @@ func TestMatchSingleOrderFromShortBook(t *testing.T) {
 			OrderType:         types.OrderType_LIMIT,
 		},
 	}
-	shortOrders := []types.Order{}
-	longBook := []types.OrderBook{}
-	shortBook := []types.OrderBook{
+	shortOrders := []*types.Order{}
+	longBook := []types.OrderBookEntry{}
+	shortBook := []types.OrderBookEntry{
 		&types.ShortBook{
 			Price: sdk.NewDec(100),
 			Entry: &types.OrderEntry{
@@ -335,18 +377,34 @@ func TestMatchSingleOrderFromShortBook(t *testing.T) {
 			},
 		},
 	}
-	dirtyLongPrices := exchange.NewDirtyPrices()
-	dirtyShortPrices := exchange.NewDirtyPrices()
-	settlements := []*types.SettlementEntry{}
-	totalPrice, totalExecuted := exchange.MatchLimitOrders(
-		ctx, longOrders, shortOrders, &longBook, &shortBook, TEST_PAIR(), &dirtyLongPrices, &dirtyShortPrices, &settlements, &[]exchange.AccountOrderID{},
+	orderbook := types.OrderBook{
+		Longs: &types.CachedSortedOrderBookEntries{
+			Entries:      longBook,
+			DirtyEntries: datastructures.NewTypedSyncMap[string, types.OrderBookEntry](),
+		},
+		Shorts: &types.CachedSortedOrderBookEntries{
+			Entries:      shortBook,
+			DirtyEntries: datastructures.NewTypedSyncMap[string, types.OrderBookEntry](),
+		},
+	}
+
+	exchange.AddOutstandingLimitOrdersToOrderbook(&orderbook, longOrders, shortOrders)
+	outcome := exchange.MatchLimitOrders(
+		ctx, &orderbook,
 	)
+	totalPrice := outcome.TotalNotional
+	totalExecuted := outcome.TotalQuantity
+	settlements := outcome.Settlements
 	assert.Equal(t, totalPrice, sdk.NewDec(1000))
 	assert.Equal(t, totalExecuted, sdk.NewDec(10))
-	assert.Equal(t, len(dirtyLongPrices.Get()), 1)
-	assert.Equal(t, len(dirtyShortPrices.Get()), 1)
-	assert.Equal(t, dirtyLongPrices.Has(sdk.NewDec(100)), true)
-	assert.Equal(t, dirtyShortPrices.Has(sdk.NewDec(100)), true)
+	assert.Equal(t, orderbook.Longs.DirtyEntries.Len(), 1)
+	assert.Equal(t, orderbook.Shorts.DirtyEntries.Len(), 1)
+	_, ok := orderbook.Longs.DirtyEntries.Load(sdk.MustNewDecFromStr("100").String())
+	assert.True(t, ok)
+	_, ok = orderbook.Shorts.DirtyEntries.Load(sdk.MustNewDecFromStr("100").String())
+	assert.True(t, ok)
+	longBook = orderbook.Longs.Entries
+	shortBook = orderbook.Shorts.Entries
 	assert.Equal(t, len(longBook), 1)
 	assert.Equal(t, longBook[0].GetPrice(), sdk.NewDec(100))
 	assert.Equal(t, longBook[0].GetEntry().Price, sdk.NewDec(100))
@@ -366,6 +424,8 @@ func TestMatchSingleOrderFromShortBook(t *testing.T) {
 		Account:                "abc",
 		OrderType:              "Limit",
 		OrderId:                1,
+		Timestamp:              TestTimestamp,
+		Height:                 TestHeight,
 	})
 	assert.Equal(t, *settlements[1], types.SettlementEntry{
 		PositionDirection:      "Short",
@@ -377,13 +437,16 @@ func TestMatchSingleOrderFromShortBook(t *testing.T) {
 		Account:                "def",
 		OrderType:              "Limit",
 		OrderId:                2,
+		Timestamp:              TestTimestamp,
+		Height:                 TestHeight,
 	})
 }
 
 func TestMatchSingleOrderFromLongBook(t *testing.T) {
 	_, ctx := keepertest.DexKeeper(t)
-	longOrders := []types.Order{}
-	shortOrders := []types.Order{
+	ctx = ctx.WithBlockHeight(int64(TestHeight)).WithBlockTime(time.Unix(int64(TestTimestamp), 0))
+	longOrders := []*types.Order{}
+	shortOrders := []*types.Order{
 		{
 			Id:                1,
 			Price:             sdk.NewDec(100),
@@ -396,7 +459,7 @@ func TestMatchSingleOrderFromLongBook(t *testing.T) {
 			OrderType:         types.OrderType_LIMIT,
 		},
 	}
-	longBook := []types.OrderBook{
+	longBook := []types.OrderBookEntry{
 		&types.LongBook{
 			Price: sdk.NewDec(100),
 			Entry: &types.OrderEntry{
@@ -412,19 +475,35 @@ func TestMatchSingleOrderFromLongBook(t *testing.T) {
 			},
 		},
 	}
-	shortBook := []types.OrderBook{}
-	dirtyLongPrices := exchange.NewDirtyPrices()
-	dirtyShortPrices := exchange.NewDirtyPrices()
-	settlements := []*types.SettlementEntry{}
-	totalPrice, totalExecuted := exchange.MatchLimitOrders(
-		ctx, longOrders, shortOrders, &longBook, &shortBook, TEST_PAIR(), &dirtyLongPrices, &dirtyShortPrices, &settlements, &[]exchange.AccountOrderID{},
+	shortBook := []types.OrderBookEntry{}
+	orderbook := types.OrderBook{
+		Longs: &types.CachedSortedOrderBookEntries{
+			Entries:      longBook,
+			DirtyEntries: datastructures.NewTypedSyncMap[string, types.OrderBookEntry](),
+		},
+		Shorts: &types.CachedSortedOrderBookEntries{
+			Entries:      shortBook,
+			DirtyEntries: datastructures.NewTypedSyncMap[string, types.OrderBookEntry](),
+		},
+	}
+
+	exchange.AddOutstandingLimitOrdersToOrderbook(&orderbook, longOrders, shortOrders)
+	outcome := exchange.MatchLimitOrders(
+		ctx, &orderbook,
 	)
+	totalPrice := outcome.TotalNotional
+	totalExecuted := outcome.TotalQuantity
+	settlements := outcome.Settlements
 	assert.Equal(t, totalPrice, sdk.NewDec(1000))
 	assert.Equal(t, totalExecuted, sdk.NewDec(10))
-	assert.Equal(t, len(dirtyLongPrices.Get()), 1)
-	assert.Equal(t, len(dirtyShortPrices.Get()), 1)
-	assert.Equal(t, dirtyLongPrices.Has(sdk.NewDec(100)), true)
-	assert.Equal(t, dirtyShortPrices.Has(sdk.NewDec(100)), true)
+	assert.Equal(t, orderbook.Longs.DirtyEntries.Len(), 1)
+	assert.Equal(t, orderbook.Shorts.DirtyEntries.Len(), 1)
+	_, ok := orderbook.Longs.DirtyEntries.Load(sdk.MustNewDecFromStr("100").String())
+	assert.True(t, ok)
+	_, ok = orderbook.Shorts.DirtyEntries.Load(sdk.MustNewDecFromStr("100").String())
+	assert.True(t, ok)
+	longBook = orderbook.Longs.Entries
+	shortBook = orderbook.Shorts.Entries
 	assert.Equal(t, len(longBook), 1)
 	assert.Equal(t, longBook[0].GetPrice(), sdk.NewDec(100))
 	assert.Equal(t, longBook[0].GetEntry().Price, sdk.NewDec(100))
@@ -444,6 +523,8 @@ func TestMatchSingleOrderFromLongBook(t *testing.T) {
 		Account:                "abc",
 		OrderType:              "Limit",
 		OrderId:                2,
+		Timestamp:              TestTimestamp,
+		Height:                 TestHeight,
 	})
 	assert.Equal(t, *settlements[1], types.SettlementEntry{
 		PositionDirection:      "Short",
@@ -455,12 +536,15 @@ func TestMatchSingleOrderFromLongBook(t *testing.T) {
 		Account:                "def",
 		OrderType:              "Limit",
 		OrderId:                1,
+		Timestamp:              TestTimestamp,
+		Height:                 TestHeight,
 	})
 }
 
 func TestMatchSingleOrderFromMultipleShortBook(t *testing.T) {
 	_, ctx := keepertest.DexKeeper(t)
-	longOrders := []types.Order{
+	ctx = ctx.WithBlockHeight(int64(TestHeight)).WithBlockTime(time.Unix(int64(TestTimestamp), 0))
+	longOrders := []*types.Order{
 		{
 			Id:                1,
 			Price:             sdk.NewDec(100),
@@ -473,9 +557,9 @@ func TestMatchSingleOrderFromMultipleShortBook(t *testing.T) {
 			OrderType:         types.OrderType_LIMIT,
 		},
 	}
-	shortOrders := []types.Order{}
-	longBook := []types.OrderBook{}
-	shortBook := []types.OrderBook{
+	shortOrders := []*types.Order{}
+	longBook := []types.OrderBookEntry{}
+	shortBook := []types.OrderBookEntry{
 		&types.ShortBook{
 			Price: sdk.NewDec(90),
 			Entry: &types.OrderEntry{
@@ -509,19 +593,36 @@ func TestMatchSingleOrderFromMultipleShortBook(t *testing.T) {
 			},
 		},
 	}
-	dirtyLongPrices := exchange.NewDirtyPrices()
-	dirtyShortPrices := exchange.NewDirtyPrices()
-	settlements := []*types.SettlementEntry{}
-	totalPrice, totalExecuted := exchange.MatchLimitOrders(
-		ctx, longOrders, shortOrders, &longBook, &shortBook, TEST_PAIR(), &dirtyLongPrices, &dirtyShortPrices, &settlements, &[]exchange.AccountOrderID{},
+	orderbook := types.OrderBook{
+		Longs: &types.CachedSortedOrderBookEntries{
+			Entries:      longBook,
+			DirtyEntries: datastructures.NewTypedSyncMap[string, types.OrderBookEntry](),
+		},
+		Shorts: &types.CachedSortedOrderBookEntries{
+			Entries:      shortBook,
+			DirtyEntries: datastructures.NewTypedSyncMap[string, types.OrderBookEntry](),
+		},
+	}
+
+	exchange.AddOutstandingLimitOrdersToOrderbook(&orderbook, longOrders, shortOrders)
+	outcome := exchange.MatchLimitOrders(
+		ctx, &orderbook,
 	)
+	totalPrice := outcome.TotalNotional
+	totalExecuted := outcome.TotalQuantity
+	settlements := outcome.Settlements
 	assert.Equal(t, totalPrice, sdk.NewDec(980))
 	assert.Equal(t, totalExecuted, sdk.NewDec(10))
-	assert.Equal(t, len(dirtyLongPrices.Get()), 1)
-	assert.Equal(t, len(dirtyShortPrices.Get()), 2)
-	assert.Equal(t, dirtyLongPrices.Has(sdk.NewDec(100)), true)
-	assert.Equal(t, dirtyShortPrices.Has(sdk.NewDec(90)), true)
-	assert.Equal(t, dirtyShortPrices.Has(sdk.NewDec(100)), true)
+	assert.Equal(t, orderbook.Longs.DirtyEntries.Len(), 1)
+	assert.Equal(t, orderbook.Shorts.DirtyEntries.Len(), 2)
+	_, ok := orderbook.Longs.DirtyEntries.Load(sdk.MustNewDecFromStr("100").String())
+	assert.True(t, ok)
+	_, ok = orderbook.Shorts.DirtyEntries.Load(sdk.MustNewDecFromStr("100").String())
+	assert.True(t, ok)
+	_, ok = orderbook.Shorts.DirtyEntries.Load(sdk.MustNewDecFromStr("90").String())
+	assert.True(t, ok)
+	longBook = orderbook.Longs.Entries
+	shortBook = orderbook.Shorts.Entries
 	assert.Equal(t, len(longBook), 1)
 	assert.Equal(t, longBook[0].GetPrice(), sdk.NewDec(100))
 	assert.Equal(t, longBook[0].GetEntry().Price, sdk.NewDec(100))
@@ -537,16 +638,16 @@ func TestMatchSingleOrderFromMultipleShortBook(t *testing.T) {
 		Allocations: []*types.Allocation{{
 			OrderId:  3,
 			Account:  "def",
-			Quantity: sdk.NewDec(2),
+			Quantity: sdk.NewDec(1),
 		}, {
 			OrderId:  4,
 			Account:  "ghi",
-			Quantity: sdk.NewDec(1),
+			Quantity: sdk.NewDec(2),
 		}},
 		PriceDenom: "USDC",
 		AssetDenom: "ATOM",
 	})
-	assert.Equal(t, len(settlements), 6)
+	assert.Equal(t, len(settlements), 4)
 	assert.Equal(t, *settlements[0], types.SettlementEntry{
 		PositionDirection:      "Long",
 		PriceDenom:             "USDC",
@@ -557,6 +658,8 @@ func TestMatchSingleOrderFromMultipleShortBook(t *testing.T) {
 		Account:                "abc",
 		OrderType:              "Limit",
 		OrderId:                1,
+		Timestamp:              TestTimestamp,
+		Height:                 TestHeight,
 	})
 	assert.Equal(t, *settlements[1], types.SettlementEntry{
 		PositionDirection:      "Short",
@@ -568,57 +671,42 @@ func TestMatchSingleOrderFromMultipleShortBook(t *testing.T) {
 		Account:                "def",
 		OrderType:              "Limit",
 		OrderId:                2,
+		Timestamp:              TestTimestamp,
+		Height:                 TestHeight,
 	})
 	assert.Equal(t, *settlements[2], types.SettlementEntry{
 		PositionDirection:      "Long",
 		PriceDenom:             "USDC",
 		AssetDenom:             "ATOM",
-		Quantity:               sdk.NewDec(2),
+		Quantity:               sdk.NewDec(3),
 		ExecutionCostOrProceed: sdk.NewDec(100),
 		ExpectedCostOrProceed:  sdk.NewDec(100),
 		Account:                "abc",
 		OrderType:              "Limit",
 		OrderId:                1,
+		Timestamp:              TestTimestamp,
+		Height:                 TestHeight,
 	})
 	assert.Equal(t, *settlements[3], types.SettlementEntry{
 		PositionDirection:      "Short",
 		PriceDenom:             "USDC",
 		AssetDenom:             "ATOM",
-		Quantity:               sdk.NewDec(2),
+		Quantity:               sdk.NewDec(3),
 		ExecutionCostOrProceed: sdk.NewDec(100),
 		ExpectedCostOrProceed:  sdk.NewDec(100),
 		Account:                "def",
 		OrderType:              "Limit",
 		OrderId:                3,
-	})
-	assert.Equal(t, *settlements[4], types.SettlementEntry{
-		PositionDirection:      "Long",
-		PriceDenom:             "USDC",
-		AssetDenom:             "ATOM",
-		Quantity:               sdk.NewDec(1),
-		ExecutionCostOrProceed: sdk.NewDec(100),
-		ExpectedCostOrProceed:  sdk.NewDec(100),
-		Account:                "abc",
-		OrderType:              "Limit",
-		OrderId:                1,
-	})
-	assert.Equal(t, *settlements[5], types.SettlementEntry{
-		PositionDirection:      "Short",
-		PriceDenom:             "USDC",
-		AssetDenom:             "ATOM",
-		Quantity:               sdk.NewDec(1),
-		ExecutionCostOrProceed: sdk.NewDec(100),
-		ExpectedCostOrProceed:  sdk.NewDec(100),
-		Account:                "ghi",
-		OrderType:              "Limit",
-		OrderId:                4,
+		Timestamp:              TestTimestamp,
+		Height:                 TestHeight,
 	})
 }
 
 func TestMatchSingleOrderFromMultipleLongBook(t *testing.T) {
 	_, ctx := keepertest.DexKeeper(t)
-	longOrders := []types.Order{}
-	shortOrders := []types.Order{
+	ctx = ctx.WithBlockHeight(int64(TestHeight)).WithBlockTime(time.Unix(int64(TestTimestamp), 0))
+	longOrders := []*types.Order{}
+	shortOrders := []*types.Order{
 		{
 			Id:                1,
 			Price:             sdk.NewDec(100),
@@ -631,7 +719,7 @@ func TestMatchSingleOrderFromMultipleLongBook(t *testing.T) {
 			OrderType:         types.OrderType_LIMIT,
 		},
 	}
-	longBook := []types.OrderBook{
+	longBook := []types.OrderBookEntry{
 		&types.LongBook{
 			Price: sdk.NewDec(100),
 			Entry: &types.OrderEntry{
@@ -665,20 +753,37 @@ func TestMatchSingleOrderFromMultipleLongBook(t *testing.T) {
 			},
 		},
 	}
-	shortBook := []types.OrderBook{}
-	dirtyLongPrices := exchange.NewDirtyPrices()
-	dirtyShortPrices := exchange.NewDirtyPrices()
-	settlements := []*types.SettlementEntry{}
-	totalPrice, totalExecuted := exchange.MatchLimitOrders(
-		ctx, longOrders, shortOrders, &longBook, &shortBook, TEST_PAIR(), &dirtyLongPrices, &dirtyShortPrices, &settlements, &[]exchange.AccountOrderID{},
+	shortBook := []types.OrderBookEntry{}
+	orderbook := types.OrderBook{
+		Longs: &types.CachedSortedOrderBookEntries{
+			Entries:      longBook,
+			DirtyEntries: datastructures.NewTypedSyncMap[string, types.OrderBookEntry](),
+		},
+		Shorts: &types.CachedSortedOrderBookEntries{
+			Entries:      shortBook,
+			DirtyEntries: datastructures.NewTypedSyncMap[string, types.OrderBookEntry](),
+		},
+	}
+
+	exchange.AddOutstandingLimitOrdersToOrderbook(&orderbook, longOrders, shortOrders)
+	outcome := exchange.MatchLimitOrders(
+		ctx, &orderbook,
 	)
+	totalPrice := outcome.TotalNotional
+	totalExecuted := outcome.TotalQuantity
+	settlements := outcome.Settlements
 	assert.Equal(t, totalPrice, sdk.NewDec(1020))
 	assert.Equal(t, totalExecuted, sdk.NewDec(10))
-	assert.Equal(t, len(dirtyLongPrices.Get()), 2)
-	assert.Equal(t, len(dirtyShortPrices.Get()), 1)
-	assert.Equal(t, dirtyLongPrices.Has(sdk.NewDec(100)), true)
-	assert.Equal(t, dirtyLongPrices.Has(sdk.NewDec(110)), true)
-	assert.Equal(t, dirtyShortPrices.Has(sdk.NewDec(100)), true)
+	assert.Equal(t, orderbook.Longs.DirtyEntries.Len(), 2)
+	assert.Equal(t, orderbook.Shorts.DirtyEntries.Len(), 1)
+	_, ok := orderbook.Longs.DirtyEntries.Load(sdk.MustNewDecFromStr("100").String())
+	assert.True(t, ok)
+	_, ok = orderbook.Longs.DirtyEntries.Load(sdk.MustNewDecFromStr("110").String())
+	assert.True(t, ok)
+	_, ok = orderbook.Shorts.DirtyEntries.Load(sdk.MustNewDecFromStr("100").String())
+	assert.True(t, ok)
+	longBook = orderbook.Longs.Entries
+	shortBook = orderbook.Shorts.Entries
 	assert.Equal(t, len(longBook), 2)
 	assert.Equal(t, longBook[0].GetPrice(), sdk.NewDec(100))
 	assert.Equal(t, *longBook[0].GetEntry(), types.OrderEntry{
@@ -687,11 +792,11 @@ func TestMatchSingleOrderFromMultipleLongBook(t *testing.T) {
 		Allocations: []*types.Allocation{{
 			OrderId:  2,
 			Account:  "abc",
-			Quantity: sdk.NewDec(2),
+			Quantity: sdk.NewDec(1),
 		}, {
 			OrderId:  3,
 			Account:  "ghi",
-			Quantity: sdk.NewDec(1),
+			Quantity: sdk.NewDec(2),
 		}},
 		PriceDenom: "USDC",
 		AssetDenom: "ATOM",
@@ -703,7 +808,7 @@ func TestMatchSingleOrderFromMultipleLongBook(t *testing.T) {
 	assert.Equal(t, shortBook[0].GetPrice(), sdk.NewDec(100))
 	assert.Equal(t, shortBook[0].GetEntry().Price, sdk.NewDec(100))
 	assert.Equal(t, shortBook[0].GetEntry().Quantity.IsZero(), true)
-	assert.Equal(t, len(settlements), 6)
+	assert.Equal(t, len(settlements), 4)
 	assert.Equal(t, *settlements[0], types.SettlementEntry{
 		PositionDirection:      "Long",
 		PriceDenom:             "USDC",
@@ -714,6 +819,8 @@ func TestMatchSingleOrderFromMultipleLongBook(t *testing.T) {
 		Account:                "abc",
 		OrderType:              "Limit",
 		OrderId:                4,
+		Timestamp:              TestTimestamp,
+		Height:                 TestHeight,
 	})
 	assert.Equal(t, *settlements[1], types.SettlementEntry{
 		PositionDirection:      "Short",
@@ -725,56 +832,41 @@ func TestMatchSingleOrderFromMultipleLongBook(t *testing.T) {
 		Account:                "def",
 		OrderType:              "Limit",
 		OrderId:                1,
+		Timestamp:              TestTimestamp,
+		Height:                 TestHeight,
 	})
 	assert.Equal(t, *settlements[2], types.SettlementEntry{
 		PositionDirection:      "Long",
 		PriceDenom:             "USDC",
 		AssetDenom:             "ATOM",
-		Quantity:               sdk.NewDec(2),
+		Quantity:               sdk.NewDec(3),
 		ExecutionCostOrProceed: sdk.NewDec(100),
 		ExpectedCostOrProceed:  sdk.NewDec(100),
 		Account:                "abc",
 		OrderType:              "Limit",
 		OrderId:                2,
+		Timestamp:              TestTimestamp,
+		Height:                 TestHeight,
 	})
 	assert.Equal(t, *settlements[3], types.SettlementEntry{
 		PositionDirection:      "Short",
 		PriceDenom:             "USDC",
 		AssetDenom:             "ATOM",
-		Quantity:               sdk.NewDec(2),
+		Quantity:               sdk.NewDec(3),
 		ExecutionCostOrProceed: sdk.NewDec(100),
 		ExpectedCostOrProceed:  sdk.NewDec(100),
 		Account:                "def",
 		OrderType:              "Limit",
 		OrderId:                1,
-	})
-	assert.Equal(t, *settlements[4], types.SettlementEntry{
-		PositionDirection:      "Long",
-		PriceDenom:             "USDC",
-		AssetDenom:             "ATOM",
-		Quantity:               sdk.NewDec(1),
-		ExecutionCostOrProceed: sdk.NewDec(100),
-		ExpectedCostOrProceed:  sdk.NewDec(100),
-		Account:                "ghi",
-		OrderType:              "Limit",
-		OrderId:                3,
-	})
-	assert.Equal(t, *settlements[5], types.SettlementEntry{
-		PositionDirection:      "Short",
-		PriceDenom:             "USDC",
-		AssetDenom:             "ATOM",
-		Quantity:               sdk.NewDec(1),
-		ExecutionCostOrProceed: sdk.NewDec(100),
-		ExpectedCostOrProceed:  sdk.NewDec(100),
-		Account:                "def",
-		OrderType:              "Limit",
-		OrderId:                1,
+		Timestamp:              TestTimestamp,
+		Height:                 TestHeight,
 	})
 }
 
 func TestMatchMultipleOrderFromMultipleShortBook(t *testing.T) {
 	_, ctx := keepertest.DexKeeper(t)
-	longOrders := []types.Order{
+	ctx = ctx.WithBlockHeight(int64(TestHeight)).WithBlockTime(time.Unix(int64(TestTimestamp), 0))
+	longOrders := []*types.Order{
 		{
 			Id:                1,
 			Price:             sdk.NewDec(100),
@@ -809,9 +901,9 @@ func TestMatchMultipleOrderFromMultipleShortBook(t *testing.T) {
 			OrderType:         types.OrderType_LIMIT,
 		},
 	}
-	shortOrders := []types.Order{}
-	longBook := []types.OrderBook{}
-	shortBook := []types.OrderBook{
+	shortOrders := []*types.Order{}
+	longBook := []types.OrderBookEntry{}
+	shortBook := []types.OrderBookEntry{
 		&types.ShortBook{
 			Price: sdk.NewDec(90),
 			Entry: &types.OrderEntry{
@@ -845,21 +937,40 @@ func TestMatchMultipleOrderFromMultipleShortBook(t *testing.T) {
 			},
 		},
 	}
-	dirtyLongPrices := exchange.NewDirtyPrices()
-	dirtyShortPrices := exchange.NewDirtyPrices()
-	settlements := []*types.SettlementEntry{}
-	totalPrice, totalExecuted := exchange.MatchLimitOrders(
-		ctx, longOrders, shortOrders, &longBook, &shortBook, TEST_PAIR(), &dirtyLongPrices, &dirtyShortPrices, &settlements, &[]exchange.AccountOrderID{},
+	orderbook := types.OrderBook{
+		Longs: &types.CachedSortedOrderBookEntries{
+			Entries:      longBook,
+			DirtyEntries: datastructures.NewTypedSyncMap[string, types.OrderBookEntry](),
+		},
+		Shorts: &types.CachedSortedOrderBookEntries{
+			Entries:      shortBook,
+			DirtyEntries: datastructures.NewTypedSyncMap[string, types.OrderBookEntry](),
+		},
+	}
+
+	exchange.AddOutstandingLimitOrdersToOrderbook(&orderbook, longOrders, shortOrders)
+	outcome := exchange.MatchLimitOrders(
+		ctx, &orderbook,
 	)
+	totalPrice := outcome.TotalNotional
+	totalExecuted := outcome.TotalQuantity
+	settlements := outcome.Settlements
 	assert.Equal(t, totalPrice, sdk.NewDec(1184))
 	assert.Equal(t, totalExecuted, sdk.NewDec(12))
-	assert.Equal(t, len(dirtyLongPrices.Get()), 3)
-	assert.Equal(t, len(dirtyShortPrices.Get()), 2)
-	assert.Equal(t, dirtyLongPrices.Has(sdk.NewDec(98)), true)
-	assert.Equal(t, dirtyLongPrices.Has(sdk.NewDec(100)), true)
-	assert.Equal(t, dirtyLongPrices.Has(sdk.NewDec(104)), true)
-	assert.Equal(t, dirtyShortPrices.Has(sdk.NewDec(90)), true)
-	assert.Equal(t, dirtyShortPrices.Has(sdk.NewDec(100)), true)
+	assert.Equal(t, orderbook.Longs.DirtyEntries.Len(), 3)
+	assert.Equal(t, orderbook.Shorts.DirtyEntries.Len(), 2)
+	_, ok := orderbook.Longs.DirtyEntries.Load(sdk.MustNewDecFromStr("98").String())
+	assert.True(t, ok)
+	_, ok = orderbook.Longs.DirtyEntries.Load(sdk.MustNewDecFromStr("100").String())
+	assert.True(t, ok)
+	_, ok = orderbook.Longs.DirtyEntries.Load(sdk.MustNewDecFromStr("104").String())
+	assert.True(t, ok)
+	_, ok = orderbook.Shorts.DirtyEntries.Load(sdk.MustNewDecFromStr("100").String())
+	assert.True(t, ok)
+	_, ok = orderbook.Shorts.DirtyEntries.Load(sdk.MustNewDecFromStr("90").String())
+	assert.True(t, ok)
+	longBook = orderbook.Longs.Entries
+	shortBook = orderbook.Shorts.Entries
 	assert.Equal(t, len(longBook), 3)
 	assert.Equal(t, longBook[0].GetPrice(), sdk.NewDec(98))
 	assert.Equal(t, *longBook[0].GetEntry(), types.OrderEntry{
@@ -888,18 +999,14 @@ func TestMatchMultipleOrderFromMultipleShortBook(t *testing.T) {
 		Price:    sdk.NewDec(100),
 		Quantity: sdk.NewDec(2),
 		Allocations: []*types.Allocation{{
-			OrderId:  5,
-			Account:  "def",
-			Quantity: sdk.NewDec(4).Quo(sdk.NewDec(3)),
-		}, {
 			OrderId:  6,
 			Account:  "ghi",
-			Quantity: sdk.NewDec(2).Quo(sdk.NewDec(3)),
+			Quantity: sdk.NewDec(2),
 		}},
 		PriceDenom: "USDC",
 		AssetDenom: "ATOM",
 	})
-	assert.Equal(t, len(settlements), 8)
+	assert.Equal(t, len(settlements), 6)
 	assert.Equal(t, *settlements[0], types.SettlementEntry{
 		PositionDirection:      "Long",
 		PriceDenom:             "USDC",
@@ -910,6 +1017,8 @@ func TestMatchMultipleOrderFromMultipleShortBook(t *testing.T) {
 		Account:                "jkl",
 		OrderType:              "Limit",
 		OrderId:                2,
+		Timestamp:              TestTimestamp,
+		Height:                 TestHeight,
 	})
 	assert.Equal(t, *settlements[1], types.SettlementEntry{
 		PositionDirection:      "Short",
@@ -921,6 +1030,8 @@ func TestMatchMultipleOrderFromMultipleShortBook(t *testing.T) {
 		Account:                "def",
 		OrderType:              "Limit",
 		OrderId:                4,
+		Timestamp:              TestTimestamp,
+		Height:                 TestHeight,
 	})
 	assert.Equal(t, *settlements[2], types.SettlementEntry{
 		PositionDirection:      "Long",
@@ -932,6 +1043,8 @@ func TestMatchMultipleOrderFromMultipleShortBook(t *testing.T) {
 		Account:                "abc",
 		OrderType:              "Limit",
 		OrderId:                1,
+		Timestamp:              TestTimestamp,
+		Height:                 TestHeight,
 	})
 	assert.Equal(t, *settlements[3], types.SettlementEntry{
 		PositionDirection:      "Short",
@@ -943,57 +1056,42 @@ func TestMatchMultipleOrderFromMultipleShortBook(t *testing.T) {
 		Account:                "def",
 		OrderType:              "Limit",
 		OrderId:                4,
+		Timestamp:              TestTimestamp,
+		Height:                 TestHeight,
 	})
 	assert.Equal(t, *settlements[4], types.SettlementEntry{
 		PositionDirection:      "Long",
 		PriceDenom:             "USDC",
 		AssetDenom:             "ATOM",
-		Quantity:               sdk.NewDec(8).Quo(sdk.NewDec(3)),
+		Quantity:               sdk.NewDec(4),
 		ExecutionCostOrProceed: sdk.NewDec(100),
 		ExpectedCostOrProceed:  sdk.NewDec(100),
 		Account:                "abc",
 		OrderType:              "Limit",
 		OrderId:                1,
+		Timestamp:              TestTimestamp,
+		Height:                 TestHeight,
 	})
 	assert.Equal(t, *settlements[5], types.SettlementEntry{
 		PositionDirection:      "Short",
 		PriceDenom:             "USDC",
 		AssetDenom:             "ATOM",
-		Quantity:               sdk.NewDec(8).Quo(sdk.NewDec(3)),
+		Quantity:               sdk.NewDec(4),
 		ExecutionCostOrProceed: sdk.NewDec(100),
 		ExpectedCostOrProceed:  sdk.NewDec(100),
 		Account:                "def",
 		OrderType:              "Limit",
 		OrderId:                5,
-	})
-	assert.Equal(t, *settlements[6], types.SettlementEntry{
-		PositionDirection:      "Long",
-		PriceDenom:             "USDC",
-		AssetDenom:             "ATOM",
-		Quantity:               sdk.NewDec(4).Quo(sdk.NewDec(3)),
-		ExecutionCostOrProceed: sdk.NewDec(100),
-		ExpectedCostOrProceed:  sdk.NewDec(100),
-		Account:                "abc",
-		OrderType:              "Limit",
-		OrderId:                1,
-	})
-	assert.Equal(t, *settlements[7], types.SettlementEntry{
-		PositionDirection:      "Short",
-		PriceDenom:             "USDC",
-		AssetDenom:             "ATOM",
-		Quantity:               sdk.NewDec(4).Quo(sdk.NewDec(3)),
-		ExecutionCostOrProceed: sdk.NewDec(100),
-		ExpectedCostOrProceed:  sdk.NewDec(100),
-		Account:                "ghi",
-		OrderType:              "Limit",
-		OrderId:                6,
+		Timestamp:              TestTimestamp,
+		Height:                 TestHeight,
 	})
 }
 
 func TestMatchMultipleOrderFromMultipleLongBook(t *testing.T) {
 	_, ctx := keepertest.DexKeeper(t)
-	longOrders := []types.Order{}
-	shortOrders := []types.Order{
+	ctx = ctx.WithBlockHeight(int64(TestHeight)).WithBlockTime(time.Unix(int64(TestTimestamp), 0))
+	longOrders := []*types.Order{}
+	shortOrders := []*types.Order{
 		{
 			Id:                1,
 			Price:             sdk.NewDec(100),
@@ -1028,7 +1126,7 @@ func TestMatchMultipleOrderFromMultipleLongBook(t *testing.T) {
 			OrderType:         types.OrderType_LIMIT,
 		},
 	}
-	longBook := []types.OrderBook{
+	longBook := []types.OrderBookEntry{
 		&types.LongBook{
 			Price: sdk.NewDec(100),
 			Entry: &types.OrderEntry{
@@ -1062,35 +1160,54 @@ func TestMatchMultipleOrderFromMultipleLongBook(t *testing.T) {
 			},
 		},
 	}
-	shortBook := []types.OrderBook{}
-	dirtyLongPrices := exchange.NewDirtyPrices()
-	dirtyShortPrices := exchange.NewDirtyPrices()
-	settlements := []*types.SettlementEntry{}
-	totalPrice, totalExecuted := exchange.MatchLimitOrders(
-		ctx, longOrders, shortOrders, &longBook, &shortBook, TEST_PAIR(), &dirtyLongPrices, &dirtyShortPrices, &settlements, &[]exchange.AccountOrderID{},
+	shortBook := []types.OrderBookEntry{}
+	orderbook := types.OrderBook{
+		Longs: &types.CachedSortedOrderBookEntries{
+			Entries:      longBook,
+			DirtyEntries: datastructures.NewTypedSyncMap[string, types.OrderBookEntry](),
+		},
+		Shorts: &types.CachedSortedOrderBookEntries{
+			Entries:      shortBook,
+			DirtyEntries: datastructures.NewTypedSyncMap[string, types.OrderBookEntry](),
+		},
+	}
+
+	exchange.AddOutstandingLimitOrdersToOrderbook(&orderbook, longOrders, shortOrders)
+	outcome := exchange.MatchLimitOrders(
+		ctx, &orderbook,
 	)
+	totalPrice := outcome.TotalNotional
+	totalExecuted := outcome.TotalQuantity
+	settlements := outcome.Settlements
+	minPrice := outcome.MinPrice
+	maxPrice := outcome.MaxPrice
 	assert.Equal(t, totalPrice, sdk.NewDec(1216))
 	assert.Equal(t, totalExecuted, sdk.NewDec(12))
-	assert.Equal(t, len(dirtyLongPrices.Get()), 2)
-	assert.Equal(t, len(dirtyShortPrices.Get()), 3)
-	assert.Equal(t, dirtyLongPrices.Has(sdk.NewDec(100)), true)
-	assert.Equal(t, dirtyLongPrices.Has(sdk.NewDec(110)), true)
-	assert.Equal(t, dirtyShortPrices.Has(sdk.NewDec(96)), true)
-	assert.Equal(t, dirtyShortPrices.Has(sdk.NewDec(100)), true)
-	assert.Equal(t, dirtyShortPrices.Has(sdk.NewDec(102)), true)
+	assert.Equal(t, minPrice, sdk.NewDec(100))
+	assert.Equal(t, maxPrice, sdk.NewDec(110))
+	assert.Equal(t, orderbook.Longs.DirtyEntries.Len(), 2)
+	assert.Equal(t, orderbook.Shorts.DirtyEntries.Len(), 3)
+	_, ok := orderbook.Longs.DirtyEntries.Load(sdk.MustNewDecFromStr("100").String())
+	assert.True(t, ok)
+	_, ok = orderbook.Longs.DirtyEntries.Load(sdk.MustNewDecFromStr("110").String())
+	assert.True(t, ok)
+	_, ok = orderbook.Shorts.DirtyEntries.Load(sdk.MustNewDecFromStr("96").String())
+	assert.True(t, ok)
+	_, ok = orderbook.Shorts.DirtyEntries.Load(sdk.MustNewDecFromStr("100").String())
+	assert.True(t, ok)
+	_, ok = orderbook.Shorts.DirtyEntries.Load(sdk.MustNewDecFromStr("102").String())
+	assert.True(t, ok)
+	longBook = orderbook.Longs.Entries
+	shortBook = orderbook.Shorts.Entries
 	assert.Equal(t, len(longBook), 2)
 	assert.Equal(t, longBook[0].GetPrice(), sdk.NewDec(100))
 	assert.Equal(t, *longBook[0].GetEntry(), types.OrderEntry{
 		Price:    sdk.NewDec(100),
 		Quantity: sdk.NewDec(2),
 		Allocations: []*types.Allocation{{
-			OrderId:  4,
-			Account:  "abc",
-			Quantity: sdk.NewDec(4).Quo(sdk.NewDec(3)),
-		}, {
 			OrderId:  5,
 			Account:  "ghi",
-			Quantity: sdk.NewDec(2).Quo(sdk.NewDec(3)),
+			Quantity: sdk.NewDec(2),
 		}},
 		PriceDenom: "USDC",
 		AssetDenom: "ATOM",
@@ -1117,7 +1234,7 @@ func TestMatchMultipleOrderFromMultipleLongBook(t *testing.T) {
 		PriceDenom: "USDC",
 		AssetDenom: "ATOM",
 	})
-	assert.Equal(t, len(settlements), 8)
+	assert.Equal(t, len(settlements), 6)
 	assert.Equal(t, *settlements[0], types.SettlementEntry{
 		PositionDirection:      "Long",
 		PriceDenom:             "USDC",
@@ -1128,6 +1245,8 @@ func TestMatchMultipleOrderFromMultipleLongBook(t *testing.T) {
 		Account:                "abc",
 		OrderType:              "Limit",
 		OrderId:                6,
+		Timestamp:              TestTimestamp,
+		Height:                 TestHeight,
 	})
 	assert.Equal(t, *settlements[1], types.SettlementEntry{
 		PositionDirection:      "Short",
@@ -1139,6 +1258,8 @@ func TestMatchMultipleOrderFromMultipleLongBook(t *testing.T) {
 		Account:                "jkl",
 		OrderType:              "Limit",
 		OrderId:                2,
+		Timestamp:              TestTimestamp,
+		Height:                 TestHeight,
 	})
 	assert.Equal(t, *settlements[2], types.SettlementEntry{
 		PositionDirection:      "Long",
@@ -1150,6 +1271,8 @@ func TestMatchMultipleOrderFromMultipleLongBook(t *testing.T) {
 		Account:                "abc",
 		OrderType:              "Limit",
 		OrderId:                6,
+		Timestamp:              TestTimestamp,
+		Height:                 TestHeight,
 	})
 	assert.Equal(t, *settlements[3], types.SettlementEntry{
 		PositionDirection:      "Short",
@@ -1161,49 +1284,33 @@ func TestMatchMultipleOrderFromMultipleLongBook(t *testing.T) {
 		Account:                "abc",
 		OrderType:              "Limit",
 		OrderId:                1,
+		Timestamp:              TestTimestamp,
+		Height:                 TestHeight,
 	})
 	assert.Equal(t, *settlements[4], types.SettlementEntry{
 		PositionDirection:      "Long",
 		PriceDenom:             "USDC",
 		AssetDenom:             "ATOM",
-		Quantity:               sdk.NewDec(8).Quo(sdk.NewDec(3)),
+		Quantity:               sdk.NewDec(4),
 		ExecutionCostOrProceed: sdk.NewDec(100),
 		ExpectedCostOrProceed:  sdk.NewDec(100),
 		Account:                "abc",
 		OrderType:              "Limit",
 		OrderId:                4,
+		Timestamp:              TestTimestamp,
+		Height:                 TestHeight,
 	})
 	assert.Equal(t, *settlements[5], types.SettlementEntry{
 		PositionDirection:      "Short",
 		PriceDenom:             "USDC",
 		AssetDenom:             "ATOM",
-		Quantity:               sdk.NewDec(8).Quo(sdk.NewDec(3)),
+		Quantity:               sdk.NewDec(4),
 		ExecutionCostOrProceed: sdk.NewDec(100),
 		ExpectedCostOrProceed:  sdk.NewDec(100),
 		Account:                "abc",
 		OrderType:              "Limit",
 		OrderId:                1,
-	})
-	assert.Equal(t, *settlements[6], types.SettlementEntry{
-		PositionDirection:      "Long",
-		PriceDenom:             "USDC",
-		AssetDenom:             "ATOM",
-		Quantity:               sdk.NewDec(4).Quo(sdk.NewDec(3)),
-		ExecutionCostOrProceed: sdk.NewDec(100),
-		ExpectedCostOrProceed:  sdk.NewDec(100),
-		Account:                "ghi",
-		OrderType:              "Limit",
-		OrderId:                5,
-	})
-	assert.Equal(t, *settlements[7], types.SettlementEntry{
-		PositionDirection:      "Short",
-		PriceDenom:             "USDC",
-		AssetDenom:             "ATOM",
-		Quantity:               sdk.NewDec(4).Quo(sdk.NewDec(3)),
-		ExecutionCostOrProceed: sdk.NewDec(100),
-		ExpectedCostOrProceed:  sdk.NewDec(100),
-		Account:                "abc",
-		OrderType:              "Limit",
-		OrderId:                1,
+		Timestamp:              TestTimestamp,
+		Height:                 TestHeight,
 	})
 }

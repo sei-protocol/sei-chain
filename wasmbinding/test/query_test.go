@@ -1,17 +1,23 @@
 package wasmbinding
 
 import (
+	"context"
 	"encoding/json"
 	"testing"
 	"time"
 
+	wasmkeeper "github.com/CosmWasm/wasmd/x/wasm/keeper"
+	wasmvmtypes "github.com/CosmWasm/wasmvm/types"
 	"github.com/cosmos/cosmos-sdk/crypto/keys/secp256k1"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/sei-protocol/sei-chain/app"
+	keepertest "github.com/sei-protocol/sei-chain/testutil/keeper"
 	"github.com/sei-protocol/sei-chain/wasmbinding"
+	dexcache "github.com/sei-protocol/sei-chain/x/dex/cache"
 	dexwasm "github.com/sei-protocol/sei-chain/x/dex/client/wasm"
 	dexbinding "github.com/sei-protocol/sei-chain/x/dex/client/wasm/bindings"
 	dextypes "github.com/sei-protocol/sei-chain/x/dex/types"
+	dexutils "github.com/sei-protocol/sei-chain/x/dex/utils"
 	epochwasm "github.com/sei-protocol/sei-chain/x/epoch/client/wasm"
 	epochbinding "github.com/sei-protocol/sei-chain/x/epoch/client/wasm/bindings"
 	epochtypes "github.com/sei-protocol/sei-chain/x/epoch/types"
@@ -19,6 +25,7 @@ import (
 	oraclebinding "github.com/sei-protocol/sei-chain/x/oracle/client/wasm/bindings"
 	oracletypes "github.com/sei-protocol/sei-chain/x/oracle/types"
 	oracleutils "github.com/sei-protocol/sei-chain/x/oracle/utils"
+	tokenfactorywasm "github.com/sei-protocol/sei-chain/x/tokenfactory/client/wasm"
 	"github.com/stretchr/testify/require"
 )
 
@@ -31,8 +38,46 @@ func SetupWasmbindingTest(t *testing.T) (*app.TestWrapper, func(ctx sdk.Context,
 	oh := oraclewasm.NewOracleWasmQueryHandler(&testWrapper.App.OracleKeeper)
 	dh := dexwasm.NewDexWasmQueryHandler(&testWrapper.App.DexKeeper)
 	eh := epochwasm.NewEpochWasmQueryHandler(&testWrapper.App.EpochKeeper)
-	qp := wasmbinding.NewQueryPlugin(oh, dh, eh)
+	th := tokenfactorywasm.NewTokenFactoryWasmQueryHandler(&testWrapper.App.TokenFactoryKeeper)
+	qp := wasmbinding.NewQueryPlugin(oh, dh, eh, th)
 	return testWrapper, wasmbinding.CustomQuerier(qp)
+}
+
+func TestWasmUnknownQuery(t *testing.T) {
+	testWrapper, customQuerier := SetupWasmbindingTest(t)
+
+	oracle_req := oraclebinding.SeiOracleQuery{}
+	queryData, err := json.Marshal(oracle_req)
+	require.NoError(t, err)
+	query := wasmbinding.SeiQueryWrapper{Route: wasmbinding.OracleRoute, QueryData: queryData}
+	rawQuery, err := json.Marshal(query)
+	require.NoError(t, err)
+
+	_, err = customQuerier(testWrapper.Ctx, rawQuery)
+	require.Error(t, err)
+	require.Equal(t, err, oracletypes.ErrUnknownSeiOracleQuery)
+
+	dex_req := dexbinding.SeiDexQuery{}
+	queryData, err = json.Marshal(dex_req)
+	require.NoError(t, err)
+	query = wasmbinding.SeiQueryWrapper{Route: wasmbinding.DexRoute, QueryData: queryData}
+	rawQuery, err = json.Marshal(query)
+	require.NoError(t, err)
+
+	_, err = customQuerier(testWrapper.Ctx, rawQuery)
+	require.Error(t, err)
+	require.Equal(t, err, dextypes.ErrUnknownSeiDexQuery)
+
+	epoch_req := epochbinding.SeiEpochQuery{}
+	queryData, err = json.Marshal(epoch_req)
+	require.NoError(t, err)
+	query = wasmbinding.SeiQueryWrapper{Route: wasmbinding.EpochRoute, QueryData: queryData}
+	rawQuery, err = json.Marshal(query)
+	require.NoError(t, err)
+
+	_, err = customQuerier(testWrapper.Ctx, rawQuery)
+	require.Error(t, err)
+	require.Equal(t, err, epochtypes.ErrUnknownSeiEpochQuery)
 }
 
 func TestWasmGetOracleExchangeRates(t *testing.T) {
@@ -103,6 +148,32 @@ func TestWasmGetOracleTwaps(t *testing.T) {
 	}}, parsedRes2)
 }
 
+func TestWasmGetOracleTwapsErrorHandling(t *testing.T) {
+	testWrapper, customQuerier := SetupWasmbindingTest(t)
+
+	req := oraclebinding.SeiOracleQuery{OracleTwaps: &oracletypes.QueryTwapsRequest{LookbackSeconds: 200}}
+	queryData, err := json.Marshal(req)
+	require.NoError(t, err)
+	query := wasmbinding.SeiQueryWrapper{Route: wasmbinding.OracleRoute, QueryData: queryData}
+	rawQuery, err := json.Marshal(query)
+	require.NoError(t, err)
+
+	_, err = customQuerier(testWrapper.Ctx, rawQuery)
+	require.Error(t, err)
+	require.Equal(t, err, oracletypes.ErrNoTwapData)
+
+	req = oraclebinding.SeiOracleQuery{OracleTwaps: &oracletypes.QueryTwapsRequest{LookbackSeconds: 3601}}
+	queryData, err = json.Marshal(req)
+	require.NoError(t, err)
+	query = wasmbinding.SeiQueryWrapper{Route: wasmbinding.OracleRoute, QueryData: queryData}
+	rawQuery, err = json.Marshal(query)
+	require.NoError(t, err)
+
+	_, err = customQuerier(testWrapper.Ctx, rawQuery)
+	require.Error(t, err)
+	require.Equal(t, err, oracletypes.ErrInvalidTwapLookback)
+}
+
 func TestWasmGetDexTwaps(t *testing.T) {
 	testWrapper, customQuerier := SetupWasmbindingTest(t)
 
@@ -127,7 +198,7 @@ func TestWasmGetDexTwaps(t *testing.T) {
 		SnapshotTimestampInSeconds: 3600,
 		Price:                      sdk.NewDec(20),
 		Pair:                       &dextypes.Pair{PriceDenom: "sei", AssetDenom: "atom"},
-	}, app.TestContract, 0)
+	}, app.TestContract)
 	testWrapper.App.OracleKeeper.SetBaseExchangeRate(testWrapper.Ctx, oracleutils.MicroAtomDenom, sdk.NewDec(12))
 	testWrapper.Ctx = testWrapper.Ctx.WithBlockHeight(14).WithBlockTime(time.Unix(3700, 0))
 
@@ -142,6 +213,75 @@ func TestWasmGetDexTwaps(t *testing.T) {
 	require.Equal(t, "sei", twap.Pair.PriceDenom)
 	require.Equal(t, "atom", twap.Pair.AssetDenom)
 	require.Equal(t, sdk.NewDec(20), twap.Twap)
+}
+
+func TestWasmDexGetOrderByIdErrorHandling(t *testing.T) {
+	testWrapper, customQuerier := SetupWasmbindingTest(t)
+
+	req := dexbinding.SeiDexQuery{GetOrderByID: &dextypes.QueryGetOrderByIDRequest{
+		ContractAddr: keepertest.TestContract,
+		PriceDenom:   keepertest.TestPriceDenom,
+		AssetDenom:   keepertest.TestAssetDenom,
+		Id:           1,
+	}}
+	queryData, err := json.Marshal(req)
+	require.NoError(t, err)
+	query := wasmbinding.SeiQueryWrapper{Route: wasmbinding.DexRoute, QueryData: queryData}
+
+	rawQuery, err := json.Marshal(query)
+	require.NoError(t, err)
+
+	_, err = customQuerier(testWrapper.Ctx, rawQuery)
+	require.Error(t, err)
+	require.IsType(t, dextypes.ErrInvalidOrderID, err)
+}
+
+func TestWasmGetOrderSimulation(t *testing.T) {
+	testWrapper, customQuerier := SetupWasmbindingTest(t)
+
+	order := dextypes.Order{
+		PositionDirection: dextypes.PositionDirection_LONG,
+		OrderType:         dextypes.OrderType_LIMIT,
+		PriceDenom:        "USDC",
+		AssetDenom:        "SEI",
+		Price:             sdk.MustNewDecFromStr("10"),
+		Quantity:          sdk.OneDec(),
+		Data:              "{\"position_effect\":\"OPEN\", \"leverage\":\"1\"}",
+	}
+
+	req := dexbinding.SeiDexQuery{GetOrderSimulation: &dextypes.QueryOrderSimulationRequest{
+		Order: &order,
+	}}
+	queryData, err := json.Marshal(req)
+	require.NoError(t, err)
+	query := wasmbinding.SeiQueryWrapper{Route: wasmbinding.DexRoute, QueryData: queryData}
+
+	rawQuery, err := json.Marshal(query)
+	require.NoError(t, err)
+
+	testWrapper.Ctx = testWrapper.Ctx.WithBlockHeight(11).WithBlockTime(time.Unix(3600, 0))
+	testWrapper.Ctx = testWrapper.Ctx.WithContext(context.WithValue(testWrapper.Ctx.Context(), dexutils.DexMemStateContextKey, dexcache.NewMemState(testWrapper.App.GetKey(dextypes.StoreKey))))
+	testWrapper.App.DexKeeper.AddRegisteredPair(
+		testWrapper.Ctx,
+		app.TestContract,
+		dextypes.Pair{PriceDenom: "sei", AssetDenom: "atom"},
+	)
+	testWrapper.App.DexKeeper.SetPriceState(testWrapper.Ctx, dextypes.Price{
+		SnapshotTimestampInSeconds: 3600,
+		Price:                      sdk.NewDec(20),
+		Pair:                       &dextypes.Pair{PriceDenom: "sei", AssetDenom: "atom"},
+	}, app.TestContract)
+	testWrapper.App.OracleKeeper.SetBaseExchangeRate(testWrapper.Ctx, oracleutils.MicroAtomDenom, sdk.NewDec(12))
+	testWrapper.Ctx = testWrapper.Ctx.WithBlockHeight(14).WithBlockTime(time.Unix(3700, 0))
+	testWrapper.Ctx = testWrapper.Ctx.WithContext(context.WithValue(testWrapper.Ctx.Context(), dexutils.DexMemStateContextKey, dexcache.NewMemState(testWrapper.App.GetKey(dextypes.StoreKey))))
+
+	res, err := customQuerier(testWrapper.Ctx, rawQuery)
+	require.NoError(t, err)
+
+	var parsedRes dextypes.QueryOrderSimulationResponse
+	err = json.Unmarshal(res, &parsedRes)
+	require.NoError(t, err)
+	require.Equal(t, sdk.NewDec(0), *parsedRes.ExecutedQuantity)
 }
 
 func TestWasmGetEpoch(t *testing.T) {
@@ -179,4 +319,19 @@ func TestWasmGetEpoch(t *testing.T) {
 	require.Equal(t, uint64(69), epoch.CurrentEpoch)
 	require.Equal(t, time.Unix(12345, 0).UTC(), epoch.CurrentEpochStartTime)
 	require.Equal(t, int64(40), epoch.CurrentEpochHeight)
+}
+
+func MockQueryPlugins() wasmkeeper.QueryPlugins {
+	return wasmkeeper.QueryPlugins{
+		Bank: func(ctx sdk.Context, request *wasmvmtypes.BankQuery) ([]byte, error) { return []byte{}, nil },
+		IBC: func(ctx sdk.Context, caller sdk.AccAddress, request *wasmvmtypes.IBCQuery) ([]byte, error) {
+			return []byte{}, nil
+		},
+		Custom: func(ctx sdk.Context, request json.RawMessage) ([]byte, error) {
+			return []byte{}, nil
+		},
+		Stargate: func(ctx sdk.Context, request *wasmvmtypes.StargateQuery) ([]byte, error) { return []byte{}, nil },
+		Staking:  func(ctx sdk.Context, request *wasmvmtypes.StakingQuery) ([]byte, error) { return []byte{}, nil },
+		Wasm:     func(ctx sdk.Context, request *wasmvmtypes.WasmQuery) ([]byte, error) { return []byte{}, nil },
+	}
 }

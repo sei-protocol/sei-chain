@@ -1,7 +1,9 @@
 run:
   tests: false
 #   # timeout for analysis, e.g. 30s, 5m, default is 1m
-  timeout: 5m
+  timeout: 10m
+  build-tags:
+    - codeanalysis
 
 linters:
   disable-all: true
@@ -15,7 +17,6 @@ linters:
     - goconst
     - gocritic
     - gofmt
-    - gofumpt
     - goimports
     - gosec
     - gosimple
