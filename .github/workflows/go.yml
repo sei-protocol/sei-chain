@@ -11,6 +11,9 @@ defaults:
  run:
   shell: bash
 
+permissions:
+  pull-requests: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -40,7 +43,7 @@ jobs:
         output: 'both'
 
     - name: Add Coverage PR Comment
-      uses: marocchino/sticky-pull-request-comment@v2
+      uses: marocchino/sticky-pull-request-comment@v2.6.2
       if: github.event_name == 'pull_request'
       with:
         recreate: true
