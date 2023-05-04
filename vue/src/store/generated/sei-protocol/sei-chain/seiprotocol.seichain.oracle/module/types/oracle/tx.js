@@ -296,6 +296,187 @@ export const MsgAggregateExchangeRateVoteResponse = {
         return message;
     },
 };
+const baseMsgAggregateExchangeRateCombinedVote = {
+    voteSalt: "",
+    voteExchangeRates: "",
+    prevoteHash: "",
+    feeder: "",
+    validator: "",
+};
+export const MsgAggregateExchangeRateCombinedVote = {
+    encode(message, writer = Writer.create()) {
+        if (message.voteSalt !== "") {
+            writer.uint32(10).string(message.voteSalt);
+        }
+        if (message.voteExchangeRates !== "") {
+            writer.uint32(18).string(message.voteExchangeRates);
+        }
+        if (message.prevoteHash !== "") {
+            writer.uint32(26).string(message.prevoteHash);
+        }
+        if (message.feeder !== "") {
+            writer.uint32(34).string(message.feeder);
+        }
+        if (message.validator !== "") {
+            writer.uint32(42).string(message.validator);
+        }
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof Uint8Array ? new Reader(input) : input;
+        let end = length === undefined ? reader.len : reader.pos + length;
+        const message = {
+            ...baseMsgAggregateExchangeRateCombinedVote,
+        };
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1:
+                    message.voteSalt = reader.string();
+                    break;
+                case 2:
+                    message.voteExchangeRates = reader.string();
+                    break;
+                case 3:
+                    message.prevoteHash = reader.string();
+                    break;
+                case 4:
+                    message.feeder = reader.string();
+                    break;
+                case 5:
+                    message.validator = reader.string();
+                    break;
+                default:
+                    reader.skipType(tag & 7);
+                    break;
+            }
+        }
+        return message;
+    },
+    fromJSON(object) {
+        const message = {
+            ...baseMsgAggregateExchangeRateCombinedVote,
+        };
+        if (object.voteSalt !== undefined && object.voteSalt !== null) {
+            message.voteSalt = String(object.voteSalt);
+        }
+        else {
+            message.voteSalt = "";
+        }
+        if (object.voteExchangeRates !== undefined &&
+            object.voteExchangeRates !== null) {
+            message.voteExchangeRates = String(object.voteExchangeRates);
+        }
+        else {
+            message.voteExchangeRates = "";
+        }
+        if (object.prevoteHash !== undefined && object.prevoteHash !== null) {
+            message.prevoteHash = String(object.prevoteHash);
+        }
+        else {
+            message.prevoteHash = "";
+        }
+        if (object.feeder !== undefined && object.feeder !== null) {
+            message.feeder = String(object.feeder);
+        }
+        else {
+            message.feeder = "";
+        }
+        if (object.validator !== undefined && object.validator !== null) {
+            message.validator = String(object.validator);
+        }
+        else {
+            message.validator = "";
+        }
+        return message;
+    },
+    toJSON(message) {
+        const obj = {};
+        message.voteSalt !== undefined && (obj.voteSalt = message.voteSalt);
+        message.voteExchangeRates !== undefined &&
+            (obj.voteExchangeRates = message.voteExchangeRates);
+        message.prevoteHash !== undefined &&
+            (obj.prevoteHash = message.prevoteHash);
+        message.feeder !== undefined && (obj.feeder = message.feeder);
+        message.validator !== undefined && (obj.validator = message.validator);
+        return obj;
+    },
+    fromPartial(object) {
+        const message = {
+            ...baseMsgAggregateExchangeRateCombinedVote,
+        };
+        if (object.voteSalt !== undefined && object.voteSalt !== null) {
+            message.voteSalt = object.voteSalt;
+        }
+        else {
+            message.voteSalt = "";
+        }
+        if (object.voteExchangeRates !== undefined &&
+            object.voteExchangeRates !== null) {
+            message.voteExchangeRates = object.voteExchangeRates;
+        }
+        else {
+            message.voteExchangeRates = "";
+        }
+        if (object.prevoteHash !== undefined && object.prevoteHash !== null) {
+            message.prevoteHash = object.prevoteHash;
+        }
+        else {
+            message.prevoteHash = "";
+        }
+        if (object.feeder !== undefined && object.feeder !== null) {
+            message.feeder = object.feeder;
+        }
+        else {
+            message.feeder = "";
+        }
+        if (object.validator !== undefined && object.validator !== null) {
+            message.validator = object.validator;
+        }
+        else {
+            message.validator = "";
+        }
+        return message;
+    },
+};
+const baseMsgAggregateExchangeRateCombinedVoteResponse = {};
+export const MsgAggregateExchangeRateCombinedVoteResponse = {
+    encode(_, writer = Writer.create()) {
+        return writer;
+    },
+    decode(input, length) {
+        const reader = input instanceof Uint8Array ? new Reader(input) : input;
+        let end = length === undefined ? reader.len : reader.pos + length;
+        const message = {
+            ...baseMsgAggregateExchangeRateCombinedVoteResponse,
+        };
+        while (reader.pos < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                default:
+                    reader.skipType(tag & 7);
+                    break;
+            }
+        }
+        return message;
+    },
+    fromJSON(_) {
+        const message = {
+            ...baseMsgAggregateExchangeRateCombinedVoteResponse,
+        };
+        return message;
+    },
+    toJSON(_) {
+        const obj = {};
+        return obj;
+    },
+    fromPartial(_) {
+        const message = {
+            ...baseMsgAggregateExchangeRateCombinedVoteResponse,
+        };
+        return message;
+    },
+};
 const baseMsgDelegateFeedConsent = { operator: "", delegate: "" };
 export const MsgDelegateFeedConsent = {
     encode(message, writer = Writer.create()) {
@@ -417,6 +598,11 @@ export class MsgClientImpl {
         const data = MsgAggregateExchangeRateVote.encode(request).finish();
         const promise = this.rpc.request("seiprotocol.seichain.oracle.Msg", "AggregateExchangeRateVote", data);
         return promise.then((data) => MsgAggregateExchangeRateVoteResponse.decode(new Reader(data)));
+    }
+    AggregateExchangeRateCombinedVote(request) {
+        const data = MsgAggregateExchangeRateCombinedVote.encode(request).finish();
+        const promise = this.rpc.request("seiprotocol.seichain.oracle.Msg", "AggregateExchangeRateCombinedVote", data);
+        return promise.then((data) => MsgAggregateExchangeRateCombinedVoteResponse.decode(new Reader(data)));
     }
     DelegateFeedConsent(request) {
         const data = MsgDelegateFeedConsent.encode(request).finish();

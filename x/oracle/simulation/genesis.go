@@ -1,6 +1,6 @@
 package simulation
 
-//DONTCOVER
+// DONTCOVER
 
 import (
 	"encoding/json"
@@ -19,7 +19,7 @@ const (
 	votePeriodKey               = "vote_period"
 	voteThresholdKey            = "vote_threshold"
 	rewardBandKey               = "reward_band"
-	rewardDistributionWindowKey = "reward_distribution_window"
+	rewardDistributionWindowKey = "reward_distribution_window" //nolint:deadcode // we will use this later
 	slashFractionKey            = "slash_fraction"
 	slashWindowKey              = "slash_window"
 	minValidPerWindowKey        = "min_valid_per_window"
@@ -57,7 +57,6 @@ func GenMinValidPerWindow(r *rand.Rand) sdk.Dec {
 
 // RandomizedGenState generates a random GenesisState for oracle
 func RandomizedGenState(simState *module.SimulationState) {
-
 	var votePeriod uint64
 	simState.AppParams.GetOrGenerate(
 		simState.Cdc, votePeriodKey, &votePeriod, simState.Rand,
@@ -110,8 +109,8 @@ func RandomizedGenState(simState *module.SimulationState) {
 		[]types.ExchangeRateTuple{},
 		[]types.FeederDelegation{},
 		[]types.PenaltyCounter{},
-		[]types.AggregateExchangeRatePrevote{},
 		[]types.AggregateExchangeRateVote{},
+		types.PriceSnapshots{},
 	)
 
 	bz, err := json.MarshalIndent(&oracleGenesis.Params, "", " ")

@@ -1,8 +1,10 @@
 package oracle
 
 import (
+	"sort"
 	"time"
 
+	"github.com/sei-protocol/sei-chain/utils/metrics"
 	"github.com/sei-protocol/sei-chain/x/oracle/keeper"
 	"github.com/sei-protocol/sei-chain/x/oracle/types"
 	"github.com/sei-protocol/sei-chain/x/oracle/utils"
@@ -11,8 +13,8 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 )
 
-func EndBlocker(ctx sdk.Context, k keeper.Keeper) {
-	defer telemetry.ModuleMeasureSince(types.ModuleName, time.Now(), telemetry.MetricKeyEndBlocker)
+func MidBlocker(ctx sdk.Context, k keeper.Keeper) {
+	defer telemetry.ModuleMeasureSince(types.ModuleName, time.Now(), telemetry.MetricKeyMidBlocker)
 
 	params := k.GetParams(ctx)
 	if utils.IsPeriodLastBlock(ctx, params.VotePeriod) {
@@ -27,8 +29,13 @@ func EndBlocker(ctx sdk.Context, k keeper.Keeper) {
 		powerReduction := k.StakingKeeper.PowerReduction(ctx)
 
 		i := 0
+		powerOrderedValAddrs := []sdk.ValAddress{}
 		for ; iterator.Valid() && i < int(maxValidators); iterator.Next() {
-			validator := k.StakingKeeper.Validator(ctx, iterator.Value())
+			powerOrderedValAddrs = append(powerOrderedValAddrs, iterator.Value())
+		}
+
+		for _, valAddr := range powerOrderedValAddrs {
+			validator := k.StakingKeeper.Validator(ctx, valAddr)
 
 			// Exclude not bonded validator
 			if validator.IsBonded() {
@@ -58,14 +65,20 @@ func EndBlocker(ctx sdk.Context, k keeper.Keeper) {
 			ballotRD := voteMap[referenceDenom]
 			voteMapRD := ballotRD.ToMap()
 
-			var exchangeRateRD sdk.Dec = ballotRD.WeightedMedianWithAssertion()
+			exchangeRateRD := ballotRD.WeightedMedianWithAssertion()
 
 			// Iterate through ballots and update exchange rates; drop if not enough votes have been achieved.
-			for denom, ballot := range voteMap {
-
+			keys := make([]string, len(voteMap))
+			j := 0
+			for denom := range voteMap {
+				keys[j] = denom
+				j++
+			}
+			sort.Strings(keys)
+			for _, denom := range keys {
+				ballot := voteMap[denom]
 				// Convert ballot to cross exchange rates
 				if denom != referenceDenom {
-
 					ballot = ballot.ToCrossRateWithSort(voteMapRD)
 				}
 
@@ -78,19 +91,23 @@ func EndBlocker(ctx sdk.Context, k keeper.Keeper) {
 				}
 
 				// Set the exchange rate, emit ABCI event
+				metrics.IncrPriceUpdateDenom(denom)
 				k.SetBaseExchangeRateWithEvent(ctx, denom, exchangeRate)
 			}
+		}
 
-			for _, ballot := range belowThresholdVoteMap {
-				// perform tally for below threshold assets to calculate total win count
-				Tally(ctx, ballot, params.RewardBand, validatorClaimMap)
-			}
-		} else {
-			// in this case, all assets would be in the belowThresholdVoteMap
-			for _, ballot := range belowThresholdVoteMap {
-				// perform tally for below threshold assets to calculate total win count
-				Tally(ctx, ballot, params.RewardBand, validatorClaimMap)
-			}
+		belowThresholdKeys := make([]string, len(belowThresholdVoteMap))
+		n := 0
+		for denom := range belowThresholdVoteMap {
+			belowThresholdKeys[n] = denom
+			n++
+		}
+		sort.Strings(belowThresholdKeys)
+		// in this case, all assets would be in the belowThresholdVoteMap
+		for _, denom := range belowThresholdKeys {
+			ballot := belowThresholdVoteMap[denom]
+			// perform tally for below threshold assets to calculate total win count
+			Tally(ctx, ballot, params.RewardBand, validatorClaimMap)
 		}
 
 		//---------------------------
@@ -99,6 +116,7 @@ func EndBlocker(ctx sdk.Context, k keeper.Keeper) {
 			// we require validator to have submitted in-range data
 			// for all assets to not be counted as a miss
 			if int(claim.WinCount) == totalTargets {
+				k.IncrementSuccessCount(ctx, claim.Recipient)
 				continue
 			}
 			if !claim.DidVote {
@@ -134,6 +152,12 @@ func EndBlocker(ctx sdk.Context, k keeper.Keeper) {
 		}
 	}
 
+}
+
+func EndBlocker(ctx sdk.Context, k keeper.Keeper) {
+	defer telemetry.ModuleMeasureSince(types.ModuleName, time.Now(), telemetry.MetricKeyEndBlocker)
+
+	params := k.GetParams(ctx)
 	// Do slash who did miss voting over threshold and
 	// reset miss counters of all validators at the last block of slash window
 	if utils.IsPeriodLastBlock(ctx, params.SlashWindow) {

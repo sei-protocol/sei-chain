@@ -11,7 +11,7 @@ export interface QueryExchangeRateRequest {
  * Query/ExchangeRate RPC method.
  */
 export interface QueryExchangeRateResponse {
-    /** exchange_rate defines the exchange rate of Luna denominated in various Terra */
+    /** exchange_rate defines the exchange rate of Sei denominated in various Sei */
     oracleExchangeRate: OracleExchangeRate | undefined;
 }
 /** QueryExchangeRatesRequest is the request type for the Query/ExchangeRates RPC method. */

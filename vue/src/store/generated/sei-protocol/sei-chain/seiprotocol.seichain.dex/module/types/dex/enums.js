@@ -65,6 +65,8 @@ export var OrderType;
     OrderType[OrderType["LIMIT"] = 0] = "LIMIT";
     OrderType[OrderType["MARKET"] = 1] = "MARKET";
     OrderType[OrderType["LIQUIDATION"] = 2] = "LIQUIDATION";
+    /** FOKMARKET - fill-or-kill market order */
+    OrderType[OrderType["FOKMARKET"] = 3] = "FOKMARKET";
     OrderType[OrderType["UNRECOGNIZED"] = -1] = "UNRECOGNIZED";
 })(OrderType || (OrderType = {}));
 export function orderTypeFromJSON(object) {
@@ -78,6 +80,9 @@ export function orderTypeFromJSON(object) {
         case 2:
         case "LIQUIDATION":
             return OrderType.LIQUIDATION;
+        case 3:
+        case "FOKMARKET":
+            return OrderType.FOKMARKET;
         case -1:
         case "UNRECOGNIZED":
         default:
@@ -92,78 +97,8 @@ export function orderTypeToJSON(object) {
             return "MARKET";
         case OrderType.LIQUIDATION:
             return "LIQUIDATION";
-        default:
-            return "UNKNOWN";
-    }
-}
-export var Denom;
-(function (Denom) {
-    Denom[Denom["SEI"] = 0] = "SEI";
-    Denom[Denom["ATOM"] = 1] = "ATOM";
-    Denom[Denom["BTC"] = 2] = "BTC";
-    Denom[Denom["ETH"] = 3] = "ETH";
-    Denom[Denom["SOL"] = 4] = "SOL";
-    Denom[Denom["AVAX"] = 5] = "AVAX";
-    Denom[Denom["USDC"] = 6] = "USDC";
-    Denom[Denom["NEAR"] = 7] = "NEAR";
-    Denom[Denom["OSMO"] = 8] = "OSMO";
-    Denom[Denom["UNRECOGNIZED"] = -1] = "UNRECOGNIZED";
-})(Denom || (Denom = {}));
-export function denomFromJSON(object) {
-    switch (object) {
-        case 0:
-        case "SEI":
-            return Denom.SEI;
-        case 1:
-        case "ATOM":
-            return Denom.ATOM;
-        case 2:
-        case "BTC":
-            return Denom.BTC;
-        case 3:
-        case "ETH":
-            return Denom.ETH;
-        case 4:
-        case "SOL":
-            return Denom.SOL;
-        case 5:
-        case "AVAX":
-            return Denom.AVAX;
-        case 6:
-        case "USDC":
-            return Denom.USDC;
-        case 7:
-        case "NEAR":
-            return Denom.NEAR;
-        case 8:
-        case "OSMO":
-            return Denom.OSMO;
-        case -1:
-        case "UNRECOGNIZED":
-        default:
-            return Denom.UNRECOGNIZED;
-    }
-}
-export function denomToJSON(object) {
-    switch (object) {
-        case Denom.SEI:
-            return "SEI";
-        case Denom.ATOM:
-            return "ATOM";
-        case Denom.BTC:
-            return "BTC";
-        case Denom.ETH:
-            return "ETH";
-        case Denom.SOL:
-            return "SOL";
-        case Denom.AVAX:
-            return "AVAX";
-        case Denom.USDC:
-            return "USDC";
-        case Denom.NEAR:
-            return "NEAR";
-        case Denom.OSMO:
-            return "OSMO";
+        case OrderType.FOKMARKET:
+            return "FOKMARKET";
         default:
             return "UNKNOWN";
     }
@@ -206,6 +141,78 @@ export function unitToJSON(object) {
             return "MICRO";
         case Unit.NANO:
             return "NANO";
+        default:
+            return "UNKNOWN";
+    }
+}
+export var OrderStatus;
+(function (OrderStatus) {
+    OrderStatus[OrderStatus["PLACED"] = 0] = "PLACED";
+    OrderStatus[OrderStatus["FAILED_TO_PLACE"] = 1] = "FAILED_TO_PLACE";
+    OrderStatus[OrderStatus["CANCELLED"] = 2] = "CANCELLED";
+    OrderStatus[OrderStatus["FULFILLED"] = 3] = "FULFILLED";
+    OrderStatus[OrderStatus["UNRECOGNIZED"] = -1] = "UNRECOGNIZED";
+})(OrderStatus || (OrderStatus = {}));
+export function orderStatusFromJSON(object) {
+    switch (object) {
+        case 0:
+        case "PLACED":
+            return OrderStatus.PLACED;
+        case 1:
+        case "FAILED_TO_PLACE":
+            return OrderStatus.FAILED_TO_PLACE;
+        case 2:
+        case "CANCELLED":
+            return OrderStatus.CANCELLED;
+        case 3:
+        case "FULFILLED":
+            return OrderStatus.FULFILLED;
+        case -1:
+        case "UNRECOGNIZED":
+        default:
+            return OrderStatus.UNRECOGNIZED;
+    }
+}
+export function orderStatusToJSON(object) {
+    switch (object) {
+        case OrderStatus.PLACED:
+            return "PLACED";
+        case OrderStatus.FAILED_TO_PLACE:
+            return "FAILED_TO_PLACE";
+        case OrderStatus.CANCELLED:
+            return "CANCELLED";
+        case OrderStatus.FULFILLED:
+            return "FULFILLED";
+        default:
+            return "UNKNOWN";
+    }
+}
+export var CancellationInitiator;
+(function (CancellationInitiator) {
+    CancellationInitiator[CancellationInitiator["USER"] = 0] = "USER";
+    CancellationInitiator[CancellationInitiator["LIQUIDATED"] = 1] = "LIQUIDATED";
+    CancellationInitiator[CancellationInitiator["UNRECOGNIZED"] = -1] = "UNRECOGNIZED";
+})(CancellationInitiator || (CancellationInitiator = {}));
+export function cancellationInitiatorFromJSON(object) {
+    switch (object) {
+        case 0:
+        case "USER":
+            return CancellationInitiator.USER;
+        case 1:
+        case "LIQUIDATED":
+            return CancellationInitiator.LIQUIDATED;
+        case -1:
+        case "UNRECOGNIZED":
+        default:
+            return CancellationInitiator.UNRECOGNIZED;
+    }
+}
+export function cancellationInitiatorToJSON(object) {
+    switch (object) {
+        case CancellationInitiator.USER:
+            return "USER";
+        case CancellationInitiator.LIQUIDATED:
+            return "LIQUIDATED";
         default:
             return "UNKNOWN";
     }

@@ -1,6 +1,4 @@
 import { txClient, queryClient, MissingWalletError , registry} from './module'
-// @ts-ignore
-import { SpVuexError } from '@starport/vuex'
 
 import { SigningInfo } from "./module/types/cosmos/slashing/v1beta1/genesis"
 import { ValidatorMissedBlocks } from "./module/types/cosmos/slashing/v1beta1/genesis"
@@ -132,7 +130,7 @@ export default {
 					const sub=JSON.parse(subscription)
 					await dispatch(sub.action, sub.payload)
 				}catch(e) {
-					throw new SpVuexError('Subscriptions: ' + e.message)
+					throw new Error('Subscriptions: ' + e.message)
 				}
 			})
 		},
@@ -153,7 +151,7 @@ export default {
 				if (subscribe) commit('SUBSCRIBE', { action: 'QueryParams', payload: { options: { all }, params: {...key},query }})
 				return getters['getParams']( { params: {...key}, query}) ?? {}
 			} catch (e) {
-				throw new SpVuexError('QueryClient:QueryParams', 'API Node Unavailable. Could not perform query: ' + e.message)
+				throw new Error('QueryClient:QueryParams API Node Unavailable. Could not perform query: ' + e.message)
 				
 			}
 		},
@@ -175,7 +173,7 @@ export default {
 				if (subscribe) commit('SUBSCRIBE', { action: 'QuerySigningInfo', payload: { options: { all }, params: {...key},query }})
 				return getters['getSigningInfo']( { params: {...key}, query}) ?? {}
 			} catch (e) {
-				throw new SpVuexError('QueryClient:QuerySigningInfo', 'API Node Unavailable. Could not perform query: ' + e.message)
+				throw new Error('QueryClient:QuerySigningInfo API Node Unavailable. Could not perform query: ' + e.message)
 				
 			}
 		},
@@ -201,7 +199,7 @@ export default {
 				if (subscribe) commit('SUBSCRIBE', { action: 'QuerySigningInfos', payload: { options: { all }, params: {...key},query }})
 				return getters['getSigningInfos']( { params: {...key}, query}) ?? {}
 			} catch (e) {
-				throw new SpVuexError('QueryClient:QuerySigningInfos', 'API Node Unavailable. Could not perform query: ' + e.message)
+				throw new Error('QueryClient:QuerySigningInfos API Node Unavailable. Could not perform query: ' + e.message)
 				
 			}
 		},
@@ -216,9 +214,9 @@ export default {
 				return result
 			} catch (e) {
 				if (e == MissingWalletError) {
-					throw new SpVuexError('TxClient:MsgUnjail:Init', 'Could not initialize signing client. Wallet is required.')
+					throw new Error('TxClient:MsgUnjail:Init Could not initialize signing client. Wallet is required.')
 				}else{
-					throw new SpVuexError('TxClient:MsgUnjail:Send', 'Could not broadcast Tx: '+ e.message)
+					throw new Error('TxClient:MsgUnjail:Send Could not broadcast Tx: '+ e.message)
 				}
 			}
 		},
@@ -230,10 +228,9 @@ export default {
 				return msg
 			} catch (e) {
 				if (e == MissingWalletError) {
-					throw new SpVuexError('TxClient:MsgUnjail:Init', 'Could not initialize signing client. Wallet is required.')
-				}else{
-					throw new SpVuexError('TxClient:MsgUnjail:Create', 'Could not create message: ' + e.message)
-					
+					throw new Error('TxClient:MsgUnjail:Init Could not initialize signing client. Wallet is required.')
+				} else{
+					throw new Error('TxClient:MsgUnjail:Create Could not create message: ' + e.message)
 				}
 			}
 		},

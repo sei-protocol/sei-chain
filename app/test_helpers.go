@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"testing"
@@ -9,11 +10,12 @@ import (
 	"github.com/CosmWasm/wasmd/x/wasm"
 	crptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
 	"github.com/cosmos/cosmos-sdk/simapp"
+	cosmostestutil "github.com/cosmos/cosmos-sdk/testutil"
 	sdk "github.com/cosmos/cosmos-sdk/types"
-	minttypes "github.com/cosmos/cosmos-sdk/x/mint/types"
 	slashingtypes "github.com/cosmos/cosmos-sdk/x/slashing/types"
 	"github.com/cosmos/cosmos-sdk/x/staking/teststaking"
 	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
+	minttypes "github.com/sei-protocol/sei-chain/x/mint/types"
 	"github.com/stretchr/testify/suite"
 	abci "github.com/tendermint/tendermint/abci/types"
 	"github.com/tendermint/tendermint/libs/log"
@@ -21,7 +23,23 @@ import (
 	dbm "github.com/tendermint/tm-db"
 )
 
-const TEST_CONTRACT = "TEST"
+const TestContract = "TEST"
+
+type TestTx struct {
+	msgs []sdk.Msg
+}
+
+func NewTestTx(msgs []sdk.Msg) TestTx {
+	return TestTx{msgs: msgs}
+}
+
+func (t TestTx) GetMsgs() []sdk.Msg {
+	return t.msgs
+}
+
+func (t TestTx) ValidateBasic() error {
+	return nil
+}
 
 type TestWrapper struct {
 	suite.Suite
@@ -122,12 +140,6 @@ func (s *TestWrapper) EndBlock() {
 	s.App.EndBlocker(s.Ctx, reqEndBlock)
 }
 
-type EmptyAppOptions struct{}
-
-func (ao EmptyAppOptions) Get(o string) interface{} {
-	return nil
-}
-
 func Setup(isCheckTx bool) *App {
 	db := dbm.NewMemDB()
 	encodingConfig := MakeEncodingConfig()
@@ -140,10 +152,12 @@ func Setup(isCheckTx bool) *App {
 		map[int64]bool{},
 		DefaultNodeHome,
 		5,
+		nil,
 		encodingConfig,
 		wasm.EnableAllProposals,
-		EmptyAppOptions{},
+		&cosmostestutil.TestAppOpts{},
 		EmptyWasmOpts,
+		EmptyACLOpts,
 	)
 	if !isCheckTx {
 		genesisState := NewDefaultGenesisState(cdc)
@@ -152,13 +166,16 @@ func Setup(isCheckTx bool) *App {
 			panic(err)
 		}
 
-		app.InitChain(
-			abci.RequestInitChain{
+		_, err = app.InitChain(
+			context.Background(), &abci.RequestInitChain{
 				Validators:      []abci.ValidatorUpdate{},
 				ConsensusParams: simapp.DefaultConsensusParams,
 				AppStateBytes:   stateBytes,
 			},
 		)
+		if err != nil {
+			panic(err)
+		}
 	}
 
 	return app
@@ -180,10 +197,12 @@ func SetupTestingAppWithLevelDb(isCheckTx bool) (*App, func()) {
 		map[int64]bool{},
 		DefaultNodeHome,
 		5,
+		nil,
 		encodingConfig,
 		wasm.EnableAllProposals,
-		EmptyAppOptions{},
+		&cosmostestutil.TestAppOpts{},
 		EmptyWasmOpts,
+		EmptyACLOpts,
 	)
 	if !isCheckTx {
 		genesisState := NewDefaultGenesisState(cdc)
@@ -192,13 +211,16 @@ func SetupTestingAppWithLevelDb(isCheckTx bool) (*App, func()) {
 			panic(err)
 		}
 
-		app.InitChain(
-			abci.RequestInitChain{
+		_, err = app.InitChain(
+			context.Background(), &abci.RequestInitChain{
 				Validators:      []abci.ValidatorUpdate{},
 				ConsensusParams: simapp.DefaultConsensusParams,
 				AppStateBytes:   stateBytes,
 			},
 		)
+		if err != nil {
+			panic(err)
+		}
 	}
 
 	cleanupFn := func() {

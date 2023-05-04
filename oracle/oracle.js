@@ -8,7 +8,6 @@ const utils = require('./utils').utils;
 // TODO(psu): Insert actual addresses
 const TOKEN_ADDR_MAP = {
   btc: 'cosmos14hj2tavq8fpesdwxxcu44rty3hh90vhujrvcmstl4zr3txmfvw9s4hmalr',
-  luna: 'cosmos14hj2tavq8fpesdwxxcu44rty3hh90vhujrvcmstl4zr3txmfvw9s4hmalr',
   eth: 'cosmos14hj2tavq8fpesdwxxcu44rty3hh90vhujrvcmstl4zr3txmfvw9s4hmalr',
   sol: 'cosmos14hj2tavq8fpesdwxxcu44rty3hh90vhujrvcmstl4zr3txmfvw9s4hmalr',
   osmo: 'cosmos14hj2tavq8fpesdwxxcu44rty3hh90vhujrvcmstl4zr3txmfvw9s4hmalr',
@@ -71,7 +70,7 @@ class PriceOracle {
       return fetchedPrice.price;
     });
   }
-  
+
 
   /**
    * Fetches price for a market ID

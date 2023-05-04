@@ -3,6 +3,7 @@ import { Params } from "../dex/params";
 import { LongBook } from "../dex/long_book";
 import { ShortBook } from "../dex/short_book";
 import { Twap } from "../dex/twap";
+import { TickSize } from "../dex/tick_size";
 export declare const protobufPackage = "seiprotocol.seichain.dex";
 /** GenesisState defines the dex module's genesis state. */
 export interface GenesisState {
@@ -10,6 +11,8 @@ export interface GenesisState {
     longBookList: LongBook[];
     shortBookList: ShortBook[];
     twapList: Twap[];
+    /** if null, then no restriction, todo(zw) should set it to not nullable? */
+    tickSizeList: TickSize[];
     /** this line is used by starport scaffolding # genesis/proto/state */
     lastEpoch: number;
 }

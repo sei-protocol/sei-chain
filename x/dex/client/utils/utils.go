@@ -2,7 +2,7 @@ package utils
 
 import (
 	"errors"
-	"io/ioutil"
+	"os"
 
 	"github.com/cosmos/cosmos-sdk/codec"
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -11,9 +11,10 @@ import (
 
 type (
 	PairJSON struct {
-		PriceDenom string `json:"price_denom" yaml:"price_denom"`
-		AssetDenom string `json:"asset_denom" yaml:"asset_denom"`
-		TickSize   string `json:"tick_size" yaml:"tick_size"`
+		PriceDenom       string `json:"price_denom" yaml:"price_denom"`
+		AssetDenom       string `json:"asset_denom" yaml:"asset_denom"`
+		PriceTickSize    string `json:"price_tick_size" yaml:"tick_size"`
+		QuantityTickSize string `json:"quantity_tick_size" yaml:"tick_size"`
 	}
 
 	TickSizeJSON struct {
@@ -35,26 +36,20 @@ type (
 
 	MultipleBatchContractPairJSON []BatchContractPairJSON
 
-	// RegisterPairsProposalJSON defines a RegisterPairsProposal
-	// to parse register pair proposals from a JSON file.
-	RegisterPairsProposalJSON struct {
-		Title             string                        `json:"title" yaml:"title"`
-		Description       string                        `json:"description" yaml:"description"`
+	// RegisterPairsTxJSON defines a RegisterPairsTx
+	// to parse register pair tx's from a JSON file.
+	RegisterPairsTxJSON struct {
 		BatchContractPair MultipleBatchContractPairJSON `json:"batch_contract_pair" yaml:"batch_contract_pair"`
-		Deposit           string                        `json:"deposit" yaml:"deposit"`
 	}
 
-	UpdateTickSizeProposalJSON struct {
-		Title       string        `json:"title" yaml:"title"`
-		Description string        `json:"description" yaml:"description"`
-		TickSizes   TickSizesJSON `json:"tick_size_list" yaml:"tick_size_list"`
-		Deposit     string        `json:"deposit" yaml:"deposit"`
+	UpdateTickSizeTxJSON struct {
+		TickSizes TickSizesJSON `json:"tick_size_list" yaml:"tick_size_list"`
 	}
 
 	AddAssetMetadataProposalJSON struct {
 		Title       string        `json:"title" yaml:"title"`
 		Description string        `json:"description" yaml:"description"`
-		AssetList   AssetListJSON `json:"tick_size_list" yaml:"tick_size_list"`
+		AssetList   AssetListJSON `json:"asset_list" yaml:"asset_list"`
 		Deposit     string        `json:"deposit" yaml:"deposit"`
 	}
 )
@@ -63,22 +58,26 @@ type (
 func NewPair(pair PairJSON) (dextypes.Pair, error) {
 	PriceDenom := pair.PriceDenom
 	AssetDenom := pair.AssetDenom
-	ticksize, err := sdk.NewDecFromStr(pair.TickSize)
+	priceTicksize, err := sdk.NewDecFromStr(pair.PriceTickSize)
 	if err != nil {
-		return dextypes.Pair{}, errors.New("ticksize: str to decimal conversion err")
+		return dextypes.Pair{}, errors.New("price ticksize: str to decimal conversion err")
 	}
-	return dextypes.Pair{PriceDenom: PriceDenom, AssetDenom: AssetDenom, Ticksize: &ticksize}, nil
+	quantityTicksize, err := sdk.NewDecFromStr(pair.QuantityTickSize)
+	if err != nil {
+		return dextypes.Pair{}, errors.New("quantity ticksize: str to decimal conversion err")
+	}
+	return dextypes.Pair{PriceDenom: PriceDenom, AssetDenom: AssetDenom, PriceTicksize: &priceTicksize, QuantityTicksize: &quantityTicksize}, nil
 }
 
 // ToParamChange converts a ParamChangeJSON object to ParamChange.
 func (bcp BatchContractPairJSON) ToBatchContractPair() (dextypes.BatchContractPair, error) {
 	pairs := make([]*dextypes.Pair, len(bcp.Pairs))
 	for i, p := range bcp.Pairs {
-		new_pair, err := NewPair(p)
+		newPair, err := NewPair(p)
 		if err != nil {
 			return dextypes.BatchContractPair{}, nil
 		}
-		pairs[i] = &new_pair
+		pairs[i] = &newPair
 	}
 	return dextypes.BatchContractPair{ContractAddr: bcp.ContractAddr, Pairs: pairs}, nil
 }
@@ -99,11 +98,11 @@ func (ts TickSizeJSON) ToTickSize() (dextypes.TickSize, error) {
 func (mbcp MultipleBatchContractPairJSON) ToMultipleBatchContractPair() ([]dextypes.BatchContractPair, error) {
 	res := make([]dextypes.BatchContractPair, len(mbcp))
 	for i, bcp := range mbcp {
-		new_batch, err := bcp.ToBatchContractPair()
+		newBatch, err := bcp.ToBatchContractPair()
 		if err != nil {
 			return res, nil
 		}
-		res[i] = new_batch
+		res[i] = newBatch
 	}
 	return res, nil
 }
@@ -120,38 +119,38 @@ func (tss TickSizesJSON) ToTickSizes() ([]dextypes.TickSize, error) {
 	return res, nil
 }
 
-// ParseRegisterPairsProposalJSON reads and parses a RegisterPairsProposalJSON from
+// ParseRegisterPairsTxJSON reads and parses a RegisterPairsTxJSON from
 // a file.
-func ParseRegisterPairsProposalJSON(cdc *codec.LegacyAmino, proposalFile string) (RegisterPairsProposalJSON, error) {
-	proposal := RegisterPairsProposalJSON{}
+func ParseRegisterPairsTxJSON(cdc *codec.LegacyAmino, txFile string) (RegisterPairsTxJSON, error) {
+	registerTx := RegisterPairsTxJSON{}
 
-	contents, err := ioutil.ReadFile(proposalFile)
+	contents, err := os.ReadFile(txFile)
 	if err != nil {
-		return proposal, err
+		return registerTx, err
 	}
 
-	if err := cdc.UnmarshalJSON(contents, &proposal); err != nil {
-		return proposal, err
+	if err := cdc.UnmarshalJSON(contents, &registerTx); err != nil {
+		return registerTx, err
 	}
 
-	return proposal, nil
+	return registerTx, nil
 }
 
-// ParseRegisterPairsProposalJSON reads and parses a RegisterPairsProposalJSON from
+// ParseUpdateTickSizeTxJSON reads and parses a UpdateTickSizeTxJSON from
 // a file.
-func ParseUpdateTickSizeProposalJSON(cdc *codec.LegacyAmino, proposalFile string) (UpdateTickSizeProposalJSON, error) {
-	proposal := UpdateTickSizeProposalJSON{}
+func ParseUpdateTickSizeTxJSON(cdc *codec.LegacyAmino, txFile string) (UpdateTickSizeTxJSON, error) {
+	tickTx := UpdateTickSizeTxJSON{}
 
-	contents, err := ioutil.ReadFile(proposalFile)
+	contents, err := os.ReadFile(txFile)
 	if err != nil {
-		return proposal, err
+		return tickTx, err
 	}
 
-	if err := cdc.UnmarshalJSON(contents, &proposal); err != nil {
-		return proposal, err
+	if err := cdc.UnmarshalJSON(contents, &tickTx); err != nil {
+		return tickTx, err
 	}
 
-	return proposal, nil
+	return tickTx, nil
 }
 
 // ParseAddAssetMetadataProposalJSON reads and parses an AddAssetMetadataProposalJSON from
@@ -159,7 +158,7 @@ func ParseUpdateTickSizeProposalJSON(cdc *codec.LegacyAmino, proposalFile string
 func ParseAddAssetMetadataProposalJSON(cdc *codec.LegacyAmino, proposalFile string) (AddAssetMetadataProposalJSON, error) {
 	proposal := AddAssetMetadataProposalJSON{}
 
-	contents, err := ioutil.ReadFile(proposalFile)
+	contents, err := os.ReadFile(proposalFile)
 	if err != nil {
 		return proposal, err
 	}
@@ -186,7 +185,7 @@ func ParseAddAssetMetadataProposalJSON(cdc *codec.LegacyAmino, proposalFile stri
 			}
 		}
 
-		if found == false {
+		if !found {
 			return AddAssetMetadataProposalJSON{}, errors.New("Display denom " + display + " has no associated DenomUnit in Metadata.")
 		}
 

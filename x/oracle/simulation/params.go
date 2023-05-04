@@ -1,6 +1,6 @@
 package simulation
 
-//DONTCOVER
+// DONTCOVER
 
 import (
 	"fmt"

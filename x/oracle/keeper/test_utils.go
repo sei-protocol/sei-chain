@@ -3,12 +3,11 @@ package keeper
 
 import (
 	"testing"
+	"time"
 
 	"github.com/sei-protocol/sei-chain/x/oracle/types"
 	"github.com/sei-protocol/sei-chain/x/oracle/utils"
 	"github.com/stretchr/testify/require"
-
-	"time"
 
 	"github.com/tendermint/tendermint/crypto"
 	"github.com/tendermint/tendermint/crypto/secp256k1"
@@ -251,7 +250,7 @@ func CreateTestInput(t *testing.T) TestInput {
 
 // NewTestMsgCreateValidator test msg creator
 func NewTestMsgCreateValidator(address sdk.ValAddress, pubKey cryptotypes.PubKey, amt sdk.Int) *stakingtypes.MsgCreateValidator {
-	commission := stakingtypes.NewCommissionRates(sdk.ZeroDec(), sdk.ZeroDec(), sdk.ZeroDec())
+	commission := stakingtypes.NewCommissionRates(sdk.NewDecWithPrec(5, 2), sdk.NewDecWithPrec(5, 2), sdk.NewDecWithPrec(5, 2))
 	msg, _ := stakingtypes.NewMsgCreateValidator(
 		address, pubKey, sdk.NewCoin(utils.MicroSeiDenom, amt),
 		stakingtypes.Description{}, commission, sdk.OneInt(),

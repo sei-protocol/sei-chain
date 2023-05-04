@@ -14,4 +14,37 @@ message Params {
     (gogoproto.moretags) = "yaml:\"price_snapshot_retention\"",
     (gogoproto.jsontag) = "price_snapshot_retention"
   ];
+  string sudo_call_gas_price = 2 [
+    (gogoproto.jsontag)   = "sudo_call_gas_price",
+    (gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Dec",
+    (gogoproto.nullable)   = false
+  ];
+  uint64 begin_block_gas_limit = 3 [
+    (gogoproto.jsontag)   = "begin_block_gas_limit",
+    (gogoproto.moretags) = "yaml:\"begin_block_gas_limit\""
+  ];
+  uint64 end_block_gas_limit = 4 [
+    (gogoproto.jsontag)   = "end_block_gas_limit",
+    (gogoproto.moretags) = "yaml:\"end_block_gas_limit\""
+  ];
+  uint64 default_gas_per_order = 5 [
+    (gogoproto.jsontag)   = "default_gas_per_order",
+    (gogoproto.moretags) = "yaml:\"default_gas_per_order\""
+  ];
+  uint64 default_gas_per_cancel = 6 [
+    (gogoproto.jsontag)   = "default_gas_per_cancel",
+    (gogoproto.moretags) = "yaml:\"default_gas_per_cancel\""
+  ];
+  uint64 min_rent_deposit = 7 [
+    (gogoproto.jsontag)   = "min_rent_deposit",
+    (gogoproto.moretags) = "yaml:\"min_rent_deposit\""
+  ];
+  uint64 gas_allowance_per_settlement = 8 [
+    (gogoproto.jsontag)   = "gas_allowance_per_settlement",
+    (gogoproto.moretags) = "yaml:\"gas_allowance_per_settlement\""
+  ];
+  uint64 min_processable_rent = 9 [
+    (gogoproto.jsontag)   = "min_processable_rent",
+    (gogoproto.moretags) = "yaml:\"min_processable_rent\""
+  ];
 }

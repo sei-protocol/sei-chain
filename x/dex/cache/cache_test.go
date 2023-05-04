@@ -1,165 +1,174 @@
 package dex_test
 
 import (
+	"context"
 	"testing"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	keepertest "github.com/sei-protocol/sei-chain/testutil/keeper"
+	"github.com/sei-protocol/sei-chain/utils/datastructures"
 	dex "github.com/sei-protocol/sei-chain/x/dex/cache"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
+	"github.com/sei-protocol/sei-chain/x/dex/types/utils"
+	"github.com/sei-protocol/sei-chain/x/store"
 	"github.com/stretchr/testify/require"
 )
 
-const TEST_CONTRACT = "test"
-const TEST_PAIR = "pair"
+const (
+	TEST_CONTRACT = "test"
+	TEST_PAIR     = "pair"
+)
 
 func TestDeepCopy(t *testing.T) {
-	stateOne := dex.NewMemState()
-	stateOne.GetBlockOrders(types.ContractAddress(TEST_CONTRACT), types.PairString(TEST_PAIR)).AddOrder(types.Order{
+	keeper, ctx := keepertest.DexKeeper(t)
+	stateOne := dex.NewMemState(keeper.GetStoreKey())
+	stateOne.GetBlockOrders(ctx, utils.ContractAddress(TEST_CONTRACT), utils.PairString(TEST_PAIR)).Add(&types.Order{
 		Id:           1,
 		Account:      "test",
 		ContractAddr: TEST_CONTRACT,
 	})
 	stateTwo := stateOne.DeepCopy()
-	stateTwo.GetBlockOrders(types.ContractAddress(TEST_CONTRACT), types.PairString(TEST_PAIR)).AddOrder(types.Order{
+	cachedCtx, _ := store.GetCachedContext(ctx)
+	stateTwo.GetBlockOrders(cachedCtx, utils.ContractAddress(TEST_CONTRACT), utils.PairString(TEST_PAIR)).Add(&types.Order{
 		Id:           2,
 		Account:      "test",
 		ContractAddr: TEST_CONTRACT,
 	})
 	// old state must not be changed
-	require.Equal(t, 1, len(*stateOne.GetBlockOrders(types.ContractAddress(TEST_CONTRACT), types.PairString(TEST_PAIR))))
+	require.Equal(t, 1, len(stateOne.GetBlockOrders(ctx, utils.ContractAddress(TEST_CONTRACT), utils.PairString(TEST_PAIR)).Get()))
 	// new state must be changed
-	require.Equal(t, 2, len(*stateTwo.GetBlockOrders(types.ContractAddress(TEST_CONTRACT), types.PairString(TEST_PAIR))))
+	require.Equal(t, 2, len(stateTwo.GetBlockOrders(cachedCtx, utils.ContractAddress(TEST_CONTRACT), utils.PairString(TEST_PAIR)).Get()))
+}
+
+func TestDeepFilterAccounts(t *testing.T) {
+	keeper, ctx := keepertest.DexKeeper(t)
+	stateOne := dex.NewMemState(keeper.GetStoreKey())
+	stateOne.GetBlockOrders(ctx, utils.ContractAddress(TEST_CONTRACT), utils.PairString(TEST_PAIR)).Add(&types.Order{
+		Id:           1,
+		Account:      "test",
+		ContractAddr: TEST_CONTRACT,
+	})
+	stateOne.GetBlockOrders(ctx, utils.ContractAddress(TEST_CONTRACT), utils.PairString(TEST_PAIR)).Add(&types.Order{
+		Id:           2,
+		Account:      "test2",
+		ContractAddr: TEST_CONTRACT,
+	})
+	stateOne.GetBlockCancels(ctx, utils.ContractAddress(TEST_CONTRACT), utils.PairString(TEST_PAIR)).Add(&types.Cancellation{
+		Id:      1,
+		Creator: "test",
+	})
+	stateOne.GetBlockCancels(ctx, utils.ContractAddress(TEST_CONTRACT), utils.PairString(TEST_PAIR)).Add(&types.Cancellation{
+		Id:      2,
+		Creator: "test2",
+	})
+	stateOne.GetDepositInfo(ctx, utils.ContractAddress(TEST_CONTRACT)).Add(&types.DepositInfoEntry{
+		Creator: "test",
+	})
+	stateOne.GetDepositInfo(ctx, utils.ContractAddress(TEST_CONTRACT)).Add(&types.DepositInfoEntry{
+		Creator: "test2",
+	})
+
+	stateOne.DeepFilterAccount(ctx, "test")
+	require.Equal(t, 1, len(stateOne.GetAllBlockOrders(ctx, utils.ContractAddress(TEST_CONTRACT))))
+	require.Equal(t, 1, len(stateOne.GetBlockCancels(ctx, utils.ContractAddress(TEST_CONTRACT), utils.PairString(TEST_PAIR)).Get()))
+	require.Equal(t, 1, len(stateOne.GetDepositInfo(ctx, utils.ContractAddress(TEST_CONTRACT)).Get()))
+}
+
+func TestDeepDelete(t *testing.T) {
+	keeper, ctx := keepertest.DexKeeper(t)
+	stateOne := dex.NewMemState(keeper.GetStoreKey())
+	stateOne.GetBlockOrders(ctx, utils.ContractAddress(TEST_CONTRACT), utils.PairString(TEST_PAIR)).Add(&types.Order{
+		Id:           1,
+		Account:      "test",
+		ContractAddr: TEST_CONTRACT,
+	})
+	dex.DeepDelete(ctx.KVStore(keeper.GetStoreKey()), types.KeyPrefix(types.MemOrderKey), func(_ []byte) bool { return true })
 }
 
 func TestClear(t *testing.T) {
-	stateOne := dex.NewMemState()
-	stateOne.GetBlockOrders(types.ContractAddress(TEST_CONTRACT), types.PairString(TEST_PAIR)).AddOrder(types.Order{
+	keeper, ctx := keepertest.DexKeeper(t)
+	stateOne := dex.NewMemState(keeper.GetStoreKey())
+	stateOne.GetBlockOrders(ctx, utils.ContractAddress(TEST_CONTRACT), utils.PairString(TEST_PAIR)).Add(&types.Order{
 		Id:           1,
 		Account:      "test",
 		ContractAddr: TEST_CONTRACT,
 	})
-	stateOne.Clear()
-	require.Equal(t, 0, len(*stateOne.GetBlockOrders(types.ContractAddress(TEST_CONTRACT), types.PairString(TEST_PAIR))))
-}
-
-func TestMarkFailedToPlaceByAccounts(t *testing.T) {
-	stateOne := dex.NewMemState()
-	stateOne.GetBlockOrders(types.ContractAddress(TEST_CONTRACT), types.PairString(TEST_PAIR)).AddOrder(types.Order{
-		Id:           1,
-		Account:      "test",
+	stateOne.GetBlockCancels(ctx, utils.ContractAddress(TEST_CONTRACT), utils.PairString(TEST_PAIR)).Add(&types.Cancellation{
+		Id:           2,
 		ContractAddr: TEST_CONTRACT,
 	})
-	stateOne.GetBlockOrders(types.ContractAddress(TEST_CONTRACT), types.PairString(TEST_PAIR)).MarkFailedToPlaceByAccounts([]string{"test"})
-	require.Equal(t, types.OrderStatus_FAILED_TO_PLACE,
-		(*stateOne.GetBlockOrders(types.ContractAddress(TEST_CONTRACT), types.PairString(TEST_PAIR)))[0].Status)
+	stateOne.Clear(ctx)
+	require.Equal(t, 0, len(stateOne.GetBlockOrders(ctx, utils.ContractAddress(TEST_CONTRACT), utils.PairString(TEST_PAIR)).Get()))
+	require.Equal(t, 0, len(stateOne.GetBlockCancels(ctx, utils.ContractAddress(TEST_CONTRACT), utils.PairString(TEST_PAIR)).Get()))
 }
 
-func TestMarkFailedToPlaceByIds(t *testing.T) {
-	stateOne := dex.NewMemState()
-	stateOne.GetBlockOrders(types.ContractAddress(TEST_CONTRACT), types.PairString(TEST_PAIR)).AddOrder(types.Order{
+func TestClearCancellationForPair(t *testing.T) {
+	keeper, ctx := keepertest.DexKeeper(t)
+	stateOne := dex.NewMemState(keeper.GetStoreKey())
+	stateOne.GetBlockCancels(ctx, utils.ContractAddress(TEST_CONTRACT), utils.PairString(TEST_PAIR)).Add(&types.Cancellation{
 		Id:           1,
-		Account:      "test",
 		ContractAddr: TEST_CONTRACT,
+		PriceDenom:   "USDC",
+		AssetDenom:   "ATOM",
 	})
-	stateOne.GetBlockOrders(types.ContractAddress(TEST_CONTRACT), types.PairString(TEST_PAIR)).MarkFailedToPlaceByIds([]uint64{1})
-	require.Equal(t, types.OrderStatus_FAILED_TO_PLACE,
-		(*stateOne.GetBlockOrders(types.ContractAddress(TEST_CONTRACT), types.PairString(TEST_PAIR)))[0].Status)
+	stateOne.GetBlockCancels(ctx, utils.ContractAddress(TEST_CONTRACT), utils.PairString(TEST_PAIR)).Add(&types.Cancellation{
+		Id:           2,
+		ContractAddr: TEST_CONTRACT,
+		PriceDenom:   "USDC",
+		AssetDenom:   "ATOM",
+	})
+	stateOne.GetBlockCancels(ctx, utils.ContractAddress(TEST_CONTRACT), utils.PairString(TEST_PAIR)).Add(&types.Cancellation{
+		Id:           3,
+		ContractAddr: TEST_CONTRACT,
+		PriceDenom:   "USDC",
+		AssetDenom:   "SEI",
+	})
+	stateOne.ClearCancellationForPair(ctx, TEST_CONTRACT, utils.GetPairString(&types.Pair{
+		PriceDenom: "USDC",
+		AssetDenom: "ATOM",
+	}))
+	require.Equal(t, 1, len(stateOne.GetBlockCancels(ctx, utils.ContractAddress(TEST_CONTRACT), utils.PairString(TEST_PAIR)).Get()))
+	require.Equal(t, uint64(3), stateOne.GetBlockCancels(ctx, utils.ContractAddress(TEST_CONTRACT), utils.PairString(TEST_PAIR)).Get()[0].Id)
 }
 
-func TestGetSortedMarketOrders(t *testing.T) {
-	stateOne := dex.NewMemState()
-	stateOne.GetBlockOrders(types.ContractAddress(TEST_CONTRACT), types.PairString(TEST_PAIR)).AddOrder(types.Order{
-		Id:                1,
-		Account:           "test",
-		ContractAddr:      TEST_CONTRACT,
-		PositionDirection: types.PositionDirection_LONG,
-		OrderType:         types.OrderType_LIQUIDATION,
-		Price:             sdk.MustNewDecFromStr("150"),
-	})
-	stateOne.GetBlockOrders(types.ContractAddress(TEST_CONTRACT), types.PairString(TEST_PAIR)).AddOrder(types.Order{
-		Id:                2,
-		Account:           "test",
-		ContractAddr:      TEST_CONTRACT,
-		PositionDirection: types.PositionDirection_LONG,
-		OrderType:         types.OrderType_MARKET,
-		Price:             sdk.MustNewDecFromStr("100"),
-	})
-	stateOne.GetBlockOrders(types.ContractAddress(TEST_CONTRACT), types.PairString(TEST_PAIR)).AddOrder(types.Order{
-		Id:                3,
-		Account:           "test",
-		ContractAddr:      TEST_CONTRACT,
-		PositionDirection: types.PositionDirection_LONG,
-		OrderType:         types.OrderType_MARKET,
-		Price:             sdk.MustNewDecFromStr("0"),
-	})
-	stateOne.GetBlockOrders(types.ContractAddress(TEST_CONTRACT), types.PairString(TEST_PAIR)).AddOrder(types.Order{
-		Id:                4,
-		Account:           "test",
-		ContractAddr:      TEST_CONTRACT,
-		PositionDirection: types.PositionDirection_SHORT,
-		OrderType:         types.OrderType_LIQUIDATION,
-		Price:             sdk.MustNewDecFromStr("100"),
-	})
-	stateOne.GetBlockOrders(types.ContractAddress(TEST_CONTRACT), types.PairString(TEST_PAIR)).AddOrder(types.Order{
-		Id:                5,
-		Account:           "test",
-		ContractAddr:      TEST_CONTRACT,
-		PositionDirection: types.PositionDirection_SHORT,
-		OrderType:         types.OrderType_MARKET,
-		Price:             sdk.MustNewDecFromStr("80"),
-	})
-	stateOne.GetBlockOrders(types.ContractAddress(TEST_CONTRACT), types.PairString(TEST_PAIR)).AddOrder(types.Order{
-		Id:                6,
-		Account:           "test",
-		ContractAddr:      TEST_CONTRACT,
-		PositionDirection: types.PositionDirection_SHORT,
-		OrderType:         types.OrderType_MARKET,
-		Price:             sdk.MustNewDecFromStr("0"),
-	})
-	stateOne.GetBlockOrders(types.ContractAddress(TEST_CONTRACT), types.PairString(TEST_PAIR)).AddOrder(types.Order{
-		Id:                7,
-		Account:           "test",
-		ContractAddr:      TEST_CONTRACT,
-		PositionDirection: types.PositionDirection_LONG,
-		OrderType:         types.OrderType_LIMIT,
-		Price:             sdk.MustNewDecFromStr("100"),
-	})
-	stateOne.GetBlockOrders(types.ContractAddress(TEST_CONTRACT), types.PairString(TEST_PAIR)).AddOrder(types.Order{
-		Id:                8,
-		Account:           "test",
-		ContractAddr:      TEST_CONTRACT,
-		PositionDirection: types.PositionDirection_SHORT,
-		OrderType:         types.OrderType_LIMIT,
-		Price:             sdk.MustNewDecFromStr("100"),
-	})
-
-	marketBuysWithLiquidation := stateOne.GetBlockOrders(
-		types.ContractAddress(TEST_CONTRACT), types.PairString(TEST_PAIR)).GetSortedMarketOrders(
-		types.PositionDirection_LONG, true,
-	)
-	require.Equal(t, uint64(3), marketBuysWithLiquidation[0].Id)
-	require.Equal(t, uint64(1), marketBuysWithLiquidation[1].Id)
-	require.Equal(t, uint64(2), marketBuysWithLiquidation[2].Id)
-
-	marketBuysWithoutLiquidation := stateOne.GetBlockOrders(
-		types.ContractAddress(TEST_CONTRACT), types.PairString(TEST_PAIR)).GetSortedMarketOrders(
-		types.PositionDirection_LONG, false,
-	)
-	require.Equal(t, uint64(3), marketBuysWithoutLiquidation[0].Id)
-	require.Equal(t, uint64(2), marketBuysWithoutLiquidation[1].Id)
-
-	marketSellsWithLiquidation := stateOne.GetBlockOrders(
-		types.ContractAddress(TEST_CONTRACT), types.PairString(TEST_PAIR)).GetSortedMarketOrders(
-		types.PositionDirection_SHORT, true,
-	)
-	require.Equal(t, uint64(6), marketSellsWithLiquidation[0].Id)
-	require.Equal(t, uint64(5), marketSellsWithLiquidation[1].Id)
-	require.Equal(t, uint64(4), marketSellsWithLiquidation[2].Id)
-
-	marketSellsWithoutLiquidation := stateOne.GetBlockOrders(
-		types.ContractAddress(TEST_CONTRACT), types.PairString(TEST_PAIR)).GetSortedMarketOrders(
-		types.PositionDirection_SHORT, false,
-	)
-	require.Equal(t, uint64(6), marketSellsWithoutLiquidation[0].Id)
-	require.Equal(t, uint64(5), marketSellsWithoutLiquidation[1].Id)
+func TestSynchronization(t *testing.T) {
+	_, ctx := keepertest.DexKeeper(t)
+	stateOne := dex.NewMemState(sdk.NewKVStoreKey(types.StoreKey))
+	targetContract := utils.ContractAddress(TEST_CONTRACT)
+	// no go context
+	require.NotPanics(t, func() { stateOne.SynchronizeAccess(ctx, targetContract) })
+	// no executing contract
+	goCtx := context.Background()
+	ctx = ctx.WithContext(goCtx)
+	require.NotPanics(t, func() { stateOne.SynchronizeAccess(ctx, targetContract) })
+	// executing contract same as target contract
+	executingContract := types.ContractInfoV2{ContractAddr: TEST_CONTRACT}
+	ctx = ctx.WithContext(context.WithValue(goCtx, dex.CtxKeyExecutingContract, executingContract))
+	require.NotPanics(t, func() { stateOne.SynchronizeAccess(ctx, targetContract) })
+	// executing contract attempting to access non-dependency
+	executingContract.ContractAddr = "executing"
+	ctx = ctx.WithContext(context.WithValue(goCtx, dex.CtxKeyExecutingContract, executingContract))
+	require.Panics(t, func() { stateOne.SynchronizeAccess(ctx, targetContract) })
+	// no termination map
+	executingContract.Dependencies = []*types.ContractDependencyInfo{
+		{Dependency: TEST_CONTRACT, ImmediateElderSibling: "elder"},
+	}
+	ctx = ctx.WithContext(context.WithValue(goCtx, dex.CtxKeyExecutingContract, executingContract))
+	require.Panics(t, func() { stateOne.SynchronizeAccess(ctx, targetContract) })
+	// no termination signal channel for sibling
+	terminationSignals := datastructures.NewTypedSyncMap[string, chan struct{}]()
+	goCtx = context.WithValue(goCtx, dex.CtxKeyExecutingContract, executingContract)
+	goCtx = context.WithValue(goCtx, dex.CtxKeyExecTermSignal, terminationSignals)
+	ctx = ctx.WithContext(goCtx)
+	require.Panics(t, func() { stateOne.SynchronizeAccess(ctx, targetContract) })
+	// termination signal times out
+	siblingChan := make(chan struct{}, 1)
+	terminationSignals.Store("elder", siblingChan)
+	require.Panics(t, func() { stateOne.SynchronizeAccess(ctx, targetContract) })
+	// termination signal sent
+	go func() {
+		siblingChan <- struct{}{}
+	}()
+	require.NotPanics(t, func() { stateOne.SynchronizeAccess(ctx, targetContract) })
+	<-siblingChan // the channel should be re-populated
 }
