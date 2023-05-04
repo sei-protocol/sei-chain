@@ -197,6 +197,9 @@ func (am AppModule) RegisterServices(cfg module.Configurator) {
 	_ = cfg.RegisterMigration(types.ModuleName, 11, func(ctx sdk.Context) error {
 		return migrations.V11ToV12(ctx, am.keeper)
 	})
+	_ = cfg.RegisterMigration(types.ModuleName, 12, func(ctx sdk.Context) error {
+		return migrations.V12ToV13(ctx, am.keeper)
+	})
 }
 
 // RegisterInvariants registers the capability module's invariants.
