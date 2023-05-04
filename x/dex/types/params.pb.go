@@ -29,11 +29,9 @@ type Params struct {
 	PriceSnapshotRetention    uint64                                 `protobuf:"varint,1,opt,name=price_snapshot_retention,json=priceSnapshotRetention,proto3" json:"price_snapshot_retention" yaml:"price_snapshot_retention"`
 	SudoCallGasPrice          github_com_cosmos_cosmos_sdk_types.Dec `protobuf:"bytes,2,opt,name=sudo_call_gas_price,json=sudoCallGasPrice,proto3,customtype=github.com/cosmos/cosmos-sdk/types.Dec" json:"sudo_call_gas_price"`
 	BeginBlockGasLimit        uint64                                 `protobuf:"varint,3,opt,name=begin_block_gas_limit,json=beginBlockGasLimit,proto3" json:"begin_block_gas_limit" yaml:"begin_block_gas_limit"`
-
 	EndBlockGasLimit          uint64                                 `protobuf:"varint,4,opt,name=end_block_gas_limit,json=endBlockGasLimit,proto3" json:"end_block_gas_limit" yaml:"end_block_gas_limit"`
 	DefaultGasPerOrder        uint64                                 `protobuf:"varint,5,opt,name=default_gas_per_order,json=defaultGasPerOrder,proto3" json:"default_gas_per_order" yaml:"default_gas_per_order"`
 	DefaultGasPerCancel       uint64                                 `protobuf:"varint,6,opt,name=default_gas_per_cancel,json=defaultGasPerCancel,proto3" json:"default_gas_per_cancel" yaml:"default_gas_per_cancel"`
-
 	MinRentDeposit            uint64                                 `protobuf:"varint,7,opt,name=min_rent_deposit,json=minRentDeposit,proto3" json:"min_rent_deposit" yaml:"min_rent_deposit"`
 	GasAllowancePerSettlement uint64                                 `protobuf:"varint,8,opt,name=gas_allowance_per_settlement,json=gasAllowancePerSettlement,proto3" json:"gas_allowance_per_settlement" yaml:"gas_allowance_per_settlement"`
 	MinProcessableRent        uint64                                 `protobuf:"varint,9,opt,name=min_processable_rent,json=minProcessableRent,proto3" json:"min_processable_rent" yaml:"min_processable_rent"`
