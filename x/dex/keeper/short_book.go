@@ -45,7 +45,7 @@ func (k Keeper) GetAllShortBook(ctx sdk.Context, contractAddr string) (list []ty
 	return
 }
 
-func (k Keeper) GetAllShortBookForPair(ctx sdk.Context, contractAddr string, priceDenom string, assetDenom string) (list []types.OrderBook) {
+func (k Keeper) GetAllShortBookForPair(ctx sdk.Context, contractAddr string, priceDenom string, assetDenom string) (list []types.OrderBookEntry) {
 	store := prefix.NewStore(ctx.KVStore(k.storeKey), types.OrderBookPrefix(false, contractAddr, priceDenom, assetDenom))
 	iterator := sdk.KVStorePrefixIterator(store, []byte{})
 
@@ -74,6 +74,23 @@ func (k Keeper) GetAllShortBookForPairPaginated(ctx sdk.Context, contractAddr st
 	})
 
 	return
+}
+
+func (k Keeper) GetShortAllocationForOrderID(ctx sdk.Context, contractAddr string, priceDenom string, assetDenom string, price sdk.Dec, orderID uint64) (*types.Allocation, bool) {
+	orderBook, found := k.GetShortBookByPrice(ctx, contractAddr, price, priceDenom, assetDenom)
+	if !found {
+		return nil, false
+	}
+	for _, allocation := range orderBook.Entry.Allocations {
+		if allocation.OrderId == orderID {
+			return allocation, true
+		}
+	}
+	return nil, false
+}
+
+func (k Keeper) RemoveAllShortBooksForContract(ctx sdk.Context, contractAddr string) {
+	k.removeAllForPrefix(ctx, types.OrderBookContractPrefix(false, contractAddr))
 }
 
 func GetKeyForShortBook(shortBook types.ShortBook) []byte {

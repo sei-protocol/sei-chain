@@ -1,255 +1,205 @@
 package dex
 
 import (
-	"sort"
+	"fmt"
+	"time"
 
+	"github.com/cosmos/cosmos-sdk/store/prefix"
 	sdk "github.com/cosmos/cosmos-sdk/types"
-	"github.com/sei-protocol/sei-chain/utils"
+
+	"github.com/sei-protocol/sei-chain/utils/datastructures"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
+	typesutils "github.com/sei-protocol/sei-chain/x/dex/types/utils"
 )
 
-const (
-	LimitBuyEventType   = "dex_lb"
-	LimitSellEventType  = "dex_ls"
-	MarketBuyEventType  = "dex_mb"
-	MarketSellEventType = "dex_ms"
-	CreatorAttr         = "creator"
-	PriceAttr           = "price"
-	QuantityAttr        = "quantity"
-)
+const SynchronizationTimeoutInSeconds = 5
 
 type MemState struct {
-	BlockOrders         map[types.ContractAddress]map[types.PairString]*BlockOrders
-	BlockCancels        map[types.ContractAddress]map[types.PairString]*BlockCancellations
-	DepositInfo         map[types.ContractAddress]*DepositInfo
-	LiquidationRequests map[types.ContractAddress]*LiquidationRequests
+	storeKey    sdk.StoreKey
+	depositInfo *datastructures.TypedSyncMap[typesutils.ContractAddress, *DepositInfo]
 }
 
-// All new orders attempted to be placed in the current block
-type BlockOrders []types.Order
-
-type DepositInfoEntry struct {
-	Creator string
-	Denom   string
-	Amount  sdk.Dec
-}
-
-type DepositInfo []DepositInfoEntry
-
-type BlockCancellations []types.Cancellation
-
-type LiquidationRequest struct {
-	Requestor          string
-	AccountToLiquidate string
-}
-
-type LiquidationRequests []LiquidationRequest
-
-func NewMemState() *MemState {
+func NewMemState(storeKey sdk.StoreKey) *MemState {
 	return &MemState{
-		BlockOrders:         map[types.ContractAddress]map[types.PairString]*BlockOrders{},
-		BlockCancels:        map[types.ContractAddress]map[types.PairString]*BlockCancellations{},
-		DepositInfo:         map[types.ContractAddress]*DepositInfo{},
-		LiquidationRequests: map[types.ContractAddress]*LiquidationRequests{},
+		storeKey:    storeKey,
+		depositInfo: datastructures.NewTypedSyncMap[typesutils.ContractAddress, *DepositInfo](),
 	}
 }
 
-func (s *MemState) GetBlockOrders(contractAddr types.ContractAddress, pair types.PairString) *BlockOrders {
-	if _, ok := s.BlockOrders[contractAddr]; !ok {
-		s.BlockOrders[contractAddr] = map[types.PairString]*BlockOrders{}
+func (s *MemState) GetAllBlockOrders(ctx sdk.Context, contractAddr typesutils.ContractAddress) (list []*types.Order) {
+	s.SynchronizeAccess(ctx, contractAddr)
+	store := prefix.NewStore(
+		ctx.KVStore(s.storeKey),
+		types.MemOrderPrefix(
+			string(contractAddr),
+		),
+	)
+	iterator := sdk.KVStorePrefixIterator(store, []byte{})
+
+	defer iterator.Close()
+
+	for ; iterator.Valid(); iterator.Next() {
+		var val types.Order
+		if err := val.Unmarshal(iterator.Value()); err != nil {
+			panic(err)
+		}
+		list = append(list, &val)
 	}
-	if _, ok := s.BlockOrders[contractAddr][pair]; !ok {
-		emptyBlockOrders := BlockOrders([]types.Order{})
-		s.BlockOrders[contractAddr][pair] = &emptyBlockOrders
-	}
-	return s.BlockOrders[contractAddr][pair]
+	return
 }
 
-func (s *MemState) GetBlockCancels(contractAddr types.ContractAddress, pair types.PairString) *BlockCancellations {
-	if _, ok := s.BlockCancels[contractAddr]; !ok {
-		s.BlockCancels[contractAddr] = map[types.PairString]*BlockCancellations{}
-	}
-	if _, ok := s.BlockCancels[contractAddr][pair]; !ok {
-		emptyBlockCancels := BlockCancellations([]types.Cancellation{})
-		s.BlockCancels[contractAddr][pair] = &emptyBlockCancels
-	}
-	return s.BlockCancels[contractAddr][pair]
+func (s *MemState) GetBlockOrders(ctx sdk.Context, contractAddr typesutils.ContractAddress, pair typesutils.PairString) *BlockOrders {
+	s.SynchronizeAccess(ctx, contractAddr)
+	return NewOrders(
+		prefix.NewStore(
+			ctx.KVStore(s.storeKey),
+			types.MemOrderPrefixForPair(
+				string(contractAddr), string(pair),
+			),
+		),
+	)
 }
 
-func (s *MemState) GetDepositInfo(contractAddr types.ContractAddress) *DepositInfo {
-	if _, ok := s.DepositInfo[contractAddr]; !ok {
-		s.DepositInfo[contractAddr] = NewDepositInfo()
-	}
-	return s.DepositInfo[contractAddr]
+func (s *MemState) GetBlockCancels(ctx sdk.Context, contractAddr typesutils.ContractAddress, pair typesutils.PairString) *BlockCancellations {
+	s.SynchronizeAccess(ctx, contractAddr)
+	return NewCancels(
+		prefix.NewStore(
+			ctx.KVStore(s.storeKey),
+			types.MemCancelPrefixForPair(
+				string(contractAddr), string(pair),
+			),
+		),
+	)
 }
 
-func (s *MemState) GetLiquidationRequests(contractAddr types.ContractAddress) *LiquidationRequests {
-	if _, ok := s.LiquidationRequests[contractAddr]; !ok {
-		emptyRequests := LiquidationRequests([]LiquidationRequest{})
-		s.LiquidationRequests[contractAddr] = &emptyRequests
-	}
-	return s.LiquidationRequests[contractAddr]
+func (s *MemState) GetDepositInfo(ctx sdk.Context, contractAddr typesutils.ContractAddress) *DepositInfo {
+	s.SynchronizeAccess(ctx, contractAddr)
+	return NewDepositInfo(
+		prefix.NewStore(
+			ctx.KVStore(s.storeKey),
+			types.MemDepositPrefix(string(contractAddr)),
+		),
+	)
 }
 
-func (s *MemState) Clear() {
-	s.BlockOrders = map[types.ContractAddress]map[types.PairString]*BlockOrders{}
-	s.BlockCancels = map[types.ContractAddress]map[types.PairString]*BlockCancellations{}
-	s.DepositInfo = map[types.ContractAddress]*DepositInfo{}
-	s.LiquidationRequests = map[types.ContractAddress]*LiquidationRequests{}
+func (s *MemState) Clear(ctx sdk.Context) {
+	DeepDelete(ctx.KVStore(s.storeKey), types.KeyPrefix(types.MemOrderKey), func(_ []byte) bool { return true })
+	DeepDelete(ctx.KVStore(s.storeKey), types.KeyPrefix(types.MemCancelKey), func(_ []byte) bool { return true })
+	DeepDelete(ctx.KVStore(s.storeKey), types.KeyPrefix(types.MemDepositKey), func(_ []byte) bool { return true })
+}
+
+func (s *MemState) ClearCancellationForPair(ctx sdk.Context, contractAddr typesutils.ContractAddress, pair typesutils.PairString) {
+	s.SynchronizeAccess(ctx, contractAddr)
+	DeepDelete(ctx.KVStore(s.storeKey), types.KeyPrefix(types.MemCancelKey), func(v []byte) bool {
+		var c types.Cancellation
+		if err := c.Unmarshal(v); err != nil {
+			panic(err)
+		}
+		return c.ContractAddr == string(contractAddr) && typesutils.GetPairString(&types.Pair{
+			AssetDenom: c.AssetDenom,
+			PriceDenom: c.PriceDenom,
+		}) == pair
+	})
 }
 
 func (s *MemState) DeepCopy() *MemState {
-	copy := NewMemState()
-	for contractAddr, _map := range s.BlockOrders {
-		for pair, blockOrders := range _map {
-			for _, blockOrder := range *blockOrders {
-				copy.GetBlockOrders(contractAddr, pair).AddOrder(blockOrder)
-			}
-		}
-	}
-	for contractAddr, _map := range s.BlockCancels {
-		for pair, blockCancels := range _map {
-			for _, blockCancel := range *blockCancels {
-				copy.GetBlockCancels(contractAddr, pair).AddOrderIDToCancel(blockCancel.Id, blockCancel.Initiator)
-			}
-		}
-	}
-	for contractAddr, deposits := range s.DepositInfo {
-		for _, deposit := range *deposits {
-			copy.GetDepositInfo(contractAddr).AddDeposit(deposit)
-		}
-	}
-	for contractAddr, liquidations := range s.LiquidationRequests {
-		for _, liquidation := range *liquidations {
-			copy.GetLiquidationRequests(contractAddr).AddNewLiquidationRequest(liquidation.Requestor, liquidation.AccountToLiquidate)
-		}
-	}
+	copy := NewMemState(s.storeKey)
 	return copy
 }
 
-func (o *BlockOrders) AddOrder(order types.Order) {
-	*o = append(*o, order)
-}
-
-func (o *BlockOrders) MarkFailedToPlaceByAccounts(accounts []string) {
-	badAccountSet := utils.NewStringSet(accounts)
-	newOrders := []types.Order{}
-	for _, order := range *o {
-		if badAccountSet.Contains(order.Account) {
-			order.Status = types.OrderStatus_FAILED_TO_PLACE
+func (s *MemState) DeepFilterAccount(ctx sdk.Context, account string) {
+	DeepDelete(ctx.KVStore(s.storeKey), types.KeyPrefix(types.MemOrderKey), func(v []byte) bool {
+		var o types.Order
+		if err := o.Unmarshal(v); err != nil {
+			panic(err)
 		}
-		newOrders = append(newOrders, order)
-	}
-	*o = newOrders
-}
-
-func (o *BlockOrders) MarkFailedToPlaceByIds(ids []uint64) {
-	badIDSet := utils.NewUInt64Set(ids)
-	newOrders := []types.Order{}
-	for _, order := range *o {
-		if badIDSet.Contains(order.Id) {
-			order.Status = types.OrderStatus_FAILED_TO_PLACE
-		}
-		newOrders = append(newOrders, order)
-	}
-	*o = newOrders
-}
-
-func (o *BlockOrders) GetSortedMarketOrders(direction types.PositionDirection, includeLiquidationOrders bool) []types.Order {
-	res := o.getOrdersByCriteria(types.OrderType_MARKET, direction)
-	if includeLiquidationOrders {
-		res = append(res, o.getOrdersByCriteria(types.OrderType_LIQUIDATION, direction)...)
-	}
-	sort.Slice(res, func(i, j int) bool {
-		// a price of 0 indicates that there is no worst price for the order, so it should
-		// always be ranked at the top.
-		if res[i].Price.IsZero() {
-			return true
-		} else if res[j].Price.IsZero() {
-			return false
-		}
-		switch direction {
-		case types.PositionDirection_LONG:
-			return res[i].Price.GT(res[j].Price)
-		case types.PositionDirection_SHORT:
-			return res[i].Price.LT(res[j].Price)
-		default:
-			panic("Unknown direction")
-		}
+		return o.Account == account
 	})
-	return res
-}
-
-func (o *BlockOrders) GetLimitOrders(direction types.PositionDirection) []types.Order {
-	return o.getOrdersByCriteria(types.OrderType_LIMIT, direction)
-}
-
-func (o *BlockOrders) getOrdersByCriteria(orderType types.OrderType, direction types.PositionDirection) []types.Order {
-	res := []types.Order{}
-	for _, order := range *o {
-		if order.OrderType != orderType || order.PositionDirection != direction {
-			continue
+	DeepDelete(ctx.KVStore(s.storeKey), types.KeyPrefix(types.MemCancelKey), func(v []byte) bool {
+		var c types.Cancellation
+		if err := c.Unmarshal(v); err != nil {
+			panic(err)
 		}
-		res = append(res, order)
-	}
-	return res
-}
-
-func NewDepositInfo() *DepositInfo {
-	emptyDepositInfo := DepositInfo([]DepositInfoEntry{})
-	return &emptyDepositInfo
-}
-
-func (d *DepositInfo) AddDeposit(deposit DepositInfoEntry) {
-	*d = append(*d, deposit)
-}
-
-func ToContractDepositInfo(depositInfo DepositInfoEntry) types.ContractDepositInfo {
-	return types.ContractDepositInfo{
-		Account: depositInfo.Creator,
-		Denom:   depositInfo.Denom,
-		Amount:  depositInfo.Amount,
-	}
-}
-
-func (c *BlockCancellations) AddOrderIDToCancel(id uint64, initiator types.CancellationInitiator) {
-	*c = append(*c, types.Cancellation{Id: id, Initiator: initiator})
-}
-
-func (c *BlockCancellations) FilterByIds(idsToRemove []uint64) {
-	tmp := *c
-	*c = []types.Cancellation{}
-	badIDSet := utils.NewUInt64Set(idsToRemove)
-	for _, cancel := range tmp {
-		if !badIDSet.Contains(cancel.Id) {
-			*c = append(*c, cancel)
+		return c.Creator == account
+	})
+	DeepDelete(ctx.KVStore(s.storeKey), types.KeyPrefix(types.MemDepositKey), func(v []byte) bool {
+		var d types.DepositInfoEntry
+		if err := d.Unmarshal(v); err != nil {
+			panic(err)
 		}
-	}
+		return d.Creator == account
+	})
 }
 
-func (c *BlockCancellations) GetIdsToCancel() []uint64 {
-	res := []uint64{}
-	for _, cancel := range *c {
-		res = append(res, cancel.Id)
-	}
-	return res
-}
-
-func (lrs *LiquidationRequests) IsAccountLiquidating(accountToLiquidate string) bool {
-	for _, lr := range *lrs {
-		if lr.AccountToLiquidate == accountToLiquidate {
-			return true
-		}
-	}
-	return false
-}
-
-func (lrs *LiquidationRequests) AddNewLiquidationRequest(requestor string, accountToLiquidate string) {
-	if lrs.IsAccountLiquidating(accountToLiquidate) {
+func (s *MemState) SynchronizeAccess(ctx sdk.Context, contractAddr typesutils.ContractAddress) {
+	executingContract := GetExecutingContract(ctx)
+	if executingContract == nil {
+		// not accessed by contract. no need to synchronize
 		return
 	}
-	*lrs = append(*lrs, LiquidationRequest{
-		Requestor:          requestor,
-		AccountToLiquidate: accountToLiquidate,
-	})
+	targetContractAddr := string(contractAddr)
+	if executingContract.ContractAddr == targetContractAddr {
+		// access by the contract itself does not need synchronization
+		return
+	}
+	for _, dependency := range executingContract.Dependencies {
+		if dependency.Dependency != targetContractAddr {
+			continue
+		}
+		terminationSignals := GetTerminationSignals(ctx)
+		if terminationSignals == nil {
+			// synchronization should fail in the case of no termination signal to prevent race conditions.
+			panic("no termination signal map found in context")
+		}
+		targetChannel, ok := terminationSignals.Load(dependency.ImmediateElderSibling)
+		if !ok {
+			// synchronization should fail in the case of no termination signal to prevent race conditions.
+			panic(fmt.Sprintf("no termination signal channel for contract %s in context", dependency.ImmediateElderSibling))
+		}
+
+		select {
+		case <-targetChannel:
+			// since buffered channel can only be consumed once, we need to
+			// requeue so that it can unblock other goroutines that waits for
+			// the same channel.
+			targetChannel <- struct{}{}
+		case <-time.After(SynchronizationTimeoutInSeconds * time.Second):
+			// synchronization should fail in the case of timeout to prevent race conditions.
+			panic(fmt.Sprintf("timing out waiting for termination of %s", dependency.ImmediateElderSibling))
+		}
+
+		return
+	}
+
+	// fail loudly so that the offending contract can be rolled back.
+	// eventually we will automatically de-register contracts that have to be rolled back
+	// so that this would not become a point of attack in terms of performance.
+	panic(fmt.Sprintf("Contract %s trying to access state of %s which is not a registered dependency", executingContract.ContractAddr, targetContractAddr))
+}
+
+func DeepDelete(kvStore sdk.KVStore, storePrefix []byte, matcher func([]byte) bool) {
+	store := prefix.NewStore(
+		kvStore,
+		storePrefix,
+	)
+	// Getting all KVs first before applying `matcher` in case `matcher` contains
+	// store read/write logics.
+	// Wrapping getter into its own function to make sure iterator is always closed
+	// before `matcher` logic runs.
+	keyValuesGetter := func() ([][]byte, [][]byte) {
+		iterator := sdk.KVStorePrefixIterator(store, []byte{})
+		defer iterator.Close()
+		keys, values := [][]byte{}, [][]byte{}
+		for ; iterator.Valid(); iterator.Next() {
+			keys = append(keys, iterator.Key())
+			values = append(values, iterator.Value())
+		}
+		return keys, values
+	}
+	keys, values := keyValuesGetter()
+	for i, key := range keys {
+		if matcher(values[i]) {
+			store.Delete(key)
+		}
+	}
 }

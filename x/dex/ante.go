@@ -2,7 +2,6 @@ package dex
 
 import (
 	"errors"
-	"fmt"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
@@ -47,18 +46,27 @@ func (tsmd TickSizeMultipleDecorator) CheckTickSizeMultiple(ctx sdk.Context, msg
 			msgPlaceOrders := msg.(*types.MsgPlaceOrders) //nolint:gosimple // the linter is telling us we can make this faster, and this should be addressed later.
 			contractAddr := msgPlaceOrders.ContractAddr
 			for _, order := range msgPlaceOrders.Orders {
-				tickSize, found := tsmd.dexKeeper.GetTickSizeForPair(ctx, contractAddr,
+				priceTickSize, found := tsmd.dexKeeper.GetPriceTickSizeForPair(ctx, contractAddr,
 					types.Pair{
 						PriceDenom: order.PriceDenom,
 						AssetDenom: order.AssetDenom,
 					})
-				fmt.Println(contractAddr)
-				// todo may not need to throw err if ticksize unfound?
 				if !found {
-					return sdkerrors.Wrapf(sdkerrors.ErrKeyNotFound, "the pair {price:%s,asset:%s} has no ticksize configured", order.PriceDenom, order.AssetDenom)
+					return sdkerrors.Wrapf(sdkerrors.ErrKeyNotFound, "the pair {price:%s,asset:%s} has no price ticksize configured", order.PriceDenom, order.AssetDenom)
 				}
-				if !IsDecimalMultipleOf(order.Price, tickSize) {
-					return sdkerrors.Wrapf(errors.New("ErrPriceNotMultipleOfTickSize"), "price need to be multiple of tick size")
+				if !IsDecimalMultipleOf(order.Price, priceTickSize) {
+					return sdkerrors.Wrapf(errors.New("ErrPriceNotMultipleOfTickSize"), "price needs to be multiple of price tick size")
+				}
+				quantityTickSize, found := tsmd.dexKeeper.GetQuantityTickSizeForPair(ctx, contractAddr,
+					types.Pair{
+						PriceDenom: order.PriceDenom,
+						AssetDenom: order.AssetDenom,
+					})
+				if !found {
+					return sdkerrors.Wrapf(sdkerrors.ErrKeyNotFound, "the pair {price:%s,asset:%s} has no quantity ticksize configured", order.PriceDenom, order.AssetDenom)
+				}
+				if !IsDecimalMultipleOf(order.Quantity, quantityTickSize) {
+					return sdkerrors.Wrapf(errors.New("ErrPriceNotMultipleOfTickSize"), "price needs to be multiple of quantity tick size")
 				}
 			}
 			continue
@@ -78,4 +86,47 @@ func IsDecimalMultipleOf(a, b sdk.Dec) bool {
 	}
 	quotient := sdk.NewDecFromBigInt(a.Quo(b).RoundInt().BigInt())
 	return quotient.Mul(b).Equal(a)
+}
+
+const DexGasFeeUnit = "usei"
+
+type CheckDexGasDecorator struct {
+	dexKeeper keeper.Keeper
+}
+
+func NewCheckDexGasDecorator(dexKeeper keeper.Keeper) CheckDexGasDecorator {
+	return CheckDexGasDecorator{
+		dexKeeper: dexKeeper,
+	}
+}
+
+// for a TX that contains dex gas-incurring messages, check if it provides enough gas based on dex params
+func (d CheckDexGasDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool, next sdk.AnteHandler) (newCtx sdk.Context, err error) {
+	if ctx.IsReCheckTx() {
+		return next(ctx, tx, simulate)
+	}
+	params := d.dexKeeper.GetParams(ctx)
+	dexGasRequired := uint64(0)
+	for _, msg := range tx.GetMsgs() {
+		switch m := msg.(type) {
+		case *types.MsgPlaceOrders:
+			dexGasRequired += params.DefaultGasPerOrder * uint64(len(m.Orders))
+		case *types.MsgCancelOrders:
+			dexGasRequired += params.DefaultGasPerCancel * uint64(len(m.Cancellations))
+		}
+	}
+	if dexGasRequired == 0 {
+		return next(ctx, tx, simulate)
+	}
+	dexFeeRequired := sdk.NewDecWithPrec(int64(dexGasRequired), 0).Mul(params.SudoCallGasPrice).RoundInt()
+	feeTx, ok := tx.(sdk.FeeTx)
+	if !ok {
+		return ctx, sdkerrors.Wrap(sdkerrors.ErrTxDecode, "Tx must be a FeeTx")
+	}
+	for _, fee := range feeTx.GetFee() {
+		if fee.Denom == DexGasFeeUnit && fee.Amount.GTE(dexFeeRequired) {
+			return next(ctx, tx, simulate)
+		}
+	}
+	return ctx, sdkerrors.ErrInsufficientFee
 }

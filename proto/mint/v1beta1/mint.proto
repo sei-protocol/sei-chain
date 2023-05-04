@@ -1,0 +1,76 @@
+syntax = "proto3";
+package seiprotocol.seichain.mint;
+
+option go_package = "github.com/sei-protocol/sei-chain/x/mint/types";
+
+import "gogoproto/gogo.proto";
+
+// Minter represents the most recent
+message Minter {
+  string  start_date = 1;  // yyyy-mm-dd
+  string  end_date = 2;    // yyyy-mm-dd
+  string  denom = 3;
+  uint64   total_mint_amount = 4;
+  uint64   remaining_mint_amount = 5;
+  uint64   last_mint_amount = 6;
+  string  last_mint_date = 7;
+  uint64   last_mint_height = 8; // yyyy-mm-dd
+}
+
+message ScheduledTokenRelease {
+  string  start_date = 1;  // yyyy-mm-dd
+  string  end_date = 2;    // yyyy-mm-dd
+  uint64  token_release_amount = 3;
+}
+
+// Params holds parameters for the mint module.
+message Params {
+  option (gogoproto.goproto_stringer) = false;
+
+  // type of coin to mint
+  string mint_denom = 1;
+  // List of token release schedules
+  repeated ScheduledTokenRelease token_release_schedule = 2 [
+    (gogoproto.moretags) = "yaml:\"token_release_schedule\"",
+    (gogoproto.nullable) = false
+  ];
+}
+
+
+// Legacy Protobufs used for migration purposes
+
+// Minter represents the most recent
+message Version2Minter {
+  string last_mint_amount = 1 [
+    (gogoproto.moretags) = "yaml:\"last_mint_amount\"",
+    (gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Dec",
+    (gogoproto.nullable) = false
+    ];
+  string last_mint_date = 2 [
+    (gogoproto.moretags) = "yaml:\"last_mint_date\""
+  ];
+  int64 last_mint_height = 3 [
+    (gogoproto.moretags) = "yaml:\"last_mint_height\""
+  ];
+  string denom = 4 [
+    (gogoproto.moretags) = "yaml:\"denom\""
+  ];
+}
+
+message Version2ScheduledTokenRelease {
+  string date = 1; // yyyy-mm-dd
+  int64 token_release_amount = 2;
+}
+
+// Params holds parameters for the mint module.
+message Version2Params {
+  option (gogoproto.goproto_stringer) = false;
+
+  // type of coin to mint
+  string mint_denom = 1;
+  // List of token release schedules
+  repeated Version2ScheduledTokenRelease token_release_schedule = 2 [
+    (gogoproto.moretags) = "yaml:\"token_release_schedule\"",
+    (gogoproto.nullable) = false
+  ];
+}

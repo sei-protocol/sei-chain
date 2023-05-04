@@ -2,18 +2,22 @@ package cmd
 
 import (
 	"errors"
+	"fmt"
 	"io"
+	"math"
+	"math/rand"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/CosmWasm/wasmd/x/wasm"
-	wasmkeeper "github.com/CosmWasm/wasmd/x/wasm/keeper"
 	"github.com/cosmos/cosmos-sdk/baseapp"
 	"github.com/cosmos/cosmos-sdk/client"
 	"github.com/cosmos/cosmos-sdk/client/config"
 	"github.com/cosmos/cosmos-sdk/client/debug"
 	"github.com/cosmos/cosmos-sdk/client/flags"
 	"github.com/cosmos/cosmos-sdk/client/keys"
+	"github.com/cosmos/cosmos-sdk/client/pruning"
 	"github.com/cosmos/cosmos-sdk/client/rpc"
 	"github.com/cosmos/cosmos-sdk/codec"
 	"github.com/cosmos/cosmos-sdk/server"
@@ -22,6 +26,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/snapshots"
 	"github.com/cosmos/cosmos-sdk/store"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	aclkeeper "github.com/cosmos/cosmos-sdk/x/accesscontrol/keeper"
 	authcmd "github.com/cosmos/cosmos-sdk/x/auth/client/cli"
 	"github.com/cosmos/cosmos-sdk/x/auth/types"
 	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
@@ -29,9 +34,10 @@ import (
 	genutilcli "github.com/cosmos/cosmos-sdk/x/genutil/client/cli"
 	"github.com/sei-protocol/sei-chain/app"
 	"github.com/sei-protocol/sei-chain/app/params"
-	"github.com/sei-protocol/sei-chain/wasmbinding"
+	"github.com/sei-protocol/sei-chain/utils/tracing"
 	"github.com/spf13/cast"
 	"github.com/spf13/cobra"
+	tmcfg "github.com/tendermint/tendermint/config"
 	tmcli "github.com/tendermint/tendermint/libs/cli"
 	"github.com/tendermint/tendermint/libs/log"
 	dbm "github.com/tendermint/tm-db"
@@ -41,14 +47,15 @@ import (
 type Option func(*rootOptions)
 
 // scaffoldingOptions keeps set of options to apply scaffolding.
-// nolint:unused // preserving this becase don't know if it is needed.
+//
+//nolint:unused // preserving this becase don't know if it is needed.
 type rootOptions struct {
 	addSubCmds         []*cobra.Command
 	startCmdCustomizer func(*cobra.Command)
 	envPrefix          string
 }
 
-func (s *rootOptions) apply(options ...Option) { // nolint:unused // I figure this gets used later.
+func (s *rootOptions) apply(options ...Option) { //nolint:unused // I figure this gets used later.
 	for _, o := range options {
 		o(s)
 	}
@@ -83,7 +90,6 @@ func NewRootCmd() (*cobra.Command, params.EncodingConfig) {
 			if err != nil {
 				return err
 			}
-
 			if err := client.SetCmdClientContextHandler(initClientCtx, cmd); err != nil {
 				return err
 			}
@@ -108,6 +114,10 @@ func initRootCmd(
 	cfg := sdk.GetConfig()
 	cfg.Seal()
 
+	// extend debug command
+	debugCmd := debug.Cmd()
+	debugCmd.AddCommand(DumpIavlCmd())
+
 	rootCmd.AddCommand(
 		InitCmd(app.ModuleBasics, app.DefaultNodeHome),
 		genutilcli.CollectGenTxsCmd(banktypes.GenesisBalancesIterator{}, app.DefaultNodeHome),
@@ -120,11 +130,17 @@ func initRootCmd(
 		),
 		genutilcli.ValidateGenesisCmd(app.ModuleBasics),
 		AddGenesisAccountCmd(app.DefaultNodeHome),
+		AddGenesisWasmMsgCmd(app.DefaultNodeHome),
 		tmcli.NewCompletionCmd(rootCmd, true),
-		debug.Cmd(),
+		debugCmd,
 		config.Cmd(),
+		pruning.PruningCmd(newApp),
 	)
 
+	tracingProviderOpts, err := tracing.GetTracerProviderOptions(tracing.DefaultTracingURL)
+	if err != nil {
+		panic(err)
+	}
 	// add server commands
 	server.AddCommands(
 		rootCmd,
@@ -132,6 +148,7 @@ func initRootCmd(
 		newApp,
 		appExport,
 		addModuleInitFlags,
+		tracingProviderOpts,
 	)
 
 	// add keybase, auxiliary RPC, query, and tx child commands
@@ -204,6 +221,7 @@ func newApp(
 	logger log.Logger,
 	db dbm.DB,
 	traceStore io.Writer,
+	tmConfig *tmcfg.Config,
 	appOpts servertypes.AppOptions,
 ) servertypes.Application {
 	var cache sdk.MultiStorePersistentCache
@@ -232,10 +250,6 @@ func newApp(
 		panic(err)
 	}
 
-	wasmopts := []wasm.Option{wasmkeeper.WithMessageEncoders(&wasmkeeper.MessageEncoders{
-		Custom: wasmbinding.CustomEncoder,
-	})}
-
 	return app.New(
 		logger,
 		db,
@@ -244,10 +258,12 @@ func newApp(
 		skipUpgradeHeights,
 		cast.ToString(appOpts.Get(flags.FlagHome)),
 		cast.ToUint(appOpts.Get(server.FlagInvCheckPeriod)),
+		tmConfig,
 		app.MakeEncodingConfig(),
 		wasm.EnableAllProposals,
 		appOpts,
-		wasmopts,
+		[]wasm.Option{},
+		[]aclkeeper.Option{},
 		baseapp.SetPruning(pruningOpts),
 		baseapp.SetMinGasPrices(cast.ToString(appOpts.Get(server.FlagMinGasPrices))),
 		baseapp.SetMinRetainBlocks(cast.ToUint64(appOpts.Get(server.FlagMinRetainBlocks))),
@@ -283,15 +299,34 @@ func appExport(
 	}
 
 	if height != -1 {
-		exportableApp = app.New(logger, db, traceStore, false, map[int64]bool{}, "", uint(1), encCfg, app.GetWasmEnabledProposals(), appOpts, app.EmptyWasmOpts)
+		exportableApp = app.New(logger, db, traceStore, false, map[int64]bool{}, cast.ToString(appOpts.Get(flags.FlagHome)), uint(1), nil, encCfg, app.GetWasmEnabledProposals(), appOpts, app.EmptyWasmOpts, app.EmptyACLOpts)
 		if err := exportableApp.LoadHeight(height); err != nil {
 			return servertypes.ExportedApp{}, err
 		}
 	} else {
-		exportableApp = app.New(logger, db, traceStore, true, map[int64]bool{}, "", uint(1), encCfg, app.GetWasmEnabledProposals(), appOpts, app.EmptyWasmOpts)
+		exportableApp = app.New(logger, db, traceStore, true, map[int64]bool{}, cast.ToString(appOpts.Get(flags.FlagHome)), uint(1), nil, encCfg, app.GetWasmEnabledProposals(), appOpts, app.EmptyWasmOpts, app.EmptyACLOpts)
 	}
 
 	return exportableApp.ExportAppStateAndValidators(forZeroHeight, jailAllowedAddrs)
+}
+
+func getPrimeNums(lo int, hi int) []int {
+	var primeNums []int
+
+	for lo <= hi {
+		isPrime := true
+		for i := 2; i <= int(math.Sqrt(float64(lo))); i++ {
+			if lo%i == 0 {
+				isPrime = false
+				break
+			}
+		}
+		if isPrime {
+			primeNums = append(primeNums, lo)
+		}
+		lo++
+	}
+	return primeNums
 }
 
 // initAppConfig helps to override default appConfig template and configs.
@@ -332,6 +367,21 @@ func initAppConfig() (string, interface{}) {
 	srvCfg.MinGasPrices = "0.01usei"
 	srvCfg.API.Enable = true
 
+	// Pruning configs
+	srvCfg.Pruning = "custom"
+	// With block times of 0.3 seconds, this gives us 3 days worth of blocks to store (in case of outage)
+	srvCfg.PruningKeepRecent = "864000"
+	// Randomly generate pruning interval. We want the following properties:
+	//   - random: if everyone has the same value, the block that everyone prunes will be slow
+	//   - prime: no overlap
+	primes := getPrimeNums(2500, 4000)
+	rand.Seed(time.Now().Unix())
+	pruningInterval := primes[rand.Intn(len(primes))]
+	srvCfg.PruningInterval = fmt.Sprintf("%d", pruningInterval)
+
+	// Metrics
+	srvCfg.Telemetry.Enabled = true
+	srvCfg.Telemetry.PrometheusRetentionTime = 60
 	customAppConfig := CustomAppConfig{
 		Config: *srvCfg,
 		WASM: WASMConfig{

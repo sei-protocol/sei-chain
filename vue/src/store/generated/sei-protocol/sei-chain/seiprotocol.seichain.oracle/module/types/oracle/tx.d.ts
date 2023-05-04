@@ -26,6 +26,20 @@ export interface MsgAggregateExchangeRateVote {
 export interface MsgAggregateExchangeRateVoteResponse {
 }
 /**
+ * MsgAggregateExchangeRateVote represents a message to submit
+ * aggregate exchange rate vote.
+ */
+export interface MsgAggregateExchangeRateCombinedVote {
+    voteSalt: string;
+    voteExchangeRates: string;
+    prevoteHash: string;
+    feeder: string;
+    validator: string;
+}
+/** MsgAggregateExchangeRateVoteResponse defines the Msg/AggregateExchangeRateVote response type. */
+export interface MsgAggregateExchangeRateCombinedVoteResponse {
+}
+/**
  * MsgDelegateFeedConsent represents a message to
  * delegate oracle voting rights to another address.
  */
@@ -64,6 +78,20 @@ export declare const MsgAggregateExchangeRateVoteResponse: {
     toJSON(_: MsgAggregateExchangeRateVoteResponse): unknown;
     fromPartial(_: DeepPartial<MsgAggregateExchangeRateVoteResponse>): MsgAggregateExchangeRateVoteResponse;
 };
+export declare const MsgAggregateExchangeRateCombinedVote: {
+    encode(message: MsgAggregateExchangeRateCombinedVote, writer?: Writer): Writer;
+    decode(input: Reader | Uint8Array, length?: number): MsgAggregateExchangeRateCombinedVote;
+    fromJSON(object: any): MsgAggregateExchangeRateCombinedVote;
+    toJSON(message: MsgAggregateExchangeRateCombinedVote): unknown;
+    fromPartial(object: DeepPartial<MsgAggregateExchangeRateCombinedVote>): MsgAggregateExchangeRateCombinedVote;
+};
+export declare const MsgAggregateExchangeRateCombinedVoteResponse: {
+    encode(_: MsgAggregateExchangeRateCombinedVoteResponse, writer?: Writer): Writer;
+    decode(input: Reader | Uint8Array, length?: number): MsgAggregateExchangeRateCombinedVoteResponse;
+    fromJSON(_: any): MsgAggregateExchangeRateCombinedVoteResponse;
+    toJSON(_: MsgAggregateExchangeRateCombinedVoteResponse): unknown;
+    fromPartial(_: DeepPartial<MsgAggregateExchangeRateCombinedVoteResponse>): MsgAggregateExchangeRateCombinedVoteResponse;
+};
 export declare const MsgDelegateFeedConsent: {
     encode(message: MsgDelegateFeedConsent, writer?: Writer): Writer;
     decode(input: Reader | Uint8Array, length?: number): MsgDelegateFeedConsent;
@@ -90,6 +118,8 @@ export interface Msg {
      * aggregate exchange rate vote
      */
     AggregateExchangeRateVote(request: MsgAggregateExchangeRateVote): Promise<MsgAggregateExchangeRateVoteResponse>;
+    /** Aggregate vote and prevote combines the functionality of prevote and vote into one RPC */
+    AggregateExchangeRateCombinedVote(request: MsgAggregateExchangeRateCombinedVote): Promise<MsgAggregateExchangeRateCombinedVoteResponse>;
     /** DelegateFeedConsent defines a method for setting the feeder delegation */
     DelegateFeedConsent(request: MsgDelegateFeedConsent): Promise<MsgDelegateFeedConsentResponse>;
 }
@@ -98,6 +128,7 @@ export declare class MsgClientImpl implements Msg {
     constructor(rpc: Rpc);
     AggregateExchangeRatePrevote(request: MsgAggregateExchangeRatePrevote): Promise<MsgAggregateExchangeRatePrevoteResponse>;
     AggregateExchangeRateVote(request: MsgAggregateExchangeRateVote): Promise<MsgAggregateExchangeRateVoteResponse>;
+    AggregateExchangeRateCombinedVote(request: MsgAggregateExchangeRateCombinedVote): Promise<MsgAggregateExchangeRateCombinedVoteResponse>;
     DelegateFeedConsent(request: MsgDelegateFeedConsent): Promise<MsgDelegateFeedConsentResponse>;
 }
 interface Rpc {

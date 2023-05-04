@@ -8,34 +8,30 @@
  * ## SOURCE: https://github.com/acacode/swagger-typescript-api ##
  * ---------------------------------------------------------------
  */
-export var DexDenom;
-(function (DexDenom) {
-    DexDenom["SEI"] = "SEI";
-    DexDenom["ATOM"] = "ATOM";
-    DexDenom["BTC"] = "BTC";
-    DexDenom["ETH"] = "ETH";
-    DexDenom["SOL"] = "SOL";
-    DexDenom["AVAX"] = "AVAX";
-    DexDenom["USDC"] = "USDC";
-    DexDenom["NEAR"] = "NEAR";
-    DexDenom["OSMO"] = "OSMO";
-})(DexDenom || (DexDenom = {}));
+export var DexCancellationInitiator;
+(function (DexCancellationInitiator) {
+    DexCancellationInitiator["USER"] = "USER";
+    DexCancellationInitiator["LIQUIDATED"] = "LIQUIDATED";
+})(DexCancellationInitiator || (DexCancellationInitiator = {}));
+export var DexOrderStatus;
+(function (DexOrderStatus) {
+    DexOrderStatus["PLACED"] = "PLACED";
+    DexOrderStatus["FAILED_TO_PLACE"] = "FAILED_TO_PLACE";
+    DexOrderStatus["CANCELLED"] = "CANCELLED";
+    DexOrderStatus["FULFILLED"] = "FULFILLED";
+})(DexOrderStatus || (DexOrderStatus = {}));
 export var DexOrderType;
 (function (DexOrderType) {
     DexOrderType["LIMIT"] = "LIMIT";
     DexOrderType["MARKET"] = "MARKET";
     DexOrderType["LIQUIDATION"] = "LIQUIDATION";
+    DexOrderType["FOKMARKET"] = "FOKMARKET";
 })(DexOrderType || (DexOrderType = {}));
 export var DexPositionDirection;
 (function (DexPositionDirection) {
     DexPositionDirection["LONG"] = "LONG";
     DexPositionDirection["SHORT"] = "SHORT";
 })(DexPositionDirection || (DexPositionDirection = {}));
-export var DexPositionEffect;
-(function (DexPositionEffect) {
-    DexPositionEffect["OPEN"] = "OPEN";
-    DexPositionEffect["CLOSE"] = "CLOSE";
-})(DexPositionEffect || (DexPositionEffect = {}));
 export var ContentType;
 (function (ContentType) {
     ContentType["Json"] = "application/json";
@@ -158,12 +154,92 @@ export class HttpClient {
     }
 }
 /**
- * @title dex/contract.proto
+ * @title dex/asset_list.proto
  * @version version not set
  */
 export class Api extends HttpClient {
     constructor() {
         super(...arguments);
+        /**
+         * No description
+         *
+         * @tags Query
+         * @name QueryAssetList
+         * @summary Returns metadata for all the assets
+         * @request GET:/sei-protocol/seichain/dex/asset_list
+         */
+        this.queryAssetList = (params = {}) => this.request({
+            path: `/sei-protocol/seichain/dex/asset_list`,
+            method: "GET",
+            format: "json",
+            ...params,
+        });
+        /**
+         * No description
+         *
+         * @tags Query
+         * @name QueryAssetMetadata
+         * @summary Returns the metadata for a specified denom / display type
+         * @request GET:/sei-protocol/seichain/dex/asset_list/{denom}
+         */
+        this.queryAssetMetadata = (denom, params = {}) => this.request({
+            path: `/sei-protocol/seichain/dex/asset_list/${denom}`,
+            method: "GET",
+            format: "json",
+            ...params,
+        });
+        /**
+         * No description
+         *
+         * @tags Query
+         * @name QueryGetHistoricalPrices
+         * @request GET:/sei-protocol/seichain/dex/get_historical_prices/{contractAddr}/{priceDenom}/{assetDenom}/{periodLengthInSeconds}/{numOfPeriods}
+         */
+        this.queryGetHistoricalPrices = (contractAddr, priceDenom, assetDenom, periodLengthInSeconds, numOfPeriods, params = {}) => this.request({
+            path: `/sei-protocol/seichain/dex/get_historical_prices/${contractAddr}/${priceDenom}/${assetDenom}/${periodLengthInSeconds}/${numOfPeriods}`,
+            method: "GET",
+            format: "json",
+            ...params,
+        });
+        /**
+         * No description
+         *
+         * @tags Query
+         * @name QueryGetMarketSummary
+         * @request GET:/sei-protocol/seichain/dex/get_market_summary/{contractAddr}/{priceDenom}/{assetDenom}/{lookbackInSeconds}
+         */
+        this.queryGetMarketSummary = (contractAddr, priceDenom, assetDenom, lookbackInSeconds, params = {}) => this.request({
+            path: `/sei-protocol/seichain/dex/get_market_summary/${contractAddr}/${priceDenom}/${assetDenom}/${lookbackInSeconds}`,
+            method: "GET",
+            format: "json",
+            ...params,
+        });
+        /**
+         * No description
+         *
+         * @tags Query
+         * @name QueryGetOrder
+         * @request GET:/sei-protocol/seichain/dex/get_order_by_id/{contractAddr}/{priceDenom}/{assetDenom}/{id}
+         */
+        this.queryGetOrder = (contractAddr, priceDenom, assetDenom, id, params = {}) => this.request({
+            path: `/sei-protocol/seichain/dex/get_order_by_id/${contractAddr}/${priceDenom}/${assetDenom}/${id}`,
+            method: "GET",
+            format: "json",
+            ...params,
+        });
+        /**
+         * No description
+         *
+         * @tags Query
+         * @name QueryGetOrders
+         * @request GET:/sei-protocol/seichain/dex/get_orders/{contractAddr}/{account}
+         */
+        this.queryGetOrders = (contractAddr, account, params = {}) => this.request({
+            path: `/sei-protocol/seichain/dex/get_orders/${contractAddr}/${account}`,
+            method: "GET",
+            format: "json",
+            ...params,
+        });
         /**
          * No description
          *
@@ -237,11 +313,12 @@ export class Api extends HttpClient {
          * No description
          *
          * @tags Query
-         * @name QuerySettlementsAll
-         * @request GET:/sei-protocol/seichain/dex/settlement
+         * @name QueryGetRegisteredPairs
+         * @summary Returns all registered pairs for specified contract address
+         * @request GET:/sei-protocol/seichain/dex/registered_pairs
          */
-        this.querySettlementsAll = (query, params = {}) => this.request({
-            path: `/sei-protocol/seichain/dex/settlement`,
+        this.queryGetRegisteredPairs = (query, params = {}) => this.request({
+            path: `/sei-protocol/seichain/dex/registered_pairs`,
             method: "GET",
             query: query,
             format: "json",

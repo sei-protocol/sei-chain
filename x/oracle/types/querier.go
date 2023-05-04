@@ -14,8 +14,6 @@ const (
 	QueryActives              = "actives"
 	QueryFeederDelegation     = "feederDelegation"
 	QueryVotePenaltyCounter   = "votePenaltyCounter"
-	QueryAggregatePrevote     = "aggregatePrevote"
-	QueryAggregatePrevotes    = "aggregatePrevotes"
 	QueryAggregateVote        = "aggregateVote"
 	QueryAggregateVotes       = "aggregateVotes"
 	QueryVoteTargets          = "voteTargets"
@@ -41,18 +39,6 @@ type QueryTwapsParams struct {
 // NewQueryExchangeRateParams returns params for exchange_rate query
 func NewQueryTwapsParams(lookbackSeconds int64) QueryTwapsParams {
 	return QueryTwapsParams{lookbackSeconds}
-}
-
-// QueryPrevotesParams defines the params for the following queries:
-// - 'custom/oracle/prevotes'
-type QueryPrevotesParams struct {
-	Voter sdk.ValAddress
-	Denom string
-}
-
-// NewQueryPrevotesParams returns params for exchange_rate prevotes query
-func NewQueryPrevotesParams(voter sdk.ValAddress, denom string) QueryPrevotesParams {
-	return QueryPrevotesParams{voter, denom}
 }
 
 // QueryVotesParams defines the params for the following queries:
@@ -87,17 +73,6 @@ type QueryVotePenaltyCounterParams struct {
 // NewQueryVotePenaltyCounterParams returns params for feeder delegation query
 func NewQueryVotePenaltyCounterParams(validator sdk.ValAddress) QueryVotePenaltyCounterParams {
 	return QueryVotePenaltyCounterParams{validator}
-}
-
-// QueryAggregatePrevoteParams defines the params for the following queries:
-// - 'custom/oracle/aggregatePrevote'
-type QueryAggregatePrevoteParams struct {
-	Validator sdk.ValAddress
-}
-
-// NewQueryAggregatePrevoteParams returns params for feeder delegation query
-func NewQueryAggregatePrevoteParams(validator sdk.ValAddress) QueryAggregatePrevoteParams {
-	return QueryAggregatePrevoteParams{validator}
 }
 
 // QueryAggregateVoteParams defines the params for the following queries:

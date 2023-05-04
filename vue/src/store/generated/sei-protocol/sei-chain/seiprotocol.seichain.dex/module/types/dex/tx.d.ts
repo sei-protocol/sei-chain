@@ -1,13 +1,11 @@
 import { Reader, Writer } from "protobufjs/minimal";
-import { OrderPlacement } from "../dex/order_placement";
+import { Order, Cancellation } from "../dex/order";
 import { Coin } from "../cosmos/base/v1beta1/coin";
-import { OrderCancellation } from "../dex/order_cancellation";
-import { Pair } from "../dex/pair";
 import { ContractInfo } from "../dex/contract";
 export declare const protobufPackage = "seiprotocol.seichain.dex";
 export interface MsgPlaceOrders {
     creator: string;
-    orders: OrderPlacement[];
+    orders: Order[];
     contractAddr: string;
     funds: Coin[];
 }
@@ -16,24 +14,10 @@ export interface MsgPlaceOrdersResponse {
 }
 export interface MsgCancelOrders {
     creator: string;
-    orderCancellations: OrderCancellation[];
+    cancellations: Cancellation[];
     contractAddr: string;
 }
 export interface MsgCancelOrdersResponse {
-}
-export interface MsgLiquidation {
-    creator: string;
-    accountToLiquidate: string;
-    contractAddr: string;
-}
-export interface MsgLiquidationResponse {
-}
-export interface MsgRegisterPair {
-    creator: string;
-    contractAddr: string;
-    pair: Pair | undefined;
-}
-export interface MsgRegisterPairResponse {
 }
 export interface MsgRegisterContract {
     creator: string;
@@ -69,34 +53,6 @@ export declare const MsgCancelOrdersResponse: {
     toJSON(_: MsgCancelOrdersResponse): unknown;
     fromPartial(_: DeepPartial<MsgCancelOrdersResponse>): MsgCancelOrdersResponse;
 };
-export declare const MsgLiquidation: {
-    encode(message: MsgLiquidation, writer?: Writer): Writer;
-    decode(input: Reader | Uint8Array, length?: number): MsgLiquidation;
-    fromJSON(object: any): MsgLiquidation;
-    toJSON(message: MsgLiquidation): unknown;
-    fromPartial(object: DeepPartial<MsgLiquidation>): MsgLiquidation;
-};
-export declare const MsgLiquidationResponse: {
-    encode(_: MsgLiquidationResponse, writer?: Writer): Writer;
-    decode(input: Reader | Uint8Array, length?: number): MsgLiquidationResponse;
-    fromJSON(_: any): MsgLiquidationResponse;
-    toJSON(_: MsgLiquidationResponse): unknown;
-    fromPartial(_: DeepPartial<MsgLiquidationResponse>): MsgLiquidationResponse;
-};
-export declare const MsgRegisterPair: {
-    encode(message: MsgRegisterPair, writer?: Writer): Writer;
-    decode(input: Reader | Uint8Array, length?: number): MsgRegisterPair;
-    fromJSON(object: any): MsgRegisterPair;
-    toJSON(message: MsgRegisterPair): unknown;
-    fromPartial(object: DeepPartial<MsgRegisterPair>): MsgRegisterPair;
-};
-export declare const MsgRegisterPairResponse: {
-    encode(_: MsgRegisterPairResponse, writer?: Writer): Writer;
-    decode(input: Reader | Uint8Array, length?: number): MsgRegisterPairResponse;
-    fromJSON(_: any): MsgRegisterPairResponse;
-    toJSON(_: MsgRegisterPairResponse): unknown;
-    fromPartial(_: DeepPartial<MsgRegisterPairResponse>): MsgRegisterPairResponse;
-};
 export declare const MsgRegisterContract: {
     encode(message: MsgRegisterContract, writer?: Writer): Writer;
     decode(input: Reader | Uint8Array, length?: number): MsgRegisterContract;
@@ -115,8 +71,6 @@ export declare const MsgRegisterContractResponse: {
 export interface Msg {
     PlaceOrders(request: MsgPlaceOrders): Promise<MsgPlaceOrdersResponse>;
     CancelOrders(request: MsgCancelOrders): Promise<MsgCancelOrdersResponse>;
-    Liquidate(request: MsgLiquidation): Promise<MsgLiquidationResponse>;
-    RegisterPair(request: MsgRegisterPair): Promise<MsgRegisterPairResponse>;
     /** privileged endpoints below */
     RegisterContract(request: MsgRegisterContract): Promise<MsgRegisterContractResponse>;
 }
@@ -125,8 +79,6 @@ export declare class MsgClientImpl implements Msg {
     constructor(rpc: Rpc);
     PlaceOrders(request: MsgPlaceOrders): Promise<MsgPlaceOrdersResponse>;
     CancelOrders(request: MsgCancelOrders): Promise<MsgCancelOrdersResponse>;
-    Liquidate(request: MsgLiquidation): Promise<MsgLiquidationResponse>;
-    RegisterPair(request: MsgRegisterPair): Promise<MsgRegisterPairResponse>;
     RegisterContract(request: MsgRegisterContract): Promise<MsgRegisterContractResponse>;
 }
 interface Rpc {

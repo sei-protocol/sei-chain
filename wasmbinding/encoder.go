@@ -1,86 +1,43 @@
 package wasmbinding
 
 import (
-	"encoding/base64"
 	"encoding/json"
-	"fmt"
 
+	wasmvmtypes "github.com/CosmWasm/wasmvm/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
-	"github.com/sei-protocol/sei-chain/x/dex/types"
+	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
+	dexwasm "github.com/sei-protocol/sei-chain/x/dex/client/wasm"
+	tokenfactorywasm "github.com/sei-protocol/sei-chain/x/tokenfactory/client/wasm"
 )
 
-type CustomMessage struct {
-	Raw string `json:"raw"`
-}
-
-type RawSdkMessages struct {
-	Messages []RawMessage `json:"messages"`
-}
-
-type RawMessage struct {
-	MsgType string `json:"msg_type"`
-	Data    string `json:"data"`
+type SeiWasmMessage struct {
+	PlaceOrders  json.RawMessage `json:"place_orders,omitempty"`
+	CancelOrders json.RawMessage `json:"cancel_orders,omitempty"`
+	CreateDenom  json.RawMessage `json:"create_denom,omitempty"`
+	MintTokens   json.RawMessage `json:"mint_tokens,omitempty"`
+	BurnTokens   json.RawMessage `json:"burn_tokens,omitempty"`
+	ChangeAdmin  json.RawMessage `json:"change_admin,omitempty"`
 }
 
 func CustomEncoder(sender sdk.AccAddress, msg json.RawMessage) ([]sdk.Msg, error) {
-	customMsg := CustomMessage{}
-	if err := json.Unmarshal(msg, &customMsg); err != nil {
-		return []sdk.Msg{}, err
+	var parsedMessage SeiWasmMessage
+	if err := json.Unmarshal(msg, &parsedMessage); err != nil {
+		return []sdk.Msg{}, sdkerrors.Wrap(err, "Error parsing Sei Wasm Message")
 	}
-	data, err := base64.StdEncoding.DecodeString(customMsg.Raw)
-	if err != nil {
-		panic(err)
-	}
-	return decodeRawSdkMessages(data)
-}
-
-func decodeRawSdkMessages(rawMsg []byte) ([]sdk.Msg, error) {
-	messages := RawSdkMessages{}
-	if err := json.Unmarshal(rawMsg, &messages); err != nil {
-		return []sdk.Msg{}, err
-	}
-	response := []sdk.Msg{}
-	for _, message := range messages.Messages {
-		msg, err := decodeRawSdkMessage(message)
-		if err != nil {
-			return response, err
-		}
-		response = append(response, msg)
-	}
-	return response, nil
-}
-
-func decodeRawSdkMessage(message RawMessage) (sdk.Msg, error) {
-	switch message.MsgType {
-	case types.TypeMsgPlaceOrders:
-		return decodeOrderPlacementMessage(message.Data)
-	case types.TypeMsgCancelOrders:
-		return decodeOrderCancellationMessage(message.Data)
+	switch {
+	case parsedMessage.PlaceOrders != nil:
+		return dexwasm.EncodeDexPlaceOrders(parsedMessage.PlaceOrders, sender)
+	case parsedMessage.CancelOrders != nil:
+		return dexwasm.EncodeDexCancelOrders(parsedMessage.CancelOrders, sender)
+	case parsedMessage.CreateDenom != nil:
+		return tokenfactorywasm.EncodeTokenFactoryCreateDenom(parsedMessage.CreateDenom, sender)
+	case parsedMessage.MintTokens != nil:
+		return tokenfactorywasm.EncodeTokenFactoryMint(parsedMessage.MintTokens, sender)
+	case parsedMessage.BurnTokens != nil:
+		return tokenfactorywasm.EncodeTokenFactoryBurn(parsedMessage.BurnTokens, sender)
+	case parsedMessage.ChangeAdmin != nil:
+		return tokenfactorywasm.EncodeTokenFactoryChangeAdmin(parsedMessage.ChangeAdmin, sender)
 	default:
-		return nil, fmt.Errorf("unknown message type %s", message.MsgType)
+		return []sdk.Msg{}, wasmvmtypes.UnsupportedRequest{Kind: "Unknown Sei Wasm Message"}
 	}
-}
-
-func decodeOrderPlacementMessage(data string) (sdk.Msg, error) {
-	decodedData, err := base64.StdEncoding.DecodeString(data)
-	if err != nil {
-		return nil, err
-	}
-	message := types.MsgPlaceOrders{}
-	if err := json.Unmarshal(decodedData, &message); err != nil {
-		return nil, err
-	}
-	return &message, nil
-}
-
-func decodeOrderCancellationMessage(data string) (sdk.Msg, error) {
-	decodedData, err := base64.StdEncoding.DecodeString(data)
-	if err != nil {
-		return nil, err
-	}
-	message := types.MsgCancelOrders{}
-	if err := json.Unmarshal(decodedData, &message); err != nil {
-		return nil, err
-	}
-	return &message, nil
 }

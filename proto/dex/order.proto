@@ -50,6 +50,24 @@ message Order {
     string data = 11 [
         (gogoproto.jsontag) = "data"
     ];
+    string statusDescription = 12 [
+        (gogoproto.jsontag) = "status_description"
+    ];
+    string nominal = 13 [
+        (gogoproto.moretags)   = "yaml:\"nominal\"",
+        (gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Dec",
+        (gogoproto.nullable)   = false,
+        (gogoproto.jsontag)    = "nominal"
+    ];
+    string triggerPrice = 14 [
+        (gogoproto.moretags)   = "yaml:\"trigger_price\"",
+        (gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Dec",
+        (gogoproto.nullable)   = false,
+        (gogoproto.jsontag)    = "trigger_price"
+    ];
+    bool triggerStatus = 15 [
+        (gogoproto.jsontag) = "trigger_status"
+    ];
 }
 
 message Cancellation {
@@ -58,6 +76,28 @@ message Cancellation {
     ];
     CancellationInitiator initiator = 2 [
         (gogoproto.jsontag) = "initiator"
+    ];
+    string creator = 3 [
+        (gogoproto.jsontag)    = "creator",
+        (gogoproto.nullable)   = true
+    ];
+    string contractAddr = 4 [
+        (gogoproto.jsontag)    = "contract_address"
+    ];
+    string priceDenom = 5 [
+        (gogoproto.jsontag) = "price_denom"
+    ];
+    string assetDenom = 6 [
+        (gogoproto.jsontag) = "asset_denom"
+    ];
+    PositionDirection positionDirection = 7 [
+        (gogoproto.jsontag) = "position_direction"
+    ];
+    string price = 8 [
+        (gogoproto.moretags)   = "yaml:\"price\"",
+        (gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Dec",
+        (gogoproto.nullable)   = false,
+        (gogoproto.jsontag)    = "price"
     ];
 }
 

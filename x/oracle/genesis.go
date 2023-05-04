@@ -12,6 +12,7 @@ import (
 // InitGenesis initialize default parameters
 // and the keeper's address to pubkey map
 func InitGenesis(ctx sdk.Context, keeper keeper.Keeper, data *types.GenesisState) {
+	keeper.SetParams(ctx, data.Params)
 	for _, d := range data.FeederDelegations {
 		voter, err := sdk.ValAddressFromBech32(d.ValidatorAddress)
 		if err != nil {
@@ -36,16 +37,7 @@ func InitGenesis(ctx sdk.Context, keeper keeper.Keeper, data *types.GenesisState
 			panic(err)
 		}
 
-		keeper.SetVotePenaltyCounter(ctx, operator, pc.VotePenaltyCounter.MissCount, pc.VotePenaltyCounter.AbstainCount)
-	}
-
-	for _, ap := range data.AggregateExchangeRatePrevotes {
-		valAddr, err := sdk.ValAddressFromBech32(ap.Voter)
-		if err != nil {
-			panic(err)
-		}
-
-		keeper.SetAggregateExchangeRatePrevote(ctx, valAddr, ap)
+		keeper.SetVotePenaltyCounter(ctx, operator, pc.VotePenaltyCounter.MissCount, pc.VotePenaltyCounter.AbstainCount, pc.VotePenaltyCounter.SuccessCount)
 	}
 
 	for _, av := range data.AggregateExchangeRateVotes {
@@ -57,7 +49,9 @@ func InitGenesis(ctx sdk.Context, keeper keeper.Keeper, data *types.GenesisState
 		keeper.SetAggregateExchangeRateVote(ctx, valAddr, av)
 	}
 
-	keeper.SetParams(ctx, data.Params)
+	for _, priceSnapshot := range data.PriceSnapshots {
+		keeper.AddPriceSnapshot(ctx, priceSnapshot)
+	}
 
 	// check if the module account exists
 	moduleAcc := keeper.GetOracleAccount(ctx)
@@ -95,22 +89,24 @@ func ExportGenesis(ctx sdk.Context, keeper keeper.Keeper) *types.GenesisState {
 		return false
 	})
 
-	aggregateExchangeRatePrevotes := []types.AggregateExchangeRatePrevote{}
-	keeper.IterateAggregateExchangeRatePrevotes(ctx, func(_ sdk.ValAddress, aggregatePrevote types.AggregateExchangeRatePrevote) (stop bool) {
-		aggregateExchangeRatePrevotes = append(aggregateExchangeRatePrevotes, aggregatePrevote)
-		return false
-	})
-
 	aggregateExchangeRateVotes := []types.AggregateExchangeRateVote{}
 	keeper.IterateAggregateExchangeRateVotes(ctx, func(_ sdk.ValAddress, aggregateVote types.AggregateExchangeRateVote) bool {
 		aggregateExchangeRateVotes = append(aggregateExchangeRateVotes, aggregateVote)
 		return false
 	})
 
-	return types.NewGenesisState(params,
+	priceSnapshots := types.PriceSnapshots{}
+	keeper.IteratePriceSnapshots(ctx, func(snapshot types.PriceSnapshot) bool {
+		priceSnapshots = append(priceSnapshots, snapshot)
+		return false
+	})
+
+	return types.NewGenesisState(
+		params,
 		exchangeRates,
 		feederDelegations,
 		penaltyCounters,
-		aggregateExchangeRatePrevotes,
-		aggregateExchangeRateVotes)
+		aggregateExchangeRateVotes,
+		priceSnapshots,
+	)
 }

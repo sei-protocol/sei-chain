@@ -22,13 +22,28 @@ export interface MsgAggregateExchangeRatePrevoteResponse {}
  */
 export interface MsgAggregateExchangeRateVote {
   salt: string;
-  exchangeRates: string;
+  exchange_rates: string;
   feeder: string;
   validator: string;
 }
 
 /** MsgAggregateExchangeRateVoteResponse defines the Msg/AggregateExchangeRateVote response type. */
 export interface MsgAggregateExchangeRateVoteResponse {}
+
+/**
+ * MsgAggregateExchangeRateVote represents a message to submit
+ * aggregate exchange rate vote.
+ */
+export interface MsgAggregateExchangeRateCombinedVote {
+  vote_salt: string;
+  vote_exchange_rates: string;
+  prevote_hash: string;
+  feeder: string;
+  validator: string;
+}
+
+/** MsgAggregateExchangeRateVoteResponse defines the Msg/AggregateExchangeRateVote response type. */
+export interface MsgAggregateExchangeRateCombinedVoteResponse {}
 
 /**
  * MsgDelegateFeedConsent represents a message to
@@ -203,7 +218,7 @@ export const MsgAggregateExchangeRatePrevoteResponse = {
 
 const baseMsgAggregateExchangeRateVote: object = {
   salt: "",
-  exchangeRates: "",
+  exchange_rates: "",
   feeder: "",
   validator: "",
 };
@@ -216,8 +231,8 @@ export const MsgAggregateExchangeRateVote = {
     if (message.salt !== "") {
       writer.uint32(10).string(message.salt);
     }
-    if (message.exchangeRates !== "") {
-      writer.uint32(18).string(message.exchangeRates);
+    if (message.exchange_rates !== "") {
+      writer.uint32(18).string(message.exchange_rates);
     }
     if (message.feeder !== "") {
       writer.uint32(26).string(message.feeder);
@@ -244,7 +259,7 @@ export const MsgAggregateExchangeRateVote = {
           message.salt = reader.string();
           break;
         case 2:
-          message.exchangeRates = reader.string();
+          message.exchange_rates = reader.string();
           break;
         case 3:
           message.feeder = reader.string();
@@ -269,10 +284,10 @@ export const MsgAggregateExchangeRateVote = {
     } else {
       message.salt = "";
     }
-    if (object.exchangeRates !== undefined && object.exchangeRates !== null) {
-      message.exchangeRates = String(object.exchangeRates);
+    if (object.exchange_rates !== undefined && object.exchange_rates !== null) {
+      message.exchange_rates = String(object.exchange_rates);
     } else {
-      message.exchangeRates = "";
+      message.exchange_rates = "";
     }
     if (object.feeder !== undefined && object.feeder !== null) {
       message.feeder = String(object.feeder);
@@ -290,8 +305,8 @@ export const MsgAggregateExchangeRateVote = {
   toJSON(message: MsgAggregateExchangeRateVote): unknown {
     const obj: any = {};
     message.salt !== undefined && (obj.salt = message.salt);
-    message.exchangeRates !== undefined &&
-      (obj.exchangeRates = message.exchangeRates);
+    message.exchange_rates !== undefined &&
+      (obj.exchange_rates = message.exchange_rates);
     message.feeder !== undefined && (obj.feeder = message.feeder);
     message.validator !== undefined && (obj.validator = message.validator);
     return obj;
@@ -308,10 +323,10 @@ export const MsgAggregateExchangeRateVote = {
     } else {
       message.salt = "";
     }
-    if (object.exchangeRates !== undefined && object.exchangeRates !== null) {
-      message.exchangeRates = object.exchangeRates;
+    if (object.exchange_rates !== undefined && object.exchange_rates !== null) {
+      message.exchange_rates = object.exchange_rates;
     } else {
-      message.exchangeRates = "";
+      message.exchange_rates = "";
     }
     if (object.feeder !== undefined && object.feeder !== null) {
       message.feeder = object.feeder;
@@ -375,6 +390,209 @@ export const MsgAggregateExchangeRateVoteResponse = {
     const message = {
       ...baseMsgAggregateExchangeRateVoteResponse,
     } as MsgAggregateExchangeRateVoteResponse;
+    return message;
+  },
+};
+
+const baseMsgAggregateExchangeRateCombinedVote: object = {
+  vote_salt: "",
+  vote_exchange_rates: "",
+  prevote_hash: "",
+  feeder: "",
+  validator: "",
+};
+
+export const MsgAggregateExchangeRateCombinedVote = {
+  encode(
+    message: MsgAggregateExchangeRateCombinedVote,
+    writer: Writer = Writer.create()
+  ): Writer {
+    if (message.vote_salt !== "") {
+      writer.uint32(10).string(message.vote_salt);
+    }
+    if (message.vote_exchange_rates !== "") {
+      writer.uint32(18).string(message.vote_exchange_rates);
+    }
+    if (message.prevote_hash !== "") {
+      writer.uint32(26).string(message.prevote_hash);
+    }
+    if (message.feeder !== "") {
+      writer.uint32(34).string(message.feeder);
+    }
+    if (message.validator !== "") {
+      writer.uint32(42).string(message.validator);
+    }
+    return writer;
+  },
+
+  decode(
+    input: Reader | Uint8Array,
+    length?: number
+  ): MsgAggregateExchangeRateCombinedVote {
+    const reader = input instanceof Uint8Array ? new Reader(input) : input;
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = {
+      ...baseMsgAggregateExchangeRateCombinedVote,
+    } as MsgAggregateExchangeRateCombinedVote;
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1:
+          message.vote_salt = reader.string();
+          break;
+        case 2:
+          message.vote_exchange_rates = reader.string();
+          break;
+        case 3:
+          message.prevote_hash = reader.string();
+          break;
+        case 4:
+          message.feeder = reader.string();
+          break;
+        case 5:
+          message.validator = reader.string();
+          break;
+        default:
+          reader.skipType(tag & 7);
+          break;
+      }
+    }
+    return message;
+  },
+
+  fromJSON(object: any): MsgAggregateExchangeRateCombinedVote {
+    const message = {
+      ...baseMsgAggregateExchangeRateCombinedVote,
+    } as MsgAggregateExchangeRateCombinedVote;
+    if (object.vote_salt !== undefined && object.vote_salt !== null) {
+      message.vote_salt = String(object.vote_salt);
+    } else {
+      message.vote_salt = "";
+    }
+    if (
+      object.vote_exchange_rates !== undefined &&
+      object.vote_exchange_rates !== null
+    ) {
+      message.vote_exchange_rates = String(object.vote_exchange_rates);
+    } else {
+      message.vote_exchange_rates = "";
+    }
+    if (object.prevote_hash !== undefined && object.prevote_hash !== null) {
+      message.prevote_hash = String(object.prevote_hash);
+    } else {
+      message.prevote_hash = "";
+    }
+    if (object.feeder !== undefined && object.feeder !== null) {
+      message.feeder = String(object.feeder);
+    } else {
+      message.feeder = "";
+    }
+    if (object.validator !== undefined && object.validator !== null) {
+      message.validator = String(object.validator);
+    } else {
+      message.validator = "";
+    }
+    return message;
+  },
+
+  toJSON(message: MsgAggregateExchangeRateCombinedVote): unknown {
+    const obj: any = {};
+    message.vote_salt !== undefined && (obj.vote_salt = message.vote_salt);
+    message.vote_exchange_rates !== undefined &&
+      (obj.vote_exchange_rates = message.vote_exchange_rates);
+    message.prevote_hash !== undefined &&
+      (obj.prevote_hash = message.prevote_hash);
+    message.feeder !== undefined && (obj.feeder = message.feeder);
+    message.validator !== undefined && (obj.validator = message.validator);
+    return obj;
+  },
+
+  fromPartial(
+    object: DeepPartial<MsgAggregateExchangeRateCombinedVote>
+  ): MsgAggregateExchangeRateCombinedVote {
+    const message = {
+      ...baseMsgAggregateExchangeRateCombinedVote,
+    } as MsgAggregateExchangeRateCombinedVote;
+    if (object.vote_salt !== undefined && object.vote_salt !== null) {
+      message.vote_salt = object.vote_salt;
+    } else {
+      message.vote_salt = "";
+    }
+    if (
+      object.vote_exchange_rates !== undefined &&
+      object.vote_exchange_rates !== null
+    ) {
+      message.vote_exchange_rates = object.vote_exchange_rates;
+    } else {
+      message.vote_exchange_rates = "";
+    }
+    if (object.prevote_hash !== undefined && object.prevote_hash !== null) {
+      message.prevote_hash = object.prevote_hash;
+    } else {
+      message.prevote_hash = "";
+    }
+    if (object.feeder !== undefined && object.feeder !== null) {
+      message.feeder = object.feeder;
+    } else {
+      message.feeder = "";
+    }
+    if (object.validator !== undefined && object.validator !== null) {
+      message.validator = object.validator;
+    } else {
+      message.validator = "";
+    }
+    return message;
+  },
+};
+
+const baseMsgAggregateExchangeRateCombinedVoteResponse: object = {};
+
+export const MsgAggregateExchangeRateCombinedVoteResponse = {
+  encode(
+    _: MsgAggregateExchangeRateCombinedVoteResponse,
+    writer: Writer = Writer.create()
+  ): Writer {
+    return writer;
+  },
+
+  decode(
+    input: Reader | Uint8Array,
+    length?: number
+  ): MsgAggregateExchangeRateCombinedVoteResponse {
+    const reader = input instanceof Uint8Array ? new Reader(input) : input;
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = {
+      ...baseMsgAggregateExchangeRateCombinedVoteResponse,
+    } as MsgAggregateExchangeRateCombinedVoteResponse;
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        default:
+          reader.skipType(tag & 7);
+          break;
+      }
+    }
+    return message;
+  },
+
+  fromJSON(_: any): MsgAggregateExchangeRateCombinedVoteResponse {
+    const message = {
+      ...baseMsgAggregateExchangeRateCombinedVoteResponse,
+    } as MsgAggregateExchangeRateCombinedVoteResponse;
+    return message;
+  },
+
+  toJSON(_: MsgAggregateExchangeRateCombinedVoteResponse): unknown {
+    const obj: any = {};
+    return obj;
+  },
+
+  fromPartial(
+    _: DeepPartial<MsgAggregateExchangeRateCombinedVoteResponse>
+  ): MsgAggregateExchangeRateCombinedVoteResponse {
+    const message = {
+      ...baseMsgAggregateExchangeRateCombinedVoteResponse,
+    } as MsgAggregateExchangeRateCombinedVoteResponse;
     return message;
   },
 };
@@ -524,6 +742,10 @@ export interface Msg {
   AggregateExchangeRateVote(
     request: MsgAggregateExchangeRateVote
   ): Promise<MsgAggregateExchangeRateVoteResponse>;
+  /** Aggregate vote and prevote combines the functionality of prevote and vote into one RPC */
+  AggregateExchangeRateCombinedVote(
+    request: MsgAggregateExchangeRateCombinedVote
+  ): Promise<MsgAggregateExchangeRateCombinedVoteResponse>;
   /** DelegateFeedConsent defines a method for setting the feeder delegation */
   DelegateFeedConsent(
     request: MsgDelegateFeedConsent
@@ -560,6 +782,20 @@ export class MsgClientImpl implements Msg {
     );
     return promise.then((data) =>
       MsgAggregateExchangeRateVoteResponse.decode(new Reader(data))
+    );
+  }
+
+  AggregateExchangeRateCombinedVote(
+    request: MsgAggregateExchangeRateCombinedVote
+  ): Promise<MsgAggregateExchangeRateCombinedVoteResponse> {
+    const data = MsgAggregateExchangeRateCombinedVote.encode(request).finish();
+    const promise = this.rpc.request(
+      "seiprotocol.seichain.oracle.Msg",
+      "AggregateExchangeRateCombinedVote",
+      data
+    );
+    return promise.then((data) =>
+      MsgAggregateExchangeRateCombinedVoteResponse.decode(new Reader(data))
     );
   }
 

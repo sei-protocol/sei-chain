@@ -180,7 +180,7 @@ export interface V1Beta1PageRequest {
    * count_total is only respected when offset is used. It is ignored when key
    * is set.
    */
-  countTotal?: boolean;
+  count_total?: boolean;
 
   /**
    * reverse is set to true if results are to be returned in the descending order.
@@ -201,7 +201,7 @@ corresponding request message has used PageRequest.
 */
 export interface V1Beta1PageResponse {
   /** @format byte */
-  nextKey?: string;
+  next_key?: string;
 
   /** @format uint64 */
   total?: string;
@@ -436,7 +436,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       "pagination.key"?: string;
       "pagination.offset"?: string;
       "pagination.limit"?: string;
-      "pagination.countTotal"?: boolean;
+      "pagination.count_total"?: boolean;
       "pagination.reverse"?: boolean;
     },
     params: RequestParams = {},
@@ -455,11 +455,11 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
    * @tags Query
    * @name QueryEvidence
    * @summary Evidence queries evidence based on evidence hash.
-   * @request GET:/cosmos/evidence/v1beta1/evidence/{evidenceHash}
+   * @request GET:/cosmos/evidence/v1beta1/evidence/{evidence_hash}
    */
-  queryEvidence = (evidenceHash: string, params: RequestParams = {}) =>
+  queryEvidence = (evidence_hash: string, params: RequestParams = {}) =>
     this.request<V1Beta1QueryEvidenceResponse, RpcStatus>({
-      path: `/cosmos/evidence/v1beta1/evidence/${evidenceHash}`,
+      path: `/cosmos/evidence/v1beta1/evidence/${evidence_hash}`,
       method: "GET",
       format: "json",
       ...params,

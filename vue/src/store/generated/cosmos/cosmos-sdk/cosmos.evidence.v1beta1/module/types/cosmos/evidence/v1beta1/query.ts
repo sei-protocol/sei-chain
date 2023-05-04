@@ -11,7 +11,7 @@ export const protobufPackage = "cosmos.evidence.v1beta1";
 /** QueryEvidenceRequest is the request type for the Query/Evidence RPC method. */
 export interface QueryEvidenceRequest {
   /** evidence_hash defines the hash of the requested evidence. */
-  evidenceHash: Uint8Array;
+  evidence_hash: Uint8Array;
 }
 
 /** QueryEvidenceResponse is the response type for the Query/Evidence RPC method. */
@@ -47,8 +47,8 @@ export const QueryEvidenceRequest = {
     message: QueryEvidenceRequest,
     writer: Writer = Writer.create()
   ): Writer {
-    if (message.evidenceHash.length !== 0) {
-      writer.uint32(10).bytes(message.evidenceHash);
+    if (message.evidence_hash.length !== 0) {
+      writer.uint32(10).bytes(message.evidence_hash);
     }
     return writer;
   },
@@ -61,7 +61,7 @@ export const QueryEvidenceRequest = {
       const tag = reader.uint32();
       switch (tag >>> 3) {
         case 1:
-          message.evidenceHash = reader.bytes();
+          message.evidence_hash = reader.bytes();
           break;
         default:
           reader.skipType(tag & 7);
@@ -73,18 +73,18 @@ export const QueryEvidenceRequest = {
 
   fromJSON(object: any): QueryEvidenceRequest {
     const message = { ...baseQueryEvidenceRequest } as QueryEvidenceRequest;
-    if (object.evidenceHash !== undefined && object.evidenceHash !== null) {
-      message.evidenceHash = bytesFromBase64(object.evidenceHash);
+    if (object.evidence_hash !== undefined && object.evidence_hash !== null) {
+      message.evidence_hash = bytesFromBase64(object.evidence_hash);
     }
     return message;
   },
 
   toJSON(message: QueryEvidenceRequest): unknown {
     const obj: any = {};
-    message.evidenceHash !== undefined &&
-      (obj.evidenceHash = base64FromBytes(
-        message.evidenceHash !== undefined
-          ? message.evidenceHash
+    message.evidence_hash !== undefined &&
+      (obj.evidence_hash = base64FromBytes(
+        message.evidence_hash !== undefined
+          ? message.evidence_hash
           : new Uint8Array()
       ));
     return obj;
@@ -92,10 +92,10 @@ export const QueryEvidenceRequest = {
 
   fromPartial(object: DeepPartial<QueryEvidenceRequest>): QueryEvidenceRequest {
     const message = { ...baseQueryEvidenceRequest } as QueryEvidenceRequest;
-    if (object.evidenceHash !== undefined && object.evidenceHash !== null) {
-      message.evidenceHash = object.evidenceHash;
+    if (object.evidence_hash !== undefined && object.evidence_hash !== null) {
+      message.evidence_hash = object.evidence_hash;
     } else {
-      message.evidenceHash = new Uint8Array();
+      message.evidence_hash = new Uint8Array();
     }
     return message;
   },

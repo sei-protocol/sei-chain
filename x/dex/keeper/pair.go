@@ -1,50 +1,38 @@
 package keeper
 
 import (
-	"encoding/binary"
-
 	"github.com/cosmos/cosmos-sdk/store/prefix"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
 )
 
-func (k Keeper) SetPairCount(ctx sdk.Context, contractAddr string, count uint64) {
-	store := prefix.NewStore(
-		ctx.KVStore(k.storeKey),
-		types.RegisteredPairCountPrefix(),
-	)
-	countBytes := make([]byte, 8)
-	binary.BigEndian.PutUint64(countBytes, count)
-	store.Set(types.KeyPrefix(contractAddr), countBytes)
-}
-
-func (k Keeper) GetPairCount(ctx sdk.Context, contractAddr string) uint64 {
-	store := prefix.NewStore(
-		ctx.KVStore(k.storeKey),
-		types.RegisteredPairCountPrefix(),
-	)
-	cnt := store.Get(types.KeyPrefix(contractAddr))
-	if cnt == nil {
-		return 0
-	}
-	return binary.BigEndian.Uint64(cnt)
-}
-
 func (k Keeper) AddRegisteredPair(ctx sdk.Context, contractAddr string, pair types.Pair) bool {
-	// Only add pairs that have not been added before
-	for _, prevPair := range k.GetAllRegisteredPairs(ctx, contractAddr) {
-		if pair == prevPair {
-			return false
-		}
+	// only add pairs that haven't been added before
+	if k.HasRegisteredPair(ctx, contractAddr, pair.PriceDenom, pair.AssetDenom) {
+		return false
 	}
-	oldPairCnt := k.GetPairCount(ctx, contractAddr)
 	store := prefix.NewStore(ctx.KVStore(k.storeKey), types.RegisteredPairPrefix(contractAddr))
-	keyBytes := make([]byte, 8)
-	binary.BigEndian.PutUint64(keyBytes, oldPairCnt)
-	store.Set(keyBytes, k.Cdc.MustMarshal(&pair))
-	k.SetPairCount(ctx, contractAddr, oldPairCnt+1)
-
+	store.Set(types.PairPrefix(pair.PriceDenom, pair.AssetDenom), k.Cdc.MustMarshal(&pair))
 	return true
+}
+
+func (k Keeper) HasRegisteredPair(ctx sdk.Context, contractAddr string, priceDenom string, assetDenom string) bool {
+	store := prefix.NewStore(ctx.KVStore(k.storeKey), types.RegisteredPairPrefix(contractAddr))
+	return store.Has(types.PairPrefix(priceDenom, assetDenom))
+}
+
+func (k Keeper) GetRegisteredPair(ctx sdk.Context, contractAddr string, priceDenom string, assetDenom string) (types.Pair, bool) {
+	store := prefix.NewStore(ctx.KVStore(k.storeKey), types.RegisteredPairPrefix(contractAddr))
+	b := store.Get(types.PairPrefix(priceDenom, assetDenom))
+	res := types.Pair{}
+	if b == nil {
+		return res, false
+	}
+	err := res.Unmarshal(b)
+	if err != nil {
+		panic(err)
+	}
+	return res, true
 }
 
 func (k Keeper) GetAllRegisteredPairs(ctx sdk.Context, contractAddr string) []types.Pair {
@@ -61,4 +49,8 @@ func (k Keeper) GetAllRegisteredPairs(ctx sdk.Context, contractAddr string) []ty
 	}
 
 	return list
+}
+
+func (k Keeper) DeleteAllRegisteredPairsForContract(ctx sdk.Context, contractAddr string) {
+	k.removeAllForPrefix(ctx, types.RegisteredPairPrefix(contractAddr))
 }
