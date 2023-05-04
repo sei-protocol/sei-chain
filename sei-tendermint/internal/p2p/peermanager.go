@@ -444,6 +444,9 @@ func (m *PeerManager) Add(address NodeAddress) (bool, error) {
 	}
 
 	// else add the new address
+	if len(peer.AddressInfo) == 0 {
+		peer.AddressInfo = make(map[NodeAddress]*peerAddressInfo)
+	}
 	peer.AddressInfo[address] = &peerAddressInfo{Address: address}
 	m.logger.Info(fmt.Sprintf("Adding new peer %s with address %s to peer store\n", peer.ID, address.String()))
 	if err := m.store.Set(peer); err != nil {
