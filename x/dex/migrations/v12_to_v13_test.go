@@ -27,6 +27,6 @@ func TestMigrate12to13(t *testing.T) {
 	err := migrations.V12ToV13(ctx, *dexkeeper)
 	require.NoError(t, err)
 	params := dexkeeper.GetParams(ctx)
-	require.Equal(t, params.GasAllowancePerSettlement, types.DefaultGasAllowancePerSettlement)
-	require.Equal(t, params.MinProcessableRent, types.DefaultMinProcessableRent)
+	require.Equal(t, params.GasAllowancePerSettlement, uint64(types.DefaultGasAllowancePerSettlement))
+	require.Equal(t, params.MinProcessableRent, uint64(types.DefaultMinProcessableRent))
 }

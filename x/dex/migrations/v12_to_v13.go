@@ -9,7 +9,17 @@ import (
 func V12ToV13(ctx sdk.Context, dexkeeper keeper.Keeper) error {
 	// This isn't the cleanest migration since it could potentially revert any dex params we have changed
 	// but we haven't, so we'll just do this.
-	defaultParams := types.DefaultParams()
-	dexkeeper.SetParams(ctx, defaultParams)
+
+	oldParams := dexkeeper.GetParams(ctx)
+
+	newParams := types.DefaultParams()
+	newParams.PriceSnapshotRetention = oldParams.PriceSnapshotRetention
+	newParams.SudoCallGasPrice = oldParams.SudoCallGasPrice
+	newParams.BeginBlockGasLimit = oldParams.BeginBlockGasLimit
+	newParams.EndBlockGasLimit = oldParams.EndBlockGasLimit
+	newParams.DefaultGasPerOrder = oldParams.DefaultGasPerOrder
+	newParams.DefaultGasPerCancel = oldParams.DefaultGasPerCancel
+
+	dexkeeper.SetParams(ctx, newParams)
 	return nil
 }
