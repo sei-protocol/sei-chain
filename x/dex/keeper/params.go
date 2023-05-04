@@ -16,6 +16,10 @@ func (k Keeper) GetSettlementGasAllowance(ctx sdk.Context, numSettlements int) u
 	return k.GetParams(ctx).GasAllowancePerSettlement * uint64(numSettlements)
 }
 
+func (k Keeper) GetMinProcessableRent(ctx sdk.Context) uint64 {
+	return k.GetParams(ctx).MinProcessableRent
+}
+
 // SetParams set the params
 func (k Keeper) SetParams(ctx sdk.Context, params types.Params) {
 	k.Paramstore.SetParamSet(ctx, &params)

@@ -105,7 +105,7 @@ func EndBlockerAtomic(ctx sdk.Context, keeper *keeper.Keeper, validContractsInfo
 
 	// restore keeper in-memory state
 	newGoContext := context.WithValue(ctx.Context(), dexutils.DexMemStateContextKey, memStateCopy)
-	return filterNewValidContracts(ctx, env), getOutOfRentContracts(ctx, env), ctx.WithContext(newGoContext), false
+	return filterNewValidContracts(ctx, env), getOutOfRentContracts(env), ctx.WithContext(newGoContext), false
 }
 
 func newEnv(ctx sdk.Context, validContractsInfo []types.ContractInfoV2, keeper *keeper.Keeper) *environment {
@@ -271,7 +271,7 @@ func filterNewValidContracts(ctx sdk.Context, env *environment) []types.Contract
 	return newValidContracts
 }
 
-func getOutOfRentContracts(ctx sdk.Context, env *environment) []types.ContractInfoV2 {
+func getOutOfRentContracts(env *environment) []types.ContractInfoV2 {
 	outOfRentContracts := []types.ContractInfoV2{}
 	for _, contract := range env.validContractsInfo {
 		if env.outOfRentContractAddresses.Contains(contract.ContractAddr) {

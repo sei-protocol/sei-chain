@@ -227,7 +227,7 @@ func (am AppModule) getAllContractInfo(ctx sdk.Context) []types.ContractInfoV2 {
 	// Do not process any contract that has zero rent balance
 	defer telemetry.MeasureSince(time.Now(), am.Name(), "get_all_contract_info")
 	allRegisteredContracts := am.keeper.GetAllContractInfo(ctx)
-	validContracts := utils.Filter(allRegisteredContracts, func(c types.ContractInfoV2) bool { return c.RentBalance > 0 })
+	validContracts := utils.Filter(allRegisteredContracts, func(c types.ContractInfoV2) bool { return c.RentBalance > am.keeper.GetMinProcessableRent(ctx) })
 	telemetry.SetGauge(float32(len(allRegisteredContracts)), am.Name(), "num_of_registered_contracts")
 	telemetry.SetGauge(float32(len(validContracts)), am.Name(), "num_of_valid_contracts")
 	telemetry.SetGauge(float32(len(allRegisteredContracts)-len(validContracts)), am.Name(), "num_of_zero_balance_contracts")

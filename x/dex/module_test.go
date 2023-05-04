@@ -616,6 +616,10 @@ func TestEndBlockRollbackWithRentCharge(t *testing.T) {
 			Amount:  sdk.MustNewDecFromStr("10000"),
 		},
 	)
+	// overwrite params for testing
+	params := dexkeeper.GetParams(ctx)
+	params.MinProcessableRent = 0
+	dexkeeper.SetParams(ctx, params)
 
 	ctx = ctx.WithBlockHeight(1)
 	creatorBalanceBefore := bankkeeper.GetBalance(ctx, testAccount, "usei")
@@ -625,8 +629,9 @@ func TestEndBlockRollbackWithRentCharge(t *testing.T) {
 	require.Equal(t, 0, len(matchResult.Orders))
 	// rent should still be charged even if the contract failed, so no rent should be sent to the creator after
 	// auto unregister
-	_, err = dexkeeper.GetContract(ctx, contractAddr.String())
-	require.NotNil(t, err) // auto-unregistered
+	c, err := dexkeeper.GetContract(ctx, contractAddr.String())
+	require.Nil(t, err)                        // out-of-rent contract should not be auto-unregistered
+	require.Equal(t, uint64(0), c.RentBalance) // rent balance should be drained
 	creatorBalanceAfter := bankkeeper.GetBalance(ctx, testAccount, "usei")
 	require.Equal(t, creatorBalanceBefore, creatorBalanceAfter)
 }
@@ -671,6 +676,6 @@ func TestEndBlockContractWithoutPair(t *testing.T) {
 	ti := tracing.Info{
 		Tracer: &tr,
 	}
-	_, _, success := contract.EndBlockerAtomic(ctx, &testApp.DexKeeper, []types.ContractInfoV2{contractInfo}, &ti)
+	_, _, _, success := contract.EndBlockerAtomic(ctx, &testApp.DexKeeper, []types.ContractInfoV2{contractInfo}, &ti)
 	require.True(t, success)
 }
