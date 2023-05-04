@@ -11,14 +11,13 @@ func V12ToV13(ctx sdk.Context, dexkeeper keeper.Keeper) error {
 
 	newParams := types.DefaultParams()
 
-	newParams.PriceSnapshotRetention = oldParams.PriceSnapshotRetention
-	newParams.SudoCallGasPrice = oldParams.SudoCallGasPrice
 	newParams.BeginBlockGasLimit = oldParams.BeginBlockGasLimit
 	newParams.EndBlockGasLimit = oldParams.EndBlockGasLimit
 	newParams.DefaultGasPerOrder = oldParams.DefaultGasPerOrder
 	newParams.DefaultGasPerCancel = oldParams.DefaultGasPerCancel
 	newParams.MinRentDeposit = oldParams.MinRentDeposit
-	newParams.GasAllowancePerSettlement = oldParams.GasAllowancePerSettlement
+	newParams.PriceSnapshotRetention = oldParams.PriceSnapshotRetention
+	newParams.SudoCallGasPrice = oldParams.SudoCallGasPrice
 
 	dexkeeper.SetParams(ctx, newParams)
 	return nil
