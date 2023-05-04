@@ -1,4 +1,3 @@
-//nolint
 package types
 
 import (
@@ -82,16 +81,16 @@ func (DummyStakingKeeper) TotalBondedTokens(_ sdk.Context) sdk.Int {
 // Slash nolint
 func (DummyStakingKeeper) Slash(sdk.Context, sdk.ConsAddress, int64, int64, sdk.Dec) {}
 
-// ValidatorsPowerStoreIterator nolint
+// ValidatorsPowerStoreIterator
 func (DummyStakingKeeper) ValidatorsPowerStoreIterator(ctx sdk.Context) sdk.Iterator {
 	return sdk.KVStoreReversePrefixIterator(nil, nil)
 }
 
-// Jail nolint
+// Jail
 func (DummyStakingKeeper) Jail(sdk.Context, sdk.ConsAddress) {
 }
 
-// GetLastValidatorPower nolint
+// GetLastValidatorPower
 func (sk DummyStakingKeeper) GetLastValidatorPower(ctx sdk.Context, operator sdk.ValAddress) (power int64) {
 	return sk.Validator(ctx, operator).GetConsensusPower(sdk.DefaultPowerReduction)
 }
@@ -107,7 +106,7 @@ func (DummyStakingKeeper) PowerReduction(ctx sdk.Context) (res sdk.Int) {
 	return
 }
 
-// MockValidator nolint
+// MockValidator
 type MockValidator struct {
 	power    int64
 	operator sdk.ValAddress
@@ -130,6 +129,7 @@ func (MockValidator) GetConsAddr() (sdk.ConsAddress, error) { return nil, nil }
 func (v MockValidator) GetTokens() sdk.Int {
 	return sdk.TokensFromConsensusPower(v.power, sdk.DefaultPowerReduction)
 }
+
 func (v MockValidator) GetBondedTokens() sdk.Int {
 	return sdk.TokensFromConsensusPower(v.power, sdk.DefaultPowerReduction)
 }

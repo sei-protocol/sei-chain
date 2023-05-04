@@ -2,24 +2,43 @@ package antedecorators
 
 import (
 	"bytes"
+	"encoding/hex"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	sdkacltypes "github.com/cosmos/cosmos-sdk/types/accesscontrol"
+	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
+	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
 	dextypes "github.com/sei-protocol/sei-chain/x/dex/types"
 	oraclekeeper "github.com/sei-protocol/sei-chain/x/oracle/keeper"
 	oracletypes "github.com/sei-protocol/sei-chain/x/oracle/types"
 )
 
 type GaslessDecorator struct {
-	wrapped      []sdk.AnteDecorator
+	wrapped      []sdk.AnteFullDecorator
 	oracleKeeper oraclekeeper.Keeper
 }
 
-func NewGaslessDecorator(wrapped []sdk.AnteDecorator, oracleKeeper oraclekeeper.Keeper) GaslessDecorator {
+func NewGaslessDecorator(wrapped []sdk.AnteFullDecorator, oracleKeeper oraclekeeper.Keeper) GaslessDecorator {
 	return GaslessDecorator{wrapped: wrapped, oracleKeeper: oracleKeeper}
 }
 
 func (gd GaslessDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool, next sdk.AnteHandler) (newCtx sdk.Context, err error) {
-	if !isTxGasless(tx, ctx, gd.oracleKeeper) {
+	originalGasMeter := ctx.GasMeter()
+	// eagerly set infinite gas meter so that queries performed by isTxGasless will not incur gas cost
+	ctx = ctx.WithGasMeter(sdk.NewInfiniteGasMeter())
+
+	feeTx, ok := tx.(sdk.FeeTx)
+	if !ok {
+		return ctx, sdkerrors.Wrap(sdkerrors.ErrTxDecode, "Tx must be a FeeTx")
+	}
+	gas := feeTx.GetGas()
+	// If non-zero gas limit is provided by the TX, we then consider it exempt from the gasless TX, and then prioritize it accordingly
+	isGasless, err := isTxGasless(tx, ctx, gd.oracleKeeper)
+	if err != nil {
+		return ctx, err
+	}
+	if gas > 0 || !isGasless {
+		ctx = ctx.WithGasMeter(originalGasMeter)
 		// if not gasless, then we use the wrappers
 
 		// AnteHandle always takes a `next` so we need a no-op to execute only one handler at a time
@@ -29,73 +48,102 @@ func (gd GaslessDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool,
 		// iterating instead of recursing the handler for readability
 		for _, handler := range gd.wrapped {
 			ctx, err = handler.AnteHandle(ctx, tx, simulate, terminatorHandler)
+			if err != nil {
+				return ctx, err
+			}
 		}
 		return next(ctx, tx, simulate)
 	}
-	gaslessMeter := sdk.NewInfiniteGasMeter()
 
-	return next(ctx.WithGasMeter(gaslessMeter), tx, simulate)
+	return next(ctx, tx, simulate)
 }
 
-func isTxGasless(tx sdk.Tx, ctx sdk.Context, oracleKeeper oraclekeeper.Keeper) bool {
+func (gd GaslessDecorator) AnteDeps(txDeps []sdkacltypes.AccessOperation, tx sdk.Tx, next sdk.AnteDepGenerator) (newTxDeps []sdkacltypes.AccessOperation, err error) {
+	deps := []sdkacltypes.AccessOperation{}
+	terminatorDeps := func(txDeps []sdkacltypes.AccessOperation, _ sdk.Tx) ([]sdkacltypes.AccessOperation, error) {
+		return txDeps, nil
+	}
+	for _, depGen := range gd.wrapped {
+		deps, _ = depGen.AnteDeps(deps, tx, terminatorDeps)
+	}
+	for _, msg := range tx.GetMsgs() {
+		// Error checking will be handled in AnteHandler
+		switch m := msg.(type) {
+		case *oracletypes.MsgAggregateExchangeRateVote:
+			valAddr, _ := sdk.ValAddressFromBech32(m.Validator)
+			deps = append(deps, []sdkacltypes.AccessOperation{
+				// validate feeder
+				// read feeder delegation for val addr - READ
+				{
+					ResourceType:       sdkacltypes.ResourceType_KV_ORACLE_FEEDERS,
+					AccessType:         sdkacltypes.AccessType_READ,
+					IdentifierTemplate: hex.EncodeToString(oracletypes.GetFeederDelegationKey(valAddr)),
+				},
+				// read validator from staking - READ
+				{
+					ResourceType:       sdkacltypes.ResourceType_KV_STAKING_VALIDATOR,
+					AccessType:         sdkacltypes.AccessType_READ,
+					IdentifierTemplate: hex.EncodeToString(stakingtypes.GetValidatorKey(valAddr)),
+				},
+				// check exchange rate vote exists - READ
+				{
+					ResourceType:       sdkacltypes.ResourceType_KV_ORACLE_AGGREGATE_VOTES,
+					AccessType:         sdkacltypes.AccessType_READ,
+					IdentifierTemplate: hex.EncodeToString(oracletypes.GetAggregateExchangeRateVoteKey(valAddr)),
+				},
+			}...)
+		default:
+			continue
+		}
+	}
+
+	return next(append(txDeps, deps...), tx)
+}
+
+func isTxGasless(tx sdk.Tx, ctx sdk.Context, oracleKeeper oraclekeeper.Keeper) (bool, error) {
 	if len(tx.GetMsgs()) == 0 {
 		// empty TX shouldn't be gasless
-		return false
+		return false, nil
 	}
 	for _, msg := range tx.GetMsgs() {
 		switch m := msg.(type) {
 		case *dextypes.MsgPlaceOrders:
-			if DexPlaceOrdersIsGasless(m) {
-				continue
+			if !dexPlaceOrdersIsGasless(m) {
+				return false, nil
 			}
-			return false
+
 		case *dextypes.MsgCancelOrders:
-			if DexCancelOrdersIsGasless(m) {
-				continue
+			if !dexCancelOrdersIsGasless(m) {
+				return false, nil
 			}
-			return false
-		case *oracletypes.MsgAggregateExchangeRatePrevote:
-			if OraclePrevoteIsGasless(m, ctx, oracleKeeper) {
-				continue
-			}
-			return false
 		case *oracletypes.MsgAggregateExchangeRateVote:
-			if OracleVoteIsGasless(m, ctx, oracleKeeper) {
-				continue
+			isGasless, err := oracleVoteIsGasless(m, ctx, oracleKeeper)
+			if err != nil || !isGasless {
+				return false, err
 			}
-			return false
-		case *oracletypes.MsgAggregateExchangeRateCombinedVote:
-			if OracleCombinedVoteIsGasless(m, ctx, oracleKeeper) {
-				continue
-			}
-			return false
 		default:
-			return false
+			return false, nil
 		}
 	}
+	return true, nil
+}
+
+func dexPlaceOrdersIsGasless(msg *dextypes.MsgPlaceOrders) bool {
 	return true
 }
 
-func DexPlaceOrdersIsGasless(msg *dextypes.MsgPlaceOrders) bool {
-	return true
-}
+// WhitelistedGaslessCancellationAddrs TODO: migrate this into params state
+var WhitelistedGaslessCancellationAddrs = []sdk.AccAddress{}
 
-// TODO: migrate this into params state
-var WHITELISTED_GASLESS_CANCELLATION_ADDRS = []sdk.AccAddress{}
-
-func DexCancelOrdersIsGasless(msg *dextypes.MsgCancelOrders) bool {
-	if allSignersWhitelisted(msg) {
-		return true
-	} else {
-		return false
-	}
+func dexCancelOrdersIsGasless(msg *dextypes.MsgCancelOrders) bool {
+	return allSignersWhitelisted(msg)
 }
 
 func allSignersWhitelisted(msg *dextypes.MsgCancelOrders) bool {
 	for _, signer := range msg.GetSigners() {
 		isWhitelisted := false
-		for _, whitelisted := range WHITELISTED_GASLESS_CANCELLATION_ADDRS {
-			if bytes.Compare(signer, whitelisted) == 0 {
+		for _, whitelisted := range WhitelistedGaslessCancellationAddrs {
+			if bytes.Compare(signer, whitelisted) == 0 { //nolint:gosimple
 				isWhitelisted = true
 				break
 			}
@@ -107,76 +155,30 @@ func allSignersWhitelisted(msg *dextypes.MsgCancelOrders) bool {
 	return true
 }
 
-func OraclePrevoteIsGasless(msg *oracletypes.MsgAggregateExchangeRatePrevote, ctx sdk.Context, keeper oraclekeeper.Keeper) bool {
+func oracleVoteIsGasless(msg *oracletypes.MsgAggregateExchangeRateVote, ctx sdk.Context, keeper oraclekeeper.Keeper) (bool, error) {
 	feederAddr, err := sdk.AccAddressFromBech32(msg.Feeder)
 	if err != nil {
-		return false
+		return false, err
 	}
 
 	valAddr, err := sdk.ValAddressFromBech32(msg.Validator)
 	if err != nil {
-		return false
+		return false, err
 	}
 
 	err = keeper.ValidateFeeder(ctx, feederAddr, valAddr)
 	if err != nil {
-		return false
-	}
-
-	currHeight := ctx.BlockHeight()
-	votePeriod := keeper.VotePeriod(ctx)
-	lastPrevote, err := keeper.GetAggregateExchangeRatePrevote(ctx, valAddr)
-	if err != nil {
-		return true
-	}
-
-	lastPrevoteWindow := lastPrevote.SubmitBlock / votePeriod
-	currPrevoteWindow := uint64(currHeight) / votePeriod
-	return currPrevoteWindow > lastPrevoteWindow
-}
-
-func OracleVoteIsGasless(msg *oracletypes.MsgAggregateExchangeRateVote, ctx sdk.Context, keeper oraclekeeper.Keeper) bool {
-
-	feederAddr, err := sdk.AccAddressFromBech32(msg.Feeder)
-	if err != nil {
-		return false
-	}
-
-	valAddr, err := sdk.ValAddressFromBech32(msg.Validator)
-	if err != nil {
-		return false
-	}
-
-	err = keeper.ValidateFeeder(ctx, feederAddr, valAddr)
-	if err != nil {
-		return false
+		return false, err
 	}
 
 	// this returns an error IFF there is no vote present
 	// this also gets cleared out after every vote window, so if there is no vote present, we may want to allow gasless tx
 	_, err = keeper.GetAggregateExchangeRateVote(ctx, valAddr)
-	// if there is no error that means there is a vote present, so we dont allow gasless tx
 	if err == nil {
-		return false
+		// if there is no error that means there is a vote present, so we don't allow gasless tx
+		err = sdkerrors.Wrap(oracletypes.ErrAggregateVoteExist, valAddr.String())
+		return false, err
 	}
-
-	currHeight := ctx.BlockHeight()
-	votePeriod := keeper.VotePeriod(ctx)
-	// we expect a prevote from the previous window
-	lastPrevote, err := keeper.GetAggregateExchangeRatePrevote(ctx, valAddr)
-	if err != nil {
-		// if there is no prevote present, there shouldnt be a vote expected so we dont allow gasless
-		return false
-	}
-
-	lastPrevoteWindow := lastPrevote.SubmitBlock / votePeriod
-	currPrevoteWindow := uint64(currHeight) / votePeriod
-
-	// we allow gasless tx if the difference is exactly 1, since then the prevote is in the valid window
-	return currPrevoteWindow-lastPrevoteWindow == 1
-}
-
-func OracleCombinedVoteIsGasless(msg *oracletypes.MsgAggregateExchangeRateCombinedVote, ctx sdk.Context, keeper oraclekeeper.Keeper) bool {
-	return (OraclePrevoteIsGasless(msg.GetPrevoteFromCombinedVote(), ctx, keeper) ||
-		OracleVoteIsGasless(msg.GetVoteFromCombinedVote(), ctx, keeper))
+	// otherwise we allow it
+	return true, nil
 }

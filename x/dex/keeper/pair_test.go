@@ -9,25 +9,33 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestSetGetPairCount(t *testing.T) {
-	keeper, ctx := keepertest.DexKeeper(t)
-	require.Equal(t, uint64(0), keeper.GetPairCount(ctx, TEST_CONTRACT))
-	keeper.SetPairCount(ctx, TEST_CONTRACT, 1)
-	require.Equal(t, uint64(1), keeper.GetPairCount(ctx, TEST_CONTRACT))
-}
-
 func TestAddGetPair(t *testing.T) {
 	keeper, ctx := keepertest.DexKeeper(t)
-	keeper.AddRegisteredPair(ctx, TEST_CONTRACT, types.Pair{
-		PriceDenom: TEST_PRICE_DENOM,
-		AssetDenom: TEST_ASSET_DENOM,
+	keeper.AddRegisteredPair(ctx, keepertest.TestContract, types.Pair{
+		PriceDenom:       keepertest.TestPriceDenom,
+		AssetDenom:       keepertest.TestAssetDenom,
+		PriceTicksize:    &keepertest.TestTicksize,
+		QuantityTicksize: &keepertest.TestTicksize,
 	})
-	require.Equal(t, uint64(1), keeper.GetPairCount(ctx, TEST_CONTRACT))
 	require.ElementsMatch(t,
 		nullify.Fill([]types.Pair{{
-			PriceDenom: TEST_PRICE_DENOM,
-			AssetDenom: TEST_ASSET_DENOM,
+			PriceDenom:       keepertest.TestPriceDenom,
+			AssetDenom:       keepertest.TestAssetDenom,
+			PriceTicksize:    &keepertest.TestTicksize,
+			QuantityTicksize: &keepertest.TestTicksize,
 		}}),
-		nullify.Fill(keeper.GetAllRegisteredPairs(ctx, TEST_CONTRACT)),
+		nullify.Fill(keeper.GetAllRegisteredPairs(ctx, keepertest.TestContract)),
 	)
+
+	pair, found := keeper.GetRegisteredPair(ctx, keepertest.TestContract, keepertest.TestPriceDenom, keepertest.TestAssetDenom)
+	require.True(t, found)
+	require.Equal(t, types.Pair{
+		PriceDenom:       keepertest.TestPriceDenom,
+		AssetDenom:       keepertest.TestAssetDenom,
+		PriceTicksize:    &keepertest.TestTicksize,
+		QuantityTicksize: &keepertest.TestTicksize,
+	}, pair)
+	hasPair := keeper.HasRegisteredPair(ctx, keepertest.TestContract, keepertest.TestPriceDenom, keepertest.TestAssetDenom)
+	require.True(t, hasPair)
+
 }

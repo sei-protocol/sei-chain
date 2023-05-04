@@ -1,0 +1,35 @@
+name: Test
+on:
+  pull_request:
+  push:
+    paths:
+      - "**.go"
+    branches:
+      - main
+      - release/**
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        part: ["00", "01", "02", "03", "04", "05", "06", "07", "08", "09", "10", "11", "12", "13", "14", "15", "16", "17", "18", "19"]
+    steps:
+      - uses: actions/setup-go@v3
+        with:
+          go-version: "1.19"
+      - uses: actions/checkout@v3
+      - uses: technote-space/get-diff-action@v6
+        with:
+          PATTERNS: |
+            **/**.go
+            "!test/"
+            go.mod
+            go.sum
+            Makefile
+      - name: Run Go Tests
+        run: |
+          NUM_SPLIT=20
+          make test-group-${{matrix.part}} NUM_SPLIT=20
+        if: env.GIT_DIFF

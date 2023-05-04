@@ -4,54 +4,54 @@ import (
 	"fmt"
 	"strings"
 
+	sdk "github.com/cosmos/cosmos-sdk/types"
 	govtypes "github.com/cosmos/cosmos-sdk/x/gov/types"
 )
 
 const (
-	ProposalTypeRegisterPairs = "RegisterPairs"
+	ProposalTypeAddAssetMetadata = "AddAssetMetadata"
 )
 
 func init() {
-	govtypes.RegisterProposalType(ProposalTypeRegisterPairs)
-	govtypes.RegisterProposalTypeCodec(&RegisterPairsProposal{}, "dex/RegisterPairsProposal")
+	// for routing
+	govtypes.RegisterProposalType(ProposalTypeAddAssetMetadata)
+	// for marshal and unmarshal
+	govtypes.RegisterProposalTypeCodec(&AddAssetMetadataProposal{}, "dex/AddAssetMetadataProposal")
 }
 
-var _ govtypes.Content = &RegisterPairsProposal{}
+func (p *AddAssetMetadataProposal) GetTitle() string { return p.Title }
 
-func NewRegisterPairsProposal(title, description string, batchContractPair []BatchContractPair) RegisterPairsProposal {
-	return RegisterPairsProposal{
-		Title:       title,
-		Description: description,
-		Batchcontractpair:    batchContractPair,
+func (p *AddAssetMetadataProposal) GetDescription() string { return p.Description }
+
+func (p *AddAssetMetadataProposal) ProposalRoute() string { return RouterKey }
+
+func (p *AddAssetMetadataProposal) ProposalType() string {
+	return ProposalTypeAddAssetMetadata
+}
+
+func (p *AddAssetMetadataProposal) ValidateBasic() error {
+	// Verify base denoms specified in proposal are well formed
+	for _, asset := range p.AssetList {
+		err := sdk.ValidateDenom(asset.Metadata.Base)
+		if err != nil {
+			return err
+		}
 	}
-}
 
-func (p *RegisterPairsProposal) GetTitle() string { return p.Title }
-
-func (p *RegisterPairsProposal) GetDescription() string { return p.Description }
-
-func (p *RegisterPairsProposal) ProposalRoute() string { return RouterKey }
-
-func (p *RegisterPairsProposal) ProposalType() string {
-	return ProposalTypeRegisterPairs
-}
-
-func (p *RegisterPairsProposal) ValidateBasic() error {
 	err := govtypes.ValidateAbstract(p)
 	return err
 }
 
-// TODO: String support for register pair type
-func (p RegisterPairsProposal) String() string {
-	batchContractPairRecords := ""
-	for _, contractPair := range p.Batchcontractpair {
-		batchContractPairRecords += contractPair.String()
+func (p AddAssetMetadataProposal) String() string {
+	assetRecords := ""
+	for _, asset := range p.AssetList {
+		assetRecords += asset.String()
 	}
 	var b strings.Builder
-	b.WriteString(fmt.Sprintf(`Register Pairs Proposal:
+	b.WriteString(fmt.Sprintf(`Add Asset Metadata Proposal:
   Title:       %s
   Description: %s
   Records:     %s
-`, p.Title, p.Description, batchContractPairRecords))
+`, p.Title, p.Description, assetRecords))
 	return b.String()
 }

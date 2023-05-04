@@ -7,10 +7,13 @@ import "cosmos/base/query/v1beta1/pagination.proto";
 import "dex/params.proto";
 import "dex/long_book.proto";
 import "dex/short_book.proto";
-import "dex/settlement.proto";
-import "dex/enums.proto";
 import "dex/price.proto";
+import "dex/contract.proto";
 import "dex/twap.proto";
+import "dex/asset_list.proto";
+import "dex/pair.proto";
+import "dex/order.proto";
+import "dex/match_result.proto";
 // this line is used by starport scaffolding # 1
 
 option go_package = "github.com/sei-protocol/sei-chain/x/dex/types";
@@ -41,8 +44,12 @@ service Query {
 		option (google.api.http).get = "/sei-protocol/seichain/dex/short_book/{contractAddr}/{priceDenom}/{assetDenom}";
 	}
 
-	rpc SettlementsAll(QueryAllSettlementsRequest) returns (QueryAllSettlementsResponse) {
-		option (google.api.http).get = "/sei-protocol/seichain/dex/settlement";
+	rpc GetPrice(QueryGetPriceRequest) returns (QueryGetPriceResponse) {
+		option (google.api.http).get = "/sei-protocol/seichain/dex/get_price/{contractAddr}/{priceDenom}/{assetDenom}/{timestamp}";
+	}
+
+	rpc GetLatestPrice(QueryGetLatestPriceRequest) returns (QueryGetLatestPriceResponse) {
+		option (google.api.http).get = "/sei-protocol/seichain/dex/get_latest_price/{contractAddr}/{priceDenom}/{assetDenom}";
 	}
 
 	rpc GetPrices(QueryGetPricesRequest) returns (QueryGetPricesResponse) {
@@ -52,6 +59,46 @@ service Query {
 	rpc GetTwaps(QueryGetTwapsRequest) returns (QueryGetTwapsResponse) {
 		option (google.api.http).get = "/sei-protocol/seichain/dex/get_twaps/{contractAddr}/{lookbackSeconds}";
 	}
+
+	// Returns the metadata for a specified denom / display type
+	rpc AssetMetadata(QueryAssetMetadataRequest) returns (QueryAssetMetadataResponse) {
+		option (google.api.http).get = "/sei-protocol/seichain/dex/asset_list/{denom}";
+	}
+
+	// Returns metadata for all the assets
+	rpc AssetList(QueryAssetListRequest) returns (QueryAssetListResponse) {
+		option (google.api.http).get = "/sei-protocol/seichain/dex/asset_list";
+	}
+
+	// Returns all registered pairs for specified contract address
+	rpc GetRegisteredPairs(QueryRegisteredPairsRequest) returns (QueryRegisteredPairsResponse) {
+		option (google.api.http).get = "/sei-protocol/seichain/dex/registered_pairs";
+	}
+
+	// Returns registered contract information
+	rpc GetRegisteredContract(QueryRegisteredContractRequest) returns (QueryRegisteredContractResponse) {
+		option (google.api.http).get = "/sei-protocol/seichain/dex/registered_contract/{contractAddr}";
+	}
+
+	rpc GetOrders(QueryGetOrdersRequest) returns (QueryGetOrdersResponse) {
+		option (google.api.http).get = "/sei-protocol/seichain/dex/get_orders/{contractAddr}/{account}";
+	}
+
+	rpc GetOrder(QueryGetOrderByIDRequest) returns (QueryGetOrderByIDResponse) {
+		option (google.api.http).get = "/sei-protocol/seichain/dex/get_order_by_id/{contractAddr}/{priceDenom}/{assetDenom}/{id}";
+	}
+
+	rpc GetHistoricalPrices(QueryGetHistoricalPricesRequest) returns (QueryGetHistoricalPricesResponse) {
+		option (google.api.http).get = "/sei-protocol/seichain/dex/get_historical_prices/{contractAddr}/{priceDenom}/{assetDenom}/{periodLengthInSeconds}/{numOfPeriods}";
+	}
+
+	rpc GetMarketSummary(QueryGetMarketSummaryRequest) returns (QueryGetMarketSummaryResponse) {
+		option (google.api.http).get = "/sei-protocol/seichain/dex/get_market_summary/{contractAddr}/{priceDenom}/{assetDenom}/{lookbackInSeconds}";
+	}
+	
+	rpc GetOrderSimulation(QueryOrderSimulationRequest) returns (QueryOrderSimulationResponse) {}
+
+	rpc GetMatchResult(QueryGetMatchResultRequest) returns (QueryGetMatchResultResponse) {}
 
 // this line is used by starport scaffolding # 2
 }
@@ -68,8 +115,8 @@ message QueryParamsResponse {
 message QueryGetLongBookRequest {
 	string price = 1;
 	string contractAddr = 2;
-	Denom priceDenom = 3;
-	Denom assetDenom = 4;
+	string priceDenom = 3;
+	string assetDenom = 4;
 }
 
 message QueryGetLongBookResponse {
@@ -79,8 +126,8 @@ message QueryGetLongBookResponse {
 message QueryAllLongBookRequest {
 	cosmos.base.query.v1beta1.PageRequest pagination = 1;
 	string contractAddr = 2;
-	Denom priceDenom = 3;
-	Denom assetDenom = 4;
+	string priceDenom = 3;
+	string assetDenom = 4;
 }
 
 message QueryAllLongBookResponse {
@@ -91,8 +138,8 @@ message QueryAllLongBookResponse {
 message QueryGetShortBookRequest {
 	string price = 1;
 	string contractAddr = 2;
-	Denom priceDenom = 3;
-	Denom assetDenom = 4;
+	string priceDenom = 3;
+	string assetDenom = 4;
 }
 
 message QueryGetShortBookResponse {
@@ -102,8 +149,8 @@ message QueryGetShortBookResponse {
 message QueryAllShortBookRequest {
 	cosmos.base.query.v1beta1.PageRequest pagination = 1;
 	string contractAddr = 2;
-	Denom priceDenom = 3;
-	Denom assetDenom = 4;
+	string priceDenom = 3;
+	string assetDenom = 4;
 }
 
 message QueryAllShortBookResponse {
@@ -111,34 +158,42 @@ message QueryAllShortBookResponse {
 	cosmos.base.query.v1beta1.PageResponse pagination = 2;
 }
 
-message QueryGetSettlementsRequest {
-	string contractAddr = 1;
-	uint64 blockHeight = 2;
-	Denom priceDenom = 3;
-	Denom assetDenom = 4;
-}
-
-message QueryGetSettlementsResponse {
-	Settlements Settlements = 1 [(gogoproto.nullable) = false];
-}
-
-message QueryAllSettlementsRequest {
-	cosmos.base.query.v1beta1.PageRequest pagination = 1;
-}
-
-message QueryAllSettlementsResponse {
-	repeated Settlements Settlements = 1 [(gogoproto.nullable) = false];
-	cosmos.base.query.v1beta1.PageResponse pagination = 2;
-}
-
 message QueryGetPricesRequest {
-  Denom priceDenom = 1;
-  Denom assetDenom = 2;
+  string priceDenom = 1;
+  string assetDenom = 2;
   string contractAddr = 3;
 }
 
 message QueryGetPricesResponse {
 	repeated Price prices = 1;
+}
+
+message QueryGetPriceRequest {
+	string priceDenom = 1;
+	string assetDenom = 2;
+	string contractAddr = 3;
+	uint64 timestamp  = 4;
+}
+
+message QueryGetPriceResponse {
+	Price price = 1;
+	bool found = 2;
+}
+
+message QueryGetLatestPriceRequest {
+	string priceDenom = 1 [
+		(gogoproto.jsontag) = "price_denom"
+	];
+	string assetDenom = 2 [
+		(gogoproto.jsontag) = "asset_denom"
+	];
+	string contractAddr = 3 [
+		(gogoproto.jsontag) = "contract_address"
+	];
+}
+
+message QueryGetLatestPriceResponse {
+	Price price = 1;
 }
 
 message QueryGetTwapsRequest {
@@ -149,9 +204,170 @@ message QueryGetTwapsRequest {
 		(gogoproto.jsontag) = "lookback_seconds"
 	];
   }
-  
-  message QueryGetTwapsResponse {
-	  repeated Twap twaps = 1;
-  }
 
+message QueryGetTwapsResponse {
+	repeated Twap twaps = 1 [
+		(gogoproto.jsontag) = "twaps"
+	];
+}
+
+message QueryAssetListRequest {}
+
+message QueryAssetListResponse {
+	repeated AssetMetadata assetList = 1 [(gogoproto.nullable) = false];
+}
+
+message QueryAssetMetadataRequest {
+	string denom = 1;
+}
+
+message QueryAssetMetadataResponse {
+	AssetMetadata metadata = 1;
+}
+
+message QueryRegisteredPairsRequest {
+	string contractAddr = 1 [
+		(gogoproto.jsontag) = "contract_address"
+	];
+}
+
+message QueryRegisteredPairsResponse {
+	repeated Pair pairs = 1 [(gogoproto.nullable) = false];
+}
+
+message QueryRegisteredContractRequest {
+	string contractAddr = 1 [
+		(gogoproto.jsontag) = "contract_address"
+	];
+}
+
+message QueryRegisteredContractResponse {
+	ContractInfoV2 contract_info = 1;
+}
+
+message QueryGetOrdersRequest{
+	string contractAddr = 1 [
+		(gogoproto.jsontag) = "contract_address"
+	];
+	string account = 2 [
+		(gogoproto.jsontag) = "account"
+	];
+}
+
+message QueryGetOrdersResponse {
+	repeated Order orders = 1 [
+		(gogoproto.jsontag) = "orders"
+	];
+}
+
+message QueryGetOrderByIDRequest{
+	string contractAddr = 1 [
+		(gogoproto.jsontag) = "contract_address"
+	];
+	string priceDenom = 2 [
+		(gogoproto.jsontag) = "price_denom"
+	];
+	string assetDenom = 3 [
+		(gogoproto.jsontag) = "asset_denom"
+	];
+	uint64 id = 4 [
+		(gogoproto.jsontag) = "id"
+	];
+}
+
+message QueryGetOrderByIDResponse {
+	Order order = 1 [
+		(gogoproto.jsontag) = "order"
+	];
+}
+
+message QueryGetHistoricalPricesRequest {
+	string contractAddr = 1 [
+		(gogoproto.jsontag) = "contract_address"
+	];
+	string priceDenom = 2 [
+		(gogoproto.jsontag) = "price_denom"
+	];
+	string assetDenom = 3 [
+		(gogoproto.jsontag) = "asset_denom"
+	];
+	uint64 periodLengthInSeconds = 4 [
+		(gogoproto.jsontag) = "period_length_in_seconds"
+	];
+	uint64 numOfPeriods = 5 [
+		(gogoproto.jsontag) = "number_of_periods"
+	];
+}
+
+message QueryGetHistoricalPricesResponse {
+	repeated PriceCandlestick prices = 1[
+		(gogoproto.jsontag) = "prices"
+	];
+}
+
+message QueryGetMarketSummaryRequest {
+	string contractAddr = 1 [
+		(gogoproto.jsontag) = "contract_address"
+	];
+	string priceDenom = 2 [
+		(gogoproto.jsontag) = "price_denom"
+	];
+	string assetDenom = 3 [
+		(gogoproto.jsontag) = "asset_denom"
+	];
+	uint64 lookbackInSeconds = 4 [
+		(gogoproto.jsontag) = "lookback_in_seconds"
+	];
+}
+
+message QueryGetMarketSummaryResponse{
+	string totalVolume = 1 [
+      (gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Dec",
+      (gogoproto.jsontag) = "total_volume"
+  	];
+	string totalVolumeNotional = 2 [
+	  (gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Dec",
+	  (gogoproto.jsontag) = "total_volume_notional"
+	];
+	string highPrice = 3 [
+      (gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Dec",
+      (gogoproto.jsontag) = "high_price"
+  	];
+	string lowPrice = 4 [
+	  (gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Dec",
+	  (gogoproto.jsontag) = "low_price"
+	];
+	string lastPrice = 5 [
+      (gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Dec",
+      (gogoproto.jsontag) = "last_price"
+  	];
+}
+
+message QueryOrderSimulationRequest {
+	Order order = 1 [
+		(gogoproto.jsontag) = "order"
+	];
+	string contractAddr = 2 [
+		(gogoproto.jsontag) = "contract_address"
+	];
+}
+
+message QueryOrderSimulationResponse {
+	string ExecutedQuantity = 1 [
+        (gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Dec",
+        (gogoproto.jsontag)    = "executed_quantity"
+    ];
+}
+
+message QueryGetMatchResultRequest {
+	string contractAddr = 1 [
+		(gogoproto.jsontag) = "contract_address"
+	];
+}
+
+message QueryGetMatchResultResponse {
+	MatchResult result = 1 [
+		(gogoproto.jsontag) = "result"
+	];
+}
 // this line is used by starport scaffolding # 3

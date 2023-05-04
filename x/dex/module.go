@@ -4,8 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"time"
 
 	"github.com/CosmWasm/wasmd/x/wasm"
+	"github.com/cosmos/cosmos-sdk/telemetry"
 	"github.com/gorilla/mux"
 	"github.com/grpc-ecosystem/grpc-gateway/runtime"
 	"github.com/spf13/cobra"
@@ -18,13 +20,20 @@ import (
 	cdctypes "github.com/cosmos/cosmos-sdk/codec/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/types/module"
+	seisync "github.com/sei-protocol/sei-chain/sync"
+	"github.com/sei-protocol/sei-chain/utils"
 	"github.com/sei-protocol/sei-chain/utils/tracing"
-	dexcache "github.com/sei-protocol/sei-chain/x/dex/cache"
-	"github.com/sei-protocol/sei-chain/x/dex/client/cli"
-	"github.com/sei-protocol/sei-chain/x/dex/exchange"
+	"github.com/sei-protocol/sei-chain/x/dex/client/cli/query"
+	"github.com/sei-protocol/sei-chain/x/dex/client/cli/tx"
+	"github.com/sei-protocol/sei-chain/x/dex/contract"
 	"github.com/sei-protocol/sei-chain/x/dex/keeper"
+	dexkeeperabci "github.com/sei-protocol/sei-chain/x/dex/keeper/abci"
+	"github.com/sei-protocol/sei-chain/x/dex/keeper/msgserver"
+	dexkeeperquery "github.com/sei-protocol/sei-chain/x/dex/keeper/query"
 	"github.com/sei-protocol/sei-chain/x/dex/migrations"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
+	dexutils "github.com/sei-protocol/sei-chain/x/dex/utils"
+	"github.com/sei-protocol/sei-chain/x/store"
 )
 
 var (
@@ -69,7 +78,7 @@ func (AppModuleBasic) DefaultGenesis(cdc codec.JSONCodec) json.RawMessage {
 }
 
 // ValidateGenesis performs genesis state validation for the capability module.
-func (AppModuleBasic) ValidateGenesis(cdc codec.JSONCodec, config client.TxEncodingConfig, bz json.RawMessage) error {
+func (AppModuleBasic) ValidateGenesis(cdc codec.JSONCodec, _ client.TxEncodingConfig, bz json.RawMessage) error {
 	var genState types.GenesisState
 	if err := cdc.UnmarshalJSON(bz, &genState); err != nil {
 		return fmt.Errorf("failed to unmarshal %s genesis state: %w", types.ModuleName, err)
@@ -83,17 +92,17 @@ func (AppModuleBasic) RegisterRESTRoutes(clientCtx client.Context, rtr *mux.Rout
 
 // RegisterGRPCGatewayRoutes registers the gRPC Gateway routes for the module.
 func (AppModuleBasic) RegisterGRPCGatewayRoutes(clientCtx client.Context, mux *runtime.ServeMux) {
-	types.RegisterQueryHandlerClient(context.Background(), mux, types.NewQueryClient(clientCtx))
+	types.RegisterQueryHandlerClient(context.Background(), mux, types.NewQueryClient(clientCtx)) //nolint:errcheck // this is inside a module, and the method doesn't return error.  Leave it alone.
 }
 
 // GetTxCmd returns the capability module's root tx command.
 func (a AppModuleBasic) GetTxCmd() *cobra.Command {
-	return cli.GetTxCmd()
+	return tx.GetTxCmd()
 }
 
 // GetQueryCmd returns the capability module's root query command.
 func (AppModuleBasic) GetQueryCmd() *cobra.Command {
-	return cli.GetQueryCmd(types.StoreKey)
+	return query.GetQueryCmd()
 }
 
 // ----------------------------------------------------------------------------
@@ -109,7 +118,9 @@ type AppModule struct {
 	bankKeeper    types.BankKeeper
 	wasmKeeper    wasm.Keeper
 
-	tracingInfo *tracing.TracingInfo
+	abciWrapper dexkeeperabci.KeeperWrapper
+
+	tracingInfo *tracing.Info
 }
 
 func NewAppModule(
@@ -118,7 +129,7 @@ func NewAppModule(
 	accountKeeper types.AccountKeeper,
 	bankKeeper types.BankKeeper,
 	wasmKeeper wasm.Keeper,
-	tracingInfo *tracing.TracingInfo,
+	tracingInfo *tracing.Info,
 ) AppModule {
 	return AppModule{
 		AppModuleBasic: NewAppModuleBasic(cdc),
@@ -126,6 +137,7 @@ func NewAppModule(
 		accountKeeper:  accountKeeper,
 		bankKeeper:     bankKeeper,
 		wasmKeeper:     wasmKeeper,
+		abciWrapper:    dexkeeperabci.KeeperWrapper{Keeper: &keeper},
 		tracingInfo:    tracingInfo,
 	}
 }
@@ -137,7 +149,7 @@ func (am AppModule) Name() string {
 
 // Route returns the capability module's message routing key.
 func (am AppModule) Route() sdk.Route {
-	return sdk.NewRoute(types.RouterKey, NewHandler(am.keeper, am.tracingInfo))
+	return sdk.NewRoute(types.RouterKey, NewHandler(am.keeper))
 }
 
 // QuerierRoute returns the capability module's query routing key.
@@ -151,15 +163,39 @@ func (am AppModule) LegacyQuerierHandler(legacyQuerierCdc *codec.LegacyAmino) sd
 // RegisterServices registers a GRPC query service to respond to the
 // module-specific GRPC queries.
 func (am AppModule) RegisterServices(cfg module.Configurator) {
-	types.RegisterMsgServer(cfg.MsgServer(), keeper.NewMsgServerImpl(am.keeper, am.tracingInfo))
-	types.RegisterQueryServer(cfg.QueryServer(), am.keeper)
+	types.RegisterMsgServer(cfg.MsgServer(), msgserver.NewMsgServerImpl(am.keeper))
+	types.RegisterQueryServer(cfg.QueryServer(), dexkeeperquery.KeeperWrapper{Keeper: &am.keeper})
 
-	cfg.RegisterMigration(types.ModuleName, 1, func(ctx sdk.Context) error { return nil })
-	cfg.RegisterMigration(types.ModuleName, 2, func(ctx sdk.Context) error {
+	_ = cfg.RegisterMigration(types.ModuleName, 1, func(ctx sdk.Context) error { return nil })
+	_ = cfg.RegisterMigration(types.ModuleName, 2, func(ctx sdk.Context) error {
 		return migrations.DataTypeUpdate(ctx, am.keeper.GetStoreKey(), am.keeper.Cdc)
 	})
-	cfg.RegisterMigration(types.ModuleName, 3, func(ctx sdk.Context) error {
+	_ = cfg.RegisterMigration(types.ModuleName, 3, func(ctx sdk.Context) error {
 		return migrations.PriceSnapshotUpdate(ctx, am.keeper.Paramstore)
+	})
+	_ = cfg.RegisterMigration(types.ModuleName, 4, func(ctx sdk.Context) error {
+		return migrations.V4ToV5(ctx, am.keeper.GetStoreKey(), am.keeper.Paramstore)
+	})
+	_ = cfg.RegisterMigration(types.ModuleName, 5, func(ctx sdk.Context) error {
+		return migrations.V5ToV6(ctx, am.keeper.GetStoreKey(), am.keeper.Cdc)
+	})
+	_ = cfg.RegisterMigration(types.ModuleName, 6, func(ctx sdk.Context) error {
+		return migrations.V6ToV7(ctx, am.keeper.GetStoreKey())
+	})
+	_ = cfg.RegisterMigration(types.ModuleName, 7, func(ctx sdk.Context) error {
+		return migrations.V7ToV8(ctx, am.keeper.GetStoreKey())
+	})
+	_ = cfg.RegisterMigration(types.ModuleName, 8, func(ctx sdk.Context) error {
+		return migrations.V8ToV9(ctx, am.keeper)
+	})
+	_ = cfg.RegisterMigration(types.ModuleName, 9, func(ctx sdk.Context) error {
+		return migrations.V9ToV10(ctx, am.keeper)
+	})
+	_ = cfg.RegisterMigration(types.ModuleName, 10, func(ctx sdk.Context) error {
+		return migrations.V10ToV11(ctx, am.keeper)
+	})
+	_ = cfg.RegisterMigration(types.ModuleName, 11, func(ctx sdk.Context) error {
+		return migrations.V11ToV12(ctx, am.keeper)
 	})
 }
 
@@ -185,244 +221,111 @@ func (am AppModule) ExportGenesis(ctx sdk.Context, cdc codec.JSONCodec) json.Raw
 }
 
 // ConsensusVersion implements ConsensusVersion.
-func (AppModule) ConsensusVersion() uint64 { return 4 }
+func (AppModule) ConsensusVersion() uint64 { return 12 }
 
-func (am AppModule) getAllContractAddresses(ctx sdk.Context) []string {
-	return am.keeper.GetAllContractAddresses(ctx)
-}
-
-func (am AppModule) callClearingHouseContractSudo(ctx sdk.Context, msg []byte, contractAddrStr string) {
-	contractAddr, err := sdk.AccAddressFromBech32(contractAddrStr)
-	if err != nil {
-		ctx.Logger().Info(err.Error())
-	}
-	_, err = am.wasmKeeper.Sudo(
-		ctx, contractAddr, msg,
-	)
-	if err != nil {
-		ctx.Logger().Error(err.Error())
-	}
+func (am AppModule) getAllContractInfo(ctx sdk.Context) []types.ContractInfoV2 {
+	// Do not process any contract that has zero rent balance
+	defer telemetry.MeasureSince(time.Now(), am.Name(), "get_all_contract_info")
+	allRegisteredContracts := am.keeper.GetAllContractInfo(ctx)
+	validContracts := utils.Filter(allRegisteredContracts, func(c types.ContractInfoV2) bool { return c.RentBalance > am.keeper.GetMinProcessableRent(ctx) })
+	telemetry.SetGauge(float32(len(allRegisteredContracts)), am.Name(), "num_of_registered_contracts")
+	telemetry.SetGauge(float32(len(validContracts)), am.Name(), "num_of_valid_contracts")
+	telemetry.SetGauge(float32(len(allRegisteredContracts)-len(validContracts)), am.Name(), "num_of_zero_balance_contracts")
+	return validContracts
 }
 
 // BeginBlock executes all ABCI BeginBlock logic respective to the capability module.
 func (am AppModule) BeginBlock(ctx sdk.Context, _ abci.RequestBeginBlock) {
-	for _, contractAddr := range am.getAllContractAddresses(ctx) {
-		am.beginBlockForContract(ctx, contractAddr)
-	}
-	if isNewEpoch, currentEpoch := am.keeper.IsNewEpoch(ctx); isNewEpoch {
+	defer func() {
+		_, span := am.tracingInfo.Start("DexBeginBlockRollback")
+		defer span.End()
+	}()
+
+	dexutils.GetMemState(ctx.Context()).Clear(ctx)
+	isNewEpoch, currentEpoch := am.keeper.IsNewEpoch(ctx)
+	if isNewEpoch {
 		am.keeper.SetEpoch(ctx, currentEpoch)
 	}
+	cachedCtx, cachedStore := store.GetCachedContext(ctx)
+	gasLimit := am.keeper.GetParams(ctx).BeginBlockGasLimit
+	for _, contract := range am.getAllContractInfo(ctx) {
+		am.beginBlockForContract(cachedCtx, contract, gasLimit)
+	}
+	// only write if all contracts have been processed
+	cachedStore.Write()
 }
 
-func (am AppModule) beginBlockForContract(ctx sdk.Context, contractAddr string) {
-	_, span := (*am.tracingInfo.Tracer).Start(am.tracingInfo.TracerContext, "DexBeginBlock")
+func (am AppModule) beginBlockForContract(ctx sdk.Context, contract types.ContractInfoV2, gasLimit uint64) {
+	_, span := am.tracingInfo.Start("DexBeginBlock")
+	contractAddr := contract.ContractAddr
 	span.SetAttributes(attribute.String("contract", contractAddr))
 	defer span.End()
 
-	am.keeper.Orders[contractAddr] = map[string]*dexcache.Orders{}
-	am.keeper.OrderPlacements[contractAddr] = map[string]*dexcache.OrderPlacements{}
-	am.keeper.OrderCancellations[contractAddr] = map[string]*dexcache.OrderCancellations{}
-	am.keeper.DepositInfo[contractAddr] = dexcache.NewDepositInfo()
-	am.keeper.LiquidationRequests[contractAddr] = &dexcache.LiquidationRequests{}
-	for _, pair := range am.keeper.GetAllRegisteredPairs(ctx, contractAddr) {
-		ctx.Logger().Info(pair.String())
-		am.keeper.Orders[contractAddr][pair.String()] = dexcache.NewOrders()
-		am.keeper.OrderPlacements[contractAddr][pair.String()] = dexcache.NewOrderPlacements()
-		am.keeper.OrderCancellations[contractAddr][pair.String()] = dexcache.NewOrderCancellations()
-	}
-	ctx.Logger().Info(fmt.Sprintf("Orders %s, %s", am.keeper.Orders, contractAddr))
+	ctx = ctx.WithGasMeter(seisync.NewGasWrapper(dexutils.GetGasMeterForLimit(gasLimit)))
 
-	if isNewEpoch, currentEpoch := am.keeper.IsNewEpoch(ctx); isNewEpoch {
-		ctx.Logger().Info(fmt.Sprintf("Updating price for epoch %d", currentEpoch))
+	if contract.NeedOrderMatching {
+		currentTimestamp := uint64(ctx.BlockTime().Unix())
+		ctx.Logger().Debug(fmt.Sprintf("Removing stale prices for ts %d", currentTimestamp))
 		priceRetention := am.keeper.GetParams(ctx).PriceSnapshotRetention
 		for _, pair := range am.keeper.GetAllRegisteredPairs(ctx, contractAddr) {
-			lastEpochPrice, exists := am.keeper.GetPriceState(ctx, contractAddr, currentEpoch-1, pair)
-			if exists {
-				newEpochPrice := types.Price{
-					SnapshotTimestampInSeconds: uint64(ctx.BlockTime().Unix()),
-					Pair:                       &pair,
-					Price:                      lastEpochPrice.Price,
-				}
-				am.keeper.SetPriceState(ctx, newEpochPrice, contractAddr, currentEpoch)
-			}
-
-			// condition to prevent unsigned integer overflow
-			if currentEpoch >= priceRetention {
-				// this will no-op if price snapshot for the target epoch doesn't exist
-				am.keeper.DeletePriceState(ctx, contractAddr, currentEpoch-priceRetention, pair)
-			}
+			am.keeper.DeletePriceStateBefore(ctx, contractAddr, currentTimestamp-priceRetention, pair)
 		}
 	}
 }
 
 // EndBlock executes all ABCI EndBlock logic respective to the capability module. It
 // returns no validator updates.
-func (am AppModule) EndBlock(ctx sdk.Context, _ abci.RequestEndBlock) []abci.ValidatorUpdate {
-	for _, contractAddr := range am.getAllContractAddresses(ctx) {
-		ctx.Logger().Info(fmt.Sprintf("End block for %s", contractAddr))
-		am.endBlockForContract(ctx, contractAddr)
-	}
-	return []abci.ValidatorUpdate{}
-}
-
-func (am AppModule) endBlockForContract(ctx sdk.Context, contractAddr string) {
-	spanCtx, span := (*am.tracingInfo.Tracer).Start(am.tracingInfo.TracerContext, "DexEndBlock")
-	span.SetAttributes(attribute.String("contract", contractAddr))
+func (am AppModule) EndBlock(ctx sdk.Context, _ abci.RequestEndBlock) (ret []abci.ValidatorUpdate) {
+	_, span := am.tracingInfo.Start("DexEndBlock")
 	defer span.End()
+	defer dexutils.GetMemState(ctx.Context()).Clear(ctx)
 
-	registeredPairs := am.keeper.GetAllRegisteredPairs(ctx, contractAddr)
-	_, currentEpoch := am.keeper.IsNewEpoch(ctx)
+	validContractsInfo := am.getAllContractInfo(ctx)
+	validContractsInfoAtBeginning := validContractsInfo
+	outOfRentContractsInfo := []types.ContractInfoV2{}
+	// Each iteration is atomic. If an iteration finishes without any error, it will return,
+	// otherwise it will rollback any state change, filter out contracts that cause the error,
+	// and proceed to the next iteration. The loop is guaranteed to finish since
+	// `validContractAddresses` will always decrease in size every iteration.
+	iterCounter := len(validContractsInfo)
+	endBlockerStartTime := time.Now()
+	for len(validContractsInfo) > 0 {
+		newValidContractsInfo, newOutOfRentContractsInfo, ctx, ok := contract.EndBlockerAtomic(ctx, &am.keeper, validContractsInfo, am.tracingInfo)
+		if ok {
+			break
+		}
+		validContractsInfo = newValidContractsInfo
+		outOfRentContractsInfo = newOutOfRentContractsInfo
 
-	am.keeper.HandleEBLiquidation(spanCtx, ctx, am.tracingInfo.Tracer, contractAddr, registeredPairs)
-	am.keeper.HandleEBCancelOrders(spanCtx, ctx, am.tracingInfo.Tracer, contractAddr, registeredPairs)
-	am.keeper.HandleEBPlaceOrders(spanCtx, ctx, am.tracingInfo.Tracer, contractAddr, registeredPairs)
-
-	am.keeper.OrderCancellations[contractAddr] = map[string]*dexcache.OrderCancellations{}
-	for _, pair := range registeredPairs {
-		am.keeper.OrderCancellations[contractAddr][pair.String()] = dexcache.NewOrderCancellations()
-		orders := am.keeper.Orders[contractAddr][pair.String()]
-		ctx.Logger().Info(pair.String())
-		ctx.Logger().Info(fmt.Sprintf("Orders %s", am.keeper.Orders))
-		ctx.Logger().Info(fmt.Sprintf("Number of LB: %d, LS: %d, MB: %d, MS: %d", len(orders.LimitBuys), len(orders.LimitSells), len(orders.MarketBuys), len(orders.MarketSells)))
-		allExistingBuys := am.keeper.GetAllLongBookForPair(ctx, contractAddr, pair.PriceDenom, pair.AssetDenom)
-		allExistingSells := am.keeper.GetAllShortBookForPair(ctx, contractAddr, pair.PriceDenom, pair.AssetDenom)
-
-		longDirtyPrices, shortDirtyPrices := exchange.NewDirtyPrices(), exchange.NewDirtyPrices()
-		liquidationCancels := am.keeper.OrderCancellations[contractAddr][pair.String()].LiquidationCancellations
-		exchange.CancelForLiquidation(ctx, liquidationCancels, allExistingBuys, &longDirtyPrices)
-		exchange.CancelForLiquidation(ctx, liquidationCancels, allExistingSells, &shortDirtyPrices)
-		exchange.CancelOrders(ctx, orders.CancelBuys, allExistingBuys, types.PositionDirection_LONG, &longDirtyPrices)
-		exchange.CancelOrders(ctx, orders.CancelBuys, allExistingSells, types.PositionDirection_SHORT, &shortDirtyPrices)
-
-		settlements := []*types.Settlement{}
-		marketBuyTotalPrice, marketBuyTotalQuantity := exchange.MatchMarketOrders(
-			ctx,
-			orders.MarketBuys,
-			allExistingSells,
-			pair,
-			types.PositionDirection_LONG,
-			&longDirtyPrices,
-			&settlements,
-		)
-		marketSellTotalPrice, marketSellTotalQuantity := exchange.MatchMarketOrders(
-			ctx,
-			orders.MarketSells,
-			allExistingBuys,
-			pair,
-			types.PositionDirection_SHORT,
-			&shortDirtyPrices,
-			&settlements,
-		)
-		limitTotalPrice, limitTotalQuantity := exchange.MatchLimitOrders(
-			ctx,
-			orders.LimitBuys,
-			orders.LimitSells,
-			&allExistingBuys,
-			&allExistingSells,
-			pair,
-			&longDirtyPrices,
-			&shortDirtyPrices,
-			&settlements,
-		)
-		var avgPrice sdk.Dec
-		if marketBuyTotalQuantity.Add(marketSellTotalQuantity).Add(limitTotalQuantity).IsZero() {
-			avgPrice = sdk.ZeroDec()
-		} else {
-			avgPrice = (marketBuyTotalPrice.Add(marketSellTotalPrice).Add(limitTotalPrice)).Quo(marketBuyTotalQuantity.Add(marketSellTotalQuantity).Add(limitTotalQuantity))
-			priceState, _ := am.keeper.GetPriceState(ctx, contractAddr, currentEpoch, pair)
-			priceState.SnapshotTimestampInSeconds = uint64(ctx.BlockTime().Unix())
-			priceState.Price = avgPrice
-			am.keeper.SetPriceState(ctx, priceState, contractAddr, currentEpoch)
-		}
-		ctx.Logger().Info(fmt.Sprintf("Average price for %s/%s: %d", pair.PriceDenom, pair.AssetDenom, avgPrice))
-		for _, buy := range allExistingBuys {
-			if longDirtyPrices.Has(buy.GetPrice()) {
-				am.keeper.FlushDirtyLongBook(ctx, contractAddr, buy)
-			}
-		}
-		for _, sell := range allExistingSells {
-			if shortDirtyPrices.Has(sell.GetPrice()) {
-				am.keeper.FlushDirtyShortBook(ctx, contractAddr, sell)
-			}
-		}
-		_, currentEpoch := am.keeper.IsNewEpoch(ctx)
-		allSettlements := types.Settlements{
-			Epoch:   int64(currentEpoch),
-			Entries: []*types.SettlementEntry{},
-		}
-		settlementMap := map[string]*types.Settlements{}
-
-		for _, s := range settlements {
-			ctx.Logger().Info(s.String())
-			settlementEntry := s.ToEntry()
-			priceDenom, _, _ := types.GetDenomFromStr(settlementEntry.PriceDenom)
-			assetDenom, _, _ := types.GetDenomFromStr(settlementEntry.AssetDenom)
-			pair := types.Pair{
-				PriceDenom: priceDenom,
-				AssetDenom: assetDenom,
-			}
-			if settlements, ok := settlementMap[pair.String()]; ok {
-				settlements.Entries = append(settlements.Entries, &settlementEntry)
-			} else {
-				settlementMap[pair.String()] = &types.Settlements{
-					Epoch:   int64(currentEpoch),
-					Entries: []*types.SettlementEntry{&settlementEntry},
-				}
-			}
-			allSettlements.Entries = append(allSettlements.Entries, &settlementEntry)
-		}
-		for _, pair := range registeredPairs {
-			if settlementEntries, ok := settlementMap[pair.String()]; ok {
-				am.keeper.SetSettlements(ctx, contractAddr, pair.PriceDenom, pair.AssetDenom, *settlementEntries)
-			}
-		}
-
-		nativeSettlementMsg := types.SudoSettlementMsg{
-			Settlement: allSettlements,
-		}
-		ctx.Logger().Info(nativeSettlementMsg.Settlement.String())
-		wasmMsg, err := json.Marshal(nativeSettlementMsg)
-		if err != nil {
-			ctx.Logger().Info(err.Error())
-		}
-
-		am.callClearingHouseContractSudo(ctx, wasmMsg, contractAddr)
-
-		for _, marketOrder := range orders.MarketBuys {
-			if marketOrder.Quantity.IsPositive() {
-				am.keeper.OrderCancellations[contractAddr][pair.String()].OrderCancellations = append(
-					am.keeper.OrderCancellations[contractAddr][pair.String()].OrderCancellations,
-					dexcache.OrderCancellation{
-						Price:      marketOrder.WorstPrice,
-						Quantity:   marketOrder.Quantity,
-						Creator:    marketOrder.Creator,
-						Direction:  marketOrder.Direction,
-						Effect:     marketOrder.Effect,
-						PriceDenom: pair.PriceDenom,
-						AssetDenom: pair.AssetDenom,
-						Leverage:   marketOrder.Leverage,
-					},
-				)
-			}
-		}
-		for _, marketOrder := range orders.MarketSells {
-			if marketOrder.Quantity.IsPositive() {
-				am.keeper.OrderCancellations[contractAddr][pair.String()].OrderCancellations = append(
-					am.keeper.OrderCancellations[contractAddr][pair.String()].OrderCancellations,
-					dexcache.OrderCancellation{
-						Price:      marketOrder.WorstPrice,
-						Quantity:   marketOrder.Quantity,
-						Creator:    marketOrder.Creator,
-						Direction:  marketOrder.Direction,
-						Effect:     marketOrder.Effect,
-						PriceDenom: pair.PriceDenom,
-						AssetDenom: pair.AssetDenom,
-						Leverage:   marketOrder.Leverage,
-					},
-				)
-			}
+		// technically we don't really need this if `EndBlockerAtomic` guarantees that `validContractsInfo` size will
+		// always shrink if not `ok`, but just in case, we decided to have an explicit termination criteria here to
+		// prevent the chain from being stuck.
+		iterCounter--
+		if iterCounter == 0 {
+			ctx.Logger().Error("All contracts failed in dex EndBlock. Doing nothing.")
+			break
 		}
 	}
-	// Cancel unfilled market orders
-	am.keeper.HandleEBCancelOrders(spanCtx, ctx, am.tracingInfo.Tracer, contractAddr, registeredPairs)
+	telemetry.MeasureSince(endBlockerStartTime, am.Name(), "total_end_blocker_atomic")
+	validContractAddrs, outOfRentContractAddrs := map[string]struct{}{}, map[string]struct{}{}
+	for _, c := range validContractsInfo {
+		validContractAddrs[c.ContractAddr] = struct{}{}
+	}
+	for _, c := range outOfRentContractsInfo {
+		outOfRentContractAddrs[c.ContractAddr] = struct{}{}
+	}
+	for _, c := range validContractsInfoAtBeginning {
+		if _, ok := validContractAddrs[c.ContractAddr]; ok {
+			continue
+		}
+		if _, ok := outOfRentContractAddrs[c.ContractAddr]; ok {
+			telemetry.IncrCounter(float32(1), am.Name(), "total_out_of_rent_contracts")
+			continue
+		}
+		ctx.Logger().Error(fmt.Sprintf("Unregistering invalid contract %s", c.ContractAddr))
+		am.keeper.DoUnregisterContract(ctx, c)
+		telemetry.IncrCounter(float32(1), am.Name(), "total_unregistered_contracts")
+	}
+
+	return []abci.ValidatorUpdate{}
 }

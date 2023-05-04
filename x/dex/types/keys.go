@@ -1,6 +1,11 @@
 package types
 
-import "encoding/binary"
+import (
+	"encoding/binary"
+
+	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/cosmos/cosmos-sdk/types/address"
+)
 
 const (
 	// ModuleName defines the module name
@@ -17,89 +22,168 @@ const (
 
 	// MemStoreKey defines the in-memory store key
 	MemStoreKey = "mem_dex"
+
+	// We don't want pair ABC<>DEF to have the same key as AB<>CDEF
+	PairSeparator = "|"
 )
 
 func KeyPrefix(p string) []byte {
 	return []byte(p)
 }
 
+func AddressKeyPrefix(contractAddr string) []byte {
+	addr, _ := sdk.AccAddressFromBech32(contractAddr)
+	return address.MustLengthPrefix(addr)
+}
+
 func ContractKeyPrefix(p string, contractAddr string) []byte {
-	return append([]byte(p), []byte(contractAddr)...)
+	return append([]byte(p), AddressKeyPrefix(contractAddr)...)
 }
 
-func PairPrefix(priceDenom Denom, assetDenom Denom) []byte {
-	key1 := make([]byte, 4)
-	binary.BigEndian.PutUint32(key1, uint32(priceDenom))
-	key2 := make([]byte, 4)
-	binary.BigEndian.PutUint32(key2, uint32(assetDenom))
-	return append(key1, key2...)
+func PairPrefix(priceDenom string, assetDenom string) []byte {
+	return append([]byte(priceDenom), append([]byte(PairSeparator), []byte(assetDenom)...)...)
 }
 
-func OrderBookPrefix(long bool, contractAddr string, priceDenom Denom, assetDenom Denom) []byte {
+func OrderBookPrefix(long bool, contractAddr string, priceDenom string, assetDenom string) []byte {
+	return append(
+		OrderBookContractPrefix(long, contractAddr),
+		PairPrefix(priceDenom, assetDenom)...,
+	)
+}
+
+func OrderBookContractPrefix(long bool, contractAddr string) []byte {
 	var prefix []byte
 	if long {
 		prefix = KeyPrefix(LongBookKey)
 	} else {
 		prefix = KeyPrefix(ShortBookKey)
 	}
+	return append(prefix, AddressKeyPrefix(contractAddr)...)
+}
+
+func TriggerOrderBookPrefix(contractAddr string, priceDenom string, assetDenom string) []byte {
+	prefix := KeyPrefix(TriggerBookKey)
+
 	return append(
-		append(prefix, KeyPrefix(contractAddr)...),
+		append(prefix, AddressKeyPrefix(contractAddr)...),
 		PairPrefix(priceDenom, assetDenom)...,
 	)
 }
 
-func TwapPrefix(contractAddr string) []byte {
-	return append(KeyPrefix(TwapKey), KeyPrefix(contractAddr)...)
-}
-
-func PricePrefix(contractAddr string) []byte {
-	return append(KeyPrefix(PriceKey), KeyPrefix(contractAddr)...)
-}
-
-func SettlementEntryPrefix(contractAddr string, blockHeight uint64) []byte {
+// `Price` constant + contract + price denom + asset denom
+func PricePrefix(contractAddr string, priceDenom string, assetDenom string) []byte {
 	return append(
-		append(KeyPrefix(SettlementEntryKey), KeyPrefix(contractAddr)...),
-		GetKeyForHeight(blockHeight)...,
+		PriceContractPrefix(contractAddr),
+		PairPrefix(priceDenom, assetDenom)...,
 	)
 }
 
-func GetKeyForHeight(height uint64) []byte {
-	key := make([]byte, 8)
-	binary.BigEndian.PutUint64(key, height)
-	return key
+func PriceContractPrefix(contractAddr string) []byte {
+	return append(KeyPrefix(PriceKey), AddressKeyPrefix(contractAddr)...)
+}
+
+func SettlementEntryPrefix(contractAddr string, priceDenom string, assetDenom string) []byte {
+	return append(
+		append(KeyPrefix(SettlementEntryKey), AddressKeyPrefix(contractAddr)...),
+		PairPrefix(priceDenom, assetDenom)...,
+	)
 }
 
 func RegisteredPairPrefix(contractAddr string) []byte {
-	return append(KeyPrefix(RegisteredPairKey), KeyPrefix(contractAddr)...)
+	return append(KeyPrefix(RegisteredPairKey), AddressKeyPrefix(contractAddr)...)
 }
 
-func RegisteredPairCountPrefix() []byte {
-	return KeyPrefix(RegisteredPairCount)
+func OrderPrefix(contractAddr string) []byte {
+	return append(KeyPrefix(OrderKey), AddressKeyPrefix(contractAddr)...)
+}
+
+func AssetListPrefix(assetDenom string) []byte {
+	return append(KeyPrefix(AssetListKey), KeyPrefix(assetDenom)...)
+}
+
+func NextOrderIDPrefix(contractAddr string) []byte {
+	return append(KeyPrefix(NextOrderIDKey), AddressKeyPrefix(contractAddr)...)
+}
+
+func NextSettlementIDPrefix(contractAddr string, priceDenom string, assetDenom string) []byte {
+	return append(
+		append(KeyPrefix(NextSettlementIDKey), AddressKeyPrefix(contractAddr)...),
+		PairPrefix(priceDenom, assetDenom)...,
+	)
+}
+
+func MatchResultPrefix(contractAddr string) []byte {
+	return append(KeyPrefix(MatchResultKey), AddressKeyPrefix(contractAddr)...)
+}
+
+func GetSettlementOrderIDPrefix(orderID uint64, account string) []byte {
+	accountBytes := append([]byte(account), []byte("|")...)
+	orderIDBytes := make([]byte, 8)
+	binary.BigEndian.PutUint64(orderIDBytes, orderID)
+	return append(accountBytes, orderIDBytes...)
+}
+
+func GetSettlementKey(orderID uint64, account string, settlementID uint64) []byte {
+	settlementIDBytes := make([]byte, 8)
+	binary.BigEndian.PutUint64(settlementIDBytes, settlementID)
+	return append(GetSettlementOrderIDPrefix(orderID, account), settlementIDBytes...)
+}
+
+func MemOrderPrefixForPair(contractAddr string, pairString string) []byte {
+	return append(
+		append(KeyPrefix(MemOrderKey), AddressKeyPrefix(contractAddr)...),
+		[]byte(pairString)...,
+	)
+}
+
+func MemCancelPrefixForPair(contractAddr string, pairString string) []byte {
+	return append(
+		append(KeyPrefix(MemCancelKey), AddressKeyPrefix(contractAddr)...),
+		[]byte(pairString)...,
+	)
+}
+
+func MemOrderPrefix(contractAddr string) []byte {
+	return append(KeyPrefix(MemOrderKey), AddressKeyPrefix(contractAddr)...)
+}
+
+func MemCancelPrefix(contractAddr string) []byte {
+	return append(KeyPrefix(MemCancelKey), AddressKeyPrefix(contractAddr)...)
+}
+
+func MemDepositPrefix(contractAddr string) []byte {
+	return append(KeyPrefix(MemDepositKey), AddressKeyPrefix(contractAddr)...)
+}
+
+func MemDepositSubprefix(creator, denom string) []byte {
+	return append([]byte(creator), []byte(denom)...)
+}
+
+func ContractKey(contractAddr string) []byte {
+	return AddressKeyPrefix(contractAddr)
 }
 
 const (
-	DefaultPriceDenom = "stake"
-	DefaultAssetDenom = "dummy"
-)
+	LongBookKey = "LongBook-value-"
 
-const (
-	LongBookKey      = "LongBook-value-"
-	LongBookCountKey = "LongBook-count-"
-)
+	ShortBookKey = "ShortBook-value-"
 
-const (
-	ShortBookKey      = "ShortBook-value-"
-	ShortBookCountKey = "ShortBook-count-"
-)
+	TriggerBookKey = "TriggerBook-value-"
 
-const TwapKey = "TWAP-"
-const PriceKey = "Price-"
+	OrderKey               = "order"
+	AccountActiveOrdersKey = "account-active-orders"
+	CancelKey              = "cancel"
 
-const SettlementEntryKey = "SettlementEntry-"
-
-const NextOrderIdKey = "noid"
-
-const (
+	TwapKey             = "TWAP-"
+	PriceKey            = "Price-"
+	SettlementEntryKey  = "SettlementEntry-"
+	NextSettlementIDKey = "NextSettlementID-"
+	NextOrderIDKey      = "noid"
 	RegisteredPairKey   = "rp"
-	RegisteredPairCount = "rpcnt"
+	AssetListKey        = "AssetList-"
+	MatchResultKey      = "MatchResult-"
+
+	MemOrderKey   = "MemOrder-"
+	MemDepositKey = "MemDeposit-"
+	MemCancelKey  = "MemCancel-"
 )

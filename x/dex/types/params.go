@@ -1,19 +1,37 @@
 package types
 
 import (
-	fmt "fmt"
+	"fmt"
 
+	sdk "github.com/cosmos/cosmos-sdk/types"
 	paramtypes "github.com/cosmos/cosmos-sdk/x/params/types"
 	"gopkg.in/yaml.v2"
 )
 
 var (
-	KeyPriceSnapshotRetention = []byte("PriceSnapshotRetention") // number of epochs to retain price snapshots for
+	KeyPriceSnapshotRetention    = []byte("PriceSnapshotRetention") // number of epochs to retain price snapshots for
+	KeySudoCallGasPrice          = []byte("KeySudoCallGasPrice")    // gas price for sudo calls from endblock
+	KeyBeginBlockGasLimit        = []byte("KeyBeginBlockGasLimit")
+	KeyEndBlockGasLimit          = []byte("KeyEndBlockGasLimit")
+	KeyDefaultGasPerOrder        = []byte("KeyDefaultGasPerOrder")
+	KeyDefaultGasPerCancel       = []byte("KeyDefaultGasPerCancel")
+	KeyMinRentDeposit            = []byte("KeyMinRentDeposit")
+	KeyGasAllowancePerSettlement = []byte("KeyGasAllowancePerSettlement")
+	KeyMinProcessableRent        = []byte("KeyMinProcessableRent")
 )
 
 const (
-	DefaultPriceSnapshotRetention = 1440 // default epoch interval is one minute so this results in a one-day retention
+	DefaultPriceSnapshotRetention    = 24 * 3600  // default to one day
+	DefaultBeginBlockGasLimit        = 200000000  // 200M
+	DefaultEndBlockGasLimit          = 1000000000 // 1B
+	DefaultDefaultGasPerOrder        = 55000
+	DefaultDefaultGasPerCancel       = 55000
+	DefaultMinRentDeposit            = 10000000 // 10 sei
+	DefaultGasAllowancePerSettlement = 10000
+	DefaultMinProcessableRent        = 100000
 )
+
+var DefaultSudoCallGasPrice = sdk.NewDecWithPrec(1, 1) // 0.1
 
 var _ paramtypes.ParamSet = (*Params)(nil)
 
@@ -22,15 +40,18 @@ func ParamKeyTable() paramtypes.KeyTable {
 	return paramtypes.NewKeyTable().RegisterParamSet(&Params{})
 }
 
-// NewParams creates a new Params instance
-func NewParams() Params {
-	return Params{}
-}
-
 // DefaultParams returns a default set of parameters
 func DefaultParams() Params {
 	return Params{
-		PriceSnapshotRetention: DefaultPriceSnapshotRetention,
+		PriceSnapshotRetention:    DefaultPriceSnapshotRetention,
+		SudoCallGasPrice:          DefaultSudoCallGasPrice,
+		BeginBlockGasLimit:        DefaultBeginBlockGasLimit,
+		EndBlockGasLimit:          DefaultEndBlockGasLimit,
+		DefaultGasPerOrder:        DefaultDefaultGasPerOrder,
+		DefaultGasPerCancel:       DefaultDefaultGasPerCancel,
+		MinRentDeposit:            DefaultMinRentDeposit,
+		GasAllowancePerSettlement: DefaultGasAllowancePerSettlement,
+		MinProcessableRent:        DefaultMinProcessableRent,
 	}
 }
 
@@ -38,6 +59,14 @@ func DefaultParams() Params {
 func (p *Params) ParamSetPairs() paramtypes.ParamSetPairs {
 	return paramtypes.ParamSetPairs{
 		paramtypes.NewParamSetPair(KeyPriceSnapshotRetention, &p.PriceSnapshotRetention, validatePriceSnapshotRetention),
+		paramtypes.NewParamSetPair(KeySudoCallGasPrice, &p.SudoCallGasPrice, validateSudoCallGasPrice),
+		paramtypes.NewParamSetPair(KeyBeginBlockGasLimit, &p.BeginBlockGasLimit, validateUint64Param),
+		paramtypes.NewParamSetPair(KeyEndBlockGasLimit, &p.EndBlockGasLimit, validateUint64Param),
+		paramtypes.NewParamSetPair(KeyDefaultGasPerOrder, &p.DefaultGasPerOrder, validateUint64Param),
+		paramtypes.NewParamSetPair(KeyDefaultGasPerCancel, &p.DefaultGasPerCancel, validateUint64Param),
+		paramtypes.NewParamSetPair(KeyMinRentDeposit, &p.MinRentDeposit, validateUint64Param),
+		paramtypes.NewParamSetPair(KeyGasAllowancePerSettlement, &p.GasAllowancePerSettlement, validateUint64Param),
+		paramtypes.NewParamSetPair(KeyMinProcessableRent, &p.MinProcessableRent, validateUint64Param),
 	}
 }
 
@@ -60,6 +89,19 @@ func validatePriceSnapshotRetention(i interface{}) error {
 
 	if v == 0 {
 		return fmt.Errorf("price snapshot retention must be a positive integer: %d", v)
+	}
+
+	return nil
+}
+
+func validateSudoCallGasPrice(i interface{}) error {
+	return nil
+}
+
+func validateUint64Param(i interface{}) error {
+	_, ok := i.(uint64)
+	if !ok {
+		return fmt.Errorf("invalid parameter type: %T", i)
 	}
 
 	return nil

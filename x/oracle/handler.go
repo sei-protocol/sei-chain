@@ -19,14 +19,8 @@ func NewHandler(k keeper.Keeper) sdk.Handler {
 		case *types.MsgDelegateFeedConsent:
 			res, err := msgServer.DelegateFeedConsent(sdk.WrapSDKContext(ctx), msg)
 			return sdk.WrapServiceResult(ctx, res, err)
-		case *types.MsgAggregateExchangeRatePrevote:
-			res, err := msgServer.AggregateExchangeRatePrevote(sdk.WrapSDKContext(ctx), msg)
-			return sdk.WrapServiceResult(ctx, res, err)
 		case *types.MsgAggregateExchangeRateVote:
 			res, err := msgServer.AggregateExchangeRateVote(sdk.WrapSDKContext(ctx), msg)
-			return sdk.WrapServiceResult(ctx, res, err)
-		case *types.MsgAggregateExchangeRateCombinedVote:
-			res, err := msgServer.AggregateExchangeRateCombinedVote(sdk.WrapSDKContext(ctx), msg)
 			return sdk.WrapServiceResult(ctx, res, err)
 		default:
 			return nil, sdkerrors.Wrapf(sdkerrors.ErrUnknownRequest, "unrecognized oracle message type: %T", msg)

@@ -16,19 +16,10 @@ enum PositionEffect {
 enum OrderType {
     LIMIT = 0;
     MARKET = 1;
-    LIQUIDATION = 2;
-}
-
-enum Denom {
-    SEI = 0;
-    ATOM = 1;
-    BTC = 2;
-    ETH = 3;
-    SOL = 4;
-    AVAX = 5;
-    USDC = 6;
-    NEAR = 7;
-    OSMO = 8;
+    FOKMARKET = 3; // fill-or-kill market order
+    FOKMARKETBYVALUE = 4; // fill-or-kill market by value order
+    STOPLOSS = 5;
+    STOPLIMIT = 6;
 }
 
 enum Unit {
@@ -36,4 +27,16 @@ enum Unit {
     MILLI = 1;
     MICRO = 2;
     NANO = 3;
+}
+
+enum OrderStatus {
+    PLACED = 0;
+    FAILED_TO_PLACE = 1;
+    CANCELLED = 2;
+    FULFILLED = 3;
+}
+
+enum CancellationInitiator {
+    USER = 0;
+    LIQUIDATED = 1;
 }

@@ -7,8 +7,8 @@ export const protobufPackage = "cosmos.bank.v1beta1";
 
 /** MsgSend represents a message to send coins from one account to another. */
 export interface MsgSend {
-  fromAddress: string;
-  toAddress: string;
+  from_address: string;
+  to_address: string;
   amount: Coin[];
 }
 
@@ -24,15 +24,15 @@ export interface MsgMultiSend {
 /** MsgMultiSendResponse defines the Msg/MultiSend response type. */
 export interface MsgMultiSendResponse {}
 
-const baseMsgSend: object = { fromAddress: "", toAddress: "" };
+const baseMsgSend: object = { from_address: "", to_address: "" };
 
 export const MsgSend = {
   encode(message: MsgSend, writer: Writer = Writer.create()): Writer {
-    if (message.fromAddress !== "") {
-      writer.uint32(10).string(message.fromAddress);
+    if (message.from_address !== "") {
+      writer.uint32(10).string(message.from_address);
     }
-    if (message.toAddress !== "") {
-      writer.uint32(18).string(message.toAddress);
+    if (message.to_address !== "") {
+      writer.uint32(18).string(message.to_address);
     }
     for (const v of message.amount) {
       Coin.encode(v!, writer.uint32(26).fork()).ldelim();
@@ -49,10 +49,10 @@ export const MsgSend = {
       const tag = reader.uint32();
       switch (tag >>> 3) {
         case 1:
-          message.fromAddress = reader.string();
+          message.from_address = reader.string();
           break;
         case 2:
-          message.toAddress = reader.string();
+          message.to_address = reader.string();
           break;
         case 3:
           message.amount.push(Coin.decode(reader, reader.uint32()));
@@ -68,15 +68,15 @@ export const MsgSend = {
   fromJSON(object: any): MsgSend {
     const message = { ...baseMsgSend } as MsgSend;
     message.amount = [];
-    if (object.fromAddress !== undefined && object.fromAddress !== null) {
-      message.fromAddress = String(object.fromAddress);
+    if (object.from_address !== undefined && object.from_address !== null) {
+      message.from_address = String(object.from_address);
     } else {
-      message.fromAddress = "";
+      message.from_address = "";
     }
-    if (object.toAddress !== undefined && object.toAddress !== null) {
-      message.toAddress = String(object.toAddress);
+    if (object.to_address !== undefined && object.to_address !== null) {
+      message.to_address = String(object.to_address);
     } else {
-      message.toAddress = "";
+      message.to_address = "";
     }
     if (object.amount !== undefined && object.amount !== null) {
       for (const e of object.amount) {
@@ -88,9 +88,9 @@ export const MsgSend = {
 
   toJSON(message: MsgSend): unknown {
     const obj: any = {};
-    message.fromAddress !== undefined &&
-      (obj.fromAddress = message.fromAddress);
-    message.toAddress !== undefined && (obj.toAddress = message.toAddress);
+    message.from_address !== undefined &&
+      (obj.from_address = message.from_address);
+    message.to_address !== undefined && (obj.to_address = message.to_address);
     if (message.amount) {
       obj.amount = message.amount.map((e) => (e ? Coin.toJSON(e) : undefined));
     } else {
@@ -102,15 +102,15 @@ export const MsgSend = {
   fromPartial(object: DeepPartial<MsgSend>): MsgSend {
     const message = { ...baseMsgSend } as MsgSend;
     message.amount = [];
-    if (object.fromAddress !== undefined && object.fromAddress !== null) {
-      message.fromAddress = object.fromAddress;
+    if (object.from_address !== undefined && object.from_address !== null) {
+      message.from_address = object.from_address;
     } else {
-      message.fromAddress = "";
+      message.from_address = "";
     }
-    if (object.toAddress !== undefined && object.toAddress !== null) {
-      message.toAddress = object.toAddress;
+    if (object.to_address !== undefined && object.to_address !== null) {
+      message.to_address = object.to_address;
     } else {
-      message.toAddress = "";
+      message.to_address = "";
     }
     if (object.amount !== undefined && object.amount !== null) {
       for (const e of object.amount) {

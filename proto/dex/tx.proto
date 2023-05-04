@@ -3,10 +3,10 @@ package seiprotocol.seichain.dex;
 
 import "cosmos/base/v1beta1/coin.proto";
 import "gogoproto/gogo.proto";
-import "dex/order_placement.proto";
-import "dex/order_cancellation.proto";
-import "dex/pair.proto";
 import "dex/contract.proto";
+import "dex/order.proto";
+import "dex/pair.proto";
+import "dex/tick_size.proto";
 
 // this line is used by starport scaffolding # proto/tx/import
 
@@ -16,8 +16,12 @@ option go_package = "github.com/sei-protocol/sei-chain/x/dex/types";
 service Msg {
   rpc PlaceOrders(MsgPlaceOrders) returns (MsgPlaceOrdersResponse);
   rpc CancelOrders(MsgCancelOrders) returns (MsgCancelOrdersResponse);
-  rpc Liquidate(MsgLiquidation) returns (MsgLiquidationResponse);
   rpc RegisterContract(MsgRegisterContract) returns(MsgRegisterContractResponse);
+  rpc ContractDepositRent(MsgContractDepositRent) returns(MsgContractDepositRentResponse);
+  rpc UnregisterContract(MsgUnregisterContract) returns(MsgUnregisterContractResponse);
+  rpc RegisterPairs(MsgRegisterPairs) returns(MsgRegisterPairsResponse);
+  rpc UpdatePriceTickSize(MsgUpdatePriceTickSize) returns(MsgUpdateTickSizeResponse);
+  rpc UpdateQuantityTickSize(MsgUpdateQuantityTickSize) returns(MsgUpdateTickSizeResponse);
   // privileged endpoints below
 
 // this line is used by starport scaffolding # proto/tx/rpc
@@ -27,7 +31,7 @@ message MsgPlaceOrders {
   string creator = 1 [
       (gogoproto.jsontag) = "creator"
   ];
-  repeated OrderPlacement orders = 2 [
+  repeated Order orders = 2 [
       (gogoproto.jsontag) = "orders"
   ];
   string contractAddr = 3 [
@@ -41,15 +45,18 @@ message MsgPlaceOrders {
 }
 
 message MsgPlaceOrdersResponse {
-  repeated uint64 orderIds = 1;
+  repeated uint64 orderIds = 1 [
+    (gogoproto.moretags) = "yaml:\"order_ids\"",
+    (gogoproto.jsontag) = "order_ids"
+  ];
 }
 
 message MsgCancelOrders {
   string creator = 1 [
       (gogoproto.jsontag) = "creator"
   ];
-  repeated OrderCancellation orderCancellations = 2 [
-      (gogoproto.jsontag) = "order_cancellations"
+  repeated Cancellation cancellations = 2 [
+      (gogoproto.jsontag) = "cancellations"
   ];
   string contractAddr = 3 [
       (gogoproto.jsontag) = "contract_address"
@@ -58,19 +65,71 @@ message MsgCancelOrders {
 
 message MsgCancelOrdersResponse {}
 
-message MsgLiquidation {
-  string creator = 1;
-  string accountToLiquidate = 2;
-  string contractAddr = 3;
-}
-
-message MsgLiquidationResponse {}
-
 message MsgRegisterContract {
   string creator = 1;
-  ContractInfo contract = 2;
+  ContractInfoV2 contract = 2;
 }
 
 message MsgRegisterContractResponse {}
+
+message MsgContractDepositRent {
+  string contractAddr = 1 [
+    (gogoproto.jsontag) = "contract_address"
+  ];
+  uint64 amount = 2 [
+    (gogoproto.jsontag) = "amount"
+  ];
+  string sender = 3 [
+    (gogoproto.jsontag) = "sender"
+  ];
+}
+
+message MsgContractDepositRentResponse {}
+
+message MsgUnregisterContract {
+  string creator = 1 [
+    (gogoproto.jsontag) = "creator"
+  ];
+  string contractAddr = 2 [
+    (gogoproto.jsontag) = "contract_address"
+  ];
+}
+
+message MsgUnregisterContractResponse {}
+
+message MsgRegisterPairs {
+  string creator = 1;
+  repeated BatchContractPair batchcontractpair = 3 [
+        (gogoproto.moretags) = "yaml:\"batch_contract_pair\"",
+        (gogoproto.nullable) = false,
+        (gogoproto.jsontag) = "batch_contract_pair"
+    ];
+}
+
+message MsgRegisterPairsResponse {}
+
+message MsgUpdatePriceTickSize {
+  string creator = 1 [
+    (gogoproto.jsontag) = "creator"
+  ];
+  repeated TickSize tickSizeList = 2 [
+        (gogoproto.moretags) = "yaml:\"tick_size_list\"",
+        (gogoproto.nullable) = false,
+        (gogoproto.jsontag) = "tick_size_list"
+    ];
+}
+
+message MsgUpdateQuantityTickSize {
+  string creator = 1 [
+    (gogoproto.jsontag) = "creator"
+  ];
+  repeated TickSize tickSizeList = 2 [
+        (gogoproto.moretags) = "yaml:\"tick_size_list\"",
+        (gogoproto.nullable) = false,
+        (gogoproto.jsontag) = "tick_size_list"
+    ];
+}
+
+message MsgUpdateTickSizeResponse {}
 
 // this line is used by starport scaffolding # proto/tx/message

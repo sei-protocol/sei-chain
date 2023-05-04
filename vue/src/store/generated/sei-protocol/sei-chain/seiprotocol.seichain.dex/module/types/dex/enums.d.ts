@@ -17,24 +17,12 @@ export declare enum OrderType {
     LIMIT = 0,
     MARKET = 1,
     LIQUIDATION = 2,
+    /** FOKMARKET - fill-or-kill market order */
+    FOKMARKET = 3,
     UNRECOGNIZED = -1
 }
 export declare function orderTypeFromJSON(object: any): OrderType;
 export declare function orderTypeToJSON(object: OrderType): string;
-export declare enum Denom {
-    SEI = 0,
-    ATOM = 1,
-    BTC = 2,
-    ETH = 3,
-    SOL = 4,
-    AVAX = 5,
-    USDC = 6,
-    NEAR = 7,
-    OSMO = 8,
-    UNRECOGNIZED = -1
-}
-export declare function denomFromJSON(object: any): Denom;
-export declare function denomToJSON(object: Denom): string;
 export declare enum Unit {
     STANDARD = 0,
     MILLI = 1,
@@ -44,3 +32,19 @@ export declare enum Unit {
 }
 export declare function unitFromJSON(object: any): Unit;
 export declare function unitToJSON(object: Unit): string;
+export declare enum OrderStatus {
+    PLACED = 0,
+    FAILED_TO_PLACE = 1,
+    CANCELLED = 2,
+    FULFILLED = 3,
+    UNRECOGNIZED = -1
+}
+export declare function orderStatusFromJSON(object: any): OrderStatus;
+export declare function orderStatusToJSON(object: OrderStatus): string;
+export declare enum CancellationInitiator {
+    USER = 0,
+    LIQUIDATED = 1,
+    UNRECOGNIZED = -1
+}
+export declare function cancellationInitiatorFromJSON(object: any): CancellationInitiator;
+export declare function cancellationInitiatorToJSON(object: CancellationInitiator): string;

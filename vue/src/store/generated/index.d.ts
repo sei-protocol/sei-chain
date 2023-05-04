@@ -14,5 +14,6 @@ declare const _default: {
     CosmosIbcGoIbcApplicationsTransferV2: (store: any) => void;
     SeiProtocolSeiChainSeiprotocolSeichainDex: (store: any) => void;
     SeiProtocolSeiChainSeiprotocolSeichainOracle: (store: any) => void;
+    SeiProtocolSeiChainSeiprotocolSeichainTokenfactory: (store: any) => void;
 };
 export default _default;

@@ -20,6 +20,10 @@ export interface OracleExchangeRateTuple {
     exchangeRate?: string;
 }
 /**
+ * MsgAggregateExchangeRateVoteResponse defines the Msg/AggregateExchangeRateVote response type.
+ */
+export declare type OracleMsgAggregateExchangeRateCombinedVoteResponse = object;
+/**
  * MsgAggregateExchangeRatePrevoteResponse defines the Msg/AggregateExchangeRatePrevote response type.
  */
 export declare type OracleMsgAggregateExchangeRatePrevoteResponse = object;

@@ -2,674 +2,1205 @@ package exchange_test
 
 import (
 	"testing"
+	"time"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
-	dexcache "github.com/sei-protocol/sei-chain/x/dex/cache"
+	"github.com/sei-protocol/sei-chain/utils/datastructures"
+	dex "github.com/sei-protocol/sei-chain/x/dex/cache"
 	"github.com/sei-protocol/sei-chain/x/dex/exchange"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
+	dexutils "github.com/sei-protocol/sei-chain/x/dex/utils"
 	"github.com/stretchr/testify/assert"
 
 	keepertest "github.com/sei-protocol/sei-chain/testutil/keeper"
 )
 
-func TestMatchSingleMarketOrderFromShortBook(t *testing.T) {
+const (
+	TestTimestamp uint64 = 10000
+	TestHeight    uint64 = 1
+)
+
+func TestMatchFoKMarketOrderFromShortBookNotEnoughLiquidity(t *testing.T) {
 	_, ctx := keepertest.DexKeeper(t)
-	longOrders := []dexcache.MarketOrder{
+	ctx = ctx.WithBlockHeight(int64(TestHeight)).WithBlockTime(time.Unix(int64(TestTimestamp), 0))
+	longOrders := []*types.Order{
 		{
-			WorstPrice: sdk.NewDec(100),
-			Quantity:   sdk.NewDec(5),
-			Creator:    "abc",
-			Direction:  types.PositionDirection_LONG,
+			Id:                1,
+			Price:             sdk.NewDec(100),
+			Quantity:          sdk.NewDec(5),
+			Account:           "abc",
+			PositionDirection: types.PositionDirection_LONG,
+			ContractAddr:      "test",
+			PriceDenom:        "USDC",
+			AssetDenom:        "ATOM",
+			OrderType:         types.OrderType_FOKMARKET,
 		},
 	}
-	shortBook := []types.OrderBook{
+	shortBook := []types.OrderBookEntry{
 		&types.ShortBook{
 			Price: sdk.NewDec(100),
 			Entry: &types.OrderEntry{
-				Price:             sdk.NewDec(100),
-				Quantity:          sdk.NewDec(5),
-				AllocationCreator: []string{"def|c|"},
-				Allocation:        []sdk.Dec{sdk.NewDec(5)},
-				PriceDenom:        TEST_PAIR().PriceDenom,
-				AssetDenom:        TEST_PAIR().AssetDenom,
+				Price:    sdk.NewDec(100),
+				Quantity: sdk.NewDec(4),
+				Allocations: []*types.Allocation{{
+					OrderId:  5,
+					Account:  "def",
+					Quantity: sdk.NewDec(5),
+				}},
+				PriceDenom: "USDC",
+				AssetDenom: "ATOM",
 			},
 		},
 	}
-	dirtyPrices := exchange.NewDirtyPrices()
-	settlements := []*types.Settlement{}
-	totalPrice, totalExecuted := exchange.MatchMarketOrders(
-		ctx, longOrders, shortBook, TEST_PAIR(), types.PositionDirection_LONG, &dirtyPrices, &settlements,
+	blockOrders := dexutils.GetMemState(ctx.Context()).GetBlockOrders(ctx, "testAccount", "USDC|ATOM")
+	blockOrders.Add(&types.Order{
+		Id:                1,
+		Account:           "abc",
+		ContractAddr:      "test",
+		Price:             sdk.NewDec(100),
+		Quantity:          sdk.NewDec(5),
+		PriceDenom:        "USDC",
+		AssetDenom:        "ATOM",
+		OrderType:         types.OrderType_FOKMARKET,
+		PositionDirection: types.PositionDirection_LONG,
+		Data:              "{\"position_effect\":\"Open\",\"leverage\":\"1\"}",
+	})
+	entries := &types.CachedSortedOrderBookEntries{
+		Entries:      shortBook,
+		DirtyEntries: datastructures.NewTypedSyncMap[string, types.OrderBookEntry](),
+	}
+	outcome := exchange.MatchMarketOrders(
+		ctx, longOrders, entries, types.PositionDirection_LONG, blockOrders,
 	)
+	totalPrice := outcome.TotalNotional
+	totalExecuted := outcome.TotalQuantity
+	settlements := outcome.Settlements
+	assert.Equal(t, totalPrice, sdk.ZeroDec())
+	assert.Equal(t, totalExecuted, sdk.ZeroDec())
+	assert.Equal(t, entries.DirtyEntries.Len(), 0)
+	assert.Equal(t, len(shortBook), 1)
+	assert.Equal(t, shortBook[0].GetPrice(), sdk.NewDec(100))
+	assert.Equal(t, shortBook[0].GetEntry().Price, sdk.NewDec(100))
+	assert.Equal(t, shortBook[0].GetEntry().Quantity, sdk.NewDec(4))
+	assert.Equal(t, len(settlements), 0)
+	assert.Equal(t, blockOrders.Get()[0].Quantity, sdk.NewDec(5))
+	assert.Equal(t, blockOrders.Get()[0].Status, types.OrderStatus_PLACED)
+}
+
+func TestMatchFoKMarketOrderFromShortBookHappyPath(t *testing.T) {
+	_, ctx := keepertest.DexKeeper(t)
+	ctx = ctx.WithBlockHeight(int64(TestHeight)).WithBlockTime(time.Unix(int64(TestTimestamp), 0))
+	longOrders := []*types.Order{
+		{
+			Id:                1,
+			Price:             sdk.NewDec(100),
+			Quantity:          sdk.NewDec(5),
+			Account:           "abc",
+			PositionDirection: types.PositionDirection_LONG,
+			ContractAddr:      "test",
+			PriceDenom:        "USDC",
+			AssetDenom:        "ATOM",
+			OrderType:         types.OrderType_FOKMARKET,
+		},
+	}
+	shortBook := []types.OrderBookEntry{
+		&types.ShortBook{
+			Price: sdk.NewDec(100),
+			Entry: &types.OrderEntry{
+				Price:    sdk.NewDec(100),
+				Quantity: sdk.NewDec(5),
+				Allocations: []*types.Allocation{{
+					OrderId:  5,
+					Account:  "def",
+					Quantity: sdk.NewDec(5),
+				}},
+				PriceDenom: "USDC",
+				AssetDenom: "ATOM",
+			},
+		},
+	}
+	entries := &types.CachedSortedOrderBookEntries{
+		Entries:      shortBook,
+		DirtyEntries: datastructures.NewTypedSyncMap[string, types.OrderBookEntry](),
+	}
+	blockOrders := dexutils.GetMemState(ctx.Context()).GetBlockOrders(ctx, "testAccount", "USDC|ATOM")
+	blockOrders.Add(&types.Order{
+		Id:                1,
+		Account:           "abc",
+		ContractAddr:      "test",
+		Price:             sdk.NewDec(100),
+		Quantity:          sdk.NewDec(5),
+		PriceDenom:        "USDC",
+		AssetDenom:        "ATOM",
+		OrderType:         types.OrderType_FOKMARKET,
+		PositionDirection: types.PositionDirection_LONG,
+		Data:              "{\"position_effect\":\"Open\",\"leverage\":\"1\"}",
+	})
+	outcome := exchange.MatchMarketOrders(
+		ctx, longOrders, entries, types.PositionDirection_LONG, blockOrders,
+	)
+	totalPrice := outcome.TotalNotional
+	totalExecuted := outcome.TotalQuantity
+	settlements := outcome.Settlements
 	assert.Equal(t, totalPrice, sdk.NewDec(500))
 	assert.Equal(t, totalExecuted, sdk.NewDec(5))
-	assert.Equal(t, len(dirtyPrices.Get()), 1)
-	assert.Equal(t, dirtyPrices.Has(sdk.NewDec(100)), true)
+	assert.Equal(t, entries.DirtyEntries.Len(), 1)
+	_, ok := entries.DirtyEntries.Load(sdk.MustNewDecFromStr("100").String())
+	assert.True(t, ok)
 	assert.Equal(t, len(shortBook), 1)
 	assert.Equal(t, shortBook[0].GetPrice(), sdk.NewDec(100))
 	assert.Equal(t, shortBook[0].GetEntry().Price, sdk.NewDec(100))
 	assert.Equal(t, shortBook[0].GetEntry().Quantity.IsZero(), true)
 	assert.Equal(t, len(settlements), 2)
-	assert.Equal(t, *settlements[0], types.Settlement{
-		Direction:              types.PositionDirection_SHORT,
-		PriceSymbol:            TEST_PAIR().PriceDenom,
-		AssetSymbol:            TEST_PAIR().AssetDenom,
+	assert.Equal(t, *settlements[0], types.SettlementEntry{
+		PositionDirection:      "Short",
+		PriceDenom:             "USDC",
+		AssetDenom:             "ATOM",
 		Quantity:               sdk.NewDec(5),
 		ExecutionCostOrProceed: sdk.NewDec(100),
 		ExpectedCostOrProceed:  sdk.NewDec(100),
 		Account:                "def",
-		OrderType:              types.OrderType_LIMIT,
+		OrderType:              "Limit",
+		OrderId:                5,
+		Timestamp:              TestTimestamp,
+		Height:                 TestHeight,
 	})
-	assert.Equal(t, *settlements[1], types.Settlement{
-		Direction:              types.PositionDirection_LONG,
-		PriceSymbol:            TEST_PAIR().PriceDenom,
-		AssetSymbol:            TEST_PAIR().AssetDenom,
+	assert.Equal(t, *settlements[1], types.SettlementEntry{
+		PositionDirection:      "Long",
+		PriceDenom:             "USDC",
+		AssetDenom:             "ATOM",
 		Quantity:               sdk.NewDec(5),
 		ExecutionCostOrProceed: sdk.NewDec(100),
 		ExpectedCostOrProceed:  sdk.NewDec(100),
 		Account:                "abc",
-		OrderType:              types.OrderType_MARKET,
+		OrderType:              "Fokmarket",
+		OrderId:                1,
+		Timestamp:              TestTimestamp,
+		Height:                 TestHeight,
 	})
+	assert.Equal(t, blockOrders.Get()[0].Quantity, sdk.ZeroDec())
+	assert.Equal(t, blockOrders.Get()[0].Status, types.OrderStatus_FULFILLED)
+}
+
+func TestMatchByValueFOKMarketOrderFromShortBookNotEnoughLiquidity(t *testing.T) {
+	_, ctx := keepertest.DexKeeper(t)
+	ctx = ctx.WithBlockHeight(int64(TestHeight)).WithBlockTime(time.Unix(int64(TestTimestamp), 0))
+	longOrders := []*types.Order{
+		{
+			Id:                1,
+			Price:             sdk.NewDec(100),
+			Quantity:          sdk.NewDec(5),
+			Account:           "abc",
+			PositionDirection: types.PositionDirection_LONG,
+			ContractAddr:      "test",
+			PriceDenom:        "USDC",
+			AssetDenom:        "ATOM",
+			OrderType:         types.OrderType_FOKMARKETBYVALUE,
+			Nominal:           sdk.NewDec(500),
+		},
+	}
+	shortBook := []types.OrderBookEntry{
+		&types.ShortBook{
+			Price: sdk.NewDec(90),
+			Entry: &types.OrderEntry{
+				Price:    sdk.NewDec(90),
+				Quantity: sdk.NewDec(5),
+				Allocations: []*types.Allocation{{
+					OrderId:  4,
+					Account:  "def",
+					Quantity: sdk.NewDec(5),
+				}},
+				PriceDenom: "USDC",
+				AssetDenom: "ATOM",
+			},
+		},
+		&types.ShortBook{
+			Price: sdk.NewDec(100),
+			Entry: &types.OrderEntry{
+				Price:    sdk.NewDec(100),
+				Quantity: sdk.MustNewDecFromStr("0.4"),
+				Allocations: []*types.Allocation{{
+					OrderId:  5,
+					Account:  "def",
+					Quantity: sdk.MustNewDecFromStr("0.4"),
+				}},
+				PriceDenom: "USDC",
+				AssetDenom: "ATOM",
+			},
+		},
+	}
+	blockOrders := dexutils.GetMemState(ctx.Context()).GetBlockOrders(ctx, "testAccount", "USDC|ATOM")
+	blockOrders.Add(longOrders[0])
+	entries := &types.CachedSortedOrderBookEntries{
+		Entries:      shortBook,
+		DirtyEntries: datastructures.NewTypedSyncMap[string, types.OrderBookEntry](),
+	}
+	outcome := exchange.MatchMarketOrders(
+		ctx, longOrders, entries, types.PositionDirection_LONG, &dex.BlockOrders{},
+	)
+	totalPrice := outcome.TotalNotional
+	totalExecuted := outcome.TotalQuantity
+	settlements := outcome.Settlements
+	assert.Equal(t, totalPrice, sdk.ZeroDec())
+	assert.Equal(t, totalExecuted, sdk.ZeroDec())
+	assert.Equal(t, entries.DirtyEntries.Len(), 0)
+	assert.Equal(t, len(shortBook), 2)
+	assert.Equal(t, shortBook[0].GetPrice(), sdk.NewDec(90))
+	assert.Equal(t, shortBook[0].GetEntry().Price, sdk.NewDec(90))
+	assert.Equal(t, shortBook[0].GetEntry().Quantity, sdk.NewDec(5))
+	assert.Equal(t, len(settlements), 0)
+	assert.Equal(t, blockOrders.Get()[0].Quantity, sdk.NewDec(5))
+	assert.Equal(t, blockOrders.Get()[0].Status, types.OrderStatus_PLACED)
+}
+
+func TestMatchByValueFOKMarketOrderFromShortBookHappyPath(t *testing.T) {
+	_, ctx := keepertest.DexKeeper(t)
+	ctx = ctx.WithBlockHeight(int64(TestHeight)).WithBlockTime(time.Unix(int64(TestTimestamp), 0))
+	longOrders := []*types.Order{
+		{
+			Id:                1,
+			Price:             sdk.NewDec(100),
+			Quantity:          sdk.NewDec(6),
+			Account:           "abc",
+			PositionDirection: types.PositionDirection_LONG,
+			ContractAddr:      "test",
+			PriceDenom:        "USDC",
+			AssetDenom:        "ATOM",
+			OrderType:         types.OrderType_FOKMARKETBYVALUE,
+			Nominal:           sdk.NewDec(500),
+		},
+	}
+	shortBook := []types.OrderBookEntry{
+		&types.ShortBook{
+			Price: sdk.NewDec(90),
+			Entry: &types.OrderEntry{
+				Price:    sdk.NewDec(90),
+				Quantity: sdk.NewDec(5),
+				Allocations: []*types.Allocation{{
+					OrderId:  4,
+					Account:  "def",
+					Quantity: sdk.NewDec(5),
+				}},
+				PriceDenom: "USDC",
+				AssetDenom: "ATOM",
+			},
+		},
+		&types.ShortBook{
+			Price: sdk.NewDec(100),
+			Entry: &types.OrderEntry{
+				Price:    sdk.NewDec(100),
+				Quantity: sdk.MustNewDecFromStr("0.6"),
+				Allocations: []*types.Allocation{{
+					OrderId:  5,
+					Account:  "def",
+					Quantity: sdk.MustNewDecFromStr("0.6"),
+				}},
+				PriceDenom: "USDC",
+				AssetDenom: "ATOM",
+			},
+		},
+	}
+	blockOrders := dexutils.GetMemState(ctx.Context()).GetBlockOrders(ctx, "testAccount", "USDC|ATOM")
+	blockOrders.Add(longOrders[0])
+	entries := &types.CachedSortedOrderBookEntries{
+		Entries:      shortBook,
+		DirtyEntries: datastructures.NewTypedSyncMap[string, types.OrderBookEntry](),
+	}
+	outcome := exchange.MatchMarketOrders(
+		ctx, longOrders, entries, types.PositionDirection_LONG, blockOrders,
+	)
+	totalPrice := outcome.TotalNotional
+	totalExecuted := outcome.TotalQuantity
+	settlements := outcome.Settlements
+	assert.Equal(t, totalPrice, sdk.NewDec(500))
+	assert.Equal(t, totalExecuted, sdk.MustNewDecFromStr("5.5"))
+	assert.Equal(t, entries.DirtyEntries.Len(), 2)
+	_, ok := entries.DirtyEntries.Load(sdk.MustNewDecFromStr("100").String())
+	assert.True(t, ok)
+	assert.Equal(t, len(shortBook), 2)
+	assert.Equal(t, len(settlements), 3)
+	assert.Equal(t, *settlements[0], types.SettlementEntry{
+		PositionDirection:      "Short",
+		PriceDenom:             "USDC",
+		AssetDenom:             "ATOM",
+		Quantity:               sdk.NewDec(5),
+		ExecutionCostOrProceed: sdk.NewDec(90),
+		ExpectedCostOrProceed:  sdk.NewDec(90),
+		Account:                "def",
+		OrderType:              "Limit",
+		OrderId:                4,
+		Timestamp:              TestTimestamp,
+		Height:                 TestHeight,
+	})
+	assert.Equal(t, *settlements[1], types.SettlementEntry{
+		PositionDirection:      "Short",
+		PriceDenom:             "USDC",
+		AssetDenom:             "ATOM",
+		Quantity:               sdk.MustNewDecFromStr("0.5"),
+		ExecutionCostOrProceed: sdk.NewDec(100),
+		ExpectedCostOrProceed:  sdk.NewDec(100),
+		Account:                "def",
+		OrderType:              "Limit",
+		OrderId:                5,
+		Timestamp:              TestTimestamp,
+		Height:                 TestHeight,
+	})
+	assert.Equal(t, blockOrders.Get()[0].Quantity, sdk.MustNewDecFromStr("0.5"))
+	assert.Equal(t, blockOrders.Get()[0].Status, types.OrderStatus_FULFILLED)
+}
+
+func TestMatchSingleMarketOrderFromShortBook(t *testing.T) {
+	_, ctx := keepertest.DexKeeper(t)
+	ctx = ctx.WithBlockHeight(int64(TestHeight)).WithBlockTime(time.Unix(int64(TestTimestamp), 0))
+	longOrders := []*types.Order{
+		{
+			Id:                1,
+			Price:             sdk.NewDec(100),
+			Quantity:          sdk.NewDec(5),
+			Account:           "abc",
+			PositionDirection: types.PositionDirection_LONG,
+			ContractAddr:      "test",
+			PriceDenom:        "USDC",
+			AssetDenom:        "ATOM",
+			OrderType:         types.OrderType_MARKET,
+		},
+	}
+	shortBook := []types.OrderBookEntry{
+		&types.ShortBook{
+			Price: sdk.NewDec(100),
+			Entry: &types.OrderEntry{
+				Price:    sdk.NewDec(100),
+				Quantity: sdk.NewDec(5),
+				Allocations: []*types.Allocation{{
+					OrderId:  5,
+					Account:  "def",
+					Quantity: sdk.NewDec(5),
+				}},
+				PriceDenom: "USDC",
+				AssetDenom: "ATOM",
+			},
+		},
+	}
+	blockOrders := dexutils.GetMemState(ctx.Context()).GetBlockOrders(ctx, "testAccount", "USDC|ATOM")
+	blockOrders.Add(longOrders[0])
+	entries := &types.CachedSortedOrderBookEntries{
+		Entries:      shortBook,
+		DirtyEntries: datastructures.NewTypedSyncMap[string, types.OrderBookEntry](),
+	}
+	outcome := exchange.MatchMarketOrders(
+		ctx, longOrders, entries, types.PositionDirection_LONG, blockOrders,
+	)
+	totalPrice := outcome.TotalNotional
+	totalExecuted := outcome.TotalQuantity
+	settlements := outcome.Settlements
+	assert.Equal(t, totalPrice, sdk.NewDec(500))
+	assert.Equal(t, totalExecuted, sdk.NewDec(5))
+	assert.Equal(t, entries.DirtyEntries.Len(), 1)
+	_, ok := entries.DirtyEntries.Load(sdk.MustNewDecFromStr("100").String())
+	assert.True(t, ok)
+	assert.Equal(t, len(shortBook), 1)
+	assert.Equal(t, shortBook[0].GetPrice(), sdk.NewDec(100))
+	assert.Equal(t, shortBook[0].GetEntry().Price, sdk.NewDec(100))
+	assert.Equal(t, shortBook[0].GetEntry().Quantity.IsZero(), true)
+	assert.Equal(t, len(settlements), 2)
+	assert.Equal(t, *settlements[0], types.SettlementEntry{
+		PositionDirection:      "Short",
+		PriceDenom:             "USDC",
+		AssetDenom:             "ATOM",
+		Quantity:               sdk.NewDec(5),
+		ExecutionCostOrProceed: sdk.NewDec(100),
+		ExpectedCostOrProceed:  sdk.NewDec(100),
+		Account:                "def",
+		OrderType:              "Limit",
+		OrderId:                5,
+		Timestamp:              TestTimestamp,
+		Height:                 TestHeight,
+	})
+	assert.Equal(t, *settlements[1], types.SettlementEntry{
+		PositionDirection:      "Long",
+		PriceDenom:             "USDC",
+		AssetDenom:             "ATOM",
+		Quantity:               sdk.NewDec(5),
+		ExecutionCostOrProceed: sdk.NewDec(100),
+		ExpectedCostOrProceed:  sdk.NewDec(100),
+		Account:                "abc",
+		OrderType:              "Market",
+		OrderId:                1,
+		Timestamp:              TestTimestamp,
+		Height:                 TestHeight,
+	})
+	assert.Equal(t, blockOrders.Get()[0].Quantity, sdk.ZeroDec())
+	assert.Equal(t, blockOrders.Get()[0].Status, types.OrderStatus_FULFILLED)
 }
 
 func TestMatchSingleMarketOrderFromLongBook(t *testing.T) {
 	_, ctx := keepertest.DexKeeper(t)
-	shortOrders := []dexcache.MarketOrder{
+	ctx = ctx.WithBlockHeight(int64(TestHeight)).WithBlockTime(time.Unix(int64(TestTimestamp), 0))
+	shortOrders := []*types.Order{
 		{
-			WorstPrice: sdk.NewDec(100),
-			Quantity:   sdk.NewDec(5),
-			Creator:    "abc",
-			Direction:  types.PositionDirection_SHORT,
+			Id:                1,
+			Price:             sdk.NewDec(100),
+			Quantity:          sdk.NewDec(5),
+			Account:           "abc",
+			PositionDirection: types.PositionDirection_SHORT,
+			ContractAddr:      "test",
+			PriceDenom:        "USDC",
+			AssetDenom:        "ATOM",
+			OrderType:         types.OrderType_MARKET,
 		},
 	}
-	longBook := []types.OrderBook{
+	longBook := []types.OrderBookEntry{
 		&types.LongBook{
 			Price: sdk.NewDec(100),
 			Entry: &types.OrderEntry{
-				Price:             sdk.NewDec(100),
-				Quantity:          sdk.NewDec(5),
-				AllocationCreator: []string{"def|c|"},
-				Allocation:        []sdk.Dec{sdk.NewDec(5)},
-				PriceDenom:        TEST_PAIR().PriceDenom,
-				AssetDenom:        TEST_PAIR().AssetDenom,
+				Price:    sdk.NewDec(100),
+				Quantity: sdk.NewDec(5),
+				Allocations: []*types.Allocation{{
+					OrderId:  5,
+					Account:  "def",
+					Quantity: sdk.NewDec(5),
+				}},
+				PriceDenom: "USDC",
+				AssetDenom: "ATOM",
 			},
 		},
 	}
-	dirtyPrices := exchange.NewDirtyPrices()
-	settlements := []*types.Settlement{}
-	totalPrice, totalExecuted := exchange.MatchMarketOrders(
-		ctx, shortOrders, longBook, TEST_PAIR(), types.PositionDirection_SHORT, &dirtyPrices, &settlements,
+	blockOrders := dexutils.GetMemState(ctx.Context()).GetBlockOrders(ctx, "testAccount", "USDC|ATOM")
+	blockOrders.Add(shortOrders[0])
+	entries := &types.CachedSortedOrderBookEntries{
+		Entries:      longBook,
+		DirtyEntries: datastructures.NewTypedSyncMap[string, types.OrderBookEntry](),
+	}
+	outcome := exchange.MatchMarketOrders(
+		ctx, shortOrders, entries, types.PositionDirection_SHORT, blockOrders,
 	)
+	totalPrice := outcome.TotalNotional
+	totalExecuted := outcome.TotalQuantity
+	settlements := outcome.Settlements
 	assert.Equal(t, totalPrice, sdk.NewDec(500))
 	assert.Equal(t, totalExecuted, sdk.NewDec(5))
-	assert.Equal(t, len(dirtyPrices.Get()), 1)
-	assert.Equal(t, dirtyPrices.Has(sdk.NewDec(100)), true)
+	assert.Equal(t, entries.DirtyEntries.Len(), 1)
+	_, ok := entries.DirtyEntries.Load(sdk.MustNewDecFromStr("100").String())
+	assert.True(t, ok)
 	assert.Equal(t, len(longBook), 1)
 	assert.Equal(t, longBook[0].GetPrice(), sdk.NewDec(100))
 	assert.Equal(t, longBook[0].GetEntry().Price, sdk.NewDec(100))
 	assert.Equal(t, longBook[0].GetEntry().Quantity.IsZero(), true)
 	assert.Equal(t, len(settlements), 2)
-	assert.Equal(t, *settlements[0], types.Settlement{
-		Direction:              types.PositionDirection_LONG,
-		PriceSymbol:            TEST_PAIR().PriceDenom,
-		AssetSymbol:            TEST_PAIR().AssetDenom,
+	assert.Equal(t, *settlements[0], types.SettlementEntry{
+		PositionDirection:      "Long",
+		PriceDenom:             "USDC",
+		AssetDenom:             "ATOM",
 		Quantity:               sdk.NewDec(5),
 		ExecutionCostOrProceed: sdk.NewDec(100),
 		ExpectedCostOrProceed:  sdk.NewDec(100),
 		Account:                "def",
-		OrderType:              types.OrderType_LIMIT,
+		OrderType:              "Limit",
+		OrderId:                5,
+		Timestamp:              TestTimestamp,
+		Height:                 TestHeight,
 	})
-	assert.Equal(t, *settlements[1], types.Settlement{
-		Direction:              types.PositionDirection_SHORT,
-		PriceSymbol:            TEST_PAIR().PriceDenom,
-		AssetSymbol:            TEST_PAIR().AssetDenom,
+	assert.Equal(t, *settlements[1], types.SettlementEntry{
+		PositionDirection:      "Short",
+		PriceDenom:             "USDC",
+		AssetDenom:             "ATOM",
 		Quantity:               sdk.NewDec(5),
 		ExecutionCostOrProceed: sdk.NewDec(100),
 		ExpectedCostOrProceed:  sdk.NewDec(100),
 		Account:                "abc",
-		OrderType:              types.OrderType_MARKET,
+		OrderType:              "Market",
+		OrderId:                1,
+		Timestamp:              TestTimestamp,
+		Height:                 TestHeight,
 	})
+	assert.Equal(t, blockOrders.Get()[0].Quantity, sdk.ZeroDec())
+	assert.Equal(t, blockOrders.Get()[0].Status, types.OrderStatus_FULFILLED)
 }
 
 func TestMatchSingleMarketOrderFromMultipleShortBook(t *testing.T) {
 	_, ctx := keepertest.DexKeeper(t)
-	longOrders := []dexcache.MarketOrder{
+	ctx = ctx.WithBlockHeight(int64(TestHeight)).WithBlockTime(time.Unix(int64(TestTimestamp), 0))
+	longOrders := []*types.Order{
 		{
-			WorstPrice: sdk.NewDec(100),
-			Quantity:   sdk.NewDec(5),
-			Creator:    "abc",
-			Direction:  types.PositionDirection_LONG,
+			Id:                1,
+			Price:             sdk.NewDec(100),
+			Quantity:          sdk.NewDec(5),
+			Account:           "abc",
+			PositionDirection: types.PositionDirection_LONG,
+			ContractAddr:      "test",
+			PriceDenom:        "USDC",
+			AssetDenom:        "ATOM",
+			OrderType:         types.OrderType_MARKET,
 		},
 	}
-	shortBook := []types.OrderBook{
+	shortBook := []types.OrderBookEntry{
 		&types.ShortBook{
 			Price: sdk.NewDec(90),
 			Entry: &types.OrderEntry{
-				Price:             sdk.NewDec(90),
-				Quantity:          sdk.NewDec(2),
-				AllocationCreator: []string{"def|c|"},
-				Allocation:        []sdk.Dec{sdk.NewDec(2)},
-				PriceDenom:        TEST_PAIR().PriceDenom,
-				AssetDenom:        TEST_PAIR().AssetDenom,
+				Price:    sdk.NewDec(90),
+				Quantity: sdk.NewDec(2),
+				Allocations: []*types.Allocation{{
+					OrderId:  5,
+					Account:  "def",
+					Quantity: sdk.NewDec(2),
+				}},
+				PriceDenom: "USDC",
+				AssetDenom: "ATOM",
 			},
 		},
 		&types.ShortBook{
 			Price: sdk.NewDec(100),
 			Entry: &types.OrderEntry{
-				Price:             sdk.NewDec(100),
-				Quantity:          sdk.NewDec(6),
-				AllocationCreator: []string{"def|c|", "ghi|c|"},
-				Allocation:        []sdk.Dec{sdk.NewDec(4), sdk.NewDec(2)},
-				PriceDenom:        TEST_PAIR().PriceDenom,
-				AssetDenom:        TEST_PAIR().AssetDenom,
+				Price:    sdk.NewDec(100),
+				Quantity: sdk.NewDec(6),
+				Allocations: []*types.Allocation{{
+					OrderId:  6,
+					Account:  "def",
+					Quantity: sdk.NewDec(4),
+				}, {
+					OrderId:  7,
+					Account:  "ghi",
+					Quantity: sdk.NewDec(2),
+				}},
+				PriceDenom: "USDC",
+				AssetDenom: "ATOM",
 			},
 		},
 	}
-	dirtyPrices := exchange.NewDirtyPrices()
-	settlements := []*types.Settlement{}
-	totalPrice, totalExecuted := exchange.MatchMarketOrders(
-		ctx, longOrders, shortBook, TEST_PAIR(), types.PositionDirection_LONG, &dirtyPrices, &settlements,
+	blockOrders := dexutils.GetMemState(ctx.Context()).GetBlockOrders(ctx, "testAccount", "USDC|ATOM")
+	blockOrders.Add(longOrders[0])
+	entries := &types.CachedSortedOrderBookEntries{
+		Entries:      shortBook,
+		DirtyEntries: datastructures.NewTypedSyncMap[string, types.OrderBookEntry](),
+	}
+	outcome := exchange.MatchMarketOrders(
+		ctx, longOrders, entries, types.PositionDirection_LONG, blockOrders,
 	)
+	totalPrice := outcome.TotalNotional
+	totalExecuted := outcome.TotalQuantity
+	settlements := outcome.Settlements
 	assert.Equal(t, totalPrice, sdk.NewDec(480))
 	assert.Equal(t, totalExecuted, sdk.NewDec(5))
-	assert.Equal(t, len(dirtyPrices.Get()), 2)
-	assert.Equal(t, dirtyPrices.Has(sdk.NewDec(90)), true)
-	assert.Equal(t, dirtyPrices.Has(sdk.NewDec(100)), true)
+	assert.Equal(t, entries.DirtyEntries.Len(), 2)
+	_, ok := entries.DirtyEntries.Load(sdk.MustNewDecFromStr("100").String())
+	assert.True(t, ok)
+	_, ok = entries.DirtyEntries.Load(sdk.MustNewDecFromStr("90").String())
+	assert.True(t, ok)
 	assert.Equal(t, len(shortBook), 2)
 	assert.Equal(t, shortBook[0].GetPrice(), sdk.NewDec(90))
 	assert.Equal(t, shortBook[0].GetEntry().Price, sdk.NewDec(90))
 	assert.Equal(t, shortBook[0].GetEntry().Quantity.IsZero(), true)
 	assert.Equal(t, shortBook[1].GetPrice(), sdk.NewDec(100))
 	assert.Equal(t, *shortBook[1].GetEntry(), types.OrderEntry{
-		Price:             sdk.NewDec(100),
-		Quantity:          sdk.NewDec(3),
-		AllocationCreator: []string{"def|c|", "ghi|c|"},
-		Allocation:        []sdk.Dec{sdk.NewDec(2), sdk.NewDec(1)},
-		PriceDenom:        TEST_PAIR().PriceDenom,
-		AssetDenom:        TEST_PAIR().AssetDenom,
+		Price:    sdk.NewDec(100),
+		Quantity: sdk.NewDec(3),
+		Allocations: []*types.Allocation{{
+			OrderId:  6,
+			Account:  "def",
+			Quantity: sdk.NewDec(1),
+		}, {
+			OrderId:  7,
+			Account:  "ghi",
+			Quantity: sdk.NewDec(2),
+		}},
+		PriceDenom: "USDC",
+		AssetDenom: "ATOM",
 	})
-	assert.Equal(t, len(settlements), 6)
-	assert.Equal(t, *settlements[0], types.Settlement{
-		Direction:              types.PositionDirection_SHORT,
-		PriceSymbol:            TEST_PAIR().PriceDenom,
-		AssetSymbol:            TEST_PAIR().AssetDenom,
+	assert.Equal(t, len(settlements), 4)
+	assert.Equal(t, *settlements[0], types.SettlementEntry{
+		PositionDirection:      "Short",
+		PriceDenom:             "USDC",
+		AssetDenom:             "ATOM",
 		Quantity:               sdk.NewDec(2),
 		ExecutionCostOrProceed: sdk.NewDec(90),
 		ExpectedCostOrProceed:  sdk.NewDec(90),
 		Account:                "def",
-		OrderType:              types.OrderType_LIMIT,
+		OrderType:              "Limit",
+		OrderId:                5,
+		Timestamp:              TestTimestamp,
+		Height:                 TestHeight,
 	})
-	assert.Equal(t, *settlements[1], types.Settlement{
-		Direction:              types.PositionDirection_SHORT,
-		PriceSymbol:            TEST_PAIR().PriceDenom,
-		AssetSymbol:            TEST_PAIR().AssetDenom,
-		Quantity:               sdk.NewDec(2),
+	assert.Equal(t, *settlements[1], types.SettlementEntry{
+		PositionDirection:      "Short",
+		PriceDenom:             "USDC",
+		AssetDenom:             "ATOM",
+		Quantity:               sdk.NewDec(3),
 		ExecutionCostOrProceed: sdk.NewDec(100),
 		ExpectedCostOrProceed:  sdk.NewDec(100),
 		Account:                "def",
-		OrderType:              types.OrderType_LIMIT,
+		OrderType:              "Limit",
+		OrderId:                6,
+		Timestamp:              TestTimestamp,
+		Height:                 TestHeight,
 	})
-	assert.Equal(t, *settlements[2], types.Settlement{
-		Direction:              types.PositionDirection_SHORT,
-		PriceSymbol:            TEST_PAIR().PriceDenom,
-		AssetSymbol:            TEST_PAIR().AssetDenom,
-		Quantity:               sdk.NewDec(1),
-		ExecutionCostOrProceed: sdk.NewDec(100),
-		ExpectedCostOrProceed:  sdk.NewDec(100),
-		Account:                "ghi",
-		OrderType:              types.OrderType_LIMIT,
-	})
-	assert.Equal(t, *settlements[3], types.Settlement{
-		Direction:              types.PositionDirection_LONG,
-		PriceSymbol:            TEST_PAIR().PriceDenom,
-		AssetSymbol:            TEST_PAIR().AssetDenom,
+	assert.Equal(t, *settlements[2], types.SettlementEntry{
+		PositionDirection:      "Long",
+		PriceDenom:             "USDC",
+		AssetDenom:             "ATOM",
 		Quantity:               sdk.NewDec(2),
 		ExecutionCostOrProceed: sdk.NewDec(96),
 		ExpectedCostOrProceed:  sdk.NewDec(100),
 		Account:                "abc",
-		OrderType:              types.OrderType_MARKET,
+		OrderType:              "Market",
+		OrderId:                1,
+		Timestamp:              TestTimestamp,
+		Height:                 TestHeight,
 	})
-	assert.Equal(t, *settlements[4], types.Settlement{
-		Direction:              types.PositionDirection_LONG,
-		PriceSymbol:            TEST_PAIR().PriceDenom,
-		AssetSymbol:            TEST_PAIR().AssetDenom,
-		Quantity:               sdk.NewDec(2),
+	assert.Equal(t, *settlements[3], types.SettlementEntry{
+		PositionDirection:      "Long",
+		PriceDenom:             "USDC",
+		AssetDenom:             "ATOM",
+		Quantity:               sdk.NewDec(3),
 		ExecutionCostOrProceed: sdk.NewDec(96),
 		ExpectedCostOrProceed:  sdk.NewDec(100),
 		Account:                "abc",
-		OrderType:              types.OrderType_MARKET,
+		OrderType:              "Market",
+		OrderId:                1,
+		Timestamp:              TestTimestamp,
+		Height:                 TestHeight,
 	})
-	assert.Equal(t, *settlements[5], types.Settlement{
-		Direction:              types.PositionDirection_LONG,
-		PriceSymbol:            TEST_PAIR().PriceDenom,
-		AssetSymbol:            TEST_PAIR().AssetDenom,
-		Quantity:               sdk.NewDec(1),
-		ExecutionCostOrProceed: sdk.NewDec(96),
-		ExpectedCostOrProceed:  sdk.NewDec(100),
-		Account:                "abc",
-		OrderType:              types.OrderType_MARKET,
-	})
+	assert.Equal(t, blockOrders.Get()[0].Quantity, sdk.ZeroDec())
+	assert.Equal(t, blockOrders.Get()[0].Status, types.OrderStatus_FULFILLED)
 }
 
 func TestMatchSingleMarketOrderFromMultipleLongBook(t *testing.T) {
 	_, ctx := keepertest.DexKeeper(t)
-	shortOrders := []dexcache.MarketOrder{
+	ctx = ctx.WithBlockHeight(int64(TestHeight)).WithBlockTime(time.Unix(int64(TestTimestamp), 0))
+	shortOrders := []*types.Order{
 		{
-			WorstPrice: sdk.NewDec(100),
-			Quantity:   sdk.NewDec(5),
-			Creator:    "def",
-			Direction:  types.PositionDirection_SHORT,
+			Id:                1,
+			Price:             sdk.NewDec(100),
+			Quantity:          sdk.NewDec(5),
+			Account:           "def",
+			PositionDirection: types.PositionDirection_SHORT,
+			ContractAddr:      "test",
+			PriceDenom:        "USDC",
+			AssetDenom:        "ATOM",
+			OrderType:         types.OrderType_MARKET,
 		},
 	}
-	longBook := []types.OrderBook{
+	longBook := []types.OrderBookEntry{
 		&types.LongBook{
 			Price: sdk.NewDec(100),
 			Entry: &types.OrderEntry{
-				Price:             sdk.NewDec(100),
-				Quantity:          sdk.NewDec(6),
-				AllocationCreator: []string{"abc|c|", "ghi|c|"},
-				Allocation:        []sdk.Dec{sdk.NewDec(4), sdk.NewDec(2)},
-				PriceDenom:        TEST_PAIR().PriceDenom,
-				AssetDenom:        TEST_PAIR().AssetDenom,
+				Price:    sdk.NewDec(100),
+				Quantity: sdk.NewDec(6),
+				Allocations: []*types.Allocation{{
+					OrderId:  6,
+					Account:  "abc",
+					Quantity: sdk.NewDec(4),
+				}, {
+					OrderId:  7,
+					Account:  "ghi",
+					Quantity: sdk.NewDec(2),
+				}},
+				PriceDenom: "USDC",
+				AssetDenom: "ATOM",
 			},
 		},
 		&types.LongBook{
 			Price: sdk.NewDec(110),
 			Entry: &types.OrderEntry{
-				Price:             sdk.NewDec(110),
-				Quantity:          sdk.NewDec(2),
-				AllocationCreator: []string{"abc|c|"},
-				Allocation:        []sdk.Dec{sdk.NewDec(2)},
-				PriceDenom:        TEST_PAIR().PriceDenom,
-				AssetDenom:        TEST_PAIR().AssetDenom,
+				Price:    sdk.NewDec(110),
+				Quantity: sdk.NewDec(2),
+				Allocations: []*types.Allocation{{
+					OrderId:  5,
+					Account:  "abc",
+					Quantity: sdk.NewDec(2),
+				}},
+				PriceDenom: "USDC",
+				AssetDenom: "ATOM",
 			},
 		},
 	}
-	dirtyPrices := exchange.NewDirtyPrices()
-	settlements := []*types.Settlement{}
-	totalPrice, totalExecuted := exchange.MatchMarketOrders(
-		ctx, shortOrders, longBook, TEST_PAIR(), types.PositionDirection_SHORT, &dirtyPrices, &settlements,
+	blockOrders := dexutils.GetMemState(ctx.Context()).GetBlockOrders(ctx, "testAccount", "USDC|ATOM")
+	blockOrders.Add(shortOrders[0])
+	entries := &types.CachedSortedOrderBookEntries{
+		Entries:      longBook,
+		DirtyEntries: datastructures.NewTypedSyncMap[string, types.OrderBookEntry](),
+	}
+	outcome := exchange.MatchMarketOrders(
+		ctx, shortOrders, entries, types.PositionDirection_SHORT, blockOrders,
 	)
+	totalPrice := outcome.TotalNotional
+	totalExecuted := outcome.TotalQuantity
+	settlements := outcome.Settlements
 	assert.Equal(t, totalPrice, sdk.NewDec(520))
 	assert.Equal(t, totalExecuted, sdk.NewDec(5))
-	assert.Equal(t, len(dirtyPrices.Get()), 2)
-	assert.Equal(t, dirtyPrices.Has(sdk.NewDec(100)), true)
-	assert.Equal(t, dirtyPrices.Has(sdk.NewDec(110)), true)
+	assert.Equal(t, entries.DirtyEntries.Len(), 2)
+	_, ok := entries.DirtyEntries.Load(sdk.MustNewDecFromStr("100").String())
+	assert.True(t, ok)
+	_, ok = entries.DirtyEntries.Load(sdk.MustNewDecFromStr("110").String())
+	assert.True(t, ok)
 	assert.Equal(t, len(longBook), 2)
 	assert.Equal(t, longBook[0].GetPrice(), sdk.NewDec(100))
 	assert.Equal(t, *longBook[0].GetEntry(), types.OrderEntry{
-		Price:             sdk.NewDec(100),
-		Quantity:          sdk.NewDec(3),
-		AllocationCreator: []string{"abc|c|", "ghi|c|"},
-		Allocation:        []sdk.Dec{sdk.NewDec(2), sdk.NewDec(1)},
-		PriceDenom:        TEST_PAIR().PriceDenom,
-		AssetDenom:        TEST_PAIR().AssetDenom,
+		Price:    sdk.NewDec(100),
+		Quantity: sdk.NewDec(3),
+		Allocations: []*types.Allocation{{
+			OrderId:  6,
+			Account:  "abc",
+			Quantity: sdk.NewDec(1),
+		}, {
+			OrderId:  7,
+			Account:  "ghi",
+			Quantity: sdk.NewDec(2),
+		}},
+		PriceDenom: "USDC",
+		AssetDenom: "ATOM",
 	})
 	assert.Equal(t, longBook[1].GetPrice(), sdk.NewDec(110))
 	assert.Equal(t, longBook[1].GetEntry().Price, sdk.NewDec(110))
 	assert.Equal(t, longBook[1].GetEntry().Quantity.IsZero(), true)
-	assert.Equal(t, len(settlements), 6)
-	assert.Equal(t, *settlements[0], types.Settlement{
-		Direction:              types.PositionDirection_LONG,
-		PriceSymbol:            TEST_PAIR().PriceDenom,
-		AssetSymbol:            TEST_PAIR().AssetDenom,
+	assert.Equal(t, len(settlements), 4)
+	assert.Equal(t, *settlements[0], types.SettlementEntry{
+		PositionDirection:      "Long",
+		PriceDenom:             "USDC",
+		AssetDenom:             "ATOM",
 		Quantity:               sdk.NewDec(2),
 		ExecutionCostOrProceed: sdk.NewDec(110),
 		ExpectedCostOrProceed:  sdk.NewDec(110),
 		Account:                "abc",
-		OrderType:              types.OrderType_LIMIT,
+		OrderType:              "Limit",
+		OrderId:                5,
+		Timestamp:              TestTimestamp,
+		Height:                 TestHeight,
 	})
-	assert.Equal(t, *settlements[1], types.Settlement{
-		Direction:              types.PositionDirection_LONG,
-		PriceSymbol:            TEST_PAIR().PriceDenom,
-		AssetSymbol:            TEST_PAIR().AssetDenom,
-		Quantity:               sdk.NewDec(2),
+	assert.Equal(t, *settlements[1], types.SettlementEntry{
+		PositionDirection:      "Long",
+		PriceDenom:             "USDC",
+		AssetDenom:             "ATOM",
+		Quantity:               sdk.NewDec(3),
 		ExecutionCostOrProceed: sdk.NewDec(100),
 		ExpectedCostOrProceed:  sdk.NewDec(100),
 		Account:                "abc",
-		OrderType:              types.OrderType_LIMIT,
+		OrderType:              "Limit",
+		OrderId:                6,
+		Timestamp:              TestTimestamp,
+		Height:                 TestHeight,
 	})
-	assert.Equal(t, *settlements[2], types.Settlement{
-		Direction:              types.PositionDirection_LONG,
-		PriceSymbol:            TEST_PAIR().PriceDenom,
-		AssetSymbol:            TEST_PAIR().AssetDenom,
-		Quantity:               sdk.NewDec(1),
-		ExecutionCostOrProceed: sdk.NewDec(100),
-		ExpectedCostOrProceed:  sdk.NewDec(100),
-		Account:                "ghi",
-		OrderType:              types.OrderType_LIMIT,
-	})
-	assert.Equal(t, *settlements[3], types.Settlement{
-		Direction:              types.PositionDirection_SHORT,
-		PriceSymbol:            TEST_PAIR().PriceDenom,
-		AssetSymbol:            TEST_PAIR().AssetDenom,
+	assert.Equal(t, *settlements[2], types.SettlementEntry{
+		PositionDirection:      "Short",
+		PriceDenom:             "USDC",
+		AssetDenom:             "ATOM",
 		Quantity:               sdk.NewDec(2),
 		ExecutionCostOrProceed: sdk.NewDec(104),
 		ExpectedCostOrProceed:  sdk.NewDec(100),
 		Account:                "def",
-		OrderType:              types.OrderType_MARKET,
+		OrderType:              "Market",
+		OrderId:                1,
+		Timestamp:              TestTimestamp,
+		Height:                 TestHeight,
 	})
-	assert.Equal(t, *settlements[4], types.Settlement{
-		Direction:              types.PositionDirection_SHORT,
-		PriceSymbol:            TEST_PAIR().PriceDenom,
-		AssetSymbol:            TEST_PAIR().AssetDenom,
-		Quantity:               sdk.NewDec(2),
+	assert.Equal(t, *settlements[3], types.SettlementEntry{
+		PositionDirection:      "Short",
+		PriceDenom:             "USDC",
+		AssetDenom:             "ATOM",
+		Quantity:               sdk.NewDec(3),
 		ExecutionCostOrProceed: sdk.NewDec(104),
 		ExpectedCostOrProceed:  sdk.NewDec(100),
 		Account:                "def",
-		OrderType:              types.OrderType_MARKET,
+		OrderType:              "Market",
+		OrderId:                1,
+		Timestamp:              TestTimestamp,
+		Height:                 TestHeight,
 	})
-	assert.Equal(t, *settlements[5], types.Settlement{
-		Direction:              types.PositionDirection_SHORT,
-		PriceSymbol:            TEST_PAIR().PriceDenom,
-		AssetSymbol:            TEST_PAIR().AssetDenom,
-		Quantity:               sdk.NewDec(1),
-		ExecutionCostOrProceed: sdk.NewDec(104),
-		ExpectedCostOrProceed:  sdk.NewDec(100),
-		Account:                "def",
-		OrderType:              types.OrderType_MARKET,
-	})
+	assert.Equal(t, blockOrders.Get()[0].Quantity, sdk.ZeroDec())
+	assert.Equal(t, blockOrders.Get()[0].Status, types.OrderStatus_FULFILLED)
 }
 
 func TestMatchMultipleMarketOrderFromMultipleShortBook(t *testing.T) {
 	_, ctx := keepertest.DexKeeper(t)
-	longOrders := []dexcache.MarketOrder{
+	ctx = ctx.WithBlockHeight(int64(TestHeight)).WithBlockTime(time.Unix(int64(TestTimestamp), 0))
+	longOrders := []*types.Order{
 		{
-			WorstPrice: sdk.NewDec(104),
-			Quantity:   sdk.NewDec(1),
-			Creator:    "jkl",
-			Direction:  types.PositionDirection_LONG,
+			Id:                1,
+			Price:             sdk.NewDec(104),
+			Quantity:          sdk.NewDec(1),
+			Account:           "jkl",
+			PositionDirection: types.PositionDirection_LONG,
+			ContractAddr:      "test",
+			PriceDenom:        "USDC",
+			AssetDenom:        "ATOM",
+			OrderType:         types.OrderType_MARKET,
 		},
 		{
-			WorstPrice: sdk.NewDec(100),
-			Quantity:   sdk.NewDec(5),
-			Creator:    "abc",
-			Direction:  types.PositionDirection_LONG,
+			Id:                2,
+			Price:             sdk.NewDec(100),
+			Quantity:          sdk.NewDec(5),
+			Account:           "abc",
+			PositionDirection: types.PositionDirection_LONG,
+			ContractAddr:      "test",
+			PriceDenom:        "USDC",
+			AssetDenom:        "ATOM",
+			OrderType:         types.OrderType_MARKET,
 		},
 		{
-			WorstPrice: sdk.NewDec(98),
-			Quantity:   sdk.NewDec(2),
-			Creator:    "mno",
-			Direction:  types.PositionDirection_LONG,
+			Id:                3,
+			Price:             sdk.NewDec(98),
+			Quantity:          sdk.NewDec(2),
+			Account:           "mno",
+			PositionDirection: types.PositionDirection_LONG,
+			ContractAddr:      "test",
+			PriceDenom:        "USDC",
+			AssetDenom:        "ATOM",
+			OrderType:         types.OrderType_MARKET,
 		},
 	}
-	shortBook := []types.OrderBook{
+	shortBook := []types.OrderBookEntry{
 		&types.ShortBook{
 			Price: sdk.NewDec(90),
 			Entry: &types.OrderEntry{
-				Price:             sdk.NewDec(90),
-				Quantity:          sdk.NewDec(2),
-				AllocationCreator: []string{"def|c|"},
-				Allocation:        []sdk.Dec{sdk.NewDec(2)},
-				PriceDenom:        TEST_PAIR().PriceDenom,
-				AssetDenom:        TEST_PAIR().AssetDenom,
+				Price:    sdk.NewDec(90),
+				Quantity: sdk.NewDec(2),
+				Allocations: []*types.Allocation{{
+					OrderId:  4,
+					Account:  "def",
+					Quantity: sdk.NewDec(2),
+				}},
+				PriceDenom: "USDC",
+				AssetDenom: "ATOM",
 			},
 		},
 		&types.ShortBook{
 			Price: sdk.NewDec(100),
 			Entry: &types.OrderEntry{
-				Price:             sdk.NewDec(100),
-				Quantity:          sdk.NewDec(6),
-				AllocationCreator: []string{"def|c|", "ghi|c|"},
-				Allocation:        []sdk.Dec{sdk.NewDec(4), sdk.NewDec(2)},
-				PriceDenom:        TEST_PAIR().PriceDenom,
-				AssetDenom:        TEST_PAIR().AssetDenom,
+				Price:    sdk.NewDec(100),
+				Quantity: sdk.NewDec(6),
+				Allocations: []*types.Allocation{{
+					OrderId:  5,
+					Account:  "def",
+					Quantity: sdk.NewDec(4),
+				}, {
+					OrderId:  6,
+					Account:  "ghi",
+					Quantity: sdk.NewDec(2),
+				}},
+				PriceDenom: "USDC",
+				AssetDenom: "ATOM",
 			},
 		},
 	}
-	dirtyPrices := exchange.NewDirtyPrices()
-	settlements := []*types.Settlement{}
-	totalPrice, totalExecuted := exchange.MatchMarketOrders(
-		ctx, longOrders, shortBook, TEST_PAIR(), types.PositionDirection_LONG, &dirtyPrices, &settlements,
+	blockOrders := dexutils.GetMemState(ctx.Context()).GetBlockOrders(ctx, "testAccount", "USDC|ATOM")
+	blockOrders.Add(longOrders[0])
+	blockOrders.Add(longOrders[1])
+	blockOrders.Add(longOrders[2])
+	entries := &types.CachedSortedOrderBookEntries{
+		Entries:      shortBook,
+		DirtyEntries: datastructures.NewTypedSyncMap[string, types.OrderBookEntry](),
+	}
+	outcome := exchange.MatchMarketOrders(
+		ctx, longOrders, entries, types.PositionDirection_LONG, blockOrders,
 	)
+	totalPrice := outcome.TotalNotional
+	totalExecuted := outcome.TotalQuantity
+	settlements := outcome.Settlements
 	assert.Equal(t, totalPrice, sdk.NewDec(580))
 	assert.Equal(t, totalExecuted, sdk.NewDec(6))
-	assert.Equal(t, len(dirtyPrices.Get()), 2)
-	assert.Equal(t, dirtyPrices.Has(sdk.NewDec(90)), true)
-	assert.Equal(t, dirtyPrices.Has(sdk.NewDec(100)), true)
+	assert.Equal(t, entries.DirtyEntries.Len(), 2)
+	_, ok := entries.DirtyEntries.Load(sdk.MustNewDecFromStr("100").String())
+	assert.True(t, ok)
+	_, ok = entries.DirtyEntries.Load(sdk.MustNewDecFromStr("90").String())
+	assert.True(t, ok)
 	assert.Equal(t, len(shortBook), 2)
 	assert.Equal(t, shortBook[0].GetPrice(), sdk.NewDec(90))
 	assert.Equal(t, shortBook[0].GetEntry().Price, sdk.NewDec(90))
 	assert.Equal(t, shortBook[0].GetEntry().Quantity.IsZero(), true)
 	assert.Equal(t, shortBook[1].GetPrice(), sdk.NewDec(100))
 	assert.Equal(t, *shortBook[1].GetEntry(), types.OrderEntry{
-		Price:             sdk.NewDec(100),
-		Quantity:          sdk.NewDec(2),
-		AllocationCreator: []string{"def|c|", "ghi|c|"},
-		Allocation:        []sdk.Dec{sdk.NewDec(4).Quo(sdk.NewDec(3)), sdk.NewDec(2).Quo(sdk.NewDec(3))},
-		PriceDenom:        TEST_PAIR().PriceDenom,
-		AssetDenom:        TEST_PAIR().AssetDenom,
+		Price:    sdk.NewDec(100),
+		Quantity: sdk.NewDec(2),
+		Allocations: []*types.Allocation{{
+			OrderId:  6,
+			Account:  "ghi",
+			Quantity: sdk.NewDec(2),
+		}},
+		PriceDenom: "USDC",
+		AssetDenom: "ATOM",
 	})
-	assert.Equal(t, len(settlements), 8)
-	assert.Equal(t, *settlements[0], types.Settlement{
-		Direction:              types.PositionDirection_SHORT,
-		PriceSymbol:            TEST_PAIR().PriceDenom,
-		AssetSymbol:            TEST_PAIR().AssetDenom,
+	assert.Equal(t, len(settlements), 6)
+	assert.Equal(t, *settlements[0], types.SettlementEntry{
+		PositionDirection:      "Short",
+		PriceDenom:             "USDC",
+		AssetDenom:             "ATOM",
 		Quantity:               sdk.NewDec(1),
 		ExecutionCostOrProceed: sdk.NewDec(90),
 		ExpectedCostOrProceed:  sdk.NewDec(90),
 		Account:                "def",
-		OrderType:              types.OrderType_LIMIT,
+		OrderType:              "Limit",
+		OrderId:                4,
+		Timestamp:              TestTimestamp,
+		Height:                 TestHeight,
 	})
-	assert.Equal(t, *settlements[1], types.Settlement{
-		Direction:              types.PositionDirection_SHORT,
-		PriceSymbol:            TEST_PAIR().PriceDenom,
-		AssetSymbol:            TEST_PAIR().AssetDenom,
+	assert.Equal(t, *settlements[1], types.SettlementEntry{
+		PositionDirection:      "Short",
+		PriceDenom:             "USDC",
+		AssetDenom:             "ATOM",
 		Quantity:               sdk.NewDec(1),
 		ExecutionCostOrProceed: sdk.NewDec(90),
 		ExpectedCostOrProceed:  sdk.NewDec(90),
 		Account:                "def",
-		OrderType:              types.OrderType_LIMIT,
+		OrderType:              "Limit",
+		OrderId:                4,
+		Timestamp:              TestTimestamp,
+		Height:                 TestHeight,
 	})
-	assert.Equal(t, *settlements[2], types.Settlement{
-		Direction:              types.PositionDirection_SHORT,
-		PriceSymbol:            TEST_PAIR().PriceDenom,
-		AssetSymbol:            TEST_PAIR().AssetDenom,
-		Quantity:               sdk.NewDec(8).Quo(sdk.NewDec(3)),
+	assert.Equal(t, *settlements[2], types.SettlementEntry{
+		PositionDirection:      "Short",
+		PriceDenom:             "USDC",
+		AssetDenom:             "ATOM",
+		Quantity:               sdk.NewDec(4),
 		ExecutionCostOrProceed: sdk.NewDec(100),
 		ExpectedCostOrProceed:  sdk.NewDec(100),
 		Account:                "def",
-		OrderType:              types.OrderType_LIMIT,
+		OrderType:              "Limit",
+		OrderId:                5,
+		Timestamp:              TestTimestamp,
+		Height:                 TestHeight,
 	})
-	assert.Equal(t, *settlements[3], types.Settlement{
-		Direction:              types.PositionDirection_SHORT,
-		PriceSymbol:            TEST_PAIR().PriceDenom,
-		AssetSymbol:            TEST_PAIR().AssetDenom,
-		Quantity:               sdk.NewDec(4).Quo(sdk.NewDec(3)),
-		ExecutionCostOrProceed: sdk.NewDec(100),
-		ExpectedCostOrProceed:  sdk.NewDec(100),
-		Account:                "ghi",
-		OrderType:              types.OrderType_LIMIT,
-	})
-	assert.Equal(t, *settlements[4], types.Settlement{
-		Direction:              types.PositionDirection_LONG,
-		PriceSymbol:            TEST_PAIR().PriceDenom,
-		AssetSymbol:            TEST_PAIR().AssetDenom,
+	assert.Equal(t, *settlements[3], types.SettlementEntry{
+		PositionDirection:      "Long",
+		PriceDenom:             "USDC",
+		AssetDenom:             "ATOM",
 		Quantity:               sdk.NewDec(1),
 		ExecutionCostOrProceed: sdk.MustNewDecFromStr("96.666666666666666667"),
 		ExpectedCostOrProceed:  sdk.NewDec(104),
 		Account:                "jkl",
-		OrderType:              types.OrderType_MARKET,
+		OrderType:              "Market",
+		OrderId:                1,
+		Timestamp:              TestTimestamp,
+		Height:                 TestHeight,
 	})
-	assert.Equal(t, *settlements[5], types.Settlement{
-		Direction:              types.PositionDirection_LONG,
-		PriceSymbol:            TEST_PAIR().PriceDenom,
-		AssetSymbol:            TEST_PAIR().AssetDenom,
+	assert.Equal(t, *settlements[4], types.SettlementEntry{
+		PositionDirection:      "Long",
+		PriceDenom:             "USDC",
+		AssetDenom:             "ATOM",
 		Quantity:               sdk.NewDec(1),
 		ExecutionCostOrProceed: sdk.MustNewDecFromStr("96.666666666666666667"),
 		ExpectedCostOrProceed:  sdk.NewDec(100),
 		Account:                "abc",
-		OrderType:              types.OrderType_MARKET,
+		OrderType:              "Market",
+		OrderId:                2,
+		Timestamp:              TestTimestamp,
+		Height:                 TestHeight,
 	})
-	assert.Equal(t, *settlements[6], types.Settlement{
-		Direction:              types.PositionDirection_LONG,
-		PriceSymbol:            TEST_PAIR().PriceDenom,
-		AssetSymbol:            TEST_PAIR().AssetDenom,
-		Quantity:               sdk.NewDec(8).Quo(sdk.NewDec(3)),
+	assert.Equal(t, *settlements[5], types.SettlementEntry{
+		PositionDirection:      "Long",
+		PriceDenom:             "USDC",
+		AssetDenom:             "ATOM",
+		Quantity:               sdk.NewDec(4),
 		ExecutionCostOrProceed: sdk.MustNewDecFromStr("96.666666666666666667"),
 		ExpectedCostOrProceed:  sdk.NewDec(100),
 		Account:                "abc",
-		OrderType:              types.OrderType_MARKET,
+		OrderType:              "Market",
+		OrderId:                2,
+		Timestamp:              TestTimestamp,
+		Height:                 TestHeight,
 	})
-	assert.Equal(t, *settlements[7], types.Settlement{
-		Direction:              types.PositionDirection_LONG,
-		PriceSymbol:            TEST_PAIR().PriceDenom,
-		AssetSymbol:            TEST_PAIR().AssetDenom,
-		Quantity:               sdk.NewDec(4).Quo(sdk.NewDec(3)),
-		ExecutionCostOrProceed: sdk.MustNewDecFromStr("96.666666666666666667"),
-		ExpectedCostOrProceed:  sdk.NewDec(100),
-		Account:                "abc",
-		OrderType:              types.OrderType_MARKET,
-	})
+	assert.Equal(t, blockOrders.Get()[0].Quantity, sdk.ZeroDec())
+	assert.Equal(t, blockOrders.Get()[0].Status, types.OrderStatus_FULFILLED)
+	assert.Equal(t, blockOrders.Get()[1].Quantity, sdk.ZeroDec())
+	assert.Equal(t, blockOrders.Get()[1].Status, types.OrderStatus_FULFILLED)
+	assert.Equal(t, blockOrders.Get()[2].Quantity, sdk.NewDec(2))
+	assert.Equal(t, blockOrders.Get()[2].Status, types.OrderStatus_PLACED)
 }
 
 func TestMatchMultipleMarketOrderFromMultipleLongBook(t *testing.T) {
 	_, ctx := keepertest.DexKeeper(t)
-	shortOrders := []dexcache.MarketOrder{
+	ctx = ctx.WithBlockHeight(int64(TestHeight)).WithBlockTime(time.Unix(int64(TestTimestamp), 0))
+	shortOrders := []*types.Order{
 		{
-			WorstPrice: sdk.NewDec(96),
-			Quantity:   sdk.NewDec(1),
-			Creator:    "jkl",
-			Direction:  types.PositionDirection_SHORT,
+			Id:                1,
+			Price:             sdk.NewDec(96),
+			Quantity:          sdk.NewDec(1),
+			Account:           "jkl",
+			PositionDirection: types.PositionDirection_SHORT,
+			ContractAddr:      "test",
+			PriceDenom:        "USDC",
+			AssetDenom:        "ATOM",
+			OrderType:         types.OrderType_MARKET,
 		},
 		{
-			WorstPrice: sdk.NewDec(100),
-			Quantity:   sdk.NewDec(5),
-			Creator:    "abc",
-			Direction:  types.PositionDirection_SHORT,
+			Id:                2,
+			Price:             sdk.NewDec(100),
+			Quantity:          sdk.NewDec(5),
+			Account:           "abc",
+			PositionDirection: types.PositionDirection_SHORT,
+			ContractAddr:      "test",
+			PriceDenom:        "USDC",
+			AssetDenom:        "ATOM",
+			OrderType:         types.OrderType_MARKET,
 		},
 		{
-			WorstPrice: sdk.NewDec(102),
-			Quantity:   sdk.NewDec(2),
-			Creator:    "mno",
-			Direction:  types.PositionDirection_SHORT,
+			Id:                3,
+			Price:             sdk.NewDec(102),
+			Quantity:          sdk.NewDec(2),
+			Account:           "mno",
+			PositionDirection: types.PositionDirection_SHORT,
+			ContractAddr:      "test",
+			PriceDenom:        "USDC",
+			AssetDenom:        "ATOM",
+			OrderType:         types.OrderType_MARKET,
 		},
 	}
-	longBook := []types.OrderBook{
+	longBook := []types.OrderBookEntry{
 		&types.LongBook{
 			Price: sdk.NewDec(100),
 			Entry: &types.OrderEntry{
-				Price:             sdk.NewDec(100),
-				Quantity:          sdk.NewDec(6),
-				AllocationCreator: []string{"abc|c|", "ghi|c|"},
-				Allocation:        []sdk.Dec{sdk.NewDec(4), sdk.NewDec(2)},
-				PriceDenom:        TEST_PAIR().PriceDenom,
-				AssetDenom:        TEST_PAIR().AssetDenom,
+				Price:    sdk.NewDec(100),
+				Quantity: sdk.NewDec(6),
+				Allocations: []*types.Allocation{{
+					OrderId:  5,
+					Account:  "abc",
+					Quantity: sdk.NewDec(4),
+				}, {
+					OrderId:  6,
+					Account:  "ghi",
+					Quantity: sdk.NewDec(2),
+				}},
+				PriceDenom: "USDC",
+				AssetDenom: "ATOM",
 			},
 		},
 		&types.LongBook{
 			Price: sdk.NewDec(110),
 			Entry: &types.OrderEntry{
-				Price:             sdk.NewDec(110),
-				Quantity:          sdk.NewDec(2),
-				AllocationCreator: []string{"abc|c|"},
-				Allocation:        []sdk.Dec{sdk.NewDec(2)},
-				PriceDenom:        TEST_PAIR().PriceDenom,
-				AssetDenom:        TEST_PAIR().AssetDenom,
+				Price:    sdk.NewDec(110),
+				Quantity: sdk.NewDec(2),
+				Allocations: []*types.Allocation{{
+					OrderId:  4,
+					Account:  "abc",
+					Quantity: sdk.NewDec(2),
+				}},
+				PriceDenom: "USDC",
+				AssetDenom: "ATOM",
 			},
 		},
 	}
-	dirtyPrices := exchange.NewDirtyPrices()
-	settlements := []*types.Settlement{}
-	totalPrice, totalExecuted := exchange.MatchMarketOrders(
-		ctx, shortOrders, longBook, TEST_PAIR(), types.PositionDirection_SHORT, &dirtyPrices, &settlements,
+	blockOrders := dexutils.GetMemState(ctx.Context()).GetBlockOrders(ctx, "testAccount", "USDC|ATOM")
+	blockOrders.Add(shortOrders[0])
+	blockOrders.Add(shortOrders[1])
+	blockOrders.Add(shortOrders[2])
+	entries := &types.CachedSortedOrderBookEntries{
+		Entries:      longBook,
+		DirtyEntries: datastructures.NewTypedSyncMap[string, types.OrderBookEntry](),
+	}
+	outcome := exchange.MatchMarketOrders(
+		ctx, shortOrders, entries, types.PositionDirection_SHORT, blockOrders,
 	)
+	totalPrice := outcome.TotalNotional
+	totalExecuted := outcome.TotalQuantity
+	settlements := outcome.Settlements
+	minPrice := outcome.MinPrice
+	maxPrice := outcome.MaxPrice
 	assert.Equal(t, totalPrice, sdk.NewDec(620))
 	assert.Equal(t, totalExecuted, sdk.NewDec(6))
-	assert.Equal(t, len(dirtyPrices.Get()), 2)
-	assert.Equal(t, dirtyPrices.Has(sdk.NewDec(100)), true)
-	assert.Equal(t, dirtyPrices.Has(sdk.NewDec(110)), true)
+	assert.Equal(t, minPrice, sdk.MustNewDecFromStr("103.333333333333333333"))
+	assert.Equal(t, maxPrice, sdk.MustNewDecFromStr("103.333333333333333333"))
+	assert.Equal(t, entries.DirtyEntries.Len(), 2)
+	_, ok := entries.DirtyEntries.Load(sdk.MustNewDecFromStr("100").String())
+	assert.True(t, ok)
+	_, ok = entries.DirtyEntries.Load(sdk.MustNewDecFromStr("110").String())
+	assert.True(t, ok)
 	assert.Equal(t, len(longBook), 2)
 	assert.Equal(t, longBook[0].GetPrice(), sdk.NewDec(100))
 	assert.Equal(t, *longBook[0].GetEntry(), types.OrderEntry{
-		Price:             sdk.NewDec(100),
-		Quantity:          sdk.NewDec(2),
-		AllocationCreator: []string{"abc|c|", "ghi|c|"},
-		Allocation:        []sdk.Dec{sdk.NewDec(4).Quo(sdk.NewDec(3)), sdk.NewDec(2).Quo(sdk.NewDec(3))},
-		PriceDenom:        TEST_PAIR().PriceDenom,
-		AssetDenom:        TEST_PAIR().AssetDenom,
+		Price:    sdk.NewDec(100),
+		Quantity: sdk.NewDec(2),
+		Allocations: []*types.Allocation{{
+			OrderId:  6,
+			Account:  "ghi",
+			Quantity: sdk.NewDec(2),
+		}},
+		PriceDenom: "USDC",
+		AssetDenom: "ATOM",
 	})
 	assert.Equal(t, longBook[1].GetPrice(), sdk.NewDec(110))
 	assert.Equal(t, longBook[1].GetEntry().Price, sdk.NewDec(110))
 	assert.Equal(t, longBook[1].GetEntry().Quantity.IsZero(), true)
-	assert.Equal(t, len(settlements), 8)
-	assert.Equal(t, *settlements[0], types.Settlement{
-		Direction:              types.PositionDirection_LONG,
-		PriceSymbol:            TEST_PAIR().PriceDenom,
-		AssetSymbol:            TEST_PAIR().AssetDenom,
+	assert.Equal(t, len(settlements), 6)
+	assert.Equal(t, *settlements[0], types.SettlementEntry{
+		PositionDirection:      "Long",
+		PriceDenom:             "USDC",
+		AssetDenom:             "ATOM",
 		Quantity:               sdk.NewDec(1),
 		ExecutionCostOrProceed: sdk.NewDec(110),
 		ExpectedCostOrProceed:  sdk.NewDec(110),
 		Account:                "abc",
-		OrderType:              types.OrderType_LIMIT,
+		OrderType:              "Limit",
+		OrderId:                4,
+		Timestamp:              TestTimestamp,
+		Height:                 TestHeight,
 	})
-	assert.Equal(t, *settlements[1], types.Settlement{
-		Direction:              types.PositionDirection_LONG,
-		PriceSymbol:            TEST_PAIR().PriceDenom,
-		AssetSymbol:            TEST_PAIR().AssetDenom,
+	assert.Equal(t, *settlements[1], types.SettlementEntry{
+		PositionDirection:      "Long",
+		PriceDenom:             "USDC",
+		AssetDenom:             "ATOM",
 		Quantity:               sdk.NewDec(1),
 		ExecutionCostOrProceed: sdk.NewDec(110),
 		ExpectedCostOrProceed:  sdk.NewDec(110),
 		Account:                "abc",
-		OrderType:              types.OrderType_LIMIT,
+		OrderType:              "Limit",
+		OrderId:                4,
+		Timestamp:              TestTimestamp,
+		Height:                 TestHeight,
 	})
-	assert.Equal(t, *settlements[2], types.Settlement{
-		Direction:              types.PositionDirection_LONG,
-		PriceSymbol:            TEST_PAIR().PriceDenom,
-		AssetSymbol:            TEST_PAIR().AssetDenom,
-		Quantity:               sdk.NewDec(8).Quo(sdk.NewDec(3)),
+	assert.Equal(t, *settlements[2], types.SettlementEntry{
+		PositionDirection:      "Long",
+		PriceDenom:             "USDC",
+		AssetDenom:             "ATOM",
+		Quantity:               sdk.NewDec(4),
 		ExecutionCostOrProceed: sdk.NewDec(100),
 		ExpectedCostOrProceed:  sdk.NewDec(100),
 		Account:                "abc",
-		OrderType:              types.OrderType_LIMIT,
+		OrderType:              "Limit",
+		OrderId:                5,
+		Timestamp:              TestTimestamp,
+		Height:                 TestHeight,
 	})
-	assert.Equal(t, *settlements[3], types.Settlement{
-		Direction:              types.PositionDirection_LONG,
-		PriceSymbol:            TEST_PAIR().PriceDenom,
-		AssetSymbol:            TEST_PAIR().AssetDenom,
-		Quantity:               sdk.NewDec(4).Quo(sdk.NewDec(3)),
-		ExecutionCostOrProceed: sdk.NewDec(100),
-		ExpectedCostOrProceed:  sdk.NewDec(100),
-		Account:                "ghi",
-		OrderType:              types.OrderType_LIMIT,
-	})
-	assert.Equal(t, *settlements[4], types.Settlement{
-		Direction:              types.PositionDirection_SHORT,
-		PriceSymbol:            TEST_PAIR().PriceDenom,
-		AssetSymbol:            TEST_PAIR().AssetDenom,
+	assert.Equal(t, *settlements[3], types.SettlementEntry{
+		PositionDirection:      "Short",
+		PriceDenom:             "USDC",
+		AssetDenom:             "ATOM",
 		Quantity:               sdk.NewDec(1),
 		ExecutionCostOrProceed: sdk.MustNewDecFromStr("103.333333333333333333"),
 		ExpectedCostOrProceed:  sdk.NewDec(96),
 		Account:                "jkl",
-		OrderType:              types.OrderType_MARKET,
+		OrderType:              "Market",
+		OrderId:                1,
+		Timestamp:              TestTimestamp,
+		Height:                 TestHeight,
 	})
-	assert.Equal(t, *settlements[5], types.Settlement{
-		Direction:              types.PositionDirection_SHORT,
-		PriceSymbol:            TEST_PAIR().PriceDenom,
-		AssetSymbol:            TEST_PAIR().AssetDenom,
+	assert.Equal(t, *settlements[4], types.SettlementEntry{
+		PositionDirection:      "Short",
+		PriceDenom:             "USDC",
+		AssetDenom:             "ATOM",
 		Quantity:               sdk.NewDec(1),
 		ExecutionCostOrProceed: sdk.MustNewDecFromStr("103.333333333333333333"),
 		ExpectedCostOrProceed:  sdk.NewDec(100),
 		Account:                "abc",
-		OrderType:              types.OrderType_MARKET,
+		OrderType:              "Market",
+		OrderId:                2,
+		Timestamp:              TestTimestamp,
+		Height:                 TestHeight,
 	})
-	assert.Equal(t, *settlements[6], types.Settlement{
-		Direction:              types.PositionDirection_SHORT,
-		PriceSymbol:            TEST_PAIR().PriceDenom,
-		AssetSymbol:            TEST_PAIR().AssetDenom,
-		Quantity:               sdk.NewDec(8).Quo(sdk.NewDec(3)),
+	assert.Equal(t, *settlements[5], types.SettlementEntry{
+		PositionDirection:      "Short",
+		PriceDenom:             "USDC",
+		AssetDenom:             "ATOM",
+		Quantity:               sdk.NewDec(4),
 		ExecutionCostOrProceed: sdk.MustNewDecFromStr("103.333333333333333333"),
 		ExpectedCostOrProceed:  sdk.NewDec(100),
 		Account:                "abc",
-		OrderType:              types.OrderType_MARKET,
+		OrderType:              "Market",
+		OrderId:                2,
+		Timestamp:              TestTimestamp,
+		Height:                 TestHeight,
 	})
-	assert.Equal(t, *settlements[7], types.Settlement{
-		Direction:              types.PositionDirection_SHORT,
-		PriceSymbol:            TEST_PAIR().PriceDenom,
-		AssetSymbol:            TEST_PAIR().AssetDenom,
-		Quantity:               sdk.NewDec(4).Quo(sdk.NewDec(3)),
-		ExecutionCostOrProceed: sdk.MustNewDecFromStr("103.333333333333333333"),
-		ExpectedCostOrProceed:  sdk.NewDec(100),
-		Account:                "abc",
-		OrderType:              types.OrderType_MARKET,
-	})
+	assert.Equal(t, blockOrders.Get()[0].Quantity, sdk.ZeroDec())
+	assert.Equal(t, blockOrders.Get()[0].Status, types.OrderStatus_FULFILLED)
+	assert.Equal(t, blockOrders.Get()[1].Quantity, sdk.ZeroDec())
+	assert.Equal(t, blockOrders.Get()[1].Status, types.OrderStatus_FULFILLED)
+	assert.Equal(t, blockOrders.Get()[2].Quantity, sdk.NewDec(2))
+	assert.Equal(t, blockOrders.Get()[2].Status, types.OrderStatus_PLACED)
 }

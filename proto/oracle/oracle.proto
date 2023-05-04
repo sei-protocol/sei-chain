@@ -37,7 +37,7 @@ message Params {
     (gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Dec",
     (gogoproto.nullable)   = false
   ];
-  int64 lookback_duration = 9 [
+  uint64 lookback_duration = 9 [
     (gogoproto.moretags)   = "yaml:\"lookback_duration\""
   ];
 }
@@ -48,16 +48,6 @@ message Denom {
   option (gogoproto.goproto_stringer) = false;
 
   string name      = 1 [(gogoproto.moretags) = "yaml:\"name\""];
-}
-
-message AggregateExchangeRatePrevote {
-  option (gogoproto.equal)            = false;
-  option (gogoproto.goproto_getters)  = false;
-  option (gogoproto.goproto_stringer) = false;
-
-  string hash         = 1 [(gogoproto.moretags) = "yaml:\"hash\""];
-  string voter        = 2 [(gogoproto.moretags) = "yaml:\"voter\""];
-  uint64 submit_block = 3 [(gogoproto.moretags) = "yaml:\"submit_block\""];
 }
 
 message AggregateExchangeRateVote {
@@ -133,4 +123,5 @@ message OracleTwap {
 message VotePenaltyCounter {
   uint64 miss_count = 1;
   uint64 abstain_count = 2;
+  uint64 success_count = 3;
 }

@@ -1,9 +1,0 @@
-syntax = "proto3";
-package seiprotocol.seichain.legacy.dex.v0;
-
-option go_package = "github.com/sei-protocol/sei-chain/x/dex/types/legacy/v0";
-
-message Pair {
-    string priceDenom = 1;
-    string assetDenom = 2;
-}

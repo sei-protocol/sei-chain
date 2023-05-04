@@ -25,8 +25,8 @@ var (
 
 // Default parameter values
 const (
-	DefaultVotePeriod  = utils.BlocksPerMinute / 2 // 30 seconds
-	DefaultSlashWindow = utils.BlocksPerWeek       // window for a week
+	DefaultVotePeriod  = 1                   // Voting every block
+	DefaultSlashWindow = utils.BlocksPerWeek // window for a week
 )
 
 // Default parameter values
@@ -35,12 +35,13 @@ var (
 	DefaultRewardBand    = sdk.NewDecWithPrec(2, 2)  // 2% (-1, 1)
 	DefaultWhitelist     = DenomList{
 		{Name: utils.MicroAtomDenom},
-		{Name: utils.MicroUsdcDenom},
-		{Name: utils.MicroSeiDenom},
+		// 		{Name: utils.MicroUsdcDenom},
+		// 		{Name: utils.MicroSeiDenom},
+		{Name: utils.MicroEthDenom},
 	}
 	DefaultSlashFraction     = sdk.NewDecWithPrec(1, 4) // 0.01%
 	DefaultMinValidPerWindow = sdk.NewDecWithPrec(5, 2) // 5%
-	DefaultLookbackDuration  = int64(3600)              // in seconds
+	DefaultLookbackDuration  = uint64(3600)             // in seconds
 )
 
 var _ paramstypes.ParamSet = &Params{}
@@ -137,8 +138,8 @@ func validateVoteThreshold(i interface{}) error {
 		return fmt.Errorf("invalid parameter type: %T", i)
 	}
 
-	if v.LT(sdk.NewDecWithPrec(33, 2)) {
-		return fmt.Errorf("vote threshold must be bigger than 33%%: %s", v)
+	if v.LT(sdk.ZeroDec()) {
+		return fmt.Errorf("vote threshold must be bigger than 0%%: %s", v)
 	}
 
 	if v.GT(sdk.OneDec()) {
@@ -228,7 +229,7 @@ func validateMinValidPerWindow(i interface{}) error {
 }
 
 func validateLookbackDuration(i interface{}) error {
-	_, ok := i.(int64)
+	_, ok := i.(uint64)
 	if !ok {
 		return fmt.Errorf("invalid parameter type: %T", i)
 	}

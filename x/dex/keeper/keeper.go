@@ -8,6 +8,8 @@ import (
 	"github.com/CosmWasm/wasmd/x/wasm"
 	"github.com/cosmos/cosmos-sdk/codec"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	authkeeper "github.com/cosmos/cosmos-sdk/x/auth/keeper"
+	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
 	bankkeeper "github.com/cosmos/cosmos-sdk/x/bank/keeper"
 	paramtypes "github.com/cosmos/cosmos-sdk/x/params/types"
 	dexcache "github.com/sei-protocol/sei-chain/x/dex/cache"
@@ -17,43 +19,17 @@ import (
 
 type (
 	Keeper struct {
-		Cdc                 codec.BinaryCodec
-		storeKey            sdk.StoreKey
-		memKey              sdk.StoreKey
-		Paramstore          paramtypes.Subspace
-		Orders              map[string]map[string]*dexcache.Orders
-		EpochKeeper         epochkeeper.Keeper
-		OrderPlacements     map[string]map[string]*dexcache.OrderPlacements
-		DepositInfo         map[string]*dexcache.DepositInfo
-		BankKeeper          bankkeeper.Keeper
-		OrderCancellations  map[string]map[string]*dexcache.OrderCancellations
-		LiquidationRequests map[string]*dexcache.LiquidationRequests
-		WasmKeeper          wasm.Keeper
+		Cdc           codec.BinaryCodec
+		storeKey      sdk.StoreKey
+		memKey        sdk.StoreKey
+		Paramstore    paramtypes.Subspace
+		AccountKeeper authkeeper.AccountKeeper
+		EpochKeeper   epochkeeper.Keeper
+		BankKeeper    bankkeeper.Keeper
+		WasmKeeper    wasm.Keeper
+		MemState      *dexcache.MemState
 	}
 )
-
-func NewPlainKeeper(
-	cdc codec.BinaryCodec,
-	storeKey,
-	memKey sdk.StoreKey,
-	ps paramtypes.Subspace,
-) *Keeper {
-	// set KeyTable if it has not already been set
-	if !ps.HasKeyTable() {
-		ps = ps.WithKeyTable(types.ParamKeyTable())
-	}
-	return &Keeper{
-		Cdc:                 cdc,
-		storeKey:            storeKey,
-		memKey:              memKey,
-		Paramstore:          ps,
-		Orders:              map[string]map[string]*dexcache.Orders{},
-		OrderPlacements:     map[string]map[string]*dexcache.OrderPlacements{},
-		DepositInfo:         map[string]*dexcache.DepositInfo{},
-		OrderCancellations:  map[string]map[string]*dexcache.OrderCancellations{},
-		LiquidationRequests: map[string]*dexcache.LiquidationRequests{},
-	}
-}
 
 func NewKeeper(
 	cdc codec.BinaryCodec,
@@ -62,23 +38,21 @@ func NewKeeper(
 	ps paramtypes.Subspace,
 	epochKeeper epochkeeper.Keeper,
 	bankKeeper bankkeeper.Keeper,
+	accountKeeper authkeeper.AccountKeeper,
 ) *Keeper {
 	// set KeyTable if it has not already been set
 	if !ps.HasKeyTable() {
 		ps = ps.WithKeyTable(types.ParamKeyTable())
 	}
 	return &Keeper{
-		Cdc:                 cdc,
-		storeKey:            storeKey,
-		memKey:              memKey,
-		Paramstore:          ps,
-		Orders:              map[string]map[string]*dexcache.Orders{},
-		EpochKeeper:         epochKeeper,
-		OrderPlacements:     map[string]map[string]*dexcache.OrderPlacements{},
-		DepositInfo:         map[string]*dexcache.DepositInfo{},
-		BankKeeper:          bankKeeper,
-		OrderCancellations:  map[string]map[string]*dexcache.OrderCancellations{},
-		LiquidationRequests: map[string]*dexcache.LiquidationRequests{},
+		Cdc:           cdc,
+		storeKey:      storeKey,
+		memKey:        memKey,
+		Paramstore:    ps,
+		EpochKeeper:   epochKeeper,
+		BankKeeper:    bankKeeper,
+		AccountKeeper: accountKeeper,
+		MemState:      dexcache.NewMemState(storeKey),
 	}
 }
 
@@ -92,4 +66,9 @@ func (k Keeper) GetStoreKey() sdk.StoreKey {
 
 func (k *Keeper) SetWasmKeeper(wasmKeeper *wasm.Keeper) {
 	k.WasmKeeper = *wasmKeeper
+}
+
+func (k Keeper) CreateModuleAccount(ctx sdk.Context) {
+	moduleAcc := authtypes.NewEmptyModuleAccount(types.ModuleName)
+	k.AccountKeeper.SetModuleAccount(ctx, moduleAcc)
 }

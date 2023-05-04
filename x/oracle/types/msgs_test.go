@@ -3,7 +3,6 @@ package types
 import (
 	"testing"
 
-	"github.com/sei-protocol/sei-chain/x/oracle/utils"
 	"github.com/stretchr/testify/require"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -36,36 +35,6 @@ func TestMsgFeederDelegation(t *testing.T) {
 	}
 }
 
-func TestMsgAggregateExchangeRatePrevote(t *testing.T) {
-	addrs := []sdk.AccAddress{
-		sdk.AccAddress([]byte("addr1_______________")),
-	}
-
-	exchangeRates := sdk.DecCoins{sdk.NewDecCoinFromDec(utils.MicroAtomDenom, sdk.OneDec())}
-	bz := GetAggregateVoteHash("1", exchangeRates.String(), sdk.ValAddress(addrs[0]))
-
-	tests := []struct {
-		hash          AggregateVoteHash
-		exchangeRates sdk.DecCoins
-		voter         sdk.AccAddress
-		expectPass    bool
-	}{
-		{bz, exchangeRates, addrs[0], true},
-		{bz[1:], exchangeRates, addrs[0], false},
-		{bz, exchangeRates, sdk.AccAddress{}, false},
-		{AggregateVoteHash{}, exchangeRates, addrs[0], false},
-	}
-
-	for i, tc := range tests {
-		msg := NewMsgAggregateExchangeRatePrevote(tc.hash, tc.voter, sdk.ValAddress(tc.voter))
-		if tc.expectPass {
-			require.NoError(t, msg.ValidateBasic(), "test: %v", i)
-		} else {
-			require.Error(t, msg.ValidateBasic(), "test: %v", i)
-		}
-	}
-}
-
 func TestMsgAggregateExchangeRateVote(t *testing.T) {
 	addrs := []sdk.AccAddress{
 		sdk.AccAddress([]byte("addr1_______________")),
@@ -78,20 +47,18 @@ func TestMsgAggregateExchangeRateVote(t *testing.T) {
 
 	tests := []struct {
 		voter         sdk.AccAddress
-		salt          string
 		exchangeRates string
 		expectPass    bool
 	}{
-		{addrs[0], "123", exchangeRates, true},
-		{addrs[0], "123", invalidExchangeRates, false},
-		{addrs[0], "123", abstainExchangeRates, true},
-		{addrs[0], "123", overFlowExchangeRates, false},
-		{sdk.AccAddress{}, "123", exchangeRates, false},
-		{addrs[0], "", exchangeRates, false},
+		{addrs[0], exchangeRates, true},
+		{addrs[0], invalidExchangeRates, false},
+		{addrs[0], abstainExchangeRates, true},
+		{addrs[0], overFlowExchangeRates, false},
+		{sdk.AccAddress{}, exchangeRates, false},
 	}
 
 	for i, tc := range tests {
-		msg := NewMsgAggregateExchangeRateVote(tc.salt, tc.exchangeRates, tc.voter, sdk.ValAddress(tc.voter))
+		msg := NewMsgAggregateExchangeRateVote(tc.exchangeRates, tc.voter, sdk.ValAddress(tc.voter))
 		if tc.expectPass {
 			require.Nil(t, msg.ValidateBasic(), "test: %v", i)
 		} else {

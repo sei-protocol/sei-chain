@@ -17,6 +17,7 @@ type (
 		storeKey   sdk.StoreKey
 		memKey     sdk.StoreKey
 		paramstore paramtypes.Subspace
+		hooks      types.EpochHooks
 	}
 )
 
@@ -37,6 +38,16 @@ func NewKeeper(
 		memKey:     memKey,
 		paramstore: ps,
 	}
+}
+
+func (k *Keeper) SetHooks(eh types.EpochHooks) *Keeper {
+	if k.hooks != nil {
+		panic("cannot set epochs hooks twice")
+	}
+
+	k.hooks = eh
+
+	return k
 }
 
 func (k Keeper) Logger(ctx sdk.Context) log.Logger {

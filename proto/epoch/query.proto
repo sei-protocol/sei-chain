@@ -35,6 +35,6 @@ message QueryParamsResponse {
 message QueryEpochRequest {}
 
 message QueryEpochResponse {
-  Epoch epoch = 11 [(gogoproto.nullable) = false];
+  Epoch epoch = 1 [(gogoproto.nullable) = false];
 }
 // this line is used by starport scaffolding # 3
