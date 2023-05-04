@@ -97,7 +97,7 @@ func (sc *SignerClient) GetKey(accountID, backend, accountKeyFilePath string) cr
 	}
 	kr, _ := keyring.New(sdk.KeyringServiceName(), backend, filepath.Join(userHomeDir, ".sei"), os.Stdin)
 	keyringAlgos, _ := kr.SupportedAlgorithms()
-	algoStr := string(hd.Sr25519Type)
+	algoStr := string(hd.Secp256k1Type)
 	algo, _ := keyring.NewSigningAlgoFromString(algoStr, keyringAlgos)
 	hdpath := hd.CreateHDPath(sdk.GetConfig().GetCoinType(), 0, 0).String()
 	derivedPriv, _ := algo.Derive()(accountInfo.Mnemonic, "", hdpath)

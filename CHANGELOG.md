@@ -27,6 +27,18 @@ Ref: https://keepachangelog.com/en/1.0.0/
 -->
 
 # Changelog
+## 2.0.48beta
+sei-chain:
+* [#743] (https://github.com/sei-protocol/sei-chain/pull/743) Do not unregister contract if out of rent
+* [#742] (https://github.com/sei-protocol/sei-chain/pull/742) Add more metrics to dex module
+* [#733] (https://github.com/sei-protocol/sei-chain/pull/733) Remove liquidation logic from dex
+
+sei-cosmos
+* [#235] (https://github.com/sei-protocol/sei-cosmos/pull/235) Fix x/simulation fee check
+* [#234] (https://github.com/sei-protocol/sei-cosmos/pull/234) Add more metrics for Begin/Mid/End Block
+
+sei-tendermint
+* [#134] (https://github.com/sei-protocol/sei-tendermint/pull/134) Fix nil peer address map
 ## 2.0.47beta
 sei-chain:
 * [#726] (https://github.com/sei-protocol/sei-chain/pull/726) Fix of dex rent transfer issue
