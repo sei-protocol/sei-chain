@@ -14,7 +14,7 @@ import (
 )
 
 // GetQueryCmd returns the cli query commands for this module
-func GetQueryCmd(queryRoute string) *cobra.Command {
+func GetQueryCmd() *cobra.Command {
 	// Group dex queries under a subcommand
 	cmd := &cobra.Command{
 		Use:                        types.ModuleName,
@@ -30,10 +30,13 @@ func GetQueryCmd(queryRoute string) *cobra.Command {
 	cmd.AddCommand(CmdListShortBook())
 	cmd.AddCommand(CmdShowShortBook())
 	cmd.AddCommand(CmdGetPrice())
+	cmd.AddCommand(CmdGetLatestPrice())
+	cmd.AddCommand(CmdGetPrices())
 	cmd.AddCommand(CmdGetTwaps())
 	cmd.AddCommand(CmdGetAssetList())
 	cmd.AddCommand(CmdGetAssetMetadata())
 	cmd.AddCommand(CmdGetRegisteredPairs())
+	cmd.AddCommand(CmdGetRegisteredContract())
 	cmd.AddCommand(CmdGetOrders())
 	cmd.AddCommand(CmdGetOrdersByID())
 	cmd.AddCommand(CmdGetMatchResult())

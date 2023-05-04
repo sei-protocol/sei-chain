@@ -1,25 +1,33 @@
 package contract
 
 import (
+	"fmt"
 	"sync/atomic"
+	"time"
 
+	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/sei-protocol/sei-chain/utils/datastructures"
+	"github.com/sei-protocol/sei-chain/utils/logging"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
 	"github.com/sei-protocol/sei-chain/x/dex/types/utils"
 )
 
-type ParallelRunner struct {
-	runnable func(contract types.ContractInfo)
+const LogAfter = 10 * time.Second
 
-	contractAddrToInfo   *datastructures.TypedSyncMap[utils.ContractAddress, *types.ContractInfo]
+type ParallelRunner struct {
+	runnable func(contract types.ContractInfoV2)
+
+	contractAddrToInfo   *datastructures.TypedSyncMap[utils.ContractAddress, *types.ContractInfoV2]
 	readyContracts       *datastructures.TypedSyncMap[utils.ContractAddress, struct{}]
 	readyCnt             int64
 	inProgressCnt        int64
 	someContractFinished chan struct{}
+	done                 chan struct{}
+	sdkCtx               sdk.Context
 }
 
-func NewParallelRunner(runnable func(contract types.ContractInfo), contracts []types.ContractInfo) ParallelRunner {
-	contractAddrToInfo := datastructures.NewTypedSyncMap[utils.ContractAddress, *types.ContractInfo]()
+func NewParallelRunner(runnable func(contract types.ContractInfoV2), contracts []types.ContractInfoV2, ctx sdk.Context) ParallelRunner {
+	contractAddrToInfo := datastructures.NewTypedSyncMap[utils.ContractAddress, *types.ContractInfoV2]()
 	contractsFrontier := datastructures.NewTypedSyncMap[utils.ContractAddress, struct{}]()
 	for _, contract := range contracts {
 		// runner will mutate ContractInfo fields
@@ -37,6 +45,8 @@ func NewParallelRunner(runnable func(contract types.ContractInfo), contracts []t
 		readyCnt:             int64(contractsFrontier.Len()),
 		inProgressCnt:        0,
 		someContractFinished: make(chan struct{}),
+		done:                 make(chan struct{}, 1),
+		sdkCtx:               ctx,
 	}
 }
 
@@ -88,6 +98,9 @@ func NewParallelRunner(runnable func(contract types.ContractInfo), contracts []t
 //
 // The following `Run` method implements the pseudocode above.
 func (r *ParallelRunner) Run() {
+	if atomic.LoadInt64(&r.inProgressCnt) == 0 && atomic.LoadInt64(&r.readyCnt) == 0 {
+		return
+	}
 	// The ordering of the two conditions below matters, since readyCnt
 	// is updated before inProgressCnt.
 	for atomic.LoadInt64(&r.inProgressCnt) > 0 || atomic.LoadInt64(&r.readyCnt) > 0 {
@@ -107,8 +120,18 @@ func (r *ParallelRunner) Run() {
 		})
 		// This corresponds to the "wait for any existing run (could be
 		// from previous iteration) to finish" part in the pseudocode above.
-		<-r.someContractFinished
+		_, err := logging.LogIfNotDoneAfter(r.sdkCtx.Logger(), func() (struct{}, error) {
+			<-r.someContractFinished
+			return struct{}{}, nil
+		}, LogAfter, "dex_parallel_runner_wait")
+		if err != nil {
+			// this should never happen
+			panic(err)
+		}
 	}
+
+	// make sure there is no orphaned goroutine blocked on channel send
+	r.done <- struct{}{}
 }
 
 func (r *ParallelRunner) wrapRunnable(contractAddr utils.ContractAddress) {
@@ -120,7 +143,12 @@ func (r *ParallelRunner) wrapRunnable(contractAddr utils.ContractAddress) {
 		for _, dependency := range contractInfo.Dependencies {
 			dependentContract := dependency.Dependency
 			typedDependentContract := utils.ContractAddress(dependentContract)
-			dependentInfo, _ := r.contractAddrToInfo.Load(typedDependentContract)
+			dependentInfo, ok := r.contractAddrToInfo.Load(typedDependentContract)
+			if !ok {
+				// If we cannot find the dependency in the contract address info, then it's not a valid contract in this round
+				r.sdkCtx.Logger().Error(fmt.Sprintf("Couldn't find dependency %s of contract %s in the contract address info", contractInfo.ContractAddr, dependentContract))
+				continue
+			}
 			// It's okay to mutate ContractInfo here since it's a copy made in the runner's
 			// constructor.
 			newNumIncomingPaths := atomic.AddInt64(&dependentInfo.NumIncomingDependencies, -1)
@@ -134,5 +162,10 @@ func (r *ParallelRunner) wrapRunnable(contractAddr utils.ContractAddress) {
 	}
 
 	atomic.AddInt64(&r.inProgressCnt, -1) // this has to happen after any potential increment to readyCnt
-	r.someContractFinished <- struct{}{}
+	select {
+	case r.someContractFinished <- struct{}{}:
+	case <-r.done:
+		// make sure other goroutines can also receive from 'done'
+		r.done <- struct{}{}
+	}
 }

@@ -8,4 +8,5 @@ type SeiDexQuery struct {
 	GetOrders          *types.QueryGetOrdersRequest       `json:"get_orders,omitempty"`
 	GetOrderByID       *types.QueryGetOrderByIDRequest    `json:"get_order_by_id,omitempty"`
 	GetOrderSimulation *types.QueryOrderSimulationRequest `json:"order_simulation,omitempty"`
+	GetLatestPrice     *types.QueryGetLatestPriceRequest  `json:"get_latest_price,omitempty"`
 }

@@ -2,54 +2,9 @@ syntax = "proto3";
 package seiprotocol.seichain.dex;
 
 import "gogoproto/gogo.proto";
-import "dex/pair.proto";
 import "dex/asset_list.proto";
-import "dex/tick_size.proto";
 
 option go_package = "github.com/sei-protocol/sei-chain/x/dex/types";
-
-// RegisterPairsProposal is a gov Content type for adding a new whitelisted token
-// pair to the dex module. It must specify a list of contract addresses and their respective
-// token pairs to be registered.
-message RegisterPairsProposal {
-    option (gogoproto.equal) = false;
-    option (gogoproto.goproto_getters) = false;
-    option (gogoproto.goproto_stringer) = false;
-  
-    string title = 1 [ 
-        (gogoproto.moretags) = "yaml:\"title\"",
-        (gogoproto.jsontag) = "title" 
-    ];
-    string description = 2 [ 
-        (gogoproto.moretags) = "yaml:\"description\"",
-        (gogoproto.jsontag) = "description"
-    ];
-    repeated BatchContractPair batchcontractpair = 3 [
-        (gogoproto.moretags) = "yaml:\"batch_contract_pair\"",
-        (gogoproto.nullable) = false,
-        (gogoproto.jsontag) = "batch_contract_pair"
-    ];
-}
-
-message UpdateTickSizeProposal {
-    option (gogoproto.equal) = false;
-    option (gogoproto.goproto_getters) = false;
-    option (gogoproto.goproto_stringer) = false;
-
-    string title = 1 [ 
-        (gogoproto.moretags) = "yaml:\"title\"",  
-        (gogoproto.jsontag) = "title"
-    ];
-    string description = 2 [ 
-        (gogoproto.moretags) = "yaml:\"description\"",
-        (gogoproto.jsontag) = "description"
-     ];
-    repeated TickSize tickSizeList = 3 [
-        (gogoproto.moretags) = "yaml:\"tick_size_list\"",
-        (gogoproto.nullable) = false,
-        (gogoproto.jsontag) = "tick_size_list"
-    ];
-}
 
 // AddAssetMetadataProposal is a gov Content type for adding a new asset
 // to the dex module's asset list.

@@ -104,6 +104,10 @@ func (k Keeper) GetLongAllocationForOrderID(ctx sdk.Context, contractAddr string
 	return nil, false
 }
 
+func (k Keeper) RemoveAllLongBooksForContract(ctx sdk.Context, contractAddr string) {
+	k.removeAllForPrefix(ctx, types.OrderBookContractPrefix(true, contractAddr))
+}
+
 func GetKeyForLongBook(longBook types.LongBook) []byte {
 	return GetKeyForPrice(longBook.Entry.Price)
 }

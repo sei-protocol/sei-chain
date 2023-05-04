@@ -32,6 +32,7 @@ service Query {
     option (google.api.http).get =
         "/sei-protocol/seichain/tokenfactory/denoms_from_creator/{creator}";
   }
+  
 }
 
 // QueryParamsRequest is the request type for the Query/Params RPC method.

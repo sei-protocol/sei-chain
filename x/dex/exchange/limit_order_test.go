@@ -61,8 +61,9 @@ func TestMatchSingleOrder(t *testing.T) {
 			DirtyEntries: datastructures.NewTypedSyncMap[string, types.OrderBookEntry](),
 		},
 	}
+	exchange.AddOutstandingLimitOrdersToOrderbook(&orderbook, longOrders, shortOrders)
 	outcome := exchange.MatchLimitOrders(
-		ctx, longOrders, shortOrders, &orderbook,
+		ctx, &orderbook,
 	)
 	totalPrice := outcome.TotalNotional
 	totalExecuted := outcome.TotalQuantity
@@ -235,8 +236,10 @@ func TestAddOrders(t *testing.T) {
 			DirtyEntries: datastructures.NewTypedSyncMap[string, types.OrderBookEntry](),
 		},
 	}
+
+	exchange.AddOutstandingLimitOrdersToOrderbook(&orderbook, longOrders, shortOrders)
 	outcome := exchange.MatchLimitOrders(
-		ctx, longOrders, shortOrders, &orderbook,
+		ctx, &orderbook,
 	)
 	totalPrice := outcome.TotalNotional
 	totalExecuted := outcome.TotalQuantity
@@ -384,8 +387,10 @@ func TestMatchSingleOrderFromShortBook(t *testing.T) {
 			DirtyEntries: datastructures.NewTypedSyncMap[string, types.OrderBookEntry](),
 		},
 	}
+
+	exchange.AddOutstandingLimitOrdersToOrderbook(&orderbook, longOrders, shortOrders)
 	outcome := exchange.MatchLimitOrders(
-		ctx, longOrders, shortOrders, &orderbook,
+		ctx, &orderbook,
 	)
 	totalPrice := outcome.TotalNotional
 	totalExecuted := outcome.TotalQuantity
@@ -481,8 +486,10 @@ func TestMatchSingleOrderFromLongBook(t *testing.T) {
 			DirtyEntries: datastructures.NewTypedSyncMap[string, types.OrderBookEntry](),
 		},
 	}
+
+	exchange.AddOutstandingLimitOrdersToOrderbook(&orderbook, longOrders, shortOrders)
 	outcome := exchange.MatchLimitOrders(
-		ctx, longOrders, shortOrders, &orderbook,
+		ctx, &orderbook,
 	)
 	totalPrice := outcome.TotalNotional
 	totalExecuted := outcome.TotalQuantity
@@ -596,8 +603,10 @@ func TestMatchSingleOrderFromMultipleShortBook(t *testing.T) {
 			DirtyEntries: datastructures.NewTypedSyncMap[string, types.OrderBookEntry](),
 		},
 	}
+
+	exchange.AddOutstandingLimitOrdersToOrderbook(&orderbook, longOrders, shortOrders)
 	outcome := exchange.MatchLimitOrders(
-		ctx, longOrders, shortOrders, &orderbook,
+		ctx, &orderbook,
 	)
 	totalPrice := outcome.TotalNotional
 	totalExecuted := outcome.TotalQuantity
@@ -755,8 +764,10 @@ func TestMatchSingleOrderFromMultipleLongBook(t *testing.T) {
 			DirtyEntries: datastructures.NewTypedSyncMap[string, types.OrderBookEntry](),
 		},
 	}
+
+	exchange.AddOutstandingLimitOrdersToOrderbook(&orderbook, longOrders, shortOrders)
 	outcome := exchange.MatchLimitOrders(
-		ctx, longOrders, shortOrders, &orderbook,
+		ctx, &orderbook,
 	)
 	totalPrice := outcome.TotalNotional
 	totalExecuted := outcome.TotalQuantity
@@ -936,8 +947,10 @@ func TestMatchMultipleOrderFromMultipleShortBook(t *testing.T) {
 			DirtyEntries: datastructures.NewTypedSyncMap[string, types.OrderBookEntry](),
 		},
 	}
+
+	exchange.AddOutstandingLimitOrdersToOrderbook(&orderbook, longOrders, shortOrders)
 	outcome := exchange.MatchLimitOrders(
-		ctx, longOrders, shortOrders, &orderbook,
+		ctx, &orderbook,
 	)
 	totalPrice := outcome.TotalNotional
 	totalExecuted := outcome.TotalQuantity
@@ -1158,14 +1171,20 @@ func TestMatchMultipleOrderFromMultipleLongBook(t *testing.T) {
 			DirtyEntries: datastructures.NewTypedSyncMap[string, types.OrderBookEntry](),
 		},
 	}
+
+	exchange.AddOutstandingLimitOrdersToOrderbook(&orderbook, longOrders, shortOrders)
 	outcome := exchange.MatchLimitOrders(
-		ctx, longOrders, shortOrders, &orderbook,
+		ctx, &orderbook,
 	)
 	totalPrice := outcome.TotalNotional
 	totalExecuted := outcome.TotalQuantity
 	settlements := outcome.Settlements
+	minPrice := outcome.MinPrice
+	maxPrice := outcome.MaxPrice
 	assert.Equal(t, totalPrice, sdk.NewDec(1216))
 	assert.Equal(t, totalExecuted, sdk.NewDec(12))
+	assert.Equal(t, minPrice, sdk.NewDec(100))
+	assert.Equal(t, maxPrice, sdk.NewDec(110))
 	assert.Equal(t, orderbook.Longs.DirtyEntries.Len(), 2)
 	assert.Equal(t, orderbook.Shorts.DirtyEntries.Len(), 3)
 	_, ok := orderbook.Longs.DirtyEntries.Load(sdk.MustNewDecFromStr("100").String())

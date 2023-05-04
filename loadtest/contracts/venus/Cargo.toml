@@ -19,7 +19,7 @@ serde = { version = "1.0.127", default-features = false, features = ["derive"] }
 serde_json = { version = "1.0", default-features = false, features = ["alloc"] }
 thiserror = { version = "1.0.26" }
 base64 = { version = "0.13.0" }
-sei-cosmwasm = "0.2.0"
+sei-cosmwasm = "0.4.9"
 
 [dependencies.forward_ref]
 version = "1"

@@ -22,6 +22,7 @@ func networkWithLongBookObjects(t *testing.T, n int) (*network.Network, []types.
 	t.Helper()
 	cfg := network.DefaultConfig()
 	state := types.GenesisState{}
+	longBookList := []types.LongBook{}
 	require.NoError(t, cfg.Codec.UnmarshalJSON(cfg.GenesisState[types.ModuleName], &state))
 
 	for i := 0; i < n; i++ {
@@ -36,12 +37,24 @@ func networkWithLongBookObjects(t *testing.T, n int) (*network.Network, []types.
 			},
 		}
 		nullify.Fill(&longBook)
-		state.LongBookList = append(state.LongBookList, longBook)
+		longBookList = append(longBookList, longBook)
 	}
+
+	contractInfo := types.ContractInfoV2{
+		CodeId:       uint64(1),
+		ContractAddr: "sei1ghd753shjuwexxywmgs4xz7x2q732vcnkm6h2pyv9s6ah3hylvrqladqwc",
+	}
+	contractState := []types.ContractState{
+		{
+			LongBookList: longBookList,
+			ContractInfo: contractInfo,
+		},
+	}
+	state.ContractState = contractState
 	buf, err := cfg.Codec.MarshalJSON(&state)
 	require.NoError(t, err)
 	cfg.GenesisState[types.ModuleName] = buf
-	return network.New(t, cfg), state.LongBookList
+	return network.New(t, cfg), state.ContractState[0].LongBookList
 }
 
 func TestShowLongBook(t *testing.T) {
@@ -74,7 +87,7 @@ func TestShowLongBook(t *testing.T) {
 		tc := tc
 		t.Run(tc.desc, func(t *testing.T) {
 			// the longbook orders are from genesis contract as created from networkWithLongBookObjects
-			args := []string{"genesis", tc.price, TEST_PAIR().PriceDenom, TEST_PAIR().AssetDenom}
+			args := []string{"sei1ghd753shjuwexxywmgs4xz7x2q732vcnkm6h2pyv9s6ah3hylvrqladqwc", tc.price, TEST_PAIR().PriceDenom, TEST_PAIR().AssetDenom}
 			args = append(args, tc.args...)
 			out, err := clitestutil.ExecTestCLICmd(ctx, query.CmdShowLongBook(), args)
 			if tc.err != nil {
@@ -101,7 +114,7 @@ func TestListLongBook(t *testing.T) {
 	ctx := net.Validators[0].ClientCtx
 	request := func(next []byte, offset, limit uint64, total bool) []string {
 		args := []string{
-			"genesis", TEST_PAIR().PriceDenom, TEST_PAIR().AssetDenom,
+			"sei1ghd753shjuwexxywmgs4xz7x2q732vcnkm6h2pyv9s6ah3hylvrqladqwc", TEST_PAIR().PriceDenom, TEST_PAIR().AssetDenom,
 			fmt.Sprintf("--%s=json", tmcli.OutputFlag),
 		}
 		if next == nil {

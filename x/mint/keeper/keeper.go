@@ -1,12 +1,15 @@
 package keeper
 
 import (
-	"github.com/tendermint/tendermint/libs/log"
+	"fmt"
+	"time"
 
 	"github.com/cosmos/cosmos-sdk/codec"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	paramtypes "github.com/cosmos/cosmos-sdk/x/params/types"
+	epochTypes "github.com/sei-protocol/sei-chain/x/epoch/types"
 	"github.com/sei-protocol/sei-chain/x/mint/types"
+	"github.com/tendermint/tendermint/libs/log"
 )
 
 // Keeper of the mint store
@@ -60,23 +63,6 @@ func (k *Keeper) SetHooks(h types.MintHooks) *Keeper {
 	return k
 }
 
-// GetLastHalvenEpochNum returns last halven epoch number.
-func (k Keeper) GetLastHalvenEpochNum(ctx sdk.Context) int64 {
-	store := ctx.KVStore(k.storeKey)
-	b := store.Get(types.LastHalvenEpochKey)
-	if b == nil {
-		return 0
-	}
-
-	return int64(sdk.BigEndianToUint64(b))
-}
-
-// SetLastHalvenEpochNum set last halven epoch number.
-func (k Keeper) SetLastHalvenEpochNum(ctx sdk.Context, epochNum int64) {
-	store := ctx.KVStore(k.storeKey)
-	store.Set(types.LastHalvenEpochKey, sdk.Uint64ToBigEndian(uint64(epochNum)))
-}
-
 // get the minter
 func (k Keeper) GetMinter(ctx sdk.Context) (minter types.Minter) {
 	store := ctx.KVStore(k.storeKey)
@@ -86,7 +72,7 @@ func (k Keeper) GetMinter(ctx sdk.Context) (minter types.Minter) {
 	}
 
 	k.cdc.MustUnmarshal(b, &minter)
-	return
+	return minter
 }
 
 // set the minter
@@ -108,13 +94,11 @@ func (k Keeper) SetParams(ctx sdk.Context, params types.Params) {
 }
 
 // StakingTokenSupply implements an alias call to the underlying staking keeper's
-// StakingTokenSupply to be used in BeginBlocker.
 func (k Keeper) StakingTokenSupply(ctx sdk.Context) sdk.Int {
 	return k.stakingKeeper.StakingTokenSupply(ctx)
 }
 
 // BondedRatio implements an alias call to the underlying staking keeper's
-// BondedRatio to be used in BeginBlocker.
 func (k Keeper) BondedRatio(ctx sdk.Context) sdk.Dec {
 	return k.stakingKeeper.BondedRatio(ctx)
 }
@@ -139,4 +123,66 @@ func (k Keeper) AddCollectedFees(ctx sdk.Context, fees sdk.Coins) error {
 // GetProportions gets the balance of the `MintedDenom` from minted coins and returns coins according to the `AllocationRatio`.
 func (k Keeper) GetProportions(ctx sdk.Context, mintedCoin sdk.Coin, ratio sdk.Dec) sdk.Coin {
 	return sdk.NewCoin(mintedCoin.Denom, mintedCoin.Amount.ToDec().Mul(ratio).TruncateInt())
+}
+
+// GetProportions gets the balance of the `MintedDenom` from minted coins and returns coins according to the `AllocationRatio`.
+func (k Keeper) GetOrUpdateLatestMinter(
+	ctx sdk.Context,
+	epoch epochTypes.Epoch,
+) types.Minter {
+	params := k.GetParams(ctx)
+	currentReleaseMinter := k.GetMinter(ctx)
+	nextScheduledRelease := GetNextScheduledTokenRelease(epoch, params.TokenReleaseSchedule, currentReleaseMinter)
+
+	// There's still an ongoing release (> 0 remaining amount or same start date) or there's no release scheduled
+	if currentReleaseMinter.OngoingRelease() || nextScheduledRelease.GetStartDate() == currentReleaseMinter.GetStartDate() || nextScheduledRelease == nil {
+		k.Logger(ctx).Debug("Ongoing token release or no nextScheduledRelease", "minter", currentReleaseMinter)
+		return currentReleaseMinter
+	}
+
+	return types.NewMinter(
+		nextScheduledRelease.GetStartDate(),
+		nextScheduledRelease.GetEndDate(),
+		params.GetMintDenom(),
+		nextScheduledRelease.GetTokenReleaseAmount(),
+	)
+}
+
+func (k Keeper) GetCdc() codec.BinaryCodec {
+	return k.cdc
+}
+
+func (k Keeper) GetStoreKey() sdk.StoreKey {
+	return k.storeKey
+}
+
+func (k Keeper) GetParamSpace() paramtypes.Subspace {
+	return k.paramSpace
+}
+
+func (k *Keeper) SetParamSpace(subspace paramtypes.Subspace) {
+	k.paramSpace = subspace
+}
+
+func GetNextScheduledTokenRelease(
+	epoch epochTypes.Epoch,
+	tokenReleaseSchedule []types.ScheduledTokenRelease,
+	currentMinter types.Minter,
+) *types.ScheduledTokenRelease {
+	for _, scheduledRelease := range tokenReleaseSchedule {
+		scheduledStartDate, err := time.Parse(types.TokenReleaseDateFormat, scheduledRelease.GetStartDate())
+		if err != nil {
+			// This should not happen as the scheduled release date is validated when the param is updated
+			panic(fmt.Errorf("invalid scheduled release date: %s", err))
+		}
+		scheduledStartDateTime := scheduledStartDate.UTC()
+
+		// If epoch is after the currentScheduled date and it's after the current release
+		if epoch.GetCurrentEpochStartTime().After(scheduledStartDateTime) {
+			if scheduledStartDateTime.After(currentMinter.GetEndDateTime()) || scheduledStartDateTime.Equal(currentMinter.GetEndDateTime()) {
+				return &scheduledRelease
+			}
+		}
+	}
+	return nil
 }

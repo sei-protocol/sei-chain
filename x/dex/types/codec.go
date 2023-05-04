@@ -11,9 +11,13 @@ import (
 func RegisterCodec(cdc *codec.LegacyAmino) {
 	cdc.RegisterConcrete(&MsgPlaceOrders{}, "dex/MsgPlaceOrders", nil)
 	cdc.RegisterConcrete(&MsgCancelOrders{}, "dex/MsgCancelOrders", nil)
-	cdc.RegisterConcrete(&RegisterPairsProposal{}, "dex/RegisterPairsProposal", nil)
-	cdc.RegisterConcrete(&UpdateTickSizeProposal{}, "dex/UpdateTickSizeProposal", nil)
+	cdc.RegisterConcrete(&MsgRegisterContract{}, "dex/MsgRegisterContract", nil)
+	cdc.RegisterConcrete(&MsgRegisterPairs{}, "dex/MsgRegisterPairs", nil)
+	cdc.RegisterConcrete(&MsgUpdatePriceTickSize{}, "dex/MsgUpdatePriceTickSize", nil)
+	cdc.RegisterConcrete(&MsgUpdateQuantityTickSize{}, "dex/MsgUpdateQuantityTickSize", nil)
 	cdc.RegisterConcrete(&AddAssetMetadataProposal{}, "dex/AddAssetMetadataProposal", nil)
+	cdc.RegisterConcrete(&MsgUnregisterContract{}, "dex/MsgUnregisterContract", nil)
+	cdc.RegisterConcrete(&MsgContractDepositRent{}, "dex/MsgContractDepositRent", nil)
 	// this line is used by starport scaffolding # 2
 }
 
@@ -24,14 +28,26 @@ func RegisterInterfaces(registry cdctypes.InterfaceRegistry) {
 	registry.RegisterImplementations((*sdk.Msg)(nil),
 		&MsgCancelOrders{},
 	)
-	registry.RegisterImplementations((*govtypes.Content)(nil),
-		&RegisterPairsProposal{},
+	registry.RegisterImplementations((*sdk.Msg)(nil),
+		&MsgRegisterContract{},
 	)
-	registry.RegisterImplementations((*govtypes.Content)(nil),
-		&UpdateTickSizeProposal{},
+	registry.RegisterImplementations((*sdk.Msg)(nil),
+		&MsgRegisterPairs{},
+	)
+	registry.RegisterImplementations((*sdk.Msg)(nil),
+		&MsgUpdatePriceTickSize{},
+	)
+	registry.RegisterImplementations((*sdk.Msg)(nil),
+		&MsgUpdateQuantityTickSize{},
 	)
 	registry.RegisterImplementations((*govtypes.Content)(nil),
 		&AddAssetMetadataProposal{},
+	)
+	registry.RegisterImplementations((*sdk.Msg)(nil),
+		&MsgUnregisterContract{},
+	)
+	registry.RegisterImplementations((*sdk.Msg)(nil),
+		&MsgContractDepositRent{},
 	)
 	// this line is used by starport scaffolding # 3
 

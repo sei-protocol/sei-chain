@@ -6,7 +6,6 @@ package types
 import (
 	context "context"
 	fmt "fmt"
-	github_com_cosmos_cosmos_sdk_types "github.com/cosmos/cosmos-sdk/types"
 	_ "github.com/gogo/protobuf/gogoproto"
 	grpc1 "github.com/gogo/protobuf/grpc"
 	proto "github.com/gogo/protobuf/proto"
@@ -113,23 +112,23 @@ func (m *QueryParamsResponse) GetParams() Params {
 	return Params{}
 }
 
-// QueryEpochProvisionsRequest is the request type for the
-// Query/EpochProvisions RPC method.
-type QueryEpochProvisionsRequest struct {
+// QueryMinterRequest is the request type for the
+// Query/Minter RPC method.
+type QueryMinterRequest struct {
 }
 
-func (m *QueryEpochProvisionsRequest) Reset()         { *m = QueryEpochProvisionsRequest{} }
-func (m *QueryEpochProvisionsRequest) String() string { return proto.CompactTextString(m) }
-func (*QueryEpochProvisionsRequest) ProtoMessage()    {}
-func (*QueryEpochProvisionsRequest) Descriptor() ([]byte, []int) {
+func (m *QueryMinterRequest) Reset()         { *m = QueryMinterRequest{} }
+func (m *QueryMinterRequest) String() string { return proto.CompactTextString(m) }
+func (*QueryMinterRequest) ProtoMessage()    {}
+func (*QueryMinterRequest) Descriptor() ([]byte, []int) {
 	return fileDescriptor_b0718dda172d2cb4, []int{2}
 }
-func (m *QueryEpochProvisionsRequest) XXX_Unmarshal(b []byte) error {
+func (m *QueryMinterRequest) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
 }
-func (m *QueryEpochProvisionsRequest) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+func (m *QueryMinterRequest) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
 	if deterministic {
-		return xxx_messageInfo_QueryEpochProvisionsRequest.Marshal(b, m, deterministic)
+		return xxx_messageInfo_QueryMinterRequest.Marshal(b, m, deterministic)
 	} else {
 		b = b[:cap(b)]
 		n, err := m.MarshalToSizedBuffer(b)
@@ -139,37 +138,43 @@ func (m *QueryEpochProvisionsRequest) XXX_Marshal(b []byte, deterministic bool) 
 		return b[:n], nil
 	}
 }
-func (m *QueryEpochProvisionsRequest) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_QueryEpochProvisionsRequest.Merge(m, src)
+func (m *QueryMinterRequest) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_QueryMinterRequest.Merge(m, src)
 }
-func (m *QueryEpochProvisionsRequest) XXX_Size() int {
+func (m *QueryMinterRequest) XXX_Size() int {
 	return m.Size()
 }
-func (m *QueryEpochProvisionsRequest) XXX_DiscardUnknown() {
-	xxx_messageInfo_QueryEpochProvisionsRequest.DiscardUnknown(m)
+func (m *QueryMinterRequest) XXX_DiscardUnknown() {
+	xxx_messageInfo_QueryMinterRequest.DiscardUnknown(m)
 }
 
-var xxx_messageInfo_QueryEpochProvisionsRequest proto.InternalMessageInfo
+var xxx_messageInfo_QueryMinterRequest proto.InternalMessageInfo
 
-// QueryEpochProvisionsResponse is the response type for the
-// Query/EpochProvisions RPC method.
-type QueryEpochProvisionsResponse struct {
-	// epoch_provisions is the current minting per epoch provisions value.
-	EpochProvisions github_com_cosmos_cosmos_sdk_types.Dec `protobuf:"bytes,1,opt,name=epoch_provisions,json=epochProvisions,proto3,customtype=github.com/cosmos/cosmos-sdk/types.Dec" json:"epoch_provisions"`
+// QueryMinterResponse is the response type for the
+// Query/Minter RPC method.
+type QueryMinterResponse struct {
+	StartDate           string `protobuf:"bytes,1,opt,name=start_date,json=startDate,proto3" json:"start_date,omitempty" yaml:"start_date"`
+	EndDate             string `protobuf:"bytes,2,opt,name=end_date,json=endDate,proto3" json:"end_date,omitempty" yaml:"end_date"`
+	Denom               string `protobuf:"bytes,3,opt,name=denom,proto3" json:"denom,omitempty" yaml:"denom"`
+	TotalMintAmount     uint64 `protobuf:"varint,4,opt,name=total_mint_amount,json=totalMintAmount,proto3" json:"total_mint_amount,omitempty" yaml:"total_mint_amount"`
+	RemainingMintAmount uint64 `protobuf:"varint,5,opt,name=remaining_mint_amount,json=remainingMintAmount,proto3" json:"remaining_mint_amount,omitempty" yaml:"remaining_mint_amount"`
+	LastMintAmount      uint64 `protobuf:"varint,6,opt,name=last_mint_amount,json=lastMintAmount,proto3" json:"last_mint_amount,omitempty" yaml:"last_mint_amount"`
+	LastMintDate        string `protobuf:"bytes,7,opt,name=last_mint_date,json=lastMintDate,proto3" json:"last_mint_date,omitempty" yaml:"last_mint_date"`
+	LastMintHeight      uint64 `protobuf:"varint,8,opt,name=last_mint_height,json=lastMintHeight,proto3" json:"last_mint_height,omitempty" yaml:"last_mint_height"`
 }
 
-func (m *QueryEpochProvisionsResponse) Reset()         { *m = QueryEpochProvisionsResponse{} }
-func (m *QueryEpochProvisionsResponse) String() string { return proto.CompactTextString(m) }
-func (*QueryEpochProvisionsResponse) ProtoMessage()    {}
-func (*QueryEpochProvisionsResponse) Descriptor() ([]byte, []int) {
+func (m *QueryMinterResponse) Reset()         { *m = QueryMinterResponse{} }
+func (m *QueryMinterResponse) String() string { return proto.CompactTextString(m) }
+func (*QueryMinterResponse) ProtoMessage()    {}
+func (*QueryMinterResponse) Descriptor() ([]byte, []int) {
 	return fileDescriptor_b0718dda172d2cb4, []int{3}
 }
-func (m *QueryEpochProvisionsResponse) XXX_Unmarshal(b []byte) error {
+func (m *QueryMinterResponse) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
 }
-func (m *QueryEpochProvisionsResponse) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+func (m *QueryMinterResponse) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
 	if deterministic {
-		return xxx_messageInfo_QueryEpochProvisionsResponse.Marshal(b, m, deterministic)
+		return xxx_messageInfo_QueryMinterResponse.Marshal(b, m, deterministic)
 	} else {
 		b = b[:cap(b)]
 		n, err := m.MarshalToSizedBuffer(b)
@@ -179,54 +184,120 @@ func (m *QueryEpochProvisionsResponse) XXX_Marshal(b []byte, deterministic bool)
 		return b[:n], nil
 	}
 }
-func (m *QueryEpochProvisionsResponse) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_QueryEpochProvisionsResponse.Merge(m, src)
+func (m *QueryMinterResponse) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_QueryMinterResponse.Merge(m, src)
 }
-func (m *QueryEpochProvisionsResponse) XXX_Size() int {
+func (m *QueryMinterResponse) XXX_Size() int {
 	return m.Size()
 }
-func (m *QueryEpochProvisionsResponse) XXX_DiscardUnknown() {
-	xxx_messageInfo_QueryEpochProvisionsResponse.DiscardUnknown(m)
+func (m *QueryMinterResponse) XXX_DiscardUnknown() {
+	xxx_messageInfo_QueryMinterResponse.DiscardUnknown(m)
 }
 
-var xxx_messageInfo_QueryEpochProvisionsResponse proto.InternalMessageInfo
+var xxx_messageInfo_QueryMinterResponse proto.InternalMessageInfo
+
+func (m *QueryMinterResponse) GetStartDate() string {
+	if m != nil {
+		return m.StartDate
+	}
+	return ""
+}
+
+func (m *QueryMinterResponse) GetEndDate() string {
+	if m != nil {
+		return m.EndDate
+	}
+	return ""
+}
+
+func (m *QueryMinterResponse) GetDenom() string {
+	if m != nil {
+		return m.Denom
+	}
+	return ""
+}
+
+func (m *QueryMinterResponse) GetTotalMintAmount() uint64 {
+	if m != nil {
+		return m.TotalMintAmount
+	}
+	return 0
+}
+
+func (m *QueryMinterResponse) GetRemainingMintAmount() uint64 {
+	if m != nil {
+		return m.RemainingMintAmount
+	}
+	return 0
+}
+
+func (m *QueryMinterResponse) GetLastMintAmount() uint64 {
+	if m != nil {
+		return m.LastMintAmount
+	}
+	return 0
+}
+
+func (m *QueryMinterResponse) GetLastMintDate() string {
+	if m != nil {
+		return m.LastMintDate
+	}
+	return ""
+}
+
+func (m *QueryMinterResponse) GetLastMintHeight() uint64 {
+	if m != nil {
+		return m.LastMintHeight
+	}
+	return 0
+}
 
 func init() {
 	proto.RegisterType((*QueryParamsRequest)(nil), "seiprotocol.seichain.mint.QueryParamsRequest")
 	proto.RegisterType((*QueryParamsResponse)(nil), "seiprotocol.seichain.mint.QueryParamsResponse")
-	proto.RegisterType((*QueryEpochProvisionsRequest)(nil), "seiprotocol.seichain.mint.QueryEpochProvisionsRequest")
-	proto.RegisterType((*QueryEpochProvisionsResponse)(nil), "seiprotocol.seichain.mint.QueryEpochProvisionsResponse")
+	proto.RegisterType((*QueryMinterRequest)(nil), "seiprotocol.seichain.mint.QueryMinterRequest")
+	proto.RegisterType((*QueryMinterResponse)(nil), "seiprotocol.seichain.mint.QueryMinterResponse")
 }
 
 func init() { proto.RegisterFile("mint/v1beta1/query.proto", fileDescriptor_b0718dda172d2cb4) }
 
 var fileDescriptor_b0718dda172d2cb4 = []byte{
-	// 400 bytes of a gzipped FileDescriptorProto
-	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0x94, 0x91, 0xcd, 0x4a, 0xeb, 0x40,
-	0x14, 0xc7, 0x93, 0x72, 0x6f, 0x17, 0x73, 0x2f, 0x54, 0xc6, 0x82, 0x35, 0xb6, 0xa9, 0x06, 0xfc,
-	0x5a, 0x74, 0x86, 0x56, 0xd0, 0xa5, 0x50, 0x14, 0x5c, 0xd6, 0x2e, 0x04, 0xdd, 0x48, 0x1a, 0x87,
-	0x74, 0xb0, 0xc9, 0xa4, 0x99, 0x69, 0xb1, 0x5b, 0x1f, 0x40, 0x04, 0x1f, 0xc5, 0x97, 0xe8, 0x4a,
-	0x0a, 0x6e, 0xc4, 0x45, 0x91, 0xd6, 0x07, 0x91, 0xcc, 0xa4, 0x62, 0x6a, 0xeb, 0xc7, 0x6a, 0x3e,
-	0xfe, 0xe7, 0x9c, 0xff, 0xef, 0x9c, 0x03, 0x72, 0x1e, 0xf5, 0x05, 0xee, 0x96, 0x1b, 0x44, 0xd8,
-	0x65, 0xdc, 0xee, 0x90, 0xb0, 0x87, 0x82, 0x90, 0x09, 0x06, 0x97, 0x39, 0xa1, 0xf2, 0xe6, 0xb0,
-	0x16, 0xe2, 0x84, 0x3a, 0x4d, 0x9b, 0xfa, 0x28, 0x0a, 0x37, 0xb2, 0x2e, 0x73, 0x99, 0xd4, 0x70,
-	0x74, 0x53, 0x09, 0x46, 0xde, 0x65, 0xcc, 0x6d, 0x11, 0x6c, 0x07, 0x14, 0xdb, 0xbe, 0xcf, 0x84,
-	0x2d, 0x28, 0xf3, 0x79, 0xac, 0x2e, 0x25, 0x8c, 0xa2, 0x87, 0x12, 0xac, 0x2c, 0x80, 0xc7, 0x91,
-	0x6d, 0xcd, 0x0e, 0x6d, 0x8f, 0xd7, 0x49, 0xbb, 0x43, 0xb8, 0xb0, 0x4e, 0xc0, 0x62, 0xe2, 0x97,
-	0x07, 0xcc, 0xe7, 0x04, 0xee, 0x83, 0x74, 0x20, 0x7f, 0x72, 0xfa, 0xaa, 0xbe, 0xf5, 0xaf, 0xb2,
-	0x86, 0xe6, 0x52, 0x22, 0x95, 0x5a, 0xfd, 0xd3, 0x1f, 0x16, 0xb5, 0x7a, 0x9c, 0x66, 0x15, 0xc0,
-	0x8a, 0xac, 0x7b, 0x18, 0x30, 0xa7, 0x59, 0x0b, 0x59, 0x97, 0xf2, 0x08, 0x72, 0x62, 0xdb, 0x03,
-	0xf9, 0xd9, 0x72, 0xec, 0x7f, 0x0a, 0x16, 0x48, 0x24, 0x9d, 0x07, 0xef, 0x9a, 0x24, 0xf9, 0x5f,
-	0x45, 0x91, 0xcd, 0xf3, 0xb0, 0xb8, 0xe1, 0x52, 0xd1, 0xec, 0x34, 0x90, 0xc3, 0x3c, 0xec, 0x30,
-	0xee, 0x31, 0x1e, 0x1f, 0x25, 0x7e, 0x71, 0x89, 0x45, 0x2f, 0x20, 0x1c, 0x1d, 0x10, 0xa7, 0x9e,
-	0x21, 0x49, 0x8b, 0xca, 0x43, 0x0a, 0xfc, 0x95, 0xde, 0xf0, 0x46, 0x07, 0x69, 0x05, 0x0f, 0x4b,
-	0x5f, 0xf4, 0xf7, 0x79, 0x6a, 0x06, 0xfa, 0x69, 0xb8, 0x6a, 0xc7, 0x5a, 0xbf, 0x7e, 0x7c, 0xbd,
-	0x4b, 0x15, 0x61, 0x01, 0x4f, 0x62, 0x71, 0x62, 0x4d, 0x6a, 0x68, 0xf0, 0x5e, 0x07, 0x99, 0xa9,
-	0x89, 0xc0, 0xdd, 0xef, 0xac, 0x66, 0x4f, 0xd8, 0xd8, 0xfb, 0x75, 0x5e, 0xcc, 0x8a, 0x25, 0xeb,
-	0x36, 0xdc, 0x9c, 0xc3, 0x3a, 0xbd, 0x97, 0xea, 0x51, 0x7f, 0x64, 0xea, 0x83, 0x91, 0xa9, 0xbf,
-	0x8c, 0x4c, 0xfd, 0x76, 0x6c, 0x6a, 0x83, 0xb1, 0xa9, 0x3d, 0x8d, 0x4d, 0xed, 0x0c, 0x7d, 0xd8,
-	0x11, 0x27, 0xb4, 0x34, 0xc1, 0x91, 0x0f, 0x55, 0xfa, 0x4a, 0x15, 0x97, 0xfb, 0x6a, 0xa4, 0x65,
-	0xc0, 0xce, 0x5b, 0x00, 0x00, 0x00, 0xff, 0xff, 0x87, 0x3b, 0x73, 0x00, 0x2d, 0x03, 0x00, 0x00,
+	// 549 bytes of a gzipped FileDescriptorProto
+	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0x8c, 0x53, 0xcd, 0x6e, 0xd3, 0x40,
+	0x18, 0x8c, 0x43, 0x92, 0xb6, 0x4b, 0xd5, 0x1f, 0xa7, 0x51, 0xdd, 0x10, 0xec, 0xb0, 0x12, 0xa8,
+	0x97, 0xda, 0x6a, 0xe1, 0xc4, 0xa5, 0x22, 0x02, 0x29, 0x17, 0x24, 0xb0, 0x10, 0x07, 0x2e, 0xd1,
+	0x26, 0x59, 0x39, 0x2b, 0xc5, 0xbb, 0xae, 0x77, 0x83, 0xc8, 0x95, 0x07, 0x40, 0x08, 0x9e, 0x82,
+	0x37, 0xe9, 0xb1, 0x12, 0x17, 0x4e, 0x16, 0x4a, 0x78, 0x02, 0x3f, 0x01, 0xf2, 0xb7, 0x71, 0x1b,
+	0xb7, 0x94, 0xf4, 0xe6, 0x9d, 0x6f, 0xbe, 0x99, 0xf1, 0x6a, 0x16, 0x59, 0x21, 0xe3, 0xca, 0xfb,
+	0x78, 0xdc, 0xa7, 0x8a, 0x1c, 0x7b, 0x67, 0x13, 0x1a, 0x4f, 0xdd, 0x28, 0x16, 0x4a, 0x98, 0x07,
+	0x92, 0x32, 0xf8, 0x1a, 0x88, 0xb1, 0x2b, 0x29, 0x1b, 0x8c, 0x08, 0xe3, 0x6e, 0x46, 0x6f, 0xee,
+	0x05, 0x22, 0x10, 0x30, 0xf3, 0xb2, 0x2f, 0xbd, 0xd0, 0x6c, 0x05, 0x42, 0x04, 0x63, 0xea, 0x91,
+	0x88, 0x79, 0x84, 0x73, 0xa1, 0x88, 0x62, 0x82, 0xcb, 0xc5, 0x74, 0xbf, 0x60, 0x94, 0x1d, 0xf4,
+	0x00, 0xef, 0x21, 0xf3, 0x6d, 0x66, 0xfb, 0x86, 0xc4, 0x24, 0x94, 0x3e, 0x3d, 0x9b, 0x50, 0xa9,
+	0xf0, 0x7b, 0x54, 0x2f, 0xa0, 0x32, 0x12, 0x5c, 0x52, 0xf3, 0x14, 0xd5, 0x22, 0x40, 0x2c, 0xa3,
+	0x6d, 0x1c, 0xde, 0x3f, 0x79, 0xe4, 0xde, 0x9a, 0xd2, 0xd5, 0xab, 0x9d, 0xca, 0x79, 0xe2, 0x94,
+	0xfc, 0xc5, 0xda, 0xa5, 0xdb, 0x6b, 0xc6, 0x15, 0x8d, 0x73, 0xb7, 0x6f, 0x95, 0x85, 0x5d, 0x0e,
+	0x2f, 0xec, 0x9e, 0x21, 0x24, 0x15, 0x89, 0x55, 0x6f, 0x48, 0x14, 0x05, 0xcb, 0x8d, 0x4e, 0x23,
+	0x4d, 0x9c, 0xdd, 0x29, 0x09, 0xc7, 0xcf, 0xf1, 0xd5, 0x0c, 0xfb, 0x1b, 0x70, 0x78, 0x49, 0x14,
+	0x35, 0x5d, 0xb4, 0x4e, 0xf9, 0x50, 0xef, 0x94, 0x61, 0xa7, 0x9e, 0x26, 0xce, 0xb6, 0xde, 0xc9,
+	0x27, 0xd8, 0x5f, 0xa3, 0x7c, 0x08, 0xfc, 0x27, 0xa8, 0x3a, 0xa4, 0x5c, 0x84, 0xd6, 0x3d, 0x20,
+	0xef, 0xa4, 0x89, 0xb3, 0xa9, 0xc9, 0x00, 0x63, 0x5f, 0x8f, 0xcd, 0x2e, 0xda, 0x55, 0x42, 0x91,
+	0x71, 0x2f, 0xfb, 0xbd, 0x1e, 0x09, 0xc5, 0x84, 0x2b, 0xab, 0xd2, 0x36, 0x0e, 0x2b, 0x9d, 0x56,
+	0x9a, 0x38, 0x96, 0xde, 0xb9, 0x41, 0xc1, 0xfe, 0x36, 0x60, 0xd9, 0xbf, 0xbd, 0x00, 0xc4, 0x7c,
+	0x87, 0x1a, 0x31, 0x0d, 0x09, 0xe3, 0x8c, 0x07, 0x05, 0xb5, 0x2a, 0xa8, 0xb5, 0xd3, 0xc4, 0x69,
+	0x69, 0xb5, 0x7f, 0xd2, 0xb0, 0x5f, 0xbf, 0xc4, 0x97, 0x54, 0x5f, 0xa1, 0x9d, 0x31, 0x91, 0xaa,
+	0x20, 0x58, 0x03, 0xc1, 0x07, 0x69, 0xe2, 0xec, 0x6b, 0xc1, 0xeb, 0x0c, 0xec, 0x6f, 0x65, 0xd0,
+	0x92, 0xcc, 0x29, 0xda, 0xba, 0x22, 0xc1, 0x25, 0xae, 0xc1, 0xbd, 0x1c, 0xa4, 0x89, 0xd3, 0xb8,
+	0x2e, 0xa2, 0xaf, 0x72, 0x33, 0x97, 0x80, 0xfb, 0x2c, 0xe4, 0x18, 0x51, 0x16, 0x8c, 0x94, 0xb5,
+	0x7e, 0x7b, 0x0e, 0xcd, 0x58, 0xca, 0xd1, 0x05, 0xe0, 0xe4, 0x47, 0x19, 0x55, 0xa1, 0x14, 0xe6,
+	0x17, 0x03, 0xd5, 0x74, 0x9b, 0xcc, 0xa3, 0xff, 0x14, 0xee, 0x66, 0x8d, 0x9b, 0xee, 0x5d, 0xe9,
+	0xba, 0x70, 0xf8, 0xf1, 0xe7, 0x9f, 0x7f, 0xbe, 0x97, 0x1d, 0xf3, 0xa1, 0x97, 0x73, 0xbd, 0xc2,
+	0xbb, 0xd1, 0x2d, 0x86, 0x40, 0xba, 0xaa, 0xab, 0x03, 0x15, 0x9a, 0xbe, 0x3a, 0x50, 0xf1, 0x05,
+	0xac, 0x0c, 0x14, 0x02, 0xbd, 0xd3, 0x3d, 0x9f, 0xd9, 0xc6, 0xc5, 0xcc, 0x36, 0x7e, 0xcf, 0x6c,
+	0xe3, 0xeb, 0xdc, 0x2e, 0x5d, 0xcc, 0xed, 0xd2, 0xaf, 0xb9, 0x5d, 0xfa, 0xe0, 0x06, 0x4c, 0x8d,
+	0x26, 0x7d, 0x77, 0x20, 0xc2, 0x4c, 0xe2, 0x28, 0xf7, 0x86, 0x83, 0x16, 0xfc, 0xa4, 0x25, 0xd5,
+	0x34, 0xa2, 0xb2, 0x5f, 0x03, 0xc2, 0xd3, 0xbf, 0x01, 0x00, 0x00, 0xff, 0xff, 0x4c, 0x6e, 0x23,
+	0xe2, 0x99, 0x04, 0x00, 0x00,
 }
 
 // Reference imports to suppress errors if they are not otherwise used.
@@ -244,7 +315,7 @@ type QueryClient interface {
 	// Params returns the total set of minting parameters.
 	Params(ctx context.Context, in *QueryParamsRequest, opts ...grpc.CallOption) (*QueryParamsResponse, error)
 	// EpochProvisions current minting epoch provisions value.
-	EpochProvisions(ctx context.Context, in *QueryEpochProvisionsRequest, opts ...grpc.CallOption) (*QueryEpochProvisionsResponse, error)
+	Minter(ctx context.Context, in *QueryMinterRequest, opts ...grpc.CallOption) (*QueryMinterResponse, error)
 }
 
 type queryClient struct {
@@ -264,9 +335,9 @@ func (c *queryClient) Params(ctx context.Context, in *QueryParamsRequest, opts .
 	return out, nil
 }
 
-func (c *queryClient) EpochProvisions(ctx context.Context, in *QueryEpochProvisionsRequest, opts ...grpc.CallOption) (*QueryEpochProvisionsResponse, error) {
-	out := new(QueryEpochProvisionsResponse)
-	err := c.cc.Invoke(ctx, "/seiprotocol.seichain.mint.Query/EpochProvisions", in, out, opts...)
+func (c *queryClient) Minter(ctx context.Context, in *QueryMinterRequest, opts ...grpc.CallOption) (*QueryMinterResponse, error) {
+	out := new(QueryMinterResponse)
+	err := c.cc.Invoke(ctx, "/seiprotocol.seichain.mint.Query/Minter", in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -278,7 +349,7 @@ type QueryServer interface {
 	// Params returns the total set of minting parameters.
 	Params(context.Context, *QueryParamsRequest) (*QueryParamsResponse, error)
 	// EpochProvisions current minting epoch provisions value.
-	EpochProvisions(context.Context, *QueryEpochProvisionsRequest) (*QueryEpochProvisionsResponse, error)
+	Minter(context.Context, *QueryMinterRequest) (*QueryMinterResponse, error)
 }
 
 // UnimplementedQueryServer can be embedded to have forward compatible implementations.
@@ -288,8 +359,8 @@ type UnimplementedQueryServer struct {
 func (*UnimplementedQueryServer) Params(ctx context.Context, req *QueryParamsRequest) (*QueryParamsResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Params not implemented")
 }
-func (*UnimplementedQueryServer) EpochProvisions(ctx context.Context, req *QueryEpochProvisionsRequest) (*QueryEpochProvisionsResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method EpochProvisions not implemented")
+func (*UnimplementedQueryServer) Minter(ctx context.Context, req *QueryMinterRequest) (*QueryMinterResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method Minter not implemented")
 }
 
 func RegisterQueryServer(s grpc1.Server, srv QueryServer) {
@@ -314,20 +385,20 @@ func _Query_Params_Handler(srv interface{}, ctx context.Context, dec func(interf
 	return interceptor(ctx, in, info, handler)
 }
 
-func _Query_EpochProvisions_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(QueryEpochProvisionsRequest)
+func _Query_Minter_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(QueryMinterRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(QueryServer).EpochProvisions(ctx, in)
+		return srv.(QueryServer).Minter(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: "/seiprotocol.seichain.mint.Query/EpochProvisions",
+		FullMethod: "/seiprotocol.seichain.mint.Query/Minter",
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(QueryServer).EpochProvisions(ctx, req.(*QueryEpochProvisionsRequest))
+		return srv.(QueryServer).Minter(ctx, req.(*QueryMinterRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -341,8 +412,8 @@ var _Query_serviceDesc = grpc.ServiceDesc{
 			Handler:    _Query_Params_Handler,
 		},
 		{
-			MethodName: "EpochProvisions",
-			Handler:    _Query_EpochProvisions_Handler,
+			MethodName: "Minter",
+			Handler:    _Query_Minter_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
@@ -405,7 +476,7 @@ func (m *QueryParamsResponse) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	return len(dAtA) - i, nil
 }
 
-func (m *QueryEpochProvisionsRequest) Marshal() (dAtA []byte, err error) {
+func (m *QueryMinterRequest) Marshal() (dAtA []byte, err error) {
 	size := m.Size()
 	dAtA = make([]byte, size)
 	n, err := m.MarshalToSizedBuffer(dAtA[:size])
@@ -415,12 +486,12 @@ func (m *QueryEpochProvisionsRequest) Marshal() (dAtA []byte, err error) {
 	return dAtA[:n], nil
 }
 
-func (m *QueryEpochProvisionsRequest) MarshalTo(dAtA []byte) (int, error) {
+func (m *QueryMinterRequest) MarshalTo(dAtA []byte) (int, error) {
 	size := m.Size()
 	return m.MarshalToSizedBuffer(dAtA[:size])
 }
 
-func (m *QueryEpochProvisionsRequest) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+func (m *QueryMinterRequest) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	i := len(dAtA)
 	_ = i
 	var l int
@@ -428,7 +499,7 @@ func (m *QueryEpochProvisionsRequest) MarshalToSizedBuffer(dAtA []byte) (int, er
 	return len(dAtA) - i, nil
 }
 
-func (m *QueryEpochProvisionsResponse) Marshal() (dAtA []byte, err error) {
+func (m *QueryMinterResponse) Marshal() (dAtA []byte, err error) {
 	size := m.Size()
 	dAtA = make([]byte, size)
 	n, err := m.MarshalToSizedBuffer(dAtA[:size])
@@ -438,26 +509,64 @@ func (m *QueryEpochProvisionsResponse) Marshal() (dAtA []byte, err error) {
 	return dAtA[:n], nil
 }
 
-func (m *QueryEpochProvisionsResponse) MarshalTo(dAtA []byte) (int, error) {
+func (m *QueryMinterResponse) MarshalTo(dAtA []byte) (int, error) {
 	size := m.Size()
 	return m.MarshalToSizedBuffer(dAtA[:size])
 }
 
-func (m *QueryEpochProvisionsResponse) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+func (m *QueryMinterResponse) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	i := len(dAtA)
 	_ = i
 	var l int
 	_ = l
-	{
-		size := m.EpochProvisions.Size()
-		i -= size
-		if _, err := m.EpochProvisions.MarshalTo(dAtA[i:]); err != nil {
-			return 0, err
-		}
-		i = encodeVarintQuery(dAtA, i, uint64(size))
+	if m.LastMintHeight != 0 {
+		i = encodeVarintQuery(dAtA, i, uint64(m.LastMintHeight))
+		i--
+		dAtA[i] = 0x40
 	}
-	i--
-	dAtA[i] = 0xa
+	if len(m.LastMintDate) > 0 {
+		i -= len(m.LastMintDate)
+		copy(dAtA[i:], m.LastMintDate)
+		i = encodeVarintQuery(dAtA, i, uint64(len(m.LastMintDate)))
+		i--
+		dAtA[i] = 0x3a
+	}
+	if m.LastMintAmount != 0 {
+		i = encodeVarintQuery(dAtA, i, uint64(m.LastMintAmount))
+		i--
+		dAtA[i] = 0x30
+	}
+	if m.RemainingMintAmount != 0 {
+		i = encodeVarintQuery(dAtA, i, uint64(m.RemainingMintAmount))
+		i--
+		dAtA[i] = 0x28
+	}
+	if m.TotalMintAmount != 0 {
+		i = encodeVarintQuery(dAtA, i, uint64(m.TotalMintAmount))
+		i--
+		dAtA[i] = 0x20
+	}
+	if len(m.Denom) > 0 {
+		i -= len(m.Denom)
+		copy(dAtA[i:], m.Denom)
+		i = encodeVarintQuery(dAtA, i, uint64(len(m.Denom)))
+		i--
+		dAtA[i] = 0x1a
+	}
+	if len(m.EndDate) > 0 {
+		i -= len(m.EndDate)
+		copy(dAtA[i:], m.EndDate)
+		i = encodeVarintQuery(dAtA, i, uint64(len(m.EndDate)))
+		i--
+		dAtA[i] = 0x12
+	}
+	if len(m.StartDate) > 0 {
+		i -= len(m.StartDate)
+		copy(dAtA[i:], m.StartDate)
+		i = encodeVarintQuery(dAtA, i, uint64(len(m.StartDate)))
+		i--
+		dAtA[i] = 0xa
+	}
 	return len(dAtA) - i, nil
 }
 
@@ -492,7 +601,7 @@ func (m *QueryParamsResponse) Size() (n int) {
 	return n
 }
 
-func (m *QueryEpochProvisionsRequest) Size() (n int) {
+func (m *QueryMinterRequest) Size() (n int) {
 	if m == nil {
 		return 0
 	}
@@ -501,14 +610,40 @@ func (m *QueryEpochProvisionsRequest) Size() (n int) {
 	return n
 }
 
-func (m *QueryEpochProvisionsResponse) Size() (n int) {
+func (m *QueryMinterResponse) Size() (n int) {
 	if m == nil {
 		return 0
 	}
 	var l int
 	_ = l
-	l = m.EpochProvisions.Size()
-	n += 1 + l + sovQuery(uint64(l))
+	l = len(m.StartDate)
+	if l > 0 {
+		n += 1 + l + sovQuery(uint64(l))
+	}
+	l = len(m.EndDate)
+	if l > 0 {
+		n += 1 + l + sovQuery(uint64(l))
+	}
+	l = len(m.Denom)
+	if l > 0 {
+		n += 1 + l + sovQuery(uint64(l))
+	}
+	if m.TotalMintAmount != 0 {
+		n += 1 + sovQuery(uint64(m.TotalMintAmount))
+	}
+	if m.RemainingMintAmount != 0 {
+		n += 1 + sovQuery(uint64(m.RemainingMintAmount))
+	}
+	if m.LastMintAmount != 0 {
+		n += 1 + sovQuery(uint64(m.LastMintAmount))
+	}
+	l = len(m.LastMintDate)
+	if l > 0 {
+		n += 1 + l + sovQuery(uint64(l))
+	}
+	if m.LastMintHeight != 0 {
+		n += 1 + sovQuery(uint64(m.LastMintHeight))
+	}
 	return n
 }
 
@@ -651,7 +786,7 @@ func (m *QueryParamsResponse) Unmarshal(dAtA []byte) error {
 	}
 	return nil
 }
-func (m *QueryEpochProvisionsRequest) Unmarshal(dAtA []byte) error {
+func (m *QueryMinterRequest) Unmarshal(dAtA []byte) error {
 	l := len(dAtA)
 	iNdEx := 0
 	for iNdEx < l {
@@ -674,10 +809,10 @@ func (m *QueryEpochProvisionsRequest) Unmarshal(dAtA []byte) error {
 		fieldNum := int32(wire >> 3)
 		wireType := int(wire & 0x7)
 		if wireType == 4 {
-			return fmt.Errorf("proto: QueryEpochProvisionsRequest: wiretype end group for non-group")
+			return fmt.Errorf("proto: QueryMinterRequest: wiretype end group for non-group")
 		}
 		if fieldNum <= 0 {
-			return fmt.Errorf("proto: QueryEpochProvisionsRequest: illegal tag %d (wire type %d)", fieldNum, wire)
+			return fmt.Errorf("proto: QueryMinterRequest: illegal tag %d (wire type %d)", fieldNum, wire)
 		}
 		switch fieldNum {
 		default:
@@ -701,7 +836,7 @@ func (m *QueryEpochProvisionsRequest) Unmarshal(dAtA []byte) error {
 	}
 	return nil
 }
-func (m *QueryEpochProvisionsResponse) Unmarshal(dAtA []byte) error {
+func (m *QueryMinterResponse) Unmarshal(dAtA []byte) error {
 	l := len(dAtA)
 	iNdEx := 0
 	for iNdEx < l {
@@ -724,17 +859,17 @@ func (m *QueryEpochProvisionsResponse) Unmarshal(dAtA []byte) error {
 		fieldNum := int32(wire >> 3)
 		wireType := int(wire & 0x7)
 		if wireType == 4 {
-			return fmt.Errorf("proto: QueryEpochProvisionsResponse: wiretype end group for non-group")
+			return fmt.Errorf("proto: QueryMinterResponse: wiretype end group for non-group")
 		}
 		if fieldNum <= 0 {
-			return fmt.Errorf("proto: QueryEpochProvisionsResponse: illegal tag %d (wire type %d)", fieldNum, wire)
+			return fmt.Errorf("proto: QueryMinterResponse: illegal tag %d (wire type %d)", fieldNum, wire)
 		}
 		switch fieldNum {
 		case 1:
 			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field EpochProvisions", wireType)
+				return fmt.Errorf("proto: wrong wireType = %d for field StartDate", wireType)
 			}
-			var byteLen int
+			var stringLen uint64
 			for shift := uint(0); ; shift += 7 {
 				if shift >= 64 {
 					return ErrIntOverflowQuery
@@ -744,25 +879,196 @@ func (m *QueryEpochProvisionsResponse) Unmarshal(dAtA []byte) error {
 				}
 				b := dAtA[iNdEx]
 				iNdEx++
-				byteLen |= int(b&0x7F) << shift
+				stringLen |= uint64(b&0x7F) << shift
 				if b < 0x80 {
 					break
 				}
 			}
-			if byteLen < 0 {
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
 				return ErrInvalidLengthQuery
 			}
-			postIndex := iNdEx + byteLen
+			postIndex := iNdEx + intStringLen
 			if postIndex < 0 {
 				return ErrInvalidLengthQuery
 			}
 			if postIndex > l {
 				return io.ErrUnexpectedEOF
 			}
-			if err := m.EpochProvisions.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
-				return err
-			}
+			m.StartDate = string(dAtA[iNdEx:postIndex])
 			iNdEx = postIndex
+		case 2:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field EndDate", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowQuery
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLengthQuery
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return ErrInvalidLengthQuery
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.EndDate = string(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
+		case 3:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Denom", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowQuery
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLengthQuery
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return ErrInvalidLengthQuery
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.Denom = string(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
+		case 4:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field TotalMintAmount", wireType)
+			}
+			m.TotalMintAmount = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowQuery
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.TotalMintAmount |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		case 5:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field RemainingMintAmount", wireType)
+			}
+			m.RemainingMintAmount = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowQuery
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.RemainingMintAmount |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		case 6:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field LastMintAmount", wireType)
+			}
+			m.LastMintAmount = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowQuery
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.LastMintAmount |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		case 7:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field LastMintDate", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowQuery
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLengthQuery
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return ErrInvalidLengthQuery
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.LastMintDate = string(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
+		case 8:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field LastMintHeight", wireType)
+			}
+			m.LastMintHeight = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowQuery
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.LastMintHeight |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
 		default:
 			iNdEx = preIndex
 			skippy, err := skipQuery(dAtA[iNdEx:])

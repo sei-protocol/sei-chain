@@ -1,7 +1,11 @@
 {
-    "batch_size": 10,
+    "grpc_endpoint": "127.0.0.1:9090",
+    "blockchain_endpoint": "http://localhost:26657/blockchain",
+    "node_uri": "tcp://localhost:26657",
+    "tls": false,
+    "msgs_per_tx": 10,
     "chain_id": "sei-loadtest-testnet",
-    "orders_per_block": 400,
+    "txs_per_block": 400,
     "rounds": 5,
     "price_distribution": {
         "min": "45",
@@ -13,26 +17,85 @@
         "max": "21",
         "number_of_distinct_values": 20
     },
+    "message_configs": {
+      "default": {
+        "gas": 3000000,
+        "fee": 50000
+      },
+      "collect_rewards": {
+        "gas": 10000000,
+        "fee": 1000000
+      },
+      "distribute_rewards": {
+        "gas": 10000000,
+        "fee": 1000000
+      }
+    },
     "message_type_distribution": {
-        "limit_order_percentage": "0.8",
-        "market_order_percentage": "0.2"
+        "dex": {
+            "limit_order_percentage": "0.2",
+            "market_order_percentage": "0.8"
+        },
+        "staking": {
+            "delegate_percentage": "0.5",
+            "undelegate_percentage": "0.25",
+            "begin_redelegate_percentage": "0.25"
+        }
+    },
+    "constant": true,
+    "loadtest_interval": 600,
+    "message_type": "bank,dex,tokenfactory,staking,failure_dex_malformed,failure_dex_invalid,collect_rewards,distribute_rewards",
+    "run_oracle": false,
+    "metrics_port": 9695,
+    "wasm_msg_types": {
+      "wasm_mint_nft": {
+        "contract_address": "sei1k83mp2vdgk57rgyuzrmm8yhume44lwtwmku5a7v3waanqe0qxkvssfjfvj"
+      },
+      "vortex": {
+        "contract_address": "sei12k3aacdygvjuran5hz60067pgu2uuuscz3styw2zk3q4aedj0v2sjq3tsj",
+        "num_orders_per_tx": 1
+      }
     },
     "contract_distribution": [
-        {
-            "contract_address": "sei1yw4xvtc43me9scqfr2jr2gzvcxd3a9y4eq7gaukreugw2yd2f8tsy4qgdm",
-            "percentage": "0.25"
-        },
-        {
-            "contract_address": "sei1wug8sewp6cedgkmrmvhl3lf3tulagm9hnvy8p0rppz9yjw0g4wtq05fpn3",
-            "percentage": "0.25"
-        },
-        {
-            "contract_address": "sei1qg5ega6dykkxc307y25pecuufrjkxkaggkkxh7nad0vhyhtuhw3scwfwpd",
-            "percentage": "0.25"
-        },
-        {
-            "contract_address": "sei1zwv6feuzhy6a9wekh96cd57lsarmqlwxdypdsplw6zhfncqw6ftqr428wx",
-            "percentage": "0.25"
-        }
-    ]
+      {
+        "contract_address": "sei1zwv6feuzhy6a9wekh96cd57lsarmqlwxdypdsplw6zhfncqw6ftqr428wx",
+        "percentage": "0.1"
+      },
+      {
+        "contract_address": "sei1436kxs0w2es6xlqpp9rd35e3d0cjnw4sv8j3a7483sgks29jqwgs5z6axv",
+        "percentage": "0.1"
+      },
+      {
+        "contract_address": "sei1mf6ptkssddfmxvhdx0ech0k03ktp6kf9yk59renau2gvht3nq2gqw4umh9",
+        "percentage": "0.1"
+      },
+      {
+        "contract_address": "sei1kj8q8g2pmhnagmfepp9jh9g2mda7gzd0m5zdq0s08ulvac8ck4dqky7tlh",
+        "percentage": "0.1"
+      },
+      {
+        "contract_address": "sei1sthrn5ep8ls5vzz8f9gp89khhmedahhdqd244dh9uqzk3hx2pzrsfgf5u9",
+        "percentage": "0.1"
+      },
+      {
+        "contract_address": "sei1sr06m8yqg0wzqqyqvzvp5t07dj4nevx9u8qc7j4qa72qu8e3ct8q6c6arh",
+        "percentage": "0.1"
+      },
+      {
+        "contract_address": "sei1w798gp0zqv3s9hjl3jlnwxtwhykga6rn93p46q2crsdqhaj3y4gslx7gpp",
+        "percentage": "0.1"
+      },
+      {
+        "contract_address": "sei149ltwdnpxrhx9al42s359glcjnsuc6x3dalz28f04dsxhlu7jhmq8ymcll",
+        "percentage": "0.1"
+      },
+      {
+        "contract_address": "sei1qu43pvag5hu95hmml7y658t3k8sd9plnmpj8xmw9qgy0t458nyrqdcjxxz",
+        "percentage": "0.1"
+      },
+      {
+        "contract_address": "sei1nwp0ynjv84wxysf2f5ctvysl6dpm8ngm70hss6jeqt8q7e7u345s8zru6u",
+        "percentage": "0.1"
+      }
+  ]
 }

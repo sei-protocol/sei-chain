@@ -11,9 +11,10 @@ import (
 
 type (
 	PairJSON struct {
-		PriceDenom string `json:"price_denom" yaml:"price_denom"`
-		AssetDenom string `json:"asset_denom" yaml:"asset_denom"`
-		TickSize   string `json:"tick_size" yaml:"tick_size"`
+		PriceDenom       string `json:"price_denom" yaml:"price_denom"`
+		AssetDenom       string `json:"asset_denom" yaml:"asset_denom"`
+		PriceTickSize    string `json:"price_tick_size" yaml:"tick_size"`
+		QuantityTickSize string `json:"quantity_tick_size" yaml:"tick_size"`
 	}
 
 	TickSizeJSON struct {
@@ -35,20 +36,14 @@ type (
 
 	MultipleBatchContractPairJSON []BatchContractPairJSON
 
-	// RegisterPairsProposalJSON defines a RegisterPairsProposal
-	// to parse register pair proposals from a JSON file.
-	RegisterPairsProposalJSON struct {
-		Title             string                        `json:"title" yaml:"title"`
-		Description       string                        `json:"description" yaml:"description"`
+	// RegisterPairsTxJSON defines a RegisterPairsTx
+	// to parse register pair tx's from a JSON file.
+	RegisterPairsTxJSON struct {
 		BatchContractPair MultipleBatchContractPairJSON `json:"batch_contract_pair" yaml:"batch_contract_pair"`
-		Deposit           string                        `json:"deposit" yaml:"deposit"`
 	}
 
-	UpdateTickSizeProposalJSON struct {
-		Title       string        `json:"title" yaml:"title"`
-		Description string        `json:"description" yaml:"description"`
-		TickSizes   TickSizesJSON `json:"tick_size_list" yaml:"tick_size_list"`
-		Deposit     string        `json:"deposit" yaml:"deposit"`
+	UpdateTickSizeTxJSON struct {
+		TickSizes TickSizesJSON `json:"tick_size_list" yaml:"tick_size_list"`
 	}
 
 	AddAssetMetadataProposalJSON struct {
@@ -63,11 +58,15 @@ type (
 func NewPair(pair PairJSON) (dextypes.Pair, error) {
 	PriceDenom := pair.PriceDenom
 	AssetDenom := pair.AssetDenom
-	ticksize, err := sdk.NewDecFromStr(pair.TickSize)
+	priceTicksize, err := sdk.NewDecFromStr(pair.PriceTickSize)
 	if err != nil {
-		return dextypes.Pair{}, errors.New("ticksize: str to decimal conversion err")
+		return dextypes.Pair{}, errors.New("price ticksize: str to decimal conversion err")
 	}
-	return dextypes.Pair{PriceDenom: PriceDenom, AssetDenom: AssetDenom, Ticksize: &ticksize}, nil
+	quantityTicksize, err := sdk.NewDecFromStr(pair.QuantityTickSize)
+	if err != nil {
+		return dextypes.Pair{}, errors.New("quantity ticksize: str to decimal conversion err")
+	}
+	return dextypes.Pair{PriceDenom: PriceDenom, AssetDenom: AssetDenom, PriceTicksize: &priceTicksize, QuantityTicksize: &quantityTicksize}, nil
 }
 
 // ToParamChange converts a ParamChangeJSON object to ParamChange.
@@ -120,38 +119,38 @@ func (tss TickSizesJSON) ToTickSizes() ([]dextypes.TickSize, error) {
 	return res, nil
 }
 
-// ParseRegisterPairsProposalJSON reads and parses a RegisterPairsProposalJSON from
+// ParseRegisterPairsTxJSON reads and parses a RegisterPairsTxJSON from
 // a file.
-func ParseRegisterPairsProposalJSON(cdc *codec.LegacyAmino, proposalFile string) (RegisterPairsProposalJSON, error) {
-	proposal := RegisterPairsProposalJSON{}
+func ParseRegisterPairsTxJSON(cdc *codec.LegacyAmino, txFile string) (RegisterPairsTxJSON, error) {
+	registerTx := RegisterPairsTxJSON{}
 
-	contents, err := os.ReadFile(proposalFile)
+	contents, err := os.ReadFile(txFile)
 	if err != nil {
-		return proposal, err
+		return registerTx, err
 	}
 
-	if err := cdc.UnmarshalJSON(contents, &proposal); err != nil {
-		return proposal, err
+	if err := cdc.UnmarshalJSON(contents, &registerTx); err != nil {
+		return registerTx, err
 	}
 
-	return proposal, nil
+	return registerTx, nil
 }
 
-// ParseRegisterPairsProposalJSON reads and parses a RegisterPairsProposalJSON from
+// ParseUpdateTickSizeTxJSON reads and parses a UpdateTickSizeTxJSON from
 // a file.
-func ParseUpdateTickSizeProposalJSON(cdc *codec.LegacyAmino, proposalFile string) (UpdateTickSizeProposalJSON, error) {
-	proposal := UpdateTickSizeProposalJSON{}
+func ParseUpdateTickSizeTxJSON(cdc *codec.LegacyAmino, txFile string) (UpdateTickSizeTxJSON, error) {
+	tickTx := UpdateTickSizeTxJSON{}
 
-	contents, err := os.ReadFile(proposalFile)
+	contents, err := os.ReadFile(txFile)
 	if err != nil {
-		return proposal, err
+		return tickTx, err
 	}
 
-	if err := cdc.UnmarshalJSON(contents, &proposal); err != nil {
-		return proposal, err
+	if err := cdc.UnmarshalJSON(contents, &tickTx); err != nil {
+		return tickTx, err
 	}
 
-	return proposal, nil
+	return tickTx, nil
 }
 
 // ParseAddAssetMetadataProposalJSON reads and parses an AddAssetMetadataProposalJSON from

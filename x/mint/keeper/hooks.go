@@ -1,54 +1,36 @@
 package keeper
 
 import (
-	"fmt"
-
-	"github.com/cosmos/cosmos-sdk/telemetry"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	epochTypes "github.com/sei-protocol/sei-chain/x/epoch/types"
-	"github.com/sei-protocol/sei-chain/x/mint/types"
 )
 
 func (k Keeper) BeforeEpochStart(ctx sdk.Context, epoch epochTypes.Epoch) {
 }
 
 func (k Keeper) AfterEpochEnd(ctx sdk.Context, epoch epochTypes.Epoch) {
-	params := k.GetParams(ctx)
-	// Check if we have hit an epoch where we update the inflation parameter.
-	// Since epochs only update based on BFT time data, it is safe to store the "halvening period time"
-	// in terms of the number of epochs that have transpired
-	// If it's not time to mint coins, exit
-	if int64(epoch.GetCurrentEpoch()) < k.GetLastHalvenEpochNum(ctx)+params.ReductionPeriodInEpochs {
+	latestMinter := k.GetOrUpdateLatestMinter(ctx, epoch)
+	coinsToMint := latestMinter.GetReleaseAmountToday(epoch.CurrentEpochStartTime.UTC())
+
+	if coinsToMint.IsZero() || latestMinter.GetRemainingMintAmount() == 0 {
+		k.Logger(ctx).Debug("No coins to mint", "minter", latestMinter)
 		return
 	}
-	// Halven the reward per halven period
-	minter := k.GetMinter(ctx)
-	minter.EpochProvisions = minter.NextEpochProvisions(params)
-	k.SetMinter(ctx, minter)
-	k.SetLastHalvenEpochNum(ctx, int64(epoch.GetCurrentEpoch()))
+
 	// mint coins, update supply
-	mintedCoin := minter.EpochProvision(params)
-	mintedCoins := sdk.NewCoins(mintedCoin)
-	if err := k.MintCoins(ctx, mintedCoins); err != nil {
+	if err := k.MintCoins(ctx, coinsToMint); err != nil {
 		panic(err)
 	}
 	// send the minted coins to the fee collector account
-	if err := k.AddCollectedFees(ctx, mintedCoins); err != nil {
+	if err := k.AddCollectedFees(ctx, coinsToMint); err != nil {
 		panic(err)
 	}
 
-	if mintedCoin.Amount.IsInt64() {
-		defer telemetry.ModuleSetGauge(types.ModuleName, float32(mintedCoin.Amount.Int64()), "minted_tokens")
-	}
-
-	ctx.EventManager().EmitEvent(
-		sdk.NewEvent(
-			types.EventTypeMint,
-			sdk.NewAttribute(types.AttributeEpochNumber, fmt.Sprintf("%d", epoch.GetCurrentEpoch())),
-			sdk.NewAttribute(types.AttributeKeyEpochProvisions, minter.EpochProvisions.String()),
-			sdk.NewAttribute(sdk.AttributeKeyAmount, mintedCoin.Amount.String()),
-		),
-	)
+	// Released Succssfully, decrement the remaining amount by the daily release amount and update minter
+	amountMinted := coinsToMint.AmountOf(latestMinter.GetDenom())
+	latestMinter.RecordSuccessfulMint(ctx, epoch, amountMinted.Uint64())
+	k.Logger(ctx).Info("Minted coins", "minter", latestMinter, "amount", coinsToMint.String())
+	k.SetMinter(ctx, latestMinter)
 }
 
 type Hooks struct {

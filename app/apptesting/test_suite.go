@@ -1,6 +1,7 @@
 package apptesting
 
 import (
+	"context"
 	"time"
 
 	"github.com/cosmos/cosmos-sdk/baseapp"
@@ -51,7 +52,7 @@ func (s *KeeperTestHelper) CreateTestContext() sdk.Context {
 	db := dbm.NewMemDB()
 	logger := log.NewNopLogger()
 
-	ms := rootmulti.NewStore(db)
+	ms := rootmulti.NewStore(db, log.NewNopLogger())
 
 	return sdk.NewContext(ms, tmtypes.Header{}, false, logger)
 }
@@ -60,9 +61,12 @@ func (s *KeeperTestHelper) CreateTestContext() sdk.Context {
 func (s *KeeperTestHelper) Commit() {
 	oldHeight := s.Ctx.BlockHeight()
 	oldHeader := s.Ctx.BlockHeader()
-	s.App.Commit()
+	_, err := s.App.Commit(context.Background())
+	if err != nil {
+		panic(err)
+	}
 	newHeader := tmtypes.Header{Height: oldHeight + 1, ChainID: oldHeader.ChainID, Time: time.Now().UTC()}
-	s.App.BeginBlock(abci.RequestBeginBlock{Header: newHeader})
+	s.App.BeginBlock(s.Ctx, abci.RequestBeginBlock{Header: newHeader})
 	s.Ctx = s.App.GetBaseApp().NewContext(false, newHeader)
 }
 
@@ -139,7 +143,8 @@ func (s *KeeperTestHelper) BuildTx(
 	txBuilder client.TxBuilder,
 	msgs []sdk.Msg,
 	sigV2 signing.SignatureV2,
-	memo string, txFee sdk.Coins,
+	memo string,
+	txFee sdk.Coins,
 	gasLimit uint64,
 ) authsigning.Tx {
 	err := txBuilder.SetMsgs(msgs[0])

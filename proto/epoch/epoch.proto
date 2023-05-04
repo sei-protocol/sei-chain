@@ -20,11 +20,17 @@ message Epoch {
         (gogoproto.jsontag) = "duration,omitempty",
         (gogoproto.moretags) = "yaml:\"epoch_duration\""
       ];
-    uint64 current_epoch = 3;
+    uint64 current_epoch = 3 [
+      (gogoproto.jsontag) = "current_epoch",
+      (gogoproto.moretags) = "yaml:\"current_epoch\""
+    ];
     google.protobuf.Timestamp current_epoch_start_time = 4 [
         (gogoproto.stdtime) = true,
         (gogoproto.nullable) = false,
         (gogoproto.moretags) = "yaml:\"current_epoch_start_time\""
       ];
-    int64 current_epoch_height = 5;
+    int64 current_epoch_height = 5 [
+      (gogoproto.jsontag) = "current_epoch_height",
+      (gogoproto.moretags) = "yaml:\"current_epoch_height\""
+    ];
 }

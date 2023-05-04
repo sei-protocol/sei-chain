@@ -1,53 +1,101 @@
 package dex
 
 import (
+	"encoding/binary"
 	"sort"
 
-	"github.com/sei-protocol/sei-chain/utils"
+	"github.com/cosmos/cosmos-sdk/store/prefix"
+	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
 	"github.com/sei-protocol/sei-chain/x/dex/types/wasm"
 )
 
 type BlockOrders struct {
-	memStateItems[*types.Order]
+	orderStore *prefix.Store
 }
 
-func NewOrders() *BlockOrders {
-	return &BlockOrders{memStateItems: NewItems(utils.PtrCopier[types.Order])}
+func NewOrders(orderStore prefix.Store) *BlockOrders {
+	return &BlockOrders{orderStore: &orderStore}
 }
 
-func (o *BlockOrders) Copy() *BlockOrders {
-	return &BlockOrders{memStateItems: *o.memStateItems.Copy()}
+func (o *BlockOrders) Add(newItem *types.Order) {
+	keybz := make([]byte, 8)
+	binary.BigEndian.PutUint64(keybz, newItem.Id)
+	if valbz, err := newItem.Marshal(); err != nil {
+		panic(err)
+	} else {
+		o.orderStore.Set(keybz, valbz)
+	}
+}
+
+func (o *BlockOrders) GetByID(id uint64) *types.Order {
+	keybz := make([]byte, 8)
+	binary.BigEndian.PutUint64(keybz, id)
+	var val types.Order
+	if err := val.Unmarshal(o.orderStore.Get(keybz)); err != nil {
+		panic(err)
+	}
+	return &val
+}
+
+func (o *BlockOrders) Get() (list []*types.Order) {
+	iterator := sdk.KVStorePrefixIterator(o.orderStore, []byte{})
+	defer iterator.Close()
+	for ; iterator.Valid(); iterator.Next() {
+		var val types.Order
+		if err := val.Unmarshal(iterator.Value()); err != nil {
+			panic(err)
+		}
+		list = append(list, &val)
+	}
+
+	return
 }
 
 func (o *BlockOrders) MarkFailedToPlace(failedOrders []wasm.UnsuccessfulOrder) {
-	o.mu.Lock()
-	defer o.mu.Unlock()
 	failedOrdersMap := map[uint64]wasm.UnsuccessfulOrder{}
 	for _, failedOrder := range failedOrders {
 		failedOrdersMap[failedOrder.ID] = failedOrder
 	}
-	newOrders := []*types.Order{}
-	for _, order := range o.internal {
-		if failedOrder, ok := failedOrdersMap[order.Id]; ok {
-			order.Status = types.OrderStatus_FAILED_TO_PLACE
-			order.StatusDescription = failedOrder.Reason
-		}
-		newOrders = append(newOrders, order)
+
+	keys, vals := o.getKVsToSet(failedOrdersMap)
+	for i, key := range keys {
+		o.orderStore.Set(key, vals[i])
 	}
-	o.internal = newOrders
 }
 
-func (o *BlockOrders) GetSortedMarketOrders(direction types.PositionDirection, includeLiquidationOrders bool) []*types.Order {
-	o.mu.Lock()
-	defer o.mu.Unlock()
+// getKVsToSet iterate through the kvstore and append the key,val items to a list.
+// We should avoid writing or reading from the store directly within the iterator.
+func (o *BlockOrders) getKVsToSet(failedOrdersMap map[uint64]wasm.UnsuccessfulOrder) ([][]byte, [][]byte) {
+	iterator := sdk.KVStorePrefixIterator(o.orderStore, []byte{})
 
+	defer iterator.Close()
+
+	var keys [][]byte
+	var vals [][]byte
+	for ; iterator.Valid(); iterator.Next() {
+		var val types.Order
+		if err := val.Unmarshal(iterator.Value()); err != nil {
+			panic(err)
+		}
+		if failedOrder, ok := failedOrdersMap[val.Id]; ok {
+			val.Status = types.OrderStatus_FAILED_TO_PLACE
+			val.StatusDescription = failedOrder.Reason
+		}
+		if bz, err := val.Marshal(); err != nil {
+			panic(err)
+		} else {
+			keys = append(keys, iterator.Key())
+			vals = append(vals, bz)
+		}
+	}
+	return keys, vals
+}
+
+func (o *BlockOrders) GetSortedMarketOrders(direction types.PositionDirection) []*types.Order {
 	res := o.getOrdersByCriteria(types.OrderType_MARKET, direction)
 	res = append(res, o.getOrdersByCriteria(types.OrderType_FOKMARKET, direction)...)
-	if includeLiquidationOrders {
-		res = append(res, o.getOrdersByCriteria(types.OrderType_LIQUIDATION, direction)...)
-	}
-	sort.Slice(res, func(i, j int) bool {
+	sort.SliceStable(res, func(i, j int) bool {
 		// a price of 0 indicates that there is no worst price for the order, so it should
 		// always be ranked at the top.
 		if res[i].Price.IsZero() {
@@ -68,21 +116,64 @@ func (o *BlockOrders) GetSortedMarketOrders(direction types.PositionDirection, i
 }
 
 func (o *BlockOrders) GetLimitOrders(direction types.PositionDirection) []*types.Order {
-	o.mu.Lock()
-	defer o.mu.Unlock()
 	return o.getOrdersByCriteria(types.OrderType_LIMIT, direction)
+}
+
+func (o *BlockOrders) GetTriggeredOrders() []*types.Order {
+	return o.getOrdersByCriteriaMap(
+		map[types.OrderType]bool{
+			types.OrderType_STOPLOSS:  true,
+			types.OrderType_STOPLIMIT: true,
+		},
+		map[types.PositionDirection]bool{
+			types.PositionDirection_LONG:  true,
+			types.PositionDirection_SHORT: true,
+		})
 }
 
 func (o *BlockOrders) getOrdersByCriteria(orderType types.OrderType, direction types.PositionDirection) []*types.Order {
 	res := []*types.Order{}
-	for _, order := range o.internal {
-		if order.OrderType != orderType || order.PositionDirection != direction {
+	iterator := sdk.KVStorePrefixIterator(o.orderStore, []byte{})
+
+	defer iterator.Close()
+
+	for ; iterator.Valid(); iterator.Next() {
+		var val types.Order
+		if err := val.Unmarshal(iterator.Value()); err != nil {
+			panic(err)
+		}
+		if val.OrderType != orderType || val.PositionDirection != direction {
 			continue
 		}
-		if order.Status == types.OrderStatus_FAILED_TO_PLACE {
+		if val.Status == types.OrderStatus_FAILED_TO_PLACE {
 			continue
 		}
-		res = append(res, order)
+		res = append(res, &val)
+	}
+	return res
+}
+
+func (o *BlockOrders) getOrdersByCriteriaMap(orderType map[types.OrderType]bool, direction map[types.PositionDirection]bool) []*types.Order {
+	res := []*types.Order{}
+	iterator := sdk.KVStorePrefixIterator(o.orderStore, []byte{})
+
+	defer iterator.Close()
+
+	for ; iterator.Valid(); iterator.Next() {
+		var val types.Order
+		if err := val.Unmarshal(iterator.Value()); err != nil {
+			panic(err)
+		}
+		if _, ok := orderType[val.OrderType]; !ok {
+			continue
+		}
+		if _, ok := direction[val.PositionDirection]; !ok {
+			continue
+		}
+		if val.Status == types.OrderStatus_FAILED_TO_PLACE {
+			continue
+		}
+		res = append(res, &val)
 	}
 	return res
 }

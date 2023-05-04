@@ -7,9 +7,8 @@ import "cosmos/base/query/v1beta1/pagination.proto";
 import "dex/params.proto";
 import "dex/long_book.proto";
 import "dex/short_book.proto";
-import "dex/settlement.proto";
-import "dex/enums.proto";
 import "dex/price.proto";
+import "dex/contract.proto";
 import "dex/twap.proto";
 import "dex/asset_list.proto";
 import "dex/pair.proto";
@@ -45,6 +44,14 @@ service Query {
 		option (google.api.http).get = "/sei-protocol/seichain/dex/short_book/{contractAddr}/{priceDenom}/{assetDenom}";
 	}
 
+	rpc GetPrice(QueryGetPriceRequest) returns (QueryGetPriceResponse) {
+		option (google.api.http).get = "/sei-protocol/seichain/dex/get_price/{contractAddr}/{priceDenom}/{assetDenom}/{timestamp}";
+	}
+
+	rpc GetLatestPrice(QueryGetLatestPriceRequest) returns (QueryGetLatestPriceResponse) {
+		option (google.api.http).get = "/sei-protocol/seichain/dex/get_latest_price/{contractAddr}/{priceDenom}/{assetDenom}";
+	}
+
 	rpc GetPrices(QueryGetPricesRequest) returns (QueryGetPricesResponse) {
 		option (google.api.http).get = "/sei-protocol/seichain/dex/get_prices/{contractAddr}/{priceDenom}/{assetDenom}";
 	}
@@ -66,6 +73,11 @@ service Query {
 	// Returns all registered pairs for specified contract address
 	rpc GetRegisteredPairs(QueryRegisteredPairsRequest) returns (QueryRegisteredPairsResponse) {
 		option (google.api.http).get = "/sei-protocol/seichain/dex/registered_pairs";
+	}
+
+	// Returns registered contract information
+	rpc GetRegisteredContract(QueryRegisteredContractRequest) returns (QueryRegisteredContractResponse) {
+		option (google.api.http).get = "/sei-protocol/seichain/dex/registered_contract/{contractAddr}";
 	}
 
 	rpc GetOrders(QueryGetOrdersRequest) returns (QueryGetOrdersResponse) {
@@ -156,6 +168,34 @@ message QueryGetPricesResponse {
 	repeated Price prices = 1;
 }
 
+message QueryGetPriceRequest {
+	string priceDenom = 1;
+	string assetDenom = 2;
+	string contractAddr = 3;
+	uint64 timestamp  = 4;
+}
+
+message QueryGetPriceResponse {
+	Price price = 1;
+	bool found = 2;
+}
+
+message QueryGetLatestPriceRequest {
+	string priceDenom = 1 [
+		(gogoproto.jsontag) = "price_denom"
+	];
+	string assetDenom = 2 [
+		(gogoproto.jsontag) = "asset_denom"
+	];
+	string contractAddr = 3 [
+		(gogoproto.jsontag) = "contract_address"
+	];
+}
+
+message QueryGetLatestPriceResponse {
+	Price price = 1;
+}
+
 message QueryGetTwapsRequest {
 	string contractAddr = 1 [
 		(gogoproto.jsontag) = "contract_address"
@@ -193,6 +233,16 @@ message QueryRegisteredPairsRequest {
 
 message QueryRegisteredPairsResponse {
 	repeated Pair pairs = 1 [(gogoproto.nullable) = false];
+}
+
+message QueryRegisteredContractRequest {
+	string contractAddr = 1 [
+		(gogoproto.jsontag) = "contract_address"
+	];
+}
+
+message QueryRegisteredContractResponse {
+	ContractInfoV2 contract_info = 1;
 }
 
 message QueryGetOrdersRequest{
@@ -312,9 +362,6 @@ message QueryOrderSimulationResponse {
 message QueryGetMatchResultRequest {
 	string contractAddr = 1 [
 		(gogoproto.jsontag) = "contract_address"
-	];
-	int64 height = 2 [
-		(gogoproto.jsontag) = "height"
 	];
 }
 

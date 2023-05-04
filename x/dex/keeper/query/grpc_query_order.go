@@ -5,15 +5,10 @@ import (
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 )
 
 // To be deprecated once offchain query is built
 func (k KeeperWrapper) GetOrder(c context.Context, req *types.QueryGetOrderByIDRequest) (*types.QueryGetOrderByIDResponse, error) {
-	if req == nil {
-		return nil, status.Error(codes.InvalidArgument, "invalid request")
-	}
 	ctx := sdk.UnwrapSDKContext(c)
 	longBooks := k.GetAllLongBook(ctx, req.ContractAddr)
 	for _, longBook := range longBooks {
@@ -57,14 +52,21 @@ func (k KeeperWrapper) GetOrder(c context.Context, req *types.QueryGetOrderByIDR
 			}
 		}
 	}
-	return &types.QueryGetOrderByIDResponse{}, status.Error(codes.NotFound, "order not found")
+
+	triggeredOrders := k.GetAllTriggeredOrders(ctx, req.ContractAddr)
+	for i, order := range triggeredOrders {
+		if order.Id == req.Id {
+			return &types.QueryGetOrderByIDResponse{
+				Order: &triggeredOrders[i],
+			}, nil
+		}
+	}
+
+	return &types.QueryGetOrderByIDResponse{}, types.ErrInvalidOrderID
 }
 
 // To be deprecated once offchain query is built
 func (k KeeperWrapper) GetOrders(c context.Context, req *types.QueryGetOrdersRequest) (*types.QueryGetOrdersResponse, error) {
-	if req == nil {
-		return nil, status.Error(codes.InvalidArgument, "invalid request")
-	}
 	ctx := sdk.UnwrapSDKContext(c)
 	orders := []*types.Order{}
 	longBooks := k.GetAllLongBook(ctx, req.ContractAddr)
@@ -104,6 +106,10 @@ func (k KeeperWrapper) GetOrders(c context.Context, req *types.QueryGetOrdersReq
 				})
 			}
 		}
+	}
+	triggeredOrders := k.GetAllTriggeredOrders(ctx, req.ContractAddr)
+	for i := range triggeredOrders {
+		orders = append(orders, &triggeredOrders[i])
 	}
 
 	return &types.QueryGetOrdersResponse{Orders: orders}, nil

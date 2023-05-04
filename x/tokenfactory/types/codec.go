@@ -18,15 +18,26 @@ func RegisterCodec(cdc *codec.LegacyAmino) {
 }
 
 func RegisterInterfaces(registry cdctypes.InterfaceRegistry) {
-	registry.RegisterImplementations(
-		(*sdk.Msg)(nil),
+	registry.RegisterImplementations((*sdk.Msg)(nil),
 		&MsgCreateDenom{},
+	)
+	registry.RegisterImplementations((*sdk.Msg)(nil),
 		&MsgMint{},
+	)
+	registry.RegisterImplementations((*sdk.Msg)(nil),
 		&MsgBurn{},
-		// &MsgForceTransfer{},
+	)
+	registry.RegisterImplementations((*sdk.Msg)(nil),
 		&MsgChangeAdmin{},
 	)
+	// registry.RegisterImplementations((*govtypes.Content)(nil),
+	// 	&MsgForceTransfer{},
+	// )
+
 	msgservice.RegisterMsgServiceDesc(registry, &_Msg_serviceDesc)
 }
 
-var ModuleCdc = codec.NewProtoCodec(cdctypes.NewInterfaceRegistry())
+var (
+	Amino     = codec.NewLegacyAmino()
+	ModuleCdc = codec.NewProtoCodec(cdctypes.NewInterfaceRegistry())
+)

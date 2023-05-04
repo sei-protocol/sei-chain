@@ -6,14 +6,14 @@ export const protobufPackage = "seiprotocol.seichain.tokenfactory";
 
 /** Params defines the parameters for the tokenfactory module. */
 export interface Params {
-  denomCreationFee: Coin[];
+  denom_creation_fee: Coin[];
 }
 
 const baseParams: object = {};
 
 export const Params = {
   encode(message: Params, writer: Writer = Writer.create()): Writer {
-    for (const v of message.denomCreationFee) {
+    for (const v of message.denom_creation_fee) {
       Coin.encode(v!, writer.uint32(10).fork()).ldelim();
     }
     return writer;
@@ -23,12 +23,12 @@ export const Params = {
     const reader = input instanceof Uint8Array ? new Reader(input) : input;
     let end = length === undefined ? reader.len : reader.pos + length;
     const message = { ...baseParams } as Params;
-    message.denomCreationFee = [];
+    message.denom_creation_fee = [];
     while (reader.pos < end) {
       const tag = reader.uint32();
       switch (tag >>> 3) {
         case 1:
-          message.denomCreationFee.push(Coin.decode(reader, reader.uint32()));
+          message.denom_creation_fee.push(Coin.decode(reader, reader.uint32()));
           break;
         default:
           reader.skipType(tag & 7);
@@ -40,13 +40,13 @@ export const Params = {
 
   fromJSON(object: any): Params {
     const message = { ...baseParams } as Params;
-    message.denomCreationFee = [];
+    message.denom_creation_fee = [];
     if (
-      object.denomCreationFee !== undefined &&
-      object.denomCreationFee !== null
+      object.denom_creation_fee !== undefined &&
+      object.denom_creation_fee !== null
     ) {
-      for (const e of object.denomCreationFee) {
-        message.denomCreationFee.push(Coin.fromJSON(e));
+      for (const e of object.denom_creation_fee) {
+        message.denom_creation_fee.push(Coin.fromJSON(e));
       }
     }
     return message;
@@ -54,25 +54,25 @@ export const Params = {
 
   toJSON(message: Params): unknown {
     const obj: any = {};
-    if (message.denomCreationFee) {
-      obj.denomCreationFee = message.denomCreationFee.map((e) =>
+    if (message.denom_creation_fee) {
+      obj.denom_creation_fee = message.denom_creation_fee.map((e) =>
         e ? Coin.toJSON(e) : undefined
       );
     } else {
-      obj.denomCreationFee = [];
+      obj.denom_creation_fee = [];
     }
     return obj;
   },
 
   fromPartial(object: DeepPartial<Params>): Params {
     const message = { ...baseParams } as Params;
-    message.denomCreationFee = [];
+    message.denom_creation_fee = [];
     if (
-      object.denomCreationFee !== undefined &&
-      object.denomCreationFee !== null
+      object.denom_creation_fee !== undefined &&
+      object.denom_creation_fee !== null
     ) {
-      for (const e of object.denomCreationFee) {
-        message.denomCreationFee.push(Coin.fromPartial(e));
+      for (const e of object.denom_creation_fee) {
+        message.denom_creation_fee.push(Coin.fromPartial(e));
       }
     }
     return message;

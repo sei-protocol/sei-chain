@@ -26,7 +26,7 @@ export interface MsgCreateDenom {
  * It returns the full string of the newly created denom
  */
 export interface MsgCreateDenomResponse {
-  newTokenDenom: string;
+  new_token_denom: string;
 }
 
 /**
@@ -58,7 +58,7 @@ export interface MsgBurnResponse {}
 export interface MsgChangeAdmin {
   sender: string;
   denom: string;
-  newAdmin: string;
+  new_admin: string;
 }
 
 /**
@@ -139,15 +139,15 @@ export const MsgCreateDenom = {
   },
 };
 
-const baseMsgCreateDenomResponse: object = { newTokenDenom: "" };
+const baseMsgCreateDenomResponse: object = { new_token_denom: "" };
 
 export const MsgCreateDenomResponse = {
   encode(
     message: MsgCreateDenomResponse,
     writer: Writer = Writer.create()
   ): Writer {
-    if (message.newTokenDenom !== "") {
-      writer.uint32(10).string(message.newTokenDenom);
+    if (message.new_token_denom !== "") {
+      writer.uint32(10).string(message.new_token_denom);
     }
     return writer;
   },
@@ -160,7 +160,7 @@ export const MsgCreateDenomResponse = {
       const tag = reader.uint32();
       switch (tag >>> 3) {
         case 1:
-          message.newTokenDenom = reader.string();
+          message.new_token_denom = reader.string();
           break;
         default:
           reader.skipType(tag & 7);
@@ -172,18 +172,21 @@ export const MsgCreateDenomResponse = {
 
   fromJSON(object: any): MsgCreateDenomResponse {
     const message = { ...baseMsgCreateDenomResponse } as MsgCreateDenomResponse;
-    if (object.newTokenDenom !== undefined && object.newTokenDenom !== null) {
-      message.newTokenDenom = String(object.newTokenDenom);
+    if (
+      object.new_token_denom !== undefined &&
+      object.new_token_denom !== null
+    ) {
+      message.new_token_denom = String(object.new_token_denom);
     } else {
-      message.newTokenDenom = "";
+      message.new_token_denom = "";
     }
     return message;
   },
 
   toJSON(message: MsgCreateDenomResponse): unknown {
     const obj: any = {};
-    message.newTokenDenom !== undefined &&
-      (obj.newTokenDenom = message.newTokenDenom);
+    message.new_token_denom !== undefined &&
+      (obj.new_token_denom = message.new_token_denom);
     return obj;
   },
 
@@ -191,10 +194,13 @@ export const MsgCreateDenomResponse = {
     object: DeepPartial<MsgCreateDenomResponse>
   ): MsgCreateDenomResponse {
     const message = { ...baseMsgCreateDenomResponse } as MsgCreateDenomResponse;
-    if (object.newTokenDenom !== undefined && object.newTokenDenom !== null) {
-      message.newTokenDenom = object.newTokenDenom;
+    if (
+      object.new_token_denom !== undefined &&
+      object.new_token_denom !== null
+    ) {
+      message.new_token_denom = object.new_token_denom;
     } else {
-      message.newTokenDenom = "";
+      message.new_token_denom = "";
     }
     return message;
   },
@@ -422,7 +428,7 @@ export const MsgBurnResponse = {
   },
 };
 
-const baseMsgChangeAdmin: object = { sender: "", denom: "", newAdmin: "" };
+const baseMsgChangeAdmin: object = { sender: "", denom: "", new_admin: "" };
 
 export const MsgChangeAdmin = {
   encode(message: MsgChangeAdmin, writer: Writer = Writer.create()): Writer {
@@ -432,8 +438,8 @@ export const MsgChangeAdmin = {
     if (message.denom !== "") {
       writer.uint32(18).string(message.denom);
     }
-    if (message.newAdmin !== "") {
-      writer.uint32(26).string(message.newAdmin);
+    if (message.new_admin !== "") {
+      writer.uint32(26).string(message.new_admin);
     }
     return writer;
   },
@@ -452,7 +458,7 @@ export const MsgChangeAdmin = {
           message.denom = reader.string();
           break;
         case 3:
-          message.newAdmin = reader.string();
+          message.new_admin = reader.string();
           break;
         default:
           reader.skipType(tag & 7);
@@ -474,10 +480,10 @@ export const MsgChangeAdmin = {
     } else {
       message.denom = "";
     }
-    if (object.newAdmin !== undefined && object.newAdmin !== null) {
-      message.newAdmin = String(object.newAdmin);
+    if (object.new_admin !== undefined && object.new_admin !== null) {
+      message.new_admin = String(object.new_admin);
     } else {
-      message.newAdmin = "";
+      message.new_admin = "";
     }
     return message;
   },
@@ -486,7 +492,7 @@ export const MsgChangeAdmin = {
     const obj: any = {};
     message.sender !== undefined && (obj.sender = message.sender);
     message.denom !== undefined && (obj.denom = message.denom);
-    message.newAdmin !== undefined && (obj.newAdmin = message.newAdmin);
+    message.new_admin !== undefined && (obj.new_admin = message.new_admin);
     return obj;
   },
 
@@ -502,10 +508,10 @@ export const MsgChangeAdmin = {
     } else {
       message.denom = "";
     }
-    if (object.newAdmin !== undefined && object.newAdmin !== null) {
-      message.newAdmin = object.newAdmin;
+    if (object.new_admin !== undefined && object.new_admin !== null) {
+      message.new_admin = object.new_admin;
     } else {
-      message.newAdmin = "";
+      message.new_admin = "";
     }
     return message;
   },

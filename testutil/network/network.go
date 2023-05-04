@@ -56,10 +56,12 @@ func DefaultConfig() network.Config {
 		AppConstructor: func(val network.Validator) servertypes.Application {
 			return app.New(
 				val.Ctx.Logger, tmdb.NewMemDB(), nil, true, map[int64]bool{}, val.Ctx.Config.RootDir, 0,
+				nil,
 				encoding,
 				wasm.EnableAllProposals,
-				simapp.EmptyAppOptions{},
+				&simapp.EmptyAppOptions{},
 				nil,
+				app.EmptyACLOpts,
 				baseapp.SetPruning(storetypes.NewPruningOptionsFromString(val.AppConfig.Pruning)),
 				baseapp.SetMinGasPrices(val.AppConfig.MinGasPrices),
 			)

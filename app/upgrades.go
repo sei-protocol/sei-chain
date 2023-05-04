@@ -39,6 +39,30 @@ var upgradesList = []string{
 	"1.1.2beta-internal",
 	// 1.1.3beta
 	"1.1.3beta",
+	// 1.1.4beta
+	"1.1.4beta",
+	// 1.2.0beta
+	"1.2.0beta",
+	// 1.2.1beta
+	"1.2.1beta",
+	// 1.2.2beta
+	"1.2.2beta",
+	// 1.2.2beta-postfix
+	"1.2.2beta-postfix",
+	"2.0.29beta",
+	"2.0.32beta",
+	"2.0.36beta",
+	"2.0.37beta",
+	"2.0.38beta",
+	"2.0.39beta",
+	"2.0.40beta",
+	"2.0.41beta",
+	"2.0.42beta",
+	"2.0.43beta",
+	"2.0.44beta",
+	"2.0.45beta",
+	"2.0.46beta",
+	"2.0.47beta",
 }
 
 func (app App) RegisterUpgradeHandlers() {
@@ -49,6 +73,20 @@ func (app App) RegisterUpgradeHandlers() {
 	}
 	for _, upgradeName := range upgradesList {
 		app.UpgradeKeeper.SetUpgradeHandler(upgradeName, func(ctx sdk.Context, plan upgradetypes.Plan, fromVM module.VersionMap) (module.VersionMap, error) {
+			// Set params to Distribution here when migrating
+			if upgradeName == "1.2.3beta" {
+				newVM, err := app.mm.RunMigrations(ctx, app.configurator, fromVM)
+				if err != nil {
+					return newVM, err
+				}
+
+				params := app.DistrKeeper.GetParams(ctx)
+				params.CommunityTax = sdk.NewDec(0)
+				app.DistrKeeper.SetParams(ctx, params)
+
+				return newVM, err
+			}
+
 			return app.mm.RunMigrations(ctx, app.configurator, fromVM)
 		})
 	}

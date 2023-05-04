@@ -41,10 +41,10 @@ echo "Deploying contracts..."
 cd $seihome/loadtest/contracts
 # store
 echo "Storing..."
-jupiterstoreres=$($seidbin tx wasm store jupiter/artifacts/jupiter.wasm -y --from=$keyname --chain-id=$chainid --gas=5000000 --fees=1000000usei --broadcast-mode=block --output=json)
-marsstoreres=$($seidbin tx wasm store mars/artifacts/mars.wasm -y --from=$keyname --chain-id=$chainid --gas=5000000 --fees=1000000usei --broadcast-mode=block --output=json)
-saturnstoreres=$($seidbin tx wasm store saturn/artifacts/saturn.wasm -y --from=$keyname --chain-id=$chainid --gas=5000000 --fees=1000000usei --broadcast-mode=block --output=json)
-venusstoreres=$($seidbin tx wasm store venus/artifacts/venus.wasm -y --from=$keyname --chain-id=$chainid --gas=5000000 --fees=1000000usei --broadcast-mode=block --output=json)
+jupiterstoreres=$(printf "12345678\n" | $seidbin tx wasm store jupiter/artifacts/jupiter.wasm -y --from=$keyname --chain-id=$chainid --gas=5000000 --fees=1000000usei --broadcast-mode=block --output=json)
+marsstoreres=$(printf "12345678\n" | $seidbin tx wasm store mars/artifacts/mars.wasm -y --from=$keyname --chain-id=$chainid --gas=5000000 --fees=1000000usei --broadcast-mode=block --output=json)
+saturnstoreres=$(printf "12345678\n" | $seidbin tx wasm store saturn/artifacts/saturn.wasm -y --from=$keyname --chain-id=$chainid --gas=5000000 --fees=1000000usei --broadcast-mode=block --output=json)
+venusstoreres=$(printf "12345678\n" | $seidbin tx wasm store venus/artifacts/venus.wasm -y --from=$keyname --chain-id=$chainid --gas=5000000 --fees=1000000usei --broadcast-mode=block --output=json)
 jupiterid=$(python3 parser.py code_id $jupiterstoreres)
 marsid=$(python3 parser.py code_id $marsstoreres)
 saturnid=$(python3 parser.py code_id $saturnstoreres)
@@ -52,47 +52,43 @@ venusid=$(python3 parser.py code_id $venusstoreres)
 
 # instantiate
 echo "Instantiating..."
-marsinsres=$($seidbin tx wasm instantiate $marsid '{}' -y --no-admin --from=$keyname --chain-id=$chainid --gas=5000000 --fees=1000000usei --broadcast-mode=block  --label=dex --output=json)
-saturninsres=$($seidbin tx wasm instantiate $saturnid '{}' -y --no-admin --from=$keyname --chain-id=$chainid --gas=5000000 --fees=1000000usei --broadcast-mode=block  --label=dex --output=json)
-venusinsres=$($seidbin tx wasm instantiate $venusid '{}' -y --no-admin --from=$keyname --chain-id=$chainid --gas=5000000 --fees=1000000usei --broadcast-mode=block  --label=dex --output=json)
+
+valaddr=$(printf "12345678\n" | $seidbin keys show $(printf "12345678\n" | $seidbin keys show node_admin --output json | jq -r .address) --bech=val --output json | jq -r '.address')
+printf "12345678\n" | $seidbin tx staking delegate $valaddr 1000000000usei --from=$keyname --chain-id=$chainid -b block -y
+
+marsinsres=$(printf "12345678\n" | $seidbin tx wasm instantiate $marsid '{}' -y --no-admin --from=$keyname --chain-id=$chainid --gas=5000000 --fees=1000000usei --broadcast-mode=block  --label=dex --output=json)
+saturninsres=$(printf "12345678\n" | $seidbin tx wasm instantiate $saturnid '{}' -y --no-admin --from=$keyname --chain-id=$chainid --gas=5000000 --fees=1000000usei --broadcast-mode=block  --label=dex --output=json)
+venusinsres=$(printf "12345678\n" | $seidbin tx wasm instantiate $venusid '{}' -y --no-admin --from=$keyname --chain-id=$chainid --gas=5000000 --fees=1000000usei --broadcast-mode=block  --label=dex --output=json)
 marsaddr=$(python3 parser.py contract_address $marsinsres)
 saturnaddr=$(python3 parser.py contract_address $saturninsres)
 venusaddr=$(python3 parser.py contract_address $venusinsres)
-jupiterinsres=$($seidbin tx wasm instantiate $jupiterid '{"mars_address":"'$marsaddr'"}' -y --no-admin --from=$keyname --chain-id=$chainid --gas=5000000 --fees=1000000usei --broadcast-mode=block  --label=dex --output=json)
+jupiterinsres=$(printf "12345678\n" | $seidbin tx wasm instantiate $jupiterid '{"mars_address":"'$marsaddr'"}' -y --no-admin --from=$keyname --chain-id=$chainid --gas=5000000 --fees=1000000usei --broadcast-mode=block  --label=dex --output=json)
 jupiteraddr=$(python3 parser.py contract_address $jupiterinsres)
 
 # register
 echo "Registering..."
-$seidbin tx dex register-contract $marsaddr $marsid false true  -y --from=$keyname --chain-id=$chainid --fees=10000000usei --gas=500000 --broadcast-mode=block
-$seidbin tx dex register-contract $saturnaddr $saturnid false true $marsaddr -y --from=$keyname --chain-id=$chainid --fees=10000000usei --gas=500000 --broadcast-mode=block
-$seidbin tx dex register-contract $venusaddr $venusid false true -y --from=$keyname --chain-id=$chainid --fees=10000000usei --gas=500000 --broadcast-mode=block
-$seidbin tx dex register-contract $jupiteraddr $jupiterid false true $marsaddr -y --from=$keyname --chain-id=$chainid --fees=10000000usei --gas=500000 --broadcast-mode=block
+printf "12345678\n" | $seidbin tx dex register-contract $marsaddr $marsid false true  -y --from=$keyname --chain-id=$chainid --fees=10000000usei --gas=500000 --broadcast-mode=block
+printf "12345678\n" | $seidbin tx dex register-contract $saturnaddr $saturnid false true $marsaddr -y --from=$keyname --chain-id=$chainid --fees=10000000usei --gas=500000 --broadcast-mode=block
+printf "12345678\n" | $seidbin tx dex register-contract $venusaddr $venusid false true -y --from=$keyname --chain-id=$chainid --fees=10000000usei --gas=500000 --broadcast-mode=block
+printf "12345678\n" | $seidbin tx dex register-contract $jupiteraddr $jupiterid false true $marsaddr -y --from=$keyname --chain-id=$chainid --fees=10000000usei --gas=500000 --broadcast-mode=block
 
-echo '{"title":"Jupiter","description":"jupiter","batch_contract_pair":[{"contract_addr":"'$jupiteraddr'","pairs":[{"price_denom":"SEI","asset_denom":"ATOM","tick_size":"0.0000001"}]}],"deposit":"1000000usei"}' > jupiter.json
-jupiterpair=$($seidbin tx dex register-pairs-proposal jupiter.json -y --from=$keyname --chain-id=$chainid --fees=10000000usei --gas=500000 --broadcast-mode=block --output=json)
-jupiterproposalid=$(python3 parser.py proposal_id $jupiterpair)
-$seidbin tx gov deposit $jupiterproposalid 10000000usei -y --from=$keyname --chain-id=$chainid --fees=10000000usei --gas=500000 --broadcast-mode=block
-$seidbin tx gov vote $jupiterproposalid yes -y --from=$keyname --chain-id=$chainid --fees=10000000usei --gas=500000 --broadcast-mode=block
+echo '{"batch_contract_pair":[{"contract_addr":"'$jupiteraddr'","pairs":[{"price_denom":"SEI","asset_denom":"ATOM","tick_size":"0.0000001"}]}]}' > jupiter.json
+jupiterpair=$(printf "12345678\n" | $seidbin tx dex register-pairs jupiter.json -y --from=$keyname --chain-id=$chainid --fees=10000000usei --gas=500000 --broadcast-mode=block --output=json)
 
-echo '{"title":"Mars","description":"mars","batch_contract_pair":[{"contract_addr":"'$marsaddr'","pairs":[{"price_denom":"SEI","asset_denom":"ATOM","tick_size":"0.0000001"}]}],"deposit":"1000000usei"}' > mars.json
-marspair=$($seidbin tx dex register-pairs-proposal mars.json -y --from=$keyname --chain-id=$chainid --fees=10000000usei --gas=500000 --broadcast-mode=block --output=json)
-marsproposalid=$(python3 parser.py proposal_id $marspair)
-$seidbin tx gov deposit $marsproposalid 10000000usei -y --from=$keyname --chain-id=$chainid --fees=10000000usei --gas=500000 --broadcast-mode=block
-$seidbin tx gov vote $marsproposalid yes -y --from=$keyname --chain-id=$chainid --fees=10000000usei --gas=500000 --broadcast-mode=block
+echo '{"batch_contract_pair":[{"contract_addr":"'$marsaddr'","pairs":[{"price_denom":"SEI","asset_denom":"ATOM","tick_size":"0.0000001"}]}]}' > mars.json
+marspair=$(printf "12345678\n" | $seidbin tx dex register-pairs mars.json -y --from=$keyname --chain-id=$chainid --fees=10000000usei --gas=500000 --broadcast-mode=block --output=json)
 
-echo '{"title":"Saturn","description":"saturn","batch_contract_pair":[{"contract_addr":"'$saturnaddr'","pairs":[{"price_denom":"SEI","asset_denom":"ATOM","tick_size":"0.0000001"}]}],"deposit":"1000000usei"}' > saturn.json
-saturnpair=$($seidbin tx dex register-pairs-proposal saturn.json -y --from=$keyname --chain-id=$chainid --fees=10000000usei --gas=500000 --broadcast-mode=block --output=json)
-saturnproposalid=$(python3 parser.py proposal_id $saturnpair)
-$seidbin tx gov deposit $saturnproposalid 10000000usei -y --from=$keyname --chain-id=$chainid --fees=10000000usei --gas=500000 --broadcast-mode=block
-$seidbin tx gov vote $saturnproposalid yes -y --from=$keyname --chain-id=$chainid --fees=10000000usei --gas=500000 --broadcast-mode=block
+echo '{"batch_contract_pair":[{"contract_addr":"'$saturnaddr'","pairs":[{"price_denom":"SEI","asset_denom":"ATOM","tick_size":"0.0000001"}]}]}' > saturn.json
+saturnpair=$(printf "12345678\n" | $seidbin tx dex register-pairs saturn.json -y --from=$keyname --chain-id=$chainid --fees=10000000usei --gas=500000 --broadcast-mode=block --output=json)
 
-echo '{"title":"Venus","description":"venus","batch_contract_pair":[{"contract_addr":"'$venusaddr'","pairs":[{"price_denom":"SEI","asset_denom":"ATOM","tick_size":"0.0000001"}]}],"deposit":"1000000usei"}' > venus.json
-venuspair=$($seidbin tx dex register-pairs-proposal venus.json -y --from=$keyname --chain-id=$chainid --fees=10000000usei --gas=500000 --broadcast-mode=block --output=json)
-venusproposalid=$(python3 parser.py proposal_id $venuspair)
-$seidbin tx gov deposit $venusproposalid 10000000usei -y --from=$keyname --chain-id=$chainid --fees=10000000usei --gas=500000 --broadcast-mode=block
-$seidbin tx gov vote $venusproposalid yes -y --from=$keyname --chain-id=$chainid --fees=10000000usei --gas=500000 --broadcast-mode=block
+echo '{"batch_contract_pair":[{"contract_addr":"'$venusaddr'","pairs":[{"price_denom":"SEI","asset_denom":"ATOM","tick_size":"0.0000001"}]}]}' > venus.json
+venuspair=$(printf "12345678\n" | $seidbin tx dex register-pairs venus.json -y --from=$keyname --chain-id=$chainid --fees=10000000usei --gas=500000 --broadcast-mode=block --output=json)
 
-echo "Jupiter address: "$jupiteraddr
-echo "Mars address: "$marsaddr
-echo "Saturn address: "$saturnaddr
-echo "Venus address: "$venusaddr
+sleep 90
+
+printf "12345678\n" | $seidbin tx staking unbond $valaddr 1000000000usei --from=$keyname --chain-id=$chainid -b block -y
+
+echo $jupiteraddr
+echo $marsaddr
+echo $saturnaddr
+echo $venusaddr

@@ -28,6 +28,7 @@ func networkWithShortBookObjects(t *testing.T, n int) (*network.Network, []types
 	t.Helper()
 	cfg := network.DefaultConfig()
 	state := types.GenesisState{}
+	shortBookList := []types.ShortBook{}
 	require.NoError(t, cfg.Codec.UnmarshalJSON(cfg.GenesisState[types.ModuleName], &state))
 
 	for i := 0; i < n; i++ {
@@ -42,12 +43,24 @@ func networkWithShortBookObjects(t *testing.T, n int) (*network.Network, []types
 			},
 		}
 		nullify.Fill(&shortBook)
-		state.ShortBookList = append(state.ShortBookList, shortBook)
+		shortBookList = append(shortBookList, shortBook)
 	}
+
+	contractInfo := types.ContractInfoV2{
+		CodeId:       uint64(1),
+		ContractAddr: "sei1ghd753shjuwexxywmgs4xz7x2q732vcnkm6h2pyv9s6ah3hylvrqladqwc",
+	}
+	contractState := []types.ContractState{
+		{
+			ShortBookList: shortBookList,
+			ContractInfo:  contractInfo,
+		},
+	}
+	state.ContractState = contractState
 	buf, err := cfg.Codec.MarshalJSON(&state)
 	require.NoError(t, err)
 	cfg.GenesisState[types.ModuleName] = buf
-	return network.New(t, cfg), state.ShortBookList
+	return network.New(t, cfg), state.ContractState[0].ShortBookList
 }
 
 func TestShowShortBook(t *testing.T) {
@@ -79,7 +92,7 @@ func TestShowShortBook(t *testing.T) {
 	} {
 		tc := tc
 		t.Run(tc.desc, func(t *testing.T) {
-			args := []string{"genesis", tc.price, TEST_PAIR().PriceDenom, TEST_PAIR().AssetDenom}
+			args := []string{"sei1ghd753shjuwexxywmgs4xz7x2q732vcnkm6h2pyv9s6ah3hylvrqladqwc", tc.price, TEST_PAIR().PriceDenom, TEST_PAIR().AssetDenom}
 			args = append(args, tc.args...)
 			out, err := clitestutil.ExecTestCLICmd(ctx, query.CmdShowShortBook(), args)
 			if tc.err != nil {
@@ -106,7 +119,7 @@ func TestListShortBook(t *testing.T) {
 	ctx := net.Validators[0].ClientCtx
 	request := func(next []byte, offset, limit uint64, total bool) []string {
 		args := []string{
-			"genesis", TEST_PAIR().PriceDenom, TEST_PAIR().AssetDenom,
+			"sei1ghd753shjuwexxywmgs4xz7x2q732vcnkm6h2pyv9s6ah3hylvrqladqwc", TEST_PAIR().PriceDenom, TEST_PAIR().AssetDenom,
 			fmt.Sprintf("--%s=json", tmcli.OutputFlag),
 		}
 		if next == nil {
