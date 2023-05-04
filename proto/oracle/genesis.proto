@@ -13,7 +13,12 @@ message GenesisState {
   repeated ExchangeRateTuple exchange_rates     = 3
       [(gogoproto.castrepeated) = "ExchangeRateTuples", (gogoproto.nullable) = false];
   repeated PenaltyCounter                  penalty_counters                    = 4 [(gogoproto.nullable) = false];
+  reserved 5; // from prevote that got removed
   repeated AggregateExchangeRateVote    aggregate_exchange_rate_votes    = 6 [(gogoproto.nullable) = false];
+  repeated PriceSnapshot price_snapshots = 7 [
+    (gogoproto.nullable) = false,
+    (gogoproto.castrepeated) = "PriceSnapshots"
+  ];
 }
 
 message FeederDelegation {

@@ -2,6 +2,7 @@ package exchange
 
 import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	cache "github.com/sei-protocol/sei-chain/x/dex/cache"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
 	"github.com/sei-protocol/sei-chain/x/dex/types/utils"
 	"github.com/sei-protocol/sei-chain/x/dex/types/wasm"
@@ -13,12 +14,14 @@ type ToSettle struct {
 	account string
 }
 
+// this function helps to settle market orders
 func Settle(
 	ctx sdk.Context,
 	takerOrder *types.Order,
 	quantityTaken sdk.Dec,
 	order types.OrderBookEntry,
 	worstPrice sdk.Dec,
+	blockOrders *cache.BlockOrders,
 ) ([]*types.SettlementEntry, []*types.SettlementEntry) {
 	// settlement of one liquidity taker's order is allocated to all liquidity
 	// providers at the matched price level, propotional to the amount of liquidity
@@ -93,7 +96,27 @@ func Settle(
 			types.OrderType_LIMIT,
 		))
 	}
+
+	// update the status of order in the memState
+	UpdateOrderData(takerOrder, quantityTaken, blockOrders)
+
 	return takerSettlements, makerSettlements
+}
+
+// this function update the order data in the memState
+// to be noted that the order status will only reflect for market orders that are settled
+func UpdateOrderData(
+	takerOrder *types.Order,
+	quantityTaken sdk.Dec,
+	blockOrders *cache.BlockOrders,
+) {
+	// update order data in the memstate
+	orderStored := blockOrders.GetByID(takerOrder.Id)
+	orderStored.Quantity = orderStored.Quantity.Sub(quantityTaken)
+	if orderStored.OrderType == types.OrderType_FOKMARKET || orderStored.OrderType == types.OrderType_FOKMARKETBYVALUE || orderStored.Quantity.IsZero() {
+		orderStored.Status = types.OrderStatus_FULFILLED
+	}
+	blockOrders.Add(orderStored)
 }
 
 func SettleFromBook(

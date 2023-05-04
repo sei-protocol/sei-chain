@@ -31,3 +31,10 @@ c.out
 loadtest/contracts/**/artifacts/
 loadtest/contracts/**/target/
 loadtest/contracts/**.json
+
+loadtest_results.txt
+
+# parallelization test build artifact
+parallelization/**/artifacts/
+parallelization/**/target/
+parallelization/**/Cargo.lock

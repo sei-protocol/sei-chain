@@ -2,7 +2,6 @@ package query
 
 import (
 	"context"
-	"sort"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
@@ -13,7 +12,7 @@ func (k KeeperWrapper) GetTwaps(goCtx context.Context, req *types.QueryGetTwapsR
 	allRegisteredPairs := k.GetAllRegisteredPairs(ctx, req.ContractAddr)
 	twaps := []*types.Twap{}
 	for _, pair := range allRegisteredPairs {
-		prices := k.GetAllPrices(ctx, req.ContractAddr, pair)
+		prices := k.GetPricesForTwap(ctx, req.ContractAddr, pair, req.LookbackSeconds)
 		twaps = append(twaps, &types.Twap{
 			Pair:            &pair, //nolint:gosec,exportloopref // USING THE POINTER HERE COULD BE BAD, LET'S CHECK IT.
 			Twap:            calculateTwap(ctx, prices, req.LookbackSeconds),
@@ -27,28 +26,26 @@ func (k KeeperWrapper) GetTwaps(goCtx context.Context, req *types.QueryGetTwapsR
 }
 
 func calculateTwap(ctx sdk.Context, prices []*types.Price, lookback uint64) sdk.Dec {
-	// sort prices in descending order to start iteration from the latest
-	sort.Slice(prices, func(p1, p2 int) bool {
-		return prices[p1].SnapshotTimestampInSeconds > prices[p2].SnapshotTimestampInSeconds
-	})
-	var timeTraversed uint64
+	if len(prices) == 0 {
+		return sdk.ZeroDec()
+	}
 	weightedPriceSum := sdk.ZeroDec()
+	lastTimestamp := ctx.BlockTime().Unix()
 	for _, price := range prices {
-		newTimeTraversed := uint64(ctx.BlockTime().Unix()) - price.SnapshotTimestampInSeconds
-		if newTimeTraversed > lookback {
-			weightedPriceSum = weightedPriceSum.Add(
-				price.Price.MulInt64(int64(lookback - timeTraversed)),
-			)
-			timeTraversed = lookback
+		if uint64(ctx.BlockTime().Unix())-price.SnapshotTimestampInSeconds > lookback {
+			weight := lastTimestamp - ctx.BlockTime().Unix() + int64(lookback)
+			weightedPriceSum = weightedPriceSum.Add(price.Price.MulInt64(weight))
 			break
 		}
 		weightedPriceSum = weightedPriceSum.Add(
-			price.Price.MulInt64(int64(newTimeTraversed - timeTraversed)),
+			price.Price.MulInt64(lastTimestamp - int64(price.SnapshotTimestampInSeconds)),
 		)
-		timeTraversed = newTimeTraversed
+		lastTimestamp = int64(price.SnapshotTimestampInSeconds)
 	}
-	if timeTraversed == 0 {
-		return sdk.ZeroDec()
+	// not possible for division by 0 here since prices have unique timestamps
+	totalTimeSpan := ctx.BlockTime().Unix() - int64(prices[len(prices)-1].SnapshotTimestampInSeconds)
+	if totalTimeSpan > int64(lookback) {
+		totalTimeSpan = int64(lookback)
 	}
-	return weightedPriceSum.QuoInt64(int64(timeTraversed))
+	return weightedPriceSum.QuoInt64(totalTimeSpan)
 }

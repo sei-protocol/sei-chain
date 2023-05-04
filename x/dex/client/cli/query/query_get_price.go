@@ -2,6 +2,7 @@ package query
 
 import (
 	"strconv"
+	"strings"
 
 	"github.com/cosmos/cosmos-sdk/client"
 	"github.com/cosmos/cosmos-sdk/client/flags"
@@ -15,7 +16,10 @@ func CmdGetPrice() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "get-price [contract-address] [timestamp] [price-denom] [asset-denom]",
 		Short: "Query getPrice",
-		Args:  cobra.ExactArgs(3),
+		Long: strings.TrimSpace(`
+			Get the price for a pair from a dex specified by the contract-address. The price and asset denom are used to specify the dex pair for which to return the latest price. The timestamp is used to query the price for that specific timestamp.  For the latest price use get-latest-price instead or for all prices use get-prices.
+		`),
+		Args: cobra.ExactArgs(3),
 		RunE: func(cmd *cobra.Command, args []string) (err error) {
 			reqContractAddr := args[0]
 			reqTimestamp, err := strconv.ParseUint(args[1], 10, 64)

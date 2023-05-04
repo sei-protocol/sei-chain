@@ -19,7 +19,6 @@ func (k KeeperWrapper) GetHistoricalPrices(goCtx context.Context, req *types.Que
 
 	ctx := sdk.UnwrapSDKContext(goCtx)
 
-	// TODO: optimize by introducing a getter that takes a time filter
 	prices := k.GetAllPrices(ctx, req.ContractAddr, types.Pair{PriceDenom: req.PriceDenom, AssetDenom: req.AssetDenom})
 	currentTimeStamp := uint64(ctx.BlockTime().Unix())
 	beginTimestamp := currentTimeStamp - req.NumOfPeriods*req.PeriodLengthInSeconds

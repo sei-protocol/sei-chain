@@ -150,43 +150,24 @@ func (q querier) VotePenaltyCounter(c context.Context, req *types.QueryVotePenal
 		VotePenaltyCounter: &types.VotePenaltyCounter{
 			MissCount:    q.GetMissCount(ctx, valAddr),
 			AbstainCount: q.GetAbstainCount(ctx, valAddr),
+			SuccessCount: q.GetSuccessCount(ctx, valAddr),
 		},
 	}, nil
 }
 
-// AggregateVote queries an aggregate vote of a validator
-func (q querier) AggregateVote(c context.Context, req *types.QueryAggregateVoteRequest) (*types.QueryAggregateVoteResponse, error) {
+func (q querier) SlashWindow(
+	goCtx context.Context,
+	req *types.QuerySlashWindowRequest,
+) (*types.QuerySlashWindowResponse, error) {
 	if req == nil {
-		return nil, status.Error(codes.InvalidArgument, "invalid request")
+		return nil, status.Error(codes.InvalidArgument, "empty request")
 	}
 
-	valAddr, err := sdk.ValAddressFromBech32(req.ValidatorAddr)
-	if err != nil {
-		return nil, status.Error(codes.InvalidArgument, err.Error())
-	}
+	ctx := sdk.UnwrapSDKContext(goCtx)
+	params := q.GetParams(ctx)
 
-	ctx := sdk.UnwrapSDKContext(c)
-	vote, err := q.GetAggregateExchangeRateVote(ctx, valAddr)
-	if err != nil {
-		return nil, err
-	}
-
-	return &types.QueryAggregateVoteResponse{
-		AggregateVote: vote,
-	}, nil
-}
-
-// AggregateVotes queries aggregate votes of all validators
-func (q querier) AggregateVotes(c context.Context, req *types.QueryAggregateVotesRequest) (*types.QueryAggregateVotesResponse, error) {
-	ctx := sdk.UnwrapSDKContext(c)
-
-	var votes []types.AggregateExchangeRateVote
-	q.IterateAggregateExchangeRateVotes(ctx, func(_ sdk.ValAddress, vote types.AggregateExchangeRateVote) bool {
-		votes = append(votes, vote)
-		return false
-	})
-
-	return &types.QueryAggregateVotesResponse{
-		AggregateVotes: votes,
+	return &types.QuerySlashWindowResponse{
+		WindowProgress: (uint64(ctx.BlockHeight()) % params.SlashWindow) /
+			params.VotePeriod,
 	}, nil
 }

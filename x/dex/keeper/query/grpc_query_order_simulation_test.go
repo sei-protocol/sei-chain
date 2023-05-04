@@ -8,6 +8,7 @@ import (
 	"github.com/sei-protocol/sei-chain/x/dex/keeper/query"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
 	"github.com/sei-protocol/sei-chain/x/dex/types/utils"
+	dexutils "github.com/sei-protocol/sei-chain/x/dex/utils"
 	"github.com/stretchr/testify/require"
 )
 
@@ -76,7 +77,7 @@ func TestGetOrderSimulation(t *testing.T) {
 			},
 		},
 	})
-	keeper.MemState.GetBlockCancels(ctx, utils.ContractAddress(keepertest.TestContract), utils.GetPairString(&keepertest.TestPair)).Add(
+	dexutils.GetMemState(ctx.Context()).GetBlockCancels(ctx, utils.ContractAddress(keepertest.TestContract), utils.GetPairString(&keepertest.TestPair)).Add(
 		&types.Cancellation{Id: 1, Price: sdk.MustNewDecFromStr("9"), PositionDirection: types.PositionDirection_SHORT, PriceDenom: keepertest.TestPriceDenom, AssetDenom: keepertest.TestAssetDenom},
 	)
 	res, err = wrapper.GetOrderSimulation(wctx, &types.QueryOrderSimulationRequest{Order: &testOrder, ContractAddr: keepertest.TestContract})
@@ -84,7 +85,7 @@ func TestGetOrderSimulation(t *testing.T) {
 	require.Equal(t, sdk.OneDec(), *res.ExecutedQuantity)
 
 	// liquidity taken by earlier market orders
-	keeper.MemState.GetBlockOrders(ctx, utils.ContractAddress(keepertest.TestContract), utils.GetPairString(&keepertest.TestPair)).Add(
+	dexutils.GetMemState(ctx.Context()).GetBlockOrders(ctx, utils.ContractAddress(keepertest.TestContract), utils.GetPairString(&keepertest.TestPair)).Add(
 		&types.Order{
 			Account:           keepertest.TestAccount,
 			PriceDenom:        keepertest.TestPriceDenom,

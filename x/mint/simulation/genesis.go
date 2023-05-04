@@ -15,25 +15,22 @@ import (
 
 // RandomizedGenState generates a random GenesisState for mint.
 func RandomizedGenState(simState *module.SimulationState) {
-	// minter
 	mintDenom := sdk.DefaultBondDenom
-
-	randomProvision := rand.Int63n(1000000)
-	epochProvisions := sdk.NewDec(randomProvision + 500000) // Some value between 500000 - 1500000
-
+	randomProvision := uint64(rand.Int63n(1000000))
 	currentDate := time.Now()
 	// Epochs are every minute, set reduction period to be 1 year
 	tokenReleaseSchedule := []types.ScheduledTokenRelease{}
 
 	for i := 1; i <= 10; i++ {
 		scheduledTokenRelease := types.ScheduledTokenRelease{
-			Date:               currentDate.AddDate(1, 0, 0).Format(types.TokenReleaseDateFormat),
-			TokenReleaseAmount: randomProvision / int64(i),
+			StartDate:          currentDate.AddDate(1, 0, 0).Format(types.TokenReleaseDateFormat),
+			EndDate:            currentDate.AddDate(3, 0, 0).Format(types.TokenReleaseDateFormat),
+			TokenReleaseAmount: randomProvision / uint64(i),
 		}
 		tokenReleaseSchedule = append(tokenReleaseSchedule, scheduledTokenRelease)
 	}
 
-	params := types.NewParams(mintDenom, epochProvisions, tokenReleaseSchedule)
+	params := types.NewParams(mintDenom, tokenReleaseSchedule)
 
 	mintGenesis := types.NewGenesisState(types.InitialMinter(), params)
 

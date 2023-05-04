@@ -1,0 +1,63 @@
+gas_adjustment = 1.5
+gas_prices = "0.00125usei"
+enable_server = true
+enable_voter = true
+
+[server]
+listen_addr = "0.0.0.0:7171"
+read_timeout = "20s"
+verbose_cors = true
+write_timeout = "20s"
+
+[[deviation_thresholds]]
+base = "USDT"
+threshold = "2"
+
+[[currency_pairs]]
+base = "ATOM"
+chain_denom = "uatom"
+providers = [
+  "huobi",
+  "kraken",
+  "coinbase",
+]
+quote = "USD"
+
+[[currency_pairs]]
+base = "ETH"
+chain_denom = "ueth"
+providers = [
+  "huobi",
+  "kraken",
+  "coinbase",
+]
+quote = "USD"
+
+[account]
+address = "address"
+chain_id = "sei"
+validator = "validator"
+prefix = "sei"
+
+[keyring]
+backend = "os"
+dir = "/root/.sei"
+
+[rpc]
+grpc_endpoint = "localhost:9090"
+rpc_timeout = "100ms"
+tmrpc_endpoint = "http://localhost:26657"
+
+[telemetry]
+enable_hostname = true
+enable_hostname_label = true
+enable_service_label = true
+enabled = true
+global_labels = [["chain-id", "sei-chain"]]
+service_name = "price-feeder"
+type = "prometheus"
+
+[[provider_endpoints]]
+name = "binance"
+rest = "https://api1.binance.com"
+websocket = "stream.binance.com:9443"
