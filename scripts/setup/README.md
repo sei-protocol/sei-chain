@@ -14,7 +14,7 @@ run this if you're trying to launch a new network. This will generate the genesi
 
 run this if you're trying to setup a price feeder service on a validator node post genesis. Then you'll need to transfer sei tokens to the feeder address wallet in order for oracle to work properly
 
-## Runing Services
+## Running Services
 
 For seid and price-feeder processes, it's reccomended to run as a systemd service.
 
