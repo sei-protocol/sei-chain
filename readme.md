@@ -35,14 +35,9 @@ Developers, traders, and users can all connect to Sei as ecosystem partners bene
 
 ## Hardware Requirements
 **Minimum**
-* 8 GB RAM
-* 100 GB NVME SSD
-* 3.2 GHz x4 CPU
-
-**Recommended**
-* 16 GB RAM
-* 500 GB NVME SSD
-* 4.2 GHz x6 CPU 
+* 32 GB RAM
+* 1 TB NVME SSD
+* 16 Cores (modern CPU's)
 
 ## Operating System 
 
