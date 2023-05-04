@@ -77,7 +77,7 @@ func TestGetSortedMarketOrders(t *testing.T) {
 		Account:           "test",
 		ContractAddr:      TEST_CONTRACT,
 		PositionDirection: types.PositionDirection_LONG,
-		OrderType:         types.OrderType_LIQUIDATION,
+		OrderType:         types.OrderType_MARKET,
 		Price:             sdk.MustNewDecFromStr("150"),
 	})
 	stateOne.GetBlockOrders(ctx, utils.ContractAddress(TEST_CONTRACT), utils.PairString(TEST_PAIR)).Add(&types.Order{
@@ -101,7 +101,7 @@ func TestGetSortedMarketOrders(t *testing.T) {
 		Account:           "test",
 		ContractAddr:      TEST_CONTRACT,
 		PositionDirection: types.PositionDirection_SHORT,
-		OrderType:         types.OrderType_LIQUIDATION,
+		OrderType:         types.OrderType_MARKET,
 		Price:             sdk.MustNewDecFromStr("100"),
 	})
 	stateOne.GetBlockOrders(ctx, utils.ContractAddress(TEST_CONTRACT), utils.PairString(TEST_PAIR)).Add(&types.Order{
@@ -137,35 +137,17 @@ func TestGetSortedMarketOrders(t *testing.T) {
 		Price:             sdk.MustNewDecFromStr("100"),
 	})
 
-	marketBuysWithLiquidation := stateOne.GetBlockOrders(
-		ctx, utils.ContractAddress(TEST_CONTRACT), utils.PairString(TEST_PAIR)).GetSortedMarketOrders(
-		types.PositionDirection_LONG, true,
-	)
-	require.Equal(t, uint64(3), marketBuysWithLiquidation[0].Id)
-	require.Equal(t, uint64(1), marketBuysWithLiquidation[1].Id)
-	require.Equal(t, uint64(2), marketBuysWithLiquidation[2].Id)
+	marketBuys := stateOne.GetBlockOrders(
+		ctx, utils.ContractAddress(TEST_CONTRACT), utils.PairString(TEST_PAIR)).GetSortedMarketOrders(types.PositionDirection_LONG)
+	require.Equal(t, uint64(3), marketBuys[0].Id)
+	require.Equal(t, uint64(1), marketBuys[1].Id)
+	require.Equal(t, uint64(2), marketBuys[2].Id)
 
-	marketBuysWithoutLiquidation := stateOne.GetBlockOrders(
-		ctx, utils.ContractAddress(TEST_CONTRACT), utils.PairString(TEST_PAIR)).GetSortedMarketOrders(
-		types.PositionDirection_LONG, false,
-	)
-	require.Equal(t, uint64(3), marketBuysWithoutLiquidation[0].Id)
-	require.Equal(t, uint64(2), marketBuysWithoutLiquidation[1].Id)
-
-	marketSellsWithLiquidation := stateOne.GetBlockOrders(
-		ctx, utils.ContractAddress(TEST_CONTRACT), utils.PairString(TEST_PAIR)).GetSortedMarketOrders(
-		types.PositionDirection_SHORT, true,
-	)
-	require.Equal(t, uint64(6), marketSellsWithLiquidation[0].Id)
-	require.Equal(t, uint64(5), marketSellsWithLiquidation[1].Id)
-	require.Equal(t, uint64(4), marketSellsWithLiquidation[2].Id)
-
-	marketSellsWithoutLiquidation := stateOne.GetBlockOrders(
-		ctx, utils.ContractAddress(TEST_CONTRACT), utils.PairString(TEST_PAIR)).GetSortedMarketOrders(
-		types.PositionDirection_SHORT, false,
-	)
-	require.Equal(t, uint64(6), marketSellsWithoutLiquidation[0].Id)
-	require.Equal(t, uint64(5), marketSellsWithoutLiquidation[1].Id)
+	marketSells := stateOne.GetBlockOrders(
+		ctx, utils.ContractAddress(TEST_CONTRACT), utils.PairString(TEST_PAIR)).GetSortedMarketOrders(types.PositionDirection_SHORT)
+	require.Equal(t, uint64(6), marketSells[0].Id)
+	require.Equal(t, uint64(5), marketSells[1].Id)
+	require.Equal(t, uint64(4), marketSells[2].Id)
 }
 
 func TestGetTriggeredOrders(t *testing.T) {
