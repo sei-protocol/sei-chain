@@ -71,3 +71,11 @@ pub enum SudoMsg {
         ids: Vec<u64>,
     },
 }
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ExecuteMsg {
+    UpdateDownstreams {
+        downstreams: Vec<Addr>,
+    },
+}

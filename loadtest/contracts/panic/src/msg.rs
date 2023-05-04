@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, JsonSchema)]
 pub struct InstantiateMsg {
-    pub mars_address: Addr,
+    pub downstreams: Vec<Addr>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
@@ -60,10 +60,6 @@ pub enum SudoMsg {
     Settlement {
         epoch: i64,
         entries: Vec<SettlementEntry>,
-    },
-
-    NewBlock {
-        epoch: i64,
     },
 
     BulkOrderPlacements {

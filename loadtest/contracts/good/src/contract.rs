@@ -3,7 +3,7 @@ use cosmwasm_std::{
     Response, StdError, StdResult, Binary,
 };
 use crate::msg::{
-    DepositInfo, InstantiateMsg, SettlementEntry, SudoMsg, BulkOrderPlacementsResponse,
+    DepositInfo, InstantiateMsg, SettlementEntry, SudoMsg, BulkOrderPlacementsResponse, ExecuteMsg,
 };
 use sei_cosmwasm::{
     Order, SeiMsg, SeiQueryWrapper,
@@ -82,11 +82,6 @@ pub fn process_bulk_order_placements(
         }
     }
 
-    let mut _count = 0;
-    for i in 1..100000000 {
-        _count*=i;
-    }
-
     Ok(response)
 }
 
@@ -96,4 +91,19 @@ pub fn process_bulk_order_cancellations(
 ) -> Result<Response<SeiMsg>, StdError> {
     order_cancellation(deps.storage, &ids);
     Ok(Response::new())
+}
+
+#[entry_point]
+pub fn execute(
+    deps: DepsMut<SeiQueryWrapper>,
+    _env: Env,
+    _info: MessageInfo,
+    msg: ExecuteMsg,
+) -> Result<Response<SeiMsg>, StdError> {
+    match msg {
+        ExecuteMsg::UpdateDownstreams { downstreams } => {
+            DOWNSTREAMS.save(deps.storage, &downstreams).unwrap();
+            Ok(Response::new())
+        },
+    }
 }
