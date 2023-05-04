@@ -2,14 +2,19 @@ package contract
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
 
+	"github.com/cosmos/cosmos-sdk/telemetry"
+	seiutils "github.com/sei-protocol/sei-chain/utils"
 	"github.com/sei-protocol/sei-chain/utils/logging"
 	"github.com/sei-protocol/sei-chain/utils/tracing"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
+	bankkeeper "github.com/cosmos/cosmos-sdk/x/bank/keeper"
 	"github.com/sei-protocol/sei-chain/store/whitelist/multi"
 	seisync "github.com/sei-protocol/sei-chain/sync"
 	"github.com/sei-protocol/sei-chain/utils/datastructures"
@@ -30,6 +35,7 @@ const LogExecSigSendAfter = 2 * time.Second
 type environment struct {
 	validContractsInfo          []types.ContractInfoV2
 	failedContractAddresses     datastructures.SyncSet[string]
+	outOfRentContractAddresses  datastructures.SyncSet[string]
 	settlementsByContract       *datastructures.TypedSyncMap[string, []*types.SettlementEntry]
 	executionTerminationSignals *datastructures.TypedSyncMap[string, chan struct{}]
 	registeredPairs             *datastructures.TypedSyncMap[string, []types.Pair]
@@ -39,13 +45,17 @@ type environment struct {
 	eventManagerMutex *sync.Mutex
 }
 
-func EndBlockerAtomic(ctx sdk.Context, keeper *keeper.Keeper, validContractsInfo []types.ContractInfoV2, tracingInfo *tracing.Info) ([]types.ContractInfoV2, sdk.Context, bool) {
+func EndBlockerAtomic(ctx sdk.Context, keeper *keeper.Keeper, validContractsInfo []types.ContractInfoV2, tracingInfo *tracing.Info) ([]types.ContractInfoV2, []types.ContractInfoV2, sdk.Context, bool) {
 	tracer := tracingInfo.Tracer
 	spanCtx, span := tracingInfo.Start("DexEndBlockerAtomic")
 	defer span.End()
+	defer telemetry.MeasureSince(time.Now(), "dex", "end_blocker_atomic")
+
 	env := newEnv(ctx, validContractsInfo, keeper)
 	cachedCtx, msCached := cacheContext(ctx, env)
 	memStateCopy := dexutils.GetMemState(cachedCtx.Context()).DeepCopy()
+	preRunRents := keeper.GetRentsForContracts(cachedCtx, seiutils.Map(validContractsInfo, func(c types.ContractInfoV2) string { return c.ContractAddr }))
+
 	handleDeposits(spanCtx, cachedCtx, env, keeper, tracer)
 
 	runner := NewParallelRunner(func(contract types.ContractInfoV2) {
@@ -64,10 +74,13 @@ func EndBlockerAtomic(ctx sdk.Context, keeper *keeper.Keeper, validContractsInfo
 	handleSettlements(spanCtx, cachedCtx, env, keeper, tracer)
 	handleUnfulfilledMarketOrders(spanCtx, cachedCtx, env, keeper, tracer)
 
+	telemetry.IncrCounter(float32(env.failedContractAddresses.Size()), "dex", "total_failed_contracts")
 	// No error is thrown for any contract. This should happen most of the time.
 	if env.failedContractAddresses.Size() == 0 {
+		postRunRents := keeper.GetRentsForContracts(cachedCtx, seiutils.Map(validContractsInfo, func(c types.ContractInfoV2) string { return c.ContractAddr }))
+		TransferRentFromDexToCollector(ctx, keeper.BankKeeper, preRunRents, postRunRents)
 		msCached.Write()
-		return env.validContractsInfo, ctx, true
+		return env.validContractsInfo, []types.ContractInfoV2{}, ctx, true
 	}
 
 	// persistent contract rent charges for failed contracts and discard everything else
@@ -92,7 +105,7 @@ func EndBlockerAtomic(ctx sdk.Context, keeper *keeper.Keeper, validContractsInfo
 
 	// restore keeper in-memory state
 	newGoContext := context.WithValue(ctx.Context(), dexutils.DexMemStateContextKey, memStateCopy)
-	return filterNewValidContracts(ctx, env), ctx.WithContext(newGoContext), false
+	return filterNewValidContracts(ctx, env), getOutOfRentContracts(env), ctx.WithContext(newGoContext), false
 }
 
 func newEnv(ctx sdk.Context, validContractsInfo []types.ContractInfoV2, keeper *keeper.Keeper) *environment {
@@ -112,6 +125,7 @@ func newEnv(ctx sdk.Context, validContractsInfo []types.ContractInfoV2, keeper *
 	return &environment{
 		validContractsInfo:          validContractsInfo,
 		failedContractAddresses:     datastructures.NewSyncSet([]string{}),
+		outOfRentContractAddresses:  datastructures.NewSyncSet([]string{}),
 		settlementsByContract:       settlementsByContract,
 		executionTerminationSignals: executionTerminationSignals,
 		registeredPairs:             registeredPairs,
@@ -119,6 +133,14 @@ func newEnv(ctx sdk.Context, validContractsInfo []types.ContractInfoV2, keeper *
 		finalizeMsgMutex:            &sync.Mutex{},
 		eventManagerMutex:           &sync.Mutex{},
 	}
+}
+
+func (e *environment) addError(contractAddr string, err error) {
+	if err == types.ErrInsufficientRent {
+		e.outOfRentContractAddresses.Add(contractAddr)
+		return
+	}
+	e.failedContractAddresses.Add(contractAddr)
 }
 
 func cacheContext(ctx sdk.Context, env *environment) (sdk.Context, sdk.CacheMultiStore) {
@@ -141,13 +163,14 @@ func handleDeposits(spanCtx context.Context, ctx sdk.Context, env *environment, 
 	// Handle deposit sequentially since they mutate `bank` state which is shared by all contracts
 	_, span := (*tracer).Start(spanCtx, "handleDeposits")
 	defer span.End()
+	defer telemetry.MeasureSince(time.Now(), "dex", "handle_deposits")
 	keeperWrapper := dexkeeperabci.KeeperWrapper{Keeper: keeper}
 	for _, contract := range env.validContractsInfo {
 		if !contract.NeedOrderMatching {
 			continue
 		}
 		if err := keeperWrapper.HandleEBDeposit(spanCtx, ctx, tracer, contract.ContractAddr); err != nil {
-			env.failedContractAddresses.Add(contract.ContractAddr)
+			env.addError(contract.ContractAddr, err)
 		}
 	}
 }
@@ -155,6 +178,7 @@ func handleDeposits(spanCtx context.Context, ctx sdk.Context, env *environment, 
 func handleSettlements(ctx context.Context, sdkCtx sdk.Context, env *environment, keeper *keeper.Keeper, tracer *otrace.Tracer) {
 	_, span := (*tracer).Start(ctx, "DexEndBlockerHandleSettlements")
 	defer span.End()
+	defer telemetry.MeasureSince(time.Now(), "dex", "handle_settlements")
 	contractsNeedOrderMatching := datastructures.NewSyncSet([]string{})
 	for _, contract := range env.validContractsInfo {
 		if contract.NeedOrderMatching {
@@ -167,7 +191,7 @@ func handleSettlements(ctx context.Context, sdkCtx sdk.Context, env *environment
 		}
 		if err := HandleSettlements(sdkCtx, contractAddr, keeper, settlements); err != nil {
 			sdkCtx.Logger().Error(fmt.Sprintf("Error handling settlements for %s", contractAddr))
-			env.failedContractAddresses.Add(contractAddr)
+			env.addError(contractAddr, err)
 		}
 		return true
 	})
@@ -175,6 +199,7 @@ func handleSettlements(ctx context.Context, sdkCtx sdk.Context, env *environment
 
 func handleUnfulfilledMarketOrders(ctx context.Context, sdkCtx sdk.Context, env *environment, keeper *keeper.Keeper, tracer *otrace.Tracer) {
 	// Cancel unfilled market orders
+	defer telemetry.MeasureSince(time.Now(), "dex", "handle_unfulfilled_market_orders")
 	for _, contract := range env.validContractsInfo {
 		if contract.NeedOrderMatching {
 			registeredPairs, found := env.registeredPairs.Load(contract.ContractAddr)
@@ -183,7 +208,7 @@ func handleUnfulfilledMarketOrders(ctx context.Context, sdkCtx sdk.Context, env 
 			}
 			if err := CancelUnfulfilledMarketOrders(ctx, sdkCtx, contract.ContractAddr, keeper, registeredPairs, tracer); err != nil {
 				sdkCtx.Logger().Error(fmt.Sprintf("Error cancelling unfulfilled market orders for %s", contract.ContractAddr))
-				env.failedContractAddresses.Add(contract.ContractAddr)
+				env.addError(contract.ContractAddr, err)
 			}
 		}
 	}
@@ -192,6 +217,7 @@ func handleUnfulfilledMarketOrders(ctx context.Context, sdkCtx sdk.Context, env 
 func orderMatchingRunnable(ctx context.Context, sdkContext sdk.Context, env *environment, keeper *keeper.Keeper, contractInfo types.ContractInfoV2, tracer *otrace.Tracer) {
 	_, span := (*tracer).Start(ctx, "orderMatchingRunnable")
 	defer span.End()
+	defer telemetry.MeasureSince(time.Now(), "dex", "order_matching_runnable")
 	defer func() {
 		if channel, ok := env.executionTerminationSignals.Load(contractInfo.ContractAddr); ok {
 			_, err := logging.LogIfNotDoneAfter(sdkContext.Logger(), func() (struct{}, error) {
@@ -215,10 +241,10 @@ func orderMatchingRunnable(ctx context.Context, sdkContext sdk.Context, env *env
 
 	if !pairFound || !found {
 		sdkContext.Logger().Error(fmt.Sprintf("No pair or order book for %s", contractInfo.ContractAddr))
-		env.failedContractAddresses.Add(contractInfo.ContractAddr)
+		env.addError(contractInfo.ContractAddr, errors.New("no pair found (internal error)"))
 	} else if settlements, err := HandleExecutionForContract(ctx, sdkContext, contractInfo, keeper, pairs, orderBooks, tracer); err != nil {
 		sdkContext.Logger().Error(fmt.Sprintf("Error for EndBlock of %s", contractInfo.ContractAddr))
-		env.failedContractAddresses.Add(contractInfo.ContractAddr)
+		env.addError(contractInfo.ContractAddr, err)
 	} else {
 		env.settlementsByContract.Store(contractInfo.ContractAddr, settlements)
 	}
@@ -232,12 +258,39 @@ func orderMatchingRunnable(ctx context.Context, sdkContext sdk.Context, env *env
 func filterNewValidContracts(ctx sdk.Context, env *environment) []types.ContractInfoV2 {
 	newValidContracts := []types.ContractInfoV2{}
 	for _, contract := range env.validContractsInfo {
-		if !env.failedContractAddresses.Contains(contract.ContractAddr) {
+		if !env.failedContractAddresses.Contains(contract.ContractAddr) && !env.outOfRentContractAddresses.Contains(contract.ContractAddr) {
 			newValidContracts = append(newValidContracts, contract)
 		}
 	}
 	for _, failedContractAddress := range env.failedContractAddresses.ToOrderedSlice(datastructures.StringComparator) {
 		dexutils.GetMemState(ctx.Context()).DeepFilterAccount(ctx, failedContractAddress)
 	}
+	for _, outOfRentContractAddress := range env.outOfRentContractAddresses.ToOrderedSlice(datastructures.StringComparator) {
+		dexutils.GetMemState(ctx.Context()).DeepFilterAccount(ctx, outOfRentContractAddress)
+	}
 	return newValidContracts
+}
+
+func getOutOfRentContracts(env *environment) []types.ContractInfoV2 {
+	outOfRentContracts := []types.ContractInfoV2{}
+	for _, contract := range env.validContractsInfo {
+		if env.outOfRentContractAddresses.Contains(contract.ContractAddr) {
+			outOfRentContracts = append(outOfRentContracts, contract)
+		}
+	}
+	return outOfRentContracts
+}
+
+func TransferRentFromDexToCollector(ctx sdk.Context, bankKeeper bankkeeper.Keeper, preRents map[string]uint64, postRents map[string]uint64) {
+	total := uint64(0)
+	for addr, preRent := range preRents {
+		if postRent, ok := postRents[addr]; ok {
+			total += preRent - postRent
+		} else {
+			total += preRent
+		}
+	}
+	if err := bankKeeper.SendCoinsFromModuleToModule(ctx, types.ModuleName, authtypes.FeeCollectorName, sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(int64(total))))); err != nil {
+		ctx.Logger().Error("sending coints from dex to fee collector failed due to %s", err)
+	}
 }

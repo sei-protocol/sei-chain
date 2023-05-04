@@ -69,7 +69,7 @@ Developers, traders, and users can all connect to Sei as ecosystem partners bene
 git clone https://github.com/sei-protocol/sei-chain
 cd sei-chain
 git checkout origin/1.0.1beta-upgrade
-make install # optionally use make install-all to rebuild nitro shared libraries
+make install
 mv $HOME/go/bin/seid /usr/bin/
 ```
 **Generate keys**
@@ -126,10 +126,6 @@ WantedBy=multi-user.target
 * Start local 4 node cluster: `make docker-cluster-start`
 * SSH into a docker container: `docker exec -it [container_name] /bin/bash`
 * Stop local 4 node cluster: `make docker-cluster-stop`
-
-**Troubleshooting**
-
-* If you see any errors related to nitro, try: `make install-all`
 
 ### Create Validator Transaction
 ```bash

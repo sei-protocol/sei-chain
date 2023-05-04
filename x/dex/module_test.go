@@ -10,7 +10,9 @@ import (
 	wasmtypes "github.com/CosmWasm/wasmd/x/wasm/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	keepertest "github.com/sei-protocol/sei-chain/testutil/keeper"
+	"github.com/sei-protocol/sei-chain/utils/tracing"
 	dexcache "github.com/sei-protocol/sei-chain/x/dex/cache"
+	"github.com/sei-protocol/sei-chain/x/dex/contract"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
 	"github.com/sei-protocol/sei-chain/x/dex/types/utils"
 	dexutils "github.com/sei-protocol/sei-chain/x/dex/utils"
@@ -18,6 +20,8 @@ import (
 	"github.com/stretchr/testify/require"
 	abci "github.com/tendermint/tendermint/abci/types"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/trace"
 )
 
 const (
@@ -454,6 +458,9 @@ func TestEndBlockPartialRollback(t *testing.T) {
 	// No state change should've been persisted for bad contract
 	matchResult, _ := dexkeeper.GetMatchResultState(ctx, keepertest.TestContract)
 	require.Equal(t, &types.MatchResult{}, matchResult)
+	// bad contract should be unregistered
+	_, err = dexkeeper.GetContract(ctx, keepertest.TestContract)
+	require.Equal(t, types.ErrContractNotExists, err)
 	// state change should've been persisted for good contract
 	matchResult, _ = dexkeeper.GetMatchResultState(ctx, contractAddr.String())
 	require.Equal(t, 1, len(matchResult.Orders))
@@ -609,14 +616,66 @@ func TestEndBlockRollbackWithRentCharge(t *testing.T) {
 			Amount:  sdk.MustNewDecFromStr("10000"),
 		},
 	)
+	// overwrite params for testing
+	params := dexkeeper.GetParams(ctx)
+	params.MinProcessableRent = 0
+	dexkeeper.SetParams(ctx, params)
 
 	ctx = ctx.WithBlockHeight(1)
+	creatorBalanceBefore := bankkeeper.GetBalance(ctx, testAccount, "usei")
 	testApp.EndBlocker(ctx, abci.RequestEndBlock{})
 	// no state change should've been persisted for good contract because it should've run out of gas
 	matchResult, _ := dexkeeper.GetMatchResultState(ctx, contractAddr.String())
 	require.Equal(t, 0, len(matchResult.Orders))
-	// rent should still be charged even if the contract failed
-	contract, err := dexkeeper.GetContract(ctx, contractAddr.String())
-	require.Nil(t, err)
-	require.Zero(t, contract.RentBalance)
+	// rent should still be charged even if the contract failed, so no rent should be sent to the creator after
+	// auto unregister
+	c, err := dexkeeper.GetContract(ctx, contractAddr.String())
+	require.Nil(t, err)                        // out-of-rent contract should not be auto-unregistered
+	require.Equal(t, uint64(0), c.RentBalance) // rent balance should be drained
+	creatorBalanceAfter := bankkeeper.GetBalance(ctx, testAccount, "usei")
+	require.Equal(t, creatorBalanceBefore, creatorBalanceAfter)
+}
+
+func TestEndBlockContractWithoutPair(t *testing.T) {
+	testApp := keepertest.TestApp()
+	ctx := testApp.BaseApp.NewContext(false, tmproto.Header{Time: time.Now()})
+	ctx = ctx.WithContext(context.WithValue(ctx.Context(), dexutils.DexMemStateContextKey, dexcache.NewMemState(testApp.GetKey(types.StoreKey))))
+	dexkeeper := testApp.DexKeeper
+
+	testAccount, _ := sdk.AccAddressFromBech32("sei1yezq49upxhunjjhudql2fnj5dgvcwjj87pn2wx")
+	amounts := sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(10000000)), sdk.NewCoin("uusdc", sdk.NewInt(10000000)))
+	bankkeeper := testApp.BankKeeper
+	bankkeeper.MintCoins(ctx, minttypes.ModuleName, amounts)
+	bankkeeper.SendCoinsFromModuleToAccount(ctx, minttypes.ModuleName, testAccount, amounts)
+	dexAmounts := sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(5000000)), sdk.NewCoin("uusdc", sdk.NewInt(10000000)))
+	bankkeeper.SendCoinsFromAccountToModule(ctx, testAccount, types.ModuleName, dexAmounts)
+	wasm, err := ioutil.ReadFile("./testdata/mars.wasm")
+	if err != nil {
+		panic(err)
+	}
+	wasmKeeper := testApp.WasmKeeper
+	contractKeeper := wasmkeeper.NewDefaultPermissionKeeper(&wasmKeeper)
+	var perm *wasmtypes.AccessConfig
+	codeId, err := contractKeeper.Create(ctx, testAccount, wasm, perm)
+	if err != nil {
+		panic(err)
+	}
+	contractAddr, _, err := contractKeeper.Instantiate(ctx, codeId, testAccount, testAccount, []byte(GOOD_CONTRACT_INSTANTIATE), "test",
+		sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(100000))))
+	if err != nil {
+		panic(err)
+	}
+
+	// no pair registered
+	contractInfo := types.ContractInfoV2{CodeId: 123, ContractAddr: contractAddr.String(), NeedHook: false, NeedOrderMatching: true, RentBalance: 100000000}
+	dexkeeper.SetContract(ctx, &contractInfo)
+
+	tp := trace.NewNoopTracerProvider()
+	otel.SetTracerProvider(trace.NewNoopTracerProvider())
+	tr := tp.Tracer("component-main")
+	ti := tracing.Info{
+		Tracer: &tr,
+	}
+	_, _, _, success := contract.EndBlockerAtomic(ctx, &testApp.DexKeeper, []types.ContractInfoV2{contractInfo}, &ti)
+	require.True(t, success)
 }

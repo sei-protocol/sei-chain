@@ -4,8 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"time"
 
 	"github.com/CosmWasm/wasmd/x/wasm"
+	"github.com/cosmos/cosmos-sdk/telemetry"
 	"github.com/gorilla/mux"
 	"github.com/grpc-ecosystem/grpc-gateway/runtime"
 	"github.com/spf13/cobra"
@@ -192,6 +194,9 @@ func (am AppModule) RegisterServices(cfg module.Configurator) {
 	_ = cfg.RegisterMigration(types.ModuleName, 10, func(ctx sdk.Context) error {
 		return migrations.V10ToV11(ctx, am.keeper)
 	})
+	_ = cfg.RegisterMigration(types.ModuleName, 11, func(ctx sdk.Context) error {
+		return migrations.V11ToV12(ctx, am.keeper)
+	})
 }
 
 // RegisterInvariants registers the capability module's invariants.
@@ -216,11 +221,17 @@ func (am AppModule) ExportGenesis(ctx sdk.Context, cdc codec.JSONCodec) json.Raw
 }
 
 // ConsensusVersion implements ConsensusVersion.
-func (AppModule) ConsensusVersion() uint64 { return 11 }
+func (AppModule) ConsensusVersion() uint64 { return 12 }
 
 func (am AppModule) getAllContractInfo(ctx sdk.Context) []types.ContractInfoV2 {
 	// Do not process any contract that has zero rent balance
-	return utils.Filter(am.keeper.GetAllContractInfo(ctx), func(c types.ContractInfoV2) bool { return c.RentBalance > 0 })
+	defer telemetry.MeasureSince(time.Now(), am.Name(), "get_all_contract_info")
+	allRegisteredContracts := am.keeper.GetAllContractInfo(ctx)
+	validContracts := utils.Filter(allRegisteredContracts, func(c types.ContractInfoV2) bool { return c.RentBalance > am.keeper.GetMinProcessableRent(ctx) })
+	telemetry.SetGauge(float32(len(allRegisteredContracts)), am.Name(), "num_of_registered_contracts")
+	telemetry.SetGauge(float32(len(validContracts)), am.Name(), "num_of_valid_contracts")
+	telemetry.SetGauge(float32(len(allRegisteredContracts)-len(validContracts)), am.Name(), "num_of_zero_balance_contracts")
+	return validContracts
 }
 
 // BeginBlock executes all ABCI BeginBlock logic respective to the capability module.
@@ -270,17 +281,21 @@ func (am AppModule) EndBlock(ctx sdk.Context, _ abci.RequestEndBlock) (ret []abc
 	defer dexutils.GetMemState(ctx.Context()).Clear(ctx)
 
 	validContractsInfo := am.getAllContractInfo(ctx)
+	validContractsInfoAtBeginning := validContractsInfo
+	outOfRentContractsInfo := []types.ContractInfoV2{}
 	// Each iteration is atomic. If an iteration finishes without any error, it will return,
 	// otherwise it will rollback any state change, filter out contracts that cause the error,
 	// and proceed to the next iteration. The loop is guaranteed to finish since
 	// `validContractAddresses` will always decrease in size every iteration.
 	iterCounter := len(validContractsInfo)
+	endBlockerStartTime := time.Now()
 	for len(validContractsInfo) > 0 {
-		newValidContractsInfo, ctx, ok := contract.EndBlockerAtomic(ctx, &am.keeper, validContractsInfo, am.tracingInfo)
+		newValidContractsInfo, newOutOfRentContractsInfo, ctx, ok := contract.EndBlockerAtomic(ctx, &am.keeper, validContractsInfo, am.tracingInfo)
 		if ok {
 			break
 		}
 		validContractsInfo = newValidContractsInfo
+		outOfRentContractsInfo = newOutOfRentContractsInfo
 
 		// technically we don't really need this if `EndBlockerAtomic` guarantees that `validContractsInfo` size will
 		// always shrink if not `ok`, but just in case, we decided to have an explicit termination criteria here to
@@ -290,6 +305,26 @@ func (am AppModule) EndBlock(ctx sdk.Context, _ abci.RequestEndBlock) (ret []abc
 			ctx.Logger().Error("All contracts failed in dex EndBlock. Doing nothing.")
 			break
 		}
+	}
+	telemetry.MeasureSince(endBlockerStartTime, am.Name(), "total_end_blocker_atomic")
+	validContractAddrs, outOfRentContractAddrs := map[string]struct{}{}, map[string]struct{}{}
+	for _, c := range validContractsInfo {
+		validContractAddrs[c.ContractAddr] = struct{}{}
+	}
+	for _, c := range outOfRentContractsInfo {
+		outOfRentContractAddrs[c.ContractAddr] = struct{}{}
+	}
+	for _, c := range validContractsInfoAtBeginning {
+		if _, ok := validContractAddrs[c.ContractAddr]; ok {
+			continue
+		}
+		if _, ok := outOfRentContractAddrs[c.ContractAddr]; ok {
+			telemetry.IncrCounter(float32(1), am.Name(), "total_out_of_rent_contracts")
+			continue
+		}
+		ctx.Logger().Error(fmt.Sprintf("Unregistering invalid contract %s", c.ContractAddr))
+		am.keeper.DoUnregisterContract(ctx, c)
+		telemetry.IncrCounter(float32(1), am.Name(), "total_unregistered_contracts")
 	}
 
 	return []abci.ValidatorUpdate{}

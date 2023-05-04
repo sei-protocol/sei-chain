@@ -143,9 +143,9 @@ func (c *LoadTestClient) BuildTxs() (workgroups []*sync.WaitGroup, sendersList [
 			accountKeyPath := c.SignerClient.GetTestAccountKeyPath(uint64(account))
 			key := c.SignerClient.GetKey(accountIdentifier, "test", accountKeyPath)
 
-			msg, failureExpected, signer, gas, fee := c.generateMessage(config, key, config.MsgsPerTx)
+			msgs, failureExpected, signer, gas, fee := c.generateMessage(config, key, config.MsgsPerTx)
 			txBuilder := TestConfig.TxConfig.NewTxBuilder()
-			_ = txBuilder.SetMsgs(msg)
+			_ = txBuilder.SetMsgs(msgs...)
 			seqDelta := uint64(i / 2)
 			mode := typestx.BroadcastMode_BROADCAST_MODE_SYNC
 			if j == len(activeAccounts)-1 {

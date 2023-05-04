@@ -16,7 +16,6 @@ enum PositionEffect {
 enum OrderType {
     LIMIT = 0;
     MARKET = 1;
-    LIQUIDATION = 2;
     FOKMARKET = 3; // fill-or-kill market order
     FOKMARKETBYVALUE = 4; // fill-or-kill market by value order
     STOPLOSS = 5;

@@ -9,8 +9,6 @@ import (
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
 	dextypes "github.com/sei-protocol/sei-chain/x/dex/types"
-	nitrokeeper "github.com/sei-protocol/sei-chain/x/nitro/keeper"
-	nitrotypes "github.com/sei-protocol/sei-chain/x/nitro/types"
 	oraclekeeper "github.com/sei-protocol/sei-chain/x/oracle/keeper"
 	oracletypes "github.com/sei-protocol/sei-chain/x/oracle/types"
 )
@@ -18,11 +16,10 @@ import (
 type GaslessDecorator struct {
 	wrapped      []sdk.AnteFullDecorator
 	oracleKeeper oraclekeeper.Keeper
-	nitroKeeper  nitrokeeper.Keeper
 }
 
-func NewGaslessDecorator(wrapped []sdk.AnteFullDecorator, oracleKeeper oraclekeeper.Keeper, nitroKeeper nitrokeeper.Keeper) GaslessDecorator {
-	return GaslessDecorator{wrapped: wrapped, oracleKeeper: oracleKeeper, nitroKeeper: nitroKeeper}
+func NewGaslessDecorator(wrapped []sdk.AnteFullDecorator, oracleKeeper oraclekeeper.Keeper) GaslessDecorator {
+	return GaslessDecorator{wrapped: wrapped, oracleKeeper: oracleKeeper}
 }
 
 func (gd GaslessDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool, next sdk.AnteHandler) (newCtx sdk.Context, err error) {
@@ -36,7 +33,7 @@ func (gd GaslessDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool,
 	}
 	gas := feeTx.GetGas()
 	// If non-zero gas limit is provided by the TX, we then consider it exempt from the gasless TX, and then prioritize it accordingly
-	isGasless, err := isTxGasless(tx, ctx, gd.oracleKeeper, gd.nitroKeeper)
+	isGasless, err := isTxGasless(tx, ctx, gd.oracleKeeper)
 	if err != nil {
 		return ctx, err
 	}
@@ -96,7 +93,6 @@ func (gd GaslessDecorator) AnteDeps(txDeps []sdkacltypes.AccessOperation, tx sdk
 				},
 			}...)
 		default:
-			// TODO: add tx gasless deps for nitro for nitrokeeper read
 			continue
 		}
 	}
@@ -104,7 +100,7 @@ func (gd GaslessDecorator) AnteDeps(txDeps []sdkacltypes.AccessOperation, tx sdk
 	return next(append(txDeps, deps...), tx)
 }
 
-func isTxGasless(tx sdk.Tx, ctx sdk.Context, oracleKeeper oraclekeeper.Keeper, nitroKeeper nitrokeeper.Keeper) (bool, error) {
+func isTxGasless(tx sdk.Tx, ctx sdk.Context, oracleKeeper oraclekeeper.Keeper) (bool, error) {
 	if len(tx.GetMsgs()) == 0 {
 		// empty TX shouldn't be gasless
 		return false, nil
@@ -124,10 +120,6 @@ func isTxGasless(tx sdk.Tx, ctx sdk.Context, oracleKeeper oraclekeeper.Keeper, n
 			isGasless, err := oracleVoteIsGasless(m, ctx, oracleKeeper)
 			if err != nil || !isGasless {
 				return false, err
-			}
-		case *nitrotypes.MsgRecordTransactionData:
-			if !nitroRecordTxDataGasless(m, ctx, nitroKeeper) {
-				return false, nil
 			}
 		default:
 			return false, nil
@@ -189,13 +181,4 @@ func oracleVoteIsGasless(msg *oracletypes.MsgAggregateExchangeRateVote, ctx sdk.
 	}
 	// otherwise we allow it
 	return true, nil
-}
-
-func nitroRecordTxDataGasless(msg *nitrotypes.MsgRecordTransactionData, ctx sdk.Context, keeper nitrokeeper.Keeper) bool {
-	for _, signer := range msg.GetSigners() {
-		if !keeper.IsTxSenderWhitelisted(ctx, signer.String()) {
-			return false
-		}
-	}
-	return true
 }

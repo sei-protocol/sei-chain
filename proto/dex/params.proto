@@ -35,4 +35,16 @@ message Params {
     (gogoproto.jsontag)   = "default_gas_per_cancel",
     (gogoproto.moretags) = "yaml:\"default_gas_per_cancel\""
   ];
+  uint64 min_rent_deposit = 7 [
+    (gogoproto.jsontag)   = "min_rent_deposit",
+    (gogoproto.moretags) = "yaml:\"min_rent_deposit\""
+  ];
+  uint64 gas_allowance_per_settlement = 8 [
+    (gogoproto.jsontag)   = "gas_allowance_per_settlement",
+    (gogoproto.moretags) = "yaml:\"gas_allowance_per_settlement\""
+  ];
+  uint64 min_processable_rent = 9 [
+    (gogoproto.jsontag)   = "min_processable_rent",
+    (gogoproto.moretags) = "yaml:\"min_processable_rent\""
+  ];
 }

@@ -5,6 +5,7 @@ import (
 
 	"github.com/cosmos/cosmos-sdk/store/prefix"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	appparams "github.com/sei-protocol/sei-chain/app/params"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
 )
 
@@ -81,12 +82,12 @@ func (k Keeper) GetAllContractInfo(ctx sdk.Context) []types.ContractInfoV2 {
 }
 
 // Reduce `RentBalance` of a contract if `userProvidedGas` cannot cover `gasUsed`
-func (k Keeper) ChargeRentForGas(ctx sdk.Context, contractAddr string, gasUsed uint64, userProvidedGas uint64) error {
-	if gasUsed <= userProvidedGas {
-		// User provided can fully cover the consumed gas. Doing nothing
+func (k Keeper) ChargeRentForGas(ctx sdk.Context, contractAddr string, gasUsed uint64, gasAllowance uint64) error {
+	if gasUsed <= gasAllowance {
+		// Allowance can fully cover the consumed gas. Doing nothing
 		return nil
 	}
-	gasUsed -= userProvidedGas
+	gasUsed -= gasAllowance
 	contract, err := k.GetContract(ctx, contractAddr)
 	if err != nil {
 		return err
@@ -98,8 +99,40 @@ func (k Keeper) ChargeRentForGas(ctx sdk.Context, contractAddr string, gasUsed u
 		if err := k.SetContract(ctx, &contract); err != nil {
 			return err
 		}
-		return errors.New("insufficient rent")
+		return types.ErrInsufficientRent
 	}
 	contract.RentBalance -= uint64(gasPrice)
 	return k.SetContract(ctx, &contract)
+}
+
+func (k Keeper) GetRentsForContracts(ctx sdk.Context, contractAddrs []string) map[string]uint64 {
+	res := map[string]uint64{}
+	for _, contractAddr := range contractAddrs {
+		if contract, err := k.GetContract(ctx, contractAddr); err == nil {
+			res[contractAddr] = contract.RentBalance
+		}
+	}
+	return res
+}
+
+// Unregistrate and refund the creator
+func (k Keeper) DoUnregisterContractWithRefund(ctx sdk.Context, contract types.ContractInfoV2) error {
+	k.DoUnregisterContract(ctx, contract)
+	creatorAddr, _ := sdk.AccAddressFromBech32(contract.Creator)
+	if err := k.BankKeeper.SendCoins(ctx, k.AccountKeeper.GetModuleAddress(types.ModuleName), creatorAddr, sdk.NewCoins(sdk.NewCoin(appparams.BaseCoinUnit, sdk.NewInt(int64(contract.RentBalance))))); err != nil {
+		return err
+	}
+	return nil
+}
+
+// Contract unregistration will remove all orderbook data stored for the contract
+func (k Keeper) DoUnregisterContract(ctx sdk.Context, contract types.ContractInfoV2) {
+	k.DeleteContract(ctx, contract.ContractAddr)
+	k.RemoveAllLongBooksForContract(ctx, contract.ContractAddr)
+	k.RemoveAllShortBooksForContract(ctx, contract.ContractAddr)
+	k.RemoveAllPricesForContract(ctx, contract.ContractAddr)
+	k.DeleteMatchResultState(ctx, contract.ContractAddr)
+	k.DeleteNextOrderID(ctx, contract.ContractAddr)
+	k.DeleteAllRegisteredPairsForContract(ctx, contract.ContractAddr)
+	k.RemoveAllTriggeredOrders(ctx, contract.ContractAddr)
 }

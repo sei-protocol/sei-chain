@@ -37,18 +37,12 @@ message QueryMinterRequest {}
 // QueryMinterResponse is the response type for the
 // Query/Minter RPC method.
 message QueryMinterResponse {
-  string last_mint_amount = 1 [
-    (gogoproto.moretags) = "yaml:\"last_mint_amount\"",
-    (gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Dec",
-    (gogoproto.nullable) = false
-    ];
-  string last_mint_date = 2 [
-    (gogoproto.moretags) = "yaml:\"last_mint_date\""
-  ];
-  int64 last_mint_height = 3 [
-    (gogoproto.moretags) = "yaml:\"last_mint_height\""
-  ];
-  string denom = 4 [
-    (gogoproto.moretags) = "yaml:\"denom\""
-  ];
+  string  start_date = 1 [(gogoproto.moretags) = "yaml:\"start_date\""];
+  string  end_date = 2 [(gogoproto.moretags) = "yaml:\"end_date\""];
+  string  denom = 3 [(gogoproto.moretags) = "yaml:\"denom\""];
+  uint64   total_mint_amount = 4 [(gogoproto.moretags) = "yaml:\"total_mint_amount\""];
+  uint64   remaining_mint_amount = 5 [(gogoproto.moretags) = "yaml:\"remaining_mint_amount\""];
+  uint64   last_mint_amount = 6 [(gogoproto.moretags) = "yaml:\"last_mint_amount\""];
+  string  last_mint_date = 7 [(gogoproto.moretags) = "yaml:\"last_mint_date\""];
+  uint64   last_mint_height = 8 [(gogoproto.moretags) = "yaml:\"last_mint_height\""];
 }

@@ -27,13 +27,49 @@ Ref: https://keepachangelog.com/en/1.0.0/
 -->
 
 # Changelog
+## 2.0.47beta
+sei-chain:
+* [#726] (https://github.com/sei-protocol/sei-chain/pull/726) Fix of dex rent transfer issue
+* [#723] (https://github.com/sei-protocol/sei-chain/pull/723) Security CW Patch Cherry 
+* [#699] (https://github.com/sei-protocol/sei-chain/pull/699) Loadtest update
+* [#716] (https://github.com/sei-protocol/sei-chain/pull/716) Sei cluster init script update
+* [#725] (https://github.com/sei-protocol/sei-chain/pull/725) DBSync config update
+* [#718] (https://github.com/sei-protocol/sei-chain/pull/718) Update mint distriution to be daily
+* [#729] (https://github.com/sei-protocol/sei-chain/pull/729) Add gov prop handler for updating current minter 
+* [#730] (https://github.com/sei-protocol/sei-chain/pull/730) Add README.md for epoch module
+* [#727] (https://github.com/sei-protocol/sei-chain/pull/727) Bump max wasm file size to 2MB
+* [#731] (https://github.com/sei-protocol/sei-chain/pull/731) Bump for module to module debug logs
+* [#732] (https://github.com/sei-protocol/sei-chain/pull/732) Remove x/nitro from genesis version
+
+sei-cosmos:
+* [#231] (https://github.com/sei-protocol/sei-cosmos/pull/231) Typo for m2m debug message
+* [#230] (https://github.com/sei-protocol/sei-cosmos/pull/230) Add debug message for module to module transactions
+* [#228] (https://github.com/sei-protocol/sei-cosmos/pull/228) Deprecate LoadLatest flag
+* [#229] (https://github.com/sei-protocol/sei-cosmos/pull/229) Replace snapshot manager multistore with new one after DBSync
+
+sei-tendermint:
+* [#130] (https://github.com/sei-protocol/sei-tendermint/pull/130) Do not run DBSync if there is already a readable app version
+
+## 2.0.46beta
+sei-chain:
+* [#694] (https://github.com/sei-protocol/sei-chain/pull/694) Register prune command
+* [#702] (https://github.com/sei-protocol/sei-chain/pull/702) Change tick failure log to warning
+
+sei-cosmos:
+* [#227] (https://github.com/sei-protocol/sei-cosmos/pull/227) Add checkTxResponse log to RPCResponse
+* [#224] (https://github.com/sei-protocol/sei-cosmos/pull/224) Default to secp256k1
+* [#220] (https://github.com/sei-protocol/sei-cosmos/pull/220) Add admin field to base vesting account
+* [#218] (https://github.com/sei-protocol/sei-cosmos/pull/218) Restart node instead of panicking
+* [#216] (https://github.com/sei-protocol/sei-cosmos/pull/216) Fix pruning command
+
+sei-tendermint:
+* [#118] (https://github.com/sei-protocol/sei-tendermint/pull/118) Add DBSync module
 
 ## 2.0.45beta
 
 sei-chain: https://github.com/sei-protocol/sei-chain/compare/2.0.44beta...2.0.45beta-release
 * [#666](https://github.com/sei-protocol/sei-chain/pull/666) [DEX] remove BeginBlock/FinalizeBlock sudo hooks
 * [#674](https://github.com/sei-protocol/sei-chain/pull/674) Longterm fix for max gas enforcement
-* [#666](https://github.com/sei-protocol/sei-chain/pull/666) [DEX] remove BeginBlock/FinalizeBlock sudo hooks
 
 sei-cosmos: https://github.com/sei-protocol/sei-cosmos/releases/tag/v0.2.14
 * [#210](https://github.com/sei-protocol/sei-cosmos/pull/210) Add levelDB compaction goroutine

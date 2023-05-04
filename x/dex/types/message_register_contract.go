@@ -13,7 +13,6 @@ func NewMsgRegisterContract(
 	creator string,
 	codeID uint64,
 	contractAddr string,
-	needHook bool,
 	needOrderMatching bool,
 	dependencies []*ContractDependencyInfo,
 	deposit uint64,
@@ -23,7 +22,6 @@ func NewMsgRegisterContract(
 		Contract: &ContractInfoV2{
 			CodeId:            codeID,
 			ContractAddr:      contractAddr,
-			NeedHook:          needHook,
 			NeedOrderMatching: needOrderMatching,
 			Dependencies:      dependencies,
 			Creator:           creator,

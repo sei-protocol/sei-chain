@@ -3,6 +3,7 @@ package keeper
 import (
 	"strconv"
 
+	cosmostelemetry "github.com/cosmos/cosmos-sdk/telemetry"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/sei-protocol/sei-chain/x/oracle/types"
 )
@@ -42,6 +43,7 @@ func (k Keeper) SlashAndResetCounters(ctx sdk.Context) {
 					distributionHeight, validator.GetConsensusPower(powerReduction), slashFraction,
 				)
 				k.StakingKeeper.Jail(ctx, consAddr)
+				cosmostelemetry.IncrValidatorSlashedCounter(consAddr.String(), "oracle")
 			}
 		}
 

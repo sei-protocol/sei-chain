@@ -405,7 +405,7 @@ func TestMoveTriggeredOrderIntoMemState(t *testing.T) {
 		dexkeeper,
 	)
 	orders := dexutils.GetMemState(ctx.Context()).GetBlockOrders(ctx, TEST_CONTRACT, utils.GetPairString(&pair))
-	cacheMarketOrders := orders.GetSortedMarketOrders(types.PositionDirection_LONG, false)
+	cacheMarketOrders := orders.GetSortedMarketOrders(types.PositionDirection_LONG)
 	cacheTriggeredOrders := orders.GetTriggeredOrders()
 
 	triggeredBookOrders := dexkeeper.GetAllTriggeredOrdersForPair(ctx, TEST_CONTRACT, TEST_PAIR().PriceDenom, TEST_PAIR().AssetDenom)

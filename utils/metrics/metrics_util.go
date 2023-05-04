@@ -161,3 +161,39 @@ func IncrPriceUpdateDenom(denom string) {
 		[]metrics.Label{telemetry.NewLabel("denom", denom)},
 	)
 }
+
+// Measures the number of times the total block gas wanted in the proposal exceeds the max
+// Metric Name:
+//
+//	sei_failed_total_gas_wanted_check
+func IncrFailedTotalGasWantedCheck(proposer string) {
+	telemetry.IncrCounterWithLabels(
+		[]string{"sei", "failed", "total", "gas", "wanted", "check"},
+		1,
+		[]metrics.Label{telemetry.NewLabel("proposer", proposer)},
+	)
+}
+
+// Measures the number of times the total block gas wanted in the proposal exceeds the max
+// Metric Name:
+//
+//	sei_failed_total_gas_wanted_check
+func IncrValidatorSlashed(proposer string) {
+	telemetry.IncrCounterWithLabels(
+		[]string{"sei", "failed", "total", "gas", "wanted", "check"},
+		1,
+		[]metrics.Label{telemetry.NewLabel("proposer", proposer)},
+	)
+}
+
+// Measures number of times a denom's price is updated
+// Metric Name:
+//
+//	sei_oracle_price_update_count
+func SetCoinsMinted(amount uint64, denom string) {
+	telemetry.SetGaugeWithLabels(
+		[]string{"sei", "mint", "coins"},
+		float32(amount),
+		[]metrics.Label{telemetry.NewLabel("denom", denom)},
+	)
+}
