@@ -82,12 +82,12 @@ func (k Keeper) GetAllContractInfo(ctx sdk.Context) []types.ContractInfoV2 {
 }
 
 // Reduce `RentBalance` of a contract if `userProvidedGas` cannot cover `gasUsed`
-func (k Keeper) ChargeRentForGas(ctx sdk.Context, contractAddr string, gasUsed uint64, userProvidedGas uint64) error {
-	if gasUsed <= userProvidedGas {
-		// User provided can fully cover the consumed gas. Doing nothing
+func (k Keeper) ChargeRentForGas(ctx sdk.Context, contractAddr string, gasUsed uint64, gasAllowance uint64) error {
+	if gasUsed <= gasAllowance {
+		// Allowance can fully cover the consumed gas. Doing nothing
 		return nil
 	}
-	gasUsed -= userProvidedGas
+	gasUsed -= gasAllowance
 	contract, err := k.GetContract(ctx, contractAddr)
 	if err != nil {
 		return err
@@ -99,7 +99,7 @@ func (k Keeper) ChargeRentForGas(ctx sdk.Context, contractAddr string, gasUsed u
 		if err := k.SetContract(ctx, &contract); err != nil {
 			return err
 		}
-		return errors.New("insufficient rent")
+		return types.ErrInsufficientRent
 	}
 	contract.RentBalance -= uint64(gasPrice)
 	return k.SetContract(ctx, &contract)
