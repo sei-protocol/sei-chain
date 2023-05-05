@@ -30,6 +30,12 @@ func (s *SyncSet[T]) Add(val T) {
 	s.dict[val] = true
 }
 
+func (s *SyncSet[T]) AddAll(vals []T) {
+	for _, val := range vals {
+		s.Add(val)
+	}
+}
+
 func (s *SyncSet[T]) Remove(val T) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
