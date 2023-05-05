@@ -141,3 +141,145 @@ func TestGetRentsForContracts(t *testing.T) {
 	})
 	require.Equal(t, map[string]uint64{addr: uint64(100)}, keeper.GetRentsForContracts(ctx, []string{addr}))
 }
+
+func TestClearDependenciesForContract(t *testing.T) {
+	keeper, ctx := keepertest.DexKeeper(t)
+
+	// no dependency whatsoever
+	contract := types.ContractInfoV2{
+		ContractAddr: keepertest.TestContract,
+	}
+	keeper.SetContract(ctx, &contract)
+	require.NotPanics(t, func() { keeper.ClearDependenciesForContract(ctx, contract) })
+
+	// has upstreams
+	contract = types.ContractInfoV2{
+		ContractAddr:            keepertest.TestContract,
+		NumIncomingDependencies: 2,
+	}
+	keptContract := types.ContractInfoV2{
+		ContractAddr:            "sei1yum4v0v5l92jkxn8xpn9mjg7wuldk784ctg424ue8gqvdp88qzlqt6zc4h",
+		NumIncomingDependencies: 2,
+	}
+	upA := types.ContractInfoV2{
+		ContractAddr: "sei105y5ssrsr8p8erkteagrguea6wcdgehlaamfup4lhrlm0y6eyhdsckcxdh",
+		Dependencies: []*types.ContractDependencyInfo{
+			{
+				Dependency:              keepertest.TestContract,
+				ImmediateYoungerSibling: "sei1y8ghk8q8d2rswrf3gv7hv2lfsewu8tvp6ysnlkzspu7k0aqkthdqwdqvk0",
+			},
+			{
+				Dependency:              "sei1yum4v0v5l92jkxn8xpn9mjg7wuldk784ctg424ue8gqvdp88qzlqt6zc4h",
+				ImmediateYoungerSibling: "sei193dzcmy7lwuj4eda3zpwwt9ejal00xva0vawcvhgsyyp5cfh6jyqj2vsuv",
+			},
+		},
+	}
+	upB := types.ContractInfoV2{
+		ContractAddr: "sei1y8ghk8q8d2rswrf3gv7hv2lfsewu8tvp6ysnlkzspu7k0aqkthdqwdqvk0",
+		Dependencies: []*types.ContractDependencyInfo{
+			{
+				Dependency:            keepertest.TestContract,
+				ImmediateElderSibling: "sei105y5ssrsr8p8erkteagrguea6wcdgehlaamfup4lhrlm0y6eyhdsckcxdh",
+			},
+		},
+	}
+	upC := types.ContractInfoV2{
+		ContractAddr: "sei193dzcmy7lwuj4eda3zpwwt9ejal00xva0vawcvhgsyyp5cfh6jyqj2vsuv",
+		Dependencies: []*types.ContractDependencyInfo{
+			{
+				Dependency:            "sei1yum4v0v5l92jkxn8xpn9mjg7wuldk784ctg424ue8gqvdp88qzlqt6zc4h",
+				ImmediateElderSibling: "sei105y5ssrsr8p8erkteagrguea6wcdgehlaamfup4lhrlm0y6eyhdsckcxdh",
+			},
+		},
+	}
+	keeper.SetContract(ctx, &contract)
+	keeper.SetContract(ctx, &keptContract)
+	keeper.SetContract(ctx, &upA)
+	keeper.SetContract(ctx, &upB)
+	keeper.SetContract(ctx, &upC)
+	require.NotPanics(t, func() { keeper.ClearDependenciesForContract(ctx, contract) })
+	upA, err := keeper.GetContract(ctx, upA.ContractAddr)
+	require.Nil(t, err)
+	require.Equal(t, 1, len(upA.Dependencies))
+	upB, err = keeper.GetContract(ctx, upB.ContractAddr)
+	require.Nil(t, err)
+	require.Equal(t, 0, len(upB.Dependencies))
+	upC, err = keeper.GetContract(ctx, upC.ContractAddr)
+	require.Nil(t, err)
+	require.Equal(t, 1, len(upC.Dependencies))
+
+	// has downstreams
+	contract = types.ContractInfoV2{
+		ContractAddr: keepertest.TestContract,
+		Dependencies: []*types.ContractDependencyInfo{
+			{
+				Dependency:              "sei1ehyucudueas79h0zwufcnxtv7s2sfmwc6rt0v0hzczdgvyr3p56qhprg6n",
+				ImmediateElderSibling:   "sei1uyprmp0lu8w8z8kwxp7mxanrtrgn4lp7j557pxe4v8sczzdzl7ysk832hh",
+				ImmediateYoungerSibling: "sei1yum4v0v5l92jkxn8xpn9mjg7wuldk784ctg424ue8gqvdp88qzlqt6zc4h",
+			}, {
+				Dependency: "sei1n23ymwg2y7m55x5vwf2qk0als9cr592q4uc5de08c6qmaeryet4qye4w77",
+			},
+		},
+	}
+	keptContractA := types.ContractInfoV2{
+		ContractAddr: "sei1yum4v0v5l92jkxn8xpn9mjg7wuldk784ctg424ue8gqvdp88qzlqt6zc4h",
+		Dependencies: []*types.ContractDependencyInfo{
+			{
+				Dependency:            "sei1ehyucudueas79h0zwufcnxtv7s2sfmwc6rt0v0hzczdgvyr3p56qhprg6n",
+				ImmediateElderSibling: keepertest.TestContract,
+			},
+		},
+	}
+	keptContractB := types.ContractInfoV2{
+		ContractAddr: "sei1uyprmp0lu8w8z8kwxp7mxanrtrgn4lp7j557pxe4v8sczzdzl7ysk832hh",
+		Dependencies: []*types.ContractDependencyInfo{
+			{
+				Dependency:              "sei1ehyucudueas79h0zwufcnxtv7s2sfmwc6rt0v0hzczdgvyr3p56qhprg6n",
+				ImmediateYoungerSibling: keepertest.TestContract,
+			},
+		},
+	}
+	downA := types.ContractInfoV2{
+		ContractAddr:            "sei1ehyucudueas79h0zwufcnxtv7s2sfmwc6rt0v0hzczdgvyr3p56qhprg6n",
+		NumIncomingDependencies: 3,
+	}
+	downB := types.ContractInfoV2{
+		ContractAddr:            "sei1n23ymwg2y7m55x5vwf2qk0als9cr592q4uc5de08c6qmaeryet4qye4w77",
+		NumIncomingDependencies: 1,
+	}
+	keeper.SetContract(ctx, &contract)
+	keeper.SetContract(ctx, &keptContractA)
+	keeper.SetContract(ctx, &keptContractB)
+	keeper.SetContract(ctx, &downA)
+	keeper.SetContract(ctx, &downB)
+
+	require.NotPanics(t, func() { keeper.ClearDependenciesForContract(ctx, contract) })
+	keptContractA, err = keeper.GetContract(ctx, keptContractA.ContractAddr)
+	require.Nil(t, err)
+	require.Equal(t, types.ContractInfoV2{
+		ContractAddr: "sei1yum4v0v5l92jkxn8xpn9mjg7wuldk784ctg424ue8gqvdp88qzlqt6zc4h",
+		Dependencies: []*types.ContractDependencyInfo{
+			{
+				Dependency:            "sei1ehyucudueas79h0zwufcnxtv7s2sfmwc6rt0v0hzczdgvyr3p56qhprg6n",
+				ImmediateElderSibling: "sei1uyprmp0lu8w8z8kwxp7mxanrtrgn4lp7j557pxe4v8sczzdzl7ysk832hh",
+			},
+		},
+	}, keptContractA)
+	keptContractB, err = keeper.GetContract(ctx, keptContractB.ContractAddr)
+	require.Nil(t, err)
+	require.Equal(t, types.ContractInfoV2{
+		ContractAddr: "sei1uyprmp0lu8w8z8kwxp7mxanrtrgn4lp7j557pxe4v8sczzdzl7ysk832hh",
+		Dependencies: []*types.ContractDependencyInfo{
+			{
+				Dependency:              "sei1ehyucudueas79h0zwufcnxtv7s2sfmwc6rt0v0hzczdgvyr3p56qhprg6n",
+				ImmediateYoungerSibling: "sei1yum4v0v5l92jkxn8xpn9mjg7wuldk784ctg424ue8gqvdp88qzlqt6zc4h",
+			},
+		},
+	}, keptContractB)
+	downA, err = keeper.GetContract(ctx, downA.ContractAddr)
+	require.Nil(t, err)
+	require.Equal(t, int64(2), downA.NumIncomingDependencies)
+	downB, err = keeper.GetContract(ctx, downB.ContractAddr)
+	require.Nil(t, err)
+	require.Equal(t, int64(0), downB.NumIncomingDependencies)
+}

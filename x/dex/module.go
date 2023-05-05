@@ -22,6 +22,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/types/module"
 	seisync "github.com/sei-protocol/sei-chain/sync"
 	"github.com/sei-protocol/sei-chain/utils"
+	"github.com/sei-protocol/sei-chain/utils/datastructures"
 	"github.com/sei-protocol/sei-chain/utils/tracing"
 	"github.com/sei-protocol/sei-chain/x/dex/client/cli/query"
 	"github.com/sei-protocol/sei-chain/x/dex/client/cli/tx"
@@ -284,8 +285,6 @@ func (am AppModule) EndBlock(ctx sdk.Context, _ abci.RequestEndBlock) (ret []abc
 	defer dexutils.GetMemState(ctx.Context()).Clear(ctx)
 
 	validContractsInfo := am.getAllContractInfo(ctx)
-	validContractsInfoAtBeginning := validContractsInfo
-	outOfRentContractsInfo := []types.ContractInfoV2{}
 	// Each iteration is atomic. If an iteration finishes without any error, it will return,
 	// otherwise it will rollback any state change, filter out contracts that cause the error,
 	// and proceed to the next iteration. The loop is guaranteed to finish since
@@ -297,8 +296,18 @@ func (am AppModule) EndBlock(ctx sdk.Context, _ abci.RequestEndBlock) (ret []abc
 		if ok {
 			break
 		}
-		validContractsInfo = newValidContractsInfo
-		outOfRentContractsInfo = newOutOfRentContractsInfo
+		telemetry.IncrCounter(float32(len(newOutOfRentContractsInfo)), am.Name(), "total_out_of_rent_contracts")
+		keptContractAddrs := datastructures.NewSyncSet(utils.Map(newValidContractsInfo, func(c types.ContractInfoV2) string { return c.ContractAddr }))
+		keptContractAddrs.AddAll(utils.Map(newOutOfRentContractsInfo, func(c types.ContractInfoV2) string { return c.ContractAddr }))
+		for _, oldValidContract := range validContractsInfo {
+			if keptContractAddrs.Contains(oldValidContract.ContractAddr) {
+				continue
+			}
+			ctx.Logger().Error(fmt.Sprintf("Unregistering invalid contract %s", oldValidContract.ContractAddr))
+			am.keeper.DoUnregisterContract(ctx, oldValidContract)
+			telemetry.IncrCounter(float32(1), am.Name(), "total_unregistered_contracts")
+		}
+		validContractsInfo = am.getAllContractInfo(ctx) // reload contract info to get updated dependencies due to unregister above
 
 		// technically we don't really need this if `EndBlockerAtomic` guarantees that `validContractsInfo` size will
 		// always shrink if not `ok`, but just in case, we decided to have an explicit termination criteria here to
@@ -310,25 +319,6 @@ func (am AppModule) EndBlock(ctx sdk.Context, _ abci.RequestEndBlock) (ret []abc
 		}
 	}
 	telemetry.MeasureSince(endBlockerStartTime, am.Name(), "total_end_blocker_atomic")
-	validContractAddrs, outOfRentContractAddrs := map[string]struct{}{}, map[string]struct{}{}
-	for _, c := range validContractsInfo {
-		validContractAddrs[c.ContractAddr] = struct{}{}
-	}
-	for _, c := range outOfRentContractsInfo {
-		outOfRentContractAddrs[c.ContractAddr] = struct{}{}
-	}
-	for _, c := range validContractsInfoAtBeginning {
-		if _, ok := validContractAddrs[c.ContractAddr]; ok {
-			continue
-		}
-		if _, ok := outOfRentContractAddrs[c.ContractAddr]; ok {
-			telemetry.IncrCounter(float32(1), am.Name(), "total_out_of_rent_contracts")
-			continue
-		}
-		ctx.Logger().Error(fmt.Sprintf("Unregistering invalid contract %s", c.ContractAddr))
-		am.keeper.DoUnregisterContract(ctx, c)
-		telemetry.IncrCounter(float32(1), am.Name(), "total_unregistered_contracts")
-	}
 
 	return []abci.ValidatorUpdate{}
 }
