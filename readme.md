@@ -35,18 +35,13 @@ Developers, traders, and users can all connect to Sei as ecosystem partners bene
 
 ## Hardware Requirements
 **Minimum**
-* 8 GB RAM
-* 100 GB NVME SSD
-* 3.2 GHz x4 CPU
-
-**Recommended**
-* 16 GB RAM
-* 500 GB NVME SSD
-* 4.2 GHz x6 CPU 
+* 32 GB RAM
+* 1 TB NVME SSD
+* 16 Cores (modern CPU's)
 
 ## Operating System 
 
-> Linux (x86_64) or Linux (amd64) Reccomended Arch Linux
+> Linux (x86_64) or Linux (amd64) Recommended Arch Linux
 
 **Dependencies**
 > Prerequisite: go1.18+ required.
@@ -69,7 +64,7 @@ Developers, traders, and users can all connect to Sei as ecosystem partners bene
 git clone https://github.com/sei-protocol/sei-chain
 cd sei-chain
 git checkout origin/1.0.1beta-upgrade
-make install # optionally use make install-all to rebuild nitro shared libraries
+make install
 mv $HOME/go/bin/seid /usr/bin/
 ```
 **Generate keys**
@@ -86,7 +81,7 @@ mv $HOME/go/bin/seid /usr/bin/
 
 * Initialize node: `seid init <moniker> --chain-id sei-testnet-1`
 
-* Download the Genesis file: `https://github.com/sei-protocol/testnet/raw/main/sei-testnet-1/genesis.json -P $HOME/.sei/config/`
+* Download the Genesis file: `wget https://github.com/sei-protocol/testnet/raw/main/sei-testnet-1/genesis.json -P $HOME/.sei/config/`
  
 * Edit the minimum-gas-prices in ${HOME}/.sei/config/app.toml: `sed -i 's/minimum-gas-prices = ""/minimum-gas-prices = "0.01usei"/g' $HOME/.sei/config/app.toml`
 
@@ -126,10 +121,6 @@ WantedBy=multi-user.target
 * Start local 4 node cluster: `make docker-cluster-start`
 * SSH into a docker container: `docker exec -it [container_name] /bin/bash`
 * Stop local 4 node cluster: `make docker-cluster-stop`
-
-**Troubleshooting**
-
-* If you see any errors related to nitro, try: `make install-all`
 
 ### Create Validator Transaction
 ```bash

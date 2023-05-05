@@ -9,22 +9,26 @@ import (
 )
 
 var (
-	KeyPriceSnapshotRetention = []byte("PriceSnapshotRetention") // number of epochs to retain price snapshots for
-	KeySudoCallGasPrice       = []byte("KeySudoCallGasPrice")    // gas price for sudo calls from endblock
-	KeyBeginBlockGasLimit     = []byte("KeyBeginBlockGasLimit")
-	KeyEndBlockGasLimit       = []byte("KeyEndBlockGasLimit")
-	KeyDefaultGasPerOrder     = []byte("KeyDefaultGasPerOrder")
-	KeyDefaultGasPerCancel    = []byte("KeyDefaultGasPerCancel")
-	KeyMinRentDeposit         = []byte("KeyMinRentDeposit")
+	KeyPriceSnapshotRetention    = []byte("PriceSnapshotRetention") // number of epochs to retain price snapshots for
+	KeySudoCallGasPrice          = []byte("KeySudoCallGasPrice")    // gas price for sudo calls from endblock
+	KeyBeginBlockGasLimit        = []byte("KeyBeginBlockGasLimit")
+	KeyEndBlockGasLimit          = []byte("KeyEndBlockGasLimit")
+	KeyDefaultGasPerOrder        = []byte("KeyDefaultGasPerOrder")
+	KeyDefaultGasPerCancel       = []byte("KeyDefaultGasPerCancel")
+	KeyMinRentDeposit            = []byte("KeyMinRentDeposit")
+	KeyGasAllowancePerSettlement = []byte("KeyGasAllowancePerSettlement")
+	KeyMinProcessableRent        = []byte("KeyMinProcessableRent")
 )
 
 const (
-	DefaultPriceSnapshotRetention = 24 * 3600  // default to one day
-	DefaultBeginBlockGasLimit     = 200000000  // 200M
-	DefaultEndBlockGasLimit       = 1000000000 // 1B
-	DefaultDefaultGasPerOrder     = 10000
-	DefaultDefaultGasPerCancel    = 5000
-	DefaultMinRentDeposit         = 10000000 // 10 sei
+	DefaultPriceSnapshotRetention    = 24 * 3600  // default to one day
+	DefaultBeginBlockGasLimit        = 200000000  // 200M
+	DefaultEndBlockGasLimit          = 1000000000 // 1B
+	DefaultDefaultGasPerOrder        = 55000
+	DefaultDefaultGasPerCancel       = 53000
+	DefaultMinRentDeposit            = 10000000 // 10 sei
+	DefaultGasAllowancePerSettlement = 10000
+	DefaultMinProcessableRent        = 100000
 )
 
 var DefaultSudoCallGasPrice = sdk.NewDecWithPrec(1, 1) // 0.1
@@ -39,13 +43,15 @@ func ParamKeyTable() paramtypes.KeyTable {
 // DefaultParams returns a default set of parameters
 func DefaultParams() Params {
 	return Params{
-		PriceSnapshotRetention: DefaultPriceSnapshotRetention,
-		SudoCallGasPrice:       DefaultSudoCallGasPrice,
-		BeginBlockGasLimit:     DefaultBeginBlockGasLimit,
-		EndBlockGasLimit:       DefaultEndBlockGasLimit,
-		DefaultGasPerOrder:     DefaultDefaultGasPerOrder,
-		DefaultGasPerCancel:    DefaultDefaultGasPerCancel,
-		MinRentDeposit:         DefaultMinRentDeposit,
+		PriceSnapshotRetention:    DefaultPriceSnapshotRetention,
+		SudoCallGasPrice:          DefaultSudoCallGasPrice,
+		BeginBlockGasLimit:        DefaultBeginBlockGasLimit,
+		EndBlockGasLimit:          DefaultEndBlockGasLimit,
+		DefaultGasPerOrder:        DefaultDefaultGasPerOrder,
+		DefaultGasPerCancel:       DefaultDefaultGasPerCancel,
+		MinRentDeposit:            DefaultMinRentDeposit,
+		GasAllowancePerSettlement: DefaultGasAllowancePerSettlement,
+		MinProcessableRent:        DefaultMinProcessableRent,
 	}
 }
 
@@ -59,6 +65,8 @@ func (p *Params) ParamSetPairs() paramtypes.ParamSetPairs {
 		paramtypes.NewParamSetPair(KeyDefaultGasPerOrder, &p.DefaultGasPerOrder, validateUint64Param),
 		paramtypes.NewParamSetPair(KeyDefaultGasPerCancel, &p.DefaultGasPerCancel, validateUint64Param),
 		paramtypes.NewParamSetPair(KeyMinRentDeposit, &p.MinRentDeposit, validateUint64Param),
+		paramtypes.NewParamSetPair(KeyGasAllowancePerSettlement, &p.GasAllowancePerSettlement, validateUint64Param),
+		paramtypes.NewParamSetPair(KeyMinProcessableRent, &p.MinProcessableRent, validateUint64Param),
 	}
 }
 

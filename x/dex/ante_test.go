@@ -72,7 +72,7 @@ func TestCheckDexGasDecorator(t *testing.T) {
 			types.NewMsgPlaceOrders("someone", []*types.Order{{}, {}}, keepertest.TestContract, sdk.NewCoins()),
 			types.NewMsgCancelOrders("someone", []*types.Cancellation{{}, {}, {}}, keepertest.TestContract),
 		},
-		fee: sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(3500))),
+		fee: sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(27500))),
 	}
 	_, err := decorator.AnteHandle(ctx, tx, false, terminator)
 	require.Nil(t, err)
@@ -81,7 +81,7 @@ func TestCheckDexGasDecorator(t *testing.T) {
 			types.NewMsgPlaceOrders("someone", []*types.Order{{}, {}}, keepertest.TestContract, sdk.NewCoins()),
 			types.NewMsgCancelOrders("someone", []*types.Cancellation{{}, {}, {}}, keepertest.TestContract),
 		},
-		fee: sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(3499))),
+		fee: sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(25499))),
 	}
 	_, err = decorator.AnteHandle(ctx, tx, false, terminator)
 	require.NotNil(t, err)

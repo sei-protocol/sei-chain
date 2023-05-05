@@ -16,3 +16,9 @@ func TestGetParams(t *testing.T) {
 
 	require.EqualValues(t, params, k.GetParams(ctx))
 }
+
+func TestGetSettlementGasAllowance(t *testing.T) {
+	k, ctx := testkeeper.DexKeeper(t)
+	gasAllowance := k.GetSettlementGasAllowance(ctx, 10)
+	require.Equal(t, uint64(10)*types.DefaultGasAllowancePerSettlement, gasAllowance)
+}

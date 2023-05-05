@@ -6,7 +6,6 @@ import (
 	dexkeeperutils "github.com/sei-protocol/sei-chain/x/dex/keeper/utils"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
 	dextypeswasm "github.com/sei-protocol/sei-chain/x/dex/types/wasm"
-	dexutils "github.com/sei-protocol/sei-chain/x/dex/utils"
 )
 
 func HandleSettlements(
@@ -34,7 +33,7 @@ func callSettlementHook(
 			Entries: settlementEntries,
 		},
 	}
-	if _, err := dexkeeperutils.CallContractSudo(ctx, dexkeeper, contractAddr, nativeSettlementMsg, dexutils.ZeroUserProvidedGas); err != nil {
+	if _, err := dexkeeperutils.CallContractSudo(ctx, dexkeeper, contractAddr, nativeSettlementMsg, dexkeeper.GetSettlementGasAllowance(ctx, len(settlementEntries))); err != nil {
 		return err
 	}
 	return nil

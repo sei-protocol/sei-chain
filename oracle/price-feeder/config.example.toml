@@ -109,3 +109,4 @@ websocket = "ws.kraken.com"
 
 # [[healthchecks]]
 # url = "https://hc-ping.com/HEALTHCHECK-UUID"
+# timeout = "5s"

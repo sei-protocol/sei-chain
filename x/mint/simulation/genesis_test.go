@@ -40,8 +40,7 @@ func TestRandomizedGenState(t *testing.T) {
 	simState.Cdc.MustUnmarshalJSON(simState.GenState[types.ModuleName], &mintGenesis)
 
 	require.Equal(t, "usei", mintGenesis.Params.MintDenom)
-	require.Equal(t, "0usei", mintGenesis.Minter.GetCoin().String())
-	require.Equal(t, "0.000000000000000000", mintGenesis.Minter.GetLastMintAmount().String())
+	require.Equal(t, "0usei", mintGenesis.Minter.GetLastMintAmountCoin().String())
 }
 
 // TestRandomizedGenState tests abnormal scenarios of applying RandomizedGenState.

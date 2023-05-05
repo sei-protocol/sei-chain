@@ -15,7 +15,6 @@ import (
 	"github.com/sei-protocol/sei-chain/utils/tracing"
 	"github.com/sei-protocol/sei-chain/x/dex"
 	dexkeeper "github.com/sei-protocol/sei-chain/x/dex/keeper"
-	nitrokeeper "github.com/sei-protocol/sei-chain/x/nitro/keeper"
 	"github.com/sei-protocol/sei-chain/x/oracle"
 	oraclekeeper "github.com/sei-protocol/sei-chain/x/oracle/keeper"
 )
@@ -30,7 +29,6 @@ type HandlerOptions struct {
 	WasmKeeper          *wasm.Keeper
 	OracleKeeper        *oraclekeeper.Keeper
 	DexKeeper           *dexkeeper.Keeper
-	NitroKeeper         *nitrokeeper.Keeper
 	AccessControlKeeper *aclkeeper.Keeper
 	TXCounterStoreKey   sdk.StoreKey
 
@@ -56,9 +54,6 @@ func NewAnteHandlerAndDepGenerator(options HandlerOptions) (sdk.AnteHandler, sdk
 	if options.OracleKeeper == nil {
 		return nil, nil, sdkerrors.Wrap(sdkerrors.ErrLogic, "oracle keeper is required for ante builder")
 	}
-	if options.NitroKeeper == nil {
-		return nil, nil, sdkerrors.Wrap(sdkerrors.ErrLogic, "nitro keeper is required for ante builder")
-	}
 	if options.AccessControlKeeper == nil {
 		return nil, nil, sdkerrors.Wrap(sdkerrors.ErrLogic, "accesscontrol keeper is required for ante builder")
 	}
@@ -75,7 +70,7 @@ func NewAnteHandlerAndDepGenerator(options HandlerOptions) (sdk.AnteHandler, sdk
 
 	anteDecorators := []sdk.AnteFullDecorator{
 		sdk.CustomDepWrappedAnteDecorator(ante.NewSetUpContextDecorator(antedecorators.GetGasMeterSetter(*options.AccessControlKeeper)), depdecorators.GasMeterSetterDecorator{}), // outermost AnteDecorator. SetUpContext must be called first
-		antedecorators.NewGaslessDecorator([]sdk.AnteFullDecorator{ante.NewDeductFeeDecorator(options.AccountKeeper, options.BankKeeper, options.FeegrantKeeper, options.TxFeeChecker)}, *options.OracleKeeper, *options.NitroKeeper),
+		antedecorators.NewGaslessDecorator([]sdk.AnteFullDecorator{ante.NewDeductFeeDecorator(options.AccountKeeper, options.BankKeeper, options.FeegrantKeeper, options.TxFeeChecker)}, *options.OracleKeeper),
 		sdk.DefaultWrappedAnteDecorator(wasmkeeper.NewLimitSimulationGasDecorator(options.WasmConfig.SimulationGasLimit)), // after setup context to enforce limits early
 		sdk.DefaultWrappedAnteDecorator(ante.NewRejectExtensionOptionsDecorator()),
 		oracle.NewSpammingPreventionDecorator(*options.OracleKeeper),

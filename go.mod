@@ -5,7 +5,7 @@ go 1.18
 require (
 	github.com/BurntSushi/toml v1.1.0
 	github.com/CosmWasm/wasmd v0.27.0
-	github.com/CosmWasm/wasmvm v1.0.0
+	github.com/CosmWasm/wasmvm v1.0.1
 	github.com/armon/go-metrics v0.3.10
 	github.com/cosmos/cosmos-sdk v0.45.4
 	github.com/cosmos/go-bip39 v1.0.0
@@ -190,7 +190,7 @@ require (
 	github.com/nishanths/predeclared v0.2.2 // indirect
 	github.com/oasisprotocol/curve25519-voi v0.0.0-20210609091139-0a56a4bca00b // indirect
 	github.com/olekukonko/tablewriter v0.0.5 // indirect
-	github.com/opencontainers/runc v1.1.0 // indirect
+	github.com/opencontainers/runc v1.1.5 // indirect
 	github.com/otiai10/copy v1.6.0 // indirect
 	github.com/pelletier/go-toml v1.9.5 // indirect
 	github.com/pelletier/go-toml/v2 v2.0.2 // indirect
@@ -269,10 +269,10 @@ require (
 replace (
 	github.com/CosmWasm/wasmd => github.com/sei-protocol/sei-wasmd v0.0.1
 	github.com/confio/ics23/go => github.com/cosmos/cosmos-sdk/ics23/go v0.8.0
-	github.com/cosmos/cosmos-sdk => github.com/sei-protocol/sei-cosmos v0.2.16
+	github.com/cosmos/cosmos-sdk => github.com/sei-protocol/sei-cosmos v0.2.27
 	github.com/cosmos/iavl => github.com/sei-protocol/sei-iavl v0.1.3
 	github.com/gogo/protobuf => github.com/regen-network/protobuf v1.3.3-alpha.regen.1
 	github.com/keybase/go-keychain => github.com/99designs/go-keychain v0.0.0-20191008050251-8e49817e8af4
-	github.com/tendermint/tendermint => github.com/sei-protocol/sei-tendermint v0.2.4
+	github.com/tendermint/tendermint => github.com/sei-protocol/sei-tendermint v0.2.15
 	google.golang.org/grpc => google.golang.org/grpc v1.33.2
 )

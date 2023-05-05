@@ -50,6 +50,10 @@
     "wasm_msg_types": {
       "wasm_mint_nft": {
         "contract_address": "sei1k83mp2vdgk57rgyuzrmm8yhume44lwtwmku5a7v3waanqe0qxkvssfjfvj"
+      },
+      "vortex": {
+        "contract_address": "sei12k3aacdygvjuran5hz60067pgu2uuuscz3styw2zk3q4aedj0v2sjq3tsj",
+        "num_orders_per_tx": 1
       }
     },
     "contract_distribution": [

@@ -21,5 +21,6 @@ var (
 	ErrPairNotRegistered          = sdkerrors.Register(ModuleName, 16, "pair is not registered")
 	ErrContractNotExists          = sdkerrors.Register(ModuleName, 17, "Error finding contract info")
 	ErrParsingContractInfo        = sdkerrors.Register(ModuleName, 18, "Error parsing contract info")
+	ErrInsufficientRent           = sdkerrors.Register(ModuleName, 19, "Error contract does not have sufficient fee")
 	ErrCircularContractDependency = sdkerrors.Register(ModuleName, 1103, "circular contract dependency detected")
 )

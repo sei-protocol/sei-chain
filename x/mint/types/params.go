@@ -3,6 +3,7 @@ package types
 import (
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -28,7 +29,7 @@ func NewParams(
 ) Params {
 	return Params{
 		MintDenom:            mintDenom,
-		TokenReleaseSchedule: tokenReleaseSchedule,
+		TokenReleaseSchedule: SortTokenReleaseCalendar(tokenReleaseSchedule),
 	}
 }
 
@@ -57,11 +58,24 @@ func (p Params) String() string {
 	return string(out)
 }
 
+func (p Version2Params) String() string {
+	out, _ := yaml.Marshal(p)
+	return string(out)
+}
+
 // Implements params.ParamSet
 func (p *Params) ParamSetPairs() paramtypes.ParamSetPairs {
 	return paramtypes.ParamSetPairs{
 		paramtypes.NewParamSetPair(KeyMintDenom, &p.MintDenom, validateMintDenom),
 		paramtypes.NewParamSetPair(KeyTokenReleaseSchedule, &p.TokenReleaseSchedule, validateTokenReleaseSchedule),
+	}
+}
+
+// Used for v2 -> v3 migration
+func (p *Version2Params) ParamSetPairs() paramtypes.ParamSetPairs {
+	return paramtypes.ParamSetPairs{
+		paramtypes.NewParamSetPair(KeyMintDenom, &p.MintDenom, func(i interface{}) error { return nil }),
+		paramtypes.NewParamSetPair(KeyTokenReleaseSchedule, &p.TokenReleaseSchedule, func(i interface{}) error { return nil }),
 	}
 }
 
@@ -85,19 +99,44 @@ func validateMintDenom(i interface{}) error {
 	return nil
 }
 
+func SortTokenReleaseCalendar(tokenReleaseSchedule []ScheduledTokenRelease) []ScheduledTokenRelease {
+	sort.Slice(tokenReleaseSchedule, func(i, j int) bool {
+		startDate1, _ := time.Parse(TokenReleaseDateFormat, tokenReleaseSchedule[i].GetStartDate())
+		startDate2, _ := time.Parse(TokenReleaseDateFormat, tokenReleaseSchedule[j].GetStartDate())
+		return startDate1.Before(startDate2)
+	})
+	return tokenReleaseSchedule
+}
+
 func validateTokenReleaseSchedule(i interface{}) error {
 	tokenReleaseSchedule, ok := i.([]ScheduledTokenRelease)
 	if !ok {
 		return fmt.Errorf("invalid parameter type: %T", i)
 	}
-	for _, scheduledTokenRelease := range tokenReleaseSchedule {
-		if scheduledTokenRelease.GetTokenReleaseAmount() < 0 {
-			return fmt.Errorf("token release amount must be non-negative: %d", scheduledTokenRelease.GetTokenReleaseAmount())
-		}
-		_, err := time.Parse(TokenReleaseDateFormat, scheduledTokenRelease.GetDate())
+
+	sortedTokenReleaseSchedule := SortTokenReleaseCalendar(tokenReleaseSchedule)
+
+	prevReleaseEndDate := time.Time{}
+	for _, scheduledTokenRelease := range sortedTokenReleaseSchedule {
+		startDate, err := time.Parse(TokenReleaseDateFormat, scheduledTokenRelease.GetStartDate())
 		if err != nil {
-			return fmt.Errorf("error: invalid date format use yyyy-mm-dd: %s", err)
+			return fmt.Errorf("error: invalid start date format use yyyy-mm-dd: %s", err)
 		}
+
+		endDate, err := time.Parse(TokenReleaseDateFormat, scheduledTokenRelease.GetEndDate())
+		if err != nil {
+			return fmt.Errorf("error: invalid end date format use yyyy-mm-dd: %s", err)
+		}
+
+		if startDate.After(endDate) {
+			return fmt.Errorf("error: start date must be before end date %s > %s", startDate, endDate)
+		}
+
+		if startDate.Before(prevReleaseEndDate) {
+			return fmt.Errorf("error: overlapping release period detected startDate=%s < prevReleaseEndDate=%s", startDate, prevReleaseEndDate)
+		}
+		prevReleaseEndDate = endDate
 	}
+
 	return nil
 }

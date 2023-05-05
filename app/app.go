@@ -103,10 +103,12 @@ import (
 	ibchost "github.com/cosmos/ibc-go/v3/modules/core/24-host"
 	ibckeeper "github.com/cosmos/ibc-go/v3/modules/core/keeper"
 	"github.com/sei-protocol/sei-chain/x/mint"
+	mintclient "github.com/sei-protocol/sei-chain/x/mint/client/cli"
 	mintkeeper "github.com/sei-protocol/sei-chain/x/mint/keeper"
 	minttypes "github.com/sei-protocol/sei-chain/x/mint/types"
 	"github.com/spf13/cast"
 	abci "github.com/tendermint/tendermint/abci/types"
+	tmcfg "github.com/tendermint/tendermint/config"
 	"github.com/tendermint/tendermint/libs/log"
 	tmos "github.com/tendermint/tendermint/libs/os"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
@@ -133,10 +135,6 @@ import (
 	tokenfactorykeeper "github.com/sei-protocol/sei-chain/x/tokenfactory/keeper"
 	tokenfactorytypes "github.com/sei-protocol/sei-chain/x/tokenfactory/types"
 
-	nitromodule "github.com/sei-protocol/sei-chain/x/nitro"
-	nitrokeeper "github.com/sei-protocol/sei-chain/x/nitro/keeper"
-	nitrotypes "github.com/sei-protocol/sei-chain/x/nitro/types"
-
 	// this line is used by starport scaffolding # stargate/app/moduleImport
 
 	"github.com/CosmWasm/wasmd/x/wasm"
@@ -157,6 +155,7 @@ func getGovProposalHandlers() []govclient.ProposalHandler {
 		ibcclientclient.UpdateClientProposalHandler,
 		ibcclientclient.UpgradeProposalHandler,
 		aclclient.ResourceDependencyProposalHandler,
+		mintclient.UpdateMinterHandler,
 		// this line is used by starport scaffolding # stargate/app/govProposalHandler
 	)
 
@@ -194,7 +193,6 @@ var (
 		dexmodule.AppModuleBasic{},
 		epochmodule.AppModuleBasic{},
 		tokenfactorymodule.AppModuleBasic{},
-		nitromodule.AppModuleBasic{},
 		// this line is used by starport scaffolding # stargate/app/moduleBasic
 	)
 
@@ -212,7 +210,6 @@ var (
 		wasm.ModuleName:                {authtypes.Burner},
 		dexmoduletypes.ModuleName:      nil,
 		tokenfactorytypes.ModuleName:   {authtypes.Minter, authtypes.Burner},
-		nitrotypes.ModuleName:          nil,
 		// this line is used by starport scaffolding # stargate/app/maccPerms
 	}
 
@@ -326,8 +323,6 @@ type App struct {
 
 	TokenFactoryKeeper tokenfactorykeeper.Keeper
 
-	NitroKeeper nitrokeeper.Keeper
-
 	// mm is the module manager
 	mm *module.Manager
 
@@ -346,6 +341,8 @@ type App struct {
 
 	// Stores mapping counter name to counter value
 	metricCounter *map[string]float32
+
+	mounter func()
 }
 
 // New returns a reference to an initialized blockchain app
@@ -357,6 +354,7 @@ func New(
 	skipUpgradeHeights map[int64]bool,
 	homePath string,
 	invCheckPeriod uint,
+	tmConfig *tmcfg.Config,
 	encodingConfig appparams.EncodingConfig,
 	enabledProposals []wasm.ProposalType,
 	appOpts servertypes.AppOptions,
@@ -368,7 +366,7 @@ func New(
 	cdc := encodingConfig.Amino
 	interfaceRegistry := encodingConfig.InterfaceRegistry
 
-	bApp := baseapp.NewBaseApp(AppName, logger, db, encodingConfig.TxConfig.TxDecoder(), appOpts, baseAppOptions...)
+	bApp := baseapp.NewBaseApp(AppName, logger, db, encodingConfig.TxConfig.TxDecoder(), tmConfig, appOpts, baseAppOptions...)
 	bApp.SetCommitMultiStoreTracer(traceStore)
 	bApp.SetVersion(version.Version)
 	bApp.SetInterfaceRegistry(interfaceRegistry)
@@ -381,7 +379,6 @@ func New(
 		dexmoduletypes.StoreKey,
 		epochmoduletypes.StoreKey,
 		tokenfactorytypes.StoreKey,
-		nitrotypes.StoreKey,
 		// this line is used by starport scaffolding # stargate/app/storeKey
 	)
 	tkeys := sdk.NewTransientStoreKeys(paramstypes.TStoreKey)
@@ -530,11 +527,6 @@ func New(
 		app.BankKeeper.(bankkeeper.BaseKeeper).WithMintCoinsRestriction(tokenfactorytypes.NewTokenFactoryDenomMintCoinsRestriction()),
 		app.DistrKeeper,
 	)
-	app.NitroKeeper = nitrokeeper.NewKeeper(
-		appCodec,
-		app.keys[nitrotypes.StoreKey],
-		app.GetSubspace(nitrotypes.ModuleName),
-	)
 
 	customDependencyGenerators := aclmapping.NewCustomDependencyGenerator()
 	aclOpts = append(aclOpts, aclkeeper.WithDependencyGeneratorMappings(customDependencyGenerators.GetCustomDependencyGenerators()))
@@ -597,6 +589,7 @@ func New(
 		AddRoute(upgradetypes.RouterKey, upgrade.NewSoftwareUpgradeProposalHandler(app.UpgradeKeeper)).
 		AddRoute(ibcclienttypes.RouterKey, ibcclient.NewClientProposalHandler(app.IBCKeeper.ClientKeeper)).
 		AddRoute(dexmoduletypes.RouterKey, dexmodule.NewProposalHandler(app.DexKeeper)).
+		AddRoute(minttypes.RouterKey, mint.NewProposalHandler(app.MintKeeper)).
 		AddRoute(tokenfactorytypes.RouterKey, tokenfactorymodule.NewProposalHandler(app.TokenFactoryKeeper)).
 		AddRoute(acltypes.ModuleName, aclmodule.NewProposalHandler(app.AccessControlKeeper))
 	if len(enabledProposals) != 0 {
@@ -653,7 +646,6 @@ func New(
 		dexModule,
 		epochModule,
 		tokenfactorymodule.NewAppModule(app.TokenFactoryKeeper, app.AccountKeeper, app.BankKeeper),
-		nitromodule.NewAppModule(app.NitroKeeper),
 		// this line is used by starport scaffolding # stargate/app/appModule
 	)
 
@@ -684,7 +676,6 @@ func New(
 		dexmoduletypes.ModuleName,
 		wasm.ModuleName,
 		tokenfactorytypes.ModuleName,
-		nitrotypes.ModuleName,
 		acltypes.ModuleName,
 	)
 
@@ -715,7 +706,6 @@ func New(
 		dexmoduletypes.ModuleName,
 		wasm.ModuleName,
 		tokenfactorytypes.ModuleName,
-		nitrotypes.ModuleName,
 		acltypes.ModuleName,
 	)
 
@@ -746,7 +736,6 @@ func New(
 		oracletypes.ModuleName,
 		tokenfactorytypes.ModuleName,
 		epochmoduletypes.ModuleName,
-		nitrotypes.ModuleName,
 		wasm.ModuleName,
 		acltypes.ModuleName,
 		// this line is used by starport scaffolding # stargate/app/initGenesis
@@ -777,7 +766,6 @@ func New(
 		dexModule,
 		epochModule,
 		tokenfactorymodule.NewAppModule(app.TokenFactoryKeeper, app.AccountKeeper, app.BankKeeper),
-		nitromodule.NewAppModule(app.NitroKeeper),
 		// this line is used by starport scaffolding # stargate/app/appModule
 	)
 	app.sm.RegisterStoreDecoders()
@@ -786,9 +774,12 @@ func New(
 	app.SetStoreUpgradeHandlers()
 
 	// initialize stores
-	app.MountKVStores(keys)
-	app.MountTransientStores(tkeys)
-	app.MountMemoryStores(memKeys)
+	app.mounter = func() {
+		app.MountKVStores(keys)
+		app.MountTransientStores(tkeys)
+		app.MountMemoryStores(memKeys)
+	}
+	app.mounter()
 
 	// initialize BaseApp
 	app.SetInitChainer(app.InitChainer)
@@ -813,7 +804,6 @@ func New(
 			WasmKeeper:          &app.WasmKeeper,
 			OracleKeeper:        &app.OracleKeeper,
 			DexKeeper:           &app.DexKeeper,
-			NitroKeeper:         &app.NitroKeeper,
 			TracingInfo:         app.tracingInfo,
 			AccessControlKeeper: &app.AccessControlKeeper,
 		},
@@ -840,7 +830,7 @@ func New(
 		}
 	}
 
-	if loadLatest {
+	loadVersionHandler := func() error {
 		if err := app.LoadLatestVersion(); err != nil {
 			tmos.Exit(err.Error())
 		}
@@ -849,6 +839,15 @@ func New(
 		if err := app.WasmKeeper.InitializePinnedCodes(ctx); err != nil {
 			tmos.Exit(fmt.Sprintf("failed initialize pinned codes %s", err))
 		}
+		return nil
+	}
+
+	if app.LastCommitID().Version > 0 || app.TmConfig == nil || !app.TmConfig.DBSync.Enable {
+		if err := loadVersionHandler(); err != nil {
+			panic(err)
+		}
+	} else {
+		app.SetLoadVersionHandler(loadVersionHandler)
 	}
 
 	app.ScopedIBCKeeper = scopedIBCKeeper
@@ -885,9 +884,7 @@ func (app *App) SetStoreUpgradeHandlers() {
 	}
 
 	if upgradeInfo.Name == "1.2.2beta" && !app.UpgradeKeeper.IsSkipHeight(upgradeInfo.Height) {
-		storeUpgrades := storetypes.StoreUpgrades{
-			Added: []string{nitrotypes.StoreKey},
-		}
+		storeUpgrades := storetypes.StoreUpgrades{}
 
 		// configure store loader that checks if version == upgradeHeight and applies store upgrades
 		app.SetStoreLoader(upgradetypes.UpgradeStoreLoader(upgradeInfo.Height, &storeUpgrades))
@@ -943,8 +940,8 @@ func (app *App) PrepareProposalHandler(ctx sdk.Context, req *abci.RequestPrepare
 	}, nil
 }
 
-func (app *App) GetOptimisticProcessingInfo() OptimisticProcessingInfo {
-	return *app.optimisticProcessingInfo
+func (app *App) GetOptimisticProcessingInfo() *OptimisticProcessingInfo {
+	return app.optimisticProcessingInfo
 }
 
 func (app *App) ClearOptimisticProcessingInfo() {
@@ -955,6 +952,7 @@ func (app *App) ProcessProposalHandler(ctx sdk.Context, req *abci.RequestProcess
 	// TODO: this check decodes transactions which is redone in subsequent processing. We might be able to optimize performance
 	// by recording the decoding results and avoid decoding again later on.
 	if !app.checkTotalBlockGasWanted(ctx, req.Txs) {
+		metrics.IncrFailedTotalGasWantedCheck(string(req.GetProposerAddress()))
 		return &abci.ResponseProcessProposal{
 			Status: abci.ResponseProcessProposal_REJECT,
 		}, nil
@@ -1535,7 +1533,6 @@ func initParamsKeeper(appCodec codec.BinaryCodec, legacyAmino *codec.LegacyAmino
 	paramsKeeper.Subspace(dexmoduletypes.ModuleName)
 	paramsKeeper.Subspace(epochmoduletypes.ModuleName)
 	paramsKeeper.Subspace(tokenfactorytypes.ModuleName)
-	paramsKeeper.Subspace(nitrotypes.ModuleName)
 	// this line is used by starport scaffolding # stargate/app/paramSubspace
 
 	return paramsKeeper
@@ -1560,6 +1557,6 @@ func (app *App) decorateContextWithDexMemState(base context.Context) context.Con
 }
 
 func init() {
-	// override max wasm size to 1MB
-	wasmtypes.MaxWasmSize = 1024 * 1024
+	// override max wasm size to 2MB
+	wasmtypes.MaxWasmSize = 2 * 1024 * 1024
 }
