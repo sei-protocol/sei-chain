@@ -14,6 +14,36 @@ base = "USDT"
 threshold = "2"
 
 [[currency_pairs]]
+base = "ETH"
+chain_denom = "ueth"
+providers = [
+  "huobi",
+  "kraken",
+  "coinbase",
+]
+quote = "USD"
+
+[[currency_pairs]]
+base = "BTC"
+chain_denom = "ubtc"
+providers = [
+  "huobi",
+  "kraken",
+  "coinbase",
+]
+quote = "USD"
+
+[[currency_pairs]]
+base = "SOL"
+chain_denom = "usei"
+providers = [
+  "huobi",
+  "kraken",
+  "coinbase",
+]
+quote = "USD"
+
+[[currency_pairs]]
 base = "ATOM"
 chain_denom = "uatom"
 providers = [
@@ -24,8 +54,8 @@ providers = [
 quote = "USD"
 
 [[currency_pairs]]
-base = "ETH"
-chain_denom = "ueth"
+base = "USDT"
+chain_denom = "factory/sei1jdppe6fnj2q7hjsepty5crxtrryzhuqsjrj95y/uust2"
 providers = [
   "huobi",
   "kraken",
@@ -64,4 +94,3 @@ websocket = "stream.binance.com:9443"
 
 # [[healthchecks]]
 # url = "https://hc-ping.com/HEALTHCHECK-UUID"
-# timeout = "5s"
