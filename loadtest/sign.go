@@ -69,7 +69,7 @@ func (sc *SignerClient) GetTestAccountKeyPath(accountID uint64) string {
 
 func (sc *SignerClient) GetAdminAccountKeyPath() string {
 	userHomeDir, _ := os.UserHomeDir()
-	return filepath.Join(userHomeDir, ".sei", "config", "node_key.json")
+	return filepath.Join(userHomeDir, ".sei", "config", "admin_key.json")
 }
 
 func (sc *SignerClient) GetAdminKey() cryptotypes.PrivKey {
