@@ -83,3 +83,13 @@ func (ak AccountKeeper) Params(c context.Context, req *types.QueryParamsRequest)
 
 	return &types.QueryParamsResponse{Params: params}, nil
 }
+
+func (ak AccountKeeper) NextAccountNumber(c context.Context, req *types.QueryNextAccountNumberRequest) (*types.QueryNextAccountNumberResponse, error) {
+	if req == nil {
+		return nil, status.Error(codes.InvalidArgument, "empty request")
+	}
+	ctx := sdk.UnwrapSDKContext(c)
+	nextAccountNumber := ak.GetNextAccountNumber(ctx)
+
+	return &types.QueryNextAccountNumberResponse{Count: nextAccountNumber}, nil
+}

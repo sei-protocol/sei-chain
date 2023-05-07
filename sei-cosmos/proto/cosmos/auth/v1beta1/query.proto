@@ -28,6 +28,11 @@ service Query {
   rpc Params(QueryParamsRequest) returns (QueryParamsResponse) {
     option (google.api.http).get = "/cosmos/auth/v1beta1/params";
   }
+
+  // NextAccountNumber queries the next account number assigned
+  rpc NextAccountNumber(QueryNextAccountNumberRequest) returns (QueryNextAccountNumberResponse) {
+    option (google.api.http).get = "/cosmos/auth/v1beta1/nextaccountnumber";
+  }
 }
 
 // QueryAccountsRequest is the request type for the Query/Accounts RPC method.
@@ -71,4 +76,15 @@ message QueryParamsRequest {}
 message QueryParamsResponse {
   // params defines the parameters of the module.
   Params params = 1 [(gogoproto.nullable) = false];
+}
+
+
+
+// QueryNextAccountRequest is the request type for the Query/NextAccountNumber RPC method.
+message QueryNextAccountNumberRequest {}
+
+// QueryNextAccountResponse is the response type for the Query/NextAccountNumber RPC method.
+message QueryNextAccountNumberResponse {
+  // count defines the next account number.
+  uint64 count = 1;
 }

@@ -43,6 +43,7 @@ func GetQueryCmd() *cobra.Command {
 		GetAccountCmd(),
 		GetAccountsCmd(),
 		QueryParamsCmd(),
+		QueryNextAccountNumberCmd(),
 	)
 
 	return cmd
@@ -71,6 +72,38 @@ $ <appd> query auth params
 			}
 
 			return clientCtx.PrintProto(&res.Params)
+		},
+	}
+
+	flags.AddQueryFlagsToCmd(cmd)
+
+	return cmd
+}
+
+// QueryNextAccountNumberCmd returns the command handler for evidence parameter querying.
+func QueryNextAccountNumberCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "next-account-number",
+		Short: "Query the next account number",
+		Args:  cobra.NoArgs,
+		Long: strings.TrimSpace(`Query the next account number parameters:
+
+$ <appd> query auth next-account-number
+`),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			clientCtx, err := client.GetClientQueryContext(cmd)
+			if err != nil {
+				return err
+			}
+
+			queryClient := types.NewQueryClient(clientCtx)
+			res, err := queryClient.NextAccountNumber(cmd.Context(), &types.QueryNextAccountNumberRequest{})
+			if err != nil {
+				return err
+			}
+
+			fmt.Printf("%d\n", res.Count)
+			return nil
 		},
 	}
 
