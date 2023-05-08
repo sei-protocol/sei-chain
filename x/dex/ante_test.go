@@ -62,19 +62,6 @@ func TestIsDecimalMultipleOf(t *testing.T) {
 	assert.True(t, !dex.IsDecimalMultipleOf(v7, v3))
 	assert.True(t, dex.IsDecimalMultipleOf(v8, v6))
 	assert.True(t, dex.IsDecimalMultipleOf(v9, v10))
-
-	// Zero is multiple of all
-	assert.True(t, dex.IsDecimalMultipleOf(v11, v1))
-	assert.True(t, dex.IsDecimalMultipleOf(v11, v2))
-	assert.True(t, dex.IsDecimalMultipleOf(v11, v3))
-	assert.True(t, dex.IsDecimalMultipleOf(v11, v4))
-	assert.True(t, dex.IsDecimalMultipleOf(v11, v5))
-	assert.True(t, dex.IsDecimalMultipleOf(v11, v6))
-	assert.True(t, dex.IsDecimalMultipleOf(v11, v7))
-	assert.True(t, dex.IsDecimalMultipleOf(v11, v8))
-	assert.True(t, dex.IsDecimalMultipleOf(v11, v9))
-	assert.True(t, dex.IsDecimalMultipleOf(v11, v10))
-	assert.True(t, dex.IsDecimalMultipleOf(v11, v11))
 }
 
 func TestCheckDexGasDecorator(t *testing.T) {
