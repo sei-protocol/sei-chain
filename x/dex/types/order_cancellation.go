@@ -1,4 +1,4 @@
-package wasm
+package types
 
 type SudoOrderCancellationMsg struct {
 	OrderCancellations OrderCancellationMsgDetails `json:"bulk_order_cancellations"`

@@ -7,8 +7,6 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/sei-protocol/sei-chain/x/dex/keeper/utils"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
-	typesutils "github.com/sei-protocol/sei-chain/x/dex/types/utils"
-	"github.com/sei-protocol/sei-chain/x/dex/types/wasm"
 	dexutils "github.com/sei-protocol/sei-chain/x/dex/utils"
 	"go.opentelemetry.io/otel/attribute"
 	otrace "go.opentelemetry.io/otel/trace"
@@ -18,7 +16,7 @@ func (w KeeperWrapper) HandleEBCancelOrders(ctx context.Context, sdkCtx sdk.Cont
 	_, span := (*tracer).Start(ctx, "SudoCancelOrders")
 	span.SetAttributes(attribute.String("contractAddr", contractAddr))
 
-	typedContractAddr := typesutils.ContractAddress(contractAddr)
+	typedContractAddr := types.ContractAddress(contractAddr)
 	msg := w.getCancelSudoMsg(sdkCtx, typedContractAddr, registeredPairs)
 	if len(msg.OrderCancellations.IdsToCancel) == 0 {
 		return nil
@@ -32,16 +30,16 @@ func (w KeeperWrapper) HandleEBCancelOrders(ctx context.Context, sdkCtx sdk.Cont
 	return nil
 }
 
-func (w KeeperWrapper) getCancelSudoMsg(sdkCtx sdk.Context, typedContractAddr typesutils.ContractAddress, registeredPairs []types.Pair) wasm.SudoOrderCancellationMsg {
+func (w KeeperWrapper) getCancelSudoMsg(sdkCtx sdk.Context, typedContractAddr types.ContractAddress, registeredPairs []types.Pair) types.SudoOrderCancellationMsg {
 	idsToCancel := []uint64{}
 	for _, pair := range registeredPairs {
-		typedPairStr := typesutils.GetPairString(&pair) //nolint:gosec // THIS MAY BE CAUSE FOR CONCERN AND WE MIGHT WANT TO REFACTOR.
+		typedPairStr := types.GetPairString(&pair) //nolint:gosec // THIS MAY BE CAUSE FOR CONCERN AND WE MIGHT WANT TO REFACTOR.
 		for _, cancel := range dexutils.GetMemState(sdkCtx.Context()).GetBlockCancels(sdkCtx, typedContractAddr, typedPairStr).Get() {
 			idsToCancel = append(idsToCancel, cancel.Id)
 		}
 	}
-	return wasm.SudoOrderCancellationMsg{
-		OrderCancellations: wasm.OrderCancellationMsgDetails{
+	return types.SudoOrderCancellationMsg{
+		OrderCancellations: types.OrderCancellationMsgDetails{
 			IdsToCancel: idsToCancel,
 		},
 	}

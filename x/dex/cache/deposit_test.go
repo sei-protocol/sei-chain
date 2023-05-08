@@ -7,13 +7,12 @@ import (
 	keepertest "github.com/sei-protocol/sei-chain/testutil/keeper"
 	dex "github.com/sei-protocol/sei-chain/x/dex/cache"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
-	"github.com/sei-protocol/sei-chain/x/dex/types/utils"
 	"github.com/stretchr/testify/require"
 )
 
 func TestDepositAdd(t *testing.T) {
 	keeper, ctx := keepertest.DexKeeper(t)
-	deposits := dex.NewMemState(keeper.GetStoreKey()).GetDepositInfo(ctx, utils.ContractAddress(keepertest.TestContract))
+	deposits := dex.NewMemState(keeper.GetStoreKey()).GetDepositInfo(ctx, types.ContractAddress(keepertest.TestContract))
 	deposit := types.DepositInfoEntry{
 		Creator: "abc",
 		Amount:  sdk.MustNewDecFromStr("1.2"),

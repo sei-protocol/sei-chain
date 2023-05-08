@@ -1,10 +1,8 @@
-package utils
+package types
 
 import (
 	"fmt"
 	"strings"
-
-	"github.com/sei-protocol/sei-chain/x/dex/types"
 )
 
 type (
@@ -12,7 +10,7 @@ type (
 	PairString      string
 )
 
-func GetPairString(pair *types.Pair) PairString {
+func GetPairString(pair *Pair) PairString {
 	return PairString(
 		fmt.Sprintf("%s|%s", pair.PriceDenom, pair.AssetDenom),
 	)

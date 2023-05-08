@@ -3,49 +3,145 @@ package types
 import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/sei-protocol/sei-chain/utils"
-	"github.com/sei-protocol/sei-chain/utils/datastructures"
 )
 
 type OrderBook struct {
-	Longs  *CachedSortedOrderBookEntries
-	Shorts *CachedSortedOrderBookEntries
-}
-
-func (o *OrderBook) DeepCopy() *OrderBook {
-	return &OrderBook{
-		Longs:  o.Longs.DeepCopy(),
-		Shorts: o.Shorts.DeepCopy(),
-	}
+	Contract ContractAddress
+	Pair     Pair
+	Longs    *CachedSortedOrderBookEntries
+	Shorts   *CachedSortedOrderBookEntries
 }
 
 // entries are always sorted by prices in ascending order, regardless of side
 type CachedSortedOrderBookEntries struct {
-	Entries      []OrderBookEntry
-	DirtyEntries *datastructures.TypedSyncMap[string, OrderBookEntry]
+	CachedEntries []OrderBookEntry
+	currentPtr    int
+
+	loader  func(ctx sdk.Context, startingPriceExclusive sdk.Dec, withLimit bool) []OrderBookEntry
+	setter  func(sdk.Context, OrderBookEntry)
+	deleter func(sdk.Context, OrderBookEntry)
 }
 
-func (c *CachedSortedOrderBookEntries) DeepCopy() *CachedSortedOrderBookEntries {
+func NewCachedSortedOrderBookEntries(
+	loader func(ctx sdk.Context, startingPriceExclusive sdk.Dec, withLimit bool) []OrderBookEntry,
+	setter func(sdk.Context, OrderBookEntry),
+	deleter func(sdk.Context, OrderBookEntry),
+) *CachedSortedOrderBookEntries {
 	return &CachedSortedOrderBookEntries{
-		Entries:      utils.Map(c.Entries, func(e OrderBookEntry) OrderBookEntry { return e.DeepCopy() }),
-		DirtyEntries: c.DirtyEntries.DeepCopy(func(e OrderBookEntry) OrderBookEntry { return e.DeepCopy() }),
+		loader:  loader,
+		setter:  setter,
+		deleter: deleter,
 	}
 }
 
-func (c *CachedSortedOrderBookEntries) AddDirtyEntry(entry OrderBookEntry) {
-	c.DirtyEntries.Store(entry.GetPrice().String(), entry)
+func (c *CachedSortedOrderBookEntries) load(ctx sdk.Context) {
+	var loaded []OrderBookEntry
+	if len(c.CachedEntries) == 0 {
+		loaded = c.loader(ctx, sdk.ZeroDec(), false)
+	} else {
+		loaded = c.loader(ctx, c.CachedEntries[len(c.CachedEntries)-1].GetOrderEntry().Price, true)
+	}
+	c.CachedEntries = append(c.CachedEntries, loaded...)
+}
+
+func (c *CachedSortedOrderBookEntries) SettleQuantity(ctx sdk.Context, quantity sdk.Dec) (res []ToSettle, settled sdk.Dec) {
+	currentEntry := c.CachedEntries[c.currentPtr].GetOrderEntry()
+
+	if quantity.GTE(currentEntry.Quantity) {
+		res = utils.Map(currentEntry.Allocations, AllocationToSettle)
+		settled = currentEntry.Quantity
+		currentEntry.Quantity = sdk.ZeroDec()
+		currentEntry.Allocations = []*Allocation{}
+		return
+	}
+
+	settled = sdk.ZeroDec()
+	newFirstAllocationIdx := 0
+	for idx, a := range currentEntry.Allocations {
+		postSettle := settled.Add(a.Quantity)
+		if postSettle.LTE(quantity) {
+			settled = postSettle
+			res = append(res, AllocationToSettle(a))
+		} else {
+			newFirstAllocationIdx = idx
+			if settled.Equal(quantity) {
+				break
+			}
+			res = append(res, ToSettle{
+				OrderID: a.OrderId,
+				Account: a.Account,
+				Amount:  quantity.Sub(settled),
+			})
+			a.Quantity = a.Quantity.Sub(quantity.Sub(settled))
+			settled = quantity
+			break
+		}
+	}
+	currentEntry.Quantity = currentEntry.Quantity.Sub(quantity)
+	currentEntry.Allocations = currentEntry.Allocations[newFirstAllocationIdx:]
+	return res, settled
+}
+
+// Discard all dirty changes and reload
+func (c *CachedSortedOrderBookEntries) Refresh(ctx sdk.Context) {
+	c.CachedEntries = c.loader(ctx, sdk.ZeroDec(), false)
+	c.currentPtr = 0
+}
+
+func (c *CachedSortedOrderBookEntries) Flush(ctx sdk.Context) {
+	for i := 0; i <= c.currentPtr; i++ {
+		if i >= len(c.CachedEntries) {
+			break
+		}
+		entry := c.CachedEntries[i]
+		if entry.GetOrderEntry().Quantity.IsZero() {
+			c.deleter(ctx, entry)
+		} else {
+			c.setter(ctx, entry)
+		}
+	}
+	c.CachedEntries = c.CachedEntries[c.currentPtr:]
+	c.currentPtr = 0
+}
+
+// Next will only move on to the next order if the current order quantity hits zero.
+// So it should not be used for read-only iteration
+func (c *CachedSortedOrderBookEntries) Next(ctx sdk.Context) OrderBookEntry {
+	for c.currentPtr < len(c.CachedEntries) && c.CachedEntries[c.currentPtr].GetOrderEntry().Quantity.IsZero() {
+		c.currentPtr++
+	}
+	if c.currentPtr >= len(c.CachedEntries) {
+		c.load(ctx)
+		// if nothing is loaded, we've reached the end
+		if c.currentPtr >= len(c.CachedEntries) {
+			return nil
+		}
+	}
+	return c.CachedEntries[c.currentPtr]
 }
 
 type OrderBookEntry interface {
 	GetPrice() sdk.Dec
-	GetEntry() *OrderEntry
+	GetOrderEntry() *OrderEntry
 	DeepCopy() OrderBookEntry
+	SetEntry(*OrderEntry)
+	SetPrice(sdk.Dec)
+}
+
+func (m *LongBook) SetPrice(p sdk.Dec) {
+	m.Price = p
 }
 
 func (m *LongBook) GetPrice() sdk.Dec {
-	if m != nil {
-		return m.Price
-	}
-	return sdk.ZeroDec()
+	return m.Price
+}
+
+func (m *LongBook) GetOrderEntry() *OrderEntry {
+	return m.Entry
+}
+
+func (m *LongBook) SetEntry(newEntry *OrderEntry) {
+	m.Entry = newEntry
 }
 
 func (m *LongBook) DeepCopy() OrderBookEntry {
@@ -70,11 +166,20 @@ func (m *LongBook) DeepCopy() OrderBookEntry {
 	}
 }
 
+func (m *ShortBook) SetPrice(p sdk.Dec) {
+	m.Price = p
+}
+
 func (m *ShortBook) GetPrice() sdk.Dec {
-	if m != nil {
-		return m.Price
-	}
-	return sdk.ZeroDec()
+	return m.Price
+}
+
+func (m *ShortBook) GetOrderEntry() *OrderEntry {
+	return m.Entry
+}
+
+func (m *ShortBook) SetEntry(newEntry *OrderEntry) {
+	m.Entry = newEntry
 }
 
 func (m *ShortBook) DeepCopy() OrderBookEntry {
@@ -96,5 +201,19 @@ func (m *ShortBook) DeepCopy() OrderBookEntry {
 	return &ShortBook{
 		Price: m.Price,
 		Entry: &newOrderEntry,
+	}
+}
+
+type ToSettle struct {
+	OrderID uint64
+	Amount  sdk.Dec
+	Account string
+}
+
+func AllocationToSettle(a *Allocation) ToSettle {
+	return ToSettle{
+		OrderID: a.OrderId,
+		Amount:  a.Quantity,
+		Account: a.Account,
 	}
 }

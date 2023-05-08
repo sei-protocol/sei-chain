@@ -9,7 +9,6 @@ import (
 	"github.com/cosmos/cosmos-sdk/client/tx"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
-	"github.com/sei-protocol/sei-chain/x/dex/types/utils"
 	"github.com/spf13/cobra"
 )
 
@@ -38,7 +37,7 @@ func CmdCancelOrders() *cobra.Command {
 				if err != nil {
 					return err
 				}
-				argPositionDir, err := utils.GetPositionDirectionFromStr(cancelDetails[1])
+				argPositionDir, err := types.GetPositionDirectionFromStr(cancelDetails[1])
 				if err != nil {
 					return err
 				}

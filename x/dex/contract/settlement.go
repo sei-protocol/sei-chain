@@ -5,7 +5,6 @@ import (
 	"github.com/sei-protocol/sei-chain/x/dex/keeper"
 	dexkeeperutils "github.com/sei-protocol/sei-chain/x/dex/keeper/utils"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
-	dextypeswasm "github.com/sei-protocol/sei-chain/x/dex/types/wasm"
 )
 
 func HandleSettlements(
@@ -27,7 +26,7 @@ func callSettlementHook(
 		return nil
 	}
 	_, currentEpoch := dexkeeper.IsNewEpoch(ctx)
-	nativeSettlementMsg := dextypeswasm.SudoSettlementMsg{
+	nativeSettlementMsg := types.SudoSettlementMsg{
 		Settlement: types.Settlements{
 			Epoch:   int64(currentEpoch),
 			Entries: settlementEntries,

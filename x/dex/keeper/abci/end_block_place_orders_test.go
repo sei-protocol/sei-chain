@@ -10,7 +10,6 @@ import (
 	"github.com/sei-protocol/sei-chain/x/dex/keeper/abci"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
 	dextypes "github.com/sei-protocol/sei-chain/x/dex/types"
-	typesutils "github.com/sei-protocol/sei-chain/x/dex/types/utils"
 	dexutils "github.com/sei-protocol/sei-chain/x/dex/utils"
 	minttypes "github.com/sei-protocol/sei-chain/x/mint/types"
 	"github.com/stretchr/testify/require"
@@ -20,7 +19,7 @@ import (
 func TestGetPlaceSudoMsg(t *testing.T) {
 	pair := types.Pair{PriceDenom: keepertest.TestPriceDenom, AssetDenom: keepertest.TestAssetDenom}
 	keeper, ctx := keepertest.DexKeeper(t)
-	dexutils.GetMemState(ctx.Context()).GetBlockOrders(ctx, keepertest.TestContract, typesutils.GetPairString(&pair)).Add(
+	dexutils.GetMemState(ctx.Context()).GetBlockOrders(ctx, keepertest.TestContract, types.GetPairString(&pair)).Add(
 		&types.Order{
 			Id:                1,
 			Price:             sdk.OneDec(),
