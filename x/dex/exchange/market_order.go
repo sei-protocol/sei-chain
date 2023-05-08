@@ -1,7 +1,6 @@
 package exchange
 
 import (
-	"fmt"
 	"math"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -16,7 +15,6 @@ func MatchMarketOrders(
 	direction types.PositionDirection,
 	blockOrders *cache.BlockOrders,
 ) ExecutionOutcome {
-	ctx.Logger().Info(fmt.Sprintf("MatchMarketOrders orders beginning %+v\n", marketOrders))
 	totalExecuted, totalPrice := sdk.ZeroDec(), sdk.ZeroDec()
 	minPrice, maxPrice := sdk.NewDecFromInt(sdk.NewIntFromUint64(math.MaxInt64)), sdk.OneDec().Neg()
 	settlements := []*types.SettlementEntry{}
@@ -35,20 +33,14 @@ func MatchMarketOrders(
 		}
 	}
 
-	ctx.Logger().Info(fmt.Sprintf("MatchMarketOrders total Executed %+v\n", totalExecuted))
-	ctx.Logger().Info(fmt.Sprintf("MatchMarketOrders total Price %+v\n", totalPrice))
-
 	if totalExecuted.IsPositive() {
-		ctx.Logger().Info(fmt.Sprintf("MatchMarketOrders total first \n"))
 		clearingPrice := totalPrice.Quo(totalExecuted)
-		ctx.Logger().Info(fmt.Sprintf("MatchMarketOrders total second \n"))
 		for _, settlement := range allTakerSettlements {
 			settlement.ExecutionCostOrProceed = clearingPrice
 		}
 		minPrice, maxPrice = clearingPrice, clearingPrice
 		settlements = append(settlements, allTakerSettlements...)
 	}
-	ctx.Logger().Info(fmt.Sprintf("MatchMarketOrders end \n"))
 	return ExecutionOutcome{
 		TotalNotional: totalPrice,
 		TotalQuantity: totalExecuted,
@@ -71,7 +63,6 @@ func MatchMarketOrder(
 	allTakerSettlements []*types.SettlementEntry,
 	blockOrders *cache.BlockOrders,
 ) ([]*types.SettlementEntry, []*types.SettlementEntry) {
-	ctx.Logger().Info(fmt.Sprintf("MatchMarketOrders order inner %+v\n", marketOrder))
 	remainingQuantity := marketOrder.Quantity
 	for i := range orderBookEntries.Entries {
 		var existingOrder types.OrderBookEntry
