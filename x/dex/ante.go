@@ -57,7 +57,7 @@ func (tsmd TickSizeMultipleDecorator) CheckTickSizeMultiple(ctx sdk.Context, msg
 				if !IsDecimalMultipleOf(order.Price, priceTickSize) {
 					// Allow Market Orders with Price 0
 					if !IsMarketOrder(order) || !order.Price.IsZero() {
-						return sdkerrors.Wrapf(errors.New("ErrPriceNotMultipleOfTickSize"), "price needs to be multiple of price tick size")
+						return sdkerrors.Wrapf(errors.New("ErrPriceNotMultipleOfTickSize"), "price needs to be non-zero and multiple of price tick size")
 					}
 				}
 				quantityTickSize, found := tsmd.dexKeeper.GetQuantityTickSizeForPair(ctx, contractAddr,
@@ -69,7 +69,7 @@ func (tsmd TickSizeMultipleDecorator) CheckTickSizeMultiple(ctx sdk.Context, msg
 					return sdkerrors.Wrapf(sdkerrors.ErrKeyNotFound, "the pair {price:%s,asset:%s} has no quantity ticksize configured", order.PriceDenom, order.AssetDenom)
 				}
 				if !IsDecimalMultipleOf(order.Quantity, quantityTickSize) {
-					return sdkerrors.Wrapf(errors.New("ErrQuantityNotMultipleOfTickSize"), "quantity needs to be multiple of quantity tick size")
+					return sdkerrors.Wrapf(errors.New("ErrQuantityNotMultipleOfTickSize"), "quantity needs to be non-zero and multiple of quantity tick size")
 				}
 			}
 			continue
