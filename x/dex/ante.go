@@ -79,8 +79,11 @@ func (tsmd TickSizeMultipleDecorator) CheckTickSizeMultiple(ctx sdk.Context, msg
 	return nil
 }
 
-// Check whether decimal a is multiple of decimal b
+// Check whether decimal a is multiple of decimal b or a is zero
 func IsDecimalMultipleOf(a, b sdk.Dec) bool {
+	if a.IsZero() {
+		return true
+	}
 	if a.LT(b) {
 		return false
 	}
