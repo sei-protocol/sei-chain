@@ -16,7 +16,7 @@ func PopulateOrderbook(
 	pair types.Pair,
 ) *types.OrderBook {
 	// TODO update to param
-	loadCnt := 10
+	loadCnt := int(keeper.GetOrderBookEntriesPerLoad(ctx))
 	longLoader := func(lctx sdk.Context, startExclusive sdk.Dec, withLimit bool) []types.OrderBookEntry {
 		if !withLimit {
 			return keeper.GetTopNLongBooksForPair(lctx, string(contractAddr), pair.PriceDenom, pair.AssetDenom, loadCnt)

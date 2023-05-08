@@ -18,6 +18,7 @@ var (
 	KeyMinRentDeposit            = []byte("KeyMinRentDeposit")
 	KeyGasAllowancePerSettlement = []byte("KeyGasAllowancePerSettlement")
 	KeyMinProcessableRent        = []byte("KeyMinProcessableRent")
+	KeyOrderBookEntriesPerLoad   = []byte("KeyOrderBookEntriesPerLoad")
 )
 
 const (
@@ -29,6 +30,7 @@ const (
 	DefaultMinRentDeposit            = 10000000 // 10 sei
 	DefaultGasAllowancePerSettlement = 10000
 	DefaultMinProcessableRent        = 100000
+	DefaultOrderBookEntriesPerLoad   = 10
 )
 
 var DefaultSudoCallGasPrice = sdk.NewDecWithPrec(1, 1) // 0.1
@@ -52,6 +54,7 @@ func DefaultParams() Params {
 		MinRentDeposit:            DefaultMinRentDeposit,
 		GasAllowancePerSettlement: DefaultGasAllowancePerSettlement,
 		MinProcessableRent:        DefaultMinProcessableRent,
+		OrderBookEntriesPerLoad:   DefaultOrderBookEntriesPerLoad,
 	}
 }
 
@@ -67,6 +70,7 @@ func (p *Params) ParamSetPairs() paramtypes.ParamSetPairs {
 		paramtypes.NewParamSetPair(KeyMinRentDeposit, &p.MinRentDeposit, validateUint64Param),
 		paramtypes.NewParamSetPair(KeyGasAllowancePerSettlement, &p.GasAllowancePerSettlement, validateUint64Param),
 		paramtypes.NewParamSetPair(KeyMinProcessableRent, &p.MinProcessableRent, validateUint64Param),
+		paramtypes.NewParamSetPair(KeyOrderBookEntriesPerLoad, &p.OrderBookEntriesPerLoad, validateUint64Param),
 	}
 }
 

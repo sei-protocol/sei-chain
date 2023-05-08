@@ -206,6 +206,9 @@ func (m *ContractInfoV2) GetRentBalance() uint64 {
 	return 0
 }
 
+// suppose A is first registered and depends on X, then B is added and depends on X,
+// and then C is added and depends on X, then A is the elder sibling to B and B is
+// the younger sibling to A, and B is the elder sibling to C and C is the younger to B
 type ContractDependencyInfo struct {
 	Dependency              string `protobuf:"bytes,1,opt,name=dependency,proto3" json:"dependency,omitempty"`
 	ImmediateElderSibling   string `protobuf:"bytes,2,opt,name=immediateElderSibling,proto3" json:"immediateElderSibling,omitempty"`
