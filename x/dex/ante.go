@@ -65,8 +65,11 @@ func (tsmd TickSizeMultipleDecorator) CheckTickSizeMultiple(ctx sdk.Context, msg
 				if !found {
 					return sdkerrors.Wrapf(sdkerrors.ErrKeyNotFound, "the pair {price:%s,asset:%s} has no quantity ticksize configured", order.PriceDenom, order.AssetDenom)
 				}
+				if order.Quantity.IsZero() {
+					return sdkerrors.Wrapf(errors.New("ErrQuantityZero"), "quantity can not be zero")
+				}
 				if !IsDecimalMultipleOf(order.Quantity, quantityTickSize) {
-					return sdkerrors.Wrapf(errors.New("ErrPriceNotMultipleOfTickSize"), "price needs to be multiple of quantity tick size")
+					return sdkerrors.Wrapf(errors.New("ErrQuantityNotMultipleOfTickSize"), "quantity needs to be multiple of quantity tick size")
 				}
 			}
 			continue
