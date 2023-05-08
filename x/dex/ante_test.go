@@ -49,7 +49,6 @@ func TestIsDecimalMultipleOf(t *testing.T) {
 	v8, _ := sdk.NewDecFromStr("3")
 	v9, _ := sdk.NewDecFromStr("5.4")
 	v10, _ := sdk.NewDecFromStr("0.3")
-	v11 := sdk.ZeroDec()
 
 	assert.True(t, dex.IsDecimalMultipleOf(v1, v2))
 	assert.True(t, !dex.IsDecimalMultipleOf(v2, v1))
