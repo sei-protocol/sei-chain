@@ -7,7 +7,6 @@ import (
 	"github.com/cosmos/cosmos-sdk/store/prefix"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
-	"github.com/sei-protocol/sei-chain/x/dex/types/wasm"
 )
 
 type BlockOrders struct {
@@ -52,8 +51,8 @@ func (o *BlockOrders) Get() (list []*types.Order) {
 	return
 }
 
-func (o *BlockOrders) MarkFailedToPlace(failedOrders []wasm.UnsuccessfulOrder) {
-	failedOrdersMap := map[uint64]wasm.UnsuccessfulOrder{}
+func (o *BlockOrders) MarkFailedToPlace(failedOrders []types.UnsuccessfulOrder) {
+	failedOrdersMap := map[uint64]types.UnsuccessfulOrder{}
 	for _, failedOrder := range failedOrders {
 		failedOrdersMap[failedOrder.ID] = failedOrder
 	}
@@ -66,7 +65,7 @@ func (o *BlockOrders) MarkFailedToPlace(failedOrders []wasm.UnsuccessfulOrder) {
 
 // getKVsToSet iterate through the kvstore and append the key,val items to a list.
 // We should avoid writing or reading from the store directly within the iterator.
-func (o *BlockOrders) getKVsToSet(failedOrdersMap map[uint64]wasm.UnsuccessfulOrder) ([][]byte, [][]byte) {
+func (o *BlockOrders) getKVsToSet(failedOrdersMap map[uint64]types.UnsuccessfulOrder) ([][]byte, [][]byte) {
 	iterator := sdk.KVStorePrefixIterator(o.orderStore, []byte{})
 
 	defer iterator.Close()

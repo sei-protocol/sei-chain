@@ -1,4 +1,4 @@
-package wasm_test
+package types_test
 
 import (
 	"testing"
@@ -6,14 +6,13 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	keepertest "github.com/sei-protocol/sei-chain/testutil/keeper"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
-	"github.com/sei-protocol/sei-chain/x/dex/types/wasm"
 	"github.com/stretchr/testify/require"
 )
 
 func TestNewSettlementEntry(t *testing.T) {
 	_, ctx := keepertest.DexKeeper(t)
 	ctx = ctx.WithBlockHeight(100)
-	sudoFinalizeBlockMsg := wasm.NewSettlementEntry(
+	sudoFinalizeBlockMsg := types.NewSettlementEntry(
 		ctx,
 		1,
 		"TEST_ACCOUNT",

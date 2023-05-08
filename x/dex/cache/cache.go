@@ -9,24 +9,23 @@ import (
 
 	"github.com/sei-protocol/sei-chain/utils/datastructures"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
-	typesutils "github.com/sei-protocol/sei-chain/x/dex/types/utils"
 )
 
 const SynchronizationTimeoutInSeconds = 5
 
 type MemState struct {
 	storeKey    sdk.StoreKey
-	depositInfo *datastructures.TypedSyncMap[typesutils.ContractAddress, *DepositInfo]
+	depositInfo *datastructures.TypedSyncMap[types.ContractAddress, *DepositInfo]
 }
 
 func NewMemState(storeKey sdk.StoreKey) *MemState {
 	return &MemState{
 		storeKey:    storeKey,
-		depositInfo: datastructures.NewTypedSyncMap[typesutils.ContractAddress, *DepositInfo](),
+		depositInfo: datastructures.NewTypedSyncMap[types.ContractAddress, *DepositInfo](),
 	}
 }
 
-func (s *MemState) GetAllBlockOrders(ctx sdk.Context, contractAddr typesutils.ContractAddress) (list []*types.Order) {
+func (s *MemState) GetAllBlockOrders(ctx sdk.Context, contractAddr types.ContractAddress) (list []*types.Order) {
 	s.SynchronizeAccess(ctx, contractAddr)
 	store := prefix.NewStore(
 		ctx.KVStore(s.storeKey),
@@ -48,7 +47,7 @@ func (s *MemState) GetAllBlockOrders(ctx sdk.Context, contractAddr typesutils.Co
 	return
 }
 
-func (s *MemState) GetBlockOrders(ctx sdk.Context, contractAddr typesutils.ContractAddress, pair typesutils.PairString) *BlockOrders {
+func (s *MemState) GetBlockOrders(ctx sdk.Context, contractAddr types.ContractAddress, pair types.PairString) *BlockOrders {
 	s.SynchronizeAccess(ctx, contractAddr)
 	return NewOrders(
 		prefix.NewStore(
@@ -60,7 +59,7 @@ func (s *MemState) GetBlockOrders(ctx sdk.Context, contractAddr typesutils.Contr
 	)
 }
 
-func (s *MemState) GetBlockCancels(ctx sdk.Context, contractAddr typesutils.ContractAddress, pair typesutils.PairString) *BlockCancellations {
+func (s *MemState) GetBlockCancels(ctx sdk.Context, contractAddr types.ContractAddress, pair types.PairString) *BlockCancellations {
 	s.SynchronizeAccess(ctx, contractAddr)
 	return NewCancels(
 		prefix.NewStore(
@@ -72,7 +71,7 @@ func (s *MemState) GetBlockCancels(ctx sdk.Context, contractAddr typesutils.Cont
 	)
 }
 
-func (s *MemState) GetDepositInfo(ctx sdk.Context, contractAddr typesutils.ContractAddress) *DepositInfo {
+func (s *MemState) GetDepositInfo(ctx sdk.Context, contractAddr types.ContractAddress) *DepositInfo {
 	s.SynchronizeAccess(ctx, contractAddr)
 	return NewDepositInfo(
 		prefix.NewStore(
@@ -88,14 +87,14 @@ func (s *MemState) Clear(ctx sdk.Context) {
 	DeepDelete(ctx.KVStore(s.storeKey), types.KeyPrefix(types.MemDepositKey), func(_ []byte) bool { return true })
 }
 
-func (s *MemState) ClearCancellationForPair(ctx sdk.Context, contractAddr typesutils.ContractAddress, pair typesutils.PairString) {
+func (s *MemState) ClearCancellationForPair(ctx sdk.Context, contractAddr types.ContractAddress, pair types.PairString) {
 	s.SynchronizeAccess(ctx, contractAddr)
 	DeepDelete(ctx.KVStore(s.storeKey), types.KeyPrefix(types.MemCancelKey), func(v []byte) bool {
 		var c types.Cancellation
 		if err := c.Unmarshal(v); err != nil {
 			panic(err)
 		}
-		return c.ContractAddr == string(contractAddr) && typesutils.GetPairString(&types.Pair{
+		return c.ContractAddr == string(contractAddr) && types.GetPairString(&types.Pair{
 			AssetDenom: c.AssetDenom,
 			PriceDenom: c.PriceDenom,
 		}) == pair
@@ -131,7 +130,7 @@ func (s *MemState) DeepFilterAccount(ctx sdk.Context, account string) {
 	})
 }
 
-func (s *MemState) SynchronizeAccess(ctx sdk.Context, contractAddr typesutils.ContractAddress) {
+func (s *MemState) SynchronizeAccess(ctx sdk.Context, contractAddr types.ContractAddress) {
 	executingContract := GetExecutingContract(ctx)
 	if executingContract == nil {
 		// not accessed by contract. no need to synchronize

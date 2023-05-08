@@ -5,6 +5,7 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/types/query"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
+	dexutils "github.com/sei-protocol/sei-chain/x/dex/utils"
 )
 
 // SetShortBook set a specific shortBook in the store
@@ -12,6 +13,10 @@ func (k Keeper) SetShortBook(ctx sdk.Context, contractAddr string, shortBook typ
 	store := prefix.NewStore(ctx.KVStore(k.storeKey), types.OrderBookPrefix(false, contractAddr, shortBook.Entry.PriceDenom, shortBook.Entry.AssetDenom))
 	b := k.Cdc.MustMarshal(&shortBook)
 	store.Set(GetKeyForShortBook(shortBook), b)
+}
+
+func (k Keeper) SetShortOrderBookEntry(ctx sdk.Context, contractAddr string, shortBook types.OrderBookEntry) {
+	k.SetShortBook(ctx, contractAddr, *shortBook.(*types.ShortBook))
 }
 
 func (k Keeper) GetShortBookByPrice(ctx sdk.Context, contractAddr string, price sdk.Dec, priceDenom string, assetDenom string) (val types.ShortBook, found bool) {
@@ -22,6 +27,11 @@ func (k Keeper) GetShortBookByPrice(ctx sdk.Context, contractAddr string, price 
 	}
 	k.Cdc.MustUnmarshal(b, &val)
 	return val, true
+}
+
+func (k Keeper) GetShortOrderBookEntryByPrice(ctx sdk.Context, contractAddr string, price sdk.Dec, priceDenom string, assetDenom string) (types.OrderBookEntry, bool) {
+	entry, found := k.GetShortBookByPrice(ctx, contractAddr, price, priceDenom, assetDenom)
+	return &entry, found
 }
 
 func (k Keeper) RemoveShortBookByPrice(ctx sdk.Context, contractAddr string, price sdk.Dec, priceDenom string, assetDenom string) {
@@ -55,6 +65,57 @@ func (k Keeper) GetAllShortBookForPair(ctx sdk.Context, contractAddr string, pri
 		var val types.ShortBook
 		k.Cdc.MustUnmarshal(iterator.Value(), &val)
 		list = append(list, &val)
+	}
+
+	return
+}
+
+func (k Keeper) GetTopNShortBooksForPair(ctx sdk.Context, contractAddr string, priceDenom string, assetDenom string, n int) (list []types.OrderBookEntry) {
+	if n == 0 {
+		return
+	}
+	store := prefix.NewStore(ctx.KVStore(k.storeKey), types.OrderBookPrefix(false, contractAddr, priceDenom, assetDenom))
+	iterator := sdk.KVStorePrefixIterator(store, []byte{})
+
+	defer iterator.Close()
+
+	for ; iterator.Valid(); iterator.Next() {
+		var val types.ShortBook
+		k.Cdc.MustUnmarshal(iterator.Value(), &val)
+		list = append(list, &val)
+		if len(list) == n {
+			break
+		}
+	}
+
+	return
+}
+
+func (k Keeper) GetTopNShortBooksForPairStarting(ctx sdk.Context, contractAddr string, priceDenom string, assetDenom string, n int, startExclusive sdk.Dec) (list []types.OrderBookEntry) {
+	if n == 0 {
+		return
+	}
+	store := prefix.NewStore(ctx.KVStore(k.storeKey), types.OrderBookPrefix(false, contractAddr, priceDenom, assetDenom))
+	iterator := sdk.KVStorePrefixIterator(store, []byte{})
+
+	defer iterator.Close()
+
+	// Fast-forward
+	// TODO: add iterator interface that allows starting at a certain subkey under prefix
+	for ; iterator.Valid(); iterator.Next() {
+		key := dexutils.BytesToDec(iterator.Key())
+		if key.GT(startExclusive) {
+			break
+		}
+	}
+
+	for ; iterator.Valid(); iterator.Next() {
+		var val types.ShortBook
+		k.Cdc.MustUnmarshal(iterator.Value(), &val)
+		list = append(list, &val)
+		if len(list) == n {
+			break
+		}
 	}
 
 	return

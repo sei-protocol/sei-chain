@@ -23,7 +23,6 @@ import (
 	dexkeeperabci "github.com/sei-protocol/sei-chain/x/dex/keeper/abci"
 	dexkeeperutils "github.com/sei-protocol/sei-chain/x/dex/keeper/utils"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
-	dextypesutils "github.com/sei-protocol/sei-chain/x/dex/types/utils"
 	dexutils "github.com/sei-protocol/sei-chain/x/dex/utils"
 	"github.com/sei-protocol/sei-chain/x/store"
 	otrace "go.opentelemetry.io/otel/trace"
@@ -39,7 +38,7 @@ type environment struct {
 	settlementsByContract       *datastructures.TypedSyncMap[string, []*types.SettlementEntry]
 	executionTerminationSignals *datastructures.TypedSyncMap[string, chan struct{}]
 	registeredPairs             *datastructures.TypedSyncMap[string, []types.Pair]
-	orderBooks                  *datastructures.TypedNestedSyncMap[string, dextypesutils.PairString, *types.OrderBook]
+	orderBooks                  *datastructures.TypedNestedSyncMap[string, types.PairString, *types.OrderBook]
 
 	finalizeMsgMutex  *sync.Mutex
 	eventManagerMutex *sync.Mutex

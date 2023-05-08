@@ -11,7 +11,7 @@ import (
 	"github.com/sei-protocol/sei-chain/utils/logging"
 	"github.com/sei-protocol/sei-chain/utils/metrics"
 	"github.com/sei-protocol/sei-chain/x/dex/keeper"
-	dextypeswasm "github.com/sei-protocol/sei-chain/x/dex/types/wasm"
+	"github.com/sei-protocol/sei-chain/x/dex/types"
 )
 
 const ErrWasmModuleInstCPUFeatureLiteral = "Error instantiating module: CpuFeature"
@@ -20,11 +20,11 @@ const LogAfter = 5 * time.Second
 
 func getMsgType(msg interface{}) string {
 	switch msg.(type) {
-	case dextypeswasm.SudoSettlementMsg:
+	case types.SudoSettlementMsg:
 		return "settlement"
-	case dextypeswasm.SudoOrderPlacementMsg:
+	case types.SudoOrderPlacementMsg:
 		return "bulk_order_placements"
-	case dextypeswasm.SudoOrderCancellationMsg:
+	case types.SudoOrderCancellationMsg:
 		return "bulk_order_cancellations"
 	default:
 		return "unknown"
