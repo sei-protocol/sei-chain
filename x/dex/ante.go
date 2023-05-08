@@ -56,7 +56,7 @@ func (tsmd TickSizeMultipleDecorator) CheckTickSizeMultiple(ctx sdk.Context, msg
 				}
 				if !IsDecimalMultipleOf(order.Price, priceTickSize) {
 					// Allow Market Orders with Price 0
-					if !IsMarketOrder(order) || !order.Price.IsZero() {
+					if !(IsMarketOrder(order) && order.Price.IsZero()) {
 						return sdkerrors.Wrapf(errors.New("ErrPriceNotMultipleOfTickSize"), "price needs to be non-zero and multiple of price tick size")
 					}
 				}
