@@ -64,6 +64,7 @@ var upgradesList = []string{
 	"2.0.46beta",
 	"2.0.47beta",
 	"2.0.48beta",
+	"psu-test-order",
 }
 
 func (app App) RegisterUpgradeHandlers() {
