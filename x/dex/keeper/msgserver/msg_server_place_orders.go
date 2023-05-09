@@ -46,7 +46,17 @@ func (k msgServer) transferFunds(goCtx context.Context, msg *types.MsgPlaceOrder
 func (k msgServer) PlaceOrders(goCtx context.Context, msg *types.MsgPlaceOrders) (*types.MsgPlaceOrdersResponse, error) {
 	ctx := sdk.UnwrapSDKContext(goCtx)
 
-	defer ctx.ContextMemCache().IncrMetricCounter(uint32(len(msg.Orders)), sdk.ORDER_COUNT)
+	// We will report the following dex metrics:
+	//   total order count: sei_throughput_order_count
+	//   per order info: sei_throughput_order_count-[ORDER_TYPE]-[POSITION_DIRECTION]-[ORDER_STATUS]
+
+	defer func() {
+		ctx.ContextMemCache().IncrMetricCounter(uint32(len(msg.Orders)), sdk.ORDER_COUNT)
+		for _, order := range msg.Orders {
+			ctx.ContextMemCache().IncrMetricCounter(1, fmt.Sprintf("%s-%s-%s", sdk.ORDER_COUNT, order.OrderType, order.PositionDirection, order.Status))
+
+		}
+	}()
 
 	if err := msg.ValidateBasic(); err != nil {
 		ctx.Logger().Error(fmt.Sprintf("request invalid: %s", err))
