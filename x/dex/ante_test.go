@@ -103,3 +103,190 @@ func TestCheckDexGasDecorator(t *testing.T) {
 	_, err = decorator.AnteHandle(ctx, tx, false, terminator)
 	require.Nil(t, err)
 }
+
+func TestTickSizeMultipleDecorator(t *testing.T) {
+	keeper, ctx := keepertest.DexKeeper(t)
+	ctx = ctx.WithIsCheckTx(true)
+	decorator := dex.NewTickSizeMultipleDecorator(*keeper)
+	terminator := func(ctx sdk.Context, tx sdk.Tx, simulate bool) (newCtx sdk.Context, err error) { return ctx, nil }
+
+	keeper.AddRegisteredPair(ctx, "contract", keepertest.TestPair)
+	keeper.SetPriceTickSizeForPair(ctx, "contract", keepertest.TestPair, *keepertest.TestPair.PriceTicksize)
+	keeper.SetQuantityTickSizeForPair(ctx, "contract", keepertest.TestPair, *keepertest.TestPair.PriceTicksize)
+
+	price, _ := sdk.NewDecFromStr("25")
+	quantity, _ := sdk.NewDecFromStr("5")
+	smallerVal, _ := sdk.NewDecFromStr("0.01")
+
+	// Market order with price zero allowed
+	tx := TestTx{
+		msgs: []sdk.Msg{
+			types.NewMsgPlaceOrders("someone", []*types.Order{{
+				ContractAddr: "contract",
+				PriceDenom:   keepertest.TestPair.PriceDenom,
+				AssetDenom:   keepertest.TestPair.AssetDenom,
+				Price:        sdk.ZeroDec(),
+				Quantity:     quantity,
+				OrderType:    types.OrderType_MARKET,
+			}}, "contract", sdk.NewCoins())},
+		fee: sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(27500))),
+	}
+	_, err := decorator.AnteHandle(ctx, tx, false, terminator)
+	require.Nil(t, err)
+
+	tx = TestTx{
+		msgs: []sdk.Msg{
+			types.NewMsgPlaceOrders("someone", []*types.Order{{
+				ContractAddr: "contract",
+				PriceDenom:   keepertest.TestPair.PriceDenom,
+				AssetDenom:   keepertest.TestPair.AssetDenom,
+				Price:        sdk.ZeroDec(),
+				Quantity:     quantity,
+				OrderType:    types.OrderType_FOKMARKET,
+			}}, "contract", sdk.NewCoins())},
+		fee: sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(27500))),
+	}
+	_, err = decorator.AnteHandle(ctx, tx, false, terminator)
+	require.Nil(t, err)
+
+	tx = TestTx{
+		msgs: []sdk.Msg{
+			types.NewMsgPlaceOrders("someone", []*types.Order{{
+				ContractAddr: "contract",
+				PriceDenom:   keepertest.TestPair.PriceDenom,
+				AssetDenom:   keepertest.TestPair.AssetDenom,
+				Price:        sdk.ZeroDec(),
+				Quantity:     quantity,
+				OrderType:    types.OrderType_FOKMARKETBYVALUE,
+			}}, "contract", sdk.NewCoins())},
+		fee: sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(27500))),
+	}
+	_, err = decorator.AnteHandle(ctx, tx, false, terminator)
+	require.Nil(t, err)
+
+	// Non-market orders with price zero not allowed
+	tx = TestTx{
+		msgs: []sdk.Msg{
+			types.NewMsgPlaceOrders("someone", []*types.Order{{
+				ContractAddr: "contract",
+				PriceDenom:   keepertest.TestPair.PriceDenom,
+				AssetDenom:   keepertest.TestPair.AssetDenom,
+				Price:        sdk.ZeroDec(),
+				Quantity:     quantity,
+				OrderType:    types.OrderType_LIMIT,
+			}}, "contract", sdk.NewCoins())},
+		fee: sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(27500))),
+	}
+	_, err = decorator.AnteHandle(ctx, tx, false, terminator)
+	require.NotNil(t, err)
+
+	tx = TestTx{
+		msgs: []sdk.Msg{
+			types.NewMsgPlaceOrders("someone", []*types.Order{{
+				ContractAddr: "contract",
+				PriceDenom:   keepertest.TestPair.PriceDenom,
+				AssetDenom:   keepertest.TestPair.AssetDenom,
+				Price:        sdk.ZeroDec(),
+				Quantity:     quantity,
+				OrderType:    types.OrderType_STOPLOSS,
+			}}, "contract", sdk.NewCoins())},
+		fee: sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(27500))),
+	}
+	_, err = decorator.AnteHandle(ctx, tx, false, terminator)
+	require.NotNil(t, err)
+
+	tx = TestTx{
+		msgs: []sdk.Msg{
+			types.NewMsgPlaceOrders("someone", []*types.Order{{
+				ContractAddr: "contract",
+				PriceDenom:   keepertest.TestPair.PriceDenom,
+				AssetDenom:   keepertest.TestPair.AssetDenom,
+				Price:        sdk.ZeroDec(),
+				Quantity:     quantity,
+				OrderType:    types.OrderType_STOPLIMIT,
+			}}, "contract", sdk.NewCoins())},
+		fee: sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(27500))),
+	}
+	_, err = decorator.AnteHandle(ctx, tx, false, terminator)
+	require.NotNil(t, err)
+
+	// Non-zero Priced Market Order With Divisible Price
+	tx = TestTx{
+		msgs: []sdk.Msg{
+			types.NewMsgPlaceOrders("someone", []*types.Order{{
+				ContractAddr: "contract",
+				PriceDenom:   keepertest.TestPair.PriceDenom,
+				AssetDenom:   keepertest.TestPair.AssetDenom,
+				Price:        price,
+				Quantity:     quantity,
+				OrderType:    types.OrderType_MARKET,
+			}}, "contract", sdk.NewCoins())},
+		fee: sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(27500))),
+	}
+	_, err = decorator.AnteHandle(ctx, tx, false, terminator)
+	require.Nil(t, err)
+
+	// Non-zero Priced Market Order Without Divisible Price
+	tx = TestTx{
+		msgs: []sdk.Msg{
+			types.NewMsgPlaceOrders("someone", []*types.Order{{
+				ContractAddr: "contract",
+				PriceDenom:   keepertest.TestPair.PriceDenom,
+				AssetDenom:   keepertest.TestPair.AssetDenom,
+				Price:        smallerVal,
+				Quantity:     quantity,
+				OrderType:    types.OrderType_MARKET,
+			}}, "contract", sdk.NewCoins())},
+		fee: sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(27500))),
+	}
+	_, err = decorator.AnteHandle(ctx, tx, false, terminator)
+	require.NotNil(t, err)
+
+	// Limit Order With Divisible Price
+	tx = TestTx{
+		msgs: []sdk.Msg{
+			types.NewMsgPlaceOrders("someone", []*types.Order{{
+				ContractAddr: "contract",
+				PriceDenom:   keepertest.TestPair.PriceDenom,
+				AssetDenom:   keepertest.TestPair.AssetDenom,
+				Price:        price,
+				Quantity:     quantity,
+				OrderType:    types.OrderType_LIMIT,
+			}}, "contract", sdk.NewCoins())},
+		fee: sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(27500))),
+	}
+	_, err = decorator.AnteHandle(ctx, tx, false, terminator)
+	require.Nil(t, err)
+
+	// Limit Orders without Divisible Price
+	tx = TestTx{
+		msgs: []sdk.Msg{
+			types.NewMsgPlaceOrders("someone", []*types.Order{{
+				ContractAddr: "contract",
+				PriceDenom:   keepertest.TestPair.PriceDenom,
+				AssetDenom:   keepertest.TestPair.AssetDenom,
+				Price:        smallerVal,
+				Quantity:     quantity,
+				OrderType:    types.OrderType_LIMIT,
+			}}, "contract", sdk.NewCoins())},
+		fee: sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(27500))),
+	}
+	_, err = decorator.AnteHandle(ctx, tx, false, terminator)
+	require.NotNil(t, err)
+
+	// All order quantities must be divisible by quantity tick size
+	tx = TestTx{
+		msgs: []sdk.Msg{
+			types.NewMsgPlaceOrders("someone", []*types.Order{{
+				ContractAddr: "contract",
+				PriceDenom:   keepertest.TestPair.PriceDenom,
+				AssetDenom:   keepertest.TestPair.AssetDenom,
+				Price:        price,
+				Quantity:     smallerVal,
+				OrderType:    types.OrderType_LIMIT,
+			}}, "contract", sdk.NewCoins())},
+		fee: sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(27500))),
+	}
+	_, err = decorator.AnteHandle(ctx, tx, false, terminator)
+	require.NotNil(t, err)
+}
