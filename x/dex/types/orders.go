@@ -28,9 +28,11 @@ func NewCachedSortedOrderBookEntries(
 	deleter func(sdk.Context, OrderBookEntry),
 ) *CachedSortedOrderBookEntries {
 	return &CachedSortedOrderBookEntries{
-		loader:  loader,
-		setter:  setter,
-		deleter: deleter,
+		CachedEntries: []OrderBookEntry{},
+		currentPtr:    0,
+		loader:        loader,
+		setter:        setter,
+		deleter:       deleter,
 	}
 }
 
@@ -44,6 +46,10 @@ func (c *CachedSortedOrderBookEntries) load(ctx sdk.Context) {
 	c.CachedEntries = append(c.CachedEntries, loaded...)
 }
 
+// Reduce quantity of the order book entry currently being pointed at by the specified quantity.
+// Also remove/reduce allocations of the order book entry in FIFO order. If the order book entry
+// does not have enough quantity to settle against, the returned `settled` value will equal to
+// the quantity of the order book entry; otherwise it will equal to the specified quantity.
 func (c *CachedSortedOrderBookEntries) SettleQuantity(ctx sdk.Context, quantity sdk.Dec) (res []ToSettle, settled sdk.Dec) {
 	currentEntry := c.CachedEntries[c.currentPtr].GetOrderEntry()
 

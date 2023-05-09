@@ -8,9 +8,6 @@ import (
 )
 
 func DecToBigEndian(d sdk.Dec) (res []byte) {
-	// if d.IsNegative() {
-	// 	res = append(res, '0'-1)
-	// }
 	i := d.BigInt()
 	words := i.Bits()
 	// words are little-endian but we want big-endian so we start from the back

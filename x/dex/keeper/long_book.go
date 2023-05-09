@@ -106,6 +106,12 @@ func (k Keeper) GetTopNLongBooksForPair(ctx sdk.Context, contractAddr string, pr
 	return
 }
 
+// Load the first (up to) N long book entries whose price are smaller than the specified limit
+// in reverse sorted order.
+// Parameters:
+//
+//	n: the largest number of entries to load
+//	startExclusive: the price limit
 func (k Keeper) GetTopNLongBooksForPairStarting(ctx sdk.Context, contractAddr string, priceDenom string, assetDenom string, n int, startExclusive sdk.Dec) (list []types.OrderBookEntry) {
 	if n == 0 {
 		return

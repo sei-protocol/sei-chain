@@ -91,6 +91,12 @@ func (k Keeper) GetTopNShortBooksForPair(ctx sdk.Context, contractAddr string, p
 	return
 }
 
+// Load the first (up to) N short book entries whose price are larger than the specified limit
+// in sorted order.
+// Parameters:
+//
+//	n: the largest number of entries to load
+//	startExclusive: the price limit
 func (k Keeper) GetTopNShortBooksForPairStarting(ctx sdk.Context, contractAddr string, priceDenom string, assetDenom string, n int, startExclusive sdk.Dec) (list []types.OrderBookEntry) {
 	if n == 0 {
 		return
