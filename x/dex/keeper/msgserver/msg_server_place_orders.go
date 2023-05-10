@@ -48,12 +48,12 @@ func (k msgServer) PlaceOrders(goCtx context.Context, msg *types.MsgPlaceOrders)
 
 	// We will report the following dex metrics:
 	//   total order count: sei_throughput_order_count
-	//   per order info: sei_throughput_order_count-[ORDER_TYPE]-[POSITION_DIRECTION]-[ORDER_STATUS]
+	//   per order info: sei_throughput_order_count_[ORDER_TYPE]_[POSITION_DIRECTION]_[ORDER_STATUS]
 
 	defer func() {
 		ctx.ContextMemCache().IncrMetricCounter(uint32(len(msg.Orders)), sdk.ORDER_COUNT)
 		for _, order := range msg.Orders {
-			ctx.ContextMemCache().IncrMetricCounter(1, fmt.Sprintf("%s-%s-%s-%s", sdk.ORDER_COUNT, order.OrderType.String(), order.PositionDirection.String(), order.Status.String()))
+			ctx.ContextMemCache().IncrMetricCounter(1, fmt.Sprintf("%s_%s_%s_%s", sdk.ORDER_COUNT, order.OrderType.String(), order.PositionDirection.String(), order.Status.String()))
 		}
 	}()
 
