@@ -513,7 +513,7 @@ func New(
 	app.DexKeeper = *dexmodulekeeper.NewKeeper(
 		appCodec,
 		keys[dexmoduletypes.StoreKey],
-		keys[dexmoduletypes.MemStoreKey],
+		memKeys[dexmoduletypes.MemStoreKey],
 		app.GetSubspace(dexmoduletypes.ModuleName),
 		app.EpochKeeper,
 		app.BankKeeper,

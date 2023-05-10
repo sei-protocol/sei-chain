@@ -97,7 +97,7 @@ func TestPlaceOrderWithDeposit(t *testing.T) {
 	}
 	testApp := keepertest.TestApp()
 	ctx := testApp.BaseApp.NewContext(false, tmproto.Header{})
-	ctx = ctx.WithContext(context.WithValue(ctx.Context(), dexutils.DexMemStateContextKey, dexcache.NewMemState(testApp.GetKey(types.MemStoreKey))))
+	ctx = ctx.WithContext(context.WithValue(ctx.Context(), dexutils.DexMemStateContextKey, dexcache.NewMemState(testApp.GetMemKey(types.MemStoreKey))))
 	bankkeeper := testApp.BankKeeper
 	testAccount, _ := sdk.AccAddressFromBech32(TestCreator)
 	amounts := sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(10)))

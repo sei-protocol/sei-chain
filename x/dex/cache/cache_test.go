@@ -4,7 +4,6 @@ import (
 	"context"
 	"testing"
 
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	keepertest "github.com/sei-protocol/sei-chain/testutil/keeper"
 	"github.com/sei-protocol/sei-chain/utils/datastructures"
 	dex "github.com/sei-protocol/sei-chain/x/dex/cache"
@@ -131,8 +130,8 @@ func TestClearCancellationForPair(t *testing.T) {
 }
 
 func TestSynchronization(t *testing.T) {
-	_, ctx := keepertest.DexKeeper(t)
-	stateOne := dex.NewMemState(sdk.NewKVStoreKey(types.MemStoreKey))
+	k, ctx := keepertest.DexKeeper(t)
+	stateOne := dex.NewMemState(k.GetMemStoreKey())
 	targetContract := types.ContractAddress(TEST_CONTRACT)
 	// no go context
 	require.NotPanics(t, func() { stateOne.SynchronizeAccess(ctx, targetContract) })

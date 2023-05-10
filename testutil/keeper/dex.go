@@ -59,7 +59,7 @@ func DexKeeper(t testing.TB) (*keeper.Keeper, sdk.Context) {
 	tKeyParams := sdk.NewTransientStoreKey(typesparams.TStoreKey)
 	keyEpochs := sdk.NewKVStoreKey(epochtypes.StoreKey)
 	dexMemStoreKey := storetypes.NewMemoryStoreKey(types.MemStoreKey)
-	memStoreKey := storetypes.NewMemoryStoreKey(types.MemStoreKey)
+	memStoreKey := storetypes.NewMemoryStoreKey(epochtypes.MemStoreKey)
 
 	blackListAddrs := map[string]bool{}
 
