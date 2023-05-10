@@ -20,7 +20,7 @@ const (
 
 func TestDeepCopy(t *testing.T) {
 	keeper, ctx := keepertest.DexKeeper(t)
-	stateOne := dex.NewMemState(keeper.GetStoreKey())
+	stateOne := dex.NewMemState(keeper.GetMemStoreKey())
 	stateOne.GetBlockOrders(ctx, types.ContractAddress(TEST_CONTRACT), types.PairString(TEST_PAIR)).Add(&types.Order{
 		Id:           1,
 		Account:      "test",
@@ -41,7 +41,7 @@ func TestDeepCopy(t *testing.T) {
 
 func TestDeepFilterAccounts(t *testing.T) {
 	keeper, ctx := keepertest.DexKeeper(t)
-	stateOne := dex.NewMemState(keeper.GetStoreKey())
+	stateOne := dex.NewMemState(keeper.GetMemStoreKey())
 	stateOne.GetBlockOrders(ctx, types.ContractAddress(TEST_CONTRACT), types.PairString(TEST_PAIR)).Add(&types.Order{
 		Id:           1,
 		Account:      "test",
@@ -75,7 +75,7 @@ func TestDeepFilterAccounts(t *testing.T) {
 
 func TestDeepDelete(t *testing.T) {
 	keeper, ctx := keepertest.DexKeeper(t)
-	stateOne := dex.NewMemState(keeper.GetStoreKey())
+	stateOne := dex.NewMemState(keeper.GetMemStoreKey())
 	stateOne.GetBlockOrders(ctx, types.ContractAddress(TEST_CONTRACT), types.PairString(TEST_PAIR)).Add(&types.Order{
 		Id:           1,
 		Account:      "test",
@@ -86,7 +86,7 @@ func TestDeepDelete(t *testing.T) {
 
 func TestClear(t *testing.T) {
 	keeper, ctx := keepertest.DexKeeper(t)
-	stateOne := dex.NewMemState(keeper.GetStoreKey())
+	stateOne := dex.NewMemState(keeper.GetMemStoreKey())
 	stateOne.GetBlockOrders(ctx, types.ContractAddress(TEST_CONTRACT), types.PairString(TEST_PAIR)).Add(&types.Order{
 		Id:           1,
 		Account:      "test",
@@ -103,7 +103,7 @@ func TestClear(t *testing.T) {
 
 func TestClearCancellationForPair(t *testing.T) {
 	keeper, ctx := keepertest.DexKeeper(t)
-	stateOne := dex.NewMemState(keeper.GetStoreKey())
+	stateOne := dex.NewMemState(keeper.GetMemStoreKey())
 	stateOne.GetBlockCancels(ctx, types.ContractAddress(TEST_CONTRACT), types.PairString(TEST_PAIR)).Add(&types.Cancellation{
 		Id:           1,
 		ContractAddr: TEST_CONTRACT,
@@ -132,7 +132,7 @@ func TestClearCancellationForPair(t *testing.T) {
 
 func TestSynchronization(t *testing.T) {
 	_, ctx := keepertest.DexKeeper(t)
-	stateOne := dex.NewMemState(sdk.NewKVStoreKey(types.StoreKey))
+	stateOne := dex.NewMemState(sdk.NewKVStoreKey(types.MemStoreKey))
 	targetContract := types.ContractAddress(TEST_CONTRACT)
 	// no go context
 	require.NotPanics(t, func() { stateOne.SynchronizeAccess(ctx, targetContract) })

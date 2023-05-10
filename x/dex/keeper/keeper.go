@@ -52,7 +52,7 @@ func NewKeeper(
 		EpochKeeper:   epochKeeper,
 		BankKeeper:    bankKeeper,
 		AccountKeeper: accountKeeper,
-		MemState:      dexcache.NewMemState(storeKey),
+		MemState:      dexcache.NewMemState(memKey),
 	}
 }
 
@@ -62,6 +62,10 @@ func (k Keeper) Logger(ctx sdk.Context) log.Logger {
 
 func (k Keeper) GetStoreKey() sdk.StoreKey {
 	return k.storeKey
+}
+
+func (k Keeper) GetMemStoreKey() sdk.StoreKey {
+	return k.memKey
 }
 
 func (k *Keeper) SetWasmKeeper(wasmKeeper *wasm.Keeper) {

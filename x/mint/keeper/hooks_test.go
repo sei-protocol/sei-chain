@@ -37,7 +37,7 @@ func TestEndOfEpochMintedCoinDistribution(t *testing.T) {
 	t.Run("Initial should be zero", func(t *testing.T) {
 		seiApp := keepertest.TestApp()
 		ctx := seiApp.BaseApp.NewContext(false, tmproto.Header{Time: time.Now()})
-		ctx = ctx.WithContext(context.WithValue(ctx.Context(), dexutils.DexMemStateContextKey, dexcache.NewMemState(seiApp.GetKey(types.StoreKey))))
+		ctx = ctx.WithContext(context.WithValue(ctx.Context(), dexutils.DexMemStateContextKey, dexcache.NewMemState(seiApp.GetKey(types.MemStoreKey))))
 
 		header := tmproto.Header{
 			Height: seiApp.LastBlockHeight() + 1,
@@ -50,7 +50,7 @@ func TestEndOfEpochMintedCoinDistribution(t *testing.T) {
 	t.Run("even full release", func(t *testing.T) {
 		seiApp := keepertest.TestApp()
 		ctx := seiApp.BaseApp.NewContext(false, tmproto.Header{Time: time.Now()})
-		ctx = ctx.WithContext(context.WithValue(ctx.Context(), dexutils.DexMemStateContextKey, dexcache.NewMemState(seiApp.GetKey(types.StoreKey))))
+		ctx = ctx.WithContext(context.WithValue(ctx.Context(), dexutils.DexMemStateContextKey, dexcache.NewMemState(seiApp.GetKey(types.MemStoreKey))))
 
 		header := tmproto.Header{
 			Height: seiApp.LastBlockHeight() + 1,
@@ -60,8 +60,8 @@ func TestEndOfEpochMintedCoinDistribution(t *testing.T) {
 		genesisTime := header.Time
 		tokenReleaseSchedle := []minttypes.ScheduledTokenRelease{
 			{
-				StartDate: genesisTime.AddDate(0, 0, 0).Format(minttypes.TokenReleaseDateFormat),
-				EndDate: genesisTime.AddDate(0, 0, 25).Format(minttypes.TokenReleaseDateFormat),
+				StartDate:          genesisTime.AddDate(0, 0, 0).Format(minttypes.TokenReleaseDateFormat),
+				EndDate:            genesisTime.AddDate(0, 0, 25).Format(minttypes.TokenReleaseDateFormat),
 				TokenReleaseAmount: 2500000,
 			},
 		}
@@ -89,14 +89,14 @@ func TestEndOfEpochMintedCoinDistribution(t *testing.T) {
 
 			require.Equal(t, currTime.Format(minttypes.TokenReleaseDateFormat), newMinter.GetLastMintDate(), "Last mint date should be correct")
 			require.Equal(t, expectedAmount, newMinter.GetLastMintAmountCoin().Amount.Int64(), "Minted amount should be correct")
-			require.Equal(t, int64(2500000 - expectedAmount * int64(i+1)), int64(newMinter.GetRemainingMintAmount()), "Remaining amount should be correct")
+			require.Equal(t, int64(2500000-expectedAmount*int64(i+1)), int64(newMinter.GetRemainingMintAmount()), "Remaining amount should be correct")
 		}
 	})
 
 	t.Run("uneven full release", func(t *testing.T) {
 		seiApp := keepertest.TestApp()
 		ctx := seiApp.BaseApp.NewContext(false, tmproto.Header{Time: time.Now()})
-		ctx = ctx.WithContext(context.WithValue(ctx.Context(), dexutils.DexMemStateContextKey, dexcache.NewMemState(seiApp.GetKey(types.StoreKey))))
+		ctx = ctx.WithContext(context.WithValue(ctx.Context(), dexutils.DexMemStateContextKey, dexcache.NewMemState(seiApp.GetKey(types.MemStoreKey))))
 
 		header := tmproto.Header{
 			Height: seiApp.LastBlockHeight() + 1,
@@ -107,8 +107,8 @@ func TestEndOfEpochMintedCoinDistribution(t *testing.T) {
 
 		tokenReleaseSchedle := []minttypes.ScheduledTokenRelease{
 			{
-				StartDate: genesisTime.AddDate(0, 0, 0).Format(minttypes.TokenReleaseDateFormat),
-				EndDate: genesisTime.AddDate(0, 0, 24).Format(minttypes.TokenReleaseDateFormat),
+				StartDate:          genesisTime.AddDate(0, 0, 0).Format(minttypes.TokenReleaseDateFormat),
+				EndDate:            genesisTime.AddDate(0, 0, 24).Format(minttypes.TokenReleaseDateFormat),
 				TokenReleaseAmount: 2500000,
 			},
 		}
@@ -136,14 +136,14 @@ func TestEndOfEpochMintedCoinDistribution(t *testing.T) {
 
 			require.Equal(t, currTime.Format(minttypes.TokenReleaseDateFormat), newMinter.GetLastMintDate(), "Last mint date should be correct")
 			require.InDelta(t, expectedAmount, newMinter.GetLastMintAmountCoin().Amount.Int64(), 1, "Minted amount should be correct")
-			require.InDelta(t, int64(2500000 - expectedAmount * int64(i+1)), int64(newMinter.GetRemainingMintAmount()), 24, "Remaining amount should be correct")
+			require.InDelta(t, int64(2500000-expectedAmount*int64(i+1)), int64(newMinter.GetRemainingMintAmount()), 24, "Remaining amount should be correct")
 		}
 	})
 
 	t.Run("multiple full releases", func(t *testing.T) {
 		seiApp := keepertest.TestApp()
 		ctx := seiApp.BaseApp.NewContext(false, tmproto.Header{Time: time.Now()})
-		ctx = ctx.WithContext(context.WithValue(ctx.Context(), dexutils.DexMemStateContextKey, dexcache.NewMemState(seiApp.GetKey(types.StoreKey))))
+		ctx = ctx.WithContext(context.WithValue(ctx.Context(), dexutils.DexMemStateContextKey, dexcache.NewMemState(seiApp.GetKey(types.MemStoreKey))))
 
 		header := tmproto.Header{
 			Height: seiApp.LastBlockHeight() + 1,
@@ -154,23 +154,23 @@ func TestEndOfEpochMintedCoinDistribution(t *testing.T) {
 
 		tokenReleaseSchedle := []minttypes.ScheduledTokenRelease{
 			{
-				StartDate: genesisTime.AddDate(0, 0, 0).Format(minttypes.TokenReleaseDateFormat),
-				EndDate: genesisTime.AddDate(0, 0, 24).Format(minttypes.TokenReleaseDateFormat),
+				StartDate:          genesisTime.AddDate(0, 0, 0).Format(minttypes.TokenReleaseDateFormat),
+				EndDate:            genesisTime.AddDate(0, 0, 24).Format(minttypes.TokenReleaseDateFormat),
 				TokenReleaseAmount: 2500000,
 			},
 			{
-				StartDate: genesisTime.AddDate(0, 0, 24).Format(minttypes.TokenReleaseDateFormat),
-				EndDate: genesisTime.AddDate(0, 0, 30).Format(minttypes.TokenReleaseDateFormat),
+				StartDate:          genesisTime.AddDate(0, 0, 24).Format(minttypes.TokenReleaseDateFormat),
+				EndDate:            genesisTime.AddDate(0, 0, 30).Format(minttypes.TokenReleaseDateFormat),
 				TokenReleaseAmount: 2500000,
 			},
 			{
-				StartDate: genesisTime.AddDate(0, 0, 30).Format(minttypes.TokenReleaseDateFormat),
-				EndDate: genesisTime.AddDate(0, 0, 40).Format(minttypes.TokenReleaseDateFormat),
+				StartDate:          genesisTime.AddDate(0, 0, 30).Format(minttypes.TokenReleaseDateFormat),
+				EndDate:            genesisTime.AddDate(0, 0, 40).Format(minttypes.TokenReleaseDateFormat),
 				TokenReleaseAmount: 2500000,
 			},
 			{
-				StartDate: genesisTime.AddDate(0, 0, 45).Format(minttypes.TokenReleaseDateFormat),
-				EndDate: genesisTime.AddDate(0, 0, 50).Format(minttypes.TokenReleaseDateFormat),
+				StartDate:          genesisTime.AddDate(0, 0, 45).Format(minttypes.TokenReleaseDateFormat),
+				EndDate:            genesisTime.AddDate(0, 0, 50).Format(minttypes.TokenReleaseDateFormat),
 				TokenReleaseAmount: 2500000,
 			},
 		}
@@ -202,7 +202,7 @@ func TestEndOfEpochMintedCoinDistribution(t *testing.T) {
 	t.Run("outage during release", func(t *testing.T) {
 		seiApp := keepertest.TestApp()
 		ctx := seiApp.BaseApp.NewContext(false, tmproto.Header{Time: time.Now()})
-		ctx = ctx.WithContext(context.WithValue(ctx.Context(), dexutils.DexMemStateContextKey, dexcache.NewMemState(seiApp.GetKey(types.StoreKey))))
+		ctx = ctx.WithContext(context.WithValue(ctx.Context(), dexutils.DexMemStateContextKey, dexcache.NewMemState(seiApp.GetKey(types.MemStoreKey))))
 
 		header := tmproto.Header{
 			Height: seiApp.LastBlockHeight() + 1,
@@ -213,8 +213,8 @@ func TestEndOfEpochMintedCoinDistribution(t *testing.T) {
 
 		tokenReleaseSchedle := []minttypes.ScheduledTokenRelease{
 			{
-				StartDate: genesisTime.AddDate(0, 0, 0).Format(minttypes.TokenReleaseDateFormat),
-				EndDate: genesisTime.AddDate(0, 0, 24).Format(minttypes.TokenReleaseDateFormat),
+				StartDate:          genesisTime.AddDate(0, 0, 0).Format(minttypes.TokenReleaseDateFormat),
+				EndDate:            genesisTime.AddDate(0, 0, 24).Format(minttypes.TokenReleaseDateFormat),
 				TokenReleaseAmount: 2500000,
 			},
 		}
@@ -236,7 +236,7 @@ func TestEndOfEpochMintedCoinDistribution(t *testing.T) {
 
 			require.Equal(t, currTime.Format(minttypes.TokenReleaseDateFormat), newMinter.GetLastMintDate(), "Last mint date should be correct")
 			require.InDelta(t, expectedAmount, newMinter.GetLastMintAmountCoin().Amount.Int64(), 1, "Minted amount should be correct")
-			require.InDelta(t, int64(2500000 - expectedAmount * int64(i+1)), int64(newMinter.GetRemainingMintAmount()), 24, "Remaining amount should be correct")
+			require.InDelta(t, int64(2500000-expectedAmount*int64(i+1)), int64(newMinter.GetRemainingMintAmount()), 24, "Remaining amount should be correct")
 		}
 
 		// 3 day outage
@@ -277,7 +277,7 @@ func TestEndOfEpochMintedCoinDistribution(t *testing.T) {
 func TestNoEpochPassedNoDistribution(t *testing.T) {
 	seiApp := keepertest.TestApp()
 	ctx := seiApp.BaseApp.NewContext(false, tmproto.Header{Time: time.Now()})
-	ctx = ctx.WithContext(context.WithValue(ctx.Context(), dexutils.DexMemStateContextKey, dexcache.NewMemState(seiApp.GetKey(types.StoreKey))))
+	ctx = ctx.WithContext(context.WithValue(ctx.Context(), dexutils.DexMemStateContextKey, dexcache.NewMemState(seiApp.GetKey(types.MemStoreKey))))
 
 	header := tmproto.Header{Height: seiApp.LastBlockHeight() + 1}
 	seiApp.BeginBlock(ctx, abci.RequestBeginBlock{Header: header})
@@ -309,8 +309,8 @@ func TestSortTokenReleaseCalendar(t *testing.T) {
 		expectedOutput []minttypes.ScheduledTokenRelease
 	}{
 		{
-			name: "Empty schedule",
-			input: []minttypes.ScheduledTokenRelease{},
+			name:           "Empty schedule",
+			input:          []minttypes.ScheduledTokenRelease{},
 			expectedOutput: []minttypes.ScheduledTokenRelease{},
 		},
 		{

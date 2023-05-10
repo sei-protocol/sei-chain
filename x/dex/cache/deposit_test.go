@@ -12,7 +12,7 @@ import (
 
 func TestDepositAdd(t *testing.T) {
 	keeper, ctx := keepertest.DexKeeper(t)
-	deposits := dex.NewMemState(keeper.GetStoreKey()).GetDepositInfo(ctx, types.ContractAddress(keepertest.TestContract))
+	deposits := dex.NewMemState(keeper.GetMemStoreKey()).GetDepositInfo(ctx, types.ContractAddress(keepertest.TestContract))
 	deposit := types.DepositInfoEntry{
 		Creator: "abc",
 		Amount:  sdk.MustNewDecFromStr("1.2"),

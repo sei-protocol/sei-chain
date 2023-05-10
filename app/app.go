@@ -382,7 +382,7 @@ func New(
 		// this line is used by starport scaffolding # stargate/app/storeKey
 	)
 	tkeys := sdk.NewTransientStoreKeys(paramstypes.TStoreKey)
-	memKeys := sdk.NewMemoryStoreKeys(capabilitytypes.MemStoreKey)
+	memKeys := sdk.NewMemoryStoreKeys(capabilitytypes.MemStoreKey, dexmoduletypes.MemStoreKey)
 
 	tp := trace.NewNoopTracerProvider()
 	otel.SetTracerProvider(trace.NewNoopTracerProvider())
@@ -1553,7 +1553,7 @@ func (app *App) BlacklistedAccAddrs() map[string]bool {
 }
 
 func (app *App) decorateContextWithDexMemState(base context.Context) context.Context {
-	return context.WithValue(base, dexutils.DexMemStateContextKey, dexcache.NewMemState(app.GetKey(dexmoduletypes.StoreKey)))
+	return context.WithValue(base, dexutils.DexMemStateContextKey, dexcache.NewMemState(app.GetMemKey(dexmoduletypes.MemStoreKey)))
 }
 
 func init() {

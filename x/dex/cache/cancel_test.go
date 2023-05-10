@@ -11,7 +11,7 @@ import (
 
 func TestCancelGetIdsToCancel(t *testing.T) {
 	keeper, ctx := keepertest.DexKeeper(t)
-	stateOne := dex.NewMemState(keeper.GetStoreKey())
+	stateOne := dex.NewMemState(keeper.GetMemStoreKey())
 	stateOne.GetBlockCancels(ctx, types.ContractAddress(TEST_CONTRACT), types.PairString(TEST_PAIR)).Add(&types.Cancellation{
 		Id:           1,
 		Creator:      "abc",
@@ -24,7 +24,7 @@ func TestCancelGetIdsToCancel(t *testing.T) {
 
 func TestCancelGetCancels(t *testing.T) {
 	keeper, ctx := keepertest.DexKeeper(t)
-	stateOne := dex.NewMemState(keeper.GetStoreKey())
+	stateOne := dex.NewMemState(keeper.GetMemStoreKey())
 	stateOne.GetBlockCancels(ctx, types.ContractAddress(TEST_CONTRACT), types.PairString(TEST_PAIR)).Add(&types.Cancellation{
 		Id:           1,
 		Creator:      "abc",

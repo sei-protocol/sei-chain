@@ -34,7 +34,7 @@ func TestRegisterContract(t *testing.T) {
 	// Instantiate and get contract address
 	testApp := keepertest.TestApp()
 	ctx := testApp.BaseApp.NewContext(false, tmproto.Header{Time: time.Now()})
-	ctx = ctx.WithContext(context.WithValue(ctx.Context(), dexutils.DexMemStateContextKey, dexcache.NewMemState(testApp.GetKey(types.StoreKey))))
+	ctx = ctx.WithContext(context.WithValue(ctx.Context(), dexutils.DexMemStateContextKey, dexcache.NewMemState(testApp.GetKey(types.MemStoreKey))))
 	wctx := sdk.WrapSDKContext(ctx)
 	keeper := testApp.DexKeeper
 
@@ -78,7 +78,7 @@ func TestRegisterContractCircularDependency(t *testing.T) {
 	// Instantiate and get contract address
 	testApp := keepertest.TestApp()
 	ctx := testApp.BaseApp.NewContext(false, tmproto.Header{Time: time.Now()})
-	ctx = ctx.WithContext(context.WithValue(ctx.Context(), dexutils.DexMemStateContextKey, dexcache.NewMemState(testApp.GetKey(types.StoreKey))))
+	ctx = ctx.WithContext(context.WithValue(ctx.Context(), dexutils.DexMemStateContextKey, dexcache.NewMemState(testApp.GetKey(types.MemStoreKey))))
 	wctx := sdk.WrapSDKContext(ctx)
 	keeper := testApp.DexKeeper
 
@@ -128,7 +128,7 @@ func TestRegisterContractDuplicateDependency(t *testing.T) {
 	// Instantiate and get contract address
 	testApp := keepertest.TestApp()
 	ctx := testApp.BaseApp.NewContext(false, tmproto.Header{Time: time.Now()})
-	ctx = ctx.WithContext(context.WithValue(ctx.Context(), dexutils.DexMemStateContextKey, dexcache.NewMemState(testApp.GetKey(types.StoreKey))))
+	ctx = ctx.WithContext(context.WithValue(ctx.Context(), dexutils.DexMemStateContextKey, dexcache.NewMemState(testApp.GetKey(types.MemStoreKey))))
 	wctx := sdk.WrapSDKContext(ctx)
 	keeper := testApp.DexKeeper
 
@@ -165,7 +165,7 @@ func TestRegisterContractNumIncomingPaths(t *testing.T) {
 	// Instantiate and get contract address
 	testApp := keepertest.TestApp()
 	ctx := testApp.BaseApp.NewContext(false, tmproto.Header{Time: time.Now()})
-	ctx = ctx.WithContext(context.WithValue(ctx.Context(), dexutils.DexMemStateContextKey, dexcache.NewMemState(testApp.GetKey(types.StoreKey))))
+	ctx = ctx.WithContext(context.WithValue(ctx.Context(), dexutils.DexMemStateContextKey, dexcache.NewMemState(testApp.GetKey(types.MemStoreKey))))
 	wctx := sdk.WrapSDKContext(ctx)
 	keeper := testApp.DexKeeper
 
@@ -224,7 +224,7 @@ func TestRegisterContractSetSiblings(t *testing.T) {
 	// Instantiate and get contract address
 	testApp := keepertest.TestApp()
 	ctx := testApp.BaseApp.NewContext(false, tmproto.Header{Time: time.Now()})
-	ctx = ctx.WithContext(context.WithValue(ctx.Context(), dexutils.DexMemStateContextKey, dexcache.NewMemState(testApp.GetKey(types.StoreKey))))
+	ctx = ctx.WithContext(context.WithValue(ctx.Context(), dexutils.DexMemStateContextKey, dexcache.NewMemState(testApp.GetKey(types.MemStoreKey))))
 	wctx := sdk.WrapSDKContext(ctx)
 	keeper := testApp.DexKeeper
 
@@ -341,7 +341,7 @@ func TestRegisterContractWithInvalidRentBalance(t *testing.T) {
 	// Instantiate and get contract address
 	testApp := keepertest.TestApp()
 	ctx := testApp.BaseApp.NewContext(false, tmproto.Header{Time: time.Now()})
-	ctx = ctx.WithContext(context.WithValue(ctx.Context(), dexutils.DexMemStateContextKey, dexcache.NewMemState(testApp.GetKey(types.StoreKey))))
+	ctx = ctx.WithContext(context.WithValue(ctx.Context(), dexutils.DexMemStateContextKey, dexcache.NewMemState(testApp.GetKey(types.MemStoreKey))))
 	wctx := sdk.WrapSDKContext(ctx)
 	keeper := testApp.DexKeeper
 
@@ -384,7 +384,7 @@ func TestRegisterContractInvalidRentBalance(t *testing.T) {
 	// Instantiate and get contract address
 	testApp := keepertest.TestApp()
 	ctx := testApp.BaseApp.NewContext(false, tmproto.Header{Time: time.Now()})
-	ctx = ctx.WithContext(context.WithValue(ctx.Context(), dexutils.DexMemStateContextKey, dexcache.NewMemState(testApp.GetKey(types.StoreKey))))
+	ctx = ctx.WithContext(context.WithValue(ctx.Context(), dexutils.DexMemStateContextKey, dexcache.NewMemState(testApp.GetKey(types.MemStoreKey))))
 	wctx := sdk.WrapSDKContext(ctx)
 	keeper := testApp.DexKeeper
 
@@ -413,11 +413,11 @@ func TestRegisterContractInvalidRentBalance(t *testing.T) {
 
 	// register with rent balance amount more than allowed
 	server := msgserver.NewMsgServerImpl(keeper)
-	rentBalance := uint64(math.MaxUint64) / wasmkeeper.DefaultGasMultiplier + 1
+	rentBalance := uint64(math.MaxUint64)/wasmkeeper.DefaultGasMultiplier + 1
 	contract := types.ContractInfoV2{
 		CodeId:       1,
 		ContractAddr: contractAddrX.String(),
-		RentBalance: rentBalance,
+		RentBalance:  rentBalance,
 	}
 
 	_, err = server.RegisterContract(wctx, &types.MsgRegisterContract{
@@ -431,7 +431,7 @@ func TestRegisterContractInvalidRentBalance(t *testing.T) {
 	contract = types.ContractInfoV2{
 		CodeId:       1,
 		ContractAddr: contractAddrX.String(),
-		RentBalance: rentBalance,
+		RentBalance:  rentBalance,
 	}
 
 	_, err = server.RegisterContract(wctx, &types.MsgRegisterContract{
@@ -445,7 +445,7 @@ func RegisterContractUtil(server types.MsgServer, ctx context.Context, contractA
 	contract := types.ContractInfoV2{
 		CodeId:       1,
 		ContractAddr: contractAddr,
-		RentBalance: types.DefaultMinRentDeposit,
+		RentBalance:  types.DefaultMinRentDeposit,
 	}
 	if dependencies != nil {
 		contract.Dependencies = utils.Map(dependencies, func(addr string) *types.ContractDependencyInfo {

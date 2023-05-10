@@ -12,7 +12,7 @@ import (
 
 func TestMarkFailedToPlace(t *testing.T) {
 	keeper, ctx := keepertest.DexKeeper(t)
-	stateOne := dex.NewMemState(keeper.GetStoreKey())
+	stateOne := dex.NewMemState(keeper.GetMemStoreKey())
 	stateOne.GetBlockOrders(ctx, types.ContractAddress(TEST_CONTRACT), types.PairString(TEST_PAIR)).Add(&types.Order{
 		Id:           1,
 		Account:      "test",
@@ -31,7 +31,7 @@ func TestMarkFailedToPlace(t *testing.T) {
 
 func TestGetByID(t *testing.T) {
 	keeper, ctx := keepertest.DexKeeper(t)
-	stateOne := dex.NewMemState(keeper.GetStoreKey())
+	stateOne := dex.NewMemState(keeper.GetMemStoreKey())
 	stateOne.GetBlockOrders(ctx, types.ContractAddress(TEST_CONTRACT), types.PairString(TEST_PAIR)).Add(&types.Order{
 		Id:                1,
 		Account:           "test1",
@@ -69,7 +69,7 @@ func TestGetByID(t *testing.T) {
 
 func TestGetSortedMarketOrders(t *testing.T) {
 	keeper, ctx := keepertest.DexKeeper(t)
-	stateOne := dex.NewMemState(keeper.GetStoreKey())
+	stateOne := dex.NewMemState(keeper.GetMemStoreKey())
 	stateOne.GetBlockOrders(ctx, types.ContractAddress(TEST_CONTRACT), types.PairString(TEST_PAIR)).Add(&types.Order{
 		Id:                1,
 		Account:           "test",
@@ -258,7 +258,7 @@ func TestGetSortedMarketOrders(t *testing.T) {
 
 func TestGetTriggeredOrders(t *testing.T) {
 	keeper, ctx := keepertest.DexKeeper(t)
-	stateOne := dex.NewMemState(keeper.GetStoreKey())
+	stateOne := dex.NewMemState(keeper.GetMemStoreKey())
 	stateOne.GetBlockOrders(ctx, types.ContractAddress(TEST_CONTRACT), types.PairString(TEST_PAIR)).Add(&types.Order{
 		Id:                1,
 		Account:           "test",

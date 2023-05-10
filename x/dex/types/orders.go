@@ -14,8 +14,9 @@ type OrderBook struct {
 
 // entries are always sorted by prices in ascending order, regardless of side
 type CachedSortedOrderBookEntries struct {
-	CachedEntries []OrderBookEntry
-	currentPtr    int
+	CachedEntries  []OrderBookEntry
+	currentPtr     int
+	currentChanged bool
 
 	loader  func(ctx sdk.Context, startingPriceExclusive sdk.Dec, withLimit bool) []OrderBookEntry
 	setter  func(sdk.Context, OrderBookEntry)
@@ -28,11 +29,12 @@ func NewCachedSortedOrderBookEntries(
 	deleter func(sdk.Context, OrderBookEntry),
 ) *CachedSortedOrderBookEntries {
 	return &CachedSortedOrderBookEntries{
-		CachedEntries: []OrderBookEntry{},
-		currentPtr:    0,
-		loader:        loader,
-		setter:        setter,
-		deleter:       deleter,
+		CachedEntries:  []OrderBookEntry{},
+		currentPtr:     0,
+		currentChanged: false,
+		loader:         loader,
+		setter:         setter,
+		deleter:        deleter,
 	}
 }
 
@@ -51,7 +53,11 @@ func (c *CachedSortedOrderBookEntries) load(ctx sdk.Context) {
 // does not have enough quantity to settle against, the returned `settled` value will equal to
 // the quantity of the order book entry; otherwise it will equal to the specified quantity.
 func (c *CachedSortedOrderBookEntries) SettleQuantity(ctx sdk.Context, quantity sdk.Dec) (res []ToSettle, settled sdk.Dec) {
+	if quantity.IsZero() {
+		return []ToSettle{}, quantity
+	}
 	currentEntry := c.CachedEntries[c.currentPtr].GetOrderEntry()
+	c.currentChanged = true
 
 	if quantity.GTE(currentEntry.Quantity) {
 		res = utils.Map(currentEntry.Allocations, AllocationToSettle)
@@ -92,10 +98,15 @@ func (c *CachedSortedOrderBookEntries) SettleQuantity(ctx sdk.Context, quantity 
 func (c *CachedSortedOrderBookEntries) Refresh(ctx sdk.Context) {
 	c.CachedEntries = c.loader(ctx, sdk.ZeroDec(), false)
 	c.currentPtr = 0
+	c.currentChanged = false
 }
 
 func (c *CachedSortedOrderBookEntries) Flush(ctx sdk.Context) {
-	for i := 0; i <= c.currentPtr; i++ {
+	stop := c.currentPtr
+	if !c.currentChanged {
+		stop--
+	}
+	for i := 0; i <= stop; i++ {
 		if i >= len(c.CachedEntries) {
 			break
 		}
@@ -108,6 +119,7 @@ func (c *CachedSortedOrderBookEntries) Flush(ctx sdk.Context) {
 	}
 	c.CachedEntries = c.CachedEntries[c.currentPtr:]
 	c.currentPtr = 0
+	c.currentChanged = false
 }
 
 // Next will only move on to the next order if the current order quantity hits zero.
@@ -115,6 +127,7 @@ func (c *CachedSortedOrderBookEntries) Flush(ctx sdk.Context) {
 func (c *CachedSortedOrderBookEntries) Next(ctx sdk.Context) OrderBookEntry {
 	for c.currentPtr < len(c.CachedEntries) && c.CachedEntries[c.currentPtr].GetOrderEntry().Quantity.IsZero() {
 		c.currentPtr++
+		c.currentChanged = false
 	}
 	if c.currentPtr >= len(c.CachedEntries) {
 		c.load(ctx)
