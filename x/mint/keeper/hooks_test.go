@@ -7,6 +7,7 @@ import (
 
 	keepertest "github.com/sei-protocol/sei-chain/testutil/keeper"
 	dexcache "github.com/sei-protocol/sei-chain/x/dex/cache"
+	dextypes "github.com/sei-protocol/sei-chain/x/dex/types"
 	dexutils "github.com/sei-protocol/sei-chain/x/dex/utils"
 	"github.com/sei-protocol/sei-chain/x/epoch/types"
 	minttypes "github.com/sei-protocol/sei-chain/x/mint/types"
@@ -37,7 +38,7 @@ func TestEndOfEpochMintedCoinDistribution(t *testing.T) {
 	t.Run("Initial should be zero", func(t *testing.T) {
 		seiApp := keepertest.TestApp()
 		ctx := seiApp.BaseApp.NewContext(false, tmproto.Header{Time: time.Now()})
-		ctx = ctx.WithContext(context.WithValue(ctx.Context(), dexutils.DexMemStateContextKey, dexcache.NewMemState(seiApp.GetMemKey(types.MemStoreKey))))
+		ctx = ctx.WithContext(context.WithValue(ctx.Context(), dexutils.DexMemStateContextKey, dexcache.NewMemState(seiApp.GetMemKey(dextypes.MemStoreKey))))
 
 		header := tmproto.Header{
 			Height: seiApp.LastBlockHeight() + 1,
@@ -50,7 +51,7 @@ func TestEndOfEpochMintedCoinDistribution(t *testing.T) {
 	t.Run("even full release", func(t *testing.T) {
 		seiApp := keepertest.TestApp()
 		ctx := seiApp.BaseApp.NewContext(false, tmproto.Header{Time: time.Now()})
-		ctx = ctx.WithContext(context.WithValue(ctx.Context(), dexutils.DexMemStateContextKey, dexcache.NewMemState(seiApp.GetMemKey(types.MemStoreKey))))
+		ctx = ctx.WithContext(context.WithValue(ctx.Context(), dexutils.DexMemStateContextKey, dexcache.NewMemState(seiApp.GetMemKey(dextypes.MemStoreKey))))
 
 		header := tmproto.Header{
 			Height: seiApp.LastBlockHeight() + 1,
@@ -96,7 +97,7 @@ func TestEndOfEpochMintedCoinDistribution(t *testing.T) {
 	t.Run("uneven full release", func(t *testing.T) {
 		seiApp := keepertest.TestApp()
 		ctx := seiApp.BaseApp.NewContext(false, tmproto.Header{Time: time.Now()})
-		ctx = ctx.WithContext(context.WithValue(ctx.Context(), dexutils.DexMemStateContextKey, dexcache.NewMemState(seiApp.GetMemKey(types.MemStoreKey))))
+		ctx = ctx.WithContext(context.WithValue(ctx.Context(), dexutils.DexMemStateContextKey, dexcache.NewMemState(seiApp.GetMemKey(dextypes.MemStoreKey))))
 
 		header := tmproto.Header{
 			Height: seiApp.LastBlockHeight() + 1,
@@ -143,7 +144,7 @@ func TestEndOfEpochMintedCoinDistribution(t *testing.T) {
 	t.Run("multiple full releases", func(t *testing.T) {
 		seiApp := keepertest.TestApp()
 		ctx := seiApp.BaseApp.NewContext(false, tmproto.Header{Time: time.Now()})
-		ctx = ctx.WithContext(context.WithValue(ctx.Context(), dexutils.DexMemStateContextKey, dexcache.NewMemState(seiApp.GetMemKey(types.MemStoreKey))))
+		ctx = ctx.WithContext(context.WithValue(ctx.Context(), dexutils.DexMemStateContextKey, dexcache.NewMemState(seiApp.GetMemKey(dextypes.MemStoreKey))))
 
 		header := tmproto.Header{
 			Height: seiApp.LastBlockHeight() + 1,
@@ -202,7 +203,7 @@ func TestEndOfEpochMintedCoinDistribution(t *testing.T) {
 	t.Run("outage during release", func(t *testing.T) {
 		seiApp := keepertest.TestApp()
 		ctx := seiApp.BaseApp.NewContext(false, tmproto.Header{Time: time.Now()})
-		ctx = ctx.WithContext(context.WithValue(ctx.Context(), dexutils.DexMemStateContextKey, dexcache.NewMemState(seiApp.GetMemKey(types.MemStoreKey))))
+		ctx = ctx.WithContext(context.WithValue(ctx.Context(), dexutils.DexMemStateContextKey, dexcache.NewMemState(seiApp.GetMemKey(dextypes.MemStoreKey))))
 
 		header := tmproto.Header{
 			Height: seiApp.LastBlockHeight() + 1,
@@ -277,7 +278,7 @@ func TestEndOfEpochMintedCoinDistribution(t *testing.T) {
 func TestNoEpochPassedNoDistribution(t *testing.T) {
 	seiApp := keepertest.TestApp()
 	ctx := seiApp.BaseApp.NewContext(false, tmproto.Header{Time: time.Now()})
-	ctx = ctx.WithContext(context.WithValue(ctx.Context(), dexutils.DexMemStateContextKey, dexcache.NewMemState(seiApp.GetMemKey(types.MemStoreKey))))
+	ctx = ctx.WithContext(context.WithValue(ctx.Context(), dexutils.DexMemStateContextKey, dexcache.NewMemState(seiApp.GetMemKey(dextypes.MemStoreKey))))
 
 	header := tmproto.Header{Height: seiApp.LastBlockHeight() + 1}
 	seiApp.BeginBlock(ctx, abci.RequestBeginBlock{Header: header})
