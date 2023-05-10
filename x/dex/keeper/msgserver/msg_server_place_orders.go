@@ -53,8 +53,7 @@ func (k msgServer) PlaceOrders(goCtx context.Context, msg *types.MsgPlaceOrders)
 	defer func() {
 		ctx.ContextMemCache().IncrMetricCounter(uint32(len(msg.Orders)), sdk.ORDER_COUNT)
 		for _, order := range msg.Orders {
-			ctx.ContextMemCache().IncrMetricCounter(1, fmt.Sprintf("%s-%s-%s", sdk.ORDER_COUNT, order.OrderType, order.PositionDirection, order.Status))
-
+			ctx.ContextMemCache().IncrMetricCounter(1, fmt.Sprintf("%s-%s-%s", sdk.ORDER_COUNT, order.OrderType.String(), order.PositionDirection.String(), order.Status.String()))
 		}
 	}()
 
