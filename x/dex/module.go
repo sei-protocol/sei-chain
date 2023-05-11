@@ -309,6 +309,7 @@ func (am AppModule) EndBlock(ctx sdk.Context, _ abci.RequestEndBlock) (ret []abc
 			ctx.Logger().Error(fmt.Sprintf("Unregistering invalid contract %s", oldValidContract.ContractAddr))
 			am.keeper.DoUnregisterContract(ctx, oldValidContract)
 			telemetry.IncrCounter(float32(1), am.Name(), "total_unregistered_contracts")
+			dexutils.GetMemState(ctx.Context()).ClearContractToDependencies()
 		}
 		validContractsInfo = am.getAllContractInfo(ctx) // reload contract info to get updated dependencies due to unregister above
 

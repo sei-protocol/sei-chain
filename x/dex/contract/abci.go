@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/cosmos/cosmos-sdk/telemetry"
-	seiutils "github.com/sei-protocol/sei-chain/utils"
 	"github.com/sei-protocol/sei-chain/utils/logging"
 	"github.com/sei-protocol/sei-chain/utils/tracing"
 
@@ -53,7 +52,8 @@ func EndBlockerAtomic(ctx sdk.Context, keeper *keeper.Keeper, validContractsInfo
 	env := newEnv(ctx, validContractsInfo, keeper)
 	cachedCtx, msCached := cacheContext(ctx, env)
 	memStateCopy := dexutils.GetMemState(cachedCtx.Context()).DeepCopy()
-	preRunRents := keeper.GetRentsForContracts(cachedCtx, seiutils.Map(validContractsInfo, func(c types.ContractInfoV2) string { return c.ContractAddr }))
+	contractsToProcess := memStateCopy.GetContractToProcess().ToOrderedSlice(datastructures.StringComparator)
+	preRunRents := keeper.GetRentsForContracts(cachedCtx, contractsToProcess)
 
 	handleDeposits(spanCtx, cachedCtx, env, keeper, tracer)
 
@@ -76,7 +76,7 @@ func EndBlockerAtomic(ctx sdk.Context, keeper *keeper.Keeper, validContractsInfo
 	telemetry.IncrCounter(float32(env.failedContractAddresses.Size()), "dex", "total_failed_contracts")
 	// No error is thrown for any contract. This should happen most of the time.
 	if env.failedContractAddresses.Size() == 0 {
-		postRunRents := keeper.GetRentsForContracts(cachedCtx, seiutils.Map(validContractsInfo, func(c types.ContractInfoV2) string { return c.ContractAddr }))
+		postRunRents := keeper.GetRentsForContracts(cachedCtx, contractsToProcess)
 		TransferRentFromDexToCollector(ctx, keeper.BankKeeper, preRunRents, postRunRents)
 		msCached.Write()
 		return env.validContractsInfo, []types.ContractInfoV2{}, ctx, true
@@ -165,6 +165,9 @@ func handleDeposits(spanCtx context.Context, ctx sdk.Context, env *environment, 
 	defer telemetry.MeasureSince(time.Now(), "dex", "handle_deposits")
 	keeperWrapper := dexkeeperabci.KeeperWrapper{Keeper: keeper}
 	for _, contract := range env.validContractsInfo {
+		if !dexutils.GetMemState(ctx.Context()).GetContractToProcess().Contains(contract.ContractAddr) {
+			continue
+		}
 		if !contract.NeedOrderMatching {
 			continue
 		}
@@ -200,6 +203,9 @@ func handleUnfulfilledMarketOrders(ctx context.Context, sdkCtx sdk.Context, env 
 	// Cancel unfilled market orders
 	defer telemetry.MeasureSince(time.Now(), "dex", "handle_unfulfilled_market_orders")
 	for _, contract := range env.validContractsInfo {
+		if !dexutils.GetMemState(sdkCtx.Context()).GetContractToProcess().Contains(contract.ContractAddr) {
+			return
+		}
 		if contract.NeedOrderMatching {
 			registeredPairs, found := env.registeredPairs.Load(contract.ContractAddr)
 			if !found {
@@ -229,6 +235,9 @@ func orderMatchingRunnable(ctx context.Context, sdkContext sdk.Context, env *env
 			}
 		}
 	}()
+	if !dexutils.GetMemState(sdkContext.Context()).GetContractToProcess().Contains(contractInfo.ContractAddr) {
+		return
+	}
 	if !contractInfo.NeedOrderMatching {
 		return
 	}

@@ -12,6 +12,7 @@ import (
 	"github.com/sei-protocol/sei-chain/utils/datastructures"
 	"github.com/sei-protocol/sei-chain/x/dex/contract"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
+	dexutils "github.com/sei-protocol/sei-chain/x/dex/utils"
 )
 
 func (k msgServer) RegisterContract(goCtx context.Context, msg *types.MsgRegisterContract) (*types.MsgRegisterContractResponse, error) {
@@ -70,6 +71,7 @@ func (k msgServer) RegisterContract(goCtx context.Context, msg *types.MsgRegiste
 		sdk.NewAttribute(types.AttributeKeyContractAddress, msg.Contract.ContractAddr),
 	))
 
+	dexutils.GetMemState(ctx.Context()).ClearContractToDependencies()
 	return &types.MsgRegisterContractResponse{}, nil
 }
 

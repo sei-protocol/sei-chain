@@ -7,6 +7,7 @@ import (
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
+	"github.com/sei-protocol/sei-chain/x/dex/utils"
 	dexutils "github.com/sei-protocol/sei-chain/x/dex/utils"
 )
 
@@ -56,5 +57,12 @@ func (k msgServer) CancelOrders(goCtx context.Context, msg *types.MsgCancelOrder
 		}
 	}
 	ctx.EventManager().EmitEvents(events)
+	utils.GetMemState(ctx.Context()).SetDownstreamsToProcess(msg.ContractAddr, func(addr string) *types.ContractInfoV2 {
+		contract, err := k.GetContract(ctx, addr)
+		if err != nil {
+			return nil
+		}
+		return &contract
+	})
 	return &types.MsgCancelOrdersResponse{}, nil
 }
