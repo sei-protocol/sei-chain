@@ -136,7 +136,6 @@ func (k Keeper) DoUnregisterContract(ctx sdk.Context, contract types.ContractInf
 	k.DeleteMatchResultState(ctx, contract.ContractAddr)
 	k.DeleteNextOrderID(ctx, contract.ContractAddr)
 	k.DeleteAllRegisteredPairsForContract(ctx, contract.ContractAddr)
-	k.RemoveAllTriggeredOrders(ctx, contract.ContractAddr)
 }
 
 func (k Keeper) SuspendContract(ctx sdk.Context, contractAddress string, reason string) error {

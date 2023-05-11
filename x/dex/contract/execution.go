@@ -65,7 +65,6 @@ func ExecutePair(
 	// Fill limit orders
 	limitOrderOutcome := exchange.MatchLimitOrders(ctx, orderbook)
 	totalOutcome := marketOrderOutcome.Merge(&limitOrderOutcome)
-	UpdateTriggeredOrderForPair(ctx, typedContractAddr, typedPairStr, dexkeeper, totalOutcome)
 
 	dexkeeperutils.SetPriceStateFromExecutionOutcome(ctx, dexkeeper, typedContractAddr, pair, totalOutcome)
 
@@ -108,60 +107,6 @@ func matchMarketOrderForPair(
 	return marketBuyOutcome.Merge(&marketSellOutcome)
 }
 
-func MoveTriggeredOrderForPair(
-	ctx sdk.Context,
-	typedContractAddr types.ContractAddress,
-	typedPairStr types.PairString,
-	dexkeeper *keeper.Keeper,
-) {
-	priceDenom, assetDenom := types.GetPriceAssetString(typedPairStr)
-	triggeredOrders := dexkeeper.GetAllTriggeredOrdersForPair(ctx, string(typedContractAddr), priceDenom, assetDenom)
-	for i, order := range triggeredOrders {
-		if order.TriggerStatus {
-			if order.OrderType == types.OrderType_STOPLOSS {
-				triggeredOrders[i].OrderType = types.OrderType_MARKET
-			} else if order.OrderType == types.OrderType_STOPLIMIT {
-				triggeredOrders[i].OrderType = types.OrderType_LIMIT
-			}
-			dexutils.GetMemState(ctx.Context()).GetBlockOrders(ctx, typedContractAddr, typedPairStr).Add(&triggeredOrders[i])
-			dexkeeper.RemoveTriggeredOrder(ctx, string(typedContractAddr), order.Id, priceDenom, assetDenom)
-		}
-	}
-}
-
-func UpdateTriggeredOrderForPair(
-	ctx sdk.Context,
-	typedContractAddr types.ContractAddress,
-	typedPairStr types.PairString,
-	dexkeeper *keeper.Keeper,
-	totalOutcome exchange.ExecutionOutcome,
-) {
-	// update existing trigger orders
-	priceDenom, assetDenom := types.GetPriceAssetString(typedPairStr)
-	triggeredOrders := dexkeeper.GetAllTriggeredOrdersForPair(ctx, string(typedContractAddr), priceDenom, assetDenom)
-	for i, order := range triggeredOrders {
-		if order.PositionDirection == types.PositionDirection_LONG && order.TriggerPrice.LTE(totalOutcome.MaxPrice) {
-			triggeredOrders[i].TriggerStatus = true
-			dexkeeper.SetTriggeredOrder(ctx, string(typedContractAddr), triggeredOrders[i], priceDenom, assetDenom)
-		} else if order.PositionDirection == types.PositionDirection_SHORT && order.TriggerPrice.GTE(totalOutcome.MinPrice) {
-			triggeredOrders[i].TriggerStatus = true
-			dexkeeper.SetTriggeredOrder(ctx, string(typedContractAddr), triggeredOrders[i], priceDenom, assetDenom)
-		}
-	}
-
-	// update triggered orders in cache
-	orders := dexutils.GetMemState(ctx.Context()).GetBlockOrders(ctx, typedContractAddr, typedPairStr)
-	cacheTriggeredOrders := orders.GetTriggeredOrders()
-	for i, order := range cacheTriggeredOrders {
-		if order.PositionDirection == types.PositionDirection_LONG && order.TriggerPrice.LTE(totalOutcome.MaxPrice) {
-			cacheTriggeredOrders[i].TriggerStatus = true
-		} else if order.PositionDirection == types.PositionDirection_SHORT && order.TriggerPrice.GTE(totalOutcome.MinPrice) {
-			cacheTriggeredOrders[i].TriggerStatus = true
-		}
-		dexkeeper.SetTriggeredOrder(ctx, string(typedContractAddr), *cacheTriggeredOrders[i], priceDenom, assetDenom)
-	}
-}
-
 func GetMatchResults(
 	ctx sdk.Context,
 	typedContractAddr types.ContractAddress,
@@ -201,7 +146,6 @@ func ExecutePairsInParallel(ctx sdk.Context, contractAddr string, dexkeeper *kee
 			defer wg.Done()
 			pairCopy := pair
 			pairStr := types.GetPairString(&pairCopy)
-			MoveTriggeredOrderForPair(ctx, typedContractAddr, pairStr, dexkeeper)
 			orderbook, found := orderBooks.Load(pairStr)
 			if !found {
 				panic(fmt.Sprintf("Orderbook not found for %s", pairStr))

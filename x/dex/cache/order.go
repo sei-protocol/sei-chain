@@ -119,18 +119,6 @@ func (o *BlockOrders) GetLimitOrders(direction types.PositionDirection) []*types
 	return o.getOrdersByCriteria(types.OrderType_LIMIT, direction)
 }
 
-func (o *BlockOrders) GetTriggeredOrders() []*types.Order {
-	return o.getOrdersByCriteriaMap(
-		map[types.OrderType]bool{
-			types.OrderType_STOPLOSS:  true,
-			types.OrderType_STOPLIMIT: true,
-		},
-		map[types.PositionDirection]bool{
-			types.PositionDirection_LONG:  true,
-			types.PositionDirection_SHORT: true,
-		})
-}
-
 func (o *BlockOrders) getOrdersByCriteria(orderType types.OrderType, direction types.PositionDirection) []*types.Order {
 	res := []*types.Order{}
 	iterator := sdk.KVStorePrefixIterator(o.orderStore, []byte{})

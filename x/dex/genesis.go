@@ -31,11 +31,6 @@ func InitGenesis(ctx sdk.Context, k keeper.Keeper, genState types.GenesisState) 
 			k.SetShortBook(ctx, contractState.ContractInfo.ContractAddr, elem)
 		}
 
-		for _, elem := range contractState.TriggeredOrdersList {
-			// not sure if it's guaranteed that the Order has the correct Price/Asset/Contract details...
-			k.SetTriggeredOrder(ctx, contractState.ContractInfo.ContractAddr, elem, elem.PriceDenom, elem.AssetDenom)
-		}
-
 		for _, elem := range contractState.PriceList {
 			for _, priceElem := range elem.Prices {
 				k.SetPriceState(ctx, *priceElem, contractState.ContractInfo.ContractAddr)
@@ -70,12 +65,11 @@ func ExportGenesis(ctx sdk.Context, k keeper.Keeper) *types.GenesisState {
 			})
 		}
 		contractStates[i] = types.ContractState{
-			ContractInfo:        contractInfo,
-			LongBookList:        k.GetAllLongBook(ctx, contractAddr),
-			ShortBookList:       k.GetAllShortBook(ctx, contractAddr),
-			TriggeredOrdersList: k.GetAllTriggeredOrders(ctx, contractAddr),
-			PairList:            registeredPairs,
-			PriceList:           contractPrices,
+			ContractInfo:  contractInfo,
+			LongBookList:  k.GetAllLongBook(ctx, contractAddr),
+			ShortBookList: k.GetAllShortBook(ctx, contractAddr),
+			PairList:      registeredPairs,
+			PriceList:     contractPrices,
 		}
 	}
 	genesis.ContractState = contractStates
