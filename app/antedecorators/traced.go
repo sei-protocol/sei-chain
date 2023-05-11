@@ -4,7 +4,7 @@ import (
 	"fmt"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
-	"github.com/sei-protocol/sei-chain/utils/tracing"
+	"github.com/cosmos/cosmos-sdk/utils/tracing"
 )
 
 type TracedAnteDecorator struct {

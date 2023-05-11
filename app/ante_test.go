@@ -15,12 +15,12 @@ import (
 	"github.com/cosmos/cosmos-sdk/types/tx/signing"
 	acltypes "github.com/cosmos/cosmos-sdk/x/accesscontrol/types"
 
+	"github.com/cosmos/cosmos-sdk/utils/tracing"
 	"github.com/cosmos/cosmos-sdk/x/auth/ante"
 	xauthsigning "github.com/cosmos/cosmos-sdk/x/auth/signing"
 	aclutils "github.com/sei-protocol/sei-chain/aclmapping/utils"
 	app "github.com/sei-protocol/sei-chain/app"
 	"github.com/sei-protocol/sei-chain/app/apptesting"
-	"github.com/sei-protocol/sei-chain/utils/tracing"
 	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
 	"go.opentelemetry.io/otel"
