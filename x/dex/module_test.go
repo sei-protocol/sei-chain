@@ -377,6 +377,10 @@ func TestEndBlockRollback(t *testing.T) {
 	// No state change should've been persisted
 	matchResult, _ := dexkeeper.GetMatchResultState(ctx, keepertest.TestContract)
 	require.Equal(t, &types.MatchResult{}, matchResult)
+	// contract should be suspended
+	contract, err := dexkeeper.GetContract(ctx, keepertest.TestContract)
+	require.Nil(t, err)
+	require.False(t, contract.Suspended)
 }
 
 func TestEndBlockPartialRollback(t *testing.T) {
@@ -626,10 +630,10 @@ func TestEndBlockRollbackWithRentCharge(t *testing.T) {
 	// no state change should've been persisted for good contract because it should've run out of gas
 	matchResult, _ := dexkeeper.GetMatchResultState(ctx, contractAddr.String())
 	require.Equal(t, 0, len(matchResult.Orders))
-	// rent should still be charged even if the contract failed, so no rent should be sent to the creator after
-	// auto unregister
+	// rent should still be charged even if the contract failed
 	c, err := dexkeeper.GetContract(ctx, contractAddr.String())
-	require.Nil(t, err)                        // out-of-rent contract should not be auto-unregistered
+	require.Nil(t, err) // out-of-rent contract should not be suspended
+	require.False(t, c.Suspended)
 	require.Equal(t, uint64(0), c.RentBalance) // rent balance should be drained
 	creatorBalanceAfter := bankkeeper.GetBalance(ctx, testAccount, "usei")
 	require.Equal(t, creatorBalanceBefore, creatorBalanceAfter)
@@ -675,6 +679,10 @@ func TestEndBlockContractWithoutPair(t *testing.T) {
 	ti := tracing.Info{
 		Tracer: &tr,
 	}
-	_, _, _, success := contract.EndBlockerAtomic(ctx, &testApp.DexKeeper, []types.ContractInfoV2{contractInfo}, &ti)
+	_, _, _, _, success := contract.EndBlockerAtomic(ctx, &testApp.DexKeeper, []types.ContractInfoV2{contractInfo}, &ti)
 	require.True(t, success)
+
+	contractInfo, err = dexkeeper.GetContract(ctx, contractInfo.ContractAddr)
+	require.Nil(t, err)
+	require.False(t, contractInfo.Suspended)
 }

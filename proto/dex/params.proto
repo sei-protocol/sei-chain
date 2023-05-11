@@ -51,4 +51,8 @@ message Params {
     (gogoproto.jsontag)   = "order_book_entries_per_load",
     (gogoproto.moretags) = "yaml:\"order_book_entries_per_load\""
   ];
+  uint64 contract_unsuspend_cost = 11 [
+    (gogoproto.jsontag)   = "contract_unsuspend_cost",
+    (gogoproto.moretags) = "yaml:\"contract_unsuspend_cost\""
+  ];
 }

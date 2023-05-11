@@ -170,3 +170,63 @@ func TestSynchronization(t *testing.T) {
 	require.NotPanics(t, func() { stateOne.SynchronizeAccess(ctx, targetContract) })
 	<-siblingChan // the channel should be re-populated
 }
+
+func TestGetAllDownstreamContracts(t *testing.T) {
+	keeper, ctx := keepertest.DexKeeper(t)
+	keeper.SetContract(ctx, &types.ContractInfoV2{
+		ContractAddr: "sei1cnuw3f076wgdyahssdkd0g3nr96ckq8cwa2mh029fn5mgf2fmcmsae2elf",
+		Dependencies: []*types.ContractDependencyInfo{
+			{
+				Dependency: "sei1ery8l6jquynn9a4cz2pff6khg8c68f7urt33l5n9dng2cwzz4c4q4hncrd",
+			},
+		},
+	})
+	keeper.SetContract(ctx, &types.ContractInfoV2{
+		ContractAddr: "sei1ery8l6jquynn9a4cz2pff6khg8c68f7urt33l5n9dng2cwzz4c4q4hncrd",
+		Dependencies: []*types.ContractDependencyInfo{
+			{
+				Dependency: "sei1wl59k23zngj34l7d42y9yltask7rjlnxgccawc7ltrknp6n52fpsj6ctln",
+			}, {
+				Dependency: "sei1udfs22xpxle475m2nz7u47jfa3vngncdegmczwwdx00cmetypa3sman25q",
+			},
+		},
+	})
+	keeper.SetContract(ctx, &types.ContractInfoV2{
+		ContractAddr: "sei1wl59k23zngj34l7d42y9yltask7rjlnxgccawc7ltrknp6n52fpsj6ctln",
+		Dependencies: []*types.ContractDependencyInfo{
+			{
+				Dependency: "sei1stwdtk6ja0705v8qmtukcp4vd422p5vy4jr5wdc4qk44c57k955qcannhd",
+			},
+		},
+	})
+	keeper.SetContract(ctx, &types.ContractInfoV2{
+		ContractAddr: "sei1stwdtk6ja0705v8qmtukcp4vd422p5vy4jr5wdc4qk44c57k955qcannhd",
+	})
+	keeper.SetContract(ctx, &types.ContractInfoV2{
+		ContractAddr: "sei1udfs22xpxle475m2nz7u47jfa3vngncdegmczwwdx00cmetypa3sman25q",
+		Dependencies: []*types.ContractDependencyInfo{
+			{
+				Dependency: "sei14rse3e7rkc3qt7drmlulwlkrlzqvh7hv277zv05kyfuwl74udx5s9r7lm3",
+			},
+		},
+		Suspended: true,
+	})
+	keeper.SetContract(ctx, &types.ContractInfoV2{
+		ContractAddr: "sei14rse3e7rkc3qt7drmlulwlkrlzqvh7hv277zv05kyfuwl74udx5s9r7lm3",
+	})
+	keeper.SetContract(ctx, &types.ContractInfoV2{
+		ContractAddr: "sei182jzjwdyl5fw43yujnlljddgtrkr04dpd30ywp2yn724u7qhtaqsjev6mv",
+	})
+
+	require.Equal(t, []string{
+		"sei1ery8l6jquynn9a4cz2pff6khg8c68f7urt33l5n9dng2cwzz4c4q4hncrd",
+		"sei1wl59k23zngj34l7d42y9yltask7rjlnxgccawc7ltrknp6n52fpsj6ctln",
+		"sei1stwdtk6ja0705v8qmtukcp4vd422p5vy4jr5wdc4qk44c57k955qcannhd",
+	}, dex.GetAllDownstreamContracts("sei1ery8l6jquynn9a4cz2pff6khg8c68f7urt33l5n9dng2cwzz4c4q4hncrd", func(addr string) *types.ContractInfoV2 {
+		c, err := keeper.GetContract(ctx, addr)
+		if err != nil {
+			return nil
+		}
+		return &c
+	}))
+}

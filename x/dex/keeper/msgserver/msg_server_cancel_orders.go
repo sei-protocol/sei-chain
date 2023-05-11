@@ -8,7 +8,6 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
 	"github.com/sei-protocol/sei-chain/x/dex/utils"
-	dexutils "github.com/sei-protocol/sei-chain/x/dex/utils"
 )
 
 func (k msgServer) CancelOrders(goCtx context.Context, msg *types.MsgCancelOrders) (*types.MsgCancelOrdersResponse, error) {
@@ -36,7 +35,7 @@ func (k msgServer) CancelOrders(goCtx context.Context, msg *types.MsgCancelOrder
 		}
 		pair := types.Pair{PriceDenom: cancellation.PriceDenom, AssetDenom: cancellation.AssetDenom}
 		pairStr := types.GetPairString(&pair)
-		pairBlockCancellations := dexutils.GetMemState(ctx.Context()).GetBlockCancels(ctx, types.ContractAddress(msg.GetContractAddr()), pairStr)
+		pairBlockCancellations := utils.GetMemState(ctx.Context()).GetBlockCancels(ctx, types.ContractAddress(msg.GetContractAddr()), pairStr)
 		if !pairBlockCancellations.Has(cancellation) {
 			// only cancel if it's not cancelled in a previous tx in the same block
 			cancel := types.Cancellation{

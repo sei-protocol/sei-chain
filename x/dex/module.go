@@ -234,7 +234,9 @@ func (am AppModule) getAllContractInfo(ctx sdk.Context) []types.ContractInfoV2 {
 	// Do not process any contract that has zero rent balance
 	defer telemetry.MeasureSince(time.Now(), am.Name(), "get_all_contract_info")
 	allRegisteredContracts := am.keeper.GetAllContractInfo(ctx)
-	validContracts := utils.Filter(allRegisteredContracts, func(c types.ContractInfoV2) bool { return c.RentBalance > am.keeper.GetMinProcessableRent(ctx) })
+	validContracts := utils.Filter(allRegisteredContracts, func(c types.ContractInfoV2) bool {
+		return !c.Suspended && c.RentBalance > am.keeper.GetMinProcessableRent(ctx)
+	})
 	telemetry.SetGauge(float32(len(allRegisteredContracts)), am.Name(), "num_of_registered_contracts")
 	telemetry.SetGauge(float32(len(validContracts)), am.Name(), "num_of_valid_contracts")
 	telemetry.SetGauge(float32(len(allRegisteredContracts)-len(validContracts)), am.Name(), "num_of_zero_balance_contracts")
@@ -295,24 +297,22 @@ func (am AppModule) EndBlock(ctx sdk.Context, _ abci.RequestEndBlock) (ret []abc
 	iterCounter := len(validContractsInfo)
 	endBlockerStartTime := time.Now()
 	for len(validContractsInfo) > 0 {
-		newValidContractsInfo, newOutOfRentContractsInfo, ctx, ok := contract.EndBlockerAtomic(ctx, &am.keeper, validContractsInfo, am.tracingInfo)
+		newValidContractsInfo, newOutOfRentContractsInfo, failedContractToReasons, ctx, ok := contract.EndBlockerAtomic(ctx, &am.keeper, validContractsInfo, am.tracingInfo)
 		if ok {
 			break
 		}
 		telemetry.IncrCounter(float32(len(newOutOfRentContractsInfo)), am.Name(), "total_out_of_rent_contracts")
 		keptContractAddrs := datastructures.NewSyncSet(utils.Map(newValidContractsInfo, func(c types.ContractInfoV2) string { return c.ContractAddr }))
 		keptContractAddrs.AddAll(utils.Map(newOutOfRentContractsInfo, func(c types.ContractInfoV2) string { return c.ContractAddr }))
-		for _, oldValidContract := range validContractsInfo {
-			if keptContractAddrs.Contains(oldValidContract.ContractAddr) {
-				continue
-			}
-			ctx.Logger().Error(fmt.Sprintf("Unregistering invalid contract %s", oldValidContract.ContractAddr))
-			am.keeper.DoUnregisterContract(ctx, oldValidContract)
+		for failedContract, reason := range failedContractToReasons {
+			ctx.Logger().Error(fmt.Sprintf("Unregistering invalid contract %s", failedContract))
+			am.keeper.SuspendContract(ctx, failedContract, reason)
 			telemetry.IncrCounter(float32(1), am.Name(), "total_unregistered_contracts")
-			dexutils.GetMemState(ctx.Context()).ClearContractToDependencies()
 		}
 		validContractsInfo = am.getAllContractInfo(ctx) // reload contract info to get updated dependencies due to unregister above
-
+		if len(failedContractToReasons) != 0 {
+			dexutils.GetMemState(ctx.Context()).ClearContractToDependencies()
+		}
 		// technically we don't really need this if `EndBlockerAtomic` guarantees that `validContractsInfo` size will
 		// always shrink if not `ok`, but just in case, we decided to have an explicit termination criteria here to
 		// prevent the chain from being stuck.

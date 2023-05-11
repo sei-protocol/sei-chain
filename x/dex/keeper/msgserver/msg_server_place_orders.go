@@ -9,7 +9,6 @@ import (
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
 	"github.com/sei-protocol/sei-chain/x/dex/utils"
-	dexutils "github.com/sei-protocol/sei-chain/x/dex/utils"
 )
 
 func (k msgServer) transferFunds(goCtx context.Context, msg *types.MsgPlaceOrders) error {
@@ -31,7 +30,7 @@ func (k msgServer) transferFunds(goCtx context.Context, msg *types.MsgPlaceOrder
 		if fund.Amount.IsNil() || fund.IsNegative() {
 			return errors.New("fund deposits cannot be nil or negative")
 		}
-		dexutils.GetMemState(ctx.Context()).GetDepositInfo(ctx, types.ContractAddress(msg.GetContractAddr())).Add(&types.DepositInfoEntry{
+		utils.GetMemState(ctx.Context()).GetDepositInfo(ctx, types.ContractAddress(msg.GetContractAddr())).Add(&types.DepositInfoEntry{
 			Creator: msg.Creator,
 			Denom:   fund.Denom,
 			Amount:  sdk.NewDec(fund.Amount.Int64()),
@@ -73,7 +72,7 @@ func (k msgServer) PlaceOrders(goCtx context.Context, msg *types.MsgPlaceOrders)
 		order.Id = nextID
 		order.Account = msg.Creator
 		order.ContractAddr = msg.GetContractAddr()
-		dexutils.GetMemState(ctx.Context()).GetBlockOrders(ctx, types.ContractAddress(msg.GetContractAddr()), pairStr).Add(order)
+		utils.GetMemState(ctx.Context()).GetBlockOrders(ctx, types.ContractAddress(msg.GetContractAddr()), pairStr).Add(order)
 		idsInResp = append(idsInResp, nextID)
 		events = append(events, sdk.NewEvent(
 			types.EventTypePlaceOrder,

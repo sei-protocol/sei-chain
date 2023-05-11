@@ -32,6 +32,10 @@ func (k msgServer) RegisterContract(goCtx context.Context, msg *types.MsgRegiste
 		return nil, sdkerrors.ErrUnauthorized
 	}
 
+	if err := k.ValidateSuspension(ctx, msg.GetContract().GetContractAddr()); err != nil {
+		ctx.Logger().Error("suspended contract")
+		return &types.MsgRegisterContractResponse{}, err
+	}
 	if err := k.ValidateRentBalance(ctx, msg.GetContract().GetRentBalance()); err != nil {
 		ctx.Logger().Error("invalid rent balance")
 		return &types.MsgRegisterContractResponse{}, err

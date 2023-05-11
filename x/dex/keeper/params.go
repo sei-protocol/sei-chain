@@ -24,6 +24,10 @@ func (k Keeper) GetOrderBookEntriesPerLoad(ctx sdk.Context) uint64 {
 	return k.GetParams(ctx).OrderBookEntriesPerLoad
 }
 
+func (k Keeper) GetContractUnsuspendCost(ctx sdk.Context) uint64 {
+	return k.GetParams(ctx).ContractUnsuspendCost
+}
+
 // SetParams set the params
 func (k Keeper) SetParams(ctx sdk.Context, params types.Params) {
 	k.Paramstore.SetParamSet(ctx, &params)

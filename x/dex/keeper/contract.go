@@ -139,6 +139,16 @@ func (k Keeper) DoUnregisterContract(ctx sdk.Context, contract types.ContractInf
 	k.RemoveAllTriggeredOrders(ctx, contract.ContractAddr)
 }
 
+func (k Keeper) SuspendContract(ctx sdk.Context, contractAddress string, reason string) error {
+	contract, err := k.GetContract(ctx, contractAddress)
+	if err != nil {
+		return err
+	}
+	contract.Suspended = true
+	contract.SuspensionReason = reason
+	return k.SetContract(ctx, &contract)
+}
+
 func (k Keeper) ClearDependenciesForContract(ctx sdk.Context, removedContract types.ContractInfoV2) {
 	// handle upstreams
 	allContracts := k.GetAllContractInfo(ctx)

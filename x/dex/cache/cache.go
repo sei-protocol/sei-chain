@@ -252,8 +252,10 @@ func GetAllDownstreamContracts(contractAddress string, loader func(addr string) 
 	populater := func(target *types.ContractInfoV2) {
 		for _, dep := range target.Dependencies {
 			if downstream := loader(dep.Dependency); downstream != nil && !seen.Contains(downstream.ContractAddr) {
-				downstreams = append(downstreams, downstream)
-				seen.Add(downstream.ContractAddr)
+				if !downstream.Suspended {
+					downstreams = append(downstreams, downstream)
+					seen.Add(downstream.ContractAddr)
+				}
 			} else {
 				// either getting the dependency returned an error, or there is a cycle in the graph. Either way
 				// is bad and should cause the triggering tx to fail
