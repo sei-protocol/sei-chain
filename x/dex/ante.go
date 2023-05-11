@@ -5,6 +5,7 @@ import (
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
+	dexcache "github.com/sei-protocol/sei-chain/x/dex/cache"
 	"github.com/sei-protocol/sei-chain/x/dex/keeper"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
 	"github.com/sei-protocol/sei-chain/x/dex/utils"
@@ -100,12 +101,14 @@ func IsDecimalMultipleOf(a, b sdk.Dec) bool {
 const DexGasFeeUnit = "usei"
 
 type CheckDexGasDecorator struct {
-	dexKeeper keeper.Keeper
+	dexKeeper       keeper.Keeper
+	checkTxMemState *dexcache.MemState
 }
 
-func NewCheckDexGasDecorator(dexKeeper keeper.Keeper) CheckDexGasDecorator {
+func NewCheckDexGasDecorator(dexKeeper keeper.Keeper, checkTxMemState *dexcache.MemState) CheckDexGasDecorator {
 	return CheckDexGasDecorator{
-		dexKeeper: dexKeeper,
+		dexKeeper:       dexKeeper,
+		checkTxMemState: checkTxMemState,
 	}
 }
 
@@ -116,7 +119,12 @@ func (d CheckDexGasDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bo
 	}
 	params := d.dexKeeper.GetParams(ctx)
 	dexGasRequired := uint64(0)
-	memState := utils.GetMemState(ctx.Context())
+	var memState *dexcache.MemState
+	if ctx.IsCheckTx() {
+		memState = d.checkTxMemState
+	} else {
+		memState = utils.GetMemState(ctx.Context())
+	}
 	contractLoader := func(addr string) *types.ContractInfoV2 {
 		contract, err := d.dexKeeper.GetContract(ctx, addr)
 		if err != nil {

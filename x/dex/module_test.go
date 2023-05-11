@@ -118,6 +118,13 @@ func TestEndBlockMarketOrder(t *testing.T) {
 			Amount:  sdk.MustNewDecFromStr("2000000"),
 		},
 	)
+	dexutils.GetMemState(ctx.Context()).SetDownstreamsToProcess(contractAddr.String(), func(addr string) *types.ContractInfoV2 {
+		c, err := dexkeeper.GetContract(ctx, addr)
+		if err != nil {
+			return nil
+		}
+		return &c
+	})
 
 	ctx = ctx.WithBlockHeight(1)
 	testApp.EndBlocker(ctx, abci.RequestEndBlock{})
@@ -140,6 +147,13 @@ func TestEndBlockMarketOrder(t *testing.T) {
 			Data:              "{\"position_effect\":\"Open\",\"leverage\":\"1\"}",
 		},
 	)
+	dexutils.GetMemState(ctx.Context()).SetDownstreamsToProcess(contractAddr.String(), func(addr string) *types.ContractInfoV2 {
+		c, err := dexkeeper.GetContract(ctx, addr)
+		if err != nil {
+			return nil
+		}
+		return &c
+	})
 
 	ctx = ctx.WithBlockHeight(2)
 	testApp.EndBlocker(ctx, abci.RequestEndBlock{})
@@ -171,6 +185,13 @@ func TestEndBlockMarketOrder(t *testing.T) {
 			Data:              "{\"position_effect\":\"Open\",\"leverage\":\"1\"}",
 		},
 	)
+	dexutils.GetMemState(ctx.Context()).SetDownstreamsToProcess(contractAddr.String(), func(addr string) *types.ContractInfoV2 {
+		c, err := dexkeeper.GetContract(ctx, addr)
+		if err != nil {
+			return nil
+		}
+		return &c
+	})
 
 	ctx = ctx.WithBlockHeight(3)
 	testApp.EndBlocker(ctx, abci.RequestEndBlock{})
@@ -262,6 +283,13 @@ func TestEndBlockLimitOrder(t *testing.T) {
 			Amount:  sdk.MustNewDecFromStr("2000000"),
 		},
 	)
+	dexutils.GetMemState(ctx.Context()).SetDownstreamsToProcess(contractAddr.String(), func(addr string) *types.ContractInfoV2 {
+		c, err := dexkeeper.GetContract(ctx, addr)
+		if err != nil {
+			return nil
+		}
+		return &c
+	})
 
 	ctx = ctx.WithBlockHeight(1)
 	testApp.EndBlocker(ctx, abci.RequestEndBlock{})
@@ -301,6 +329,13 @@ func TestEndBlockLimitOrder(t *testing.T) {
 			Data:              "{\"position_effect\":\"Open\",\"leverage\":\"1\"}",
 		},
 	)
+	dexutils.GetMemState(ctx.Context()).SetDownstreamsToProcess(contractAddr.String(), func(addr string) *types.ContractInfoV2 {
+		c, err := dexkeeper.GetContract(ctx, addr)
+		if err != nil {
+			return nil
+		}
+		return &c
+	})
 
 	ctx = ctx.WithBlockHeight(2)
 	testApp.EndBlocker(ctx, abci.RequestEndBlock{})
@@ -333,6 +368,13 @@ func TestEndBlockLimitOrder(t *testing.T) {
 			Data:              "{\"position_effect\":\"Open\",\"leverage\":\"1\"}",
 		},
 	)
+	dexutils.GetMemState(ctx.Context()).SetDownstreamsToProcess(contractAddr.String(), func(addr string) *types.ContractInfoV2 {
+		c, err := dexkeeper.GetContract(ctx, addr)
+		if err != nil {
+			return nil
+		}
+		return &c
+	})
 
 	ctx = ctx.WithBlockHeight(3)
 	testApp.EndBlocker(ctx, abci.RequestEndBlock{})
@@ -372,6 +414,13 @@ func TestEndBlockRollback(t *testing.T) {
 			PositionDirection: types.PositionDirection_LONG,
 		},
 	)
+	dexutils.GetMemState(ctx.Context()).SetDownstreamsToProcess(keepertest.TestContract, func(addr string) *types.ContractInfoV2 {
+		c, err := dexkeeper.GetContract(ctx, addr)
+		if err != nil {
+			return nil
+		}
+		return &c
+	})
 	ctx = ctx.WithBlockHeight(1)
 	testApp.EndBlocker(ctx, abci.RequestEndBlock{})
 	// No state change should've been persisted
@@ -380,7 +429,7 @@ func TestEndBlockRollback(t *testing.T) {
 	// contract should be suspended
 	contract, err := dexkeeper.GetContract(ctx, keepertest.TestContract)
 	require.Nil(t, err)
-	require.False(t, contract.Suspended)
+	require.True(t, contract.Suspended)
 }
 
 func TestEndBlockPartialRollback(t *testing.T) {
@@ -407,6 +456,13 @@ func TestEndBlockPartialRollback(t *testing.T) {
 			PositionDirection: types.PositionDirection_LONG,
 		},
 	)
+	dexutils.GetMemState(ctx.Context()).SetDownstreamsToProcess(keepertest.TestContract, func(addr string) *types.ContractInfoV2 {
+		c, err := dexkeeper.GetContract(ctx, addr)
+		if err != nil {
+			return nil
+		}
+		return &c
+	})
 	// GOOD CONTRACT
 	testAccount, _ := sdk.AccAddressFromBech32("sei1yezq49upxhunjjhudql2fnj5dgvcwjj87pn2wx")
 	amounts := sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(1000000)), sdk.NewCoin("uusdc", sdk.NewInt(1000000)))
@@ -433,7 +489,7 @@ func TestEndBlockPartialRollback(t *testing.T) {
 	}
 	dexkeeper.SetContract(ctx, &types.ContractInfoV2{CodeId: 123, ContractAddr: contractAddr.String(), NeedHook: false, NeedOrderMatching: true, RentBalance: 100000000})
 	dexkeeper.AddRegisteredPair(ctx, contractAddr.String(), pair)
-	// place one order to a nonexistent contract
+	// place one order to the good contract
 	dexutils.GetMemState(ctx.Context()).GetBlockOrders(ctx, types.ContractAddress(contractAddr.String()), types.GetPairString(&pair)).Add(
 		&types.Order{
 			Id:                2,
@@ -455,15 +511,23 @@ func TestEndBlockPartialRollback(t *testing.T) {
 			Amount:  sdk.MustNewDecFromStr("10000"),
 		},
 	)
+	dexutils.GetMemState(ctx.Context()).SetDownstreamsToProcess(contractAddr.String(), func(addr string) *types.ContractInfoV2 {
+		c, err := dexkeeper.GetContract(ctx, addr)
+		if err != nil {
+			return nil
+		}
+		return &c
+	})
 
 	ctx = ctx.WithBlockHeight(1)
 	testApp.EndBlocker(ctx, abci.RequestEndBlock{})
 	// No state change should've been persisted for bad contract
 	matchResult, _ := dexkeeper.GetMatchResultState(ctx, keepertest.TestContract)
 	require.Equal(t, &types.MatchResult{}, matchResult)
-	// bad contract should be unregistered
-	_, err = dexkeeper.GetContract(ctx, keepertest.TestContract)
-	require.Equal(t, types.ErrContractNotExists, err)
+	// bad contract should be suspended
+	contract, err := dexkeeper.GetContract(ctx, keepertest.TestContract)
+	require.Nil(t, err)
+	require.True(t, contract.Suspended)
 	// state change should've been persisted for good contract
 	matchResult, _ = dexkeeper.GetMatchResultState(ctx, contractAddr.String())
 	require.Equal(t, 1, len(matchResult.Orders))
@@ -619,6 +683,13 @@ func TestEndBlockRollbackWithRentCharge(t *testing.T) {
 			Amount:  sdk.MustNewDecFromStr("10000"),
 		},
 	)
+	dexutils.GetMemState(ctx.Context()).SetDownstreamsToProcess(contractAddr.String(), func(addr string) *types.ContractInfoV2 {
+		c, err := dexkeeper.GetContract(ctx, addr)
+		if err != nil {
+			return nil
+		}
+		return &c
+	})
 	// overwrite params for testing
 	params := dexkeeper.GetParams(ctx)
 	params.MinProcessableRent = 0
@@ -632,8 +703,8 @@ func TestEndBlockRollbackWithRentCharge(t *testing.T) {
 	require.Equal(t, 0, len(matchResult.Orders))
 	// rent should still be charged even if the contract failed
 	c, err := dexkeeper.GetContract(ctx, contractAddr.String())
-	require.Nil(t, err) // out-of-rent contract should not be suspended
-	require.False(t, c.Suspended)
+	require.Nil(t, err)
+	require.True(t, c.Suspended)               // bad contract is suspended not because of out-of-rent but because of execution error
 	require.Equal(t, uint64(0), c.RentBalance) // rent balance should be drained
 	creatorBalanceAfter := bankkeeper.GetBalance(ctx, testAccount, "usei")
 	require.Equal(t, creatorBalanceBefore, creatorBalanceAfter)

@@ -71,5 +71,5 @@ func TestGetOrders(t *testing.T) {
 	}
 	resp, err := wrapper.GetOrders(wctx, &query)
 	require.Nil(t, err)
-	require.Equal(t, 2, len(resp.Orders))
+	require.Equal(t, 1, len(resp.Orders))
 }

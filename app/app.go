@@ -343,6 +343,10 @@ type App struct {
 	metricCounter *map[string]float32
 
 	mounter func()
+
+	CheckTxMemState         *dexcache.MemState
+	ProcessProposalMemState *dexcache.MemState
+	MemState                *dexcache.MemState
 }
 
 // New returns a reference to an initialized blockchain app
@@ -781,6 +785,10 @@ func New(
 	}
 	app.mounter()
 
+	app.CheckTxMemState = dexcache.NewMemState(app.GetMemKey(dexmoduletypes.MemStoreKey))
+	app.ProcessProposalMemState = dexcache.NewMemState(app.GetMemKey(dexmoduletypes.MemStoreKey))
+	app.MemState = dexcache.NewMemState(app.GetMemKey(dexmoduletypes.MemStoreKey))
+
 	// initialize BaseApp
 	app.SetInitChainer(app.InitChainer)
 	app.SetBeginBlocker(app.BeginBlocker)
@@ -806,6 +814,7 @@ func New(
 			DexKeeper:           &app.DexKeeper,
 			TracingInfo:         app.tracingInfo,
 			AccessControlKeeper: &app.AccessControlKeeper,
+			CheckTxMemState:     app.CheckTxMemState,
 		},
 	)
 	if err != nil {
@@ -854,7 +863,6 @@ func New(
 	app.ScopedTransferKeeper = scopedTransferKeeper
 	app.ScopedWasmKeeper = scopedWasmKeeper
 	// this line is used by starport scaffolding # stargate/app/beforeInitReturn
-
 	return app
 }
 
@@ -928,6 +936,7 @@ func (app *App) InitChainer(ctx sdk.Context, req abci.RequestInitChain) abci.Res
 	if err := json.Unmarshal(req.AppStateBytes, &genesisState); err != nil {
 		panic(err)
 	}
+	ctx = ctx.WithContext(app.decorateContextWithDexMemState(ctx.Context()))
 	app.UpgradeKeeper.SetModuleVersionMap(ctx, app.mm.GetVersionMap())
 	return app.mm.InitGenesis(ctx, app.appCodec, genesisState)
 }
@@ -973,6 +982,7 @@ func (app *App) ProcessProposalHandler(ctx sdk.Context, req *abci.RequestProcess
 			app.optimisticProcessingInfo.Completion <- struct{}{}
 		} else {
 			go func() {
+				ctx = ctx.WithContext(app.decorateProcessProposalContextWithDexMemState(ctx.Context()))
 				events, txResults, endBlockResp, _ := app.ProcessBlock(ctx, req.Txs, req, req.ProposedLastCommit)
 				optimisticProcessingInfo.Events = events
 				optimisticProcessingInfo.TxRes = txResults
@@ -1006,6 +1016,7 @@ func (app *App) FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBlock)
 		}
 	}
 	ctx.Logger().Info("optimistic processing ineligible")
+	ctx = ctx.WithContext(app.decorateContextWithDexMemState(ctx.Context()))
 	events, txResults, endBlockResp, _ := app.ProcessBlock(ctx, req.Txs, req, req.DecidedLastCommit)
 
 	app.SetDeliverStateToCommit()
@@ -1552,8 +1563,16 @@ func (app *App) BlacklistedAccAddrs() map[string]bool {
 	return blacklistedAddrs
 }
 
+func (app *App) decorateCheckTxContextWithDexMemState(base context.Context) context.Context {
+	return context.WithValue(base, dexutils.DexMemStateContextKey, app.CheckTxMemState)
+}
+
+func (app *App) decorateProcessProposalContextWithDexMemState(base context.Context) context.Context {
+	return context.WithValue(base, dexutils.DexMemStateContextKey, app.ProcessProposalMemState)
+}
+
 func (app *App) decorateContextWithDexMemState(base context.Context) context.Context {
-	return context.WithValue(base, dexutils.DexMemStateContextKey, dexcache.NewMemState(app.GetMemKey(dexmoduletypes.MemStoreKey)))
+	return context.WithValue(base, dexutils.DexMemStateContextKey, app.MemState)
 }
 
 func init() {

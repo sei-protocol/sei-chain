@@ -14,6 +14,7 @@ import (
 	"github.com/sei-protocol/sei-chain/app/antedecorators/depdecorators"
 	"github.com/sei-protocol/sei-chain/utils/tracing"
 	"github.com/sei-protocol/sei-chain/x/dex"
+	dexcache "github.com/sei-protocol/sei-chain/x/dex/cache"
 	dexkeeper "github.com/sei-protocol/sei-chain/x/dex/keeper"
 	"github.com/sei-protocol/sei-chain/x/oracle"
 	oraclekeeper "github.com/sei-protocol/sei-chain/x/oracle/keeper"
@@ -31,6 +32,7 @@ type HandlerOptions struct {
 	DexKeeper           *dexkeeper.Keeper
 	AccessControlKeeper *aclkeeper.Keeper
 	TXCounterStoreKey   sdk.StoreKey
+	CheckTxMemState     *dexcache.MemState
 
 	TracingInfo *tracing.Info
 }
@@ -59,6 +61,9 @@ func NewAnteHandlerAndDepGenerator(options HandlerOptions) (sdk.AnteHandler, sdk
 	}
 	if options.TracingInfo == nil {
 		return nil, nil, sdkerrors.Wrap(sdkerrors.ErrLogic, "tracing info is required for ante builder")
+	}
+	if options.CheckTxMemState == nil {
+		return nil, nil, sdkerrors.Wrap(sdkerrors.ErrLogic, "checktx memstate is required for ante builder")
 	}
 
 	sigGasConsumer := options.SigGasConsumer
@@ -89,7 +94,7 @@ func NewAnteHandlerAndDepGenerator(options HandlerOptions) (sdk.AnteHandler, sdk
 		sdk.CustomDepWrappedAnteDecorator(ante.NewIncrementSequenceDecorator(options.AccountKeeper), depdecorators.SignerDepDecorator{ReadOnly: false}),
 		sdk.DefaultWrappedAnteDecorator(ibcante.NewAnteDecorator(options.IBCKeeper)),
 		sdk.DefaultWrappedAnteDecorator(dex.NewTickSizeMultipleDecorator(*options.DexKeeper)),
-		sdk.DefaultWrappedAnteDecorator(dex.NewCheckDexGasDecorator(*options.DexKeeper)),
+		sdk.DefaultWrappedAnteDecorator(dex.NewCheckDexGasDecorator(*options.DexKeeper, options.CheckTxMemState)),
 		antedecorators.NewACLWasmDependencyDecorator(*options.AccessControlKeeper, *options.WasmKeeper),
 	}
 
