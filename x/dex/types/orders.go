@@ -1,6 +1,7 @@
 package types
 
 import (
+	"github.com/cosmos/cosmos-sdk/store/prefix"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/sei-protocol/sei-chain/utils"
 	"github.com/sei-protocol/sei-chain/utils/datastructures"
@@ -39,6 +40,11 @@ type OrderBookEntry interface {
 	GetPrice() sdk.Dec
 	GetEntry() *OrderEntry
 	DeepCopy() OrderBookEntry
+}
+
+type PriceStore struct {
+	Store     prefix.Store
+	PriceKeys [][]byte
 }
 
 func (m *LongBook) GetPrice() sdk.Dec {
