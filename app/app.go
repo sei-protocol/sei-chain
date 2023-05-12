@@ -1236,7 +1236,7 @@ func (app *App) ProcessTxs(
 	return txResults, ctx
 }
 
-func (app *App) PartitionOracleVoteTxs(ctx sdk.Context, txs [][]byte) (oracleVoteTxs, otherTxs [][]byte) {
+func (app *App) PartitionPrioritizedTxs(ctx sdk.Context, txs [][]byte) (prioritizedTxs, otherTxs [][]byte) {
 	for _, tx := range txs {
 		decodedTx, err := app.txDecoder(tx)
 		if err != nil {
@@ -1245,26 +1245,32 @@ func (app *App) PartitionOracleVoteTxs(ctx sdk.Context, txs [][]byte) (oracleVot
 			otherTxs = append(otherTxs, tx)
 			continue
 		}
-		oracleVote := false
-		// if theres an oracle vote msg, we want to add to oracleVoteTxs
+		prioritized := false
+		// if theres a prioritized msg, we want to add to prioritizedTxs
 	msgLoop:
 		for _, msg := range decodedTx.GetMsgs() {
 			switch msg.(type) {
 			case *oracletypes.MsgAggregateExchangeRateVote:
-				oracleVote = true
+				prioritized = true
+			case *dexmoduletypes.MsgRegisterContract:
+				prioritized = true
+			case *dexmoduletypes.MsgUnregisterContract:
+				prioritized = true
+			case *dexmoduletypes.MsgUnsuspendContract:
+				prioritized = true
 			default:
-				oracleVote = false
+				prioritized = false
 				break msgLoop
 			}
 		}
-		if oracleVote {
-			oracleVoteTxs = append(oracleVoteTxs, tx)
+		if prioritized {
+			prioritizedTxs = append(prioritizedTxs, tx)
 		} else {
 			otherTxs = append(otherTxs, tx)
 		}
 
 	}
-	return oracleVoteTxs, otherTxs
+	return prioritizedTxs, otherTxs
 }
 
 func (app *App) BuildDependenciesAndRunTxs(ctx sdk.Context, txs [][]byte) ([]*abci.ExecTxResult, sdk.Context) {
@@ -1322,11 +1328,11 @@ func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequ
 
 	var txResults []*abci.ExecTxResult
 
-	oracleTxs, txs := app.PartitionOracleVoteTxs(ctx, txs)
+	prioritizedTxs, txs := app.PartitionPrioritizedTxs(ctx, txs)
 
-	// run the oracle txs
-	oracleResults, ctx := app.BuildDependenciesAndRunTxs(ctx, oracleTxs)
-	txResults = append(txResults, oracleResults...)
+	// run the prioritized txs
+	prioritizedResults, ctx := app.BuildDependenciesAndRunTxs(ctx, prioritizedTxs)
+	txResults = append(txResults, prioritizedResults...)
 
 	midBlockEvents := app.MidBlock(ctx, req.GetHeight())
 	events = append(events, midBlockEvents...)
