@@ -119,7 +119,7 @@ func DexPlaceOrdersDependencyGenerator(keeper aclkeeper.Keeper, ctx sdk.Context,
 
 		{
 			AccessType:         sdkacltypes.AccessType_READ,
-			ResourceType:       sdkacltypes.ResourceType_KV_DEX,
+			ResourceType:       sdkacltypes.ResourceType_KV_DEX_CONTRACT,
 			IdentifierTemplate: hex.EncodeToString([]byte(dexkeeper.ContractPrefixKey)),
 		},
 	}
@@ -149,7 +149,7 @@ func DexCancelOrdersDependencyGenerator(keeper aclkeeper.Keeper, ctx sdk.Context
 		},
 		{
 			AccessType:         sdkacltypes.AccessType_READ,
-			ResourceType:       sdkacltypes.ResourceType_KV_DEX,
+			ResourceType:       sdkacltypes.ResourceType_KV_DEX_CONTRACT,
 			IdentifierTemplate: hex.EncodeToString([]byte(dexkeeper.ContractPrefixKey)),
 		},
 	}
