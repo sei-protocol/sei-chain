@@ -1563,10 +1563,6 @@ func (app *App) BlacklistedAccAddrs() map[string]bool {
 	return blacklistedAddrs
 }
 
-func (app *App) decorateCheckTxContextWithDexMemState(base context.Context) context.Context {
-	return context.WithValue(base, dexutils.DexMemStateContextKey, app.CheckTxMemState)
-}
-
 func (app *App) decorateProcessProposalContextWithDexMemState(base context.Context) context.Context {
 	return context.WithValue(base, dexutils.DexMemStateContextKey, app.ProcessProposalMemState)
 }

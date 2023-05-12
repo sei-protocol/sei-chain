@@ -305,9 +305,12 @@ func (am AppModule) EndBlock(ctx sdk.Context, _ abci.RequestEndBlock) (ret []abc
 		keptContractAddrs := datastructures.NewSyncSet(utils.Map(newValidContractsInfo, func(c types.ContractInfoV2) string { return c.ContractAddr }))
 		keptContractAddrs.AddAll(utils.Map(newOutOfRentContractsInfo, func(c types.ContractInfoV2) string { return c.ContractAddr }))
 		for failedContract, reason := range failedContractToReasons {
-			ctx.Logger().Error(fmt.Sprintf("Unregistering invalid contract %s", failedContract))
-			am.keeper.SuspendContract(ctx, failedContract, reason)
-			telemetry.IncrCounter(float32(1), am.Name(), "total_unregistered_contracts")
+			ctx.Logger().Info(fmt.Sprintf("Suspending invalid contract %s", failedContract))
+			err := am.keeper.SuspendContract(ctx, failedContract, reason)
+			if err != nil {
+				ctx.Logger().Error(fmt.Sprintf("failed to suspend invalid contract %s: %s", failedContract, err))
+			}
+			telemetry.IncrCounter(float32(1), am.Name(), "total_suspended_contracts")
 		}
 		validContractsInfo = am.getAllContractInfo(ctx) // reload contract info to get updated dependencies due to unregister above
 		if len(failedContractToReasons) != 0 {

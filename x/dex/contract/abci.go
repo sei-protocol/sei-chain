@@ -152,12 +152,12 @@ func cacheContext(ctx sdk.Context, env *environment) (sdk.Context, sdk.CacheMult
 	return cachedCtx, msCached
 }
 
-func decorateContextForContract(ctx sdk.Context, contractInfo types.ContractInfoV2, gasLimit uint64) sdk.Context {
+func decorateContextForContract(ctx sdk.Context, contractInfo types.ContractInfoV2) sdk.Context {
 	goCtx := context.WithValue(ctx.Context(), dexcache.CtxKeyExecutingContract, contractInfo)
 	whitelistedStore := multi.NewStore(ctx.MultiStore(), GetWhitelistMap(contractInfo.ContractAddr))
 	newEventManager := sdk.NewEventManager()
 	return ctx.WithContext(goCtx).WithMultiStore(whitelistedStore).WithEventManager(newEventManager).WithGasMeter(
-		seisync.NewGasWrapper(dexutils.GetGasMeterForLimit(gasLimit)),
+		seisync.NewGasWrapper(sdk.NewInfiniteGasMeter()),
 	)
 }
 
@@ -245,7 +245,7 @@ func orderMatchingRunnable(ctx context.Context, sdkContext sdk.Context, env *env
 		return
 	}
 	parentSdkContext := sdkContext
-	sdkContext = decorateContextForContract(sdkContext, contractInfo, keeper.GetParams(sdkContext).EndBlockGasLimit)
+	sdkContext = decorateContextForContract(sdkContext, contractInfo)
 	sdkContext.Logger().Debug(fmt.Sprintf("End block for %s with balance of %d", contractInfo.ContractAddr, contractInfo.RentBalance))
 	pairs, pairFound := env.registeredPairs.Load(contractInfo.ContractAddr)
 	orderBooks, found := env.orderBooks.Load(contractInfo.ContractAddr)

@@ -10,6 +10,7 @@ import (
 	acltypes "github.com/cosmos/cosmos-sdk/x/accesscontrol/types"
 	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
 	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
+	dexkeeper "github.com/sei-protocol/sei-chain/x/dex/keeper"
 	dextypes "github.com/sei-protocol/sei-chain/x/dex/types"
 )
 
@@ -115,6 +116,12 @@ func DexPlaceOrdersDependencyGenerator(keeper aclkeeper.Keeper, ctx sdk.Context,
 			ResourceType:       sdkacltypes.ResourceType_KV_AUTH_ADDRESS_STORE,
 			IdentifierTemplate: hex.EncodeToString(authtypes.CreateAddressStoreKeyFromBech32(placeOrdersMsg.Creator)),
 		},
+
+		{
+			AccessType:         sdkacltypes.AccessType_READ,
+			ResourceType:       sdkacltypes.ResourceType_KV_DEX,
+			IdentifierTemplate: hex.EncodeToString([]byte(dexkeeper.ContractPrefixKey)),
+		},
 	}
 
 	// Last Operation should always be a commit
@@ -139,6 +146,11 @@ func DexCancelOrdersDependencyGenerator(keeper aclkeeper.Keeper, ctx sdk.Context
 			AccessType:         sdkacltypes.AccessType_WRITE,
 			ResourceType:       sdkacltypes.ResourceType_KV_DEX_MEM_CANCEL,
 			IdentifierTemplate: hex.EncodeToString(dextypes.MemCancelPrefix(contractAddr)),
+		},
+		{
+			AccessType:         sdkacltypes.AccessType_READ,
+			ResourceType:       sdkacltypes.ResourceType_KV_DEX,
+			IdentifierTemplate: hex.EncodeToString([]byte(dexkeeper.ContractPrefixKey)),
 		},
 	}
 

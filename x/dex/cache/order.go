@@ -140,28 +140,3 @@ func (o *BlockOrders) getOrdersByCriteria(orderType types.OrderType, direction t
 	}
 	return res
 }
-
-func (o *BlockOrders) getOrdersByCriteriaMap(orderType map[types.OrderType]bool, direction map[types.PositionDirection]bool) []*types.Order {
-	res := []*types.Order{}
-	iterator := sdk.KVStorePrefixIterator(o.orderStore, []byte{})
-
-	defer iterator.Close()
-
-	for ; iterator.Valid(); iterator.Next() {
-		var val types.Order
-		if err := val.Unmarshal(iterator.Value()); err != nil {
-			panic(err)
-		}
-		if _, ok := orderType[val.OrderType]; !ok {
-			continue
-		}
-		if _, ok := direction[val.PositionDirection]; !ok {
-			continue
-		}
-		if val.Status == types.OrderStatus_FAILED_TO_PLACE {
-			continue
-		}
-		res = append(res, &val)
-	}
-	return res
-}
