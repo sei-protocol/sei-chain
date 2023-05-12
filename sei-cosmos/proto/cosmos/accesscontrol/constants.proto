@@ -124,6 +124,8 @@ enum ResourceType {
     KV_DEX_MEM_ORDER = 87;
     KV_DEX_MEM_CANCEL = 88;
     KV_DEX_MEM_DEPOSIT = 89;
+
+    KV_DEX_CONTRACT = 90; // child of KV_DEX
 }
 
 enum WasmMessageSubtype {
