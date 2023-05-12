@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/CosmWasm/wasmd/x/wasm"
+	wasmkeeper "github.com/CosmWasm/wasmd/x/wasm/keeper"
 	"github.com/cosmos/cosmos-sdk/baseapp"
 	"github.com/cosmos/cosmos-sdk/client"
 	"github.com/cosmos/cosmos-sdk/client/config"
@@ -251,6 +252,9 @@ func newApp(
 		panic(err)
 	}
 
+	wasmGasRegisterConfig := wasmkeeper.DefaultGasRegisterConfig()
+	wasmGasRegisterConfig.GasMultiplier = 8750000
+
 	return app.New(
 		logger,
 		db,
@@ -263,7 +267,13 @@ func newApp(
 		app.MakeEncodingConfig(),
 		wasm.EnableAllProposals,
 		appOpts,
-		[]wasm.Option{},
+		[]wasm.Option{
+			wasmkeeper.WithGasRegister(
+				wasmkeeper.NewWasmGasRegister(
+					wasmGasRegisterConfig,
+				),
+			),
+		},
 		[]aclkeeper.Option{},
 		baseapp.SetPruning(pruningOpts),
 		baseapp.SetMinGasPrices(cast.ToString(appOpts.Get(server.FlagMinGasPrices))),
