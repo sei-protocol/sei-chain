@@ -253,6 +253,7 @@ func (am AppModule) BeginBlock(ctx sdk.Context, _ abci.RequestBeginBlock) {
 	priceRetention := am.keeper.GetParams(ctx).PriceSnapshotRetention
 	cutOffTime := uint64(ctx.BlockTime().Unix()) - priceRetention
 	wg := sync.WaitGroup{}
+	mutex := sync.Mutex{}
 	allContracts := am.getAllContractInfo(ctx)
 	allPricesToDelete := make(map[string][]*types.PriceStore, len(allContracts))
 
@@ -261,7 +262,9 @@ func (am AppModule) BeginBlock(ctx sdk.Context, _ abci.RequestBeginBlock) {
 		wg.Add(1)
 		go func(contract types.ContractInfoV2) {
 			priceKeysToDelete := am.getPriceToDelete(cachedCtx, contract, cutOffTime)
+			mutex.Lock()
 			allPricesToDelete[contract.ContractAddr] = priceKeysToDelete
+			mutex.Unlock()
 			wg.Done()
 		}(contract)
 	}
