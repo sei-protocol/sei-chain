@@ -199,6 +199,8 @@ func getSudoPlaceOrderMessages(sdkCtx sdk.Context, validContractsInfos []types.C
 		resultMapToIndex[result.int] = result.SudoOrderPlacementMsg
 	}
 
+	keeperWrapper.BankKeeper.WriteDeferredOperations(sdkCtx)
+
 	return resultMapToIndex
 }
 
@@ -211,7 +213,6 @@ func handleDeposits(spanCtx context.Context, ctx sdk.Context, env *environment, 
 
 	// Filter and create and pending sudo messages concurrently and batch write to bank keeper
 	sudoMessages := getSudoPlaceOrderMessages(ctx, env.validContractsInfo, keeperWrapper)
-	keeperWrapper.BankKeeper.WriteDeferredOperations(ctx)
 	for index, message := range sudoMessages {
 		contract := env.validContractsInfo[index]
 		if err := keeperWrapper.HandleEBDeposit(spanCtx, ctx, tracer, contract.ContractAddr, message); err != nil {
