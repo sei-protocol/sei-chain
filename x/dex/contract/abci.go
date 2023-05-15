@@ -213,12 +213,13 @@ func handleDeposits(spanCtx context.Context, ctx sdk.Context, env *environment, 
 
 	// Filter and create and pending sudo messages concurrently and batch write to bank keeper
 	sudoMessages := getSudoPlaceOrderMessages(ctx, env.validContractsInfo, keeperWrapper)
-	for index, message := range sudoMessages {
-		contract := env.validContractsInfo[index]
-		if err := keeperWrapper.HandleEBDeposit(spanCtx, ctx, tracer, contract.ContractAddr, message); err != nil {
-			env.addError(contract.ContractAddr, err)
+	for index := 0; index < len(env.validContractsInfo); index++ {
+		if message, ok := sudoMessages[index]; ok {
+			contract := env.validContractsInfo[index]
+			if err := keeperWrapper.HandleEBDeposit(spanCtx, ctx, tracer, contract.ContractAddr, message); err != nil {
+				env.addError(contract.ContractAddr, err)
+			}
 		}
-
 	}
 }
 
