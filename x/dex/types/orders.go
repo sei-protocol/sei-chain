@@ -1,6 +1,7 @@
 package types
 
 import (
+	"github.com/cosmos/cosmos-sdk/store/prefix"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/sei-protocol/sei-chain/utils"
 )
@@ -149,6 +150,11 @@ type OrderBookEntry interface {
 
 func (m *LongBook) SetPrice(p sdk.Dec) {
 	m.Price = p
+}
+
+type PriceStore struct {
+	Store     prefix.Store
+	PriceKeys [][]byte
 }
 
 func (m *LongBook) GetPrice() sdk.Dec {
