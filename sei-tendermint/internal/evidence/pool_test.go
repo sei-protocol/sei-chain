@@ -268,7 +268,7 @@ func TestEvidencePoolUpdate(t *testing.T) {
 
 	require.Equal(t, uint32(3), pool.Size())
 
-	pool.Update(ctx, state, block.Evidence)
+	pool.Update(ctx, state, block.Evidence.Evidence)
 
 	// a) Update marks evidence as committed so pending evidence should be empty
 	evList, _ = pool.PendingEvidence(defaultEvidenceMaxBytes)

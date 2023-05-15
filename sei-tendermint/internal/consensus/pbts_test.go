@@ -216,7 +216,7 @@ func (p *pbtsTestHarness) nextHeight(ctx context.Context, t *testing.T, proposer
 	ps, err := b.MakePartSet(types.BlockPartSizeBytes)
 	require.NoError(t, err)
 	bid := types.BlockID{Hash: b.Hash(), PartSetHeader: ps.Header()}
-	prop := types.NewProposal(p.currentHeight, 0, -1, bid, proposedTime, b.GetTxKeys(), b.Header, b.LastCommit, b.Evidence, k.Address())
+	prop := types.NewProposal(p.currentHeight, 0, -1, bid, proposedTime, b.GetTxKeys(), b.Header, b.LastCommit, b.Evidence.Evidence, k.Address())
 	tp := prop.ToProto()
 
 	if err := proposer.SignProposal(ctx, p.observedState.state.ChainID, tp); err != nil {
