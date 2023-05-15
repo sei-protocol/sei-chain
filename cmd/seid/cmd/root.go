@@ -135,6 +135,7 @@ func initRootCmd(
 		debugCmd,
 		config.Cmd(),
 		pruning.PruningCmd(newApp),
+		CompactCmd(app.DefaultNodeHome),
 	)
 
 	tracingProviderOpts, err := tracing.GetTracerProviderOptions(tracing.DefaultTracingURL)
