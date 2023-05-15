@@ -39,7 +39,7 @@ var (
 		// 		{Name: utils.MicroSeiDenom},
 		{Name: utils.MicroEthDenom},
 	}
-	DefaultSlashFraction     = sdk.NewDecWithPrec(1, 4) // 0.01%
+	DefaultSlashFraction     = sdk.NewDecWithPrec(0, 4) // 0.01%
 	DefaultMinValidPerWindow = sdk.NewDecWithPrec(5, 2) // 5%
 	DefaultLookbackDuration  = uint64(3600)             // in seconds
 )
