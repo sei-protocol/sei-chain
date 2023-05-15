@@ -142,6 +142,11 @@ func TestHandleAlreadyJailed(t *testing.T) {
 	params.SignedBlocksWindow = 1000
 	app.SlashingKeeper.SetParams(ctx, params)
 
+	slashingParams := app.SlashingKeeper.GetParams(ctx)
+	slashingParams.SlashFractionDoubleSign = sdk.NewDec(1).Quo(sdk.NewDec(20))
+	slashingParams.SlashFractionDowntime = sdk.NewDec(1).Quo(sdk.NewDec(100))
+	app.SlashingKeeper.SetParams(ctx, slashingParams)
+
 	// 1000 first blocks OK
 	height := int64(0)
 	for ; height < app.SlashingKeeper.SignedBlocksWindow(ctx); height++ {
