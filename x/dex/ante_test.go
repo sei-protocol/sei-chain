@@ -6,6 +6,7 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	keepertest "github.com/sei-protocol/sei-chain/testutil/keeper"
 	"github.com/sei-protocol/sei-chain/x/dex"
+	dexcache "github.com/sei-protocol/sei-chain/x/dex/cache"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -65,7 +66,7 @@ func TestIsDecimalMultipleOf(t *testing.T) {
 
 func TestCheckDexGasDecorator(t *testing.T) {
 	keeper, ctx := keepertest.DexKeeper(t)
-	decorator := dex.NewCheckDexGasDecorator(*keeper)
+	decorator := dex.NewCheckDexGasDecorator(*keeper, dexcache.NewMemState(keeper.GetMemStoreKey()))
 	terminator := func(ctx sdk.Context, tx sdk.Tx, simulate bool) (newCtx sdk.Context, err error) { return ctx, nil }
 	tx := TestTx{
 		msgs: []sdk.Msg{
@@ -174,36 +175,6 @@ func TestTickSizeMultipleDecorator(t *testing.T) {
 				Price:        sdk.ZeroDec(),
 				Quantity:     quantity,
 				OrderType:    types.OrderType_LIMIT,
-			}}, "contract", sdk.NewCoins())},
-		fee: sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(27500))),
-	}
-	_, err = decorator.AnteHandle(ctx, tx, false, terminator)
-	require.NotNil(t, err)
-
-	tx = TestTx{
-		msgs: []sdk.Msg{
-			types.NewMsgPlaceOrders("someone", []*types.Order{{
-				ContractAddr: "contract",
-				PriceDenom:   keepertest.TestPair.PriceDenom,
-				AssetDenom:   keepertest.TestPair.AssetDenom,
-				Price:        sdk.ZeroDec(),
-				Quantity:     quantity,
-				OrderType:    types.OrderType_STOPLOSS,
-			}}, "contract", sdk.NewCoins())},
-		fee: sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(27500))),
-	}
-	_, err = decorator.AnteHandle(ctx, tx, false, terminator)
-	require.NotNil(t, err)
-
-	tx = TestTx{
-		msgs: []sdk.Msg{
-			types.NewMsgPlaceOrders("someone", []*types.Order{{
-				ContractAddr: "contract",
-				PriceDenom:   keepertest.TestPair.PriceDenom,
-				AssetDenom:   keepertest.TestPair.AssetDenom,
-				Price:        sdk.ZeroDec(),
-				Quantity:     quantity,
-				OrderType:    types.OrderType_STOPLIMIT,
 			}}, "contract", sdk.NewCoins())},
 		fee: sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(27500))),
 	}

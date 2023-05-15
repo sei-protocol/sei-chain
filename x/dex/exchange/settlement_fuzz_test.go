@@ -7,8 +7,8 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/sei-protocol/sei-chain/testutil/fuzzing"
 	keepertest "github.com/sei-protocol/sei-chain/testutil/keeper"
-	dex "github.com/sei-protocol/sei-chain/x/dex/cache"
 	"github.com/sei-protocol/sei-chain/x/dex/exchange"
+	keeperutil "github.com/sei-protocol/sei-chain/x/dex/keeper/utils"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
 	"github.com/stretchr/testify/require"
 	"github.com/tendermint/tendermint/libs/log"
@@ -35,7 +35,16 @@ func fuzzTargetSettle(
 	quantityI int64,
 	quantityIsNil bool,
 ) {
+	dexkeeper, ctx := keepertest.DexKeeper(t)
+	ctx = ctx.WithBlockHeight(1).WithBlockTime(time.Now())
 	entries := fuzzing.GetOrderBookEntries(!long, keepertest.TestPriceDenom, keepertest.TestAssetDenom, entryWeights, accountIndices, allocationWeights)
+	for _, entry := range entries {
+		if long {
+			dexkeeper.SetShortOrderBookEntry(ctx, keepertest.TestContract, entry)
+		} else {
+			dexkeeper.SetLongOrderBookEntry(ctx, keepertest.TestContract, entry)
+		}
+	}
 	var direction types.PositionDirection
 	if long {
 		direction = types.PositionDirection_LONG
@@ -53,9 +62,14 @@ func fuzzTargetSettle(
 		orders = orders[:len(entries)]
 	}
 
+	orderbook := keeperutil.PopulateOrderbook(ctx, dexkeeper, types.ContractAddress(keepertest.TestContract), types.Pair{PriceDenom: keepertest.TestPriceDenom, AssetDenom: keepertest.TestAssetDenom})
+	book := orderbook.Longs
+	if long {
+		book = orderbook.Shorts
+	}
 	for i, entry := range entries {
 		require.NotPanics(t, func() {
-			exchange.Settle(TestFuzzSettleCtx, orders[i], quantity, entry, price, &dex.BlockOrders{})
+			exchange.Settle(ctx, orders[i], quantity, book, price, entry.GetPrice())
 		})
 	}
 }
@@ -76,8 +90,16 @@ func fuzzTargetSettleFromBook(
 	quantityI int64,
 	quantityIsNil bool,
 ) {
+	dexkeeper, ctx := keepertest.DexKeeper(t)
+	ctx = ctx.WithBlockHeight(1).WithBlockTime(time.Now())
 	buyEntries := fuzzing.GetOrderBookEntries(true, keepertest.TestPriceDenom, keepertest.TestAssetDenom, buyEntryWeights, buyAccountIndices, buyAllocationWeights)
+	for _, entry := range buyEntries {
+		dexkeeper.SetLongOrderBookEntry(ctx, keepertest.TestContract, entry)
+	}
 	sellEntries := fuzzing.GetOrderBookEntries(false, keepertest.TestPriceDenom, keepertest.TestAssetDenom, sellEntryWeights, sellAccountIndices, sellAllocationWeights)
+	for _, entry := range sellEntries {
+		dexkeeper.SetShortOrderBookEntry(ctx, keepertest.TestContract, entry)
+	}
 
 	quantity := fuzzing.FuzzDec(quantityI, quantityIsNil)
 
@@ -87,9 +109,10 @@ func fuzzTargetSettleFromBook(
 		sellEntries = sellEntries[:len(buyEntries)]
 	}
 
+	orderbook := keeperutil.PopulateOrderbook(ctx, dexkeeper, types.ContractAddress(keepertest.TestContract), types.Pair{PriceDenom: keepertest.TestPriceDenom, AssetDenom: keepertest.TestAssetDenom})
 	for i, longEntry := range buyEntries {
 		require.NotPanics(t, func() {
-			exchange.SettleFromBook(TestFuzzSettleCtx, longEntry, sellEntries[i], quantity)
+			exchange.SettleFromBook(ctx, orderbook, quantity, longEntry.GetPrice(), sellEntries[i].GetPrice())
 		})
 	}
 }

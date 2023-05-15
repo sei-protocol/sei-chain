@@ -21,6 +21,8 @@ message ContractInfoV2 {
   int64 numIncomingDependencies = 6;
   string creator = 7;
   uint64 rentBalance = 8;
+  bool suspended = 9;
+  string suspensionReason = 10;
 }
 
 // suppose A is first registered and depends on X, then B is added and depends on X,

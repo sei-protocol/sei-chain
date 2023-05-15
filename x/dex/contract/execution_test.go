@@ -5,15 +5,13 @@ import (
 	"time"
 
 	"github.com/sei-protocol/sei-chain/utils/datastructures"
-	dexutils "github.com/sei-protocol/sei-chain/x/dex/utils"
+	dexutil "github.com/sei-protocol/sei-chain/x/dex/utils"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	keepertest "github.com/sei-protocol/sei-chain/testutil/keeper"
 	"github.com/sei-protocol/sei-chain/x/dex/contract"
-	"github.com/sei-protocol/sei-chain/x/dex/exchange"
+	keeperutil "github.com/sei-protocol/sei-chain/x/dex/keeper/utils"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
-	"github.com/sei-protocol/sei-chain/x/dex/types/utils"
-	dextypesutils "github.com/sei-protocol/sei-chain/x/dex/types/utils"
 	"github.com/stretchr/testify/require"
 )
 
@@ -68,6 +66,9 @@ func TestExecutePair(t *testing.T) {
 			},
 		},
 	}
+	for _, l := range longBook {
+		dexkeeper.SetLongOrderBookEntry(ctx, keepertest.TestContract, l)
+	}
 	shortBook := []types.OrderBookEntry{
 		&types.ShortBook{
 			Price: sdk.NewDec(101),
@@ -98,16 +99,10 @@ func TestExecutePair(t *testing.T) {
 			},
 		},
 	}
-	orderbook := &types.OrderBook{
-		Longs: &types.CachedSortedOrderBookEntries{
-			Entries:      longBook,
-			DirtyEntries: datastructures.NewTypedSyncMap[string, types.OrderBookEntry](),
-		},
-		Shorts: &types.CachedSortedOrderBookEntries{
-			Entries:      shortBook,
-			DirtyEntries: datastructures.NewTypedSyncMap[string, types.OrderBookEntry](),
-		},
+	for _, s := range shortBook {
+		dexkeeper.SetShortOrderBookEntry(ctx, keepertest.TestContract, s)
 	}
+	orderbook := keeperutil.PopulateOrderbook(ctx, dexkeeper, types.ContractAddress(keepertest.TestContract), types.Pair{PriceDenom: "USDC", AssetDenom: "ATOM"})
 
 	settlements := contract.ExecutePair(
 		ctx,
@@ -119,7 +114,7 @@ func TestExecutePair(t *testing.T) {
 	require.Equal(t, len(settlements), 0)
 
 	// add Market orders to the orderbook
-	dexutils.GetMemState(ctx.Context()).GetBlockOrders(ctx, utils.ContractAddress(TEST_CONTRACT), utils.GetPairString(&pair)).Add(
+	dexutil.GetMemState(ctx.Context()).GetBlockOrders(ctx, types.ContractAddress(TEST_CONTRACT), types.GetPairString(&pair)).Add(
 		&types.Order{
 			Id:                1,
 			Account:           TEST_ACCOUNT,
@@ -133,7 +128,7 @@ func TestExecutePair(t *testing.T) {
 			Data:              "{\"position_effect\":\"Open\",\"leverage\":\"1\"}",
 		},
 	)
-	dexutils.GetMemState(ctx.Context()).GetBlockOrders(ctx, utils.ContractAddress(TEST_CONTRACT), utils.GetPairString(&pair)).Add(
+	dexutil.GetMemState(ctx.Context()).GetBlockOrders(ctx, types.ContractAddress(TEST_CONTRACT), types.GetPairString(&pair)).Add(
 		&types.Order{
 			Id:                2,
 			Account:           TEST_ACCOUNT,
@@ -147,7 +142,7 @@ func TestExecutePair(t *testing.T) {
 			Data:              "{\"position_effect\":\"Open\",\"leverage\":\"1\"}",
 		},
 	)
-	dexutils.GetMemState(ctx.Context()).GetBlockOrders(ctx, utils.ContractAddress(TEST_CONTRACT), utils.GetPairString(&pair)).Add(
+	dexutil.GetMemState(ctx.Context()).GetBlockOrders(ctx, types.ContractAddress(TEST_CONTRACT), types.GetPairString(&pair)).Add(
 		&types.Order{
 			Id:                3,
 			Account:           TEST_ACCOUNT,
@@ -178,7 +173,7 @@ func TestExecutePair(t *testing.T) {
 	matches, cancels := contract.GetMatchResults(
 		ctx,
 		TEST_CONTRACT,
-		utils.GetPairString(&pair),
+		types.GetPairString(&pair),
 	)
 	require.Equal(t, 3, len(matches))
 	require.Equal(t, 0, len(cancels))
@@ -221,6 +216,9 @@ func TestExecutePairInParallel(t *testing.T) {
 			},
 		},
 	}
+	for _, l := range longBook {
+		dexkeeper.SetLongOrderBookEntry(ctx, TEST_CONTRACT, l)
+	}
 	shortBook := []types.OrderBookEntry{
 		&types.ShortBook{
 			Price: sdk.NewDec(101),
@@ -251,20 +249,14 @@ func TestExecutePairInParallel(t *testing.T) {
 			},
 		},
 	}
-	orderbook := &types.OrderBook{
-		Longs: &types.CachedSortedOrderBookEntries{
-			Entries:      longBook,
-			DirtyEntries: datastructures.NewTypedSyncMap[string, types.OrderBookEntry](),
-		},
-		Shorts: &types.CachedSortedOrderBookEntries{
-			Entries:      shortBook,
-			DirtyEntries: datastructures.NewTypedSyncMap[string, types.OrderBookEntry](),
-		},
+	for _, s := range shortBook {
+		dexkeeper.SetShortOrderBookEntry(ctx, TEST_CONTRACT, s)
 	}
+	orderbook := keeperutil.PopulateOrderbook(ctx, dexkeeper, types.ContractAddress(TEST_CONTRACT), types.Pair{PriceDenom: "USDC", AssetDenom: "ATOM"})
 
 	// execute in parallel simple path
-	orderbooks := datastructures.NewTypedSyncMap[dextypesutils.PairString, *types.OrderBook]()
-	orderbooks.Store(utils.GetPairString(&pair), orderbook)
+	orderbooks := datastructures.NewTypedSyncMap[types.PairString, *types.OrderBook]()
+	orderbooks.Store(types.GetPairString(&pair), orderbook)
 	settlements := contract.ExecutePairsInParallel(
 		ctx,
 		TEST_CONTRACT,
@@ -276,7 +268,7 @@ func TestExecutePairInParallel(t *testing.T) {
 	require.Equal(t, len(settlements), 0)
 
 	// add Market orders to the orderbook
-	dexutils.GetMemState(ctx.Context()).GetBlockOrders(ctx, utils.ContractAddress(TEST_CONTRACT), utils.GetPairString(&pair)).Add(
+	dexutil.GetMemState(ctx.Context()).GetBlockOrders(ctx, types.ContractAddress(TEST_CONTRACT), types.GetPairString(&pair)).Add(
 		&types.Order{
 			Id:                1,
 			Account:           TEST_ACCOUNT,
@@ -290,7 +282,7 @@ func TestExecutePairInParallel(t *testing.T) {
 			Data:              "{\"position_effect\":\"Open\",\"leverage\":\"1\"}",
 		},
 	)
-	dexutils.GetMemState(ctx.Context()).GetBlockOrders(ctx, utils.ContractAddress(TEST_CONTRACT), utils.GetPairString(&pair)).Add(
+	dexutil.GetMemState(ctx.Context()).GetBlockOrders(ctx, types.ContractAddress(TEST_CONTRACT), types.GetPairString(&pair)).Add(
 		&types.Order{
 			Id:                2,
 			Account:           TEST_ACCOUNT,
@@ -304,7 +296,7 @@ func TestExecutePairInParallel(t *testing.T) {
 			Data:              "{\"position_effect\":\"Open\",\"leverage\":\"1\"}",
 		},
 	)
-	dexutils.GetMemState(ctx.Context()).GetBlockOrders(ctx, utils.ContractAddress(TEST_CONTRACT), utils.GetPairString(&pair)).Add(
+	dexutil.GetMemState(ctx.Context()).GetBlockOrders(ctx, types.ContractAddress(TEST_CONTRACT), types.GetPairString(&pair)).Add(
 		&types.Order{
 			Id:                3,
 			Account:           TEST_ACCOUNT,
@@ -318,7 +310,7 @@ func TestExecutePairInParallel(t *testing.T) {
 			Data:              "{\"position_effect\":\"Open\",\"leverage\":\"1\"}",
 		},
 	)
-	dexutils.GetMemState(ctx.Context()).GetBlockOrders(ctx, utils.ContractAddress(TEST_CONTRACT), utils.GetPairString(&pair)).Add(
+	dexutil.GetMemState(ctx.Context()).GetBlockOrders(ctx, types.ContractAddress(TEST_CONTRACT), types.GetPairString(&pair)).Add(
 		&types.Order{
 			Id:                11,
 			Account:           TEST_ACCOUNT,
@@ -378,136 +370,4 @@ func TestEmitSettlementMetrics(t *testing.T) {
 	}
 
 	contract.EmitSettlementMetrics(settlements)
-}
-
-func TestMoveTriggeredOrderIntoMemState(t *testing.T) {
-	pair := TEST_PAIR()
-	dexkeeper, ctx := keepertest.DexKeeper(t)
-	ctx = ctx.WithBlockHeight(int64(TestHeight)).WithBlockTime(time.Unix(int64(TestTimestamp), 0))
-	triggeredOrder := types.Order{
-		Id:                8,
-		Price:             sdk.MustNewDecFromStr("20"),
-		Quantity:          sdk.MustNewDecFromStr("5"),
-		Data:              "",
-		PositionDirection: types.PositionDirection_LONG,
-		OrderType:         types.OrderType_STOPLOSS,
-		PriceDenom:        TEST_PAIR().PriceDenom,
-		AssetDenom:        TEST_PAIR().AssetDenom,
-		TriggerPrice:      sdk.MustNewDecFromStr("10"),
-		TriggerStatus:     true,
-	}
-
-	dexkeeper.SetTriggeredOrder(ctx, TEST_CONTRACT, triggeredOrder, TEST_PAIR().PriceDenom, TEST_PAIR().AssetDenom)
-	contract.MoveTriggeredOrderForPair(
-		ctx,
-		utils.ContractAddress(TEST_CONTRACT),
-		utils.GetPairString(&pair),
-		dexkeeper,
-	)
-	orders := dexutils.GetMemState(ctx.Context()).GetBlockOrders(ctx, TEST_CONTRACT, utils.GetPairString(&pair))
-	cacheMarketOrders := orders.GetSortedMarketOrders(types.PositionDirection_LONG)
-	cacheTriggeredOrders := orders.GetTriggeredOrders()
-
-	triggeredBookOrders := dexkeeper.GetAllTriggeredOrdersForPair(ctx, TEST_CONTRACT, TEST_PAIR().PriceDenom, TEST_PAIR().AssetDenom)
-
-	require.Equal(t, len(triggeredBookOrders), 0)
-	require.Equal(t, len(cacheTriggeredOrders), 0)
-	require.Equal(t, len(cacheMarketOrders), 1)
-	require.Equal(t, cacheMarketOrders[0].Id, uint64(8))
-	require.Equal(t, cacheMarketOrders[0].OrderType, types.OrderType_MARKET)
-	require.Equal(t, cacheMarketOrders[0].PositionDirection, types.PositionDirection_LONG)
-}
-
-func TestUpdateTriggeredOrders(t *testing.T) {
-	pair := TEST_PAIR()
-	dexkeeper, ctx := keepertest.DexKeeper(t)
-	ctx = ctx.WithBlockHeight(int64(TestHeight)).WithBlockTime(time.Unix(int64(TestTimestamp), 0))
-	shortTriggeredOrder := types.Order{
-		Id:                1,
-		Price:             sdk.MustNewDecFromStr("20"),
-		Quantity:          sdk.MustNewDecFromStr("5"),
-		Data:              "",
-		PositionDirection: types.PositionDirection_SHORT,
-		OrderType:         types.OrderType_STOPLIMIT,
-		PriceDenom:        TEST_PAIR().PriceDenom,
-		AssetDenom:        TEST_PAIR().AssetDenom,
-		TriggerPrice:      sdk.MustNewDecFromStr("6"),
-		TriggerStatus:     false,
-	}
-	longTriggeredOrder := types.Order{
-		Id:                2,
-		Price:             sdk.MustNewDecFromStr("20"),
-		Quantity:          sdk.MustNewDecFromStr("5"),
-		Data:              "",
-		PositionDirection: types.PositionDirection_LONG,
-		OrderType:         types.OrderType_STOPLOSS,
-		PriceDenom:        TEST_PAIR().PriceDenom,
-		AssetDenom:        TEST_PAIR().AssetDenom,
-		TriggerPrice:      sdk.MustNewDecFromStr("19"),
-		TriggerStatus:     false,
-	}
-	shortNotTriggeredOrder := types.Order{
-		Id:                3,
-		Price:             sdk.MustNewDecFromStr("20"),
-		Quantity:          sdk.MustNewDecFromStr("5"),
-		Data:              "",
-		PositionDirection: types.PositionDirection_SHORT,
-		OrderType:         types.OrderType_STOPLOSS,
-		PriceDenom:        TEST_PAIR().PriceDenom,
-		AssetDenom:        TEST_PAIR().AssetDenom,
-		TriggerPrice:      sdk.MustNewDecFromStr("4"),
-		TriggerStatus:     false,
-	}
-	longNotTriggeredOrder := types.Order{
-		Id:                4,
-		Price:             sdk.MustNewDecFromStr("20"),
-		Quantity:          sdk.MustNewDecFromStr("5"),
-		Data:              "",
-		PositionDirection: types.PositionDirection_LONG,
-		OrderType:         types.OrderType_STOPLIMIT,
-		PriceDenom:        TEST_PAIR().PriceDenom,
-		AssetDenom:        TEST_PAIR().AssetDenom,
-		TriggerPrice:      sdk.MustNewDecFromStr("21"),
-		TriggerStatus:     false,
-	}
-
-	totalOutcome := exchange.ExecutionOutcome{
-		TotalNotional: sdk.MustNewDecFromStr("10"),
-		TotalQuantity: sdk.MustNewDecFromStr("10"),
-		Settlements:   []*types.SettlementEntry{},
-		MinPrice:      sdk.MustNewDecFromStr("5"),
-		MaxPrice:      sdk.MustNewDecFromStr("20"),
-	}
-
-	dexkeeper.SetTriggeredOrder(ctx, TEST_CONTRACT, shortTriggeredOrder, TEST_PAIR().PriceDenom, TEST_PAIR().AssetDenom)
-	dexkeeper.SetTriggeredOrder(ctx, TEST_CONTRACT, longNotTriggeredOrder, TEST_PAIR().PriceDenom, TEST_PAIR().AssetDenom)
-	orders := dexutils.GetMemState(ctx.Context()).GetBlockOrders(ctx, TEST_CONTRACT, utils.GetPairString(&pair))
-	orders.Add(&shortNotTriggeredOrder)
-	orders.Add(&longTriggeredOrder)
-
-	contract.UpdateTriggeredOrderForPair(
-		ctx,
-		utils.ContractAddress(TEST_CONTRACT),
-		utils.GetPairString(&pair),
-		dexkeeper,
-		totalOutcome,
-	)
-
-	triggeredBookOrders := dexkeeper.GetAllTriggeredOrdersForPair(ctx, TEST_CONTRACT, TEST_PAIR().PriceDenom, TEST_PAIR().AssetDenom)
-
-	require.Equal(t, len(triggeredBookOrders), 4)
-	triggerStatusMap := map[uint64]bool{}
-
-	for _, order := range triggeredBookOrders {
-		triggerStatusMap[order.Id] = order.TriggerStatus
-	}
-	require.Contains(t, triggerStatusMap, uint64(1))
-	require.Contains(t, triggerStatusMap, uint64(2))
-	require.Contains(t, triggerStatusMap, uint64(3))
-	require.Contains(t, triggerStatusMap, uint64(4))
-
-	require.Equal(t, triggerStatusMap[uint64(1)], true)
-	require.Equal(t, triggerStatusMap[uint64(2)], true)
-	require.Equal(t, triggerStatusMap[uint64(3)], false)
-	require.Equal(t, triggerStatusMap[uint64(4)], false)
 }

@@ -1,9 +1,7 @@
-package wasm
+package types
 
 import (
 	"fmt"
-
-	"github.com/sei-protocol/sei-chain/x/dex/types"
 )
 
 type SudoOrderPlacementMsg struct {
@@ -11,8 +9,8 @@ type SudoOrderPlacementMsg struct {
 }
 
 type OrderPlacementMsgDetails struct {
-	Orders   []types.Order               `json:"orders"`
-	Deposits []types.ContractDepositInfo `json:"deposits"`
+	Orders   []Order               `json:"orders"`
+	Deposits []ContractDepositInfo `json:"deposits"`
 }
 
 func (m *SudoOrderPlacementMsg) IsEmpty() bool {

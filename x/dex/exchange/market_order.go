@@ -64,49 +64,41 @@ func MatchMarketOrder(
 	blockOrders *cache.BlockOrders,
 ) ([]*types.SettlementEntry, []*types.SettlementEntry) {
 	remainingQuantity := marketOrder.Quantity
-	for i := range orderBookEntries.Entries {
-		var existingOrder types.OrderBookEntry
-		if direction == types.PositionDirection_LONG {
-			existingOrder = orderBookEntries.Entries[i]
-		} else {
-			existingOrder = orderBookEntries.Entries[len(orderBookEntries.Entries)-i-1]
-		}
-		if existingOrder.GetEntry().Quantity.IsZero() {
-			continue
-		}
+	for entry := orderBookEntries.Next(ctx); entry != nil; entry = orderBookEntries.Next(ctx) {
 		// If price is zero, it means the order sender
 		// doesn't want to specify a worst price, so
 		// we don't need to perform price check for such orders
 		if !marketOrder.Price.IsZero() {
 			// Check if worst price can be matched against order book
-			if (direction == types.PositionDirection_LONG && marketOrder.Price.LT(existingOrder.GetPrice())) ||
-				(direction == types.PositionDirection_SHORT && marketOrder.Price.GT(existingOrder.GetPrice())) {
+			if (direction == types.PositionDirection_LONG && marketOrder.Price.LT(entry.GetPrice())) ||
+				(direction == types.PositionDirection_SHORT && marketOrder.Price.GT(entry.GetPrice())) {
 				break
 			}
 		}
 		var executed sdk.Dec
-		if remainingQuantity.LTE(existingOrder.GetEntry().Quantity) {
+		if remainingQuantity.LTE(entry.GetOrderEntry().Quantity) {
 			executed = remainingQuantity
 		} else {
-			executed = existingOrder.GetEntry().Quantity
+			executed = entry.GetOrderEntry().Quantity
 		}
 		remainingQuantity = remainingQuantity.Sub(executed)
 		*totalExecuted = totalExecuted.Add(executed)
 		*totalPrice = totalPrice.Add(
-			executed.Mul(existingOrder.GetPrice()),
+			executed.Mul(entry.GetPrice()),
 		)
-		*minPrice = sdk.MinDec(*minPrice, existingOrder.GetPrice())
-		*maxPrice = sdk.MaxDec(*maxPrice, existingOrder.GetPrice())
-		orderBookEntries.AddDirtyEntry(existingOrder)
+		*minPrice = sdk.MinDec(*minPrice, entry.GetPrice())
+		*maxPrice = sdk.MaxDec(*maxPrice, entry.GetPrice())
 
 		takerSettlements, makerSettlements := Settle(
 			ctx,
 			marketOrder,
 			executed,
-			existingOrder,
+			orderBookEntries,
 			marketOrder.Price,
-			blockOrders,
+			entry.GetPrice(),
 		)
+		// update the status of order in the memState
+		UpdateOrderData(marketOrder, executed, blockOrders)
 		settlements = append(settlements, makerSettlements...)
 		// taker settlements' clearing price will need to be adjusted after all market order executions finish
 		allTakerSettlements = append(allTakerSettlements, takerSettlements...)
@@ -114,6 +106,8 @@ func MatchMarketOrder(
 			break
 		}
 	}
+
+	orderBookEntries.Flush(ctx)
 
 	return settlements, allTakerSettlements
 }
@@ -133,34 +127,37 @@ func MatchFOKMarketOrder(
 ) ([]*types.SettlementEntry, []*types.SettlementEntry) {
 	// check if there is enough liquidity for fill-or-kill market order, if not skip them
 	remainingQuantity := marketOrder.Quantity
-	ordersToSettle := []types.OrderBookEntry{}
-	quantityExecuted := []sdk.Dec{}
-	for i := range orderBookEntries.Entries {
-		var existingOrder types.OrderBookEntry
-		if direction == types.PositionDirection_LONG {
-			existingOrder = orderBookEntries.Entries[i]
-		} else {
-			existingOrder = orderBookEntries.Entries[len(orderBookEntries.Entries)-i-1]
-		}
-		if existingOrder.GetEntry().Quantity.IsZero() {
-			continue
-		}
+	newSettlements, newTakerSettlements := []*types.SettlementEntry{}, []*types.SettlementEntry{}
+	orders, executedQuantities, entryPrices := []*types.Order{}, []sdk.Dec{}, []sdk.Dec{}
+	for entry := orderBookEntries.Next(ctx); entry != nil; entry = orderBookEntries.Next(ctx) {
 		if !marketOrder.Price.IsZero() {
-			if (direction == types.PositionDirection_LONG && marketOrder.Price.LT(existingOrder.GetPrice())) ||
-				(direction == types.PositionDirection_SHORT && marketOrder.Price.GT(existingOrder.GetPrice())) {
+			if (direction == types.PositionDirection_LONG && marketOrder.Price.LT(entry.GetPrice())) ||
+				(direction == types.PositionDirection_SHORT && marketOrder.Price.GT(entry.GetPrice())) {
 				break
 			}
 		}
 
 		var executed sdk.Dec
-		if remainingQuantity.LTE(existingOrder.GetEntry().Quantity) {
+		if remainingQuantity.LTE(entry.GetOrderEntry().Quantity) {
 			executed = remainingQuantity
 		} else {
-			executed = existingOrder.GetEntry().Quantity
+			executed = entry.GetOrderEntry().Quantity
 		}
 		remainingQuantity = remainingQuantity.Sub(executed)
-		ordersToSettle = append(ordersToSettle, existingOrder)
-		quantityExecuted = append(quantityExecuted, executed)
+
+		takerSettlements, makerSettlements := Settle(
+			ctx,
+			marketOrder,
+			executed,
+			orderBookEntries,
+			marketOrder.Price,
+			entry.GetPrice(),
+		)
+		newSettlements = append(newSettlements, makerSettlements...)
+		newTakerSettlements = append(newTakerSettlements, takerSettlements...)
+		orders = append(orders, marketOrder)
+		executedQuantities = append(executedQuantities, executed)
+		entryPrices = append(entryPrices, entry.GetPrice())
 
 		if remainingQuantity.IsZero() {
 			break
@@ -168,29 +165,20 @@ func MatchFOKMarketOrder(
 	}
 
 	if remainingQuantity.IsZero() {
-		for i := range ordersToSettle {
-			executed := quantityExecuted[i]
-			existingOrder := ordersToSettle[i]
-
-			*totalExecuted = totalExecuted.Add(executed)
+		orderBookEntries.Flush(ctx)
+		settlements = append(settlements, newSettlements...)
+		allTakerSettlements = append(allTakerSettlements, newTakerSettlements...)
+		for i, order := range orders {
+			UpdateOrderData(order, executedQuantities[i], blockOrders)
+			*totalExecuted = totalExecuted.Add(executedQuantities[i])
 			*totalPrice = totalPrice.Add(
-				executed.Mul(existingOrder.GetPrice()),
+				executedQuantities[i].Mul(entryPrices[i]),
 			)
-			*minPrice = sdk.MinDec(*minPrice, existingOrder.GetPrice())
-			*maxPrice = sdk.MaxDec(*maxPrice, existingOrder.GetPrice())
-			orderBookEntries.AddDirtyEntry(existingOrder)
-
-			takerSettlements, makerSettlements := Settle(
-				ctx,
-				marketOrder,
-				executed,
-				existingOrder,
-				marketOrder.Price,
-				blockOrders,
-			)
-			settlements = append(settlements, makerSettlements...)
-			allTakerSettlements = append(allTakerSettlements, takerSettlements...)
+			*minPrice = sdk.MinDec(*minPrice, entryPrices[i])
+			*maxPrice = sdk.MaxDec(*maxPrice, entryPrices[i])
 		}
+	} else {
+		orderBookEntries.Refresh(ctx)
 	}
 
 	return settlements, allTakerSettlements
@@ -211,39 +199,38 @@ func MatchByValueFOKMarketOrder(
 ) ([]*types.SettlementEntry, []*types.SettlementEntry) {
 	remainingFund := marketOrder.Nominal
 	remainingQuantity := marketOrder.Quantity
-	ordersToSettle := []types.OrderBookEntry{}
-	quantityExecuted := []sdk.Dec{}
-	for i := range orderBookEntries.Entries {
-		var existingOrder types.OrderBookEntry
-		if direction == types.PositionDirection_LONG {
-			existingOrder = orderBookEntries.Entries[i]
-		} else {
-			existingOrder = orderBookEntries.Entries[len(orderBookEntries.Entries)-i-1]
-		}
-		if existingOrder.GetEntry().Quantity.IsZero() {
-			continue
-		}
-		// If price is zero, it means the order sender
-		// doesn't want to specify a worst price, so
-		// we don't need to perform price check for such orders
+	newSettlements, newTakerSettlements := []*types.SettlementEntry{}, []*types.SettlementEntry{}
+	orders, executedQuantities, entryPrices := []*types.Order{}, []sdk.Dec{}, []sdk.Dec{}
+	for entry := orderBookEntries.Next(ctx); entry != nil; entry = orderBookEntries.Next(ctx) {
 		if !marketOrder.Price.IsZero() {
-			// Check if worst price can be matched against order book
-			if (direction == types.PositionDirection_LONG && marketOrder.Price.LT(existingOrder.GetPrice())) ||
-				(direction == types.PositionDirection_SHORT && marketOrder.Price.GT(existingOrder.GetPrice())) {
+			if (direction == types.PositionDirection_LONG && marketOrder.Price.LT(entry.GetPrice())) ||
+				(direction == types.PositionDirection_SHORT && marketOrder.Price.GT(entry.GetPrice())) {
 				break
 			}
 		}
 		var executed sdk.Dec
-		if remainingFund.LTE(existingOrder.GetEntry().Quantity.Mul(existingOrder.GetEntry().Price)) {
-			executed = remainingFund.Quo(existingOrder.GetEntry().Price)
+		if remainingFund.LTE(entry.GetOrderEntry().Quantity.Mul(entry.GetPrice())) {
+			executed = remainingFund.Quo(entry.GetPrice())
 			remainingFund = sdk.ZeroDec()
 		} else {
-			executed = existingOrder.GetEntry().Quantity
-			remainingFund = remainingFund.Sub(executed.Mul(existingOrder.GetEntry().Price))
+			executed = entry.GetOrderEntry().Quantity
+			remainingFund = remainingFund.Sub(executed.Mul(entry.GetPrice()))
 		}
 		remainingQuantity = remainingQuantity.Sub(executed)
-		ordersToSettle = append(ordersToSettle, existingOrder)
-		quantityExecuted = append(quantityExecuted, executed)
+
+		takerSettlements, makerSettlements := Settle(
+			ctx,
+			marketOrder,
+			executed,
+			orderBookEntries,
+			marketOrder.Price,
+			entry.GetPrice(),
+		)
+		newSettlements = append(newSettlements, makerSettlements...)
+		newTakerSettlements = MergeByNominalTakerSettlements(append(newTakerSettlements, takerSettlements...))
+		orders = append(orders, marketOrder)
+		executedQuantities = append(executedQuantities, executed)
+		entryPrices = append(entryPrices, entry.GetPrice())
 		if remainingFund.IsZero() || remainingQuantity.LTE(sdk.ZeroDec()) {
 			break
 		}
@@ -251,31 +238,20 @@ func MatchByValueFOKMarketOrder(
 
 	// settle orders only when all fund are used
 	if remainingFund.IsZero() && remainingQuantity.GTE(sdk.ZeroDec()) {
-		marketByNominalSettlement := []*types.SettlementEntry{}
-		for i := range ordersToSettle {
-			executed := quantityExecuted[i]
-			existingOrder := ordersToSettle[i]
-
-			*totalExecuted = totalExecuted.Add(executed)
+		orderBookEntries.Flush(ctx)
+		settlements = append(settlements, newSettlements...)
+		allTakerSettlements = append(allTakerSettlements, newTakerSettlements...)
+		for i, order := range orders {
+			UpdateOrderData(order, executedQuantities[i], blockOrders)
+			*totalExecuted = totalExecuted.Add(executedQuantities[i])
 			*totalPrice = totalPrice.Add(
-				executed.Mul(existingOrder.GetPrice()),
+				executedQuantities[i].Mul(entryPrices[i]),
 			)
-			*minPrice = sdk.MinDec(*minPrice, existingOrder.GetPrice())
-			*maxPrice = sdk.MaxDec(*maxPrice, existingOrder.GetPrice())
-			orderBookEntries.AddDirtyEntry(existingOrder)
-
-			takerSettlements, makerSettlements := Settle(
-				ctx,
-				marketOrder,
-				executed,
-				existingOrder,
-				marketOrder.Price,
-				blockOrders,
-			)
-			settlements = append(settlements, makerSettlements...)
-			marketByNominalSettlement = MergeByNominalTakerSettlements(append(marketByNominalSettlement, takerSettlements...))
+			*minPrice = sdk.MinDec(*minPrice, entryPrices[i])
+			*maxPrice = sdk.MaxDec(*maxPrice, entryPrices[i])
 		}
-		allTakerSettlements = append(allTakerSettlements, marketByNominalSettlement...)
+	} else {
+		orderBookEntries.Refresh(ctx)
 	}
 
 	return settlements, allTakerSettlements

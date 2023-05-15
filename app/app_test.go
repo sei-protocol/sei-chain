@@ -12,6 +12,7 @@ import (
 	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
 	"github.com/k0kubun/pp/v3"
 	"github.com/sei-protocol/sei-chain/app"
+	dextypes "github.com/sei-protocol/sei-chain/x/dex/types"
 	oracletypes "github.com/sei-protocol/sei-chain/x/oracle/types"
 	"github.com/stretchr/testify/require"
 	abci "github.com/tendermint/tendermint/abci/types"
@@ -159,7 +160,7 @@ func TestProcessTxsClearCacheOnFail(t *testing.T) {
 	require.Equal(t, 0, len(testWrapper.Ctx.ContextMemCache().GetDeferredSends().GetSortedKeys()))
 }
 
-func TestPartitionOracleTxs(t *testing.T) {
+func TestPartitionPrioritizedTxs(t *testing.T) {
 	tm := time.Now().UTC()
 	valPub := secp256k1.GenPrivKey().PubKey()
 
@@ -174,6 +175,25 @@ func TestPartitionOracleTxs(t *testing.T) {
 		Validator:     validator,
 	}
 
+	contractRegisterMsg := &dextypes.MsgRegisterContract{
+		Creator: account,
+		Contract: &dextypes.ContractInfoV2{
+			CodeId:            1,
+			ContractAddr:      "sei1dc34p57spmhguak2ns88u3vxmt73gnu3c0j6phqv5ukfytklkqjsgepv26",
+			NeedOrderMatching: true,
+		},
+	}
+
+	contractUnregisterMsg := &dextypes.MsgUnregisterContract{
+		Creator:      account,
+		ContractAddr: "sei1dc34p57spmhguak2ns88u3vxmt73gnu3c0j6phqv5ukfytklkqjsgepv26",
+	}
+
+	contractUnsuspendMsg := &dextypes.MsgUnsuspendContract{
+		Creator:      account,
+		ContractAddr: "sei1dc34p57spmhguak2ns88u3vxmt73gnu3c0j6phqv5ukfytklkqjsgepv26",
+	}
+
 	otherMsg := &stakingtypes.MsgDelegate{
 		DelegatorAddress: account,
 		ValidatorAddress: validator,
@@ -182,12 +202,30 @@ func TestPartitionOracleTxs(t *testing.T) {
 
 	txEncoder := app.MakeEncodingConfig().TxConfig.TxEncoder()
 	oracleTxBuilder := app.MakeEncodingConfig().TxConfig.NewTxBuilder()
+	contractRegisterBuilder := app.MakeEncodingConfig().TxConfig.NewTxBuilder()
+	contractUnregisterBuilder := app.MakeEncodingConfig().TxConfig.NewTxBuilder()
+	contractUnsuspendBuilder := app.MakeEncodingConfig().TxConfig.NewTxBuilder()
 	otherTxBuilder := app.MakeEncodingConfig().TxConfig.NewTxBuilder()
 	mixedTxBuilder := app.MakeEncodingConfig().TxConfig.NewTxBuilder()
 
 	err := oracleTxBuilder.SetMsgs(oracleMsg)
 	require.NoError(t, err)
 	oracleTx, err := txEncoder(oracleTxBuilder.GetTx())
+	require.NoError(t, err)
+
+	err = contractRegisterBuilder.SetMsgs(contractRegisterMsg)
+	require.NoError(t, err)
+	contractRegisterTx, err := txEncoder(contractRegisterBuilder.GetTx())
+	require.NoError(t, err)
+
+	err = contractUnregisterBuilder.SetMsgs(contractUnregisterMsg)
+	require.NoError(t, err)
+	contractUnregisterTx, err := txEncoder(contractUnregisterBuilder.GetTx())
+	require.NoError(t, err)
+
+	err = contractUnsuspendBuilder.SetMsgs(contractUnsuspendMsg)
+	require.NoError(t, err)
+	contractSuspendTx, err := txEncoder(contractUnsuspendBuilder.GetTx())
 	require.NoError(t, err)
 
 	err = otherTxBuilder.SetMsgs(otherMsg)
@@ -203,12 +241,15 @@ func TestPartitionOracleTxs(t *testing.T) {
 
 	txs := [][]byte{
 		oracleTx,
+		contractRegisterTx,
+		contractUnregisterTx,
+		contractSuspendTx,
 		otherTx,
 		mixedTx,
 	}
 
-	oracleTxs, otherTxs := testWrapper.App.PartitionOracleVoteTxs(testWrapper.Ctx, txs)
-	require.Equal(t, oracleTxs, [][]byte{oracleTx})
+	prioritizedTxs, otherTxs := testWrapper.App.PartitionPrioritizedTxs(testWrapper.Ctx, txs)
+	require.Equal(t, prioritizedTxs, [][]byte{oracleTx, contractRegisterTx, contractUnregisterTx, contractSuspendTx})
 	require.Equal(t, otherTxs, [][]byte{otherTx, mixedTx})
 }
 

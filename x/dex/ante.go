@@ -5,8 +5,10 @@ import (
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
+	dexcache "github.com/sei-protocol/sei-chain/x/dex/cache"
 	"github.com/sei-protocol/sei-chain/x/dex/keeper"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
+	"github.com/sei-protocol/sei-chain/x/dex/utils"
 )
 
 // TickSizeMultipleDecorator check if the place order tx's price is multiple of
@@ -99,12 +101,14 @@ func IsDecimalMultipleOf(a, b sdk.Dec) bool {
 const DexGasFeeUnit = "usei"
 
 type CheckDexGasDecorator struct {
-	dexKeeper keeper.Keeper
+	dexKeeper       keeper.Keeper
+	checkTxMemState *dexcache.MemState
 }
 
-func NewCheckDexGasDecorator(dexKeeper keeper.Keeper) CheckDexGasDecorator {
+func NewCheckDexGasDecorator(dexKeeper keeper.Keeper, checkTxMemState *dexcache.MemState) CheckDexGasDecorator {
 	return CheckDexGasDecorator{
-		dexKeeper: dexKeeper,
+		dexKeeper:       dexKeeper,
+		checkTxMemState: checkTxMemState,
 	}
 }
 
@@ -115,12 +119,27 @@ func (d CheckDexGasDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bo
 	}
 	params := d.dexKeeper.GetParams(ctx)
 	dexGasRequired := uint64(0)
+	var memState *dexcache.MemState
+	if ctx.IsCheckTx() {
+		memState = d.checkTxMemState
+	} else {
+		memState = utils.GetMemState(ctx.Context())
+	}
+	contractLoader := func(addr string) *types.ContractInfoV2 {
+		contract, err := d.dexKeeper.GetContract(ctx, addr)
+		if err != nil {
+			return nil
+		}
+		return &contract
+	}
 	for _, msg := range tx.GetMsgs() {
 		switch m := msg.(type) {
 		case *types.MsgPlaceOrders:
-			dexGasRequired += params.DefaultGasPerOrder * uint64(len(m.Orders))
+			numDependencies := len(memState.GetContractToDependencies(m.ContractAddr, contractLoader))
+			dexGasRequired += params.DefaultGasPerOrder * uint64(len(m.Orders)*numDependencies)
 		case *types.MsgCancelOrders:
-			dexGasRequired += params.DefaultGasPerCancel * uint64(len(m.Cancellations))
+			numDependencies := len(memState.GetContractToDependencies(m.ContractAddr, contractLoader))
+			dexGasRequired += params.DefaultGasPerCancel * uint64(len(m.Cancellations)*numDependencies)
 		}
 	}
 	if dexGasRequired == 0 {

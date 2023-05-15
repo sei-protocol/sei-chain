@@ -7,6 +7,7 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
+	dexutils "github.com/sei-protocol/sei-chain/x/dex/utils"
 )
 
 func (k msgServer) UnregisterContract(goCtx context.Context, msg *types.MsgUnregisterContract) (*types.MsgUnregisterContractResponse, error) {
@@ -32,5 +33,7 @@ func (k msgServer) UnregisterContract(goCtx context.Context, msg *types.MsgUnreg
 		types.EventTypeUnregisterContract,
 		sdk.NewAttribute(types.AttributeKeyContractAddress, msg.ContractAddr),
 	))
+
+	dexutils.GetMemState(ctx.Context()).ClearContractToDependencies()
 	return &types.MsgUnregisterContractResponse{}, nil
 }
