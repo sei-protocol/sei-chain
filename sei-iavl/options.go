@@ -81,6 +81,10 @@ type Options struct {
 
 	// When Stat is not nil, statistical logic needs to be executed
 	Stat *Statistics
+
+	// When set to true, the DB will only keep the most recent version and immediately delete
+	// obsolete data upon new data's commit
+	NoVersioning bool
 }
 
 // DefaultOptions returns the default options for IAVL.

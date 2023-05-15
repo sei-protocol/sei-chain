@@ -1070,6 +1070,13 @@ func (tree *MutableTree) SetInitialVersion(version uint64) {
 func (tree *MutableTree) DeleteVersions(versions ...int64) error {
 	logger.Debug("DELETING VERSIONS: %v\n", versions)
 
+	if tree.ndb.ShouldNotUseVersion() {
+		// no need to delete versions since there is no version to be
+		// deleted except the current one, which shouldn't be deleted
+		// in any circumstance
+		return nil
+	}
+
 	if len(versions) == 0 {
 		return nil
 	}

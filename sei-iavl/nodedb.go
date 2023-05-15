@@ -634,6 +634,18 @@ func (ndb *nodeDB) SaveOrphans(version int64, orphans map[string]int64) error {
 	ndb.mtx.Lock()
 	defer ndb.mtx.Unlock()
 
+	// instead of saving orphan metadata and later read orphan metadata->delete
+	// orphan data->delete orphan metadata, we directly delete orphan data here
+	// without doing anything for orphan metadata, if versioning is not needed.
+	if ndb.ShouldNotUseVersion() {
+		for orphan := range orphans {
+			if err := ndb.deleteOrphanedData([]byte(orphan)); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+
 	toVersion, err := ndb.getPreviousVersion(version)
 	if err != nil {
 		return err
@@ -646,6 +658,14 @@ func (ndb *nodeDB) SaveOrphans(version int64, orphans map[string]int64) error {
 			return err
 		}
 	}
+	return nil
+}
+
+func (ndb *nodeDB) deleteOrphanedData(hash []byte) error {
+	if err := ndb.batch.Delete(ndb.nodeKey(hash)); err != nil {
+		return err
+	}
+	ndb.nodeCache.Remove(hash)
 	return nil
 }
 
@@ -1051,6 +1071,10 @@ func (ndb *nodeDB) traverseNodes(fn func(hash []byte, node *Node) error) error {
 		}
 	}
 	return nil
+}
+
+func (ndb *nodeDB) ShouldNotUseVersion() bool {
+	return ndb.opts.NoVersioning
 }
 
 func (ndb *nodeDB) String() (string, error) {
