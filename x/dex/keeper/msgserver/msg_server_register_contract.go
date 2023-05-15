@@ -12,6 +12,7 @@ import (
 	"github.com/sei-protocol/sei-chain/utils/datastructures"
 	"github.com/sei-protocol/sei-chain/x/dex/contract"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
+	dexutils "github.com/sei-protocol/sei-chain/x/dex/utils"
 )
 
 func (k msgServer) RegisterContract(goCtx context.Context, msg *types.MsgRegisterContract) (*types.MsgRegisterContractResponse, error) {
@@ -31,6 +32,10 @@ func (k msgServer) RegisterContract(goCtx context.Context, msg *types.MsgRegiste
 		return nil, sdkerrors.ErrUnauthorized
 	}
 
+	if err := k.ValidateSuspension(ctx, msg.GetContract().GetContractAddr()); err != nil {
+		ctx.Logger().Error("suspended contract")
+		return &types.MsgRegisterContractResponse{}, err
+	}
 	if err := k.ValidateRentBalance(ctx, msg.GetContract().GetRentBalance()); err != nil {
 		ctx.Logger().Error("invalid rent balance")
 		return &types.MsgRegisterContractResponse{}, err
@@ -70,6 +75,7 @@ func (k msgServer) RegisterContract(goCtx context.Context, msg *types.MsgRegiste
 		sdk.NewAttribute(types.AttributeKeyContractAddress, msg.Contract.ContractAddr),
 	))
 
+	dexutils.GetMemState(ctx.Context()).ClearContractToDependencies()
 	return &types.MsgRegisterContractResponse{}, nil
 }
 

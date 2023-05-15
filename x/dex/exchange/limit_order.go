@@ -4,6 +4,7 @@ import (
 	"math"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/sei-protocol/sei-chain/x/dex/keeper"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
 )
 
@@ -14,41 +15,35 @@ func MatchLimitOrders(
 	settlements := []*types.SettlementEntry{}
 	totalExecuted, totalPrice := sdk.ZeroDec(), sdk.ZeroDec()
 	minPrice, maxPrice := sdk.NewDecFromInt(sdk.NewIntFromUint64(math.MaxInt64)), sdk.OneDec().Neg()
-	longPtr, shortPtr := len(orderbook.Longs.Entries)-1, 0
 
-	for longPtr >= 0 && shortPtr < len(orderbook.Shorts.Entries) && orderbook.Longs.Entries[longPtr].GetPrice().GTE(orderbook.Shorts.Entries[shortPtr].GetPrice()) {
+	for longEntry, shortEntry := orderbook.Longs.Next(ctx), orderbook.Shorts.Next(ctx); longEntry != nil && shortEntry != nil && longEntry.GetPrice().GTE(shortEntry.GetPrice()); longEntry, shortEntry = orderbook.Longs.Next(ctx), orderbook.Shorts.Next(ctx) {
 		var executed sdk.Dec
-		if orderbook.Longs.Entries[longPtr].GetEntry().Quantity.LT(orderbook.Shorts.Entries[shortPtr].GetEntry().Quantity) {
-			executed = orderbook.Longs.Entries[longPtr].GetEntry().Quantity
+		if longEntry.GetOrderEntry().Quantity.LT(shortEntry.GetOrderEntry().Quantity) {
+			executed = longEntry.GetOrderEntry().Quantity
 		} else {
-			executed = orderbook.Shorts.Entries[shortPtr].GetEntry().Quantity
+			executed = shortEntry.GetOrderEntry().Quantity
 		}
 		totalExecuted = totalExecuted.Add(executed).Add(executed)
 		totalPrice = totalPrice.Add(
 			executed.Mul(
-				orderbook.Longs.Entries[longPtr].GetPrice().Add(orderbook.Shorts.Entries[shortPtr].GetPrice()),
+				longEntry.GetPrice().Add(shortEntry.GetPrice()),
 			),
 		)
-		minPrice = sdk.MinDec(minPrice, orderbook.Longs.Entries[longPtr].GetPrice())
-		maxPrice = sdk.MaxDec(maxPrice, orderbook.Longs.Entries[longPtr].GetPrice())
+		minPrice = sdk.MinDec(minPrice, longEntry.GetPrice()) // tony: need to revisit whether it's intended to use long entry price here. Keeping it as-is so that test expectations are met
+		maxPrice = sdk.MaxDec(maxPrice, longEntry.GetPrice())
 
-		orderbook.Longs.AddDirtyEntry(orderbook.Longs.Entries[longPtr])
-		orderbook.Shorts.AddDirtyEntry(orderbook.Shorts.Entries[shortPtr])
 		newSettlements := SettleFromBook(
 			ctx,
-			orderbook.Longs.Entries[longPtr],
-			orderbook.Shorts.Entries[shortPtr],
+			orderbook,
 			executed,
+			longEntry.GetPrice(),
+			shortEntry.GetPrice(),
 		)
 		settlements = append(settlements, newSettlements...)
-
-		if orderbook.Longs.Entries[longPtr].GetEntry().Quantity.IsZero() {
-			longPtr--
-		}
-		if orderbook.Shorts.Entries[shortPtr].GetEntry().Quantity.IsZero() {
-			shortPtr++
-		}
 	}
+
+	orderbook.Longs.Flush(ctx)
+	orderbook.Shorts.Flush(ctx)
 	return ExecutionOutcome{
 		TotalNotional: totalPrice,
 		TotalQuantity: totalExecuted,
@@ -59,71 +54,43 @@ func MatchLimitOrders(
 }
 
 func addOrderToOrderBookEntry(
+	ctx sdk.Context, keeper *keeper.Keeper,
 	order *types.Order,
-	orderBookEntries *types.CachedSortedOrderBookEntries,
 ) {
-	insertAt := -1
-	newAllocation := &types.Allocation{
+	getter, setter := keeper.GetLongOrderBookEntryByPrice, keeper.SetLongOrderBookEntry
+	if order.PositionDirection == types.PositionDirection_SHORT {
+		getter, setter = keeper.GetShortOrderBookEntryByPrice, keeper.SetShortOrderBookEntry
+	}
+	entry, exist := getter(ctx, order.ContractAddr, order.Price, order.PriceDenom, order.AssetDenom)
+	orderEntry := entry.GetOrderEntry()
+	if !exist {
+		orderEntry = &types.OrderEntry{
+			Price:      order.Price,
+			PriceDenom: order.PriceDenom,
+			AssetDenom: order.AssetDenom,
+			Quantity:   sdk.ZeroDec(),
+		}
+	}
+	orderEntry.Quantity = orderEntry.Quantity.Add(order.Quantity)
+	orderEntry.Allocations = append(orderEntry.Allocations, &types.Allocation{
 		OrderId:  order.Id,
 		Quantity: order.Quantity,
 		Account:  order.Account,
-	}
-	for i, ob := range orderBookEntries.Entries {
-		if ob.GetPrice().Equal(order.Price) {
-			orderBookEntries.AddDirtyEntry(ob)
-			ob.GetEntry().Quantity = ob.GetEntry().Quantity.Add(order.Quantity)
-			ob.GetEntry().Allocations = append(ob.GetEntry().Allocations, newAllocation)
-			return
-		}
-		if order.Price.LT(ob.GetPrice()) {
-			insertAt = i
-			break
-		}
-	}
-	var newOrder types.OrderBookEntry
-	switch order.PositionDirection {
-	case types.PositionDirection_LONG:
-		newOrder = &types.LongBook{
-			Price: order.Price,
-			Entry: &types.OrderEntry{
-				Price:       order.Price,
-				Quantity:    order.Quantity,
-				Allocations: []*types.Allocation{newAllocation},
-				PriceDenom:  order.PriceDenom,
-				AssetDenom:  order.AssetDenom,
-			},
-		}
-	case types.PositionDirection_SHORT:
-		newOrder = &types.ShortBook{
-			Price: order.Price,
-			Entry: &types.OrderEntry{
-				Price:       order.Price,
-				Quantity:    order.Quantity,
-				Allocations: []*types.Allocation{newAllocation},
-				PriceDenom:  order.PriceDenom,
-				AssetDenom:  order.AssetDenom,
-			},
-		}
-	}
-	if insertAt == -1 {
-		orderBookEntries.Entries = append(orderBookEntries.Entries, newOrder)
-	} else {
-		orderBookEntries.Entries = append(orderBookEntries.Entries, &types.LongBook{})
-		copy(orderBookEntries.Entries[insertAt+1:], orderBookEntries.Entries[insertAt:])
-		orderBookEntries.Entries[insertAt] = newOrder
-	}
-	orderBookEntries.AddDirtyEntry(newOrder)
+	})
+	entry.SetPrice(order.Price)
+	entry.SetEntry(orderEntry)
+	setter(ctx, order.ContractAddr, entry)
 }
 
 func AddOutstandingLimitOrdersToOrderbook(
-	orderbook *types.OrderBook,
+	ctx sdk.Context, keeper *keeper.Keeper,
 	limitBuys []*types.Order,
 	limitSells []*types.Order,
 ) {
 	for _, order := range limitBuys {
-		addOrderToOrderBookEntry(order, orderbook.Longs)
+		addOrderToOrderBookEntry(ctx, keeper, order)
 	}
 	for _, order := range limitSells {
-		addOrderToOrderBookEntry(order, orderbook.Shorts)
+		addOrderToOrderBookEntry(ctx, keeper, order)
 	}
 }

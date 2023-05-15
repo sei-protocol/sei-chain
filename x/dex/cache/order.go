@@ -7,7 +7,6 @@ import (
 	"github.com/cosmos/cosmos-sdk/store/prefix"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
-	"github.com/sei-protocol/sei-chain/x/dex/types/wasm"
 )
 
 type BlockOrders struct {
@@ -52,8 +51,8 @@ func (o *BlockOrders) Get() (list []*types.Order) {
 	return
 }
 
-func (o *BlockOrders) MarkFailedToPlace(failedOrders []wasm.UnsuccessfulOrder) {
-	failedOrdersMap := map[uint64]wasm.UnsuccessfulOrder{}
+func (o *BlockOrders) MarkFailedToPlace(failedOrders []types.UnsuccessfulOrder) {
+	failedOrdersMap := map[uint64]types.UnsuccessfulOrder{}
 	for _, failedOrder := range failedOrders {
 		failedOrdersMap[failedOrder.ID] = failedOrder
 	}
@@ -66,7 +65,7 @@ func (o *BlockOrders) MarkFailedToPlace(failedOrders []wasm.UnsuccessfulOrder) {
 
 // getKVsToSet iterate through the kvstore and append the key,val items to a list.
 // We should avoid writing or reading from the store directly within the iterator.
-func (o *BlockOrders) getKVsToSet(failedOrdersMap map[uint64]wasm.UnsuccessfulOrder) ([][]byte, [][]byte) {
+func (o *BlockOrders) getKVsToSet(failedOrdersMap map[uint64]types.UnsuccessfulOrder) ([][]byte, [][]byte) {
 	iterator := sdk.KVStorePrefixIterator(o.orderStore, []byte{})
 
 	defer iterator.Close()
@@ -120,18 +119,6 @@ func (o *BlockOrders) GetLimitOrders(direction types.PositionDirection) []*types
 	return o.getOrdersByCriteria(types.OrderType_LIMIT, direction)
 }
 
-func (o *BlockOrders) GetTriggeredOrders() []*types.Order {
-	return o.getOrdersByCriteriaMap(
-		map[types.OrderType]bool{
-			types.OrderType_STOPLOSS:  true,
-			types.OrderType_STOPLIMIT: true,
-		},
-		map[types.PositionDirection]bool{
-			types.PositionDirection_LONG:  true,
-			types.PositionDirection_SHORT: true,
-		})
-}
-
 func (o *BlockOrders) getOrdersByCriteria(orderType types.OrderType, direction types.PositionDirection) []*types.Order {
 	res := []*types.Order{}
 	iterator := sdk.KVStorePrefixIterator(o.orderStore, []byte{})
@@ -144,31 +131,6 @@ func (o *BlockOrders) getOrdersByCriteria(orderType types.OrderType, direction t
 			panic(err)
 		}
 		if val.OrderType != orderType || val.PositionDirection != direction {
-			continue
-		}
-		if val.Status == types.OrderStatus_FAILED_TO_PLACE {
-			continue
-		}
-		res = append(res, &val)
-	}
-	return res
-}
-
-func (o *BlockOrders) getOrdersByCriteriaMap(orderType map[types.OrderType]bool, direction map[types.PositionDirection]bool) []*types.Order {
-	res := []*types.Order{}
-	iterator := sdk.KVStorePrefixIterator(o.orderStore, []byte{})
-
-	defer iterator.Close()
-
-	for ; iterator.Valid(); iterator.Next() {
-		var val types.Order
-		if err := val.Unmarshal(iterator.Value()); err != nil {
-			panic(err)
-		}
-		if _, ok := orderType[val.OrderType]; !ok {
-			continue
-		}
-		if _, ok := direction[val.PositionDirection]; !ok {
 			continue
 		}
 		if val.Status == types.OrderStatus_FAILED_TO_PLACE {

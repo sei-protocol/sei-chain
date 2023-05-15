@@ -58,7 +58,8 @@ func DexKeeper(t testing.TB) (*keeper.Keeper, sdk.Context) {
 	keyParams := sdk.NewKVStoreKey(typesparams.StoreKey)
 	tKeyParams := sdk.NewTransientStoreKey(typesparams.TStoreKey)
 	keyEpochs := sdk.NewKVStoreKey(epochtypes.StoreKey)
-	memStoreKey := storetypes.NewMemoryStoreKey(types.MemStoreKey)
+	dexMemStoreKey := storetypes.NewMemoryStoreKey(types.MemStoreKey)
+	memStoreKey := storetypes.NewMemoryStoreKey(epochtypes.MemStoreKey)
 
 	blackListAddrs := map[string]bool{}
 
@@ -73,6 +74,7 @@ func DexKeeper(t testing.TB) (*keeper.Keeper, sdk.Context) {
 	stateStore.MountStoreWithDB(keyBank, sdk.StoreTypeIAVL, db)
 	stateStore.MountStoreWithDB(storeKey, sdk.StoreTypeIAVL, db)
 	stateStore.MountStoreWithDB(memStoreKey, sdk.StoreTypeMemory, nil)
+	stateStore.MountStoreWithDB(dexMemStoreKey, sdk.StoreTypeMemory, nil)
 	stateStore.MountStoreWithDB(keyEpochs, sdk.StoreTypeIAVL, db)
 	stateStore.MountStoreWithDB(tKeyParams, sdk.StoreTypeTransient, db)
 	stateStore.MountStoreWithDB(keyParams, sdk.StoreTypeIAVL, db)
@@ -93,7 +95,7 @@ func DexKeeper(t testing.TB) (*keeper.Keeper, sdk.Context) {
 	k := keeper.NewKeeper(
 		cdc,
 		storeKey,
-		memStoreKey,
+		dexMemStoreKey,
 		paramsSubspace,
 		*epochKeeper,
 		bankKeeper,
@@ -114,7 +116,7 @@ func DexKeeper(t testing.TB) (*keeper.Keeper, sdk.Context) {
 	}
 	bankKeeper.SetParams(ctx, bankParams)
 
-	return k, ctx.WithContext(context.WithValue(ctx.Context(), dexutils.DexMemStateContextKey, dexcache.NewMemState(storeKey)))
+	return k, ctx.WithContext(context.WithValue(ctx.Context(), dexutils.DexMemStateContextKey, dexcache.NewMemState(dexMemStoreKey)))
 }
 
 func CreateAssetMetadata(keeper *keeper.Keeper, ctx sdk.Context) types.AssetMetadata {

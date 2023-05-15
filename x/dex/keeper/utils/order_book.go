@@ -1,35 +1,51 @@
 package utils
 
 import (
-	"sort"
 	"sync"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/sei-protocol/sei-chain/utils/datastructures"
 	"github.com/sei-protocol/sei-chain/x/dex/keeper"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
-	dextypesutils "github.com/sei-protocol/sei-chain/x/dex/types/utils"
 )
 
 func PopulateOrderbook(
 	ctx sdk.Context,
 	keeper *keeper.Keeper,
-	contractAddr dextypesutils.ContractAddress,
+	contractAddr types.ContractAddress,
 	pair types.Pair,
 ) *types.OrderBook {
-	longs := keeper.GetAllLongBookForPair(ctx, string(contractAddr), pair.PriceDenom, pair.AssetDenom)
-	shorts := keeper.GetAllShortBookForPair(ctx, string(contractAddr), pair.PriceDenom, pair.AssetDenom)
-	sortOrderBookEntries(longs)
-	sortOrderBookEntries(shorts)
+	// TODO update to param
+	loadCnt := int(keeper.GetOrderBookEntriesPerLoad(ctx))
+	longLoader := func(lctx sdk.Context, startExclusive sdk.Dec, withLimit bool) []types.OrderBookEntry {
+		if !withLimit {
+			return keeper.GetTopNLongBooksForPair(lctx, string(contractAddr), pair.PriceDenom, pair.AssetDenom, loadCnt)
+		}
+		return keeper.GetTopNLongBooksForPairStarting(lctx, string(contractAddr), pair.PriceDenom, pair.AssetDenom, loadCnt, startExclusive)
+	}
+	shortLoader := func(lctx sdk.Context, startExclusive sdk.Dec, withLimit bool) []types.OrderBookEntry {
+		if !withLimit {
+			return keeper.GetTopNShortBooksForPair(lctx, string(contractAddr), pair.PriceDenom, pair.AssetDenom, loadCnt)
+		}
+		return keeper.GetTopNShortBooksForPairStarting(lctx, string(contractAddr), pair.PriceDenom, pair.AssetDenom, loadCnt, startExclusive)
+	}
+	longSetter := func(lctx sdk.Context, o types.OrderBookEntry) {
+		keeper.SetLongOrderBookEntry(lctx, string(contractAddr), o)
+	}
+	shortSetter := func(lctx sdk.Context, o types.OrderBookEntry) {
+		keeper.SetShortOrderBookEntry(lctx, string(contractAddr), o)
+	}
+	longDeleter := func(lctx sdk.Context, o types.OrderBookEntry) {
+		keeper.RemoveLongBookByPrice(lctx, string(contractAddr), o.GetPrice(), pair.PriceDenom, pair.AssetDenom)
+	}
+	shortDeleter := func(lctx sdk.Context, o types.OrderBookEntry) {
+		keeper.RemoveShortBookByPrice(lctx, string(contractAddr), o.GetPrice(), pair.PriceDenom, pair.AssetDenom)
+	}
 	return &types.OrderBook{
-		Longs: &types.CachedSortedOrderBookEntries{
-			Entries:      longs,
-			DirtyEntries: datastructures.NewTypedSyncMap[string, types.OrderBookEntry](),
-		},
-		Shorts: &types.CachedSortedOrderBookEntries{
-			Entries:      shorts,
-			DirtyEntries: datastructures.NewTypedSyncMap[string, types.OrderBookEntry](),
-		},
+		Contract: contractAddr,
+		Pair:     pair,
+		Longs:    types.NewCachedSortedOrderBookEntries(longLoader, longSetter, longDeleter),
+		Shorts:   types.NewCachedSortedOrderBookEntries(shortLoader, shortSetter, shortDeleter),
 	}
 }
 
@@ -37,51 +53,20 @@ func PopulateAllOrderbooks(
 	ctx sdk.Context,
 	keeper *keeper.Keeper,
 	contractsAndPairs map[string][]types.Pair,
-) *datastructures.TypedNestedSyncMap[string, dextypesutils.PairString, *types.OrderBook] {
-	var orderBooks = datastructures.NewTypedNestedSyncMap[string, dextypesutils.PairString, *types.OrderBook]()
+) *datastructures.TypedNestedSyncMap[string, types.PairString, *types.OrderBook] {
+	var orderBooks = datastructures.NewTypedNestedSyncMap[string, types.PairString, *types.OrderBook]()
 	wg := sync.WaitGroup{}
 	for contractAddr, pairs := range contractsAndPairs {
-		orderBooks.Store(contractAddr, datastructures.NewTypedSyncMap[dextypesutils.PairString, *types.OrderBook]())
+		orderBooks.Store(contractAddr, datastructures.NewTypedSyncMap[types.PairString, *types.OrderBook]())
 		for _, pair := range pairs {
 			wg.Add(1)
 			go func(contractAddr string, pair types.Pair) {
 				defer wg.Done()
-				orderBook := PopulateOrderbook(ctx, keeper, dextypesutils.ContractAddress(contractAddr), pair)
-				orderBooks.StoreNested(contractAddr, dextypesutils.GetPairString(&pair), orderBook)
+				orderBook := PopulateOrderbook(ctx, keeper, types.ContractAddress(contractAddr), pair)
+				orderBooks.StoreNested(contractAddr, types.GetPairString(&pair), orderBook)
 			}(contractAddr, pair)
 		}
 	}
 	wg.Wait()
 	return orderBooks
-}
-
-func sortOrderBookEntries(entries []types.OrderBookEntry) {
-	sort.SliceStable(entries, func(i, j int) bool {
-		return entries[i].GetPrice().LT(entries[j].GetPrice())
-	})
-}
-
-func FlushOrderbook(
-	ctx sdk.Context,
-	keeper *keeper.Keeper,
-	typedContractAddr dextypesutils.ContractAddress,
-	orderbook *types.OrderBook,
-) {
-	contractAddr := string(typedContractAddr)
-	orderbook.Longs.DirtyEntries.DeepApply(func(entry types.OrderBookEntry) {
-		if entry.GetEntry().Quantity.IsZero() {
-			keeper.RemoveLongBookByPrice(ctx, contractAddr, entry.GetEntry().Price, entry.GetEntry().PriceDenom, entry.GetEntry().AssetDenom)
-		} else {
-			longOrder := entry.(*types.LongBook)
-			keeper.SetLongBook(ctx, contractAddr, *longOrder)
-		}
-	})
-	orderbook.Shorts.DirtyEntries.DeepApply(func(entry types.OrderBookEntry) {
-		if entry.GetEntry().Quantity.IsZero() {
-			keeper.RemoveShortBookByPrice(ctx, contractAddr, entry.GetEntry().Price, entry.GetEntry().PriceDenom, entry.GetEntry().AssetDenom)
-		} else {
-			shortOrder := entry.(*types.ShortBook)
-			keeper.SetShortBook(ctx, contractAddr, *shortOrder)
-		}
-	})
 }

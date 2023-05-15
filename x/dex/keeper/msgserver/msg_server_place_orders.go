@@ -8,8 +8,7 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
-	typesutils "github.com/sei-protocol/sei-chain/x/dex/types/utils"
-	dexutils "github.com/sei-protocol/sei-chain/x/dex/utils"
+	"github.com/sei-protocol/sei-chain/x/dex/utils"
 )
 
 func (k msgServer) transferFunds(goCtx context.Context, msg *types.MsgPlaceOrders) error {
@@ -31,7 +30,7 @@ func (k msgServer) transferFunds(goCtx context.Context, msg *types.MsgPlaceOrder
 		if fund.Amount.IsNil() || fund.IsNegative() {
 			return errors.New("fund deposits cannot be nil or negative")
 		}
-		dexutils.GetMemState(ctx.Context()).GetDepositInfo(ctx, typesutils.ContractAddress(msg.GetContractAddr())).Add(&types.DepositInfoEntry{
+		utils.GetMemState(ctx.Context()).GetDepositInfo(ctx, types.ContractAddress(msg.GetContractAddr())).Add(&types.DepositInfoEntry{
 			Creator: msg.Creator,
 			Denom:   fund.Denom,
 			Amount:  sdk.NewDec(fund.Amount.Int64()),
@@ -69,11 +68,11 @@ func (k msgServer) PlaceOrders(goCtx context.Context, msg *types.MsgPlaceOrders)
 			return nil, sdkerrors.Wrapf(sdkerrors.ErrKeyNotFound, "the pair {price:%s,asset:%s} has no quantity ticksize configured", order.PriceDenom, order.AssetDenom)
 		}
 		pair := types.Pair{PriceDenom: order.PriceDenom, AssetDenom: order.AssetDenom, PriceTicksize: &priceTicksize, QuantityTicksize: &quantityTicksize}
-		pairStr := typesutils.GetPairString(&pair)
+		pairStr := types.GetPairString(&pair)
 		order.Id = nextID
 		order.Account = msg.Creator
 		order.ContractAddr = msg.GetContractAddr()
-		dexutils.GetMemState(ctx.Context()).GetBlockOrders(ctx, typesutils.ContractAddress(msg.GetContractAddr()), pairStr).Add(order)
+		utils.GetMemState(ctx.Context()).GetBlockOrders(ctx, types.ContractAddress(msg.GetContractAddr()), pairStr).Add(order)
 		idsInResp = append(idsInResp, nextID)
 		events = append(events, sdk.NewEvent(
 			types.EventTypePlaceOrder,
@@ -83,6 +82,14 @@ func (k msgServer) PlaceOrders(goCtx context.Context, msg *types.MsgPlaceOrders)
 	}
 	k.SetNextOrderID(ctx, msg.ContractAddr, nextID)
 	ctx.EventManager().EmitEvents(events)
+
+	utils.GetMemState(ctx.Context()).SetDownstreamsToProcess(msg.ContractAddr, func(addr string) *types.ContractInfoV2 {
+		contract, err := k.GetContract(ctx, addr)
+		if err != nil {
+			return nil
+		}
+		return &contract
+	})
 	return &types.MsgPlaceOrdersResponse{
 		OrderIds: idsInResp,
 	}, nil

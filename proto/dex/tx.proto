@@ -22,6 +22,7 @@ service Msg {
   rpc RegisterPairs(MsgRegisterPairs) returns(MsgRegisterPairsResponse);
   rpc UpdatePriceTickSize(MsgUpdatePriceTickSize) returns(MsgUpdateTickSizeResponse);
   rpc UpdateQuantityTickSize(MsgUpdateQuantityTickSize) returns(MsgUpdateTickSizeResponse);
+  rpc UnsuspendContract(MsgUnsuspendContract) returns(MsgUnsuspendContractResponse);
   // privileged endpoints below
 
 // this line is used by starport scaffolding # proto/tx/rpc
@@ -131,5 +132,16 @@ message MsgUpdateQuantityTickSize {
 }
 
 message MsgUpdateTickSizeResponse {}
+
+message MsgUnsuspendContract {
+  string creator = 1 [
+    (gogoproto.jsontag) = "creator"
+  ];
+  string contractAddr = 2 [
+    (gogoproto.jsontag) = "contract_address"
+  ];
+}
+
+message MsgUnsuspendContractResponse {}
 
 // this line is used by starport scaffolding # proto/tx/message

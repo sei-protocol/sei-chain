@@ -9,7 +9,6 @@ import (
 	"github.com/cosmos/cosmos-sdk/client/tx"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
-	"github.com/sei-protocol/sei-chain/x/dex/types/utils"
 	"github.com/spf13/cobra"
 )
 
@@ -34,7 +33,7 @@ func CmdPlaceOrders() *cobra.Command {
 			for _, order := range args[1:] {
 				newOrder := types.Order{}
 				orderDetails := strings.Split(order, "?")
-				argPositionDir, err := utils.GetPositionDirectionFromStr(orderDetails[0])
+				argPositionDir, err := types.GetPositionDirectionFromStr(orderDetails[0])
 				if err != nil {
 					return err
 				}
@@ -51,7 +50,7 @@ func CmdPlaceOrders() *cobra.Command {
 				newOrder.Quantity = argQuantity
 				newOrder.PriceDenom = orderDetails[3]
 				newOrder.AssetDenom = orderDetails[4]
-				argOrderType, err := utils.GetOrderTypeFromStr(orderDetails[5])
+				argOrderType, err := types.GetOrderTypeFromStr(orderDetails[5])
 				if err != nil {
 					return err
 				}
@@ -63,19 +62,6 @@ func CmdPlaceOrders() *cobra.Command {
 						return err
 					}
 					newOrder.Nominal = argNominal
-				}
-				if newOrder.OrderType == types.OrderType_STOPLOSS || newOrder.OrderType == types.OrderType_STOPLIMIT {
-					triggerPrice, err := sdk.NewDecFromStr(orderDetails[7])
-					if err != nil {
-						return err
-					}
-					triggerStatus, err := strconv.ParseBool(orderDetails[8])
-					if err != nil {
-						return err
-					}
-
-					newOrder.TriggerPrice = triggerPrice
-					newOrder.TriggerStatus = triggerStatus
 				}
 				orders = append(orders, &newOrder)
 			}

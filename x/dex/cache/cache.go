@@ -2,6 +2,7 @@ package dex
 
 import (
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/cosmos/cosmos-sdk/store/prefix"
@@ -9,24 +10,29 @@ import (
 
 	"github.com/sei-protocol/sei-chain/utils/datastructures"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
-	typesutils "github.com/sei-protocol/sei-chain/x/dex/types/utils"
 )
 
 const SynchronizationTimeoutInSeconds = 5
 
 type MemState struct {
-	storeKey    sdk.StoreKey
-	depositInfo *datastructures.TypedSyncMap[typesutils.ContractAddress, *DepositInfo]
+	storeKey sdk.StoreKey
+
+	contractsToProcess      *datastructures.SyncSet[string]
+	contractsToDepsMtx      *sync.Mutex
+	contractsToDependencies *datastructures.TypedSyncMap[string, []string]
 }
 
 func NewMemState(storeKey sdk.StoreKey) *MemState {
+	contractsToProcess := datastructures.NewSyncSet[string]([]string{})
 	return &MemState{
-		storeKey:    storeKey,
-		depositInfo: datastructures.NewTypedSyncMap[typesutils.ContractAddress, *DepositInfo](),
+		storeKey:                storeKey,
+		contractsToProcess:      &contractsToProcess,
+		contractsToDepsMtx:      &sync.Mutex{},
+		contractsToDependencies: datastructures.NewTypedSyncMap[string, []string](),
 	}
 }
 
-func (s *MemState) GetAllBlockOrders(ctx sdk.Context, contractAddr typesutils.ContractAddress) (list []*types.Order) {
+func (s *MemState) GetAllBlockOrders(ctx sdk.Context, contractAddr types.ContractAddress) (list []*types.Order) {
 	s.SynchronizeAccess(ctx, contractAddr)
 	store := prefix.NewStore(
 		ctx.KVStore(s.storeKey),
@@ -48,7 +54,7 @@ func (s *MemState) GetAllBlockOrders(ctx sdk.Context, contractAddr typesutils.Co
 	return
 }
 
-func (s *MemState) GetBlockOrders(ctx sdk.Context, contractAddr typesutils.ContractAddress, pair typesutils.PairString) *BlockOrders {
+func (s *MemState) GetBlockOrders(ctx sdk.Context, contractAddr types.ContractAddress, pair types.PairString) *BlockOrders {
 	s.SynchronizeAccess(ctx, contractAddr)
 	return NewOrders(
 		prefix.NewStore(
@@ -60,7 +66,7 @@ func (s *MemState) GetBlockOrders(ctx sdk.Context, contractAddr typesutils.Contr
 	)
 }
 
-func (s *MemState) GetBlockCancels(ctx sdk.Context, contractAddr typesutils.ContractAddress, pair typesutils.PairString) *BlockCancellations {
+func (s *MemState) GetBlockCancels(ctx sdk.Context, contractAddr types.ContractAddress, pair types.PairString) *BlockCancellations {
 	s.SynchronizeAccess(ctx, contractAddr)
 	return NewCancels(
 		prefix.NewStore(
@@ -72,7 +78,7 @@ func (s *MemState) GetBlockCancels(ctx sdk.Context, contractAddr typesutils.Cont
 	)
 }
 
-func (s *MemState) GetDepositInfo(ctx sdk.Context, contractAddr typesutils.ContractAddress) *DepositInfo {
+func (s *MemState) GetDepositInfo(ctx sdk.Context, contractAddr types.ContractAddress) *DepositInfo {
 	s.SynchronizeAccess(ctx, contractAddr)
 	return NewDepositInfo(
 		prefix.NewStore(
@@ -82,20 +88,49 @@ func (s *MemState) GetDepositInfo(ctx sdk.Context, contractAddr typesutils.Contr
 	)
 }
 
+func (s *MemState) GetContractToDependencies(contractAddress string, loader func(addr string) *types.ContractInfoV2) []string {
+	s.contractsToDepsMtx.Lock()
+	defer s.contractsToDepsMtx.Unlock()
+	if deps, ok := s.contractsToDependencies.Load(contractAddress); ok {
+		return deps
+	}
+	loadedDownstreams := GetAllDownstreamContracts(contractAddress, loader)
+	s.contractsToDependencies.Store(contractAddress, loadedDownstreams)
+	return loadedDownstreams
+}
+
+func (s *MemState) ClearContractToDependencies() {
+	s.contractsToDepsMtx.Lock()
+	defer s.contractsToDepsMtx.Unlock()
+
+	s.contractsToDependencies = datastructures.NewTypedSyncMap[string, []string]()
+}
+
+func (s *MemState) SetDownstreamsToProcess(contractAddress string, loader func(addr string) *types.ContractInfoV2) {
+	s.contractsToProcess.AddAll(s.GetContractToDependencies(contractAddress, loader))
+}
+
+func (s *MemState) GetContractToProcess() *datastructures.SyncSet[string] {
+	return s.contractsToProcess
+}
+
 func (s *MemState) Clear(ctx sdk.Context) {
 	DeepDelete(ctx.KVStore(s.storeKey), types.KeyPrefix(types.MemOrderKey), func(_ []byte) bool { return true })
 	DeepDelete(ctx.KVStore(s.storeKey), types.KeyPrefix(types.MemCancelKey), func(_ []byte) bool { return true })
 	DeepDelete(ctx.KVStore(s.storeKey), types.KeyPrefix(types.MemDepositKey), func(_ []byte) bool { return true })
+
+	newContractToDependencies := datastructures.NewSyncSet([]string{})
+	s.contractsToProcess = &newContractToDependencies
 }
 
-func (s *MemState) ClearCancellationForPair(ctx sdk.Context, contractAddr typesutils.ContractAddress, pair typesutils.PairString) {
+func (s *MemState) ClearCancellationForPair(ctx sdk.Context, contractAddr types.ContractAddress, pair types.PairString) {
 	s.SynchronizeAccess(ctx, contractAddr)
 	DeepDelete(ctx.KVStore(s.storeKey), types.KeyPrefix(types.MemCancelKey), func(v []byte) bool {
 		var c types.Cancellation
 		if err := c.Unmarshal(v); err != nil {
 			panic(err)
 		}
-		return c.ContractAddr == string(contractAddr) && typesutils.GetPairString(&types.Pair{
+		return c.ContractAddr == string(contractAddr) && types.GetPairString(&types.Pair{
 			AssetDenom: c.AssetDenom,
 			PriceDenom: c.PriceDenom,
 		}) == pair
@@ -103,8 +138,12 @@ func (s *MemState) ClearCancellationForPair(ctx sdk.Context, contractAddr typesu
 }
 
 func (s *MemState) DeepCopy() *MemState {
-	copy := NewMemState(s.storeKey)
-	return copy
+	return &MemState{
+		storeKey:                s.storeKey,
+		contractsToProcess:      s.contractsToProcess,
+		contractsToDepsMtx:      s.contractsToDepsMtx, // passing by pointer
+		contractsToDependencies: s.contractsToDependencies,
+	}
 }
 
 func (s *MemState) DeepFilterAccount(ctx sdk.Context, account string) {
@@ -131,7 +170,7 @@ func (s *MemState) DeepFilterAccount(ctx sdk.Context, account string) {
 	})
 }
 
-func (s *MemState) SynchronizeAccess(ctx sdk.Context, contractAddr typesutils.ContractAddress) {
+func (s *MemState) SynchronizeAccess(ctx sdk.Context, contractAddr types.ContractAddress) {
 	executingContract := GetExecutingContract(ctx)
 	if executingContract == nil {
 		// not accessed by contract. no need to synchronize
@@ -202,4 +241,40 @@ func DeepDelete(kvStore sdk.KVStore, storePrefix []byte, matcher func([]byte) bo
 			store.Delete(key)
 		}
 	}
+}
+
+// BFS traversal over a acyclic graph
+// Includes the root contract itself.
+func GetAllDownstreamContracts(contractAddress string, loader func(addr string) *types.ContractInfoV2) []string {
+	res := []string{contractAddress}
+	seen := datastructures.NewSyncSet(res)
+	downstreams := []*types.ContractInfoV2{}
+	populater := func(target *types.ContractInfoV2) {
+		for _, dep := range target.Dependencies {
+			if downstream := loader(dep.Dependency); downstream != nil && !seen.Contains(downstream.ContractAddr) {
+				if !downstream.Suspended {
+					downstreams = append(downstreams, downstream)
+					seen.Add(downstream.ContractAddr)
+				}
+			} else {
+				// either getting the dependency returned an error, or there is a cycle in the graph. Either way
+				// is bad and should cause the triggering tx to fail
+				panic(fmt.Sprintf("getting dependency %s for %s returned an error, or there is a cycle in the dependency graph", dep.Dependency, target.ContractAddr))
+			}
+		}
+	}
+	// init first layer downstreams
+	if contract := loader(contractAddress); contract != nil {
+		populater(contract)
+	} else {
+		return res
+	}
+
+	for len(downstreams) > 0 {
+		downstream := downstreams[0]
+		res = append(res, downstream.ContractAddr)
+		populater(downstream)
+		downstreams = downstreams[1:]
+	}
+	return res
 }

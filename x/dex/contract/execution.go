@@ -18,7 +18,6 @@ import (
 	dexkeeperabci "github.com/sei-protocol/sei-chain/x/dex/keeper/abci"
 	dexkeeperutils "github.com/sei-protocol/sei-chain/x/dex/keeper/utils"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
-	dextypesutils "github.com/sei-protocol/sei-chain/x/dex/types/utils"
 	dexutils "github.com/sei-protocol/sei-chain/x/dex/utils"
 	"go.opentelemetry.io/otel/attribute"
 )
@@ -51,43 +50,41 @@ func ExecutePair(
 	dexkeeper *keeper.Keeper,
 	orderbook *types.OrderBook,
 ) []*types.SettlementEntry {
-	typedContractAddr := dextypesutils.ContractAddress(contractAddr)
-	typedPairStr := dextypesutils.GetPairString(&pair)
+	typedContractAddr := types.ContractAddress(contractAddr)
+	typedPairStr := types.GetPairString(&pair)
 
 	// First cancel orders
-	cancelForPair(ctx, typedContractAddr, typedPairStr, orderbook)
+	cancelForPair(ctx, dexkeeper, typedContractAddr, pair)
 	// Add all limit orders to the orderbook
 	orders := dexutils.GetMemState(ctx.Context()).GetBlockOrders(ctx, typedContractAddr, typedPairStr)
 	limitBuys := orders.GetLimitOrders(types.PositionDirection_LONG)
 	limitSells := orders.GetLimitOrders(types.PositionDirection_SHORT)
-	exchange.AddOutstandingLimitOrdersToOrderbook(orderbook, limitBuys, limitSells)
+	exchange.AddOutstandingLimitOrdersToOrderbook(ctx, dexkeeper, limitBuys, limitSells)
 	// Fill market orders
 	marketOrderOutcome := matchMarketOrderForPair(ctx, typedContractAddr, typedPairStr, orderbook)
 	// Fill limit orders
 	limitOrderOutcome := exchange.MatchLimitOrders(ctx, orderbook)
 	totalOutcome := marketOrderOutcome.Merge(&limitOrderOutcome)
-	UpdateTriggeredOrderForPair(ctx, typedContractAddr, typedPairStr, dexkeeper, totalOutcome)
 
 	dexkeeperutils.SetPriceStateFromExecutionOutcome(ctx, dexkeeper, typedContractAddr, pair, totalOutcome)
-	dexkeeperutils.FlushOrderbook(ctx, dexkeeper, typedContractAddr, orderbook)
 
 	return totalOutcome.Settlements
 }
 
 func cancelForPair(
 	ctx sdk.Context,
-	typedContractAddr dextypesutils.ContractAddress,
-	typedPairStr dextypesutils.PairString,
-	orderbook *types.OrderBook,
+	keeper *keeper.Keeper,
+	contractAddress types.ContractAddress,
+	pair types.Pair,
 ) {
-	cancels := dexutils.GetMemState(ctx.Context()).GetBlockCancels(ctx, typedContractAddr, typedPairStr)
-	exchange.CancelOrders(cancels.Get(), orderbook)
+	cancels := dexutils.GetMemState(ctx.Context()).GetBlockCancels(ctx, contractAddress, types.GetPairString(&pair))
+	exchange.CancelOrders(ctx, keeper, contractAddress, pair, cancels.Get())
 }
 
 func matchMarketOrderForPair(
 	ctx sdk.Context,
-	typedContractAddr dextypesutils.ContractAddress,
-	typedPairStr dextypesutils.PairString,
+	typedContractAddr types.ContractAddress,
+	typedPairStr types.PairString,
 	orderbook *types.OrderBook,
 ) exchange.ExecutionOutcome {
 	orders := dexutils.GetMemState(ctx.Context()).GetBlockOrders(ctx, typedContractAddr, typedPairStr)
@@ -110,64 +107,10 @@ func matchMarketOrderForPair(
 	return marketBuyOutcome.Merge(&marketSellOutcome)
 }
 
-func MoveTriggeredOrderForPair(
-	ctx sdk.Context,
-	typedContractAddr dextypesutils.ContractAddress,
-	typedPairStr dextypesutils.PairString,
-	dexkeeper *keeper.Keeper,
-) {
-	priceDenom, assetDenom := dextypesutils.GetPriceAssetString(typedPairStr)
-	triggeredOrders := dexkeeper.GetAllTriggeredOrdersForPair(ctx, string(typedContractAddr), priceDenom, assetDenom)
-	for i, order := range triggeredOrders {
-		if order.TriggerStatus {
-			if order.OrderType == types.OrderType_STOPLOSS {
-				triggeredOrders[i].OrderType = types.OrderType_MARKET
-			} else if order.OrderType == types.OrderType_STOPLIMIT {
-				triggeredOrders[i].OrderType = types.OrderType_LIMIT
-			}
-			dexutils.GetMemState(ctx.Context()).GetBlockOrders(ctx, typedContractAddr, typedPairStr).Add(&triggeredOrders[i])
-			dexkeeper.RemoveTriggeredOrder(ctx, string(typedContractAddr), order.Id, priceDenom, assetDenom)
-		}
-	}
-}
-
-func UpdateTriggeredOrderForPair(
-	ctx sdk.Context,
-	typedContractAddr dextypesutils.ContractAddress,
-	typedPairStr dextypesutils.PairString,
-	dexkeeper *keeper.Keeper,
-	totalOutcome exchange.ExecutionOutcome,
-) {
-	// update existing trigger orders
-	priceDenom, assetDenom := dextypesutils.GetPriceAssetString(typedPairStr)
-	triggeredOrders := dexkeeper.GetAllTriggeredOrdersForPair(ctx, string(typedContractAddr), priceDenom, assetDenom)
-	for i, order := range triggeredOrders {
-		if order.PositionDirection == types.PositionDirection_LONG && order.TriggerPrice.LTE(totalOutcome.MaxPrice) {
-			triggeredOrders[i].TriggerStatus = true
-			dexkeeper.SetTriggeredOrder(ctx, string(typedContractAddr), triggeredOrders[i], priceDenom, assetDenom)
-		} else if order.PositionDirection == types.PositionDirection_SHORT && order.TriggerPrice.GTE(totalOutcome.MinPrice) {
-			triggeredOrders[i].TriggerStatus = true
-			dexkeeper.SetTriggeredOrder(ctx, string(typedContractAddr), triggeredOrders[i], priceDenom, assetDenom)
-		}
-	}
-
-	// update triggered orders in cache
-	orders := dexutils.GetMemState(ctx.Context()).GetBlockOrders(ctx, typedContractAddr, typedPairStr)
-	cacheTriggeredOrders := orders.GetTriggeredOrders()
-	for i, order := range cacheTriggeredOrders {
-		if order.PositionDirection == types.PositionDirection_LONG && order.TriggerPrice.LTE(totalOutcome.MaxPrice) {
-			cacheTriggeredOrders[i].TriggerStatus = true
-		} else if order.PositionDirection == types.PositionDirection_SHORT && order.TriggerPrice.GTE(totalOutcome.MinPrice) {
-			cacheTriggeredOrders[i].TriggerStatus = true
-		}
-		dexkeeper.SetTriggeredOrder(ctx, string(typedContractAddr), *cacheTriggeredOrders[i], priceDenom, assetDenom)
-	}
-}
-
 func GetMatchResults(
 	ctx sdk.Context,
-	typedContractAddr dextypesutils.ContractAddress,
-	typedPairStr dextypesutils.PairString,
+	typedContractAddr types.ContractAddress,
+	typedPairStr types.PairString,
 ) ([]*types.Order, []*types.Cancellation) {
 	orderResults := dexutils.GetMemState(ctx.Context()).GetBlockOrders(ctx, typedContractAddr, typedPairStr).Get()
 	cancelResults := dexutils.GetMemState(ctx.Context()).GetBlockCancels(ctx, typedContractAddr, typedPairStr).Get()
@@ -185,8 +128,8 @@ func GetOrderIDToSettledQuantities(settlements []*types.SettlementEntry) map[uin
 	return res
 }
 
-func ExecutePairsInParallel(ctx sdk.Context, contractAddr string, dexkeeper *keeper.Keeper, registeredPairs []types.Pair, orderBooks *datastructures.TypedSyncMap[dextypesutils.PairString, *types.OrderBook]) []*types.SettlementEntry {
-	typedContractAddr := dextypesutils.ContractAddress(contractAddr)
+func ExecutePairsInParallel(ctx sdk.Context, contractAddr string, dexkeeper *keeper.Keeper, registeredPairs []types.Pair, orderBooks *datastructures.TypedSyncMap[types.PairString, *types.OrderBook]) []*types.SettlementEntry {
+	typedContractAddr := types.ContractAddress(contractAddr)
 	orderResults := []*types.Order{}
 	cancelResults := []*types.Cancellation{}
 	settlements := []*types.SettlementEntry{}
@@ -202,19 +145,18 @@ func ExecutePairsInParallel(ctx sdk.Context, contractAddr string, dexkeeper *kee
 		go func() {
 			defer wg.Done()
 			pairCopy := pair
-			pairStr := dextypesutils.GetPairString(&pairCopy)
-			MoveTriggeredOrderForPair(ctx, typedContractAddr, pairStr, dexkeeper)
+			pairStr := types.GetPairString(&pairCopy)
 			orderbook, found := orderBooks.Load(pairStr)
 			if !found {
 				panic(fmt.Sprintf("Orderbook not found for %s", pairStr))
 			}
-			pairSettlements := ExecutePair(pairCtx, contractAddr, pair, dexkeeper, orderbook.DeepCopy())
+			pairSettlements := ExecutePair(pairCtx, contractAddr, pair, dexkeeper, orderbook)
 			orderIDToSettledQuantities := GetOrderIDToSettledQuantities(pairSettlements)
 			PrepareCancelUnfulfilledMarketOrders(pairCtx, typedContractAddr, pairStr, orderIDToSettledQuantities)
 
 			mu.Lock()
 			defer mu.Unlock()
-			orders, cancels := GetMatchResults(ctx, typedContractAddr, dextypesutils.GetPairString(&pairCopy))
+			orders, cancels := GetMatchResults(ctx, typedContractAddr, types.GetPairString(&pairCopy))
 			orderResults = append(orderResults, orders...)
 			cancelResults = append(cancelResults, cancels...)
 			settlements = append(settlements, pairSettlements...)
@@ -234,7 +176,7 @@ func HandleExecutionForContract(
 	contract types.ContractInfoV2,
 	dexkeeper *keeper.Keeper,
 	registeredPairs []types.Pair,
-	orderBooks *datastructures.TypedSyncMap[dextypesutils.PairString, *types.OrderBook],
+	orderBooks *datastructures.TypedSyncMap[types.PairString, *types.OrderBook],
 	tracer *otrace.Tracer,
 ) ([]*types.SettlementEntry, error) {
 	executionStart := time.Now()

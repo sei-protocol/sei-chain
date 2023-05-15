@@ -7,7 +7,6 @@ import (
 	"github.com/sei-protocol/sei-chain/x/dex/keeper"
 	dexkeeperabci "github.com/sei-protocol/sei-chain/x/dex/keeper/abci"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
-	dextypesutils "github.com/sei-protocol/sei-chain/x/dex/types/utils"
 	dexutils "github.com/sei-protocol/sei-chain/x/dex/utils"
 	"go.opentelemetry.io/otel/attribute"
 	otrace "go.opentelemetry.io/otel/trace"
@@ -15,8 +14,8 @@ import (
 
 func PrepareCancelUnfulfilledMarketOrders(
 	ctx sdk.Context,
-	typedContractAddr dextypesutils.ContractAddress,
-	typedPairStr dextypesutils.PairString,
+	typedContractAddr types.ContractAddress,
+	typedPairStr types.PairString,
 	orderIDToSettledQuantities map[uint64]sdk.Dec,
 ) {
 	dexutils.GetMemState(ctx.Context()).ClearCancellationForPair(ctx, typedContractAddr, typedPairStr)
@@ -30,8 +29,8 @@ func PrepareCancelUnfulfilledMarketOrders(
 
 func getUnfulfilledPlacedMarketOrderIds(
 	ctx sdk.Context,
-	typedContractAddr dextypesutils.ContractAddress,
-	typedPairStr dextypesutils.PairString,
+	typedContractAddr types.ContractAddress,
+	typedPairStr types.PairString,
 	orderIDToSettledQuantities map[uint64]sdk.Dec,
 ) []uint64 {
 	res := []uint64{}
