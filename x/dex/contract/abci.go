@@ -173,7 +173,7 @@ func getSudoPlaceOrderMessages(sdkCtx sdk.Context, validContractsInfos []types.C
 		wg.Add(1)
 		go func(index int, contract types.ContractInfoV2) {
 			defer wg.Done()
-			if !contract.NeedOrderMatching || contractToProcess.Contains(contract.ContractAddr) {
+			if !contract.NeedOrderMatching || !contractToProcess.Contains(contract.ContractAddr) {
 				return
 			}
 			typedContractAddr := types.ContractAddress(contract.ContractAddr)
