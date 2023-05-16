@@ -80,6 +80,8 @@ func addOrderToOrderBookEntry(
 	entry.SetPrice(order.Price)
 	entry.SetEntry(orderEntry)
 	setter(ctx, order.ContractAddr, entry)
+
+	keeper.IncreaseOrderCount(ctx, order.ContractAddr, order.PriceDenom, order.AssetDenom, order.PositionDirection, order.Price, 1)
 }
 
 func AddOutstandingLimitOrdersToOrderbook(

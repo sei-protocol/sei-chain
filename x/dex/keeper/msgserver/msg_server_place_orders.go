@@ -58,7 +58,11 @@ func (k msgServer) PlaceOrders(goCtx context.Context, msg *types.MsgPlaceOrders)
 	events := []sdk.Event{}
 	nextID := k.GetNextOrderID(ctx, msg.ContractAddr)
 	idsInResp := []uint64{}
+	maxOrderPerPrice := k.GetMaxOrderPerPrice(ctx)
 	for _, order := range msg.GetOrders() {
+		if k.GetOrderCount(ctx, msg.GetContractAddr(), order.PriceDenom, order.AssetDenom, order.PositionDirection, order.Price) >= maxOrderPerPrice {
+			return nil, sdkerrors.Wrapf(sdkerrors.ErrInvalidRequest, "order book already has more than %d orders for %s-%s-%s %s at %s", maxOrderPerPrice, msg.GetContractAddr(), order.PriceDenom, order.AssetDenom, order.PositionDirection, order.Price)
+		}
 		priceTicksize, found := k.Keeper.GetPriceTickSizeForPair(ctx, msg.GetContractAddr(), types.Pair{PriceDenom: order.PriceDenom, AssetDenom: order.AssetDenom})
 		if !found {
 			return nil, sdkerrors.Wrapf(sdkerrors.ErrKeyNotFound, "the pair {price:%s,asset:%s} has no price ticksize configured", order.PriceDenom, order.AssetDenom)

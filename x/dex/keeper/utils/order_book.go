@@ -31,15 +31,19 @@ func PopulateOrderbook(
 	}
 	longSetter := func(lctx sdk.Context, o types.OrderBookEntry) {
 		keeper.SetLongOrderBookEntry(lctx, string(contractAddr), o)
+		keeper.SetOrderCount(lctx, string(contractAddr), pair.PriceDenom, pair.AssetDenom, types.PositionDirection_LONG, o.GetPrice(), uint64(len(o.GetOrderEntry().GetAllocations())))
 	}
 	shortSetter := func(lctx sdk.Context, o types.OrderBookEntry) {
 		keeper.SetShortOrderBookEntry(lctx, string(contractAddr), o)
+		keeper.SetOrderCount(lctx, string(contractAddr), pair.PriceDenom, pair.AssetDenom, types.PositionDirection_SHORT, o.GetPrice(), uint64(len(o.GetOrderEntry().GetAllocations())))
 	}
 	longDeleter := func(lctx sdk.Context, o types.OrderBookEntry) {
 		keeper.RemoveLongBookByPrice(lctx, string(contractAddr), o.GetPrice(), pair.PriceDenom, pair.AssetDenom)
+		keeper.SetOrderCount(lctx, string(contractAddr), pair.PriceDenom, pair.AssetDenom, types.PositionDirection_LONG, o.GetPrice(), 0)
 	}
 	shortDeleter := func(lctx sdk.Context, o types.OrderBookEntry) {
 		keeper.RemoveShortBookByPrice(lctx, string(contractAddr), o.GetPrice(), pair.PriceDenom, pair.AssetDenom)
+		keeper.SetOrderCount(lctx, string(contractAddr), pair.PriceDenom, pair.AssetDenom, types.PositionDirection_SHORT, o.GetPrice(), 0)
 	}
 	return &types.OrderBook{
 		Contract: contractAddr,

@@ -33,6 +33,10 @@ func cancelOrder(ctx sdk.Context, keeper *keeper.Keeper, cancellation *types.Can
 			newQuantity = newQuantity.Add(allocation.Quantity)
 		}
 	}
+	numAllocationsRemoved := len(newEntry.Allocations) - len(newAllocations)
+	if numAllocationsRemoved > 0 {
+		keeper.DecreaseOrderCount(ctx, string(contract), pair.PriceDenom, pair.AssetDenom, cancellation.PositionDirection, entry.GetPrice(), uint64(numAllocationsRemoved))
+	}
 	if newQuantity.IsZero() {
 		deleter(ctx, string(contract), entry.GetPrice(), pair.PriceDenom, pair.AssetDenom)
 		return
