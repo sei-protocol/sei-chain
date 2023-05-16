@@ -15,9 +15,8 @@ func (app *App) BeginBlock(ctx sdk.Context, req abci.RequestBeginBlock) (res abc
 	topSpan.SetAttributes(attribute.Int64("height", req.Header.Height))
 	app.GetBaseApp().TracingInfo.BlockSpan = &topSpan
 	app.GetBaseApp().TracingInfo.SetContext(tracectx)
-	spanCtx, beginBlockSpan := (*app.GetBaseApp().TracingInfo.Tracer).Start(app.GetBaseApp().TracingInfo.GetContext(), "BeginBlock")
+	_, beginBlockSpan := (*app.GetBaseApp().TracingInfo.Tracer).Start(app.GetBaseApp().TracingInfo.GetContext(), "BeginBlock")
 	defer beginBlockSpan.End()
-	ctx = ctx.WithTraceSpanContext(spanCtx)
 	return app.BaseApp.BeginBlock(ctx, req)
 }
 
@@ -41,8 +40,11 @@ func (app *App) CheckTx(ctx context.Context, req *abci.RequestCheckTx) (*abci.Re
 
 func (app *App) DeliverTx(ctx sdk.Context, req abci.RequestDeliverTx) abci.ResponseDeliverTx {
 	defer metrics.MeasureDeliverTxDuration(time.Now())
+	// ensure we carry the initial context from tracer here
+	ctx = ctx.WithTraceSpanContext(app.GetBaseApp().TracingInfo.GetContext())
 	spanCtx, span := app.GetBaseApp().TracingInfo.StartWithContext("DeliverTx", ctx.TraceSpanContext())
 	defer span.End()
+	// update context with trace span new context
 	ctx = ctx.WithTraceSpanContext(spanCtx)
 	return app.BaseApp.DeliverTx(ctx, req)
 }
