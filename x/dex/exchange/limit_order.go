@@ -1,6 +1,7 @@
 package exchange
 
 import (
+	"fmt"
 	"math"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -81,7 +82,10 @@ func addOrderToOrderBookEntry(
 	entry.SetEntry(orderEntry)
 	setter(ctx, order.ContractAddr, entry)
 
-	keeper.IncreaseOrderCount(ctx, order.ContractAddr, order.PriceDenom, order.AssetDenom, order.PositionDirection, order.Price, 1)
+	err := keeper.IncreaseOrderCount(ctx, order.ContractAddr, order.PriceDenom, order.AssetDenom, order.PositionDirection, order.Price, 1)
+	if err != nil {
+		ctx.Logger().Error(fmt.Sprintf("error increasing order count: %s", err))
+	}
 }
 
 func AddOutstandingLimitOrdersToOrderbook(

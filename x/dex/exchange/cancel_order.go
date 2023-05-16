@@ -1,6 +1,8 @@
 package exchange
 
 import (
+	"fmt"
+
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/sei-protocol/sei-chain/x/dex/keeper"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
@@ -35,7 +37,10 @@ func cancelOrder(ctx sdk.Context, keeper *keeper.Keeper, cancellation *types.Can
 	}
 	numAllocationsRemoved := len(newEntry.Allocations) - len(newAllocations)
 	if numAllocationsRemoved > 0 {
-		keeper.DecreaseOrderCount(ctx, string(contract), pair.PriceDenom, pair.AssetDenom, cancellation.PositionDirection, entry.GetPrice(), uint64(numAllocationsRemoved))
+		err := keeper.DecreaseOrderCount(ctx, string(contract), pair.PriceDenom, pair.AssetDenom, cancellation.PositionDirection, entry.GetPrice(), uint64(numAllocationsRemoved))
+		if err != nil {
+			ctx.Logger().Error(fmt.Sprintf("error decreasing order count: %s", err))
+		}
 	}
 	if newQuantity.IsZero() {
 		deleter(ctx, string(contract), entry.GetPrice(), pair.PriceDenom, pair.AssetDenom)
