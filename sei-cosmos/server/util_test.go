@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"github.com/tendermint/tendermint/libs/log"
 	"go.opentelemetry.io/otel/sdk/trace"
 
 	"github.com/cosmos/cosmos-sdk/client/flags"
@@ -419,6 +420,7 @@ func TestWaitForQuitSignals(t *testing.T) {
 		}()
 
 		errCode := server.WaitForQuitSignals(
+			&server.Context{Logger: log.NewNopLogger()},
 			restartCh,
 			time.Now().Add(500*time.Millisecond),
 		)
@@ -436,6 +438,7 @@ func TestWaitForQuitSignals(t *testing.T) {
 		}()
 
 		errCode := server.WaitForQuitSignals(
+			&server.Context{Logger: log.NewNopLogger()},
 			restartCh,
 			time.Now().Add(-100*time.Millisecond),
 		)
@@ -454,6 +457,7 @@ func TestWaitForQuitSignals(t *testing.T) {
 		}()
 
 		errCode := server.WaitForQuitSignals(
+			&server.Context{Logger: log.NewNopLogger()},
 			make(chan struct{}),
 			time.Now(),
 		)
@@ -470,6 +474,7 @@ func TestWaitForQuitSignals(t *testing.T) {
 		}()
 
 		errCode := server.WaitForQuitSignals(
+			&server.Context{Logger: log.NewNopLogger()},
 			make(chan struct{}),
 			time.Now(),
 		)

@@ -302,7 +302,7 @@ func startStandAlone(ctx *Context, appCreator types.AppCreator) error {
 	restartCh := make(chan struct{})
 
 	// Wait for SIGINT or SIGTERM signal
-	return WaitForQuitSignals(restartCh, time.Now())
+	return WaitForQuitSignals(ctx, restartCh, time.Now())
 }
 
 func startInProcess(
@@ -449,7 +449,7 @@ func startInProcess(
 	// we do not need to start Rosetta or handle any Tendermint related processes.
 	if gRPCOnly {
 		// wait for signal capture and gracefully return
-		return WaitForQuitSignals(restartCh, canRestartAfter)
+		return WaitForQuitSignals(ctx, restartCh, canRestartAfter)
 	}
 
 	var rosettaSrv crgserver.Server
@@ -522,5 +522,5 @@ func startInProcess(
 	}()
 
 	// wait for signal capture and gracefully return
-	return WaitForQuitSignals(restartCh, canRestartAfter)
+	return WaitForQuitSignals(ctx, restartCh, canRestartAfter)
 }
