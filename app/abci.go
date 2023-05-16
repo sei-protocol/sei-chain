@@ -40,13 +40,9 @@ func (app *App) CheckTx(ctx context.Context, req *abci.RequestCheckTx) (*abci.Re
 
 func (app *App) DeliverTx(ctx sdk.Context, req abci.RequestDeliverTx) abci.ResponseDeliverTx {
 	defer metrics.MeasureDeliverTxDuration(time.Now())
-	spanCtx, span := app.GetBaseApp().TracingInfo.Start("DeliverTx")
+	spanCtx, span := app.TracingInfo.StartWithContext("DeliverTx", ctx.TraceSpanContext())
 	defer span.End()
-	// restore the context when exiting
-	oldCtx := app.GetBaseApp().TracingInfo.GetContext()
-	defer app.GetBaseApp().TracingInfo.SetContext(oldCtx)
-	// update tracing info context for building child spans
-	app.GetBaseApp().TracingInfo.SetContext(spanCtx)
+	ctx = ctx.WithTraceSpanContext(spanCtx)
 	return app.BaseApp.DeliverTx(ctx, req)
 }
 
