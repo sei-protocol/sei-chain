@@ -15,8 +15,9 @@ func (app *App) BeginBlock(ctx sdk.Context, req abci.RequestBeginBlock) (res abc
 	topSpan.SetAttributes(attribute.Int64("height", req.Header.Height))
 	app.GetBaseApp().TracingInfo.BlockSpan = &topSpan
 	app.GetBaseApp().TracingInfo.SetContext(tracectx)
-	_, beginBlockSpan := (*app.GetBaseApp().TracingInfo.Tracer).Start(app.GetBaseApp().TracingInfo.GetContext(), "BeginBlock")
+	spanCtx, beginBlockSpan := (*app.GetBaseApp().TracingInfo.Tracer).Start(app.GetBaseApp().TracingInfo.GetContext(), "BeginBlock")
 	defer beginBlockSpan.End()
+	ctx = ctx.WithTraceSpanContext(spanCtx)
 	return app.BaseApp.BeginBlock(ctx, req)
 }
 
