@@ -49,6 +49,8 @@ type Context struct {
 	messageIndex int // Used to track current message being processed
 
 	contextMemCache *ContextMemCache
+
+	traceSpanContext context.Context
 }
 
 // Proposed rename, not done to avoid API breakage
@@ -143,6 +145,10 @@ func (c Context) ContextMemCache() *ContextMemCache {
 func (c Context) BlockHeader() tmproto.Header {
 	msg := proto.Clone(&c.header).(*tmproto.Header)
 	return *msg
+}
+
+func (c Context) TraceSpanContext() context.Context {
+	return c.traceSpanContext
 }
 
 // WithEventManager returns a Context with an updated tx priority
@@ -337,6 +343,11 @@ func (c Context) WithMsgValidator(msgValidator *acltypes.MsgValidator) Context {
 // WithContextMemCache returns a Context with a new context mem cache
 func (c Context) WithContextMemCache(contextMemCache *ContextMemCache) Context {
 	c.contextMemCache = contextMemCache
+	return c
+}
+
+func (c Context) WithTraceSpanContext(ctx context.Context) Context {
+	c.traceSpanContext = ctx
 	return c
 }
 

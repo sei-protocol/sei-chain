@@ -9,7 +9,14 @@ import (
 	"sync"
 	"time"
 
+	"context"
+
 	"github.com/gogo/protobuf/proto"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
+
+	"github.com/cosmos/cosmos-sdk/utils/tracing"
 	sdbm "github.com/sei-protocol/sei-tm-db/backends"
 	"github.com/spf13/cast"
 	leveldbutils "github.com/syndtr/goleveldb/leveldb/util"
@@ -153,6 +160,8 @@ type BaseApp struct { //nolint: maligned
 	compactionInterval uint64
 
 	TmConfig *tmcfg.Config
+
+	TracingInfo *tracing.Info
 }
 
 type appStore struct {
@@ -223,6 +232,18 @@ func NewBaseApp(
 			cms = store.NewCommitMultiStoreWithArchival(db, arweaveDb, archivalVersion)
 		}
 	}
+
+	tp := trace.NewNoopTracerProvider()
+	otel.SetTracerProvider(trace.NewNoopTracerProvider())
+	tr := tp.Tracer("component-main")
+	if tracingEnabled := cast.ToBool(appOpts.Get(tracing.FlagTracing)); tracingEnabled {
+		tp, err := tracing.DefaultTracerProvider()
+		if err != nil {
+			panic(err)
+		}
+		otel.SetTracerProvider(tp)
+		tr = tp.Tracer("component-main")
+	}
 	app := &BaseApp{
 		logger: logger,
 		name:   name,
@@ -240,7 +261,12 @@ func NewBaseApp(
 		},
 		txDecoder: txDecoder,
 		TmConfig:  tmConfig,
+		TracingInfo: &tracing.Info{
+			Tracer: &tr,
+		},
 	}
+
+	app.TracingInfo.SetContext(context.Background())
 
 	for _, option := range options {
 		option(app)
@@ -817,6 +843,11 @@ func (app *BaseApp) runTx(ctx sdk.Context, mode runTxMode, txBytes []byte) (gInf
 	// resources are acceessed by the ante handlers and message handlers.
 	defer acltypes.SendAllSignalsForTx(ctx.TxCompletionChannels())
 	acltypes.WaitForAllSignalsForTx(ctx.TxBlockingChannels())
+	// check for existing parent tracer, and if applicable, use it
+	spanCtx, span := app.TracingInfo.StartWithContext("RunTx", ctx.TraceSpanContext())
+	defer span.End()
+	ctx = ctx.WithTraceSpanContext(spanCtx)
+	span.SetAttributes(attribute.String("txHash", fmt.Sprintf("%X", sha256.Sum256(txBytes))))
 
 	if goCtx := ctx.Context(); goCtx != nil {
 		if v := goCtx.Value(RunTxPreHookKey); v != nil {
@@ -887,6 +918,9 @@ func (app *BaseApp) runTx(ctx sdk.Context, mode runTxMode, txBytes []byte) (gInf
 	}
 
 	if app.anteHandler != nil {
+		// trace AnteHandler
+		_, anteSpan := app.TracingInfo.StartWithContext("AnteHandler", ctx.TraceSpanContext())
+		defer anteSpan.End()
 		var (
 			anteCtx sdk.Context
 			msCache sdk.CacheMultiStore
@@ -943,6 +977,7 @@ func (app *BaseApp) runTx(ctx sdk.Context, mode runTxMode, txBytes []byte) (gInf
 		priority = ctx.Priority()
 		msCache.Write()
 		anteEvents = events.ToABCIEvents()
+		anteSpan.End()
 	}
 
 	// Create a new Context based off of the existing Context with a MultiStore branch
@@ -981,6 +1016,9 @@ func (app *BaseApp) runMsgs(ctx sdk.Context, msgs []sdk.Msg, mode runTxMode) (*s
 			panic(err)
 		}
 	}()
+	spanCtx, span := app.TracingInfo.StartWithContext("RunMsgs", ctx.TraceSpanContext())
+	defer span.End()
+	ctx = ctx.WithTraceSpanContext(spanCtx)
 	msgLogs := make(sdk.ABCIMessageLogs, 0, len(msgs))
 	events := sdk.EmptyEvents()
 	txMsgData := &sdk.TxMsgData{

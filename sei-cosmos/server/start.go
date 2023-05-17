@@ -37,6 +37,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/server/types"
 	storetypes "github.com/cosmos/cosmos-sdk/store/types"
 	"github.com/cosmos/cosmos-sdk/telemetry"
+	"github.com/cosmos/cosmos-sdk/utils/tracing"
 )
 
 const (
@@ -52,7 +53,6 @@ const (
 	FlagInterBlockCache    = "inter-block-cache"
 	FlagUnsafeSkipUpgrades = "unsafe-skip-upgrades"
 	FlagTrace              = "trace"
-	FlagTracing            = "tracing"
 	FlagProfile            = "profile"
 	FlagInvCheckPeriod     = "inv-check-period"
 
@@ -168,7 +168,7 @@ is performed. Note, when enabled, gRPC will also be automatically enabled.
 				panic(fmt.Sprintf("genesis file chain-id=%s does not equal config.toml chain-id=%s", genesisFile.ChainID, clientCtx.ChainID))
 			}
 
-			if enableTracing, _ := cmd.Flags().GetBool(FlagTracing); !enableTracing {
+			if enableTracing, _ := cmd.Flags().GetBool(tracing.FlagTracing); !enableTracing {
 				serverCtx.Logger.Info("--tracing not passed in, tracing is not enabled")
 				tracerProviderOptions = []trace.TracerProviderOption{}
 			}
@@ -231,7 +231,7 @@ is performed. Note, when enabled, gRPC will also be automatically enabled.
 	cmd.Flags().Bool(FlagInterBlockCache, true, "Enable inter-block caching")
 	cmd.Flags().String(flagCPUProfile, "", "Enable CPU profiling and write to the provided file")
 	cmd.Flags().Bool(FlagTrace, false, "Provide full stack traces for errors in ABCI Log")
-	cmd.Flags().Bool(FlagTracing, false, "Enable Tracing for the app")
+	cmd.Flags().Bool(tracing.FlagTracing, false, "Enable Tracing for the app")
 	cmd.Flags().Bool(FlagProfile, false, "Enable Profiling in the application")
 	cmd.Flags().String(FlagPruning, storetypes.PruningOptionDefault, "Pruning strategy (default|nothing|everything|custom)")
 	cmd.Flags().Uint64(FlagPruningKeepRecent, 0, "Number of recent heights to keep on disk (ignored if pruning is not 'custom')")
