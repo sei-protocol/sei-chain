@@ -60,7 +60,7 @@ func (k msgServer) PlaceOrders(goCtx context.Context, msg *types.MsgPlaceOrders)
 	idsInResp := []uint64{}
 	maxOrderPerPrice := k.GetMaxOrderPerPrice(ctx)
 	for _, order := range msg.GetOrders() {
-		if k.GetOrderCount(ctx, msg.GetContractAddr(), order.PriceDenom, order.AssetDenom, order.PositionDirection, order.Price) >= maxOrderPerPrice {
+		if k.GetOrderCountState(ctx, msg.GetContractAddr(), order.PriceDenom, order.AssetDenom, order.PositionDirection, order.Price) >= maxOrderPerPrice {
 			return nil, sdkerrors.Wrapf(sdkerrors.ErrInvalidRequest, "order book already has more than %d orders for %s-%s-%s %s at %s", maxOrderPerPrice, msg.GetContractAddr(), order.PriceDenom, order.AssetDenom, order.PositionDirection, order.Price)
 		}
 		priceTicksize, found := k.Keeper.GetPriceTickSizeForPair(ctx, msg.GetContractAddr(), types.Pair{PriceDenom: order.PriceDenom, AssetDenom: order.AssetDenom})

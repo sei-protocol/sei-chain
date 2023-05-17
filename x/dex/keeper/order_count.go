@@ -24,7 +24,7 @@ func (k Keeper) SetOrderCount(ctx sdk.Context, contractAddr string, priceDenom s
 	return nil
 }
 
-func (k Keeper) GetOrderCount(ctx sdk.Context, contractAddr string, priceDenom string, assetDenom string, direction types.PositionDirection, price sdk.Dec) uint64 {
+func (k Keeper) GetOrderCountState(ctx sdk.Context, contractAddr string, priceDenom string, assetDenom string, direction types.PositionDirection, price sdk.Dec) uint64 {
 	store := prefix.NewStore(
 		ctx.KVStore(k.storeKey),
 		types.OrderCountPrefix(contractAddr, priceDenom, assetDenom, direction == types.PositionDirection_LONG),
@@ -42,7 +42,7 @@ func (k Keeper) GetOrderCount(ctx sdk.Context, contractAddr string, priceDenom s
 }
 
 func (k Keeper) DecreaseOrderCount(ctx sdk.Context, contractAddr string, priceDenom string, assetDenom string, direction types.PositionDirection, price sdk.Dec, count uint64) error {
-	oldCount := k.GetOrderCount(ctx, contractAddr, priceDenom, assetDenom, direction, price)
+	oldCount := k.GetOrderCountState(ctx, contractAddr, priceDenom, assetDenom, direction, price)
 	newCount := uint64(0)
 	if oldCount > count {
 		newCount = oldCount - count
@@ -51,6 +51,6 @@ func (k Keeper) DecreaseOrderCount(ctx sdk.Context, contractAddr string, priceDe
 }
 
 func (k Keeper) IncreaseOrderCount(ctx sdk.Context, contractAddr string, priceDenom string, assetDenom string, direction types.PositionDirection, price sdk.Dec, count uint64) error {
-	oldCount := k.GetOrderCount(ctx, contractAddr, priceDenom, assetDenom, direction, price)
+	oldCount := k.GetOrderCountState(ctx, contractAddr, priceDenom, assetDenom, direction, price)
 	return k.SetOrderCount(ctx, contractAddr, priceDenom, assetDenom, direction, price, oldCount+count)
 }

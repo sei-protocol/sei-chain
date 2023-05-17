@@ -14,6 +14,7 @@ import "dex/asset_list.proto";
 import "dex/pair.proto";
 import "dex/order.proto";
 import "dex/match_result.proto";
+import "dex/enums.proto";
 // this line is used by starport scaffolding # 1
 
 option go_package = "github.com/sei-protocol/sei-chain/x/dex/types";
@@ -99,6 +100,8 @@ service Query {
 	rpc GetOrderSimulation(QueryOrderSimulationRequest) returns (QueryOrderSimulationResponse) {}
 
 	rpc GetMatchResult(QueryGetMatchResultRequest) returns (QueryGetMatchResultResponse) {}
+
+	rpc GetOrderCount(QueryGetOrderCountRequest) returns (QueryGetOrderCountResponse) {}
 
 // this line is used by starport scaffolding # 2
 }
@@ -368,6 +371,31 @@ message QueryGetMatchResultRequest {
 message QueryGetMatchResultResponse {
 	MatchResult result = 1 [
 		(gogoproto.jsontag) = "result"
+	];
+}
+
+message QueryGetOrderCountRequest {
+	string contractAddr = 1 [
+		(gogoproto.jsontag) = "contract_address"
+	];
+	string priceDenom = 2 [
+		(gogoproto.jsontag) = "price_denom"
+	];
+	string assetDenom = 3 [
+		(gogoproto.jsontag) = "asset_denom"
+	];
+	string price = 4 [
+        (gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Dec",
+        (gogoproto.jsontag)    = "price"
+    ];
+	PositionDirection positionDirection = 5 [
+        (gogoproto.jsontag) = "position_direction"
+    ];
+}
+
+message QueryGetOrderCountResponse {
+	uint64 count = 1 [
+		(gogoproto.jsontag) = "count"
 	];
 }
 // this line is used by starport scaffolding # 3
