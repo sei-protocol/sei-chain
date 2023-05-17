@@ -198,7 +198,7 @@ func (e EventDataNewBlock) ToLegacy() LegacyEventData {
 		block = &LegacyBlock{
 			Header:     e.Block.Header,
 			Data:       e.Block.Data,
-			Evidence:   LegacyEvidence{Evidence: e.Block.Evidence.Evidence},
+			Evidence:   LegacyEvidence{Evidence: e.Block.Evidence},
 			LastCommit: e.Block.LastCommit,
 		}
 	}

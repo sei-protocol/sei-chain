@@ -1493,7 +1493,7 @@ func (cs *State) defaultDecideProposal(ctx context.Context, height int64, round 
 
 	// Make proposal
 	propBlockID := types.BlockID{Hash: block.Hash(), PartSetHeader: blockParts.Header()}
-	proposal := types.NewProposal(height, round, cs.roundState.ValidRound(), propBlockID, block.Header.Time, block.GetTxKeys(), block.Header, block.LastCommit, block.Evidence.Evidence, cs.privValidatorPubKey.Address())
+	proposal := types.NewProposal(height, round, cs.roundState.ValidRound(), propBlockID, block.Header.Time, block.GetTxKeys(), block.Header, block.LastCommit, block.Evidence, cs.privValidatorPubKey.Address())
 	p := proposal.ToProto()
 
 	// wait the max amount we would wait for a proposal
@@ -1647,7 +1647,7 @@ func (cs *State) defaultDoPrevote(ctx context.Context, height int64, round int32
 					return
 				}
 				// We have full proposal block and txs. Build proposal block with txKeys
-				proposalBlock := cs.buildProposalBlock(height, block.Header, block.LastCommit, block.Evidence.Evidence, block.ProposerAddress, txKeys)
+				proposalBlock := cs.buildProposalBlock(height, block.Header, block.LastCommit, block.Evidence, block.ProposerAddress, txKeys)
 				if proposalBlock == nil {
 					cs.signAddVote(ctx, tmproto.PrevoteType, nil, types.PartSetHeader{})
 					return
@@ -2280,7 +2280,7 @@ func (cs *State) RecordMetrics(height int64, block *types.Block) {
 		byzantineValidatorsCount int64
 	)
 
-	for _, ev := range block.Evidence.Evidence {
+	for _, ev := range block.Evidence {
 		if dve, ok := ev.(*types.DuplicateVoteEvidence); ok {
 			if _, val := cs.roundState.Validators().GetByAddress(dve.VoteA.ValidatorAddress); val != nil {
 				byzantineValidatorsCount++

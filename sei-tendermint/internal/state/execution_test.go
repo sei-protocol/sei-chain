@@ -266,7 +266,7 @@ func TestFinalizeBlockByzantineValidators(t *testing.T) {
 	blockExec := sm.NewBlockExecutor(stateStore, log.NewNopLogger(), proxyApp, mp, evpool, blockStore, eventBus, sm.NopMetrics())
 
 	block := sf.MakeBlock(state, 1, new(types.Commit))
-	block.Evidence = types.EvidenceData{Evidence: ev}
+	block.Evidence = ev
 	block.Header.EvidenceHash = block.Evidence.Hash()
 	bps, err := block.MakePartSet(testPartSize)
 	require.NoError(t, err)
@@ -347,7 +347,7 @@ func TestProcessProposal(t *testing.T) {
 		Hash:                block1.Hash(),
 		Height:              block1.Header.Height,
 		Time:                block1.Header.Time,
-		ByzantineValidators: block1.Evidence.Evidence.ToABCI(),
+		ByzantineValidators: block1.Evidence.ToABCI(),
 		ProposedLastCommit: abci.CommitInfo{
 			Round: 0,
 			Votes: voteInfos,

@@ -388,7 +388,7 @@ func setupSimulator(ctx context.Context, t *testing.T) *simulatorTestSuite {
 
 	pubKey, err := vss[1].PrivValidator.GetPubKey(ctx)
 	require.NoError(t, err)
-	proposal := types.NewProposal(vss[1].Height, round, -1, blockID, propBlock.Header.Time, propBlock.GetTxKeys(), propBlock.Header, propBlock.LastCommit, propBlock.Evidence.Evidence, pubKey.Address())
+	proposal := types.NewProposal(vss[1].Height, round, -1, blockID, propBlock.Header.Time, propBlock.GetTxKeys(), propBlock.Header, propBlock.LastCommit, propBlock.Evidence, pubKey.Address())
 	p := proposal.ToProto()
 	if err := vss[1].SignProposal(ctx, cfg.ChainID(), p); err != nil {
 		t.Fatal("failed to sign bad proposal", err)
@@ -423,7 +423,7 @@ func setupSimulator(ctx context.Context, t *testing.T) *simulatorTestSuite {
 	blockID = types.BlockID{Hash: propBlock.Hash(), PartSetHeader: propBlockParts.Header()}
 	pubKey, err = vss[2].PrivValidator.GetPubKey(ctx)
 	require.NoError(t, err)
-	proposal = types.NewProposal(vss[1].Height, round, -1, blockID, propBlock.Header.Time, propBlock.GetTxKeys(), propBlock.Header, propBlock.LastCommit, propBlock.Evidence.Evidence, pubKey.Address())
+	proposal = types.NewProposal(vss[1].Height, round, -1, blockID, propBlock.Header.Time, propBlock.GetTxKeys(), propBlock.Header, propBlock.LastCommit, propBlock.Evidence, pubKey.Address())
 	p = proposal.ToProto()
 	if err := vss[2].SignProposal(ctx, cfg.ChainID(), p); err != nil {
 		t.Fatal("failed to sign bad proposal", err)
@@ -487,7 +487,7 @@ func setupSimulator(ctx context.Context, t *testing.T) *simulatorTestSuite {
 	require.NotEqual(t, -1, selfIndex)
 	pubKey, err = vss[3].PrivValidator.GetPubKey(ctx)
 	require.NoError(t, err)
-	proposal = types.NewProposal(vss[3].Height, round, -1, blockID, propBlock.Header.Time, propBlock.GetTxKeys(), propBlock.Header, propBlock.LastCommit, propBlock.Evidence.Evidence, pubKey.Address())
+	proposal = types.NewProposal(vss[3].Height, round, -1, blockID, propBlock.Header.Time, propBlock.GetTxKeys(), propBlock.Header, propBlock.LastCommit, propBlock.Evidence, pubKey.Address())
 	p = proposal.ToProto()
 	if err := vss[3].SignProposal(ctx, cfg.ChainID(), p); err != nil {
 		t.Fatal("failed to sign bad proposal", err)
@@ -560,7 +560,7 @@ func setupSimulator(ctx context.Context, t *testing.T) *simulatorTestSuite {
 	require.NotEqual(t, -1, selfIndex)
 	pubKey, err = vss[1].PrivValidator.GetPubKey(ctx)
 	require.NoError(t, err)
-	proposal = types.NewProposal(vss[1].Height, round, -1, blockID, propBlock.Header.Time, propBlock.GetTxKeys(), propBlock.Header, propBlock.LastCommit, propBlock.Evidence.Evidence, pubKey.Address())
+	proposal = types.NewProposal(vss[1].Height, round, -1, blockID, propBlock.Header.Time, propBlock.GetTxKeys(), propBlock.Header, propBlock.LastCommit, propBlock.Evidence, pubKey.Address())
 	p = proposal.ToProto()
 	if err := vss[1].SignProposal(ctx, cfg.ChainID(), p); err != nil {
 		t.Fatal("failed to sign bad proposal", err)

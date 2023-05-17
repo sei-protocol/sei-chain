@@ -110,7 +110,7 @@ func (blockExec *BlockExecutor) CreateProposalBlock(
 			MaxTxBytes:            maxDataBytes,
 			Txs:                   block.Txs.ToSliceOfBytes(),
 			LocalLastCommit:       buildExtendedCommitInfo(lastExtCommit, blockExec.store, state.InitialHeight, state.ConsensusParams.ABCI),
-			ByzantineValidators:   block.Evidence.Evidence.ToABCI(),
+			ByzantineValidators:   block.Evidence.ToABCI(),
 			Height:                block.Height,
 			Time:                  block.Time,
 			NextValidatorsHash:    block.NextValidatorsHash,
@@ -169,7 +169,7 @@ func (blockExec *BlockExecutor) ProcessProposal(
 		Time:                  block.Header.Time,
 		Txs:                   txs,
 		ProposedLastCommit:    buildLastCommitInfo(block, blockExec.store, state.InitialHeight),
-		ByzantineValidators:   block.Evidence.Evidence.ToABCI(),
+		ByzantineValidators:   block.Evidence.ToABCI(),
 		ProposerAddress:       block.ProposerAddress,
 		NextValidatorsHash:    block.NextValidatorsHash,
 		AppHash:               block.AppHash,
@@ -208,7 +208,7 @@ func (blockExec *BlockExecutor) ValidateBlock(ctx context.Context, state State, 
 		return err
 	}
 
-	err = blockExec.evpool.CheckEvidence(ctx, block.Evidence.Evidence)
+	err = blockExec.evpool.CheckEvidence(ctx, block.Evidence)
 	if err != nil {
 		return err
 	}
@@ -254,7 +254,7 @@ func (blockExec *BlockExecutor) ApplyBlock(
 			Time:                  block.Header.Time,
 			Txs:                   txs,
 			DecidedLastCommit:     buildLastCommitInfo(block, blockExec.store, state.InitialHeight),
-			ByzantineValidators:   block.Evidence.Evidence.ToABCI(),
+			ByzantineValidators:   block.Evidence.ToABCI(),
 			ProposerAddress:       block.ProposerAddress,
 			NextValidatorsHash:    block.NextValidatorsHash,
 			AppHash:               block.AppHash,
@@ -337,7 +337,7 @@ func (blockExec *BlockExecutor) ApplyBlock(
 	}
 
 	// Update evpool with the latest state.
-	blockExec.evpool.Update(ctx, state, block.Evidence.Evidence)
+	blockExec.evpool.Update(ctx, state, block.Evidence)
 
 	// Update the app hash and save the state.
 	state.AppHash = fBlockRes.AppHash
@@ -711,8 +711,8 @@ func fireEvents(
 		logger.Error("failed publishing new block header", "err", err)
 	}
 
-	if len(block.Evidence.Evidence) != 0 {
-		for _, ev := range block.Evidence.Evidence {
+	if len(block.Evidence) != 0 {
+		for _, ev := range block.Evidence {
 			if err := eventBus.PublishEventNewEvidence(types.EventDataNewEvidence{
 				Evidence: ev,
 				Height:   block.Height,
@@ -772,7 +772,7 @@ func ExecCommitBlock(
 			Time:                  block.Time,
 			Txs:                   block.Txs.ToSliceOfBytes(),
 			DecidedLastCommit:     buildLastCommitInfo(block, store, initialHeight),
-			ByzantineValidators:   block.Evidence.Evidence.ToABCI(),
+			ByzantineValidators:   block.Evidence.ToABCI(),
 			AppHash:               block.AppHash,
 			ValidatorsHash:        block.ValidatorsHash,
 			ConsensusHash:         block.ConsensusHash,
