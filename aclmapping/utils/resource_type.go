@@ -48,6 +48,8 @@ var StoreKeyToResourceTypePrefixMap = aclsdktypes.StoreKeyToResourceTypePrefixMa
 		aclsdktypes.ResourceType_KV_DEX_MATCH_RESULT:          dextypes.KeyPrefix(dextypes.MatchResultKey),
 		aclsdktypes.ResourceType_KV_DEX_CONTRACT:              dextypes.KeyPrefix(dexkeeper.ContractPrefixKey),
 		aclsdktypes.ResourceType_KV_DEX_ORDER_BOOK:            dextypes.KeyPrefix(dextypes.NextOrderIDKey),
+		aclsdktypes.ResourceType_KV_DEX_LONG_ORDER_COUNT:      dextypes.KeyPrefix(dextypes.LongOrderCountKey),
+		aclsdktypes.ResourceType_KV_DEX_SHORT_ORDER_COUNT:     dextypes.KeyPrefix(dextypes.ShortOrderCountKey),
 		// SETTLEMENT keys are prefixed with account and order id
 		aclsdktypes.ResourceType_KV_DEX_SETTLEMENT_ORDER_ID: aclsdktypes.EmptyPrefix,
 		aclsdktypes.ResourceType_KV_DEX_SETTLEMENT:          aclsdktypes.EmptyPrefix,

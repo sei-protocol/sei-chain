@@ -182,6 +182,8 @@ const (
 	RegisteredPairKey   = "rp"
 	AssetListKey        = "AssetList-"
 	MatchResultKey      = "MatchResult-"
+	LongOrderCountKey   = "loc-"
+	ShortOrderCountKey  = "soc-"
 
 	MemOrderKey   = "MemOrder-"
 	MemDepositKey = "MemDeposit-"
