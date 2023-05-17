@@ -9,6 +9,8 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/armon/go-metrics"
+	"github.com/cosmos/cosmos-sdk/telemetry"
 	iavltree "github.com/cosmos/iavl"
 	protoio "github.com/gogo/protobuf/io"
 	gogotypes "github.com/gogo/protobuf/types"
@@ -775,6 +777,9 @@ func (rs *Store) Snapshot(height uint64, protoWriter protoio.Writer) error {
 	// and the following messages contain a SnapshotNode (i.e. an ExportNode). Store changes
 	// are demarcated by new SnapshotStore items.
 	for _, store := range stores {
+		totalKeyBytes := int64(0)
+		totalValueBytes := int64(0)
+		totalNumKeys := int64(0)
 		exporter, err := store.Export(int64(height))
 		if err != nil {
 			return err
@@ -811,7 +816,27 @@ func (rs *Store) Snapshot(height uint64, protoWriter protoio.Writer) error {
 			if err != nil {
 				return err
 			}
+			totalKeyBytes += int64(len(node.Key))
+			totalValueBytes += int64(len(node.Value))
+			totalNumKeys += 1
 		}
+		telemetry.SetGaugeWithLabels(
+			[]string{"iavl", "store", "total_num_keys"},
+			float32(totalNumKeys),
+			[]metrics.Label{telemetry.NewLabel("store_name", store.name)},
+		)
+		telemetry.SetGaugeWithLabels(
+			[]string{"iavl", "store", "total_key_bytes"},
+			float32(totalKeyBytes),
+			[]metrics.Label{telemetry.NewLabel("store_name", store.name)},
+		)
+		telemetry.SetGaugeWithLabels(
+			[]string{"iavl", "store", "total_value_bytes"},
+			float32(totalValueBytes),
+			[]metrics.Label{telemetry.NewLabel("store_name", store.name)},
+		)
+		rs.logger.Info(fmt.Sprintf("Exported snapshot for store %s, with total number of keys %d, total key bytes %d, total value bytes %d",
+			store.name, totalNumKeys, totalKeyBytes, totalValueBytes))
 		exporter.Close()
 	}
 
