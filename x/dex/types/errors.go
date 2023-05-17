@@ -23,4 +23,6 @@ var (
 	ErrParsingContractInfo        = sdkerrors.Register(ModuleName, 18, "Error parsing contract info")
 	ErrInsufficientRent           = sdkerrors.Register(ModuleName, 19, "Error contract does not have sufficient fee")
 	ErrCircularContractDependency = sdkerrors.Register(ModuleName, 1103, "circular contract dependency detected")
+	ErrContractSuspended          = sdkerrors.Register(ModuleName, 1104, "contract suspended")
+	ErrContractNotSuspended       = sdkerrors.Register(ModuleName, 1105, "contract not suspended")
 )

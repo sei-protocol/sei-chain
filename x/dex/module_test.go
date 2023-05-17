@@ -14,7 +14,6 @@ import (
 	dexcache "github.com/sei-protocol/sei-chain/x/dex/cache"
 	"github.com/sei-protocol/sei-chain/x/dex/contract"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
-	"github.com/sei-protocol/sei-chain/x/dex/types/utils"
 	dexutils "github.com/sei-protocol/sei-chain/x/dex/utils"
 	minttypes "github.com/sei-protocol/sei-chain/x/mint/types"
 	"github.com/stretchr/testify/require"
@@ -51,9 +50,9 @@ const (
 
 func TestEndBlockMarketOrder(t *testing.T) {
 	testApp := keepertest.TestApp()
-	ctx := testApp.BaseApp.NewContext(false, tmproto.Header{Time: time.Now()})
-	ctx = ctx.WithContext(context.WithValue(ctx.Context(), dexutils.DexMemStateContextKey, dexcache.NewMemState(testApp.GetKey(types.StoreKey))))
 	dexkeeper := testApp.DexKeeper
+	ctx := testApp.BaseApp.NewContext(false, tmproto.Header{Time: time.Now()})
+	ctx = ctx.WithContext(context.WithValue(ctx.Context(), dexutils.DexMemStateContextKey, dexcache.NewMemState(dexkeeper.GetMemStoreKey())))
 	pair := types.Pair{PriceDenom: "SEI", AssetDenom: "ATOM"}
 
 	testAccount, _ := sdk.AccAddressFromBech32("sei1yezq49upxhunjjhudql2fnj5dgvcwjj87pn2wx")
@@ -84,7 +83,7 @@ func TestEndBlockMarketOrder(t *testing.T) {
 		panic(err)
 	}
 	dexkeeper.AddRegisteredPair(ctx, contractAddr.String(), pair)
-	dexutils.GetMemState(ctx.Context()).GetBlockOrders(ctx, utils.ContractAddress(contractAddr.String()), utils.GetPairString(&pair)).Add(
+	dexutils.GetMemState(ctx.Context()).GetBlockOrders(ctx, types.ContractAddress(contractAddr.String()), types.GetPairString(&pair)).Add(
 		&types.Order{
 			Id:                1,
 			Account:           testAccount.String(),
@@ -98,7 +97,7 @@ func TestEndBlockMarketOrder(t *testing.T) {
 			Data:              "{\"position_effect\":\"Open\",\"leverage\":\"1\"}",
 		},
 	)
-	dexutils.GetMemState(ctx.Context()).GetBlockOrders(ctx, utils.ContractAddress(contractAddr.String()), utils.GetPairString(&pair)).Add(
+	dexutils.GetMemState(ctx.Context()).GetBlockOrders(ctx, types.ContractAddress(contractAddr.String()), types.GetPairString(&pair)).Add(
 		&types.Order{
 			Id:                2,
 			Account:           testAccount.String(),
@@ -112,13 +111,20 @@ func TestEndBlockMarketOrder(t *testing.T) {
 			Data:              "{\"position_effect\":\"Open\",\"leverage\":\"1\"}",
 		},
 	)
-	dexutils.GetMemState(ctx.Context()).GetDepositInfo(ctx, utils.ContractAddress(contractAddr.String())).Add(
+	dexutils.GetMemState(ctx.Context()).GetDepositInfo(ctx, types.ContractAddress(contractAddr.String())).Add(
 		&types.DepositInfoEntry{
 			Creator: testAccount.String(),
 			Denom:   "uusdc",
 			Amount:  sdk.MustNewDecFromStr("2000000"),
 		},
 	)
+	dexutils.GetMemState(ctx.Context()).SetDownstreamsToProcess(contractAddr.String(), func(addr string) *types.ContractInfoV2 {
+		c, err := dexkeeper.GetContract(ctx, addr)
+		if err != nil {
+			return nil
+		}
+		return &c
+	})
 
 	ctx = ctx.WithBlockHeight(1)
 	testApp.EndBlocker(ctx, abci.RequestEndBlock{})
@@ -127,7 +133,7 @@ func TestEndBlockMarketOrder(t *testing.T) {
 	require.True(t, found)
 
 	dexutils.GetMemState(ctx.Context()).Clear(ctx)
-	dexutils.GetMemState(ctx.Context()).GetBlockOrders(ctx, utils.ContractAddress(contractAddr.String()), utils.GetPairString(&pair)).Add(
+	dexutils.GetMemState(ctx.Context()).GetBlockOrders(ctx, types.ContractAddress(contractAddr.String()), types.GetPairString(&pair)).Add(
 		&types.Order{
 			Id:                3,
 			Account:           testAccount.String(),
@@ -141,6 +147,13 @@ func TestEndBlockMarketOrder(t *testing.T) {
 			Data:              "{\"position_effect\":\"Open\",\"leverage\":\"1\"}",
 		},
 	)
+	dexutils.GetMemState(ctx.Context()).SetDownstreamsToProcess(contractAddr.String(), func(addr string) *types.ContractInfoV2 {
+		c, err := dexkeeper.GetContract(ctx, addr)
+		if err != nil {
+			return nil
+		}
+		return &c
+	})
 
 	ctx = ctx.WithBlockHeight(2)
 	testApp.EndBlocker(ctx, abci.RequestEndBlock{})
@@ -158,7 +171,7 @@ func TestEndBlockMarketOrder(t *testing.T) {
 	require.Equal(t, 2, len(matchResults.Settlements))
 
 	dexutils.GetMemState(ctx.Context()).Clear(ctx)
-	dexutils.GetMemState(ctx.Context()).GetBlockOrders(ctx, utils.ContractAddress(contractAddr.String()), utils.GetPairString(&pair)).Add(
+	dexutils.GetMemState(ctx.Context()).GetBlockOrders(ctx, types.ContractAddress(contractAddr.String()), types.GetPairString(&pair)).Add(
 		&types.Order{
 			Id:                4,
 			Account:           testAccount.String(),
@@ -172,6 +185,13 @@ func TestEndBlockMarketOrder(t *testing.T) {
 			Data:              "{\"position_effect\":\"Open\",\"leverage\":\"1\"}",
 		},
 	)
+	dexutils.GetMemState(ctx.Context()).SetDownstreamsToProcess(contractAddr.String(), func(addr string) *types.ContractInfoV2 {
+		c, err := dexkeeper.GetContract(ctx, addr)
+		if err != nil {
+			return nil
+		}
+		return &c
+	})
 
 	ctx = ctx.WithBlockHeight(3)
 	testApp.EndBlocker(ctx, abci.RequestEndBlock{})
@@ -184,7 +204,7 @@ func TestEndBlockMarketOrder(t *testing.T) {
 func TestEndBlockLimitOrder(t *testing.T) {
 	testApp := keepertest.TestApp()
 	ctx := testApp.BaseApp.NewContext(false, tmproto.Header{Time: time.Now()})
-	ctx = ctx.WithContext(context.WithValue(ctx.Context(), dexutils.DexMemStateContextKey, dexcache.NewMemState(testApp.GetKey(types.StoreKey))))
+	ctx = ctx.WithContext(context.WithValue(ctx.Context(), dexutils.DexMemStateContextKey, dexcache.NewMemState(testApp.GetMemKey(types.MemStoreKey))))
 	dexkeeper := testApp.DexKeeper
 	pair := types.Pair{PriceDenom: "SEI", AssetDenom: "ATOM"}
 
@@ -214,7 +234,7 @@ func TestEndBlockLimitOrder(t *testing.T) {
 
 	dexkeeper.SetContract(ctx, &types.ContractInfoV2{CodeId: 123, ContractAddr: contractAddr.String(), NeedHook: false, NeedOrderMatching: true, RentBalance: 100000000})
 	dexkeeper.AddRegisteredPair(ctx, contractAddr.String(), pair)
-	dexutils.GetMemState(ctx.Context()).GetBlockOrders(ctx, utils.ContractAddress(contractAddr.String()), utils.GetPairString(&pair)).Add(
+	dexutils.GetMemState(ctx.Context()).GetBlockOrders(ctx, types.ContractAddress(contractAddr.String()), types.GetPairString(&pair)).Add(
 		&types.Order{
 			Id:                1,
 			Account:           testAccount.String(),
@@ -228,7 +248,7 @@ func TestEndBlockLimitOrder(t *testing.T) {
 			Data:              "{\"position_effect\":\"Open\",\"leverage\":\"1\"}",
 		},
 	)
-	dexutils.GetMemState(ctx.Context()).GetBlockOrders(ctx, utils.ContractAddress(contractAddr.String()), utils.GetPairString(&pair)).Add(
+	dexutils.GetMemState(ctx.Context()).GetBlockOrders(ctx, types.ContractAddress(contractAddr.String()), types.GetPairString(&pair)).Add(
 		&types.Order{
 			Id:                2,
 			Account:           testAccount.String(),
@@ -242,7 +262,7 @@ func TestEndBlockLimitOrder(t *testing.T) {
 			Data:              "{\"position_effect\":\"Open\",\"leverage\":\"1\"}",
 		},
 	)
-	dexutils.GetMemState(ctx.Context()).GetBlockOrders(ctx, utils.ContractAddress(contractAddr.String()), utils.GetPairString(&pair)).Add(
+	dexutils.GetMemState(ctx.Context()).GetBlockOrders(ctx, types.ContractAddress(contractAddr.String()), types.GetPairString(&pair)).Add(
 		&types.Order{
 			Id:                3,
 			Account:           testAccount.String(),
@@ -256,13 +276,20 @@ func TestEndBlockLimitOrder(t *testing.T) {
 			Data:              "{\"position_effect\":\"Open\",\"leverage\":\"1\"}",
 		},
 	)
-	dexutils.GetMemState(ctx.Context()).GetDepositInfo(ctx, utils.ContractAddress(contractAddr.String())).Add(
+	dexutils.GetMemState(ctx.Context()).GetDepositInfo(ctx, types.ContractAddress(contractAddr.String())).Add(
 		&types.DepositInfoEntry{
 			Creator: testAccount.String(),
 			Denom:   "uusdc",
 			Amount:  sdk.MustNewDecFromStr("2000000"),
 		},
 	)
+	dexutils.GetMemState(ctx.Context()).SetDownstreamsToProcess(contractAddr.String(), func(addr string) *types.ContractInfoV2 {
+		c, err := dexkeeper.GetContract(ctx, addr)
+		if err != nil {
+			return nil
+		}
+		return &c
+	})
 
 	ctx = ctx.WithBlockHeight(1)
 	testApp.EndBlocker(ctx, abci.RequestEndBlock{})
@@ -274,7 +301,7 @@ func TestEndBlockLimitOrder(t *testing.T) {
 	require.True(t, found)
 
 	dexutils.GetMemState(ctx.Context()).Clear(ctx)
-	dexutils.GetMemState(ctx.Context()).GetBlockOrders(ctx, utils.ContractAddress(contractAddr.String()), utils.GetPairString(&pair)).Add(
+	dexutils.GetMemState(ctx.Context()).GetBlockOrders(ctx, types.ContractAddress(contractAddr.String()), types.GetPairString(&pair)).Add(
 		&types.Order{
 			Id:                4,
 			Account:           testAccount.String(),
@@ -288,7 +315,7 @@ func TestEndBlockLimitOrder(t *testing.T) {
 			Data:              "{\"position_effect\":\"Open\",\"leverage\":\"1\"}",
 		},
 	)
-	dexutils.GetMemState(ctx.Context()).GetBlockOrders(ctx, utils.ContractAddress(contractAddr.String()), utils.GetPairString(&pair)).Add(
+	dexutils.GetMemState(ctx.Context()).GetBlockOrders(ctx, types.ContractAddress(contractAddr.String()), types.GetPairString(&pair)).Add(
 		&types.Order{
 			Id:                5,
 			Account:           testAccount.String(),
@@ -302,6 +329,13 @@ func TestEndBlockLimitOrder(t *testing.T) {
 			Data:              "{\"position_effect\":\"Open\",\"leverage\":\"1\"}",
 		},
 	)
+	dexutils.GetMemState(ctx.Context()).SetDownstreamsToProcess(contractAddr.String(), func(addr string) *types.ContractInfoV2 {
+		c, err := dexkeeper.GetContract(ctx, addr)
+		if err != nil {
+			return nil
+		}
+		return &c
+	})
 
 	ctx = ctx.WithBlockHeight(2)
 	testApp.EndBlocker(ctx, abci.RequestEndBlock{})
@@ -320,7 +354,7 @@ func TestEndBlockLimitOrder(t *testing.T) {
 	require.Equal(t, 4, len(matchResults.Settlements))
 
 	dexutils.GetMemState(ctx.Context()).Clear(ctx)
-	dexutils.GetMemState(ctx.Context()).GetBlockOrders(ctx, utils.ContractAddress(contractAddr.String()), utils.GetPairString(&pair)).Add(
+	dexutils.GetMemState(ctx.Context()).GetBlockOrders(ctx, types.ContractAddress(contractAddr.String()), types.GetPairString(&pair)).Add(
 		&types.Order{
 			Id:                6,
 			Account:           testAccount.String(),
@@ -334,6 +368,13 @@ func TestEndBlockLimitOrder(t *testing.T) {
 			Data:              "{\"position_effect\":\"Open\",\"leverage\":\"1\"}",
 		},
 	)
+	dexutils.GetMemState(ctx.Context()).SetDownstreamsToProcess(contractAddr.String(), func(addr string) *types.ContractInfoV2 {
+		c, err := dexkeeper.GetContract(ctx, addr)
+		if err != nil {
+			return nil
+		}
+		return &c
+	})
 
 	ctx = ctx.WithBlockHeight(3)
 	testApp.EndBlocker(ctx, abci.RequestEndBlock{})
@@ -353,14 +394,14 @@ func TestEndBlockLimitOrder(t *testing.T) {
 func TestEndBlockRollback(t *testing.T) {
 	testApp := keepertest.TestApp()
 	ctx := testApp.BaseApp.NewContext(false, tmproto.Header{})
-	ctx = ctx.WithContext(context.WithValue(ctx.Context(), dexutils.DexMemStateContextKey, dexcache.NewMemState(testApp.GetKey(types.StoreKey))))
+	ctx = ctx.WithContext(context.WithValue(ctx.Context(), dexutils.DexMemStateContextKey, dexcache.NewMemState(testApp.GetMemKey(types.MemStoreKey))))
 	dexkeeper := testApp.DexKeeper
 	pair := TEST_PAIR()
 	// register contract and pair
 	dexkeeper.SetContract(ctx, &types.ContractInfoV2{CodeId: 123, ContractAddr: keepertest.TestContract, NeedHook: false, NeedOrderMatching: true, RentBalance: 100000000})
 	dexkeeper.AddRegisteredPair(ctx, keepertest.TestContract, pair)
 	// place one order to a nonexistent contract
-	dexutils.GetMemState(ctx.Context()).GetBlockOrders(ctx, utils.ContractAddress(keepertest.TestContract), utils.GetPairString(&pair)).Add(
+	dexutils.GetMemState(ctx.Context()).GetBlockOrders(ctx, types.ContractAddress(keepertest.TestContract), types.GetPairString(&pair)).Add(
 		&types.Order{
 			Id:                1,
 			Account:           keepertest.TestAccount,
@@ -373,17 +414,28 @@ func TestEndBlockRollback(t *testing.T) {
 			PositionDirection: types.PositionDirection_LONG,
 		},
 	)
+	dexutils.GetMemState(ctx.Context()).SetDownstreamsToProcess(keepertest.TestContract, func(addr string) *types.ContractInfoV2 {
+		c, err := dexkeeper.GetContract(ctx, addr)
+		if err != nil {
+			return nil
+		}
+		return &c
+	})
 	ctx = ctx.WithBlockHeight(1)
 	testApp.EndBlocker(ctx, abci.RequestEndBlock{})
 	// No state change should've been persisted
 	matchResult, _ := dexkeeper.GetMatchResultState(ctx, keepertest.TestContract)
 	require.Equal(t, &types.MatchResult{}, matchResult)
+	// contract should be suspended
+	contract, err := dexkeeper.GetContract(ctx, keepertest.TestContract)
+	require.Nil(t, err)
+	require.True(t, contract.Suspended)
 }
 
 func TestEndBlockPartialRollback(t *testing.T) {
 	testApp := keepertest.TestApp()
 	ctx := testApp.BaseApp.NewContext(false, tmproto.Header{Time: time.Now()})
-	ctx = ctx.WithContext(context.WithValue(ctx.Context(), dexutils.DexMemStateContextKey, dexcache.NewMemState(testApp.GetKey(types.StoreKey))))
+	ctx = ctx.WithContext(context.WithValue(ctx.Context(), dexutils.DexMemStateContextKey, dexcache.NewMemState(testApp.GetMemKey(types.MemStoreKey))))
 	// BAD CONTRACT
 	dexkeeper := testApp.DexKeeper
 	pair := TEST_PAIR()
@@ -391,7 +443,7 @@ func TestEndBlockPartialRollback(t *testing.T) {
 	dexkeeper.SetContract(ctx, &types.ContractInfoV2{CodeId: 123, ContractAddr: keepertest.TestContract, NeedHook: false, NeedOrderMatching: true, RentBalance: 100000000})
 	dexkeeper.AddRegisteredPair(ctx, keepertest.TestContract, pair)
 	// place one order to a nonexistent contract
-	dexutils.GetMemState(ctx.Context()).GetBlockOrders(ctx, utils.ContractAddress(keepertest.TestContract), utils.GetPairString(&pair)).Add(
+	dexutils.GetMemState(ctx.Context()).GetBlockOrders(ctx, types.ContractAddress(keepertest.TestContract), types.GetPairString(&pair)).Add(
 		&types.Order{
 			Id:                1,
 			Account:           keepertest.TestAccount,
@@ -404,6 +456,13 @@ func TestEndBlockPartialRollback(t *testing.T) {
 			PositionDirection: types.PositionDirection_LONG,
 		},
 	)
+	dexutils.GetMemState(ctx.Context()).SetDownstreamsToProcess(keepertest.TestContract, func(addr string) *types.ContractInfoV2 {
+		c, err := dexkeeper.GetContract(ctx, addr)
+		if err != nil {
+			return nil
+		}
+		return &c
+	})
 	// GOOD CONTRACT
 	testAccount, _ := sdk.AccAddressFromBech32("sei1yezq49upxhunjjhudql2fnj5dgvcwjj87pn2wx")
 	amounts := sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(1000000)), sdk.NewCoin("uusdc", sdk.NewInt(1000000)))
@@ -430,8 +489,8 @@ func TestEndBlockPartialRollback(t *testing.T) {
 	}
 	dexkeeper.SetContract(ctx, &types.ContractInfoV2{CodeId: 123, ContractAddr: contractAddr.String(), NeedHook: false, NeedOrderMatching: true, RentBalance: 100000000})
 	dexkeeper.AddRegisteredPair(ctx, contractAddr.String(), pair)
-	// place one order to a nonexistent contract
-	dexutils.GetMemState(ctx.Context()).GetBlockOrders(ctx, utils.ContractAddress(contractAddr.String()), utils.GetPairString(&pair)).Add(
+	// place one order to the good contract
+	dexutils.GetMemState(ctx.Context()).GetBlockOrders(ctx, types.ContractAddress(contractAddr.String()), types.GetPairString(&pair)).Add(
 		&types.Order{
 			Id:                2,
 			Account:           testAccount.String(),
@@ -445,22 +504,30 @@ func TestEndBlockPartialRollback(t *testing.T) {
 			Data:              "{\"position_effect\":\"Open\",\"leverage\":\"1\"}",
 		},
 	)
-	dexutils.GetMemState(ctx.Context()).GetDepositInfo(ctx, utils.ContractAddress(contractAddr.String())).Add(
+	dexutils.GetMemState(ctx.Context()).GetDepositInfo(ctx, types.ContractAddress(contractAddr.String())).Add(
 		&types.DepositInfoEntry{
 			Creator: testAccount.String(),
 			Denom:   "uusdc",
 			Amount:  sdk.MustNewDecFromStr("10000"),
 		},
 	)
+	dexutils.GetMemState(ctx.Context()).SetDownstreamsToProcess(contractAddr.String(), func(addr string) *types.ContractInfoV2 {
+		c, err := dexkeeper.GetContract(ctx, addr)
+		if err != nil {
+			return nil
+		}
+		return &c
+	})
 
 	ctx = ctx.WithBlockHeight(1)
 	testApp.EndBlocker(ctx, abci.RequestEndBlock{})
 	// No state change should've been persisted for bad contract
 	matchResult, _ := dexkeeper.GetMatchResultState(ctx, keepertest.TestContract)
 	require.Equal(t, &types.MatchResult{}, matchResult)
-	// bad contract should be unregistered
-	_, err = dexkeeper.GetContract(ctx, keepertest.TestContract)
-	require.Equal(t, types.ErrContractNotExists, err)
+	// bad contract should be suspended
+	contract, err := dexkeeper.GetContract(ctx, keepertest.TestContract)
+	require.Nil(t, err)
+	require.True(t, contract.Suspended)
 	// state change should've been persisted for good contract
 	matchResult, _ = dexkeeper.GetMatchResultState(ctx, contractAddr.String())
 	require.Equal(t, 1, len(matchResult.Orders))
@@ -471,7 +538,7 @@ func TestEndBlockPartialRollback(t *testing.T) {
 func TestBeginBlock(t *testing.T) {
 	testApp := keepertest.TestApp()
 	ctx := testApp.BaseApp.NewContext(false, tmproto.Header{Time: time.Now()})
-	ctx = ctx.WithContext(context.WithValue(ctx.Context(), dexutils.DexMemStateContextKey, dexcache.NewMemState(testApp.GetKey(types.StoreKey))))
+	ctx = ctx.WithContext(context.WithValue(ctx.Context(), dexutils.DexMemStateContextKey, dexcache.NewMemState(testApp.GetMemKey(types.MemStoreKey))))
 	dexkeeper := testApp.DexKeeper
 
 	testAccount, _ := sdk.AccAddressFromBech32("sei1yezq49upxhunjjhudql2fnj5dgvcwjj87pn2wx")
@@ -506,7 +573,7 @@ func TestBeginBlock(t *testing.T) {
 func TestEndBlockPanicHandling(t *testing.T) {
 	testApp := keepertest.TestApp()
 	ctx := testApp.BaseApp.NewContext(false, tmproto.Header{Time: time.Now()})
-	ctx = ctx.WithContext(context.WithValue(ctx.Context(), dexutils.DexMemStateContextKey, dexcache.NewMemState(testApp.GetKey(types.StoreKey))))
+	ctx = ctx.WithContext(context.WithValue(ctx.Context(), dexutils.DexMemStateContextKey, dexcache.NewMemState(testApp.GetMemKey(types.MemStoreKey))))
 	dexkeeper := testApp.DexKeeper
 	pair := types.Pair{PriceDenom: "SEI", AssetDenom: "ATOM"}
 
@@ -535,7 +602,7 @@ func TestEndBlockPanicHandling(t *testing.T) {
 	}
 	dexkeeper.SetContract(ctx, &types.ContractInfoV2{CodeId: 123, ContractAddr: contractAddr.String(), NeedHook: false, NeedOrderMatching: true, RentBalance: 100000000})
 	dexkeeper.AddRegisteredPair(ctx, contractAddr.String(), pair)
-	dexutils.GetMemState(ctx.Context()).GetBlockOrders(ctx, utils.ContractAddress(contractAddr.String()), utils.GetPairString(&pair)).Add(
+	dexutils.GetMemState(ctx.Context()).GetBlockOrders(ctx, types.ContractAddress(contractAddr.String()), types.GetPairString(&pair)).Add(
 		&types.Order{
 			Id:                1,
 			Account:           testAccount.String(),
@@ -549,7 +616,7 @@ func TestEndBlockPanicHandling(t *testing.T) {
 			Data:              "{\"position_effect\":\"Open\",\"leverage\":\"1\"}",
 		},
 	)
-	dexutils.GetMemState(ctx.Context()).GetDepositInfo(ctx, utils.ContractAddress(contractAddr.String())).Add(
+	dexutils.GetMemState(ctx.Context()).GetDepositInfo(ctx, types.ContractAddress(contractAddr.String())).Add(
 		&types.DepositInfoEntry{
 			Creator: testAccount.String(),
 			Denom:   "usei",
@@ -565,7 +632,7 @@ func TestEndBlockPanicHandling(t *testing.T) {
 func TestEndBlockRollbackWithRentCharge(t *testing.T) {
 	testApp := keepertest.TestApp()
 	ctx := testApp.BaseApp.NewContext(false, tmproto.Header{Time: time.Now()})
-	ctx = ctx.WithContext(context.WithValue(ctx.Context(), dexutils.DexMemStateContextKey, dexcache.NewMemState(testApp.GetKey(types.StoreKey))))
+	ctx = ctx.WithContext(context.WithValue(ctx.Context(), dexutils.DexMemStateContextKey, dexcache.NewMemState(testApp.GetMemKey(types.MemStoreKey))))
 	dexkeeper := testApp.DexKeeper
 	pair := TEST_PAIR()
 	// GOOD CONTRACT
@@ -595,7 +662,7 @@ func TestEndBlockRollbackWithRentCharge(t *testing.T) {
 	dexkeeper.SetContract(ctx, &types.ContractInfoV2{CodeId: 123, ContractAddr: contractAddr.String(), NeedHook: false, NeedOrderMatching: true, RentBalance: 1})
 	dexkeeper.AddRegisteredPair(ctx, contractAddr.String(), pair)
 	// place one order to a nonexistent contract
-	dexutils.GetMemState(ctx.Context()).GetBlockOrders(ctx, utils.ContractAddress(contractAddr.String()), utils.GetPairString(&pair)).Add(
+	dexutils.GetMemState(ctx.Context()).GetBlockOrders(ctx, types.ContractAddress(contractAddr.String()), types.GetPairString(&pair)).Add(
 		&types.Order{
 			Id:                2,
 			Account:           testAccount.String(),
@@ -609,17 +676,30 @@ func TestEndBlockRollbackWithRentCharge(t *testing.T) {
 			Data:              "{\"position_effect\":\"Open\",\"leverage\":\"1\"}",
 		},
 	)
-	dexutils.GetMemState(ctx.Context()).GetDepositInfo(ctx, utils.ContractAddress(contractAddr.String())).Add(
+	dexutils.GetMemState(ctx.Context()).GetDepositInfo(ctx, types.ContractAddress(contractAddr.String())).Add(
 		&types.DepositInfoEntry{
 			Creator: testAccount.String(),
 			Denom:   "uusdc",
 			Amount:  sdk.MustNewDecFromStr("10000"),
 		},
 	)
+	dexutils.GetMemState(ctx.Context()).SetDownstreamsToProcess(contractAddr.String(), func(addr string) *types.ContractInfoV2 {
+		c, err := dexkeeper.GetContract(ctx, addr)
+		if err != nil {
+			return nil
+		}
+		return &c
+	})
 	// overwrite params for testing
 	params := dexkeeper.GetParams(ctx)
 	params.MinProcessableRent = 0
 	dexkeeper.SetParams(ctx, params)
+
+	// rent should still be charged even if the contract failed
+	beforeC, err := dexkeeper.GetContract(ctx, contractAddr.String())
+	require.Nil(t, err)
+	require.False(t, beforeC.Suspended)               // good contract is not suspended
+	require.Equal(t, uint64(1), beforeC.RentBalance) // rent balance should not be empty
 
 	ctx = ctx.WithBlockHeight(1)
 	creatorBalanceBefore := bankkeeper.GetBalance(ctx, testAccount, "usei")
@@ -627,10 +707,10 @@ func TestEndBlockRollbackWithRentCharge(t *testing.T) {
 	// no state change should've been persisted for good contract because it should've run out of gas
 	matchResult, _ := dexkeeper.GetMatchResultState(ctx, contractAddr.String())
 	require.Equal(t, 0, len(matchResult.Orders))
-	// rent should still be charged even if the contract failed, so no rent should be sent to the creator after
-	// auto unregister
+	// rent should still be charged even if the contract failed
 	c, err := dexkeeper.GetContract(ctx, contractAddr.String())
-	require.Nil(t, err)                        // out-of-rent contract should not be auto-unregistered
+	require.Nil(t, err)
+	require.True(t, c.Suspended)               // bad contract is suspended not because of out-of-rent but because of execution error
 	require.Equal(t, uint64(0), c.RentBalance) // rent balance should be drained
 	creatorBalanceAfter := bankkeeper.GetBalance(ctx, testAccount, "usei")
 	require.Equal(t, creatorBalanceBefore, creatorBalanceAfter)
@@ -639,7 +719,7 @@ func TestEndBlockRollbackWithRentCharge(t *testing.T) {
 func TestEndBlockContractWithoutPair(t *testing.T) {
 	testApp := keepertest.TestApp()
 	ctx := testApp.BaseApp.NewContext(false, tmproto.Header{Time: time.Now()})
-	ctx = ctx.WithContext(context.WithValue(ctx.Context(), dexutils.DexMemStateContextKey, dexcache.NewMemState(testApp.GetKey(types.StoreKey))))
+	ctx = ctx.WithContext(context.WithValue(ctx.Context(), dexutils.DexMemStateContextKey, dexcache.NewMemState(testApp.GetMemKey(types.MemStoreKey))))
 	dexkeeper := testApp.DexKeeper
 
 	testAccount, _ := sdk.AccAddressFromBech32("sei1yezq49upxhunjjhudql2fnj5dgvcwjj87pn2wx")
@@ -676,6 +756,10 @@ func TestEndBlockContractWithoutPair(t *testing.T) {
 	ti := tracing.Info{
 		Tracer: &tr,
 	}
-	_, _, _, success := contract.EndBlockerAtomic(ctx, &testApp.DexKeeper, []types.ContractInfoV2{contractInfo}, &ti)
+	_, _, _, _, success := contract.EndBlockerAtomic(ctx, &testApp.DexKeeper, []types.ContractInfoV2{contractInfo}, &ti)
 	require.True(t, success)
+
+	contractInfo, err = dexkeeper.GetContract(ctx, contractInfo.ContractAddr)
+	require.Nil(t, err)
+	require.False(t, contractInfo.Suspended)
 }

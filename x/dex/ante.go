@@ -5,8 +5,10 @@ import (
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
+	dexcache "github.com/sei-protocol/sei-chain/x/dex/cache"
 	"github.com/sei-protocol/sei-chain/x/dex/keeper"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
+	"github.com/sei-protocol/sei-chain/x/dex/utils"
 )
 
 // TickSizeMultipleDecorator check if the place order tx's price is multiple of
@@ -55,7 +57,10 @@ func (tsmd TickSizeMultipleDecorator) CheckTickSizeMultiple(ctx sdk.Context, msg
 					return sdkerrors.Wrapf(sdkerrors.ErrKeyNotFound, "the pair {price:%s,asset:%s} has no price ticksize configured", order.PriceDenom, order.AssetDenom)
 				}
 				if !IsDecimalMultipleOf(order.Price, priceTickSize) {
-					return sdkerrors.Wrapf(errors.New("ErrPriceNotMultipleOfTickSize"), "price needs to be multiple of price tick size")
+					// Allow Market Orders with Price 0
+					if !(IsMarketOrder(order) && order.Price.IsZero()) {
+						return sdkerrors.Wrapf(errors.New("ErrPriceNotMultipleOfTickSize"), "price needs to be non-zero and multiple of price tick size")
+					}
 				}
 				quantityTickSize, found := tsmd.dexKeeper.GetQuantityTickSizeForPair(ctx, contractAddr,
 					types.Pair{
@@ -66,7 +71,7 @@ func (tsmd TickSizeMultipleDecorator) CheckTickSizeMultiple(ctx sdk.Context, msg
 					return sdkerrors.Wrapf(sdkerrors.ErrKeyNotFound, "the pair {price:%s,asset:%s} has no quantity ticksize configured", order.PriceDenom, order.AssetDenom)
 				}
 				if !IsDecimalMultipleOf(order.Quantity, quantityTickSize) {
-					return sdkerrors.Wrapf(errors.New("ErrPriceNotMultipleOfTickSize"), "price needs to be multiple of quantity tick size")
+					return sdkerrors.Wrapf(errors.New("ErrQuantityNotMultipleOfTickSize"), "quantity needs to be non-zero and multiple of quantity tick size")
 				}
 			}
 			continue
@@ -77,6 +82,11 @@ func (tsmd TickSizeMultipleDecorator) CheckTickSizeMultiple(ctx sdk.Context, msg
 	}
 
 	return nil
+}
+
+// Check whether order is market order type
+func IsMarketOrder(order *types.Order) bool {
+	return order.OrderType == types.OrderType_MARKET || order.OrderType == types.OrderType_FOKMARKET || order.OrderType == types.OrderType_FOKMARKETBYVALUE
 }
 
 // Check whether decimal a is multiple of decimal b
@@ -91,12 +101,14 @@ func IsDecimalMultipleOf(a, b sdk.Dec) bool {
 const DexGasFeeUnit = "usei"
 
 type CheckDexGasDecorator struct {
-	dexKeeper keeper.Keeper
+	dexKeeper       keeper.Keeper
+	checkTxMemState *dexcache.MemState
 }
 
-func NewCheckDexGasDecorator(dexKeeper keeper.Keeper) CheckDexGasDecorator {
+func NewCheckDexGasDecorator(dexKeeper keeper.Keeper, checkTxMemState *dexcache.MemState) CheckDexGasDecorator {
 	return CheckDexGasDecorator{
-		dexKeeper: dexKeeper,
+		dexKeeper:       dexKeeper,
+		checkTxMemState: checkTxMemState,
 	}
 }
 
@@ -107,12 +119,27 @@ func (d CheckDexGasDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bo
 	}
 	params := d.dexKeeper.GetParams(ctx)
 	dexGasRequired := uint64(0)
+	var memState *dexcache.MemState
+	if ctx.IsCheckTx() {
+		memState = d.checkTxMemState
+	} else {
+		memState = utils.GetMemState(ctx.Context())
+	}
+	contractLoader := func(addr string) *types.ContractInfoV2 {
+		contract, err := d.dexKeeper.GetContract(ctx, addr)
+		if err != nil {
+			return nil
+		}
+		return &contract
+	}
 	for _, msg := range tx.GetMsgs() {
 		switch m := msg.(type) {
 		case *types.MsgPlaceOrders:
-			dexGasRequired += params.DefaultGasPerOrder * uint64(len(m.Orders))
+			numDependencies := len(memState.GetContractToDependencies(m.ContractAddr, contractLoader))
+			dexGasRequired += params.DefaultGasPerOrder * uint64(len(m.Orders)*numDependencies)
 		case *types.MsgCancelOrders:
-			dexGasRequired += params.DefaultGasPerCancel * uint64(len(m.Cancellations))
+			numDependencies := len(memState.GetContractToDependencies(m.ContractAddr, contractLoader))
+			dexGasRequired += params.DefaultGasPerCancel * uint64(len(m.Cancellations)*numDependencies)
 		}
 	}
 	if dexGasRequired == 0 {

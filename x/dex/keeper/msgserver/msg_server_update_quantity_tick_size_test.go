@@ -23,7 +23,7 @@ func TestUpdateQuantityTickSize(t *testing.T) {
 	// Instantiate and get contract address
 	testApp := keepertest.TestApp()
 	ctx := testApp.BaseApp.NewContext(false, tmproto.Header{Time: time.Now()})
-	ctx = ctx.WithContext(context.WithValue(ctx.Context(), dexutils.DexMemStateContextKey, dexcache.NewMemState(testApp.GetKey(types.StoreKey))))
+	ctx = ctx.WithContext(context.WithValue(ctx.Context(), dexutils.DexMemStateContextKey, dexcache.NewMemState(testApp.GetMemKey(types.MemStoreKey))))
 	wctx := sdk.WrapSDKContext(ctx)
 	keeper := testApp.DexKeeper
 
@@ -86,7 +86,7 @@ func TestUpdateQuantityTickSizeInvalidMsg(t *testing.T) {
 	// Instantiate and get contract address
 	testApp := keepertest.TestApp()
 	ctx := testApp.BaseApp.NewContext(false, tmproto.Header{Time: time.Now()})
-	ctx = ctx.WithContext(context.WithValue(ctx.Context(), dexutils.DexMemStateContextKey, dexcache.NewMemState(testApp.GetKey(types.StoreKey))))
+	ctx = ctx.WithContext(context.WithValue(ctx.Context(), dexutils.DexMemStateContextKey, dexcache.NewMemState(testApp.GetMemKey(types.MemStoreKey))))
 	wctx := sdk.WrapSDKContext(ctx)
 	keeper := testApp.DexKeeper
 
@@ -193,7 +193,7 @@ func TestInvalidUpdateQuantityTickSizeCreator(t *testing.T) {
 	// Instantiate and get contract address
 	testApp := keepertest.TestApp()
 	ctx := testApp.BaseApp.NewContext(false, tmproto.Header{Time: time.Now()})
-	ctx = ctx.WithContext(context.WithValue(ctx.Context(), dexutils.DexMemStateContextKey, dexcache.NewMemState(testApp.GetKey(types.StoreKey))))
+	ctx = ctx.WithContext(context.WithValue(ctx.Context(), dexutils.DexMemStateContextKey, dexcache.NewMemState(testApp.GetMemKey(types.MemStoreKey))))
 	wctx := sdk.WrapSDKContext(ctx)
 	keeper := testApp.DexKeeper
 

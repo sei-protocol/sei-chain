@@ -76,9 +76,8 @@ func (msg *MsgPlaceOrders) ValidateBasic() error {
 		if order.OrderType == OrderType_FOKMARKETBYVALUE && (order.Nominal.IsNil() || order.Nominal.IsNegative()) {
 			return sdkerrors.Wrapf(sdkerrors.ErrInvalidRequest, "invalid nominal value for market by value order (%s)", err)
 		}
-		if (order.OrderType == OrderType_STOPLIMIT || order.OrderType == OrderType_STOPLOSS) &&
-			(order.TriggerPrice.IsNil() || order.TriggerPrice.IsNegative()) {
-			return sdkerrors.Wrapf(sdkerrors.ErrInvalidRequest, "invalid trigger price for stop loss/limit order (%s)", err)
+		if order.OrderType == OrderType_STOPLIMIT || order.OrderType == OrderType_STOPLOSS {
+			return sdkerrors.Wrapf(sdkerrors.ErrInvalidRequest, "stop loss/limit order (%s) are not supported yet", err)
 		}
 	}
 

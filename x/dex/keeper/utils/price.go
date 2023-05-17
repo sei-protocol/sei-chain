@@ -5,13 +5,12 @@ import (
 	"github.com/sei-protocol/sei-chain/x/dex/exchange"
 	"github.com/sei-protocol/sei-chain/x/dex/keeper"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
-	dextypesutils "github.com/sei-protocol/sei-chain/x/dex/types/utils"
 )
 
 func SetPriceStateFromExecutionOutcome(
 	ctx sdk.Context,
 	keeper *keeper.Keeper,
-	contractAddr dextypesutils.ContractAddress,
+	contractAddr types.ContractAddress,
 	pair types.Pair,
 	outcome exchange.ExecutionOutcome,
 ) {

@@ -7,7 +7,6 @@ import (
 	keepertest "github.com/sei-protocol/sei-chain/testutil/keeper"
 	"github.com/sei-protocol/sei-chain/x/dex/keeper/msgserver"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
-	typesutils "github.com/sei-protocol/sei-chain/x/dex/types/utils"
 	dexutils "github.com/sei-protocol/sei-chain/x/dex/utils"
 	"github.com/stretchr/testify/require"
 )
@@ -53,7 +52,7 @@ func TestCancelOrder(t *testing.T) {
 	server := msgserver.NewMsgServerImpl(*keeper)
 	_, err := server.CancelOrders(wctx, msg)
 
-	pairBlockCancellations := dexutils.GetMemState(ctx.Context()).GetBlockCancels(ctx, keepertest.TestContract, typesutils.GetPairString(&keepertest.TestPair))
+	pairBlockCancellations := dexutils.GetMemState(ctx.Context()).GetBlockCancels(ctx, keepertest.TestContract, types.GetPairString(&keepertest.TestPair))
 	require.Nil(t, err)
 	require.Equal(t, 1, len(pairBlockCancellations.Get()))
 	require.Equal(t, uint64(1), pairBlockCancellations.Get()[0].Id)

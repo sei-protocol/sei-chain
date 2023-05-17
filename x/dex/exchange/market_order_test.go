@@ -5,9 +5,9 @@ import (
 	"time"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
-	"github.com/sei-protocol/sei-chain/utils/datastructures"
 	dex "github.com/sei-protocol/sei-chain/x/dex/cache"
 	"github.com/sei-protocol/sei-chain/x/dex/exchange"
+	keeperutil "github.com/sei-protocol/sei-chain/x/dex/keeper/utils"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
 	dexutils "github.com/sei-protocol/sei-chain/x/dex/utils"
 	"github.com/stretchr/testify/assert"
@@ -21,7 +21,7 @@ const (
 )
 
 func TestMatchFoKMarketOrderFromShortBookNotEnoughLiquidity(t *testing.T) {
-	_, ctx := keepertest.DexKeeper(t)
+	dexkeeper, ctx := keepertest.DexKeeper(t)
 	ctx = ctx.WithBlockHeight(int64(TestHeight)).WithBlockTime(time.Unix(int64(TestTimestamp), 0))
 	longOrders := []*types.Order{
 		{
@@ -45,7 +45,7 @@ func TestMatchFoKMarketOrderFromShortBookNotEnoughLiquidity(t *testing.T) {
 				Allocations: []*types.Allocation{{
 					OrderId:  5,
 					Account:  "def",
-					Quantity: sdk.NewDec(5),
+					Quantity: sdk.NewDec(4),
 				}},
 				PriceDenom: "USDC",
 				AssetDenom: "ATOM",
@@ -65,30 +65,32 @@ func TestMatchFoKMarketOrderFromShortBookNotEnoughLiquidity(t *testing.T) {
 		PositionDirection: types.PositionDirection_LONG,
 		Data:              "{\"position_effect\":\"Open\",\"leverage\":\"1\"}",
 	})
-	entries := &types.CachedSortedOrderBookEntries{
-		Entries:      shortBook,
-		DirtyEntries: datastructures.NewTypedSyncMap[string, types.OrderBookEntry](),
+
+	for _, e := range shortBook {
+		dexkeeper.SetShortOrderBookEntry(ctx, "test", e)
 	}
+	orderbook := keeperutil.PopulateOrderbook(ctx, dexkeeper, types.ContractAddress("test"), types.Pair{PriceDenom: "USDC", AssetDenom: "ATOM"})
+	entries := orderbook.Shorts
 	outcome := exchange.MatchMarketOrders(
 		ctx, longOrders, entries, types.PositionDirection_LONG, blockOrders,
 	)
 	totalPrice := outcome.TotalNotional
 	totalExecuted := outcome.TotalQuantity
 	settlements := outcome.Settlements
+
+	shortBook = dexkeeper.GetAllShortBookForPair(ctx, "test", "USDC", "ATOM")
 	assert.Equal(t, totalPrice, sdk.ZeroDec())
 	assert.Equal(t, totalExecuted, sdk.ZeroDec())
-	assert.Equal(t, entries.DirtyEntries.Len(), 0)
 	assert.Equal(t, len(shortBook), 1)
 	assert.Equal(t, shortBook[0].GetPrice(), sdk.NewDec(100))
-	assert.Equal(t, shortBook[0].GetEntry().Price, sdk.NewDec(100))
-	assert.Equal(t, shortBook[0].GetEntry().Quantity, sdk.NewDec(4))
+	assert.Equal(t, shortBook[0].GetOrderEntry().Quantity, sdk.NewDec(4))
 	assert.Equal(t, len(settlements), 0)
 	assert.Equal(t, blockOrders.Get()[0].Quantity, sdk.NewDec(5))
 	assert.Equal(t, blockOrders.Get()[0].Status, types.OrderStatus_PLACED)
 }
 
 func TestMatchFoKMarketOrderFromShortBookHappyPath(t *testing.T) {
-	_, ctx := keepertest.DexKeeper(t)
+	dexkeeper, ctx := keepertest.DexKeeper(t)
 	ctx = ctx.WithBlockHeight(int64(TestHeight)).WithBlockTime(time.Unix(int64(TestTimestamp), 0))
 	longOrders := []*types.Order{
 		{
@@ -119,10 +121,11 @@ func TestMatchFoKMarketOrderFromShortBookHappyPath(t *testing.T) {
 			},
 		},
 	}
-	entries := &types.CachedSortedOrderBookEntries{
-		Entries:      shortBook,
-		DirtyEntries: datastructures.NewTypedSyncMap[string, types.OrderBookEntry](),
+	for _, e := range shortBook {
+		dexkeeper.SetShortOrderBookEntry(ctx, "test", e)
 	}
+	orderbook := keeperutil.PopulateOrderbook(ctx, dexkeeper, types.ContractAddress("test"), types.Pair{PriceDenom: "USDC", AssetDenom: "ATOM"})
+	entries := orderbook.Shorts
 	blockOrders := dexutils.GetMemState(ctx.Context()).GetBlockOrders(ctx, "testAccount", "USDC|ATOM")
 	blockOrders.Add(&types.Order{
 		Id:                1,
@@ -142,15 +145,11 @@ func TestMatchFoKMarketOrderFromShortBookHappyPath(t *testing.T) {
 	totalPrice := outcome.TotalNotional
 	totalExecuted := outcome.TotalQuantity
 	settlements := outcome.Settlements
+
+	shortBook = dexkeeper.GetAllShortBookForPair(ctx, "test", "USDC", "ATOM")
 	assert.Equal(t, totalPrice, sdk.NewDec(500))
 	assert.Equal(t, totalExecuted, sdk.NewDec(5))
-	assert.Equal(t, entries.DirtyEntries.Len(), 1)
-	_, ok := entries.DirtyEntries.Load(sdk.MustNewDecFromStr("100").String())
-	assert.True(t, ok)
-	assert.Equal(t, len(shortBook), 1)
-	assert.Equal(t, shortBook[0].GetPrice(), sdk.NewDec(100))
-	assert.Equal(t, shortBook[0].GetEntry().Price, sdk.NewDec(100))
-	assert.Equal(t, shortBook[0].GetEntry().Quantity.IsZero(), true)
+	assert.Equal(t, len(shortBook), 0)
 	assert.Equal(t, len(settlements), 2)
 	assert.Equal(t, *settlements[0], types.SettlementEntry{
 		PositionDirection:      "Short",
@@ -183,7 +182,7 @@ func TestMatchFoKMarketOrderFromShortBookHappyPath(t *testing.T) {
 }
 
 func TestMatchByValueFOKMarketOrderFromShortBookNotEnoughLiquidity(t *testing.T) {
-	_, ctx := keepertest.DexKeeper(t)
+	dexkeeper, ctx := keepertest.DexKeeper(t)
 	ctx = ctx.WithBlockHeight(int64(TestHeight)).WithBlockTime(time.Unix(int64(TestTimestamp), 0))
 	longOrders := []*types.Order{
 		{
@@ -231,30 +230,31 @@ func TestMatchByValueFOKMarketOrderFromShortBookNotEnoughLiquidity(t *testing.T)
 	}
 	blockOrders := dexutils.GetMemState(ctx.Context()).GetBlockOrders(ctx, "testAccount", "USDC|ATOM")
 	blockOrders.Add(longOrders[0])
-	entries := &types.CachedSortedOrderBookEntries{
-		Entries:      shortBook,
-		DirtyEntries: datastructures.NewTypedSyncMap[string, types.OrderBookEntry](),
+	for _, e := range shortBook {
+		dexkeeper.SetShortOrderBookEntry(ctx, "test", e)
 	}
+	orderbook := keeperutil.PopulateOrderbook(ctx, dexkeeper, types.ContractAddress("test"), types.Pair{PriceDenom: "USDC", AssetDenom: "ATOM"})
+	entries := orderbook.Shorts
 	outcome := exchange.MatchMarketOrders(
 		ctx, longOrders, entries, types.PositionDirection_LONG, &dex.BlockOrders{},
 	)
 	totalPrice := outcome.TotalNotional
 	totalExecuted := outcome.TotalQuantity
 	settlements := outcome.Settlements
+	shortBook = dexkeeper.GetAllShortBookForPair(ctx, "test", "USDC", "ATOM")
 	assert.Equal(t, totalPrice, sdk.ZeroDec())
 	assert.Equal(t, totalExecuted, sdk.ZeroDec())
-	assert.Equal(t, entries.DirtyEntries.Len(), 0)
 	assert.Equal(t, len(shortBook), 2)
 	assert.Equal(t, shortBook[0].GetPrice(), sdk.NewDec(90))
-	assert.Equal(t, shortBook[0].GetEntry().Price, sdk.NewDec(90))
-	assert.Equal(t, shortBook[0].GetEntry().Quantity, sdk.NewDec(5))
+	assert.Equal(t, shortBook[0].GetOrderEntry().Price, sdk.NewDec(90))
+	assert.Equal(t, shortBook[0].GetOrderEntry().Quantity, sdk.NewDec(5))
 	assert.Equal(t, len(settlements), 0)
 	assert.Equal(t, blockOrders.Get()[0].Quantity, sdk.NewDec(5))
 	assert.Equal(t, blockOrders.Get()[0].Status, types.OrderStatus_PLACED)
 }
 
 func TestMatchByValueFOKMarketOrderFromShortBookHappyPath(t *testing.T) {
-	_, ctx := keepertest.DexKeeper(t)
+	dexkeeper, ctx := keepertest.DexKeeper(t)
 	ctx = ctx.WithBlockHeight(int64(TestHeight)).WithBlockTime(time.Unix(int64(TestTimestamp), 0))
 	longOrders := []*types.Order{
 		{
@@ -302,22 +302,21 @@ func TestMatchByValueFOKMarketOrderFromShortBookHappyPath(t *testing.T) {
 	}
 	blockOrders := dexutils.GetMemState(ctx.Context()).GetBlockOrders(ctx, "testAccount", "USDC|ATOM")
 	blockOrders.Add(longOrders[0])
-	entries := &types.CachedSortedOrderBookEntries{
-		Entries:      shortBook,
-		DirtyEntries: datastructures.NewTypedSyncMap[string, types.OrderBookEntry](),
+	for _, e := range shortBook {
+		dexkeeper.SetShortOrderBookEntry(ctx, "test", e)
 	}
+	orderbook := keeperutil.PopulateOrderbook(ctx, dexkeeper, types.ContractAddress("test"), types.Pair{PriceDenom: "USDC", AssetDenom: "ATOM"})
+	entries := orderbook.Shorts
 	outcome := exchange.MatchMarketOrders(
 		ctx, longOrders, entries, types.PositionDirection_LONG, blockOrders,
 	)
 	totalPrice := outcome.TotalNotional
 	totalExecuted := outcome.TotalQuantity
 	settlements := outcome.Settlements
+	shortBook = dexkeeper.GetAllShortBookForPair(ctx, "test", "USDC", "ATOM")
 	assert.Equal(t, totalPrice, sdk.NewDec(500))
 	assert.Equal(t, totalExecuted, sdk.MustNewDecFromStr("5.5"))
-	assert.Equal(t, entries.DirtyEntries.Len(), 2)
-	_, ok := entries.DirtyEntries.Load(sdk.MustNewDecFromStr("100").String())
-	assert.True(t, ok)
-	assert.Equal(t, len(shortBook), 2)
+	assert.Equal(t, len(shortBook), 1)
 	assert.Equal(t, len(settlements), 3)
 	assert.Equal(t, *settlements[0], types.SettlementEntry{
 		PositionDirection:      "Short",
@@ -350,7 +349,7 @@ func TestMatchByValueFOKMarketOrderFromShortBookHappyPath(t *testing.T) {
 }
 
 func TestMatchSingleMarketOrderFromShortBook(t *testing.T) {
-	_, ctx := keepertest.DexKeeper(t)
+	dexkeeper, ctx := keepertest.DexKeeper(t)
 	ctx = ctx.WithBlockHeight(int64(TestHeight)).WithBlockTime(time.Unix(int64(TestTimestamp), 0))
 	longOrders := []*types.Order{
 		{
@@ -383,25 +382,21 @@ func TestMatchSingleMarketOrderFromShortBook(t *testing.T) {
 	}
 	blockOrders := dexutils.GetMemState(ctx.Context()).GetBlockOrders(ctx, "testAccount", "USDC|ATOM")
 	blockOrders.Add(longOrders[0])
-	entries := &types.CachedSortedOrderBookEntries{
-		Entries:      shortBook,
-		DirtyEntries: datastructures.NewTypedSyncMap[string, types.OrderBookEntry](),
+	for _, e := range shortBook {
+		dexkeeper.SetShortOrderBookEntry(ctx, "test", e)
 	}
+	orderbook := keeperutil.PopulateOrderbook(ctx, dexkeeper, types.ContractAddress("test"), types.Pair{PriceDenom: "USDC", AssetDenom: "ATOM"})
+	entries := orderbook.Shorts
 	outcome := exchange.MatchMarketOrders(
 		ctx, longOrders, entries, types.PositionDirection_LONG, blockOrders,
 	)
 	totalPrice := outcome.TotalNotional
 	totalExecuted := outcome.TotalQuantity
 	settlements := outcome.Settlements
+	shortBook = dexkeeper.GetAllShortBookForPair(ctx, "test", "USDC", "ATOM")
 	assert.Equal(t, totalPrice, sdk.NewDec(500))
 	assert.Equal(t, totalExecuted, sdk.NewDec(5))
-	assert.Equal(t, entries.DirtyEntries.Len(), 1)
-	_, ok := entries.DirtyEntries.Load(sdk.MustNewDecFromStr("100").String())
-	assert.True(t, ok)
-	assert.Equal(t, len(shortBook), 1)
-	assert.Equal(t, shortBook[0].GetPrice(), sdk.NewDec(100))
-	assert.Equal(t, shortBook[0].GetEntry().Price, sdk.NewDec(100))
-	assert.Equal(t, shortBook[0].GetEntry().Quantity.IsZero(), true)
+	assert.Equal(t, len(shortBook), 0)
 	assert.Equal(t, len(settlements), 2)
 	assert.Equal(t, *settlements[0], types.SettlementEntry{
 		PositionDirection:      "Short",
@@ -434,7 +429,7 @@ func TestMatchSingleMarketOrderFromShortBook(t *testing.T) {
 }
 
 func TestMatchSingleMarketOrderFromLongBook(t *testing.T) {
-	_, ctx := keepertest.DexKeeper(t)
+	dexkeeper, ctx := keepertest.DexKeeper(t)
 	ctx = ctx.WithBlockHeight(int64(TestHeight)).WithBlockTime(time.Unix(int64(TestTimestamp), 0))
 	shortOrders := []*types.Order{
 		{
@@ -467,25 +462,21 @@ func TestMatchSingleMarketOrderFromLongBook(t *testing.T) {
 	}
 	blockOrders := dexutils.GetMemState(ctx.Context()).GetBlockOrders(ctx, "testAccount", "USDC|ATOM")
 	blockOrders.Add(shortOrders[0])
-	entries := &types.CachedSortedOrderBookEntries{
-		Entries:      longBook,
-		DirtyEntries: datastructures.NewTypedSyncMap[string, types.OrderBookEntry](),
+	for _, e := range longBook {
+		dexkeeper.SetLongOrderBookEntry(ctx, "test", e)
 	}
+	orderbook := keeperutil.PopulateOrderbook(ctx, dexkeeper, types.ContractAddress("test"), types.Pair{PriceDenom: "USDC", AssetDenom: "ATOM"})
+	entries := orderbook.Longs
 	outcome := exchange.MatchMarketOrders(
 		ctx, shortOrders, entries, types.PositionDirection_SHORT, blockOrders,
 	)
 	totalPrice := outcome.TotalNotional
 	totalExecuted := outcome.TotalQuantity
 	settlements := outcome.Settlements
+	longBook = dexkeeper.GetAllLongBookForPair(ctx, "test", "USDC", "ATOM")
 	assert.Equal(t, totalPrice, sdk.NewDec(500))
 	assert.Equal(t, totalExecuted, sdk.NewDec(5))
-	assert.Equal(t, entries.DirtyEntries.Len(), 1)
-	_, ok := entries.DirtyEntries.Load(sdk.MustNewDecFromStr("100").String())
-	assert.True(t, ok)
-	assert.Equal(t, len(longBook), 1)
-	assert.Equal(t, longBook[0].GetPrice(), sdk.NewDec(100))
-	assert.Equal(t, longBook[0].GetEntry().Price, sdk.NewDec(100))
-	assert.Equal(t, longBook[0].GetEntry().Quantity.IsZero(), true)
+	assert.Equal(t, len(longBook), 0)
 	assert.Equal(t, len(settlements), 2)
 	assert.Equal(t, *settlements[0], types.SettlementEntry{
 		PositionDirection:      "Long",
@@ -518,7 +509,7 @@ func TestMatchSingleMarketOrderFromLongBook(t *testing.T) {
 }
 
 func TestMatchSingleMarketOrderFromMultipleShortBook(t *testing.T) {
-	_, ctx := keepertest.DexKeeper(t)
+	dexkeeper, ctx := keepertest.DexKeeper(t)
 	ctx = ctx.WithBlockHeight(int64(TestHeight)).WithBlockTime(time.Unix(int64(TestTimestamp), 0))
 	longOrders := []*types.Order{
 		{
@@ -569,29 +560,23 @@ func TestMatchSingleMarketOrderFromMultipleShortBook(t *testing.T) {
 	}
 	blockOrders := dexutils.GetMemState(ctx.Context()).GetBlockOrders(ctx, "testAccount", "USDC|ATOM")
 	blockOrders.Add(longOrders[0])
-	entries := &types.CachedSortedOrderBookEntries{
-		Entries:      shortBook,
-		DirtyEntries: datastructures.NewTypedSyncMap[string, types.OrderBookEntry](),
+	for _, e := range shortBook {
+		dexkeeper.SetShortOrderBookEntry(ctx, "test", e)
 	}
+	orderbook := keeperutil.PopulateOrderbook(ctx, dexkeeper, types.ContractAddress("test"), types.Pair{PriceDenom: "USDC", AssetDenom: "ATOM"})
+	entries := orderbook.Shorts
 	outcome := exchange.MatchMarketOrders(
 		ctx, longOrders, entries, types.PositionDirection_LONG, blockOrders,
 	)
 	totalPrice := outcome.TotalNotional
 	totalExecuted := outcome.TotalQuantity
 	settlements := outcome.Settlements
+	shortBook = dexkeeper.GetAllShortBookForPair(ctx, "test", "USDC", "ATOM")
 	assert.Equal(t, totalPrice, sdk.NewDec(480))
 	assert.Equal(t, totalExecuted, sdk.NewDec(5))
-	assert.Equal(t, entries.DirtyEntries.Len(), 2)
-	_, ok := entries.DirtyEntries.Load(sdk.MustNewDecFromStr("100").String())
-	assert.True(t, ok)
-	_, ok = entries.DirtyEntries.Load(sdk.MustNewDecFromStr("90").String())
-	assert.True(t, ok)
-	assert.Equal(t, len(shortBook), 2)
-	assert.Equal(t, shortBook[0].GetPrice(), sdk.NewDec(90))
-	assert.Equal(t, shortBook[0].GetEntry().Price, sdk.NewDec(90))
-	assert.Equal(t, shortBook[0].GetEntry().Quantity.IsZero(), true)
-	assert.Equal(t, shortBook[1].GetPrice(), sdk.NewDec(100))
-	assert.Equal(t, *shortBook[1].GetEntry(), types.OrderEntry{
+	assert.Equal(t, len(shortBook), 1)
+	assert.Equal(t, shortBook[0].GetPrice(), sdk.NewDec(100))
+	assert.Equal(t, *shortBook[0].GetOrderEntry(), types.OrderEntry{
 		Price:    sdk.NewDec(100),
 		Quantity: sdk.NewDec(3),
 		Allocations: []*types.Allocation{{
@@ -664,7 +649,7 @@ func TestMatchSingleMarketOrderFromMultipleShortBook(t *testing.T) {
 }
 
 func TestMatchSingleMarketOrderFromMultipleLongBook(t *testing.T) {
-	_, ctx := keepertest.DexKeeper(t)
+	dexkeeper, ctx := keepertest.DexKeeper(t)
 	ctx = ctx.WithBlockHeight(int64(TestHeight)).WithBlockTime(time.Unix(int64(TestTimestamp), 0))
 	shortOrders := []*types.Order{
 		{
@@ -715,26 +700,23 @@ func TestMatchSingleMarketOrderFromMultipleLongBook(t *testing.T) {
 	}
 	blockOrders := dexutils.GetMemState(ctx.Context()).GetBlockOrders(ctx, "testAccount", "USDC|ATOM")
 	blockOrders.Add(shortOrders[0])
-	entries := &types.CachedSortedOrderBookEntries{
-		Entries:      longBook,
-		DirtyEntries: datastructures.NewTypedSyncMap[string, types.OrderBookEntry](),
+	for _, e := range longBook {
+		dexkeeper.SetLongOrderBookEntry(ctx, "test", e)
 	}
+	orderbook := keeperutil.PopulateOrderbook(ctx, dexkeeper, types.ContractAddress("test"), types.Pair{PriceDenom: "USDC", AssetDenom: "ATOM"})
+	entries := orderbook.Longs
 	outcome := exchange.MatchMarketOrders(
 		ctx, shortOrders, entries, types.PositionDirection_SHORT, blockOrders,
 	)
 	totalPrice := outcome.TotalNotional
 	totalExecuted := outcome.TotalQuantity
 	settlements := outcome.Settlements
+	longBook = dexkeeper.GetAllLongBookForPair(ctx, "test", "USDC", "ATOM")
 	assert.Equal(t, totalPrice, sdk.NewDec(520))
 	assert.Equal(t, totalExecuted, sdk.NewDec(5))
-	assert.Equal(t, entries.DirtyEntries.Len(), 2)
-	_, ok := entries.DirtyEntries.Load(sdk.MustNewDecFromStr("100").String())
-	assert.True(t, ok)
-	_, ok = entries.DirtyEntries.Load(sdk.MustNewDecFromStr("110").String())
-	assert.True(t, ok)
-	assert.Equal(t, len(longBook), 2)
+	assert.Equal(t, len(longBook), 1)
 	assert.Equal(t, longBook[0].GetPrice(), sdk.NewDec(100))
-	assert.Equal(t, *longBook[0].GetEntry(), types.OrderEntry{
+	assert.Equal(t, *longBook[0].GetOrderEntry(), types.OrderEntry{
 		Price:    sdk.NewDec(100),
 		Quantity: sdk.NewDec(3),
 		Allocations: []*types.Allocation{{
@@ -749,9 +731,6 @@ func TestMatchSingleMarketOrderFromMultipleLongBook(t *testing.T) {
 		PriceDenom: "USDC",
 		AssetDenom: "ATOM",
 	})
-	assert.Equal(t, longBook[1].GetPrice(), sdk.NewDec(110))
-	assert.Equal(t, longBook[1].GetEntry().Price, sdk.NewDec(110))
-	assert.Equal(t, longBook[1].GetEntry().Quantity.IsZero(), true)
 	assert.Equal(t, len(settlements), 4)
 	assert.Equal(t, *settlements[0], types.SettlementEntry{
 		PositionDirection:      "Long",
@@ -810,7 +789,7 @@ func TestMatchSingleMarketOrderFromMultipleLongBook(t *testing.T) {
 }
 
 func TestMatchMultipleMarketOrderFromMultipleShortBook(t *testing.T) {
-	_, ctx := keepertest.DexKeeper(t)
+	dexkeeper, ctx := keepertest.DexKeeper(t)
 	ctx = ctx.WithBlockHeight(int64(TestHeight)).WithBlockTime(time.Unix(int64(TestTimestamp), 0))
 	longOrders := []*types.Order{
 		{
@@ -885,29 +864,24 @@ func TestMatchMultipleMarketOrderFromMultipleShortBook(t *testing.T) {
 	blockOrders.Add(longOrders[0])
 	blockOrders.Add(longOrders[1])
 	blockOrders.Add(longOrders[2])
-	entries := &types.CachedSortedOrderBookEntries{
-		Entries:      shortBook,
-		DirtyEntries: datastructures.NewTypedSyncMap[string, types.OrderBookEntry](),
+	for _, e := range shortBook {
+		dexkeeper.SetShortOrderBookEntry(ctx, "test", e)
 	}
+	orderbook := keeperutil.PopulateOrderbook(ctx, dexkeeper, types.ContractAddress("test"), types.Pair{PriceDenom: "USDC", AssetDenom: "ATOM"})
+	entries := orderbook.Shorts
 	outcome := exchange.MatchMarketOrders(
 		ctx, longOrders, entries, types.PositionDirection_LONG, blockOrders,
 	)
 	totalPrice := outcome.TotalNotional
 	totalExecuted := outcome.TotalQuantity
 	settlements := outcome.Settlements
+
+	shortBook = dexkeeper.GetAllShortBookForPair(ctx, "test", "USDC", "ATOM")
 	assert.Equal(t, totalPrice, sdk.NewDec(580))
 	assert.Equal(t, totalExecuted, sdk.NewDec(6))
-	assert.Equal(t, entries.DirtyEntries.Len(), 2)
-	_, ok := entries.DirtyEntries.Load(sdk.MustNewDecFromStr("100").String())
-	assert.True(t, ok)
-	_, ok = entries.DirtyEntries.Load(sdk.MustNewDecFromStr("90").String())
-	assert.True(t, ok)
-	assert.Equal(t, len(shortBook), 2)
-	assert.Equal(t, shortBook[0].GetPrice(), sdk.NewDec(90))
-	assert.Equal(t, shortBook[0].GetEntry().Price, sdk.NewDec(90))
-	assert.Equal(t, shortBook[0].GetEntry().Quantity.IsZero(), true)
-	assert.Equal(t, shortBook[1].GetPrice(), sdk.NewDec(100))
-	assert.Equal(t, *shortBook[1].GetEntry(), types.OrderEntry{
+	assert.Equal(t, len(shortBook), 1)
+	assert.Equal(t, shortBook[0].GetPrice(), sdk.NewDec(100))
+	assert.Equal(t, *shortBook[0].GetOrderEntry(), types.OrderEntry{
 		Price:    sdk.NewDec(100),
 		Quantity: sdk.NewDec(2),
 		Allocations: []*types.Allocation{{
@@ -1006,7 +980,7 @@ func TestMatchMultipleMarketOrderFromMultipleShortBook(t *testing.T) {
 }
 
 func TestMatchMultipleMarketOrderFromMultipleLongBook(t *testing.T) {
-	_, ctx := keepertest.DexKeeper(t)
+	dexkeeper, ctx := keepertest.DexKeeper(t)
 	ctx = ctx.WithBlockHeight(int64(TestHeight)).WithBlockTime(time.Unix(int64(TestTimestamp), 0))
 	shortOrders := []*types.Order{
 		{
@@ -1081,10 +1055,11 @@ func TestMatchMultipleMarketOrderFromMultipleLongBook(t *testing.T) {
 	blockOrders.Add(shortOrders[0])
 	blockOrders.Add(shortOrders[1])
 	blockOrders.Add(shortOrders[2])
-	entries := &types.CachedSortedOrderBookEntries{
-		Entries:      longBook,
-		DirtyEntries: datastructures.NewTypedSyncMap[string, types.OrderBookEntry](),
+	for _, e := range longBook {
+		dexkeeper.SetLongOrderBookEntry(ctx, "test", e)
 	}
+	orderbook := keeperutil.PopulateOrderbook(ctx, dexkeeper, types.ContractAddress("test"), types.Pair{PriceDenom: "USDC", AssetDenom: "ATOM"})
+	entries := orderbook.Longs
 	outcome := exchange.MatchMarketOrders(
 		ctx, shortOrders, entries, types.PositionDirection_SHORT, blockOrders,
 	)
@@ -1093,18 +1068,15 @@ func TestMatchMultipleMarketOrderFromMultipleLongBook(t *testing.T) {
 	settlements := outcome.Settlements
 	minPrice := outcome.MinPrice
 	maxPrice := outcome.MaxPrice
+
+	longBook = dexkeeper.GetAllLongBookForPair(ctx, "test", "USDC", "ATOM")
 	assert.Equal(t, totalPrice, sdk.NewDec(620))
 	assert.Equal(t, totalExecuted, sdk.NewDec(6))
 	assert.Equal(t, minPrice, sdk.MustNewDecFromStr("103.333333333333333333"))
 	assert.Equal(t, maxPrice, sdk.MustNewDecFromStr("103.333333333333333333"))
-	assert.Equal(t, entries.DirtyEntries.Len(), 2)
-	_, ok := entries.DirtyEntries.Load(sdk.MustNewDecFromStr("100").String())
-	assert.True(t, ok)
-	_, ok = entries.DirtyEntries.Load(sdk.MustNewDecFromStr("110").String())
-	assert.True(t, ok)
-	assert.Equal(t, len(longBook), 2)
+	assert.Equal(t, len(longBook), 1)
 	assert.Equal(t, longBook[0].GetPrice(), sdk.NewDec(100))
-	assert.Equal(t, *longBook[0].GetEntry(), types.OrderEntry{
+	assert.Equal(t, *longBook[0].GetOrderEntry(), types.OrderEntry{
 		Price:    sdk.NewDec(100),
 		Quantity: sdk.NewDec(2),
 		Allocations: []*types.Allocation{{
@@ -1115,9 +1087,6 @@ func TestMatchMultipleMarketOrderFromMultipleLongBook(t *testing.T) {
 		PriceDenom: "USDC",
 		AssetDenom: "ATOM",
 	})
-	assert.Equal(t, longBook[1].GetPrice(), sdk.NewDec(110))
-	assert.Equal(t, longBook[1].GetEntry().Price, sdk.NewDec(110))
-	assert.Equal(t, longBook[1].GetEntry().Quantity.IsZero(), true)
 	assert.Equal(t, len(settlements), 6)
 	assert.Equal(t, *settlements[0], types.SettlementEntry{
 		PositionDirection:      "Long",

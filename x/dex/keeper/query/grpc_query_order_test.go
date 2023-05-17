@@ -65,68 +65,11 @@ func TestGetOrders(t *testing.T) {
 		},
 	})
 
-	triggeredOrder := types.Order{
-		Id:            2,
-		Price:         sdk.MustNewDecFromStr("1"),
-		Quantity:      sdk.MustNewDecFromStr("1"),
-		Nominal:       sdk.MustNewDecFromStr("1"),
-		OrderType:     types.OrderType_STOPLOSS,
-		TriggerPrice:  sdk.MustNewDecFromStr("4"),
-		TriggerStatus: false,
-	}
-	keeper.SetTriggeredOrder(ctx, keepertest.TestContract, triggeredOrder, keepertest.TestPriceDenom, keepertest.TestAssetDenom)
-
 	query := types.QueryGetOrdersRequest{
 		ContractAddr: keepertest.TestContract,
 		Account:      keepertest.TestAccount,
 	}
 	resp, err := wrapper.GetOrders(wctx, &query)
 	require.Nil(t, err)
-	require.Equal(t, 2, len(resp.Orders))
-}
-
-func TestGetOrderByIdTriggeredOrder(t *testing.T) {
-	keeper, ctx := keepertest.DexKeeper(t)
-	wrapper := query.KeeperWrapper{Keeper: keeper}
-	wctx := sdk.WrapSDKContext(ctx)
-	// active order
-	keeper.SetLongBook(ctx, keepertest.TestContract, types.LongBook{
-		Price: sdk.OneDec(),
-		Entry: &types.OrderEntry{
-			Price:      sdk.OneDec(),
-			Quantity:   sdk.MustNewDecFromStr("2"),
-			PriceDenom: keepertest.TestPriceDenom,
-			AssetDenom: keepertest.TestAssetDenom,
-			Allocations: []*types.Allocation{
-				{
-					Account:  keepertest.TestAccount,
-					OrderId:  1,
-					Quantity: sdk.MustNewDecFromStr("2"),
-				},
-			},
-		},
-	})
-
-	triggeredOrder := types.Order{
-		Id:            2,
-		Price:         sdk.MustNewDecFromStr("1"),
-		Quantity:      sdk.MustNewDecFromStr("1"),
-		Nominal:       sdk.MustNewDecFromStr("1"),
-		OrderType:     types.OrderType_STOPLOSS,
-		TriggerPrice:  sdk.MustNewDecFromStr("4"),
-		TriggerStatus: false,
-	}
-	keeper.SetTriggeredOrder(ctx, keepertest.TestContract, triggeredOrder, keepertest.TestPriceDenom, keepertest.TestAssetDenom)
-
-	query := types.QueryGetOrderByIDRequest{
-		ContractAddr: keepertest.TestContract,
-		PriceDenom:   keepertest.TestPriceDenom,
-		AssetDenom:   keepertest.TestAssetDenom,
-		Id:           2,
-	}
-	resp, err := wrapper.GetOrder(wctx, &query)
-	require.Nil(t, err)
-	require.Equal(t, uint64(2), resp.Order.Id)
-	require.Equal(t, types.OrderStatus_PLACED, resp.Order.Status)
-	require.Equal(t, types.OrderType_STOPLOSS, resp.Order.OrderType)
+	require.Equal(t, 1, len(resp.Orders))
 }

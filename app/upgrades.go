@@ -13,42 +13,26 @@ import (
 // for both the current (n) and the previous (n-1) upgrade name. There is a bug
 // in a missing value in a log statement for which the fix is not released
 var upgradesList = []string{
-	// 1.0.2beta
+	// 1.x.x versions use open source tendermint
 	"1.0.2beta",
-	// 1.0.3beta
 	"1.0.3beta",
-	// 1.0.4beta
 	"1.0.4beta",
-	// 1.0.5beta
 	"1.0.5beta upgrade",
-	// 1.0.6beta
 	"1.0.6beta",
-	// 1.0.7beta
 	"1.0.7beta",
-	// 1.0.7beta-postfix
 	"1.0.7beta-postfix",
-	// 1.0.8beta
 	"1.0.8beta",
-	// 1.0.9beta
 	"1.0.9beta",
-	// 1.1.0beta
 	"1.1.0beta",
-	// 1.1.1beta
 	"1.1.1beta",
-	// 1.1.2beta-internal
 	"1.1.2beta-internal",
-	// 1.1.3beta
 	"1.1.3beta",
-	// 1.1.4beta
 	"1.1.4beta",
-	// 1.2.0beta
 	"1.2.0beta",
-	// 1.2.1beta
 	"1.2.1beta",
-	// 1.2.2beta
 	"1.2.2beta",
-	// 1.2.2beta-postfix
 	"1.2.2beta-postfix",
+	// 2.x.x versions use forked sei-tendermint and forked sei-cosmos
 	"2.0.29beta",
 	"2.0.32beta",
 	"2.0.36beta",
@@ -64,6 +48,8 @@ var upgradesList = []string{
 	"2.0.46beta",
 	"2.0.47beta",
 	"2.0.48beta",
+	// 3.x.x versions have a revamped and optimized dex changes. We also change naming conventions to remove "beta"
+	"3.0.0",
 }
 
 func (app App) RegisterUpgradeHandlers() {

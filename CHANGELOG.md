@@ -27,6 +27,21 @@ Ref: https://keepachangelog.com/en/1.0.0/
 -->
 
 # Changelog
+## 3.0.0
+sei-chain:
+* [#777] (https://github.com/sei-protocol/sei-chain/pull/777) Parallelize Sudo Deposit
+* [#771] (https://github.com/sei-protocol/sei-chain/pull/771) Parallelize BeginBlock for x/dex
+* [#768] (https://github.com/sei-protocol/sei-chain/pull/768) Add FOK back to order match result
+* [#763] (https://github.com/sei-protocol/sei-chain/pull/763) Refactor dex EndBlock to optimize store access
+
+sei-cosmos
+* [#240] (https://github.com/sei-protocol/sei-cosmos/pull/239) Add dex contract ACL type
+* [#237] (https://github.com/sei-protocol/sei-cosmos/pull/237) Add next-account-numnber cli
+
+sei-tendermint
+* [#136] (https://github.com/sei-protocol/sei-tendermint/pull/136) Revert block.Evidence to nested block.Evidence.Evidence
+* [#135] (https://github.com/sei-protocol/sei-tendermint/pull/135) Auto switch to blocksync should only start in consensus mode
+ 
 ## 2.0.48beta
 sei-chain:
 * [#743] (https://github.com/sei-protocol/sei-chain/pull/743) Do not unregister contract if out of rent
