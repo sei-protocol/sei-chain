@@ -9,8 +9,8 @@ import (
 	wasmkeeper "github.com/CosmWasm/wasmd/x/wasm/keeper"
 	wasmtypes "github.com/CosmWasm/wasmd/x/wasm/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/cosmos/cosmos-sdk/utils/tracing"
 	keepertest "github.com/sei-protocol/sei-chain/testutil/keeper"
-	"github.com/sei-protocol/sei-chain/utils/tracing"
 	dexcache "github.com/sei-protocol/sei-chain/x/dex/cache"
 	"github.com/sei-protocol/sei-chain/x/dex/contract"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
@@ -698,7 +698,7 @@ func TestEndBlockRollbackWithRentCharge(t *testing.T) {
 	// rent should still be charged even if the contract failed
 	beforeC, err := dexkeeper.GetContract(ctx, contractAddr.String())
 	require.Nil(t, err)
-	require.False(t, beforeC.Suspended)               // good contract is not suspended
+	require.False(t, beforeC.Suspended)              // good contract is not suspended
 	require.Equal(t, uint64(1), beforeC.RentBalance) // rent balance should not be empty
 
 	ctx = ctx.WithBlockHeight(1)

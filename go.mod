@@ -32,8 +32,6 @@ require (
 	github.com/tendermint/tendermint v0.37.0-dev
 	github.com/tendermint/tm-db v0.6.8-0.20220519162814-e24b96538a12
 	go.opentelemetry.io/otel v1.9.0
-	go.opentelemetry.io/otel/exporters/jaeger v1.9.0
-	go.opentelemetry.io/otel/sdk v1.9.0
 	go.opentelemetry.io/otel/trace v1.9.0
 	golang.org/x/exp v0.0.0-20221031165847-c99f073a8326
 	golang.org/x/sync v0.0.0-20220722155255-886fb9371eb4
@@ -250,6 +248,8 @@ require (
 	gitlab.com/bosi/decorder v0.2.1 // indirect
 	go.etcd.io/bbolt v1.3.6 // indirect
 	go.opencensus.io v0.23.0 // indirect
+	go.opentelemetry.io/otel/exporters/jaeger v1.9.0 // indirect
+	go.opentelemetry.io/otel/sdk v1.9.0 // indirect
 	golang.org/x/crypto v0.1.0 // indirect
 	golang.org/x/exp/typeparams v0.0.0-20220218215828-6cf2b201936e // indirect
 	golang.org/x/mod v0.6.0 // indirect
@@ -269,7 +269,7 @@ require (
 replace (
 	github.com/CosmWasm/wasmd => github.com/sei-protocol/sei-wasmd v0.0.1
 	github.com/confio/ics23/go => github.com/cosmos/cosmos-sdk/ics23/go v0.8.0
-	github.com/cosmos/cosmos-sdk => github.com/sei-protocol/sei-cosmos v0.2.29
+	github.com/cosmos/cosmos-sdk => github.com/sei-protocol/sei-cosmos v0.2.31
 	github.com/cosmos/iavl => github.com/sei-protocol/sei-iavl v0.1.3
 	github.com/gogo/protobuf => github.com/regen-network/protobuf v1.3.3-alpha.regen.1
 	github.com/keybase/go-keychain => github.com/99designs/go-keychain v0.0.0-20191008050251-8e49817e8af4

@@ -8,8 +8,8 @@ import (
 	"time"
 
 	"github.com/cosmos/cosmos-sdk/telemetry"
+	"github.com/cosmos/cosmos-sdk/utils/tracing"
 	"github.com/sei-protocol/sei-chain/utils/logging"
-	"github.com/sei-protocol/sei-chain/utils/tracing"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"

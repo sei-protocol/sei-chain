@@ -12,7 +12,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/cosmos/cosmos-sdk/server"
 	storetypes "github.com/cosmos/cosmos-sdk/store/types"
 
 	"github.com/sei-protocol/sei-chain/aclmapping"
@@ -115,7 +114,6 @@ import (
 	dbm "github.com/tendermint/tm-db"
 
 	"github.com/sei-protocol/sei-chain/utils/metrics"
-	"github.com/sei-protocol/sei-chain/utils/tracing"
 
 	dexmodule "github.com/sei-protocol/sei-chain/x/dex"
 	dexcache "github.com/sei-protocol/sei-chain/x/dex/cache"
@@ -140,9 +138,6 @@ import (
 	"github.com/CosmWasm/wasmd/x/wasm"
 	wasmclient "github.com/CosmWasm/wasmd/x/wasm/client"
 	wasmtypes "github.com/CosmWasm/wasmd/x/wasm/types"
-
-	"go.opentelemetry.io/otel"
-	"go.opentelemetry.io/otel/trace"
 )
 
 // this line is used by starport scaffolding # stargate/wasm/app/enabledProposals
@@ -329,7 +324,6 @@ type App struct {
 	// sm is the simulation manager
 	sm *module.SimulationManager
 
-	tracingInfo  *tracing.Info
 	configurator module.Configurator
 
 	optimisticProcessingInfo *OptimisticProcessingInfo
@@ -388,19 +382,6 @@ func New(
 	tkeys := sdk.NewTransientStoreKeys(paramstypes.TStoreKey)
 	memKeys := sdk.NewMemoryStoreKeys(capabilitytypes.MemStoreKey, dexmoduletypes.MemStoreKey)
 
-	tp := trace.NewNoopTracerProvider()
-	otel.SetTracerProvider(trace.NewNoopTracerProvider())
-	tr := tp.Tracer("component-main")
-
-	if tracingEnabled := cast.ToBool(appOpts.Get(server.FlagTracing)); tracingEnabled {
-		tp, err := tracing.DefaultTracerProvider()
-		if err != nil {
-			panic(err)
-		}
-		otel.SetTracerProvider(tp)
-		tr = tp.Tracer("component-main")
-	}
-
 	app := &App{
 		BaseApp:           bApp,
 		cdc:               cdc,
@@ -410,15 +391,10 @@ func New(
 		keys:              keys,
 		tkeys:             tkeys,
 		memKeys:           memKeys,
-		tracingInfo: &tracing.Info{
-			Tracer: &tr,
-		},
-		txDecoder:     encodingConfig.TxConfig.TxDecoder(),
-		versionInfo:   version.NewInfo(),
-		metricCounter: &map[string]float32{},
+		txDecoder:         encodingConfig.TxConfig.TxDecoder(),
+		versionInfo:       version.NewInfo(),
+		metricCounter:     &map[string]float32{},
 	}
-	app.tracingInfo.SetContext(context.Background())
-
 	app.ParamsKeeper = initParamsKeeper(appCodec, cdc, keys[paramstypes.StoreKey], tkeys[paramstypes.TStoreKey])
 
 	// set the BaseApp's parameter store
@@ -582,7 +558,7 @@ func New(
 		wasmOpts...,
 	)
 	app.DexKeeper.SetWasmKeeper(&app.WasmKeeper)
-	dexModule := dexmodule.NewAppModule(appCodec, app.DexKeeper, app.AccountKeeper, app.BankKeeper, app.WasmKeeper, app.tracingInfo)
+	dexModule := dexmodule.NewAppModule(appCodec, app.DexKeeper, app.AccountKeeper, app.BankKeeper, app.WasmKeeper, app.GetBaseApp().TracingInfo)
 	epochModule := epochmodule.NewAppModule(appCodec, app.EpochKeeper, app.AccountKeeper, app.BankKeeper)
 
 	// register the proposal types
@@ -812,7 +788,7 @@ func New(
 			WasmKeeper:          &app.WasmKeeper,
 			OracleKeeper:        &app.OracleKeeper,
 			DexKeeper:           &app.DexKeeper,
-			TracingInfo:         app.tracingInfo,
+			TracingInfo:         app.GetBaseApp().TracingInfo,
 			AccessControlKeeper: &app.AccessControlKeeper,
 			CheckTxMemState:     app.CheckTxMemState,
 		},
