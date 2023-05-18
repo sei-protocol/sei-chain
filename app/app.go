@@ -386,17 +386,18 @@ func New(
 	memKeys := sdk.NewMemoryStoreKeys(capabilitytypes.MemStoreKey, dexmoduletypes.MemStoreKey)
 
 	app := &App{
-		BaseApp:           bApp,
-		cdc:               cdc,
-		appCodec:          appCodec,
-		interfaceRegistry: interfaceRegistry,
-		invCheckPeriod:    invCheckPeriod,
-		keys:              keys,
-		tkeys:             tkeys,
-		memKeys:           memKeys,
-		txDecoder:         encodingConfig.TxConfig.TxDecoder(),
-		versionInfo:       version.NewInfo(),
-		metricCounter:     &map[string]float32{},
+		BaseApp:                bApp,
+		cdc:                    cdc,
+		appCodec:               appCodec,
+		interfaceRegistry:      interfaceRegistry,
+		invCheckPeriod:         invCheckPeriod,
+		keys:                   keys,
+		tkeys:                  tkeys,
+		memKeys:                memKeys,
+		txDecoder:              encodingConfig.TxConfig.TxDecoder(),
+		versionInfo:            version.NewInfo(),
+		metricCounter:          &map[string]float32{},
+		metricCounterWithLabel: &map[string]map[string]uint32{},
 	}
 	app.ParamsKeeper = initParamsKeeper(appCodec, cdc, keys[paramstypes.StoreKey], tkeys[paramstypes.TStoreKey])
 
