@@ -3,6 +3,7 @@ package keeper
 import (
 	"context"
 
+	"github.com/armon/go-metrics"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 
@@ -83,6 +84,11 @@ func (m msgServer) ExecuteContract(goCtx context.Context, msg *types.MsgExecuteC
 	if err != nil {
 		return nil, sdkerrors.Wrap(err, "contract")
 	}
+	metrics.IncrCounterWithLabels(
+		[]string{"wasmd", "execute", "contract", "counter"},
+		1,
+		[]metrics.Label{{Name: "type", Value: contractAddr.String()}},
+	)
 
 	ctx.EventManager().EmitEvent(sdk.NewEvent(
 		sdk.EventTypeMessage,
