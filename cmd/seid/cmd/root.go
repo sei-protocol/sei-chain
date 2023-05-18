@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/CosmWasm/wasmd/x/wasm"
+	wasmkeeper "github.com/CosmWasm/wasmd/x/wasm/keeper"
 	"github.com/cosmos/cosmos-sdk/baseapp"
 	"github.com/cosmos/cosmos-sdk/client"
 	"github.com/cosmos/cosmos-sdk/client/config"
@@ -26,6 +27,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/snapshots"
 	"github.com/cosmos/cosmos-sdk/store"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/cosmos/cosmos-sdk/utils/tracing"
 	aclkeeper "github.com/cosmos/cosmos-sdk/x/accesscontrol/keeper"
 	authcmd "github.com/cosmos/cosmos-sdk/x/auth/client/cli"
 	"github.com/cosmos/cosmos-sdk/x/auth/types"
@@ -34,7 +36,6 @@ import (
 	genutilcli "github.com/cosmos/cosmos-sdk/x/genutil/client/cli"
 	"github.com/sei-protocol/sei-chain/app"
 	"github.com/sei-protocol/sei-chain/app/params"
-	"github.com/sei-protocol/sei-chain/utils/tracing"
 	"github.com/spf13/cast"
 	"github.com/spf13/cobra"
 	tmcfg "github.com/tendermint/tendermint/config"
@@ -251,6 +252,12 @@ func newApp(
 		panic(err)
 	}
 
+	wasmGasRegisterConfig := wasmkeeper.DefaultGasRegisterConfig()
+	// This varies from the default value of 140_000_000 because we would like to appropriately represent the
+	// compute time required as a proportion of block gas used for a wasm contract that performs a lot of compute
+	// This makes it such that the wasm VM gas converts to sdk gas at a 6.66x rate vs that of the previous multiplier
+	wasmGasRegisterConfig.GasMultiplier = 21_000_000
+
 	return app.New(
 		logger,
 		db,
@@ -263,7 +270,13 @@ func newApp(
 		app.MakeEncodingConfig(),
 		wasm.EnableAllProposals,
 		appOpts,
-		[]wasm.Option{},
+		[]wasm.Option{
+			wasmkeeper.WithGasRegister(
+				wasmkeeper.NewWasmGasRegister(
+					wasmGasRegisterConfig,
+				),
+			),
+		},
 		[]aclkeeper.Option{},
 		baseapp.SetPruning(pruningOpts),
 		baseapp.SetMinGasPrices(cast.ToString(appOpts.Get(server.FlagMinGasPrices))),

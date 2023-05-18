@@ -4,15 +4,15 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/CosmWasm/wasmd/x/wasm"
+	"github.com/cosmos/cosmos-sdk/store/prefix"
 	"github.com/cosmos/cosmos-sdk/telemetry"
 	"github.com/gorilla/mux"
 	"github.com/grpc-ecosystem/grpc-gateway/runtime"
 	"github.com/spf13/cobra"
-	"go.opentelemetry.io/otel/attribute"
-
 	abci "github.com/tendermint/tendermint/abci/types"
 
 	"github.com/cosmos/cosmos-sdk/client"
@@ -20,10 +20,9 @@ import (
 	cdctypes "github.com/cosmos/cosmos-sdk/codec/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/types/module"
-	seisync "github.com/sei-protocol/sei-chain/sync"
+	"github.com/cosmos/cosmos-sdk/utils/tracing"
 	"github.com/sei-protocol/sei-chain/utils"
 	"github.com/sei-protocol/sei-chain/utils/datastructures"
-	"github.com/sei-protocol/sei-chain/utils/tracing"
 	"github.com/sei-protocol/sei-chain/x/dex/client/cli/query"
 	"github.com/sei-protocol/sei-chain/x/dex/client/cli/tx"
 	"github.com/sei-protocol/sei-chain/x/dex/contract"
@@ -256,30 +255,57 @@ func (am AppModule) BeginBlock(ctx sdk.Context, _ abci.RequestBeginBlock) {
 		am.keeper.SetEpoch(ctx, currentEpoch)
 	}
 	cachedCtx, cachedStore := store.GetCachedContext(ctx)
-	gasLimit := am.keeper.GetParams(ctx).BeginBlockGasLimit
-	for _, contract := range am.getAllContractInfo(ctx) {
-		am.beginBlockForContract(cachedCtx, contract, gasLimit)
+	priceRetention := am.keeper.GetParams(ctx).PriceSnapshotRetention
+	cutOffTime := uint64(ctx.BlockTime().Unix()) - priceRetention
+	wg := sync.WaitGroup{}
+	mutex := sync.Mutex{}
+	allContracts := am.getAllContractInfo(ctx)
+	allPricesToDelete := make(map[string][]*types.PriceStore, len(allContracts))
+
+	// Parallelize the logic to find all prices to delete
+	for _, contract := range allContracts {
+		wg.Add(1)
+		go func(contract types.ContractInfoV2) {
+			priceKeysToDelete := am.getPriceToDelete(cachedCtx, contract, cutOffTime)
+			mutex.Lock()
+			allPricesToDelete[contract.ContractAddr] = priceKeysToDelete
+			mutex.Unlock()
+			wg.Done()
+		}(contract)
+	}
+	wg.Wait()
+
+	// Execute the deletion in order
+	for _, contract := range allContracts {
+		if priceStores, found := allPricesToDelete[contract.ContractAddr]; found {
+			for _, priceStore := range priceStores {
+				for _, key := range priceStore.PriceKeys {
+					priceStore.Store.Delete(key)
+				}
+			}
+		}
 	}
 	// only write if all contracts have been processed
 	cachedStore.Write()
 }
 
-func (am AppModule) beginBlockForContract(ctx sdk.Context, contract types.ContractInfoV2, gasLimit uint64) {
-	_, span := am.tracingInfo.Start("DexBeginBlock")
-	contractAddr := contract.ContractAddr
-	span.SetAttributes(attribute.String("contract", contractAddr))
-	defer span.End()
-
-	ctx = ctx.WithGasMeter(seisync.NewGasWrapper(dexutils.GetGasMeterForLimit(gasLimit)))
-
+func (am AppModule) getPriceToDelete(
+	ctx sdk.Context,
+	contract types.ContractInfoV2,
+	timestamp uint64,
+) []*types.PriceStore {
+	var result []*types.PriceStore
 	if contract.NeedOrderMatching {
-		currentTimestamp := uint64(ctx.BlockTime().Unix())
-		ctx.Logger().Debug(fmt.Sprintf("Removing stale prices for ts %d", currentTimestamp))
-		priceRetention := am.keeper.GetParams(ctx).PriceSnapshotRetention
-		for _, pair := range am.keeper.GetAllRegisteredPairs(ctx, contractAddr) {
-			am.keeper.DeletePriceStateBefore(ctx, contractAddr, currentTimestamp-priceRetention, pair)
+		for _, pair := range am.keeper.GetAllRegisteredPairs(ctx, contract.ContractAddr) {
+			store := prefix.NewStore(ctx.KVStore(am.keeper.GetStoreKey()), types.PricePrefix(contract.ContractAddr, pair.PriceDenom, pair.AssetDenom))
+			keysToDelete := am.keeper.GetPriceKeysToDelete(store, timestamp)
+			result = append(result, &types.PriceStore{
+				Store:     store,
+				PriceKeys: keysToDelete,
+			})
 		}
 	}
+	return result
 }
 
 // EndBlock executes all ABCI EndBlock logic respective to the capability module. It
