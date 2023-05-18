@@ -87,7 +87,7 @@ func (m msgServer) ExecuteContract(goCtx context.Context, msg *types.MsgExecuteC
 	metrics.IncrCounterWithLabels(
 		[]string{"wasmd", "execute", "contract", "counter"},
 		1,
-		[]metrics.Label{{Name: "type", Value: contractAddr.String()}},
+		[]metrics.Label{{Name: "contract", Value: contractAddr.String()}},
 	)
 
 	ctx.EventManager().EmitEvent(sdk.NewEvent(
