@@ -7,7 +7,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/telemetry"
 )
 
-// Measures the time taken to execute a sudo msg
+// MeasureSudoExecutionDuration Measures the time taken to execute a sudo msg
 // Metric Names:
 //
 //	sei_sudo_duration_miliseconds
@@ -21,7 +21,7 @@ func MeasureSudoExecutionDuration(start time.Time, msgType string) {
 	)
 }
 
-// Measures failed sudo execution count
+// IncrementSudoFailCount Measures failed sudo execution count
 // Metric Name:
 //
 //	sei_sudo_error_count
@@ -33,7 +33,7 @@ func IncrementSudoFailCount(msgType string) {
 	)
 }
 
-// Gauge metric with seid version and git commit as labels
+// GaugeSeidVersionAndCommit Gauge metric with seid version and git commit as labels
 // Metric Name:
 //
 //	seid_version_and_commit
@@ -45,7 +45,7 @@ func GaugeSeidVersionAndCommit(version string, commit string) {
 	)
 }
 
-// sei_tx_process_type_count
+// IncrTxProcessTypeCounter sei_tx_process_type_count
 func IncrTxProcessTypeCounter(processType string) {
 	metrics.IncrCounterWithLabels(
 		[]string{"sei", "tx", "process", "type"},
@@ -54,7 +54,7 @@ func IncrTxProcessTypeCounter(processType string) {
 	)
 }
 
-// Measures the time taken to process a block by the process type
+// BlockProcessLatency Measures the time taken to process a block by the process type
 // Metric Names:
 //
 //	sei_process_block_miliseconds
@@ -68,7 +68,7 @@ func BlockProcessLatency(start time.Time, processType string) {
 	)
 }
 
-// Measures the time taken to execute a sudo msg
+// IncrDagBuildErrorCounter Measures the time taken to execute a sudo msg
 // Metric Names:
 //
 //	sei_tx_process_type_count
@@ -80,7 +80,7 @@ func IncrDagBuildErrorCounter(reason string) {
 	)
 }
 
-// Counts the number of concurrent transactions that failed
+// IncrFailedConcurrentDeliverTxCounter Counts the number of concurrent transactions that failed
 // Metric Names:
 //
 //	sei_tx_concurrent_delivertx_error
@@ -92,7 +92,7 @@ func IncrFailedConcurrentDeliverTxCounter() {
 	)
 }
 
-// Counts the number of operations that failed due to operation timeout
+// IncrLogIfNotDoneAfter Counts the number of operations that failed due to operation timeout
 // Metric Names:
 //
 //	sei_log_not_done_after_counter
@@ -106,7 +106,7 @@ func IncrLogIfNotDoneAfter(label string) {
 	)
 }
 
-// Measures the time taken to execute a sudo msg
+// MeasureDeliverTxDuration Measures the time taken to execute a sudo msg
 // Metric Names:
 //
 //	sei_deliver_tx_duration_miliseconds
@@ -119,7 +119,33 @@ func MeasureDeliverTxDuration(start time.Time) {
 	)
 }
 
-// sei_oracle_vote_penalty_count
+// MeasureRunPrioritizedTxDuration Measures the time taken to run prioritized txs
+// Metric Names:
+//
+//	sei_run_prioritized_txs_duration_miliseconds
+//	sei_run_prioritized_txs_duration_miliseconds_count
+//	sei_run_prioritized_txs_duration_miliseconds_sum
+func MeasureRunPrioritizedTxDuration(start time.Time) {
+	metrics.MeasureSince(
+		[]string{"sei", "run", "prioritized_txs", "milliseconds"},
+		start.UTC(),
+	)
+}
+
+// MeasureRunTxDuration Measures the time taken to run prioritized txs
+// Metric Names:
+//
+//	sei_run_txs_duration_miliseconds
+//	sei_run_txs_duration_miliseconds_count
+//	sei_run_txs_duration_miliseconds_sum
+func MeasureRunTxDuration(start time.Time) {
+	metrics.MeasureSince(
+		[]string{"sei", "run", "txs", "milliseconds"},
+		start.UTC(),
+	)
+}
+
+// SetOracleVotePenaltyCount sei_oracle_vote_penalty_count
 func SetOracleVotePenaltyCount(count uint64, valAddr string, penaltyType string) {
 	metrics.SetGaugeWithLabels(
 		[]string{"sei", "oracle", "vote", "penalty", "count"},
@@ -131,7 +157,7 @@ func SetOracleVotePenaltyCount(count uint64, valAddr string, penaltyType string)
 	)
 }
 
-// sei_epoch_new
+// SetEpochNew sei_epoch_new
 func SetEpochNew(epochNum uint64) {
 	metrics.SetGauge(
 		[]string{"sei", "epoch", "new"},
@@ -139,7 +165,7 @@ func SetEpochNew(epochNum uint64) {
 	)
 }
 
-// Measures throughput
+// SetThroughputMetric Measures throughput
 // Metric Name:
 //
 //	sei_throughput_<metric_name>
@@ -150,7 +176,19 @@ func SetThroughputMetric(metricName string, value float32) {
 	)
 }
 
-// Measures number of times a denom's price is updated
+// SetThroughputMetricWithLabel Measures throughput with label
+// Metric Name:
+//
+//	sei_throughput_<metric_name>{label_name=label_key}
+func SetThroughputMetricWithLabel(metricName string, value float32, labelName string, labelValue string) {
+	telemetry.SetGaugeWithLabels(
+		[]string{"sei", "throughput", metricName},
+		value,
+		[]metrics.Label{{Name: labelName, Value: labelValue}},
+	)
+}
+
+// IncrPriceUpdateDenom Measures number of times a denom's price is updated
 // Metric Name:
 //
 //	sei_oracle_price_update_count
@@ -162,7 +200,7 @@ func IncrPriceUpdateDenom(denom string) {
 	)
 }
 
-// Measures the number of times the total block gas wanted in the proposal exceeds the max
+// IncrFailedTotalGasWantedCheck Measures the number of times the total block gas wanted in the proposal exceeds the max
 // Metric Name:
 //
 //	sei_failed_total_gas_wanted_check
@@ -174,7 +212,7 @@ func IncrFailedTotalGasWantedCheck(proposer string) {
 	)
 }
 
-// Measures the number of times the total block gas wanted in the proposal exceeds the max
+// IncrValidatorSlashed Measures the number of times the total block gas wanted in the proposal exceeds the max
 // Metric Name:
 //
 //	sei_failed_total_gas_wanted_check
@@ -186,7 +224,7 @@ func IncrValidatorSlashed(proposer string) {
 	)
 }
 
-// Measures number of times a denom's price is updated
+// SetCoinsMinted Measures number of times a denom's price is updated
 // Metric Name:
 //
 //	sei_oracle_price_update_count

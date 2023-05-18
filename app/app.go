@@ -336,6 +336,9 @@ type App struct {
 	// Stores mapping counter name to counter value
 	metricCounter *map[string]float32
 
+	// Stores mapping counter name to counter value
+	metricCounterWithLabel *map[string]map[string]uint32
+
 	mounter func()
 
 	CheckTxMemState         *dexcache.MemState
@@ -1007,14 +1010,26 @@ func (app *App) RecordAndEmitMetrics(ctx sdk.Context) {
 		app.Logger().Debug("Metrics already recorded for this block", "height", height)
 		return
 	}
+	(*app.metricCounter)["last_updated_height"] = height
 
 	for metricName, value := range *ctx.ContextMemCache().GetMetricCounters() {
 		(*app.metricCounter)[metricName] += float32(value)
 	}
-	(*app.metricCounter)["last_updated_height"] = height
+	for metricName, value := range *ctx.ContextMemCache().GetMetricCountersWithLabel() {
+		(*app.metricCounterWithLabel)[metricName] = value
+	}
 
 	for metricName, value := range *(app.metricCounter) {
 		metrics.SetThroughputMetric(metricName, value)
+	}
+
+	for metricName, labeledMetrics := range *(app.metricCounterWithLabel) {
+		for label, value := range labeledMetrics {
+			labelSplit := strings.Split(label, ",")
+			if len(labelSplit) == 2 {
+				metrics.SetThroughputMetricWithLabel(metricName, float32(value), labelSplit[0], labelSplit[1])
+			}
+		}
 	}
 
 	ctx.ContextMemCache().Clear()
@@ -1307,15 +1322,19 @@ func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequ
 	prioritizedTxs, txs := app.PartitionPrioritizedTxs(ctx, txs)
 
 	// run the prioritized txs
+	startTxTime := time.Now()
 	prioritizedResults, ctx := app.BuildDependenciesAndRunTxs(ctx, prioritizedTxs)
 	txResults = append(txResults, prioritizedResults...)
+	metrics.MeasureRunPrioritizedTxDuration(startTxTime)
 
 	midBlockEvents := app.MidBlock(ctx, req.GetHeight())
 	events = append(events, midBlockEvents...)
 
 	// run other txs
+	startTxTime = time.Now()
 	otherResults, ctx := app.BuildDependenciesAndRunTxs(ctx, txs)
 	txResults = append(txResults, otherResults...)
+	metrics.MeasureRunTxDuration(startTxTime)
 
 	// Finalize all Bank Module Transfers here so that events are included
 	lazyWriteEvents := app.BankKeeper.WriteDeferredOperations(ctx)
