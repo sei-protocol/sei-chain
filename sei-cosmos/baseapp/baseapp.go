@@ -1,6 +1,7 @@
 package baseapp
 
 import (
+	"context"
 	"crypto/sha256"
 	"errors"
 	"fmt"
@@ -9,14 +10,13 @@ import (
 	"sync"
 	"time"
 
-	"context"
-
-	"github.com/gogo/protobuf/proto"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 
+	"github.com/armon/go-metrics"
 	"github.com/cosmos/cosmos-sdk/utils/tracing"
+	"github.com/gogo/protobuf/proto"
 	sdbm "github.com/sei-protocol/sei-tm-db/backends"
 	"github.com/spf13/cast"
 	leveldbutils "github.com/syndtr/goleveldb/leveldb/util"
@@ -1045,6 +1045,7 @@ func (app *BaseApp) runMsgs(ctx sdk.Context, msgs []sdk.Msg, mode runTxMode) (*s
 			// ADR 031 request type routing
 			msgResult, err = handler(msgCtx, msg)
 			eventMsgName = sdk.MsgTypeURL(msg)
+			ctx.ContextMemCache().IncrMetricCounterWithLabel(1, sdk.MESSAGE_TYPE_COUNT, metrics.Label{Name: "msg_type", Value: eventMsgName})
 		} else if legacyMsg, ok := msg.(legacytx.LegacyMsg); ok {
 			// legacy sdk.Msg routing
 			// Assuming that the app developer has migrated all their Msgs to
