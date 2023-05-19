@@ -71,6 +71,12 @@ func MeasureSince(start time.Time, keys ...string) {
 	metrics.MeasureSinceWithLabels(keys, start.UTC(), globalLabels)
 }
 
+// MeasureSinceWithLabels provides a wrapper functionality for emitting a a time measure
+// metric with custom labels (if any)
+func MeasureSinceWithLabels(keys []string, start time.Time, labels []metrics.Label) {
+	metrics.MeasureSinceWithLabels(keys, start.UTC(), labels)
+}
+
 // Measure Validator slashing events
 // validator_slashed
 func IncrValidatorSlashedCounter(validator string, slashingType string) {

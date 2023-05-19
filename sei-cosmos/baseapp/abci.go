@@ -12,6 +12,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/armon/go-metrics"
 	"github.com/gogo/protobuf/proto"
 	abci "github.com/tendermint/tendermint/abci/types"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
@@ -412,7 +413,7 @@ func (app *BaseApp) snapshot(height int64) {
 // Query implements the ABCI interface. It delegates to CommitMultiStore if it
 // implements Queryable.
 func (app *BaseApp) Query(ctx context.Context, req *abci.RequestQuery) (res *abci.ResponseQuery, err error) {
-	defer telemetry.MeasureSince(time.Now(), "abci", "query")
+	defer telemetry.MeasureSinceWithLabels([]string{"abci", "query"}, time.Now(), []metrics.Label{{Name: "path", Value: req.Path}})
 
 	// Add panic recovery for all queries.
 	// ref: https://github.com/cosmos/cosmos-sdk/pull/8039
