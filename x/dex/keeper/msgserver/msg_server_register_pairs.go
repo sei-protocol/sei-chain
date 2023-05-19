@@ -15,10 +15,15 @@ func (k msgServer) RegisterPairs(goCtx context.Context, msg *types.MsgRegisterPa
 
 	ctx := sdk.UnwrapSDKContext(goCtx)
 
+	maxPairsPerContract := k.GetMaxPairsPerContract(ctx)
 	events := []sdk.Event{}
 	// Validation such that only the user who stored the code can register pairs
 	for _, batchPair := range msg.Batchcontractpair {
 		contractAddr := batchPair.ContractAddr
+		existingPairCount := uint64(len(k.GetAllRegisteredPairs(ctx, contractAddr)))
+		if existingPairCount >= maxPairsPerContract {
+			return nil, sdkerrors.Wrapf(sdkerrors.ErrInvalidRequest, "contract %s already has %d pairs registered", contractAddr, existingPairCount)
+		}
 		contractInfo, err := k.GetContract(ctx, contractAddr)
 		if err != nil {
 			return nil, err

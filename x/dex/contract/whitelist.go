@@ -20,6 +20,8 @@ var DexWhitelistedKeys = []string{
 	types.SettlementEntryKey,
 	types.NextOrderIDKey,
 	types.MatchResultKey,
+	types.LongOrderCountKey,
+	types.ShortOrderCountKey,
 	keeper.ContractPrefixKey,
 }
 

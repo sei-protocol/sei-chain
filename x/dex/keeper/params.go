@@ -28,6 +28,14 @@ func (k Keeper) GetContractUnsuspendCost(ctx sdk.Context) uint64 {
 	return k.GetParams(ctx).ContractUnsuspendCost
 }
 
+func (k Keeper) GetMaxOrderPerPrice(ctx sdk.Context) uint64 {
+	return k.GetParams(ctx).MaxOrderPerPrice
+}
+
+func (k Keeper) GetMaxPairsPerContract(ctx sdk.Context) uint64 {
+	return k.GetParams(ctx).MaxPairsPerContract
+}
+
 // SetParams set the params
 func (k Keeper) SetParams(ctx sdk.Context, params types.Params) {
 	k.Paramstore.SetParamSet(ctx, &params)
