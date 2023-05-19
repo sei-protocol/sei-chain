@@ -2,7 +2,9 @@ package keeper
 
 import (
 	"context"
+	"time"
 
+	"github.com/armon/go-metrics"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 
@@ -83,6 +85,11 @@ func (m msgServer) ExecuteContract(goCtx context.Context, msg *types.MsgExecuteC
 	if err != nil {
 		return nil, sdkerrors.Wrap(err, "contract")
 	}
+	defer metrics.MeasureSinceWithLabels(
+		[]string{"wasmd", "execute", "contract", "latency"},
+		time.Now(),
+		[]metrics.Label{{Name: "contract", Value: contractAddr.String()}},
+	)
 
 	ctx.EventManager().EmitEvent(sdk.NewEvent(
 		sdk.EventTypeMessage,
