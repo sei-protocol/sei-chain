@@ -254,3 +254,52 @@ func TestInvalidRegisterPairCreator(t *testing.T) {
 	})
 	require.NoError(t, err)
 }
+
+func TestRegisterPairsExceedingLimit(t *testing.T) {
+	testApp := keepertest.TestApp()
+	ctx := testApp.BaseApp.NewContext(false, tmproto.Header{Time: time.Now()})
+	ctx = ctx.WithContext(context.WithValue(ctx.Context(), dexutils.DexMemStateContextKey, dexcache.NewMemState(testApp.GetMemKey(types.MemStoreKey))))
+	wctx := sdk.WrapSDKContext(ctx)
+	keeper := testApp.DexKeeper
+
+	testAccount, _ := sdk.AccAddressFromBech32("sei1yezq49upxhunjjhudql2fnj5dgvcwjj87pn2wx")
+	amounts := sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(100000000)), sdk.NewCoin("uusdc", sdk.NewInt(100000000)))
+	bankkeeper := testApp.BankKeeper
+	bankkeeper.MintCoins(ctx, minttypes.ModuleName, amounts)
+	bankkeeper.SendCoinsFromModuleToAccount(ctx, minttypes.ModuleName, testAccount, amounts)
+	wasm, err := ioutil.ReadFile("../../testdata/mars.wasm")
+	if err != nil {
+		panic(err)
+	}
+	wasmKeeper := testApp.WasmKeeper
+	contractKeeper := wasmkeeper.NewDefaultPermissionKeeper(&wasmKeeper)
+	var perm *wasmtypes.AccessConfig
+	codeId, err := contractKeeper.Create(ctx, testAccount, wasm, perm)
+	if err != nil {
+		panic(err)
+	}
+	contractAddrA, _, err := contractKeeper.Instantiate(ctx, codeId, testAccount, testAccount, []byte(GOOD_CONTRACT_INSTANTIATE), "test",
+		sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(100000))))
+	if err != nil {
+		panic(err)
+	}
+
+	params := keeper.GetParams(ctx)
+	params.MaxPairsPerContract = 0
+	keeper.SetParams(ctx, params)
+	server := msgserver.NewMsgServerImpl(keeper)
+	err = RegisterContractUtil(server, wctx, contractAddrA.String(), nil)
+	require.NoError(t, err)
+
+	batchContractPairs := []types.BatchContractPair{}
+	batchContractPairs = append(batchContractPairs, types.BatchContractPair{
+		ContractAddr: contractAddrA.String(),
+		Pairs:        []*types.Pair{&keepertest.TestPair},
+	})
+	_, err = server.RegisterPairs(wctx, &types.MsgRegisterPairs{
+		Creator:           keepertest.TestAccount,
+		Batchcontractpair: batchContractPairs,
+	})
+
+	require.NotNil(t, err)
+}

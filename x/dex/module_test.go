@@ -763,3 +763,145 @@ func TestEndBlockContractWithoutPair(t *testing.T) {
 	require.Nil(t, err)
 	require.False(t, contractInfo.Suspended)
 }
+
+func TestOrderCountUpdate(t *testing.T) {
+	testApp := keepertest.TestApp()
+	ctx := testApp.BaseApp.NewContext(false, tmproto.Header{Time: time.Now()})
+	ctx = ctx.WithContext(context.WithValue(ctx.Context(), dexutils.DexMemStateContextKey, dexcache.NewMemState(testApp.GetMemKey(types.MemStoreKey))))
+	dexkeeper := testApp.DexKeeper
+	pair := types.Pair{PriceDenom: "SEI", AssetDenom: "ATOM"}
+
+	testAccount, _ := sdk.AccAddressFromBech32("sei1yezq49upxhunjjhudql2fnj5dgvcwjj87pn2wx")
+	amounts := sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(10000000)), sdk.NewCoin("uusdc", sdk.NewInt(10000000)))
+	bankkeeper := testApp.BankKeeper
+	bankkeeper.MintCoins(ctx, minttypes.ModuleName, amounts)
+	bankkeeper.SendCoinsFromModuleToAccount(ctx, minttypes.ModuleName, testAccount, amounts)
+	dexAmounts := sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(5000000)), sdk.NewCoin("uusdc", sdk.NewInt(10000000)))
+	bankkeeper.SendCoinsFromAccountToModule(ctx, testAccount, types.ModuleName, dexAmounts)
+	wasm, err := ioutil.ReadFile("./testdata/mars.wasm")
+	if err != nil {
+		panic(err)
+	}
+	wasmKeeper := testApp.WasmKeeper
+	contractKeeper := wasmkeeper.NewDefaultPermissionKeeper(&wasmKeeper)
+	var perm *wasmtypes.AccessConfig
+	codeId, err := contractKeeper.Create(ctx, testAccount, wasm, perm)
+	if err != nil {
+		panic(err)
+	}
+	contractAddr, _, err := contractKeeper.Instantiate(ctx, codeId, testAccount, testAccount, []byte(GOOD_CONTRACT_INSTANTIATE), "test",
+		sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(100000))))
+	if err != nil {
+		panic(err)
+	}
+
+	dexkeeper.SetContract(ctx, &types.ContractInfoV2{CodeId: 123, ContractAddr: contractAddr.String(), NeedHook: false, NeedOrderMatching: true, RentBalance: 100000000})
+	dexkeeper.AddRegisteredPair(ctx, contractAddr.String(), pair)
+	dexutils.GetMemState(ctx.Context()).GetBlockOrders(ctx, types.ContractAddress(contractAddr.String()), types.GetPairString(&pair)).Add(
+		&types.Order{
+			Id:                1,
+			Account:           testAccount.String(),
+			ContractAddr:      contractAddr.String(),
+			Price:             sdk.MustNewDecFromStr("1"),
+			Quantity:          sdk.MustNewDecFromStr("1"),
+			PriceDenom:        pair.PriceDenom,
+			AssetDenom:        pair.AssetDenom,
+			OrderType:         types.OrderType_LIMIT,
+			PositionDirection: types.PositionDirection_LONG,
+			Data:              "{\"position_effect\":\"Open\",\"leverage\":\"1\"}",
+		},
+	)
+	dexutils.GetMemState(ctx.Context()).GetBlockOrders(ctx, types.ContractAddress(contractAddr.String()), types.GetPairString(&pair)).Add(
+		&types.Order{
+			Id:                2,
+			Account:           testAccount.String(),
+			ContractAddr:      contractAddr.String(),
+			Price:             sdk.MustNewDecFromStr("2"),
+			Quantity:          sdk.MustNewDecFromStr("1"),
+			PriceDenom:        pair.PriceDenom,
+			AssetDenom:        pair.AssetDenom,
+			OrderType:         types.OrderType_LIMIT,
+			PositionDirection: types.PositionDirection_LONG,
+			Data:              "{\"position_effect\":\"Open\",\"leverage\":\"1\"}",
+		},
+	)
+	dexutils.GetMemState(ctx.Context()).GetBlockOrders(ctx, types.ContractAddress(contractAddr.String()), types.GetPairString(&pair)).Add(
+		&types.Order{
+			Id:                3,
+			Account:           testAccount.String(),
+			ContractAddr:      contractAddr.String(),
+			Price:             sdk.MustNewDecFromStr("3"),
+			Quantity:          sdk.MustNewDecFromStr("1"),
+			PriceDenom:        pair.PriceDenom,
+			AssetDenom:        pair.AssetDenom,
+			OrderType:         types.OrderType_LIMIT,
+			PositionDirection: types.PositionDirection_SHORT,
+			Data:              "{\"position_effect\":\"Open\",\"leverage\":\"1\"}",
+		},
+	)
+	dexutils.GetMemState(ctx.Context()).GetDepositInfo(ctx, types.ContractAddress(contractAddr.String())).Add(
+		&types.DepositInfoEntry{
+			Creator: testAccount.String(),
+			Denom:   "uusdc",
+			Amount:  sdk.MustNewDecFromStr("2000000"),
+		},
+	)
+	dexutils.GetMemState(ctx.Context()).SetDownstreamsToProcess(contractAddr.String(), func(addr string) *types.ContractInfoV2 {
+		c, err := dexkeeper.GetContract(ctx, addr)
+		if err != nil {
+			return nil
+		}
+		return &c
+	})
+
+	ctx = ctx.WithBlockHeight(1)
+	testApp.EndBlocker(ctx, abci.RequestEndBlock{})
+	require.Equal(t, uint64(1), dexkeeper.GetOrderCountState(ctx, contractAddr.String(), pair.PriceDenom, pair.AssetDenom, types.PositionDirection_LONG, sdk.NewDec(1)))
+	require.Equal(t, uint64(0), dexkeeper.GetOrderCountState(ctx, contractAddr.String(), pair.PriceDenom, pair.AssetDenom, types.PositionDirection_SHORT, sdk.NewDec(1)))
+	require.Equal(t, uint64(1), dexkeeper.GetOrderCountState(ctx, contractAddr.String(), pair.PriceDenom, pair.AssetDenom, types.PositionDirection_LONG, sdk.NewDec(2)))
+	require.Equal(t, uint64(0), dexkeeper.GetOrderCountState(ctx, contractAddr.String(), pair.PriceDenom, pair.AssetDenom, types.PositionDirection_SHORT, sdk.NewDec(2)))
+	require.Equal(t, uint64(0), dexkeeper.GetOrderCountState(ctx, contractAddr.String(), pair.PriceDenom, pair.AssetDenom, types.PositionDirection_LONG, sdk.NewDec(3)))
+	require.Equal(t, uint64(1), dexkeeper.GetOrderCountState(ctx, contractAddr.String(), pair.PriceDenom, pair.AssetDenom, types.PositionDirection_SHORT, sdk.NewDec(3)))
+
+	dexutils.GetMemState(ctx.Context()).Clear(ctx)
+	dexutils.GetMemState(ctx.Context()).GetBlockOrders(ctx, types.ContractAddress(contractAddr.String()), types.GetPairString(&pair)).Add(
+		&types.Order{
+			Id:                4,
+			Account:           testAccount.String(),
+			ContractAddr:      contractAddr.String(),
+			Price:             sdk.MustNewDecFromStr("1"),
+			Quantity:          sdk.MustNewDecFromStr("1"),
+			PriceDenom:        pair.PriceDenom,
+			AssetDenom:        pair.AssetDenom,
+			OrderType:         types.OrderType_LIMIT,
+			PositionDirection: types.PositionDirection_LONG,
+			Data:              "{\"position_effect\":\"Open\",\"leverage\":\"1\"}",
+		},
+	)
+	dexutils.GetMemState(ctx.Context()).GetBlockCancels(ctx, types.ContractAddress(contractAddr.String()), types.GetPairString(&pair)).Add(
+		&types.Cancellation{
+			Id:                2,
+			Creator:           testAccount.String(),
+			ContractAddr:      contractAddr.String(),
+			Price:             sdk.MustNewDecFromStr("2"),
+			PriceDenom:        pair.PriceDenom,
+			AssetDenom:        pair.AssetDenom,
+			PositionDirection: types.PositionDirection_LONG,
+		},
+	)
+	dexutils.GetMemState(ctx.Context()).SetDownstreamsToProcess(contractAddr.String(), func(addr string) *types.ContractInfoV2 {
+		c, err := dexkeeper.GetContract(ctx, addr)
+		if err != nil {
+			return nil
+		}
+		return &c
+	})
+	ctx = ctx.WithBlockHeight(2)
+	testApp.EndBlocker(ctx, abci.RequestEndBlock{})
+	require.Equal(t, uint64(2), dexkeeper.GetOrderCountState(ctx, contractAddr.String(), pair.PriceDenom, pair.AssetDenom, types.PositionDirection_LONG, sdk.NewDec(1)))
+	require.Equal(t, uint64(0), dexkeeper.GetOrderCountState(ctx, contractAddr.String(), pair.PriceDenom, pair.AssetDenom, types.PositionDirection_SHORT, sdk.NewDec(1)))
+	require.Equal(t, uint64(0), dexkeeper.GetOrderCountState(ctx, contractAddr.String(), pair.PriceDenom, pair.AssetDenom, types.PositionDirection_LONG, sdk.NewDec(2)))
+	require.Equal(t, uint64(0), dexkeeper.GetOrderCountState(ctx, contractAddr.String(), pair.PriceDenom, pair.AssetDenom, types.PositionDirection_SHORT, sdk.NewDec(2)))
+	require.Equal(t, uint64(0), dexkeeper.GetOrderCountState(ctx, contractAddr.String(), pair.PriceDenom, pair.AssetDenom, types.PositionDirection_LONG, sdk.NewDec(3)))
+	require.Equal(t, uint64(1), dexkeeper.GetOrderCountState(ctx, contractAddr.String(), pair.PriceDenom, pair.AssetDenom, types.PositionDirection_SHORT, sdk.NewDec(3)))
+}
