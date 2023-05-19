@@ -1,6 +1,6 @@
 # Oracle Price Feeder
 
-This is a standalone version of [Umee's fantastic work](https://github.com/umee-network/umee/tree/main/price-feeder) and integrating it more closely with the Cosmos SDK.
+This is a standalone version of [The Ojo Price Feeder](https://github.com/ojo-network/price-feeder).
 
 ## Changes
 
@@ -181,4 +181,3 @@ Our keyring must be set up to sign transactions before running the price feeder.
 Additional info on the different keyring modes is available [here](https://docs.cosmos.network/master/run-node/keyring.html).
 **Please note that the `test` and `memory` modes are only for testing purposes.**
 **Do not use these modes for running the price feeder against mainnet.**
-
