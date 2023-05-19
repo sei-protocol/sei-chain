@@ -61,6 +61,7 @@ type Store struct {
 	pruneHeights        []int64
 	initialVersion      int64
 	archivalVersion     int64
+	noVersioning        bool
 
 	traceWriter       io.Writer
 	traceContext      types.TraceContext
@@ -950,9 +951,9 @@ func (rs *Store) loadCommitStoreFromParams(key types.StoreKey, id types.CommitID
 		var err error
 
 		if params.initialVersion == 0 {
-			store, err = iavl.LoadStore(db, rs.logger, key, id, rs.lazyLoading, rs.iavlCacheSize, rs.iavlDisableFastNode)
+			store, err = iavl.LoadStore(db, rs.logger, key, id, rs.lazyLoading, rs.iavlCacheSize, rs.iavlDisableFastNode, rs.noVersioning)
 		} else {
-			store, err = iavl.LoadStoreWithInitialVersion(db, rs.logger, key, id, rs.lazyLoading, params.initialVersion, rs.iavlCacheSize, rs.iavlDisableFastNode)
+			store, err = iavl.LoadStoreWithInitialVersion(db, rs.logger, key, id, rs.lazyLoading, params.initialVersion, rs.iavlCacheSize, rs.iavlDisableFastNode, rs.noVersioning)
 		}
 
 		if err != nil {
@@ -1046,6 +1047,10 @@ func (rs *Store) flushMetadata(db dbm.DB, version int64, cInfo *types.CommitInfo
 		panic(fmt.Errorf("error on batch write %w", err))
 	}
 	rs.logger.Info("App State Saved height=%d hash=%X\n", cInfo.CommitID().Version, cInfo.CommitID().Hash)
+}
+
+func (rs *Store) SetNoVersioning() {
+	rs.noVersioning = true
 }
 
 type storeParams struct {

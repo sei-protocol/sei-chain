@@ -159,6 +159,8 @@ type BaseApp struct { //nolint: maligned
 
 	compactionInterval uint64
 
+	noVersioning bool
+
 	TmConfig *tmcfg.Config
 
 	TracingInfo *tracing.Info
@@ -282,6 +284,9 @@ func NewBaseApp(
 		panic("must pass --chain-id when calling 'seid start' or set in ~/.sei/config/client.toml")
 	}
 	app.startCompactionRoutine(db)
+	if app.noVersioning {
+		app.cms.(*rootmulti.Store).SetNoVersioning()
+	}
 
 	return app
 }
@@ -459,6 +464,10 @@ func (app *BaseApp) setHaltHeight(haltHeight uint64) {
 
 func (app *BaseApp) setHaltTime(haltTime uint64) {
 	app.haltTime = haltTime
+}
+
+func (app *BaseApp) setNoVersioning(noVersioning bool) {
+	app.noVersioning = noVersioning
 }
 
 func (app *BaseApp) setMinRetainBlocks(minRetainBlocks uint64) {

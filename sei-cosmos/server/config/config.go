@@ -80,6 +80,8 @@ type BaseConfig struct {
 	// CompactionInterval sets (in seconds) the interval between forced levelDB
 	// compaction. A value of 0 means no forced levelDB
 	CompactionInterval uint64 `mapstructure:"compaction-interval"`
+
+	NoVersioning bool `mapstructure:"no-versioning"`
 }
 
 // APIConfig defines the API listener configuration.
@@ -223,6 +225,7 @@ func DefaultConfig() *Config {
 			IAVLCacheSize:       781250, // 50 MB
 			IAVLDisableFastNode: true,
 			CompactionInterval:  0,
+			NoVersioning:        false,
 		},
 		Telemetry: telemetry.Config{
 			Enabled:      false,
@@ -291,6 +294,7 @@ func GetConfig(v *viper.Viper) (Config, error) {
 			IAVLCacheSize:       v.GetUint64("iavl-cache-size"),
 			IAVLDisableFastNode: v.GetBool("iavl-disable-fastnode"),
 			CompactionInterval:  v.GetUint64("compaction-interval"),
+			NoVersioning:        v.GetBool("no-versioning"),
 		},
 		Telemetry: telemetry.Config{
 			ServiceName:             v.GetString("telemetry.service-name"),

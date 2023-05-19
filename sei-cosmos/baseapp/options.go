@@ -40,6 +40,10 @@ func SetHaltTime(haltTime uint64) func(*BaseApp) {
 	return func(bapp *BaseApp) { bapp.setHaltTime(haltTime) }
 }
 
+func SetNoVersioning(noVersioning bool) func(*BaseApp) {
+	return func(bapp *BaseApp) { bapp.setNoVersioning(noVersioning) }
+}
+
 // SetMinRetainBlocks returns a BaseApp option function that sets the minimum
 // block retention height value when determining which heights to prune during
 // ABCI Commit.

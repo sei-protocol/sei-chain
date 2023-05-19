@@ -85,6 +85,8 @@ iavl-disable-fastnode = {{ .BaseConfig.IAVLDisableFastNode }}
 # Default is 0.
 compaction-interval = {{ .BaseConfig.CompactionInterval }}
 
+no-versioning = {{ .BaseConfig.NoVersioning }}
+
 ###############################################################################
 ###                         Telemetry Configuration                         ###
 ###############################################################################

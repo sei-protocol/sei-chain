@@ -37,25 +37,26 @@ var (
 
 // Store Implements types.KVStore and CommitKVStore.
 type Store struct {
-	tree Tree
+	tree    Tree
 	treeMtx *sync.RWMutex
 }
 
 // LoadStore returns an IAVL Store as a CommitKVStore. Internally, it will load the
 // store's version (id) from the provided DB. An error is returned if the version
 // fails to load, or if called with a positive version on an empty tree.
-func LoadStore(db dbm.DB, logger log.Logger, key types.StoreKey, id types.CommitID, lazyLoading bool, cacheSize int, disableFastNode bool) (types.CommitKVStore, error) {
-	return LoadStoreWithInitialVersion(db, logger, key, id, lazyLoading, 0, cacheSize, disableFastNode)
+func LoadStore(db dbm.DB, logger log.Logger, key types.StoreKey, id types.CommitID, lazyLoading bool, cacheSize int, disableFastNode bool, noVersioning bool) (types.CommitKVStore, error) {
+	return LoadStoreWithInitialVersion(db, logger, key, id, lazyLoading, 0, cacheSize, disableFastNode, noVersioning)
 }
 
 // LoadStoreWithInitialVersion returns an IAVL Store as a CommitKVStore setting its initialVersion
 // to the one given. Internally, it will load the store's version (id) from the
 // provided DB. An error is returned if the version fails to load, or if called with a positive
 // version on an empty tree.
-func LoadStoreWithInitialVersion(db dbm.DB, logger log.Logger, key types.StoreKey, id types.CommitID, lazyLoading bool, initialVersion uint64, cacheSize int, disableFastNode bool) (types.CommitKVStore, error) {
+func LoadStoreWithInitialVersion(db dbm.DB, logger log.Logger, key types.StoreKey, id types.CommitID, lazyLoading bool, initialVersion uint64, cacheSize int, disableFastNode bool, noVersioning bool) (types.CommitKVStore, error) {
 	tree, err := iavl.NewMutableTreeWithOpts(db, cacheSize, &iavl.Options{
 		InitialVersion: initialVersion,
 		Sync:           false,
+		NoVersioning:   noVersioning,
 	}, disableFastNode)
 	if err != nil {
 		return nil, err
@@ -91,7 +92,7 @@ func LoadStoreWithInitialVersion(db dbm.DB, logger log.Logger, key types.StoreKe
 	}
 
 	return &Store{
-		tree: tree,
+		tree:    tree,
 		treeMtx: &sync.RWMutex{},
 	}, nil
 }
@@ -104,7 +105,7 @@ func LoadStoreWithInitialVersion(db dbm.DB, logger log.Logger, key types.StoreKe
 // passed into iavl.MutableTree
 func UnsafeNewStore(tree *iavl.MutableTree) *Store {
 	return &Store{
-		tree: tree,
+		tree:    tree,
 		treeMtx: &sync.RWMutex{},
 	}
 }
@@ -120,7 +121,7 @@ func (st *Store) GetImmutable(version int64) (*Store, error) {
 
 	if !st.VersionExists(version) {
 		return &Store{
-			tree: &immutableTree{&iavl.ImmutableTree{}},
+			tree:    &immutableTree{&iavl.ImmutableTree{}},
 			treeMtx: &sync.RWMutex{},
 		}, nil
 	}
@@ -131,7 +132,7 @@ func (st *Store) GetImmutable(version int64) (*Store, error) {
 	}
 
 	return &Store{
-		tree: &immutableTree{iTree},
+		tree:    &immutableTree{iTree},
 		treeMtx: &sync.RWMutex{},
 	}, nil
 }
