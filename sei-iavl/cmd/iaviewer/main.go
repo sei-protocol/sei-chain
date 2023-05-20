@@ -44,6 +44,12 @@ func main() {
 		fmt.Fprintf(os.Stderr, "Error reading data: %s\n", err)
 		os.Exit(1)
 	}
+	treeHash, err := tree.Hash()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error hashing tree: %s\n", err)
+		os.Exit(1)
+	}
+	fmt.Printf("Tree hash is %X, tree size is %X\n", treeHash, tree.Size())
 
 	switch args[0] {
 	case "data":
@@ -122,7 +128,7 @@ func ReadTree(dir string, version int, prefix []byte) (*iavl.MutableTree, error)
 		db = dbm.NewPrefixDB(db, prefix)
 	}
 
-	tree, err := iavl.NewMutableTree(db, DefaultCacheSize, false)
+	tree, err := iavl.NewMutableTree(db, DefaultCacheSize, true)
 	if err != nil {
 		return nil, err
 	}
@@ -133,12 +139,21 @@ func ReadTree(dir string, version int, prefix []byte) (*iavl.MutableTree, error)
 
 func PrintKeys(tree *iavl.MutableTree) {
 	fmt.Println("Printing all keys with hashed values (to detect diff)")
+	totalKeySize := 0
+	totalValSize := 0
+	totalNumKeys := 0
+	keyPrefixMap := map[string]int{}
 	tree.Iterate(func(key []byte, value []byte) bool {
 		printKey := parseWeaveKey(key)
 		digest := sha256.Sum256(value)
 		fmt.Printf("  %s\n    %X\n", printKey, digest)
+		totalKeySize += len(key)
+		totalValSize += len(value)
+		totalNumKeys++
+		keyPrefixMap[fmt.Sprintf("%x", key[0])]++
 		return false
 	})
+	fmt.Printf("Total key count %d, total key bytes %d, total value bytes %d, prefix map %v\n", totalNumKeys, totalKeySize, totalValSize, keyPrefixMap)
 }
 
 // parseWeaveKey assumes a separating : where all in front should be ascii,
