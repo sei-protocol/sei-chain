@@ -163,6 +163,16 @@ func ContractKey(contractAddr string) []byte {
 	return AddressKeyPrefix(contractAddr)
 }
 
+func OrderCountPrefix(contractAddr string, priceDenom string, assetDenom string, long bool) []byte {
+	var prefix []byte
+	if long {
+		prefix = KeyPrefix(LongOrderCountKey)
+	} else {
+		prefix = KeyPrefix(ShortOrderCountKey)
+	}
+	return append(prefix, append(AddressKeyPrefix(contractAddr), PairPrefix(priceDenom, assetDenom)...)...)
+}
+
 const (
 	LongBookKey = "LongBook-value-"
 

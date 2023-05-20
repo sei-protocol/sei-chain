@@ -122,6 +122,18 @@ func DexPlaceOrdersDependencyGenerator(keeper aclkeeper.Keeper, ctx sdk.Context,
 			ResourceType:       sdkacltypes.ResourceType_KV_DEX_CONTRACT,
 			IdentifierTemplate: hex.EncodeToString([]byte(dexkeeper.ContractPrefixKey)),
 		},
+
+		{
+			AccessType:         sdkacltypes.AccessType_READ,
+			ResourceType:       sdkacltypes.ResourceType_KV_DEX_LONG_ORDER_COUNT,
+			IdentifierTemplate: hex.EncodeToString([]byte(dextypes.LongOrderCountKey)),
+		},
+
+		{
+			AccessType:         sdkacltypes.AccessType_READ,
+			ResourceType:       sdkacltypes.ResourceType_KV_DEX_SHORT_ORDER_COUNT,
+			IdentifierTemplate: hex.EncodeToString([]byte(dextypes.ShortOrderCountKey)),
+		},
 	}
 
 	// Last Operation should always be a commit
