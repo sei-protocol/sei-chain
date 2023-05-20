@@ -1210,7 +1210,7 @@ func (app *App) ProcessTxs(
 
 	oldDexMemStateCtx := context.WithValue(ctx.Context(), dexutils.DexMemStateContextKey, oldDexMemState)
 	ctx = ctx.WithContext(oldDexMemStateCtx)
-		
+
 	dexMemState := dexutils.GetMemState(ctx.Context())
 	dexMemState.Clear(ctx)
 	dexMemState.ClearContractToDependencies()
