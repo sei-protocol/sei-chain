@@ -141,7 +141,7 @@ func PrintKeys(tree *iavl.MutableTree) {
 	fmt.Println("Printing all keys with hashed values (to detect diff)")
 	totalKeySize := 0
 	totalValSize := 0
-	count := 0
+	totalNumKeys := 0
 	keyPrefixMap := map[string]int{}
 	tree.Iterate(func(key []byte, value []byte) bool {
 		printKey := parseWeaveKey(key)
@@ -149,11 +149,11 @@ func PrintKeys(tree *iavl.MutableTree) {
 		fmt.Printf("  %s\n    %X\n", printKey, digest)
 		totalKeySize += len(key)
 		totalValSize += len(value)
-		count++
+		totalNumKeys++
 		keyPrefixMap[fmt.Sprintf("%x", key[0])]++
 		return false
 	})
-	fmt.Printf("Total key count %d, total key bytes %d, total value bytes %d, prefix map %v\n", count, totalKeySize, totalValSize, keyPrefixMap)
+	fmt.Printf("Total key count %d, total key bytes %d, total value bytes %d, prefix map %v\n", totalNumKeys, totalKeySize, totalValSize, keyPrefixMap)
 }
 
 // parseWeaveKey assumes a separating : where all in front should be ascii,
