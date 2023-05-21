@@ -210,7 +210,7 @@ func ReadTree(db dbm.DB, version int, prefix []byte) (*iavl.MutableTree, error) 
 		db = dbm.NewPrefixDB(db, prefix)
 	}
 
-	tree, err := iavl.NewMutableTree(db, DefaultCacheSize, false)
+	tree, err := iavl.NewMutableTree(db, DefaultCacheSize, true)
 	if err != nil {
 		return nil, err
 	}
