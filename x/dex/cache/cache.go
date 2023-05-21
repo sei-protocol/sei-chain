@@ -23,7 +23,7 @@ type MemState struct {
 }
 
 func NewMemState(storeKey sdk.StoreKey) *MemState {
-	contractsToProcess := datastructures.NewSyncSet[string]([]string{})
+	contractsToProcess := datastructures.NewSyncSet([]string{})
 	return &MemState{
 		storeKey:                storeKey,
 		contractsToProcess:      &contractsToProcess,

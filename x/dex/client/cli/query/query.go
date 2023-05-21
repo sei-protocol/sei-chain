@@ -40,6 +40,7 @@ func GetQueryCmd() *cobra.Command {
 	cmd.AddCommand(CmdGetOrders())
 	cmd.AddCommand(CmdGetOrdersByID())
 	cmd.AddCommand(CmdGetMatchResult())
+	cmd.AddCommand(CmdGetOrderCount())
 
 	// this line is used by starport scaffolding # 1
 

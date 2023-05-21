@@ -1195,6 +1195,7 @@ func (app *App) ProcessTxs(
 		dependencyDag.BlockingSignalsMap,
 		dependencyDag.TxMsgAccessOpMapping,
 	)
+	oldDexMemState := dexutils.GetMemState(ctx.Context()).DeepCopy()
 	if ok {
 		// Write the results back to the concurrent contexts - if concurrent execution fails,
 		// this should not be called and the state is rolled back and retried with synchronous execution
@@ -1206,6 +1207,13 @@ func (app *App) ProcessTxs(
 	ctx.Logger().Error("Concurrent Execution failed, retrying with Synchronous")
 	// Clear the memcache context from the previous state as it failed, we no longer need to commit the data
 	ctx.ContextMemCache().Clear()
+
+	oldDexMemStateCtx := context.WithValue(ctx.Context(), dexutils.DexMemStateContextKey, oldDexMemState)
+	ctx = ctx.WithContext(oldDexMemStateCtx)
+
+	dexMemState := dexutils.GetMemState(ctx.Context())
+	dexMemState.Clear(ctx)
+	dexMemState.ClearContractToDependencies()
 
 	txResults := app.ProcessBlockSynchronous(ctx, txs)
 	processBlockCache.Write()

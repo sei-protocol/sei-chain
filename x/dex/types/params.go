@@ -20,6 +20,8 @@ var (
 	KeyMinProcessableRent        = []byte("KeyMinProcessableRent")
 	KeyOrderBookEntriesPerLoad   = []byte("KeyOrderBookEntriesPerLoad")
 	KeyContractUnsuspendCost     = []byte("KeyContractUnsuspendCost")
+	KeyMaxOrderPerPrice          = []byte("KeyMaxOrderPerPrice")
+	KeyMaxPairsPerContract       = []byte("KeyMaxPairsPerContract")
 )
 
 const (
@@ -33,6 +35,8 @@ const (
 	DefaultMinProcessableRent        = 100000
 	DefaultOrderBookEntriesPerLoad   = 10
 	DefaultContractUnsuspendCost     = 1000000
+	DefaultMaxOrderPerPrice          = 10000
+	DefaultMaxPairsPerContract       = 100
 )
 
 var DefaultSudoCallGasPrice = sdk.NewDecWithPrec(1, 1) // 0.1
@@ -58,6 +62,8 @@ func DefaultParams() Params {
 		MinProcessableRent:        DefaultMinProcessableRent,
 		OrderBookEntriesPerLoad:   DefaultOrderBookEntriesPerLoad,
 		ContractUnsuspendCost:     DefaultContractUnsuspendCost,
+		MaxOrderPerPrice:          DefaultMaxOrderPerPrice,
+		MaxPairsPerContract:       DefaultMaxPairsPerContract,
 	}
 }
 
@@ -75,6 +81,8 @@ func (p *Params) ParamSetPairs() paramtypes.ParamSetPairs {
 		paramtypes.NewParamSetPair(KeyMinProcessableRent, &p.MinProcessableRent, validateUint64Param),
 		paramtypes.NewParamSetPair(KeyOrderBookEntriesPerLoad, &p.OrderBookEntriesPerLoad, validateUint64Param),
 		paramtypes.NewParamSetPair(KeyContractUnsuspendCost, &p.ContractUnsuspendCost, validateUint64Param),
+		paramtypes.NewParamSetPair(KeyMaxOrderPerPrice, &p.MaxOrderPerPrice, validateUint64Param),
+		paramtypes.NewParamSetPair(KeyMaxPairsPerContract, &p.MaxPairsPerContract, validateUint64Param),
 	}
 }
 
