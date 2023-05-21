@@ -15,6 +15,7 @@ import (
 	slashingtypes "github.com/cosmos/cosmos-sdk/x/slashing/types"
 	"github.com/cosmos/cosmos-sdk/x/staking/teststaking"
 	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
+	dexutils "github.com/sei-protocol/sei-chain/x/dex/utils"
 	minttypes "github.com/sei-protocol/sei-chain/x/mint/types"
 	"github.com/stretchr/testify/suite"
 	abci "github.com/tendermint/tendermint/abci/types"
@@ -50,9 +51,11 @@ type TestWrapper struct {
 
 func NewTestWrapper(t *testing.T, tm time.Time, valPub crptotypes.PubKey) *TestWrapper {
 	appPtr := Setup(false)
+	ctx := appPtr.BaseApp.NewContext(false, tmproto.Header{Height: 1, ChainID: "sei-test", Time: tm})
+	ctx = ctx.WithContext(context.WithValue(ctx.Context(), dexutils.DexMemStateContextKey, appPtr.MemState))
 	wrapper := &TestWrapper{
 		App: appPtr,
-		Ctx: appPtr.BaseApp.NewContext(false, tmproto.Header{Height: 1, ChainID: "sei-test", Time: tm}),
+		Ctx: ctx,
 	}
 	wrapper.SetT(t)
 	wrapper.setupValidator(stakingtypes.Bonded, valPub)
