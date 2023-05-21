@@ -4,6 +4,7 @@ import (
 	"errors"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	sdkacltypes "github.com/cosmos/cosmos-sdk/types/accesscontrol"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	dexcache "github.com/sei-protocol/sei-chain/x/dex/cache"
 	"github.com/sei-protocol/sei-chain/x/dex/keeper"
@@ -156,4 +157,25 @@ func (d CheckDexGasDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bo
 		}
 	}
 	return ctx, sdkerrors.ErrInsufficientFee
+}
+
+func (d CheckDexGasDecorator) AnteDeps(txDeps []sdkacltypes.AccessOperation, tx sdk.Tx, next sdk.AnteDepGenerator) (newTxDeps []sdkacltypes.AccessOperation, err error) {
+	deps := []sdkacltypes.AccessOperation{}
+	for _, msg := range tx.GetMsgs() {
+		// Error checking will be handled in AnteHandler
+		switch msg.(type) {
+		case *types.MsgPlaceOrders, *types.MsgCancelOrders:
+			deps = append(deps, []sdkacltypes.AccessOperation{
+				// read the dex contract info
+				{
+					ResourceType:       sdkacltypes.ResourceType_KV_DEX_CONTRACT,
+					AccessType:         sdkacltypes.AccessType_READ,
+					IdentifierTemplate: "*",
+				},
+			}...)
+		default:
+			continue
+		}
+	}
+	return next(append(txDeps, deps...), tx)
 }
