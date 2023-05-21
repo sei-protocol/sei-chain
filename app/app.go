@@ -1330,6 +1330,8 @@ func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequ
 	events = append(events, midBlockEvents...)
 
 	// run other txs - this will run them synchronously without building a dag or executing concurrently
+	// TODO: re-enable this tx concurrency once dependencies have been declared properly and any potential
+	// nondeterminism with remediation flow has been fully investigated / resolved
 	// otherResults, ctx := app.BuildDependenciesAndRunTxs(ctx, txs)
 	otherResults := app.ProcessBlockSynchronous(ctx, txs)
 	txResults = append(txResults, otherResults...)
