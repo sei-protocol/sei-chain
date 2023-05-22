@@ -34,6 +34,7 @@ sei-chain:
 * [#790] (https://github.com/sei-protocol/sei-chain/pull/790) Disable non-prioritized tx concurrency
 * [#789] (https://github.com/sei-protocol/sei-chain/pull/789) Adds appropriate READ access for dex contract in antehandler
 * [#788] (https://github.com/sei-protocol/sei-chain/pull/788) Clear dex memstate cache when falling back to sequential processing
+* [#786] (https://github.com/sei-protocol/sei-chain/pull/786) Add NoVersioning to seid command
 * [#781] (https://github.com/sei-protocol/sei-chain/pull/781) Add order limit for price level and pair limit for contracts
 
 tm-db:
