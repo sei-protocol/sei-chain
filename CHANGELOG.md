@@ -41,6 +41,8 @@ sei-chain:
 tm-db:
 * [#2] (https://github.com/sei-protocol/tm-db/pull/2) Load items eagerly to memdb_iterator to avoid deadlock
 
+sei-tendermint:
+* [#137] (https://github.com/sei-protocol/sei-tendermint/pull/137) New endpoint to expose lag 
 
 ## 3.0.0
 sei-chain:
