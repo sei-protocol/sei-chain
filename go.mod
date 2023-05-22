@@ -269,7 +269,7 @@ require (
 replace (
 	github.com/CosmWasm/wasmd => github.com/sei-protocol/sei-wasmd v0.0.2
 	github.com/confio/ics23/go => github.com/cosmos/cosmos-sdk/ics23/go v0.8.0
-	github.com/cosmos/cosmos-sdk => github.com/sei-protocol/sei-cosmos v0.2.34
+	github.com/cosmos/cosmos-sdk => github.com/sei-protocol/sei-cosmos v0.2.35-0.20230522202940-bcf824528fbd
 	github.com/cosmos/iavl => github.com/sei-protocol/sei-iavl v0.1.4
 	github.com/gogo/protobuf => github.com/regen-network/protobuf v1.3.3-alpha.regen.1
 	github.com/keybase/go-keychain => github.com/99designs/go-keychain v0.0.0-20191008050251-8e49817e8af4
