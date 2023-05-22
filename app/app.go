@@ -1001,32 +1001,13 @@ func (app *App) FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBlock)
 	return &resp, nil
 }
 
-func (app *App) RecordAndEmitMetrics(ctx sdk.Context) {
-	height := float32(ctx.BlockHeight())
-	if (*app.metricCounter)["last_updated_height"] == height {
-		app.Logger().Debug("Metrics already recorded for this block", "height", height)
-		return
-	}
-
-	for metricName, value := range *ctx.ContextMemCache().GetMetricCounters() {
-		(*app.metricCounter)[metricName] += float32(value)
-	}
-	(*app.metricCounter)["last_updated_height"] = height
-
-	for metricName, value := range *(app.metricCounter) {
-		metrics.SetThroughputMetric(metricName, value)
-	}
-
-	ctx.ContextMemCache().Clear()
-}
-
 func (app *App) DeliverTxWithResult(ctx sdk.Context, tx []byte) *abci.ExecTxResult {
 	deliverTxResp := app.DeliverTx(ctx, abci.RequestDeliverTx{
 		Tx: tx,
 	})
 
-	ctx.ContextMemCache().IncrMetricCounter(uint32(deliverTxResp.GasWanted), "gas_wanted")
-	ctx.ContextMemCache().IncrMetricCounter(uint32(deliverTxResp.GasUsed), "gas_used")
+	metrics.IncrGasCounter("gas_used", deliverTxResp.GasUsed)
+	metrics.IncrGasCounter("gas_wanted", deliverTxResp.GasWanted)
 
 	return &abci.ExecTxResult{
 		Code:      deliverTxResp.Code,
@@ -1345,7 +1326,6 @@ func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequ
 	})
 
 	events = append(events, endBlockResp.Events...)
-	app.RecordAndEmitMetrics(ctx)
 	return events, txResults, endBlockResp, nil
 }
 

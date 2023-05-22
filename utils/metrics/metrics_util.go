@@ -197,3 +197,15 @@ func SetCoinsMinted(amount uint64, denom string) {
 		[]metrics.Label{telemetry.NewLabel("denom", denom)},
 	)
 }
+
+// Measures the number of times the total block gas wanted in the proposal exceeds the max
+// Metric Name:
+//
+//	sei_tx_gas_counter
+func IncrGasCounter(gasType string, value int64) {
+	telemetry.IncrCounterWithLabels(
+		[]string{"sei", "tx", "gas", "counter"},
+		float32(value),
+		[]metrics.Label{telemetry.NewLabel("type", gasType)},
+	)
+}
