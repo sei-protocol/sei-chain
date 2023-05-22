@@ -118,13 +118,7 @@ func TestEndBlockMarketOrder(t *testing.T) {
 			Amount:  sdk.MustNewDecFromStr("2000000"),
 		},
 	)
-	dexutils.GetMemState(ctx.Context()).SetDownstreamsToProcess(contractAddr.String(), func(addr string) *types.ContractInfoV2 {
-		c, err := dexkeeper.GetContract(ctx, addr)
-		if err != nil {
-			return nil
-		}
-		return &c
-	})
+	dexutils.GetMemState(ctx.Context()).SetDownstreamsToProcess(ctx, contractAddr.String(), dexkeeper.GetContractWithoutGasCharge)
 
 	ctx = ctx.WithBlockHeight(1)
 	testApp.EndBlocker(ctx, abci.RequestEndBlock{})
@@ -147,13 +141,7 @@ func TestEndBlockMarketOrder(t *testing.T) {
 			Data:              "{\"position_effect\":\"Open\",\"leverage\":\"1\"}",
 		},
 	)
-	dexutils.GetMemState(ctx.Context()).SetDownstreamsToProcess(contractAddr.String(), func(addr string) *types.ContractInfoV2 {
-		c, err := dexkeeper.GetContract(ctx, addr)
-		if err != nil {
-			return nil
-		}
-		return &c
-	})
+	dexutils.GetMemState(ctx.Context()).SetDownstreamsToProcess(ctx, contractAddr.String(), dexkeeper.GetContractWithoutGasCharge)
 
 	ctx = ctx.WithBlockHeight(2)
 	testApp.EndBlocker(ctx, abci.RequestEndBlock{})
@@ -185,13 +173,7 @@ func TestEndBlockMarketOrder(t *testing.T) {
 			Data:              "{\"position_effect\":\"Open\",\"leverage\":\"1\"}",
 		},
 	)
-	dexutils.GetMemState(ctx.Context()).SetDownstreamsToProcess(contractAddr.String(), func(addr string) *types.ContractInfoV2 {
-		c, err := dexkeeper.GetContract(ctx, addr)
-		if err != nil {
-			return nil
-		}
-		return &c
-	})
+	dexutils.GetMemState(ctx.Context()).SetDownstreamsToProcess(ctx, contractAddr.String(), dexkeeper.GetContractWithoutGasCharge)
 
 	ctx = ctx.WithBlockHeight(3)
 	testApp.EndBlocker(ctx, abci.RequestEndBlock{})
@@ -283,13 +265,7 @@ func TestEndBlockLimitOrder(t *testing.T) {
 			Amount:  sdk.MustNewDecFromStr("2000000"),
 		},
 	)
-	dexutils.GetMemState(ctx.Context()).SetDownstreamsToProcess(contractAddr.String(), func(addr string) *types.ContractInfoV2 {
-		c, err := dexkeeper.GetContract(ctx, addr)
-		if err != nil {
-			return nil
-		}
-		return &c
-	})
+	dexutils.GetMemState(ctx.Context()).SetDownstreamsToProcess(ctx, contractAddr.String(), dexkeeper.GetContractWithoutGasCharge)
 
 	ctx = ctx.WithBlockHeight(1)
 	testApp.EndBlocker(ctx, abci.RequestEndBlock{})
@@ -329,13 +305,7 @@ func TestEndBlockLimitOrder(t *testing.T) {
 			Data:              "{\"position_effect\":\"Open\",\"leverage\":\"1\"}",
 		},
 	)
-	dexutils.GetMemState(ctx.Context()).SetDownstreamsToProcess(contractAddr.String(), func(addr string) *types.ContractInfoV2 {
-		c, err := dexkeeper.GetContract(ctx, addr)
-		if err != nil {
-			return nil
-		}
-		return &c
-	})
+	dexutils.GetMemState(ctx.Context()).SetDownstreamsToProcess(ctx, contractAddr.String(), dexkeeper.GetContractWithoutGasCharge)
 
 	ctx = ctx.WithBlockHeight(2)
 	testApp.EndBlocker(ctx, abci.RequestEndBlock{})
@@ -368,13 +338,7 @@ func TestEndBlockLimitOrder(t *testing.T) {
 			Data:              "{\"position_effect\":\"Open\",\"leverage\":\"1\"}",
 		},
 	)
-	dexutils.GetMemState(ctx.Context()).SetDownstreamsToProcess(contractAddr.String(), func(addr string) *types.ContractInfoV2 {
-		c, err := dexkeeper.GetContract(ctx, addr)
-		if err != nil {
-			return nil
-		}
-		return &c
-	})
+	dexutils.GetMemState(ctx.Context()).SetDownstreamsToProcess(ctx, contractAddr.String(), dexkeeper.GetContractWithoutGasCharge)
 
 	ctx = ctx.WithBlockHeight(3)
 	testApp.EndBlocker(ctx, abci.RequestEndBlock{})
@@ -414,13 +378,7 @@ func TestEndBlockRollback(t *testing.T) {
 			PositionDirection: types.PositionDirection_LONG,
 		},
 	)
-	dexutils.GetMemState(ctx.Context()).SetDownstreamsToProcess(keepertest.TestContract, func(addr string) *types.ContractInfoV2 {
-		c, err := dexkeeper.GetContract(ctx, addr)
-		if err != nil {
-			return nil
-		}
-		return &c
-	})
+	dexutils.GetMemState(ctx.Context()).SetDownstreamsToProcess(ctx, keepertest.TestContract, dexkeeper.GetContractWithoutGasCharge)
 	ctx = ctx.WithBlockHeight(1)
 	testApp.EndBlocker(ctx, abci.RequestEndBlock{})
 	// No state change should've been persisted
@@ -456,13 +414,7 @@ func TestEndBlockPartialRollback(t *testing.T) {
 			PositionDirection: types.PositionDirection_LONG,
 		},
 	)
-	dexutils.GetMemState(ctx.Context()).SetDownstreamsToProcess(keepertest.TestContract, func(addr string) *types.ContractInfoV2 {
-		c, err := dexkeeper.GetContract(ctx, addr)
-		if err != nil {
-			return nil
-		}
-		return &c
-	})
+	dexutils.GetMemState(ctx.Context()).SetDownstreamsToProcess(ctx, keepertest.TestContract, dexkeeper.GetContractWithoutGasCharge)
 	// GOOD CONTRACT
 	testAccount, _ := sdk.AccAddressFromBech32("sei1yezq49upxhunjjhudql2fnj5dgvcwjj87pn2wx")
 	amounts := sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(1000000)), sdk.NewCoin("uusdc", sdk.NewInt(1000000)))
@@ -511,13 +463,7 @@ func TestEndBlockPartialRollback(t *testing.T) {
 			Amount:  sdk.MustNewDecFromStr("10000"),
 		},
 	)
-	dexutils.GetMemState(ctx.Context()).SetDownstreamsToProcess(contractAddr.String(), func(addr string) *types.ContractInfoV2 {
-		c, err := dexkeeper.GetContract(ctx, addr)
-		if err != nil {
-			return nil
-		}
-		return &c
-	})
+	dexutils.GetMemState(ctx.Context()).SetDownstreamsToProcess(ctx, contractAddr.String(), dexkeeper.GetContractWithoutGasCharge)
 
 	ctx = ctx.WithBlockHeight(1)
 	testApp.EndBlocker(ctx, abci.RequestEndBlock{})
@@ -683,13 +629,7 @@ func TestEndBlockRollbackWithRentCharge(t *testing.T) {
 			Amount:  sdk.MustNewDecFromStr("10000"),
 		},
 	)
-	dexutils.GetMemState(ctx.Context()).SetDownstreamsToProcess(contractAddr.String(), func(addr string) *types.ContractInfoV2 {
-		c, err := dexkeeper.GetContract(ctx, addr)
-		if err != nil {
-			return nil
-		}
-		return &c
-	})
+	dexutils.GetMemState(ctx.Context()).SetDownstreamsToProcess(ctx, contractAddr.String(), dexkeeper.GetContractWithoutGasCharge)
 	// overwrite params for testing
 	params := dexkeeper.GetParams(ctx)
 	params.MinProcessableRent = 0
@@ -846,13 +786,7 @@ func TestOrderCountUpdate(t *testing.T) {
 			Amount:  sdk.MustNewDecFromStr("2000000"),
 		},
 	)
-	dexutils.GetMemState(ctx.Context()).SetDownstreamsToProcess(contractAddr.String(), func(addr string) *types.ContractInfoV2 {
-		c, err := dexkeeper.GetContract(ctx, addr)
-		if err != nil {
-			return nil
-		}
-		return &c
-	})
+	dexutils.GetMemState(ctx.Context()).SetDownstreamsToProcess(ctx, contractAddr.String(), dexkeeper.GetContractWithoutGasCharge)
 
 	ctx = ctx.WithBlockHeight(1)
 	testApp.EndBlocker(ctx, abci.RequestEndBlock{})
@@ -889,13 +823,7 @@ func TestOrderCountUpdate(t *testing.T) {
 			PositionDirection: types.PositionDirection_LONG,
 		},
 	)
-	dexutils.GetMemState(ctx.Context()).SetDownstreamsToProcess(contractAddr.String(), func(addr string) *types.ContractInfoV2 {
-		c, err := dexkeeper.GetContract(ctx, addr)
-		if err != nil {
-			return nil
-		}
-		return &c
-	})
+	dexutils.GetMemState(ctx.Context()).SetDownstreamsToProcess(ctx, contractAddr.String(), dexkeeper.GetContractWithoutGasCharge)
 	ctx = ctx.WithBlockHeight(2)
 	testApp.EndBlocker(ctx, abci.RequestEndBlock{})
 	require.Equal(t, uint64(2), dexkeeper.GetOrderCountState(ctx, contractAddr.String(), pair.PriceDenom, pair.AssetDenom, types.PositionDirection_LONG, sdk.NewDec(1)))

@@ -283,3 +283,36 @@ func TestClearDependenciesForContract(t *testing.T) {
 	require.Nil(t, err)
 	require.Equal(t, int64(0), downB.NumIncomingDependencies)
 }
+
+func TestGetContractWithoutGasCharge(t *testing.T) {
+	keeper, ctx := keepertest.DexKeeper(t)
+	_ = keeper.SetContract(ctx, &types.ContractInfoV2{
+		Creator:      keepertest.TestAccount,
+		ContractAddr: keepertest.TestContract,
+		CodeId:       1,
+		RentBalance:  1000000,
+	})
+	// regular gas meter case
+	ctx = ctx.WithGasMeter(sdk.NewGasMeter(10000))
+	contract, err := keeper.GetContractWithoutGasCharge(ctx, keepertest.TestContract)
+	require.Nil(t, err)
+	require.Equal(t, keepertest.TestContract, contract.ContractAddr)
+	require.Equal(t, uint64(0), ctx.GasMeter().GasConsumed())
+	require.Equal(t, uint64(10000), ctx.GasMeter().Limit())
+
+	// regular gas meter out of gas case
+	ctx = ctx.WithGasMeter(sdk.NewGasMeter(1))
+	contract, err = keeper.GetContractWithoutGasCharge(ctx, keepertest.TestContract)
+	require.Nil(t, err)
+	require.Equal(t, keepertest.TestContract, contract.ContractAddr)
+	require.Equal(t, uint64(0), ctx.GasMeter().GasConsumed())
+	require.Equal(t, uint64(1), ctx.GasMeter().Limit())
+
+	// infinite gas meter case
+	ctx = ctx.WithGasMeter(sdk.NewInfiniteGasMeter())
+	contract, err = keeper.GetContractWithoutGasCharge(ctx, keepertest.TestContract)
+	require.Nil(t, err)
+	require.Equal(t, keepertest.TestContract, contract.ContractAddr)
+	require.Equal(t, uint64(0), ctx.GasMeter().GasConsumed())
+	require.Equal(t, uint64(0), ctx.GasMeter().Limit())
+}
