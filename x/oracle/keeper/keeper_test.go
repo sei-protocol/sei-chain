@@ -22,7 +22,6 @@ func TestExchangeRate(t *testing.T) {
 	cnyExchangeRate := sdk.NewDecWithPrec(839, int64(OracleDecPrecision)).MulInt64(utils.MicroUnit)
 	gbpExchangeRate := sdk.NewDecWithPrec(4995, int64(OracleDecPrecision)).MulInt64(utils.MicroUnit)
 	krwExchangeRate := sdk.NewDecWithPrec(2838, int64(OracleDecPrecision)).MulInt64(utils.MicroUnit)
-	seiExchangeRate := sdk.NewDecWithPrec(3282384, int64(OracleDecPrecision)).MulInt64(utils.MicroUnit)
 
 	// Set & get rates
 	input.OracleKeeper.SetBaseExchangeRate(input.Ctx, utils.MicroSeiDenom, cnyExchangeRate)
@@ -32,11 +31,6 @@ func TestExchangeRate(t *testing.T) {
 	require.Equal(t, sdk.ZeroInt(), lastUpdate)
 
 	input.Ctx = input.Ctx.WithBlockHeight(3)
-
-	rate, lastUpdate, _ = input.OracleKeeper.GetBaseExchangeRate(input.Ctx, utils.MicroBaseDenom)
-	require.Equal(t, sdk.OneDec(), rate)
-	// Vote period of 1, so last update should be 2 with a block height of 3
-	require.Equal(t, int64(2), lastUpdate.Int64())
 
 	input.OracleKeeper.SetBaseExchangeRate(input.Ctx, utils.MicroEthDenom, gbpExchangeRate)
 	rate, lastUpdate, err = input.OracleKeeper.GetBaseExchangeRate(input.Ctx, utils.MicroEthDenom)
@@ -52,12 +46,6 @@ func TestExchangeRate(t *testing.T) {
 	require.Equal(t, krwExchangeRate, rate)
 	require.Equal(t, sdk.NewInt(15), lastUpdate)
 
-	input.OracleKeeper.SetBaseExchangeRate(input.Ctx, utils.MicroBaseDenom, seiExchangeRate)
-	rate, lastUpdate, _ = input.OracleKeeper.GetBaseExchangeRate(input.Ctx, utils.MicroBaseDenom)
-	require.Equal(t, sdk.OneDec(), rate)
-	// Vote period of 1, so last update should be 14 with a block height of 15
-	require.Equal(t, int64(14), lastUpdate.Int64())
-
 	input.OracleKeeper.DeleteBaseExchangeRate(input.Ctx, utils.MicroAtomDenom)
 	_, _, err = input.OracleKeeper.GetBaseExchangeRate(input.Ctx, utils.MicroAtomDenom)
 	require.Error(t, err)
@@ -69,7 +57,7 @@ func TestExchangeRate(t *testing.T) {
 	}
 	input.OracleKeeper.IterateBaseExchangeRates(input.Ctx, handler)
 
-	require.True(t, numExchangeRates == 3)
+	require.Equal(t, 2, numExchangeRates)
 }
 
 func TestIterateSeiExchangeRates(t *testing.T) {
@@ -78,13 +66,11 @@ func TestIterateSeiExchangeRates(t *testing.T) {
 	cnyExchangeRate := sdk.NewDecWithPrec(839, int64(OracleDecPrecision)).MulInt64(utils.MicroUnit)
 	gbpExchangeRate := sdk.NewDecWithPrec(4995, int64(OracleDecPrecision)).MulInt64(utils.MicroUnit)
 	krwExchangeRate := sdk.NewDecWithPrec(2838, int64(OracleDecPrecision)).MulInt64(utils.MicroUnit)
-	seiExchangeRate := sdk.NewDecWithPrec(3282384, int64(OracleDecPrecision)).MulInt64(utils.MicroUnit)
 
 	// Set & get rates
 	input.OracleKeeper.SetBaseExchangeRate(input.Ctx, utils.MicroSeiDenom, cnyExchangeRate)
 	input.OracleKeeper.SetBaseExchangeRate(input.Ctx, utils.MicroEthDenom, gbpExchangeRate)
 	input.OracleKeeper.SetBaseExchangeRate(input.Ctx, utils.MicroAtomDenom, krwExchangeRate)
-	input.OracleKeeper.SetBaseExchangeRate(input.Ctx, utils.MicroBaseDenom, seiExchangeRate)
 
 	input.OracleKeeper.IterateBaseExchangeRates(input.Ctx, func(denom string, rate types.OracleExchangeRate) (stop bool) {
 		switch denom {
@@ -94,8 +80,6 @@ func TestIterateSeiExchangeRates(t *testing.T) {
 			require.Equal(t, gbpExchangeRate, rate.ExchangeRate)
 		case utils.MicroAtomDenom:
 			require.Equal(t, krwExchangeRate, rate.ExchangeRate)
-		case utils.MicroBaseDenom:
-			require.Equal(t, seiExchangeRate, rate.ExchangeRate)
 		}
 		return false
 	})

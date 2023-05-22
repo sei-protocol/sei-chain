@@ -56,12 +56,6 @@ func (k msgServer) CancelOrders(goCtx context.Context, msg *types.MsgCancelOrder
 		}
 	}
 	ctx.EventManager().EmitEvents(events)
-	utils.GetMemState(ctx.Context()).SetDownstreamsToProcess(msg.ContractAddr, func(addr string) *types.ContractInfoV2 {
-		contract, err := k.GetContract(ctx, addr)
-		if err != nil {
-			return nil
-		}
-		return &contract
-	})
+	utils.GetMemState(ctx.Context()).SetDownstreamsToProcess(ctx, msg.ContractAddr, k.GetContractWithoutGasCharge)
 	return &types.MsgCancelOrdersResponse{}, nil
 }
