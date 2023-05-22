@@ -31,6 +31,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/snapshots"
 	"github.com/cosmos/cosmos-sdk/store"
 	"github.com/cosmos/cosmos-sdk/store/rootmulti"
+	"github.com/cosmos/cosmos-sdk/telemetry"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	acltypes "github.com/cosmos/cosmos-sdk/types/accesscontrol"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
@@ -43,6 +44,13 @@ const (
 	runTxModeSimulate                  // Simulate a transaction
 	runTxModeDeliver                   // Deliver a transaction
 )
+
+var modeKeyToString = map[runTxMode]string{
+	runTxModeCheck:    "check",
+	runTxModeReCheck:  "recheck",
+	runTxModeSimulate: "simulate",
+	runTxModeDeliver:  "deliver",
+}
 
 const (
 	// archival related flags
@@ -840,7 +848,14 @@ func (app *BaseApp) cacheTxContext(ctx sdk.Context, txBytes []byte) (sdk.Context
 // returned if the tx does not run out of gas and if all the messages are valid
 // and execute successfully. An error is returned otherwise.
 func (app *BaseApp) runTx(ctx sdk.Context, mode runTxMode, txBytes []byte) (gInfo sdk.GasInfo, result *sdk.Result, anteEvents []abci.Event, priority int64, err error) {
-	defer ctx.ContextMemCache().IncrMetricCounter(1, sdk.TX_COUNT)
+
+	defer telemetry.MeasureThroughputSinceWithLabels(
+		telemetry.TxCount,
+		[]metrics.Label{
+			telemetry.NewLabel("mode", modeKeyToString[mode]),
+		},
+		time.Now(),
+	)
 
 	// Reset events after each checkTx or simulateTx or recheckTx
 	// DeliverTx is garbage collected after FinalizeBlocker
@@ -920,7 +935,6 @@ func (app *BaseApp) runTx(ctx sdk.Context, mode runTxMode, txBytes []byte) (gInf
 	}
 
 	msgs := tx.GetMsgs()
-	ctx.ContextMemCache().IncrMetricCounter(uint32(len(msgs)), sdk.MESSAGE_COUNT)
 
 	if err := validateBasicTxMsgs(msgs); err != nil {
 		return sdk.GasInfo{}, nil, nil, 0, err
@@ -1019,6 +1033,15 @@ func (app *BaseApp) runTx(ctx sdk.Context, mode runTxMode, txBytes []byte) (gInf
 // Handler does not exist for a given message route. Otherwise, a reference to a
 // Result is returned. The caller must not commit state if an error is returned.
 func (app *BaseApp) runMsgs(ctx sdk.Context, msgs []sdk.Msg, mode runTxMode) (*sdk.Result, error) {
+
+	defer telemetry.MeasureThroughputSinceWithLabels(
+		telemetry.MessageCount,
+		[]metrics.Label{
+			telemetry.NewLabel("mode", modeKeyToString[mode]),
+		},
+		time.Now(),
+	)
+
 	defer func() {
 		if err := recover(); err != nil {
 			fmt.Println(err)
@@ -1055,7 +1078,7 @@ func (app *BaseApp) runMsgs(ctx sdk.Context, msgs []sdk.Msg, mode runTxMode) (*s
 			msgResult, err = handler(msgCtx, msg)
 			eventMsgName = sdk.MsgTypeURL(msg)
 			metrics.MeasureSinceWithLabels(
-				[]string{"cosmos", "run", "msg", "latency"},
+				[]string{"sei", "cosmos", "run", "msg", "latency"},
 				startTime,
 				[]metrics.Label{{Name: "type", Value: eventMsgName}},
 			)

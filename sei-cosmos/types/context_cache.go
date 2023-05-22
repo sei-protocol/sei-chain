@@ -1,28 +1,15 @@
 package types
 
 import (
-	"strings"
 	"sync"
 
-	"github.com/armon/go-metrics"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
-)
-
-const (
-	MESSAGE_COUNT      = "message_count"
-	MESSAGE_TYPE_COUNT = "message_type_count"
-	TX_COUNT           = "transaction_count"
-	ORDER_COUNT        = "order_count"
 )
 
 type ContextMemCache struct {
 	deferredBankOpsLock *sync.Mutex
 	deferredSends       *DeferredBankOperationMapping
 	deferredWithdrawals *DeferredBankOperationMapping
-
-	metricsLock             *sync.RWMutex
-	metricsCounterMapping   *map[string]uint32
-	metricsCounterWithLabel *map[string]map[string]uint32
 }
 
 func NewContextMemCache() *ContextMemCache {
@@ -30,9 +17,6 @@ func NewContextMemCache() *ContextMemCache {
 		deferredBankOpsLock:     &sync.Mutex{},
 		deferredSends:           NewDeferredBankOperationMap(),
 		deferredWithdrawals:     NewDeferredBankOperationMap(),
-		metricsLock:             &sync.RWMutex{},
-		metricsCounterMapping:   &map[string]uint32{},
-		metricsCounterWithLabel: &map[string]map[string]uint32{},
 	}
 }
 
@@ -42,39 +26,6 @@ func (c *ContextMemCache) GetDeferredSends() *DeferredBankOperationMapping {
 
 func (c *ContextMemCache) GetDeferredWithdrawals() *DeferredBankOperationMapping {
 	return c.deferredWithdrawals
-}
-
-func (c *ContextMemCache) IncrMetricCounter(count uint32, metricName string) {
-	c.metricsLock.Lock()
-	defer c.metricsLock.Unlock()
-
-	newCounter := (*c.metricsCounterMapping)[metricName] + count
-	(*c.metricsCounterMapping)[metricName] = newCounter
-}
-
-func (c *ContextMemCache) IncrMetricCounterWithLabel(count uint32, metricName string, label metrics.Label) {
-	c.metricsLock.Lock()
-	defer c.metricsLock.Unlock()
-
-	labelStr := strings.Join([]string{label.Name, label.Value}, ",")
-	if innerMap, ok := (*c.metricsCounterWithLabel)[metricName]; ok {
-		innerMap[labelStr] = innerMap[labelStr] + count
-	} else {
-		(*c.metricsCounterWithLabel)[metricName] = make(map[string]uint32)
-		(*c.metricsCounterWithLabel)[metricName][labelStr] = count
-	}
-}
-
-func (c *ContextMemCache) GetMetricCounters() *map[string]uint32 {
-	c.metricsLock.RLock()
-	defer c.metricsLock.RUnlock()
-	return c.metricsCounterMapping
-}
-
-func (c *ContextMemCache) GetMetricCountersWithLabel() *map[string]map[string]uint32 {
-	c.metricsLock.RLock()
-	defer c.metricsLock.RUnlock()
-	return c.metricsCounterWithLabel
 }
 
 func (c *ContextMemCache) UpsertDeferredSends(moduleAccount string, amount Coins) error {
@@ -139,8 +90,4 @@ func (c *ContextMemCache) Clear() {
 	defer c.deferredBankOpsLock.Unlock()
 	c.deferredSends = NewDeferredBankOperationMap()
 	c.deferredWithdrawals = NewDeferredBankOperationMap()
-
-	c.metricsLock.Lock()
-	defer c.metricsLock.Unlock()
-	c.metricsCounterMapping = &map[string]uint32{}
 }
