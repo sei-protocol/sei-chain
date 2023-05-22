@@ -27,6 +27,19 @@ Ref: https://keepachangelog.com/en/1.0.0/
 -->
 
 # Changelog
+## 3.0.1
+sei-chain:
+* [#792] (https://github.com/sei-protocol/sei-chain/pull/792) Reset block gas meter if concurrent processing fails
+* [#791] (https://github.com/sei-protocol/sei-chain/pull/791) Disable skipFastStorageUpgrade to make iavl dump faster
+* [#790] (https://github.com/sei-protocol/sei-chain/pull/790) Disable non-prioritized tx concurrency
+* [#789] (https://github.com/sei-protocol/sei-chain/pull/789) Adds appropriate READ access for dex contract in antehandler
+* [#788] (https://github.com/sei-protocol/sei-chain/pull/788) Clear dex memstate cache when falling back to sequential processing
+* [#781] (https://github.com/sei-protocol/sei-chain/pull/781) Add order limit for price level and pair limit for contracts
+
+tm-db:
+* [#2] (https://github.com/sei-protocol/tm-db/pull/2) Load items eagerly to memdb_iterator to avoid deadlock
+
+
 ## 3.0.0
 sei-chain:
 * [#777] (https://github.com/sei-protocol/sei-chain/pull/777) Parallelize Sudo Deposit
