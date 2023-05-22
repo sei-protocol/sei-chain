@@ -202,10 +202,10 @@ func SetCoinsMinted(amount uint64, denom string) {
 // Metric Name:
 //
 //	sei_tx_gas_counter
-func IncrGasCounter(gas_type string, value int64) {
+func IncrGasCounter(gasType string, value int64) {
 	telemetry.IncrCounterWithLabels(
 		[]string{"sei", "tx", "gas", "counter"},
 		float32(value),
-		[]metrics.Label{telemetry.NewLabel("type", gas_type)},
+		[]metrics.Label{telemetry.NewLabel("type", gasType)},
 	)
 }
