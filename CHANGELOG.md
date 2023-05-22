@@ -29,6 +29,7 @@ Ref: https://keepachangelog.com/en/1.0.0/
 # Changelog
 ## 3.0.1
 sei-chain:
+* [#797] (https://github.com/sei-protocol/sei-chain/pull/797) Don't charge gas for loading contract dependencies
 * [#792] (https://github.com/sei-protocol/sei-chain/pull/792) Reset block gas meter if concurrent processing fails
 * [#791] (https://github.com/sei-protocol/sei-chain/pull/791) Disable skipFastStorageUpgrade to make iavl dump faster
 * [#790] (https://github.com/sei-protocol/sei-chain/pull/790) Disable non-prioritized tx concurrency
