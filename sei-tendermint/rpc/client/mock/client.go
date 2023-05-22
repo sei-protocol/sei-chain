@@ -41,7 +41,6 @@ var _ client.Client = Client{}
 
 // Call is used by recorders to save a call and response.
 // It can also be used to configure mock responses.
-//
 type Call struct {
 	Name     string
 	Args     interface{}
@@ -76,6 +75,10 @@ func (c Call) GetResponse(args interface{}) (interface{}, error) {
 
 func (c Client) Status(ctx context.Context) (*coretypes.ResultStatus, error) {
 	return c.env.Status(ctx)
+}
+
+func (c Client) LagStatus(ctx context.Context) (*coretypes.ResultLagStatus, error) {
+	return c.env.LagStatus(ctx)
 }
 
 func (c Client) ABCIInfo(ctx context.Context) (*coretypes.ResultABCIInfo, error) {

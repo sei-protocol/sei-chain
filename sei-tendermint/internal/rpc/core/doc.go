@@ -22,6 +22,7 @@ Available endpoints:
 /net_info
 /num_unconfirmed_txs
 /status
+/lag_status
 /health
 /unconfirmed_txs
 /unsafe_flush_mempool

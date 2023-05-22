@@ -111,6 +111,7 @@ type HistoryClient interface {
 // StatusClient provides access to general chain info.
 type StatusClient interface {
 	Status(context.Context) (*coretypes.ResultStatus, error)
+	LagStatus(context.Context) (*coretypes.ResultLagStatus, error)
 }
 
 // NetworkClient is general info about the network state. May not be needed

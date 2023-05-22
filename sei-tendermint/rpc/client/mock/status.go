@@ -25,6 +25,14 @@ func (m *StatusMock) Status(ctx context.Context) (*coretypes.ResultStatus, error
 	return res.(*coretypes.ResultStatus), nil
 }
 
+func (m *StatusMock) LagStatus(ctx context.Context) (*coretypes.ResultLagStatus, error) {
+	res, err := m.GetResponse(nil)
+	if err != nil {
+		return nil, err
+	}
+	return res.(*coretypes.ResultLagStatus), nil
+}
+
 // StatusRecorder can wrap another type (StatusMock, full client)
 // and record the status calls
 type StatusRecorder struct {
@@ -47,6 +55,16 @@ func (r *StatusRecorder) Status(ctx context.Context) (*coretypes.ResultStatus, e
 	res, err := r.Client.Status(ctx)
 	r.addCall(Call{
 		Name:     "status",
+		Response: res,
+		Error:    err,
+	})
+	return res, err
+}
+
+func (r *StatusRecorder) LagStatus(ctx context.Context) (*coretypes.ResultLagStatus, error) {
+	res, err := r.Client.LagStatus(ctx)
+	r.addCall(Call{
+		Name:     "lag_status",
 		Response: res,
 		Error:    err,
 	})

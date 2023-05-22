@@ -661,6 +661,33 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
+  /lag_status:
+    get:
+      summary: Lag Status
+      operationId: lag_status
+      tags:
+        - Info
+      description: |
+        Get Tendermint lag status including latest height, current max peer height, and lag height.
+      responses:
+        "200":
+          description: Lag Status of the node and is not lagging
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LagStatusResponse"
+        "299":
+          description: Lag Status of the node and is lagging over the threshold
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LagStatusResponse"
+        "500":
+          description: lag is high error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
   /net_info:
     get:
       summary: Network information
@@ -1716,6 +1743,27 @@ components:
           properties:
             result:
               $ref: "#/components/schemas/Status"
+    LagStatus:
+      description: Lag Status Response
+      type: object
+      properties:
+        latest_height:
+          type: integer
+          example: "1"
+        max_peer_height:
+          type: integer
+          example: "1"
+        lag:
+          type: integer
+          example: "0"
+    LagStatusResponse:
+      description: Lag Status Response
+      allOf:
+        - $ref: "#/components/schemas/JSONRPC"
+        - type: object
+          properties:
+            result:
+              $ref: "#/components/schemas/LagStatus"
     Monitor:
       type: object
       properties:

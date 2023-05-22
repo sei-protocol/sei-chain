@@ -124,6 +124,10 @@ func (p proxyService) Status(ctx context.Context) (*coretypes.ResultStatus, erro
 	return p.Client.Status(ctx)
 }
 
+func (p proxyService) LagStatus(ctx context.Context) (*coretypes.ResultLagStatus, error) {
+	return p.Client.LagStatus(ctx)
+}
+
 func (p proxyService) Subscribe(ctx context.Context, req *coretypes.RequestSubscribe) (*coretypes.ResultSubscribe, error) {
 	return p.Client.SubscribeWS(ctx, req.Query)
 }

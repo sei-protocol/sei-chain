@@ -69,6 +69,7 @@ func TestRPCConfigValidateBasic(t *testing.T) {
 		"TimeoutBroadcastTxCommit",
 		"MaxBodyBytes",
 		"MaxHeaderBytes",
+		"LagThreshold",
 	}
 
 	for _, fieldName := range fieldsToTest {

@@ -82,7 +82,7 @@ func (wm *WebsocketManager) WebsocketHandler(w http.ResponseWriter, r *http.Requ
 	// starting the conn is blocking
 	if err = conn.Start(r.Context()); err != nil {
 		wm.logger.Error("Failed to start connection", "err", err)
-		writeInternalError(w, err)
+		writeError(w, http.StatusInternalServerError, err)
 		return
 	}
 
@@ -336,7 +336,7 @@ func (wsc *wsConnection) readRoutine(ctx context.Context) {
 			if err == nil {
 				resp = request.MakeResponse(result)
 			} else {
-				resp = request.MakeError(err)
+				resp = request.MakeError(result, err)
 			}
 			if err := wsc.WriteRPCResponse(writeCtx, resp); err != nil {
 				wsc.Logger.Error("error writing RPC response", "err", err)

@@ -32,6 +32,7 @@ const (
 	CodeMethodNotFound ErrorCode = -32601 // The method does not exist or is unavailable
 	CodeInvalidParams  ErrorCode = -32602 // Invalid method parameters
 	CodeInternalError  ErrorCode = -32603 // Internal JSON-RPC error
+	CodeLagIsHighError ErrorCode = -32604 // Lag is too high error
 )
 
 var errorCodeString = map[ErrorCode]string{
@@ -40,6 +41,7 @@ var errorCodeString = map[ErrorCode]string{
 	CodeMethodNotFound: "Method not found",
 	CodeInvalidParams:  "Invalid params",
 	CodeInternalError:  "Internal error",
+	CodeLagIsHighError: "Lag is too high",
 }
 
 //----------------------------------------
@@ -138,10 +140,21 @@ func (req RPCRequest) MakeErrorf(code ErrorCode, msg string, args ...interface{}
 
 // MakeError constructs an error response to req from the given error value.
 // This function will panic if err == nil.
-func (req RPCRequest) MakeError(err error) RPCResponse {
+func (req RPCRequest) MakeError(result interface{}, err error) RPCResponse {
 	if err == nil {
 		panic("cannot construct an error response for nil")
 	}
+
+	// Handle lag is high error specifically to avoid changing the logic for existing endpoints
+	if errors.Is(err, coretypes.ErrLagIsTooHigh) && result != nil {
+		data, _ := tmjson.Marshal(result)
+		return RPCResponse{id: req.id, Result: data, Error: &RPCError{
+			Code:    int(CodeLagIsHighError),
+			Message: CodeLagIsHighError.String(),
+			Data:    string(data),
+		}}
+	}
+
 	if e, ok := err.(*RPCError); ok {
 		return RPCResponse{id: req.id, Error: e}
 	}

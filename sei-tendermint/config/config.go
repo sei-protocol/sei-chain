@@ -515,6 +515,9 @@ type RPCConfig struct {
 
 	// pprof listen address (https://golang.org/pkg/net/http/pprof)
 	PprofListenAddress string `mapstructure:"pprof-laddr"`
+
+	// Lag threshold determines the threshold for whether the /lag_status endpoint returns OK or not
+	LagThreshold int64 `mapstructure:"lag-threshold"`
 }
 
 // DefaultRPCConfig returns a default configuration for the RPC server
@@ -540,8 +543,9 @@ func DefaultRPCConfig() *RPCConfig {
 		MaxBodyBytes:   int64(1000000), // 1MB
 		MaxHeaderBytes: 1 << 20,        // same as the net/http default
 
-		TLSCertFile: "",
-		TLSKeyFile:  "",
+		TLSCertFile:  "",
+		TLSKeyFile:   "",
+		LagThreshold: 300,
 	}
 }
 
@@ -550,6 +554,7 @@ func TestRPCConfig() *RPCConfig {
 	cfg := DefaultRPCConfig()
 	cfg.ListenAddress = "tcp://127.0.0.1:36657"
 	cfg.Unsafe = true
+	cfg.LagThreshold = 300
 	return cfg
 }
 
@@ -579,6 +584,9 @@ func (cfg *RPCConfig) ValidateBasic() error {
 	}
 	if cfg.MaxHeaderBytes < 0 {
 		return errors.New("max-header-bytes can't be negative")
+	}
+	if cfg.LagThreshold < 0 {
+		return errors.New("lag-threshold can't be negative")
 	}
 	return nil
 }

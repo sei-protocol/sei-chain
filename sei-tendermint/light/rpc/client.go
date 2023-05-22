@@ -26,6 +26,7 @@ import (
 type KeyPathFunc func(path string, key []byte) (merkle.KeyPath, error)
 
 // LightClient is an interface that contains functionality needed by Client from the light client.
+//
 //go:generate ../../scripts/mockery_generate.sh LightClient
 type LightClient interface {
 	ChainID() string
@@ -131,6 +132,11 @@ func (c *Client) Status(ctx context.Context) (*coretypes.ResultStatus, error) {
 		ValidatorInfo:   coretypes.ValidatorInfo{},
 		LightClientInfo: *lightClientInfo,
 	}, nil
+}
+
+// LagStatus  return 0 for lag status
+func (c *Client) LagStatus(ctx context.Context) (*coretypes.ResultLagStatus, error) {
+	return &coretypes.ResultLagStatus{}, nil
 }
 
 func (c *Client) ABCIInfo(ctx context.Context) (*coretypes.ResultABCIInfo, error) {

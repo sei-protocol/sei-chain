@@ -69,6 +69,10 @@ func (c *Local) Status(ctx context.Context) (*coretypes.ResultStatus, error) {
 	return c.env.Status(ctx)
 }
 
+func (c *Local) LagStatus(ctx context.Context) (*coretypes.ResultLagStatus, error) {
+	return c.env.LagStatus(ctx)
+}
+
 func (c *Local) ABCIInfo(ctx context.Context) (*coretypes.ResultABCIInfo, error) {
 	return c.env.ABCIInfo(ctx)
 }

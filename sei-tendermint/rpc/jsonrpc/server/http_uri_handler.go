@@ -35,7 +35,7 @@ func makeHTTPHandler(rpcFunc *RPCFunc, logger log.Logger) func(http.ResponseWrit
 		if err == nil {
 			writeHTTPResponse(w, logger, jreq.MakeResponse(result))
 		} else {
-			writeHTTPResponse(w, logger, jreq.MakeError(err))
+			writeHTTPResponse(w, logger, jreq.MakeError(result, err))
 		}
 	}
 }

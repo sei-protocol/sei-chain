@@ -199,6 +199,14 @@ func (c *baseRPCClient) Status(ctx context.Context) (*coretypes.ResultStatus, er
 	return result, nil
 }
 
+func (c *baseRPCClient) LagStatus(ctx context.Context) (*coretypes.ResultLagStatus, error) {
+	result := new(coretypes.ResultLagStatus)
+	if err := c.caller.Call(ctx, "lag_status", nil, result); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
 func (c *baseRPCClient) ABCIInfo(ctx context.Context) (*coretypes.ResultABCIInfo, error) {
 	result := new(coretypes.ResultABCIInfo)
 	if err := c.caller.Call(ctx, "abci_info", nil, result); err != nil {

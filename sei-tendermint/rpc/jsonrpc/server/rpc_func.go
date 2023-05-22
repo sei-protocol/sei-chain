@@ -80,6 +80,9 @@ func (rf *RPCFunc) Call(ctx context.Context, params json.RawMessage) (interface{
 
 	// Case 2: There is a non-error result.
 	if oerr := returns[1].Interface(); oerr != nil {
+		if res := returns[0].Interface(); res != nil {
+			return res, oerr.(error)
+		}
 		// In case of error, report the error and ignore the result.
 		return nil, oerr.(error)
 	}
@@ -140,10 +143,10 @@ func (rf *RPCFunc) adjustParams(data []byte) (json.RawMessage, error) {
 // NewRPCFunc constructs an RPCFunc for f, which must be a function whose type
 // signature matches one of these schemes:
 //
-//     func(context.Context) error
-//     func(context.Context) (R, error)
-//     func(context.Context, *T) error
-//     func(context.Context, *T) (R, error)
+//	func(context.Context) error
+//	func(context.Context) (R, error)
+//	func(context.Context, *T) error
+//	func(context.Context, *T) (R, error)
 //
 // for an arbitrary struct type T and type R. NewRPCFunc will panic if f does
 // not have one of these forms.  A newly-constructed RPCFunc has a default

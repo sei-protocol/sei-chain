@@ -22,6 +22,7 @@ var (
 	ErrZeroOrNegativeHeight   = errors.New("height must be greater than zero")
 	ErrHeightExceedsChainHead = errors.New("height must be less than or equal to the head of the node's blockchain")
 	ErrHeightNotAvailable     = errors.New("height is not available")
+	ErrLagIsTooHigh           = errors.New("lag is too high")
 	// ErrInvalidRequest is used as a wrapper to cover more specific cases where the user has
 	// made an invalid request
 	ErrInvalidRequest = errors.New("invalid request")
@@ -164,6 +165,13 @@ type ResultStatus struct {
 	SyncInfo        SyncInfo              `json:"sync_info"`
 	ValidatorInfo   ValidatorInfo         `json:"validator_info"`
 	LightClientInfo types.LightClientInfo `json:"light_client_info,omitempty"`
+}
+
+// Node lag status
+type ResultLagStatus struct {
+	CurrentHeight int64 `json:"current_height"`
+	MaxPeerHeight int64 `json:"max_peer_height"`
+	Lag           int64 `json:"lag"`
 }
 
 // Is TxIndexing enabled

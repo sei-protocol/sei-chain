@@ -68,7 +68,7 @@ func makeJSONRPCHandler(funcMap map[string]*RPCFunc, logger log.Logger) http.Han
 			})
 			result, err := rpcFunc.Call(ctx, req.Params)
 			if err != nil {
-				responses = append(responses, req.MakeError(err))
+				responses = append(responses, req.MakeError(result, err))
 			} else {
 				responses = append(responses, req.MakeResponse(result))
 			}

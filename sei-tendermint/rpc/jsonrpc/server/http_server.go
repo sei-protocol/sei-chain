@@ -119,12 +119,12 @@ func ServeTLS(ctx context.Context, listener net.Listener, handler http.Handler, 
 	return nil
 }
 
-// writeInternalError writes an internal server error (500) to w with the text
+// writeError writes an internal server error (500) to w with the text
 // of err in the body. This is a fallback used when a handler is unable to
 // write the expected response.
-func writeInternalError(w http.ResponseWriter, err error) {
+func writeError(w http.ResponseWriter, statusCode int, err error) {
 	w.Header().Set("Content-Type", "text/plain")
-	w.WriteHeader(http.StatusInternalServerError)
+	w.WriteHeader(statusCode)
 	fmt.Fprintln(w, err.Error())
 }
 
@@ -142,11 +142,16 @@ func writeHTTPResponse(w http.ResponseWriter, log log.Logger, rsp rpctypes.RPCRe
 	}
 	if err != nil {
 		log.Error("Error encoding RPC response: %w", err)
-		writeInternalError(w, err)
+		writeError(w, http.StatusInternalServerError, err)
 		return
 	}
+	statusCode := http.StatusOK
+	// If there's any error for lag is high, override the status code
+	if rsp.Error != nil && rsp.Error.Code == int(rpctypes.CodeLagIsHighError) {
+		statusCode = http.StatusExpectationFailed
+	}
 	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
+	w.WriteHeader(statusCode)
 	_, _ = w.Write(body)
 }
 
@@ -165,11 +170,19 @@ func writeRPCResponse(w http.ResponseWriter, log log.Logger, rsps ...rpctypes.RP
 	}
 	if err != nil {
 		log.Error("Error encoding RPC response: %w", err)
-		writeInternalError(w, err)
+		writeError(w, http.StatusInternalServerError, err)
 		return
 	}
+	statusCode := http.StatusOK
+	for _, res := range rsps {
+		// If there's any error for lag is high, override the status code
+		if res.Error != nil && res.Error.Code == int(rpctypes.CodeLagIsHighError) {
+			statusCode = http.StatusExpectationFailed
+			break
+		}
+	}
 	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
+	w.WriteHeader(statusCode)
 	_, _ = w.Write(body)
 }
 
@@ -203,7 +216,7 @@ func recoverAndLogHandler(handler http.Handler, logger log.Logger) http.Handler 
 
 				logger.Error("Panic in RPC HTTP handler",
 					"err", err, "stack", string(debug.Stack()))
-				writeInternalError(rww, err)
+				writeError(rww, http.StatusInternalServerError, err)
 			}
 		}()
 
