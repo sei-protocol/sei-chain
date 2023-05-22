@@ -88,13 +88,13 @@ func (s *MemState) GetDepositInfo(ctx sdk.Context, contractAddr types.ContractAd
 	)
 }
 
-func (s *MemState) GetContractToDependencies(contractAddress string, loader func(addr string) *types.ContractInfoV2) []string {
+func (s *MemState) GetContractToDependencies(ctx sdk.Context, contractAddress string, loader func(sdk.Context, string) (types.ContractInfoV2, error)) []string {
 	s.contractsToDepsMtx.Lock()
 	defer s.contractsToDepsMtx.Unlock()
 	if deps, ok := s.contractsToDependencies.Load(contractAddress); ok {
 		return deps
 	}
-	loadedDownstreams := GetAllDownstreamContracts(contractAddress, loader)
+	loadedDownstreams := GetAllDownstreamContracts(ctx, contractAddress, loader)
 	s.contractsToDependencies.Store(contractAddress, loadedDownstreams)
 	return loadedDownstreams
 }
@@ -106,8 +106,8 @@ func (s *MemState) ClearContractToDependencies() {
 	s.contractsToDependencies = datastructures.NewTypedSyncMap[string, []string]()
 }
 
-func (s *MemState) SetDownstreamsToProcess(contractAddress string, loader func(addr string) *types.ContractInfoV2) {
-	s.contractsToProcess.AddAll(s.GetContractToDependencies(contractAddress, loader))
+func (s *MemState) SetDownstreamsToProcess(ctx sdk.Context, contractAddress string, loader func(sdk.Context, string) (types.ContractInfoV2, error)) {
+	s.contractsToProcess.AddAll(s.GetContractToDependencies(ctx, contractAddress, loader))
 }
 
 func (s *MemState) GetContractToProcess() *datastructures.SyncSet[string] {
@@ -245,15 +245,15 @@ func DeepDelete(kvStore sdk.KVStore, storePrefix []byte, matcher func([]byte) bo
 
 // BFS traversal over a acyclic graph
 // Includes the root contract itself.
-func GetAllDownstreamContracts(contractAddress string, loader func(addr string) *types.ContractInfoV2) []string {
+func GetAllDownstreamContracts(ctx sdk.Context, contractAddress string, loader func(sdk.Context, string) (types.ContractInfoV2, error)) []string {
 	res := []string{contractAddress}
 	seen := datastructures.NewSyncSet(res)
 	downstreams := []*types.ContractInfoV2{}
 	populater := func(target *types.ContractInfoV2) {
 		for _, dep := range target.Dependencies {
-			if downstream := loader(dep.Dependency); downstream != nil && !seen.Contains(downstream.ContractAddr) {
+			if downstream, err := loader(ctx, dep.Dependency); err == nil && !seen.Contains(downstream.ContractAddr) {
 				if !downstream.Suspended {
-					downstreams = append(downstreams, downstream)
+					downstreams = append(downstreams, &downstream)
 					seen.Add(downstream.ContractAddr)
 				}
 			} else {
@@ -264,8 +264,8 @@ func GetAllDownstreamContracts(contractAddress string, loader func(addr string) 
 		}
 	}
 	// init first layer downstreams
-	if contract := loader(contractAddress); contract != nil {
-		populater(contract)
+	if contract, err := loader(ctx, contractAddress); err == nil {
+		populater(&contract)
 	} else {
 		return res
 	}

@@ -222,11 +222,5 @@ func TestGetAllDownstreamContracts(t *testing.T) {
 		"sei1ery8l6jquynn9a4cz2pff6khg8c68f7urt33l5n9dng2cwzz4c4q4hncrd",
 		"sei1wl59k23zngj34l7d42y9yltask7rjlnxgccawc7ltrknp6n52fpsj6ctln",
 		"sei1stwdtk6ja0705v8qmtukcp4vd422p5vy4jr5wdc4qk44c57k955qcannhd",
-	}, dex.GetAllDownstreamContracts("sei1ery8l6jquynn9a4cz2pff6khg8c68f7urt33l5n9dng2cwzz4c4q4hncrd", func(addr string) *types.ContractInfoV2 {
-		c, err := keeper.GetContract(ctx, addr)
-		if err != nil {
-			return nil
-		}
-		return &c
-	}))
+	}, dex.GetAllDownstreamContracts(ctx, "sei1ery8l6jquynn9a4cz2pff6khg8c68f7urt33l5n9dng2cwzz4c4q4hncrd", keeper.GetContractWithoutGasCharge))
 }
