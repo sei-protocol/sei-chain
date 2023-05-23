@@ -24,6 +24,7 @@ const (
 	Tokenfactory         string = "tokenfactory"
 	Limit                string = "limit"
 	Market               string = "market"
+	FOKMarket            string = "fok_market"
 	WasmMintNft          string = "wasm_mint_nft"
 	Vortex               string = "vortex"
 )
@@ -88,8 +89,9 @@ func (d *NumericDistribution) InvalidSample() sdk.Dec {
 }
 
 type DexMsgTypeDistribution struct {
-	LimitOrderPct  sdk.Dec `json:"limit_order_percentage"`
-	MarketOrderPct sdk.Dec `json:"market_order_percentage"`
+	LimitOrderPct            sdk.Dec `json:"limit_order_percentage"`
+	MarketOrderPct           sdk.Dec `json:"market_order_percentage"`
+	FOKMarketOrderPct        sdk.Dec `json:"fok_market_order_percentage"`
 }
 
 type StakingMsgTypeDistribution struct {
@@ -115,12 +117,15 @@ type WasmMintNftType struct {
 }
 
 func (d *MsgTypeDistribution) SampleDexMsgs() string {
-	if !d.Dex.LimitOrderPct.Add(d.Dex.MarketOrderPct).Equal(sdk.OneDec()) {
+	if !d.Dex.LimitOrderPct.Add(d.Dex.MarketOrderPct).Add(d.Dex.FOKMarketOrderPct).Add(d.Dex.FOKBYVALUEMarketOrderPct).Equal(sdk.OneDec()) {
 		panic("Distribution percentages must add up to 1")
 	}
 	randNum := sdk.MustNewDecFromStr(fmt.Sprintf("%f", rand.Float64()))
+	fokThreshold := d.Dex.LimitOrderPct.Add(d.Dex.LimitOrderPct)
 	if randNum.LT(d.Dex.LimitOrderPct) {
 		return Limit
+	} else if randNum.LT(fokThreshold) {
+		return FOKMarket
 	}
 	return Market
 }
