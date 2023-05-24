@@ -4,13 +4,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/tendermint/tendermint/libs/log"
 	"math"
 	"math/rand"
 	"sort"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/tendermint/tendermint/libs/log"
 
 	"github.com/gogo/protobuf/proto"
 	"github.com/google/orderedcode"
@@ -427,7 +428,8 @@ func (m *PeerManager) Add(address NodeAddress) (bool, error) {
 		return false, err
 	}
 	if address.NodeID == m.selfID {
-		return false, fmt.Errorf("can't add self (%v) to peer store", m.selfID)
+		m.logger.Info("can't add self to peer store, skipping address", "address", address.String(), "self", m.selfID)
+		return false, nil
 	}
 
 	m.mtx.Lock()

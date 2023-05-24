@@ -3,11 +3,12 @@ package p2p_test
 import (
 	"context"
 	"errors"
-	"github.com/tendermint/tendermint/libs/log"
 	"math"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/tendermint/tendermint/libs/log"
 
 	"github.com/fortytw2/leaktest"
 	"github.com/stretchr/testify/assert"
@@ -336,9 +337,10 @@ func TestPeerManager_Add(t *testing.T) {
 	_, err = peerManager.Add(p2p.NodeAddress{Path: "foo"})
 	require.Error(t, err)
 
-	// Adding self should error
-	_, err = peerManager.Add(p2p.NodeAddress{Protocol: "memory", NodeID: selfID})
-	require.Error(t, err)
+	// Adding self be fine
+	added, err = peerManager.Add(p2p.NodeAddress{Protocol: "memory", NodeID: selfID})
+	require.Nil(t, err)
+	require.False(t, added)
 }
 
 func TestPeerManager_DialNext(t *testing.T) {
@@ -919,8 +921,9 @@ func TestPeerManager_Dialed_Self(t *testing.T) {
 	require.NoError(t, err)
 
 	// Dialing self should error.
-	_, err = peerManager.Add(p2p.NodeAddress{Protocol: "memory", NodeID: selfID})
-	require.Error(t, err)
+	added, err := peerManager.Add(p2p.NodeAddress{Protocol: "memory", NodeID: selfID})
+	require.Nil(t, err)
+	require.False(t, added)
 }
 
 func TestPeerManager_Dialed_MaxConnected(t *testing.T) {
