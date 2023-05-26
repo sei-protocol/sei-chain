@@ -334,6 +334,32 @@ func (coins DecCoins) Intersect(coinsB DecCoins) DecCoins {
 	return removeZeroDecCoins(res)
 }
 
+// UnionMax will return a new set of coins which contains the maximum DecCoin
+// for denoms found in both `coins` and `coinsB`.
+func (coins DecCoins) UnionMax(coinsB DecCoins) DecCoins {
+	maxAmounts := make(map[string]Dec)
+
+	for _, coin := range coins {
+		maxAmounts[coin.Denom] = coin.Amount
+	}
+
+	for _, coin := range coinsB {
+		if value, ok := maxAmounts[coin.Denom]; ok {
+			maxAmounts[coin.Denom] = MaxDec(value, coin.Amount)
+		} else {
+			maxAmounts[coin.Denom] = coin.Amount
+		}
+	}
+
+	// Convert the map back to a slice.
+	maxDecCoins := make([]DecCoin, 0, len(maxAmounts))
+	for denom, amount := range maxAmounts {
+		maxDecCoins = append(maxDecCoins, NewDecCoinFromDec(denom, amount))
+	}
+
+	return maxDecCoins
+}
+
 // GetDenomByIndex returns the Denom to make the findDup generic
 func (coins DecCoins) GetDenomByIndex(i int) string {
 	return coins[i].Denom

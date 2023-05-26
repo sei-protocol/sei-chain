@@ -32,7 +32,7 @@ func (suite *AnteTestSuite) TestDeductFeesNoDelegation() {
 	protoTxCfg := tx.NewTxConfig(codec.NewProtoCodec(app.InterfaceRegistry()), tx.DefaultSignModes)
 
 	// this just tests our handler
-	dfd := ante.NewDeductFeeDecorator(app.AccountKeeper, app.BankKeeper, app.FeeGrantKeeper, nil)
+	dfd := ante.NewDeductFeeDecorator(app.AccountKeeper, app.BankKeeper, app.FeeGrantKeeper, suite.app.ParamsKeeper, nil)
 	feeAnteHandler, _ := sdk.ChainAnteDecorators(sdk.DefaultWrappedAnteDecorator(dfd))
 
 	// this tests the whole stack

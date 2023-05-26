@@ -9,11 +9,12 @@ import (
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	"github.com/cosmos/cosmos-sdk/x/auth/types"
 	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
+	paramskeeper "github.com/cosmos/cosmos-sdk/x/params/keeper"
 )
 
 // TxFeeChecker check if the provided fee is enough and returns the effective fee and tx priority,
 // the effective fee should be deducted later, and the priority should be returned in abci response.
-type TxFeeChecker func(ctx sdk.Context, tx sdk.Tx, simulate bool) (sdk.Coins, int64, error)
+type TxFeeChecker func(ctx sdk.Context, tx sdk.Tx, simulate bool, paramsKeeper paramskeeper.Keeper) (sdk.Coins, int64, error)
 
 // DeductFeeDecorator deducts fees from the first signer of the tx
 // If the first signer does not have the funds to pay for the fees, return with InsufficientFunds error
@@ -23,10 +24,17 @@ type DeductFeeDecorator struct {
 	accountKeeper  AccountKeeper
 	bankKeeper     types.BankKeeper
 	feegrantKeeper FeegrantKeeper
+	paramsKeeper   paramskeeper.Keeper
 	txFeeChecker   TxFeeChecker
 }
 
-func NewDeductFeeDecorator(ak AccountKeeper, bk types.BankKeeper, fk FeegrantKeeper, tfc TxFeeChecker) DeductFeeDecorator {
+func NewDeductFeeDecorator(
+	ak AccountKeeper,
+	bk types.BankKeeper,
+	fk FeegrantKeeper,
+	paramsKeeper paramskeeper.Keeper,
+	tfc TxFeeChecker,
+) DeductFeeDecorator {
 	if tfc == nil {
 		tfc = CheckTxFeeWithValidatorMinGasPrices
 	}
@@ -35,6 +43,7 @@ func NewDeductFeeDecorator(ak AccountKeeper, bk types.BankKeeper, fk FeegrantKee
 		accountKeeper:  ak,
 		bankKeeper:     bk,
 		feegrantKeeper: fk,
+		paramsKeeper:   paramsKeeper,
 		txFeeChecker:   tfc,
 	}
 }
@@ -79,7 +88,7 @@ func (d DeductFeeDecorator) AnteDeps(txDeps []sdkacltypes.AccessOperation, tx sd
 }
 
 func (dfd DeductFeeDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool, next sdk.AnteHandler) (sdk.Context, error) {
-	fee, priority, err := dfd.txFeeChecker(ctx, tx, simulate)
+	fee, priority, err := dfd.txFeeChecker(ctx, tx, simulate, dfd.paramsKeeper)
 	if err != nil {
 		return ctx, err
 	}
@@ -99,7 +108,7 @@ func (dfd DeductFeeDecorator) checkDeductFee(ctx sdk.Context, sdkTx sdk.Tx, fee 
 	}
 
 	if addr := dfd.accountKeeper.GetModuleAddress(types.FeeCollectorName); addr == nil {
-		return fmt.Errorf("Fee collector module account (%s) has not been set", types.FeeCollectorName)
+		return fmt.Errorf("fee collector module account (%s) has not been set", types.FeeCollectorName)
 	}
 
 	feePayer := feeTx.FeePayer()

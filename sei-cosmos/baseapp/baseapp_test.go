@@ -21,9 +21,6 @@ import (
 var (
 	capKey1 = sdk.NewKVStoreKey("key1")
 	capKey2 = sdk.NewKVStoreKey("key2")
-	// testTxPriority is the CheckTx priority that we set in the test
-	// antehandler.
-	testTxPriority = int64(42)
 )
 
 func defaultLogger() log.Logger {
@@ -162,13 +159,6 @@ func TestSetMinGasPrices(t *testing.T) {
 // }
 
 func TestListSnapshots(t *testing.T) {
-	type setupConfig struct {
-		blocks            uint64
-		blockTxs          int
-		snapshotInterval  uint64
-		snapshotKeepEvery uint32
-	}
-
 	app, _ := setupBaseAppWithSnapshots(t, 2, 5)
 
 	expected := abci.ResponseListSnapshots{Snapshots: []*abci.Snapshot{

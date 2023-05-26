@@ -5,11 +5,12 @@ import (
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
+	paramskeeper "github.com/cosmos/cosmos-sdk/x/params/keeper"
 )
 
 // checkTxFeeWithValidatorMinGasPrices implements the default fee logic, where the minimum price per
 // unit of gas is fixed and set by each validator, can the tx priority is computed from the gas price.
-func CheckTxFeeWithValidatorMinGasPrices(ctx sdk.Context, tx sdk.Tx, simulate bool) (sdk.Coins, int64, error) {
+func CheckTxFeeWithValidatorMinGasPrices(ctx sdk.Context, tx sdk.Tx, simulate bool, paramsKeeper paramskeeper.Keeper) (sdk.Coins, int64, error) {
 	feeTx, ok := tx.(sdk.FeeTx)
 	if !ok {
 		return nil, 0, sdkerrors.Wrap(sdkerrors.ErrTxDecode, "Tx must be a FeeTx")
@@ -22,7 +23,8 @@ func CheckTxFeeWithValidatorMinGasPrices(ctx sdk.Context, tx sdk.Tx, simulate bo
 	// if this is a CheckTx. This is only for local mempool purposes, and thus
 	// is only ran on check tx.
 	if ctx.IsCheckTx() && !simulate {
-		minGasPrices := ctx.MinGasPrices()
+		feeParams := paramsKeeper.GetFeesParams(ctx)
+		minGasPrices := GetMinimumGasPricesWanted(feeParams.GetGlobalMinimumGasPrices(), ctx.MinGasPrices())
 		if !minGasPrices.IsZero() {
 			requiredFees := make(sdk.Coins, len(minGasPrices))
 
@@ -39,6 +41,7 @@ func CheckTxFeeWithValidatorMinGasPrices(ctx sdk.Context, tx sdk.Tx, simulate bo
 			}
 		}
 	}
+
 	// this is the lowest priority, and will be used specifically if gas limit is set to 0
 	// realistically, if the gas limit IS set to 0, the tx will run out of gas anyways.
 	priority := int64(0)
@@ -46,6 +49,10 @@ func CheckTxFeeWithValidatorMinGasPrices(ctx sdk.Context, tx sdk.Tx, simulate bo
 		priority = getTxPriority(feeCoins, int64(gas))
 	}
 	return feeCoins, priority, nil
+}
+
+func GetMinimumGasPricesWanted(globalMinimumGasPrices, validatorMinimumGasPrices sdk.DecCoins) sdk.DecCoins {
+	return globalMinimumGasPrices.UnionMax(validatorMinimumGasPrices)
 }
 
 // getTxPriority returns a naive tx priority based on the amount of the smallest denomination of the gas price

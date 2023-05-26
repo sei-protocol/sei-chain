@@ -3,6 +3,7 @@ package params
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"math/rand"
 
 	"github.com/grpc-ecosystem/grpc-gateway/runtime"
@@ -45,11 +46,18 @@ func (AppModuleBasic) RegisterLegacyAminoCodec(cdc *codec.LegacyAmino) {
 
 // DefaultGenesis returns default genesis state as raw bytes for the params
 // module.
-func (AppModuleBasic) DefaultGenesis(_ codec.JSONCodec) json.RawMessage { return nil }
+func (AppModuleBasic) DefaultGenesis(cdc codec.JSONCodec) json.RawMessage {
+	return cdc.MustMarshalJSON(types.DefaultGenesis())
+}
 
 // ValidateGenesis performs genesis state validation for the params module.
-func (AppModuleBasic) ValidateGenesis(_ codec.JSONCodec, config client.TxEncodingConfig, _ json.RawMessage) error {
-	return nil
+func (AppModuleBasic) ValidateGenesis(cdc codec.JSONCodec, config client.TxEncodingConfig, bz json.RawMessage) error {
+	var data types.GenesisState
+	if err := cdc.UnmarshalJSON(bz, &data); err != nil {
+		return fmt.Errorf("failed to unmarshal %s genesis state: %w", types.ModuleName, err)
+	}
+
+	return data.Validate()
 }
 
 // RegisterRESTRoutes registers the REST routes for the params module.
@@ -89,8 +97,9 @@ func NewAppModule(k keeper.Keeper) AppModule {
 
 func (am AppModule) RegisterInvariants(_ sdk.InvariantRegistry) {}
 
-// InitGenesis performs a no-op.
-func (am AppModule) InitGenesis(_ sdk.Context, _ codec.JSONCodec, _ json.RawMessage) []abci.ValidatorUpdate {
+func (am AppModule) InitGenesis(ctx sdk.Context, _ codec.JSONCodec, _ json.RawMessage) []abci.ValidatorUpdate {
+	defaultGenesis := types.DefaultGenesis()
+	am.keeper.SetFeesParams(ctx, defaultGenesis.FeesParams)
 	return []abci.ValidatorUpdate{}
 }
 

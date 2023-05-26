@@ -1015,6 +1015,7 @@ func (suite *AnteTestSuite) TestCustomSignatureVerificationGasConsumer() {
 			AccountKeeper:   suite.app.AccountKeeper,
 			BankKeeper:      suite.app.BankKeeper,
 			FeegrantKeeper:  suite.app.FeeGrantKeeper,
+			ParamsKeeper:    suite.app.ParamsKeeper,
 			SignModeHandler: suite.clientCtx.TxConfig.SignModeHandler(),
 			SigGasConsumer: func(meter sdk.GasMeter, sig signing.SignatureV2, params types.Params) error {
 				switch pubkey := sig.PubKey.(type) {
@@ -1071,7 +1072,11 @@ func (suite *AnteTestSuite) TestAnteHandlerReCheck() {
 	suite.SetupTest(false) // setup
 	// Set recheck=true
 	suite.ctx = suite.ctx.WithIsReCheckTx(true)
+
 	suite.txBuilder = suite.clientCtx.TxConfig.NewTxBuilder()
+	feeParam := suite.app.ParamsKeeper.GetFeesParams(suite.ctx)
+	feeParam.GlobalMinimumGasPrices = sdk.NewDecCoins(sdk.NewDecCoinFromDec("atom", sdk.NewDecWithPrec(1, 5)))
+	suite.app.ParamsKeeper.SetFeesParams(suite.ctx, feeParam)
 
 	// Same data for every test cases
 	accounts := suite.CreateTestAccounts(1)

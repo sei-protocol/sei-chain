@@ -435,6 +435,7 @@ func (s *decCoinTestSuite) TestDecCoinsIntersect() {
 		{"2.0usei,1.0trope", "1.9usei,0.9trope", "1.9usei,0.9trope"},
 		{"2.0usei,1.0trope", "1.9usei,0.9trope,20.0other", "1.9usei,0.9trope"},
 		{"2.0usei,1.0trope", "1.0other", ""},
+		{"2.0usei,1.0trope", "0.9trope,20.0other,1.9usei", "1.9usei,0.9trope"},
 	}
 
 	for i, tc := range testCases {
@@ -445,6 +446,77 @@ func (s *decCoinTestSuite) TestDecCoinsIntersect() {
 		exr, err := sdk.ParseDecCoins(tc.expectedResult)
 		s.Require().NoError(err, "unexpected parse error in %v", i)
 		s.Require().True(in1.Intersect(in2).IsEqual(exr), "in1.cap(in2) != exr in %v", i)
+	}
+}
+
+func (s *decCoinTestSuite) TestUnionMax() {
+	cases := []struct {
+		name     string
+		coins    sdk.DecCoins
+		coinsB   sdk.DecCoins
+		expected sdk.DecCoins
+	}{
+		{
+			name:     "empty coins",
+			coins:    sdk.DecCoins{},
+			coinsB:   sdk.DecCoins{{"foo", sdk.NewDec(1)}, {"bar", sdk.NewDec(2)}},
+			expected: sdk.DecCoins{{"foo", sdk.NewDec(1)}, {"bar", sdk.NewDec(2)}},
+		},
+		{
+			name:     "empty coinsB",
+			coins:    sdk.DecCoins{{"foo", sdk.NewDec(1)}, {"bar", sdk.NewDec(2)}},
+			coinsB:   sdk.DecCoins{},
+			expected: sdk.DecCoins{{"foo", sdk.NewDec(1)}, {"bar", sdk.NewDec(2)}},
+		},
+		{
+			name:     "empty coins and coinsB",
+			coins:    sdk.DecCoins{},
+			coinsB:   sdk.DecCoins{},
+			expected: sdk.DecCoins{},
+		},
+		{
+			name:     "different denoms",
+			coins:    sdk.DecCoins{{"foo", sdk.NewDec(1)}, {"bar", sdk.NewDec(2)}},
+			coinsB:   sdk.DecCoins{{"baz", sdk.NewDec(3)}, {"qux", sdk.NewDec(4)}},
+			expected: sdk.DecCoins{{"foo", sdk.NewDec(1)}, {"bar", sdk.NewDec(2)}, {"baz", sdk.NewDec(3)}, {"qux", sdk.NewDec(4)}},
+		},
+		{
+			name:     "same denoms, different values",
+			coins:    sdk.DecCoins{{"foo", sdk.NewDec(1)}, {"bar", sdk.NewDec(2)}},
+			coinsB:   sdk.DecCoins{{"foo", sdk.NewDec(3)}, {"bar", sdk.NewDec(1)}},
+			expected: sdk.DecCoins{{"foo", sdk.NewDec(3)}, {"bar", sdk.NewDec(2)}},
+		},
+		{
+			name:     "same denoms, zero values",
+			coins:    sdk.DecCoins{{"foo", sdk.NewDec(0)}, {"bar", sdk.NewDec(2)}},
+			coinsB:   sdk.DecCoins{{"foo", sdk.NewDec(0)}, {"bar", sdk.NewDec(0)}},
+			expected: sdk.DecCoins{{"foo", sdk.NewDec(0)}, {"bar", sdk.NewDec(2)}},
+		},
+		{
+			name:     "same denoms, negative values",
+			coins:    sdk.DecCoins{{"foo", sdk.NewDec(-1)}, {"bar", sdk.NewDec(2)}},
+			coinsB:   sdk.DecCoins{{"foo", sdk.NewDec(3)}, {"bar", sdk.NewDec(-4)}},
+			expected: sdk.DecCoins{{"foo", sdk.NewDec(3)}, {"bar", sdk.NewDec(2)}},
+		},
+		{
+			name:     "same denoms, coinsB has larger values",
+			coins:    sdk.DecCoins{{"foo", sdk.NewDec(1)}, {"bar", sdk.NewDec(2)}},
+			coinsB:   sdk.DecCoins{{"foo", sdk.NewDec(3)}, {"bar", sdk.NewDec(4)}},
+			expected: sdk.DecCoins{{"foo", sdk.NewDec(3)}, {"bar", sdk.NewDec(4)}},
+		},
+		{
+			name:     "same denoms, coins has larger values",
+			coins:    sdk.DecCoins{{"foo", sdk.NewDec(3)}, {"bar", sdk.NewDec(4)}},
+			coinsB:   sdk.DecCoins{{"foo", sdk.NewDec(1)}, {"bar", sdk.NewDec(2)}},
+			expected: sdk.DecCoins{{"foo", sdk.NewDec(3)}, {"bar", sdk.NewDec(4)}},
+		},
+	}
+
+	for _, tc := range cases {
+		s.Run(tc.name, func() {
+			res := tc.coins.UnionMax(tc.coinsB)
+			res.IsEqual(tc.expected)
+		})
 	}
 }
 

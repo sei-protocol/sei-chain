@@ -28,8 +28,6 @@ import (
 	minttypes "github.com/cosmos/cosmos-sdk/x/mint/types"
 )
 
-var blockMaxGas = uint64(simapp.DefaultConsensusParams.Block.MaxGas)
-
 func TestBaseApp_BlockGas(t *testing.T) {
 	testcases := []struct {
 		name         string

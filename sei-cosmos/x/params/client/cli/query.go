@@ -2,7 +2,9 @@ package cli
 
 import (
 	"github.com/spf13/cobra"
+	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 
+	"github.com/cosmos/cosmos-sdk/baseapp"
 	"github.com/cosmos/cosmos-sdk/client"
 	"github.com/cosmos/cosmos-sdk/client/flags"
 	"github.com/cosmos/cosmos-sdk/x/params/types"
@@ -20,6 +22,8 @@ func NewQueryCmd() *cobra.Command {
 	}
 
 	cmd.AddCommand(NewQuerySubspaceParamsCmd())
+	cmd.AddCommand(NewQueryFeeParamsCmd())
+	cmd.AddCommand(NewQueryBlockParamsCmd())
 
 	return cmd
 }
@@ -45,6 +49,65 @@ func NewQuerySubspaceParamsCmd() *cobra.Command {
 			}
 
 			return clientCtx.PrintProto(&res.Param)
+		},
+	}
+
+	flags.AddQueryFlagsToCmd(cmd)
+
+	return cmd
+}
+
+
+func NewQueryFeeParamsCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "feesparams",
+		Short: "Query for fee params",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			clientCtx, err := client.GetClientQueryContext(cmd)
+			if err != nil {
+				return err
+			}
+			queryClient := proposal.NewQueryClient(clientCtx)
+
+			params := proposal.QueryParamsRequest{Subspace: "params", Key: string(types.ParamStoreKeyFeesParams)}
+			res, err := queryClient.Params(cmd.Context(), &params)
+			if err != nil {
+				return err
+			}
+
+			feeParams := types.FeesParams{}
+			clientCtx.Codec.UnmarshalJSON([]byte(res.Param.Value), &feeParams)
+
+			return clientCtx.PrintProto(&feeParams)
+		},
+	}
+
+	flags.AddQueryFlagsToCmd(cmd)
+
+	return cmd
+}
+
+func NewQueryBlockParamsCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "blockparams",
+		Short: "Query for block params",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			clientCtx, err := client.GetClientQueryContext(cmd)
+			if err != nil {
+				return err
+			}
+			queryClient := proposal.NewQueryClient(clientCtx)
+
+			params := proposal.QueryParamsRequest{Subspace: "baseapp", Key: string(baseapp.ParamStoreKeyBlockParams)}
+			res, err := queryClient.Params(cmd.Context(), &params)
+			if err != nil {
+				return err
+			}
+
+			blockParams := tmproto.BlockParams{}
+			clientCtx.Codec.UnmarshalJSON([]byte(res.Param.Value), &blockParams)
+
+			return clientCtx.PrintProto(&blockParams)
 		},
 	}
 

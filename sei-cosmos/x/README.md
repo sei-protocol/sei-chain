@@ -27,3 +27,36 @@ To learn more about the process of building modules, visit the [building modules
 ## IBC
 
 The IBC module for the SDK has moved to its [own repository](https://github.com/cosmos/ibc-go).
+
+### FeesParams
+
+To query for current fee params:
+
+```bash
+seid q params feesparams 
+```
+
+To update the feesparams, use a governance proposal like such:
+
+```json
+{
+  "title": "Update Global Minimum Prices",
+  "description": "This proposal seeks update the global minimum prices for a gas unit.",
+  "changes": [
+    {
+      "subspace": "params",
+      "key": "FeesParams",
+      "value": {
+	  "global_minimum_gas_prices": [
+    		{
+      		"denom": "usei",
+      		"amount":	 "1.00000000000000000"
+    		}
+  	]
+ 	}
+    }
+  ],
+  "deposit": "1000000000usei",
+  "is_expedited": true
+}
+```

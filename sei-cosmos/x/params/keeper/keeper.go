@@ -1,6 +1,8 @@
 package keeper
 
 import (
+	"encoding/json"
+
 	"github.com/tendermint/tendermint/libs/log"
 
 	"github.com/cosmos/cosmos-sdk/codec"
@@ -20,13 +22,39 @@ type Keeper struct {
 
 // NewKeeper constructs a params keeper
 func NewKeeper(cdc codec.BinaryCodec, legacyAmino *codec.LegacyAmino, key, tkey sdk.StoreKey) Keeper {
-	return Keeper{
+
+	newKeeper := Keeper{
 		cdc:         cdc,
 		legacyAmino: legacyAmino,
 		key:         key,
 		tkey:        tkey,
 		spaces:      make(map[string]*types.Subspace),
 	}
+
+	newKeeper.Subspace(types.ModuleName).WithKeyTable(types.ParamKeyTable())
+	return newKeeper
+}
+
+func (k Keeper) SetFeesParams(ctx sdk.Context, feesParams types.FeesParams) {
+	feesParams.Validate()
+	subspace, exist := k.GetSubspace(types.ModuleName)
+	if !exist {
+		panic("subspace params should exist")
+	}
+	subspace.Set(ctx, types.ParamStoreKeyFeesParams, feesParams)
+}
+
+func (k Keeper) GetFeesParams(ctx sdk.Context) types.FeesParams {
+	subspace, _ := k.GetSubspace(types.ModuleName)
+
+	if !subspace.Has(ctx, types.ParamStoreKeyFeesParams) {
+		return *types.DefaultFeesParams()
+	}
+
+	bz := subspace.GetRaw(ctx, types.ParamStoreKeyFeesParams)
+	var feesParams types.FeesParams
+	json.Unmarshal(bz, &feesParams)
+	return feesParams
 }
 
 // Logger returns a module-specific logger.
@@ -47,7 +75,6 @@ func (k Keeper) Subspace(s string) types.Subspace {
 
 	space := types.NewSubspace(k.cdc, k.legacyAmino, k.key, k.tkey, s)
 	k.spaces[s] = &space
-
 	return space
 }
 

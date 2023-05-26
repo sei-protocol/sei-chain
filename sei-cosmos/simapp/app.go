@@ -126,6 +126,7 @@ var (
 		authzmodule.AppModuleBasic{},
 		vesting.AppModuleBasic{},
 		aclmodule.AppModuleBasic{},
+		params.AppModuleBasic{},
 	)
 
 	// module account permissions
@@ -426,6 +427,7 @@ func NewSimApp(
 			BankKeeper:      app.BankKeeper,
 			SignModeHandler: signModeHandler,
 			FeegrantKeeper:  app.FeeGrantKeeper,
+			ParamsKeeper:    app.ParamsKeeper,
 			SigGasConsumer:  ante.DefaultSigVerificationGasConsumer,
 			TxFeeChecker:    ante.CheckTxFeeWithValidatorMinGasPrices,
 		},

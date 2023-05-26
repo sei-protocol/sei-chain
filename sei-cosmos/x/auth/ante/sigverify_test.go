@@ -224,6 +224,7 @@ func (suite *AnteTestSuite) TestSigVerification_ExplicitAmino() {
 			AccountKeeper:   suite.app.AccountKeeper,
 			BankKeeper:      suite.app.BankKeeper,
 			FeegrantKeeper:  suite.app.FeeGrantKeeper,
+			ParamsKeeper:    suite.app.ParamsKeeper,
 			SignModeHandler: txConfig.SignModeHandler(),
 			SigGasConsumer:  ante.DefaultSigVerificationGasConsumer,
 		},

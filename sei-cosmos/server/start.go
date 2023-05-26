@@ -195,6 +195,8 @@ is performed. Note, when enabled, gRPC will also be automatically enabled.
 			restartCoolDownDuration := time.Second * time.Duration(serverCtx.Config.SelfRemediation.RestartCooldownSeconds)
 			// Set the first restart time to be now - restartCoolDownDuration so that the first restart can trigger whenever
 			canRestartAfter := time.Now().Add(-restartCoolDownDuration)
+
+			serverCtx.Logger.Info("Starting Process")
 			for {
 				err = startInProcess(
 					serverCtx,
