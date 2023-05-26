@@ -1,0 +1,42 @@
+{
+  "swagger": "2.0",
+  "info": {
+    "title": "IBC-GO - gRPC Gateway docs",
+    "description": "A REST interface for state queries",
+    "version": "1.0.0"
+  },
+  "apis": [
+    {
+      "url": "./tmp-swagger-gen/ibc/applications/transfer/v1/query.swagger.json",
+      "operationIds": {
+        "rename": {
+          "Params": "TransferParams"
+        }
+      }
+    },
+    {
+      "url": "./tmp-swagger-gen/ibc/core/client/v1/query.swagger.json",
+      "operationIds": {
+        "rename": {
+          "Params": "ClientParams"
+        }
+      }
+    },
+    {
+      "url": "./tmp-swagger-gen/ibc/core/connection/v1/query.swagger.json",
+      "operationIds": {
+        "rename": {
+          "Params": "ConnectionParams"
+        }
+      }
+    },
+    {
+      "url": "./tmp-swagger-gen/ibc/core/channel/v1/query.swagger.json",
+      "operationIds": {
+        "rename": {
+          "Params": "ChannelParams"
+        }
+      }
+    },
+  ]
+}
