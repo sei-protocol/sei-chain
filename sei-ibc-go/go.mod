@@ -1,6 +1,6 @@
 go 1.17
 
-module github.com/cosmos/ibc-go/v3
+module github.com/sei-protocol/sei-ibc-go
 
 replace github.com/gogo/protobuf => github.com/regen-network/protobuf v1.3.3-alpha.regen.1
 
