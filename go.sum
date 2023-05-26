@@ -908,8 +908,8 @@ github.com/onsi/gomega v1.4.3/go.mod h1:ex+gbHU/CVuBBDIJjb2X0qEXbFg53c61hWP/1Cpa
 github.com/onsi/gomega v1.7.1/go.mod h1:XdKZgCCFLUoM/7CFJVPcG8C1xQ1AJ0vpAezJrB7JYyY=
 github.com/onsi/gomega v1.10.1/go.mod h1:iN09h71vgCQne3DLsj+A5owkum+a2tYe+TOCB1ybHNo=
 github.com/onsi/gomega v1.17.0/go.mod h1:HnhC7FXeEQY45zxNK3PPoIUhzk/80Xly9PcubAlGdZY=
+github.com/onsi/gomega v1.18.1 h1:M1GfJqGRrBrrGGsbxzV5dqM2U2ApXefZCQpkukxYRLE=
 github.com/onsi/gomega v1.18.1/go.mod h1:0q+aL8jAiMXy9hbwj2mr5GziHiwhAIQpFmmtT5hitRs=
-github.com/onsi/gomega v1.20.0 h1:8W0cWlwFkflGPLltQvLRB7ZVD5HuP6ng320w2IS245Q=
 github.com/op/go-logging v0.0.0-20160315200505-970db520ece7/go.mod h1:HzydrMdWErDVzsI23lYNej1Htcns9BCg93Dk0bBINWk=
 github.com/opencontainers/go-digest v1.0.0 h1:apOUWs51W5PlhuyGyz9FCeeBIOUDA/6nW8Oi/yOhh5U=
 github.com/opencontainers/image-spec v1.0.2 h1:9yCKha/T5XdGtO0q9Q9a6T5NUCsTn/DrBg0D7ufOcFM=
@@ -1074,8 +1074,8 @@ github.com/sei-protocol/sei-cosmos v0.2.37 h1:0Aj5+Mv3wYFPFb9CxwkzvUffonSi6oGslE
 github.com/sei-protocol/sei-cosmos v0.2.37/go.mod h1:eV7NmvcXn1D6A3EDvOFZ894tqm+/JW4CWUiohnamjfM=
 github.com/sei-protocol/sei-iavl v0.1.4 h1:lT5doPDTBq/UlbofQbM5iS01FbTSJttmA22+d0PJj5o=
 github.com/sei-protocol/sei-iavl v0.1.4/go.mod h1:7PfkEVT5dcoQE+s/9KWdoXJ8VVVP1QpYYPLdxlkSXFk=
-github.com/sei-protocol/sei-ibc-go/v3 v3.0.0-20230526191724-d7b464b93ac7 h1:pdrq6O3spqX89xZfjK1y4cxBp6aI8lPGphG8uwhCyH0=
-github.com/sei-protocol/sei-ibc-go/v3 v3.0.0-20230526191724-d7b464b93ac7/go.mod h1:4tSC7Kl0+yve04RGRk4xO9k3gthg/w12X01faiI1V4A=
+github.com/sei-protocol/sei-ibc-go/v3 v3.1.0 h1:rFHk2R/3vbG9iNr7cYtVclW/UyEDSRFjNVPz60zZswU=
+github.com/sei-protocol/sei-ibc-go/v3 v3.1.0/go.mod h1:Mb+1NXiPOLd+CPFlOC6BKeAUaxXlhuWenMmRiUiSmwY=
 github.com/sei-protocol/sei-tendermint v0.2.18 h1:ZgU2OVfrA65j9ngW0o7dLD4+SXq9NhORtbYuaBEwT3o=
 github.com/sei-protocol/sei-tendermint v0.2.18/go.mod h1:+BtDvAwTkE64BlxzpH9ZP7S6vUYT9wRXiZa/WW8/o4g=
 github.com/sei-protocol/sei-tm-db v0.0.5 h1:3WONKdSXEqdZZeLuWYfK5hP37TJpfaUa13vAyAlvaQY=
