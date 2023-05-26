@@ -34,7 +34,15 @@ Ref: https://keepachangelog.com/en/1.0.0/
 
 # Changelog
 
+## [v0.0.1] 2023-05-27
+- Huckleberry patch
+
 ## [v3.0.0](https://github.com/cosmos/ibc-go/releases/tag/v3.0.0) - 2022-03-15
+This was forked from `ibc-go@46e020640e66f9043c14c53a4d215a5b457d6703` in order to apply the huckleberry patch. We can revert back to the OSS ibc-go once we can upgrade to v4+. 
+
+Official patch: https://github.com/cosmos/ibc-go/pull/3346 
+# https://github.com/cosmos/ibc-go/tree/v3.0.0
+
 
 ### Dependencies
 

@@ -401,18 +401,56 @@ func (q Keeper) UnreceivedPackets(c context.Context, req *types.QueryUnreceivedP
 
 	ctx := sdk.UnwrapSDKContext(c)
 
-	var unreceivedSequences = []uint64{}
+	channel, found := q.GetChannel(sdk.UnwrapSDKContext(c), req.PortId, req.ChannelId)
+	if !found {
+		return nil, status.Error(
+			codes.NotFound,
+			sdkerrors.Wrapf(types.ErrChannelNotFound, "port-id: %s, channel-id %s", req.PortId, req.ChannelId).Error(),
+		)
+	}
 
-	for i, seq := range req.PacketCommitmentSequences {
-		if seq == 0 {
-			return nil, status.Errorf(codes.InvalidArgument, "packet sequence %d cannot be 0", i)
+	var unreceivedSequences []uint64
+
+	switch channel.Ordering {
+	case types.UNORDERED:
+		for i, seq := range req.PacketCommitmentSequences {
+			// filter for invalid sequences to ensure they are not included in the response value.
+			if seq == 0 {
+				return nil, status.Errorf(codes.InvalidArgument, "packet sequence %d cannot be 0", i)
+			}
+
+			// if the packet receipt does not exist, then it is unreceived
+			if _, found := q.GetPacketReceipt(ctx, req.PortId, req.ChannelId, seq); !found {
+				unreceivedSequences = append(unreceivedSequences, seq)
+			}
+		}
+	case types.ORDERED:
+		nextSequenceRecv, found := q.GetNextSequenceRecv(ctx, req.PortId, req.ChannelId)
+		if !found {
+			return nil, status.Error(
+				codes.NotFound,
+				sdkerrors.Wrapf(
+					types.ErrSequenceReceiveNotFound,
+					"destination port: %s, destination channel: %s", req.PortId, req.ChannelId,
+				).Error(),
+			)
 		}
 
-		// if packet receipt exists on the receiving chain, then packet has already been received
-		if _, found := q.GetPacketReceipt(ctx, req.PortId, req.ChannelId, seq); !found {
-			unreceivedSequences = append(unreceivedSequences, seq)
-		}
+		for i, seq := range req.PacketCommitmentSequences {
+			// filter for invalid sequences to ensure they are not included in the response value.
+			if seq == 0 {
+				return nil, status.Errorf(codes.InvalidArgument, "packet sequence %d cannot be 0", i)
+			}
 
+			// Any sequence greater than or equal to the next sequence to be received is not received.
+			if seq >= nextSequenceRecv {
+				unreceivedSequences = append(unreceivedSequences, seq)
+			}
+		}
+	default:
+		return nil, status.Error(
+			codes.InvalidArgument,
+			sdkerrors.Wrapf(types.ErrInvalidChannelOrdering, "channel order %s is not supported", channel.Ordering.String()).Error())
 	}
 
 	selfHeight := clienttypes.GetSelfHeight(ctx)
