@@ -34,7 +34,9 @@
     "message_type_distribution": {
         "dex": {
             "limit_order_percentage": "0.2",
-            "market_order_percentage": "0.8"
+            "market_order_percentage": "0.4",
+            "fok_market_order_percentage": "0.2",
+            "fok_by_value_market_order_percentage": "0.2"
         },
         "staking": {
             "delegate_percentage": "0.5",
