@@ -833,13 +833,13 @@ func (s *coinTestSuite) TestAmountOf() {
 		sdk.NewInt64Coin("gold", 0),
 	}
 	case2 := sdk.Coins{
-		sdk.NewInt64Coin("gas", 1),
 		sdk.NewInt64Coin("mineral", 1),
+		sdk.NewInt64Coin("gas", 1),
 		sdk.NewInt64Coin("tree", 1),
 	}
 	case3 := sdk.Coins{
-		sdk.NewInt64Coin("mineral", 1),
 		sdk.NewInt64Coin("tree", 1),
+		sdk.NewInt64Coin("mineral", 1),
 	}
 	case4 := sdk.Coins{
 		sdk.NewInt64Coin("gas", 8),

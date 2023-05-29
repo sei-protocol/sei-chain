@@ -395,10 +395,11 @@ func (coins Coins) SafeSub(coinsB Coins) (Coins, bool) {
 // of AmountOf(D) of the inputs.  Note that the result might be not
 // be equal to either input. For any valid Coins a, b, and c, the
 // following are always true:
-//     a.IsAllLTE(a.Max(b))
-//     b.IsAllLTE(a.Max(b))
-//     a.IsAllLTE(c) && b.IsAllLTE(c) == a.Max(b).IsAllLTE(c)
-//     a.Add(b...).IsEqual(a.Min(b).Add(a.Max(b)...))
+//
+//	a.IsAllLTE(a.Max(b))
+//	b.IsAllLTE(a.Max(b))
+//	a.IsAllLTE(c) && b.IsAllLTE(c) == a.Max(b).IsAllLTE(c)
+//	a.Add(b...).IsEqual(a.Min(b).Add(a.Max(b)...))
 //
 // E.g.
 // {1A, 3B, 2C}.Max({4A, 2B, 2C} == {4A, 3B, 2C})
@@ -440,10 +441,11 @@ func (coins Coins) Max(coinsB Coins) Coins {
 // of AmountOf(D) of the inputs.  Note that the result might be not
 // be equal to either input. For any valid Coins a, b, and c, the
 // following are always true:
-//     a.Min(b).IsAllLTE(a)
-//     a.Min(b).IsAllLTE(b)
-//     c.IsAllLTE(a) && c.IsAllLTE(b) == c.IsAllLTE(a.Min(b))
-//     a.Add(b...).IsEqual(a.Min(b).Add(a.Max(b)...))
+//
+//	a.Min(b).IsAllLTE(a)
+//	a.Min(b).IsAllLTE(b)
+//	c.IsAllLTE(a) && c.IsAllLTE(b) == c.IsAllLTE(a.Min(b))
+//	a.Add(b...).IsEqual(a.Min(b).Add(a.Max(b)...))
 //
 // E.g.
 // {1A, 3B, 2C}.Min({4A, 2B, 2C} == {1A, 2B, 2C})
@@ -618,30 +620,12 @@ func (coins Coins) AmountOf(denom string) Int {
 // AmountOfNoDenomValidation returns the amount of a denom from coins
 // without validating the denomination.
 func (coins Coins) AmountOfNoDenomValidation(denom string) Int {
-	switch len(coins) {
-	case 0:
-		return ZeroInt()
-
-	case 1:
-		coin := coins[0]
+	for _, coin := range coins {
 		if coin.Denom == denom {
 			return coin.Amount
 		}
-		return ZeroInt()
-
-	default:
-		// Binary search the amount of coins remaining
-		midIdx := len(coins) / 2 // 2:1, 3:1, 4:2
-		coin := coins[midIdx]
-		switch {
-		case denom < coin.Denom:
-			return coins[:midIdx].AmountOfNoDenomValidation(denom)
-		case denom == coin.Denom:
-			return coin.Amount
-		default:
-			return coins[midIdx+1:].AmountOfNoDenomValidation(denom)
-		}
 	}
+	return ZeroInt()
 }
 
 // GetDenomByIndex returns the Denom of the certain coin to make the findDup generic
