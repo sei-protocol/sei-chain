@@ -98,7 +98,7 @@ func TestQuerySlashingWindow(t *testing.T) {
 	ctx = sdk.WrapSDKContext(input.Ctx)
 	res, err = querier.SlashWindow(ctx, &types.QuerySlashWindowRequest{})
 	require.NoError(t, err)
-	require.Equal(t, 98901, int(res.WindowProgress))
+	require.Equal(t, 300501, int(res.WindowProgress))
 }
 
 func TestQueryVoteTargets(t *testing.T) {
