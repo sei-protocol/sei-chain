@@ -3,6 +3,7 @@ package mempool
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"math/rand"
@@ -693,4 +694,37 @@ func TestTxMempool_FailedCheckTxCount(t *testing.T) {
 	tx = []byte("bad tx")
 	require.NoError(t, txmp.CheckTx(ctx, tx, callback, TxInfo{SenderID: 0, SenderNodeID: "sender"}))
 	require.True(t, txmp.peerManager.(*TestPeerEvictor).IsEvicted("sender"))
+}
+
+func TestAppendCheckTxErr(t *testing.T) {
+	// Setup
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	client := abciclient.NewLocalClient(log.NewNopLogger(), &application{Application: kvstore.NewApplication()})
+	if err := client.Start(ctx); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(client.Wait)
+	txmp := setup(t, client, 500)
+	existingData := `[{"log":"existing error log"}]`
+
+	// Append new error
+	result := txmp.AppendCheckTxErr(existingData, "sample error msg")
+
+	// Unmarshal the result
+	var data []map[string]interface{}
+	err := json.Unmarshal([]byte(result), &data)
+	require.NoError(t, err)
+	require.Equal(t, len(data), 2)
+	require.Equal(t, data[1]["log"], "sample error msg")
+
+	// Append new error to empty log
+	result = txmp.AppendCheckTxErr("", "sample error msg")
+
+	// Unmarshal the result
+	err = json.Unmarshal([]byte(result), &data)
+	require.NoError(t, err)
+	require.Equal(t, len(data), 1)
+	require.Equal(t, data[0]["log"], "sample error msg")
 }

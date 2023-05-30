@@ -3,6 +3,7 @@ package mempool
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"sync"
@@ -276,7 +277,7 @@ func (txmp *TxMempool) CheckTx(
 	res, err := txmp.proxyAppConn.CheckTx(ctx, &abci.RequestCheckTx{Tx: tx})
 	if err != nil {
 		txmp.cache.Remove(tx)
-		res.Log = err.Error()
+		res.Log = txmp.AppendCheckTxErr(res.Log, err.Error())
 	}
 
 	wtx := &WrappedTx{
@@ -902,4 +903,19 @@ func (txmp *TxMempool) GetPeerFailedCheckTxCount(nodeID types.NodeID) uint64 {
 	txmp.mtxFailedCheckTxCounts.RLock()
 	defer txmp.mtxFailedCheckTxCounts.RUnlock()
 	return txmp.failedCheckTxCounts[nodeID]
+}
+
+// AppendCheckTxErr wraps error message into an ABCIMessageLogs json string
+func (txmp *TxMempool) AppendCheckTxErr(existingLogs string, log string) string {
+	var logs []map[string]interface{}
+	json.Unmarshal([]byte(existingLogs), &logs)
+
+	// Append the new ABCIMessageLog to the slice
+	logs = append(logs, map[string]interface{}{
+		"log": log,
+	})
+
+	// Marshal the updated slice back into a JSON string
+	jsonData, _ := json.Marshal(logs)
+	return string(jsonData)
 }
