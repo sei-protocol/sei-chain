@@ -10,6 +10,7 @@ message Params {
   option (gogoproto.equal)            = true;
   option (gogoproto.goproto_stringer) = false;
 
+  // The number of blocks per voting window, at the end of the vote period, the oracle votes are assessed and exchange rates are calculated. If the vote period is 1 this is equivalent to having oracle votes assessed and exchange rates calculated in each block.
   uint64 vote_period    = 1 [(gogoproto.moretags) = "yaml:\"vote_period\""];
   string vote_threshold = 2 [
     (gogoproto.moretags)   = "yaml:\"vote_threshold\"",
@@ -31,7 +32,9 @@ message Params {
     (gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Dec",
     (gogoproto.nullable)   = false
   ];
+  // The interval in blocks at which the oracle module will assess validator penalty counters, and penalize validators with too poor performance.
   uint64 slash_window         = 6 [(gogoproto.moretags) = "yaml:\"slash_window\""];
+  // The minimum percentage of voting windows for which a validator must have `success`es in order to not be penalized at the end of the slash window.
   string min_valid_per_window = 7 [
     (gogoproto.moretags)   = "yaml:\"min_valid_per_window\"",
     (gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Dec",
