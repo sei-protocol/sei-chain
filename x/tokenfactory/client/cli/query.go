@@ -11,7 +11,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/client/flags"
 
 	// "github.com/cosmos/cosmos-sdk/client/flags"
-	// sdk "github.com/cosmos/cosmos-sdk/types"
+	sdk "github.com/cosmos/cosmos-sdk/types"
 
 	"github.com/sei-protocol/sei-chain/x/tokenfactory/types"
 )
@@ -104,6 +104,10 @@ func GetCmdDenomsFromCreator() *cobra.Command {
 				return err
 			}
 			queryClient := types.NewQueryClient(clientCtx)
+
+			if _, err := sdk.AccAddressFromBech32(args[0]); err != nil {
+				return err
+			}
 
 			res, err := queryClient.DenomsFromCreator(cmd.Context(), &types.QueryDenomsFromCreatorRequest{
 				Creator: args[0],
