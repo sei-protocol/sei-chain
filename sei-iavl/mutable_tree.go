@@ -37,6 +37,8 @@ type MutableTree struct {
 	unsavedFastNodeRemovals  map[string]interface{} // FastNodes that have not yet been removed from disk
 	ndb                      *nodeDB
 	skipFastStorageUpgrade   bool // If true, the tree will work like no fast storage and always not upgrade fast storage
+	versionsToKeep           int64
+	orphandb                 *orphanDB
 	mtx                      *sync.Mutex
 }
 
@@ -60,6 +62,8 @@ func NewMutableTreeWithOpts(db dbm.DB, cacheSize int, opts *Options, skipFastSto
 		unsavedFastNodeRemovals:  make(map[string]interface{}),
 		ndb:                      ndb,
 		skipFastStorageUpgrade:   skipFastStorageUpgrade,
+		versionsToKeep:           opts.VersionsToKeep,
+		orphandb:                 NewOrphanDB(opts),
 		mtx:                      &sync.Mutex{},
 	}, nil
 }
@@ -951,12 +955,38 @@ func (tree *MutableTree) saveFastNodeVersion() error {
 	return tree.ndb.setFastStorageVersionToBatch()
 }
 
+func (tree *MutableTree) handleOrphans(version int64) error {
+	if tree.versionsToKeep == 0 {
+		return tree.ndb.SaveOrphans(version, tree.orphans)
+	}
+
+	if tree.versionsToKeep == 1 {
+		for orphan := range tree.orphans {
+			if err := tree.ndb.deleteOrphanedData([]byte(orphan)); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+
+	if err := tree.orphandb.SaveOrphans(version, tree.orphans); err != nil {
+		return err
+	}
+	oldOrphans := tree.orphandb.GetOrphans(version - tree.versionsToKeep + 1)
+	for orphan := range oldOrphans {
+		if err := tree.ndb.deleteOrphanedData([]byte(orphan)); err != nil {
+			return err
+		}
+	}
+	return tree.orphandb.DeleteOrphans(version - tree.versionsToKeep + 1)
+}
+
 func (tree *MutableTree) commitVersion(version int64, silentSaveRootError bool) (int64, error) {
 	if tree.root == nil {
 		// There can still be orphans, for example if the root is the node being
 		// removed.
 		logger.Debug("SAVE EMPTY TREE %v\n", version)
-		if err := tree.ndb.SaveOrphans(version, tree.orphans); err != nil {
+		if err := tree.handleOrphans(version); err != nil {
 			return 0, err
 		}
 		if err := tree.ndb.SaveEmptyRoot(version); !silentSaveRootError && err != nil {
@@ -967,7 +997,7 @@ func (tree *MutableTree) commitVersion(version int64, silentSaveRootError bool) 
 		if _, err := tree.ndb.SaveBranch(tree.root); err != nil {
 			return 0, err
 		}
-		if err := tree.ndb.SaveOrphans(version, tree.orphans); err != nil {
+		if err := tree.handleOrphans(version); err != nil {
 			return 0, err
 		}
 		if err := tree.ndb.SaveRoot(tree.root, version); !silentSaveRootError && err != nil {
@@ -1070,10 +1100,7 @@ func (tree *MutableTree) SetInitialVersion(version uint64) {
 func (tree *MutableTree) DeleteVersions(versions ...int64) error {
 	logger.Debug("DELETING VERSIONS: %v\n", versions)
 
-	if tree.ndb.ShouldNotUseVersion() {
-		// no need to delete versions since there is no version to be
-		// deleted except the current one, which shouldn't be deleted
-		// in any circumstance
+	if tree.versionsToKeep > 0 {
 		return nil
 	}
 
