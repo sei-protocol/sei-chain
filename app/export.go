@@ -2,8 +2,9 @@ package app
 
 import (
 	"encoding/json"
-	"github.com/cosmos/cosmos-sdk/types/kv"
 	"log"
+
+	"github.com/cosmos/cosmos-sdk/types/kv"
 
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 
