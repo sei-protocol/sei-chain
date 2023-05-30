@@ -138,7 +138,9 @@ func (s *resultTestSuite) TestResponseFormatBroadcastTxCommit() {
 	// test nil
 	s.Require().Equal((*sdk.TxResponse)(nil), sdk.NewResponseFormatBroadcastTxCommit(nil))
 
-	logs, err := sdk.ParseABCILogs(`[]`)
+	checkTxLogs, err := sdk.ParseABCILogs(`[{"log":"account sequence mismatch, expected 1, got 10: incorrect account sequence"}]`)
+	s.Require().NoError(err)
+	deliverTxLogs, err := sdk.ParseABCILogs("[]")
 	s.Require().NoError(err)
 
 	// test checkTx
@@ -150,7 +152,7 @@ func (s *resultTestSuite) TestResponseFormatBroadcastTxCommit() {
 			Data:      nil,
 			GasWanted: 99,
 			Codespace: "codespace",
-			Log:       "rawlog",
+			Log:       `[{"log":"account sequence mismatch, expected 1, got 10: incorrect account sequence"}]`,
 		},
 	}
 	deliverTxResult := &ctypes.ResultBroadcastTxCommit{
@@ -184,7 +186,8 @@ func (s *resultTestSuite) TestResponseFormatBroadcastTxCommit() {
 		Codespace: "codespace",
 		Code:      90,
 		Data:      "",
-		RawLog:    "rawlog",
+		RawLog:    `[{"log":"account sequence mismatch, expected 1, got 10: incorrect account sequence"}]`,
+		Logs:      checkTxLogs,
 		GasWanted: 99,
 	}
 	deliverWant := &sdk.TxResponse{
@@ -194,7 +197,7 @@ func (s *resultTestSuite) TestResponseFormatBroadcastTxCommit() {
 		Code:      90,
 		Data:      "",
 		RawLog:    `[]`,
-		Logs:      logs,
+		Logs:      deliverTxLogs,
 		Info:      "info",
 		GasWanted: 99,
 		GasUsed:   100,
