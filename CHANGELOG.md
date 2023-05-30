@@ -27,6 +27,12 @@ Ref: https://keepachangelog.com/en/1.0.0/
 -->
 
 # Changelog
+## 3.0.2
+sei-chain :
+* [#810] (https://github.com/sei-protocol/sei-chain/pull/810) Disable FOK orders
+* [#809] (https://github.com/sei-protocol/sei-chain/pull/809) Huckleberry patch
+* [#808] (https://github.com/sei-protocol/sei-chain/pull/808) Add global min fees as a param
+ 
 ## 3.0.1
 sei-chain:
 * [#797] (https://github.com/sei-protocol/sei-chain/pull/797) Don't charge gas for loading contract dependencies
