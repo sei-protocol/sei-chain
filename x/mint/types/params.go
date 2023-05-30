@@ -1,7 +1,6 @@
 package types
 
 import (
-	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -86,14 +85,8 @@ func validateMintDenom(i interface{}) error {
 	if !ok {
 		return fmt.Errorf("invalid parameter type: %T", i)
 	}
-	if denomTrimed == "" {
-		return errors.New("mint denom cannot be blank")
-	}
 	if denomTrimed != sdk.DefaultBondDenom {
 		return fmt.Errorf("mint denom must be the same as the default bond denom=%s", sdk.DefaultBondDenom)
-	}
-	if err := sdk.ValidateDenom(denomString); err != nil {
-		return err
 	}
 
 	return nil
