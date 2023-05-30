@@ -5,8 +5,11 @@ import (
 	"github.com/cosmos/cosmos-sdk/simapp"
 	"github.com/cosmos/cosmos-sdk/testutil/testdata"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	sdkacltypes "github.com/cosmos/cosmos-sdk/types/accesscontrol"
+	acltestutil "github.com/cosmos/cosmos-sdk/x/accesscontrol/testutil"
 	"github.com/cosmos/cosmos-sdk/x/auth/ante"
 	"github.com/cosmos/cosmos-sdk/x/auth/types"
+	"github.com/cosmos/cosmos-sdk/x/feegrant"
 	paramstypes "github.com/cosmos/cosmos-sdk/x/params/types"
 )
 
@@ -267,4 +270,61 @@ func (suite *AnteTestSuite) TestGlobalMinimumFees() {
 	tx, _ = suite.createTestTxWithGas(msg, 750000, 15000, priv1)
 	_, err = antehandler(suite.ctx, tx, false)
 	suite.Require().Nil(err, "Decorator should not have errored on equal fee for global gasPrice")
+}
+
+func (suite *AnteTestSuite) TestDeductFeeDependency() {
+	suite.SetupTest(false) // setup
+	suite.txBuilder = suite.clientCtx.TxConfig.NewTxBuilder()
+
+	// keys and addresses
+	priv1, _, addr1 := testdata.KeyTestPubAddr()
+	_, _, addr2 := testdata.KeyTestPubAddr()
+
+	// msg and signatures
+	msg := testdata.NewTestMsg(addr1)
+	feeAmount := testdata.NewTestFeeAmount()
+	gasLimit := testdata.NewTestGasLimit()
+	suite.Require().NoError(suite.txBuilder.SetMsgs(msg))
+	suite.txBuilder.SetFeeGranter(addr2)
+	suite.txBuilder.SetFeeAmount(feeAmount)
+	suite.txBuilder.SetGasLimit(gasLimit)
+
+	privs, accNums, accSeqs := []cryptotypes.PrivKey{priv1}, []uint64{0}, []uint64{0}
+	tx, err := suite.CreateTestTx(privs, accNums, accSeqs, suite.ctx.ChainID())
+	suite.Require().NoError(err)
+
+	dfd := ante.NewDeductFeeDecorator(suite.app.AccountKeeper, suite.app.BankKeeper, suite.app.FeeGrantKeeper, suite.app.ParamsKeeper, nil)
+
+	antehandler, decorator := sdk.ChainAnteDecorators(dfd)
+
+	// Set account with sufficient funds
+	acc := suite.app.AccountKeeper.NewAccountWithAddress(suite.ctx, addr1)
+	suite.app.AccountKeeper.SetAccount(suite.ctx, acc)
+	err = simapp.FundAccount(suite.app.BankKeeper, suite.ctx, addr1, sdk.NewCoins(sdk.NewCoin("atom", sdk.NewInt(200))))
+	suite.Require().NoError(err)
+
+	acc2 := suite.app.AccountKeeper.NewAccountWithAddress(suite.ctx, addr2)
+	suite.app.AccountKeeper.SetAccount(suite.ctx, acc2)
+	err = simapp.FundAccount(suite.app.BankKeeper, suite.ctx, addr2, sdk.NewCoins(sdk.NewCoin("atom", sdk.NewInt(200))))
+	suite.Require().NoError(err)
+	// create fee grant
+	err = suite.app.FeeGrantKeeper.GrantAllowance(suite.ctx, addr2, addr1, &feegrant.BasicAllowance{})
+	suite.Require().NoError(err)
+
+	msgValidator := sdkacltypes.NewMsgValidator(acltestutil.TestingStoreKeyToResourceTypePrefixMap)
+	suite.ctx = suite.ctx.WithMsgValidator(msgValidator)
+	ms := suite.ctx.MultiStore()
+	msCache := ms.CacheMultiStore()
+	suite.ctx = suite.ctx.WithMultiStore(msCache)
+
+	_, err = antehandler(suite.ctx, tx, false)
+	suite.Require().Nil(err, "Tx errored after account has been set with sufficient funds")
+
+	newDeps, err := decorator([]sdkacltypes.AccessOperation{}, tx)
+	suite.Require().NoError(err)
+
+	storeAccessOpEvents := msCache.GetEvents()
+
+	missingAccessOps := suite.ctx.MsgValidator().ValidateAccessOperations(newDeps, storeAccessOpEvents)
+	suite.Require().Equal(0, len(missingAccessOps))
 }
