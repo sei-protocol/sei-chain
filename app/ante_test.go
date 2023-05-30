@@ -210,3 +210,50 @@ func (suite *AnteTestSuite) TestValidateDepedencies() {
 
 	suite.Require().Nil(err, "ValidateBasicDecorator ran on ReCheck")
 }
+
+func (suite *AnteTestSuite) TestDeductFeeDependency() {
+	suite.SetupTest(false) // setup
+	suite.txBuilder = suite.clientCtx.TxConfig.NewTxBuilder()
+
+	// keys and addresses
+	priv1, _, addr1 := testdata.KeyTestPubAddr()
+
+	// msg and signatures
+	msg := testdata.NewTestMsg(addr1)
+	feeAmount := testdata.NewTestFeeAmount()
+	gasLimit := testdata.NewTestGasLimit()
+	suite.Require().NoError(suite.txBuilder.SetMsgs(msg))
+	suite.txBuilder.SetFeeAmount(feeAmount)
+	suite.txBuilder.SetGasLimit(gasLimit)
+
+	privs, accNums, accSeqs := []cryptotypes.PrivKey{priv1}, []uint64{0}, []uint64{0}
+	tx, err := suite.CreateTestTx(privs, accNums, accSeqs, suite.Ctx.ChainID())
+	suite.Require().NoError(err)
+
+	dfd := ante.NewDeductFeeDecorator(suite.App.AccountKeeper, suite.App.BankKeeper, nil, suite.App.ParamsKeeper, nil)
+
+	antehandler, decorator := sdk.ChainAnteDecorators(dfd)
+
+	// Set account with sufficient funds
+	acc := suite.App.AccountKeeper.NewAccountWithAddress(suite.Ctx, addr1)
+	suite.App.AccountKeeper.SetAccount(suite.Ctx, acc)
+	err = simapp.FundAccount(suite.App.BankKeeper, suite.Ctx, addr1, sdk.NewCoins(sdk.NewCoin("atom", sdk.NewInt(200))))
+	suite.Require().NoError(err)
+
+	msgValidator := sdkacltypes.NewMsgValidator(aclutils.StoreKeyToResourceTypePrefixMap)
+	suite.Ctx = suite.Ctx.WithMsgValidator(msgValidator)
+	ms := suite.Ctx.MultiStore()
+	msCache := ms.CacheMultiStore()
+	suite.Ctx = suite.Ctx.WithMultiStore(msCache)
+
+	_, err = antehandler(suite.Ctx, tx, false)
+	suite.Require().Nil(err, "Tx errored after account has been set with sufficient funds")
+
+	newDeps, err := decorator([]sdkacltypes.AccessOperation{}, tx)
+	suite.Require().NoError(err)
+
+	storeAccessOpEvents := msCache.GetEvents()
+
+	missingAccessOps := suite.Ctx.MsgValidator().ValidateAccessOperations(newDeps, storeAccessOpEvents)
+	suite.Require().Equal(0, len(missingAccessOps))
+}
