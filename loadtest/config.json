@@ -44,9 +44,9 @@
             "begin_redelegate_percentage": "0.25"
         }
     },
-    "constant": true,
+    "constant": false,
     "loadtest_interval": 600,
-    "message_type": "bank,dex,tokenfactory,staking,failure_dex_malformed,failure_dex_invalid,collect_rewards,distribute_rewards",
+    "message_type": "dex",
     "run_oracle": false,
     "metrics_port": 9695,
     "wasm_msg_types": {
