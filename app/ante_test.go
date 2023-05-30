@@ -14,6 +14,7 @@ import (
 	sdkacltypes "github.com/cosmos/cosmos-sdk/types/accesscontrol"
 	"github.com/cosmos/cosmos-sdk/types/tx/signing"
 	acltypes "github.com/cosmos/cosmos-sdk/x/accesscontrol/types"
+	"github.com/cosmos/cosmos-sdk/x/feegrant"
 
 	"github.com/cosmos/cosmos-sdk/utils/tracing"
 	"github.com/cosmos/cosmos-sdk/x/auth/ante"
@@ -217,12 +218,14 @@ func (suite *AnteTestSuite) TestDeductFeeDependency() {
 
 	// keys and addresses
 	priv1, _, addr1 := testdata.KeyTestPubAddr()
+	_, _, addr2 := testdata.KeyTestPubAddr()
 
 	// msg and signatures
 	msg := testdata.NewTestMsg(addr1)
 	feeAmount := testdata.NewTestFeeAmount()
 	gasLimit := testdata.NewTestGasLimit()
 	suite.Require().NoError(suite.txBuilder.SetMsgs(msg))
+	suite.txBuilder.SetFeeGranter(addr2)
 	suite.txBuilder.SetFeeAmount(feeAmount)
 	suite.txBuilder.SetGasLimit(gasLimit)
 
@@ -230,7 +233,7 @@ func (suite *AnteTestSuite) TestDeductFeeDependency() {
 	tx, err := suite.CreateTestTx(privs, accNums, accSeqs, suite.Ctx.ChainID())
 	suite.Require().NoError(err)
 
-	dfd := ante.NewDeductFeeDecorator(suite.App.AccountKeeper, suite.App.BankKeeper, nil, suite.App.ParamsKeeper, nil)
+	dfd := ante.NewDeductFeeDecorator(suite.App.AccountKeeper, suite.App.BankKeeper, suite.App.FeeGrantKeeper, suite.App.ParamsKeeper, nil)
 
 	antehandler, decorator := sdk.ChainAnteDecorators(dfd)
 
@@ -238,6 +241,14 @@ func (suite *AnteTestSuite) TestDeductFeeDependency() {
 	acc := suite.App.AccountKeeper.NewAccountWithAddress(suite.Ctx, addr1)
 	suite.App.AccountKeeper.SetAccount(suite.Ctx, acc)
 	err = simapp.FundAccount(suite.App.BankKeeper, suite.Ctx, addr1, sdk.NewCoins(sdk.NewCoin("atom", sdk.NewInt(200))))
+	suite.Require().NoError(err)
+
+	acc2 := suite.App.AccountKeeper.NewAccountWithAddress(suite.Ctx, addr2)
+	suite.App.AccountKeeper.SetAccount(suite.Ctx, acc2)
+	err = simapp.FundAccount(suite.App.BankKeeper, suite.Ctx, addr2, sdk.NewCoins(sdk.NewCoin("atom", sdk.NewInt(200))))
+	suite.Require().NoError(err)
+	// create fee grant
+	err = suite.App.FeeGrantKeeper.GrantAllowance(suite.Ctx, addr2, addr1, &feegrant.BasicAllowance{})
 	suite.Require().NoError(err)
 
 	msgValidator := sdkacltypes.NewMsgValidator(aclutils.StoreKeyToResourceTypePrefixMap)
