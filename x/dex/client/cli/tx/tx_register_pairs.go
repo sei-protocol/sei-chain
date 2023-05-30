@@ -21,7 +21,7 @@ func CmdRegisterPairs() *cobra.Command {
 		Long: strings.TrimSpace(`
 			This allows for registering new pairs with a json file representing the various pairs to be registered. The pairs are specified within the file using the contract address for the orderbook along with pair information.
 		`),
-		Args: cobra.MinimumNArgs(1),
+		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) (err error) {
 			clientCtx, err := client.GetClientTxContext(cmd)
 			if err != nil {
