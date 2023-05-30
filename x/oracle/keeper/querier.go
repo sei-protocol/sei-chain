@@ -147,13 +147,9 @@ func (q querier) SlashWindow(
 	goCtx context.Context,
 	req *types.QuerySlashWindowRequest,
 ) (*types.QuerySlashWindowResponse, error) {
-	if req == nil {
-		return nil, status.Error(codes.InvalidArgument, "empty request")
-	}
-
 	ctx := sdk.UnwrapSDKContext(goCtx)
 	params := q.GetParams(ctx)
-
+	// The window progress is the number of vote periods that have been completed in the current slashing window. With a vote period of 1, this will be equivalent to the number of blocks that have progressed in the slash window.
 	return &types.QuerySlashWindowResponse{
 		WindowProgress: (uint64(ctx.BlockHeight()) % params.SlashWindow) /
 			params.VotePeriod,

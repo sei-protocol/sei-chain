@@ -51,6 +51,11 @@ func TestDecomposeDenoms(t *testing.T) {
 			denom: "factory/sei1y3pxq5dp900czh0mkudhjdqjq5m8cpmmps8yjw/adsfadsfadsfadsfadsfadsfadsfadsfadsfadsfadsfadsfadsfadsfadsfadsfadsfadsfadsfadsfadsfadsfadsfadsfadsfadsfadsfadsfadsfadsfadsfadsfadsfadsfadsfadsfadsfadsfadsfadsfadsf",
 			valid: false,
 		},
+		{
+			desc:  "too long creator name",
+			denom: "factory/sei1y3pxq5dp900czh0mkudhjdqjq5m8cpmmps8yjwasdfasdfasdfasdfasdfasdfadfasdfasdfasdfasdfasdfas/bitcoin",
+			valid: false,
+		},
 	} {
 		t.Run(tc.desc, func(t *testing.T) {
 			_, _, err := types.DeconstructDenom(tc.denom)
