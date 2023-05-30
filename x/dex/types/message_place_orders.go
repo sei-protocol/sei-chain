@@ -73,8 +73,8 @@ func (msg *MsgPlaceOrders) ValidateBasic() error {
 		if len(order.PriceDenom) == 0 {
 			return sdkerrors.Wrapf(sdkerrors.ErrInvalidRequest, "invalid order, price denom is empty (%s)", err)
 		}
-		if order.OrderType == OrderType_FOKMARKETBYVALUE && (order.Nominal.IsNil() || order.Nominal.IsNegative()) {
-			return sdkerrors.Wrapf(sdkerrors.ErrInvalidRequest, "invalid nominal value for market by value order (%s)", err)
+		if order.OrderType == OrderType_FOKMARKETBYVALUE || order.OrderType == OrderType_FOKMARKET {
+			return sdkerrors.Wrapf(sdkerrors.ErrInvalidRequest, "FOK orders are temporarily disabled")
 		}
 		if order.OrderType == OrderType_STOPLIMIT || order.OrderType == OrderType_STOPLOSS {
 			return sdkerrors.Wrapf(sdkerrors.ErrInvalidRequest, "stop loss/limit order (%s) are not supported yet", err)

@@ -51,6 +51,7 @@ var upgradesList = []string{
 	// 3.x.x versions have a revamped and optimized dex changes. We also change naming conventions to remove "beta"
 	"3.0.0",
 	"3.0.1",
+	"3.0.2",
 }
 
 func (app App) RegisterUpgradeHandlers() {
