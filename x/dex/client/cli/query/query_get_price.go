@@ -19,7 +19,7 @@ func CmdGetPrice() *cobra.Command {
 		Long: strings.TrimSpace(`
 			Get the price for a pair from a dex specified by the contract-address. The price and asset denom are used to specify the dex pair for which to return the latest price. The timestamp is used to query the price for that specific timestamp.  For the latest price use get-latest-price instead or for all prices use get-prices.
 		`),
-		Args: cobra.ExactArgs(3),
+		Args: cobra.ExactArgs(4),
 		RunE: func(cmd *cobra.Command, args []string) (err error) {
 			reqContractAddr := args[0]
 			reqTimestamp, err := strconv.ParseUint(args[1], 10, 64)
