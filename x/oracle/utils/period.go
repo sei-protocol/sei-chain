@@ -5,7 +5,7 @@ import (
 )
 
 const (
-	BlocksPerMinute = uint64(20)
+	BlocksPerMinute = uint64(75)
 	BlocksPerHour   = BlocksPerMinute * 60
 	BlocksPerDay    = BlocksPerHour * 24
 	BlocksPerWeek   = BlocksPerDay * 7

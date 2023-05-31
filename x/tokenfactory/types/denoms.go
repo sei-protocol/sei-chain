@@ -27,7 +27,7 @@ func GetTokenDenom(creator, subdenom string) (string, error) {
 	if len(subdenom) > MaxSubdenomLength {
 		return "", ErrSubdenomTooLong
 	}
-	if len(subdenom) > MaxCreatorLength {
+	if len(creator) > MaxCreatorLength {
 		return "", ErrCreatorTooLong
 	}
 	if strings.Contains(creator, "/") {
