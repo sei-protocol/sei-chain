@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"log"
 
+	"github.com/cosmos/cosmos-sdk/types/kv"
+
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 
 	servertypes "github.com/cosmos/cosmos-sdk/server/types"
@@ -45,6 +47,12 @@ func (app *App) ExportAppStateAndValidators(
 		Height:          height,
 		ConsensusParams: app.BaseApp.GetConsensusParams(ctx),
 	}, nil
+}
+
+// AddressFromValidatorsKey creates the validator operator address from ValidatorsKey
+func AddressFromValidatorsKey(key []byte) []byte {
+	kv.AssertKeyAtLeastLength(key, 3)
+	return key[2:] // remove prefix bytes and address length
 }
 
 // prepare for fresh start at zero height
@@ -147,7 +155,7 @@ func (app *App) prepForZeroHeightGenesis(ctx sdk.Context, jailAllowedAddrs []str
 	counter := int16(0)
 
 	for ; iter.Valid(); iter.Next() {
-		addr := sdk.ValAddress(iter.Key()[1:])
+		addr := sdk.ValAddress(AddressFromValidatorsKey(iter.Key()))
 		validator, found := app.StakingKeeper.GetValidator(ctx, addr)
 		if !found {
 			panic("expected validator, not found")
