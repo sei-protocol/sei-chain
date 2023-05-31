@@ -333,6 +333,7 @@ func sampleDexOrderType(config Config) (orderType dextypes.OrderType) {
 		case FOKMarket:
 			orderType = dextypes.OrderType_FOKMARKET
 		case FOKByValueMarket:
+			fmt.Println("sampling fok by value")
 			orderType = dextypes.OrderType_FOKMARKETBYVALUE
 		default:
 			panic(fmt.Sprintf("Unknown message type %s\n", msgType))
