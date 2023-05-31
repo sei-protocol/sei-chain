@@ -11,7 +11,7 @@ func (k Keeper) SetAssetMetadata(ctx sdk.Context, assetMetadata types.AssetMetad
 	// Even if asset exists already, overwrite the store with new metadata
 	b := k.Cdc.MustMarshal(&assetMetadata)
 
-	store.Set(types.AssetListPrefix(assetMetadata.Metadata.Display), b)
+	store.Set(types.AssetListPrefix(assetMetadata.Metadata.Base), b)
 }
 
 func (k Keeper) GetAssetMetadataByDenom(ctx sdk.Context, assetDenom string) (val types.AssetMetadata, found bool) {
