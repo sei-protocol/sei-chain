@@ -18,7 +18,7 @@ func TestGenesis(t *testing.T) {
 		Epoch: &types.Epoch{
 			GenesisTime:           now,
 			EpochDuration:         time.Minute,
-			CurrentEpoch:          0,
+			CurrentEpoch:          1,
 			CurrentEpochStartTime: now,
 			CurrentEpochHeight:    0,
 		},
@@ -28,6 +28,7 @@ func TestGenesis(t *testing.T) {
 	epoch.InitGenesis(ctx, *k, genesisState)
 	got := epoch.ExportGenesis(ctx, *k)
 	require.NotNil(t, got)
+	require.Equal(t, got.Epoch.CurrentEpoch, genesisState.Epoch.CurrentEpoch)
 
 	nullify.Fill(&genesisState)
 	nullify.Fill(got)
