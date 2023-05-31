@@ -363,6 +363,7 @@ func generateDexOrderPlacements(config Config, key cryptotypes.PrivKey, msgPerTx
 			AssetDenom:        "ATOM",
 			OrderType:         orderType,
 			Data:              VortexData,
+			Nominal:           price.Mul(quantity),
 		})
 	}
 	return orderPlacements

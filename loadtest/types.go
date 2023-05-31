@@ -123,8 +123,8 @@ func (d *MsgTypeDistribution) SampleDexMsgs() string {
 		panic("Distribution percentages must add up to 1")
 	}
 	randNum := sdk.MustNewDecFromStr(fmt.Sprintf("%f", rand.Float64()))
-	fokThreshold := d.Dex.LimitOrderPct.Add(d.Dex.LimitOrderPct)
-	fokByValueThreshold := d.Dex.LimitOrderPct.Add(d.Dex.LimitOrderPct).Add(d.Dex.FOKBYVALUEMarketOrderPct)
+	fokThreshold := d.Dex.LimitOrderPct.Add(d.Dex.FOKMarketOrderPct)
+	fokByValueThreshold := d.Dex.LimitOrderPct.Add(d.Dex.FOKMarketOrderPct).Add(d.Dex.FOKBYVALUEMarketOrderPct)
 	if randNum.LT(d.Dex.LimitOrderPct) {
 		return Limit
 	} else if randNum.LT(fokThreshold) {
