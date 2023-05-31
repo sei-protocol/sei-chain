@@ -7,11 +7,12 @@ import (
 
 func (k Keeper) SetAssetMetadata(ctx sdk.Context, assetMetadata types.AssetMetadata) {
 	store := ctx.KVStore(k.storeKey)
-	// We only allow one asset per base denom for now
+	// Have one base denom for a canonical “display”.
 	// Even if asset exists already, overwrite the store with new metadata
+	// Asset list is decided through governance
 	b := k.Cdc.MustMarshal(&assetMetadata)
 
-	store.Set(types.AssetListPrefix(assetMetadata.Metadata.Base), b)
+	store.Set(types.AssetListPrefix(assetMetadata.Metadata.Display), b)
 }
 
 func (k Keeper) GetAssetMetadataByDenom(ctx sdk.Context, assetDenom string) (val types.AssetMetadata, found bool) {
