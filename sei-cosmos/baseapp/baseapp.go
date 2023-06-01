@@ -75,13 +75,7 @@ type (
 	// an older version of the software. In particular, if a module changed the substore key name
 	// (or removed a substore) between two versions of the software.
 	StoreLoader func(ms sdk.CommitMultiStore) error
-
-	RunTxPreHookKeyType  string
-	RunTxPostHookKeyType string
 )
-
-const RunTxPreHookKey = RunTxPreHookKeyType("key")
-const RunTxPostHookKey = RunTxPostHookKeyType("key")
 
 // BaseApp reflects the ABCI application implementation.
 type BaseApp struct { //nolint: maligned
@@ -872,17 +866,6 @@ func (app *BaseApp) runTx(ctx sdk.Context, mode runTxMode, txBytes []byte) (gInf
 	defer span.End()
 	ctx = ctx.WithTraceSpanContext(spanCtx)
 	span.SetAttributes(attribute.String("txHash", fmt.Sprintf("%X", sha256.Sum256(txBytes))))
-
-	if goCtx := ctx.Context(); goCtx != nil {
-		if v := goCtx.Value(RunTxPreHookKey); v != nil {
-			callable := v.(func())
-			callable()
-		}
-		if v := goCtx.Value(RunTxPostHookKey); v != nil {
-			callable := v.(func())
-			defer callable()
-		}
-	}
 
 	// NOTE: GasWanted should be returned by the AnteHandler. GasUsed is
 	// determined by the GasMeter. We need access to the context to get the gas

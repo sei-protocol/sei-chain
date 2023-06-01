@@ -143,13 +143,6 @@ func (app *BaseApp) BeginBlock(ctx sdk.Context, req abci.RequestBeginBlock) (res
 	if app.beginBlocker != nil {
 		res = app.beginBlocker(ctx, req)
 		res.Events = sdk.MarkEventsToIndex(res.Events, app.indexEvents)
-
-		// call the hooks with the BeginBlock messages
-		for _, streamingListener := range app.abciListeners {
-			if err := streamingListener.ListenBeginBlock(app.deliverState.ctx, req, res); err != nil {
-				app.logger.Error("BeginBlock listening hook failed", "height", req.Header.Height, "err", err)
-			}
-		}
 	}
 
 	// call the streaming service hooks with the EndBlock messages
