@@ -476,30 +476,13 @@ func (coins DecCoins) Empty() bool {
 func (coins DecCoins) AmountOf(denom string) Dec {
 	mustValidateDenom(denom)
 
-	switch len(coins) {
-	case 0:
-		return ZeroDec()
-
-	case 1:
-		coin := coins[0]
+	for _, coin := range coins {
 		if coin.Denom == denom {
 			return coin.Amount
 		}
-		return ZeroDec()
-
-	default:
-		midIdx := len(coins) / 2 // 2:1, 3:1, 4:2
-		coin := coins[midIdx]
-
-		switch {
-		case denom < coin.Denom:
-			return coins[:midIdx].AmountOf(denom)
-		case denom == coin.Denom:
-			return coin.Amount
-		default:
-			return coins[midIdx+1:].AmountOf(denom)
-		}
 	}
+
+	return ZeroDec()
 }
 
 // IsEqual returns true if the two sets of DecCoins have the same value.

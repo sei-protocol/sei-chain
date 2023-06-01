@@ -13,7 +13,7 @@ func TestGetMinimumGasWanted(t *testing.T) {
 	globalMinGasPrices := sdk.NewDecCoins()
 	validatorMinGasPrices := sdk.NewDecCoins()
 
-	minGasWanted := ante.GetMinimumGasPricesWanted(globalMinGasPrices, validatorMinGasPrices)
+	minGasWanted := ante.GetMinimumGasPricesWantedSorted(globalMinGasPrices, validatorMinGasPrices)
 
 	expectedMinGasWanted := sdk.NewDecCoins()
 
@@ -23,7 +23,7 @@ func TestGetMinimumGasWanted(t *testing.T) {
 	globalMinGasPrices = sdk.NewDecCoins()
 	validatorMinGasPrices = sdk.NewDecCoins(sdk.NewDecCoin("foo", sdk.NewInt(1)))
 
-	minGasWanted = ante.GetMinimumGasPricesWanted(globalMinGasPrices, validatorMinGasPrices)
+	minGasWanted = ante.GetMinimumGasPricesWantedSorted(globalMinGasPrices, validatorMinGasPrices)
 
 	expectedMinGasWanted = sdk.NewDecCoins(sdk.NewDecCoin("foo", sdk.NewInt(1)))
 
@@ -33,7 +33,7 @@ func TestGetMinimumGasWanted(t *testing.T) {
 	globalMinGasPrices = sdk.NewDecCoins(sdk.NewDecCoin("bar", sdk.NewInt(2)))
 	validatorMinGasPrices = sdk.NewDecCoins()
 
-	minGasWanted = ante.GetMinimumGasPricesWanted(globalMinGasPrices, validatorMinGasPrices)
+	minGasWanted = ante.GetMinimumGasPricesWantedSorted(globalMinGasPrices, validatorMinGasPrices)
 
 	expectedMinGasWanted = sdk.NewDecCoins(sdk.NewDecCoin("bar", sdk.NewInt(2)))
 
@@ -43,7 +43,7 @@ func TestGetMinimumGasWanted(t *testing.T) {
 	globalMinGasPrices = sdk.NewDecCoins(sdk.NewDecCoin("foo", sdk.NewInt(1)), sdk.NewDecCoin("bar", sdk.NewInt(2)))
 	validatorMinGasPrices = sdk.NewDecCoins(sdk.NewDecCoin("bar", sdk.NewInt(3)), sdk.NewDecCoin("baz", sdk.NewInt(4)))
 
-	minGasWanted = ante.GetMinimumGasPricesWanted(globalMinGasPrices, validatorMinGasPrices)
+	minGasWanted = ante.GetMinimumGasPricesWantedSorted(globalMinGasPrices, validatorMinGasPrices)
 
 	expectedMinGasWanted = sdk.NewDecCoins(sdk.NewDecCoin("foo", sdk.NewInt(1)), sdk.NewDecCoin("bar", sdk.NewInt(3)), sdk.NewDecCoin("baz", sdk.NewInt(4)))
 
@@ -53,7 +53,7 @@ func TestGetMinimumGasWanted(t *testing.T) {
 	globalMinGasPrices = sdk.NewDecCoins(sdk.NewDecCoin("foo", sdk.NewInt(1)), sdk.NewDecCoin("bar", sdk.NewInt(2)))
 	validatorMinGasPrices = sdk.NewDecCoins(sdk.NewDecCoin("baz", sdk.NewInt(3)), sdk.NewDecCoin("qux", sdk.NewInt(4)))
 
-	minGasWanted = ante.GetMinimumGasPricesWanted(globalMinGasPrices, validatorMinGasPrices)
+	minGasWanted = ante.GetMinimumGasPricesWantedSorted(globalMinGasPrices, validatorMinGasPrices)
 
 	expectedMinGasWanted = sdk.NewDecCoins(sdk.NewDecCoin("foo", sdk.NewInt(1)), sdk.NewDecCoin("bar", sdk.NewInt(2)), sdk.NewDecCoin("baz", sdk.NewInt(3)), sdk.NewDecCoin("qux", sdk.NewInt(4)))
 
@@ -63,7 +63,7 @@ func TestGetMinimumGasWanted(t *testing.T) {
 	globalMinGasPrices = sdk.NewDecCoins(sdk.NewDecCoin("foo", sdk.NewInt(1)), sdk.NewDecCoin("bar", sdk.NewInt(2)))
 	validatorMinGasPrices = sdk.NewDecCoins(sdk.NewDecCoin("foo", sdk.NewInt(3)), sdk.NewDecCoin("bar", sdk.NewInt(4)))
 
-	minGasWanted = ante.GetMinimumGasPricesWanted(globalMinGasPrices, validatorMinGasPrices)
+	minGasWanted = ante.GetMinimumGasPricesWantedSorted(globalMinGasPrices, validatorMinGasPrices)
 
 	expectedMinGasWanted = sdk.NewDecCoins(sdk.NewDecCoin("foo", sdk.NewInt(3)), sdk.NewDecCoin("bar", sdk.NewInt(4)))
 
@@ -73,7 +73,7 @@ func TestGetMinimumGasWanted(t *testing.T) {
 	globalMinGasPrices = sdk.NewDecCoins(sdk.NewDecCoin("foo", sdk.NewInt(1)), sdk.NewDecCoin("bar", sdk.NewInt(2)))
 	validatorMinGasPrices = sdk.NewDecCoins(sdk.NewDecCoin("baz", sdk.NewInt(3)), sdk.NewDecCoin("qux", sdk.NewInt(4)))
 
-	minGasWanted = ante.GetMinimumGasPricesWanted(globalMinGasPrices, validatorMinGasPrices)
+	minGasWanted = ante.GetMinimumGasPricesWantedSorted(globalMinGasPrices, validatorMinGasPrices)
 
 	expectedMinGasWanted = sdk.NewDecCoins(sdk.NewDecCoin("foo", sdk.NewInt(1)), sdk.NewDecCoin("bar", sdk.NewInt(2)), sdk.NewDecCoin("baz", sdk.NewInt(3)), sdk.NewDecCoin("qux", sdk.NewInt(4)))
 

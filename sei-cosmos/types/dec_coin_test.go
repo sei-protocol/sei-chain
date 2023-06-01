@@ -652,3 +652,44 @@ func (s *decCoinTestSuite) TestDecCoins_AddDecCoinWithIsValid() {
 		}
 	}
 }
+
+func (s *decCoinTestSuite) TestAmountOf() {
+	case0 := sdk.DecCoins{}
+	case1 := sdk.DecCoins{
+		sdk.NewDecCoin("gold", sdk.ZeroInt()),
+	}
+	case2 := sdk.DecCoins{
+		sdk.NewDecCoin("tree", sdk.NewIntWithDecimal(3, 2)),
+		sdk.NewDecCoin("mineral", sdk.NewIntWithDecimal(5, 2)),
+		sdk.NewDecCoin("gas", sdk.NewIntWithDecimal(1, 2)),
+	}
+	case3 := sdk.DecCoins{
+		sdk.NewDecCoin("tree", sdk.NewIntWithDecimal(1, 2)),
+		sdk.NewDecCoin("mineral", sdk.NewIntWithDecimal(1, 2)),
+		sdk.NewDecCoin("abc", sdk.NewIntWithDecimal(1, 4)),
+	}
+	case4 := sdk.DecCoins{
+		sdk.NewDecCoin("gas", sdk.NewIntWithDecimal(1, 2)),
+	}
+
+	cases := []struct {
+		coins           sdk.DecCoins
+		amountOfGAS     sdk.Dec
+		amountOfMINERAL sdk.Dec
+		amountOfTREE    sdk.Dec
+	}{
+		{case0, sdk.ZeroDec(), sdk.ZeroDec(), sdk.ZeroDec()},
+		{case1, sdk.ZeroDec(), sdk.ZeroDec(), sdk.ZeroDec()},
+		{case2, sdk.NewDecFromInt(sdk.NewIntWithDecimal(1, 2)), sdk.NewDecFromInt(sdk.NewIntWithDecimal(5, 2)), sdk.NewDecFromInt(sdk.NewIntWithDecimal(3, 2))},
+		{case3, sdk.NewDecFromInt(sdk.NewIntWithDecimal(0, 0)), sdk.NewDecFromInt(sdk.NewIntWithDecimal(1, 2)), sdk.NewDecFromInt(sdk.NewIntWithDecimal(1, 2))},
+		{case4, sdk.NewDecFromInt(sdk.NewIntWithDecimal(1, 2)), sdk.ZeroDec(), sdk.ZeroDec()},
+	}
+
+	for _, tc := range cases {
+		s.Require().Equal(tc.amountOfGAS, tc.coins.AmountOf("gas"), "coins: %s", tc.coins)
+		s.Require().Equal(tc.amountOfMINERAL, tc.coins.AmountOf("mineral"), "coins: %s", tc.coins)
+		s.Require().Equal(tc.amountOfTREE, tc.coins.AmountOf("tree"), "coins: %s", tc.coins)
+	}
+
+	s.Require().Panics(func() { cases[0].coins.AmountOf("10Invalid") })
+}

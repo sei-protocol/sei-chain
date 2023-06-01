@@ -24,7 +24,7 @@ func CheckTxFeeWithValidatorMinGasPrices(ctx sdk.Context, tx sdk.Tx, simulate bo
 	// is only ran on check tx.
 	if ctx.IsCheckTx() && !simulate {
 		feeParams := paramsKeeper.GetFeesParams(ctx)
-		minGasPrices := GetMinimumGasPricesWanted(feeParams.GetGlobalMinimumGasPrices(), ctx.MinGasPrices())
+		minGasPrices := GetMinimumGasPricesWantedSorted(feeParams.GetGlobalMinimumGasPrices(), ctx.MinGasPrices())
 		if !minGasPrices.IsZero() {
 			requiredFees := make(sdk.Coins, len(minGasPrices))
 
@@ -51,8 +51,8 @@ func CheckTxFeeWithValidatorMinGasPrices(ctx sdk.Context, tx sdk.Tx, simulate bo
 	return feeCoins, priority, nil
 }
 
-func GetMinimumGasPricesWanted(globalMinimumGasPrices, validatorMinimumGasPrices sdk.DecCoins) sdk.DecCoins {
-	return globalMinimumGasPrices.UnionMax(validatorMinimumGasPrices)
+func GetMinimumGasPricesWantedSorted(globalMinimumGasPrices, validatorMinimumGasPrices sdk.DecCoins) sdk.DecCoins {
+	return globalMinimumGasPrices.UnionMax(validatorMinimumGasPrices).Sort()
 }
 
 // getTxPriority returns a naive tx priority based on the amount of the smallest denomination of the gas price
