@@ -1,6 +1,6 @@
 name: Go
 
- 
+
 on:
   push:
     branches: [ master ]
@@ -31,17 +31,9 @@ jobs:
       with:
         go-version: 1.18
 
-    - run: go install github.com/axw/gocov/gocov@latest
-    - run: go install github.com/AlekSi/gocov-xml@latest
-
-    - name: Test
-      run: go test -v -coverprofile=coverage.txt -covermode=atomic ./...
-
+    - name: Run coverage
+      run: go test -race -coverprofile=coverage.txt -covermode=atomic
+    
     - name: Upload coverage to Codecov
-      uses: codecov/codecov-action@v1
-      with:
-        file: ./coverage.txt
-        flags: unittests
-        name: codecov-umbrella
-        fail_ci_if_error: true
+      uses: codecov/codecov-action@v3
 
