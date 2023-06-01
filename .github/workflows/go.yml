@@ -43,7 +43,7 @@ jobs:
       with:
         filename: coverage.xml
         badge: true
-        format: 'markdown'
+        format: 'markdown'  
         output: 'both'
 
     - name: Add Coverage PR Comment
