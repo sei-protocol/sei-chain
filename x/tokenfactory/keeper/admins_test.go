@@ -8,7 +8,7 @@ import (
 	"github.com/sei-protocol/sei-chain/x/tokenfactory/types"
 )
 
-func (suite *KeeperTestSuite) TestBuggyScenario() {
+func (suite *KeeperTestSuite) TestMultipleMintsPriorToDeferredSettlement() {
 	suite.CreateDefaultDenom()
 	// Make sure that the admin is set correctly
 	queryRes, err := suite.queryClient.DenomAuthorityMetadata(suite.Ctx.Context(), &types.QueryDenomAuthorityMetadataRequest{
