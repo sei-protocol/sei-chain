@@ -376,8 +376,11 @@ func (k BaseKeeper) DeferredSendCoinsFromModuleToAccount(
 	if err != nil {
 		return err
 	}
-
-	return ctx.ContextMemCache().UpsertDeferredWithdrawals(moduleAccount, amount)
+	if !ok {
+		// we only want to add to deferred withdrawal if we previously identified that we can subtract from the unlocked coins
+		return ctx.ContextMemCache().UpsertDeferredWithdrawalsNoSafeSub(moduleAccount, amount)
+	}
+	return nil
 }
 
 // SendCoinsFromModuleToModule transfers coins from a ModuleAccount to another.
@@ -684,7 +687,7 @@ func (k BaseKeeper) DeferredBurnCoins(ctx sdk.Context, moduleName string, amount
 			return err
 		}
 
-		return ctx.ContextMemCache().UpsertDeferredWithdrawals(moduleName, amounts)
+		return ctx.ContextMemCache().UpsertDeferredWithdrawalsNoSafeSub(moduleName, amounts)
 	}
 
 	err := k.destroyCoins(ctx, moduleName, amounts, subFn)

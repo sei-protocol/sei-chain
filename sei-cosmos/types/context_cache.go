@@ -14,9 +14,9 @@ type ContextMemCache struct {
 
 func NewContextMemCache() *ContextMemCache {
 	return &ContextMemCache{
-		deferredBankOpsLock:     &sync.Mutex{},
-		deferredSends:           NewDeferredBankOperationMap(),
-		deferredWithdrawals:     NewDeferredBankOperationMap(),
+		deferredBankOpsLock: &sync.Mutex{},
+		deferredSends:       NewDeferredBankOperationMap(),
+		deferredWithdrawals: NewDeferredBankOperationMap(),
 	}
 }
 
@@ -73,6 +73,22 @@ func (c *ContextMemCache) UpsertDeferredWithdrawals(moduleAccount string, amount
 	if !ok {
 		c.deferredWithdrawals.UpsertMapping(moduleAccount, amount)
 	}
+	return nil
+}
+
+// This inserts or updates an entry for a module account for a deferred withdrawal.
+// This should be performed AFTER checking for a sufficient balance in the underlying bank balances for that module account.
+// Additionally, this does not attempt to do any safe subtraction from pending sends, so if that behavior is preferred, it will need to be checked separately.
+func (c *ContextMemCache) UpsertDeferredWithdrawalsNoSafeSub(moduleAccount string, amount Coins) error {
+	if !amount.IsValid() {
+		return sdkerrors.Wrap(sdkerrors.ErrInvalidCoins, amount.String())
+	}
+
+	// Separate locks needed for all mappings - atmoic transaction needed
+	c.deferredBankOpsLock.Lock()
+	defer c.deferredBankOpsLock.Unlock()
+
+	c.deferredWithdrawals.UpsertMapping(moduleAccount, amount)
 	return nil
 }
 
