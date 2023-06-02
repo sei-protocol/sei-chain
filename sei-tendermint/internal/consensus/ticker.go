@@ -114,6 +114,7 @@ func (t *timeoutTicker) timeoutRoutine(ctx context.Context) {
 			// update timeoutInfo and reset timer
 			// NOTE time.Timer allows duration to be non-positive
 			ti = newti
+			t.timer.Stop()
 			t.timer.Reset(ti.Duration)
 			t.logger.Debug("Internal state machine timeout scheduled", "duration", ti.Duration, "height", ti.Height, "round", ti.Round, "step", ti.Step)
 		case <-t.timer.C:

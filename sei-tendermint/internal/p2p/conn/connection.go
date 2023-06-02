@@ -676,11 +676,13 @@ func newChannel(conn *MConnection, desc ChannelDescriptor) *channel {
 // Goroutine-safe
 // Times out (and returns false) after defaultSendTimeout
 func (ch *channel) sendBytes(bytes []byte) bool {
+	timer := time.NewTimer(defaultSendTimeout)
+	defer timer.Stop()
 	select {
 	case ch.sendQueue <- bytes:
 		atomic.AddInt32(&ch.sendQueueSize, 1)
 		return true
-	case <-time.After(defaultSendTimeout):
+	case <-timer.C:
 		return false
 	}
 }

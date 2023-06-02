@@ -309,6 +309,7 @@ func (r *Reactor) broadcastEvidenceLoop(ctx context.Context, peerID types.NodeID
 
 		case <-next.NextWaitChan():
 			next = next.Next()
+			timer.Stop()
 
 		case <-ctx.Done():
 			return

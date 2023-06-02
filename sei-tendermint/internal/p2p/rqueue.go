@@ -54,6 +54,7 @@ func (q *simpleQueue) run(ctx context.Context) {
 	pq := make(priorityQueue, 0, q.maxSize)
 	heap.Init(&pq)
 	ticker := time.NewTicker(10 * time.Millisecond)
+	defer ticker.Stop()
 	// must have a buffer of exactly one because both sides of
 	// this channel are used in this loop, and simply signals adds
 	// to the heap
