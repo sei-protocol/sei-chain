@@ -2,7 +2,7 @@
 
 # Prepare contracts
 mkdir -p ./loadtest/contracts/mars/artifacts
-aws s3 cp s3://sei-artifacts-us-east-2/contracts/mars/mars.wasm ./loadtest/contracts/mars/artifacts/mars.wasm
+aws s3 cp --region us-east-2 s3://sei-artifacts-us-east-2/contracts/mars/mars.wasm ./loadtest/contracts/mars/artifacts/mars.wasm
 
 # Deploy contracts
 sei_home=$(git rev-parse --show-toplevel | tr -d '"')
