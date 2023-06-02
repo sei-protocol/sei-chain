@@ -1,3 +1,6 @@
+fixes:
+  - "sei-chain/::" 
+
 coverage:
   status:
     project:
