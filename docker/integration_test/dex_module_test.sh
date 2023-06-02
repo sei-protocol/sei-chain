@@ -1,12 +1,12 @@
 #!/bin/bash
 
 # Prepare contracts
-#mkdir -p ./loadtest/contracts/mars/artifacts
-#aws s3 cp s3://sei-artifacts-us-east-2/contracts/mars/mars.wasm ./loadtest/contracts/mars/artifacts/mars.wasm
-#
-## Deploy contracts
-#sei_home=$(git rev-parse --show-toplevel | tr -d '"')
-#docker exec -i sei-node0 loadtest/contracts/deploy_mars_contract.sh
+mkdir -p ./loadtest/contracts/mars/artifacts
+aws s3 cp s3://sei-artifacts-us-east-2/contracts/mars/mars.wasm ./loadtest/contracts/mars/artifacts/mars.wasm
+
+# Deploy contracts
+sei_home=$(git rev-parse --show-toplevel | tr -d '"')
+docker exec -i sei-node0 loadtest/contracts/deploy_mars_contract.sh
 contract_addr=$(head -1 loadtest/contracts/contract_output.txt)
 
 # Place orders
