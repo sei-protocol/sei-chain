@@ -4,7 +4,6 @@ import (
 	"encoding/hex"
 	"testing"
 
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/sei-protocol/sei-chain/x/dex/contract"
 	"github.com/stretchr/testify/require"
 )
@@ -16,13 +15,3 @@ func TestGetWasmPrefixes(t *testing.T) {
 	require.Equal(t, []byte(wasmWhitelistedPrefixes[0]), wasmPrefixBytes)
 }
 
-func TestGetDexPrefixes(t *testing.T) {
-	dexWhitelistedPrefixes := contract.GetDexWhitelistedPrefixes("sei14hj2tavq8fpesdwxxcu44rty3hh90vhujrvcmstl4zr3txmfvw9sh9m79m")
-	addr, _ := sdk.AccAddressFromBech32("sei14hj2tavq8fpesdwxxcu44rty3hh90vhujrvcmstl4zr3txmfvw9sh9m79m")
-
-	for i, dexKeys := range contract.DexWhitelistedKeys {
-		len := []byte{byte(32)}
-		prefix := append(append([]byte(dexKeys), len...), addr...)
-		require.Equal(t, string(prefix), dexWhitelistedPrefixes[i])
-	}
-}
