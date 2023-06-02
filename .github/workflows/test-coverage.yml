@@ -1,35 +1,37 @@
-name: Go
-
+name: Test Coverage Report
 
 on:
-  push:
-    branches: [ master ]
-  # Allows non-contributors to run PR jobs
-  pull_request_target:
-    branches: [ master ]
+  pull_request:
+permissions: 
+  contents: read
+  pull-requests: write
+  discussions: write
 
 defaults:
  run:
   shell: bash
 
-permissions:
-  pull-requests: write
-
 jobs:
   build:
     runs-on: ubuntu-latest
-    permissions: write-all
     steps:
     - uses: actions/checkout@v3
       with:
         fetch-depth: 0
-        ref: "refs/pull/${{ github.event.number }}/merge"
     - uses: actions/setup-python@v3
 
     - name: Set up Go
       uses: actions/setup-go@v2
       with:
         go-version: 1.18
+
+    - name: Cache Go modules
+      uses: actions/cache@v2
+      with:
+        path: ~/go/pkg/mod
+        key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+        restore-keys: |
+          ${{ runner.os }}-go-
 
     - run: go install github.com/axw/gocov/gocov@latest
     - run: go install github.com/AlekSi/gocov-xml@latest
@@ -48,7 +50,6 @@ jobs:
 
     - name: Add Coverage PR Comment
       uses: marocchino/sticky-pull-request-comment@v2.6.2
-      if: github.event_name == 'pull_request'
       with:
         recreate: true
         path: code-coverage-results.md
