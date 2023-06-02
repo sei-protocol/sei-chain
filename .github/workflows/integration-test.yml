@@ -39,3 +39,6 @@ jobs:
 
       - name: Verify Sei Chain is able to start up
         run: ./docker/integration_test/startup_test.sh
+
+      - name: Testing Dex Module
+        run: ./docker/integration_test/dex_module_test.sh

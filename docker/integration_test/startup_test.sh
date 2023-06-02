@@ -11,11 +11,13 @@ fi
 
 # Verify block height is keep increasing
 HEIGHT_1=$(docker exec -i sei-node0 build/seid status |jq -r .SyncInfo.latest_block_height)
-echo $HEIGHT_1
+echo "Current height: $HEIGHT_1"
 sleep 15
 HEIGHT_2=$(docker exec -i sei-node0 build/seid status |jq -r .SyncInfo.latest_block_height)
-echo $HEIGHT_2
+echo "Current height: $HEIGHT_2"
 if [ "$HEIGHT_1" -ge "$HEIGHT_2" ];
 then
   exit 1
 fi
+echo "Startup test passed"
+exit 0
