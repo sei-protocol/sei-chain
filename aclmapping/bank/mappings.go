@@ -106,6 +106,7 @@ func MsgSendDependencyGenerator(keeper aclkeeper.Keeper, ctx sdk.Context, msg sd
 		return accessOperations, nil
 	}
 	if !keeper.AccountKeeper.HasAccount(ctx, toAddr) {
+		println("account doesn't exist")
 		accessOperations = append(accessOperations, sdkacltypes.AccessOperation{
 			AccessType:         sdkacltypes.AccessType_WRITE,
 			ResourceType:       sdkacltypes.ResourceType_KV_AUTH_GLOBAL_ACCOUNT_NUMBER,
