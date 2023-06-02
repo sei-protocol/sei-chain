@@ -4,8 +4,7 @@ name: Go
 on:
   push:
     branches: [ master ]
-  # Allows non-contributors to run PR jobs
-  pull_request_target:
+  pull_request:
     branches: [ master ]
 
 defaults:
@@ -36,4 +35,3 @@ jobs:
     
     - name: Upload coverage to Codecov
       uses: codecov/codecov-action@v3
- 
