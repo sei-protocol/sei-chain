@@ -34,7 +34,9 @@
     "message_type_distribution": {
         "dex": {
             "limit_order_percentage": "0.2",
-            "market_order_percentage": "0.8"
+            "market_order_percentage": "0.4",
+            "fok_market_order_percentage": "0.2",
+            "fok_by_value_market_order_percentage": "0.2"
         },
         "staking": {
             "delegate_percentage": "0.5",
@@ -42,9 +44,9 @@
             "begin_redelegate_percentage": "0.25"
         }
     },
-    "constant": true,
+    "constant": false,
     "loadtest_interval": 600,
-    "message_type": "bank,dex,tokenfactory,staking,failure_dex_malformed,failure_dex_invalid,collect_rewards,distribute_rewards",
+    "message_type": "dex",
     "run_oracle": false,
     "metrics_port": 9695,
     "wasm_msg_types": {

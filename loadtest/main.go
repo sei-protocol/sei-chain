@@ -330,6 +330,11 @@ func sampleDexOrderType(config Config) (orderType dextypes.OrderType) {
 			orderType = dextypes.OrderType_LIMIT
 		case Market:
 			orderType = dextypes.OrderType_MARKET
+		case FOKMarket:
+			orderType = dextypes.OrderType_FOKMARKET
+		case FOKByValueMarket:
+			fmt.Println("sampling fok by value")
+			orderType = dextypes.OrderType_FOKMARKETBYVALUE
 		default:
 			panic(fmt.Sprintf("Unknown message type %s\n", msgType))
 		}
@@ -359,6 +364,7 @@ func generateDexOrderPlacements(config Config, key cryptotypes.PrivKey, msgPerTx
 			AssetDenom:        "ATOM",
 			OrderType:         orderType,
 			Data:              VortexData,
+			Nominal:           price.Mul(quantity).Quo(FromMili).Quo(FromMili),
 		})
 	}
 	return orderPlacements
