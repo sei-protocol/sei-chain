@@ -82,10 +82,20 @@ type Options struct {
 	// When Stat is not nil, statistical logic needs to be executed
 	Stat *Statistics
 
-	VersionsToKeep int64
+	// When true, orphan data will be stored in separate directory than application data, and
+	// the pruning of application data will happen during commit (rather than after commit)
+	SeparateOrphanStorage bool
 
+	// Only meaningful if SeparateOrphanStorage is true.
+	// The number of application data versions to keep in the application database.
+	SeparateOphanVersionsToKeep int64
+
+	// Only meaningful if SeparateOrphanStorage is true.
+	// The max number of orphan entries to store in the separate orphan files.
 	NumOrphansPerFile int
 
+	// Only meaningful if SeparateOrphanStorage is true.
+	// The directory to store orphan files.
 	OrphanDirectory string
 }
 
