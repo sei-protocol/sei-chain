@@ -305,6 +305,8 @@ func (app *BaseApp) SetDeliverStateToCommit() {
 // height.
 func (app *BaseApp) Commit(ctx context.Context) (res *abci.ResponseCommit, err error) {
 	defer telemetry.MeasureSince(time.Now(), "abci", "commit")
+	app.commitLock.Lock()
+	defer app.commitLock.Unlock()
 
 	if app.stateToCommit == nil {
 		panic("no state to commit")
