@@ -909,6 +909,9 @@ type StateSyncConfig struct {
 
 	// The number of concurrent chunk and block fetchers to run (default: 4).
 	Fetchers int32 `mapstructure:"fetchers"`
+
+	// Timeout before considering light block verification failed
+	VerifyLightBlockTimeout time.Duration `mapstructure:"verify-light-block-timeout"`
 }
 
 func (cfg *StateSyncConfig) TrustHashBytes() []byte {
@@ -923,12 +926,13 @@ func (cfg *StateSyncConfig) TrustHashBytes() []byte {
 // DefaultStateSyncConfig returns a default configuration for the state sync service
 func DefaultStateSyncConfig() *StateSyncConfig {
 	return &StateSyncConfig{
-		TrustPeriod:         168 * time.Hour,
-		DiscoveryTime:       15 * time.Second,
-		ChunkRequestTimeout: 15 * time.Second,
-		Fetchers:            4,
-		BackfillBlocks:      0,
-		BackfillDuration:    0 * time.Second,
+		TrustPeriod:             168 * time.Hour,
+		DiscoveryTime:           15 * time.Second,
+		ChunkRequestTimeout:     15 * time.Second,
+		Fetchers:                4,
+		BackfillBlocks:          0,
+		BackfillDuration:        0 * time.Second,
+		VerifyLightBlockTimeout: 60 * time.Second,
 	}
 }
 
@@ -1277,31 +1281,33 @@ type DBSyncConfig struct {
 	Enable bool `mapstructure:"db-sync-enable"`
 	// This is NOT currently used but reserved for future implementation
 	// of snapshotting logics that don't require chain halts.
-	SnapshotInterval     int           `mapstructure:"snapshot-interval"`
-	SnapshotDirectory    string        `mapstructure:"snapshot-directory"`
-	SnapshotWorkerCount  int           `mapstructure:"snapshot-worker-count"`
-	TimeoutInSeconds     int           `mapstructure:"timeout-in-seconds"`
-	NoFileSleepInSeconds int           `mapstructure:"no-file-sleep-in-seconds"`
-	FileWorkerCount      int           `mapstructure:"file-worker-count"`
-	FileWorkerTimeout    int           `mapstructure:"file-worker-timeout"`
-	TrustHeight          int64         `mapstructure:"trust-height"`
-	TrustHash            string        `mapstructure:"trust-hash"`
-	TrustPeriod          time.Duration `mapstructure:"trust-period"`
+	SnapshotInterval        int           `mapstructure:"snapshot-interval"`
+	SnapshotDirectory       string        `mapstructure:"snapshot-directory"`
+	SnapshotWorkerCount     int           `mapstructure:"snapshot-worker-count"`
+	TimeoutInSeconds        int           `mapstructure:"timeout-in-seconds"`
+	NoFileSleepInSeconds    int           `mapstructure:"no-file-sleep-in-seconds"`
+	FileWorkerCount         int           `mapstructure:"file-worker-count"`
+	FileWorkerTimeout       int           `mapstructure:"file-worker-timeout"`
+	TrustHeight             int64         `mapstructure:"trust-height"`
+	TrustHash               string        `mapstructure:"trust-hash"`
+	TrustPeriod             time.Duration `mapstructure:"trust-period"`
+	VerifyLightBlockTimeout time.Duration `mapstructure:"verify-light-block-timeout"`
 }
 
 func DefaultDBSyncConfig() *DBSyncConfig {
 	return &DBSyncConfig{
-		Enable:               false,
-		SnapshotInterval:     0,
-		SnapshotDirectory:    "",
-		SnapshotWorkerCount:  16,
-		TimeoutInSeconds:     1200,
-		NoFileSleepInSeconds: 1,
-		FileWorkerCount:      32,
-		FileWorkerTimeout:    30,
-		TrustHeight:          0,
-		TrustHash:            "",
-		TrustPeriod:          time.Duration(86400) * time.Second,
+		Enable:                  false,
+		SnapshotInterval:        0,
+		SnapshotDirectory:       "",
+		SnapshotWorkerCount:     16,
+		TimeoutInSeconds:        1200,
+		NoFileSleepInSeconds:    1,
+		FileWorkerCount:         32,
+		FileWorkerTimeout:       30,
+		TrustHeight:             0,
+		TrustHash:               "",
+		TrustPeriod:             86400 * time.Second,
+		VerifyLightBlockTimeout: 60 * time.Second,
 	}
 }
 

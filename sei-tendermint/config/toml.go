@@ -449,6 +449,8 @@ chunk-request-timeout = "{{ .StateSync.ChunkRequestTimeout }}"
 # The number of concurrent chunk and block fetchers to run (default: 4).
 fetchers = "{{ .StateSync.Fetchers }}"
 
+verify-light-block-timeout = "{{ .StateSync.VerifyLightBlockTimeout }}"
+
 #######################################################
 ###         Consensus Configuration Options         ###
 #######################################################
@@ -596,6 +598,7 @@ file-worker-timeout = "{{ .DBSync.FileWorkerTimeout }}"
 trust-height = "{{ .DBSync.TrustHeight }}"
 trust-hash = "{{ .DBSync.TrustHash }}"
 trust-period = "{{ .DBSync.TrustPeriod }}"
+verify-light-block-timeout = "{{ .DBSync.VerifyLightBlockTimeout }}"
 `
 
 /****** these are for test settings ***********/
