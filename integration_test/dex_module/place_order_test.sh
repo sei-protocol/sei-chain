@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Deploy mars contract
-docker exec -i sei-node0 integration_test/wasm_module/deploy_contract.sh
+./integration_test/wasm_module/deploy_dex_contract.sh mars
 contract_addr=$(tail -1 integration_test/contracts/mars_output.txt)
 
 # Place orders
@@ -17,3 +17,4 @@ else
   echo "Failed to place an order"
   exit 1
 fi
+exit 0
