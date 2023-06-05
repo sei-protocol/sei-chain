@@ -232,19 +232,6 @@ func (am AppModule) ExportGenesis(ctx sdk.Context, cdc codec.JSONCodec) json.Raw
 // ConsensusVersion implements ConsensusVersion.
 func (AppModule) ConsensusVersion() uint64 { return 15 }
 
-func (am AppModule) getAllContractInfo(ctx sdk.Context) []types.ContractInfoV2 {
-	// Do not process any contract that has zero rent balance
-	defer telemetry.MeasureSince(time.Now(), am.Name(), "get_all_contract_info")
-	allRegisteredContracts := am.keeper.GetAllContractInfo(ctx)
-	validContracts := utils.Filter(allRegisteredContracts, func(c types.ContractInfoV2) bool {
-		return c.NeedOrderMatching && !c.Suspended && c.RentBalance > am.keeper.GetMinProcessableRent(ctx)
-	})
-	telemetry.SetGauge(float32(len(allRegisteredContracts)), am.Name(), "num_of_registered_contracts")
-	telemetry.SetGauge(float32(len(validContracts)), am.Name(), "num_of_valid_contracts")
-	telemetry.SetGauge(float32(len(allRegisteredContracts)-len(validContracts)), am.Name(), "num_of_zero_balance_contracts")
-	return validContracts
-}
-
 // BeginBlock executes all ABCI BeginBlock logic respective to the capability module.
 func (am AppModule) BeginBlock(ctx sdk.Context, _ abci.RequestBeginBlock) {
 	defer func() {
@@ -262,7 +249,7 @@ func (am AppModule) BeginBlock(ctx sdk.Context, _ abci.RequestBeginBlock) {
 	cutOffTime := uint64(ctx.BlockTime().Unix()) - priceRetention
 	wg := sync.WaitGroup{}
 	mutex := sync.Mutex{}
-	allContracts := am.getAllContractInfo(ctx)
+	allContracts := am.keeper.GetAllProcessableContractInfo(ctx)
 	allPricesToDelete := make(map[string][]*types.PriceStore, len(allContracts))
 
 	// Parallelize the logic to find all prices to delete
@@ -318,7 +305,7 @@ func (am AppModule) EndBlock(ctx sdk.Context, _ abci.RequestEndBlock) (ret []abc
 	defer span.End()
 	defer dexutils.GetMemState(ctx.Context()).Clear(ctx)
 
-	validContractsInfo := am.getAllContractInfo(ctx)
+	validContractsInfo := am.keeper.GetAllProcessableContractInfo(ctx)
 	// Each iteration is atomic. If an iteration finishes without any error, it will return,
 	// otherwise it will rollback any state change, filter out contracts that cause the error,
 	// and proceed to the next iteration. The loop is guaranteed to finish since
@@ -341,7 +328,7 @@ func (am AppModule) EndBlock(ctx sdk.Context, _ abci.RequestEndBlock) (ret []abc
 			}
 			telemetry.IncrCounter(float32(1), am.Name(), "total_suspended_contracts")
 		}
-		validContractsInfo = am.getAllContractInfo(ctx) // reload contract info to get updated dependencies due to unregister above
+		validContractsInfo = am.keeper.GetAllProcessableContractInfo(ctx) // reload contract info to get updated dependencies due to unregister above
 		if len(failedContractToReasons) != 0 {
 			dexutils.GetMemState(ctx.Context()).ClearContractToDependencies()
 		}
