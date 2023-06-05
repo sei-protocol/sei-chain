@@ -92,8 +92,8 @@ type Reactor struct {
 
 	syncStartTime time.Time
 
-	restartCh chan struct{}
-	blocksBehindThreshold uint64
+	restartCh                 chan struct{}
+	blocksBehindThreshold     uint64
 	blocksBehindCheckInterval time.Duration
 }
 
@@ -112,17 +112,17 @@ func NewReactor(
 	selfRemediationConfig *config.SelfRemediationConfig,
 ) *Reactor {
 	r := &Reactor{
-		logger:      logger,
-		stateStore:  stateStore,
-		blockExec:   blockExec,
-		store:       store,
-		consReactor: consReactor,
-		blockSync:   newAtomicBool(blockSync),
-		peerEvents:  peerEvents,
-		metrics:     metrics,
-		eventBus:    eventBus,
-		restartCh: restartCh,
-		blocksBehindThreshold: selfRemediationConfig.BlocksBehindThreshold,
+		logger:                    logger,
+		stateStore:                stateStore,
+		blockExec:                 blockExec,
+		store:                     store,
+		consReactor:               consReactor,
+		blockSync:                 newAtomicBool(blockSync),
+		peerEvents:                peerEvents,
+		metrics:                   metrics,
+		eventBus:                  eventBus,
+		restartCh:                 restartCh,
+		blocksBehindThreshold:     selfRemediationConfig.BlocksBehindThreshold,
 		blocksBehindCheckInterval: time.Duration(selfRemediationConfig.BlocksBehindCheckIntervalSeconds) * time.Second,
 	}
 
@@ -185,7 +185,6 @@ func (r *Reactor) OnStop() {
 		r.pool.Stop()
 	}
 }
-
 
 // respondToPeer loads a block and sends it to the requesting peer, if we have it.
 // Otherwise, we'll respond saying we do not have it.
