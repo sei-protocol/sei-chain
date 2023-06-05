@@ -2,27 +2,21 @@ package apptesting
 
 import (
 	"context"
-	"encoding/json"
-	"testing"
 	"time"
 
 	"github.com/cosmos/cosmos-sdk/baseapp"
 	"github.com/cosmos/cosmos-sdk/client"
-	"github.com/cosmos/cosmos-sdk/codec"
-	cdctypes "github.com/cosmos/cosmos-sdk/codec/types"
 	"github.com/cosmos/cosmos-sdk/crypto/keys/secp256k1"
 	"github.com/cosmos/cosmos-sdk/simapp"
 	"github.com/cosmos/cosmos-sdk/store/rootmulti"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/types/tx/signing"
 	authsigning "github.com/cosmos/cosmos-sdk/x/auth/signing"
-	"github.com/cosmos/cosmos-sdk/x/authz"
 	distrtypes "github.com/cosmos/cosmos-sdk/x/distribution/types"
 	slashingtypes "github.com/cosmos/cosmos-sdk/x/slashing/types"
 	"github.com/cosmos/cosmos-sdk/x/staking/teststaking"
 	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
 	dexutils "github.com/sei-protocol/sei-chain/x/dex/utils"
-	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
 	abci "github.com/tendermint/tendermint/abci/types"
 	"github.com/tendermint/tendermint/crypto/ed25519"
@@ -41,11 +35,6 @@ type KeeperTestHelper struct {
 	QueryHelper *baseapp.QueryServiceTestHelper
 	TestAccs    []sdk.AccAddress
 }
-
-var (
-	Amino          = codec.NewLegacyAmino()
-	AuthzModuleCdc = codec.NewAminoCodec(Amino)
-)
 
 // Setup sets up basic environment for suite (App, Ctx, and test accounts)
 func (s *KeeperTestHelper) Setup() {
@@ -182,46 +171,6 @@ func CreateRandomAccounts(numAccts int) []sdk.AccAddress {
 	}
 
 	return testAddrs
-}
-
-func TestMessageAuthzSerialization(t *testing.T, msg sdk.Msg) {
-	someDate := time.Date(1, 1, 1, 1, 1, 1, 1, time.UTC)
-	const (
-		mockGranter string = "sei1abc"
-		mockGrantee string = "sei1xyz"
-	)
-
-	var (
-		mockMsgGrant  authz.MsgGrant
-		mockMsgRevoke authz.MsgRevoke
-		mockMsgExec   authz.MsgExec
-	)
-
-	// Authz: Grant Msg
-	typeURL := sdk.MsgTypeURL(msg)
-	later := someDate.Add(time.Hour)
-	grant, err := authz.NewGrant(authz.NewGenericAuthorization(typeURL), later)
-	require.NoError(t, err)
-
-	msgGrant := authz.MsgGrant{Granter: mockGranter, Grantee: mockGrantee, Grant: grant}
-	msgGrantBytes := json.RawMessage(sdk.MustSortJSON(AuthzModuleCdc.MustMarshalJSON(&msgGrant)))
-	err = AuthzModuleCdc.UnmarshalJSON(msgGrantBytes, &mockMsgGrant)
-	require.NoError(t, err)
-
-	// Authz: Revoke Msg
-	msgRevoke := authz.MsgRevoke{Granter: mockGranter, Grantee: mockGrantee, MsgTypeUrl: typeURL}
-	msgRevokeByte := json.RawMessage(sdk.MustSortJSON(AuthzModuleCdc.MustMarshalJSON(&msgRevoke)))
-	err = AuthzModuleCdc.UnmarshalJSON(msgRevokeByte, &mockMsgRevoke)
-	require.NoError(t, err)
-
-	// Authz: Exec Msg
-	msgAny, err := cdctypes.NewAnyWithValue(msg)
-	require.NoError(t, err)
-	msgExec := authz.MsgExec{Grantee: mockGrantee, Msgs: []*cdctypes.Any{msgAny}}
-	execMsgByte := json.RawMessage(sdk.MustSortJSON(AuthzModuleCdc.MustMarshalJSON(&msgExec)))
-	err = AuthzModuleCdc.UnmarshalJSON(execMsgByte, &mockMsgExec)
-	require.NoError(t, err)
-	require.Equal(t, msgExec.Msgs[0].Value, mockMsgExec.Msgs[0].Value)
 }
 
 func GenerateTestAddrs() (string, string) {
