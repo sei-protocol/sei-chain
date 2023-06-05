@@ -10,6 +10,7 @@ import (
 	wasmtypes "github.com/CosmWasm/wasmd/x/wasm/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/utils/tracing"
+	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
 	keepertest "github.com/sei-protocol/sei-chain/testutil/keeper"
 	dexcache "github.com/sei-protocol/sei-chain/x/dex/cache"
 	"github.com/sei-protocol/sei-chain/x/dex/contract"
@@ -652,6 +653,11 @@ func TestEndBlockRollbackWithRentCharge(t *testing.T) {
 	require.Nil(t, err)
 	require.True(t, c.Suspended)               // bad contract is suspended not because of out-of-rent but because of execution error
 	require.Equal(t, uint64(0), c.RentBalance) // rent balance should be drained
+	require.Equal(t, int64(1), dexkeeper.BankKeeper.GetBalance(
+		ctx,
+		dexkeeper.AccountKeeper.GetModuleAddress(authtypes.FeeCollectorName),
+		"usei",
+	).Amount.Int64()) // bad contract rent should be sent to fee collector
 	creatorBalanceAfter := bankkeeper.GetBalance(ctx, testAccount, "usei")
 	require.Equal(t, creatorBalanceBefore, creatorBalanceAfter)
 }
