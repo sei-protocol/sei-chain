@@ -28,18 +28,19 @@ var ErrVersionDoesNotExist = errors.New("version does not exist")
 //
 // The inner ImmutableTree should not be used directly by callers.
 type MutableTree struct {
-	*ImmutableTree                                  // The current, working tree.
-	lastSaved                *ImmutableTree         // The most recently saved tree.
-	orphans                  map[string]int64       // Nodes removed by changes to working tree.
-	versions                 map[int64]bool         // The previous, saved versions of the tree.
-	allRootLoaded            bool                   // Whether all roots are loaded or not(by LazyLoadVersion)
-	unsavedFastNodeAdditions map[string]*FastNode   // FastNodes that have not yet been saved to disk
-	unsavedFastNodeRemovals  map[string]interface{} // FastNodes that have not yet been removed from disk
-	ndb                      *nodeDB
-	skipFastStorageUpgrade   bool // If true, the tree will work like no fast storage and always not upgrade fast storage
-	versionsToKeep           int64
-	orphandb                 *orphanDB
-	mtx                      *sync.Mutex
+	*ImmutableTree                                      // The current, working tree.
+	lastSaved                    *ImmutableTree         // The most recently saved tree.
+	orphans                      map[string]int64       // Nodes removed by changes to working tree.
+	versions                     map[int64]bool         // The previous, saved versions of the tree.
+	allRootLoaded                bool                   // Whether all roots are loaded or not(by LazyLoadVersion)
+	unsavedFastNodeAdditions     map[string]*FastNode   // FastNodes that have not yet been saved to disk
+	unsavedFastNodeRemovals      map[string]interface{} // FastNodes that have not yet been removed from disk
+	ndb                          *nodeDB
+	skipFastStorageUpgrade       bool // If true, the tree will work like no fast storage and always not upgrade fast storage
+	separateOrphanStorage        bool
+	separateOrphanVersionsToKeep int64
+	orphandb                     *orphanDB
+	mtx                          *sync.Mutex
 }
 
 // NewMutableTree returns a new tree with the specified cache size and datastore.
@@ -51,20 +52,29 @@ func NewMutableTree(db dbm.DB, cacheSize int, skipFastStorageUpgrade bool) (*Mut
 func NewMutableTreeWithOpts(db dbm.DB, cacheSize int, opts *Options, skipFastStorageUpgrade bool) (*MutableTree, error) {
 	ndb := newNodeDB(db, cacheSize, opts)
 	head := &ImmutableTree{ndb: ndb, skipFastStorageUpgrade: skipFastStorageUpgrade}
+	if opts == nil {
+		defaultOpts := DefaultOptions()
+		opts = &defaultOpts
+	}
+	var orphandb *orphanDB
+	if opts.SeparateOrphanStorage {
+		orphandb = NewOrphanDB(opts)
+	}
 
 	return &MutableTree{
-		ImmutableTree:            head,
-		lastSaved:                head.clone(),
-		orphans:                  map[string]int64{},
-		versions:                 map[int64]bool{},
-		allRootLoaded:            false,
-		unsavedFastNodeAdditions: make(map[string]*FastNode),
-		unsavedFastNodeRemovals:  make(map[string]interface{}),
-		ndb:                      ndb,
-		skipFastStorageUpgrade:   skipFastStorageUpgrade,
-		versionsToKeep:           opts.VersionsToKeep,
-		orphandb:                 NewOrphanDB(opts),
-		mtx:                      &sync.Mutex{},
+		ImmutableTree:                head,
+		lastSaved:                    head.clone(),
+		orphans:                      map[string]int64{},
+		versions:                     map[int64]bool{},
+		allRootLoaded:                false,
+		unsavedFastNodeAdditions:     make(map[string]*FastNode),
+		unsavedFastNodeRemovals:      make(map[string]interface{}),
+		ndb:                          ndb,
+		skipFastStorageUpgrade:       skipFastStorageUpgrade,
+		separateOrphanStorage:        opts.SeparateOrphanStorage,
+		separateOrphanVersionsToKeep: opts.SeparateOphanVersionsToKeep,
+		orphandb:                     orphandb,
+		mtx:                          &sync.Mutex{},
 	}, nil
 }
 
@@ -956,11 +966,17 @@ func (tree *MutableTree) saveFastNodeVersion() error {
 }
 
 func (tree *MutableTree) handleOrphans(version int64) error {
-	if tree.versionsToKeep == 0 {
+	if !tree.separateOrphanStorage {
+		// store orphan in the same levelDB as application data
 		return tree.ndb.SaveOrphans(version, tree.orphans)
 	}
 
-	if tree.versionsToKeep == 1 {
+	if tree.separateOrphanVersionsToKeep == 0 {
+		panic("must keep at least one version")
+	}
+
+	// optimization for the 1 version case so that we don't have to save and immediately delete the same version
+	if tree.separateOrphanVersionsToKeep == 1 {
 		for orphan := range tree.orphans {
 			if err := tree.ndb.deleteOrphanedData([]byte(orphan)); err != nil {
 				return err
@@ -972,13 +988,13 @@ func (tree *MutableTree) handleOrphans(version int64) error {
 	if err := tree.orphandb.SaveOrphans(version, tree.orphans); err != nil {
 		return err
 	}
-	oldOrphans := tree.orphandb.GetOrphans(version - tree.versionsToKeep + 1)
+	oldOrphans := tree.orphandb.GetOrphans(version - tree.separateOrphanVersionsToKeep + 1)
 	for orphan := range oldOrphans {
 		if err := tree.ndb.deleteOrphanedData([]byte(orphan)); err != nil {
 			return err
 		}
 	}
-	return tree.orphandb.DeleteOrphans(version - tree.versionsToKeep + 1)
+	return tree.orphandb.DeleteOrphans(version - tree.separateOrphanVersionsToKeep + 1)
 }
 
 func (tree *MutableTree) commitVersion(version int64, silentSaveRootError bool) (int64, error) {
@@ -1100,7 +1116,8 @@ func (tree *MutableTree) SetInitialVersion(version uint64) {
 func (tree *MutableTree) DeleteVersions(versions ...int64) error {
 	logger.Debug("DELETING VERSIONS: %v\n", versions)
 
-	if tree.versionsToKeep > 0 {
+	if tree.separateOrphanStorage {
+		// no need to delete versions if we are keeping orphans separately
 		return nil
 	}
 
