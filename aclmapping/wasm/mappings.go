@@ -39,18 +39,15 @@ func (wasmDepGen WasmDependencyGenerator) WasmExecuteContractGenerator(keeper ac
 	}
 	contractAddr, err := sdk.AccAddressFromBech32(executeContractMsg.Contract)
 	if err != nil {
-		println("address")
 		return []sdkacltypes.AccessOperation{}, err
 	}
 	// TODO: need to test how errors from here affect the disabling of wasm execute dynamic dependencies
 	msgInfo, err := acltypes.NewExecuteMessageInfo(executeContractMsg.Msg)
 	if err != nil {
-		println("error execute")
 		return []sdkacltypes.AccessOperation{}, err
 	}
 	wasmAccessOps, err := keeper.GetWasmDependencyAccessOps(ctx, contractAddr, executeContractMsg.Sender, msgInfo, make(aclkeeper.ContractReferenceLookupMap))
 	if err != nil {
-		println("error getting wasm dependency access ops")
 		return []sdkacltypes.AccessOperation{}, err
 	}
 	return wasmAccessOps, nil
