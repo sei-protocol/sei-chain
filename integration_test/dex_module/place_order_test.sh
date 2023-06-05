@@ -1,13 +1,8 @@
 #!/bin/bash
 
-# Prepare contracts
-mkdir -p ./loadtest/contracts/mars/artifacts
-aws s3 cp --region us-east-2 s3://sei-artifacts-us-east-2/contracts/mars/mars.wasm ./loadtest/contracts/mars/artifacts/mars.wasm
-
-# Deploy contracts
-sei_home=$(git rev-parse --show-toplevel | tr -d '"')
-docker exec -i sei-node0 loadtest/contracts/deploy_mars_contract.sh
-contract_addr=$(head -1 loadtest/contracts/contract_output.txt)
+# Deploy mars contract
+docker exec -i sei-node0 integration_test/wasm_module/deploy_contract.sh
+contract_addr=$(tail -1 integration_test/contracts/mars_output.txt)
 
 # Place orders
 echo "Place a new order"

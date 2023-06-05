@@ -21,7 +21,7 @@ override_genesis '.app_state["slashing"]["params"]["signed_blocks_window"]="1000
 override_genesis '.app_state["slashing"]["params"]["min_signed_per_window"]="0.050000000000000000"'
 override_genesis '.app_state["staking"]["params"]["max_validators"]="50"'
 override_genesis '.consensus_params["block"]["max_gas"]="5000000000"'
-override_genesis '.app_state["staking"]["params"]["unbonding_time"]="86400s"'
+override_genesis '.app_state["staking"]["params"]["unbonding_time"]="10s"'
 
 # We already added node0's genesis account in configure_init, remove it here since we're going to re-add it in the "add genesis accounts" step
 override_genesis '.app_state["auth"]["accounts"]=[]'
