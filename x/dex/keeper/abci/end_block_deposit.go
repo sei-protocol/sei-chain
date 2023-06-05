@@ -52,7 +52,7 @@ func (w KeeperWrapper) GetDepositSudoMsg(ctx sdk.Context, typedContractAddr type
 	if err != nil {
 		panic(err)
 	}
-	if err := w.BankKeeper.DeferredSendCoinsFromModuleToAccount(ctx, types.ModuleName, contractAddr, escrowed); err != nil {
+	if err := w.BankKeeper.SendCoinsFromModuleToAccount(ctx, types.ModuleName, contractAddr, escrowed); err != nil {
 		panic(err)
 	}
 	return types.SudoOrderPlacementMsg{
