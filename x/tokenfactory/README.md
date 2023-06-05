@@ -100,3 +100,72 @@ message MsgChangeAdmin {
 
 - Check that sender of the message is the admin of denom
 - Modify `AuthorityMetadata` state entry to change the admin of the denom
+
+## Expectations from the chain
+
+The chain's bech32 prefix for addresses can be at most 16 characters long.
+
+This comes from denoms having a 128 byte maximum length, enforced from the SDK,
+and us setting longest_subdenom to be 44 bytes.
+
+A token factory token's denom is: `factory/{creator address}/{subdenom}`
+
+Splitting up into sub-components, this has:
+
+- `len(factory) = 7`
+- `2 * len("/") = 2`
+- `len(longest_subdenom)`
+- `len(creator_address) = len(bech32(longest_addr_length, chain_addr_prefix))`.
+
+Longest addr length at the moment is `32 bytes`. Due to SDK error correction
+settings, this means `len(bech32(32, chain_addr_prefix)) = len(chain_addr_prefix) + 1 + 58`.
+Adding this all, we have a total length constraint of `128 = 7 + 2 + len(longest_subdenom) + len(longest_chain_addr_prefix) + 1 + 58`.
+Therefore `len(longest_subdenom) + len(longest_chain_addr_prefix) = 128 - (7 + 2 + 1 + 58) = 60`.
+
+Considerations for how we split these 60 bytes between maxes from
+longest_subdenom and longest_chain_addr_prefix:
+
+- Per [BIP-0173](https://github.com/bitcoin/bips/blob/master/bip-0173.mediawiki#bech32)
+  the technically longest HRP for a 32 byte address ('data field') is 31 bytes.
+  (Comes from encode(data) = 59 bytes, and max length = 90 bytes)
+- subdenom should be at least 32 bytes so hashes can go into it
+- longer subdenoms are very helpful for creating human readable denoms
+- chain addresses should prefer being smaller. The longest HRP in cosmos to date is 11 bytes. (`persistence`)
+
+For explicitness, its currently set to `len(longest_subdenom) = 44` and `len(longest_chain_addr_prefix) = 16`.
+
+Please note, if the SDK increases the maximum length of a denom from 128 bytes,
+these caps should increase.
+
+So please don't make code rely on these max lengths for parsing.
+
+# Examples
+To create a new token, use the create-denom command from the tokenfactory module. The following example uses the address sei166vhptur29s3gw5qr6dm30s06gej6pr4n6qc4l from mylocalwallet as the default admin for the new token.
+
+## Creating a token
+To create a new token we can use the create-denom command.
+
+```sh
+seid tx tokenfactory create-denom ufoo --from mylocalwallet
+```
+
+## Mint a new token
+Once a new token is created, it can be minted using the mint command in the tokenfactory module. Note that the complete tokenfactory address, in the format of factory/{creator address}/{subdenom}, must be used to mint the token.
+
+```sh
+seid tx tokenfactory mint 100000000000factory/sei166vhptur29s3gw5qr6dm30s06gej6pr4n6qc4l/ufoo --from mylocalwallet
+```
+
+## Checking Token metadata
+To view a token's metadata, use the denom-metadata command in the bank module. The following example queries the metadata for the token factory/sei166vhptur29s3gw5qr6dm30s06gej6pr4n6qc4l/ufoo:
+
+```sh
+seid query bank denom-metadata --denom factory/sei166vhptur29s3gw5qr6dm30s06gej6pr4n6qc4l/ufoo
+```
+
+## Check the tokens created by an account
+To see a list of tokens created by a specific account, use the denoms-from-creator command in the tokenfactory module. The following example shows tokens created by the account sei166vhptur29s3gw5qr6dm30s06gej6pr4n6qc4l:
+
+```sh
+seid query tokenfactory denoms-from-creator sei166vhptur29s3gw5qr6dm30s06gej6pr4n6qc4ls
+```
