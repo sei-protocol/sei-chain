@@ -83,6 +83,8 @@ func EndBlockerAtomic(ctx sdk.Context, keeper *keeper.Keeper, validContractsInfo
 	}
 
 	failedContractsToReasons := map[string]string{}
+	failedContractsPreRents := map[string]uint64{}
+	failedContractsPostRents := map[string]uint64{}
 	// persistent contract rent charges for failed contracts and discard everything else
 	env.failedContractAddressesToErrors.Range(func(failedContractAddress string, failedReason error) bool {
 		cachedContract, err := keeper.GetContract(cachedCtx, failedContractAddress)
@@ -96,6 +98,8 @@ func EndBlockerAtomic(ctx sdk.Context, keeper *keeper.Keeper, validContractsInfo
 			return true
 		}
 		contract.RentBalance = cachedContract.RentBalance
+		failedContractsPreRents[failedContractAddress] = preRunRents[failedContractAddress]
+		failedContractsPostRents[failedContractAddress] = contract.RentBalance
 		err = keeper.SetContract(ctx, &contract)
 		if err != nil {
 			ctx.Logger().Error(fmt.Sprintf("error %s when persisting contract %s's rent balance", err, failedContractAddress))
@@ -104,6 +108,7 @@ func EndBlockerAtomic(ctx sdk.Context, keeper *keeper.Keeper, validContractsInfo
 		failedContractsToReasons[failedContractAddress] = dexutils.GetTruncatedErrors(failedReason)
 		return true
 	})
+	TransferRentFromDexToCollector(ctx, keeper.BankKeeper, failedContractsPreRents, failedContractsPostRents)
 
 	// restore keeper in-memory state
 	newGoContext := context.WithValue(ctx.Context(), dexutils.DexMemStateContextKey, memStateCopy)

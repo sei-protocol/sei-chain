@@ -8,6 +8,32 @@ import (
 	"github.com/sei-protocol/sei-chain/x/tokenfactory/types"
 )
 
+func (suite *KeeperTestSuite) TestMultipleMintsPriorToDeferredSettlement() {
+	suite.CreateDefaultDenom()
+	// Make sure that the admin is set correctly
+	queryRes, err := suite.queryClient.DenomAuthorityMetadata(suite.Ctx.Context(), &types.QueryDenomAuthorityMetadataRequest{
+		Denom: suite.defaultDenom,
+	})
+	suite.App.BankKeeper.WriteDeferredOperations(suite.Ctx)
+	suite.Require().NoError(err)
+	suite.Require().Equal(suite.TestAccs[0].String(), queryRes.AuthorityMetadata.Admin)
+
+	// Test minting to admins own account
+	_, err = suite.msgServer.Mint(sdk.WrapSDKContext(suite.Ctx), types.NewMsgMint(suite.TestAccs[0].String(), sdk.NewInt64Coin(suite.defaultDenom, 50)))
+	suite.Require().NoError(err)
+
+	_, err = suite.msgServer.Mint(sdk.WrapSDKContext(suite.Ctx), types.NewMsgMint(suite.TestAccs[0].String(), sdk.NewInt64Coin(suite.defaultDenom, 5)))
+	suite.Require().NoError(err)
+
+	suite.App.BankKeeper.WriteDeferredOperations(suite.Ctx)
+
+	addr0Bal := suite.App.BankKeeper.GetBalance(suite.Ctx, suite.TestAccs[0], suite.defaultDenom).Amount.Int64()
+	suite.Require().Equal(int64(55), addr0Bal, addr0Bal)
+
+	tkModuleBal := suite.App.BankKeeper.GetBalance(suite.Ctx, suite.App.AccountKeeper.GetModuleAddress(types.ModuleName), suite.defaultDenom).Amount.Int64()
+	suite.Require().Equal(int64(0), tkModuleBal, tkModuleBal)
+}
+
 func (suite *KeeperTestSuite) TestAdminMsgs() {
 	addr0bal := int64(0)
 	addr1bal := int64(0)

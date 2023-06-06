@@ -27,8 +27,19 @@ Ref: https://keepachangelog.com/en/1.0.0/
 -->
 
 # Changelog
+## 3.0.3
+sei-chain: 
+* [#816] (https://github.com/sei-protocol/sei-chain/pull/816) Reenable tx concurrency for non oracle/priority txs
+
+sei-cosmos:
+* [#254] (https://github.com/sei-protocol/sei-cosmos/pull/254) Use sequential searching instead of binary search for coins
+
+sei-tendermint
+* [#143] (https://github.com/sei-protocol/sei-tendermint/pull/143) Fix cpu leak for simple pq but stopping timer
+* [#140] (https://github.com/sei-protocol/sei-tendermint/pull/140) Add raw logs to tx output
+
 ## 3.0.2
-sei-chain :
+sei-chain:
 * [#810] (https://github.com/sei-protocol/sei-chain/pull/810) Disable FOK orders
 * [#809] (https://github.com/sei-protocol/sei-chain/pull/809) Huckleberry patch
 * [#808] (https://github.com/sei-protocol/sei-chain/pull/808) Add global min fees as a param
