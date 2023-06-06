@@ -2,8 +2,10 @@ package keeper
 
 import (
 	"errors"
+	"time"
 
 	"github.com/cosmos/cosmos-sdk/store/prefix"
+	"github.com/cosmos/cosmos-sdk/telemetry"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	appparams "github.com/sei-protocol/sei-chain/app/params"
 	"github.com/sei-protocol/sei-chain/utils"
@@ -220,4 +222,17 @@ func (k Keeper) ClearDependenciesForContract(ctx sdk.Context, removedContract ty
 			}
 		}
 	}
+}
+
+func (k Keeper) GetAllProcessableContractInfo(ctx sdk.Context) []types.ContractInfoV2 {
+	// Do not process any contract that has zero rent balance, suspended, or not require matching
+	defer telemetry.MeasureSince(time.Now(), types.ModuleName, "get_all_contract_info")
+	allRegisteredContracts := k.GetAllContractInfo(ctx)
+	validContracts := utils.Filter(allRegisteredContracts, func(c types.ContractInfoV2) bool {
+		return c.NeedOrderMatching && !c.Suspended && c.RentBalance > k.GetMinProcessableRent(ctx)
+	})
+	telemetry.SetGauge(float32(len(allRegisteredContracts)), types.ModuleName, "num_of_registered_contracts")
+	telemetry.SetGauge(float32(len(validContracts)), types.ModuleName, "num_of_valid_contracts")
+	telemetry.SetGauge(float32(len(allRegisteredContracts)-len(validContracts)), types.ModuleName, "num_of_zero_balance_contracts")
+	return validContracts
 }
