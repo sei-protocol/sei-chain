@@ -101,9 +101,50 @@ message MsgChangeAdmin {
 - Check that sender of the message is the admin of denom
 - Modify `AuthorityMetadata` state entry to change the admin of the denom
 
-## Expectations from the chain
+## Tokenfactory Denom Restrictions
 
-The chain's bech32 prefix for addresses can be at most 16 characters long.
+Tokenfactory denoms are of form `factory/{creator address}/{subdenom}`.
+
+- The Max Subdenom length is 44 characters
+- The Max Creator length is 75 characters
+- All tokenfactory denoms will begin with `factory`
+
+Please reference the Appendix for more details on the derivation of these limits.
+
+# Examples
+To create a new token, use the create-denom command from the tokenfactory module. The following example uses the address sei166vhptur29s3gw5qr6dm30s06gej6pr4n6qc4l from mylocalwallet as the default admin for the new token.
+
+## Creating a token
+To create a new token we can use the create-denom command.
+
+```sh
+seid tx tokenfactory create-denom ufoo --from mylocalwallet
+```
+
+## Mint a new token
+Once a new token is created, it can be minted using the mint command in the tokenfactory module. Note that the complete tokenfactory address, in the format of factory/{creator address}/{subdenom}, must be used to mint the token.
+
+```sh
+seid tx tokenfactory mint 100000000000factory/sei166vhptur29s3gw5qr6dm30s06gej6pr4n6qc4l/ufoo --from mylocalwallet
+```
+
+## Checking Token metadata
+To view a token's metadata, use the denom-metadata command in the bank module. The following example queries the metadata for the token factory/sei166vhptur29s3gw5qr6dm30s06gej6pr4n6qc4l/ufoo:
+
+```sh
+seid query bank denom-metadata --denom factory/sei166vhptur29s3gw5qr6dm30s06gej6pr4n6qc4l/ufoo
+```
+
+## Check the tokens created by an account
+To see a list of tokens created by a specific account, use the denoms-from-creator command in the tokenfactory module. The following example shows tokens created by the account sei166vhptur29s3gw5qr6dm30s06gej6pr4n6qc4l:
+
+```sh
+seid query tokenfactory denoms-from-creator sei166vhptur29s3gw5qr6dm30s06gej6pr4n6qc4ls
+```
+
+## Appendix: Expectations from the Chain
+
+As mentioned aboveThe chain's bech32 prefix for addresses can be at most 16 characters long.
 
 This comes from denoms having a 128 byte maximum length, enforced from the SDK,
 and us setting longest_subdenom to be 44 bytes.
@@ -138,34 +179,3 @@ Please note, if the SDK increases the maximum length of a denom from 128 bytes,
 these caps should increase.
 
 So please don't make code rely on these max lengths for parsing.
-
-# Examples
-To create a new token, use the create-denom command from the tokenfactory module. The following example uses the address sei166vhptur29s3gw5qr6dm30s06gej6pr4n6qc4l from mylocalwallet as the default admin for the new token.
-
-## Creating a token
-To create a new token we can use the create-denom command.
-
-```sh
-seid tx tokenfactory create-denom ufoo --from mylocalwallet
-```
-
-## Mint a new token
-Once a new token is created, it can be minted using the mint command in the tokenfactory module. Note that the complete tokenfactory address, in the format of factory/{creator address}/{subdenom}, must be used to mint the token.
-
-```sh
-seid tx tokenfactory mint 100000000000factory/sei166vhptur29s3gw5qr6dm30s06gej6pr4n6qc4l/ufoo --from mylocalwallet
-```
-
-## Checking Token metadata
-To view a token's metadata, use the denom-metadata command in the bank module. The following example queries the metadata for the token factory/sei166vhptur29s3gw5qr6dm30s06gej6pr4n6qc4l/ufoo:
-
-```sh
-seid query bank denom-metadata --denom factory/sei166vhptur29s3gw5qr6dm30s06gej6pr4n6qc4l/ufoo
-```
-
-## Check the tokens created by an account
-To see a list of tokens created by a specific account, use the denoms-from-creator command in the tokenfactory module. The following example shows tokens created by the account sei166vhptur29s3gw5qr6dm30s06gej6pr4n6qc4l:
-
-```sh
-seid query tokenfactory denoms-from-creator sei166vhptur29s3gw5qr6dm30s06gej6pr4n6qc4ls
-```
