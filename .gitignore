@@ -38,3 +38,6 @@ loadtest_results.txt
 parallelization/**/artifacts/
 parallelization/**/target/
 parallelization/**/Cargo.lock
+
+# integration test resources
+integration_test/**/*.txt

@@ -7,27 +7,27 @@ seihome=$(git rev-parse --show-toplevel | tr -d '"')
 
 # Prepare admin accounts
 echo "Preparing admin accounts..."
-printf "12345678\n" | seid keys add admin1
-printf "12345678\n" | seid keys add admin2
-printf "12345678\n" | seid keys add admin3
-printf "12345678\n" | seid keys add admin4
-printf "12345678\n" | seid keys add op
-printf "12345678\n" | seid keys add staking_reward_dest
-printf "12345678\n" | seid keys add unlocked_dest
-key_admin1=$(printf "12345678\n" |seid keys show admin1 -a)
-key_admin2=$(printf "12345678\n" |seid keys show admin2 -a)
-key_admin3=$(printf "12345678\n" |seid keys show admin3 -a)
-key_admin4=$(printf "12345678\n" |seid keys show admin4 -a)
-key_op=$(printf "12345678\n" |seid keys show op -a)
-key_staking=$(printf "12345678\n" |seid keys show staking_reward_dest -a)
-key_unlock=$(printf "12345678\n" |seid keys show unlocked_dest -a)
-printf "12345678\n" | seid tx bank send admin "$key_admin1" 10000000usei -y --chain-id=$chainid --gas=5000000 --fees=1000000usei --broadcast-mode=block
-printf "12345678\n" | seid tx bank send admin "$key_admin2" 10000000usei -y --chain-id=$chainid --gas=5000000 --fees=1000000usei --broadcast-mode=block
-printf "12345678\n" | seid tx bank send admin "$key_admin3" 10000000usei -y --chain-id=$chainid --gas=5000000 --fees=1000000usei --broadcast-mode=block
-printf "12345678\n" | seid tx bank send admin "$key_admin4" 10000000usei -y --chain-id=$chainid --gas=5000000 --fees=1000000usei --broadcast-mode=block
-printf "12345678\n" | seid tx bank send admin "$key_op" 10000000usei -y --chain-id=$chainid --gas=5000000 --fees=1000000usei --broadcast-mode=block
-printf "12345678\n" | seid tx bank send admin "$key_staking" 10000000usei -y --chain-id=$chainid --gas=5000000 --fees=1000000usei --broadcast-mode=block
-printf "12345678\n" | seid tx bank send admin "$key_unlock" 10000000usei -y --chain-id=$chainid --gas=5000000 --fees=1000000usei --broadcast-mode=block
+printf "12345678\n" | $seidbin keys add admin1
+printf "12345678\n" | $seidbin keys add admin2
+printf "12345678\n" | $seidbin keys add admin3
+printf "12345678\n" | $seidbin keys add admin4
+printf "12345678\n" | $seidbin keys add op
+printf "12345678\n" | $seidbin keys add staking_reward_dest
+printf "12345678\n" | $seidbin keys add unlocked_dest
+key_admin1=$(printf "12345678\n" |$seidbin keys show admin1 -a)
+key_admin2=$(printf "12345678\n" |$seidbin keys show admin2 -a)
+key_admin3=$(printf "12345678\n" |$seidbin keys show admin3 -a)
+key_admin4=$(printf "12345678\n" |$seidbin keys show admin4 -a)
+key_op=$(printf "12345678\n" |$seidbin keys show op -a)
+key_staking=$(printf "12345678\n" |$seidbin keys show staking_reward_dest -a)
+key_unlock=$(printf "12345678\n" |$seidbin keys show unlocked_dest -a)
+printf "12345678\n" | $seidbin tx bank send admin "$key_admin1" 10000000usei -y --chain-id=$chainid --gas=5000000 --fees=1000000usei --broadcast-mode=block
+printf "12345678\n" | $seidbin tx bank send admin "$key_admin2" 10000000usei -y --chain-id=$chainid --gas=5000000 --fees=1000000usei --broadcast-mode=block
+printf "12345678\n" | $seidbin tx bank send admin "$key_admin3" 10000000usei -y --chain-id=$chainid --gas=5000000 --fees=1000000usei --broadcast-mode=block
+printf "12345678\n" | $seidbin tx bank send admin "$key_admin4" 10000000usei -y --chain-id=$chainid --gas=5000000 --fees=1000000usei --broadcast-mode=block
+printf "12345678\n" | $seidbin tx bank send admin "$key_op" 10000000usei -y --chain-id=$chainid --gas=5000000 --fees=1000000usei --broadcast-mode=block
+printf "12345678\n" | $seidbin tx bank send admin "$key_staking" 10000000usei -y --chain-id=$chainid --gas=5000000 --fees=1000000usei --broadcast-mode=block
+printf "12345678\n" | $seidbin tx bank send admin "$key_unlock" 10000000usei -y --chain-id=$chainid --gas=5000000 --fees=1000000usei --broadcast-mode=block
 
 
 # Deploy goblin contract
@@ -47,7 +47,11 @@ params='{"admins":["'$key_admin1'", "'$key_admin2'", "'$key_admin3'", "'$key_adm
 instantiate_result=$(printf "12345678\n" | $seidbin tx wasm instantiate "$contract_id" "$params" -y --no-admin --amount=1500000usei --from="$keyname" --chain-id="$chainid" --gas=5000000 --fees=1000000usei --broadcast-mode=block --label=$contract_name --output=json)
 contract_addr=$(echo "$instantiate_result" |jq -r '.logs[].events[].attributes[] | select(.key == "_contract_address").value')
 echo "Instantiated $contract_name contract address: $contract_addr"
-echo $contract_addr > $seihome/integration_test/contracts/"$contract_name"-contract-addr.txt
+echo "$contract_addr,$contract_id" > $seihome/integration_test/contracts/"$contract_name"-contract-addr.txt
+if [ -z "$contract_addr" ]
+then
+  exit 1
+fi
 
 # Deploy gringotts contract
 goblin_addr=$contract_addr
@@ -69,7 +73,10 @@ params='{"admins":["'$key_admin1'", "'$key_admin2'", "'$key_admin3'", "'$key_adm
 instantiate_result=$(printf "12345678\n" | $seidbin tx wasm instantiate "$contract_id" "$params" -y --admin="$goblin_addr" --amount=1500000usei --from="$keyname" --chain-id="$chainid" --gas=5000000 --fees=1000000usei --broadcast-mode=block --label=$contract_name --output=json)
 contract_addr=$(echo "$instantiate_result" |jq -r '.logs[].events[].attributes[] | select(.key == "_contract_address").value')
 echo "Instantiated $contract_name contract address: $contract_addr"
-echo $contract_addr > $seihome/integration_test/contracts/"$contract_name"-contract-addr.txt
-
+echo "$contract_addr,$contract_id" > $seihome/integration_test/contracts/"$contract_name"-contract-addr.txt
+if [ -z "$contract_addr" ]
+then
+  exit 1
+fi
 
 exit 0

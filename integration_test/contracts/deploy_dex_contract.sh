@@ -32,10 +32,10 @@ printf "12345678\n" | $seidbin tx dex register-contract "$contract_addr" "$contr
 echo '{"batch_contract_pair":[{"contract_addr":"'$contract_addr'","pairs":[{"price_denom":"SEI","asset_denom":"ATOM","price_tick_size":"0.0000001", "quantity_tick_size":"0.0000001"}]}]}' > "$contract_name"-pair.json
 contract_pair=$(printf "12345678\n" | $seidbin tx dex register-pairs "$contract_name"-pair.json -y --from=$keyname --chain-id=$chainid --fees=10000000usei --gas=500000 --broadcast-mode=block --output=json)
 
-sleep 30
+sleep 15s
 
 echo "Deployed contracts:"
 echo "$contract_addr"
-echo "$contract_addr" > $seihome/integration_test/contracts/contract_output.txt
+echo "$contract_addr" > $seihome/integration_test/contracts/"$contract_name"-addr.txt
 
 exit 0

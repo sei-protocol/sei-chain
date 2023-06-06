@@ -3,7 +3,7 @@ version: '3.3'
 services:
   node0:
     platform: linux/amd64
-    container_name: sei-node0
+    container_name: sei-node-0
     image: "sei-chain/localnode"
     ports:
       - "26656-26658:26656-26658"
@@ -24,7 +24,7 @@ services:
 
   node1:
     platform: linux/amd64
-    container_name: sei-node1
+    container_name: sei-node-1
     image: "sei-chain/localnode"
     ports:
       - "26659-26661:26656-26658"
@@ -45,7 +45,7 @@ services:
 
   node2:
     platform: linux/amd64
-    container_name: sei-node2
+    container_name: sei-node-2
     image: "sei-chain/localnode"
     environment:
       - ID=2
@@ -66,7 +66,7 @@ services:
 
   node3:
     platform: linux/amd64
-    container_name: sei-node3
+    container_name: sei-node-3
     image: "sei-chain/localnode"
     environment:
       - ID=3
