@@ -56,6 +56,11 @@ func TestDecomposeDenoms(t *testing.T) {
 			denom: "factory/sei1y3pxq5dp900czh0mkudhjdqjq5m8cpmmps8yjwasdfasdfasdfasdfasdfasdfadfasdfasdfasdfasdfasdfas/bitcoin",
 			valid: false,
 		},
+		{
+			desc:  "empty subdenom",
+			denom: "factory/sei1y3pxq5dp900czh0mkudhjdqjq5m8cpmmps8yjw/",
+			valid: true,
+		},
 	} {
 		t.Run(tc.desc, func(t *testing.T) {
 			_, _, err := types.DeconstructDenom(tc.denom)
@@ -69,7 +74,6 @@ func TestDecomposeDenoms(t *testing.T) {
 }
 
 func TestGetTokenDenom(t *testing.T) {
-	// appparams.SetAddressPrefixes()
 	for _, tc := range []struct {
 		desc     string
 		creator  string
@@ -117,6 +121,24 @@ func TestGetTokenDenom(t *testing.T) {
 			creator:  "sei1y3pxq5dp900czh0mkudhjdqjq5m8cpmmps8yjwhjkljkljkljkljkljkljkljkljkljkljk",
 			subdenom: "bitcoin",
 			valid:    true,
+		},
+		{
+			desc:     "empty subdenom",
+			creator:  "sei1y3pxq5dp900czh0mkudhjdqjq5m8cpmmps8yjw",
+			subdenom: "",
+			valid:    true,
+		},
+		{
+			desc:     "non standard UTF-8",
+			creator:  "sei1y3pxq5dp900czh0mkudhjdqjq5m8cpmmps8yjw",
+			subdenom: "\u2603",
+			valid:    false,
+		},
+		{
+			desc:     "non standard ASCII",
+			creator:  "sei1y3pxq5dp900czh0mkudhjdqjq5m8cpmmps8yjw",
+			subdenom: "\n\t",
+			valid:    false,
 		},
 	} {
 		t.Run(tc.desc, func(t *testing.T) {

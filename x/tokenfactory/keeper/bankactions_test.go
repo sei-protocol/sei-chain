@@ -34,6 +34,73 @@ func (suite *KeeperTestSuite) TestMultipleMintsPriorToDeferredSettlement() {
 	suite.Require().Equal(int64(0), tkModuleBal, tkModuleBal)
 }
 
+func (suite *KeeperTestSuite) TestMultipleInterleavedMintsBurns() {
+	suite.CreateDefaultDenom()
+	// Make sure that the admin is set correctly
+	queryRes, err := suite.queryClient.DenomAuthorityMetadata(suite.Ctx.Context(), &types.QueryDenomAuthorityMetadataRequest{
+		Denom: suite.defaultDenom,
+	})
+	suite.App.BankKeeper.WriteDeferredOperations(suite.Ctx)
+	suite.Require().NoError(err)
+	suite.Require().Equal(suite.TestAccs[0].String(), queryRes.AuthorityMetadata.Admin)
+
+	// Test minting to admins own account
+	_, err = suite.msgServer.Mint(sdk.WrapSDKContext(suite.Ctx), types.NewMsgMint(suite.TestAccs[0].String(), sdk.NewInt64Coin(suite.defaultDenom, 50)))
+	suite.Require().NoError(err)
+
+	suite.App.BankKeeper.WriteDeferredOperations(suite.Ctx)
+
+	addr0Bal := suite.App.BankKeeper.GetBalance(suite.Ctx, suite.TestAccs[0], suite.defaultDenom).Amount.Int64()
+	suite.Require().Equal(int64(50), addr0Bal, addr0Bal)
+
+	tkModuleBal := suite.App.BankKeeper.GetBalance(suite.Ctx, suite.App.AccountKeeper.GetModuleAddress(types.ModuleName), suite.defaultDenom).Amount.Int64()
+	suite.Require().Equal(int64(0), tkModuleBal, tkModuleBal)
+
+	// Test two burns back to back
+	_, err = suite.msgServer.Burn(sdk.WrapSDKContext(suite.Ctx), types.NewMsgBurn(suite.TestAccs[0].String(), sdk.NewInt64Coin(suite.defaultDenom, 10)))
+	suite.Require().NoError(err)
+
+	_, err = suite.msgServer.Burn(sdk.WrapSDKContext(suite.Ctx), types.NewMsgBurn(suite.TestAccs[0].String(), sdk.NewInt64Coin(suite.defaultDenom, 15)))
+	suite.Require().NoError(err)
+
+	suite.App.BankKeeper.WriteDeferredOperations(suite.Ctx)
+
+	// Try burning more than what's left
+	_, err = suite.msgServer.Burn(sdk.WrapSDKContext(suite.Ctx), types.NewMsgBurn(suite.TestAccs[0].String(), sdk.NewInt64Coin(suite.defaultDenom, 100)))
+	suite.Require().Error(err)
+
+	// Check balances after burns
+	addr0Bal = suite.App.BankKeeper.GetBalance(suite.Ctx, suite.TestAccs[0], suite.defaultDenom).Amount.Int64()
+	suite.Require().Equal(int64(25), addr0Bal, addr0Bal)
+
+	tkModuleBal = suite.App.BankKeeper.GetBalance(suite.Ctx, suite.App.AccountKeeper.GetModuleAddress(types.ModuleName), suite.defaultDenom).Amount.Int64()
+	suite.Require().Equal(int64(0), tkModuleBal, tkModuleBal)
+
+	// Mint Incorrect Denom
+	_, err = suite.msgServer.Mint(sdk.WrapSDKContext(suite.Ctx), types.NewMsgMint(suite.TestAccs[0].String(), sdk.NewInt64Coin("incorrectDenom", 60)))
+	suite.Require().Error(err)
+
+	// Mint from non-admin account
+	_, err = suite.msgServer.Mint(sdk.WrapSDKContext(suite.Ctx), types.NewMsgMint(suite.TestAccs[1].String(), sdk.NewInt64Coin(suite.defaultDenom, 60)))
+	suite.Require().Error(err)
+
+	// Final valid mint and burn
+	_, err = suite.msgServer.Mint(sdk.WrapSDKContext(suite.Ctx), types.NewMsgMint(suite.TestAccs[0].String(), sdk.NewInt64Coin(suite.defaultDenom, 10)))
+	suite.Require().NoError(err)
+
+	_, err = suite.msgServer.Burn(sdk.WrapSDKContext(suite.Ctx), types.NewMsgBurn(suite.TestAccs[0].String(), sdk.NewInt64Coin(suite.defaultDenom, 5)))
+	suite.Require().NoError(err)
+
+	suite.App.BankKeeper.WriteDeferredOperations(suite.Ctx)
+
+	// Check final balances
+	addr0Bal = suite.App.BankKeeper.GetBalance(suite.Ctx, suite.TestAccs[0], suite.defaultDenom).Amount.Int64()
+	suite.Require().Equal(int64(30), addr0Bal, addr0Bal)
+
+	tkModuleBal = suite.App.BankKeeper.GetBalance(suite.Ctx, suite.App.AccountKeeper.GetModuleAddress(types.ModuleName), suite.defaultDenom).Amount.Int64()
+	suite.Require().Equal(int64(0), tkModuleBal, tkModuleBal)
+}
+
 // TestMintDenom ensures the following properties of the MintMessage:
 // * No one can mint tokens for a denom that doesn't exist
 // * Only the admin of a denom can mint tokens for it
