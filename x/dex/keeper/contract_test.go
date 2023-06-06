@@ -316,3 +316,38 @@ func TestGetContractWithoutGasCharge(t *testing.T) {
 	require.Equal(t, uint64(0), ctx.GasMeter().GasConsumed())
 	require.Equal(t, uint64(0), ctx.GasMeter().Limit())
 }
+
+func TestGetAllProcessableContractInfo(t *testing.T) {
+	keeper, ctx := keepertest.DexKeeper(t)
+	require.Greater(t, keeper.GetMinProcessableRent(ctx), uint64(0))
+
+	goodContract := types.ContractInfoV2{
+		ContractAddr:      "sei1avny5w9rcj7lmqmse8kukg2edvq4adqk8vlf58",
+		NeedOrderMatching: true,
+		RentBalance:       keeper.GetMinProcessableRent(ctx) + 1,
+	}
+	noMatchingContract := types.ContractInfoV2{
+		ContractAddr:      "sei1fww2a30qc4sh25crhugcclaq2supxkpxeyz9lr",
+		NeedOrderMatching: false,
+		RentBalance:       keeper.GetMinProcessableRent(ctx) + 1,
+	}
+	suspendedContract := types.ContractInfoV2{
+		ContractAddr:      "sei1hh95z3a5vk560khjnnkd3en8r0hu063mw64jzd",
+		NeedOrderMatching: true,
+		RentBalance:       keeper.GetMinProcessableRent(ctx) + 1,
+		Suspended:         true,
+	}
+	outOfRentContract := types.ContractInfoV2{
+		ContractAddr:      "sei1v2ye9tnmzwx5983emm00j0c7tyxqu855ktxw5l",
+		NeedOrderMatching: true,
+		RentBalance:       keeper.GetMinProcessableRent(ctx) - 1,
+	}
+	require.NoError(t, keeper.SetContract(ctx, &goodContract))
+	require.NoError(t, keeper.SetContract(ctx, &noMatchingContract))
+	require.NoError(t, keeper.SetContract(ctx, &suspendedContract))
+	require.NoError(t, keeper.SetContract(ctx, &outOfRentContract))
+
+	processableContracts := keeper.GetAllProcessableContractInfo(ctx)
+	require.Equal(t, 1, len(processableContracts))
+	require.Equal(t, "sei1avny5w9rcj7lmqmse8kukg2edvq4adqk8vlf58", processableContracts[0].ContractAddr)
+}
