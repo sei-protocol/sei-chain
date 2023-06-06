@@ -51,5 +51,5 @@ jobs:
           docker exec -i sei-node-0 integration_test/wasm_module/timelocked_token_test_1.sh
           docker exec -i sei-node-0 integration_test/contracts/deploy_timelocked_token_contract.sh
           docker exec -i sei-node-0 integration_test/wasm_module/timelocked_token_test_2.sh
-          docker exec -i sei-node-0 integration_test/contracts/deploy_timelocked_token_contract.sh
+          docker exec -i sei-node-0 integration_test/contracts/deploy_timelocked_token_contract.sh migration
           docker exec -i sei-node-0 integration_test/wasm_module/timelocked_token_test_3.sh

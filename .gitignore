@@ -41,3 +41,4 @@ parallelization/**/Cargo.lock
 
 # integration test resources
 integration_test/**/*.txt
+integration_test/**/*.json

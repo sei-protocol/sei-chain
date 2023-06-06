@@ -4,6 +4,7 @@ seidbin=$(which ~/go/bin/seid | tr -d '"')
 keyname=$(printf "12345678\n" | $seidbin keys list --output json | jq ".[0].name" | tr -d '"')
 chainid=$($seidbin status | jq ".NodeInfo.network" | tr -d '"')
 seihome=$(git rev-parse --show-toplevel | tr -d '"')
+migration=$1
 
 # Prepare admin accounts
 echo "Preparing admin accounts..."
@@ -50,12 +51,18 @@ echo "Instantiated $contract_name contract address: $contract_addr"
 echo "$contract_addr,$contract_id" > $seihome/integration_test/contracts/"$contract_name"-contract-addr.txt
 if [ -z "$contract_addr" ]
 then
+  echo "Failed to deploy contract $contract_name"
   exit 1
 fi
 
 # Deploy gringotts contract
 goblin_addr=$contract_addr
-contract_name=gringotts
+if [ -z "$migration" ]
+then
+  contract_name=gringotts
+else
+  contract_name=gringotts_migrate
+fi
 cd $seihome || exit
 echo "Deploying $contract_name contract..."
 
@@ -76,6 +83,7 @@ echo "Instantiated $contract_name contract address: $contract_addr"
 echo "$contract_addr,$contract_id" > $seihome/integration_test/contracts/"$contract_name"-contract-addr.txt
 if [ -z "$contract_addr" ]
 then
+  echo "Failed to deploy contract $contract_name"
   exit 1
 fi
 

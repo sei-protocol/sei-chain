@@ -7,8 +7,8 @@ GRINGOTTS_ADDR=$(tail -1 integration_test/contracts/gringotts-contract-addr.txt 
 
 # Test for migration
 GOBLIN_ADDR=$(tail -1 integration_test/contracts/goblin-contract-addr.txt |cut -d "," -f 1)
-GRINGOTTS_ADDR=$(tail -1 integration_test/contracts/gringotts-contract-addr.txt |cut -d "," -f 1)
-NEW_CODE_ID=$(tail -1 integration_test/contracts/gringotts-contract-addr.txt |cut -d "," -f 2)
+GRINGOTTS_ADDR=$(tail -1 integration_test/contracts/gringotts_migrate-contract-addr.txt |cut -d "," -f 1)
+NEW_CODE_ID=$(tail -1 integration_test/contracts/gringotts_migrate-contract-addr.txt |cut -d "," -f 2)
 RESULT=$(printf "12345678\n" | $seidbin tx wasm execute $GOBLIN_ADDR \
 	'{"propose_migrate":{"contract_addr":"'$GRINGOTTS_ADDR'","new_code_id":'$NEW_CODE_ID',"msg":"e30="}}' \
 	-y --from=admin1 \
