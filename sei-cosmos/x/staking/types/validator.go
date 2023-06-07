@@ -267,18 +267,6 @@ func (v Validator) ABCIValidatorUpdate(r sdk.Int) abci.ValidatorUpdate {
 	}
 }
 
-func (v Validator) LegacyABCIValidatorUpdate(r sdk.Int) abci.ValidatorUpdate {
-	tmProtoPk, err := v.TmConsPublicKey()
-	if err != nil {
-		panic(err)
-	}
-
-	return abci.ValidatorUpdate{
-		PubKey: tmProtoPk,
-		Power:  v.ConsensusPower(r),
-	}
-}
-
 // ABCIValidatorUpdateZero returns an abci.ValidatorUpdate from a staking validator type
 // with zero power used for validator updates.
 func (v Validator) ABCIValidatorUpdateZero() abci.ValidatorUpdate {
