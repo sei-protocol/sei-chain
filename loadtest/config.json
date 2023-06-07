@@ -44,7 +44,7 @@
     },
     "constant": true,
     "loadtest_interval": 600,
-    "message_type": "bank,dex,tokenfactory,staking,failure_dex_malformed,failure_dex_invalid,collect_rewards,distribute_rewards",
+    "message_type": "bank,dex,tokenfactory,staking,failure_dex_malformed,failure_dex_invalid,collect_rewards,distribute_rewards,wasm_instantiate",
     "run_oracle": false,
     "metrics_port": 9695,
     "wasm_msg_types": {
@@ -54,6 +54,10 @@
       "vortex": {
         "contract_address": "sei12k3aacdygvjuran5hz60067pgu2uuuscz3styw2zk3q4aedj0v2sjq3tsj",
         "num_orders_per_tx": 1
+      },
+      "instantiate": {
+        "code_id": 1,
+        "payload": "{}"
       }
     },
     "contract_distribution": [

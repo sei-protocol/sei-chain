@@ -311,8 +311,16 @@ func (suite *KeeperTestSuite) TestMsgDelegateGenerator() {
 		stakingDelegate,
 	)
 	require.NoError(suite.T(), err)
+
 	err = acltypes.ValidateAccessOps(accessOps)
 	require.NoError(suite.T(), err)
+
+	_, err = stakingacl.MsgDelegateDependencyGenerator(
+		suite.App.AccessControlKeeper,
+		suite.Ctx,
+		suite.redelegateMsg,
+	)
+	require.Error(suite.T(), err)
 }
 
 func (suite *KeeperTestSuite) TestMsgUndelegateGenerator() {
@@ -325,6 +333,13 @@ func (suite *KeeperTestSuite) TestMsgUndelegateGenerator() {
 	require.NoError(suite.T(), err)
 	err = acltypes.ValidateAccessOps(accessOps)
 	require.NoError(suite.T(), err)
+
+	_, err = stakingacl.MsgUndelegateDependencyGenerator(
+		suite.App.AccessControlKeeper,
+		suite.Ctx,
+		suite.redelegateMsg,
+	)
+	require.Error(suite.T(), err)
 }
 
 func (suite *KeeperTestSuite) TestMsgBeginRedelegateGenerator() {
@@ -337,4 +352,11 @@ func (suite *KeeperTestSuite) TestMsgBeginRedelegateGenerator() {
 	require.NoError(suite.T(), err)
 	err = acltypes.ValidateAccessOps(accessOps)
 	require.NoError(suite.T(), err)
+
+	_, err = stakingacl.MsgBeginRedelegateDependencyGenerator(
+		suite.App.AccessControlKeeper,
+		suite.Ctx,
+		suite.undelegateMsg,
+	)
+	require.Error(suite.T(), err)
 }
