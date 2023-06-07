@@ -26,6 +26,7 @@ const (
 	Market               string = "market"
 	WasmMintNft          string = "wasm_mint_nft"
 	Vortex               string = "vortex"
+	WasmInstantiate      string = "wasm_instantiate"
 )
 
 type Config struct {
@@ -106,8 +107,9 @@ type MsgTypeDistribution struct {
 // For a specific wasm message type.
 // TODO: Abstract interface for any wasm type + execute msg
 type WasmMessageTypes struct {
-	MintNftType WasmMintNftType `json:"wasm_mint_nft"`
-	Vortex      VortexContract  `json:"vortex"`
+	MintNftType WasmMintNftType     `json:"wasm_mint_nft"`
+	Vortex      VortexContract      `json:"vortex"`
+	Instantiate WasmInstantiateType `json:"instantiate"`
 }
 
 type WasmMintNftType struct {
@@ -163,4 +165,9 @@ type ContractDistribution struct {
 type VortexContract struct {
 	ContractAddr   string `json:"contract_address"`
 	NumOrdersPerTx int64  `json:"num_orders_per_tx"`
+}
+
+type WasmInstantiateType struct {
+	CodeID  uint64 `json:"code_id"`
+	Payload string `json:"payload"`
 }
