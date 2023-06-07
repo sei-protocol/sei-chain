@@ -38,3 +38,7 @@ loadtest_results.txt
 parallelization/**/artifacts/
 parallelization/**/target/
 parallelization/**/Cargo.lock
+
+# Coverage Files
+coverage.html
+coverage.out
