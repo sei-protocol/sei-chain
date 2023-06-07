@@ -72,6 +72,11 @@ func TokenFactoryMintDependencyGenerator(keeper aclkeeper.Keeper, ctx sdk.Contex
 			ResourceType:       sdkacltypes.ResourceType_KV_BANK_BALANCES,
 			IdentifierTemplate: hex.EncodeToString(banktypes.CreateAccountBalancesPrefix(moduleAdr)),
 		},
+		{
+			AccessType:         sdkacltypes.AccessType_WRITE,
+			ResourceType:       sdkacltypes.ResourceType_KV_BANK_BALANCES,
+			IdentifierTemplate: hex.EncodeToString(banktypes.CreateAccountBalancesPrefix(moduleAdr)),
+		},
 
 		// Deposit into Sender's Bank Balance
 		{
@@ -107,9 +112,6 @@ func TokenFactoryMintDependencyGenerator(keeper aclkeeper.Keeper, ctx sdk.Contex
 			ResourceType:       sdkacltypes.ResourceType_KV_AUTH_ADDRESS_STORE,
 			IdentifierTemplate: hex.EncodeToString(authtypes.CreateAddressStoreKeyFromBech32(mintMsg.GetSender())),
 		},
-
-		// Coins removed from Module account (Deferred)
-
 		// Last Operation should always be a commit
 		*acltypes.CommitAccessOp(),
 	}, nil
@@ -157,7 +159,6 @@ func TokenFactoryBurnDependencyGenerator(keeper aclkeeper.Keeper, ctx sdk.Contex
 			IdentifierTemplate: hex.EncodeToString(authtypes.AddressStoreKey(moduleAdr)),
 		},
 
-		// Sends from Sender to Module account (deferred deposit)
 		// Checks balance for receiver
 		{
 			AccessType:         sdkacltypes.AccessType_READ,
@@ -192,8 +193,6 @@ func TokenFactoryBurnDependencyGenerator(keeper aclkeeper.Keeper, ctx sdk.Contex
 			ResourceType:       sdkacltypes.ResourceType_KV_AUTH_ADDRESS_STORE,
 			IdentifierTemplate: hex.EncodeToString(authtypes.CreateAddressStoreKeyFromBech32(burnMsg.GetSender())),
 		},
-
-		// Coins removed from Module account (Deferred)
 
 		// Last Operation should always be a commit
 		*acltypes.CommitAccessOp(),
