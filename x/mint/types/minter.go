@@ -116,7 +116,7 @@ func (m *Minter) getReleaseAmountToday(currentTime time.Time) uint64 {
 	}
 
 	// if it's already past the end date then release the remaining amount likely caused by outage
-	numberOfDaysLeft := m.getNumberOfDaysLeft(currentTime)
+	numberOfDaysLeft := m.GetNumberOfDaysLeft(currentTime)
 	if currentTime.After(m.GetEndDateTime()) || numberOfDaysLeft == 0 {
 		return m.GetRemainingMintAmount()
 	}
@@ -124,9 +124,9 @@ func (m *Minter) getReleaseAmountToday(currentTime time.Time) uint64 {
 	return m.GetRemainingMintAmount() / numberOfDaysLeft
 }
 
-func (m *Minter) getNumberOfDaysLeft(currentTime time.Time) uint64 {
+func (m *Minter) GetNumberOfDaysLeft(currentTime time.Time) uint64 {
 	// If the last mint date is after the start date then use the last mint date as there's an ongoing release
-	daysBetween := daysBetween(currentTime, m.GetEndDateTime())
+	daysBetween := DaysBetween(currentTime, m.GetEndDateTime())
 	return daysBetween
 }
 
@@ -134,7 +134,7 @@ func (m *Minter) OngoingRelease() bool {
 	return m.GetRemainingMintAmount() != 0
 }
 
-func daysBetween(a, b time.Time) uint64 {
+func DaysBetween(a, b time.Time) uint64 {
 	// Convert both times to UTC before comparing
 	aYear, aMonth, aDay := a.UTC().Date()
 	a = time.Date(aYear, aMonth, aDay, 0, 0, 0, 0, time.UTC)

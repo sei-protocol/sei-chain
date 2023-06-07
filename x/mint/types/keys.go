@@ -18,9 +18,8 @@ const (
 	QuerierRoute = StoreKey
 
 	// Query endpoints supported by the minting querier
-	QueryParameters       = "parameters"
-	QueryInflation        = "inflation"
-	QueryAnnualProvisions = "annual_provisions"
+	QueryParameters = "parameters"
+	QueryMinter     = "minter"
 
 	// Format used for scheduling token releases
 	/*#nosec G101 Not a hard coded credential*/
