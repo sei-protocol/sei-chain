@@ -356,6 +356,7 @@ func TestDefaultInitialMinter(t *testing.T) {
 	require.Equal(t, uint64(0), m.TotalMintAmount)
 	require.Equal(t, time.Time{}.Format(types.TokenReleaseDateFormat), m.StartDate)
 	require.Equal(t, time.Time{}.Format(types.TokenReleaseDateFormat), m.EndDate)
+	require.False(t, m.OngoingRelease())
 }
 
 func TestValidateMinterBase(t *testing.T) {
@@ -375,6 +376,7 @@ func TestValidateMinterBase(t *testing.T) {
 		1000,
 	)
 	err = types.ValidateMinter(m)
+	require.True(t, m.OngoingRelease())
 	require.Nil(t, err)
 }
 
