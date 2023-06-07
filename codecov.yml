@@ -3,4 +3,5 @@ coverage:
     project:
       default:
         target: 80%
-        threshold: 3%
+ignore:
+  - "**/*_pb.go"         # Auto-generated files
