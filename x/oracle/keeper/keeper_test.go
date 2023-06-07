@@ -240,6 +240,7 @@ func TestVotePenaltyCounter(t *testing.T) {
 	require.Equal(t, uint64(1), counter.SuccessCount)
 	require.Equal(t, uint64(2), input.OracleKeeper.GetMissCount(input.Ctx, ValAddrs[0]))
 	require.Equal(t, uint64(3), input.OracleKeeper.GetAbstainCount(input.Ctx, ValAddrs[0]))
+	require.Equal(t, uint64(1), input.OracleKeeper.GetSuccessCount(input.Ctx, ValAddrs[0]))
 }
 
 func TestIterateMissCounters(t *testing.T) {
