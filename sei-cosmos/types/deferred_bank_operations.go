@@ -17,6 +17,52 @@ func NewDeferredBankOperationMap() *DeferredBankOperationMapping {
 	}
 }
 
+// Get returns the current deferred balances for the passed in module account as well as a `found` bool.
+// This is threadsafe since it acquires a lock on the mutex.
+func (m *DeferredBankOperationMapping) Get(moduleAccount string) (Coins, bool) {
+	m.mappingLock.Lock()
+	defer m.mappingLock.Unlock()
+
+	deferredAmount, ok := m.deferredOperations[moduleAccount]
+	return deferredAmount, ok
+}
+
+// Get returns the current deferred balances for the passed in module account as well as a `found` bool.
+// This is threadsafe since it acquires a lock on the mutex.
+func (m *DeferredBankOperationMapping) Set(moduleAccount string, amount Coins) {
+	m.mappingLock.Lock()
+	defer m.mappingLock.Unlock()
+
+	m.deferredOperations[moduleAccount] = amount
+}
+
+// SaturatingSub will subtract the given amount from the module account as long as the resulting balance is positive or zero.
+// If there would be a remainder (eg. negative balance after subtraction), then it would subtract the full balance in the map
+// and then return the remainder that was unable to be subtracted.
+func (m *DeferredBankOperationMapping) SaturatingSub(moduleAccount string, amount Coins) Coins {
+	m.mappingLock.Lock()
+	defer m.mappingLock.Unlock()
+
+	if deferredAmount, ok := m.deferredOperations[moduleAccount]; ok {
+		newAmount, isNegative := deferredAmount.SafeSub(amount)
+		if !isNegative {
+			// this means that the subtraction FULLY succeeded, no remainders
+			m.deferredOperations[moduleAccount] = newAmount
+			// return empty remainder
+			return Coins{}
+		} else {
+			// else there were some negative, we need to partition the results, and return the negative balances as positive instead as the remainder
+			pos, neg := newAmount.PartitionSigned()
+			// assign positives to map (anything that wasnt touched or had sufficient balance to process the subtraction fully)
+			m.deferredOperations[moduleAccount] = pos
+			// convert the negatives to positives to represent the remainder
+			return neg.negative()
+		}
+	}
+	// no entry, so we return the full amount as the remainder
+	return amount
+}
+
 // If there's already a pending opposite operation then subtract it from that amount first
 // returns true if amount was subtracted
 func (m *DeferredBankOperationMapping) SafeSub(moduleAccount string, amount Coins) bool {
@@ -55,7 +101,7 @@ func (m *DeferredBankOperationMapping) GetSortedKeys() []string {
 	return keys
 }
 
-func (m *DeferredBankOperationMapping) RangeOnMapping(apply func(recipient string, amount Coins)) {
+func (m *DeferredBankOperationMapping) RangeAndRemove(apply func(recipient string, amount Coins)) {
 	m.mappingLock.Lock()
 	defer m.mappingLock.Unlock()
 

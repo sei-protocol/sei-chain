@@ -390,6 +390,19 @@ func (coins Coins) SafeSub(coinsB Coins) (Coins, bool) {
 	return diff, diff.IsAnyNegative()
 }
 
+// PartitionSigned separates the coins between those with positive values and those with negative values,
+// and returns both positive and negative coins. This also discards any coins with zero values (not returned in either group).
+func (coins Coins) PartitionSigned() (positives Coins, negatives Coins) {
+	for _, coin := range coins {
+		if coin.Amount.IsPositive() {
+			positives = append(positives, coin)
+		} else if coin.Amount.IsNegative() {
+			negatives = append(negatives, coin)
+		}
+	}
+	return positives, negatives
+}
+
 // Max takes two valid Coins inputs and returns a valid Coins result
 // where for every denom D, AmountOf(D) of the result is the maximum
 // of AmountOf(D) of the inputs.  Note that the result might be not

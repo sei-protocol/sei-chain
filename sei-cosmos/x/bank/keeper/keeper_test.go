@@ -250,58 +250,6 @@ func (suite *IntegrationTestSuite) TestSupply_MintCoins() {
 	suite.Require().Panics(func() { keeper.MintCoins(ctx, authtypes.Burner, initCoins) }) // nolint:errcheck
 }
 
-func (suite *IntegrationTestSuite) TestSupply_DeferredMintCoins() {
-	ctx := suite.ctx
-
-	// add module accounts to supply keeper
-	authKeeper, keeper := suite.initKeepersWithmAccPerms(make(map[string]bool))
-
-	authKeeper.SetModuleAccount(ctx, burnerAcc)
-	authKeeper.SetModuleAccount(ctx, minterAcc)
-	authKeeper.SetModuleAccount(ctx, multiPermAcc)
-	authKeeper.SetModuleAccount(ctx, randomPermAcc)
-
-	initialSupply, _, err := keeper.GetPaginatedTotalSupply(ctx, &query.PageRequest{})
-	suite.Require().NoError(err)
-
-	suite.Require().Panics(func() { keeper.DeferredMintCoins(ctx, "", initCoins) }, "no module account")                // nolint:errcheck
-	suite.Require().Panics(func() { keeper.DeferredMintCoins(ctx, authtypes.Burner, initCoins) }, "invalid permission") // nolint:errcheck
-
-	err = keeper.DeferredMintCoins(ctx, authtypes.Minter, sdk.Coins{sdk.Coin{Denom: "denom", Amount: sdk.NewInt(-10)}})
-	suite.Require().Error(err, "insufficient coins")
-
-	suite.Require().Panics(func() { keeper.DeferredMintCoins(ctx, randomPerm, initCoins) }) // nolint:errcheck
-
-	err = keeper.DeferredMintCoins(ctx, authtypes.Minter, initCoins)
-	suite.Require().NoError(err)
-
-	suite.Require().Equal(sdk.Coins{}, getCoinsByName(ctx, keeper, authKeeper, authtypes.Minter))
-	totalSupply, _, err := keeper.GetPaginatedTotalSupply(ctx, &query.PageRequest{})
-	suite.Require().NoError(err)
-
-	suite.Require().Equal(initialSupply.Add(initCoins...), totalSupply)
-
-	// test same functionality on module account with multiple permissions
-	initialSupply, _, err = keeper.GetPaginatedTotalSupply(ctx, &query.PageRequest{})
-	suite.Require().NoError(err)
-
-	keeper.WriteDeferredOperations(ctx)
-	suite.Require().Equal(initialSupply, getCoinsByName(ctx, keeper, authKeeper, authtypes.Minter))
-
-	err = keeper.DeferredMintCoins(ctx, multiPermAcc.GetName(), initCoins)
-	suite.Require().NoError(err)
-
-	totalSupply, _, err = keeper.GetPaginatedTotalSupply(ctx, &query.PageRequest{})
-	suite.Require().NoError(err)
-
-	suite.Require().Equal(sdk.Coins{}, getCoinsByName(ctx, keeper, authKeeper, multiPermAcc.GetName()))
-	keeper.WriteDeferredOperations(ctx)
-	suite.Require().Equal(initCoins, getCoinsByName(ctx, keeper, authKeeper, multiPermAcc.GetName()))
-
-	suite.Require().Equal(initialSupply.Add(initCoins...), totalSupply)
-	suite.Require().Panics(func() { keeper.DeferredMintCoins(ctx, authtypes.Burner, initCoins) }) // nolint:errcheck
-}
-
 func (suite *IntegrationTestSuite) TestSupply_BurnCoins() {
 	ctx := suite.ctx
 	// add module accounts to supply keeper
@@ -349,67 +297,6 @@ func (suite *IntegrationTestSuite) TestSupply_BurnCoins() {
 	supplyAfterBurn, _, err = keeper.GetPaginatedTotalSupply(ctx, &query.PageRequest{})
 	suite.Require().NoError(err)
 	suite.Require().NoError(err)
-	suite.Require().Equal(sdk.NewCoins().String(), getCoinsByName(ctx, keeper, authKeeper, multiPermAcc.GetName()).String())
-	suite.Require().Equal(supplyAfterInflation.Sub(initCoins), supplyAfterBurn)
-}
-
-func (suite *IntegrationTestSuite) TestSupply_DeferredBurnCoins() {
-	ctx := suite.ctx
-	// add module accounts to supply keeper
-	authKeeper, keeper := suite.initKeepersWithmAccPerms(make(map[string]bool))
-
-	// set burnerAcc balance
-	authKeeper.SetModuleAccount(ctx, burnerAcc)
-	suite.
-		Require().
-		NoError(keeper.MintCoins(ctx, authtypes.Minter, initCoins))
-	suite.
-		Require().
-		NoError(keeper.DeferredSendCoinsFromModuleToAccount(ctx, authtypes.Minter, burnerAcc.GetAddress(), initCoins))
-
-	// inflate supply
-	suite.
-		Require().
-		NoError(keeper.DeferredMintCoins(ctx, authtypes.Minter, initCoins))
-	supplyAfterInflation, _, err := keeper.GetPaginatedTotalSupply(ctx, &query.PageRequest{})
-	keeper.WriteDeferredOperations(ctx)
-
-	suite.Require().Panics(func() { keeper.BurnCoins(ctx, "", initCoins) }, "no module account")                    // nolint:errcheck
-	suite.Require().Panics(func() { keeper.BurnCoins(ctx, authtypes.Minter, initCoins) }, "invalid permission")     // nolint:errcheck
-	suite.Require().Panics(func() { keeper.BurnCoins(ctx, randomPerm, supplyAfterInflation) }, "random permission") // nolint:errcheck
-	err = keeper.DeferredBurnCoins(ctx, authtypes.Burner, supplyAfterInflation)
-	keeper.WriteDeferredOperations(ctx)
-	suite.Require().Error(err, "insufficient coins")
-
-	err = keeper.DeferredBurnCoins(ctx, authtypes.Burner, initCoins)
-	suite.Require().NoError(err)
-	supplyAfterBurn, _, err := keeper.GetPaginatedTotalSupply(ctx, &query.PageRequest{})
-
-	suite.Require().NoError(err)
-
-	suite.Require().Equal(initCoins.String(), getCoinsByName(ctx, keeper, authKeeper, authtypes.Burner).String())
-	keeper.WriteDeferredOperations(ctx)
-	suite.Require().Equal(sdk.NewCoins().String(), getCoinsByName(ctx, keeper, authKeeper, authtypes.Burner).String())
-
-	suite.Require().Equal(supplyAfterInflation.Sub(initCoins), supplyAfterBurn)
-
-	// test same functionality on module account with multiple permissions
-	suite.
-		Require().
-		NoError(keeper.DeferredMintCoins(ctx, authtypes.Minter, initCoins))
-
-	supplyAfterInflation, _, err = keeper.GetPaginatedTotalSupply(ctx, &query.PageRequest{})
-	suite.Require().NoError(err)
-	suite.Require().NoError(keeper.SendCoins(ctx, authtypes.NewModuleAddress(authtypes.Minter), multiPermAcc.GetAddress(), initCoins))
-	authKeeper.SetModuleAccount(ctx, multiPermAcc)
-
-	err = keeper.DeferredBurnCoins(ctx, multiPermAcc.GetName(), initCoins)
-	supplyAfterBurn, _, err = keeper.GetPaginatedTotalSupply(ctx, &query.PageRequest{})
-	suite.Require().NoError(err)
-	suite.Require().NoError(err)
-
-	suite.Require().Equal(initCoins.String(), getCoinsByName(ctx, keeper, authKeeper, multiPermAcc.GetName()).String())
-	keeper.WriteDeferredOperations(ctx)
 	suite.Require().Equal(sdk.NewCoins().String(), getCoinsByName(ctx, keeper, authKeeper, multiPermAcc.GetName()).String())
 	suite.Require().Equal(supplyAfterInflation.Sub(initCoins), supplyAfterBurn)
 }
@@ -563,6 +450,202 @@ func (suite *IntegrationTestSuite) TestSendCoins() {
 	})
 	suite.Require().Len(coins, 1)
 	suite.Require().Equal(newBarCoin(25), coins[0], "expected only bar coins in the account balance, got: %v", coins)
+}
+
+func (suite *IntegrationTestSuite) TestSendCoinsModuleToAccountWithDeferredBalance() {
+	// add module accounts to supply keeper
+	ctx := suite.ctx
+	ctx = ctx.WithContextMemCache(sdk.NewContextMemCache())
+	authKeeper, keeper := suite.initKeepersWithmAccPerms(make(map[string]bool))
+	authKeeper.SetModuleAccount(ctx, multiPermAcc)
+	app := suite.app
+	app.BankKeeper = keeper
+
+	addr1 := sdk.AccAddress("addr1_______________")
+	acc1 := authKeeper.NewAccountWithAddress(ctx, addr1)
+	authKeeper.SetAccount(ctx, acc1)
+
+	deferredBalances := sdk.NewCoins(newFooCoin(10), newBarCoin(50))
+	bankBalances := sdk.NewCoins(newFooCoin(20), newBarCoin(30))
+	// setup deferred balances
+	ctx.ContextMemCache().UpsertDeferredSends(multiPerm, deferredBalances)
+	// set up bank balances
+	suite.Require().NoError(simapp.FundAccount(app.BankKeeper, ctx, multiPermAcc.GetAddress(), bankBalances))
+
+	// send foo with spillover, bar fully backed by deferred balances - no error
+	sendCoins := sdk.NewCoins(newFooCoin(20), newBarCoin(20))
+	// perform send from module to account
+	suite.Require().NoError(app.BankKeeper.SendCoinsFromModuleToAccount(ctx, multiPerm, addr1, sendCoins))
+	expectedDeferredBalances := sdk.NewCoins(newBarCoin(30))
+	expectedBankBalances := sdk.NewCoins(newFooCoin(10), newBarCoin(30))
+	// assert module balances correct
+	deferredBals, ok := ctx.ContextMemCache().GetDeferredSends().Get(multiPerm)
+	suite.Require().True(ok)
+	suite.Require().Equal(expectedDeferredBalances, deferredBals)
+	bals := app.BankKeeper.GetAllBalances(ctx, multiPermAcc.GetAddress())
+	suite.Require().Equal(expectedBankBalances, bals)
+	// assert receiver balances correct
+	userBals := app.BankKeeper.GetAllBalances(ctx, addr1)
+	suite.Require().Equal(sendCoins, userBals)
+
+	// perform same send from module to account - should fail this time - all vals should remain same
+	suite.Require().Error(app.BankKeeper.SendCoinsFromModuleToAccount(ctx, multiPerm, addr1, sendCoins))
+	expectedDeferredBalances = sdk.NewCoins(newBarCoin(30))
+	expectedBankBalances = sdk.NewCoins(newFooCoin(10), newBarCoin(30))
+	// assert module balances correct
+	deferredBals, ok = ctx.ContextMemCache().GetDeferredSends().Get(multiPerm)
+	suite.Require().True(ok)
+	suite.Require().Equal(expectedDeferredBalances, deferredBals)
+	bals = app.BankKeeper.GetAllBalances(ctx, multiPermAcc.GetAddress())
+	suite.Require().Equal(expectedBankBalances, bals)
+	// assert receiver balances correct
+	userBals = app.BankKeeper.GetAllBalances(ctx, addr1)
+	suite.Require().Equal(sendCoins, userBals)
+
+	// perform send 2 that only processes against deferred balances
+	sendCoins2 := sdk.NewCoins(newBarCoin(20))
+	suite.Require().NoError(app.BankKeeper.SendCoinsFromModuleToAccount(ctx, multiPerm, addr1, sendCoins2))
+	expectedDeferredBalances = sdk.NewCoins(newBarCoin(10))
+	expectedBankBalances = sdk.NewCoins(newFooCoin(10), newBarCoin(30))
+	// assert module balances correct
+	deferredBals, ok = ctx.ContextMemCache().GetDeferredSends().Get(multiPerm)
+	suite.Require().True(ok)
+	suite.Require().Equal(expectedDeferredBalances, deferredBals)
+	bals = app.BankKeeper.GetAllBalances(ctx, multiPermAcc.GetAddress())
+	suite.Require().Equal(expectedBankBalances, bals)
+	// assert receiver balances correct
+	userBals = app.BankKeeper.GetAllBalances(ctx, addr1)
+	suite.Require().Equal(sendCoins.Add(sendCoins2...), userBals)
+}
+
+func (suite *IntegrationTestSuite) TestSendCoinsModuleToModuleWithDeferredBalance() {
+	// add module accounts to supply keeper
+	ctx := suite.ctx
+	ctx = ctx.WithContextMemCache(sdk.NewContextMemCache())
+	authKeeper, keeper := suite.initKeepersWithmAccPerms(make(map[string]bool))
+	authKeeper.SetModuleAccount(ctx, multiPermAcc)
+	authKeeper.SetModuleAccount(ctx, randomPermAcc)
+	app := suite.app
+	app.BankKeeper = keeper
+
+	deferredBalances := sdk.NewCoins(newFooCoin(10), newBarCoin(50))
+	bankBalances := sdk.NewCoins(newFooCoin(20), newBarCoin(30))
+	// setup deferred balances
+	ctx.ContextMemCache().UpsertDeferredSends(multiPerm, deferredBalances)
+	// set up bank balances
+	suite.Require().NoError(simapp.FundAccount(app.BankKeeper, ctx, multiPermAcc.GetAddress(), bankBalances))
+
+	// send foo with spillover, bar fully backed by deferred balances - no error
+	sendCoins := sdk.NewCoins(newFooCoin(20), newBarCoin(20))
+	// perform send from module to module
+	suite.Require().NoError(app.BankKeeper.SendCoinsFromModuleToModule(ctx, multiPerm, randomPerm, sendCoins))
+	expectedDeferredBalances := sdk.NewCoins(newBarCoin(30))
+	expectedBankBalances := sdk.NewCoins(newFooCoin(10), newBarCoin(30))
+	// assert module balances correct
+	deferredBals, ok := ctx.ContextMemCache().GetDeferredSends().Get(multiPerm)
+	suite.Require().True(ok)
+	suite.Require().Equal(expectedDeferredBalances, deferredBals)
+	bals := app.BankKeeper.GetAllBalances(ctx, multiPermAcc.GetAddress())
+	suite.Require().Equal(expectedBankBalances, bals)
+	// assert receiver balances correct
+	userBals := app.BankKeeper.GetAllBalances(ctx, randomPermAcc.GetAddress())
+	suite.Require().Equal(sendCoins, userBals)
+
+	// perform same send from module to module - should fail this time - all vals should remain same
+	suite.Require().Error(app.BankKeeper.SendCoinsFromModuleToModule(ctx, multiPerm, randomPerm, sendCoins))
+	expectedDeferredBalances = sdk.NewCoins(newBarCoin(30))
+	expectedBankBalances = sdk.NewCoins(newFooCoin(10), newBarCoin(30))
+	// assert module balances correct
+	deferredBals, ok = ctx.ContextMemCache().GetDeferredSends().Get(multiPerm)
+	suite.Require().True(ok)
+	suite.Require().Equal(expectedDeferredBalances, deferredBals)
+	bals = app.BankKeeper.GetAllBalances(ctx, multiPermAcc.GetAddress())
+	suite.Require().Equal(expectedBankBalances, bals)
+	// assert receiver balances correct
+	userBals = app.BankKeeper.GetAllBalances(ctx, randomPermAcc.GetAddress())
+	suite.Require().Equal(sendCoins, userBals)
+
+	// perform send 2 that only processes against deferred balances
+	sendCoins2 := sdk.NewCoins(newBarCoin(20))
+	suite.Require().NoError(app.BankKeeper.SendCoinsFromModuleToModule(ctx, multiPerm, randomPerm, sendCoins2))
+	expectedDeferredBalances = sdk.NewCoins(newBarCoin(10))
+	expectedBankBalances = sdk.NewCoins(newFooCoin(10), newBarCoin(30))
+	// assert module balances correct
+	deferredBals, ok = ctx.ContextMemCache().GetDeferredSends().Get(multiPerm)
+	suite.Require().True(ok)
+	suite.Require().Equal(expectedDeferredBalances, deferredBals)
+	bals = app.BankKeeper.GetAllBalances(ctx, multiPermAcc.GetAddress())
+	suite.Require().Equal(expectedBankBalances, bals)
+	// assert receiver balances correct
+	userBals = app.BankKeeper.GetAllBalances(ctx, randomPermAcc.GetAddress())
+	suite.Require().Equal(sendCoins.Add(sendCoins2...), userBals)
+}
+
+func (suite *IntegrationTestSuite) TestBurnCoinsWithDeferredBalance() {
+	// add module accounts to supply keeper
+	ctx := suite.ctx
+	ctx = ctx.WithContextMemCache(sdk.NewContextMemCache())
+	authKeeper, keeper := suite.initKeepersWithmAccPerms(make(map[string]bool))
+	authKeeper.SetModuleAccount(ctx, multiPermAcc)
+	app := suite.app
+	app.BankKeeper = keeper
+
+	deferredBalances := sdk.NewCoins(newFooCoin(10), newBarCoin(50))
+
+	// set up balances this way to ensure that supply is incremented appropriately
+	addr2 := sdk.AccAddress([]byte("addr2_______________"))
+	acc2 := app.AccountKeeper.NewAccountWithAddress(ctx, addr2)
+	app.AccountKeeper.SetAccount(ctx, acc2)
+	suite.Require().NoError(simapp.FundAccount(app.BankKeeper, ctx, addr2, deferredBalances))
+	suite.Require().NoError(app.BankKeeper.DeferredSendCoinsFromAccountToModule(ctx, addr2, multiPerm, deferredBalances))
+
+	bankBalances := sdk.NewCoins(newFooCoin(20), newBarCoin(30))
+	// setup deferred balances
+	// ctx.ContextMemCache().UpsertDeferredSends(multiPerm, deferredBalances)
+	// set up bank balances
+	suite.Require().NoError(simapp.FundAccount(app.BankKeeper, ctx, multiPermAcc.GetAddress(), bankBalances))
+
+	// burn foo with spillover, bar fully backed by deferred balances - no error
+	sendCoins := sdk.NewCoins(newFooCoin(20), newBarCoin(20))
+	// perform burn
+	suite.Require().NoError(app.BankKeeper.BurnCoins(ctx, multiPerm, sendCoins))
+	expectedDeferredBalances := sdk.NewCoins(newBarCoin(30))
+	expectedBankBalances := sdk.NewCoins(newFooCoin(10), newBarCoin(30))
+	// assert module balances correct
+	deferredBals, ok := ctx.ContextMemCache().GetDeferredSends().Get(multiPerm)
+	suite.Require().True(ok)
+	suite.Require().Equal(expectedDeferredBalances, deferredBals)
+	bals := app.BankKeeper.GetAllBalances(ctx, multiPermAcc.GetAddress())
+	suite.Require().Equal(expectedBankBalances, bals)
+	suite.Require().Equal(newFooCoin(10), app.BankKeeper.GetSupply(ctx, "foo"))
+	suite.Require().Equal(newBarCoin(60), app.BankKeeper.GetSupply(ctx, "bar"))
+
+	// perform same burn - should fail this time - all vals should remain same
+	suite.Require().Error(app.BankKeeper.BurnCoins(ctx, multiPerm, sendCoins))
+	expectedDeferredBalances = sdk.NewCoins(newBarCoin(30))
+	expectedBankBalances = sdk.NewCoins(newFooCoin(10), newBarCoin(30))
+	// assert module balances correct
+	deferredBals, ok = ctx.ContextMemCache().GetDeferredSends().Get(multiPerm)
+	suite.Require().True(ok)
+	suite.Require().Equal(expectedDeferredBalances, deferredBals)
+	bals = app.BankKeeper.GetAllBalances(ctx, multiPermAcc.GetAddress())
+	suite.Require().Equal(expectedBankBalances, bals)
+	suite.Require().Equal(newFooCoin(10), app.BankKeeper.GetSupply(ctx, "foo"))
+	suite.Require().Equal(newBarCoin(60), app.BankKeeper.GetSupply(ctx, "bar"))
+
+	// perform burn 2 that only processes against deferred balances
+	sendCoins2 := sdk.NewCoins(newBarCoin(20))
+	suite.Require().NoError(app.BankKeeper.BurnCoins(ctx, multiPerm, sendCoins2))
+	expectedDeferredBalances = sdk.NewCoins(newBarCoin(10))
+	expectedBankBalances = sdk.NewCoins(newFooCoin(10), newBarCoin(30))
+	// assert module balances correct
+	deferredBals, ok = ctx.ContextMemCache().GetDeferredSends().Get(multiPerm)
+	suite.Require().True(ok)
+	suite.Require().Equal(expectedDeferredBalances, deferredBals)
+	bals = app.BankKeeper.GetAllBalances(ctx, multiPermAcc.GetAddress())
+	suite.Require().Equal(expectedBankBalances, bals)
+	suite.Require().Equal(newFooCoin(10), app.BankKeeper.GetSupply(ctx, "foo"))
+	suite.Require().Equal(newBarCoin(40), app.BankKeeper.GetSupply(ctx, "bar"))
 }
 
 func (suite *IntegrationTestSuite) TestValidateBalance() {
@@ -1340,66 +1423,6 @@ func (suite *IntegrationTestSuite) TestMintCoinRestrictions() {
 			}
 		}
 	}
-}
-
-func (suite *IntegrationTestSuite) TestDeferredSendCoinsFromModuleToAccount() {
-	ctx := suite.ctx
-
-	require := suite.Require()
-
-	// add module accounts to supply keeper
-	authKeeper, keeper := suite.initKeepersWithmAccPerms(make(map[string]bool))
-
-	initialPower := int64(100)
-	initTokens := suite.app.StakingKeeper.TokensFromConsensusPower(ctx, initialPower)
-	totalSupply := sdk.NewCoins(sdk.NewCoin(sdk.DefaultBondDenom, initTokens))
-
-	// set burnerAcc balance
-	authKeeper.SetModuleAccount(ctx, holderAcc)
-	require.NoError(keeper.MintCoins(ctx, authtypes.Minter, totalSupply))
-
-	beforeCoins := getCoinsByName(ctx, keeper, authKeeper, authtypes.Minter)
-	require.NoError(keeper.DeferredSendCoinsFromModuleToAccount(ctx, authtypes.Minter, holderAcc.GetAddress(), totalSupply))
-	suite.Require().Equal(beforeCoins, getCoinsByName(ctx, keeper, authKeeper, authtypes.Minter))
-	suite.Require().Equal(totalSupply, getCoinsByName(ctx, keeper, authKeeper, holderAcc.GetName()))
-
-	keeper.WriteDeferredOperations(ctx)
-
-	// No Coins after the deferred writes are processed
-	suite.Require().Equal(sdk.NewCoins().String(), getCoinsByName(ctx, keeper, authKeeper, authtypes.Minter).String())
-	suite.Require().Equal(totalSupply.String(), getCoinsByName(ctx, keeper, authKeeper, holderAcc.GetName()).String())
-}
-
-func (suite *IntegrationTestSuite) TestDeferredOperationsFromModuleToAccount() {
-	ctx := suite.ctx
-
-	require := suite.Require()
-
-	// add module accounts to supply keeper
-	authKeeper, keeper := suite.initKeepersWithmAccPerms(make(map[string]bool))
-
-	initialPower := int64(100)
-	initTokens := suite.app.StakingKeeper.TokensFromConsensusPower(ctx, initialPower)
-	totalSupply := sdk.NewCoins(sdk.NewCoin(sdk.DefaultBondDenom, initTokens))
-
-	// set burnerAcc balance
-	authKeeper.SetModuleAccount(ctx, holderAcc)
-	require.NoError(keeper.MintCoins(ctx, authtypes.Minter, totalSupply))
-
-	beforeCoins := getCoinsByName(ctx, keeper, authKeeper, authtypes.Minter)
-	require.NoError(keeper.DeferredSendCoinsFromModuleToAccount(ctx, authtypes.Minter, holderAcc.GetAddress(), totalSupply))
-	suite.Require().Equal(beforeCoins, getCoinsByName(ctx, keeper, authKeeper, holderAcc.GetName()))
-	suite.Require().Equal(beforeCoins, getCoinsByName(ctx, keeper, authKeeper, authtypes.Minter))
-
-	require.NoError(keeper.DeferredSendCoinsFromAccountToModule(ctx, holderAcc.GetAddress(), authtypes.Minter, totalSupply))
-	suite.Require().Equal(sdk.NewCoins().String(), getCoinsByName(ctx, keeper, authKeeper, holderAcc.GetName()).String())
-	suite.Require().Equal(beforeCoins, getCoinsByName(ctx, keeper, authKeeper, authtypes.Minter))
-
-	keeper.WriteDeferredOperations(ctx)
-
-	// No Coins after the deferred writes are processed
-	suite.Require().Equal(sdk.NewCoins().String(), getCoinsByName(ctx, keeper, authKeeper, holderAcc.GetName()).String())
-	suite.Require().Equal(totalSupply.String(), getCoinsByName(ctx, keeper, authKeeper, authtypes.Minter).String())
 }
 
 func TestKeeperTestSuite(t *testing.T) {

@@ -14,6 +14,7 @@ import (
 var (
 	testDenom1 = "atom"
 	testDenom2 = "muon"
+	testDenom3 = "quark"
 )
 
 type coinTestSuite struct {
@@ -1043,4 +1044,26 @@ func (s *coinTestSuite) TestCoinAminoEncoding() {
 	s.Require().NoError(err)
 	s.Require().Equal(bz1, bz3)
 	s.Require().Equal(bz2[1:], bz3)
+}
+
+func (s *coinTestSuite) TestPartitionSignedCoins() {
+	testCases := []struct {
+		inputOne    sdk.Coins
+		expectedPos sdk.Coins
+		expectedNeg sdk.Coins
+	}{
+		{sdk.Coins{sdk.NewInt64Coin(testDenom1, 1), sdk.NewInt64Coin(testDenom2, 0), sdk.Coin{Denom: testDenom3, Amount: sdk.NewInt(-3)}}, sdk.Coins{sdk.NewInt64Coin(testDenom1, 1)}, sdk.Coins{sdk.Coin{Denom: testDenom3, Amount: sdk.NewInt(-3)}}},
+		{sdk.Coins{sdk.NewInt64Coin(testDenom1, 1), sdk.NewInt64Coin(testDenom2, 3), sdk.Coin{Denom: testDenom3, Amount: sdk.NewInt(-3)}}, sdk.Coins{sdk.NewInt64Coin(testDenom1, 1), sdk.NewInt64Coin(testDenom2, 3)}, sdk.Coins{sdk.Coin{Denom: testDenom3, Amount: sdk.NewInt(-3)}}},
+		{sdk.Coins{sdk.NewInt64Coin(testDenom1, 1), sdk.NewInt64Coin(testDenom2, 3)}, sdk.Coins{sdk.NewInt64Coin(testDenom1, 1), sdk.NewInt64Coin(testDenom2, 3)}, sdk.Coins(nil)},
+		{sdk.Coins{sdk.Coin{Denom: testDenom1, Amount: sdk.NewInt(-1)}, sdk.NewInt64Coin(testDenom2, 0)}, sdk.Coins(nil), sdk.Coins{sdk.Coin{Denom: testDenom1, Amount: sdk.NewInt(-1)}}},
+		{sdk.Coins{sdk.NewInt64Coin(testDenom1, 0), sdk.NewInt64Coin(testDenom2, 0)}, sdk.Coins(nil), sdk.Coins(nil)},
+	}
+
+	assert := s.Assert()
+	for i, tc := range testCases {
+		tc := tc
+		pos, neg := tc.inputOne.PartitionSigned()
+		assert.Equal(tc.expectedPos, pos, "positive coins is incorrect, tc #%d", i)
+		assert.Equal(tc.expectedNeg, neg, "negative coins is incorrect, tc #%d", i)
+	}
 }
