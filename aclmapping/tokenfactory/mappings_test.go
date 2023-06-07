@@ -211,6 +211,9 @@ func TestGeneratorInvalidMessageTypes(t *testing.T) {
 
 	_, err := tkfactory.TokenFactoryBurnDependencyGenerator(app.AccessControlKeeper, ctx, &oracleVote)
 	require.Error(t, err)
+
+	_, err = tkfactory.TokenFactoryMintDependencyGenerator(app.AccessControlKeeper, ctx, &oracleVote)
+	require.Error(t, err)
 }
 
 func TestMsgBeginBurnDepedencyGenerator(t *testing.T) {
