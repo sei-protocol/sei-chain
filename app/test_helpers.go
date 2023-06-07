@@ -19,6 +19,7 @@ import (
 	minttypes "github.com/sei-protocol/sei-chain/x/mint/types"
 	"github.com/stretchr/testify/suite"
 	abci "github.com/tendermint/tendermint/abci/types"
+	"github.com/tendermint/tendermint/config"
 	"github.com/tendermint/tendermint/libs/log"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 	dbm "github.com/tendermint/tm-db"
@@ -155,7 +156,7 @@ func Setup(isCheckTx bool) *App {
 		map[int64]bool{},
 		DefaultNodeHome,
 		5,
-		nil,
+		config.TestConfig(),
 		encodingConfig,
 		wasm.EnableAllProposals,
 		&cosmostestutil.TestAppOpts{},
