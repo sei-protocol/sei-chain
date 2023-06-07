@@ -13,12 +13,17 @@ import (
 	otrace "go.opentelemetry.io/otel/trace"
 )
 
-func (w KeeperWrapper) HandleEBDeposit(ctx context.Context, sdkCtx sdk.Context, tracer *otrace.Tracer, contractAddr string, message types.SudoOrderPlacementMsg) error {
+func (w KeeperWrapper) HandleEBDeposit(ctx context.Context, sdkCtx sdk.Context, tracer *otrace.Tracer, contractAddr string) error {
 	_, span := (*tracer).Start(ctx, "SudoDeposit")
 	span.SetAttributes(attribute.String("contractAddr", contractAddr))
 	defer span.End()
 
-	_, err := utils.CallContractSudo(sdkCtx, w.Keeper, contractAddr, message, dexutils.ZeroUserProvidedGas) // deposit
+	typedContractAddr := types.ContractAddress(contractAddr)
+	msg := w.GetDepositSudoMsg(sdkCtx, typedContractAddr)
+	if msg.IsEmpty() {
+		return nil
+	}
+	_, err := utils.CallContractSudo(sdkCtx, w.Keeper, contractAddr, msg, dexutils.ZeroUserProvidedGas) // deposit
 	if err != nil {
 		sdkCtx.Logger().Error(fmt.Sprintf("Error during deposit: %s", err.Error()))
 		return err
@@ -29,17 +34,6 @@ func (w KeeperWrapper) HandleEBDeposit(ctx context.Context, sdkCtx sdk.Context, 
 
 func (w KeeperWrapper) GetDepositSudoMsg(ctx sdk.Context, typedContractAddr types.ContractAddress) types.SudoOrderPlacementMsg {
 	depositMemState := dexutils.GetMemState(ctx.Context()).GetDepositInfo(ctx, typedContractAddr).Get()
-
-	// If there's no amount to send, exit early and avoid additional processing
-	if len(depositMemState) == 0 {
-		return types.SudoOrderPlacementMsg{
-			OrderPlacements: types.OrderPlacementMsgDetails{
-				Orders:   []types.Order{},
-				Deposits: []types.ContractDepositInfo{},
-			},
-		}
-	}
-
 	contractDepositInfo := seiutils.Map(
 		depositMemState,
 		func(d *types.DepositInfoEntry) types.ContractDepositInfo { return d.ToContractDepositInfo() },

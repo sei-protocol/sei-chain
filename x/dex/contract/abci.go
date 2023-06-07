@@ -166,62 +166,21 @@ func decorateContextForContract(ctx sdk.Context, contractInfo types.ContractInfo
 	)
 }
 
-func getSudoPlaceOrderMessages(sdkCtx sdk.Context, validContractsInfos []types.ContractInfoV2, keeperWrapper dexkeeperabci.KeeperWrapper) map[int]types.SudoOrderPlacementMsg {
-	resultChan := make(chan struct {
-		int
-		types.SudoOrderPlacementMsg
-	}, len(validContractsInfos))
-
-	var wg sync.WaitGroup
-	contractToProcess := dexutils.GetMemState(sdkCtx.Context()).GetContractToProcess()
-	for index, contract := range validContractsInfos {
-		wg.Add(1)
-		go func(index int, contract types.ContractInfoV2) {
-			defer wg.Done()
-			if !contract.NeedOrderMatching || !contractToProcess.Contains(contract.ContractAddr) {
-				return
-			}
-			typedContractAddr := types.ContractAddress(contract.ContractAddr)
-			msg := keeperWrapper.GetDepositSudoMsg(sdkCtx, typedContractAddr)
-			if msg.IsEmpty() {
-				return
-			}
-			resultChan <- struct {
-				int
-				types.SudoOrderPlacementMsg
-			}{index, msg}
-
-		}(index, contract)
-	}
-
-	go func() {
-		wg.Wait()
-		close(resultChan)
-	}()
-
-	resultMapToIndex := map[int]types.SudoOrderPlacementMsg{}
-	for result := range resultChan {
-		resultMapToIndex[result.int] = result.SudoOrderPlacementMsg
-	}
-
-	return resultMapToIndex
-}
-
 func handleDeposits(spanCtx context.Context, ctx sdk.Context, env *environment, keeper *keeper.Keeper, tracer *otrace.Tracer) {
 	// Handle deposit sequentially since they mutate `bank` state which is shared by all contracts
 	_, span := (*tracer).Start(spanCtx, "handleDeposits")
 	defer span.End()
 	defer telemetry.MeasureSince(time.Now(), "dex", "handle_deposits")
 	keeperWrapper := dexkeeperabci.KeeperWrapper{Keeper: keeper}
-
-	// Filter and create and pending sudo messages concurrently and batch write to bank keeper
-	sudoMessages := getSudoPlaceOrderMessages(ctx, env.validContractsInfo, keeperWrapper)
-	for index := 0; index < len(env.validContractsInfo); index++ {
-		if message, ok := sudoMessages[index]; ok {
-			contract := env.validContractsInfo[index]
-			if err := keeperWrapper.HandleEBDeposit(spanCtx, ctx, tracer, contract.ContractAddr, message); err != nil {
-				env.addError(contract.ContractAddr, err)
-			}
+	for _, contract := range env.validContractsInfo {
+		if !dexutils.GetMemState(ctx.Context()).GetContractToProcess().Contains(contract.ContractAddr) {
+			continue
+		}
+		if !contract.NeedOrderMatching {
+			continue
+		}
+		if err := keeperWrapper.HandleEBDeposit(spanCtx, ctx, tracer, contract.ContractAddr); err != nil {
+			env.addError(contract.ContractAddr, err)
 		}
 	}
 }
