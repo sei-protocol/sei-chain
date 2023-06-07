@@ -1,6 +1,8 @@
 package keeper
 
 import (
+	"fmt"
+
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	acltypes "github.com/cosmos/cosmos-sdk/types/accesscontrol"
 	"github.com/cosmos/cosmos-sdk/x/accesscontrol/types"
@@ -9,10 +11,17 @@ import (
 func (k Keeper) InitGenesis(ctx sdk.Context, genState types.GenesisState) {
 	k.SetParams(ctx, genState.Params)
 	for _, resourceDependencyMapping := range genState.GetMessageDependencyMapping() {
-		k.SetResourceDependencyMapping(ctx, resourceDependencyMapping)
+		err := k.SetResourceDependencyMapping(ctx, resourceDependencyMapping)
+		if err != nil {
+			panic(fmt.Errorf("invalid MessageDependencyMapping %s", err))
+		}
 	}
 	for _, wasmDependencyMapping := range genState.GetWasmDependencyMappings() {
-		k.SetWasmDependencyMapping(ctx, wasmDependencyMapping)
+		err := k.SetWasmDependencyMapping(ctx, wasmDependencyMapping)
+		if err != nil {
+			panic(fmt.Errorf("invalid WasmDependencyMapping %s", err))
+		}
+
 	}
 }
 

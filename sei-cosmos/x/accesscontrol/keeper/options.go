@@ -2,7 +2,7 @@ package keeper
 
 type optsFn func(*Keeper)
 
-func (f optsFn) apply(keeper *Keeper) {
+func (f optsFn) Apply(keeper *Keeper) {
 	f(keeper)
 }
 

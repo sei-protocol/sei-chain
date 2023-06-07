@@ -7,13 +7,13 @@ import (
 
 type DeferredBankOperationMapping struct {
 	deferredOperations map[string]Coins
-	mappingLock		  *sync.Mutex
+	mappingLock        *sync.Mutex
 }
 
 func NewDeferredBankOperationMap() *DeferredBankOperationMapping {
 	return &DeferredBankOperationMapping{
 		deferredOperations: make(map[string]Coins),
-		mappingLock: &sync.Mutex{},
+		mappingLock:        &sync.Mutex{},
 	}
 }
 
@@ -23,7 +23,7 @@ func (m *DeferredBankOperationMapping) SafeSub(moduleAccount string, amount Coin
 	m.mappingLock.Lock()
 	defer m.mappingLock.Unlock()
 
-	if deferredAmount, ok  := m.deferredOperations[moduleAccount]; ok {
+	if deferredAmount, ok := m.deferredOperations[moduleAccount]; ok {
 		newAmount, isNegative := deferredAmount.SafeSub(amount)
 		if !isNegative {
 			m.deferredOperations[moduleAccount] = newAmount
@@ -44,7 +44,7 @@ func (m *DeferredBankOperationMapping) UpsertMapping(moduleAccount string, amoun
 	m.deferredOperations[moduleAccount] = newAmount
 }
 
-func (m *DeferredBankOperationMapping) GetSortedKeys() []string{
+func (m *DeferredBankOperationMapping) GetSortedKeys() []string {
 
 	// Need to sort keys for deterministic iterating
 	keys := make([]string, 0, len(m.deferredOperations))
@@ -55,8 +55,7 @@ func (m *DeferredBankOperationMapping) GetSortedKeys() []string{
 	return keys
 }
 
-
-func (m *DeferredBankOperationMapping) RangeOnMapping(apply func (recipient string, amount Coins)) {
+func (m *DeferredBankOperationMapping) RangeOnMapping(apply func(recipient string, amount Coins)) {
 	m.mappingLock.Lock()
 	defer m.mappingLock.Unlock()
 

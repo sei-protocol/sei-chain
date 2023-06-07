@@ -9,7 +9,6 @@ import (
 
 	"github.com/armon/go-metrics"
 	"github.com/savaki/jq"
-	"github.com/tendermint/tendermint/libs/log"
 	"github.com/yourbasic/graph"
 
 	"github.com/cosmos/cosmos-sdk/codec"
@@ -26,7 +25,7 @@ import (
 
 // Option is an extension point to instantiate keeper with non default values
 type Option interface {
-	apply(*Keeper)
+	Apply(*Keeper)
 }
 
 type MessageDependencyGenerator func(keeper Keeper, ctx sdk.Context, msg sdk.Msg) ([]acltypes.AccessOperation, error)
@@ -68,14 +67,10 @@ func NewKeeper(
 	}
 
 	for _, o := range opts {
-		o.apply(keeper)
+		o.Apply(keeper)
 	}
 
 	return *keeper
-}
-
-func (k Keeper) Logger(ctx sdk.Context) log.Logger {
-	return ctx.Logger().With("module", fmt.Sprintf("x/%s", types.ModuleName))
 }
 
 func (k Keeper) GetResourceDependencyMapping(ctx sdk.Context, messageKey types.MessageKey) acltypes.MessageDependencyMapping {
@@ -234,10 +229,9 @@ func ParseContractReferenceAddress(maybeContractAddress string, sender string, m
 		return sender
 	}
 	// parse the jq instruction from the template - if we can't then assume that its ACTUALLY an address
-	op, err := jq.Parse(maybeContractAddress)
-	if err != nil {
-		return maybeContractAddress
-	}
+	// doesn't actually return any errors, just returns nil
+	op, _ := jq.Parse(maybeContractAddress)
+
 	// retrieve the appropriate item from the original msg
 	data, err := op.Apply(msgInfo.MessageFullBody)
 	// if we do have a jq selector but it doesn't apply properly, return maybeContractAddress
@@ -253,10 +247,23 @@ func ParseContractReferenceAddress(maybeContractAddress string, sender string, m
 	return newValBytes
 }
 
-func (k Keeper) ImportContractReferences(ctx sdk.Context, contractAddr sdk.AccAddress, contractReferences []*acltypes.WasmContractReference, senderBech string, msgInfo *types.WasmMessageInfo, circularDepLookup ContractReferenceLookupMap) (*types.AccessOperationSet, error) {
+func (k Keeper) ImportContractReferences(
+	ctx sdk.Context,
+	contractAddr sdk.AccAddress,
+	contractReferences []*acltypes.WasmContractReference,
+	senderBech string,
+	msgInfo *types.WasmMessageInfo,
+	circularDepLookup ContractReferenceLookupMap,
+) (*types.AccessOperationSet, error) {
 	importedAccessOps := types.NewEmptyAccessOperationSet()
 
 	jsonTranslator := types.NewWasmMessageTranslator(senderBech, contractAddr.String(), msgInfo)
+
+	// msgInfo can't be nil, it will panic
+	if msgInfo == nil {
+		return nil, sdkerrors.Wrap(types.ErrInvalidMsgInfo, "msgInfo cannot be nil")
+	}
+
 	for _, contractReference := range contractReferences {
 		parsedContractReferenceAddress := ParseContractReferenceAddress(contractReference.ContractAddress, senderBech, msgInfo)
 		// if parsing failed and contractAddress is invalid, this step will error and indicate invalid address
@@ -474,6 +481,7 @@ func (k Keeper) ResetWasmDependencyMapping(
 
 func (k Keeper) IterateWasmDependencies(ctx sdk.Context, handler func(wasmDependencyMapping acltypes.WasmDependencyMapping) (stop bool)) {
 	store := ctx.KVStore(k.storeKey)
+
 	iter := sdk.KVStorePrefixIterator(store, types.GetWasmMappingKey())
 	defer iter.Close()
 	for ; iter.Valid(); iter.Next() {
@@ -502,8 +510,8 @@ func (k Keeper) BuildDependencyDag(ctx sdk.Context, txDecoder sdk.TxDecoder, ant
 		if err != nil {
 			return nil, err
 		}
-
 		anteDepSet := make(map[acltypes.AccessOperation]struct{})
+
 		for _, accessOp := range anteDeps {
 			// if found in set, we've already included this access Op in out ante dependencies, so skip it
 			if _, found := anteDepSet[accessOp]; found {
@@ -529,8 +537,11 @@ func (k Keeper) BuildDependencyDag(ctx sdk.Context, txDecoder sdk.TxDecoder, ant
 				dependencyDag.AddNodeBuildDependency(messageIndex, txIndex, accessOp)
 			}
 		}
-
 	}
+	// This should never happen base on existing DAG algorithm but it's not a significant
+	// performance overhead (@BenchmarkAccessOpsBuildDependencyDag),
+	// it would be better to keep this check. If a cyclic dependency
+	// is ever found it may cause the chain to halt
 	if !graph.Acyclic(&dependencyDag) {
 		return nil, types.ErrCycleInDAG
 	}
@@ -562,28 +573,27 @@ func (k Keeper) GetMessageDependencies(ctx sdk.Context, msg sdk.Msg) []acltypes.
 			validateErr := types.ValidateAccessOps(dependencies)
 			if validateErr == nil {
 				return dependencies
-			} else {
-				errorMessage := fmt.Sprintf("Invalid Access Ops for message=%s. %s", messageKey, validateErr.Error())
-				ctx.Logger().Error(errorMessage)
 			}
-		} else {
-			ctx.Logger().Error("Error generating message dependencies: ", err)
+			errorMessage := fmt.Sprintf("Invalid Access Ops for message=%s. %s", messageKey, validateErr.Error())
+			ctx.Logger().Error(errorMessage)
 		}
 	}
 	if dependencyMapping.DynamicEnabled {
 		// there was an issue with dynamic generation, so lets disable it
-		err := k.SetDependencyMappingDynamicFlag(ctx, messageKey, false)
-		if err != nil {
-			ctx.Logger().Error("Error disabling dynamic enabled: ", err)
-		}
+		// this will not error, the validation check was done in previous calls already
+		_ = k.SetDependencyMappingDynamicFlag(ctx, messageKey, false)
 	}
 	return dependencyMapping.AccessOps
 }
 
 func DefaultMessageDependencyGenerator() DependencyGeneratorMap {
-	return DependencyGeneratorMap{
-		//TODO: define default granular behavior here
-	}
+	//TODO: define default granular behavior here
+	return DependencyGeneratorMap{}
+}
+
+func (m *DependencyGeneratorMap) Contains(key string) bool {
+	_, ok := (*m)[types.MessageKey(key)]
+	return ok
 }
 
 func (k Keeper) GetStoreKey() sdk.StoreKey {

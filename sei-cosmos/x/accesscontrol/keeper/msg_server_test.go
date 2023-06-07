@@ -2,6 +2,7 @@ package keeper_test
 
 import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/cosmos/cosmos-sdk/types/accesscontrol"
 	"github.com/cosmos/cosmos-sdk/x/accesscontrol/keeper"
 	acltypes "github.com/cosmos/cosmos-sdk/x/accesscontrol/types"
 )
@@ -17,12 +18,20 @@ func (suite *KeeperTestSuite) TestMessageRegisterWasmDependency() {
 	contractAddr := suite.addrs[0]
 	fromAddr := suite.addrs[1]
 
-	registerWasmDependency := acltypes.MsgRegisterWasmDependency{
+	invalidRegisterWasmDependency := acltypes.MsgRegisterWasmDependency{
+		FromAddress:           "Invalid",
+		WasmDependencyMapping: acltypes.SynchronousWasmDependencyMapping(contractAddr.String()),
+	}
+	invalidRegisterWasmDependency.WasmDependencyMapping.BaseAccessOps = []*accesscontrol.WasmAccessOperation{}
+
+	_, err := msgServer.RegisterWasmDependency(sdk.WrapSDKContext(ctx), &invalidRegisterWasmDependency)
+	req.Error(err)
+
+	validRegisterWasmDependency := acltypes.MsgRegisterWasmDependency{
 		FromAddress:           fromAddr.String(),
 		WasmDependencyMapping: acltypes.SynchronousWasmDependencyMapping(contractAddr.String()),
 	}
-
-	resp, err := msgServer.RegisterWasmDependency(sdk.WrapSDKContext(ctx), &registerWasmDependency)
+	resp, err := msgServer.RegisterWasmDependency(sdk.WrapSDKContext(ctx), &validRegisterWasmDependency)
 	req.NoError(err)
 	req.Equal(acltypes.MsgRegisterWasmDependencyResponse{}, *resp)
 

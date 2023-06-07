@@ -15,6 +15,7 @@ var (
 	ErrDuplicateWasmMethodName           = fmt.Errorf("a method name is defined multiple times in specific access operation list")
 	ErrQueryRefNonQueryMessageType       = fmt.Errorf("query contract references can only have query message types")
 	ErrSelectorDeprecated                = fmt.Errorf("this selector type is deprecated")
+	ErrInvalidMsgInfo                    = fmt.Errorf("msg info cannot be nil")
 )
 
 type MessageKey string
@@ -120,8 +121,8 @@ func DefaultWasmDependencyMappings() []acltypes.WasmDependencyMapping {
 
 // Base access operation list must end with access type commit
 func ValidateWasmDependencyMapping(mapping acltypes.WasmDependencyMapping) error {
-	lastAccessOp := mapping.BaseAccessOps[len(mapping.BaseAccessOps)-1]
-	if lastAccessOp.Operation.AccessType != acltypes.AccessType_COMMIT {
+	numOps := len(mapping.BaseAccessOps)
+	if numOps == 0 || mapping.BaseAccessOps[numOps-1].Operation.AccessType != acltypes.AccessType_COMMIT {
 		return ErrNoCommitAccessOp
 	}
 
