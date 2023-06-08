@@ -32,6 +32,8 @@ func NewKeeper(
 	// ensure mint module account is set
 	if addr := ak.GetModuleAddress(types.ModuleName); addr == nil {
 		panic("the mint module account has not been set")
+	} else {
+		println(addr.String())
 	}
 
 	// set KeyTable if it has not already been set
@@ -118,11 +120,6 @@ func (k Keeper) MintCoins(ctx sdk.Context, newCoins sdk.Coins) error {
 // AddCollectedFees to be used in BeginBlocker.
 func (k Keeper) AddCollectedFees(ctx sdk.Context, fees sdk.Coins) error {
 	return k.bankKeeper.SendCoinsFromModuleToModule(ctx, types.ModuleName, k.feeCollectorName, fees)
-}
-
-// GetProportions gets the balance of the `MintedDenom` from minted coins and returns coins according to the `AllocationRatio`.
-func (k Keeper) GetProportions(ctx sdk.Context, mintedCoin sdk.Coin, ratio sdk.Dec) sdk.Coin {
-	return sdk.NewCoin(mintedCoin.Denom, mintedCoin.Amount.ToDec().Mul(ratio).TruncateInt())
 }
 
 // GetProportions gets the balance of the `MintedDenom` from minted coins and returns coins according to the `AllocationRatio`.
