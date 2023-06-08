@@ -20,19 +20,19 @@ func NewMarket(contract string, priceDenom string, assetDenom string) *Market {
 	}
 }
 
-func (m *Market) Register(admin sdk.AccAddress, deps []string, deposit uint64) (*dextypes.MsgRegisterContract, *dextypes.MsgRegisterPairs) {
+func (m *Market) Register(admin sdk.AccAddress, deps []string, deposit uint64) []sdk.Msg {
 	pointOne := sdk.NewDecWithPrec(1, 1)
-	return dextypes.NewMsgRegisterContract(admin.String(), 0, m.contract, true, utils.Map(deps, func(dep string) *dextypes.ContractDependencyInfo {
-			return &dextypes.ContractDependencyInfo{Dependency: dep}
-		}), deposit), dextypes.NewMsgRegisterPairs(admin.String(), []dextypes.BatchContractPair{{
-			ContractAddr: m.contract,
-			Pairs: []*dextypes.Pair{{
-				PriceDenom:       m.priceDenom,
-				AssetDenom:       m.assetDenom,
-				PriceTicksize:    &pointOne,
-				QuantityTicksize: &pointOne,
-			}},
-		}})
+	return []sdk.Msg{dextypes.NewMsgRegisterContract(admin.String(), 0, m.contract, true, utils.Map(deps, func(dep string) *dextypes.ContractDependencyInfo {
+		return &dextypes.ContractDependencyInfo{Dependency: dep}
+	}), deposit), dextypes.NewMsgRegisterPairs(admin.String(), []dextypes.BatchContractPair{{
+		ContractAddr: m.contract,
+		Pairs: []*dextypes.Pair{{
+			PriceDenom:       m.priceDenom,
+			AssetDenom:       m.assetDenom,
+			PriceTicksize:    &pointOne,
+			QuantityTicksize: &pointOne,
+		}},
+	}})}
 }
 
 func (m *Market) LongLimitOrder(account sdk.AccAddress, price string, quantity string) *dextypes.MsgPlaceOrders {

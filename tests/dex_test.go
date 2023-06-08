@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/cosmos/cosmos-sdk/x/auth/signing"
 	"github.com/sei-protocol/sei-chain/testutil/processblock"
 	"github.com/sei-protocol/sei-chain/testutil/processblock/msgs"
 	"github.com/sei-protocol/sei-chain/testutil/processblock/verify"
@@ -20,16 +21,19 @@ func TestOrders(t *testing.T) {
 	contract := app.NewContract(admin, "./mars.wasm")
 
 	market := msgs.NewMarket(contract.String(), "SEI", "ATOM")
-	registerContractMsg, registerPairMsg := market.Register(admin, []string{}, 20000000)
-	registerTx := app.Sign(admin, []sdk.Msg{registerContractMsg, registerPairMsg}, 1000000)
-	require.Equal(t, []uint32{0}, app.RunBlock([][]byte{registerTx}))
+
+	registerTx := app.Sign(admin, market.Register(admin, []string{}, 20000000), 1000000)
+	block1 := []signing.Tx{registerTx}
+	require.Equal(t, []uint32{0}, app.RunBlock(block1)) // 1st block to register contract/pair
 
 	aliceLimitOrder := market.LongLimitOrder(alice, "10.5", "5")
 	msgs := []sdk.Msg{aliceLimitOrder}
 	tx := app.Sign(alice, msgs, 10000)
 
-	blockRunner := func() []uint32 { return app.RunBlock([][]byte{tx}) }
-	blockRunner = verify.DexOrders(t, app.Ctx(), &app.DexKeeper, blockRunner, msgs)
+	block2 := []signing.Tx{tx}
+	blockRunner := func() []uint32 { return app.RunBlock(block2) } // 2nd block to place order
+	blockRunner = verify.DexOrders(t, app, blockRunner, block2)
+	blockRunner = verify.Balance(t, app, blockRunner, block2)
 
 	require.Equal(t, []uint32{0}, blockRunner())
 }

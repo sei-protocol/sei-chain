@@ -15,7 +15,7 @@ var InterfaceReg = types.NewInterfaceRegistry()
 var Marshaler = codec.NewProtoCodec(InterfaceReg)
 var TxConfig = tx.NewTxConfig(Marshaler, tx.DefaultSignModes)
 
-func (a *App) Sign(account sdk.AccAddress, msgs []sdk.Msg, fee int64) []byte {
+func (a *App) Sign(account sdk.AccAddress, msgs []sdk.Msg, fee int64) xauthsigning.Tx {
 	txBuilder := TxConfig.NewTxBuilder()
 	if err := txBuilder.SetMsgs(msgs...); err != nil {
 		panic(err)
@@ -71,16 +71,12 @@ func (a *App) Sign(account sdk.AccAddress, msgs []sdk.Msg, fee int64) []byte {
 	if err != nil {
 		panic(err)
 	}
-	bz, err := TxConfig.TxEncoder()(txBuilder.GetTx())
-	if err != nil {
-		panic(err)
-	}
 	if _, ok := a.accToSeqDelta[account.String()]; ok {
 		a.accToSeqDelta[account.String()]++
 	} else {
 		a.accToSeqDelta[account.String()] = 1
 	}
-	return bz
+	return txBuilder.GetTx()
 }
 
 func GetKey(mnemonic string) cryptotypes.PrivKey {

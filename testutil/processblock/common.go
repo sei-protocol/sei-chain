@@ -12,6 +12,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/crypto/keys/secp256k1"
 	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/cosmos/cosmos-sdk/x/auth/signing"
 	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
 	"github.com/cosmos/go-bip39"
 	"github.com/sei-protocol/sei-chain/app"
@@ -64,9 +65,12 @@ func (a *App) Ctx() sdk.Context {
 	return a.lastCtx
 }
 
-func (a *App) RunBlock(txs [][]byte) (resultCodes []uint32) {
+// Processes and commits a block of transactions, and return a list of response codes.
+// Assumes all validators voted with equal weight, and there are no byzantine validators.
+// Proposer is rotated among all validators round-robin.
+func (a *App) RunBlock(txs []signing.Tx) (resultCodes []uint32) {
 	defer func() {
-		a.lastCtx = a.Ctx()
+		a.lastCtx = a.GetContextForDeliverTx([]byte{}) // Commit will set deliver tx ctx to nil so we need to cache it here for testing queries before the next block is FinalizeBlock'ed (which will set deliver tx ctx)
 		_, err := a.Commit(context.Background())
 		if err != nil {
 			panic(err)
@@ -77,7 +81,13 @@ func (a *App) RunBlock(txs [][]byte) (resultCodes []uint32) {
 	}()
 
 	res, err := a.FinalizeBlock(context.Background(), &types.RequestFinalizeBlock{
-		Txs: txs,
+		Txs: utils.Map(txs, func(tx signing.Tx) []byte {
+			bz, err := TxConfig.TxEncoder()(tx)
+			if err != nil {
+				panic(err)
+			}
+			return bz
+		}),
 		DecidedLastCommit: types.CommitInfo{
 			Round: 0,
 			Votes: utils.Map(a.GetAllValidators(), func(v stakingtypes.Validator) types.VoteInfo {
