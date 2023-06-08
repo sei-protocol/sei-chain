@@ -14,10 +14,12 @@ defaults:
     shell: bash
 
 jobs:
-
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
+    env:
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
     steps:
       - uses: actions/checkout@v3
 
@@ -38,4 +40,16 @@ jobs:
           sleep 5
 
       - name: Verify Sei Chain is able to start up
-        run: ./docker/integration_test/startup_test.sh
+        run: docker exec -i sei-node-0 integration_test/startup/startup_test.sh
+
+      - name: Testing Dex Module
+        run: docker exec -i sei-node-0 integration_test/dex_module/place_order_test.sh
+
+      - name: Testing Wasm Module
+        run: |
+          docker exec -i sei-node-0 integration_test/contracts/deploy_timelocked_token_contract.sh
+          docker exec -i sei-node-0 integration_test/wasm_module/timelocked_token_test_1.sh
+          docker exec -i sei-node-0 integration_test/contracts/deploy_timelocked_token_contract.sh
+          docker exec -i sei-node-0 integration_test/wasm_module/timelocked_token_test_2.sh
+          docker exec -i sei-node-0 integration_test/contracts/deploy_timelocked_token_contract.sh migration
+          docker exec -i sei-node-0 integration_test/wasm_module/timelocked_token_test_3.sh

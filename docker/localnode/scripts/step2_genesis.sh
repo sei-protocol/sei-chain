@@ -16,12 +16,12 @@ override_genesis() {
 override_genesis '.app_state["crisis"]["constant_fee"]["denom"]="usei"'
 override_genesis '.app_state["mint"]["params"]["mint_denom"]="usei"'
 override_genesis '.app_state["staking"]["params"]["bond_denom"]="usei"'
-override_genesis '.app_state["oracle"]["params"]["vote_period"]="1"'
+override_genesis '.app_state["oracle"]["params"]["vote_period"]="2"'
 override_genesis '.app_state["slashing"]["params"]["signed_blocks_window"]="10000"'
 override_genesis '.app_state["slashing"]["params"]["min_signed_per_window"]="0.050000000000000000"'
 override_genesis '.app_state["staking"]["params"]["max_validators"]="50"'
 override_genesis '.consensus_params["block"]["max_gas"]="5000000000"'
-override_genesis '.app_state["staking"]["params"]["unbonding_time"]="86400s"'
+override_genesis '.app_state["staking"]["params"]["unbonding_time"]="10s"'
 
 # We already added node0's genesis account in configure_init, remove it here since we're going to re-add it in the "add genesis accounts" step
 override_genesis '.app_state["auth"]["accounts"]=[]'
@@ -30,14 +30,14 @@ override_genesis '.app_state["genutil"]["gen_txs"]=[]'
 
 # gov parameters
 override_genesis '.app_state["gov"]["deposit_params"]["min_deposit"][0]["denom"]="usei"'
-#override_genesis '.app_state["gov"]["deposit_params"]["min_expedited_deposit"][0]["denom"]="usei"'
-#override_genesis '.app_state["gov"]["deposit_params"]["max_deposit_period"]="300s"'
+override_genesis '.app_state["gov"]["deposit_params"]["min_expedited_deposit"][0]["denom"]="usei"'
+override_genesis '.app_state["gov"]["deposit_params"]["max_deposit_period"]="300s"'
 override_genesis '.app_state["gov"]["voting_params"]["voting_period"]="300s"'
-#override_genesis '.app_state["gov"]["voting_params"]["expedited_voting_period"]="120s"'
+override_genesis '.app_state["gov"]["voting_params"]["expedited_voting_period"]="120s"'
 override_genesis '.app_state["gov"]["tally_params"]["quorum"]="0.5"'
 override_genesis '.app_state["gov"]["tally_params"]["threshold"]="0.5"'
-#override_genesis '.app_state["gov"]["tally_params"]["expedited_quorum"]="0.9"'
-#override_genesis '.app_state["gov"]["tally_params"]["expedited_threshold"]="0.9"'
+override_genesis '.app_state["gov"]["tally_params"]["expedited_quorum"]="0.9"'
+override_genesis '.app_state["gov"]["tally_params"]["expedited_threshold"]="0.9"'
 
 # add genesis accounts for each node
 while read account; do

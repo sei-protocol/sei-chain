@@ -39,6 +39,10 @@ parallelization/**/artifacts/
 parallelization/**/target/
 parallelization/**/Cargo.lock
 
+# integration test resources
+integration_test/**/*.txt
+integration_test/**/*.json
+
 # Coverage Files
 coverage.html
 coverage.out
