@@ -55,11 +55,9 @@ func BeginBlocker(ctx sdk.Context, req abci.RequestBeginBlock, k keeper.Keeper) 
 		// Update the validator missed block bit array by index if different from last value at the index
 		if writeInfo.ShouldSlash {
 			k.ClearValidatorMissedBlockBitArray(ctx, writeInfo.ConsAddr)
+			writeInfo.SigningInfo = k.SlashJailAndUpdateSigningInfo(ctx, writeInfo.ConsAddr, writeInfo.SlashInfo, writeInfo.SigningInfo)
 		} else {
 			k.SetValidatorMissedBlocks(ctx, writeInfo.ConsAddr, writeInfo.MissedInfo)
-		}
-		if writeInfo.ShouldSlash {
-			writeInfo.SigningInfo = k.SlashJailAndUpdateSigningInfo(ctx, writeInfo.ConsAddr, writeInfo.SlashInfo, writeInfo.SigningInfo)
 		}
 		k.SetValidatorSigningInfo(ctx, writeInfo.ConsAddr, writeInfo.SigningInfo)
 	}
