@@ -89,7 +89,7 @@ func (k Keeper) HandleValidatorSignatureConcurrent(ctx sdk.Context, addr cryptot
 		)
 	}
 
-	minHeight := signInfo.StartHeight + k.SignedBlocksWindow(ctx)
+	minHeight := signInfo.StartHeight + window
 	maxMissed := window - minSignedPerWindow
 	shouldSlash = false
 	// if we are past the minimum height and the validator has missed too many blocks, punish them
