@@ -4,4 +4,4 @@ coverage:
       default:
         target: 80%
 ignore:
-  - "**/*_pb.go"         # Auto-generated files
+  - "**/*pb*go"         # Auto-generated files
