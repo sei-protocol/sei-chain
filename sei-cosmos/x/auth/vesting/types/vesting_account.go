@@ -2,12 +2,14 @@ package types
 
 import (
 	"errors"
+	"fmt"
 	"time"
 
 	yaml "gopkg.in/yaml.v2"
 
 	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
 	vestexported "github.com/cosmos/cosmos-sdk/x/auth/vesting/exported"
 )
@@ -421,6 +423,20 @@ func (pva PeriodicVestingAccount) Validate() error {
 	}
 	if !originalVesting.IsEqual(pva.OriginalVesting) {
 		return errors.New("original vesting coins does not match the sum of all coins in vesting periods")
+	}
+
+	for i, period := range pva.VestingPeriods {
+		if !period.Amount.IsValid() {
+			return sdkerrors.ErrInvalidCoins.Wrap(period.Amount.String())
+		}
+
+		if !period.Amount.IsAllPositive() {
+			return sdkerrors.ErrInvalidCoins.Wrap(period.Amount.String())
+		}
+
+		if period.Length < 1 {
+			return fmt.Errorf("invalid period length of %d in period %d, length must be greater than 0", period.Length, i)
+		}
 	}
 
 	return pva.BaseVestingAccount.Validate()

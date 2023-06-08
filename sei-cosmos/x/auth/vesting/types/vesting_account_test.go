@@ -660,6 +660,7 @@ func TestTrackUndelegationPermLockedVestingAcc(t *testing.T) {
 }
 
 func TestGenesisAccountValidate(t *testing.T) {
+	t.Parallel()
 	pubkey := secp256k1.GenPrivKey().PubKey()
 	addr := sdk.AccAddress(pubkey.Address())
 	baseAcc := authtypes.NewBaseAccount(addr, pubkey, 0, 0)
@@ -697,7 +698,15 @@ func TestGenesisAccountValidate(t *testing.T) {
 		},
 		{
 			"valid periodic vesting account",
-			types.NewPeriodicVestingAccount(baseAcc, initialVesting, 0, types.Periods{types.Period{Length: int64(100), Amount: sdk.Coins{sdk.NewInt64Coin(sdk.DefaultBondDenom, 50)}}}, nil),
+			types.NewPeriodicVestingAccount(
+				baseAcc,
+				initialVesting,
+				0,
+				types.Periods{
+					types.Period{Length: int64(100), Amount: sdk.Coins{sdk.NewInt64Coin(sdk.DefaultBondDenom, 50)}},
+				},
+				nil,
+			),
 			false,
 		},
 		{
@@ -712,6 +721,37 @@ func TestGenesisAccountValidate(t *testing.T) {
 			types.NewPeriodicVestingAccountRaw(
 				baseVestingWithCoins,
 				0, types.Periods{types.Period{Length: int64(100), Amount: sdk.Coins{sdk.NewInt64Coin(sdk.DefaultBondDenom, 25)}}}),
+			true,
+		},
+		{
+			"Empty coin amount should fail",
+			types.NewPeriodicVestingAccountRaw(
+				baseVestingWithCoins,
+				0, types.Periods{types.Period{Length: int64(100), Amount: sdk.Coins{}}}),
+			true,
+		},
+		{
+			"Less than 1 coin period should fail",
+			types.NewPeriodicVestingAccountRaw(
+				baseVestingWithCoins,
+				0, types.Periods{types.Period{Length: int64(0), Amount: sdk.Coins{sdk.NewInt64Coin(sdk.DefaultBondDenom, 25)}}}),
+			true,
+		},
+		{
+			"Negative coin amount should fail",
+			types.NewPeriodicVestingAccountRaw(
+				baseVestingWithCoins,
+				0, types.Periods{types.Period{Length: int64(100), Amount: sdk.Coins{sdk.Coin{
+					Denom:  sdk.DefaultBondDenom,
+					Amount: sdk.NewInt(-123),
+				}}}}),
+			true,
+		},
+		{
+			"Less than 1 coin period should fail",
+			types.NewPeriodicVestingAccountRaw(
+				baseVestingWithCoins,
+				0, types.Periods{types.Period{Length: int64(-1), Amount: sdk.Coins{sdk.NewInt64Coin(sdk.DefaultBondDenom, 25)}}}),
 			true,
 		},
 		{
