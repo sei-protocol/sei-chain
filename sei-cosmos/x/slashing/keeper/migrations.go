@@ -37,6 +37,9 @@ func (m Migrator) Migrate2to3(ctx sdk.Context) error {
 	signInfoIter := sdk.KVStorePrefixIterator(store, types.ValidatorSigningInfoKeyPrefix)
 	newSignInfoKeys := [][]byte{}
 	newSignInfoVals := []types.ValidatorSigningInfoLegacyMissedHeights{}
+	// Note that we close the iterator twice. 2 iterators cannot be open at the same time due to mutex on the storage
+	// This close within defer is a safety net, while the close() after iteration is to close the iterator before opening
+	// a new one.
 	defer signInfoIter.Close()
 	for ; signInfoIter.Valid(); signInfoIter.Next() {
 		ctx.Logger().Info(fmt.Sprintf("Migrating Signing Info for key: %v\n", signInfoIter.Key()))
@@ -67,6 +70,9 @@ func (m Migrator) Migrate2to3(ctx sdk.Context) error {
 	ctx.Logger().Info("Migrating Missed Block Bit Array")
 	keysToDelete := [][]byte{}
 	iter := sdk.KVStorePrefixIterator(store, types.ValidatorMissedBlockBitArrayKeyPrefix)
+	// Note that we close the iterator twice. 2 iterators cannot be open at the same time due to mutex on the storage
+	// This close within defer is a safety net, while the close() after iteration is to close the iterator before opening
+	// a new one.
 	defer iter.Close()
 	for ; iter.Valid(); iter.Next() {
 		// need to use the key to extract validator cons addr
@@ -104,6 +110,7 @@ func (m Migrator) Migrate2to3(ctx sdk.Context) error {
 		valMissedMap[consAddr.String()] = arr
 		keysToDelete = append(keysToDelete, iter.Key())
 	}
+	iter.Close()
 
 	ctx.Logger().Info(fmt.Sprintf("Starting deletion of missed bit array keys (total %d)", len(keysToDelete)))
 	interval := len(keysToDelete) / 50
@@ -149,6 +156,9 @@ func (m Migrator) Migrate3to4(ctx sdk.Context) error {
 	// use previous height to calculate index offset
 	window := m.keeper.SignedBlocksWindow(ctx)
 	index := window - 1
+	// Note that we close the iterator twice. 2 iterators cannot be open at the same time due to mutex on the storage
+	// This close within defer is a safety net, while the close() after iteration is to close the iterator before opening
+	// a new one.
 	defer signInfoIter.Close()
 	for ; signInfoIter.Valid(); signInfoIter.Next() {
 		ctx.Logger().Info(fmt.Sprintf("Migrating Signing Info for key: %v\n", signInfoIter.Key()))
