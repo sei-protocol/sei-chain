@@ -19,21 +19,21 @@ import (
 	tmdb "github.com/tendermint/tm-db"
 )
 
-type MockAccountKeeper struct {
-	ModuleAddress  sdk.AccAddress
-	ModuleAccount  authtypes.ModuleAccountI
+type MockAccountMigrationKeeper struct {
+	ModuleAddress sdk.AccAddress
+	ModuleAccount authtypes.ModuleAccountI
 }
 
-func (m MockAccountKeeper) GetModuleAddress(name string) sdk.AccAddress {
+func (m MockAccountMigrationKeeper) GetModuleAddress(name string) sdk.AccAddress {
 	address, _ := sdk.AccAddressFromBech32("sei1t4xhq2pnhnf223zr4z5lw02vsrxwf74z604kja")
 	return address
 }
 
-func (m MockAccountKeeper) SetModuleAccount(ctx sdk.Context, account authtypes.ModuleAccountI) {
+func (m MockAccountMigrationKeeper) SetModuleAccount(ctx sdk.Context, account authtypes.ModuleAccountI) {
 	m.ModuleAccount = account
 }
 
-func (m MockAccountKeeper) GetModuleAccount(ctx sdk.Context, moduleName string) authtypes.ModuleAccountI {
+func (m MockAccountMigrationKeeper) GetModuleAccount(ctx sdk.Context, moduleName string) authtypes.ModuleAccountI {
 	return m.ModuleAccount
 }
 
@@ -65,10 +65,10 @@ func TestMigrate2to3(t *testing.T) {
 
 	// Set up the old Minter and Params
 	oldMinter := types.Version2Minter{
-		LastMintAmount:   sdk.NewDec(1000),
-		LastMintDate:     "2021-01-01",
-		LastMintHeight:   100,
-		Denom:            sdk.DefaultBondDenom,
+		LastMintAmount: sdk.NewDec(1000),
+		LastMintDate:   "2021-01-01",
+		LastMintHeight: 100,
+		Denom:          sdk.DefaultBondDenom,
 	}
 
 	oldTokenReleaseSchedule := []types.Version2ScheduledTokenRelease{
@@ -94,7 +94,7 @@ func TestMigrate2to3(t *testing.T) {
 		storeKey,
 		newParamsSubspace,
 		nil,
-		MockAccountKeeper{},
+		MockAccountMigrationKeeper{},
 		nil,
 		nil,
 		"fee_collector",
