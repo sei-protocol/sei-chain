@@ -1,6 +1,7 @@
 package aclbankmapping
 
 import (
+	"encoding/hex"
 	"testing"
 
 	"github.com/cosmos/cosmos-sdk/crypto/keys/secp256k1"
@@ -13,6 +14,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/x/bank/types"
 	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
 	aclutils "github.com/sei-protocol/sei-chain/aclmapping/utils"
+	utils "github.com/sei-protocol/sei-chain/aclmapping/utils"
 	oracletypes "github.com/sei-protocol/sei-chain/x/oracle/types"
 	"github.com/stretchr/testify/require"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
@@ -163,4 +165,98 @@ func TestMsgBeginBankSendGenerator(t *testing.T) {
 	require.NoError(t, err)
 	err = acltypes.ValidateAccessOps(accessOps)
 	require.NoError(t, err)
+}
+
+func TestInvalidToAddress(t *testing.T) {
+	priv1 := secp256k1.GenPrivKey()
+	addr1 := sdk.AccAddress(priv1.PubKey().Address())
+	priv2 := secp256k1.GenPrivKey()
+	addr2 := sdk.AccAddress(priv2.PubKey().Address())
+	coins := sdk.Coins{sdk.NewInt64Coin("foocoin", 10)}
+
+	acc1 := &authtypes.BaseAccount{
+		Address: addr1.String(),
+	}
+	acc2 := &authtypes.BaseAccount{
+		Address: addr2.String(),
+	}
+	accs := authtypes.GenesisAccounts{acc1, acc2}
+	balances := []types.Balance{
+		{
+			Address: addr1.String(),
+			Coins:   coins,
+		},
+		{
+			Address: addr2.String(),
+			Coins:   coins,
+		},
+	}
+
+	app := simapp.SetupWithGenesisAccounts(accs, balances...)
+	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
+
+	sendMsg := banktypes.MsgSend{
+		FromAddress: addr1.String(),
+		ToAddress:   "InvalidMessage",
+		Amount:      coins,
+	}
+
+	accessOps, err := MsgSendDependencyGenerator(app.AccessControlKeeper, ctx, &sendMsg)
+	require.NoError(t, err)
+	err = acltypes.ValidateAccessOps(accessOps)
+	require.NoError(t, err)
+
+	// Last one should be an ANY Access if the to address is invalid
+	require.Equal(t,
+		accessOps[len(accessOps)-1],
+		sdkacltypes.AccessOperation{
+			ResourceType:       sdkacltypes.ResourceType_ANY,
+			AccessType:         sdkacltypes.AccessType_COMMIT,
+			IdentifierTemplate: utils.DefaultIDTemplate,
+		},
+	)
+}
+
+func TestAccountoesNotExist(t *testing.T) {
+	priv1 := secp256k1.GenPrivKey()
+	addr1 := sdk.AccAddress(priv1.PubKey().Address())
+	priv2 := secp256k1.GenPrivKey()
+	addr2 := sdk.AccAddress(priv2.PubKey().Address())
+	coins := sdk.Coins{sdk.NewInt64Coin("foocoin", 10)}
+
+	acc1 := &authtypes.BaseAccount{
+		Address: addr1.String(),
+	}
+
+	accs := authtypes.GenesisAccounts{acc1}
+	balances := []types.Balance{
+		{
+			Address: addr1.String(),
+			Coins:   coins,
+		},
+	}
+
+	app := simapp.SetupWithGenesisAccounts(accs, balances...)
+	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
+
+	sendMsg := banktypes.MsgSend{
+		FromAddress: addr1.String(),
+		ToAddress:   addr2.String(),
+		Amount:      coins,
+	}
+
+	accessOps, err := MsgSendDependencyGenerator(app.AccessControlKeeper, ctx, &sendMsg)
+	require.NoError(t, err)
+	err = acltypes.ValidateAccessOps(accessOps)
+	require.NoError(t, err)
+
+	// Last one should be a WRITE Access if the to address doesn't exist
+	require.Equal(t,
+		accessOps[len(accessOps)-2],
+		sdkacltypes.AccessOperation{
+			AccessType:         sdkacltypes.AccessType_WRITE,
+			ResourceType:       sdkacltypes.ResourceType_KV_AUTH_GLOBAL_ACCOUNT_NUMBER,
+			IdentifierTemplate: hex.EncodeToString(authtypes.GlobalAccountNumberKey),
+		},
+	)
 }

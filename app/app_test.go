@@ -115,10 +115,6 @@ func TestProcessTxsSuccess(t *testing.T) {
 		Denom:  "test",
 		Amount: sdk.NewInt(1),
 	}))
-	testWrapper.Ctx.ContextMemCache().UpsertDeferredWithdrawals("Some Other Account", sdk.NewCoins(sdk.Coin{
-		Denom:  "test",
-		Amount: sdk.NewInt(1),
-	}))
 	require.Equal(t, 1, len(testWrapper.Ctx.ContextMemCache().GetDeferredSends().GetSortedKeys()))
 	testWrapper.App.ProcessTxs(
 		testWrapper.Ctx,
@@ -128,7 +124,6 @@ func TestProcessTxsSuccess(t *testing.T) {
 	)
 
 	// It should be reset if it fails to prevent any values from being written
-	require.Equal(t, 1, len(testWrapper.Ctx.ContextMemCache().GetDeferredWithdrawals().GetSortedKeys()))
 	require.Equal(t, 1, len(testWrapper.Ctx.ContextMemCache().GetDeferredSends().GetSortedKeys()))
 }
 
@@ -144,10 +139,6 @@ func TestProcessTxsClearCacheOnFail(t *testing.T) {
 		Denom:  "test",
 		Amount: sdk.NewInt(1),
 	}))
-	testWrapper.Ctx.ContextMemCache().UpsertDeferredWithdrawals("Some Account", sdk.NewCoins(sdk.Coin{
-		Denom:  "test",
-		Amount: sdk.NewInt(1),
-	}))
 	testWrapper.App.ProcessTxs(
 		testWrapper.Ctx,
 		[][]byte{},
@@ -156,7 +147,6 @@ func TestProcessTxsClearCacheOnFail(t *testing.T) {
 	)
 
 	// It should be reset if it fails to prevent any values from being written
-	require.Equal(t, 0, len(testWrapper.Ctx.ContextMemCache().GetDeferredWithdrawals().GetSortedKeys()))
 	require.Equal(t, 0, len(testWrapper.Ctx.ContextMemCache().GetDeferredSends().GetSortedKeys()))
 }
 

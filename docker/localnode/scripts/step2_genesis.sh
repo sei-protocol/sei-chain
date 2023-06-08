@@ -16,7 +16,7 @@ override_genesis() {
 override_genesis '.app_state["crisis"]["constant_fee"]["denom"]="usei"'
 override_genesis '.app_state["mint"]["params"]["mint_denom"]="usei"'
 override_genesis '.app_state["staking"]["params"]["bond_denom"]="usei"'
-override_genesis '.app_state["oracle"]["params"]["vote_period"]="1"'
+override_genesis '.app_state["oracle"]["params"]["vote_period"]="2"'
 override_genesis '.app_state["slashing"]["params"]["signed_blocks_window"]="10000"'
 override_genesis '.app_state["slashing"]["params"]["min_signed_per_window"]="0.050000000000000000"'
 override_genesis '.app_state["staking"]["params"]["max_validators"]="50"'
