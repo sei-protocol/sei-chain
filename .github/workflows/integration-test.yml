@@ -3,7 +3,11 @@
 
 name: Docker Integration Test
 
-on: [pull_request]
+on:
+  push:
+    branches: [ "master" ]
+  pull_request:
+    branches: [ "master" ]
 
 defaults:
   run:
