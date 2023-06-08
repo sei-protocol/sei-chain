@@ -35,10 +35,7 @@ jobs:
       
       - name: Run cluster with 4 nodes
         run: >
-          kurtosis run github.com/kurtosis-tech/sei-package@ee5314d1be9ef2af29715017bbea82ed87c142a3 '{"cluster_size": 4, "num_accounts": 10, "image": "sei-chain/localnode", "git_ref": "37cd048c5158fd131f3340c3266d3c48429e1d0d"}' --enclave sei-integration-test
-      # To run on the current PR
-        # run: >
-            # kurtosis run github.com/kurtosis-tech/sei-package@ee5314d1be9ef2af29715017bbea82ed87c142a3 '{"cluster_size": 4, "num_accounts": 10, "image": "sei-chain/localnode", "git_ref": "${{ github.head_ref}}"}' --enclave sei-integration-test
+            # kurtosis run github.com/kurtosis-tech/sei-package@8d6f3a42e81c072162a822b8d91393e5c2e0bf1b '{"cluster_size": 4, "num_accounts": 10, "image": "sei-chain/localnode", "git_ref": "${{ github.head_ref }}"}' --enclave sei-integration-test
       
       - name: Verify Sei Chain is able to start up
         run: kurtosis service shell sei-integration-test sei-node-0 --exec /sei-protocol/sei-chain/integration_test/startup/startup_test.sh
@@ -52,5 +49,5 @@ jobs:
           kurtosis service shell sei-integration-test sei-node-0 --exec /sei-protocol/sei-chain/integration_test/wasm_module/timelocked_token_test_1.sh
           kurtosis service shell sei-integration-test sei-node-0 --exec /sei-protocol/sei-chain/integration_test/contracts/deploy_timelocked_token_contract.sh
           kurtosis service shell sei-integration-test sei-node-0 --exec /sei-protocol/sei-chain/integration_test/wasm_module/timelocked_token_test_2.sh
-          kurtosis service shell sei-integration-test sei-node-0 --exec "/sei-protocol/sei-chain/integration_test/contracts/deploy_timelocked_token_contract.sh migration"
+          kurtosis service shell sei-integration-test sei-node-0 --exec /sei-protocol/sei-chain/integration_test/contracts/deploy_timelocked_token_contract.sh migration
           kurtosis service shell sei-integration-test sei-node-0 --exec /sei-protocol/sei-chain/integration_test/wasm_module/timelocked_token_test_3.sh
