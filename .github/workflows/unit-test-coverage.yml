@@ -1,9 +1,6 @@
-name: Go
+name: Unit Test Coverage
 
-
-on:
-  pull_request:
-    branches: [ master ]
+on: [push, pull_request]
 
 defaults:
  run:
@@ -29,7 +26,7 @@ jobs:
         go-version: 1.18
 
     - name: Run coverage
-      run: go test -v ./... -coverprofile=coverage.txt -covermode=atomic
-    
+      run: go test -v ./... -coverprofile=coverage.txt -covermode=atomic -parallel 4
+
     - name: Upload coverage to Codecov
       uses: codecov/codecov-action@v3
