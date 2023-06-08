@@ -3,8 +3,6 @@ name: Unit Test Coverage
 on:
   pull_request:
   push:
-    paths:
-      - "**.go"
     branches:
       - master
       - release/**
