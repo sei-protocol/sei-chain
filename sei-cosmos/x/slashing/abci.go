@@ -32,10 +32,12 @@ func BeginBlocker(ctx sdk.Context, req abci.RequestBeginBlock, k keeper.Keeper) 
 	// this allows us to preserve the original ordering for writing purposes
 	slashingWriteInfo := make([]*SlashingWriteInfo, len(req.LastCommitInfo.GetVotes()))
 
-	for i, voteInfo := range req.LastCommitInfo.GetVotes() {
+	allVotes := req.LastCommitInfo.GetVotes()
+	for i, _ := range allVotes {
 		wg.Add(1)
-		go func(valIndex int, vInfo abci.VoteInfo) {
+		go func(valIndex int) {
 			defer wg.Done()
+			vInfo := allVotes[valIndex]
 			consAddr, missedInfo, signInfo, shouldSlash, slashInfo := k.HandleValidatorSignatureConcurrent(ctx, vInfo.Validator.Address, vInfo.Validator.Power, vInfo.SignedLastBlock)
 			slashingWriteInfo[valIndex] = &SlashingWriteInfo{
 				ConsAddr:    consAddr,
@@ -44,7 +46,7 @@ func BeginBlocker(ctx sdk.Context, req abci.RequestBeginBlock, k keeper.Keeper) 
 				ShouldSlash: shouldSlash,
 				SlashInfo:   slashInfo,
 			}
-		}(i, voteInfo)
+		}(i)
 	}
 	wg.Wait()
 
