@@ -6,7 +6,6 @@ on:
     paths:
       - "**.go"
     branches:
-      - main
       - master
       - release/**
 
