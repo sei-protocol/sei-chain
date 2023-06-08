@@ -1,6 +1,14 @@
 name: Unit Test Coverage
 
-on: [push, pull_request]
+on:
+  pull_request:
+  push:
+    paths:
+      - "**.go"
+    branches:
+      - main
+      - release/**
+
 
 defaults:
  run:
