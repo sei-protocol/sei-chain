@@ -1308,6 +1308,10 @@ func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequ
 	prioritizedResults, ctx := app.BuildDependenciesAndRunTxs(ctx, prioritizedTxs)
 	txResults = append(txResults, prioritizedResults...)
 
+	// Finalize all Bank Module Transfers here so that events are included for prioritiezd txs
+	deferredWriteEvents := app.BankKeeper.WriteDeferredOperations(ctx)
+	events = append(events, deferredWriteEvents...)
+
 	midBlockEvents := app.MidBlock(ctx, req.GetHeight())
 	events = append(events, midBlockEvents...)
 
