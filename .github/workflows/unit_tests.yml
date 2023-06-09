@@ -68,9 +68,6 @@ jobs:
       - name: Install gocovmerge
         run: go get github.com/wadey/gocovmerge && go install github.com/wadey/gocovmerge
       
-      - name: Print out all coverage files
-        run: ls "*coverage"
-      
       - name: Merge coverage reports
         run: gocovmerge $(find . -name *coverage) > coverage.txt
 
