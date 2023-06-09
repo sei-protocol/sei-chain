@@ -22,6 +22,13 @@ jobs:
       AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
     steps:
       - uses: actions/checkout@v3
+      - uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: Pyyaml
+        run: |
+          pip3 install pyyaml
 
       - name: Set up Go
         uses: actions/setup-go@v3
