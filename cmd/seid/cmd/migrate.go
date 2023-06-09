@@ -93,7 +93,7 @@ func MigrateCmd(appCreator types.AppCreator, defaultNodeHome string) *cobra.Comm
 			}
 			a := appCreator(serverCtx.Logger, db, traceWriter, serverCtx.Config, serverCtx.Viper)
 			seiApp := a.(*app.App)
-			seiApp.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{})
+			setCtx(seiApp)
 			stakingMigrator := stakingkeeper.NewMigrator(seiApp.StakingKeeper)
 			authMigrator := authkeeper.NewMigrator(seiApp.AccountKeeper, seiApp.GRPCQueryRouter())
 			distMigrator := distributionkeeper.NewMigrator(seiApp.DistrKeeper)
@@ -113,6 +113,15 @@ func MigrateCmd(appCreator types.AppCreator, defaultNodeHome string) *cobra.Comm
 	cmd.Flags().String(cli.HomeFlag, defaultNodeHome, "node's home directory")
 	cmd.Flags().String(server.FlagChainID, "", "Chain ID")
 	return cmd
+}
+
+func setCtx(seiApp *app.App) {
+	defer func() {
+		if err := recover(); err != nil {
+
+		}
+	}()
+	seiApp.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{})
 }
 
 func openDB(rootDir string) (dbm.DB, error) {
