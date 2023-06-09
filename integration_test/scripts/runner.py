@@ -12,7 +12,6 @@ class TestRunner:
     def load_yaml_file(self, filepath):
         with open(filepath, 'r') as f:
             data = yaml.safe_load(f)
-        print(data)
         return data
 
     # Function to process JSON
@@ -69,7 +68,7 @@ class TestRunner:
             if env_map:
                 for key in env_map:
                     envs += f'-e {key}=\'{env_map[key]}\' '
-            full_cmd = f'docker exec {envs} -t -i {container} /bin/bash -c \'export PATH=$PATH:/root/go/bin && {command}\''
+            full_cmd = f'docker exec {envs} {container} /bin/bash -c \'export PATH=$PATH:/root/go/bin && {command}\''
         else:
             full_cmd = command
         if verbose:
