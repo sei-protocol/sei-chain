@@ -35,7 +35,7 @@ service Query {
   }
 
   rpc Twaps(QueryTwapsRequest) returns (QueryTwapsResponse) {
-    option (google.api.http).get = "/sei-protocol/sei-chain/oracle/denoms/twaps";
+    option (google.api.http).get = "/sei-protocol/sei-chain/oracle/denoms/twaps/{lookback_seconds}";
   }
 
   // FeederDelegation returns feeder delegation of a validator

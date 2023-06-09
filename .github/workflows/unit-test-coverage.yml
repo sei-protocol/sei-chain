@@ -1,9 +1,12 @@
-name: Go
-
+name: Unit Test Coverage
 
 on:
   pull_request:
-    branches: [ master ]
+  push:
+    branches:
+      - master
+      - release/**
+
 
 defaults:
  run:
@@ -18,9 +21,6 @@ jobs:
     permissions: write-all
     steps:
     - uses: actions/checkout@v3
-      with:
-        fetch-depth: 0
-        ref: "refs/pull/${{ github.event.number }}/merge"
     - uses: actions/setup-python@v3
 
     - name: Set up Go
@@ -29,7 +29,7 @@ jobs:
         go-version: 1.18
 
     - name: Run coverage
-      run: go test -v ./... -coverprofile=coverage.txt -covermode=atomic
-    
+      run: go test -v ./... -coverprofile=coverage.txt -covermode=atomic -parallel 4
+
     - name: Upload coverage to Codecov
       uses: codecov/codecov-action@v3

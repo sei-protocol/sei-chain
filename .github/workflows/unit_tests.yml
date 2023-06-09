@@ -6,6 +6,7 @@ on:
       - "**.go"
     branches:
       - main
+      - master
       - release/**
 
 jobs:
