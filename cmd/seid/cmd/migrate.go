@@ -7,6 +7,9 @@ import (
 	"os"
 	"path/filepath"
 
+	"net/http"
+	_ "net/http/pprof"
+
 	"github.com/cosmos/cosmos-sdk/client"
 	clientconfig "github.com/cosmos/cosmos-sdk/client/config"
 	"github.com/cosmos/cosmos-sdk/client/flags"
@@ -42,6 +45,12 @@ func MigrateCmd(appCreator types.AppCreator, defaultNodeHome string) *cobra.Comm
 		},
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			serverCtx := server.GetServerContextFromCmd(cmd)
+			go func() {
+				err := http.ListenAndServe(":6060", nil)
+				if err != nil {
+					serverCtx.Logger.Error("Error from profiling server", "error", err)
+				}
+			}()
 			clientCtx, err := client.GetClientQueryContext(cmd)
 			if err != nil {
 				return err
@@ -93,7 +102,7 @@ func MigrateCmd(appCreator types.AppCreator, defaultNodeHome string) *cobra.Comm
 			}
 			a := appCreator(serverCtx.Logger, db, traceWriter, serverCtx.Config, serverCtx.Viper)
 			seiApp := a.(*app.App)
-			seiApp.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{})
+			setCtx(seiApp)
 			stakingMigrator := stakingkeeper.NewMigrator(seiApp.StakingKeeper)
 			authMigrator := authkeeper.NewMigrator(seiApp.AccountKeeper, seiApp.GRPCQueryRouter())
 			distMigrator := distributionkeeper.NewMigrator(seiApp.DistrKeeper)
@@ -103,6 +112,7 @@ func MigrateCmd(appCreator types.AppCreator, defaultNodeHome string) *cobra.Comm
 			fmt.Println("migrated auth")
 			distMigrator.Migrate2to3(seiApp.GetContextForDeliverTx([]byte{}))
 			fmt.Println("migrated distribution")
+			seiApp.SetDeliverStateToCommit()
 			_, err = seiApp.Commit(context.Background())
 			if err != nil {
 				panic(err)
@@ -113,6 +123,15 @@ func MigrateCmd(appCreator types.AppCreator, defaultNodeHome string) *cobra.Comm
 	cmd.Flags().String(cli.HomeFlag, defaultNodeHome, "node's home directory")
 	cmd.Flags().String(server.FlagChainID, "", "Chain ID")
 	return cmd
+}
+
+func setCtx(seiApp *app.App) {
+	defer func() {
+		if err := recover(); err != nil {
+
+		}
+	}()
+	seiApp.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{})
 }
 
 func openDB(rootDir string) (dbm.DB, error) {
