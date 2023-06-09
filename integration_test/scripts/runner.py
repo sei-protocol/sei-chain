@@ -47,8 +47,10 @@ class TestRunner:
         expression = str(verifier["expr"])
         result = env_map[env_key].strip()
         if type == "condition":
-            command = " if [ {0} {1} ] ; then echo true ; else echo false ; fi".format(result, expression)
-            output = self.run_bash_command(command, False)
+            command = "if [[ {0} {1} ]] ; then echo true ; else echo false ; fi".format(result, expression)
+            process = subprocess.Popen(command, stdout=subprocess.PIPE, shell=True)
+            output, error = process.communicate()
+            output = output.decode().strip()
             return output == "true"
         elif type == "regex":
             return re.match(expression, result)
@@ -62,7 +64,7 @@ class TestRunner:
             if env_map:
                 for key in env_map:
                     envs += f'-e {key}=\'{env_map[key]}\' '
-            full_cmd = f'docker exec {envs} -ti {container} /bin/bash -c \'export PATH=$PATH:/root/go/bin && {command}\''
+            full_cmd = f'docker exec {envs} -t -i {container} /bin/bash -c \'export PATH=$PATH:/root/go/bin && {command}\''
         else:
             full_cmd = command
         if verbose:
