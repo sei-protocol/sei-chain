@@ -1,6 +1,9 @@
 package keeper_test
 
 import (
+	"fmt"
+	"github.com/cosmos/cosmos-sdk/x/slashing/types"
+	"github.com/stretchr/testify/assert"
 	"testing"
 	"time"
 
@@ -283,4 +286,28 @@ func TestValidatorDippingInAndOut(t *testing.T) {
 	// validator should now be jailed & kicked
 	staking.EndBlocker(ctx, app.StakingKeeper)
 	tstaking.CheckValidator(valAddr, stakingtypes.Unbonding, true)
+}
+
+func TestSlash(t *testing.T) {
+	app := simapp.Setup(false)
+	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
+	addrDels := simapp.AddTestAddrsIncremental(app, ctx, 6, app.StakingKeeper.TokensFromConsensusPower(ctx, 200))
+	keeper := app.SlashingKeeper
+
+	consAddr := sdk.ConsAddress(addrDels[0])
+	fraction := sdk.NewDec(5)
+	power := int64(100)
+	distributionHeight := int64(200)
+
+	// Perform the slash operation
+	keeper.Slash(ctx, consAddr, fraction, power, distributionHeight)
+
+	expectedEvent := sdk.NewEvent(
+		types.EventTypeSlash,
+		sdk.NewAttribute(types.AttributeKeyAddress, consAddr.String()),
+		sdk.NewAttribute(types.AttributeKeyPower, fmt.Sprintf("%d", power)),
+		sdk.NewAttribute(types.AttributeKeyReason, types.AttributeValueDoubleSign),
+	)
+	assert.Contains(t, ctx.EventManager().Events(), expectedEvent)
+
 }
