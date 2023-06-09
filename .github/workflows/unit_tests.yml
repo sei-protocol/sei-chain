@@ -29,8 +29,6 @@ jobs:
             go.sum
             Makefile
       - name: Get data from Go build cache
-        # if: env.GIT_DIFF
-        if: ${{ false }}
         uses: actions/cache@v3
         with:
           path: |
@@ -42,7 +40,6 @@ jobs:
         run: |
           NUM_SPLIT=20
           make test-group-${{matrix.part}} NUM_SPLIT=20
-        if: env.GIT_DIFF
 
       - uses: actions/upload-artifact@v3
         with:
