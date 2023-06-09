@@ -47,7 +47,7 @@ class TestRunner:
         expression = str(verifier["expr"])
         result = env_map[env_key].strip()
         if type == "condition":
-            command = "if [[ {0} {1} ]] ; then echo true ; else echo false ; fi".format(result, expression)
+            command = " if [ {0} {1} ] ; then echo true ; else echo false ; fi".format(result, expression)
             output = self.run_bash_command(command, False)
             return output == "true"
         elif type == "regex":
