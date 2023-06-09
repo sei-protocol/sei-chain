@@ -419,9 +419,7 @@ func (k BaseKeeper) DeferredSendCoinsFromAccountToModule(
 }
 
 func (k BaseKeeper) WriteDeferredOperations(ctx sdk.Context) []abci.Event {
-	return append(
-		k.WriteDeferredDepositsToModuleAccounts(ctx),
-	)
+	return k.WriteDeferredDepositsToModuleAccounts(ctx)
 }
 
 // WriteDeferredDepositsToModuleAccounts Iterates on all the lazy deposits and deposit them into the store

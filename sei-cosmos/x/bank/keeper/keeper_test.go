@@ -138,6 +138,32 @@ func (suite *IntegrationTestSuite) TestSupply() {
 	require.Equal(total.String(), "")
 }
 
+func (suite *IntegrationTestSuite) TestIterateSupply() {
+	ctx := suite.ctx
+
+	require := suite.Require()
+
+	// add module accounts to supply keeper
+	authKeeper, keeper := suite.initKeepersWithmAccPerms(make(map[string]bool))
+
+	initialPower := int64(100)
+	initTokens := suite.app.StakingKeeper.TokensFromConsensusPower(ctx, initialPower)
+	totalSupply := sdk.NewCoins(sdk.NewCoin(sdk.DefaultBondDenom, initTokens), newFooCoin(123), newBarCoin(240))
+
+	// set burnerAcc balance
+	authKeeper.SetModuleAccount(ctx, burnerAcc)
+	require.NoError(keeper.MintCoins(ctx, authtypes.Minter, totalSupply))
+	require.NoError(keeper.SendCoinsFromModuleToAccount(ctx, authtypes.Minter, burnerAcc.GetAddress(), totalSupply))
+
+	// test iterate supply
+	amounts := []sdk.Coin{}
+	keeper.IterateTotalSupply(ctx, func(c sdk.Coin) bool {
+		amounts = append(amounts, c)
+		return false
+	})
+	require.Equal(totalSupply, sdk.Coins(amounts))
+}
+
 func (suite *IntegrationTestSuite) TestSendCoinsFromModuleToAccount_Blocklist() {
 	ctx := suite.ctx
 
@@ -648,6 +674,45 @@ func (suite *IntegrationTestSuite) TestBurnCoinsWithDeferredBalance() {
 	suite.Require().Equal(newBarCoin(40), app.BankKeeper.GetSupply(ctx, "bar"))
 }
 
+func (suite *IntegrationTestSuite) TestWriteDeferredOperations() {
+	// add module accounts to supply keeper
+	ctx := suite.ctx
+	ctx = ctx.WithContextMemCache(sdk.NewContextMemCache())
+	authKeeper, keeper := suite.initKeepersWithmAccPerms(make(map[string]bool))
+	authKeeper.SetModuleAccount(ctx, multiPermAcc)
+	app := suite.app
+	app.BankKeeper = keeper
+
+	deferredBalances := sdk.NewCoins(newFooCoin(10), newBarCoin(50))
+
+	// set up balances this way to ensure that supply is incremented appropriately
+	addr2 := sdk.AccAddress([]byte("addr2_______________"))
+	acc2 := app.AccountKeeper.NewAccountWithAddress(ctx, addr2)
+	app.AccountKeeper.SetAccount(ctx, acc2)
+	suite.Require().NoError(simapp.FundAccount(app.BankKeeper, ctx, addr2, deferredBalances))
+	suite.Require().NoError(app.BankKeeper.DeferredSendCoinsFromAccountToModule(ctx, addr2, multiPerm, deferredBalances))
+
+	bankBalances := sdk.NewCoins(newFooCoin(20), newBarCoin(30))
+	// setup deferred balances
+	// ctx.ContextMemCache().UpsertDeferredSends(multiPerm, deferredBalances)
+	// set up bank balances
+	suite.Require().NoError(simapp.FundAccount(app.BankKeeper, ctx, multiPermAcc.GetAddress(), bankBalances))
+
+	// verify that bank balances are only the original bank balances
+	suite.Require().Equal(bankBalances, app.BankKeeper.GetAllBalances(ctx, multiPermAcc.GetAddress()))
+
+	// write deferred balances
+	app.BankKeeper.WriteDeferredOperations(ctx)
+
+	// verify total balance in module bank balances
+	suite.Require().Equal(sdk.NewCoins(newFooCoin(30), newBarCoin(80)), app.BankKeeper.GetAllBalances(ctx, multiPermAcc.GetAddress()))
+
+	// test error
+	ctx.ContextMemCache().GetDeferredSends().Set("asd", deferredBalances)
+	suite.Require().Panics(func() { app.BankKeeper.WriteDeferredOperations(ctx) })
+
+}
+
 func (suite *IntegrationTestSuite) TestValidateBalance() {
 	app, ctx := suite.app, suite.ctx
 	now := tmtime.Now()
@@ -1081,6 +1146,37 @@ func (suite *IntegrationTestSuite) TestDelegateCoins() {
 	vestingAcc, ok := acc.(exported.VestingAccount)
 	suite.Require().True(ok)
 	suite.Require().Equal(delCoins, vestingAcc.GetDelegatedVesting())
+}
+
+func (suite *IntegrationTestSuite) TestDelegateCoinsFromAccountToModule() {
+	app, ctx := suite.app, suite.ctx
+	now := tmtime.Now()
+	ctx = ctx.WithBlockHeader(tmproto.Header{Time: now})
+
+	origCoins := sdk.NewCoins(sdk.NewInt64Coin("usei", 100))
+	delCoins := sdk.NewCoins(sdk.NewInt64Coin("usei", 50))
+	undelCoins := sdk.NewCoins(sdk.NewInt64Coin("usei", 20))
+
+	addr := sdk.AccAddress([]byte("addr2_______________"))
+	authKeeper, keeper := suite.initKeepersWithmAccPerms(make(map[string]bool))
+	authKeeper.SetModuleAccount(ctx, multiPermAcc)
+	app.BankKeeper = keeper
+
+	acc := app.AccountKeeper.NewAccountWithAddress(ctx, addr)
+
+	app.AccountKeeper.SetAccount(ctx, acc)
+	suite.Require().NoError(simapp.FundAccount(app.BankKeeper, ctx, addr, origCoins))
+
+	// test delegate from account to module
+	suite.Require().NoError(app.BankKeeper.DelegateCoinsFromAccountToModule(ctx, addr, multiPerm, delCoins))
+	// require the ability for a non-vesting account to delegate
+	suite.Require().Equal(origCoins.Sub(delCoins), app.BankKeeper.GetAllBalances(ctx, addr))
+	suite.Require().Equal(delCoins, app.BankKeeper.GetAllBalances(ctx, multiPermAcc.GetAddress()))
+
+	// test undelegate from module
+	suite.Require().NoError(app.BankKeeper.UndelegateCoinsFromModuleToAccount(ctx, multiPerm, addr, undelCoins))
+	suite.Require().Equal(origCoins.Sub(delCoins).Add(undelCoins...), app.BankKeeper.GetAllBalances(ctx, addr))
+	suite.Require().Equal(delCoins.Sub(undelCoins), app.BankKeeper.GetAllBalances(ctx, multiPermAcc.GetAddress()))
 }
 
 func (suite *IntegrationTestSuite) TestDelegateCoins_Invalid() {
