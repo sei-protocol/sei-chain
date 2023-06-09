@@ -32,6 +32,6 @@
       result: PROPOSAL_STATUS_2
       expr: '^.*executed.*'
     - type: eval
-      expr: START_AMOUNT > 0
+      expr: START_AMOUNT == 0
     - type: eval
-      expr: END_AMOUNT == 0
+      expr: END_AMOUNT > 0
