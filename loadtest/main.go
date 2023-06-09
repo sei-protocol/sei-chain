@@ -155,6 +155,17 @@ func (c *LoadTestClient) generateMessage(config Config, key cryptotypes.PrivKey,
 			Msg:      wasmtypes.RawContractMessage([]byte("{\"mint\":{\"owner\": \"sei1a27kj2j27c6uz58rn9zmhcjee9s3h3nhyhtvjj\"}}")),
 			Funds:    amount,
 		}}
+	case WasmInstantiate:
+		msgs = []sdk.Msg{&wasmtypes.MsgInstantiateContract{
+			Sender: sdk.AccAddress(key.PubKey().Address()).String(),
+			CodeID: config.WasmMsgTypes.Instantiate.CodeID,
+			Label:  "test",
+			Msg:    wasmtypes.RawContractMessage([]byte(config.WasmMsgTypes.Instantiate.Payload)),
+			Funds: sdk.NewCoins(sdk.Coin{
+				Denom:  "usei",
+				Amount: sdk.NewInt(1),
+			}), // maybe make this configurable as well in the future
+		}}
 	case Bank:
 		msgs = []sdk.Msg{&banktypes.MsgSend{
 			FromAddress: sdk.AccAddress(key.PubKey().Address()).String(),
