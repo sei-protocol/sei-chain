@@ -14,7 +14,7 @@
       env: RESULT
   verifiers:
     - type: eval
-      eval: RESULT == 0
+      expr: RESULT == 0
 
 - name: Test token redelegation
   inputs:

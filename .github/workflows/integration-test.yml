@@ -56,9 +56,9 @@ jobs:
 
       - name: Testing Wasm Module
         run: |
-          docker exec -i sei-node-0 integration_test/contracts/deploy_timelocked_token_contract.sh
+          docker exec sei-node-0 integration_test/contracts/deploy_timelocked_token_contract.sh
           python3 integration_test/scripts/runner.py integration_test/wasm_module/timelocked_token_delegation_test.yaml
           python3 integration_test/scripts/runner.py integration_test/wasm_module/timelocked_token_admin_test.yaml
           python3 integration_test/scripts/runner.py integration_test/wasm_module/timelocked_token_withdraw_test.yaml
-          docker exec -i sei-node-0 integration_test/contracts/deploy_timelocked_token_contract.sh
+          docker exec sei-node-0 integration_test/contracts/deploy_timelocked_token_contract.sh
           python3 integration_test/scripts/runner.py integration_test/wasm_module/timelocked_token_emgergency_withdraw_test.yaml
