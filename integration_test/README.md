@@ -38,6 +38,19 @@ A typical yaml test case would look like this:
       expr: <Replace with bash condition or regular expression>
 ```
 
+One simple example for verify chain is started and running fine:
+```yaml
+- name: Test number of validators should be equal to 4
+  inputs:
+    # Query num of validators
+    - cmd: seid q tendermint-validator-set |grep address |wc -l
+      env: RESULT
+  verifiers:
+  - type: condition
+    result: RESULT
+    expr: -eq 4
+```
+
 ### Explanation
 
 | field_name | required | description                                                                                                                                         |
