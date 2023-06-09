@@ -2,6 +2,7 @@ FROM ubuntu:latest
 RUN apt-get update && \
     apt-get install -y make git golang jq python3 curl vim
 RUN rm -rf build/generated
+SHELL ["/bin/bash", "-c"]
 
 
 VOLUME [ "/sei-protocol" ]
