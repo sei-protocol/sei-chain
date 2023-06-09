@@ -48,9 +48,9 @@ jobs:
 
       - name: Testing Wasm Module
         run: |
-          kurtosis service shell sei-integration-test sei-node-0 --exec /sei-protocol/sei-chain/integration_test/contracts/deploy_timelocked_token_contract.sh
-          kurtosis service shell sei-integration-test sei-node-0 --exec /sei-protocol/sei-chain/integration_test/wasm_module/timelocked_token_test_1.sh
-          kurtosis service shell sei-integration-test sei-node-0 --exec /sei-protocol/sei-chain/integration_test/contracts/deploy_timelocked_token_contract.sh
-          kurtosis service shell sei-integration-test sei-node-0 --exec /sei-protocol/sei-chain/integration_test/wasm_module/timelocked_token_test_2.sh
-          kurtosis service shell sei-integration-test sei-node-0 --exec "/sei-protocol/sei-chain/integration_test/contracts/deploy_timelocked_token_contract.sh migration"
-          kurtosis service shell sei-integration-test sei-node-0 --exec /sei-protocol/sei-chain/integration_test/wasm_module/timelocked_token_test_3.sh
+          kurtosis service exec sei-integration-test sei-node-0 /sei-protocol/sei-chain/integration_test/contracts/deploy_timelocked_token_contract.sh
+          kurtosis service exec sei-integration-test sei-node-0 /sei-protocol/sei-chain/integration_test/wasm_module/timelocked_token_test_1.sh
+          kurtosis service exec sei-integration-test sei-node-0 /sei-protocol/sei-chain/integration_test/contracts/deploy_timelocked_token_contract.sh
+          kurtosis service exec sei-integration-test sei-node-0 /sei-protocol/sei-chain/integration_test/wasm_module/timelocked_token_test_2.sh
+          kurtosis service exec sei-integration-test sei-node-0 "/sei-protocol/sei-chain/integration_test/contracts/deploy_timelocked_token_contract.sh migration"
+          kurtosis service exec sei-integration-test sei-node-0 /sei-protocol/sei-chain/integration_test/wasm_module/timelocked_token_test_3.sh
