@@ -14,9 +14,8 @@
       env: RESULT
   verifiers:
     # Order id should be greater or equal to 0
-    - type: condition
-      result: ORDER_ID
-      expr: -ge 0
+    - type: eval
+      expr: ORDER_ID >= 0
     # Order status should be something like PLACED
     - type: regex
       result: RESULT

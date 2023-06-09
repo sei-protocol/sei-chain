@@ -13,12 +13,10 @@
     - cmd: printf "12345678\n" | seid tx wasm execute $GRINGOTTS_ADDR " {\"update_op\":{\"op\":\"$OP_ADDR\",\"remove\":false}} " -y --from=admin1 --chain-id=sei --gas=5000000 --fees=1000000usei --broadcast-mode=block --output json |jq -M -r .code
       env: ADD_RESULT
   verifiers:
-    - type: condition
-      result: REMOVE_RESULT
-      expr: -eq 0
-    - type: condition
-      result: ADD_RESULT
-      expr: -eq 0
+    - type: eval
+      expr: REMOVE_RESULT == 0
+    - type: eval
+      expr: ADD_RESULT == 0
 
 - name: Test proposal for updating admin account
   inputs:
@@ -44,9 +42,8 @@
     - cmd: seid q wasm contract-state smart $GRINGOTTS_ADDR "{\"list_proposals\":{}}" --output json |jq -r .data.proposals[0].status
       env: PROPOSAL_STATUS_2
   verifiers:
-    - type: condition
-      result: PROPOSAL_ID
-      expr: -gt 0
+    - type: eval
+      expr: PROPOSAL_ID > 0
     - type: regex
       result: PROPOSAL_STATUS_1
       expr: '^.*passed.*'

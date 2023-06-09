@@ -43,16 +43,20 @@ class TestRunner:
     # Function to verify the result of a single test case
     def verify_result(self, env_map, verifier):
         type = verifier["type"]
-        env_key = verifier["result"]
-        expression = str(verifier["expr"])
-        result = env_map[env_key].strip()
-        if type == "condition":
-            command = "if [ {0} {1} ] ; then echo true ; else echo false ; fi".format(result, expression)
-            process = subprocess.Popen([command], stdin=subprocess.PIPE, stdout=subprocess.PIPE, shell=True)
-            output, error = process.communicate()
-            output = output.decode().strip()
-            return output == "true"
+        if type == "eval":
+            elems = verifier["expr"].strip().split()
+            if len(elems) == 3:
+                if env_map.get(elems[0]):
+                    elems[0] = env_map[elems[0]]
+                if env_map.get(elems[2]):
+                    elems[2] = env_map[elems[2]]
+                expr = f'{elems[0]} {elems[1]} {elems[2]}'
+                return eval(expr)
+            return False
         elif type == "regex":
+            env_key = verifier["result"]
+            expression = str(verifier["expr"])
+            result = env_map[env_key].strip()
             return re.match(expression, result)
         else:
             return False

@@ -33,9 +33,11 @@ A typical yaml test case would look like this:
       env: RESULT
   verifiers:
     # Add comments for what should the expected result
-    - type: <condition/regex>
+    - type: eval
+      expr: <Replace with a valid python eval>
+    - type: regex
       result: RESULT
-      expr: <Replace with bash condition or regular expression>
+      expr: <Replace with regular expression>
 ```
 
 One simple example for verify chain is started and running fine:
@@ -46,24 +48,23 @@ One simple example for verify chain is started and running fine:
     - cmd: seid q tendermint-validator-set |grep address |wc -l
       env: RESULT
   verifiers:
-  - type: condition
-    result: RESULT
-    expr: -eq 4
+  - type: eval
+    expr: RESULT == 4
 ```
 
 ### Explanation
 
-| field_name | required | description                                                                                                                                         |
-|------------|----------|-----------------------------------------------------------------------------------------------------------------------------------------------------|
-| name       | Yes      | Defines the purpose of the test case .                                                                                                              |
-| inputs     | Yes      | Contains a list of command inputs to run one by one.                                                                                                |
-| cmd        | Yes      | Exact seid or bash command to run.                                                                                                                  |
-| env        | No       | If given, the command output will be persisted to this env variable, which can be referenced by all below commands                                  |
-| node       | No       | If given, the command will be executed on a specific container, default to sei-node-0                                                               |
-| verifiers  | Yes      | Contains a list of verify functions to check correctness                                                                                            |
-| type       | Yes      | Currently support either `condition` or `regex`.                                                                                                    |
-| result     | Yes      | Pick any env variables you want to pass in for verification                                                                                         |
-| expr       | Yes      | If type is condition, then the format is `-eq\|-\|ne\|-ge\|-gt\|-le\|-lt [number]` <br/> If type is regex, then provide a valid regular expression. |                                                         |
+| field_name | required | description                                                                                                                                   |
+|------------|----------|-----------------------------------------------------------------------------------------------------------------------------------------------|
+| name       | Yes      | Defines the purpose of the test case .                                                                                                        |
+| inputs     | Yes      | Contains a list of command inputs to run one by one.                                                                                          |
+| cmd        | Yes      | Exact seid or bash command to run.                                                                                                            |
+| env        | No       | If given, the command output will be persisted to this env variable, which can be referenced by all below commands                            |
+| node       | No       | If given, the command will be executed on a specific container, default to sei-node-0                                                         |
+| verifiers  | Yes      | Contains a list of verify functions to check correctness                                                                                      |
+| type       | Yes      | Currently support either `eval` or `regex`.                                                                                                   |
+| result     | Yes      | Pick any env variables you want to pass in for regex match                                                                                    |
+| expr       | Yes      | If type is eval, then the format is `[env] >\|==\|!=\|>=\|>\|<=\|< [number]` <br/> If type is regex, then provide a valid regular expression. |                                                         |
 
 ### Notes & Tips
 There are some tricks and tips you should know when adding a new test case:

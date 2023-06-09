@@ -4,9 +4,8 @@
     - cmd: seid q tendermint-validator-set |grep address |wc -l
       env: RESULT
   verifiers:
-  - type: condition
-    result: RESULT
-    expr: -eq 4
+  - type: eval
+    expr: RESULT == 4
 
 - name: Test block height should be greater than 0
   inputs:
@@ -14,6 +13,5 @@
     - cmd: seid status |jq -M -r .SyncInfo.latest_block_height
       env: RESULT
   verifiers:
-  - type: condition
-    result: RESULT
-    expr: -gt 0
+  - type: eval
+    expr: RESULT > 0

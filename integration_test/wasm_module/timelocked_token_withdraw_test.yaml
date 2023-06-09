@@ -13,6 +13,5 @@
     - cmd: seid q wasm contract-state smart $GRINGOTTS_ADDR " {\"info\":{}} " --output json |jq -r .data.withdrawn_unlocked
       env: RESULT
   verifiers:
-    - type: condition
-      result: RESULT
-      expr: -gt 0
+    - type: eval
+      expr: RESULT > 0

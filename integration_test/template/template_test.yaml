@@ -9,6 +9,8 @@
       env: RESULT
   verifiers:
     # Add comments for what should the expected result
-    - type: <condition/regex>
+    - type: eval
+      expr: <Replace with a valid python eval>
+    - type: regex
       result: RESULT
-      expr: <Replace with bash condition or regular expression>
+      expr: <Replace with regular expression>
