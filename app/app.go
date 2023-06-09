@@ -721,6 +721,32 @@ func New(
 		// this line is used by starport scaffolding # stargate/app/initGenesis
 	)
 
+	app.mm.SetOrderMigrations(
+		upgradetypes.ModuleName,
+		paramstypes.ModuleName,
+		capabilitytypes.ModuleName,
+		authtypes.ModuleName,
+		banktypes.ModuleName,
+		stakingtypes.ModuleName,
+		distrtypes.ModuleName,
+		slashingtypes.ModuleName,
+		govtypes.ModuleName,
+		minttypes.ModuleName,
+		vestingtypes.ModuleName,
+		crisistypes.ModuleName,
+		ibchost.ModuleName,
+		dexmoduletypes.ModuleName,
+		genutiltypes.ModuleName,
+		evidencetypes.ModuleName,
+		ibctransfertypes.ModuleName,
+		feegrant.ModuleName,
+		oracletypes.ModuleName,
+		tokenfactorytypes.ModuleName,
+		epochmoduletypes.ModuleName,
+		wasm.ModuleName,
+		acltypes.ModuleName,
+	)
+
 	app.mm.RegisterInvariants(&app.CrisisKeeper)
 	app.mm.RegisterRoutes(app.Router(), app.QueryRouter(), encodingConfig.Amino)
 	app.configurator = module.NewConfigurator(app.appCodec, app.MsgServiceRouter(), app.GRPCQueryRouter())

@@ -69,14 +69,20 @@ func MsgDelegateDependencyGenerator(keeper aclkeeper.Keeper, ctx sdk.Context, ms
 
 		// Before Unbond Distribution Hook
 		{
-			AccessType:         sdkacltypes.AccessType_READ,
-			ResourceType:       sdkacltypes.ResourceType_KV_DISTRIBUTION_DELEGATOR_STARTING_INFO,
-			IdentifierTemplate: hex.EncodeToString(distributiontypes.GetDelegatorStartingInfoKey(validatorAddr, delegateAddr)),
+			AccessType:   sdkacltypes.AccessType_READ,
+			ResourceType: sdkacltypes.ResourceType_KV_DISTRIBUTION_DELEGATOR_STARTING_INFO,
+			IdentifierTemplate: hex.EncodeToString(distributiontypes.GetDelegatorStartingInfoKey(
+				keeper.StakingKeeper.GetValidatorID(ctx, validatorAddr),
+				keeper.AccountKeeper.GetAccount(ctx, delegateAddr).GetAccountNumber(),
+			)),
 		},
 		{
-			AccessType:         sdkacltypes.AccessType_WRITE,
-			ResourceType:       sdkacltypes.ResourceType_KV_DISTRIBUTION_DELEGATOR_STARTING_INFO,
-			IdentifierTemplate: hex.EncodeToString(distributiontypes.GetDelegatorStartingInfoKey(validatorAddr, delegateAddr)),
+			AccessType:   sdkacltypes.AccessType_WRITE,
+			ResourceType: sdkacltypes.ResourceType_KV_DISTRIBUTION_DELEGATOR_STARTING_INFO,
+			IdentifierTemplate: hex.EncodeToString(distributiontypes.GetDelegatorStartingInfoKey(
+				keeper.StakingKeeper.GetValidatorID(ctx, validatorAddr),
+				keeper.AccountKeeper.GetAccount(ctx, delegateAddr).GetAccountNumber(),
+			)),
 		},
 		{
 			AccessType:         sdkacltypes.AccessType_READ,
@@ -293,9 +299,12 @@ func MsgUndelegateDependencyGenerator(keeper aclkeeper.Keeper, ctx sdk.Context, 
 
 		// Before Unbond Distribution Hook
 		{
-			AccessType:         sdkacltypes.AccessType_READ,
-			ResourceType:       sdkacltypes.ResourceType_KV_DISTRIBUTION_DELEGATOR_STARTING_INFO,
-			IdentifierTemplate: hex.EncodeToString(distributiontypes.GetDelegatorStartingInfoKey(validatorAddr, delegateAddr)),
+			AccessType:   sdkacltypes.AccessType_READ,
+			ResourceType: sdkacltypes.ResourceType_KV_DISTRIBUTION_DELEGATOR_STARTING_INFO,
+			IdentifierTemplate: hex.EncodeToString(distributiontypes.GetDelegatorStartingInfoKey(
+				keeper.StakingKeeper.GetValidatorID(ctx, validatorAddr),
+				keeper.AccountKeeper.GetAccount(ctx, delegateAddr).GetAccountNumber(),
+			)),
 		},
 		{
 			AccessType:         sdkacltypes.AccessType_READ,
@@ -353,9 +362,12 @@ func MsgUndelegateDependencyGenerator(keeper aclkeeper.Keeper, ctx sdk.Context, 
 		},
 
 		{
-			AccessType:         sdkacltypes.AccessType_WRITE,
-			ResourceType:       sdkacltypes.ResourceType_KV_DISTRIBUTION_DELEGATOR_STARTING_INFO,
-			IdentifierTemplate: hex.EncodeToString(distributiontypes.GetDelegatorStartingInfoKey(validatorAddr, delegateAddr)),
+			AccessType:   sdkacltypes.AccessType_WRITE,
+			ResourceType: sdkacltypes.ResourceType_KV_DISTRIBUTION_DELEGATOR_STARTING_INFO,
+			IdentifierTemplate: hex.EncodeToString(distributiontypes.GetDelegatorStartingInfoKey(
+				keeper.StakingKeeper.GetValidatorID(ctx, validatorAddr),
+				keeper.AccountKeeper.GetAccount(ctx, delegateAddr).GetAccountNumber(),
+			)),
 		},
 
 		// Update the delegator and validator account balances
@@ -484,14 +496,20 @@ func MsgBeginRedelegateDependencyGenerator(keeper aclkeeper.Keeper, ctx sdk.Cont
 
 		// Before Unbond Distribution Hook
 		{
-			AccessType:         sdkacltypes.AccessType_READ,
-			ResourceType:       sdkacltypes.ResourceType_KV_DISTRIBUTION_DELEGATOR_STARTING_INFO,
-			IdentifierTemplate: hex.EncodeToString(distributiontypes.GetDelegatorStartingInfoKey(srcValidatorAddr, delegateAddr)),
+			AccessType:   sdkacltypes.AccessType_READ,
+			ResourceType: sdkacltypes.ResourceType_KV_DISTRIBUTION_DELEGATOR_STARTING_INFO,
+			IdentifierTemplate: hex.EncodeToString(distributiontypes.GetDelegatorStartingInfoKey(
+				keeper.StakingKeeper.GetValidatorID(ctx, srcValidatorAddr),
+				keeper.AccountKeeper.GetAccount(ctx, delegateAddr).GetAccountNumber(),
+			)),
 		},
 		{
-			AccessType:         sdkacltypes.AccessType_READ,
-			ResourceType:       sdkacltypes.ResourceType_KV_DISTRIBUTION_DELEGATOR_STARTING_INFO,
-			IdentifierTemplate: hex.EncodeToString(distributiontypes.GetDelegatorStartingInfoKey(dstValidatorAddr, delegateAddr)),
+			AccessType:   sdkacltypes.AccessType_READ,
+			ResourceType: sdkacltypes.ResourceType_KV_DISTRIBUTION_DELEGATOR_STARTING_INFO,
+			IdentifierTemplate: hex.EncodeToString(distributiontypes.GetDelegatorStartingInfoKey(
+				keeper.StakingKeeper.GetValidatorID(ctx, dstValidatorAddr),
+				keeper.AccountKeeper.GetAccount(ctx, delegateAddr).GetAccountNumber(),
+			)),
 		},
 
 		{
@@ -582,14 +600,20 @@ func MsgBeginRedelegateDependencyGenerator(keeper aclkeeper.Keeper, ctx sdk.Cont
 		},
 
 		{
-			AccessType:         sdkacltypes.AccessType_WRITE,
-			ResourceType:       sdkacltypes.ResourceType_KV_DISTRIBUTION_DELEGATOR_STARTING_INFO,
-			IdentifierTemplate: hex.EncodeToString(distributiontypes.GetDelegatorStartingInfoKey(srcValidatorAddr, delegateAddr)),
+			AccessType:   sdkacltypes.AccessType_WRITE,
+			ResourceType: sdkacltypes.ResourceType_KV_DISTRIBUTION_DELEGATOR_STARTING_INFO,
+			IdentifierTemplate: hex.EncodeToString(distributiontypes.GetDelegatorStartingInfoKey(
+				keeper.StakingKeeper.GetValidatorID(ctx, srcValidatorAddr),
+				keeper.AccountKeeper.GetAccount(ctx, delegateAddr).GetAccountNumber(),
+			)),
 		},
 		{
-			AccessType:         sdkacltypes.AccessType_WRITE,
-			ResourceType:       sdkacltypes.ResourceType_KV_DISTRIBUTION_DELEGATOR_STARTING_INFO,
-			IdentifierTemplate: hex.EncodeToString(distributiontypes.GetDelegatorStartingInfoKey(dstValidatorAddr, delegateAddr)),
+			AccessType:   sdkacltypes.AccessType_WRITE,
+			ResourceType: sdkacltypes.ResourceType_KV_DISTRIBUTION_DELEGATOR_STARTING_INFO,
+			IdentifierTemplate: hex.EncodeToString(distributiontypes.GetDelegatorStartingInfoKey(
+				keeper.StakingKeeper.GetValidatorID(ctx, dstValidatorAddr),
+				keeper.AccountKeeper.GetAccount(ctx, delegateAddr).GetAccountNumber(),
+			)),
 		},
 
 		// Update the delegator and validator account balances
