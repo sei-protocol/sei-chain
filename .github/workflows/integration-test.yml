@@ -37,19 +37,21 @@ jobs:
           do
             sleep 10
           done
-          sleep 5
+          sleep 10
 
       - name: Verify Sei Chain is able to start up
-        run: docker exec -i sei-node-0 integration_test/startup/startup_test.sh
+        run: python3 integration_test/scripts/runner.py integration_test/startup/startup_test.json
 
       - name: Testing Dex Module
-        run: docker exec -i sei-node-0 integration_test/dex_module/place_order_test.sh
+        run: |
+          docker exec -i sei-node-0 integration_test/contracts/deploy_dex_contract.sh mars
+          python3 integration_test/scripts/runner.py integration_test/dex_module/place_order_test.json
 
       - name: Testing Wasm Module
         run: |
           docker exec -i sei-node-0 integration_test/contracts/deploy_timelocked_token_contract.sh
-          docker exec -i sei-node-0 integration_test/wasm_module/timelocked_token_test_1.sh
+          python3 integration_test/scripts/runner.py integration_test/wasm_module/timelocked_token_delegation_test.yaml
+          python3 integration_test/scripts/runner.py integration_test/wasm_module/timelocked_token_admin_test.yaml
+          python3 integration_test/scripts/runner.py integration_test/wasm_module/timelocked_token_withdraw_test.yaml
           docker exec -i sei-node-0 integration_test/contracts/deploy_timelocked_token_contract.sh
-          docker exec -i sei-node-0 integration_test/wasm_module/timelocked_token_test_2.sh
-          docker exec -i sei-node-0 integration_test/contracts/deploy_timelocked_token_contract.sh migration
-          docker exec -i sei-node-0 integration_test/wasm_module/timelocked_token_test_3.sh
+          python3 integration_test/scripts/runner.py integration_test/wasm_module/timelocked_token_emgergency_withdraw_test.yaml

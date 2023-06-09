@@ -3,6 +3,7 @@ RUN apt-get update && \
     apt-get install -y make git golang jq python3 curl vim
 RUN rm -rf build/generated
 
+
 VOLUME [ "/sei-protocol" ]
 VOLUME [ "/root/go/pkg/mod" ]
 
@@ -22,3 +23,4 @@ COPY scripts/step3_add_validator_to_genesis.sh /usr/bin/add_validator_to_gensis.
 COPY scripts/step4_persistent_peers.sh /usr/bin/persistent_peers.sh
 COPY scripts/step5_start_sei.sh /usr/bin/start_sei.sh
 COPY scripts/step6_start_price_feeder.sh /usr/bin/start_price_feeder.sh
+ENV PATH "$PATH:$HOME/go/bin"
