@@ -12,6 +12,7 @@ class TestRunner:
     def load_yaml_file(self, filepath):
         with open(filepath, 'r') as f:
             data = yaml.safe_load(f)
+        print(data)
         return data
 
     # Function to process JSON
@@ -28,7 +29,7 @@ class TestRunner:
         for input in inputs:
             cmd = input['cmd']
             container = input.get("node", "sei-node-0")
-            output = self.run_bash_command(cmd, True, container, env_map, False)
+            output = self.run_bash_command(cmd, True, container, env_map, True)
             if input.get('env'):
                 env_map[input['env']] = output
             result = output
