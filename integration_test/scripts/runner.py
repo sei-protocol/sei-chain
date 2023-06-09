@@ -28,7 +28,7 @@ class TestRunner:
         for input in inputs:
             cmd = input['cmd']
             container = input.get("node", "sei-node-0")
-            output = self.run_bash_command(cmd, True, container, env_map, True)
+            output = self.run_bash_command(cmd, True, container, env_map, False)
             if input.get('env'):
                 env_map[input['env']] = output
             result = output

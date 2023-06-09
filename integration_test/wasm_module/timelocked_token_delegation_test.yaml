@@ -13,7 +13,7 @@
     - cmd: printf "12345678\n" | seid tx wasm execute $GRINGOTTS_ADDR " $PARAMS " -y --from=op --chain-id=sei --gas=5000000 --fees=1000000usei --broadcast-mode=block --output=json |jq -M -r .code
       env: RESULT
   verifiers:
-    - type: condition
+    - type: eval
       eval: RESULT == 0
 
 - name: Test token redelegation

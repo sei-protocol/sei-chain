@@ -1,7 +1,6 @@
 - name: Test number of validators should be equal to 4
   inputs:
     # Query num of validators
-    - cmd: seid q tendermint-validator-set
     - cmd: seid q tendermint-validator-set |grep address |wc -l
       env: RESULT
   verifiers:
