@@ -69,7 +69,7 @@ jobs:
         run: go get github.com/wadey/gocovmerge && go install github.com/wadey/gocovmerge
       
       - name: Merge coverage reports
-        run: gocovmerge $(find . -name *coverage) > coverage.txt
+        run: gocovmerge $(find . -name "**/*coverage") > coverage.txt
 
       # Now we upload the merged report to Codecov
       - name: Upload coverage to Codecov
