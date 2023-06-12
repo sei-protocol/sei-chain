@@ -9,6 +9,7 @@ on:
 
 permissions:
   contents: read
+  pull-requests: write
 
 concurrency:
   group: ci-${{ github.ref }}-tests
@@ -77,6 +78,7 @@ jobs:
         part: ["00", "01", "02", "03", "04", "05", "06", "07", "08", "09"]
     steps:
       - uses: actions/checkout@v3
+      - uses: actions/setup-python@v3
       - uses: actions/setup-go@v3
         with:
           go-version: 1.19
@@ -86,9 +88,10 @@ jobs:
             **/**.go
             go.mod
             go.sum
+      - uses: actions/download-artifact@v3
+        with:
+          name: "${{ github.sha }}-${{ matrix.part }}"
       - name: Get data from Go build cache
-        # if: env.GIT_DIFF
-        if: ${{ false }}
         uses: actions/cache@v3
         with:
           path: |
@@ -96,15 +99,43 @@ jobs:
             ~/.cache/golangci-lint
             ~/.cache/go-build
           key: ${{ runner.os }}-go-build-${{ hashFiles('**/go.sum') }}
-      - uses: actions/download-artifact@v3
-        with:
-          name: "${{ github.sha }}-${{ matrix.part }}"
-        if: env.GIT_DIFF
+
       - name: test & coverage report creation
         run: |
           cat pkgs.txt.part.${{ matrix.part }} | xargs go test -mod=readonly -race -timeout 5m -coverprofile=${{ matrix.part }}profile.out -covermode=atomic -tags='ledger test_ledger_mock'
-        if: env.GIT_DIFF
+
       - uses: actions/upload-artifact@v3
         with:
           name: "${{ github.sha }}-${{ matrix.part }}-coverage"
           path: ./${{ matrix.part }}profile.out
+
+  upload-coverage-report:
+    needs: tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/setup-go@v3
+        with:
+          go-version: 1.19
+
+      # Download all coverage reports from the 'tests' job
+      - name: Download coverage reports
+        uses: actions/download-artifact@v3
+
+      - name: Set GOPATH
+        run: echo "GOPATH=$(go env GOPATH)" >> $GITHUB_ENV
+
+      - name: Add GOPATH/bin to PATH
+        run: echo "GOBIN=$(go env GOPATH)/bin" >> $GITHUB_ENV
+
+      - name: Install gocovmerge
+        run: go get github.com/wadey/gocovmerge && go install github.com/wadey/gocovmerge
+
+      - name: Merge coverage reports
+        run: gocovmerge $(find . -name *profile.out) > coverage.txt
+
+      # Now we upload the merged report to Codecov
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v3
+        with:
+          file: ./coverage.txt

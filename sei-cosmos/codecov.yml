@@ -1,0 +1,7 @@
+coverage:
+  status:
+    project:
+      default:
+        target: 80%
+ignore:
+  - "**/*pb*go"         # Auto-generated files
