@@ -1,7 +1,26 @@
 coverage:
+  precision: 2
+  round: down
   status:
     project:
       default:
+        threshold: 1% # allow this much decrease on project
         target: 50%
+
+comment:
+  layout: "reach,diff,flags,tree,betaprofiling"
+  behavior: default # update if exists else create new
+  require_changes: true
+
 ignore:
-  - "**/*pb*go"         # Auto-generated files
+  - "docs"
+  - "*.md"
+  - "*.rst"
+  - "**/*.pb.go"
+  - "types/*.pb.go"
+  - "tests/*"
+  - "tests/**/*"
+  - "x/**/*.pb.go"
+  - "x/**/test_common.go"
+  - "scripts/"
+  - "contrib"
