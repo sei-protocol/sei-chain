@@ -16,10 +16,19 @@ jobs:
       matrix:
         part: ["00", "01", "02", "03", "04", "05", "06", "07", "08", "09", "10", "11", "12", "13", "14", "15", "16", "17", "18", "19"]
     steps:
+      - uses: actions/setup-python@v3
       - uses: actions/setup-go@v3
         with:
           go-version: "1.19"
       - uses: actions/checkout@v3
+      - name: Get data from Go build cache
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/golangci-lint
+            ~/.cache/go-build
+          key: ${{ runner.os }}-go-build-${{ hashFiles('**/go.sum') }}
       - uses: technote-space/get-diff-action@v6
         with:
           PATTERNS: |
@@ -32,4 +41,40 @@ jobs:
         run: |
           NUM_SPLIT=20
           make test-group-${{matrix.part}} NUM_SPLIT=20
-        if: env.GIT_DIFF
+
+      - name: Upload coverage artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: "${{ github.sha }}-${{ matrix.part }}-coverage"
+          path: ./${{ matrix.part }}.profile.out
+
+  upload-coverage-report:
+    needs: tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/setup-go@v3
+        with:
+          go-version: 1.19
+
+      # Download all coverage reports from the 'tests' job
+      - name: Download coverage reports
+        uses: actions/download-artifact@v3
+
+      - name: Set GOPATH
+        run: echo "GOPATH=$(go env GOPATH)" >> $GITHUB_ENV
+
+      - name: Add GOPATH/bin to PATH
+        run: echo "GOBIN=$(go env GOPATH)/bin" >> $GITHUB_ENV
+
+      - name: Install gocovmerge
+        run: go get github.com/wadey/gocovmerge && go install github.com/wadey/gocovmerge
+
+      - name: Merge coverage reports
+        run: gocovmerge $(find . -name *profile.out) > coverage.txt
+
+      # Now we upload the merged report to Codecov
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v3
+        with:
+          file: ./coverage.txt
