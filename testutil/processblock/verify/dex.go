@@ -30,6 +30,7 @@ func DexOrders(t *testing.T, app *processblock.App, f BlockRunnable, txs []signi
 							o.Id = app.DexKeeper.GetNextOrderID(app.Ctx(), m.ContractAddr) + uint64(len(orders))
 							orderPlacementsByMarket[id] = append(orders, o)
 						} else {
+							o.Id = app.DexKeeper.GetNextOrderID(app.Ctx(), m.ContractAddr)
 							orderPlacementsByMarket[id] = []*dextypes.Order{o}
 						}
 					}
