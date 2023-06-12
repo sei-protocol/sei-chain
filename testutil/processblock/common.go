@@ -90,15 +90,7 @@ func (a *App) RunBlock(txs []signing.Tx) (resultCodes []uint32) {
 		}),
 		DecidedLastCommit: types.CommitInfo{
 			Round: 0,
-			Votes: utils.Map(a.GetAllValidators(), func(v stakingtypes.Validator) types.VoteInfo {
-				return types.VoteInfo{
-					Validator: types.Validator{
-						Address: getValAddress(v),
-						Power:   1,
-					},
-					SignedLastBlock: true,
-				}
-			}),
+			Votes: a.GetVotes(),
 		},
 		ByzantineValidators: []types.Misbehavior{},
 		Hash:                []byte("abc"), // no needed for application logic
@@ -110,6 +102,18 @@ func (a *App) RunBlock(txs []signing.Tx) (resultCodes []uint32) {
 		panic(err)
 	}
 	return utils.Map(res.TxResults, func(r *types.ExecTxResult) uint32 { return r.Code })
+}
+
+func (a *App) GetVotes() []types.VoteInfo {
+	return utils.Map(a.GetAllValidators(), func(v stakingtypes.Validator) types.VoteInfo {
+		return types.VoteInfo{
+			Validator: types.Validator{
+				Address: getValAddress(v),
+				Power:   1,
+			},
+			SignedLastBlock: true,
+		}
+	})
 }
 
 func (a *App) GetAllValidators() []stakingtypes.Validator {
