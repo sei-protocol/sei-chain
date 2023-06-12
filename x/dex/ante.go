@@ -131,6 +131,9 @@ func (d CheckDexGasDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bo
 		case *types.MsgPlaceOrders:
 			numDependencies := len(memState.GetContractToDependencies(ctx, m.ContractAddr, d.dexKeeper.GetContractWithoutGasCharge))
 			dexGasRequired += params.DefaultGasPerOrder * uint64(len(m.Orders)*numDependencies)
+			for _, order := range m.Orders {
+				dexGasRequired += params.DefaultGasPerOrderDataByte * uint64(len(order.Data))
+			}
 		case *types.MsgCancelOrders:
 			numDependencies := len(memState.GetContractToDependencies(ctx, m.ContractAddr, d.dexKeeper.GetContractWithoutGasCharge))
 			dexGasRequired += params.DefaultGasPerCancel * uint64(len(m.Cancellations)*numDependencies)
