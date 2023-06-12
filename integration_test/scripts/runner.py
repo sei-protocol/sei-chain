@@ -14,7 +14,7 @@ class TestRunner:
             data = yaml.safe_load(f)
         return data
 
-    # Function to process JSON
+    # Function to process YAML
     def process_data(self, data):
         for test in data:
             self.run_test(test)
