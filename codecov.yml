@@ -5,8 +5,10 @@ coverage:
     project:
       default:
         target: 60%
+        threshold: 1% # allow this much decrease on project
 
 comment:
+  layout: "reach,diff,flags,tree,betaprofiling"
   behavior: default # update if exists else create new
   require_changes: true
 
@@ -14,8 +16,7 @@ ignore:
   - "docs"
   - "*.md"
   - "*.rst"
-  - "**/*.pb.go"
-  - "types/*.pb.go"
+  - "**/*pb*.go"
   - "tests/*"
   - "tests/**/*"
   - "x/**/*.pb.go"
