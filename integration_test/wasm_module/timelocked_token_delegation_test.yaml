@@ -1,0 +1,58 @@
+- name: Test token delegation
+  inputs:
+    # Get contract address
+    - cmd: tail -1 integration_test/contracts/gringotts-contract-addr.txt |cut -d "," -f 1
+      env: GRINGOTTS_ADDR
+    # Get validator address
+    - cmd: printf "12345678\n" | seid keys show node_admin --bech=val --output json | jq -r ".address"
+      env: VAL_ADDR
+    # Prepare parameters
+    - cmd: echo "{\"delegate\":{\"validator\":\"$VAL_ADDR\",\"amount\":\"300000\"}}"
+      env: PARAMS
+    # Execute delegation
+    - cmd: printf "12345678\n" | seid tx wasm execute $GRINGOTTS_ADDR " $PARAMS " -y --from=op --chain-id=sei --gas=5000000 --fees=1000000usei --broadcast-mode=block --output=json |jq -M -r .code
+      env: RESULT
+  verifiers:
+    - type: eval
+      expr: RESULT == 0
+
+- name: Test token redelegation
+  inputs:
+    # Get contract address
+    - cmd: tail -1 integration_test/contracts/gringotts-contract-addr.txt |cut -d "," -f 1
+      env: GRINGOTTS_ADDR
+    # Get current validator address
+    - cmd: printf "12345678\n" | seid keys show node_admin --bech=val --output json | jq -r ".address"
+      env: VAL_ADDR0
+    # Get new validator address
+    - cmd: printf "12345678\n" | seid keys show node_admin --bech=val --output json | jq -r ".address"
+      env: VAL_ADDR2
+      node: sei-node-2
+    # Prepare parameter
+    - cmd: echo "{\"redelegate\":{\"src_validator\":\"$VAL_ADDR0\",\"dst_validator\":\"$VAL_ADDR2\", \"amount\":\"300000\"}}"
+      env: PARAMS
+    # Execute redelegation
+    - cmd: printf "12345678\n" | seid tx wasm execute $GRINGOTTS_ADDR " $PARAMS " -y --from=op --chain-id=sei --gas=5000000 --fees=1000000usei --broadcast-mode=block --output=json |jq -M -r .code
+      env: RESULT
+  verifiers:
+    - type: eval
+      expr: RESULT == 0
+
+- name: Test token undelegation
+  inputs:
+    # Get contract address
+    - cmd: tail -1 integration_test/contracts/gringotts-contract-addr.txt |cut -d "," -f 1
+      env: GRINGOTTS_ADDR
+    # Get validator address
+    - cmd: printf "12345678\n" | seid keys show node_admin --bech=val --output json | jq -r ".address"
+      env: VAL_ADDR
+      node: sei-node-2
+    # Prepare parameter
+    - cmd: echo "{\"undelegate\":{\"validator\":\"$VAL_ADDR\",\"amount\":\"300000\"}}"
+      env: PARAMS
+    # Execute undelegation
+    - cmd: printf "12345678\n" | seid tx wasm execute $GRINGOTTS_ADDR " $PARAMS " -y --from=op --chain-id=sei --gas=5000000 --fees=1000000usei --broadcast-mode=block --output=json |jq -M -r .code
+      env: RESULT
+  verifiers:
+    - type: eval
+      expr: RESULT == 0

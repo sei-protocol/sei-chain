@@ -1,0 +1,17 @@
+- name: Test number of validators should be equal to 4
+  inputs:
+    # Query num of validators
+    - cmd: seid q tendermint-validator-set |grep address |wc -l
+      env: RESULT
+  verifiers:
+  - type: eval
+    expr: RESULT == 4
+
+- name: Test block height should be greater than 0
+  inputs:
+    # Get the current block height
+    - cmd: seid status |jq -M -r .SyncInfo.latest_block_height
+      env: RESULT
+  verifiers:
+  - type: eval
+    expr: RESULT > 0

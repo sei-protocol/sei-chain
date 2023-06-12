@@ -1,0 +1,16 @@
+- name: <Replace with test description>
+  inputs:
+    # Add comments for what this command is doing
+    - cmd: <Replace with bash command>
+      env: <Add if you want to store the output as an env variable>
+      node: <Optional, default is sei-node-0>
+    # Add comments for what this command is doing
+    - cmd: <Replace with bash command>
+      env: RESULT
+  verifiers:
+    # Add comments for what should the expected result
+    - type: eval
+      expr: <Replace with a valid python eval>
+    - type: regex
+      result: RESULT
+      expr: <Replace with regular expression>

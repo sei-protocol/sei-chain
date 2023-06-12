@@ -22,13 +22,13 @@ key_admin4=$(printf "12345678\n" |$seidbin keys show admin4 -a)
 key_op=$(printf "12345678\n" |$seidbin keys show op -a)
 key_staking=$(printf "12345678\n" |$seidbin keys show staking_reward_dest -a)
 key_unlock=$(printf "12345678\n" |$seidbin keys show unlocked_dest -a)
-printf "12345678\n" | $seidbin tx bank send admin "$key_admin1" 10000000usei -y --chain-id=$chainid --gas=5000000 --fees=1000000usei --broadcast-mode=block
-printf "12345678\n" | $seidbin tx bank send admin "$key_admin2" 10000000usei -y --chain-id=$chainid --gas=5000000 --fees=1000000usei --broadcast-mode=block
-printf "12345678\n" | $seidbin tx bank send admin "$key_admin3" 10000000usei -y --chain-id=$chainid --gas=5000000 --fees=1000000usei --broadcast-mode=block
-printf "12345678\n" | $seidbin tx bank send admin "$key_admin4" 10000000usei -y --chain-id=$chainid --gas=5000000 --fees=1000000usei --broadcast-mode=block
-printf "12345678\n" | $seidbin tx bank send admin "$key_op" 10000000usei -y --chain-id=$chainid --gas=5000000 --fees=1000000usei --broadcast-mode=block
-printf "12345678\n" | $seidbin tx bank send admin "$key_staking" 10000000usei -y --chain-id=$chainid --gas=5000000 --fees=1000000usei --broadcast-mode=block
-printf "12345678\n" | $seidbin tx bank send admin "$key_unlock" 10000000usei -y --chain-id=$chainid --gas=5000000 --fees=1000000usei --broadcast-mode=block
+printf "12345678\n" | $seidbin tx bank send admin "$key_admin1" 10000000sei -y --chain-id=$chainid --gas=5000000 --fees=1000000usei --broadcast-mode=block
+printf "12345678\n" | $seidbin tx bank send admin "$key_admin2" 10000000sei -y --chain-id=$chainid --gas=5000000 --fees=1000000usei --broadcast-mode=block
+printf "12345678\n" | $seidbin tx bank send admin "$key_admin3" 10000000sei -y --chain-id=$chainid --gas=5000000 --fees=1000000usei --broadcast-mode=block
+printf "12345678\n" | $seidbin tx bank send admin "$key_admin4" 10000000sei -y --chain-id=$chainid --gas=5000000 --fees=1000000usei --broadcast-mode=block
+printf "12345678\n" | $seidbin tx bank send admin "$key_op" 10000000sei -y --chain-id=$chainid --gas=5000000 --fees=1000000usei --broadcast-mode=block
+printf "12345678\n" | $seidbin tx bank send admin "$key_staking" 10000000sei -y --chain-id=$chainid --gas=5000000 --fees=1000000usei --broadcast-mode=block
+printf "12345678\n" | $seidbin tx bank send admin "$key_unlock" 10000000sei -y --chain-id=$chainid --gas=5000000 --fees=1000000usei --broadcast-mode=block
 
 
 # Deploy goblin contract
