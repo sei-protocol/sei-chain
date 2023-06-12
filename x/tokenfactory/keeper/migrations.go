@@ -44,7 +44,7 @@ func (m Migrator) Migrate3to4(ctx sdk.Context) error {
 	// Set denom metadata for all denoms
 	m.keeper.bankKeeper.IterateTotalSupply(ctx, func(coin sdk.Coin) bool {
 		fmt.Printf("Denom: %s\n", coin.Denom)
-		if denomMetadata, err := m.keeper.bankKeeper.GetDenomMetaData(ctx, coin.Denom); err {
+		if denomMetadata, err := m.keeper.bankKeeper.GetDenomMetaData(ctx, coin.Denom); !err {
 			panic(fmt.Errorf("denom %s does not exist", coin.Denom))
 		} else {
 			m.SetMetadata(&denomMetadata)
