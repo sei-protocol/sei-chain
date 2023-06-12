@@ -158,6 +158,16 @@ func TokenFactoryBurnDependencyGenerator(keeper aclkeeper.Keeper, ctx sdk.Contex
 			ResourceType:       sdkacltypes.ResourceType_KV_AUTH_ADDRESS_STORE,
 			IdentifierTemplate: hex.EncodeToString(authtypes.AddressStoreKey(moduleAdr)),
 		},
+		{
+			AccessType:         sdkacltypes.AccessType_READ,
+			ResourceType:       sdkacltypes.ResourceType_KV_BANK_BALANCES,
+			IdentifierTemplate: hex.EncodeToString(banktypes.CreateAccountBalancesPrefix(moduleAdr)),
+		},
+		{
+			AccessType:         sdkacltypes.AccessType_WRITE,
+			ResourceType:       sdkacltypes.ResourceType_KV_BANK_BALANCES,
+			IdentifierTemplate: hex.EncodeToString(banktypes.CreateAccountBalancesPrefix(moduleAdr)),
+		},
 
 		// Checks balance for receiver
 		{

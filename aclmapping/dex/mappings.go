@@ -50,6 +50,8 @@ func DexPlaceOrdersDependencyGenerator(keeper aclkeeper.Keeper, ctx sdk.Context,
 		return []sdkacltypes.AccessOperation{}, ErrPlaceOrdersGenerator
 	}
 
+	moduleAdr := keeper.AccountKeeper.GetModuleAddress(dextypes.ModuleName)
+
 	senderBankAddrIdentifier := hex.EncodeToString(banktypes.CreateAccountBalancesPrefixFromBech32(placeOrdersMsg.Creator))
 	contractAddr := placeOrdersMsg.ContractAddr
 
@@ -108,6 +110,23 @@ func DexPlaceOrdersDependencyGenerator(keeper aclkeeper.Keeper, ctx sdk.Context,
 			AccessType:         sdkacltypes.AccessType_WRITE,
 			ResourceType:       sdkacltypes.ResourceType_KV_BANK_BALANCES,
 			IdentifierTemplate: senderBankAddrIdentifier,
+		},
+
+		// update the amounts for dex module balance
+		{
+			AccessType:         sdkacltypes.AccessType_READ,
+			ResourceType:       sdkacltypes.ResourceType_KV_AUTH_ADDRESS_STORE,
+			IdentifierTemplate: hex.EncodeToString(authtypes.AddressStoreKey(moduleAdr)),
+		},
+		{
+			AccessType:         sdkacltypes.AccessType_READ,
+			ResourceType:       sdkacltypes.ResourceType_KV_BANK_BALANCES,
+			IdentifierTemplate: hex.EncodeToString(banktypes.CreateAccountBalancesPrefix(moduleAdr)),
+		},
+		{
+			AccessType:         sdkacltypes.AccessType_WRITE,
+			ResourceType:       sdkacltypes.ResourceType_KV_BANK_BALANCES,
+			IdentifierTemplate: hex.EncodeToString(banktypes.CreateAccountBalancesPrefix(moduleAdr)),
 		},
 
 		// Gets Account Info for the sender
