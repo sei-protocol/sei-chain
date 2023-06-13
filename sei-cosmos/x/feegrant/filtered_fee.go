@@ -50,6 +50,17 @@ func (a *AllowedMsgAllowance) GetAllowance() (FeeAllowanceI, error) {
 	return allowance, nil
 }
 
+// SetAllowance sets allowed fee allowance.
+func (a *AllowedMsgAllowance) SetAllowance(allowance FeeAllowanceI) error {
+	var err error
+	a.Allowance, err = types.NewAnyWithValue(allowance.(proto.Message))
+	if err != nil {
+		return sdkerrors.Wrapf(sdkerrors.ErrPackAny, "cannot proto marshal %T", allowance)
+	}
+
+	return nil
+}
+
 // Accept method checks for the filtered messages has valid expiry
 func (a *AllowedMsgAllowance) Accept(ctx sdk.Context, fee sdk.Coins, msgs []sdk.Msg) (bool, error) {
 	if !a.allMsgTypesAllowed(ctx, msgs) {
@@ -61,7 +72,17 @@ func (a *AllowedMsgAllowance) Accept(ctx sdk.Context, fee sdk.Coins, msgs []sdk.
 		return false, err
 	}
 
-	return allowance.Accept(ctx, fee, msgs)
+	remove, err := allowance.Accept(ctx, fee, msgs)
+	if err != nil {
+		return false, err
+	}
+
+	a.Allowance, err = types.NewAnyWithValue(allowance.(proto.Message))
+	if err != nil {
+		return false, err
+	}
+
+    return remove, nil
 }
 
 func (a *AllowedMsgAllowance) allowedMsgsToMap(ctx sdk.Context) map[string]bool {
