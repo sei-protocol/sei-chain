@@ -1,6 +1,7 @@
 package keeper_test
 
 import (
+	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
 	"testing"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -15,8 +16,9 @@ import (
 type KeeperTestSuite struct {
 	apptesting.KeeperTestHelper
 
-	queryClient types.QueryClient
-	msgServer   types.MsgServer
+	queryClient     types.QueryClient
+	bankQueryClient banktypes.QueryClient
+	msgServer       types.MsgServer
 	// defaultDenom is on the suite, as it depends on the creator test address.
 	defaultDenom string
 }
@@ -31,6 +33,7 @@ func (suite *KeeperTestSuite) SetupTest() {
 	suite.SetupTokenFactory()
 
 	suite.queryClient = types.NewQueryClient(suite.QueryHelper)
+	suite.bankQueryClient = banktypes.NewQueryClient(suite.QueryHelper)
 	suite.msgServer = keeper.NewMsgServerImpl(suite.App.TokenFactoryKeeper)
 }
 
