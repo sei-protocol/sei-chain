@@ -5,7 +5,6 @@
       env: ADMIN_ADDR
     # Create denom
     - cmd: printf "12345678\n" | seid tx tokenfactory create-denom test --from admin --fees 2000usei -y
-      env: PARAMS
     # Query various fields about denom
     - cmd: seid q bank denom-metadata --output json | jq .metadatas | jq ".[] | select (.base==\"factory/${ADMIN_ADDR}/test\")" | jq -r .base
       env: BASE
