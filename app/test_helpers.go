@@ -59,7 +59,7 @@ func NewTestWrapper(t *testing.T, tm time.Time, valPub crptotypes.PubKey) *TestW
 		Ctx: ctx,
 	}
 	wrapper.SetT(t)
-	wrapper.setupValidator(stakingtypes.Bonded, valPub)
+	wrapper.setupValidator(stakingtypes.Unbonded, valPub)
 	return wrapper
 }
 
