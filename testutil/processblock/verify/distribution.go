@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/cosmos/cosmos-sdk/x/auth/signing"
 	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
 	"github.com/cosmos/cosmos-sdk/x/distribution/types"
 	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
@@ -14,7 +15,7 @@ import (
 )
 
 // assuming only `usei` will get distributed
-func Allocation(t *testing.T, app *processblock.App, f BlockRunnable) BlockRunnable {
+func Allocation(t *testing.T, app *processblock.App, f BlockRunnable, _ []signing.Tx) BlockRunnable {
 	return func() []uint32 {
 		// fees collected in T-1 are allocated in T's BeginBlock, so we can simply
 		// query fee collector's balance since this function is called between T-1

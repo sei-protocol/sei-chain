@@ -155,7 +155,7 @@ func Setup(isCheckTx bool) *App {
 		true,
 		map[int64]bool{},
 		DefaultNodeHome,
-		5,
+		1,
 		config.TestConfig(),
 		encodingConfig,
 		wasm.EnableAllProposals,

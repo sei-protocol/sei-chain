@@ -15,7 +15,7 @@ var InterfaceReg = types.NewInterfaceRegistry()
 var Marshaler = codec.NewProtoCodec(InterfaceReg)
 var TxConfig = tx.NewTxConfig(Marshaler, tx.DefaultSignModes)
 
-func (a *App) Sign(account sdk.AccAddress, msgs []sdk.Msg, fee int64) xauthsigning.Tx {
+func (a *App) Sign(account sdk.AccAddress, fee int64, msgs ...sdk.Msg) xauthsigning.Tx {
 	txBuilder := TxConfig.NewTxBuilder()
 	if err := txBuilder.SetMsgs(msgs...); err != nil {
 		panic(err)

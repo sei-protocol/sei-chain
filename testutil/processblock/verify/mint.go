@@ -4,12 +4,13 @@ import (
 	"testing"
 	"time"
 
+	"github.com/cosmos/cosmos-sdk/x/auth/signing"
 	"github.com/sei-protocol/sei-chain/testutil/processblock"
 	minttypes "github.com/sei-protocol/sei-chain/x/mint/types"
 	"github.com/stretchr/testify/require"
 )
 
-func MintRelease(t *testing.T, app *processblock.App, f BlockRunnable) BlockRunnable {
+func MintRelease(t *testing.T, app *processblock.App, f BlockRunnable, _ []signing.Tx) BlockRunnable {
 	return func() []uint32 {
 		oldMinter := app.MintKeeper.GetMinter(app.Ctx())
 		oldEpoch := app.EpochKeeper.GetEpoch(app.Ctx())

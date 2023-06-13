@@ -2,6 +2,7 @@ package processblock
 
 import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	bankkeeper "github.com/cosmos/cosmos-sdk/x/bank/keeper"
 	minttypes "github.com/cosmos/cosmos-sdk/x/mint/types"
 )
 
@@ -22,6 +23,10 @@ func (a *App) FundAccountWithDenom(acc sdk.AccAddress, amount int64, denom strin
 	if err := a.BankKeeper.SendCoinsFromModuleToAccount(ctx, minttypes.ModuleName, acc, amounts); err != nil {
 		panic(err)
 	}
+	m, b := bankkeeper.TotalSupply(a.BankKeeper)(ctx)
+	if b {
+		panic(m)
+	}
 }
 
 func (a *App) FundModuleWithDenom(moduleName string, amount int64, denom string) {
@@ -32,5 +37,9 @@ func (a *App) FundModuleWithDenom(moduleName string, amount int64, denom string)
 	}
 	if err := a.BankKeeper.SendCoinsFromModuleToModule(ctx, minttypes.ModuleName, moduleName, amounts); err != nil {
 		panic(err)
+	}
+	m, b := bankkeeper.TotalSupply(a.BankKeeper)(ctx)
+	if b {
+		panic(m)
 	}
 }
