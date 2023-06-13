@@ -1,0 +1,24 @@
+- name: Test creating a denom
+  inputs:
+    # Get admin
+    - cmd: seid keys list --output json | jq '.[] | select (.name=="admin")' | jq -r .address
+      env: ADMIN_ADDR
+    # Create denom
+    - cmd: seid tx tokenfactory create-denom test --from admin --fees 2000usei
+      env: PARAMS
+    # Mint the denom
+    - cmd: printf "12345678\n" | seid tx dex place-orders $CONTRACT_ADDR $PARAMS --amount=1000000000usei -y --from=admin --chain-id=sei --fees=1000000usei --gas=50000000 --broadcast-mode=block --output json|jq -M -r ".logs[].events[].attributes[] | select(.key == \"order_id\").value"
+      env: ORDER_ID
+    # Query various fields about denom
+    - cmd: seid q bank denom-metadata --output json | jq .metadatas | jq ".[] | select (.base==\"factory/${ADMIN_ADDR}/test\")" | jq -r .base
+      env: BASE
+    - cmd: seid q bank denom-metadata --output json | jq .metadatas | jq ".[] | select (.base==\"factory/${ADMIN_ADDR}/test\")" | jq -r .name
+      env: NAME
+    - cmd: seid q bank denom-metadata --output json | jq .metadatas | jq ".[] | select (.base==\"factory/${ADMIN_ADDR}/test\")" | jq -r .symbol
+      env: SYMBOL
+    - cmd: seid q bank denom-metadata --output json | jq .metadatas | jq ".[] | select (.base==\"factory/${ADMIN_ADDR}/test\")" | jq -r .display
+      env: DISPLAY
+  verifiers:
+    # All fields should be populated and match the base name
+    - type: eval
+      expr: NAME == BASE && SYMBOL == BASE && DISPLAY == BASE

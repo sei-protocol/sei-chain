@@ -1,6 +1,6 @@
 - name: Test placing a new order and query the placed order
   inputs:
-    # Get contract address, this requires contrat already deployed
+    # Get contract address, this requires contract already deployed
     - cmd: tail -1 integration_test/contracts/mars-addr.txt
       env: CONTRACT_ADDR
     # Prepare parameter
