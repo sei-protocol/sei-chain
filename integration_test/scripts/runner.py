@@ -45,14 +45,18 @@ class TestRunner:
         type = verifier["type"]
         if type == "eval":
             elems = verifier["expr"].strip().split()
-            if len(elems) == 3:
-                if env_map.get(elems[0]):
-                    elems[0] = env_map[elems[0]]
-                if env_map.get(elems[2]):
-                    elems[2] = env_map[elems[2]]
-                expr = f'{elems[0]} {elems[1]} {elems[2]}'
-                return eval(expr)
-            return False
+            expr = ""
+            for i in range(len(elems)):
+                if env_map.get(elems[i]):
+                    variable = env_map[elems[i]]
+                    if str(variable).isnumeric():
+                        expr = expr + f' {variable}'
+                    else:
+                        expr = expr + f' "{variable}"'
+                else:
+                    expr += f' {elems[i]}'
+            print(f'Evaluating: {expr}')
+            return eval(expr)
         elif type == "regex":
             env_key = verifier["result"]
             expression = str(verifier["expr"])
