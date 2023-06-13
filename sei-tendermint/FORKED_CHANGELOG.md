@@ -3,7 +3,7 @@
 
 ## Current
 
-November 16 2022
+June 13 2023
 
 ### FEATURES
 
@@ -16,8 +16,8 @@ November 16 2022
 - Increase block part size and delay fsync
 - Increase WAL message size
 - Add tracing
+- [#148](https://github.com/sei-protocol/sei-tendermint/pull/148) [Backport](https://github.com/cometbft/cometbft/pull/241/files) add peer gossip sleep
 
 ### BUG FIXES
 
 - Fix open connection race conditions within p2p channels by waiting synchronously for descriptors to be registered before establishing peer connections
-

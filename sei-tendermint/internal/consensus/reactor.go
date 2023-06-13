@@ -486,7 +486,7 @@ func (r *Reactor) gossipDataForCatchup(ctx context.Context, rs *cstypes.RoundSta
 		}
 
 		logger.Debug("sending block part for catchup", "round", prs.Round, "index", index)
-		_ = dataCh.Send(ctx, p2p.Envelope{
+		err = dataCh.Send(ctx, p2p.Envelope{
 			To: ps.peerID,
 			Message: &tmcons.BlockPart{
 				Height: prs.Height, // not our height, so it does not matter.
@@ -495,6 +495,10 @@ func (r *Reactor) gossipDataForCatchup(ctx context.Context, rs *cstypes.RoundSta
 			},
 		})
 
+		if err != nil {
+			// sleep to avoid retrying too fast
+			time.Sleep(r.state.config.PeerGossipSleepDuration)
+		}
 		return
 	}
 
