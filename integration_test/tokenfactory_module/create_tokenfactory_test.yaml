@@ -17,4 +17,4 @@
   verifiers:
     # All fields should be populated and match the base name
     - type: eval
-      expr: NAME == BASE
+      expr: NAME == BASE and SYMBOL == BASE and DISPLAY == BASE
