@@ -2,8 +2,9 @@ package keeper
 
 import (
 	"fmt"
-	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
 	"strings"
+
+	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/sei-protocol/sei-chain/x/tokenfactory/types"
@@ -57,7 +58,7 @@ func (m Migrator) Migrate3to4(ctx sdk.Context) error {
 
 func (m Migrator) SetMetadata(denomMetadata *banktypes.Metadata) {
 	if len(denomMetadata.Base) == 0 {
-		panic(fmt.Errorf("No base exists for denom %v\n", denomMetadata))
+		panic(fmt.Errorf("no base exists for denom %v", denomMetadata))
 	}
 	if len(denomMetadata.Display) == 0 {
 		denomMetadata.Display = denomMetadata.Base
