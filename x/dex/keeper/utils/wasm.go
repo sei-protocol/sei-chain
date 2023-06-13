@@ -102,16 +102,16 @@ func CallContractSudo(sdkCtx sdk.Context, k *keeper.Keeper, contractAddr string,
 		return []byte{}, err
 	}
 	msgType := getMsgType(msg)
-	data, gasUsed, err := sudo(sdkCtx, k, contractAddress, wasmMsg, msgType)
-	if err != nil {
-		metrics.IncrementSudoFailCount(msgType)
-		sdkCtx.Logger().Error(err.Error())
-		return []byte{}, err
-	}
+	data, gasUsed, suderr := sudo(sdkCtx, k, contractAddress, wasmMsg, msgType)
 	if err := k.ChargeRentForGas(sdkCtx, contractAddr, gasUsed, gasAllowance); err != nil {
 		metrics.IncrementSudoFailCount(msgType)
 		sdkCtx.Logger().Error(err.Error())
 		return []byte{}, err
+	}
+	if suderr != nil {
+		metrics.IncrementSudoFailCount(msgType)
+		sdkCtx.Logger().Error(suderr.Error())
+		return []byte{}, suderr
 	}
 	return data, nil
 }
