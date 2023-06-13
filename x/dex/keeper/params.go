@@ -2,6 +2,7 @@ package keeper
 
 import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/sei-protocol/sei-chain/utils"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
 )
 
@@ -34,6 +35,10 @@ func (k Keeper) GetMaxOrderPerPrice(ctx sdk.Context) uint64 {
 
 func (k Keeper) GetMaxPairsPerContract(ctx sdk.Context) uint64 {
 	return k.GetParams(ctx).MaxPairsPerContract
+}
+
+func (k Keeper) GetWhitelistedGaslessCancelAddresses(ctx sdk.Context) []sdk.AccAddress {
+	return utils.Map(k.GetParams(ctx).WhitelistedGaslessCancellationAddresses, sdk.MustAccAddressFromBech32)
 }
 
 // SetParams set the params

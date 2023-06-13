@@ -67,4 +67,8 @@ message Params {
     (gogoproto.jsontag)   = "default_gas_per_order_data_byte",
     (gogoproto.moretags) = "yaml:\"default_gas_per_order_data_byte\""
   ];
+  repeated string whitelisted_gasless_cancellation_addresses = 15 [
+    (gogoproto.jsontag)   = "whitelisted_gasless_cancellation_addresses",
+    (gogoproto.moretags) = "yaml:\"whitelisted_gasless_cancellation_addresses\""
+  ];
 }

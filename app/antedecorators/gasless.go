@@ -8,6 +8,7 @@ import (
 	sdkacltypes "github.com/cosmos/cosmos-sdk/types/accesscontrol"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
+	dexkeeper "github.com/sei-protocol/sei-chain/x/dex/keeper"
 	dextypes "github.com/sei-protocol/sei-chain/x/dex/types"
 	oraclekeeper "github.com/sei-protocol/sei-chain/x/oracle/keeper"
 	oracletypes "github.com/sei-protocol/sei-chain/x/oracle/types"
@@ -16,10 +17,11 @@ import (
 type GaslessDecorator struct {
 	wrapped      []sdk.AnteFullDecorator
 	oracleKeeper oraclekeeper.Keeper
+	dexKeeper    dexkeeper.Keeper
 }
 
-func NewGaslessDecorator(wrapped []sdk.AnteFullDecorator, oracleKeeper oraclekeeper.Keeper) GaslessDecorator {
-	return GaslessDecorator{wrapped: wrapped, oracleKeeper: oracleKeeper}
+func NewGaslessDecorator(wrapped []sdk.AnteFullDecorator, oracleKeeper oraclekeeper.Keeper, dexKeeper dexkeeper.Keeper) GaslessDecorator {
+	return GaslessDecorator{wrapped: wrapped, oracleKeeper: oracleKeeper, dexKeeper: dexKeeper}
 }
 
 func (gd GaslessDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool, next sdk.AnteHandler) (newCtx sdk.Context, err error) {
@@ -33,7 +35,7 @@ func (gd GaslessDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool,
 	}
 	gas := feeTx.GetGas()
 	// If non-zero gas limit is provided by the TX, we then consider it exempt from the gasless TX, and then prioritize it accordingly
-	isGasless, err := isTxGasless(tx, ctx, gd.oracleKeeper)
+	isGasless, err := isTxGasless(tx, ctx, gd.oracleKeeper, gd.dexKeeper)
 	if err != nil {
 		return ctx, err
 	}
@@ -100,7 +102,7 @@ func (gd GaslessDecorator) AnteDeps(txDeps []sdkacltypes.AccessOperation, tx sdk
 	return next(append(txDeps, deps...), tx, txIndex)
 }
 
-func isTxGasless(tx sdk.Tx, ctx sdk.Context, oracleKeeper oraclekeeper.Keeper) (bool, error) {
+func isTxGasless(tx sdk.Tx, ctx sdk.Context, oracleKeeper oraclekeeper.Keeper, dexKeeper dexkeeper.Keeper) (bool, error) {
 	if len(tx.GetMsgs()) == 0 {
 		// empty TX shouldn't be gasless
 		return false, nil
@@ -113,7 +115,7 @@ func isTxGasless(tx sdk.Tx, ctx sdk.Context, oracleKeeper oraclekeeper.Keeper) (
 			}
 
 		case *dextypes.MsgCancelOrders:
-			if !dexCancelOrdersIsGasless(m) {
+			if !dexCancelOrdersIsGasless(ctx, m, dexKeeper) {
 				return false, nil
 			}
 		case *oracletypes.MsgAggregateExchangeRateVote:
@@ -132,17 +134,15 @@ func dexPlaceOrdersIsGasless(msg *dextypes.MsgPlaceOrders) bool {
 	return true
 }
 
-// WhitelistedGaslessCancellationAddrs TODO: migrate this into params state
-var WhitelistedGaslessCancellationAddrs = []sdk.AccAddress{}
-
-func dexCancelOrdersIsGasless(msg *dextypes.MsgCancelOrders) bool {
-	return allSignersWhitelisted(msg)
+func dexCancelOrdersIsGasless(ctx sdk.Context, msg *dextypes.MsgCancelOrders, keeper dexkeeper.Keeper) bool {
+	return allSignersWhitelisted(ctx, msg, keeper)
 }
 
-func allSignersWhitelisted(msg *dextypes.MsgCancelOrders) bool {
+func allSignersWhitelisted(ctx sdk.Context, msg *dextypes.MsgCancelOrders, keeper dexkeeper.Keeper) bool {
+	whitelist := keeper.GetWhitelistedGaslessCancelAddresses(ctx)
 	for _, signer := range msg.GetSigners() {
 		isWhitelisted := false
-		for _, whitelisted := range WhitelistedGaslessCancellationAddrs {
+		for _, whitelisted := range whitelist {
 			if bytes.Compare(signer, whitelisted) == 0 { //nolint:gosimple
 				isWhitelisted = true
 				break

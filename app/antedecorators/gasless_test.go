@@ -9,6 +9,8 @@ import (
 	"github.com/cosmos/cosmos-sdk/types/accesscontrol"
 	"github.com/cosmos/cosmos-sdk/x/staking"
 	"github.com/sei-protocol/sei-chain/app/antedecorators"
+	keepertest "github.com/sei-protocol/sei-chain/testutil/keeper"
+	dexkeeper "github.com/sei-protocol/sei-chain/x/dex/keeper"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
 	oraclekeeper "github.com/sei-protocol/sei-chain/x/oracle/keeper"
 	oracletypes "github.com/sei-protocol/sei-chain/x/oracle/types"
@@ -93,9 +95,9 @@ func (t FakeTx) FeeGranter() sdk.AccAddress {
 	return nil
 }
 
-func CallGaslessDecoratorWithMsg(ctx sdk.Context, msg sdk.Msg, oracleKeeper oraclekeeper.Keeper) error {
+func CallGaslessDecoratorWithMsg(ctx sdk.Context, msg sdk.Msg, oracleKeeper oraclekeeper.Keeper, dexKeeper dexkeeper.Keeper) error {
 	anteDecorators := []sdk.AnteFullDecorator{
-		antedecorators.NewGaslessDecorator([]sdk.AnteFullDecorator{sdk.DefaultWrappedAnteDecorator(FakeAnteDecoratorGasReqd{})}, oracleKeeper),
+		antedecorators.NewGaslessDecorator([]sdk.AnteFullDecorator{sdk.DefaultWrappedAnteDecorator(FakeAnteDecoratorGasReqd{})}, oracleKeeper, dexKeeper),
 	}
 	chainedHandler, depGen := sdk.ChainAnteDecorators(anteDecorators...)
 	fakeTx := FakeTx{
@@ -115,7 +117,7 @@ func TestGaslessDecorator(t *testing.T) {
 	output = ""
 	anteDecorators := []sdk.AnteFullDecorator{
 		FakeAnteDecoratorOne{},
-		antedecorators.NewGaslessDecorator([]sdk.AnteFullDecorator{FakeAnteDecoratorTwo{}}, oraclekeeper.Keeper{}),
+		antedecorators.NewGaslessDecorator([]sdk.AnteFullDecorator{FakeAnteDecoratorTwo{}}, oraclekeeper.Keeper{}, dexkeeper.Keeper{}),
 		FakeAnteDecoratorThree{},
 	}
 	chainedHandler, depGen := sdk.ChainAnteDecorators(anteDecorators...)
@@ -163,12 +165,12 @@ func TestOracleVoteGasless(t *testing.T) {
 	}
 
 	// reset gasless
-	err = CallGaslessDecoratorWithMsg(ctx, &vote1, input.OracleKeeper)
+	err = CallGaslessDecoratorWithMsg(ctx, &vote1, input.OracleKeeper, dexkeeper.Keeper{})
 	require.Error(t, err)
 
 	// reset gasless
 	gasless = true
-	err = CallGaslessDecoratorWithMsg(ctx, &vote2, input.OracleKeeper)
+	err = CallGaslessDecoratorWithMsg(ctx, &vote2, input.OracleKeeper, dexkeeper.Keeper{})
 	require.NoError(t, err)
 	require.True(t, gasless)
 }
@@ -177,7 +179,8 @@ func TestDexPlaceOrderGasless(t *testing.T) {
 	// this needs to be updated if its changed from constant true
 	// reset gasless
 	gasless = true
-	err := CallGaslessDecoratorWithMsg(sdk.NewContext(nil, tmproto.Header{}, false, nil), &types.MsgPlaceOrders{}, oraclekeeper.Keeper{})
+	keeper, ctx := keepertest.DexKeeper(t)
+	err := CallGaslessDecoratorWithMsg(ctx, &types.MsgPlaceOrders{}, oraclekeeper.Keeper{}, *keeper)
 	require.NoError(t, err)
 	require.True(t, gasless)
 }
@@ -186,9 +189,10 @@ func TestDexCancelOrderGasless(t *testing.T) {
 	addr1 := sdk.AccAddress(secp256k1.GenPrivKey().PubKey().Address())
 	addr2 := sdk.AccAddress(secp256k1.GenPrivKey().PubKey().Address())
 
-	antedecorators.WhitelistedGaslessCancellationAddrs = []sdk.AccAddress{
-		addr2,
-	}
+	keeper, ctx := keepertest.DexKeeper(t)
+	params := keeper.GetParams(ctx)
+	params.WhitelistedGaslessCancellationAddresses = []string{addr2.String()}
+	keeper.SetParams(ctx, params)
 
 	cancelMsg1 := types.MsgCancelOrders{
 		Creator: addr1.String(),
@@ -199,14 +203,14 @@ func TestDexCancelOrderGasless(t *testing.T) {
 	// not whitelisted
 	// reset gasless
 	gasless = true
-	err := CallGaslessDecoratorWithMsg(sdk.NewContext(nil, tmproto.Header{}, false, nil), &cancelMsg1, oraclekeeper.Keeper{})
+	err := CallGaslessDecoratorWithMsg(ctx, &cancelMsg1, oraclekeeper.Keeper{}, *keeper)
 	require.NoError(t, err)
 	require.False(t, gasless)
 
 	// whitelisted
 	// reset gasless
 	gasless = true
-	err = CallGaslessDecoratorWithMsg(sdk.NewContext(nil, tmproto.Header{}, false, nil), &cancelMsg2, oraclekeeper.Keeper{})
+	err = CallGaslessDecoratorWithMsg(ctx, &cancelMsg2, oraclekeeper.Keeper{}, *keeper)
 	require.NoError(t, err)
 	require.True(t, gasless)
 }
@@ -215,7 +219,7 @@ func TestNonGaslessMsg(t *testing.T) {
 	// this needs to be updated if its changed from constant true
 	// reset gasless
 	gasless = true
-	err := CallGaslessDecoratorWithMsg(sdk.NewContext(nil, tmproto.Header{}, false, nil), &types.MsgRegisterContract{}, oraclekeeper.Keeper{})
+	err := CallGaslessDecoratorWithMsg(sdk.NewContext(nil, tmproto.Header{}, false, nil), &types.MsgRegisterContract{}, oraclekeeper.Keeper{}, dexkeeper.Keeper{})
 	require.NoError(t, err)
 	require.False(t, gasless)
 }
