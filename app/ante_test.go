@@ -184,7 +184,7 @@ func (suite *AnteTestSuite) TestValidateDepedencies() {
 	validTx, err := suite.CreateTestTx(privs, accNums, accSeqs, suite.Ctx.ChainID())
 
 	suite.Require().NoError(err)
-	depdenencies, _ := suite.anteDepGenerator([]sdkacltypes.AccessOperation{}, validTx)
+	depdenencies, _ := suite.anteDepGenerator([]sdkacltypes.AccessOperation{}, validTx, 1)
 	_, err = suite.anteHandler(handlerCtx, validTx, false)
 	suite.Require().Nil(err, "ValidateBasicDecorator returned error on valid tx. err: %v", err)
 	err = suite.AnteHandlerValidateAccessOp(depdenencies)
@@ -199,7 +199,7 @@ func (suite *AnteTestSuite) TestValidateDepedencies() {
 
 	// decorator should skip processing invalidTx on recheck and thus return nil-error
 	handlerCtx, cms = aclutils.CacheTxContext(suite.Ctx)
-	depdenencies, _ = suite.anteDepGenerator([]sdkacltypes.AccessOperation{}, invalidTx)
+	depdenencies, _ = suite.anteDepGenerator([]sdkacltypes.AccessOperation{}, invalidTx, 1)
 	_, err = suite.anteHandler(handlerCtx, invalidTx, false)
 	missing = handlerCtx.MsgValidator().ValidateAccessOperations(depdenencies, cms.GetEvents())
 

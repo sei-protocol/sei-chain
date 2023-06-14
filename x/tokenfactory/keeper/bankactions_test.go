@@ -14,7 +14,6 @@ func (suite *KeeperTestSuite) TestMultipleMintsPriorToDeferredSettlement() {
 	queryRes, err := suite.queryClient.DenomAuthorityMetadata(suite.Ctx.Context(), &types.QueryDenomAuthorityMetadataRequest{
 		Denom: suite.defaultDenom,
 	})
-	suite.App.BankKeeper.WriteDeferredOperations(suite.Ctx)
 	suite.Require().NoError(err)
 	suite.Require().Equal(suite.TestAccs[0].String(), queryRes.AuthorityMetadata.Admin)
 
@@ -24,8 +23,6 @@ func (suite *KeeperTestSuite) TestMultipleMintsPriorToDeferredSettlement() {
 
 	_, err = suite.msgServer.Mint(sdk.WrapSDKContext(suite.Ctx), types.NewMsgMint(suite.TestAccs[0].String(), sdk.NewInt64Coin(suite.defaultDenom, 5)))
 	suite.Require().NoError(err)
-
-	suite.App.BankKeeper.WriteDeferredOperations(suite.Ctx)
 
 	addr0Bal := suite.App.BankKeeper.GetBalance(suite.Ctx, suite.TestAccs[0], suite.defaultDenom).Amount.Int64()
 	suite.Require().Equal(int64(55), addr0Bal, addr0Bal)
@@ -40,15 +37,12 @@ func (suite *KeeperTestSuite) TestMultipleInterleavedMintsBurns() {
 	queryRes, err := suite.queryClient.DenomAuthorityMetadata(suite.Ctx.Context(), &types.QueryDenomAuthorityMetadataRequest{
 		Denom: suite.defaultDenom,
 	})
-	suite.App.BankKeeper.WriteDeferredOperations(suite.Ctx)
 	suite.Require().NoError(err)
 	suite.Require().Equal(suite.TestAccs[0].String(), queryRes.AuthorityMetadata.Admin)
 
 	// Test minting to admins own account
 	_, err = suite.msgServer.Mint(sdk.WrapSDKContext(suite.Ctx), types.NewMsgMint(suite.TestAccs[0].String(), sdk.NewInt64Coin(suite.defaultDenom, 50)))
 	suite.Require().NoError(err)
-
-	suite.App.BankKeeper.WriteDeferredOperations(suite.Ctx)
 
 	addr0Bal := suite.App.BankKeeper.GetBalance(suite.Ctx, suite.TestAccs[0], suite.defaultDenom).Amount.Int64()
 	suite.Require().Equal(int64(50), addr0Bal, addr0Bal)
@@ -62,8 +56,6 @@ func (suite *KeeperTestSuite) TestMultipleInterleavedMintsBurns() {
 
 	_, err = suite.msgServer.Burn(sdk.WrapSDKContext(suite.Ctx), types.NewMsgBurn(suite.TestAccs[0].String(), sdk.NewInt64Coin(suite.defaultDenom, 15)))
 	suite.Require().NoError(err)
-
-	suite.App.BankKeeper.WriteDeferredOperations(suite.Ctx)
 
 	// Try burning more than what's left
 	_, err = suite.msgServer.Burn(sdk.WrapSDKContext(suite.Ctx), types.NewMsgBurn(suite.TestAccs[0].String(), sdk.NewInt64Coin(suite.defaultDenom, 100)))
@@ -90,8 +82,6 @@ func (suite *KeeperTestSuite) TestMultipleInterleavedMintsBurns() {
 
 	_, err = suite.msgServer.Burn(sdk.WrapSDKContext(suite.Ctx), types.NewMsgBurn(suite.TestAccs[0].String(), sdk.NewInt64Coin(suite.defaultDenom, 5)))
 	suite.Require().NoError(err)
-
-	suite.App.BankKeeper.WriteDeferredOperations(suite.Ctx)
 
 	// Check final balances
 	addr0Bal = suite.App.BankKeeper.GetBalance(suite.Ctx, suite.TestAccs[0], suite.defaultDenom).Amount.Int64()
@@ -143,7 +133,6 @@ func (suite *KeeperTestSuite) TestMintDenom() {
 		suite.Run(fmt.Sprintf("Case %s", tc.desc), func() {
 			// Test minting to admins own account
 			_, err := suite.msgServer.Mint(sdk.WrapSDKContext(suite.Ctx), types.NewMsgMint(tc.admin, sdk.NewInt64Coin(tc.mintDenom, 10)))
-			suite.App.BankKeeper.WriteDeferredOperations(suite.Ctx)
 
 			if tc.valid {
 				addr0bal += 10
@@ -164,7 +153,6 @@ func (suite *KeeperTestSuite) TestBurnDenom() {
 
 	// mint 10 default token for testAcc[0]
 	suite.msgServer.Mint(sdk.WrapSDKContext(suite.Ctx), types.NewMsgMint(suite.TestAccs[0].String(), sdk.NewInt64Coin(suite.defaultDenom, 10)))
-	suite.App.BankKeeper.WriteDeferredOperations(suite.Ctx)
 
 	addr0bal += 10
 
@@ -207,7 +195,6 @@ func (suite *KeeperTestSuite) TestBurnDenom() {
 		suite.Run(fmt.Sprintf("Case %s", tc.desc), func() {
 			// Test minting to admins own account
 			_, err := suite.msgServer.Burn(sdk.WrapSDKContext(suite.Ctx), types.NewMsgBurn(tc.admin, sdk.NewInt64Coin(tc.burnDenom, 10)))
-			suite.App.BankKeeper.WriteDeferredOperations(suite.Ctx)
 
 			if tc.valid {
 				addr0bal -= 10
