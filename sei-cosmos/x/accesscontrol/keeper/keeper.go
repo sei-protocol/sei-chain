@@ -508,7 +508,7 @@ func (k Keeper) BuildDependencyDag(ctx sdk.Context, txDecoder sdk.TxDecoder, ant
 			return nil, err
 		}
 		anteDepSet := make(map[acltypes.AccessOperation]struct{})
-
+		anteAccessOpsList := []acltypes.AccessOperation{}
 		for _, accessOp := range anteDeps {
 			// if found in set, we've already included this access Op in out ante dependencies, so skip it
 			if _, found := anteDepSet[accessOp]; found {
@@ -520,7 +520,10 @@ func (k Keeper) BuildDependencyDag(ctx sdk.Context, txDecoder sdk.TxDecoder, ant
 				return nil, err
 			}
 			dependencyDag.AddNodeBuildDependency(acltypes.ANTE_MSG_INDEX, txIndex, accessOp)
+			anteAccessOpsList = append(anteAccessOpsList, accessOp)
 		}
+		// add Access ops for msg for anteMsg
+		dependencyDag.AddAccessOpsForMsg(acltypes.ANTE_MSG_INDEX, txIndex, anteAccessOpsList)
 
 		msgs := tx.GetMsgs()
 		for messageIndex, msg := range msgs {
