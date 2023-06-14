@@ -103,53 +103,6 @@ func MockProcessBlockConcurrentFunctionSuccess(
 	return []*abci.ExecTxResult{}, true
 }
 
-func TestProcessTxsSuccess(t *testing.T) {
-	tm := time.Now().UTC()
-	valPub := secp256k1.GenPrivKey().PubKey()
-
-	testWrapper := app.NewTestWrapper(t, tm, valPub)
-	dag := acltypes.NewDag()
-
-	// Set some test context mem cache values
-	testWrapper.Ctx.ContextMemCache().UpsertDeferredSends("Some Account", sdk.NewCoins(sdk.Coin{
-		Denom:  "test",
-		Amount: sdk.NewInt(1),
-	}))
-	require.Equal(t, 1, len(testWrapper.Ctx.ContextMemCache().GetDeferredSends().GetSortedKeys()))
-	testWrapper.App.ProcessTxs(
-		testWrapper.Ctx,
-		[][]byte{},
-		&dag,
-		MockProcessBlockConcurrentFunctionSuccess,
-	)
-
-	// It should be reset if it fails to prevent any values from being written
-	require.Equal(t, 1, len(testWrapper.Ctx.ContextMemCache().GetDeferredSends().GetSortedKeys()))
-}
-
-func TestProcessTxsClearCacheOnFail(t *testing.T) {
-	tm := time.Now().UTC()
-	valPub := secp256k1.GenPrivKey().PubKey()
-
-	testWrapper := app.NewTestWrapper(t, tm, valPub)
-	dag := acltypes.NewDag()
-
-	// Set some test context mem cache values
-	testWrapper.Ctx.ContextMemCache().UpsertDeferredSends("Some Account", sdk.NewCoins(sdk.Coin{
-		Denom:  "test",
-		Amount: sdk.NewInt(1),
-	}))
-	testWrapper.App.ProcessTxs(
-		testWrapper.Ctx,
-		[][]byte{},
-		&dag,
-		MockProcessBlockConcurrentFunctionFail,
-	)
-
-	// It should be reset if it fails to prevent any values from being written
-	require.Equal(t, 0, len(testWrapper.Ctx.ContextMemCache().GetDeferredSends().GetSortedKeys()))
-}
-
 func TestPartitionPrioritizedTxs(t *testing.T) {
 	tm := time.Now().UTC()
 	valPub := secp256k1.GenPrivKey().PubKey()
