@@ -42,7 +42,7 @@ func TestBasic(t *testing.T) {
 		key := []byte{0x00}
 		expected := ""
 
-		idx, val, err := tree.GetWithIndex(key)
+		idx, val, err := tree.ImmutableTree().GetWithIndex(key)
 		require.NoError(t, err)
 		if val != nil {
 			t.Error("Expected no value to exist")
@@ -68,7 +68,7 @@ func TestBasic(t *testing.T) {
 		key := []byte("1")
 		expected := "one"
 
-		idx, val, err := tree.GetWithIndex(key)
+		idx, val, err := tree.ImmutableTree().GetWithIndex(key)
 		require.NoError(t, err)
 		if val == nil {
 			t.Error("Expected value to exist")
@@ -95,7 +95,7 @@ func TestBasic(t *testing.T) {
 		key := []byte("2")
 		expected := "TWO"
 
-		idx, val, err := tree.GetWithIndex(key)
+		idx, val, err := tree.ImmutableTree().GetWithIndex(key)
 		require.NoError(t, err)
 		if val == nil {
 			t.Error("Expected value to exist")
@@ -121,7 +121,7 @@ func TestBasic(t *testing.T) {
 		key := []byte("4")
 		expected := ""
 
-		idx, val, err := tree.GetWithIndex(key)
+		idx, val, err := tree.ImmutableTree().GetWithIndex(key)
 		require.NoError(t, err)
 		if val != nil {
 			t.Error("Expected no value to exist")
@@ -147,7 +147,7 @@ func TestBasic(t *testing.T) {
 		key := []byte("6")
 		expected := ""
 
-		idx, val, err := tree.GetWithIndex(key)
+		idx, val, err := tree.ImmutableTree().GetWithIndex(key)
 		require.NoError(t, err)
 		if val != nil {
 			t.Error("Expected no value to exist")
@@ -192,31 +192,31 @@ func TestUnit(t *testing.T) {
 	}
 
 	expectSet := func(tree *MutableTree, i int, repr string, hashCount int64) {
-		origNode := tree.root
+		origNode := tree.ImmutableTree().root
 		updated, err := tree.Set(i2b(i), []byte{})
 		require.NoError(t, err)
 		// ensure node was added & structure is as expected.
-		if updated || P(tree.root) != repr {
+		if updated || P(tree.ImmutableTree().root) != repr {
 			t.Fatalf("Adding %v to %v:\nExpected         %v\nUnexpectedly got %v updated:%v",
-				i, P(origNode), repr, P(tree.root), updated)
+				i, P(origNode), repr, P(tree.ImmutableTree().root), updated)
 		}
 		// ensure hash calculation requirements
-		expectHash(tree.ImmutableTree, hashCount)
-		tree.root = origNode
+		expectHash(tree.ImmutableTree(), hashCount)
+		tree.ImmutableTree().root = origNode
 	}
 
 	expectRemove := func(tree *MutableTree, i int, repr string, hashCount int64) {
-		origNode := tree.root
+		origNode := tree.ImmutableTree().root
 		value, removed, err := tree.Remove(i2b(i))
 		require.NoError(t, err)
 		// ensure node was added & structure is as expected.
-		if len(value) != 0 || !removed || P(tree.root) != repr {
+		if len(value) != 0 || !removed || P(tree.ImmutableTree().root) != repr {
 			t.Fatalf("Removing %v from %v:\nExpected         %v\nUnexpectedly got %v value:%v removed:%v",
-				i, P(origNode), repr, P(tree.root), value, removed)
+				i, P(origNode), repr, P(tree.ImmutableTree().root), value, removed)
 		}
 		// ensure hash calculation requirements
-		expectHash(tree.ImmutableTree, hashCount)
-		tree.root = origNode
+		expectHash(tree.ImmutableTree(), hashCount)
+		tree.ImmutableTree().root = origNode
 	}
 
 	// Test Set cases:
@@ -317,8 +317,8 @@ func TestIntegration(t *testing.T) {
 		if !updated {
 			t.Error("should have been updated")
 		}
-		if tree.Size() != int64(i+1) {
-			t.Error("size was wrong", tree.Size(), i+1)
+		if tree.ImmutableTree().Size() != int64(i+1) {
+			t.Error("size was wrong", tree.ImmutableTree().Size(), i+1)
 		}
 	}
 
@@ -370,8 +370,8 @@ func TestIntegration(t *testing.T) {
 				t.Error("wrong value")
 			}
 		}
-		if tree.Size() != int64(len(records)-(i+1)) {
-			t.Error("size was wrong", tree.Size(), (len(records) - (i + 1)))
+		if tree.ImmutableTree().Size() != int64(len(records)-(i+1)) {
+			t.Error("size was wrong", tree.ImmutableTree().Size(), (len(records) - (i + 1)))
 		}
 	}
 }
@@ -427,38 +427,38 @@ func TestIterateRange(t *testing.T) {
 	}
 
 	trav := traverser{}
-	tree.IterateRange([]byte("foo"), []byte("goo"), true, trav.view)
+	tree.ImmutableTree().IterateRange([]byte("foo"), []byte("goo"), true, trav.view)
 	expectTraverse(t, trav, "foo", "food", 5)
 
 	trav = traverser{}
-	tree.IterateRange([]byte("aaa"), []byte("abb"), true, trav.view)
+	tree.ImmutableTree().IterateRange([]byte("aaa"), []byte("abb"), true, trav.view)
 	expectTraverse(t, trav, "", "", 0)
 
 	trav = traverser{}
-	tree.IterateRange(nil, []byte("flap"), true, trav.view)
+	tree.ImmutableTree().IterateRange(nil, []byte("flap"), true, trav.view)
 	expectTraverse(t, trav, "abc", "fan", 2)
 
 	trav = traverser{}
-	tree.IterateRange([]byte("foob"), nil, true, trav.view)
+	tree.ImmutableTree().IterateRange([]byte("foob"), nil, true, trav.view)
 	expectTraverse(t, trav, "foobang", "low", 6)
 
 	trav = traverser{}
-	tree.IterateRange([]byte("very"), nil, true, trav.view)
+	tree.ImmutableTree().IterateRange([]byte("very"), nil, true, trav.view)
 	expectTraverse(t, trav, "", "", 0)
 
 	// make sure it doesn't include end
 	trav = traverser{}
-	tree.IterateRange([]byte("fooba"), []byte("food"), true, trav.view)
+	tree.ImmutableTree().IterateRange([]byte("fooba"), []byte("food"), true, trav.view)
 	expectTraverse(t, trav, "foobang", "foobaz", 3)
 
 	// make sure backwards also works... (doesn't include end)
 	trav = traverser{}
-	tree.IterateRange([]byte("fooba"), []byte("food"), false, trav.view)
+	tree.ImmutableTree().IterateRange([]byte("fooba"), []byte("food"), false, trav.view)
 	expectTraverse(t, trav, "foobaz", "foobang", 3)
 
 	// make sure backwards also works...
 	trav = traverser{}
-	tree.IterateRange([]byte("g"), nil, false, trav.view)
+	tree.ImmutableTree().IterateRange([]byte("g"), nil, false, trav.view)
 	expectTraverse(t, trav, "low", "good", 2)
 }
 
@@ -513,7 +513,7 @@ func TestProof(t *testing.T) {
 
 	// Now for each item, construct a proof and verify
 	tree.Iterate(func(key []byte, value []byte) bool {
-		value2, proof, err := tree.GetWithProof(key)
+		value2, proof, err := tree.ImmutableTree().GetWithProof(key)
 		assert.NoError(t, err)
 		assert.Equal(t, value, value2)
 		if assert.NotNil(t, proof) {
@@ -534,7 +534,7 @@ func TestTreeProof(t *testing.T) {
 	assert.Equal(t, "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855", hex.EncodeToString(hash))
 
 	// should get false for proof with nil root
-	value, proof, err := tree.GetWithProof([]byte("foo"))
+	value, proof, err := tree.ImmutableTree().GetWithProof([]byte("foo"))
 	assert.Nil(t, value)
 	assert.Nil(t, proof)
 	assert.Error(t, proof.Verify([]byte(nil)))
@@ -551,7 +551,7 @@ func TestTreeProof(t *testing.T) {
 	tree.SaveVersion()
 
 	// query random key fails
-	value, proof, err = tree.GetWithProof([]byte("foo"))
+	value, proof, err = tree.ImmutableTree().GetWithProof([]byte("foo"))
 	assert.Nil(t, value)
 	assert.NotNil(t, proof)
 	assert.NoError(t, err)
@@ -564,7 +564,7 @@ func TestTreeProof(t *testing.T) {
 	root, err := tree.WorkingHash()
 	assert.NoError(t, err)
 	for _, key := range keys {
-		value, proof, err := tree.GetWithProof(key)
+		value, proof, err := tree.ImmutableTree().GetWithProof(key)
 		if assert.NoError(t, err) {
 			require.Nil(t, err, "Failed to read proof from bytes: %v", err)
 			assert.Equal(t, key, value)

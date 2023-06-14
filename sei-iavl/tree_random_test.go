@@ -152,7 +152,7 @@ func testRandomOperations(t *testing.T, randSeed int64) {
 		require.NoError(t, err)
 
 		t.Logf("Saved tree at version %v with %v keys and %v versions",
-			version, tree.Size(), len(tree.AvailableVersions()))
+			version, tree.ImmutableTree().Size(), len(tree.AvailableVersions()))
 
 		// Verify that the version matches the mirror.
 		assertMirror(t, tree, mirror, 0)
@@ -391,7 +391,7 @@ func assertMaxVersion(t *testing.T, tree *MutableTree, version int64, mirrors ma
 // Checks that a mirror, optionally for a given version, matches the tree contents.
 func assertMirror(t *testing.T, tree *MutableTree, mirror map[string]string, version int64) {
 	var err error
-	itree := tree.ImmutableTree
+	itree := tree.ImmutableTree()
 	if version > 0 {
 		itree, err = tree.GetImmutable(version)
 		require.NoError(t, err, "loading version %v", version)

@@ -84,7 +84,7 @@ func TestRepair013Orphans(t *testing.T) {
 // assertVersion checks the given version (or current if 0) against the expected values.
 func assertVersion(t *testing.T, tree *MutableTree, version int64) {
 	var err error
-	itree := tree.ImmutableTree
+	itree := tree.ImmutableTree()
 	if version > 0 {
 		itree, err = tree.GetImmutable(version)
 		require.NoError(t, err)

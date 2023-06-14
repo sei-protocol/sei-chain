@@ -26,7 +26,7 @@ func TestTreeGetWithProof(t *testing.T) {
 	require.NoError(err)
 
 	key := []byte{0x32}
-	val, proof, err := tree.GetWithProof(key)
+	val, proof, err := tree.ImmutableTree().GetWithProof(key)
 	require.NoError(err)
 	require.NotEmpty(val)
 	require.NotNil(proof)
@@ -41,7 +41,7 @@ func TestTreeGetWithProof(t *testing.T) {
 	require.NoError(err, "%+v", err)
 
 	key = []byte{0x1}
-	val, proof, err = tree.GetWithProof(key)
+	val, proof, err = tree.ImmutableTree().GetWithProof(key)
 	require.NoError(err)
 	require.Empty(val)
 	require.NotNil(proof)
@@ -63,7 +63,7 @@ func TestTreeKeyExistsProof(t *testing.T) {
 	require.NoError(t, err)
 
 	// should get false for proof with nil root
-	proof, keys, values, err := tree.getRangeProof([]byte("foo"), nil, 1)
+	proof, keys, values, err := tree.ImmutableTree().getRangeProof([]byte("foo"), nil, 1)
 	assert.Nil(t, proof)
 	assert.Error(t, proof.Verify(root))
 	assert.Nil(t, keys)
@@ -83,13 +83,13 @@ func TestTreeKeyExistsProof(t *testing.T) {
 	require.NoError(t, err)
 
 	// query random key fails
-	proof, _, _, err = tree.getRangeProof([]byte("foo"), nil, 2)
+	proof, _, _, err = tree.ImmutableTree().getRangeProof([]byte("foo"), nil, 2)
 	assert.Nil(t, err)
 	assert.Nil(t, proof.Verify(root))
 	assert.Nil(t, proof.VerifyAbsence([]byte("foo")), proof.String())
 
 	// query min key fails
-	proof, _, _, err = tree.getRangeProof([]byte{0x00}, []byte{0x01}, 2)
+	proof, _, _, err = tree.ImmutableTree().getRangeProof([]byte{0x00}, []byte{0x01}, 2)
 	assert.Nil(t, err)
 	assert.Nil(t, proof.Verify(root))
 	assert.Nil(t, proof.VerifyAbsence([]byte{0x00}))
@@ -97,7 +97,7 @@ func TestTreeKeyExistsProof(t *testing.T) {
 	// valid proof for real keys
 	for i, key := range allkeys {
 		var keys, values [][]byte
-		proof, keys, values, err = tree.getRangeProof(key, nil, 2)
+		proof, keys, values, err = tree.ImmutableTree().getRangeProof(key, nil, 2)
 		require.Nil(t, err)
 
 		require.Equal(t,
@@ -186,7 +186,7 @@ func TestTreeKeyInRangeProofs(t *testing.T) {
 		end := []byte{c.end}
 
 		// Compute range proof.
-		keys, values, proof, err := tree.GetRangeWithProof(start, end, 0)
+		keys, values, proof, err := tree.ImmutableTree().GetRangeWithProof(start, end, 0)
 
 		if c.err {
 			require.Error(err, "%+v", err)

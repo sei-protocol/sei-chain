@@ -37,7 +37,7 @@ func TestProofFogery(t *testing.T) {
 	k := []byte{keys[1]}
 	v := values[1]
 
-	val, proof, err := tree.GetWithProof(k)
+	val, proof, err := tree.ImmutableTree().GetWithProof(k)
 	require.NoError(t, err)
 
 	err = proof.Verify(root)
@@ -53,7 +53,7 @@ func TestProofFogery(t *testing.T) {
 	// - a new leaf node to the right
 	// - an empty inner node
 	// - a right entry in the path
-	_, proof2, _ := tree.GetWithProof(k)
+	_, proof2, _ := tree.ImmutableTree().GetWithProof(k)
 	forgedNode := proof2.Leaves[0]
 	forgedNode.Key = []byte{0xFF}
 	forgedNode.ValueHash = forgedValueHash
