@@ -13,10 +13,6 @@ func DefaultEpoch() Epoch {
 }
 
 func (e *Epoch) Validate() error {
-	if e.GetCurrentEpochStartTime().IsZero() {
-		return fmt.Errorf("epoch start time cannot be zero")
-	}
-
 	if e.GetGenesisTime().IsZero() {
 		return fmt.Errorf("epoch genesis time cannot be zero")
 	}
