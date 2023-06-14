@@ -98,3 +98,22 @@ func TestPlaceOrders(t *testing.T) {
 		testCase.run(t, app)
 	}
 }
+
+func TestPlaceImposterOrders(t *testing.T) {
+	app := processblock.NewTestApp()
+	p := processblock.DexPreset(app, 3, 2)
+	p.DoRegisterMarkets(app)
+
+	for _, testCase := range []TestCase{
+		{
+			description: "send an order for someone else",
+			input: []signing.Tx{
+				app.Sign(p.SignableAccounts[0], 10000, p.AllDexMarkets[0].LongMarketOrder(p.SignableAccounts[1], "11", "2")),
+			},
+			verifier:      []verify.Verifier{},
+			expectedCodes: []uint32{8},
+		},
+	} {
+		testCase.run(t, app)
+	}
+}

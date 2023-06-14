@@ -155,7 +155,7 @@ func (d CheckDexGasDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bo
 	return ctx, sdkerrors.ErrInsufficientFee
 }
 
-func (d CheckDexGasDecorator) AnteDeps(txDeps []sdkacltypes.AccessOperation, tx sdk.Tx, next sdk.AnteDepGenerator) (newTxDeps []sdkacltypes.AccessOperation, err error) {
+func (d CheckDexGasDecorator) AnteDeps(txDeps []sdkacltypes.AccessOperation, tx sdk.Tx, txIndex int, next sdk.AnteDepGenerator) (newTxDeps []sdkacltypes.AccessOperation, err error) {
 	deps := []sdkacltypes.AccessOperation{}
 	for _, msg := range tx.GetMsgs() {
 		// Error checking will be handled in AnteHandler
@@ -173,5 +173,5 @@ func (d CheckDexGasDecorator) AnteDeps(txDeps []sdkacltypes.AccessOperation, tx 
 			continue
 		}
 	}
-	return next(append(txDeps, deps...), tx)
+	return next(append(txDeps, deps...), tx, txIndex)
 }

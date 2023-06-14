@@ -30,9 +30,9 @@ func (ad FakeAnteDecoratorOne) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate b
 	return next(ctx, tx, simulate)
 }
 
-func (ad FakeAnteDecoratorOne) AnteDeps(txDeps []accesscontrol.AccessOperation, tx sdk.Tx, next sdk.AnteDepGenerator) (newTxDeps []accesscontrol.AccessOperation, err error) {
+func (ad FakeAnteDecoratorOne) AnteDeps(txDeps []accesscontrol.AccessOperation, tx sdk.Tx, txIndex int, next sdk.AnteDepGenerator) (newTxDeps []accesscontrol.AccessOperation, err error) {
 	outputDeps = fmt.Sprintf("%sone", outputDeps)
-	return next(txDeps, tx)
+	return next(txDeps, tx, txIndex)
 }
 
 type FakeAnteDecoratorTwo struct{}
@@ -42,9 +42,9 @@ func (ad FakeAnteDecoratorTwo) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate b
 	return next(ctx, tx, simulate)
 }
 
-func (ad FakeAnteDecoratorTwo) AnteDeps(txDeps []accesscontrol.AccessOperation, tx sdk.Tx, next sdk.AnteDepGenerator) (newTxDeps []accesscontrol.AccessOperation, err error) {
+func (ad FakeAnteDecoratorTwo) AnteDeps(txDeps []accesscontrol.AccessOperation, tx sdk.Tx, txIndex int, next sdk.AnteDepGenerator) (newTxDeps []accesscontrol.AccessOperation, err error) {
 	outputDeps = fmt.Sprintf("%stwo", outputDeps)
-	return next(txDeps, tx)
+	return next(txDeps, tx, txIndex)
 }
 
 type FakeAnteDecoratorThree struct{}
@@ -54,9 +54,9 @@ func (ad FakeAnteDecoratorThree) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate
 	return next(ctx, tx, simulate)
 }
 
-func (ad FakeAnteDecoratorThree) AnteDeps(txDeps []accesscontrol.AccessOperation, tx sdk.Tx, next sdk.AnteDepGenerator) (newTxDeps []accesscontrol.AccessOperation, err error) {
+func (ad FakeAnteDecoratorThree) AnteDeps(txDeps []accesscontrol.AccessOperation, tx sdk.Tx, txIndex int, next sdk.AnteDepGenerator) (newTxDeps []accesscontrol.AccessOperation, err error) {
 	outputDeps = fmt.Sprintf("%sthree", outputDeps)
-	return next(txDeps, tx)
+	return next(txDeps, tx, txIndex)
 }
 
 type FakeAnteDecoratorGasReqd struct{}
@@ -107,7 +107,7 @@ func CallGaslessDecoratorWithMsg(ctx sdk.Context, msg sdk.Msg, oracleKeeper orac
 	if err != nil {
 		return err
 	}
-	_, err = depGen([]accesscontrol.AccessOperation{}, fakeTx)
+	_, err = depGen([]accesscontrol.AccessOperation{}, fakeTx, 1)
 	return err
 }
 
@@ -127,7 +127,7 @@ func TestGaslessDecorator(t *testing.T) {
 	_, err := chainedHandler(ctx, FakeTx{}, false)
 	require.NoError(t, err)
 	require.Equal(t, "onetwothree", output)
-	_, err = depGen([]accesscontrol.AccessOperation{}, FakeTx{})
+	_, err = depGen([]accesscontrol.AccessOperation{}, FakeTx{}, 1)
 	require.NoError(t, err)
 	require.Equal(t, "onetwothree", outputDeps)
 }
