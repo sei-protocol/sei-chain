@@ -20,3 +20,9 @@ func TestEqualProposalID(t *testing.T) {
 	require.Equal(t, state1, state2)
 	require.True(t, state1.Equal(state2))
 }
+
+func TestValidateGenesis(t *testing.T) {
+	require.Nil(t, ValidateGenesis(DefaultGenesisState()))
+	require.Error(t, ValidateGenesis(&GenesisState{}))
+	require.Error(t, ValidateGenesis(nil))
+}

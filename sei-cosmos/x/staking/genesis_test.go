@@ -227,6 +227,12 @@ func TestValidateGenesis(t *testing.T) {
 			data.Validators[0].Jailed = true
 			data.Validators[0].Status = types.Bonded
 		}, true},
+		{"invalid vp threshold", func(data *types.GenesisState) {
+			data.Params.MaxVotingPowerEnforcementThreshold = sdk.NewInt(-1)
+		}, true},
+		{"invalid vp ratio", func(data *types.GenesisState) {
+			data.Params.MaxVotingPowerRatio = sdk.NewDec(2)
+		}, true},
 	}
 
 	for _, tt := range tests {

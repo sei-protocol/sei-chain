@@ -152,6 +152,15 @@ func (p Params) Validate() error {
 	if err := validateMinCommissionRate(p.MinCommissionRate); err != nil {
 		return err
 	}
+
+	if err := validateMaxVotingPowerEnforcementThreshold(p.MaxVotingPowerEnforcementThreshold); err != nil {
+		return err
+	}
+
+	if err := validateMaxVotingPowerRatio(p.MaxVotingPowerRatio); err != nil {
+		return err
+	}
+
 	return nil
 }
 
@@ -203,6 +212,7 @@ func validateMaxVotingPowerEnforcementThreshold(i interface{}) error {
 	if v.IsNil() {
 		return fmt.Errorf("max voting power must be not nil")
 	}
+
 	if v.IsNegative() {
 		return fmt.Errorf("max voting power must be positive: %s", v)
 	}

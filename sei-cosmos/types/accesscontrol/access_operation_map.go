@@ -30,18 +30,6 @@ func SendAllSignalsForTx(messageIndexToAccessOpsChannelMapping MessageAccessOpsC
 	}
 }
 
-func GetMessageAccessOps(
-	messageIndex int,
-	messageAccessOpsChannelMapping MessageAccessOpsChannelMapping,
-) []AccessOperation {
-	accessOps := []AccessOperation{}
-
-	for accessOp := range messageAccessOpsChannelMapping[messageIndex] {
-		accessOps = append(accessOps, accessOp)
-	}
-	return accessOps
-}
-
 func (a *AccessOperation) GetString() {
 	fmt.Printf("ResourceType=%s, AccessType=%s, IdentifierTemplate=%s", a.GetResourceType(), a.GetAccessType(), a.GetIdentifierTemplate())
 }
