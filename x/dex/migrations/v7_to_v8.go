@@ -33,7 +33,7 @@ func flattenSettlements(ctx sdk.Context, storeKey sdk.StoreKey) error {
 			}
 			settlementStore := prefix.NewStore(
 				ctx.KVStore(storeKey),
-				types.SettlementEntryPrefix(contract.ContractAddr, pair.PriceDenom, pair.AssetDenom),
+				SettlementEntryPrefix(contract.ContractAddr, pair.PriceDenom, pair.AssetDenom),
 			)
 			settlementIterator := sdk.KVStorePrefixIterator(settlementStore, []byte{})
 
@@ -61,7 +61,7 @@ func flattenSettlements(ctx sdk.Context, storeKey sdk.StoreKey) error {
 				if len(val.Entries) > 0 {
 					settlementIDStore := prefix.NewStore(
 						ctx.KVStore(storeKey),
-						types.NextSettlementIDPrefix(contract.ContractAddr, pair.PriceDenom, pair.AssetDenom),
+						NextSettlementIDPrefix(contract.ContractAddr, pair.PriceDenom, pair.AssetDenom),
 					)
 					key := make([]byte, 8)
 					binary.BigEndian.PutUint64(key, val.Entries[0].OrderId)
@@ -84,4 +84,18 @@ func flattenSettlements(ctx sdk.Context, storeKey sdk.StoreKey) error {
 		pairIterator.Close()
 	}
 	return nil
+}
+
+func SettlementEntryPrefix(contractAddr string, priceDenom string, assetDenom string) []byte {
+	return append(
+		append(types.KeyPrefix("SettlementEntry-"), types.AddressKeyPrefix(contractAddr)...),
+		types.PairPrefix(priceDenom, assetDenom)...,
+	)
+}
+
+func NextSettlementIDPrefix(contractAddr string, priceDenom string, assetDenom string) []byte {
+	return append(
+		append(types.KeyPrefix("NextSettlementID-"), types.AddressKeyPrefix(contractAddr)...),
+		types.PairPrefix(priceDenom, assetDenom)...,
+	)
 }

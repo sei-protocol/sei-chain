@@ -22,9 +22,6 @@ const (
 
 	// MemStoreKey defines the in-memory store key
 	MemStoreKey = "mem_dex"
-
-	// We don't want pair ABC<>DEF to have the same key as AB<>CDEF
-	PairSeparator = "|"
 )
 
 func KeyPrefix(p string) []byte {
@@ -40,8 +37,15 @@ func ContractKeyPrefix(p string, contractAddr string) []byte {
 	return append([]byte(p), AddressKeyPrefix(contractAddr)...)
 }
 
+func DenomPrefix(denom string) []byte {
+	length := uint16(len(denom))
+	bz := make([]byte, 2)
+	binary.BigEndian.PutUint16(bz, length)
+	return append(bz, []byte(denom)...)
+}
+
 func PairPrefix(priceDenom string, assetDenom string) []byte {
-	return append([]byte(priceDenom), append([]byte(PairSeparator), []byte(assetDenom)...)...)
+	return append(DenomPrefix(priceDenom), DenomPrefix(assetDenom)...)
 }
 
 func OrderBookPrefix(long bool, contractAddr string, priceDenom string, assetDenom string) []byte {
@@ -61,15 +65,6 @@ func OrderBookContractPrefix(long bool, contractAddr string) []byte {
 	return append(prefix, AddressKeyPrefix(contractAddr)...)
 }
 
-func TriggerOrderBookPrefix(contractAddr string, priceDenom string, assetDenom string) []byte {
-	prefix := KeyPrefix(TriggerBookKey)
-
-	return append(
-		append(prefix, AddressKeyPrefix(contractAddr)...),
-		PairPrefix(priceDenom, assetDenom)...,
-	)
-}
-
 // `Price` constant + contract + price denom + asset denom
 func PricePrefix(contractAddr string, priceDenom string, assetDenom string) []byte {
 	return append(
@@ -82,13 +77,6 @@ func PriceContractPrefix(contractAddr string) []byte {
 	return append(KeyPrefix(PriceKey), AddressKeyPrefix(contractAddr)...)
 }
 
-func SettlementEntryPrefix(contractAddr string, priceDenom string, assetDenom string) []byte {
-	return append(
-		append(KeyPrefix(SettlementEntryKey), AddressKeyPrefix(contractAddr)...),
-		PairPrefix(priceDenom, assetDenom)...,
-	)
-}
-
 func RegisteredPairPrefix(contractAddr string) []byte {
 	return append(KeyPrefix(RegisteredPairKey), AddressKeyPrefix(contractAddr)...)
 }
@@ -98,18 +86,11 @@ func OrderPrefix(contractAddr string) []byte {
 }
 
 func AssetListPrefix(assetDenom string) []byte {
-	return append(KeyPrefix(AssetListKey), KeyPrefix(assetDenom)...)
+	return append(KeyPrefix(AssetListKey), DenomPrefix(assetDenom)...)
 }
 
 func NextOrderIDPrefix(contractAddr string) []byte {
 	return append(KeyPrefix(NextOrderIDKey), AddressKeyPrefix(contractAddr)...)
-}
-
-func NextSettlementIDPrefix(contractAddr string, priceDenom string, assetDenom string) []byte {
-	return append(
-		append(KeyPrefix(NextSettlementIDKey), AddressKeyPrefix(contractAddr)...),
-		PairPrefix(priceDenom, assetDenom)...,
-	)
 }
 
 func MatchResultPrefix(contractAddr string) []byte {
@@ -129,17 +110,17 @@ func GetSettlementKey(orderID uint64, account string, settlementID uint64) []byt
 	return append(GetSettlementOrderIDPrefix(orderID, account), settlementIDBytes...)
 }
 
-func MemOrderPrefixForPair(contractAddr string, pairString string) []byte {
+func MemOrderPrefixForPair(contractAddr string, priceDenom string, assetDenom string) []byte {
 	return append(
 		append(KeyPrefix(MemOrderKey), AddressKeyPrefix(contractAddr)...),
-		[]byte(pairString)...,
+		PairPrefix(priceDenom, assetDenom)...,
 	)
 }
 
-func MemCancelPrefixForPair(contractAddr string, pairString string) []byte {
+func MemCancelPrefixForPair(contractAddr string, priceDenom string, assetDenom string) []byte {
 	return append(
 		append(KeyPrefix(MemCancelKey), AddressKeyPrefix(contractAddr)...),
-		[]byte(pairString)...,
+		PairPrefix(priceDenom, assetDenom)...,
 	)
 }
 
@@ -156,7 +137,7 @@ func MemDepositPrefix(contractAddr string) []byte {
 }
 
 func MemDepositSubprefix(creator, denom string) []byte {
-	return append([]byte(creator), []byte(denom)...)
+	return append([]byte(creator), DenomPrefix(denom)...)
 }
 
 func ContractKey(contractAddr string) []byte {
@@ -178,22 +159,18 @@ const (
 
 	ShortBookKey = "ShortBook-value-"
 
-	TriggerBookKey = "TriggerBook-value-"
-
 	OrderKey               = "order"
 	AccountActiveOrdersKey = "account-active-orders"
 	CancelKey              = "cancel"
 
-	TwapKey             = "TWAP-"
-	PriceKey            = "Price-"
-	SettlementEntryKey  = "SettlementEntry-"
-	NextSettlementIDKey = "NextSettlementID-"
-	NextOrderIDKey      = "noid"
-	RegisteredPairKey   = "rp"
-	AssetListKey        = "AssetList-"
-	MatchResultKey      = "MatchResult-"
-	LongOrderCountKey   = "loc-"
-	ShortOrderCountKey  = "soc-"
+	TwapKey            = "TWAP-"
+	PriceKey           = "Price-"
+	NextOrderIDKey     = "noid"
+	RegisteredPairKey  = "rp"
+	AssetListKey       = "AssetList-"
+	MatchResultKey     = "MatchResult-"
+	LongOrderCountKey  = "loc-"
+	ShortOrderCountKey = "soc-"
 
 	MemOrderKey   = "MemOrder-"
 	MemDepositKey = "MemDeposit-"

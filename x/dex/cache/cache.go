@@ -56,11 +56,12 @@ func (s *MemState) GetAllBlockOrders(ctx sdk.Context, contractAddr types.Contrac
 
 func (s *MemState) GetBlockOrders(ctx sdk.Context, contractAddr types.ContractAddress, pair types.PairString) *BlockOrders {
 	s.SynchronizeAccess(ctx, contractAddr)
+	pairType := types.GetPair(pair)
 	return NewOrders(
 		prefix.NewStore(
 			ctx.KVStore(s.storeKey),
 			types.MemOrderPrefixForPair(
-				string(contractAddr), string(pair),
+				string(contractAddr), pairType.PriceDenom, pairType.AssetDenom,
 			),
 		),
 	)
@@ -68,11 +69,12 @@ func (s *MemState) GetBlockOrders(ctx sdk.Context, contractAddr types.ContractAd
 
 func (s *MemState) GetBlockCancels(ctx sdk.Context, contractAddr types.ContractAddress, pair types.PairString) *BlockCancellations {
 	s.SynchronizeAccess(ctx, contractAddr)
+	pairType := types.GetPair(pair)
 	return NewCancels(
 		prefix.NewStore(
 			ctx.KVStore(s.storeKey),
 			types.MemCancelPrefixForPair(
-				string(contractAddr), string(pair),
+				string(contractAddr), pairType.PriceDenom, pairType.AssetDenom,
 			),
 		),
 	)

@@ -33,7 +33,7 @@ func TestMigrate7to8(t *testing.T) {
 	// write old settlements
 	store := prefix.NewStore(
 		ctx.KVStore(storeKey),
-		types.SettlementEntryPrefix(keepertest.TestContract, keepertest.TestPriceDenom, keepertest.TestAssetDenom),
+		migrations.SettlementEntryPrefix(keepertest.TestContract, keepertest.TestPriceDenom, keepertest.TestAssetDenom),
 	)
 	settlements := types.Settlements{
 		Entries: []*types.SettlementEntry{
@@ -76,7 +76,7 @@ func TestMigrate7to8(t *testing.T) {
 
 	store = prefix.NewStore(
 		ctx.KVStore(storeKey),
-		types.SettlementEntryPrefix(keepertest.TestContract, keepertest.TestPriceDenom, keepertest.TestAssetDenom),
+		migrations.SettlementEntryPrefix(keepertest.TestContract, keepertest.TestPriceDenom, keepertest.TestAssetDenom),
 	)
 	settlementEntry1Key := types.GetSettlementKey(1, keepertest.TestAccount, 0)
 	settlementEntry1 := types.SettlementEntry{}
@@ -91,7 +91,7 @@ func TestMigrate7to8(t *testing.T) {
 
 	require.False(t, store.Has(types.GetSettlementOrderIDPrefix(1, keepertest.TestAccount)))
 
-	store = prefix.NewStore(ctx.KVStore(storeKey), types.NextSettlementIDPrefix(keepertest.TestContract, keepertest.TestPriceDenom, keepertest.TestAssetDenom))
+	store = prefix.NewStore(ctx.KVStore(storeKey), migrations.NextSettlementIDPrefix(keepertest.TestContract, keepertest.TestPriceDenom, keepertest.TestAssetDenom))
 	key := make([]byte, 8)
 	binary.BigEndian.PutUint64(key, uint64(1))
 	require.Equal(t, uint64(2), binary.BigEndian.Uint64(store.Get(key)))
