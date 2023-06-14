@@ -43,16 +43,19 @@ func (m Migrator) Migrate2to3(ctx sdk.Context) error {
 
 func (m Migrator) Migrate3to4(ctx sdk.Context) error {
 	// Set denom metadata for all denoms
-	m.keeper.bankKeeper.IterateTotalSupply(ctx, func(coin sdk.Coin) bool {
-		fmt.Printf("Migration denom: %s\n", coin.Denom)
-		if denomMetadata, err := m.keeper.bankKeeper.GetDenomMetaData(ctx, coin.Denom); !err {
-			panic(fmt.Errorf("denom %s does not exist", coin.Denom))
+	iter := m.keeper.GetAllDenomsIterator(ctx)
+	defer iter.Close()
+	for ; iter.Valid(); iter.Next() {
+		denom := string(iter.Value())
+		if denomMetadata, err := m.keeper.bankKeeper.GetDenomMetaData(ctx, denom); !err {
+			panic(fmt.Errorf("denom %s does not exist", denom))
 		} else {
+			fmt.Printf("Migrating denom: %s\n", denom)
 			m.SetMetadata(&denomMetadata)
 			m.keeper.bankKeeper.SetDenomMetaData(ctx, denomMetadata)
 		}
-		return true
-	})
+
+	}
 	return nil
 }
 
