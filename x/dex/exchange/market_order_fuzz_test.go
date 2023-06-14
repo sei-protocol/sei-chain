@@ -36,7 +36,7 @@ func fuzzTargetMatchMarketOrders(
 ) {
 	dexkeeper, TestFuzzMarketCtx := keepertest.DexKeeper(t)
 	TestFuzzMarketCtx = TestFuzzMarketCtx.WithBlockHeight(1).WithBlockTime(time.Now())
-	blockOrders := dexutils.GetMemState(TestFuzzMarketCtx.Context()).GetBlockOrders(TestFuzzMarketCtx, "testAccount", "USDC|ATOM")
+	blockOrders := dexutils.GetMemState(TestFuzzMarketCtx.Context()).GetBlockOrders(TestFuzzMarketCtx, "testAccount", types.Pair{PriceDenom: "USDC", AssetDenom: "ATOM"})
 	entries := fuzzing.GetOrderBookEntries(!takerLong, keepertest.TestPriceDenom, keepertest.TestAssetDenom, entryWeights, accountIndices, allocationWeights)
 	for _, entry := range entries {
 		if takerLong {

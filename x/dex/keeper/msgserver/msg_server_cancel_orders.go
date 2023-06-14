@@ -34,8 +34,7 @@ func (k msgServer) CancelOrders(goCtx context.Context, msg *types.MsgCancelOrder
 			return nil, errors.New("cannot cancel orders created by others")
 		}
 		pair := types.Pair{PriceDenom: cancellation.PriceDenom, AssetDenom: cancellation.AssetDenom}
-		pairStr := types.GetPairString(&pair)
-		pairBlockCancellations := utils.GetMemState(ctx.Context()).GetBlockCancels(ctx, types.ContractAddress(msg.GetContractAddr()), pairStr)
+		pairBlockCancellations := utils.GetMemState(ctx.Context()).GetBlockCancels(ctx, types.ContractAddress(msg.GetContractAddr()), pair)
 		if !pairBlockCancellations.Has(cancellation) {
 			// only cancel if it's not cancelled in a previous tx in the same block
 			cancel := types.Cancellation{

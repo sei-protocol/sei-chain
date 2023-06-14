@@ -76,7 +76,7 @@ func TestGetOrderSimulation(t *testing.T) {
 			},
 		},
 	})
-	dexutils.GetMemState(ctx.Context()).GetBlockCancels(ctx, types.ContractAddress(keepertest.TestContract), types.GetPairString(&keepertest.TestPair)).Add(
+	dexutils.GetMemState(ctx.Context()).GetBlockCancels(ctx, types.ContractAddress(keepertest.TestContract), keepertest.TestPair).Add(
 		&types.Cancellation{Id: 1, Price: sdk.MustNewDecFromStr("9"), PositionDirection: types.PositionDirection_SHORT, PriceDenom: keepertest.TestPriceDenom, AssetDenom: keepertest.TestAssetDenom},
 	)
 	res, err = wrapper.GetOrderSimulation(wctx, &types.QueryOrderSimulationRequest{Order: &testOrder, ContractAddr: keepertest.TestContract})
@@ -84,7 +84,7 @@ func TestGetOrderSimulation(t *testing.T) {
 	require.Equal(t, sdk.OneDec(), *res.ExecutedQuantity)
 
 	// liquidity taken by earlier market orders
-	dexutils.GetMemState(ctx.Context()).GetBlockOrders(ctx, types.ContractAddress(keepertest.TestContract), types.GetPairString(&keepertest.TestPair)).Add(
+	dexutils.GetMemState(ctx.Context()).GetBlockOrders(ctx, types.ContractAddress(keepertest.TestContract), keepertest.TestPair).Add(
 		&types.Order{
 			Account:           keepertest.TestAccount,
 			PriceDenom:        keepertest.TestPriceDenom,

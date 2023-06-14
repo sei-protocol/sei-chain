@@ -52,7 +52,7 @@ func TestCancelOrder(t *testing.T) {
 	server := msgserver.NewMsgServerImpl(*keeper)
 	_, err := server.CancelOrders(wctx, msg)
 
-	pairBlockCancellations := dexutils.GetMemState(ctx.Context()).GetBlockCancels(ctx, keepertest.TestContract, types.GetPairString(&keepertest.TestPair))
+	pairBlockCancellations := dexutils.GetMemState(ctx.Context()).GetBlockCancels(ctx, keepertest.TestContract, keepertest.TestPair)
 	require.Nil(t, err)
 	require.Equal(t, 1, len(pairBlockCancellations.Get()))
 	require.Equal(t, uint64(1), pairBlockCancellations.Get()[0].Id)

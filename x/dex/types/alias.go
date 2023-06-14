@@ -10,20 +10,12 @@ type (
 	PairString      string
 )
 
-const Separator = "|"
+const PairDelim = "|"
 
 func GetPairString(pair *Pair) PairString {
 	return PairString(
-		fmt.Sprintf("%s%s%s", pair.PriceDenom, Separator, pair.AssetDenom),
+		fmt.Sprintf("%s%s%s", pair.PriceDenom, PairDelim, pair.AssetDenom),
 	)
-}
-
-func GetPair(s PairString) *Pair {
-	parts := strings.Split(string(s), Separator)
-	return &Pair{
-		PriceDenom: parts[0],
-		AssetDenom: parts[1],
-	}
 }
 
 func GetPriceAssetString(pairString PairString) (string, string) {

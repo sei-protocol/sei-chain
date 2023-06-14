@@ -52,7 +52,7 @@ func (k KeeperWrapper) getMatchedPriceQuantities(ctx sdk.Context, req *types.Que
 
 	// exclude liquidity to be cancelled
 	pair := types.Pair{PriceDenom: req.Order.PriceDenom, AssetDenom: req.Order.AssetDenom}
-	for _, cancel := range dexutils.GetMemState(ctx.Context()).GetBlockCancels(ctx, types.ContractAddress(req.ContractAddr), types.GetPairString(&pair)).Get() {
+	for _, cancel := range dexutils.GetMemState(ctx.Context()).GetBlockCancels(ctx, types.ContractAddress(req.ContractAddr), pair).Get() {
 		var cancelledAllocation *types.Allocation
 		var found bool
 		if cancel.PositionDirection == types.PositionDirection_LONG {
@@ -85,7 +85,7 @@ func (k KeeperWrapper) getMatchedPriceQuantities(ctx sdk.Context, req *types.Que
 
 	// exclude liquidity to be taken
 	ptr := 0
-	for _, order := range dexutils.GetMemState(ctx.Context()).GetBlockOrders(ctx, types.ContractAddress(req.ContractAddr), types.GetPairString(&pair)).GetSortedMarketOrders(orderDirection) {
+	for _, order := range dexutils.GetMemState(ctx.Context()).GetBlockOrders(ctx, types.ContractAddress(req.ContractAddr), pair).GetSortedMarketOrders(orderDirection) {
 		// If existing market order has price zero, it means it doesn't specify a worst price and will always have precedence over the simulated
 		// order
 		if !order.Price.IsZero() {
