@@ -60,6 +60,10 @@ func (s *IntegrationTestSuite) SetupSuite() {
 	account2, _, err := kb.NewMnemonic("newAccount2", keyring.English, sdk.FullFundraiserPath, keyring.DefaultBIP39Passphrase, hd.Secp256k1)
 	s.Require().NoError(err)
 
+	// Create a dummy account for testing purpose
+	_, _, err = kb.NewMnemonic("dummyAccount", keyring.English, sdk.FullFundraiserPath, keyring.DefaultBIP39Passphrase, hd.Secp256k1)
+	s.Require().NoError(err)
+
 	multi := kmultisig.NewLegacyAminoPubKey(2, []cryptotypes.PubKey{account1.GetPubKey(), account2.GetPubKey()})
 	_, err = kb.SaveMultisig("multi", multi)
 	s.Require().NoError(err)
@@ -737,6 +741,10 @@ func (s *IntegrationTestSuite) TestCLIMultisignSortSignatures() {
 	multisigInfo, err := val1.ClientCtx.Keyring.Key("multi")
 	s.Require().NoError(err)
 
+	// Generate dummy account which is not a part of multisig.
+	dummyAcc, err := val1.ClientCtx.Keyring.Key("dummyAccount")
+	s.Require().NoError(err)
+
 	resp, err := bankcli.QueryBalancesExec(val1.ClientCtx, multisigInfo.GetAddress())
 	s.Require().NoError(err)
 
@@ -789,11 +797,18 @@ func (s *IntegrationTestSuite) TestCLIMultisignSortSignatures() {
 
 	sign1File := testutil.WriteToNewTempFile(s.T(), account1Signature.String())
 
-	// Sign with account1
+	// Sign with account2
 	account2Signature, err := TxSignExec(val1.ClientCtx, account2.GetAddress(), multiGeneratedTxFile.Name(), "--multisig", multisigInfo.GetAddress().String())
 	s.Require().NoError(err)
 
 	sign2File := testutil.WriteToNewTempFile(s.T(), account2Signature.String())
+
+	// Sign with dummy account
+	dummyAddr := dummyAcc.GetAddress()
+	s.Require().NoError(err)
+	_, err = TxSignExec(val1.ClientCtx, dummyAddr, multiGeneratedTxFile.Name(), "--multisig", multisigInfo.GetAddress().String())
+	s.Require().Error(err)
+	s.Require().Contains(err.Error(), "signing key is not a part of multisig key")
 
 	multiSigWith2Signatures, err := TxMultiSignExec(val1.ClientCtx, multisigInfo.GetName(), multiGeneratedTxFile.Name(), sign1File.Name(), sign2File.Name())
 	s.Require().NoError(err)
@@ -849,7 +864,7 @@ func (s *IntegrationTestSuite) TestSignWithMultisig() {
 	// as the main point of this test is to test the `--multisig` flag with an address
 	// that is not in the keyring.
 	_, err = TxSignExec(val1.ClientCtx, addr1, multiGeneratedTx2File.Name(), "--multisig", multisigAddr.String())
-	s.Require().Contains(err.Error(), "tx intended signer does not match the given signer")
+	s.Require().Contains(err.Error(), "error getting account from keybase")
 }
 
 func (s *IntegrationTestSuite) TestCLIMultisign() {

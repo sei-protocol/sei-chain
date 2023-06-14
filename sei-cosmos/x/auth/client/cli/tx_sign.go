@@ -4,12 +4,14 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/cosmos/cosmos-sdk/crypto/keyring"
 	"github.com/spf13/cobra"
 
 	"github.com/cosmos/cosmos-sdk/client"
 	"github.com/cosmos/cosmos-sdk/client/flags"
 	"github.com/cosmos/cosmos-sdk/client/tx"
-	sdk "github.com/cosmos/cosmos-sdk/types"
+	kmultisig "github.com/cosmos/cosmos-sdk/crypto/keys/multisig"
+	"github.com/cosmos/cosmos-sdk/types/errors"
 	authclient "github.com/cosmos/cosmos-sdk/x/auth/client"
 )
 
@@ -215,7 +217,6 @@ func makeSignCmd() func(cmd *cobra.Command, args []string) error {
 			return err
 		}
 
-		txFactory := tx.NewFactoryCLI(clientCtx, cmd.Flags())
 		txCfg := clientCtx.TxConfig
 		txBuilder, err := txCfg.WrapTxBuilder(newTx)
 		if err != nil {
@@ -235,13 +236,32 @@ func makeSignCmd() func(cmd *cobra.Command, args []string) error {
 
 		overwrite, _ := f.GetBool(flagOverwrite)
 		if multisig != "" {
-			multisigAddr, err := sdk.AccAddressFromBech32(multisig)
+			// Bech32 decode error, maybe it's a name, we try to fetch from keyring
+			multisigAddr, multisigName, _, err := client.GetFromFields(txF.Keybase(), multisig, clientCtx.GenerateOnly)
 			if err != nil {
-				// Bech32 decode error, maybe it's a name, we try to fetch from keyring
-				multisigAddr, _, _, err = client.GetFromFields(txFactory.Keybase(), multisig, clientCtx.GenerateOnly)
-				if err != nil {
-					return fmt.Errorf("error getting account from keybase: %w", err)
+				return fmt.Errorf("error getting account from keybase: %w", err)
+			}
+			multisigkey, err := getMultisigRecord(clientCtx, multisigName)
+			if err != nil {
+				return err
+			}
+			multisigPubKey := multisigkey.GetPubKey()
+			multisigLegacyPub := multisigPubKey.(*kmultisig.LegacyAminoPubKey)
+
+			fromRecord, err := clientCtx.Keyring.Key(fromName)
+			if err != nil {
+				return fmt.Errorf("error getting account from keybase: %w", err)
+			}
+			fromPubKey := fromRecord.GetPubKey()
+
+			var found bool
+			for _, pubkey := range multisigLegacyPub.GetPubKeys() {
+				if pubkey.Equals(fromPubKey) {
+					found = true
 				}
+			}
+			if !found {
+				return fmt.Errorf("signing key is not a part of multisig key")
 			}
 			err = authclient.SignTxWithSignerAddress(
 				txF, clientCtx, multisigAddr, fromName, txBuilder, clientCtx.Offline, overwrite)
@@ -315,4 +335,14 @@ func marshalSignatureJSON(txConfig client.TxConfig, txBldr client.TxBuilder, sig
 	}
 
 	return txConfig.TxJSONEncoder()(parsedTx)
+}
+
+func getMultisigRecord(clientCtx client.Context, name string) (keyring.Info, error) {
+	kb := clientCtx.Keyring
+	multisigRecord, err := kb.Key(name)
+	if err != nil {
+		return nil, errors.Wrap(err, "error getting keybase multisig account")
+	}
+
+	return multisigRecord, nil
 }
