@@ -50,9 +50,29 @@ func NewDeductFeeDecorator(
 	}
 }
 
-func (d DeductFeeDecorator) AnteDeps(txDeps []sdkacltypes.AccessOperation, tx sdk.Tx, next sdk.AnteDepGenerator) (newTxDeps []sdkacltypes.AccessOperation, err error) {
+func (d DeductFeeDecorator) AnteDeps(txDeps []sdkacltypes.AccessOperation, tx sdk.Tx, txIndex int, next sdk.AnteDepGenerator) (newTxDeps []sdkacltypes.AccessOperation, err error) {
 	feeTx, _ := tx.(sdk.FeeTx)
 	deps := []sdkacltypes.AccessOperation{}
+
+	moduleAdr := d.accountKeeper.GetModuleAddress(types.FeeCollectorName)
+
+	deps = append(deps, []sdkacltypes.AccessOperation{
+		{
+			AccessType:         sdkacltypes.AccessType_READ,
+			ResourceType:       sdkacltypes.ResourceType_KV_AUTH_ADDRESS_STORE,
+			IdentifierTemplate: hex.EncodeToString(authtypes.AddressStoreKey(moduleAdr)),
+		},
+		{
+			AccessType:         sdkacltypes.AccessType_READ,
+			ResourceType:       sdkacltypes.ResourceType_KV_BANK_DEFERRED_MODULE_TX_INDEX,
+			IdentifierTemplate: hex.EncodeToString(banktypes.CreateDeferredCacheModuleTxIndexedPrefix(moduleAdr, uint64(txIndex))),
+		},
+		{
+			AccessType:         sdkacltypes.AccessType_WRITE,
+			ResourceType:       sdkacltypes.ResourceType_KV_BANK_DEFERRED_MODULE_TX_INDEX,
+			IdentifierTemplate: hex.EncodeToString(banktypes.CreateDeferredCacheModuleTxIndexedPrefix(moduleAdr, uint64(txIndex))),
+		},
+	}...)
 
 	if feeTx.FeePayer() != nil {
 		deps = append(deps,
@@ -108,7 +128,7 @@ func (d DeductFeeDecorator) AnteDeps(txDeps []sdkacltypes.AccessOperation, tx sd
 		}
 	}
 
-	return next(append(txDeps, deps...), tx)
+	return next(append(txDeps, deps...), tx, txIndex)
 }
 
 func (dfd DeductFeeDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool, next sdk.AnteHandler) (sdk.Context, error) {

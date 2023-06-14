@@ -28,6 +28,10 @@ var TestingStoreKeyToResourceTypePrefixMap = acltypes.StoreKeyToResourceTypePref
 		acltypes.ResourceType_KV_BANK_SUPPLY:   banktypes.SupplyKey,
 		acltypes.ResourceType_KV_BANK_DENOM:    banktypes.DenomMetadataPrefix,
 	},
+	banktypes.DeferredCacheStoreKey: {
+		acltypes.ResourceType_KV_BANK_DEFERRED:                 acltypes.EmptyPrefix,
+		acltypes.ResourceType_KV_BANK_DEFERRED_MODULE_TX_INDEX: banktypes.DeferredCachePrefix,
+	},
 	authtypes.StoreKey: {
 		acltypes.ResourceType_KV_AUTH:                       acltypes.EmptyPrefix,
 		acltypes.ResourceType_KV_AUTH_ADDRESS_STORE:         authtypes.AddressStoreKeyPrefix,

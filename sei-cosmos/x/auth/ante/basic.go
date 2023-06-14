@@ -83,7 +83,7 @@ type ConsumeTxSizeGasDecorator struct {
 	ak AccountKeeper
 }
 
-func (d ConsumeTxSizeGasDecorator) AnteDeps(txDeps []sdkacltypes.AccessOperation, tx sdk.Tx, next sdk.AnteDepGenerator) (newTxDeps []sdkacltypes.AccessOperation, err error) {
+func (d ConsumeTxSizeGasDecorator) AnteDeps(txDeps []sdkacltypes.AccessOperation, tx sdk.Tx, txIndex int, next sdk.AnteDepGenerator) (newTxDeps []sdkacltypes.AccessOperation, err error) {
 	sigTx, _ := tx.(authsigning.SigVerifiableTx)
 	deps := []sdkacltypes.AccessOperation{}
 	for _, signer := range sigTx.GetSigners() {
@@ -99,7 +99,7 @@ func (d ConsumeTxSizeGasDecorator) AnteDeps(txDeps []sdkacltypes.AccessOperation
 		)
 
 	}
-	return next(append(txDeps, deps...), tx)
+	return next(append(txDeps, deps...), tx, txIndex)
 }
 
 func NewConsumeGasForTxSizeDecorator(ak AccountKeeper) ConsumeTxSizeGasDecorator {

@@ -327,7 +327,7 @@ func NewIncrementSequenceDecorator(ak AccountKeeper) IncrementSequenceDecorator 
 	}
 }
 
-func (isd IncrementSequenceDecorator) AnteDeps(txDeps []sdkacltypes.AccessOperation, tx sdk.Tx, next sdk.AnteDepGenerator) (newTxDeps []sdkacltypes.AccessOperation, err error) {
+func (isd IncrementSequenceDecorator) AnteDeps(txDeps []sdkacltypes.AccessOperation, tx sdk.Tx, txIndex int, next sdk.AnteDepGenerator) (newTxDeps []sdkacltypes.AccessOperation, err error) {
 	sigTx, _ := tx.(authsigning.SigVerifiableTx)
 	deps := []sdkacltypes.AccessOperation{}
 
@@ -343,7 +343,7 @@ func (isd IncrementSequenceDecorator) AnteDeps(txDeps []sdkacltypes.AccessOperat
 		})
 	}
 
-	return next(append(txDeps, deps...), tx)
+	return next(append(txDeps, deps...), tx, txIndex)
 }
 
 func (isd IncrementSequenceDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool, next sdk.AnteHandler) (sdk.Context, error) {

@@ -41,7 +41,7 @@ type Dag struct {
 	NextID                 DagNodeID
 	CompletionSignalingMap map[int]MessageCompletionSignalMapping // keys on tx index
 	BlockingSignalsMap     map[int]MessageCompletionSignalMapping // keys on tx index
-	TxMsgAccessOpMapping   map[int]MsgIndexToAccessOpMapping		// Mapping of Tx Index -> Msg Index -> All access ops
+	TxMsgAccessOpMapping   map[int]MsgIndexToAccessOpMapping      // Mapping of Tx Index -> Msg Index -> All access ops
 }
 
 // Alias for mapping MessageIndexId -> AccessOperations -> CompletionSignals
@@ -115,7 +115,6 @@ func GetResourceAccess(accessOp acltypes.AccessOperation) ResourceAccess {
 	}
 }
 
-
 func (dag *Dag) AddAccessOpsForMsg(messageIndex int, txIndex int, accessOps []acltypes.AccessOperation) {
 	if _, ok := dag.TxMsgAccessOpMapping[txIndex]; !ok {
 		dag.TxMsgAccessOpMapping[txIndex] = make(MsgIndexToAccessOpMapping)
@@ -123,7 +122,6 @@ func (dag *Dag) AddAccessOpsForMsg(messageIndex int, txIndex int, accessOps []ac
 
 	dag.TxMsgAccessOpMapping[txIndex][messageIndex] = accessOps
 }
-
 
 func (dag *Dag) AddNode(messageIndex int, txIndex int, accessOp acltypes.AccessOperation) DagNode {
 	dagNode := DagNode{

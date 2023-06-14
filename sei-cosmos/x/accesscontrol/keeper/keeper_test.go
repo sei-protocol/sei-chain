@@ -2114,7 +2114,7 @@ func TestBuildDependencyDag_MultipleTransactions(t *testing.T) {
 	_, err = app.AccessControlKeeper.BuildDependencyDag(ctx, simapp.MakeTestEncodingConfig().TxConfig.TxDecoder(), app.GetAnteDepGenerator(), txs)
 	require.NoError(t, err)
 
-	mockAnteDepGenerator := func(_ []acltypes.AccessOperation, _ sdk.Tx) ([]acltypes.AccessOperation, error) {
+	mockAnteDepGenerator := func(_ []acltypes.AccessOperation, _ sdk.Tx, _ int) ([]acltypes.AccessOperation, error) {
 		return nil, errors.New("Mocked error")
 	}
 	_, err = app.AccessControlKeeper.BuildDependencyDag(ctx, simapp.MakeTestEncodingConfig().TxConfig.TxDecoder(), mockAnteDepGenerator, txs)
@@ -2182,7 +2182,7 @@ func BencharkAccessOpsBuildDependencyDag(b *testing.B) {
 		bz2,
 	}
 
-	mockAnteDepGenerator := func(_ []acltypes.AccessOperation, _ sdk.Tx) ([]acltypes.AccessOperation, error) {
+	mockAnteDepGenerator := func(_ []acltypes.AccessOperation, _ sdk.Tx, _ int) ([]acltypes.AccessOperation, error) {
 		return []acltypes.AccessOperation{
 			{
 				ResourceType:       acltypes.ResourceType_KV_AUTH_GLOBAL_ACCOUNT_NUMBER,
@@ -2273,7 +2273,7 @@ func TestInvalidAccessOpsBuildDependencyDag(t *testing.T) {
 		bz2,
 	}
 
-	mockAnteDepGenerator := func(_ []acltypes.AccessOperation, _ sdk.Tx) ([]acltypes.AccessOperation, error) {
+	mockAnteDepGenerator := func(_ []acltypes.AccessOperation, _ sdk.Tx, _ int) ([]acltypes.AccessOperation, error) {
 		return []acltypes.AccessOperation{
 			{
 				ResourceType:       acltypes.ResourceType_KV,
@@ -2288,7 +2288,7 @@ func TestInvalidAccessOpsBuildDependencyDag(t *testing.T) {
 		ctx, simapp.MakeTestEncodingConfig().TxConfig.TxDecoder(), mockAnteDepGenerator, txs)
 	require.Error(t, err)
 
-	mockAnteDepGenerator = func(_ []acltypes.AccessOperation, _ sdk.Tx) ([]acltypes.AccessOperation, error) {
+	mockAnteDepGenerator = func(_ []acltypes.AccessOperation, _ sdk.Tx, _ int) ([]acltypes.AccessOperation, error) {
 		return []acltypes.AccessOperation{
 			{
 				ResourceType:       acltypes.ResourceType_KV_AUTH_GLOBAL_ACCOUNT_NUMBER,

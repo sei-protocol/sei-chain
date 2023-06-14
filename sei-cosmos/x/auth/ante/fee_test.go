@@ -1,10 +1,13 @@
 package ante_test
 
 import (
+	"fmt"
+
 	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
 	"github.com/cosmos/cosmos-sdk/simapp"
 	"github.com/cosmos/cosmos-sdk/testutil/testdata"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/cosmos/cosmos-sdk/types/accesscontrol"
 	sdkacltypes "github.com/cosmos/cosmos-sdk/types/accesscontrol"
 	acltestutil "github.com/cosmos/cosmos-sdk/x/accesscontrol/testutil"
 	"github.com/cosmos/cosmos-sdk/x/auth/ante"
@@ -12,6 +15,16 @@ import (
 	"github.com/cosmos/cosmos-sdk/x/feegrant"
 	paramstypes "github.com/cosmos/cosmos-sdk/x/params/types"
 )
+
+type BadAnteDecoratorOne struct{}
+
+func (ad BadAnteDecoratorOne) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool, next sdk.AnteHandler) (newCtx sdk.Context, err error) {
+	return ctx, fmt.Errorf("some error")
+}
+
+func (ad BadAnteDecoratorOne) AnteDeps(txDeps []accesscontrol.AccessOperation, tx sdk.Tx, txIndex int, next sdk.AnteDepGenerator) (newTxDeps []accesscontrol.AccessOperation, err error) {
+	return next(txDeps, tx, txIndex)
+}
 
 func (suite *AnteTestSuite) TestEnsureMempoolFees() {
 	suite.SetupTest(true) // setup
@@ -122,7 +135,7 @@ func (suite *AnteTestSuite) TestDeductFees() {
 	suite.Require().Nil(err, "Tx errored after account has been set with sufficient funds")
 }
 
-func (suite *AnteTestSuite) TestLazySendToModuleAccoutn() {
+func (suite *AnteTestSuite) TestLazySendToModuleAccount() {
 	suite.SetupTest(false) // setup
 	suite.txBuilder = suite.clientCtx.TxConfig.NewTxBuilder()
 
@@ -144,14 +157,14 @@ func (suite *AnteTestSuite) TestLazySendToModuleAccoutn() {
 	// Set account with insufficient funds
 	acc := suite.app.AccountKeeper.NewAccountWithAddress(suite.ctx, addr1)
 	suite.app.AccountKeeper.SetAccount(suite.ctx, acc)
-	err = simapp.FundAccount(suite.app.BankKeeper, suite.ctx, addr1, sdk.NewCoins(sdk.NewCoin("atom", sdk.NewInt(300))))
+	err = simapp.FundAccount(suite.app.BankKeeper, suite.ctx, addr1, sdk.NewCoins(sdk.NewCoin("atom", sdk.NewInt(900))))
 	suite.Require().NoError(err)
 
 	feeCollectorAcc := suite.app.AccountKeeper.GetModuleAccount(suite.ctx, types.FeeCollectorName)
 	expectedFeeCollectorBalance := suite.app.BankKeeper.GetBalance(suite.ctx, feeCollectorAcc.GetAddress(), "atom")
 
 	dfd := ante.NewDeductFeeDecorator(suite.app.AccountKeeper, suite.app.BankKeeper, nil, suite.app.ParamsKeeper, nil)
-	antehandler, _ := sdk.ChainAnteDecorators(sdk.DefaultWrappedAnteDecorator(dfd))
+	antehandler, _ := sdk.ChainAnteDecorators(dfd)
 
 	// Set account with sufficient funds
 	antehandler(suite.ctx, tx, false)
@@ -167,7 +180,7 @@ func (suite *AnteTestSuite) TestLazySendToModuleAccoutn() {
 	)
 
 	// Fee Collector actual account balance deposit coins into the fee collector account
-	suite.app.BankKeeper.WriteDeferredDepositsToModuleAccounts(suite.ctx)
+	suite.app.BankKeeper.WriteDeferredBalances(suite.ctx)
 
 	depositFeeCollectorBalance := suite.app.BankKeeper.GetBalance(suite.ctx, feeCollectorAcc.GetAddress(), "atom")
 
@@ -313,6 +326,7 @@ func (suite *AnteTestSuite) TestDeductFeeDependency() {
 
 	msgValidator := sdkacltypes.NewMsgValidator(acltestutil.TestingStoreKeyToResourceTypePrefixMap)
 	suite.ctx = suite.ctx.WithMsgValidator(msgValidator)
+	suite.ctx = suite.ctx.WithTxIndex(1)
 	ms := suite.ctx.MultiStore()
 	msCache := ms.CacheMultiStore()
 	suite.ctx = suite.ctx.WithMultiStore(msCache)
@@ -320,7 +334,7 @@ func (suite *AnteTestSuite) TestDeductFeeDependency() {
 	_, err = antehandler(suite.ctx, tx, false)
 	suite.Require().Nil(err, "Tx errored after account has been set with sufficient funds")
 
-	newDeps, err := decorator([]sdkacltypes.AccessOperation{}, tx)
+	newDeps, err := decorator([]sdkacltypes.AccessOperation{}, tx, 1)
 	suite.Require().NoError(err)
 
 	storeAccessOpEvents := msCache.GetEvents()

@@ -970,7 +970,7 @@ func (app *BaseApp) runTx(ctx sdk.Context, mode runTxMode, txBytes []byte) (gInf
 		// Dont need to validate in checkTx mode
 		if ctx.MsgValidator() != nil && mode == runTxModeDeliver {
 			storeAccessOpEvents := msCache.GetEvents()
-			accessOps, _ := app.anteDepGenerator([]acltypes.AccessOperation{}, tx)
+			accessOps := ctx.TxMsgAccessOps()[acltypes.ANTE_MSG_INDEX]
 
 			missingAccessOps := ctx.MsgValidator().ValidateAccessOperations(accessOps, storeAccessOpEvents)
 			if len(missingAccessOps) != 0 {

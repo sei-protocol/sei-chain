@@ -13,6 +13,9 @@ const (
 	// StoreKey defines the primary module store key
 	StoreKey = ModuleName
 
+	// DeferredCacheStoreKey defines the store key for the deferred cache
+	DeferredCacheStoreKey = "deferredcache"
+
 	// RouterKey defines the module's message routing key
 	RouterKey = ModuleName
 
@@ -24,6 +27,7 @@ const (
 var (
 	// BalancesPrefix is the prefix for the account balances store. We use a byte
 	// (instead of `[]byte("balances")` to save some disk space).
+	DeferredCachePrefix = []byte{0x03}
 	BalancesPrefix      = []byte{0x02}
 	SupplyKey           = []byte{0x00}
 	DenomMetadataPrefix = []byte{0x1}
@@ -68,4 +72,32 @@ func CreateAccountBalancesPrefixFromBech32(addr string) []byte {
 // This method can be used when performing an ABCI query for the balance of an account.
 func CreatePrefixedAccountStoreKey(addr []byte, denom []byte) []byte {
 	return append(CreateAccountBalancesPrefix(addr), denom...)
+}
+
+// This creates the prefix for use for the mem KV store used to track deferred balances by module name
+func CreateDeferredCacheModulePrefix(moduleAddr []byte) []byte {
+	return append(DeferredCachePrefix, address.MustLengthPrefix(moduleAddr)...)
+}
+
+// This creates the prefix for use for the mem KV store used to track deferred balances by module and txIndex to appropriately partition reads and writes to and from module balances
+func CreateDeferredCacheModuleTxIndexedPrefix(moduleAddr []byte, index uint64) []byte {
+	return append(CreateDeferredCacheModulePrefix(moduleAddr), sdk.Uint64ToBigEndian(index)...)
+}
+
+// AddressFromDeferredCacheStore returns an account address from a deferred Cache prefix
+// store. The key must not contain the prefix DeferredCachePrefix as the prefix store
+// iterator discards the actual prefix.
+//
+// If invalid key is passed, AddressFromBalancesStore returns ErrInvalidKey.
+func AddressFromDeferredCacheStore(key []byte) (sdk.AccAddress, error) {
+	if len(key) == 0 {
+		return nil, ErrInvalidKey
+	}
+	kv.AssertKeyAtLeastLength(key, 1)
+	addrLen := key[0]
+	bound := int(addrLen)
+	if len(key)-1 < bound {
+		return nil, ErrInvalidKey
+	}
+	return key[1 : bound+1], nil
 }

@@ -10,7 +10,7 @@ type Handler func(ctx Context, msg Msg) (*Result, error)
 // AnteHandler authenticates transactions, before their internal messages are handled.
 // If newCtx.IsZero(), ctx is used instead.
 type AnteHandler func(ctx Context, tx Tx, simulate bool) (newCtx Context, err error)
-type AnteDepGenerator func(txDeps []sdkacltypes.AccessOperation, tx Tx) (newTxDeps []sdkacltypes.AccessOperation, err error)
+type AnteDepGenerator func(txDeps []sdkacltypes.AccessOperation, tx Tx, txIndex int) (newTxDeps []sdkacltypes.AccessOperation, err error)
 
 // AnteDecorator wraps the next AnteHandler to perform custom pre- and post-processing.
 type AnteDecorator interface {
@@ -18,27 +18,27 @@ type AnteDecorator interface {
 }
 
 type AnteDepDecorator interface {
-	AnteDeps(txDeps []sdkacltypes.AccessOperation, tx Tx, next AnteDepGenerator) (newTxDeps []sdkacltypes.AccessOperation, err error)
+	AnteDeps(txDeps []sdkacltypes.AccessOperation, tx Tx, txIndex int, next AnteDepGenerator) (newTxDeps []sdkacltypes.AccessOperation, err error)
 }
 
 type DefaultDepDecorator struct{}
 
 // Defeault AnteDeps returned
-func (d DefaultDepDecorator) AnteDeps(txDeps []sdkacltypes.AccessOperation, tx Tx, next AnteDepGenerator) (newTxDeps []sdkacltypes.AccessOperation, err error) {
+func (d DefaultDepDecorator) AnteDeps(txDeps []sdkacltypes.AccessOperation, tx Tx, txIndex int, next AnteDepGenerator) (newTxDeps []sdkacltypes.AccessOperation, err error) {
 	defaultDeps := []sdkacltypes.AccessOperation{
 		{
-			ResourceType: sdkacltypes.ResourceType_ANY,
-			AccessType: sdkacltypes.AccessType_UNKNOWN,
+			ResourceType:       sdkacltypes.ResourceType_ANY,
+			AccessType:         sdkacltypes.AccessType_UNKNOWN,
 			IdentifierTemplate: "*",
 		},
 	}
-	return next(append(txDeps, defaultDeps...), tx)
+	return next(append(txDeps, defaultDeps...), tx, txIndex)
 }
 
 type NoDepDecorator struct{}
 
-func (d NoDepDecorator) AnteDeps(txDeps []sdkacltypes.AccessOperation, tx Tx, next AnteDepGenerator) (newTxDeps []sdkacltypes.AccessOperation, err error) {
-	return next(txDeps, tx)
+func (d NoDepDecorator) AnteDeps(txDeps []sdkacltypes.AccessOperation, tx Tx, txIndex int, next AnteDepGenerator) (newTxDeps []sdkacltypes.AccessOperation, err error) {
+	return next(txDeps, tx, txIndex)
 }
 
 type AnteFullDecorator interface {
@@ -92,8 +92,8 @@ func chainAnteDecoratorDepGenerators(chain ...AnteFullDecorator) AnteDepGenerato
 		chain = append(chain, Terminator{})
 	}
 
-	return func(txDeps []sdkacltypes.AccessOperation, tx Tx) ([]sdkacltypes.AccessOperation, error) {
-		return chain[0].AnteDeps(txDeps, tx, chainAnteDecoratorDepGenerators(chain[1:]...))
+	return func(txDeps []sdkacltypes.AccessOperation, tx Tx, txIndex int) ([]sdkacltypes.AccessOperation, error) {
+		return chain[0].AnteDeps(txDeps, tx, txIndex, chainAnteDecoratorDepGenerators(chain[1:]...))
 	}
 }
 
@@ -111,7 +111,7 @@ func CustomDepWrappedAnteDecorator(decorator AnteDecorator, depDecorator AnteDep
 
 func DefaultWrappedAnteDecorator(decorator AnteDecorator) WrappedAnteDecorator {
 	return WrappedAnteDecorator{
-		Decorator:    decorator,
+		Decorator: decorator,
 		// TODO:: Use DefaultDepDecorator when each decorator defines their own
 		//		  See NewConsumeGasForTxSizeDecorator for an example of how to implement a decorator
 		DepDecorator: NoDepDecorator{},
@@ -122,8 +122,8 @@ func (wad WrappedAnteDecorator) AnteHandle(ctx Context, tx Tx, simulate bool, ne
 	return wad.Decorator.AnteHandle(ctx, tx, simulate, next)
 }
 
-func (wad WrappedAnteDecorator) AnteDeps(txDeps []sdkacltypes.AccessOperation, tx Tx, next AnteDepGenerator) (newTxDeps []sdkacltypes.AccessOperation, err error) {
-	return wad.DepDecorator.AnteDeps(txDeps, tx, next)
+func (wad WrappedAnteDecorator) AnteDeps(txDeps []sdkacltypes.AccessOperation, tx Tx, txIndex int, next AnteDepGenerator) (newTxDeps []sdkacltypes.AccessOperation, err error) {
+	return wad.DepDecorator.AnteDeps(txDeps, tx, txIndex, next)
 }
 
 // Terminator AnteDecorator will get added to the chain to simplify decorator code
@@ -152,6 +152,6 @@ func (t Terminator) AnteHandle(ctx Context, _ Tx, _ bool, _ AnteHandler) (Contex
 }
 
 // Simply return provided txDeps and nil error
-func (t Terminator) AnteDeps(txDeps []sdkacltypes.AccessOperation, _ Tx, _ AnteDepGenerator) ([]sdkacltypes.AccessOperation, error) {
+func (t Terminator) AnteDeps(txDeps []sdkacltypes.AccessOperation, _ Tx, _ int, _ AnteDepGenerator) ([]sdkacltypes.AccessOperation, error) {
 	return txDeps, nil
 }
