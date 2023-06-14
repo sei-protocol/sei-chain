@@ -63,4 +63,8 @@ message Params {
     (gogoproto.jsontag)   = "max_pairs_per_contract",
     (gogoproto.moretags) = "yaml:\"max_pairs_per_contract\""
   ];
+  uint64 default_gas_per_order_data_byte = 14 [
+    (gogoproto.jsontag)   = "default_gas_per_order_data_byte",
+    (gogoproto.moretags) = "yaml:\"default_gas_per_order_data_byte\""
+  ];
 }

@@ -2,6 +2,7 @@ package keeper_test
 
 import (
 	"fmt"
+	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 
@@ -96,7 +97,13 @@ func (suite *KeeperTestSuite) TestCreateDenom() {
 
 				suite.Require().NoError(err)
 				suite.Require().Equal(suite.TestAccs[0].String(), queryRes.AuthorityMetadata.Admin)
+				// Make sure that the denom is valid from the perspective of x/bank
+				bankQueryRes, err := suite.bankQueryClient.DenomMetadata(suite.Ctx.Context(), &banktypes.QueryDenomMetadataRequest{
+					Denom: res.GetNewTokenDenom(),
+				})
 
+				suite.Require().NoError(err)
+				suite.Require().NoError(bankQueryRes.Metadata.Validate())
 			} else {
 				suite.Require().Error(err)
 			}

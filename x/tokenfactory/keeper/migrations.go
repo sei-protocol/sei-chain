@@ -1,7 +1,10 @@
 package keeper
 
 import (
+	"fmt"
 	"strings"
+
+	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/sei-protocol/sei-chain/x/tokenfactory/types"
@@ -36,4 +39,32 @@ func (m Migrator) Migrate2to3(ctx sdk.Context) error {
 		store.Delete(iter.Key())
 	}
 	return nil
+}
+
+func (m Migrator) Migrate3to4(ctx sdk.Context) error {
+	// Set denom metadata for all denoms
+	m.keeper.bankKeeper.IterateTotalSupply(ctx, func(coin sdk.Coin) bool {
+		fmt.Printf("Migration denom: %s\n", coin.Denom)
+		if denomMetadata, err := m.keeper.bankKeeper.GetDenomMetaData(ctx, coin.Denom); !err {
+			panic(fmt.Errorf("denom %s does not exist", coin.Denom))
+		} else {
+			m.SetMetadata(&denomMetadata)
+			m.keeper.bankKeeper.SetDenomMetaData(ctx, denomMetadata)
+		}
+		return true
+	})
+	return nil
+}
+
+func (m Migrator) SetMetadata(denomMetadata *banktypes.Metadata) {
+	if len(denomMetadata.Base) == 0 {
+		panic(fmt.Errorf("no base exists for denom %v", denomMetadata))
+	}
+	if len(denomMetadata.Display) == 0 {
+		denomMetadata.Display = denomMetadata.Base
+		denomMetadata.Name = denomMetadata.Base
+		denomMetadata.Symbol = denomMetadata.Base
+	} else {
+		fmt.Printf("Denom %s already has denom set", denomMetadata.Base)
+	}
 }

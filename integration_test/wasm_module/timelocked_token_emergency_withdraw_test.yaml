@@ -1,0 +1,37 @@
+- name: Test emergency withdraw proposal
+  inputs:
+    # Get the gringotts contract address
+    - cmd: tail -1 integration_test/contracts/gringotts-contract-addr.txt |cut -d "," -f 1
+      env: GRINGOTTS_ADDR
+    - cmd: seid q wasm contract-state smart $GRINGOTTS_ADDR "{\"info\":{}}" --output json |jq -r .data.withdrawn_locked
+      env: START_AMOUNT
+    - cmd: printf "12345678\n" | seid keys show admin1 -a
+      env: WITHDRAW_ADDR
+    - cmd: printf "12345678\n" | seid tx wasm execute $GRINGOTTS_ADDR "{\"propose_emergency_withdraw\":{\"dst\":\"$WITHDRAW_ADDR\"}}" -y --from=admin1 --chain-id=sei --gas=5000000 --fees=1000000usei --broadcast-mode=block --output json| jq -r ".logs[].events[].attributes[] | select(.key == \"proposal_id\").value"
+      env: PROPOSAL_ID
+    # Admin2 vote for proposal
+    - cmd: printf "12345678\n" | seid tx wasm execute $GRINGOTTS_ADDR " {\"vote_proposal\":{\"proposal_id\":$PROPOSAL_ID}} " -y --from=admin2 --chain-id=sei --gas=5000000 --fees=1000000usei --broadcast-mode=block --output json |jq -r .code
+    # Admin3 vote for proposal and we should have 3/4 voted
+    - cmd: printf "12345678\n" | seid tx wasm execute $GRINGOTTS_ADDR " {\"vote_proposal\":{\"proposal_id\":$PROPOSAL_ID}} " -y --from=admin3 --chain-id=sei --gas=5000000 --fees=1000000usei --broadcast-mode=block --output json |jq -r .code
+    # Query proposal and make sure it is passed
+    - cmd: seid q wasm contract-state smart $GRINGOTTS_ADDR "{\"list_proposals\":{}}" --output json |jq -r .data.proposals[0].status
+      env: PROPOSAL_STATUS_1
+    # Process proposal and make sure it is executed
+    - cmd: printf "12345678\n" | seid tx wasm execute $GRINGOTTS_ADDR " {\"process_proposal\":{\"proposal_id\":$PROPOSAL_ID}} " -y --from=admin4 --chain-id=sei --gas=5000000 --fees=1000000usei --broadcast-mode=block --output json|jq -r .code
+    - cmd: seid q wasm contract-state smart $GRINGOTTS_ADDR "{\"list_proposals\":{}}" --output json |jq -r .data.proposals[0].status
+      env: PROPOSAL_STATUS_2
+    - cmd: seid q wasm contract-state smart $GRINGOTTS_ADDR "{\"info\":{}}" --output json |jq -r .data.withdrawn_locked
+      env: END_AMOUNT
+  verifiers:
+    - type: eval
+      expr: PROPOSAL_ID > 0
+    - type: regex
+      result: PROPOSAL_STATUS_1
+      expr: '^.*passed.*'
+    - type: regex
+      result: PROPOSAL_STATUS_2
+      expr: '^.*executed.*'
+    - type: eval
+      expr: START_AMOUNT == 0
+    - type: eval
+      expr: END_AMOUNT > 0

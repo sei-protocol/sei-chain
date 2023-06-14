@@ -103,6 +103,26 @@ func TestCheckDexGasDecorator(t *testing.T) {
 	}
 	_, err = decorator.AnteHandle(ctx, tx, false, terminator)
 	require.Nil(t, err)
+
+	// with data (insufficient fee)
+	tx = TestTx{
+		msgs: []sdk.Msg{
+			types.NewMsgPlaceOrders("someone", []*types.Order{{Data: "data"}, {}}, keepertest.TestContract, sdk.NewCoins()),
+		},
+		fee: sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(11011))),
+	}
+	_, err = decorator.AnteHandle(ctx, tx, false, terminator)
+	require.NotNil(t, err)
+
+	// with data (sufficient fee)
+	tx = TestTx{
+		msgs: []sdk.Msg{
+			types.NewMsgPlaceOrders("someone", []*types.Order{{Data: "data"}, {}}, keepertest.TestContract, sdk.NewCoins()),
+		},
+		fee: sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(11012))),
+	}
+	_, err = decorator.AnteHandle(ctx, tx, false, terminator)
+	require.Nil(t, err)
 }
 
 func TestTickSizeMultipleDecorator(t *testing.T) {
