@@ -14,7 +14,7 @@ type SignerDepDecorator struct {
 	ReadOnly bool
 }
 
-func (d SignerDepDecorator) AnteDeps(txDeps []sdkacltypes.AccessOperation, tx sdk.Tx, next sdk.AnteDepGenerator) (newTxDeps []sdkacltypes.AccessOperation, err error) {
+func (d SignerDepDecorator) AnteDeps(txDeps []sdkacltypes.AccessOperation, tx sdk.Tx, txIndex int, next sdk.AnteDepGenerator) (newTxDeps []sdkacltypes.AccessOperation, err error) {
 	sigTx, ok := tx.(authsigning.SigVerifiableTx)
 	if !ok {
 		return txDeps, sdkerrors.Wrap(sdkerrors.ErrTxDecode, "invalid tx type")
@@ -32,5 +32,5 @@ func (d SignerDepDecorator) AnteDeps(txDeps []sdkacltypes.AccessOperation, tx sd
 			IdentifierTemplate: hex.EncodeToString(authtypes.AddressStoreKey(signer)),
 		})
 	}
-	return next(txDeps, tx)
+	return next(txDeps, tx, txIndex)
 }

@@ -43,7 +43,7 @@ func TestOracleVoteAloneAnteHandler(t *testing.T) {
 			} else {
 				require.NoError(t, err)
 			}
-			_, err = depGen([]sdkacltypes.AccessOperation{}, tc.tx)
+			_, err = depGen([]sdkacltypes.AccessOperation{}, tc.tx, 1)
 			require.NoError(t, err)
 		})
 	}
@@ -114,7 +114,7 @@ func TestSpammingPreventionAnteDeps(t *testing.T) {
 	_, err := anteHandler(ctx, tx, false)
 	require.NoError(t, err)
 
-	newDeps, err := depGen([]sdkacltypes.AccessOperation{}, tx)
+	newDeps, err := depGen([]sdkacltypes.AccessOperation{}, tx, 1)
 	require.NoError(t, err)
 
 	storeAccessOpEvents := msCache.GetEvents()

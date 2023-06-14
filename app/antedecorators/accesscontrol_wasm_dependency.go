@@ -54,7 +54,7 @@ func (ad ACLWasmDependencyDecorator) SenderMatchesContractAdmin(ctx sdk.Context,
 	return contractInfo.Admin == msg.FromAddress, nil
 }
 
-func (ad ACLWasmDependencyDecorator) AnteDeps(txDeps []sdkacltypes.AccessOperation, tx sdk.Tx, next sdk.AnteDepGenerator) (newTxDeps []sdkacltypes.AccessOperation, err error) {
+func (ad ACLWasmDependencyDecorator) AnteDeps(txDeps []sdkacltypes.AccessOperation, tx sdk.Tx, txIndex int, next sdk.AnteDepGenerator) (newTxDeps []sdkacltypes.AccessOperation, err error) {
 	deps := []sdkacltypes.AccessOperation{}
 
 	for _, msg := range tx.GetMsgs() {
@@ -78,5 +78,5 @@ func (ad ACLWasmDependencyDecorator) AnteDeps(txDeps []sdkacltypes.AccessOperati
 		}
 	}
 
-	return next(append(txDeps, deps...), tx)
+	return next(append(txDeps, deps...), tx, txIndex)
 }
