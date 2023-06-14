@@ -49,7 +49,7 @@ func main() {
 		fmt.Fprintf(os.Stderr, "Error hashing tree: %s\n", err)
 		os.Exit(1)
 	}
-	fmt.Printf("Tree hash is %X, tree size is %X\n", treeHash, tree.Size())
+	fmt.Printf("Tree hash is %X, tree size is %X\n", treeHash, tree.ImmutableTree().Size())
 
 	switch args[0] {
 	case "data":
@@ -60,7 +60,7 @@ func main() {
 			os.Exit(1)
 		}
 		fmt.Printf("Hash: %X\n", hash)
-		fmt.Printf("Size: %X\n", tree.Size())
+		fmt.Printf("Size: %X\n", tree.ImmutableTree().Size())
 	case "shape":
 		PrintShape(tree)
 	case "versions":
@@ -181,7 +181,7 @@ func encodeID(id []byte) string {
 func PrintShape(tree *iavl.MutableTree) {
 	// shape := tree.RenderShape("  ", nil)
 	//TODO: handle this error
-	shape, _ := tree.RenderShape("  ", nodeEncoder)
+	shape, _ := tree.ImmutableTree().RenderShape("  ", nodeEncoder)
 	fmt.Println(strings.Join(shape, "\n"))
 }
 

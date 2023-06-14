@@ -44,7 +44,7 @@ func TestProofOp(t *testing.T) {
 		tc := tc
 		t.Run(fmt.Sprintf("%02x", tc.key), func(t *testing.T) {
 			key := []byte{tc.key}
-			value, proof, err := tree.GetWithProof(key)
+			value, proof, err := tree.ImmutableTree().GetWithProof(key)
 			require.NoError(t, err)
 
 			// Verify that proof is valid.

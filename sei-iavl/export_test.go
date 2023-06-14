@@ -102,7 +102,7 @@ func setupExportTreeRandom(t *testing.T) *ImmutableTree {
 	}
 
 	require.EqualValues(t, versions, tree.Version())
-	require.GreaterOrEqual(t, tree.Size(), int64(math.Trunc(versions*versionOps*(1-updateRatio-deleteRatio))/2))
+	require.GreaterOrEqual(t, tree.ImmutableTree().Size(), int64(math.Trunc(versions*versionOps*(1-updateRatio-deleteRatio))/2))
 
 	itree, err := tree.GetImmutable(version)
 	require.NoError(t, err)
@@ -216,13 +216,13 @@ func TestExporter_Import(t *testing.T) {
 			require.NoError(t, err)
 
 			require.Equal(t, treeHash, newTreeHash, "Tree hash mismatch")
-			require.Equal(t, tree.Size(), newTree.Size(), "Tree size mismatch")
+			require.Equal(t, tree.Size(), newTree.ImmutableTree().Size(), "Tree size mismatch")
 			require.Equal(t, tree.Version(), newTree.Version(), "Tree version mismatch")
 
 			tree.Iterate(func(key, value []byte) bool {
 				index, _, err := tree.GetWithIndex(key)
 				require.NoError(t, err)
-				newIndex, newValue, err := newTree.GetWithIndex(key)
+				newIndex, newValue, err := newTree.ImmutableTree().GetWithIndex(key)
 				require.NoError(t, err)
 				require.Equal(t, index, newIndex, "Index mismatch for key %v", key)
 				require.Equal(t, value, newValue, "Value mismatch for key %v", key)

@@ -58,7 +58,7 @@ func commitTree(b *testing.B, t *iavl.MutableTree) {
 
 // queries random keys against live state. Keys are almost certainly not in the tree.
 func runQueriesFast(b *testing.B, t *iavl.MutableTree, keyLen int) {
-	isFastCacheEnabled, err := t.IsFastCacheEnabled()
+	isFastCacheEnabled, err := t.ImmutableTree().IsFastCacheEnabled()
 	require.NoError(b, err)
 	require.True(b, isFastCacheEnabled)
 	for i := 0; i < b.N; i++ {
@@ -69,7 +69,7 @@ func runQueriesFast(b *testing.B, t *iavl.MutableTree, keyLen int) {
 
 // queries keys that are known to be in state
 func runKnownQueriesFast(b *testing.B, t *iavl.MutableTree, keys [][]byte) {
-	isFastCacheEnabled, err := t.IsFastCacheEnabled() // to ensure fast storage is enabled
+	isFastCacheEnabled, err := t.ImmutableTree().IsFastCacheEnabled() // to ensure fast storage is enabled
 	require.NoError(b, err)
 	require.True(b, isFastCacheEnabled)
 	l := int32(len(keys))
@@ -123,11 +123,11 @@ func runKnownQueriesSlow(b *testing.B, t *iavl.MutableTree, keys [][]byte) {
 }
 
 func runIterationFast(b *testing.B, t *iavl.MutableTree, expectedSize int) {
-	isFastCacheEnabled, err := t.IsFastCacheEnabled()
+	isFastCacheEnabled, err := t.ImmutableTree().IsFastCacheEnabled()
 	require.NoError(b, err)
 	require.True(b, isFastCacheEnabled) // to ensure fast storage is enabled
 	for i := 0; i < b.N; i++ {
-		itr, err := t.ImmutableTree.Iterator(nil, nil, false)
+		itr, err := t.ImmutableTree().Iterator(nil, nil, false)
 		require.NoError(b, err)
 		iterate(b, itr, expectedSize)
 		require.Nil(b, itr.Close(), ".Close should not error out")
@@ -136,7 +136,7 @@ func runIterationFast(b *testing.B, t *iavl.MutableTree, expectedSize int) {
 
 func runIterationSlow(b *testing.B, t *iavl.MutableTree, expectedSize int) {
 	for i := 0; i < b.N; i++ {
-		itr := iavl.NewIterator(nil, nil, false, t.ImmutableTree) // create slow iterator directly
+		itr := iavl.NewIterator(nil, nil, false, t.ImmutableTree()) // create slow iterator directly
 		iterate(b, itr, expectedSize)
 		require.Nil(b, itr.Close(), ".Close should not error out")
 	}
