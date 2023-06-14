@@ -1191,8 +1191,6 @@ func (app *App) ProcessTxs(
 	// we need to add the wasm dependencies before we process synchronous otherwise it never gets included
 	ctx = app.addBadWasmDependenciesToContext(ctx, concurrentResults)
 	ctx.Logger().Error("Concurrent Execution failed, retrying with Synchronous")
-	// Clear the memcache context from the previous state as it failed, we no longer need to commit the data
-	ctx.ContextMemCache().Clear()
 
 	oldDexMemStateCtx := context.WithValue(ctx.Context(), dexutils.DexMemStateContextKey, oldDexMemState)
 	ctx = ctx.WithContext(oldDexMemStateCtx)
