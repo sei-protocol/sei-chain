@@ -10,6 +10,9 @@ import (
 func (k Keeper) GetParams(ctx sdk.Context) types.Params {
 	params := types.Params{}
 	k.Paramstore.GetParamSet(ctx, &params)
+	if params.WhitelistedGaslessCancellationAddresses == nil {
+		params.WhitelistedGaslessCancellationAddresses = []string{}
+	}
 	return params
 }
 
