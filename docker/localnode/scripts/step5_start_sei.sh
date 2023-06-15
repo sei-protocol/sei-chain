@@ -1,6 +1,7 @@
 #!/usr/bin/env sh
 
 NODE_ID=${ID:-0}
+INVARIANT_CHECK_INTERVAL=${INVARIANT_CHECK_INTERVAL:-0}
 
 LOG_DIR="build/generated/logs"
 mkdir -p $LOG_DIR
