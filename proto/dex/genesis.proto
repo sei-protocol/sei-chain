@@ -28,6 +28,7 @@ message ContractState {
   repeated Order triggeredOrdersList = 4 [(gogoproto.nullable) = false];
   repeated Pair pairList = 5 [(gogoproto.nullable) = false];
   repeated ContractPairPrices priceList = 6 [(gogoproto.nullable) = false];
+  uint64 nextOrderId = 7;
 }
 
 message ContractPairPrices {

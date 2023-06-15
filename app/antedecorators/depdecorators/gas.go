@@ -9,7 +9,7 @@ import (
 type GasMeterSetterDecorator struct {
 }
 
-func (d GasMeterSetterDecorator) AnteDeps(txDeps []sdkacltypes.AccessOperation, tx sdk.Tx, next sdk.AnteDepGenerator) (newTxDeps []sdkacltypes.AccessOperation, err error) {
+func (d GasMeterSetterDecorator) AnteDeps(txDeps []sdkacltypes.AccessOperation, tx sdk.Tx, txIndex int, next sdk.AnteDepGenerator) (newTxDeps []sdkacltypes.AccessOperation, err error) {
 	for _, msg := range tx.GetMsgs() {
 		if _, ok := msg.(*wasmtypes.MsgExecuteContract); ok {
 			// if we have a wasm execute message, we need to declare the dependency to read accesscontrol for giving gas discount
@@ -20,5 +20,5 @@ func (d GasMeterSetterDecorator) AnteDeps(txDeps []sdkacltypes.AccessOperation, 
 			})
 		}
 	}
-	return next(txDeps, tx)
+	return next(txDeps, tx, txIndex)
 }

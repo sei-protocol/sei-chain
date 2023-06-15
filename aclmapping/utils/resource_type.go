@@ -66,6 +66,10 @@ var StoreKeyToResourceTypePrefixMap = aclsdktypes.StoreKeyToResourceTypePrefixMa
 		aclsdktypes.ResourceType_KV_BANK_SUPPLY:   banktypes.SupplyKey,
 		aclsdktypes.ResourceType_KV_BANK_DENOM:    banktypes.DenomMetadataPrefix,
 	},
+	banktypes.DeferredCacheStoreKey: {
+		aclsdktypes.ResourceType_KV_BANK_DEFERRED:                 aclsdktypes.EmptyPrefix,
+		aclsdktypes.ResourceType_KV_BANK_DEFERRED_MODULE_TX_INDEX: banktypes.DeferredCachePrefix,
+	},
 	authtypes.StoreKey: {
 		aclsdktypes.ResourceType_KV_AUTH:                       aclsdktypes.EmptyPrefix,
 		aclsdktypes.ResourceType_KV_AUTH_ADDRESS_STORE:         authtypes.AddressStoreKeyPrefix,

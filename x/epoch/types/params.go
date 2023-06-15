@@ -1,6 +1,8 @@
 package types
 
 import (
+	"fmt"
+
 	paramtypes "github.com/cosmos/cosmos-sdk/x/params/types"
 	"gopkg.in/yaml.v2"
 )
@@ -29,6 +31,10 @@ func (p *Params) ParamSetPairs() paramtypes.ParamSetPairs {
 
 // Validate validates the set of params
 func (p Params) Validate() error {
+	if p != NewParams() {
+		return fmt.Errorf("Epoch does not have any params defined")
+	}
+
 	return nil
 }
 
