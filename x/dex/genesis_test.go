@@ -77,6 +77,7 @@ func TestGenesis(t *testing.T) {
 		ContractInfo: contractInfo,
 		PairList:     pairList,
 		PriceList:    priceList,
+		NextOrderId:  10,
 	}
 	contractList = append(contractList, contractState)
 
@@ -99,5 +100,6 @@ func TestGenesis(t *testing.T) {
 	require.Equal(t, genesisState.ContractState[0].ContractInfo.ContractAddr, got.ContractState[0].ContractInfo.ContractAddr)
 	require.ElementsMatch(t, genesisState.ContractState[0].ContractInfo.Dependencies, got.ContractState[0].ContractInfo.Dependencies)
 	require.ElementsMatch(t, genesisState.ContractState[0].PriceList, got.ContractState[0].PriceList)
+	require.Equal(t, genesisState.ContractState[0].NextOrderId, got.ContractState[0].NextOrderId)
 	// this line is used by starport scaffolding # genesis/test/assert
 }
