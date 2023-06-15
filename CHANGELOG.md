@@ -35,7 +35,6 @@ sei-chain:
 
 sei-cosmos: 
 * [#287] (https://github.com/sei-protocol/sei-cosmos/pull/287) Refactor deferred balance to use memkv
-* [#285] (https://github.com/sei-protocol/sei-cosmos/pull/285) Always reset state between proposals
 * [#286] (https://github.com/sei-protocol/sei-cosmos/pull/286) Prevent multisig sign with wrong key
 * [#284] (https://github.com/sei-protocol/sei-cosmos/pull/284) Fix allowed_msg uncapped spend limit
 * [#280] (https://github.com/sei-protocol/sei-cosmos/pull/280) Barberry patch
