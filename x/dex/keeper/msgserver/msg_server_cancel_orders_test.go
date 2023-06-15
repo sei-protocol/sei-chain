@@ -183,4 +183,21 @@ func TestInvalidCancels(t *testing.T) {
 	}
 	_, err = server.CancelOrders(wctx, msg)
 	require.NotNil(t, err)
+
+	// negative price
+	msg = &types.MsgCancelOrders{
+		Creator:      keepertest.TestAccount,
+		ContractAddr: keepertest.TestContract,
+		Cancellations: []*types.Cancellation{
+			{
+				Price:             sdk.OneDec().Neg(),
+				PositionDirection: types.PositionDirection_LONG,
+				PriceDenom:        keepertest.TestPriceDenom,
+				AssetDenom:        keepertest.TestAssetDenom,
+				Id:                1,
+			},
+		},
+	}
+	_, err = server.CancelOrders(wctx, msg)
+	require.NotNil(t, err)
 }

@@ -57,6 +57,9 @@ func (msg *MsgCancelOrders) ValidateBasic() error {
 		if cancellation.Price.IsNil() {
 			return sdkerrors.Wrapf(sdkerrors.ErrInvalidRequest, "invalid cancellation price (%s)", err)
 		}
+		if cancellation.Price.IsNegative() {
+			return sdkerrors.Wrapf(sdkerrors.ErrInvalidRequest, "invalid cancellation price (cannot be negative) (%s)", err)
+		}
 		if len(cancellation.AssetDenom) == 0 {
 			return sdkerrors.Wrapf(sdkerrors.ErrInvalidRequest, "invalid cancellation, asset denom is empty (%s)", err)
 		}
