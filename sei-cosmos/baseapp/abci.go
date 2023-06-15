@@ -932,14 +932,12 @@ func (app *BaseApp) PrepareProposal(ctx context.Context, req *abci.RequestPrepar
 			},
 		},
 	}
-
-	if req.Height == 1 {
-		// In the first block, app.processProposalState.ctx will already be initialized
+	if app.prepareProposalState == nil {
+		app.setPrepareProposalState(header)
+	} else {
+		// In the first block, app.prepareProposalState.ctx will already be initialized
 		// by InitChain. Context is now updated with Header information.
 		app.setPrepareProposalHeader(header)
-	} else {
-		// always reset state given that ProcessProposal can timeout and be called again
-		app.setPrepareProposalState(header)
 	}
 
 	app.preparePrepareProposalState()
@@ -982,14 +980,12 @@ func (app *BaseApp) ProcessProposal(ctx context.Context, req *abci.RequestProces
 			},
 		},
 	}
-
-	if req.Height == 1 {
+	if app.processProposalState == nil {
+		app.setProcessProposalState(header)
+	} else {
 		// In the first block, app.processProposalState.ctx will already be initialized
 		// by InitChain. Context is now updated with Header information.
 		app.setProcessProposalHeader(header)
-	} else {
-		// always reset state given that ProcessProposal can timeout and be called again
-		app.setProcessProposalState(header)
 	}
 
 	// add block gas meter
@@ -999,6 +995,8 @@ func (app *BaseApp) ProcessProposal(ctx context.Context, req *abci.RequestProces
 	} else {
 		gasMeter = sdk.NewInfiniteGasMeter()
 	}
+
+	// NOTE: header hash is not set in NewContext, so we manually set it here
 
 	app.prepareProcessProposalState(gasMeter, req.Hash)
 

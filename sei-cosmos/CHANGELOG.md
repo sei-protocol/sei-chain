@@ -37,18 +37,12 @@ Ref: https://keepachangelog.com/en/1.0.0/
 
 ## [Unreleased]
 
-
-## Pending
-
-### Bugfixes
-* (baseapp) [#285](https://github.com/sei-protocol/sei-cosmos/pull/285) Reset state before calling PrepareProposal and ProcessProposal. Copy of [#15487](https://github.com/cosmos/cosmos-sdk/pull/15487)
-
 ## v0.45.9 - 2022-10-14
 
 ATTENTION:
 
-This is a security release for the
-[Dragonberry security advisory](https://forum.cosmos.network/t/ibc-security-advisory-dragonberry/7702).
+This is a security release for the 
+[Dragonberry security advisory](https://forum.cosmos.network/t/ibc-security-advisory-dragonberry/7702). 
 
 All users should upgrade immediately.
 
@@ -72,7 +66,7 @@ replace (
 * [#13323](https://github.com/cosmos/cosmos-sdk/pull/13323) Ensure `withdraw_rewards` rewards are emitted from all actions that result in rewards being withdrawn.
 * [#13321](https://github.com/cosmos/cosmos-sdk/pull/13321) Add flag to disable fast node migration and usage.
 * (store) [#13326](https://github.com/cosmos/cosmos-sdk/pull/13326) Implementation of ADR-038 file StreamingService, backport #8664.
-* (store) [#13540](https://github.com/cosmos/cosmos-sdk/pull/13540) Default fastnode migration to false to prevent suprises. Operators must enable it, unless they have it enabled already.
+* (store) [#13540](https://github.com/cosmos/cosmos-sdk/pull/13540) Default fastnode migration to false to prevent suprises. Operators must enable it, unless they have it enabled already. 
 
 ### API Breaking Changes
 

@@ -12,7 +12,6 @@ import (
 
 	"github.com/cosmos/cosmos-sdk/testutil"
 	sdk "github.com/cosmos/cosmos-sdk/types"
-	"github.com/cosmos/cosmos-sdk/utils"
 )
 
 func TestGetBlockRentionHeight(t *testing.T) {
@@ -200,102 +199,4 @@ func (ps *paramStore) Get(_ sdk.Context, key []byte, ptr interface{}) {
 	if err := json.Unmarshal(bz, ptr); err != nil {
 		panic(err)
 	}
-}
-
-// TestABCI_Proposal_Reset_State ensures that state is reset between runs of
-// PrepareProposal and ProcessProposal in case they are called multiple times.
-// This is only valid for heights > 1, given that on height 1 we always set the
-// state to be deliverState.
-func TestABCI_Proposal_Reset_State_Between_Calls(t *testing.T) {
-	someKey := []byte("some-key")
-
-	prepareOpt := func(bapp *BaseApp) {
-		bapp.SetPrepareProposalHandler(func(ctx sdk.Context, req *abci.RequestPrepareProposal) (*abci.ResponsePrepareProposal, error) {
-			// This key should not exist given that we reset the state on every call.
-			require.False(t, ctx.KVStore(capKey1).Has(someKey))
-			ctx.KVStore(capKey1).Set(someKey, someKey)
-			return &abci.ResponsePrepareProposal{
-				TxRecords: utils.Map(req.Txs, func(tx []byte) *abci.TxRecord {
-					return &abci.TxRecord{Action: abci.TxRecord_UNMODIFIED, Tx: tx}
-				}),
-			}, nil
-		})
-	}
-
-	processOpt := func(bapp *BaseApp) {
-		bapp.SetProcessProposalHandler(func(ctx sdk.Context, req *abci.RequestProcessProposal) (*abci.ResponseProcessProposal, error) {
-			// This key should not exist given that we reset the state on every call.
-			require.False(t, ctx.KVStore(capKey1).Has(someKey))
-			ctx.KVStore(capKey1).Set(someKey, someKey)
-			return &abci.ResponseProcessProposal{Status: abci.ResponseProcessProposal_ACCEPT}, nil
-		})
-	}
-
-	app := setupBaseApp(
-		t,
-		processOpt,
-		prepareOpt,
-	)
-
-	_, err := app.InitChain(context.Background(), &abci.RequestInitChain{
-		Validators: []abci.ValidatorUpdate{},
-		// ConsensusParams: simapp.DefaultConsensusParams,
-		// AppStateBytes:   stateBytes,
-	})
-	ctx := app.NewContext(false, tmproto.Header{})
-
-	require.Nil(t, err)
-
-	// Genesis at height 1
-	reqPrepareProposal := abci.RequestPrepareProposal{
-		MaxTxBytes: 1000,
-		Height:     1, // this value can't be 0
-	}
-
-	resPrepareProposal, _ := app.PrepareProposal(ctx.Context(), &reqPrepareProposal)
-	require.Equal(t, 0, len(resPrepareProposal.TxRecords))
-
-	reqProposalTxBytes := [][]byte{}
-	reqProcessProposal := abci.RequestProcessProposal{
-		Txs:    reqProposalTxBytes,
-		Height: 1,
-	}
-
-	resProcessProposal, _ := app.ProcessProposal(ctx.Context(), &reqProcessProposal)
-	require.Equal(t, abci.ResponseProcessProposal_ACCEPT, resProcessProposal.Status)
-
-	app.BeginBlock(ctx, abci.RequestBeginBlock{
-		Header: tmproto.Header{Height: app.LastBlockHeight() + 1},
-	})
-
-	// Post Genesis
-
-	reqPrepareProposal = abci.RequestPrepareProposal{
-		MaxTxBytes: 1000,
-		Height:     2, // this value can't be 0
-	}
-
-	// Let's pretend something happened and PrepareProposal gets called many
-	// times, this must be safe to do.
-	for i := 0; i < 5; i++ {
-		resPrepareProposal, _ := app.PrepareProposal(ctx.Context(), &reqPrepareProposal)
-		require.Equal(t, 0, len(resPrepareProposal.TxRecords))
-	}
-
-	reqProposalTxBytes = [][]byte{}
-	reqProcessProposal = abci.RequestProcessProposal{
-		Txs:    reqProposalTxBytes,
-		Height: 2,
-	}
-
-	// Let's pretend something happened and ProcessProposal gets called many
-	// times, this must be safe to do.
-	for i := 0; i < 5; i++ {
-		resProcessProposal, _ := app.ProcessProposal(ctx.Context(), &reqProcessProposal)
-		require.Equal(t, abci.ResponseProcessProposal_ACCEPT, resProcessProposal.Status)
-	}
-
-	app.BeginBlock(ctx, abci.RequestBeginBlock{
-		Header: tmproto.Header{Height: app.LastBlockHeight() + 1},
-	})
 }
