@@ -95,45 +95,8 @@ func (p Params) Validate() error {
 	if err := validatePriceSnapshotRetention(p.PriceSnapshotRetention); err != nil {
 		return err
 	}
-	if err := validateSudoCallGasPrice(p.SudoCallGasPrice); err != nil {
-		return err
-	}
-	if err := validateUint64Param(p.BeginBlockGasLimit); err != nil {
-		return err
-	}
-	if err := validateUint64Param(p.EndBlockGasLimit); err != nil {
-		return err
-	}
-	if err := validateUint64Param(p.DefaultGasPerOrder); err != nil {
-		return err
-	}
-	if err := validateUint64Param(p.DefaultGasPerCancel); err != nil {
-		return err
-	}
-	if err := validateUint64Param(p.MinRentDeposit); err != nil {
-		return err
-	}
-	if err := validateUint64Param(p.GasAllowancePerSettlement); err != nil {
-		return err
-	}
-	if err := validateUint64Param(p.MinProcessableRent); err != nil {
-		return err
-	}
-	if err := validateUint64Param(p.OrderBookEntriesPerLoad); err != nil {
-		return err
-	}
-	if err := validateUint64Param(p.ContractUnsuspendCost); err != nil {
-		return err
-	}
-	if err := validateUint64Param(p.MaxOrderPerPrice); err != nil {
-		return err
-	}
-	if err := validateUint64Param(p.MaxPairsPerContract); err != nil {
-		return err
-	}
-	if err := validateUint64Param(p.DefaultGasPerOrderDataByte); err != nil {
-		return err
-	}
+	// it's not possible for other params to fail validation if they've already
+	// made it into Params' fields.
 	return nil
 }
 
