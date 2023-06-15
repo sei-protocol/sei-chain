@@ -37,6 +37,8 @@ func InitGenesis(ctx sdk.Context, k keeper.Keeper, genState types.GenesisState) 
 			}
 		}
 
+		k.SetNextOrderID(ctx, contractState.ContractInfo.ContractAddr, contractState.NextOrderId)
+
 	}
 
 	// this line is used by starport scaffolding # genesis/module/init
@@ -70,6 +72,7 @@ func ExportGenesis(ctx sdk.Context, k keeper.Keeper) *types.GenesisState {
 			ShortBookList: k.GetAllShortBook(ctx, contractAddr),
 			PairList:      registeredPairs,
 			PriceList:     contractPrices,
+			NextOrderId:   k.GetNextOrderID(ctx, contractAddr),
 		}
 	}
 	genesis.ContractState = contractStates

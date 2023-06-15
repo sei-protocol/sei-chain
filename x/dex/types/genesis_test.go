@@ -22,6 +22,7 @@ func TestGenesisState_Validate(t *testing.T) {
 		{
 			desc: "valid genesis state",
 			genState: &types.GenesisState{
+				Params: types.DefaultParams(),
 				ContractState: []types.ContractState{
 					{
 						LongBookList: []types.LongBook{
@@ -73,6 +74,7 @@ func TestGenesisState_Validate(t *testing.T) {
 		{
 			desc: "same price multiple markets",
 			genState: &types.GenesisState{
+				Params: types.DefaultParams(),
 				ContractState: []types.ContractState{
 					{
 						LongBookList: []types.LongBook{
@@ -124,6 +126,7 @@ func TestGenesisState_Validate(t *testing.T) {
 		{
 			desc: "duplicated longBook",
 			genState: &types.GenesisState{
+				Params: types.DefaultParams(),
 				ContractState: []types.ContractState{
 					{
 						LongBookList: []types.LongBook{
@@ -156,6 +159,7 @@ func TestGenesisState_Validate(t *testing.T) {
 		{
 			desc: "duplicated shortBook",
 			genState: &types.GenesisState{
+				Params: types.DefaultParams(),
 				ContractState: []types.ContractState{
 					{
 						ShortBookList: []types.ShortBook{
