@@ -1080,6 +1080,7 @@ func (app *App) ProcessTxConcurrent(
 	ctx = ctx.WithMsgValidator(
 		sdkacltypes.NewMsgValidator(aclutils.StoreKeyToResourceTypePrefixMap),
 	)
+	ctx = ctx.WithTxIndex(txIndex)
 
 	// Deliver the transaction and store the result in the channel
 	resultChan <- ChannelResult{txIndex, app.DeliverTxWithResult(ctx, txBytes)}
