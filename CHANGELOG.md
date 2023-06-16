@@ -29,7 +29,7 @@ Ref: https://keepachangelog.com/en/1.0.0/
 # Changelog
 ## 3.0.4
 sei-chain:
-* [#874] (https://github.com/sei-protocol/sei-chain/pull/874) Charge rent after Sudo call
+* [#874] (https://github.com/sei-protocol/sei-chain/pull/874) Charge rent after failed Sudo call
 * [#869] (https://github.com/sei-protocol/sei-chain/pull/869) Require fee per byte in order data
 * [#861] (https://github.com/sei-protocol/sei-chain/pull/861) Fix tokenfactory metadata 
 
