@@ -38,11 +38,9 @@ func (h MultiEpochHooks) BeforeEpochStart(ctx sdk.Context, epoch Epoch) {
 }
 
 func panicCatchingEpochHook(ctx sdk.Context, hookFn func(sdk.Context, Epoch), epoch Epoch) {
-	defer func() {
-		if r := recover(); r != nil {
-			utils.PanicHandler(utils.LogPanicCallback(ctx, r))
-		}
-	}()
+	defer utils.PanicHandler(func(r any) {
+		utils.PanicHandler(utils.LogPanicCallback(ctx, r))
+	})()
 
 	// cache the context and only write if no panic (which is caught above)
 	cacheCtx, write := ctx.CacheContext()
