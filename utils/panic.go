@@ -23,6 +23,8 @@ func PanicHandler(recoverCallback func(any)) func() {
 	}
 }
 
+// LogPanicCallback returns a callback function, given a context and a recovered
+// error value, that logs the error and a stack trace.
 func LogPanicCallback(ctx sdk.Context, r any) func(any) {
 	return func(a any) {
 		stackTrace := string(debug.Stack())
