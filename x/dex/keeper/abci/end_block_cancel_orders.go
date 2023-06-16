@@ -33,8 +33,7 @@ func (w KeeperWrapper) HandleEBCancelOrders(ctx context.Context, sdkCtx sdk.Cont
 func (w KeeperWrapper) getCancelSudoMsg(sdkCtx sdk.Context, typedContractAddr types.ContractAddress, registeredPairs []types.Pair) types.SudoOrderCancellationMsg {
 	idsToCancel := []uint64{}
 	for _, pair := range registeredPairs {
-		typedPairStr := types.GetPairString(&pair) //nolint:gosec // THIS MAY BE CAUSE FOR CONCERN AND WE MIGHT WANT TO REFACTOR.
-		for _, cancel := range dexutils.GetMemState(sdkCtx.Context()).GetBlockCancels(sdkCtx, typedContractAddr, typedPairStr).Get() {
+		for _, cancel := range dexutils.GetMemState(sdkCtx.Context()).GetBlockCancels(sdkCtx, typedContractAddr, pair).Get() {
 			idsToCancel = append(idsToCancel, cancel.Id)
 		}
 	}

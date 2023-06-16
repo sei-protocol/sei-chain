@@ -14,48 +14,47 @@ import (
 
 const (
 	TEST_CONTRACT = "test"
-	TEST_PAIR     = "pair"
 )
 
 func TestDeepCopy(t *testing.T) {
 	keeper, ctx := keepertest.DexKeeper(t)
 	stateOne := dex.NewMemState(keeper.GetMemStoreKey())
-	stateOne.GetBlockOrders(ctx, types.ContractAddress(TEST_CONTRACT), types.PairString(TEST_PAIR)).Add(&types.Order{
+	stateOne.GetBlockOrders(ctx, types.ContractAddress(TEST_CONTRACT), keepertest.TestPair).Add(&types.Order{
 		Id:           1,
 		Account:      "test",
 		ContractAddr: TEST_CONTRACT,
 	})
 	stateTwo := stateOne.DeepCopy()
 	cachedCtx, _ := store.GetCachedContext(ctx)
-	stateTwo.GetBlockOrders(cachedCtx, types.ContractAddress(TEST_CONTRACT), types.PairString(TEST_PAIR)).Add(&types.Order{
+	stateTwo.GetBlockOrders(cachedCtx, types.ContractAddress(TEST_CONTRACT), keepertest.TestPair).Add(&types.Order{
 		Id:           2,
 		Account:      "test",
 		ContractAddr: TEST_CONTRACT,
 	})
 	// old state must not be changed
-	require.Equal(t, 1, len(stateOne.GetBlockOrders(ctx, types.ContractAddress(TEST_CONTRACT), types.PairString(TEST_PAIR)).Get()))
+	require.Equal(t, 1, len(stateOne.GetBlockOrders(ctx, types.ContractAddress(TEST_CONTRACT), keepertest.TestPair).Get()))
 	// new state must be changed
-	require.Equal(t, 2, len(stateTwo.GetBlockOrders(cachedCtx, types.ContractAddress(TEST_CONTRACT), types.PairString(TEST_PAIR)).Get()))
+	require.Equal(t, 2, len(stateTwo.GetBlockOrders(cachedCtx, types.ContractAddress(TEST_CONTRACT), keepertest.TestPair).Get()))
 }
 
 func TestDeepFilterAccounts(t *testing.T) {
 	keeper, ctx := keepertest.DexKeeper(t)
 	stateOne := dex.NewMemState(keeper.GetMemStoreKey())
-	stateOne.GetBlockOrders(ctx, types.ContractAddress(TEST_CONTRACT), types.PairString(TEST_PAIR)).Add(&types.Order{
+	stateOne.GetBlockOrders(ctx, types.ContractAddress(TEST_CONTRACT), keepertest.TestPair).Add(&types.Order{
 		Id:           1,
 		Account:      "test",
 		ContractAddr: TEST_CONTRACT,
 	})
-	stateOne.GetBlockOrders(ctx, types.ContractAddress(TEST_CONTRACT), types.PairString(TEST_PAIR)).Add(&types.Order{
+	stateOne.GetBlockOrders(ctx, types.ContractAddress(TEST_CONTRACT), keepertest.TestPair).Add(&types.Order{
 		Id:           2,
 		Account:      "test2",
 		ContractAddr: TEST_CONTRACT,
 	})
-	stateOne.GetBlockCancels(ctx, types.ContractAddress(TEST_CONTRACT), types.PairString(TEST_PAIR)).Add(&types.Cancellation{
+	stateOne.GetBlockCancels(ctx, types.ContractAddress(TEST_CONTRACT), keepertest.TestPair).Add(&types.Cancellation{
 		Id:      1,
 		Creator: "test",
 	})
-	stateOne.GetBlockCancels(ctx, types.ContractAddress(TEST_CONTRACT), types.PairString(TEST_PAIR)).Add(&types.Cancellation{
+	stateOne.GetBlockCancels(ctx, types.ContractAddress(TEST_CONTRACT), keepertest.TestPair).Add(&types.Cancellation{
 		Id:      2,
 		Creator: "test2",
 	})
@@ -68,14 +67,14 @@ func TestDeepFilterAccounts(t *testing.T) {
 
 	stateOne.DeepFilterAccount(ctx, "test")
 	require.Equal(t, 1, len(stateOne.GetAllBlockOrders(ctx, types.ContractAddress(TEST_CONTRACT))))
-	require.Equal(t, 1, len(stateOne.GetBlockCancels(ctx, types.ContractAddress(TEST_CONTRACT), types.PairString(TEST_PAIR)).Get()))
+	require.Equal(t, 1, len(stateOne.GetBlockCancels(ctx, types.ContractAddress(TEST_CONTRACT), keepertest.TestPair).Get()))
 	require.Equal(t, 1, len(stateOne.GetDepositInfo(ctx, types.ContractAddress(TEST_CONTRACT)).Get()))
 }
 
 func TestDeepDelete(t *testing.T) {
 	keeper, ctx := keepertest.DexKeeper(t)
 	stateOne := dex.NewMemState(keeper.GetMemStoreKey())
-	stateOne.GetBlockOrders(ctx, types.ContractAddress(TEST_CONTRACT), types.PairString(TEST_PAIR)).Add(&types.Order{
+	stateOne.GetBlockOrders(ctx, types.ContractAddress(TEST_CONTRACT), keepertest.TestPair).Add(&types.Order{
 		Id:           1,
 		Account:      "test",
 		ContractAddr: TEST_CONTRACT,
@@ -86,47 +85,47 @@ func TestDeepDelete(t *testing.T) {
 func TestClear(t *testing.T) {
 	keeper, ctx := keepertest.DexKeeper(t)
 	stateOne := dex.NewMemState(keeper.GetMemStoreKey())
-	stateOne.GetBlockOrders(ctx, types.ContractAddress(TEST_CONTRACT), types.PairString(TEST_PAIR)).Add(&types.Order{
+	stateOne.GetBlockOrders(ctx, types.ContractAddress(TEST_CONTRACT), keepertest.TestPair).Add(&types.Order{
 		Id:           1,
 		Account:      "test",
 		ContractAddr: TEST_CONTRACT,
 	})
-	stateOne.GetBlockCancels(ctx, types.ContractAddress(TEST_CONTRACT), types.PairString(TEST_PAIR)).Add(&types.Cancellation{
+	stateOne.GetBlockCancels(ctx, types.ContractAddress(TEST_CONTRACT), keepertest.TestPair).Add(&types.Cancellation{
 		Id:           2,
 		ContractAddr: TEST_CONTRACT,
 	})
 	stateOne.Clear(ctx)
-	require.Equal(t, 0, len(stateOne.GetBlockOrders(ctx, types.ContractAddress(TEST_CONTRACT), types.PairString(TEST_PAIR)).Get()))
-	require.Equal(t, 0, len(stateOne.GetBlockCancels(ctx, types.ContractAddress(TEST_CONTRACT), types.PairString(TEST_PAIR)).Get()))
+	require.Equal(t, 0, len(stateOne.GetBlockOrders(ctx, types.ContractAddress(TEST_CONTRACT), keepertest.TestPair).Get()))
+	require.Equal(t, 0, len(stateOne.GetBlockCancels(ctx, types.ContractAddress(TEST_CONTRACT), keepertest.TestPair).Get()))
 }
 
 func TestClearCancellationForPair(t *testing.T) {
 	keeper, ctx := keepertest.DexKeeper(t)
 	stateOne := dex.NewMemState(keeper.GetMemStoreKey())
-	stateOne.GetBlockCancels(ctx, types.ContractAddress(TEST_CONTRACT), types.PairString(TEST_PAIR)).Add(&types.Cancellation{
+	stateOne.GetBlockCancels(ctx, types.ContractAddress(TEST_CONTRACT), keepertest.TestPair).Add(&types.Cancellation{
 		Id:           1,
 		ContractAddr: TEST_CONTRACT,
 		PriceDenom:   "USDC",
 		AssetDenom:   "ATOM",
 	})
-	stateOne.GetBlockCancels(ctx, types.ContractAddress(TEST_CONTRACT), types.PairString(TEST_PAIR)).Add(&types.Cancellation{
+	stateOne.GetBlockCancels(ctx, types.ContractAddress(TEST_CONTRACT), keepertest.TestPair).Add(&types.Cancellation{
 		Id:           2,
 		ContractAddr: TEST_CONTRACT,
 		PriceDenom:   "USDC",
 		AssetDenom:   "ATOM",
 	})
-	stateOne.GetBlockCancels(ctx, types.ContractAddress(TEST_CONTRACT), types.PairString(TEST_PAIR)).Add(&types.Cancellation{
+	stateOne.GetBlockCancels(ctx, types.ContractAddress(TEST_CONTRACT), keepertest.TestPair).Add(&types.Cancellation{
 		Id:           3,
 		ContractAddr: TEST_CONTRACT,
 		PriceDenom:   "USDC",
 		AssetDenom:   "SEI",
 	})
-	stateOne.ClearCancellationForPair(ctx, TEST_CONTRACT, types.GetPairString(&types.Pair{
+	stateOne.ClearCancellationForPair(ctx, TEST_CONTRACT, types.Pair{
 		PriceDenom: "USDC",
 		AssetDenom: "ATOM",
-	}))
-	require.Equal(t, 1, len(stateOne.GetBlockCancels(ctx, types.ContractAddress(TEST_CONTRACT), types.PairString(TEST_PAIR)).Get()))
-	require.Equal(t, uint64(3), stateOne.GetBlockCancels(ctx, types.ContractAddress(TEST_CONTRACT), types.PairString(TEST_PAIR)).Get()[0].Id)
+	})
+	require.Equal(t, 1, len(stateOne.GetBlockCancels(ctx, types.ContractAddress(TEST_CONTRACT), keepertest.TestPair).Get()))
+	require.Equal(t, uint64(3), stateOne.GetBlockCancels(ctx, types.ContractAddress(TEST_CONTRACT), keepertest.TestPair).Get()[0].Id)
 }
 
 func TestSynchronization(t *testing.T) {

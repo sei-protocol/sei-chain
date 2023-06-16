@@ -70,11 +70,10 @@ func (k msgServer) PlaceOrders(goCtx context.Context, msg *types.MsgPlaceOrders)
 			return nil, sdkerrors.Wrapf(sdkerrors.ErrKeyNotFound, "the pair {price:%s,asset:%s} has no quantity ticksize configured", order.PriceDenom, order.AssetDenom)
 		}
 		pair := types.Pair{PriceDenom: order.PriceDenom, AssetDenom: order.AssetDenom, PriceTicksize: &priceTicksize, QuantityTicksize: &quantityTicksize}
-		pairStr := types.GetPairString(&pair)
 		order.Id = nextID
 		order.Account = msg.Creator
 		order.ContractAddr = msg.GetContractAddr()
-		utils.GetMemState(ctx.Context()).GetBlockOrders(ctx, types.ContractAddress(msg.GetContractAddr()), pairStr).Add(order)
+		utils.GetMemState(ctx.Context()).GetBlockOrders(ctx, types.ContractAddress(msg.GetContractAddr()), pair).Add(order)
 		idsInResp = append(idsInResp, nextID)
 		events = append(events, sdk.NewEvent(
 			types.EventTypePlaceOrder,

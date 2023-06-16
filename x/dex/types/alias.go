@@ -10,9 +10,11 @@ type (
 	PairString      string
 )
 
+const PairDelim = "|"
+
 func GetPairString(pair *Pair) PairString {
 	return PairString(
-		fmt.Sprintf("%s|%s", pair.PriceDenom, pair.AssetDenom),
+		fmt.Sprintf("%s%s%s", pair.PriceDenom, PairDelim, pair.AssetDenom),
 	)
 }
 
