@@ -168,8 +168,10 @@ func (AppModule) ConsensusVersion() uint64 { return 2 }
 func (am AppModule) BeginBlock(ctx sdk.Context, _ abci.RequestBeginBlock) {
 	lastEpoch := am.keeper.GetEpoch(ctx)
 	ctx.Logger().Info(fmt.Sprintf("Current block time %s, last %s; duration %d", ctx.BlockTime().String(), lastEpoch.CurrentEpochStartTime.String(), lastEpoch.EpochDuration))
+
 	if ctx.BlockTime().Sub(lastEpoch.CurrentEpochStartTime) > lastEpoch.EpochDuration {
 		am.keeper.AfterEpochEnd(ctx, lastEpoch)
+
 		newEpoch := types.Epoch{
 			GenesisTime:           lastEpoch.GenesisTime,
 			EpochDuration:         lastEpoch.EpochDuration,
@@ -179,6 +181,7 @@ func (am AppModule) BeginBlock(ctx sdk.Context, _ abci.RequestBeginBlock) {
 		}
 		am.keeper.SetEpoch(ctx, newEpoch)
 		am.keeper.BeforeEpochStart(ctx, newEpoch)
+
 		ctx.EventManager().EmitEvent(
 			sdk.NewEvent(types.EventTypeNewEpoch,
 				sdk.NewAttribute(types.AttributeEpochNumber, fmt.Sprint(newEpoch.CurrentEpoch)),
@@ -186,6 +189,7 @@ func (am AppModule) BeginBlock(ctx sdk.Context, _ abci.RequestBeginBlock) {
 				sdk.NewAttribute(types.AttributeEpochHeight, fmt.Sprint(newEpoch.CurrentEpochHeight)),
 			),
 		)
+
 		metrics.SetEpochNew(newEpoch.CurrentEpoch)
 	}
 }

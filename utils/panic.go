@@ -2,6 +2,7 @@ package utils
 
 import (
 	"fmt"
+	"runtime/debug"
 	"strings"
 
 	"github.com/armon/go-metrics"
@@ -19,6 +20,13 @@ func PanicHandler(recoverCallback func(any)) func() {
 			}
 			recoverCallback(err)
 		}
+	}
+}
+
+func LogPanicCallback(ctx sdk.Context, r any) func(any) {
+	return func(a any) {
+		stackTrace := string(debug.Stack())
+		ctx.Logger().Error("recovered panic", "recover_err", r, "recover_type", fmt.Sprintf("%T", r), "stack_trace", stackTrace)
 	}
 }
 
