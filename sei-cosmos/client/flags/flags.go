@@ -74,6 +74,7 @@ const (
 	FlagKeyAlgorithm     = "algo"
 	FlagFeeAccount       = "fee-account"
 	FlagReverse          = "reverse"
+	FlagOutput           = tmcli.OutputFlag
 
 	// Tendermint logging flags
 	FlagLogLevel  = "log_level"
