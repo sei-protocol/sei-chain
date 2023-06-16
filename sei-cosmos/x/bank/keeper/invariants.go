@@ -62,6 +62,11 @@ func TotalSupply(k Keeper) sdk.Invariant {
 			expectedTotal = expectedTotal.Add(balance)
 			return false
 		})
+		// also iterate over deferred balances
+		k.IterateDeferredBalances(ctx, func(addr sdk.AccAddress, coin sdk.Coin) bool {
+			expectedTotal = expectedTotal.Add(coin)
+			return false
+		})
 
 		broken := !expectedTotal.IsEqual(supply)
 

@@ -46,6 +46,7 @@ type Keeper interface {
 
 	DeferredSendCoinsFromAccountToModule(ctx sdk.Context, senderAddr sdk.AccAddress, recipientModule string, amt sdk.Coins) error
 	WriteDeferredBalances(ctx sdk.Context) []abci.Event
+	IterateDeferredBalances(ctx sdk.Context, cb func(addr sdk.AccAddress, coin sdk.Coin) bool)
 
 	DelegateCoins(ctx sdk.Context, delegatorAddr, moduleAccAddr sdk.AccAddress, amt sdk.Coins) error
 	UndelegateCoins(ctx sdk.Context, moduleAccAddr, delegatorAddr sdk.AccAddress, amt sdk.Coins) error
@@ -426,7 +427,7 @@ func (k BaseKeeper) DeferredSendCoinsFromAccountToModule(
 	return nil
 }
 
-// WriteDeferredDepositsToModuleAccounts Iterates on all the lazy deposits and deposit them into the store
+// WriteDeferredDepositsToModuleAccounts Iterates on all the deferred deposits and deposit them into the store
 func (k BaseKeeper) WriteDeferredBalances(ctx sdk.Context) []abci.Event {
 	if k.deferredCache == nil {
 		panic("bank keeper created without deferred cache")
@@ -475,6 +476,14 @@ func (k BaseKeeper) WriteDeferredBalances(ctx sdk.Context) []abci.Event {
 	// clear deferred cache
 	k.deferredCache.Clear(ctx)
 	return ctx.EventManager().ABCIEvents()
+}
+
+func (k BaseKeeper) IterateDeferredBalances(ctx sdk.Context, cb func(addr sdk.AccAddress, coin sdk.Coin) bool) {
+	if k.deferredCache == nil {
+		panic("bank keeper created without deferred cache")
+	}
+	// pass cb to deferred cache iterator
+	k.deferredCache.IterateDeferredBalances(ctx, cb)
 }
 
 // DelegateCoinsFromAccountToModule delegates coins and transfers them from a
