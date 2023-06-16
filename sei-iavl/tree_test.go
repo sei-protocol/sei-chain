@@ -77,7 +77,7 @@ func TestVersionedRandomTree(t *testing.T) {
 	// db than in the current tree version.
 	nodes, err := tree.ndb.nodes()
 	require.Nil(err)
-	require.True(len(nodes) >= tree.nodeSize())
+	require.True(len(nodes) >= tree.ImmutableTree().nodeSize())
 
 	// Ensure it returns all versions in sorted order
 	available := tree.AvailableVersions()
@@ -92,7 +92,7 @@ func TestVersionedRandomTree(t *testing.T) {
 	require.Len(tree.versions, 1, "tree must have one version left")
 	tr, err := tree.GetImmutable(int64(versions))
 	require.NoError(err, "GetImmutable should not error for version %d", versions)
-	require.Equal(tr.root, tree.root)
+	require.Equal(tr.root, tree.ImmutableTree().root)
 
 	// we should only have one available version now
 	available = tree.AvailableVersions()
@@ -103,11 +103,11 @@ func TestVersionedRandomTree(t *testing.T) {
 	// in the db as in the current tree version.
 	leafNodes, err = tree.ndb.leafNodes()
 	require.Nil(err)
-	require.Len(leafNodes, int(tree.Size()))
+	require.Len(leafNodes, int(tree.ImmutableTree().Size()))
 
 	nodes, err = tree.ndb.nodes()
 	require.Nil(err)
-	require.Equal(tree.nodeSize(), len(nodes))
+	require.Equal(tree.ImmutableTree().nodeSize(), len(nodes))
 }
 
 // nolint: dupl
@@ -216,9 +216,9 @@ func TestVersionedRandomTreeSmallKeys(t *testing.T) {
 	nodes, err := tree.ndb.nodes()
 	require.Nil(err)
 
-	require.Len(leafNodes, int(tree.Size()))
-	require.Len(nodes, tree.nodeSize())
-	require.Len(nodes, singleVersionTree.nodeSize())
+	require.Len(leafNodes, int(tree.ImmutableTree().Size()))
+	require.Len(nodes, tree.ImmutableTree().nodeSize())
+	require.Len(nodes, singleVersionTree.ImmutableTree().nodeSize())
 
 	// Try getting random keys.
 	for i := 0; i < keysPerVersion; i++ {
@@ -266,9 +266,9 @@ func TestVersionedRandomTreeSmallKeysRandomDeletes(t *testing.T) {
 	nodes, err := tree.ndb.nodes()
 	require.Nil(err)
 
-	require.Len(leafNodes, int(tree.Size()))
-	require.Len(nodes, tree.nodeSize())
-	require.Len(nodes, singleVersionTree.nodeSize())
+	require.Len(leafNodes, int(tree.ImmutableTree().Size()))
+	require.Len(nodes, tree.ImmutableTree().nodeSize())
+	require.Len(nodes, singleVersionTree.ImmutableTree().nodeSize())
 
 	// Try getting random keys.
 	for i := 0; i < keysPerVersion; i++ {
@@ -301,7 +301,7 @@ func TestVersionedTreeSpecial1(t *testing.T) {
 
 	nodes, err := tree.ndb.nodes()
 	require.Nil(t, err)
-	require.Equal(t, tree.nodeSize(), len(nodes))
+	require.Equal(t, tree.ImmutableTree().nodeSize(), len(nodes))
 }
 
 func TestVersionedRandomTreeSpecial2(t *testing.T) {
@@ -321,7 +321,7 @@ func TestVersionedRandomTreeSpecial2(t *testing.T) {
 
 	nodes, err := tree.ndb.nodes()
 	require.NoError(err)
-	require.Len(nodes, tree.nodeSize())
+	require.Len(nodes, tree.ImmutableTree().nodeSize())
 }
 
 func TestVersionedEmptyTree(t *testing.T) {
@@ -364,7 +364,7 @@ func TestVersionedEmptyTree(t *testing.T) {
 	require.False(tree.VersionExists(3))
 
 	tree.Set([]byte("k"), []byte("v"))
-	require.EqualValues(5, tree.root.version)
+	require.EqualValues(5, tree.ImmutableTree().root.version)
 
 	// Now reload the tree.
 
@@ -393,7 +393,7 @@ func TestVersionedTree(t *testing.T) {
 	// We start with empty database.
 	require.Equal(0, tree.ndb.size())
 	require.True(tree.IsEmpty())
-	require.False(tree.IsFastCacheEnabled())
+	require.False(tree.ImmutableTree().IsFastCacheEnabled())
 
 	// version 0
 
@@ -656,7 +656,7 @@ func TestVersionedTreeVersionDeletingEfficiency(t *testing.T) {
 	tree2.Set([]byte("key3"), []byte("val1"))
 	tree2.SaveVersion()
 
-	require.Equal(t, tree2.nodeSize(), tree.nodeSize())
+	require.Equal(t, tree2.ImmutableTree().nodeSize(), tree.ImmutableTree().nodeSize())
 }
 
 func TestVersionedTreeOrphanDeleting(t *testing.T) {
@@ -787,7 +787,7 @@ func TestVersionedTreeSpecialCase3(t *testing.T) {
 
 	nodes, err := tree.ndb.nodes()
 	require.NoError(err)
-	require.Equal(tree.nodeSize(), len(nodes))
+	require.Equal(tree.ImmutableTree().nodeSize(), len(nodes))
 }
 
 func TestVersionedTreeSaveAndLoad(t *testing.T) {
@@ -841,10 +841,10 @@ func TestVersionedTreeSaveAndLoad(t *testing.T) {
 	ntree.DeleteVersion(3)
 
 	require.False(ntree.IsEmpty())
-	require.Equal(int64(4), ntree.Size())
+	require.Equal(int64(4), ntree.ImmutableTree().Size())
 	nodes, err := tree.ndb.nodes()
 	require.NoError(err)
-	require.Len(nodes, ntree.nodeSize())
+	require.Len(nodes, ntree.ImmutableTree().nodeSize())
 }
 
 func TestVersionedTreeErrors(t *testing.T) {
@@ -1172,7 +1172,7 @@ func TestVersionedTreeEfficiency(t *testing.T) {
 			require.InDelta(change, keysAddedPerVersion[i], float64(keysPerVersion)/5)
 		}
 	}
-	require.Equal(keysAdded-tree.nodeSize(), keysDeleted)
+	require.Equal(keysAdded-tree.ImmutableTree().nodeSize(), keysDeleted)
 }
 
 func TestVersionedTreeProofs(t *testing.T) {
@@ -1360,7 +1360,7 @@ func TestRollback(t *testing.T) {
 
 	tree.SaveVersion()
 
-	require.Equal(int64(2), tree.Size())
+	require.Equal(int64(2), tree.ImmutableTree().Size())
 
 	val, err := tree.Get([]byte("r"))
 	require.Nil(val)
@@ -1904,13 +1904,13 @@ func Benchmark_GetWithIndex(b *testing.B) {
 	runtime.GC()
 
 	b.Run("fast", func(sub *testing.B) {
-		isFastCacheEnabled, err := t.IsFastCacheEnabled()
+		isFastCacheEnabled, err := t.ImmutableTree().IsFastCacheEnabled()
 		require.NoError(b, err)
 		require.True(b, isFastCacheEnabled)
 		b.ResetTimer()
 		for i := 0; i < sub.N; i++ {
 			randKey := rand.Intn(numKeyVals)
-			t.GetWithIndex(keys[randKey])
+			t.ImmutableTree().GetWithIndex(keys[randKey])
 		}
 	})
 
@@ -1953,13 +1953,13 @@ func Benchmark_GetByIndex(b *testing.B) {
 	runtime.GC()
 
 	b.Run("fast", func(sub *testing.B) {
-		isFastCacheEnabled, err := t.IsFastCacheEnabled()
+		isFastCacheEnabled, err := t.ImmutableTree().IsFastCacheEnabled()
 		require.NoError(b, err)
 		require.True(b, isFastCacheEnabled)
 		b.ResetTimer()
 		for i := 0; i < sub.N; i++ {
 			randIdx := rand.Intn(numKeyVals)
-			t.GetByIndex(int64(randIdx))
+			t.ImmutableTree().GetByIndex(int64(randIdx))
 		}
 	})
 

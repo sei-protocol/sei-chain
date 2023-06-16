@@ -48,7 +48,7 @@ func TestGetMembership(t *testing.T) {
 			key := GetKey(allkeys, tc.loc)
 			val, err := tree.Get(key)
 			require.NoError(t, err)
-			proof, err := tree.GetMembershipProof(key)
+			proof, err := tree.ImmutableTree().GetMembershipProof(key)
 			require.NoError(t, err, "Creating Proof: %+v", err)
 
 			root, err := tree.Hash()
@@ -77,7 +77,7 @@ func TestGetNonMembership(t *testing.T) {
 	performTest := func(tree *MutableTree, allKeys [][]byte, loc Where) {
 		key := GetNonKey(allKeys, loc)
 
-		proof, err := tree.GetNonMembershipProof(key)
+		proof, err := tree.ImmutableTree().GetNonMembershipProof(key)
 		require.NoError(t, err, "Creating Proof: %+v", err)
 
 		root, err := tree.Hash()
@@ -97,7 +97,7 @@ func TestGetNonMembership(t *testing.T) {
 			_, _, err = tree.SaveVersion()
 			require.NoError(t, err)
 
-			isFastCacheEnabled, err := tree.IsFastCacheEnabled()
+			isFastCacheEnabled, err := tree.ImmutableTree().IsFastCacheEnabled()
 			require.NoError(t, err)
 			require.True(t, isFastCacheEnabled)
 
@@ -107,7 +107,7 @@ func TestGetNonMembership(t *testing.T) {
 		t.Run("regular-"+name, func(t *testing.T) {
 			tree, allkeys, err := BuildTree(tc.size, 0)
 			require.NoError(t, err, "Creating tree: %+v", err)
-			isFastCacheEnabled, err := tree.IsFastCacheEnabled()
+			isFastCacheEnabled, err := tree.ImmutableTree().IsFastCacheEnabled()
 			require.NoError(t, err)
 			require.False(t, isFastCacheEnabled)
 
@@ -132,7 +132,7 @@ func BenchmarkGetNonMembership(b *testing.B) {
 	performTest := func(tree *MutableTree, allKeys [][]byte, loc Where) {
 		key := GetNonKey(allKeys, loc)
 
-		proof, err := tree.GetNonMembershipProof(key)
+		proof, err := tree.ImmutableTree().GetNonMembershipProof(key)
 		require.NoError(b, err, "Creating Proof: %+v", err)
 
 		b.StopTimer()
@@ -157,7 +157,7 @@ func BenchmarkGetNonMembership(b *testing.B) {
 			_, _, err = tree.SaveVersion()
 			require.NoError(b, err)
 
-			isFastCacheEnabled, err := tree.IsFastCacheEnabled()
+			isFastCacheEnabled, err := tree.ImmutableTree().IsFastCacheEnabled()
 			require.NoError(b, err)
 			require.True(b, isFastCacheEnabled)
 			b.StartTimer()
@@ -173,7 +173,7 @@ func BenchmarkGetNonMembership(b *testing.B) {
 
 			tree, allkeys, err := BuildTree(tc.size, 100000)
 			require.NoError(b, err, "Creating tree: %+v", err)
-			isFastCacheEnabled, err := tree.IsFastCacheEnabled()
+			isFastCacheEnabled, err := tree.ImmutableTree().IsFastCacheEnabled()
 			require.NoError(b, err)
 			require.False(b, isFastCacheEnabled)
 
@@ -207,7 +207,7 @@ func GenerateResult(size int, loc Where) (*Result, error) {
 	}
 	key := GetKey(allkeys, loc)
 
-	value, proof, err := tree.GetWithProof(key)
+	value, proof, err := tree.ImmutableTree().GetWithProof(key)
 	if err != nil {
 		return nil, err
 	}
