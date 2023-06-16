@@ -108,7 +108,6 @@ func MatchAndExtractDexAddressPrefixKeys(key []byte) (bool, []string, []byte, er
 		// Source of truth: github.com/sei-protocol/sei-chain/x/dex/types/keys.go - contains key constants represented here
 		dextypes.LongBookKey,
 		dextypes.ShortBookKey,
-		dextypes.TriggerBookKey,
 		dextypes.PriceKey,
 		dextypes.TwapKey,
 		dextypes.SettlementEntryKey,

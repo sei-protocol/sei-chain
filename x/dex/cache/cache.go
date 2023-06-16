@@ -54,25 +54,25 @@ func (s *MemState) GetAllBlockOrders(ctx sdk.Context, contractAddr types.Contrac
 	return
 }
 
-func (s *MemState) GetBlockOrders(ctx sdk.Context, contractAddr types.ContractAddress, pair types.PairString) *BlockOrders {
+func (s *MemState) GetBlockOrders(ctx sdk.Context, contractAddr types.ContractAddress, pair types.Pair) *BlockOrders {
 	s.SynchronizeAccess(ctx, contractAddr)
 	return NewOrders(
 		prefix.NewStore(
 			ctx.KVStore(s.storeKey),
 			types.MemOrderPrefixForPair(
-				string(contractAddr), string(pair),
+				string(contractAddr), pair.PriceDenom, pair.AssetDenom,
 			),
 		),
 	)
 }
 
-func (s *MemState) GetBlockCancels(ctx sdk.Context, contractAddr types.ContractAddress, pair types.PairString) *BlockCancellations {
+func (s *MemState) GetBlockCancels(ctx sdk.Context, contractAddr types.ContractAddress, pair types.Pair) *BlockCancellations {
 	s.SynchronizeAccess(ctx, contractAddr)
 	return NewCancels(
 		prefix.NewStore(
 			ctx.KVStore(s.storeKey),
 			types.MemCancelPrefixForPair(
-				string(contractAddr), string(pair),
+				string(contractAddr), pair.PriceDenom, pair.AssetDenom,
 			),
 		),
 	)
@@ -123,17 +123,14 @@ func (s *MemState) Clear(ctx sdk.Context) {
 	s.contractsToProcess = &newContractToDependencies
 }
 
-func (s *MemState) ClearCancellationForPair(ctx sdk.Context, contractAddr types.ContractAddress, pair types.PairString) {
+func (s *MemState) ClearCancellationForPair(ctx sdk.Context, contractAddr types.ContractAddress, pair types.Pair) {
 	s.SynchronizeAccess(ctx, contractAddr)
 	DeepDelete(ctx.KVStore(s.storeKey), types.KeyPrefix(types.MemCancelKey), func(v []byte) bool {
 		var c types.Cancellation
 		if err := c.Unmarshal(v); err != nil {
 			panic(err)
 		}
-		return c.ContractAddr == string(contractAddr) && types.GetPairString(&types.Pair{
-			AssetDenom: c.AssetDenom,
-			PriceDenom: c.PriceDenom,
-		}) == pair
+		return c.ContractAddr == string(contractAddr) && c.PriceDenom == pair.PriceDenom && c.AssetDenom == pair.AssetDenom
 	})
 }
 

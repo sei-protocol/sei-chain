@@ -114,7 +114,7 @@ func TestExecutePair(t *testing.T) {
 	require.Equal(t, len(settlements), 0)
 
 	// add Market orders to the orderbook
-	dexutil.GetMemState(ctx.Context()).GetBlockOrders(ctx, types.ContractAddress(TEST_CONTRACT), types.GetPairString(&pair)).Add(
+	dexutil.GetMemState(ctx.Context()).GetBlockOrders(ctx, types.ContractAddress(TEST_CONTRACT), pair).Add(
 		&types.Order{
 			Id:                1,
 			Account:           TEST_ACCOUNT,
@@ -128,7 +128,7 @@ func TestExecutePair(t *testing.T) {
 			Data:              "{\"position_effect\":\"Open\",\"leverage\":\"1\"}",
 		},
 	)
-	dexutil.GetMemState(ctx.Context()).GetBlockOrders(ctx, types.ContractAddress(TEST_CONTRACT), types.GetPairString(&pair)).Add(
+	dexutil.GetMemState(ctx.Context()).GetBlockOrders(ctx, types.ContractAddress(TEST_CONTRACT), pair).Add(
 		&types.Order{
 			Id:                2,
 			Account:           TEST_ACCOUNT,
@@ -142,7 +142,7 @@ func TestExecutePair(t *testing.T) {
 			Data:              "{\"position_effect\":\"Open\",\"leverage\":\"1\"}",
 		},
 	)
-	dexutil.GetMemState(ctx.Context()).GetBlockOrders(ctx, types.ContractAddress(TEST_CONTRACT), types.GetPairString(&pair)).Add(
+	dexutil.GetMemState(ctx.Context()).GetBlockOrders(ctx, types.ContractAddress(TEST_CONTRACT), pair).Add(
 		&types.Order{
 			Id:                3,
 			Account:           TEST_ACCOUNT,
@@ -173,7 +173,7 @@ func TestExecutePair(t *testing.T) {
 	matches, cancels := contract.GetMatchResults(
 		ctx,
 		TEST_CONTRACT,
-		types.GetPairString(&pair),
+		pair,
 	)
 	require.Equal(t, 3, len(matches))
 	require.Equal(t, 0, len(cancels))
@@ -268,7 +268,7 @@ func TestExecutePairInParallel(t *testing.T) {
 	require.Equal(t, len(settlements), 0)
 
 	// add Market orders to the orderbook
-	dexutil.GetMemState(ctx.Context()).GetBlockOrders(ctx, types.ContractAddress(TEST_CONTRACT), types.GetPairString(&pair)).Add(
+	dexutil.GetMemState(ctx.Context()).GetBlockOrders(ctx, types.ContractAddress(TEST_CONTRACT), pair).Add(
 		&types.Order{
 			Id:                1,
 			Account:           TEST_ACCOUNT,
@@ -282,7 +282,7 @@ func TestExecutePairInParallel(t *testing.T) {
 			Data:              "{\"position_effect\":\"Open\",\"leverage\":\"1\"}",
 		},
 	)
-	dexutil.GetMemState(ctx.Context()).GetBlockOrders(ctx, types.ContractAddress(TEST_CONTRACT), types.GetPairString(&pair)).Add(
+	dexutil.GetMemState(ctx.Context()).GetBlockOrders(ctx, types.ContractAddress(TEST_CONTRACT), pair).Add(
 		&types.Order{
 			Id:                2,
 			Account:           TEST_ACCOUNT,
@@ -296,7 +296,7 @@ func TestExecutePairInParallel(t *testing.T) {
 			Data:              "{\"position_effect\":\"Open\",\"leverage\":\"1\"}",
 		},
 	)
-	dexutil.GetMemState(ctx.Context()).GetBlockOrders(ctx, types.ContractAddress(TEST_CONTRACT), types.GetPairString(&pair)).Add(
+	dexutil.GetMemState(ctx.Context()).GetBlockOrders(ctx, types.ContractAddress(TEST_CONTRACT), pair).Add(
 		&types.Order{
 			Id:                3,
 			Account:           TEST_ACCOUNT,
@@ -310,7 +310,7 @@ func TestExecutePairInParallel(t *testing.T) {
 			Data:              "{\"position_effect\":\"Open\",\"leverage\":\"1\"}",
 		},
 	)
-	dexutil.GetMemState(ctx.Context()).GetBlockOrders(ctx, types.ContractAddress(TEST_CONTRACT), types.GetPairString(&pair)).Add(
+	dexutil.GetMemState(ctx.Context()).GetBlockOrders(ctx, types.ContractAddress(TEST_CONTRACT), pair).Add(
 		&types.Order{
 			Id:                11,
 			Account:           TEST_ACCOUNT,
