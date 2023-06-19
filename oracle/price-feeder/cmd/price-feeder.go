@@ -134,26 +134,36 @@ func priceFeederCmdHandler(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	oracleClient, err := client.NewOracleClient(
-		ctx,
-		logger,
-		cfg.Account.ChainID,
-		cfg.Keyring.Backend,
-		cfg.Keyring.Dir,
-		keyringPass,
-		cfg.RPC.TMRPCEndpoint,
-		rpcTimeout,
-		cfg.Account.Address,
-		cfg.Account.Validator,
-		cfg.Account.FeeGranter,
-		cfg.RPC.GRPCEndpoint,
-		cfg.GasAdjustment,
-		cfg.GasPrices,
-	)
+	// Retry creating oracle client for 5 seconds
+	var oracleClient client.OracleClient
+	for i := 0; i < 5; i++ {
+		oracleClient, err = client.NewOracleClient(
+			ctx,
+			logger,
+			cfg.Account.ChainID,
+			cfg.Keyring.Backend,
+			cfg.Keyring.Dir,
+			keyringPass,
+			cfg.RPC.TMRPCEndpoint,
+			rpcTimeout,
+			cfg.Account.Address,
+			cfg.Account.Validator,
+			cfg.Account.FeeGranter,
+			cfg.RPC.GRPCEndpoint,
+			cfg.GasAdjustment,
+			cfg.GasPrices,
+		)
+		if err != nil {
+			// sleep for a second before retrying
+			time.Sleep(1 * time.Second)
+			continue
+		}
+		break
+	}
+
 	if err != nil {
 		return fmt.Errorf("error creating oracle client: %w", err)
 	}
-
 	providerTimeout, err := time.ParseDuration(cfg.ProviderTimeout)
 	if err != nil {
 		return fmt.Errorf("failed to parse provider timeout: %w", err)

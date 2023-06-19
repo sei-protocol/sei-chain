@@ -131,6 +131,9 @@ func (d CheckDexGasDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bo
 		case *types.MsgPlaceOrders:
 			numDependencies := len(memState.GetContractToDependencies(ctx, m.ContractAddr, d.dexKeeper.GetContractWithoutGasCharge))
 			dexGasRequired += params.DefaultGasPerOrder * uint64(len(m.Orders)*numDependencies)
+			for _, order := range m.Orders {
+				dexGasRequired += params.DefaultGasPerOrderDataByte * uint64(len(order.Data))
+			}
 		case *types.MsgCancelOrders:
 			numDependencies := len(memState.GetContractToDependencies(ctx, m.ContractAddr, d.dexKeeper.GetContractWithoutGasCharge))
 			dexGasRequired += params.DefaultGasPerCancel * uint64(len(m.Cancellations)*numDependencies)
@@ -152,7 +155,7 @@ func (d CheckDexGasDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bo
 	return ctx, sdkerrors.ErrInsufficientFee
 }
 
-func (d CheckDexGasDecorator) AnteDeps(txDeps []sdkacltypes.AccessOperation, tx sdk.Tx, next sdk.AnteDepGenerator) (newTxDeps []sdkacltypes.AccessOperation, err error) {
+func (d CheckDexGasDecorator) AnteDeps(txDeps []sdkacltypes.AccessOperation, tx sdk.Tx, txIndex int, next sdk.AnteDepGenerator) (newTxDeps []sdkacltypes.AccessOperation, err error) {
 	deps := []sdkacltypes.AccessOperation{}
 	for _, msg := range tx.GetMsgs() {
 		// Error checking will be handled in AnteHandler
@@ -170,5 +173,5 @@ func (d CheckDexGasDecorator) AnteDeps(txDeps []sdkacltypes.AccessOperation, tx 
 			continue
 		}
 	}
-	return next(append(txDeps, deps...), tx)
+	return next(append(txDeps, deps...), tx, txIndex)
 }

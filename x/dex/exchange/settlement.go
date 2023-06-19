@@ -15,9 +15,7 @@ func Settle(
 	worstPrice sdk.Dec,
 	makerPrice sdk.Dec,
 ) ([]*types.SettlementEntry, []*types.SettlementEntry) {
-	// settlement of one liquidity taker's order is allocated to all liquidity
-	// providers at the matched price level, propotional to the amount of liquidity
-	// provided by each LP.
+	// settlement of one liquidity taker's order is allocated on a FIFO basis
 	takerSettlements := []*types.SettlementEntry{}
 	makerSettlements := []*types.SettlementEntry{}
 	if quantityTaken.IsZero() {
@@ -77,9 +75,7 @@ func SettleFromBook(
 	longPrice sdk.Dec,
 	shortPrice sdk.Dec,
 ) []*types.SettlementEntry {
-	// settlement from within the order book is also allocated to all liquidity
-	// providers at the matched price level on both sides, propotional to the
-	// amount of liquidity provided by each LP.
+	// settlement from within the order book is also allocated on a FIFO basis
 	settlements := []*types.SettlementEntry{}
 	if executedQuantity.IsZero() {
 		return settlements

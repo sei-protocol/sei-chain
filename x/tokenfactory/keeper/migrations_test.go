@@ -1,6 +1,7 @@
 package keeper
 
 import (
+	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
 	"strings"
 	"testing"
 
@@ -65,4 +66,22 @@ func TestMigrate2to3(t *testing.T) {
 	params := types.Params{}
 	paramsSubspace.GetParamSet(ctx, &params)
 	require.Equal(t, types.Params{}, params)
+}
+
+func TestMigrate3To4(t *testing.T) {
+	// Test migration with all metadata denom
+	metadata := banktypes.Metadata{Description: sdk.DefaultBondDenom, Base: sdk.DefaultBondDenom, Display: sdk.DefaultBondDenom, Name: sdk.DefaultBondDenom, Symbol: sdk.DefaultBondDenom}
+	keeper := NewKeeper(nil, nil, typesparams.Subspace{}, nil, nil, nil)
+	m := NewMigrator(keeper)
+	m.SetMetadata(&metadata)
+	require.Equal(t, sdk.DefaultBondDenom, metadata.Display)
+	require.Equal(t, sdk.DefaultBondDenom, metadata.Name)
+	require.Equal(t, sdk.DefaultBondDenom, metadata.Symbol)
+	// Test migration with missing fields
+	testDenom := "test_denom"
+	metadata = banktypes.Metadata{Base: testDenom}
+	m.SetMetadata(&metadata)
+	require.Equal(t, testDenom, metadata.Display)
+	require.Equal(t, testDenom, metadata.Name)
+	require.Equal(t, testDenom, metadata.Symbol)
 }

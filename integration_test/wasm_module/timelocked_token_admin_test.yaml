@@ -1,0 +1,52 @@
+- name: Test remove and add/update op account
+  inputs:
+    # Get the gringotts contract address
+    - cmd: tail -1 integration_test/contracts/gringotts-contract-addr.txt |cut -d "," -f 1
+      env: GRINGOTTS_ADDR
+    # Get the op account address
+    - cmd: printf "12345678\n" | seid keys show op -a
+      env: OP_ADDR
+    # Remove op account
+    - cmd: printf "12345678\n" | seid tx wasm execute $GRINGOTTS_ADDR " {\"update_op\":{\"op\":\"$OP_ADDR\",\"remove\":true}} " -y --from=admin1 --chain-id=sei --gas=5000000 --fees=1000000usei --broadcast-mode=block --output json |jq -M -r .code
+      env: REMOVE_RESULT
+    # Add op account back
+    - cmd: printf "12345678\n" | seid tx wasm execute $GRINGOTTS_ADDR " {\"update_op\":{\"op\":\"$OP_ADDR\",\"remove\":false}} " -y --from=admin1 --chain-id=sei --gas=5000000 --fees=1000000usei --broadcast-mode=block --output json |jq -M -r .code
+      env: ADD_RESULT
+  verifiers:
+    - type: eval
+      expr: REMOVE_RESULT == 0
+    - type: eval
+      expr: ADD_RESULT == 0
+
+- name: Test proposal for updating admin account
+  inputs:
+    # Get the gringotts contract address
+    - cmd: tail -1 integration_test/contracts/gringotts-contract-addr.txt |cut -d "," -f 1
+      env: GRINGOTTS_ADDR
+    # Get the admin account address
+    - cmd: printf "12345678\n" | seid keys show admin4 -a
+      env: ADMIN_ADDR
+    # Create a new proposal for updating admin account
+    - cmd: printf "12345678\n" | seid tx wasm execute $GRINGOTTS_ADDR "{\"propose_update_admin\":{\"admin\":\"$ADMIN_ADDR\",\"remove\":false}}" -y --from=admin1 --chain-id=sei --gas=5000000 --fees=1000000usei --broadcast-mode=block --output json|jq -r ".logs[].events[].attributes[] | select(.key == \"proposal_id\").value"
+      env: PROPOSAL_ID
+    # Admin2 vote for proposal
+    - cmd: printf "12345678\n" | seid tx wasm execute $GRINGOTTS_ADDR " {\"vote_proposal\":{\"proposal_id\":$PROPOSAL_ID}} " -y --from=admin2 --chain-id=sei --gas=5000000 --fees=1000000usei --broadcast-mode=block --output json |jq .code
+    # Admin3 vote for proposal and we should have 3/4 voted
+    - cmd: printf "12345678\n" | seid tx wasm execute $GRINGOTTS_ADDR " {\"vote_proposal\":{\"proposal_id\":$PROPOSAL_ID}} " -y --from=admin3 --chain-id=sei --gas=5000000 --fees=1000000usei --broadcast-mode=block --output json |jq .code
+    # Query proposal and make sure it is passed
+    - cmd: seid q wasm contract-state smart $GRINGOTTS_ADDR "{\"list_proposals\":{}}" --output json |jq -r .data.proposals[0].status
+      env: PROPOSAL_STATUS_1
+    # Execute proposal
+    - cmd: printf "12345678\n" | seid tx wasm execute $GRINGOTTS_ADDR " {\"process_proposal\":{\"proposal_id\":$PROPOSAL_ID}} " -y --from=admin4 --chain-id=sei --gas=5000000 --fees=1000000usei --broadcast-mode=block --output json|jq .code
+    # Query proposal again and make sure it is executed
+    - cmd: seid q wasm contract-state smart $GRINGOTTS_ADDR "{\"list_proposals\":{}}" --output json |jq -r .data.proposals[0].status
+      env: PROPOSAL_STATUS_2
+  verifiers:
+    - type: eval
+      expr: PROPOSAL_ID > 0
+    - type: regex
+      result: PROPOSAL_STATUS_1
+      expr: '^.*passed.*'
+    - type: regex
+      result: PROPOSAL_STATUS_2
+      expr: '^.*executed.*'

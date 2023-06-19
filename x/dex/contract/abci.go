@@ -77,7 +77,7 @@ func EndBlockerAtomic(ctx sdk.Context, keeper *keeper.Keeper, validContractsInfo
 	// No error is thrown for any contract. This should happen most of the time.
 	if env.failedContractAddressesToErrors.Len() == 0 {
 		postRunRents := keeper.GetRentsForContracts(cachedCtx, contractsToProcess)
-		TransferRentFromDexToCollector(ctx, keeper.BankKeeper, preRunRents, postRunRents)
+		TransferRentFromDexToCollector(cachedCtx, keeper.BankKeeper, preRunRents, postRunRents)
 		msCached.Write()
 		return env.validContractsInfo, []types.ContractInfoV2{}, map[string]string{}, ctx, true
 	}

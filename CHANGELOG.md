@@ -27,6 +27,21 @@ Ref: https://keepachangelog.com/en/1.0.0/
 -->
 
 # Changelog
+## 3.0.4
+sei-chain:
+* [#874] (https://github.com/sei-protocol/sei-chain/pull/874) Charge rent after failed Sudo call
+* [#869] (https://github.com/sei-protocol/sei-chain/pull/869) Require fee per byte in order data
+* [#861] (https://github.com/sei-protocol/sei-chain/pull/861) Fix tokenfactory metadata 
+
+sei-cosmos: 
+* [#287] (https://github.com/sei-protocol/sei-cosmos/pull/287) Refactor deferred balance to use memkv
+* [#286] (https://github.com/sei-protocol/sei-cosmos/pull/286) Prevent multisig sign with wrong key
+* [#284] (https://github.com/sei-protocol/sei-cosmos/pull/284) Fix allowed_msg uncapped spend limit
+* [#280] (https://github.com/sei-protocol/sei-cosmos/pull/280) Barberry patch
+
+sei-tendermint:
+* [#148] (https://github.com/sei-protocol/sei-tendermint/pull/148) Add sleep to avoid consensus reactor retrying too quickly
+* 
 ## 3.0.3
 sei-chain: 
 * [#816] (https://github.com/sei-protocol/sei-chain/pull/816) Reenable tx concurrency for non oracle/priority txs
@@ -34,7 +49,7 @@ sei-chain:
 sei-cosmos:
 * [#254] (https://github.com/sei-protocol/sei-cosmos/pull/254) Use sequential searching instead of binary search for coins
 
-sei-tendermint
+sei-tendermint:
 * [#143] (https://github.com/sei-protocol/sei-tendermint/pull/143) Fix cpu leak for simple pq but stopping timer
 * [#140] (https://github.com/sei-protocol/sei-tendermint/pull/140) Add raw logs to tx output
 

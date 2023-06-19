@@ -45,7 +45,7 @@ func (k Keeper) burnFrom(ctx sdk.Context, amount sdk.Coin, burnFrom string) erro
 	}
 
 	ctx.Logger().Info(fmt.Sprintf("Sending amount=%s to module=%s from account=%s", amount.String(), types.ModuleName, addr.String()))
-	err = k.bankKeeper.DeferredSendCoinsFromAccountToModule(ctx,
+	err = k.bankKeeper.SendCoinsFromAccountToModule(ctx,
 		addr,
 		types.ModuleName,
 		sdk.NewCoins(amount))

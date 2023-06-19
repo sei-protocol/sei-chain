@@ -52,7 +52,7 @@ func TestCancelOrder(t *testing.T) {
 	server := msgserver.NewMsgServerImpl(*keeper)
 	_, err := server.CancelOrders(wctx, msg)
 
-	pairBlockCancellations := dexutils.GetMemState(ctx.Context()).GetBlockCancels(ctx, keepertest.TestContract, types.GetPairString(&keepertest.TestPair))
+	pairBlockCancellations := dexutils.GetMemState(ctx.Context()).GetBlockCancels(ctx, keepertest.TestContract, keepertest.TestPair)
 	require.Nil(t, err)
 	require.Equal(t, 1, len(pairBlockCancellations.Get()))
 	require.Equal(t, uint64(1), pairBlockCancellations.Get()[0].Id)
@@ -177,6 +177,23 @@ func TestInvalidCancels(t *testing.T) {
 				Price:             sdk.OneDec(),
 				PositionDirection: types.PositionDirection_LONG,
 				PriceDenom:        keepertest.TestPriceDenom,
+				Id:                1,
+			},
+		},
+	}
+	_, err = server.CancelOrders(wctx, msg)
+	require.NotNil(t, err)
+
+	// negative price
+	msg = &types.MsgCancelOrders{
+		Creator:      keepertest.TestAccount,
+		ContractAddr: keepertest.TestContract,
+		Cancellations: []*types.Cancellation{
+			{
+				Price:             sdk.OneDec().Neg(),
+				PositionDirection: types.PositionDirection_LONG,
+				PriceDenom:        keepertest.TestPriceDenom,
+				AssetDenom:        keepertest.TestAssetDenom,
 				Id:                1,
 			},
 		},

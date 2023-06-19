@@ -2,6 +2,7 @@ package msgserver
 
 import (
 	"context"
+	"strings"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
@@ -36,6 +37,9 @@ func (k msgServer) RegisterPairs(goCtx context.Context, msg *types.MsgRegisterPa
 		// Loop through each batch contract pair an individual contract pair, token pair
 		// tuple and register them individually
 		for _, pair := range batchPair.Pairs {
+			if !isValidDenom(pair.PriceDenom) || !isValidDenom(pair.AssetDenom) {
+				return nil, sdkerrors.ErrInvalidRequest
+			}
 			k.AddRegisteredPair(ctx, contractAddr, *pair)
 			events = append(events, sdk.NewEvent(
 				types.EventTypeRegisterPair,
@@ -49,4 +53,8 @@ func (k msgServer) RegisterPairs(goCtx context.Context, msg *types.MsgRegisterPa
 	ctx.EventManager().EmitEvents(events)
 
 	return &types.MsgRegisterPairsResponse{}, nil
+}
+
+func isValidDenom(denom string) bool {
+	return denom != "" && !strings.Contains(denom, types.PairDelim)
 }

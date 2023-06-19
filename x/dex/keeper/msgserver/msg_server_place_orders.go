@@ -36,7 +36,7 @@ func (k msgServer) transferFunds(goCtx context.Context, msg *types.MsgPlaceOrder
 			Amount:  sdk.NewDec(fund.Amount.Int64()),
 		})
 	}
-	if err := k.BankKeeper.DeferredSendCoinsFromAccountToModule(ctx, sender, types.ModuleName, msg.Funds); err != nil {
+	if err := k.BankKeeper.SendCoinsFromAccountToModule(ctx, sender, types.ModuleName, msg.Funds); err != nil {
 		return fmt.Errorf("error sending coins to contract: %s", err)
 	}
 	return nil
@@ -70,11 +70,10 @@ func (k msgServer) PlaceOrders(goCtx context.Context, msg *types.MsgPlaceOrders)
 			return nil, sdkerrors.Wrapf(sdkerrors.ErrKeyNotFound, "the pair {price:%s,asset:%s} has no quantity ticksize configured", order.PriceDenom, order.AssetDenom)
 		}
 		pair := types.Pair{PriceDenom: order.PriceDenom, AssetDenom: order.AssetDenom, PriceTicksize: &priceTicksize, QuantityTicksize: &quantityTicksize}
-		pairStr := types.GetPairString(&pair)
 		order.Id = nextID
 		order.Account = msg.Creator
 		order.ContractAddr = msg.GetContractAddr()
-		utils.GetMemState(ctx.Context()).GetBlockOrders(ctx, types.ContractAddress(msg.GetContractAddr()), pairStr).Add(order)
+		utils.GetMemState(ctx.Context()).GetBlockOrders(ctx, types.ContractAddress(msg.GetContractAddr()), pair).Add(order)
 		idsInResp = append(idsInResp, nextID)
 		events = append(events, sdk.NewEvent(
 			types.EventTypePlaceOrder,

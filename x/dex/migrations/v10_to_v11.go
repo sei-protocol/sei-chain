@@ -10,7 +10,7 @@ import (
 var DexPrefixes = []string{
 	types.LongBookKey,
 	types.ShortBookKey,
-	types.TriggerBookKey,
+	"TriggerBook-value-",
 	types.OrderKey,
 	types.TwapKey,
 	types.RegisteredPairKey,
@@ -23,8 +23,8 @@ var DexPrefixes = []string{
 	types.MemCancelKey,
 	types.MemDepositKey,
 	types.PriceKey,
-	types.SettlementEntryKey,
-	types.NextSettlementIDKey,
+	"SettlementEntry-",
+	"NextSettlementID-",
 }
 
 func V10ToV11(ctx sdk.Context, dexkeeper keeper.Keeper) error {

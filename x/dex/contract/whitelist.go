@@ -17,7 +17,6 @@ var DexWhitelistedKeys = []string{
 	types.CancelKey,
 	types.TwapKey,
 	types.PriceKey,
-	types.SettlementEntryKey,
 	types.NextOrderIDKey,
 	types.MatchResultKey,
 	types.LongOrderCountKey,

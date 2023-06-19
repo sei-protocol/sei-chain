@@ -49,9 +49,8 @@ func (w KeeperWrapper) HandleEBPlaceOrders(ctx context.Context, sdkCtx sdk.Conte
 	}
 
 	for _, pair := range registeredPairs {
-		typedPairStr := types.GetPairString(&pair) //nolint:gosec // USING THE POINTER HERE COULD BE BAD, LET'S CHECK IT.
 		for _, response := range responses {
-			dexutils.GetMemState(sdkCtx.Context()).GetBlockOrders(sdkCtx, typedContractAddr, typedPairStr).MarkFailedToPlace(response.UnsuccessfulOrders)
+			dexutils.GetMemState(sdkCtx.Context()).GetBlockOrders(sdkCtx, typedContractAddr, pair).MarkFailedToPlace(response.UnsuccessfulOrders)
 		}
 	}
 	return nil
@@ -61,8 +60,7 @@ func (w KeeperWrapper) GetPlaceSudoMsg(ctx sdk.Context, typedContractAddr types.
 	msgs := []types.SudoOrderPlacementMsg{}
 	contractOrderPlacements := []types.Order{}
 	for _, pair := range registeredPairs {
-		typedPairStr := types.GetPairString(&pair) //nolint:gosec // USING THE POINTER HERE COULD BE BAD, LET'S CHECK IT.
-		for _, order := range dexutils.GetMemState(ctx.Context()).GetBlockOrders(ctx, typedContractAddr, typedPairStr).Get() {
+		for _, order := range dexutils.GetMemState(ctx.Context()).GetBlockOrders(ctx, typedContractAddr, pair).Get() {
 			contractOrderPlacements = append(contractOrderPlacements, *order)
 			if len(contractOrderPlacements) == MaxOrdersPerSudoCall {
 				msgs = append(msgs, types.SudoOrderPlacementMsg{

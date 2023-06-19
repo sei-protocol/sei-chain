@@ -60,7 +60,6 @@ func (suite *KeeperTestSuite) PrepareTest() {
 		sdk.WrapSDKContext(suite.Ctx),
 		types.NewMsgCreateDenom(suite.TestAccs[0].String(), suite.testDenom),
 	)
-	suite.App.BankKeeper.WriteDeferredOperations(suite.Ctx)
 
 	if err != nil {
 		panic(err)
@@ -74,7 +73,6 @@ func (suite *KeeperTestSuite) PrepareTest() {
 	if err != nil {
 		panic(err)
 	}
-	suite.App.BankKeeper.WriteDeferredOperations(suite.Ctx)
 
 	msgValidator := sdkacltypes.NewMsgValidator(aclutils.StoreKeyToResourceTypePrefixMap)
 	suite.Ctx = suite.Ctx.WithMsgValidator(msgValidator)
@@ -117,7 +115,6 @@ func (suite *KeeperTestSuite) TestMsgBurnDependencies() {
 				sdk.WrapSDKContext(handlerCtx),
 				tc.msg,
 			)
-			suite.App.BankKeeper.WriteDeferredOperations(suite.Ctx)
 
 			depdenencies, _ := tkfactory.TokenFactoryBurnDependencyGenerator(
 				suite.App.AccessControlKeeper,
@@ -172,7 +169,6 @@ func (suite *KeeperTestSuite) TestMsgMintDependencies() {
 				sdk.WrapSDKContext(handlerCtx),
 				tc.msg,
 			)
-			suite.App.BankKeeper.WriteDeferredOperations(handlerCtx)
 
 			depdenencies, _ := tkfactory.TokenFactoryMintDependencyGenerator(
 				suite.App.AccessControlKeeper,

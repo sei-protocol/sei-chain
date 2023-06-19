@@ -51,17 +51,16 @@ func ExecutePair(
 	orderbook *types.OrderBook,
 ) []*types.SettlementEntry {
 	typedContractAddr := types.ContractAddress(contractAddr)
-	typedPairStr := types.GetPairString(&pair)
 
 	// First cancel orders
 	cancelForPair(ctx, dexkeeper, typedContractAddr, pair)
 	// Add all limit orders to the orderbook
-	orders := dexutils.GetMemState(ctx.Context()).GetBlockOrders(ctx, typedContractAddr, typedPairStr)
+	orders := dexutils.GetMemState(ctx.Context()).GetBlockOrders(ctx, typedContractAddr, pair)
 	limitBuys := orders.GetLimitOrders(types.PositionDirection_LONG)
 	limitSells := orders.GetLimitOrders(types.PositionDirection_SHORT)
 	exchange.AddOutstandingLimitOrdersToOrderbook(ctx, dexkeeper, limitBuys, limitSells)
 	// Fill market orders
-	marketOrderOutcome := matchMarketOrderForPair(ctx, typedContractAddr, typedPairStr, orderbook)
+	marketOrderOutcome := matchMarketOrderForPair(ctx, typedContractAddr, pair, orderbook)
 	// Fill limit orders
 	limitOrderOutcome := exchange.MatchLimitOrders(ctx, orderbook)
 	totalOutcome := marketOrderOutcome.Merge(&limitOrderOutcome)
@@ -77,17 +76,17 @@ func cancelForPair(
 	contractAddress types.ContractAddress,
 	pair types.Pair,
 ) {
-	cancels := dexutils.GetMemState(ctx.Context()).GetBlockCancels(ctx, contractAddress, types.GetPairString(&pair))
+	cancels := dexutils.GetMemState(ctx.Context()).GetBlockCancels(ctx, contractAddress, pair)
 	exchange.CancelOrders(ctx, keeper, contractAddress, pair, cancels.Get())
 }
 
 func matchMarketOrderForPair(
 	ctx sdk.Context,
 	typedContractAddr types.ContractAddress,
-	typedPairStr types.PairString,
+	pair types.Pair,
 	orderbook *types.OrderBook,
 ) exchange.ExecutionOutcome {
-	orders := dexutils.GetMemState(ctx.Context()).GetBlockOrders(ctx, typedContractAddr, typedPairStr)
+	orders := dexutils.GetMemState(ctx.Context()).GetBlockOrders(ctx, typedContractAddr, pair)
 	marketBuys := orders.GetSortedMarketOrders(types.PositionDirection_LONG)
 	marketSells := orders.GetSortedMarketOrders(types.PositionDirection_SHORT)
 	marketBuyOutcome := exchange.MatchMarketOrders(
@@ -110,10 +109,10 @@ func matchMarketOrderForPair(
 func GetMatchResults(
 	ctx sdk.Context,
 	typedContractAddr types.ContractAddress,
-	typedPairStr types.PairString,
+	pair types.Pair,
 ) ([]*types.Order, []*types.Cancellation) {
-	orderResults := dexutils.GetMemState(ctx.Context()).GetBlockOrders(ctx, typedContractAddr, typedPairStr).Get()
-	cancelResults := dexutils.GetMemState(ctx.Context()).GetBlockCancels(ctx, typedContractAddr, typedPairStr).Get()
+	orderResults := dexutils.GetMemState(ctx.Context()).GetBlockOrders(ctx, typedContractAddr, pair).Get()
+	cancelResults := dexutils.GetMemState(ctx.Context()).GetBlockCancels(ctx, typedContractAddr, pair).Get()
 	return orderResults, cancelResults
 }
 
@@ -148,15 +147,15 @@ func ExecutePairsInParallel(ctx sdk.Context, contractAddr string, dexkeeper *kee
 			pairStr := types.GetPairString(&pairCopy)
 			orderbook, found := orderBooks.Load(pairStr)
 			if !found {
-				panic(fmt.Sprintf("Orderbook not found for %s", pairStr))
+				panic(fmt.Sprintf("Orderbook not found for %s", pairCopy.String()))
 			}
 			pairSettlements := ExecutePair(pairCtx, contractAddr, pair, dexkeeper, orderbook)
 			orderIDToSettledQuantities := GetOrderIDToSettledQuantities(pairSettlements)
-			PrepareCancelUnfulfilledMarketOrders(pairCtx, typedContractAddr, pairStr, orderIDToSettledQuantities)
+			PrepareCancelUnfulfilledMarketOrders(pairCtx, typedContractAddr, pairCopy, orderIDToSettledQuantities)
 
 			mu.Lock()
 			defer mu.Unlock()
-			orders, cancels := GetMatchResults(ctx, typedContractAddr, types.GetPairString(&pairCopy))
+			orders, cancels := GetMatchResults(ctx, typedContractAddr, pairCopy)
 			orderResults = append(orderResults, orders...)
 			cancelResults = append(cancelResults, cancels...)
 			settlements = append(settlements, pairSettlements...)

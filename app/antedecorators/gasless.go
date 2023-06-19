@@ -58,13 +58,13 @@ func (gd GaslessDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool,
 	return next(ctx, tx, simulate)
 }
 
-func (gd GaslessDecorator) AnteDeps(txDeps []sdkacltypes.AccessOperation, tx sdk.Tx, next sdk.AnteDepGenerator) (newTxDeps []sdkacltypes.AccessOperation, err error) {
+func (gd GaslessDecorator) AnteDeps(txDeps []sdkacltypes.AccessOperation, tx sdk.Tx, txIndex int, next sdk.AnteDepGenerator) (newTxDeps []sdkacltypes.AccessOperation, err error) {
 	deps := []sdkacltypes.AccessOperation{}
-	terminatorDeps := func(txDeps []sdkacltypes.AccessOperation, _ sdk.Tx) ([]sdkacltypes.AccessOperation, error) {
+	terminatorDeps := func(txDeps []sdkacltypes.AccessOperation, _ sdk.Tx, _ int) ([]sdkacltypes.AccessOperation, error) {
 		return txDeps, nil
 	}
 	for _, depGen := range gd.wrapped {
-		deps, _ = depGen.AnteDeps(deps, tx, terminatorDeps)
+		deps, _ = depGen.AnteDeps(deps, tx, txIndex, terminatorDeps)
 	}
 	for _, msg := range tx.GetMsgs() {
 		// Error checking will be handled in AnteHandler
@@ -97,7 +97,7 @@ func (gd GaslessDecorator) AnteDeps(txDeps []sdkacltypes.AccessOperation, tx sdk
 		}
 	}
 
-	return next(append(txDeps, deps...), tx)
+	return next(append(txDeps, deps...), tx, txIndex)
 }
 
 func isTxGasless(tx sdk.Tx, ctx sdk.Context, oracleKeeper oraclekeeper.Keeper) (bool, error) {

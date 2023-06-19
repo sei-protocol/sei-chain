@@ -49,7 +49,7 @@ func (spd SpammingPreventionDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, si
 	return next(ctx, tx, simulate)
 }
 
-func (spd SpammingPreventionDecorator) AnteDeps(txDeps []sdkacltypes.AccessOperation, tx sdk.Tx, next sdk.AnteDepGenerator) (newTxDeps []sdkacltypes.AccessOperation, err error) {
+func (spd SpammingPreventionDecorator) AnteDeps(txDeps []sdkacltypes.AccessOperation, tx sdk.Tx, txIndex int, next sdk.AnteDepGenerator) (newTxDeps []sdkacltypes.AccessOperation, err error) {
 	deps := []sdkacltypes.AccessOperation{}
 	for _, msg := range tx.GetMsgs() {
 		// Error checking will be handled in AnteHandler
@@ -82,7 +82,7 @@ func (spd SpammingPreventionDecorator) AnteDeps(txDeps []sdkacltypes.AccessOpera
 		}
 	}
 
-	return next(append(txDeps, deps...), tx)
+	return next(append(txDeps, deps...), tx, txIndex)
 }
 
 // CheckOracleSpamming check whether the msgs are spamming purpose or not
@@ -149,7 +149,7 @@ func (VoteAloneDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool, 
 	return next(ctx, tx, simulate)
 }
 
-func (VoteAloneDecorator) AnteDeps(txDeps []sdkacltypes.AccessOperation, tx sdk.Tx, next sdk.AnteDepGenerator) (newTxDeps []sdkacltypes.AccessOperation, err error) {
+func (VoteAloneDecorator) AnteDeps(txDeps []sdkacltypes.AccessOperation, tx sdk.Tx, txIndex int, next sdk.AnteDepGenerator) (newTxDeps []sdkacltypes.AccessOperation, err error) {
 	// requires no dependencies
-	return next(txDeps, tx)
+	return next(txDeps, tx, txIndex)
 }

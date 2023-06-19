@@ -19,6 +19,7 @@ import (
 	minttypes "github.com/sei-protocol/sei-chain/x/mint/types"
 	"github.com/stretchr/testify/suite"
 	abci "github.com/tendermint/tendermint/abci/types"
+	"github.com/tendermint/tendermint/config"
 	"github.com/tendermint/tendermint/libs/log"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 	dbm "github.com/tendermint/tm-db"
@@ -58,7 +59,7 @@ func NewTestWrapper(t *testing.T, tm time.Time, valPub crptotypes.PubKey) *TestW
 		Ctx: ctx,
 	}
 	wrapper.SetT(t)
-	wrapper.setupValidator(stakingtypes.Bonded, valPub)
+	wrapper.setupValidator(stakingtypes.Unbonded, valPub)
 	return wrapper
 }
 
@@ -154,8 +155,8 @@ func Setup(isCheckTx bool) *App {
 		true,
 		map[int64]bool{},
 		DefaultNodeHome,
-		5,
-		nil,
+		1,
+		config.TestConfig(),
 		encodingConfig,
 		wasm.EnableAllProposals,
 		&cosmostestutil.TestAppOpts{},

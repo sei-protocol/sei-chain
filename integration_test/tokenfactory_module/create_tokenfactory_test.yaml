@@ -1,0 +1,20 @@
+- name: Test creating a denom
+  inputs:
+    # Get admin
+    - cmd: printf "12345678\n" | seid keys list --output json | jq ".[] | select (.name==\"admin\")" | jq -r .address
+      env: ADMIN_ADDR
+    # Create denom
+    - cmd: printf "12345678\n" | seid tx tokenfactory create-denom test --from admin --fees 2000usei -y
+    # Query various fields about denom
+    - cmd: seid q bank denom-metadata --output json | jq .metadatas | jq ".[] | select (.base==\"factory/${ADMIN_ADDR}/test\")" | jq -r .base
+      env: BASE
+    - cmd: seid q bank denom-metadata --output json | jq .metadatas | jq ".[] | select (.base==\"factory/${ADMIN_ADDR}/test\")" | jq -r .name
+      env: NAME
+    - cmd: seid q bank denom-metadata --output json | jq .metadatas | jq ".[] | select (.base==\"factory/${ADMIN_ADDR}/test\")" | jq -r .symbol
+      env: SYMBOL
+    - cmd: seid q bank denom-metadata --output json | jq .metadatas | jq ".[] | select (.base==\"factory/${ADMIN_ADDR}/test\")" | jq -r .display
+      env: DISPLAY
+  verifiers:
+    # All fields should be populated and match the base name
+    - type: eval
+      expr: NAME == BASE and SYMBOL == BASE and DISPLAY == BASE

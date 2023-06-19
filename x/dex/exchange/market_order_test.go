@@ -52,7 +52,7 @@ func TestMatchFoKMarketOrderFromShortBookNotEnoughLiquidity(t *testing.T) {
 			},
 		},
 	}
-	blockOrders := dexutils.GetMemState(ctx.Context()).GetBlockOrders(ctx, "testAccount", "USDC|ATOM")
+	blockOrders := dexutils.GetMemState(ctx.Context()).GetBlockOrders(ctx, "testAccount", types.Pair{PriceDenom: "USDC", AssetDenom: "ATOM"})
 	blockOrders.Add(&types.Order{
 		Id:                1,
 		Account:           "abc",
@@ -126,7 +126,7 @@ func TestMatchFoKMarketOrderFromShortBookHappyPath(t *testing.T) {
 	}
 	orderbook := keeperutil.PopulateOrderbook(ctx, dexkeeper, types.ContractAddress("test"), types.Pair{PriceDenom: "USDC", AssetDenom: "ATOM"})
 	entries := orderbook.Shorts
-	blockOrders := dexutils.GetMemState(ctx.Context()).GetBlockOrders(ctx, "testAccount", "USDC|ATOM")
+	blockOrders := dexutils.GetMemState(ctx.Context()).GetBlockOrders(ctx, "testAccount", types.Pair{PriceDenom: "USDC", AssetDenom: "ATOM"})
 	blockOrders.Add(&types.Order{
 		Id:                1,
 		Account:           "abc",
@@ -228,7 +228,7 @@ func TestMatchByValueFOKMarketOrderFromShortBookNotEnoughLiquidity(t *testing.T)
 			},
 		},
 	}
-	blockOrders := dexutils.GetMemState(ctx.Context()).GetBlockOrders(ctx, "testAccount", "USDC|ATOM")
+	blockOrders := dexutils.GetMemState(ctx.Context()).GetBlockOrders(ctx, "testAccount", types.Pair{PriceDenom: "USDC", AssetDenom: "ATOM"})
 	blockOrders.Add(longOrders[0])
 	for _, e := range shortBook {
 		dexkeeper.SetShortOrderBookEntry(ctx, "test", e)
@@ -300,7 +300,7 @@ func TestMatchByValueFOKMarketOrderFromShortBookHappyPath(t *testing.T) {
 			},
 		},
 	}
-	blockOrders := dexutils.GetMemState(ctx.Context()).GetBlockOrders(ctx, "testAccount", "USDC|ATOM")
+	blockOrders := dexutils.GetMemState(ctx.Context()).GetBlockOrders(ctx, "testAccount", types.Pair{PriceDenom: "USDC", AssetDenom: "ATOM"})
 	blockOrders.Add(longOrders[0])
 	for _, e := range shortBook {
 		dexkeeper.SetShortOrderBookEntry(ctx, "test", e)
@@ -380,7 +380,7 @@ func TestMatchSingleMarketOrderFromShortBook(t *testing.T) {
 			},
 		},
 	}
-	blockOrders := dexutils.GetMemState(ctx.Context()).GetBlockOrders(ctx, "testAccount", "USDC|ATOM")
+	blockOrders := dexutils.GetMemState(ctx.Context()).GetBlockOrders(ctx, "testAccount", types.Pair{PriceDenom: "USDC", AssetDenom: "ATOM"})
 	blockOrders.Add(longOrders[0])
 	for _, e := range shortBook {
 		dexkeeper.SetShortOrderBookEntry(ctx, "test", e)
@@ -460,7 +460,7 @@ func TestMatchSingleMarketOrderFromLongBook(t *testing.T) {
 			},
 		},
 	}
-	blockOrders := dexutils.GetMemState(ctx.Context()).GetBlockOrders(ctx, "testAccount", "USDC|ATOM")
+	blockOrders := dexutils.GetMemState(ctx.Context()).GetBlockOrders(ctx, "testAccount", types.Pair{PriceDenom: "USDC", AssetDenom: "ATOM"})
 	blockOrders.Add(shortOrders[0])
 	for _, e := range longBook {
 		dexkeeper.SetLongOrderBookEntry(ctx, "test", e)
@@ -558,7 +558,7 @@ func TestMatchSingleMarketOrderFromMultipleShortBook(t *testing.T) {
 			},
 		},
 	}
-	blockOrders := dexutils.GetMemState(ctx.Context()).GetBlockOrders(ctx, "testAccount", "USDC|ATOM")
+	blockOrders := dexutils.GetMemState(ctx.Context()).GetBlockOrders(ctx, "testAccount", types.Pair{PriceDenom: "USDC", AssetDenom: "ATOM"})
 	blockOrders.Add(longOrders[0])
 	for _, e := range shortBook {
 		dexkeeper.SetShortOrderBookEntry(ctx, "test", e)
@@ -698,7 +698,7 @@ func TestMatchSingleMarketOrderFromMultipleLongBook(t *testing.T) {
 			},
 		},
 	}
-	blockOrders := dexutils.GetMemState(ctx.Context()).GetBlockOrders(ctx, "testAccount", "USDC|ATOM")
+	blockOrders := dexutils.GetMemState(ctx.Context()).GetBlockOrders(ctx, "testAccount", types.Pair{PriceDenom: "USDC", AssetDenom: "ATOM"})
 	blockOrders.Add(shortOrders[0])
 	for _, e := range longBook {
 		dexkeeper.SetLongOrderBookEntry(ctx, "test", e)
@@ -860,7 +860,7 @@ func TestMatchMultipleMarketOrderFromMultipleShortBook(t *testing.T) {
 			},
 		},
 	}
-	blockOrders := dexutils.GetMemState(ctx.Context()).GetBlockOrders(ctx, "testAccount", "USDC|ATOM")
+	blockOrders := dexutils.GetMemState(ctx.Context()).GetBlockOrders(ctx, "testAccount", types.Pair{PriceDenom: "USDC", AssetDenom: "ATOM"})
 	blockOrders.Add(longOrders[0])
 	blockOrders.Add(longOrders[1])
 	blockOrders.Add(longOrders[2])
@@ -1051,7 +1051,7 @@ func TestMatchMultipleMarketOrderFromMultipleLongBook(t *testing.T) {
 			},
 		},
 	}
-	blockOrders := dexutils.GetMemState(ctx.Context()).GetBlockOrders(ctx, "testAccount", "USDC|ATOM")
+	blockOrders := dexutils.GetMemState(ctx.Context()).GetBlockOrders(ctx, "testAccount", types.Pair{PriceDenom: "USDC", AssetDenom: "ATOM"})
 	blockOrders.Add(shortOrders[0])
 	blockOrders.Add(shortOrders[1])
 	blockOrders.Add(shortOrders[2])
