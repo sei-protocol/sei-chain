@@ -49,7 +49,7 @@ jobs:
       
       - name: Get current repo URL on pull request
         if: ${{ github.event_name == 'pull_request' }}
-        run: echo "GIT_URL=${{ github.event.pull_request.head.repo.url }}" >> $GITHUB_ENV
+        run: echo "GIT_URL=${{ github.event.pull_request.head.repo.clone_url }}" >> $GITHUB_ENV
       
       - name: Run cluster with 4 nodes
         run: >
