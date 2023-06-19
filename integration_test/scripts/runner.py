@@ -79,8 +79,6 @@ class TestRunner:
             print(f'Command: {full_cmd}')
         process = subprocess.Popen(full_cmd, stdout=subprocess.PIPE, shell=True)
         output, error = process.communicate()
-        if error != None and verbose:
-            print(f'Error: {error.decode().strip()}')
         return output.decode().strip()
 
 
