@@ -44,9 +44,16 @@ jobs:
       - name: Build docker image
         run: make clean && make build-docker-node
       
+      - name: Get current repo URL on push
+        run: echo "GIT_URL=${{ github.server_url }}/${{ github.repository }}/" >> $GITHUB_ENV
+      
+      - name: Get current repo URL on pull request
+        if: ${{ github.event_name == 'pull_request' }}
+        run: echo "GIT_URL=${{ github.event.pull_request.head.repo.url }}" >> $GITHUB_ENV
+      
       - name: Run cluster with 4 nodes
         run: >
-            kurtosis run github.com/kurtosis-tech/sei-package@b130bd658f9bf58e6410e93ace46398435df0d1c '{"cluster_size": 4, "num_accounts": 10, "invariant_check_interval": 10, "image": "sei-chain/localnode", "git_url": "${{ github.server_url }}/${{ github.repository }}/", "git_ref": "${{ github.head_ref}}"}' --enclave sei-integration-test
+            kurtosis run github.com/kurtosis-tech/sei-package@b130bd658f9bf58e6410e93ace46398435df0d1c '{"cluster_size": 4, "num_accounts": 10, "invariant_check_interval": 10, "image": "sei-chain/localnode", "git_url": "${{ env.GIT_URL }}", "git_ref": "${{ github.head_ref}}"}' --enclave sei-integration-test
 
       - name: Verify Sei Chain is able to start up
         run: python3 integration_test/scripts/runner.py integration_test/startup/startup_test.yaml
