@@ -44,10 +44,10 @@ jobs:
       - name: Build docker image
         run: make clean && make build-docker-node
       
-      - name: Get current repo URL on push
+      - name: Get current repo URL
         run: echo "GIT_URL=${{ github.server_url }}/${{ github.repository }}/" >> $GITHUB_ENV
       
-      - name: Get current repo URL on pull request
+      - name: Get current repo URL on pull request # Allow forks to run CI
         if: ${{ github.event_name == 'pull_request' }}
         run: echo "GIT_URL=${{ github.event.pull_request.head.repo.clone_url }}" >> $GITHUB_ENV
       
