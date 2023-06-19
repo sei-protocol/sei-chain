@@ -71,14 +71,16 @@ class TestRunner:
             envs = ""
             if env_map:
                 for key in env_map:
-                    envs += f'-e {key}=\'{env_map[key]}\' '
-            full_cmd = f'docker exec {envs} {container} /bin/bash -c \'export PATH=$PATH:/root/go/bin && {command}\''
+                    envs += f'{key}=\'"\'"\'{env_map[key]}\'"\'"\' '
+            full_cmd = f'kurtosis service exec sei-integration-test {container} \'{envs} PATH="$PATH:/root/go/bin"; {command}\' | tail -n +2 | head -1'
         else:
             full_cmd = command
         if verbose:
             print(f'Command: {full_cmd}')
         process = subprocess.Popen(full_cmd, stdout=subprocess.PIPE, shell=True)
         output, error = process.communicate()
+        if error != None and verbose:
+            print(f'Error: {error.decode().strip()}')
         return output.decode().strip()
 
 

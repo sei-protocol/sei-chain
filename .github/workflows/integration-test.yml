@@ -3,7 +3,11 @@
 
 name: Docker Integration Test
 
-on: [pull_request]
+on:
+  push:
+    branches: [ "master" ]
+  pull_request:
+    branches: [ "master" ]
 
 defaults:
   run:
@@ -31,17 +35,6 @@ jobs:
         with:
           go-version: 1.18
 
-      - name: Start 4 node docker cluster
-        run: make clean && INVARIANT_CHECK_INTERVAL=10 make docker-cluster-start &
-
-      - name: Wait for docker cluster to start
-        run: |
-          until [ $(cat build/generated/launch.complete |wc -l) = 4 ]
-          do
-            sleep 10
-          done
-          sleep 10
-
       - name: Setup Kurtosis repo
         run:  echo "deb [trusted=yes] https://apt.fury.io/kurtosis-tech/ /" | sudo tee /etc/apt/sources.list.d/kurtosis.list
         
@@ -53,24 +46,21 @@ jobs:
       
       - name: Run cluster with 4 nodes
         run: >
-          kurtosis run github.com/kurtosis-tech/sei-package@ee5314d1be9ef2af29715017bbea82ed87c142a3 '{"cluster_size": 4, "num_accounts": 10, "image": "sei-chain/localnode", "git_ref": "37cd048c5158fd131f3340c3266d3c48429e1d0d"}' --enclave sei-integration-test
-      # To run on the current PR
-        # run: >
-            # kurtosis run github.com/kurtosis-tech/sei-package@ee5314d1be9ef2af29715017bbea82ed87c142a3 '{"cluster_size": 4, "num_accounts": 10, "image": "sei-chain/localnode", "git_ref": "${{ github.head_ref}}"}' --enclave sei-integration-test
-      
+            kurtosis run github.com/kurtosis-tech/sei-package '{"cluster_size": 4, "num_accounts": 10, "image": "sei-chain/localnode", "git_url": "${{ github.server_url }}/${{ github.repository }}/", "git_ref": "${{ github.head_ref}}"}' --enclave sei-integration-test
+
       - name: Verify Sei Chain is able to start up
         run: python3 integration_test/scripts/runner.py integration_test/startup/startup_test.yaml
 
       - name: Testing Dex Module
         run: |
-          kurtosis service exec sei-integration-test sei-node-0 integration_test/contracts/deploy_dex_contract.sh mars
+          kurtosis service exec sei-integration-test sei-node-0 "integration_test/contracts/deploy_dex_contract.sh mars"
           python3 integration_test/scripts/runner.py integration_test/dex_module/place_order_test.yaml
 
       - name: Testing Wasm Module
         run: |
-          kurtosis service exec sei-integration-test  sei-node-0 integration_test/contracts/deploy_timelocked_token_contract.sh
+          kurtosis service exec sei-integration-test sei-node-0 "integration_test/contracts/deploy_timelocked_token_contract.sh"
           python3 integration_test/scripts/runner.py integration_test/wasm_module/timelocked_token_delegation_test.yaml
           python3 integration_test/scripts/runner.py integration_test/wasm_module/timelocked_token_admin_test.yaml
           python3 integration_test/scripts/runner.py integration_test/wasm_module/timelocked_token_withdraw_test.yaml
-          kurtosis service exec sei-integration-test sei-node-0 integration_test/contracts/deploy_timelocked_token_contract.sh
+          kurtosis service exec sei-integration-test sei-node-0 "integration_test/contracts/deploy_timelocked_token_contract.sh"
           python3 integration_test/scripts/runner.py integration_test/wasm_module/timelocked_token_emergency_withdraw_test.yaml
