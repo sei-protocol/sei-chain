@@ -15,13 +15,22 @@ import (
 type mockEpochHooks struct {
 	afterEpochEndCalled    bool
 	beforeEpochStartCalled bool
+	shouldPanic            bool
 }
 
 func (h *mockEpochHooks) AfterEpochEnd(_ sdk.Context, _ types.Epoch) {
+	if h.shouldPanic {
+		panic("AfterEpochEnd")
+	}
+
 	h.afterEpochEndCalled = true
 }
 
 func (h *mockEpochHooks) BeforeEpochStart(_ sdk.Context, _ types.Epoch) {
+	if h.shouldPanic {
+		panic("BeforeEpochStart")
+	}
+
 	h.beforeEpochStartCalled = true
 }
 
@@ -60,4 +69,25 @@ func TestMultiHooks(t *testing.T) {
 
 	multiHooks.BeforeEpochStart(ctx, epoch)
 	require.True(t, hooks.beforeEpochStartCalled)
+}
+
+func TestMultiHooks_Panic(t *testing.T) {
+	hook1 := &mockEpochHooks{shouldPanic: false}
+	hook2 := &mockEpochHooks{shouldPanic: true}
+	hook3 := &mockEpochHooks{shouldPanic: false}
+	multiHooks := types.MultiEpochHooks{
+		hook1,
+		hook2,
+		hook3,
+	}
+
+	db := tmdb.NewMemDB()
+	ms := store.NewCommitMultiStore(db)
+	ctx := sdk.NewContext(ms, tmproto.Header{}, false, nil)
+	epoch := types.Epoch{}
+
+	multiHooks.AfterEpochEnd(ctx, epoch)
+	require.True(t, hook1.afterEpochEndCalled)
+	require.False(t, hook2.afterEpochEndCalled) // second hook should panic
+	require.True(t, hook3.afterEpochEndCalled)  // third hook should still run after 2nd
 }
