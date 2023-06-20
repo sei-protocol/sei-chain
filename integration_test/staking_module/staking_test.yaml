@@ -1,4 +1,4 @@
-- name: Staking a validator
+- name: Staking validator should increase bonded tokens and staking pool
   inputs:
     - cmd: printf "12345678\n" | seid keys show node_admin --bech val --output json | jq -r ".address"
       env: ADMIN_VAL_ADDR
