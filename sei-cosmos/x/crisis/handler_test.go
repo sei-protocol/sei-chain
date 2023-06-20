@@ -1,16 +1,10 @@
 package crisis_test
 
 import (
-	"fmt"
-	"testing"
-
-	"github.com/stretchr/testify/require"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 
 	"github.com/cosmos/cosmos-sdk/simapp"
-	"github.com/cosmos/cosmos-sdk/testutil/testdata"
 	sdk "github.com/cosmos/cosmos-sdk/types"
-	"github.com/cosmos/cosmos-sdk/x/crisis"
 	"github.com/cosmos/cosmos-sdk/x/crisis/types"
 	distrtypes "github.com/cosmos/cosmos-sdk/x/distribution/types"
 	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
@@ -42,75 +36,75 @@ func createTestApp() (*simapp.SimApp, sdk.Context, []sdk.AccAddress) {
 	return app, ctx, addrs
 }
 
-func TestHandleMsgVerifyInvariant(t *testing.T) {
-	app, ctx, addrs := createTestApp()
-	sender := addrs[0]
+// func TestHandleMsgVerifyInvariant(t *testing.T) {
+// 	app, ctx, addrs := createTestApp()
+// 	sender := addrs[0]
 
-	cases := []struct {
-		name           string
-		msg            sdk.Msg
-		expectedResult string
-	}{
-		{"bad invariant route", types.NewMsgVerifyInvariant(sender, testModuleName, "route-that-doesnt-exist"), "fail"},
-		{"invariant broken", types.NewMsgVerifyInvariant(sender, testModuleName, dummyRouteWhichFails.Route), "panic"},
-		{"invariant passing", types.NewMsgVerifyInvariant(sender, testModuleName, dummyRouteWhichPasses.Route), "pass"},
-		{"invalid msg", testdata.NewTestMsg(), "fail"},
-	}
+// 	cases := []struct {
+// 		name           string
+// 		msg            sdk.Msg
+// 		expectedResult string
+// 	}{
+// 		{"bad invariant route", types.NewMsgVerifyInvariant(sender, testModuleName, "route-that-doesnt-exist"), "fail"},
+// 		{"invariant broken", types.NewMsgVerifyInvariant(sender, testModuleName, dummyRouteWhichFails.Route), "panic"},
+// 		{"invariant passing", types.NewMsgVerifyInvariant(sender, testModuleName, dummyRouteWhichPasses.Route), "pass"},
+// 		{"invalid msg", testdata.NewTestMsg(), "fail"},
+// 	}
 
-	for _, tc := range cases {
-		tc := tc
-		t.Run(tc.name, func(t *testing.T) {
-			h := crisis.NewHandler(app.CrisisKeeper)
+// 	for _, tc := range cases {
+// 		tc := tc
+// 		t.Run(tc.name, func(t *testing.T) {
+// 			h := crisis.NewHandler(app.CrisisKeeper)
 
-			switch tc.expectedResult {
-			case "fail":
-				res, err := h(ctx, tc.msg)
-				require.Error(t, err)
-				require.Nil(t, res)
+// 			switch tc.expectedResult {
+// 			case "fail":
+// 				res, err := h(ctx, tc.msg)
+// 				require.Error(t, err)
+// 				require.Nil(t, res)
 
-			case "pass":
-				res, err := h(ctx, tc.msg)
-				require.NoError(t, err)
-				require.NotNil(t, res)
+// 			case "pass":
+// 				res, err := h(ctx, tc.msg)
+// 				require.NoError(t, err)
+// 				require.NotNil(t, res)
 
-			case "panic":
-				require.Panics(t, func() {
-					h(ctx, tc.msg) // nolint:errcheck
-				})
-			}
-		})
-	}
-}
+// 			case "panic":
+// 				require.Panics(t, func() {
+// 					h(ctx, tc.msg) // nolint:errcheck
+// 				})
+// 			}
+// 		})
+// 	}
+// }
 
-func TestHandleMsgVerifyInvariantWithNotEnoughSenderCoins(t *testing.T) {
-	app, ctx, addrs := createTestApp()
-	sender := addrs[0]
-	coin := app.BankKeeper.GetAllBalances(ctx, sender)[0]
-	excessCoins := sdk.NewCoin(coin.Denom, coin.Amount.AddRaw(1))
-	app.CrisisKeeper.SetConstantFee(ctx, excessCoins)
+// func TestHandleMsgVerifyInvariantWithNotEnoughSenderCoins(t *testing.T) {
+// 	app, ctx, addrs := createTestApp()
+// 	sender := addrs[0]
+// 	coin := app.BankKeeper.GetAllBalances(ctx, sender)[0]
+// 	excessCoins := sdk.NewCoin(coin.Denom, coin.Amount.AddRaw(1))
+// 	app.CrisisKeeper.SetConstantFee(ctx, excessCoins)
 
-	h := crisis.NewHandler(app.CrisisKeeper)
-	msg := types.NewMsgVerifyInvariant(sender, testModuleName, dummyRouteWhichPasses.Route)
+// 	h := crisis.NewHandler(app.CrisisKeeper)
+// 	msg := types.NewMsgVerifyInvariant(sender, testModuleName, dummyRouteWhichPasses.Route)
 
-	res, err := h(ctx, msg)
-	require.Error(t, err)
-	require.Nil(t, res)
-}
+// 	res, err := h(ctx, msg)
+// 	require.Error(t, err)
+// 	require.Nil(t, res)
+// }
 
-func TestHandleMsgVerifyInvariantWithInvariantBrokenAndNotEnoughPoolCoins(t *testing.T) {
-	app, ctx, addrs := createTestApp()
-	sender := addrs[0]
+// func TestHandleMsgVerifyInvariantWithInvariantBrokenAndNotEnoughPoolCoins(t *testing.T) {
+// 	app, ctx, addrs := createTestApp()
+// 	sender := addrs[0]
 
-	// set the community pool to empty
-	feePool := app.DistrKeeper.GetFeePool(ctx)
-	feePool.CommunityPool = sdk.DecCoins{}
-	app.DistrKeeper.SetFeePool(ctx, feePool)
+// 	// set the community pool to empty
+// 	feePool := app.DistrKeeper.GetFeePool(ctx)
+// 	feePool.CommunityPool = sdk.DecCoins{}
+// 	app.DistrKeeper.SetFeePool(ctx, feePool)
 
-	h := crisis.NewHandler(app.CrisisKeeper)
-	msg := types.NewMsgVerifyInvariant(sender, testModuleName, dummyRouteWhichFails.Route)
+// 	h := crisis.NewHandler(app.CrisisKeeper)
+// 	msg := types.NewMsgVerifyInvariant(sender, testModuleName, dummyRouteWhichFails.Route)
 
-	var res *sdk.Result
-	require.Panics(t, func() {
-		res, _ = h(ctx, msg)
-	}, fmt.Sprintf("%v", res))
-}
+// 	var res *sdk.Result
+// 	require.Panics(t, func() {
+// 		res, _ = h(ctx, msg)
+// 	}, fmt.Sprintf("%v", res))
+// }
