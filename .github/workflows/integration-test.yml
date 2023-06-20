@@ -93,3 +93,9 @@ jobs:
             bash -c "${script}"
           done
           unset IFS  # revert the internal field separator back to default
+  check:
+    runs-on: ubuntu-latest
+    needs: build # This job will only run if all 'build' jobs have completed successfully
+    steps:
+      - name: Check
+        run: echo "All tests have passed!"
