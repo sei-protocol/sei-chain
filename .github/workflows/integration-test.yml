@@ -87,5 +87,5 @@ jobs:
           echo $scripts
           for script in $scripts
           do
-            $script
+            bash -c "$script"
           done
