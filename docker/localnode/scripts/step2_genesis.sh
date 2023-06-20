@@ -10,7 +10,7 @@ echo "Adding account $ACCOUNT_NAME"
 printf "12345678\n12345678\ny\n" | seid keys add $ACCOUNT_NAME >/dev/null 2>&1
 
 override_genesis() {
-  cat ~/.sei/config/genesis.json | jq $1 > ~/.sei/config/tmp_genesis.json && mv ~/.sei/config/tmp_genesis.json ~/.sei/config/genesis.json;
+  cat ~/.sei/config/genesis.json | jq "$1" > ~/.sei/config/tmp_genesis.json && mv ~/.sei/config/tmp_genesis.json ~/.sei/config/genesis.json;
 }
 
 override_genesis '.app_state["crisis"]["constant_fee"]["denom"]="usei"'
@@ -22,6 +22,12 @@ override_genesis '.app_state["slashing"]["params"]["min_signed_per_window"]="0.0
 override_genesis '.app_state["staking"]["params"]["max_validators"]="50"'
 override_genesis '.consensus_params["block"]["max_gas"]="5000000000"'
 override_genesis '.app_state["staking"]["params"]["unbonding_time"]="10s"'
+
+# Set a token release schedule for the genesis file
+start_date="$(date +"%Y-%m-%d")"
+end_date="$(date -d "+3 days" +"%Y-%m-%d")"
+override_genesis ".app_state[\"mint\"][\"params\"][\"token_release_schedule\"]=[{\"start_date\": \"$start_date\", \"end_date\": \"$end_date\", \"token_release_amount\": \"999999999999\"}]"
+
 
 # We already added node0's genesis account in configure_init, remove it here since we're going to re-add it in the "add genesis accounts" step
 override_genesis '.app_state["auth"]["accounts"]=[]'

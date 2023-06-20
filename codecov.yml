@@ -21,3 +21,5 @@ ignore:
   - "x/**/test_common.go"
   - "scripts/"
   - "contrib"
+  - "intetgration_test/**/*"
+  - "docker/**/*"
