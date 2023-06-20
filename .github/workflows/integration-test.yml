@@ -51,6 +51,12 @@ jobs:
             ]
           },
           {
+            name: "Staking Module",
+            scripts: [
+              "python3 integration_test/scripts/runner.py integration_test/staking_module/staking_test.yaml"
+            ]
+          },
+          {
             name: "Gov Module",
             scripts: [
               "python3 integration_test/scripts/runner.py integration_test/gov_module/gov_proposal_test.yaml"
