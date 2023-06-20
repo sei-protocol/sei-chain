@@ -970,6 +970,7 @@ func (app *App) ProcessProposalHandler(ctx sdk.Context, req *abci.RequestProcess
 	} else if !bytes.Equal(app.optimisticProcessingInfo.Hash, req.Hash) {
 		app.optimisticProcessingInfo.Aborted = true
 	}
+	metrics.SetOptimisticProcessingCounter(!app.optimisticProcessingInfo.Aborted)
 	return &abci.ResponseProcessProposal{
 		Status: abci.ResponseProcessProposal_ACCEPT,
 	}, nil
