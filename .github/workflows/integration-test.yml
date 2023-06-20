@@ -84,5 +84,5 @@ jobs:
         run: |
           for script in ${{ toJson(matrix.test.scripts) }}
           do
-            $(eval $script)
+            $script
           done
