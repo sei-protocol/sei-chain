@@ -27,10 +27,7 @@
       expr: DENOM == "usei"
     # Start date should be equal to last mint date since there's only one mint on the first day
     - type: eval
-      expr: START_DATE == LAST_MINT_DATE
-    # End date should always be greater than start date
-    - type: eval
-      expr: END_DATE > START_DATE
+      expr: START_DATE == LAST_MINT_DATE and END_DATE > START_DATE
     # Total Mint Amount = Remaining Mint Amount + Last Mint Amount
     - type: eval
       expr: TOTAL_MINT_AMOUNT == 999999999999
