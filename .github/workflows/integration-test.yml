@@ -20,6 +20,42 @@ jobs:
     env:
       AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+
+    strategy:
+      matrix:
+        test: [
+          {
+            name: "Verify Sei Chain is able to start up",
+            scripts: [
+              "python3 integration_test/scripts/runner.py integration_test/startup/startup_test.yaml"
+            ]
+          },
+          {
+            name: "Testing Dex Module",
+            scripts: [
+              "docker exec sei-node-0 integration_test/contracts/deploy_dex_contract.sh mars",
+              "python3 integration_test/scripts/runner.py integration_test/dex_module/place_order_test.yaml"
+            ]
+          },
+          {
+            name: "Testing Wasm Module",
+            contract: "integration_test/contracts/deploy_timelocked_token_contract.sh",
+            scripts: [
+              "docker exec sei-node-0 integration_test/contracts/deploy_timelocked_token_contract.sh",
+              "python3 integration_test/scripts/runner.py integration_test/wasm_module/timelocked_token_delegation_test.yaml",
+              "python3 integration_test/scripts/runner.py integration_test/wasm_module/timelocked_token_admin_test.yaml",
+              "python3 integration_test/scripts/runner.py integration_test/wasm_module/timelocked_token_withdraw_test.yaml",
+              "docker exec sei-node-0 integration_test/contracts/deploy_timelocked_token_contract.sh",
+              "python3 integration_test/scripts/runner.py integration_test/wasm_module/timelocked_token_emergency_withdraw_test.yaml"
+            ]
+          },
+          {
+            name: "Testing Mint Module",
+            scripts: [
+              "python3 integration_test/scripts/runner.py integration_test/mint_module/mint_test.yaml"
+            ]
+          },
+        ]
     steps:
       - uses: actions/checkout@v3
       - uses: actions/setup-python@v4
@@ -45,36 +81,9 @@ jobs:
             sleep 10
           done
           sleep 10
-
-  dex_module_testing:
-    needs: build
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    steps:
-      - name: Testing Dex Module
+      - name: ${{ matrix.test.name }}
         run: |
-          docker exec sei-node-0 integration_test/contracts/deploy_dex_contract.sh mars
-          python3 integration_test/scripts/runner.py integration_test/dex_module/place_order_test.yaml
-
-  wasm_module_testing:
-    needs: build
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    steps:
-      - name: Testing Wasm Module
-        run: |
-          docker exec sei-node-0 integration_test/contracts/deploy_timelocked_token_contract.sh
-          python3 integration_test/scripts/runner.py integration_test/wasm_module/timelocked_token_delegation_test.yaml
-          python3 integration_test/scripts/runner.py integration_test/wasm_module/timelocked_token_admin_test.yaml
-          python3 integration_test/scripts/runner.py integration_test/wasm_module/timelocked_token_withdraw_test.yaml
-          docker exec sei-node-0 integration_test/contracts/deploy_timelocked_token_contract.sh
-          python3 integration_test/scripts/runner.py integration_test/wasm_module/timelocked_token_emergency_withdraw_test.yaml
-
-  mint_module_testing:
-    needs: build
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    steps:
-      - name: Testing Mint Module
-        run: |
-          python3 integration_test/scripts/runner.py integration_test/mint_module/mint_test.yaml
+          for script in ${{ toJson(matrix.test.scripts) }}
+          do
+            $(eval $script)
+          done
