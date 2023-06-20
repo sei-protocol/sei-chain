@@ -100,7 +100,7 @@
     - cmd: seid q bank total --output json | jq -r .supply[0].amount
       env: TOTAL_SUPPLY_AFTER_BURN
   verifiers:
-    # Check if the new params matches the expected value after proposal
+    # Check if the total supply is reduced or not to verify token burns
     - type: eval
       expr: TOTAL_SUPPLY_BEFORE_BURN == 5000000000000000000000
     - type: eval
