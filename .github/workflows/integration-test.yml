@@ -62,3 +62,7 @@ jobs:
           python3 integration_test/scripts/runner.py integration_test/wasm_module/timelocked_token_withdraw_test.yaml
           docker exec sei-node-0 integration_test/contracts/deploy_timelocked_token_contract.sh
           python3 integration_test/scripts/runner.py integration_test/wasm_module/timelocked_token_emergency_withdraw_test.yaml
+
+      - name: Testing Mint Module
+        run: |
+          python3 integration_test/scripts/runner.py integration_test/mint_module/mint_test.yaml

@@ -23,6 +23,9 @@ override_genesis '.app_state["staking"]["params"]["max_validators"]="50"'
 override_genesis '.consensus_params["block"]["max_gas"]="5000000000"'
 override_genesis '.app_state["staking"]["params"]["unbonding_time"]="10s"'
 
+# Set a token release schedule for the genesis file
+override_genesis "-arg start_date \"$(date +"%Y-%m-%d")\" --arg end_date \"$(date -d "+3 days" +"%Y-%m-%d")\" '.app_state[\"mint\"][\"params\"][\"token_release_schedule\"]=[{\"start_date\": \$start_date, \"end_date\": \$end_date, \"token_release_amount\": \"999999999999\"}]'"
+
 # We already added node0's genesis account in configure_init, remove it here since we're going to re-add it in the "add genesis accounts" step
 override_genesis '.app_state["auth"]["accounts"]=[]'
 override_genesis '.app_state["bank"]["balances"]=[]'
