@@ -19,8 +19,8 @@
     - cmd: seid q gov proposal $PROPOSAL_ID --output json | jq -r .status
     - cmd: printf "12345678\n" | seid tx gov vote $PROPOSAL_ID yes --from node_admin --chain-id sei --fees 2000usei -b block -y --output json | jq -r .code
       node: sei-node-1
-    # since quorum is 0.5, we only need 2/4 votes and expect proposal to pass after 30 seconds
-    - cmd: sleep 30
+    # since quorum is 0.5, we only need 2/4 votes and expect proposal to pass after 35 seconds
+    - cmd: sleep 35
     - cmd: seid q gov proposal $PROPOSAL_ID --output json | jq -r .status
       env: PROPOSAL_STATUS
     # Get the tally params again after proposal is passed
@@ -60,8 +60,8 @@
     - cmd: seid q gov proposal $PROPOSAL_ID --output json | jq -r .status
     - cmd: printf "12345678\n" | seid tx gov vote $PROPOSAL_ID yes --from node_admin --chain-id sei --fees 2000usei -b block -y --output json | jq -r .code
       node: sei-node-3
-    # since expedited quorum is 0.9, we only need 4/4 votes and expect expedited proposal to pass after 15 seconds
-    - cmd: sleep 16
+    # since expedited quorum is 0.9, we only need 4/4 votes and expect expedited proposal to pass after 20 seconds
+    - cmd: sleep 20
     - cmd: seid q gov proposal $PROPOSAL_ID --output json | jq -r .status
       env: PROPOSAL_STATUS
     # Get the tally params again after proposal is passed
@@ -90,7 +90,7 @@
     - cmd: printf "12345678\n" | seid tx gov vote $PROPOSAL_ID yes --from node_admin --chain-id sei --fees 2000usei -b block -y --output json |jq -r .code
       node: sei-node-0
     # since expedited quorum is 0.9, we expect it to be rejected and burn tokens
-    - cmd: sleep 16
+    - cmd: sleep 20
     - cmd: seid q gov proposal $PROPOSAL_ID --output json | jq -r .status
       env: PROPOSAL_STATUS
     # Get the tally params again after proposal is passed
