@@ -89,8 +89,8 @@
     # only sei-node-0 vote yes
     - cmd: printf "12345678\n" | seid tx gov vote $PROPOSAL_ID yes --from node_admin --chain-id sei --fees 2000usei -b block -y --output json | jq -r .code
       node: sei-node-0
-    # since expedited quorum is 0.9, we expect it to be rejected and burn tokens
-    - cmd: sleep 20
+    # since expedited quorum is 0.75, we expect it to be rejected and burn tokens, the since expected proposal will auto convert to normal proposal, we need to wait 35 seconds
+    - cmd: sleep 35
     - cmd: seid q gov proposal $PROPOSAL_ID --output json | jq -r .status
       env: PROPOSAL_STATUS
     # Get the tally params again after proposal is passed
@@ -102,6 +102,6 @@
   verifiers:
     # Check if the total supply is reduced or not to verify token burns
     - type: eval
-      expr: TOTAL_SUPPLY_BEFORE_BURN == 5000000000000000000000
+      expr: TOTAL_SUPPLY_BEFORE_BURN == 5000000000333333333333
     - type: eval
-      expr: TOTAL_SUPPLY_AFTER_BURN == 4999999999999980000000
+      expr: TOTAL_SUPPLY_AFTER_BURN == 5000000000333313333333
