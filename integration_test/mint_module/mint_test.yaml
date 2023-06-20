@@ -40,6 +40,6 @@
       expr: LAST_MINT_AMOUNT == 333333333333
     - type: eval
       expr: LAST_MINT_HEIGHT == 0
-    # Total supply should be greater, might might be elss than LAST_MINT_AMOUNT + Genesis balance due to burning tests
+    # Total supply should have gone up by LAST_MINT_AMOUNT
     - type: eval
-      expr: TOTAL_SUPPLY > 5000000000000000000000
+      expr: TOTAL_SUPPLY = 5000000000333333333333
