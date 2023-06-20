@@ -42,4 +42,4 @@
       expr: LAST_MINT_HEIGHT == 0
     # Total supply should have gone up by LAST_MINT_AMOUNT
     - type: eval
-      expr: TOTAL_SUPPLY = 5000000000333333333333
+      expr: TOTAL_SUPPLY == 5000000000333333333333
