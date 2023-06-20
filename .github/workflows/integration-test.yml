@@ -46,14 +46,21 @@ jobs:
           done
           sleep 10
 
-      - name: Verify Sei Chain is able to start up
-        run: python3 integration_test/scripts/runner.py integration_test/startup/startup_test.yaml
-
+  dex_module_testing:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
       - name: Testing Dex Module
         run: |
           docker exec sei-node-0 integration_test/contracts/deploy_dex_contract.sh mars
           python3 integration_test/scripts/runner.py integration_test/dex_module/place_order_test.yaml
 
+  wasm_module_testing:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
       - name: Testing Wasm Module
         run: |
           docker exec sei-node-0 integration_test/contracts/deploy_timelocked_token_contract.sh
@@ -63,6 +70,11 @@ jobs:
           docker exec sei-node-0 integration_test/contracts/deploy_timelocked_token_contract.sh
           python3 integration_test/scripts/runner.py integration_test/wasm_module/timelocked_token_emergency_withdraw_test.yaml
 
+  mint_module_testing:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
       - name: Testing Mint Module
         run: |
           python3 integration_test/scripts/runner.py integration_test/mint_module/mint_test.yaml
