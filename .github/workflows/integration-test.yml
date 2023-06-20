@@ -59,6 +59,9 @@ jobs:
         run: |
           pip3 install pyyaml
 
+      - name: Install jq
+        run: sudo apt-get install -y jq
+
       - name: Set up Go
         uses: actions/setup-go@v3
         with:
@@ -79,6 +82,7 @@ jobs:
 
       - name: ${{ matrix.test.name }}
         run: |
+          scripts=$(echo '${{ toJson(matrix.test.scripts) }}' | jq -r '.[]')
           for script in ${{ matrix.test.scripts }}
           do
             $script
