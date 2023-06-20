@@ -20,7 +20,7 @@
     - cmd: seid q mint minter --output --json | jq ".last_mint_height" -r
       env: LAST_MINT_HEIGHT
     # Compare the total supply and make sure that it increased
-    - cmd: seid q bank total --output json | jq -r '.supply[] | select(.denom=="usei") | .amount'
+    - cmd: seid q bank total --output json | jq -r '.supply[] | select(.denom==\"usei\") | .amount'
       env: TOTAL_SUPPLY
   verifiers:
     - type: eval
