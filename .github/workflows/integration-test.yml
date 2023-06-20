@@ -15,7 +15,7 @@ defaults:
 
 jobs:
   build:
-    name: Integration Test
+    name: Integration Test (${{ matrix.test.name }})
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
