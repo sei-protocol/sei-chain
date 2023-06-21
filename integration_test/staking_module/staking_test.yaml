@@ -1,0 +1,103 @@
+- name: Staking validator should increase bonded tokens and staking pool
+  inputs:
+    - cmd: printf "12345678\n" | seid keys show node_admin --bech val --output json | jq -r ".address"
+      env: ADMIN_VAL_ADDR
+
+    # State before staking
+    - cmd: seid q staking pool --output json | jq -r ".bonded_tokens"
+      env: BEFORE_STAKING_POOL
+    - cmd: seid q staking validator $ADMIN_VAL_ADDR --output json | jq -r ".tokens"
+      env: BEFORE_STAKED_TOKENS
+
+    # staking tx
+    - cmd: printf "12345678\n" | seid tx staking delegate $ADMIN_VAL_ADDR 10sei --fees 2000usei --from admin -b block -y --output json | jq -r ".code"
+      env: DELEGATE_RESPONSE_CODE
+
+    # state after staking
+    - cmd: seid q staking pool --output json | jq -r ".bonded_tokens"
+      env: AFTER_STAKING_POOL
+    - cmd: seid q staking validator $ADMIN_VAL_ADDR --output json | jq -r ".tokens"
+      env: AFTER_STAKED_TOKENS
+
+  verifiers:
+    - type: eval
+      expr: DELEGATE_RESPONSE_CODE == 0
+    # Pool should increase
+    - type: eval
+      expr: AFTER_STAKING_POOL > BEFORE_STAKING_POOL
+    # Tokens should also increase
+    - type: eval
+      expr: BEFORE_STAKED_TOKENS < AFTER_STAKED_TOKENS
+
+- name: Redelegating validator should increase and decrease accordingly
+  inputs:
+    - cmd: printf "12345678\n" | seid keys show node_admin --bech val --output json | jq -r ".address"
+      env: SEI_NODE_0_VAL_ADDR
+    - cmd: printf "12345678\n" | seid keys show node_admin --bech val --output json | jq -r ".address"
+      env: SEI_NODE_1_VAL_ADDR
+      node: sei-node-1
+
+    # State before staking
+    - cmd: seid q staking pool --output json | jq -r ".bonded_tokens"
+      env: BEFORE_STAKING_POOL
+    - cmd: seid q staking validator $SEI_NODE_0_VAL_ADDR --output json | jq -r ".tokens"
+      env: SEI_NODE_0_BEFORE_STAKED_TOKENS
+    - cmd: seid q staking validator $SEI_NODE_1_VAL_ADDR --output json | jq -r ".tokens"
+      env: SEI_NODE_1_BEFORE_STAKED_TOKENS
+
+    # staking tx
+    - cmd: printf "12345678\n" | seid tx staking redelegate $SEI_NODE_0_VAL_ADDR $SEI_NODE_1_VAL_ADDR 10sei --fees 20000usei --gas 2000000 --from admin -b block -y --output json | jq -r ".code"
+      env: REDELEGATE_RESPONSE_CODE
+
+    # state after staking
+    - cmd: seid q staking pool --output json | jq -r ".bonded_tokens"
+      env: AFTER_STAKING_POOL
+    - cmd: seid q staking validator $SEI_NODE_0_VAL_ADDR --output json | jq -r ".tokens"
+      env: SEI_NODE_0_AFTER_STAKED_TOKENS
+    - cmd: seid q staking validator $SEI_NODE_1_VAL_ADDR --output json | jq -r ".tokens"
+      env: SEI_NODE_1_AFTER_STAKED_TOKENS
+
+  verifiers:
+    - type: eval
+      expr: REDELEGATE_RESPONSE_CODE == 0
+    # Pool should not change
+    - type: eval
+      expr: AFTER_STAKING_POOL == BEFORE_STAKING_POOL
+
+    # Before the redelegate node-0 has more than node-1
+    - type: eval
+      expr: SEI_NODE_0_BEFORE_STAKED_TOKENS > SEI_NODE_0_AFTER_STAKED_TOKENS and SEI_NODE_0_BEFORE_STAKED_TOKENS > SEI_NODE_1_BEFORE_STAKED_TOKENS
+    # After the redelegate node-1 has more than node-0
+    - type: eval
+      expr: SEI_NODE_1_BEFORE_STAKED_TOKENS < SEI_NODE_1_AFTER_STAKED_TOKENS and SEI_NODE_1_AFTER_STAKED_TOKENS > SEI_NODE_0_AFTER_STAKED_TOKENS
+
+- name: Unstaking validator should decrease bonded tokens and staking pool
+  inputs:
+    - cmd: printf "12345678\n" | seid keys show node_admin --bech val --output json | jq -r ".address"
+      env: SEI_NODE_1_VAL_ADDR
+      node: sei-node-1
+
+    # State before staking
+    - cmd: seid q staking pool --output json | jq -r ".bonded_tokens"
+      env: BEFORE_STAKING_POOL
+    - cmd: seid q staking validator $SEI_NODE_1_VAL_ADDR --output json | jq -r ".tokens"
+      env: BEFORE_STAKED_TOKENS
+
+    - cmd: printf "12345678\n" | seid tx staking unbond $SEI_NODE_1_VAL_ADDR 1sei --fees 2000usei --from admin -b block -y --output json | jq -r ".code"
+      env: DELEGATE_RESPONSE_CODE
+
+    # state after staking
+    - cmd: seid q staking pool --output json | jq -r ".bonded_tokens"
+      env: AFTER_STAKING_POOL
+    - cmd: seid q staking validator $SEI_NODE_1_VAL_ADDR --output json | jq -r ".tokens"
+      env: AFTER_STAKED_TOKENS
+
+  verifiers:
+    - type: eval
+      expr: DELEGATE_RESPONSE_CODE == 0
+    # Pool should decrease
+    - type: eval
+      expr: AFTER_STAKING_POOL < BEFORE_STAKING_POOL
+    # Tokens should also decrease
+    - type: eval
+      expr: BEFORE_STAKED_TOKENS > AFTER_STAKED_TOKENS
