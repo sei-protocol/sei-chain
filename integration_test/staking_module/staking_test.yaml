@@ -14,7 +14,7 @@
       env: DELEGATE_RESPONSE_CODE
 
     # state after staking
-    - cmd: seid q staking pool --output json | jq ".bonded_tokens"
+    - cmd: seid q staking pool --output json | jq -r ".bonded_tokens"
       env: AFTER_STAKING_POOL
     - cmd: seid q staking validator $ADMIN_VAL_ADDR --output json | jq -r ".tokens"
       env: AFTER_STAKED_TOKENS
@@ -50,7 +50,7 @@
       env: REDELEGATE_RESPONSE_CODE
 
     # state after staking
-    - cmd: seid q staking pool --output json | jq ".bonded_tokens"
+    - cmd: seid q staking pool --output json | jq -r ".bonded_tokens"
       env: AFTER_STAKING_POOL
     - cmd: seid q staking validator $SEI_NODE_0_VAL_ADDR --output json | jq -r ".tokens"
       env: SEI_NODE_0_AFTER_STAKED_TOKENS

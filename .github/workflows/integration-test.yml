@@ -105,6 +105,7 @@ jobs:
             bash -c "${script}"
           done
           unset IFS  # revert the internal field separator back to default
+
   integration-test-check:
     name: Integration Test Check
     runs-on: ubuntu-latest
