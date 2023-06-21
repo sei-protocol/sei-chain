@@ -977,16 +977,16 @@ func (app *App) ProcessProposalHandler(ctx sdk.Context, req *abci.RequestProcess
 
 func (app *App) FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBlock) (*abci.ResponseFinalizeBlock, error) {
 	startTime := time.Now()
-	metrics.IncrementOptimisticProcessingCounter(!app.optimisticProcessingInfo.Aborted)
 	defer func() {
-		app.optimisticProcessingInfo = nil
+		app.ClearOptimisticProcessingInfo()
 		duration := time.Since(startTime)
 		ctx.Logger().Info(fmt.Sprintf("FinalizeBlock took %dms", duration/time.Millisecond))
 	}()
-
+	metrics.IncrementOptimisticProcessingCounter(false)
 	if app.optimisticProcessingInfo != nil {
 		<-app.optimisticProcessingInfo.Completion
 		if !app.optimisticProcessingInfo.Aborted && bytes.Equal(app.optimisticProcessingInfo.Hash, req.Hash) {
+			metrics.IncrementOptimisticProcessingCounter(true)
 			app.SetProcessProposalStateToCommit()
 			appHash := app.WriteStateToCommitAndGetWorkingHash()
 			resp := app.getFinalizeBlockResponse(appHash, app.optimisticProcessingInfo.Events, app.optimisticProcessingInfo.TxRes, app.optimisticProcessingInfo.EndBlockResp)
