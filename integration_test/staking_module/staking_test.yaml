@@ -87,7 +87,7 @@
       env: DELEGATE_RESPONSE_CODE
 
     # state after staking
-    - cmd: seid q staking pool --output json | jq ".bonded_tokens"
+    - cmd: seid q staking pool --output json | jq -r ".bonded_tokens"
       env: AFTER_STAKING_POOL
     - cmd: seid q staking validator $SEI_NODE_1_VAL_ADDR --output json | jq -r ".tokens"
       env: AFTER_STAKED_TOKENS
