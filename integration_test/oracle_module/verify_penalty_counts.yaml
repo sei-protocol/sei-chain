@@ -19,7 +19,7 @@
     - cmd: printf "12345678\n" | seid keys show node_admin --bech val --output json | jq -r ".address"
       env: ADMIN_VAL_ADDR
     # get vote penalty counts
-    - cmd: seid q oracle vote-penalty-counter $ADMIN_VAL_ADDR --output json | jq -r ".vote_penalty_counter"
+    - cmd: seid q oracle vote-penalty-counter $ADMIN_VAL_ADDR --height $BLOCK_HEIGHT --output json | jq -r ".vote_penalty_counter"
       env: PENALTY_JSON
     # get success counts
     - cmd: echo $PENALTY_JSON | jq -r ".success_count"
@@ -39,8 +39,8 @@
   verifiers:
     # verify total counts GEQ expected: not asserting equal due to block movement between evaluation
     - type: eval
-      expr: TOTAL_COUNT >= EXPECTED_COUNTS
-    # verify success rate > 50% (arbitrary measurement for the success rate to verify majority succeeding)
+      expr: TOTAL_COUNT == EXPECTED_COUNTS
+    # verify success rate > 5% to ensure some successes and that theyre about slash threshold
     - type: eval
-      expr: SUCCESS_PERCENT >= 50
+      expr: SUCCESS_PERCENT >= 5
 
