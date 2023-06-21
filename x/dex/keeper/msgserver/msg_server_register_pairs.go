@@ -40,7 +40,12 @@ func (k msgServer) RegisterPairs(goCtx context.Context, msg *types.MsgRegisterPa
 			if !isValidDenom(pair.PriceDenom) || !isValidDenom(pair.AssetDenom) {
 				return nil, sdkerrors.ErrInvalidRequest
 			}
-			k.AddRegisteredPair(ctx, contractAddr, *pair)
+			added := k.AddRegisteredPair(ctx, contractAddr, *pair)
+
+			if !added {
+				// If its already added then no event is emitted
+				continue
+			}
 			events = append(events, sdk.NewEvent(
 				types.EventTypeRegisterPair,
 				sdk.NewAttribute(types.AttributeKeyContractAddress, contractAddr),
