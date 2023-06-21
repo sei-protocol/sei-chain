@@ -206,6 +206,7 @@ func TestInvalidRegisterPairCreator(t *testing.T) {
 	testApp := keepertest.TestApp()
 	ctx := testApp.BaseApp.NewContext(false, tmproto.Header{Time: time.Now()})
 	ctx = ctx.WithContext(context.WithValue(ctx.Context(), dexutils.DexMemStateContextKey, dexcache.NewMemState(testApp.GetMemKey(types.MemStoreKey))))
+	eventManger := ctx.EventManager()
 	wctx := sdk.WrapSDKContext(ctx)
 	keeper := testApp.DexKeeper
 
@@ -237,6 +238,8 @@ func TestInvalidRegisterPairCreator(t *testing.T) {
 
 	// Expect error when registering pair with an address not contract creator
 	batchContractPairs := []types.BatchContractPair{}
+
+	initalEventSize := len(eventManger.Events())
 	batchContractPairs = append(batchContractPairs, types.BatchContractPair{
 		ContractAddr: contractAddrA.String(),
 		Pairs:        []*types.Pair{&keepertest.TestPair},
@@ -245,14 +248,30 @@ func TestInvalidRegisterPairCreator(t *testing.T) {
 		Creator:           "sei18rrckuelmacz4fv4v2hl9t3kaw7mm4wpe8v36m",
 		Batchcontractpair: batchContractPairs,
 	})
+	// Nothing emitted when creator != address
+	require.Equal(t, len(eventManger.Events()), initalEventSize)
 	require.NotNil(t, err)
 
 	// Works when creator = address
+	initalEventSize = len(eventManger.Events())
 	_, err = server.RegisterPairs(wctx, &types.MsgRegisterPairs{
 		Creator:           keepertest.TestAccount,
 		Batchcontractpair: batchContractPairs,
 	})
+	// One pair emitted
+	require.Greater(t, len(eventManger.Events()), initalEventSize)
 	require.NoError(t, err)
+
+	// Remit the process the same pairs again
+	initalEventSize = len(eventManger.Events())
+	_, err = server.RegisterPairs(wctx, &types.MsgRegisterPairs{
+		Creator:           keepertest.TestAccount,
+		Batchcontractpair: batchContractPairs,
+	})
+	// No event change this time
+	require.Equal(t, len(eventManger.Events()), initalEventSize)
+	require.NoError(t, err)
+
 }
 
 func TestRegisterPairsExceedingLimit(t *testing.T) {
