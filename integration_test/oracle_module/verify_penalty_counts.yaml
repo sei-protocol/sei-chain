@@ -40,7 +40,7 @@
     # verify total counts GEQ expected: not asserting equal due to block movement between evaluation
     - type: eval
       expr: TOTAL_COUNT >= EXPECTED_COUNTS
-    # verify success rate > 80% (arbitrary measurement for the success rate to verify majority succeeding)
+    # verify success rate > 50% (arbitrary measurement for the success rate to verify majority succeeding)
     - type: eval
       expr: SUCCESS_PERCENT >= 50
 
