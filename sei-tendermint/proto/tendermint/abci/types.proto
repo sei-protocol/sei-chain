@@ -475,11 +475,9 @@ message TxRecord {
   bytes    tx     = 2;
 
   // TxAction contains App-provided information on what to do with a transaction that is part of a raw proposal
+  // Deprecate entire usage: https://github.com/tendermint/tendermint/pull/9283
   enum TxAction {
-    UNKNOWN    = 0;  // Unknown action
-    UNMODIFIED = 1;  // The Application did not modify this transaction.
-    ADDED      = 2;  // The Application added this transaction.
-    REMOVED    = 3;  // The Application wants this transaction removed from the proposal and the mempool.
+    UNMODIFIED = 0;  // The Application did not modify this transaction.
   }
 }
 

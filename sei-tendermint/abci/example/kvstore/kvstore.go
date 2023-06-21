@@ -448,10 +448,10 @@ func (app *Application) substPrepareTx(blockData [][]byte, maxTxBytes int64) []*
 		if isPrepareTx(tx) {
 			removed = append(removed, &types.TxRecord{
 				Tx:     tx,
-				Action: types.TxRecord_REMOVED,
+				Action: types.TxRecord_UNMODIFIED,
 			})
 			txMod = bytes.TrimPrefix(tx, []byte(PreparePrefix))
-			action = types.TxRecord_ADDED
+			action = types.TxRecord_UNMODIFIED
 		}
 		totalBytes += int64(len(txMod))
 		if totalBytes > maxTxBytes {

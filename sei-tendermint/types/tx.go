@@ -137,16 +137,9 @@ func NewTxRecordSet(trs []*abci.TxRecord) TxRecordSet {
 		// The following set of assignments do not allocate new []byte, they create
 		// pointers to the already allocated slice.
 		switch tr.GetAction() {
-		case abci.TxRecord_UNKNOWN:
-			txrSet.unknown = append(txrSet.unknown, txrSet.all[i])
 		case abci.TxRecord_UNMODIFIED:
 			txrSet.unmodified = append(txrSet.unmodified, txrSet.all[i])
 			txrSet.included = append(txrSet.included, txrSet.all[i])
-		case abci.TxRecord_ADDED:
-			txrSet.added = append(txrSet.added, txrSet.all[i])
-			txrSet.included = append(txrSet.included, txrSet.all[i])
-		case abci.TxRecord_REMOVED:
-			txrSet.removed = append(txrSet.removed, txrSet.all[i])
 		}
 	}
 	return txrSet

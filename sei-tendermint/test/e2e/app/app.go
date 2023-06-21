@@ -370,7 +370,7 @@ func (app *Application) PrepareProposal(_ context.Context, req *abci.RequestPrep
 		for i, tx := range req.Txs {
 			if strings.HasPrefix(string(tx), extTxPrefix) {
 				txRecords[i] = &abci.TxRecord{
-					Action: abci.TxRecord_REMOVED,
+					Action: abci.TxRecord_UNMODIFIED,
 					Tx:     tx,
 				}
 			} else {
@@ -383,7 +383,7 @@ func (app *Application) PrepareProposal(_ context.Context, req *abci.RequestPrep
 		}
 		if totalBytes+int64(len(extTx)) < req.MaxTxBytes {
 			txRecords[len(req.Txs)] = &abci.TxRecord{
-				Action: abci.TxRecord_ADDED,
+				Action: abci.TxRecord_UNMODIFIED,
 				Tx:     extTx,
 			}
 		} else {

@@ -716,7 +716,7 @@ func TestPrepareProposalErrorOnNonExistingRemoved(t *testing.T) {
 	rpp := &abci.ResponsePrepareProposal{
 		TxRecords: []*abci.TxRecord{
 			{
-				Action: abci.TxRecord_REMOVED,
+				Action: abci.TxRecord_UNMODIFIED,
 				Tx:     []byte("new tx"),
 			},
 		},
@@ -743,123 +743,6 @@ func TestPrepareProposalErrorOnNonExistingRemoved(t *testing.T) {
 	block, err := blockExec.CreateProposalBlock(ctx, height, state, commit, pa)
 	require.ErrorContains(t, err, "new transaction incorrectly marked as removed")
 	require.Nil(t, block)
-
-	mp.AssertExpectations(t)
-}
-
-// TestPrepareProposalRemoveTxs tests that any transactions marked as REMOVED
-// are not included in the block produced by CreateProposalBlock. The test also
-// ensures that any transactions removed are also removed from the mempool.
-func TestPrepareProposalRemoveTxs(t *testing.T) {
-	const height = 2
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	logger := log.NewNopLogger()
-	eventBus := eventbus.NewDefault(logger)
-	require.NoError(t, eventBus.Start(ctx))
-
-	state, stateDB, privVals := makeState(t, 1, height)
-	stateStore := sm.NewStore(stateDB)
-
-	evpool := &mocks.EvidencePool{}
-	evpool.On("PendingEvidence", mock.Anything).Return([]types.Evidence{}, int64(0))
-
-	txs := factory.MakeNTxs(height, 10)
-	mp := &mpmocks.Mempool{}
-	mp.On("ReapMaxBytesMaxGas", mock.Anything, mock.Anything).Return(types.Txs(txs))
-
-	trs := txsToTxRecords(types.Txs(txs))
-	trs[0].Action = abci.TxRecord_REMOVED
-	trs[1].Action = abci.TxRecord_REMOVED
-	mp.On("RemoveTxByKey", mock.Anything).Return(nil).Twice()
-
-	app := abcimocks.NewApplication(t)
-	app.On("PrepareProposal", mock.Anything, mock.Anything).Return(&abci.ResponsePrepareProposal{
-		TxRecords: trs,
-	}, nil)
-
-	cc := abciclient.NewLocalClient(logger, app)
-	proxyApp := proxy.New(cc, logger, proxy.NopMetrics())
-	err := proxyApp.Start(ctx)
-	require.NoError(t, err)
-
-	blockExec := sm.NewBlockExecutor(
-		stateStore,
-		logger,
-		proxyApp,
-		mp,
-		evpool,
-		nil,
-		eventBus,
-		sm.NopMetrics(),
-	)
-	pa, _ := state.Validators.GetByIndex(0)
-	commit, _ := makeValidCommit(ctx, t, height, types.BlockID{}, state.Validators, privVals)
-	block, err := blockExec.CreateProposalBlock(ctx, height, state, commit, pa)
-	require.NoError(t, err)
-	require.Len(t, block.Data.Txs.ToSliceOfBytes(), len(trs)-2)
-
-	require.Equal(t, -1, block.Data.Txs.Index(types.Tx(trs[0].Tx)))
-	require.Equal(t, -1, block.Data.Txs.Index(types.Tx(trs[1].Tx)))
-
-	mp.AssertCalled(t, "RemoveTxByKey", types.Tx(trs[0].Tx).Key())
-	mp.AssertCalled(t, "RemoveTxByKey", types.Tx(trs[1].Tx).Key())
-	mp.AssertExpectations(t)
-}
-
-// TestPrepareProposalAddedTxsIncluded tests that any transactions marked as ADDED
-// in the prepare proposal response are included in the block.
-func TestPrepareProposalAddedTxsIncluded(t *testing.T) {
-	const height = 2
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	logger := log.NewNopLogger()
-	eventBus := eventbus.NewDefault(logger)
-	require.NoError(t, eventBus.Start(ctx))
-
-	state, stateDB, privVals := makeState(t, 1, height)
-	stateStore := sm.NewStore(stateDB)
-
-	evpool := &mocks.EvidencePool{}
-	evpool.On("PendingEvidence", mock.Anything).Return([]types.Evidence{}, int64(0))
-
-	txs := factory.MakeNTxs(height, 10)
-	mp := &mpmocks.Mempool{}
-	mp.On("ReapMaxBytesMaxGas", mock.Anything, mock.Anything).Return(types.Txs(txs[2:]))
-
-	trs := txsToTxRecords(types.Txs(txs))
-	trs[0].Action = abci.TxRecord_ADDED
-	trs[1].Action = abci.TxRecord_ADDED
-
-	app := abcimocks.NewApplication(t)
-	app.On("PrepareProposal", mock.Anything, mock.Anything).Return(&abci.ResponsePrepareProposal{
-		TxRecords: trs,
-	}, nil)
-
-	cc := abciclient.NewLocalClient(logger, app)
-	proxyApp := proxy.New(cc, logger, proxy.NopMetrics())
-	err := proxyApp.Start(ctx)
-	require.NoError(t, err)
-
-	blockExec := sm.NewBlockExecutor(
-		stateStore,
-		logger,
-		proxyApp,
-		mp,
-		evpool,
-		nil,
-		eventBus,
-		sm.NopMetrics(),
-	)
-	pa, _ := state.Validators.GetByIndex(0)
-	commit, _ := makeValidCommit(ctx, t, height, types.BlockID{}, state.Validators, privVals)
-	block, err := blockExec.CreateProposalBlock(ctx, height, state, commit, pa)
-	require.NoError(t, err)
-
-	require.Equal(t, txs[0], block.Data.Txs[0])
-	require.Equal(t, txs[1], block.Data.Txs[1])
 
 	mp.AssertExpectations(t)
 }
