@@ -211,7 +211,7 @@ func IncrGasCounter(gasType string, value int64) {
 	)
 }
 
-func SetOptimisticProcessingCounter(enabled bool) {
+func IncrementOptimisticProcessingCounter(enabled bool) {
 	telemetry.IncrCounterWithLabels(
 		[]string{"sei", "optimistic", "processing", "counter"},
 		float32(1),
