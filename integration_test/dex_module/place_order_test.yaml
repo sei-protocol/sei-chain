@@ -41,6 +41,6 @@
     - cmd: seid q dex get-orders $CONTRACT_ADDR $ADMIN_ADDR --output json |jq ".[] | length"
       env: ORDER_COUNT_AFTER
   verifiers:
-    # Order id should be greater or equal to 0
+    # Verify we should only see 3 orders
     - type: eval
       expr: ( ORDER_COUNT_AFTER - ORDER_COUNT_BEFORE ) == 3
