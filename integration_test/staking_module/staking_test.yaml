@@ -74,21 +74,22 @@
 - name: Unstaking validator should decrease bonded tokens and staking pool
   inputs:
     - cmd: printf "12345678\n" | seid keys show node_admin --bech val --output json | jq -r ".address"
-      env: ADMIN_VAL_ADDR
+      env: SEI_NODE_1_VAL_ADDR
+      node: sei-node1
 
     # State before staking
     - cmd: seid q staking pool --output json | jq -r ".bonded_tokens"
       env: BEFORE_STAKING_POOL
-    - cmd: seid q staking validator $ADMIN_VAL_ADDR --output json | jq -r ".tokens"
+    - cmd: seid q staking validator $SEI_NODE_1_VAL_ADDR --output json | jq -r ".tokens"
       env: BEFORE_STAKED_TOKENS
 
-    - cmd: printf "12345678\n" | seid tx staking unbond $ADMIN_VAL_ADDR 1sei --fees 2000usei --from admin -b block -y --output json | jq -r ".code"
+    - cmd: printf "12345678\n" | seid tx staking unbond $SEI_NODE_1_VAL_ADDR 1sei --fees 2000usei --from admin -b block -y --output json | jq -r ".code"
       env: DELEGATE_RESPONSE_CODE
 
     # state after staking
     - cmd: seid q staking pool --output json | jq ".bonded_tokens"
       env: AFTER_STAKING_POOL
-    - cmd: seid q staking validator $ADMIN_VAL_ADDR --output json | jq -r ".tokens"
+    - cmd: seid q staking validator $SEI_NODE_1_VAL_ADDR --output json | jq -r ".tokens"
       env: AFTER_STAKED_TOKENS
 
   verifiers:
