@@ -1,0 +1,107 @@
+- name: Test making a new param change proposal should pass and take effect
+  inputs:
+    # Get the current tally params
+    - cmd: seid q gov params --output json | jq -r .tally_params.quorum
+      env: OLD_PARAM
+    # Make a new proposal
+    - cmd: printf "12345678\n" | seid tx gov submit-proposal param-change ./integration_test/gov_module/proposal/param_change_proposal.json
+           --from admin --chain-id sei --fees 2000usei -b block -y --output json | jq -M -r ".logs[].events[].attributes[0] | select(.key == \"proposal_id\").value"
+      env: PROPOSAL_ID
+    # Get proposal status
+    - cmd: seid q gov proposal $PROPOSAL_ID --output json | jq -r .status
+      env: PROPOSAL_STATUS
+    # Make a deposit
+    - cmd: printf "12345678\n" | seid tx gov deposit $PROPOSAL_ID 10000000usei --from admin --chain-id sei --fees 2000usei -b block -y --output json | jq -r .code
+    # sei-node-0 vote yes
+    - cmd: printf "12345678\n" | seid tx gov vote $PROPOSAL_ID yes --from node_admin --chain-id sei --fees 2000usei -b block -y --output json | jq -r .code
+      node: sei-node-0
+    # sei-node-1 vote yes
+    - cmd: seid q gov proposal $PROPOSAL_ID --output json | jq -r .status
+    - cmd: printf "12345678\n" | seid tx gov vote $PROPOSAL_ID yes --from node_admin --chain-id sei --fees 2000usei -b block -y --output json | jq -r .code
+      node: sei-node-1
+    # since quorum is 0.5, we only need 2/4 votes and expect proposal to pass after 35 seconds
+    - cmd: sleep 35
+    - cmd: seid q gov proposal $PROPOSAL_ID --output json | jq -r .status
+      env: PROPOSAL_STATUS
+    # Get the tally params again after proposal is passed
+    - cmd: seid q gov params --output json | jq -r .tally_params.quorum
+      env: NEW_PARAM
+  verifiers:
+    # Check if the new params matches the expected value after proposal
+    - type: eval
+      expr: NEW_PARAM == "0.450000000000000000"
+
+- name: Test expedited proposal should respect expedited_voting_period
+  inputs:
+    # Get the current tally params
+    - cmd: seid q gov params --output json | jq -r .tally_params.expedited_quorum
+      env: OLD_PARAM
+    # Make a new expedited proposal
+    - cmd: printf "12345678\n" | seid tx gov submit-proposal param-change ./integration_test/gov_module/proposal/expedited_proposal.json
+           --from admin --chain-id sei --fees 2000usei -b block -y --output json | jq -M -r ".logs[].events[].attributes[0] | select(.key == \"proposal_id\").value"
+      env: PROPOSAL_ID
+    # Get proposal status
+    - cmd: seid q gov proposal $PROPOSAL_ID --output json | jq -r .status
+      env: PROPOSAL_STATUS
+    # Make a deposit
+    - cmd: printf "12345678\n" | seid tx gov deposit $PROPOSAL_ID 10000000usei --from admin --chain-id sei --fees 2000usei -b block -y --output json | jq -r .code
+    # sei-node-0 vote yes
+    - cmd: printf "12345678\n" | seid tx gov vote $PROPOSAL_ID yes --from node_admin --chain-id sei --fees 2000usei -b block -y --output json | jq -r .code
+      node: sei-node-0
+    # sei-node-1 vote yes
+    - cmd: seid q gov proposal $PROPOSAL_ID --output json | jq -r .status
+    - cmd: printf "12345678\n" | seid tx gov vote $PROPOSAL_ID yes --from node_admin --chain-id sei --fees 2000usei -b block -y --output json | jq -r .code
+      node: sei-node-1
+    # sei-node-2 vote yes
+    - cmd: seid q gov proposal $PROPOSAL_ID --output json | jq -r .status
+    - cmd: printf "12345678\n" | seid tx gov vote $PROPOSAL_ID yes --from node_admin --chain-id sei --fees 2000usei -b block -y --output json | jq -r .code
+      node: sei-node-2
+    # sei-node-3 vote yes
+    - cmd: seid q gov proposal $PROPOSAL_ID --output json | jq -r .status
+    - cmd: printf "12345678\n" | seid tx gov vote $PROPOSAL_ID yes --from node_admin --chain-id sei --fees 2000usei -b block -y --output json | jq -r .code
+      node: sei-node-3
+    # since expedited quorum is 0.9, we only need 4/4 votes and expect expedited proposal to pass after 20 seconds
+    - cmd: sleep 20
+    - cmd: seid q gov proposal $PROPOSAL_ID --output json | jq -r .status
+      env: PROPOSAL_STATUS
+    # Get the tally params again after proposal is passed
+    - cmd: seid q gov params --output json | jq -r .tally_params.expedited_quorum
+      env: NEW_PARAM
+  verifiers:
+    # Check if the new params is the expected value after proposal
+    - type: eval
+      expr: NEW_PARAM == "0.750000000000000000"
+
+- name: Test making a proposal which got rejected should burn tokens
+  inputs:
+    # Get the current tally params
+    - cmd: seid q bank total --output json | jq -r .supply[0].amount
+      env: TOTAL_SUPPLY_BEFORE_BURN
+    # Make a new expedited proposal
+    - cmd: printf "12345678\n" | seid tx gov submit-proposal param-change ./integration_test/gov_module/proposal/expedited_proposal.json
+        --from admin --chain-id sei --fees 2000usei -b block -y --output json | jq -M -r ".logs[].events[].attributes[0] | select(.key == \"proposal_id\").value"
+      env: PROPOSAL_ID
+    # Get proposal status
+    - cmd: seid q gov proposal $PROPOSAL_ID --output json | jq -r .status
+      env: PROPOSAL_STATUS
+    # Make a deposit
+    - cmd: printf "12345678\n" | seid tx gov deposit $PROPOSAL_ID 10000000usei --from admin --chain-id sei --fees 2000usei -b block -y --output json | jq -r .code
+    # only sei-node-0 vote yes
+    - cmd: printf "12345678\n" | seid tx gov vote $PROPOSAL_ID yes --from node_admin --chain-id sei --fees 2000usei -b block -y --output json | jq -r .code
+      node: sei-node-0
+    # since expedited quorum is 0.75, we expect it to be rejected and burn tokens, the since expected proposal will auto convert to normal proposal, we need to wait 35 seconds
+    - cmd: sleep 35
+    - cmd: seid q gov proposal $PROPOSAL_ID --output json | jq -r .status
+      env: PROPOSAL_STATUS
+    # Get the tally params again after proposal is passed
+    - cmd: seid q gov params --output json | jq -r .tally_params.expedited_quorum
+      env: NEW_PARAM
+    # Get the current tally params
+    - cmd: seid q bank total --output json | jq -r .supply[0].amount
+      env: TOTAL_SUPPLY_AFTER_BURN
+  verifiers:
+    # Check if the total supply is reduced or not to verify token burns
+    - type: eval
+      expr: TOTAL_SUPPLY_BEFORE_BURN == 5000000000333333333333
+    - type: eval
+      expr: TOTAL_SUPPLY_AFTER_BURN == 5000000000333313333333
