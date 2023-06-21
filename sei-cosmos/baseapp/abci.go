@@ -829,7 +829,7 @@ func handleQueryApp(app *BaseApp, path []string, req abci.RequestQuery) abci.Res
 	return sdkerrors.QueryResultWithDebug(
 		sdkerrors.Wrap(
 			sdkerrors.ErrUnknownRequest,
-			"expected second parameter to be either 'simulate' or 'version', neither was present",
+			"expected second parameter to be either 'simulate', 'version' or 'snapshot', neither was present",
 		), app.trace)
 }
 

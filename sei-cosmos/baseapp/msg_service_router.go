@@ -46,9 +46,9 @@ func (msr *MsgServiceRouter) HandlerByTypeURL(typeURL string) MsgServiceHandler 
 // service description, handler is an object which implements that gRPC service.
 //
 // This function PANICs:
-// - if it is called before the service `Msg`s have been registered using
-//   RegisterInterfaces,
-// - or if a service is being registered twice.
+//   - if it is called before the service `Msg`s have been registered using
+//     RegisterInterfaces,
+//   - or if a service is being registered twice.
 func (msr *MsgServiceRouter) RegisterService(sd *grpc.ServiceDesc, handler interface{}) {
 	// Adds a top-level query handler based on the gRPC service name.
 	for _, method := range sd.Methods {
@@ -113,7 +113,7 @@ func (msr *MsgServiceRouter) RegisterService(sd *grpc.ServiceDesc, handler inter
 				return handler(goCtx, req)
 			}
 			if err := req.ValidateBasic(); err != nil {
-				if mm, ok := req.(getter1); ok {
+				if mm, ok := req.(CoinInterface); ok {
 					if !mm.GetAmount().Amount.IsZero() {
 						return nil, err
 					}
@@ -148,6 +148,6 @@ func noopInterceptor(_ context.Context, _ interface{}, _ *grpc.UnaryServerInfo, 
 	return nil, nil
 }
 
-type getter1 interface {
+type CoinInterface interface {
 	GetAmount() sdk.Coin
 }

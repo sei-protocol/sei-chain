@@ -71,8 +71,10 @@ func DefaultParams() Params {
 
 // SigVerifyCostSecp256r1 returns gas fee of secp256r1 signature verification.
 // Set by benchmarking current implementation:
-//     BenchmarkSig/secp256k1     4334   277167 ns/op   4128 B/op   79 allocs/op
-//     BenchmarkSig/secp256r1    10000   108769 ns/op   1672 B/op   33 allocs/op
+//
+//	BenchmarkSig/secp256k1     4334   277167 ns/op   4128 B/op   79 allocs/op
+//	BenchmarkSig/secp256r1    10000   108769 ns/op   1672 B/op   33 allocs/op
+//
 // Based on the results above secp256k1 is 2.7x is slwer. However we propose to discount it
 // because we are we don't compare the cgo implementation of secp256k1, which is faster.
 func (p Params) SigVerifyCostSecp256r1() uint64 {
@@ -169,4 +171,9 @@ func (p Params) Validate() error {
 	}
 
 	return nil
+}
+
+func (p *Params) GetSr25519VerifyCost() uint64 {
+	// TODO:: define param for sr25519 once its confirmed that it will be supported
+	return p.SigVerifyCostED25519
 }

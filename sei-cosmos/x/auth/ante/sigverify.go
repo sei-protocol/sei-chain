@@ -412,20 +412,17 @@ func DefaultSigVerificationGasConsumer(
 	pubkey := sig.PubKey
 	switch pubkey := pubkey.(type) {
 	case *ed25519.PubKey:
-		meter.ConsumeGas(params.SigVerifyCostED25519, "ante verify: ed25519")
+		meter.ConsumeGas(params.GetSigVerifyCostED25519(), "ante verify: ed25519")
 		return sdkerrors.Wrap(sdkerrors.ErrInvalidPubKey, "ED25519 public keys are unsupported")
 	case *sr25519.PubKey:
-		meter.ConsumeGas(params.SigVerifyCostED25519, "ante verify: sr25519")
+		meter.ConsumeGas(params.GetSr25519VerifyCost(), "ante verify: sr25519")
 		return nil
-
 	case *secp256k1.PubKey:
-		meter.ConsumeGas(params.SigVerifyCostSecp256k1, "ante verify: secp256k1")
+		meter.ConsumeGas(params.GetSigVerifyCostSecp256k1(), "ante verify: secp256k1")
 		return nil
-
 	case *secp256r1.PubKey:
 		meter.ConsumeGas(params.SigVerifyCostSecp256r1(), "ante verify: secp256r1")
 		return nil
-
 	case multisig.PubKey:
 		multisignature, ok := sig.Data.(*signing.MultiSignatureData)
 		if !ok {
