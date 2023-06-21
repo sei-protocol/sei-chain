@@ -75,7 +75,7 @@
   inputs:
     - cmd: printf "12345678\n" | seid keys show node_admin --bech val --output json | jq -r ".address"
       env: SEI_NODE_1_VAL_ADDR
-      node: sei-node1
+      node: sei-node-1
 
     # State before staking
     - cmd: seid q staking pool --output json | jq -r ".bonded_tokens"
