@@ -22,8 +22,10 @@
   verifiers:
     - type: eval
       expr: DELEGATE_RESPONSE_CODE == 0
+    # Pool should increase
     - type: eval
       expr: AFTER_STAKING_POOL > BEFORE_STAKING_POOL
+    # Tokens should also increase
     - type: eval
       expr: BEFORE_STAKED_TOKENS < AFTER_STAKED_TOKENS
 
@@ -80,7 +82,6 @@
     - cmd: seid q staking validator $ADMIN_VAL_ADDR --output json | jq -r ".tokens"
       env: BEFORE_STAKED_TOKENS
 
-    # staking tx
     - cmd: printf "12345678\n" | seid tx staking unbond $ADMIN_VAL_ADDR 1sei --fees 2000usei --from node_admin -b block -y --output json | jq -r ".code"
       env: DELEGATE_RESPONSE_CODE
 
@@ -93,7 +94,9 @@
   verifiers:
     - type: eval
       expr: DELEGATE_RESPONSE_CODE == 0
+    # Pool should decrease
     - type: eval
       expr: AFTER_STAKING_POOL < BEFORE_STAKING_POOL
+    # Tokens should also decrease
     - type: eval
       expr: BEFORE_STAKED_TOKENS > AFTER_STAKED_TOKENS
