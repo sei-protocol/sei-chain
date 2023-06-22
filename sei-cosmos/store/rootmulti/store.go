@@ -504,8 +504,8 @@ func (rs *Store) Commit(bumpVersion bool) types.CommitID {
 // PruneStores will batch delete a list of heights from each mounted sub-store.
 // If clearStorePruningHeihgts is true, store's pruneHeights is appended to the
 // pruningHeights and reset after finishing pruning.
-func (rs *Store) PruneStores(clearStorePruningHeihgts bool, pruningHeights []int64) {
-	if clearStorePruningHeihgts {
+func (rs *Store) PruneStores(clearStorePruningHeights bool, pruningHeights []int64) {
+	if clearStorePruningHeights {
 		pruningHeights = append(pruningHeights, rs.pruneHeights...)
 	}
 
@@ -527,7 +527,7 @@ func (rs *Store) PruneStores(clearStorePruningHeihgts bool, pruningHeights []int
 		}
 	}
 
-	if clearStorePruningHeihgts {
+	if clearStorePruningHeights {
 		rs.pruneHeights = make([]int64, 0)
 	}
 }
