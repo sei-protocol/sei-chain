@@ -1,0 +1,42 @@
+- name: Mint event triggered
+  inputs:
+    # Sleep 65 seconds to ensure that the mint event happens in the epoch end hook
+    - cmd: sleep 65
+    # At this point there should be one mint event
+    - cmd: seid q mint minter --output --json | jq -r ".denom"
+      env: DENOM
+    - cmd: seid q mint minter --output --json | jq ".start_date" -r
+      env: START_DATE
+    - cmd: seid q mint minter --output --json | jq ".end_date" -r
+      env: END_DATE
+    - cmd: seid q mint minter --output --json | jq ".total_mint_amount" -r
+      env: TOTAL_MINT_AMOUNT
+    - cmd: seid q mint minter --output --json | jq ".remaining_mint_amount" -r
+      env: REMAINING_MINT_AMOUNT
+    - cmd: seid q mint minter --output --json | jq ".last_mint_amount" -r
+      env: LAST_MINT_AMOUNT
+    - cmd: seid q mint minter --output --json | jq ".last_mint_date" -r
+      env: LAST_MINT_DATE
+    - cmd: seid q mint minter --output --json | jq ".last_mint_height" -r
+      env: LAST_MINT_HEIGHT
+    # Compare the total supply and make sure that it increased
+    - cmd: seid q bank total --output json | jq -r -M ".supply[] | select(.denom==\"usei\").amount"
+      env: TOTAL_SUPPLY
+  verifiers:
+    - type: eval
+      expr: DENOM == "usei"
+    # Start date should be equal to last mint date since there's only one mint on the first day
+    - type: eval
+      expr: START_DATE == LAST_MINT_DATE and END_DATE > START_DATE
+    # Total Mint Amount = Remaining Mint Amount + Last Mint Amount
+    - type: eval
+      expr: TOTAL_MINT_AMOUNT == 999999999999
+    - type: eval
+      expr: REMAINING_MINT_AMOUNT == 666666666666
+    - type: eval
+      expr: LAST_MINT_AMOUNT == 333333333333
+    - type: eval
+      expr: LAST_MINT_HEIGHT == 0
+    # Total supply should have gone up by LAST_MINT_AMOUNT
+    - type: eval
+      expr: TOTAL_SUPPLY == 5000000000333333333333

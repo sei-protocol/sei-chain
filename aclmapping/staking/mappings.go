@@ -140,11 +140,6 @@ func MsgDelegateDependencyGenerator(keeper aclkeeper.Keeper, ctx sdk.Context, ms
 			ResourceType:       sdkacltypes.ResourceType_KV_AUTH_ADDRESS_STORE,
 			IdentifierTemplate: hex.EncodeToString(authtypes.AddressStoreKey(delegateAddr)),
 		},
-		{
-			AccessType:         sdkacltypes.AccessType_READ,
-			ResourceType:       sdkacltypes.ResourceType_KV_AUTH_ADDRESS_STORE,
-			IdentifierTemplate: hex.EncodeToString(authtypes.AddressStoreKey(delegateAddr)),
-		},
 
 		// Update the delegator and validator account balances
 		{

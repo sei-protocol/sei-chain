@@ -2,6 +2,7 @@ package utils
 
 import (
 	"fmt"
+	"runtime/debug"
 	"strings"
 
 	"github.com/armon/go-metrics"
@@ -19,6 +20,15 @@ func PanicHandler(recoverCallback func(any)) func() {
 			}
 			recoverCallback(err)
 		}
+	}
+}
+
+// LogPanicCallback returns a callback function, given a context and a recovered
+// error value, that logs the error and a stack trace.
+func LogPanicCallback(ctx sdk.Context, r any) func(any) {
+	return func(a any) {
+		stackTrace := string(debug.Stack())
+		ctx.Logger().Error("recovered panic", "recover_err", r, "recover_type", fmt.Sprintf("%T", r), "stack_trace", stackTrace)
 	}
 }
 
