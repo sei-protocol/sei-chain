@@ -64,7 +64,7 @@ One simple example for verify chain is started and running fine:
 | verifiers  | Yes      | Contains a list of verify functions to check correctness                                                                                      |
 | type       | Yes      | Currently support either `eval` or `regex`.                                                                                                   |
 | result     | Yes      | Pick any env variables you want to pass in for regex match                                                                                    |
-| expr       | Yes      | If type is eval, then the format is `[env] >\|==\|!=\|>=\|>\|<=\|< [number]` <br/> If type is regex, then provide a valid regular expression. |                                                         |
+| expr       | Yes      | If type is eval, then the format is `[env] > \| == \| != \| >= \| > \| <= \| < [number]` <br/> If type is regex, then provide a valid regular expression. |                                                         |
 
 ### Notes & Tips
 There are some tricks and tips you should know when adding a new test case:
