@@ -4,7 +4,6 @@ import (
 	"fmt"
 
 	"github.com/cosmos/cosmos-sdk/codec/types"
-	sdk "github.com/cosmos/cosmos-sdk/types"
 )
 
 // NewGenesisState creates a new genesis state for the governance module
@@ -52,43 +51,7 @@ func ValidateGenesis(data *GenesisState) error {
 		return fmt.Errorf("governance genesis state cannot be nil")
 	}
 
-	threshold := data.TallyParams.Threshold
-	if threshold.IsNegative() || threshold.GT(sdk.OneDec()) {
-		return fmt.Errorf("governance vote threshold should be positive and less or equal to one, is %s",
-			threshold.String())
-	}
-
-	expeditedThreshold := data.TallyParams.ExpeditedThreshold
-	if expeditedThreshold.IsNegative() || expeditedThreshold.GT(sdk.OneDec()) {
-		return fmt.Errorf("governance expedited vote threshold should be positive and less or equal to one, is %s",
-			expeditedThreshold)
-	}
-
-	if expeditedThreshold.LTE(threshold) {
-		return fmt.Errorf("expedited governance vote threshold %s should be greater than or equal to the regular threshold %s",
-			expeditedThreshold,
-			threshold)
-	}
-
-	if data.GetTallyParams().GetQuorum(false).IsNegative() || data.GetTallyParams().GetQuorum(false).IsZero() {
-		return fmt.Errorf("governance vote quorum should be positive, is %s", data.GetTallyParams().GetQuorum(false).String())
-	}
-
-	if data.GetTallyParams().GetQuorum(true).IsNegative() || data.GetTallyParams().GetQuorum(true).IsZero() {
-		return fmt.Errorf("governance vote expedited quorum should be positive, is %s", data.GetTallyParams().GetQuorum(true).String())
-	}
-
-	if data.GetTallyParams().GetQuorum(true).LTE(data.GetTallyParams().GetQuorum(false)) {
-		return fmt.Errorf("governance vote expedited quorum %s should be greater than regular quorum %s",
-			data.GetTallyParams().GetQuorum(true),
-			data.GetTallyParams().GetQuorum(false))
-	}
-
-	veto := data.TallyParams.VetoThreshold
-	if veto.IsNegative() || veto.GT(sdk.OneDec()) {
-		return fmt.Errorf("governance vote veto threshold should be positive and less or equal to one, is %s",
-			veto.String())
-	}
+	validateTallyParams(data.TallyParams)
 
 	if !data.DepositParams.MinDeposit.IsValid() {
 		return fmt.Errorf("governance deposit amount must be a valid sdk.Coins amount, is %s",
