@@ -28,7 +28,8 @@ var ErrVersionDoesNotExist = errors.New("version does not exist")
 //
 // The inner ImmutableTree should not be used directly by callers.
 type MutableTree struct {
-	ITree                        *ImmutableTree         // The current, working tree.
+	ITree                        *ImmutableTree // The current, working tree.
+	Mtx                          *sync.RWMutex
 	lastSaved                    *ImmutableTree         // The most recently saved tree.
 	orphans                      map[string]int64       // Nodes removed by changes to working tree.
 	versions                     map[int64]bool         // The previous, saved versions of the tree.
@@ -40,7 +41,6 @@ type MutableTree struct {
 	separateOrphanStorage        bool
 	separateOrphanVersionsToKeep int64
 	orphandb                     *orphanDB
-	mtx                          *sync.RWMutex
 }
 
 // NewMutableTree returns a new tree with the specified cache size and datastore.
@@ -74,19 +74,19 @@ func NewMutableTreeWithOpts(db dbm.DB, cacheSize int, opts *Options, skipFastSto
 		separateOrphanStorage:        opts.SeparateOrphanStorage,
 		separateOrphanVersionsToKeep: opts.SeparateOphanVersionsToKeep,
 		orphandb:                     orphandb,
-		mtx:                          &sync.RWMutex{},
+		Mtx:                          &sync.RWMutex{},
 	}, nil
 }
 
 func (tree *MutableTree) ImmutableTree() *ImmutableTree {
-	tree.mtx.RLock()
-	defer tree.mtx.RUnlock()
+	tree.Mtx.RLock()
+	defer tree.Mtx.RUnlock()
 	return tree.ITree
 }
 
 func (tree *MutableTree) LastSaved() *ImmutableTree {
-	tree.mtx.RLock()
-	defer tree.mtx.RUnlock()
+	tree.Mtx.RLock()
+	defer tree.Mtx.RUnlock()
 	return tree.lastSaved
 }
 
@@ -102,8 +102,8 @@ func (tree *MutableTree) IsEmpty() bool {
 
 // VersionExists returns whether or not a version exists.
 func (tree *MutableTree) VersionExists(version int64) bool {
-	tree.mtx.Lock()
-	defer tree.mtx.Unlock()
+	tree.Mtx.Lock()
+	defer tree.Mtx.Unlock()
 
 	if tree.allRootLoaded {
 		return tree.versions[version]
@@ -120,8 +120,8 @@ func (tree *MutableTree) VersionExists(version int64) bool {
 
 // AvailableVersions returns all available versions in ascending order
 func (tree *MutableTree) AvailableVersions() []int {
-	tree.mtx.Lock()
-	defer tree.mtx.Unlock()
+	tree.Mtx.Lock()
+	defer tree.Mtx.Unlock()
 
 	res := make([]int, 0, len(tree.versions))
 	for i, v := range tree.versions {
@@ -160,8 +160,8 @@ func (tree *MutableTree) prepareOrphansSlice() []*Node {
 // to slices stored within IAVL. It returns true when an existing value was
 // updated, while false means it was a new key.
 func (tree *MutableTree) Set(key, value []byte) (updated bool, err error) {
-	tree.mtx.Lock()
-	defer tree.mtx.Unlock()
+	tree.Mtx.Lock()
+	defer tree.Mtx.Unlock()
 	var orphaned []*Node
 	orphaned, updated, err = tree.set(key, value)
 	if err != nil {
@@ -181,8 +181,8 @@ func (tree *MutableTree) Get(key []byte) ([]byte, error) {
 		return nil, nil
 	}
 
-	tree.mtx.RLock()
-	defer tree.mtx.RUnlock()
+	tree.Mtx.RLock()
+	defer tree.Mtx.RUnlock()
 	if !tree.skipFastStorageUpgrade {
 		if fastNode, ok := tree.unsavedFastNodeAdditions[unsafeToStr(key)]; ok {
 			return fastNode.value, nil
@@ -193,7 +193,7 @@ func (tree *MutableTree) Get(key []byte) ([]byte, error) {
 		}
 	}
 
-	// mtx is already acquired
+	// Mtx is already acquired
 	return tree.ITree.Get(key)
 }
 
@@ -255,7 +255,7 @@ func (tree *MutableTree) Iterator(start, end []byte, ascending bool) (dbm.Iterat
 	return tree.ImmutableTree().Iterator(start, end, ascending)
 }
 
-// no need to acquire mtx since it's only called by `Set` which already holds the mtx
+// no need to acquire Mtx since it's only called by `Set` which already holds the Mtx
 func (tree *MutableTree) set(key []byte, value []byte) (orphans []*Node, updated bool, err error) {
 	if value == nil {
 		return nil, updated, fmt.Errorf("attempt to store nil value at key '%s'", key)
@@ -274,7 +274,7 @@ func (tree *MutableTree) set(key []byte, value []byte) (orphans []*Node, updated
 	return orphans, updated, err
 }
 
-// no need to acquire mtx since it's only called by `set` which already holds the mtx
+// no need to acquire Mtx since it's only called by `set` which already holds the Mtx
 func (tree *MutableTree) recursiveSet(node *Node, key []byte, value []byte, orphans *[]*Node) (
 	newSelf *Node, updated bool, err error,
 ) {
@@ -360,8 +360,8 @@ func (tree *MutableTree) recursiveSet(node *Node, key []byte, value []byte, orph
 // Remove removes a key from the working tree. The given key byte slice should not be modified
 // after this call, since it may point to data stored inside IAVL.
 func (tree *MutableTree) Remove(key []byte) ([]byte, bool, error) {
-	tree.mtx.Lock()
-	defer tree.mtx.Unlock()
+	tree.Mtx.Lock()
+	defer tree.Mtx.Unlock()
 	val, orphaned, removed, err := tree.remove(key)
 	if err != nil {
 		return nil, false, err
@@ -376,7 +376,7 @@ func (tree *MutableTree) Remove(key []byte) ([]byte, bool, error) {
 
 // remove tries to remove a key from the tree and if removed, returns its
 // value, nodes orphaned and 'true'.
-// no need to acquire mtx since it's only called by `Remove` which already holds the mtx.
+// no need to acquire Mtx since it's only called by `Remove` which already holds the Mtx.
 func (tree *MutableTree) remove(key []byte) (value []byte, orphaned []*Node, removed bool, err error) {
 	if tree.ITree.root == nil {
 		return nil, nil, false, nil
@@ -412,7 +412,7 @@ func (tree *MutableTree) remove(key []byte) (value []byte, orphaned []*Node, rem
 // - new leftmost leaf key for tree after successfully removing 'key' if changed.
 // - the removed value
 // - the orphaned nodes.
-// no need to acquire mtx since it's only called by `remove` which already holds the mtx
+// no need to acquire Mtx since it's only called by `remove` which already holds the Mtx
 func (tree *MutableTree) recursiveRemove(node *Node, key []byte, orphans *[]*Node) (newHash []byte, newSelf *Node, newKey []byte, newValue []byte, err error) {
 	version := tree.ITree.version + 1
 
@@ -547,9 +547,9 @@ func (tree *MutableTree) LazyLoadVersion(targetVersion int64) (toReturn int64, t
 		return latestVersion, ErrVersionDoesNotExist
 	}
 
-	tree.mtx.Lock()
+	tree.Mtx.Lock()
 	defer func() {
-		tree.mtx.Unlock()
+		tree.Mtx.Unlock()
 		if !tree.skipFastStorageUpgrade {
 			// Attempt to upgrade
 			if _, err := tree.enableFastStorageAndCommitIfNotEnabled(); err != nil {
@@ -576,7 +576,7 @@ func (tree *MutableTree) LazyLoadVersion(targetVersion int64) (toReturn int64, t
 	}
 
 	tree.orphans = map[string]int64{}
-	tree.ITree = iTree // mtx is already held
+	tree.ITree = iTree // Mtx is already held
 	tree.lastSaved = iTree.clone()
 
 	return targetVersion, nil
@@ -603,9 +603,9 @@ func (tree *MutableTree) LoadVersion(targetVersion int64) (toReturn int64, toErr
 	firstVersion := int64(0)
 	latestVersion := int64(0)
 
-	tree.mtx.Lock()
+	tree.Mtx.Lock()
 	defer func() {
-		tree.mtx.Unlock()
+		tree.Mtx.Unlock()
 		if !tree.skipFastStorageUpgrade {
 			// Attempt to upgrade
 			if _, err := tree.enableFastStorageAndCommitIfNotEnabled(); err != nil {
@@ -651,7 +651,7 @@ func (tree *MutableTree) LoadVersion(targetVersion int64) (toReturn int64, toErr
 	}
 
 	tree.orphans = map[string]int64{}
-	tree.ITree = t // mtx is already held
+	tree.ITree = t // Mtx is already held
 	tree.lastSaved = t.clone()
 	tree.allRootLoaded = true
 
@@ -678,8 +678,8 @@ func (tree *MutableTree) LoadVersionForOverwriting(targetVersion int64) (int64, 
 
 	tree.ndb.resetLatestVersion(latestVersion)
 
-	tree.mtx.Lock()
-	defer tree.mtx.Unlock()
+	tree.Mtx.Lock()
+	defer tree.Mtx.Unlock()
 
 	for v := range tree.versions {
 		if v > targetVersion {
@@ -785,8 +785,8 @@ func (tree *MutableTree) GetImmutable(version int64) (*ImmutableTree, error) {
 		return nil, ErrVersionDoesNotExist
 	}
 
-	tree.mtx.Lock()
-	defer tree.mtx.Unlock()
+	tree.Mtx.Lock()
+	defer tree.Mtx.Unlock()
 	if len(rootHash) == 0 {
 		tree.versions[version] = true
 		return &ImmutableTree{
@@ -812,8 +812,8 @@ func (tree *MutableTree) GetImmutable(version int64) (*ImmutableTree, error) {
 // Rollback resets the working tree to the latest saved version, discarding
 // any unsaved modifications.
 func (tree *MutableTree) Rollback() {
-	tree.mtx.Lock()
-	defer tree.mtx.Unlock()
+	tree.Mtx.Lock()
+	defer tree.Mtx.Unlock()
 	if tree.ITree.version > 0 {
 		tree.ITree = tree.lastSaved.clone()
 	} else {
@@ -895,8 +895,8 @@ func (tree *MutableTree) SaveCurrentVersion() ([]byte, int64, error) {
 	}
 
 	if bytes.Equal(existingHash, newHash) {
-		tree.mtx.Lock()
-		defer tree.mtx.Unlock()
+		tree.Mtx.Lock()
+		defer tree.Mtx.Unlock()
 		if v, err := tree.commitVersion(version, true); err != nil {
 			return nil, v, err
 		}
@@ -939,8 +939,8 @@ func (tree *MutableTree) SaveVersion() ([]byte, int64, error) {
 		}
 
 		if bytes.Equal(existingHash, newHash) {
-			tree.mtx.Lock()
-			defer tree.mtx.Unlock()
+			tree.Mtx.Lock()
+			defer tree.Mtx.Unlock()
 			clone := tree.ITree.clone()
 			clone.version = version
 			tree.ITree = clone
@@ -952,14 +952,14 @@ func (tree *MutableTree) SaveVersion() ([]byte, int64, error) {
 		return nil, version, fmt.Errorf("version %d was already saved to different hash %X (existing hash %X)", version, newHash, existingHash)
 	}
 
-	tree.mtx.Lock()
-	defer tree.mtx.Unlock()
+	tree.Mtx.Lock()
+	defer tree.Mtx.Unlock()
 
 	if v, err := tree.commitVersion(version, false); err != nil {
 		return nil, v, err
 	}
 
-	// mtx is already held at this point
+	// Mtx is already held at this point
 	clone := tree.ITree.clone()
 	clone.version = version
 	tree.versions[version] = true
@@ -1135,8 +1135,8 @@ func (tree *MutableTree) deleteVersion(version int64) error {
 // It is only used during the initial SaveVersion() call for a tree with no other versions,
 // and is otherwise ignored.
 func (tree *MutableTree) SetInitialVersion(version uint64) {
-	tree.mtx.Lock()
-	defer tree.mtx.Unlock()
+	tree.Mtx.Lock()
+	defer tree.Mtx.Unlock()
 	tree.ndb.opts.InitialVersion = version
 }
 
@@ -1181,8 +1181,8 @@ func (tree *MutableTree) DeleteVersions(versions ...int64) error {
 // An error is returned if any single version has active readers.
 // All writes happen in a single batch with a single commit.
 func (tree *MutableTree) DeleteVersionsRange(fromVersion, toVersion int64) error {
-	tree.mtx.Lock()
-	defer tree.mtx.Unlock()
+	tree.Mtx.Lock()
+	defer tree.Mtx.Unlock()
 
 	if err := tree.ndb.DeleteVersionsRange(fromVersion, toVersion); err != nil {
 		return err
@@ -1208,8 +1208,8 @@ func (tree *MutableTree) DeleteVersion(version int64) error {
 		return err
 	}
 
-	tree.mtx.Lock()
-	defer tree.mtx.Unlock()
+	tree.Mtx.Lock()
+	defer tree.Mtx.Unlock()
 
 	if err := tree.ndb.Commit(); err != nil {
 		return err
@@ -1220,7 +1220,7 @@ func (tree *MutableTree) DeleteVersion(version int64) error {
 }
 
 // Rotate right and return the new node and orphan.
-// mtx already held
+// Mtx already held
 func (tree *MutableTree) rotateRight(node *Node) (*Node, *Node, error) {
 	version := tree.ITree.version + 1
 
