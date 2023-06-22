@@ -3,12 +3,18 @@ package query
 import (
 	"context"
 
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
+
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
 )
 
 // To be deprecated once offchain query is built
 func (k KeeperWrapper) GetOrder(c context.Context, req *types.QueryGetOrderByIDRequest) (*types.QueryGetOrderByIDResponse, error) {
+	if req == nil {
+		return nil, status.Error(codes.InvalidArgument, "invalid request")
+	}
 	ctx := sdk.UnwrapSDKContext(c)
 	longBooks := k.GetAllLongBook(ctx, req.ContractAddr)
 	for _, longBook := range longBooks {
@@ -58,6 +64,9 @@ func (k KeeperWrapper) GetOrder(c context.Context, req *types.QueryGetOrderByIDR
 
 // To be deprecated once offchain query is built
 func (k KeeperWrapper) GetOrders(c context.Context, req *types.QueryGetOrdersRequest) (*types.QueryGetOrdersResponse, error) {
+	if req == nil {
+		return nil, status.Error(codes.InvalidArgument, "invalid request")
+	}
 	ctx := sdk.UnwrapSDKContext(c)
 	orders := []*types.Order{}
 	longBooks := k.GetAllLongBook(ctx, req.ContractAddr)
