@@ -2924,6 +2924,49 @@ func TestStateOutputsBlockPartsStats(t *testing.T) {
 
 }
 
+func TestGossipTransactionKeyOnlyConfig(t *testing.T) {
+	config := configSetup(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	cs1, vss := makeState(ctx, t, makeStateArgs{config: config, validators: 2})
+	vs2 := vss[1]
+	cs1.config.GossipTransactionKeyOnly = true
+	propBlock, err := cs1.createProposalBlock(ctx)
+	require.NoError(t, err)
+	height, round := cs1.roundState.Height(), cs1.roundState.Round()
+
+	// make the second validator the proposer by incrementing the round
+	round++
+	incrementRound(vss[1:]...)
+	propBlockParts, err := propBlock.MakePartSet(types.BlockPartSizeBytes)
+	require.NoError(t, err)
+	blockID := types.BlockID{Hash: propBlock.Hash(), PartSetHeader: propBlockParts.Header()}
+	pubKey, err := vss[1].PrivValidator.GetPubKey(ctx)
+	require.NoError(t, err)
+	proposal := *types.NewProposal(height, round, -1, blockID, propBlock.Time, propBlock.GetTxKeys(), propBlock.Header, propBlock.LastCommit, propBlock.Evidence, pubKey.Address())
+	p := proposal.ToProto()
+	err = vs2.SignProposal(ctx, config.ChainID(), p)
+	require.NoError(t, err)
+	proposal.Signature = p.Signature
+
+	proposalMsg := ProposalMessage{&proposal}
+	peerID, err := types.NewNodeID("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA")
+	startTestRound(ctx, cs1, height, round)
+	cs1.handleMsg(ctx, msgInfo{&proposalMsg, peerID, time.Now()}, false)
+	rs := cs1.GetRoundState()
+	// Proposal, ProposalBlock and ProposalBlockParts sohuld be set since gossip-tx-key is true
+	if rs.Proposal == nil {
+		t.Error("rs.Proposal should be set")
+	}
+	if rs.ProposalBlock == nil {
+		t.Error("rs.ProposalBlock should be set")
+	}
+	if rs.ProposalBlockParts.Total() == 0 {
+		t.Error("rs.ProposalBlockParts should be set")
+	}
+}
+
 func TestStateOutputVoteStats(t *testing.T) {
 	config := configSetup(t)
 	ctx, cancel := context.WithCancel(context.Background())

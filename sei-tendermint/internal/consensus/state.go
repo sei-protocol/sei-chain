@@ -1028,6 +1028,11 @@ func (cs *State) fsyncAndCompleteProposal(ctx context.Context, fsyncUponCompleti
 	cs.handleCompleteProposal(ctx, height, span)
 }
 
+// We only used tx key based dissemination if configured to do so and we are a validator
+func (cs *State) gossipTransactionKeyOnly() bool {
+	return cs.config.GossipTransactionKeyOnly && cs.privValidatorPubKey != nil
+}
+
 // state transitions on complete-proposal, 2/3-any, 2/3-one
 func (cs *State) handleMsg(ctx context.Context, mi msgInfo, fsyncUponCompletion bool) {
 	cs.mtx.Lock()
@@ -1047,14 +1052,14 @@ func (cs *State) handleMsg(ctx context.Context, mi msgInfo, fsyncUponCompletion 
 
 		// will not cause transition.
 		// once proposal is set, we can receive block parts
-		err = cs.setProposal(msg.Proposal, mi.ReceiveTime)
-		// See if we can try creating the proposal block if keys exist
-		if err != nil && cs.config.GossipTransactionKeyOnly && cs.privValidatorPubKey != nil {
-			isProposer := cs.isProposer(cs.privValidatorPubKey.Address())
-			if !isProposer && cs.roundState.ProposalBlock() == nil {
-				created := cs.tryCreateProposalBlock(spanCtx, msg.Proposal.Height, msg.Proposal.Round, msg.Proposal.Header, msg.Proposal.LastCommit, msg.Proposal.Evidence, msg.Proposal.ProposerAddress)
-				if created {
-					cs.fsyncAndCompleteProposal(ctx, fsyncUponCompletion, msg.Proposal.Height, span)
+		if err = cs.setProposal(msg.Proposal, mi.ReceiveTime); err == nil {
+			if cs.gossipTransactionKeyOnly() {
+				isProposer := cs.isProposer(cs.privValidatorPubKey.Address())
+				if !isProposer && cs.roundState.ProposalBlock() == nil {
+					created := cs.tryCreateProposalBlock(spanCtx, msg.Proposal.Height, msg.Proposal.Round, msg.Proposal.Header, msg.Proposal.LastCommit, msg.Proposal.Evidence, msg.Proposal.ProposerAddress)
+					if created {
+						cs.fsyncAndCompleteProposal(ctx, fsyncUponCompletion, msg.Proposal.Height, span)
+					}
 				}
 			}
 		}
