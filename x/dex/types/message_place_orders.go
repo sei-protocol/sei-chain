@@ -67,11 +67,11 @@ func (msg *MsgPlaceOrders) ValidateBasic() error {
 		if order.Price.IsNil() || order.Price.IsNegative() {
 			return sdkerrors.Wrapf(sdkerrors.ErrInvalidRequest, "invalid order price (%s)", err)
 		}
-		if len(order.AssetDenom) == 0 {
-			return sdkerrors.Wrapf(sdkerrors.ErrInvalidRequest, "invalid order, asset denom is empty (%s)", err)
+		if len(order.AssetDenom) == 0 || sdk.ValidateDenom(order.AssetDenom) != nil {
+			return sdkerrors.Wrapf(sdkerrors.ErrInvalidRequest, "invalid order, asset denom is empty or invalid (%s)", err)
 		}
-		if len(order.PriceDenom) == 0 {
-			return sdkerrors.Wrapf(sdkerrors.ErrInvalidRequest, "invalid order, price denom is empty (%s)", err)
+		if len(order.PriceDenom) == 0 || sdk.ValidateDenom(order.PriceDenom) != nil {
+			return sdkerrors.Wrapf(sdkerrors.ErrInvalidRequest, "invalid order, price denom is empty or invalid (%s)", err)
 		}
 		if order.OrderType == OrderType_FOKMARKETBYVALUE || order.OrderType == OrderType_FOKMARKET {
 			return sdkerrors.Wrapf(sdkerrors.ErrInvalidRequest, "FOK orders are temporarily disabled")
