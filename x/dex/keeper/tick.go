@@ -17,6 +17,11 @@ func (k Keeper) SetPriceTickSizeForPair(ctx sdk.Context, contractAddr string, pa
 	}
 	pair.PriceTicksize = &ticksize
 	store.Set(types.PairPrefix(pair.PriceDenom, pair.AssetDenom), k.Cdc.MustMarshal(&pair))
+
+	ctx.EventManager().EmitEvent(sdk.NewEvent(
+		types.EventTypeSetPriceTickSize,
+		sdk.NewAttribute(types.AttributeKeyContractAddress, contractAddr),
+	))
 	return nil
 }
 
@@ -38,6 +43,11 @@ func (k Keeper) SetQuantityTickSizeForPair(ctx sdk.Context, contractAddr string,
 	}
 	pair.QuantityTicksize = &ticksize
 	store.Set(types.PairPrefix(pair.PriceDenom, pair.AssetDenom), k.Cdc.MustMarshal(&pair))
+
+	ctx.EventManager().EmitEvent(sdk.NewEvent(
+		types.EventTypeSetQuantityTickSize,
+		sdk.NewAttribute(types.AttributeKeyContractAddress, contractAddr),
+	))
 	return nil
 }
 
