@@ -3,7 +3,6 @@ package types
 import (
 	"fmt"
 	"sort"
-	"strings"
 	"time"
 
 	yaml "gopkg.in/yaml.v2"
@@ -80,12 +79,11 @@ func (p *Version2Params) ParamSetPairs() paramtypes.ParamSetPairs {
 
 func validateMintDenom(i interface{}) error {
 	denomString, ok := i.(string)
-	denomTrimed := strings.TrimSpace(denomString)
 
 	if !ok {
 		return fmt.Errorf("invalid parameter type: %T", i)
 	}
-	if denomTrimed != sdk.DefaultBondDenom {
+	if denomString != sdk.DefaultBondDenom {
 		return fmt.Errorf("mint denom must be the same as the default bond denom=%s", sdk.DefaultBondDenom)
 	}
 
