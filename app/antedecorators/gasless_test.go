@@ -181,7 +181,7 @@ func TestOracleVoteGasless(t *testing.T) {
 	valAddr1, val1 := oraclekeeper.ValAddrs[1], oraclekeeper.ValPubKeys[1]
 	amt := sdk.TokensFromConsensusPower(100, sdk.DefaultPowerReduction)
 	sh := staking.NewHandler(input.StakingKeeper)
-	ctx := input.Ctx
+	ctx := input.Ctx.WithIsCheckTx(true)
 
 	// Validator created
 	_, err := sh(ctx, oraclekeeper.NewTestMsgCreateValidator(valAddr, val, amt))
@@ -217,7 +217,7 @@ func TestDexPlaceOrderGasless(t *testing.T) {
 	// this needs to be updated if its changed from constant true
 	// reset gasless
 	gasless = true
-	err := CallGaslessDecoratorWithMsg(sdk.NewContext(nil, tmproto.Header{}, false, nil), &types.MsgPlaceOrders{}, oraclekeeper.Keeper{})
+	err := CallGaslessDecoratorWithMsg(sdk.NewContext(nil, tmproto.Header{}, false, nil).WithIsCheckTx(true), &types.MsgPlaceOrders{}, oraclekeeper.Keeper{})
 	require.NoError(t, err)
 	require.True(t, gasless)
 }
@@ -239,14 +239,14 @@ func TestDexCancelOrderGasless(t *testing.T) {
 	// not whitelisted
 	// reset gasless
 	gasless = true
-	err := CallGaslessDecoratorWithMsg(sdk.NewContext(nil, tmproto.Header{}, false, nil), &cancelMsg1, oraclekeeper.Keeper{})
+	err := CallGaslessDecoratorWithMsg(sdk.NewContext(nil, tmproto.Header{}, false, nil).WithIsCheckTx(true), &cancelMsg1, oraclekeeper.Keeper{})
 	require.NoError(t, err)
 	require.False(t, gasless)
 
 	// whitelisted
 	// reset gasless
 	gasless = true
-	err = CallGaslessDecoratorWithMsg(sdk.NewContext(nil, tmproto.Header{}, false, nil), &cancelMsg2, oraclekeeper.Keeper{})
+	err = CallGaslessDecoratorWithMsg(sdk.NewContext(nil, tmproto.Header{}, false, nil).WithIsCheckTx(true), &cancelMsg2, oraclekeeper.Keeper{})
 	require.NoError(t, err)
 	require.True(t, gasless)
 }
@@ -255,7 +255,7 @@ func TestNonGaslessMsg(t *testing.T) {
 	// this needs to be updated if its changed from constant true
 	// reset gasless
 	gasless = true
-	err := CallGaslessDecoratorWithMsg(sdk.NewContext(nil, tmproto.Header{}, false, nil), &types.MsgRegisterContract{}, oraclekeeper.Keeper{})
+	err := CallGaslessDecoratorWithMsg(sdk.NewContext(nil, tmproto.Header{}, false, nil).WithIsCheckTx(true), &types.MsgRegisterContract{}, oraclekeeper.Keeper{})
 	require.NoError(t, err)
 	require.False(t, gasless)
 }
