@@ -97,12 +97,6 @@ func (c *Comparator) DependencyMatch(accessOp AccessOperation, prefix []byte) bo
 		return false
 	}
 
-	// At this point the resource identifier matches, but the access type is unknown, therefore
-	// it will match both read and writes
-	if accessOp.AccessType == AccessType_UNKNOWN {
-		return true
-	}
-
 	return true
 }
 
