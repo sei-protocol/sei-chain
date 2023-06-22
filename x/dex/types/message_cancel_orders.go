@@ -60,11 +60,11 @@ func (msg *MsgCancelOrders) ValidateBasic() error {
 		if cancellation.Price.IsNegative() {
 			return sdkerrors.Wrapf(sdkerrors.ErrInvalidRequest, "invalid cancellation price (cannot be negative) (%s)", err)
 		}
-		if len(cancellation.AssetDenom) == 0 {
-			return sdkerrors.Wrapf(sdkerrors.ErrInvalidRequest, "invalid cancellation, asset denom is empty (%s)", err)
+		if len(cancellation.AssetDenom) == 0 || sdk.ValidateDenom(cancellation.AssetDenom) != nil {
+			return sdkerrors.Wrapf(sdkerrors.ErrInvalidRequest, "invalid cancellation, asset denom is empty or invalid (%s)", err)
 		}
-		if len(cancellation.PriceDenom) == 0 {
-			return sdkerrors.Wrapf(sdkerrors.ErrInvalidRequest, "invalid cancellation, price denom is empty (%s)", err)
+		if len(cancellation.PriceDenom) == 0 || sdk.ValidateDenom(cancellation.PriceDenom) != nil {
+			return sdkerrors.Wrapf(sdkerrors.ErrInvalidRequest, "invalid cancellation, price denom is empty or invalid (%s)", err)
 		}
 	}
 
