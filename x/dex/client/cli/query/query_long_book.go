@@ -15,7 +15,7 @@ func CmdListLongBook() *cobra.Command {
 		Use:   "list-long-book [contract address] [price denom] [asset denom]",
 		Short: "list all longBook",
 		Long: strings.TrimSpace(`
-			Lists all of a long book's information for a given contract address and pair specified by price denopm and asset denom.
+			Lists all of a long book's information for a given contract address and pair specified by price denom and asset denom.
 		`),
 		Args: cobra.ExactArgs(3),
 		RunE: func(cmd *cobra.Command, args []string) error {

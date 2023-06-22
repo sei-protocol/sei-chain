@@ -1,0 +1,15 @@
+{
+  "title": "Gov Param Change Expedited",
+  "description": "Update expedited_quorum to 0.75",
+  "changes": [
+    {
+      "subspace": "gov",
+      "key": "tallyparams",
+      "value": {
+        "expedited_quorum":"0.75"
+      }
+    }
+  ],
+  "deposit": "10000000usei",
+  "isExpedited": true
+}

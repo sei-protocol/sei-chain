@@ -59,10 +59,6 @@ func (msg *MsgUpdateQuantityTickSize) ValidateBasic() error {
 	for _, tickSize := range msg.TickSizeList {
 		contractAddress := tickSize.ContractAddr
 
-		if contractAddress == "" {
-			return errors.New("contract address is empty")
-		}
-
 		_, err = sdk.AccAddressFromBech32(contractAddress)
 		if err != nil {
 			return errors.New("contract address format is not bech32")
