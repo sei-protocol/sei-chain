@@ -33,6 +33,19 @@ echo '{"batch_contract_pair":[{"contract_addr":"'$contract_addr'","pairs":[{"pri
 contract_pair=$(printf "12345678\n" | $seidbin tx dex register-pairs integration_test/contracts/"$contract_name"-pair.json -y --from=$keyname --chain-id=$chainid --fees=10000000usei --gas=500000 --broadcast-mode=block --output=json)
 rm -rf integration_test/contracts/"$contract_name"-pair.json
 
+echo '{"batch_contract_pair":[{"contract_addr":"'$contract_addr'","pairs":[{"price_denom":"usei","asset_denom":"uatom","price_tick_size":"0.0000001", "quantity_tick_size":"0.0000001"}]}]}' > integration_test/contracts/"$contract_name"-pair.json
+contract_pair=$(printf "12345678\n" | $seidbin tx dex register-pairs integration_test/contracts/"$contract_name"-pair.json -y --from=$keyname --chain-id=$chainid --fees=10000000usei --gas=500000 --broadcast-mode=block --output=json)
+rm -rf integration_test/contracts/"$contract_name"-pair.json
+
+echo '{"batch_contract_pair":[{"contract_addr":"'$contract_addr'","pairs":[{"price_denom":"usei","asset_denom":"uatomatom","price_tick_size":"0.0000001", "quantity_tick_size":"0.0000001"}]}]}' > integration_test/contracts/"$contract_name"-pair.json
+contract_pair=$(printf "12345678\n" | $seidbin tx dex register-pairs integration_test/contracts/"$contract_name"-pair.json -y --from=$keyname --chain-id=$chainid --fees=10000000usei --gas=500000 --broadcast-mode=block --output=json)
+rm -rf integration_test/contracts/"$contract_name"-pair.json
+
+echo '{"batch_contract_pair":[{"contract_addr":"'$contract_addr'","pairs":[{"price_denom":"usei","asset_denom":"uatomatomatom","price_tick_size":"0.0000001", "quantity_tick_size":"0.0000001"}]}]}' > integration_test/contracts/"$contract_name"-pair.json
+contract_pair=$(printf "12345678\n" | $seidbin tx dex register-pairs integration_test/contracts/"$contract_name"-pair.json -y --from=$keyname --chain-id=$chainid --fees=10000000usei --gas=500000 --broadcast-mode=block --output=json)
+rm -rf integration_test/contracts/"$contract_name"-pair.json
+
+
 sleep 10s
 
 echo "Deployed contracts:"
