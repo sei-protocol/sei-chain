@@ -2,9 +2,10 @@ package query
 
 import (
 	"context"
+	"sort"
+
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
-	"sort"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
