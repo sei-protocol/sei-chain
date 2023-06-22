@@ -1,6 +1,7 @@
 package metrics
 
 import (
+	"strconv"
 	"time"
 
 	metrics "github.com/armon/go-metrics"
@@ -207,5 +208,17 @@ func IncrGasCounter(gasType string, value int64) {
 		[]string{"sei", "tx", "gas", "counter"},
 		float32(value),
 		[]metrics.Label{telemetry.NewLabel("type", gasType)},
+	)
+}
+
+// Measures the number of times optimistic processing runs
+// Metric Name:
+//
+//   sei_optimistic_processing_counter
+func IncrementOptimisticProcessingCounter(enabled bool) {
+	telemetry.IncrCounterWithLabels(
+		[]string{"sei", "optimistic", "processing", "counter"},
+		float32(1),
+		[]metrics.Label{telemetry.NewLabel("enabled", strconv.FormatBool(enabled))},
 	)
 }

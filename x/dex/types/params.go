@@ -95,6 +95,9 @@ func (p Params) Validate() error {
 	if err := validatePriceSnapshotRetention(p.PriceSnapshotRetention); err != nil {
 		return err
 	}
+	if err := validateSudoCallGasPrice(p.SudoCallGasPrice); err != nil {
+		return err
+	}
 	// it's not possible for other params to fail validation if they've already
 	// made it into Params' fields.
 	return nil
@@ -120,9 +123,12 @@ func validatePriceSnapshotRetention(i interface{}) error {
 }
 
 func validateSudoCallGasPrice(i interface{}) error {
-	_, ok := i.(sdk.Dec)
+	price, ok := i.(sdk.Dec)
 	if !ok {
 		return fmt.Errorf("invalid parameter type: %T", i)
+	}
+	if !price.IsPositive() {
+		return fmt.Errorf("nonpositive sudo call price")
 	}
 	return nil
 }
