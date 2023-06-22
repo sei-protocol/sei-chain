@@ -69,6 +69,7 @@ func (ad FakeAnteDecoratorGasReqd) AnteHandle(ctx sdk.Context, tx sdk.Tx, simula
 type FakeTx struct {
 	sdk.FeeTx
 	FakeMsgs []sdk.Msg
+	Gas      uint64
 }
 
 func (tx FakeTx) GetMsgs() []sdk.Msg {
@@ -80,7 +81,7 @@ func (tx FakeTx) ValidateBasic() error {
 }
 
 func (t FakeTx) GetGas() uint64 {
-	return 0
+	return t.Gas
 }
 func (t FakeTx) GetFee() sdk.Coins {
 	return sdk.NewCoins(sdk.NewCoin("usei", sdk.ZeroInt()))
@@ -124,9 +125,48 @@ func TestGaslessDecorator(t *testing.T) {
 	stateStore := store.NewCommitMultiStore(db)
 	ctx := sdk.NewContext(stateStore, tmproto.Header{}, false, log.NewNopLogger())
 
+	// normal tx (not gasless)
 	_, err := chainedHandler(ctx, FakeTx{}, false)
 	require.NoError(t, err)
 	require.Equal(t, "onetwothree", output)
+	_, err = depGen([]accesscontrol.AccessOperation{}, FakeTx{}, 1)
+	require.NoError(t, err)
+	require.Equal(t, "onetwothree", outputDeps)
+
+	// gasless tx (deliverTx) -> wrapped should still be run
+	output = ""
+	outputDeps = ""
+	_, err = chainedHandler(ctx, FakeTx{
+		FakeMsgs: []sdk.Msg{&types.MsgPlaceOrders{}},
+		Gas:      100,
+	}, false)
+	require.NoError(t, err)
+	require.Equal(t, "onetwothree", output)
+	_, err = depGen([]accesscontrol.AccessOperation{}, FakeTx{}, 1)
+	require.NoError(t, err)
+	require.Equal(t, "onetwothree", outputDeps)
+
+	// gasless tx (checkTx w/ gas limit) -> wrapped should still be run
+	output = ""
+	outputDeps = ""
+	_, err = chainedHandler(ctx.WithIsCheckTx(true), FakeTx{
+		FakeMsgs: []sdk.Msg{&types.MsgPlaceOrders{}},
+		Gas:      100,
+	}, false)
+	require.NoError(t, err)
+	require.Equal(t, "onetwothree", output)
+	_, err = depGen([]accesscontrol.AccessOperation{}, FakeTx{}, 1)
+	require.NoError(t, err)
+	require.Equal(t, "onetwothree", outputDeps)
+
+	// gasless tx (checkTx w/o gas limit) -> wrapped should not be run
+	output = ""
+	outputDeps = ""
+	_, err = chainedHandler(ctx.WithIsCheckTx(true), FakeTx{
+		FakeMsgs: []sdk.Msg{&types.MsgPlaceOrders{}},
+	}, false)
+	require.NoError(t, err)
+	require.Equal(t, "onethree", output)
 	_, err = depGen([]accesscontrol.AccessOperation{}, FakeTx{}, 1)
 	require.NoError(t, err)
 	require.Equal(t, "onetwothree", outputDeps)
