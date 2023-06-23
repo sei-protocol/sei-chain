@@ -36,6 +36,7 @@ import (
 	acltypes "github.com/cosmos/cosmos-sdk/types/accesscontrol"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	"github.com/cosmos/cosmos-sdk/x/auth/legacy/legacytx"
+	"github.com/cosmos/iavl"
 )
 
 const (
@@ -162,7 +163,7 @@ type BaseApp struct { //nolint: maligned
 
 	compactionInterval uint64
 
-	noVersioning bool
+	orphanConfig *iavl.Options
 
 	TmConfig *tmcfg.Config
 
@@ -288,8 +289,8 @@ func NewBaseApp(
 		panic("must pass --chain-id when calling 'seid start' or set in ~/.sei/config/client.toml")
 	}
 	app.startCompactionRoutine(db)
-	if app.noVersioning {
-		app.cms.(*rootmulti.Store).SetNoVersioning()
+	if app.orphanConfig != nil {
+		app.cms.(*rootmulti.Store).SetOrphanConfig(app.orphanConfig)
 	}
 
 	return app
@@ -470,8 +471,8 @@ func (app *BaseApp) setHaltTime(haltTime uint64) {
 	app.haltTime = haltTime
 }
 
-func (app *BaseApp) setNoVersioning(noVersioning bool) {
-	app.noVersioning = noVersioning
+func (app *BaseApp) setOrphanConfig(opts *iavl.Options) {
+	app.orphanConfig = opts
 }
 
 func (app *BaseApp) setMinRetainBlocks(minRetainBlocks uint64) {

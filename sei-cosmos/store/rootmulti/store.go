@@ -61,7 +61,7 @@ type Store struct {
 	pruneHeights        []int64
 	initialVersion      int64
 	archivalVersion     int64
-	noVersioning        bool
+	orphanOpts          *iavltree.Options
 
 	traceWriter       io.Writer
 	traceContext      types.TraceContext
@@ -950,9 +950,9 @@ func (rs *Store) loadCommitStoreFromParams(key types.StoreKey, id types.CommitID
 		var err error
 
 		if params.initialVersion == 0 {
-			store, err = iavl.LoadStore(db, rs.logger, key, id, rs.lazyLoading, rs.iavlCacheSize, rs.iavlDisableFastNode, rs.noVersioning)
+			store, err = iavl.LoadStore(db, rs.logger, key, id, rs.lazyLoading, rs.iavlCacheSize, rs.iavlDisableFastNode, rs.orphanOpts)
 		} else {
-			store, err = iavl.LoadStoreWithInitialVersion(db, rs.logger, key, id, rs.lazyLoading, params.initialVersion, rs.iavlCacheSize, rs.iavlDisableFastNode, rs.noVersioning)
+			store, err = iavl.LoadStoreWithInitialVersion(db, rs.logger, key, id, rs.lazyLoading, params.initialVersion, rs.iavlCacheSize, rs.iavlDisableFastNode, rs.orphanOpts)
 		}
 
 		if err != nil {
@@ -1048,8 +1048,8 @@ func (rs *Store) flushMetadata(db dbm.DB, version int64, cInfo *types.CommitInfo
 	rs.logger.Info("App State Saved height=%d hash=%X\n", cInfo.CommitID().Version, cInfo.CommitID().Hash)
 }
 
-func (rs *Store) SetNoVersioning() {
-	rs.noVersioning = true
+func (rs *Store) SetOrphanConfig(opts *iavltree.Options) {
+	rs.orphanOpts = opts
 }
 
 func (rs *Store) LastCommitInfo() *types.CommitInfo {

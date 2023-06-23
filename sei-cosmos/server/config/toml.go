@@ -85,7 +85,21 @@ iavl-disable-fastnode = {{ .BaseConfig.IAVLDisableFastNode }}
 # Default is 0.
 compaction-interval = {{ .BaseConfig.CompactionInterval }}
 
+# deprecated
 no-versioning = {{ .BaseConfig.NoVersioning }}
+
+# Whether to store orphan data (to-be-deleted data pointers) outside the main
+# application LevelDB
+separate-orphan-storage = {{ .BaseConfig.SeparateOrphanStorage }}
+
+# if separate-orphan-storage is true, how many versions of orphan data to keep
+separate-orphan-versions-to-keep = {{ .BaseConfig.SeparateOrphanVersionsToKeep }}
+
+# if separate-orphan-storage is true, how many orphans to store in each file
+num-orphan-per-file = {{ .BaseConfig.NumOrphanPerFile }}
+
+# if separate-orphan-storage is true, where to store orphan data
+orphan-dir = "{{ .BaseConfig.OrphanDirectory }}"
 
 ###############################################################################
 ###                         Telemetry Configuration                         ###
