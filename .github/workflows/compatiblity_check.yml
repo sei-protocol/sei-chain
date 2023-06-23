@@ -27,8 +27,8 @@ jobs:
           cd ../sei-cosmos
           COSMOS_HASH=$(git rev-parse HEAD)
           cd ..
-          go mod edit -replace github.com/tendermint/tendermint=github.com/sei-protocol/sei-tendermint $TENDERMINT_HASH
-          go mod edit -replace github.com/cosmos/cosmos-sdk=github.com/sei-protocol/sei-cosmos $COSMOS_HASH
-          go mod edit -replace github.com/cosmos/iavl=github.com/sei-protocol/sei-iavl $IAVL_HASH
+          go mod edit -replace github.com/cosmos/iavl=./sei-iavl
+          go mod edit -replace github.com/tendermint/tendermint=./sei-tendermint
+          go mod edit -replace github.com/cosmos/cosmos-sdk=./sei-cosmos
           go mod tidy
           make install
