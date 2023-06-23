@@ -20,13 +20,6 @@ jobs:
           git clone https://github.com/sei-protocol/sei-cosmos.git
           git clone https://github.com/sei-protocol/sei-tendermint.git
           git clone https://github.com/sei-protocol/sei-iavl.git
-          cd sei-tendermint
-          TENDERMINT_HASH=$(git rev-parse HEAD)
-          cd ../sei-iavl
-          IAVL_HASH=$(git rev-parse HEAD)
-          cd ../sei-cosmos
-          COSMOS_HASH=$(git rev-parse HEAD)
-          cd ..
           go mod edit -replace github.com/cosmos/iavl=./sei-iavl
           go mod edit -replace github.com/tendermint/tendermint=./sei-tendermint
           go mod edit -replace github.com/cosmos/cosmos-sdk=./sei-cosmos
