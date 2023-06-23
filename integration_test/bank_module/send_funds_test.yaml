@@ -1,0 +1,17 @@
+- name: Test sending funds
+  inputs:
+    # Create test account
+    - cmd: seid keys add --keyring-backend test bank-test
+    - cmd: printf "12345678\n" | seid keys show -a admin
+      env: ADMIN_ACC
+    - cmd: seid keys show -a bank-test --keyring-backend test
+      env: BANK_TEST_ACC
+    # Send funds
+    - cmd: printf "12345678\n" | seid tx bank send $ADMIN_ACC $BANK_TEST_ACC 1sei -b block --fees 2000usei --chain-id sei -y
+    # Validate
+    - cmd: seid q bank balances $BANK_TEST_ACC --output json | jq -r .balances[0].amount
+      env: BANK_TEST_BAL
+  verifiers:
+    # Bank balance should be 1sei
+    - type: eval
+      expr: BANK_TEST_BAL == 1000000
