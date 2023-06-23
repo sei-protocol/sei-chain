@@ -289,7 +289,7 @@ func newApp(
 		baseapp.SetSnapshotStore(snapshotStore),
 		baseapp.SetSnapshotInterval(cast.ToUint64(appOpts.Get(server.FlagStateSyncSnapshotInterval))),
 		baseapp.SetSnapshotKeepRecent(cast.ToUint32(appOpts.Get(server.FlagStateSyncSnapshotKeepRecent))),
-		baseapp.SetNoVersioning(cast.ToBool(appOpts.Get(server.FlagNoVersioning))),
+		// TODO: Add flag for SetOrphanConfig
 	)
 }
 
