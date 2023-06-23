@@ -30,7 +30,7 @@ func MatchLimitOrders(
 				longEntry.GetPrice().Add(shortEntry.GetPrice()),
 			),
 		)
-		minPrice = sdk.MinDec(minPrice, longEntry.GetPrice()) // tony: need to revisit whether it's intended to use long entry price here. Keeping it as-is so that test expectations are met
+		minPrice = sdk.MinDec(minPrice, shortEntry.GetPrice())
 		maxPrice = sdk.MaxDec(maxPrice, longEntry.GetPrice())
 
 		newSettlements := SettleFromBook(
