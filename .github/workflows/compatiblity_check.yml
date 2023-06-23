@@ -1,0 +1,34 @@
+name: Compatibility Check
+on:
+  pull_request:
+  push:
+    branches:
+      - master
+
+jobs:
+  forward-compatibility:
+    name: forward-compatibility
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/setup-go@v3
+        with:
+          go-version: 1.19
+
+      - name: Check Latest Dependencies
+        run: |
+          git clone https://github.com/sei-protocol/sei-cosmos.git
+          git clone https://github.com/sei-protocol/sei-tendermint.git
+          git clone https://github.com/sei-protocol/sei-iavl.git
+          cd sei-tendermint
+          TENDERMINT_HASH=$(git rev-parse HEAD)
+          cd ../sei-iavl
+          IAVL_HASH=$(git rev-parse HEAD)
+          cd ../sei-cosmos
+          COSMOS_HASH=$(git rev-parse HEAD)
+          cd ..
+          go mod edit -replace github.com/tendermint/tendermint=github.com/sei-protocol/sei-tendermint $TENDERMINT_HASH
+          go mod edit -replace github.com/cosmos/cosmos-sdk=github.com/sei-protocol/sei-cosmos $COSMOS_HASH
+          go mod edit -replace github.com/cosmos/iavl=github.com/sei-protocol/sei-iavl $IAVL_HASH
+          go mod tidy
+          make install
