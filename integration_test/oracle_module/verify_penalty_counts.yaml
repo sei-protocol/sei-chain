@@ -13,7 +13,7 @@
     - cmd: expr $BLOCK_HEIGHT % $ORACLE_SLASH_WINDOW
       env: WINDOW_PROGRESS
     # get expected number of penalty counts
-    - cmd: expr \($WINDOW_PROGRESS + 1 \)  / $VOTE_PERIOD
+    - cmd: expr \( $WINDOW_PROGRESS + 1 \)  / $VOTE_PERIOD
       env: EXPECTED_COUNTS
     # Get admin val addr
     - cmd: printf "12345678\n" | seid keys show node_admin --bech val --output json | jq -r ".address"
