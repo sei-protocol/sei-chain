@@ -6,7 +6,7 @@
     # Get vote period
     - cmd: seid q oracle params --output json | jq -r ".params.vote_period"
       env: VOTE_PERIOD
-    # Get curent height
+    # Get current height
     - cmd: seid q block | jq -r ".block.header.height"
       env: BLOCK_HEIGHT
     # calculate progress in slash window
@@ -39,7 +39,7 @@
   verifiers:
     # verify total counts GEQ expected: not asserting equal due to block movement between evaluation
     - type: eval
-      expr: TOTAL_COUNT == EXPECTED_COUNTS
+      expr: ( TOTAL_COUNT == EXPECTED_COUNTS ) or ( TOTAL_COUNT == EXPECTED_COUNTS + 1 )
     # verify success rate > 5% to ensure some successes and that theyre about slash threshold
     - type: eval
       expr: SUCCESS_PERCENT >= 5
