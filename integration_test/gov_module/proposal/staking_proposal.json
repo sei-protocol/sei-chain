@@ -1,0 +1,13 @@
+{
+  "title": "Update Unbonding Time",
+  "description": "Update UnbondingTime to 21 days",
+  "changes": [
+    {
+      "subspace": "staking",
+      "key": "UnbondingTime",
+      "value": "1814400000000000"
+    }
+  ],
+  "deposit": "10000000usei",
+  "is_expedited": true
+}
