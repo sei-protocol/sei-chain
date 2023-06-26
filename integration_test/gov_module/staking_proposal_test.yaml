@@ -39,6 +39,6 @@
   verifiers:
     # Check if the new params is the expected value after proposal
     - type: eval
-      expr: NEW_PARAM == "1814400000000000"
+      expr: NEW_PARAM == 1814400000000000
     - type: eval
       expr: NEW_PARAM_FROM_STAKING == "1814400s"
