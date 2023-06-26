@@ -1,6 +1,7 @@
 package keeper_test
 
 import (
+	"context"
 	"crypto/sha256"
 	"io/ioutil"
 	"testing"
@@ -62,7 +63,8 @@ func TestSnapshotter(t *testing.T) {
 				srcCodeIDToChecksum[codeID] = hash[:]
 			}
 			// create snapshot
-			srcWasmApp.Commit()
+			srcWasmApp.SetDeliverStateToCommit()
+			srcWasmApp.Commit(context.Background())
 			snapshotHeight := uint64(srcWasmApp.LastBlockHeight())
 			snapshot, err := srcWasmApp.SnapshotManager().Create(snapshotHeight)
 			require.NoError(t, err)
