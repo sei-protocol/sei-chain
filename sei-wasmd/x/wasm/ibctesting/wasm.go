@@ -3,6 +3,7 @@ package ibctesting
 import (
 	"bytes"
 	"compress/gzip"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
@@ -108,7 +109,7 @@ func (chain *TestChain) SmartQuery(contractAddr string, queryMsg interface{}, re
 	}
 
 	// TODO: what is the query?
-	res := chain.App.Query(abci.RequestQuery{
+	res, _ := chain.App.Query(context.Background(), &abci.RequestQuery{
 		Path: "/cosmwasm.wasm.v1.Query/SmartContractState",
 		Data: reqBin,
 	})

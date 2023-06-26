@@ -545,7 +545,7 @@ func TestQueryContractInfo(t *testing.T) {
 	querier := NewGrpcQuerier(k.cdc, k.storeKey, k, k.queryGasLimit)
 	myExtension := func(info *types.ContractInfo) {
 		// abuse gov proposal as a random protobuf extension with an Any type
-		myExt, err := govtypes.NewProposal(&govtypes.TextProposal{Title: "foo", Description: "bar"}, 1, anyDate, anyDate)
+		myExt, err := govtypes.NewProposal(&govtypes.TextProposal{Title: "foo", Description: "bar"}, 1, anyDate, anyDate, false)
 		require.NoError(t, err)
 		myExt.TotalDeposit = nil
 		info.SetExtension(&myExt)

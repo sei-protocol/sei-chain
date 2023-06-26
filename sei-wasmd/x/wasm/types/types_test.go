@@ -127,7 +127,7 @@ func TestContractInfoSetExtension(t *testing.T) {
 	anyTime := time.Now().UTC()
 	aNestedProtobufExt := func() ContractInfoExtension {
 		// using gov proposal here as a random protobuf types as it contains an Any type inside for nested unpacking
-		myExtension, err := govtypes.NewProposal(&govtypes.TextProposal{Title: "bar"}, 1, anyTime, anyTime)
+		myExtension, err := govtypes.NewProposal(&govtypes.TextProposal{Title: "bar"}, 1, anyTime, anyTime, false)
 		require.NoError(t, err)
 		myExtension.TotalDeposit = nil
 		return &myExtension
@@ -178,7 +178,7 @@ func TestContractInfoMarshalUnmarshal(t *testing.T) {
 
 	anyTime := time.Now().UTC()
 	// using gov proposal here as a random protobuf types as it contains an Any type inside for nested unpacking
-	myExtension, err := govtypes.NewProposal(&govtypes.TextProposal{Title: "bar"}, 1, anyTime, anyTime)
+	myExtension, err := govtypes.NewProposal(&govtypes.TextProposal{Title: "bar"}, 1, anyTime, anyTime, false)
 	require.NoError(t, err)
 	myExtension.TotalDeposit = nil
 
@@ -214,7 +214,7 @@ func TestContractInfoMarshalUnmarshal(t *testing.T) {
 
 func TestContractInfoReadExtension(t *testing.T) {
 	anyTime := time.Now().UTC()
-	myExtension, err := govtypes.NewProposal(&govtypes.TextProposal{Title: "foo"}, 1, anyTime, anyTime)
+	myExtension, err := govtypes.NewProposal(&govtypes.TextProposal{Title: "foo"}, 1, anyTime, anyTime, false)
 	require.NoError(t, err)
 	type TestExtensionAsStruct struct {
 		ContractInfoExtension
