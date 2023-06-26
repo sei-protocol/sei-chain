@@ -20,4 +20,4 @@
       env: NUMORDER
   verifiers:
     - type: eval
-      expr: NUMORDER = 0
+      expr: NUMORDER == 0
