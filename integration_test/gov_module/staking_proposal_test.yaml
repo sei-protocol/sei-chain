@@ -34,7 +34,7 @@
     # Get the params again after proposal is passed
     - cmd: seid q params subspace staking UnbondingTime --output json | jq -r .value | tr -d "\""
       env: NEW_PARAM
-    - cmd: seid q staking params --output json | jq .unbonding_time
+    - cmd: seid q staking params --output json | jq .unbonding_time | tr -d "\""
       env: NEW_PARAM_FROM_STAKING
   verifiers:
     # Check if the new params is the expected value after proposal
