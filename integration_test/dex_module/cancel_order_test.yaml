@@ -16,9 +16,8 @@
     - cmd: printf "12345678\n" | seid tx dex cancel-orders $CONTRACT_ADDR $PARAMS -y --from=admin --chain-id=sei --fees=1000000usei --gas=50000000 --broadcast-mode=block --output json
       env: RES
     # Query the order by id
-    - cmd: seid q dex get-orders-by-id $CONTRACT_ADDR SEI ATOM $ORDER_ID --output json
-      env: RESULT
+    - cmd: seid q dex get-orders-by-id $CONTRACT_ADDR SEI ATOM $ORDER_ID --output json | jq ".[] | length"
+      env: NUMORDER
   verifiers:
-    - type: regex
-      result: RESULT
-      expr: '[]'
+    - type: eval
+      expr: NUMORDER = 0
