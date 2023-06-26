@@ -1,0 +1,44 @@
+- name: Test staking proposal should update staking params
+  inputs:
+    # Get the current params
+    - cmd: seid q params subspace staking UnbondingTime --output json | jq -r .value | tr -d "\""
+      env: OLD_PARAM
+    # Make a new expedited proposal
+    - cmd: printf "12345678\n" | seid tx gov submit-proposal param-change ./integration_test/gov_module/proposal/staking_proposal.json
+        --from admin --chain-id sei --fees 2000usei -b block -y --output json | jq -M -r ".logs[].events[].attributes[0] | select(.key == \"proposal_id\").value"
+      env: PROPOSAL_ID
+    # Get proposal status
+    - cmd: seid q gov proposal $PROPOSAL_ID --output json | jq -r .status
+      env: PROPOSAL_STATUS
+    # Make a deposit
+    - cmd: printf "12345678\n" | seid tx gov deposit $PROPOSAL_ID 10000000usei --from admin --chain-id sei --fees 2000usei -b block -y --output json | jq -r .code
+    # sei-node-0 vote yes
+    - cmd: printf "12345678\n" | seid tx gov vote $PROPOSAL_ID yes --from node_admin --chain-id sei --fees 2000usei -b block -y --output json | jq -r .code
+      node: sei-node-0
+    # sei-node-1 vote yes
+    - cmd: seid q gov proposal $PROPOSAL_ID --output json | jq -r .status
+    - cmd: printf "12345678\n" | seid tx gov vote $PROPOSAL_ID yes --from node_admin --chain-id sei --fees 2000usei -b block -y --output json | jq -r .code
+      node: sei-node-1
+    # sei-node-2 vote yes
+    - cmd: seid q gov proposal $PROPOSAL_ID --output json | jq -r .status
+    - cmd: printf "12345678\n" | seid tx gov vote $PROPOSAL_ID yes --from node_admin --chain-id sei --fees 2000usei -b block -y --output json | jq -r .code
+      node: sei-node-2
+    # sei-node-3 vote yes
+    - cmd: seid q gov proposal $PROPOSAL_ID --output json | jq -r .status
+    - cmd: printf "12345678\n" | seid tx gov vote $PROPOSAL_ID yes --from node_admin --chain-id sei --fees 2000usei -b block -y --output json | jq -r .code
+      node: sei-node-3
+    # since expedited quorum is 0.9, we only need 4/4 votes and expect expedited proposal to pass after 20 seconds
+    - cmd: sleep 20
+    - cmd: seid q gov proposal $PROPOSAL_ID --output json | jq -r .status
+      env: PROPOSAL_STATUS
+    # Get the params again after proposal is passed
+    - cmd: seid q params subspace staking UnbondingTime --output json | jq -r .value | tr -d "\""
+      env: NEW_PARAM
+    - cmd: seid q staking params --output json | jq .unbonding_time | tr -d "\""
+      env: NEW_PARAM_FROM_STAKING
+  verifiers:
+    # Check if the new params is the expected value after proposal
+    - type: eval
+      expr: NEW_PARAM == 1814400000000000
+    - type: eval
+      expr: NEW_PARAM_FROM_STAKING == "1814400s"

@@ -6,14 +6,14 @@
     # Get vote period
     - cmd: seid q oracle params --output json | jq -r ".params.vote_period"
       env: VOTE_PERIOD
-    # Get curent height
+    # Get current height
     - cmd: seid q block | jq -r ".block.header.height"
       env: BLOCK_HEIGHT
     # calculate progress in slash window
     - cmd: expr $BLOCK_HEIGHT % $ORACLE_SLASH_WINDOW
       env: WINDOW_PROGRESS
     # get expected number of penalty counts
-    - cmd: expr $WINDOW_PROGRESS / $VOTE_PERIOD
+    - cmd: expr \( $WINDOW_PROGRESS + 1 \)  / $VOTE_PERIOD
       env: EXPECTED_COUNTS
     # Get admin val addr
     - cmd: printf "12345678\n" | seid keys show node_admin --bech val --output json | jq -r ".address"

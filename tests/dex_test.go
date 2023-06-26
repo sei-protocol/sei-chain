@@ -22,6 +22,7 @@ func TestPlaceOrders(t *testing.T) {
 			},
 			verifier: []verify.Verifier{
 				verify.DexOrders,
+				verify.Balance,
 			},
 			expectedCodes: []uint32{0},
 		},
@@ -32,6 +33,7 @@ func TestPlaceOrders(t *testing.T) {
 			},
 			verifier: []verify.Verifier{
 				verify.DexOrders,
+				verify.Balance,
 			},
 			expectedCodes: []uint32{0},
 		},
@@ -42,6 +44,7 @@ func TestPlaceOrders(t *testing.T) {
 			},
 			verifier: []verify.Verifier{
 				verify.DexOrders,
+				verify.Balance,
 			},
 			expectedCodes: []uint32{0},
 		},
@@ -52,6 +55,7 @@ func TestPlaceOrders(t *testing.T) {
 			},
 			verifier: []verify.Verifier{
 				verify.DexOrders,
+				verify.Balance,
 			},
 			expectedCodes: []uint32{0},
 		},
@@ -62,6 +66,7 @@ func TestPlaceOrders(t *testing.T) {
 			},
 			verifier: []verify.Verifier{
 				verify.DexOrders,
+				verify.Balance,
 			},
 			expectedCodes: []uint32{0},
 		},
@@ -72,6 +77,7 @@ func TestPlaceOrders(t *testing.T) {
 			},
 			verifier: []verify.Verifier{
 				verify.DexOrders,
+				verify.Balance,
 			},
 			expectedCodes: []uint32{0},
 		},
@@ -82,6 +88,7 @@ func TestPlaceOrders(t *testing.T) {
 			},
 			verifier: []verify.Verifier{
 				verify.DexOrders,
+				verify.Balance,
 			},
 			expectedCodes: []uint32{0},
 		},
@@ -92,6 +99,7 @@ func TestPlaceOrders(t *testing.T) {
 			},
 			verifier: []verify.Verifier{
 				verify.DexOrders,
+				verify.Balance,
 			},
 			expectedCodes: []uint32{0},
 		},
