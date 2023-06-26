@@ -34,6 +34,7 @@ import (
 	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
 	"github.com/cosmos/cosmos-sdk/x/crisis"
 	genutilcli "github.com/cosmos/cosmos-sdk/x/genutil/client/cli"
+	"github.com/cosmos/iavl"
 	"github.com/sei-protocol/sei-chain/app"
 	"github.com/sei-protocol/sei-chain/app/params"
 	"github.com/spf13/cast"
@@ -289,7 +290,12 @@ func newApp(
 		baseapp.SetSnapshotStore(snapshotStore),
 		baseapp.SetSnapshotInterval(cast.ToUint64(appOpts.Get(server.FlagStateSyncSnapshotInterval))),
 		baseapp.SetSnapshotKeepRecent(cast.ToUint32(appOpts.Get(server.FlagStateSyncSnapshotKeepRecent))),
-		baseapp.SetNoVersioning(cast.ToBool(appOpts.Get(server.FlagNoVersioning))),
+		baseapp.SetOrphanConfig(&iavl.Options{
+			SeparateOrphanStorage:       cast.ToBool(appOpts.Get(server.FlagSeparateOrphanStorage)),
+			SeparateOphanVersionsToKeep: cast.ToInt64(appOpts.Get(server.FlagSeparateOrphanVersionsToKeep)),
+			NumOrphansPerFile:           cast.ToInt(appOpts.Get(server.FlagNumOrphanPerFile)),
+			OrphanDirectory:             cast.ToString(appOpts.Get(server.FlagOrphanDirectory)),
+		}),
 	)
 }
 

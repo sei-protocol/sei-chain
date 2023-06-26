@@ -1,0 +1,28 @@
+- name: Test setting a different feeder account
+  inputs:
+    # Get admin addr
+    - cmd: printf "12345678\n" | seid keys list --output json | jq ".[] | select (.name==\"node_admin\")" | jq -r .address
+      env: ADMIN_ADDR
+    # Get admin val addr
+    - cmd: printf "12345678\n" | seid keys show node_admin --bech val --output json | jq -r ".address"
+      env: ADMIN_VAL_ADDR
+    # create new feeder addr
+    - cmd: printf "12345678\ny\n" | seid keys add integration_test_feeder --output json | jq -r ".address"
+      env: NEW_FEEDER_ADDR
+    # get old feeder addr
+    - cmd: seid q oracle feeder $ADMIN_VAL_ADDR --output json | jq -r ".feeder_addr"
+      env: OLD_FEEDER_ADDR
+    # send bank funds to new feeder to populate account
+    - cmd: printf "12345678\n" | seid tx bank send admin $NEW_FEEDER_ADDR 1sei -b block -y --fees 2000usei --output json | jq -r ".code"
+    # set feeder
+    - cmd: printf "12345678\n" | seid tx oracle set-feeder $NEW_FEEDER_ADDR -b block -y --from node_admin --fees 2000usei --output json | jq -r ".code"
+      env: SET_FEEDER_ERROR_CODE
+    # do a vote and ensure code 0
+    - cmd: printf "12345678\n" | seid tx oracle aggregate-vote 1.5ueth $ADMIN_VAL_ADDR -b block -y --from $NEW_FEEDER_ADDR --gas 0 --output json | jq -r ".code"
+      env: NEW_FEEDER_VOTE_ERROR_CODE
+    # set old feeder addr again
+    - cmd: printf "12345678\n" | seid tx oracle set-feeder $OLD_FEEDER_ADDR -b block -y --from node_admin --fees 2000usei --output json | jq -r ".code"
+  verifiers:
+    # verify that error code == 0 for setting feeder AND oracle vote
+    - type: eval
+      expr: SET_FEEDER_ERROR_CODE == 0 and NEW_FEEDER_VOTE_ERROR_CODE == 0

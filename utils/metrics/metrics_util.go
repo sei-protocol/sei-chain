@@ -214,7 +214,7 @@ func IncrGasCounter(gasType string, value int64) {
 // Measures the number of times optimistic processing runs
 // Metric Name:
 //
-//   sei_optimistic_processing_counter
+//	sei_optimistic_processing_counter
 func IncrementOptimisticProcessingCounter(enabled bool) {
 	telemetry.IncrCounterWithLabels(
 		[]string{"sei", "optimistic", "processing", "counter"},

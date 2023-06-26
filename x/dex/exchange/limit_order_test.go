@@ -61,6 +61,8 @@ func TestMatchSingleOrder(t *testing.T) {
 	settlements := outcome.Settlements
 	assert.Equal(t, totalPrice, sdk.NewDec(1000))
 	assert.Equal(t, totalExecuted, sdk.NewDec(10))
+	assert.Equal(t, outcome.MaxPrice, sdk.NewDec(100))
+	assert.Equal(t, outcome.MinPrice, sdk.NewDec(100))
 	longBook = dexkeeper.GetAllLongBookForPair(ctx, "test", "USDC", "ATOM")
 	shortBook = dexkeeper.GetAllShortBookForPair(ctx, "test", "USDC", "ATOM")
 	assert.Equal(t, len(longBook), 0)
@@ -1051,7 +1053,7 @@ func TestMatchMultipleOrderFromMultipleLongBook(t *testing.T) {
 	maxPrice := outcome.MaxPrice
 	assert.Equal(t, totalPrice, sdk.NewDec(1216))
 	assert.Equal(t, totalExecuted, sdk.NewDec(12))
-	assert.Equal(t, minPrice, sdk.NewDec(100))
+	assert.Equal(t, minPrice, sdk.NewDec(96))
 	assert.Equal(t, maxPrice, sdk.NewDec(110))
 	longBook = dexkeeper.GetAllLongBookForPair(ctx, "test", "USDC", "ATOM")
 	shortBook = dexkeeper.GetAllShortBookForPair(ctx, "test", "USDC", "ATOM")

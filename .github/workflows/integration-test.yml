@@ -62,6 +62,13 @@ jobs:
               "python3 integration_test/scripts/runner.py integration_test/gov_module/gov_proposal_test.yaml"
             ]
           },
+          {
+            name: "Oracle Module",
+            scripts: [
+              "python3 integration_test/scripts/runner.py integration_test/oracle_module/verify_penalty_counts.yaml",
+              "python3 integration_test/scripts/runner.py integration_test/oracle_module/set_feeder_test.yaml"
+            ]
+          },
         ]
     steps:
       - uses: actions/checkout@v3

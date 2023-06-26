@@ -4,6 +4,9 @@ import (
 	"context"
 	"sort"
 
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
+
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
 	dexutils "github.com/sei-protocol/sei-chain/x/dex/utils"
@@ -17,6 +20,9 @@ type priceQuantity struct {
 // Note that this simulation is only accurate if it's called as part of the main Sei process (e.g. in Begin/EndBlock, transaction handler
 // or contract querier), because it needs to access dex's in-memory state.
 func (k KeeperWrapper) GetOrderSimulation(c context.Context, req *types.QueryOrderSimulationRequest) (*types.QueryOrderSimulationResponse, error) {
+	if req == nil {
+		return nil, status.Error(codes.InvalidArgument, "invalid request")
+	}
 	ctx := sdk.UnwrapSDKContext(c)
 	matchedPriceQuantities := k.getMatchedPriceQuantities(ctx, req)
 	executedQuantity := sdk.ZeroDec()

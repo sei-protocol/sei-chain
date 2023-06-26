@@ -9,8 +9,8 @@ type ExecutionOutcome struct {
 	TotalNotional sdk.Dec
 	TotalQuantity sdk.Dec
 	Settlements   []*types.SettlementEntry
-	MinPrice      sdk.Dec
-	MaxPrice      sdk.Dec
+	MinPrice      sdk.Dec // deprecate?
+	MaxPrice      sdk.Dec // deprecate?
 }
 
 func (o *ExecutionOutcome) Merge(other *ExecutionOutcome) ExecutionOutcome {

@@ -369,5 +369,6 @@ func TestEmitSettlementMetrics(t *testing.T) {
 		},
 	}
 
-	contract.EmitSettlementMetrics(settlements)
+	totalQuantity := contract.EmitSettlementMetrics(settlements)
+	require.Equal(t, int64(300), totalQuantity)
 }

@@ -14,6 +14,7 @@ func PriceSnapshotUpdate(ctx sdk.Context, paramStore paramtypes.Subspace) error 
 func migratePriceSnapshotParam(ctx sdk.Context, paramStore paramtypes.Subspace) error {
 	defaultParams := types.Params{
 		PriceSnapshotRetention: types.DefaultPriceSnapshotRetention,
+		SudoCallGasPrice:       types.DefaultSudoCallGasPrice,
 	}
 	paramStore.SetParamSet(ctx, &defaultParams)
 	return nil

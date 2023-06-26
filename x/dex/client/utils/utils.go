@@ -89,11 +89,13 @@ func (bcp BatchContractPairJSON) ToBatchContractPair() (dextypes.BatchContractPa
 }
 
 func (ts TickSizeJSON) ToTickSize() (dextypes.TickSize, error) {
+	// validate the tick size here
+	pair, err := NewPair(ts.Pair)
+	if err != nil {
+		return dextypes.TickSize{}, err
+	}
 	return dextypes.TickSize{
-		Pair: &dextypes.Pair{
-			PriceDenom: ts.Pair.PriceDenom,
-			AssetDenom: ts.Pair.AssetDenom,
-		},
+		Pair:         &pair,
 		Ticksize:     ts.TickSize,
 		ContractAddr: ts.ContractAddr,
 	}, nil
