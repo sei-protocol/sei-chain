@@ -27,6 +27,16 @@ Ref: https://keepachangelog.com/en/1.0.0/
 -->
 
 # Changelog
+### 3.0.5
+sei-chain: 
+* [#878] (https://github.com/sei-protocol/sei-chain/pull/878) Fix denom key collision
+
+sei-tendermint: 
+* [#149] (https://github.com/sei-protocol/sei-tendermint/pull/149) Fix condition for tx key dissemination
+
+sei-iavl:
+* [#32] (https://github.com/sei-protocol/sei-iavl/pull/32) Separate orphan storage
+
 ## 3.0.4
 sei-chain:
 * [#874] (https://github.com/sei-protocol/sei-chain/pull/874) Charge rent after failed Sudo call

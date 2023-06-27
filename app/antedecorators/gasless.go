@@ -37,24 +37,39 @@ func (gd GaslessDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool,
 	if err != nil {
 		return ctx, err
 	}
-	if gas > 0 || !isGasless {
-		ctx = ctx.WithGasMeter(originalGasMeter)
-		// if not gasless, then we use the wrappers
-
-		// AnteHandle always takes a `next` so we need a no-op to execute only one handler at a time
-		terminatorHandler := func(ctx sdk.Context, _ sdk.Tx, _ bool) (sdk.Context, error) {
-			return ctx, nil
+	isDeliverTx := !ctx.IsCheckTx() && !ctx.IsReCheckTx() && !simulate
+	shouldCheckTxSkipFeeDeduct := gas == 0 && isGasless // whether the tx should be subject to min fee check AND priority assignment. Applicable to CheckTx only.
+	if isDeliverTx || !shouldCheckTxSkipFeeDeduct {
+		// In the case of deliverTx, we want to deduct fees regardless of whether the tx is considered gasless or not, since
+		// gasless txs will be subject to application-specific fee requirements in later stage of ante, for which the payment
+		// of those app-specific fees happens here. Note that the minimum fee check in the wrapped deduct fee handler is only
+		// performed if the context is for CheckTx, so the check will be skipped for deliverTx and the deduct fee handler will
+		// only deduct fee without checking.
+		// Otherwise (i.e. in the case of checkTx), we only want to perform fee checks and fee deduction if the tx is not considered
+		// gasless, or if it specifies a non-zero gas limit even if it is considered gasless, so that the wrapped deduct fee
+		// handler will assign an appropriate priority to it.
+		if !isGasless {
+			ctx = ctx.WithGasMeter(originalGasMeter)
 		}
-		// iterating instead of recursing the handler for readability
-		for _, handler := range gd.wrapped {
-			ctx, err = handler.AnteHandle(ctx, tx, simulate, terminatorHandler)
-			if err != nil {
-				return ctx, err
-			}
-		}
-		return next(ctx, tx, simulate)
+		return gd.handleWrapped(ctx, tx, simulate, next)
 	}
 
+	// must be gasless if this part is reached, so no need to overwrite gas meter back
+	return next(ctx, tx, simulate)
+}
+
+func (gd GaslessDecorator) handleWrapped(ctx sdk.Context, tx sdk.Tx, simulate bool, next sdk.AnteHandler) (sdk.Context, error) {
+	// AnteHandle always takes a `next` so we need a no-op to execute only one handler at a time
+	terminatorHandler := func(ctx sdk.Context, _ sdk.Tx, _ bool) (sdk.Context, error) {
+		return ctx, nil
+	}
+	// iterating instead of recursing the handler for readability
+	for _, handler := range gd.wrapped {
+		ctx, err := handler.AnteHandle(ctx, tx, simulate, terminatorHandler)
+		if err != nil {
+			return ctx, err
+		}
+	}
 	return next(ctx, tx, simulate)
 }
 
