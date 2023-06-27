@@ -70,6 +70,12 @@ jobs:
               "python3 integration_test/scripts/runner.py integration_test/oracle_module/set_feeder_test.yaml"
             ]
           },
+          {
+            name: "Authz Module",
+            scripts: [
+              "python3 integration_test/scripts/runner.py integration_test/authz_module/send_authorization_test.yaml"
+            ]
+          },
         ]
     steps:
       - uses: actions/checkout@v3
