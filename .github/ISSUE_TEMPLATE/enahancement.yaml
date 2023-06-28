@@ -1,41 +1,62 @@
 name: Enhancement
-description: Add new feature, improve code, and more
-labels: [ "enhancement" ]
+description: File a bug report
+title: "[Bug]: "
+labels: ["bug", "triage"]
+assignees:
+  - octocat
 body:
   - type: markdown
     attributes:
-      value: Thank you very much for your enhancement!
-  - type: checkboxes
+      value: |
+        Thanks for taking the time to fill out this bug report!
+  - type: input
+    id: contact
     attributes:
-      label: Search before asking
-      description: Please search [issues](https://github.com/sei-protocol/sei-chain/issues) to check if your issue has already been reported.
-      options:
-        - label: I searched in the [issues](https://github.com/sei-protocol/sei-chain/issues) and found nothing similar.
-          required: true
+      label: Contact Details
+      description: How can we get in touch with you if we need more info?
+      placeholder: ex. email@example.com
+    validations:
+      required: false
   - type: textarea
+    id: what-happened
     attributes:
-      label: Motivation
-      description: Describe the motivations for this enhancement.
+      label: What happened?
+      description: Also tell us, what did you expect to happen?
+      placeholder: Tell us what you see!
+      value: "A bug happened!"
     validations:
       required: true
-  - type: textarea
+  - type: dropdown
+    id: version
     attributes:
-      label: Solution
-      description: Describe the proposed solution and add related materials like links if any.
-  - type: textarea
-    attributes:
-      label: Alternatives
-      description: Describe other alternative solutions or features you considered, but rejected.
-  - type: textarea
-    attributes:
-      label: Anything else?
-  - type: checkboxes
-    attributes:
-      label: Are you willing to submit a PR?
-      description: >
-        We look forward to the community of developers or users helping improve sei chain together. If you are willing to submit a PR to implement the enhancement, please check the box.
+      label: Version
+      description: What version of our software are you running?
       options:
-        - label: I'm willing to submit a PR!
-  - type: markdown
+        - 1.0.2 (Default)
+        - 1.0.3 (Edge)
+    validations:
+      required: true
+  - type: dropdown
+    id: browsers
     attributes:
-      value: "Thanks for completing our form!"
+      label: What browsers are you seeing the problem on?
+      multiple: true
+      options:
+        - Firefox
+        - Chrome
+        - Safari
+        - Microsoft Edge
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant log output
+      description: Please copy and paste any relevant log output. This will be automatically formatted into code, so no need for backticks.
+      render: shell
+  - type: checkboxes
+    id: terms
+    attributes:
+      label: Code of Conduct
+      description: By submitting this issue, you agree to follow our [Code of Conduct](https://example.com)
+      options:
+        - label: I agree to follow this project's Code of Conduct
+          required: true
