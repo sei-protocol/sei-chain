@@ -18,7 +18,7 @@ https://docs.docker.com/compose/install/other/
 
 ## Local Cluster
 
-Detailed instruction: see the `Makefile` in the root of [the repo](https://github.com/sei-protocol/sei-chain/blob/master/Makefile) 
+Detailed instruction: see the `Makefile` in the root of [the repo](https://github.com/sei-protocol/sei-chain/blob/main/Makefile)
 
 **To start a single local node (Not Recommended)**
 
@@ -28,16 +28,16 @@ make build-docker-node && make run-docker-node
 
 **To start 4 node cluster**
 
-This will start a 4 node sei chain cluster as well as having the oracle price feeder run for each node. 
+This will start a 4 node sei chain cluster as well as having the oracle price feeder run for each node.
 ```sh
 # If this is the first time or you want to rebuild the binary:
 make docker-cluster-start
 
-# If you have run docker-cluster-start and build/seid exist, 
+# If you have run docker-cluster-start and build/seid exist,
 # you can skip the build process to quick start by:
 make docker-cluster-start-skipbuild
 ```
-All the logs and genesis files will be generated under the temporary build/generated folder. 
+All the logs and genesis files will be generated under the temporary build/generated folder.
 
 ```sh
 # To monitor logs after cluster is started
