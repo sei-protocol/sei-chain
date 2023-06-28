@@ -1,5 +1,5 @@
 name: Enhancement
-description: Add new feature, improve code, and more
+description: Add new feature, improvement proposal, and more
 labels: [ "enhancement" ]
 body:
   - type: markdown
