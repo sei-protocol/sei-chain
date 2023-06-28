@@ -73,7 +73,9 @@ jobs:
           {
             name: "Authz Module",
             scripts: [
-              "python3 integration_test/scripts/runner.py integration_test/authz_module/send_authorization_test.yaml"
+              "python3 integration_test/scripts/runner.py integration_test/authz_module/send_authorization_test.yaml",
+              "python3 integration_test/scripts/runner.py integration_test/authz_module/staking_authorization_test.yaml",
+              "python3 integration_test/scripts/runner.py integration_test/authz_module/generic_authorization_test.yaml"
             ]
           },
         ]
