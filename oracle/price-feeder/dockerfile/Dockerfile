@@ -4,7 +4,7 @@ WORKDIR /go/src/github.com/sei-protocol
 RUN git clone https://github.com/sei-protocol/sei-chain.git
 WORKDIR /go/src/github.com/sei-protocol/sei-chain/oracle/price-feeder
 RUN wget -O /lib/libwasmvm_muslc.a https://github.com/CosmWasm/wasmvm/releases/download/v1.0.0/libwasmvm_muslc.x86_64.a
-ARG VERSION=master
+ARG VERSION=main
 RUN git checkout ${VERSION}
 RUN COMMIT="$(git rev-parse HEAD)"; BUILD_TAGS=muslc CGO_ENABLED=1 go install -mod=readonly -tags "muslc" -ldflags "-X price-feeder/cmd.Version=${VERSION}-$COMMIT -X price-feeder/cmd.Commit=$COMMIT" ./
 
@@ -14,7 +14,7 @@ WORKDIR /go/src/github.com/sei-protocol
 RUN git clone https://github.com/sei-protocol/sei-chain.git
 WORKDIR /go/src/github.com/sei-protocol/sei-chain
 RUN wget -O /lib/libwasmvm_muslc.a https://github.com/CosmWasm/wasmvm/releases/download/v1.0.0/libwasmvm_muslc.x86_64.a
-ARG VERSION=master
+ARG VERSION=main
 RUN git checkout ${VERSION}
 RUN COMMIT="$(git rev-parse HEAD)"; BUILD_TAGS=muslc CGO_ENABLED=1 go install -mod=readonly -tags "muslc" -ldflags "-X price-feeder/cmd.Version=${VERSION}-$COMMIT -X price-feeder/cmd.Commit=$COMMIT" ./cmd/seid
 

@@ -1,0 +1,49 @@
+- name: Test Authz staking authorization
+  inputs:
+    # Get admin addr
+    - cmd: printf "12345678\n" | seid keys list --output json | jq ".[] | select (.name==\"admin\")" | jq -r .address
+      env: ADMIN_ADDR
+    # Get node_admin addr
+    - cmd: printf "12345678\n" | seid keys list --output json | jq ".[] | select (.name==\"node_admin\")" | jq -r .address
+      env: NODE_ADMIN_ADDR
+    # Get node_admin val addr
+    - cmd: printf "12345678\n" | seid keys show node_admin --bech val --output json | jq -r ".address"
+      env: NODE_ADMIN_VAL_ADDR
+    # create new grantee addr
+    - cmd: printf "12345678\ny\n" | seid keys add grantee --output json | jq -r ".address"
+      env: GRANTEE_ADDR
+    # send some funds to grantee for gas
+    - cmd: printf "12345678\n" | seid tx bank send admin $GRANTEE_ADDR 1sei --fees 2000usei -b block -y
+    # create an authz grant for delegating
+    - cmd: printf "12345678\n" | seid tx authz grant $GRANTEE_ADDR delegate --allowed-validators "$NODE_ADMIN_VAL_ADDR" --from admin --fees 2000usei -b block -y
+    # create delegate tx and write to json
+    - cmd: printf "12345678\n" | seid tx staking delegate $NODE_ADMIN_VAL_ADDR 1sei --from $ADMIN_ADDR --generate-only > delegate_tx.json
+    # execute the authz tx - we want to validate that this succeeds with code 0
+    - cmd: printf "12345678\n" | seid tx authz exec delegate_tx.json --from $GRANTEE_ADDR -b block -y --fees 2000usei --output json  | jq -r ".code"
+      env: AUTHZ_1_ERROR_CODE
+    # query staking balance w validator to verify its created properly
+    - cmd: seid q staking delegation $ADMIN_ADDR $NODE_ADMIN_VAL_ADDR --output json | jq -r ".balance.amount"
+      env: STAKING_AMOUNT
+    # create unbond tx and write to json
+    - cmd: printf "12345678\n" | seid tx staking unbond $NODE_ADMIN_VAL_ADDR 1sei --from $ADMIN_ADDR --generate-only > unbond_tx.json
+    # try unbond - should fail because we havent yet granted authz for it
+    - cmd: printf "12345678\n" | seid tx authz exec unbond_tx.json --from $GRANTEE_ADDR -b block -y --fees 2000usei --output json  | jq -r ".code"
+      env: AUTHZ_2_ERROR_CODE
+    # grant the authorization for unbond
+    - cmd: printf "12345678\n" | seid tx authz grant $GRANTEE_ADDR unbond --allowed-validators "$NODE_ADMIN_VAL_ADDR" --from admin --fees 2000usei -b block -y
+    # unbond should succeed this time
+    - cmd: printf "12345678\n" | seid tx authz exec unbond_tx.json --from $GRANTEE_ADDR -b block -y --fees 2000usei --output json  | jq -r ".code"
+      env: AUTHZ_3_ERROR_CODE
+  verifiers:
+    # verify that error code == 0 for first authz exec
+    - type: eval
+      expr: AUTHZ_1_ERROR_CODE == 0
+    # verify that the staking amount is correct
+    - type: eval
+      expr: STAKING_AMOUNT == 1000000
+    # verify that error code != 0 because unbond hasnt been granted yet
+    - type: eval
+      expr: AUTHZ_2_ERROR_CODE == 4
+    # verify that error code == 0 for unbond after granted authorization
+    - type: eval
+      expr: AUTHZ_3_ERROR_CODE == 0
