@@ -5,9 +5,9 @@ name: Docker Integration Test
 
 on:
   push:
-    branches: [ "master" ]
+    branches: [ "main" ]
   pull_request:
-    branches: [ "master" ]
+    branches: [ "main" ]
 
 defaults:
   run:
@@ -68,6 +68,20 @@ jobs:
             scripts: [
               "python3 integration_test/scripts/runner.py integration_test/oracle_module/verify_penalty_counts.yaml",
               "python3 integration_test/scripts/runner.py integration_test/oracle_module/set_feeder_test.yaml"
+            ]
+          },
+          {
+            name: "Authz Module",
+            scripts: [
+              "python3 integration_test/scripts/runner.py integration_test/authz_module/send_authorization_test.yaml",
+              "python3 integration_test/scripts/runner.py integration_test/authz_module/staking_authorization_test.yaml",
+              "python3 integration_test/scripts/runner.py integration_test/authz_module/generic_authorization_test.yaml"
+            ]
+          },
+          {
+            name: "Bank Module",
+            scripts: [
+              "python3 integration_test/scripts/runner.py integration_test/bank_module/send_funds_test.yaml",
             ]
           },
         ]
