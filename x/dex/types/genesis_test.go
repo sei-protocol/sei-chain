@@ -189,6 +189,31 @@ func TestGenesisState_Validate(t *testing.T) {
 			},
 			valid: false,
 		},
+		{
+			desc: "invalid contract addr",
+			genState: &types.GenesisState{
+				Params: types.DefaultParams(),
+				ContractState: []types.ContractState{
+					{
+						ShortBookList: []types.ShortBook{
+							{
+								Price: sdk.NewDec(0),
+								Entry: &types.OrderEntry{
+									Price:      sdk.NewDec(0),
+									PriceDenom: "SEI",
+									AssetDenom: "ATOM",
+								},
+							},
+						},
+						ContractInfo: types.ContractInfoV2{
+							CodeId:       uint64(1),
+							ContractAddr: "invalid",
+						},
+					},
+				},
+			},
+			valid: false,
+		},
 		// this line is used by starport scaffolding # types/genesis/testcase
 	} {
 		t.Run(tc.desc, func(t *testing.T) {
