@@ -43,10 +43,6 @@ func (msg *MsgUpdateQuantityTickSize) GetSignBytes() []byte {
 }
 
 func (msg *MsgUpdateQuantityTickSize) ValidateBasic() error {
-	if msg.Creator == "" {
-		return errors.New("creator address is empty")
-	}
-
 	_, err := sdk.AccAddressFromBech32(msg.Creator)
 	if err != nil {
 		return sdkerrors.Wrapf(sdkerrors.ErrInvalidAddress, "invalid creator address (%s)", err)
